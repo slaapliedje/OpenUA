@@ -19,15 +19,17 @@ Most tools are pure standard library; `hfs_extract.py` needs `machfs`, and
 `macrsrc.py` (resource-fork reader) and `mactraps.py` (A-line trap names) are
 shared modules, imported by the tools above rather than run directly.
 
-Set up the virtualenv once (only `hfs_extract.py` needs it):
+Set up the virtualenv once — `machfs` for `hfs_extract.py`, `pytest` for the
+test suite (`make test`):
 
 ```sh
 python3 -m venv tools/.venv
-tools/.venv/bin/pip install machfs
+tools/.venv/bin/pip install machfs pytest
 ```
 
 Run venv tools with `tools/.venv/bin/python3`; the rest with plain `python3`.
-`tools/.venv/` is git-ignored.
+`tools/.venv/` is git-ignored. The suite under `tests/` builds synthetic
+fixtures, so it needs no real game data; run it with `make test`.
 
 `docs/mac-release.md` covers how the unpacking tools chain together;
 `docs/decompilation.md` covers `dis68k.py` and the disassembly model.

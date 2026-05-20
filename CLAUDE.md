@@ -52,6 +52,7 @@ call XBIOS/TOS directly — go through the shim or the HAL.
 make            # build frua.prg (soft-float — runs on Falcon030 and TT030)
 make FPU=1      # FPU-required TT030 variant
 make run        # boot in Hatari (Falcon mode)
+make test       # host-side pytest suite over tools/ (tests/, synthetic data)
 ```
 
 Default build is **soft-float** so one binary serves the FPU-less Falcon030

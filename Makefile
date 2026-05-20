@@ -4,6 +4,7 @@
 #   make            build frua.prg
 #   make FPU=1      build an FPU-required TT030 variant
 #   make run        boot the build in the Hatari emulator (Falcon mode)
+#   make test       run the host-side pytest suite over tools/
 #   make clean      remove build output
 
 include toolchain/m68k-atari-mint.mk
@@ -36,9 +37,14 @@ $(TARGET): $(OBJ)
 run: $(TARGET)
 	$(HATARI) --machine falcon -d . --auto $(TARGET)
 
+# Host-side test suite — pytest over tools/. Not a cross-build.
+PYTEST ?= tools/.venv/bin/pytest
+test:
+	$(PYTEST) tests -q
+
 clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET)
 
 -include $(DEP)
 
-.PHONY: all run clean
+.PHONY: all run test clean
