@@ -167,11 +167,14 @@ free-memory query `JT[1026]` is `_FreeMem` trap glue. Helpers: `L39d2` is
 `memset`; `L3cfa`/`L3952` copy strings/records; `L3bda` compares a record
 name; `L366a` is a record/list op.
 
-Lifted so far: `fc_init`, `fc_setup`, `fc_cleanup` → `src/engine/fc.c` —
-the FC lifecycle. The extended API (`JT[467]` read, `JT[458]` bulk pass,
-`L11ca` "make room", `L0b7a`'s forget-by-name path) is still to do; each
-roots its own tree of CODE 3/4/5 helpers (`L0ab8`/`L0a6e`, `L0d44`,
-`L103c`, `JT[1083]`, `JT[1153]`).
+Lifted so far → `src/engine/fc.c`: the FC lifecycle (`fc_init`, `fc_setup`,
+`fc_cleanup`), `fc_make_room` (`L11ca`), and the helper `fc_remove_record`
+(`L103c`). `JT[1083]` lifted as `ua_rand` (`src/engine/rand.c`).
+
+Still to do: the buffer reserve/read path (`JT[467]` → `L0ab8` → `L0a6e` →
+`L0d44`), `JT[458]` (the out-of-memory compaction pass, which calls
+`JT[1153]` — a display-subsystem routine), and `L0b7a`'s forget-by-name
+path.
 
 ## Lifting to C
 
