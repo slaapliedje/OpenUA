@@ -18,6 +18,11 @@ build/
 *.hop
 ghidra_projects/
 
+# Python host tooling
+tools/.venv/
+__pycache__/
+*.pyc
+
 # Editor / OS noise
 .DS_Store
 *.swp

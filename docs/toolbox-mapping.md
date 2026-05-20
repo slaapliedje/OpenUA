@@ -32,6 +32,7 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 
 ## Still open
 
-- The exact Mac-fork input format(s) `rsrcpack` must accept (MacBinary,
-  AppleDouble, raw resource fork, HFS disk image) — depends on how the Mac
-  release is supplied.
+_None right now._ The Mac release has been unpacked (see
+`docs/mac-release.md`); the application resource fork is extracted raw, so
+`rsrcpack` consumes a raw resource fork and `tools/appledouble.py` handles
+the AppleDouble unwrapping upstream.

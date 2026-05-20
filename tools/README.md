@@ -3,16 +3,39 @@
 Host-side tooling for the FRUA port. These run on the build host, not the
 Atari.
 
+## Python tooling
+
+Some tools need third-party packages; the rest are pure standard library.
+
+| Tool             | Needs venv   | Purpose                                   |
+|------------------|--------------|-------------------------------------------|
+| `hfs_extract.py` | yes (machfs) | List / extract a classic HFS volume.      |
+| `dd_unsplit.py`  | no           | Reassemble a DiskDoubler split archive.   |
+| `appledouble.py` | no           | Extract a fork from AppleSingle/Double.   |
+| `rsrc_list.py`   | no           | List a Mac resource fork's contents.      |
+
+Set up the virtualenv once:
+
+```sh
+python3 -m venv tools/.venv
+tools/.venv/bin/pip install machfs
+```
+
+Run venv tools with `tools/.venv/bin/python3`; the rest with plain `python3`.
+`tools/.venv/` is git-ignored.
+
+See `docs/mac-release.md` for how these tools chain together to unpack the
+Mac release down to the decompilation inputs.
+
 ## rsrcpack
 
 Extracts the Mac resource fork and packs it into the flat archive the
-Resource Manager shim reads at runtime (ADR-0007).
-
-Planned input formats: MacBinary (`.bin`), AppleDouble (`._name`), and a raw
-resource fork. Extracting a fork from an HFS disk image is a separate step.
+Resource Manager shim reads at runtime (ADR-0007). Not yet implemented; its
+reader half already exists as `rsrc_list.py`, and `appledouble.py` handles
+unwrapping the fork from AppleDouble upstream.
 
 ```
-rsrcpack <input> -o frua.rsrc
+rsrcpack <resource-fork> -o frua.rsrc
 ```
 
 ## FRSC archive format
