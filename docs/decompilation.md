@@ -81,17 +81,41 @@ None of `CODE 1` is ported as engine code. It becomes the ordinary C runtime
 
 ### The application main() — CODE 6+0x58a
 
-`main()` opens with a module-init roll-call — ~16 back-to-back parameterless
-calls into the code segments. Every target is a bare `rts`: in this build the
-per-module initialisers are empty (state arrives pre-initialised in the
-`DATA` globals image), so the roll-call's only real effect is paging the
-segments resident.
+`main()` is the bootstrap. Its phases:
 
-Substantive startup begins just after, at `CODE 6+0x4cc0`: it queries a
-status (`JT[398]`), sets up the screen at 450×214 or 400×160 depending on it
-(`JT[1079]`), installs a callback (`CODE 6+0x538`), and `_UnLoadSeg`s the
-one-shot init segment `CODE 8`. `CODE 6` itself has no event traps — the
-event loop is reached by a call out.
+1. **Module-init roll-call** (`0x58e`–`0x5ca`) — ~16 calls to empty `rts`
+   stubs; the only effect is paging the segments resident (above).
+2. **Core init — `L4cc0`** — allocates working buffers (`JT[387]`, an
+   `alloc(size)→ptr`, is called with 1024/2064/4590-byte sizes and the
+   results stored to A5 globals) and sets playfield geometry through a row
+   of setters (640, 200, 400, 60, 70, 68).
+3. **Screen mode** (`0x5d2`–`0x614`) — `JT[398]` returns a capability/status
+   word; `JT[1079]` then brings up the screen at 450×214 or 400×160
+   depending on it.
+4. **UI handlers** — `JT[989]` registers callbacks (`CODE 6+0x538`,
+   `CODE 6+0x4c0`) passed as `(id, ptr, flag, fnptr)`.
+5. **Data-file loading** (from `0x67e`) — a repeated `JT[475]`(id) /
+   `JT[393]`(name, handle) pair opens and loads FRUA's data libraries, each
+   followed by a status check.
+6. **Segment-cycling loop** (`L073e`–`L0792`) — loads, uses, and
+   `_UnLoadSeg`s transient segments (CODE 2, 8, 9, 11, 12, 20, 21, 22),
+   looping on `JT[315]`.
+
+`main()` runs to ~`0x1194`; the event loop is in another segment, reached by
+a call out — `CODE 6` itself has no event traps.
+
+Frequently-called shared routines, worth naming early when lifting:
+
+| Entry      | Segment        | Apparent role                       |
+|------------|----------------|-------------------------------------|
+| `JT[387]`  | CODE 3+0x36bc  | `alloc(size)` — memory allocator    |
+| `JT[398]`  | CODE 3+0x37e4  | capability / status query           |
+| `JT[475]`  | CODE 3+0x3da   | open a file/resource by id          |
+| `JT[393]`  | CODE 3+0x3b8c  | load/read by (name, handle)         |
+| `JT[989]`  | CODE 5+0x1b56  | install a handler/callback          |
+| `JT[1079]` | CODE 5+0x4     | screen / window setup               |
+
+CODE 3 reads as the utilities + resource segment; CODE 5 as display / UI.
 
 Per ADR-0008 this `main()` is the runtime-first trace target: the
 post-roll-call setup and the path to playing a `.DSN` lead out from here.
