@@ -20,8 +20,12 @@ THINK C:
   — the call lands on the `MOVE.W` two bytes into the jump-table entry.
 - **Globals** are A5-relative: `disp(A5)` with negative `disp` (31336 bytes
   below A5). The jump table sits just above A5.
-- **`DATA` / `CREL` / `DREL`** are the initial globals image and the code/data
-  relocation tables applied at load. Extracted for later; not yet processed.
+- **`DATA` / `CREL` / `DREL`** — `DATA` is the initial A5-globals image;
+  `CREL`/`DREL` are relocation tables, each a flat array of 16-bit words.
+  Bit 0 of a word picks the base (0 = A5 world, 1 = A4 string pool); the
+  rest is an even offset whose 32-bit slot gets that base added at load.
+  `CREL` id _N_ relocates `CODE` _N_; `DREL` relocates `DATA`. `dis68k.py`
+  applies `CREL` and resolves string-pool references against `STRS`.
 
 Segments 2–22 carry a 4-byte header THINK C uses for its own segment
 management; the disassembler treats code as starting at +4 (confirmed by the
@@ -37,6 +41,8 @@ Drives `m68k-atari-mint-objdump` over each segment and annotates the output:
 - Inter-segment `JSR disp(A5)` resolved to `-> CODE seg+offset (JT[n])`.
 - Intra-segment branch targets turned into `Lxxxx:` labels.
 - Jump-table entry points marked `entry_jtN:`, keyed to `jumptable.txt`.
+- CREL-relocated absolute operands resolved to `STRS+offset "string"` (the
+  A4 string pool) or `A5+offset` (the A5 world).
 
 ```sh
 python3 tools/dis68k.py data/work/UnlimitedAdventures.rfork
