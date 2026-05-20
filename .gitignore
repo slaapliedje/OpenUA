@@ -22,6 +22,7 @@ ghidra_projects/
 tools/.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Editor / OS noise
 .DS_Store
