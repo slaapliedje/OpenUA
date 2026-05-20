@@ -96,6 +96,20 @@ it pays off.
 
 ---
 
+## ADR-0008 — Runtime before editor
+
+**Decision:** Port the play-UA-modules runtime first; bring up the design
+tools as a second phase. Scope is unchanged — the full *Unlimited Adventures*
+package remains the goal.
+
+**Why:** The runtime exercises far less of the Mac Toolbox than the
+dialog-heavy editor and can reach a playable state before the Menu/Window/
+Dialog/Control/TextEdit shim work of ADR-0006 is needed. Front-loading the
+runtime de-risks the port: it proves out the decompilation, the Toolbox shim,
+and the display/input/audio HAL on the smaller surface first.
+
+---
+
 ## Working assumptions (not yet ratified — confirm or amend)
 
 - **Scope:** the full *Unlimited Adventures* package — the design/editor tools
