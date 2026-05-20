@@ -1,0 +1,24 @@
+# Build output
+*.o
+*.a
+*.d
+*.prg
+*.tos
+*.app
+bin/
+build/
+
+# Original copyrighted FRUA assets — never commit these
+/data/*
+!/data/README.md
+
+# Decompilation scratch (Ghidra / IDA / Hopper)
+*.idb
+*.i64
+*.hop
+ghidra_projects/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~
