@@ -1,17 +1,20 @@
 /*
  * FRUA file-cache (FC) subsystem — lifted from CODE 3.
  *
- *   fc_init   jump-table entry 463 (CODE 3 + 0x538, "FCInit")
+ *   fc_init    jump-table entry 463 (CODE 3 + 0x538, "FCInit")
+ *   fc_setup   jump-table entry 464 (CODE 3 + 0x644, "FCSetup")
  *
- * FCSetup/FCCleanup and the rest of the FC API are still to be lifted; see
- * docs/decompilation.md for the subsystem map.
+ * The Mac build's standard-library helpers collapse to the C library:
+ * L39ae=strlen, L3952=strcpy, L366a/L57f8=memmove, L46b2/L466a=tolower,
+ * L39d2=memset, L3b4e=max. See docs/decompilation.md for the subsystem map.
  */
 
-#include <string.h>             /* memset */
+#include <ctype.h>              /* tolower */
+#include <string.h>            /* memset, memmove, strcpy, strrchr */
 
 #include "fc.h"
-#include "error.h"              /* ua_error  -- the CODE 5 error reporter */
-#include "macmemory.h"          /* NewPtr, FreeMem  -- compat/ shim       */
+#include "error.h"             /* ua_error  -- the CODE 5 error reporter */
+#include "macmemory.h"         /* NewPtr, FreeMem  -- compat/ shim       */
 
 /* --- FC state: the Mac A5-world globals --- */
 unsigned char g_fc_group_table[FC_MAX_GROUPS];   /* A5-10074 */
@@ -21,21 +24,61 @@ char         *g_fc_buffers[FC_MAX_RECORDS + 1];  /* A5-10270 */
 char         *g_fc_buf_end;                      /* A5-9304  */
 long          g_fc_buf_size;                     /* A5-9300  */
 
-/* Runtime cursors (A5-9296/-9294/-9292); FC-internal, reset by fc_init.
- * Their individual roles get pinned as more FC routines are lifted. */
-static short  g_fc_cursors[3];
+/* FC-internal bookkeeping. */
+static unsigned char g_fc_mru[FC_MAX_RECORDS + 1];  /* A5-9354: most-recently-used record indices */
+static short         g_fc_record_high;             /* A5-9296: high-water record count           */
+
+/*
+ * fc_make_room — stub for CODE 3 + 0x11ca ("L11ca").
+ *
+ * TODO: lift L11ca. It frees up file-group slots when all FC_MAX_RECORDS
+ * are taken; until then this conservative stub reports failure, so fc_setup
+ * raises "too many file groups" at the limit instead of recovering. Only
+ * reachable with 48 file records in use.
+ */
+static short fc_make_room(short which)
+{
+	(void)which;
+	return 0;
+}
+
+/* L3cfa: copy the path leaf of `src` (the part after the last ':') to `dst`. */
+static void fc_leafname(const char *src, char *dst)
+{
+	const char *colon = strrchr(src, ':');
+	strcpy(dst, colon ? colon + 1 : src);
+}
+
+/* L3bda: case-insensitive string equality; 1 if equal, 0 if not. */
+static int fc_name_eq(const char *a, const char *b)
+{
+	while (tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
+		if (*a == '\0')
+			return 1;
+		a++;
+		b++;
+	}
+	return 0;
+}
+
+/* L3e0c: index of the first `byte` in buf[0..count), or count if absent. */
+static short fc_index_of(const unsigned char *buf, short count,
+                         unsigned char byte)
+{
+	short i;
+
+	for (i = 0; i < count && buf[i] != byte; i++)
+		;
+	return i;
+}
 
 /*
  * fc_init — CODE 3 + 0x538.
  *
- * The original clears the record count, memsets the group table to 0xFF and
- * the records to zero (via the L39d2 memset helper), then sizes the data
- * buffer: it aims for kb_max*1024, clamped to at least kb_min*1024 and to
- * (FreeMem() - 32768). NewPtr allocates it, with a retry at kb_min*1024 on
- * failure; too small or NULL raises "Insufficient FAR Memory!".
- *
- * THINK C's _NewPtr and _FreeMem trap glue (JT[1028]/JT[1026]) collapses
- * away — the calls go straight to the compat/ Memory Manager shim.
+ * Sizes the data buffer between kb_min*1024 and kb_max*1024, capped at
+ * FreeMem()-32768; NewPtr allocates it, retrying at kb_min on failure.
+ * THINK C's _NewPtr/_FreeMem trap glue collapses — the calls go straight
+ * to the compat/ Memory Manager shim.
  */
 void fc_init(short kb_min, short kb_max)
 {
@@ -64,5 +107,60 @@ void fc_init(short kb_min, short kb_max)
 		ua_error("Insufficient FAR Memory!");
 	g_fc_buf_size = size;
 
-	g_fc_cursors[0] = g_fc_cursors[1] = g_fc_cursors[2] = 0;
+	g_fc_record_high = 0;
+	/* The Mac FCInit also clears A5-9292/-9294, the purge counters used by
+	 * L11ca ("make room"); deferred until that routine is lifted. */
+}
+
+/*
+ * fc_setup — CODE 3 + 0x644.
+ *
+ * Registers file `name` under logical `group`. The bare leaf name is matched
+ * (case-insensitively) against the existing records; a hit just re-points
+ * the group and moves the record to the front of the MRU list (returns 1).
+ * A miss appends a new 14-byte record (returns 0). Returns 1 on error too.
+ *
+ * The original does not guard the group-table index after the "Invalid
+ * group" report — the Mac error reporter is modal — so neither does this.
+ */
+short fc_setup(const char *name, short group)
+{
+	char  buf[202];
+	short i;
+
+	fc_leafname(name, buf);
+	buf[13] = '\0';
+
+	if (group < 0 || group >= FC_MAX_GROUPS)
+		ua_error("Invalid group (%d)", group);
+
+	if ((g_fc_group_table[group] & 0x80) == 0)
+		ua_error("Group %d in use for '%s'", group,
+		         g_fc_records[g_fc_group_table[group]].name);
+
+	for (i = 0; i < g_fc_record_count; i++) {
+		if (fc_name_eq(g_fc_records[i].name, buf) && buf[0] != '%') {
+			short pos = fc_index_of(g_fc_mru, g_fc_record_count,
+			                        (unsigned char)i);
+			g_fc_group_table[group] = (unsigned char)i;
+			memmove(&g_fc_mru[0], &g_fc_mru[1], (size_t)pos);
+			g_fc_mru[0] = (unsigned char)i;
+			return 1;
+		}
+	}
+
+	if (g_fc_record_count >= FC_MAX_RECORDS && !fc_make_room(1)) {
+		ua_error("FCSetup: too many file groups");
+		return 1;
+	}
+
+	strcpy(g_fc_records[g_fc_record_count].name, buf);
+	g_fc_group_table[group] = (unsigned char)g_fc_record_count;
+	memmove(&g_fc_mru[0], &g_fc_mru[1], (size_t)g_fc_record_count);
+	g_fc_mru[0] = (unsigned char)g_fc_record_count;
+	g_fc_record_count++;
+	g_fc_buffers[g_fc_record_count] = g_fc_buffers[g_fc_record_count - 1];
+	if (g_fc_record_count > g_fc_record_high)
+		g_fc_record_high = g_fc_record_count;
+	return 0;
 }

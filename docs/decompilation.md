@@ -167,7 +167,8 @@ free-memory query `JT[1026]` is `_FreeMem` trap glue. Helpers: `L39d2` is
 `memset`; `L3cfa`/`L3952` copy strings/records; `L3bda` compares a record
 name; `L366a` is a record/list op.
 
-Lifted so far: `fc_init` → `src/engine/fc.c`.
+Lifted so far: `fc_init`, `fc_setup` → `src/engine/fc.c` (`FCCleanup`,
+`JT[467]`, `JT[458]`, and the `L11ca` "make room" routine still to do).
 
 ## Lifting to C
 

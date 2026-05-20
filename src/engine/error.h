@@ -8,6 +8,6 @@
 #define ENGINE_ERROR_H
 
 /* Report a printf-style error message. */
-void ua_error(const char *fmt, ...);
+void ua_error(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 #endif /* ENGINE_ERROR_H */
