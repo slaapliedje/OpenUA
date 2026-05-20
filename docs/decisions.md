@@ -63,6 +63,39 @@ isolates the per-machine code to one swappable backend.
 
 ---
 
+## ADR-0006 — Editor UI reimplemented inside the Toolbox shim
+
+**Decision:** The Mac Menu, Window, Dialog, Control, and TextEdit managers are
+reimplemented within the `compat/` shim, drawing Mac-style widgets into the
+HAL surface. The decompiled design-tools code calls them unchanged.
+
+**Why:** Consistent with ADR-0003 (shim-first) — it keeps the decompiled
+editor verifiable against the original and needs no call-site rewrites. The
+design tools are not a performance hot path, so a software-rendered UI is
+acceptable. Mac Dialog Manager semantics (DITL item lists, modal filter procs,
+TextEdit) do not map cleanly onto GEM AES, and an AES mapping would tie the
+editor to GEM and to an Atari look-and-feel. One implementation also behaves
+identically on the Falcon and the TT.
+
+---
+
+## ADR-0007 — Resource fork delivered as a flat archive
+
+**Decision:** A host-side tool (`tools/rsrcpack`) packs every resource from the
+Mac resource fork, keyed by `(type, id)`, into a single indexed archive file.
+The Resource Manager shim in `compat/` serves `GetResource()` and friends from
+that archive at runtime.
+
+**Why:** Atari filesystems have no resource fork. A single archive handles all
+resource types (`DLOG`/`DITL`/`MENU`/`PICT`/`snd`/`STR#`/custom game-data
+types) uniformly, keeps the Resource Manager API faithful (consistent with
+ADR-0003), and sidesteps the TOS 8.3 filename limits a file-per-resource
+scheme would hit — a 4-character type plus an ID does not encode cleanly.
+Build-time native conversion can still happen later, per resource type, where
+it pays off.
+
+---
+
 ## Working assumptions (not yet ratified — confirm or amend)
 
 - **Scope:** the full *Unlimited Adventures* package — the design/editor tools

@@ -11,20 +11,27 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 | QuickDraw           | All drawing, `CopyBits`, regions | Software blitter over the display HAL 8-bit surface         | planned |
 | Color/Palette Mgr   | 256-colour CLUT animation        | HAL `set_palette` → XBIOS `VsetRGB` (Falcon) / `EsetPalette`| planned |
 | Offscreen GWorlds   | Sprite/buffer composition        | 8-bit paletted offscreen surfaces in the shim               | planned |
-| Resource Manager    | `GetResource`, resource fork     | Reader over a converted flat resource archive (no fork)     | planned |
+| Resource Manager    | `GetResource`, resource fork     | Reader over a flat `(type,id)` archive built by `tools/rsrcpack` (ADR-0007) | planned |
 | Memory Manager      | `NewHandle`/`NewPtr`, `HLock`    | Handle table over GEMDOS `Malloc`/`Mxalloc`                 | planned |
 | File Manager        | `FSOpen`/`FSRead`, HFS paths     | GEMDOS `Fopen`/`Fread`/`Fclose` + path translation          | planned |
 | Sound Manager       | `SndPlay`, sound channels        | Falcon DMA sound via XBIOS; YM2149 fallback on TT030        | planned |
 | Event Manager       | `GetNextEvent`, mouse/keyboard   | IKBD + BIOS `Bconin`/`Kbshift`; AES `evnt_multi` in tools   | planned |
-| Menu/Window/Dialog  | Editor & tools UI                | GEM AES, or a custom widget set (TBD)                       | planned |
-| TextEdit            | Editor text fields               | Custom, or AES — decide with the Dialog Manager approach    | planned |
+| Menu/Window/Dialog  | Editor & tools UI                | Reimplemented in the shim; Mac-style widgets drawn into the HAL surface (ADR-0006) | planned |
+| TextEdit            | Editor text fields               | Reimplemented in the shim, alongside the Dialog Manager (ADR-0006) | planned |
 | OSUtils / ToolUtils | Misc (time, fixed-point, etc.)   | Case by case; mostly trivial inline equivalents             | planned |
 
-## Open questions
+## Decided
 
-- **Resource fork:** Atari filesystems have no resource fork. A host-side tool
-  (`tools/`) will extract the Mac resource fork into a flat archive the shim
-  reads at runtime. Format TBD.
-- **Editor UI:** the *Unlimited Adventures* design tools are dialog-heavy.
-  Deciding between AES and a custom widget set affects Menu/Window/Dialog/
-  TextEdit together — treat as one decision.
+- **Resource fork** → flat `(type, id)` archive built by `tools/rsrcpack`,
+  served by the Resource Manager shim. See ADR-0007 and `tools/README.md` for
+  the archive format.
+- **Editor UI** → Menu/Window/Dialog/Control/TextEdit reimplemented inside the
+  shim, drawn into the HAL surface. See ADR-0006.
+
+## Still open
+
+- The exact Mac-fork input format(s) `rsrcpack` must accept (MacBinary,
+  AppleDouble, raw resource fork, HFS disk image) — depends on how the Mac
+  release is supplied.
+- Phasing: bring up the play-UA-modules runtime before the design tools, or
+  both together. (Scope itself — the full package — is unchanged.)
