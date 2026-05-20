@@ -32,10 +32,11 @@ $(TARGET): $(OBJ)
 %.o: %.S
 	$(CC) $(ASFLAGS) -MMD -MP -c -o $@ $<
 
-# Mount the build directory as a GEMDOS drive and autostart the binary.
-# Adjust paths/flags to taste once a Falcon TOS image is configured in Hatari.
+# Boot the build in Hatari (Falcon mode), GEMDOS-mounting the build dir.
+# FALCON_TOS must point at a Falcon TOS 4.0x ROM — override if yours differs.
+FALCON_TOS ?= /usr/share/hatari/TOSv4.04.img
 run: $(TARGET)
-	$(HATARI) --machine falcon -d . --auto $(TARGET)
+	$(HATARI) --machine falcon --tos $(FALCON_TOS) -d . --auto $(TARGET)
 
 # Host-side test suite — pytest over tools/. Not a cross-build.
 PYTEST ?= tools/.venv/bin/pytest
