@@ -4,8 +4,10 @@
  *   fc_init           jump-table entry 463 (CODE 3 + 0x538, "FCInit")
  *   fc_setup          jump-table entry 464 (CODE 3 + 0x644, "FCSetup")
  *   fc_cleanup        jump-table entry 466 (CODE 3 + 0x632, "FCCleanup")
+ *   fc_read           jump-table entry 467 (CODE 3 + 0x7d0)
  *   fc_make_room      L11ca (CODE 3 + 0x11ca)
  *   fc_remove_record  L103c (CODE 3 + 0x103c)
+ *   fc_reserve L0ab8   fc_ensure_space L0a6e   fc_buffer_query L0d44
  *
  * The Mac build's standard-library helpers collapse to the C library:
  * L39ae=strlen, L3952=strcpy, L366a/L57f8=memmove, L46b2/L466a=tolower,
@@ -130,6 +132,90 @@ static short fc_make_room(short which)
 }
 
 /*
+ * fc_buffer_query — CODE 3 + 0x0d44 ("L0d44").
+ *
+ *   arg == -2 : the total data-buffer span.
+ *   arg <  0  : that span minus the slots of every referenced record.
+ *   arg >= 0  : the slot size of the record bound to group `arg` (0 if free).
+ */
+static long fc_buffer_query(short arg)
+{
+	long  total;
+	short g;
+
+	if (arg < 0) {
+		total = g_fc_buf_end - g_fc_buffers[0];
+		if (arg == -2)
+			return total;
+		for (g = 0; g < g_fc_record_count; g++) {
+			if (fc_index_of(g_fc_group_table, FC_MAX_GROUPS,
+			                (unsigned char)g) < FC_MAX_GROUPS)
+				total -= g_fc_buffers[g + 1] - g_fc_buffers[g];
+		}
+		return total;
+	}
+
+	if (arg >= FC_MAX_GROUPS || (g_fc_group_table[arg] & 0x80))
+		return 0;
+	{
+		short rec = g_fc_group_table[arg];
+		return g_fc_buffers[rec + 1] - g_fc_buffers[rec];
+	}
+}
+
+/*
+ * fc_dump — stub for CODE 3 + 0x846 (jump-table entry 458).
+ *
+ * TODO: the Mac routine dumps the file-group table to the screen for
+ * diagnostics when FAR memory runs out. It needs the display subsystem
+ * (JT[1089] formatted print, JT[1153] page select), not yet lifted, so for
+ * now it is a no-op — fc_ensure_space still reports the condition via
+ * ua_error.
+ */
+static void fc_dump(long need)
+{
+	(void)need;
+}
+
+/*
+ * fc_ensure_space — CODE 3 + 0x0a6e ("L0a6e").
+ *
+ * Ensures at least `need` free bytes at the top of the data buffer,
+ * evicting unreferenced records until there is room. Returns 1 on success;
+ * on exhaustion it reports the error, dumps the table, and returns 0.
+ */
+static short fc_ensure_space(long need)
+{
+	while (g_fc_buf_end - g_fc_buffers[g_fc_record_count] < need) {
+		if (!fc_make_room(0)) {
+			ua_error("Out of FAR memory!");
+			fc_dump(need);
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/*
+ * fc_reserve — CODE 3 + 0x0ab8 ("L0ab8").
+ *
+ * Bump-allocates `need` bytes at the top of the data buffer after making
+ * room for them. Returns 1 on success, 0 if the space could not be found.
+ */
+static short fc_reserve(long need)
+{
+	long q;
+
+	if (!fc_ensure_space(need))
+		return 0;
+	g_fc_buffers[g_fc_record_count] += need;
+	q = fc_buffer_query(-1);
+	if (q < g_fc_buf_size)
+		g_fc_buf_size = q;
+	return 1;
+}
+
+/*
  * fc_init — CODE 3 + 0x538.
  *
  * Sizes the data buffer between kb_min*1024 and kb_max*1024, capped at
@@ -234,4 +320,24 @@ void fc_cleanup(void)
 	g_fc_record_count = 0;
 	memset(g_fc_group_table, 0xFF, sizeof g_fc_group_table);
 	DisposePtr(g_fc_buffers[0]);
+}
+
+/*
+ * fc_read — CODE 3 + 0x7d0 (jump-table entry 467).
+ *
+ * Reserves `n` bytes at the top of the data buffer, then copies n+1 bytes
+ * from the previous top into `dst`. Returns 1 on success, 0 if the reserve
+ * failed.
+ */
+short fc_read(char *dst, short n)
+{
+	long  last_size = g_fc_buffers[g_fc_record_count]
+	                  - g_fc_buffers[g_fc_record_count - 1];
+	char *slot;
+
+	if (!fc_reserve(n))
+		return 0;
+	slot = g_fc_buffers[g_fc_record_count - 1] + last_size;
+	memmove(dst, slot, (size_t)(n + 1));
+	return 1;
 }
