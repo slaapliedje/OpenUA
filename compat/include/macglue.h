@@ -16,8 +16,9 @@
 
 /* Per-manager headers, included as they come online. */
 #include "macmemory.h"
+#include "quickdraw.h"
 
-/* Still to come: quickdraw.h, resources.h, sound.h, files.h, events.h */
+/* Still to come: resources.h, sound.h, files.h, events.h */
 
 /* Bring up the Toolbox shim. Call once after the platform HAL is
  * initialised and before any engine code runs. Returns 0 on success. */
