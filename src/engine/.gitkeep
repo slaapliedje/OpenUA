@@ -1,0 +1,2 @@
+Decompiled FRUA engine sources (hybrid C + 68k asm) land here, grouped by
+subsystem (combat/, party/, gfx/, modules/, editor/, ...). See docs/architecture.md.

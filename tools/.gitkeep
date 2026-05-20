@@ -1,0 +1,2 @@
+Host-side tooling: resource-fork extractors, data-format converters, and
+decompilation helpers. These run on the build host, not the Atari.
