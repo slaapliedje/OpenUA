@@ -5,16 +5,21 @@ Atari.
 
 ## Python tooling
 
-Some tools need third-party packages; the rest are pure standard library.
+Most tools are pure standard library; `hfs_extract.py` needs `machfs`, and
+`dis68k.py` shells out to `m68k-atari-mint-objdump`.
 
-| Tool             | Needs venv   | Purpose                                   |
-|------------------|--------------|-------------------------------------------|
-| `hfs_extract.py` | yes (machfs) | List / extract a classic HFS volume.      |
-| `dd_unsplit.py`  | no           | Reassemble a DiskDoubler split archive.   |
-| `appledouble.py` | no           | Extract a fork from AppleSingle/Double.   |
-| `rsrc_list.py`   | no           | List a Mac resource fork's contents.      |
+| Tool             | Needs           | Purpose                                |
+|------------------|-----------------|----------------------------------------|
+| `hfs_extract.py` | venv (machfs)   | List / extract a classic HFS volume.   |
+| `dd_unsplit.py`  | --              | Reassemble a DiskDoubler split archive.|
+| `appledouble.py` | --              | Extract a fork from AppleSingle/Double.|
+| `rsrc_list.py`   | --              | List a Mac resource fork's contents.   |
+| `dis68k.py`      | objdump         | Disassemble & annotate the CODE segments. |
 
-Set up the virtualenv once:
+`macrsrc.py` (resource-fork reader) and `mactraps.py` (A-line trap names) are
+shared modules, imported by the tools above rather than run directly.
+
+Set up the virtualenv once (only `hfs_extract.py` needs it):
 
 ```sh
 python3 -m venv tools/.venv
@@ -24,8 +29,8 @@ tools/.venv/bin/pip install machfs
 Run venv tools with `tools/.venv/bin/python3`; the rest with plain `python3`.
 `tools/.venv/` is git-ignored.
 
-See `docs/mac-release.md` for how these tools chain together to unpack the
-Mac release down to the decompilation inputs.
+`docs/mac-release.md` covers how the unpacking tools chain together;
+`docs/decompilation.md` covers `dis68k.py` and the disassembly model.
 
 ## rsrcpack
 
