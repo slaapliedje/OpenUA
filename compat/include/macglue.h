@@ -14,15 +14,10 @@
 #ifndef COMPAT_MACGLUE_H
 #define COMPAT_MACGLUE_H
 
-/* Per-manager headers are included here as they come online:
- *
- *   #include "quickdraw.h"
- *   #include "resources.h"
- *   #include "memory.h"
- *   #include "sound.h"
- *   #include "files.h"
- *   #include "events.h"
- */
+/* Per-manager headers, included as they come online. */
+#include "macmemory.h"
+
+/* Still to come: quickdraw.h, resources.h, sound.h, files.h, events.h */
 
 /* Bring up the Toolbox shim. Call once after the platform HAL is
  * initialised and before any engine code runs. Returns 0 on success. */
