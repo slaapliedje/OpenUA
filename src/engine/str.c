@@ -38,9 +38,8 @@ char  **g_ua_strtab;
 short   g_ua_strtab_count;
 
 /*
- * Out-of-range / empty-slot fallback. The Mac build returns a fixed object
- * reached through a CREL-relocated address (CODE 3 + 0x41c0 unrelocated);
- * provisionally the empty string until that relocation is resolved.
+ * Out-of-range / empty-slot fallback. CREL relocation resolves the Mac
+ * build's address to STRS+0x41c0 — an empty string in the string pool.
  */
 const char *g_ua_strtab_default = "";
 

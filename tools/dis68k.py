@@ -4,8 +4,9 @@
 Extracts every CODE resource, parses the CODE 0 jump table, and drives
 m68k-atari-mint-objdump over each segment. The raw objdump output is then
 annotated: A-line Toolbox/OS traps are named, intra-segment branch targets
-get labels, and calls through the A5 jump table are resolved to their target
-(segment, routine).
+get labels, calls through the A5 jump table are resolved to their target
+(segment, routine), and CREL-relocated absolute operands are resolved to
+A5-world or string-pool references.
 
 Per the project's copyright stance the output is written under data/ (which
 is git-ignored) -- it is the original program in another notation. The
@@ -17,7 +18,7 @@ Usage:
 Output (default data/work/disasm/):
     CODE_NN.bin      raw extracted segment
     CODE_NN.s        annotated disassembly listing
-    DATA.bin CREL.bin DREL.bin   relocation inputs, for later
+    DATA.bin DREL.bin   the A5-world image and its relocations, for later
     jumptable.txt    the full 1208-entry A5 jump table
 """
 import os
@@ -53,6 +54,30 @@ def parse_jump_table(code0):
         ro, _push, seg, _trap = struct.unpack_from(">HHHH", code0, 16 + 8 * k)
         entries.append((seg, ro + NEAR_HEADER))
     return jt_off, entries
+
+
+def parse_crel(data):
+    """Parse a CREL/DREL relocation resource into {offset: is_a4}.
+
+    The resource is a flat array of big-endian 16-bit words. Bit 0 of each
+    word is the base flag (0 = the A5 world, 1 = the A4 string pool); the
+    word with bit 0 cleared is an even byte offset into the segment, where a
+    32-bit value is fixed up by adding the chosen base at load time.
+    """
+    relocs = {}
+    for (word,) in struct.iter_unpack(">H", data[:len(data) & ~1]):
+        relocs[word & 0xFFFE] = bool(word & 1)
+    return relocs
+
+
+def read_cstr(buf, off, limit=48):
+    """A printable, length-capped C string from buf at off, or None."""
+    if buf is None or not 0 <= off < len(buf):
+        return None
+    end = buf.find(b"\0", off, off + limit)
+    raw = buf[off:end if end >= 0 else off + limit]
+    return "".join(c if c.isprintable() else "." for c in
+                   raw.decode("mac-roman", "replace"))
 
 
 def objdump(path, start, cpu):
@@ -109,7 +134,22 @@ def annotate(addr, raw, mnem, ops, seg_len, jt_off, jt, labels):
     return ops, comment
 
 
-def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu):
+def reloc_note(crel, strs, data, addr, insn_len):
+    """Annotation for any CREL relocations inside one instruction's bytes."""
+    notes = []
+    for off in range(addr, addr + insn_len):
+        if off not in crel or off + 4 > len(data):
+            continue
+        imm = int.from_bytes(data[off:off + 4], "big")
+        if crel[off]:                       # A4 -- string pool
+            s = read_cstr(strs, imm)
+            notes.append(f"STRS+{imm:#x}" + (f' "{s}"' if s else ""))
+        else:                               # A5 -- globals / jump table
+            notes.append(f"A5+{imm:#x}")
+    return "reloc " + ", ".join(notes) if notes else ""
+
+
+def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs):
     sid, data = res.id, res.data
     bin_path = os.path.join(out_dir, f"CODE_{sid:02d}.bin")
     with open(bin_path, "wb") as f:
@@ -123,6 +163,9 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu):
     for addr, raw, mnem, ops in insns:
         ops, comment = annotate(addr, raw, mnem, ops, len(data),
                                 jt_off, jt, labels)
+        rnote = reloc_note(crel, strs, data, addr, len(raw) // 2)
+        if rnote:
+            comment = f"{comment}  {rnote}" if comment else rnote
         if comment.startswith("trap "):
             traps += 1
         if comment.startswith("-> CODE"):
@@ -132,7 +175,8 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu):
     s_path = os.path.join(out_dir, f"CODE_{sid:02d}.s")
     with open(s_path, "w") as f:
         f.write(f"; CODE segment {sid} -- {len(data)} bytes, "
-                f"{len(entries)} jump-table entry points\n")
+                f"{len(entries)} jump-table entry points, "
+                f"{len(crel)} CREL relocations\n")
         f.write(f"; segment header (raw): {data[:4].hex()}; "
                 f"code begins at +{NEAR_HEADER:#x}\n")
         f.write("; addresses are resource-relative; "
@@ -148,7 +192,7 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu):
             if comment:
                 line = f"{line:<58}; {comment}"
             f.write(line + "\n")
-    return sid, len(data), len(insns), traps, jt_calls
+    return sid, len(data), len(insns), traps, jt_calls, len(crel)
 
 
 def main(argv):
@@ -166,6 +210,10 @@ def main(argv):
 
     rf = ResourceFork.from_file(fork)
     jt_off, jt = parse_jump_table(rf.get("CODE", 0).data)
+    try:
+        strs = rf.get("STRS", 0).data        # the A4 string pool
+    except KeyError:
+        strs = None
 
     # Which jump-table entries each segment exports (its routine entry points).
     jt_owner = {}
@@ -178,19 +226,24 @@ def main(argv):
             f.write(f"  JT[{idx:4}]  A5+{jt_off + 8 * idx:#06x}  "
                     f"CODE {seg:2}+{ro:#06x}\n")
 
-    # Relocation/data resources -- kept for later A5-world reconstruction.
-    for rtype in ("DATA", "CREL", "DREL"):
+    # The A5-world image and its relocations, kept for later reconstruction.
+    for rtype in ("DATA", "DREL"):
         for r in rf.of_type(rtype):
             with open(os.path.join(out_dir, f"{rtype}.bin"), "wb") as f:
                 f.write(r.data)
 
-    print(f"{'seg':>4} {'bytes':>8} {'insns':>8} {'traps':>7} {'JT calls':>9}")
+    print(f"{'seg':>4} {'bytes':>8} {'insns':>8} {'traps':>7} "
+          f"{'JT calls':>9} {'relocs':>7}")
     for res in rf.of_type("CODE"):
         if res.id == 0:
             continue
-        sid, n, ins, tr, jc = disassemble_segment(
-            res, jt_off, jt, jt_owner, out_dir, cpu)
-        print(f"{sid:>4} {n:>8} {ins:>8} {tr:>7} {jc:>9}")
+        try:
+            crel = parse_crel(rf.get("CREL", res.id).data)
+        except KeyError:
+            crel = {}
+        sid, n, ins, tr, jc, rl = disassemble_segment(
+            res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs)
+        print(f"{sid:>4} {n:>8} {ins:>8} {tr:>7} {jc:>9} {rl:>7}")
     print(f"\nlistings in {out_dir}/CODE_NN.s")
 
 

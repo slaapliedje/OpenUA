@@ -6,7 +6,7 @@ tool over the real binary; see docs/decompilation.md.
 """
 import dis68k
 
-from fixtures import build_code0
+from fixtures import build_code0, build_crel
 
 
 def test_parse_jump_table_adds_segment_header():
@@ -46,3 +46,23 @@ def test_annotate_flags_a5_global():
     _ops, comment = dis68k.annotate(0, "2d40ff00", "movel", "%d0,%a5@(-256)",
                                     0x4000, 0x20, [], set())
     assert "A5 global -256" in comment
+
+
+def test_parse_crel_splits_offset_and_base():
+    blob = build_crel([(0x10, True), (0x420, False), (0x100, True)])
+    assert dis68k.parse_crel(blob) == {0x10: True, 0x420: False, 0x100: True}
+
+
+def test_reloc_note_resolves_string_pool_reference():
+    # a 32-bit immediate (value 0x0a) sits at offset 2 of a 6-byte instruction
+    data = b"\x41\xf9" + (0x0A).to_bytes(4, "big")
+    strs = b"." * 0x0A + b"HELLO\x00"
+    note = dis68k.reloc_note({2: True}, strs, data, addr=0, insn_len=6)
+    assert "STRS+0xa" in note
+    assert "HELLO" in note
+
+
+def test_reloc_note_a5_reference_has_no_string():
+    data = b"\x41\xf9" + (0x1234).to_bytes(4, "big")
+    note = dis68k.reloc_note({2: False}, None, data, addr=0, insn_len=6)
+    assert note == "reloc A5+0x1234"

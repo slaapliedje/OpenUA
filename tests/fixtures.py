@@ -92,3 +92,9 @@ def build_code0(jt_off, entries):
     for seg, ro in entries:
         blob += struct.pack(">HHHH", ro, 0x3F3C, seg, 0xA9F0)
     return blob
+
+
+def build_crel(entries):
+    """Build a CREL/DREL relocation resource. entries: [(offset, is_a4)]."""
+    return b"".join(struct.pack(">H", (off & 0xFFFE) | (1 if a4 else 0))
+                    for off, a4 in entries)
