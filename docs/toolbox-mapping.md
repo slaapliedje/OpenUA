@@ -27,11 +27,11 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
   the archive format.
 - **Editor UI** → Menu/Window/Dialog/Control/TextEdit reimplemented inside the
   shim, drawn into the HAL surface. See ADR-0006.
+- **Phasing** → the play-UA-modules runtime is ported first; the design tools
+  follow as a second phase. See ADR-0008.
 
 ## Still open
 
 - The exact Mac-fork input format(s) `rsrcpack` must accept (MacBinary,
   AppleDouble, raw resource fork, HFS disk image) — depends on how the Mac
   release is supplied.
-- Phasing: bring up the play-UA-modules runtime before the design tools, or
-  both together. (Scope itself — the full package — is unchanged.)

@@ -22,6 +22,8 @@ retargeting the Mac Toolbox and the display/sound paths.
   (ADR-0006).
 - **Resource fork** delivered as a flat `(type, id)` archive built by
   `tools/rsrcpack` (ADR-0007).
+- **Runtime first**: port the play-UA-modules runtime before the design tools
+  (ADR-0008).
 
 ## Layer rule
 
