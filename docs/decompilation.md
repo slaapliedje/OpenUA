@@ -159,22 +159,23 @@ name; the rest are inferred):
 | `JT[463]` `0x538` | `FCInit`    | allocate the data buffer, reset tables |
 | `JT[464]` `0x644` | `FCSetup`   | register a group → file record        |
 | `JT[466]` `0x632` | `FCCleanup` | reset the tables, dispose the buffer  |
-| `JT[467]` `0x7d0` | —           | copy bytes out of the top data buffer |
-| `JT[458]` `0x846` | —           | bulk pass over all 48 groups          |
+| `JT[467]` `0x7d0` | `fc_read`   | reserve + copy bytes from the buffer  |
+| `JT[458]` `0x846` | —           | diagnostic dump of the group table    |
 
 The error reporter `JT[1084]` (CODE 5) draws an on-screen box; the
 free-memory query `JT[1026]` is `_FreeMem` trap glue. Helpers: `L39d2` is
 `memset`; `L3cfa`/`L3952` copy strings/records; `L3bda` compares a record
 name; `L366a` is a record/list op.
 
-Lifted so far → `src/engine/fc.c`: the FC lifecycle (`fc_init`, `fc_setup`,
-`fc_cleanup`), `fc_make_room` (`L11ca`), and the helper `fc_remove_record`
-(`L103c`). `JT[1083]` lifted as `ua_rand` (`src/engine/rand.c`).
+Lifted → `src/engine/fc.c`: the FC lifecycle (`fc_init`, `fc_setup`,
+`fc_cleanup`), the buffer reserve/read path (`fc_read`, `fc_reserve`,
+`fc_ensure_space`, `fc_buffer_query`), `fc_make_room`, and the helper
+`fc_remove_record`. `JT[1083]` → `ua_rand` (`src/engine/rand.c`).
 
-Still to do: the buffer reserve/read path (`JT[467]` → `L0ab8` → `L0a6e` →
-`L0d44`), `JT[458]` (the out-of-memory compaction pass, which calls
-`JT[1153]` — a display-subsystem routine), and `L0b7a`'s forget-by-name
-path.
+Still to do: `JT[458]` — the out-of-memory diagnostic dump — is a no-op
+stub (`fc_dump`); a faithful version needs the display subsystem
+(`JT[1089]` formatted print, `JT[1153]` page select). `L0b7a`'s
+forget-by-name path is also still to lift.
 
 ## Lifting to C
 

@@ -45,4 +45,11 @@ short fc_setup(const char *name, short group);
  */
 void fc_cleanup(void);
 
+/*
+ * Reserve n bytes at the top of the data buffer and copy n+1 bytes from the
+ * previous top into `dst`. Returns 1 on success, 0 if the buffer is full.
+ * Lifted from CODE 3 jump-table entry 467.
+ */
+short fc_read(char *dst, short n);
+
 #endif /* ENGINE_FC_H */
