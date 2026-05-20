@@ -41,12 +41,17 @@ BARE_HEX = re.compile(r"\b0x([0-9a-f]+)\b")
 
 
 def parse_jump_table(code0):
-    """Return (jt_a5_offset, [(segment, routine_offset), ...])."""
+    """Return (jt_a5_offset, [(segment, entry_address), ...]).
+
+    A jump-table routine offset is measured from the start of a segment's
+    *code* -- past the 4-byte segment header -- so the resource-relative
+    entry address is the stored offset plus NEAR_HEADER.
+    """
     _above, _below, jt_len, jt_off = struct.unpack_from(">IIII", code0, 0)
     entries = []
     for k in range(jt_len // 8):
         ro, _push, seg, _trap = struct.unpack_from(">HHHH", code0, 16 + 8 * k)
-        entries.append((seg, ro))
+        entries.append((seg, ro + NEAR_HEADER))
     return jt_off, entries
 
 

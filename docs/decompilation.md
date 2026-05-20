@@ -26,6 +26,8 @@ THINK C:
 Segments 2–22 carry a 4-byte header THINK C uses for its own segment
 management; the disassembler treats code as starting at +4 (confirmed by the
 prologues) and takes entry points from the authoritative `CODE 0` table.
+Jump-table routine offsets are measured from that code start, so `dis68k.py`
+adds 4 to recover resource-relative addresses.
 
 ## tools/dis68k.py
 
@@ -55,6 +57,39 @@ The trap distribution splits the program cleanly:
   jump table. This is the bulk of the Gold Box engine.
 
 `dis68k.py` prints live per-segment byte / instruction / trap / JT-call counts.
+
+## Runtime startup
+
+`CODE 1` is entirely the THINK C runtime — no FRUA code. The application
+entry `JT[0]` → `CODE 1+0x0c` runs the startup, then hands off:
+
+1. **Load `STRS`** — coalesce the `STRS` resource(s) into a buffer; `A4`
+   holds the THINK C string pool thereafter.
+2. **Build the A5 world** — `ZERO` + `DATA` resources form the initial
+   globals image; `DREL` relocates A5-relative pointers into it.
+3. **Patch traps** — hook `_LoadSeg` so each segment load also applies that
+   segment's `CREL` code relocations, and hook `_ExitToShell` for cleanup.
+4. **Call `JT[12]` → `CODE 6+0x58a`** — the application's `main()`.
+
+`CODE 1`'s other exports (`JT[1]`–`JT[9]`) are THINK C library glue: 32-bit
+multiply / divide / modulo (the 68000 has no 32-bit division), `switch`
+dispatchers, and handle-state helpers.
+
+None of `CODE 1` is ported as engine code. It becomes the ordinary C runtime
+/ crt0: the A5/A4 world becomes linked globals plus a string table, and
+`_LoadSeg`/`CREL` relocation disappears — the port links one flat executable.
+
+### The application main() — CODE 6+0x58a
+
+`main()` opens with a subsystem-initialiser roll-call: ~16 back-to-back
+parameterless calls, one into nearly every code segment. It then queries a
+status (`JT[398]`), sets up the screen at 450×214 or 400×160 depending on it
+(`JT[1079]`), installs a callback (`CODE 6+0x538`), and `_UnLoadSeg`s the
+one-shot init segment `CODE 8`. `CODE 6` contains no event traps — the event
+loop is reached by a call out.
+
+Per ADR-0008 this `main()` is the runtime-first trace target: the subsystem
+initialisers and the path to playing a `.DSN` lead out from here.
 
 ## Lifting to C
 
