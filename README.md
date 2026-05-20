@@ -10,8 +10,12 @@ TOS/GEM/XBIOS and rebuilding the display and sound paths.
 
 ## Status
 
-Project scaffolding. `make` builds a toolchain smoke-test `.prg`; the engine,
-Toolbox shim, and platform backends are not yet implemented.
+Early development. `make` builds `frua.prg` — currently a VIDEL display
+backend demo (`make run` boots it in Hatari). Lifted/built so far: the
+file-cache subsystem and assorted engine utilities (`src/engine/`), the
+start of the Mac Memory Manager and QuickDraw shims (`compat/`), and the
+Falcon VIDEL display backend (`platform/`). The decompilation tooling and
+the subsystem maps are under `tools/` and `docs/`.
 
 ## Approach
 
