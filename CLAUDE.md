@@ -25,6 +25,15 @@ retargeting the Mac Toolbox and the display/sound paths.
 - **Runtime first**: port the play-UA-modules runtime before the design tools
   (ADR-0008).
 
+## Source material
+
+The Mac release ships as a StuffIt of three DiskCopy floppy images. Unpacking
+it (StuffIt → HFS → DiskDoubler → DDAR) is documented in `docs/mac-release.md`,
+including how to produce `data/work/UnlimitedAdventures.rfork` — the
+application resource fork holding the 23 `CODE` segments that are the
+decompilation target. Built with THINK C (A5-relative globals; `CREL`/`DREL`
+relocations). `data/` is git-ignored; nothing there is committed.
+
 ## Layer rule
 
 `src/engine/` (engine) → `compat/` (Mac Toolbox shim) → `platform/` (HAL) →
