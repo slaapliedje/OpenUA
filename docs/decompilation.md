@@ -130,6 +130,45 @@ CODE 3 reads as the utilities + resource segment; CODE 5 as display / UI.
 Per ADR-0008 this `main()` is the runtime-first trace target: the
 post-roll-call setup and the path to playing a `.DSN` lead out from here.
 
+## Subsystems
+
+Maps of FRUA subsystems as they are traced, to guide lifting into
+`src/engine/`.
+
+### FC — the file cache (CODE 3)
+
+FRUA's data-file manager: a large allocated buffer holds file data; up to 48
+logical "groups" map onto up to 48 de-duplicated 14-byte file records.
+
+Data model — the Mac A5-world globals:
+
+| Global    | Role                                                       |
+|-----------|------------------------------------------------------------|
+| `A5-10270`| `g_fc_buffers[]` — data-buffer pointers                    |
+| `A5-10074`| `g_fc_group_table[48]` — group → record index (0xFF free)  |
+| `A5-10026`| `g_fc_records[48]` — 14-byte file records (13-char name)   |
+| `A5-9306` | `g_fc_record_count`                                        |
+| `A5-9304` / `-9300` | data-buffer end / size                           |
+| `A5-9296`…`-9292` | FC runtime cursors                               |
+
+API — CODE 3 jump-table entries (only `FCSetup` is a confirmed original
+name; the rest are inferred):
+
+| Entry             | Routine     | Role                                  |
+|-------------------|-------------|---------------------------------------|
+| `JT[463]` `0x538` | `FCInit`    | allocate the data buffer, reset tables |
+| `JT[464]` `0x644` | `FCSetup`   | register a group → file record        |
+| `JT[466]` `0x632` | `FCCleanup` | dispose the data buffer               |
+| `JT[467]` `0x7d0` | —           | buffer-region operation               |
+| `JT[458]` `0x846` | —           | bulk pass over all 48 groups          |
+
+The error reporter `JT[1084]` (CODE 5) draws an on-screen box; the
+free-memory query `JT[1026]` is `_FreeMem` trap glue. Helpers: `L39d2` is
+`memset`; `L3cfa`/`L3952` copy strings/records; `L3bda` compares a record
+name; `L366a` is a record/list op.
+
+Lifted so far: `fc_init` → `src/engine/fc.c`.
+
 ## Lifting to C
 
 Per ADR-0008 the runtime comes first. Per routine:

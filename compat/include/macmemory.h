@@ -19,5 +19,6 @@ typedef short  OSErr;   /* Toolbox error code                */
 Ptr   NewPtr(Size byteCount);   /* allocate a block; NULL on failure */
 void  DisposePtr(Ptr p);        /* free a NewPtr block               */
 OSErr MemError(void);           /* error code from the most recent call */
+Size  FreeMem(void);            /* free memory available             */
 
 #endif /* COMPAT_MACMEMORY_H */

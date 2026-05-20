@@ -7,6 +7,7 @@
  */
 
 #include <stdlib.h>
+#include <mint/osbind.h>
 
 #include "macmemory.h"
 
@@ -30,4 +31,14 @@ void DisposePtr(Ptr p)
 OSErr MemError(void)
 {
 	return g_mem_error;
+}
+
+/*
+ * The Mac Memory Manager's _FreeMem reports total free heap space; the Atari
+ * stand-in returns the largest free block (GEMDOS Malloc(-1)), which is the
+ * more useful figure for sizing a single large allocation.
+ */
+Size FreeMem(void)
+{
+	return (Size)Malloc(-1L);
 }
