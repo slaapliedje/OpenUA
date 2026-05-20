@@ -81,15 +81,20 @@ None of `CODE 1` is ported as engine code. It becomes the ordinary C runtime
 
 ### The application main() — CODE 6+0x58a
 
-`main()` opens with a subsystem-initialiser roll-call: ~16 back-to-back
-parameterless calls, one into nearly every code segment. It then queries a
+`main()` opens with a module-init roll-call — ~16 back-to-back parameterless
+calls into the code segments. Every target is a bare `rts`: in this build the
+per-module initialisers are empty (state arrives pre-initialised in the
+`DATA` globals image), so the roll-call's only real effect is paging the
+segments resident.
+
+Substantive startup begins just after, at `CODE 6+0x4cc0`: it queries a
 status (`JT[398]`), sets up the screen at 450×214 or 400×160 depending on it
 (`JT[1079]`), installs a callback (`CODE 6+0x538`), and `_UnLoadSeg`s the
-one-shot init segment `CODE 8`. `CODE 6` contains no event traps — the event
-loop is reached by a call out.
+one-shot init segment `CODE 8`. `CODE 6` itself has no event traps — the
+event loop is reached by a call out.
 
-Per ADR-0008 this `main()` is the runtime-first trace target: the subsystem
-initialisers and the path to playing a `.DSN` lead out from here.
+Per ADR-0008 this `main()` is the runtime-first trace target: the
+post-roll-call setup and the path to playing a `.DSN` lead out from here.
 
 ## Lifting to C
 
