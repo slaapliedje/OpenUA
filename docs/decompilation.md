@@ -177,6 +177,54 @@ stub (`fc_dump`); a faithful version needs the display subsystem
 (`JT[1089]` formatted print, `JT[1153]` page select). `L0b7a`'s
 forget-by-name path is also still to lift.
 
+### Display — screen and drawing (CODE 4 / CODE 5)
+
+FRUA's display layer spans CODE 4 (Mac Toolbox init, page management) and
+CODE 5 (drawing primitives, text, the master init). It is the domain of the
+port's display HAL — ADR-0005.
+
+**Toolbox init** — `JT[1144]` (CODE 4) is the standard Mac startup:
+`InitGraf` / `InitFonts` / `InitWindows` / `InitMenus` / `TEInit` /
+`InitDialogs` / `FlushEvents`. It then probes the screen depth (`A5-1318`):
+8-bit colour is the target, 1-bit mono a fallback.
+
+**Data model — double-buffered pages.** FRUA draws into two offscreen colour
+ports and flips between them:
+
+| Global    | Role                                                       |
+|-----------|------------------------------------------------------------|
+| `A5-2570` | two 108-byte `CGrafPort`s — the offscreen drawing pages    |
+| `A5-2352` | active page index (0/1)                                    |
+| `A5-2354` | the front (displayed) page                                 |
+| `A5-3076` | the active page's pixel base address                       |
+| `A5-2347` | colour-vs-mono mode flag                                   |
+
+`JT[1153]` (CODE 4) flips the page — it toggles `A5-2352` and re-points
+`A5-3076` at the selected port's PixMap base.
+
+**Drawing surface — the Mac Toolbox.** CODE 4/5 draw with QuickDraw —
+`SetPort` (heavily, switching window vs. pages), `MoveTo`/`LineTo`,
+`PenPat`/`PenMode`, `SetRect`/`PaintRect`, `CopyBits` — and the Window
+Manager (`NewWindow`, `SizeWindow`, `SelectWindow`, `FrontWindow`,
+`InvalRect`). Text goes through `JT[1089]`: set colour, set pen position,
+format-and-draw.
+
+**Master init** — `JT[1079]` (CODE 5), called by `main()`, runs `JT[1144]`
+(Toolbox), the page setup, and `fc_init`. (The `(214,450)` / `(160,400)`
+numbers `main()` passes are FC buffer KB sizes, not screen dimensions.)
+
+#### Mapping to the port
+
+This confirms ADR-0005 and the `platform/include/display.h` design:
+
+- The two offscreen `CGrafPort`s → two 8-bit paletted `dsp_surface_t`
+  buffers; the page flip → the HAL's `present()`.
+- QuickDraw primitives → a `compat/` QuickDraw shim drawing into HAL
+  surfaces; the Window Manager mostly dissolves — the port runs fullscreen
+  through the HAL rather than as a GEM app.
+- 8-bit colour → the VIDEL / TT-shifter 256-colour modes the HAL backends
+  already target.
+
 ## Lifting to C
 
 Per ADR-0008 the runtime comes first. Per routine:
