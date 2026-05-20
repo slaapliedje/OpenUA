@@ -158,8 +158,8 @@ name; the rest are inferred):
 |-------------------|-------------|---------------------------------------|
 | `JT[463]` `0x538` | `FCInit`    | allocate the data buffer, reset tables |
 | `JT[464]` `0x644` | `FCSetup`   | register a group → file record        |
-| `JT[466]` `0x632` | `FCCleanup` | dispose the data buffer               |
-| `JT[467]` `0x7d0` | —           | buffer-region operation               |
+| `JT[466]` `0x632` | `FCCleanup` | reset the tables, dispose the buffer  |
+| `JT[467]` `0x7d0` | —           | copy bytes out of the top data buffer |
 | `JT[458]` `0x846` | —           | bulk pass over all 48 groups          |
 
 The error reporter `JT[1084]` (CODE 5) draws an on-screen box; the
@@ -167,8 +167,11 @@ free-memory query `JT[1026]` is `_FreeMem` trap glue. Helpers: `L39d2` is
 `memset`; `L3cfa`/`L3952` copy strings/records; `L3bda` compares a record
 name; `L366a` is a record/list op.
 
-Lifted so far: `fc_init`, `fc_setup` → `src/engine/fc.c` (`FCCleanup`,
-`JT[467]`, `JT[458]`, and the `L11ca` "make room" routine still to do).
+Lifted so far: `fc_init`, `fc_setup`, `fc_cleanup` → `src/engine/fc.c` —
+the FC lifecycle. The extended API (`JT[467]` read, `JT[458]` bulk pass,
+`L11ca` "make room", `L0b7a`'s forget-by-name path) is still to do; each
+roots its own tree of CODE 3/4/5 helpers (`L0ab8`/`L0a6e`, `L0d44`,
+`L103c`, `JT[1083]`, `JT[1153]`).
 
 ## Lifting to C
 

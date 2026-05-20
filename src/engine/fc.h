@@ -39,4 +39,10 @@ void fc_init(short kb_min, short kb_max);
  */
 short fc_setup(const char *name, short group);
 
+/*
+ * Reset the group/record tables and release the data buffer.
+ * Lifted from CODE 3 jump-table entry 466 ("FCCleanup").
+ */
+void fc_cleanup(void);
+
 #endif /* ENGINE_FC_H */

@@ -1,8 +1,9 @@
 /*
  * FRUA file-cache (FC) subsystem — lifted from CODE 3.
  *
- *   fc_init    jump-table entry 463 (CODE 3 + 0x538, "FCInit")
- *   fc_setup   jump-table entry 464 (CODE 3 + 0x644, "FCSetup")
+ *   fc_init     jump-table entry 463 (CODE 3 + 0x538, "FCInit")
+ *   fc_setup    jump-table entry 464 (CODE 3 + 0x644, "FCSetup")
+ *   fc_cleanup  jump-table entry 466 (CODE 3 + 0x632, "FCCleanup")
  *
  * The Mac build's standard-library helpers collapse to the C library:
  * L39ae=strlen, L3952=strcpy, L366a/L57f8=memmove, L46b2/L466a=tolower,
@@ -163,4 +164,19 @@ short fc_setup(const char *name, short group)
 	if (g_fc_record_count > g_fc_record_high)
 		g_fc_record_high = g_fc_record_count;
 	return 0;
+}
+
+/*
+ * fc_cleanup — CODE 3 + 0x632.
+ *
+ * Resets the record count and group table, then disposes the data buffer.
+ * The Mac build routes the reset through L0b7a(0); L0b7a's other path
+ * ("forget one file by name", which reaches the unlifted L103c) is not
+ * lifted yet.
+ */
+void fc_cleanup(void)
+{
+	g_fc_record_count = 0;
+	memset(g_fc_group_table, 0xFF, sizeof g_fc_group_table);
+	DisposePtr(g_fc_buffers[0]);
 }
