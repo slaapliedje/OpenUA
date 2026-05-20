@@ -110,6 +110,23 @@ and the display/input/audio HAL on the smaller surface first.
 
 ---
 
+## ADR-0009 — Scripted objdump-based disassembly
+
+**Decision:** Disassembly is produced by `tools/dis68k.py` driving the
+`m68k-atari-mint-objdump` from the project toolchain (ADR-0004). It emits
+annotated listings under `data/work/disasm/`, which is git-ignored. The
+committed work product is the hand-lifted C in `src/engine/`, not the
+disassembly.
+
+**Why:** Chosen over interactive Ghidra. A scripted pass is reproducible and
+diffable, needs no toolchain beyond the binutils already required, and
+resolves the classic-Mac jump-table and trap model in a way tailored to this
+binary. Keeping the raw disassembly out of git — it is the original
+copyrighted program in another notation — keeps the repository to the port's
+own code and tooling, consistent with the `data/` policy.
+
+---
+
 ## Working assumptions (not yet ratified — confirm or amend)
 
 - **Scope:** the full *Unlimited Adventures* package — the design/editor tools

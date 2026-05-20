@@ -24,6 +24,8 @@ retargeting the Mac Toolbox and the display/sound paths.
   `tools/rsrcpack` (ADR-0007).
 - **Runtime first**: port the play-UA-modules runtime before the design tools
   (ADR-0008).
+- **Disassembly** via `tools/dis68k.py` (objdump-driven); listings are
+  git-ignored, the lifted C in `src/engine/` is the committed work (ADR-0009).
 
 ## Source material
 
@@ -33,6 +35,10 @@ including how to produce `data/work/UnlimitedAdventures.rfork` — the
 application resource fork holding the 23 `CODE` segments that are the
 decompilation target. Built with THINK C (A5-relative globals; `CREL`/`DREL`
 relocations). `data/` is git-ignored; nothing there is committed.
+
+`python3 tools/dis68k.py data/work/UnlimitedAdventures.rfork` regenerates the
+annotated disassembly under `data/work/disasm/`. The runtime model and the
+lifting workflow are in `docs/decompilation.md`.
 
 ## Layer rule
 
