@@ -1,12 +1,13 @@
 /*
  * FRUA — Atari Falcon030 / TT030 port.
  *
- * Display bring-up demo / diagnostic. Prints progress to the console, then
+ * Display bring-up demo / diagnostic. Reports each stage to the console,
  * brings up the VIDEL backend, draws an XOR test pattern under a 3-3-2 RGB
- * palette, and waits for a key. Boot it with `make run` (Hatari, Falcon).
+ * palette, and holds each screen on a fixed timer so it can be read. Boot
+ * it with `make run` (Hatari, Falcon mode).
  *
- * Each stage is reported and every exit path pauses, so a failure is
- * readable rather than a flash back to the desktop.
+ * Timed holds rather than key-waits: a key-wait flashes past here because
+ * the autostart leaves keystrokes buffered.
  *
  * This is the program entry point; it becomes the real engine bootstrap
  * once the lifted engine is wired up.
@@ -15,6 +16,15 @@
 #include <mint/osbind.h>
 
 #include "display.h"
+
+/* Hold the screen long enough to read — ~300 vertical-blank periods. */
+static void hold(void)
+{
+	int i;
+
+	for (i = 0; i < 300; i++)
+		Vsync();
+}
 
 int main(void)
 {
@@ -27,10 +37,11 @@ int main(void)
 	Cconws("backend: ");
 	Cconws(dsp->name);
 	Cconws("\r\ninitialising display...\r\n");
+	hold();
 
 	if (dsp->init(320, 240) != 0) {
-		Cconws("display init FAILED -- press a key\r\n");
-		Cconin();
+		Cconws("display init FAILED\r\n");
+		hold();
 		return 1;
 	}
 
@@ -50,10 +61,10 @@ int main(void)
 			surf->pixels[y * surf->pitch + x] = (unsigned char)(x ^ y);
 
 	dsp->present();
-	Cconin();                       /* wait for a key, on the picture */
+	hold();
 	dsp->shutdown();
 
-	Cconws("display demo done -- press a key\r\n");
-	Cconin();
+	Cconws("display demo done\r\n");
+	hold();
 	return 0;
 }
