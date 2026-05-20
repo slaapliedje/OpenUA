@@ -32,4 +32,11 @@ extern long          g_fc_buf_size;
  */
 void fc_init(short kb_min, short kb_max);
 
+/*
+ * Register data file `name` under logical `group`. Re-uses an existing
+ * record if the file is already known (returns 1), else appends a new one
+ * (returns 0). Lifted from CODE 3 jump-table entry 464 ("FCSetup").
+ */
+short fc_setup(const char *name, short group);
+
 #endif /* ENGINE_FC_H */
