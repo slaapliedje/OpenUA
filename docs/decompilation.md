@@ -94,9 +94,10 @@ None of `CODE 1` is ported as engine code. It becomes the ordinary C runtime
    depending on it.
 4. **UI handlers** — `JT[989]` registers callbacks (`CODE 6+0x538`,
    `CODE 6+0x4c0`) passed as `(id, ptr, flag, fnptr)`.
-5. **Data-file loading** (from `0x67e`) — a repeated `JT[475]`(id) /
-   `JT[393]`(name, handle) pair opens and loads FRUA's data libraries, each
-   followed by a status check.
+5. **String checks** (from `0x67e`) — a run of `JT[475]`(index) fetches
+   table strings and `JT[393]` compares them against fixed constants,
+   branching on the result; the precise purpose needs the CREL-relocated
+   constants resolved.
 6. **Segment-cycling loop** (`L073e`–`L0792`) — loads, uses, and
    `_UnLoadSeg`s transient segments (CODE 2, 8, 9, 11, 12, 20, 21, 22),
    looping on `JT[315]`.
@@ -110,12 +111,15 @@ Frequently-called shared routines, worth naming early when lifting:
 |------------|----------------|-------------------------------------|
 | `JT[387]`  | CODE 3+0x36bc  | `alloc(size)` — memory allocator    |
 | `JT[398]`  | CODE 3+0x37e4  | capability / status query           |
-| `JT[475]`  | CODE 3+0x3da   | open a file/resource by id          |
-| `JT[393]`  | CODE 3+0x3b8c  | load/read by (name, handle)         |
+| `JT[475]`  | CODE 3+0x3da   | bounds-checked string-table lookup  |
+| `JT[393]`  | CODE 3+0x3b8c  | `strcmp` — signed-char string compare |
 | `JT[989]`  | CODE 5+0x1b56  | install a handler/callback          |
 | `JT[1079]` | CODE 5+0x4     | screen / window setup               |
 
 CODE 3 reads as the utilities + resource segment; CODE 5 as display / UI.
+
+`JT[387]`, `JT[393]`, and `JT[475]` are lifted into `src/engine/`
+(`alloc.c`, `str.c`); the rest above are still characterised, not yet lifted.
 
 Per ADR-0008 this `main()` is the runtime-first trace target: the
 post-roll-call setup and the path to playing a `.DSN` lead out from here.
