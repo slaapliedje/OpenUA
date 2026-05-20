@@ -18,6 +18,10 @@ retargeting the Mac Toolbox and the display/sound paths.
   (ADR-0003).
 - **m68k-atari-mint GCC** cross toolchain (ADR-0004).
 - **Display HAL** with VIDEL / TT-shifter / VDI backends (ADR-0005).
+- **Editor UI** reimplemented inside the Toolbox shim, not mapped to AES
+  (ADR-0006).
+- **Resource fork** delivered as a flat `(type, id)` archive built by
+  `tools/rsrcpack` (ADR-0007).
 
 ## Layer rule
 
