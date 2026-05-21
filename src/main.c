@@ -52,8 +52,7 @@ int main(void)
 	dsp->present();
 	dbg_log("main: present ok");
 
-	for (i = 0; i < 200; i++)
-		Vsync();
+	Crawcin();                              /* hold the plaid until a keypress */
 	dbg_log("main: hold ok");
 
 	dsp->shutdown();

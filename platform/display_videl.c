@@ -6,9 +6,9 @@
  * the Falcon's 256-colour mode is 8 interleaved bitplanes, so present()
  * does a chunky-to-planar conversion onto the screen.
  *
- * init() reads the current screen geometry from line-A and forces that
- * resolution to 8bpp (256 colours) — keeping the timing the desktop
- * already uses, rather than guessing a VIDEL mode word.
+ * init() switches the VIDEL to a native 256-colour mode (the desktop
+ * mode with STMODES cleared and 8 planes / VERTFLAG set) and sizes the
+ * planar screen from VgetSize().
  *
  * First cut — single-buffered, with a naive (correct but slow) c2p. A fast
  * c2p and double-buffering are follow-ups.
@@ -46,9 +46,9 @@ static int videl_init(short want_w, short want_h)
 
 	/* 256 colours needs a VIDEL-native mode: clear STMODES — the
 	 * ST-shifter compatibility flag, which caps at 16 colours — and set
-	 * 8 planes. VERTFLAG line-doubles, so a 200-line buffer fills the
-	 * full raster (without it the VIDEL reads past the buffer). Switch
-	 * first, then read the geometry line-A reports. */
+	 * 8 planes. VERTFLAG selects the 400-line variant. Switch the mode
+	 * first, then size the screen from VgetSize(): line-A's V_Y_MAX
+	 * reports 200 for this mode and can't be trusted for the height. */
 	newmode = (short)((g_save_mode & ~(STMODES | 7)) | BPS8 | VERTFLAG);
 	dbg_log_num("  videl_init: old mode = ", g_save_mode);
 	dbg_log_num("  videl_init: new mode = ", newmode);
@@ -56,10 +56,12 @@ static int videl_init(short want_w, short want_h)
 	VsetMode(newmode);
 	linea0();
 	w = (short)V_X_MAX;
-	h = (short)V_Y_MAX;
-	bytes = (long)w * h;                         /* 8bpp planar: W*H bytes */
-	dbg_log_num("  videl_init: width  = ", w);
-	dbg_log_num("  videl_init: height = ", h);
+	bytes = VgetSize(newmode);                   /* 8bpp planar: W*H bytes */
+	h = (short)(bytes / w);
+	dbg_log_num("  videl_init: width    = ", w);
+	dbg_log_num("  videl_init: height   = ", h);
+	dbg_log_num("  videl_init: bytes    = ", bytes);
+	dbg_log_num("  videl_init: V_Y_MAX  = ", V_Y_MAX);
 
 	g_surface.pixels = malloc((size_t)bytes);
 	if (g_surface.pixels == NULL) {
