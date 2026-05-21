@@ -195,7 +195,10 @@ port's display HAL — ADR-0005.
 **Toolbox init** — `JT[1144]` (CODE 4) is the standard Mac startup:
 `InitGraf` / `InitFonts` / `InitWindows` / `InitMenus` / `TEInit` /
 `InitDialogs` / `FlushEvents`. It then probes the screen depth (`A5-1318`):
-8-bit colour is the target, 1-bit mono a fallback.
+8-bit colour is the target, 1-bit mono a fallback. The seven-trap startup
+prologue is lifted → `compat/toolbox.c` (`toolbox_init()`); the rest of
+`JT[1144]` — screen mode, the window, the colour tables, the menu bar — is
+still to lift.
 
 **Data model — double-buffered pages.** FRUA draws into two offscreen colour
 ports and flips between them:

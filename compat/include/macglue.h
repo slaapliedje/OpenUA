@@ -17,6 +17,7 @@
 /* Per-manager headers, included as they come online. */
 #include "macmemory.h"
 #include "quickdraw.h"
+#include "toolbox.h"
 
 /* Still to come: resources.h, sound.h, files.h, events.h */
 
