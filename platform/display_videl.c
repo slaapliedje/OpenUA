@@ -74,17 +74,23 @@ static int videl_init(short want_w, short want_h)
 	g_save_log  = (void *)Logbase();
 	g_save_phys = (void *)Physbase();
 	VgetRGB(0, 256, g_save_palette);          /* save the desktop palette */
+	dbg_log_num("  videl_init: old mode = ", g_save_mode);
+	dbg_log_num("  videl_init: new mode = ", (g_save_mode & ~7) | BPS8);
 
-	/* Keep the current resolution; force 256 colours (8 planes). */
-	dbg_log("  videl_init: VsetScreen 8bpp");
-	VsetScreen(g_screen, g_screen, -1, (g_save_mode & ~7) | BPS8);
+	/* Switch to 256 colours at the current resolution. VsetMode actually
+	 * changes the mode; VsetScreen with rez -1 only moves the screen base
+	 * (which is why a bare VsetScreen left a 16-colour desktop at 4bpp). */
+	dbg_log("  videl_init: VsetMode 8bpp");
+	VsetMode((g_save_mode & ~7) | BPS8);
+	VsetScreen(g_screen, g_screen, -1, -1);
 	dbg_log("  videl_init: done");
 	return 0;
 }
 
 static void videl_shutdown(void)
 {
-	VsetScreen(g_save_log, g_save_phys, -1, g_save_mode);
+	VsetMode(g_save_mode);                     /* restore the desktop mode  */
+	VsetScreen(g_save_log, g_save_phys, -1, -1);
 	VsetRGB(0, 256, g_save_palette);           /* restore the desktop palette */
 	if (g_screen_raw != NULL) {
 		Mfree(g_screen_raw);
