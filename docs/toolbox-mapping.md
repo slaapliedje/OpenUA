@@ -12,7 +12,7 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 | Color/Palette Mgr   | 256-colour CLUT animation        | HAL `set_palette` → XBIOS `VsetRGB` (Falcon) / `EsetPalette`| planned |
 | Offscreen GWorlds   | Sprite/buffer composition        | 8-bit paletted offscreen surfaces in the shim               | planned |
 | Resource Manager    | `GetResource`, resource fork     | Reader over a flat `(type,id)` archive built by `tools/rsrcpack` (ADR-0007) | planned |
-| Memory Manager      | `NewHandle`/`NewPtr`, `HLock`    | `NewPtr`/`DisposePtr` over the C heap (`compat/macmemory.c`); Handle table still to do | wip |
+| Memory Manager      | `NewHandle`/`NewPtr`, `HLock`    | `NewPtr` and `NewHandle` over the C heap (`compat/macmemory.c`); handles get a stable master pointer — the heap never relocates | done |
 | File Manager        | `FSOpen`/`FSRead`, HFS paths     | GEMDOS `Fopen`/`Fread`/`Fclose` + path translation          | planned |
 | Sound Manager       | `SndPlay`, sound channels        | Falcon DMA sound via XBIOS; YM2149 fallback on TT030        | planned |
 | Event Manager       | `GetNextEvent`, mouse/keyboard   | IKBD + BIOS `Bconin`/`Kbshift`; AES `evnt_multi` in tools   | planned |
