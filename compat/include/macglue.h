@@ -19,8 +19,9 @@
 #include "quickdraw.h"
 #include "toolbox.h"
 #include "windows.h"
+#include "resources.h"
 
-/* Still to come: resources.h, sound.h, files.h, events.h */
+/* Still to come: sound.h, files.h, events.h */
 
 /* Bring up the Toolbox shim. Call once after the platform HAL is
  * initialised and before any engine code runs. Returns 0 on success. */
