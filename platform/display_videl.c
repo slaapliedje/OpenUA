@@ -28,6 +28,7 @@ static unsigned char *g_screen;         /* 256-byte-aligned planar screen */
 static short          g_save_mode;
 static void          *g_save_log;
 static void          *g_save_phys;
+static long           g_save_palette[256];   /* desktop palette, restored on exit */
 
 static int videl_init(short want_w, short want_h)
 {
@@ -72,6 +73,7 @@ static int videl_init(short want_w, short want_h)
 	g_save_mode = VsetMode(-1);
 	g_save_log  = (void *)Logbase();
 	g_save_phys = (void *)Physbase();
+	VgetRGB(0, 256, g_save_palette);          /* save the desktop palette */
 
 	/* Keep the current resolution; force 256 colours (8 planes). */
 	dbg_log("  videl_init: VsetScreen 8bpp");
@@ -83,6 +85,7 @@ static int videl_init(short want_w, short want_h)
 static void videl_shutdown(void)
 {
 	VsetScreen(g_save_log, g_save_phys, -1, g_save_mode);
+	VsetRGB(0, 256, g_save_palette);           /* restore the desktop palette */
 	if (g_screen_raw != NULL) {
 		Mfree(g_screen_raw);
 		g_screen_raw = NULL;
