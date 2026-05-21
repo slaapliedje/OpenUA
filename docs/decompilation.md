@@ -222,7 +222,9 @@ format-and-draw.
 (Toolbox), the offscreen-page setup (`JT[1157]` / `JT[1155]` / `JT[1138]`
 and CODE 5 helpers), and `fc_init`. The `(214,450)` / `(160,400)` numbers
 `main()` passes are the `fc_init` KB sizes, not screen dimensions. Lifted →
-`src/engine/master.c` as `master_init()`.
+`src/engine/master.c` as `master_init()`; its teardown counterpart
+`JT[1081]` — Toolbox shutdown, page teardown, `fc_cleanup` — is lifted there
+too as `master_shutdown()`.
 
 #### Mapping to the port
 
