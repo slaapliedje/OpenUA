@@ -219,8 +219,10 @@ Manager (`NewWindow`, `SizeWindow`, `SelectWindow`, `FrontWindow`,
 format-and-draw.
 
 **Master init** — `JT[1079]` (CODE 5), called by `main()`, runs `JT[1144]`
-(Toolbox), the page setup, and `fc_init`. (The `(214,450)` / `(160,400)`
-numbers `main()` passes are FC buffer KB sizes, not screen dimensions.)
+(Toolbox), the offscreen-page setup (`JT[1157]` / `JT[1155]` / `JT[1138]`
+and CODE 5 helpers), and `fc_init`. The `(214,450)` / `(160,400)` numbers
+`main()` passes are the `fc_init` KB sizes, not screen dimensions. Lifted →
+`src/engine/master.c` as `master_init()`.
 
 #### Mapping to the port
 
