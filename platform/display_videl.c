@@ -44,26 +44,27 @@ static int videl_init(short want_w, short want_h)
 	g_save_phys = (void *)Physbase();
 	VgetRGB(0, 256, g_save_palette);
 
-	/* Width comes from line-A; the depth switch leaves it unchanged. */
-	linea0();
-	w = (short)V_X_MAX;
-
 	/* 256 colours needs a VIDEL-native mode: clear STMODES — the
 	 * ST-shifter compatibility flag, which caps at 16 colours — and set
-	 * 8 planes. VgetSize gives the new screen's byte size; at 8bpp that
-	 * is width*height, so height = bytes / width. */
-	newmode = (short)((g_save_mode & ~(STMODES | 7)) | BPS8);
-	bytes = VgetSize(newmode);
-	h = (short)(bytes / w);
-
+	 * 8 planes. VERTFLAG line-doubles, so a 200-line buffer fills the
+	 * full raster (without it the VIDEL reads past the buffer). Switch
+	 * first, then read the geometry line-A reports. */
+	newmode = (short)((g_save_mode & ~(STMODES | 7)) | BPS8 | VERTFLAG);
 	dbg_log_num("  videl_init: old mode = ", g_save_mode);
 	dbg_log_num("  videl_init: new mode = ", newmode);
-	dbg_log_num("  videl_init: width    = ", w);
-	dbg_log_num("  videl_init: height   = ", h);
+
+	VsetMode(newmode);
+	linea0();
+	w = (short)V_X_MAX;
+	h = (short)V_Y_MAX;
+	bytes = (long)w * h;                         /* 8bpp planar: W*H bytes */
+	dbg_log_num("  videl_init: width  = ", w);
+	dbg_log_num("  videl_init: height = ", h);
 
 	g_surface.pixels = malloc((size_t)bytes);
 	if (g_surface.pixels == NULL) {
 		dbg_log("  videl_init: malloc FAILED");
+		VsetMode(g_save_mode);
 		return -1;
 	}
 	g_surface.width  = w;
@@ -75,15 +76,13 @@ static int videl_init(short want_w, short want_h)
 		dbg_log("  videl_init: Mxalloc FAILED");
 		free(g_surface.pixels);
 		g_surface.pixels = NULL;
+		VsetMode(g_save_mode);
 		return -1;
 	}
 	g_screen_raw = (void *)raw;
 	g_screen = (unsigned char *)((raw + 255) & ~255L);
 
-	/* VsetMode changes the mode; VsetScreen(rez -1) only moves the base. */
-	dbg_log("  videl_init: VsetMode 8bpp");
-	VsetMode(newmode);
-	VsetScreen(g_screen, g_screen, -1, -1);
+	VsetScreen(g_screen, g_screen, -1, -1);      /* point the VIDEL at it */
 	dbg_log("  videl_init: done");
 	return 0;
 }
