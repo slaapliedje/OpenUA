@@ -1,10 +1,12 @@
 /*
  * Mac Window Manager shim — see windows.h.
  *
- * First cut: the window data model, the window list, the lifecycle, b&w /
- * colour windows, and resource-loaded windows (GetNewWindow / GetNewCWindow).
- * The window frame and title bar (drawing) and region-based update events
- * follow with the display HAL — an honest minimal start, the error.c pattern.
+ * First cut: the window data model, the window list, the lifecycle and
+ * geometry, b&w / colour windows, and resource-loaded windows (GetNewWindow
+ * / GetNewCWindow). SizeWindow and MoveWindow act on portRect; the Mac
+ * local/global coordinate split, the structure/content regions, the window
+ * frame and title bar (drawing), and update events follow with the display
+ * HAL — an honest minimal start, the error.c pattern.
  */
 
 #include <stddef.h>             /* NULL, offsetof */
@@ -226,6 +228,45 @@ void SelectWindow(WindowPtr wp)
 	win_unlink(w);
 	win_link(w, WIN_FRONT);
 	w->hilited = 1;
+}
+
+/*
+ * SizeWindow — resize the window's content to width x height.
+ *
+ * Adjusts portRect's bottom-right, keeping its top-left, exactly as the Mac
+ * does. The structure/content regions and, when `fUpdate` is set, the
+ * exposed-area update region follow with the display HAL.
+ */
+void SizeWindow(WindowPtr wp, short width, short height, Boolean fUpdate)
+{
+	WindowPeek w = (WindowPeek)wp;
+
+	(void)fUpdate;
+	if (w == NULL)
+		return;
+	w->port.portRect.right  = (short)(w->port.portRect.left + width);
+	w->port.portRect.bottom = (short)(w->port.portRect.top + height);
+}
+
+/*
+ * MoveWindow — move the window so its content top-left is at (h, v), and
+ * bring it to the front when `front` is set.
+ *
+ * First cut: the move offsets portRect. The Mac keeps portRect in local
+ * coordinates and repositions the window through its regions and the
+ * screen-map offset — that local/global split arrives with the display HAL.
+ */
+void MoveWindow(WindowPtr wp, short h, short v, Boolean front)
+{
+	WindowPeek w = (WindowPeek)wp;
+	Rect      *r;
+
+	if (w == NULL)
+		return;
+	r = &w->port.portRect;
+	OffsetRect(r, (short)(h - r->left), (short)(v - r->top));
+	if (front)
+		SelectWindow(wp);
 }
 
 WindowPtr FrontWindow(void)
