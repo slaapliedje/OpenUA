@@ -10,12 +10,28 @@ TOS/GEM/XBIOS and rebuilding the display and sound paths.
 
 ## Status
 
-Early development. `make` builds `frua.prg` — currently a VIDEL display
-backend demo (`make run` boots it in Hatari). Lifted/built so far: the
-file-cache subsystem and assorted engine utilities (`src/engine/`), the
-start of the Mac Memory Manager and QuickDraw shims (`compat/`), and the
-Falcon VIDEL display backend (`platform/`). The decompilation tooling and
-the subsystem maps are under `tools/` and `docs/`.
+Early development. `make` builds `frua.prg`; it is still a VIDEL
+display-backend demo — `make run` boots it in Hatari — as the decompiled
+engine is not yet wired as the entry point. Built so far:
+
+- **Display** (`platform/`) — the Falcon VIDEL 256-colour backend: mode
+  switch, chunky-to-planar conversion, palette; verified in Hatari.
+- **Engine** (`src/engine/`) — lifted from the Mac `CODE` segments: the
+  application bootstrap (`ua_main`), core init, the master init/shutdown,
+  the file-cache subsystem, and the allocator / string / RNG / error
+  helpers. Not-yet-lifted callees are no-op stubs that mark the frontier.
+- **Toolbox shim** (`compat/`) — the Memory Manager (`Ptr` and relocatable
+  `Handle`) is complete; QuickDraw has the geometry core, the `GrafPort` /
+  `CGrafPort` types and `NewPixMap`; the Window Manager creates b&w, colour
+  and resource-loaded windows; the Resource Manager reads the flat FRSC
+  archive; the Toolbox-startup traps are stubbed.
+- **Tooling** (`tools/`) — the `dis68k.py` decompiler, the resource-fork
+  extractors, and `rsrcpack` (Mac fork → FRSC archive), with a host test
+  suite (`make test`).
+
+Drawing (QuickDraw primitives onto the HAL surface), sound, events and the
+File Manager are the main pieces still ahead; `docs/` has the subsystem
+maps and the lifting workflow.
 
 ## Approach
 
@@ -39,6 +55,7 @@ GCC cross toolchain on `PATH` (override the prefix with `make CROSS=`).
 make            # build frua.prg (soft-float; runs on Falcon030 and TT030)
 make FPU=1      # FPU-required variant tuned for the TT030
 make run        # boot the build in the Hatari emulator (Falcon mode)
+make test       # host-side test suite (pytest over tools/)
 make clean      # remove build output
 ```
 
@@ -50,6 +67,7 @@ compat/     Mac Toolbox compatibility shim
 platform/   Atari hardware abstraction layer
 toolchain/  cross-toolchain configuration
 tools/      host-side extractors / converters
+tests/      host-side test suite
 docs/       architecture, decisions, Toolbox mapping
 data/       original FRUA assets (git-ignored)
 ```
