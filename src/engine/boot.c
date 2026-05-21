@@ -58,7 +58,6 @@ static void  jt445(void)                           { }            /* CODE 3 + 0x
 static void  jt415(short a)                        { }            /* CODE 3 + 0x37da */
 static void  jt1129(short a)                       { }            /* CODE 4 + 0x4756 */
 static void  jt1130(void)                          { }            /* CODE 4 + 0x61f6 */
-static void  jt1081(void)                          { }            /* CODE 5 + 0x0062 */
 static void  jt1009(short a, short b)              { }            /* CODE 5 + 0x0a34 */
 static void  jt977(void)                           { }            /* CODE 5 + 0x0aaa */
 static void  jt989(void (*handler)(void), short flag, const char *name, short code) { }
@@ -165,7 +164,7 @@ int ua_main(short arg1, long arg2)
 	if (ua_strcmp(ua_get_string(2), "Heart") == 0)
 		fc_dump(0L);
 	l5ac0();
-	jt1081();
+	master_shutdown();
 	jt415(0);
 	return 0;
 }

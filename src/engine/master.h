@@ -1,8 +1,9 @@
 /*
- * FRUA master init — see master.c.
+ * FRUA master init / shutdown — see master.c.
  *
- * Lifted from CODE 5 + 0x4 (jump-table entry 1079): the Toolbox + display +
- * file-cache bring-up that main() runs once the screen mode is chosen.
+ * Lifted from CODE 5 (jump-table entries 1079 and 1081): the Toolbox +
+ * display + file-cache bring-up main() runs once the screen mode is chosen,
+ * and its matching teardown.
  */
 
 #ifndef ENGINE_MASTER_H
@@ -14,5 +15,11 @@
  * passed through from ua_main; their meaning is still to be traced.
  */
 void master_init(short arg1, long arg2, short kb_min, short kb_max);
+
+/*
+ * Tear the application back down — the teardown counterpart of master_init:
+ * Mac Toolbox shutdown, the offscreen pages, and fc_cleanup.
+ */
+void master_shutdown(void);
 
 #endif /* ENGINE_MASTER_H */
