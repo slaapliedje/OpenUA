@@ -11,7 +11,7 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 | QuickDraw           | All drawing, `CopyBits`, regions | Geometry core, the `GrafPort` / `CGrafPort` and Color QuickDraw types, `NewPixMap`, and `GetPort`/`SetPort` in `compat/quickdraw.c`; drawing awaits the display HAL | wip |
 | Color/Palette Mgr   | 256-colour CLUT animation        | HAL `set_palette` → XBIOS `VsetRGB` (Falcon) / `EsetPalette`| planned |
 | Offscreen GWorlds   | Sprite/buffer composition        | 8-bit paletted offscreen surfaces in the shim               | planned |
-| Resource Manager    | `GetResource`, resource fork     | Reader over a flat `(type,id)` archive built by `tools/rsrcpack` (ADR-0007) | planned |
+| Resource Manager    | `GetResource`, resource fork     | FRSC-archive reader in `compat/resources.c` — `GetResource` etc. over the `(type,id)` archive; `rsrcpack` (the packer) still to build | wip |
 | Memory Manager      | `NewHandle`/`NewPtr`, `HLock`    | `NewPtr` and `NewHandle` over the C heap (`compat/macmemory.c`); handles get a stable master pointer — the heap never relocates | done |
 | File Manager        | `FSOpen`/`FSRead`, HFS paths     | GEMDOS `Fopen`/`Fread`/`Fclose` + path translation          | planned |
 | Sound Manager       | `SndPlay`, sound channels        | Falcon DMA sound via XBIOS; YM2149 fallback on TT030        | planned |
