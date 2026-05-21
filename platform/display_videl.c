@@ -32,24 +32,36 @@ static long           g_save_palette[256];   /* desktop palette, restored on exi
 
 static int videl_init(short want_w, short want_h)
 {
-	short w, h;
-	long  size, raw;
+	short w, h, newmode;
+	long  bytes, raw;
 
 	(void)want_w;
 	(void)want_h;
 
-	/* Current screen geometry, straight from line-A — V_X_MAX / V_Y_MAX
-	 * are the pixel dimensions (planar video needs width % 16 == 0). */
+	/* Save the current mode, screen base, and palette for shutdown. */
+	g_save_mode = VsetMode(-1);
+	g_save_log  = (void *)Logbase();
+	g_save_phys = (void *)Physbase();
+	VgetRGB(0, 256, g_save_palette);
+
+	/* Width comes from line-A; the depth switch leaves it unchanged. */
 	linea0();
 	w = (short)V_X_MAX;
-	h = (short)V_Y_MAX;
-	dbg_log_num("  videl_init: width  = ", w);
-	dbg_log_num("  videl_init: height = ", h);
 
-	size = (long)w * h;                          /* 8bpp planar: W*H bytes */
+	/* 256 colours needs a VIDEL-native mode: clear STMODES — the
+	 * ST-shifter compatibility flag, which caps at 16 colours — and set
+	 * 8 planes. VgetSize gives the new screen's byte size; at 8bpp that
+	 * is width*height, so height = bytes / width. */
+	newmode = (short)((g_save_mode & ~(STMODES | 7)) | BPS8);
+	bytes = VgetSize(newmode);
+	h = (short)(bytes / w);
 
-	dbg_log("  videl_init: malloc chunky surface");
-	g_surface.pixels = malloc((size_t)size);
+	dbg_log_num("  videl_init: old mode = ", g_save_mode);
+	dbg_log_num("  videl_init: new mode = ", newmode);
+	dbg_log_num("  videl_init: width    = ", w);
+	dbg_log_num("  videl_init: height   = ", h);
+
+	g_surface.pixels = malloc((size_t)bytes);
 	if (g_surface.pixels == NULL) {
 		dbg_log("  videl_init: malloc FAILED");
 		return -1;
@@ -58,8 +70,7 @@ static int videl_init(short want_w, short want_h)
 	g_surface.height = h;
 	g_surface.pitch  = w;
 
-	dbg_log("  videl_init: Mxalloc screen");
-	raw = Mxalloc(size + 256, 0);                /* 0 = ST-RAM */
+	raw = Mxalloc(bytes + 256, 0);               /* 0 = ST-RAM */
 	if (raw <= 0) {
 		dbg_log("  videl_init: Mxalloc FAILED");
 		free(g_surface.pixels);
@@ -69,19 +80,9 @@ static int videl_init(short want_w, short want_h)
 	g_screen_raw = (void *)raw;
 	g_screen = (unsigned char *)((raw + 255) & ~255L);
 
-	dbg_log("  videl_init: VsetMode inquire");
-	g_save_mode = VsetMode(-1);
-	g_save_log  = (void *)Logbase();
-	g_save_phys = (void *)Physbase();
-	VgetRGB(0, 256, g_save_palette);          /* save the desktop palette */
-	dbg_log_num("  videl_init: old mode = ", g_save_mode);
-	dbg_log_num("  videl_init: new mode = ", (g_save_mode & ~7) | BPS8);
-
-	/* Switch to 256 colours at the current resolution. VsetMode actually
-	 * changes the mode; VsetScreen with rez -1 only moves the screen base
-	 * (which is why a bare VsetScreen left a 16-colour desktop at 4bpp). */
+	/* VsetMode changes the mode; VsetScreen(rez -1) only moves the base. */
 	dbg_log("  videl_init: VsetMode 8bpp");
-	VsetMode((g_save_mode & ~7) | BPS8);
+	VsetMode(newmode);
 	VsetScreen(g_screen, g_screen, -1, -1);
 	dbg_log("  videl_init: done");
 	return 0;
