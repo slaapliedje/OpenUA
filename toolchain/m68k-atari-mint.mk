@@ -23,7 +23,9 @@ ifeq ($(FPU),1)
   CPU := -m68020-60 -m68881
 endif
 
-WARN := -Wall -Wextra -Wno-unused-parameter
+# -Wno-multichar: Mac code uses 4-character type codes ('WIND', 'DLOG', ...);
+# they are well-defined on the port's single big-endian 68k target.
+WARN := -Wall -Wextra -Wno-unused-parameter -Wno-multichar
 OPT  ?= -O2 -g
 STD  := -std=gnu99
 
