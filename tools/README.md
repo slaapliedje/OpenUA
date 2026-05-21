@@ -15,6 +15,7 @@ Most tools are pure standard library; `hfs_extract.py` needs `machfs`, and
 | `appledouble.py` | --              | Extract a fork from AppleSingle/Double.|
 | `rsrc_list.py`   | --              | List a Mac resource fork's contents.   |
 | `dis68k.py`      | objdump         | Disassemble & annotate the CODE segments. |
+| `rsrcpack.py`    | --              | Pack a resource fork into the FRSC archive. |
 
 `macrsrc.py` (resource-fork reader) and `mactraps.py` (A-line trap names) are
 shared modules, imported by the tools above rather than run directly.
@@ -36,13 +37,12 @@ fixtures, so it needs no real game data; run it with `make test`.
 
 ## rsrcpack
 
-Extracts the Mac resource fork and packs it into the flat archive the
-Resource Manager shim reads at runtime (ADR-0007). Not yet implemented; its
-reader half already exists as `rsrc_list.py`, and `appledouble.py` handles
-unwrapping the fork from AppleDouble upstream.
+`rsrcpack.py` packs a Mac resource fork into the flat FRSC archive the
+Resource Manager shim (`compat/resources.c`) reads at runtime (ADR-0007).
+`appledouble.py` unwraps the fork from an AppleDouble file upstream.
 
 ```
-rsrcpack <resource-fork> -o frua.rsrc
+rsrcpack.py <resource-fork> -o frua.rsrc
 ```
 
 ## FRSC archive format
