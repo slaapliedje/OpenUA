@@ -52,4 +52,10 @@ void fc_cleanup(void);
  */
 short fc_read(char *dst, short n);
 
+/*
+ * Diagnostic dump of the file-group table — jump-table entry 458. A no-op
+ * stub until the display subsystem is lifted; see fc.c.
+ */
+void fc_dump(long need);
+
 #endif /* ENGINE_FC_H */

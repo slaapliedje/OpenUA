@@ -172,7 +172,7 @@ static long fc_buffer_query(short arg)
  * now it is a no-op — fc_ensure_space still reports the condition via
  * ua_error.
  */
-static void fc_dump(long need)
+void fc_dump(long need)
 {
 	(void)need;
 }

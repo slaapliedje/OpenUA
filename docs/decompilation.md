@@ -110,8 +110,11 @@ None of `CODE 1` is ported as engine code. It becomes the ordinary C runtime
    `_UnLoadSeg`s transient segments (CODE 2, 8, 9, 11, 12, 20, 21, 22),
    looping on `JT[315]`.
 
-`main()` runs to ~`0x1194`; the event loop is in another segment, reached by
-a call out — `CODE 6` itself has no event traps.
+`main()` runs `0x58a`–`0x7da`. Lifted → `src/engine/boot.c` as `ua_main()`:
+the roll-call and every `_LoadSeg` / `_UnLoadSeg` collapse — a flat
+executable has no segments to page — leaving the real control flow. The ~29
+routines `main()` calls that are not lifted yet are no-op stubs in `boot.c`,
+each tagged with its CODE location: the runtime port's to-do list.
 
 Frequently-called shared routines, worth naming early when lifting:
 
