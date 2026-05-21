@@ -1,10 +1,10 @@
 /*
- * Mac QuickDraw shim — geometry core and the current-port machinery
+ * Mac QuickDraw shim — geometry, the current port, PixMaps, and regions
  * (ADR-0003).
  *
- * The Point and rectangle calculations, implemented to the Inside Macintosh
- * semantics, and GetPort / SetPort. These are pure — no drawing target — so
- * they stand alone ahead of the display HAL.
+ * The Point and rectangle calculations (to the Inside Macintosh semantics),
+ * GetPort / SetPort, NewPixMap, and the rectangular-region facility. These
+ * carry no drawing target, so they stand alone ahead of the display HAL.
  */
 
 #include <stddef.h>             /* offsetof */
@@ -157,6 +157,45 @@ void DisposePixMap(PixMapHandle pm)
 	DisposeHandle((Handle)pm);
 }
 
+/* --- regions (rectangular) ---
+ *
+ * The shim's regions are rectangular — a region is its bounding box. NewRgn
+ * allocates one as a relocatable block; the box lives in rgnBBox.
+ */
+
+RgnHandle NewRgn(void)
+{
+	RgnHandle rgn = (RgnHandle)NewHandle((Size)sizeof(Region));
+
+	if (rgn != NULL) {
+		(*rgn)->rgnSize = (short)sizeof(Region);
+		SetRect(&(*rgn)->rgnBBox, 0, 0, 0, 0);
+	}
+	return rgn;
+}
+
+void DisposeRgn(RgnHandle rgn)
+{
+	DisposeHandle((Handle)rgn);
+}
+
+void SetEmptyRgn(RgnHandle rgn)
+{
+	if (rgn != NULL)
+		SetRect(&(*rgn)->rgnBBox, 0, 0, 0, 0);
+}
+
+void RectRgn(RgnHandle rgn, const Rect *r)
+{
+	if (rgn != NULL)
+		(*rgn)->rgnBBox = *r;
+}
+
+Boolean EmptyRgn(RgnHandle rgn)
+{
+	return (Boolean)(rgn == NULL || EmptyRect(&(*rgn)->rgnBBox));
+}
+
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
 typedef char qd_assert_grafport_size[sizeof(GrafPort) == 108 ? 1 : -1];
 typedef char qd_assert_portrect_off[offsetof(GrafPort, portRect) == 16 ? 1 : -1];
@@ -169,3 +208,4 @@ typedef char qd_assert_pixmap[sizeof(PixMap) == 50 ? 1 : -1];
 typedef char qd_assert_pixpat[sizeof(PixPat) == 28 ? 1 : -1];
 typedef char qd_assert_rgbcolor[sizeof(RGBColor) == 6 ? 1 : -1];
 typedef char qd_assert_colorspec[sizeof(ColorSpec) == 8 ? 1 : -1];
+typedef char qd_assert_region[sizeof(Region) == 10 ? 1 : -1];

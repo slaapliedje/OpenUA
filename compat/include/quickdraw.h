@@ -9,10 +9,10 @@
  *
  * Here so far: the geometry core (Point, Rect, the rect utilities), the
  * GrafPort and the Color QuickDraw types (CGrafPort, PixMap, ColorTable,
- * ...), NewPixMap, and the current-port machinery (GetPort / SetPort). The
- * drawing calls (MoveTo/LineTo, Pen*, PaintRect, CopyBits, ...) arrive with
- * the display HAL backend — see docs/decompilation.md, the Display
- * subsystem.
+ * ...), NewPixMap, rectangular regions, and the current-port machinery
+ * (GetPort / SetPort). The drawing calls (MoveTo/LineTo, Pen*, PaintRect,
+ * CopyBits, ...) arrive with the display HAL backend — see
+ * docs/decompilation.md, the Display subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -49,7 +49,18 @@ void    Pt2Rect(Point pt1, Point pt2, Rect *dst);
 
 typedef long          Fixed;            /* 16.16 fixed-point         */
 typedef unsigned char Style;            /* a QuickDraw text-style set */
-typedef Handle        RgnHandle;        /* a region — opaque for now  */
+
+/*
+ * Region — the shim's regions are rectangular: a region is its bounding
+ * box. A Macintosh Region can carry an arbitrary shape after rgnBBox; the
+ * shim does not, so rgnSize is always 10.
+ */
+typedef struct Region {
+	short rgnSize;                  /* 10 — a rectangular region */
+	Rect  rgnBBox;                  /* the bounding box          */
+} Region;
+
+typedef Region **RgnHandle;
 
 typedef struct {
 	unsigned char pat[8];           /* an 8x8 one-bit pattern */
@@ -207,6 +218,13 @@ typedef CGrafPort *CGrafPtr;
  */
 PixMapHandle NewPixMap(void);
 void         DisposePixMap(PixMapHandle pm);
+
+/* --- regions (rectangular) --- */
+RgnHandle NewRgn(void);                 /* allocate an empty region   */
+void      DisposeRgn(RgnHandle rgn);
+void      SetEmptyRgn(RgnHandle rgn);   /* make a region empty        */
+void      RectRgn(RgnHandle rgn, const Rect *r);   /* set it to `r`   */
+Boolean   EmptyRgn(RgnHandle rgn);      /* is the region empty?       */
 
 /* The current port — QuickDraw draws into whichever port is current. */
 void GetPort(GrafPtr *port);
