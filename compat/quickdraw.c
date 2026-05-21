@@ -109,3 +109,12 @@ void SetPort(GrafPtr port)
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
 typedef char qd_assert_grafport_size[sizeof(GrafPort) == 108 ? 1 : -1];
 typedef char qd_assert_portrect_off[offsetof(GrafPort, portRect) == 16 ? 1 : -1];
+
+/* The Color QuickDraw structs must match their Macintosh layouts too — and
+ * CGrafPort must be GrafPort's size, with portRect at the same offset. */
+typedef char qd_assert_cgrafport[sizeof(CGrafPort) == 108 ? 1 : -1];
+typedef char qd_assert_cport_rect[offsetof(CGrafPort, portRect) == 16 ? 1 : -1];
+typedef char qd_assert_pixmap[sizeof(PixMap) == 50 ? 1 : -1];
+typedef char qd_assert_pixpat[sizeof(PixPat) == 28 ? 1 : -1];
+typedef char qd_assert_rgbcolor[sizeof(RGBColor) == 6 ? 1 : -1];
+typedef char qd_assert_colorspec[sizeof(ColorSpec) == 8 ? 1 : -1];

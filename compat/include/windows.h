@@ -7,12 +7,11 @@
  * exact Macintosh WindowRecord layout, so the engine's by-offset accesses
  * port unchanged.
  *
- * Here so far: the window record, the window list, and the lifecycle
- * (NewWindow / DisposeWindow / ShowWindow / HideWindow / SelectWindow /
- * FrontWindow). Window drawing (the frame, the title bar), the colour
- * CGrafPort variant (NewCWindow), region-based updates, and resource-loaded
- * windows (GetNewWindow) follow with the display HAL — see
- * docs/toolbox-mapping.md.
+ * Here so far: the window record, the window list, the lifecycle (NewWindow
+ * / DisposeWindow / ShowWindow / HideWindow / SelectWindow / FrontWindow),
+ * and colour windows (NewCWindow). Window drawing (the frame, the title
+ * bar), region-based updates, and resource-loaded windows (GetNewWindow)
+ * follow with the display HAL — see docs/toolbox-mapping.md.
  */
 
 #ifndef COMPAT_WINDOWS_H
@@ -60,6 +59,11 @@ typedef WindowRecord  *WindowPeek;      /* the whole record    */
 WindowPtr NewWindow(void *wStorage, const Rect *boundsRect,
                     ConstStr255Param title, Boolean visible, short procID,
                     WindowPtr behind, Boolean goAwayFlag, long refCon);
+
+/* As NewWindow, but the window's port slot is a colour CGrafPort. */
+WindowPtr NewCWindow(void *wStorage, const Rect *boundsRect,
+                     ConstStr255Param title, Boolean visible, short procID,
+                     WindowPtr behind, Boolean goAwayFlag, long refCon);
 
 void      DisposeWindow(WindowPtr w);   /* unlink and free            */
 void      ShowWindow(WindowPtr w);      /* make visible               */
