@@ -15,3 +15,23 @@ void dbg_log(const char *msg)
 	Cconws(msg);
 	Cconws("\r\n");
 }
+
+void dbg_log_num(const char *label, long value)
+{
+	char          buf[12];
+	short         i = 11;
+	short         neg = (value < 0);
+	unsigned long u = neg ? (unsigned long)-value : (unsigned long)value;
+
+	buf[i--] = '\0';
+	do {
+		buf[i--] = (char)('0' + (short)(u % 10));
+		u /= 10;
+	} while (u != 0);
+	if (neg)
+		buf[i--] = '-';
+
+	Cconws(label);
+	Cconws(&buf[i + 1]);
+	Cconws("\r\n");
+}

@@ -6,27 +6,21 @@
  * the Falcon's 256-colour mode is 8 interleaved bitplanes, so present()
  * does a chunky-to-planar conversion onto the screen.
  *
- * First cut — single-buffered, fixed 320x240, with a naive (correct but
- * slow) c2p. Two things still want verification on Hatari/Falcon: the
- * VIDEL_MODE word (VGA assumed; RGB/TV monitors not handled), and the c2p
- * itself. A fast c2p and true double-buffering are follow-ups.
+ * init() reads the current screen geometry from line-A and forces that
+ * resolution to 8bpp (256 colours) — keeping the timing the desktop
+ * already uses, rather than guessing a VIDEL mode word.
+ *
+ * First cut — single-buffered, with a naive (correct but slow) c2p. A fast
+ * c2p and double-buffering are follow-ups.
  */
 
 #include <mint/osbind.h>
 #include <mint/falcon.h>
+#include <mint/linea.h>
 #include <stdlib.h>
 
 #include "display.h"
 #include "dbglog.h"
-
-#define VIDEL_W     320
-#define VIDEL_H     240
-
-/*
- * VIDEL mode word: VGA monitor, 256 colours (8 planes), 320 px wide.
- * TODO: verify the exact bits on target; handle RGB and TV monitors.
- */
-#define VIDEL_MODE  (VGA | VERTFLAG | BPS8)
 
 static dsp_surface_t  g_surface;
 static void          *g_screen_raw;     /* the Mxalloc'd block            */
@@ -37,11 +31,21 @@ static void          *g_save_phys;
 
 static int videl_init(short want_w, short want_h)
 {
-	long size = (long)VIDEL_W * VIDEL_H;        /* 8bpp planar: W*H bytes */
-	long raw;
+	short w, h;
+	long  size, raw;
 
 	(void)want_w;
 	(void)want_h;
+
+	/* Current screen geometry, straight from line-A — V_X_MAX / V_Y_MAX
+	 * are the pixel dimensions (planar video needs width % 16 == 0). */
+	linea0();
+	w = (short)V_X_MAX;
+	h = (short)V_Y_MAX;
+	dbg_log_num("  videl_init: width  = ", w);
+	dbg_log_num("  videl_init: height = ", h);
+
+	size = (long)w * h;                          /* 8bpp planar: W*H bytes */
 
 	dbg_log("  videl_init: malloc chunky surface");
 	g_surface.pixels = malloc((size_t)size);
@@ -49,9 +53,9 @@ static int videl_init(short want_w, short want_h)
 		dbg_log("  videl_init: malloc FAILED");
 		return -1;
 	}
-	g_surface.width  = VIDEL_W;
-	g_surface.height = VIDEL_H;
-	g_surface.pitch  = VIDEL_W;
+	g_surface.width  = w;
+	g_surface.height = h;
+	g_surface.pitch  = w;
 
 	dbg_log("  videl_init: Mxalloc screen");
 	raw = Mxalloc(size + 256, 0);                /* 0 = ST-RAM */
@@ -66,12 +70,12 @@ static int videl_init(short want_w, short want_h)
 
 	dbg_log("  videl_init: VsetMode inquire");
 	g_save_mode = VsetMode(-1);
-	dbg_log("  videl_init: Logbase / Physbase");
 	g_save_log  = (void *)Logbase();
 	g_save_phys = (void *)Physbase();
 
-	dbg_log("  videl_init: VsetScreen");
-	VsetScreen(g_screen, g_screen, -1, VIDEL_MODE);
+	/* Keep the current resolution; force 256 colours (8 planes). */
+	dbg_log("  videl_init: VsetScreen 8bpp");
+	VsetScreen(g_screen, g_screen, -1, (g_save_mode & ~7) | BPS8);
 	dbg_log("  videl_init: done");
 	return 0;
 }
@@ -101,11 +105,13 @@ static void videl_present(void)
 {
 	const unsigned char *src = g_surface.pixels;
 	unsigned char       *row = g_screen;
+	short w = g_surface.width;
+	short h = g_surface.height;
 	short y, g, p, b;
 
 	Vsync();
-	for (y = 0; y < VIDEL_H; y++) {
-		for (g = 0; g < VIDEL_W / 16; g++) {
+	for (y = 0; y < h; y++) {
+		for (g = 0; g < w / 16; g++) {
 			unsigned short *pw = (unsigned short *)(row + g * 16);
 			unsigned short  plane[8];
 
@@ -121,7 +127,7 @@ static void videl_present(void)
 				pw[b] = plane[b];
 		}
 		src += g_surface.pitch;
-		row += VIDEL_W;                  /* 8bpp planar rowbytes == width */
+		row += w;                        /* 8bpp planar rowbytes == width */
 	}
 }
 
