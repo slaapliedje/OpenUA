@@ -7,11 +7,12 @@
  * exact Macintosh WindowRecord layout, so the engine's by-offset accesses
  * port unchanged.
  *
- * Here so far: the window record, the window list, the lifecycle (NewWindow
- * / DisposeWindow / ShowWindow / HideWindow / SelectWindow / FrontWindow),
- * colour windows (NewCWindow), and resource-loaded windows (GetNewWindow /
- * GetNewCWindow). Window drawing (the frame, the title bar) and region-based
- * updates follow with the display HAL — see docs/toolbox-mapping.md.
+ * Here so far: the window record, the window list, the window lifecycle and
+ * geometry (NewWindow, DisposeWindow, ShowWindow, HideWindow, SelectWindow,
+ * SizeWindow, MoveWindow, FrontWindow), colour windows (NewCWindow), and
+ * resource-loaded windows (GetNewWindow / GetNewCWindow). Window drawing
+ * (the frame, the title bar) and region-based updates follow with the
+ * display HAL — see docs/toolbox-mapping.md.
  */
 
 #ifndef COMPAT_WINDOWS_H
@@ -75,6 +76,9 @@ void      DisposeWindow(WindowPtr w);   /* unlink and free            */
 void      ShowWindow(WindowPtr w);      /* make visible               */
 void      HideWindow(WindowPtr w);      /* make invisible             */
 void      SelectWindow(WindowPtr w);    /* bring to the front, hilite */
+void      SizeWindow(WindowPtr w, short width, short height,
+                     Boolean fUpdate);  /* resize the content         */
+void      MoveWindow(WindowPtr w, short h, short v, Boolean front);
 WindowPtr FrontWindow(void);            /* the frontmost visible window */
 
 #endif /* COMPAT_WINDOWS_H */
