@@ -1,10 +1,10 @@
 /*
  * Mac Window Manager shim — see windows.h.
  *
- * First cut: the window data model, the front-to-back window list, the
- * lifecycle, and b&w / colour windows. The window frame and title bar
- * (drawing) and region-based update events follow with the display HAL —
- * an honest minimal start, the error.c pattern.
+ * First cut: the window data model, the window list, the lifecycle, b&w /
+ * colour windows, and resource-loaded windows (GetNewCWindow). The window
+ * frame and title bar (drawing) and region-based update events follow with
+ * the display HAL — an honest minimal start, the error.c pattern.
  */
 
 #include <stddef.h>             /* NULL, offsetof */
@@ -12,6 +12,7 @@
 
 #include "windows.h"
 #include "macmemory.h"          /* NewPtr, DisposePtr */
+#include "resources.h"          /* GetResource        */
 
 /* The window list: head = frontmost; WindowRecord.nextWindow chains back. */
 static WindowPeek g_window_list;
@@ -121,6 +122,50 @@ WindowPtr NewCWindow(void *wStorage, const Rect *boundsRect,
 	(void)procID;
 	return win_new(wStorage, boundsRect, visible, behind, goAwayFlag,
 	               refCon, 1);
+}
+
+/* Big-endian 16-/32-bit fields of a resource body. */
+static unsigned short wind_be16(const unsigned char *p)
+{
+	return (unsigned short)(((unsigned)p[0] << 8) | p[1]);
+}
+
+static unsigned long wind_be32(const unsigned char *p)
+{
+	return ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
+	     | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
+}
+
+/*
+ * GetNewCWindow — create a colour window from a 'WIND' resource.
+ *
+ * The 'WIND' resource is the boundsRect (8 bytes), the procID (a word), the
+ * visible and goAway flags (a 2-byte field each — nonzero means set), the
+ * refCon (a long), and the title (a Pascal string); NewCWindow does the
+ * rest. The title pointer is into the resource body, which NewCWindow does
+ * not retain.
+ */
+WindowPtr GetNewCWindow(short windowID, void *wStorage, WindowPtr behind)
+{
+	Handle               wind = GetResource('WIND', windowID);
+	const unsigned char *p;
+	Rect                 bounds;
+
+	if (wind == NULL || *wind == NULL)
+		return NULL;
+	p = (const unsigned char *)*wind;
+
+	bounds.top    = (short)wind_be16(p + 0);
+	bounds.left   = (short)wind_be16(p + 2);
+	bounds.bottom = (short)wind_be16(p + 4);
+	bounds.right  = (short)wind_be16(p + 6);
+
+	return NewCWindow(wStorage, &bounds, p + 18,
+	                  (Boolean)(wind_be16(p + 10) != 0),  /* visible */
+	                  (short)wind_be16(p + 8),            /* procID  */
+	                  behind,
+	                  (Boolean)(wind_be16(p + 12) != 0),  /* goAway  */
+	                  (long)wind_be32(p + 14));           /* refCon  */
 }
 
 void DisposeWindow(WindowPtr wp)

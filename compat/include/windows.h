@@ -9,9 +9,9 @@
  *
  * Here so far: the window record, the window list, the lifecycle (NewWindow
  * / DisposeWindow / ShowWindow / HideWindow / SelectWindow / FrontWindow),
- * and colour windows (NewCWindow). Window drawing (the frame, the title
- * bar), region-based updates, and resource-loaded windows (GetNewWindow)
- * follow with the display HAL — see docs/toolbox-mapping.md.
+ * colour windows (NewCWindow), and resource-loaded windows (GetNewCWindow).
+ * Window drawing (the frame, the title bar) and region-based updates follow
+ * with the display HAL — see docs/toolbox-mapping.md.
  */
 
 #ifndef COMPAT_WINDOWS_H
@@ -64,6 +64,9 @@ WindowPtr NewWindow(void *wStorage, const Rect *boundsRect,
 WindowPtr NewCWindow(void *wStorage, const Rect *boundsRect,
                      ConstStr255Param title, Boolean visible, short procID,
                      WindowPtr behind, Boolean goAwayFlag, long refCon);
+
+/* Create a colour window from the 'WIND' resource with id `windowID`. */
+WindowPtr GetNewCWindow(short windowID, void *wStorage, WindowPtr behind);
 
 void      DisposeWindow(WindowPtr w);   /* unlink and free            */
 void      ShowWindow(WindowPtr w);      /* make visible               */
