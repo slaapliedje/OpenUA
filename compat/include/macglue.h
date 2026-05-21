@@ -18,6 +18,7 @@
 #include "macmemory.h"
 #include "quickdraw.h"
 #include "toolbox.h"
+#include "windows.h"
 
 /* Still to come: resources.h, sound.h, files.h, events.h */
 

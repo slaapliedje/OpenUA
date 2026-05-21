@@ -1,10 +1,13 @@
 /*
- * Mac QuickDraw shim — geometry core (ADR-0003).
+ * Mac QuickDraw shim — geometry core and the current-port machinery
+ * (ADR-0003).
  *
  * The Point and rectangle calculations, implemented to the Inside Macintosh
- * semantics. These are pure — no drawing target — so they stand alone ahead
- * of the display HAL.
+ * semantics, and GetPort / SetPort. These are pure — no drawing target — so
+ * they stand alone ahead of the display HAL.
  */
+
+#include <stddef.h>             /* offsetof */
 
 #include "quickdraw.h"
 
@@ -88,3 +91,21 @@ void Pt2Rect(Point pt1, Point pt2, Rect *dst)
 	dst->bottom = pt1.v > pt2.v ? pt1.v : pt2.v;
 	dst->right  = pt1.h > pt2.h ? pt1.h : pt2.h;
 }
+
+/* --- the current port --- */
+
+static GrafPtr g_thePort;       /* QuickDraw's current drawing port */
+
+void GetPort(GrafPtr *port)
+{
+	*port = g_thePort;
+}
+
+void SetPort(GrafPtr port)
+{
+	g_thePort = port;
+}
+
+/* The GrafPort must be the exact 108-byte Macintosh layout. */
+typedef char qd_assert_grafport_size[sizeof(GrafPort) == 108 ? 1 : -1];
+typedef char qd_assert_portrect_off[offsetof(GrafPort, portRect) == 16 ? 1 : -1];
