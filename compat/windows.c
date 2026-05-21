@@ -2,9 +2,9 @@
  * Mac Window Manager shim — see windows.h.
  *
  * First cut: the window data model, the window list, the lifecycle, b&w /
- * colour windows, and resource-loaded windows (GetNewCWindow). The window
- * frame and title bar (drawing) and region-based update events follow with
- * the display HAL — an honest minimal start, the error.c pattern.
+ * colour windows, and resource-loaded windows (GetNewWindow / GetNewCWindow).
+ * The window frame and title bar (drawing) and region-based update events
+ * follow with the display HAL — an honest minimal start, the error.c pattern.
  */
 
 #include <stddef.h>             /* NULL, offsetof */
@@ -137,19 +137,23 @@ static unsigned long wind_be32(const unsigned char *p)
 }
 
 /*
- * GetNewCWindow — create a colour window from a 'WIND' resource.
- *
- * The 'WIND' resource is the boundsRect (8 bytes), the procID (a word), the
- * visible and goAway flags (a 2-byte field each — nonzero means set), the
- * refCon (a long), and the title (a Pascal string); NewCWindow does the
- * rest. The title pointer is into the resource body, which NewCWindow does
- * not retain.
+ * Shared body of GetNewWindow / GetNewCWindow: load the 'WIND' resource
+ * `windowID` and parse it — boundsRect (8 bytes), procID (a word), the
+ * visible and goAway flags (a 2-byte field each, nonzero means set), refCon
+ * (a long), and the title (a Pascal string) — then hand off to NewWindow or
+ * NewCWindow. The title pointer is into the resource body, which the create
+ * call does not retain.
  */
-WindowPtr GetNewCWindow(short windowID, void *wStorage, WindowPtr behind)
+static WindowPtr get_new_window(short windowID, void *wStorage,
+                                WindowPtr behind, Boolean isColor)
 {
 	Handle               wind = GetResource('WIND', windowID);
 	const unsigned char *p;
 	Rect                 bounds;
+	ConstStr255Param     title;
+	Boolean              visible, goAway;
+	short                procID;
+	long                 refCon;
 
 	if (wind == NULL || *wind == NULL)
 		return NULL;
@@ -159,13 +163,29 @@ WindowPtr GetNewCWindow(short windowID, void *wStorage, WindowPtr behind)
 	bounds.left   = (short)wind_be16(p + 2);
 	bounds.bottom = (short)wind_be16(p + 4);
 	bounds.right  = (short)wind_be16(p + 6);
+	procID  = (short)wind_be16(p + 8);
+	visible = (Boolean)(wind_be16(p + 10) != 0);
+	goAway  = (Boolean)(wind_be16(p + 12) != 0);
+	refCon  = (long)wind_be32(p + 14);
+	title   = p + 18;
 
-	return NewCWindow(wStorage, &bounds, p + 18,
-	                  (Boolean)(wind_be16(p + 10) != 0),  /* visible */
-	                  (short)wind_be16(p + 8),            /* procID  */
-	                  behind,
-	                  (Boolean)(wind_be16(p + 12) != 0),  /* goAway  */
-	                  (long)wind_be32(p + 14));           /* refCon  */
+	if (isColor)
+		return NewCWindow(wStorage, &bounds, title, visible, procID,
+		                  behind, goAway, refCon);
+	return NewWindow(wStorage, &bounds, title, visible, procID,
+	                 behind, goAway, refCon);
+}
+
+/* Create a window from the 'WIND' resource with id `windowID`. */
+WindowPtr GetNewWindow(short windowID, void *wStorage, WindowPtr behind)
+{
+	return get_new_window(windowID, wStorage, behind, 0);
+}
+
+/* As GetNewWindow, but the window's port slot is a colour CGrafPort. */
+WindowPtr GetNewCWindow(short windowID, void *wStorage, WindowPtr behind)
+{
+	return get_new_window(windowID, wStorage, behind, 1);
 }
 
 void DisposeWindow(WindowPtr wp)
