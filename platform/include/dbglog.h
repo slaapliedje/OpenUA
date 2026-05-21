@@ -10,5 +10,6 @@
 #define PLATFORM_DBGLOG_H
 
 void dbg_log(const char *msg);
+void dbg_log_num(const char *label, long value);
 
 #endif /* PLATFORM_DBGLOG_H */
