@@ -1,10 +1,10 @@
 /*
  * Mac Window Manager shim — see windows.h.
  *
- * First cut: the window data model, the front-to-back window list, and the
- * lifecycle. The window frame and title bar (drawing), the colour CGrafPort
- * variant, and region-based update events follow with the display HAL — an
- * honest minimal start, the error.c pattern.
+ * First cut: the window data model, the front-to-back window list, the
+ * lifecycle, and b&w / colour windows. The window frame and title bar
+ * (drawing) and region-based update events follow with the display HAL —
+ * an honest minimal start, the error.c pattern.
  */
 
 #include <stddef.h>             /* NULL, offsetof */
@@ -18,6 +18,9 @@ static WindowPeek g_window_list;
 
 /* NewWindow / SelectWindow "bring to the front" sentinel for `behind`. */
 #define WIN_FRONT  ((WindowPtr)-1L)
+
+/* A CGrafPort is told from a GrafPort by the high two bits of portVersion. */
+#define CGRAFPORT_FLAG  0xC000
 
 /* Detach `w` from the window list if it is currently in it. */
 static void win_unlink(WindowPeek w)
@@ -73,13 +76,20 @@ static WindowPtr win_new(void *wStorage, const Rect *boundsRect,
 	SetRect(&w->port.portRect, 0, 0,
 	        (short)(boundsRect->right - boundsRect->left),
 	        (short)(boundsRect->bottom - boundsRect->top));
-	if (isColor)
-		/* Mark the 108-byte port slot as a CGrafPort (the high bits of
-		 * portVersion). The portPixMap — the colour drawing surface —
-		 * is wired up with the display HAL. */
-		((CGrafPtr)&w->port)->portVersion = (short)0xC000;
-	else
+	if (isColor) {
+		/* Mark the 108-byte port slot as a CGrafPort and give it a colour
+		 * pixel map sized to the content. The PixMap's pixel storage
+		 * (baseAddr / rowBytes) is filled in with the display HAL. */
+		CGrafPtr     cp = (CGrafPtr)&w->port;
+		PixMapHandle pm = NewPixMap();
+
+		cp->portVersion = (short)CGRAFPORT_FLAG;
+		cp->portPixMap  = pm;
+		if (pm != NULL)
+			(*pm)->bounds = w->port.portRect;
+	} else {
 		w->port.portBits.bounds = *boundsRect;  /* b&w global placement */
+	}
 
 	w->windowKind = userKind;
 	w->goAwayFlag = goAwayFlag;
@@ -116,9 +126,14 @@ WindowPtr NewCWindow(void *wStorage, const Rect *boundsRect,
 void DisposeWindow(WindowPtr wp)
 {
 	WindowPeek w = (WindowPeek)wp;
+	CGrafPtr   cp;
 
 	if (w == NULL)
 		return;
+	/* A colour window owns the PixMap NewCWindow gave its port. */
+	cp = (CGrafPtr)&w->port;
+	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) == CGRAFPORT_FLAG)
+		DisposePixMap(cp->portPixMap);
 	win_unlink(w);
 	DisposePtr((Ptr)w);
 }
