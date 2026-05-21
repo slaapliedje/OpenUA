@@ -91,10 +91,12 @@ None of `CODE 1` is ported as engine code. It becomes the ordinary C runtime
 
 1. **Module-init roll-call** (`0x58e`–`0x5ca`) — ~16 calls to empty `rts`
    stubs; the only effect is paging the segments resident (above).
-2. **Core init — `L4cc0`** — allocates working buffers (`JT[387]`, an
-   `alloc(size)→ptr`, is called with 1024/2064/4590-byte sizes and the
-   results stored to A5 globals) and sets playfield geometry through a row
-   of setters (640, 200, 400, 60, 70, 68).
+2. **Core init — `L4cc0`** — `DBInit` (`JT[1002]`) allocates the 37888-byte
+   DB arena; `JT[387]` allocates three working buffers (1024 / 2064 / 4590
+   bytes); seven helpers (`L30cc`…`L31a4`) each fill a `(count, elem_size,
+   base)` data-table descriptor — counts 8 / 640 / 400 / 60 / 70 / 68,
+   element sizes 398 / 62 / 10 / 398 / 34 / 26 — backed by `JT[387]` or by
+   the DB arena's bump allocator (`L531e`). Lifted → `src/engine/core.c`.
 3. **Screen mode** (`0x5d2`–`0x614`) — `JT[398]` returns a capability/status
    word; `JT[1079]` then brings up the screen at 450×214 or 400×160
    depending on it.
@@ -126,6 +128,10 @@ CODE 3 reads as the utilities + resource segment; CODE 5 as display / UI.
 
 `JT[387]`, `JT[393]`, and `JT[475]` are lifted into `src/engine/`
 (`alloc.c`, `str.c`); the rest above are still characterised, not yet lifted.
+`core_init` and the DB arena (`JT[1002]` / `JT[1004]`, `L531e`) are lifted
+into `core.c`, with `JT[421]` — `ua_alloc`'s long-size sibling — in
+`alloc.c`. `core_init` calls four routines still in unlifted segments
+(`JT[442]`, `JT[231]`, `JT[211]`, `JT[981]`); they are no-op stubs for now.
 
 Per ADR-0008 this `main()` is the runtime-first trace target: the
 post-roll-call setup and the path to playing a `.DSN` lead out from here.

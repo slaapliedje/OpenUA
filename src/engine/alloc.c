@@ -1,5 +1,5 @@
 /*
- * FRUA memory allocation — lifted from CODE 3 + 0x36bc (jump-table entry 387).
+ * FRUA memory allocation — lifted from CODE 3 (jump-table entries 387, 421).
  *
  * Original 68k:
  *     link    a6,#0
@@ -22,6 +22,18 @@
 #include "macmemory.h"
 
 void *ua_alloc(unsigned short size)
+{
+	return NewPtr((Size)size);
+}
+
+/*
+ * ua_alloc_long — CODE 3 + 0x36d6 (jump-table entry 421).
+ *
+ * ua_alloc's sibling: the identical Memory Manager call, but the byte count
+ * is a full 32-bit long passed straight through, with none of ua_alloc's
+ * widening from a 16-bit word.
+ */
+void *ua_alloc_long(long size)
 {
 	return NewPtr((Size)size);
 }
