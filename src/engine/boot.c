@@ -27,6 +27,7 @@
 
 #include "boot.h"
 #include "core.h"             /* core_init */
+#include "master.h"           /* master_init */
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
 
@@ -57,7 +58,6 @@ static void  jt445(void)                           { }            /* CODE 3 + 0x
 static void  jt415(short a)                        { }            /* CODE 3 + 0x37da */
 static void  jt1129(short a)                       { }            /* CODE 4 + 0x4756 */
 static void  jt1130(void)                          { }            /* CODE 4 + 0x61f6 */
-static void  jt1079(short a, long b, short kb_min, short kb_max) { }  /* CODE 5 + 0x0004 */
 static void  jt1081(void)                          { }            /* CODE 5 + 0x0062 */
 static void  jt1009(short a, short b)              { }            /* CODE 5 + 0x0a34 */
 static void  jt977(void)                           { }            /* CODE 5 + 0x0aaa */
@@ -114,9 +114,9 @@ int ua_main(short arg1, long arg2)
 	if (status >= 0) {
 		jt411(status);
 		jt1129(1);
-		jt1079(arg1, arg2, 214, 450);
+		master_init(arg1, arg2, 214, 450);
 	} else {
-		jt1079(-5, arg2, 160, 400);
+		master_init(-5, arg2, 160, 400);
 	}
 
 	/* Phase 4 — secondary init and the first UI handler. */
