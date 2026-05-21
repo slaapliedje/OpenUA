@@ -9,9 +9,10 @@
  *
  * Here so far: the geometry core (Point, Rect, the rect utilities), the
  * GrafPort and the Color QuickDraw types (CGrafPort, PixMap, ColorTable,
- * ...), and the current-port machinery (GetPort / SetPort). The drawing
- * calls (MoveTo/LineTo, Pen*, PaintRect, CopyBits, ...) arrive with the
- * display HAL backend — see docs/decompilation.md, the Display subsystem.
+ * ...), NewPixMap, and the current-port machinery (GetPort / SetPort). The
+ * drawing calls (MoveTo/LineTo, Pen*, PaintRect, CopyBits, ...) arrive with
+ * the display HAL backend — see docs/decompilation.md, the Display
+ * subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -198,6 +199,14 @@ typedef struct CGrafPort {
 } CGrafPort;                            /* = 108 bytes */
 
 typedef CGrafPort *CGrafPtr;
+
+/*
+ * NewPixMap allocates and initialises a PixMap; DisposePixMap frees it and
+ * its colour table. Both the PixMap and the table are relocatable blocks —
+ * real Handles.
+ */
+PixMapHandle NewPixMap(void);
+void         DisposePixMap(PixMapHandle pm);
 
 /* The current port — QuickDraw draws into whichever port is current. */
 void GetPort(GrafPtr *port);
