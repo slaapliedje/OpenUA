@@ -2,11 +2,12 @@
  * Mac Window Manager shim — see windows.h.
  *
  * First cut: the window data model, the window list, the lifecycle and
- * geometry, b&w / colour windows, and resource-loaded windows (GetNewWindow
- * / GetNewCWindow). SizeWindow and MoveWindow act on portRect; the Mac
- * local/global coordinate split, the structure/content regions, the window
- * frame and title bar (drawing), and update events follow with the display
- * HAL — an honest minimal start, the error.c pattern.
+ * geometry, b&w / colour windows, resource-loaded windows (GetNewWindow /
+ * GetNewCWindow), and the update mechanism (InvalRect / BeginUpdate /
+ * EndUpdate) over rectangular regions. SizeWindow and MoveWindow act on
+ * portRect; the Mac local/global coordinate split, the structure/content
+ * regions, and the window frame and title-bar drawing follow with the
+ * display HAL — an honest minimal start, the error.c pattern.
  */
 
 #include <stddef.h>             /* NULL, offsetof */
@@ -57,6 +58,14 @@ static void win_link(WindowPeek w, WindowPtr behind)
 	}
 }
 
+/* Set the window's visRgn to its full content — the rectangular-region
+ * stand-in for "the window is entirely visible". */
+static void win_reset_visrgn(WindowPeek w)
+{
+	if (w->port.visRgn != NULL)
+		RectRgn(w->port.visRgn, &w->port.portRect);
+}
+
 /*
  * Shared body of NewWindow / NewCWindow: allocate or adopt the storage, set
  * the window up, and link it into the list. `isColor` selects whether the
@@ -93,6 +102,12 @@ static WindowPtr win_new(void *wStorage, const Rect *boundsRect,
 	} else {
 		w->port.portBits.bounds = *boundsRect;  /* b&w global placement */
 	}
+
+	/* The window's update region and its port's visible region — the
+	 * substrate for the rectangular-region update mechanism. */
+	w->updateRgn   = NewRgn();
+	w->port.visRgn = NewRgn();
+	win_reset_visrgn(w);
 
 	w->windowKind = userKind;
 	w->goAwayFlag = goAwayFlag;
@@ -201,6 +216,8 @@ void DisposeWindow(WindowPtr wp)
 	cp = (CGrafPtr)&w->port;
 	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) == CGRAFPORT_FLAG)
 		DisposePixMap(cp->portPixMap);
+	DisposeRgn(w->updateRgn);
+	DisposeRgn(w->port.visRgn);
 	win_unlink(w);
 	DisposePtr((Ptr)w);
 }
@@ -246,6 +263,7 @@ void SizeWindow(WindowPtr wp, short width, short height, Boolean fUpdate)
 		return;
 	w->port.portRect.right  = (short)(w->port.portRect.left + width);
 	w->port.portRect.bottom = (short)(w->port.portRect.top + height);
+	win_reset_visrgn(w);
 }
 
 /*
@@ -265,6 +283,7 @@ void MoveWindow(WindowPtr wp, short h, short v, Boolean front)
 		return;
 	r = &w->port.portRect;
 	OffsetRect(r, (short)(h - r->left), (short)(v - r->top));
+	win_reset_visrgn(w);
 	if (front)
 		SelectWindow(wp);
 }
@@ -276,6 +295,52 @@ WindowPtr FrontWindow(void)
 	while (w != NULL && !w->visible)
 		w = w->nextWindow;
 	return (WindowPtr)w;
+}
+
+/*
+ * InvalRect — add `r` to the update region of the window whose port is
+ * current, marking that area for redraw. As on the Mac, the current port
+ * must be a window's port.
+ */
+void InvalRect(const Rect *r)
+{
+	GrafPtr    port;
+	WindowPeek w;
+	Rect      *bbox;
+
+	GetPort(&port);
+	w = (WindowPeek)port;
+	if (w == NULL || w->updateRgn == NULL)
+		return;
+	bbox = &(*w->updateRgn)->rgnBBox;
+	if (EmptyRect(bbox))
+		*bbox = *r;
+	else
+		UnionRect(bbox, r, bbox);
+}
+
+/*
+ * BeginUpdate — begin handling an update event for `w`: narrow the port's
+ * visRgn to the area that needs redrawing, and clear the update region.
+ * Drawing is not yet clipped to visRgn (that arrives with the display HAL),
+ * but the regions are kept correct meanwhile.
+ */
+void BeginUpdate(WindowPtr wp)
+{
+	WindowPeek w = (WindowPeek)wp;
+
+	if (w == NULL || w->updateRgn == NULL || w->port.visRgn == NULL)
+		return;
+	SectRect(&(*w->port.visRgn)->rgnBBox, &(*w->updateRgn)->rgnBBox,
+	         &(*w->port.visRgn)->rgnBBox);
+	SetEmptyRgn(w->updateRgn);
+}
+
+/* EndUpdate — finish an update: restore visRgn to the full content. */
+void EndUpdate(WindowPtr wp)
+{
+	if (wp != NULL)
+		win_reset_visrgn((WindowPeek)wp);
 }
 
 /* WindowRecord must be the exact 156-byte Macintosh layout. */

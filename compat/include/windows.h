@@ -9,10 +9,11 @@
  *
  * Here so far: the window record, the window list, the window lifecycle and
  * geometry (NewWindow, DisposeWindow, ShowWindow, HideWindow, SelectWindow,
- * SizeWindow, MoveWindow, FrontWindow), colour windows (NewCWindow), and
- * resource-loaded windows (GetNewWindow / GetNewCWindow). Window drawing
- * (the frame, the title bar) and region-based updates follow with the
- * display HAL — see docs/toolbox-mapping.md.
+ * SizeWindow, MoveWindow, FrontWindow), colour windows (NewCWindow),
+ * resource-loaded windows (GetNewWindow / GetNewCWindow), and the update
+ * mechanism (InvalRect / BeginUpdate / EndUpdate) over rectangular regions.
+ * Window drawing (the frame, the title bar) follows with the display HAL —
+ * see docs/toolbox-mapping.md.
  */
 
 #ifndef COMPAT_WINDOWS_H
@@ -80,5 +81,10 @@ void      SizeWindow(WindowPtr w, short width, short height,
                      Boolean fUpdate);  /* resize the content         */
 void      MoveWindow(WindowPtr w, short h, short v, Boolean front);
 WindowPtr FrontWindow(void);            /* the frontmost visible window */
+
+/* The update mechanism — mark areas for redraw, then handle the redraw. */
+void InvalRect(const Rect *r);          /* add r to the update region   */
+void BeginUpdate(WindowPtr w);          /* begin handling an update     */
+void EndUpdate(WindowPtr w);            /* finish it                    */
 
 #endif /* COMPAT_WINDOWS_H */
