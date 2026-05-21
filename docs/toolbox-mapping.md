@@ -8,7 +8,7 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 
 | Mac Toolbox manager | FRUA use                         | Atari implementation                                        | Status  |
 |---------------------|----------------------------------|-------------------------------------------------------------|---------|
-| QuickDraw           | All drawing, `CopyBits`, regions | Geometry core, the `GrafPort` / `CGrafPort` and Color QuickDraw types, and `GetPort`/`SetPort` in `compat/quickdraw.c`; drawing awaits the display HAL | wip |
+| QuickDraw           | All drawing, `CopyBits`, regions | Geometry core, the `GrafPort` / `CGrafPort` and Color QuickDraw types, `NewPixMap`, and `GetPort`/`SetPort` in `compat/quickdraw.c`; drawing awaits the display HAL | wip |
 | Color/Palette Mgr   | 256-colour CLUT animation        | HAL `set_palette` → XBIOS `VsetRGB` (Falcon) / `EsetPalette`| planned |
 | Offscreen GWorlds   | Sprite/buffer composition        | 8-bit paletted offscreen surfaces in the shim               | planned |
 | Resource Manager    | `GetResource`, resource fork     | Reader over a flat `(type,id)` archive built by `tools/rsrcpack` (ADR-0007) | planned |

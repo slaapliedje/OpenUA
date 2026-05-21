@@ -10,6 +10,7 @@
 #include <stddef.h>             /* offsetof */
 
 #include "quickdraw.h"
+#include "macmemory.h"          /* NewHandleClear, DisposeHandle */
 
 void SetPt(Point *pt, short h, short v)
 {
@@ -104,6 +105,56 @@ void GetPort(GrafPtr *port)
 void SetPort(GrafPtr port)
 {
 	g_thePort = port;
+}
+
+/* --- Color QuickDraw: PixMap allocation --- */
+
+/*
+ * NewPixMap — allocate and initialise a PixMap.
+ *
+ * The PixMap and its colour table are relocatable blocks, so each is a real
+ * Handle. On the Mac NewPixMap copies the current GDevice's pixel map; with
+ * no GDevice yet, the depth defaults to the 8-bit indexed configuration the
+ * display HAL targets. The geometry — bounds, rowBytes, baseAddr — is the
+ * caller's to fill.
+ */
+PixMapHandle NewPixMap(void)
+{
+	PixMapHandle pmh;
+	CTabHandle   ct;
+
+	pmh = (PixMapHandle)NewHandleClear((Size)sizeof(PixMap));
+	if (pmh == NULL)
+		return NULL;
+
+	/* A 256-entry colour table for the 8-bit depth — zeroed for now; the
+	 * palette is loaded once the display HAL is up. */
+	ct = (CTabHandle)NewHandleClear((Size)(sizeof(ColorTable)
+	                                       + 255 * sizeof(ColorSpec)));
+	if (ct == NULL) {
+		DisposeHandle((Handle)pmh);
+		return NULL;
+	}
+	(*ct)->ctSize = 255;
+
+	(*pmh)->hRes      = 0x00480000L;        /* 72.0 dpi, 16.16 fixed-point */
+	(*pmh)->vRes      = 0x00480000L;
+	(*pmh)->pixelType = 0;                  /* indexed (chunky)            */
+	(*pmh)->pixelSize = 8;
+	(*pmh)->cmpCount  = 1;
+	(*pmh)->cmpSize   = 8;
+	(*pmh)->pmTable   = ct;
+	return pmh;
+}
+
+/* DisposePixMap — free a NewPixMap PixMap and its colour table. */
+void DisposePixMap(PixMapHandle pm)
+{
+	if (pm == NULL)
+		return;
+	if (*pm != NULL)
+		DisposeHandle((Handle)(*pm)->pmTable);
+	DisposeHandle((Handle)pm);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
