@@ -17,6 +17,7 @@
 #include <stdlib.h>
 
 #include "display.h"
+#include "dbglog.h"
 
 #define VIDEL_W     320
 #define VIDEL_H     240
@@ -42,15 +43,20 @@ static int videl_init(short want_w, short want_h)
 	(void)want_w;
 	(void)want_h;
 
+	dbg_log("  videl_init: malloc chunky surface");
 	g_surface.pixels = malloc((size_t)size);
-	if (g_surface.pixels == NULL)
+	if (g_surface.pixels == NULL) {
+		dbg_log("  videl_init: malloc FAILED");
 		return -1;
+	}
 	g_surface.width  = VIDEL_W;
 	g_surface.height = VIDEL_H;
 	g_surface.pitch  = VIDEL_W;
 
+	dbg_log("  videl_init: Mxalloc screen");
 	raw = Mxalloc(size + 256, 0);                /* 0 = ST-RAM */
 	if (raw <= 0) {
+		dbg_log("  videl_init: Mxalloc FAILED");
 		free(g_surface.pixels);
 		g_surface.pixels = NULL;
 		return -1;
@@ -58,11 +64,15 @@ static int videl_init(short want_w, short want_h)
 	g_screen_raw = (void *)raw;
 	g_screen = (unsigned char *)((raw + 255) & ~255L);
 
+	dbg_log("  videl_init: VsetMode inquire");
 	g_save_mode = VsetMode(-1);
+	dbg_log("  videl_init: Logbase / Physbase");
 	g_save_log  = (void *)Logbase();
 	g_save_phys = (void *)Physbase();
 
+	dbg_log("  videl_init: VsetScreen");
 	VsetScreen(g_screen, g_screen, -1, VIDEL_MODE);
+	dbg_log("  videl_init: done");
 	return 0;
 }
 
