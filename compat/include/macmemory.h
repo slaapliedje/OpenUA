@@ -5,14 +5,16 @@
  * the Mac Memory Manager as on the original; on the Atari this is backed by
  * the C heap. See compat/macmemory.c.
  *
- * Only the Ptr (non-relocatable) side is here so far. Handle (relocatable)
- * blocks and the handle table are still to do — see docs/toolbox-mapping.md.
+ * The Ptr (non-relocatable) API is here, plus the Handle type — other shims
+ * need it for struct fields. The Handle *API* (NewHandle, the handle table)
+ * is still to do — see docs/toolbox-mapping.md.
  */
 
 #ifndef COMPAT_MACMEMORY_H
 #define COMPAT_MACMEMORY_H
 
 typedef char  *Ptr;     /* pointer to a non-relocatable block */
+typedef Ptr   *Handle;  /* handle to a relocatable block      */
 typedef long   Size;    /* a byte count                      */
 typedef short  OSErr;   /* Toolbox error code                */
 
