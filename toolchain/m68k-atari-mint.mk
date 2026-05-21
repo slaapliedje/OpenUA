@@ -10,16 +10,17 @@ AR     := $(CROSS)ar
 STRIP  := $(CROSS)strip
 HATARI ?= hatari
 
-# Target CPU: 68030 (Falcon030 / TT030).
+# Target CPU.
 #
-# The Falcon030 ships with NO FPU; the TT030 has a 68882. The default build
-# is soft-float so a single binary runs on both machines. Build with
-# `make FPU=1` to produce an FPU-required variant tuned for the TT030.
-CPU := -m68030
+# m68k-atari-mint ships only two relevant library sets: the default (68000,
+# soft-float) and m68020-60 (hard-float — needs a 68881/68882 FPU). There is
+# no soft-float 020-60 variant. The Falcon030 has no FPU, so the default
+# build is plain 68000: soft-float, and 68000 code runs unchanged on the
+# Falcon's (and the TT's) 68030. `make FPU=1` builds the hard-float 020-60
+# variant for an FPU-equipped machine — the TT030, or an FPU'd Falcon.
+CPU := -m68000
 ifeq ($(FPU),1)
-  CPU += -m68881
-else
-  CPU += -msoft-float
+  CPU := -m68020-60 -m68881
 endif
 
 WARN := -Wall -Wextra -Wno-unused-parameter

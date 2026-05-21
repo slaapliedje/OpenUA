@@ -55,9 +55,11 @@ whether it is talking to a Falcon or a TT. See `docs/decisions.md` for why.
 
 ## Hardware notes
 
-- **CPU:** both targets are 68030. Default build is soft-float so one binary
-  runs on the FPU-less Falcon030 and the 68882-equipped TT030 (`make FPU=1`
-  for a TT-only hard-float variant).
+- **CPU:** both targets are 68030. m68k-atari-mint has no soft-float 020-60
+  library, so the default build is plain 68000 — soft-float, and 68000 code
+  runs unchanged on the 68030. It runs on the FPU-less Falcon030 and the
+  TT030. `make FPU=1` builds a hard-float `68020-60` variant for an
+  FPU-equipped machine (the TT030, or an FPU'd Falcon).
 - **Video:** Falcon030 = VIDEL (programmable, RGB/VGA modes, 256-colour and
   true-colour). TT030 = TT-shifter (TT-medium/TT-low, 256 colours from a
   4096-colour palette). Different enough to demand the HAL split (ADR-0005).
