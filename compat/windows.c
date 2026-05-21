@@ -51,15 +51,16 @@ static void win_link(WindowPeek w, WindowPtr behind)
 	}
 }
 
-WindowPtr NewWindow(void *wStorage, const Rect *boundsRect,
-                    ConstStr255Param title, Boolean visible, short procID,
-                    WindowPtr behind, Boolean goAwayFlag, long refCon)
+/*
+ * Shared body of NewWindow / NewCWindow: allocate or adopt the storage, set
+ * the window up, and link it into the list. `isColor` selects whether the
+ * 108-byte port slot is initialised as a GrafPort or a CGrafPort.
+ */
+static WindowPtr win_new(void *wStorage, const Rect *boundsRect,
+                         Boolean visible, WindowPtr behind,
+                         Boolean goAwayFlag, long refCon, Boolean isColor)
 {
 	WindowPeek w;
-
-	(void)title;            /* title storage awaits the Handle-based Memory
-	                         * Manager and the title-bar drawing */
-	(void)procID;           /* the window definition (WDEF) is deferred */
 
 	w = wStorage ? (WindowPeek)wStorage
 	             : (WindowPeek)NewPtr((Size)sizeof(WindowRecord));
@@ -67,13 +68,18 @@ WindowPtr NewWindow(void *wStorage, const Rect *boundsRect,
 		return NULL;
 	memset(w, 0, sizeof *w);
 
-	/* portRect is the content in the window's own local coordinates;
-	 * portBits.bounds keeps the global placement. The full local/global
-	 * coordinate setup arrives with the drawing layer. */
+	/* portRect (offset 16, shared by GrafPort and CGrafPort) is the content
+	 * in the window's own local coordinates. */
 	SetRect(&w->port.portRect, 0, 0,
 	        (short)(boundsRect->right - boundsRect->left),
 	        (short)(boundsRect->bottom - boundsRect->top));
-	w->port.portBits.bounds = *boundsRect;
+	if (isColor)
+		/* Mark the 108-byte port slot as a CGrafPort (the high bits of
+		 * portVersion). The portPixMap — the colour drawing surface —
+		 * is wired up with the display HAL. */
+		((CGrafPtr)&w->port)->portVersion = (short)0xC000;
+	else
+		w->port.portBits.bounds = *boundsRect;  /* b&w global placement */
 
 	w->windowKind = userKind;
 	w->goAwayFlag = goAwayFlag;
@@ -84,6 +90,27 @@ WindowPtr NewWindow(void *wStorage, const Rect *boundsRect,
 	if (visible)
 		ShowWindow((WindowPtr)w);
 	return (WindowPtr)w;
+}
+
+WindowPtr NewWindow(void *wStorage, const Rect *boundsRect,
+                    ConstStr255Param title, Boolean visible, short procID,
+                    WindowPtr behind, Boolean goAwayFlag, long refCon)
+{
+	(void)title;            /* title storage awaits the Handle-based Memory
+	                         * Manager and the title-bar drawing */
+	(void)procID;           /* the window definition (WDEF) is deferred */
+	return win_new(wStorage, boundsRect, visible, behind, goAwayFlag,
+	               refCon, 0);
+}
+
+WindowPtr NewCWindow(void *wStorage, const Rect *boundsRect,
+                     ConstStr255Param title, Boolean visible, short procID,
+                     WindowPtr behind, Boolean goAwayFlag, long refCon)
+{
+	(void)title;
+	(void)procID;
+	return win_new(wStorage, boundsRect, visible, behind, goAwayFlag,
+	               refCon, 1);
 }
 
 void DisposeWindow(WindowPtr wp)
