@@ -24,9 +24,6 @@ static WindowPeek g_window_list;
 /* NewWindow / SelectWindow "bring to the front" sentinel for `behind`. */
 #define WIN_FRONT  ((WindowPtr)-1L)
 
-/* A CGrafPort is told from a GrafPort by the high two bits of portVersion. */
-#define CGRAFPORT_FLAG  0xC000
-
 /* Detach `w` from the window list if it is currently in it. */
 static void win_unlink(WindowPeek w)
 {

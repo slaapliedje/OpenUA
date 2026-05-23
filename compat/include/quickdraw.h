@@ -9,10 +9,11 @@
  *
  * Here so far: the geometry core (Point, Rect, the rect utilities), the
  * GrafPort and the Color QuickDraw types (CGrafPort, PixMap, ColorTable,
- * ...), NewPixMap, rectangular regions, and the current-port machinery
- * (GetPort / SetPort). The drawing calls (MoveTo/LineTo, Pen*, PaintRect,
- * CopyBits, ...) arrive with the display HAL backend — see
- * docs/decompilation.md, the Display subsystem.
+ * ...), NewPixMap, rectangular regions, the current-port machinery
+ * (GetPort / SetPort), the screen port that owns the display back buffer
+ * (qd_attach_screen), and the first rect-fill primitives (EraseRect,
+ * PaintRect). MoveTo / LineTo, the pen state, patterns, and CopyBits
+ * follow — see docs/decompilation.md, the Display subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -211,6 +212,9 @@ typedef struct CGrafPort {
 
 typedef CGrafPort *CGrafPtr;
 
+/* A CGrafPort is told from a GrafPort by the high two bits of portVersion. */
+#define CGRAFPORT_FLAG  0xC000
+
 /*
  * NewPixMap allocates and initialises a PixMap; DisposePixMap frees it and
  * its colour table. Both the PixMap and the table are relocatable blocks —
@@ -229,5 +233,24 @@ Boolean   EmptyRgn(RgnHandle rgn);      /* is the region empty?       */
 /* The current port — QuickDraw draws into whichever port is current. */
 void GetPort(GrafPtr *port);
 void SetPort(GrafPtr port);
+
+/*
+ * Bind QuickDraw to a back buffer — create the screen GrafPort over the
+ * given 8-bit paletted pixel storage and make it the current port. Called
+ * once at startup with the display HAL's surface, before any drawing. The
+ * pixels must live until the program exits.
+ */
+void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
+
+/* --- drawing primitives ---
+ *
+ * Drawing acts on the current port. For colour ports the foreground and
+ * background colours are taken from fgColor / bkColor as literal 8-bit
+ * palette indices (the palette manager will refine this when it arrives).
+ * Clipping is to portRect only for now — visRgn / clipRgn-aware drawing
+ * follows with the window frames.
+ */
+void EraseRect(const Rect *r);  /* fill r with the port's background */
+void PaintRect(const Rect *r);  /* fill r with the port's foreground */
 
 #endif /* COMPAT_QUICKDRAW_H */

@@ -1,13 +1,15 @@
 /*
- * Mac QuickDraw shim — geometry, the current port, PixMaps, and regions
- * (ADR-0003).
+ * Mac QuickDraw shim — geometry, the current port, PixMaps, regions, the
+ * screen port, and the first drawing primitives (ADR-0003).
  *
  * The Point and rectangle calculations (to the Inside Macintosh semantics),
- * GetPort / SetPort, NewPixMap, and the rectangular-region facility. These
- * carry no drawing target, so they stand alone ahead of the display HAL.
+ * GetPort / SetPort, NewPixMap, the rectangular-region facility, the screen
+ * GrafPort that owns the display back buffer, and EraseRect / PaintRect over
+ * 8-bit paletted pixels — clipped to portRect, the rest of the clipping
+ * machinery follows with window-aware drawing.
  */
 
-#include <stddef.h>             /* offsetof */
+#include <stddef.h>             /* offsetof, NULL */
 
 #include "quickdraw.h"
 #include "macmemory.h"          /* NewHandleClear, DisposeHandle */
@@ -194,6 +196,111 @@ void RectRgn(RgnHandle rgn, const Rect *r)
 Boolean EmptyRgn(RgnHandle rgn)
 {
 	return (Boolean)(rgn == NULL || EmptyRect(&(*rgn)->rgnBBox));
+}
+
+/* --- the screen port and drawing primitives --- */
+
+/*
+ * The screen port — a CGrafPort that owns the display back buffer. Static
+ * storage: there is one screen, and the shim never disposes it (the regions
+ * it owns are released by process exit). Set up by qd_attach_screen and made
+ * the current port; the engine SetPorts to its windows when drawing into
+ * them, and back to this for desktop drawing.
+ */
+static CGrafPort g_screen_port;
+
+void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
+{
+	CGrafPtr     cp = &g_screen_port;
+	PixMapHandle pm;
+	Rect         bounds;
+
+	SetRect(&bounds, 0, 0, width, height);
+
+	cp->portVersion = (short)CGRAFPORT_FLAG;
+	cp->portRect    = bounds;
+
+	pm = NewPixMap();
+	if (pm != NULL) {
+		(*pm)->baseAddr = (Ptr)pixels;
+		(*pm)->rowBytes = rowBytes;
+		(*pm)->bounds   = bounds;
+	}
+	cp->portPixMap = pm;
+
+	cp->visRgn  = NewRgn();
+	cp->clipRgn = NewRgn();
+	RectRgn(cp->visRgn,  &bounds);
+	RectRgn(cp->clipRgn, &bounds);
+
+	/* Default colours — index 0 for background, 255 for foreground. The
+	 * palette manager will set up RGB-keyed colour selection later; for
+	 * now drawing reads fgColor / bkColor as literal 8-bit indices. */
+	cp->fgColor = 255;
+	cp->bkColor = 0;
+
+	SetPort((GrafPtr)cp);
+}
+
+/*
+ * Shared body of EraseRect / PaintRect — fill `r` (in the current port's
+ * local coordinates) with `color`, clipped to portRect. Pixel coordinates
+ * are local-minus-bounds.top-left; for the screen port bounds is the same
+ * as portRect so the offsets are zero.
+ */
+static void qd_fill_rect(const Rect *r, unsigned char color)
+{
+	GrafPtr  port;
+	CGrafPtr cp;
+	PixMap  *pm;
+	Rect     clipped;
+	short    row, w;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL)
+		return;
+	/* The first cut handles colour ports only — the b&w portBits path
+	 * follows when the engine creates a b&w window. */
+	cp = (CGrafPtr)port;
+	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG)
+		return;
+	if (cp->portPixMap == NULL || *cp->portPixMap == NULL)
+		return;
+	pm = *cp->portPixMap;
+	if (pm->baseAddr == NULL)
+		return;
+
+	if (!SectRect(r, &cp->portRect, &clipped))
+		return;
+
+	w = (short)(clipped.right - clipped.left);
+	for (row = clipped.top; row < clipped.bottom; row++) {
+		unsigned char *p = (unsigned char *)pm->baseAddr
+		                 + (row - pm->bounds.top) * pm->rowBytes
+		                 + (clipped.left - pm->bounds.left);
+		short col;
+
+		for (col = 0; col < w; col++)
+			p[col] = color;
+	}
+}
+
+void EraseRect(const Rect *r)
+{
+	GrafPtr port;
+
+	GetPort(&port);
+	if (port != NULL)
+		qd_fill_rect(r, (unsigned char)((CGrafPtr)port)->bkColor);
+}
+
+void PaintRect(const Rect *r)
+{
+	GrafPtr port;
+
+	GetPort(&port);
+	if (port != NULL)
+		qd_fill_rect(r, (unsigned char)((CGrafPtr)port)->fgColor);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
