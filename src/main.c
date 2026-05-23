@@ -5,8 +5,9 @@
  * QuickDraw to the back buffer via qd_attach_screen, then exercises the
  * shim's drawing primitives on the screen port: a full-screen erase, a
  * filled rect, an outlined rect inside it, a corner-to-corner line, two
- * ovals, and a 16x16 CopyBits gradient. Each stage logs to C:\DEMO.LOG
- * via dbg_log() so the trail survives a crash and can be read on the host.
+ * ovals, a 16x16 CopyBits gradient, and a ClipRect-narrowed PaintRect.
+ * Each stage logs to C:\DEMO.LOG via dbg_log() so the trail survives a
+ * crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
  */
@@ -98,6 +99,17 @@ int main(void)
 	CopyBits(&src_bm, (const BitMap *)*((CGrafPtr)port)->portPixMap,
 	         &srcR, &dstR, srcCopy, NULL);
 	dbg_log("main: copybits ok");
+
+	/* ClipRect demo: clip to a small box well below the other shapes,
+	 * then PaintRect over the whole screen — only the clipped area
+	 * receives pixels. */
+	SetRect(&r, 50, 380, 100, 395);
+	ClipRect(&r);
+	SetRect(&r, 0, 0, surf->width, surf->height);
+	PaintRect(&r);
+	dbg_log("main: cliprect ok");
+	SetRect(&r, 0, 0, surf->width, surf->height);
+	ClipRect(&r);                           /* reset clip to full screen */
 
 	dsp->present();
 	dbg_log("main: present ok");

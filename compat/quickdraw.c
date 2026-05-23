@@ -6,9 +6,10 @@
  * GetPort / SetPort, NewPixMap, the rectangular-region facility, the screen
  * GrafPort that owns the display back buffer, the rect primitives (EraseRect,
  * PaintRect, FrameRect), the line family (MoveTo / LineTo / GetPen), the
- * ovals (PaintOval, FrameOval), and CopyBits (same-size, srcCopy) over 8-bit
- * paletted pixels — clipped to portRect, the rest of the clipping machinery
- * follows with window-aware drawing.
+ * ovals (PaintOval, FrameOval), CopyBits (same-size, srcCopy), and ClipRect
+ * over 8-bit paletted pixels — every primitive funnels through
+ * qd_effective_clip (portRect ∩ visRgn ∩ clipRgn), so BeginUpdate's narrowed
+ * visRgn and ClipRect's application clip both restrict drawing as on the Mac.
  */
 
 #include <stddef.h>             /* offsetof, NULL */
@@ -245,17 +246,42 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 }
 
 /*
+ * The port's effective clip — portRect intersected with the visRgn and
+ * clipRgn bounding boxes (both rectangular in the shim). All drawing goes
+ * through this, so ClipRect (the application clip) and BeginUpdate's
+ * narrowed visRgn (the window-update clip) restrict drawing together.
+ * Returns false (with *out left empty) when the intersection is empty.
+ */
+static Boolean qd_effective_clip(GrafPtr port, Rect *out)
+{
+	Rect tmp;
+
+	*out = port->portRect;
+	if (port->visRgn != NULL && *port->visRgn != NULL) {
+		tmp = *out;
+		if (!SectRect(&tmp, &(*port->visRgn)->rgnBBox, out))
+			return 0;
+	}
+	if (port->clipRgn != NULL && *port->clipRgn != NULL) {
+		tmp = *out;
+		if (!SectRect(&tmp, &(*port->clipRgn)->rgnBBox, out))
+			return 0;
+	}
+	return 1;
+}
+
+/*
  * Shared body of EraseRect / PaintRect — fill `r` (in the current port's
- * local coordinates) with `color`, clipped to portRect. Pixel coordinates
- * are local-minus-bounds.top-left; for the screen port bounds is the same
- * as portRect so the offsets are zero.
+ * local coordinates) with `color`, clipped to the port's effective clip.
+ * Pixel coordinates are local-minus-bounds.top-left; for the screen port
+ * bounds is the same as portRect so the offsets are zero.
  */
 static void qd_fill_rect(const Rect *r, unsigned char color)
 {
 	GrafPtr  port;
 	CGrafPtr cp;
 	PixMap  *pm;
-	Rect     clipped;
+	Rect     clip, clipped;
 	short    row, w;
 
 	GetPort(&port);
@@ -272,7 +298,9 @@ static void qd_fill_rect(const Rect *r, unsigned char color)
 	if (pm->baseAddr == NULL)
 		return;
 
-	if (!SectRect(r, &cp->portRect, &clipped))
+	if (!qd_effective_clip(port, &clip))
+		return;
+	if (!SectRect(r, &clip, &clipped))
 		return;
 
 	w = (short)(clipped.right - clipped.left);
@@ -307,18 +335,20 @@ void PaintRect(const Rect *r)
 
 /*
  * Plot one pixel at (x, y) into the current port's pixmap, silently
- * discarding writes that fall outside portRect. The per-pixel write that
- * FrameRect and LineTo share.
+ * discarding writes that fall outside the precomputed clip rect. Callers
+ * compute the clip once at entry via qd_effective_clip and pass it in, so
+ * the Bresenham / oval inner loops don't recompute it per pixel.
  */
-static void qd_plot(GrafPtr port, short x, short y, unsigned char color)
+static void qd_plot(GrafPtr port, const Rect *clip,
+                    short x, short y, unsigned char color)
 {
 	CGrafPtr cp = (CGrafPtr)port;
 	PixMap  *pm;
 
-	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG)
+	if (x < clip->left || x >= clip->right
+	 || y < clip->top  || y >= clip->bottom)
 		return;
-	if (x < cp->portRect.left || x >= cp->portRect.right
-	 || y < cp->portRect.top  || y >= cp->portRect.bottom)
+	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG)
 		return;
 	if (cp->portPixMap == NULL || *cp->portPixMap == NULL)
 		return;
@@ -330,20 +360,20 @@ static void qd_plot(GrafPtr port, short x, short y, unsigned char color)
 }
 
 /* Horizontal / vertical line helpers — used by FrameRect's four edges. */
-static void qd_hline(GrafPtr port, short x1, short x2, short y,
-                     unsigned char color)
+static void qd_hline(GrafPtr port, const Rect *clip,
+                     short x1, short x2, short y, unsigned char color)
 {
 	if (x1 > x2) { short t = x1; x1 = x2; x2 = t; }
 	for (; x1 <= x2; x1++)
-		qd_plot(port, x1, y, color);
+		qd_plot(port, clip, x1, y, color);
 }
 
-static void qd_vline(GrafPtr port, short x, short y1, short y2,
-                     unsigned char color)
+static void qd_vline(GrafPtr port, const Rect *clip,
+                     short x, short y1, short y2, unsigned char color)
 {
 	if (y1 > y2) { short t = y1; y1 = y2; y2 = t; }
 	for (; y1 <= y2; y1++)
-		qd_plot(port, x, y1, color);
+		qd_plot(port, clip, x, y1, color);
 }
 
 /*
@@ -355,13 +385,14 @@ static void qd_vline(GrafPtr port, short x, short y1, short y2,
 void FrameRect(const Rect *r)
 {
 	GrafPtr port;
+	Rect    clip;
 	unsigned char color;
 	short l, t, rr, bb;
 
 	GetPort(&port);
-	if (port == NULL || r == NULL)
+	if (port == NULL || r == NULL || EmptyRect(r))
 		return;
-	if (EmptyRect(r))
+	if (!qd_effective_clip(port, &clip))
 		return;
 	color = (unsigned char)((CGrafPtr)port)->fgColor;
 	l  = r->left;
@@ -369,10 +400,10 @@ void FrameRect(const Rect *r)
 	rr = (short)(r->right  - 1);
 	bb = (short)(r->bottom - 1);
 
-	qd_hline(port, l, rr, t,  color);       /* top    */
-	qd_hline(port, l, rr, bb, color);       /* bottom */
-	qd_vline(port, l,  t,  bb, color);      /* left   */
-	qd_vline(port, rr, t,  bb, color);      /* right  */
+	qd_hline(port, &clip, l, rr, t,  color);     /* top    */
+	qd_hline(port, &clip, l, rr, bb, color);     /* bottom */
+	qd_vline(port, &clip, l,  t,  bb, color);    /* left   */
+	qd_vline(port, &clip, rr, t,  bb, color);    /* right  */
 }
 
 /* MoveTo — set the pen location in the current port. */
@@ -398,12 +429,17 @@ void GetPen(Point *pt)
 /*
  * LineTo — draw a one-pixel line from the current pen to (h, v) in the
  * port's foreground colour, then move the pen to (h, v). Bresenham over
- * 8-bit pixels, clipped to portRect per-pixel. PenSize / PenPat / PenMode
- * are not honoured yet — see the header.
+ * 8-bit pixels, per-pixel clipped to the port's effective clip. PenSize
+ * / PenPat / PenMode are not honoured yet — see the header.
+ *
+ * pnLoc is updated to (h, v) even when the line is entirely clipped out:
+ * the pen moves whether or not the strokes are visible (the Mac semantics).
  */
 void LineTo(short h, short v)
 {
 	GrafPtr       port;
+	Rect          clip;
+	Boolean       draw;
 	short         x0, y0, x1, y1;
 	short         dx, dy, sx, sy, err, e2;
 	unsigned char color;
@@ -411,6 +447,8 @@ void LineTo(short h, short v)
 	GetPort(&port);
 	if (port == NULL)
 		return;
+	draw = qd_effective_clip(port, &clip);
+
 	x0 = port->pnLoc.h;
 	y0 = port->pnLoc.v;
 	x1 = h;
@@ -424,7 +462,8 @@ void LineTo(short h, short v)
 	err = (short)(dx - dy);
 
 	for (;;) {
-		qd_plot(port, x0, y0, color);
+		if (draw)
+			qd_plot(port, &clip, x0, y0, color);
 		if (x0 == x1 && y0 == y1)
 			break;
 		e2 = (short)(err * 2);
@@ -464,12 +503,15 @@ static void qd_oval_axes(const Rect *r, short *cx, short *cy,
 void PaintOval(const Rect *r)
 {
 	GrafPtr       port;
+	Rect          clip;
 	unsigned char color;
 	short         cx, cy, rx, ry, x, y;
 	long          rx2, ry2, denom;
 
 	GetPort(&port);
 	if (port == NULL || r == NULL || EmptyRect(r))
+		return;
+	if (!qd_effective_clip(port, &clip))
 		return;
 	qd_oval_axes(r, &cx, &cy, &rx, &ry);
 	if (rx == 0 || ry == 0)
@@ -495,19 +537,22 @@ void PaintOval(const Rect *r)
 			}
 		}
 		if (xleft >= 0)
-			qd_hline(port, xleft, xright, y, color);
+			qd_hline(port, &clip, xleft, xright, y, color);
 	}
 }
 
 void FrameOval(const Rect *r)
 {
 	GrafPtr       port;
+	Rect          clip;
 	unsigned char color;
 	short         cx, cy, rx, ry, x, y;
 	long          rx2, ry2, denom;
 
 	GetPort(&port);
 	if (port == NULL || r == NULL || EmptyRect(r))
+		return;
+	if (!qd_effective_clip(port, &clip))
 		return;
 	qd_oval_axes(r, &cx, &cy, &rx, &ry);
 	if (rx == 0 || ry == 0)
@@ -534,9 +579,9 @@ void FrameOval(const Rect *r)
 			}
 		}
 		if (xleft >= 0) {
-			qd_plot(port, xleft, y, color);
+			qd_plot(port, &clip, xleft, y, color);
 			if (xright != xleft)
-				qd_plot(port, xright, y, color);
+				qd_plot(port, &clip, xright, y, color);
 		}
 	}
 
@@ -558,9 +603,9 @@ void FrameOval(const Rect *r)
 			}
 		}
 		if (ytop >= 0) {
-			qd_plot(port, x, ytop, color);
+			qd_plot(port, &clip, x, ytop, color);
 			if (ybottom != ytop)
-				qd_plot(port, x, ybottom, color);
+				qd_plot(port, &clip, x, ybottom, color);
 		}
 	}
 }
@@ -569,10 +614,13 @@ void FrameOval(const Rect *r)
  * CopyBits — blit a rectangular region of 8-bit pixels.
  *
  * First cut: PixMap → PixMap, same-size source and dest rects (no scaling),
- * srcCopy mode only, no mask region. Both rects are clipped to their
- * respective bounds, with the other rect adjusted to keep the
- * pixel-for-pixel mapping. Other modes (srcOr / srcXor / srcBic), scaling,
- * and maskRgn honour follow.
+ * srcCopy mode only, no mask region. The destination is clipped to
+ * dstBits->bounds intersected with the current port's effective clip
+ * (the Mac semantics — drawing always honours the current port's clip,
+ * even when dstBits is some other pixmap); the source is then clipped to
+ * srcBits->bounds, with each clip pass mirrored into the other rect so
+ * the pixel-for-pixel mapping survives. Other modes (srcOr / srcXor /
+ * srcBic), scaling, and maskRgn honour follow.
  *
  * BitMap and PixMap share the same first three fields (baseAddr, rowBytes,
  * bounds); the cast at the call site is the Mac trick that lets one entry
@@ -583,8 +631,9 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
               const Rect *srcRect, const Rect *dstRect,
               short mode, RgnHandle maskRgn)
 {
-	Rect  src, dst;
-	short w, h, y, shift;
+	GrafPtr port;
+	Rect    src, dst, port_clip, dst_clip;
+	short   w, h, y, shift;
 
 	(void)mode;       /* srcCopy assumed */
 	(void)maskRgn;    /* no mask honour yet */
@@ -600,24 +649,32 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
 	 || (src.bottom - src.top) != (dst.bottom - dst.top))
 		return;       /* scaling not supported yet */
 
-	/* Clip dst to dstBits->bounds, mirroring trims into src. */
-	if (dst.left < dstBits->bounds.left) {
-		shift = (short)(dstBits->bounds.left - dst.left);
+	/* The Mac clips drawing to the current port's effective clip — applies
+	 * to CopyBits even when dstBits != current port's pixmap. */
+	GetPort(&port);
+	if (port == NULL || !qd_effective_clip(port, &port_clip))
+		return;
+	if (!SectRect(&dstBits->bounds, &port_clip, &dst_clip))
+		return;
+
+	/* Clip dst to dst_clip, mirroring trims into src. */
+	if (dst.left < dst_clip.left) {
+		shift = (short)(dst_clip.left - dst.left);
 		dst.left = (short)(dst.left + shift);
 		src.left = (short)(src.left + shift);
 	}
-	if (dst.top < dstBits->bounds.top) {
-		shift = (short)(dstBits->bounds.top - dst.top);
+	if (dst.top < dst_clip.top) {
+		shift = (short)(dst_clip.top - dst.top);
 		dst.top = (short)(dst.top + shift);
 		src.top = (short)(src.top + shift);
 	}
-	if (dst.right > dstBits->bounds.right) {
-		shift = (short)(dst.right - dstBits->bounds.right);
+	if (dst.right > dst_clip.right) {
+		shift = (short)(dst.right - dst_clip.right);
 		dst.right = (short)(dst.right - shift);
 		src.right = (short)(src.right - shift);
 	}
-	if (dst.bottom > dstBits->bounds.bottom) {
-		shift = (short)(dst.bottom - dstBits->bounds.bottom);
+	if (dst.bottom > dst_clip.bottom) {
+		shift = (short)(dst.bottom - dst_clip.bottom);
 		dst.bottom = (short)(dst.bottom - shift);
 		src.bottom = (short)(src.bottom - shift);
 	}
@@ -663,6 +720,21 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
 		for (x = 0; x < w; x++)
 			dp[x] = sp[x];
 	}
+}
+
+/*
+ * ClipRect — set the current port's clipRgn to the rectangle `r`. Each
+ * drawing primitive intersects with portRect ∩ visRgn ∩ clipRgn, so the
+ * caller's `r` immediately restricts subsequent drawing.
+ */
+void ClipRect(const Rect *r)
+{
+	GrafPtr port;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL || port->clipRgn == NULL)
+		return;
+	RectRgn(port->clipRgn, r);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
