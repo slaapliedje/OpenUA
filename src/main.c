@@ -2,10 +2,11 @@
  * FRUA — Atari Falcon030 / TT030 port.
  *
  * QuickDraw / display-HAL diagnostic. Brings up the VIDEL backend, binds
- * QuickDraw to the back buffer via qd_attach_screen, then exercises
- * EraseRect / PaintRect on the screen port — one full-screen erase plus a
- * nested foreground rect. Each stage logs to C:\DEMO.LOG via dbg_log() so
- * the trail survives a crash and can be read on the host.
+ * QuickDraw to the back buffer via qd_attach_screen, then exercises the
+ * shim's drawing primitives on the screen port: a full-screen erase, a
+ * filled rect, an outlined rect inside it, and a corner-to-corner line.
+ * Each stage logs to C:\DEMO.LOG via dbg_log() so the trail survives a
+ * crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
  */
@@ -59,6 +60,14 @@ int main(void)
 	SetRect(&r, 40, 40, surf->width - 40, surf->height - 40);
 	PaintRect(&r);                          /* fill foreground (index 255) */
 	dbg_log("main: paint ok");
+
+	SetRect(&r, 100, 100, 200, 200);
+	FrameRect(&r);                          /* outline inside the paint    */
+	dbg_log("main: frame ok");
+
+	MoveTo(0, 0);
+	LineTo(surf->width - 1, surf->height - 1);
+	dbg_log("main: line  ok");
 
 	dsp->present();
 	dbg_log("main: present ok");

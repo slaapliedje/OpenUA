@@ -8,7 +8,7 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 
 | Mac Toolbox manager | FRUA use                         | Atari implementation                                        | Status  |
 |---------------------|----------------------------------|-------------------------------------------------------------|---------|
-| QuickDraw           | All drawing, `CopyBits`, regions | Geometry core, the `GrafPort` / `CGrafPort` and Color QuickDraw types, `NewPixMap`, rectangular regions, `GetPort`/`SetPort`, the screen port over the display HAL back buffer (`qd_attach_screen`), and the first rect-fill primitives (`EraseRect`, `PaintRect`) in `compat/quickdraw.c`; lines, pen state, patterns, and `CopyBits` still to come | wip |
+| QuickDraw           | All drawing, `CopyBits`, regions | Geometry core, the `GrafPort` / `CGrafPort` and Color QuickDraw types, `NewPixMap`, rectangular regions, `GetPort`/`SetPort`, the screen port over the display HAL back buffer (`qd_attach_screen`), the rect primitives (`EraseRect`, `PaintRect`, `FrameRect`), and the line family (`MoveTo`, `LineTo`, `GetPen`) in `compat/quickdraw.c`; pen state, patterns, text, and `CopyBits` still to come | wip |
 | Color/Palette Mgr   | 256-colour CLUT animation        | HAL `set_palette` → XBIOS `VsetRGB` (Falcon) / `EsetPalette`| planned |
 | Offscreen GWorlds   | Sprite/buffer composition        | 8-bit paletted offscreen surfaces in the shim               | planned |
 | Resource Manager    | `GetResource`, resource fork     | FRSC-archive reader in `compat/resources.c` — `GetResource` etc. over the `(type,id)` archive; `rsrcpack` (the packer) still to build | wip |
