@@ -5,9 +5,10 @@
  * The Point and rectangle calculations (to the Inside Macintosh semantics),
  * GetPort / SetPort, NewPixMap, the rectangular-region facility, the screen
  * GrafPort that owns the display back buffer, the rect primitives (EraseRect,
- * PaintRect, FrameRect) and the line family (MoveTo / LineTo / GetPen) over
- * 8-bit paletted pixels — clipped to portRect, the rest of the clipping
- * machinery follows with window-aware drawing.
+ * PaintRect, FrameRect), the line family (MoveTo / LineTo / GetPen), and the
+ * ovals (PaintOval, FrameOval) over 8-bit paletted pixels — clipped to
+ * portRect, the rest of the clipping machinery follows with window-aware
+ * drawing.
  */
 
 #include <stddef.h>             /* offsetof, NULL */
@@ -432,6 +433,136 @@ void LineTo(short h, short v)
 	}
 
 	SetPt(&port->pnLoc, h, v);
+}
+
+/*
+ * Oval primitives — the oval is inscribed in `r`, touching the four edges.
+ *
+ * Brute-force scanline: for each row, scan to find the leftmost and
+ * rightmost columns inside the implicit ellipse (x-cx)^2 / rx^2 +
+ * (y-cy)^2 / ry^2 <= 1, expressed entirely in integers as
+ * dx^2 * ry^2 + dy^2 * rx^2 <= rx^2 * ry^2. PaintOval hlines between the
+ * extents; FrameOval plots them, and does a second column-scan pass so the
+ * curve stays closed where it runs near-horizontal (one pixel per row on
+ * each side is sparse where the slope is shallow).
+ *
+ * The midpoint ellipse algorithm is faster, but O(rx*ry) per oval is fine
+ * for the modest UI ovals FRUA draws. Long arithmetic is large enough for
+ * semi-axes up to a few hundred pixels — rx^2 * ry^2 fits in a 32-bit long
+ * up to about rx=ry=215.
+ */
+
+static void qd_oval_axes(const Rect *r, short *cx, short *cy,
+                         short *rx, short *ry)
+{
+	*cx = (short)((r->left + r->right)  / 2);
+	*cy = (short)((r->top  + r->bottom) / 2);
+	*rx = (short)((r->right  - r->left) / 2);
+	*ry = (short)((r->bottom - r->top)  / 2);
+}
+
+void PaintOval(const Rect *r)
+{
+	GrafPtr       port;
+	unsigned char color;
+	short         cx, cy, rx, ry, x, y;
+	long          rx2, ry2, denom;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL || EmptyRect(r))
+		return;
+	qd_oval_axes(r, &cx, &cy, &rx, &ry);
+	if (rx == 0 || ry == 0)
+		return;
+	color = (unsigned char)((CGrafPtr)port)->fgColor;
+	rx2   = (long)rx * rx;
+	ry2   = (long)ry * ry;
+	denom = rx2 * ry2;
+
+	for (y = r->top; y < r->bottom; y++) {
+		long  dy  = y - cy;
+		long  dyy = dy * dy * rx2;
+		short xleft = -1, xright = -1;
+
+		if (dyy > denom)
+			continue;
+		for (x = r->left; x < r->right; x++) {
+			long dx = x - cx;
+			if (dx * dx * ry2 + dyy <= denom) {
+				if (xleft < 0)
+					xleft = x;
+				xright = x;
+			}
+		}
+		if (xleft >= 0)
+			qd_hline(port, xleft, xright, y, color);
+	}
+}
+
+void FrameOval(const Rect *r)
+{
+	GrafPtr       port;
+	unsigned char color;
+	short         cx, cy, rx, ry, x, y;
+	long          rx2, ry2, denom;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL || EmptyRect(r))
+		return;
+	qd_oval_axes(r, &cx, &cy, &rx, &ry);
+	if (rx == 0 || ry == 0)
+		return;
+	color = (unsigned char)((CGrafPtr)port)->fgColor;
+	rx2   = (long)rx * rx;
+	ry2   = (long)ry * ry;
+	denom = rx2 * ry2;
+
+	/* Row scan: plot leftmost and rightmost in-oval column at each y. */
+	for (y = r->top; y < r->bottom; y++) {
+		long  dy  = y - cy;
+		long  dyy = dy * dy * rx2;
+		short xleft = -1, xright = -1;
+
+		if (dyy > denom)
+			continue;
+		for (x = r->left; x < r->right; x++) {
+			long dx = x - cx;
+			if (dx * dx * ry2 + dyy <= denom) {
+				if (xleft < 0)
+					xleft = x;
+				xright = x;
+			}
+		}
+		if (xleft >= 0) {
+			qd_plot(port, xleft, y, color);
+			if (xright != xleft)
+				qd_plot(port, xright, y, color);
+		}
+	}
+
+	/* Column scan: plot topmost and bottommost in-oval row at each x —
+	 * closes the curve where it runs nearly horizontally. */
+	for (x = r->left; x < r->right; x++) {
+		long  dx  = x - cx;
+		long  dxx = dx * dx * ry2;
+		short ytop = -1, ybottom = -1;
+
+		if (dxx > denom)
+			continue;
+		for (y = r->top; y < r->bottom; y++) {
+			long dy = y - cy;
+			if (dy * dy * rx2 + dxx <= denom) {
+				if (ytop < 0)
+					ytop = y;
+				ybottom = y;
+			}
+		}
+		if (ytop >= 0) {
+			qd_plot(port, x, ytop, color);
+			if (ybottom != ytop)
+				qd_plot(port, x, ybottom, color);
+		}
+	}
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
