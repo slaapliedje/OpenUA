@@ -69,6 +69,14 @@ int main(void)
 	LineTo(surf->width - 1, surf->height - 1);
 	dbg_log("main: line  ok");
 
+	SetRect(&r, 220, 50, 310, 110);
+	PaintOval(&r);                          /* filled oval to the right    */
+	dbg_log("main: paintoval ok");
+
+	SetRect(&r, 220, 130, 310, 190);
+	FrameOval(&r);                          /* outlined oval below it      */
+	dbg_log("main: frameoval ok");
+
 	dsp->present();
 	dbg_log("main: present ok");
 

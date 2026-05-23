@@ -11,10 +11,11 @@
  * GrafPort and the Color QuickDraw types (CGrafPort, PixMap, ColorTable,
  * ...), NewPixMap, rectangular regions, the current-port machinery
  * (GetPort / SetPort), the screen port that owns the display back buffer
- * (qd_attach_screen), the first rect primitives (EraseRect, PaintRect,
- * FrameRect), and the line family (MoveTo, LineTo, GetPen). The pen
- * state setters (PenSize, PenMode, PenPat), patterns, text, and CopyBits
- * follow — see docs/decompilation.md, the Display subsystem.
+ * (qd_attach_screen), the rect primitives (EraseRect, PaintRect,
+ * FrameRect), the line family (MoveTo, LineTo, GetPen), and the ovals
+ * (PaintOval, FrameOval). The pen state setters (PenSize, PenMode,
+ * PenPat), patterns, text, and CopyBits follow — see
+ * docs/decompilation.md, the Display subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -254,6 +255,8 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
 void EraseRect(const Rect *r);  /* fill r with the port's background */
 void PaintRect(const Rect *r);  /* fill r with the port's foreground */
 void FrameRect(const Rect *r);  /* outline r in the port's foreground */
+void PaintOval(const Rect *r);  /* fill r's inscribed oval, fg */
+void FrameOval(const Rect *r);  /* outline r's inscribed oval, fg */
 
 /* --- line drawing and the pen ---
  *
