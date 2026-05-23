@@ -12,12 +12,12 @@
  * ...), NewPixMap, rectangular regions, the current-port machinery
  * (GetPort / SetPort), the screen port that owns the display back buffer
  * (qd_attach_screen), the rect primitives (EraseRect, PaintRect,
- * FrameRect), the line family (MoveTo, LineTo, GetPen), the ovals
- * (PaintOval, FrameOval), the blit (CopyBits — same-size, srcCopy mode,
- * 8-bit), and ClipRect — every primitive clips against portRect ∩ visRgn
- * ∩ clipRgn. The pen state setters (PenSize, PenMode, PenPat), patterns,
- * text, scaling, and the other transfer modes follow — see
- * docs/decompilation.md, the Display subsystem.
+ * FrameRect), the line family (MoveTo, LineTo, GetPen, PenSize), the
+ * ovals (PaintOval, FrameOval), the blit (CopyBits — same-size, srcCopy
+ * mode, 8-bit), and ClipRect — every primitive clips against
+ * portRect ∩ visRgn ∩ clipRgn, and pen-using primitives honour pnSize.
+ * PenMode, PenPat, patterns, text, scaling, and the other transfer
+ * modes follow — see docs/decompilation.md, the Display subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -246,6 +246,13 @@ void SetPort(GrafPtr port);
  */
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
 
+/*
+ * Initialise the drawing defaults the Mac sets in OpenPort — pnSize (1,1),
+ * patCopy mode, solid pen pattern, fgColor 255, bkColor 0. qd_attach_screen
+ * and the Window Manager's NewWindow / NewCWindow both call this.
+ */
+void qd_init_port_defaults(GrafPtr port);
+
 /* --- drawing primitives ---
  *
  * Drawing acts on the current port. For colour ports the foreground and
@@ -265,15 +272,18 @@ void ClipRect(const Rect *r);   /* set the current port's clipRgn to r */
 
 /* --- line drawing and the pen ---
  *
- * The pen state lives in the current port (pnLoc — and later pnSize / pnPat
- * / pnMode). MoveTo and LineTo move the pen; LineTo also draws from the old
- * pnLoc to (h, v). The first cut assumes the Mac default pen state — size
- * (1, 1), solid black, patCopy transfer mode — so lines are one-pixel wide
- * in fgColor; the pen state setters arrive when the engine needs them.
+ * The pen state lives in the current port — pnLoc, pnSize, and (still
+ * storage-only) pnPat / pnMode. MoveTo and LineTo move the pen; LineTo also
+ * draws from the old pnLoc to (h, v). PenSize honours its setting: each
+ * pen step plots a pnSize.h x pnSize.v rect, so LineTo, FrameRect, and
+ * FrameOval draw thick strokes when the pen is enlarged. PenMode and
+ * PenPat are not honoured yet — the pen always strokes in fgColor with
+ * patCopy semantics; the transfer modes and patterns follow.
  */
 void MoveTo(short h, short v);
 void LineTo(short h, short v);
 void GetPen(Point *pt);
+void PenSize(short h, short v);  /* set the pen rectangle dimensions */
 
 /* --- CopyBits transfer modes (subset) --- */
 #define srcCopy  0      /* dst = src (the default and most common mode) */

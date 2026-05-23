@@ -5,9 +5,9 @@
  * QuickDraw to the back buffer via qd_attach_screen, then exercises the
  * shim's drawing primitives on the screen port: a full-screen erase, a
  * filled rect, an outlined rect inside it, a corner-to-corner line, two
- * ovals, a 16x16 CopyBits gradient, and a ClipRect-narrowed PaintRect.
- * Each stage logs to C:\DEMO.LOG via dbg_log() so the trail survives a
- * crash and can be read on the host.
+ * ovals, a 16x16 CopyBits gradient, a ClipRect-narrowed PaintRect, and a
+ * thick PenSize stroke. Each stage logs to C:\DEMO.LOG via dbg_log() so
+ * the trail survives a crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
  */
@@ -110,6 +110,14 @@ int main(void)
 	dbg_log("main: cliprect ok");
 	SetRect(&r, 0, 0, surf->width, surf->height);
 	ClipRect(&r);                           /* reset clip to full screen */
+
+	/* PenSize demo: a 3x3 pen sweeps a thick horizontal band below the
+	 * PaintRect, then resets to the default. */
+	PenSize(3, 3);
+	MoveTo(150, 365);
+	LineTo(200, 365);
+	PenSize(1, 1);
+	dbg_log("main: pensize ok");
 
 	dsp->present();
 	dbg_log("main: present ok");

@@ -212,6 +212,26 @@ Boolean EmptyRgn(RgnHandle rgn)
  */
 static CGrafPort g_screen_port;
 
+/*
+ * Initialise the per-port drawing defaults that the Mac sets in OpenPort
+ * (the shim has no OpenPort; qd_attach_screen and win_new both call this).
+ * The pen starts 1x1 in fgColor with patCopy semantics; colours default to
+ * index 0 / 255 — refined by the palette manager later. The pen pattern
+ * is solid (0xFF) — also storage-only until PenPat is honoured.
+ */
+void qd_init_port_defaults(GrafPtr port)
+{
+	int i;
+
+	SetPt(&port->pnSize, 1, 1);
+	port->pnMode = 0;                        /* patCopy             */
+	port->pnVis  = 0;                        /* visible (>=0)       */
+	for (i = 0; i < 8; i++)
+		port->pnPat.pat[i] = 0xFF;       /* solid               */
+	port->fgColor = 255;
+	port->bkColor = 0;
+}
+
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 {
 	CGrafPtr     cp = &g_screen_port;
@@ -236,11 +256,7 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 	RectRgn(cp->visRgn,  &bounds);
 	RectRgn(cp->clipRgn, &bounds);
 
-	/* Default colours — index 0 for background, 255 for foreground. The
-	 * palette manager will set up RGB-keyed colour selection later; for
-	 * now drawing reads fgColor / bkColor as literal 8-bit indices. */
-	cp->fgColor = 255;
-	cp->bkColor = 0;
+	qd_init_port_defaults((GrafPtr)cp);
 
 	SetPort((GrafPtr)cp);
 }
@@ -271,25 +287,20 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 }
 
 /*
- * Shared body of EraseRect / PaintRect — fill `r` (in the current port's
- * local coordinates) with `color`, clipped to the port's effective clip.
- * Pixel coordinates are local-minus-bounds.top-left; for the screen port
- * bounds is the same as portRect so the offsets are zero.
+ * Fill a rectangle of the current port's pixmap with `color`, clipped to
+ * `clip`. Used by the fill primitives (PaintRect / EraseRect through
+ * qd_fill_rect, PaintOval's scanlines through qd_hline) and by the pen
+ * primitives (qd_pen_plot / qd_pen_hline / qd_pen_vline) — sweeping the
+ * pen along a line yields a thick band that's exactly a rectangle.
  */
-static void qd_fill_rect(const Rect *r, unsigned char color)
+static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
+                           const Rect *r, unsigned char color)
 {
-	GrafPtr  port;
-	CGrafPtr cp;
+	CGrafPtr cp = (CGrafPtr)port;
 	PixMap  *pm;
-	Rect     clip, clipped;
+	Rect     clipped;
 	short    row, w;
 
-	GetPort(&port);
-	if (port == NULL || r == NULL)
-		return;
-	/* The first cut handles colour ports only — the b&w portBits path
-	 * follows when the engine creates a b&w window. */
-	cp = (CGrafPtr)port;
 	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG)
 		return;
 	if (cp->portPixMap == NULL || *cp->portPixMap == NULL)
@@ -297,10 +308,7 @@ static void qd_fill_rect(const Rect *r, unsigned char color)
 	pm = *cp->portPixMap;
 	if (pm->baseAddr == NULL)
 		return;
-
-	if (!qd_effective_clip(port, &clip))
-		return;
-	if (!SectRect(r, &clip, &clipped))
+	if (!SectRect(r, clip, &clipped))
 		return;
 
 	w = (short)(clipped.right - clipped.left);
@@ -313,6 +321,23 @@ static void qd_fill_rect(const Rect *r, unsigned char color)
 		for (col = 0; col < w; col++)
 			p[col] = color;
 	}
+}
+
+/*
+ * Shared body of EraseRect / PaintRect — fill `r` (in the current port's
+ * local coordinates) with `color`, clipped to the port's effective clip.
+ */
+static void qd_fill_rect(const Rect *r, unsigned char color)
+{
+	GrafPtr port;
+	Rect    clip;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL)
+		return;
+	if (!qd_effective_clip(port, &clip))
+		return;
+	qd_pixmap_fill(port, &clip, r, color);
 }
 
 void EraseRect(const Rect *r)
@@ -359,7 +384,7 @@ static void qd_plot(GrafPtr port, const Rect *clip,
 		[(y - pm->bounds.top) * pm->rowBytes + (x - pm->bounds.left)] = color;
 }
 
-/* Horizontal / vertical line helpers — used by FrameRect's four edges. */
+/* Horizontal line helper — used by PaintOval's per-row fill. */
 static void qd_hline(GrafPtr port, const Rect *clip,
                      short x1, short x2, short y, unsigned char color)
 {
@@ -368,12 +393,48 @@ static void qd_hline(GrafPtr port, const Rect *clip,
 		qd_plot(port, clip, x1, y, color);
 }
 
-static void qd_vline(GrafPtr port, const Rect *clip,
-                     short x, short y1, short y2, unsigned char color)
+/*
+ * Pen-aware primitives — sweep the pnSize.h x pnSize.v pen along the
+ * shape's path, so a 3x3 pen draws a 3-pixel-thick line / outline. Each
+ * pen step plots a (sw, sh) rect with top-left at the pen position. The
+ * union of those rects along a horizontal or vertical sweep is itself
+ * one rectangle — qd_pen_hline / qd_pen_vline fall through to a single
+ * qd_pixmap_fill for that band.
+ */
+
+static void qd_pen_plot(GrafPtr port, const Rect *clip,
+                        short x, short y, unsigned char color)
 {
+	Rect pen;
+	short sw = port->pnSize.h > 0 ? port->pnSize.h : 1;
+	short sh = port->pnSize.v > 0 ? port->pnSize.v : 1;
+
+	SetRect(&pen, x, y, (short)(x + sw), (short)(y + sh));
+	qd_pixmap_fill(port, clip, &pen, color);
+}
+
+static void qd_pen_hline(GrafPtr port, const Rect *clip,
+                         short x1, short x2, short y, unsigned char color)
+{
+	Rect band;
+	short sw = port->pnSize.h > 0 ? port->pnSize.h : 1;
+	short sh = port->pnSize.v > 0 ? port->pnSize.v : 1;
+
+	if (x1 > x2) { short t = x1; x1 = x2; x2 = t; }
+	SetRect(&band, x1, y, (short)(x2 + sw), (short)(y + sh));
+	qd_pixmap_fill(port, clip, &band, color);
+}
+
+static void qd_pen_vline(GrafPtr port, const Rect *clip,
+                         short x, short y1, short y2, unsigned char color)
+{
+	Rect band;
+	short sw = port->pnSize.h > 0 ? port->pnSize.h : 1;
+	short sh = port->pnSize.v > 0 ? port->pnSize.v : 1;
+
 	if (y1 > y2) { short t = y1; y1 = y2; y2 = t; }
-	for (; y1 <= y2; y1++)
-		qd_plot(port, clip, x, y1, color);
+	SetRect(&band, x, y1, (short)(x + sw), (short)(y2 + sh));
+	qd_pixmap_fill(port, clip, &band, color);
 }
 
 /*
@@ -400,10 +461,10 @@ void FrameRect(const Rect *r)
 	rr = (short)(r->right  - 1);
 	bb = (short)(r->bottom - 1);
 
-	qd_hline(port, &clip, l, rr, t,  color);     /* top    */
-	qd_hline(port, &clip, l, rr, bb, color);     /* bottom */
-	qd_vline(port, &clip, l,  t,  bb, color);    /* left   */
-	qd_vline(port, &clip, rr, t,  bb, color);    /* right  */
+	qd_pen_hline(port, &clip, l, rr, t,  color); /* top    */
+	qd_pen_hline(port, &clip, l, rr, bb, color); /* bottom */
+	qd_pen_vline(port, &clip, l,  t,  bb, color);/* left   */
+	qd_pen_vline(port, &clip, rr, t,  bb, color);/* right  */
 }
 
 /* MoveTo — set the pen location in the current port. */
@@ -463,7 +524,7 @@ void LineTo(short h, short v)
 
 	for (;;) {
 		if (draw)
-			qd_plot(port, &clip, x0, y0, color);
+			qd_pen_plot(port, &clip, x0, y0, color);
 		if (x0 == x1 && y0 == y1)
 			break;
 		e2 = (short)(err * 2);
@@ -579,9 +640,9 @@ void FrameOval(const Rect *r)
 			}
 		}
 		if (xleft >= 0) {
-			qd_plot(port, &clip, xleft, y, color);
+			qd_pen_plot(port, &clip, xleft, y, color);
 			if (xright != xleft)
-				qd_plot(port, &clip, xright, y, color);
+				qd_pen_plot(port, &clip, xright, y, color);
 		}
 	}
 
@@ -603,9 +664,9 @@ void FrameOval(const Rect *r)
 			}
 		}
 		if (ytop >= 0) {
-			qd_plot(port, &clip, x, ytop, color);
+			qd_pen_plot(port, &clip, x, ytop, color);
 			if (ybottom != ytop)
-				qd_plot(port, &clip, x, ybottom, color);
+				qd_pen_plot(port, &clip, x, ybottom, color);
 		}
 	}
 }
@@ -735,6 +796,21 @@ void ClipRect(const Rect *r)
 	if (port == NULL || r == NULL || port->clipRgn == NULL)
 		return;
 	RectRgn(port->clipRgn, r);
+}
+
+/*
+ * PenSize — set the current port's pen rectangle to (h, v). Pen-using
+ * primitives (LineTo, FrameRect, FrameOval) sweep this rect along the
+ * shape's path, so a 3x3 pen draws a 3-pixel-thick stroke.
+ */
+void PenSize(short h, short v)
+{
+	GrafPtr port;
+
+	GetPort(&port);
+	if (port == NULL)
+		return;
+	SetPt(&port->pnSize, h, v);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
