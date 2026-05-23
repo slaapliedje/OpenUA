@@ -12,9 +12,10 @@
  * ...), NewPixMap, rectangular regions, the current-port machinery
  * (GetPort / SetPort), the screen port that owns the display back buffer
  * (qd_attach_screen), the rect primitives (EraseRect, PaintRect,
- * FrameRect), the line family (MoveTo, LineTo, GetPen), and the ovals
- * (PaintOval, FrameOval). The pen state setters (PenSize, PenMode,
- * PenPat), patterns, text, and CopyBits follow — see
+ * FrameRect), the line family (MoveTo, LineTo, GetPen), the ovals
+ * (PaintOval, FrameOval), and the blit (CopyBits — same-size, srcCopy
+ * mode, 8-bit). The pen state setters (PenSize, PenMode, PenPat),
+ * patterns, text, scaling, and the other transfer modes follow — see
  * docs/decompilation.md, the Display subsystem.
  */
 
@@ -269,5 +270,27 @@ void FrameOval(const Rect *r);  /* outline r's inscribed oval, fg */
 void MoveTo(short h, short v);
 void LineTo(short h, short v);
 void GetPen(Point *pt);
+
+/* --- CopyBits transfer modes (subset) --- */
+#define srcCopy  0      /* dst = src (the default and most common mode) */
+#define srcOr    1
+#define srcXor   2
+#define srcBic   3
+
+/*
+ * CopyBits — blit pixels from srcBits to dstBits.
+ *
+ * The Mac BitMap layout's first three fields (baseAddr, rowBytes, bounds)
+ * sit at the same offsets as the PixMap's, so a colour-port caller passes
+ * `(BitMap *)*cport->portPixMap` and one entry point serves both depths.
+ *
+ * First cut: 8-bit PixMap to 8-bit PixMap, srcRect and dstRect the same
+ * size (no scaling), srcCopy mode only, no mask region honoured. Clipped
+ * to both bitmaps' bounds. Scaling, the other transfer modes, mask
+ * regions, and the visRgn / clipRgn intersection follow.
+ */
+void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
+              const Rect *srcRect, const Rect *dstRect,
+              short mode, RgnHandle maskRgn);
 
 #endif /* COMPAT_QUICKDRAW_H */

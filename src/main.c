@@ -4,26 +4,33 @@
  * QuickDraw / display-HAL diagnostic. Brings up the VIDEL backend, binds
  * QuickDraw to the back buffer via qd_attach_screen, then exercises the
  * shim's drawing primitives on the screen port: a full-screen erase, a
- * filled rect, an outlined rect inside it, and a corner-to-corner line.
- * Each stage logs to C:\DEMO.LOG via dbg_log() so the trail survives a
- * crash and can be read on the host.
+ * filled rect, an outlined rect inside it, a corner-to-corner line, two
+ * ovals, and a 16x16 CopyBits gradient. Each stage logs to C:\DEMO.LOG
+ * via dbg_log() so the trail survives a crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
  */
 
 #include <mint/osbind.h>
+#include <stddef.h>             /* NULL */
 
 #include "display.h"
 #include "dbglog.h"
 #include "quickdraw.h"
+
+/* A 16x16 source bitmap for the CopyBits demo — a diagonal gradient that
+ * shows the blit is reading rows top-to-bottom and pixels left-to-right. */
+static unsigned char g_blit_src[16 * 16];
 
 int main(void)
 {
 	const dsp_backend_t *dsp;
 	dsp_surface_t *surf;
 	dsp_color_t    pal[256];
-	Rect           r;
-	int            i;
+	BitMap         src_bm;
+	GrafPtr        port;
+	Rect           r, srcR, dstR;
+	int            i, j;
 
 	dbg_log("main: entered");
 
@@ -76,6 +83,21 @@ int main(void)
 	SetRect(&r, 220, 130, 310, 190);
 	FrameOval(&r);                          /* outlined oval below it      */
 	dbg_log("main: frameoval ok");
+
+	/* CopyBits demo: 16x16 source with (row<<4 | col) values blitted onto
+	 * the screen. Reading sample pixels back confirms the row/col addressing. */
+	for (j = 0; j < 16; j++)
+		for (i = 0; i < 16; i++)
+			g_blit_src[j * 16 + i] = (unsigned char)((j << 4) | i);
+	src_bm.baseAddr = (Ptr)g_blit_src;
+	src_bm.rowBytes = 16;
+	SetRect(&src_bm.bounds, 0, 0, 16, 16);
+	SetRect(&srcR, 0, 0, 16, 16);
+	SetRect(&dstR, 10, 220, 26, 236);
+	GetPort(&port);
+	CopyBits(&src_bm, (const BitMap *)*((CGrafPtr)port)->portPixMap,
+	         &srcR, &dstR, srcCopy, NULL);
+	dbg_log("main: copybits ok");
 
 	dsp->present();
 	dbg_log("main: present ok");

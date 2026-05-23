@@ -5,10 +5,10 @@
  * The Point and rectangle calculations (to the Inside Macintosh semantics),
  * GetPort / SetPort, NewPixMap, the rectangular-region facility, the screen
  * GrafPort that owns the display back buffer, the rect primitives (EraseRect,
- * PaintRect, FrameRect), the line family (MoveTo / LineTo / GetPen), and the
- * ovals (PaintOval, FrameOval) over 8-bit paletted pixels — clipped to
- * portRect, the rest of the clipping machinery follows with window-aware
- * drawing.
+ * PaintRect, FrameRect), the line family (MoveTo / LineTo / GetPen), the
+ * ovals (PaintOval, FrameOval), and CopyBits (same-size, srcCopy) over 8-bit
+ * paletted pixels — clipped to portRect, the rest of the clipping machinery
+ * follows with window-aware drawing.
  */
 
 #include <stddef.h>             /* offsetof, NULL */
@@ -562,6 +562,106 @@ void FrameOval(const Rect *r)
 			if (ybottom != ytop)
 				qd_plot(port, x, ybottom, color);
 		}
+	}
+}
+
+/*
+ * CopyBits — blit a rectangular region of 8-bit pixels.
+ *
+ * First cut: PixMap → PixMap, same-size source and dest rects (no scaling),
+ * srcCopy mode only, no mask region. Both rects are clipped to their
+ * respective bounds, with the other rect adjusted to keep the
+ * pixel-for-pixel mapping. Other modes (srcOr / srcXor / srcBic), scaling,
+ * and maskRgn honour follow.
+ *
+ * BitMap and PixMap share the same first three fields (baseAddr, rowBytes,
+ * bounds); the cast at the call site is the Mac trick that lets one entry
+ * serve both depths. The shim's PixMaps don't set the high rowBytes bit
+ * (the PixMap marker) yet — irrelevant while everything is 8 bpp.
+ */
+void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
+              const Rect *srcRect, const Rect *dstRect,
+              short mode, RgnHandle maskRgn)
+{
+	Rect  src, dst;
+	short w, h, y, shift;
+
+	(void)mode;       /* srcCopy assumed */
+	(void)maskRgn;    /* no mask honour yet */
+
+	if (srcBits == NULL || dstBits == NULL
+	 || srcRect == NULL || dstRect == NULL
+	 || srcBits->baseAddr == NULL || dstBits->baseAddr == NULL)
+		return;
+
+	src = *srcRect;
+	dst = *dstRect;
+	if ((src.right - src.left) != (dst.right - dst.left)
+	 || (src.bottom - src.top) != (dst.bottom - dst.top))
+		return;       /* scaling not supported yet */
+
+	/* Clip dst to dstBits->bounds, mirroring trims into src. */
+	if (dst.left < dstBits->bounds.left) {
+		shift = (short)(dstBits->bounds.left - dst.left);
+		dst.left = (short)(dst.left + shift);
+		src.left = (short)(src.left + shift);
+	}
+	if (dst.top < dstBits->bounds.top) {
+		shift = (short)(dstBits->bounds.top - dst.top);
+		dst.top = (short)(dst.top + shift);
+		src.top = (short)(src.top + shift);
+	}
+	if (dst.right > dstBits->bounds.right) {
+		shift = (short)(dst.right - dstBits->bounds.right);
+		dst.right = (short)(dst.right - shift);
+		src.right = (short)(src.right - shift);
+	}
+	if (dst.bottom > dstBits->bounds.bottom) {
+		shift = (short)(dst.bottom - dstBits->bounds.bottom);
+		dst.bottom = (short)(dst.bottom - shift);
+		src.bottom = (short)(src.bottom - shift);
+	}
+
+	/* Then clip src to srcBits->bounds, mirroring trims back into dst. */
+	if (src.left < srcBits->bounds.left) {
+		shift = (short)(srcBits->bounds.left - src.left);
+		src.left = (short)(src.left + shift);
+		dst.left = (short)(dst.left + shift);
+	}
+	if (src.top < srcBits->bounds.top) {
+		shift = (short)(srcBits->bounds.top - src.top);
+		src.top = (short)(src.top + shift);
+		dst.top = (short)(dst.top + shift);
+	}
+	if (src.right > srcBits->bounds.right) {
+		shift = (short)(src.right - srcBits->bounds.right);
+		src.right = (short)(src.right - shift);
+		dst.right = (short)(dst.right - shift);
+	}
+	if (src.bottom > srcBits->bounds.bottom) {
+		shift = (short)(src.bottom - srcBits->bounds.bottom);
+		src.bottom = (short)(src.bottom - shift);
+		dst.bottom = (short)(dst.bottom - shift);
+	}
+
+	w = (short)(dst.right  - dst.left);
+	h = (short)(dst.bottom - dst.top);
+	if (w <= 0 || h <= 0)
+		return;
+
+	for (y = 0; y < h; y++) {
+		const unsigned char *sp = (const unsigned char *)srcBits->baseAddr
+		                        + ((src.top + y) - srcBits->bounds.top)
+		                          * srcBits->rowBytes
+		                        + (src.left - srcBits->bounds.left);
+		unsigned char       *dp = (unsigned char *)dstBits->baseAddr
+		                        + ((dst.top + y) - dstBits->bounds.top)
+		                          * dstBits->rowBytes
+		                        + (dst.left - dstBits->bounds.left);
+		short x;
+
+		for (x = 0; x < w; x++)
+			dp[x] = sp[x];
 	}
 }
 
