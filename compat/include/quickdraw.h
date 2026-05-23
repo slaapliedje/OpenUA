@@ -11,8 +11,9 @@
  * GrafPort and the Color QuickDraw types (CGrafPort, PixMap, ColorTable,
  * ...), NewPixMap, rectangular regions, the current-port machinery
  * (GetPort / SetPort), the screen port that owns the display back buffer
- * (qd_attach_screen), and the first rect-fill primitives (EraseRect,
- * PaintRect). MoveTo / LineTo, the pen state, patterns, and CopyBits
+ * (qd_attach_screen), the first rect primitives (EraseRect, PaintRect,
+ * FrameRect), and the line family (MoveTo, LineTo, GetPen). The pen
+ * state setters (PenSize, PenMode, PenPat), patterns, text, and CopyBits
  * follow — see docs/decompilation.md, the Display subsystem.
  */
 
@@ -252,5 +253,18 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
  */
 void EraseRect(const Rect *r);  /* fill r with the port's background */
 void PaintRect(const Rect *r);  /* fill r with the port's foreground */
+void FrameRect(const Rect *r);  /* outline r in the port's foreground */
+
+/* --- line drawing and the pen ---
+ *
+ * The pen state lives in the current port (pnLoc — and later pnSize / pnPat
+ * / pnMode). MoveTo and LineTo move the pen; LineTo also draws from the old
+ * pnLoc to (h, v). The first cut assumes the Mac default pen state — size
+ * (1, 1), solid black, patCopy transfer mode — so lines are one-pixel wide
+ * in fgColor; the pen state setters arrive when the engine needs them.
+ */
+void MoveTo(short h, short v);
+void LineTo(short h, short v);
+void GetPen(Point *pt);
 
 #endif /* COMPAT_QUICKDRAW_H */

@@ -4,7 +4,8 @@
  *
  * The Point and rectangle calculations (to the Inside Macintosh semantics),
  * GetPort / SetPort, NewPixMap, the rectangular-region facility, the screen
- * GrafPort that owns the display back buffer, and EraseRect / PaintRect over
+ * GrafPort that owns the display back buffer, the rect primitives (EraseRect,
+ * PaintRect, FrameRect) and the line family (MoveTo / LineTo / GetPen) over
  * 8-bit paletted pixels — clipped to portRect, the rest of the clipping
  * machinery follows with window-aware drawing.
  */
@@ -301,6 +302,136 @@ void PaintRect(const Rect *r)
 	GetPort(&port);
 	if (port != NULL)
 		qd_fill_rect(r, (unsigned char)((CGrafPtr)port)->fgColor);
+}
+
+/*
+ * Plot one pixel at (x, y) into the current port's pixmap, silently
+ * discarding writes that fall outside portRect. The per-pixel write that
+ * FrameRect and LineTo share.
+ */
+static void qd_plot(GrafPtr port, short x, short y, unsigned char color)
+{
+	CGrafPtr cp = (CGrafPtr)port;
+	PixMap  *pm;
+
+	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG)
+		return;
+	if (x < cp->portRect.left || x >= cp->portRect.right
+	 || y < cp->portRect.top  || y >= cp->portRect.bottom)
+		return;
+	if (cp->portPixMap == NULL || *cp->portPixMap == NULL)
+		return;
+	pm = *cp->portPixMap;
+	if (pm->baseAddr == NULL)
+		return;
+	((unsigned char *)pm->baseAddr)
+		[(y - pm->bounds.top) * pm->rowBytes + (x - pm->bounds.left)] = color;
+}
+
+/* Horizontal / vertical line helpers — used by FrameRect's four edges. */
+static void qd_hline(GrafPtr port, short x1, short x2, short y,
+                     unsigned char color)
+{
+	if (x1 > x2) { short t = x1; x1 = x2; x2 = t; }
+	for (; x1 <= x2; x1++)
+		qd_plot(port, x1, y, color);
+}
+
+static void qd_vline(GrafPtr port, short x, short y1, short y2,
+                     unsigned char color)
+{
+	if (y1 > y2) { short t = y1; y1 = y2; y2 = t; }
+	for (; y1 <= y2; y1++)
+		qd_plot(port, x, y1, color);
+}
+
+/*
+ * FrameRect — outline `r` in the port's foreground colour. The Mac excludes
+ * the right and bottom edges from filled rects but includes them in the
+ * outline (so a 10x10 rect frames at columns left..right-1 and rows
+ * top..bottom-1). One-pixel pen for now — PenSize / PenPat / PenMode follow.
+ */
+void FrameRect(const Rect *r)
+{
+	GrafPtr port;
+	unsigned char color;
+	short l, t, rr, bb;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL)
+		return;
+	if (EmptyRect(r))
+		return;
+	color = (unsigned char)((CGrafPtr)port)->fgColor;
+	l  = r->left;
+	t  = r->top;
+	rr = (short)(r->right  - 1);
+	bb = (short)(r->bottom - 1);
+
+	qd_hline(port, l, rr, t,  color);       /* top    */
+	qd_hline(port, l, rr, bb, color);       /* bottom */
+	qd_vline(port, l,  t,  bb, color);      /* left   */
+	qd_vline(port, rr, t,  bb, color);      /* right  */
+}
+
+/* MoveTo — set the pen location in the current port. */
+void MoveTo(short h, short v)
+{
+	GrafPtr port;
+
+	GetPort(&port);
+	if (port != NULL)
+		SetPt(&port->pnLoc, h, v);
+}
+
+/* GetPen — read the pen location of the current port. */
+void GetPen(Point *pt)
+{
+	GrafPtr port;
+
+	GetPort(&port);
+	if (port != NULL && pt != NULL)
+		*pt = port->pnLoc;
+}
+
+/*
+ * LineTo — draw a one-pixel line from the current pen to (h, v) in the
+ * port's foreground colour, then move the pen to (h, v). Bresenham over
+ * 8-bit pixels, clipped to portRect per-pixel. PenSize / PenPat / PenMode
+ * are not honoured yet — see the header.
+ */
+void LineTo(short h, short v)
+{
+	GrafPtr       port;
+	short         x0, y0, x1, y1;
+	short         dx, dy, sx, sy, err, e2;
+	unsigned char color;
+
+	GetPort(&port);
+	if (port == NULL)
+		return;
+	x0 = port->pnLoc.h;
+	y0 = port->pnLoc.v;
+	x1 = h;
+	y1 = v;
+	color = (unsigned char)((CGrafPtr)port)->fgColor;
+
+	dx = (short)(x1 - x0); if (dx < 0) dx = (short)-dx;
+	dy = (short)(y1 - y0); if (dy < 0) dy = (short)-dy;
+	sx = (short)(x0 < x1 ?  1 : -1);
+	sy = (short)(y0 < y1 ?  1 : -1);
+	err = (short)(dx - dy);
+
+	for (;;) {
+		qd_plot(port, x0, y0, color);
+		if (x0 == x1 && y0 == y1)
+			break;
+		e2 = (short)(err * 2);
+		if (e2 > -dy) { err = (short)(err - dy); x0 = (short)(x0 + sx); }
+		if (e2 <  dx) { err = (short)(err + dx); y0 = (short)(y0 + sy); }
+	}
+
+	SetPt(&port->pnLoc, h, v);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
