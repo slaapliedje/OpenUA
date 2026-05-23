@@ -13,9 +13,10 @@
  * (GetPort / SetPort), the screen port that owns the display back buffer
  * (qd_attach_screen), the rect primitives (EraseRect, PaintRect,
  * FrameRect), the line family (MoveTo, LineTo, GetPen), the ovals
- * (PaintOval, FrameOval), and the blit (CopyBits — same-size, srcCopy
- * mode, 8-bit). The pen state setters (PenSize, PenMode, PenPat),
- * patterns, text, scaling, and the other transfer modes follow — see
+ * (PaintOval, FrameOval), the blit (CopyBits — same-size, srcCopy mode,
+ * 8-bit), and ClipRect — every primitive clips against portRect ∩ visRgn
+ * ∩ clipRgn. The pen state setters (PenSize, PenMode, PenPat), patterns,
+ * text, scaling, and the other transfer modes follow — see
  * docs/decompilation.md, the Display subsystem.
  */
 
@@ -250,14 +251,17 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
  * Drawing acts on the current port. For colour ports the foreground and
  * background colours are taken from fgColor / bkColor as literal 8-bit
  * palette indices (the palette manager will refine this when it arrives).
- * Clipping is to portRect only for now — visRgn / clipRgn-aware drawing
- * follows with the window frames.
+ * Each primitive clips against the port's effective clip — portRect ∩ the
+ * visRgn and clipRgn bounding boxes, both rectangular in the shim — so
+ * ClipRect (the application clip) and BeginUpdate's narrowed visRgn (the
+ * window-update clip) both restrict drawing as on the Mac.
  */
 void EraseRect(const Rect *r);  /* fill r with the port's background */
 void PaintRect(const Rect *r);  /* fill r with the port's foreground */
 void FrameRect(const Rect *r);  /* outline r in the port's foreground */
 void PaintOval(const Rect *r);  /* fill r's inscribed oval, fg */
 void FrameOval(const Rect *r);  /* outline r's inscribed oval, fg */
+void ClipRect(const Rect *r);   /* set the current port's clipRgn to r */
 
 /* --- line drawing and the pen ---
  *
