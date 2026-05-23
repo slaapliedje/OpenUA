@@ -107,6 +107,10 @@ static WindowPtr win_new(void *wStorage, const Rect *boundsRect,
 	w->port.visRgn = NewRgn();
 	win_reset_visrgn(w);
 
+	/* Per-port drawing defaults — pnSize (1,1), patCopy, solid pen,
+	 * fgColor 255, bkColor 0. The Mac's OpenPort equivalent. */
+	qd_init_port_defaults(&w->port);
+
 	w->windowKind = userKind;
 	w->goAwayFlag = goAwayFlag;
 	w->refCon     = refCon;
