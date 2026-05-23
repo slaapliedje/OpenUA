@@ -8,12 +8,12 @@
  * port unchanged.
  *
  * Here so far: the window record, the window list, the window lifecycle and
- * geometry (NewWindow, DisposeWindow, ShowWindow, HideWindow, SelectWindow,
- * SizeWindow, MoveWindow, FrontWindow), colour windows (NewCWindow),
- * resource-loaded windows (GetNewWindow / GetNewCWindow), and the update
- * mechanism (InvalRect / BeginUpdate / EndUpdate) over rectangular regions.
- * Window drawing (the frame, the title bar) follows with the display HAL —
- * see docs/toolbox-mapping.md.
+ * geometry (NewWindow, CloseWindow, DisposeWindow, ShowWindow, HideWindow,
+ * SelectWindow, SizeWindow, MoveWindow, FrontWindow), colour windows
+ * (NewCWindow), resource-loaded windows (GetNewWindow / GetNewCWindow), and
+ * the update mechanism (InvalRect / ValidRect / BeginUpdate / EndUpdate)
+ * over rectangular regions. Window drawing (the frame, the title bar)
+ * follows with the display HAL — see docs/toolbox-mapping.md.
  */
 
 #ifndef COMPAT_WINDOWS_H
@@ -73,7 +73,8 @@ WindowPtr GetNewWindow(short windowID, void *wStorage, WindowPtr behind);
 /* As GetNewWindow, but the window's port slot is a colour CGrafPort. */
 WindowPtr GetNewCWindow(short windowID, void *wStorage, WindowPtr behind);
 
-void      DisposeWindow(WindowPtr w);   /* unlink and free            */
+void      CloseWindow(WindowPtr w);     /* unlink and dispose regions */
+void      DisposeWindow(WindowPtr w);   /* CloseWindow + free record  */
 void      ShowWindow(WindowPtr w);      /* make visible               */
 void      HideWindow(WindowPtr w);      /* make invisible             */
 void      SelectWindow(WindowPtr w);    /* bring to the front, hilite */
@@ -84,6 +85,7 @@ WindowPtr FrontWindow(void);            /* the frontmost visible window */
 
 /* The update mechanism — mark areas for redraw, then handle the redraw. */
 void InvalRect(const Rect *r);          /* add r to the update region   */
+void ValidRect(const Rect *r);          /* remove r from the update rgn */
 void BeginUpdate(WindowPtr w);          /* begin handling an update     */
 void EndUpdate(WindowPtr w);            /* finish it                    */
 
