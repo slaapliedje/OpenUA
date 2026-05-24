@@ -36,7 +36,18 @@ unsigned char plat_kb_shift(void);
  */
 void plat_mouse_pos(short *h, short *v);
 
-/* 1 if the mouse button is currently pressed. Stubbed 0 for now. */
+/* 1 if the mouse button is currently pressed. */
 int plat_mouse_btn(void);
+
+/*
+ * Install the IKBD-packet mouse handler — wires our trampoline into the
+ * keyboard table's mousevec via Supexec, with the mouse initialised to
+ * the centre of a (screen_w, screen_h) surface. Subsequent IKBD packets
+ * drive plat_mouse_pos / plat_mouse_btn. Call once at startup; pair with
+ * plat_input_shutdown so the OS-side vector goes back to its original
+ * owner on exit.
+ */
+void plat_input_init(short screen_w, short screen_h);
+void plat_input_shutdown(void);
 
 #endif /* PLATFORM_INPUT_H */

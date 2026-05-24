@@ -23,6 +23,7 @@
 
 #include "display.h"
 #include "dbglog.h"
+#include "input.h"
 #include "quickdraw.h"
 #include "windows.h"
 
@@ -70,6 +71,9 @@ int main(void)
 
 	qd_attach_screen(surf->pixels, surf->pitch, surf->width, surf->height);
 	dbg_log("main: screen port attached");
+
+	plat_input_init(surf->width, surf->height);
+	dbg_log("main: input installed");
 
 	SetRect(&r, 0, 0, surf->width, surf->height);
 	EraseRect(&r);                          /* fill background (index 0)   */
@@ -205,6 +209,7 @@ int main(void)
 	Crawcin();                              /* hold until a keypress */
 	dbg_log("main: hold ok");
 
+	plat_input_shutdown();
 	dsp->shutdown();
 	dbg_log("main: shutdown ok");
 	return 0;
