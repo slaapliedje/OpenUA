@@ -6,8 +6,8 @@
  * shim's drawing primitives on the screen port: a full-screen erase, a
  * filled rect, an outlined rect inside it, a corner-to-corner line, two
  * ovals, a 16x16 CopyBits gradient, a ClipRect-narrowed PaintRect, a
- * thick PenSize stroke, and a patXor LineTo over a filled background.
- * Each stage logs to C:\DEMO.LOG via dbg_log() so
+ * thick PenSize stroke, a patXor LineTo over a filled background, and
+ * a PenPat striped LineTo. Each stage logs to C:\DEMO.LOG via dbg_log() so
  * the trail survives a crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
@@ -130,6 +130,24 @@ int main(void)
 	LineTo(240, 300);
 	PenMode(patCopy);
 	dbg_log("main: penmode ok");
+
+	/* PenPat demo: a vertical-stripe pattern (0xAA = 10101010) on a fresh
+	 * white background; patCopy paints fg at set bits and bk at clear bits,
+	 * so the line alternates 255 / 0 every column. */
+	{
+		Pattern stripe = {{0xAA, 0xAA, 0xAA, 0xAA,
+		                   0xAA, 0xAA, 0xAA, 0xAA}};
+		Pattern solid  = {{0xFF, 0xFF, 0xFF, 0xFF,
+		                   0xFF, 0xFF, 0xFF, 0xFF}};
+
+		SetRect(&r, 50, 330, 250, 350);
+		PaintRect(&r);
+		PenPat(&stripe);
+		MoveTo(60, 340);
+		LineTo(240, 340);
+		PenPat(&solid);
+	}
+	dbg_log("main: penpat  ok");
 
 	dsp->present();
 	dbg_log("main: present ok");

@@ -10,8 +10,11 @@
  * srcCopy), and ClipRect over 8-bit paletted pixels — every primitive
  * funnels through qd_effective_clip (portRect ∩ visRgn ∩ clipRgn), so
  * BeginUpdate's narrowed visRgn and ClipRect's application clip both restrict
- * drawing as on the Mac. Pen-using primitives honour pnSize and the pen's
- * pat-mode (patCopy / patOr / patXor / patBic) on the destination pixel.
+ * drawing as on the Mac. Pen-using primitives honour pnSize, the pen's
+ * pat-mode (patCopy / patOr / patXor / patBic) on the destination pixel,
+ * and the pen's 8x8 one-bit pattern (pnPat) — set bits lay down the op,
+ * clear bits paint bkColor for patCopy and leave the pixel alone for the
+ * bitwise modes.
  */
 
 #include <stddef.h>             /* offsetof, NULL */
@@ -290,19 +293,27 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 
 /*
  * Fill a rectangle of the current port's pixmap, applying `mode` between
- * `color` and the destination pixel. Used by the fill primitives
- * (PaintRect / EraseRect through qd_fill_rect — always patCopy: a fill
- * isn't pen-mediated and overwrites) and by the pen primitives
- * (qd_pen_plot / qd_pen_hline / qd_pen_vline) — which pass the port's
- * pnMode, since sweeping a 1xN / Nx1 pen along a line is a single band.
+ * `fg` and the destination pixel, optionally gated by a one-bit pattern.
+ *
+ * Used by the fill primitives (PaintRect / EraseRect through qd_fill_rect,
+ * which pass pat=NULL — a fill isn't pen-mediated and writes uniformly)
+ * and by the pen primitives (qd_pen_plot / qd_pen_hline / qd_pen_vline,
+ * which pass &port->pnPat) — sweeping a 1xN or Nx1 pen along a line is a
+ * single rect band.
+ *
+ * pat == NULL: solid path — one mode-switch outside, tight inner loops.
+ * pat != NULL: each pixel reads bit (x & 7, y & 7) from pat. Set bits lay
+ *              down the pen-mode op; clear bits paint `bk` for patCopy and
+ *              leave the pixel untouched for the bitwise modes (so or/xor/
+ *              bic strokes act as stencils through the pattern).
  *
  * At 8 bpp the bitwise pat-modes act on the full pixel byte: patOr ORs
- * `color` in, patXor XORs it (so writing fgColor twice restores), patBic
- * clears the bits of `color` from the pixel. The dispatch is per-row so
- * the inner loop stays tight.
+ * `fg` in, patXor XORs it (so writing fg twice restores), patBic clears
+ * the bits of `fg` from the pixel.
  */
 static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
-                           const Rect *r, unsigned char color, short mode)
+                           const Rect *r, unsigned char fg, unsigned char bk,
+                           short mode, const Pattern *pat)
 {
 	CGrafPtr cp = (CGrafPtr)port;
 	PixMap  *pm;
@@ -320,30 +331,59 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 		return;
 
 	w = (short)(clipped.right - clipped.left);
+
+	if (pat == NULL) {
+		for (row = clipped.top; row < clipped.bottom; row++) {
+			unsigned char *p = (unsigned char *)pm->baseAddr
+			                 + (row - pm->bounds.top) * pm->rowBytes
+			                 + (clipped.left - pm->bounds.left);
+			short col;
+
+			switch (mode) {
+			case patOr:
+				for (col = 0; col < w; col++)
+					p[col] = (unsigned char)(p[col] | fg);
+				break;
+			case patXor:
+				for (col = 0; col < w; col++)
+					p[col] = (unsigned char)(p[col] ^ fg);
+				break;
+			case patBic:
+				for (col = 0; col < w; col++)
+					p[col] = (unsigned char)(p[col] & ~fg);
+				break;
+			case patCopy:
+			default:
+				for (col = 0; col < w; col++)
+					p[col] = fg;
+				break;
+			}
+		}
+		return;
+	}
+
 	for (row = clipped.top; row < clipped.bottom; row++) {
 		unsigned char *p = (unsigned char *)pm->baseAddr
 		                 + (row - pm->bounds.top) * pm->rowBytes
 		                 + (clipped.left - pm->bounds.left);
+		unsigned char  patrow = pat->pat[row & 7];
 		short col;
 
-		switch (mode) {
-		case patOr:
-			for (col = 0; col < w; col++)
-				p[col] = (unsigned char)(p[col] | color);
-			break;
-		case patXor:
-			for (col = 0; col < w; col++)
-				p[col] = (unsigned char)(p[col] ^ color);
-			break;
-		case patBic:
-			for (col = 0; col < w; col++)
-				p[col] = (unsigned char)(p[col] & ~color);
-			break;
-		case patCopy:
-		default:
-			for (col = 0; col < w; col++)
-				p[col] = color;
-			break;
+		for (col = 0; col < w; col++) {
+			short x   = (short)(clipped.left + col);
+			int   bit = (patrow >> (7 - (x & 7))) & 1;
+
+			if (bit) {
+				switch (mode) {
+				case patOr:  p[col] = (unsigned char)(p[col] |  fg); break;
+				case patXor: p[col] = (unsigned char)(p[col] ^  fg); break;
+				case patBic: p[col] = (unsigned char)(p[col] & ~fg); break;
+				case patCopy:
+				default:     p[col] = fg; break;
+				}
+			} else if (mode == patCopy) {
+				p[col] = bk;
+			}
 		}
 	}
 }
@@ -351,7 +391,9 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 /*
  * Shared body of EraseRect / PaintRect — fill `r` (in the current port's
  * local coordinates) with `color`, clipped to the port's effective clip.
- * The fills always patCopy: pnMode controls the pen, not the bucket.
+ * The fills always patCopy without a pattern: pnPat / pnMode control the
+ * pen, not the bucket. (The Mac's fillPat / bkPat aren't honoured yet —
+ * FRUA does solid fills here.)
  */
 static void qd_fill_rect(const Rect *r, unsigned char color)
 {
@@ -363,7 +405,7 @@ static void qd_fill_rect(const Rect *r, unsigned char color)
 		return;
 	if (!qd_effective_clip(port, &clip))
 		return;
-	qd_pixmap_fill(port, &clip, r, color, patCopy);
+	qd_pixmap_fill(port, &clip, r, color, 0, patCopy, NULL);
 }
 
 void EraseRect(const Rect *r)
@@ -428,39 +470,47 @@ static void qd_hline(GrafPtr port, const Rect *clip,
  * qd_pixmap_fill for that band.
  */
 
-static void qd_pen_plot(GrafPtr port, const Rect *clip,
-                        short x, short y, unsigned char color)
+static void qd_pen_plot(GrafPtr port, const Rect *clip, short x, short y)
 {
 	Rect pen;
+	CGrafPtr cp = (CGrafPtr)port;
 	short sw = port->pnSize.h > 0 ? port->pnSize.h : 1;
 	short sh = port->pnSize.v > 0 ? port->pnSize.v : 1;
 
 	SetRect(&pen, x, y, (short)(x + sw), (short)(y + sh));
-	qd_pixmap_fill(port, clip, &pen, color, port->pnMode);
+	qd_pixmap_fill(port, clip, &pen,
+	               (unsigned char)cp->fgColor, (unsigned char)cp->bkColor,
+	               port->pnMode, &port->pnPat);
 }
 
 static void qd_pen_hline(GrafPtr port, const Rect *clip,
-                         short x1, short x2, short y, unsigned char color)
+                         short x1, short x2, short y)
 {
 	Rect band;
+	CGrafPtr cp = (CGrafPtr)port;
 	short sw = port->pnSize.h > 0 ? port->pnSize.h : 1;
 	short sh = port->pnSize.v > 0 ? port->pnSize.v : 1;
 
 	if (x1 > x2) { short t = x1; x1 = x2; x2 = t; }
 	SetRect(&band, x1, y, (short)(x2 + sw), (short)(y + sh));
-	qd_pixmap_fill(port, clip, &band, color, port->pnMode);
+	qd_pixmap_fill(port, clip, &band,
+	               (unsigned char)cp->fgColor, (unsigned char)cp->bkColor,
+	               port->pnMode, &port->pnPat);
 }
 
 static void qd_pen_vline(GrafPtr port, const Rect *clip,
-                         short x, short y1, short y2, unsigned char color)
+                         short x, short y1, short y2)
 {
 	Rect band;
+	CGrafPtr cp = (CGrafPtr)port;
 	short sw = port->pnSize.h > 0 ? port->pnSize.h : 1;
 	short sh = port->pnSize.v > 0 ? port->pnSize.v : 1;
 
 	if (y1 > y2) { short t = y1; y1 = y2; y2 = t; }
 	SetRect(&band, x, y1, (short)(x + sw), (short)(y2 + sh));
-	qd_pixmap_fill(port, clip, &band, color, port->pnMode);
+	qd_pixmap_fill(port, clip, &band,
+	               (unsigned char)cp->fgColor, (unsigned char)cp->bkColor,
+	               port->pnMode, &port->pnPat);
 }
 
 /*
@@ -473,7 +523,6 @@ void FrameRect(const Rect *r)
 {
 	GrafPtr port;
 	Rect    clip;
-	unsigned char color;
 	short l, t, rr, bb;
 
 	GetPort(&port);
@@ -481,16 +530,15 @@ void FrameRect(const Rect *r)
 		return;
 	if (!qd_effective_clip(port, &clip))
 		return;
-	color = (unsigned char)((CGrafPtr)port)->fgColor;
 	l  = r->left;
 	t  = r->top;
 	rr = (short)(r->right  - 1);
 	bb = (short)(r->bottom - 1);
 
-	qd_pen_hline(port, &clip, l, rr, t,  color); /* top    */
-	qd_pen_hline(port, &clip, l, rr, bb, color); /* bottom */
-	qd_pen_vline(port, &clip, l,  t,  bb, color);/* left   */
-	qd_pen_vline(port, &clip, rr, t,  bb, color);/* right  */
+	qd_pen_hline(port, &clip, l, rr, t);  /* top    */
+	qd_pen_hline(port, &clip, l, rr, bb); /* bottom */
+	qd_pen_vline(port, &clip, l,  t,  bb);/* left   */
+	qd_pen_vline(port, &clip, rr, t,  bb);/* right  */
 }
 
 /* MoveTo — set the pen location in the current port. */
@@ -524,12 +572,11 @@ void GetPen(Point *pt)
  */
 void LineTo(short h, short v)
 {
-	GrafPtr       port;
-	Rect          clip;
-	Boolean       draw;
-	short         x0, y0, x1, y1;
-	short         dx, dy, sx, sy, err, e2;
-	unsigned char color;
+	GrafPtr port;
+	Rect    clip;
+	Boolean draw;
+	short   x0, y0, x1, y1;
+	short   dx, dy, sx, sy, err, e2;
 
 	GetPort(&port);
 	if (port == NULL)
@@ -540,7 +587,6 @@ void LineTo(short h, short v)
 	y0 = port->pnLoc.v;
 	x1 = h;
 	y1 = v;
-	color = (unsigned char)((CGrafPtr)port)->fgColor;
 
 	dx = (short)(x1 - x0); if (dx < 0) dx = (short)-dx;
 	dy = (short)(y1 - y0); if (dy < 0) dy = (short)-dy;
@@ -550,7 +596,7 @@ void LineTo(short h, short v)
 
 	for (;;) {
 		if (draw)
-			qd_pen_plot(port, &clip, x0, y0, color);
+			qd_pen_plot(port, &clip, x0, y0);
 		if (x0 == x1 && y0 == y1)
 			break;
 		e2 = (short)(err * 2);
@@ -630,11 +676,10 @@ void PaintOval(const Rect *r)
 
 void FrameOval(const Rect *r)
 {
-	GrafPtr       port;
-	Rect          clip;
-	unsigned char color;
-	short         cx, cy, rx, ry, x, y;
-	long          rx2, ry2, denom;
+	GrafPtr port;
+	Rect    clip;
+	short   cx, cy, rx, ry, x, y;
+	long    rx2, ry2, denom;
 
 	GetPort(&port);
 	if (port == NULL || r == NULL || EmptyRect(r))
@@ -644,7 +689,6 @@ void FrameOval(const Rect *r)
 	qd_oval_axes(r, &cx, &cy, &rx, &ry);
 	if (rx == 0 || ry == 0)
 		return;
-	color = (unsigned char)((CGrafPtr)port)->fgColor;
 	rx2   = (long)rx * rx;
 	ry2   = (long)ry * ry;
 	denom = rx2 * ry2;
@@ -666,9 +710,9 @@ void FrameOval(const Rect *r)
 			}
 		}
 		if (xleft >= 0) {
-			qd_pen_plot(port, &clip, xleft, y, color);
+			qd_pen_plot(port, &clip, xleft, y);
 			if (xright != xleft)
-				qd_pen_plot(port, &clip, xright, y, color);
+				qd_pen_plot(port, &clip, xright, y);
 		}
 	}
 
@@ -690,9 +734,9 @@ void FrameOval(const Rect *r)
 			}
 		}
 		if (ytop >= 0) {
-			qd_pen_plot(port, &clip, x, ytop, color);
+			qd_pen_plot(port, &clip, x, ytop);
 			if (ybottom != ytop)
-				qd_pen_plot(port, &clip, x, ybottom, color);
+				qd_pen_plot(port, &clip, x, ybottom);
 		}
 	}
 }
@@ -855,6 +899,25 @@ void PenMode(short mode)
 	if (port == NULL)
 		return;
 	port->pnMode = mode;
+}
+
+/*
+ * PenPat — set the current port's 8x8 one-bit pen pattern. The bytes are
+ * copied (the caller's storage doesn't have to outlive the call). With a
+ * solid pattern (all 0xFF — the OpenPort default) every pen pixel writes;
+ * with a sparser pattern the pen acts as a stencil through pnPat — see
+ * the pat dispatch in qd_pixmap_fill for the per-mode behaviour.
+ */
+void PenPat(const Pattern *pat)
+{
+	GrafPtr port;
+	int     i;
+
+	GetPort(&port);
+	if (port == NULL || pat == NULL)
+		return;
+	for (i = 0; i < 8; i++)
+		port->pnPat.pat[i] = pat->pat[i];
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
