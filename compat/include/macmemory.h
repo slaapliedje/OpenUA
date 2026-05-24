@@ -37,4 +37,26 @@ void       HUnlock(Handle h);               /* mark it unlocked           */
 SignedByte HGetState(Handle h);             /* the handle-state flags     */
 void       HSetState(Handle h, SignedByte state);
 
+/* --- block copies + cross-allocation helpers ---
+ *
+ * BlockMove copies byteCount bytes; the Mac guarantees correct behaviour
+ * even when source and destination overlap, so it maps to memmove. The
+ * BlockMoveData variant (Mac System 7+) is the same with the "you promise
+ * no overlap" hint — also memmove, since memcpy isn't strictly faster
+ * for our typical short engine copies and overlap-safety is free.
+ *
+ * PtrToHand allocates a new Handle of `size` bytes and copies `srcPtr`
+ * into it; the new Handle is returned through *dstHndl. HandToHand
+ * duplicates a Handle: input *theHandle on entry, replaced with a fresh
+ * copy on success. HandAndHand / PtrAndHand append to an existing
+ * Handle, growing it as needed. All four return OSErr (noErr on
+ * success, memFullErr on allocation failure).
+ */
+void  BlockMove(const void *srcPtr, void *dstPtr, Size byteCount);
+void  BlockMoveData(const void *srcPtr, void *dstPtr, Size byteCount);
+OSErr PtrToHand(const void *srcPtr, Handle *dstHndl, Size size);
+OSErr HandToHand(Handle *theHandle);
+OSErr HandAndHand(Handle hand1, Handle hand2);
+OSErr PtrAndHand(const void *ptr1, Handle hand2, Size size);
+
 #endif /* COMPAT_MACMEMORY_H */

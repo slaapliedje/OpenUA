@@ -150,3 +150,84 @@ void HSetState(Handle h, SignedByte state)
 	if (h != NULL)
 		((handle_entry *)h)->state = (unsigned char)state;
 }
+
+/* --- block copies + cross-allocation helpers --- */
+
+void BlockMove(const void *srcPtr, void *dstPtr, Size byteCount)
+{
+	/* Mac guarantees overlap-safe copy — memmove. */
+	if (byteCount > 0 && srcPtr != NULL && dstPtr != NULL)
+		memmove(dstPtr, srcPtr, (size_t)byteCount);
+}
+
+void BlockMoveData(const void *srcPtr, void *dstPtr, Size byteCount)
+{
+	/* System-7 hint that source and dest don't overlap; memmove handles
+	 * both, and the difference doesn't matter for short engine copies. */
+	BlockMove(srcPtr, dstPtr, byteCount);
+}
+
+OSErr PtrToHand(const void *srcPtr, Handle *dstHndl, Size size)
+{
+	Handle h;
+
+	if (dstHndl == NULL)
+		return memFullErr;
+	*dstHndl = NULL;
+	h = NewHandle(size);
+	if (h == NULL)
+		return memFullErr;
+	if (size > 0 && srcPtr != NULL && *h != NULL)
+		memmove(*h, srcPtr, (size_t)size);
+	*dstHndl = h;
+	return 0;
+}
+
+OSErr HandToHand(Handle *theHandle)
+{
+	Handle src, copy;
+	Size   sz;
+
+	if (theHandle == NULL || *theHandle == NULL)
+		return memFullErr;
+	src   = *theHandle;
+	sz    = GetHandleSize(src);
+	copy  = NewHandle(sz);
+	if (copy == NULL)
+		return memFullErr;
+	if (sz > 0 && *src != NULL && *copy != NULL)
+		memmove(*copy, *src, (size_t)sz);
+	*theHandle = copy;
+	return 0;
+}
+
+OSErr HandAndHand(Handle hand1, Handle hand2)
+{
+	Size sz1, sz2;
+
+	if (hand1 == NULL || hand2 == NULL)
+		return memFullErr;
+	sz1 = GetHandleSize(hand1);
+	sz2 = GetHandleSize(hand2);
+	SetHandleSize(hand2, sz2 + sz1);
+	if (g_mem_error != 0)
+		return g_mem_error;
+	if (sz1 > 0 && *hand1 != NULL && *hand2 != NULL)
+		memmove((unsigned char *)*hand2 + sz2, *hand1, (size_t)sz1);
+	return 0;
+}
+
+OSErr PtrAndHand(const void *ptr1, Handle hand2, Size size)
+{
+	Size sz2;
+
+	if (hand2 == NULL)
+		return memFullErr;
+	sz2 = GetHandleSize(hand2);
+	SetHandleSize(hand2, sz2 + size);
+	if (g_mem_error != 0)
+		return g_mem_error;
+	if (size > 0 && ptr1 != NULL && *hand2 != NULL)
+		memmove((unsigned char *)*hand2 + sz2, ptr1, (size_t)size);
+	return 0;
+}
