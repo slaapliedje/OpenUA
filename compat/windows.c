@@ -198,7 +198,9 @@ static void win_draw_frame(WindowPeek w)
 	struc = (*w->strucRgn)->rgnBBox;
 	cont  = (*w->contRgn)->rgnBBox;
 
-	/* Title bar: mid-grey strip across the top of the structure. */
+	/* Title bar: mid-grey strip across the top of the structure. Active
+	 * windows (hilited) get the classic-Mac horizontal stripes overlay;
+	 * inactive windows stay plain grey. */
 	SetRect(&title_bar, struc.left, struc.top, struc.right, cont.top);
 	PenSize(1, 1);
 	PenMode(patCopy);
@@ -206,6 +208,44 @@ static void win_draw_frame(WindowPeek w)
 		scr->pnPat.pat[i] = 0xFF;
 	RGBForeColor(&c_titlebar);
 	PaintRect(&title_bar);
+
+	if (w->hilited) {
+		short y;
+
+		RGBForeColor(&c_frame);
+		for (y = (short)(title_bar.top + 2);
+		     y < (short)(title_bar.bottom - 1); y += 2) {
+			MoveTo((short)(title_bar.left + 1), y);
+			LineTo((short)(title_bar.right - 2), y);
+		}
+
+		/* Clear stripes behind the close box and the title text so the
+		 * close-box outline and the glyphs sit on a solid grey patch. */
+		RGBForeColor(&c_titlebar);
+		if (w->goAwayFlag) {
+			Rect cb;
+
+			win_close_box(w, &cb);
+			/* Inset by 1 to keep one stripe of clearance around the box. */
+			cb.left   = (short)(cb.left   - 1);
+			cb.top    = (short)(cb.top    - 1);
+			cb.right  = (short)(cb.right  + 1);
+			cb.bottom = (short)(cb.bottom + 1);
+			PaintRect(&cb);
+		}
+		if (w->titleHandle != NULL && w->titleWidth > 0) {
+			Rect  tg;
+			short tx = (short)(struc.left
+			       + ((struc.right - struc.left) - w->titleWidth) / 2);
+
+			SetRect(&tg,
+			        (short)(tx - 3),
+			        (short)(title_bar.top + 1),
+			        (short)(tx + w->titleWidth + 3),
+			        (short)(title_bar.bottom - 1));
+			PaintRect(&tg);
+		}
+	}
 
 	/* Content background — paper white. The engine repaints it on the
 	 * first update event with whatever the window contains. */
