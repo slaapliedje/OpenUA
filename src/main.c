@@ -5,8 +5,9 @@
  * QuickDraw to the back buffer via qd_attach_screen, then exercises the
  * shim's drawing primitives on the screen port: a full-screen erase, a
  * filled rect, an outlined rect inside it, a corner-to-corner line, two
- * ovals, a 16x16 CopyBits gradient, a ClipRect-narrowed PaintRect, and a
- * thick PenSize stroke. Each stage logs to C:\DEMO.LOG via dbg_log() so
+ * ovals, a 16x16 CopyBits gradient, a ClipRect-narrowed PaintRect, a
+ * thick PenSize stroke, and a patXor LineTo over a filled background.
+ * Each stage logs to C:\DEMO.LOG via dbg_log() so
  * the trail survives a crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
@@ -118,6 +119,17 @@ int main(void)
 	LineTo(200, 365);
 	PenSize(1, 1);
 	dbg_log("main: pensize ok");
+
+	/* PenMode demo: paint a small white strip, then XOR a horizontal
+	 * line over it — fgColor 255 ^ 255 flips the pixels to 0, so the
+	 * line shows up as black on white, the rubber-band selection idiom. */
+	SetRect(&r, 50, 290, 250, 310);
+	PaintRect(&r);
+	PenMode(patXor);
+	MoveTo(60, 300);
+	LineTo(240, 300);
+	PenMode(patCopy);
+	dbg_log("main: penmode ok");
 
 	dsp->present();
 	dbg_log("main: present ok");

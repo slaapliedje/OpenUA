@@ -5,11 +5,13 @@
  * The Point and rectangle calculations (to the Inside Macintosh semantics),
  * GetPort / SetPort, NewPixMap, the rectangular-region facility, the screen
  * GrafPort that owns the display back buffer, the rect primitives (EraseRect,
- * PaintRect, FrameRect), the line family (MoveTo / LineTo / GetPen), the
- * ovals (PaintOval, FrameOval), CopyBits (same-size, srcCopy), and ClipRect
- * over 8-bit paletted pixels — every primitive funnels through
- * qd_effective_clip (portRect ∩ visRgn ∩ clipRgn), so BeginUpdate's narrowed
- * visRgn and ClipRect's application clip both restrict drawing as on the Mac.
+ * PaintRect, FrameRect), the line family (MoveTo / LineTo / GetPen / PenSize
+ * / PenMode), the ovals (PaintOval, FrameOval), CopyBits (same-size,
+ * srcCopy), and ClipRect over 8-bit paletted pixels — every primitive
+ * funnels through qd_effective_clip (portRect ∩ visRgn ∩ clipRgn), so
+ * BeginUpdate's narrowed visRgn and ClipRect's application clip both restrict
+ * drawing as on the Mac. Pen-using primitives honour pnSize and the pen's
+ * pat-mode (patCopy / patOr / patXor / patBic) on the destination pixel.
  */
 
 #include <stddef.h>             /* offsetof, NULL */
@@ -224,7 +226,7 @@ void qd_init_port_defaults(GrafPtr port)
 	int i;
 
 	SetPt(&port->pnSize, 1, 1);
-	port->pnMode = 0;                        /* patCopy             */
+	port->pnMode = patCopy;
 	port->pnVis  = 0;                        /* visible (>=0)       */
 	for (i = 0; i < 8; i++)
 		port->pnPat.pat[i] = 0xFF;       /* solid               */
@@ -287,14 +289,20 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 }
 
 /*
- * Fill a rectangle of the current port's pixmap with `color`, clipped to
- * `clip`. Used by the fill primitives (PaintRect / EraseRect through
- * qd_fill_rect, PaintOval's scanlines through qd_hline) and by the pen
- * primitives (qd_pen_plot / qd_pen_hline / qd_pen_vline) — sweeping the
- * pen along a line yields a thick band that's exactly a rectangle.
+ * Fill a rectangle of the current port's pixmap, applying `mode` between
+ * `color` and the destination pixel. Used by the fill primitives
+ * (PaintRect / EraseRect through qd_fill_rect — always patCopy: a fill
+ * isn't pen-mediated and overwrites) and by the pen primitives
+ * (qd_pen_plot / qd_pen_hline / qd_pen_vline) — which pass the port's
+ * pnMode, since sweeping a 1xN / Nx1 pen along a line is a single band.
+ *
+ * At 8 bpp the bitwise pat-modes act on the full pixel byte: patOr ORs
+ * `color` in, patXor XORs it (so writing fgColor twice restores), patBic
+ * clears the bits of `color` from the pixel. The dispatch is per-row so
+ * the inner loop stays tight.
  */
 static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
-                           const Rect *r, unsigned char color)
+                           const Rect *r, unsigned char color, short mode)
 {
 	CGrafPtr cp = (CGrafPtr)port;
 	PixMap  *pm;
@@ -318,14 +326,32 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 		                 + (clipped.left - pm->bounds.left);
 		short col;
 
-		for (col = 0; col < w; col++)
-			p[col] = color;
+		switch (mode) {
+		case patOr:
+			for (col = 0; col < w; col++)
+				p[col] = (unsigned char)(p[col] | color);
+			break;
+		case patXor:
+			for (col = 0; col < w; col++)
+				p[col] = (unsigned char)(p[col] ^ color);
+			break;
+		case patBic:
+			for (col = 0; col < w; col++)
+				p[col] = (unsigned char)(p[col] & ~color);
+			break;
+		case patCopy:
+		default:
+			for (col = 0; col < w; col++)
+				p[col] = color;
+			break;
+		}
 	}
 }
 
 /*
  * Shared body of EraseRect / PaintRect — fill `r` (in the current port's
  * local coordinates) with `color`, clipped to the port's effective clip.
+ * The fills always patCopy: pnMode controls the pen, not the bucket.
  */
 static void qd_fill_rect(const Rect *r, unsigned char color)
 {
@@ -337,7 +363,7 @@ static void qd_fill_rect(const Rect *r, unsigned char color)
 		return;
 	if (!qd_effective_clip(port, &clip))
 		return;
-	qd_pixmap_fill(port, &clip, r, color);
+	qd_pixmap_fill(port, &clip, r, color, patCopy);
 }
 
 void EraseRect(const Rect *r)
@@ -410,7 +436,7 @@ static void qd_pen_plot(GrafPtr port, const Rect *clip,
 	short sh = port->pnSize.v > 0 ? port->pnSize.v : 1;
 
 	SetRect(&pen, x, y, (short)(x + sw), (short)(y + sh));
-	qd_pixmap_fill(port, clip, &pen, color);
+	qd_pixmap_fill(port, clip, &pen, color, port->pnMode);
 }
 
 static void qd_pen_hline(GrafPtr port, const Rect *clip,
@@ -422,7 +448,7 @@ static void qd_pen_hline(GrafPtr port, const Rect *clip,
 
 	if (x1 > x2) { short t = x1; x1 = x2; x2 = t; }
 	SetRect(&band, x1, y, (short)(x2 + sw), (short)(y + sh));
-	qd_pixmap_fill(port, clip, &band, color);
+	qd_pixmap_fill(port, clip, &band, color, port->pnMode);
 }
 
 static void qd_pen_vline(GrafPtr port, const Rect *clip,
@@ -434,7 +460,7 @@ static void qd_pen_vline(GrafPtr port, const Rect *clip,
 
 	if (y1 > y2) { short t = y1; y1 = y2; y2 = t; }
 	SetRect(&band, x, y1, (short)(x + sw), (short)(y2 + sh));
-	qd_pixmap_fill(port, clip, &band, color);
+	qd_pixmap_fill(port, clip, &band, color, port->pnMode);
 }
 
 /*
@@ -811,6 +837,24 @@ void PenSize(short h, short v)
 	if (port == NULL)
 		return;
 	SetPt(&port->pnSize, h, v);
+}
+
+/*
+ * PenMode — set the current port's pen transfer mode. Pen-using primitives
+ * combine fgColor with the destination pixel according to the mode; see
+ * the pat-mode comment in quickdraw.h. Modes outside the pat- family fall
+ * through to patCopy in qd_pixmap_fill — the source modes (srcCopy etc)
+ * apply to CopyBits, not the pen, so silently treating them as copy is
+ * the right answer here.
+ */
+void PenMode(short mode)
+{
+	GrafPtr port;
+
+	GetPort(&port);
+	if (port == NULL)
+		return;
+	port->pnMode = mode;
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
