@@ -21,6 +21,13 @@ DEP  := $(OBJ:.o=.d)
 
 CFLAGS += $(INCLUDE)
 
+# Engine bring-up probe: instrument the engine's unlifted stubs (boot.c,
+# master.c) so each logs its name when called. Default off so production
+# builds carry no logging spam. See docs/engine-bring-up.md.
+ifeq ($(ENGINE_PROBE),1)
+CFLAGS += -DFRUA_ENGINE_PROBE
+endif
+
 all: $(TARGET)
 
 $(TARGET): $(OBJ)

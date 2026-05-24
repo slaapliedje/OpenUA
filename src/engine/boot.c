@@ -32,6 +32,20 @@
 #include "fc.h"               /* fc_dump */
 
 /*
+ * Stub-trace probe. Off by default — when compiled with
+ * -DFRUA_ENGINE_PROBE every stub below logs its name as the engine
+ * runs through it, so we can capture the engine's actual call sequence
+ * and drive the next lifting priority. See docs/engine-bring-up.md
+ * for the first probe's results and how to re-run.
+ */
+#ifdef FRUA_ENGINE_PROBE
+#  include "dbglog.h"
+#  define PROBE(name) dbg_log("stub: " name)
+#else
+#  define PROBE(name) ((void)0)
+#endif
+
+/*
  * A5-world globals main() touches. Their initial values come from the
  * DATA / ZERO resources; the A5-world image is not wired up yet, so for now
  * they are plain zero-initialised globals, named by their A5 offset.
@@ -51,34 +65,45 @@ static unsigned char g_22231[4];        /* A5-22231 — flag bytes [1..3]      *
  * value-returning stubs return 0 — jt315() in particular must, or the play
  * loop below would never terminate.
  */
-static short jt398(const char *path, short flags)  { return 0; }  /* CODE 3 + 0x37e4 */
-static void  jt411(short status)                   { }            /* CODE 3 + 0x3de2 */
-static void  jt480(short a, long b)                { }            /* CODE 3 + 0x03c6 */
-static void  jt445(void)                           { }            /* CODE 3 + 0x294e */
-static void  jt415(short a)                        { }            /* CODE 3 + 0x37da */
-static void  jt1129(short a)                       { }            /* CODE 4 + 0x4756 */
-static void  jt1130(void)                          { }            /* CODE 4 + 0x61f6 */
-static void  jt1009(short a, short b)              { }            /* CODE 5 + 0x0a34 */
-static void  jt977(void)                           { }            /* CODE 5 + 0x0aaa */
-static void  jt989(void (*handler)(void), short flag, const char *name, short code) { }
-                                                                  /* CODE 5 + 0x1b56 */
-static void  jt361(short a)                        { }            /* CODE 8 + 0x71ec */
-static void  jt919(void)                           { }            /* CODE 12 + 0x1b12 */
-static void  jt920(void)                           { }            /* CODE 12 + 0x1ba8 */
-static int   jt931(void)                           { return 0; }  /* CODE 12 + 0x430c */
-static void  jt949(void)                           { }            /* CODE 20 + 0x77a2 */
-static void  jt956(void)                           { }            /* CODE 21 + 0x326a */
-static int   jt315(void)                           { return 0; }  /* CODE 22 + 0x4d8a */
+static short jt398(const char *path, short flags)  { PROBE("jt398"); return 0; }  /* CODE 3 + 0x37e4 */
+static void  jt411(short status)                   { PROBE("jt411"); }            /* CODE 3 + 0x3de2 */
+static void  jt480(short a, long b)                { PROBE("jt480"); }            /* CODE 3 + 0x03c6 */
+static void  jt445(void)                           { PROBE("jt445"); }            /* CODE 3 + 0x294e */
+static void  jt415(short a)                        { PROBE("jt415"); }            /* CODE 3 + 0x37da */
+static void  jt1129(short a)                       { PROBE("jt1129"); }           /* CODE 4 + 0x4756 */
+static void  jt1130(void)                          { PROBE("jt1130"); }           /* CODE 4 + 0x61f6 */
+static void  jt1009(short a, short b)              { PROBE("jt1009"); }           /* CODE 5 + 0x0a34 */
+static void  jt977(void)                           { PROBE("jt977"); }            /* CODE 5 + 0x0aaa */
+static void  jt989(void (*handler)(void), short flag, const char *name, short code) { PROBE("jt989"); }
+                                                                                  /* CODE 5 + 0x1b56 */
+static void  jt361(short a)                        { PROBE("jt361"); }            /* CODE 8 + 0x71ec */
+static void  jt919(void)                           { PROBE("jt919"); }            /* CODE 12 + 0x1b12 */
+static void  jt920(void)                           { PROBE("jt920"); }            /* CODE 12 + 0x1ba8 */
+static int   jt931(void)                           { PROBE("jt931"); return 0; }  /* CODE 12 + 0x430c */
+static void  jt949(void)                           { PROBE("jt949"); }            /* CODE 20 + 0x77a2 */
+static void  jt956(void)                           { PROBE("jt956"); }            /* CODE 21 + 0x326a */
+static int   jt315(void)
+{
+	/* In probe mode, fire once so the play-loop body runs and its
+	 * stubs log themselves; in normal mode this always returns 0
+	 * (the play loop is a no-op until lifted). */
+#ifdef FRUA_ENGINE_PROBE
+	static int fired;
+	if (!fired) { fired = 1; PROBE("jt315 (firing)"); return 1; }
+	PROBE("jt315 (done)");
+#endif
+	return 0;
+}
 
 /* Intra-CODE-6 helpers, still to lift. */
-static void  l0444(void)        { }     /* CODE 6 + 0x0444 */
-static void  l3918(long a)      { }     /* CODE 6 + 0x3918 */
-static void  l4d98(void)        { }     /* CODE 6 + 0x4d98 */
-static void  l5888(short a)     { }     /* CODE 6 + 0x5888 */
-static void  l5ac0(void)        { }     /* CODE 6 + 0x5ac0 */
-static void  l5f66(void)        { }     /* CODE 6 + 0x5f66 */
-static void  l6ada(short a)     { }     /* CODE 6 + 0x6ada */
-static void  l07dc(void)        { }     /* CODE 6 + 0x07dc — the play-loop body */
+static void  l0444(void)        { PROBE("l0444"); }     /* CODE 6 + 0x0444 */
+static void  l3918(long a)      { PROBE("l3918"); }     /* CODE 6 + 0x3918 */
+static void  l4d98(void)        { PROBE("l4d98"); }     /* CODE 6 + 0x4d98 */
+static void  l5888(short a)     { PROBE("l5888"); }     /* CODE 6 + 0x5888 */
+static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
+static void  l5f66(void)        { PROBE("l5f66"); }     /* CODE 6 + 0x5f66 */
+static void  l6ada(short a)     { PROBE("l6ada"); }     /* CODE 6 + 0x6ada */
+static void  l07dc(void)        { PROBE("l07dc"); }     /* CODE 6 + 0x07dc — the play-loop body */
 
 /* UI-handler callbacks main() registers through JT[989]. */
 static void  jt10_handler(void) { }     /* CODE 6 + 0x0538 (jump-table entry 10) */

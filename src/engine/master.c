@@ -17,29 +17,37 @@
 #include "fc.h"               /* fc_init, fc_cleanup */
 #include "toolbox.h"          /* toolbox_init — the lifted JT[1144] */
 
+/* Stub-trace probe; same as boot.c — see docs/engine-bring-up.md. */
+#ifdef FRUA_ENGINE_PROBE
+#  include "dbglog.h"
+#  define PROBE(name) dbg_log("stub: " name)
+#else
+#  define PROBE(name) ((void)0)
+#endif
+
 /* --- frontier: routines master_init / master_shutdown call, not lifted --- */
 
 /* CODE 4 — the Mac Toolbox / Window Manager layer. JT[1144] is the
  * standard Toolbox-init prologue; the shim's toolbox_init() runs the
  * managers in the Mac startup order. */
-static void jt1158(void)            { }   /* CODE 4 + 0x4c48 */
-static void jt1157(short a, long b) { }   /* CODE 4 + 0x61c6 */
-static void jt1114(void)            { }   /* CODE 4 + 0x61ee */
-static void jt1138(void)            { }   /* CODE 4 + 0x66f8 */
-static void jt1156(void)            { }   /* CODE 4 + 0x670e */
-static void jt1155(void)            { }   /* CODE 4 + 0x7972 */
-static void jt1119(void)            { }   /* CODE 4 + 0x797e */
+static void jt1158(void)            { PROBE("jt1158"); }
+static void jt1157(short a, long b) { PROBE("jt1157"); }
+static void jt1114(void)            { PROBE("jt1114"); }
+static void jt1138(void)            { PROBE("jt1138"); }
+static void jt1156(void)            { PROBE("jt1156"); }
+static void jt1155(void)            { PROBE("jt1155"); }
+static void jt1119(void)            { PROBE("jt1119"); }
 
 /* CODE 5 — intra-segment helpers. */
-static void l01a2(void)             { }   /* CODE 5 + 0x01a2 */
-static void l01ac(void)             { }   /* CODE 5 + 0x01ac */
-static void l024c(short a)          { }   /* CODE 5 + 0x024c */
-static void l0eda(short a, long b)  { }   /* CODE 5 + 0x0eda */
-static void l0f14(void)             { }   /* CODE 5 + 0x0f14 */
-static void l27a4(void)             { }   /* CODE 5 + 0x27a4 */
-static void l27bc(void)             { }   /* CODE 5 + 0x27bc */
-static void l35e2(void)             { }   /* CODE 5 + 0x35e2 */
-static void l35f8(void)             { }   /* CODE 5 + 0x35f8 */
+static void l01a2(void)             { PROBE("l01a2"); }
+static void l01ac(void)             { PROBE("l01ac"); }
+static void l024c(short a)          { PROBE("l024c"); }
+static void l0eda(short a, long b)  { PROBE("l0eda"); }
+static void l0f14(void)             { PROBE("l0f14"); }
+static void l27a4(void)             { PROBE("l27a4"); }
+static void l27bc(void)             { PROBE("l27bc"); }
+static void l35e2(void)             { PROBE("l35e2"); }
+static void l35f8(void)             { PROBE("l35f8"); }
 
 /*
  * master_init — CODE 5 + 0x4 (jump-table entry 1079).
