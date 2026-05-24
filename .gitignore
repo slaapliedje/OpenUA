@@ -12,6 +12,9 @@ build/
 /data/*
 !/data/README.md
 
+# Generated FRSC archive (built from the copyrighted resource fork)
+/frua.rsrc
+
 # Decompilation scratch (Ghidra / IDA / Hopper)
 *.idb
 *.i64
