@@ -407,7 +407,24 @@ static void jt131(short a)         { PROBE("jt131"); }                          
 static int  jt112(short a)         { PROBE("jt112"); return 0; }                  /* CODE 6 + 0x38fe  */
 static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
-static void jt76(void)             { PROBE("jt76"); }                             /* CODE 6 + 0x670c  */
+static void l4bf6(short a, short b, short c, short d) { PROBE("l4bf6"); }         /* CODE 6 + 0x4bf6  */
+static void jt1001(short a, short b, short c, short d) { PROBE("jt1001"); }       /* CODE 5 + 0x31ac  */
+static void jt174(void);                                                          /* CODE 7 + 0x2062 (lifted below) */
+
+static void jt76(void)
+{
+	/* CODE 6 + 0x670c — a fixed setup sequence: clear via jt108, set
+	 * dimensions via L4bf6, then four channel-init calls through
+	 * JT[1001], closing with jt174's two-byte flag. */
+	PROBE("jt76");
+	(void)jt108(0);
+	l4bf6(22, 38, 1, 1);
+	jt1001(8000, 8000, 1, 1);
+	jt1001(8000, 8000, 1, 2);
+	jt1001(8000, 8000, 1, 3);
+	jt1001(8000, 8000, 1, 4);
+	jt174();
+}
 static int  jt3(short a)           { PROBE("jt3"); return 0; }                    /* CODE 1 + 0x158   */
 static unsigned char g_a5_12912;                                                  /* set to 1 by jt174 */
 static unsigned char g_a5_12911;                                                  /* set to 1 by jt174 */
