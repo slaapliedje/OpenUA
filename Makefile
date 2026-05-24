@@ -28,10 +28,23 @@ ifeq ($(ENGINE_PROBE),1)
 CFLAGS += -DFRUA_ENGINE_PROBE
 endif
 
-all: $(TARGET)
+all: $(TARGET) frua.rsrc
 
 $(TARGET): $(OBJ)
 	$(LD) $(LDFLAGS) -o $@ $^
+
+# Resource fork → flat FRSC archive (ADR-0007). The engine FSOpens
+# frua.rsrc at startup and hands the bytes to the Resource Manager
+# shim. The rfork itself is copyrighted FRUA data, so the source path
+# lives under data/work/ (gitignored); the generated archive is
+# gitignored too.
+RFORK ?= data/work/UnlimitedAdventures.rfork
+frua.rsrc: $(RFORK) tools/rsrcpack.py
+	@if [ -f "$<" ]; then \
+		python3 tools/rsrcpack.py $< -o $@; \
+	else \
+		echo "  frua.rsrc: $< not found; skipping (engine runs with no resources)"; \
+	fi
 
 %.o: %.c
 	$(CC) $(CFLAGS) -MMD -MP -c -o $@ $<

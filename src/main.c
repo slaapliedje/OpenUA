@@ -12,12 +12,60 @@
  */
 
 #include <mint/osbind.h>
+#include <stddef.h>             /* NULL */
 
 #include "engine/boot.h"        /* ua_main */
 #include "dbglog.h"
 #include "display.h"
+#include "files.h"
 #include "input.h"
+#include "macmemory.h"
 #include "quickdraw.h"
+#include "resources.h"
+
+/*
+ * Open frua.rsrc through the File Manager and hand the bytes to the
+ * Resource Manager shim. Silent no-op when the file isn't there (the
+ * engine runs with an empty archive — GetResource just returns NULL).
+ * The buffer must outlive the engine, so it leaks on purpose; we exit
+ * shortly after ua_main returns.
+ */
+static void load_frua_rsrc(void)
+{
+	short  ref;
+	long   size, n;
+	void  *buf;
+	OSErr  err;
+
+	if (FSOpen((ConstStr255Param)"\011frua.rsrc", 0, &ref) != noErr) {
+		dbg_log("main: frua.rsrc not found (running without resources)");
+		return;
+	}
+	err = GetEOF(ref, &size);
+	if (err != noErr || size <= 0) {
+		(void)FSClose(ref);
+		dbg_log("main: frua.rsrc unreadable");
+		return;
+	}
+	buf = NewPtr(size);
+	if (buf == NULL) {
+		(void)FSClose(ref);
+		dbg_log("main: NewPtr failed for frua.rsrc");
+		return;
+	}
+	n = size;
+	err = FSRead(ref, &n, buf);
+	(void)FSClose(ref);
+	if (err != noErr || n != size) {
+		dbg_log("main: FSRead frua.rsrc short");
+		return;
+	}
+	if (resource_open(buf) != 0) {
+		dbg_log("main: frua.rsrc isn't a FRSC archive");
+		return;
+	}
+	dbg_log_num("main: frua.rsrc loaded, bytes = ", size);
+}
 
 int main(void)
 {
@@ -39,6 +87,8 @@ int main(void)
 	qd_attach_screen(surf->pixels, surf->pitch, surf->width, surf->height);
 	plat_input_init(surf->width, surf->height);
 	dbg_log("main: shim up");
+
+	load_frua_rsrc();
 
 	rc = ua_main(0, 0L);
 	dbg_log_num("main: ua_main rc = ", (long)rc);
