@@ -10,28 +10,62 @@ TOS/GEM/XBIOS and rebuilding the display and sound paths.
 
 ## Status
 
-Early development. `make` builds `frua.prg`; it is still a VIDEL
-display-backend demo — `make run` boots it in Hatari — as the decompiled
-engine is not yet wired as the entry point. Built so far:
+Early but interactive. `make` builds `frua.prg` and (if the source
+resource fork is present) packs `frua.rsrc` from it. `make run` boots
+the build in Hatari: the engine entry runs end-to-end on top of the
+shim, then a small post-engine probe opens the three real `WIND`
+resources from the resource fork, stacks them on the desktop in the
+real CLUT-129 palette, and hands the mouse over — click-to-front,
+title-bar drag with an XOR outline, keypress to exit.
 
-- **Display** (`platform/`) — the Falcon VIDEL 256-colour backend: mode
-  switch, chunky-to-planar conversion, palette; verified in Hatari.
-- **Engine** (`src/engine/`) — lifted from the Mac `CODE` segments: the
-  application bootstrap (`ua_main`), core init, the master init/shutdown,
-  the file-cache subsystem, and the allocator / string / RNG / error
-  helpers. Not-yet-lifted callees are no-op stubs that mark the frontier.
-- **Toolbox shim** (`compat/`) — the Memory Manager (`Ptr` and relocatable
-  `Handle`) is complete; QuickDraw has the geometry core, the `GrafPort` /
-  `CGrafPort` types and `NewPixMap`; the Window Manager creates b&w, colour
-  and resource-loaded windows; the Resource Manager reads the flat FRSC
-  archive; the Toolbox-startup traps are stubbed.
-- **Tooling** (`tools/`) — the `dis68k.py` decompiler, the resource-fork
-  extractors, and `rsrcpack` (Mac fork → FRSC archive), with a host test
-  suite (`make test`).
+What's wired:
 
-Drawing (QuickDraw primitives onto the HAL surface), sound, events and the
-File Manager are the main pieces still ahead; `docs/` has the subsystem
-maps and the lifting workflow.
+- **Display HAL** (`platform/`) — Falcon VIDEL 256-colour back buffer
+  with mode switch, palette load, chunky-to-planar present; an `input`
+  HAL with a Supexec-installed IKBD-packet mouse driver and a 60 Hz
+  tick counter scaled from `_hz_200`.
+- **Toolbox shim** (`compat/`) — complete enough to drive the demo above:
+  - **Memory Manager** — `Ptr` and relocatable `Handle` blocks
+    (`HLock` / `HUnlock` are bookkeeping; the heap doesn't relocate).
+  - **QuickDraw** — geometry, the `GrafPort` / `CGrafPort` types, regions,
+    every rect / line / oval / blit / clip primitive, pen size / mode /
+    pattern, RGB foreground/background with nearest-CLUT lookup, and a
+    text family (TextFont/Size/Face/Mode + DrawChar/DrawString/CharWidth/
+    StringWidth) over an embedded 8x8 fallback font.
+  - **Window Manager** — full lifecycle, frames painted into the screen
+    port with active-vs-inactive title-bar styling, FindWindow / DragWindow
+    with an animated XOR outline, TrackGoAway.
+  - **Event Manager** — `EventRecord`, posted FIFO, `TickCount`, BIOS
+    keyboard pump, IKBD-driven mouse-edge synthesis for mouseDown /
+    mouseUp, updateEvt synthesis from non-empty `updateRgn`s,
+    `WaitNextEvent` with a sleep tick.
+  - **Resource Manager** — reads the flat `(type, id)` FRSC archive,
+    plus `OpenResFile` / `UseResFile` / `CurResFile` / `CloseResFile` /
+    `HomeResFile` / `CreateResFile` over a refnum table.
+  - **File Manager** — `FSOpen` / `FSRead` / `FSWrite` / `FSClose` /
+    `GetEOF` / `SetEOF` / `GetFPos` / `SetFPos` / `Create` / `FSDelete` /
+    `GetVol` / `SetVol` / `FlushVol` / `GetFInfo` / `SetFInfo` over
+    GEMDOS file calls.
+  - **Toolbox startup** — `toolbox_init` runs the seven manager inits in
+    Mac order; the engine's `master_init` calls it.
+- **Engine** (`src/engine/`) — lifted from the Mac CODE segments:
+  `ua_main` runs to completion, `core_init`, `master_init` / `_shutdown`,
+  the `fc` file-cache subsystem, allocator / string / RNG / error
+  helpers, and an early frontier on CODE 6: `L07dc` (the play-loop
+  body), `L5124` (its first-time init), `jt942` / `jt943` (the loop
+  predicate flag pair), `JT[399]` (the engine's memset), `jt174`, `jt76`,
+  `jt480` (the string-table setter), plus a `jt918` entry-only skeleton.
+  Unlifted callees are PROBE-instrumented stubs — `make ENGINE_PROBE=1`
+  emits the per-frame call sequence.
+- **Tooling** (`tools/`) — `dis68k.py`, the resource-fork extractors,
+  `rsrcpack` (Mac fork → FRSC archive), and a host test suite
+  (`make test`).
+
+Still ahead: the THINK C `DATA + DREL` replay (real `ua_get_string`
+mapping for every index), the Dialog Manager (`ALRT` / `DLOG`), the
+Sound Manager, real NFNT font loading, and the engine's gameplay
+segments. `docs/` has the subsystem maps, the bring-up probe log,
+and the lifting workflow.
 
 ## Approach
 
