@@ -185,6 +185,7 @@ int main(void)
 		if (w1) ShowWindow(w1);
 		if (w2) ShowWindow(w2);
 		if (w3) ShowWindow(w3);
+		if (w3) SelectWindow(w3);          /* w3 active, w1/w2 inactive */
 		dbg_log("main: WIND 1/2/3 stacked");
 	}
 	dsp->present();
