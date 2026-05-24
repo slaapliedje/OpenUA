@@ -78,3 +78,21 @@ main: ua_main rc = 0
 
 Re-run the probe after each engine lift to see which stubs fall out of
 the trace and which new ones appear.
+
+## Second probe — after the L07dc lift
+
+Lifting L07dc replaced the single-line `stub: l07dc` with the body's own
+call sequence — five fresh callees out of the eleven L07dc dispatches
+to. With the mode flag clearing to "new game" and `jt918` declining, the
+loop short-circuits to the cleanup tail:
+
+```
+stub: l07dc → l5124 → jt942 → l5888 → jt918 → l5888
+```
+
+`l5124`, `jt918`, and the cleanup `l5888` are the obvious next targets.
+The other six callees inside L07dc (`l4b40`, `l67ca`, `l68f8`, `l2cb0`,
+`jt582`, `jt941`, `jt937`, `jt938`, `jt217`, `jt948`, `jt943`) only run
+once the mode flag is non-zero or `jt918` returns non-zero — they wait
+for those branches to enable.
+

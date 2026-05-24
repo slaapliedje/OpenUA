@@ -23,7 +23,13 @@
  * in the "frontier" block — each marked with its CODE location — and form
  * the explicit to-do list for the rest of the runtime port. See
  * docs/decompilation.md for the main() map.
+ *
+ * What's lifted in this file: ua_main (the entry sequencer above) plus
+ * the play-loop body L07dc at the bottom. L07dc carries its own frontier
+ * of helpers and JT entries it calls — they live with it down there.
  */
+
+#include <stddef.h>           /* NULL */
 
 #include "boot.h"
 #include "core.h"             /* core_init */
@@ -103,7 +109,7 @@ static void  l5888(short a)     { PROBE("l5888"); }     /* CODE 6 + 0x5888 */
 static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
 static void  l5f66(void)        { PROBE("l5f66"); }     /* CODE 6 + 0x5f66 */
 static void  l6ada(short a)     { PROBE("l6ada"); }     /* CODE 6 + 0x6ada */
-static void  l07dc(void)        { PROBE("l07dc"); }     /* CODE 6 + 0x07dc — the play-loop body */
+static void  l07dc(void);                              /* defined below */
 
 /* UI-handler callbacks main() registers through JT[989]. */
 static void  jt10_handler(void) { }     /* CODE 6 + 0x0538 (jump-table entry 10) */
@@ -192,4 +198,130 @@ int ua_main(short arg1, long arg2)
 	master_shutdown();
 	jt415(0);
 	return 0;
+}
+
+/* =========================================================================
+ * L07dc — the play-loop body (CODE 6 + 0x07dc).
+ *
+ * Runs once per iteration of the ua_main play loop. Tracks a mode byte
+ * (g_a5_18485: 0 = "new game" prompt, non-zero = "resume saved game"),
+ * an inner state selector (g_a5_27990), and a few A5-world bytes that
+ * appear to feed jt217 — likely a four-channel colour or sound dump.
+ *
+ * On entry, if the mode byte is clear, the local L5124 runs first
+ * (initial setup). The body then enters its inner loop:
+ *
+ *   - per-iteration setup: jt942(0), L5888(255)
+ *   - branch on mode:
+ *       resume: jt582; if save-list empty (g_a5_27928 == 0) alert
+ *               "No saved games!" and return; otherwise restore the
+ *               selector from g_a5_27989 (defaulting to 4), then jt941
+ *       new:    jt918(1); if it declines, exit to the cleanup tail
+ *   - state machine on the selector: when selector == 3 AND the byte
+ *     at offset 36 of the *g_a5_28006 handle equals 1, run L68f8;
+ *     otherwise run L67ca / jt937(g_a5_27932) / jt938
+ *   - dispatch the four-byte payload through jt217
+ *   - jt948, refresh selector from g_a5_27989, loop while jt943 reports
+ *     more work
+ *
+ * Cleanup tail: drain the g_a5_27932 pointer through L2cb0(0,1), then
+ * L5888(255) to release any per-iteration state.
+ *
+ * Every callee here (except L5888, already a stub above) is fresh — the
+ * lifting frontier for this segment. Globals carry their A5 offset.
+ * ========================================================================= */
+
+/* Local CODE-6 helpers L07dc calls — all stubs for now. */
+static void          l5124(void)              { PROBE("l5124"); }                /* CODE 6 + 0x5124 */
+static void          l4b40(const char *msg, short a, short b) { (void)msg; PROBE("l4b40"); }
+                                                                                 /* CODE 6 + 0x4b40 (alert?) */
+static void          l67ca(void)              { PROBE("l67ca"); }                /* CODE 6 + 0x67ca */
+static void          l68f8(void)              { PROBE("l68f8"); }                /* CODE 6 + 0x68f8 */
+static void          l2cb0(short a, short b)  { PROBE("l2cb0"); }                /* CODE 6 + 0x2cb0 */
+
+/* Cross-segment JT entries L07dc calls — stubs. */
+static void          jt942(short a)           { PROBE("jt942"); }                /* CODE 20 + 0x472a */
+static void          jt582(void)              { PROBE("jt582"); }                /* CODE 15 + 0x153e */
+static void          jt941(void)              { PROBE("jt941"); }                /* CODE 20 + 0x4108 */
+static int           jt918(short a)           { PROBE("jt918"); return 0; }      /* CODE 12 + 0x0d90 */
+static void          jt937(long a)            { PROBE("jt937"); }                /* CODE 12 + 0x02dc */
+static void          jt938(void)              { PROBE("jt938"); }                /* CODE 12 + 0x0562 */
+static void          jt217(short a, short b, short c, short d) { PROBE("jt217"); }
+                                                                                 /* CODE 7 + 0x57d2 */
+static void          jt948(void)              { PROBE("jt948"); }                /* CODE 20 + 0x4a12 */
+static int           jt943(void)              { PROBE("jt943"); return 0; }      /* CODE 20 + 0x4738 */
+
+/* A5-world globals L07dc touches — named by offset until consumers tell us
+ * the semantic. Sizes from the disassembly's tstb / tstl / moveb / movel.
+ * Many of these will move to a shared A5-world header once other segments
+ * are lifted and the same globals show up there. */
+static unsigned char  g_a5_18485;             /* mode flag: 0 new, !=0 resume */
+static unsigned char  g_a5_18828;             /* byte → 16-bit dest          */
+static unsigned char  g_a5_18827;             /* byte → counter base         */
+static short          g_a5_18878;             /* 16-bit dest                 */
+static unsigned char  g_a5_18488;             /* counter (g_a5_18827 - 1)    */
+static long           g_a5_27928;             /* save-list head / count      */
+static unsigned char  g_a5_27989;             /* selector default            */
+static unsigned char  g_a5_27990;             /* selector (state)            */
+static void          *g_a5_28006;             /* pointer; +36 reads a byte    */
+static long           g_a5_27932;             /* shutdown-drain pointer      */
+static unsigned char  g_a5_12291;             /* payload byte 0              */
+static unsigned char  g_a5_12292;             /* payload byte 1              */
+static unsigned char  g_a5_12293;             /* payload byte 2              */
+static unsigned char  g_a5_12294;             /* payload byte 3              */
+
+static void l07dc(void)
+{
+	PROBE("l07dc");
+
+	if (g_a5_18485 == 0)
+		l5124();
+
+	g_a5_18878 = (short)g_a5_18828;
+	g_a5_18488 = (unsigned char)(g_a5_18827 - 1);
+
+	for (;;) {
+		jt942(0);
+		l5888(255);
+
+		if (g_a5_18485 != 0) {
+			jt582();
+			if (g_a5_27928 == 0) {
+				l4b40("No saved games!", 11, 0);
+				return;
+			}
+			g_a5_27990 = g_a5_27989;
+			if (g_a5_27990 == 0)
+				g_a5_27990 = 4;
+			jt941();
+		} else {
+			if (jt918(1) == 0)
+				goto cleanup;
+		}
+
+		{
+			int special = g_a5_27990 == 3
+			           && g_a5_28006 != NULL
+			           && ((const unsigned char *)g_a5_28006)[36] == 1;
+			if (special) {
+				l68f8();
+			} else {
+				l67ca();
+				jt937(g_a5_27932);
+				jt938();
+			}
+		}
+
+		jt217((short)g_a5_12294, (short)g_a5_12293,
+		      (short)g_a5_12292, (short)g_a5_12291);
+		jt948();
+		g_a5_27990 = g_a5_27989;
+		if (jt943() == 0)
+			break;
+	}
+
+cleanup:
+	while (g_a5_27932 != 0)
+		l2cb0(0, 1);
+	l5888(255);
 }
