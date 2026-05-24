@@ -79,6 +79,24 @@ main: ua_main rc = 0
 Re-run the probe after each engine lift to see which stubs fall out of
 the trace and which new ones appear.
 
+## Third probe — after the jt918 skeleton lift
+
+jt918 is the new-game / select-design dialog at CODE 12 + 0x0d90 — a
+~1300-byte function with ~30 inner calls. The first cut captures only
+the entry side effects (set three A5 globals, populate a 4-byte buffer
+via `JT[399]`, kick off the UI via `JT[131](6)`) and returns 0 to
+preserve the prior "user declined" behaviour. The main loop at L0dd4 →
+L125e is documented in the skeleton's docstring but not yet executed.
+
+```
+stub: l07dc → l5124 → jt942 → l5888 → jt918 (skeleton)
+            → jt399 → jt131 → l5888
+```
+
+`jt918`'s main loop is the next pass; the body dispatches the Delete /
+Create / Select / Play / Edit menu through `L0aae` and per-segment
+`JT[3]`.
+
 ## Second probe — after the L07dc lift
 
 Lifting L07dc replaced the single-line `stub: l07dc` with the body's own
