@@ -71,7 +71,45 @@ static unsigned char g_22231[4];        /* A5-22231 — flag bytes [1..3]      *
  * value-returning stubs return 0 — jt315() in particular must, or the play
  * loop below would never terminate.
  */
-static short jt398(const char *path, short flags)  { PROBE("jt398"); return 0; }  /* CODE 3 + 0x37e4 */
+/* jt398's CODE-3 callees — all stubs. */
+static void  l32e2(const char *prompt, short a, long b)  { PROBE("l32e2"); }       /* CODE 3 + 0x32e2 — prompt */
+static short l322c(const char *path)                     { PROBE("l322c"); return 0; }  /* CODE 3 + 0x322c — path test */
+static const char *l31fc(const char *path)               { PROBE("l31fc"); return path; }/* CODE 3 + 0x31fc — path xform */
+static void  l45d6(char *dst, const char *src)           { PROBE("l45d6"); }       /* CODE 3 + 0x45d6 — copy/normalise */
+static short l328e(const char *buf, short a, short flags){ PROBE("l328e"); return 0; }  /* CODE 3 + 0x328e — open       */
+
+/*
+ * jt398 — CODE 3 + 0x37e4. Phase-3 control-file probe: opens / probes a
+ * file by path. Two top-level branches:
+ *
+ *   - if `path` starts with '%', call l32e2 with "File to open" — likely
+ *     a prompt / standard-file dialog
+ *   - otherwise: l322c(path) to test the path; if it returned non-zero,
+ *     transform via l31fc; copy into a local 128-byte buffer with l45d6;
+ *     open via l328e(buf, 0, flags) and return its result
+ *
+ * Engine code calls this with ":DISK4:ALWAYS.CTL" + flags=0 from
+ * ua_main's phase 3 (the "small / large screen mode" branch). The
+ * 5 callees ship as PROBE-instrumented stubs.
+ */
+static short jt398(const char *path, short flags)
+{
+	char buf[128];
+	short status;
+
+	PROBE("jt398");
+	if (path == NULL)
+		return 0;
+	if (path[0] == '%') {
+		l32e2("File to open", 0, 0L);
+		return 0;
+	}
+	status = l322c(path);
+	if (status != 0)
+		path = l31fc(path);
+	l45d6(buf, path);
+	return l328e(buf, 0, flags);
+}
 static void  jt411(short status)                   { PROBE("jt411"); }            /* CODE 3 + 0x3de2 */
 /* jt480 is the string-table setter — lifted in str.c; ua_main forwards
  * its own arg1 / arg2 here so the THINK C runtime's (count, table) flows
