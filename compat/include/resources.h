@@ -7,16 +7,21 @@
  * Resource Manager API (GetResource and friends); resources come back as
  * Handles, backed by the Memory Manager shim.
  *
- * Here so far: a read-only Resource Manager over an in-memory FRSC archive.
- * Writing resources, named lookups, resource attributes, and opening the
- * archive from a file (the File Manager) are follow-ups — see
- * docs/toolbox-mapping.md.
+ * Here so far: a read-only Resource Manager over an in-memory FRSC archive
+ * plus the resource-file machinery (OpenResFile / UseResFile / CurResFile /
+ * CloseResFile / HomeResFile / CreateResFile). Up to four open resource
+ * files can be tracked; all alias the single in-memory archive for now,
+ * which matches the engine that opens its own resource fork and reads
+ * resources back out of it. Writing resources, named lookups, resource
+ * attributes, real multi-archive support, and OpenRF / file-backed
+ * archive loading are follow-ups — see docs/toolbox-mapping.md.
  */
 
 #ifndef COMPAT_RESOURCES_H
 #define COMPAT_RESOURCES_H
 
-#include "macmemory.h"          /* Handle, OSErr */
+#include "macmemory.h"          /* Handle, OSErr           */
+#include "quickdraw.h"          /* ConstStr255Param        */
 
 typedef unsigned long ResType;  /* a four-character resource type code */
 
@@ -48,5 +53,30 @@ void ReleaseResource(Handle h);
 
 /* The error code from the most recent Resource Manager call. */
 OSErr ResError(void);
+
+/* --- resource files ---
+ *
+ * The Mac tracks a current resource file (the topmost in a search chain).
+ * GetResource looks in the current file first, then the file below it, all
+ * the way to the System resource file. The shim doesn't yet split its
+ * archive across files, so all open resource files alias the single
+ * in-memory FRSC archive — UseResFile and friends are bookkeeping that
+ * gives the engine the API surface it expects. Real multi-archive support
+ * follows when an engine call demands it.
+ *
+ * Refnums are positive small integers. Closing a refnum frees it for
+ * reuse; closing the current refnum clears the current selection.
+ */
+short OpenResFile(ConstStr255Param fileName);
+short OpenRFPerm(ConstStr255Param fileName, short vRefNum, signed char permission);
+void  UseResFile(short refNum);
+short CurResFile(void);
+void  CloseResFile(short refNum);
+short HomeResFile(Handle theResource);
+
+/* Create a resource fork on the file. Writing resources isn't supported
+ * yet, so this is a noErr stub — the create-then-open pattern still
+ * proceeds. */
+void  CreateResFile(ConstStr255Param fileName);
 
 #endif /* COMPAT_RESOURCES_H */
