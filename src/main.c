@@ -7,8 +7,9 @@
  * filled rect, an outlined rect inside it, a corner-to-corner line, two
  * ovals, a 16x16 CopyBits gradient, a ClipRect-narrowed PaintRect, a
  * thick PenSize stroke, a patXor LineTo over a filled background, a
- * PenPat striped LineTo, and an RGBForeColor red PaintRect resolved
- * through the cached palette. Each stage logs to C:\DEMO.LOG via
+ * PenPat striped LineTo, an RGBForeColor red PaintRect resolved
+ * through the cached palette, and a DrawString of "HELLO" through the
+ * embedded 8x8 fallback font. Each stage logs to C:\DEMO.LOG via
  * dbg_log() so
  * the trail survives a crash and can be read on the host.
  *
@@ -168,6 +169,19 @@ int main(void)
 		RGBForeColor(&white);
 	}
 	dbg_log("main: rgbfg   ok");
+
+	/* Text demo: render "HELLO" through the 8x8 fallback font. pnLoc.v
+	 * is the baseline; with ascent 7 the glyph body sits at y =
+	 * baseline-6 .. baseline. Five chars at 8 px = 40 px wide.
+	 *
+	 * Pen, fg and bk get reset first — the prior demos left the pen in
+	 * an arbitrary state. */
+	PenSize(1, 1);
+	PenMode(patCopy);
+	PenPat(&(Pattern){{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}});
+	MoveTo(10, 380);
+	DrawString((ConstStr255Param)"\005HELLO");
+	dbg_log("main: text    ok");
 
 	dsp->present();
 	dbg_log("main: present ok");
