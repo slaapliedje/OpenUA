@@ -21,6 +21,7 @@
 #include "files.h"
 #include "input.h"
 #include "macmemory.h"
+#include "events.h"
 #include "quickdraw.h"
 #include "resources.h"
 #include "windows.h"
@@ -190,7 +191,38 @@ int main(void)
 	}
 	dsp->present();
 
-	Crawcin();                                      /* hold until a keypress */
+	/* Interactive loop: WaitNextEvent at ~60 Hz. mouseDown promotes the
+	 * clicked window via FindWindow + SelectWindow (active stripe goes
+	 * with it). keyDown exits. The whole chain — IKBD packet handler →
+	 * Event Manager edge synthesis → FindWindow z-order walk →
+	 * SelectWindow's repaint via win_draw_frame — runs through real
+	 * shim code; the user's clicks reorder the cascade. */
+	{
+		EventRecord e;
+		Boolean     done = 0;
+
+		while (!done) {
+			if (!WaitNextEvent(everyEvent, &e, 1, NULL))
+				continue;
+			switch (e.what) {
+			case mouseDown: {
+				WindowPtr hit = NULL;
+				short     part = FindWindow(e.where, &hit);
+
+				if (hit != NULL && hit != FrontWindow()
+				 && (part == inContent || part == inDrag))
+					SelectWindow(hit);
+				dsp->present();
+				break;
+			}
+			case keyDown:
+				done = 1;
+				break;
+			default:
+				break;
+			}
+		}
+	}
 
 	plat_input_shutdown();
 	dsp->shutdown();
