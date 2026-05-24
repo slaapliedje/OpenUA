@@ -261,6 +261,20 @@ GrafPtr qd_screen_port(void)
 	return g_screen_attached ? (GrafPtr)&g_screen_port : NULL;
 }
 
+/* Present hook — see quickdraw.h. */
+static qd_present_fn g_present_hook;
+
+void qd_set_present(qd_present_fn fn)
+{
+	g_present_hook = fn;
+}
+
+void qd_present(void)
+{
+	if (g_present_hook != NULL)
+		g_present_hook();
+}
+
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 {
 	CGrafPtr     cp = &g_screen_port;

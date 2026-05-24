@@ -141,6 +141,7 @@ int main(void)
 	dbg_log("main: display up");
 
 	qd_attach_screen(surf->pixels, surf->pitch, surf->width, surf->height);
+	qd_set_present(dsp->present);
 	plat_input_init(surf->width, surf->height);
 	dbg_log("main: shim up");
 
@@ -209,9 +210,18 @@ int main(void)
 				WindowPtr hit = NULL;
 				short     part = FindWindow(e.where, &hit);
 
-				if (hit != NULL && hit != FrontWindow()
-				 && (part == inContent || part == inDrag))
+				if (hit != NULL && (part == inContent
+				                 || part == inDrag)
+				 && hit != FrontWindow())
 					SelectWindow(hit);
+				if (hit != NULL && part == inDrag) {
+					Rect drag_bounds;
+
+					SetRect(&drag_bounds, 0, 15,
+					        surf->width,
+					        (short)(surf->height - 1));
+					DragWindow(hit, e.where, &drag_bounds);
+				}
 				dsp->present();
 				break;
 			}
