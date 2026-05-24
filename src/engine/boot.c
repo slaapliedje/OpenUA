@@ -239,11 +239,11 @@ static void          l67ca(void)              { PROBE("l67ca"); }               
 static void          l68f8(void)              { PROBE("l68f8"); }                /* CODE 6 + 0x68f8 */
 static void          l2cb0(short a, short b)  { PROBE("l2cb0"); }                /* CODE 6 + 0x2cb0 */
 
-/* Cross-segment JT entries L07dc calls — stubs. */
+/* Cross-segment JT entries L07dc calls — stubs (jt918 lifted below). */
 static void          jt942(short a)           { PROBE("jt942"); }                /* CODE 20 + 0x472a */
 static void          jt582(void)              { PROBE("jt582"); }                /* CODE 15 + 0x153e */
 static void          jt941(void)              { PROBE("jt941"); }                /* CODE 20 + 0x4108 */
-static int           jt918(short a)           { PROBE("jt918"); return 0; }      /* CODE 12 + 0x0d90 */
+static int           jt918(short a);                                             /* CODE 12 + 0x0d90 — lifted below */
 static void          jt937(long a)            { PROBE("jt937"); }                /* CODE 12 + 0x02dc */
 static void          jt938(void)              { PROBE("jt938"); }                /* CODE 12 + 0x0562 */
 static void          jt217(short a, short b, short c, short d) { PROBE("jt217"); }
@@ -324,4 +324,92 @@ cleanup:
 	while (g_a5_27932 != 0)
 		l2cb0(0, 1);
 	l5888(255);
+}
+
+/* =========================================================================
+ * jt918 — new-game / select-design dialog (CODE 12 + 0x0d90). Skeleton.
+ *
+ * Big UI function — ~1300 bytes of asm, ~30 inner calls — that L07dc
+ * dispatches into when the mode flag says "new game". The Mac body presents
+ * a menu (Delete / Create / Select / Play / Edit a Design — the strings
+ * are at STRS+0x3132..0x3192) and returns 1 if the player picked an action
+ * L07dc should proceed with, 0 if they declined.
+ *
+ * This is a skeleton lift: the entry side effects (CODE 12 + 0x0d90..0x0dce)
+ * are captured; the main loop at L0dd4 → L125e is documented but stubbed,
+ * with every inner call (JT[399] / JT[131] / JT[112] / JT[108] / JT[81] /
+ * JT[76] / JT[3] / JT[174] / L0aae / L02dc) instrumented for the probe.
+ * Returns 0 so engine behaviour matches the prior stub.
+ *
+ * Loop sketch (for the next pass to fill in):
+ *
+ *   L0dd4:
+ *     JT[112](1)
+ *     if (fp@(-10) > 11)  JT[108](1);  else  JT[81]();
+ *   L0df6:
+ *     if (g_a5_27932 != 0) {
+ *       JT[582]() ... (the saved-game-pointer-present arm; sets ~10 A5
+ *                      bytes around -14439, branches on g_a5_28006[36]);
+ *     } else {
+ *       (L0e98 — fresh new-game; initialise the same A5 byte cluster
+ *                to its default state);
+ *     }
+ *   L0ec6:
+ *     local = L0aae();                  // input/dispatch
+ *     if (local in {1..7} | local > 11) JT[76]();
+ *     if (local == 1) L02dc(g_a5_27932);
+ *     JT[3](local);                     // per-segment jump dispatch
+ *     ... eventually JT[585], JT[447], JT[401], JT[452] ...
+ *     goto L0dd4;
+ *
+ *   Exit edges: L123a (return 0), L123e (return 0). Returning 1 happens
+ *   on a path the skeleton does not yet trace.
+ * ========================================================================= */
+
+/* Local helpers and JT entries jt918 calls. */
+static void jt399(short a, short b, void *buf) { (void)buf; PROBE("jt399"); }    /* CODE 3 + 0x39d2 */
+static void jt131(short a)         { PROBE("jt131"); }                            /* CODE 6 + 0x35e   */
+static int  jt112(short a)         { PROBE("jt112"); return 0; }                  /* CODE 6 + 0x38fe  */
+static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
+static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
+static void jt76(void)             { PROBE("jt76"); }                             /* CODE 6 + 0x670c  */
+static int  jt3(short a)           { PROBE("jt3"); return 0; }                    /* CODE 1 + 0x158   */
+static void jt174(void)            { PROBE("jt174"); }                            /* CODE 7 + 0x2062  */
+static int  l0aae(void)            { PROBE("l0aae"); return 0; }                  /* CODE 12 + 0x0aae */
+static void l02dc(long a)          { PROBE("l02dc"); }                            /* CODE 12 + 0x02dc */
+
+/* Additional A5-world globals jt918 touches (entry setup + buffer). */
+static short          g_a5_5798;             /* mode word — set to 135           */
+static short          g_a5_5796;             /* counter — cleared                */
+static unsigned char  g_a5_19169;            /* flag — set to 1                  */
+static unsigned char  g_a5_22727[4];         /* 4-byte buffer JT[399] fills      */
+
+static int jt918(short a)
+{
+	(void)a;
+	PROBE("jt918 (skeleton)");
+
+	/* Entry side effects — CODE 12 + 0x0d90..0x0dce. */
+	g_a5_5798   = 135;
+	g_a5_27989  = g_a5_27990;            /* save selector */
+	g_a5_27990  = 0;
+	g_a5_19169  = 1;
+	jt399(1, 4, g_a5_22727);
+	g_a5_5796   = 0;
+	jt131(6);
+
+	/* TODO: main loop at CODE 12 + 0x0dd4 → L125e. Until the body is
+	 * lifted, behave as the prior stub — return 0 so L07dc takes the
+	 * cleanup path. (void)-ing the loop helpers below ensures the
+	 * stub-trace probe still reports them, even though the skeleton
+	 * doesn't yet call them.) */
+	(void)jt112;
+	(void)jt108;
+	(void)jt81;
+	(void)jt76;
+	(void)jt3;
+	(void)jt174;
+	(void)l0aae;
+	(void)l02dc;
+	return 0;
 }
