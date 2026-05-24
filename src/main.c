@@ -163,27 +163,29 @@ int main(void)
 	}
 	dbg_log_num("main: ua_main rc = ", (long)rc);
 
-	/* Open WIND 1 ("Unlimited Adventures") from the real resource fork
-	 * and paint its frame. The WIND record specifies bounds (39, 8,
-	 * 339, 488) — wider than our 320 surface, so the right side clips
-	 * naturally through the screen port's clip region. The vis flag is
-	 * 0, so ShowWindow has to fire explicitly to trigger the paint.
-	 * Title chars not in the 8x8 fallback font render as the hollow-box
-	 * placeholder; extending the font is a separate lift. */
+	/* Open WIND 1 / 2 / 3 from the real resource fork and stack them.
+	 * All three share the same bounds in the resource, so MoveWindow
+	 * offsets each by a different amount to make the layering visible.
+	 * vis=0 in every WIND, so ShowWindow has to fire explicitly; we
+	 * paint back-to-front (w1 first) so the painted z-order matches
+	 * the window-list z-order (w3 frontmost). */
 	{
-		WindowPtr w;
+		WindowPtr w1, w2, w3;
 		Rect      full;
 
 		SetRect(&full, 0, 0, surf->width, surf->height);
 		EraseRect(&full);
 
-		w = GetNewCWindow(1, NULL, (WindowPtr)-1L);
-		if (w != NULL) {
-			ShowWindow(w);
-			dbg_log("main: WIND 1 shown");
-		} else {
-			dbg_log("main: GetNewCWindow(1) failed");
-		}
+		w1 = GetNewCWindow(1, NULL, (WindowPtr)-1L);
+		w2 = GetNewCWindow(2, NULL, (WindowPtr)-1L);
+		w3 = GetNewCWindow(3, NULL, (WindowPtr)-1L);
+		if (w1) MoveWindow(w1,   8,  50, 0);
+		if (w2) MoveWindow(w2,  40,  90, 0);
+		if (w3) MoveWindow(w3,  72, 130, 0);
+		if (w1) ShowWindow(w1);
+		if (w2) ShowWindow(w2);
+		if (w3) ShowWindow(w3);
+		dbg_log("main: WIND 1/2/3 stacked");
 	}
 	dsp->present();
 
