@@ -14,12 +14,15 @@
  * (qd_attach_screen), the rect primitives (EraseRect, PaintRect,
  * FrameRect), the line family (MoveTo, LineTo, GetPen, PenSize, PenMode,
  * PenPat), the ovals (PaintOval, FrameOval), the blit (CopyBits —
- * same-size, srcCopy mode, 8-bit), and ClipRect — every primitive clips
- * against portRect ∩ visRgn ∩ clipRgn, pen-using primitives honour pnSize,
- * the pen pat modes (patCopy / patOr / patXor / patBic) combine fgColor
- * (and at patCopy, bkColor) with the destination pixel, and the 8x8 pen
- * pattern gates each pen pixel. Text, scaling, and the source transfer
- * modes follow — see docs/decompilation.md, the Display subsystem.
+ * same-size, srcCopy mode, 8-bit), ClipRect, and the colour entries
+ * (RGBForeColor / RGBBackColor with a cached palette) — every primitive
+ * clips against portRect ∩ visRgn ∩ clipRgn, pen-using primitives honour
+ * pnSize, the pen pat modes (patCopy / patOr / patXor / patBic) combine
+ * fgColor (and at patCopy, bkColor) with the destination pixel, the 8x8
+ * pen pattern gates each pen pixel, and RGBForeColor / RGBBackColor
+ * resolve to the nearest-distance palette index. Text, scaling, and the
+ * source transfer modes follow — see docs/decompilation.md, the Display
+ * subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -310,6 +313,24 @@ void PenPat(const Pattern *pat); /* set the 8x8 pen pattern (copies bytes) */
 #define srcOr    1
 #define srcXor   2
 #define srcBic   3
+
+/* --- colour ---
+ *
+ * RGBForeColor / RGBBackColor record the 16-bit-per-channel RGB into the
+ * port's rgbFgColor / rgbBkColor and resolve a nearest-match palette index
+ * into fgColor / bkColor, against the shim's cached palette. The drawing
+ * primitives still use the 8-bit index — so a call to RGBForeColor takes
+ * effect immediately on the next paint.
+ *
+ * qd_set_palette caches the 256-entry CLUT inside the shim *and* forwards
+ * to the display HAL — call it instead of dsp->set_palette so the inverse
+ * lookup stays in sync with what the hardware is showing. This entry is
+ * scaffolding for the lift-in-progress; the engine will install palettes
+ * through the Palette Manager once that arrives.
+ */
+void RGBForeColor(const RGBColor *color);
+void RGBBackColor(const RGBColor *color);
+void qd_set_palette(const RGBColor *colors, short first, short count);
 
 /*
  * CopyBits — blit pixels from srcBits to dstBits.
