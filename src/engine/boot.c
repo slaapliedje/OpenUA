@@ -239,8 +239,21 @@ static void          l67ca(void)              { PROBE("l67ca"); }               
 static void          l68f8(void)              { PROBE("l68f8"); }                /* CODE 6 + 0x68f8 */
 static void          l2cb0(short a, short b)  { PROBE("l2cb0"); }                /* CODE 6 + 0x2cb0 */
 
-/* Cross-segment JT entries L07dc calls — stubs (jt918 lifted below). */
-static void          jt942(short a)           { PROBE("jt942"); }                /* CODE 20 + 0x472a */
+/* L07dc's play-loop predicate flag, A5-relative offset -4944. Lives here
+ * (above the JT entries) so jt942 / jt943 can read and write it directly;
+ * L5124 zeroes it as part of the game-start state reset. Other A5 globals
+ * stay co-located with their main lift. */
+static unsigned char g_a5_4944;
+
+/* Cross-segment JT entries L07dc calls — most are stubs; jt918 / jt942 /
+ * jt943 are lifted (jt942 and jt943 are the paired setter / getter on the
+ * loop predicate flag g_a5_4944). */
+static void          jt942(short a)
+{
+	/* CODE 20 + 0x472a: moveb fp@(9), A5_-4944 — store the low byte. */
+	PROBE("jt942");
+	g_a5_4944 = (unsigned char)a;
+}
 static void          jt582(void)              { PROBE("jt582"); }                /* CODE 15 + 0x153e */
 static void          jt941(void)              { PROBE("jt941"); }                /* CODE 20 + 0x4108 */
 static int           jt918(short a);                                             /* CODE 12 + 0x0d90 — lifted below */
@@ -249,7 +262,13 @@ static void          jt938(void)              { PROBE("jt938"); }               
 static void          jt217(short a, short b, short c, short d) { PROBE("jt217"); }
                                                                                  /* CODE 7 + 0x57d2 */
 static void          jt948(void)              { PROBE("jt948"); }                /* CODE 20 + 0x4a12 */
-static int           jt943(void)              { PROBE("jt943"); return 0; }      /* CODE 20 + 0x4738 */
+static int           jt943(void)
+{
+	/* CODE 20 + 0x4738: moveb A5_-4944, d0 — read the predicate flag.
+	 * Paired with jt942 above. L07dc loops while this is non-zero. */
+	PROBE("jt943");
+	return g_a5_4944;
+}
 
 /* A5-world globals L07dc touches — named by offset until consumers tell us
  * the semantic. Sizes from the disassembly's tstb / tstl / moveb / movel.
@@ -442,7 +461,7 @@ static int jt918(short a)
  * other CODE segments reach for the same offsets. */
 static unsigned char  g_a5_18474;            /* cleared            */
 static unsigned char  g_a5_18473;            /* cleared            */
-static unsigned char  g_a5_4944;             /* cleared            */
+/* g_a5_4944 lives near the top of the file with the jt942/jt943 lift. */
 static unsigned char  g_a5_22218;            /* set to 90          */
 static unsigned char *g_a5_13038;            /* 2000-byte buffer ptr */
 static unsigned char  g_a5_12288;            /* 3-byte cluster ...  */

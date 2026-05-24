@@ -79,6 +79,19 @@ main: ua_main rc = 0
 Re-run the probe after each engine lift to see which stubs fall out of
 the trace and which new ones appear.
 
+## Fifth probe — after lifting jt942 / jt943
+
+jt942 (CODE 20 + 0x472a) and jt943 (CODE 20 + 0x4738) are a paired
+setter / getter on g_a5_4944, the byte that gates L07dc's inner loop:
+jt942 stores the low byte of its arg, jt943 reads it back. One-line
+lifts each.
+
+Trace inside the play-loop iteration is unchanged from the L5124 probe
+(jt943 isn't reached because jt918 still declines and the new-game
+branch `goto cleanup`s before the predicate check at the bottom of the
+loop). The lift is structural: the next caller that sets g_a5_4944 to
+a non-zero value gets the loop continuation correctly.
+
 ## Fourth probe — after the L5124 lift
 
 L5124 (CODE 6 + 0x5124) is L07dc's first-time init: zeros three buffers
