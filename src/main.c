@@ -6,8 +6,10 @@
  * shim's drawing primitives on the screen port: a full-screen erase, a
  * filled rect, an outlined rect inside it, a corner-to-corner line, two
  * ovals, a 16x16 CopyBits gradient, a ClipRect-narrowed PaintRect, a
- * thick PenSize stroke, a patXor LineTo over a filled background, and
- * a PenPat striped LineTo. Each stage logs to C:\DEMO.LOG via dbg_log() so
+ * thick PenSize stroke, a patXor LineTo over a filled background, a
+ * PenPat striped LineTo, and an RGBForeColor red PaintRect resolved
+ * through the cached palette. Each stage logs to C:\DEMO.LOG via
+ * dbg_log() so
  * the trail survives a crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
@@ -28,7 +30,7 @@ int main(void)
 {
 	const dsp_backend_t *dsp;
 	dsp_surface_t *surf;
-	dsp_color_t    pal[256];
+	RGBColor       pal[256];
 	BitMap         src_bm;
 	GrafPtr        port;
 	Rect           r, srcR, dstR;
@@ -50,13 +52,16 @@ int main(void)
 	dbg_log("main: surface ok");
 
 	/* A 332 RGB ramp so the index-as-colour scheme makes sense visually:
-	 * index 0 is black, index 255 is white, the middle is colour. */
+	 * index 0 is black, index 255 is white, the middle is colour. The
+	 * Mac RGBColor is 16-bit per channel, so the 8-bit ramp is left-
+	 * shifted into the top byte; the shim downsamples back to 8-bit
+	 * inside qd_set_palette before handing off to the HAL. */
 	for (i = 0; i < 256; i++) {
-		pal[i].r = (unsigned char)(i & 0xE0);
-		pal[i].g = (unsigned char)((i << 3) & 0xE0);
-		pal[i].b = (unsigned char)((i << 6) & 0xC0);
+		pal[i].red   = (unsigned short)((i & 0xE0)        << 8);
+		pal[i].green = (unsigned short)(((i << 3) & 0xE0) << 8);
+		pal[i].blue  = (unsigned short)(((i << 6) & 0xC0) << 8);
 	}
-	dsp->set_palette(pal, 0, 256);
+	qd_set_palette(pal, 0, 256);
 	dbg_log("main: palette ok");
 
 	qd_attach_screen(surf->pixels, surf->pitch, surf->width, surf->height);
@@ -148,6 +153,21 @@ int main(void)
 		PenPat(&solid);
 	}
 	dbg_log("main: penpat  ok");
+
+	/* RGBForeColor demo: request pure red; the nearest entry in our 332
+	 * ramp is index 224 (top three R bits set, G/B bits clear — pal[224]
+	 * is exactly (224, 0, 0)). PaintRect into a clean area on the right
+	 * then restore white before any later drawing. */
+	{
+		RGBColor red   = { 0xFFFF, 0x0000, 0x0000 };
+		RGBColor white = { 0xFFFF, 0xFFFF, 0xFFFF };
+
+		SetRect(&r, 270, 290, 310, 310);
+		RGBForeColor(&red);
+		PaintRect(&r);
+		RGBForeColor(&white);
+	}
+	dbg_log("main: rgbfg   ok");
 
 	dsp->present();
 	dbg_log("main: present ok");

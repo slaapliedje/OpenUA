@@ -14,13 +14,15 @@
  * pat-mode (patCopy / patOr / patXor / patBic) on the destination pixel,
  * and the pen's 8x8 one-bit pattern (pnPat) — set bits lay down the op,
  * clear bits paint bkColor for patCopy and leave the pixel alone for the
- * bitwise modes.
+ * bitwise modes. RGBForeColor / RGBBackColor resolve against a cached
+ * palette by sum-of-squared-differences and update fgColor / bkColor.
  */
 
 #include <stddef.h>             /* offsetof, NULL */
 
 #include "quickdraw.h"
 #include "macmemory.h"          /* NewHandleClear, DisposeHandle */
+#include "display.h"            /* dsp_color_t, dsp_detect — palette forward */
 
 void SetPt(Point *pt, short h, short v)
 {
@@ -918,6 +920,95 @@ void PenPat(const Pattern *pat)
 		return;
 	for (i = 0; i < 8; i++)
 		port->pnPat.pat[i] = pat->pat[i];
+}
+
+/* --- colour: the cached CLUT and the RGB entries --- */
+
+/*
+ * The shim's cached CLUT, in 8-bit-per-channel form (one slot for each of
+ * the 256 indices). qd_set_palette installs entries here *and* forwards to
+ * the display HAL; RGBForeColor / RGBBackColor walk this table to find the
+ * nearest-distance index without going back to the hardware.
+ *
+ * The Mac would consult the current GDevice's inverse table for this; the
+ * shim has no GDevice yet, so the cache is the source of truth.
+ */
+static dsp_color_t g_palette[256];
+
+void qd_set_palette(const RGBColor *colors, short first, short count)
+{
+	const dsp_backend_t *dsp;
+	dsp_color_t   tmp[256];
+	short         i;
+
+	if (colors == NULL || first < 0 || count <= 0)
+		return;
+	if (first >= 256 || count > 256 || first + count > 256)
+		return;
+	for (i = 0; i < count; i++) {
+		tmp[i].r = (unsigned char)(colors[i].red   >> 8);
+		tmp[i].g = (unsigned char)(colors[i].green >> 8);
+		tmp[i].b = (unsigned char)(colors[i].blue  >> 8);
+		g_palette[first + i] = tmp[i];
+	}
+	dsp = dsp_detect();
+	if (dsp != NULL && dsp->set_palette != NULL)
+		dsp->set_palette(tmp, first, count);
+}
+
+/*
+ * Find the cached-CLUT index closest to `color` by sum-of-squared
+ * differences in 8-bit-per-channel space. The Mac Color Manager's
+ * Color2Index does the same with an inverse table; the shim has 256
+ * entries and an O(n) scan is fine for ad-hoc colour resolution.
+ */
+static unsigned char qd_nearest_color(const RGBColor *color)
+{
+	unsigned char r = (unsigned char)(color->red   >> 8);
+	unsigned char g = (unsigned char)(color->green >> 8);
+	unsigned char b = (unsigned char)(color->blue  >> 8);
+	unsigned char best = 0;
+	long          best_d = 0x7FFFFFFFL;
+	short         i;
+
+	for (i = 0; i < 256; i++) {
+		long dr = (long)r - g_palette[i].r;
+		long dg = (long)g - g_palette[i].g;
+		long db = (long)b - g_palette[i].b;
+		long d  = dr * dr + dg * dg + db * db;
+
+		if (d < best_d) {
+			best_d = d;
+			best   = (unsigned char)i;
+		}
+	}
+	return best;
+}
+
+void RGBForeColor(const RGBColor *color)
+{
+	GrafPtr  port;
+	CGrafPtr cp;
+
+	GetPort(&port);
+	if (port == NULL || color == NULL)
+		return;
+	cp = (CGrafPtr)port;
+	cp->rgbFgColor = *color;
+	cp->fgColor    = qd_nearest_color(color);
+}
+
+void RGBBackColor(const RGBColor *color)
+{
+	GrafPtr  port;
+	CGrafPtr cp;
+
+	GetPort(&port);
+	if (port == NULL || color == NULL)
+		return;
+	cp = (CGrafPtr)port;
+	cp->rgbBkColor = *color;
+	cp->bkColor    = qd_nearest_color(color);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */
