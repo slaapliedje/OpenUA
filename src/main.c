@@ -12,7 +12,8 @@
  */
 
 #include <mint/osbind.h>
-#include <stddef.h>             /* NULL */
+#include <stddef.h>             /* NULL    */
+#include <string.h>             /* memset  */
 
 #include "engine/boot.h"        /* ua_main */
 #include "dbglog.h"
@@ -68,6 +69,59 @@ static void load_frua_rsrc(void)
 	dbg_log_num("main: frua.rsrc loaded, bytes = ", size);
 }
 
+/*
+ * Install the 256-entry CLUT from clut 129 — FRUA's full palette. The Mac
+ * clut format is an 8-byte header (ctSeed, ctFlags, ctSize = count-1)
+ * followed by N ColorSpec entries of 8 bytes each (value short, then
+ * red / green / blue shorts in big-endian 0..65535). The value field is
+ * the palette index, so a sparse CLUT lands in the right slots; missing
+ * slots stay black.
+ *
+ * Resource Manager must already be open (load_frua_rsrc) and the screen
+ * port must already be attached (qd_attach_screen) before this runs.
+ */
+static void load_frua_palette(void)
+{
+	static RGBColor      pal[256];
+	Handle               h;
+	const unsigned char *p;
+	long                 size;
+	short                ct_size, n_entries, i;
+
+	h = GetResource(0x636c7574L /* 'clut' */, 129);
+	if (h == NULL || *h == NULL) {
+		dbg_log("main: clut 129 missing");
+		return;
+	}
+	size = GetHandleSize(h);
+	if (size < 8) {
+		dbg_log("main: clut 129 truncated");
+		return;
+	}
+	p = (const unsigned char *)*h;
+	ct_size = (short)(((unsigned)p[6] << 8) | p[7]);
+	n_entries = (short)(ct_size + 1);
+	if (n_entries < 0 || n_entries > 256)
+		n_entries = 256;
+
+	memset(pal, 0, sizeof pal);
+	for (i = 0; i < n_entries; i++) {
+		const unsigned char *e   = p + 8 + (long)i * 8;
+		unsigned short       val;
+
+		if (8 + (long)(i + 1) * 8 > size)
+			break;                          /* truncated */
+		val = (unsigned short)((e[0] << 8) | e[1]);
+		if (val > 255)
+			continue;
+		pal[val].red   = (unsigned short)((e[2] << 8) | e[3]);
+		pal[val].green = (unsigned short)((e[4] << 8) | e[5]);
+		pal[val].blue  = (unsigned short)((e[6] << 8) | e[7]);
+	}
+	qd_set_palette(pal, 0, 256);
+	dbg_log_num("main: clut 129 installed, entries = ", n_entries);
+}
+
 int main(void)
 {
 	const dsp_backend_t *dsp;
@@ -90,6 +144,7 @@ int main(void)
 	dbg_log("main: shim up");
 
 	load_frua_rsrc();
+	load_frua_palette();
 
 	/* Synthetic string-table stand-in until the THINK C runtime's
 	 * DATA + DREL string-pool replay is lifted. Indices 0..4 cover the
