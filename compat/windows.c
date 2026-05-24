@@ -472,42 +472,71 @@ void DisposeWindow(WindowPtr wp)
 	DisposePtr((Ptr)wp);
 }
 
+/*
+ * Post activate / deactivate events when the visible front transitions
+ * from `old_front` to `new_front`. The Mac semantics: deactivate the old
+ * one (modifiers = 0), activate the new one (modifiers = activeFlag).
+ * Either pointer may be NULL; same window in both is a no-op.
+ */
+static void win_focus_changed(WindowPtr old_front, WindowPtr new_front)
+{
+	if (old_front == new_front)
+		return;
+	if (old_front != NULL)
+		event_post_full(activateEvt, (long)old_front, 0);
+	if (new_front != NULL)
+		event_post_full(activateEvt, (long)new_front, activeFlag);
+}
+
 void ShowWindow(WindowPtr wp)
 {
 	WindowPeek w = (WindowPeek)wp;
+	WindowPtr  old_front, new_front;
 
 	if (w == NULL || w->visible)
 		return;
+	old_front  = FrontWindow();
 	w->visible = 1;
+	new_front  = FrontWindow();
 	win_draw_frame(w);
+	win_focus_changed(old_front, new_front);
 }
 
 void HideWindow(WindowPtr wp)
 {
-	if (wp != NULL)
-		((WindowPeek)wp)->visible = 0;
+	WindowPeek w = (WindowPeek)wp;
+	WindowPtr  old_front, new_front;
+
+	if (w == NULL || !w->visible)
+		return;
+	old_front  = FrontWindow();
+	w->visible = 0;
+	new_front  = FrontWindow();
+	win_focus_changed(old_front, new_front);
 }
 
 void SelectWindow(WindowPtr wp)
 {
 	WindowPeek w = (WindowPeek)wp;
-	WindowPeek old_front;
+	WindowPtr  old_front, new_front;
 
 	if (w == NULL)
 		return;
-	old_front = g_window_list;
-	if (old_front != NULL && old_front != w)
-		old_front->hilited = 0;
+	old_front = FrontWindow();
+	if (g_window_list != NULL && g_window_list != w)
+		g_window_list->hilited = 0;
 	win_unlink(w);
 	win_link(w, WIN_FRONT);
 	w->hilited = 1;
+	new_front = FrontWindow();
 
-	/* Repaint the affected frames so the active / inactive distinction
-	 * (when it lands) takes effect immediately. Until the styling diverges
-	 * this just redraws the same pixels. */
-	if (old_front != NULL && old_front != w)
-		win_draw_frame(old_front);
+	/* Repaint the affected frames so the active / inactive styling
+	 * takes effect immediately. */
+	if (old_front != NULL && old_front != wp)
+		win_draw_frame((WindowPeek)old_front);
 	win_draw_frame(w);
+
+	win_focus_changed(old_front, new_front);
 }
 
 /*

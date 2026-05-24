@@ -263,6 +263,25 @@ OSErr PostEvent(short eventNum, long eventMsg)
 	return 0;
 }
 
+void event_post_full(short eventNum, long eventMsg, short modifiers)
+{
+	EventRecord *e;
+	unsigned char tail;
+
+	if (g_q_count == EVENT_QUEUE_CAP) {
+		g_q_head = (unsigned char)((g_q_head + 1) % EVENT_QUEUE_CAP);
+		g_q_count--;
+	}
+	tail = (unsigned char)((g_q_head + g_q_count) % EVENT_QUEUE_CAP);
+	e = &g_queue[tail];
+	e->what      = eventNum;
+	e->message   = eventMsg;
+	e->when      = TickCount();
+	e->where     = current_mouse();
+	e->modifiers = modifiers;
+	g_q_count++;
+}
+
 /*
  * FlushEvents — drop every queued event matching `whichMask`. The Mac's
  * `stopMask` halts the discard at the first matching event, keeping it

@@ -69,6 +69,16 @@ void    GetMouse(Point *mouseLoc);
 Boolean GetNextEvent(short eventMask, EventRecord *theEvent);
 Boolean EventAvail(short eventMask, EventRecord *theEvent);
 OSErr   PostEvent(short eventNum, long eventMsg);
+
+/*
+ * Post a fully-formed event with caller-chosen modifiers. The Mac
+ * Window Manager / Toolbox uses this internally for events whose
+ * modifiers don't reflect the live keyboard state — activateEvt's
+ * activeFlag bit, for example, is set / cleared by the Window Manager,
+ * not by Kbshift. Not exposed by the Mac as a public trap; we name
+ * it `event_post_full` to keep it distinct from the Mac PostEvent.
+ */
+void    event_post_full(short eventNum, long eventMsg, short modifiers);
 void    FlushEvents(short whichMask, short stopMask);
 Boolean WaitNextEvent(short eventMask, EventRecord *theEvent,
                       unsigned long sleep, RgnHandle mouseRgn);
