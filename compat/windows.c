@@ -156,11 +156,21 @@ static void win_set_title(WindowPeek w, ConstStr255Param title)
  */
 static void win_draw_frame(WindowPeek w)
 {
+	/* Frame colour choices keyed to RGB rather than palette indices, so
+	 * the nearest-match lookup in RGBForeColor pulls the right slot from
+	 * whichever CLUT is currently loaded — the frame stays grey/white/
+	 * black across any palette, not just the 332 ramp the shim demoed
+	 * against. */
+	static const RGBColor c_titlebar = { 0xC000, 0xC000, 0xC000 };
+	static const RGBColor c_content  = { 0xFFFF, 0xFFFF, 0xFFFF };
+	static const RGBColor c_frame    = { 0x0000, 0x0000, 0x0000 };
+
 	GrafPtr  saved_port;
 	GrafPtr  scr;
 	CGrafPtr scp;
 	Rect     struc, cont, title_bar;
-	short    saved_fg, saved_bk;
+	long     saved_fg, saved_bk;
+	RGBColor saved_rgb_fg, saved_rgb_bk;
 	Point    saved_pn_loc, saved_pn_size;
 	short    saved_pn_mode;
 	Pattern  saved_pn_pat;
@@ -174,8 +184,10 @@ static void win_draw_frame(WindowPeek w)
 	scp = (CGrafPtr)scr;
 
 	GetPort(&saved_port);
-	saved_fg      = (short)scp->fgColor;
-	saved_bk      = (short)scp->bkColor;
+	saved_fg      = scp->fgColor;
+	saved_bk      = scp->bkColor;
+	saved_rgb_fg  = scp->rgbFgColor;
+	saved_rgb_bk  = scp->rgbBkColor;
 	saved_pn_loc  = scr->pnLoc;
 	saved_pn_size = scr->pnSize;
 	saved_pn_mode = scr->pnMode;
@@ -186,24 +198,23 @@ static void win_draw_frame(WindowPeek w)
 	struc = (*w->strucRgn)->rgnBBox;
 	cont  = (*w->contRgn)->rgnBBox;
 
-	/* Title bar: solid mid-grey strip across the top of the structure.
-	 * In our 332 palette index 0xDB is (192, 192, 192) — light grey. */
+	/* Title bar: mid-grey strip across the top of the structure. */
 	SetRect(&title_bar, struc.left, struc.top, struc.right, cont.top);
 	PenSize(1, 1);
 	PenMode(patCopy);
 	for (i = 0; i < 8; i++)
 		scr->pnPat.pat[i] = 0xFF;
-	scp->fgColor = 0xDB;
+	RGBForeColor(&c_titlebar);
 	PaintRect(&title_bar);
 
-	/* Content background — paper white for the demo; the engine repaints
-	 * it on the first update event with whatever the window contains. */
-	scp->fgColor = 0xFF;
+	/* Content background — paper white. The engine repaints it on the
+	 * first update event with whatever the window contains. */
+	RGBForeColor(&c_content);
 	PaintRect(&cont);
 
-	/* Frame: 1-pixel black outline around the whole structure plus a
+	/* Frame: 1-pixel black outline around the structure plus a
 	 * separator under the title bar. */
-	scp->fgColor = 0;
+	RGBForeColor(&c_frame);
 	FrameRect(&struc);
 	MoveTo(struc.left, (short)(cont.top - 1));
 	LineTo((short)(struc.right - 1), (short)(cont.top - 1));
@@ -229,11 +240,13 @@ static void win_draw_frame(WindowPeek w)
 		DrawString(title);
 	}
 
-	scp->fgColor = saved_fg;
-	scp->bkColor = saved_bk;
-	scr->pnLoc   = saved_pn_loc;
-	scr->pnSize  = saved_pn_size;
-	scr->pnMode  = saved_pn_mode;
+	scp->fgColor     = saved_fg;
+	scp->bkColor     = saved_bk;
+	scp->rgbFgColor  = saved_rgb_fg;
+	scp->rgbBkColor  = saved_rgb_bk;
+	scr->pnLoc       = saved_pn_loc;
+	scr->pnSize      = saved_pn_size;
+	scr->pnMode      = saved_pn_mode;
 	for (i = 0; i < 8; i++)
 		scr->pnPat.pat[i] = saved_pn_pat.pat[i];
 	SetPort(saved_port);
