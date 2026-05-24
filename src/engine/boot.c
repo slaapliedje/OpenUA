@@ -409,7 +409,15 @@ static int  jt108(short a)         { PROBE("jt108"); return 0; }                
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
 static void jt76(void)             { PROBE("jt76"); }                             /* CODE 6 + 0x670c  */
 static int  jt3(short a)           { PROBE("jt3"); return 0; }                    /* CODE 1 + 0x158   */
-static void jt174(void)            { PROBE("jt174"); }                            /* CODE 7 + 0x2062  */
+static unsigned char g_a5_12912;                                                  /* set to 1 by jt174 */
+static unsigned char g_a5_12911;                                                  /* set to 1 by jt174 */
+static void jt174(void)
+{
+	/* CODE 7 + 0x2062 — three insns: g_a5_12911 = g_a5_12912 = 1. */
+	PROBE("jt174");
+	g_a5_12912 = 1;
+	g_a5_12911 = 1;
+}
 static int  l0aae(void)            { PROBE("l0aae"); return 0; }                  /* CODE 12 + 0x0aae */
 static void l02dc(long a)          { PROBE("l02dc"); }                            /* CODE 12 + 0x02dc */
 
