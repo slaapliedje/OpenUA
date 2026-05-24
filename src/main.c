@@ -22,6 +22,7 @@
 #include "macmemory.h"
 #include "quickdraw.h"
 #include "resources.h"
+#include "windows.h"
 
 /*
  * Open frua.rsrc through the File Manager and hand the bytes to the
@@ -106,6 +107,30 @@ int main(void)
 		             (long)(void *)strtab);
 	}
 	dbg_log_num("main: ua_main rc = ", (long)rc);
+
+	/* Open WIND 1 ("Unlimited Adventures") from the real resource fork
+	 * and paint its frame. The WIND record specifies bounds (39, 8,
+	 * 339, 488) — wider than our 320 surface, so the right side clips
+	 * naturally through the screen port's clip region. The vis flag is
+	 * 0, so ShowWindow has to fire explicitly to trigger the paint.
+	 * Title chars not in the 8x8 fallback font render as the hollow-box
+	 * placeholder; extending the font is a separate lift. */
+	{
+		WindowPtr w;
+		Rect      full;
+
+		SetRect(&full, 0, 0, surf->width, surf->height);
+		EraseRect(&full);
+
+		w = GetNewCWindow(1, NULL, (WindowPtr)-1L);
+		if (w != NULL) {
+			ShowWindow(w);
+			dbg_log("main: WIND 1 shown");
+		} else {
+			dbg_log("main: GetNewCWindow(1) failed");
+		}
+	}
+	dsp->present();
 
 	Crawcin();                                      /* hold until a keypress */
 
