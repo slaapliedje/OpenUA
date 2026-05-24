@@ -10,10 +10,13 @@
  * Here so far: the window record, the window list, the window lifecycle and
  * geometry (NewWindow, CloseWindow, DisposeWindow, ShowWindow, HideWindow,
  * SelectWindow, SizeWindow, MoveWindow, FrontWindow), colour windows
- * (NewCWindow), resource-loaded windows (GetNewWindow / GetNewCWindow), and
- * the update mechanism (InvalRect / ValidRect / BeginUpdate / EndUpdate)
- * over rectangular regions. Window drawing (the frame, the title bar)
- * follows with the display HAL — see docs/toolbox-mapping.md.
+ * (NewCWindow), resource-loaded windows (GetNewWindow / GetNewCWindow), the
+ * update mechanism (InvalRect / ValidRect / BeginUpdate / EndUpdate) over
+ * rectangular regions, structure / content regions in global screen
+ * coordinates, the title stored in a Handle, and the desktop-side frame
+ * drawing on ShowWindow / SelectWindow — a black 1-pixel outline, a grey
+ * title bar with the title centred, and a close box when goAwayFlag is
+ * set. Drag / find / track-go-away follow with the Event Manager.
  */
 
 #ifndef COMPAT_WINDOWS_H

@@ -1,14 +1,16 @@
 /*
  * Mac Window Manager shim — see windows.h.
  *
- * First cut: the window data model, the window list, the lifecycle and
+ * Here so far: the window data model, the window list, the lifecycle and
  * geometry, b&w / colour windows, resource-loaded windows (GetNewWindow /
- * GetNewCWindow), and the update mechanism (InvalRect / ValidRect /
- * BeginUpdate / EndUpdate) over rectangular regions. SizeWindow and
- * MoveWindow act on portRect; the Mac local/global coordinate split, the
- * structure/content regions, and the window frame and title-bar drawing
- * follow with the display HAL — an honest minimal start, the error.c
- * pattern.
+ * GetNewCWindow), the update mechanism (InvalRect / ValidRect /
+ * BeginUpdate / EndUpdate) over rectangular regions, the structure /
+ * content regions in global screen coordinates, the window's title in a
+ * Handle, and the desktop-side frame drawing (a 1-pixel black outline, a
+ * filled title bar with the title centred, a close box when goAwayFlag is
+ * set) painted into the screen port on ShowWindow / SelectWindow. The
+ * local/global coordinate split, drag / find / track-go-away, and the
+ * active vs inactive title-bar styling follow.
  */
 
 #include <stddef.h>             /* NULL, offsetof */
@@ -65,13 +67,177 @@ static void win_reset_visrgn(WindowPeek w)
 }
 
 /*
+ * The window frame geometry the shim draws around every window. Sized for
+ * the 8x8 fallback font (TITLE_BAR_HEIGHT = ascent + a couple px above and
+ * below) so the title text sits comfortably. Real WDEFs will take over and
+ * each can pick its own; this is the system-7 stand-in.
+ */
+#define WIN_FRAME_PX         1
+#define WIN_TITLE_BAR_HEIGHT 14
+#define WIN_CLOSE_BOX_SIZE   11
+#define WIN_CLOSE_BOX_PAD    2
+
+/*
+ * Set strucRgn (the whole window including frame and title bar) and
+ * contRgn (the content area only) in global screen coordinates from the
+ * content bounds `bounds` the caller passed to NewWindow.
+ */
+static void win_set_regions(WindowPeek w, const Rect *bounds)
+{
+	Rect struc;
+
+	if (w->contRgn != NULL)
+		RectRgn(w->contRgn, bounds);
+
+	struc = *bounds;
+	struc.top    = (short)(struc.top    - WIN_TITLE_BAR_HEIGHT - WIN_FRAME_PX);
+	struc.left   = (short)(struc.left   - WIN_FRAME_PX);
+	struc.right  = (short)(struc.right  + WIN_FRAME_PX);
+	struc.bottom = (short)(struc.bottom + WIN_FRAME_PX);
+	if (w->strucRgn != NULL)
+		RectRgn(w->strucRgn, &struc);
+}
+
+/*
+ * Copy the title's Pascal-string bytes into a relocatable block on the
+ * heap and stash it in w->titleHandle, replacing any previous title.
+ * w->titleWidth is set so the frame drawing can centre the text without
+ * re-measuring.
+ */
+static void win_set_title(WindowPeek w, ConstStr255Param title)
+{
+	unsigned char len, i;
+	Handle        h;
+
+	if (w->titleHandle != NULL) {
+		DisposeHandle(w->titleHandle);
+		w->titleHandle = NULL;
+	}
+	w->titleWidth = 0;
+	if (title == NULL)
+		return;
+	len = title[0];
+	h   = NewHandle((Size)(len + 1));
+	if (h == NULL || *h == NULL)
+		return;
+	for (i = 0; i <= len; i++)
+		((unsigned char *)*h)[i] = title[i];
+	w->titleHandle = h;
+	w->titleWidth  = StringWidth(title);
+}
+
+/*
+ * Paint the window's frame, title bar, title text, and (optional) close
+ * box into the screen port. The window's port has the *content*; the
+ * frame lives outside it on the desktop, so this draws into qd_screen_port
+ * with the caller's current port saved and restored around the operation.
+ *
+ * Per-port state on the screen port (pen size / mode / pattern, fg / bk
+ * colour, pen location) is also saved across this call: the engine drives
+ * the screen port directly for desktop drawing and would otherwise see it
+ * mutated under its feet.
+ */
+static void win_draw_frame(WindowPeek w)
+{
+	GrafPtr  saved_port;
+	GrafPtr  scr;
+	CGrafPtr scp;
+	Rect     struc, cont, title_bar;
+	short    saved_fg, saved_bk;
+	Point    saved_pn_loc, saved_pn_size;
+	short    saved_pn_mode;
+	Pattern  saved_pn_pat;
+	int      i;
+
+	if (w == NULL || !w->visible || w->strucRgn == NULL || w->contRgn == NULL)
+		return;
+	scr = qd_screen_port();
+	if (scr == NULL)
+		return;
+	scp = (CGrafPtr)scr;
+
+	GetPort(&saved_port);
+	saved_fg      = (short)scp->fgColor;
+	saved_bk      = (short)scp->bkColor;
+	saved_pn_loc  = scr->pnLoc;
+	saved_pn_size = scr->pnSize;
+	saved_pn_mode = scr->pnMode;
+	for (i = 0; i < 8; i++)
+		saved_pn_pat.pat[i] = scr->pnPat.pat[i];
+	SetPort(scr);
+
+	struc = (*w->strucRgn)->rgnBBox;
+	cont  = (*w->contRgn)->rgnBBox;
+
+	/* Title bar: solid mid-grey strip across the top of the structure.
+	 * In our 332 palette index 0xDB is (192, 192, 192) — light grey. */
+	SetRect(&title_bar, struc.left, struc.top, struc.right, cont.top);
+	PenSize(1, 1);
+	PenMode(patCopy);
+	for (i = 0; i < 8; i++)
+		scr->pnPat.pat[i] = 0xFF;
+	scp->fgColor = 0xDB;
+	PaintRect(&title_bar);
+
+	/* Content background — paper white for the demo; the engine repaints
+	 * it on the first update event with whatever the window contains. */
+	scp->fgColor = 0xFF;
+	PaintRect(&cont);
+
+	/* Frame: 1-pixel black outline around the whole structure plus a
+	 * separator under the title bar. */
+	scp->fgColor = 0;
+	FrameRect(&struc);
+	MoveTo(struc.left, (short)(cont.top - 1));
+	LineTo((short)(struc.right - 1), (short)(cont.top - 1));
+
+	/* Close box on the left, when goAwayFlag is set: WIN_CLOSE_BOX_SIZE
+	 * outlined square, vertically centred in the title bar. */
+	if (w->goAwayFlag) {
+		Rect  box;
+		short box_top = (short)(struc.top
+		                + (WIN_TITLE_BAR_HEIGHT - WIN_CLOSE_BOX_SIZE) / 2);
+
+		SetRect(&box,
+		        (short)(struc.left + WIN_CLOSE_BOX_PAD + WIN_FRAME_PX),
+		        box_top,
+		        (short)(struc.left + WIN_CLOSE_BOX_PAD + WIN_FRAME_PX
+		                + WIN_CLOSE_BOX_SIZE),
+		        (short)(box_top + WIN_CLOSE_BOX_SIZE));
+		FrameRect(&box);
+	}
+
+	/* Title text: centred in the title bar, baseline near its bottom,
+	 * rendered in black through the embedded 8x8 fallback font. */
+	if (w->titleHandle != NULL && *w->titleHandle != NULL) {
+		ConstStr255Param title = (ConstStr255Param)*w->titleHandle;
+		short            title_x = (short)(struc.left
+		                + ((struc.right - struc.left) - w->titleWidth) / 2);
+		short            title_y = (short)(cont.top - 3);
+
+		MoveTo(title_x, title_y);
+		DrawString(title);
+	}
+
+	scp->fgColor = saved_fg;
+	scp->bkColor = saved_bk;
+	scr->pnLoc   = saved_pn_loc;
+	scr->pnSize  = saved_pn_size;
+	scr->pnMode  = saved_pn_mode;
+	for (i = 0; i < 8; i++)
+		scr->pnPat.pat[i] = saved_pn_pat.pat[i];
+	SetPort(saved_port);
+}
+
+/*
  * Shared body of NewWindow / NewCWindow: allocate or adopt the storage, set
  * the window up, and link it into the list. `isColor` selects whether the
  * 108-byte port slot is initialised as a GrafPort or a CGrafPort.
  */
 static WindowPtr win_new(void *wStorage, const Rect *boundsRect,
-                         Boolean visible, WindowPtr behind,
-                         Boolean goAwayFlag, long refCon, Boolean isColor)
+                         ConstStr255Param title, Boolean visible,
+                         WindowPtr behind, Boolean goAwayFlag,
+                         long refCon, Boolean isColor)
 {
 	WindowPeek w;
 
@@ -101,11 +267,15 @@ static WindowPtr win_new(void *wStorage, const Rect *boundsRect,
 		w->port.portBits.bounds = *boundsRect;  /* b&w global placement */
 	}
 
-	/* The window's update region and its port's visible region — the
-	 * substrate for the rectangular-region update mechanism. */
+	/* The window's update region, its port's visible region, and the
+	 * structure / content regions in global screen coords. */
 	w->updateRgn   = NewRgn();
 	w->port.visRgn = NewRgn();
+	w->strucRgn    = NewRgn();
+	w->contRgn     = NewRgn();
 	win_reset_visrgn(w);
+	win_set_regions(w, boundsRect);
+	win_set_title(w, title);
 
 	/* Per-port drawing defaults — pnSize (1,1), patCopy, solid pen,
 	 * fgColor 255, bkColor 0. The Mac's OpenPort equivalent. */
@@ -126,21 +296,18 @@ WindowPtr NewWindow(void *wStorage, const Rect *boundsRect,
                     ConstStr255Param title, Boolean visible, short procID,
                     WindowPtr behind, Boolean goAwayFlag, long refCon)
 {
-	(void)title;            /* title storage awaits the Handle-based Memory
-	                         * Manager and the title-bar drawing */
 	(void)procID;           /* the window definition (WDEF) is deferred */
-	return win_new(wStorage, boundsRect, visible, behind, goAwayFlag,
-	               refCon, 0);
+	return win_new(wStorage, boundsRect, title, visible, behind,
+	               goAwayFlag, refCon, 0);
 }
 
 WindowPtr NewCWindow(void *wStorage, const Rect *boundsRect,
                      ConstStr255Param title, Boolean visible, short procID,
                      WindowPtr behind, Boolean goAwayFlag, long refCon)
 {
-	(void)title;
 	(void)procID;
-	return win_new(wStorage, boundsRect, visible, behind, goAwayFlag,
-	               refCon, 1);
+	return win_new(wStorage, boundsRect, title, visible, behind,
+	               goAwayFlag, refCon, 1);
 }
 
 /* Big-endian 16-/32-bit fields of a resource body. */
@@ -227,6 +394,10 @@ void CloseWindow(WindowPtr wp)
 		DisposePixMap(cp->portPixMap);
 	DisposeRgn(w->updateRgn);
 	DisposeRgn(w->port.visRgn);
+	DisposeRgn(w->strucRgn);
+	DisposeRgn(w->contRgn);
+	if (w->titleHandle != NULL)
+		DisposeHandle(w->titleHandle);
 	win_unlink(w);
 }
 
@@ -240,8 +411,12 @@ void DisposeWindow(WindowPtr wp)
 
 void ShowWindow(WindowPtr wp)
 {
-	if (wp != NULL)
-		((WindowPeek)wp)->visible = 1;
+	WindowPeek w = (WindowPeek)wp;
+
+	if (w == NULL || w->visible)
+		return;
+	w->visible = 1;
+	win_draw_frame(w);
 }
 
 void HideWindow(WindowPtr wp)
@@ -253,14 +428,23 @@ void HideWindow(WindowPtr wp)
 void SelectWindow(WindowPtr wp)
 {
 	WindowPeek w = (WindowPeek)wp;
+	WindowPeek old_front;
 
 	if (w == NULL)
 		return;
-	if (g_window_list != NULL)
-		g_window_list->hilited = 0;     /* unhighlight the old front */
+	old_front = g_window_list;
+	if (old_front != NULL && old_front != w)
+		old_front->hilited = 0;
 	win_unlink(w);
 	win_link(w, WIN_FRONT);
 	w->hilited = 1;
+
+	/* Repaint the affected frames so the active / inactive distinction
+	 * (when it lands) takes effect immediately. Until the styling diverges
+	 * this just redraws the same pixels. */
+	if (old_front != NULL && old_front != w)
+		win_draw_frame(old_front);
+	win_draw_frame(w);
 }
 
 /*
@@ -273,6 +457,7 @@ void SelectWindow(WindowPtr wp)
 void SizeWindow(WindowPtr wp, short width, short height, Boolean fUpdate)
 {
 	WindowPeek w = (WindowPeek)wp;
+	Rect       new_cont;
 
 	(void)fUpdate;
 	if (w == NULL)
@@ -280,6 +465,12 @@ void SizeWindow(WindowPtr wp, short width, short height, Boolean fUpdate)
 	w->port.portRect.right  = (short)(w->port.portRect.left + width);
 	w->port.portRect.bottom = (short)(w->port.portRect.top + height);
 	win_reset_visrgn(w);
+	if (w->contRgn != NULL) {
+		new_cont = (*w->contRgn)->rgnBBox;
+		new_cont.right  = (short)(new_cont.left + width);
+		new_cont.bottom = (short)(new_cont.top  + height);
+		win_set_regions(w, &new_cont);
+	}
 }
 
 /*
@@ -294,12 +485,21 @@ void MoveWindow(WindowPtr wp, short h, short v, Boolean front)
 {
 	WindowPeek w = (WindowPeek)wp;
 	Rect      *r;
+	Rect       new_cont;
 
 	if (w == NULL)
 		return;
 	r = &w->port.portRect;
 	OffsetRect(r, (short)(h - r->left), (short)(v - r->top));
 	win_reset_visrgn(w);
+	if (w->contRgn != NULL) {
+		new_cont = (*w->contRgn)->rgnBBox;
+		new_cont.right  = (short)(new_cont.right  - new_cont.left + h);
+		new_cont.bottom = (short)(new_cont.bottom - new_cont.top  + v);
+		new_cont.left   = h;
+		new_cont.top    = v;
+		win_set_regions(w, &new_cont);
+	}
 	if (front)
 		SelectWindow(wp);
 }

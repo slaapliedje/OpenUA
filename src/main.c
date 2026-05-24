@@ -8,9 +8,11 @@
  * ovals, a 16x16 CopyBits gradient, a ClipRect-narrowed PaintRect, a
  * thick PenSize stroke, a patXor LineTo over a filled background, a
  * PenPat striped LineTo, an RGBForeColor red PaintRect resolved
- * through the cached palette, and a DrawString of "HELLO" through the
- * embedded 8x8 fallback font. Each stage logs to C:\DEMO.LOG via
- * dbg_log() so
+ * through the cached palette, a DrawString of "HELLO" through the
+ * embedded 8x8 fallback font, and finally a Mac-style window painted
+ * by NewCWindow / ShowWindow — title bar with the title centred, a
+ * close box on the left, a black frame, and a white content area.
+ * Each stage logs to C:\DEMO.LOG via dbg_log() so
  * the trail survives a crash and can be read on the host.
  *
  * Reverts to the real engine bootstrap once the path is verified.
@@ -22,6 +24,7 @@
 #include "display.h"
 #include "dbglog.h"
 #include "quickdraw.h"
+#include "windows.h"
 
 /* A 16x16 source bitmap for the CopyBits demo — a diagonal gradient that
  * shows the blit is reading rows top-to-bottom and pixels left-to-right. */
@@ -182,6 +185,19 @@ int main(void)
 	MoveTo(10, 380);
 	DrawString((ConstStr255Param)"\005HELLO");
 	dbg_log("main: text    ok");
+
+	/* Window demo: bring up a colour window with a close box. NewCWindow
+	 * runs ShowWindow because visible=1, and ShowWindow paints the frame
+	 * + title bar into the screen port — overdrawing whatever sat under
+	 * the window bounds. */
+	{
+		Rect win_bounds;
+
+		SetRect(&win_bounds, 60, 60, 220, 200);
+		NewCWindow(NULL, &win_bounds, (ConstStr255Param)"\003WIN",
+		           1, 0, (WindowPtr)-1L, 1, 0);
+	}
+	dbg_log("main: window  ok");
 
 	dsp->present();
 	dbg_log("main: present ok");
