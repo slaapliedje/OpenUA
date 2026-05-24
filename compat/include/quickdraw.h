@@ -14,15 +14,18 @@
  * (qd_attach_screen), the rect primitives (EraseRect, PaintRect,
  * FrameRect), the line family (MoveTo, LineTo, GetPen, PenSize, PenMode,
  * PenPat), the ovals (PaintOval, FrameOval), the blit (CopyBits —
- * same-size, srcCopy mode, 8-bit), ClipRect, and the colour entries
- * (RGBForeColor / RGBBackColor with a cached palette) — every primitive
- * clips against portRect ∩ visRgn ∩ clipRgn, pen-using primitives honour
- * pnSize, the pen pat modes (patCopy / patOr / patXor / patBic) combine
- * fgColor (and at patCopy, bkColor) with the destination pixel, the 8x8
- * pen pattern gates each pen pixel, and RGBForeColor / RGBBackColor
- * resolve to the nearest-distance palette index. Text, scaling, and the
- * source transfer modes follow — see docs/decompilation.md, the Display
- * subsystem.
+ * same-size, srcCopy mode, 8-bit), ClipRect, the colour entries
+ * (RGBForeColor / RGBBackColor with a cached palette), and text drawing
+ * (TextFont / TextSize / TextFace / TextMode state, DrawChar / DrawString
+ * / CharWidth / StringWidth over a sparse 8x8 fallback font in
+ * compat/font_8x8.c) — every primitive clips against portRect ∩ visRgn ∩
+ * clipRgn, pen-using primitives honour pnSize, the pen pat modes (patCopy
+ * / patOr / patXor / patBic) combine fgColor (and at patCopy, bkColor)
+ * with the destination pixel, the 8x8 pen pattern gates each pen pixel,
+ * RGBForeColor / RGBBackColor resolve to the nearest-distance palette
+ * index, and text honours srcCopy / srcOr through the per-glyph bitmap.
+ * Real NFNT fonts, scaling, and the rest of the source transfer modes
+ * follow — see docs/decompilation.md, the Display subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -31,6 +34,8 @@
 #include "macmemory.h"          /* Ptr, Handle */
 
 typedef unsigned char Boolean;          /* a Mac Boolean is one byte */
+
+typedef const unsigned char *ConstStr255Param;  /* a Mac Pascal string */
 
 typedef struct {
 	short v;                        /* vertical   (Mac order: v before h) */
@@ -331,6 +336,38 @@ void PenPat(const Pattern *pat); /* set the 8x8 pen pattern (copies bytes) */
 void RGBForeColor(const RGBColor *color);
 void RGBBackColor(const RGBColor *color);
 void qd_set_palette(const RGBColor *colors, short first, short count);
+
+/* --- text drawing ---
+ *
+ * The text-state setters write into the port's txFont / txFace / txMode /
+ * txSize fields; for now the rendering ignores font / face / size and
+ * always uses the embedded 8x8 bitmap in compat/font_8x8.c (a sparse
+ * scaffolding font with explicit glyphs for the lift demo and a hollow-
+ * box fallback for every other code point). Real NFNT fonts arrive with
+ * the Resource Manager; the API surface stands while that lands.
+ *
+ * DrawChar / DrawString render with pnLoc as the baseline (one descender
+ * row below the glyph body), advance the pen by the char's width, and
+ * honour txMode for the source-mode subset: srcCopy paints fgColor at
+ * glyph bits and bkColor elsewhere, srcOr paints fgColor at glyph bits
+ * and leaves the destination alone elsewhere (the QuickDraw default for
+ * anti-aliased-feel text on a coloured background). Other modes fall
+ * through to srcOr.
+ *
+ * CharWidth / StringWidth report the advance width — fixed at the 8x8
+ * font's cell width while the embedded font is the only one available.
+ *
+ * DrawString and StringWidth take Pascal strings: str[0] is the length,
+ * str[1..len] are the bytes.
+ */
+void  TextFont(short font);
+void  TextFace(short face);
+void  TextMode(short mode);
+void  TextSize(short size);
+void  DrawChar(short ch);
+void  DrawString(ConstStr255Param str);
+short CharWidth(short ch);
+short StringWidth(ConstStr255Param str);
 
 /*
  * CopyBits — blit pixels from srcBits to dstBits.

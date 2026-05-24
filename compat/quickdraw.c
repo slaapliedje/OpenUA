@@ -23,6 +23,7 @@
 #include "quickdraw.h"
 #include "macmemory.h"          /* NewHandleClear, DisposeHandle */
 #include "display.h"            /* dsp_color_t, dsp_detect — palette forward */
+#include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 
 void SetPt(Point *pt, short h, short v)
 {
@@ -237,6 +238,15 @@ void qd_init_port_defaults(GrafPtr port)
 		port->pnPat.pat[i] = 0xFF;       /* solid               */
 	port->fgColor = 255;
 	port->bkColor = 0;
+
+	/* Mac OpenPort text defaults — system font, 12 pt, plain, srcOr. The
+	 * shim's font path ignores font / face / size for now (only the 8x8
+	 * fallback exists), but the fields are stored so engine queries see
+	 * the expected values. */
+	port->txFont = 0;                        /* systemFont          */
+	port->txFace = 0;                        /* plain               */
+	port->txMode = srcOr;
+	port->txSize = 12;
 }
 
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
@@ -1009,6 +1019,115 @@ void RGBBackColor(const RGBColor *color)
 	cp = (CGrafPtr)port;
 	cp->rgbBkColor = *color;
 	cp->bkColor    = qd_nearest_color(color);
+}
+
+/* --- text drawing --- */
+
+void TextFont(short font) { GrafPtr p; GetPort(&p); if (p) p->txFont = font; }
+void TextFace(short face) { GrafPtr p; GetPort(&p); if (p) p->txFace = (Style)face; }
+void TextMode(short mode) { GrafPtr p; GetPort(&p); if (p) p->txMode = mode; }
+void TextSize(short size) { GrafPtr p; GetPort(&p); if (p) p->txSize = size; }
+
+/*
+ * DrawChar — render one glyph at pnLoc with the baseline at pnLoc.v, then
+ * advance the pen by the cell width. The 8x8 fallback font has ascent 7,
+ * so glyph row r maps to y = pnLoc.v - (ascent - 1) + r, i.e. the body
+ * sits at y = pnLoc.v - 6 .. pnLoc.v and the descender row coincides with
+ * the next baseline. Each glyph bit set lays down fgColor; for srcCopy
+ * unset bits write bkColor, for srcOr (and any other mode for now) unset
+ * bits leave the destination alone.
+ */
+void DrawChar(short ch)
+{
+	GrafPtr              port;
+	CGrafPtr             cp;
+	const unsigned char *glyph;
+	Rect                 clip;
+	PixMap              *pm;
+	short                top, row, col, x, y;
+	unsigned char        fg, bk, mode, mask, bits;
+	Boolean              draw;
+
+	GetPort(&port);
+	if (port == NULL)
+		return;
+	cp   = (CGrafPtr)port;
+	draw = qd_effective_clip(port, &clip);
+
+	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG
+	 || cp->portPixMap == NULL || *cp->portPixMap == NULL)
+		draw = 0;
+	pm = draw ? *cp->portPixMap : NULL;
+	if (pm != NULL && pm->baseAddr == NULL)
+		draw = 0;
+
+	glyph = qd_font_8x8[(unsigned char)ch];
+	fg    = (unsigned char)cp->fgColor;
+	bk    = (unsigned char)cp->bkColor;
+	mode  = (unsigned char)port->txMode;
+
+	if (draw) {
+		top = (short)(port->pnLoc.v - (qd_font_8x8_ascent - 1));
+		for (row = 0; row < qd_font_8x8_height; row++) {
+			y    = (short)(top + row);
+			bits = glyph[row];
+			if (y < clip.top || y >= clip.bottom)
+				continue;
+			for (col = 0, mask = 0x80; col < qd_font_8x8_width;
+			     col++, mask = (unsigned char)(mask >> 1)) {
+				x = (short)(port->pnLoc.h + col);
+				if (x < clip.left || x >= clip.right)
+					continue;
+				if (bits & mask) {
+					unsigned char *p = (unsigned char *)pm->baseAddr
+					                 + (y - pm->bounds.top) * pm->rowBytes
+					                 + (x - pm->bounds.left);
+					*p = fg;
+				} else if (mode == srcCopy) {
+					unsigned char *p = (unsigned char *)pm->baseAddr
+					                 + (y - pm->bounds.top) * pm->rowBytes
+					                 + (x - pm->bounds.left);
+					*p = bk;
+				}
+			}
+		}
+	}
+
+	port->pnLoc.h = (short)(port->pnLoc.h + qd_font_8x8_width);
+}
+
+/*
+ * DrawString — Pascal string: str[0] is the length, str[1..len] the bytes.
+ * Each char goes through DrawChar so glyph clipping / pen advance stay in
+ * one place.
+ */
+void DrawString(ConstStr255Param str)
+{
+	unsigned char len, i;
+
+	if (str == NULL)
+		return;
+	len = str[0];
+	for (i = 1; i <= len; i++)
+		DrawChar((short)str[i]);
+}
+
+/*
+ * CharWidth / StringWidth — report the cell width. Fixed-pitch font, so
+ * StringWidth is len * width with no kerning. (Both are pen-non-mutating;
+ * the Mac advances the pen only in DrawChar / DrawString.)
+ */
+short CharWidth(short ch)
+{
+	(void)ch;
+	return (short)qd_font_8x8_width;
+}
+
+short StringWidth(ConstStr255Param str)
+{
+	if (str == NULL)
+		return 0;
+	return (short)(str[0] * qd_font_8x8_width);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */

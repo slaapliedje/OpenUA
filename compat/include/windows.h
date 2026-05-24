@@ -19,9 +19,7 @@
 #ifndef COMPAT_WINDOWS_H
 #define COMPAT_WINDOWS_H
 
-#include "quickdraw.h"          /* GrafPort, GrafPtr, Rect, Boolean */
-
-typedef const unsigned char *ConstStr255Param;  /* a Mac Pascal string */
+#include "quickdraw.h"          /* GrafPort, GrafPtr, Rect, Boolean, ConstStr255Param */
 
 #define userKind        8       /* windowKind: an application window */
 
