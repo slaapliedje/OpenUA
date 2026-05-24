@@ -148,18 +148,44 @@ int main(void)
 	load_frua_rsrc();
 	load_frua_palette();
 
-	/* Synthetic string-table stand-in until the THINK C runtime's
-	 * DATA + DREL string-pool replay is lifted. Indices 0..4 cover the
-	 * indices ua_main's phase-5 string checks reach (2 and 3); index 2
-	 * is "Heart", the constant the engine compares against. */
+	/* Build a 256-entry string table whose entries point into the real
+	 * STRS resource. Without the DATA + DREL replay we don't have the
+	 * full index → STRS-offset map the THINK C runtime would compute,
+	 * so this is a hand-curated stopgap: scan STRS for the constants
+	 * the lifted engine code compares against and stash their pointers
+	 * at the indices that engine code reads. The remaining slots are
+	 * empty strings (ua_get_string falls back to "" on a NULL slot). */
 	{
-		static char *const strtab[] = {
-			(char *)"",
-			(char *)"",
-			(char *)"Heart",
-			(char *)"",
-			(char *)"",
-		};
+		static char  *strtab[256];
+		Handle        h_strs;
+		const char   *strs_base = NULL;
+		long          strs_size = 0;
+		short         i;
+
+		for (i = 0; i < 256; i++)
+			strtab[i] = (char *)"";
+
+		h_strs = GetResource(0x53545253L /* 'STRS' */, 0);
+		if (h_strs != NULL && *h_strs != NULL) {
+			strs_base = (const char *)*h_strs;
+			strs_size = GetHandleSize(h_strs);
+		}
+		if (strs_base != NULL) {
+			long off;
+
+			for (off = 0; off + 6 <= strs_size; off++) {
+				if (strs_base[off]     == 'H'
+				 && strs_base[off + 1] == 'e'
+				 && strs_base[off + 2] == 'a'
+				 && strs_base[off + 3] == 'r'
+				 && strs_base[off + 4] == 't'
+				 && strs_base[off + 5] == '\0') {
+					strtab[2] = (char *)(strs_base + off);
+					dbg_log_num("main: STRS \"Heart\" at off = ", off);
+					break;
+				}
+			}
+		}
 		rc = ua_main((short)(sizeof strtab / sizeof strtab[0]),
 		             (long)(void *)strtab);
 	}
