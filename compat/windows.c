@@ -19,6 +19,7 @@
 #include "windows.h"
 #include "macmemory.h"          /* NewPtr, DisposePtr */
 #include "resources.h"          /* GetResource        */
+#include "events.h"             /* Button, GetMouse for DragWindow / Track */
 
 /* The window list: head = frontmost; WindowRecord.nextWindow chains back. */
 static WindowPeek g_window_list;
@@ -76,6 +77,22 @@ static void win_reset_visrgn(WindowPeek w)
 #define WIN_TITLE_BAR_HEIGHT 14
 #define WIN_CLOSE_BOX_SIZE   11
 #define WIN_CLOSE_BOX_PAD    2
+
+/* Close-box rect, in screen coordinates — shared by win_draw_frame and
+ * the hit-testing entries (FindWindow / TrackGoAway) so the box never
+ * drifts between the painted pixels and the hit area. */
+static void win_close_box(WindowPeek w, Rect *box)
+{
+	short struc_left = (*w->strucRgn)->rgnBBox.left;
+	short struc_top  = (*w->strucRgn)->rgnBBox.top;
+	short box_top    = (short)(struc_top
+	                   + (WIN_TITLE_BAR_HEIGHT - WIN_CLOSE_BOX_SIZE) / 2);
+	short box_left   = (short)(struc_left + WIN_CLOSE_BOX_PAD + WIN_FRAME_PX);
+
+	SetRect(box, box_left, box_top,
+	        (short)(box_left + WIN_CLOSE_BOX_SIZE),
+	        (short)(box_top  + WIN_CLOSE_BOX_SIZE));
+}
 
 /*
  * Set strucRgn (the whole window including frame and title bar) and
@@ -191,19 +208,12 @@ static void win_draw_frame(WindowPeek w)
 	MoveTo(struc.left, (short)(cont.top - 1));
 	LineTo((short)(struc.right - 1), (short)(cont.top - 1));
 
-	/* Close box on the left, when goAwayFlag is set: WIN_CLOSE_BOX_SIZE
-	 * outlined square, vertically centred in the title bar. */
+	/* Close box on the left, when goAwayFlag is set. The geometry lives
+	 * in win_close_box so hit-testing matches the painted pixels. */
 	if (w->goAwayFlag) {
-		Rect  box;
-		short box_top = (short)(struc.top
-		                + (WIN_TITLE_BAR_HEIGHT - WIN_CLOSE_BOX_SIZE) / 2);
+		Rect box;
 
-		SetRect(&box,
-		        (short)(struc.left + WIN_CLOSE_BOX_PAD + WIN_FRAME_PX),
-		        box_top,
-		        (short)(struc.left + WIN_CLOSE_BOX_PAD + WIN_FRAME_PX
-		                + WIN_CLOSE_BOX_SIZE),
-		        (short)(box_top + WIN_CLOSE_BOX_SIZE));
+		win_close_box(w, &box);
 		FrameRect(&box);
 	}
 
@@ -587,6 +597,153 @@ void EndUpdate(WindowPtr wp)
 {
 	if (wp != NULL)
 		win_reset_visrgn((WindowPeek)wp);
+}
+
+/* --- user-action plumbing: FindWindow, DragWindow, TrackGoAway --- */
+
+short FindWindow(Point thePt, WindowPtr *whichWindow)
+{
+	WindowPeek w;
+
+	if (whichWindow != NULL)
+		*whichWindow = NULL;
+
+	/* Front to back over visible windows: g_window_list is the list head
+	 * (frontmost first), with hidden windows skipped inline. */
+	for (w = g_window_list; w != NULL; w = w->nextWindow) {
+		if (!w->visible || w->strucRgn == NULL || w->contRgn == NULL)
+			continue;
+		if (!PtInRect(thePt, &(*w->strucRgn)->rgnBBox))
+			continue;
+		if (whichWindow != NULL)
+			*whichWindow = (WindowPtr)w;
+
+		if (w->goAwayFlag) {
+			Rect close_box;
+
+			win_close_box(w, &close_box);
+			if (PtInRect(thePt, &close_box))
+				return inGoAway;
+		}
+		if (PtInRect(thePt, &(*w->contRgn)->rgnBBox))
+			return inContent;
+		/* Inside the structure but outside content / close box — the
+		 * draggable area (title bar / frame edges). */
+		return inDrag;
+	}
+	return inDesk;
+}
+
+/*
+ * Tracking helper for DragWindow: paint or erase the drag outline on the
+ * screen port. The outline is strucRgn offset by (dh, dv); patXor + a
+ * solid pen means two consecutive calls with the same offset cancel
+ * (a draw then an erase) — that's how the previous outline gets removed
+ * before the next is laid down without saving any pixels.
+ */
+static void win_drag_outline(WindowPeek w, short dh, short dv)
+{
+	Rect r = (*w->strucRgn)->rgnBBox;
+
+	OffsetRect(&r, dh, dv);
+	FrameRect(&r);
+}
+
+void DragWindow(WindowPtr wp, Point startPt, const Rect *boundsRect)
+{
+	WindowPeek w = (WindowPeek)wp;
+	GrafPtr    scr, saved_port;
+	CGrafPtr   scp;
+	Point      cur;
+	short      saved_fg, saved_pn_mode;
+	short      saved_pn_size_h, saved_pn_size_v;
+	Pattern    saved_pn_pat;
+	short      dh = 0, dv = 0, prev_dh = 0, prev_dv = 0;
+	int        i;
+
+	if (w == NULL || boundsRect == NULL || w->strucRgn == NULL
+	 || w->contRgn == NULL)
+		return;
+	scr = qd_screen_port();
+	if (scr == NULL)
+		return;
+	scp = (CGrafPtr)scr;
+
+	GetPort(&saved_port);
+	saved_fg        = (short)scp->fgColor;
+	saved_pn_mode   = scr->pnMode;
+	saved_pn_size_h = scr->pnSize.h;
+	saved_pn_size_v = scr->pnSize.v;
+	for (i = 0; i < 8; i++)
+		saved_pn_pat.pat[i] = scr->pnPat.pat[i];
+	SetPort(scr);
+
+	/* XOR outline in fgColor=255 with a solid pattern at 1x1 — that
+	 * gives the classic "marching pixels" look against any backdrop. */
+	scp->fgColor = 0xFF;
+	PenSize(1, 1);
+	PenMode(patXor);
+	for (i = 0; i < 8; i++)
+		scr->pnPat.pat[i] = 0xFF;
+
+	win_drag_outline(w, 0, 0);
+
+	while (Button()) {
+		GetMouse(&cur);
+		dh = (short)(cur.h - startPt.h);
+		dv = (short)(cur.v - startPt.v);
+		if (dh != prev_dh || dv != prev_dv) {
+			win_drag_outline(w, prev_dh, prev_dv); /* erase old */
+			win_drag_outline(w, dh, dv);           /* draw new  */
+			prev_dh = dh;
+			prev_dv = dv;
+		}
+	}
+
+	/* Erase the final outline. The button has gone up; the window
+	 * paint takes over from MoveWindow below. */
+	win_drag_outline(w, prev_dh, prev_dv);
+
+	scp->fgColor   = saved_fg;
+	scr->pnMode    = saved_pn_mode;
+	scr->pnSize.h  = saved_pn_size_h;
+	scr->pnSize.v  = saved_pn_size_v;
+	for (i = 0; i < 8; i++)
+		scr->pnPat.pat[i] = saved_pn_pat.pat[i];
+	SetPort(saved_port);
+
+	if (prev_dh != 0 || prev_dv != 0) {
+		Rect  cont = (*w->contRgn)->rgnBBox;
+		short new_h = (short)(cont.left + prev_dh);
+		short new_v = (short)(cont.top  + prev_dv);
+
+		if (new_h < boundsRect->left)   new_h = boundsRect->left;
+		if (new_v < boundsRect->top)    new_v = boundsRect->top;
+		if (new_h > boundsRect->right)  new_h = boundsRect->right;
+		if (new_v > boundsRect->bottom) new_v = boundsRect->bottom;
+		MoveWindow(wp, new_h, new_v, 0);
+	}
+}
+
+Boolean TrackGoAway(WindowPtr wp, Point startPt)
+{
+	WindowPeek w = (WindowPeek)wp;
+	Rect       close_box;
+	Point      cur = startPt;
+
+	if (w == NULL || !w->goAwayFlag || w->strucRgn == NULL)
+		return 0;
+	win_close_box(w, &close_box);
+	if (!PtInRect(startPt, &close_box))
+		return 0;
+
+	/* Track: spin while the button is down, sampling the mouse so the
+	 * "released inside" check at the end is accurate. Highlighting the
+	 * box (invert-while-inside) is a later visual refinement. */
+	while (Button())
+		GetMouse(&cur);
+
+	return (Boolean)PtInRect(cur, &close_box);
 }
 
 /* WindowRecord must be the exact 156-byte Macintosh layout. */
