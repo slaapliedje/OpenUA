@@ -385,8 +385,24 @@ cleanup:
  *   on a path the skeleton does not yet trace.
  * ========================================================================= */
 
-/* Local helpers and JT entries jt918 calls. */
-static void jt399(short a, short b, void *buf) { (void)buf; PROBE("jt399"); }    /* CODE 3 + 0x39d2 */
+/* Local helpers and JT entries jt918 calls.
+ *
+ * jt399 (CODE 3 + 0x39d2) lifted: it's the engine's "memset N bytes at
+ * buf with the low byte of fill" service. The Mac signature places buf
+ * first, size second, fill third (the right-to-left pushed order puts
+ * the first C arg at fp@(8) — the last-pushed, shallowest on the stack;
+ * earlier stubs of jt399 had the args in the wrong order). */
+static void jt399(void *buf, short size, short fill)
+{
+	unsigned char *p = (unsigned char *)buf;
+	short          i;
+
+	PROBE("jt399");
+	if (buf == NULL || size <= 0)
+		return;
+	for (i = 0; i < size; i++)
+		p[i] = (unsigned char)fill;
+}
 static void jt131(short a)         { PROBE("jt131"); }                            /* CODE 6 + 0x35e   */
 static int  jt112(short a)         { PROBE("jt112"); return 0; }                  /* CODE 6 + 0x38fe  */
 static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
@@ -413,7 +429,7 @@ static int jt918(short a)
 	g_a5_27989  = g_a5_27990;            /* save selector */
 	g_a5_27990  = 0;
 	g_a5_19169  = 1;
-	jt399(1, 4, g_a5_22727);
+	jt399(g_a5_22727, 4, 1);    /* fill 4 bytes with 1 */
 	g_a5_5796   = 0;
 	jt131(6);
 
@@ -514,7 +530,7 @@ static void l5124(void)
 	if (g_a5_28006 != NULL) {
 		unsigned char *handle = (unsigned char *)g_a5_28006;
 
-		jt399(0, 1024, handle + 1);          /* zero 1024 bytes */
+		jt399(handle + 1, 1024, 0);          /* zero 1024 bytes */
 		handle[39] = 3;
 		handle[34] = 1;
 	}
@@ -525,12 +541,12 @@ static void l5124(void)
 	g_a5_22218 = 90;
 
 	if (g_a5_13038 != NULL)
-		jt399(0, 2000, g_a5_13038);          /* zero 2000 bytes */
+		jt399(g_a5_13038, 2000, 0);          /* zero 2000 bytes */
 
 	{
 		unsigned char *six = &g_a5_12288;    /* the three vars are
 		                                        adjacent in the A5 world */
-		jt399(0, 6, six);
+		jt399(six, 6, 0);
 	}
 	g_a5_12288 = 0;
 	g_a5_12287 = 0;

@@ -79,6 +79,20 @@ main: ua_main rc = 0
 Re-run the probe after each engine lift to see which stubs fall out of
 the trace and which new ones appear.
 
+## Sixth probe — after lifting JT[399]
+
+JT[399] (CODE 3 + 0x39d2) is the engine's memset-equivalent: fill `size`
+bytes at `buf` with the low byte of `fill`. Mac C signature places
+`buf` first, `size` second, `fill` third — the right-to-left pushed
+order puts the first C arg at fp@(8), which earlier stubs of jt399 had
+in the wrong order. Lifting forces the fix: the four call sites in
+L5124 and jt918 now pass arguments correctly, and the memset runs for
+real.
+
+Trace unchanged from the previous probe — the lift is behavioral
+correctness without new visible work, since the buffers being filled
+are A5-world bytes the engine hasn't started reading yet.
+
 ## Fifth probe — after lifting jt942 / jt943
 
 jt942 (CODE 20 + 0x472a) and jt943 (CODE 20 + 0x4738) are a paired
