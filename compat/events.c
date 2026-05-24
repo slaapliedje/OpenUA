@@ -3,11 +3,13 @@
  *
  * The queue is a small FIFO behind PostEvent (which the engine and the
  * shim use to inject synthesised events). GetNextEvent's priority order
- * mirrors the Mac: queued events first, then the platform keyboard, then
- * the Window Manager's update regions, then nullEvent. EventAvail peeks
- * non-destructively — for keyboard that means we don't pull a key (BIOS
- * Bconin would consume it), so EventAvail only sees keys after the next
- * GetNextEvent or PostEvent.
+ * mirrors the Mac: queued events first, then mouse-button edges (a
+ * change vs. the last seen state synthesises mouseDown / mouseUp), then
+ * the platform keyboard, then the Window Manager's update regions, then
+ * nullEvent. EventAvail peeks non-destructively — for keyboard that
+ * means we don't pull a key (BIOS Bconin would consume it) and for
+ * mouse we don't acknowledge the edge (so the next GetNextEvent sees
+ * and consumes it), so EventAvail only sees those sources via the queue.
  *
  * The queue overflow policy is drop-oldest: a runaway producer mustn't
  * stall the engine. Mac's PostEvent returns evtNotEnb / queueFull; for
@@ -146,6 +148,28 @@ static Boolean kb_to_event(EventRecord *out)
 	return 1;
 }
 
+/*
+ * Last-seen mouse-button state. The Event Manager compares plat_mouse_btn()
+ * against this on every pump; a transition synthesises mouseDown / mouseUp
+ * and updates the value (the edge is acknowledged). EventAvail does the
+ * same comparison but does *not* update — peeks are non-destructive.
+ */
+static unsigned char g_last_mouse_btn;
+
+static Boolean mouse_edge_to_event(EventRecord *out, Boolean ack)
+{
+	int cur = plat_mouse_btn();
+
+	if ((cur != 0) == (g_last_mouse_btn != 0))
+		return 0;
+	out->what    = cur ? mouseDown : mouseUp;
+	out->message = 0;
+	fill_common(out);
+	if (ack)
+		g_last_mouse_btn = (unsigned char)(cur ? 1 : 0);
+	return 1;
+}
+
 static Boolean update_to_event(EventRecord *out)
 {
 	WindowPeek w;
@@ -189,10 +213,23 @@ void GetMouse(Point *mouseLoc)
 
 Boolean GetNextEvent(short eventMask, EventRecord *theEvent)
 {
+	EventRecord tmp;
+
 	if (theEvent == NULL)
 		return 0;
 	if (queue_pop(eventMask, theEvent))
 		return 1;
+	if (mouse_edge_to_event(&tmp, 1)) {
+		/* Edge acknowledged regardless of mask: dropping an unmasked
+		 * edge silently would mean the engine misses the matching
+		 * up/down pair if it only watches one of them. Re-post into
+		 * the queue when the mask doesn't accept it now. */
+		if (event_matches(eventMask, tmp.what)) {
+			*theEvent = tmp;
+			return 1;
+		}
+		queue_push(tmp.what, tmp.message);
+	}
 	if (event_matches(eventMask, keyDown) && kb_to_event(theEvent))
 		return 1;
 	if (event_matches(eventMask, updateEvt) && update_to_event(theEvent))
@@ -207,10 +244,13 @@ Boolean EventAvail(short eventMask, EventRecord *theEvent)
 		return 0;
 	if (queue_peek(eventMask, theEvent))
 		return 1;
-	/* The platform keyboard read is destructive (BIOS Bconin consumes
-	 * the char), so we can't peek the kb here. EventAvail therefore
-	 * only sees keys via the queue — GetNextEvent pulls and PostEvent
-	 * re-stages it. The Mac semantics allow this difference. */
+	/* Non-destructive peeks only: BIOS Bconin would consume a key, so
+	 * we skip the keyboard pump; the mouse-edge check passes ack=0 so
+	 * the next GetNextEvent still sees the same transition. */
+	if ((event_matches(eventMask, mouseDown)
+	  || event_matches(eventMask, mouseUp))
+	 && mouse_edge_to_event(theEvent, 0))
+		return 1;
 	if (event_matches(eventMask, updateEvt) && update_to_event(theEvent))
 		return 1;
 	make_null(theEvent);
