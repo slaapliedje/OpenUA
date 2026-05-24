@@ -79,6 +79,26 @@ main: ua_main rc = 0
 Re-run the probe after each engine lift to see which stubs fall out of
 the trace and which new ones appear.
 
+## Fourth probe — after the L5124 lift
+
+L5124 (CODE 6 + 0x5124) is L07dc's first-time init: zeros three buffers
+through JT[399], sets a handful of fields inside the player-data handle,
+resets ~30 A5-world bytes / shorts / longs to game-start defaults, then
+calls JT[174] (per-segment graphics init).
+
+Trace inside the play-loop iteration:
+
+```
+stub: l07dc → l5124 → jt399 → jt174 → jt942 → l5888 → jt918 (skeleton)
+            → jt399 → jt131 → l5888
+```
+
+Two of L5124's three JT[399] calls are guarded by NULL checks on the
+handle pointer (`g_a5_28006`) and the 2000-byte buffer pointer
+(`g_a5_13038`); neither is set yet, so only the third JT[399] (6 bytes
+into adjacent A5 statics) fires. Lifting whichever engine code creates
+those handles unblocks the full L5124 init.
+
 ## Third probe — after the jt918 skeleton lift
 
 jt918 is the new-game / select-design dialog at CODE 12 + 0x0d90 — a

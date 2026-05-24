@@ -231,8 +231,8 @@ int ua_main(short arg1, long arg2)
  * lifting frontier for this segment. Globals carry their A5 offset.
  * ========================================================================= */
 
-/* Local CODE-6 helpers L07dc calls — all stubs for now. */
-static void          l5124(void)              { PROBE("l5124"); }                /* CODE 6 + 0x5124 */
+/* Local CODE-6 helpers L07dc calls — L5124 lifted below; the rest are stubs. */
+static void          l5124(void);                                                /* CODE 6 + 0x5124 — lifted below */
 static void          l4b40(const char *msg, short a, short b) { (void)msg; PROBE("l4b40"); }
                                                                                  /* CODE 6 + 0x4b40 (alert?) */
 static void          l67ca(void)              { PROBE("l67ca"); }                /* CODE 6 + 0x67ca */
@@ -412,4 +412,160 @@ static int jt918(short a)
 	(void)l0aae;
 	(void)l02dc;
 	return 0;
+}
+
+/* =========================================================================
+ * L5124 — L07dc's first-time init (CODE 6 + 0x5124).
+ *
+ * The play-loop body runs L5124 once on the very first iteration, when the
+ * mode flag (g_a5_18485) is still clear. The function:
+ *
+ *   - zeroes 1024 bytes inside the player-data handle at *g_a5_28006 + 1,
+ *     2000 bytes at the pointer in g_a5_13038, and a 6-byte block at
+ *     g_a5_12288, all through JT[399] (the "fill / zero buffer" service);
+ *   - writes a small handful of fields inside the handle (offsets 18 = 4,
+ *     32 = 0, 34 = 1, 39 = 3);
+ *   - resets ~30 A5-world bytes / shorts / longs to their game-start
+ *     defaults (mostly clears, a few set to 1 / 4 / 90, two pairs to -1,
+ *     and the colour-ish pair (-22330, -22331) to (-24, -37));
+ *   - calls JT[174] (CODE 7 + 0x2062), the per-segment graphics / state
+ *     init the engine layers above ua_main rely on.
+ *
+ * g_a5_28006 has to point at the player-data block before L5124 runs;
+ * the engine code that sets it lives in a CODE segment we haven't reached
+ * yet. While the pointer is NULL (probe mode), the handle writes are
+ * skipped — the surrounding A5 resets still take effect.
+ * ========================================================================= */
+
+/* A5-world globals L5124 touches beyond those already declared. Many are
+ * file-static for now; they'll join a shared A5-world header as soon as
+ * other CODE segments reach for the same offsets. */
+static unsigned char  g_a5_18474;            /* cleared            */
+static unsigned char  g_a5_18473;            /* cleared            */
+static unsigned char  g_a5_4944;             /* cleared            */
+static unsigned char  g_a5_22218;            /* set to 90          */
+static unsigned char *g_a5_13038;            /* 2000-byte buffer ptr */
+static unsigned char  g_a5_12288;            /* 3-byte cluster ...  */
+static unsigned char  g_a5_12287;
+static unsigned char  g_a5_12286;            /* set to 4           */
+static unsigned char  g_a5_22226;            /* set to 1           */
+static unsigned char  g_a5_27981;            /* set to 1           */
+static short          g_a5_27984;            /* cleared (word)     */
+static long           g_a5_27940;            /* cleared (long)     */
+static unsigned char  g_a5_12290;            /* cleared            */
+static short          g_a5_24142;            /* set to 1 (word)    */
+static unsigned char  g_a5_23190;            /* cleared            */
+static unsigned char  g_a5_22284;
+static unsigned char  g_a5_22283;
+static unsigned char  g_a5_22282;
+static unsigned char  g_a5_22281;
+static unsigned char  g_a5_27982;
+static unsigned char  g_a5_22279;
+static unsigned char  g_a5_24304;
+static unsigned char  g_a5_24283;
+static unsigned char  g_a5_24262;            /* set to 0xFF        */
+static unsigned char  g_a5_24261;            /* set to 0xFF        */
+static unsigned char  g_a5_27946;
+static unsigned char  g_a5_22330;            /* set to 0xE8 (-24)  */
+static unsigned char  g_a5_22331;            /* set to 0xDB (-37)  */
+static unsigned char  g_a5_22273;
+static unsigned char  g_a5_22626;            /* set to 1           */
+static unsigned char  g_a5_24256;            /* set to 0xFF        */
+static unsigned char  g_a5_24140;            /* set to 1           */
+static unsigned char  g_a5_23187;
+static unsigned char  g_a5_22269;
+static unsigned char  g_a5_22633;
+static unsigned char  g_a5_22635;
+static unsigned char  g_a5_22268;
+static unsigned char  g_a5_22225;
+static unsigned char  g_a5_24148;
+static unsigned char  g_a5_27987;
+static unsigned char  g_a5_27916;
+static unsigned char  g_a5_22275;
+
+/* JT[399] is the engine's "fill / zero buffer" service in this context.
+ * mode=0 + size=N + pointer zeroes N bytes (matched against L5124's three
+ * call sites and jt918's load-into-buffer call site). The shim still ships
+ * it as a PROBE-instrumented stub; once lifted, both consumers benefit. */
+
+static void l5124(void)
+{
+	PROBE("l5124");
+
+	if (g_a5_28006 != NULL) {
+		unsigned char *handle = (unsigned char *)g_a5_28006;
+
+		jt399(0, 1024, handle + 1);          /* zero 1024 bytes */
+		handle[39] = 3;
+		handle[34] = 1;
+	}
+
+	g_a5_18474 = 0;
+	g_a5_18473 = 0;
+	g_a5_4944  = 0;
+	g_a5_22218 = 90;
+
+	if (g_a5_13038 != NULL)
+		jt399(0, 2000, g_a5_13038);          /* zero 2000 bytes */
+
+	{
+		unsigned char *six = &g_a5_12288;    /* the three vars are
+		                                        adjacent in the A5 world */
+		jt399(0, 6, six);
+	}
+	g_a5_12288 = 0;
+	g_a5_12287 = 0;
+	g_a5_12286 = 4;
+
+	g_a5_22226 = 1;
+	g_a5_27981 = 1;
+	g_a5_27984 = 0;
+	g_a5_27928 = 0;
+	g_a5_27932 = 0;
+	g_a5_27940 = 0;
+
+	if (g_a5_28006 != NULL) {
+		unsigned char *handle = (unsigned char *)g_a5_28006;
+
+		handle[18] = 4;
+		handle[32] = 0;
+	}
+
+	g_a5_12290 = 0;
+	g_a5_24142 = 1;
+	g_a5_23190 = 0;
+
+	g_a5_22284 = 0;
+	g_a5_22283 = 0;
+	g_a5_22282 = 0;
+	g_a5_22281 = 0;
+
+	g_a5_27982 = 0;
+	g_a5_22279 = 0;
+	g_a5_24304 = 0;
+	g_a5_24283 = 0;
+	g_a5_24262 = 0xFF;
+	g_a5_24261 = 0xFF;
+	g_a5_27946 = 0;
+	g_a5_22330 = 0xE8;                       /* moveq #-24 */
+	g_a5_22331 = 0xDB;                       /* moveq #-37 */
+	g_a5_22273 = 0;
+	g_a5_22626 = 1;
+	g_a5_24256 = 0xFF;
+
+	jt174();                                 /* per-segment graphics init */
+
+	g_a5_24140 = 1;
+	g_a5_27990 = 4;
+	g_a5_27989 = 0;
+	g_a5_23187 = 0;
+	g_a5_22269 = 0;
+	g_a5_22633 = 0;
+	g_a5_22635 = 0;
+	g_a5_22268 = 0;
+	g_a5_22225 = 0;
+	g_a5_24148 = 0;
+	g_a5_27987 = 0;
+	g_a5_27916 = 0;
+	g_a5_22275 = 0;
 }
