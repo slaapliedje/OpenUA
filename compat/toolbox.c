@@ -4,18 +4,15 @@
  * A Mac application opens by calling each Toolbox manager's init trap; FRUA
  * does this in its CODE 4 routine JT[1144]. This file provides those seven
  * entry points and toolbox_init(), the sequence that runs them — the lift
- * of JT[1144]'s startup prologue.
- *
- * First cut — the managers themselves (Window, Menu, Dialog, TextEdit, and
- * the Event queue) are not implemented yet, so each init below is a stub
- * that establishes the API surface; docs/toolbox-mapping.md tracks the
- * managers. They grow real bodies as the managers come online (the error.c
- * pattern).
+ * of JT[1144]'s startup prologue. Per-manager APIs live in their own
+ * headers (events.h, windows.h, ...); the init entries here are the
+ * lightweight bring-up hooks.
  */
 
 #include <stddef.h>           /* NULL */
 
 #include "toolbox.h"
+#include "events.h"           /* FlushEvents + everyEvent for the prologue */
 
 /*
  * InitGraf — QuickDraw startup. The Mac caller passes a pointer to its
@@ -55,17 +52,6 @@ void TEInit(void)
 void InitDialogs(void *restartProc)
 {
 	(void)restartProc;
-}
-
-/*
- * FlushEvents — discard pending events of class `whichMask`, stopping at
- * the first of class `stopMask`. The shim has no event queue yet, so there
- * is nothing to discard.
- */
-void FlushEvents(short whichMask, short stopMask)
-{
-	(void)whichMask;
-	(void)stopMask;
 }
 
 /*
