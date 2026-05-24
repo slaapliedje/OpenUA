@@ -1,7 +1,8 @@
 /*
  * FRUA string utilities.
  *
- * Lifted from the Macintosh build — CODE 3 (jump-table entries 393, 475).
+ * Lifted from the Macintosh build — CODE 3 (jump-table entries 393, 475,
+ * 480).
  */
 
 #ifndef ENGINE_STR_H
@@ -22,5 +23,13 @@ extern const char  *g_ua_strtab_default;/* out-of-range fallback    */
 /* String `index` from the table, bounds-checked; returns the default for an
  * out-of-range index or an empty slot. */
 const char *ua_get_string(short index);
+
+/*
+ * Install the string table — the lifted JT[480] (CODE 3 + 0x3c6). The Mac
+ * THINK C runtime calls this from CODE 1 with the count / pointer that the
+ * DATA + DREL resources resolve to; the shim's main() does the same for
+ * ua_main's prologue. After this call ua_get_string can resolve indices.
+ */
+void jt480(short count, void *table);
 
 #endif /* ENGINE_STR_H */

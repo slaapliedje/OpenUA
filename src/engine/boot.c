@@ -73,7 +73,10 @@ static unsigned char g_22231[4];        /* A5-22231 — flag bytes [1..3]      *
  */
 static short jt398(const char *path, short flags)  { PROBE("jt398"); return 0; }  /* CODE 3 + 0x37e4 */
 static void  jt411(short status)                   { PROBE("jt411"); }            /* CODE 3 + 0x3de2 */
-static void  jt480(short a, long b)                { PROBE("jt480"); }            /* CODE 3 + 0x03c6 */
+/* jt480 is the string-table setter — lifted in str.c; ua_main forwards
+ * its own arg1 / arg2 here so the THINK C runtime's (count, table) flows
+ * in. PROBE-instrumented inside str.c if needed for tracing; the engine
+ * call path here just uses the real symbol. */
 static void  jt445(void)                           { PROBE("jt445"); }            /* CODE 3 + 0x294e */
 static void  jt415(short a)                        { PROBE("jt415"); }            /* CODE 3 + 0x37da */
 static void  jt1129(short a)                       { PROBE("jt1129"); }           /* CODE 4 + 0x4756 */
@@ -149,8 +152,10 @@ int ua_main(short arg1, long arg2)
 		master_init(-5, arg2, 160, 400);
 	}
 
-	/* Phase 4 — secondary init and the first UI handler. */
-	jt480(arg1, arg2);
+	/* Phase 4 — secondary init and the first UI handler. arg1 / arg2
+	 * carry the THINK C runtime's (string-table count, pointer); jt480
+	 * stows them in the A5-world globals ua_get_string reads from. */
+	jt480(arg1, (void *)arg2);
 	jt989(jt10_handler, 1, "Pod", 83);
 	l4d98();
 	l0444();

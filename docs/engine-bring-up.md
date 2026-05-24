@@ -79,6 +79,30 @@ main: ua_main rc = 0
 Re-run the probe after each engine lift to see which stubs fall out of
 the trace and which new ones appear.
 
+## Seventh probe — after lifting jt480 + synthetic strtab
+
+jt480 (CODE 3 + 0x3c6) is the string-table setter — two instructions:
+`movew arg1, A5_-10276; movel arg2, A5_-10280`. ua_main forwards its
+own (arg1, arg2) here, so on the Mac the THINK C runtime's
+DATA+DREL-computed string table flows in before phase-4 starts. main()
+now passes a small synthetic table (index 2 = "Heart") because the
+runtime's pool replay isn't lifted yet.
+
+First behavioral change in the probe trace: `jt919` no longer fires.
+Phase 5's `if (ua_strcmp(ua_get_string(2), "Heart") != 0) jt919()`
+gate finally evaluates to false because index 2 returns "Heart"
+through the now-real ua_get_string.
+
+```
+... → jt989 → l4d98 → l0444 → jt361 → jt920 → jt1009
+                                            ^^^^^^ jt919 used to be here
+   → l6ada → jt977 → l3918 → jt989 → jt1130 → l5888 → ...
+```
+
+The shutdown's matching `if (ua_strcmp(ua_get_string(2), "Heart") == 0)
+fc_dump(0L)` now runs fc_dump (real — no PROBE marker, so it's not in
+the trace) at exit. ua_main still rc=0.
+
 ## Sixth probe — after lifting JT[399]
 
 JT[399] (CODE 3 + 0x39d2) is the engine's memset-equivalent: fill `size`

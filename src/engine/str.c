@@ -2,6 +2,7 @@
  * FRUA string utilities — lifted from CODE 3.
  *
  *   ua_strcmp      jump-table entry 393  (CODE 3 + 0x3b8c)
+ *   jt480          jump-table entry 480  (CODE 3 + 0x3c6)
  *   ua_get_string  jump-table entry 475  (CODE 3 + 0x3da)
  */
 
@@ -31,11 +32,24 @@ int ua_strcmp(const char *s1, const char *s2)
 
 /*
  * The string table — the Mac A5-world globals at A5-10280 (the array) and
- * A5-10276 (the count). The table is filled by the string-table loader,
- * which is not yet lifted, so it is empty until then.
+ * A5-10276 (the count). Installed by jt480 below; the THINK C runtime
+ * calls jt480 from CODE 1 with values from the DATA + DREL resources.
+ * The shim's main() does the same in ua_main's prologue. Empty until then.
  */
 char  **g_ua_strtab;
 short   g_ua_strtab_count;
+
+/*
+ * jt480 — CODE 3 + 0x3c6. The string-table setter. Two instructions:
+ * movew arg1, A5_-10276; movel arg2, A5_-10280. ua_main forwards its own
+ * arg1 / arg2 here, so the table the THINK C runtime computes flows in
+ * before any other phase-4 code runs.
+ */
+void jt480(short count, void *table)
+{
+	g_ua_strtab_count = count;
+	g_ua_strtab       = (char **)table;
+}
 
 /*
  * Out-of-range / empty-slot fallback. CREL relocation resolves the Mac

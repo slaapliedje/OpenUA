@@ -90,7 +90,21 @@ int main(void)
 
 	load_frua_rsrc();
 
-	rc = ua_main(0, 0L);
+	/* Synthetic string-table stand-in until the THINK C runtime's
+	 * DATA + DREL string-pool replay is lifted. Indices 0..4 cover the
+	 * indices ua_main's phase-5 string checks reach (2 and 3); index 2
+	 * is "Heart", the constant the engine compares against. */
+	{
+		static char *const strtab[] = {
+			(char *)"",
+			(char *)"",
+			(char *)"Heart",
+			(char *)"",
+			(char *)"",
+		};
+		rc = ua_main((short)(sizeof strtab / sizeof strtab[0]),
+		             (long)(void *)strtab);
+	}
 	dbg_log_num("main: ua_main rc = ", (long)rc);
 
 	Crawcin();                                      /* hold until a keypress */
