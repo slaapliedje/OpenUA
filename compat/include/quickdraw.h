@@ -12,13 +12,14 @@
  * ...), NewPixMap, rectangular regions, the current-port machinery
  * (GetPort / SetPort), the screen port that owns the display back buffer
  * (qd_attach_screen), the rect primitives (EraseRect, PaintRect,
- * FrameRect), the line family (MoveTo, LineTo, GetPen, PenSize, PenMode),
- * the ovals (PaintOval, FrameOval), the blit (CopyBits — same-size,
- * srcCopy mode, 8-bit), and ClipRect — every primitive clips against
- * portRect ∩ visRgn ∩ clipRgn, pen-using primitives honour pnSize, and
+ * FrameRect), the line family (MoveTo, LineTo, GetPen, PenSize, PenMode,
+ * PenPat), the ovals (PaintOval, FrameOval), the blit (CopyBits —
+ * same-size, srcCopy mode, 8-bit), and ClipRect — every primitive clips
+ * against portRect ∩ visRgn ∩ clipRgn, pen-using primitives honour pnSize,
  * the pen pat modes (patCopy / patOr / patXor / patBic) combine fgColor
- * with the destination pixel. PenPat, text, scaling, and the source
- * transfer modes follow — see docs/decompilation.md, the Display subsystem.
+ * (and at patCopy, bkColor) with the destination pixel, and the 8x8 pen
+ * pattern gates each pen pixel. Text, scaling, and the source transfer
+ * modes follow — see docs/decompilation.md, the Display subsystem.
  */
 
 #ifndef COMPAT_QUICKDRAW_H
@@ -273,20 +274,23 @@ void ClipRect(const Rect *r);   /* set the current port's clipRgn to r */
 
 /* --- line drawing and the pen ---
  *
- * The pen state lives in the current port — pnLoc, pnSize, pnMode, and
- * (still storage-only) pnPat. MoveTo and LineTo move the pen; LineTo also
- * draws from the old pnLoc to (h, v). PenSize honours its setting: each
- * pen step plots a pnSize.h x pnSize.v rect, so LineTo, FrameRect, and
- * FrameOval draw thick strokes when the pen is enlarged. PenMode picks
- * the pat-mode combine (patCopy overwrites, patOr / patXor / patBic apply
- * the bitwise op of fgColor over the existing pixel). PenPat is not
- * honoured yet — the pen pattern stays solid.
+ * The pen state lives in the current port — pnLoc, pnSize, pnMode, pnPat.
+ * MoveTo and LineTo move the pen; LineTo also draws from the old pnLoc to
+ * (h, v). PenSize honours its setting: each pen step plots a pnSize.h x
+ * pnSize.v rect, so LineTo, FrameRect, and FrameOval draw thick strokes
+ * when the pen is enlarged. PenMode picks the pat-mode combine (patCopy
+ * overwrites, patOr / patXor / patBic apply the bitwise op of fgColor
+ * over the existing pixel). PenPat sets the 8x8 one-bit pattern: at each
+ * destination pixel the bit at (x & 7, y & 7) gates the pen — set bits
+ * lay down the pen-mode op, clear bits paint bkColor for patCopy and
+ * leave the pixel untouched for the bitwise modes.
  */
 void MoveTo(short h, short v);
 void LineTo(short h, short v);
 void GetPen(Point *pt);
 void PenSize(short h, short v);  /* set the pen rectangle dimensions */
 void PenMode(short mode);        /* set the pen transfer mode (patCopy etc) */
+void PenPat(const Pattern *pat); /* set the 8x8 pen pattern (copies bytes) */
 
 /* --- pen transfer modes (the pat- family) ---
  *
