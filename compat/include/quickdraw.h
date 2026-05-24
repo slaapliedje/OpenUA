@@ -265,6 +265,16 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
 GrafPtr qd_screen_port(void);
 
 /*
+ * Present hook — called by long-running window-tracking loops (DragWindow,
+ * TrackGoAway) so the platform layer can flush the back buffer to the
+ * visible screen and pump any per-frame state. NULL is a no-op. Set once
+ * at startup; main wires it to the display HAL's present() entry.
+ */
+typedef void (*qd_present_fn)(void);
+void          qd_set_present(qd_present_fn fn);
+void          qd_present(void);              /* call the registered hook */
+
+/*
  * Initialise the drawing defaults the Mac sets in OpenPort — pnSize (1,1),
  * patCopy mode, solid pen pattern, fgColor 255, bkColor 0. qd_attach_screen
  * and the Window Manager's NewWindow / NewCWindow both call this.

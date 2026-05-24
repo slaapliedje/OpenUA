@@ -740,6 +740,7 @@ void DragWindow(WindowPtr wp, Point startPt, const Rect *boundsRect)
 		scr->pnPat.pat[i] = 0xFF;
 
 	win_drag_outline(w, 0, 0);
+	qd_present();
 
 	while (Button()) {
 		GetMouse(&cur);
@@ -750,6 +751,7 @@ void DragWindow(WindowPtr wp, Point startPt, const Rect *boundsRect)
 			win_drag_outline(w, dh, dv);           /* draw new  */
 			prev_dh = dh;
 			prev_dv = dv;
+			qd_present();
 		}
 	}
 
