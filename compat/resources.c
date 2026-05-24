@@ -188,3 +188,105 @@ OSErr ResError(void)
 {
 	return g_res_error;
 }
+
+/* --- resource files (refnum machinery) ---
+ *
+ * A small fixed table of open resource files. Each entry just records
+ * "this refnum is taken"; the resource lookups all go to the single
+ * in-memory archive regardless of refnum, because the shim hasn't grown
+ * multi-archive storage yet. The Mac's search chain (current → previous
+ * → System) collapses to a one-link chain pointing at the same archive.
+ *
+ * Refnums are slot index + 1 so 0 stays an invalid sentinel. The Mac's
+ * System resource file lives at refnum 0 in real life; the shim treats
+ * 0 as "no resource file" to match the GrafPtr-NULL idiom elsewhere.
+ */
+#define MAX_RESFILES 4
+
+static unsigned char g_resfile_used[MAX_RESFILES];
+static short         g_current_refnum;       /* 0 = none */
+
+static short alloc_refnum(void)
+{
+	short i;
+
+	for (i = 0; i < MAX_RESFILES; i++) {
+		if (!g_resfile_used[i]) {
+			g_resfile_used[i] = 1;
+			return (short)(i + 1);
+		}
+	}
+	return -1;
+}
+
+short OpenResFile(ConstStr255Param fileName)
+{
+	short ref;
+
+	(void)fileName;
+	if (g_arch == NULL) {
+		g_res_error = resNotFound;
+		return -1;
+	}
+	ref = alloc_refnum();
+	if (ref < 0) {
+		g_res_error = (short)-42;        /* tmfoErr: too many files open */
+		return -1;
+	}
+	g_current_refnum = ref;
+	g_res_error      = 0;
+	return ref;
+}
+
+short OpenRFPerm(ConstStr255Param fileName, short vRefNum, signed char perm)
+{
+	(void)vRefNum;
+	(void)perm;
+	return OpenResFile(fileName);
+}
+
+void UseResFile(short refNum)
+{
+	if (refNum > 0 && refNum <= MAX_RESFILES
+	 && g_resfile_used[refNum - 1]) {
+		g_current_refnum = refNum;
+		g_res_error      = 0;
+		return;
+	}
+	g_res_error = resNotFound;
+}
+
+short CurResFile(void)
+{
+	g_res_error = 0;
+	return g_current_refnum;
+}
+
+void CloseResFile(short refNum)
+{
+	if (refNum > 0 && refNum <= MAX_RESFILES) {
+		g_resfile_used[refNum - 1] = 0;
+		if (g_current_refnum == refNum)
+			g_current_refnum = 0;
+	}
+	g_res_error = 0;
+}
+
+short HomeResFile(Handle theResource)
+{
+	/* Every resource lives in the single archive, so its home is
+	 * whichever refnum currently aliases that archive — the current
+	 * one. Returns 0 if no file is open, matching CurResFile. */
+	(void)theResource;
+	g_res_error = 0;
+	return g_current_refnum;
+}
+
+void CreateResFile(ConstStr255Param fileName)
+{
+	/* Writing the FRSC archive at runtime isn't supported; let create-
+	 * then-open patterns proceed by reporting success and leaving the
+	 * existing archive in place. */
+	(void)fileName;
+	g_res_error = 0;
+}
