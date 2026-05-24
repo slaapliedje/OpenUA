@@ -13,10 +13,14 @@
  * (NewCWindow), resource-loaded windows (GetNewWindow / GetNewCWindow), the
  * update mechanism (InvalRect / ValidRect / BeginUpdate / EndUpdate) over
  * rectangular regions, structure / content regions in global screen
- * coordinates, the title stored in a Handle, and the desktop-side frame
- * drawing on ShowWindow / SelectWindow — a black 1-pixel outline, a grey
- * title bar with the title centred, and a close box when goAwayFlag is
- * set. Drag / find / track-go-away follow with the Event Manager.
+ * coordinates, the title stored in a Handle, the desktop-side frame
+ * drawing on ShowWindow / SelectWindow (a black 1-pixel outline, a grey
+ * title bar with the title centred, a close box when goAwayFlag is set),
+ * and the user-action plumbing (FindWindow over the window stack, the
+ * close-box geometry, DragWindow with an XOR outline + MoveWindow on
+ * release, TrackGoAway against the close box). DragWindow / TrackGoAway
+ * spin on Button() / GetMouse() — they take their wakeup from the real
+ * mouse once the IKBD-packet driver promotes the stubs.
  */
 
 #ifndef COMPAT_WINDOWS_H
@@ -89,5 +93,40 @@ void InvalRect(const Rect *r);          /* add r to the update region   */
 void ValidRect(const Rect *r);          /* remove r from the update rgn */
 void BeginUpdate(WindowPtr w);          /* begin handling an update     */
 void EndUpdate(WindowPtr w);            /* finish it                    */
+
+/* --- FindWindow part codes --- */
+#define inDesk       0          /* on the desktop, no window hit       */
+#define inMenuBar    1          /* (no menu bar yet)                   */
+#define inSysWindow  2          /* a system window (deferred)          */
+#define inContent    3          /* the window's content area           */
+#define inDrag       4          /* the title bar (draggable area)      */
+#define inGrow       5          /* the grow box (deferred)             */
+#define inGoAway     6          /* the close box                       */
+#define inZoomIn     7          /* zoom box, zoomed-in state           */
+#define inZoomOut    8          /* zoom box, zoomed-out state          */
+
+/*
+ * Identify what (if anything) sits at screen point thePt — sets *whichWindow
+ * to the front-to-back hit, NULL if none, and returns the part code above.
+ * Returns inDesk and *whichWindow = NULL when no window contains the point.
+ */
+short FindWindow(Point thePt, WindowPtr *whichWindow);
+
+/*
+ * Drag w by tracking the mouse from startPt until Button() goes false: an
+ * XOR outline follows the mouse on the screen port, and the window is
+ * moved by the final delta on release. The top-left of the content is
+ * clamped into boundsRect. With Button() stubbed at 0 the loop never
+ * iterates and the window stays put — the IKBD-packet driver wakes it.
+ */
+void DragWindow(WindowPtr w, Point startPt, const Rect *boundsRect);
+
+/*
+ * Track a click in w's close box from startPt: returns 1 if the button
+ * was released with the pointer still inside the close box, 0 otherwise.
+ * Returns 0 immediately when startPt isn't in the close box or the
+ * window doesn't have a goAwayFlag.
+ */
+Boolean TrackGoAway(WindowPtr w, Point startPt);
 
 #endif /* COMPAT_WINDOWS_H */
