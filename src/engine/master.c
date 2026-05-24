@@ -15,11 +15,13 @@
 
 #include "master.h"
 #include "fc.h"               /* fc_init, fc_cleanup */
+#include "toolbox.h"          /* toolbox_init — the lifted JT[1144] */
 
 /* --- frontier: routines master_init / master_shutdown call, not lifted --- */
 
-/* CODE 4 — the Mac Toolbox / Window Manager layer. */
-static void jt1144(short a, long b) { }   /* CODE 4 + 0x4774 — Mac Toolbox init */
+/* CODE 4 — the Mac Toolbox / Window Manager layer. JT[1144] is the
+ * standard Toolbox-init prologue; the shim's toolbox_init() runs the
+ * managers in the Mac startup order. */
 static void jt1158(void)            { }   /* CODE 4 + 0x4c48 */
 static void jt1157(short a, long b) { }   /* CODE 4 + 0x61c6 */
 static void jt1114(void)            { }   /* CODE 4 + 0x61ee */
@@ -47,7 +49,7 @@ static void l35f8(void)             { }   /* CODE 5 + 0x35f8 */
  */
 void master_init(short arg1, long arg2, short kb_min, short kb_max)
 {
-	jt1144(arg1, arg2);            /* Mac Toolbox startup  */
+	toolbox_init();                /* Mac Toolbox startup  — JT[1144] */
 	l0eda(arg1, arg2);
 	jt1157(arg1, arg2);
 	jt1155();

@@ -26,9 +26,11 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 `compat/toolbox.c` provides the seven Mac Toolbox manager init entry points
 — `InitGraf`, `InitFonts`, `InitWindows`, `InitMenus`, `TEInit`,
 `InitDialogs`, `FlushEvents` — and `toolbox_init()`, which calls them in the
-standard Mac startup order. FRUA's `JT[1144]` (CODE 4) runs that sequence as
-its prologue. These are first-cut stubs: the API surface and the startup
-order, ahead of the managers themselves.
+standard Mac startup order. The engine wires this up via `src/engine/master.c`'s
+`master_init`, which calls `toolbox_init()` in place of the lifted `JT[1144]`
+prologue. `src/main.c` brings up the display HAL and the input HAL, then
+hands off to `ua_main` (`src/engine/boot.c`); the engine takes over from
+there.
 
 ## Decided
 
