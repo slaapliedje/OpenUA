@@ -257,6 +257,14 @@ void SetPort(GrafPtr port);
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
 
 /*
+ * Return the screen GrafPort qd_attach_screen set up, or NULL if no screen
+ * is bound yet. The Window Manager paints window frames into this port —
+ * the structure (frame + title bar) lives outside any window's own port,
+ * on the desktop.
+ */
+GrafPtr qd_screen_port(void);
+
+/*
  * Initialise the drawing defaults the Mac sets in OpenPort — pnSize (1,1),
  * patCopy mode, solid pen pattern, fgColor 255, bkColor 0. qd_attach_screen
  * and the Window Manager's NewWindow / NewCWindow both call this.

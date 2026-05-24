@@ -249,6 +249,18 @@ void qd_init_port_defaults(GrafPtr port)
 	port->txSize = 12;
 }
 
+/*
+ * Has qd_attach_screen been called yet? Until it has, g_screen_port is
+ * zeroed and not usable as a port; the Window Manager checks before
+ * targeting it for frame drawing.
+ */
+static Boolean g_screen_attached;
+
+GrafPtr qd_screen_port(void)
+{
+	return g_screen_attached ? (GrafPtr)&g_screen_port : NULL;
+}
+
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 {
 	CGrafPtr     cp = &g_screen_port;
@@ -274,6 +286,7 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 	RectRgn(cp->clipRgn, &bounds);
 
 	qd_init_port_defaults((GrafPtr)cp);
+	g_screen_attached = 1;
 
 	SetPort((GrafPtr)cp);
 }

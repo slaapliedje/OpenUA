@@ -16,7 +16,7 @@ Status: `planned` · `wip` · `done` · `native` (migrated off the shim).
 | File Manager        | `FSOpen`/`FSRead`, HFS paths     | GEMDOS `Fopen`/`Fread`/`Fclose` + path translation          | planned |
 | Sound Manager       | `SndPlay`, sound channels        | Falcon DMA sound via XBIOS; YM2149 fallback on TT030        | planned |
 | Event Manager       | `GetNextEvent`, mouse/keyboard   | IKBD + BIOS `Bconin`/`Kbshift`; AES `evnt_multi` in tools   | planned |
-| Window Manager      | Editor & play-UI windows         | Reimplemented in the shim — window record, list, lifecycle, geometry, the update mechanism, b&w / colour / resource-loaded windows (`compat/windows.c`); frames & drawing await the HAL | wip |
+| Window Manager      | Editor & play-UI windows         | Reimplemented in the shim — window record, list, lifecycle, geometry, the update mechanism, b&w / colour / resource-loaded windows, structure / content regions in global screen coords, the title in a Handle, and the desktop-side frame drawing (1-pixel black outline, grey title bar with the title centred, close box on left) painted into the screen port on `ShowWindow` / `SelectWindow`, in `compat/windows.c`; `DragWindow` / `FindWindow` / `TrackGoAway` and active/inactive title-bar styling follow with the Event Manager | wip |
 | Menu / Dialog       | Editor & tools UI                | Reimplemented in the shim; Mac-style widgets drawn into the HAL surface (ADR-0006) | planned |
 | TextEdit            | Editor text fields               | Reimplemented in the shim, alongside the Dialog Manager (ADR-0006) | planned |
 | OSUtils / ToolUtils | Misc (time, fixed-point, etc.)   | Case by case; mostly trivial inline equivalents             | planned |
