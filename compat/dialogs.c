@@ -46,6 +46,39 @@ static unsigned short be16(const unsigned char *p)
 	return (unsigned short)(((unsigned)p[0] << 8) | p[1]);
 }
 
+/* --- per-dialog edit-text state ----------------------------------- */
+
+#define EDIT_TEXT_CAP   255
+
+typedef struct edit_item {
+	short         item;                     /* 1-based DITL index */
+	unsigned char text[EDIT_TEXT_CAP + 1];  /* Pascal string      */
+} edit_item;
+
+typedef struct dlg_aux {
+	short      edit_count;
+	edit_item *edits;       /* slab of edit_count entries */
+} dlg_aux;
+
+static dlg_aux *aux_of(DialogPtr d)
+{
+	return (d == NULL) ? NULL : (dlg_aux *)d->aux;
+}
+
+static edit_item *find_edit(DialogPtr d, short item)
+{
+	dlg_aux *a = aux_of(d);
+	short    i;
+
+	if (a == NULL)
+		return NULL;
+	for (i = 0; i < a->edit_count; i++) {
+		if (a->edits[i].item == item)
+			return &a->edits[i];
+	}
+	return NULL;
+}
+
 /* Walk the DITL items, calling visit(...) on each. Returns the count.
  *
  * visit receives the 1-based item index, the item's local rect (relative
@@ -99,8 +132,11 @@ static int walk_ditl(Handle items, ditl_visitor visit, void *cookie)
 /* --- the shared paint pass ----------------------------------------- */
 
 typedef struct {
-	short dlog_top;
-	short dlog_left;
+	short      dlog_top;
+	short      dlog_left;
+	DialogPtr  dlg;                 /* NULL for Alert path        */
+	short      def_item;            /* aDefItem for thicker frame */
+	short      focus_item;          /* editField; 0 if none       */
 } paint_ctx;
 
 static int paint_item(short item, const Rect *local, unsigned char type,
@@ -108,10 +144,10 @@ static int paint_item(short item, const Rect *local, unsigned char type,
                       void *cookie)
 {
 	paint_ctx *ctx = (paint_ctx *)cookie;
-	Rect grect;
+	Rect       grect;
 	static const RGBColor black = { 0, 0, 0 };
+	static const RGBColor white = { 0xFFFF, 0xFFFF, 0xFFFF };
 
-	(void)item;
 	grect.top    = (short)(ctx->dlog_top  + local->top);
 	grect.left   = (short)(ctx->dlog_left + local->left);
 	grect.bottom = (short)(ctx->dlog_top  + local->bottom);
@@ -125,6 +161,15 @@ static int paint_item(short item, const Rect *local, unsigned char type,
 
 		RGBForeColor(&black);
 		FrameRect(&grect);
+		/* Default item gets a thicker outer frame — the Mac
+		 * double-ring around OK that prompts the user that Return
+		 * fires it. We inset by 3 and re-frame for the visual cue. */
+		if (item == ctx->def_item && ctx->def_item > 0) {
+			Rect outer = grect;
+
+			InsetRect(&outer, -3, -3);
+			FrameRect(&outer);
+		}
 		MoveTo(tx, ty);
 		DrawString((ConstStr255Param)data);
 		break;
@@ -133,6 +178,38 @@ static int paint_item(short item, const Rect *local, unsigned char type,
 		RGBForeColor(&black);
 		MoveTo(grect.left, (short)(grect.top + 7));
 		DrawString((ConstStr255Param)data);
+		break;
+	}
+	case 16: {                                 /* edit text */
+		edit_item *e = find_edit(ctx->dlg, item);
+		short      ty;
+
+		/* White interior + 1-pixel black frame. */
+		RGBForeColor(&white);
+		PaintRect(&grect);
+		RGBForeColor(&black);
+		FrameRect(&grect);
+
+		ty = (short)(grect.top + 9);
+		MoveTo((short)(grect.left + 3), ty);
+		if (e != NULL && e->text[0] > 0)
+			DrawString(e->text);
+		else if (data_len > 0)
+			DrawString((ConstStr255Param)data);
+
+		/* Insertion caret at end of text on the focused field. The
+		 * shim's 8x8 glyph advance is 6 px (see CharWidth fallback);
+		 * the caret sits one pixel right of the last glyph. */
+		if (item == ctx->focus_item && ctx->focus_item > 0) {
+			short txt_len = (e != NULL) ? (short)e->text[0]
+			                            : (short)data_len;
+			short cx      = (short)(grect.left + 3 + txt_len * 6);
+
+			if (cx >= grect.right - 2)
+				cx = (short)(grect.right - 2);
+			MoveTo(cx, (short)(grect.top + 2));
+			LineTo(cx, (short)(grect.bottom - 3));
+		}
 		break;
 	}
 	default:
@@ -149,12 +226,38 @@ static void paint_ditl(const Rect *bounds, Handle items)
 
 	if (bounds == NULL || items == NULL)
 		return;
-	ctx.dlog_top  = bounds->top;
-	ctx.dlog_left = bounds->left;
+	ctx.dlog_top   = bounds->top;
+	ctx.dlog_left  = bounds->left;
+	ctx.dlg        = NULL;
+	ctx.def_item   = 0;
+	ctx.focus_item = 0;
 
 	GetPort(&saved_port);
 	SetPort(qd_screen_port());
 	(void)walk_ditl(items, paint_item, &ctx);
+	SetPort(saved_port);
+}
+
+/* Variant for DrawDialog — knows the dialog so it can show the focus
+ * caret and the default-item ring. */
+static void paint_ditl_for_dialog(DialogPtr d)
+{
+	paint_ctx ctx;
+	GrafPtr   saved_port;
+	Rect      cont;
+
+	if (d == NULL || d->items == NULL || d->window.contRgn == NULL)
+		return;
+	cont           = (*d->window.contRgn)->rgnBBox;
+	ctx.dlog_top   = cont.top;
+	ctx.dlog_left  = cont.left;
+	ctx.dlg        = d;
+	ctx.def_item   = d->aDefItem;
+	ctx.focus_item = d->editField;
+
+	GetPort(&saved_port);
+	SetPort(qd_screen_port());
+	(void)walk_ditl(d->items, paint_item, &ctx);
 	SetPort(saved_port);
 }
 
@@ -198,6 +301,42 @@ static short ditl_hit_button(const Rect *bounds, Handle items, Point where)
 	ctx.dlog_top  = bounds->top;
 	ctx.dlog_left = bounds->left;
 	return (short)walk_ditl(items, hit_item, &ctx);
+}
+
+/* Variant of hit_item that fires for edit-text items only — used to give
+ * an editText field focus when the user clicks it. */
+static int hit_edit_item(short item, const Rect *local, unsigned char type,
+                         const unsigned char *data, unsigned char data_len,
+                         void *cookie)
+{
+	hit_ctx *ctx = (hit_ctx *)cookie;
+	Rect grect;
+
+	(void)data;
+	(void)data_len;
+	if ((type & itemDisable) != 0)
+		return 0;
+	if ((type & 0x7F) != 16)
+		return 0;
+	grect.top    = (short)(ctx->dlog_top  + local->top);
+	grect.left   = (short)(ctx->dlog_left + local->left);
+	grect.bottom = (short)(ctx->dlog_top  + local->bottom);
+	grect.right  = (short)(ctx->dlog_left + local->right);
+	if (PtInRect(ctx->where, &grect))
+		return item;
+	return 0;
+}
+
+static short ditl_hit_edit(const Rect *bounds, Handle items, Point where)
+{
+	hit_ctx ctx;
+
+	if (bounds == NULL || items == NULL)
+		return 0;
+	ctx.where     = where;
+	ctx.dlog_top  = bounds->top;
+	ctx.dlog_left = bounds->left;
+	return (short)walk_ditl(items, hit_edit_item, &ctx);
 }
 
 /* --- item box lookup (GetDialogItem support) ---------------------- */
@@ -283,12 +422,101 @@ short Alert(short alertID, void *filterProc)
 /*  GetNewDialog / NewDialog / DisposeDialog                           */
 /* ================================================================== */
 
+/* Visitor that initialises per-edit-item state from the DITL data bytes. */
+typedef struct {
+	dlg_aux *a;
+	short    next;
+} init_edit_ctx;
+
+static int init_edit_item(short item, const Rect *local, unsigned char type,
+                          const unsigned char *data, unsigned char data_len,
+                          void *cookie)
+{
+	init_edit_ctx *ctx = (init_edit_ctx *)cookie;
+	edit_item     *e;
+	short          n;
+
+	(void)local;
+	if ((type & 0x7F) != 16)
+		return 0;
+	if (ctx->next >= ctx->a->edit_count)
+		return 0;
+	e = &ctx->a->edits[ctx->next++];
+	e->item = item;
+	n = (short)data_len;
+	if (n > EDIT_TEXT_CAP)
+		n = EDIT_TEXT_CAP;
+	e->text[0] = (unsigned char)n;
+	if (n > 0)
+		memcpy(e->text + 1, data, (size_t)n);
+	return 0;       /* keep walking; we want every edit item */
+}
+
+/* Count edit-text items so NewDialog can size the slab in one pass. */
+typedef struct {
+	short count;
+} count_edit_ctx;
+
+static int count_edit_visitor(short item, const Rect *local, unsigned char type,
+                              const unsigned char *data,
+                              unsigned char data_len, void *cookie)
+{
+	count_edit_ctx *ctx = (count_edit_ctx *)cookie;
+
+	(void)item;
+	(void)local;
+	(void)data;
+	(void)data_len;
+	if ((type & 0x7F) == 16)
+		ctx->count++;
+	return 0;
+}
+
+static dlg_aux *dlg_aux_make(Handle items)
+{
+	count_edit_ctx cc;
+	init_edit_ctx  ic;
+	dlg_aux       *a;
+
+	cc.count = 0;
+	(void)walk_ditl(items, count_edit_visitor, &cc);
+
+	a = (dlg_aux *)NewPtr((Size)sizeof *a);
+	if (a == NULL)
+		return NULL;
+	a->edit_count = cc.count;
+	a->edits      = NULL;
+	if (cc.count > 0) {
+		a->edits = (edit_item *)NewPtr((Size)cc.count
+		                               * (Size)sizeof *a->edits);
+		if (a->edits == NULL) {
+			DisposePtr((Ptr)a);
+			return NULL;
+		}
+		memset(a->edits, 0, (size_t)cc.count * sizeof *a->edits);
+		ic.a    = a;
+		ic.next = 0;
+		(void)walk_ditl(items, init_edit_item, &ic);
+	}
+	return a;
+}
+
+static void dlg_aux_dispose(dlg_aux *a)
+{
+	if (a == NULL)
+		return;
+	if (a->edits != NULL)
+		DisposePtr((Ptr)a->edits);
+	DisposePtr((Ptr)a);
+}
+
 DialogPtr NewDialog(void *dStorage, const Rect *bounds,
                     ConstStr255Param title, Boolean visible, short procID,
                     WindowPtr behind, Boolean goAwayFlag, long refCon,
                     Handle items)
 {
 	DialogRecord *d;
+	dlg_aux      *aux;
 
 	if (bounds == NULL)
 		return NULL;
@@ -302,8 +530,6 @@ DialogPtr NewDialog(void *dStorage, const Rect *bounds,
 		memset(d, 0, sizeof *d);
 	}
 
-	/* NewCWindow into the WindowRecord that lives at the head of the
-	 * DialogRecord — caller-provided storage. */
 	if (NewCWindow(&d->window, bounds, title, visible, procID, behind,
 	               goAwayFlag, refCon) == NULL) {
 		if (dStorage == NULL)
@@ -316,6 +542,14 @@ DialogPtr NewDialog(void *dStorage, const Rect *bounds,
 	d->editField = -1;
 	d->editOpen  = 0;
 	d->aDefItem  = 1;       /* Mac default: item 1 is OK */
+
+	aux = dlg_aux_make(items);
+	d->aux = aux;
+	/* Focus the first edit field if there is one — saves the user a
+	 * click before typing. */
+	if (aux != NULL && aux->edit_count > 0)
+		d->editField = aux->edits[0].item;
+
 	return (DialogPtr)d;
 }
 
@@ -366,6 +600,8 @@ void DisposeDialog(DialogPtr d)
 
 	if (d == NULL)
 		return;
+	dlg_aux_dispose(aux_of(d));
+	d->aux = NULL;
 	win = (WindowPtr)d;
 	/* CloseWindow disposes the regions; DisposeWindow would also free
 	 * the WindowRecord storage we own as part of the DialogRecord, so
@@ -380,9 +616,9 @@ void DisposeDialog(DialogPtr d)
 
 void DrawDialog(DialogPtr d)
 {
-	if (d == NULL || d->items == NULL)
+	if (d == NULL)
 		return;
-	paint_ditl(&d->window.port.portRect, d->items);
+	paint_ditl_for_dialog(d);
 	qd_present();
 }
 
@@ -402,22 +638,68 @@ Boolean DialogSelect(const EventRecord *event, DialogPtr *theDialog,
 
 	switch (event->what) {
 	case mouseDown: {
-		short hit = ditl_hit_button(&d->window.port.portRect,
-		                             d->items, event->where);
+		Rect  cont;
+		short hit;
 
+		if (d->window.contRgn == NULL)
+			break;
+		cont = (*d->window.contRgn)->rgnBBox;
+		hit  = ditl_hit_button(&cont, d->items, event->where);
 		if (hit > 0) {
 			*itemHit = hit;
 			return 1;
+		}
+		hit = ditl_hit_edit(&cont, d->items, event->where);
+		if (hit > 0 && hit != d->editField) {
+			d->editField = hit;
+			DrawDialog(d);
 		}
 		break;
 	}
 	case keyDown: {
 		unsigned char ch = (unsigned char)(event->message & 0xFF);
 
-		/* Return (0x0D) or Enter (0x03) fires the default item. */
+		/* Return / Enter fires the default item. */
 		if ((ch == 0x0D || ch == 0x03) && d->aDefItem > 0) {
 			*itemHit = d->aDefItem;
 			return 1;
+		}
+		/* Tab cycles focus through the dialog's edit fields. */
+		if (ch == 0x09) {
+			dlg_aux *a = aux_of(d);
+
+			if (a != NULL && a->edit_count > 0) {
+				short i, next;
+
+				for (i = 0; i < a->edit_count; i++) {
+					if (a->edits[i].item == d->editField)
+						break;
+				}
+				next = (i + 1) % a->edit_count;
+				if (i == a->edit_count)         /* not found */
+					next = 0;
+				d->editField = a->edits[next].item;
+				DrawDialog(d);
+			}
+			break;
+		}
+		/* All remaining keystrokes go to the focused field, if any. */
+		if (d->editField > 0) {
+			edit_item *e = find_edit(d, d->editField);
+
+			if (e == NULL)
+				break;
+			if (ch == 0x08) {                    /* backspace */
+				if (e->text[0] > 0) {
+					e->text[0]--;
+					DrawDialog(d);
+				}
+			} else if (ch >= 0x20 && ch < 0x7F) {
+				if (e->text[0] < EDIT_TEXT_CAP) {
+					e->text[++e->text[0]] = ch;
+					DrawDialog(d);
+				}
+			}
 		}
 		break;
 	}
@@ -495,4 +777,40 @@ void GetDialogItemText(Handle item, unsigned char *text)
 	if (text != NULL)
 		text[0] = 0;
 	(void)item;
+}
+
+/* --- per-dialog edit-text helpers --------------------------------- */
+
+void dialog_get_edit_text(DialogPtr d, short itemNum, unsigned char *str)
+{
+	edit_item *e;
+	short      n;
+
+	if (str == NULL)
+		return;
+	str[0] = 0;
+	e = find_edit(d, itemNum);
+	if (e == NULL)
+		return;
+	n = (short)e->text[0];
+	str[0] = (unsigned char)n;
+	if (n > 0)
+		memcpy(str + 1, e->text + 1, (size_t)n);
+}
+
+void dialog_set_edit_text(DialogPtr d, short itemNum, ConstStr255Param str)
+{
+	edit_item *e;
+	short      n;
+
+	e = find_edit(d, itemNum);
+	if (e == NULL || str == NULL)
+		return;
+	n = (short)str[0];
+	if (n > EDIT_TEXT_CAP)
+		n = EDIT_TEXT_CAP;
+	e->text[0] = (unsigned char)n;
+	if (n > 0)
+		memcpy(e->text + 1, str + 1, (size_t)n);
+	DrawDialog(d);
 }

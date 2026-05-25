@@ -47,6 +47,67 @@ static short show_dialog(short id)
 }
 
 /*
+ * Synthetic "enter name" modal — proves the Dialog Manager's editText
+ * path end to end without depending on a FRUA-shipped DITL. Builds a
+ * three-item DITL in memory (static text label, edit field, OK button),
+ * runs ModalDialog so the user can type / Tab / backspace, then logs
+ * the entered string via dbg_log.
+ */
+static void show_name_prompt(short surf_w, short surf_h)
+{
+	static unsigned char ditl[] = {
+		0x00, 0x02,                                     /* item count - 1 = 2 → 3 items */
+
+		/* item 1: OK button — type 0x04, "OK", local (60, 100, 80, 160) */
+		0,0,0,0,
+		0x00, 60, 0x00, 100, 0x00, 80, 0x00, (unsigned char)160,
+		0x04, 2, 'O', 'K',
+
+		/* item 2: static text "Enter your name:", local (10, 10, 26, 200) */
+		0,0,0,0,
+		0x00, 10, 0x00, 10, 0x00, 26, 0x00, (unsigned char)200,
+		0x88, 16,
+		'E','n','t','e','r',' ','y','o','u','r',' ','n','a','m','e',':',
+
+		/* item 3: edit text, local (30, 10, 50, 200) */
+		0,0,0,0,
+		0x00, 30, 0x00, 10, 0x00, 50, 0x00, (unsigned char)200,
+		0x10, 0,
+	};
+	Handle        h_ditl;
+	Rect          bounds;
+	DialogPtr     d;
+	short         item = 0;
+	unsigned char name[256];
+
+	if (PtrToHand(ditl, &h_ditl, (Size)sizeof ditl) != noErr)
+		return;
+	SetRect(&bounds,
+	        (short)((surf_w - 220) / 2),
+	        (short)((surf_h - 90)  / 2),
+	        (short)((surf_w - 220) / 2 + 220),
+	        (short)((surf_h - 90)  / 2 + 90));
+	d = NewDialog(NULL, &bounds, (ConstStr255Param)"\012Enter name",
+	              1, 1, (WindowPtr)-1L, 0, 0, h_ditl);
+	if (d == NULL) {
+		DisposeHandle(h_ditl);
+		return;
+	}
+	ModalDialog(NULL, &item);
+	dialog_get_edit_text(d, 3, name);
+	dbg_log_num("main: name length = ", (long)name[0]);
+	if (name[0] > 0) {
+		/* dbg_log expects a C string; copy + nul-terminate. */
+		char buf[260];
+		memcpy(buf, name + 1, (size_t)name[0]);
+		buf[name[0]] = 0;
+		dbg_log(buf);
+	}
+	DisposeDialog(d);
+	DisposeHandle(h_ditl);
+}
+
+/*
  * Open frua.rsrc through the File Manager and hand the bytes to the
  * Resource Manager shim. Silent no-op when the file isn't there (the
  * engine runs with an empty archive — GetResource just returns NULL).
@@ -261,11 +322,12 @@ int main(void)
 
 		/* Items with '/' set a Cmd-key equivalent — MenuKey scans
 		 * for these on cmdKey-modified keyDowns. File's About
-		 * (item 2) opens DLOG 201 via GetNewDialog/ModalDialog;
-		 * Quit (item 5) opens DLOG 202 and only exits on OK. */
+		 * (item 2) opens DLOG 201; Enter name (item 4) demos the
+		 * Dialog Manager's edit-text path with a synthetic DITL;
+		 * Quit (item 6) opens DLOG 202 and only exits on OK. */
 		if (m_file != NULL) {
 			AppendMenu(m_file, (ConstStr255Param)
-			           "\040New/N;About FRUA;Open/O;-;Quit/Q");
+			           "\056New/N;About FRUA;Open/O;Enter name...;-;Quit/Q");
 			InsertMenu(m_file, 0);
 		}
 		if (m_edit != NULL) {
@@ -307,8 +369,11 @@ int main(void)
 						dbg_log_num("main: menu it  = ", item);
 						if (id == 128 && item == 2)
 							(void)show_dialog(201);
-						/* File menu, "Quit" = item 5. */
-						if (id == 128 && item == 5
+						if (id == 128 && item == 4)
+							show_name_prompt(surf->width,
+							                 surf->height);
+						/* File menu, "Quit" = item 6. */
+						if (id == 128 && item == 6
 						 && show_dialog(202) == 2)
 							done = 1;
 						DrawMenuBar();
@@ -349,7 +414,10 @@ int main(void)
 						dbg_log_num("main: cmd-key item    = ", item);
 						if (id == 128 && item == 2)
 							(void)show_dialog(201);
-						if (id == 128 && item == 5
+						if (id == 128 && item == 4)
+							show_name_prompt(surf->width,
+							                 surf->height);
+						if (id == 128 && item == 6
 						 && show_dialog(202) == 2)
 							done = 1;
 						DrawMenuBar();
