@@ -335,6 +335,208 @@ static const RGBColor kCtrlBlack = { 0x0000, 0x0000, 0x0000 };
 static const RGBColor kCtrlWhite = { 0xFFFF, 0xFFFF, 0xFFFF };
 static const RGBColor kCtrlGrey  = { 0x8000, 0x8000, 0x8000 };
 
+/* --- scroll-bar geometry helpers ----------------------------------- */
+
+#define SCROLL_ARROW_SIZE 16    /* Mac default arrow / thumb cap size */
+
+/* A vertical scroll bar is taller than it is wide. */
+static int scroll_is_vertical(const Rect *r)
+{
+	return (r->bottom - r->top) > (r->right - r->left);
+}
+
+/* Arrow / page-zone / thumb rects in global coords. The thumb sits at
+ * a position proportional to (value - min) / (max - min). When max ==
+ * min the scroll bar is "inert" — TestControl returns 0 for the page
+ * and thumb zones (the arrows still respond, matching Mac behaviour).
+ * Out-of-range fractions are clamped. */
+static void scroll_rects(const ControlRecord *info, Rect *up, Rect *down,
+                         Rect *thumb, Rect *page_up, Rect *page_down)
+{
+	Rect  bar;
+	int   vertical;
+	short ax, ay, bx, by, len, track_min, track_max, thumb_pos;
+	long  span;
+
+	rect_to_global(info, &bar);
+	vertical = scroll_is_vertical(&bar);
+
+	if (vertical) {
+		ax = bar.left; ay = bar.top;
+		bx = bar.right;
+		by = (short)(bar.top + SCROLL_ARROW_SIZE);
+		SetRect(up, ax, ay, bx, by);
+		ay = (short)(bar.bottom - SCROLL_ARROW_SIZE);
+		SetRect(down, bar.left, ay, bar.right, bar.bottom);
+
+		track_min = (short)(bar.top + SCROLL_ARROW_SIZE);
+		track_max = (short)(bar.bottom - SCROLL_ARROW_SIZE
+		                              - SCROLL_ARROW_SIZE);
+		len       = (short)(track_max - track_min);
+	} else {
+		ay = bar.top; by = bar.bottom;
+		SetRect(up,  bar.left,
+		            ay,
+		            (short)(bar.left + SCROLL_ARROW_SIZE),
+		            by);
+		SetRect(down, (short)(bar.right - SCROLL_ARROW_SIZE),
+		            ay, bar.right, by);
+
+		track_min = (short)(bar.left + SCROLL_ARROW_SIZE);
+		track_max = (short)(bar.right - SCROLL_ARROW_SIZE
+		                              - SCROLL_ARROW_SIZE);
+		len       = (short)(track_max - track_min);
+	}
+
+	span = (long)info->contrlMax - (long)info->contrlMin;
+	if (span <= 0 || len <= 0) {
+		thumb_pos = track_min;
+		if (thumb) {
+			if (vertical)
+				SetRect(thumb, bar.left, track_min,
+				        bar.right, (short)(track_min + SCROLL_ARROW_SIZE));
+			else
+				SetRect(thumb, track_min, bar.top,
+				        (short)(track_min + SCROLL_ARROW_SIZE), bar.bottom);
+		}
+	} else {
+		long frac_num = (long)(info->contrlValue - info->contrlMin) * (long)len;
+		long frac_pos = frac_num / span;
+
+		thumb_pos = (short)(track_min + frac_pos);
+		if (thumb) {
+			if (vertical)
+				SetRect(thumb, bar.left, thumb_pos,
+				        bar.right, (short)(thumb_pos + SCROLL_ARROW_SIZE));
+			else
+				SetRect(thumb, thumb_pos, bar.top,
+				        (short)(thumb_pos + SCROLL_ARROW_SIZE), bar.bottom);
+		}
+	}
+
+	if (page_up) {
+		if (vertical)
+			SetRect(page_up, bar.left,
+			        (short)(bar.top + SCROLL_ARROW_SIZE),
+			        bar.right, thumb_pos);
+		else
+			SetRect(page_up,
+			        (short)(bar.left + SCROLL_ARROW_SIZE),
+			        bar.top, thumb_pos, bar.bottom);
+	}
+	if (page_down) {
+		if (vertical)
+			SetRect(page_down, bar.left,
+			        (short)(thumb_pos + SCROLL_ARROW_SIZE),
+			        bar.right,
+			        (short)(bar.bottom - SCROLL_ARROW_SIZE));
+		else
+			SetRect(page_down,
+			        (short)(thumb_pos + SCROLL_ARROW_SIZE),
+			        bar.top,
+			        (short)(bar.right - SCROLL_ARROW_SIZE),
+			        bar.bottom);
+	}
+}
+
+static void draw_arrow_glyph(Rect r, int vertical, int forward)
+{
+	short cx, cy;
+	short a, b;
+
+	cx = (short)((r.left + r.right) / 2);
+	cy = (short)((r.top + r.bottom) / 2);
+	a = 4;
+	b = 3;
+
+	if (vertical) {
+		if (forward) {
+			/* down arrow: chevron pointing south */
+			MoveTo((short)(cx - a), (short)(cy - b));
+			LineTo((short)(cx + a), (short)(cy - b));
+			MoveTo((short)(cx - a + 1), (short)(cy - b + 1));
+			LineTo((short)(cx + a - 1), (short)(cy - b + 1));
+			MoveTo((short)(cx - 1), (short)(cy + b - 1));
+			LineTo((short)(cx + 1), (short)(cy + b - 1));
+			MoveTo(cx, (short)(cy + b));
+			LineTo(cx, (short)(cy + b));
+		} else {
+			MoveTo((short)(cx - a), (short)(cy + b));
+			LineTo((short)(cx + a), (short)(cy + b));
+			MoveTo((short)(cx - a + 1), (short)(cy + b - 1));
+			LineTo((short)(cx + a - 1), (short)(cy + b - 1));
+			MoveTo((short)(cx - 1), (short)(cy - b + 1));
+			LineTo((short)(cx + 1), (short)(cy - b + 1));
+			MoveTo(cx, (short)(cy - b));
+			LineTo(cx, (short)(cy - b));
+		}
+	} else {
+		if (forward) {
+			MoveTo((short)(cx - b), (short)(cy - a));
+			LineTo((short)(cx - b), (short)(cy + a));
+			MoveTo((short)(cx - b + 1), (short)(cy - a + 1));
+			LineTo((short)(cx - b + 1), (short)(cy + a - 1));
+			MoveTo((short)(cx + b - 1), (short)(cy - 1));
+			LineTo((short)(cx + b - 1), (short)(cy + 1));
+			MoveTo((short)(cx + b), cy);
+			LineTo((short)(cx + b), cy);
+		} else {
+			MoveTo((short)(cx + b), (short)(cy - a));
+			LineTo((short)(cx + b), (short)(cy + a));
+			MoveTo((short)(cx + b - 1), (short)(cy - a + 1));
+			LineTo((short)(cx + b - 1), (short)(cy + a - 1));
+			MoveTo((short)(cx - b + 1), (short)(cy - 1));
+			LineTo((short)(cx - b + 1), (short)(cy + 1));
+			MoveTo((short)(cx - b), cy);
+			LineTo((short)(cx - b), cy);
+		}
+	}
+}
+
+static void draw_scrollbar(const ControlRecord *info)
+{
+	Rect g, up, down, thumb, pu, pd;
+	int  vertical;
+	int  inert;
+	int  inactive = (info->contrlHilite == inactiveHilite);
+
+	rect_to_global(info, &g);
+	vertical = scroll_is_vertical(&g);
+	inert    = (info->contrlMax <= info->contrlMin);
+
+	scroll_rects(info, &up, &down, &thumb, &pu, &pd);
+
+	/* Track background: grey for the page zones, white for the thumb. */
+	RGBForeColor(inactive ? &kCtrlGrey : &kCtrlGrey);
+	PaintRect(&g);
+
+	/* Frame around the whole bar. */
+	RGBForeColor(inactive ? &kCtrlGrey : &kCtrlBlack);
+	FrameRect(&g);
+
+	/* Arrow caps. */
+	RGBForeColor(&kCtrlWhite);
+	PaintRect(&up);
+	PaintRect(&down);
+	RGBForeColor(inactive ? &kCtrlGrey : &kCtrlBlack);
+	FrameRect(&up);
+	FrameRect(&down);
+	draw_arrow_glyph(up,   vertical, 0);
+	draw_arrow_glyph(down, vertical, 1);
+
+	/* Thumb — only when the scroll bar has a usable range. */
+	if (!inert) {
+		RGBForeColor(&kCtrlWhite);
+		PaintRect(&thumb);
+		RGBForeColor(inactive ? &kCtrlGrey : &kCtrlBlack);
+		FrameRect(&thumb);
+	}
+
+	/* Disabled-hilite cue: the page zones flash hilite=1 during track —
+	 * here we just leave the grey background; track_scrollbar paints the
+	 * inverted highlight when the user clicks a zone. */
+}
+
 static void draw_pushbutton(const ControlRecord *info)
 {
 	Rect    g;
@@ -476,11 +678,12 @@ void Draw1Control(ControlHandle c)
 	GetPort(&saved);
 	SetPort(qd_screen_port());
 
-	procID = (short)((long)info->contrlDefProc & 0x0F);
+	procID = (short)((long)info->contrlDefProc & 0xFF);
 	switch (procID) {
 	case pushButProc:    draw_pushbutton(info);   break;
 	case checkBoxProc:   draw_checkbox(info);     break;
 	case radioButProc:   draw_radiobutton(info);  break;
+	case scrollBarProc:  draw_scrollbar(info);    break;
 	default:             draw_pushbutton(info);   break;
 	}
 	SetPort(saved);
@@ -515,11 +718,36 @@ short TestControl(ControlHandle c, Point pt)
 	if (!PtInRect(pt, &(*c)->contrlRect))
 		return 0;
 
-	procID = (short)((long)(*c)->contrlDefProc & 0x0F);
+	procID = (short)((long)(*c)->contrlDefProc & 0xFF);
 	switch (procID) {
 	case pushButProc:    return inButton;
 	case checkBoxProc:   return inCheckBox;
 	case radioButProc:   return inCheckBox;
+	case scrollBarProc: {
+		Rect up, down, thumb, page_up, page_down, bar;
+		Point global;
+		WindowPeek wp = (WindowPeek)(*c)->contrlOwner;
+
+		/* The caller passed `pt` in window-local coords; the scroll
+		 * helpers compute global rects, so convert. */
+		global = pt;
+		if (wp != NULL && wp->contRgn != NULL) {
+			global.h = (short)(pt.h + (*wp->contRgn)->rgnBBox.left);
+			global.v = (short)(pt.v + (*wp->contRgn)->rgnBBox.top);
+		}
+		rect_to_global(*c, &bar);
+		if (!PtInRect(global, &bar))
+			return 0;
+		scroll_rects(*c, &up, &down, &thumb, &page_up, &page_down);
+		if (PtInRect(global, &up))         return inUpButton;
+		if (PtInRect(global, &down))       return inDownButton;
+		if ((*c)->contrlMax > (*c)->contrlMin) {
+			if (PtInRect(global, &thumb))      return inThumb;
+			if (PtInRect(global, &page_up))    return inPageUp;
+			if (PtInRect(global, &page_down))  return inPageDown;
+		}
+		return 0;
+	}
 	default:             return inButton;
 	}
 }
@@ -557,12 +785,111 @@ short FindControl(Point pt, WindowPtr w, ControlHandle *theControl)
 	return 0;
 }
 
+/* Map a current mouse position (in global coords) to a scroll-bar
+ * value, based on the thumb's position inside the track. */
+static short scroll_value_from_pt(const ControlRecord *info, Point global)
+{
+	Rect  bar;
+	int   vertical;
+	short track_min, track_max, pos;
+	long  span, frac_num;
+	short value;
+
+	rect_to_global(info, &bar);
+	vertical = scroll_is_vertical(&bar);
+
+	if (vertical) {
+		track_min = (short)(bar.top + SCROLL_ARROW_SIZE);
+		track_max = (short)(bar.bottom - SCROLL_ARROW_SIZE
+		                              - SCROLL_ARROW_SIZE);
+		pos       = (short)(global.v - track_min);
+	} else {
+		track_min = (short)(bar.left + SCROLL_ARROW_SIZE);
+		track_max = (short)(bar.right - SCROLL_ARROW_SIZE
+		                              - SCROLL_ARROW_SIZE);
+		pos       = (short)(global.h - track_min);
+	}
+	if (pos < 0)
+		pos = 0;
+	if (pos > (track_max - track_min))
+		pos = (short)(track_max - track_min);
+	span     = (long)info->contrlMax - (long)info->contrlMin;
+	frac_num = (long)pos * span;
+	value    = (short)(info->contrlMin
+	                  + frac_num / ((track_max - track_min) > 0
+	                                ? (track_max - track_min) : 1));
+	if (value < info->contrlMin) value = info->contrlMin;
+	if (value > info->contrlMax) value = info->contrlMax;
+	return value;
+}
+
+static short track_scrollbar(ControlHandle c, short part)
+{
+	Point pt, global;
+	long  tick_end;
+
+	switch (part) {
+	case inUpButton:
+	case inDownButton:
+	case inPageUp:
+	case inPageDown: {
+		int   step = 0;
+
+		switch (part) {
+		case inUpButton:
+			step = -1;
+			break;
+		case inDownButton:
+			step = 1;
+			break;
+		case inPageUp:
+			step = -((*c)->contrlMax - (*c)->contrlMin) / 8;
+			if (step == 0)
+				step = -1;
+			break;
+		case inPageDown:
+			step = ((*c)->contrlMax - (*c)->contrlMin) / 8;
+			if (step == 0)
+				step = 1;
+			break;
+		}
+		/* First step fires immediately; subsequent steps repeat every
+		 * ~6 ticks (~100 ms) while held — matches the Mac's auto-repeat
+		 * cadence well enough for the skeleton. */
+		SetControlValue(c, (short)((*c)->contrlValue + step));
+		qd_present();
+		tick_end = TickCount() + 18;
+		while (Button()) {
+			if (TickCount() >= tick_end) {
+				SetControlValue(c, (short)((*c)->contrlValue + step));
+				qd_present();
+				tick_end = TickCount() + 6;
+			}
+		}
+		break;
+	}
+	case inThumb: {
+		while (Button()) {
+			GetMouse(&pt);
+			global = pt;       /* Mac GetMouse returns global coords */
+			SetControlValue(c, scroll_value_from_pt(*c, global));
+			qd_present();
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	return part;
+}
+
 short TrackControl(ControlHandle c, Point startPt, void *actionProc)
 {
 	short part;
 	Point pt;
 	int   inside;
 	int   prev_inside;
+	short procID;
 
 	(void)actionProc;
 	if (c == NULL || *c == NULL)
@@ -583,6 +910,10 @@ short TrackControl(ControlHandle c, Point startPt, void *actionProc)
 		inside      = 1;
 		prev_inside = 1;
 	}
+
+	procID = (short)((long)(*c)->contrlDefProc & 0xFF);
+	if (procID == scrollBarProc)
+		return track_scrollbar(c, part);
 
 	HiliteControl(c, 1);
 	qd_present();

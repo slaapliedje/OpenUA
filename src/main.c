@@ -59,7 +59,7 @@ static void show_controls_demo(short surf_w, short surf_h)
 {
 	Rect          bounds, r;
 	WindowPtr     w;
-	ControlHandle b_ok, cb, r1, r2;
+	ControlHandle b_ok, cb, r1, r2, sb;
 	EventRecord   ev;
 	Boolean       done = 0;
 
@@ -87,6 +87,11 @@ static void show_controls_demo(short surf_w, short surf_h)
 	b_ok = NewControl(w, &r, (ConstStr255Param)"\002OK",  1, 0, 0, 1,
 	                  pushButProc, 1);
 	(void)b_ok;
+
+	/* Vertical scroll bar on the right side — value 5 of 0..10. */
+	SetRect(&r, 210, 20, 226, 90);
+	sb = NewControl(w, &r, (ConstStr255Param)"", 1, 5, 0, 10,
+	                scrollBarProc, 0);
 
 	DrawControls(w);
 	qd_present();
@@ -118,6 +123,11 @@ static void show_controls_demo(short surf_w, short surf_h)
 				} else if (hit == r2) {
 					SetControlValue(r1, 0);
 					SetControlValue(r2, 1);
+				} else if (hit == sb) {
+					/* TrackControl already updated the value
+					 * during drag — log it for the trace. */
+					dbg_log_num("main: scroll value = ",
+					            (long)GetControlValue(sb));
 				} else if (GetControlReference(hit) == 1) {
 					/* OK push button — dismiss */
 					done = 1;
