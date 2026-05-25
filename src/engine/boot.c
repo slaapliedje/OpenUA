@@ -29,11 +29,12 @@
  * of helpers and JT entries it calls — they live with it down there.
  */
 
-#include <stddef.h>           /* NULL */
+#include <stddef.h>           /* NULL, size_t */
 
 #include "boot.h"
 #include "core.h"             /* core_init */
 #include "master.h"           /* master_init */
+#include "macmemory.h"        /* BlockMove, Size */
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
 
@@ -692,39 +693,138 @@ static void l3cfa(const char *src, char *dst)
 	jt384(dst, p);
 }
 
-/* The 14-byte record table and matching count word. JT[465] walks
- * the table; L103c (the compactor) edits both this array and the parallel
- * freemap / offset tables when an entry is removed. The original engine
- * sizes them via the THINK C DATA pool, which we haven't replayed; 64
- * records is enough headroom for any FRUA mode the lifted paths reach. */
+/* The engine keeps its sub-resource cache as four parallel tables:
+ *
+ *   g_a5_10074 (-10074): 48-entry freemap byte per id — 0xFF means free,
+ *                        any other value is the record index that holds
+ *                        the id.
+ *   g_a5_9354  (-9354):  48-entry byte alias of the freemap; the two
+ *                        track each other through L103c (the freemap
+ *                        renumbers on removal; arrayB compacts on a
+ *                        match). Different access patterns elsewhere.
+ *   g_a5_10026 (-10026): 14-byte record per slot. JT[465] treats the
+ *                        first bytes as a case-insensitive name.
+ *   g_a5_10270 (-10270): long-per-slot offset / heap pointer table.
+ *                        Adjacent entries give the byte size of each
+ *                        record body via subtraction (j+1 minus j).
+ *   g_a5_9306  (-9306):  live record count short.
+ *
+ * Sizing: the freemap pair is exactly 48 entries (the loop bounds);
+ * the record / offset arrays can grow as long as JT465_RECORD_MAX
+ * permits. The original DATA pool sizes them once the THINK C runtime
+ * replay lands; 64 is enough headroom for the boot paths exercised so
+ * far. */
 #define JT465_RECORD_BYTES   14
 #define JT465_RECORD_MAX     64
 static unsigned char g_a5_10026[JT465_RECORD_MAX * JT465_RECORD_BYTES];
-static short         g_a5_9306;        /* live record count                */
+static long          g_a5_10270[JT465_RECORD_MAX + 2];
+static unsigned char g_a5_9354[48];
+static short         g_a5_9306;
 
-/* L103c (CODE 3 + 0x103c) — compactor.
+/* L1020 / L366a (CODE 3 + 0x1020 / 0x366a) — two three-arg wrappers around
+ * the engine's internal BlockMove (L57f8). Same contract as Memory
+ * Manager BlockMove: BlockMove(src, dst, count). The two distinguish
+ * the third-arg type (long vs sign-extended word); the body is the same. */
+static void l1020(const void *src, void *dst, long count)
+{
+	if (src == NULL || dst == NULL || count <= 0)
+		return;
+	BlockMove(src, dst, (Size)count);
+}
+
+static void l366a(const void *src, void *dst, short count)
+{
+	if (src == NULL || dst == NULL || count <= 0)
+		return;
+	BlockMove(src, dst, (Size)count);
+}
+
+/* L103c — compact one entry out of the four parallel cache tables.
+ * CODE 3 + 0x103c.
  *
- * Removes record `i` from the parallel arrays at a5@(-10074),
- * a5@(-9354), and a5@(-10270), then decrements a5@(-9306). The body
- * touches three different tables with their own walk patterns plus a
- * BlockMove (L366a) to shift the tail — sizable enough to defer. JT[465]
- * just needs the contract "after L103c(i), the table at -10026 has one
- * fewer entry and indices >= i have shifted down".
+ *   Phase 1 (j = 0..47): walk the 48-byte freemap (g_a5_10074) and the
+ *     companion byte array (g_a5_9354). For each entry, normalise
+ *     against the removal:
+ *       freemap[j] == i  →  freemap[j] = 0xFF (mark free; do NOT then
+ *                            renumber — the bras after the match skips
+ *                            the > check).
+ *       freemap[j]  > i  →  freemap[j]-- (renumber).
+ *     Same shape on arrayB, with an extra step: if arrayB[j] == i and
+ *     j < count, BlockMove arrayB[j+1..count-1] down by one byte to
+ *     compact, then fall through to the > check on the now-shifted
+ *     arrayB[j].
  *
- * The skeleton below honours the count decrement so jt465's loop
- * terminates correctly even without the rest of the compaction body;
- * the freemap / record bytes are NOT yet shifted, so the visible state
- * after a full sweep will be "count clamped to 0, records still in
- * place" — adequate for the boot trace, not adequate once a consumer
- * reads the table for layout. The L103c follow-on lift will close that
- * gap.
+ *   Phase 2: count--.
+ *
+ *   Phase 3 (j = i..count-1): walk the offset table (long-per-slot at
+ *     g_a5_10270) and the 14-byte record table (g_a5_10026). Move
+ *     record j+1's heap body down into record j's slot using a
+ *     BlockMove sized by the difference of consecutive offsets
+ *     (offset[j+2] - offset[j+1]); rebase offset[j+1] = offset[j] +
+ *     that size; strcpy record[j+1] over record[j].
+ *
+ *   Phase 4: clear the first byte of record[count] (the now-vacated
+ *     tail slot — record[old_count - 1]).
+ *
+ * The original disassembly is in CODE 3 around 0x103c (the body is
+ * about 400 bytes); the lift below mirrors it field-for-field.
  */
 static void l103c(short i)
 {
+	short j;
+
 	PROBE("L103c");
-	(void)i;
+	if (i < 0)
+		return;
+
+	/* Phase 1 — renumber the 48-entry tables. */
+	for (j = 0; j < 48; j++) {
+		short v = g_a5_10074[j];
+
+		if (v == i) {
+			g_a5_10074[j] = 0xFF;
+		} else if (v > i) {
+			g_a5_10074[j]--;
+		}
+
+		if (j < g_a5_9306) {
+			short b = g_a5_9354[j];
+
+			if (b == i) {
+				short len = (short)(g_a5_9306 - j - 1);
+
+				if (len > 0)
+					l366a(&g_a5_9354[j + 1],
+					      &g_a5_9354[j], len);
+				/* fall through to the > check on the newly
+				 * shifted-down byte at g_a5_9354[j] — that's
+				 * what the original asm does (no `bras` here). */
+				b = g_a5_9354[j];
+			}
+			if (b > i)
+				g_a5_9354[j]--;
+		}
+	}
+
+	/* Phase 2 — drop the live count. */
 	if (g_a5_9306 > 0)
 		g_a5_9306--;
+
+	/* Phase 3 — shift the record / offset arrays from i onwards. */
+	for (j = i; j < g_a5_9306; j++) {
+		long size = g_a5_10270[j + 2] - g_a5_10270[j + 1];
+
+		l1020((const void *)g_a5_10270[j + 1],
+		      (void *)g_a5_10270[j], size);
+		g_a5_10270[j + 1] = g_a5_10270[j] + size;
+		jt384((char *)&g_a5_10026[j * JT465_RECORD_BYTES],
+		      (char *)&g_a5_10026[(j + 1) * JT465_RECORD_BYTES]);
+	}
+
+	/* Phase 4 — clear the now-vacated tail slot's first byte. */
+	if (g_a5_9306 >= 0
+	 && (size_t)(g_a5_9306 * JT465_RECORD_BYTES) < sizeof g_a5_10026)
+		g_a5_10026[g_a5_9306 * JT465_RECORD_BYTES] = 0;
 }
 
 /* JT[465] — flush records by key. CODE 3 + 0xb7a.
