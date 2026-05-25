@@ -90,6 +90,67 @@
 #define g_a5_24262 g_a5_byte(-24262)
 #define g_a5_24256 g_a5_byte(-24256)
 
+/* Remaining scalar globals — bytes / shorts / longs / pointers from
+ * across boot.c, all bound to their A5-relative slots in the replay
+ * buffer. The macros work as l-values (assignment), readable in
+ * conditions, and `&g_a5_NNNN` returns the buffer address. Initialised
+ * non-zero scalars (g_a5_9288 = 64, g_a5_9248 = 1) stay file statics
+ * for the moment — the buffer is zero-fill at startup and there's no
+ * seed step for them yet. Arrays (g_a5_27980, g_a5_22727, g_a5_10074,
+ * g_a5_10026, g_a5_10270, g_a5_9354, g_a5_27894, g_a5_24126,
+ * g_a5_24304) stay file statics too — migrating them needs care
+ * around adjacency and array-decay. */
+#define g_a5_4944  g_a5_byte(-4944)
+#define g_a5_27990 g_a5_byte(-27990)
+#define g_a5_18485 g_a5_byte(-18485)
+#define g_a5_18828 g_a5_byte(-18828)
+#define g_a5_18827 g_a5_byte(-18827)
+#define g_a5_18488 g_a5_byte(-18488)
+#define g_a5_27989 g_a5_byte(-27989)
+#define g_a5_12291 g_a5_byte(-12291)
+#define g_a5_12292 g_a5_byte(-12292)
+#define g_a5_12293 g_a5_byte(-12293)
+#define g_a5_12294 g_a5_byte(-12294)
+#define g_a5_12289 g_a5_byte(-12289)
+#define g_a5_13046 g_a5_byte(-13046)
+#define g_a5_31230 g_a5_byte(-31230)
+#define g_a5_12286 g_a5_byte(-12286)
+#define g_a5_12911 g_a5_byte(-12911)
+#define g_a5_12912 g_a5_byte(-12912)
+#define g_a5_19169 g_a5_byte(-19169)
+#define g_a5_9247  g_a5_byte(-9247)
+#define g_a5_27988 g_a5_byte(-27988)
+#define g_a5_18472 g_a5_byte(-18472)
+#define g_a5_22730 g_a5_byte(-22730)
+
+#define g_a5_18878 g_a5_word(-18878)
+#define g_a5_24322 g_a5_word(-24322)
+#define g_a5_9306  g_a5_word(-9306)
+#define g_a5_12296 g_a5_word(-12296)
+#define g_a5_31234 g_a5_word(-31234)
+#define g_a5_5798  g_a5_word(-5798)
+#define g_a5_5796  g_a5_word(-5796)
+#define g_a5_19174 g_a5_word(-19174)
+#define g_a5_19172 g_a5_word(-19172)
+#define g_a5_5794  g_a5_word(-5794)
+#define g_a5_9250  g_a5_word(-9250)
+#define g_a5_13016 g_a5_word(-13016)
+#define g_a5_13018 g_a5_word(-13018)
+#define g_a5_19176 g_a5_word(-19176)
+#define g_a5_12910 g_a5_word(-12910)
+
+#define g_a5_27928 g_a5_long(-27928)
+#define g_a5_27932 g_a5_long(-27932)
+#define g_a5_22222 g_a5_long(-22222)
+#define g_a5_9254  g_a5_long(-9254)
+#define g_a5_14284 g_a5_long(-14284)
+#define g_a5_18844 g_a5_long(-18844)
+#define g_a5_18882 g_a5_long(-18882)
+
+#define g_a5_28006 g_a5_ptr(-28006)
+#define g_a5_24320 g_a5_ptr(-24320)
+#define g_a5_24260 g_a5_ptr(-24260)
+
 /*
  * Stub-trace probe. Off by default — when compiled with
  * -DFRUA_ENGINE_PROBE every stub below logs its name as the engine
@@ -347,17 +408,14 @@ static void          l2cb0(short a, short b)  { PROBE("l2cb0"); }               
  * (above the JT entries) so jt942 / jt943 can read and write it directly;
  * L5124 zeroes it as part of the game-start state reset. Other A5 globals
  * stay co-located with their main lift. */
-static unsigned char g_a5_4944;
 
 /* Forward tentative declarations of A5 globals jt941 (lifted in-place
  * below) reaches for; full definitions live further down with L07dc and
  * L5124. C merges duplicate tentative file-scope static declarations,
  * so naming them here lets jt941 reference them before the main blocks
  * arrive. */
-static unsigned char  g_a5_27990;
-static void          *g_a5_28006;
-/* g_a5_12287 / g_a5_12288 are macros in the L5124 cluster at the top
- * of the file. */
+/* g_a5_27990 / g_a5_28006 / g_a5_12287 / g_a5_12288 are all macros
+ * defined in the cluster block at the top of the file. */
 
 /* Cross-segment JT entries L07dc calls — most are stubs; jt918 / jt942 /
  * jt943 are lifted (jt942 and jt943 are the paired setter / getter on the
@@ -406,20 +464,7 @@ static int           jt943(void)
  * the semantic. Sizes from the disassembly's tstb / tstl / moveb / movel.
  * Many of these will move to a shared A5-world header once other segments
  * are lifted and the same globals show up there. */
-static unsigned char  g_a5_18485;             /* mode flag: 0 new, !=0 resume */
-static unsigned char  g_a5_18828;             /* byte → 16-bit dest          */
-static unsigned char  g_a5_18827;             /* byte → counter base         */
-static short          g_a5_18878;             /* 16-bit dest                 */
-static unsigned char  g_a5_18488;             /* counter (g_a5_18827 - 1)    */
-static long           g_a5_27928;             /* save-list head / count      */
-static unsigned char  g_a5_27989;             /* selector default            */
-static unsigned char  g_a5_27990;             /* selector (state)            */
-static void          *g_a5_28006;             /* pointer; +36 reads a byte    */
-static long           g_a5_27932;             /* shutdown-drain pointer      */
-static unsigned char  g_a5_12291;             /* payload byte 0              */
-static unsigned char  g_a5_12292;             /* payload byte 1              */
-static unsigned char  g_a5_12293;             /* payload byte 2              */
-static unsigned char  g_a5_12294;             /* payload byte 3              */
+/* g_a5_27990 / g_a5_28006 are macros at the top of the file. */
 
 static void l07dc(void)
 {
@@ -555,12 +600,7 @@ static void jt81(void)             { PROBE("jt81"); }                           
  * buffer (g_a5_24304) and the per-slot sentinels (g_a5_24262 /
  * g_a5_24256) are declared further down with the rest of L5124's A5
  * cluster — the same engine module owns both ends. */
-static short         g_a5_24322;
-static void         *g_a5_24320;
-
-/* Slot 2 (a5@(-24260..-24256), L5864) — just a slot pointer; the
- * sentinel byte g_a5_24256 lives with L5124's cluster. */
-static void         *g_a5_24260;
+/* Slot 1 / 2 pointers and tag — all macros in the cluster block. */
 
 /* Forward declarations — jt115 and the L5124-cluster globals these two
  * helpers stamp (g_a5_24304 name buffer, g_a5_24262 / g_a5_24256
@@ -772,8 +812,7 @@ static void l3cfa(const char *src, char *dst)
 static unsigned char g_a5_10026[JT465_RECORD_MAX * JT465_RECORD_BYTES];
 static long          g_a5_10270[JT465_RECORD_MAX + 2];
 static unsigned char g_a5_9354[48];
-static short         g_a5_9306;
-
+/* g_a5_9306 → macro (data_pool replay buffer) */
 /* L1020 / L366a (CODE 3 + 0x1020 / 0x366a) — two three-arg wrappers around
  * the engine's internal BlockMove (L57f8). Same contract as Memory
  * Manager BlockMove: BlockMove(src, dst, count). The two distinguish
@@ -1029,10 +1068,9 @@ static void jt115(void *slot_ptr)
  *  g_a5_12289:       byte sentinel jt204 stamps to 0xFF on every call.
  */
 static long          g_a5_27894[3];
-static long          g_a5_22222;
-static short         g_a5_12296;
-static unsigned char g_a5_12289;
-
+/* g_a5_22222 → macro (data_pool replay buffer) */
+/* g_a5_12296 → macro (data_pool replay buffer) */
+/* g_a5_12289 → macro (data_pool replay buffer) */
 /* jt209 — release three sub-resources, optionally trip the entry
  * sentinel. CODE 7 + 0x70e8.
  *
@@ -1096,8 +1134,7 @@ static void jt204(void)
  * destination. Initialised to 0 — the same default the THINK C DATA
  * pool would supply (the slot lives in the zero-filled A5 cluster
  * around the play-loop globals). */
-static short g_a5_31234;
-
+/* g_a5_31234 → macro (data_pool replay buffer) */
 /* jt131 — engine state-transition manager. CODE 6 + 0x35e.
  *
  * Original disassembly:
@@ -1270,11 +1307,10 @@ static int  jt3(short a)           { PROBE("jt3"); return 0; }                  
  * always lands in the default arm. Once DREL is replayed, the
  * direction-specific JT[1001] calls fire correctly.
  */
-static unsigned char  g_a5_13046;                                                 /* secondary mode flag (jt80)  */
-static unsigned char  g_a5_31230;                                                 /* post-transition redraw flag */
+/* g_a5_13046 → macro (data_pool replay buffer) */
+/* g_a5_31230 → macro (data_pool replay buffer) */
 static unsigned char  g_a5_27980[32 * 3];                                         /* 3-byte direction-table per mode */
-static unsigned char  g_a5_12286;                                                 /* mode index (tentative; defined w/ L5124 cluster) */
-
+/* g_a5_12286 → macro (data_pool replay buffer) */
 /* JT[80] / L68ae — toggle the secondary mode flag, with a per-state
  * cleanup. CODE 6 + 0x68ae.
  *
@@ -1334,8 +1370,8 @@ static void l67ca(void)
 	l08e6(1);
 }
 
-static unsigned char g_a5_12912;                                                  /* set to 1 by jt174 */
-static unsigned char g_a5_12911;                                                  /* set to 1 by jt174 */
+/* g_a5_12912 → macro (data_pool replay buffer) */
+/* g_a5_12911 → macro (data_pool replay buffer) */
 static void jt174(void)
 {
 	/* CODE 7 + 0x2062 — three insns: g_a5_12911 = g_a5_12912 = 1. */
@@ -1347,9 +1383,9 @@ static int  l0aae(void);                                                        
 static void l02dc(long a)          { PROBE("l02dc"); }                            /* CODE 12 + 0x02dc */
 
 /* Additional A5-world globals jt918 touches (entry setup + buffer). */
-static short          g_a5_5798;             /* mode word — set to 135           */
-static short          g_a5_5796;             /* counter — cleared                */
-static unsigned char  g_a5_19169;            /* flag — set to 1                  */
+/* g_a5_5798 → macro (data_pool replay buffer) */
+/* g_a5_5796 → macro (data_pool replay buffer) */
+/* g_a5_19169 → macro (data_pool replay buffer) */
 static unsigned char  g_a5_22727[4];         /* 4-byte buffer JT[399] fills      */
 
 /* The 10-byte "pending-action" flag cluster jt918 manages.
@@ -1387,10 +1423,9 @@ static unsigned char  g_a5_22727[4];         /* 4-byte buffer JT[399] fills     
 #define g_a5_14431 g_a5_byte(-14431)
 #define g_a5_14430 g_a5_byte(-14430)
 #define g_a5_14429 g_a5_byte(-14429)    /* index 11 — last menu slot   */
-static short         g_a5_19174;        /* menu coordinate (high word) */
-static short         g_a5_19172;        /* menu coordinate (low word)  */
-static short         g_a5_5794;         /* selection result            */
-
+/* g_a5_19174 → macro (data_pool replay buffer) */
+/* g_a5_19172 → macro (data_pool replay buffer) */
+/* g_a5_5794 → macro (data_pool replay buffer) */
 /* L0aae's per-JT PROBE stubs. Each is a real CODE 3 / CODE 7 helper
  * that we'll lift individually as engine paths demand them. Until then
  * the surface keeps the call shape so the trace shows the menu build
@@ -1438,8 +1473,8 @@ static void    jt451(void)                          { PROBE("jt451"); }
 #define DLITEM_MAX     64
 
 static unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
-static long          g_a5_9254;        /* base pointer (set at init)    */
-static short         g_a5_9250;        /* current installed count       */
+/* g_a5_9254 → macro (data_pool replay buffer) */
+/* g_a5_9250 → macro (data_pool replay buffer) */
 static short         g_a5_9288 = DLITEM_MAX;
 static unsigned char g_a5_9248 __attribute__((unused)) = 1;    /* "DLItem manager active" flag  */
 
@@ -1618,8 +1653,7 @@ static short l2d3e(void)
 typedef short (*jt453_filter_t)(void);
 
 /* The "currently in dialog event loop" sentinel JT[453] toggles. */
-static unsigned char g_a5_9247;
-
+/* g_a5_9247 → macro (data_pool replay buffer) */
 static short jt453(jt453_filter_t filterProc)
 {
 	short       hit;
@@ -1664,10 +1698,10 @@ static void    jt156(void)                          { PROBE("jt156"); }
  *  g_a5_19176 — the live design count (computed by the linked-list walk).
  *  g_a5_12910 — last-seen count (so JT[158] knows when the list changed).
  *  g_a5_24126 — 40-byte slot-index table JT[179] initialises. */
-static short          g_a5_13016;
-static short          g_a5_13018;
-static short          g_a5_19176;
-static short          g_a5_12910;
+/* g_a5_13016 → macro (data_pool replay buffer) */
+/* g_a5_13018 → macro (data_pool replay buffer) */
+/* g_a5_19176 → macro (data_pool replay buffer) */
+/* g_a5_12910 → macro (data_pool replay buffer) */
 static unsigned char  g_a5_24126[40];
 
 /* JT[166] — record the menu mode. CODE 7 + 0x2858.
@@ -1867,8 +1901,7 @@ static int l0aae(void)
 /* The "no save-game pointer present, but cached state is dirty" flag —
  * read by the saved-game arm at L0e22 to decide whether the design
  * list deserves the "fresh" treatment. */
-static unsigned char g_a5_22730;
-
+/* g_a5_22730 → macro (data_pool replay buffer) */
 /* JT[3] dispatch case bodies — one per local value 0..11. Each one is
  * a sizeable chunk of CODE 12 that reads a c79x flag, calls into CODE
  * 17 / CODE 18, etc. They stay PROBE-only until the cases below are
@@ -1925,17 +1958,15 @@ static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
 /* Globals case 2 manages. */
-static long g_a5_18844;        /* source pointer fed to JT[1199]      */
-static long g_a5_18882;        /* result stored from JT[1199]         */
-
+/* g_a5_18844 → macro (data_pool replay buffer) */
+/* g_a5_18882 → macro (data_pool replay buffer) */
 /* g_a5_27946 / g_a5_27982 are now macros in the L5124 cluster at the
  * top of the file. */
 
 /* Globals cases 7..11 manage. */
-static unsigned char g_a5_27988;        /* alternate save-state flag      */
-static long          g_a5_14284;        /* prompt string offset (STRS)    */
-static unsigned char g_a5_18472;        /* "begin adventuring" attempted  */
-
+/* g_a5_27988 → macro (data_pool replay buffer) */
+/* g_a5_14284 → macro (data_pool replay buffer) */
+/* g_a5_18472 → macro (data_pool replay buffer) */
 /* Forward — jt19 / jt159 land further down with the case 7..11 stubs. */
 static void jt19(short a, short b);
 static int  jt159(const char *prompt, short b);
