@@ -1101,7 +1101,49 @@ static void jt131(short a)
 }
 
 static void l4bf6(short a, short b, short c, short d) { PROBE("l4bf6"); }         /* CODE 6 + 0x4bf6  */
-static void jt1001(short a, short b, short c, short d) { PROBE("jt1001"); }       /* CODE 5 + 0x31ac  */
+
+/* JT[468] (CODE 3 + 0xd1a) — translates a short arg into a long sub-
+ * resource handle / channel pointer. Real body chains into the fc
+ * cache; stays a PROBE stub for now. */
+static long jt468(short n)         { PROBE("jt468"); (void)n; return 0L; }
+
+/* L309c (CODE 5 + 0x309c, local) — the actual channel-write that
+ * jt1001 wraps. Reads four args (channel, mode, ptr, flag) and pokes
+ * the engine's 8000-page channel array. PROBE-only until lifted. */
+static void l309c(short a, short b, long c, short d)
+{
+	PROBE("L309c");
+	(void)a; (void)b; (void)c; (void)d;
+}
+
+/* JT[1001] — the workhorse "select sub-resource n, write to channel"
+ * service. CODE 5 + 0x31ac.
+ *
+ *   linkw fp, #0
+ *   movew fp@(12), sp@-          ; push b
+ *   jsr   JT[468]                  ; d0 = jt468(b)
+ *   addql #2, sp
+ *   movew fp@(14), sp@-           ; push d (fourth caller arg)
+ *   movel d0, sp@-                 ; push the long jt468 returned
+ *   movew fp@(10), sp@-            ; push c
+ *   movew fp@(8), sp@-             ; push a
+ *   jsr   L309c                    ; l309c(a, c, jt468(b), d)
+ *   lea   sp@(10), sp
+ *   unlk fp; rts
+ *
+ * jt76 / l66e6 / jt80 / l67ca / L0aae all call this with (page-base,
+ * channel-id, 1, mode-byte) tuples. jt468 owns the page → ptr map; the
+ * real machinery follows when an engine path actually demands audio /
+ * graphics output.
+ */
+static void jt1001(short a, short b, short c, short d)
+{
+	long t;
+
+	PROBE("jt1001");
+	t = jt468(b);
+	l309c(a, c, t, d);
+}
 static void jt174(void);                                                          /* CODE 7 + 0x2062 (lifted below) */
 
 static void l66e6(short n)
