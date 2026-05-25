@@ -40,6 +40,7 @@
 #include "macmemory.h"
 #include "quickdraw.h"
 #include "resources.h"
+#include "textedit.h"
 #include "windows.h"
 
 static unsigned short be16(const unsigned char *p)
@@ -47,24 +48,17 @@ static unsigned short be16(const unsigned char *p)
 	return (unsigned short)(((unsigned)p[0] << 8) | p[1]);
 }
 
-/* --- per-dialog edit-text state ----------------------------------- */
-
-#define EDIT_TEXT_CAP   255
-
-typedef struct edit_item {
-	short         item;                     /* 1-based DITL index */
-	unsigned char text[EDIT_TEXT_CAP + 1];  /* Pascal string      */
-} edit_item;
-
-/* Maps a DITL item index to the ControlHandle we created for it.
- * Item indices that don't carry a control (static text, edit text)
- * keep a NULL slot. The slab is sized once at NewDialog and indexed
- * by item - 1. */
+/* --- per-dialog auxiliary state ------------------------------------ *
+ *
+ * One slot per DITL item (indexed by item - 1). For each editText
+ * (type 0x10) item, `tes[i]` carries the TEHandle NewDialog allocated;
+ * for each button / checkbox / radio (types 4 / 5 / 6) item, `ctrls[i]`
+ * carries the ControlHandle. Static-text and other inert items keep
+ * both slots NULL. */
 typedef struct dlg_aux {
-	short          edit_count;
-	edit_item     *edits;          /* slab of edit_count entries  */
-	short          ctrl_count;     /* total DITL item count       */
-	ControlHandle *ctrls;           /* per-item ControlHandle, NULL = no control */
+	short          item_count;     /* total DITL item count       */
+	ControlHandle *ctrls;          /* one slot per item; NULL OK   */
+	TEHandle      *tes;             /* one slot per item; NULL OK   */
 } dlg_aux;
 
 static dlg_aux *aux_of(DialogPtr d)
@@ -72,18 +66,44 @@ static dlg_aux *aux_of(DialogPtr d)
 	return (d == NULL) ? NULL : (dlg_aux *)d->aux;
 }
 
-static edit_item *find_edit(DialogPtr d, short item)
+static TEHandle find_te(DialogPtr d, short item)
+{
+	dlg_aux *a = aux_of(d);
+
+	if (a == NULL || item < 1 || item > a->item_count)
+		return NULL;
+	return a->tes[item - 1];
+}
+
+static short first_edit_item(DialogPtr d)
 {
 	dlg_aux *a = aux_of(d);
 	short    i;
 
 	if (a == NULL)
-		return NULL;
-	for (i = 0; i < a->edit_count; i++) {
-		if (a->edits[i].item == item)
-			return &a->edits[i];
+		return -1;
+	for (i = 0; i < a->item_count; i++) {
+		if (a->tes[i] != NULL)
+			return (short)(i + 1);
 	}
-	return NULL;
+	return -1;
+}
+
+static short next_edit_item(DialogPtr d, short cur)
+{
+	dlg_aux *a = aux_of(d);
+	short    i, start;
+
+	if (a == NULL)
+		return -1;
+	start = (cur >= 1 && cur <= a->item_count) ? cur : 0;
+	for (i = 0; i < a->item_count; i++) {
+		short k = (short)((start + i) % a->item_count);
+
+		if (a->tes[k] != NULL && (k + 1) != cur)
+			return (short)(k + 1);
+	}
+	return cur;             /* nothing else to focus */
 }
 
 /* Walk the DITL items, calling visit(...) on each. Returns the count.
@@ -195,38 +215,23 @@ static int paint_item(short item, const Rect *local, unsigned char type,
 		DrawString((ConstStr255Param)data);
 		break;
 	}
-	case 16: {                                 /* edit text */
-		edit_item *e = find_edit(ctx->dlg, item);
-		short      ty;
-
-		/* White interior + 1-pixel black frame. */
+	case 16:                                  /* edit text */
+		/* When we own a dialog, TextEdit paints these via TEUpdate
+		 * — paint_ditl_for_dialog dispatches that after walk_ditl.
+		 * The Alert path (ctx->dlg == NULL) still draws inline since
+		 * it doesn't allocate per-item TextEdit records. */
+		if (ctx->dlg != NULL)
+			break;
 		RGBForeColor(&white);
 		PaintRect(&grect);
 		RGBForeColor(&black);
 		FrameRect(&grect);
-
-		ty = (short)(grect.top + 9);
-		MoveTo((short)(grect.left + 3), ty);
-		if (e != NULL && e->text[0] > 0)
-			DrawString(e->text);
-		else if (data_len > 0)
+		if (data_len > 0) {
+			MoveTo((short)(grect.left + 3),
+			       (short)(grect.top + 9));
 			DrawString((ConstStr255Param)data);
-
-		/* Insertion caret at end of text on the focused field. The
-		 * shim's 8x8 glyph advance is 6 px (see CharWidth fallback);
-		 * the caret sits one pixel right of the last glyph. */
-		if (item == ctx->focus_item && ctx->focus_item > 0) {
-			short txt_len = (e != NULL) ? (short)e->text[0]
-			                            : (short)data_len;
-			short cx      = (short)(grect.left + 3 + txt_len * 6);
-
-			if (cx >= grect.right - 2)
-				cx = (short)(grect.right - 2);
-			MoveTo(cx, (short)(grect.top + 2));
-			LineTo(cx, (short)(grect.bottom - 3));
 		}
 		break;
-	}
 	default:
 		break;
 	}
@@ -277,6 +282,36 @@ static void paint_ditl_for_dialog(DialogPtr d)
 
 	/* The Control Manager owns the button / checkbox / radio paint. */
 	DrawControls((WindowPtr)d);
+
+	/* TextEdit owns the editText paint. Each TE's destRect already
+	 * lives in global coords (NewDialog set it up that way); we wrap
+	 * each one in a 1-px frame to give the field its visible border. */
+	{
+		dlg_aux *a = aux_of(d);
+
+		if (a != NULL) {
+			short i;
+			static const RGBColor te_frame = { 0x0000, 0x0000, 0x0000 };
+			GrafPtr saved2;
+
+			GetPort(&saved2);
+			SetPort(qd_screen_port());
+			for (i = 0; i < a->item_count; i++) {
+				TEHandle te = a->tes[i];
+
+				if (te == NULL || *te == NULL)
+					continue;
+				if (d->editField == (short)(i + 1))
+					TEActivate(te);
+				else
+					TEDeactivate(te);
+				TEUpdate(NULL, te);
+				RGBForeColor(&te_frame);
+				FrameRect(&(*te)->destRect);
+			}
+			SetPort(saved2);
+		}
+	}
 }
 
 /* --- hit-testing -------------------------------------------------- */
@@ -440,57 +475,7 @@ short Alert(short alertID, void *filterProc)
 /*  GetNewDialog / NewDialog / DisposeDialog                           */
 /* ================================================================== */
 
-/* Visitor that initialises per-edit-item state from the DITL data bytes. */
-typedef struct {
-	dlg_aux *a;
-	short    next;
-} init_edit_ctx;
-
-static int init_edit_item(short item, const Rect *local, unsigned char type,
-                          const unsigned char *data, unsigned char data_len,
-                          void *cookie)
-{
-	init_edit_ctx *ctx = (init_edit_ctx *)cookie;
-	edit_item     *e;
-	short          n;
-
-	(void)local;
-	if ((type & 0x7F) != 16)
-		return 0;
-	if (ctx->next >= ctx->a->edit_count)
-		return 0;
-	e = &ctx->a->edits[ctx->next++];
-	e->item = item;
-	n = (short)data_len;
-	if (n > EDIT_TEXT_CAP)
-		n = EDIT_TEXT_CAP;
-	e->text[0] = (unsigned char)n;
-	if (n > 0)
-		memcpy(e->text + 1, data, (size_t)n);
-	return 0;       /* keep walking; we want every edit item */
-}
-
-/* Count edit-text items so NewDialog can size the slab in one pass. */
-typedef struct {
-	short count;
-} count_edit_ctx;
-
-static int count_edit_visitor(short item, const Rect *local, unsigned char type,
-                              const unsigned char *data,
-                              unsigned char data_len, void *cookie)
-{
-	count_edit_ctx *ctx = (count_edit_ctx *)cookie;
-
-	(void)item;
-	(void)local;
-	(void)data;
-	(void)data_len;
-	if ((type & 0x7F) == 16)
-		ctx->count++;
-	return 0;
-}
-
-/* Count every DITL item so we can size the per-item ControlHandle slab. */
+/* Count every DITL item so we can size the per-item slabs. */
 typedef struct {
 	short count;
 } count_all_ctx;
@@ -533,7 +518,7 @@ static int init_ctrl_item(short item, const Rect *local, unsigned char type,
 	ControlHandle  c;
 	short          slot = (short)(item - 1);
 
-	if (slot < 0 || slot >= ctx->a->ctrl_count)
+	if (slot < 0 || slot >= ctx->a->item_count)
 		return 0;
 	switch (type & 0x7F) {
 	case 4:  procID = pushButProc;   break;
@@ -552,54 +537,90 @@ static int init_ctrl_item(short item, const Rect *local, unsigned char type,
 	return 0;
 }
 
+/* DITL editText creation visitor — for type 0x10, TENew a record sized
+ * to the item's local rect translated to global. Initial text is set
+ * from the DITL data bytes. Each slot is indexed by item - 1; non-
+ * editText items keep a NULL slot. */
+typedef struct {
+	dlg_aux *a;
+	short    dlog_top;
+	short    dlog_left;
+} init_te_ctx;
+
+static int init_te_item(short item, const Rect *local, unsigned char type,
+                        const unsigned char *data, unsigned char data_len,
+                        void *cookie)
+{
+	init_te_ctx *ctx = (init_te_ctx *)cookie;
+	Rect         dest, view;
+	TEHandle     te;
+	short        slot = (short)(item - 1);
+
+	if (slot < 0 || slot >= ctx->a->item_count)
+		return 0;
+	if ((type & 0x7F) != 16)
+		return 0;
+	dest.top    = (short)(ctx->dlog_top  + local->top);
+	dest.left   = (short)(ctx->dlog_left + local->left);
+	dest.bottom = (short)(ctx->dlog_top  + local->bottom);
+	dest.right  = (short)(ctx->dlog_left + local->right);
+	view = dest;
+	te = TENew(&dest, &view);
+	if (te == NULL)
+		return 0;
+	if (data_len > 0)
+		TESetText(data, (long)data_len, te);
+	ctx->a->tes[slot] = te;
+	return 0;
+}
+
 static dlg_aux *dlg_aux_make(Handle items, WindowPtr owner)
 {
-	count_edit_ctx cc;
 	count_all_ctx  ac;
-	init_edit_ctx  ic;
 	init_ctrl_ctx  icc;
+	init_te_ctx    tcc;
 	dlg_aux       *a;
+	Rect           cont;
 
-	cc.count = 0;
-	(void)walk_ditl(items, count_edit_visitor, &cc);
 	ac.count = 0;
 	(void)walk_ditl(items, count_all_visitor, &ac);
 
 	a = (dlg_aux *)NewPtr((Size)sizeof *a);
 	if (a == NULL)
 		return NULL;
-	a->edit_count = cc.count;
-	a->edits      = NULL;
-	a->ctrl_count = ac.count;
+	a->item_count = ac.count;
 	a->ctrls      = NULL;
+	a->tes        = NULL;
 
-	if (cc.count > 0) {
-		a->edits = (edit_item *)NewPtr((Size)cc.count
-		                               * (Size)sizeof *a->edits);
-		if (a->edits == NULL) {
-			DisposePtr((Ptr)a);
-			return NULL;
-		}
-		memset(a->edits, 0, (size_t)cc.count * sizeof *a->edits);
-		ic.a    = a;
-		ic.next = 0;
-		(void)walk_ditl(items, init_edit_item, &ic);
-	}
+	if (ac.count == 0)
+		return a;
 
-	if (ac.count > 0) {
-		a->ctrls = (ControlHandle *)NewPtr((Size)ac.count
-		                                   * (Size)sizeof *a->ctrls);
-		if (a->ctrls == NULL) {
-			if (a->edits != NULL)
-				DisposePtr((Ptr)a->edits);
-			DisposePtr((Ptr)a);
-			return NULL;
-		}
-		memset(a->ctrls, 0, (size_t)ac.count * sizeof *a->ctrls);
-		icc.a     = a;
-		icc.owner = owner;
-		(void)walk_ditl(items, init_ctrl_item, &icc);
+	a->ctrls = (ControlHandle *)NewPtr((Size)ac.count
+	                                   * (Size)sizeof *a->ctrls);
+	a->tes   = (TEHandle *)NewPtr((Size)ac.count
+	                              * (Size)sizeof *a->tes);
+	if (a->ctrls == NULL || a->tes == NULL) {
+		if (a->ctrls != NULL) DisposePtr((Ptr)a->ctrls);
+		if (a->tes   != NULL) DisposePtr((Ptr)a->tes);
+		DisposePtr((Ptr)a);
+		return NULL;
 	}
+	memset(a->ctrls, 0, (size_t)ac.count * sizeof *a->ctrls);
+	memset(a->tes,   0, (size_t)ac.count * sizeof *a->tes);
+
+	icc.a     = a;
+	icc.owner = owner;
+	(void)walk_ditl(items, init_ctrl_item, &icc);
+
+	if (((WindowPeek)owner)->contRgn != NULL)
+		cont = (*((WindowPeek)owner)->contRgn)->rgnBBox;
+	else
+		SetRect(&cont, 0, 0, 0, 0);
+	tcc.a         = a;
+	tcc.dlog_top  = cont.top;
+	tcc.dlog_left = cont.left;
+	(void)walk_ditl(items, init_te_item, &tcc);
+
 	return a;
 }
 
@@ -607,8 +628,15 @@ static void dlg_aux_dispose(dlg_aux *a)
 {
 	if (a == NULL)
 		return;
-	if (a->edits != NULL)
-		DisposePtr((Ptr)a->edits);
+	if (a->tes != NULL) {
+		short i;
+
+		for (i = 0; i < a->item_count; i++) {
+			if (a->tes[i] != NULL)
+				TEDispose(a->tes[i]);
+		}
+		DisposePtr((Ptr)a->tes);
+	}
 	if (a->ctrls != NULL)
 		DisposePtr((Ptr)a->ctrls);
 	/* The ControlHandles themselves are owned by the dialog window;
@@ -651,10 +679,16 @@ DialogPtr NewDialog(void *dStorage, const Rect *bounds,
 
 	aux = dlg_aux_make(items, (WindowPtr)d);
 	d->aux = aux;
-	/* Focus the first edit field if there is one — saves the user a
+	/* Focus the first editText item if there is one — saves the user a
 	 * click before typing. */
-	if (aux != NULL && aux->edit_count > 0)
-		d->editField = aux->edits[0].item;
+	{
+		short first = first_edit_item((DialogPtr)d);
+
+		if (first > 0) {
+			d->editField = first;
+			TEActivate(aux->tes[first - 1]);
+		}
+	}
 
 	return (DialogPtr)d;
 }
@@ -784,9 +818,23 @@ Boolean DialogSelect(const EventRecord *event, DialogPtr *theDialog,
 			return 1;
 		}
 		hit = ditl_hit_edit(&cont, d->items, event->where);
-		if (hit > 0 && hit != d->editField) {
-			d->editField = hit;
-			DrawDialog(d);
+		if (hit > 0) {
+			TEHandle te = find_te(d, hit);
+
+			if (te != NULL) {
+				if (hit != d->editField) {
+					if (d->editField > 0) {
+						TEHandle prev = find_te(d, d->editField);
+
+						if (prev != NULL)
+							TEDeactivate(prev);
+					}
+					d->editField = hit;
+					TEActivate(te);
+				}
+				TEClick(event->where, 0, te);
+				DrawDialog(d);
+			}
 		}
 		break;
 	}
@@ -800,39 +848,33 @@ Boolean DialogSelect(const EventRecord *event, DialogPtr *theDialog,
 		}
 		/* Tab cycles focus through the dialog's edit fields. */
 		if (ch == 0x09) {
-			dlg_aux *a = aux_of(d);
+			short next = next_edit_item(d, d->editField);
 
-			if (a != NULL && a->edit_count > 0) {
-				short i, next;
+			if (next > 0 && next != d->editField) {
+				if (d->editField > 0) {
+					TEHandle prev = find_te(d, d->editField);
 
-				for (i = 0; i < a->edit_count; i++) {
-					if (a->edits[i].item == d->editField)
-						break;
+					if (prev != NULL)
+						TEDeactivate(prev);
 				}
-				next = (i + 1) % a->edit_count;
-				if (i == a->edit_count)         /* not found */
-					next = 0;
-				d->editField = a->edits[next].item;
+				d->editField = next;
+				{
+					TEHandle te = find_te(d, next);
+
+					if (te != NULL)
+						TEActivate(te);
+				}
 				DrawDialog(d);
 			}
 			break;
 		}
-		/* All remaining keystrokes go to the focused field, if any. */
+		/* All remaining keystrokes go to the focused field's TE. */
 		if (d->editField > 0) {
-			edit_item *e = find_edit(d, d->editField);
+			TEHandle te = find_te(d, d->editField);
 
-			if (e == NULL)
-				break;
-			if (ch == 0x08) {                    /* backspace */
-				if (e->text[0] > 0) {
-					e->text[0]--;
-					DrawDialog(d);
-				}
-			} else if (ch >= 0x20 && ch < 0x7F) {
-				if (e->text[0] < EDIT_TEXT_CAP) {
-					e->text[++e->text[0]] = ch;
-					DrawDialog(d);
-				}
+			if (te != NULL) {
+				TEKey((short)ch, te);
+				DrawDialog(d);
 			}
 		}
 		break;
@@ -917,34 +959,33 @@ void GetDialogItemText(Handle item, unsigned char *text)
 
 void dialog_get_edit_text(DialogPtr d, short itemNum, unsigned char *str)
 {
-	edit_item *e;
-	short      n;
+	TEHandle te;
+	short    n;
+	const char *src;
 
 	if (str == NULL)
 		return;
 	str[0] = 0;
-	e = find_edit(d, itemNum);
-	if (e == NULL)
+	te = find_te(d, itemNum);
+	if (te == NULL || *te == NULL)
 		return;
-	n = (short)e->text[0];
-	str[0] = (unsigned char)n;
-	if (n > 0)
-		memcpy(str + 1, e->text + 1, (size_t)n);
+	n = (*te)->teLength;
+	if (n > 255)
+		n = 255;
+	if (n > 0 && (*te)->hText != NULL && *(*te)->hText != NULL) {
+		src = (const char *)*(*te)->hText;
+		str[0] = (unsigned char)n;
+		memcpy(str + 1, src, (size_t)n);
+	}
 }
 
 void dialog_set_edit_text(DialogPtr d, short itemNum, ConstStr255Param str)
 {
-	edit_item *e;
-	short      n;
+	TEHandle te;
 
-	e = find_edit(d, itemNum);
-	if (e == NULL || str == NULL)
+	te = find_te(d, itemNum);
+	if (te == NULL || str == NULL)
 		return;
-	n = (short)str[0];
-	if (n > EDIT_TEXT_CAP)
-		n = EDIT_TEXT_CAP;
-	e->text[0] = (unsigned char)n;
-	if (n > 0)
-		memcpy(e->text + 1, str + 1, (size_t)n);
+	TESetText(str + 1, (long)str[0], te);
 	DrawDialog(d);
 }
