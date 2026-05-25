@@ -1,10 +1,10 @@
 """Tests for the Mac resource formats the compat shim parses.
 
 These tests pin down the byte-layout the C parsers (compat/dialogs.c for
-ALRT/DITL, compat/mac_font.c for FONT) rely on. They build synthetic
-resources, run them through the same FRSC pack / extract round-trip the
-Atari engine uses at runtime, and verify the bytes survive intact with
-the field offsets the shim expects.
+ALRT/DITL, compat/mac_font.c for FONT, compat/menus.c for MENU) rely on.
+They build synthetic resources, run them through the same FRSC pack /
+extract round-trip the Atari engine uses at runtime, and verify the
+bytes survive intact with the field offsets the shim expects.
 
 A green test here doesn't prove the C parser is correct on its own, but
 it documents the format invariants and catches regressions in our tooling
@@ -235,3 +235,92 @@ def test_font_strike_bit_addressing():
     byte_off = 26 + 0 * rowWords * 2 + bit_col // 8
     bit_in_byte = 7 - (bit_col & 7)
     assert (raw[byte_off] >> bit_in_byte) & 1 == 1
+
+
+# --- MENU ----------------------------------------------------------------
+#
+# Inside Macintosh / Macintosh Toolbox Essentials layout:
+#   +0   short  menuID
+#   +2   short  menuWidth   (0; computed at draw time)
+#   +4   short  menuHeight  (0; computed at draw time)
+#   +6   short  menuProc    (MDEF resource id; 0 = standard)
+#   +8   short  padding
+#   +10  long   enableFlags (bit 0 = whole menu; bit N = item N)
+#   +14  Str255 title
+#   then for each item:
+#       Str255 text
+#       byte   icon
+#       byte   keyEquiv
+#       byte   mark
+#       byte   style
+#   terminator: a 0 length byte where the next item's text would be.
+#
+# compat/menus.c GetMenu walks exactly these fields; the per-item meta-tail
+# parser (the '/' Cmd-key, '!' mark, '<' style, '(' disable, '^' icon) sits
+# inside menu_push_item and is shared with AppendMenu, so we don't pin the
+# meta layout here — just the byte offsets of the MENU resource itself.
+
+def _make_menu(menuID, title, items, enableFlags=0xFFFFFFFF):
+    """`items` is a list of (text: str, icon, key, mark, style)."""
+    buf = bytearray()
+    buf += struct.pack(">hhhhhI", menuID, 0, 0, 0, 0,
+                       enableFlags & 0xFFFFFFFF)
+    tbytes = title.encode("mac_roman")
+    buf += bytes([len(tbytes)]) + tbytes
+    for text, icon, key, mark, style in items:
+        tb = text.encode("mac_roman")
+        buf += bytes([len(tb)]) + tb
+        buf += bytes([icon & 0xFF, key & 0xFF, mark & 0xFF, style & 0xFF])
+    buf += b"\x00"           # terminator
+    return bytes(buf)
+
+
+def test_menu_header_layout():
+    raw = _make_menu(128, "File", [("New", 0, ord('N'), 0, 0)],
+                     enableFlags=0xFFFFFFFF)
+    raw = _frsc_lookup(_pack_one("MENU", 128, raw), b"MENU", 128)
+    menuID = int.from_bytes(raw[0:2], "big", signed=True)
+    flags  = int.from_bytes(raw[10:14], "big", signed=False)
+    title_len = raw[14]
+    title     = raw[15:15 + title_len].decode("mac_roman")
+    assert menuID == 128
+    assert flags == 0xFFFFFFFF
+    assert title == "File"
+
+
+def test_menu_items_walk_to_terminator():
+    items = [
+        ("New",  0, ord('N'), 0, 0),
+        ("Open", 0, ord('O'), 0, 0),
+        ("Quit", 0, ord('Q'), 0, 0),
+    ]
+    raw = _make_menu(128, "File", items)
+    raw = _frsc_lookup(_pack_one("MENU", 128, raw), b"MENU", 128)
+    off = 15 + raw[14]
+    out = []
+    while off < len(raw):
+        n = raw[off]
+        if n == 0:
+            break
+        text  = raw[off + 1:off + 1 + n].decode("mac_roman")
+        meta  = raw[off + 1 + n:off + 1 + n + 4]
+        out.append((text, meta[1]))          # key equiv is byte 1 of meta
+        off += 1 + n + 4
+    assert out == [("New", ord('N')), ("Open", ord('O')), ("Quit", ord('Q'))]
+
+
+def test_menu_disabled_bit_in_enable_flags():
+    # Item 2 disabled: enableFlags bit 2 clear; bit 0 (whole menu) and bit
+    # 1, 3 still set.
+    flags = 0xFFFFFFFF & ~(1 << 2)
+    raw = _make_menu(128, "File",
+                     [("New", 0, 0, 0, 0),
+                      ("Open", 0, 0, 0, 0),
+                      ("Quit", 0, 0, 0, 0)],
+                     enableFlags=flags)
+    raw = _frsc_lookup(_pack_one("MENU", 128, raw), b"MENU", 128)
+    got = int.from_bytes(raw[10:14], "big", signed=False)
+    assert (got & 1) != 0                    # menu enabled
+    assert (got & (1 << 1)) != 0             # item 1 (New) enabled
+    assert (got & (1 << 2)) == 0             # item 2 (Open) disabled
+    assert (got & (1 << 3)) != 0             # item 3 (Quit) enabled
