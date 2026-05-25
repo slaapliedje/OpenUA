@@ -1433,11 +1433,13 @@ static int  jt574(long ctx)        { PROBE("jt574"); (void)ctx; return 0; }
  * The matching menu item is "Train Character" (selector 'T'); the
  * c79x flag g_a5_14440 is set by the L0df6 / L0e98 cluster init when
  * the action is available. */
-static void l0f1a(void)
+static int l0f1a(short a)
 {
+	(void)a;
 	PROBE("jt918/case0 L0f1a");
 	if (g_a5_14440 != 0)
 		(void)jt574(0);
+	return 0;
 }
 /* L15e2 (CODE 12 + 0x15e2) — local helper case 1 calls. Body lives in
  * the same segment but is sizeable; stays a PROBE stub until it's
@@ -1470,6 +1472,39 @@ static long g_a5_18882;        /* result stored from JT[1199]         */
 /* Forward — g_a5_27946 is defined further down with the L5124 cluster. */
 static unsigned char g_a5_27946;
 
+/* Globals cases 7..11 manage. */
+static unsigned char g_a5_27988;        /* alternate save-state flag      */
+static long          g_a5_14284;        /* prompt string offset (STRS)    */
+static unsigned char g_a5_18472;        /* "begin adventuring" attempted  */
+
+/* Forward — g_a5_27982 is defined further down with the L5124 cluster. */
+static unsigned char g_a5_27982;
+
+/* L185e / L12a0 — local helpers cases 6 and 7 jsr to. Sizable bodies
+ * elsewhere in CODE 12; stay PROBE stubs until they're lifted on
+ * their own. */
+static void l185e(void)                          { PROBE("L185e"); }
+static void l12a0(void)                          { PROBE("L12a0"); }
+
+/* Forward — JT[78] = L67ca, JT[84] = L68f8, JT[88] = L5124. Already
+ * lifted earlier in the file; cases 7 / 8 / 10 jsr their JT entries. */
+static void l68f8(void);
+static void l5124(void);
+
+/* Toolbox / CODE-7 / CODE-15 / CODE-19 / CODE-20 helpers the case
+ * bodies reach into. All PROBE stubs — the real bodies live in
+ * segments we haven't started yet. */
+static void   jt19(short a, short b)             { PROBE("jt19"); (void)a; (void)b; }
+static int    jt159(const char *prompt, short b) { PROBE("jt159");
+                                                   (void)prompt; (void)b;
+                                                   return 0; }
+static void   jt176(void)                        { PROBE("jt176"); }
+static void   jt584(long a, const char *str)     { PROBE("jt584"); (void)a; (void)str; }
+static void   jt585(void)                        { PROBE("jt585"); }
+static void   jt904(void *buf)                   { PROBE("jt904"); (void)buf; }
+static void   jt942_caseN(short a) __attribute__((unused));
+static void   jt942_caseN(short a)               { jt942(a); }
+
 /* L0f2e — case 1 (Modify Character). CODE 12 + 0x0f2e.
  *
  *   tstb a5@(-14439)
@@ -1477,11 +1512,13 @@ static unsigned char g_a5_27946;
  *   jsr  L15e2                   // local helper in CODE 12
  *   braw L1242
  */
-static void l0f2e(void)
+static int l0f2e(short a)
 {
+	(void)a;
 	PROBE("jt918/case1 L0f2e");
 	if (g_a5_14439 != 0)
 		l15e2();
+	return 0;
 }
 
 /* L0f3e — case 2 (Delete Character). CODE 12 + 0x0f3e.
@@ -1493,14 +1530,16 @@ static void l0f2e(void)
  *   clrb a5@(-27946)
  *   braw L1242
  */
-static void l0f3e(void)
+static int l0f3e(short a)
 {
+	(void)a;
 	PROBE("jt918/case2 L0f3e");
 	if (g_a5_14438 == 0)
-		return;
+		return 0;
 	g_a5_18882 = jt1199(g_a5_18844);
 	jt560();
 	g_a5_27946 = 0;
+	return 0;
 }
 
 /* L0f60 — case 3 (Create Character). CODE 12 + 0x0f60.
@@ -1510,13 +1549,15 @@ static void l0f3e(void)
  *   clrb a5@(-27946)
  *   braw L1242
  */
-static void l0f60(void)
+static int l0f60(short a)
 {
+	(void)a;
 	PROBE("jt918/case3 L0f60");
 	if (g_a5_14437 == 0)
-		return;
+		return 0;
 	jt557();
 	g_a5_27946 = 0;
+	return 0;
 }
 
 /* L0f74 — case 4 (Remove Character). CODE 12 + 0x0f74.
@@ -1539,19 +1580,20 @@ static void l0f60(void)
  * L1016: pushw 0,255,0,105; movel a5@(-27932),sp@-; jsr JT[876]; falls through
  * L102e: clrb a5@(-27946); braw L1242
  */
-static void l0f74(void)
+static int l0f74(short a)
 {
 	short  local;
 	long   probe_buf = 0;
 
+	(void)a;
 	PROBE("jt918/case4 L0f74");
 	if (g_a5_14436 == 0)
-		return;
+		return 0;
 
 	local = (short)(signed char)jt556(g_a5_27932);
 	if (local == 17) {
 		g_a5_27946 = 0;
-		return;
+		return 0;
 	}
 
 	if (jt41(g_a5_27932, 8, &probe_buf) != 0)
@@ -1570,14 +1612,234 @@ static void l0f74(void)
 		break;
 	}
 	g_a5_27946 = 0;
+	return 0;
 }
-static void l1036(void) { PROBE("jt918/case5 L1036"); }
-static void l104c(void) { PROBE("jt918/case6 L104c"); }
-static void l1060(void) { PROBE("jt918/case7 L1060"); }
-static void l10ca(void) { PROBE("jt918/case8 L10ca"); }
-static void l1142(void) { PROBE("jt918/case9 L1142"); }
-static void l115a(void) { PROBE("jt918/case10 L115a"); }
-static void l120c(void) { PROBE("jt918/case11 L120c"); }
+/* L1036 — case 5 (Add Character). CODE 12 + 0x1036.
+ *
+ *   tstb a5@(-14435); beqw L1242
+ *   pea  fp@(-7); jsr JT[904]; addql #4, sp
+ *   braw L1242
+ */
+static int l1036(short a)
+{
+	unsigned char local_byte = 0;
+
+	(void)a;
+	PROBE("jt918/case5 L1036");
+	if (g_a5_14435 == 0)
+		return 0;
+	jt904(&local_byte);
+	return 0;
+}
+
+/* L104c — case 6 (View Character). CODE 12 + 0x104c.
+ *
+ *   tstb a5@(-14434); beqw L1242
+ *   jsr  L12a0
+ *   clrb a5@(-27946)
+ *   braw L1242
+ */
+static int l104c(short a)
+{
+	(void)a;
+	PROBE("jt918/case6 L104c");
+	if (g_a5_14434 == 0)
+		return 0;
+	l12a0();
+	g_a5_27946 = 0;
+	return 0;
+}
+
+/* L1060 — case 7 (Human Change Class). CODE 12 + 0x1060.
+ *
+ *   tstb a5@(-14433); beqw L1242
+ *   tstl a5@(-27932); beqw L1242
+ *   moveal a5@(-27932), a0
+ *   moveb a0@(147), d0; btst #7, d0; bnes L109e
+ *      pea STRS+0x5fb4; movel a5@(-27932),sp@-; jsr JT[584]; addql #8,sp
+ *      pushw 1; clrw -(sp); jsr JT[19]; addql #4,sp
+ *      bras L10a6
+ *   L109e: jsr JT[76]; jsr L185e
+ *   L10a6: tstl a5@(-27932); bnes L10c2
+ *          tstb fp@(9); beqs L10bc
+ *             jsr JT[88]; clrb a5@(-27990); bras L10c2
+ *          L10bc: moveb #1, a5@(-27982)
+ *   L10c2: clrb a5@(-27946); braw L1242
+ */
+static int l1060(short a)
+{
+	const unsigned char *block;
+
+	PROBE("jt918/case7 L1060");
+	if (g_a5_14433 == 0 || g_a5_27932 == 0)
+		return 0;
+	block = (const unsigned char *)g_a5_27932;
+	if ((block[147] & 0x80) == 0) {
+		jt584(g_a5_27932, ua_strs_at(0x5fb4));
+		jt19(0, 1);
+	} else {
+		jt76();
+		l185e();
+	}
+	if (g_a5_27932 == 0) {
+		if ((a & 0xFF) != 0) {
+			l5124();
+			g_a5_27990 = 0;
+		} else {
+			g_a5_27982 = 1;
+		}
+	}
+	g_a5_27946 = 0;
+	return 0;
+}
+
+/* L10ca — case 8 (Exit From Play). CODE 12 + 0x10ca.
+ *
+ *   tstb a5@(-14432); beqw L1242
+ *   tstl a5@(-27932); beqs L10f4
+ *     tstb a5@(-27946); bnes L10f4
+ *     pushw 1; pea STRS+0x5fb6; jsr JT[159]; addql #6, sp
+ *     tstb d0; beqw L1242
+ *   L10f4: tstb fp@(9); bnes L1108; bras L112c
+ *   L10fc: pushw 1; clrw -(sp); jsr JT[19]; addql #4, sp
+ *   L1108: tstl a5@(-27932); bnes L10fc
+ *          jsr JT[582]
+ *          tstl a5@(-27932); bnew L1242
+ *          jsr JT[88]
+ *          moveb a5@(-27990), a5@(-27989)
+ *          clrb  a5@(-27990); braw L1242
+ *   L112c: pushw 1; jsr JT[942]; addql #2, sp
+ *          moveb #1, a5@(-27982)
+ *          moveq #1, d0; braw L1262   // EXIT, return 1
+ */
+static int l10ca(short a)
+{
+	PROBE("jt918/case8 L10ca");
+	if (g_a5_14432 == 0)
+		return 0;
+	if (g_a5_27932 != 0 && g_a5_27946 == 0) {
+		if (jt159(ua_strs_at(0x5fb6), 1) == 0)
+			return 0;
+	}
+	if ((a & 0xFF) != 0) {
+		while (g_a5_27932 != 0)
+			jt19(0, 1);
+		jt582();
+		if (g_a5_27932 != 0)
+			return 0;
+		l5124();
+		g_a5_27989 = g_a5_27990;
+		g_a5_27990 = 0;
+		return 0;
+	}
+	jt942(1);
+	g_a5_27982 = 1;
+	return 1;       /* L1262 — return 1 */
+}
+
+/* L1142 — case 9 (Begin Adventuring). CODE 12 + 0x1142.
+ *
+ *   tstb a5@(-14431); beqw L1242
+ *   tstl a5@(-27928); beqw L1242
+ *   jsr  JT[585]
+ *   braw L1242
+ */
+static int l1142(short a)
+{
+	(void)a;
+	PROBE("jt918/case9 L1142");
+	if (g_a5_14431 != 0 && g_a5_27928 != 0)
+		jt585();
+	return 0;
+}
+
+/* L115a — case 10 (Save Current Game). CODE 12 + 0x115a.
+ *
+ * Picks one of JT[78] (L67ca) / JT[84] (L68f8) / no-op for the
+ * tear-down phase based on g_a5_27990 and the player-data handle's
+ * by-offset bytes, then calls L02dc and JT[176] before clearing the
+ * save-state byte and the dirty flag; returns 1 (exit jt918).
+ */
+static int l115a(short a)
+{
+	const unsigned char *block;
+	short                state;
+
+	(void)a;
+	PROBE("jt918/case10 L115a");
+	if (g_a5_14430 == 0)
+		return 0;
+	if (g_a5_27928 == 0 && g_a5_27988 == 0)
+		return 0;
+
+	g_a5_27990 = g_a5_27989;
+	if (g_a5_27990 == 0)
+		g_a5_27990 = 4;
+
+	block = (const unsigned char *)g_a5_28006;
+	if ((block != NULL && block[134] != 0) || g_a5_24262 == 9) {
+		state = g_a5_27990;
+		switch (state) {
+		case 0:
+		case 4:
+			l67ca();
+			l02dc(g_a5_27932);
+			break;
+		case 3:
+			l68f8();
+			break;
+		case 1:
+		case 2:
+		default:
+			break;
+		}
+	} else if (g_a5_27990 == 3 && block != NULL && block[36] == 1) {
+		l68f8();
+		l02dc(g_a5_27932);
+	} else {
+		l67ca();
+		l02dc(g_a5_27932);
+	}
+
+	jt176();
+	{
+		unsigned char *b = (unsigned char *)g_a5_28006;
+
+		if (b != NULL)
+			b[48] = 0;
+	}
+	g_a5_27946 = 0;
+	return 1;
+}
+
+/* L120c — case 11 (Load Saved Game). CODE 12 + 0x120c.
+ *
+ *   moveb #1, a5@(-18472)
+ *   tstb a5@(-14429); beqs L1242
+ *   tstl a5@(-27928); beqs L123e
+ *   tstb a5@(-27946); bnes L123e
+ *   clrw -(sp); movel a5@(-14284), sp@-; jsr JT[159]; addql #6, sp
+ *   tstb d0; bnes L123a
+ *   jsr JT[585]; bras L1242
+ *
+ *   L123a / L123e: return 0 from jt918 entirely.
+ */
+static int l120c(short a)
+{
+	(void)a;
+	PROBE("jt918/case11 L120c");
+	g_a5_18472 = 1;
+	if (g_a5_14429 == 0)
+		return 0;
+	if (g_a5_27928 == 0)
+		return -1;
+	if (g_a5_27946 != 0)
+		return -1;
+	if (jt159((const char *)g_a5_14284, 0) != 0)
+		return -1;
+	jt585();
+	return 0;
+}
 
 /* Count entries in the design linked-list. The original walks
  * g_a5_27928 → next → next... incrementing a counter when each entry's
@@ -1696,21 +1958,31 @@ static int jt918(short a)
 		if (local == 1)
 			l02dc(g_a5_27932);
 
-		/* JT[3] switch on local (0..11). */
-		switch (local) {
-		case 0:  l0f1a(); break;
-		case 1:  l0f2e(); break;
-		case 2:  l0f3e(); break;
-		case 3:  l0f60(); break;
-		case 4:  l0f74(); break;
-		case 5:  l1036(); break;
-		case 6:  l104c(); break;
-		case 7:  l1060(); break;
-		case 8:  l10ca(); break;
-		case 9:  l1142(); break;
-		case 10: l115a(); break;
-		case 11: l120c(); break;
-		default: break;                  /* fall through to L1242 */
+		/* JT[3] switch on local (0..11). Each case returns 0 to
+		 * continue the outer loop, 1 to exit jt918 returning 1, or
+		 * -1 to exit returning 0 (the L123a / L123e edges). */
+		{
+			int rc = 0;
+
+			switch (local) {
+			case 0:  rc = l0f1a(a); break;
+			case 1:  rc = l0f2e(a); break;
+			case 2:  rc = l0f3e(a); break;
+			case 3:  rc = l0f60(a); break;
+			case 4:  rc = l0f74(a); break;
+			case 5:  rc = l1036(a); break;
+			case 6:  rc = l104c(a); break;
+			case 7:  rc = l1060(a); break;
+			case 8:  rc = l10ca(a); break;
+			case 9:  rc = l1142(a); break;
+			case 10: rc = l115a(a); break;
+			case 11: rc = l120c(a); break;
+			default: break;
+			}
+			if (rc == 1)
+				return 1;
+			if (rc < 0)
+				return 0;
 		}
 		/* L1242 → L125e → L0dd4 (continue). */
 	}
