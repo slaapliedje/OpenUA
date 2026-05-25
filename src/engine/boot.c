@@ -1248,7 +1248,7 @@ static void jt174(void)
 	g_a5_12912 = 1;
 	g_a5_12911 = 1;
 }
-static int  l0aae(void)            { PROBE("l0aae"); return 0; }                  /* CODE 12 + 0x0aae */
+static int  l0aae(void);                                                          /* CODE 12 + 0x0aae — lifted below */
 static void l02dc(long a)          { PROBE("l02dc"); }                            /* CODE 12 + 0x02dc */
 
 /* Additional A5-world globals jt918 touches (entry setup + buffer). */
@@ -1275,6 +1275,7 @@ static unsigned char  g_a5_22727[4];         /* 4-byte buffer JT[399] fills     
  * cluster, then the input loop reads which flag the user's selection
  * tripped (via the JT[3] case body for that local) and calls into the
  * matching CODE 17 / CODE 18 routine. */
+static unsigned char g_a5_14440;        /* index 0 — first menu slot   */
 static unsigned char g_a5_14439;
 static unsigned char g_a5_14438;
 static unsigned char g_a5_14437;
@@ -1285,6 +1286,124 @@ static unsigned char g_a5_14433;
 static unsigned char g_a5_14432;
 static unsigned char g_a5_14431;
 static unsigned char g_a5_14430;
+static unsigned char g_a5_14429;        /* index 11 — last menu slot   */
+static short         g_a5_19174;        /* menu coordinate (high word) */
+static short         g_a5_19172;        /* menu coordinate (low word)  */
+static short         g_a5_5794;         /* selection result            */
+
+/* L0aae's per-JT PROBE stubs. Each is a real CODE 3 / CODE 7 helper
+ * that we'll lift individually as engine paths demand them. Until then
+ * the surface keeps the call shape so the trace shows the menu build
+ * pattern, and the user-selection poll (JT[453]) returns 0 — which
+ * means "no action" once jt918's iter_guard breaks the loop. */
+static int     jt117(void)                          { PROBE("jt117"); return 0; }
+static int     jt146(void)                          { PROBE("jt146"); return 0; }
+static void    jt158(short a, short b)              { PROBE("jt158"); (void)a; (void)b; }
+static void    jt161(short a)                       { PROBE("jt161"); (void)a; }
+static void    jt166(short a)                       { PROBE("jt166"); (void)a; }
+static void    jt444(short item, short cmd)         { PROBE("jt444"); (void)item; (void)cmd; }
+static void    jt447(void)                          { PROBE("jt447"); }
+static void    jt449(short a)                       { PROBE("jt449"); (void)a; }
+static void    jt451(void)                          { PROBE("jt451"); }
+static void    jt452(short n, ...)                  { PROBE("jt452"); (void)n; }
+static short   jt453(long ctx)                      { PROBE("jt453"); (void)ctx; return 0; }
+
+/* The 12 menu items L0aae builds via JT[452] — `Train Character` etc.,
+ * each with a single-letter accelerator (the `selector` field is the
+ * ASCII code of the highlighted key). The full Mac body splits the
+ * install into three JT[452] calls of five items each; the skeleton
+ * just iterates the table. */
+static const struct {
+	long          label_strs_off;       /* STRS resource byte offset    */
+	short         selector;             /* accelerator key (ASCII)      */
+	short         page;                 /* 8000-channel page id         */
+	short         phrase;               /* phrase id                    */
+} k_jt918_menu_items[] = {
+	{ 0x5f1c, 'T', 8004, 8080 },   /* 0  "Train Character"    */
+	{ 0x5f0a, 'M', 8004, 8073 },   /* 1  "Modify Character"   */
+	{ 0x5ef8, 'D', 8084, 8066 },   /* 2  "Delete Character"   */
+	{ 0x5ee6, 'C', 8084, 8059 },   /* 3  "Create Character"   */
+	{ 0x5f5e, 'R', 8004, 8066 },   /* 4  "Remove Character"   */
+	{ 0x5f50, 'A', 8004, 8059 },   /* 5  "Add Character"      */
+	{ 0x5f40, 'V', 8004, 8094 },   /* 6  "View Character"     */
+	{ 0x5f2c, 'H', 8004, 8087 },   /* 7  "Human Change Class" */
+	{ 0x5fa4, 'E', 8084, 8094 },   /* 8  "Exit From Play"     */
+	{ 0x5f92, 'B', 8084, 8087 },   /* 9  "Begin Adventuring"  */
+	{ 0x5f80, 'S', 8084, 8080 },   /* 10 "Save Current Game"  */
+	{ 0x5f70, 'L', 8084, 8073 },   /* 11 "Load Saved Game"    */
+};
+
+/* L0aae — build the design-menu, walk the c79x flag cluster to
+ * enable / disable each item, display it, return the user's
+ * selection 0..11. CODE 12 + 0x0aae.
+ *
+ * Structure (from the original asm):
+ *   1. jt174  + jt447         — graphics / dialog init
+ *   2. Three JT[452] calls of five menu items each, plus one final
+ *      JT[452] for an extra "page" item
+ *   3. Set g_a5_19174 = 8004, g_a5_19172 = 8016 (menu coords)
+ *   4. jt166(9); jt158(g_a5_19174, g_a5_19172) — display the menu
+ *   5. Loop i = 0..11: jt444(i, flags[i] ? 24 : 16) — enable / disable
+ *   6. jt449(1); jt112(0); jt117()              — finalize
+ *   7. d0 = jt453(0)                              — poll for selection
+ *   8. if jt146() != 0: d0 = 5; jt161(0)         — shortcut override
+ *   9. g_a5_5794 = d0; jt451()
+ *  10. return d0
+ *
+ * The menu-build calls themselves stay PROBE-stubbed; the c79x walk
+ * (the meaningful runtime bit) is lifted faithfully. JT[453] returns
+ * 0 in the stub — combined with jt918's iter_guard the engine loop
+ * still terminates cleanly.
+ */
+static int l0aae(void)
+{
+	short i;
+	int   selection;
+
+	PROBE("L0aae");
+
+	jt174();
+	jt447();
+
+	for (i = 0; i < (short)(sizeof k_jt918_menu_items
+	                        / sizeof k_jt918_menu_items[0]); i++) {
+		jt452(i,
+		      ua_strs_at(k_jt918_menu_items[i].label_strs_off),
+		      (long)k_jt918_menu_items[i].selector,
+		      (long)k_jt918_menu_items[i].page,
+		      (long)k_jt918_menu_items[i].phrase);
+	}
+	/* The extra "page switch" item the Mac appends past the 12. */
+	jt452(7, 20L, (long)0);
+
+	g_a5_19174 = 8004;
+	g_a5_19172 = 8016;
+	jt166(9);
+	jt158(g_a5_19174, g_a5_19172);
+
+	{
+		unsigned char *flags[12] = {
+			&g_a5_14440, &g_a5_14439, &g_a5_14438, &g_a5_14437,
+			&g_a5_14436, &g_a5_14435, &g_a5_14434, &g_a5_14433,
+			&g_a5_14432, &g_a5_14431, &g_a5_14430, &g_a5_14429,
+		};
+		for (i = 0; i < 12; i++)
+			jt444(i, (short)(*flags[i] != 0 ? 24 : 16));
+	}
+
+	jt449(1);
+	(void)jt112(0);
+	(void)jt117();
+
+	selection = jt453(0);
+	if (jt146() != 0) {
+		selection = 5;
+		jt161(0);
+	}
+	g_a5_5794 = (short)selection;
+	jt451();
+	return selection;
+}
 
 /* The "no save-game pointer present, but cached state is dirty" flag —
  * read by the saved-game arm at L0e22 to decide whether the design
