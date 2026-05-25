@@ -34,6 +34,7 @@
 #include <stddef.h>             /* NULL */
 #include <string.h>             /* memcpy */
 
+#include "controls.h"
 #include "dialogs.h"
 #include "events.h"
 #include "macmemory.h"
@@ -55,9 +56,15 @@ typedef struct edit_item {
 	unsigned char text[EDIT_TEXT_CAP + 1];  /* Pascal string      */
 } edit_item;
 
+/* Maps a DITL item index to the ControlHandle we created for it.
+ * Item indices that don't carry a control (static text, edit text)
+ * keep a NULL slot. The slab is sized once at NewDialog and indexed
+ * by item - 1. */
 typedef struct dlg_aux {
-	short      edit_count;
-	edit_item *edits;       /* slab of edit_count entries */
+	short          edit_count;
+	edit_item     *edits;          /* slab of edit_count entries  */
+	short          ctrl_count;     /* total DITL item count       */
+	ControlHandle *ctrls;           /* per-item ControlHandle, NULL = no control */
 } dlg_aux;
 
 static dlg_aux *aux_of(DialogPtr d)
@@ -154,26 +161,34 @@ static int paint_item(short item, const Rect *local, unsigned char type,
 	grect.right  = (short)(ctx->dlog_left + local->right);
 
 	switch (type & 0x7F) {
-	case 4: {                                  /* standard button */
-		short tw = (short)(data_len * 8);
-		short tx = (short)((grect.left + grect.right - tw) / 2);
-		short ty = (short)((grect.top + grect.bottom) / 2 + 3);
+	case 4:                                    /* standard button */
+	case 5:                                    /* checkbox        */
+	case 6:                                    /* radio button    */
+		/* When painting on behalf of a DialogPtr, NewDialog has
+		 * already allocated ControlHandles for these items; the
+		 * Control Manager paints them via DrawControls. Skip the
+		 * inline draw to avoid double-painting. Alert still uses
+		 * paint_ditl without a dialog (ctx->dlg == NULL), so it
+		 * keeps the inline button frame. */
+		if (ctx->dlg != NULL)
+			break;
+		{
+			short tw = (short)(data_len * 8);
+			short tx = (short)((grect.left + grect.right - tw) / 2);
+			short ty = (short)((grect.top + grect.bottom) / 2 + 3);
 
-		RGBForeColor(&black);
-		FrameRect(&grect);
-		/* Default item gets a thicker outer frame — the Mac
-		 * double-ring around OK that prompts the user that Return
-		 * fires it. We inset by 3 and re-frame for the visual cue. */
-		if (item == ctx->def_item && ctx->def_item > 0) {
-			Rect outer = grect;
+			RGBForeColor(&black);
+			FrameRect(&grect);
+			if (item == ctx->def_item && ctx->def_item > 0) {
+				Rect outer = grect;
 
-			InsetRect(&outer, -3, -3);
-			FrameRect(&outer);
+				InsetRect(&outer, -3, -3);
+				FrameRect(&outer);
+			}
+			MoveTo(tx, ty);
+			DrawString((ConstStr255Param)data);
 		}
-		MoveTo(tx, ty);
-		DrawString((ConstStr255Param)data);
 		break;
-	}
 	case 8: {                                  /* static text */
 		RGBForeColor(&black);
 		MoveTo(grect.left, (short)(grect.top + 7));
@@ -259,6 +274,9 @@ static void paint_ditl_for_dialog(DialogPtr d)
 	SetPort(qd_screen_port());
 	(void)walk_ditl(d->items, paint_item, &ctx);
 	SetPort(saved_port);
+
+	/* The Control Manager owns the button / checkbox / radio paint. */
+	DrawControls((WindowPtr)d);
 }
 
 /* --- hit-testing -------------------------------------------------- */
@@ -472,20 +490,89 @@ static int count_edit_visitor(short item, const Rect *local, unsigned char type,
 	return 0;
 }
 
-static dlg_aux *dlg_aux_make(Handle items)
+/* Count every DITL item so we can size the per-item ControlHandle slab. */
+typedef struct {
+	short count;
+} count_all_ctx;
+
+static int count_all_visitor(short item, const Rect *local, unsigned char type,
+                             const unsigned char *data, unsigned char data_len,
+                             void *cookie)
+{
+	count_all_ctx *ctx = (count_all_ctx *)cookie;
+
+	(void)item;
+	(void)local;
+	(void)type;
+	(void)data;
+	(void)data_len;
+	ctx->count++;
+	return 0;
+}
+
+/* DITL-control creation visitor — for types 4/5/6, allocate a
+ * ControlHandle attached to the dialog window. refCon = the 1-based
+ * DITL item index so DialogSelect can map a control hit back to its
+ * item. The slab stays allocated with the aux block; KillControls
+ * (run by DisposeWindow) tears down the controls themselves. */
+typedef struct {
+	dlg_aux  *a;
+	WindowPtr owner;
+	short     dlog_top;
+	short     dlog_left;
+} init_ctrl_ctx;
+
+static int init_ctrl_item(short item, const Rect *local, unsigned char type,
+                          const unsigned char *data, unsigned char data_len,
+                          void *cookie)
+{
+	init_ctrl_ctx *ctx = (init_ctrl_ctx *)cookie;
+	short          procID;
+	unsigned char  title[256];
+	Rect           r;
+	ControlHandle  c;
+	short          slot = (short)(item - 1);
+
+	if (slot < 0 || slot >= ctx->a->ctrl_count)
+		return 0;
+	switch (type & 0x7F) {
+	case 4:  procID = pushButProc;   break;
+	case 5:  procID = checkBoxProc;  break;
+	case 6:  procID = radioButProc;  break;
+	default: return 0;
+	}
+	r = *local;
+	title[0] = (unsigned char)data_len;
+	if (data_len > 0)
+		memcpy(title + 1, data, (size_t)data_len);
+	c = NewControl(ctx->owner, &r, title, 1, 0, 0, 1, procID, (long)item);
+	if (c != NULL && (type & itemDisable))
+		HiliteControl(c, inactiveHilite);
+	ctx->a->ctrls[slot] = c;
+	return 0;
+}
+
+static dlg_aux *dlg_aux_make(Handle items, WindowPtr owner)
 {
 	count_edit_ctx cc;
+	count_all_ctx  ac;
 	init_edit_ctx  ic;
+	init_ctrl_ctx  icc;
 	dlg_aux       *a;
 
 	cc.count = 0;
 	(void)walk_ditl(items, count_edit_visitor, &cc);
+	ac.count = 0;
+	(void)walk_ditl(items, count_all_visitor, &ac);
 
 	a = (dlg_aux *)NewPtr((Size)sizeof *a);
 	if (a == NULL)
 		return NULL;
 	a->edit_count = cc.count;
 	a->edits      = NULL;
+	a->ctrl_count = ac.count;
+	a->ctrls      = NULL;
+
 	if (cc.count > 0) {
 		a->edits = (edit_item *)NewPtr((Size)cc.count
 		                               * (Size)sizeof *a->edits);
@@ -498,6 +585,21 @@ static dlg_aux *dlg_aux_make(Handle items)
 		ic.next = 0;
 		(void)walk_ditl(items, init_edit_item, &ic);
 	}
+
+	if (ac.count > 0) {
+		a->ctrls = (ControlHandle *)NewPtr((Size)ac.count
+		                                   * (Size)sizeof *a->ctrls);
+		if (a->ctrls == NULL) {
+			if (a->edits != NULL)
+				DisposePtr((Ptr)a->edits);
+			DisposePtr((Ptr)a);
+			return NULL;
+		}
+		memset(a->ctrls, 0, (size_t)ac.count * sizeof *a->ctrls);
+		icc.a     = a;
+		icc.owner = owner;
+		(void)walk_ditl(items, init_ctrl_item, &icc);
+	}
 	return a;
 }
 
@@ -507,6 +609,10 @@ static void dlg_aux_dispose(dlg_aux *a)
 		return;
 	if (a->edits != NULL)
 		DisposePtr((Ptr)a->edits);
+	if (a->ctrls != NULL)
+		DisposePtr((Ptr)a->ctrls);
+	/* The ControlHandles themselves are owned by the dialog window;
+	 * KillControls (invoked by DisposeWindow) tears them down. */
 	DisposePtr((Ptr)a);
 }
 
@@ -543,7 +649,7 @@ DialogPtr NewDialog(void *dStorage, const Rect *bounds,
 	d->editOpen  = 0;
 	d->aDefItem  = 1;       /* Mac default: item 1 is OK */
 
-	aux = dlg_aux_make(items);
+	aux = dlg_aux_make(items, (WindowPtr)d);
 	d->aux = aux;
 	/* Focus the first edit field if there is one — saves the user a
 	 * click before typing. */
@@ -638,11 +744,39 @@ Boolean DialogSelect(const EventRecord *event, DialogPtr *theDialog,
 
 	switch (event->what) {
 	case mouseDown: {
-		Rect  cont;
-		short hit;
+		ControlHandle hit_ctrl = NULL;
+		Rect          cont;
+		short         hit;
 
 		if (d->window.contRgn == NULL)
 			break;
+		/* Controls first — NewDialog wired DITL types 4/5/6 to the
+		 * Control Manager, so a button/checkbox/radio click routes
+		 * through TrackControl and we map back to the DITL item via
+		 * refCon. */
+		if (FindControl(event->where, (WindowPtr)d, &hit_ctrl) != 0
+		 && hit_ctrl != NULL) {
+			if (TrackControl(hit_ctrl, event->where, NULL) != 0) {
+				short item = (short)GetControlReference(hit_ctrl);
+				short procID = (short)((long)(*hit_ctrl)->contrlDefProc
+				                        & 0xFF);
+
+				/* Toggle the value on checkbox / radio so the
+				 * caller sees the new state via GetControlValue.
+				 * Radio-group exclusivity is the caller's job. */
+				if (procID == checkBoxProc)
+					SetControlValue(hit_ctrl,
+					    (short)(GetControlValue(hit_ctrl) ? 0 : 1));
+				else if (procID == radioButProc)
+					SetControlValue(hit_ctrl, 1);
+
+				if (item > 0) {
+					*itemHit = item;
+					return 1;
+				}
+			}
+			break;
+		}
 		cont = (*d->window.contRgn)->rgnBBox;
 		hit  = ditl_hit_button(&cont, d->items, event->where);
 		if (hit > 0) {
