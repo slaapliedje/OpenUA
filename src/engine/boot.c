@@ -493,12 +493,38 @@ static void jt81(void)             { PROBE("jt81"); }                           
 static void l5700(void)            { PROBE("L5700"); }                            /* CODE 6 + 0x5700  */
 static void l5864(void)            { PROBE("L5864"); }                            /* CODE 6 + 0x5864  */
 
-/* JT[461] (CODE 3 + 0xb66) — release a sub-resource by its short tag.
- * The kind / channel id at the head of each cached block flows back here
- * so JT[115] can return it to the engine's free-id pool. Body lives in
- * CODE 3 alongside the rest of the fc / resource-cache plumbing; stays
- * a PROBE stub until the next pass touches that family. */
-static void jt461(short tag)       { PROBE("jt461"); (void)tag; }
+/* JT[461] — release a sub-resource by its short tag. CODE 3 + 0xb66.
+ *
+ * The engine keeps a byte-per-id table at a5@(-10074); each entry is
+ * 0 while bound, 0xFF when free. JT[461](tag) just stamps that one
+ * byte to 0xFF. The tag is the same first-word value JT[115] reads from
+ * a cached block before tearing it down (signed; valid range is set by
+ * the engine's id pool size, not bounds-checked at this layer).
+ *
+ * Original disassembly:
+ *   linkw  fp,#0
+ *   lea    a5@(-10074),a0
+ *   addaw  fp@(8),a0                  // a0 = &a5[-10074 + tag]
+ *   moveq  #-1,d0
+ *   moveb  d0,a0@                     // *a0 = 0xFF
+ *   unlk fp; rts
+ *
+ * The companion table at a5@(-10026) is the matching 14-byte-per-entry
+ * record array JT[465] walks, with the count at a5@(-9306) — we allocate
+ * the byte table at 1024 entries to cover any plausible id range the
+ * engine asks for, with an out-of-range probe so the next pass that
+ * lifts the id-pool init can size it precisely. */
+static unsigned char g_a5_10074[1024];
+
+static void jt461(short tag)
+{
+	PROBE("jt461");
+	if (tag < 0 || (unsigned)tag >= sizeof g_a5_10074) {
+		PROBE("jt461: tag out of range");
+		return;
+	}
+	g_a5_10074[tag] = 0xFF;
+}
 
 /* JT[115] — generic slot-release service. CODE 6 + 0x31dc.
  *
