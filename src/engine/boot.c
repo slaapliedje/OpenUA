@@ -1415,7 +1415,30 @@ static unsigned char g_a5_22730;
  * 17 / CODE 18, etc. They stay PROBE-only until the cases below are
  * lifted individually; for now the dispatcher routes correctly and the
  * trace reports which case the loop hits. */
-static void l0f1a(void) { PROBE("jt918/case0 L0f1a"); }
+/* JT[574] (CODE 17 + 0x3b5e) — Train Character action entry. Body
+ * lives in CODE 17 which we haven't touched yet; stays a PROBE stub
+ * until the CODE 17 lifts begin. The single long arg is consistently
+ * 0 at the L0f1a call site. */
+static int  jt574(long ctx)        { PROBE("jt574"); (void)ctx; return 0; }
+
+/* L0f1a — case 0 of jt918's JT[3] switch. CODE 12 + 0x0f1a.
+ *
+ *   tstb a5@(-14440)
+ *   beqw L1242                       // if flag clear, no action
+ *   clrl -(sp)
+ *   jsr  JT[574]                     // jt574(0) — Train Character
+ *   addql #4, sp
+ *   braw L1242
+ *
+ * The matching menu item is "Train Character" (selector 'T'); the
+ * c79x flag g_a5_14440 is set by the L0df6 / L0e98 cluster init when
+ * the action is available. */
+static void l0f1a(void)
+{
+	PROBE("jt918/case0 L0f1a");
+	if (g_a5_14440 != 0)
+		(void)jt574(0);
+}
 static void l0f2e(void) { PROBE("jt918/case1 L0f2e"); }
 static void l0f3e(void) { PROBE("jt918/case2 L0f3e"); }
 static void l0f60(void) { PROBE("jt918/case3 L0f60"); }
