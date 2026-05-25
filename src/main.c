@@ -242,12 +242,16 @@ int main(void)
 		MenuHandle m_file = NewMenu(128, (ConstStr255Param)"\004File");
 		MenuHandle m_edit = NewMenu(129, (ConstStr255Param)"\004Edit");
 
+		/* Items with '/' set a Cmd-key equivalent — MenuKey scans
+		 * for these on cmdKey-modified keyDowns. */
 		if (m_file != NULL) {
-			AppendMenu(m_file, (ConstStr255Param)"\017New;Open;-;Quit");
+			AppendMenu(m_file, (ConstStr255Param)
+			           "\025New/N;Open/O;-;Quit/Q");
 			InsertMenu(m_file, 0);
 		}
 		if (m_edit != NULL) {
-			AppendMenu(m_edit, (ConstStr255Param)"\015Undo;Cut;Copy");
+			AppendMenu(m_edit, (ConstStr255Param)
+			           "\023Undo/Z;Cut/X;Copy/C");
 			InsertMenu(m_edit, 0);
 		}
 		DrawMenuBar();
@@ -305,9 +309,30 @@ int main(void)
 				dsp->present();
 				break;
 			}
-			case keyDown:
-				done = 1;
+			case keyDown: {
+				/* Cmd-key chords go to the menu bar; bare keys
+				 * exit the demo. The Mac packs the keyDown
+				 * message as (scan << 8) | ASCII, so the typed
+				 * character is the low byte. */
+				if (e.modifiers & cmdKey) {
+					short ch  = (short)(e.message & 0xFF);
+					long  sel = MenuKey(ch);
+
+					if (sel != 0) {
+						short id   = (short)((sel >> 16) & 0xFFFF);
+						short item = (short)(sel & 0xFFFF);
+
+						dbg_log_num("main: cmd-key menu id = ", id);
+						dbg_log_num("main: cmd-key item    = ", item);
+						if (id == 128 && item == 4)
+							done = 1;
+					}
+					dsp->present();
+				} else {
+					done = 1;
+				}
 				break;
+			}
 			default:
 				break;
 			}

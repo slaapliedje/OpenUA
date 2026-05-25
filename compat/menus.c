@@ -50,8 +50,17 @@ static const RGBColor c_bar_dim = { 0x8000, 0x8000, 0x8000 };  /* grey    */
 /* --- the items slab --------------------------------------------------- */
 
 typedef struct MenuItem {
-	unsigned char text[256];        /* Pascal string */
+	unsigned char text[256];        /* Pascal string                    */
+	unsigned char key_equiv;        /* Cmd-key, uppercased; 0 = none    */
 } MenuItem;
+
+/* Uppercase an ASCII letter; pass other bytes through. */
+static unsigned char to_upper(unsigned char c)
+{
+	if (c >= 'a' && c <= 'z')
+		return (unsigned char)(c - ('a' - 'A'));
+	return c;
+}
 
 /* --- the menu bar ----------------------------------------------------- */
 
@@ -97,8 +106,10 @@ static short title_width(const unsigned char *p)
 /* Append a single item (raw text bytes) to the menu, growing the slab. */
 static void menu_push_item(MenuInfo *info, const unsigned char *text, short len)
 {
-	MenuItem *new_items;
-	short     new_cap;
+	MenuItem     *new_items;
+	short         new_cap;
+	short         text_len;
+	unsigned char key_equiv = 0;
 
 	if (info->item_count >= info->item_cap) {
 		new_cap = (short)(info->item_cap == 0 ? 4 : info->item_cap * 2);
@@ -113,11 +124,34 @@ static void menu_push_item(MenuInfo *info, const unsigned char *text, short len)
 		info->items   = new_items;
 		info->item_cap = new_cap;
 	}
-	if (len > 255)
-		len = 255;
-	info->items[info->item_count].text[0] = (unsigned char)len;
-	if (len > 0)
-		memcpy(info->items[info->item_count].text + 1, text, (size_t)len);
+
+	/* Split the source into title text and meta tail. The Mac AppendMenu
+	 * meta-characters are '/' (key-equiv) '!' (mark) '<' (style) '('
+	 * (disable) '^' (icon). The skeleton recognises just '/' — it stores
+	 * the following byte (uppercased) as the item's Cmd-key. The other
+	 * meta-chars terminate the visible text but their payload is
+	 * discarded for now. */
+	text_len = len;
+	{
+		short i;
+		for (i = 0; i < len; i++) {
+			unsigned char c = text[i];
+
+			if (c == '/' || c == '!' || c == '<'
+			 || c == '(' || c == '^') {
+				text_len = i;
+				if (c == '/' && i + 1 < len)
+					key_equiv = to_upper(text[i + 1]);
+				break;
+			}
+		}
+	}
+	if (text_len > 255)
+		text_len = 255;
+	info->items[info->item_count].text[0] = (unsigned char)text_len;
+	if (text_len > 0)
+		memcpy(info->items[info->item_count].text + 1, text, (size_t)text_len);
+	info->items[info->item_count].key_equiv = key_equiv;
 	info->item_count++;
 	/* enable the new item — bit (n) where n = 1..31 maps to item n. */
 	if (info->item_count >= 1 && info->item_count <= 31)
@@ -205,11 +239,26 @@ static void draw_title(short i, int hilited)
 	}
 }
 
+/* Pixel width reserved on the right of each pull-down row for the Cmd-key
+ * column. Zero if no item in this menu carries a key-equivalent. */
+static short key_col_width(const MenuInfo *info)
+{
+	short k;
+
+	if (info == NULL)
+		return 0;
+	for (k = 0; k < info->item_count; k++) {
+		if (info->items[k].key_equiv != 0)
+			return (short)(3 * CHAR_W);     /* "^Q" + a space */
+	}
+	return 0;
+}
+
 /* Compute the pull-down rect for the menu at bar slot `i`. */
 static void pulldown_rect(short i, Rect *out)
 {
 	MenuInfo *info = (g_menubar[i] != NULL) ? *g_menubar[i] : NULL;
-	short     left, k, max_w = 0, h;
+	short     left, k, max_w = 0, h, key_w;
 
 	if (info == NULL || out == NULL)
 		return;
@@ -220,9 +269,11 @@ static void pulldown_rect(short i, Rect *out)
 		if (w > max_w)
 			max_w = w;
 	}
+	key_w = key_col_width(info);
 	h = (short)(info->item_count * ITEM_H);
 	SetRect(out, (short)(left - TITLE_PAD_H), (short)MENUBAR_H,
-	        (short)(left + max_w + 2 * ITEM_TXT_INSET), (short)(MENUBAR_H + h));
+	        (short)(left + max_w + 2 * ITEM_TXT_INSET + key_w),
+	        (short)(MENUBAR_H + h));
 }
 
 /* Paint the pull-down for menu at bar slot `i` with item `hi_item` (1-based,
@@ -274,6 +325,21 @@ static void draw_pulldown(short i, short hi_item)
 		MoveTo((short)(box.left + ITEM_TXT_INSET),
 		       (short)(box.top + k * ITEM_H + ITEM_TXT_DROP));
 		DrawString(info->items[k].text);
+
+		/* Cmd-key column, right-aligned. The 8x8 fallback font has
+		 * no Apple/Command glyph, so we use a '^' prefix to signal
+		 * a key-equivalent — it reads cleanly without standing in
+		 * for any specific keycap symbol. */
+		if (info->items[k].key_equiv != 0) {
+			unsigned char buf[3];
+
+			buf[0] = 2;
+			buf[1] = '^';
+			buf[2] = info->items[k].key_equiv;
+			MoveTo((short)(box.right - 2 * CHAR_W - ITEM_TXT_INSET),
+			       (short)(box.top + k * ITEM_H + ITEM_TXT_DROP));
+			DrawString(buf);
+		}
 		RGBForeColor(&c_bar_fg);
 	}
 
@@ -470,20 +536,11 @@ void AppendMenu(MenuHandle menu, ConstStr255Param data)
 	n = (short)data[0];
 	p = data + 1;
 
+	/* Split on ';'. menu_push_item walks any meta-character tail. */
 	start = 0;
 	for (i = 0; i <= n; i++) {
 		if (i == n || p[i] == ';') {
-			short item_len = (short)(i - start);
-			short stop;
-
-			for (stop = 0; stop < item_len; stop++) {
-				unsigned char c = p[start + stop];
-
-				if (c == '/' || c == '!' || c == '<'
-				 || c == '(' || c == '^')
-					break;
-			}
-			menu_push_item(info, p + start, stop);
+			menu_push_item(info, p + start, (short)(i - start));
 			start = (short)(i + 1);
 		}
 	}
@@ -746,4 +803,53 @@ long MenuSelect(Point startPt)
 			result = ((long)info->menuID << 16) | (long)cur_item;
 	}
 	return result;
+}
+
+long MenuKey(short ch)
+{
+	unsigned char target = to_upper((unsigned char)(ch & 0xFF));
+	short         i, k;
+	long          ticks_end;
+
+	if (target == 0)
+		return 0;
+	for (i = 0; i < g_menubar_n; i++) {
+		MenuInfo *info;
+
+		if (g_menubar[i] == NULL)
+			continue;
+		info = *g_menubar[i];
+		if (info == NULL)
+			continue;
+		/* The whole-menu enable bit is bit 0; a disabled menu skips
+		 * the lookup entirely so a Cmd-Q over an inactive File menu
+		 * doesn't fire. */
+		if ((info->enableFlags & 1L) == 0)
+			continue;
+		for (k = 0; k < info->item_count; k++) {
+			int enabled = (k + 1 < 32)
+			            ? ((info->enableFlags & (1L << (k + 1))) != 0)
+			            : 1;
+
+			if (!enabled)
+				continue;
+			if (info->items[k].key_equiv != target)
+				continue;
+
+			/* Brief title flash so the user sees which menu
+			 * fired. The Mac flashes three times; one inversion
+			 * for ~5 ticks reads the same without holding up the
+			 * event loop. */
+			HiliteMenu(info->menuID);
+			qd_present();
+			ticks_end = TickCount() + 5;
+			while (TickCount() < ticks_end)
+				;
+			HiliteMenu(0);
+			qd_present();
+
+			return ((long)info->menuID << 16) | (long)(k + 1);
+		}
+	}
+	return 0;
 }

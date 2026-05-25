@@ -9,19 +9,23 @@
  * releases and returns the (menuID, item) pair packed as a long.
  *
  * Here so far: NewMenu / GetMenu (from a MENU resource) / DisposeMenu,
- * AppendMenu (one or more ';'-separated Pascal-string items),
- * CountMItems, GetMenuItemText, InsertMenu / DeleteMenu / ClearMenuBar,
- * GetMenuHandle, DrawMenuBar, HiliteMenu, MenuSelect with a save-and-restore
- * pull-down (the bits under the dropdown are stashed in a Ptr and blitted
- * back on dismiss, so any windows the menu briefly covered come back
- * untouched). EnableItem / DisableItem flip bits in enableFlags. The
+ * AppendMenu (one or more ';'-separated Pascal-string items, with the
+ * '/' meta-character setting a per-item key-equivalent), CountMItems,
+ * GetMenuItemText, InsertMenu / DeleteMenu / ClearMenuBar, GetMenuHandle,
+ * DrawMenuBar, HiliteMenu, MenuSelect with a save-and-restore pull-down
+ * (the bits under the dropdown are stashed in a Ptr and blitted back on
+ * dismiss, so any windows the menu briefly covered come back untouched),
+ * and MenuKey for command-key dispatch (scans the bar for an enabled
+ * item whose key-equivalent matches the keystroke, flashes the menu
+ * title once on hit, returns the same packed (menuID, item) as a
+ * MenuSelect). EnableItem / DisableItem flip bits in enableFlags. The
  * MenuInfo header keeps the Mac field offsets for menuID / menuWidth /
  * menuHeight / menuProc / enableFlags so by-offset engine access ports
  * unchanged; the item list lives in a private slab off the end of the
  * record rather than in the Mac variable-length menuData blob — engine
  * code that walked menuData would need a fixup, but FRUA reaches items
- * through GetMenuItemText, not by walking the raw bytes. Key-equivalents,
- * styled item text, item icons, MDEF dispatch, and MenuKey () follow.
+ * through GetMenuItemText, not by walking the raw bytes. Styled item
+ * text, item icons, and MDEF dispatch follow.
  */
 
 #ifndef COMPAT_MENUS_H
@@ -146,5 +150,15 @@ void HiliteMenu(short menuID);
  * exactly as it went in.
  */
 long MenuSelect(Point startPt);
+
+/*
+ * Dispatch a Cmd-key keystroke to the menu bar. `ch` is the typed
+ * character (low byte of a keyDown EventRecord's message). Returns
+ * (menuID << 16) | item if an enabled item carries that key-equivalent,
+ * 0 if no match. The menu's title is briefly hilited on hit so the
+ * user sees which menu fired — same visual cue as the Mac. Callers
+ * should HiliteMenu(0) after acting on the return.
+ */
+long MenuKey(short ch);
 
 #endif /* COMPAT_MENUS_H */
