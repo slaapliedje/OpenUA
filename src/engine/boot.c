@@ -279,7 +279,7 @@ int ua_main(short arg1, long arg2)
 static void          l5124(void);                                                /* CODE 6 + 0x5124 — lifted below */
 static void          l4b40(const char *msg, short a, short b) { (void)msg; PROBE("l4b40"); }
                                                                                  /* CODE 6 + 0x4b40 (alert?) */
-static void          l67ca(void)              { PROBE("l67ca"); }                /* CODE 6 + 0x67ca — has JT[1] dispatch, deferred */
+static void          l67ca(void);                                                /* CODE 6 + 0x67ca — lifted below */
 static void          jt76(void);                                                  /* CODE 6 + 0x670c — lifted below */
 static void          l66e6(short n);                                              /* CODE 6 + 0x66e6 — lifted below */
 static void          l68f8(void)
@@ -1128,6 +1128,116 @@ static void jt76(void)
 	jt174();
 }
 static int  jt3(short a)           { PROBE("jt3"); return 0; }                    /* CODE 1 + 0x158   */
+
+/* --- l67ca: L07dc's saved-game branch tear-down + redraw ----------- *
+ *
+ * Called from L07dc when the engine is committing the saved-game arm
+ * (the path that L68f8 / L66e6 / jt941 also live on). Side effects:
+ *
+ *   1. jt76()                  — the four-channel reset run by every
+ *                                state transition in this family
+ *   2. l66e6(16); l66e6(12)    — clear sub-resources 16 and 12 from
+ *                                the 8000-page channel array
+ *   3. jt80(2)                 — toggle the secondary mode flag (more
+ *                                below)
+ *   4. jt1001(8000, 8000, 1, 9) + jt1001(8000, 8000, 1, 21) — the
+ *                                shared "redraw frame" prep calls
+ *   5. JT[1] case dispatch by the direction byte at
+ *      g_a5_27980[g_a5_12286 * 3] — one of 'E' / 'N' / 'S' / 'W'
+ *      picks a per-side JT[1001] (channels 25 / 22 / 23 / 24); any
+ *      other value falls through to the default tail
+ *   6. l08e6(1)                — set the post-transition redraw flag
+ *
+ * The original disassembly:
+ *
+ *   L67ca: jsr L670c                  // jt76
+ *          pushw 16; jsr L66e6
+ *          pushw 12; jsr L66e6
+ *          pushw 2;  jsr L68ae        // jt80
+ *          pushw 9 / 1 / 8000 / 8000; jsr JT[1001]
+ *          pushw 21 / 1 / 8000 / 8000; jsr JT[1001]
+ *          moveq #0, d0
+ *          moveb a5@(-12286), d0       // d0 = mode flag (0..N)
+ *          muluw #3, d0
+ *          lea   a5@(-27980), a0
+ *          addal d0, a0                // a0 = &dir_table[mode * 3]
+ *          moveb a0@, d0; extw d0
+ *          jsr   JT[1]                 // 5-pair (offset, key) table:
+ *             ('E' -> +0x12, 'N' -> +0x26, 'S' -> +0x3a, 'W' -> +0x4e,
+ *              default -> +0x60)
+ *          (per-direction JT[1001] case bodies — channel 25/22/23/24)
+ *   L68a2: pushw 1; jsr L08e6
+ *          rts
+ *
+ * The direction table at g_a5_27980 is fed by the THINK C DATA pool
+ * (not replayed yet) — the lifted lookup reads zeros, so the switch
+ * always lands in the default arm. Once DREL is replayed, the
+ * direction-specific JT[1001] calls fire correctly.
+ */
+static unsigned char  g_a5_13046;                                                 /* secondary mode flag (jt80)  */
+static unsigned char  g_a5_31230;                                                 /* post-transition redraw flag */
+static unsigned char  g_a5_27980[32 * 3];                                         /* 3-byte direction-table per mode */
+static unsigned char  g_a5_12286;                                                 /* mode index (tentative; defined w/ L5124 cluster) */
+
+/* JT[80] / L68ae — toggle the secondary mode flag, with a per-state
+ * cleanup. CODE 6 + 0x68ae.
+ *
+ *   if (arg != 0) {
+ *       g_a5_13046 = (arg != 2) ? 1 : 0;
+ *   } else if (g_a5_13046 != 0) {
+ *       g_a5_13046 = 0;
+ *       jt108(1);
+ *       jt1001(8000, 8000, 1, 9);
+ *   }
+ */
+static void jt80(short arg)
+{
+	unsigned char a = (unsigned char)(arg & 0xFF);
+
+	PROBE("jt80");
+	if (a != 0) {
+		g_a5_13046 = (unsigned char)(a != 2 ? 1 : 0);
+		return;
+	}
+	if (g_a5_13046 == 0)
+		return;
+	g_a5_13046 = 0;
+	(void)jt108(1);
+	jt1001(8000, 8000, 1, 9);
+}
+
+/* L08e6 — store the byte arg into the redraw flag g_a5_31230. CODE 6
+ * + 0x08e6. Just `linkw / moveb fp@(9), a5@(-31230) / unlk / rts`. */
+static void l08e6(short arg)
+{
+	PROBE("L08e6");
+	g_a5_31230 = (unsigned char)(arg & 0xFF);
+}
+
+static void l67ca(void)
+{
+	short letter;
+
+	PROBE("l67ca");
+	jt76();
+	l66e6(16);
+	l66e6(12);
+	jt80(2);
+	jt1001(8000, 8000, 1, 9);
+	jt1001(8000, 8000, 1, 21);
+
+	/* Direction byte at g_a5_27980[g_a5_12286 * 3], sign-extended. */
+	letter = (short)(signed char)g_a5_27980[g_a5_12286 * 3];
+	switch (letter) {
+	case 'E': jt1001(8000, 8000, 1, 25); break;
+	case 'N': jt1001(8000, 8000, 1, 22); break;
+	case 'S': jt1001(8000, 8000, 1, 23); break;
+	case 'W': jt1001(8000, 8000, 1, 24); break;
+	default:                              break;
+	}
+	l08e6(1);
+}
+
 static unsigned char g_a5_12912;                                                  /* set to 1 by jt174 */
 static unsigned char g_a5_12911;                                                  /* set to 1 by jt174 */
 static void jt174(void)
