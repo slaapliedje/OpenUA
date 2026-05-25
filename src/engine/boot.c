@@ -278,8 +278,16 @@ int ua_main(short arg1, long arg2)
 static void          l5124(void);                                                /* CODE 6 + 0x5124 — lifted below */
 static void          l4b40(const char *msg, short a, short b) { (void)msg; PROBE("l4b40"); }
                                                                                  /* CODE 6 + 0x4b40 (alert?) */
-static void          l67ca(void)              { PROBE("l67ca"); }                /* CODE 6 + 0x67ca */
-static void          l68f8(void)              { PROBE("l68f8"); }                /* CODE 6 + 0x68f8 */
+static void          l67ca(void)              { PROBE("l67ca"); }                /* CODE 6 + 0x67ca — has JT[1] dispatch, deferred */
+static void          jt76(void);                                                  /* CODE 6 + 0x670c — lifted below */
+static void          l66e6(short n);                                              /* CODE 6 + 0x66e6 — lifted below */
+static void          l68f8(void)
+{
+	/* CODE 6 + 0x68f8: two-call sequence. */
+	PROBE("l68f8");
+	jt76();
+	l66e6(16);
+}
 static void          l2cb0(short a, short b)  { PROBE("l2cb0"); }                /* CODE 6 + 0x2cb0 */
 
 /* L07dc's play-loop predicate flag, A5-relative offset -4944. Lives here
@@ -287,6 +295,16 @@ static void          l2cb0(short a, short b)  { PROBE("l2cb0"); }               
  * L5124 zeroes it as part of the game-start state reset. Other A5 globals
  * stay co-located with their main lift. */
 static unsigned char g_a5_4944;
+
+/* Forward tentative declarations of A5 globals jt941 (lifted in-place
+ * below) reaches for; full definitions live further down with L07dc and
+ * L5124. C merges duplicate tentative file-scope static declarations,
+ * so naming them here lets jt941 reference them before the main blocks
+ * arrive. */
+static unsigned char  g_a5_27990;
+static void          *g_a5_28006;
+static unsigned char  g_a5_12287;
+static unsigned char  g_a5_12288;
 
 /* Cross-segment JT entries L07dc calls — most are stubs; jt918 / jt942 /
  * jt943 are lifted (jt942 and jt943 are the paired setter / getter on the
@@ -298,7 +316,25 @@ static void          jt942(short a)
 	g_a5_4944 = (unsigned char)a;
 }
 static void          jt582(void)              { PROBE("jt582"); }                /* CODE 15 + 0x153e */
-static void          jt941(void)              { PROBE("jt941"); }                /* CODE 20 + 0x4108 */
+static void          jt941(void)
+{
+	/* CODE 20 + 0x4108: copy two A5 / handle bytes into handle[23..24].
+	 * Selector 4 (the L5124 default) copies from g_a5_12288 / 12287;
+	 * any other selector copies from handle[37..38] within the same
+	 * handle (an in-handle field-to-field move). */
+	unsigned char *handle = (unsigned char *)g_a5_28006;
+
+	PROBE("jt941");
+	if (handle == NULL)
+		return;
+	if (g_a5_27990 == 4) {
+		handle[23] = g_a5_12288;
+		handle[24] = g_a5_12287;
+	} else {
+		handle[23] = handle[37];
+		handle[24] = handle[38];
+	}
+}
 static int           jt918(short a);                                             /* CODE 12 + 0x0d90 — lifted below */
 static void          jt937(long a)            { PROBE("jt937"); }                /* CODE 12 + 0x02dc */
 static void          jt938(void)              { PROBE("jt938"); }                /* CODE 12 + 0x0562 */
@@ -453,6 +489,15 @@ static void jt81(void)             { PROBE("jt81"); }                           
 static void l4bf6(short a, short b, short c, short d) { PROBE("l4bf6"); }         /* CODE 6 + 0x4bf6  */
 static void jt1001(short a, short b, short c, short d) { PROBE("jt1001"); }       /* CODE 5 + 0x31ac  */
 static void jt174(void);                                                          /* CODE 7 + 0x2062 (lifted below) */
+
+static void l66e6(short n)
+{
+	/* CODE 6 + 0x66e6: jt1001(8000 + n*4, 8000, 1, 7). The first arg
+	 * marches in 4-unit steps from a base of 8000, so this looks like
+	 * "select sub-resource n from a four-channel array". */
+	PROBE("l66e6");
+	jt1001((short)(8000 + (short)(n << 2)), 8000, 1, 7);
+}
 
 static void jt76(void)
 {
