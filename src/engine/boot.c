@@ -626,6 +626,187 @@ static void jt461(short tag)
 	g_a5_10074[tag] = 0xFF;
 }
 
+/* --- string / char helpers the JT[465] family pulls from CODE 3 ------- */
+
+/* L466a (CODE 3 + 0x466a) — isupper. */
+static int l466a(short ch)
+{
+	return (ch >= 'A' && ch <= 'Z') ? 1 : 0;
+}
+
+/* JT[395] / L46b2 (CODE 3 + 0x46b2) — tolower. */
+static short l46b2(short ch)
+{
+	return (short)(l466a(ch) ? ch + 32 : ch);
+}
+
+/* L39ae (CODE 3 + 0x39ae) — strlen, returns short. */
+static short l39ae(const char *s)
+{
+	short n = 0;
+
+	if (s == NULL)
+		return 0;
+	while (*s++ != 0)
+		n++;
+	return n;
+}
+
+/* L3bda (CODE 3 + 0x3bda) — case-insensitive string equal.
+ *
+ * Walks both strings while their lowercased bytes match. Returns 1 if
+ * both reach the terminator together (full match), 0 otherwise.
+ */
+static int l3bda(const char *s1, const char *s2)
+{
+	if (s1 == NULL || s2 == NULL)
+		return 0;
+	while (l46b2((unsigned char)*s1) == l46b2((unsigned char)*s2)) {
+		if (*s1 == 0)
+			break;
+		s1++;
+		s2++;
+	}
+	return (*s1 == 0 && *s2 == 0) ? 1 : 0;
+}
+
+/* L3cfa (CODE 3 + 0x3cfa) — strcpy(dst, basename_after_colon(src)).
+ *
+ *   strlen src, then walk backwards from end-of-string looking for ':'.
+ *   If found, advance past it. Then JT[384] (strcpy) the tail into dst.
+ *
+ * Mac argument order: l3cfa(src, dst) — the call site in JT[465] pushes
+ * dst first and src last, so fp@(8) is src and fp@(12) is dst.
+ */
+static void l3cfa(const char *src, char *dst)
+{
+	const char *p;
+
+	if (src == NULL || dst == NULL)
+		return;
+	p = src + l39ae(src);
+	while (p > src && *p != ':')
+		p--;
+	if (*p == ':')
+		p++;
+	jt384(dst, p);
+}
+
+/* The 14-byte record table and matching count word. JT[465] walks
+ * the table; L103c (the compactor) edits both this array and the parallel
+ * freemap / offset tables when an entry is removed. The original engine
+ * sizes them via the THINK C DATA pool, which we haven't replayed; 64
+ * records is enough headroom for any FRUA mode the lifted paths reach. */
+#define JT465_RECORD_BYTES   14
+#define JT465_RECORD_MAX     64
+static unsigned char g_a5_10026[JT465_RECORD_MAX * JT465_RECORD_BYTES];
+static short         g_a5_9306;        /* live record count                */
+
+/* L103c (CODE 3 + 0x103c) — compactor.
+ *
+ * Removes record `i` from the parallel arrays at a5@(-10074),
+ * a5@(-9354), and a5@(-10270), then decrements a5@(-9306). The body
+ * touches three different tables with their own walk patterns plus a
+ * BlockMove (L366a) to shift the tail — sizable enough to defer. JT[465]
+ * just needs the contract "after L103c(i), the table at -10026 has one
+ * fewer entry and indices >= i have shifted down".
+ *
+ * The skeleton below honours the count decrement so jt465's loop
+ * terminates correctly even without the rest of the compaction body;
+ * the freemap / record bytes are NOT yet shifted, so the visible state
+ * after a full sweep will be "count clamped to 0, records still in
+ * place" — adequate for the boot trace, not adequate once a consumer
+ * reads the table for layout. The L103c follow-on lift will close that
+ * gap.
+ */
+static void l103c(short i)
+{
+	PROBE("L103c");
+	(void)i;
+	if (g_a5_9306 > 0)
+		g_a5_9306--;
+}
+
+/* JT[465] — flush records by key. CODE 3 + 0xb7a.
+ *
+ * Two paths:
+ *   - NULL key: reset everything. count = 0; mark the first 48 freemap
+ *     bytes as free (0xFF) via jt399.
+ *   - non-NULL key: copy the basename (after ':') into a local 200-byte
+ *     buffer, then sweep the 14-byte record table. For each record
+ *     whose key matches (case-insensitive) call L103c to remove it; the
+ *     loop index is decremented on a hit so the just-shifted record at
+ *     `i` gets re-checked next iteration.
+ *
+ * Original disassembly:
+ *   linkw  fp,#-202
+ *   tstl   fp@(8)
+ *   bnes   L0b9c
+ *   clrw   a5@(-9306)              // count = 0
+ *   movew  #-1,sp@-
+ *   movew  #48,sp@-
+ *   pea    a5@(-10074)
+ *   jsr    L39d2                   // jt399(&freemap, 48, -1)
+ *   addql  #8,sp
+ *   bras   L0bf0
+ *   L0b9c: pea    fp@(-202)         // buf
+ *          movel  fp@(8),sp@-       // input key
+ *          jsr    L3cfa             // l3cfa(input, buf)
+ *          addql  #8,sp
+ *          clrb   fp@(-189)         // belt-and-braces NUL @ buf[13]
+ *          clrw   fp@(-2)           // i = 0
+ *          bras   L0be6
+ *   L0bb4: movew  fp@(-2),d0
+ *          mulsw  #14,d0
+ *          lea    a5@(-10026),a0
+ *          addal  d0,a0             // a0 = &record[i]
+ *          pea    fp@(-202)
+ *          pea    a0@
+ *          jsr    L3bda             // l3bda(record, buf) → bool
+ *          addql  #8,sp
+ *          tstb   d0
+ *          beqs   L0be2
+ *          movew  fp@(-2),d0
+ *          subqw  #1,fp@(-2)        // i--
+ *          movew  d0,sp@-
+ *          jsr    L103c             // L103c(old i)
+ *          addql  #2,sp
+ *   L0be2: addqw  #1,fp@(-2)        // i++
+ *   L0be6: movew  fp@(-2),d0
+ *          cmpw   a5@(-9306),d0
+ *          blts   L0bb4
+ *   L0bf0: unlk fp; rts
+ */
+static void jt465(const char *key) __attribute__((unused));
+static void jt465(const char *key)
+{
+	char  buf[200];
+	short i;
+
+	PROBE("jt465");
+
+	if (key == NULL) {
+		g_a5_9306 = 0;
+		jt399(g_a5_10074, 48, -1);
+		return;
+	}
+
+	l3cfa(key, buf);
+	buf[13] = 0;            /* belt-and-braces terminator (Mac clrb at +13) */
+
+	i = 0;
+	while (i < g_a5_9306) {
+		unsigned char *record =
+		    &g_a5_10026[(short)(i * JT465_RECORD_BYTES)];
+
+		if (l3bda((const char *)record, buf)) {
+			l103c(i);
+			i--;            /* re-check same index after compaction */
+		}
+		i++;
+	}
+}
+
 /* JT[115] — generic slot-release service. CODE 6 + 0x31dc.
  *
  * Takes a pointer to a 4-byte slot that holds either NULL or a pointer
