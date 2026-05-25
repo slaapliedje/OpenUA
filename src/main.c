@@ -16,6 +16,7 @@
 #include <string.h>             /* memset  */
 
 #include "engine/boot.h"        /* ua_main */
+#include "engine/data_pool_replay.h"
 #include "dbglog.h"
 #include "display.h"
 #include "files.h"
@@ -329,6 +330,7 @@ int main(void)
 	dbg_log("main: shim up");
 
 	load_frua_rsrc();
+	data_pool_replay();
 	load_frua_palette();
 	if (mac_font_load(-27001) == 0)
 		dbg_log("main: FONT -27001 loaded");

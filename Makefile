@@ -46,6 +46,23 @@ frua.rsrc: $(RFORK) tools/rsrcpack.py
 		echo "  frua.rsrc: $< not found; skipping (engine runs with no resources)"; \
 	fi
 
+# DATA + DREL replay tables — regenerated from frua.rsrc when the
+# archive is present. The committed stubs (G_A5_*_LEN/COUNT = 0)
+# keep the build happy on systems without the FRUA fork. See
+# tools/dataemit.py for the encoder and docs/engine-bring-up.md for
+# how the replay is applied at engine startup.
+DATAPOOL_H := src/engine/data_pool.h
+DATAPOOL_C := src/engine/data_pool.c
+data-pool-regen: frua.rsrc tools/dataemit.py tools/datapool.py
+	@if [ -f frua.rsrc ]; then \
+		python3 tools/dataemit.py frua.rsrc \
+			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C) --summary; \
+	else \
+		python3 tools/dataemit.py --stub \
+			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
+		echo "  data_pool: stubbed (no frua.rsrc)"; \
+	fi
+
 %.o: %.c
 	$(CC) $(CFLAGS) -MMD -MP -c -o $@ $<
 
@@ -75,4 +92,4 @@ clean:
 
 -include $(DEP)
 
-.PHONY: all run test clean
+.PHONY: all run test clean data-pool-regen
