@@ -493,14 +493,65 @@ static void jt81(void)             { PROBE("jt81"); }                           
 static void l5700(void)            { PROBE("L5700"); }                            /* CODE 6 + 0x5700  */
 static void l5864(void)            { PROBE("L5864"); }                            /* CODE 6 + 0x5864  */
 
-/* JT[115] (CODE 6 + 0x31dc) — the engine's generic "release the resource
- * at *slot" service: takes a pointer to a 4-byte slot, frees / unloads
- * what it references, and clears the slot. Used as a tear-down helper by
- * jt209 / jt204 / many other state-shutdown paths. The body chains into
- * the Resource Manager and the fc cache, so it stays a PROBE stub here
- * — the surface jt209 / jt204 expose to jt131 is the visit + sentinel
- * pattern, captured faithfully below. */
-static void jt115(void *slot)      { PROBE("jt115"); (void)slot; }
+/* JT[461] (CODE 3 + 0xb66) — release a sub-resource by its short tag.
+ * The kind / channel id at the head of each cached block flows back here
+ * so JT[115] can return it to the engine's free-id pool. Body lives in
+ * CODE 3 alongside the rest of the fc / resource-cache plumbing; stays
+ * a PROBE stub until the next pass touches that family. */
+static void jt461(short tag)       { PROBE("jt461"); (void)tag; }
+
+/* JT[115] — generic slot-release service. CODE 6 + 0x31dc.
+ *
+ * Takes a pointer to a 4-byte slot that holds either NULL or a pointer
+ * to a cached block whose first word is a "kind tag" (a non-negative
+ * tag means the block is still bound to a sub-resource id; -1 means
+ * the engine already released it). The release recipe:
+ *
+ *   1. If the slot is NULL, nothing to do.
+ *   2. Otherwise dereference; if the block's first word is >= 0, call
+ *      JT[461] with that tag so the engine returns the id.
+ *   3. Stamp the block's first word with -1 (mark as released).
+ *   4. Clear the slot to NULL.
+ *
+ * Original disassembly:
+ *   linkw  fp,#0
+ *   moveal fp@(8),a0
+ *   tstl   a0@                          // *slot
+ *   beqs   L3210                        // NULL → bail
+ *   moveal fp@(8),a0
+ *   moveal a0@,a0                       // a0 = *slot (the block)
+ *   tstw   a0@                          // first word of block
+ *   blts   L3200                        // already -1 → skip JT[461]
+ *   moveal fp@(8),a0
+ *   moveal a0@,a0
+ *   movew  a0@,sp@-                     // push tag
+ *   jsr    JT[461]
+ *   addql  #2,sp
+ *   L3200: moveal fp@(8),a0
+ *          moveal a0@,a0
+ *          moveq  #-1,d0
+ *          movew  d0,a0@                // mark block as released
+ *          moveal fp@(8),a0
+ *          clrl   a0@                   // *slot = NULL
+ *   L3210: unlk fp; rts
+ */
+static void jt115(void *slot_ptr)
+{
+	void  **slot;
+	short  *block;
+
+	PROBE("jt115");
+	if (slot_ptr == NULL)
+		return;
+	slot = (void **)slot_ptr;
+	if (*slot == NULL)
+		return;
+	block = (short *)*slot;
+	if (*block >= 0)
+		jt461(*block);
+	*block = -1;
+	*slot  = NULL;
+}
 
 /* A5 globals jt209 / jt204 manage.
  *
