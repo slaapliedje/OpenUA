@@ -486,23 +486,96 @@ static int  jt112(short a)         { PROBE("jt112"); return 0; }                
 static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
 
-/* Inner callees jt131 dispatches against the previous mode value.
- *
- *  jt209(short flag): walks the four-entry table at &a5[-27894] calling
- *    JT[115] on each slot, then (if flag) writes -1 to a5@(-12296).
- *  jt204()         : calls JT[115] on &a5[-22222] and writes -1 to
- *                    a5@(-12289).
- *  L5700 / L5864   : sibling mode-cleanup helpers further down in CODE 6;
- *                    the JT[3]-driven case table inside jt131 picks one
- *                    per the previous mode value.
- *
- * Lifted as PROBE stubs in this pass — the bodies they touch (JT[115],
- * the A5 slot block at -27894..-22222, the 8000-page sub-resources) are
- * a multi-step follow-on. */
-static void jt209(short flag)      { PROBE("jt209"); (void)flag; }                /* CODE 7 + 0x70e8  */
-static void jt204(void)            { PROBE("jt204"); }                            /* CODE 7 + 0x6ed8  */
+/* L5700 / L5864 — sibling mode-cleanup helpers further down in CODE 6;
+ * the JT[3]-driven case table inside jt131 picks one per the previous
+ * mode value. Their bodies are sizable (sub-resource release, screen
+ * teardown) and stay PROBE-only until the next pass. */
 static void l5700(void)            { PROBE("L5700"); }                            /* CODE 6 + 0x5700  */
 static void l5864(void)            { PROBE("L5864"); }                            /* CODE 6 + 0x5864  */
+
+/* JT[115] (CODE 6 + 0x31dc) — the engine's generic "release the resource
+ * at *slot" service: takes a pointer to a 4-byte slot, frees / unloads
+ * what it references, and clears the slot. Used as a tear-down helper by
+ * jt209 / jt204 / many other state-shutdown paths. The body chains into
+ * the Resource Manager and the fc cache, so it stays a PROBE stub here
+ * — the surface jt209 / jt204 expose to jt131 is the visit + sentinel
+ * pattern, captured faithfully below. */
+static void jt115(void *slot)      { PROBE("jt115"); (void)slot; }
+
+/* A5 globals jt209 / jt204 manage.
+ *
+ *  g_a5_27894[0..2]: the three 4-byte slots jt209 walks via JT[115].
+ *                    Each one points at a sub-resource (sound / strike /
+ *                    something the engine paged in for the previous mode);
+ *                    JT[115] releases it and clears the slot.
+ *  g_a5_22222:       single 4-byte slot jt204 hands to JT[115] — same
+ *                    contract as one of the jt209 slots.
+ *  g_a5_12296:       short sentinel jt209 stamps to -1 when its `flag`
+ *                    arg is non-zero. The shutdown path passes flag=0 so
+ *                    the sentinel only fires on entry to state 4 (via
+ *                    jt131's destination-side init). The next pass that
+ *                    lifts the consumers will tell us what the flag means.
+ *  g_a5_12289:       byte sentinel jt204 stamps to 0xFF on every call.
+ */
+static long          g_a5_27894[3];
+static long          g_a5_22222;
+static short         g_a5_12296;
+static unsigned char g_a5_12289;
+
+/* jt209 — release three sub-resources, optionally trip the entry
+ * sentinel. CODE 7 + 0x70e8.
+ *
+ * Original disassembly:
+ *   linkw fp,#-2
+ *   clrw  fp@(-2)                      // i = 0
+ *   bras  L710c                        // entry test first
+ *   L70f2: movew fp@(-2),d0
+ *          extl  d0; asll #2,d0        // d0 = i * 4
+ *          lea   a5@(-27894),a0
+ *          addal d0,a0
+ *          pea   a0@                   // &a5[-27894 + i*4]
+ *          jsr   JT[115]
+ *          addql #4,sp
+ *          addqw #1,fp@(-2)            // i++
+ *   L710c: cmpiw #3,fp@(-2)
+ *          blts  L70f2                 // while (i < 3)
+ *          tstb  fp@(9)                // arg is a Boolean byte
+ *          beqs  L7120
+ *          moveq #-1,d0
+ *          movew d0,a5@(-12296)        // a5@(-12296) = -1
+ *   L7120: unlk fp; rts
+ *
+ * fp@(9) is the low byte of the word the caller pushed for the byte
+ * arg; we model it as a `short` so the Mac C calling convention drops
+ * the right cell on the stack.
+ */
+static void jt209(short flag)
+{
+	short i;
+
+	PROBE("jt209");
+	for (i = 0; i < 3; i++)
+		jt115(&g_a5_27894[i]);
+	if ((flag & 0xFF) != 0)
+		g_a5_12296 = -1;
+}
+
+/* jt204 — release one sub-resource and trip its sentinel.
+ * CODE 7 + 0x6ed8.
+ *
+ *   pea   a5@(-22222)
+ *   jsr   JT[115]
+ *   addql #4,sp
+ *   moveq #-1,d0
+ *   moveb d0,a5@(-12289)              // a5@(-12289) = 0xFF
+ *   rts
+ */
+static void jt204(void)
+{
+	PROBE("jt204");
+	jt115(&g_a5_22222);
+	g_a5_12289 = 0xFF;
+}
 
 /* a5@(-31234) — the engine's "current mode" word that jt131 manages.
  *
