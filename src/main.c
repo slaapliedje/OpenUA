@@ -21,6 +21,7 @@
 #include "files.h"
 #include "input.h"
 #include "macmemory.h"
+#include "dialogs.h"
 #include "events.h"
 #include "quickdraw.h"
 #include "resources.h"
@@ -217,6 +218,13 @@ int main(void)
 		dbg_log("main: WIND 1/2/3 stacked");
 	}
 	dsp->present();
+
+	/* Splash ALRT 200 from the real fork — "A disk error occurred!".
+	 * Modal: paints the dialog + OK button + static text, waits for
+	 * any keypress / mouse click to dismiss. Most of the text falls
+	 * back to the hollow-box glyph until the font is extended. */
+	(void)Alert(200, NULL);
+	dbg_log("main: ALRT 200 dismissed");
 
 	/* Interactive loop: WaitNextEvent at ~60 Hz. mouseDown promotes the
 	 * clicked window via FindWindow + SelectWindow (active stripe goes
