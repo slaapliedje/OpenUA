@@ -96,7 +96,7 @@ void EndUpdate(WindowPtr w);            /* finish it                    */
 
 /* --- FindWindow part codes --- */
 #define inDesk       0          /* on the desktop, no window hit       */
-#define inMenuBar    1          /* (no menu bar yet)                   */
+#define inMenuBar    1          /* the menu bar (see menus.h)          */
 #define inSysWindow  2          /* a system window (deferred)          */
 #define inContent    3          /* the window's content area           */
 #define inDrag       4          /* the title bar (draggable area)      */
