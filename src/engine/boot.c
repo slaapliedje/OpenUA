@@ -1340,15 +1340,138 @@ static short         g_a5_5794;         /* selection result            */
  * means "no action" once jt918's iter_guard breaks the loop. */
 static int     jt117(void)                          { PROBE("jt117"); return 0; }
 static int     jt146(void)                          { PROBE("jt146"); return 0; }
-static void    jt158(short a, short b)              { PROBE("jt158"); (void)a; (void)b; }
 static void    jt161(short a)                       { PROBE("jt161"); (void)a; }
-static void    jt166(short a)                       { PROBE("jt166"); (void)a; }
-static void    jt444(short item, short cmd)         { PROBE("jt444"); (void)item; (void)cmd; }
+/* JT[444] (CODE 3 + 0x3056) — DLItem dispatch: look up the per-item
+ * method at g_a5_9254[item * 32] and invoke it with (item_addr, a, b,
+ * c). Up to four short args from the caller; unused ones go in as 0.
+ * Body lives in the engine's DLItem manager and stays a PROBE stub. */
+static void    jt444(short item, short a, short b, short c)
+                                                  { PROBE("jt444"); (void)item;
+                                                    (void)a; (void)b; (void)c; }
 static void    jt447(void)                          { PROBE("jt447"); }
 static void    jt449(short a)                       { PROBE("jt449"); (void)a; }
 static void    jt451(void)                          { PROBE("jt451"); }
 static void    jt452(short n, ...)                  { PROBE("jt452"); (void)n; }
 static short   jt453(long ctx)                      { PROBE("jt453"); (void)ctx; return 0; }
+
+/* JT[140] / JT[156] (CODE 7 + 0x1e58 / 0x1d5c) — item-callback PROCs
+ * that JT[158] passes as the "draw" function pointer in its JT[452]
+ * push. Their addresses end up in the menu records JT[452] builds; the
+ * Menu Manager calls them per item. The proper Mac path is to expose
+ * them as ProcPtr; until the menu rendering reaches them, they stay
+ * PROBE stubs. */
+static void    jt140(void)                          { PROBE("jt140"); }
+static void    jt156(void)                          { PROBE("jt156"); }
+
+/* JT[158] globals.
+ *  g_a5_13016 — the source / dialog id JT[158] passes through to JT[444]
+ *               when it disables a slot.
+ *  g_a5_13018 — the current menu mode (set by JT[166]); 7/9/12 branch.
+ *  g_a5_19176 — the live design count (computed by the linked-list walk).
+ *  g_a5_12910 — last-seen count (so JT[158] knows when the list changed).
+ *  g_a5_24126 — 40-byte slot-index table JT[179] initialises. */
+static short          g_a5_13016;
+static short          g_a5_13018;
+static short          g_a5_19176;
+static short          g_a5_12910;
+static unsigned char  g_a5_24126[40];
+
+/* JT[166] — record the menu mode. CODE 7 + 0x2858.
+ *   linkw fp,#0; movew fp@(8), a5@(-13018); unlk fp; rts. */
+static void jt166(short mode)
+{
+	PROBE("jt166");
+	g_a5_13018 = mode;
+}
+
+/* JT[179] — initialise the 40-byte slot-index table at a5@(-24126).
+ * CODE 7 + 0x11ee. First fills the whole table with 0xFF, then writes
+ * slot index i at byte offset 2*i for i in [0..arg]. The "every other
+ * byte" pattern leaves room for a per-slot status flag the Menu
+ * Manager pokes into the odd-numbered cells. */
+static void jt179(short count) __attribute__((unused));
+static void jt179(short count)
+{
+	short i, n;
+
+	PROBE("jt179");
+	jt399(g_a5_24126, (short)sizeof g_a5_24126, 0xFF);
+	n = (short)(count & 0xFF);
+	for (i = 0; i <= n; i++) {
+		if ((i * 2) < (short)sizeof g_a5_24126)
+			g_a5_24126[i * 2] = (unsigned char)i;
+	}
+}
+
+/* JT[158] — walk the design list, then either add a menu item per
+ * design (modes 7 / 9 / 12 / other) or disable a stale slot (when
+ * the count shrank). CODE 7 + 0x1f3e.
+ *
+ *   ptr = g_a5_27928
+ *   g_a5_19176 = 0
+ *   while (ptr && g_a5_19176 < 9) { ptr = *ptr; g_a5_19176++ }
+ *   if (g_a5_12911 == 0) {
+ *       if (g_a5_12910 == g_a5_19176) goto L2058   // no change
+ *       jt444(g_a5_13016, 42, g_a5_19176 * 4)       // disable slot
+ *       goto L2058
+ *   }
+ *   d0 = g_a5_19176 * 4
+ *   d2 = 8160 - (160 - arg2)                         // arg2 = fp@(10)
+ *   if (g_a5_13018 == 7)
+ *       jt452(5, arg1, arg2, d0, d2, 34, &jt140, 0)
+ *   else if (g_a5_13018 == 9 || g_a5_13018 == 12)
+ *       jt452(5, arg1, arg2, d0, d2, 34, &jt156, 20, 0)
+ *   else
+ *       jt452(5, arg1, arg2, d0, d2, 34, &jt156, 0)
+ * L2058:
+ *   g_a5_12910 = g_a5_19176
+ *
+ * The menu-build calls (JT[452] / JT[444]) themselves are still PROBE
+ * stubs — what the lift captures is the count walk + mode dispatch
+ * that drives them.
+ */
+static void jt158(short arg1, short arg2)
+{
+	void *ptr;
+	long  d0, d2;
+
+	PROBE("jt158");
+	ptr = (void *)g_a5_27928;
+	g_a5_19176 = 0;
+	while (ptr != NULL && g_a5_19176 < 9) {
+		ptr = *(void **)ptr;            /* next-pointer at *(ptr) */
+		g_a5_19176++;
+	}
+
+	if (g_a5_12911 == 0) {
+		if (g_a5_12910 == g_a5_19176)
+			goto store;
+		jt444(g_a5_13016, (short)42, (short)(g_a5_19176 * 4), 0);
+		goto store;
+	}
+
+	d0 = (long)g_a5_19176 * 4;
+	d2 = 8160L - (160L - arg2);
+
+	switch (g_a5_13018) {
+	case 7:
+		jt452((short)5, (long)arg1, (long)arg2, d0, d2,
+		      34L, (long)(void *)jt140, 0L);
+		break;
+	case 9:
+	case 12:
+		jt452((short)5, (long)arg1, (long)arg2, d0, d2,
+		      34L, (long)(void *)jt156, 20L, 0L);
+		break;
+	default:
+		jt452((short)5, (long)arg1, (long)arg2, d0, d2,
+		      34L, (long)(void *)jt156, 0L);
+		break;
+	}
+
+store:
+	g_a5_12910 = g_a5_19176;
+}
 
 /* The 12 menu items L0aae builds via JT[452] — `Train Character` etc.,
  * each with a single-letter accelerator (the `selector` field is the
@@ -1430,7 +1553,7 @@ static int l0aae(void)
 			&g_a5_14432, &g_a5_14431, &g_a5_14430, &g_a5_14429,
 		};
 		for (i = 0; i < 12; i++)
-			jt444(i, (short)(*flags[i] != 0 ? 24 : 16));
+			jt444(i, (short)(*flags[i] != 0 ? 24 : 16), 0, 0);
 	}
 
 	jt449(1);
