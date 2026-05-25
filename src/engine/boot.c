@@ -1432,14 +1432,105 @@ static void   l30ba(short a, short b, short c)
                                                   { PROBE("L30ba"); (void)a;
                                                     (void)b; (void)c; }
 
-/* L2d3e (CODE 3 + 0x2d3e) = JT[456] — DLItem event poll. Reads one
- * OS event via JT[1153] + L2c60 + L3198, walks the DLItem array
- * looking for an item whose method consumes the event, and returns
- * either a non-negative item index (selection) or -1 (no item hit).
- * Sizable body; the v1 skeleton returns -1 so JT[453]'s loop drives
- * the bounded WaitNextEvent path below. */
-static short  l2d3e(void)                         { PROBE("L2d3e");
-                                                    return (short)-1; }
+/* CODE 4 helpers L2d3e + family forward into. PROBE stubs until the
+ * actual event-pump + DLItem dispatch land. */
+static void   jt1118(void)                        { PROBE("jt1118"); }
+static short  jt1125(short kind, long p1, long p2){ PROBE("jt1125");
+                                                    (void)kind; (void)p1;
+                                                    (void)p2; return 0; }
+static void   jt1134(void)                        { PROBE("jt1134"); }
+static void   jt1153(short arg)                   { PROBE("jt1153");
+                                                    (void)arg; }
+
+/* L3198 (CODE 3 + 0x3198) — wraps JT[1125] for the event-read prelude. */
+static short l3198(short kind, long p1, long p2)
+{
+	PROBE("L3198");
+	return jt1125(kind, p1, p2);
+}
+
+/* L31ea (CODE 3 + 0x31ea) = JT[441] — JT[1118] passthrough returning
+ * "should continue?" boolean.  */
+static int l31ea(void) __attribute__((unused));
+static int l31ea(void)
+{
+	PROBE("L31ea");
+	jt1118();
+	return 0;
+}
+
+/* L31f0 (CODE 3 + 0x31f0) = JT[439] — JT[1133] passthrough returning
+ * the post-event key code. */
+static short l31f0(void) __attribute__((unused));
+static short l31f0(void)
+{
+	PROBE("L31f0");
+	/* Real JT[1133] returns a short; PROBE returns 0. */
+	return 0;
+}
+
+/* DLItem method pointer signature — each record at offset 0 holds a
+ * function pointer the L2d3e dispatcher invokes with (rec, cmd, ...). */
+typedef short (*dlitem_method_t)(void *rec, short cmd, ...);
+
+/* L2d3e (CODE 3 + 0x2d3e) = JT[456] — DLItem event poll.
+ *
+ * The Mac body:
+ *
+ *   1. Phase 1 — pump OS event:
+ *        jt1153(1); l2c60(0); key = l3198(7, &mouse_y, &mouse_x)
+ *   2. Phase 2 — walk every DLItem, invoking method(rec, 2, mouse_y,
+ *      mouse_x). The first item whose method returns non-zero is the
+ *      mouse-hit item.
+ *   3. Phase 3 — if a key was pressed and an item caught the mouse,
+ *      invoke method(rec, 3, ...) then method(rec, 4, ...); on bit 4
+ *      of rec[28] return the item index.
+ *   4. Phase 4 — scroll-bar handling via JT[1007] / JT[1123] / L31ea /
+ *      L31f0 / further DLItem method dispatch.
+ *   5. Return -1 when no item was selected.
+ *
+ * The v1 lift runs phase 1 + phase 2 with PROBE-stubbed event-read
+ * helpers and guards the DLItem method calls against the NULL method
+ * pointers JT[452] currently leaves behind (the shape-code dispatch
+ * isn't lifted yet). Phases 3+ are documented in the comment but the
+ * function always returns -1 — combined with JT[453]'s 30-iteration
+ * cap the engine stays responsive without spinning.
+ */
+static short l2d3e(void)
+{
+	short  key, mouse_x = 0, mouse_y = 0;
+	short  i;
+	unsigned char *rec;
+
+	PROBE("L2d3e");
+
+	/* Phase 1 — event read. */
+	jt1153(1);
+	jt1134();                       /* L2c60 walks items with cmd=1 */
+	key = l3198(7, (long)&mouse_y, (long)&mouse_x);
+	(void)key;
+
+	/* Phase 2 — find the first item whose method consumes cmd=2 at
+	 * the current mouse coords. method pointers are NULL until the
+	 * JT[452] shape dispatch is lifted, so we just guard the loop. */
+	rec = (unsigned char *)g_a5_9254;
+	for (i = 0; i < g_a5_9250; i++) {
+		dlitem_method_t method;
+
+		method = *(dlitem_method_t *)rec;
+		if (method != NULL) {
+			short hit = method(rec, (short)2, mouse_y, mouse_x);
+
+			if (hit != 0)
+				break;
+		}
+		rec += DLITEM_BYTES;
+	}
+
+	/* Phase 3+ — modifier-key dispatch, scrollbar handling, the
+	 * exact-hit return path. Documented above; not yet lifted. */
+	return (short)-1;
+}
 
 /* JT[453] (CODE 3 + 0x2cd4) — design-menu modal event loop.
  *
