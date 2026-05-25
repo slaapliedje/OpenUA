@@ -29,7 +29,10 @@
  * of helpers and JT entries it calls — they live with it down there.
  */
 
+#include <stdarg.h>           /* va_list (jt452, jt488) */
 #include <stddef.h>           /* NULL, size_t */
+#include <stdio.h>            /* vsnprintf (jt488) */
+#include <string.h>           /* memset, memcpy */
 
 #include "boot.h"
 #include "core.h"             /* core_init */
@@ -1351,7 +1354,78 @@ static void    jt444(short item, short a, short b, short c)
 static void    jt447(void)                          { PROBE("jt447"); }
 static void    jt449(short a)                       { PROBE("jt449"); (void)a; }
 static void    jt451(void)                          { PROBE("jt451"); }
-static void    jt452(short n, ...)                  { PROBE("jt452"); (void)n; }
+/* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
+ *
+ * The Mac entry takes a variadic stream of (shape-code, args...) tuples
+ * and walks it shape-by-shape; each shape-code in [0..42] dispatches
+ * through JT[3] to a per-shape arm that reads some shorts / longs from
+ * the stream and stores them at specific offsets inside a freshly
+ * allocated 32-byte DLItem record at g_a5_9254 + (count++) * 32.
+ *
+ * Capturing the full 43-arm shape dispatch is a follow-on; the v1
+ * skeleton models just the slot-allocation contract that JT[158] /
+ * JT[444] / JT[453] rely on:
+ *
+ *   - Each call installs ONE DLItem (the Mac packs several per call
+ *     via the stream; the L0aae caller has been adapted to one-per-
+ *     call already so the count winds up identical).
+ *   - g_a5_9250 (count) is bumped, clamped to g_a5_9288 (capacity).
+ *   - The new record at g_dlitem_pool[(count - 1) * 32] is zero-filled
+ *     so the downstream PROBE stubs see well-defined record state.
+ *
+ * The pool is allocated statically with DLITEM_MAX = 64 records; the
+ * engine probe shows L0aae installing 13 items per design-menu open,
+ * so the cap is comfortable. Variadic args are consumed via va_arg
+ * for ABI parity but their values are ignored until the shape-code
+ * dispatch lift lands.
+ */
+#define DLITEM_BYTES   32
+#define DLITEM_MAX     64
+
+static unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
+static long          g_a5_9254;        /* base pointer (set at init)    */
+static short         g_a5_9250;        /* current installed count       */
+static short         g_a5_9288 = DLITEM_MAX;
+static unsigned char g_a5_9248 __attribute__((unused)) = 1;    /* "DLItem manager active" flag  */
+
+static void jt452_init(void) __attribute__((unused));
+static void jt452_init(void)
+{
+	g_a5_9254 = (long)(unsigned long)g_dlitem_pool;
+	g_a5_9250 = 0;
+}
+
+/* shape0 declared `long` (not `short`) to avoid the default-argument-
+ * promotion va_start UB; calls in `(short)5` etc. promote cleanly. */
+static void jt452(long shape0, ...)
+{
+	va_list       ap;
+	unsigned char *rec;
+
+	PROBE("jt452");
+	if (g_a5_9254 == 0)
+		jt452_init();
+	if (g_a5_9250 >= g_a5_9288) {
+		PROBE("jt452: DLItem table full");
+		return;
+	}
+	rec = g_dlitem_pool + (long)g_a5_9250 * DLITEM_BYTES;
+	memset(rec, 0, DLITEM_BYTES);
+	g_a5_9250++;
+
+	/* Consume the rest of the stream for ABI parity. Shape-code 0
+	 * terminates the Mac stream; until the dispatch is lifted we walk
+	 * (long)args until 0. */
+	(void)shape0;
+	va_start(ap, shape0);
+	for (;;) {
+		long v = va_arg(ap, long);
+
+		if (v == 0)
+			break;
+	}
+	va_end(ap);
+}
 static short   jt453(long ctx)                      { PROBE("jt453"); (void)ctx; return 0; }
 
 /* JT[140] / JT[156] (CODE 7 + 0x1e58 / 0x1d5c) — item-callback PROCs
@@ -1663,8 +1737,7 @@ static void l12a0(void)                          { PROBE("L12a0"); }
  * the lift uses C vsnprintf which handles them faithfully. */
 static char  g_a5_10362[256];
 
-#include <stdarg.h>
-#include <stdio.h>
+/* stdarg.h / stdio.h moved to the top so jt452 can use va_list too. */
 
 static const char *jt488(const char *fmt, ...)
 {
