@@ -24,6 +24,7 @@
 #include "macmemory.h"          /* NewHandleClear, DisposeHandle */
 #include "display.h"            /* dsp_color_t, dsp_detect — palette forward */
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
+#include "mac_font.h"           /* g_mac_font — preferred when loaded */
 
 void SetPt(Point *pt, short h, short v)
 {
@@ -1066,14 +1067,13 @@ void TextSize(short size) { GrafPtr p; GetPort(&p); if (p) p->txSize = size; }
  */
 void DrawChar(short ch)
 {
-	GrafPtr              port;
-	CGrafPtr             cp;
-	const unsigned char *glyph;
-	Rect                 clip;
-	PixMap              *pm;
-	short                top, row, col, x, y;
-	unsigned char        fg, bk, mode, mask, bits;
-	Boolean              draw;
+	GrafPtr       port;
+	CGrafPtr      cp;
+	Rect          clip;
+	PixMap       *pm;
+	unsigned char fg, bk, mode;
+	Boolean       draw;
+	short         advance;
 
 	GetPort(&port);
 	if (port == NULL)
@@ -1088,39 +1088,77 @@ void DrawChar(short ch)
 	if (pm != NULL && pm->baseAddr == NULL)
 		draw = 0;
 
-	glyph = qd_font_8x8[(unsigned char)ch];
-	fg    = (unsigned char)cp->fgColor;
-	bk    = (unsigned char)cp->bkColor;
-	mode  = (unsigned char)port->txMode;
+	fg   = (unsigned char)cp->fgColor;
+	bk   = (unsigned char)cp->bkColor;
+	mode = (unsigned char)port->txMode;
 
-	if (draw) {
-		top = (short)(port->pnLoc.v - (qd_font_8x8_ascent - 1));
-		for (row = 0; row < qd_font_8x8_height; row++) {
-			y    = (short)(top + row);
-			bits = glyph[row];
-			if (y < clip.top || y >= clip.bottom)
-				continue;
-			for (col = 0, mask = 0x80; col < qd_font_8x8_width;
-			     col++, mask = (unsigned char)(mask >> 1)) {
-				x = (short)(port->pnLoc.h + col);
-				if (x < clip.left || x >= clip.right)
+	if (g_mac_font_loaded) {
+		/* Real Mac bitmap font path — variable-width glyphs, per-row
+		 * bit lookup against the strike. */
+		short top, row, col, x, y, sw;
+
+		sw      = mac_font_strike_width(ch);
+		advance = mac_font_advance(ch);
+		if (draw) {
+			top = (short)(port->pnLoc.v - (g_mac_font.ascent - 1));
+			for (row = 0; row < g_mac_font.height; row++) {
+				y = (short)(top + row);
+				if (y < clip.top || y >= clip.bottom)
 					continue;
-				if (bits & mask) {
-					unsigned char *p = (unsigned char *)pm->baseAddr
-					                 + (y - pm->bounds.top) * pm->rowBytes
-					                 + (x - pm->bounds.left);
-					*p = fg;
-				} else if (mode == srcCopy) {
-					unsigned char *p = (unsigned char *)pm->baseAddr
-					                 + (y - pm->bounds.top) * pm->rowBytes
-					                 + (x - pm->bounds.left);
-					*p = bk;
+				for (col = 0; col < sw; col++) {
+					x = (short)(port->pnLoc.h + col);
+					if (x < clip.left || x >= clip.right)
+						continue;
+					if (mac_font_pixel(ch, col, row)) {
+						unsigned char *p = (unsigned char *)pm->baseAddr
+						                 + (y - pm->bounds.top) * pm->rowBytes
+						                 + (x - pm->bounds.left);
+						*p = fg;
+					} else if (mode == srcCopy) {
+						unsigned char *p = (unsigned char *)pm->baseAddr
+						                 + (y - pm->bounds.top) * pm->rowBytes
+						                 + (x - pm->bounds.left);
+						*p = bk;
+					}
+				}
+			}
+		}
+	} else {
+		/* 8x8 fallback — the embedded font. */
+		const unsigned char *glyph = qd_font_8x8[(unsigned char)ch];
+		short                top, row, col, x, y;
+		unsigned char        mask, bits;
+
+		advance = qd_font_8x8_width;
+		if (draw) {
+			top = (short)(port->pnLoc.v - (qd_font_8x8_ascent - 1));
+			for (row = 0; row < qd_font_8x8_height; row++) {
+				y    = (short)(top + row);
+				bits = glyph[row];
+				if (y < clip.top || y >= clip.bottom)
+					continue;
+				for (col = 0, mask = 0x80; col < qd_font_8x8_width;
+				     col++, mask = (unsigned char)(mask >> 1)) {
+					x = (short)(port->pnLoc.h + col);
+					if (x < clip.left || x >= clip.right)
+						continue;
+					if (bits & mask) {
+						unsigned char *p = (unsigned char *)pm->baseAddr
+						                 + (y - pm->bounds.top) * pm->rowBytes
+						                 + (x - pm->bounds.left);
+						*p = fg;
+					} else if (mode == srcCopy) {
+						unsigned char *p = (unsigned char *)pm->baseAddr
+						                 + (y - pm->bounds.top) * pm->rowBytes
+						                 + (x - pm->bounds.left);
+						*p = bk;
+					}
 				}
 			}
 		}
 	}
 
-	port->pnLoc.h = (short)(port->pnLoc.h + qd_font_8x8_width);
+	port->pnLoc.h = (short)(port->pnLoc.h + advance);
 }
 
 /*
@@ -1146,15 +1184,26 @@ void DrawString(ConstStr255Param str)
  */
 short CharWidth(short ch)
 {
+	if (g_mac_font_loaded)
+		return mac_font_advance(ch);
 	(void)ch;
 	return (short)qd_font_8x8_width;
 }
 
 short StringWidth(ConstStr255Param str)
 {
+	unsigned char len, i;
+	short         total = 0;
+
 	if (str == NULL)
 		return 0;
-	return (short)(str[0] * qd_font_8x8_width);
+	len = str[0];
+	if (g_mac_font_loaded) {
+		for (i = 1; i <= len; i++)
+			total = (short)(total + mac_font_advance((short)str[i]));
+		return total;
+	}
+	return (short)(len * qd_font_8x8_width);
 }
 
 /* The GrafPort must be the exact 108-byte Macintosh layout. */

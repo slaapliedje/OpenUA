@@ -23,6 +23,7 @@
 #include "macmemory.h"
 #include "dialogs.h"
 #include "events.h"
+#include "mac_font.h"
 #include "quickdraw.h"
 #include "resources.h"
 #include "windows.h"
@@ -148,6 +149,10 @@ int main(void)
 
 	load_frua_rsrc();
 	load_frua_palette();
+	if (mac_font_load(-27001) == 0)
+		dbg_log("main: FONT -27001 loaded");
+	else
+		dbg_log("main: FONT -27001 unavailable (fallback to 8x8)");
 
 	/* Build a 256-entry string table whose entries point into the real
 	 * STRS resource. Without the DATA + DREL replay we don't have the
