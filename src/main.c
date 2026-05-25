@@ -20,6 +20,7 @@
 #include "display.h"
 #include "files.h"
 #include "input.h"
+#include "plat_sound.h"
 #include "macmemory.h"
 #include "controls.h"
 #include "dialogs.h"
@@ -321,6 +322,10 @@ int main(void)
 	qd_attach_screen(surf->pixels, surf->pitch, surf->width, surf->height);
 	qd_set_present(dsp->present);
 	plat_input_init(surf->width, surf->height);
+	if (plat_sound_init() == 0)
+		dbg_log("main: sound chip locked");
+	else
+		dbg_log("main: sound init failed (continuing silent)");
 	dbg_log("main: shim up");
 
 	load_frua_rsrc();
@@ -537,6 +542,7 @@ int main(void)
 		}
 	}
 
+	plat_sound_shutdown();
 	plat_input_shutdown();
 	dsp->shutdown();
 	dbg_log("main: shutdown ok");
