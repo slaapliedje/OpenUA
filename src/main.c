@@ -30,6 +30,23 @@
 #include "windows.h"
 
 /*
+ * Pop up DLOG `id`, run the modal loop, return the dismissing item
+ * (1-based) or 0 if the dialog couldn't be loaded. The OK / Cancel
+ * choice flows back to the caller for action.
+ */
+static short show_dialog(short id)
+{
+	DialogPtr d = GetNewDialog(id, NULL, (WindowPtr)-1L);
+	short     item = 0;
+
+	if (d == NULL)
+		return 0;
+	ModalDialog(NULL, &item);
+	DisposeDialog(d);
+	return item;
+}
+
+/*
  * Open frua.rsrc through the File Manager and hand the bytes to the
  * Resource Manager shim. Silent no-op when the file isn't there (the
  * engine runs with an empty archive — GetResource just returns NULL).
@@ -243,10 +260,12 @@ int main(void)
 		MenuHandle m_edit = NewMenu(129, (ConstStr255Param)"\004Edit");
 
 		/* Items with '/' set a Cmd-key equivalent — MenuKey scans
-		 * for these on cmdKey-modified keyDowns. */
+		 * for these on cmdKey-modified keyDowns. File's About
+		 * (item 2) opens DLOG 201 via GetNewDialog/ModalDialog;
+		 * Quit (item 5) opens DLOG 202 and only exits on OK. */
 		if (m_file != NULL) {
 			AppendMenu(m_file, (ConstStr255Param)
-			           "\025New/N;Open/O;-;Quit/Q");
+			           "\040New/N;About FRUA;Open/O;-;Quit/Q");
 			InsertMenu(m_file, 0);
 		}
 		if (m_edit != NULL) {
@@ -286,9 +305,13 @@ int main(void)
 
 						dbg_log_num("main: menu id  = ", id);
 						dbg_log_num("main: menu it  = ", item);
-						/* File menu, "Quit" = item 4. */
-						if (id == 128 && item == 4)
+						if (id == 128 && item == 2)
+							(void)show_dialog(201);
+						/* File menu, "Quit" = item 5. */
+						if (id == 128 && item == 5
+						 && show_dialog(202) == 2)
 							done = 1;
+						DrawMenuBar();
 					}
 					dsp->present();
 					break;
@@ -324,8 +347,12 @@ int main(void)
 
 						dbg_log_num("main: cmd-key menu id = ", id);
 						dbg_log_num("main: cmd-key item    = ", item);
-						if (id == 128 && item == 4)
+						if (id == 128 && item == 2)
+							(void)show_dialog(201);
+						if (id == 128 && item == 5
+						 && show_dialog(202) == 2)
 							done = 1;
+						DrawMenuBar();
 					}
 					dsp->present();
 				} else {

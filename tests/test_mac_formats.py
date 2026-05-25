@@ -324,3 +324,83 @@ def test_menu_disabled_bit_in_enable_flags():
     assert (got & (1 << 1)) != 0             # item 1 (New) enabled
     assert (got & (1 << 2)) == 0             # item 2 (Open) disabled
     assert (got & (1 << 3)) != 0             # item 3 (Quit) enabled
+
+
+# --- DLOG ----------------------------------------------------------------
+#
+# Layout (Macintosh Toolbox Essentials):
+#   +0   8 bytes Rect bounds (global screen coords)
+#   +8   short  procID         (window definition; 1 = dBoxProc modal)
+#   +10  byte   visible
+#   +11  byte   pad
+#   +12  byte   goAwayFlag
+#   +13  byte   pad
+#   +14  long   refCon
+#   +18  short  itemsID        (DITL resource id)
+#   +20  Str255 title
+#
+# compat/dialogs.c GetNewDialog reads the bounds at +0..+7, procID at +8,
+# visible / goAwayFlag at +10 / +12, refCon at +14, itemsID at +18, and
+# the Pascal title at +20.
+
+def _make_dlog(top, left, bottom, right, procID, visible, goAway,
+               refCon, itemsID, title):
+    buf = bytearray()
+    buf += struct.pack(">hhhh", top, left, bottom, right)
+    buf += struct.pack(">h", procID)
+    buf += bytes([visible & 0xFF, 0, goAway & 0xFF, 0])
+    buf += struct.pack(">i", refCon)
+    buf += struct.pack(">h", itemsID)
+    tb = title.encode("mac_roman")
+    buf += bytes([len(tb)]) + tb
+    return bytes(buf)
+
+
+def test_dlog_header_round_trips():
+    raw = _make_dlog(68, 112, 222, 400, procID=1, visible=255, goAway=0,
+                     refCon=0xCAFEBABE - (1 << 32), itemsID=201,
+                     title="About Unlimited Adventures")
+    bytes_back = _frsc_lookup(_pack_one("DLOG", 201, raw), b"DLOG", 201)
+    assert bytes_back == raw
+    top    = int.from_bytes(bytes_back[0:2], "big", signed=True)
+    left   = int.from_bytes(bytes_back[2:4], "big", signed=True)
+    bottom = int.from_bytes(bytes_back[4:6], "big", signed=True)
+    right  = int.from_bytes(bytes_back[6:8], "big", signed=True)
+    procID = int.from_bytes(bytes_back[8:10], "big", signed=True)
+    vis    = bytes_back[10]
+    gaw    = bytes_back[12]
+    refCon = int.from_bytes(bytes_back[14:18], "big", signed=True)
+    items  = int.from_bytes(bytes_back[18:20], "big", signed=True)
+    assert (top, left, bottom, right) == (68, 112, 222, 400)
+    assert (procID, vis, gaw, items)  == (1, 255, 0, 201)
+    assert refCon == 0xCAFEBABE - (1 << 32)
+    tlen   = bytes_back[20]
+    assert bytes_back[21:21 + tlen].decode("mac_roman") \
+        == "About Unlimited Adventures"
+
+
+def test_dlog_links_to_existing_ditl():
+    # Field offsets the C code uses to follow DLOG.itemsID into a DITL
+    # round-trip together — the same archive holds both, and the DLOG's
+    # +18 word identifies the linked DITL.
+    dlog = _make_dlog(0, 0, 100, 200, procID=1, visible=1, goAway=0,
+                      refCon=0, itemsID=99, title="x")
+    ditl = bytearray()
+    ditl += struct.pack(">h", 0)            # 1 item (count - 1 = 0)
+    ditl += b"\x00\x00\x00\x00"
+    ditl += struct.pack(">hhhh", 10, 10, 30, 60)
+    ditl += bytes([0x04, 2]) + b"OK"
+    fork = build_resource_fork([
+        ("DLOG", 1, "", bytes(dlog)),
+        ("DITL", 99, "", bytes(ditl)),
+    ])
+    archive = build_archive(ResourceFork(fork).resources)
+    dlog_b = _frsc_lookup(archive, b"DLOG", 1)
+    ditl_b = _frsc_lookup(archive, b"DITL", 99)
+    items_id = int.from_bytes(dlog_b[18:20], "big", signed=True)
+    assert items_id == 99
+    # And the DITL the C code would walk after that lookup is intact.
+    assert int.from_bytes(ditl_b[0:2], "big", signed=True) == 0
+    # Item layout: 2 bytes count, 4 bytes placeholder, 8 bytes rect,
+    # 1 byte type, 1 byte length, then the text — "OK" starts at +16.
+    assert ditl_b[16:16 + 2] == b"OK"
