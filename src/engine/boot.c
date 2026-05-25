@@ -482,10 +482,93 @@ static void jt399(void *buf, short size, short fill)
 	for (i = 0; i < size; i++)
 		p[i] = (unsigned char)fill;
 }
-static void jt131(short a)         { PROBE("jt131"); }                            /* CODE 6 + 0x35e   */
 static int  jt112(short a)         { PROBE("jt112"); return 0; }                  /* CODE 6 + 0x38fe  */
 static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
+
+/* Inner callees jt131 dispatches against the previous mode value.
+ *
+ *  jt209(short flag): walks the four-entry table at &a5[-27894] calling
+ *    JT[115] on each slot, then (if flag) writes -1 to a5@(-12296).
+ *  jt204()         : calls JT[115] on &a5[-22222] and writes -1 to
+ *                    a5@(-12289).
+ *  L5700 / L5864   : sibling mode-cleanup helpers further down in CODE 6;
+ *                    the JT[3]-driven case table inside jt131 picks one
+ *                    per the previous mode value.
+ *
+ * Lifted as PROBE stubs in this pass — the bodies they touch (JT[115],
+ * the A5 slot block at -27894..-22222, the 8000-page sub-resources) are
+ * a multi-step follow-on. */
+static void jt209(short flag)      { PROBE("jt209"); (void)flag; }                /* CODE 7 + 0x70e8  */
+static void jt204(void)            { PROBE("jt204"); }                            /* CODE 7 + 0x6ed8  */
+static void l5700(void)            { PROBE("L5700"); }                            /* CODE 6 + 0x5700  */
+static void l5864(void)            { PROBE("L5864"); }                            /* CODE 6 + 0x5864  */
+
+/* a5@(-31234) — the engine's "current mode" word that jt131 manages.
+ *
+ * Tracks which top-level UI / play state the engine is in. jt131 picks a
+ * tear-down for the OLD value (case 0 / 2 / 3 dispatch via JT[3]) before
+ * committing the NEW one, then runs an init for state 4 if that's the
+ * destination. Initialised to 0 — the same default the THINK C DATA
+ * pool would supply (the slot lives in the zero-filled A5 cluster
+ * around the play-loop globals). */
+static short g_a5_31234;
+
+/* jt131 — engine state-transition manager. CODE 6 + 0x35e.
+ *
+ * Original disassembly:
+ *   linkw   fp,#0
+ *   movew   fp@(8),d0
+ *   cmpw    a5@(-31234),d0
+ *   beqw    L03a6                  // already in state a: just store back
+ *   movew   a5@(-31234),d0         // d0 = current state
+ *   jsr     a5@(58)                // JT[3] — segment-jump case dispatch
+ *     [post-call data: lo=0, hi=6, default=L03a6,
+ *      case 0=L038a, case 1=L03a6, case 2=L039c, case 3=L03a2,
+ *      case 4..6 = L03a6]
+ *   L038a:  jsr L5700; clrw -(sp); jsr JT[209]; addql #2,sp; jsr JT[204]
+ *           bras L03a6
+ *   L039c:  jsr L5700; bras L03a6
+ *   L03a2:  jsr L5864; fall through
+ *   L03a6:  movew  fp@(8),a5@(-31234)        // commit new state
+ *           cmpiw  #4,fp@(8)
+ *           bnes   L03be
+ *           pushw  1; jsr JT[209]; addql #2,sp
+ *   L03be:  unlk fp; rts
+ *
+ * So: pure state-transition driver. The OLD value picks the tear-down
+ * branch; only states 0, 2, 3 have one — every other previous state
+ * skips the dispatch entirely. State 4 is special: entering it kicks
+ * jt209(1). The "if (a == old) return" early-out keeps the engine from
+ * tearing down the same state it's already in.
+ */
+static void jt131(short a)
+{
+	short old = g_a5_31234;
+
+	PROBE("jt131");
+	if (a == old)
+		return;
+	switch (old) {
+	case 0:
+		l5700();
+		jt209(0);
+		jt204();
+		break;
+	case 2:
+		l5700();
+		break;
+	case 3:
+		l5864();
+		break;
+	default:
+		break;
+	}
+	g_a5_31234 = a;
+	if (a == 4)
+		jt209(1);
+}
+
 static void l4bf6(short a, short b, short c, short d) { PROBE("l4bf6"); }         /* CODE 6 + 0x4bf6  */
 static void jt1001(short a, short b, short c, short d) { PROBE("jt1001"); }       /* CODE 5 + 0x31ac  */
 static void jt174(void);                                                          /* CODE 7 + 0x2062 (lifted below) */
