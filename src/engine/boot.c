@@ -1127,6 +1127,7 @@ static void jt76(void)
 	jt1001(8000, 8000, 1, 4);
 	jt174();
 }
+static int  jt3(short a) __attribute__((unused));
 static int  jt3(short a)           { PROBE("jt3"); return 0; }                    /* CODE 1 + 0x158   */
 
 /* --- l67ca: L07dc's saved-game branch tear-down + redraw ----------- *
@@ -1256,35 +1257,198 @@ static short          g_a5_5796;             /* counter — cleared             
 static unsigned char  g_a5_19169;            /* flag — set to 1                  */
 static unsigned char  g_a5_22727[4];         /* 4-byte buffer JT[399] fills      */
 
+/* The 10-byte "pending-action" flag cluster jt918 manages.
+ *
+ * Each byte tracks whether the corresponding per-action arm is queued:
+ *   c799 (-14439) — "resume" / saved-game path
+ *   c79a (-14438) — go-away (close window)
+ *   c79b (-14437) — quit-without-save confirm
+ *   c79c (-14436) — quit confirmed
+ *   c79d (-14435) — start new game
+ *   c79e (-14434) — choose-design (>5 designs available)
+ *   c79f (-14433) — delete-design
+ *   c7a0 (-14432) — rename / edit-name
+ *   c7a1 (-14431) — copy-design
+ *   c7a2 (-14430) — about / info
+ *
+ * The saved-game arm (L0df6) and the fresh arm (L0e98) both set up this
+ * cluster, then the input loop reads which flag the user's selection
+ * tripped (via the JT[3] case body for that local) and calls into the
+ * matching CODE 17 / CODE 18 routine. */
+static unsigned char g_a5_14439;
+static unsigned char g_a5_14438;
+static unsigned char g_a5_14437;
+static unsigned char g_a5_14436;
+static unsigned char g_a5_14435;
+static unsigned char g_a5_14434;
+static unsigned char g_a5_14433;
+static unsigned char g_a5_14432;
+static unsigned char g_a5_14431;
+static unsigned char g_a5_14430;
+
+/* The "no save-game pointer present, but cached state is dirty" flag —
+ * read by the saved-game arm at L0e22 to decide whether the design
+ * list deserves the "fresh" treatment. */
+static unsigned char g_a5_22730;
+
+/* JT[3] dispatch case bodies — one per local value 0..11. Each one is
+ * a sizeable chunk of CODE 12 that reads a c79x flag, calls into CODE
+ * 17 / CODE 18, etc. They stay PROBE-only until the cases below are
+ * lifted individually; for now the dispatcher routes correctly and the
+ * trace reports which case the loop hits. */
+static void l0f1a(void) { PROBE("jt918/case0 L0f1a"); }
+static void l0f2e(void) { PROBE("jt918/case1 L0f2e"); }
+static void l0f3e(void) { PROBE("jt918/case2 L0f3e"); }
+static void l0f60(void) { PROBE("jt918/case3 L0f60"); }
+static void l0f74(void) { PROBE("jt918/case4 L0f74"); }
+static void l1036(void) { PROBE("jt918/case5 L1036"); }
+static void l104c(void) { PROBE("jt918/case6 L104c"); }
+static void l1060(void) { PROBE("jt918/case7 L1060"); }
+static void l10ca(void) { PROBE("jt918/case8 L10ca"); }
+static void l1142(void) { PROBE("jt918/case9 L1142"); }
+static void l115a(void) { PROBE("jt918/case10 L115a"); }
+static void l120c(void) { PROBE("jt918/case11 L120c"); }
+
+/* Count entries in the design linked-list. The original walks
+ * g_a5_27928 → next → next... incrementing a counter when each entry's
+ * byte at offset +147 doesn't have its high bit set ("hidden" flag).
+ * Returns count clamped to the engine's "lots of designs?" threshold
+ * (>5). Until the design-list lift lands, the skeleton returns 0 so
+ * the saved-game arm takes the "few designs" branch (clearing c79e). */
+static short jt918_count_visible_designs(void)
+{
+	return 0;
+}
+
+/*
+ * jt918 — new-game / select-design dialog driver. CODE 12 + 0x0d90.
+ *
+ * Entry side effects + an unbounded action loop that the user breaks
+ * out of by picking "quit" (L123a) or "go-away" (L123e). On entry the
+ * loop sets up the c799..c7a2 flag cluster from the current save state
+ * (saved-game arm at L0df6 if g_a5_27932 != 0, fresh arm at L0e98
+ * otherwise); each iteration:
+ *
+ *   - L0dd4: jt112(1); if local > 11 → jt108(1); else jt81()
+ *   - L0df6/L0e98: cluster setup (only entered once per outer pass —
+ *     see comment in the asm; for the skeleton we run it on every
+ *     iteration since the c79x writes are idempotent)
+ *   - L0ec6: local = L0aae(); if local in {0..6, 8..11} → jt76();
+ *     if local == 1 → L02dc(g_a5_27932);
+ *   - JT[3] switch on local (0..11) — each case fires the per-action
+ *     arm. Case bodies live in CODE 12 + 0x0f1a..0x123a and stay as
+ *     PROBE stubs.
+ *
+ * Exit edges (L123a / L123e) live inside two of the case bodies and
+ * return 0. Until those bodies are lifted, the skeleton runs one
+ * iteration, hits the L0aae-returns-0 case, and bails to keep the
+ * return-0 contract.
+ */
 static int jt918(short a)
 {
+	short local;
+	short iter_guard;
+
 	(void)a;
-	PROBE("jt918 (skeleton)");
+	PROBE("jt918");
 
 	/* Entry side effects — CODE 12 + 0x0d90..0x0dce. */
 	g_a5_5798   = 135;
 	g_a5_27989  = g_a5_27990;            /* save selector */
 	g_a5_27990  = 0;
 	g_a5_19169  = 1;
-	jt399(g_a5_22727, 4, 1);    /* fill 4 bytes with 1 */
+	jt399(g_a5_22727, 4, 1);             /* fill 4 bytes with 1 */
 	g_a5_5796   = 0;
 	jt131(6);
+	local = 0;                            /* fp@(-10) before L125e jumps */
 
-	/* TODO: main loop at CODE 12 + 0x0dd4 → L125e. Until the body is
-	 * lifted, behave as the prior stub — return 0 so L07dc takes the
-	 * cleanup path. (void)-ing the loop helpers below ensures the
-	 * stub-trace probe still reports them, even though the skeleton
-	 * doesn't yet call them.) */
-	(void)jt112;
-	(void)jt108;
-	(void)jt81;
-	(void)jt76;
-	(void)jt3;
-	(void)jt174;
-	(void)l0aae;
-	(void)l02dc;
-	return 0;
+	/* Outer loop — the asm jumps from entry directly to L125e and then
+	 * to L0dd4. We model that as an unbounded for-loop with the body
+	 * at L0dd4. iter_guard breaks out after the first iteration while
+	 * L0aae / the case bodies are still stubs returning 0 (otherwise
+	 * we'd spin forever). */
+	for (iter_guard = 0; iter_guard < 1; iter_guard++) {
+		/* L0dd4: per-iteration prologue. */
+		(void)jt112(1);
+		if (local > 11)
+			(void)jt108(1);
+		else
+			jt81();
+
+		/* L0df6: cluster setup. The Mac calls one arm per outer
+		 * entry, not per iteration — but the writes are idempotent
+		 * (each byte is set unconditionally), so re-running is
+		 * safe. */
+		if (g_a5_27932 != 0) {
+			l02dc(g_a5_27932);
+			g_a5_14439 = 1;
+			g_a5_14438 = 1;
+			{
+				/* g_a5_28006[+48] >= 0 OR g_a5_22730 != 0 → 1, else 0 */
+				const unsigned char *h =
+				    (const unsigned char *)g_a5_28006;
+				int dirty = (h != NULL && (signed char)h[48] >= 0)
+				         || (g_a5_22730 != 0);
+
+				g_a5_14437 = (unsigned char)(dirty ? 1 : 0);
+				g_a5_14436 = g_a5_14437;
+			}
+			g_a5_14435 = 1;
+			g_a5_14434 = 1;
+			{
+				short n = jt918_count_visible_designs();
+
+				if (n > 5)
+					g_a5_14434 = 0;
+			}
+			g_a5_14433 = 1;
+			g_a5_14432 = 1;
+			g_a5_14431 = 1;
+			g_a5_14430 = 1;
+		} else {
+			/* L0e98: fresh-init defaults. */
+			g_a5_14439 = 1;
+			g_a5_14438 = 0;
+			g_a5_14437 = 0;
+			g_a5_14436 = 0;
+			g_a5_14435 = 0;
+			g_a5_14434 = 1;
+			g_a5_14433 = 0;
+			g_a5_14432 = 1;
+			g_a5_14431 = 0;
+			g_a5_14430 = 0;
+		}
+
+		/* L0ec6: poll input. */
+		local = (short)l0aae();
+		if (local != 7 && local <= 11)
+			jt76();
+		if (local == 1)
+			l02dc(g_a5_27932);
+
+		/* JT[3] switch on local (0..11). */
+		switch (local) {
+		case 0:  l0f1a(); break;
+		case 1:  l0f2e(); break;
+		case 2:  l0f3e(); break;
+		case 3:  l0f60(); break;
+		case 4:  l0f74(); break;
+		case 5:  l1036(); break;
+		case 6:  l104c(); break;
+		case 7:  l1060(); break;
+		case 8:  l10ca(); break;
+		case 9:  l1142(); break;
+		case 10: l115a(); break;
+		case 11: l120c(); break;
+		default: break;                  /* fall through to L1242 */
+		}
+		/* L1242 → L125e → L0dd4 (continue). */
+	}
+	return 0;       /* matches the asm's L123a / L123e exit edges */
 }
+
+static void l0aae_unused_warn(void) __attribute__((unused));
+static void l0aae_unused_warn(void) { (void)l0aae; (void)l02dc; }
 
 /* =========================================================================
  * L5124 — L07dc's first-time init (CODE 6 + 0x5124).
