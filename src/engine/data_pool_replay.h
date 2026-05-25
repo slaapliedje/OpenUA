@@ -16,6 +16,22 @@
 
 void  data_pool_replay(void);
 
+/* Size of the below-A5 buffer. Covers the deepest DREL reloc the
+ * FRUA build references (-20096) with comfortable headroom for the
+ * BSS portion above it (g_a5_27932 / 28006 / etc.). */
+#define A5_BELOW_SIZE 32768
+
+/* The below-A5 byte buffer. byte 0 sits at the deepest address; A5
+ * conceptually points just past byte A5_BELOW_SIZE - 1. Lifts that
+ * model an A5-relative global as a buffer slot reach it via the
+ * `g_a5_byte(off)` macro below. */
+extern unsigned char g_a5_below[A5_BELOW_SIZE];
+
+/* L-value accessor: g_a5_byte(-N) → the byte at A5 - N inside the
+ * buffer. `&g_a5_byte(-N)` returns the address (for array-style
+ * walks). */
+#define g_a5_byte(off) (g_a5_below[A5_BELOW_SIZE + (int)(off)])
+
 /* Base of the below-A5 region — the byte address conceptual A5
  * points just past (so g_a5_below_base() returns &buffer[size]). */
 void *g_a5_below_base(void);

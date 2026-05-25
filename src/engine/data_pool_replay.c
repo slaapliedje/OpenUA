@@ -34,9 +34,7 @@
 #include "str.h"             /* ua_strs_at */
 #include "dbglog.h"
 
-#define A5_BELOW_SIZE   32768
-
-static unsigned char g_a5_below[A5_BELOW_SIZE];
+unsigned char g_a5_below[A5_BELOW_SIZE];
 
 /* The conceptual A5 base — the byte address just past the last byte
  * of g_a5_below. Reads `g_a5_at(-N)` resolve to g_a5_below[A5_BELOW_SIZE

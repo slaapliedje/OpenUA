@@ -38,6 +38,7 @@
 #include "core.h"             /* core_init */
 #include "master.h"           /* master_init */
 #include "macmemory.h"        /* BlockMove, Size */
+#include "data_pool_replay.h" /* g_a5_byte */
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
 
@@ -1320,18 +1321,23 @@ static unsigned char  g_a5_22727[4];         /* 4-byte buffer JT[399] fills     
  * cluster, then the input loop reads which flag the user's selection
  * tripped (via the JT[3] case body for that local) and calls into the
  * matching CODE 17 / CODE 18 routine. */
-static unsigned char g_a5_14440;        /* index 0 — first menu slot   */
-static unsigned char g_a5_14439;
-static unsigned char g_a5_14438;
-static unsigned char g_a5_14437;
-static unsigned char g_a5_14436;
-static unsigned char g_a5_14435;
-static unsigned char g_a5_14434;
-static unsigned char g_a5_14433;
-static unsigned char g_a5_14432;
-static unsigned char g_a5_14431;
-static unsigned char g_a5_14430;
-static unsigned char g_a5_14429;        /* index 11 — last menu slot   */
+/* The 12-byte c79x cluster lives in the below-A5 buffer now. The
+ * BSS-zero data_pool_replay does at startup matches the Mac's runtime
+ * state (none of these offsets are touched by DATA replay), and the
+ * macros below give the same l-value / address semantics as the
+ * previous file-static globals. */
+#define g_a5_14440 g_a5_byte(-14440)    /* index 0 — first menu slot   */
+#define g_a5_14439 g_a5_byte(-14439)
+#define g_a5_14438 g_a5_byte(-14438)
+#define g_a5_14437 g_a5_byte(-14437)
+#define g_a5_14436 g_a5_byte(-14436)
+#define g_a5_14435 g_a5_byte(-14435)
+#define g_a5_14434 g_a5_byte(-14434)
+#define g_a5_14433 g_a5_byte(-14433)
+#define g_a5_14432 g_a5_byte(-14432)
+#define g_a5_14431 g_a5_byte(-14431)
+#define g_a5_14430 g_a5_byte(-14430)
+#define g_a5_14429 g_a5_byte(-14429)    /* index 11 — last menu slot   */
 static short         g_a5_19174;        /* menu coordinate (high word) */
 static short         g_a5_19172;        /* menu coordinate (low word)  */
 static short         g_a5_5794;         /* selection result            */
