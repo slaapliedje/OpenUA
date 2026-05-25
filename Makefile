@@ -82,14 +82,19 @@ run: $(TARGET)
 	$(HATARI) --machine falcon $(HATARI_FPU) --dsp emu --tos $(FALCON_TOS) \
 	          --conout 2 -d . --auto $(TARGET)
 
-# Host-side test suite — pytest over tools/. Not a cross-build.
+# Host-side test suite — pytest over tools/. Not a cross-build. The
+# `slow` test boots frua.prg in Hatari and snaps a screenshot — skip
+# by default; opt in with `make test-slow`.
 PYTEST ?= tools/.venv/bin/pytest
 test:
 	$(PYTEST) tests -q
+
+test-slow:
+	$(PYTEST) tests -q -m slow
 
 clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET)
 
 -include $(DEP)
 
-.PHONY: all run test clean data-pool-regen
+.PHONY: all run test test-slow clean data-pool-regen
