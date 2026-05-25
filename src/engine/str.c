@@ -8,6 +8,7 @@
 
 #include <stddef.h>
 
+#include "resources.h"          /* GetResource (STRS lookup) */
 #include "str.h"
 
 /*
@@ -72,4 +73,13 @@ const char *ua_get_string(short index)
 		return g_ua_strtab[index];
 
 	return g_ua_strtab_default;
+}
+
+const char *ua_strs_at(long offset)
+{
+	Handle h = GetResource(0x53545253L /* 'STRS' */, 0);
+
+	if (h == NULL || *h == NULL)
+		return "";
+	return (const char *)*h + offset;
 }

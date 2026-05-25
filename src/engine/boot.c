@@ -486,12 +486,112 @@ static int  jt112(short a)         { PROBE("jt112"); return 0; }                
 static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
 
-/* L5700 / L5864 — sibling mode-cleanup helpers further down in CODE 6;
- * the JT[3]-driven case table inside jt131 picks one per the previous
- * mode value. Their bodies are sizable (sub-resource release, screen
- * teardown) and stay PROBE-only until the next pass. */
-static void l5700(void)            { PROBE("L5700"); }                            /* CODE 6 + 0x5700  */
-static void l5864(void)            { PROBE("L5864"); }                            /* CODE 6 + 0x5864  */
+/* --- L5700 / L5864 — mode-cleanup helpers jt131 dispatches into --- *
+ *
+ * Each one tears down one cached "module" slot. The slot's record is a
+ * short tag (cleared on release) + a 4-byte pointer the engine hands to
+ * JT[115], plus per-slot sentinels — and, for slot 1, a name buffer the
+ * cleanup strcpys an empty string into. The matching JT[3] dispatch in
+ * jt131 picks slot 1 (state 0 / 2 -> L5700) or slot 2 (state 3 ->
+ * L5864) depending on which mode the engine is leaving.
+ */
+
+/* Slot 1 (a5@(-24322..-24262), L5700). Tag short + slot pointer; the
+ * Mac call zeros the contiguous 6-byte cluster in a single l5f4e — the
+ * lift keeps the fields separate and clears both inline. The name
+ * buffer (g_a5_24304) and the per-slot sentinels (g_a5_24262 /
+ * g_a5_24256) are declared further down with the rest of L5124's A5
+ * cluster — the same engine module owns both ends. */
+static short         g_a5_24322;
+static void         *g_a5_24320;
+
+/* Slot 2 (a5@(-24260..-24256), L5864) — just a slot pointer; the
+ * sentinel byte g_a5_24256 lives with L5124's cluster. */
+static void         *g_a5_24260;
+
+/* Forward declarations — jt115 and the L5124-cluster globals these two
+ * helpers stamp (g_a5_24304 name buffer, g_a5_24262 / g_a5_24256
+ * sentinel bytes) live further down in the file. */
+static void           jt115(void *slot_ptr);
+static char           g_a5_24304[256];
+static unsigned char  g_a5_24262;
+static unsigned char  g_a5_24256;
+
+/* L5f4e — zero `size` bytes at `buf`. CODE 6 + 0x5f4e.
+ * Three asm lines: push 0, push size, push buf, jsr JT[399]. */
+static void l5f4e(void *buf, short size) __attribute__((unused));
+static void l5f4e(void *buf, short size)
+{
+	jt399(buf, size, 0);
+}
+
+/* JT[384] — strcpy. CODE 3 + 0x3952.
+ *
+ *   moveal fp@(8),  a4              // a4 = dst
+ *   moveal fp@(12), a3              // a3 = src
+ *   loop:
+ *     moveb (a3)+, (a4)+
+ *     bnes  loop                    // continue while byte copied != 0
+ *   rts
+ */
+static void jt384(char *dst, const char *src)
+{
+	PROBE("jt384");
+	if (dst == NULL || src == NULL)
+		return;
+	while ((*dst++ = *src++) != 0)
+		;
+}
+
+/* L5700 — slot-1 mode tear-down. CODE 6 + 0x5700.
+ *
+ * Disassembly:
+ *   pea   a5@(-24320)
+ *   jsr   JT[115]                   // release the slot-1 cached block
+ *   addql #4, sp
+ *   movew #6, -(sp)
+ *   pea   a5@(-24322)
+ *   jsr   L5f4e                     // zero 6 bytes (tag short + ptr long)
+ *   addql #6, sp
+ *   pea   STRS+0x750                // pointer to an empty STRS string
+ *   pea   a5@(-24304)
+ *   jsr   JT[384]                   // strcpy(name, "")
+ *   addql #8, sp
+ *   moveq #-1, d0
+ *   moveb d0, a5@(-24262)           // mark released
+ *   rts
+ *
+ * The strcpy of an empty STRS slot collapses to `name[0] = 0` — the
+ * call shape is preserved through ua_strs_at so a future repacking of
+ * STRS won't break the behaviour.
+ */
+static void l5700(void)
+{
+	PROBE("L5700");
+	jt115(&g_a5_24320);
+	/* Mac's l5f4e(&a5[-24322], 6) zeros the contiguous tag+ptr cluster.
+	 * The lift's separate globals zero individually for the same effect. */
+	g_a5_24322 = 0;
+	g_a5_24320 = NULL;
+	jt384(g_a5_24304, ua_strs_at(0x750));
+	g_a5_24262 = 0xFF;
+}
+
+/* L5864 — slot-2 mode tear-down. CODE 6 + 0x5864.
+ *
+ *   pea   a5@(-24260)
+ *   jsr   JT[115]                   // release slot-2 cached block
+ *   addql #4, sp
+ *   moveq #-1, d0
+ *   moveb d0, a5@(-24256)           // mark released
+ *   rts
+ */
+static void l5864(void)
+{
+	PROBE("L5864");
+	jt115(&g_a5_24260);
+	g_a5_24256 = 0xFF;
+}
 
 /* JT[461] — release a sub-resource by its short tag. CODE 3 + 0xb66.
  *
@@ -842,7 +942,10 @@ static unsigned char  g_a5_22282;
 static unsigned char  g_a5_22281;
 static unsigned char  g_a5_27982;
 static unsigned char  g_a5_22279;
-static unsigned char  g_a5_24304;
+static char           g_a5_24304[256];  /* slot-1 cached name buffer
+                                         * (L5700 strcpys an empty
+                                         * STRS string into it; L5124
+                                         * clears the first byte). */
 static unsigned char  g_a5_24283;
 static unsigned char  g_a5_24262;            /* set to 0xFF        */
 static unsigned char  g_a5_24261;            /* set to 0xFF        */
@@ -923,7 +1026,7 @@ static void l5124(void)
 
 	g_a5_27982 = 0;
 	g_a5_22279 = 0;
-	g_a5_24304 = 0;
+	g_a5_24304[0] = 0;          /* clear the name buffer (empty string) */
 	g_a5_24283 = 0;
 	g_a5_24262 = 0xFF;
 	g_a5_24261 = 0xFF;

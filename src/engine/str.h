@@ -25,6 +25,16 @@ extern const char  *g_ua_strtab_default;/* out-of-range fallback    */
 const char *ua_get_string(short index);
 
 /*
+ * Pointer into the STRS resource at the given byte offset. The original
+ * Mac engine uses CREL relocations to compute this address at load time
+ * (the THINK C linker patches in STRS_load_addr + offset for every
+ * `pea 0xXXXX  ; reloc STRS+0xXXXX` instruction); the lift resolves
+ * the same offsets at call time via GetResource. Returns "" if STRS
+ * isn't loaded.
+ */
+const char *ua_strs_at(long offset);
+
+/*
  * Install the string table — the lifted JT[480] (CODE 3 + 0x3c6). The Mac
  * THINK C runtime calls this from CODE 1 with the count / pointer that the
  * DATA + DREL resources resolve to; the shim's main() does the same for
