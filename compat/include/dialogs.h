@@ -58,6 +58,10 @@ typedef struct DialogRecord {
 	short        editField;         /* 164 current edit-text item, -1  */
 	short        editOpen;          /* 166 internal — text edit open   */
 	short        aDefItem;          /* 168 default item (Return / Enter) */
+	/* Shim-private. Engine by-offset access stops at aDefItem; the
+	 * `aux` slot holds per-item edit-field state (text buffers,
+	 * focused-field rect cache) allocated by NewDialog. */
+	void        *aux;               /* 170 — dlg_aux_t (shim-private)  */
 } DialogRecord;
 
 typedef DialogRecord *DialogPtr;
@@ -105,15 +109,22 @@ void GetDialogItem(DialogPtr d, short itemNum, short *type, Handle *itemH,
                    Rect *box);
 
 /*
- * Pascal-string text accessors for static-text and edit-text items. The
- * skeleton stores the item text in the DITL's bytes themselves, so
- * SetDialogItemText / GetDialogItemText operate on those bytes via the
- * item handle returned by GetDialogItem. For static-text items the
- * "handle" is a tagged pointer that points into the DITL — writeable
- * for short strings; longer text triggers a reallocation that follows
- * when an engine call needs it.
+ * Pascal-string text accessors for edit-text dialog items. The Mac
+ * passes these the item Handle that GetDialogItem returns. The shim's
+ * skeleton routes through the dialog's per-item text buffers (allocated
+ * by NewDialog when it scans the DITL for editText items) rather than
+ * the raw DITL bytes.
  */
 void SetDialogItemText(Handle item, ConstStr255Param text);
 void GetDialogItemText(Handle item, unsigned char *text);
+
+/*
+ * Per-dialog helpers for the edit-text round-trip — the engine calls
+ * the Pascal-handle pair above, but the shim's demo paths use the
+ * dialog directly. (DialogPtr, item) reads / writes the current text
+ * of edit-text item `itemNum`. SetDialog... triggers a repaint.
+ */
+void dialog_get_edit_text(DialogPtr d, short itemNum, unsigned char *str);
+void dialog_set_edit_text(DialogPtr d, short itemNum, ConstStr255Param str);
 
 #endif /* COMPAT_DIALOGS_H */
