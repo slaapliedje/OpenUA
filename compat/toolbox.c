@@ -13,6 +13,7 @@
 
 #include "toolbox.h"
 #include "events.h"           /* FlushEvents + everyEvent for the prologue */
+#include "menus.h"            /* ClearMenuBar for InitMenus                */
 
 /*
  * InitGraf — QuickDraw startup. The Mac caller passes a pointer to its
@@ -35,9 +36,10 @@ void InitWindows(void)
 {
 }
 
-/* InitMenus — Menu Manager startup. */
+/* InitMenus — Menu Manager startup. Empties the menu bar. */
 void InitMenus(void)
 {
+	ClearMenuBar();
 }
 
 /* TEInit — TextEdit startup. */

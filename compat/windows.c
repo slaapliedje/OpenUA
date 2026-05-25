@@ -18,6 +18,7 @@
 
 #include "windows.h"
 #include "macmemory.h"          /* NewPtr, DisposePtr */
+#include "menus.h"              /* menubar_active, menubar_height */
 #include "resources.h"          /* GetResource        */
 #include "events.h"             /* Button, GetMouse for DragWindow / Track */
 
@@ -689,6 +690,12 @@ short FindWindow(Point thePt, WindowPtr *whichWindow)
 
 	if (whichWindow != NULL)
 		*whichWindow = NULL;
+
+	/* The menu bar wins over any window: it paints on the desktop above
+	 * the window list. Only honour the hit when the bar actually has
+	 * menus (an empty bar is invisible and shouldn't catch clicks). */
+	if (menubar_active() && thePt.v >= 0 && thePt.v < menubar_height())
+		return inMenuBar;
 
 	/* Front to back over visible windows: g_window_list is the list head
 	 * (frontmost first), with hidden windows skipped inline. */

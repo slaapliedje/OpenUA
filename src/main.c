@@ -24,6 +24,7 @@
 #include "dialogs.h"
 #include "events.h"
 #include "mac_font.h"
+#include "menus.h"
 #include "quickdraw.h"
 #include "resources.h"
 #include "windows.h"
@@ -231,6 +232,29 @@ int main(void)
 	(void)Alert(200, NULL);
 	dbg_log("main: ALRT 200 dismissed");
 
+	/* Build a small menu bar so the user can drop a menu down and the
+	 * event loop has somewhere to send inMenuBar clicks. NewMenu /
+	 * AppendMenu / InsertMenu come from the Menu Manager skeleton in
+	 * compat/menus.c; DrawMenuBar paints across the top of the screen
+	 * port. The File menu's "Quit" item is the loop's exit path
+	 * alongside any keyDown. */
+	{
+		MenuHandle m_file = NewMenu(128, (ConstStr255Param)"\004File");
+		MenuHandle m_edit = NewMenu(129, (ConstStr255Param)"\004Edit");
+
+		if (m_file != NULL) {
+			AppendMenu(m_file, (ConstStr255Param)"\017New;Open;-;Quit");
+			InsertMenu(m_file, 0);
+		}
+		if (m_edit != NULL) {
+			AppendMenu(m_edit, (ConstStr255Param)"\015Undo;Cut;Copy");
+			InsertMenu(m_edit, 0);
+		}
+		DrawMenuBar();
+		dsp->present();
+		dbg_log("main: menu bar drawn");
+	}
+
 	/* Interactive loop: WaitNextEvent at ~60 Hz. mouseDown promotes the
 	 * clicked window via FindWindow + SelectWindow (active stripe goes
 	 * with it). keyDown exits. The whole chain — IKBD packet handler →
@@ -249,6 +273,22 @@ int main(void)
 				WindowPtr hit = NULL;
 				short     part = FindWindow(e.where, &hit);
 
+				if (part == inMenuBar) {
+					long sel = MenuSelect(e.where);
+
+					if (sel != 0) {
+						short id   = (short)((sel >> 16) & 0xFFFF);
+						short item = (short)(sel & 0xFFFF);
+
+						dbg_log_num("main: menu id  = ", id);
+						dbg_log_num("main: menu it  = ", item);
+						/* File menu, "Quit" = item 4. */
+						if (id == 128 && item == 4)
+							done = 1;
+					}
+					dsp->present();
+					break;
+				}
 				if (hit != NULL && (part == inContent
 				                 || part == inDrag)
 				 && hit != FrontWindow())
@@ -256,7 +296,8 @@ int main(void)
 				if (hit != NULL && part == inDrag) {
 					Rect drag_bounds;
 
-					SetRect(&drag_bounds, 0, 15,
+					SetRect(&drag_bounds, 0,
+					        (short)(menubar_height() + 1),
 					        surf->width,
 					        (short)(surf->height - 1));
 					DragWindow(hit, e.where, &drag_bounds);
