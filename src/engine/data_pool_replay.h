@@ -27,10 +27,18 @@ void  data_pool_replay(void);
  * `g_a5_byte(off)` macro below. */
 extern unsigned char g_a5_below[A5_BELOW_SIZE];
 
-/* L-value accessor: g_a5_byte(-N) → the byte at A5 - N inside the
- * buffer. `&g_a5_byte(-N)` returns the address (for array-style
- * walks). */
+/* L-value accessors: g_a5_byte(-N) → the byte at A5 - N inside the
+ * buffer. The wider variants return an l-value of the corresponding
+ * type — they re-interpret the bytes at the chosen A5 offset as a
+ * short / long / pointer / array, mirroring the by-offset access
+ * patterns Mac engine code uses against the A5 world. Reads/writes
+ * are 68k-unaligned on the Falcon030 target; the CPU handles them
+ * (slower than aligned, fine for our use). */
 #define g_a5_byte(off) (g_a5_below[A5_BELOW_SIZE + (int)(off)])
+#define g_a5_word(off) (*(short  *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_long(off) (*(long   *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_ptr(off)  (*(void  **)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_buf(off)  ((unsigned char *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
 
 /* Base of the below-A5 region — the byte address conceptual A5
  * points just past (so g_a5_below_base() returns &buffer[size]). */

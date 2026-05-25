@@ -42,6 +42,54 @@
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
 
+/* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
+ * a small constant. All live in the below-A5 buffer at their A5
+ * offsets; the c79x cluster's macro pattern carries over directly.
+ * Macros come up here so the L5700 / jt918 / case-body lifts further
+ * down see the same slot in g_a5_below[].
+ *
+ * Wider-typed globals (g_a5_27984 short, g_a5_27940 long, g_a5_24142
+ * short, g_a5_13038 pointer, g_a5_24304 name buffer) stay as file
+ * statics for now — migrating them needs the typed accessors plus
+ * fixups to the call sites that take their address. */
+#define g_a5_18474 g_a5_byte(-18474)
+#define g_a5_18473 g_a5_byte(-18473)
+#define g_a5_22218 g_a5_byte(-22218)
+#define g_a5_12288 g_a5_byte(-12288)
+#define g_a5_12287 g_a5_byte(-12287)
+#define g_a5_22226 g_a5_byte(-22226)
+#define g_a5_27981 g_a5_byte(-27981)
+#define g_a5_12290 g_a5_byte(-12290)
+#define g_a5_23190 g_a5_byte(-23190)
+#define g_a5_22284 g_a5_byte(-22284)
+#define g_a5_22283 g_a5_byte(-22283)
+#define g_a5_22282 g_a5_byte(-22282)
+#define g_a5_22281 g_a5_byte(-22281)
+#define g_a5_22279 g_a5_byte(-22279)
+#define g_a5_24283 g_a5_byte(-24283)
+#define g_a5_24261 g_a5_byte(-24261)
+#define g_a5_22330 g_a5_byte(-22330)
+#define g_a5_22331 g_a5_byte(-22331)
+#define g_a5_22273 g_a5_byte(-22273)
+#define g_a5_22626 g_a5_byte(-22626)
+#define g_a5_24140 g_a5_byte(-24140)
+#define g_a5_23187 g_a5_byte(-23187)
+#define g_a5_22269 g_a5_byte(-22269)
+#define g_a5_22633 g_a5_byte(-22633)
+#define g_a5_22635 g_a5_byte(-22635)
+#define g_a5_22268 g_a5_byte(-22268)
+#define g_a5_22225 g_a5_byte(-22225)
+#define g_a5_24148 g_a5_byte(-24148)
+#define g_a5_27987 g_a5_byte(-27987)
+#define g_a5_27916 g_a5_byte(-27916)
+#define g_a5_22275 g_a5_byte(-22275)
+
+/* These slots are shared with the L5700 / dispatch / jt918 lifts. */
+#define g_a5_27982 g_a5_byte(-27982)
+#define g_a5_27946 g_a5_byte(-27946)
+#define g_a5_24262 g_a5_byte(-24262)
+#define g_a5_24256 g_a5_byte(-24256)
+
 /*
  * Stub-trace probe. Off by default — when compiled with
  * -DFRUA_ENGINE_PROBE every stub below logs its name as the engine
@@ -308,8 +356,8 @@ static unsigned char g_a5_4944;
  * arrive. */
 static unsigned char  g_a5_27990;
 static void          *g_a5_28006;
-static unsigned char  g_a5_12287;
-static unsigned char  g_a5_12288;
+/* g_a5_12287 / g_a5_12288 are macros in the L5124 cluster at the top
+ * of the file. */
 
 /* Cross-segment JT entries L07dc calls — most are stubs; jt918 / jt942 /
  * jt943 are lifted (jt942 and jt943 are the paired setter / getter on the
@@ -518,9 +566,10 @@ static void         *g_a5_24260;
  * helpers stamp (g_a5_24304 name buffer, g_a5_24262 / g_a5_24256
  * sentinel bytes) live further down in the file. */
 static void           jt115(void *slot_ptr);
+/* g_a5_24262 / g_a5_24256 are macros in the L5124 cluster; g_a5_24304
+ * stays a file-static name buffer until the cluster's wider-typed
+ * migration — forward declared here so L5700 sees it. */
 static char           g_a5_24304[256];
-static unsigned char  g_a5_24262;
-static unsigned char  g_a5_24256;
 
 /* L5f4e — zero `size` bytes at `buf`. CODE 6 + 0x5f4e.
  * Three asm lines: push 0, push size, push buf, jsr JT[399]. */
@@ -1879,16 +1928,13 @@ static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
 static long g_a5_18844;        /* source pointer fed to JT[1199]      */
 static long g_a5_18882;        /* result stored from JT[1199]         */
 
-/* Forward — g_a5_27946 is defined further down with the L5124 cluster. */
-static unsigned char g_a5_27946;
+/* g_a5_27946 / g_a5_27982 are now macros in the L5124 cluster at the
+ * top of the file. */
 
 /* Globals cases 7..11 manage. */
 static unsigned char g_a5_27988;        /* alternate save-state flag      */
 static long          g_a5_14284;        /* prompt string offset (STRS)    */
 static unsigned char g_a5_18472;        /* "begin adventuring" attempted  */
-
-/* Forward — g_a5_27982 is defined further down with the L5124 cluster. */
-static unsigned char g_a5_27982;
 
 /* Forward — jt19 / jt159 land further down with the case 7..11 stubs. */
 static void jt19(short a, short b);
@@ -2523,51 +2569,11 @@ static void l0aae_unused_warn(void) { (void)l0aae; (void)l02dc; }
 /* A5-world globals L5124 touches beyond those already declared. Many are
  * file-static for now; they'll join a shared A5-world header as soon as
  * other CODE segments reach for the same offsets. */
-static unsigned char  g_a5_18474;            /* cleared            */
-static unsigned char  g_a5_18473;            /* cleared            */
-/* g_a5_4944 lives near the top of the file with the jt942/jt943 lift. */
-static unsigned char  g_a5_22218;            /* set to 90          */
 static unsigned char *g_a5_13038;            /* 2000-byte buffer ptr */
-static unsigned char  g_a5_12288;            /* 3-byte cluster ...  */
-static unsigned char  g_a5_12287;
-static unsigned char  g_a5_12286;            /* set to 4           */
-static unsigned char  g_a5_22226;            /* set to 1           */
-static unsigned char  g_a5_27981;            /* set to 1           */
 static short          g_a5_27984;            /* cleared (word)     */
 static long           g_a5_27940;            /* cleared (long)     */
-static unsigned char  g_a5_12290;            /* cleared            */
 static short          g_a5_24142;            /* set to 1 (word)    */
-static unsigned char  g_a5_23190;            /* cleared            */
-static unsigned char  g_a5_22284;
-static unsigned char  g_a5_22283;
-static unsigned char  g_a5_22282;
-static unsigned char  g_a5_22281;
-static unsigned char  g_a5_27982;
-static unsigned char  g_a5_22279;
-static char           g_a5_24304[256];  /* slot-1 cached name buffer
-                                         * (L5700 strcpys an empty
-                                         * STRS string into it; L5124
-                                         * clears the first byte). */
-static unsigned char  g_a5_24283;
-static unsigned char  g_a5_24262;            /* set to 0xFF        */
-static unsigned char  g_a5_24261;            /* set to 0xFF        */
-static unsigned char  g_a5_27946;
-static unsigned char  g_a5_22330;            /* set to 0xE8 (-24)  */
-static unsigned char  g_a5_22331;            /* set to 0xDB (-37)  */
-static unsigned char  g_a5_22273;
-static unsigned char  g_a5_22626;            /* set to 1           */
-static unsigned char  g_a5_24256;            /* set to 0xFF        */
-static unsigned char  g_a5_24140;            /* set to 1           */
-static unsigned char  g_a5_23187;
-static unsigned char  g_a5_22269;
-static unsigned char  g_a5_22633;
-static unsigned char  g_a5_22635;
-static unsigned char  g_a5_22268;
-static unsigned char  g_a5_22225;
-static unsigned char  g_a5_24148;
-static unsigned char  g_a5_27987;
-static unsigned char  g_a5_27916;
-static unsigned char  g_a5_22275;
+/* g_a5_24304 — single definition lives at the forward decl above L5700. */
 
 /* JT[399] is the engine's "fill / zero buffer" service in this context.
  * mode=0 + size=N + pointer zeroes N bytes (matched against L5124's three
