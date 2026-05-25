@@ -1522,11 +1522,107 @@ static unsigned char g_a5_18472;        /* "begin adventuring" attempted  */
 /* Forward — g_a5_27982 is defined further down with the L5124 cluster. */
 static unsigned char g_a5_27982;
 
-/* L185e / L12a0 — local helpers cases 6 and 7 jsr to. Sizable bodies
- * elsewhere in CODE 12; stay PROBE stubs until they're lifted on
- * their own. */
-static void l185e(void)                          { PROBE("L185e"); }
+/* Forward — jt19 / jt159 land further down with the case 7..11 stubs. */
+static void jt19(short a, short b);
+static int  jt159(const char *prompt, short b);
+
+/* L12a0 — View Character dispatcher. CODE 12 + 0x12a0. ~800 bytes of
+ * asm that opens a 22x38 window via JT[103], pumps the input loop via
+ * JT[179], runs a JT[3] sub-dispatch over the user's key (Escape →
+ * exit, Enter → confirm, others case-by-case), then walks the design
+ * list via JT[589] / JT[488] / JT[384] / JT[169]. Stays a PROBE stub —
+ * lifting the full body needs the CODE 7 dialog runtime first. */
 static void l12a0(void)                          { PROBE("L12a0"); }
+
+/* JT[488] (CODE 3 + 0x438) — sprintf into the static buffer at
+ * g_a5_10362, returning the buffer address. All format strings the
+ * engine uses are `%s` substitutions over a Pascal-string-style name;
+ * the lift uses C vsnprintf which handles them faithfully. */
+static char  g_a5_10362[256];
+
+#include <stdarg.h>
+#include <stdio.h>
+
+static const char *jt488(const char *fmt, ...)
+{
+	va_list ap;
+
+	PROBE("jt488");
+	if (fmt == NULL)
+		fmt = "";
+	va_start(ap, fmt);
+	vsnprintf(g_a5_10362, sizeof g_a5_10362, fmt, ap);
+	va_end(ap);
+	return g_a5_10362;
+}
+
+/* JT[42] (CODE 6 + 0x22a6) — append a message to the play window's
+ * scrolling text area. Body lives in CODE 6's window-output cluster
+ * and is sizeable; PROBE-only for now. */
+static void jt42(const char *msg)                { PROBE("jt42");
+                                                   (void)msg; }
+
+/* L185e — Human Change Class "Drop NAME forever?" confirmation arm
+ * jt918 case 7 jsrs into. CODE 12 + 0x185e.
+ *
+ *   if (g_a5_27932 == 0) goto L191c
+ *   buf = jt488("Drop %s forever? ", &handle[96])
+ *   strcpy(local, buf)        // jt384 into fp@(-42)
+ *   if (!jt159(local, 0))     goto L1900
+ *   if (!jt159("Are you sure? ", 0)) goto L1900
+ *   if (*(char *)(handle + 382) == 0) {
+ *       jt42(jt488("You dump %s out back.",  &handle[96]))
+ *   } else {
+ *       jt42(jt488("%s bids you farewell.", &handle[96]))
+ *   }
+ *   jt19(0, 1)                // execute the drop
+ *   goto L191c
+ *  L1900:
+ *   jt42(jt488("%s breathes a sigh of relief.", &handle[96]))
+ *  L191c:
+ *   l02dc(g_a5_27932)
+ *   return
+ */
+static void l185e(void)
+{
+	unsigned char *handle;
+	char           local_prompt[256];
+
+	PROBE("L185e");
+	if (g_a5_27932 == 0)
+		goto refresh;
+	handle = (unsigned char *)g_a5_27932;
+
+	{
+		const char *fmt = ua_strs_at(0x602a);  /* "Drop %s forever? " */
+		const char *built = jt488(fmt, &handle[96]);
+
+		jt384(local_prompt, built);
+	}
+	if (jt159(local_prompt, 0) == 0)
+		goto sigh_of_relief;
+	if (jt159(ua_strs_at(0x603c), 0) == 0)         /* "Are you sure? " */
+		goto sigh_of_relief;
+
+	if (handle[382] == 0) {
+		const char *fmt = ua_strs_at(0x604c);  /* "You dump %s out back." */
+		jt42(jt488(fmt, &handle[96]));
+	} else {
+		const char *fmt = ua_strs_at(0x6062);  /* "%s bids you farewell." */
+		jt42(jt488(fmt, &handle[96]));
+	}
+	jt19(0, 1);
+	goto refresh;
+
+sigh_of_relief:
+	{
+		const char *fmt = ua_strs_at(0x6078);  /* "%s breathes a sigh of relief." */
+		jt42(jt488(fmt, &handle[96]));
+	}
+
+refresh:
+	l02dc(g_a5_27932);
+}
 
 /* Forward — JT[78] = L67ca, JT[84] = L68f8, JT[88] = L5124. Already
  * lifted earlier in the file; cases 7 / 8 / 10 jsr their JT entries. */
