@@ -17,6 +17,7 @@
 #include <string.h>             /* memset         */
 
 #include "windows.h"
+#include "controls.h"           /* KillControls */
 #include "macmemory.h"          /* NewPtr, DisposePtr */
 #include "menus.h"              /* menubar_active, menubar_height */
 #include "resources.h"          /* GetResource        */
@@ -452,6 +453,7 @@ void CloseWindow(WindowPtr wp)
 
 	if (w == NULL)
 		return;
+	KillControls(wp);
 	/* A colour window owns the PixMap NewCWindow gave its port. */
 	cp = (CGrafPtr)&w->port;
 	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) == CGRAFPORT_FLAG)

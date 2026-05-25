@@ -21,6 +21,7 @@
 #include "files.h"
 #include "input.h"
 #include "macmemory.h"
+#include "controls.h"
 #include "dialogs.h"
 #include "events.h"
 #include "mac_font.h"
@@ -44,6 +45,92 @@ static short show_dialog(short id)
 	ModalDialog(NULL, &item);
 	DisposeDialog(d);
 	return item;
+}
+
+/*
+ * Stand-alone Mac Control Manager demo — opens a fresh window, drops
+ * a push button + a checkbox + two radio buttons + an OK button into
+ * it via NewControl, then runs a small event loop that routes
+ * mouseDown to FindControl / TrackControl. The checkbox toggles its
+ * value on click; the radios act as a group (clicking one clears the
+ * other). The OK push button (refCon == 1) dismisses the demo.
+ */
+static void show_controls_demo(short surf_w, short surf_h)
+{
+	Rect          bounds, r;
+	WindowPtr     w;
+	ControlHandle b_ok, cb, r1, r2;
+	EventRecord   ev;
+	Boolean       done = 0;
+
+	SetRect(&bounds,
+	        (short)((surf_w - 240) / 2),
+	        (short)((surf_h - 140) / 2),
+	        (short)((surf_w - 240) / 2 + 240),
+	        (short)((surf_h - 140) / 2 + 140));
+	w = NewCWindow(NULL, &bounds, (ConstStr255Param)"\010Controls",
+	               1, 1, (WindowPtr)-1L, 0, 0);
+	if (w == NULL)
+		return;
+
+	SetRect(&r, 18, 20, 90, 36);
+	cb = NewControl(w, &r, (ConstStr255Param)"\005Check", 1, 0, 0, 1,
+	                checkBoxProc, 0);
+
+	SetRect(&r, 18, 42, 90, 58);
+	r1 = NewControl(w, &r, (ConstStr255Param)"\004One",   1, 1, 0, 1,
+	                radioButProc, 1);
+	SetRect(&r, 18, 60, 90, 76);
+	r2 = NewControl(w, &r, (ConstStr255Param)"\004Two",   1, 0, 0, 1,
+	                radioButProc, 2);
+	SetRect(&r, 130, 96, 220, 120);
+	b_ok = NewControl(w, &r, (ConstStr255Param)"\002OK",  1, 0, 0, 1,
+	                  pushButProc, 1);
+	(void)b_ok;
+
+	DrawControls(w);
+	qd_present();
+	dbg_log("main: controls demo opened");
+
+	while (!done) {
+		if (!WaitNextEvent(everyEvent, &ev, 1, NULL))
+			continue;
+		if (ev.what == keyDown) {
+			done = 1;
+			break;
+		}
+		if (ev.what == mouseDown) {
+			ControlHandle hit = NULL;
+			short         part = FindControl(ev.where, w, &hit);
+
+			if (hit == NULL) {
+				/* outside any control — dismiss */
+				done = 1;
+				break;
+			}
+			if (TrackControl(hit, ev.where, NULL) != 0) {
+				if (hit == cb) {
+					SetControlValue(cb, (short)
+					    (GetControlValue(cb) == 0 ? 1 : 0));
+				} else if (hit == r1) {
+					SetControlValue(r1, 1);
+					SetControlValue(r2, 0);
+				} else if (hit == r2) {
+					SetControlValue(r1, 0);
+					SetControlValue(r2, 1);
+				} else if (GetControlReference(hit) == 1) {
+					/* OK push button — dismiss */
+					done = 1;
+				}
+			}
+			(void)part;
+		}
+	}
+	dbg_log_num("main: controls demo cb value = ",
+	            (long)GetControlValue(cb));
+	dbg_log_num("main: controls demo r1 value = ",
+	            (long)GetControlValue(r1));
+	DisposeWindow(w);
 }
 
 /*
@@ -327,7 +414,7 @@ int main(void)
 		 * Quit (item 6) opens DLOG 202 and only exits on OK. */
 		if (m_file != NULL) {
 			AppendMenu(m_file, (ConstStr255Param)
-			           "\056New/N;About FRUA;Open/O;Enter name...;-;Quit/Q");
+			           "\072New/N;About FRUA;Open/O;Enter name...;Controls...;-;Quit/Q");
 			InsertMenu(m_file, 0);
 		}
 		if (m_edit != NULL) {
@@ -372,8 +459,11 @@ int main(void)
 						if (id == 128 && item == 4)
 							show_name_prompt(surf->width,
 							                 surf->height);
-						/* File menu, "Quit" = item 6. */
-						if (id == 128 && item == 6
+						if (id == 128 && item == 5)
+							show_controls_demo(surf->width,
+							                   surf->height);
+						/* File menu, "Quit" = item 7. */
+						if (id == 128 && item == 7
 						 && show_dialog(202) == 2)
 							done = 1;
 						DrawMenuBar();
@@ -417,7 +507,10 @@ int main(void)
 						if (id == 128 && item == 4)
 							show_name_prompt(surf->width,
 							                 surf->height);
-						if (id == 128 && item == 6
+						if (id == 128 && item == 5)
+							show_controls_demo(surf->width,
+							                   surf->height);
+						if (id == 128 && item == 7
 						 && show_dialog(202) == 2)
 							done = 1;
 						DrawMenuBar();
