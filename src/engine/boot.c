@@ -1426,7 +1426,81 @@ static void jt452(long shape0, ...)
 	}
 	va_end(ap);
 }
-static short   jt453(long ctx)                      { PROBE("jt453"); (void)ctx; return 0; }
+/* L30ba (CODE 3 + 0x30ba) — DLItem focus / select helper. Body lives
+ * inside CODE 3's dialog runtime; stays a PROBE stub for now. */
+static void   l30ba(short a, short b, short c)
+                                                  { PROBE("L30ba"); (void)a;
+                                                    (void)b; (void)c; }
+
+/* L2d3e (CODE 3 + 0x2d3e) = JT[456] — DLItem event poll. Reads one
+ * OS event via JT[1153] + L2c60 + L3198, walks the DLItem array
+ * looking for an item whose method consumes the event, and returns
+ * either a non-negative item index (selection) or -1 (no item hit).
+ * Sizable body; the v1 skeleton returns -1 so JT[453]'s loop drives
+ * the bounded WaitNextEvent path below. */
+static short  l2d3e(void)                         { PROBE("L2d3e");
+                                                    return (short)-1; }
+
+/* JT[453] (CODE 3 + 0x2cd4) — design-menu modal event loop.
+ *
+ *   linkw fp, #-2
+ *   tstb a5@(-9248); bnes L2cec
+ *     JT[1084]("not in dialog in DLDialog"); bras L2d38
+ *   L2cec: tstb a5@(-9247); bnes L2d38
+ *     clrw -(sp); pushw (count - 1); clrw -(sp); jsr L30ba; addql #6, sp
+ *     moveq #1, d0; moveb d0, a5@(-9247)         ; mark "active"
+ *   L2d38: bras L2d0c
+ *   L2d0c: jsr L2d3e
+ *          fp@(-2) = d0
+ *          if d0 >= 0 → return d0
+ *          if fp@(8) != 0:
+ *             d0 = (*filterProc)()
+ *             fp@(-2) = d0
+ *             if d0 >= 0 → return d0
+ *          goto L2d38
+ *
+ * The first-time arm focuses the last installed DLItem (count - 1)
+ * and stamps `g_a5_9247 = 1` so re-entries skip the focus. The main
+ * loop polls `L2d3e` for an item hit; on cancel (-1) it invokes the
+ * caller's optional filter proc. Real selection returns a non-
+ * negative item index.
+ *
+ * The skeleton bounds the loop with an iteration counter so the
+ * engine doesn't spin while L2d3e is PROBE-only — once the DLItem
+ * event poll lifts, the bound goes away.
+ */
+typedef short (*jt453_filter_t)(void);
+
+/* The "currently in dialog event loop" sentinel JT[453] toggles. */
+static unsigned char g_a5_9247;
+
+static short jt453(jt453_filter_t filterProc)
+{
+	short       hit;
+	short       guard;
+
+	PROBE("jt453");
+	if (g_a5_9248 == 0) {
+		PROBE("jt453: not in dialog");
+		return (short)-1;
+	}
+	if (g_a5_9247 == 0) {
+		l30ba(0, (short)(g_a5_9250 - 1), 0);
+		g_a5_9247 = 1;
+	}
+
+	for (guard = 0; guard < 30; guard++) {
+		hit = l2d3e();
+		if (hit >= 0)
+			return hit;
+		if (filterProc != NULL) {
+			hit = filterProc();
+			if (hit >= 0)
+				return hit;
+		}
+	}
+	return (short)-1;
+}
 
 /* JT[140] / JT[156] (CODE 7 + 0x1e58 / 0x1d5c) — item-callback PROCs
  * that JT[158] passes as the "draw" function pointer in its JT[452]
@@ -1634,7 +1708,7 @@ static int l0aae(void)
 	(void)jt112(0);
 	(void)jt117();
 
-	selection = jt453(0);
+	selection = jt453(NULL);
 	if (jt146() != 0) {
 		selection = 5;
 		jt161(0);
