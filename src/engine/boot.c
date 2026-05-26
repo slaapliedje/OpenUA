@@ -2635,6 +2635,38 @@ static const char *jt488(const char *fmt, ...)
 	return g_a5_10362;
 }
 
+/* JT[394] (CODE 3 + 0x4796) — vsprintf into the caller's buffer.
+ *
+ * The Mac implementation parks the destination pointer in
+ * g_a5_9168 and runs THINK C's `_doprintf` core (L3fb8) with a
+ * write-character callback (JT[383]) that advances g_a5_9168 byte
+ * by byte. After the format walk completes, the function writes a
+ * null terminator at the (now post-last-char) g_a5_9168 position.
+ *
+ * The portable equivalent is plain vsprintf — same semantics, no
+ * caller-visible state. Used 156 times across CODE 1..23 for every
+ * "build a string for an alert" / "format a stat into a row" etc.
+ *
+ * The output buffer's size is the caller's responsibility (matches
+ * the Mac); engine format strings are STRS-defined templates that
+ * never grow large. */
+static int jt394(char *buf, const char *fmt, ...) __attribute__((unused));
+static int jt394(char *buf, const char *fmt, ...)
+{
+	va_list ap;
+	int     n;
+
+	PROBE("jt394");
+	if (buf == NULL)
+		return 0;
+	if (fmt == NULL)
+		fmt = "";
+	va_start(ap, fmt);
+	n = vsprintf(buf, fmt, ap);
+	va_end(ap);
+	return n;
+}
+
 /* jt176 lands further down (window-paint init/commit). Forward
  * so jt42's lift can call it. */
 static void jt176(void);
