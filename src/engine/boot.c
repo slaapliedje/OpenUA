@@ -1307,8 +1307,55 @@ static void jt76(void)
 	jt1001(8000, 8000, 1, 4);
 	jt174();
 }
-static int  jt3(short a) __attribute__((unused));
-static int  jt3(short a)           { PROBE("jt3"); return 0; }                    /* CODE 1 + 0x158   */
+/* JT[3] (CODE 1 + 0x158) — THINK C inline switch runtime.
+ *
+ * Every C `switch` statement in the Mac build compiles to a JSR JT[3]
+ * followed by an inline table living in code immediately after the
+ * call site. Layout:
+ *
+ *      jsr   JT[3]
+ *      .short min               ; lowest case label
+ *      .short max               ; highest case label
+ *      .short default_offset    ; PC-rel offset to the default arm
+ *      .short case0_offset      ; PC-rel offset to case `min`
+ *      .short case1_offset      ; PC-rel offset to case `min+1`
+ *      ...
+ *      .short caseN_offset      ; PC-rel offset to case `max`
+ *
+ * The body pops the return PC, indexes the table, then JMPs to the
+ * chosen arm — so control resumes at one of the case bodies rather
+ * than the instruction after the JSR. Each table is unique per call
+ * site.
+ *
+ * The lift cannot model JT[3]'s "follow the inline PC" trick from
+ * C, so the project's convention is: at every JT[3] call site,
+ * read the inline table from the disassembly and emit an
+ * equivalent C `switch (value) { case ... }` in the lift. The stub
+ * below stays for unlifted callers (and asserts via the PROBE that
+ * any call to it is unexpected — every lifted caller should be
+ * using a real `switch`).
+ *
+ * jt3_dispatch is provided for the rare table that's wider than a
+ * comfortable C switch — it returns the case index 0..n-1 when
+ * `value` is in `[min, min+n-1]`, or -1 for the default arm. Lifted
+ * callers can hand-write a `switch` instead. */
+static int  jt3(short value) __attribute__((unused));
+static int  jt3(short value)
+{
+	PROBE("jt3");
+	/* Stub for unlifted callers — see the comment above. */
+	(void)value;
+	return -1;
+}
+
+static int  jt3_dispatch(short value, short min, short n_cases)
+                                                __attribute__((unused));
+static int  jt3_dispatch(short value, short min, short n_cases)
+{
+	if (value < min || value >= (short)(min + n_cases))
+		return -1;
+	return value - min;
+}
 
 /* --- l67ca: L07dc's saved-game branch tear-down + redraw ----------- *
  *
@@ -2367,7 +2414,6 @@ static void l12a0(void)
 	short input = 0;
 	short idx   = 0;
 	short body_count   = 0;
-	int   class;
 	unsigned char loop_flag = 0;
 	unsigned char fresh_slot[64];
 
@@ -2379,11 +2425,26 @@ static void l12a0(void)
 	if (g_a5_24139 != 0 && input == 27)
 		input = 2;
 
-	class = jt3(input);
-	/* The Mac inline JT[3] table picks one of three arms; in the
-	 * stub jt3 returns 0 → arm A. Either way g_a5_22733 lands on
-	 * 1, with arm B (class == 1) setting 2 instead. */
-	g_a5_22733 = (class == 1) ? 2 : 1;
+	/* Inline JT[3] table at CODE 12 + 0x12ea: min=0 max=2,
+	 * default → g_a5_22733 = 1; arm 0 → g_a5_22733 = 1; arm 1 →
+	 * g_a5_22733 = 2; arm 2 jumps past the main loop to L15de
+	 * (clean exit). Lifted as a direct C switch — input is always
+	 * 0 on the first pass (the Escape-to-2 remap above tests an
+	 * already-cleared byte), so practically the dispatcher always
+	 * sets g_a5_22733 = 1 and proceeds into the loop. */
+	switch (input) {
+	case 0:
+		g_a5_22733 = 1;
+		break;
+	case 1:
+		g_a5_22733 = 2;
+		break;
+	case 2:
+		return;          /* exits to L15de */
+	default:
+		g_a5_22733 = 1;
+		break;
+	}
 
 	for (;;) {
 		jt589(0, &tail, &head);
