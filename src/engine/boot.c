@@ -102,6 +102,8 @@
  * file statics — migrating them needs care around adjacency and
  * array-decay. */
 #define g_a5_4944  g_a5_byte(-4944)
+#define g_a5_2347  g_a5_byte(-2347)    /* JT[1200]: "in encounter mode" gate */
+#define g_a5_1312  g_a5_byte(-1312)    /* JT[1200]: encounter sub-state flag */
 #define g_a5_27990 g_a5_byte(-27990)
 #define g_a5_18485 g_a5_byte(-18485)
 #define g_a5_18828 g_a5_byte(-18828)
@@ -1512,7 +1514,27 @@ static void jt103(short top, short left, short right, short bottom)
                                             { PROBE("jt103"); (void)top;
                                               (void)left; (void)right;
                                               (void)bottom; }
-static int  jt1200(void)                    { PROBE("jt1200"); return 0; }
+/* JT[1200] (CODE 4 + 0x04f0) — encounter-mode state classifier.
+ *
+ * Reads two A5 byte flags and returns one of three states the
+ * design-edit overlays branch on:
+ *
+ *      g_a5_2347 == 0   → 3   (not in encounter mode; designs visible)
+ *      g_a5_2347 != 0 && g_a5_1312 != 0  → 0
+ *      g_a5_2347 != 0 && g_a5_1312 == 0  → 1
+ *
+ * L02dc's "*" overlay fires when this returns 3 AND the entry's byte
+ * at offset 197 is set — i.e., the entry is poisoned/dead and we're
+ * NOT in an encounter so the marker is meaningful. The 187 callsites
+ * dotted across the engine are all this same shape: read state, branch
+ * on 0/1/3. */
+static int  jt1200(void)
+{
+	PROBE("jt1200");
+	if (g_a5_2347 == 0)
+		return 3;
+	return (g_a5_1312 != 0) ? 0 : 1;
+}
 
 /* L02dc (CODE 12 + 0x02dc) — Modify Character roster grid.
  *
