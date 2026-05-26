@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs when a new commit lands on the same ref —
+# the host pytest suite is fast enough that we never want a queue.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    name: host-tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/requirements.txt
+
+      - name: Install host tool deps
+        run: pip install -r tools/requirements.txt
+
+      # The Makefile's `make test` target invokes pytest from the local
+      # venv at tools/.venv — that path isn't present in CI, so call
+      # pytest directly. The set of tests run is identical: everything
+      # under tests/ that isn't marked `slow`.
+      - name: Run pytest
+        run: pytest tests -q

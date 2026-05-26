@@ -1,0 +1,7 @@
+# Host-side tool dependencies — used by the pytest suite and the
+# resource-fork unpackers under tools/. The cross-build (Atari) does
+# not depend on Python at runtime; this file exists so CI can recreate
+# the venv with one `pip install -r tools/requirements.txt`.
+machfs==1.3
+macresources==1.2
+pytest>=8.0
