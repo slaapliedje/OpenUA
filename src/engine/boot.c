@@ -668,6 +668,8 @@ static void           jt115(void *slot_ptr);
  * stays a file-static name buffer until the cluster's wider-typed
  * migration — forward declared here so L5700 sees it. */
 /* g_a5_24304 → macro array (data_pool replay buffer) */
+/* L5f4e (CODE 6 + 0x5f4e) — zero N bytes at buf. The public
+ * JT[65] entry would route here once a lifted caller needs it. */
 static void l5f4e(void *buf, short size) __attribute__((unused));
 static void l5f4e(void *buf, short size)
 {
@@ -692,7 +694,7 @@ static void jt384(char *dst, const char *src)
 		;
 }
 
-/* L5700 — slot-1 mode tear-down. CODE 6 + 0x5700.
+/* L5700 — slot-1 mode tear-down. CODE 6 + 0x5700. JT[45] route lands here.
  *
  * Disassembly:
  *   pea   a5@(-24320)
@@ -726,7 +728,7 @@ static void l5700(void)
 	g_a5_24262 = 0xFF;
 }
 
-/* L5864 — slot-2 mode tear-down. CODE 6 + 0x5864.
+/* L5864 — slot-2 mode tear-down. CODE 6 + 0x5864. JT[48] route lands here.
  *
  *   pea   a5@(-24260)
  *   jsr   JT[115]                   // release slot-2 cached block
@@ -776,19 +778,19 @@ static void jt461(short tag)
 
 /* --- string / char helpers the JT[465] family pulls from CODE 3 ------- */
 
-/* L466a (CODE 3 + 0x466a) — isupper. */
+/* L466a (CODE 3 + 0x466a) — isupper. JT[408] route lands here. */
 static int l466a(short ch)
 {
 	return (ch >= 'A' && ch <= 'Z') ? 1 : 0;
 }
 
-/* JT[395] / L46b2 (CODE 3 + 0x46b2) — tolower. */
+/* JT[395] / L46b2 (CODE 3 + 0x46b2) — tolower. JT[395] route lands here. */
 static short l46b2(short ch)
 {
 	return (short)(l466a(ch) ? ch + 32 : ch);
 }
 
-/* L39ae (CODE 3 + 0x39ae) — strlen, returns short. */
+/* L39ae (CODE 3 + 0x39ae) — strlen, returns short. JT[423] route lands here. */
 static short l39ae(const char *s)
 {
 	short n = 0;
