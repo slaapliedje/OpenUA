@@ -2385,12 +2385,49 @@ skip_delete:
 	jt581(head, tail);
 }
 
-/* JT[41] / JT[556] / JT[557] / JT[560] / JT[876] / JT[878] / JT[1199]
- * — case 2..4 dispatch targets. All live in CODE 4 / CODE 17 / CODE 18,
+/* JT[556] / JT[557] / JT[560] / JT[876] / JT[878] / JT[1199] —
+ * case 2..4 dispatch targets. All live in CODE 4 / CODE 17 / CODE 18,
  * which we haven't started lifting yet. */
-static int    jt41(long a, short b, void *c)   { PROBE("jt41");
-                                                  (void)a; (void)b; (void)c;
-                                                  return 0; }
+
+/* JT[41] (CODE 6 + 0x2526) — linked-list search by first-byte key.
+ *
+ * Walks the list rooted at `handle->[4]`, comparing every node's
+ * byte-0 against `find_byte`. On match: stops with the matching
+ * node in `descriptor[0]` and returns 1. On exhaustion: leaves
+ * `descriptor[0] = NULL` and returns 0. Nodes thread via a 4-byte
+ * "next" pointer at offset 6 (the engine's "design list node"
+ * shape).
+ *
+ * Called 116 times across CODE 1..23 — the design-edit / item /
+ * spell loops all dispatch through this. With it lifted, every
+ * caller's `if (jt41(...))` arm now actually fires when a match
+ * exists in the live list. */
+static int    jt41(long handle_long, short find_byte, void *descriptor)
+{
+	const unsigned char *handle =
+		(const unsigned char *)(uintptr_t)handle_long;
+	void               **iter_slot = (void **)descriptor;
+	const unsigned char *node;
+	int                  found = 0;
+
+	PROBE("jt41");
+	if (handle == NULL || iter_slot == NULL)
+		return 0;
+
+	/* descriptor[0] = handle->[4]  — the list head */
+	*iter_slot = *(void *const *)(handle + 4);
+
+	while (*iter_slot != NULL && !found) {
+		node = (const unsigned char *)*iter_slot;
+		if (node[0] == (unsigned char)find_byte) {
+			found = 1;
+		} else {
+			/* descriptor[0] = node->[6]  (node->next) */
+			*iter_slot = *(void *const *)(node + 6);
+		}
+	}
+	return found;
+}
 static int    jt556(long a)                    { PROBE("jt556"); (void)a;
                                                   return 0; }
 static void   jt557(void)                       { PROBE("jt557"); }
