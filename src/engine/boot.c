@@ -2200,9 +2200,16 @@ static int  jt169(long h1, long h2, short top, short left,
                                               (void)entry; (void)a; (void)b;
                                               (void)flag; (void)idx;
                                               (void)next; return 0; }
+/* JT[396] (CODE 3 + 0x3bda) — public entry for the case-insensitive
+ * string-equal lifted as l3bda earlier in this file. The jump-table
+ * entry was a stub returning 0; route it to the real body so callers
+ * (L1266's design-list filter, the L12a0 / L15e2 dialog match loops)
+ * actually match. */
 static int  jt396(const char *a, const char *b)
-                                            { PROBE("jt396"); (void)a;
-                                              (void)b; return 0; }
+{
+	PROBE("jt396");
+	return l3bda(a, b);
+}
 static void jt431(void *dst, const void *src)
                                             { PROBE("jt431"); (void)dst;
                                               (void)src; }
