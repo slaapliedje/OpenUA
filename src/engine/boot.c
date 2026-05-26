@@ -1500,10 +1500,93 @@ static void jt34(long entry, short col, short row, short style)
                                             { PROBE("jt34"); (void)entry;
                                               (void)col; (void)row;
                                               (void)style; }
+
+/* Forward decls for the leaves JT[94] dispatches into. The bodies
+ * land further down — jt1200 already lifted, l3994 / jt1089 still
+ * PROBE-stubbed. */
+static int  jt1200(void);
+static void l3994(void);
+static void jt1089(short x, short y, short color,
+                   const char *fmt, ...);
+
+/* JT[94] (CODE 6 + 0x3fd6) — text paint with style / coord remap.
+ *
+ *   1. vsprintf the caller's format into a 96-byte local buffer
+ *      via JT[394] (THINK C's "%r" recursive-format mode).
+ *   2. l3994() snapshots the GrafPort.
+ *   3. Style remap when style != 0:
+ *        if page < 23:  style = 8; col = 15 if col was 7 or 8
+ *        else (page 23, bottom row): style = 8 unconditionally
+ *   4. Dispatch on style + game mode:
+ *        style == 24            → rect-erase + box, JT[1161] x4 + L3f88
+ *                                 (the "alert frame" overlay).
+ *        g_a5_27990 == 5 && page == 23
+ *                              → mode-5 bottom-row paint via L3f88.
+ *        default                → simple text draw via JT[1089].
+ *
+ * The two non-default branches stay PROBE-deferred — both pull in
+ * the rect-fill paint primitive (JT[1161]) and the L3f88 helper,
+ * which need the display-HAL fill stroke first. The default arm
+ * is the hot path (the design-edit roster columns, the menu
+ * labels, every static "Name" / "AC HP" header) and lifts here.
+ *
+ * The post-jt1200 col==11 remap models the asm's redundant double
+ * cmpiw #11 — the second compare is dead code in C. */
 static void jt94(short page, short row, short col, short style,
-                 const char *fmt, ...)      { PROBE("jt94"); (void)page;
-                                              (void)row; (void)col;
-                                              (void)style; (void)fmt; }
+                 const char *fmt, ...)
+{
+	char        local_buf[96];
+	va_list     ap;
+	short       x;
+	short       y;
+	short       color;
+
+	PROBE("jt94");
+
+	/* 1. format into local_buf. The Mac calls jt394 with "%r" plus
+	 * caller_fmt + va_args; the equivalent in C is a direct
+	 * vsprintf with the caller's fmt. */
+	va_start(ap, fmt);
+	if (fmt != NULL)
+		vsprintf(local_buf, fmt, ap);
+	else
+		local_buf[0] = 0;
+	va_end(ap);
+
+	/* 2. snapshot GrafPort. */
+	l3994();
+
+	/* 3. style remap. */
+	if (style != 0) {
+		if (page < 23) {
+			if (col == 7 || col == 8)
+				col = 15;
+		}
+		style = 8;
+	}
+
+	/* 4a. style == 24 erase-and-box (rect-fill cluster). */
+	if (style == 24) {
+		PROBE("jt94/style24-rect-frame");
+		return;
+	}
+
+	/* 4b. mode-5 bottom-row paint. */
+	if (g_a5_27990 == 5 && page == 23) {
+		PROBE("jt94/mode5-bottom-row");
+		return;
+	}
+
+	/* 4c. default arm — simple text draw. */
+	x = (short)((page << 2) + 8000);
+	if (jt1200() == 3 && col == 11) {
+		col   = 0;
+		style = 15;
+	}
+	y     = (short)((row  << 2) + 8000);
+	color = (short)((style << 4) | (unsigned char)col);
+	jt1089(x, y, color, ua_strs_at(0x6c0) /* "%s" */, local_buf);
+}
 static void jt97(short col, short row, short page, short style,
                  short a, short ch, short flag)
                                             { PROBE("jt97"); (void)col;
@@ -1538,6 +1621,33 @@ static void jt1135(short v1, short v2, short *out1, short *out2)
 	if (out2 != NULL)
 		*out2 = (v2 > 6000) ? (short)((v2 - 8000) * scale) : v2;
 }
+
+/* L3994 (CODE 6 + 0x3994) — GrafPort save / paint setup. Reads
+ * g_a5_18394 / 18393 / 18395 state flags, conditionally invokes
+ * JT[468] / JT[1012] / JT[406] (memcpy) for the backing-store
+ * snapshot and JT[1128] / JT[1153] for clip restore. PROBE for
+ * now — the snapshot machinery wires once the QuickDraw shim
+ * publishes GrafPort state. */
+static void l3994(void)                 { PROBE("l3994"); }
+
+/* JT[1089] (CODE 5 + 0x334) — leaf text-paint. Takes a logical
+ * (x, y) origin plus a packed (style << 4) | col color word, plus
+ * a printf-style format and args. The last call in JT[94]'s chain;
+ * once this lifts and reaches QuickDraw's TextDraw the play window
+ * actually shows text. PROBE for now. */
+static void jt1089(short x, short y, short color,
+                   const char *fmt, ...)  { PROBE("jt1089"); (void)x;
+                                            (void)y; (void)color;
+                                            (void)fmt; }
+
+/* JT[1161] (CODE 4 + 0x1aa0) — rectangle fill. Called in JT[94]'s
+ * style==24 erase-and-box branch; 147 callsites across the engine.
+ * PROBE — needed for the rect-fill paint paths once the display
+ * HAL surfaces a fill primitive. */
+static void jt1161(short top, short left, short bottom, short right,
+                   short fill)            { PROBE("jt1161"); (void)top;
+                                            (void)left; (void)bottom;
+                                            (void)right; (void)fill; }
 /* JT[1200] (CODE 4 + 0x04f0) — encounter-mode state classifier.
  *
  * Reads two A5 byte flags and returns one of three states the
