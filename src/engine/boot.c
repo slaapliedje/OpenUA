@@ -659,6 +659,25 @@ static void jt399(void *buf, short size, short fill)
 	for (i = 0; i < size; i++)
 		p[i] = (unsigned char)fill;
 }
+
+/* JT[406] (CODE 3 + 0x366a) — overlap-safe block copy.
+ *
+ * Thin wrapper over the engine's memmove core (L57f8 in CODE 3):
+ * passes (dst, src, count) and lets the inner routine handle the
+ * forward/backward copy direction. C's standard memmove gives the
+ * same semantics.
+ *
+ * 153 callsites — every "snapshot a record", "restore from backing
+ * store" (L3994's GrafPort-save path), "copy a row of map tiles"
+ * etc. uses this. With it lifted, the snapshot/restore plumbing
+ * that JT[94] / JT[1089] depend on works correctly. */
+static void jt406(void *dst, const void *src, short count)
+{
+	PROBE("jt406");
+	if (dst == NULL || src == NULL || count <= 0)
+		return;
+	memmove(dst, src, (size_t)(unsigned short)count);
+}
 static int  jt112(short a)         { PROBE("jt112"); return 0; }                  /* CODE 6 + 0x38fe  */
 static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
