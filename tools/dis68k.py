@@ -134,6 +134,55 @@ def annotate(addr, raw, mnem, ops, seg_len, jt_off, jt, labels):
     return ops, comment
 
 
+def decode_jt3_table(data, table_at):
+    """Decode a THINK C JT[3] inline switch table at byte offset `table_at`.
+
+    Returns (table_end, min_case, max_case, default_target, [case_targets])
+    or None if the bytes don't shape up as a plausible table. The PC-rel
+    offset math matches tools/jt3_extract.py — see that module's docstring
+    for the layout: short min, max, default_off, case0_off, ..., caseN_off.
+    """
+    if table_at < 0 or table_at + 6 > len(data):
+        return None
+    min_c = int.from_bytes(data[table_at:table_at + 2], "big", signed=True)
+    max_c = int.from_bytes(data[table_at + 2:table_at + 4], "big",
+                           signed=True)
+    if max_c < min_c or (max_c - min_c) > 1024:
+        return None
+    n_cases = max_c - min_c + 1
+    cases_at = table_at + 6
+    table_end = cases_at + 2 * n_cases
+    if table_end > len(data):
+        return None
+    default_off = int.from_bytes(data[table_at + 4:table_at + 6], "big",
+                                 signed=True)
+    default_target = (table_at + 4) + default_off
+    case_targets = []
+    for k in range(n_cases):
+        slot = cases_at + 2 * k
+        off = int.from_bytes(data[slot:slot + 2], "big", signed=True)
+        case_targets.append(slot + off)
+    return (table_end, min_c, max_c, default_target, case_targets)
+
+
+def find_jt3_tables(rows, data):
+    """Scan disassembled rows for `jsr JT[3]` and decode each inline table.
+
+    Returns {table_start_addr: (table_end, min, max, default, [cases])}.
+    """
+    tables = {}
+    for i, (addr, raw, mnem, ops, comment) in enumerate(rows):
+        if mnem != "jsr" or "(JT[3])" not in comment:
+            continue
+        if i + 1 >= len(rows):
+            continue
+        table_at = rows[i + 1][0]
+        decoded = decode_jt3_table(data, table_at)
+        if decoded is not None:
+            tables[table_at] = decoded
+    return tables
+
+
 def reloc_note(crel, strs, data, addr, insn_len):
     """Annotation for any CREL relocations inside one instruction's bytes."""
     notes = []
@@ -172,6 +221,25 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs):
             jt_calls += 1
         rows.append((addr, raw, mnem, ops, comment))
 
+    # Detect JT[3] inline switch tables and surface their case/default
+    # targets as LXXXX labels so the arm code reads cleanly. Any row
+    # whose address falls inside a table is suppressed in the listing
+    # (objdump decodes those bytes as garbage instructions).
+    jt3_tables = find_jt3_tables(rows, data)
+    skip_ranges = []
+    for table_at, (table_end, _min, _max, default_target,
+                   case_targets) in jt3_tables.items():
+        skip_ranges.append((table_at, table_end))
+        labels.add(default_target)
+        for t in case_targets:
+            labels.add(t)
+
+    def _in_table(a):
+        for s, e in skip_ranges:
+            if s <= a < e:
+                return True
+        return False
+
     s_path = os.path.join(out_dir, f"CODE_{sid:02d}.s")
     with open(s_path, "w") as f:
         f.write(f"; CODE segment {sid} -- {len(data)} bytes, "
@@ -185,6 +253,20 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs):
             if addr in entries:
                 f.write(f"\nentry_jt{entries[addr]}:"
                         f"  ; CODE {sid} jump-table export\n")
+            if addr in jt3_tables:
+                table_end, min_c, max_c, default_target, case_targets \
+                    = jt3_tables[addr]
+                f.write(f"; JT[3] inline table @ 0x{addr:04x}  "
+                        f"min={min_c} max={max_c}  "
+                        f"({table_end - addr} bytes)\n")
+                f.write(f";   default -> L{default_target:04x}\n")
+                for k, t in enumerate(case_targets):
+                    f.write(f";   case {min_c + k:>3} -> L{t:04x}\n")
+                continue
+            if _in_table(addr):
+                # Table bytes — objdump's "instruction" decode is garbage
+                # for these; the header above carries the real meaning.
+                continue
             if addr in labels:
                 f.write(f"L{addr:04x}:\n")
             text = f"{mnem} {ops}".strip()
