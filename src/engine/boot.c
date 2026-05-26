@@ -31,6 +31,7 @@
 
 #include <stdarg.h>           /* va_list (jt452, jt488) */
 #include <stddef.h>           /* NULL, size_t */
+#include <stdint.h>           /* uintptr_t (pointer ↔ long casts) */
 #include <stdio.h>            /* vsnprintf (jt488) */
 #include <string.h>           /* memset, memcpy */
 
@@ -122,6 +123,15 @@
 #define g_a5_27988 g_a5_byte(-27988)
 #define g_a5_18472 g_a5_byte(-18472)
 #define g_a5_22730 g_a5_byte(-22730)
+#define g_a5_18471 g_a5_byte(-18471)
+
+/* L02dc's roster-grid rect (g_a5_24128..g_a5_24131 — top / right / bottom
+ * / page selector).  L02dc resets them on every paint; nothing else
+ * reads them except the JT paint stubs once they're lifted. */
+#define g_a5_24128 g_a5_byte(-24128)
+#define g_a5_24129 g_a5_byte(-24129)
+#define g_a5_24130 g_a5_byte(-24130)
+#define g_a5_24131 g_a5_byte(-24131)
 
 #define g_a5_18878 g_a5_word(-18878)
 #define g_a5_24322 g_a5_word(-24322)
@@ -1399,7 +1409,142 @@ static void jt174(void)
 	g_a5_12911 = 1;
 }
 static int  l0aae(void);                                                          /* CODE 12 + 0x0aae — lifted below */
-static void l02dc(long a)          { PROBE("l02dc"); }                            /* CODE 12 + 0x02dc */
+
+/* JT entries L02dc paints through.  All seven are QuickDraw wrappers
+ * inside CODE 6 — they land in the window-paint cluster that the
+ * display HAL hasn't been wired to yet, so they stay PROBE stubs and
+ * the lift below records the call sequence rather than the pixels. */
+static void jt25(long entry, short page, short row, short style)
+                                            { PROBE("jt25"); (void)entry;
+                                              (void)page; (void)row;
+                                              (void)style; }
+static void jt32(long entry, short col, short row, short a, short b)
+                                            { PROBE("jt32"); (void)entry;
+                                              (void)col; (void)row;
+                                              (void)a; (void)b; }
+static void jt34(long entry, short col, short row, short style)
+                                            { PROBE("jt34"); (void)entry;
+                                              (void)col; (void)row;
+                                              (void)style; }
+static void jt94(short page, short row, short col, short style,
+                 const char *fmt, ...)      { PROBE("jt94"); (void)page;
+                                              (void)row; (void)col;
+                                              (void)style; (void)fmt; }
+static void jt97(short col, short row, short page, short style,
+                 short a, short ch, short flag)
+                                            { PROBE("jt97"); (void)col;
+                                              (void)row; (void)page;
+                                              (void)style; (void)a;
+                                              (void)ch; (void)flag; }
+static void jt103(short top, short left, short right, short bottom)
+                                            { PROBE("jt103"); (void)top;
+                                              (void)left; (void)right;
+                                              (void)bottom; }
+static int  jt1200(void)                    { PROBE("jt1200"); return 0; }
+
+/* L02dc (CODE 12 + 0x02dc) — Modify Character roster grid.
+ *
+ * Repaints the design-edit roster: per-row name, then HP / overlay /
+ * AC drawn into the right-hand columns.  Called from jt918 / L0ec6
+ * with arg = g_a5_27932 (the currently-highlighted entry, used to
+ * pick the "%s" highlight via JT[94] instead of the normal JT[25]).
+ *
+ *   1. Skip when:
+ *        g_a5_27990 == 3 && g_a5_18471 == 0 &&
+ *        g_a5_28006->b36 == 1 && g_a5_28006->b133 == 0
+ *      (a non-design screen has the right record loaded), or when
+ *      g_a5_27987 != 0 (mid-action).
+ *   2. Page selector g_a5_24131 = (g_a5_27990 == 0) ? 1 : 17;
+ *      grid rect g_a5_24129 = 4, g_a5_24130 = 38, g_a5_24128 = 3.
+ *   3. Draw "Name" and "AC HP" headers at row 2 via JT[94].
+ *   4. Walk g_a5_27928 (head, .next at offset 0).  Per entry:
+ *        - g_a5_24128 += 1 (grow the rect).
+ *        - separator at current row via JT[103].
+ *        - if (entry == highlight) highlight via JT[94]("%s", name);
+ *          else regular draw via JT[25].
+ *        - HP byte = entry[385].  Classify into colour 0/1/2 and
+ *          draw via JT[34] at col 32 + colour.
+ *        - AC byte = entry[395].  Classify; if JT[1200]() == 3 and
+ *          entry[197] != 0, paint a "*" overlay via JT[97] at col 35.
+ *          Draw AC via JT[32] at col 36 + colour.
+ *      Step row, advance.
+ *   5. Footer: if row < 12, draw final separator via JT[103]. */
+static void l02dc(long highlight)
+{
+	const unsigned char *handle = (const unsigned char *)g_a5_28006;
+	const unsigned char *entry;
+	short page;
+	short row;
+	short hp;
+	short ac;
+	short colour;
+
+	PROBE("L02dc");
+
+	if (g_a5_27990 == 3 && g_a5_18471 == 0 &&
+	    handle != NULL && handle[36] == 1 &&
+	    (short)handle[133] == 0)
+		return;
+	if (g_a5_27987 != 0)
+		return;
+
+	page = (g_a5_27990 == 0) ? (short)1 : (short)17;
+	g_a5_24131 = (unsigned char)page;
+	g_a5_24129 = 4;
+	g_a5_24130 = 38;
+	g_a5_24128 = 3;
+
+	row = 2;
+	jt94(page, row, 12, 0, ua_strs_at(0x5e5e));      /* "Name"  */
+	jt94(page, row, 33, 0, ua_strs_at(0x5e64));      /* "AC HP" */
+	row += 2;
+
+	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
+	while (entry != NULL) {
+		g_a5_24128 += 1;
+		jt103(page, row, 38, row);
+
+		if ((long)(uintptr_t)entry == highlight) {
+			jt94(page, row, 11, 0,
+			     ua_strs_at(0x5e6a),                /* "%s" */
+			     &entry[96]);
+		} else {
+			jt25((long)(uintptr_t)entry, page, row, 0);
+		}
+
+		hp = entry[385];
+		if (hp == 0 || hp > 69)
+			colour = 0;
+		else if (hp < 50)
+			colour = 1;
+		else if (hp < 60)
+			colour = 2;
+		else
+			colour = 1;
+		jt34((long)(uintptr_t)entry,
+		     (short)(32 + colour), row, 0);
+
+		ac = entry[395];
+		if (ac > 99)
+			colour = 0;
+		else if (ac > 9)
+			colour = 1;
+		else
+			colour = 2;
+
+		if (jt1200() == 3 && entry[197] != 0)
+			jt97(35, row, 12, 0, 1, 42, 1);  /* "*" overlay */
+
+		jt32((long)(uintptr_t)entry,
+		     (short)(36 + colour), row, 0, 0);
+
+		row += 1;
+		entry = *(const unsigned char * const *)entry;  /* .next */
+	}
+
+	if (row < 12)
+		jt103(page, row, 38, row);
+}
 
 /* Additional A5-world globals jt918 touches (entry setup + buffer). */
 /* g_a5_5798 → macro (data_pool replay buffer) */
