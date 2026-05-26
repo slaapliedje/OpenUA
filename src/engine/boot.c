@@ -151,6 +151,31 @@
 #define g_a5_24320 g_a5_ptr(-24320)
 #define g_a5_24260 g_a5_ptr(-24260)
 
+/* Array globals. Each macro resolves to a pointer at the array's A5
+ * base; `g_a5_NAME[i]` indexes the buffer slot, `&g_a5_NAME[i]` returns
+ * the address, and `sizeof g_a5_NAME` no longer works — callers that
+ * used `sizeof` got reworked to use the explicit-size constants
+ * below. */
+#define G_A5_10074_LEN  1024
+#define G_A5_10026_LEN  (JT465_RECORD_MAX * JT465_RECORD_BYTES)
+#define G_A5_10270_LEN  (JT465_RECORD_MAX + 2)        /* longs        */
+#define G_A5_9354_LEN   48
+#define G_A5_27894_LEN  3                              /* longs        */
+#define G_A5_24126_LEN  40
+#define G_A5_27980_LEN  (32 * 3)
+#define G_A5_22727_LEN  4
+#define G_A5_24304_LEN  256
+
+#define g_a5_10074 g_a5_buf(-10074)
+#define g_a5_10026 g_a5_buf(-10026)
+#define g_a5_10270 g_a5_longs(-10270)
+#define g_a5_9354  g_a5_buf(-9354)
+#define g_a5_27894 g_a5_longs(-27894)
+#define g_a5_24126 g_a5_buf(-24126)
+#define g_a5_27980 g_a5_buf(-27980)
+#define g_a5_22727 g_a5_buf(-22727)
+#define g_a5_24304 g_a5_chars(-24304)
+
 /*
  * Stub-trace probe. Off by default — when compiled with
  * -DFRUA_ENGINE_PROBE every stub below logs its name as the engine
@@ -609,10 +634,7 @@ static void           jt115(void *slot_ptr);
 /* g_a5_24262 / g_a5_24256 are macros in the L5124 cluster; g_a5_24304
  * stays a file-static name buffer until the cluster's wider-typed
  * migration — forward declared here so L5700 sees it. */
-static char           g_a5_24304[256];
-
-/* L5f4e — zero `size` bytes at `buf`. CODE 6 + 0x5f4e.
- * Three asm lines: push 0, push size, push buf, jsr JT[399]. */
+/* g_a5_24304 → macro array (data_pool replay buffer) */
 static void l5f4e(void *buf, short size) __attribute__((unused));
 static void l5f4e(void *buf, short size)
 {
@@ -708,12 +730,11 @@ static void l5864(void)
  * the byte table at 1024 entries to cover any plausible id range the
  * engine asks for, with an out-of-range probe so the next pass that
  * lifts the id-pool init can size it precisely. */
-static unsigned char g_a5_10074[1024];
-
+/* g_a5_10074 → macro array (data_pool replay buffer) */
 static void jt461(short tag)
 {
 	PROBE("jt461");
-	if (tag < 0 || (unsigned)tag >= sizeof g_a5_10074) {
+	if (tag < 0 || (unsigned)tag >= G_A5_10074_LEN) {
 		PROBE("jt461: tag out of range");
 		return;
 	}
@@ -809,10 +830,9 @@ static void l3cfa(const char *src, char *dst)
  * far. */
 #define JT465_RECORD_BYTES   14
 #define JT465_RECORD_MAX     64
-static unsigned char g_a5_10026[JT465_RECORD_MAX * JT465_RECORD_BYTES];
-static long          g_a5_10270[JT465_RECORD_MAX + 2];
-static unsigned char g_a5_9354[48];
-/* g_a5_9306 → macro (data_pool replay buffer) */
+/* g_a5_10026 → macro array (data_pool replay buffer) */
+/* g_a5_10270 → macro array (data_pool replay buffer) */
+/* g_a5_9354 → macro array (data_pool replay buffer) */
 /* L1020 / L366a (CODE 3 + 0x1020 / 0x366a) — two three-arg wrappers around
  * the engine's internal BlockMove (L57f8). Same contract as Memory
  * Manager BlockMove: BlockMove(src, dst, count). The two distinguish
@@ -915,7 +935,7 @@ static void l103c(short i)
 
 	/* Phase 4 — clear the now-vacated tail slot's first byte. */
 	if (g_a5_9306 >= 0
-	 && (size_t)(g_a5_9306 * JT465_RECORD_BYTES) < sizeof g_a5_10026)
+	 && (size_t)(g_a5_9306 * JT465_RECORD_BYTES) < G_A5_10026_LEN)
 		g_a5_10026[g_a5_9306 * JT465_RECORD_BYTES] = 0;
 }
 
@@ -1067,8 +1087,7 @@ static void jt115(void *slot_ptr)
  *                    lifts the consumers will tell us what the flag means.
  *  g_a5_12289:       byte sentinel jt204 stamps to 0xFF on every call.
  */
-static long          g_a5_27894[3];
-/* g_a5_22222 → macro (data_pool replay buffer) */
+/* g_a5_27894 → macro array (data_pool replay buffer) */
 /* g_a5_12296 → macro (data_pool replay buffer) */
 /* g_a5_12289 → macro (data_pool replay buffer) */
 /* jt209 — release three sub-resources, optionally trip the entry
@@ -1309,7 +1328,7 @@ static int  jt3(short a)           { PROBE("jt3"); return 0; }                  
  */
 /* g_a5_13046 → macro (data_pool replay buffer) */
 /* g_a5_31230 → macro (data_pool replay buffer) */
-static unsigned char  g_a5_27980[32 * 3];                                         /* 3-byte direction-table per mode */
+/* g_a5_27980 → macro array (data_pool replay buffer) */
 /* g_a5_12286 → macro (data_pool replay buffer) */
 /* JT[80] / L68ae — toggle the secondary mode flag, with a per-state
  * cleanup. CODE 6 + 0x68ae.
@@ -1386,8 +1405,7 @@ static void l02dc(long a)          { PROBE("l02dc"); }                          
 /* g_a5_5798 → macro (data_pool replay buffer) */
 /* g_a5_5796 → macro (data_pool replay buffer) */
 /* g_a5_19169 → macro (data_pool replay buffer) */
-static unsigned char  g_a5_22727[4];         /* 4-byte buffer JT[399] fills      */
-
+/* g_a5_22727 → macro array (data_pool replay buffer) */
 /* The 10-byte "pending-action" flag cluster jt918 manages.
  *
  * Each byte tracks whether the corresponding per-action arm is queued:
@@ -1702,10 +1720,7 @@ static void    jt156(void)                          { PROBE("jt156"); }
 /* g_a5_13018 → macro (data_pool replay buffer) */
 /* g_a5_19176 → macro (data_pool replay buffer) */
 /* g_a5_12910 → macro (data_pool replay buffer) */
-static unsigned char  g_a5_24126[40];
-
-/* JT[166] — record the menu mode. CODE 7 + 0x2858.
- *   linkw fp,#0; movew fp@(8), a5@(-13018); unlk fp; rts. */
+/* g_a5_24126 → macro array (data_pool replay buffer) */
 static void jt166(short mode)
 {
 	PROBE("jt166");
@@ -1723,10 +1738,10 @@ static void jt179(short count)
 	short i, n;
 
 	PROBE("jt179");
-	jt399(g_a5_24126, (short)sizeof g_a5_24126, 0xFF);
+	jt399(g_a5_24126, (short)G_A5_24126_LEN, 0xFF);
 	n = (short)(count & 0xFF);
 	for (i = 0; i <= n; i++) {
-		if ((i * 2) < (short)sizeof g_a5_24126)
+		if ((i * 2) < (short)G_A5_24126_LEN)
 			g_a5_24126[i * 2] = (unsigned char)i;
 	}
 }

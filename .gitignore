@@ -15,6 +15,13 @@ build/
 # Generated FRSC archive (built from the copyrighted resource fork)
 /frua.rsrc
 
+# Generated DATA + DREL replay tables. The Makefile regenerates them
+# from frua.rsrc on every build (stubbed when the fork is absent). The
+# real-data form contains 12 KB of copyrighted FRUA application bytes,
+# so the files stay untracked.
+/src/engine/data_pool.h
+/src/engine/data_pool.c
+
 # Decompilation scratch (Ghidra / IDA / Hopper)
 *.idb
 *.i64

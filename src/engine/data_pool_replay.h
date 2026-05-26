@@ -34,11 +34,14 @@ extern unsigned char g_a5_below[A5_BELOW_SIZE];
  * patterns Mac engine code uses against the A5 world. Reads/writes
  * are 68k-unaligned on the Falcon030 target; the CPU handles them
  * (slower than aligned, fine for our use). */
-#define g_a5_byte(off) (g_a5_below[A5_BELOW_SIZE + (int)(off)])
-#define g_a5_word(off) (*(short  *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
-#define g_a5_long(off) (*(long   *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
-#define g_a5_ptr(off)  (*(void  **)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
-#define g_a5_buf(off)  ((unsigned char *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_byte(off)   (g_a5_below[A5_BELOW_SIZE + (int)(off)])
+#define g_a5_word(off)   (*(short  *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_long(off)   (*(long   *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_ptr(off)    (*(void  **)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_buf(off)    ((unsigned char *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_chars(off)  ((char  *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_shorts(off) ((short *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
+#define g_a5_longs(off)  ((long  *)(g_a5_below + A5_BELOW_SIZE + (int)(off)))
 
 /* Base of the below-A5 region — the byte address conceptual A5
  * points just past (so g_a5_below_base() returns &buffer[size]). */
