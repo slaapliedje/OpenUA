@@ -17,6 +17,13 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include
 CSRC := $(foreach d,$(SRCDIRS),$(wildcard $(d)/*.c))
 ASRC := $(foreach d,$(SRCDIRS),$(wildcard $(d)/*.S))
 OBJ  := $(CSRC:.c=.o) $(ASRC:.S=.o)
+
+# data_pool.c is generated at build time (see the data-pool rule
+# below). It isn't on disk during the initial wildcard, so add the
+# object explicitly.
+ifeq ($(filter src/engine/data_pool.o,$(OBJ)),)
+OBJ  += src/engine/data_pool.o
+endif
 DEP  := $(OBJ:.o=.d)
 
 CFLAGS += $(INCLUDE)
@@ -46,22 +53,36 @@ frua.rsrc: $(RFORK) tools/rsrcpack.py
 		echo "  frua.rsrc: $< not found; skipping (engine runs with no resources)"; \
 	fi
 
-# DATA + DREL replay tables — regenerated from frua.rsrc when the
-# archive is present. The committed stubs (G_A5_*_LEN/COUNT = 0)
-# keep the build happy on systems without the FRUA fork. See
-# tools/dataemit.py for the encoder and docs/engine-bring-up.md for
-# how the replay is applied at engine startup.
+# DATA + DREL replay tables. These files are NEVER tracked in git
+# (they would contain copyrighted FRUA application bytes when
+# regenerated). Both .h and .c are produced fresh on every build:
+# from frua.rsrc when the archive is present, or as zero-entry
+# stubs otherwise. See tools/dataemit.py for the encoder and
+# docs/engine-bring-up.md for how the replay is applied at engine
+# startup.
 DATAPOOL_H := src/engine/data_pool.h
 DATAPOOL_C := src/engine/data_pool.c
-data-pool-regen: frua.rsrc tools/dataemit.py tools/datapool.py
+DATAPOOL_FILES := $(DATAPOOL_H) $(DATAPOOL_C)
+
+$(DATAPOOL_FILES) &: frua.rsrc tools/dataemit.py tools/datapool.py
 	@if [ -f frua.rsrc ]; then \
 		python3 tools/dataemit.py frua.rsrc \
-			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C) --summary; \
+			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
+		echo "  data_pool: regenerated from frua.rsrc"; \
 	else \
 		python3 tools/dataemit.py --stub \
 			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
 		echo "  data_pool: stubbed (no frua.rsrc)"; \
 	fi
+
+# Make every .o depend on the data pool existing — but only as an
+# order-only prereq so changing data_pool.{c,h} doesn't trigger an
+# unrelated rebuild storm.
+$(OBJ): | $(DATAPOOL_FILES)
+
+# Keep the `data-pool-regen` alias for the explicit, no-arg invocation
+# the docs reference.
+data-pool-regen: $(DATAPOOL_FILES)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -MMD -MP -c -o $@ $<
@@ -93,7 +114,7 @@ test-slow:
 	$(PYTEST) tests -q -m slow
 
 clean:
-	$(RM) $(OBJ) $(DEP) $(TARGET)
+	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES)
 
 -include $(DEP)
 
