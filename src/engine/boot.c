@@ -115,6 +115,14 @@
 #define g_a5_4892  g_a5_byte(-4892)
 #define g_a5_4898  g_a5_word(-4898)
 #define g_a5_4896  g_a5_word(-4896)
+
+/* JT[1161]'s window-clip cluster — the engine's current "paintable
+ * region" the rect-fill clamps against. Set elsewhere by the
+ * window-open code (JT[103] etc.); JT[1161] just reads. */
+#define g_a5_3054  g_a5_word(-3054)    /* clip top    */
+#define g_a5_3056  g_a5_word(-3056)    /* clip left   */
+#define g_a5_3050  g_a5_word(-3050)    /* clip bottom */
+#define g_a5_3052  g_a5_word(-3052)    /* clip right  */
 #define g_a5_27990 g_a5_byte(-27990)
 #define g_a5_18485 g_a5_byte(-18485)
 #define g_a5_18828 g_a5_byte(-18828)
@@ -1715,16 +1723,61 @@ static void jt1089(short x, short y, short color,
 	DrawString(pstr);
 }
 
-/* JT[1161] (CODE 4 + 0x1aa0) — rectangle fill. Called in JT[94]'s
- * style==24 erase-and-box branch; 147 callsites across the engine.
- * PROBE — needed for the rect-fill paint paths once the display
- * HAL surfaces a fill primitive. */
+/* JT[1161] (CODE 4 + 0x1aa0) — clipped rectangle fill.
+ *
+ *   1. jt1135-transform both corners into screen pixels.
+ *   2. Clip against the window-bounds cluster
+ *      (g_a5_3054 / 3056 / 3050 / 3052 — top / left / bottom / right);
+ *      bail if the clipped rect is degenerate.
+ *   3. Encounter-mode branch (g_a5_1312 != 0): low byte of `fill`
+ *      gets remapped through JT[1006] before a custom paint call
+ *      (L19be). PROBE-deferred — needs the encounter-window paint
+ *      primitives first.
+ *   4. Default path: set the foreground color from the low nibble
+ *      of `fill` and PaintRect via the QuickDraw shim.
+ *
+ * 147 callsites — every "frame border" / "erase a row" / "draw the
+ * '*' overlay" in the engine flows through here. With this lifted,
+ * JT[94]'s style==24 rect-frame arm and JT[97]'s overlay land
+ * pixels too. */
 static void jt1161(short top, short left, short bottom, short right,
                    short fill) __attribute__((unused));
 static void jt1161(short top, short left, short bottom, short right,
-                   short fill)            { PROBE("jt1161"); (void)top;
-                                            (void)left; (void)bottom;
-                                            (void)right; (void)fill; }
+                   short fill)
+{
+	short    y1, x1, y2, x2;
+	short    ct, cl, cb, cr;
+	GrafPtr  port;
+	Rect     r;
+
+	PROBE("jt1161");
+
+	jt1135(top,    left,  &y1, &x1);
+	jt1135(bottom, right, &y2, &x2);
+
+	/* Clip: max(coord, window top/left), min(coord, window bot/right). */
+	ct = (y1 > g_a5_3054) ? y1 : g_a5_3054;
+	cl = (x1 > g_a5_3056) ? x1 : g_a5_3056;
+	cb = (y2 < g_a5_3050) ? y2 : g_a5_3050;
+	cr = (x2 < g_a5_3052) ? x2 : g_a5_3052;
+
+	if (ct >= cb || cl >= cr)
+		return;
+
+	if (g_a5_1312 != 0) {
+		PROBE("jt1161/encounter-fill");
+		return;
+	}
+
+	/* Default arm — low nibble = palette index for the fill. */
+	GetPort(&port);
+	if (port != NULL)
+		((CGrafPtr)port)->fgColor =
+			(unsigned char)(fill & 0xff);
+
+	SetRect(&r, cl, ct, cr, cb);
+	PaintRect(&r);
+}
 /* JT[1200] (CODE 4 + 0x04f0) — encounter-mode state classifier.
  *
  * Reads two A5 byte flags and returns one of three states the
