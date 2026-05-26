@@ -2598,11 +2598,42 @@ static const char *jt488(const char *fmt, ...)
 	return g_a5_10362;
 }
 
+/* jt176 lands further down (window-paint init/commit). Forward
+ * so jt42's lift can call it. */
+static void jt176(void);
+
+/* L4bac (CODE 6 + 0x4bac) — message-area scroll advance. Reads
+ * g_a5_28006->byte[18] as an index into a short table at
+ * g_a5_17518, passes that short to JT[476] (consume), with a
+ * preceding JT[1134] call (advance?). Stays PROBE — the index walk
+ * is small but adds two JT stubs and an A5-array macro; lifted in
+ * a follow-up. */
+static void l4bac(void)        { PROBE("l4bac"); }
+
 /* JT[42] (CODE 6 + 0x22a6) — append a message to the play window's
- * scrolling text area. Body lives in CODE 6's window-output cluster
- * and is sizeable; PROBE-only for now. */
-static void jt42(const char *msg)                { PROBE("jt42");
-                                                   (void)msg; }
+ * scrolling text area.
+ *
+ * Body shape (faithful translation):
+ *
+ *      jt176();                                 // paint init
+ *      jt94(0, 24, 15, 8, "%s", msg);           // draw the message
+ *      l4bac();                                 // scroll-advance
+ *      jt176();                                 // paint commit
+ *
+ * The outer JT[176] pair brackets the paint with the window-system's
+ * deferred-draw machinery; the JT[94] call lands the text at page 0
+ * row 24 col 15 with style 8 (the play-window's narrative band).
+ * 69 callsites depend on the chain — once JT[176] / JT[94] lift,
+ * narrative shows through; for now the probe traces the per-callsite
+ * sequence faithfully. */
+static void jt42(const char *msg)
+{
+	PROBE("jt42");
+	jt176();
+	jt94(0, 24, 15, 8, ua_strs_at(0xd2), msg);   /* "%s" */
+	l4bac();
+	jt176();
+}
 
 /* L185e — Human Change Class "Drop NAME forever?" confirmation arm
  * jt918 case 7 jsrs into. CODE 12 + 0x185e.
