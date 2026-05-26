@@ -842,6 +842,29 @@ static short l39ae(const char *s)
 	return n;
 }
 
+/* JT[397] (CODE 3 + 0x3b4e) — signed short max(a, b). 92 callsites.
+ * JT[413] (CODE 3 + 0x3b2c) — signed short min(a, b). 107 callsites.
+ * JT[423] (CODE 3 + 0x39ae) — signed short strlen. 88 callsites
+ * (routes to l39ae). */
+static short jt397(short a, short b) __attribute__((unused));
+static short jt397(short a, short b)
+{
+	PROBE("jt397");
+	return (a > b) ? a : b;
+}
+static short jt413(short a, short b) __attribute__((unused));
+static short jt413(short a, short b)
+{
+	PROBE("jt413");
+	return (a < b) ? a : b;
+}
+static short jt423(const char *s) __attribute__((unused));
+static short jt423(const char *s)
+{
+	PROBE("jt423");
+	return l39ae(s);
+}
+
 /* L3bda (CODE 3 + 0x3bda) — case-insensitive string equal.
  *
  * Walks both strings while their lowercased bytes match. Returns 1 if
