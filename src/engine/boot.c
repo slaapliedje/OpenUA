@@ -133,6 +133,15 @@
 #define g_a5_24130 g_a5_byte(-24130)
 #define g_a5_24131 g_a5_byte(-24131)
 
+/* L12a0 / L15e2 — dialog-loop globals. g_a5_24139 is the "the user
+ * just typed Escape" guard; g_a5_22733 is the dialog mode the JT[3]
+ * dispatcher sets on entry. g_a5_22212 / g_a5_31336 are aggregate
+ * scratch areas (taken-by-address by JT[477] / JT[431]). */
+#define g_a5_24139 g_a5_byte(-24139)
+#define g_a5_22733 g_a5_byte(-22733)
+#define g_a5_22212 g_a5_byte(-22212)
+#define g_a5_31336 g_a5_byte(-31336)
+
 #define g_a5_18878 g_a5_word(-18878)
 #define g_a5_24322 g_a5_word(-24322)
 #define g_a5_9306  g_a5_word(-9306)
@@ -156,6 +165,16 @@
 #define g_a5_14284 g_a5_long(-14284)
 #define g_a5_18844 g_a5_long(-18844)
 #define g_a5_18882 g_a5_long(-18882)
+
+/* L12a0 / L15e2 dialog-loop longs — JT[169] reads them as handles
+ * into the prompt cluster (g_a5_13792 / g_a5_14216 for View, the
+ * adjacent +4 slots for Delete). g_a5_21156 is the "live designs"
+ * pointer JT[471] tears down. */
+#define g_a5_13788 g_a5_long(-13788)
+#define g_a5_13792 g_a5_long(-13792)
+#define g_a5_14212 g_a5_long(-14212)
+#define g_a5_14216 g_a5_long(-14216)
+#define g_a5_21156 g_a5_long(-21156)
 
 #define g_a5_28006 g_a5_ptr(-28006)
 #define g_a5_24320 g_a5_ptr(-24320)
@@ -2093,10 +2112,181 @@ static int l0f1a(short a)
 		(void)jt574(0);
 	return 0;
 }
-/* L15e2 (CODE 12 + 0x15e2) — local helper case 1 calls. Body lives in
- * the same segment but is sizeable; stays a PROBE stub until it's
- * lifted on its own. */
-static void l15e2(void)            { PROBE("L15e2"); }
+/* Forward — jt488 and jt159 are defined further down (sprintf into
+ * g_a5_10362 and the modal-confirm wrapper). The L15e2 / L12a0 lifts
+ * call them above the original forward declarations. */
+static const char *jt488(const char *fmt, ...);
+static int  jt159(const char *prompt, short b);
+
+/* JT entries L12a0 / L15e2 reach the design-edit dialog runtime through.
+ * Everything past the window-open JT[103] stays PROBE-only; what the
+ * lifts below buy is the call ordering, not the painted result. */
+static int  jt165(short id, long ctx)
+                                            { PROBE("jt165"); (void)id;
+                                              (void)ctx; return 0; }
+static int  jt169(long h1, long h2, short top, short left,
+                  short right, short bottom, long entry,
+                  short a, short b,
+                  unsigned char *flag, short *idx, long *next)
+                                            { PROBE("jt169"); (void)h1;
+                                              (void)h2; (void)top; (void)left;
+                                              (void)right; (void)bottom;
+                                              (void)entry; (void)a; (void)b;
+                                              (void)flag; (void)idx;
+                                              (void)next; return 0; }
+static int  jt396(const char *a, const char *b)
+                                            { PROBE("jt396"); (void)a;
+                                              (void)b; return 0; }
+static void jt431(void *dst, const void *src)
+                                            { PROBE("jt431"); (void)dst;
+                                              (void)src; }
+static void jt471(long entry, short tag, void *bucket)
+                                            { PROBE("jt471"); (void)entry;
+                                              (void)tag; (void)bucket; }
+static void jt477(void *bucket, short tag, void *out)
+                                            { PROBE("jt477"); (void)bucket;
+                                              (void)tag; (void)out; }
+static void jt581(long head, long tail)     { PROBE("jt581"); (void)head;
+                                              (void)tail; }
+static void jt587(void *dst, void *bucket, short a, short b)
+                                            { PROBE("jt587"); (void)dst;
+                                              (void)bucket; (void)a;
+                                              (void)b; }
+static void jt589(short flag, long *tail, long *head)
+                                            { PROBE("jt589"); (void)flag;
+                                              if (tail != NULL) *tail = 0;
+                                              if (head != NULL) *head = 0; }
+static void jt590(void *entry)              { PROBE("jt590"); (void)entry; }
+static void jt593(short a)                  { PROBE("jt593"); (void)a; }
+static int  jt988(void *path, short mode, void *name, long zero)
+                                            { PROBE("jt988"); (void)path;
+                                              (void)mode; (void)name;
+                                              (void)zero; return 0; }
+
+/* L1266 (CODE 12 + 0x1266) — list-filter helper. Walks g_a5_27928
+ * (head, .next at offset 0) and returns 1 if any entry's name slot
+ * (entry + 96) matches the caller-supplied name byte-string via
+ * JT[396]; 0 otherwise. */
+static int l1266(const char *name)
+{
+	const unsigned char *entry;
+
+	PROBE("L1266");
+	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
+	while (entry != NULL) {
+		if (jt396((const char *)&entry[96], name) != 0)
+			return 1;
+		entry = *(const unsigned char * const *)entry;
+	}
+	return 0;
+}
+
+/* L15e2 (CODE 12 + 0x15e2) — design-delete confirmation dialog.
+ *
+ *   1. Open the 38x22 design window via JT[103]; set the dialog mode
+ *      g_a5_22733 = 1.
+ *   2. JT[589] inits a list-iter pair (head fp[-4], tail fp[-8]).
+ *      Walks the iter calling L1266 on each entry's display-name
+ *      slot (+5); on match, prefixes "* " via JT[488]("* %s") +
+ *      JT[384] so the entry is rendered with the marker.
+ *   3. Wait for input: JT[179](1) then JT[169] returns the key in
+ *      fp[-106]. Escape (27) maps to 1 (cancel).
+ *   4. On select (key == 0) for a non-marked entry:
+ *        - Format "Delete %s forever?" via JT[488] + JT[384], confirm
+ *          via JT[159]; bail on No.
+ *        - Confirm "Are you sure?" via JT[159]; bail on No.
+ *        - JT[165] looks the entry up (idx in fp[-104], handle in
+ *          fp[-8]); JT[431] concatenates the path under g_a5_31336
+ *          and the "SAVE" leaf; JT[988] deletes the file.
+ *        - Unlink from g_a5_27928 (chained via .next at offset 0)
+ *          and from fp[-8]'s peer list (entries linked at offset 0).
+ *        - JT[471] tears the entry down twice (once per list).
+ *   5. Loop back unless cancelled or the head's empty; JT[581] cleans
+ *      up.
+ *
+ * The inner branches (file delete, list unlink) stay scaffolded — the
+ * Toolbox file calls aren't ready and the entry-unlink walk is the
+ * tricky part. The lift below captures the call sequence faithfully
+ * enough that the engine probe reports the dialog flow. */
+static void l15e2(void)
+{
+	long  head = 0;
+	long  tail = 0;
+	long  entry;
+	long  matched;
+	short input;
+	short idx = 0;
+	unsigned char loop_flag = 0;
+	unsigned char path_buf[64];
+
+	PROBE("L15e2");
+
+	jt103(1, 1, 38, 22);
+	g_a5_22733 = 1;
+
+	jt589(1, &tail, &head);
+	if (head == 0)
+		return;
+
+	for (;;) {
+		entry = head;
+		while (entry != 0) {
+			const unsigned char *e =
+				(const unsigned char *)(uintptr_t)entry;
+			if (l1266((const char *)&e[5])) {
+				const char *prefixed =
+					jt488(ua_strs_at(0x5ffa),  /* "* %s" */
+					      &e[5]);
+				jt384((char *)(uintptr_t)&e[5], prefixed);
+			}
+			entry = *(const long *)e;
+		}
+
+		loop_flag = 1;
+		jt179(1);
+		input = (short)jt169(g_a5_14216, g_a5_13792, 1, 2, 38, 22,
+		                     head, 1, 0,
+		                     &loop_flag, &idx, &entry);
+		if (g_a5_24139 != 0 && input == 27)
+			input = 1;
+
+		if (input == 0) {
+			const unsigned char *e =
+				(const unsigned char *)(uintptr_t)entry;
+			short marker = (e[5] == '*') ? 2 : 0;
+			const char *prompt;
+
+			/* "Delete %s forever? " */
+			prompt = jt488(ua_strs_at(0x6000), &e[5 + marker]);
+			jt384((char *)path_buf, prompt);
+			if (jt159((const char *)path_buf, 0) == 0)
+				goto skip_delete;
+			if (jt159(ua_strs_at(0x6014), 0) == 0)
+				goto skip_delete;
+				/* "Are you sure? " */
+
+			matched = jt165(idx, tail);
+			path_buf[0] = 0;
+			jt431(path_buf, &g_a5_31336);
+			jt431(path_buf, ua_strs_at(0x6024));   /* "SAVE" */
+			jt431(path_buf,
+			      &((const unsigned char *)
+			        (uintptr_t)matched)[5]);
+			(void)jt988(path_buf, 3, path_buf, 0);
+
+			/* Unlink `entry` from g_a5_27928 chain, then from
+			 * the peer chain rooted at head. JT[471] reclaims
+			 * the slot on both lists. */
+			jt471(entry, 40, (void *)(uintptr_t)g_a5_21156);
+			jt471(matched, 40, (void *)(uintptr_t)g_a5_21156);
+		}
+skip_delete:
+		if (input == 1 || head == 0)
+			break;
+	}
+
+	jt581(head, tail);
+}
 
 /* JT[41] / JT[556] / JT[557] / JT[560] / JT[876] / JT[878] / JT[1199]
  * — case 2..4 dispatch targets. All live in CODE 4 / CODE 17 / CODE 18,
@@ -2137,7 +2327,141 @@ static int  jt159(const char *prompt, short b);
  * exit, Enter → confirm, others case-by-case), then walks the design
  * list via JT[589] / JT[488] / JT[384] / JT[169]. Stays a PROBE stub —
  * lifting the full body needs the CODE 7 dialog runtime first. */
-static void l12a0(void)                          { PROBE("L12a0"); }
+/* L12a0 (CODE 12 + 0x12a0) — View Character dispatcher.
+ *
+ *   1. Open the 38x22 window via JT[103]; pump events JT[179](2).
+ *   2. Clear the input byte fp[-30]; map Escape (27) to 2 when
+ *      g_a5_24139 != 0 so the dispatcher classifies it consistently.
+ *   3. JT[3] dispatches on fp[-30]: case 0 → g_a5_22733 = 1, case 1
+ *      → g_a5_22733 = 2, default → g_a5_22733 = 1 (Mac inline post-
+ *      call table 0x000c / 0x02ea).
+ *   4. Iterate: JT[589](0, &fp[-8], &fp[-4]) primes the list head;
+ *      bail to JT[581] when fp[-4] is null. Walk the iter — for
+ *      every match against L1266 sprintf "* %s" + JT[384] so the
+ *      entry is rendered with the marker.
+ *   5. JT[179](1) then JT[169](handles, dims, head, 1, 0, &flag,
+ *      &idx, &iter) returns the user's key in fp[-30]. Escape (27)
+ *      maps to 1 (exit).
+ *   6. If the key is null and the entry isn't marked '*': JT[477]
+ *      reserves the design slot (fp[-20]) at tag 398 from
+ *      g_a5_22212; JT[165] fills fp[-16]. JT[587] cleans the source
+ *      slot, then "* %s" via JT[488] + JT[384] paints the marker.
+ *      An inner walk over g_a5_27928 counts characters whose
+ *      entry[147] flag is below 0x80 (fp[-28]) and entry[161] is
+ *      non-zero (fp[-29]) so the "rangers in party" / "5 max"
+ *      checks at L1562 can fire — bail with JT[42](...) on overflow.
+ *      JT[590] + JT[593](1) commit; JT[471](fp[-20]) tears down.
+ *   7. Loop exit when fp[-30] == 1 OR (fp[-28] < 5 AND the design
+ *      record's count at +32 < 7). JT[581] cleans up.
+ *
+ * Like L15e2, the inner add-character arm leaves the heavy work
+ * (entry-count walk, "too many rangers" message) PROBE-deferred —
+ * the lift records the outer call sequence and the cap conditions
+ * resolve once the right slot fields land. */
+static void l12a0(void)
+{
+	long  head = 0;
+	long  tail = 0;
+	long  entry;
+	long  matched;
+	short input = 0;
+	short idx   = 0;
+	short body_count   = 0;
+	int   class;
+	unsigned char loop_flag = 0;
+	unsigned char fresh_slot[64];
+
+	PROBE("L12a0");
+
+	jt103(1, 1, 38, 22);
+	jt179(2);
+
+	if (g_a5_24139 != 0 && input == 27)
+		input = 2;
+
+	class = jt3(input);
+	/* The Mac inline JT[3] table picks one of three arms; in the
+	 * stub jt3 returns 0 → arm A. Either way g_a5_22733 lands on
+	 * 1, with arm B (class == 1) setting 2 instead. */
+	g_a5_22733 = (class == 1) ? 2 : 1;
+
+	for (;;) {
+		jt589(0, &tail, &head);
+		if (head == 0)
+			break;
+
+		entry = head;
+		while (entry != 0) {
+			const unsigned char *e =
+				(const unsigned char *)(uintptr_t)entry;
+			if (l1266((const char *)&e[5])) {
+				const char *prefixed =
+					jt488(ua_strs_at(0x5fd4), &e[5]);
+					/* "* %s" */
+				jt384((char *)(uintptr_t)&e[5], prefixed);
+			}
+			entry = *(const long *)e;
+		}
+
+		loop_flag = 1;
+		jt179(1);
+		input = (short)jt169(g_a5_13792, g_a5_14216, 1, 2, 38, 22,
+		                     head, 1, 0,
+		                     &loop_flag, &idx, &entry);
+		if (g_a5_24139 != 0 && input == 27)
+			input = 1;
+
+		if (input == 0) {
+			const unsigned char *e =
+				(const unsigned char *)(uintptr_t)entry;
+
+			if (e[5] == '*')
+				goto exit_check;
+
+			jt477(&g_a5_22212, 398, fresh_slot);
+			matched = jt165(idx, tail);
+			jt587(fresh_slot, (void *)(uintptr_t)matched, 0, 1);
+
+			{
+				const char *prefixed =
+					jt488(ua_strs_at(0x5fda), &e[5]);
+					/* "* %s" */
+				jt384((char *)(uintptr_t)&e[5], prefixed);
+			}
+
+			if (g_a5_27928 == 0) {
+				/* Empty roster — commit and stop. */
+				unsigned char *handle =
+					(unsigned char *)g_a5_28006;
+				if (handle != NULL)
+					handle[32] = 0;
+				jt590(fresh_slot);
+				jt593(1);
+			} else {
+				/* Walk the roster counting body entries;
+				 * the "rangers in party" cap at L1562
+				 * stays PROBE-deferred — the dispatcher
+				 * exits cleanly via L1562 / L159c. */
+				body_count = 0;
+				jt471(matched, 398, &g_a5_22212);
+			}
+		}
+
+exit_check:
+		{
+			const unsigned char *handle =
+				(const unsigned char *)g_a5_28006;
+			short occupied =
+				(handle != NULL) ? (short)handle[32] : 0;
+			short exit_now = (input == 1) ||
+			                 (body_count < 5 && occupied < 7);
+			if (exit_now) {
+				jt581(head, tail);
+				return;
+			}
+		}
+	}
+}
 
 /* JT[488] (CODE 3 + 0x438) — sprintf into the static buffer at
  * g_a5_10362, returning the buffer address. All format strings the
