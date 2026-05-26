@@ -1514,6 +1514,30 @@ static void jt103(short top, short left, short right, short bottom)
                                             { PROBE("jt103"); (void)top;
                                               (void)left; (void)right;
                                               (void)bottom; }
+
+/* JT[1135] (CODE 4 + 0x77fe) — 2D coordinate transform.
+ *
+ * The engine works in a logical coord space; paint primitives map
+ * to screen pixels through this transform. Values <= 6000 pass
+ * through unchanged; values > 6000 are treated as offsets from
+ * 8000 (a screen-edge anchor) and scaled by the mode-dependent
+ * factor — 3 outside encounters, 2 inside (g_a5_2347 == 0 vs not).
+ *
+ * Used by JT[94] (text paint) and other paint primitives so the
+ * same caller code works in both the design-edit overlay and the
+ * encounter window. */
+static void jt1135(short v1, short v2, short *out1, short *out2)
+                                                __attribute__((unused));
+static void jt1135(short v1, short v2, short *out1, short *out2)
+{
+	short scale = (g_a5_2347 == 0) ? 3 : 2;
+
+	PROBE("jt1135");
+	if (out1 != NULL)
+		*out1 = (v1 > 6000) ? (short)((v1 - 8000) * scale) : v1;
+	if (out2 != NULL)
+		*out2 = (v2 > 6000) ? (short)((v2 - 8000) * scale) : v2;
+}
 /* JT[1200] (CODE 4 + 0x04f0) — encounter-mode state classifier.
  *
  * Reads two A5 byte flags and returns one of three states the
