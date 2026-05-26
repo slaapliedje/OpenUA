@@ -15,4 +15,13 @@
  */
 int ua_main(short arg1, long arg2);
 
+/*
+ * Seed the A5-world defaults that aren't covered by data_pool_replay's
+ * DATA blit — the DLItem capacity (g_a5_9288 = 64) and the manager
+ * active flag (g_a5_9248 = 1), plus any future non-zero scalar living
+ * in the BSS portion of the A5 world. Idempotent; safe to call after
+ * data_pool_replay() whether the replay loaded real DATA or stubbed.
+ */
+void boot_a5_seed_defaults(void);
+
 #endif /* ENGINE_BOOT_H */
