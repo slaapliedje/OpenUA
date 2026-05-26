@@ -408,12 +408,18 @@ int main(void)
 	}
 	dsp->present();
 
+#ifdef FRUA_SPLASH_ALERT
 	/* Splash ALRT 200 from the real fork — "A disk error occurred!".
 	 * Modal: paints the dialog + OK button + static text, waits for
 	 * any keypress / mouse click to dismiss. Most of the text falls
-	 * back to the hollow-box glyph until the font is extended. */
+	 * back to the hollow-box glyph until the font is extended.
+	 *
+	 * Off by default — opt in with `make FRUA_SPLASH_ALERT=1 run`.
+	 * The default boot lands on the menu bar so engine bring-up
+	 * isn't gated behind dismissing the alert by hand. */
 	(void)Alert(200, NULL);
 	dbg_log("main: ALRT 200 dismissed");
+#endif
 
 	/* Build a small menu bar so the user can drop a menu down and the
 	 * event loop has somewhere to send inMenuBar clicks. NewMenu /

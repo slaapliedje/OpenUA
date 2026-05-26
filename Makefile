@@ -35,6 +35,14 @@ ifeq ($(ENGINE_PROBE),1)
 CFLAGS += -DFRUA_ENGINE_PROBE
 endif
 
+# Toolbox shim ALRT 200 splash demo: opens the real fork's "A disk error
+# occurred!" alert during bring-up to prove the Dialog/Alert path lands
+# pixels correctly. Default off so `make run` boots straight to the menu
+# bar without a modal in the way. Opt in with `make FRUA_SPLASH_ALERT=1 run`.
+ifeq ($(FRUA_SPLASH_ALERT),1)
+CFLAGS += -DFRUA_SPLASH_ALERT
+endif
+
 all: $(TARGET) frua.rsrc
 
 $(TARGET): $(OBJ)
