@@ -42,6 +42,7 @@
 #include "data_pool_replay.h" /* g_a5_byte */
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
+#include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -104,6 +105,16 @@
 #define g_a5_4944  g_a5_byte(-4944)
 #define g_a5_2347  g_a5_byte(-2347)    /* JT[1200]: "in encounter mode" gate */
 #define g_a5_1312  g_a5_byte(-1312)    /* JT[1200]: encounter sub-state flag */
+
+/* JT[1089]'s pen-state cluster (CODE 5 + 0x024c..0x028x):
+ *   -4894 / -4892 — packed (col, style) the engine's color word
+ *                  decomposes into; L024c stores the word.
+ *   -4898 / -4896 — transformed (x, y) pen position; L0264 stores
+ *                  after the jt1135 coord remap. */
+#define g_a5_4894  g_a5_word(-4894)
+#define g_a5_4892  g_a5_byte(-4892)
+#define g_a5_4898  g_a5_word(-4898)
+#define g_a5_4896  g_a5_word(-4896)
 #define g_a5_27990 g_a5_byte(-27990)
 #define g_a5_18485 g_a5_byte(-18485)
 #define g_a5_18828 g_a5_byte(-18828)
@@ -1630,20 +1641,86 @@ static void jt1135(short v1, short v2, short *out1, short *out2)
  * publishes GrafPort state. */
 static void l3994(void)                 { PROBE("l3994"); }
 
-/* JT[1089] (CODE 5 + 0x334) — leaf text-paint. Takes a logical
- * (x, y) origin plus a packed (style << 4) | col color word, plus
- * a printf-style format and args. The last call in JT[94]'s chain;
- * once this lifts and reaches QuickDraw's TextDraw the play window
- * actually shows text. PROBE for now. */
+/* JT[1089] (CODE 5 + 0x334) — text paint at logical (x, y).
+ *
+ * Body composition (faithful to the Mac asm):
+ *
+ *      L024c(color)                      // pen color/style → A5 cluster
+ *      L0264(x, y)                       // jt1135 remap → screen px
+ *      L0306("%r", fmt, &args)           // vsprintf then draw
+ *
+ * The C lift collapses the three local helpers inline:
+ *
+ *      g_a5_4894/4892 ← color           (decomposed)
+ *      jt1135(x, y, &g_a5_4898, &g_a5_4896)
+ *      MoveTo(g_a5_4898, g_a5_4896)
+ *      vsprintf(buf, fmt, ap)
+ *      DrawString(pascal_form(buf))
+ *
+ * The engine's color byte (low nibble of the color word) goes into
+ * the current GrafPort's fgColor so the palette-indexed paint lands
+ * on the right pen. With this in place every JT[94] / JT[42] caller
+ * that reaches the default arm actually paints text into the
+ * window's framebuffer. */
 static void jt1089(short x, short y, short color,
-                   const char *fmt, ...)  { PROBE("jt1089"); (void)x;
-                                            (void)y; (void)color;
-                                            (void)fmt; }
+                   const char *fmt, ...)
+{
+	char    buf[256];
+	va_list ap;
+	short   px = 0;
+	short   py = 0;
+	GrafPtr       port;
+	unsigned char pstr[256];
+	short         len;
+	short         i;
+
+	PROBE("jt1089");
+
+	/* L024c: split the color word into the A5 pen-state slots. */
+	g_a5_4894 = color;
+	g_a5_4892 = (unsigned char)((color >> 8) & 0xff);
+
+	/* Apply foreground index to the current port. The engine's 0..15
+	 * color nibble indexes the FRUA CLUT loaded at boot. */
+	GetPort(&port);
+	if (port != NULL)
+		((CGrafPtr)port)->fgColor =
+			(unsigned char)(color & 0x0f);
+
+	/* L0264: transform (x, y) via jt1135 + park in the pen slots,
+	 * then MoveTo there. */
+	jt1135(x, y, &g_a5_4898, &g_a5_4896);
+	px = g_a5_4898;
+	py = g_a5_4896;
+	MoveTo(px, py);
+
+	/* L0306: format the caller's args + DrawString. The Mac path
+	 * dispatches through JT[400]'s emit-char callbacks; the
+	 * portable equivalent is plain vsnprintf + DrawString. */
+	va_start(ap, fmt);
+	if (fmt != NULL)
+		vsnprintf(buf, sizeof buf, fmt, ap);
+	else
+		buf[0] = 0;
+	va_end(ap);
+
+	len = 0;
+	while (len < (short)(sizeof buf) - 1 && buf[len] != 0)
+		len++;
+	if (len > 255)
+		len = 255;
+	pstr[0] = (unsigned char)len;
+	for (i = 0; i < len; i++)
+		pstr[i + 1] = (unsigned char)buf[i];
+	DrawString(pstr);
+}
 
 /* JT[1161] (CODE 4 + 0x1aa0) — rectangle fill. Called in JT[94]'s
  * style==24 erase-and-box branch; 147 callsites across the engine.
  * PROBE — needed for the rect-fill paint paths once the display
  * HAL surfaces a fill primitive. */
+static void jt1161(short top, short left, short bottom, short right,
+                   short fill) __attribute__((unused));
 static void jt1161(short top, short left, short bottom, short right,
                    short fill)            { PROBE("jt1161"); (void)top;
                                             (void)left; (void)bottom;
