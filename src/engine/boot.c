@@ -95,12 +95,12 @@
  * across boot.c, all bound to their A5-relative slots in the replay
  * buffer. The macros work as l-values (assignment), readable in
  * conditions, and `&g_a5_NNNN` returns the buffer address. Initialised
- * non-zero scalars (g_a5_9288 = 64, g_a5_9248 = 1) stay file statics
- * for the moment — the buffer is zero-fill at startup and there's no
- * seed step for them yet. Arrays (g_a5_27980, g_a5_22727, g_a5_10074,
- * g_a5_10026, g_a5_10270, g_a5_9354, g_a5_27894, g_a5_24126,
- * g_a5_24304) stay file statics too — migrating them needs care
- * around adjacency and array-decay. */
+ * non-zero scalars (g_a5_9288 = 64, g_a5_9248 = 1) are seeded by
+ * boot_a5_seed_defaults() after data_pool_replay() zero-fills the
+ * buffer. Arrays (g_a5_27980, g_a5_22727, g_a5_10074, g_a5_10026,
+ * g_a5_10270, g_a5_9354, g_a5_27894, g_a5_24126, g_a5_24304) stay
+ * file statics — migrating them needs care around adjacency and
+ * array-decay. */
 #define g_a5_4944  g_a5_byte(-4944)
 #define g_a5_27990 g_a5_byte(-27990)
 #define g_a5_18485 g_a5_byte(-18485)
@@ -124,6 +124,7 @@
 #define g_a5_18472 g_a5_byte(-18472)
 #define g_a5_22730 g_a5_byte(-22730)
 #define g_a5_18471 g_a5_byte(-18471)
+#define g_a5_9248  g_a5_byte(-9248)    /* DLItem-manager "active" flag (=1) */
 
 /* L02dc's roster-grid rect (g_a5_24128..g_a5_24131 — top / right / bottom
  * / page selector).  L02dc resets them on every paint; nothing else
@@ -153,6 +154,7 @@
 #define g_a5_19172 g_a5_word(-19172)
 #define g_a5_5794  g_a5_word(-5794)
 #define g_a5_9250  g_a5_word(-9250)
+#define g_a5_9288  g_a5_word(-9288)    /* DLItem table capacity (=64) */
 #define g_a5_13016 g_a5_word(-13016)
 #define g_a5_13018 g_a5_word(-13018)
 #define g_a5_19176 g_a5_word(-19176)
@@ -194,6 +196,7 @@
 #define G_A5_27980_LEN  (32 * 3)
 #define G_A5_22727_LEN  4
 #define G_A5_24304_LEN  256
+#define G_A5_10362_LEN  256                            /* jt488 sprintf scratch */
 
 #define g_a5_10074 g_a5_buf(-10074)
 #define g_a5_10026 g_a5_buf(-10026)
@@ -204,6 +207,7 @@
 #define g_a5_27980 g_a5_buf(-27980)
 #define g_a5_22727 g_a5_buf(-22727)
 #define g_a5_24304 g_a5_chars(-24304)
+#define g_a5_10362 g_a5_chars(-10362)
 
 /*
  * Stub-trace probe. Off by default — when compiled with
@@ -1701,17 +1705,32 @@ static void    jt451(void)                          { PROBE("jt451"); }
 #define DLITEM_BYTES   32
 #define DLITEM_MAX     64
 
+/* g_dlitem_pool — DLItem record table. The Mac equivalent is a
+ * NewPtr'd heap block whose address is stored at A5 -9254; we mirror
+ * that shape by keeping the records in a separate file-static and
+ * loading their base pointer into g_a5_9254 from jt452_init. The
+ * pool itself is heap-equivalent storage, NOT part of the A5 world,
+ * so it stays out of g_a5_below[]. */
 static unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
-/* g_a5_9254 → macro (data_pool replay buffer) */
-/* g_a5_9250 → macro (data_pool replay buffer) */
-static short         g_a5_9288 = DLITEM_MAX;
-static unsigned char g_a5_9248 __attribute__((unused)) = 1;    /* "DLItem manager active" flag  */
+/* g_a5_9254 / g_a5_9250 / g_a5_9288 / g_a5_9248 — all macros over
+ * the data_pool replay buffer; capacity (=64) and active-flag (=1)
+ * are seeded by boot_a5_seed_defaults() in main.c's startup path. */
 
 static void jt452_init(void) __attribute__((unused));
 static void jt452_init(void)
 {
 	g_a5_9254 = (long)(unsigned long)g_dlitem_pool;
 	g_a5_9250 = 0;
+}
+
+void boot_a5_seed_defaults(void)
+{
+	/* DATA pool replay zero-fills g_a5_below[]; restore the two
+	 * non-zero BSS scalars the engine expects on first use. When
+	 * real DATA is loaded these slots will already hold the same
+	 * values, so the writes are idempotent either way. */
+	g_a5_9288 = (short)DLITEM_MAX;
+	g_a5_9248 = 1;
 }
 
 /* shape0 declared `long` (not `short`) to avoid the default-argument-
@@ -2524,11 +2543,14 @@ exit_check:
 	}
 }
 
-/* JT[488] (CODE 3 + 0x438) — sprintf into the static buffer at
- * g_a5_10362, returning the buffer address. All format strings the
- * engine uses are `%s` substitutions over a Pascal-string-style name;
- * the lift uses C vsnprintf which handles them faithfully. */
-static char  g_a5_10362[256];
+/* JT[488] (CODE 3 + 0x438) — sprintf into the A5 scratch buffer at
+ * -10362, returning the buffer address. All format strings the
+ * engine uses are `%s` substitutions over a Pascal-string-style
+ * name; the lift uses C vsnprintf which handles them faithfully.
+ *
+ * The buffer is a single shared 256-byte slot in g_a5_below[] —
+ * the caller must consume the returned pointer before the next
+ * jt488 call, since the next call clobbers it. */
 
 /* stdarg.h / stdio.h moved to the top so jt452 can use va_list too. */
 
@@ -2540,7 +2562,7 @@ static const char *jt488(const char *fmt, ...)
 	if (fmt == NULL)
 		fmt = "";
 	va_start(ap, fmt);
-	vsnprintf(g_a5_10362, sizeof g_a5_10362, fmt, ap);
+	vsnprintf(g_a5_10362, G_A5_10362_LEN, fmt, ap);
 	va_end(ap);
 	return g_a5_10362;
 }

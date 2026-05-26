@@ -331,6 +331,7 @@ int main(void)
 
 	load_frua_rsrc();
 	data_pool_replay();
+	boot_a5_seed_defaults();
 	load_frua_palette();
 	if (mac_font_load(-27001) == 0)
 		dbg_log("main: FONT -27001 loaded");
