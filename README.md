@@ -11,7 +11,7 @@ TOS/GEM/XBIOS and rebuilding the display and sound paths.
 ## Status
 
 Early but interactive. `make` builds `frua.prg` and (if the source
-resource fork is present) packs `frua.rsrc` from it. `make run` boots
+resource fork is present) packs `frua.rsc` from it. `make run` boots
 the build in Hatari: the engine entry runs end-to-end on top of the
 shim, then a small post-engine probe opens the three real `WIND`
 resources from the resource fork, stacks them on the desktop in the

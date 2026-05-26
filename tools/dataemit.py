@@ -1,6 +1,6 @@
 """Scan a FRSC archive for DATA / DREL and emit a C replay table.
 
-Reads `frua.rsrc` (the FRSC archive `tools/rsrcpack.py` builds from
+Reads `frua.rsc` (the FRSC archive `tools/rsrcpack.py` builds from
 the Mac resource fork), pulls out the `DATA` and `DREL` resources,
 runs them through `datapool.py`, and writes a small C header to
 stdout (or a path) that the engine-startup replay can ingest:
@@ -13,7 +13,7 @@ stdout (or a path) that the engine-startup replay can ingest:
     STRS pool (`ua_strs_at(0)`).
 
 Usage:
-    python3 tools/dataemit.py [frua.rsrc] [--out path] [--summary]
+    python3 tools/dataemit.py [frua.rsc] [--out path] [--summary]
 """
 
 import argparse
@@ -129,8 +129,8 @@ def summary(data_bytes: bytes, table, out) -> None:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("archive", nargs="?", default="frua.rsrc",
-                    help="FRSC archive path (default: frua.rsrc)")
+    ap.add_argument("archive", nargs="?", default="frua.rsc",
+                    help="FRSC archive path (default: frua.rsc)")
     ap.add_argument("--out-h", help="emit C header here (default: stdout)")
     ap.add_argument("--out-c", help="emit C source here")
     ap.add_argument("--summary", action="store_true",

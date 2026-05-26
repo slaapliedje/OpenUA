@@ -10,7 +10,7 @@ Usage:
     rsrcpack.py <resource-fork> [-o <output>]
 
 <resource-fork> is a raw resource fork; appledouble.py unwraps one from an
-AppleDouble file first. The default output is frua.rsrc.
+AppleDouble file first. The default output is frua.rsc.
 """
 import os
 import struct
@@ -56,7 +56,7 @@ def main(argv):
         sys.exit(2)
 
     fork_path = None
-    out_path = "frua.rsrc"
+    out_path = "frua.rsc"
     i = 0
     while i < len(argv):
         arg = argv[i]
