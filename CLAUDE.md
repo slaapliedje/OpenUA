@@ -64,3 +64,83 @@ and the 68882-equipped TT030. Do not assume an FPU in shared code.
 - Keep ratified decisions in `docs/decisions.md` (append-only ADRs).
 - Update `docs/toolbox-mapping.md` whenever a Toolbox manager's status changes.
 - Never commit anything under `data/` — original FRUA assets are copyrighted.
+
+## Decompilation workflow
+
+### Lift levels — pick one per function
+
+When porting a Mac function across, choose the level that fits the
+session's scope; don't promise more than you can sustain:
+
+1. **PROBE-only stub** — `static <ret> jtN(...) { PROBE("jtN"); ... }`.
+   Records the call in the engine probe. Right for leaf entries whose
+   body lives in CODE we haven't touched, or for entries that don't yet
+   gate engine progress.
+2. **Structural skeleton** — full C body that mirrors the asm CFG and
+   calls every JT entry in order, but inner per-arm dispatch is
+   deferred with `/* TODO */` comments. Right when the call sequence
+   matters more than the per-arm work (e.g., dialog-loop dispatchers).
+3. **Full lift** — every arm faithfully translated; the only stubs
+   left are leaf JT entries the function calls. Reserve for tight
+   functions or critical paths.
+
+The L02dc / L12a0 / L15e2 commits are good examples of level 3 / 2
+trade-offs. Match the depth to the session's budget, not the
+function's importance.
+
+### Naming
+
+- `jtNNN` — a JT entry, lifted from `data/work/disasm/jumptable.txt`.
+  Always lower-case; the asm uses `JT[NNN]` upper-case.
+- `lXXXX` — a CODE-local helper at hex address `0xXXXX` (e.g., `l02dc`).
+  Lower-case to match `jtNNN`. Always reach across the prefix when
+  cross-segment.
+- `g_a5_N` — an A5-world global at offset `-N`. Read as a macro over
+  `g_a5_below[]` (see below).
+
+### A5-world storage
+
+The A5-relative globals live in a single `g_a5_below[A5_BELOW_SIZE]`
+buffer set up by `data_pool_replay()` (zero-fill + DATA blit + DREL
+relocs). Address each slot via typed macros at the top of `boot.c`:
+
+```c
+#define g_a5_NNNN g_a5_byte(-NNNN)    /* or _word / _long / _ptr / _buf / _chars / _shorts / _longs */
+```
+
+The macros work as l-values (assign through them) and rvalues.
+Non-zero scalars get re-seeded in `boot_a5_seed_defaults()` since
+the buffer is zero on startup.
+
+**Heap-equivalent** buffers (NewPtr / NewHandle on the Mac side)
+stay file-static in C — the address ends up in an A5 *pointer* slot,
+but the bytes themselves are not part of the A5 world. `g_dlitem_pool`
+is the canonical example.
+
+### THINK C inline switch (JT[3])
+
+Every `switch` in the Mac build compiles to `jsr JT[3]` followed by
+an inline table:
+
+```
+.short min, max, default_off, case0_off, case1_off, ..., caseN_off
+```
+
+Each `*_off` is PC-relative to its own slot. There are ~307 sites
+across CODE 1..23; each has a unique table. There's no shared
+dispatch to lift — at every call site, read the inline table and
+emit an equivalent C `switch`.
+
+```sh
+python3 tools/jt3_extract.py data/work/disasm/CODE_NN.bin --jsr-at 0xXXXX
+```
+
+prints the decoded arms and a ready-to-paste C `switch` skeleton.
+
+### Commit cadence
+
+One focused commit per session step — array migrations, single-
+function lifts, single-tool additions. Push after each commit so
+GitHub Actions catches regressions early; the test budget is small
+enough that this is cheap. Avoid bundling unrelated changes even
+when the diff is small.
