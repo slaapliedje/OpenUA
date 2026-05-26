@@ -94,7 +94,7 @@ Engine-side support primitives:
 
 ### Demo (`src/main.c`)
 
-`make run` launches the same boot path as v0.1 (HAL up → frua.rsrc
+`make run` launches the same boot path as v0.1 (HAL up → frua.rsc
 + clut 129 + FONT -27001 → `ua_main` → 3 stacked windows + ALRT 200
 → menu bar) and now exits via the menu — File / Edit menus with a
 Cmd-Q quit confirmation (DLOG 202 Cancel/OK). New menu items:
@@ -113,7 +113,7 @@ Cmd-Q quit confirmation (DLOG 202 Cancel/OK). New menu items:
 ## How to verify
 
 ```sh
-make            # builds frua.prg + frua.rsrc (skips rsrcpack if rfork absent)
+make            # builds frua.prg + frua.rsc (skips rsrcpack if rfork absent)
 make run        # boots in Hatari; click File menu, exercise the demos
 make ENGINE_PROBE=1 run    # adds per-stub trace to the console
 make test       # host-side pytest suite over tools/ (41 tests)

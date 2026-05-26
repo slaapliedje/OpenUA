@@ -43,28 +43,28 @@ ifeq ($(FRUA_SPLASH_ALERT),1)
 CFLAGS += -DFRUA_SPLASH_ALERT
 endif
 
-all: $(TARGET) frua.rsrc
+all: $(TARGET) frua.rsc
 
 $(TARGET): $(OBJ)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 # Resource fork → flat FRSC archive (ADR-0007). The engine FSOpens
-# frua.rsrc at startup and hands the bytes to the Resource Manager
+# frua.rsc at startup and hands the bytes to the Resource Manager
 # shim. The rfork itself is copyrighted FRUA data, so the source path
 # lives under data/work/ (gitignored); the generated archive is
 # gitignored too.
 RFORK ?= data/work/UnlimitedAdventures.rfork
-frua.rsrc: $(RFORK) tools/rsrcpack.py
+frua.rsc: $(RFORK) tools/rsrcpack.py
 	@if [ -f "$<" ]; then \
 		python3 tools/rsrcpack.py $< -o $@; \
 	else \
-		echo "  frua.rsrc: $< not found; skipping (engine runs with no resources)"; \
+		echo "  frua.rsc: $< not found; skipping (engine runs with no resources)"; \
 	fi
 
 # DATA + DREL replay tables. These files are NEVER tracked in git
 # (they would contain copyrighted FRUA application bytes when
 # regenerated). Both .h and .c are produced fresh on every build:
-# from frua.rsrc when the archive is present, or as zero-entry
+# from frua.rsc when the archive is present, or as zero-entry
 # stubs otherwise. See tools/dataemit.py for the encoder and
 # docs/engine-bring-up.md for how the replay is applied at engine
 # startup.
@@ -72,15 +72,15 @@ DATAPOOL_H := src/engine/data_pool.h
 DATAPOOL_C := src/engine/data_pool.c
 DATAPOOL_FILES := $(DATAPOOL_H) $(DATAPOOL_C)
 
-$(DATAPOOL_FILES) &: frua.rsrc tools/dataemit.py tools/datapool.py
-	@if [ -f frua.rsrc ]; then \
-		python3 tools/dataemit.py frua.rsrc \
+$(DATAPOOL_FILES) &: frua.rsc tools/dataemit.py tools/datapool.py
+	@if [ -f frua.rsc ]; then \
+		python3 tools/dataemit.py frua.rsc \
 			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
-		echo "  data_pool: regenerated from frua.rsrc"; \
+		echo "  data_pool: regenerated from frua.rsc"; \
 	else \
 		python3 tools/dataemit.py --stub \
 			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
-		echo "  data_pool: stubbed (no frua.rsrc)"; \
+		echo "  data_pool: stubbed (no frua.rsc)"; \
 	fi
 
 # Make every .o depend on the data pool existing — but only as an

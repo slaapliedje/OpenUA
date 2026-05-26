@@ -6,11 +6,11 @@ resources on screen and accepts real mouse input.
 ## What the demo does
 
 `make` builds `frua.prg` and (if `data/work/UnlimitedAdventures.rfork`
-is present) packs `frua.rsrc` from it. `make run` boots in Hatari:
+is present) packs `frua.rsc` from it. `make run` boots in Hatari:
 
 1. Brings up the Falcon VIDEL display, attaches the QuickDraw shim to
    the back buffer, installs the IKBD-packet mouse driver.
-2. Loads `frua.rsrc` through the File Manager and hands the bytes to
+2. Loads `frua.rsc` through the File Manager and hands the bytes to
    the Resource Manager.
 3. Installs FRUA's `clut 129` 256-entry palette and FRUA's `FONT`
    `-27001` bitmap font.
@@ -107,7 +107,7 @@ each probe.
 ## How to verify
 
 ```sh
-make            # builds frua.prg + frua.rsrc (skips rsrcpack if rfork absent)
+make            # builds frua.prg + frua.rsc (skips rsrcpack if rfork absent)
 make run        # boots in Hatari; click windows to raise, drag title bars,
                 # press any key to dismiss the ALRT, then again to exit
 make ENGINE_PROBE=1 run    # adds per-stub trace to the console

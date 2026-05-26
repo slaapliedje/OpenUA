@@ -207,7 +207,7 @@ static void show_name_prompt(short surf_w, short surf_h)
 }
 
 /*
- * Open frua.rsrc through the File Manager and hand the bytes to the
+ * Open frua.rsc through the File Manager and hand the bytes to the
  * Resource Manager shim. Silent no-op when the file isn't there (the
  * engine runs with an empty archive — GetResource just returns NULL).
  * The buffer must outlive the engine, so it leaks on purpose; we exit
@@ -220,34 +220,34 @@ static void load_frua_rsrc(void)
 	void  *buf;
 	OSErr  err;
 
-	if (FSOpen((ConstStr255Param)"\011frua.rsrc", 0, &ref) != noErr) {
-		dbg_log("main: frua.rsrc not found (running without resources)");
+	if (FSOpen((ConstStr255Param)"\010frua.rsc", 0, &ref) != noErr) {
+		dbg_log("main: frua.rsc not found (running without resources)");
 		return;
 	}
 	err = GetEOF(ref, &size);
 	if (err != noErr || size <= 0) {
 		(void)FSClose(ref);
-		dbg_log("main: frua.rsrc unreadable");
+		dbg_log("main: frua.rsc unreadable");
 		return;
 	}
 	buf = NewPtr(size);
 	if (buf == NULL) {
 		(void)FSClose(ref);
-		dbg_log("main: NewPtr failed for frua.rsrc");
+		dbg_log("main: NewPtr failed for frua.rsc");
 		return;
 	}
 	n = size;
 	err = FSRead(ref, &n, buf);
 	(void)FSClose(ref);
 	if (err != noErr || n != size) {
-		dbg_log("main: FSRead frua.rsrc short");
+		dbg_log("main: FSRead frua.rsc short");
 		return;
 	}
 	if (resource_open(buf) != 0) {
-		dbg_log("main: frua.rsrc isn't a FRSC archive");
+		dbg_log("main: frua.rsc isn't a FRSC archive");
 		return;
 	}
-	dbg_log_num("main: frua.rsrc loaded, bytes = ", size);
+	dbg_log_num("main: frua.rsc loaded, bytes = ", size);
 }
 
 /*

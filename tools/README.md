@@ -42,7 +42,7 @@ Resource Manager shim (`compat/resources.c`) reads at runtime (ADR-0007).
 `appledouble.py` unwraps the fork from an AppleDouble file upstream.
 
 ```
-rsrcpack.py <resource-fork> -o frua.rsrc
+rsrcpack.py <resource-fork> -o frua.rsc
 ```
 
 ## FRSC archive format
