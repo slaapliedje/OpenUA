@@ -2889,9 +2889,64 @@ static void jt431(void *dst, const void *src)
 static void jt471(long entry, short tag, void *bucket)
                                             { PROBE("jt471"); (void)entry;
                                               (void)tag; (void)bucket; }
+/* JT[477] (CODE 3 + 0x0214, 65 sites) — slot reserve from a bucket.
+ *
+ * Bucket layout:
+ *   +0  short  max_count        — capacity in slots
+ *   +2  short  record_size      — bytes per record
+ *   +4  long   base_ptr         — base address of records
+ *   +8..  byte bitmap           — 8 slots per byte, bit set = used
+ *
+ * Walks the bitmap looking for the first byte != 0xff (i.e., has
+ * a free bit). Within that byte, scans bits 0..7 for the first
+ * unset. If the resulting slot index (byte * 8 + bit) is in-range,
+ * marks the bit used and stores `base + idx * record_size` in
+ * *out. Otherwise *out = 0 (bucket full).
+ *
+ * The `tag` arg is unused by the Mac body — probably an intended
+ * type-check that never landed. */
 static void jt477(void *bucket, short tag, void *out)
-                                            { PROBE("jt477"); (void)bucket;
-                                              (void)tag; (void)out; }
+{
+	unsigned char *b   = (unsigned char *)bucket;
+	long          *out_long = (long *)out;
+	short          max_count, record_size, byte_idx, bit_idx, idx;
+	unsigned char  slot_byte;
+	long           base_ptr;
+
+	PROBE("jt477");
+	(void)tag;
+	if (b == NULL || out_long == NULL)
+		return;
+	max_count   = *(short *)(b + 0);
+	record_size = *(short *)(b + 2);
+	base_ptr    = *(long  *)(b + 4);
+
+	/* Find first byte with at least one free bit. */
+	byte_idx = 0;
+	for (;;) {
+		slot_byte = b[8 + byte_idx];
+		if (slot_byte != 0xff)
+			break;
+		if (byte_idx >= (short)(max_count - 1))
+			break;
+		byte_idx++;
+	}
+
+	/* Find first unset bit in this byte. */
+	for (bit_idx = 0; bit_idx < 8; bit_idx++) {
+		if ((slot_byte & (1 << bit_idx)) == 0)
+			break;
+	}
+
+	idx = (short)(byte_idx * 8 + bit_idx);
+	if (idx >= max_count) {
+		*out_long = 0;
+		return;
+	}
+
+	b[8 + byte_idx] |= (unsigned char)(1 << bit_idx);
+	*out_long = base_ptr + (long)idx * record_size;
+}
 static void jt581(long head, long tail)     { PROBE("jt581"); (void)head;
                                               (void)tail; }
 static void jt587(void *dst, void *bucket, short a, short b)
