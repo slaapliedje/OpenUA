@@ -106,6 +106,7 @@
 #define g_a5_2347  g_a5_byte(-2347)    /* JT[1200]: "in encounter mode" gate */
 #define g_a5_1312  g_a5_byte(-1312)    /* JT[1200]: encounter sub-state flag */
 #define g_a5_18394 g_a5_byte(-18394)   /* JT[112]: GrafPort save-state mode */
+#define g_a5_18395 g_a5_byte(-18395)   /* JT[108]: GrafPort "dirty" flag */
 #define g_a5_27468 g_a5_byte(-27468)   /* L6bbe: id-table entry count       */
 
 /* JT[1089]'s pen-state cluster (CODE 5 + 0x024c..0x028x):
@@ -705,7 +706,32 @@ static int  jt112(short a)
 	g_a5_18394 = (unsigned char)(a & 0xff);
 	return 0;
 }
-static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
+/* Forward — jt1146 / jt1153 are window-paint commit leaves
+ * defined further down. JT[108] needs them. */
+static void jt1146(void);
+static void jt1153(short arg);
+
+/* JT[108] (CODE 6 + 0x38d0, 30 sites) — mark GrafPort dirty +
+ * commit deferred paint.
+ *
+ *   - Skip if already dirty (g_a5_18395 != 0) or in save-mode 2
+ *     (g_a5_18394 == 2).
+ *   - When the low byte of `a` is non-zero, flush via JT[1146].
+ *   - JT[1153](0) commits the pen state.
+ *   - Mark dirty for subsequent skips. */
+static int  jt108(short a)
+{
+	PROBE("jt108");
+	if (g_a5_18395 != 0)
+		return 0;
+	if (g_a5_18394 == 2)
+		return 0;
+	if ((a & 0xff) != 0)
+		jt1146();
+	jt1153(0);
+	g_a5_18395 = 1;
+	return 0;
+}
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
 
 /* --- L5700 / L5864 — mode-cleanup helpers jt131 dispatches into --- *
@@ -2299,6 +2325,9 @@ static short  jt1125(short kind, long p1, long p2){ PROBE("jt1125");
 static void   jt1134(void)                        { PROBE("jt1134"); }
 static void   jt1153(short arg)                   { PROBE("jt1153");
                                                     (void)arg; }
+/* JT[1146] (CODE 4 + 0x5c82) — paint-flush leaf JT[108] reaches
+ * when its arg is non-zero. PROBE for now. */
+static void   jt1146(void)                        { PROBE("jt1146"); }
 
 /* L3198 (CODE 3 + 0x3198) — wraps JT[1125] for the event-read prelude. */
 static short l3198(short kind, long p1, long p2)
