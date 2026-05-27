@@ -105,6 +105,7 @@
 #define g_a5_4944  g_a5_byte(-4944)
 #define g_a5_2347  g_a5_byte(-2347)    /* JT[1200]: "in encounter mode" gate */
 #define g_a5_1312  g_a5_byte(-1312)    /* JT[1200]: encounter sub-state flag */
+#define g_a5_18394 g_a5_byte(-18394)   /* JT[112]: GrafPort save-state mode */
 
 /* JT[1089]'s pen-state cluster (CODE 5 + 0x024c..0x028x):
  *   -4894 / -4892 — packed (col, style) the engine's color word
@@ -679,7 +680,24 @@ static void jt406(void *dst, const void *src, short count)
 		return;
 	memmove(dst, src, (size_t)(unsigned short)count);
 }
-static int  jt112(short a)         { PROBE("jt112"); return 0; }                  /* CODE 6 + 0x38fe  */
+/* Forward — l3994 (the GrafPort save snapshot) lifts further
+ * down. Needed here for JT[112]'s mode-2 case. */
+static void l3994(void);
+
+/* JT[112] (CODE 6 + 0x38fe, 43 sites) — paint-mode setter.
+ *
+ * Stores the low byte of `a` in g_a5_18394 (the GrafPort save-
+ * state mode flag). When the new mode is 2, invokes L3994 first
+ * to snapshot the current port; jt94 / jt42 / jt1089 read the
+ * flag to skip redundant saves on subsequent calls. */
+static int  jt112(short a)
+{
+	PROBE("jt112");
+	if ((short)(a & 0xff) == 2)
+		l3994();
+	g_a5_18394 = (unsigned char)(a & 0xff);
+	return 0;
+}
 static int  jt108(short a)         { PROBE("jt108"); return 0; }                  /* CODE 6 + 0x38d0  */
 static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
 
@@ -1313,7 +1331,28 @@ static void l4bf6(short a, short b, short c, short d) { PROBE("l4bf6"); }       
 /* JT[468] (CODE 3 + 0xd1a) — translates a short arg into a long sub-
  * resource handle / channel pointer. Real body chains into the fc
  * cache; stays a PROBE stub for now. */
-static long jt468(short n)         { PROBE("jt468"); (void)n; return 0L; }
+/* JT[468] (CODE 3 + 0x0d1a, 64 sites) — resource handle lookup.
+ *
+ * Indirect table walk: g_a5_10074[tag] is a signed-byte slot index
+ * into g_a5_10270 (an array of longs holding resource handles).
+ * Returns g_a5_10270[(signed char)g_a5_10074[tag]] — the cached
+ * handle for the resource the caller's tag points to.
+ *
+ * The Mac also calls L1282 first (resource-load validation); for
+ * the port the tables are populated by data_pool_replay so the
+ * load step is implicit. Return 0 on out-of-range. */
+static long jt468(short tag)
+{
+	short id;
+
+	PROBE("jt468");
+	if (tag < 0 || (unsigned short)tag >= (unsigned short)G_A5_10074_LEN)
+		return 0;
+	id = (signed char)g_a5_10074[tag];
+	if (id < 0 || (unsigned short)id >= (unsigned short)G_A5_10270_LEN)
+		return 0;
+	return g_a5_10270[id];
+}
 
 /* L309c (CODE 5 + 0x309c, local) — the actual channel-write that
  * jt1001 wraps. Reads four args (channel, mode, ptr, flag) and pokes
@@ -2093,7 +2132,15 @@ static void l02dc(long highlight)
  * the surface keeps the call shape so the trace shows the menu build
  * pattern, and the user-selection poll (JT[453]) returns 0 — which
  * means "no action" once jt918's iter_guard breaks the loop. */
-static int     jt117(void)                          { PROBE("jt117"); return 0; }
+/* JT[117] (CODE 6 + 0x3994, 56 sites) — alias for L3994 (GrafPort
+ * save snapshot). The Mac JT[117] entry shares the body with the
+ * local L3994 helper that JT[94] / JT[1089] reach internally. */
+static int     jt117(void)
+{
+	PROBE("jt117");
+	l3994();
+	return 0;
+}
 static int     jt146(void)                          { PROBE("jt146"); return 0; }
 static void    jt161(short a)                       { PROBE("jt161"); (void)a; }
 
@@ -3257,7 +3304,41 @@ static void   jt19(short a, short b)             { PROBE("jt19"); (void)a; (void
 static int    jt159(const char *prompt, short b) { PROBE("jt159");
                                                    (void)prompt; (void)b;
                                                    return 0; }
-static void   jt176(void)                        { PROBE("jt176"); }
+/* JT[1173] / JT[1193] / L2062 — paint init/commit leaves JT[176]
+ * reaches into. PROBE for now; bodies live further inside the
+ * window-paint cluster (CODE 4 + 0x164c, CODE 4 + 0x16e0, CODE 7
+ * + 0x2062). */
+static void jt1173(short top, short left, short right, short bottom)
+                                                  { PROBE("jt1173"); (void)top;
+                                                    (void)left; (void)right;
+                                                    (void)bottom; }
+static void jt1193(void)                          { PROBE("jt1193"); }
+static void l2062(void)                           { PROBE("l2062"); }
+
+/* JT[176] (CODE 7 + 0x162e, 36 sites) — window paint init / commit.
+ *
+ * Encounter-mode (jt1200 == 3) and design-mode paths set up the
+ * pen-clip rect to different left edges (280 vs 8093) via JT[1173];
+ * both then call jt1001(8000, 8000, 1, 4) to commit the pen state
+ * and chain through jt1193 + L2062 for the deferred-paint flush.
+ *
+ * JT[42]'s message-append wraps every text-draw between two
+ * jt176() calls so the QuickDraw shim sees a clean paint boundary;
+ * other callers do the same. The bodies of the inner JT[1173] /
+ * JT[1193] / L2062 leaves stay PROBE-deferred — their semantics
+ * are "set up window clip / commit pen", which the QuickDraw shim
+ * already handles implicitly. */
+static void   jt176(void)
+{
+	PROBE("jt176");
+	if (jt1200() == 3)
+		jt1173(280,  8000, 8100, 8160);
+	else
+		jt1173(8093, 8000, 8100, 8160);
+	jt1001(8000, 8000, 1, 4);
+	jt1193();
+	l2062();
+}
 static void   jt584(long a, const char *str)     { PROBE("jt584"); (void)a; (void)str; }
 static void   jt585(void)                        { PROBE("jt585"); }
 static void   jt904(void *buf)                   { PROBE("jt904"); (void)buf; }
