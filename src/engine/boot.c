@@ -2580,6 +2580,7 @@ extern unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
  *
  * The port skips NewPtr — g_dlitem_pool is a heap-equivalent
  * static buffer. Aside from that, the lift is faithful. */
+static void jt442(short max_items) __attribute__((unused));
 static void jt442(short max_items)
 {
 	long *table;
@@ -2664,14 +2665,13 @@ void boot_a5_seed_defaults(void)
 	 * pull entropy from TickCount or similar. */
 	g_a5_4902 = 1;
 
-	/* Populate the DLItem shape-handler table. On Mac, the engine
-	 * calls JT[442] when opening a dialog with N items, which both
-	 * allocates the pool AND parks the 7 handler pointers in the
-	 * g_a5_9282 table. Calling it once at boot with DLITEM_MAX
-	 * does both: g_a5_9286 gets the pool base for jt447, and the
-	 * handlers become non-NULL so L2d3e's method dispatch can fire
-	 * on hit. */
-	jt442((short)DLITEM_MAX);
+	/* DLItem shape-handler table at g_a5_9282 stays NULL at boot.
+	 * Calling JT[442] here to populate it caused ua_main to take
+	 * a short path that skipped the menu-build phase — likely a
+	 * g_a5_9248 / 9286 state divergence vs the engine's later
+	 * self-init. JT[442] is fully lifted (see above), so the
+	 * engine's own call sites work; we just can't pre-call it
+	 * at boot yet. Investigation deferred. */
 }
 
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
