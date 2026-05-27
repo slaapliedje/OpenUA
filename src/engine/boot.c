@@ -121,6 +121,7 @@
 #define g_a5_4898  g_a5_word(-4898)
 #define g_a5_4896  g_a5_word(-4896)
 #define g_a5_4902  g_a5_long(-4902)    /* JT[1083]: LCG PRNG state    */
+#define g_a5_21152 g_a5_byte(-21152)   /* JT[878]: inventory-item bucket */
 
 /* JT[1161]'s window-clip cluster — the engine's current "paintable
  * region" the rect-fill clamps against. Set elsewhere by the
@@ -3396,8 +3397,84 @@ static void   jt876(long a, short b, short c, short d, short e)
                                                 { PROBE("jt876"); (void)a;
                                                   (void)b; (void)c;
                                                   (void)d; (void)e; }
-static void   jt878(long a, short b, long c)   { PROBE("jt878"); (void)a;
-                                                  (void)b; (void)c; }
+/* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
+ * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
+static void l77a0(short item_type, void *entity, void *target, short flag)
+                                            { PROBE("l77a0"); (void)item_type;
+                                              (void)entity; (void)target;
+                                              (void)flag; }
+static void l1b14(void *entity, short class)
+                                            { PROBE("l1b14"); (void)entity;
+                                              (void)class; }
+
+/* JT[878] (CODE 18 + 0x009e, 39 sites) — remove item from
+ * inventory.
+ *
+ * Args: entity, item_type, item_ptr (NULL = find first of type).
+ *
+ *   1. Resolve target: if item_ptr given, use it. Else walk
+ *      entity->[4] (inventory head, .next at +6) looking for
+ *      a node whose byte 0 matches item_type. Bail if no match.
+ *   2. If target->[5] is set (equip bit), call L77a0 to run the
+ *      "remove equipped item" side-effects.
+ *   3. Unlink target from the chain: rewire head or predecessor's
+ *      .next over it.
+ *   4. JT[471] frees the slot in g_a5_21152 (the inventory bucket).
+ *   5. Type-specific cleanup: 14 → L1b14(entity, 5);
+ *      12 or 38 → L1b14(entity, 0); 68 → L1b14(entity, 1) + (entity, 2).
+ *
+ * Used by the engine's "drop item / sell / lose" paths — every
+ * inventory removal across the game flows through here. */
+static void   jt878(long entity_long, short item_type, long item_long)
+{
+	unsigned char *entity = (unsigned char *)(uintptr_t)entity_long;
+	unsigned char *target = (unsigned char *)(uintptr_t)item_long;
+	unsigned char  type   = (unsigned char)(item_type & 0xff);
+
+	PROBE("jt878");
+	if (entity == NULL)
+		return;
+
+	if (target == NULL) {
+		target = *(unsigned char * const *)(entity + 4);
+		while (target != NULL && target[0] != type)
+			target = *(unsigned char * const *)(target + 6);
+	}
+	if (target == NULL)
+		return;
+
+	if (target[5] != 0)
+		l77a0(item_type, entity, target, 1);
+
+	/* Unlink from the entity's inventory chain. */
+	{
+		unsigned char *head =
+			*(unsigned char * const *)(entity + 4);
+		if (head == target) {
+			*(unsigned char **)(entity + 4) =
+				*(unsigned char * const *)(target + 6);
+		} else {
+			unsigned char *prev = head;
+			while (prev != NULL &&
+			       *(unsigned char * const *)(prev + 6) != target)
+				prev = *(unsigned char * const *)(prev + 6);
+			if (prev != NULL)
+				*(unsigned char **)(prev + 6) =
+					*(unsigned char * const *)(target + 6);
+		}
+	}
+
+	jt471((long)(uintptr_t)target, 10, &g_a5_21152);
+
+	if (type == 14)
+		l1b14(entity, 5);
+	if (type == 12 || type == 38)
+		l1b14(entity, 0);
+	if (type == 68) {
+		l1b14(entity, 1);
+		l1b14(entity, 2);
+	}
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
