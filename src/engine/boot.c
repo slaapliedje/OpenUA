@@ -2526,6 +2526,48 @@ static long jt4(long a, long b)
 	return a * b;
 }
 
+/* JT[5] / JT[6] / JT[7] / JT[8] (CODE 1 + 0x1aa..0x20c) — 32-bit
+ * div runtime helpers. THINK C emits these for `/` and `%` on
+ * longs since 68000 has no 32-bit divide.
+ *
+ *   JT[5]: (unsigned long) a / b
+ *   JT[6]: (unsigned long) a % b
+ *   JT[7]: (signed long)   a / b
+ *   JT[8]: (signed long)   a % b
+ *
+ * The portable equivalents are plain C operators; m68k-atari-mint-gcc
+ * emits the same hardware-divs.l shape (or the soft-div helper on
+ * 68000) so the call lattice stays Mac-identical. Guard against
+ * b == 0 so the lift never raises a divide trap on stale inputs. */
+static unsigned long jt5(unsigned long a, unsigned long b) __attribute__((unused));
+static unsigned long jt5(unsigned long a, unsigned long b)
+{
+	PROBE("jt5");
+	if (b == 0) return 0;
+	return a / b;
+}
+static unsigned long jt6(unsigned long a, unsigned long b) __attribute__((unused));
+static unsigned long jt6(unsigned long a, unsigned long b)
+{
+	PROBE("jt6");
+	if (b == 0) return 0;
+	return a % b;
+}
+static long jt7(long a, long b) __attribute__((unused));
+static long jt7(long a, long b)
+{
+	PROBE("jt7");
+	if (b == 0) return 0;
+	return a / b;
+}
+static long jt8(long a, long b) __attribute__((unused));
+static long jt8(long a, long b)
+{
+	PROBE("jt8");
+	if (b == 0) return 0;
+	return a % b;
+}
+
 /* JT[158] — walk the design list, then either add a menu item per
  * design (modes 7 / 9 / 12 / other) or disable a stale slot (when
  * the count shrank). CODE 7 + 0x1f3e.
@@ -2760,9 +2802,28 @@ static int  jt396(const char *a, const char *b)
 	PROBE("jt396");
 	return l3bda(a, b);
 }
+/* JT[431] (CODE 3 + 0x4b8e, 42 sites) — HFS path-concat with ':'.
+ *
+ * Appends `src` to `dst`, inserting a ':' separator first unless
+ * `dst` is empty or already ends with ':'. The Mac uses ':' as
+ * the HFS path separator; the engine keeps building strings in
+ * that form and lets the FSOpen shim translate to GEMDOS at the
+ * boundary. */
 static void jt431(void *dst, const void *src)
-                                            { PROBE("jt431"); (void)dst;
-                                              (void)src; }
+{
+	char       *d = (char *)dst;
+	const char *s = (const char *)src;
+	short       len;
+
+	PROBE("jt431");
+	if (d == NULL || s == NULL)
+		return;
+	len = l39ae(d);
+	if (len > 0 && d[len - 1] != ':')
+		d[len++] = ':';
+	while ((d[len++] = *s++) != 0)
+		;
+}
 static void jt471(long entry, short tag, void *bucket)
                                             { PROBE("jt471"); (void)entry;
                                               (void)tag; (void)bucket; }
