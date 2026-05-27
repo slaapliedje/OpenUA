@@ -258,6 +258,10 @@
 #define g_a5_4870  g_a5_shorts(-4870)
 #define g_a5_4860  g_a5_shorts(-4860)
 
+/* L2d3e selection-nav state. */
+#define g_a5_4884  g_a5_word(-4884)    /* current selection index (signed) */
+#define g_a5_4882  g_a5_word(-4882)    /* selection step / default key */
+
 /*
  * Stub-trace probe. Off by default — when compiled with
  * -DFRUA_ENGINE_PROBE every stub below logs its name as the engine
@@ -2715,6 +2719,30 @@ static short l31f0(void)
  * function pointer the L2d3e dispatcher invokes with (rec, cmd, ...). */
 typedef short (*dlitem_method_t)(void *rec, short cmd, ...);
 
+/* JT[1007] / JT[1123] — L2d3e selection-nav primitives. PROBE
+ * for now; once lifted, Tab/arrow keystrokes will actually
+ * move the dialog's highlighted item. */
+static void jt1007(short cur_sel, short key) __attribute__((unused));
+static void jt1007(short cur_sel, short key)
+{
+	PROBE("jt1007");
+	(void)cur_sel; (void)key;
+}
+static void jt1123(short a) __attribute__((unused));
+static void jt1123(short a)
+{
+	PROBE("jt1123");
+	(void)a;
+}
+/* JT[1080] — sleep-tick for "no DLItem caught the event" path.
+ * Was at jt freq report at 50 sites. Stays PROBE; the timing
+ * fallback isn't critical with WaitNextEvent's sleep arg. */
+static void jt1080(void) __attribute__((unused));
+static void jt1080(void)
+{
+	PROBE("jt1080");
+}
+
 /* L2d3e (CODE 3 + 0x2d3e) = JT[456] — DLItem event poll.
  *
  * The Mac body:
@@ -2742,7 +2770,10 @@ static short l2d3e(void)
 {
 	short  key, mouse_x = 0, mouse_y = 0;
 	short  i;
+	short  count = g_a5_9250;
+	short  cur_sel, sel_key;
 	unsigned char *rec;
+	dlitem_method_t method;
 
 	PROBE("L2d3e");
 
@@ -2750,27 +2781,96 @@ static short l2d3e(void)
 	jt1153(1);
 	jt1134();                       /* L2c60 walks items with cmd=1 */
 	key = l3198(7, (long)&mouse_y, (long)&mouse_x);
-	(void)key;
 
-	/* Phase 2 — find the first item whose method consumes cmd=2 at
-	 * the current mouse coords. method pointers are NULL until the
-	 * JT[452] shape dispatch is lifted, so we just guard the loop. */
+	/* Phase 2 — hit-test: walk DLItems calling method(rec, 2, y, x).
+	 * First non-zero return is the item under the mouse. Method
+	 * pointers stay NULL until JT[452]'s shape-code dispatch lands,
+	 * so each call is guarded. */
 	rec = (unsigned char *)g_a5_9254;
-	for (i = 0; i < g_a5_9250; i++) {
-		dlitem_method_t method;
-
+	for (i = 0; i < count; i++) {
 		method = *(dlitem_method_t *)rec;
-		if (method != NULL) {
-			short hit = method(rec, (short)2, mouse_y, mouse_x);
-
-			if (hit != 0)
-				break;
-		}
+		if (method != NULL && method(rec, (short)2,
+		                              mouse_y, mouse_x) != 0)
+			break;
 		rec += DLITEM_BYTES;
 	}
 
-	/* Phase 3+ — modifier-key dispatch, scrollbar handling, the
-	 * exact-hit return path. Documented above; not yet lifted. */
+	/* Phase 3 — action fire: if we have an event AND a hit, invoke
+	 * method(rec, 3, ...) then method(rec, 4, ...). Bit 4 of
+	 * rec[28] is the "selected/committed" flag; if it's set after
+	 * the action methods run, the hit index becomes our return
+	 * value (caller exits the loop). Otherwise clear the high bit
+	 * (acknowledge the event) and fall through to selection nav. */
+	if (key != 0) {
+		if (i < count) {
+			method = *(dlitem_method_t *)rec;
+			if (method != NULL && method(rec, (short)3,
+			                              mouse_y, mouse_x,
+			                              key) != 0) {
+				method(rec, (short)4, mouse_y, mouse_x, key);
+				if ((rec[28] & 0x10) != 0)
+					return i;
+				rec[28] &= 0x7f;
+			}
+		} else {
+			jt1080();                /* no hit — sleep tick */
+		}
+	}
+
+	/* Phase 4 — selection navigation. Pick the next move based on
+	 * whether we hit something + the engine's auto-scroll state at
+	 * g_a5_4884/4882. JT[1007] commits the new selection; JT[1123]
+	 * is the "no movement" fallback. */
+	if (i < count) {
+		short word20 = *(short *)(rec + 20);
+		if (word20 != 0)
+			sel_key = word20;
+		else
+			sel_key = (g_a5_4884 >= 0)
+			          ? g_a5_4882 : (short)1;
+	} else {
+		sel_key = (g_a5_4884 >= 0)
+		          ? (short)(g_a5_4882 + 1) : (short)2;
+	}
+
+	if (sel_key >= 0) {
+		cur_sel = (g_a5_4884 >= 0) ? g_a5_4884 : (short)0;
+		jt1007(cur_sel, sel_key);
+	} else {
+		jt1123(0);
+	}
+
+	/* Phase 5 — confirmed selection (Return key path). L31ea polls
+	 * the post-action flag; L31f0 returns the resolved selection
+	 * code. Walk DLItems calling method(rec, 5, code); on match,
+	 * fire the kind=19 / 1 / 4(-1) / 27 method sequence and check
+	 * the commit bit. */
+	if (l31ea() != 0) {
+		sel_key = l31f0();
+		rec = (unsigned char *)g_a5_9254;
+		for (i = 0; i < count; i++) {
+			method = *(dlitem_method_t *)rec;
+			if (method != NULL && method(rec, (short)5,
+			                              sel_key) != 0)
+				break;
+			rec += DLITEM_BYTES;
+		}
+		if (i < count) {
+			method = *(dlitem_method_t *)rec;
+			if (method != NULL) {
+				method(rec, (short)19);
+				method(rec, (short)1);
+				jt1134();
+				method(rec, (short)4, (short)-1);
+				method(rec, (short)27);
+				if ((rec[28] & 0x10) != 0)
+					return i;
+			}
+		} else {
+			jt1080();
+		}
+	}
+
 	return (short)-1;
 }
 
