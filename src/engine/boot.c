@@ -43,6 +43,7 @@
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
+#include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -2618,9 +2619,64 @@ static void   l30ba(short a, short b, short c)
 /* CODE 4 helpers L2d3e + family forward into. PROBE stubs until the
  * actual event-pump + DLItem dispatch land. */
 static void   jt1118(void)                        { PROBE("jt1118"); }
-static short  jt1125(short kind, long p1, long p2){ PROBE("jt1125");
-                                                    (void)kind; (void)p1;
-                                                    (void)p2; return 0; }
+/* JT[1125] (CODE 4 + 0x6230) — engine event poll.
+ *
+ * The dialog event loop (L2d3e → L3198 → here) calls this every
+ * frame to ask "any input?" The Mac body pulls from an internal
+ * event buffer (g_a5_904 / 912 / 910 cluster) that L731e fills
+ * from IRQ + Toolbox. Returns:
+ *
+ *   0   no event              (out1 = out2 = 0)
+ *   1   basic event (key, click)
+ *   2   special event (modified — Cmd-key etc.)
+ *
+ * For the port: bypass the Mac's IRQ-driven buffer and call
+ * WaitNextEvent directly with a 1-tick sleep. The shim's event
+ * queue is fed by IKBD / mouse synthesisers in compat/events.c,
+ * so a real keyboard/mouse event from the host shows up here.
+ *
+ * Event mapping:
+ *   keyDown / autoKey → out1 = charCode, out2 = modifiers
+ *   mouseDown         → out1 = where.h,  out2 = where.v
+ *   anything else     → (0, 0), return 0
+ *
+ * With this in place the engine's dialog loop receives real
+ * input — clicks and keys from the host flow into the menu
+ * system. Previously the loop spun forever because every poll
+ * returned 0. */
+static short  jt1125(short kind, long p1, long p2)
+{
+	EventRecord ev;
+	short *out1 = (short *)(uintptr_t)p1;
+	short *out2 = (short *)(uintptr_t)p2;
+
+	PROBE("jt1125");
+	(void)kind;
+	if (out1 == NULL || out2 == NULL)
+		return 0;
+
+	if (!WaitNextEvent(everyEvent, &ev, 1, NULL)) {
+		*out1 = 0;
+		*out2 = 0;
+		return 0;
+	}
+
+	switch (ev.what) {
+	case keyDown:
+	case autoKey:
+		*out1 = (short)(ev.message & 0xff);
+		*out2 = ev.modifiers;
+		return (ev.modifiers & cmdKey) ? (short)2 : (short)1;
+	case mouseDown:
+		*out1 = ev.where.h;
+		*out2 = ev.where.v;
+		return 1;
+	default:
+		*out1 = 0;
+		*out2 = 0;
+		return 0;
+	}
+}
 static void   jt1134(void)                        { PROBE("jt1134"); }
 static void   jt1153(short arg)                   { PROBE("jt1153");
                                                     (void)arg; }
