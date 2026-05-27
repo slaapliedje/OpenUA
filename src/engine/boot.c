@@ -671,6 +671,7 @@ static void jt399(void *buf, short size, short fill)
  * store" (L3994's GrafPort-save path), "copy a row of map tiles"
  * etc. uses this. With it lifted, the snapshot/restore plumbing
  * that JT[94] / JT[1089] depend on works correctly. */
+static void jt406(void *dst, const void *src, short count) __attribute__((unused));
 static void jt406(void *dst, const void *src, short count)
 {
 	PROBE("jt406");
@@ -1561,6 +1562,104 @@ static void jt34(long entry, short col, short row, short style)
                                             { PROBE("jt34"); (void)entry;
                                               (void)col; (void)row;
                                               (void)style; }
+
+/* L43c4 (CODE 6 + 0x43c4) — 9-arg record-body paint helper. The
+ * jt18 / jt20 record renderer dispatch through here for the row
+ * of stats below the entry's name. PROBE-deferred; the inner
+ * paint primitives (JT[1135] / JT[1161] / JT[1089]) are in
+ * place, but L43c4's body has substantial coord/clip logic
+ * that's its own commit. */
+static void l43c4(short page, short row, short width, short height,
+                  short s5,   short s6,  short s7,
+                  long  val,  short s9)
+{
+	PROBE("l43c4");
+	(void)page; (void)row; (void)width; (void)height;
+	(void)s5;   (void)s6;  (void)s7;
+	(void)val;  (void)s9;
+}
+
+/* Forward — jt103 / jt1200 / l4bac are defined further down; jt18
+ * and jt20 call them. jt20 lifts immediately after jt18 and is
+ * tail-called via L241e from jt18's post-paint arm. */
+static void jt103(short top, short left, short right, short bottom);
+static int  jt1200(void);
+static void l4bac(void);
+static void jt20(void);
+
+/* JT[18] (CODE 6 + 0x22da, 115 callsites) — record-window paint
+ * dispatcher.
+ *
+ * Opens the right window (encounter-mode record sheet vs design-
+ * edit row), optionally draws the entry's name header via JT[25],
+ * and renders the row of stats via L43c4. Closes with the scroll-
+ * advance + JT[20] arm when the caller's byte flag is set.
+ *
+ *   p          — record pointer (NULL skips the name header).
+ *   val        — long passed through to L43c4; in design-edit
+ *                mode also stands in for `p` on the JT[25] call.
+ *   s1         — design-edit row (only read when mode == 5).
+ *   byte_flag  — post-paint scroll trigger.
+ *
+ * Mode dispatch on g_a5_27990:
+ *   != 5 (encounter):
+ *     base_y = (g_a5_23190 != 0) ? 18 : 17;
+ *     jt103(1, base_y, 38, 22);
+ *     if p:  jt25(p, 1, base_y+1, 0);
+ *     l43c4(1, base_y+2, 38, 22, 7, 0, 1, val, base_y);
+ *
+ *   == 5 (design-edit):
+ *     jt103(23, s1, 38, 21);
+ *     if jt1200() == 3:
+ *        if p:  jt25(val, 23, s1, 0);
+ *     else:
+ *        if p:  jt25(val, 23, s1, 0);
+ *     l43c4(23, s1+1, 38, 21, 7, 0, 1, val, s1);
+ *
+ * Both JT[1200] arms in the design-edit path do the same thing
+ * for `p != NULL` — the asm's redundant compare is preserved
+ * here as a single inline check. */
+static void jt18(void *p, long val, short s1, short byte_flag) __attribute__((unused));
+static void jt18(void *p, long val, short s1, short byte_flag)
+{
+	short base_y;
+
+	PROBE("jt18");
+
+	if (g_a5_27990 == 5) {
+		jt103(23, s1, 38, 21);
+		(void)jt1200();
+		if (p != NULL)
+			jt25(val, 23, s1, 0);
+		l43c4(23, (short)(s1 + 1), 38, 21, 7, 0, 1, val, s1);
+	} else {
+		base_y = (g_a5_23190 != 0) ? (short)18 : (short)17;
+		jt103(1, base_y, 38, 22);
+		if (p != NULL)
+			jt25((long)(uintptr_t)p, 1,
+			     (short)(base_y + 1), 0);
+		l43c4(1, (short)(base_y + 2), 38, 22, 7, 0, 1,
+		      val, base_y);
+	}
+
+	if (byte_flag != 0) {
+		l4bac();
+		jt20();
+	}
+}
+
+/* JT[20] (CODE 6 + 0x241e, 94 callsites) — record-window opener.
+ * Opens the encounter (mode != 5) or design-edit (mode == 5)
+ * frame at the matching dimensions; jt18's post-paint arm
+ * dispatches here. */
+static void jt20(void)
+{
+	PROBE("jt20");
+	if (g_a5_27990 == 5)
+		jt103(23, 10, 38, 21);
+	else
+		jt103(1, 17, 38, 22);
+}
 
 /* Forward decls for the leaves JT[94] dispatches into. The bodies
  * land further down — jt1200 already lifted, l3994 / jt1089 still
