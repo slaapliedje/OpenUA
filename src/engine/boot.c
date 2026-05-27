@@ -2521,6 +2521,88 @@ static void    jt447(void)
 }
 static void    jt449(short a)                       { PROBE("jt449"); (void)a; }
 static void    jt451(void)                          { PROBE("jt451"); }
+
+/* JT[376] .. JT[382] (CODE 3) — the 7 DLItem shape-method handlers
+ * JT[442] parks in the g_a5_9282 table:
+ *
+ *   shape 1 → JT[382] (CODE 3 + 0x1a3c)  — likely "button"
+ *   shape 2 → JT[381] (CODE 3 + 0x20c4)  — likely "checkbox/radio"
+ *   shape 3 → JT[380] (CODE 3 + 0x224c)
+ *   shape 4 → JT[379] (CODE 3 + 0x2438)
+ *   shape 5 → JT[378] (CODE 3 + 0x25a2)
+ *   shape 6 → JT[377] (CODE 3 + 0x27c8)
+ *   shape 7 → JT[376] (CODE 3 + 0x2862)
+ *
+ * Each handler is the method-dispatch for items of its shape — it
+ * gets invoked by L2d3e with (rec, cmd, ...) where cmd is one of
+ * 1 / 2 (hit test) / 3 / 4 (action) / 5 (selection match) / 19 /
+ * 27. Bodies are sizeable (each has its own JT[3] case-table over
+ * cmd). PROBE stubs for now — once L2d3e calls them on a click,
+ * we'll see which cmd codes are used and can lift on demand. */
+static short jt376(void *rec, short cmd, ...) __attribute__((unused));
+static short jt376(void *rec, short cmd, ...)
+{ PROBE("jt376"); (void)rec; (void)cmd; return 0; }
+static short jt377(void *rec, short cmd, ...) __attribute__((unused));
+static short jt377(void *rec, short cmd, ...)
+{ PROBE("jt377"); (void)rec; (void)cmd; return 0; }
+static short jt378(void *rec, short cmd, ...) __attribute__((unused));
+static short jt378(void *rec, short cmd, ...)
+{ PROBE("jt378"); (void)rec; (void)cmd; return 0; }
+static short jt379(void *rec, short cmd, ...) __attribute__((unused));
+static short jt379(void *rec, short cmd, ...)
+{ PROBE("jt379"); (void)rec; (void)cmd; return 0; }
+static short jt380(void *rec, short cmd, ...) __attribute__((unused));
+static short jt380(void *rec, short cmd, ...)
+{ PROBE("jt380"); (void)rec; (void)cmd; return 0; }
+static short jt381(void *rec, short cmd, ...) __attribute__((unused));
+static short jt381(void *rec, short cmd, ...)
+{ PROBE("jt381"); (void)rec; (void)cmd; return 0; }
+static short jt382(void *rec, short cmd, ...) __attribute__((unused));
+static short jt382(void *rec, short cmd, ...)
+{ PROBE("jt382"); (void)rec; (void)cmd; return 0; }
+
+/* Forward — g_dlitem_pool lives in the DLItem cluster further
+ * down. JT[442] needs its address. */
+extern unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
+
+/* JT[442] (CODE 3 + 0x28d0) — DLInit. Called when opening a new
+ * dialog with `max_items` capacity. Allocates the DLItem pool
+ * (port uses the static g_dlitem_pool instead), then populates
+ * the 7-entry method-handler table at g_a5_9282 so that JT[452]
+ * (the shape-code dispatch) can park the right method pointer in
+ * each DLItem record.
+ *
+ *   1. g_a5_9288 = max_items
+ *   2. g_a5_9286 = pool base (port: address of g_dlitem_pool)
+ *   3. g_a5_9247 = g_a5_9248 = 0
+ *   4. g_a5_9282[0..6] = JT[382] / JT[381] / ... / JT[376]
+ *   5. g_a5_9246 = 0  (extra clear)
+ *
+ * The port skips NewPtr — g_dlitem_pool is a heap-equivalent
+ * static buffer. Aside from that, the lift is faithful. */
+static void jt442(short max_items)
+{
+	long *table;
+
+	PROBE("jt442");
+	g_a5_9288 = max_items;
+	g_a5_9286 = (long)(uintptr_t)g_dlitem_pool;
+	g_a5_9247 = 0;
+	g_a5_9248 = 0;
+
+	table = (long *)g_a5_buf(-9282);
+	table[0] = (long)(uintptr_t)jt382;     /* shape 1 */
+	table[1] = (long)(uintptr_t)jt381;     /* shape 2 */
+	table[2] = (long)(uintptr_t)jt380;     /* shape 3 */
+	table[3] = (long)(uintptr_t)jt379;     /* shape 4 */
+	table[4] = (long)(uintptr_t)jt378;     /* shape 5 */
+	table[5] = (long)(uintptr_t)jt377;     /* shape 6 */
+	table[6] = (long)(uintptr_t)jt376;     /* shape 7 */
+
+	/* g_a5_9246 = 0 — extra long clear past the table. */
+	*(long *)g_a5_buf(-9246) = 0;
+}
+
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
  *
  * The Mac entry takes a variadic stream of (shape-code, args...) tuples
@@ -2554,7 +2636,7 @@ static void    jt451(void)                          { PROBE("jt451"); }
  * loading their base pointer into g_a5_9254 from jt452_init. The
  * pool itself is heap-equivalent storage, NOT part of the A5 world,
  * so it stays out of g_a5_below[]. */
-static unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
+unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
 /* g_a5_9254 / g_a5_9250 / g_a5_9288 / g_a5_9248 — all macros over
  * the data_pool replay buffer; capacity (=64) and active-flag (=1)
  * are seeded by boot_a5_seed_defaults() in main.c's startup path. */
@@ -2581,6 +2663,15 @@ void boot_a5_seed_defaults(void)
 	 * boot starts at a known, reproducible point; later passes can
 	 * pull entropy from TickCount or similar. */
 	g_a5_4902 = 1;
+
+	/* Populate the DLItem shape-handler table. On Mac, the engine
+	 * calls JT[442] when opening a dialog with N items, which both
+	 * allocates the pool AND parks the 7 handler pointers in the
+	 * g_a5_9282 table. Calling it once at boot with DLITEM_MAX
+	 * does both: g_a5_9286 gets the pool base for jt447, and the
+	 * handlers become non-NULL so L2d3e's method dispatch can fire
+	 * on hit. */
+	jt442((short)DLITEM_MAX);
 }
 
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
