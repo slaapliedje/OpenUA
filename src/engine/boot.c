@@ -107,6 +107,8 @@
 #define g_a5_1312  g_a5_byte(-1312)    /* JT[1200]: encounter sub-state flag */
 #define g_a5_18394 g_a5_byte(-18394)   /* JT[112]: GrafPort save-state mode */
 #define g_a5_18395 g_a5_byte(-18395)   /* JT[108]: GrafPort "dirty" flag */
+#define g_a5_18393 g_a5_byte(-18393)   /* L3994:   "snapshot is valid" flag */
+#define g_a5_18392 g_a5_long(-18392)   /* L3994:   handle of resource to snapshot */
 #define g_a5_27468 g_a5_byte(-27468)   /* L6bbe: id-table entry count       */
 
 /* JT[1089]'s pen-state cluster (CODE 5 + 0x024c..0x028x):
@@ -1910,7 +1912,63 @@ static void jt1135(short v1, short v2, short *out1, short *out2)
  * snapshot and JT[1128] / JT[1153] for clip restore. PROBE for
  * now — the snapshot machinery wires once the QuickDraw shim
  * publishes GrafPort state. */
-static void l3994(void)                 { PROBE("l3994"); }
+/* JT[1012] / JT[1128] / JT[1066] are paint-system leaves L3994
+ * reaches. PROBE for now. */
+static long jt1012(long handle, short item) __attribute__((unused));
+static long jt1012(long handle, short item)
+                                            { PROBE("jt1012"); (void)handle;
+                                              (void)item; return 0; }
+static void jt1128(void)                    { PROBE("jt1128"); }
+static void jt1066(void)                    { PROBE("jt1066"); }
+
+/* L3994 — GrafPort save / paint-state commit. Called by JT[94] /
+ * JT[112] / JT[117]; the chain is:
+ *
+ *   1. If save-mode flag g_a5_18394 != 0, skip everything
+ *      (we're in a "no save" mode like style-2 paint).
+ *   2. If a snapshot is pending (g_a5_18393 != 0 && a resource
+ *      handle is parked in g_a5_18392): would copy 96 bytes from
+ *      the caller's stack into the resource via JT[406]. The
+ *      caller-stack source is the suspicious part — fp[-96] is a
+ *      LOCAL buffer in *this* function, allocated by `linkw fp,
+ *      #-96` with no initialiser. Replicating the Mac copy would
+ *      write uninitialised bytes to the handle. PROBE the branch
+ *      instead until that detail's understood; the dirty-flush
+ *      below runs regardless.
+ *   3. If the paint state is dirty (g_a5_18395 != 0) — JT[108]
+ *      sets this — commit deferred paint via JT[1128] + JT[1153](1)
+ *      and clear dirty.
+ *   4. If we're inside an encounter (jt1200() != 0; jt1163() also
+ *      gates), call JT[1066] for whatever the cleanup is.
+ *   5. Clear the snapshot-pending flag g_a5_18393.
+ *
+ * Used by every text-paint + every JT[94] caller — wiring the
+ * dirty flush makes the JT[108] → L3994 → JT[1153] chain actually
+ * commit pen state at the right time. */
+static void l3994(void)
+{
+	PROBE("l3994");
+	if (g_a5_18394 != 0)
+		return;
+
+	if (g_a5_18393 != 0 && g_a5_18392 != 0) {
+		PROBE("l3994/snapshot-skipped");
+		/* Mac: jt406(jt1012(jt468(0), 0) + 8, &local_96, 96)
+		 * Writes 96 bytes from an uninitialised local into the
+		 * resource handle. PROBE-deferred. */
+	}
+
+	if (g_a5_18395 != 0) {
+		jt1128();
+		jt1153(1);
+		g_a5_18395 = 0;
+	}
+
+	if (jt1163() != 0 || jt1200() != 0)
+		jt1066();
+
+	g_a5_18393 = 0;
+}
 
 /* JT[1089] (CODE 5 + 0x334) — text paint at logical (x, y).
  *
