@@ -2078,6 +2078,46 @@ static void jt1135(short v1, short v2, short *out1, short *out2)
 		*out2 = (v2 > 6000) ? (short)((v2 - 8000) * scale) : v2;
 }
 
+/* JT[1005] (CODE 5 + 0x31fc) — text-style bounding rect. Given
+ * (x, y, style, size), measure the rendered glyph extent and
+ * return (top, left, bottom, right) through the 4 out-pointers.
+ * The Mac body calls JT[468] (font lookup), L2856, JT[1135] (coord
+ * scale) and JT[1200] (style-decode); none of those are in our
+ * port yet. PROBE stub zeros the rect so jt382's cmd=2 hit-test
+ * cleanly misses until the font system arrives. */
+static void jt1005(short x, short y, short style, short size,
+                   short *out_top, short *out_left,
+                   short *out_bottom, short *out_right)
+                                                __attribute__((unused));
+static void jt1005(short x, short y, short style, short size,
+                   short *out_top, short *out_left,
+                   short *out_bottom, short *out_right)
+{
+	PROBE("jt1005");
+	(void)x; (void)y; (void)style; (void)size;
+	if (out_top    != NULL) *out_top    = 0;
+	if (out_left   != NULL) *out_left   = 0;
+	if (out_bottom != NULL) *out_bottom = 0;
+	if (out_right  != NULL) *out_right  = 0;
+}
+
+/* JT[1141] (CODE 4 + 0x78e8) — rect-from-corner-plus-extent. Given
+ * a top-left (top, left), a height (h) and a width (w), write the
+ * bottom-right corner through the two out-pointers. PROBE stub
+ * leaves the outputs untouched; jt382 path-2 fills the rect via
+ * a prior JT[1135] and this call writes the other corner, so
+ * leaving it at the caller-init zero keeps the hit-test missing. */
+static void jt1141(short top, short left, short h, short w,
+                   short *out_bottom, short *out_right)
+                                                __attribute__((unused));
+static void jt1141(short top, short left, short h, short w,
+                   short *out_bottom, short *out_right)
+{
+	PROBE("jt1141");
+	(void)top; (void)left; (void)h; (void)w;
+	(void)out_bottom; (void)out_right;
+}
+
 /* L3994 (CODE 6 + 0x3994) — GrafPort save / paint setup. Reads
  * g_a5_18394 / 18393 / 18395 state flags, conditionally invokes
  * JT[468] / JT[1012] / JT[406] (memcpy) for the backing-store
@@ -2582,9 +2622,90 @@ static short jt380(void *rec, short cmd, ...)
 static short jt381(void *rec, short cmd, ...) __attribute__((unused));
 static short jt381(void *rec, short cmd, ...)
 { PROBE("jt381"); SHAPE_CMD_PROBE("jt381"); (void)rec; return 0; }
-static short jt382(void *rec, short cmd, ...) __attribute__((unused));
-static short jt382(void *rec, short cmd, ...)
-{ PROBE("jt382"); SHAPE_CMD_PROBE("jt382"); (void)rec; return 0; }
+/* jt382 — shape 1 (button) method dispatcher. cmd=2 hit-test is
+ * the dominant boot-path call (90 of 92 per boot). The hit-test
+ * arm is lifted from L1e82..L200a in CODE 3:
+ *
+ *   1. If rec[28] & 3 is set (item disabled), return 0.
+ *   2. style_size = *(short *)(rec+26) picks the bounds path:
+ *        - style_size >  0  → text item, JT[1005] writes the rect
+ *        - style_size == 0  → default-sized text, JT[1005] with
+ *                             style=0, size=14
+ *        - style_size == -1 → bitmap; JT[1135] for top-left,
+ *                             JT[1141] for bottom-right via the
+ *                             string length at rec[12]
+ *        - style_size < -1  → custom-positioned; two JT[1135]
+ *                             calls, one per corner, using
+ *                             rec[24] (row count) for the height
+ *   3. Hit if (top..bottom) × (left..right) contains (y, x).
+ *
+ * JT[1005] / JT[1141] are PROBE stubs (font system not wired);
+ * they leave the rect zeroed so the hit-test cleanly misses
+ * text/bitmap items until the font path lands. The style_size<-1
+ * (custom-position) path uses only the already-lifted JT[1135],
+ * so its hit-test is real today — that's the arm that will fire
+ * once L2d3e gets coordinates from a real click. */
+static short jt382(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt382(void *rec_v, short cmd, ...)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short y, x;
+	short style_size;
+	short top = 0, left = 0, bottom = 0, right = 0;
+
+	PROBE("jt382");
+	SHAPE_CMD_PROBE("jt382");
+
+	if (cmd != 2)
+		return 0;
+
+	/* Bit 0/1 of rec[28] are the "disabled" flags. */
+	if ((rec[28] & 0x03) != 0)
+		return 0;
+
+	va_start(ap, cmd);
+	y = (short)va_arg(ap, int);
+	x = (short)va_arg(ap, int);
+	va_end(ap);
+
+	style_size = *(short *)(rec + 26);
+
+	if (style_size >= 0) {
+		short style, size;
+
+		if (style_size == 0) {
+			style = 0;
+			size  = 14;
+		} else {
+			style = (short)(style_size >> 10);
+			size  = (short)(style_size & 0x03ff);
+		}
+		jt1005(*(short *)(rec + 16), *(short *)(rec + 18),
+		       style, size,
+		       &top, &left, &bottom, &right);
+	} else if (style_size == -1) {
+		short n;
+
+		jt1135(*(short *)(rec + 16), *(short *)(rec + 18),
+		       &left, &top);
+		n = l39ae(*(const char **)(rec + 12));
+		jt1141(top, left, 8004, (short)(n * 4 + 8000),
+		       &bottom, &right);
+	} else {
+		jt1135((short)(*(short *)(rec + 16) - 1),
+		       (short)(*(short *)(rec + 18) - 2),
+		       &left, &top);
+		jt1135((short)(*(short *)(rec + 16) + 5),
+		       (short)(*(short *)(rec + 18) +
+		               *(short *)(rec + 24) * 4 + 2),
+		       &right, &bottom);
+	}
+
+	if (top  >  y || y >= bottom) return 0;
+	if (left >  x || x >= right ) return 0;
+	return 1;
+}
 
 /* Forward — g_dlitem_pool lives in the DLItem cluster further
  * down. JT[442] needs its address. */
