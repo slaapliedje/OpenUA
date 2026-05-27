@@ -936,6 +936,58 @@ static short jt483(const char *s)
 	return l39ae(s);
 }
 
+/* JT[1083] (CODE 5 + 0x1ae) — random-number leaf. Returns
+ * a uniform short in [0, n-1]. PROBE for now — when the engine's
+ * RNG state machine gets wired up, this routes to it. Returning
+ * 0 here means every dice roll comes out as count*1 (minimum). */
+static short jt1083(short n) __attribute__((unused));
+static short jt1083(short n)
+{
+	PROBE("jt1083");
+	(void)n;
+	return 0;
+}
+
+/* JT[485] (CODE 3 + 0x0388) — thin wrapper over JT[1083]. Same
+ * shape — pure routing. */
+static short jt485(short n) __attribute__((unused));
+static short jt485(short n)
+{
+	PROBE("jt485");
+	return jt1083(n);
+}
+
+/* JT[870] (CODE 18 + 0x15f4, 95 sites) — "count d item" dice roll.
+ *
+ * Sums `count` rolls of `1..item` using jt485 (which wraps
+ * jt1083). The Mac inner loop is the AD&D dice notation primitive
+ * the engine uses for damage, saves, treasure, etc.
+ *
+ *      sum = 0
+ *      for i in 1..count:
+ *          sum += rand(0..item-1) + 1
+ *      return sum
+ *
+ * With jt1083 still PROBE-stubbed to return 0, this routine
+ * returns `count` (every roll is the minimum 1). When the engine's
+ * RNG is wired up the dice come alive without further changes.
+ *
+ * First lifted entry from CODE 18 — opens the segment. */
+static short jt870(short count, short item) __attribute__((unused));
+static short jt870(short count, short item)
+{
+	short sum = 0;
+	short i;
+	short n = (short)(count & 0xff);
+
+	PROBE("jt870");
+	if (n <= 0)
+		return 0;
+	for (i = 1; i <= n; i++)
+		sum += (short)(jt485(item) + 1);
+	return sum;
+}
+
 /* JT[404] (CODE 3 + 0x3976, 34 sites) — strcat. Walks to end of
  * `dst`, then copies bytes from `src` (including terminator).
  * Plain C strcat semantics. */
