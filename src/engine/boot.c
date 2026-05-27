@@ -535,7 +535,14 @@ static void          jt941(void)
 	}
 }
 static int           jt918(short a);                                             /* CODE 12 + 0x0d90 — lifted below */
-static void          jt937(long a)            { PROBE("jt937"); }                /* CODE 12 + 0x02dc */
+/* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
+ * (Modify Character roster grid, lifted further down). */
+static void          l02dc(long highlight);
+static void          jt937(long a)
+{
+	PROBE("jt937");
+	l02dc(a);
+}
 static void          jt938(void)              { PROBE("jt938"); }                /* CODE 12 + 0x0562 */
 static void          jt217(short a, short b, short c, short d) { PROBE("jt217"); }
                                                                                  /* CODE 7 + 0x57d2 */
@@ -3411,6 +3418,47 @@ static void jt176(void);
  * is small but adds two JT stubs and an A5-array macro; lifted in
  * a follow-up. */
 static void l4bac(void)        { PROBE("l4bac"); }
+
+/* JT[92] (CODE 6 + 0x4bac, 22 sites) — public alias for L4bac
+ * (scroll-advance helper jt42 reaches in its message chain). */
+static void jt92(void) __attribute__((unused));
+static void jt92(void)
+{
+	PROBE("jt92");
+	l4bac();
+}
+
+/* L2f4c (CODE 6 + 0x2f4c) — entity-has-second-stat predicate jt40
+ * branches on. PROBE for now; bit-pattern reader for the entity's
+ * class table. */
+static int l2f4c(const void *entity) __attribute__((unused));
+static int l2f4c(const void *entity)
+{
+	PROBE("l2f4c");
+	(void)entity;
+	return 0;
+}
+
+/* JT[40] (CODE 6 + 0x2fd8, 38 sites) — max of two stat bytes.
+ *
+ * Reads entity[157 + slot] as the primary stat; when L2f4c says
+ * the entity has a multi-class second stat, reads entity[164 + slot]
+ * too; returns the larger of the two. The lift is faithful but
+ * L2f4c stays PROBE → returns 0 → secondary stat treated as 0,
+ * so for now jt40 always returns the primary byte. */
+static unsigned char jt40(void *entity, short slot) __attribute__((unused));
+static unsigned char jt40(void *entity, short slot)
+{
+	const unsigned char *e = (const unsigned char *)entity;
+	unsigned char stat1, stat2;
+
+	PROBE("jt40");
+	if (e == NULL)
+		return 0;
+	stat1 = e[157 + (slot & 0xff)];
+	stat2 = l2f4c(entity) ? e[164 + (slot & 0xff)] : 0;
+	return (stat1 > stat2) ? stat1 : stat2;
+}
 
 /* JT[42] (CODE 6 + 0x22a6) — append a message to the play window's
  * scrolling text area.
