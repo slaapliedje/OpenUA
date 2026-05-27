@@ -924,6 +924,49 @@ static short jt423(const char *s)
 	return l39ae(s);
 }
 
+/* JT[483] (CODE 3 + 0x0058, 36 sites) — duplicate public alias for
+ * strlen-as-short. The Mac body literally JSRs to L39ae and
+ * returns; routes to l39ae like JT[423]. */
+static short jt483(const char *s) __attribute__((unused));
+static short jt483(const char *s)
+{
+	PROBE("jt483");
+	return l39ae(s);
+}
+
+/* JT[404] (CODE 3 + 0x3976, 34 sites) — strcat. Walks to end of
+ * `dst`, then copies bytes from `src` (including terminator).
+ * Plain C strcat semantics. */
+static void jt404(char *dst, const char *src) __attribute__((unused));
+static void jt404(char *dst, const char *src)
+{
+	PROBE("jt404");
+	if (dst == NULL || src == NULL)
+		return;
+	while (*dst != 0)
+		dst++;
+	while ((*dst++ = *src++) != 0)
+		;
+}
+
+/* JT[1163] (CODE 4 + 0x0532, 36 sites) — return 0. The Mac body
+ * is literally `moveq #0,d0; rts`. Possibly a "feature disabled"
+ * stub the engine queries before invoking some optional path. */
+static int jt1163(void) __attribute__((unused));
+static int jt1163(void)
+{
+	PROBE("jt1163");
+	return 0;
+}
+
+/* JT[1170] (CODE 4 + 0x0536) — empty body (linkw / unlk / rts).
+ * Probably a placeholder hook that the build left in. */
+static void jt1170(void) __attribute__((unused));
+static void jt1170(void)
+{
+	PROBE("jt1170");
+}
+
 /* L3bda (CODE 3 + 0x3bda) — case-insensitive string equal.
  *
  * Walks both strings while their lowercased bytes match. Returns 1 if
