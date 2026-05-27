@@ -120,6 +120,7 @@
 #define g_a5_4892  g_a5_byte(-4892)
 #define g_a5_4898  g_a5_word(-4898)
 #define g_a5_4896  g_a5_word(-4896)
+#define g_a5_4902  g_a5_long(-4902)    /* JT[1083]: LCG PRNG state    */
 
 /* JT[1161]'s window-clip cluster — the engine's current "paintable
  * region" the rect-fill clamps against. Set elsewhere by the
@@ -936,16 +937,41 @@ static short jt483(const char *s)
 	return l39ae(s);
 }
 
-/* JT[1083] (CODE 5 + 0x1ae) — random-number leaf. Returns
- * a uniform short in [0, n-1]. PROBE for now — when the engine's
- * RNG state machine gets wired up, this routes to it. Returning
- * 0 here means every dice roll comes out as count*1 (minimum). */
+/* JT[1083] (CODE 5 + 0x1ae) — linear-congruential PRNG, returns
+ * a uniform short in [0, n-1] for n > 1, else 0.
+ *
+ * Mac asm body, in C:
+ *
+ *      if (n <= 1) return 0;
+ *      divisor = (n + 0x3FFFFFFF) / n;
+ *      g_a5_4902 = (g_a5_4902 * 0x6d25) + 1;  // 32-bit wrap
+ *      masked   = g_a5_4902 & 0x3FFFFFFF;     // 30-bit
+ *      return (short)(masked / divisor);
+ *
+ * The multiplier 0x6d25 (= 27941) is the engine's chosen LCG
+ * constant; combined with the 30-bit mask + the per-roll divisor
+ * scaling, output lands in [0, n-1]. State lives in g_a5_4902
+ * (long, A5 -4902); seeded by boot_a5_seed_defaults to 1 so the
+ * sequence is reproducible across boots until the engine plants
+ * a real seed (TickCount-style entropy comes later). */
 static short jt1083(short n) __attribute__((unused));
 static short jt1083(short n)
 {
+	unsigned long state;
+	unsigned long divisor;
+
 	PROBE("jt1083");
-	(void)n;
-	return 0;
+	if (n <= 1)
+		return 0;
+
+	state    = (unsigned long)g_a5_4902;
+	state    = state * 0x6d25UL + 1UL;
+	g_a5_4902 = (long)state;
+	divisor  = ((unsigned long)0x3FFFFFFFUL + (unsigned long)n)
+	           / (unsigned long)n;
+	if (divisor == 0)
+		return 0;
+	return (short)((state & 0x3FFFFFFFUL) / divisor);
 }
 
 /* JT[485] (CODE 3 + 0x0388) — thin wrapper over JT[1083]. Same
@@ -2437,6 +2463,13 @@ void boot_a5_seed_defaults(void)
 	 * values, so the writes are idempotent either way. */
 	g_a5_9288 = (short)DLITEM_MAX;
 	g_a5_9248 = 1;
+
+	/* JT[1083] PRNG seed. A non-zero seed is required — with state
+	 * == 0 the LCG locks at state = 1 forever (state * mul + 1
+	 * → 1) and all rolls degenerate to 0. Plant 1 here so each
+	 * boot starts at a known, reproducible point; later passes can
+	 * pull entropy from TickCount or similar. */
+	g_a5_4902 = 1;
 }
 
 /* shape0 declared `long` (not `short`) to avoid the default-argument-
