@@ -1602,17 +1602,17 @@ static void jt34(long entry, short col, short row, short style)
                                               (void)col; (void)row;
                                               (void)style; }
 
-/* L43c4 (CODE 6 + 0x43c4) — 9-arg record-body paint helper. The
- * jt18 / jt20 record renderer dispatch through here for the row
- * of stats below the entry's name. PROBE-deferred; the inner
- * paint primitives (JT[1135] / JT[1161] / JT[1089]) are in
- * place, but L43c4's body has substantial coord/clip logic
+/* JT[96] (CODE 6 + 0x43c4, 43 sites) — 9-arg record-body paint
+ * helper. The jt18 / jt20 record renderer dispatch through here
+ * for the row of stats below the entry's name. PROBE-deferred;
+ * the inner paint primitives (JT[1135] / JT[1161] / JT[1089])
+ * are in place, but jt96's body has substantial coord/clip logic
  * that's its own commit. */
-static void l43c4(short page, short row, short width, short height,
+static void jt96(short page, short row, short width, short height,
                   short s5,   short s6,  short s7,
                   long  val,  short s9)
 {
-	PROBE("l43c4");
+	PROBE("jt96");
 	(void)page; (void)row; (void)width; (void)height;
 	(void)s5;   (void)s6;  (void)s7;
 	(void)val;  (void)s9;
@@ -1645,7 +1645,7 @@ static void jt20(void);
  *     base_y = (g_a5_23190 != 0) ? 18 : 17;
  *     jt103(1, base_y, 38, 22);
  *     if p:  jt25(p, 1, base_y+1, 0);
- *     l43c4(1, base_y+2, 38, 22, 7, 0, 1, val, base_y);
+ *     jt96(1, base_y+2, 38, 22, 7, 0, 1, val, base_y);
  *
  *   == 5 (design-edit):
  *     jt103(23, s1, 38, 21);
@@ -1653,7 +1653,7 @@ static void jt20(void);
  *        if p:  jt25(val, 23, s1, 0);
  *     else:
  *        if p:  jt25(val, 23, s1, 0);
- *     l43c4(23, s1+1, 38, 21, 7, 0, 1, val, s1);
+ *     jt96(23, s1+1, 38, 21, 7, 0, 1, val, s1);
  *
  * Both JT[1200] arms in the design-edit path do the same thing
  * for `p != NULL` — the asm's redundant compare is preserved
@@ -1670,14 +1670,14 @@ static void jt18(void *p, long val, short s1, short byte_flag)
 		(void)jt1200();
 		if (p != NULL)
 			jt25(val, 23, s1, 0);
-		l43c4(23, (short)(s1 + 1), 38, 21, 7, 0, 1, val, s1);
+		jt96(23, (short)(s1 + 1), 38, 21, 7, 0, 1, val, s1);
 	} else {
 		base_y = (g_a5_23190 != 0) ? (short)18 : (short)17;
 		jt103(1, base_y, 38, 22);
 		if (p != NULL)
 			jt25((long)(uintptr_t)p, 1,
 			     (short)(base_y + 1), 0);
-		l43c4(1, (short)(base_y + 2), 38, 22, 7, 0, 1,
+		jt96(1, (short)(base_y + 2), 38, 22, 7, 0, 1,
 		      val, base_y);
 	}
 
@@ -2566,6 +2566,19 @@ static long jt8(long a, long b)
 	PROBE("jt8");
 	if (b == 0) return 0;
 	return a % b;
+}
+
+/* JT[1180] (CODE 4 + 0x228c, 67 sites) — 16-bit byte swap.
+ * THINK C runtime helper for endianness conversion when the
+ * engine reads big-endian shorts from a buffer that the lift
+ * still has in host order. Mac's asm assembles the result from
+ * an lsl + asr + or; the portable equivalent is the macro form. */
+static short jt1180(short v) __attribute__((unused));
+static short jt1180(short v)
+{
+	unsigned short u = (unsigned short)v;
+	PROBE("jt1180");
+	return (short)(((u & 0x00ff) << 8) | ((u & 0xff00) >> 8));
 }
 
 /* JT[158] — walk the design list, then either add a menu item per
