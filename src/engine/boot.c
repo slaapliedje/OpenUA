@@ -2665,13 +2665,27 @@ void boot_a5_seed_defaults(void)
 	 * pull entropy from TickCount or similar. */
 	g_a5_4902 = 1;
 
-	/* DLItem shape-handler table at g_a5_9282 stays NULL at boot.
-	 * Calling JT[442] here to populate it caused ua_main to take
-	 * a short path that skipped the menu-build phase — likely a
-	 * g_a5_9248 / 9286 state divergence vs the engine's later
-	 * self-init. JT[442] is fully lifted (see above), so the
-	 * engine's own call sites work; we just can't pre-call it
-	 * at boot yet. Investigation deferred. */
+	/* DLItem pool base. jt447 (dialog reset) copies g_a5_9286 →
+	 * g_a5_9254 on every dialog open, so this slot must hold the
+	 * pool address before the first dialog. On the Mac, jt442
+	 * (DLInit) seeds it from a NewPtr; calling jt442 from boot
+	 * regressed ua_main, so seed g_a5_9286 directly here and let
+	 * the table population happen in this function. */
+	g_a5_9286 = (long)(uintptr_t)g_dlitem_pool;
+
+	/* Populate ONLY the g_a5_9282 shape-handler table without
+	 * touching g_a5_9248 / 9247 — the state that calling full
+	 * jt442 disrupted. */
+	{
+		long *table = (long *)g_a5_buf(-9282);
+		table[0] = (long)(uintptr_t)jt382;
+		table[1] = (long)(uintptr_t)jt381;
+		table[2] = (long)(uintptr_t)jt380;
+		table[3] = (long)(uintptr_t)jt379;
+		table[4] = (long)(uintptr_t)jt378;
+		table[5] = (long)(uintptr_t)jt377;
+		table[6] = (long)(uintptr_t)jt376;
+	}
 }
 
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
@@ -2718,99 +2732,54 @@ void boot_a5_seed_defaults(void)
  * Long args (4 bytes) get the type explicitly. Callers in lifted
  * C code pass everything as `long` or short→long cast for
  * uniformity. */
+/* NB: the lifted L0aae caller passes (i, label, sel, page, phr)
+ * with i as a per-item index 0..11 — NOT a Mac shape code. The
+ * earlier "full shape-code dispatch" lift interpreted i=0 as
+ * end-of-stream and skipped half the items. Reverted to the
+ * simpler "one DLItem per call" form that matches L0aae's actual
+ * usage. The Mac stream-parser shape dispatch is documented in
+ * the asm comment above and stays as a TODO once the L0aae lift
+ * is restructured to follow Mac conventions.
+ *
+ * Crucial change kept from the shape-dispatch attempt: the method
+ * pointer at rec[0] comes from the g_a5_9282 handler table that
+ * boot_a5_seed_defaults seeds, instead of always being 0. Items
+ * built via jt452 now have non-NULL methods, so L2d3e's dispatch
+ * actually calls them — the click pipeline lights up end-to-end. */
 static void jt452(long shape0, ...)
 {
 	va_list        ap;
 	unsigned char *rec;
-	long           shape;
+	long          *table;
+	short          shape_idx;
 
 	PROBE("jt452");
 	if (g_a5_9254 == 0)
 		jt452_init();
+	if (g_a5_9250 >= g_a5_9288) {
+		PROBE("jt452: DLItem table full");
+		return;
+	}
+	rec = g_dlitem_pool + (long)g_a5_9250 * DLITEM_BYTES;
+	memset(rec, 0, DLITEM_BYTES);
+	g_a5_9250++;
 
-	/* rec points at the "current" DLItem record — initially the
-	 * slot just before the next free, so the first allocation
-	 * (shape 1..8) advances it to the actual fresh slot. */
-	rec = g_dlitem_pool +
-	      (long)(g_a5_9250 - 1) * DLITEM_BYTES;
+	/* Install method pointer from the handler table. The Mac
+	 * indexes by shape-1; our L0aae caller passes 0-based item
+	 * indices, so clamp into [1..7] = [jt382..jt376]. Items past
+	 * 7 cycle through the 7 handlers. */
+	table = (long *)g_a5_buf(-9282);
+	shape_idx = (short)(shape0 % 7);   /* 0..6 */
+	*(long *)rec = table[shape_idx];
 
-	shape = shape0;
+	/* Consume the rest of the stream for ABI parity. Shape-code 0
+	 * terminates the Mac stream; the lift walks (long)args until 0. */
 	va_start(ap, shape0);
-	while (shape != 0) {
-		if (shape >= 1 && shape <= 8) {
-			/* Allocate a new DLItem. */
-			if (g_a5_9250 >= g_a5_9288) {
-				PROBE("jt452: DLItem table full");
-				break;
-			}
-			g_a5_9250++;
-			rec = g_dlitem_pool +
-			      (long)(g_a5_9250 - 1) * DLITEM_BYTES;
-			memset(rec, 0, DLITEM_BYTES);
+	for (;;) {
+		long v = va_arg(ap, long);
 
-			if (shape == 8) {
-				/* Method pointer follows in the stream. */
-				long method = va_arg(ap, long);
-				*(long *)rec = method;
-			} else {
-				/* Method pointer comes from the table at
-				 * g_a5_9282[shape - 1]. Stays NULL until the
-				 * shape-handler funcs land in C. */
-				*(long *)rec = 0;
-
-				if (shape == 2) {
-					*(short *)(rec + 22) =
-						(short)va_arg(ap, int);
-				} else if (shape == 7) {
-					*(long *)(rec + 4) =
-						va_arg(ap, long);
-				} else {
-					*(short *)(rec + 16) =
-						(short)va_arg(ap, int);
-					*(short *)(rec + 18) =
-						(short)va_arg(ap, int);
-					if (shape == 5) {
-						*(short *)(rec + 22) =
-							(short)va_arg(ap, int);
-						*(short *)(rec + 24) =
-							(short)va_arg(ap, int);
-					} else {
-						*(long *)(rec + 12) =
-							va_arg(ap, long);
-					}
-				}
-			}
-		} else if (shape >= 16 && shape <= 22) {
-			rec[28] |= (unsigned char)(1 << (shape - 16));
-		} else if (shape >= 24 && shape <= 30) {
-			rec[28] &= (unsigned char)~(1 << (shape - 24));
-		} else if (shape == 32) {
-			rec[29] = (unsigned char)va_arg(ap, int);
-		} else if (shape == 33) {
-			rec[30] = (unsigned char)va_arg(ap, int);
-		} else if (shape == 34) {
-			*(long *)(rec + 4) = va_arg(ap, long);
-		} else if (shape == 35) {
-			*(long *)(rec + 8) = va_arg(ap, long);
-		} else if (shape == 36) {
-			*(short *)(rec + 24) = (short)va_arg(ap, int);
-		} else if (shape == 37) {
-			*(short *)(rec + 26) = (short)va_arg(ap, int);
-		} else if (shape == 38) {
-			rec[31] = (unsigned char)va_arg(ap, int);
-		} else if (shape == 39) {
-			*(long *)(rec + 12) = va_arg(ap, long);
-		} else if (shape == 40) {
-			*(short *)(rec + 16) = (short)va_arg(ap, int);
-			*(short *)(rec + 18) = (short)va_arg(ap, int);
-		} else if (shape == 41) {
-			*(short *)(rec + 20) = (short)va_arg(ap, int);
-		} else if (shape == 42) {
-			*(short *)(rec + 22) = (short)va_arg(ap, int);
-		}
-		/* shapes 9..15, 23, 31, anything else: no-op fall-through */
-
-		shape = va_arg(ap, long);
+		if (v == 0)
+			break;
 	}
 	va_end(ap);
 }
