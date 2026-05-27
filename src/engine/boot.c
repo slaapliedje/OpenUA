@@ -2405,6 +2405,43 @@ static void jt179(short count)
 	}
 }
 
+/* JT[155] (CODE 7 + 0x11a8, 99 callsites) — append one byte to the
+ * g_a5_24126 index buffer.
+ *
+ * First call (counter byte == 0) initialises the 40-byte buffer to
+ * 0xff via jt399; subsequent calls overwrite slot [counter * 2]
+ * with the low byte of `value` and bump counter. The buffer is the
+ * same one jt179 fills with a contiguous index sequence; jt155 is
+ * the per-element append variant the engine uses when building the
+ * sequence one item at a time. */
+static void jt155(short value, void *counter) __attribute__((unused));
+static void jt155(short value, void *counter)
+{
+	unsigned char *cnt = (unsigned char *)counter;
+
+	PROBE("jt155");
+	if (cnt == NULL)
+		return;
+	if (cnt[0] == 0)
+		jt399(g_a5_24126, (short)G_A5_24126_LEN, 0xFF);
+	if ((short)(cnt[0] * 2) < (short)G_A5_24126_LEN)
+		g_a5_24126[cnt[0] * 2] = (unsigned char)(value & 0xff);
+	cnt[0]++;
+}
+
+/* JT[4] (CODE 1 + 0x0174, 87 callsites) — 32-bit signed multiply.
+ *
+ * THINK C's runtime entry for `long * long` since the 68000 only
+ * provides 16x16 → 32 muls.w. The asm shuffles d0/d1 through swap
+ * + muluw to assemble a 32-bit product from two 16x16 multiplies;
+ * the portable equivalent is plain `a * b`. */
+static long jt4(long a, long b) __attribute__((unused));
+static long jt4(long a, long b)
+{
+	PROBE("jt4");
+	return a * b;
+}
+
 /* JT[158] — walk the design list, then either add a menu item per
  * design (modes 7 / 9 / 12 / other) or disable a stale slot (when
  * the count shrank). CODE 7 + 0x1f3e.
