@@ -122,6 +122,13 @@
 #define g_a5_4896  g_a5_word(-4896)
 #define g_a5_4902  g_a5_long(-4902)    /* JT[1083]: LCG PRNG state    */
 #define g_a5_21152 g_a5_byte(-21152)   /* JT[878]: inventory-item bucket */
+#define g_a5_4676  g_a5_byte(-4676)    /* JT[989]: handler config byte */
+#define g_a5_4670  g_a5_byte(-4670)    /* JT[989]: handler config byte */
+#define g_a5_2344  g_a5_byte(-2344)    /* JT[1129]: input-source mode */
+#define g_a5_4680  g_a5_long(-4680)    /* JT[989]: handler pointer */
+#define g_a5_4674  g_a5_long(-4674)    /* JT[989]: handler context */
+#define g_a5_9286  g_a5_long(-9286)    /* JT[447]: DLItem pool base seed */
+#define g_a5_4886  g_a5_word(-4886)    /* JT[977]/JT[1009]: paint-stack depth (0..4) */
 
 /* JT[1161]'s window-clip cluster — the engine's current "paintable
  * region" the rect-fill clamps against. Set elsewhere by the
@@ -243,6 +250,13 @@
 #define g_a5_25676 g_a5_longs(-25676)
 #define g_a5_27472 g_a5_buf  (-27472)
 
+/* JT[1009] / JT[977] paint-stack arrays — three parallel short
+ * arrays indexed by g_a5_4886 (depth 0..4). jt1009 pushes a frame,
+ * jt977 pops. The depth tracks nested deferred paint regions. */
+#define g_a5_4880  g_a5_shorts(-4880)
+#define g_a5_4870  g_a5_shorts(-4870)
+#define g_a5_4860  g_a5_shorts(-4860)
+
 /*
  * Stub-trace probe. Off by default — when compiled with
  * -DFRUA_ENGINE_PROBE every stub below logs its name as the engine
@@ -323,18 +337,92 @@ static void  jt411(short status)                   { PROBE("jt411"); }          
  * call path here just uses the real symbol. */
 static void  jt445(void)                           { PROBE("jt445"); }            /* CODE 3 + 0x294e */
 static void  jt415(short a)                        { PROBE("jt415"); }            /* CODE 3 + 0x37da */
-static void  jt1129(short a)                       { PROBE("jt1129"); }           /* CODE 4 + 0x4756 */
-static void  jt1130(void)                          { PROBE("jt1130"); }           /* CODE 4 + 0x61f6 */
-static void  jt1009(short a, short b)              { PROBE("jt1009"); }           /* CODE 5 + 0x0a34 */
-static void  jt977(void)                           { PROBE("jt977"); }            /* CODE 5 + 0x0aaa */
-static void  jt989(void (*handler)(void), short flag, const char *name, short code) { PROBE("jt989"); }
+/* JT[1129] (CODE 4 + 0x4756) — 1-case JT[3] switch on `a`.
+ *
+ *   if (a == 1) g_a5_2344 = (unsigned char)a;
+ *
+ * Inline table at 0x4762 has min=max=1, single arm. Sets the
+ * input-source mode flag on a specific command code. */
+static void  jt1129(short a)
+{
+	PROBE("jt1129");
+	if (a == 1)
+		g_a5_2344 = (unsigned char)(a & 0xff);
+}
+
+/* JT[1130] / JT[920] / JT[956] (CODE 4 / CODE 12 / CODE 21) —
+ * empty bodies (literally `rts`). Placeholder hooks the Mac
+ * build left in for symmetry / future use. */
+static void  jt1130(void)                          { PROBE("jt1130"); }
+static void  jt920(void)                           { PROBE("jt920"); }
+static void  jt956(void)                           { PROBE("jt956"); }
+                                                   /* first CODE 21 entry */
+
+/* JT[1009] (CODE 5 + 0x0a34) — push paint-stack frame.
+ *
+ * Increments g_a5_4886 (capped at 4), then writes three parallel
+ * shorts indexed by the new depth:
+ *
+ *   g_a5_4880[depth] = a
+ *   g_a5_4870[depth] = b * 4
+ *   g_a5_4860[depth] = 15        (default style)
+ *
+ * Sister of jt977 which decrements the same counter. The stack
+ * tracks nested deferred paint regions; the arrays at -4880 /
+ * -4870 / -4860 hold per-frame state. */
+static void  jt1009(short a, short b)
+{
+	short depth;
+
+	PROBE("jt1009");
+	if (g_a5_4886 < 4)
+		g_a5_4886++;
+	depth = g_a5_4886;
+	if (depth < 0 || depth > 4)
+		return;
+	g_a5_4880[depth] = a;
+	g_a5_4870[depth] = (short)(b << 2);
+	g_a5_4860[depth] = 15;
+}
+
+/* JT[977] (CODE 5 + 0x0aaa) — pop paint-stack frame.
+ *
+ *   if (g_a5_4886 > 0) g_a5_4886--;
+ *
+ * Matched with JT[1009]; both maintain the deferred-paint nesting
+ * depth. */
+static void  jt977(void)
+{
+	PROBE("jt977");
+	if (g_a5_4886 > 0)
+		g_a5_4886--;
+}
+
+/* JT[989] (CODE 5 + 0x1b56) — register handler config.
+ *
+ * Stores four caller args into a 4-field A5 cluster:
+ *
+ *   g_a5_4680 = handler         (long ptr)
+ *   g_a5_4676 = (low byte) flag (byte)
+ *   g_a5_4674 = name            (long, STRS ptr)
+ *   g_a5_4670 = (low byte) code (byte)
+ *
+ * Sets up a callback the engine fires later (probably the
+ * key-handler or trap-handler installation). */
+static void  jt989(void (*handler)(void), short flag,
+                   const char *name, short code)
+{
+	PROBE("jt989");
+	g_a5_4680 = (long)(uintptr_t)handler;
+	g_a5_4676 = (unsigned char)(flag & 0xff);
+	g_a5_4674 = (long)(uintptr_t)name;
+	g_a5_4670 = (unsigned char)(code & 0xff);
+}
                                                                                   /* CODE 5 + 0x1b56 */
 static void  jt361(short a)                        { PROBE("jt361"); }            /* CODE 8 + 0x71ec */
 static void  jt919(void)                           { PROBE("jt919"); }            /* CODE 12 + 0x1b12 */
-static void  jt920(void)                           { PROBE("jt920"); }            /* CODE 12 + 0x1ba8 */
 static int   jt931(void)                           { PROBE("jt931"); return 0; }  /* CODE 12 + 0x430c */
 static void  jt949(void)                           { PROBE("jt949"); }            /* CODE 20 + 0x77a2 */
-static void  jt956(void)                           { PROBE("jt956"); }            /* CODE 21 + 0x326a */
 static int   jt315(void)
 {
 	/* In probe mode, fire once so the play-loop body runs and its
@@ -2408,7 +2496,24 @@ static void    jt444(short item, short a, short b, short c)
 		return;
 	method(slot, a, b, c);
 }
-static void    jt447(void)                          { PROBE("jt447"); }
+/* JT[447] (CODE 3 + 0x298a) — DLItem manager state reset.
+ *
+ *   g_a5_9254 = g_a5_9286;     // pool base ← seeded base
+ *   g_a5_9250 = 0;              // count = 0
+ *   g_a5_9248 = 1;              // manager active flag
+ *   g_a5_9247 = 0;              // selection-locked flag
+ *
+ * Called at the start of each menu / dialog open to wipe the
+ * DLItem state and reseat the pool pointer. Pairs with JT[452]
+ * (item installer) and JT[453] (run dialog). */
+static void    jt447(void)
+{
+	PROBE("jt447");
+	g_a5_9254 = g_a5_9286;
+	g_a5_9250 = 0;
+	g_a5_9248 = 1;
+	g_a5_9247 = 0;
+}
 static void    jt449(short a)                       { PROBE("jt449"); (void)a; }
 static void    jt451(void)                          { PROBE("jt451"); }
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
