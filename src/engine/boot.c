@@ -106,6 +106,7 @@
 #define g_a5_2347  g_a5_byte(-2347)    /* JT[1200]: "in encounter mode" gate */
 #define g_a5_1312  g_a5_byte(-1312)    /* JT[1200]: encounter sub-state flag */
 #define g_a5_18394 g_a5_byte(-18394)   /* JT[112]: GrafPort save-state mode */
+#define g_a5_27468 g_a5_byte(-27468)   /* L6bbe: id-table entry count       */
 
 /* JT[1089]'s pen-state cluster (CODE 5 + 0x024c..0x028x):
  *   -4894 / -4892 — packed (col, style) the engine's color word
@@ -230,6 +231,12 @@
 #define g_a5_22727 g_a5_buf(-22727)
 #define g_a5_24304 g_a5_chars(-24304)
 #define g_a5_10362 g_a5_chars(-10362)
+
+/* L6bbe / JT[525] / JT[531] tables — id-key array + 6-byte record
+ * array. The Mac walks g_a5_25676 (longs) for a matching key, then
+ * indexes the same row in g_a5_27472 (bytes-per-record = 6). */
+#define g_a5_25676 g_a5_longs(-25676)
+#define g_a5_27472 g_a5_buf  (-27472)
 
 /*
  * Stub-trace probe. Off by default — when compiled with
@@ -2579,6 +2586,48 @@ static short jt1180(short v)
 	unsigned short u = (unsigned short)v;
 	PROBE("jt1180");
 	return (short)(((u & 0x00ff) << 8) | ((u & 0xff00) >> 8));
+}
+
+/* L6bbe (CODE 14 + 0x6bbe) — linear search for `key` in the id-key
+ * array g_a5_25676; returns the 1-based index of the match (or the
+ * count past the last when not found). The companion record array
+ * at g_a5_27472 has 6-byte records keyed at the same row index. */
+static short l6bbe(long key) __attribute__((unused));
+static short l6bbe(long key)
+{
+	short idx = 0;
+	short found = 0;
+
+	PROBE("l6bbe");
+	do {
+		idx++;
+		if (g_a5_25676[idx] == key)
+			found = 1;
+		if (found || (unsigned char)idx == g_a5_27468)
+			break;
+	} while (1);
+	return idx;
+}
+
+/* JT[525] (CODE 14 + 0x6b40, 52 sites) — field 1 of the record
+ * matching key. JT[531] (CODE 14 + 0x6b6a, 52 sites) — field 3 of
+ * the same record. Both look up via L6bbe then index the 6-byte
+ * row in g_a5_27472. */
+static unsigned char jt525(long key) __attribute__((unused));
+static unsigned char jt525(long key)
+{
+	short idx;
+	PROBE("jt525");
+	idx = (l6bbe(key) & 0xff) * 6;
+	return g_a5_27472[idx + 1];
+}
+static unsigned char jt531(long key) __attribute__((unused));
+static unsigned char jt531(long key)
+{
+	short idx;
+	PROBE("jt531");
+	idx = (l6bbe(key) & 0xff) * 6;
+	return g_a5_27472[idx + 3];
 }
 
 /* JT[158] — walk the design list, then either add a menu item per
