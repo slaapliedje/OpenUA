@@ -90,7 +90,9 @@ def test_post_boot_frame_renders(tmp_path, frua_prg):
     hatari_args = [
         HATARI, "--machine", "falcon", "--fast-forward", "yes",
         "--dsp", "emu", "--tos", FALCON_TOS, "--conout", "2",
-        "-d", REPO, "--auto", frua_prg,
+        # `--auto` takes an Atari path. -d REPO mounts REPO as C: so
+        # frua.prg sits at C:\frua.prg inside the emulator.
+        "-d", REPO, "--auto", r"C:\frua.prg",
     ]
     proc = subprocess.Popen(hatari_args, env=env, cwd=REPO,
                             stdout=open(log, "w"), stderr=subprocess.STDOUT)

@@ -102,14 +102,16 @@ data-pool-regen: $(DATAPOOL_FILES)
 # FALCON_TOS must point at a Falcon TOS 4.0x ROM — override if yours differs.
 # `make run` emulates a stock (FPU-less) Falcon; `make run FPU=1` adds a
 # 68881 so the hard-float FPU build can be tested. --conout 2 mirrors the
-# console to this terminal; --dsp emu emulates the Falcon DSP.
+# console to this terminal; --dsp emu emulates the Falcon DSP. The --auto
+# arg is an Atari path, not a host path — the GEMDOS-mounted build dir
+# becomes C: inside the emulator, so frua.prg sits at C:\frua.prg.
 FALCON_TOS ?= /usr/share/hatari/TOSv4.04.img
 ifeq ($(FPU),1)
 HATARI_FPU := --fpu 68881
 endif
 run: $(TARGET)
 	$(HATARI) --machine falcon $(HATARI_FPU) --dsp emu --tos $(FALCON_TOS) \
-	          --conout 2 -d . --auto $(TARGET)
+	          --conout 2 -d . --auto 'C:\$(TARGET)'
 
 # Host-side test suite — pytest over tools/. Not a cross-build. The
 # `slow` test boots frua.prg in Hatari and snaps a screenshot — skip
