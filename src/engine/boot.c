@@ -2539,27 +2539,52 @@ static void    jt451(void)                          { PROBE("jt451"); }
  * 27. Bodies are sizeable (each has its own JT[3] case-table over
  * cmd). PROBE stubs for now — once L2d3e calls them on a click,
  * we'll see which cmd codes are used and can lift on demand. */
+/* Per-shape, per-cmd PROBE. Each handler dispatches by cmd so the
+ * trace shows which cmd codes L2d3e is actually sending — driving
+ * which arms get lifted first. cmd is one of 1..5 (hit/action/sel),
+ * plus 16 / 24 (flag-bit set/clear) and the less-frequent 19 / 27.
+ * Unknown cmds fall through the default and log the actual value
+ * via dbg_log_num so new arms can be added as discovered.
+ * No-op (compiled out) when FRUA_ENGINE_PROBE is off. */
+#ifdef FRUA_ENGINE_PROBE
+#  define SHAPE_CMD_PROBE(jt)                                            \
+	switch (cmd) {                                                       \
+	case  1: PROBE(jt ":cmd=1");  break;                                 \
+	case  2: PROBE(jt ":cmd=2");  break;                                 \
+	case  3: PROBE(jt ":cmd=3");  break;                                 \
+	case  4: PROBE(jt ":cmd=4");  break;                                 \
+	case  5: PROBE(jt ":cmd=5");  break;                                 \
+	case 16: PROBE(jt ":cmd=16"); break;                                 \
+	case 19: PROBE(jt ":cmd=19"); break;                                 \
+	case 24: PROBE(jt ":cmd=24"); break;                                 \
+	case 27: PROBE(jt ":cmd=27"); break;                                 \
+	default: dbg_log_num("stub: " jt ":cmd=", (long)cmd); break;         \
+	}
+#else
+#  define SHAPE_CMD_PROBE(jt) ((void)0)
+#endif
+
 static short jt376(void *rec, short cmd, ...) __attribute__((unused));
 static short jt376(void *rec, short cmd, ...)
-{ PROBE("jt376"); (void)rec; (void)cmd; return 0; }
+{ PROBE("jt376"); SHAPE_CMD_PROBE("jt376"); (void)rec; return 0; }
 static short jt377(void *rec, short cmd, ...) __attribute__((unused));
 static short jt377(void *rec, short cmd, ...)
-{ PROBE("jt377"); (void)rec; (void)cmd; return 0; }
+{ PROBE("jt377"); SHAPE_CMD_PROBE("jt377"); (void)rec; return 0; }
 static short jt378(void *rec, short cmd, ...) __attribute__((unused));
 static short jt378(void *rec, short cmd, ...)
-{ PROBE("jt378"); (void)rec; (void)cmd; return 0; }
+{ PROBE("jt378"); SHAPE_CMD_PROBE("jt378"); (void)rec; return 0; }
 static short jt379(void *rec, short cmd, ...) __attribute__((unused));
 static short jt379(void *rec, short cmd, ...)
-{ PROBE("jt379"); (void)rec; (void)cmd; return 0; }
+{ PROBE("jt379"); SHAPE_CMD_PROBE("jt379"); (void)rec; return 0; }
 static short jt380(void *rec, short cmd, ...) __attribute__((unused));
 static short jt380(void *rec, short cmd, ...)
-{ PROBE("jt380"); (void)rec; (void)cmd; return 0; }
+{ PROBE("jt380"); SHAPE_CMD_PROBE("jt380"); (void)rec; return 0; }
 static short jt381(void *rec, short cmd, ...) __attribute__((unused));
 static short jt381(void *rec, short cmd, ...)
-{ PROBE("jt381"); (void)rec; (void)cmd; return 0; }
+{ PROBE("jt381"); SHAPE_CMD_PROBE("jt381"); (void)rec; return 0; }
 static short jt382(void *rec, short cmd, ...) __attribute__((unused));
 static short jt382(void *rec, short cmd, ...)
-{ PROBE("jt382"); (void)rec; (void)cmd; return 0; }
+{ PROBE("jt382"); SHAPE_CMD_PROBE("jt382"); (void)rec; return 0; }
 
 /* Forward — g_dlitem_pool lives in the DLItem cluster further
  * down. JT[442] needs its address. */
