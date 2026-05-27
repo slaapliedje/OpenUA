@@ -2096,13 +2096,51 @@ static void l02dc(long highlight)
 static int     jt117(void)                          { PROBE("jt117"); return 0; }
 static int     jt146(void)                          { PROBE("jt146"); return 0; }
 static void    jt161(short a)                       { PROBE("jt161"); (void)a; }
-/* JT[444] (CODE 3 + 0x3056) — DLItem dispatch: look up the per-item
- * method at g_a5_9254[item * 32] and invoke it with (item_addr, a, b,
- * c). Up to four short args from the caller; unused ones go in as 0.
- * Body lives in the engine's DLItem manager and stays a PROBE stub. */
+
+/* DLItem record layout — kept here so JT[444] (above the JT[452]
+ * cluster that defines the pool) can index the pool by record. */
+#define DLITEM_BYTES   32
+#define DLITEM_MAX     64
+
+/* JT[444] (CODE 3 + 0x3056, 96 callsites) — DLItem method dispatch.
+ *
+ * The Mac body:
+ *   1. Bail if the DLItem manager isn't active (g_a5_9248 == 0).
+ *   2. Validate `item` against [0, g_a5_9250); on out-of-range,
+ *      pop up the "DLItem index %d/%d invalid" alert via JT[1084]
+ *      and bail.
+ *   3. Compute slot = g_a5_9254 + item * 32 (each DLItem is 32
+ *      bytes — DLITEM_BYTES). The first long in the record is a
+ *      method pointer; invoke it with (slot_addr, a, b, c).
+ *
+ * The slot's method pointer is NULL until a real handler gets
+ * registered (the engine's JT[452] zero-fills the slot, parking
+ * the type code in later bytes). In the current port the per-arm
+ * shape-code dispatch isn't lifted yet, so the method always
+ * reads NULL — the lift guards against that and effectively
+ * no-ops, matching the prior PROBE-stub behaviour but tracing the
+ * index validation correctly. */
 static void    jt444(short item, short a, short b, short c)
-                                                  { PROBE("jt444"); (void)item;
-                                                    (void)a; (void)b; (void)c; }
+{
+	unsigned char *slot;
+	void         (*method)(unsigned char *, short, short, short);
+
+	PROBE("jt444");
+	if (g_a5_9248 == 0)
+		return;
+	if (item < 0 || item >= g_a5_9250) {
+		PROBE("jt444: index out of range");
+		return;
+	}
+	if (g_a5_9254 == 0)
+		return;
+	slot = (unsigned char *)(uintptr_t)g_a5_9254
+	     + (long)item * DLITEM_BYTES;
+	method = *(void (**)(unsigned char *, short, short, short))slot;
+	if (method == NULL)
+		return;
+	method(slot, a, b, c);
+}
 static void    jt447(void)                          { PROBE("jt447"); }
 static void    jt449(short a)                       { PROBE("jt449"); (void)a; }
 static void    jt451(void)                          { PROBE("jt451"); }
@@ -2131,8 +2169,7 @@ static void    jt451(void)                          { PROBE("jt451"); }
  * for ABI parity but their values are ignored until the shape-code
  * dispatch lift lands.
  */
-#define DLITEM_BYTES   32
-#define DLITEM_MAX     64
+/* DLITEM_BYTES / DLITEM_MAX moved above the JT[444] lift. */
 
 /* g_dlitem_pool — DLItem record table. The Mac equivalent is a
  * NewPtr'd heap block whose address is stored at A5 -9254; we mirror
