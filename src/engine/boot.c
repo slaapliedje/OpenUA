@@ -2965,9 +2965,43 @@ static void jt431(void *dst, const void *src)
 	while ((d[len++] = *s++) != 0)
 		;
 }
+/* JT[471] (CODE 3 + 0x02e8) — slot free (sister of JT[477] right
+ * before it in CODE 3). Recovers the slot index from the entry
+ * pointer + bucket geometry, then clears the bitmap bit:
+ *
+ *   idx       = (entry - bucket->base) / bucket->record_size
+ *   byte_idx  = idx / 8
+ *   bit_idx   = idx % 8
+ *   bucket[8 + byte_idx] &= ~(1 << bit_idx)
+ *
+ * Bails on negative idx or idx >= bucket->max_count. The `tag`
+ * arg is unused — same intended type-check that never landed
+ * (see JT[477] for the matching reserve). Used by L15e2's design-
+ * delete arm to tear down a record from two lists. */
 static void jt471(long entry, short tag, void *bucket)
-                                            { PROBE("jt471"); (void)entry;
-                                              (void)tag; (void)bucket; }
+{
+	unsigned char *b = (unsigned char *)bucket;
+	short          max_count, record_size, idx, byte_idx, bit_idx;
+	long           base_ptr;
+
+	PROBE("jt471");
+	(void)tag;
+	if (b == NULL)
+		return;
+	max_count   = *(short *)(b + 0);
+	record_size = *(short *)(b + 2);
+	base_ptr    = *(long  *)(b + 4);
+
+	if (record_size == 0)
+		return;                          /* guard div-by-zero */
+	idx = (short)((entry - base_ptr) / record_size);
+	if (idx < 0 || idx >= max_count)
+		return;
+
+	byte_idx = (short)(idx >> 3);
+	bit_idx  = (short)(idx - byte_idx * 8);
+	b[8 + byte_idx] &= (unsigned char)~(1 << bit_idx);
+}
 /* JT[477] (CODE 3 + 0x0214, 65 sites) — slot reserve from a bucket.
  *
  * Bucket layout:
