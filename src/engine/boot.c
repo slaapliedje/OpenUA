@@ -2962,19 +2962,165 @@ static short l1676(unsigned char *rec, short cmd, ...)
 			return 1;
 		return 0;
 	}
-	case 32: PROBE("L1676:cmd=32-set29");  break;
-	case 33: PROBE("L1676:cmd=33-set30");  break;
-	case 34: PROBE("L1676:cmd=34-set4");   break;
-	case 35: PROBE("L1676:cmd=35-set8");   break;
-	case 36: PROBE("L1676:cmd=36-set24");  break;
-	case 37: PROBE("L1676:cmd=37-set26");  break;
-	case 38: PROBE("L1676:cmd=38-set31");  break;
-	case 39: PROBE("L1676:cmd=39-set12");  break;
-	case 40: PROBE("L1676:cmd=40-setpos"); break;
-	case 41: PROBE("L1676:cmd=41-set20");  break;
-	case 42: PROBE("L1676:cmd=42-set22");  break;
-	case 43: PROBE("L1676:cmd=43-setmth"); break;
-	case 44: PROBE("L1676:cmd=44-setraw"); break;
+	/* cmd 32..44 — DLItem field setters. Each reads one variadic
+	 * arg and stamps it into a specific rec[N] offset. Several
+	 * arms (37 / 38 / 39 / 40) also clear bit 7 of rec[28] when
+	 * the value actually changed — the engine's "redraw on change"
+	 * signal. Field map matches the jt452 stream-installer.
+	 *
+	 * Variadic arg widths:
+	 *   short  → cmd 32, 33 (low byte stored), 36, 37, 38, 41, 42
+	 *   2 shorts → cmd 40 (position pair)
+	 *   long   → cmd 34, 35, 39, 43, 44
+	 *
+	 * The Mac uses fp@(14) for the first variadic arg (short or
+	 * long); fp@(15) is the low byte when only the byte matters. */
+	case 32: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=32-set29");
+		va_start(ap, cmd);
+		r[29] = (unsigned char)(va_arg(ap, int) & 0xff);
+		va_end(ap);
+		return 0;
+	}
+	case 33: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=33-set30");
+		va_start(ap, cmd);
+		r[30] = (unsigned char)(va_arg(ap, int) & 0xff);
+		va_end(ap);
+		return 0;
+	}
+	case 34: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=34-set4");
+		va_start(ap, cmd);
+		*(long *)(r + 4) = va_arg(ap, long);
+		va_end(ap);
+		return 0;
+	}
+	case 35: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=35-set8");
+		va_start(ap, cmd);
+		*(long *)(r + 8) = va_arg(ap, long);
+		va_end(ap);
+		return 0;
+	}
+	case 36: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=36-set24");
+		va_start(ap, cmd);
+		*(short *)(r + 24) = (short)va_arg(ap, int);
+		va_end(ap);
+		return 0;
+	}
+	case 37: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		short new_val;
+		PROBE("L1676:cmd=37-set26");
+		va_start(ap, cmd);
+		new_val = (short)va_arg(ap, int);
+		va_end(ap);
+		if (*(short *)(r + 26) == new_val)
+			return 0;
+		*(short *)(r + 26) = new_val;
+		r[28] &= 0x7f;
+		return 0;
+	}
+	case 38: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		short new_val;
+		PROBE("L1676:cmd=38-set31");
+		va_start(ap, cmd);
+		new_val = (short)va_arg(ap, int);
+		va_end(ap);
+		if ((short)r[31] == new_val)
+			return 0;
+		r[31] = (unsigned char)(new_val & 0xff);
+		r[28] &= 0x7f;
+		return 0;
+	}
+	case 39: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		long new_val;
+		PROBE("L1676:cmd=39-set12");
+		va_start(ap, cmd);
+		new_val = va_arg(ap, long);
+		va_end(ap);
+		if (*(long *)(r + 12) == new_val)
+			return 0;
+		*(long *)(r + 12) = new_val;
+		r[28] &= 0x7f;
+		return 0;
+	}
+	case 40: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		short a, b;
+		PROBE("L1676:cmd=40-setpos");
+		va_start(ap, cmd);
+		a = (short)va_arg(ap, int);
+		b = (short)va_arg(ap, int);
+		va_end(ap);
+		if (*(short *)(r + 16) == a && *(short *)(r + 18) == b)
+			return 0;
+		*(short *)(r + 16) = a;
+		*(short *)(r + 18) = b;
+		r[28] &= 0x7f;
+		return 0;
+	}
+	case 41: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=41-set20");
+		va_start(ap, cmd);
+		*(short *)(r + 20) = (short)va_arg(ap, int);
+		va_end(ap);
+		return 0;
+	}
+	case 42: {
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=42-set22");
+		va_start(ap, cmd);
+		*(short *)(r + 22) = (short)va_arg(ap, int);
+		va_end(ap);
+		return 0;
+	}
+	case 43: {
+		/* cmd=43 — load method ptr from the shape table by index.
+		 * Mac: d0 = (short_arg - 1) * 4; rec[0..3] = g_a5_-9282[d0]. */
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		short idx;
+		long *table;
+		PROBE("L1676:cmd=43-setmth");
+		va_start(ap, cmd);
+		idx = (short)va_arg(ap, int);
+		va_end(ap);
+		table = (long *)g_a5_buf(-9282);
+		*(long *)r = table[idx - 1];
+		return 0;
+	}
+	case 44: {
+		/* cmd=44 — raw method ptr write (caller-supplied). */
+		va_list ap;
+		unsigned char *r = (unsigned char *)rec;
+		PROBE("L1676:cmd=44-setraw");
+		va_start(ap, cmd);
+		*(long *)r = va_arg(ap, long);
+		va_end(ap);
+		return 0;
+	}
 	default: break;
 	}
 	return 0;
