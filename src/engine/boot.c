@@ -3677,9 +3677,44 @@ static void jt452(long shape0, ...)
 	shape_idx = (short)(shape0 % 7);   /* 0..6 */
 	*(long *)rec = table[shape_idx];
 
-	/* Consume the rest of the stream for ABI parity. Shape-code 0
-	 * terminates the Mac stream; the lift walks (long)args until 0. */
+	/* Consume the simplified L0aae arg list: (label, sel, page, phr).
+	 *
+	 * Per-arg mapping derived from L0aae's Mac asm push sequence
+	 * (CODE 12 + 0x0aae). Each item pushes a shape-1 stream that
+	 * stores top + left + ptr + shortcut + flag bits; the equivalent
+	 * stamps in our simplified form are:
+	 *
+	 *   label (long ptr) → rec[12..15]   shape 1's 3rd arg
+	 *   sel   (short)    → rec[29]       shape 32's arg (low byte)
+	 *   page  (short)    → rec[18]       shape 1's 2nd arg (left coord)
+	 *   phr   (short)    → rec[16]       shape 1's 1st arg (top coord)
+	 *
+	 * Plus the Mac stream sets bits 4 and 5 of rec[28] (via shape
+	 * codes 20, 21) — these gate "enabled" and "visible" downstream.
+	 * Bit 7 of rec[28] is the "dirty / needs redraw" flag the paint
+	 * walker (L2c60) checks, which we set so first-frame paint runs.
+	 *
+	 * Coords live in engine-scaled units (8004 / 8080 etc., not
+	 * screen pixels) — jt1135 remaps them when a paint actually
+	 * fires. rec[20..23] (bottom, right) stay 0 here; they're
+	 * computed dynamically by the shape handler's cmd=2 (hit-test)
+	 * path from font metrics. */
 	va_start(ap, shape0);
+	{
+		long  label = va_arg(ap, long);
+		long  sel   = va_arg(ap, long);
+		long  page  = va_arg(ap, long);
+		long  phr   = va_arg(ap, long);
+
+		if (label != 0) {
+			*(long *)(rec + 12) = label;
+			*(short *)(rec + 18) = (short)page;
+			*(short *)(rec + 16) = (short)phr;
+			rec[29] = (unsigned char)(sel & 0xff);
+			rec[28] |= (unsigned char)((1u << 4) | (1u << 5) | 0x80u);
+		}
+	}
+	/* Drain any trailing terminator longs the call site appended. */
 	for (;;) {
 		long v = va_arg(ap, long);
 
