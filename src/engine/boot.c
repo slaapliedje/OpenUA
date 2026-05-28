@@ -3863,26 +3863,50 @@ static void l4d88(void)
 	PROBE("L4d88");
 }
 
+/* Forward — l71ac lifts further down. l725c routes case 8 to it. */
+static void l71ac(EventRecord *ev);
+
 /* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
  *
  * Calls _WaitNextEvent (preferred — g_a5_-2590 picks the path) or
  * _SystemTask + _GetNextEvent, then routes the resulting event via
  * a JT[3] 15-arm switch into the per-event handlers:
  *
- *   1 keyDown / 2 keyUp  → L690e
- *   3 / 5 mouseDown      → L6cba
- *   6 updateEvt          → L7090
- *   7 activateEvt        → L70e0
- *   8 osEvt              → L71ac
- *  15 diskEvt            → L7204
+ *   1 keyDown / 2 keyUp  → L690e   (deferred)
+ *   3 / 5 mouseDown      → L6cba   (deferred)
+ *   6 updateEvt          → L7090   (deferred)
+ *   7 activateEvt        → L70e0   (deferred)
+ *   8 osEvt              → L71ac   (lifted — suspend/resume arm)
+ *  15 diskEvt            → L7204   (deferred)
  *
- * Stub for now: real event sources (Hatari mouse / keyboard) still
- * land in the Toolbox shim; the engine's own dispatcher waits on
- * the cmd=4 / cmd=5 lifts. */
+ * Mini lift: WaitNextEvent the queue, stash event.what into
+ * g_a5_-2592, dispatch case 8 → L71ac so suspend/resume actually
+ * runs end-to-end. Other arms still PROBE-only (logged but not
+ * routed). The MultiFinder branch (g_a5_-2590) is collapsed to
+ * always-WaitNextEvent — TT/Falcon don't have classic Finder. */
 static void l725c(short mask)
 {
+	EventRecord ev;
+
 	PROBE("L725c");
-	(void)mask;
+	if (!WaitNextEvent(mask, &ev, 1, NULL))
+		return;
+	g_a5_word(-2592) = ev.what;
+
+	switch (ev.what) {
+	case 8:                                    /* osEvt */
+		l71ac(&ev);
+		break;
+	case 1: case 2:                            /* mouseDown / mouseUp */
+	case 3: case 5:                            /* keyDown / autoKey */
+	case 6:                                    /* updateEvt */
+	case 7:                                    /* activateEvt */
+	case 15:                                   /* diskEvt */
+		PROBE("L725c:arm-deferred");
+		break;
+	default:
+		break;
+	}
 }
 
 /* L6804 (CODE 4 + 0x6804) — "are we the front window?" probe.
