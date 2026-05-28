@@ -4005,16 +4005,17 @@ static void l4d88(void)
 	g_a5_long(-940) = (long)(uintptr_t)g_a5_buf(-1041);
 }
 
-/* Forward — l71ac / l7090 / l70e0 / l7204 / l6cba / l6dd0 lift
- * further down. l725c routes cases 1 (mouseDown — deferred),
- * 2 (mouseUp), 3/5 (keyDown/autoKey), 6 (updateEvt),
- * 7 (activateEvt), 8 (osEvt), 15 (diskEvt). */
+/* Forward — l71ac / l7090 / l70e0 / l7204 / l6cba / l6dd0 / l690e
+ * lift further down. l725c routes every EventRecord type now;
+ * each arm is at least a level-1 skeleton with full dispatch
+ * still deferred for L690e's content-click / drag-title paths. */
 static void l71ac(EventRecord *ev);
 static void l7090(EventRecord *ev);
 static void l70e0(EventRecord *ev);
 static void l7204(EventRecord *ev);
 static void l6cba(EventRecord *ev);
 static void l6dd0(EventRecord *ev);
+static void l690e(EventRecord *ev);
 
 /* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
  *
@@ -4063,7 +4064,7 @@ static void l725c(short mask)
 		l6dd0(&ev);
 		break;
 	case 1:                                    /* mouseDown */
-		PROBE("L725c:arm-deferred");
+		l690e(&ev);
 		break;
 	default:
 		break;
@@ -4593,6 +4594,87 @@ static void l6cba(EventRecord *ev)
 	g_a5_word(-906) = jt413(jt397((short)0, v), l04de());
 	g_a5_byte(-903) = 1;
 	g_a5_byte(-901) = 0;
+}
+
+/* Forward — l0004 lifts further down (used by L690e + L6dd0). */
+static void l0004(long menu_selection);
+
+/* L690e (CODE 4 + 0x690e) — mouseDown arm.
+ *
+ * L725c case-1 dispatch. Mac body:
+ *
+ *   WindowPtr which;
+ *   short part = FindWindow(event.where, &which);
+ *   switch (part) {
+ *       case 0:                                          // inDesk
+ *       default:    break;                               // ignore
+ *       case 1:     MenuSelect path (lifted below)
+ *       case 2:     SystemClick(event, which);           // desk acc
+ *       case 3:     in-content body — capture coords,    // → L6b26
+ *                   route to engine click handler.
+ *                   Deferred — 100+ lines of port/scale/
+ *                   rect math + jt1064 dispatch.
+ *       case 4:     drag title bar — calls DragWindow    // → L698e
+ *                   then re-pumps via L6cb6.
+ *                   Deferred.
+ *       case 5:     grow box — GrowWindow + SizeWindow
+ *                   Deferred.
+ *       case 6:     close box — TrackGoAway dispatch
+ *                   Deferred.
+ *       case 7/8:   zoom in/out — TrackBox + ZoomWindow
+ *                   Deferred.
+ *   }
+ *
+ * Level-1 lift: case 1 (menu bar) lifted fully so command keys
+ * and menu picks route through. Other cases tagged with a probe
+ * marker — they require deeper window-manager state we haven't
+ * lifted yet (window list, content rects, page descriptors). */
+static void l690e(EventRecord *ev) __attribute__((unused));
+static void l690e(EventRecord *ev)
+{
+	WindowPtr which = NULL;
+	short     part;
+	long      menu_sel;
+
+	PROBE("L690e");
+	if (ev == NULL)
+		return;
+
+	part = FindWindow(ev->where, &which);
+
+	switch (part) {
+	case 0:                                    /* inDesk */
+		break;
+	case 1:                                    /* inMenuBar */
+		menu_sel = MenuSelect(ev->where);
+		if ((menu_sel & 0xFFFF0000L) != 0) {
+			l0004(menu_sel);
+			HiliteMenu((short)0);
+		}
+		break;
+	case 2:                                    /* inSysWindow (DA) */
+		PROBE("L690e:sysclick-deferred");
+		/* Real Mac: SystemClick(event, which) — no Atari DA system */
+		(void)which;
+		break;
+	case 3:                                    /* inContent */
+		PROBE("L690e:content-deferred");
+		break;
+	case 4:                                    /* inDrag */
+		PROBE("L690e:drag-deferred");
+		break;
+	case 5:                                    /* inGrow */
+		PROBE("L690e:grow-deferred");
+		break;
+	case 6:                                    /* inGoAway */
+		PROBE("L690e:goaway-deferred");
+		break;
+	case 7: case 8:                            /* inZoomIn/Out */
+		PROBE("L690e:zoom-deferred");
+		break;
+	default:
+		break;
+	}
 }
 
 /* JT[391] (CODE 3 + 0x3702) — isprint test for keyDown char.
