@@ -3604,9 +3604,81 @@ static void jt1134(void)
 }
 static void   jt1153(short arg)                   { PROBE("jt1153");
                                                     (void)arg; }
-/* JT[1146] (CODE 4 + 0x5c82) — paint-flush leaf JT[108] reaches
- * when its arg is non-zero. PROBE for now. */
-static void   jt1146(void)                        { PROBE("jt1146"); }
+/* L050a (CODE 4 + 0x050a, CODE-local) — page byte-count selector.
+ *
+ *   if (g_a5_-2347 == 0)        return 18002;   // mono FRUA framebuffer
+ *   if (g_a5_-1312 != 0)        return 64000;   // 320x200 8-bit
+ *   else                        return 32000;   // 320x200 4-bit
+ *
+ * Returned as `long` since the Mac uses `movel`; jt1146 truncates
+ * to short at the jt406 call. */
+static long l050a(void) __attribute__((unused));
+static long l050a(void)
+{
+	PROBE("L050a");
+	if (g_a5_2347 == 0)
+		return 18002L;
+	return (g_a5_1312 != 0) ? 64000L : 32000L;
+}
+
+/* JT[1146] (CODE 4 + 0x5c82) — page-flip / full-page blit.
+ *
+ * JT[108] hits this when its arg is non-zero ("commit deferred
+ * paint to the visible page"). The Mac body picks two 108-byte
+ * "page descriptor" entries from the array at g_a5_-2570 — entry
+ * [current] and entry [1 - current], where current = g_a5_-2354 —
+ * and memmoves L050a bytes from the off-page to the on-page using
+ * jt406.
+ *
+ *   entry+2 holds the page-data pointer. In color QuickDraw mode
+ *   (g_a5_-2347 set) the field is a Handle (void**); the Mac
+ *   double-derefs to reach the raw pixel buffer. In mono mode the
+ *   field is a direct void*.
+ *
+ * Both code paths converge on:
+ *
+ *   jt406(dst = bits[current], src = bits[1 - current], L050a()).
+ *
+ * Note: the arg order in jt406 is (dst, src, count) — matches
+ * BlockMove on Mac, opposite of memcpy. The flip direction is
+ * "copy the off-screen back-buffer onto the visible page", which
+ * mirrors how the engine renders into the alternate page and
+ * commits to the visible one once a frame's worth of paint is
+ * queued. */
+static void jt1146(void)
+{
+	unsigned char *base;
+	unsigned char *entry_cur;
+	unsigned char *entry_oth;
+	void  *dst;
+	void  *src;
+	short  cur;
+	short  count;
+
+	PROBE("jt1146");
+	l4d88();
+
+	cur       = g_a5_word(-2354);
+	base      = g_a5_buf(-2570);
+	entry_cur = base + 108 * cur;
+	entry_oth = base + 108 * (1 - cur);
+
+	if (g_a5_2347 != 0) {
+		/* Color QD: entry+2 is a Handle (void**); deref twice. */
+		void **h_cur = *(void ***)(entry_cur + 2);
+		void **h_oth = *(void ***)(entry_oth + 2);
+		dst = (h_cur != NULL) ? *h_cur : NULL;
+		src = (h_oth != NULL) ? *h_oth : NULL;
+	} else {
+		/* Mono: entry+2 is a direct data pointer. */
+		dst = *(void **)(entry_cur + 2);
+		src = *(void **)(entry_oth + 2);
+	}
+
+	count = (short)l050a();
+	if (dst != NULL && src != NULL)
+		jt406(dst, src, count);
+}
 
 /* L3198 (CODE 3 + 0x3198) — wraps JT[1125] for the event-read prelude. */
 static short l3198(short kind, long p1, long p2)
