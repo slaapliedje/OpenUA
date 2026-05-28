@@ -3273,6 +3273,17 @@ void boot_a5_seed_defaults(void)
 	g_a5_9288 = (short)DLITEM_MAX;
 	g_a5_9248 = 1;
 
+	/* THINK C's DATA blit pre-loads g_a5_-1316 (idle-active flag)
+	 * with 0x05 and g_a5_-126 / g_a5_-130 with stale tick-like
+	 * values. The Mac runtime would have drained -1316 via L79ec
+	 * during pre-main init; we never call that path, so clear it
+	 * here so jt1134's event-pump loop terminates. Also zero the
+	 * paired tick slots so the first real L79d4 / L79ec pair
+	 * computes a sensible delta. */
+	g_a5_byte(-1316) = 0;
+	g_a5_long(-126)  = 0;
+	g_a5_long(-130)  = 0;
+
 	/* JT[1083] PRNG seed. A non-zero seed is required — with state
 	 * == 0 the LCG locks at state = 1 forever (state * mul + 1
 	 * → 1) and all rolls degenerate to 0. Plant 1 here so each
@@ -3465,6 +3476,40 @@ static short  jt1125(short kind, long p1, long p2)
 		return 0;
 	}
 }
+/* L79d4 (CODE 4 + 0x79d4) — start idle-time accounting.
+ *
+ * Idempotent: if g_a5_-1316 (idle-active flag) is already set,
+ * a nested idle period is already in flight and this is a no-op.
+ * Otherwise sets the flag and stamps the current TickCount into
+ * g_a5_-126. Paired with L79ec around blocking Toolbox calls so
+ * the engine can subtract OS wait time from elapsed game time
+ * (the running total lives in g_a5_-130). */
+static void l79d4(void) __attribute__((unused));
+static void l79d4(void)
+{
+	PROBE("L79d4");
+	if (g_a5_byte(-1316) != 0)
+		return;
+	g_a5_byte(-1316) = 1;
+	g_a5_long(-126)  = TickCount();
+}
+
+/* L79ec (CODE 4 + 0x79ec) — end idle-time accounting.
+ *
+ * If g_a5_-1316 is set, clears it and accumulates the elapsed
+ * (TickCount - g_a5_-126) into g_a5_-130. Otherwise no-op.
+ * Called from L71ac (osEvt arm) and L7204 (diskEvt arm) inside
+ * L725c's event dispatch. */
+static void l79ec(void) __attribute__((unused));
+static void l79ec(void)
+{
+	PROBE("L79ec");
+	if (g_a5_byte(-1316) == 0)
+		return;
+	g_a5_byte(-1316) = 0;
+	g_a5_long(-130) += TickCount() - g_a5_long(-126);
+}
+
 /* L4d88 (CODE 4 + 0x4d88) — flush deferred _InvalRect.
  *
  * Tests g_a5_-936 (pending-invalidate count). When non-zero, the
@@ -3532,26 +3577,28 @@ static signed char l6804(void)
  *   (TickCount() - g_a5_-130) * 6 / 5;    // result discarded in asm
  *
  * 0x8140 is the Toolbox everyEvent mask (sysMask + mouse + key);
- * the per-event arms inside L725c are deferred until cmd=4 / cmd=5
- * are lifted. The trailing arithmetic is dead in the original
+ * the per-event arms inside L725c are deferred until the L725c
+ * lift lands. The trailing arithmetic is dead in the original
  * (d0 is clobbered before rts) — preserved for fidelity in case
  * a side-effect lives inside JT[4] / JT[7] we haven't found yet.
  *
- * Loop collapsed to a single pass: the Mac drains the dirty flag
- * (g_a5_-1316) by routing each L725c iteration through jt1121 →
- * L79ec, which clears it. jt1121 is still PROBE-only here, and
- * THINK C initializes the flag to 0x05 in the DATA blit, so a real
- * do/while would spin forever waiting on a stubbed event pump.
- * Restore the loop once the L725c arms + jt1121 land. */
+ * The dirty flag (g_a5_-1316) is DATA-initialized to 0x05; we
+ * zero it in boot_a5_seed_defaults so the inner loop exits on
+ * the first pass while L725c is still a PROBE-only stub. Once
+ * real events flow through L725c → L71ac / L7204 → L79ec, the
+ * flag will drain naturally and the loop will iterate as the
+ * Mac intended. */
 static void jt1134(void)
 {
 	long elapsed;
 
 	PROBE("jt1134");
 	l4d88();
-	l725c((short)0x8140);
-	(void)g_a5_byte(-1316);     /* dirty check — deferred until l725c lifts */
-	(void)l6804();              /* front-window check — deferred too */
+	do {
+		do {
+			l725c((short)0x8140);
+		} while (g_a5_byte(-1316) != 0);
+	} while (l6804() == 0);
 	elapsed = TickCount() - g_a5_long(-130);
 	(void)((elapsed * 6) / 5);
 }
