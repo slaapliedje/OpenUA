@@ -2726,6 +2726,39 @@ static void    jt451(void)                          { PROBE("jt451"); }
 #  define SHAPE_CMD_PROBE(jt) ((void)0)
 #endif
 
+/* Forward — jt1134 (paint flush) lifts further down. L1676's
+ * cmd=3 mouse-track loop needs it. */
+static void jt1134(void);
+
+/* JT[1132] (CODE 4 + 0x6288) — mouse poll. Writes the current
+ * mouse (y, x) to the two out-shorts and returns the button
+ * state: 1 if the button is held, 0 if released. The Mac body
+ * checks two cached A5 flags (g_a5_-903 / -904) for a buffered
+ * button-down, falling through to L6204 (live mouse poll) when
+ * the cache is empty.
+ *
+ * Port stub: no mouse-event source is wired yet, so return 0
+ * (button released) with zeroed coords. This makes L1676's
+ * cmd=3 mouse-track loop exit cleanly on the first iteration.
+ * Replace with a real poll once Hatari's mouse / keyboard input
+ * reaches the engine via the input HAL. */
+static short jt1132(short *out_y, short *out_x) __attribute__((unused));
+static short jt1132(short *out_y, short *out_x)
+{
+	PROBE("jt1132");
+	if (out_y != NULL) *out_y = 0;
+	if (out_x != NULL) *out_x = 0;
+	return 0;
+}
+
+/* L31b8 (CODE 3 + 0x31b8) — thin wrapper over JT[1132]. */
+static short l31b8(short *out_y, short *out_x) __attribute__((unused));
+static short l31b8(short *out_y, short *out_x)
+{
+	PROBE("L31b8");
+	return jt1132(out_y, out_x);
+}
+
 /* L1676 (CODE 3 + 0x1676) — base DLItem method handler. Every
  * shape handler (jt376..jt382) delegates un-recognized cmds here
  * via its JT[3] default arm. Lifted from L1676's own JT[3] (min=1
@@ -2783,7 +2816,70 @@ static short l1676(unsigned char *rec, short cmd, ...)
 			rec[28] &= 0x7f;
 		return 0;
 	}
-	case 3:  PROBE("L1676:cmd=3-track");   break;
+	case 3: {
+		/* Mouse-track loop (L16f4..L17fe).
+		 *
+		 *   Mac initial sequence:
+		 *     method(rec, 19)   ; cmd=19 → set bit 3 (highlight)
+		 *     method(rec,  1)   ; cmd=1  → set bit 7 (dirty)
+		 *     JT[1134]          ; paint flush
+		 *     method(rec,  7)   ; cmd=7  → shape-specific press hook
+		 *
+		 *   Loop while button held:
+		 *     l31b8(&y, &x)     ; current mouse + button state
+		 *     cur_hit = (method(rec, 2, y, x) != 0) ? 1 : 0
+		 *     if cur_hit != prev_hit:
+		 *         prev_hit = cur_hit
+		 *         method(rec, prev_hit ? 19 : 27)   ; (un)highlight
+		 *         method(rec, 1)                     ; dirty
+		 *         JT[1134]                            ; flush
+		 *     if prev_hit && !button_held:
+		 *         method(rec, 7)                     ; release-on-hit hook
+		 *
+		 *   Final:
+		 *     method(rec, 27)   ; cmd=27 → clear bit 3 (unhighlight)
+		 *     return prev_hit   ; 1 if click landed, 0 if dragged off
+		 *
+		 * With l31b8 currently stubbed to "button released", the loop
+		 * runs once and exits. Once Hatari mouse events reach the
+		 * engine, this loop tracks live cursor drift and toggles the
+		 * highlight as the user drags. */
+		short (*method)(void *, short, ...);
+		signed char prev_hit = 1;
+		signed char cur_hit;
+		short        button_held;
+		short        mouse_y = 0;
+		short        mouse_x = 0;
+
+		PROBE("L1676:cmd=3-track");
+		method = *(short (**)(void *, short, ...))rec;
+		if (method == NULL)
+			return 0;
+
+		method(rec, (short)19);
+		method(rec, (short) 1);
+		jt1134();
+		method(rec, (short) 7);
+
+		do {
+			button_held = l31b8(&mouse_y, &mouse_x);
+			cur_hit = (method(rec, (short)2, mouse_y, mouse_x) != 0)
+			        ? (signed char)1 : (signed char)0;
+
+			if (cur_hit != prev_hit) {
+				prev_hit = cur_hit;
+				method(rec, (short)(prev_hit ? 19 : 27));
+				method(rec, (short)1);
+				jt1134();
+			}
+
+			if (prev_hit != 0 && button_held == 0)
+				method(rec, (short)7);
+		} while (button_held != 0);
+
+		method(rec, (short)27);
+		return (short)prev_hit;
+	}
 	case 4:  PROBE("L1676:cmd=4-action");  break;
 	case 5:  PROBE("L1676:cmd=5-select");  break;
 	case 32: PROBE("L1676:cmd=32-set29");  break;
