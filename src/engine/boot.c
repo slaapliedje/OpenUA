@@ -4271,16 +4271,93 @@ static void l24aa(void)
 	PROBE("L24aa");
 }
 
-/* L3e38 (CODE 3 + 0x3e38, CODE-local) — window content repaint.
+/* L3d8c / L7de0 / L448c / L4350 / L1084 — L3e38's helper chain.
+ * All PROBE-only stubs; the full repaint walks page descriptors
+ * and the clip region. */
+static void l3d8c(void *entry, void *win) __attribute__((unused));
+static void l3d8c(void *entry, void *win)
+{
+	PROBE("L3d8c");
+	(void)entry; (void)win;
+}
+static signed char l7de0(void) __attribute__((unused));
+static signed char l7de0(void)
+{
+	PROBE("L7de0");
+	return 0;
+}
+static void l448c(void) __attribute__((unused));
+static void l448c(void)
+{
+	PROBE("L448c");
+}
+static void l4350(short flag) __attribute__((unused));
+static void l4350(short flag)
+{
+	PROBE("L4350");
+	(void)flag;
+}
+static void jt1084(void *buf, short val) __attribute__((unused));
+static void jt1084(void *buf, short val)
+{
+	PROBE("jt1084");
+	(void)buf; (void)val;
+}
+
+/* L3e38 (CODE 4 + 0x3e38) = JT[1162] — window content repaint
+ * dispatcher. Called inside the BeginUpdate / EndUpdate bracket
+ * of L7090 (updateEvt arm).
  *
- * Called inside the BeginUpdate / EndUpdate bracket of L7090.
- * Walks the engine's draw list and re-blits visible content into
- * the window. PROBE-only stub for now — the real paint code lives
- * deeper in CODE 3 and depends on a chain of unlifted helpers. */
-static void l3e38(void) __attribute__((unused));
+ * Body (level-1 skeleton — leaves are PROBE stubs; the
+ * 200+-line full dispatch is its own task):
+ *
+ *   short cur_page = g_a5_-2354;
+ *   // Normalize page index to [0, 1].
+ *   if (cur_page < 0 || cur_page > 1) {
+ *       jt1084(&g_a5_-2610, cur_page);        // error / log
+ *       g_a5_-2354 = 1;
+ *   }
+ *
+ *   // Idle + front → "fast path" exit:
+ *   if (g_a5_-1316 == 0 && L6804()) {
+ *       // L3e8e branch — many sub-paths around L7de0 / ValidRect
+ *       // / L448c / L4350 / page-descriptor walks.  Deferred.
+ *       PROBE("L3e38:idle-frontwindow-deferred");
+ *       return;
+ *   }
+ *
+ *   // Dirty or background → blit current page:
+ *   unsigned char *entry = g_a5_-2570 + 108 * cur_page;
+ *   L3d8c(entry, (void *)g_a5_-2578);
+ *
+ * The L3e8e branch is a substantial sub-dispatch (handles
+ * "page-swap-in-progress" + clip-region updates + color-QD
+ * specific blits). Left as deferred because it'd more than
+ * double this function's size and isn't reachable in the boot
+ * trace anyway (updateEvt not queued). */
 static void l3e38(void)
 {
+	short cur_page;
+
 	PROBE("L3e38");
+	cur_page = g_a5_word(-2354);
+
+	if (cur_page < 0 || cur_page > 1) {
+		jt1084(g_a5_buf(-2610), cur_page);
+		g_a5_word(-2354) = 1;
+		cur_page = 1;
+	}
+
+	if (g_a5_byte(-1316) == 0 && l6804() != 0) {
+		PROBE("L3e38:idle-frontwindow-deferred");
+		return;
+	}
+
+	{
+		unsigned char *entry = g_a5_buf(-2570) + 108 * cur_page;
+		void          *win   = (void *)(uintptr_t)g_a5_long(-2578);
+		l3d8c(entry, win);
+	}
 }
 
 /* JT[1064] (CODE 5 + 0x4992) — hit-test? L70e0 calls this after
