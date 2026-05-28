@@ -2101,6 +2101,29 @@ static void jt1005(short x, short y, short style, short size,
 	if (out_right  != NULL) *out_right  = 0;
 }
 
+/* JT[1139] (CODE 4 + 0x785c) — grid-coord hit-test. Given an item
+ * origin (rec[16], rec[18]) and a click (mouse_y, mouse_x),
+ * returns (row, col) into the two out-shorts. jt378 cmd=2 uses
+ * this to map a screen click into a grid cell; callers then
+ * bounds-check the row against rec[22] and col against rec[24].
+ * PROBE stub returns row=col=0 so jt378's hit-test cleanly
+ * accepts (0,0) as a valid cell — fine until real grid rendering
+ * arrives. */
+static void jt1139(short origin_y, short origin_x,
+                   short click_y, short click_x,
+                   short *out_row, short *out_col)
+                                                __attribute__((unused));
+static void jt1139(short origin_y, short origin_x,
+                   short click_y, short click_x,
+                   short *out_row, short *out_col)
+{
+	PROBE("jt1139");
+	(void)origin_y; (void)origin_x;
+	(void)click_y;  (void)click_x;
+	if (out_row != NULL) *out_row = 0;
+	if (out_col != NULL) *out_col = 0;
+}
+
 /* JT[1141] (CODE 4 + 0x78e8) — rect-from-corner-plus-extent. Given
  * a top-left (top, left), a height (h) and a width (w), write the
  * bottom-right corner through the two out-pointers. PROBE stub
@@ -2610,15 +2633,114 @@ static short jt376(void *rec, short cmd, ...)
 static short jt377(void *rec, short cmd, ...) __attribute__((unused));
 static short jt377(void *rec, short cmd, ...)
 { PROBE("jt377"); SHAPE_CMD_PROBE("jt377"); (void)rec; return 0; }
-static short jt378(void *rec, short cmd, ...) __attribute__((unused));
-static short jt378(void *rec, short cmd, ...)
-{ PROBE("jt378"); SHAPE_CMD_PROBE("jt378"); (void)rec; return 0; }
+/* jt378 — shape 5 method dispatcher. cmd=2 is a grid hit-test
+ * (lifted from L25ba): JT[1139] maps the click into a grid cell,
+ * the cell is bounds-checked against rec[22] (max row) and rec[24]
+ * (max col), and bit 6 of rec[28] optionally gates the result on
+ * a per-item callback at rec[4]. JT[1139] is a PROBE stub; until
+ * it's filled in, every in-range click maps to cell (0, 0). */
+static short jt378(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt378(void *rec_v, short cmd, ...)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short y, x;
+	short row = 0, col = 0;
+
+	PROBE("jt378");
+	SHAPE_CMD_PROBE("jt378");
+
+	if (cmd != 2)
+		return 0;
+
+	if ((rec[28] & 0x03) != 0)
+		return 0;
+
+	va_start(ap, cmd);
+	y = (short)va_arg(ap, int);
+	x = (short)va_arg(ap, int);
+	va_end(ap);
+
+	jt1139(*(short *)(rec + 16), *(short *)(rec + 18),
+	       y, x, &row, &col);
+
+	if (row < 0 || row >= *(short *)(rec + 22)) return 0;
+	if (col < 0 || col >= *(short *)(rec + 24)) return 0;
+
+	/* Bit 6: extra callback gate. Callback at rec[4] is invoked
+	 * with (-2, y, x); a zero return means "not really a hit". */
+	if ((rec[28] & 0x40) != 0) {
+		short (*cb)(short, short, short) =
+			*(short (**)(short, short, short))(rec + 4);
+		if (cb != NULL && cb((short)-2, y, x) == 0)
+			return 0;
+	}
+	return 1;
+}
+
 static short jt379(void *rec, short cmd, ...) __attribute__((unused));
 static short jt379(void *rec, short cmd, ...)
 { PROBE("jt379"); SHAPE_CMD_PROBE("jt379"); (void)rec; return 0; }
-static short jt380(void *rec, short cmd, ...) __attribute__((unused));
-static short jt380(void *rec, short cmd, ...)
-{ PROBE("jt380"); SHAPE_CMD_PROBE("jt380"); (void)rec; return 0; }
+
+/* jt380 — shape 3 method dispatcher. cmd=2 has a primary text-
+ * bounds hit-test like jt382's, plus a secondary fallback when
+ * the primary misses (lifted from L2278). The fallback measures
+ * a rectangle whose width is derived from the label's string
+ * length plus rec[22] (extra columns) — used by items that have
+ * a clickable region wider than their visible glyph extent. */
+static short jt380(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt380(void *rec_v, short cmd, ...)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short y, x, n, total_w;
+	short style_size;
+	short top = 0, left = 0, bottom = 0, right = 0;
+
+	PROBE("jt380");
+	SHAPE_CMD_PROBE("jt380");
+
+	if (cmd != 2)
+		return 0;
+
+	if ((rec[28] & 0x03) != 0)
+		return 0;
+
+	va_start(ap, cmd);
+	y = (short)va_arg(ap, int);
+	x = (short)va_arg(ap, int);
+	va_end(ap);
+
+	style_size = *(short *)(rec + 26);
+
+	/* Primary: text-style bounds via JT[1005] (only if rec[26]
+	 * is non-zero; rec[26]==0 skips straight to the fallback). */
+	if (style_size != 0) {
+		short style = (short)(style_size >> 10);
+		short size  = (short)(style_size & 0x03ff);
+
+		jt1005(*(short *)(rec + 16), *(short *)(rec + 18),
+		       style, size,
+		       &top, &left, &bottom, &right);
+		if (top  <= y && y < bottom &&
+		    left <= x && x < right)
+			return 1;
+	}
+
+	/* Fallback: scaled origin + string-length-derived rect. */
+	jt1135(*(short *)(rec + 16), *(short *)(rec + 18),
+	       &top, &left);
+	if (y < top || x < left)
+		return 0;
+
+	n = l39ae(*(const char **)(rec + 12));
+	total_w = (short)((n + *(short *)(rec + 22)) * 4 + 8008);
+	jt1141(top, left, 8004, total_w, &bottom, &right);
+
+	if (y >= bottom) return 0;
+	if (x <  right ) return 1;
+	return 0;
+}
 static short jt381(void *rec, short cmd, ...) __attribute__((unused));
 static short jt381(void *rec, short cmd, ...)
 { PROBE("jt381"); SHAPE_CMD_PROBE("jt381"); (void)rec; return 0; }
@@ -2687,19 +2809,23 @@ static short jt382(void *rec_v, short cmd, ...)
 	} else if (style_size == -1) {
 		short n;
 
+		/* jt1135 writes out1=scaled(v1)=scaled(rec[16]) which
+		 * is the Y/top coord (Mac uses Point (v, h) order), and
+		 * out2=scaled(rec[18]) which is X/left. Pass &top, &left
+		 * in that order so the variables end up named correctly. */
 		jt1135(*(short *)(rec + 16), *(short *)(rec + 18),
-		       &left, &top);
+		       &top, &left);
 		n = l39ae(*(const char **)(rec + 12));
 		jt1141(top, left, 8004, (short)(n * 4 + 8000),
 		       &bottom, &right);
 	} else {
 		jt1135((short)(*(short *)(rec + 16) - 1),
 		       (short)(*(short *)(rec + 18) - 2),
-		       &left, &top);
+		       &top, &left);
 		jt1135((short)(*(short *)(rec + 16) + 5),
 		       (short)(*(short *)(rec + 18) +
 		               *(short *)(rec + 24) * 4 + 2),
-		       &right, &bottom);
+		       &bottom, &right);
 	}
 
 	if (top  >  y || y >= bottom) return 0;
