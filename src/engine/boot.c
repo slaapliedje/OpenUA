@@ -2729,7 +2729,7 @@ static void    jt451(void)                          { PROBE("jt451"); }
 
 /* Forward — jt1134 (paint flush) lifts further down. L1676's
  * cmd=3 mouse-track loop needs it. */
-static void jt1134(void);
+static long jt1134(void);
 
 /* JT[1132] (CODE 4 + 0x6288) — mouse poll. Writes the current
  * mouse (y, x) to the two out-shorts and returns the button
@@ -4335,7 +4335,7 @@ static void l71ac(EventRecord *ev)
  * real events flow through L725c → L71ac / L7204 → L79ec, the
  * flag will drain naturally and the loop will iterate as the
  * Mac intended. */
-static void jt1134(void)
+static long jt1134(void)
 {
 	long elapsed;
 
@@ -4347,7 +4347,7 @@ static void jt1134(void)
 		} while (g_a5_byte(-1316) != 0);
 	} while (l6804() == 0);
 	elapsed = TickCount() - g_a5_long(-130);
-	(void)((elapsed * 6) / 5);
+	return (elapsed * 6) / 5;
 }
 static void   jt1153(short arg)                   { PROBE("jt1153");
                                                     (void)arg; }
@@ -4472,13 +4472,43 @@ static void jt1123(short a)
 	PROBE("jt1123");
 	(void)a;
 }
-/* JT[1080] — sleep-tick for "no DLItem caught the event" path.
- * Was at jt freq report at 50 sites. Stays PROBE; the timing
- * fallback isn't critical with WaitNextEvent's sleep arg. */
+/* JT[1122] (CODE 4 + 0x7690) — short tone / beep gate. Takes
+ * (mode, freq, duration) shorts; mode 2 = play, mode 0 = silence.
+ * PROBE-only stub for now (no audio HAL wired). */
+static void jt1122(short mode, short freq, short duration) __attribute__((unused));
+static void jt1122(short mode, short freq, short duration)
+{
+	PROBE("jt1122");
+	(void)mode; (void)freq; (void)duration;
+}
+
+/* JT[1080] (CODE 5 + 0x0156) — "no-hit" feedback chime.
+ *
+ *   start = jt1134();                    // current idle-adjusted tick
+ *   jt1122(2, 1189, 127);                // beep on (freq 1189, vol 127)
+ *   while (jt1134() < start + 5)         // hold 5 ticks
+ *       ;
+ *   jt1122(2, 0, 0);                     // beep off
+ *   while (jt1134() < start + 6)         // wait one more tick
+ *       ;
+ *
+ * Fires from L2d3e Phase 3 when an event arrived but no DLItem
+ * caught the mouse — the audible "nope" cue. The wait loops also
+ * pump the event-queue via jt1134, so the engine stays responsive
+ * during the beep. */
 static void jt1080(void) __attribute__((unused));
 static void jt1080(void)
 {
+	long start;
+
 	PROBE("jt1080");
+	start = jt1134();
+	jt1122((short)2, (short)1189, (short)127);
+	while (jt1134() < start + 5)
+		;
+	jt1122((short)2, (short)0, (short)0);
+	while (jt1134() < start + 6)
+		;
 }
 
 /* L2d3e (CODE 3 + 0x2d3e) = JT[456] — DLItem event poll.
