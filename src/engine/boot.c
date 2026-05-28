@@ -3910,14 +3910,25 @@ static void l79ec(void)
 
 /* L4fae / L4e12 / L5d8c — InvalRect dispatch helpers.
  *
- *   L4fae: color-QD rect builder (fills 4 shorts at *rect_out).
- *   L4e12: mono rect builder (same shape).
- *   L5d8c: visibility / clip test, returns non-zero if the rect
- *          intersects the visible region.
+ *   L4fae: color-QD branch — paints pending text via PaintRect /
+ *          DrawString and fills a 4-short rect. 200+ lines:
+ *          SetPort + TextSize/TextMode + StringWidth + character-
+ *          class table lookups (at g_a5_-3016) for word-break
+ *          and highlighting. The "rect builder" framing is
+ *          misleading — it actually renders.
+ *   L4e12: mono branch — identical structure to L4fae but with
+ *          a different port-data offset path.
+ *   L5d8c: visibility test. Returns -1 (true) iff the current
+ *          "back-page" index (g_a5_-2352) equals the "front-page"
+ *          index (g_a5_-2354) — i.e. "are we invalidating a
+ *          page that's actually on-screen?"
  *
- * Stubs for now — the real bodies walk g_a5_-2570 page descriptors
- * and the engine's clip region. L5d8c returns 1 (visible) so the
- * InvalRect call still fires when needed. */
+ * L5d8c is lifted faithfully (trivial). L4fae / L4e12 remain
+ * stubs that zero the rect — the full lift requires the engine's
+ * font-metrics + character-class infrastructure (g_a5_-3016
+ * table) and Mac Toolbox DrawString. With the boot trace not
+ * driving any deferred-paint (g_a5_-936 stays 0 throughout),
+ * the rect content doesn't matter yet. */
 static void l4fae(short *rect_out) __attribute__((unused));
 static void l4fae(short *rect_out)
 {
@@ -3940,7 +3951,8 @@ static signed char l5d8c(void) __attribute__((unused));
 static signed char l5d8c(void)
 {
 	PROBE("L5d8c");
-	return 1;
+	return (g_a5_word(-2352) == g_a5_word(-2354))
+	       ? (signed char)-1 : (signed char)0;
 }
 
 /* L4d88 (CODE 4 + 0x4d88) — flush deferred _InvalRect.
