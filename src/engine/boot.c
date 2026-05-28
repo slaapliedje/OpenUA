@@ -3431,23 +3431,73 @@ static void   l30ba(short a, short b, short c)
 /* CODE 4 helpers L2d3e + family forward into. PROBE stubs until the
  * actual event-pump + DLItem dispatch land. */
 
-/* Forward — l4d88 lifts further down with jt1134's helpers. jt1118
- * needs it for the InvalRect flush prelude. */
+/* Forward — l4d88 / l6804 lift further down with jt1134's helpers.
+ * jt1118 needs l4d88 for the InvalRect flush prelude; l731e needs
+ * l6804 for the front-window gate. */
 static void l4d88(void);
+static signed char l6804(void);
 
-/* L731e (CODE 4 + 0x731e) — shared event filter / pump.
+/* L66e8 (CODE 4 + 0x66e8, CODE-local) — event-record post-process
+ * gate. The Mac body calls L6538(0) and ignores its caller's
+ * event-record pointer. PROBE-only for now; L6538 is a deeper
+ * helper we haven't lifted. */
+static void l66e8(EventRecord *ev) __attribute__((unused));
+static void l66e8(EventRecord *ev)
+{
+	PROBE("L66e8");
+	(void)ev;
+}
+
+/* L731e (CODE 4 + 0x731e) — shared event filter (level-2 skeleton).
  *
- * The worker that jt1118 / jt1125 funnel through. Tests g_a5_-820
- * (input-mode flag), runs _EventAvail / _WaitNextEvent with the
- * arg as event mask, and stamps the cached event cluster
- * (g_a5_-808/-809/-810 / -814) so the callers can branch on
- * "event ready" without re-reading the Toolbox queue. Stub for
- * now — leaving the cluster zero makes jt1118 fall through to the
- * "no event" branch. */
+ * The pump that jt1118 / jt1125 funnel through. Mac body:
+ *
+ *   short mask = -1;
+ *   if (g_a5_-820)            mask &= ~0x08;          // input-mode adj
+ *   if (arg != 2)
+ *       if (!_EventAvail(2, &ev))   mask &= ~0x07;
+ *   L66e8(&ev);
+ *   do {                                              // L73ce / L7362
+ *       if (!L6804()) {                               // not frontmost
+ *           L66e8(&ev); L725c(mask);                  // pump dispatcher
+ *           switch (arg) {                            // inline JT[3]
+ *               case 2: ...; case 3: test g_a5_-903;
+ *               default: fall through;
+ *           }
+ *           recheck mode + EventAvail with refreshed mask;
+ *       }
+ *   } while (L6804() && _EventAvail(mask, &ev));
+ *
+ * Inner loop deferred (level 2): with our l6804 stub returning
+ * "always front" and the engine event queue idle during boot, the
+ * outer loop falls through after the pre-EventAvail. Restore the
+ * inner-loop / JT[3] arm dispatch once L725c's case handlers and
+ * a real front-window check land. */
 static void l731e(short arg)
 {
+	EventRecord ev;
+	short       mask = (short)-1;
+
 	PROBE("L731e");
-	(void)arg;
+
+	if (g_a5_byte(-820) != 0)
+		mask = (short)(mask & ~0x08);
+
+	if (arg != (short)2) {
+		if (!EventAvail((short)2, &ev))
+			mask = (short)(mask & ~0x07);
+	}
+
+	l66e8(&ev);
+
+	if (l6804() != 0) {
+		if (EventAvail(mask, &ev)) {
+			/* Real Mac loops back into L7362 to dispatch the
+			 * pending event; deferred until the L725c arms
+			 * are lifted. */
+			PROBE("L731e:event-pending");
+		}
+	}
 }
 
 /* JT[1118] (CODE 4 + 0x6710) — "should we continue polling?" gate.
