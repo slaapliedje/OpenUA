@@ -3924,10 +3924,11 @@ static void l4d88(void)
 	PROBE("L4d88");
 }
 
-/* Forward — l71ac / l7090 lift further down. l725c routes cases
- * 8 (osEvt) and 6 (updateEvt) to them. */
+/* Forward — l71ac / l7090 / l70e0 lift further down. l725c routes
+ * cases 8 (osEvt), 6 (updateEvt), and 7 (activateEvt) to them. */
 static void l71ac(EventRecord *ev);
 static void l7090(EventRecord *ev);
+static void l70e0(EventRecord *ev);
 
 /* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
  *
@@ -3960,12 +3961,14 @@ static void l725c(short mask)
 	case 6:                                    /* updateEvt */
 		l7090(&ev);
 		break;
+	case 7:                                    /* activateEvt */
+		l70e0(&ev);
+		break;
 	case 8:                                    /* osEvt */
 		l71ac(&ev);
 		break;
 	case 1: case 2:                            /* mouseDown / mouseUp */
 	case 3: case 5:                            /* keyDown / autoKey */
-	case 7:                                    /* activateEvt */
 	case 15:                                   /* diskEvt */
 		PROBE("L725c:arm-deferred");
 		break;
@@ -4134,6 +4137,97 @@ static void l3e38(void) __attribute__((unused));
 static void l3e38(void)
 {
 	PROBE("L3e38");
+}
+
+/* JT[1064] (CODE 5 + 0x4992) — hit-test? L70e0 calls this after
+ * computing scaled coords. Returns short — non-zero means the
+ * activate processed something and we should not stamp the
+ * modifier slot. PROBE-only stub for now. */
+static short jt1064(long msg, long scaled, short flag) __attribute__((unused));
+static short jt1064(long msg, long scaled, short flag)
+{
+	PROBE("jt1064");
+	(void)msg; (void)scaled; (void)flag;
+	return 0;
+}
+
+/* L70e0 (CODE 4 + 0x70e0) — activateEvt arm.
+ *
+ *   long  msg  = event.message;
+ *   short high = (short)(msg >> 16);
+ *   if (high != 0) {                          // activate (vs deactivate)
+ *       // Pick the window's port-data ptr based on color QD flag:
+ *       //   color: deref window+2 (Handle) twice + 6
+ *       //   mono : window+8 directly
+ *       unsigned char *pd = ...;
+ *       Rect *r = (Rect *)(window + 16);      // port rect
+ *       short v = (r->bottom - r->top  + -285) / 2
+ *                 - *(short *)(pd + 2);
+ *       short h = (r->right  - r->left + -100) / 3
+ *                 - *(short *)pd;
+ *       if (JT[1064](msg, (long)h:v, 0) != 0)
+ *           return;                           // handled; skip modifier stamp
+ *       g_a5_-808 = (short)(msg & 0xFFFF);    // stamp low word
+ *   } else {
+ *       g_a5_-808 = (short)(msg & 0xFFFF);    // deactivate: just stamp
+ *   }
+ *
+ * Note: g_a5_-808 is the same slot jt1121 reads-and-clears. The
+ * modifier value persists until the engine consumes it.
+ *
+ * The rect math reproduces the asm verbatim — the magic constants
+ * -285 (vertical center offset) and -100 (horizontal center
+ * offset divided by 3) come from the original FRUA layout. */
+static void l70e0(EventRecord *ev)
+{
+	long           msg;
+	long           window_long;
+	unsigned char *port_data;
+	Rect          *port_rect;
+	short          v, h;
+	long           hv_pair;
+	short          ret;
+
+	PROBE("L70e0");
+	if (ev == NULL)
+		return;
+	msg = (long)ev->message;
+	if ((msg & 0xFFFF0000L) == 0) {
+		/* Deactivate — just stamp the modifier slot. */
+		g_a5_word(-808) = (short)(msg & 0xFFFFL);
+		return;
+	}
+
+	/* Activate path. */
+	window_long = g_a5_long(-2578);
+	if (window_long == 0) {
+		g_a5_word(-808) = (short)(msg & 0xFFFFL);
+		return;
+	}
+
+	if (g_a5_2347 != 0) {
+		/* Color QD — entry+2 is a Handle, deref twice + 6 bytes. */
+		void **handle = *(void ***)((unsigned char *)(uintptr_t)window_long + 2);
+		port_data = (handle != NULL && *handle != NULL)
+		            ? ((unsigned char *)*handle + 6)
+		            : NULL;
+	} else {
+		port_data = (unsigned char *)(uintptr_t)window_long + 8;
+	}
+
+	port_rect = (Rect *)(uintptr_t)(window_long + 16);
+	v = (short)((port_rect->bottom - port_rect->top + -285) / 2);
+	h = (short)((long)(port_rect->right - port_rect->left + -100) / 3);
+	if (port_data != NULL) {
+		v -= *(short *)(port_data + 2);
+		h -= *(short *)port_data;
+	}
+
+	hv_pair = ((long)h << 16) | (long)(unsigned short)v;
+	ret = jt1064(msg, hv_pair, (short)0);
+	if (ret != 0)
+		return;
+	g_a5_word(-808) = (short)(msg & 0xFFFFL);
 }
 
 /* L7090 (CODE 4 + 0x7090) — updateEvt arm.
