@@ -2760,6 +2760,35 @@ static short l31b8(short *out_y, short *out_x)
 	return jt1132(out_y, out_x);
 }
 
+/* L13e8 (CODE 3 + 0x13e8, CODE-local) — keyboard shortcut matcher.
+ *
+ *   short L13e8(short shortcut, short key);
+ *
+ * Body:
+ *   if (shortcut == 0)        return 0;             // no shortcut
+ *   if (shortcut < 32)        return key == (shortcut + 256) ? -1 : 0;
+ *                                                    // function-key match
+ *   //  else (shortcut >= 32, ASCII): toupper(shortcut) +
+ *   //  JT[1] inline-table dispatch (Return / Escape /
+ *   //  printable compare via L46b2). Deferred.
+ *
+ * Partial lift: the common case (shortcut == 0, i.e. "this DLItem
+ * has no keyboard shortcut") is handled correctly, returning 0.
+ * Function-key match for shortcut < 32 is also lifted faithfully.
+ * The ASCII-shortcut branch falls through to "no match" (0) until
+ * the JT[1] inline-table dispatch + L46b2 (toupper) land. */
+static int l13e8(short shortcut, short key) __attribute__((unused));
+static int l13e8(short shortcut, short key)
+{
+	PROBE("L13e8");
+	if (shortcut == 0)
+		return 0;
+	if (shortcut < 32)
+		return (key == (short)(shortcut + 256)) ? -1 : 0;
+	/* ASCII shortcut path deferred — see comment above. */
+	return 0;
+}
+
 /* L1676 (CODE 3 + 0x1676) — base DLItem method handler. Every
  * shape handler (jt376..jt382) delegates un-recognized cmds here
  * via its JT[3] default arm. Lifted from L1676's own JT[3] (min=1
@@ -2902,7 +2931,37 @@ static short l1676(unsigned char *rec, short cmd, ...)
 		action(item_index);
 		return 0;
 	}
-	case 5:  PROBE("L1676:cmd=5-select");  break;
+	case 5: {
+		/* L1802 — keyboard select arm. Fires from L2d3e Phase 5
+		 * (Return-key path) walking DLItems to find one whose
+		 * shortcut matches the pressed key.
+		 *
+		 *   if (rec[28] & 0x03)                    // disabled / special
+		 *       return 0;
+		 *   if (L13e8(rec[29], key))   return 1;   // primary shortcut
+		 *   if (L13e8(rec[30], key))   return 1;   // secondary shortcut
+		 *   return 0;
+		 *
+		 * rec[29] and rec[30] are 8-bit shortcut codes seeded by
+		 * cmd=32 / cmd=33 (see further down). L13e8 is a partial
+		 * lift — handles the "no shortcut configured" path; the
+		 * ASCII / function-key dispatch is deferred. */
+		short key;
+		va_list ap;
+		unsigned char *rec_b = (unsigned char *)rec;
+
+		PROBE("L1676:cmd=5-select");
+		if ((rec_b[28] & 0x03) != 0)
+			return 0;
+		va_start(ap, cmd);
+		key = (short)va_arg(ap, int);
+		va_end(ap);
+		if (l13e8((short)(signed char)rec_b[29], key) != 0)
+			return 1;
+		if (l13e8((short)(signed char)rec_b[30], key) != 0)
+			return 1;
+		return 0;
+	}
 	case 32: PROBE("L1676:cmd=32-set29");  break;
 	case 33: PROBE("L1676:cmd=33-set30");  break;
 	case 34: PROBE("L1676:cmd=34-set4");   break;
