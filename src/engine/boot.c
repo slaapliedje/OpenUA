@@ -4599,36 +4599,67 @@ static void l6cba(EventRecord *ev)
 /* Forward — l0004 lifts further down (used by L690e + L6dd0). */
 static void l0004(long menu_selection);
 
+/* L6b26 (CODE 4 + 0x6b26) — inContent click body.
+ *
+ *   if (FrontWindow() != which) { SelectWindow(which); return; }
+ *   if (which != g_a5_-2578)    return;             // not our window
+ *   Point pt = ev.where;
+ *   GlobalToLocal(&pt);
+ *   if (g_a5_-2346) { pt.v >>= 1; pt.h >>= 1; }     // half-scale
+ *   g_a5_-912 = pt.h;
+ *   g_a5_-910 = pt.v;
+ *   g_a5_-901 = 1;                                  // click captured
+ *   g_a5_-904 = 1;
+ *   g_a5_-902 = (ev.modifiers & 0x02) ? 1 : 0;      // shift held
+ *
+ * Falcon HAL has no GlobalToLocal yet — ev.where is treated as
+ * local (single window at origin). */
+static void l6b26(EventRecord *ev, WindowPtr which) __attribute__((unused));
+static void l6b26(EventRecord *ev, WindowPtr which)
+{
+	short h, v;
+
+	PROBE("L6b26");
+	if (ev == NULL)
+		return;
+	if ((long)(uintptr_t)FrontWindow() != (long)(uintptr_t)which) {
+		SelectWindow(which);
+		return;
+	}
+	if ((long)(uintptr_t)which != g_a5_long(-2578))
+		return;
+
+	h = ev->where.h;
+	v = ev->where.v;
+	if (g_a5_byte(-2346) != 0) {
+		v >>= 1;
+		h >>= 1;
+	}
+	g_a5_word(-912) = h;
+	g_a5_word(-910) = v;
+	g_a5_byte(-901) = 1;
+	g_a5_byte(-904) = 1;
+	g_a5_byte(-902) = (ev->modifiers & 0x02) ? 1 : 0;
+}
+
 /* L690e (CODE 4 + 0x690e) — mouseDown arm.
  *
- * L725c case-1 dispatch. Mac body:
+ * L725c case-1 dispatch. Cases:
  *
- *   WindowPtr which;
- *   short part = FindWindow(event.where, &which);
- *   switch (part) {
- *       case 0:                                          // inDesk
- *       default:    break;                               // ignore
- *       case 1:     MenuSelect path (lifted below)
- *       case 2:     SystemClick(event, which);           // desk acc
- *       case 3:     in-content body — capture coords,    // → L6b26
- *                   route to engine click handler.
- *                   Deferred — 100+ lines of port/scale/
- *                   rect math + jt1064 dispatch.
- *       case 4:     drag title bar — calls DragWindow    // → L698e
- *                   then re-pumps via L6cb6.
- *                   Deferred.
- *       case 5:     grow box — GrowWindow + SizeWindow
- *                   Deferred.
- *       case 6:     close box — TrackGoAway dispatch
- *                   Deferred.
- *       case 7/8:   zoom in/out — TrackBox + ZoomWindow
- *                   Deferred.
- *   }
+ *   0   inDesk      — ignore
+ *   1   inMenuBar   — MenuSelect → L0004 → HiliteMenu(0)
+ *   2   inSysWindow — Mac DA system (no-op on Atari)
+ *   3   inContent   — L6b26 capture click
+ *   4   inDrag      — drag title bar (deferred)
+ *   5   inGrow      — falls through to L6b26 for our window
+ *   6   inGoAway    — TrackGoAway + CloseWindow
+ *   7/8 zoom in/out — TrackBox + SizeWindow (deferred)
  *
- * Level-1 lift: case 1 (menu bar) lifted fully so command keys
- * and menu picks route through. Other cases tagged with a probe
- * marker — they require deeper window-manager state we haven't
- * lifted yet (window list, content rects, page descriptors). */
+ * Cases 4 (inDrag) and 7/8 (zoom) involve substantial Mac-style
+ * window-management math (drag region, zoom rect computation)
+ * that doesn't map well to the Falcon HAL's single-window setup.
+ * Tagged with arm-specific PROBE markers so the trace shows what
+ * fires; the actual drag/zoom is a HAL job once we have it. */
 static void l690e(EventRecord *ev) __attribute__((unused));
 static void l690e(EventRecord *ev)
 {
@@ -4658,16 +4689,25 @@ static void l690e(EventRecord *ev)
 		(void)which;
 		break;
 	case 3:                                    /* inContent */
-		PROBE("L690e:content-deferred");
+		l6b26(ev, which);
 		break;
 	case 4:                                    /* inDrag */
 		PROBE("L690e:drag-deferred");
 		break;
 	case 5:                                    /* inGrow */
-		PROBE("L690e:grow-deferred");
+		/* Mac falls through to inContent for our window; for
+		 * other windows it just selects. Falcon doesn't have
+		 * resizeable windows, so this is the right shape. */
+		if ((long)(uintptr_t)which == g_a5_long(-2578)) {
+			l6b26(ev, which);
+		} else if ((long)(uintptr_t)FrontWindow()
+		           != (long)(uintptr_t)which) {
+			SelectWindow(which);
+		}
 		break;
 	case 6:                                    /* inGoAway */
-		PROBE("L690e:goaway-deferred");
+		if (TrackGoAway(which, ev->where))
+			CloseWindow(which);
 		break;
 	case 7: case 8:                            /* inZoomIn/Out */
 		PROBE("L690e:zoom-deferred");
