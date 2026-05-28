@@ -337,13 +337,27 @@ static short jt398(const char *path, short flags)
 	l45d6(buf, path);
 	return l328e(buf, 0, flags);
 }
-static void  jt411(short status)                   { PROBE("jt411"); }            /* CODE 3 + 0x3de2 */
+/* JT[411] (CODE 3 + 0x3de2) — "error status reporter" via JT[1042].
+ * Mac body sets up a 50-byte local frame, stashes the status arg
+ * into a slot, then calls JT[1042](0, &local_buf, 0) and returns
+ * -1 if the dialog reports cancel, else 0. JT[1042] is a dialog
+ * runner. PROBE stub since the dialog manager path is deferred —
+ * caller (boot-error reporter at line 497) discards the return. */
+static void  jt411(short status)                   { PROBE("jt411"); (void)status; }  /* CODE 3 + 0x3de2 */
 /* jt480 is the string-table setter — lifted in str.c; ua_main forwards
  * its own arg1 / arg2 here so the THINK C runtime's (count, table) flows
  * in. PROBE-instrumented inside str.c if needed for tracing; the engine
  * call path here just uses the real symbol. */
+/* JT[445] (CODE 3 + 0x294e) — Mac body is empty (just rts).
+ * Genuinely a no-op in the original; PROBE label for tracing
+ * which paths reach it. */
 static void  jt445(void)                           { PROBE("jt445"); }            /* CODE 3 + 0x294e */
-static void  jt415(short a)                        { PROBE("jt415"); }            /* CODE 3 + 0x37da */
+/* JT[415] (CODE 3 + 0x37da) — wraps _ExitToShell. The Mac call
+ * tears down the application and returns to Finder. No Atari
+ * equivalent in the compat shim yet; treat as a no-op so boot
+ * code doesn't accidentally exit. Firing this in production
+ * should call exit() / Pterm0() once the shutdown path lifts. */
+static void  jt415(short a)                        { PROBE("jt415"); (void)a; }    /* CODE 3 + 0x37da */
 /* JT[1129] (CODE 4 + 0x4756) — 1-case JT[3] switch on `a`.
  *
  *   if (a == 1) g_a5_2344 = (unsigned char)a;
@@ -429,6 +443,8 @@ static void  jt989(void (*handler)(void), short flag,
 static void  jt361(short a)                        { PROBE("jt361"); }            /* CODE 8 + 0x71ec */
 static void  jt919(void)                           { PROBE("jt919"); }            /* CODE 12 + 0x1b12 */
 static int   jt931(void)                           { PROBE("jt931"); return 0; }  /* CODE 12 + 0x430c */
+/* JT[949] (CODE 20 + 0x77a2) — Mac body is just `rts`. Genuinely
+ * a no-op placeholder hook. */
 static void  jt949(void)                           { PROBE("jt949"); }            /* CODE 20 + 0x77a2 */
 static int   jt315(void)
 {
