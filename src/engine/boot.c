@@ -1613,9 +1613,31 @@ static long jt468(short tag)
 	return g_a5_10270[id];
 }
 
-/* L309c (CODE 5 + 0x309c, local) — the actual channel-write that
- * jt1001 wraps. Reads four args (channel, mode, ptr, flag) and pokes
- * the engine's 8000-page channel array. PROBE-only until lifted. */
+/* L309c (CODE 5 + 0x309c) = JT[999] — render scaled bitmap into
+ * channel.
+ *
+ * Despite earlier "channel-write" guess, this is a 200+ line
+ * scaled-blit dispatcher. Reads four args (target_x, target_y,
+ * bitmap_handle, mode), then:
+ *
+ *   jt1135(arg_x, arg_y, &scaled_x, &scaled_y);   // coord remap
+ *   long bytes_needed = L2856(...);                // font/bitmap metric
+ *   if (bytes_needed != 0) {
+ *       L4d88();                                    // flush invalrect
+ *       arg_x -= scaled_x; arg_y -= scaled_y;       // adjust origin
+ *       int half = (fp@(-1) & 0x0F) == 9;          // half-pixel mode
+ *       if (half) ...                              // half-pixel branch
+ *       ... 150+ more lines of pixel-walk, mask,
+ *       ... clip-region intersection, color-table
+ *       ... lookups, _BlockMove into the page descriptor's
+ *       ... bits ptr (from g_a5_-2570[N].entry+2).
+ *   }
+ *
+ * Stays a PROBE stub — the full body needs the engine's font
+ * cache + a Falcon-side pixel destination. With jt1001 stubbing
+ * the 4 calls in boot to "do nothing," the pixel rendering is
+ * deferred to the display HAL phase. The "channel" framing was
+ * a misnomer — it's a pixmap blit, not audio. */
 static void l309c(short a, short b, long c, short d)
 {
 	PROBE("L309c");
