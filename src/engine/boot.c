@@ -3984,21 +3984,126 @@ static signed char l6804(void)
 	return 1;
 }
 
+/* L74ae / L747a / L7690 — deeper menu-bar plumbing the jt1145 /
+ * jt1151 paths call. PROBE-only stubs for now; their bodies sit
+ * below this region in CODE 4 and walk MenuMgr / Window state. */
+static void l74ae(void) __attribute__((unused));
+static void l74ae(void)
+{
+	PROBE("L74ae");
+}
+
+static void l747a(void *p1, short p2, short p3) __attribute__((unused));
+static void l747a(void *p1, short p2, short p3)
+{
+	PROBE("L747a");
+	(void)p1; (void)p2; (void)p3;
+}
+
+static void l7690(short a, short b, short c) __attribute__((unused));
+static void l7690(short a, short b, short c)
+{
+	PROBE("L7690");
+	(void)a; (void)b; (void)c;
+}
+
+/* L0f48 (CODE 5 + 0x0f48, CODE-local) — count non-empty menu slots.
+ *
+ * Walks a 5-entry table of 14-byte records at g_a5_-4848 and
+ * returns how many have a non-zero first long. Used by jt983 to
+ * decide whether the menu bar deserves to be shown (> 1 entry
+ * present). */
+static short l0f48(void) __attribute__((unused));
+static short l0f48(void)
+{
+	short count = 0;
+	short i;
+
+	PROBE("L0f48");
+	for (i = 0; i < 5; i++) {
+		long *entry = (long *)(g_a5_buf(-4848) + (long)i * 14);
+		if (*entry != 0)
+			count++;
+	}
+	return count;
+}
+
+/* JT[1145] (CODE 4 + 0x7628) — show menu bar.
+ *
+ *   if (g_a5_-779) { L74ae(); g_a5_-779 = 0; }
+ *   if (g_a5_-780 == 0) {
+ *       g_a5_-780 = 1;
+ *       g_a5_-266 = 2500;                       // some timeout
+ *       L747a(&g_a5_-216, 6, 0);                // schedule paint
+ *   }
+ *
+ * Idempotent on the visible flag (-780): only schedules once. The
+ * actual visual change happens inside L747a; lifted as a stub
+ * here so the state bits move correctly. */
+static void jt1145(void) __attribute__((unused));
+static void jt1145(void)
+{
+	PROBE("jt1145");
+	if (g_a5_byte(-779) != 0) {
+		l74ae();
+		g_a5_byte(-779) = 0;
+	}
+	if (g_a5_byte(-780) == 0) {
+		g_a5_byte(-780) = 1;
+		g_a5_word(-266) = (short)2500;
+		l747a(g_a5_buf(-216), (short)6, (short)0);
+	}
+}
+
+/* JT[1151] (CODE 4 + 0x765c) — hide menu bar.
+ *
+ *   if (g_a5_-780) {
+ *       g_a5_-264 = g_a5_-256 = g_a5_-248 = g_a5_-240 = 0;
+ *       L74ae();
+ *       g_a5_-780 = 0;
+ *   } else {
+ *       L7690(0, 0, 0);                         // alternate cleanup
+ *   }
+ *
+ * Symmetric with jt1145 — clears the cached menu-bar geometry
+ * (4 longs at -264..-228) if the bar was visible. */
+static void jt1151(void) __attribute__((unused));
+static void jt1151(void)
+{
+	PROBE("jt1151");
+	if (g_a5_byte(-780) != 0) {
+		g_a5_long(-264) = 0;
+		g_a5_long(-256) = 0;
+		g_a5_long(-248) = 0;
+		g_a5_long(-240) = 0;
+		l74ae();
+		g_a5_byte(-780) = 0;
+	} else {
+		l7690((short)0, (short)0, (short)0);
+	}
+}
+
 /* JT[983] (CODE 5 + 0x0f74) — menu-bar visibility setter.
  *
- *   void jt983(short arg);
- *   g_a5_-4776 = (signed char)arg;       // cache the desired state
- *   if (arg == 0)        jt1151();       // hide path
- *   else if (l0f48() > 1) jt1145();      // show path (gated on count)
+ *   g_a5_-4776 = (signed char)arg;             // cache state
+ *   if (arg == 0)             jt1151();        // hide
+ *   else if (l0f48() > 1)     jt1145();        // show, gated on count
  *
- * PROBE-only for now: L71ac and the menu manager wire through
- * here, but jt1151 / jt1145 / l0f48 are unlifted. Caching the arg
- * lets future paths observe the requested state. */
+ * Now functional end-to-end: L71ac's suspend/resume arm drives
+ * jt983 → jt1151 / jt1145, which flip the engine's menu-bar
+ * visibility flags. Real visual changes still live inside L74ae /
+ * L747a (stubbed below). */
 static void jt983(short arg) __attribute__((unused));
 static void jt983(short arg)
 {
 	PROBE("jt983");
 	g_a5_byte(-4776) = (signed char)(arg & 0xff);
+	if ((arg & 0xff) == 0) {
+		jt1151();
+	} else {
+		if (l0f48() > 1)
+			jt1145();
+	}
 }
 
 /* L24aa (CODE 4 + 0x24aa) = JT[1178] — menu repaint / item refresh.
