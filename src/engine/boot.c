@@ -2078,13 +2078,65 @@ static void jt1135(short v1, short v2, short *out1, short *out2)
 		*out2 = (v2 > 6000) ? (short)((v2 - 8000) * scale) : v2;
 }
 
+/* L2856 (CODE 5 + 0x2856) — font-metric extract. Looks up the
+ * sized font for (handle, size), copies an 8-byte metric blob
+ * into out_8bytes, and returns a pointer past the blob (or NULL
+ * on failure). Mac body validates the font library via L37aa
+ * (size >= 0 path) then memcpy's via JT[406].
+ *
+ * Port stub writes a synthetic 8-byte metric blob so callers
+ * (JT[1005] mainly) can produce approximate text rects without
+ * a real font system. The blob's layout (m68k big-endian):
+ *
+ *   [0..1] word  height        — total glyph height
+ *   [2..3] word  ascent        — baseline distance below top
+ *   [4..5] word  x_bearing     — left-bearing offset
+ *   [6]    byte  width_index   — char width (shifted by mode in
+ *                                JT[1005] to get pixel extent)
+ *   [7]    byte  pad
+ *
+ * Once a real font system lands, swap this for the actual
+ * lookup; JT[1005]'s arithmetic stays the same. */
+static long l2856(long font_handle, short size, void *out_8bytes)
+                                                __attribute__((unused));
+static long l2856(long font_handle, short size, void *out_8bytes)
+{
+	static const unsigned char fake_metrics[8] = {
+		0x00, 0x0e,   /* height      = 14 */
+		0x00, 0x0c,   /* ascent      = 12 */
+		0x00, 0x00,   /* x_bearing   =  0 */
+		0x06, 0x00    /* width_index =  6 (→ 48-pixel char box after lslw #3) */
+	};
+
+	PROBE("L2856");
+	(void)font_handle; (void)size;
+	if (out_8bytes == NULL)
+		return 0;
+	jt406(out_8bytes, fake_metrics, 8);
+	/* Real return is (font_ptr + 8); we just need non-NULL so
+	 * the caller continues into bounds computation. */
+	return (long)(uintptr_t)(fake_metrics + 8);
+}
+
 /* JT[1005] (CODE 5 + 0x31fc) — text-style bounding rect. Given
- * (x, y, style, size), measure the rendered glyph extent and
- * return (top, left, bottom, right) through the 4 out-pointers.
- * The Mac body calls JT[468] (font lookup), L2856, JT[1135] (coord
- * scale) and JT[1200] (style-decode); none of those are in our
- * port yet. PROBE stub zeros the rect so jt382's cmd=2 hit-test
- * cleanly misses until the font system arrives. */
+ * (x, y, style, size), look up font metrics and write the
+ * (top, left, bottom, right) of the rendered glyph extent.
+ *
+ * Flow (lifted from L31fc):
+ *   1. font_handle = JT[468](style)
+ *   2. ptr = L2856(font_handle, size, &fontinfo[8])
+ *      — if ptr == NULL the rect stays whatever the caller had,
+ *        in our port that's the caller's zero-init.
+ *   3. (x, y) = JT[1135](x, y) — scale design coords to screen
+ *   4. y -= ascent, x -= x_bearing
+ *   5. right_x = x + width_index << (display-mode shift via
+ *      JT[1200]: 3 in mode 0, mode-value in modes 1/3)
+ *   6. bottom_y = y + height
+ *   7. Clip the four edges to (g_a5_3054..3050) (top..bottom)
+ *      and (g_a5_3056..3052) (left..right) via JT[397] (max)
+ *      and JT[413] (min).
+ *   8. If the clipped rect is degenerate (top>=bottom or
+ *      left>=right) zero all four outputs. */
 static void jt1005(short x, short y, short style, short size,
                    short *out_top, short *out_left,
                    short *out_bottom, short *out_right)
@@ -2093,12 +2145,59 @@ static void jt1005(short x, short y, short style, short size,
                    short *out_top, short *out_left,
                    short *out_bottom, short *out_right)
 {
+	long           font_handle;
+	unsigned char  fontinfo[8];
+	long           ptr;
+	short          sx, sy;
+	short          height, ascent, x_bearing;
+	unsigned char  width_index;
+	short          right_x, bottom_y;
+	short          mode;
+
 	PROBE("jt1005");
-	(void)x; (void)y; (void)style; (void)size;
-	if (out_top    != NULL) *out_top    = 0;
-	if (out_left   != NULL) *out_left   = 0;
-	if (out_bottom != NULL) *out_bottom = 0;
-	if (out_right  != NULL) *out_right  = 0;
+	if (out_top == NULL || out_left == NULL ||
+	    out_bottom == NULL || out_right == NULL)
+		return;
+
+	font_handle = jt468(style);
+	ptr = l2856(font_handle, size, fontinfo);
+	if (ptr == 0)
+		return;
+
+	/* Scale design coords → screen coords. */
+	sx = x; sy = y;
+	jt1135(sx, sy, &sx, &sy);
+
+	height      = *(short *)(fontinfo + 0);
+	ascent      = *(short *)(fontinfo + 2);
+	x_bearing   = *(short *)(fontinfo + 4);
+	width_index = fontinfo[6];
+
+	/* (sx, sy) is the post-scale glyph anchor. Mac's first arg
+	 * (rec[16]) is the Y coord (Point (v, h) order); jt1135
+	 * preserves that mapping. So sx here holds Y, sy holds X. */
+	sx -= ascent;
+	sy -= x_bearing;
+	bottom_y = sx + height;
+
+	mode = (short)jt1200();
+	if (mode == 0)
+		right_x = (short)(sy + ((short)width_index << 3));
+	else
+		right_x = (short)(sy + ((short)width_index << mode));
+
+	*out_top    = jt397(sx,       g_a5_3054);
+	*out_left   = jt397(sy,       g_a5_3056);
+	*out_bottom = jt413(bottom_y, g_a5_3050);
+	*out_right  = jt413(right_x,  g_a5_3052);
+
+	/* Validate: degenerate rect → zero all four outs. */
+	if (*out_top >= *out_bottom || *out_left >= *out_right) {
+		*out_top    = 0;
+		*out_left   = 0;
+		*out_bottom = 0;
+		*out_right  = 0;
+	}
 }
 
 /* JT[1139] (CODE 4 + 0x785c) — grid-coord hit-test. Given an item
