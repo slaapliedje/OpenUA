@@ -4000,23 +4000,71 @@ static signed char l6804(void)
 	return 1;
 }
 
-/* L74ae / L747a / L7690 — deeper menu-bar plumbing the jt1145 /
- * jt1151 paths call. PROBE-only stubs for now; their bodies sit
- * below this region in CODE 4 and walk MenuMgr / Window state. */
+/* jt1044 (CODE 5 + 0x5716), jt1050 (CODE 5 + 0x59ee) — Window
+ * Manager helpers L747a / L74ae call. PROBE stubs; both involve
+ * window allocation / disposal which the Falcon HAL doesn't
+ * provide yet. */
+static short jt1044(char a, void *b, short c) __attribute__((unused));
+static short jt1044(char a, void *b, short c)
+{
+	PROBE("jt1044");
+	(void)a; (void)b; (void)c;
+	return 0;
+}
+static short jt1050(short a, short b) __attribute__((unused));
+static short jt1050(short a, short b)
+{
+	PROBE("jt1050");
+	(void)a; (void)b;
+	return 0;
+}
+
+/* L74ae (CODE 4 + 0x74ae) — refresh after menu-bar window close.
+ *
+ *   if (g_a5_-180 > 0) {
+ *       jt1050(-4, 0);                       // dispose window?
+ *       if (g_a5_-779)
+ *           MBarHeight = 0;                  // hide system menu bar
+ *   }
+ *
+ * The MBarHeight write (Mac low-mem global at 0x280) is skipped
+ * — Atari has no equivalent global and writing to absolute 0x280
+ * would corrupt random low memory. The Falcon HAL handles menu
+ * bar visibility separately. */
 static void l74ae(void) __attribute__((unused));
 static void l74ae(void)
 {
 	PROBE("L74ae");
+	if (g_a5_word(-180) <= 0)
+		return;
+	jt1050((short)-4, (short)0);
+	/* MBarHeight (Mac 0x280) write skipped — no Atari equivalent. */
 }
 
-/* L747a (CODE 4, near L74ae) — schedule paint with bounds.
- * Takes (ptr, long_a, long_b) — caller cleanup is 12 bytes.
- * Stub for now; real body lives below in the menu manager. */
+/* L747a (CODE 4 + 0x747a) — schedule menu-bar paint job.
+ *
+ * Sets up the paint descriptor cluster around g_a5_-196 then
+ * calls jt1044(1, &g_a5_-196, 0) to enqueue it:
+ *
+ *   g_a5_-184 = c;                           // 3rd arg
+ *   g_a5_-172 = -4;                          // constant
+ *   g_a5_-164 = ptr;                         // 1st arg
+ *   g_a5_-160 = b;                           // 2nd arg
+ *   g_a5_-152 = 0;
+ *   jt1044(1, &g_a5_-196, 0);
+ *
+ * Called by jt1145 (l747a(&g_a5_-216, 6, 0)) and jt1122
+ * (l747a(&g_a5_-210, 14, 0)). */
 static void l747a(void *p1, long p2, long p3) __attribute__((unused));
 static void l747a(void *p1, long p2, long p3)
 {
 	PROBE("L747a");
-	(void)p1; (void)p2; (void)p3;
+	g_a5_long(-184) = p3;
+	g_a5_word(-172) = (short)-4;
+	g_a5_long(-164) = (long)(uintptr_t)p1;
+	g_a5_long(-160) = p2;
+	g_a5_word(-152) = 0;
+	(void)jt1044((char)1, g_a5_buf(-196), (short)0);
 }
 
 /* L7690 is the same address as JT[1122] — same function, two
