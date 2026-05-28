@@ -45,6 +45,7 @@
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
+#include "menus.h"            /* MenuKey (L6dd0 keyDown arm)         */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -3924,14 +3925,16 @@ static void l4d88(void)
 	PROBE("L4d88");
 }
 
-/* Forward — l71ac / l7090 / l70e0 / l7204 / l6cba lift further
- * down. l725c routes cases 1/6/7/8/15 (mouseDown/updateEvt/
- * activateEvt/osEvt/diskEvt). case 2 (mouseUp) routes to l6cba. */
+/* Forward — l71ac / l7090 / l70e0 / l7204 / l6cba / l6dd0 lift
+ * further down. l725c routes cases 1 (mouseDown — deferred),
+ * 2 (mouseUp), 3/5 (keyDown/autoKey), 6 (updateEvt),
+ * 7 (activateEvt), 8 (osEvt), 15 (diskEvt). */
 static void l71ac(EventRecord *ev);
 static void l7090(EventRecord *ev);
 static void l70e0(EventRecord *ev);
 static void l7204(EventRecord *ev);
 static void l6cba(EventRecord *ev);
+static void l6dd0(EventRecord *ev);
 
 /* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
  *
@@ -3976,8 +3979,10 @@ static void l725c(short mask)
 	case 2:                                    /* mouseUp */
 		l6cba(&ev);
 		break;
-	case 1:                                    /* mouseDown */
 	case 3: case 5:                            /* keyDown / autoKey */
+		l6dd0(&ev);
+		break;
+	case 1:                                    /* mouseDown */
 		PROBE("L725c:arm-deferred");
 		break;
 	default:
@@ -4431,6 +4436,118 @@ static void l6cba(EventRecord *ev)
 	g_a5_word(-906) = jt413(jt397((short)0, v), l04de());
 	g_a5_byte(-903) = 1;
 	g_a5_byte(-901) = 0;
+}
+
+/* JT[391] (CODE 3 + 0x3702) — isprint test for keyDown char.
+ * Returns non-zero if the char should be treated as a "printable"
+ * key (mapped to the 256+ range in g_a5_-818); zero for control
+ * chars (mapped to bits 0..4 raw). PROBE-only stub for now —
+ * returns 0 so all chars take the control-char path. */
+static signed char jt391(short ch) __attribute__((unused));
+static signed char jt391(short ch)
+{
+	PROBE("jt391");
+	(void)ch;
+	return 0;
+}
+
+/* JT[422] (CODE 3 + 0x468c) — char → 0-based printable index.
+ * Companion to jt391. PROBE-only stub returns 0. */
+static short jt422(short ch) __attribute__((unused));
+static short jt422(short ch)
+{
+	PROBE("jt422");
+	(void)ch;
+	return 0;
+}
+
+/* L0004 (CODE 4 + 0x0004) — segment entry / menu dispatch. Called
+ * from L6dd0 with the long result of MenuKey when a Cmd-key
+ * combo hits a menu item. PROBE-only stub — the segment-entry
+ * dispatcher is complex (linkw fp,#-268, multi-arm JT[3]). */
+static void l0004(long menu_selection) __attribute__((unused));
+static void l0004(long menu_selection)
+{
+	PROBE("L0004");
+	(void)menu_selection;
+}
+
+/* L6dd0 (CODE 4 + 0x6dd0) — keyDown / autoKey arm.
+ *
+ * L725c routes case 3 (keyDown) and case 5 (autoKey) here.
+ *
+ * Mac body (partial lift):
+ *   if (event.modifiers & 0x01) {              // Cmd held
+ *       long sel = MenuKey((char)(event.message_byte_5));
+ *       if ((sel >> 16) != 0) {                // menu match
+ *           L0004(sel);                        // dispatch
+ *           return;
+ *       }
+ *       // No menu match: check printable / control class
+ *       char ch = (char)(event.message & 0xff);
+ *       if (jt391(ch))
+ *           g_a5_-818 = jt422(ch) + 255;
+ *       else
+ *           g_a5_-818 = ch & 0x1f;             // ctrl-letter
+ *       g_a5_-820 = 1;
+ *   } else {
+ *       g_a5_-820 = 1;
+ *       short lo = event.message & 0xFFFF;
+ *       JT[2] dispatch on lo (25-entry table mapping Mac scan
+ *       codes to FRUA logical keys 256..286);
+ *       // default arm:
+ *       JT[2] dispatch on (lo & 0xFF) for arrow keys (258/260/
+ *       262/264) and Tab (9);
+ *       // default default: g_a5_-818 = lo & 0x7F;
+ *   }
+ *
+ * Partial lift: the JT[2] tables decode 25+ Mac-specific scan
+ * codes mapping to FRUA key codes 256..286 (function keys F1..)
+ * and a smaller default table for arrow keys. Lifted as the
+ * common case: low byte stored as ASCII into g_a5_-818, special
+ * scan codes still need the per-entry table decoded from the
+ * inline JT[2] payload. */
+static void l6dd0(EventRecord *ev) __attribute__((unused));
+static void l6dd0(EventRecord *ev)
+{
+	long  msg;
+	short ch;
+	short lo;
+	long  sel;
+
+	PROBE("L6dd0");
+	if (ev == NULL)
+		return;
+
+	msg = (long)ev->message;
+	lo  = (short)(msg & 0xFFFFL);
+	ch  = (short)(msg & 0xFFL);                /* low byte = char */
+
+	if ((ev->modifiers & 0x01) != 0) {
+		/* Cmd-key path. Mac uses byte 5 (low byte of message,
+		 * the char) as the MenuKey input. */
+		sel = MenuKey(ch);
+		if ((sel & 0xFFFF0000L) != 0) {
+			l0004(sel);
+			return;
+		}
+		if (jt391(ch))
+			g_a5_word(-818) = (short)(jt422(ch) + 255);
+		else
+			g_a5_word(-818) = (short)(ch & 0x1f);
+		g_a5_byte(-820) = 1;
+		return;
+	}
+
+	/* Non-Cmd path. */
+	g_a5_byte(-820) = 1;
+
+	/* JT[2] scan-code → FRUA-key map deferred. Default arm
+	 * stores the low byte as ASCII (bit 7 masked). Special
+	 * function keys (F1..F15 → 256..286) and arrow keys
+	 * (258/260/262/264) need the per-entry table decoded
+	 * from the inline JT[2] payload at CODE 4 + 0x6e84. */
+	g_a5_word(-818) = (short)(lo & 0x7F);
 }
 
 /* L7204 (CODE 4 + 0x7204) — diskEvt / high-level event arm.
