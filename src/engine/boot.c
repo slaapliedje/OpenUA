@@ -3465,7 +3465,96 @@ static short  jt1125(short kind, long p1, long p2)
 		return 0;
 	}
 }
-static void   jt1134(void)                        { PROBE("jt1134"); }
+/* L4d88 (CODE 4 + 0x4d88) — flush deferred _InvalRect.
+ *
+ * Tests g_a5_-936 (pending-invalidate count). When non-zero, the
+ * Mac body assembles a rect from cached coords (g_a5_-928 / -926
+ * with a font-metric mul gated by g_a5_-2347), routes it through
+ * L4fae / L4e12 (rect builders) + L5d8c (visibility test), and
+ * traps _InvalRect to mark the area for redraw. Always clears the
+ * pending count and resets the buffer pointer (-940 → -1041).
+ *
+ * Lifted as a PROBE stub: no Quickdraw buffer is wired into the
+ * Falcon display HAL yet, so there's nothing to flush. Promote
+ * to a real lift when the InvalRect dispatch lands. */
+static void l4d88(void)
+{
+	PROBE("L4d88");
+}
+
+/* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
+ *
+ * Calls _WaitNextEvent (preferred — g_a5_-2590 picks the path) or
+ * _SystemTask + _GetNextEvent, then routes the resulting event via
+ * a JT[3] 15-arm switch into the per-event handlers:
+ *
+ *   1 keyDown / 2 keyUp  → L690e
+ *   3 / 5 mouseDown      → L6cba
+ *   6 updateEvt          → L7090
+ *   7 activateEvt        → L70e0
+ *   8 osEvt              → L71ac
+ *  15 diskEvt            → L7204
+ *
+ * Stub for now: real event sources (Hatari mouse / keyboard) still
+ * land in the Toolbox shim; the engine's own dispatcher waits on
+ * the cmd=4 / cmd=5 lifts. */
+static void l725c(short mask)
+{
+	PROBE("L725c");
+	(void)mask;
+}
+
+/* L6804 (CODE 4 + 0x6804) — "are we the front window?" probe.
+ *
+ *   short L6804(void) { return _FrontWindow() == g_a5_-2578; }
+ *
+ * Used by jt1134 to keep yielding to the OS until the engine's
+ * own window regains focus.
+ *
+ * Stub: window Z-order isn't tracked yet, so always report front
+ * so jt1134's event-pump loop exits after one iteration. */
+static signed char l6804(void)
+{
+	PROBE("L6804");
+	return 1;
+}
+
+/* jt1134 (CODE 4 + 0x7980) — yield-to-OS / drain idle paint.
+ *
+ * Structural lift (level 2). The Mac body is:
+ *
+ *   L4d88();                              // flush pending InvalRect
+ *   do {
+ *       do {
+ *           L725c(0x8140);                // pump one event
+ *       } while (g_a5_-1316 != 0);        // ...until dirty queue drains
+ *   } while (!L6804());                   // ...until we're front window
+ *   (TickCount() - g_a5_-130) * 6 / 5;    // result discarded in asm
+ *
+ * 0x8140 is the Toolbox everyEvent mask (sysMask + mouse + key);
+ * the per-event arms inside L725c are deferred until cmd=4 / cmd=5
+ * are lifted. The trailing arithmetic is dead in the original
+ * (d0 is clobbered before rts) — preserved for fidelity in case
+ * a side-effect lives inside JT[4] / JT[7] we haven't found yet.
+ *
+ * Loop collapsed to a single pass: the Mac drains the dirty flag
+ * (g_a5_-1316) by routing each L725c iteration through jt1121 →
+ * L79ec, which clears it. jt1121 is still PROBE-only here, and
+ * THINK C initializes the flag to 0x05 in the DATA blit, so a real
+ * do/while would spin forever waiting on a stubbed event pump.
+ * Restore the loop once the L725c arms + jt1121 land. */
+static void jt1134(void)
+{
+	long elapsed;
+
+	PROBE("jt1134");
+	l4d88();
+	l725c((short)0x8140);
+	(void)g_a5_byte(-1316);     /* dirty check — deferred until l725c lifts */
+	(void)l6804();              /* front-window check — deferred too */
+	elapsed = TickCount() - g_a5_long(-130);
+	(void)((elapsed * 6) / 5);
+}
 static void   jt1153(short arg)                   { PROBE("jt1153");
                                                     (void)arg; }
 /* JT[1146] (CODE 4 + 0x5c82) — paint-flush leaf JT[108] reaches
