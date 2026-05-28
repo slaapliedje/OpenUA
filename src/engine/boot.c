@@ -3924,13 +3924,14 @@ static void l4d88(void)
 	PROBE("L4d88");
 }
 
-/* Forward — l71ac / l7090 / l70e0 / l7204 lift further down. l725c
- * routes cases 8 (osEvt), 6 (updateEvt), 7 (activateEvt), and 15
- * (diskEvt / high-level event) to them. */
+/* Forward — l71ac / l7090 / l70e0 / l7204 / l6cba lift further
+ * down. l725c routes cases 1/6/7/8/15 (mouseDown/updateEvt/
+ * activateEvt/osEvt/diskEvt). case 2 (mouseUp) routes to l6cba. */
 static void l71ac(EventRecord *ev);
 static void l7090(EventRecord *ev);
 static void l70e0(EventRecord *ev);
 static void l7204(EventRecord *ev);
+static void l6cba(EventRecord *ev);
 
 /* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
  *
@@ -3972,7 +3973,10 @@ static void l725c(short mask)
 	case 15:                                   /* diskEvt / high-level */
 		l7204(&ev);
 		break;
-	case 1: case 2:                            /* mouseDown / mouseUp */
+	case 2:                                    /* mouseUp */
+		l6cba(&ev);
+		break;
+	case 1:                                    /* mouseDown */
 	case 3: case 5:                            /* keyDown / autoKey */
 		PROBE("L725c:arm-deferred");
 		break;
@@ -4316,6 +4320,69 @@ static void l71ac(EventRecord *ev)
 		jt983((short)0);
 		l79d4();
 	}
+}
+
+/* L04cc / L04de (CODE 4) — screen-dimension constants gated by
+ * g_a5_-2347 (color QD flag).
+ *   L04cc: 300 mono / 200 color  (vertical screen height)
+ *   L04de: 480 mono / 320 color  (horizontal screen width)
+ *
+ * Used to clamp mouseUp coordinates to the visible screen. */
+static short l04cc(void) __attribute__((unused));
+static short l04cc(void)
+{
+	return (g_a5_2347 != 0) ? (short)200 : (short)300;
+}
+static short l04de(void) __attribute__((unused));
+static short l04de(void)
+{
+	return (g_a5_2347 != 0) ? (short)320 : (short)480;
+}
+
+/* L6cba (CODE 4 + 0x6cba) — mouseUp arm.
+ *
+ * Reached from L725c case 2. Captures the up coordinates clamped
+ * to the visible screen and flags g_a5_-903 so the engine input
+ * loop can read them.
+ *
+ * Mac body:
+ *   if (FrontWindow() != g_a5_-2578)         return;
+ *   Point pt = event.where;
+ *   GlobalToLocal(&pt);
+ *   if (g_a5_-2346) { pt.v >>= 1; pt.h >>= 1; }   // half-scale mode
+ *   g_a5_-908 = clamp(pt.h, 0, L04cc());           // (200 / 300)
+ *   g_a5_-906 = clamp(pt.v, 0, L04de());           // (320 / 480)
+ *   g_a5_-903 = 1;
+ *   g_a5_-901 = 0;
+ *
+ * GlobalToLocal isn't wired in the Falcon HAL yet (no Mac-style
+ * window coordinate translation). Treating ev.where as local
+ * is correct for the engine's single-window setup. The clamps
+ * fire so g_a5_-908 / -906 land within the engine's expected
+ * screen rect even if the raw coords overshoot. */
+static void l6cba(EventRecord *ev) __attribute__((unused));
+static void l6cba(EventRecord *ev)
+{
+	short h, v;
+
+	PROBE("L6cba");
+	if (ev == NULL)
+		return;
+	if ((long)(uintptr_t)FrontWindow() != g_a5_long(-2578))
+		return;
+
+	v = ev->where.v;
+	h = ev->where.h;
+
+	if (g_a5_byte(-2346) != 0) {
+		v >>= 1;
+		h >>= 1;
+	}
+
+	g_a5_word(-908) = jt413(jt397((short)0, h), l04cc());
+	g_a5_word(-906) = jt413(jt397((short)0, v), l04de());
+	g_a5_byte(-903) = 1;
+	g_a5_byte(-901) = 0;
 }
 
 /* L7204 (CODE 4 + 0x7204) — diskEvt / high-level event arm.
