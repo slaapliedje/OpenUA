@@ -2765,18 +2765,20 @@ static short l31b8(short *out_y, short *out_x)
  *   short L13e8(short shortcut, short key);
  *
  * Body:
- *   if (shortcut == 0)        return 0;             // no shortcut
- *   if (shortcut < 32)        return key == (shortcut + 256) ? -1 : 0;
- *                                                    // function-key match
- *   //  else (shortcut >= 32, ASCII): toupper(shortcut) +
- *   //  JT[1] inline-table dispatch (Return / Escape /
- *   //  printable compare via L46b2). Deferred.
+ *   if (shortcut == 0)   return 0;                        // no shortcut
+ *   if (shortcut < 32)   return key == (shortcut+256) ?   // function key
+ *                        -1 : 0;
+ *   // ASCII (shortcut >= 32):
+ *   d0 = shortcut;  JT[1]-dispatch d0:                    // (deferred)
+ *     few special chars            → return 0;
+ *     few special chars            → return 1;
+ *     Return (13) / LF (10) match  → return 1;
+ *     default → return tolower(shortcut) == tolower(key) ? -1 : 0;
  *
- * Partial lift: the common case (shortcut == 0, i.e. "this DLItem
- * has no keyboard shortcut") is handled correctly, returning 0.
- * Function-key match for shortcut < 32 is also lifted faithfully.
- * The ASCII-shortcut branch falls through to "no match" (0) until
- * the JT[1] inline-table dispatch + L46b2 (toupper) land. */
+ * The JT[1] inline dispatch handles a handful of Mac-specific
+ * shortcut codes (Cmd-Q etc.). Deferred. The default ASCII compare
+ * is lifted faithfully and matches case-insensitive — covers the
+ * common printable-key path used by the editor / dialogs. */
 static int l13e8(short shortcut, short key) __attribute__((unused));
 static int l13e8(short shortcut, short key)
 {
@@ -2785,8 +2787,7 @@ static int l13e8(short shortcut, short key)
 		return 0;
 	if (shortcut < 32)
 		return (key == (short)(shortcut + 256)) ? -1 : 0;
-	/* ASCII shortcut path deferred — see comment above. */
-	return 0;
+	return (l46b2(shortcut) == l46b2(key)) ? -1 : 0;
 }
 
 /* L1676 (CODE 3 + 0x1676) — base DLItem method handler. Every
