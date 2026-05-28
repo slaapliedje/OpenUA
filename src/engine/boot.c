@@ -3284,6 +3284,19 @@ void boot_a5_seed_defaults(void)
 	g_a5_long(-126)  = 0;
 	g_a5_long(-130)  = 0;
 
+	/* DATA blit also seeds the L731e event cluster with junk
+	 * (-820 = 0xbb mode flag, -810 = 0xff / -809 = 0xaa "event
+	 * ready" flags, -814 = 0xbbbbbbXX "event handle" pointer).
+	 * The Mac fills these from IRQ-driven input; without that
+	 * path lifted, jt1118 reads the stale values and reports
+	 * "continue polling" forever, which makes L2d3e's Phase 5
+	 * fire on every iteration. Zero them so the cluster looks
+	 * idle until real events arrive. */
+	g_a5_byte(-820) = 0;
+	g_a5_byte(-810) = 0;
+	g_a5_byte(-809) = 0;
+	g_a5_long(-814) = 0;
+
 	/* JT[1083] PRNG seed. A non-zero seed is required — with state
 	 * == 0 the LCG locks at state = 1 forever (state * mul + 1
 	 * → 1) and all rolls degenerate to 0. Plant 1 here so each
@@ -3417,7 +3430,54 @@ static void   l30ba(short a, short b, short c)
 
 /* CODE 4 helpers L2d3e + family forward into. PROBE stubs until the
  * actual event-pump + DLItem dispatch land. */
-static void   jt1118(void)                        { PROBE("jt1118"); }
+
+/* Forward — l4d88 lifts further down with jt1134's helpers. jt1118
+ * needs it for the InvalRect flush prelude. */
+static void l4d88(void);
+
+/* L731e (CODE 4 + 0x731e) — shared event filter / pump.
+ *
+ * The worker that jt1118 / jt1125 funnel through. Tests g_a5_-820
+ * (input-mode flag), runs _EventAvail / _WaitNextEvent with the
+ * arg as event mask, and stamps the cached event cluster
+ * (g_a5_-808/-809/-810 / -814) so the callers can branch on
+ * "event ready" without re-reading the Toolbox queue. Stub for
+ * now — leaving the cluster zero makes jt1118 fall through to the
+ * "no event" branch. */
+static void l731e(short arg)
+{
+	PROBE("L731e");
+	(void)arg;
+}
+
+/* JT[1118] (CODE 4 + 0x6710) — "should we continue polling?" gate.
+ *
+ *   l4d88();                       // flush deferred InvalRect
+ *   l731e(3);                      // pump events (mode 3 = quick poll)
+ *   if (g_a5_-810 || g_a5_-809) {
+ *       if (g_a5_-814 != 0)        // event handle pending
+ *           return 1;              // — yes, keep going
+ *       g_a5_-809 = 0;             // stale flags; clear and fall through
+ *       g_a5_-810 = 0;
+ *   }
+ *   return (signed char)g_a5_-820; // 0 (idle) or non-zero (mode override)
+ *
+ * Called by L31ea (JT[441]) and CODE 6/7/11 dispatchers as the
+ * "continue?" check on dialog event loops. Returns a Mac-style
+ * Boolean — 0 = stop, non-zero = continue. */
+static short jt1118(void)
+{
+	PROBE("jt1118");
+	l4d88();
+	l731e((short)3);
+	if (g_a5_byte(-810) != 0 || g_a5_byte(-809) != 0) {
+		if (g_a5_long(-814) != 0)
+			return 1;
+		g_a5_byte(-809) = 0;
+		g_a5_byte(-810) = 0;
+	}
+	return (short)(signed char)g_a5_byte(-820);
+}
 /* JT[1125] (CODE 4 + 0x6230) — engine event poll.
  *
  * The dialog event loop (L2d3e → L3198 → here) calls this every
@@ -3693,8 +3753,7 @@ static int l31ea(void) __attribute__((unused));
 static int l31ea(void)
 {
 	PROBE("L31ea");
-	jt1118();
-	return 0;
+	return (int)jt1118();
 }
 
 /* L31f0 (CODE 3 + 0x31f0) = JT[439] — JT[1133] passthrough returning
