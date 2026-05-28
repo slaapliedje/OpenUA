@@ -357,3 +357,72 @@ remaining PROBE-only stubs cluster into three groups by code segment:
    real Mac values, unlocking every comparison-based engine branch.
 3. **`L02dc` / `L15e2` / `L12a0`.** Once `jt158` / `jt179` exist, the
    per-action CODE 12 dispatchers become tractable.
+
+## End of PROBE-lift phase (2026-05-28) — see ADR-0010
+
+After ~30 commits across six bring-up rounds, the boot trace has been
+exhausted of meaningful PROBE-only stubs. Current 15-second probe state:
+
+- **2017 PROBE log lines** across **117 unique labels**, zero bus or
+  address errors.
+- **L725c fully routed**: every event arm (mouseDown / mouseUp /
+  keyDown / autoKey / updateEvt / activateEvt / osEvt / diskEvt)
+  dispatches through a lifted handler.
+- **L2d3e** (dialog event loop) iterates 30 times correctly per boot.
+- **L1676** (DLItem base handler) fires 222 times with all command
+  arms covered (cmd=1, 2, 3 mouse-track, 4 action, 5 select, 16..22
+  setters, 32..44 field setters).
+- **L4d88** (InvalRect dispatcher) fires 60 times — twice per L2d3e
+  iteration, balanced (30 from jt1134 + 30 from jt1118).
+- **L6804** (front-window check) fires 60 times — once each from
+  jt1134 and L731e.
+- **jt397 / jt413** (min/max in text-bounds chain) at 60 each.
+
+### Regression fingerprint
+
+These counts are the boot-trace fingerprint. A change that shifts
+any of them is a regression to investigate:
+
+| Label       | Calls |
+|-------------|-------|
+| L1676       | 222   |
+| jt382       | 92    |
+| jt381/380/379/378 | 62 each |
+| jt377       | 61    |
+| L4d88 / L6804 / jt397 / jt413 | 60 each |
+| jt468       | 34    |
+| L2d3e / jt1134 / jt1005 / L725c / L31ea / L3198 / L66e8 / L6538 / L62fa / L731e / jt1118 / L2856 / jt1153 / jt1200 / jt376 | 30 each |
+| jt452       | 14    |
+| jt444       | 12    |
+| jt115       | 5     |
+| L309c / jt1001 | 4     |
+| jt174 / l5888 | 3     |
+
+### Phase transition
+
+Per ADR-0010, the remaining unlifted bodies all sit on infrastructure
+that doesn't exist yet:
+
+| Blocker | Functions stuck behind it |
+|---------|----------------------------|
+| Display HAL (pixel destination + font metrics) | L4fae, L4e12, L309c, L3e38 deep blit, L3d8c, jt1084, jt1064, L448c, L4350 |
+| Input HAL (Hatari → engine events) | jt1132, L690e cases 3/5/6 + drag/zoom paths, L6dd0 Cmd/key paths, L6cba mouseUp body, cmd=3 / cmd=4 / cmd=5 of L1676 |
+| Palette Manager (or VIDEL bridge) | L24aa |
+| Audio HAL (Falcon DMA / DSP / YM2149) | jt1122 menu-slot side, audio module SFX |
+| Resource manager + module loader | jt361, jt81, jt449, jt938, jt942, jt918, l0444, L0aae, l07dc, jt977, jt956 (some), jt942 |
+
+These don't get attacked by another PROBE-lift session — they need their
+own HAL or runtime layer. When that infrastructure lands, the dormant
+arms come alive without further engine-side lifting.
+
+### Small lifts still possible without HAL
+
+A handful of PROBE-only stubs are genuinely small but currently dormant
+(0-1 calls in boot). Quick wins if/when their dependencies fire:
+
+- `l4350(short flag)` — depth-swap dispatch in L3e8e branch
+- `jt1064(long msg, long scaled, short flag)` — activateEvt hit-test
+- `jt391` / `jt422` — isprint / printable-index for Cmd-key handler
+- `jt1051` / `jt1052` — referenced by jt1142 (mouse-related)
+- `L0004` — segment-entry / menu dispatcher (large, but the front edge
+  is reachable from MenuKey paths)
