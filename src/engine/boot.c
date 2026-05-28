@@ -4001,19 +4001,22 @@ static void l74ae(void)
 	PROBE("L74ae");
 }
 
-static void l747a(void *p1, short p2, short p3) __attribute__((unused));
-static void l747a(void *p1, short p2, short p3)
+/* L747a (CODE 4, near L74ae) — schedule paint with bounds.
+ * Takes (ptr, long_a, long_b) — caller cleanup is 12 bytes.
+ * Stub for now; real body lives below in the menu manager. */
+static void l747a(void *p1, long p2, long p3) __attribute__((unused));
+static void l747a(void *p1, long p2, long p3)
 {
 	PROBE("L747a");
 	(void)p1; (void)p2; (void)p3;
 }
 
-static void l7690(short a, short b, short c) __attribute__((unused));
-static void l7690(short a, short b, short c)
-{
-	PROBE("L7690");
-	(void)a; (void)b; (void)c;
-}
+/* L7690 is the same address as JT[1122] — same function, two
+ * naming conventions. Defined together with jt1122 further down;
+ * forward-declared here so jt1151 can call it. */
+static void jt1122(short mode, short slot, short val);
+/* Forward — jt5 (unsigned 32-bit divide) lifts further down. */
+static unsigned long jt5(unsigned long a, unsigned long b);
 
 /* L0f48 (CODE 5 + 0x0f48, CODE-local) — count non-empty menu slots.
  *
@@ -4059,7 +4062,7 @@ static void jt1145(void)
 	if (g_a5_byte(-780) == 0) {
 		g_a5_byte(-780) = 1;
 		g_a5_word(-266) = (short)2500;
-		l747a(g_a5_buf(-216), (short)6, (short)0);
+		l747a(g_a5_buf(-216), 6L, 0L);
 	}
 }
 
@@ -4070,7 +4073,7 @@ static void jt1145(void)
  *       L74ae();
  *       g_a5_-780 = 0;
  *   } else {
- *       L7690(0, 0, 0);                         // alternate cleanup
+ *       jt1122(0, 0, 0);                        // alternate cleanup (= L7690)
  *   }
  *
  * Symmetric with jt1145 — clears the cached menu-bar geometry
@@ -4087,7 +4090,7 @@ static void jt1151(void)
 		l74ae();
 		g_a5_byte(-780) = 0;
 	} else {
-		l7690((short)0, (short)0, (short)0);
+		jt1122((short)0, (short)0, (short)0);
 	}
 }
 
@@ -4472,14 +4475,80 @@ static void jt1123(short a)
 	PROBE("jt1123");
 	(void)a;
 }
-/* JT[1122] (CODE 4 + 0x7690) — short tone / beep gate. Takes
- * (mode, freq, duration) shorts; mode 2 = play, mode 0 = silence.
- * PROBE-only stub for now (no audio HAL wired). */
-static void jt1122(short mode, short freq, short duration) __attribute__((unused));
-static void jt1122(short mode, short freq, short duration)
+/* JT[1122] (CODE 4 + 0x7690) — menu-bar slot setter / blinker.
+ *
+ * Two-mode function gated by g_a5_-806 (enable) and g_a5_-780
+ * (menu-bar visible):
+ *
+ *   if (!g_a5_-806)                    return;       // gated off
+ *   if (g_a5_-780) {                                 // menu visible
+ *       g_a5_-266 = 2500;                            // refresh timeout
+ *       long computed = slot_val ?
+ *           jt5(0x233244F7u, slot_val) : 0;          // hash-divide
+ *       switch (mode) {                              // pick slot
+ *           case 0: g_a5_-264 = computed; break;
+ *           case 1: g_a5_-256 = computed; break;
+ *           case 2: g_a5_-248 = computed; break;
+ *           case 3: g_a5_-240 = computed; break;
+ *       }
+ *   } else {                                         // menu hidden
+ *       if (g_a5_-779) { L74ae(); g_a5_-779 = 0; }   // refresh
+ *       if (!slot_val) return;
+ *       g_a5_-204 = 2500;                            // alt timeout
+ *       g_a5_-208 = slot_val;
+ *       g_a5_-210 = -1;
+ *       g_a5_-206 = 128;
+ *       jt399(&g_a5_-202, 6, 0);                     // zero 6 bytes
+ *       L747a(&g_a5_-210, 14, 0);                    // schedule paint
+ *       g_a5_-779 = 1;
+ *   }
+ *
+ * Note: jt1080's name "no-hit chime" was a guess — this isn't an
+ * audio function. It updates the menu-bar slot LONG and triggers
+ * a paint cycle. The "beep" sequence in jt1080 is actually a
+ * brief blink of slot 2 (jt1122(2, 1189, 0) for blink-on, then
+ * jt1122(2, 0, 0) for blink-off with a 5/1 tick pause between). */
+static void jt1122(short mode, short slot_val, short c)
 {
+	long computed;
+
 	PROBE("jt1122");
-	(void)mode; (void)freq; (void)duration;
+	(void)c;                                /* 3rd arg unused in asm */
+
+	if (g_a5_byte(-806) == 0)
+		return;
+
+	if (g_a5_byte(-780) != 0) {
+		/* Menu-visible path. */
+		g_a5_word(-266) = (short)2500;
+		computed = (slot_val != 0)
+		         ? (long)jt5(0x233244F7UL,
+		                     (unsigned long)(unsigned short)slot_val)
+		         : 0L;
+		switch (mode) {
+		case 0: g_a5_long(-264) = computed; break;
+		case 1: g_a5_long(-256) = computed; break;
+		case 2: g_a5_long(-248) = computed; break;
+		case 3: g_a5_long(-240) = computed; break;
+		default: break;
+		}
+		return;
+	}
+
+	/* Menu-hidden path. */
+	if (g_a5_byte(-779) != 0) {
+		l74ae();
+		g_a5_byte(-779) = 0;
+	}
+	if (slot_val == 0)
+		return;
+	g_a5_word(-204) = (short)2500;
+	g_a5_word(-208) = slot_val;
+	g_a5_word(-210) = (short)-1;
+	g_a5_word(-206) = (short)128;
+	jt399(g_a5_buf(-202), (short)6, (short)0);
+	l747a(g_a5_buf(-210), 14L, 0L);
+	g_a5_byte(-779) = 1;
 }
 
 /* JT[1080] (CODE 5 + 0x0156) — "no-hit" feedback chime.
