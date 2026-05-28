@@ -4821,11 +4821,60 @@ static void l6dd0(EventRecord *ev)
 	/* Non-Cmd path. */
 	g_a5_byte(-820) = 1;
 
-	/* JT[2] scan-code → FRUA-key map deferred. Default arm
-	 * stores the low byte as ASCII (bit 7 masked). Special
-	 * function keys (F1..F15 → 256..286) and arrow keys
-	 * (258/260/262/264) need the per-entry table decoded
-	 * from the inline JT[2] payload at CODE 4 + 0x6e84. */
+	/* Primary JT[2] dispatch on the full low word (scan-code in
+	 * high byte | char in low byte). 25 mappings decoded from the
+	 * inline table at CODE 4 + 0x6e84 — Mac scan codes for
+	 * numeric keypad digits 1..0 (with chars '1'..'9','0') map to
+	 * FRUA function-key codes 256..265, and 15 more scan codes
+	 * with char 0x10 map to extended codes 272..286.
+	 *
+	 * If no primary match: secondary JT[2] dispatch on the low
+	 * byte alone (table at CODE 4 + 0x7026) handles Ctrl-C → CR,
+	 * Tab passthrough, arrow keys (0x1c..0x1f → 262/258/264/260),
+	 * and the default (char & 0x7F). */
+	switch (lo) {
+	/* Numeric keypad 1..0 — Mac F-key mappings */
+	case 0x5331: g_a5_word(-818) = 261; return;
+	case 0x5432: g_a5_word(-818) = 260; return;
+	case 0x5533: g_a5_word(-818) = 259; return;
+	case 0x5634: g_a5_word(-818) = 262; return;
+	case 0x5735: g_a5_word(-818) = 256; return;
+	case 0x5836: g_a5_word(-818) = 258; return;
+	case 0x5937: g_a5_word(-818) = 263; return;
+	case 0x5b38: g_a5_word(-818) = 264; return;
+	case 0x5c39: g_a5_word(-818) = 257; return;
+	case 0x5230: g_a5_word(-818) = 265; return;
+	/* Function keys F1..F15 — scan-code | 0x10 (char unused) */
+	case 0x7a10: g_a5_word(-818) = 272; return;
+	case 0x7810: g_a5_word(-818) = 273; return;
+	case 0x6310: g_a5_word(-818) = 274; return;
+	case 0x7610: g_a5_word(-818) = 275; return;
+	case 0x6010: g_a5_word(-818) = 276; return;
+	case 0x6110: g_a5_word(-818) = 277; return;
+	case 0x6210: g_a5_word(-818) = 278; return;
+	case 0x6410: g_a5_word(-818) = 279; return;
+	case 0x6510: g_a5_word(-818) = 280; return;
+	case 0x6d10: g_a5_word(-818) = 281; return;
+	case 0x6710: g_a5_word(-818) = 282; return;
+	case 0x6f10: g_a5_word(-818) = 283; return;
+	case 0x6910: g_a5_word(-818) = 284; return;
+	case 0x6b10: g_a5_word(-818) = 285; return;
+	case 0x7110: g_a5_word(-818) = 286; return;
+	default:     break;
+	}
+
+	/* Secondary table — low byte only. */
+	switch (lo & 0xFF) {
+	case 0x03: g_a5_word(-818) = 13;  return;  /* Ctrl-C → CR */
+	case 0x09: g_a5_word(-818) = 9;   return;  /* Tab passthrough */
+	case 0x1c: g_a5_word(-818) = 262; return;  /* right arrow */
+	case 0x1d: g_a5_word(-818) = 258; return;  /* left arrow */
+	case 0x1e: g_a5_word(-818) = 264; return;  /* up arrow */
+	case 0x1f: g_a5_word(-818) = 260; return;  /* down arrow */
+	default:                                       break;
+	}
+
+	/* Default: low byte as ASCII (bit 7 cleared). */
 	g_a5_word(-818) = (short)(lo & 0x7F);
 }
 
