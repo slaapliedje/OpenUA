@@ -2726,12 +2726,116 @@ static void    jt451(void)                          { PROBE("jt451"); }
 #  define SHAPE_CMD_PROBE(jt) ((void)0)
 #endif
 
-static short jt376(void *rec, short cmd, ...) __attribute__((unused));
-static short jt376(void *rec, short cmd, ...)
-{ PROBE("jt376"); SHAPE_CMD_PROBE("jt376"); (void)rec; return 0; }
-static short jt377(void *rec, short cmd, ...) __attribute__((unused));
-static short jt377(void *rec, short cmd, ...)
-{ PROBE("jt377"); SHAPE_CMD_PROBE("jt377"); (void)rec; return 0; }
+/* L1676 (CODE 3 + 0x1676) — base DLItem method handler. Every
+ * shape handler (jt376..jt382) delegates un-recognized cmds here
+ * via its JT[3] default arm. Lifted from L1676's own JT[3] (min=1
+ * max=44), arms grouped by behavior:
+ *
+ *   1            set bit 7 of rec[28] ("dirty / needs redraw")
+ *   2            no-op (L1a36 = return 0)
+ *   3, 4, 5      complex action / track / select arms — PROBE-
+ *                only for now; not exercised in the boot trace
+ *   6..15        no-op
+ *   16..22       set bit (cmd-16) of rec[28]; if changed, clear
+ *                bit 7
+ *   23           no-op
+ *   24..30       clear bit (cmd-24) of rec[28]; if changed, clear
+ *                bit 7
+ *   31           no-op
+ *   32..44       per-field setters (rec[29], rec[4..7], rec[12..],
+ *                etc.) — most take a long arg the current callers
+ *                don't push; PROBE-only until a caller exercises
+ *                them
+ *   default      no-op
+ *
+ * Arm 43 reads `g_a5_9282[arg-1]` and parks it at rec[0..3] — a
+ * runtime "set method to handler N" op. Arm 44 sets rec[0..3]
+ * directly. Both PROBE-only for now.
+ *
+ * Bit 7 of rec[28] is the "dirty" flag L2d3e consults after the
+ * action methods run; lifting cmd=1 here is what closes the
+ * draw/ack cycle for any item that doesn't override cmd=1. */
+static short l1676(unsigned char *rec, short cmd, ...)
+                                                __attribute__((unused));
+static short l1676(unsigned char *rec, short cmd, ...)
+{
+	PROBE("L1676");
+	if (rec == NULL)
+		return 0;
+
+	switch (cmd) {
+	case 1:
+		rec[28] |= 0x80;
+		return 0;
+	case 16: case 17: case 18: case 19:
+	case 20: case 21: case 22: {
+		unsigned char before = rec[28];
+		rec[28] |= (unsigned char)(1u << (cmd - 16));
+		if (rec[28] != before)
+			rec[28] &= 0x7f;
+		return 0;
+	}
+	case 24: case 25: case 26: case 27:
+	case 28: case 29: case 30: {
+		unsigned char before = rec[28];
+		rec[28] &= (unsigned char)~(1u << (cmd - 24));
+		if (rec[28] != before)
+			rec[28] &= 0x7f;
+		return 0;
+	}
+	case 3:  PROBE("L1676:cmd=3-track");   break;
+	case 4:  PROBE("L1676:cmd=4-action");  break;
+	case 5:  PROBE("L1676:cmd=5-select");  break;
+	case 32: PROBE("L1676:cmd=32-set29");  break;
+	case 33: PROBE("L1676:cmd=33-set30");  break;
+	case 34: PROBE("L1676:cmd=34-set4");   break;
+	case 35: PROBE("L1676:cmd=35-set8");   break;
+	case 36: PROBE("L1676:cmd=36-set24");  break;
+	case 37: PROBE("L1676:cmd=37-set26");  break;
+	case 38: PROBE("L1676:cmd=38-set31");  break;
+	case 39: PROBE("L1676:cmd=39-set12");  break;
+	case 40: PROBE("L1676:cmd=40-setpos"); break;
+	case 41: PROBE("L1676:cmd=41-set20");  break;
+	case 42: PROBE("L1676:cmd=42-set22");  break;
+	case 43: PROBE("L1676:cmd=43-setmth"); break;
+	case 44: PROBE("L1676:cmd=44-setraw"); break;
+	default: break;
+	}
+	return 0;
+}
+
+static short jt376(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt376(void *rec_v, short cmd, ...)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short a, b;
+
+	PROBE("jt376");
+	SHAPE_CMD_PROBE("jt376");
+
+	va_start(ap, cmd);
+	a = (short)va_arg(ap, int);
+	b = (short)va_arg(ap, int);
+	va_end(ap);
+	return l1676(rec, cmd, a, b);
+}
+static short jt377(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt377(void *rec_v, short cmd, ...)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short a, b;
+
+	PROBE("jt377");
+	SHAPE_CMD_PROBE("jt377");
+
+	va_start(ap, cmd);
+	a = (short)va_arg(ap, int);
+	b = (short)va_arg(ap, int);
+	va_end(ap);
+	return l1676(rec, cmd, a, b);
+}
 /* jt378 — shape 5 method dispatcher. cmd=2 is a grid hit-test
  * (lifted from L25ba): JT[1139] maps the click into a grid cell,
  * the cell is bounds-checked against rec[22] (max row) and rec[24]
@@ -2749,8 +2853,14 @@ static short jt378(void *rec_v, short cmd, ...)
 	PROBE("jt378");
 	SHAPE_CMD_PROBE("jt378");
 
-	if (cmd != 2)
-		return 0;
+	if (cmd != 2) {
+		short la, lb;
+		va_start(ap, cmd);
+		la = (short)va_arg(ap, int);
+		lb = (short)va_arg(ap, int);
+		va_end(ap);
+		return l1676(rec, cmd, la, lb);
+	}
 
 	if ((rec[28] & 0x03) != 0)
 		return 0;
@@ -2777,9 +2887,22 @@ static short jt378(void *rec_v, short cmd, ...)
 	return 1;
 }
 
-static short jt379(void *rec, short cmd, ...) __attribute__((unused));
-static short jt379(void *rec, short cmd, ...)
-{ PROBE("jt379"); SHAPE_CMD_PROBE("jt379"); (void)rec; return 0; }
+static short jt379(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt379(void *rec_v, short cmd, ...)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short a, b;
+
+	PROBE("jt379");
+	SHAPE_CMD_PROBE("jt379");
+
+	va_start(ap, cmd);
+	a = (short)va_arg(ap, int);
+	b = (short)va_arg(ap, int);
+	va_end(ap);
+	return l1676(rec, cmd, a, b);
+}
 
 /* jt380 — shape 3 method dispatcher. cmd=2 has a primary text-
  * bounds hit-test like jt382's, plus a secondary fallback when
@@ -2799,8 +2922,14 @@ static short jt380(void *rec_v, short cmd, ...)
 	PROBE("jt380");
 	SHAPE_CMD_PROBE("jt380");
 
-	if (cmd != 2)
-		return 0;
+	if (cmd != 2) {
+		short la, lb;
+		va_start(ap, cmd);
+		la = (short)va_arg(ap, int);
+		lb = (short)va_arg(ap, int);
+		va_end(ap);
+		return l1676(rec, cmd, la, lb);
+	}
 
 	if ((rec[28] & 0x03) != 0)
 		return 0;
@@ -2840,9 +2969,22 @@ static short jt380(void *rec_v, short cmd, ...)
 	if (x <  right ) return 1;
 	return 0;
 }
-static short jt381(void *rec, short cmd, ...) __attribute__((unused));
-static short jt381(void *rec, short cmd, ...)
-{ PROBE("jt381"); SHAPE_CMD_PROBE("jt381"); (void)rec; return 0; }
+static short jt381(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt381(void *rec_v, short cmd, ...)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short a, b;
+
+	PROBE("jt381");
+	SHAPE_CMD_PROBE("jt381");
+
+	va_start(ap, cmd);
+	a = (short)va_arg(ap, int);
+	b = (short)va_arg(ap, int);
+	va_end(ap);
+	return l1676(rec, cmd, a, b);
+}
 /* jt382 — shape 1 (button) method dispatcher. cmd=2 hit-test is
  * the dominant boot-path call (90 of 92 per boot). The hit-test
  * arm is lifted from L1e82..L200a in CODE 3:
@@ -2878,8 +3020,14 @@ static short jt382(void *rec_v, short cmd, ...)
 	PROBE("jt382");
 	SHAPE_CMD_PROBE("jt382");
 
-	if (cmd != 2)
-		return 0;
+	if (cmd != 2) {
+		short la, lb;
+		va_start(ap, cmd);
+		la = (short)va_arg(ap, int);
+		lb = (short)va_arg(ap, int);
+		va_end(ap);
+		return l1676(rec, cmd, la, lb);
+	}
 
 	/* Bit 0/1 of rec[28] are the "disabled" flags. */
 	if ((rec[28] & 0x03) != 0)
