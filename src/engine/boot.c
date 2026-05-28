@@ -3908,21 +3908,101 @@ static void l79ec(void)
 	g_a5_long(-130) += TickCount() - g_a5_long(-126);
 }
 
+/* L4fae / L4e12 / L5d8c — InvalRect dispatch helpers.
+ *
+ *   L4fae: color-QD rect builder (fills 4 shorts at *rect_out).
+ *   L4e12: mono rect builder (same shape).
+ *   L5d8c: visibility / clip test, returns non-zero if the rect
+ *          intersects the visible region.
+ *
+ * Stubs for now — the real bodies walk g_a5_-2570 page descriptors
+ * and the engine's clip region. L5d8c returns 1 (visible) so the
+ * InvalRect call still fires when needed. */
+static void l4fae(short *rect_out) __attribute__((unused));
+static void l4fae(short *rect_out)
+{
+	PROBE("L4fae");
+	if (rect_out != NULL) {
+		rect_out[0] = 0; rect_out[1] = 0;
+		rect_out[2] = 0; rect_out[3] = 0;
+	}
+}
+static void l4e12(short *rect_out) __attribute__((unused));
+static void l4e12(short *rect_out)
+{
+	PROBE("L4e12");
+	if (rect_out != NULL) {
+		rect_out[0] = 0; rect_out[1] = 0;
+		rect_out[2] = 0; rect_out[3] = 0;
+	}
+}
+static signed char l5d8c(void) __attribute__((unused));
+static signed char l5d8c(void)
+{
+	PROBE("L5d8c");
+	return 1;
+}
+
 /* L4d88 (CODE 4 + 0x4d88) — flush deferred _InvalRect.
  *
- * Tests g_a5_-936 (pending-invalidate count). When non-zero, the
- * Mac body assembles a rect from cached coords (g_a5_-928 / -926
- * with a font-metric mul gated by g_a5_-2347), routes it through
- * L4fae / L4e12 (rect builders) + L5d8c (visibility test), and
- * traps _InvalRect to mark the area for redraw. Always clears the
- * pending count and resets the buffer pointer (-940 → -1041).
+ * Body:
  *
- * Lifted as a PROBE stub: no Quickdraw buffer is wired into the
- * Falcon display HAL yet, so there's nothing to flush. Promote
- * to a real lift when the InvalRect dispatch lands. */
+ *   if (g_a5_-936 (short) > 0) {              // pending count > 0
+ *       g_a5_-1042 = g_a5_-935;               // copy mode byte
+ *       if (g_a5_-926 < 0) {                  // signed signal
+ *           short metric = (g_a5_-2347 != 0) ? 8 : 12;
+ *           rect.top = g_a5_-928 - metric * g_a5_-936;
+ *       } else {
+ *           rect.top = g_a5_-926;
+ *       }
+ *       if (g_a5_-2347 != 0)  L4fae(&rect);   // color-QD build
+ *       else                  L4e12(&rect);   // mono build
+ *       if (L5d8c()) {                        // visible
+ *           if (g_a5_-2346)                   // half-scale mode
+ *               rect.top <<= 1; rect.left <<= 1;
+ *               rect.bottom <<= 1; rect.right <<= 1;
+ *           InvalRect(&rect);
+ *       }
+ *   }
+ *   g_a5_-936 = 0;                            // clear pending count
+ *   g_a5_-940 = &g_a5_-1041;                  // reset buffer ptr
+ *
+ * Always clears the pending count and resets the buffer pointer
+ * (-940 → -1041) so subsequent invalidations get fresh coords. */
 static void l4d88(void)
 {
+	short rect[4];                 /* fp@(-8..-2): top, left, bottom, right */
+	short metric;
+
 	PROBE("L4d88");
+	if (g_a5_word(-936) > 0) {
+		g_a5_byte(-1042) = (unsigned char)g_a5_byte(-935);
+
+		if (g_a5_word(-926) < 0) {
+			metric = (g_a5_2347 != 0) ? (short)8 : (short)12;
+			rect[0] = (short)(g_a5_word(-928)
+			                  - metric * g_a5_word(-936));
+		} else {
+			rect[0] = g_a5_word(-926);
+		}
+
+		if (g_a5_2347 != 0)
+			l4fae(rect);
+		else
+			l4e12(rect);
+
+		if (l5d8c() != 0) {
+			if (g_a5_byte(-2346) != 0) {
+				rect[0] <<= 1;
+				rect[1] <<= 1;
+				rect[2] <<= 1;
+				rect[3] <<= 1;
+			}
+			InvalRect((Rect *)rect);
+		}
+	}
+	g_a5_word(-936) = 0;
+	g_a5_long(-940) = (long)(uintptr_t)g_a5_buf(-1041);
 }
 
 /* Forward — l71ac / l7090 / l70e0 / l7204 / l6cba / l6dd0 lift
