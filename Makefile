@@ -113,6 +113,19 @@ run: $(TARGET)
 	$(HATARI) --machine falcon $(HATARI_FPU) --dsp emu --tos $(FALCON_TOS) \
 	          --conout 2 -d . --auto 'C:\$(TARGET)'
 
+# Bring-up probe: boot a probe-instrumented build in Hatari, fast-
+# forward 15 seconds, capture the dbg_log output, and force-kill
+# Hatari cleanly (avoids the "Really quit?" dialog that catches
+# SIGTERM). `make probe` rebuilds with ENGINE_PROBE=1 and writes
+# the trace to /tmp/probe.log; override duration / log path with
+# PROBE_DURATION / PROBE_LOG.
+PROBE_DURATION ?= 15
+PROBE_LOG      ?= /tmp/probe.log
+probe:
+	$(MAKE) clean
+	$(MAKE) ENGINE_PROBE=1
+	tools/run_probe.sh $(PROBE_DURATION) $(PROBE_LOG)
+
 # Host-side test suite — pytest over tools/. Not a cross-build. The
 # `slow` test boots frua.prg in Hatari and snaps a screenshot — skip
 # by default; opt in with `make test-slow`.
@@ -128,4 +141,4 @@ clean:
 
 -include $(DEP)
 
-.PHONY: all run test test-slow clean data-pool-regen
+.PHONY: all run probe test test-slow clean data-pool-regen
