@@ -3924,8 +3924,10 @@ static void l4d88(void)
 	PROBE("L4d88");
 }
 
-/* Forward — l71ac lifts further down. l725c routes case 8 to it. */
+/* Forward — l71ac / l7090 lift further down. l725c routes cases
+ * 8 (osEvt) and 6 (updateEvt) to them. */
 static void l71ac(EventRecord *ev);
+static void l7090(EventRecord *ev);
 
 /* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
  *
@@ -3955,12 +3957,14 @@ static void l725c(short mask)
 	g_a5_word(-2592) = ev.what;
 
 	switch (ev.what) {
+	case 6:                                    /* updateEvt */
+		l7090(&ev);
+		break;
 	case 8:                                    /* osEvt */
 		l71ac(&ev);
 		break;
 	case 1: case 2:                            /* mouseDown / mouseUp */
 	case 3: case 5:                            /* keyDown / autoKey */
-	case 6:                                    /* updateEvt */
 	case 7:                                    /* activateEvt */
 	case 15:                                   /* diskEvt */
 		PROBE("L725c:arm-deferred");
@@ -4118,6 +4122,45 @@ static void l24aa(void) __attribute__((unused));
 static void l24aa(void)
 {
 	PROBE("L24aa");
+}
+
+/* L3e38 (CODE 3 + 0x3e38, CODE-local) — window content repaint.
+ *
+ * Called inside the BeginUpdate / EndUpdate bracket of L7090.
+ * Walks the engine's draw list and re-blits visible content into
+ * the window. PROBE-only stub for now — the real paint code lives
+ * deeper in CODE 3 and depends on a chain of unlifted helpers. */
+static void l3e38(void) __attribute__((unused));
+static void l3e38(void)
+{
+	PROBE("L3e38");
+}
+
+/* L7090 (CODE 4 + 0x7090) — updateEvt arm.
+ *
+ *   if (event.message == g_a5_-2578) {    // our window
+ *       BeginUpdate(window);
+ *       L3e38();                          // repaint content
+ *       EndUpdate(window);
+ *   }
+ *
+ * Standard Mac update-event pattern. L3e38 is the engine's
+ * content-repaint dispatch (still a stub). Reached via L725c
+ * case 6 now that the dispatch is wired. */
+static void l7090(EventRecord *ev) __attribute__((unused));
+static void l7090(EventRecord *ev)
+{
+	WindowPtr w;
+
+	PROBE("L7090");
+	if (ev == NULL)
+		return;
+	if ((long)ev->message != g_a5_long(-2578))
+		return;
+	w = (WindowPtr)(uintptr_t)ev->message;
+	BeginUpdate(w);
+	l3e38();
+	EndUpdate(w);
 }
 
 /* L71ac (CODE 4 + 0x71ac) — osEvt suspend/resume arm.
