@@ -44,6 +44,7 @@
 #include "fc.h"               /* fc_dump */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
+#include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -3672,6 +3673,90 @@ static signed char l6804(void)
 {
 	PROBE("L6804");
 	return 1;
+}
+
+/* JT[983] (CODE 5 + 0x0f74) — menu-bar visibility setter.
+ *
+ *   void jt983(short arg);
+ *   g_a5_-4776 = (signed char)arg;       // cache the desired state
+ *   if (arg == 0)        jt1151();       // hide path
+ *   else if (l0f48() > 1) jt1145();      // show path (gated on count)
+ *
+ * PROBE-only for now: L71ac and the menu manager wire through
+ * here, but jt1151 / jt1145 / l0f48 are unlifted. Caching the arg
+ * lets future paths observe the requested state. */
+static void jt983(short arg) __attribute__((unused));
+static void jt983(short arg)
+{
+	PROBE("jt983");
+	g_a5_byte(-4776) = (signed char)(arg & 0xff);
+}
+
+/* L24aa (CODE 4 + 0x24aa) = JT[1178] — menu repaint / item refresh.
+ *
+ * Large (-1036 byte frame, nested loops, mulsw #108). Walks the
+ * 108-byte per-page descriptors at g_a5_-2570 and updates a
+ * cluster around g_a5_-1310 / -1318. Called from L71ac and CODE
+ * 6/7 menu paths. PROBE-only stub for now — the full lift is its
+ * own task. */
+static void l24aa(void) __attribute__((unused));
+static void l24aa(void)
+{
+	PROBE("L24aa");
+}
+
+/* L71ac (CODE 4 + 0x71ac) — osEvt suspend/resume arm.
+ *
+ * Reached from L725c's case-8 (osEvt) dispatch. Body:
+ *
+ *   if (event.message != g_a5_-2578)       // not our window
+ *       return;
+ *   if (event.modifiers & 0x0001) {        // resume bit set
+ *       l79ec();                            // end idle accounting
+ *       jt983(1);                           // show menu bar
+ *       SetPort(g_a5_-2578);                // restore engine GrafPtr
+ *       l24aa();                            // menu/item refresh
+ *       InvalRect((Rect *)(g_a5_-2578 + 16));// invalidate window content
+ *   } else {
+ *       jt983(0);                           // hide menu bar
+ *       l79d4();                            // start idle accounting
+ *   }
+ *
+ * The "bit 0 of modifiers low byte" test is unusual — the Mac
+ * suspendResumeMessage encodes the resume flag in the message
+ * field (byte 5), but THINK C / SSI's engine appears to use the
+ * modifiers byte 15 instead. Lifted verbatim from the asm.
+ *
+ * Dormant in the current boot trace: L725c's arm dispatch isn't
+ * wired yet, so this is unreachable until the case-8 path lands.
+ * First real exercise of l79d4 / l79ec when that wiring happens. */
+static void l71ac(EventRecord *ev) __attribute__((unused));
+static void l71ac(EventRecord *ev)
+{
+	long window_ptr;
+
+	PROBE("L71ac");
+	if (ev == NULL)
+		return;
+
+	window_ptr = g_a5_long(-2578);
+	if ((long)ev->message != window_ptr)
+		return;
+
+	if ((ev->modifiers & 0x0001) != 0) {
+		/* Resume path. */
+		l79ec();
+		jt983((short)1);
+		if (window_ptr != 0)
+			SetPort((GrafPtr)(uintptr_t)window_ptr);
+		l24aa();
+		if (window_ptr != 0)
+			InvalRect((Rect *)(uintptr_t)(window_ptr + 16));
+	} else {
+		/* Suspend path. */
+		jt983((short)0);
+		l79d4();
+	}
 }
 
 /* jt1134 (CODE 4 + 0x7980) — yield-to-OS / drain idle paint.
