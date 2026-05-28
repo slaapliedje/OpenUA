@@ -2881,7 +2881,27 @@ static short l1676(unsigned char *rec, short cmd, ...)
 		method(rec, (short)27);
 		return (short)prev_hit;
 	}
-	case 4:  PROBE("L1676:cmd=4-action");  break;
+	case 4: {
+		/* L185a — action arm. Fires after cmd=3's mouse-track loop
+		 * returns 1 (click confirmed). If the DLItem carries an
+		 * action callback at rec[4..7], invoke it with the item's
+		 * pool index (computed as (rec - g_a5_-9254) / 32). The
+		 * Mac uses Pascal calling: one 16-bit arg, no return. */
+		void  (*action)(short);
+		long   pool_base = g_a5_9254;
+		short  item_index;
+
+		PROBE("L1676:cmd=4-action");
+		action = *(void (**)(short))((unsigned char *)rec + 4);
+		if (action == NULL)
+			return 0;
+		if (pool_base == 0)
+			return 0;
+		item_index = (short)(((long)(uintptr_t)rec - pool_base)
+		                     / (long)DLITEM_BYTES);
+		action(item_index);
+		return 0;
+	}
 	case 5:  PROBE("L1676:cmd=5-select");  break;
 	case 32: PROBE("L1676:cmd=32-set29");  break;
 	case 33: PROBE("L1676:cmd=33-set30");  break;
