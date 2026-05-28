@@ -3663,15 +3663,75 @@ static void   l30ba(short a, short b, short c)
 static void l4d88(void);
 static signed char l6804(void);
 
+/* L62fa (CODE 4, near L6538) — query "where is the mouse?" state.
+ *
+ * Writes a state code (1..4 region) to *out and returns non-zero
+ * when the cursor is over our window. PROBE stub for now — the
+ * real body walks GrafPort + window-z-order data. */
+static short l62fa(short *out) __attribute__((unused));
+static short l62fa(short *out)
+{
+	PROBE("L62fa");
+	if (out != NULL)
+		*out = 0;
+	return 0;
+}
+
+/* L6538 (CODE 4 + 0x6538) — cursor reset / refresh.
+ *
+ * Called from L66e8(0). The Mac body:
+ *
+ *   if (L62fa(&region) && region == 3) {        // cursor in window
+ *       if (g_a5_-893) {                        // grabbed-input mode
+ *           if (arg != 0)
+ *               SetCursor(g_a5_-3514);          // arrow
+ *       } else {
+ *           if (arg != 0 || g_a5_-894)
+ *               SetCursor(g_a5_-892);           // engine cursor
+ *       }
+ *       g_a5_-894 = 0;
+ *   } else {                                    // cursor outside window
+ *       if (!g_a5_-893 && !g_a5_-894)
+ *           SetCursor(g_a5_-3514);
+ *       g_a5_-894 = 1;
+ *   }
+ *
+ * The Falcon HAL doesn't expose a SetCursor equivalent yet, so
+ * the actual cursor shape changes are deferred — the lift only
+ * maintains the g_a5_-894 "needs-reset" flag the Mac uses as a
+ * one-shot guard. SetCursor will land when the cursor sprite
+ * lifecycle wires through the display HAL. */
+static void l6538(short arg) __attribute__((unused));
+static void l6538(short arg)
+{
+	short region = 0;
+
+	PROBE("L6538");
+	if (l62fa(&region) != 0 && region == 3) {
+		/* In-window path. Visual SetCursor deferred. */
+		if (g_a5_byte(-893) != 0) {
+			/* grabbed-input mode — would set arrow if arg != 0 */
+			(void)arg;
+		} else {
+			/* normal — would set engine cursor if arg != 0
+			 * or the "needs-reset" flag was sticky. */
+			(void)arg;
+		}
+		g_a5_byte(-894) = 0;
+	} else {
+		/* Out-of-window path. Would arrow-reset on first crossing. */
+		g_a5_byte(-894) = 1;
+	}
+}
+
 /* L66e8 (CODE 4 + 0x66e8, CODE-local) — event-record post-process
- * gate. The Mac body calls L6538(0) and ignores its caller's
- * event-record pointer. PROBE-only for now; L6538 is a deeper
- * helper we haven't lifted. */
+ * gate. Body: L6538(0) with the event-record arg ignored. */
 static void l66e8(EventRecord *ev) __attribute__((unused));
 static void l66e8(EventRecord *ev)
 {
 	PROBE("L66e8");
 	(void)ev;
+	l6538((short)0);
 }
 
 /* L731e (CODE 4 + 0x731e) — shared event filter (level-2 skeleton).
