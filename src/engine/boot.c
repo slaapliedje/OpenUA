@@ -4271,13 +4271,45 @@ static void jt983(short arg)
 	}
 }
 
-/* L24aa (CODE 4 + 0x24aa) = JT[1178] — menu repaint / item refresh.
+/* L24aa (CODE 4 + 0x24aa) = JT[1178] — palette restore on
+ * suspend/resume.
  *
- * Large (-1036 byte frame, nested loops, mulsw #108). Walks the
- * 108-byte per-page descriptors at g_a5_-2570 and updates a
- * cluster around g_a5_-1310 / -1318. Called from L71ac and CODE
- * 6/7 menu paths. PROBE-only stub for now — the full lift is its
- * own task. */
+ * Despite earlier "menu repaint" guess, this is actually the
+ * Palette Manager state restore. Frame is 1036 bytes (a 1024-byte
+ * palette table + scratch); body:
+ *
+ *   if (!color_QD) goto mono_path;             // g_a5_-2347 == 0
+ *   if (!color_setup_done || depth != 8)       // g_a5_-1312 / -1318
+ *       goto fast_path;
+ *
+ *   // Full color path — depth == 8, palette enabled
+ *   Handle ph = g_a5_-1310;                    // palette Handle
+ *   bset #7, (*ph)[4];                          // dirty flag
+ *   bclr #6, (*ph)[4];
+ *   long stash[256];                            // local table
+ *   // Loop 1..15: snapshot system palette via _PMForeColor
+ *   for (i = 1; i < 16; i++) {
+ *       long entry = (*ph + 10) + i*8;          // PaletteEntry
+ *       _PMForeColor(entry);
+ *       stash[i] = saved_color;
+ *   }
+ *   // Loop 16..255: identity map
+ *   for (i = 16; i < 256; i++)
+ *       stash[i] = i;
+ *
+ *   ... 600+ more lines installing the palette into the GrafPort
+ *   ... pmTable structure and triggering _PaintRect on the
+ *   ... visible content rect.
+ *
+ * Lifting requires a Palette Manager equivalent in the compat
+ * shim (_PMForeColor / pmTable / PaletteHandle) which the
+ * current shim doesn't model. The Falcon HAL handles palette
+ * via VIDEL color regs directly — when that's wired, this
+ * function should map to a single "reapply engine palette" call.
+ *
+ * Stays a PROBE stub until the Palette Manager shim or direct
+ * VIDEL bridge lands. Dormant in boot trace (only L71ac /
+ * L7204 osEvt resume paths reach it). */
 static void l24aa(void) __attribute__((unused));
 static void l24aa(void)
 {
