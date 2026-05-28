@@ -3924,11 +3924,13 @@ static void l4d88(void)
 	PROBE("L4d88");
 }
 
-/* Forward — l71ac / l7090 / l70e0 lift further down. l725c routes
- * cases 8 (osEvt), 6 (updateEvt), and 7 (activateEvt) to them. */
+/* Forward — l71ac / l7090 / l70e0 / l7204 lift further down. l725c
+ * routes cases 8 (osEvt), 6 (updateEvt), 7 (activateEvt), and 15
+ * (diskEvt / high-level event) to them. */
 static void l71ac(EventRecord *ev);
 static void l7090(EventRecord *ev);
 static void l70e0(EventRecord *ev);
+static void l7204(EventRecord *ev);
 
 /* L725c (CODE 4 + 0x725c) — Mac event-pump dispatcher.
  *
@@ -3967,9 +3969,11 @@ static void l725c(short mask)
 	case 8:                                    /* osEvt */
 		l71ac(&ev);
 		break;
+	case 15:                                   /* diskEvt / high-level */
+		l7204(&ev);
+		break;
 	case 1: case 2:                            /* mouseDown / mouseUp */
 	case 3: case 5:                            /* keyDown / autoKey */
-	case 15:                                   /* diskEvt */
 		PROBE("L725c:arm-deferred");
 		break;
 	default:
@@ -4299,6 +4303,54 @@ static void l71ac(EventRecord *ev)
 		return;
 
 	if ((ev->modifiers & 0x0001) != 0) {
+		/* Resume path. */
+		l79ec();
+		jt983((short)1);
+		if (window_ptr != 0)
+			SetPort((GrafPtr)(uintptr_t)window_ptr);
+		l24aa();
+		if (window_ptr != 0)
+			InvalRect((Rect *)(uintptr_t)(window_ptr + 16));
+	} else {
+		/* Suspend path. */
+		jt983((short)0);
+		l79d4();
+	}
+}
+
+/* L7204 (CODE 4 + 0x7204) — diskEvt / high-level event arm.
+ *
+ * Reached from L725c case 15. Same suspend/resume body as L71ac,
+ * but uses the *standard* Mac suspendResumeMessage layout instead
+ * of L71ac's modifiers-byte convention:
+ *
+ *   if ((event.message >> 24) == 1) {        // suspendResumeMessage
+ *       if (event.message & 0x01)            // resume bit (low byte bit 0)
+ *           resume_path;                     // l79ec, jt983(1), SetPort, l24aa, InvalRect
+ *       else
+ *           suspend_path;                    // jt983(0), l79d4
+ *   }
+ *
+ * Either L71ac or L7204 will run depending on which event-type
+ * carried the suspend/resume info — the engine handles both
+ * routes since pre-System 7 Mac queued these slightly differently. */
+static void l7204(EventRecord *ev) __attribute__((unused));
+static void l7204(EventRecord *ev)
+{
+	long msg;
+	long window_ptr;
+
+	PROBE("L7204");
+	if (ev == NULL)
+		return;
+
+	msg = (long)ev->message;
+	if ((msg >> 24) != 1)
+		return;
+
+	window_ptr = g_a5_long(-2578);
+
+	if ((msg & 0x01L) != 0) {
 		/* Resume path. */
 		l79ec();
 		jt983((short)1);
