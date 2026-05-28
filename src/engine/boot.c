@@ -4394,7 +4394,45 @@ static void l3e38(void)
 	}
 
 	if (g_a5_byte(-1316) == 0 && l6804() != 0) {
-		PROBE("L3e38:idle-frontwindow-deferred");
+		/* L3e8e branch — idle + frontmost.
+		 *
+		 * 1. If L7de0 says a page-swap is pending, just call
+		 *    ValidRect on the content rect (no fresh paint
+		 *    needed) and exit.
+		 * 2. Otherwise, if -1314 is clear (no page-busy),
+		 *    probe depth via L448c; on depth change AND
+		 *    color-QD AND -1312 set, call L4350 with the
+		 *    "depth == 8" flag for the swap; then L24aa to
+		 *    restore the palette.
+		 * 3. Read the window's visRgn bbox (window+24 → handle
+		 *    → +2) into local rect; clamp to >= 0 and
+		 *    <= 2 * L04cc / L04de in half-scale or L04cc /
+		 *    L04de in full-scale.
+		 * 4. If the rect ends up empty, exit (L4342).
+		 * 5. Otherwise perform the actual page-descriptor
+		 *    walk + blit (400+ lines, deferred).
+		 */
+		PROBE("L3e38:idle-frontwindow");
+		if (l7de0() != 0) {
+			void *win_ptr = (void *)(uintptr_t)g_a5_long(-2578);
+			if (win_ptr != NULL)
+				ValidRect((Rect *)((unsigned char *)win_ptr + 16));
+			return;
+		}
+		if (g_a5_byte(-1314) == 0) {
+			short saved_depth = g_a5_word(-1318);
+			l448c();
+			if (saved_depth != g_a5_word(-1318)
+			    && g_a5_2347 != 0
+			    && g_a5_byte(-1312) != 0) {
+				l4350((short)((g_a5_word(-1318) == 8)
+				              ? -1 : 0));
+			}
+			l24aa();
+		}
+		/* Visible-rect copy + clamp + blit deferred — needs
+		 * window region deref + page-descriptor walk. */
+		PROBE("L3e38:idle-blit-deferred");
 		return;
 	}
 
