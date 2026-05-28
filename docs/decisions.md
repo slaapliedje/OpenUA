@@ -234,6 +234,59 @@ should know:
   updateEvt + L3e38 repaint, L70e0 activateEvt) come alive without
   further engine-side lifting.
 
+**Display HAL follow-up (2026-05-28):** A short investigation into
+exactly what's missing for engine output to reach screen turned up a
+finding worth recording.
+
+- **The Display HAL backend is done.** `platform/display_videl.c`
+  initializes a 320x400 (8-bit paletted) Falcon mode, allocates the
+  planar screen, owns a chunky 8-bit back buffer, and presents via a
+  correctness-first c2p. `compat/quickdraw.c` is hooked through to the
+  same buffer (`qd_attach_screen`) and palette (`qd_set_palette`). A
+  screenshot of the current build (in `data/work/` per ADR-0007 policy,
+  not committed) shows the QuickDraw demo — three stacked windows, the
+  menu bar, fonts — render correctly.
+- **Engine output doesn't reach screen because the play loop is
+  gated.** `jt315` (CODE 5 + 0x1b56, the play-loop predicate) returns 0
+  in normal builds — see the comment at boot.c around the definition.
+  Without the play loop, `jt918 → ... → l0aae → jt453 → L2d3e →
+  L2c60` never runs and no engine DLItem ever gets a cmd=1. Probe
+  builds force `jt315` to fire once, which is why the boot trace shows
+  L2d3e/L2c60/etc. firing 30 times each.
+- **Even with the play loop running, the shape handlers don't paint.**
+  jt376..jt382 currently handle only cmd=2 (hit-test) and delegate
+  everything else to L1676 — whose cmd=1 just sets the dirty bit
+  (rec[28] |= 0x80) and returns. The Mac asm confirms this: the actual
+  paint is somewhere in the shape-handler arms we haven't lifted yet
+  (L4fae / L4e12 text paint sit on the same g_a5_-936 gate that
+  L4d88 reads, and that gate stays 0 in our boot path).
+- **jt452 is a partial lift.** Our jt452 zeros the DLItem record and
+  installs the method pointer but ignores the rest of the Mac's
+  stream (positions, callback pointers, etc.). Item rects end up
+  (0, 0, 0, 0); even a port-side FrameRect addition would draw
+  nothing visible.
+
+The unblocking sequence to make FRUA's own UI render is, in order:
+
+1. **Lift jt452 to decode the full stream** — coordinates land in
+   rec[16..23] (top / left / bottom / right shorts) and the action
+   callback in rec[4..7].
+2. **Lift `jt918` (the play loop body)** — currently a PROBE-only
+   stub. Even without paint, this gets the engine into its dialog
+   event loop in normal builds.
+3. **Lift one shape handler's cmd=1 paint** — pick the simplest
+   (jt376 / jt377) and have it draw an EraseRect + FrameRect + label
+   via the QuickDraw shim. This is the proof-of-life that engine
+   draws end up on screen.
+4. **Lift L4fae / L4e12** — the 200+-line text-paint routines that
+   render the actual UI labels via DrawString. Their gate
+   (g_a5_-936) will need to be driven too — that's the
+   "deferred-paint count" the engine increments when an item wants
+   its text re-rendered.
+
+These four are deeper engine-side lifts (each its own session), not
+HAL work. The Display HAL itself is ready.
+
 ---
 
 ## Working assumptions (not yet ratified — confirm or amend)

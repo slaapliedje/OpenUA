@@ -3694,6 +3694,55 @@ static void   l30ba(short a, short b, short c)
                                                   { PROBE("L30ba"); (void)a;
                                                     (void)b; (void)c; }
 
+/* L2c60 (CODE 3 + 0x2c60) — DLItem paint walker.
+ *
+ *   if (g_a5_-9247 == 0) {                   // first time
+ *       L30ba(0, count - 1, 0);              // mark all dirty
+ *       g_a5_-9247 = 1;
+ *   }
+ *   for (i = 0; i < count; i++) {
+ *       if (force_paint != 0 || (rec[28] & 0x80))    // dirty?
+ *           method(rec, 1);                  // paint
+ *       rec += 32;
+ *   }
+ *   jt1134();                                 // yield to OS
+ *
+ * L2d3e Phase 1 calls L2c60(0) to paint dirty items each frame.
+ * Method-dispatch goes through the shape handlers (jt376..jt382)
+ * which currently delegate cmd=1 to L1676's "set dirty bit"
+ * default — so no actual paint reaches the Display HAL until
+ * shape-handler cmd=1 bodies are lifted. See ADR-0010 follow-up
+ * for the discovery that the play loop (gated by jt315) is the
+ * piece that drives this path in normal builds. */
+static void l2c60(short force_paint) __attribute__((unused));
+static void l2c60(short force_paint)
+{
+	short i, count;
+	unsigned char *rec;
+	typedef short (*method_t)(void *, short, ...);
+	method_t method;
+
+	PROBE("L2c60");
+	if (g_a5_9247 == 0) {
+		l30ba((short)0, (short)(g_a5_9250 - 1), (short)0);
+		g_a5_9247 = 1;
+	}
+
+	count = g_a5_9250;
+	rec = (unsigned char *)(uintptr_t)g_a5_9254;
+	for (i = 0; i < count; i++) {
+		short force = (short)(signed char)(force_paint & 0xff);
+		unsigned char dirty = rec[28];
+		if (force != 0 || (dirty & 0x80) != 0) {
+			method = *(method_t *)rec;
+			if (method != NULL)
+				(void)method(rec, (short)1);
+		}
+		rec += DLITEM_BYTES;
+	}
+	jt1134();
+}
+
 /* CODE 4 helpers L2d3e + family forward into. PROBE stubs until the
  * actual event-pump + DLItem dispatch land. */
 
@@ -5348,7 +5397,7 @@ static short l2d3e(void)
 
 	/* Phase 1 — event read. */
 	jt1153(1);
-	jt1134();                       /* L2c60 walks items with cmd=1 */
+	l2c60((short)0);                /* walk dirty items with cmd=1 */
 	key = l3198(7, (long)&mouse_y, (long)&mouse_x);
 
 	/* Phase 2 — hit-test: walk DLItems calling method(rec, 2, y, x).
