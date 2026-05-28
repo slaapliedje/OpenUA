@@ -127,6 +127,115 @@ own code and tooling, consistent with the `data/` policy.
 
 ---
 
+## ADR-0010 — Engine bring-up PROBE-lift phase complete; remaining work
+gated on HAL
+
+**Decision:** Treat the engine bring-up phase (lifting PROBE-only stubs in
+the boot path) as structurally complete. Remaining unlifted bodies are
+gated on host-facing infrastructure that doesn't exist yet (Falcon display
+HAL, input HAL, audio HAL, Palette Manager shim, font cache). Land that
+infrastructure before resuming the per-function lifting.
+
+**Why:** A 15-second probe boot in Hatari now generates ~2000 PROBE log
+lines across 117 unique labels, finishes without bus or address errors, and
+exercises every phase of the dialog event loop. Every event arm of L725c
+(Mac event-pump dispatcher) routes through a lifted handler; the dialog
+loop (L2d3e) iterates 30 times correctly; the base DLItem handler L1676
+fires 222 times with all command arms covered; the text-bounds chain
+(JT[1005] → L2856 → jt1135 → jt1200 → jt397 / jt413), the InvalRect
+dispatcher (L4d88), the event-pump prelude (jt1134 + L731e + L66e8 +
+L6538 + L62fa + jt1118 + L31ea + L3198), and the no-hit feedback chime
+(jt1080) are all lifted. Probe counts:
+
+| Function | Calls | Role |
+|----------|-------|------|
+| L1676    | 222   | DLItem base handler |
+| jt382 etc| 60-92 | Shape handler hit-tests (cmd=2) |
+| L4d88    | 60    | InvalRect dispatcher |
+| L6804    | 60    | Front-window probe |
+| jt397/413| 60    | min/max in text-bounds chain |
+| jt468    | 34    | Resource-handle lookup |
+| jt376/1200/1153 | 31 | Boot-time leaves |
+| L725c / jt1134 / L2d3e / L31ea / L3198 / L66e8 / L6538 / L62fa / L731e / jt1118 / jt1005 / L2856 | 30 | Event-pump + dialog loop |
+| jt452    | 14    | DLItem stream installer |
+| jt444    | 12    | DLItem dispatcher |
+
+What's *not* lifted falls into five buckets, each blocked on prerequisite
+infrastructure:
+
+1. **Display HAL** — `L4fae` / `L4e12` are 200+-line text-paint routines
+   (SetPort + StringWidth + character-class table at g_a5_-3016 + EraseRect
+   / PaintRect / MoveTo / DrawString). `L309c` is a 200+-line scaled
+   bitmap blit. `L3e38`'s deep blit arm walks page descriptors at
+   g_a5_-2570 and BlockMoves into the page's bits pointer. All wait on a
+   Falcon-side pixel destination and font metrics. L3d8c, jt1084, jt1064,
+   L448c, L4350, l24aa, L24aa (palette restore), l3e38 page-walk all sit
+   downstream of this.
+
+2. **Input HAL** — `jt1132` (mouse poll) stays PROBE-only with zeroed
+   coords and "button released" return. Until Hatari mouse / keyboard
+   events route through `platform/input.c`, the `L725c` mouseUp / mouseDown
+   / keyDown arms never fire and `cmd=3` mouse-track / `cmd=4` action /
+   `cmd=5` keyboard-select arms of L1676 stay dormant. `GlobalToLocal` is
+   skipped from compat (single-window engine, coords already local).
+
+3. **Audio HAL** — Currently no boot path drives audio. Trap calls in the
+   asm (_TickCount aside) don't reach our code; jt1122 turned out to be a
+   menu-bar slot setter, not the audio gate we initially guessed. Real
+   audio plumbing (Falcon DMA / DSP, TT YM2149 fallback per ADR-0010's
+   audio assumption) waits on the runtime phase consuming UA module SFX
+   tags.
+
+4. **Palette Manager shim** — `L24aa` is a 700+-line Palette Manager state
+   restore via _PMForeColor. Without the Palette Manager in the compat
+   shim or a direct VIDEL bridge, the function stays PROBE. Only L71ac /
+   L7204 osEvt resume paths reach it.
+
+5. **Resource manager + module loader** — The runtime per ADR-0008 needs
+   the engine to read UA modules from disk and walk record graphs. Stubs
+   like `jt361` (loads "GAME"), `jt81` (loads module 51), `l0444` (opens
+   "start.dat"), `jt449` (rebuilds shape-handler table), `jt938` /
+   `jt942` / `jt918` sit on this. The PROBE labels fire once each during
+   boot's resource-touching prelude.
+
+A handful of small surprises landed during bring-up that future readers
+should know:
+
+- **`jt1134`'s "dead arithmetic"** wasn't dead — d0 holds `(elapsed * 6) /
+  5` after rts, which `jt1080` reads as the idle-adjusted tick counter.
+  Signature corrected from void to long.
+- **DATA-blit pre-loaded values** in g_a5_-1316 (0x05 idle flag), -820 /
+  -810 / -809 / -814 (event cluster), -126 / -130 (idle ticks) must be
+  zeroed in `boot_a5_seed_defaults`. The Mac runtime drained these via
+  pre-main init we don't run. Without the explicit zero, l31ea reports
+  "keep polling" every iteration and L2d3e's Phase 5 walks every DLItem
+  cmd=5 method (L1676 spikes from 222 to 887 calls).
+- **`l747a` signature** was originally `(void*, short, short)`; corrected
+  to `(void*, long, long)` after asm analysis showed 12-byte caller
+  cleanup.
+- **`L7690` ≡ `JT[1122]`** — same function, two naming conventions.
+  Consolidated.
+- **Misnomers corrected:** L24aa = palette restore (not "menu repaint"),
+  L309c = scaled bitmap (not "channel write"), L4fae / L4e12 = text paint
+  (not "rect builders"), jt1080 = menu-slot blink feedback (not audio
+  "chime"), jt1122 = menu-bar slot setter (not "audio gate").
+
+**Consequences:**
+- Future PROBE-lift sessions targeting the boot path should pause until
+  Display / Input / Palette / Audio HAL or the resource manager lands.
+  Lifting in isolation produces PROBE-stub helpers that don't help — the
+  meaningful next steps go through HAL.
+- The 117 distinct probe labels in the current trace are a usable
+  regression fingerprint: changes that move major counts (L1676 = 222,
+  L2d3e = 30, jt1134 = 30, L4d88 = 60, L6804 = 60) should be investigated.
+  `tools/run_probe.sh` is the gate.
+- When the HAL phases land, the dormant arms (L690e cases 3/5/6 + drag/
+  zoom, L6dd0 Cmd-key + key-map, L71ac / L7204 suspend/resume, L7090
+  updateEvt + L3e38 repaint, L70e0 activateEvt) come alive without
+  further engine-side lifting.
+
+---
+
 ## Working assumptions (not yet ratified — confirm or amend)
 
 - **Scope:** the full *Unlimited Adventures* package — the design/editor tools
