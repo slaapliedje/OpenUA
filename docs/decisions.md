@@ -287,6 +287,56 @@ The unblocking sequence to make FRUA's own UI render is, in order:
 These four are deeper engine-side lifts (each its own session), not
 HAL work. The Display HAL itself is ready.
 
+**Update (2026-05-28, same day):** Items 1 (jt452 stream lift) and
+2 (jt315 enabling the play loop) landed and end-to-end engine
+output now reaches screen — verified with a temp DrawString call
+inside L2c60 that drew "MODIFY CHARACTER", "VIEW CHARACTER", and
+"EXIT FROM PLAY" labels at the expected coords during ua_main.
+The temp paint has been removed; the path from `jt315` →
+`jt918` → `l0aae` → `jt452` → `L2c60` → shape-handler dispatch
+is now wired such that future shape-handler cmd=1 lifts will
+produce pixels without further plumbing.
+
+jt452 changes:
+
+  Previously installed only the method pointer. Now also stamps
+  rec[12..15] with the label ptr (Mac shape-1's long arg),
+  rec[16..17] with phr (shape-1's top), rec[18..19] with page
+  (shape-1's left), rec[29] with the shortcut byte (shape-32's
+  arg), and rec[28] |= (1<<4) | (1<<5) | 0x80 — the visibility
+  / enabled / dirty bits the paint walker checks. Coords are
+  still engine-scaled (jt1135 remaps at paint time);
+  rec[20..23] (bottom / right) stay 0 (shape-handler cmd=2
+  hit-test computes them dynamically).
+
+jt315 change:
+
+  Was returning 0 unconditionally in normal builds, so the play
+  loop never ran. Now fires once (matching the probe-mode
+  behavior) so a single pass through l07dc → jt918 → l0aae
+  drives the dialog event loop and exercises L2d3e / L2c60 /
+  jt453. The Mac's real `jt315` is a segment-cycling predicate
+  we haven't lifted; one iteration is enough for the engine to
+  reach its menu state.
+
+Probe-trace shifts (which become the new fingerprint):
+
+| Label | Before | After |
+|-------|--------|-------|
+| L1676 | 222 | 372 |
+| jt918 | 0 | 1 |
+| jt315 | 2 | 2 (same) |
+| L2d3e / L2c60 / L725c / jt1134 | 30 each | 30 each (unchanged) |
+| jt452 | 14 | 14 (same) |
+
+The +150 on L1676 is dirty items flowing through L2c60 → shape
+handler → L1676 cmd=1 each iteration (5 hot items × 30 iters).
+
+Step 3 (shape-handler cmd=1 paint) is the next session — pick the
+simplest (jt376 / jt377) and have it call EraseRect + FrameRect +
+DrawString via the QuickDraw shim against the item's rec[16..23]
+coords (remapped via jt1135).
+
 ---
 
 ## Working assumptions (not yet ratified — confirm or amend)
