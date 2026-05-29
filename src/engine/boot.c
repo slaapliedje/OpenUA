@@ -5725,6 +5725,14 @@ static long jt1134(void)
 			l725c((short)0x8140);
 		} while (g_a5_byte(-1316) != 0);
 	} while (l6804() == 0);
+	/* Port concession: on Mac the framebuffer is the screen, so the
+	 * "yield to OS" point is implicitly visible. The Falcon HAL
+	 * double-buffers (engine paints into the QuickDraw shim buffer;
+	 * qd_present blits to VIDEL). Trigger that blit here so the
+	 * engine's L2c60 walk (which ends in jt1134) becomes visible
+	 * during the jt453 / l2d3e modal loop — before this, the menu
+	 * only showed up when ua_main returned and main.c flushed. */
+	qd_present();
 	elapsed = TickCount() - g_a5_long(-130);
 	return (elapsed * 6) / 5;
 }
@@ -6284,8 +6292,7 @@ typedef short (*jt453_filter_t)(void);
 /* g_a5_9247 → macro (data_pool replay buffer) */
 static short jt453(jt453_filter_t filterProc)
 {
-	short       hit;
-	short       guard;
+	short hit;
 
 	PROBE("jt453");
 	if (g_a5_9248 == 0) {
@@ -6297,7 +6304,14 @@ static short jt453(jt453_filter_t filterProc)
 		g_a5_9247 = 1;
 	}
 
-	for (guard = 0; guard < 30; guard++) {
+	/* Mac: spin on l2d3e until an item is selected (>= 0). The
+	 * inner l2d3e call pumps the event queue every iteration via
+	 * jt1118 / L731e / L725c so a host keystroke or click does
+	 * land in g_a5_-818 / -908 within a few iterations. The earlier
+	 * 30-iter guard was a defense against L2d3e returning -1 forever
+	 * (PROBE-only DLItem methods); with the L1676 cmd=5 path lifted
+	 * and the IKBD chain live, l2d3e resolves real input. */
+	for (;;) {
 		hit = l2d3e();
 		if (hit >= 0)
 			return hit;
@@ -6307,7 +6321,6 @@ static short jt453(jt453_filter_t filterProc)
 				return hit;
 		}
 	}
-	return (short)-1;
 }
 
 /* JT[140] / JT[156] (CODE 7 + 0x1e58 / 0x1d5c) — item-callback PROCs
@@ -7912,7 +7925,6 @@ static short jt918_count_visible_designs(void)
 static int jt918(short a)
 {
 	short local;
-	short iter_guard;
 
 	(void)a;
 	PROBE("jt918");
@@ -7928,11 +7940,14 @@ static int jt918(short a)
 	local = 0;                            /* fp@(-10) before L125e jumps */
 
 	/* Outer loop — the asm jumps from entry directly to L125e and then
-	 * to L0dd4. We model that as an unbounded for-loop with the body
-	 * at L0dd4. iter_guard breaks out after the first iteration while
-	 * L0aae / the case bodies are still stubs returning 0 (otherwise
-	 * we'd spin forever). */
-	for (iter_guard = 0; iter_guard < 1; iter_guard++) {
+	 * to L0dd4. Unbounded for-loop with the body at L0dd4: each
+	 * iteration polls l0aae for a menu selection, then dispatches via
+	 * the JT[3] switch. Cases return 0 (continue), 1 (exit with
+	 * "success"), or -1 (exit with "cancel"). Earlier iter_guard
+	 * defense against L0aae returning 0 forever has come off — with
+	 * jt453 spinning on l2d3e and the IKBD chain live, the loop now
+	 * blocks on real input. */
+	for (;;) {
 		/* L0dd4: per-iteration prologue. */
 		(void)jt112(1);
 		if (local > 11)
