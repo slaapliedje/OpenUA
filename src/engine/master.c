@@ -17,6 +17,7 @@
 #include "fc.h"               /* fc_init, fc_cleanup */
 #include "toolbox.h"          /* toolbox_init — the lifted JT[1144] */
 #include "data_pool_replay.h" /* g_a5_byte / g_a5_long / g_a5_word (jt1138) */
+#include "input.h"            /* plat_ticks — jt1155 stamps tick origin */
 
 /* Stub-trace probe; same as boot.c — see docs/engine-bring-up.md. */
 #ifdef FRUA_ENGINE_PROBE
@@ -33,7 +34,16 @@
  * managers in the Mac startup order. */
 static void jt1158(void)            { PROBE("jt1158"); }
 static void jt1157(short a, long b) { PROBE("jt1157"); }
-static void jt1114(void)            { PROBE("jt1114"); }
+
+/* JT[1114] (CODE 4 + 0x61ee) — flag "engine initialized."
+ *   g_a5_-900 = 1;
+ * Set by master_shutdown so the next master_init can clean up
+ * any pending state. Mac body is exactly two instructions. */
+static void jt1114(void)
+{
+	PROBE("jt1114");
+	g_a5_byte(-900) = 1;
+}
 /* JT[1138] (CODE 4 + 0x66f8) — reset engine input state.
  *
  *   g_a5_-809 = 0;          // macro start-of-stream flag
@@ -56,9 +66,29 @@ static void jt1138(void)
 	g_a5_long(-814)  = 0;
 	g_a5_word(-2592) = 0;
 }
-static void jt1156(void)            { PROBE("jt1156"); }
-static void jt1155(void)            { PROBE("jt1155"); }
-static void jt1119(void)            { PROBE("jt1119"); }
+/* JT[1156] (CODE 4 + 0x670e) — no-op (bare rts in the Mac body).
+ * Kept as a real lift so master.c stops marking it stub. */
+static void jt1156(void)
+{
+	PROBE("jt1156");
+}
+
+/* JT[1155] (CODE 4 + 0x7972) — stamp the engine's tick origin.
+ *   g_a5_-130 = TickCount();
+ * Used as the reference point that jt1134 / jt1149 / L79d4 / L79ec
+ * subtract from to compute elapsed game time. */
+static void jt1155(void)
+{
+	PROBE("jt1155");
+	g_a5_long(-130) = (long)plat_ticks();
+}
+
+/* JT[1119] (CODE 4 + 0x797e) — no-op (bare rts in the Mac body).
+ * Pair to jt1156 in the master_shutdown sequence. */
+static void jt1119(void)
+{
+	PROBE("jt1119");
+}
 
 /* CODE 5 — intra-segment helpers. */
 static void l01a2(void)             { PROBE("l01a2"); }
