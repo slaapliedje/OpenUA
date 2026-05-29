@@ -337,6 +337,41 @@ simplest (jt376 / jt377) and have it call EraseRect + FrameRect +
 DrawString via the QuickDraw shim against the item's rec[16..23]
 coords (remapped via jt1135).
 
+**Step 3 first-pass attempt (2026-05-28, same day):** Lifted jt382
+cmd=1 with the intended QuickDraw shim path (jt1135 → MoveTo →
+DrawString). The lift compiled and ran; PROBE counted 32 jt382:cmd=1
+calls per boot. But the screenshot showed no menu labels.
+
+Per-call diagnostics revealed the issue: jt452 variadic args
+stamped the right values into rec for items 0..11 (verified —
+labels at addresses ~0x155CCC, page/phr coords matching the
+k_jt918_menu_items table), and the shape-handler table mapped
+items 0 and 7 to jt382 correctly. But the jt382:cmd=1 path
+only ever fired for item idx=12 — the "extra" item from
+`jt452(7, 20L, (long)0)` with invalid label=20.
+
+What we know so far:
+- jt452 stamping is correct (per-item dbg_log_num confirms
+  label / page / phr land in the right rec slots).
+- Method table mapping is correct (item 0 and 7 get matching
+  method pointers).
+- jt382:cmd=1 fires 32 times in PROBE, but the per-call diag
+  saw only idx=12. Items 0 and 7's cmd=1 calls aren't reaching
+  the diag — suggesting the dirty bit on those items gets
+  cleared somewhere between jt452 stamp and L2c60 walk, OR the
+  method pointer gets overwritten, OR the L2c60 walk skips them.
+
+Reverted the jt382 cmd=1 lift to keep the probe trace stable.
+Next session: instrument L2c60 to log the method pointer +
+rec[28] value for every item-walk hit, to pinpoint why items 0
+and 7's cmd=1 doesn't reach jt382's body. Once that's understood,
+the shape-handler paint should just plug back in.
+
+Probe fingerprint remains unchanged:
+
+  L1676 = 372, jt918 = 1, L2d3e / L2c60 / L725c / jt1134 = 30,
+  L4d88 = 60, jt452 = 14, jt315 = 2, jt382 = 244.
+
 ---
 
 ## Working assumptions (not yet ratified — confirm or amend)
