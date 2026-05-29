@@ -5884,6 +5884,47 @@ static void jt1122(short mode, short slot_val, short c)
 	g_a5_byte(-779) = 1;
 }
 
+/* JT[1131] (CODE 4 + 0x7760) — semitone -> menu-slot dispatcher.
+ *
+ *   short tmp   = g_a5_shorts(-804)[midi % 12];   // 12-entry octave row
+ *   short shift = midi / 12 - 5;                  // octave 5 is base
+ *   if (shift < 0)      tmp = (short)(tmp << -shift);
+ *   else if (shift > 0) tmp = (short)(tmp >>  shift);
+ *   jt1122(snd_id, tmp, dur);                     // routes to L7690
+ *
+ * The table at g_a5_-804 is a 12-entry short[] (one octave). The
+ * shift retunes to the requested octave: right-shift for higher
+ * MIDI = smaller value, so the entries are *periods* (jt5/JT[1122]
+ * hash divisors), not frequencies — consistent with jt1122's
+ * "slot_val ? jt5(0x233244F7u, slot_val) : 0" hash.
+ *
+ * Six CODE 5 call sites (0x135a / 0x13a4 / 0x1478 / 0x14ac /
+ * 0x14c8 / 0x1524) all pass (char_byte, midi=0, dur=-1) — the
+ * "tag this menu slot with the character's hash" path used by the
+ * party-roster screens. With midi=0, shift = -5, so tmp is the
+ * table[0] period left-shifted by 5 before being hashed.
+ *
+ * dur is passed through and ignored by jt1122 (the Mac kept the
+ * prototype symmetric with sibling sound helpers).
+ */
+static void jt1131(short snd_id, short midi, short dur) __attribute__((unused));
+static void jt1131(short snd_id, short midi, short dur)
+{
+	short tmp;
+	short shift;
+
+	PROBE("jt1131");
+
+	tmp   = g_a5_shorts(-804)[midi % 12];
+	shift = (short)(midi / 12 - 5);
+	if (shift < 0)
+		tmp = (short)(tmp << (-shift));
+	else if (shift > 0)
+		tmp = (short)(tmp >> shift);
+
+	jt1122(snd_id, tmp, dur);
+}
+
 /* JT[1080] (CODE 5 + 0x0156) — "no-hit" feedback chime.
  *
  *   start = jt1134();                    // current idle-adjusted tick
