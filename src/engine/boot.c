@@ -1691,6 +1691,69 @@ static void jt1001(short a, short b, short c, short d)
 	t = jt468(b);
 	l309c(a, c, t, d);
 }
+
+/* Forward — jt1200 lifts further down. L148a needs it for the
+ * mode-3 vs mode-0/1 split. */
+static int  jt1200(void);
+
+/* JT[995] (CODE 5 + 0x21fc) — clipped scaled-bitmap blit.
+ *
+ * The Mac body is ~300 lines of clip-rect math + 4-arm dispatch:
+ *
+ *   handle = jt468(style)                        // resource lookup
+ *   font_ptr = L2856(handle, size, &font_info)   // size lookup
+ *   if (font_ptr == 0)  return 0;
+ *   L4d88();                                     // InvalRect flush
+ *   jt1135(top, left, &scaled_y, &scaled_x)      // engine→pixel
+ *   ...clip against g_a5_-3050..-3056 (clip rect)...
+ *   for each row in clipped band {
+ *       if (mode_jt1198()):  pick JT[1184/1181/1189/1191] per
+ *                            JT[1200] mode + jt1198 source
+ *       else:                JT[1188] / JT[1183] (other variants)
+ *       blit one row
+ *   }
+ *   return composite_mask;
+ *
+ * For the port this is dormant: we don't have the engine's
+ * pre-rendered bitmap resource (each style+size combination would
+ * be a pixel grid in CODE-X RSRC), and the Falcon HAL doesn't
+ * have a row-blit primitive wired through this path. PROBE stub
+ * for now — the visible text labels come from jt382 cmd=1's
+ * direct DrawString, not this chain. */
+static short jt995(short top, short left, short style, short size_high,
+                   short mode) __attribute__((unused));
+static short jt995(short top, short left, short style, short size_high,
+                   short mode)
+{
+	PROBE("jt995");
+	(void)top; (void)left; (void)style; (void)size_high; (void)mode;
+	return 0;
+}
+
+/* L148a (CODE 3 + 0x148a) — text/bitmap paint dispatcher.
+ *
+ *   if (jt1200() == 3)                             // mode 3 (deep)
+ *       jt995(top, left, style, size_h, 2);
+ *   else                                            // mode 0 / 1
+ *       jt1001(top, left, style, size_h);
+ *
+ * jt382 cmd=1 funnels through here; both branches end up doing
+ * a scaled-bitmap blit (jt995 directly, jt1001 via jt468 +
+ * l309c). For the port the actual rendering both arms do is
+ * dormant (PROBE stubs), so L148a fires without producing
+ * pixels — jt382 cmd=1 still has its own DrawString call for
+ * the text label as a port addition. */
+static void l148a(short top, short left, short style, short size_high) __attribute__((unused));
+static void l148a(short top, short left, short style, short size_high)
+{
+	PROBE("L148a");
+	if (jt1200() == 3) {
+		(void)jt995(top, left, style, size_high, (short)2);
+	} else {
+		jt1001(top, left, style, size_high);
+	}
+}
+
 static void jt174(void);                                                          /* CODE 7 + 0x2062 (lifted below) */
 
 static void l66e6(short n)
@@ -3430,9 +3493,23 @@ static short jt382(void *rec_v, short cmd, ...)
 
 		/* style_size >= 0 → text path */
 		{
+			short style = (ss > 0) ? (short)(ss >> 10) : (short)0;
+			short size  = (ss != 0) ? (short)(ss & 0x3FF) : (short)14;
 			const char *label = *(const char **)(rec + 12);
 			short y_pix = 0, x_pix = 0;
 
+			/* Faithful: route through the Mac paint dispatcher.
+			 * In our port jt995 / jt1001 are PROBE stubs so this
+			 * doesn't produce visible pixels — see below for the
+			 * port-side text rendering. */
+			l148a(*(short *)(rec + 16), *(short *)(rec + 18),
+			      style, (short)(size + highlighted));
+
+			/* Port addition: render the label text. The Mac paint
+			 * chain handles button bitmaps + decoration; the
+			 * label-as-text rendering we surface here is what the
+			 * QuickDraw shim renders to screen until the Mac
+			 * bitmap path lifts. */
 			if (label == NULL || (long)label <= 0x1000L)
 				return 0;
 
