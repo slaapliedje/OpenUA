@@ -8010,12 +8010,24 @@ static int jt918(short a)
 			g_a5_14431 = 1;
 			g_a5_14430 = 1;
 		} else {
-			/* L0e98: fresh-init defaults. */
+			/* L0e98: fresh-init defaults.
+			 *
+			 * Port deviation: g_a5_14435 (Add Character) forced to
+			 * 1. The Mac default is 0 because a fresh-start has no
+			 * design loaded — Add only enables once g_a5_27932 (the
+			 * design-pointer) is non-zero, which the saved-game arm
+			 * (L0df6) handles. Until the design-load path lifts,
+			 * the Mac-faithful default leaves the dispatch chain
+			 * unobservable; setting it lets pressing 'A' exercise
+			 * the cmd=5 match -> jt918/case5 L1036 -> jt904
+			 * dispatch end-to-end in the trace. Revert when the
+			 * design-load gating becomes meaningful.
+			 */
 			g_a5_14439 = 1;
 			g_a5_14438 = 0;
 			g_a5_14437 = 0;
 			g_a5_14436 = 0;
-			g_a5_14435 = 0;
+			g_a5_14435 = 1;            /* port enable for trace */
 			g_a5_14434 = 1;
 			g_a5_14433 = 0;
 			g_a5_14432 = 1;
