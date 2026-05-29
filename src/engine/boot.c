@@ -1692,12 +1692,13 @@ static void jt1001(short a, short b, short c, short d)
 	l309c(a, c, t, d);
 }
 
-/* Forward — jt1200 / l2856 / l4d88 / jt1135 lift further down.
- * L148a / jt995 need them for their dispatch + clip math. */
+/* Forward — jt1200 / l2856 / l4d88 / jt1135 / l731e lift further
+ * down. L148a / jt995 / jt1132 need them. */
 static int  jt1200(void);
 static long l2856(long font_handle, short size, void *out_8bytes);
 static void l4d88(void);
 static void jt1135(short v1, short v2, short *out1, short *out2);
+static void l731e(short arg);
 
 /* JT[1198] (CODE 4 + 0x52e) — Mac body returns 1 always.
  * Likely "rows per glyph step" — placeholder hook from the Mac
@@ -3143,24 +3144,64 @@ static void    jt451(void)                          { PROBE("jt451"); }
  * cmd=3 mouse-track loop needs it. */
 static long jt1134(void);
 
-/* JT[1132] (CODE 4 + 0x6288) — mouse poll. Writes the current
- * mouse (y, x) to the two out-shorts and returns the button
- * state: 1 if the button is held, 0 if released. The Mac body
- * checks two cached A5 flags (g_a5_-903 / -904) for a buffered
- * button-down, falling through to L6204 (live mouse poll) when
- * the cache is empty.
+/* L6204 (CODE 4 + 0x6204) — live mouse poll. Faithful lift:
  *
- * Port stub: no mouse-event source is wired yet, so return 0
- * (button released) with zeroed coords. This makes L1676's
- * cmd=3 mouse-track loop exit cleanly on the first iteration.
- * Replace with a real poll once Hatari's mouse / keyboard input
- * reaches the engine via the input HAL. */
+ *   Point pt;
+ *   GetMouse(&pt);                                // _GetMouse trap
+ *   if (g_a5_-2346)  pt.v >>= 1;  pt.h >>= 1;     // half-scale mode
+ *   *out_y = pt.v;
+ *   *out_x = pt.h;
+ *
+ * GetMouse routes through the compat shim → plat_mouse_pos in
+ * the Input HAL, which reads the IKBD-driven g_mouse_x / g_mouse_y. */
+static void l6204(short *out_y, short *out_x) __attribute__((unused));
+static void l6204(short *out_y, short *out_x)
+{
+	Point pt;
+
+	PROBE("L6204");
+	GetMouse(&pt);
+	if (g_a5_byte(-2346) != 0) {
+		pt.v = (short)(pt.v >> 1);
+		pt.h = (short)(pt.h >> 1);
+	}
+	if (out_y != NULL) *out_y = pt.v;
+	if (out_x != NULL) *out_x = pt.h;
+}
+
+/* JT[1132] (CODE 4 + 0x6288) — mouse poll. Faithful lift:
+ *
+ *   L4d88();                                       // flush InvalRect
+ *   L731e(2);                                      // pump events (mouseDown peek)
+ *   if (g_a5_-903 || g_a5_-904) {                  // buffered click?
+ *       *out_y = g_a5_-908;
+ *       *out_x = g_a5_-906;
+ *       g_a5_-903 = 0;                              // clear edge
+ *       return 1;                                   // button held
+ *   }
+ *   L6204(out_y, out_x);                            // live poll
+ *   return 0;
+ *
+ * The buffered path (-903 / -904) fires when L6cba (mouseUp arm)
+ * or L6b26 (inContent click body) previously captured coords
+ * into g_a5_-908 / -906. With real IKBD input plumbed through
+ * L725c → those arms, the engine's cmd=3 mouse-track loop sees
+ * live clicks. */
 static short jt1132(short *out_y, short *out_x) __attribute__((unused));
 static short jt1132(short *out_y, short *out_x)
 {
 	PROBE("jt1132");
-	if (out_y != NULL) *out_y = 0;
-	if (out_x != NULL) *out_x = 0;
+	l4d88();
+	l731e((short)2);
+
+	if (g_a5_byte(-903) != 0 || g_a5_byte(-904) != 0) {
+		if (out_y != NULL) *out_y = g_a5_word(-908);
+		if (out_x != NULL) *out_x = g_a5_word(-906);
+		g_a5_byte(-903) = 0;
+		return 1;
+	}
+
+	l6204(out_y, out_x);
 	return 0;
 }
 
