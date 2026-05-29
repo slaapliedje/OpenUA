@@ -4304,18 +4304,35 @@ static void l2c60(short force_paint)
 static void l4d88(void);
 static signed char l6804(void);
 
-/* L62fa (CODE 4, near L6538) — query "where is the mouse?" state.
+/* L62fa (CODE 4 + 0x62fa) — query "where is the mouse?" state.
  *
- * Writes a state code (1..4 region) to *out and returns non-zero
- * when the cursor is over our window. PROBE stub for now — the
- * real body walks GrafPort + window-z-order data. */
-static short l62fa(short *out) __attribute__((unused));
-static short l62fa(short *out)
+ *   Point pt;
+ *   GetMouse(&pt);                          // local coords
+ *   LocalToGlobal(&pt);                     // → screen coords
+ *   short part = FindWindow(pt, &which);    // 0..8 hit-test region
+ *   *out_part = part;
+ *   return (which == g_a5_-2578) ? -1 : 0;  // our window?
+ *
+ * Used by L6538 to gate cursor-shape changes ("only swap to the
+ * engine cursor when the pointer is in our window's content area";
+ * FindWindow part 3 = inContent). LocalToGlobal is a no-op in the
+ * Falcon HAL's single-window setup (window origin = screen origin),
+ * so the conversion is skipped. */
+static short l62fa(short *out_part) __attribute__((unused));
+static short l62fa(short *out_part)
 {
+	Point      pt;
+	WindowPtr  which = NULL;
+	short      part;
+
 	PROBE("L62fa");
-	if (out != NULL)
-		*out = 0;
-	return 0;
+	GetMouse(&pt);
+	/* LocalToGlobal skipped — single-window port (local == global). */
+	part = FindWindow(pt, &which);
+	if (out_part != NULL)
+		*out_part = part;
+	return ((long)(uintptr_t)which == g_a5_long(-2578))
+	       ? (short)-1 : (short)0;
 }
 
 /* L6538 (CODE 4 + 0x6538) — cursor reset / refresh.
