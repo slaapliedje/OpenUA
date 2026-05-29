@@ -3426,6 +3426,73 @@ static short jt382(void *rec_v, short cmd, ...)
 	PROBE("jt382");
 	SHAPE_CMD_PROBE("jt382");
 
+	if (cmd == 1) {
+		/* Mac L1a5e (CODE 3 + 0x1a5e) — paint button label.
+		 *
+		 *   rec[28] |= 0x80                          ; mark painted
+		 *   if (bit 1 of rec[28])    return 0;       ; disabled
+		 *   highlighted = (rec[28] & 0x09) ? 1 : 0;  ; bits 0 or 3
+		 *   short style_size = rec[26..27];
+		 *   if (style_size >= 0) {
+		 *       short style = (style_size > 0) ? style_size >> 10 : 0;
+		 *       short size  = (style_size != 0) ? style_size & 0x3FF : 14;
+		 *       L148a(rec[16], rec[18], style, size + highlighted);
+		 *   } else if (style_size == -1) {
+		 *       // No-op; sentinel for "no paint"
+		 *   } else {
+		 *       // Icon path (style_size < -1) — deferred.
+		 *   }
+		 *
+		 * Mac's L148a → jt995 chain is the text-paint funnel
+		 * (font lookup → coord scale → clip → DrawString). For the
+		 * port we collapse to a direct jt1135 + DrawString on
+		 * rec[12..15] (label C-string ptr) — the same shortcut
+		 * the L1676 cmd=1 catch-all uses. Once L148a / jt995 lift
+		 * faithfully we'll route through them instead. */
+		short ss = *(short *)(rec + 26);
+		short highlighted;
+
+		rec[28] |= 0x80;
+
+		if ((rec[28] & 0x02) != 0)
+			return 0;                       /* disabled */
+
+		highlighted = ((rec[28] & 0x09) != 0) ? 1 : 0;
+
+		if (ss < 0) {
+			/* style_size == -1: no-paint sentinel.
+			 * style_size < -1: icon path, deferred. */
+			(void)highlighted;
+			return 0;
+		}
+
+		/* style_size >= 0 → text path */
+		{
+			const char *label = *(const char **)(rec + 12);
+			short y_pix = 0, x_pix = 0;
+
+			if (label == NULL || (long)label <= 0x1000L)
+				return 0;
+
+			jt1135(*(short *)(rec + 16), *(short *)(rec + 18),
+			       &y_pix, &x_pix);
+
+			{
+				unsigned char pbuf[256];
+				short len = 0;
+				while (label[len] != 0 && len < 255)
+					len++;
+				if (len > 0) {
+					pbuf[0] = (unsigned char)len;
+					memcpy(pbuf + 1, label, (size_t)len);
+					MoveTo(x_pix, y_pix);
+					DrawString(pbuf);
+				}
+			}
+		}
+		return 0;
+	}
+
 	if (cmd != 2) {
 		short la, lb;
 		va_start(ap, cmd);
