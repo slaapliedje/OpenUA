@@ -7656,8 +7656,63 @@ static void   l4f2c(long ptr)                        { PROBE("L4f2c"); (void)ptr
 static void   l4ff6(long ptr)                        { PROBE("L4ff6"); (void)ptr; }
 static signed char l4e56(long ptr)                   { PROBE("L4e56"); (void)ptr; return 0; }
 static signed char l4ec6(long ptr)                   { PROBE("L4ec6"); (void)ptr; return 0; }
-static short  jt182(const char *fmt, long arg1, long arg2, long arg3)
-                                                     { PROBE("jt182"); (void)fmt; (void)arg1; (void)arg2; (void)arg3; return 7; /* default to "exit" so the loop terminates */ }
+/* JT[182] (CODE 7 + 0x34f0) — interactive roster prompt dispatcher.
+ *
+ *   if (jt396(p2, g_a5_-14644))     ; case-insensitive strcmp
+ *       L1806((char)arg4_lo);       ; quick-path action
+ *       g_a5_-24139 = 0;
+ *       return 13;                  ; "CR" (Mac confirm key)
+ *
+ *   char buf[80];
+ *   L206e(p2, buf, p1, &arg3_lo);   ; build prompt cluster
+ *   short tmp = L23b4((char)arg4_lo); ; mode -> opcode
+ *   return L25b6(tmp, buf, &g_a5_-24139); ; interactive select
+ *
+ * The Mac stack from jt904's call:
+ *   p1   (long) = STRS+0x5a34 prompt template
+ *   p2   (long) = g_a5_-13804 roster cluster pointer
+ *   arg3 (short) = first byte slot (out-param scratch)
+ *   arg4 (short) = mode/opcode (low byte)
+ *
+ * Both arg3 and arg4 are accessed by the Mac via fp@(17) / fp@(19),
+ * the low bytes of the two trailing short slots. Modelled here as
+ * proper short args; their low bytes feed L1806 / L206e / L23b4.
+ *
+ * L1806 / L206e / L23b4 / L25b6 stay PROBE stubs — L25b6 alone is
+ * a 200+-line interactive event loop with its own 8-arm JT[3]
+ * dispatch (the design-roster selection grid). With L25b6
+ * returning 0, jt182 returns 0, jt904 case 0 -> L25ce sets
+ * *out_done = 1, jt904 exits cleanly through its loop predicate. */
+static void  l1806(short v)                          { PROBE("L1806"); (void)v; }
+static void  l206e(long p2, unsigned char *buf,
+                    const char *p1, unsigned char *arg3_lo)
+                                                     { PROBE("L206e"); (void)p2; (void)buf; (void)p1; (void)arg3_lo; }
+static short l23b4(short v)                          { PROBE("L23b4"); (void)v; return 0; }
+static short l25b6(short tmp, unsigned char *buf, unsigned char *flag_out)
+                                                     { PROBE("L25b6"); (void)tmp; (void)buf; (void)flag_out; return 0; }
+
+#define g_a5_14644 g_a5_buf(-14644)    /* cached prompt string for jt396 fast-path */
+
+static short jt182(const char *p1, long p2, short arg3, short arg4)
+{
+	unsigned char buf[80];
+	unsigned char arg3_lo;
+
+	PROBE("jt182");
+
+	if (jt396((const char *)(uintptr_t)p2, (const char *)g_a5_14644) != 0) {
+		l1806((short)(signed char)(arg4 & 0xff));
+		g_a5_24139 = 0;
+		return (short)13;
+	}
+
+	arg3_lo = (unsigned char)(arg3 & 0xff);
+	l206e(p2, buf, p1, &arg3_lo);
+	{
+		short tmp = l23b4((short)(signed char)(arg4 & 0xff));
+		return l25b6(tmp, buf, &g_a5_24139);
+	}
+}
 static short  jt595(short a, short b, short *p1, unsigned char *p2)
                                                      { PROBE("jt595"); (void)a; (void)b; (void)p1; (void)p2; return 0; }
 static void   jt527(void)                            { PROBE("jt527"); }
@@ -7739,7 +7794,8 @@ static void jt904(unsigned char *out_done)
 		jt155((short)7, &status1);
 
 		g_a5_24140 = exit_flag;
-		last_key   = jt182(ua_strs_at(0x5a34), g_a5_13804, 0L, 0L);
+		last_key   = jt182(ua_strs_at(0x5a34), g_a5_13804,
+		                   (short)0, (short)0);
 		if (g_a5_24139 != 0 && last_key == 27)
 			last_key = 7;
 		exit_flag  = g_a5_24140;
