@@ -16,6 +16,7 @@
 #include "master.h"
 #include "fc.h"               /* fc_init, fc_cleanup */
 #include "toolbox.h"          /* toolbox_init — the lifted JT[1144] */
+#include "data_pool_replay.h" /* g_a5_byte / g_a5_long / g_a5_word (jt1138) */
 
 /* Stub-trace probe; same as boot.c — see docs/engine-bring-up.md. */
 #ifdef FRUA_ENGINE_PROBE
@@ -33,7 +34,28 @@
 static void jt1158(void)            { PROBE("jt1158"); }
 static void jt1157(short a, long b) { PROBE("jt1157"); }
 static void jt1114(void)            { PROBE("jt1114"); }
-static void jt1138(void)            { PROBE("jt1138"); }
+/* JT[1138] (CODE 4 + 0x66f8) — reset engine input state.
+ *
+ *   g_a5_-809 = 0;          // macro start-of-stream flag
+ *   g_a5_-810 = 0;          // macro continue-replay flag
+ *   g_a5_-820 = 0;          // key-pending flag
+ *   g_a5_-814 = 0;          // macro buffer pointer
+ *   g_a5_-2592 = 0;         // last-event.what cache
+ *
+ * Called once from master_init's CODE 5 + 0x36 init: drops any
+ * leftover macro / key state from a previous engine session so
+ * the first jt1133() call hits the live-poll path. Single
+ * fire in the boot trace.
+ */
+static void jt1138(void)
+{
+	PROBE("jt1138");
+	g_a5_byte(-809)  = 0;
+	g_a5_byte(-810)  = 0;
+	g_a5_byte(-820)  = 0;
+	g_a5_long(-814)  = 0;
+	g_a5_word(-2592) = 0;
+}
 static void jt1156(void)            { PROBE("jt1156"); }
 static void jt1155(void)            { PROBE("jt1155"); }
 static void jt1119(void)            { PROBE("jt1119"); }
