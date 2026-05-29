@@ -448,14 +448,17 @@ static int   jt931(void)                           { PROBE("jt931"); return 0; }
 static void  jt949(void)                           { PROBE("jt949"); }            /* CODE 20 + 0x77a2 */
 static int   jt315(void)
 {
-	/* In probe mode, fire once so the play-loop body runs and its
-	 * stubs log themselves; in normal mode this always returns 0
-	 * (the play loop is a no-op until lifted). */
-#ifdef FRUA_ENGINE_PROBE
+	/* Fire once so the play-loop body runs (the engine's dialog
+	 * loop, paint walker, etc.). The Mac body uses a segment-load
+	 * predicate that we haven't lifted; for now a single pass is
+	 * enough to drive the dialog event loop visibly. */
 	static int fired;
-	if (!fired) { fired = 1; PROBE("jt315 (firing)"); return 1; }
+	if (!fired) {
+		fired = 1;
+		PROBE("jt315 (firing)");
+		return 1;
+	}
 	PROBE("jt315 (done)");
-#endif
 	return 0;
 }
 
