@@ -5685,8 +5685,49 @@ static long jt1134(void)
 	elapsed = TickCount() - g_a5_long(-130);
 	return (elapsed * 6) / 5;
 }
-static void   jt1153(short arg)                   { PROBE("jt1153");
-                                                    (void)arg; }
+/* JT[1153] (CODE 4 + 0x5d34) — select back-page for rendering.
+ *
+ *   L4d88();                                     // flush pending InvalRect
+ *   short back = arg ? g_a5_-2354                // arg=1: visible page
+ *                    : (1 - g_a5_-2354);         // arg=0: off-page (flip)
+ *   g_a5_-2352 = back;
+ *   page = &g_a5_-2570[back * 108];              // 108-byte descriptor
+ *   if (g_a5_-2347)                              // color QD
+ *       g_a5_-3076 = ((PixMap *)*(*(PixMapHandle *)(page+2)))->baseAddr;
+ *   else                                         // mono GrafPort
+ *       g_a5_-3076 = *(long *)(page+2);          // direct ptr field
+ *
+ * Sets g_a5_-3076 as the "current target framebuffer" pointer the
+ * blit primitives (L2c60 paint walker, jt995 row-blit etc.) use as
+ * their canvas base. arg=1 keeps the back-buffer index pointed at
+ * the visible page — used by direct screen-effect work (menu
+ * blink, scroll) so the change is immediately on-screen. arg=0 is
+ * the normal flip: render into the off-page, then jt1146 commits.
+ *
+ * Partial lift: the back-index assignment + L4d88 prelude run, but
+ * the CGrafPort / PixMapHandle deref chain at g_a5_-2570[back] is
+ * skipped — the port hasn't lifted the CGrafPort init that would
+ * populate those slots, and the raw bytes there resolve to bogus
+ * I/O addresses (Hatari bus-errors at $fff1fd28 reading through
+ * the uninitialized PixMapHandle). Leaving g_a5_-3076 as the port's
+ * default (zero or whatever DATA seeded) is benign — the engine's
+ * blit primitives don't read it yet (we draw via the Falcon HAL,
+ * not the Mac framebuffer ptr). Restore the chase once the
+ * CGrafPort / PixMap shim lands. */
+static void jt1153(short arg)
+{
+	short back;
+
+	PROBE("jt1153");
+	l4d88();
+
+	back = (arg != 0)
+	     ? g_a5_word(-2354)
+	     : (short)(1 - g_a5_word(-2354));
+	g_a5_word(-2352) = back;
+
+	/* CGrafPort / PixMap chase deferred — see comment block. */
+}
 /* L050a (CODE 4 + 0x050a, CODE-local) — page byte-count selector.
  *
  *   if (g_a5_-2347 == 0)        return 18002;   // mono FRUA framebuffer
