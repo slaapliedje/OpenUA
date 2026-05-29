@@ -7571,7 +7571,202 @@ static void   jt176(void)
 }
 static void   jt584(long a, const char *str)     { PROBE("jt584"); (void)a; (void)str; }
 static void   jt585(void)                        { PROBE("jt585"); }
-static void   jt904(void *buf)                   { PROBE("jt904"); (void)buf; }
+/* JT[904] (CODE 19 + 0x213e) — Add Character roster screen.
+ *
+ * Structural level-2 lift. The interactive body is a do/while
+ * loop that paints the roster via JT[182] and dispatches on the
+ * returned key code:
+ *
+ *   *out_done = 0;
+ *   g_a5_-27936 = g_a5_-27932;        // save design ptr
+ *   L1276();                           // CODE-19 entry init
+ *   jt399(&g_a5_-24126, 40, 0xFF);    // zero the 40-byte index buf
+ *   byte exit_flag = 1;
+ *
+ *   do {
+ *       byte status1 = 0;              // jt155 counter (fp@(-9))
+ *       byte cond1 = 0, cond2 = 0;
+ *
+ *       // Walk 140 bytes at g_a5_-5806 + 198..337; if any low 7
+ *       // bits are non-zero, set cond1.
+ *       for (i = 0; i < 140; i++)
+ *           if ((((char *)g_a5_-5806)[i + 198] & 0x7F) > 0)
+ *               cond1 = 1;
+ *
+ *       // Walk 3 shorts at g_a5_-5806 + 76; if any is > 0, cond2.
+ *       for (j = 0; j <= 2; j++)
+ *           if (*(short *)((char *)g_a5_-5806 + 76 + j*2) > 0)
+ *               cond2 = 1;
+ *
+ *       // 8 conditional JT[155] appends building the menu index:
+ *       if (*(long *)((char *)g_a5_-5806 + 8) != 0)
+ *           JT[155](0, &status1);
+ *       if (cond1)
+ *           JT[155](1, &status1);
+ *       if ( ((byte g_a5_-5806[147] >= 128 && g_a5_-5806[382] &&
+ *              g_a5_-5806[94] == 1) || cond2)
+ *           && g_a5_-27990 != 5 )
+ *           JT[155](2, &status1);
+ *       if (cond2) {
+ *           JT[155](g_a5_-27990 == 10 ? 3 : 4, &status1);
+ *       }
+ *       if (L4e56(g_a5_-27932) && g_a5_-27990 != 10)
+ *           JT[155](5, &status1);
+ *       if (L4ec6(g_a5_-27932) && g_a5_-27990 != 10)
+ *           JT[155](6, &status1);
+ *       JT[155](7, &status1);          // always: Cancel/Done entry
+ *
+ *       g_a5_-24140 = exit_flag;
+ *       last_key = JT[182](STRS+0x5a34, g_a5_-13804, 0, 0);
+ *       if (g_a5_-24139 && last_key == 27) last_key = 7;  // ESC -> 7
+ *       exit_flag = g_a5_-24140;
+ *
+ *       switch (last_key) {
+ *         case 0: L25ce(out_done); break;          // Add new
+ *         case 1: JT[595](0, 0, &sel_key, &cond1); break;  // Create
+ *         case 2: L4334(); break;                  // Delete
+ *         case 3: case 4: L46e0(1); L19ac(); break;// Train (split path)
+ *         case 5: L4f2c(g_a5_-27932); break;       // Import
+ *         case 6: L4ff6(g_a5_-27932); break;       // Export
+ *       }
+ *       if (!*out_done && last_key < 3)
+ *           L1276();                                // re-paint
+ *   } while (last_key != 7 && !*out_done);
+ *
+ *   if (g_a5_-27990 == 5) JT[527]();
+ *   JT[23]();                                       // graphic cleanup
+ *
+ * Lifted as the structural skeleton with all called helpers as
+ * PROBE-only stubs. JT[182] (the interactive prompt) is the heavy
+ * lift the dispatch waits on; until it returns a real selection
+ * we'd spin forever — bound the loop with iter_guard so the trace
+ * shows one pass of the dispatcher then exits.
+ *
+ * The 140-byte / 3-short walks dereference g_a5_-5806 which the
+ * port hasn't bootstrapped (it's the per-character record pointer
+ * the design-load path sets up). Reading through NULL would
+ * bus-error, so the walks are guarded behind a non-NULL check.
+ */
+static void   l1276(void)                            { PROBE("L1276"); }
+static signed char l25ce(unsigned char *p)           { PROBE("L25ce"); if (p) *p = 1; return 0; }
+static void   l4334(void)                            { PROBE("L4334"); }
+static void   l46e0(short a)                         { PROBE("L46e0"); (void)a; }
+static void   l19ac(void)                            { PROBE("L19ac"); }
+static void   l4f2c(long ptr)                        { PROBE("L4f2c"); (void)ptr; }
+static void   l4ff6(long ptr)                        { PROBE("L4ff6"); (void)ptr; }
+static signed char l4e56(long ptr)                   { PROBE("L4e56"); (void)ptr; return 0; }
+static signed char l4ec6(long ptr)                   { PROBE("L4ec6"); (void)ptr; return 0; }
+static short  jt182(const char *fmt, long arg1, long arg2, long arg3)
+                                                     { PROBE("jt182"); (void)fmt; (void)arg1; (void)arg2; (void)arg3; return 7; /* default to "exit" so the loop terminates */ }
+static short  jt595(short a, short b, short *p1, unsigned char *p2)
+                                                     { PROBE("jt595"); (void)a; (void)b; (void)p1; (void)p2; return 0; }
+static void   jt527(void)                            { PROBE("jt527"); }
+static void   jt23(void)                             { PROBE("jt23"); }
+
+#define g_a5_5806  g_a5_long(-5806)    /* per-character record ptr (NULL until design-load) */
+#define g_a5_27936 g_a5_long(-27936)   /* saved design ptr cache */
+#define g_a5_13804 g_a5_long(-13804)   /* roster cluster arg for jt182 */
+
+static void jt904(unsigned char *out_done)
+{
+	unsigned char  status1, cond1, cond2;
+	unsigned char  exit_flag;
+	short          last_key;
+	short          sel_key;
+	short          iter_guard;
+	unsigned char *base;
+
+	PROBE("jt904");
+	if (out_done == NULL)
+		return;
+
+	*out_done = 0;
+	last_key  = -1;
+	g_a5_27936 = g_a5_27932;
+	l1276();
+	jt399(g_a5_buf(-24126), (short)40, (short)0xFF);
+	exit_flag = 1;
+
+	/* iter_guard bounds the dispatch while JT[182] is a stub
+	 * returning 7 ("exit"); once JT[182] paints the real roster
+	 * and returns a user selection, this is the Mac do/while. */
+	for (iter_guard = 0; iter_guard < 2; iter_guard++) {
+		status1 = 0;
+		cond1   = 0;
+		cond2   = 0;
+
+		base = (unsigned char *)(uintptr_t)g_a5_5806;
+		if (base != NULL) {
+			short i;
+			short j;
+
+			for (i = 0; i < 140; i++) {
+				if ((base[i + 198] & 0x7F) > 0) {
+					cond1 = 1;
+					break;
+				}
+			}
+			for (j = 0; j <= 2; j++) {
+				if (*(short *)(base + 76 + j * 2) > 0) {
+					cond2 = 1;
+					break;
+				}
+			}
+		}
+
+		if (base != NULL && *(long *)(base + 8) != 0)
+			jt155((short)0, &status1);
+		if (cond1)
+			jt155((short)1, &status1);
+		{
+			int special = 0;
+
+			if (base != NULL && base[147] >= 128 && base[382] != 0
+			    && base[94] == 1)
+				special = 1;
+			if (cond2)
+				special = 1;
+			if (special && g_a5_27990 != 5)
+				jt155((short)2, &status1);
+		}
+		if (cond2) {
+			jt155((short)(g_a5_27990 == 10 ? 3 : 4), &status1);
+		}
+		if (l4e56(g_a5_27932) && g_a5_27990 != 10)
+			jt155((short)5, &status1);
+		if (l4ec6(g_a5_27932) && g_a5_27990 != 10)
+			jt155((short)6, &status1);
+		jt155((short)7, &status1);
+
+		g_a5_24140 = exit_flag;
+		last_key   = jt182(ua_strs_at(0x5a34), g_a5_13804, 0L, 0L);
+		if (g_a5_24139 != 0 && last_key == 27)
+			last_key = 7;
+		exit_flag  = g_a5_24140;
+		sel_key    = -1;
+
+		switch (last_key) {
+		case 0: l25ce(out_done); break;
+		case 1: jt595((short)0, (short)0, &sel_key, &cond1); break;
+		case 2: l4334(); break;
+		case 3:
+		case 4: l46e0((short)1); l19ac(); break;
+		case 5: l4f2c(g_a5_27932); break;
+		case 6: l4ff6(g_a5_27932); break;
+		default: break;
+		}
+
+		if (*out_done == 0 && last_key < (short)3)
+			l1276();
+
+		if (last_key == 7 || *out_done != 0)
+			break;
+	}
+
+	if (g_a5_27990 == 5)
+		jt527();
+	jt23();
+}
 static void   jt942_caseN(short a) __attribute__((unused));
 static void   jt942_caseN(short a)               { jt942(a); }
 
