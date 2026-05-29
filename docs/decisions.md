@@ -374,6 +374,59 @@ Probe fingerprint remains unchanged:
 
 ---
 
+**Display HAL step-3 closed (2026-05-28, next day):** The full
+FRUA design menu now renders on screen — all 12 items in their
+two-column layout (Add / Remove / Modify / Train / Human Change
+Class / View on the left; Create / Delete / Load / Save / Begin
+Adventuring / Exit from Play on the right). Screenshot:
+`data/work/screenshots/2026-05-28_full_design_menu.png`.
+
+L2c60 walker diagnostics from the previous attempt revealed the
+root cause: L1676's cmd=16..22 arm (which sets bit `cmd-16` of
+rec[28]) faithfully matches the Mac asm in clearing bit 7 (the
+dirty flag) whenever the target bit changed value. jt444 fires
+cmd=16 (enable) for the items whose c79x flag is set, which for
+items 0, 2-5, 7, 9-11 changes bit 0 → clears bit 7. Only items
+1, 6, 8, 12, 13 stay dirty by the time L2c60 walks. The Mac
+expects `jt158` (the menu-initial-paint function, which we
+haven't lifted) to have already painted all items BEFORE jt444
+runs — so by the time the dirty bit gets cleared, the paint has
+already happened and bit 7 just means "needs re-paint."
+
+Two port-side additions land this milestone:
+
+1. **L2c60 force-paint on first iteration.** A `static int
+   first_pass` makes the first walk treat every item as if
+   `force_paint != 0`. This stands in for jt158's pre-jt444
+   paint until jt158 itself is lifted.
+
+2. **L1676 cmd=1 paint funnel.** All shape handlers (jt376..
+   jt382) delegate cmd=1 to L1676; lifting L1676's cmd=1 to call
+   `jt1135` (engine→pixel) + `MoveTo` + `DrawString` against
+   `rec[12..15]` (label ptr) catches every item in one place
+   while staying faithful to the Mac (bit 7 still gets set).
+   Items without a valid label or with bit 1 of rec[28]
+   ("disabled") set skip silently.
+
+Bridges in place until the more faithful chain (jt158 + per-
+shape-handler cmd=1) lands. Probe shifts:
+
+  L1676 = 475 (+103 from cmd=1 paint),
+  jt1135 = 309 (was 30 — 14 items × first-iter force + dirty),
+  jt376  = 90 (was 31),
+  jt382 = 270 (was 244),
+  L2d3e / L2c60 / L725c / jt1134 / L4d88 = ~22-44 (slightly
+    fewer iters per 15s probe budget since each iter now does
+    real DrawString work).
+
+Next step: lift `jt158` faithfully so we can drop the L2c60
+force-paint shim; then lift each shape handler's cmd=1 body to
+match the Mac (different visual style per shape) so we can drop
+the L1676 cmd=1 paint shim. Both are smaller follow-ups now
+that the path is proven end-to-end.
+
+---
+
 ## Working assumptions (not yet ratified — confirm or amend)
 
 - **Scope:** the full *Unlimited Adventures* package — the design/editor tools
