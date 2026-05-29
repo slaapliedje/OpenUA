@@ -4987,10 +4987,30 @@ static signed char l7de0(void)
 	PROBE("L7de0");
 	return 0;
 }
+/* L448c (CODE 4 + 0x448c) — probe current screen pixel depth.
+ *
+ * Mac body:
+ *   if (g_a5_-1314 != 0) return;                 // already cached
+ *   CGrafPtr p = GetCWMgrPort();                  // trap 0xAA2A
+ *   short bpp = (*(PixMapHandle *)(p->portPixMap))->pixelSize;
+ *   g_a5_-1318 = bpp;
+ *   g_a5_-1315 = (bpp == 1) ? 0xFF : 0;            // mono flag
+ *
+ * Falcon HAL is locked at 8bpp (platform/display_videl.c puts the
+ * VIDEL in a 256-colour mode), so the probe is deterministic for
+ * the port: depth = 8, mono = 0. Hard-coding skips the missing
+ * Toolbox GetCWMgrPort + PixMapHandle deref chain.
+ *
+ * The TT backend (when it lands) is also 8bpp on the same code
+ * path; the mono branch fires only if a 1bpp HAL ever ships. */
 static void l448c(void) __attribute__((unused));
 static void l448c(void)
 {
 	PROBE("L448c");
+	if (g_a5_byte(-1314) != 0)
+		return;
+	g_a5_word(-1318) = (short)8;       /* Falcon VIDEL chunky 8bpp */
+	g_a5_byte(-1315) = (signed char)0; /* not mono */
 }
 static void l4350(short flag) __attribute__((unused));
 static void l4350(short flag)
