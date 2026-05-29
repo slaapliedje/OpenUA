@@ -1692,42 +1692,349 @@ static void jt1001(short a, short b, short c, short d)
 	l309c(a, c, t, d);
 }
 
-/* Forward — jt1200 lifts further down. L148a needs it for the
- * mode-3 vs mode-0/1 split. */
+/* Forward — jt1200 / l2856 / l4d88 / jt1135 lift further down.
+ * L148a / jt995 need them for their dispatch + clip math. */
 static int  jt1200(void);
+static long l2856(long font_handle, short size, void *out_8bytes);
+static void l4d88(void);
+static void jt1135(short v1, short v2, short *out1, short *out2);
+
+/* JT[1198] (CODE 4 + 0x52e) — Mac body returns 1 always.
+ * Likely "rows per glyph step" — placeholder hook from the Mac
+ * build that the engine reads as a constant. */
+static short jt1198(void) __attribute__((unused));
+static short jt1198(void)
+{
+	PROBE("jt1198");
+	return 1;
+}
+
+/* L21d0 (CODE 5 + 0x21d0, CODE-local) — clip-mask helper used by
+ * jt995 to compute a partial-pixel byte mask.
+ *
+ *   short m = jt1200();
+ *   short masked = (signed char)g_a5_-4650[m] & x;
+ *   return masked << (3 - m);
+ *
+ * The 8-byte table at g_a5_-4650..-4643 contains per-mode bit
+ * masks. mode 3 (deep) reads from a different slot than modes
+ * 0/1. */
+static short l21d0(short x) __attribute__((unused));
+static short l21d0(short x)
+{
+	short m, masked;
+
+	PROBE("L21d0");
+	m = (short)jt1200();
+	masked = (short)(((signed char)g_a5_byte(-4650 + m)) & x);
+	return (short)(masked << (3 - m));
+}
+
+/* JT[1177] / JT[1183] / JT[1184] / JT[1188] / JT[1189] / JT[1191] —
+ * the row-blit primitive family jt995 dispatches into.
+ *
+ *   jt1177(left, top)                            // begin column
+ *   jt1183/jt1188(data, w, h, mask, lmask, rmask) → mode 0/1 vs 3
+ *   jt1184/jt1181(data, w, h, mask, lmask, rmask) → mode 0/1 vs 3
+ *   jt1189/jt1191(data, src2, w, h, mask, lmask, rmask) → 7 args
+ *
+ * Each writes a row of pixels into the engine's page-descriptor
+ * back buffer (g_a5_-2570[page].entry+2 → pixel ptr). Stubs for
+ * now — the Falcon HAL doesn't expose row-blit primitives here;
+ * the engine's actual rendering happens via the QuickDraw shim
+ * path that jt382 cmd=1 still hits inline. */
+static void jt1177(short left, short top) __attribute__((unused));
+static void jt1177(short left, short top)
+{
+	PROBE("jt1177");
+	(void)left; (void)top;
+}
+static char jt1183(long data, short w, short h, short mask,
+                   short lmask, short rmask) __attribute__((unused));
+static char jt1183(long data, short w, short h, short mask,
+                   short lmask, short rmask)
+{
+	PROBE("jt1183");
+	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
+	return 0;
+}
+static char jt1188(long data, short w, short h, short mask,
+                   short lmask, short rmask) __attribute__((unused));
+static char jt1188(long data, short w, short h, short mask,
+                   short lmask, short rmask)
+{
+	PROBE("jt1188");
+	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
+	return 0;
+}
+static void jt1181(long data, short w, short h, short mask,
+                   short lmask, short rmask) __attribute__((unused));
+static void jt1181(long data, short w, short h, short mask,
+                   short lmask, short rmask)
+{
+	PROBE("jt1181");
+	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
+}
+static void jt1184(long data, short w, short h, short mask,
+                   short lmask, short rmask) __attribute__((unused));
+static void jt1184(long data, short w, short h, short mask,
+                   short lmask, short rmask)
+{
+	PROBE("jt1184");
+	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
+}
+static void jt1189(long data, long src2, short w, short h,
+                   short mask, short lmask, short rmask) __attribute__((unused));
+static void jt1189(long data, long src2, short w, short h,
+                   short mask, short lmask, short rmask)
+{
+	PROBE("jt1189");
+	(void)data; (void)src2; (void)w; (void)h;
+	(void)mask; (void)lmask; (void)rmask;
+}
+static void jt1191(long data, long src2, short w, short h,
+                   short mask, short lmask, short rmask) __attribute__((unused));
+static void jt1191(long data, long src2, short w, short h,
+                   short mask, short lmask, short rmask)
+{
+	PROBE("jt1191");
+	(void)data; (void)src2; (void)w; (void)h;
+	(void)mask; (void)lmask; (void)rmask;
+}
 
 /* JT[995] (CODE 5 + 0x21fc) — clipped scaled-bitmap blit.
  *
- * The Mac body is ~300 lines of clip-rect math + 4-arm dispatch:
+ * Structural skeleton (level 2). The Mac body is ~300 lines of
+ * resource lookup → coord remap → clip rect math → row-walk
+ * with a 6-arm row-blit dispatch. The CFG mirrors the asm but
+ * the final blit primitives (jt1183/1184/1188/1189/1191/1181)
+ * are PROBE stubs — the engine bitmap resources and a Falcon-
+ * side row-blit aren't plumbed.
  *
- *   handle = jt468(style)                        // resource lookup
- *   font_ptr = L2856(handle, size, &font_info)   // size lookup
- *   if (font_ptr == 0)  return 0;
- *   L4d88();                                     // InvalRect flush
- *   jt1135(top, left, &scaled_y, &scaled_x)      // engine→pixel
- *   ...clip against g_a5_-3050..-3056 (clip rect)...
- *   for each row in clipped band {
- *       if (mode_jt1198()):  pick JT[1184/1181/1189/1191] per
- *                            JT[1200] mode + jt1198 source
- *       else:                JT[1188] / JT[1183] (other variants)
- *       blit one row
+ * Body shape:
+ *
+ *   handle    = jt468(style)
+ *   info_ptr  = L2856(handle, size, &font_info)
+ *   if (info_ptr == 0)       return 0;
+ *   L4d88();                                     // flush InvalRect
+ *   jt1135(top, left, &top, &left);              // engine→pixel
+ *   top  -= font_info[3];                        // y bearing
+ *   left -= font_info[2];                        // x bearing
+ *   bpp_w = font_info[6];                        // byte width
+ *
+ *   // Reject when fully outside clip rect (-3050..-3056)
+ *   if (top  < g_a5_-3054)             goto exit;
+ *   if (top + font_info[4] > -3050)    goto exit;
+ *   if (left < g_a5_-3056)             goto exit;
+ *   if ((bpp_w << jt1200()) + left > -3052)  goto exit;
+ *
+ *   row_count = ((font_info[7] & 0x80) != 0) ? 1 : jt1198();
+ *
+ *   // Compute row stride (bytes per row in bitmap data)
+ *   bytes_per_row = font_info[4] * bpp_w;
+ *
+ *   // Top / bottom clip:
+ *   top_clip   = max(0, g_a5_-3054 - top);
+ *   bottom_cap = min(font_info[4], g_a5_-3050 - top);
+ *
+ *   // Left clip: compute byte offset + boundary mask
+ *   if (left < g_a5_-3056) {
+ *       short over   = g_a5_-3056 - left;
+ *       short bytes  = (over >> jt1200()) & ~1;
+ *       lmask        = g_a5_-4646[L21d0(over)];
+ *       left_clip    = bytes;
+ *       left        += bytes << jt1200();
+ *   } else { left_clip = 0; lmask = -1; }
+ *
+ *   // Right clip: same shape against -3052
+ *   if ((bpp_w << jt1200()) + left > -3052) {
+ *       short over   = (bpp_w << jt1200()) + left - g_a5_-3052;
+ *       short bytes  = (over >> jt1200()) & ~1;
+ *       right_clip   = bytes;
+ *       rmask        = g_a5_-4614[L21d0(over)];
+ *   } else { right_clip = 0; rmask = -1; }
+ *
+ *   info_ptr += top_clip * bytes_per_row + left_clip;
+ *   bpp_w    -= left_clip + right_clip;
+ *
+ *   if (bottom_cap <= 0 || bpp_w <= 0)  return 0;
+ *
+ *   // Compute drawing mask from highlighted bit (font_info[7] bit 7) +
+ *   // left coord parity
+ *   mask = (jt1200() == 3) ? L21d0(left ^ 8) : L21d0(left);
+ *
+ *   // Dispatch — two paths based on `mode` arg
+ *   composite = 0;
+ *   if (mode != 0 && mode != 2) {
+ *       jt1177(left, top);                       // begin column
+ *       for (i = 0; i < jt1198(); i++) {
+ *           jt1170();
+ *           composite |= (jt1200() == 3 ? jt1188 : jt1183)(
+ *               info_ptr, bpp_w, bottom_cap, mask, lmask, rmask);
+ *       }
+ *   } else {
+ *       jt1177(left, top);
+ *       long src2 = info_ptr + ((font_info[3] & 1) ? bytes_per_row : 0);
+ *       for (i = 0; i < row_count; i++) {
+ *           jt1170();
+ *           if (mode != 0)
+ *               (jt1200() == 3 ? jt1189 : jt1191)(
+ *                   info_ptr, src2, bpp_w, bottom_cap, mask, lmask, rmask);
+ *           else
+ *               (jt1200() == 3 ? jt1184 : jt1181)(
+ *                   info_ptr, bpp_w, bottom_cap, mask, lmask, rmask);
+ *           info_ptr += bytes_per_row;
+ *       }
  *   }
- *   return composite_mask;
+ *   return composite;
  *
- * For the port this is dormant: we don't have the engine's
- * pre-rendered bitmap resource (each style+size combination would
- * be a pixel grid in CODE-X RSRC), and the Falcon HAL doesn't
- * have a row-blit primitive wired through this path. PROBE stub
- * for now — the visible text labels come from jt382 cmd=1's
- * direct DrawString, not this chain. */
+ * The skeleton C lift below preserves the major CFG (resource
+ * setup, clip math, mode-dispatched row loop) so when the row-
+ * blit primitives lift to real bodies, the engine's bitmap path
+ * will render through this function unchanged.
+ *
+ * Note: the bitmap is read from `info_ptr` which is what L2856
+ * returns — a pointer into the engine's font / sprite resource
+ * with the metric blob written into `font_info`. Without that
+ * resource populated by data_pool, `info_ptr` may be NULL or
+ * point at garbage, so the function exits early at the L2856
+ * gate. */
 static short jt995(short top, short left, short style, short size_high,
                    short mode) __attribute__((unused));
 static short jt995(short top, short left, short style, short size_high,
                    short mode)
 {
+	unsigned char  font_info[8];                  /* fp@(-8..-1)        */
+	long           info_ptr;                       /* fp@(-12)           */
+	long           info_ptr_2;                     /* fp@(-16)           */
+	short          bpp_w;                          /* fp@(-18) byte cnt  */
+	short          bytes_per_row;                  /* fp@(-20) row stride*/
+	short          top_clip;                       /* fp@(-22)           */
+	short          left_clip;                      /* fp@(-24)           */
+	short          right_clip;                     /* fp@(-26)           */
+	short          row_count;                      /* fp@(-32)           */
+	short          lmask;                          /* fp@(-36)           */
+	short          rmask;                          /* fp@(-38)           */
+	short          mask;                           /* fp@(-34)           */
+	unsigned char  composite = 0;                  /* fp@(-39)           */
+	short          i;
+	long           handle;
+	short          v_scaled = 0, h_scaled = 0;
+
 	PROBE("jt995");
-	(void)top; (void)left; (void)style; (void)size_high; (void)mode;
-	return 0;
+
+	handle    = jt468(style);
+	info_ptr  = (long)l2856(handle, size_high, font_info);
+	if (info_ptr == 0)
+		return 0;
+
+	l4d88();
+	jt1135(top, left, &v_scaled, &h_scaled);
+	top  = v_scaled;
+	left = h_scaled;
+	top  -= (short)(signed char)font_info[3];
+	left -= (short)(signed char)font_info[2];
+	bpp_w = (short)font_info[6];
+
+	/* Reject fully-outside-clip-rect cases. */
+	if (top  <  g_a5_word(-3054))                                    return 0;
+	if (top  + (short)font_info[4] > g_a5_word(-3050))               return 0;
+	if (left <  g_a5_word(-3056))                                    return 0;
+	if ((short)(bpp_w << jt1200()) + left > g_a5_word(-3052))        return 0;
+
+	row_count = ((font_info[7] & 0x80) != 0) ? (short)1 : jt1198();
+
+	bytes_per_row = (short)((short)font_info[4] * bpp_w);
+
+	/* Top / bottom clip. */
+	if (top < g_a5_word(-3054)) {
+		top_clip = (short)(g_a5_word(-3054) - top);
+	} else {
+		top_clip = 0;
+	}
+	if (top + (short)font_info[4] > g_a5_word(-3050)) {
+		font_info[4] = (unsigned char)(g_a5_word(-3050) - top);
+	}
+
+	/* Left clip. */
+	if (left < g_a5_word(-3056)) {
+		short over  = (short)(g_a5_word(-3056) - left);
+		short m     = jt1200();
+		short bytes = (short)((over >> m) & ~1);
+		short pcnt  = l21d0(over);
+		left_clip   = bytes;
+		lmask       = *(short *)(g_a5_buf(-4646) + pcnt * 2);
+		left       += (short)(bytes << jt1200());
+	} else {
+		left_clip = 0;
+		lmask     = (short)-1;
+	}
+
+	/* Right clip. */
+	if ((short)(bpp_w << jt1200()) + left > g_a5_word(-3052)) {
+		short over  = (short)((bpp_w << jt1200()) + left
+		                      - g_a5_word(-3052));
+		short m     = jt1200();
+		short bytes = (short)((over >> m) & ~1);
+		short pcnt  = l21d0(over);
+		right_clip  = bytes;
+		rmask       = *(short *)(g_a5_buf(-4614) + pcnt * 2);
+	} else {
+		right_clip = 0;
+		rmask      = (short)-1;
+	}
+
+	left     += top_clip;
+	info_ptr += (long)top_clip * (long)bpp_w + (long)left_clip;
+	bpp_w    -= (short)(left_clip + right_clip);
+
+	if ((short)font_info[4] <= 0 || bpp_w <= 0)
+		return 0;
+
+	/* Drawing mask. */
+	mask = (jt1200() == 3) ? l21d0((short)(left ^ 8)) : l21d0(left);
+
+	/* Mode dispatch. */
+	if (mode != 0 && mode != 2) {
+		jt1177(left, top);
+		for (i = 0; i < jt1198(); i++) {
+			jt1170();
+			if (jt1200() == 3)
+				composite |= (unsigned char)jt1188(info_ptr, bpp_w,
+				                                   (short)font_info[4],
+				                                   mask, lmask, rmask);
+			else
+				composite |= (unsigned char)jt1183(info_ptr, bpp_w,
+				                                   (short)font_info[4],
+				                                   mask, lmask, rmask);
+		}
+	} else {
+		jt1177(left, top);
+		info_ptr_2 = info_ptr;
+		if ((font_info[3] & 0x01) != 0)
+			info_ptr += bytes_per_row;
+
+		for (i = 0; i < row_count; i++) {
+			jt1170();
+			if (mode != 0) {
+				if (jt1200() == 3)
+					jt1189(info_ptr, info_ptr_2, bpp_w,
+					       (short)font_info[4], mask, lmask, rmask);
+				else
+					jt1191(info_ptr, info_ptr_2, bpp_w,
+					       (short)font_info[4], mask, lmask, rmask);
+			} else {
+				if (jt1200() == 3)
+					jt1184(info_ptr, bpp_w, (short)font_info[4],
+					       mask, lmask, rmask);
+				else
+					jt1181(info_ptr, bpp_w, (short)font_info[4],
+					       mask, lmask, rmask);
+			}
+			info_ptr += bytes_per_row;
+		}
+	}
+	return (short)composite;
 }
 
 /* L148a (CODE 3 + 0x148a) — text/bitmap paint dispatcher.
