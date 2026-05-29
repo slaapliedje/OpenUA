@@ -3755,7 +3755,12 @@ static void jt452(long shape0, ...)
 			*(short *)(rec + 18) = (short)page;
 			*(short *)(rec + 16) = (short)phr;
 			rec[29] = (unsigned char)(sel & 0xff);
-			rec[28] |= (unsigned char)((1u << 4) | (1u << 5) | 0x80u);
+			/* Mac convention: bit 7 of rec[28] = "already
+			 * painted" (set by cmd=1, cleared on state change).
+			 * Leave it clear here so L2c60 walks the new item
+			 * and paints it. Bits 4 and 5 are the Mac stream's
+			 * shape-20 / shape-21 gates ("enabled" / "visible"). */
+			rec[28] |= (unsigned char)((1u << 4) | (1u << 5));
 		}
 	}
 	/* Drain any trailing terminator longs the call site appended. */
@@ -3809,31 +3814,20 @@ static void l2c60(short force_paint)
 
 	count = g_a5_9250;
 	rec = (unsigned char *)(uintptr_t)g_a5_9254;
-
-	/* Port addition: force-paint every item on the first iteration
-	 * since jt158 (the Mac's initial menu painter) isn't lifted yet.
-	 * Without this, L1676 cmd=16 (faithfully) clears bit 7 (dirty)
-	 * when jt444 enables items, leaving most items un-painted by
-	 * the time L2c60 walks. The Mac's flow expects jt158 to have
-	 * pre-painted before jt444 runs; we approximate that by forcing
-	 * paint on the first walk. */
-	{
-		static int first_pass = 1;
-		short      effective_force = force_paint;
-		if (first_pass) {
-			first_pass = 0;
-			effective_force = 1;
+	for (i = 0; i < count; i++) {
+		short force = (short)(signed char)(force_paint & 0xff);
+		unsigned char painted = rec[28];
+		/* Mac semantic (L2c8e in CODE 3): paint items where bit 7
+		 * is CLEAR (= "not yet painted"). cmd=1 SETS bit 7 (= "now
+		 * painted, skip until something clears it"). jt444 cmd=16
+		 * etc. clear bit 7 on state changes so the item gets
+		 * repainted. */
+		if (force != 0 || (painted & 0x80) == 0) {
+			method = *(method_t *)rec;
+			if (method != NULL)
+				(void)method(rec, (short)1);
 		}
-		for (i = 0; i < count; i++) {
-			short force = (short)(signed char)(effective_force & 0xff);
-			unsigned char dirty = rec[28];
-			if (force != 0 || (dirty & 0x80) != 0) {
-				method = *(method_t *)rec;
-				if (method != NULL)
-					(void)method(rec, (short)1);
-			}
-			rec += DLITEM_BYTES;
-		}
+		rec += DLITEM_BYTES;
 	}
 	jt1134();
 }

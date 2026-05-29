@@ -425,6 +425,56 @@ match the Mac (different visual style per shape) so we can drop
 the L1676 cmd=1 paint shim. Both are smaller follow-ups now
 that the path is proven end-to-end.
 
+**Inverted dirty bit (2026-05-28, same evening):** Looking at the
+Mac asm for L2c60 (L2c8e in CODE 3 at offset 0x2c8e) more
+carefully:
+
+```
+  2c9e: btst #7, d0
+  2ca2: bnes L2cb6          ; if bit 7 SET → SKIP dispatch
+  2ca4: ...dispatch method(rec, 1)...
+```
+
+`bnes` branches when bit 7 is set; the dispatch happens when bit
+7 is CLEAR. So the Mac convention is the inverse of what the port
+initially assumed: **bit 7 = "already painted, skip"** (set by
+cmd=1 itself), not "needs paint." L1676's cmd=16 clear-on-change
+makes sense in this light — a state change invalidates the
+existing paint, so clear bit 7 → paint dispatches again on next
+walk.
+
+With the convention inverted, the port-side hacks unwind:
+
+- jt452 no longer stamps bit 7 on new items (was a port mistake;
+  Mac items start with bit 7 clear so they get their first
+  paint via L2c60). Bits 4 / 5 still get set (the Mac
+  shape-20 / shape-21 stream codes).
+- L2c60 walks items where bit 7 is CLEAR, calling cmd=1; the
+  per-iteration `first_pass` force-paint shim is removed.
+- L1676 cmd=1 still sets bit 7 ("painted") + does the actual
+  paint via jt1135 + DrawString — same as before.
+
+The end-to-end menu rendering is preserved (verified — same
+screenshot result) and the flow is now Mac-faithful:
+
+  - jt452 creates items, bit 7 clear → "needs paint"
+  - First L2c60 walk paints all items, cmd=1 sets bit 7
+  - jt444 enables items → cmd=16 changes bit 0 → clears bit 7
+  - Next L2c60 walk repaints just those items
+  - Steady state: bit 7 stays set, nothing repaints
+
+Probe trace recovers (no more wasted re-paint work each iter):
+
+  L1676 = 236 (was 475 with the shim), L2c60 = 30 (was 23),
+  L725c = 30, L4d88 = 60, jt1135 = 43 (was 309), jt376 = 64
+  (was 90), jt382 = 190 (was 270), jt452 = 14, jt315 = 2,
+  jt918 = 1.
+
+Next: the L1676 cmd=1 paint funnel is still a port-side bridge.
+Lifting each shape handler's cmd=1 (jt382 / jt381 / ... / jt376)
+to its Mac equivalent gets us per-shape visual rendering (text
+vs. button vs. icon vs. ...) and lets us drop the L1676 funnel.
+
 ---
 
 ## Working assumptions (not yet ratified — confirm or amend)
