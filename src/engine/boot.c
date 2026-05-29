@@ -2870,9 +2870,50 @@ static short l1676(unsigned char *rec, short cmd, ...)
 		return 0;
 
 	switch (cmd) {
-	case 1:
+	case 1: {
+		/* Mac: rec[28] |= 0x80 ("dirty / needs redraw") + return.
+		 *
+		 * Port addition: also paint the item's label via the
+		 * QuickDraw shim. The shape handlers (jt376..jt382) all
+		 * delegate cmd=1 here, so this catches them all in one
+		 * place. The Mac's actual paint funnel is jt158 + the
+		 * shape-handler cmd=1 arms, which we haven't lifted yet;
+		 * this is the bridge until they land.
+		 *
+		 *   label = rec[12..15]                      (C-string ptr)
+		 *   jt1135(rec[16], rec[18], &y_pix, &x_pix); engine→pixel
+		 *   MoveTo(x_pix, y_pix); DrawString(label);
+		 *
+		 * Items without a valid label (label == 0 or low addr)
+		 * skip the paint silently. Bit 1 of rec[28] gates the
+		 * "disabled" case. */
+		const char *label = *(const char **)(rec + 12);
+		short y_pix = 0, x_pix = 0;
+
 		rec[28] |= 0x80;
+
+		if ((rec[28] & 0x02) != 0)
+			return 0;                       /* disabled */
+		if (label == NULL || (long)label <= 0x1000L)
+			return 0;                       /* invalid label */
+
+		jt1135(*(short *)(rec + 16), *(short *)(rec + 18),
+		       &y_pix, &x_pix);
+
+		{
+			unsigned char pascal_buf[256];
+			short len = 0;
+			while (label[len] != 0 && len < 255)
+				len++;
+			if (len > 0) {
+				pascal_buf[0] = (unsigned char)len;
+				memcpy(pascal_buf + 1, label, (size_t)len);
+				MoveTo(x_pix, y_pix);
+				DrawString(pascal_buf);
+			}
+		}
 		return 0;
+	}
 	case 16: case 17: case 18: case 19:
 	case 20: case 21: case 22: {
 		unsigned char before = rec[28];
@@ -3768,15 +3809,31 @@ static void l2c60(short force_paint)
 
 	count = g_a5_9250;
 	rec = (unsigned char *)(uintptr_t)g_a5_9254;
-	for (i = 0; i < count; i++) {
-		short force = (short)(signed char)(force_paint & 0xff);
-		unsigned char dirty = rec[28];
-		if (force != 0 || (dirty & 0x80) != 0) {
-			method = *(method_t *)rec;
-			if (method != NULL)
-				(void)method(rec, (short)1);
+
+	/* Port addition: force-paint every item on the first iteration
+	 * since jt158 (the Mac's initial menu painter) isn't lifted yet.
+	 * Without this, L1676 cmd=16 (faithfully) clears bit 7 (dirty)
+	 * when jt444 enables items, leaving most items un-painted by
+	 * the time L2c60 walks. The Mac's flow expects jt158 to have
+	 * pre-painted before jt444 runs; we approximate that by forcing
+	 * paint on the first walk. */
+	{
+		static int first_pass = 1;
+		short      effective_force = force_paint;
+		if (first_pass) {
+			first_pass = 0;
+			effective_force = 1;
 		}
-		rec += DLITEM_BYTES;
+		for (i = 0; i < count; i++) {
+			short force = (short)(signed char)(effective_force & 0xff);
+			unsigned char dirty = rec[28];
+			if (force != 0 || (dirty & 0x80) != 0) {
+				method = *(method_t *)rec;
+				if (method != NULL)
+					(void)method(rec, (short)1);
+			}
+			rec += DLITEM_BYTES;
+		}
 	}
 	jt1134();
 }

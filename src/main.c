@@ -380,6 +380,9 @@ int main(void)
 		             (long)(void *)strtab);
 	}
 	dbg_log_num("main: ua_main rc = ", (long)rc);
+	dsp->present();
+	dbg_log("main: snapshot after ua_main");
+	(void)Cnecin();
 
 	/* Open WIND 1 / 2 / 3 from the real resource fork and stack them.
 	 * All three share the same bounds in the resource, so MoveWindow
