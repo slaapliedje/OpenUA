@@ -475,6 +475,42 @@ Lifting each shape handler's cmd=1 (jt382 / jt381 / ... / jt376)
 to its Mac equivalent gets us per-shape visual rendering (text
 vs. button vs. icon vs. ...) and lets us drop the L1676 funnel.
 
+**Input HAL milestone (2026-05-29):** The engine now responds to
+real keystrokes. Pressing F1 against the rendered main menu fires
+a downstream action (multiple windows materialise — buggy
+window-cascade, but the menu *acted on the key*), confirming the
+chain is end-to-end live:
+
+  IKBD vector → compat/events.c → WaitNextEvent → L725c case 3
+  → L6dd0 (lifted) → g_a5_-818 = 272 (F1) + g_a5_-820 = 1
+  → L2d3e Phase 5 idle gate (l31ea → jt1118 returns nonzero)
+  → l31f0 → jt1133 returns 272
+  → DLItem method(rec, 5, 272) → action dispatch
+
+Made possible by this session's sequence of input-chain lifts:
+
+- jt1132 + L6204: live mouse poll into compat → IKBD coords
+- jt1131: semitone period table → jt1122 sound dispatch
+- jt1133 + L31f0: keyboard read w/ macro replay + live poll
+- jt1153: page-flip back-index (CGrafPort chase deferred —
+  attempted full chase bus-errored at $fff1fd28 since the port
+  hasn't built the PixMapHandle the slot expects)
+- L62fa: mouse hit-test via real GetMouse / FindWindow
+- jt391 + jt422: is_letter / toupper for Cmd-key path
+- jt1138: cold-init reset of -809 / -810 / -820 / -814 / -2592
+- jt1114 + jt1119 + jt1155 + jt1156: master init/shutdown leaves
+- L448c: hard-code screen depth = 8bpp (Falcon VIDEL is locked
+  at 256-colour, so the GetCWMgrPort + PixMapHandle chase is
+  deterministic)
+
+The cascading windows on F1 are the next bug — the action
+dispatcher is over-firing window creation, probably because the
+PROBE-only stubs in the Window Manager shim aren't enforcing the
+"only one top-level dialog" invariant. That's a separate target;
+the *input chain* is now proven.
+
+Screenshot: `data/work/screenshots/2026-05-29-f1-pressed-windows-spawned.png`.
+
 ---
 
 ## Working assumptions (not yet ratified — confirm or amend)
