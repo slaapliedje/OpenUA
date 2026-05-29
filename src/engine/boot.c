@@ -2870,50 +2870,12 @@ static short l1676(unsigned char *rec, short cmd, ...)
 		return 0;
 
 	switch (cmd) {
-	case 1: {
-		/* Mac: rec[28] |= 0x80 ("dirty / needs redraw") + return.
-		 *
-		 * Port addition: also paint the item's label via the
-		 * QuickDraw shim. The shape handlers (jt376..jt382) all
-		 * delegate cmd=1 here, so this catches them all in one
-		 * place. The Mac's actual paint funnel is jt158 + the
-		 * shape-handler cmd=1 arms, which we haven't lifted yet;
-		 * this is the bridge until they land.
-		 *
-		 *   label = rec[12..15]                      (C-string ptr)
-		 *   jt1135(rec[16], rec[18], &y_pix, &x_pix); engine→pixel
-		 *   MoveTo(x_pix, y_pix); DrawString(label);
-		 *
-		 * Items without a valid label (label == 0 or low addr)
-		 * skip the paint silently. Bit 1 of rec[28] gates the
-		 * "disabled" case. */
-		const char *label = *(const char **)(rec + 12);
-		short y_pix = 0, x_pix = 0;
-
+	case 1:
+		/* Mac: rec[28] |= 0x80 ("painted") + return. The actual
+		 * paint lives in each shape handler's cmd=1; L1676's role
+		 * here is just the flag. */
 		rec[28] |= 0x80;
-
-		if ((rec[28] & 0x02) != 0)
-			return 0;                       /* disabled */
-		if (label == NULL || (long)label <= 0x1000L)
-			return 0;                       /* invalid label */
-
-		jt1135(*(short *)(rec + 16), *(short *)(rec + 18),
-		       &y_pix, &x_pix);
-
-		{
-			unsigned char pascal_buf[256];
-			short len = 0;
-			while (label[len] != 0 && len < 255)
-				len++;
-			if (len > 0) {
-				pascal_buf[0] = (unsigned char)len;
-				memcpy(pascal_buf + 1, label, (size_t)len);
-				MoveTo(x_pix, y_pix);
-				DrawString(pascal_buf);
-			}
-		}
 		return 0;
-	}
 	case 16: case 17: case 18: case 19:
 	case 20: case 21: case 22: {
 		unsigned char before = rec[28];
@@ -3785,7 +3747,16 @@ static void jt452(long shape0, ...)
 	 * indices, so clamp into [1..7] = [jt382..jt376]. Items past
 	 * 7 cycle through the 7 handlers. */
 	table = (long *)g_a5_buf(-9282);
-	shape_idx = (short)(shape0 % 7);   /* 0..6 */
+	/* Mac convention (L2a8c at CODE 3): table[shape - 1] for
+	 * shapes 1..7. table[0] = jt382 (text), [1] = jt381,
+	 * [2] = jt380, ..., [6] = jt376. Clamp out-of-range to 0 so
+	 * a malformed caller doesn't dereference past the table. */
+	{
+		short idx = (short)(shape0 - 1);
+		if (idx < 0 || idx >= 7)
+			idx = 0;
+		shape_idx = idx;
+	}
 	*(long *)rec = table[shape_idx];
 
 	/* Consume the simplified L0aae arg list: (label, sel, page, phr).
@@ -6017,7 +5988,11 @@ static int l0aae(void)
 
 	for (i = 0; i < (short)(sizeof k_jt918_menu_items
 	                        / sizeof k_jt918_menu_items[0]); i++) {
-		jt452(i,
+		/* Mac stream: shape=1 for each menu item (text button via
+		 * jt382). Earlier port passed `i` as shape0, which made
+		 * jt452's table indexing scatter items across jt376..jt382
+		 * — the bug was hidden by L1676's catch-all paint shim. */
+		jt452(1L,
 		      ua_strs_at(k_jt918_menu_items[i].label_strs_off),
 		      (long)k_jt918_menu_items[i].selector,
 		      (long)k_jt918_menu_items[i].page,
