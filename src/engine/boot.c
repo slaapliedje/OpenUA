@@ -5455,27 +5455,33 @@ static void l690e(EventRecord *ev)
 	}
 }
 
-/* JT[391] (CODE 3 + 0x3702) — isprint test for keyDown char.
- * Returns non-zero if the char should be treated as a "printable"
- * key (mapped to the 256+ range in g_a5_-818); zero for control
- * chars (mapped to bits 0..4 raw). PROBE-only stub for now —
- * returns 0 so all chars take the control-char path. */
+/* JT[391] (CODE 3 + 0x3702) — is_letter(ch).
+ *
+ *   return is_lower(ch) || is_upper(ch);    // L4648 || L466a
+ *
+ * The Mac body factored out 'a'..'z' (L4648) and 'A'..'Z' (L466a)
+ * as separate helpers; we inline both range checks. Used by L6dd0
+ * to gate the "Cmd+letter → key code (toupper(ch) + 255)" path. */
 static signed char jt391(short ch) __attribute__((unused));
 static signed char jt391(short ch)
 {
 	PROBE("jt391");
-	(void)ch;
-	return 0;
+	return ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'))
+	       ? (signed char)1 : (signed char)0;
 }
 
-/* JT[422] (CODE 3 + 0x468c) — char → 0-based printable index.
- * Companion to jt391. PROBE-only stub returns 0. */
+/* JT[422] (CODE 3 + 0x468c) — toupper(ch).
+ *
+ *   return is_lower(ch) ? ch - 32 : ch;     // L4648-gated
+ *
+ * Companion to jt391. L6dd0's Cmd+letter path computes
+ * `jt422(ch) + 255`, mapping both 'a' (97) and 'A' (65) to FRUA
+ * key code 320 (= 65 + 255). */
 static short jt422(short ch) __attribute__((unused));
 static short jt422(short ch)
 {
 	PROBE("jt422");
-	(void)ch;
-	return 0;
+	return (ch >= 'a' && ch <= 'z') ? (short)(ch - 32) : ch;
 }
 
 /* L0004 (CODE 4 + 0x0004) — segment entry / menu dispatch. Called
