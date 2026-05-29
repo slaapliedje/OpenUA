@@ -5779,14 +5779,95 @@ static int l31ea(void)
 	return (int)jt1118();
 }
 
-/* L31f0 (CODE 3 + 0x31f0) = JT[439] — JT[1133] passthrough returning
- * the post-event key code. */
+/* JT[1133] (CODE 4 + 0x6742) — keyboard input read.
+ *
+ * Two modes — macro replay or live poll:
+ *
+ *   if (g_a5_-814 != NULL) {                   // macro pending
+ *       if (g_a5_-809) {                       // start-of-macro flag
+ *           if (*g_a5_-814 == 1) {             // header marker?
+ *               g_a5_-814++;                   // skip header
+ *               g_a5_-810 = 1;                 // arm replay
+ *           } else {
+ *               g_a5_-809 = 0;                 // bad header — abort
+ *               return 27;                     // ESC
+ *           }
+ *       }
+ *       if (g_a5_-810) {                       // actively replaying
+ *           short ch = (signed char)*g_a5_-814;
+ *           g_a5_-814++;
+ *           if (*g_a5_-814 == 0)
+ *               g_a5_-814 = NULL;              // end of buffer
+ *           g_a5_-820 = 0;
+ *           g_a5_-810 = 0;
+ *           if (ch < 32) ch += 256;            // map ctrl chars to F-key range
+ *           return ch;
+ *       }
+ *   }
+ *   while (!jt1118())                          // live poll
+ *       ;
+ *   g_a5_-820 = 0;
+ *   return g_a5_-818;                          // resolved key code
+ *
+ * The macro path replays a recorded byte stream pointed to by
+ * g_a5_-814 (set by a "begin macro" hook we haven't lifted). The
+ * +256 fold on ctrl chars matches L6dd0's F-key range (256..286),
+ * so a macro byte of 0x05 plays as the same key code keypad-5
+ * would produce.
+ *
+ * The live path spins on jt1118 (the "continue polling?" gate) and
+ * reads the cached key code L6dd0 / similar arms wrote into
+ * g_a5_-818. g_a5_-820 is the "key pending" flag — cleared on
+ * consume so the next call blocks until a new key arrives.
+ *
+ * Widely called: CODE 3, 5, 6, 11, 12 menu input loops + L31f0
+ * (the JT[439] passthrough). */
+static short jt1133(void) __attribute__((unused));
+static short jt1133(void)
+{
+	unsigned char *p;
+	short          ch;
+
+	PROBE("jt1133");
+
+	if (g_a5_long(-814) != 0) {
+		if (g_a5_byte(-809) != 0) {
+			p = (unsigned char *)(uintptr_t)g_a5_long(-814);
+			if (*p == 1) {
+				g_a5_long(-814) = (long)(uintptr_t)(p + 1);
+				g_a5_byte(-810) = 1;
+			} else {
+				g_a5_byte(-809) = 0;
+				return (short)27;
+			}
+		}
+		if (g_a5_byte(-810) != 0) {
+			p = (unsigned char *)(uintptr_t)g_a5_long(-814);
+			ch = (short)(signed char)*p;
+			g_a5_long(-814) = (long)(uintptr_t)(p + 1);
+			p = (unsigned char *)(uintptr_t)g_a5_long(-814);
+			if (*p == 0)
+				g_a5_long(-814) = 0;
+			g_a5_byte(-820) = 0;
+			g_a5_byte(-810) = 0;
+			if (ch < (short)32)
+				ch = (short)(ch + 256);
+			return ch;
+		}
+	}
+
+	while (jt1118() == 0)
+		;
+	g_a5_byte(-820) = 0;
+	return g_a5_word(-818);
+}
+
+/* L31f0 (CODE 3 + 0x31f0) = JT[439] — JT[1133] tail call. */
 static short l31f0(void) __attribute__((unused));
 static short l31f0(void)
 {
 	PROBE("L31f0");
-	/* Real JT[1133] returns a short; PROBE returns 0. */
-	return 0;
+	return jt1133();
 }
 
 /* DLItem method pointer signature — each record at offset 0 holds a
