@@ -4303,6 +4303,7 @@ static void l2c60(short force_paint)
  * l6804 for the front-window gate. */
 static void l4d88(void);
 static signed char l6804(void);
+static void l725c(short mask);
 
 /* L62fa (CODE 4 + 0x62fa) — query "where is the mouse?" state.
  *
@@ -4434,13 +4435,25 @@ static void l731e(short arg)
 
 	l66e8(&ev);
 
-	if (l6804() != 0) {
-		if (EventAvail(mask, &ev)) {
-			/* Real Mac loops back into L7362 to dispatch the
-			 * pending event; deferred until the L725c arms
-			 * are lifted. */
-			PROBE("L731e:event-pending");
-		}
+	/* L73ce / L7362 inner loop — pump events through L725c while
+	 * any match the mask. For arg=3 (jt1118's mode) Mac exits after
+	 * a single pump. For arg=2 (jt1132's mode) exits when -903 is
+	 * set. Default loops with refreshed mask. */
+	while (l6804() == 0 || EventAvail(mask, &ev)) {
+		l66e8(&ev);
+		l725c(mask);
+		if (arg == (short)3)
+			return;
+		if (arg == (short)2 && g_a5_byte(-903) != 0)
+			return;
+		/* Refresh mask (Mac L739a path). */
+		mask = (short)-1;
+		if (g_a5_byte(-820) != 0)
+			mask = (short)(mask & ~0x08);
+		if (arg == (short)2)
+			mask = (short)(mask | 0x06);
+		else if (!EventAvail((short)2, &ev))
+			mask = (short)(mask & ~0x07);
 	}
 }
 
@@ -4519,6 +4532,17 @@ static short  jt1125(short kind, long p1, long p2)
 	case autoKey:
 		*out1 = (short)(ev.message & 0xff);
 		*out2 = ev.modifiers;
+		/* Mac engine has TWO event paths: jt1125 (used by L2d3e
+		 * Phase 1) and L725c->L6dd0 (used by L731e pump). On the
+		 * Mac they coexist because jt1125 reads from a separate
+		 * internal buffer the IRQ fills, while L725c reads the
+		 * Toolbox queue. Our port has a single OS event queue, so
+		 * jt1125's WaitNextEvent consumes the event before L725c
+		 * can route it to L6dd0. Stamp the engine's "key pending"
+		 * state here so L2d3e Phase 5 (l31ea -> jt1118 -> jt1133)
+		 * still sees the key and the cmd=5 shortcut walk fires. */
+		g_a5_word(-818) = (short)(ev.message & 0xff);
+		g_a5_byte(-820) = 1;
 		return (ev.modifiers & cmdKey) ? (short)2 : (short)1;
 	case mouseDown:
 		*out1 = ev.where.h;
