@@ -50,9 +50,16 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 {
 	long c;
 
-	if (Bconstat(2) == 0)
+	/* Bconstat(2) (BIOS console) returns 0 under Hatari's `--conout 2`
+	 * redirect even when a key is buffered — the console device is
+	 * routed to host stderr, not the keyboard buffer. Cconis (GEMDOS
+	 * func 0x0B) sees the key, and Crawcin (func 0x07) reads it raw
+	 * (scan in high word, ASCII in low byte). The Bconstat probe is
+	 * kept as a first-line fast-path: on a real Falcon without --conout
+	 * 2 it serves keys without going through GEMDOS. */
+	if (Bconstat(2) == 0 && Cconis() == 0)
 		return 0;
-	c = Bconin(2);
+	c = (Bconstat(2) != 0) ? Bconin(2) : Crawcin();
 	if (out_scan)
 		*out_scan = (unsigned char)((c >> 16) & 0xFF);
 	if (out_ascii)
