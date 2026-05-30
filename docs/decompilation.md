@@ -223,6 +223,22 @@ formType; it opens straight onto the `AMOD` wrapper, and `L7470`
     'STRG' <0x1c00 = 7168>-> g_a5_-13034 (string table)
 ```
 
+The `'MAP '` chunk is a **fixed 24×24 tile grid** (3456 = 24·24·6),
+**6 bytes per tile**, row-major with a stride of 24 (the used area is
+the top-left `ds[2]×ds[3]`):
+
+```
+tile[6] = { N_wall, S_wall, E_wall, W_wall, 0 (reserved), floor_flag }
+```
+
+Each wall byte is 0 (no edge) or an edge code — `0xe1`/`0xeb`/`0xe6`
+walls, `0x09`/`0x0e` doors; `floor_flag` is 0..3. `port_render_geo_map`
+(boot.c, behind `make FRUA_MAP_DEMO=1`) paints this as a cell grid —
+floor squares shaded by flag, white wall edges — straight into the
+8-bit back buffer via `qd_screen_pixels`, bypassing the deferred 1bpp
+GLIB blit. Verified visually in Hatari: HEIRS `GEO040` (21×21,
+dims=441) draws as a recognizable dungeon of rooms and corridors.
+
 Header sanity gates: `ds[0]` (a big-endian word) in `100..106`, and
 `ds[2]*ds[3]` (map dims) in `1..576`. A handful of HDR words at `+272`
 *are* stored byte-swapped (`jt1180` flips them back) — a mixed-endian
