@@ -186,6 +186,25 @@ stub (`fc_dump`); a faithful version needs the display subsystem
 (`JT[1089]` formatted print, `JT[1153]` page select). `L0b7a`'s
 forget-by-name path is also still to lift.
 
+**On-disk design / module format (test targets).** A FRUA module is a
+`.DSN` *directory* of `.DAT` files, not a single file. The Mac release
+ships two, unpacked under `data/frua-mac/joined/` (git-ignored):
+
+- `TUTORIAL.DSN` — minimal: `GAME001.DAT` (388 B header/index), one map
+  `GEO040.DAT` (12962 B), `STRG003.DAT` (574 B strings), `SAVE/`. The
+  canonical first load-test target.
+- `HEIRS.DSN` — the full "Heirs to Skull Crag" sample: 27 `GEO0nn.DAT`
+  maps, `MONSTnnn.DAT`, `STRGnnn.DAT`, `GAME001.DAT`.
+
+Per-design `.DAT` files (maps, monsters, strings) load through the file
+cache alongside the shared engine libraries in `Disk1`…`Disk4`
+(`.GLB`/`.TLB`/`.SLB` data + `.CTL` control). `GEO0nn.DAT` are the 12962-
+byte level maps; `GAME001.DAT` is the design index/header. The community
+archive at `frua.rosedragon.org/modulelist` (Mac list = `.sit` StuffIt,
+unpack with `unar`) is the source for broader compatibility testing once
+the load path works — but the shipped `TUTORIAL.DSN` is the place to
+start.
+
 ### Display — screen and drawing (CODE 4 / CODE 5)
 
 FRUA's display layer spans CODE 4 (Mac Toolbox init, page management) and
@@ -269,6 +288,22 @@ Each item: an 8-byte metric header then the bitmap. Header (big-endian):
 | +6     | `byte` `bpp_w` — bytes per bitmap row                       |
 | +7     | `byte` flags — bit 7 = single-row; low nibble (≤1) = valid  |
 
+The full GLIB header, confirmed against the real `.GLB` files (see
+"Validated against real data" below):
+
+| Offset | Field                                                       |
+|--------|-------------------------------------------------------------|
+| +0     | `long` magic `'GLIB'`                                       |
+| +4     | `long` total file size                                      |
+| +8     | `word` item count                                          |
+| +0A    | `word` version (0x0001 observed)                            |
+| +0C    | `'DATA'` sub-tag (4 bytes)                                  |
+| +10    | `long[count+1]` offset table (base-relative); the trailing |
+|        | entry is an end sentinel, so item *n*'s size is            |
+|        | `offset[n+1] - offset[n]`                                  |
+
+`L37aa` only reads magic@0, count@8, and the table@16 — all validated.
+
 **Lifted + verified:** `L37aa` (CODE 5 + 0x37aa, GLIB magic-check + offset-
 table lookup) and `L2856` (CODE 5 + 0x2856, copies the 8-byte header,
 returns `entry+8` = bitmap ptr). A probe-gated self-test in
@@ -276,6 +311,17 @@ returns `entry+8` = bitmap ptr). A probe-gated self-test in
 extracted field. `jt406`/`L366a` confirmed = `BlockMove(src, dst, count)`
 (the C `jt406(dst, src, count)` is the opposite order — mind it when
 lifting new callers from asm).
+
+**Validated against real data (2026-05):** the unpacked Mac release in
+`data/frua-mac/joined/Disk3/` holds real `.GLB` libraries. `GAME.GLB`
+(422 bytes): `'GLIB'` @0, count = 2 @8, table @16 = {0x1C, 0x22, 0x1A6};
+item 1 @0x22 is the title string "Heirs of skull crag". `GEO.GLB`
+(39096 bytes): count = 4, table = {0x24, 0xD2, 0x3374, 0x6616, 0x98B8}
+(4 items + end sentinel). The `L37aa` lookup `base + offset[idx]` matches
+both exactly — the synthetic self-test and real game data agree. The
+8-byte *metric* header is glyph-library-specific; non-glyph libraries
+(GAME.GLB title strings, GEO maps) put other content after the offset
+table.
 
 `jt995`'s structural skeleton (clip math, mode-dispatched row loop) is
 present but has two known bugs to fix when the blit is done: it reads the
