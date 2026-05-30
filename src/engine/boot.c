@@ -42,6 +42,7 @@
 #include "data_pool_replay.h" /* g_a5_byte */
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
+#include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
@@ -300,10 +301,94 @@ static unsigned char g_22231[4];        /* A5-22231 — flag bytes [1..3]      *
  */
 /* jt398's CODE-3 callees — all stubs. */
 static void  l32e2(const char *prompt, short a, long b)  { PROBE("l32e2"); }       /* CODE 3 + 0x32e2 — prompt */
-static short l322c(const char *path)                     { PROBE("l322c"); return 0; }  /* CODE 3 + 0x322c — path test */
-static const char *l31fc(const char *path)               { PROBE("l31fc"); return path; }/* CODE 3 + 0x31fc — path xform */
-static void  l45d6(char *dst, const char *src)           { PROBE("l45d6"); }       /* CODE 3 + 0x45d6 — copy/normalise */
-static short l328e(const char *buf, short a, short flags){ PROBE("l328e"); return 0; }  /* CODE 3 + 0x328e — open       */
+
+/* L322c (CODE 3 + 0x322c) — path-type classifier. Returns 0 for a
+ * normal HFS path; non-zero only for the '#vol:...' search-path
+ * syntax (skip optional '-', scan an alnum volume token, require a
+ * trailing ':'). The Mac then resolves the named search volume via
+ * L39f0; the port has no multi-volume search path, so a '#' path
+ * just returns 1 — jt398 reacts by stripping to the bare filename
+ * (l31fc), which is the sensible port behaviour. Our boot paths use
+ * ':DISKn:FILE' (no '#'), so this returns 0 and the full path flows
+ * through to FSOpen (which strips the HFS prefix itself). */
+static short l322c(const char *path)
+{
+	const char *p;
+
+	PROBE("l322c");
+	if (path == NULL || path[0] != '#')
+		return 0;
+	p = path + 1;
+	if (*p == '-')
+		p++;
+	while (*p != 0 && ((*p >= '0' && *p <= '9')
+	                || (*p >= 'A' && *p <= 'Z')
+	                || (*p >= 'a' && *p <= 'z')))
+		p++;
+	if (*p == ':' && p > path + 1) {
+		PROBE("l322c:search-path");
+		return 1;
+	}
+	return 0;
+}
+
+/* L31fc (CODE 3 + 0x31fc) — strip a path to the bare filename after
+ * the last ':'. Walk to the NUL, then back to just past the last
+ * ':' (or the start if none). */
+static const char *l31fc(const char *path)
+{
+	const char *p;
+
+	PROBE("l31fc");
+	if (path == NULL)
+		return path;
+	p = path;
+	while (*p != 0)
+		p++;
+	while (p > path && p[-1] != ':')
+		p--;
+	return p;
+}
+
+/* L45d6 (CODE 3 + 0x45d6) — C string -> Pascal string. dst[0] =
+ * length, dst[1..] = bytes. */
+static void  l45d6(char *dst, const char *src)
+{
+	unsigned char  len = 0;
+	char          *out;
+
+	PROBE("l45d6");
+	if (dst == NULL || src == NULL)
+		return;
+	out = dst + 1;
+	while (*src != 0 && len < 255) {
+		*out++ = *src++;
+		len++;
+	}
+	dst[0] = (char)len;
+}
+
+/* L328e (CODE 3 + 0x328e) — open a file. The Mac builds a PBOpen
+ * param block and calls JT[1041] (PBOpenSync); the port routes
+ * straight to the compat FSOpen, which translates the HFS path to
+ * GEMDOS and opens it. `buf` is the Pascal string l45d6 built.
+ * Returns the file refnum on success, -2 on a permission error
+ * (Mac permErr -54), -1 on any other failure — matching the Mac's
+ * -1 / -2 / refnum return contract. */
+static short l328e(const char *buf, short vRefNum, short flags)
+{
+	short  ref = 0;
+	OSErr  err;
+
+	PROBE("l328e");
+	(void)flags;                  /* Mac perm = flags+1; FSOpen self-selects */
+	if (buf == NULL)
+		return -1;
+	err = FSOpen((ConstStr255Param)buf, vRefNum, &ref);
+	if (err != noErr)
+		return (err == (OSErr)-54) ? (short)-2 : (short)-1;
+	return ref;
+}
 
 /*
  * jt398 — CODE 3 + 0x37e4. Phase-3 control-file probe: opens / probes a
@@ -335,7 +420,11 @@ static short jt398(const char *path, short flags)
 	if (status != 0)
 		path = l31fc(path);
 	l45d6(buf, path);
-	return l328e(buf, 0, flags);
+	status = l328e(buf, 0, flags);
+#ifdef FRUA_ENGINE_PROBE
+	dbg_log_num("jt398: open refnum = ", status);
+#endif
+	return status;
 }
 /* JT[411] (CODE 3 + 0x3de2) — "error status reporter" via JT[1042].
  * Mac body sets up a 50-byte local frame, stashes the status arg
