@@ -2503,44 +2503,95 @@ static void jt1135(short v1, short v2, short *out1, short *out2)
 		*out2 = (v2 > 6000) ? (short)((v2 - 8000) * scale) : v2;
 }
 
-/* L2856 (CODE 5 + 0x2856) — font-metric extract. Looks up the
- * sized font for (handle, size), copies an 8-byte metric blob
- * into out_8bytes, and returns a pointer past the blob (or NULL
- * on failure). Mac body validates the font library via L37aa
- * (size >= 0 path) then memcpy's via JT[406].
+/* L37aa (CODE 5 + 0x37aa) — GLIB library item lookup.
  *
- * Port stub writes a synthetic 8-byte metric blob so callers
- * (JT[1005] mainly) can produce approximate text rects without
- * a real font system. The blob's layout (m68k big-endian):
+ * The engine's bitmap/glyph resources are "GLIB" (Graphics
+ * LIBrary) files loaded through the file cache. Layout:
  *
- *   [0..1] word  height        — total glyph height
- *   [2..3] word  ascent        — baseline distance below top
- *   [4..5] word  x_bearing     — left-bearing offset
- *   [6]    byte  width_index   — char width (shifted by mode in
- *                                JT[1005] to get pixel extent)
- *   [7]    byte  pad
+ *   +0   long   magic 'GLIB' (0x474C4942)
+ *   +8   word   item_count
+ *   +16  long[] item offset table (item_count entries), each
+ *               offset relative to the library base
  *
- * Once a real font system lands, swap this for the actual
- * lookup; JT[1005]'s arithmetic stays the same. */
+ * L37aa(base, idx) verifies the magic, bounds-checks idx, reads
+ * the idx-th offset, and returns base + offset (a pointer to the
+ * item's data). The Mac copies the 16-byte header + 4-byte offset
+ * via JT[406] (BlockMove) into locals then reads them as native
+ * big-endian; on the big-endian m68k target we read the bytes
+ * directly with explicit big-endian assembly (avoids any odd-
+ * address word/long fault on the 68000).
+ *
+ * Mac error paths (bad magic / out-of-range) call L036a to raise
+ * an alert; the port returns 0 instead — callers (L2856) treat 0
+ * as "not found" and bail cleanly, no modal alert spam. */
+static long l37aa(long base_long, short idx) __attribute__((unused));
+static long l37aa(long base_long, short idx)
+{
+	const unsigned char *base = (const unsigned char *)(uintptr_t)base_long;
+	unsigned short       count;
+	const unsigned char *ent;
+	long                 offset;
+
+	PROBE("L37aa");
+	if (base == NULL)
+		return 0;
+	/* 'GLIB' magic at +0. */
+	if (base[0] != 'G' || base[1] != 'L'
+	 || base[2] != 'I' || base[3] != 'B')
+		return 0;
+	count = (unsigned short)(((unsigned)base[8] << 8) | base[9]);
+	if (idx < 0 || (unsigned short)idx >= count)
+		return 0;
+	ent = base + 16 + (long)idx * 4;
+	offset = ((long)ent[0] << 24) | ((long)ent[1] << 16)
+	       | ((long)ent[2] << 8)  | (long)ent[3];
+	return base_long + offset;
+}
+
+/* L2856 (CODE 5 + 0x2856) — font / glyph metric extract.
+ *
+ *   entry = (size >= 0) ? L37aa(handle, size) : handle;
+ *   BlockMove(entry, out_8bytes, 8);          // copy metric header
+ *   return entry + 8;                          // -> bitmap data
+ *
+ * Each GLIB item begins with an 8-byte metric header followed by
+ * the bitmap. The header layout (big-endian, as jt995 / jt1005
+ * read it):
+ *
+ *   +0  word  height      — glyph rows
+ *   +2  word  y_bearing   — subtracted from the pen top
+ *   +4  word  x_bearing   — subtracted from the pen left
+ *   +6  byte  bpp_w       — bytes per bitmap row
+ *   +7  byte  flags       — bit7 = single-row; low nibble (<=1) valid
+ *
+ * Port deviation: when the lookup fails (no GLIB loaded, bad
+ * magic, idx out of range) L37aa returns 0; we return 0 here too
+ * so jt995 / jt1005 take their "no glyph" early-exit cleanly. The
+ * literal Mac would return entry+8 == 8 (a bogus low pointer) and
+ * fault downstream — the port's 0-return is the safe equivalent
+ * of the Mac's L036a alert-and-abort.
+ *
+ * Replaces the prior synthetic-metrics stub: that fabricated a
+ * 14px font so JT[1005] could compute approximate text rects
+ * without real data. With this real lookup, rects only compute
+ * when an actual GLIB is loaded — correct, but it means JT[1005]
+ * produces no hit-test rect in the data-less boot path (benign;
+ * the menu is keyboard-driven via L1676 cmd=5, which doesn't use
+ * the rect). */
 static long l2856(long font_handle, short size, void *out_8bytes)
                                                 __attribute__((unused));
 static long l2856(long font_handle, short size, void *out_8bytes)
 {
-	static const unsigned char fake_metrics[8] = {
-		0x00, 0x0e,   /* height      = 14 */
-		0x00, 0x0c,   /* ascent      = 12 */
-		0x00, 0x00,   /* x_bearing   =  0 */
-		0x06, 0x00    /* width_index =  6 (→ 48-pixel char box after lslw #3) */
-	};
+	long entry;
 
 	PROBE("L2856");
-	(void)font_handle; (void)size;
 	if (out_8bytes == NULL)
 		return 0;
-	jt406(out_8bytes, fake_metrics, 8);
-	/* Real return is (font_ptr + 8); we just need non-NULL so
-	 * the caller continues into bounds computation. */
-	return (long)(uintptr_t)(fake_metrics + 8);
+	entry = (size >= 0) ? l37aa(font_handle, size) : font_handle;
+	if (entry == 0)
+		return 0;
+	jt406(out_8bytes, (const void *)(uintptr_t)entry, 8);   /* dst, src, n */
+	return entry + 8;
 }
 
 /* JT[1005] (CODE 5 + 0x31fc) — text-style bounding rect. Given
@@ -4131,6 +4182,48 @@ void boot_a5_seed_defaults(void)
 	 * it after that clear. See port_test_seed_design() for details. */
 	port_test_seed_design();
 	/* ===== end TEST SCAFFOLD ===== */
+
+#ifdef FRUA_ENGINE_PROBE
+	/* L2856 / L37aa self-test — build a known GLIB in a static
+	 * buffer, look up item 1, and log whether the returned bitmap
+	 * pointer + extracted 8-byte metric header match expectations.
+	 * Probe-gated; compiled out of production. Verifies the GLIB
+	 * lookup independently of the live jt468 / style / size flow. */
+	{
+		static unsigned char glib[64];
+		unsigned char        info[8];
+		long                 ret;
+		short                i;
+
+		for (i = 0; i < 64; i++)
+			glib[i] = 0;
+		/* header */
+		glib[0]='G'; glib[1]='L'; glib[2]='I'; glib[3]='B';
+		glib[8]=0;   glib[9]=2;                 /* item_count = 2 */
+		/* offset table @16: item0 -> 24, item1 -> 40 (base-rel) */
+		glib[16]=0; glib[17]=0; glib[18]=0; glib[19]=24;
+		glib[20]=0; glib[21]=0; glib[22]=0; glib[23]=40;
+		/* item1 @40: 8-byte metric header + 1 bitmap byte */
+		glib[40]=0x00; glib[41]=0x08;           /* height    = 8   */
+		glib[42]=0x00; glib[43]=0x02;           /* y_bearing = 2   */
+		glib[44]=0x00; glib[45]=0x01;           /* x_bearing = 1   */
+		glib[46]=0x03;                           /* bpp_w     = 3   */
+		glib[47]=0x80;                           /* flags: bit7 set */
+		glib[48]=0xAA;                           /* bitmap[0]       */
+
+		ret = l2856((long)(uintptr_t)glib, (short)1, info);
+		dbg_log_num("L2856 self-test: ret-base = ",
+		            ret ? (ret - (long)(uintptr_t)glib) : -1);
+		dbg_log_num("  height    = ", (info[0]<<8)|info[1]);
+		dbg_log_num("  y_bearing = ", (info[2]<<8)|info[3]);
+		dbg_log_num("  x_bearing = ", (info[4]<<8)|info[5]);
+		dbg_log_num("  bpp_w     = ", info[6]);
+		dbg_log_num("  flags     = ", info[7]);
+		dbg_log_num("  bitmap[0] = ", *(unsigned char *)(uintptr_t)ret);
+		/* Expected: ret-base=48, height=8, ybear=2, xbear=1,
+		 * bpp_w=3, flags=128, bitmap[0]=0xAA(170). */
+	}
+#endif
 }
 
 /* ===== TEST SCAFFOLD — REVERT WHEN JT[557] / JT[585] LAND =====
