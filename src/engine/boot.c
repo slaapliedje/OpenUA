@@ -4203,104 +4203,154 @@ void port_test_seed_design(void)
  * Long args (4 bytes) get the type explicitly. Callers in lifted
  * C code pass everything as `long` or short→long cast for
  * uniformity. */
-/* NB: the lifted L0aae caller passes (i, label, sel, page, phr)
- * with i as a per-item index 0..11 — NOT a Mac shape code. The
- * earlier "full shape-code dispatch" lift interpreted i=0 as
- * end-of-stream and skipped half the items. Reverted to the
- * simpler "one DLItem per call" form that matches L0aae's actual
- * usage. The Mac stream-parser shape dispatch is documented in
- * the asm comment above and stays as a TODO once the L0aae lift
- * is restructured to follow Mac conventions.
- *
- * Crucial change kept from the shape-dispatch attempt: the method
- * pointer at rec[0] comes from the g_a5_9282 handler table that
- * boot_a5_seed_defaults seeds, instead of always being 0. Items
- * built via jt452 now have non-NULL methods, so L2d3e's dispatch
- * actually calls them — the click pipeline lights up end-to-end. */
+/* Faithful Mac stream parser. The first arg (shape0) IS the first
+ * cmd code; subsequent args are read as the cmd dictates. Stream
+ * ends at cmd == 0. On the C side every arg occupies 4 bytes
+ * (vararg promotion + long), so we always va_arg(ap, long) and
+ * cast to short for cmds that read 2 bytes on Mac. The Mac
+ * stream-pointer arithmetic (fp@(-8) += 2 per short, += 4 per
+ * long) collapses to a single va_arg per logical Mac arg here. */
 static void jt452(long shape0, ...)
 {
 	va_list        ap;
-	unsigned char *rec;
+	unsigned char *rec  = NULL;
 	long          *table;
-	short          shape_idx;
+	long           cmd  = shape0;
 
 	PROBE("jt452");
 	if (g_a5_9254 == 0)
 		jt452_init();
-	if (g_a5_9250 >= g_a5_9288) {
-		PROBE("jt452: DLItem table full");
-		return;
-	}
-	rec = g_dlitem_pool + (long)g_a5_9250 * DLITEM_BYTES;
-	memset(rec, 0, DLITEM_BYTES);
-	g_a5_9250++;
-
-	/* Install method pointer from the handler table. The Mac
-	 * indexes by shape-1; our L0aae caller passes 0-based item
-	 * indices, so clamp into [1..7] = [jt382..jt376]. Items past
-	 * 7 cycle through the 7 handlers. */
 	table = (long *)g_a5_buf(-9282);
-	/* Mac convention (L2a8c at CODE 3): table[shape - 1] for
-	 * shapes 1..7. table[0] = jt382 (text), [1] = jt381,
-	 * [2] = jt380, ..., [6] = jt376. Clamp out-of-range to 0 so
-	 * a malformed caller doesn't dereference past the table. */
-	{
-		short idx = (short)(shape0 - 1);
-		if (idx < 0 || idx >= 7)
-			idx = 0;
-		shape_idx = idx;
-	}
-	*(long *)rec = table[shape_idx];
 
-	/* Consume the simplified L0aae arg list: (label, sel, page, phr).
-	 *
-	 * Per-arg mapping derived from L0aae's Mac asm push sequence
-	 * (CODE 12 + 0x0aae). Each item pushes a shape-1 stream that
-	 * stores top + left + ptr + shortcut + flag bits; the equivalent
-	 * stamps in our simplified form are:
-	 *
-	 *   label (long ptr) → rec[12..15]   shape 1's 3rd arg
-	 *   sel   (short)    → rec[29]       shape 32's arg (low byte)
-	 *   page  (short)    → rec[18]       shape 1's 2nd arg (left coord)
-	 *   phr   (short)    → rec[16]       shape 1's 1st arg (top coord)
-	 *
-	 * Plus the Mac stream sets bits 4 and 5 of rec[28] (via shape
-	 * codes 20, 21) — these gate "enabled" and "visible" downstream.
-	 * Bit 7 of rec[28] is the "dirty / needs redraw" flag the paint
-	 * walker (L2c60) checks, which we set so first-frame paint runs.
-	 *
-	 * Coords live in engine-scaled units (8004 / 8080 etc., not
-	 * screen pixels) — jt1135 remaps them when a paint actually
-	 * fires. rec[20..23] (bottom, right) stay 0 here; they're
-	 * computed dynamically by the shape handler's cmd=2 (hit-test)
-	 * path from font metrics. */
 	va_start(ap, shape0);
-	{
-		long  label = va_arg(ap, long);
-		long  sel   = va_arg(ap, long);
-		long  page  = va_arg(ap, long);
-		long  phr   = va_arg(ap, long);
 
-		if (label != 0) {
-			*(long *)(rec + 12) = label;
-			*(short *)(rec + 18) = (short)page;
-			*(short *)(rec + 16) = (short)phr;
-			rec[29] = (unsigned char)(sel & 0xff);
-			/* Mac convention: bit 7 of rec[28] = "already
-			 * painted" (set by cmd=1, cleared on state change).
-			 * Leave it clear here so L2c60 walks the new item
-			 * and paints it. Bits 4 and 5 are the Mac stream's
-			 * shape-20 / shape-21 gates ("enabled" / "visible"). */
-			rec[28] |= (unsigned char)((1u << 4) | (1u << 5));
-		}
-	}
-	/* Drain any trailing terminator longs the call site appended. */
-	for (;;) {
-		long v = va_arg(ap, long);
+	while (cmd != 0) {
+		switch ((short)cmd) {
 
-		if (v == 0)
+		/* ---- 1..8: allocate new DLItem ---- */
+		case 1: case 2: case 3: case 4:
+		case 5: case 6: case 7: case 8: {
+			if (g_a5_9250 >= g_a5_9288) {
+				PROBE("jt452: DLItem table full");
+				goto exit;
+			}
+			rec = g_dlitem_pool + (long)g_a5_9250 * DLITEM_BYTES;
+			memset(rec, 0, DLITEM_BYTES);
+			g_a5_9250++;
+
+			/* Method ptr: shape 8 = caller-supplied raw long;
+			 * shapes 1..7 = g_a5_-9282 handler table. */
+			if (cmd == 8) {
+				*(long *)rec = va_arg(ap, long);
+			} else {
+				short idx = (short)(cmd - 1);
+
+				if (idx < 0 || idx >= 7)
+					idx = 0;
+				*(long *)rec = table[idx];
+			}
+
+			/* Shape-specific arg consumption:
+			 *   2 → 1 short (rec[22])
+			 *   7 → 1 long  (rec[4])
+			 *   default → 2 shorts (rec[16], rec[18]) +
+			 *             5 → 2 more shorts (rec[22], rec[24])
+			 *           else → 1 long (rec[12])
+			 */
+			if (cmd == 2) {
+				*(short *)(rec + 22) =
+				    (short)va_arg(ap, long);
+			} else if (cmd == 7) {
+				*(long *)(rec + 4) = va_arg(ap, long);
+			} else {
+				*(short *)(rec + 16) =
+				    (short)va_arg(ap, long);
+				*(short *)(rec + 18) =
+				    (short)va_arg(ap, long);
+				if (cmd == 5) {
+					*(short *)(rec + 22) =
+					    (short)va_arg(ap, long);
+					*(short *)(rec + 24) =
+					    (short)va_arg(ap, long);
+				} else {
+					*(long *)(rec + 12) =
+					    va_arg(ap, long);
+				}
+			}
 			break;
+		}
+
+		/* ---- 16..22: set bit (cmd-16) of rec[28] ---- */
+		case 16: case 17: case 18: case 19:
+		case 20: case 21: case 22:
+			if (rec != NULL)
+				rec[28] |= (unsigned char)
+				           (1u << (cmd - 16));
+			break;
+
+		/* ---- 24..30: clear bit (cmd-24) of rec[28] ---- */
+		case 24: case 25: case 26: case 27:
+		case 28: case 29: case 30:
+			if (rec != NULL)
+				rec[28] &= (unsigned char)
+				           ~(1u << (cmd - 24));
+			break;
+
+		/* ---- 32..42: per-field setters ---- */
+		case 32:
+			if (rec) rec[29] = (unsigned char)
+			                   (va_arg(ap, long) & 0xff);
+			break;
+		case 33:
+			if (rec) rec[30] = (unsigned char)
+			                   (va_arg(ap, long) & 0xff);
+			break;
+		case 34:
+			if (rec) *(long *)(rec +  4) = va_arg(ap, long);
+			break;
+		case 35:
+			if (rec) *(long *)(rec +  8) = va_arg(ap, long);
+			break;
+		case 36:
+			if (rec) *(short *)(rec + 24) =
+			            (short)va_arg(ap, long);
+			break;
+		case 37:
+			if (rec) *(short *)(rec + 26) =
+			            (short)va_arg(ap, long);
+			break;
+		case 38:
+			if (rec) rec[31] = (unsigned char)
+			                   (va_arg(ap, long) & 0xff);
+			break;
+		case 39:
+			if (rec) *(long *)(rec + 12) = va_arg(ap, long);
+			break;
+		case 40:
+			if (rec) {
+				*(short *)(rec + 16) =
+				    (short)va_arg(ap, long);
+				*(short *)(rec + 18) =
+				    (short)va_arg(ap, long);
+			}
+			break;
+		case 41:
+			if (rec) *(short *)(rec + 20) =
+			            (short)va_arg(ap, long);
+			break;
+		case 42:
+			if (rec) *(short *)(rec + 22) =
+			            (short)va_arg(ap, long);
+			break;
+
+		default:
+			break;            /* 9..15 / 23 / 31 reserved no-ops */
+		}
+
+		cmd = va_arg(ap, long);
 	}
+
+exit:
 	va_end(ap);
 }
 /* L30ba (CODE 3 + 0x30ba) — DLItem focus / select helper. Body lives
@@ -6724,18 +6774,30 @@ static int l0aae(void)
 
 	for (i = 0; i < (short)(sizeof k_jt918_menu_items
 	                        / sizeof k_jt918_menu_items[0]); i++) {
-		/* Mac stream: shape=1 for each menu item (text button via
-		 * jt382). Earlier port passed `i` as shape0, which made
-		 * jt452's table indexing scatter items across jt376..jt382
-		 * — the bug was hidden by L1676's catch-all paint shim. */
+		/* Mac stream format:
+		 *   cmd 1                   ; install shape 1 (text button via jt382)
+		 *   short top  = phrase     ; rec[16]
+		 *   short left = page       ; rec[18]
+		 *   long  str  = label      ; rec[12]
+		 *   cmd 32, short selector  ; rec[29] = accelerator
+		 *   cmd 20                  ; set bit 4 of rec[28] (enabled)
+		 *   cmd 21                  ; set bit 5 of rec[28] (visible)
+		 *   cmd 0                   ; end-of-stream
+		 *
+		 * Per the prior simplified parser's documented field map:
+		 * phr -> rec[16] (top), page -> rec[18] (left). */
 		jt452(1L,
-		      ua_strs_at(k_jt918_menu_items[i].label_strs_off),
-		      (long)k_jt918_menu_items[i].selector,
+		      (long)k_jt918_menu_items[i].phrase,
 		      (long)k_jt918_menu_items[i].page,
-		      (long)k_jt918_menu_items[i].phrase);
+		      (long)(uintptr_t)ua_strs_at(
+		          k_jt918_menu_items[i].label_strs_off),
+		      32L, (long)k_jt918_menu_items[i].selector,
+		      20L, 21L, 0L);
 	}
-	/* The extra "page switch" item the Mac appends past the 12. */
-	jt452(7, 20L, (long)0);
+	/* The extra "page switch" item the Mac appends past the 12.
+	 * Shape 7 = callback DLItem; arg is the callback pointer
+	 * (passed as 20 here just as a non-NULL marker). End with 0. */
+	jt452(7L, 20L, 0L);
 
 	g_a5_19174 = 8004;
 	g_a5_19172 = 8016;
