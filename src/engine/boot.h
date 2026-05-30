@@ -33,4 +33,13 @@ void boot_a5_seed_defaults(void);
  */
 void port_render_geo_map(void);
 
+/*
+ * Load every GEOnnn (1..40) from the staged design in turn and draw
+ * each present map as a thumbnail in a grid — a contact sheet to
+ * confirm the tile layout holds across a whole design. Like
+ * port_render_geo_map, a bring-up aid that paints straight to the
+ * back buffer.
+ */
+void port_render_geo_contact(void);
+
 #endif /* ENGINE_BOOT_H */
