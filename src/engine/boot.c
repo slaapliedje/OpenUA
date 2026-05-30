@@ -1462,6 +1462,17 @@ static void  jt361(short a)
 				tsrc[i] = (unsigned char)(i & 0xff);
 			jt325((short)0, &res, tcb, (short)57,
 			      tsrc, (short)2, (short)450);
+#ifdef FRUA_MAP_DEMO
+			/* Visualize the last-loaded GEO map (geo 40 above) as
+			 * a colored tile grid and hold it on screen for a
+			 * screenshot. Blocks here, before the menu paint. */
+			port_render_geo_map();
+			/* hold the snapshot: re-present forever so the
+			 * engine's menu paint can't overwrite it (Crawcin
+			 * doesn't block under --fast-forward). */
+			for (;;)
+				qd_present();
+#endif
 			stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
 			if (stg) {
 				/* src[i]=i&0xff was copied over the tag, so
@@ -5283,6 +5294,97 @@ void boot_a5_seed_defaults(void)
 		}
 	}
 #endif
+}
+
+/* port_render_geo_map — visualize the loaded GEO map (design-state
+ * g_a5_-12300) as a grid of 8-bit cells. The 'MAP ' chunk at ds+290
+ * is 6 bytes per tile on a 24x24 max grid; ds[2]/ds[3] are the used
+ * width/height. Each cell is painted straight into the display back
+ * buffer (open tile vs wall tile), with a 1px black gap forming a
+ * grid, then presented. A bring-up aid, not the real tile renderer
+ * (that needs the deferred GLIB blit). */
+/* paint one pixel with clipping against the surface */
+static void map_px(unsigned char *base, short pitch, short sw, short sh,
+                   short x, short y, unsigned char c)
+{
+	if (x >= 0 && x < sw && y >= 0 && y < sh)
+		base[(long)y * pitch + x] = c;
+}
+
+void port_render_geo_map(void)
+{
+	unsigned char *px;
+	short pitch, sw, sh;
+	const unsigned char *ds, *map;
+	short w, h, x, y, sx, sy;
+	const short cell = 10, ox = 6, oy = 6;
+	RGBColor demo[8];
+
+	/* tile layout (6 bytes): [0]=N wall, [1]=S, [2]=E, [3]=W,
+	 * [4]=0 (reserved), [5]=floor flag (0..3). A non-zero wall
+	 * byte is an edge; the exact code (0xe1/0xeb/0xe6 = wall,
+	 * 0x09/0x0e = door) selects the type — rendered here as a
+	 * plain edge. */
+	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	if (ds == 0)
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+
+	w = (unsigned char)ds[2];
+	h = (unsigned char)ds[3];
+	map = ds + 290;
+#ifdef FRUA_ENGINE_PROBE
+	dbg_log_num("geo map: w = ", w);
+	dbg_log_num("geo map: h = ", h);
+#endif
+
+	/* CLUT 248..251 = floor shades by flag, 253 = wall, 255 = black */
+	demo[0].red = 0x1000; demo[0].green = 0x1000; demo[0].blue = 0x2800;
+	demo[1].red = 0x2000; demo[1].green = 0x2000; demo[1].blue = 0x4000;
+	demo[2].red = 0x3000; demo[2].green = 0x3000; demo[2].blue = 0x5800;
+	demo[3].red = 0x4000; demo[3].green = 0x4000; demo[3].blue = 0x7000;
+	demo[4].red = demo[4].green = demo[4].blue = 0;            /* 252 */
+	demo[5].red = demo[5].green = demo[5].blue = 0xffff;       /* 253 wall */
+	demo[6].red = demo[6].green = demo[6].blue = 0;            /* 254 */
+	demo[7].red = demo[7].green = demo[7].blue = 0;            /* 255 black */
+	qd_set_palette(demo, 248, 8);
+
+	for (y = 0; y < sh; y++)
+		memset(px + (long)y * pitch, 255, (size_t)sw);
+
+	if (w <= 0 || w > 24 || h <= 0 || h > 24)
+		return;
+
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			/* fixed 24-wide grid: 3456 = 24*24*6 bytes */
+			const unsigned char *t = map + ((long)y * 24 + x) * 6;
+			unsigned char floor = (unsigned char)(248 + (t[5] & 3));
+			short bx = (short)(ox + x * cell);
+			short by = (short)(oy + y * cell);
+
+			/* floor interior */
+			for (sy = 1; sy < cell; sy++)
+				for (sx = 1; sx < cell; sx++)
+					map_px(px, pitch, sw, sh,
+					       bx + sx, by + sy, floor);
+			/* wall edges */
+			for (sx = 0; sx <= cell; sx++) {
+				if (t[0]) map_px(px, pitch, sw, sh,
+				                 bx + sx, by, 253);        /* N */
+				if (t[1]) map_px(px, pitch, sw, sh,
+				                 bx + sx, by + cell, 253);  /* S */
+			}
+			for (sy = 0; sy <= cell; sy++) {
+				if (t[3]) map_px(px, pitch, sw, sh,
+				                 bx, by + sy, 253);         /* W */
+				if (t[2]) map_px(px, pitch, sw, sh,
+				                 bx + cell, by + sy, 253);  /* E */
+			}
+		}
+	}
+	qd_present();
 }
 
 /* ===== TEST SCAFFOLD — REVERT WHEN JT[557] / JT[585] LAND =====

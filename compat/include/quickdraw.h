@@ -264,6 +264,12 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height);
  */
 GrafPtr qd_screen_port(void);
 
+/* Direct access to the attached screen back buffer (raw 8-bit pixels),
+ * for engine code that paints cells without the GrafPort primitives.
+ * Returns 0 if no screen is attached. */
+int  qd_screen_pixels(unsigned char **pixels, short *rowBytes,
+                      short *width, short *height);
+
 /*
  * Present hook — called by long-running window-tracking loops (DragWindow,
  * TrackGoAway) so the platform layer can flush the back buffer to the

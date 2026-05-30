@@ -24,4 +24,13 @@ int ua_main(short arg1, long arg2);
  */
 void boot_a5_seed_defaults(void);
 
+/*
+ * Visualize the currently-loaded GEO map (design-state g_a5_-12300,
+ * the 'MAP ' chunk at +290) as a width x height grid of 8-bit cells
+ * painted straight into the display back buffer — open tiles vs wall
+ * tiles — then present. A bring-up aid for the content loaders; does
+ * nothing if no map is loaded or no screen is attached.
+ */
+void port_render_geo_map(void);
+
 #endif /* ENGINE_BOOT_H */
