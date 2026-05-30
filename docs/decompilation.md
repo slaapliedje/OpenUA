@@ -241,6 +241,90 @@ This confirms ADR-0005 and the `platform/include/display.h` design:
 - 8-bit colour → the VIDEL / TT-shifter 256-colour modes the HAL backends
   already target.
 
+### GLIB bitmap render path (jt995) — investigated, blit deferred
+
+The game's sprites / custom fonts render through a separate bitmap path
+that sits under `jt382 cmd=1` → `L148a` → `JT[995]` (CODE 5 + 0x21fc). It
+is fully mapped but its low-level blit is **deferred** — see the blocker
+at the end. Pieces and their state (2026-05):
+
+**Resource format — "GLIB" libraries.** Game graphics live in *Graphics
+LIBrary* files loaded through the **file cache** (`jt468(tag)` →
+`g_fc_buffers[...]`, i.e. `A5-10270` indexed by `A5-10074`), *not* the Mac
+`.rsc` resources. Layout:
+
+| Offset | Field                                               |
+|--------|-----------------------------------------------------|
+| +0     | `long` magic `'GLIB'` (0x474C4942)                  |
+| +8     | `word` item count                                   |
+| +16    | `long[count]` item offset table (base-relative)     |
+
+Each item: an 8-byte metric header then the bitmap. Header (big-endian):
+
+| Offset | Field                                                       |
+|--------|-------------------------------------------------------------|
+| +0     | `word` height (rows)                                        |
+| +2     | `word` y-bearing (subtracted from the pen top)              |
+| +4     | `word` x-bearing (subtracted from the pen left)             |
+| +6     | `byte` `bpp_w` — bytes per bitmap row                       |
+| +7     | `byte` flags — bit 7 = single-row; low nibble (≤1) = valid  |
+
+**Lifted + verified:** `L37aa` (CODE 5 + 0x37aa, GLIB magic-check + offset-
+table lookup) and `L2856` (CODE 5 + 0x2856, copies the 8-byte header,
+returns `entry+8` = bitmap ptr). A probe-gated self-test in
+`boot_a5_seed_defaults` builds a known 2-item GLIB and confirms every
+extracted field. `jt406`/`L366a` confirmed = `BlockMove(src, dst, count)`
+(the C `jt406(dst, src, count)` is the opposite order — mind it when
+lifting new callers from asm).
+
+`jt995`'s structural skeleton (clip math, mode-dispatched row loop) is
+present but has two known bugs to fix when the blit is done: it reads the
+metric header as **bytes** where the asm reads **words** (works only for
+small big-endian values), and the row-blit stubs `jt1183`/`jt1188` are
+declared 6-arg where the asm passes **7**:
+`(data, h, w_bytes, src_row_stride, lmask, rmask, pen_shift)`.
+
+**The blit family — the blocker.** `JT[1177]` (column cursor) + six
+masked-write variants:
+
+| Entry      | Mode                                                       |
+|------------|------------------------------------------------------------|
+| `JT[1181]` | `*dest \|= (src_word >> pen_shift)` — OR / set             |
+| `JT[1184]` | `*dest &= ~(src_word >> pen_shift)` — AND-NOT / clear      |
+| `JT[1183]` | collision/AND variant (returns a hit byte)                 |
+| `JT[1188]` | collision/AND variant, colour-mode counterpart            |
+| `JT[1189]` / `JT[1191]` | 2-source composite variants                   |
+
+These are **1-bit-per-pixel shift blits**: the source is 1bpp, masked at
+the left/right edges (`lmask`/`rmask`), spread across a 32-bit window via
+`swap` + `lsrl pen_shift` (a sub-word **bit** offset, 0–15, for horizontal
+sub-pixel positioning), and composited word-at-a-time into a **bit-packed**
+destination. Dest row stride `A5-3084` = `L04de() >> jt1200()` = 60 / 160 /
+320 bytes for 1bpp / 4bpp / 8bpp — i.e. the Mac drawing page is bit-packed
+at the active depth, **320×200**.
+
+**Why it's deferred (not a faithful lift):** our Falcon shim back-buffer is
+**320×400 8bpp chunky**. The Mac blit targets a bit-packed **320×200** page
+— mismatched in *both* pixel format (packed bits vs one byte/pixel) *and*
+resolution (200 vs 400 height). A literal translation would write
+structurally-wrong bytes regardless of correct source data or a valid
+`A5-3076`. The blit needs a **HAL-adapted reimplementation**, one of:
+
+- **(A)** allocate the Mac page (320×200, active depth), run the blits into
+  it bit-for-bit, then add a page→screen converter/scaler to the 8bpp/400h
+  shim buffer — most faithful, most machinery; or
+- **(B)** a from-scratch rasterizer: read the GLIB 1bpp glyph and draw it
+  directly to the 8bpp shim at the right scale + pen colour — pragmatic,
+  diverges from the asm.
+
+**Practical gate:** this path renders GLIB *game data* that only exists once
+a real design module loads through the file cache (the `jt557`/`jt585`
+chain, currently scaffolded). The menu text already renders via the
+`jt382 cmd=1` `DrawString` shortcut, so the blit's only *current* exercise
+would be a synthetic test glyph. Banked here as a self-contained, well-
+specified task; pick it up alongside (or after) real design-module loading
+so there's actual content to render and verify against.
+
 ## Lifting to C
 
 Per ADR-0008 the runtime comes first. Per routine:
