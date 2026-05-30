@@ -7738,11 +7738,66 @@ static signed char l4ec6(long ptr)                   { PROBE("L4ec6"); (void)ptr
  * *out_done = 1, jt904 exits cleanly through its loop predicate. */
 static void  l1806(short v)                          { PROBE("L1806"); (void)v; }
 /* New PROBE-stub helpers L206e calls. */
-/* New PROBE-stub helpers L2184 calls. */
+/* JT[482] (CODE 3 + 0x0024) — substring extract into g_a5_-10362.
+ *
+ *   L366a(src + offset - 1, &g_a5_-10362, count);    ; memcpy
+ *   g_a5_-10362[count] = 0;                           ; null-terminate
+ *   return &g_a5_-10362;
+ *
+ * Offset is 1-based (matches the THINK C / Pascal convention
+ * the Mac engine uses throughout — `offset = 1` means "start at
+ * the first character"). L366a is the engine's BlockMove-style
+ * memcpy: L366a(src, dst, count). count is clamped to fit in
+ * g_a5_-10362's 256-byte buffer.
+ *
+ * Returns a pointer to g_a5_-10362 — same shared scratch jt488
+ * uses, so callers must consume the result before the next
+ * sprintf-like call clobbers it. */
 static const char *jt482(const char *src, short offset, short count)
-                                                     { PROBE("jt482"); (void)src; (void)offset; (void)count; return ""; }
-static void  jt481(char *str, short offset, short count)
-                                                     { PROBE("jt481"); (void)str; (void)offset; (void)count; }
+{
+	short copy_len;
+
+	PROBE("jt482");
+	if (src == NULL || count <= 0) {
+		g_a5_10362[0] = 0;
+		return g_a5_10362;
+	}
+	copy_len = (count < (short)(G_A5_10362_LEN - 1))
+	         ? count : (short)(G_A5_10362_LEN - 1);
+	memcpy(g_a5_10362, src + offset - 1, (size_t)copy_len);
+	g_a5_10362[copy_len] = 0;
+	return g_a5_10362;
+}
+
+/* JT[481] (CODE 3 + 0x01ba) — in-place delete of `count` chars
+ * from `str` starting at 1-based `offset`.
+ *
+ *   short len_after_tail = JT[483](str + offset + count - 1);
+ *   L366a(str + offset + count - 1,                 ; src
+ *         str + offset - 1,                          ; dst
+ *         len_after_tail + 1);                       ; count (+1 for NUL)
+ *
+ * Effectively `memmove(str + offset - 1,
+ *                      str + offset + count - 1,
+ *                      strlen(tail) + 1)`. Preserves the NUL
+ * terminator since the +1 includes it.
+ *
+ * Used by L2184's final tail-trim path (`if last char == ' ' or
+ * '@', delete one char`). */
+static void jt481(char *str, short offset, short count)
+{
+	char  *dst;
+	char  *src;
+	size_t remaining;
+
+	PROBE("jt481");
+	if (str == NULL || count <= 0)
+		return;
+	dst = str + offset - 1;
+	src = str + offset + count - 1;
+	remaining = strlen(src) + 1;
+	memmove(dst, src, remaining);
+}
 
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
