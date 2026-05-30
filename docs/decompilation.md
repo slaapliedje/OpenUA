@@ -205,6 +205,49 @@ unpack with `unar`) is the source for broader compatibility testing once
 the load path works — but the shipped `TUTORIAL.DSN` is the place to
 start.
 
+#### `GEO0nn.DAT` — the level/map container (lifted: jt198 / L7226)
+
+A `GEO0nn.DAT` is an IFF-ish container, parsed by `L7226` into the
+3746-byte design-state buffer (`g_a5_-12300`). The 4-byte chunk sizes
+are **big-endian** on disk — read directly on the big-endian 68k, no
+swap. Note the FRUA quirk: the outer `FORM` carries *no* 4-char
+formType; it opens straight onto the `AMOD` wrapper, and `L7470`
+(the chunk walker) steps into it transparently.
+
+```
+'FORM' <size = filesize-8>
+  'AMOD' <size = filesize-16>          ; 12946 for the 12962-byte file
+    'HDR ' <0x122 = 290>  -> design-state[0..289]
+    'MAP ' <0xd80 = 3456> -> design-state[290..]
+    'ENCR' <0x7d0 = 2000> -> g_a5_-13038 (NCR buffer)
+    'STRG' <0x1c00 = 7168>-> g_a5_-13034 (string table)
+```
+
+Header sanity gates: `ds[0]` (a big-endian word) in `100..106`, and
+`ds[2]*ds[3]` (map dims) in `1..576`. A handful of HDR words at `+272`
+*are* stored byte-swapped (`jt1180` flips them back) — a mixed-endian
+legacy of FRUA's cross-platform data layout. GEO040.DAT validates with
+`ds[0]=106`, dims `264` (11×24).
+
+The per-design buffers (GEO read buffer `-4582`, design header `-28006`,
+NCR/STRG `-13038`/`-13034`, design state `-12300`, STRG scratch `-21148`)
+are allocated by `L4cc0` — lifted as a structural skeleton: the
+content-load buffers are real, the combat/sprite tables are deferred.
+
+#### `STRGnnn.DAT` — phrase tables (lifted: jt363)
+
+A flat array of 14-byte phrase records prefixed by a **little-endian**
+count word: `filesize == (count+1)*14`. `jt363` keeps a one-entry cache
+(`g_a5_-10370`) keyed by a 6-byte `"STR@<n>"` tag, so a repeat request
+for the same table skips the file I/O. STRG003.DAT = 574 = (40+1)·14.
+
+#### `MONSTnnn.DAT` — monster tables (deferred)
+
+The loader (`jt263`, CODE 10 + 0x5acc) is a `JT[1]` dispatch state
+machine, and `TUTORIAL.DSN` ships no `MONST*.DAT` to validate against
+(only `HEIRS.DSN` has them). Deferred until there's test data and the
+state machine's call graph is mapped.
+
 ### Display — screen and drawing (CODE 4 / CODE 5)
 
 FRUA's display layer spans CODE 4 (Mac Toolbox init, page management) and
