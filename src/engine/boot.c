@@ -3880,6 +3880,27 @@ static short jt382(void *rec_v, short cmd, ...)
 				short len = 0;
 				while (label[len] != 0 && len < 255)
 					len++;
+#ifdef FRUA_ENGINE_PROBE
+				/* DEBUG: log paint coords + label */
+				dbg_log_num("jt382:paint y_eng=",
+				    *(short *)(rec + 16));
+				dbg_log_num("jt382:paint x_eng=",
+				    *(short *)(rec + 18));
+				dbg_log_num("jt382:paint y_pix=", y_pix);
+				dbg_log_num("jt382:paint x_pix=", x_pix);
+				dbg_log_num("jt382:paint len=", len);
+				if (len > 0 && len < 64) {
+					char tmp[80];
+					int  k;
+					tmp[0] = ' ';
+					tmp[1] = '[';
+					for (k = 0; k < len; k++)
+						tmp[k + 2] = label[k];
+					tmp[len + 2] = ']';
+					tmp[len + 3] = 0;
+					dbg_log(tmp);
+				}
+#endif
 				if (len > 0) {
 					pbuf[0] = (unsigned char)len;
 					memcpy(pbuf + 1, label, (size_t)len);
