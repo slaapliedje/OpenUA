@@ -7738,7 +7738,153 @@ static signed char l4ec6(long ptr)                   { PROBE("L4ec6"); (void)ptr
  * *out_done = 1, jt904 exits cleanly through its loop predicate. */
 static void  l1806(short v)                          { PROBE("L1806"); (void)v; }
 /* New PROBE-stub helpers L206e calls. */
-static void  l2184(const char *src)                  { PROBE("L2184"); (void)src; }
+/* New PROBE-stub helpers L2184 calls. */
+static const char *jt482(const char *src, short offset, short count)
+                                                     { PROBE("jt482"); (void)src; (void)offset; (void)count; return ""; }
+static void  jt481(char *str, short offset, short count)
+                                                     { PROBE("jt481"); (void)str; (void)offset; (void)count; }
+
+/* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
+ *
+ * The body L206e calls first to populate g_a5_-13000 with the
+ * roster prompt assembled from select source words. Walks the
+ * source string counting uppercase/digit-led words; for each one
+ * whose position matches the byte stored in g_a5_-24126[index*2]
+ * (the entries jt904's jt155 sequence pre-loaded), extracts the
+ * word and appends it to g_a5_-13000 via "%s%s" snprintf.
+ *
+ *   byte src_idx = 0, out_idx = 0, iter_char = 0;
+ *   byte len = JT[483](src);
+ *   jt384(&g_a5_-13000, "");                   ; clear cache
+ *
+ *   while (src_idx < len) {
+ *       byte ch = src[src_idx];
+ *       if (!is_upper(ch) && !is_digit(ch)) {
+ *           src_idx++;                          ; non-boundary, skip
+ *           continue;
+ *       }
+ *
+ *       if (g_a5_-24126[out_idx * 2] != iter_char) {
+ *           src_idx++;                          ; not the wanted entry
+ *           iter_char++;
+ *           continue;
+ *       }
+ *
+ *       ; Match — record code, scan to end of word
+ *       g_a5_-24126[out_idx*2 + 1] = ch;
+ *       byte word_start = src_idx;
+ *       src_idx++;
+ *       while (src_idx < len
+ *              && !is_upper(src[src_idx])
+ *              && !is_digit(src[src_idx]))
+ *           src_idx++;
+ *
+ *       ; Extract substring and append to g_a5_-13000
+ *       short word_len = src_idx - word_start;
+ *       const char *sub = JT[482](src, word_start + 1, word_len);
+ *       jt384(tmp, sub);
+ *       const char *built = JT[488]("%s%s", g_a5_-13000, tmp);
+ *       jt384(g_a5_-13000, built);
+ *
+ *       out_idx++;
+ *       iter_char++;
+ *   }
+ *
+ *   ; Trim trailing ' ' or '@'
+ *   byte len2 = JT[483](g_a5_-13000);
+ *   if (g_a5_-13000[len2-1] == ' ' || g_a5_-13000[len2-1] == '@')
+ *       JT[481](&g_a5_-13000, len2, 1);
+ *
+ * jt904's prep sequence calls jt155(N, &counter) for each menu
+ * entry it wants visible — that writes N into g_a5_-24126[i*2]
+ * for i = 0..count-1. L2184 then walks the source prompt picking
+ * out the corresponding upper/digit-positioned words. The boot
+ * path's jt904 only fires the unconditional `jt155(7, ...)`, so
+ * g_a5_-24126[0] = 7 and L2184 hunts for the 8th upper/digit
+ * word in src — without a real prompt source set up that means
+ * zero matches, g_a5_-13000 stays empty, L1a0c returns 0.
+ *
+ * The Mac body uses byte-typed locals throughout (fp@(-1..-5)),
+ * not shorts. That matches THINK C's compact code-gen — single
+ * byte ops save bytes. Carried over literally to keep the
+ * comparisons against g_a5_-24126[i*2] (also byte) typed-clean. */
+static void l2184(const char *src)
+{
+	unsigned char  len;
+	unsigned char  out_idx;
+	unsigned char  src_idx;
+	unsigned char  iter_char;
+	unsigned char  tmp[86];
+	unsigned char  ch;
+
+	PROBE("L2184");
+	if (src == NULL)
+		return;
+
+	len       = (unsigned char)jt483(src);
+	jt384((char *)g_a5_buf(-13000), "");
+	out_idx   = 0;
+	iter_char = 0;
+	src_idx   = 0;
+
+	while (src_idx < len) {
+		ch = (unsigned char)src[src_idx];
+		if ((ch < 'A' || ch > 'Z')
+		    && (ch < '0' || ch > '9')) {
+			src_idx++;
+			continue;
+		}
+
+		if (g_a5_24126[out_idx * 2] != iter_char) {
+			src_idx++;
+			iter_char++;
+			continue;
+		}
+
+		/* Match — record code, scan to end of word. */
+		g_a5_24126[out_idx * 2 + 1] = ch;
+		{
+			unsigned char word_start = src_idx;
+			short         word_len;
+			const char   *sub;
+			const char   *built;
+
+			src_idx++;
+			while (src_idx < len) {
+				unsigned char c2 = (unsigned char)src[src_idx];
+
+				if ((c2 >= 'A' && c2 <= 'Z')
+				    || (c2 >= '0' && c2 <= '9'))
+					break;
+				src_idx++;
+			}
+			word_len = (short)(src_idx - word_start);
+
+			sub   = jt482(src, (short)(word_start + 1), word_len);
+			jt384((char *)tmp, sub);
+			built = jt488("%s%s",
+			              (const char *)g_a5_buf(-13000),
+			              (const char *)tmp);
+			jt384((char *)g_a5_buf(-13000), built);
+		}
+
+		out_idx++;
+		iter_char++;
+	}
+
+	{
+		unsigned char len2 = (unsigned char)jt483(
+		                       (const char *)g_a5_buf(-13000));
+		unsigned char last;
+
+		if (len2 == 0)
+			return;
+		last = g_a5_buf(-13000)[len2 - 1];
+		if (last == ' ' || last == '@')
+			jt481((char *)g_a5_buf(-13000),
+			      (short)len2, (short)1);
+	}
+}
 /* L1a0c (CODE 7 + 0x1a0c) — prompt-string word splitter.
  *
  * Splits the prompt into space-separated words at uppercase /
