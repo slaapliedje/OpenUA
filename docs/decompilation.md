@@ -267,6 +267,22 @@ dialogs through ~10 editor entries) is deferred. Note that `JT[1]`
 exercise the loaders. The probe boots verify GEO001/002/040 parse
 (dims 570/570/441), STRG cache hit/miss, and MONST101 load.
 
+#### `JT[325]` — the record-database engine (lifted: prologue only)
+
+`jt263`'s serialize step and several CODE 2 callers route record
+I/O through `JT[325]` (CODE 9 + 0x22d8), a 1135-line stage / load /
+store engine keyed by a record type (1/21/33/51/52) and a command
+(0..7). It is lifted **partially**: the prologue + input command
+class — file-group setup, the staging buffer (`g_a5_-22208`, the
+`L30cc` block of `8*398` bytes), the cmd 2/5/6/7 BlockMove of the
+caller's source into staging (+ the `rec[20..22]` tag and
+`rec[2510]` marker), and cmd 0/1 clear. The ~3000-byte per-type
+field-serialization tail (0x242c..0x30c2 — the cmd-3 fetch and the
+`L258e` type dispatch) is deferred, so `jt325` stages the raw
+record but does not yet transform fields and returns a provisional
+0. The probe boot stages a 450-byte test record and confirms it
+lands intact in `g_a5_-22208`.
+
 ### Display — screen and drawing (CODE 4 / CODE 5)
 
 FRUA's display layer spans CODE 4 (Mac Toolbox init, page management) and
