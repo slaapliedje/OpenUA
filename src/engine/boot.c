@@ -989,6 +989,61 @@ static short jt363(long *out, short num)
 	return 0;
 }
 
+/* JT[1171] (CODE 4 + 0x108e) — record decompressor. Expands a
+ * compressed MONST record (src) of `rawlen` uncompressed bytes
+ * into dst. Deferred to a PROBE stub: the only MONST files we can
+ * test (HEIRS.DSN) are stored at the full 450-byte size, so the
+ * decompress arm isn't exercised. Lift when a compressed module
+ * needs it. */
+static void  jt1171(void *src, void *dst, short rawlen)
+{
+	PROBE("jt1171");
+	(void)src; (void)dst; (void)rawlen;
+}
+
+/* L6028 (CODE 10 + 0x6028) — load MONSTnnn.DAT for monster slot
+ * `num` into the design header (g_a5_-28006 + 101). Mirrors the GEO
+ * loader's shape: file group 50, byte-count gate (1..450). Records
+ * are stored either at the full 450 bytes (used as-is) or RLE-
+ * packed at < 450 (relocated to the buffer tail and expanded back
+ * via jt1171, where dst[0..1] is the big-endian uncompressed
+ * length). On success the slot is hung off the active monster
+ * context (g_a5_-11718) and tagged with `num`. Returns the record
+ * pointer, or 0 on a load error. */
+static long  l6028(short num)
+{
+	short out = 0;
+	char *dest;
+	char ok = 0;
+
+	PROBE("L6028");
+	jt132((short)50);
+	jt131((short)6);
+	dest = (char *)(uintptr_t)g_a5_long(-28006) + 101;
+	jt127("MONST", num, &out, dest);
+	if (out == 0 || out > 450) {
+		jt69();
+	} else {
+		if (out < 450) {
+			/* compressed: relocate the packed bytes to the
+			 * buffer tail, then expand back over `dest`. */
+			short rawlen = (short)(((unsigned char)dest[0] << 8) |
+			                       (unsigned char)dest[1]);
+			char *tail = dest - out + 490;
+			jt406(tail, dest + 2, out);
+			jt1171(tail, dest, rawlen);
+		}
+		if (g_a5_long(-11718) != 0) {
+			char *ctx = (char *)(uintptr_t)g_a5_long(-11718);
+			*(long *)(ctx + 10) = (long)(uintptr_t)dest;
+			((char *)(uintptr_t)(*(long *)(ctx + 10)))[397] =
+				(char)(num & 0xff);
+		}
+		ok = 1;
+	}
+	return ok ? (long)(uintptr_t)dest : 0;
+}
+
 /* JT[361] (CODE 8 + 0x71ec) — load the design GAME header.
  *
  *   jt132(51);                                   // file group = GAME
@@ -1044,26 +1099,39 @@ static void  jt361(short a)
 		l7222();
 
 #ifdef FRUA_ENGINE_PROBE
-		/* TEST: exercise the GEO content loader against the
-		 * tutorial's GEO040.DAT now that the design buffers
-		 * exist. Expect ds[0]=106 (valid header word) and
-		 * dims=264 (11x24 map), with jt69 NOT firing. */
-		jt198((short)40);
+		/* TEST: exercise the content loaders now that the design
+		 * buffers exist. The default TUTORIAL.DSN staging only
+		 * ships GEO040 / STRG003; stage HEIRS.DSN
+		 *   make gamedata DSN=HEIRS.DSN
+		 * for the multi-GEO + MONST coverage. A missing file
+		 * just returns 0 and lands in jt69 (no crash). GEO040
+		 * expects ds[0]=106, dims=264; STRG003 = 574; STRG001 =
+		 * 3668; MONST101 = 450 (loads raw, no decompress). */
 		{
+			static const short geos[] = { 1, 2, 40 };
 			char *ds = (char *)(uintptr_t)g_a5_long(-12300);
-			if (ds) {
-				dbg_log_num("jt198: ds[0] = ",
-				            *(unsigned short *)ds);
-				dbg_log_num("jt198: dims = ",
-				            (unsigned char)ds[2] *
-				            (unsigned char)ds[3]);
+			int i;
+
+			for (i = 0; i < 3; i++) {
+				jt198(geos[i]);
+				dbg_log_num("jt198 geo = ", geos[i]);
+				if (ds) {
+					dbg_log_num("  ds[0] = ",
+					            *(unsigned short *)ds);
+					dbg_log_num("  dims  = ",
+					            (unsigned char)ds[2] *
+					            (unsigned char)ds[3]);
+				}
 			}
+			dbg_log_num("jt363(3) = ",
+			            jt363((long *)0, (short)3));
+			dbg_log_num("jt363(3) cached = ",
+			            jt363((long *)0, (short)3));
+			dbg_log_num("jt363(1) = ",
+			            jt363((long *)0, (short)1));
+			dbg_log_num("L6028(101) ok = ",
+			            l6028((short)101) != 0);
 		}
-		/* TEST: STRG003.DAT = 574 = (40+1)*14. A second call
-		 * with the same number must hit the cache (same size,
-		 * no reload). */
-		dbg_log_num("jt363(3) bytes = ", jt363((long *)0, (short)3));
-		dbg_log_num("jt363(3) cached = ", jt363((long *)0, (short)3));
 #endif
 	}
 }
