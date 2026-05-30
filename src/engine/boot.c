@@ -681,10 +681,21 @@ static int           jt943(void)
 
 static void l07dc(void)
 {
-	PROBE("l07dc");
+	/* TEST SCAFFOLD — forward decl; defined alongside
+	 * boot_a5_seed_defaults further down. Remove when
+	 * JT[557]/JT[585] land. */
+	{
+		extern void port_test_seed_design(void);
 
-	if (g_a5_18485 == 0)
-		l5124();
+		PROBE("l07dc");
+
+		if (g_a5_18485 == 0)
+			l5124();
+		/* l5124 cleared g_a5_-27932; re-point to the
+		 * synthesized record so jt904's driver gets real
+		 * flags. */
+		port_test_seed_design();
+	}
 
 	g_a5_18878 = (short)g_a5_18828;
 	g_a5_18488 = (unsigned char)(g_a5_18827 - 1);
@@ -4028,6 +4039,9 @@ static void jt452_init(void)
 	g_a5_9250 = 0;
 }
 
+/* TEST SCAFFOLD — forward decl; defined just below. */
+void port_test_seed_design(void);
+
 void boot_a5_seed_defaults(void)
 {
 	/* DATA pool replay zero-fills g_a5_below[]; restore the two
@@ -4089,6 +4103,60 @@ void boot_a5_seed_defaults(void)
 		table[5] = (long)(uintptr_t)jt377;
 		table[6] = (long)(uintptr_t)jt376;
 	}
+
+	/* ===== TEST SCAFFOLD — REVERT WHEN JT[557] / JT[585] LAND =====
+	 * Initial seed; l5124 clears g_a5_-27932 on every first-time
+	 * play-loop entry so port_test_seed_design() in l07dc re-points
+	 * it after that clear. See port_test_seed_design() for details. */
+	port_test_seed_design();
+	/* ===== end TEST SCAFFOLD ===== */
+}
+
+/* ===== TEST SCAFFOLD — REVERT WHEN JT[557] / JT[585] LAND =====
+ *
+ * Synthesize a minimal character record + multi-word source prompt
+ * so jt904's roster chain (jt904 -> L1276 -> jt182 -> L206e ->
+ * L2184 -> L1a0c -> L1bfe -> L1aea) has real data to walk. Without
+ * it, every roster paint short-circuits at the NULL deref guards.
+ *
+ * The record fields are picked to flip jt904's driver flags:
+ *
+ *   rec[8..11] = non-zero handle    -> jt155(0) fires
+ *   rec[198]   = 1 (low 7 bits set) -> cond1, jt155(1) fires
+ *   rec[76]    = 1 short            -> cond2, jt155(2) + jt155(4) fire
+ *   rec[89]    = 3                  -> L4e56/L4ec6 take check_mode
+ *   rec[94]    = 0                  -> L4e56/L4ec6 don't bail
+ *   rec[128]   = 1                  -> L4ec6 returns true, jt155(6) fires
+ *
+ * g_a5_-13804 points at a writable source prompt so L2184's inner
+ * walk can mutate it (Mac behaviour — overwrites boundaries with
+ * NUL).
+ *
+ * Called from boot_a5_seed_defaults() once at boot AND from l07dc
+ * right after l5124() — because l5124 faithfully clears
+ * g_a5_-27932 = 0 (the Mac-correct fresh-game init) which would
+ * wipe the boot-time seed before jt918 / jt904 see it.
+ *
+ * Remove both call sites + this function once the design-load
+ * chain lifts upstream and sets g_a5_-27932 from real data. */
+void port_test_seed_design(void)
+{
+	static unsigned char k_test_record[512];
+	static char          k_test_prompt[] =
+	    "exit Add Modify Delete View";
+	long handle_placeholder = 0xDEADBEEFL;
+
+	memset(k_test_record, 0, sizeof k_test_record);
+	*(long  *)(k_test_record +   8) = handle_placeholder;
+	*(short *)(k_test_record +  76) = (short)1;
+	k_test_record[ 89] = 3;
+	k_test_record[ 94] = 0;
+	k_test_record[128] = 1;
+	k_test_record[147] = 0;          /* skip special-check arm */
+	k_test_record[198] = 1;
+
+	g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
+	g_a5_long(-13804) = (long)(uintptr_t)k_test_prompt;
 }
 
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
