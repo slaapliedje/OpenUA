@@ -537,7 +537,64 @@ static void  jt989(void (*handler)(void), short flag,
 	g_a5_4670 = (unsigned char)(code & 0xff);
 }
                                                                                   /* CODE 5 + 0x1b56 */
-static void  jt361(short a)                        { PROBE("jt361"); }            /* CODE 8 + 0x71ec */
+/* jt127 (design-data loader) + jt132 (file-group setter) lift
+ * further down / just below; jt361 calls them. */
+static void jt127(const char *prefix, short num, short *out, void *buffer);
+
+/* JT[132] (CODE 6 + 0x0092) — set the current file-group id.
+ *   g_a5_-31236 = (byte)id;
+ * The group id (51 / 0x33 for GAME) tags subsequent file-cache
+ * registrations; jt361 sets it before loading the GAME header. */
+static void  jt132(short id)
+{
+	PROBE("jt132");
+	g_a5_byte(-31236) = (unsigned char)(id & 0xff);
+}
+
+/* JT[361] (CODE 8 + 0x71ec) — load the design GAME header.
+ *
+ *   jt132(51);                                   // file group = GAME
+ *   jt127("GAME", 1, &n, &g_a5_-18876);          // load GAME001.DAT
+ *   if (a) L7222();                               // post-load setup
+ *
+ * Reads the design's GAME001.DAT (the design index/header — its
+ * first bytes are the design name string, e.g. "tutorial design")
+ * into g_a5_-18876, the buffer jt315 later paints as "Current Game
+ * Design:". Called from ua_main phase 4 as jt361(1).
+ *
+ * The a!=0 post-step L7222 (jt369) is DEFERRED: it derefs the
+ * g_a5_-12300 pointer (clrw **g_a5_-12300) and calls L6e50 (CODE 8
+ * design-state init), neither of which is set up in the port yet —
+ * running it now would NULL-deref. Guarded behind a non-NULL check
+ * so the GAME load itself is safe; restore the post-step when the
+ * design-state cluster (g_a5_-12300 / L6e50) lifts. */
+static void  jt361(short a)
+{
+	short n = 0;
+
+	PROBE("jt361");
+	jt132((short)51);
+	jt127("GAME", (short)1, &n, g_a5_buf(-18876));
+#ifdef FRUA_ENGINE_PROBE
+	{
+		char tag[20];
+		int i;
+		dbg_log_num("jt361: GAME bytes = ", n);
+		tag[0] = ' ';
+		for (i = 0; i < 16; i++) {
+			unsigned char c = g_a5_buf(-18876)[i];
+			tag[i + 1] = (c >= 32 && c < 127) ? (char)c : '.';
+		}
+		tag[17] = 0;
+		dbg_log(tag);   /* expect " tutorial design" */
+	}
+#endif
+	if (a != 0) {
+		/* L7222 post-step deferred — see header (g_a5_-12300 /
+		 * L6e50 not yet set up). */
+		PROBE("jt361:L7222-deferred");
+	}
+}
 static void  jt919(void)                           { PROBE("jt919"); }            /* CODE 12 + 0x1b12 */
 static int   jt931(void)                           { PROBE("jt931"); return 0; }  /* CODE 12 + 0x430c */
 /* JT[949] (CODE 20 + 0x77a2) — Mac body is just `rts`. Genuinely
