@@ -8505,7 +8505,15 @@ static void l1bfe(short width, void *buf, const char *suffix,
 		}
 	}
 }
-static void  l162e(void)                             { PROBE("L162e"); }
+/* L162e is just an alias for JT[176] — the L address is what CODE
+ * 7's internal call sites use; the JT entry is the same body at
+ * CODE 7 + 0x162e. Route directly to the already-lifted jt176
+ * (paint clip-rect setup + jt1001 pen commit + jt1193/L2062). */
+static void  l162e(void)
+{
+	PROBE("L162e");
+	jt176();
+}
 
 /* JT[393] (CODE 3 + 0x3b8c) — signed strcmp (returns -1 / 0 / 1).
  * Mac body walks both strings byte-by-byte until mismatch or NUL,
