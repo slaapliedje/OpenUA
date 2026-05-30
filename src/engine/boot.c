@@ -1466,9 +1466,10 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* contact sheet of every GEOnnn in the design, to
-			 * confirm the tile layout across the whole set. */
-			port_render_geo_contact();
+			/* detailed single map with decoded wall/door
+			 * colours (GEO040, 21x21, fits the cell grid). */
+			jt198((short)40);
+			port_render_geo_map();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -5313,6 +5314,45 @@ static void map_px(unsigned char *base, short pitch, short sw, short sh,
 		base[(long)y * pitch + x] = c;
 }
 
+/* Decode a tile edge byte to a CLUT index. The edge codes split on
+ * bit 7: a set bit 7 (0xe0..0xff cluster) is a SOLID WALL — shaded
+ * as a grey ramp by the texture low-nibble (224..239); a clear bit 7
+ * (0x01..0x5a cluster) is a DOOR / passage — a bright colour by type
+ * (240..243). 0 is no edge. */
+static unsigned char edge_color(unsigned char code)
+{
+	if (code == 0)
+		return 0;
+	if (code & 0x80)
+		return (unsigned char)(224 + (code & 0x0f));
+	return (unsigned char)(240 + (code & 3));
+}
+
+/* install the map demo CLUT: 224..239 wall grey ramp, 240..243 door
+ * colours, 248..251 floor shades, 255 black. Shared by both views. */
+static void map_demo_palette(void)
+{
+	RGBColor c[32];
+	short i;
+
+	for (i = 0; i < 32; i++)
+		c[i].red = c[i].green = c[i].blue = 0;
+	for (i = 0; i < 16; i++) {          /* 224..239 wall grey ramp */
+		unsigned short v = (unsigned short)(0x4000 + i * 0xC00);
+		c[i].red = c[i].green = c[i].blue = v;
+	}
+	c[16].red = 0x1000; c[16].green = 0xffff; c[16].blue = 0x2000; /* 240 green */
+	c[17].red = 0xffff; c[17].green = 0xe000; c[17].blue = 0x1000; /* 241 yellow */
+	c[18].red = 0x1000; c[18].green = 0xe000; c[18].blue = 0xffff; /* 242 cyan */
+	c[19].red = 0xffff; c[19].green = 0x6000; c[19].blue = 0x1000; /* 243 orange */
+	c[24].red = 0x1000; c[24].green = 0x1000; c[24].blue = 0x2800; /* 248 floor */
+	c[25].red = 0x2000; c[25].green = 0x2000; c[25].blue = 0x4000; /* 249 */
+	c[26].red = 0x3000; c[26].green = 0x3000; c[26].blue = 0x5800; /* 250 */
+	c[27].red = 0x4000; c[27].green = 0x4000; c[27].blue = 0x7000; /* 251 */
+	/* 255 (c[31]) stays black */
+	qd_set_palette(c, 224, 32);
+}
+
 void port_render_geo_map(void)
 {
 	unsigned char *px;
@@ -5320,13 +5360,11 @@ void port_render_geo_map(void)
 	const unsigned char *ds, *map;
 	short w, h, x, y, sx, sy;
 	const short cell = 10, ox = 6, oy = 6;
-	RGBColor demo[8];
 
 	/* tile layout (6 bytes): [0]=N wall, [1]=S, [2]=E, [3]=W,
-	 * [4]=0 (reserved), [5]=floor flag (0..3). A non-zero wall
-	 * byte is an edge; the exact code (0xe1/0xeb/0xe6 = wall,
-	 * 0x09/0x0e = door) selects the type — rendered here as a
-	 * plain edge. */
+	 * [4]=0 (reserved), [5]=floor flag (0..3). Each edge byte is
+	 * decoded (edge_color) into a wall-texture grey or a door
+	 * colour. */
 	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	if (ds == 0)
 		return;
@@ -5341,16 +5379,7 @@ void port_render_geo_map(void)
 	dbg_log_num("geo map: h = ", h);
 #endif
 
-	/* CLUT 248..251 = floor shades by flag, 253 = wall, 255 = black */
-	demo[0].red = 0x1000; demo[0].green = 0x1000; demo[0].blue = 0x2800;
-	demo[1].red = 0x2000; demo[1].green = 0x2000; demo[1].blue = 0x4000;
-	demo[2].red = 0x3000; demo[2].green = 0x3000; demo[2].blue = 0x5800;
-	demo[3].red = 0x4000; demo[3].green = 0x4000; demo[3].blue = 0x7000;
-	demo[4].red = demo[4].green = demo[4].blue = 0;            /* 252 */
-	demo[5].red = demo[5].green = demo[5].blue = 0xffff;       /* 253 wall */
-	demo[6].red = demo[6].green = demo[6].blue = 0;            /* 254 */
-	demo[7].red = demo[7].green = demo[7].blue = 0;            /* 255 black */
-	qd_set_palette(demo, 248, 8);
+	map_demo_palette();
 
 	for (y = 0; y < sh; y++)
 		memset(px + (long)y * pitch, 255, (size_t)sw);
@@ -5364,6 +5393,10 @@ void port_render_geo_map(void)
 			 * tiles, 6 bytes each, fit the 3456-byte MAP chunk) */
 			const unsigned char *t = map + ((long)y * w + x) * 6;
 			unsigned char floor = (unsigned char)(248 + (t[5] & 3));
+			unsigned char eN = edge_color(t[0]);
+			unsigned char eS = edge_color(t[1]);
+			unsigned char eE = edge_color(t[2]);
+			unsigned char eW = edge_color(t[3]);
 			short bx = (short)(ox + x * cell);
 			short by = (short)(oy + y * cell);
 
@@ -5372,18 +5405,18 @@ void port_render_geo_map(void)
 				for (sx = 1; sx < cell; sx++)
 					map_px(px, pitch, sw, sh,
 					       bx + sx, by + sy, floor);
-			/* wall edges */
+			/* decoded edges */
 			for (sx = 0; sx <= cell; sx++) {
-				if (t[0]) map_px(px, pitch, sw, sh,
-				                 bx + sx, by, 253);        /* N */
-				if (t[1]) map_px(px, pitch, sw, sh,
-				                 bx + sx, by + cell, 253);  /* S */
+				if (eN) map_px(px, pitch, sw, sh,
+				               bx + sx, by, eN);
+				if (eS) map_px(px, pitch, sw, sh,
+				               bx + sx, by + cell, eS);
 			}
 			for (sy = 0; sy <= cell; sy++) {
-				if (t[3]) map_px(px, pitch, sw, sh,
-				                 bx, by + sy, 253);         /* W */
-				if (t[2]) map_px(px, pitch, sw, sh,
-				                 bx + cell, by + sy, 253);  /* E */
+				if (eW) map_px(px, pitch, sw, sh,
+				               bx, by + sy, eW);
+				if (eE) map_px(px, pitch, sw, sh,
+				               bx + cell, by + sy, eE);
 			}
 		}
 	}
