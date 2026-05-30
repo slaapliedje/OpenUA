@@ -7737,9 +7737,131 @@ static signed char l4ec6(long ptr)                   { PROBE("L4ec6"); (void)ptr
  * returning 0, jt182 returns 0, jt904 case 0 -> L25ce sets
  * *out_done = 1, jt904 exits cleanly through its loop predicate. */
 static void  l1806(short v)                          { PROBE("L1806"); (void)v; }
-static void  l206e(long p2, unsigned char *buf,
-                    const char *p1, unsigned char *arg3_lo)
-                                                     { PROBE("L206e"); (void)p2; (void)buf; (void)p1; (void)arg3_lo; }
+/* New PROBE-stub helpers L206e calls. */
+static void  l2184(const char *src)                  { PROBE("L2184"); (void)src; }
+static short l1a0c(const char *prompt, void *buf)    { PROBE("L1a0c"); (void)prompt; (void)buf; return 0; }
+static void  l1bfe(short width, void *buf, const char *suffix,
+                    short trail, short flag)         { PROBE("L1bfe"); (void)width; (void)buf; (void)suffix; (void)trail; (void)flag; }
+static void  l162e(void)                             { PROBE("L162e"); }
+
+/* JT[393] (CODE 3 + 0x3b8c) — signed strcmp (returns -1 / 0 / 1).
+ * Mac body walks both strings byte-by-byte until mismatch or NUL,
+ * then sign-compares the last byte. */
+static short jt393(const char *a, const char *b)
+{
+	PROBE("jt393");
+	if (a == NULL || b == NULL)
+		return 0;
+	while (*a == *b && *a != 0) {
+		a++;
+		b++;
+	}
+	if (*(const unsigned char *)a < *(const unsigned char *)b)
+		return (short)-1;
+	if (*(const unsigned char *)a > *(const unsigned char *)b)
+		return (short)1;
+	return 0;
+}
+
+#define g_a5_13000_str g_a5_buf(-13000)    /* working copy of the prompt */
+#define g_a5_12828_str g_a5_buf(-12828)    /* last-seen prompt string */
+#define g_a5_12748_str g_a5_buf(-12748)    /* last-seen suffix string */
+#define g_a5_12908_str g_a5_buf(-12908)    /* duplicate of -13000 for L1a0c */
+
+/* L206e (CODE 7 + 0x206e) — prompt cluster builder.
+ *
+ *   L2184(prompt);                                   ; extract accelerator
+ *                                                    ; letters into g_a5_-24126
+ *
+ *   ; Detect prompt / suffix change vs last-seen cache:
+ *   if (jt393(&g_a5_-13000, &g_a5_-12828) != 0)
+ *       g_a5_-12912 = 1;                              ; prompt changed
+ *   else if (jt393(suffix, &g_a5_-12748) != 0)
+ *       g_a5_-12912 = 1;                              ; suffix changed
+ *   else if (g_a5_-13018 == 8)
+ *       g_a5_-12912 = 0;                              ; mode 8 forces clean
+ *
+ *   ; Refresh the cache copies:
+ *   jt384(&g_a5_-12908, &g_a5_-13000);                ; -12908 ← -13000
+ *   jt384(&g_a5_-12828, &g_a5_-13000);                ; -12828 ← -13000
+ *   jt384(&g_a5_-12748, suffix);                      ; -12748 ← suffix
+ *
+ *   short width = L1a0c(&g_a5_-12908, buf);           ; build prompt cluster
+ *   L2170(width);                                     ; cache for L25b6
+ *
+ *   if (g_a5_-12912) {                                ; if dirty:
+ *       jt447(); jt108(1); jt112(1); L162e();         ;   paint frame
+ *   }
+ *
+ *   L1bfe(width, buf, suffix, *byte_ptr, g_a5_-12912); ; render content
+ *
+ *   if (g_a5_-12912) {
+ *       jt449(1); jt112(0); jt117();                  ;   commit frame
+ *   }
+ *
+ *   g_a5_-12911 = g_a5_-12912;                        ; remember dirty
+ *   g_a5_-12912 = 0;
+ *   return width;
+ *
+ * L2184 walks the prompt string extracting letters/digits into the
+ * 20-entry g_a5_-24126 index buffer the L25b6 fallback path scans.
+ * L1a0c builds the per-glyph buffer L1bfe paints; L1bfe is the
+ * actual roster-row renderer. Helpers stay PROBE-only — the
+ * cache-comparison + JT[384] copy chain runs as the Mac code
+ * intended (jt393 lifted faithfully so the dirty flag tracks
+ * real prompt changes). */
+static void l206e(long p1, unsigned char *buf,
+                  const char *suffix, unsigned char *byte_ptr)
+{
+	short width;
+
+	PROBE("L206e");
+
+	l2184((const char *)(uintptr_t)p1);
+
+	/* Detect prompt change vs cached. */
+	if (jt393((const char *)g_a5_13000_str,
+	          (const char *)g_a5_12828_str) != 0) {
+		g_a5_12912 = 1;
+	} else if (jt393(suffix,
+	                  (const char *)g_a5_12748_str) != 0) {
+		g_a5_12912 = 1;
+	} else if (g_a5_13018 == 8) {
+		g_a5_12912 = 0;
+	}
+
+	/* Refresh cached copies. */
+	jt384((char *)g_a5_12908_str, (const char *)g_a5_13000_str);
+	jt384((char *)g_a5_12828_str, (const char *)g_a5_13000_str);
+	if (suffix != NULL)
+		jt384((char *)g_a5_12748_str, suffix);
+
+	width = l1a0c((const char *)g_a5_12908_str, buf);
+	g_a5_13016 = width;       /* L2170 inlined: g_a5_-13016 = arg */
+
+	if (g_a5_12912 != 0) {
+		jt447();
+		(void)jt108((short)1);
+		(void)jt112((short)1);
+		l162e();
+	}
+
+	{
+		short trail = (byte_ptr != NULL)
+		            ? (short)(signed char)*byte_ptr
+		            : (short)0;
+		l1bfe(width, buf, suffix, trail, (short)g_a5_12912);
+	}
+
+	if (g_a5_12912 != 0) {
+		jt449((short)1);
+		(void)jt112((short)0);
+		(void)jt117();
+	}
+
+	g_a5_12911 = g_a5_12912;
+	g_a5_12912 = 0;
+}
 /* New PROBE-stub helpers L23b4 needs. */
 static long  jt100(void)                             { PROBE("jt100"); return 0; }
 static signed char jt1085(void)                      { PROBE("jt1085"); return 0; }
