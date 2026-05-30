@@ -7739,7 +7739,112 @@ static signed char l4ec6(long ptr)                   { PROBE("L4ec6"); (void)ptr
 static void  l1806(short v)                          { PROBE("L1806"); (void)v; }
 /* New PROBE-stub helpers L206e calls. */
 static void  l2184(const char *src)                  { PROBE("L2184"); (void)src; }
-static short l1a0c(const char *prompt, void *buf)    { PROBE("L1a0c"); (void)prompt; (void)buf; return 0; }
+/* L1a0c (CODE 7 + 0x1a0c) — prompt-string word splitter.
+ *
+ * Splits the prompt into space-separated words at uppercase /
+ * digit boundaries, populating buf[] with `char *` entries that
+ * point into the original prompt buffer (which gets mutated —
+ * the boundary chars are overwritten with NUL to terminate each
+ * word in place). Returns the word count.
+ *
+ *   g_a5_-13002 = 0;
+ *   while (*p == ' ') p++;
+ *   if (*p == 0) { *buf = NULL; return 0; }
+ *
+ *   for (count = 0; !done; count++) {
+ *       buf[count] = p;
+ *       at_flag    = 0;
+ *
+ *       ; Scan until uppercase / digit / NUL boundary; '@'
+ *       ; inside the word just sets the at_flag.
+ *       do {
+ *           p++;
+ *           if (*p == '@') at_flag = 1;
+ *       } while (*p != 0 && !is_upper(*p)
+ *                && !(*p >= '0' && *p <= '9'));
+ *
+ *       if (at_flag) {
+ *           g_a5_-13001 = (byte)count;       ; "selected" index
+ *           g_a5_-13002 = 1;
+ *       }
+ *
+ *       if (*p == 0) done = 1;
+ *       else         *(p - 1) = 0;            ; terminate prev word
+ *   }
+ *   return count;
+ *
+ * Prompt format the FRUA roster expects:
+ *
+ *   "exit Add Modify Delete View"
+ *
+ * After split: buf = ["exit", "Add", "Modify", "Delete", "View"].
+ * The leading lowercase intro ("exit") is word 0; each capitalised
+ * action is a subsequent word. '@' anywhere in the prompt marks
+ * the word containing it as the current selection.
+ *
+ * The Mac body mutates the prompt buffer in place (writes NUL at
+ * each boundary). Caller therefore needs to pass a writable copy
+ * — L206e already copies into g_a5_-12908 via jt384, so the
+ * mutation lands in cache, not the original STRS resource.
+ *
+ * Returns the word count, which L206e stamps into g_a5_-13016
+ * (L2170-equivalent) and feeds to L25b6 as arg_count. */
+static short l1a0c(const char *prompt, void *buf)
+{
+	char       **out  = (char **)buf;
+	char        *p    = (char *)(uintptr_t)prompt;
+	short        count = 0;
+	unsigned char at_flag;
+	unsigned char done;
+
+	PROBE("L1a0c");
+	g_a5_byte(-13002) = 0;
+
+	if (p == NULL || out == NULL)
+		return 0;
+
+	while (*p == ' ')
+		p++;
+	if (*p == 0) {
+		*(long *)out = 0;
+		return 0;
+	}
+
+	done = 0;
+	while (!done) {
+		out[count] = p;
+		at_flag    = 0;
+
+		/* Scan until boundary: '@' sets flag, NUL/upper/digit
+		 * end the scan. Lowercase + special chars continue. */
+		for (;;) {
+			p++;
+			if (*p == '@')
+				at_flag = 1;
+			if (*p == 0)
+				break;
+			if (l466a((short)(unsigned char)*p))
+				break;
+			if (*p >= '0' && *p <= '9')
+				break;
+		}
+
+		if (at_flag != 0) {
+			g_a5_byte(-13001) = (unsigned char)count;
+			g_a5_byte(-13002) = 1;
+		}
+
+		if (*p == 0) {
+			done = 1;
+		} else {
+			*(p - 1) = 0;       /* terminate previous word */
+		}
+
+		count++;
+	}
+
+	return count;
+}
 /* New PROBE-stub helpers L1bfe references. */
 static short jt138(void *rec, short cmd, ...)        { PROBE("jt138"); (void)rec; (void)cmd; return 0; }
 static short jt139(void *rec, short cmd, ...)        { PROBE("jt139"); (void)rec; (void)cmd; return 0; }
