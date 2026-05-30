@@ -622,6 +622,9 @@ static void  jt399(void *buf, short size, short fill);
 static void  jt406(void *dst, const void *src, short count);
 static short jt1180(short v);
 static void  jt131(short a);
+static const char *jt488(const char *fmt, ...);
+static short jt393(const char *a, const char *b);
+static int   jt394(char *buf, const char *fmt, ...);
 
 /* JT[421] (CODE 3 + 0x36d6) — NewPtr(size). JT[1028](size,0) ==
  * _NewPtr; returns the block (0 on failure). Unlike jt387 this
@@ -900,6 +903,17 @@ static void  jt198(short geo_num)
 	g_a5_word(-12296) = -1;
 }
 
+/* L3154 (CODE 6 + 0x3154) — allocate the STRG load scratch buffer:
+ * g_a5_-21152 = arg, g_a5_-21150 = 10, g_a5_-21148 = NewPtr(arg*10).
+ * Called from L4cc0 with arg=400 (a 4000-byte buffer). */
+static void  l3154(short arg)
+{
+	PROBE("L3154");
+	g_a5_word(-21152) = arg;
+	g_a5_word(-21150) = 10;
+	g_a5_long(-21148) = jt387((short)(arg * 10));
+}
+
 /* L4cc0 (CODE 6 + 0x4cc0) — design subsystem bring-up: allocate
  * every per-design buffer at design open.  Lifted as a STRUCTURAL
  * SKELETON — the GEO content path's buffers are allocated for real
@@ -917,10 +931,62 @@ static void  l4cc0(void)
 		g_a5_long(-28006) -= 1;             /* THINK C 1-based: store ptr-1 */
 	jt231();                                    /* NCR + string-table buffers */
 	/* jt387(2064)->-27944; jt387(4590)->-27920;
-	 * L30cc(8); L311c(640); L3144(200); L3154(400) — DEFERRED */
+	 * L30cc(8); L311c(640); L3144(200) — DEFERRED */
+	l3154((short)400);                          /* STRG scratch buffer -> -21148 */
 	jt211();                                    /* design-state buffer -> -12300 */
 	/* L59ca(); L531e(2738)->-22306; L531e(1260)->-25318;
 	 * L30f4(60); L317c(70); L31a4(68) — DEFERRED */
+}
+
+/* JT[363] (CODE 8 + 0x5f04) — load STRGnnn.DAT (a phrase table) for
+ * level `num`, returning its byte size (the on-disk count word is
+ * little-endian; size == (count+1)*14, 14 bytes per phrase record).
+ *
+ * The most-recently-loaded table is cached at g_a5_-10370 keyed by
+ * its 6-byte "STR@<n>" tag (built with jt488 / compared with jt393):
+ * a repeat request for the same table returns the cached size with
+ * no file I/O. On a miss the table loads fresh into the scratch
+ * buffer (g_a5_-21148, allocated by L3154), the data sits 6 bytes
+ * past the tag, and the load is size-checked against (count+1)*14.
+ *
+ * `out` (optional) receives the cached table pointer on success. */
+static short jt363(long *out, short num)
+{
+	char *cached;
+	char *buf;
+	short got = 0;
+
+	PROBE("jt363");
+	if (out != 0 && out != (long *)&g_a5_long(-10370))
+		*out = 0;
+
+	cached = (char *)(uintptr_t)g_a5_long(-10370);
+	if (cached != 0) {
+		const char *key = jt488("%3s@%1d", "STR", (int)num);
+		if (jt393(cached - 6, key) == 0) {
+			if (out != 0)
+				*out = g_a5_long(-10370);
+			return (short)(((unsigned char)cached[0] + 1) * 14);
+		}
+	}
+
+	buf = (char *)(uintptr_t)g_a5_long(-21148);
+	jt394(buf, "%3s@%1d", "STR", (int)num);
+	buf += 6;
+	g_a5_long(-10370) = (long)(uintptr_t)buf;
+	jt132((short)51);
+	jt127("STRG", num, &got, buf);
+	if (buf != 0) {
+		short count = (short)((((unsigned char)buf[1]) << 8) |
+		                      (unsigned char)buf[0]);
+		short expected = (short)((count + 1) * 14);
+		if (expected != got)
+			return 0;
+		if (out != 0)
+			*out = g_a5_long(-10370);
+		return got;
+	}
+	return 0;
 }
 
 /* JT[361] (CODE 8 + 0x71ec) — load the design GAME header.
@@ -993,6 +1059,11 @@ static void  jt361(short a)
 				            (unsigned char)ds[3]);
 			}
 		}
+		/* TEST: STRG003.DAT = 574 = (40+1)*14. A second call
+		 * with the same number must hit the cache (same size,
+		 * no reload). */
+		dbg_log_num("jt363(3) bytes = ", jt363((long *)0, (short)3));
+		dbg_log_num("jt363(3) cached = ", jt363((long *)0, (short)3));
 #endif
 	}
 }
