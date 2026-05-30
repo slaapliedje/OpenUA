@@ -241,12 +241,23 @@ count word: `filesize == (count+1)*14`. `jt363` keeps a one-entry cache
 (`g_a5_-10370`) keyed by a 6-byte `"STR@<n>"` tag, so a repeat request
 for the same table skips the file I/O. STRG003.DAT = 574 = (40+1)·14.
 
-#### `MONSTnnn.DAT` — monster tables (deferred)
+#### `MONSTnnn.DAT` — monster records (lifted: L6028)
 
-The loader (`jt263`, CODE 10 + 0x5acc) is a `JT[1]` dispatch state
-machine, and `TUTORIAL.DSN` ships no `MONST*.DAT` to validate against
-(only `HEIRS.DSN` has them). Deferred until there's test data and the
-state machine's call graph is mapped.
+The leaf loader `L6028` (CODE 10 + 0x6028) reads a MONST record into
+the design header (`g_a5_-28006 + 101`), with the same shape as the
+GEO loader (file group 50, byte gate 1..450). A 450-byte file is used
+raw; a packed file (< 450) is relocated to the buffer tail and
+expanded back via `jt1171` — the decompressor, deferred to a stub
+since every testable MONST file is stored at the full 450 bytes
+(`dst[0..1]` would hold the big-endian uncompressed length).
+
+`jt263` (CODE 10 + 0x5acc), the `JT[1]` state machine that drives
+`L6028` as one arm of a larger monster-setup flow, is still deferred.
+
+`TUTORIAL.DSN` ships no `MONST*.DAT`; stage the full sample with
+`make gamedata DSN=HEIRS.DSN` (4 MONST files + 26 GEO maps) to
+exercise the loaders. The probe boots verify GEO001/002/040 parse
+(dims 570/570/441), STRG cache hit/miss, and MONST101 load.
 
 ### Display — screen and drawing (CODE 4 / CODE 5)
 
