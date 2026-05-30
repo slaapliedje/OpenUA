@@ -307,6 +307,29 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 }
 
 /*
+ * Direct access to the attached screen back buffer, for engine code that
+ * paints raw 8-bit cells (e.g. the GEO map visualizer) without going
+ * through the GrafPort primitives. Returns 0 if no screen is attached.
+ */
+int qd_screen_pixels(unsigned char **pixels, short *rowBytes,
+                     short *width, short *height)
+{
+	CGrafPtr     cp = &g_screen_port;
+	PixMapHandle pm;
+
+	if (!g_screen_attached || cp->portPixMap == NULL)
+		return 0;
+	pm = cp->portPixMap;
+	if (*pm == NULL)
+		return 0;
+	if (pixels)   *pixels   = (unsigned char *)(*pm)->baseAddr;
+	if (rowBytes) *rowBytes = (*pm)->rowBytes;
+	if (width)    *width    = (short)(cp->portRect.right - cp->portRect.left);
+	if (height)   *height   = (short)(cp->portRect.bottom - cp->portRect.top);
+	return 1;
+}
+
+/*
  * The port's effective clip — portRect intersected with the visRgn and
  * clipRgn bounding boxes (both rectangular in the shim). All drawing goes
  * through this, so ClipRect (the application clip) and BeginUpdate's

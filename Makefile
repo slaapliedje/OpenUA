@@ -43,6 +43,14 @@ ifeq ($(FRUA_SPLASH_ALERT),1)
 CFLAGS += -DFRUA_SPLASH_ALERT
 endif
 
+# GEO map visualizer demo: after the probe boot loads a GEO map into
+# design state, paint it as a colored tile grid and hold it on screen
+# for inspection. Implies ENGINE_PROBE (the loader test runs there).
+# Opt in with `make ENGINE_PROBE=1 FRUA_MAP_DEMO=1` then run-game.
+ifeq ($(FRUA_MAP_DEMO),1)
+CFLAGS += -DFRUA_MAP_DEMO
+endif
+
 all: $(TARGET) frua.rsc
 
 $(TARGET): $(OBJ)
