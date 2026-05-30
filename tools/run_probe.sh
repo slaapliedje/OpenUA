@@ -34,6 +34,11 @@ FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/TOSv4.04.img}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# GEMDOS mount dir: defaults to the repo root, but can point at a staged
+# game-data folder (e.g. data/work/gamedata) so the engine can open real
+# .DAT/.GLB/.CTL files by bare filename. Override: GEMDOS_DIR=path make probe
+GEMDOS_DIR="${GEMDOS_DIR:-$REPO}"
+
 if [[ ! -f frua.prg ]]; then
 	echo "run_probe.sh: frua.prg not found; run 'make ENGINE_PROBE=1' first" >&2
 	exit 1
@@ -69,7 +74,7 @@ pkill -9 -f 'hatari .*--auto.*frua.prg' 2>/dev/null || true
 			--dsp emu \
 			--tos "$FALCON_TOS" \
 			--conout 2 \
-			-d "$REPO" \
+			-d "$GEMDOS_DIR" \
 			--auto 'C:\frua.prg' \
 			${HATARI_ARGS:-} \
 		> "$OUT_LOG" 2>&1 &
