@@ -1171,11 +1171,29 @@ static short jt325(short a8, long *rec, void *ctrl, short type,
 		*(short *)(cb + 8) = a8;
 	}
 
-	/* DEFERRED: per-type field serialization (asm 0x242c..0x30c2) —
-	 * the cmd-3 record fetch + the L258e type dispatch. ~3000 bytes
-	 * across record types 1/21/33/51/52, reached through JT[447],
-	 * L1ae2 and the per-field encoders. The staging buffer now
-	 * holds the raw record from the input copy above. */
+	/* DEFERRED: the field-serialization tail (asm 0x242c..0x30c2,
+	 * ~1023 lines through ~40 entries). A trace shows this is not a
+	 * data-only codec but the interactive RECORD EDITOR — every one
+	 * of the 8 commands flows into one of:
+	 *
+	 *   L1ae2 (CODE 9 + 0x1ae2, 566 lines) — the field codec. It
+	 *     does not just copy fields; it reads each record's field-
+	 *     layout *script* and edits fields through the cmd-arg
+	 *     stream parser JT[452] (called 6x) plus JT[1012] (GLIB
+	 *     glyphs), JT[468], JT[423]. L0052 is its per-field
+	 *     descriptor accessor (a JT[3] type switch 50..53 =
+	 *     byte/word/.../long over the staging buffer g_a5_-11660).
+	 *
+	 *   L2626+ — the editor UI: JT[1089] formats the field/"Page
+	 *     %2d" strings, JT[155] runs the driver, JT[452] the menus.
+	 *
+	 * The return status word (fp@(-14)) is itself written in ~10
+	 * places across the editor body, so there is no faithful slice
+	 * that completes the read/write contract without lifting the
+	 * editor. This is a multi-session subsystem arc; the prologue
+	 * above stages the raw record into g_a5_-22208, which is the
+	 * data-meaningful step the store-direction callers rely on.
+	 * Record types seen in the tail: 1, 21, 33, 51, 52. */
 	(void)flag20; (void)slot10; (void)rec;
 
 	jt134((short)1);             /* file op end */
