@@ -1466,7 +1466,9 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			port_render_geo_map();
+			/* contact sheet of every GEOnnn in the design, to
+			 * confirm the tile layout across the whole set. */
+			port_render_geo_contact();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -5353,13 +5355,14 @@ void port_render_geo_map(void)
 	for (y = 0; y < sh; y++)
 		memset(px + (long)y * pitch, 255, (size_t)sw);
 
-	if (w <= 0 || w > 24 || h <= 0 || h > 24)
+	if (w <= 0 || h <= 0 || (long)w * h > 576)
 		return;
 
 	for (y = 0; y < h; y++) {
 		for (x = 0; x < w; x++) {
-			/* fixed 24-wide grid: 3456 = 24*24*6 bytes */
-			const unsigned char *t = map + ((long)y * 24 + x) * 6;
+			/* row-major, packed at the map's own width (w*h<=576
+			 * tiles, 6 bytes each, fit the 3456-byte MAP chunk) */
+			const unsigned char *t = map + ((long)y * w + x) * 6;
 			unsigned char floor = (unsigned char)(248 + (t[5] & 3));
 			short bx = (short)(ox + x * cell);
 			short by = (short)(oy + y * cell);
@@ -5384,6 +5387,82 @@ void port_render_geo_map(void)
 			}
 		}
 	}
+	qd_present();
+}
+
+/* port_render_geo_contact — load every GEOnnn (1..40) in turn and
+ * draw each as a small thumbnail in a grid, to confirm the 24x24 /
+ * 6-byte tile layout holds across a whole design. A map is "present"
+ * if, after jt198, the design-state header word lands in 100..106
+ * (jt198 leaves design state untouched on a missing file, so the
+ * sentinel we write first stays). Each thumbnail paints the map's
+ * ds[2]xds[3] cells at 2px each: white where the tile has any wall
+ * edge, floor-flag shade otherwise. */
+static short geo_hdr_word(const unsigned char *ds)
+{
+	return (short)(((unsigned short)ds[0] << 8) | ds[1]);
+}
+
+void port_render_geo_contact(void)
+{
+	unsigned char *px;
+	short pitch, sw, sh;
+	unsigned char *ds;
+	short n, slot = 0;
+	const short cols = 10, tw = 31, th = 42;   /* 1px/tile thumbnails */
+	RGBColor demo[8];
+
+	ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	if (ds == 0)
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+
+	demo[0].red = 0x1000; demo[0].green = 0x1000; demo[0].blue = 0x2800;
+	demo[1].red = 0x2000; demo[1].green = 0x2000; demo[1].blue = 0x4000;
+	demo[2].red = 0x3000; demo[2].green = 0x3000; demo[2].blue = 0x5800;
+	demo[3].red = 0x4000; demo[3].green = 0x4000; demo[3].blue = 0x7000;
+	demo[4].red = demo[4].green = demo[4].blue = 0;
+	demo[5].red = demo[5].green = demo[5].blue = 0xffff;   /* 253 wall */
+	demo[6].red = demo[6].green = demo[6].blue = 0;
+	demo[7].red = demo[7].green = demo[7].blue = 0;
+	qd_set_palette(demo, 248, 8);
+
+	for (n = 0; n < sh; n++)
+		memset(px + (long)n * pitch, 255, (size_t)sw);
+
+	for (n = 1; n <= 40; n++) {
+		const unsigned char *map;
+		short hdr, w, h, x, y, ox, oy;
+
+		ds[0] = 0; ds[1] = 0;          /* sentinel — overwritten only on load */
+		jt198(n);
+		hdr = geo_hdr_word(ds);
+		if (hdr < 100 || hdr > 106)
+			continue;                  /* GEOnnn not present */
+		w = (unsigned char)ds[2];
+		h = (unsigned char)ds[3];
+		if (w <= 0 || h <= 0 || (long)w * h > 576)
+			continue;
+		map = ds + 290;
+		ox = (short)((slot % cols) * tw + 2);
+		oy = (short)((slot / cols) * th + 2);
+
+		for (y = 0; y < h; y++) {
+			for (x = 0; x < w; x++) {
+				/* row-major, packed at the map's own width */
+				const unsigned char *t = map + ((long)y * w + x) * 6;
+				unsigned char c = (t[0] | t[1] | t[2] | t[3])
+				                  ? (unsigned char)253
+				                  : (unsigned char)(248 + (t[5] & 3));
+				map_px(px, pitch, sw, sh, ox + x, oy + y, c);
+			}
+		}
+		slot++;
+	}
+#ifdef FRUA_ENGINE_PROBE
+	dbg_log_num("geo contact: maps rendered = ", slot);
+#endif
 	qd_present();
 }
 
