@@ -7687,7 +7687,174 @@ static void  l1806(short v)                          { PROBE("L1806"); (void)v; 
 static void  l206e(long p2, unsigned char *buf,
                     const char *p1, unsigned char *arg3_lo)
                                                      { PROBE("L206e"); (void)p2; (void)buf; (void)p1; (void)arg3_lo; }
-static short l23b4(short v)                          { PROBE("L23b4"); (void)v; return 0; }
+/* New PROBE-stub helpers L23b4 needs. */
+static long  jt100(void)                             { PROBE("jt100"); return 0; }
+static signed char jt1085(void)                      { PROBE("jt1085"); return 0; }
+static void  jt1067(void)                            { PROBE("jt1067"); }
+static void  jt46(short a, short b, short c, short d) { PROBE("jt46"); (void)a; (void)b; (void)c; (void)d; }
+
+/* Forward — l15bc lifts further down with L25b6's helpers. */
+static signed char l15bc(void);
+
+#define g_a5_24238 g_a5_byte(-24238)   /* "wipe arg low byte" gate */
+#define g_a5_22307 g_a5_byte(-22307)   /* mode-2/7/12/13 init counter */
+#define g_a5_24321 g_a5_byte(-24321)   /* row-state enable flag */
+#define g_a5_24206 g_a5_byte(-24206)   /* row-state cap */
+#define g_a5_24205 g_a5_byte(-24205)   /* row-state index */
+#define g_a5_24207 g_a5_byte(-24207)   /* row-state wrap value */
+#define g_a5_24138 g_a5_long(-24138)   /* L23b4 timeout threshold (ticks) */
+
+/* L23b4 (CODE 7 + 0x23b4) — poll-loop opcode selector.
+ *
+ * The body jt182 hands to between L206e (prompt setup) and L25b6
+ * (interactive select). Loops on L2d3e + jt1085 until a positive
+ * item index arrives, then returns it. For modes 2/7/12/13 it
+ * also runs an animation timer that bumps g_a5_-24205 (the
+ * "blinking cell index") every 50 ticks.
+ *
+ *   g_a5_-13006 = 0;                  ; clear "cached result"
+ *   if (g_a5_-24238) arg_lo = 0;       ; wipe low byte
+ *
+ *   if (mode in {2, 7, 12, 13}) {
+ *       g_a5_-22307 = 1;
+ *       for (i = 1..4)
+ *           fp@(-20 + i*4) = JT[100]();   ; 4 baseline timestamps
+ *       fp@(-32) = JT[100]();
+ *       fp@(-24) = JT[100]() + 30;
+ *       fp@(-28) = fp@(-24) + 50;
+ *   }
+ *
+ *   loop:
+ *     if (!JT[1163]() && JT[1200]()) JT[1067]();   ; pre-poll hook
+ *     rc   = JT[1085]();                            ; "abort?" probe
+ *     item = L2d3e();                                ; DLItem event poll
+ *     if (rc) goto exit;
+ *     if (mode in {2, 7, 12, 13}) {
+ *         ... mode-3 special case (g_a5_-24256 == 121, etc) ...
+ *         if (arg_lo) {
+ *             if (g_a5_-24321 > 0 && g_a5_-24206 >= 1) {
+ *                 JT[46](3, 3, arg_lo, g_a5_-24205);  ; blink current cell
+ *                 if (g_a5_-24207) JT[80](1);
+ *                 if (JT[100]() - fp@(-32) >= 50) {
+ *                     g_a5_-24205++;                   ; advance blink
+ *                     if (g_a5_-24205 > g_a5_-24206)
+ *                         g_a5_-24205 = g_a5_-24207;
+ *                     fp@(-32) = JT[100]();
+ *                 }
+ *             } else { fp@(-32) = JT[100](); }
+ *         } else { fp@(-32) = JT[100](); }
+ *         if (g_a5_-24138 > 0 && JT[100]() - fp@(-32) >= g_a5_-24138) {
+ *             g_a5_-13006 = 1;                          ; timeout
+ *             goto post;
+ *         }
+ *         ... more mode-3 / 80-tick cell-advance ...
+ *     }
+ *     if (item < 0) goto loop;
+ *
+ *   post:
+ *     if (L15bc()) item = 0;
+ *     return item;
+ *
+ * Level-2 lift: the animation / timing block for modes 2/7/12/13
+ * is deferred (it's only meaningful once the design-roster paint
+ * actually runs). The boot path's jt166(9) leaves mode = 9, so
+ * the loop just polls L2d3e for input — exactly what we want for
+ * the "wait for user keypress" semantic.
+ *
+ * iter_guard caps the loop while jt1085 / L2d3e are still being
+ * driven by the IKBD chain; release the cap once the per-mode
+ * timing arms light up. */
+static short l23b4(short arg)
+{
+	long           fp_minus_32 = 0;
+	long           fp_minus_24 = 0;
+	long           fp_minus_28 = 0;
+	short          item;
+	signed char    rc;
+	unsigned char  arg_lo;
+	short          iter_guard;
+	short          mode_with_timer;
+
+	PROBE("L23b4");
+	g_a5_byte(-13006) = 0;
+
+	arg_lo = (unsigned char)(arg & 0xff);
+	if (g_a5_24238 != 0)
+		arg_lo = 0;
+
+	mode_with_timer = (g_a5_13018 == 2 || g_a5_13018 == 7
+	                || g_a5_13018 == 13 || g_a5_13018 == 12);
+
+	if (mode_with_timer) {
+		long base = jt100();
+
+		g_a5_22307     = 1;
+		fp_minus_32    = base;
+		fp_minus_24    = base + 30L;
+		fp_minus_28    = fp_minus_24 + 50L;
+	}
+
+	item = -1;
+	for (iter_guard = 0; iter_guard < 4096; iter_guard++) {
+		if (jt1163() == 0 && jt1200() != 0)
+			jt1067();
+		rc   = jt1085();
+		item = (short)l2d3e();
+
+		if (rc != 0)
+			break;
+
+		if (mode_with_timer) {
+			/* Mode-3 special: g_a5_-27990 == 3 + g_a5_-24256
+			 * == 121 + g_a5_-24262 != 80 cell-advance. */
+			if (g_a5_27990 == 3 && g_a5_24256 == 121
+			    && g_a5_24262 != 80
+			    && jt100() >= fp_minus_24) {
+				fp_minus_24 = fp_minus_28 + 30L;
+			}
+
+			if (arg_lo != 0) {
+				if (g_a5_24321 > 0 && g_a5_24206 >= 1) {
+					jt46((short)3, (short)3,
+					     (short)(signed char)arg_lo,
+					     (short)g_a5_24205);
+					if (g_a5_24207 != 0)
+						jt80((short)1);
+					if (jt100() - fp_minus_32 >= 50L) {
+						g_a5_24205++;
+						if (g_a5_24205 > g_a5_24206)
+							g_a5_24205 = g_a5_24207;
+						fp_minus_32 = jt100();
+					}
+				} else {
+					fp_minus_32 = jt100();
+				}
+			} else {
+				fp_minus_32 = jt100();
+			}
+
+			if (g_a5_24138 > 0
+			    && jt100() - fp_minus_32 >= g_a5_24138) {
+				g_a5_byte(-13006) = 1;
+				break;
+			}
+
+			if (g_a5_27990 == 3 && g_a5_24256 == 121
+			    && g_a5_24262 != 80
+			    && jt100() >= fp_minus_28) {
+				fp_minus_28 = fp_minus_24 + 50L;
+			}
+		}
+
+		if (item >= 0)
+			break;
+	}
+
+	if (l15bc())
+		item = 0;
+
+	return item;
+}
 
 /* New PROBE-stub helpers L25b6 calls. */
 static short l217e(void)                             { PROBE("L217e"); return 0; }
