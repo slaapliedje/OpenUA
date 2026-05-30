@@ -597,6 +597,332 @@ static void  jt132(short id)
 	g_a5_byte(-31236) = (unsigned char)(id & 0xff);
 }
 
+/* ============================================================
+ * GEO content-load subsystem (CODE 5/6/7)
+ *
+ * jt198 loads a design's GEOnnn.DAT (the level/wilderness map +
+ * its string table) and parses the IFF-style container into the
+ * live design-state buffer. The chunk layout, validated against
+ * the tutorial's GEO040.DAT, is:
+ *
+ *   'FORM' <size>                       (no formType — FRUA quirk)
+ *     'AMOD' <size = filesize-16>
+ *       'HDR ' <0x122>   -> design-state[0..289]
+ *       'MAP ' <0xd80>   -> design-state[290..]
+ *       'ENCR' <0x7d0>   -> g_a5_-13038 (NCR buffer)
+ *       'STRG' <0x1c00>  -> g_a5_-13034 (string table)
+ *
+ * The 4-byte chunk sizes are big-endian on disk (read directly on
+ * the big-endian 68k); a handful of HDR fields at +272 are stored
+ * byte-swapped and flipped back via jt1180. See docs/decompilation.md.
+ * ============================================================ */
+
+/* forward decls — these are defined further down in this file */
+static void  jt399(void *buf, short size, short fill);
+static void  jt406(void *dst, const void *src, short count);
+static short jt1180(short v);
+static void  jt131(short a);
+
+/* JT[421] (CODE 3 + 0x36d6) — NewPtr(size). JT[1028](size,0) ==
+ * _NewPtr; returns the block (0 on failure). Unlike jt387 this
+ * takes a long size (the GEO buffer is 37888 bytes). */
+static long  jt421(long size)
+{
+	PROBE("jt421");
+	return (long)(uintptr_t)NewPtr((Size)size);
+}
+
+/* JT[1002] (CODE 5 + 0x2822) — allocate the GEO read buffer into
+ * g_a5_-4582. Mac aborts via L036a("Out of memory in DBInit") on
+ * failure; that alert chain is deferred (we just leave the slot
+ * null and let the caller's jt69 path report it). */
+static void  jt1002(long size)
+{
+	PROBE("jt1002");
+	g_a5_long(-4582) = jt421(size);
+}
+
+/* L4ab6 (CODE 7 + 0x4ab6) — point the string-table cursors at a
+ * (possibly new) base. Cached so repeated loads of the same table
+ * skip the re-seed. */
+static void  l4ab6(void *base)
+{
+	PROBE("L4ab6");
+	if ((void *)(uintptr_t)g_a5_long(-12322) != base) {
+		g_a5_byte(-12324) = 0;
+		g_a5_long(-12322) = (long)(uintptr_t)base;
+		g_a5_long(-12304) = (long)(uintptr_t)base;
+		g_a5_long(-12314) = (long)(uintptr_t)((char *)base + 6);
+		g_a5_long(-12318) = (long)(uintptr_t)((char *)base + 406);
+	}
+}
+
+/* L4db4 (CODE 7 + 0x4db4) — set up the string-table region: the
+ * 6-byte header (count@0, -1@2, 0@4) followed by a 400-byte index
+ * at +6, then a zero-filled body. `total` is the region size
+ * (7168). Returns 1. */
+static char  l4db4(void *base, short total)
+{
+	short i;
+	char *p, *q;
+
+	PROBE("L4db4");
+	g_a5_long(-12304) = (long)(uintptr_t)base;
+	g_a5_long(-12314) = (long)(uintptr_t)((char *)base + 6);
+	g_a5_long(-12318) = (long)(uintptr_t)((char *)base + 406);
+	jt399((void *)(uintptr_t)g_a5_long(-12318), (short)(total - 406), (short)0);
+	p = (char *)(uintptr_t)g_a5_long(-12304);
+	*(short *)p = 0;
+	*(short *)(p + 2) = -1;
+	*(short *)(p + 4) = 0;
+	q = (char *)(uintptr_t)g_a5_long(-12314);
+	for (i = 0; i < 400; i++)
+		q[i] = 0;
+	*(short *)(uintptr_t)g_a5_long(-12304) = (short)(total - 406);
+	return 1;
+}
+
+/* L4e3a (CODE 7 + 0x4e3a) — re-point the cursors at `base` (L4ab6)
+ * then byte-swap the 3-word string-table header into native order. */
+static void  l4e3a(void *base)
+{
+	short *p;
+
+	PROBE("L4e3a");
+	l4ab6(base);
+	p = (short *)(uintptr_t)g_a5_long(-12304);
+	p[0] = jt1180(p[0]);
+	p[1] = jt1180(p[1]);   /* +2 */
+	p[2] = jt1180(p[2]);   /* +4 */
+}
+
+/* JT[231] (CODE 7 + 0x0004) — allocate the per-design NCR (2000 B,
+ * g_a5_-13038) and string-table (7168 B, g_a5_-13034) buffers and
+ * initialise them. Part of the design subsystem bring-up (L4cc0). */
+static void  jt231(void)
+{
+	PROBE("jt231");
+	g_a5_long(-13038) = jt387((short)2000);
+	g_a5_long(-13034) = jt387((short)7168);
+	jt399((void *)(uintptr_t)g_a5_long(-13038), (short)2000, (short)0);
+	l4db4((void *)(uintptr_t)g_a5_long(-13034), (short)7168);
+}
+
+/* JT[1004] (CODE 5 + 0x2850) — return the GEO read buffer pointer. */
+static long  jt1004(void)
+{
+	PROBE("jt1004");
+	return g_a5_long(-4582);
+}
+
+/* JT[69] (CODE 6 + 0x5f66) — content-load error reporter. The Mac
+ * body runs the disk-error alert + cleanup chain (jt461 / jt1081 /
+ * jt415); deferred to a PROBE stub. A failed GEO parse lands here. */
+static void  jt69(void)
+{
+	PROBE("jt69");
+}
+
+/* L7470 (CODE 7 + 0x7470) — IFF chunk walker. `*walker` is the
+ * read cursor; advances it chunk by chunk looking for `fourcc`,
+ * descending into 'FORM' containers. FRUA FORMs carry no formType,
+ * so a FORM whose first inner id is the AMOD wrapper is stepped
+ * into transparently. Returns the matched chunk's data size (and
+ * leaves *walker at its data), or -1 if not found. */
+static long  l7470(unsigned char **walker, long fourcc)
+{
+	long remaining, chunkID, chunkSize, formType;
+	signed char pad;
+
+	PROBE("L7470");
+	if (walker == 0 || *walker == 0)
+		return -1;
+	remaining = 0x7fffffffL;
+	for (;;) {
+		chunkID = *(long *)(*walker);
+		if (chunkID == 0)
+			return -1;
+		*walker += 4;
+		chunkSize = *(long *)(*walker);
+		if (chunkSize == 0)
+			return -1;
+		*walker += 4;
+		pad = (signed char)(chunkSize & 1);
+		chunkSize += pad;
+		if (chunkID == fourcc)
+			return chunkSize - pad;
+		if (chunkID == 0x464F524DL /* 'FORM' */) {
+			formType = *(long *)(*walker);
+			if (formType == 0)
+				return -1;
+			*walker += 4;
+			if (formType == 0x414D4F44L /* 'AMOD' */) {
+				if (fourcc == 0x414D4F44L) {
+					*walker -= 4;   /* re-read AMOD as a chunk */
+				} else {
+					chunkSize -= 4;
+					if (chunkSize >= 0)
+						*walker += 4;
+					remaining = chunkSize - 8;
+				}
+			} else {
+				remaining -= (chunkSize + 8);
+				chunkSize -= 4;
+				if (chunkSize >= 0)
+					*walker += chunkSize;
+			}
+		} else {
+			remaining -= (chunkSize + 8);
+			*walker += chunkSize;
+		}
+		if (remaining <= 0)
+			return -1;
+	}
+}
+
+/* L7406 (CODE 7 + 0x7406) — find `fourcc` via L7470, verify it is
+ * exactly `size` bytes, BlockMove it to `dst`, and step *walker
+ * past it (plus any odd-byte pad). Returns 1 on success, 0 if the
+ * chunk is missing or the wrong size. */
+static char  l7406(unsigned char **walker, void *dst, long fourcc, long size)
+{
+	long pad;
+
+	PROBE("L7406");
+	if (walker == 0 || *walker == 0)
+		return 0;
+	pad = size & 1;
+	if (l7470(walker, fourcc) != size)
+		return 0;
+	jt406(dst, *walker, (short)(size & 0xffff));
+	*walker += size;
+	if (pad)
+		*walker += 1;
+	return 1;
+}
+
+/* L7226 (CODE 7 + 0x7226) — parse a GEO container into the
+ * design-state buffer (g_a5_-12300). Returns 1 on success, 0 on a
+ * malformed/oversize file. A buffer whose first long isn't an IFF
+ * id ('FORM'/'CAT '/'LIST') is treated as raw legacy data (-> 1).*/
+static short l7226(unsigned char *buf)
+{
+	unsigned char *cur = buf;
+	long firstID;
+	char *ds;
+	short i;
+	short dims;
+
+	PROBE("L7226");
+	if (buf == 0)
+		return 0;
+	jt399((void *)(uintptr_t)g_a5_long(-12300), (short)3746, (short)0);
+	firstID = *(long *)cur;
+	if (firstID != 0x464F524DL /* FORM */ &&
+	    firstID != 0x43415420L /* 'CAT ' */ &&
+	    firstID != 0x4C495354L /* LIST */)
+		return 1;
+	if (l7470(&cur, 0x414D4F44L /* AMOD */) != 12946)
+		return 0;
+	ds = (char *)(uintptr_t)g_a5_long(-12300);
+	if (!l7406(&cur, ds, 0x48445220L /* 'HDR ' */, 0x122L))
+		return 0;
+	if (*(unsigned short *)ds < 100 || *(unsigned short *)ds > 106)
+		return 0;
+	for (i = 0; i < 8; i++)
+		((short *)(ds + 272))[i] = jt1180(((short *)(ds + 272))[i]);
+	dims = (short)((unsigned char)ds[2] * (unsigned char)ds[3]);
+	if (dims <= 0 || dims > 576)
+		return 0;
+	if (!l7406(&cur, ds + 290, 0x4D415020L /* 'MAP ' */, 0xd80L))
+		return 0;
+	if (!l7406(&cur, (void *)(uintptr_t)g_a5_long(-13038),
+	           0x454E4352L /* 'ENCR' */, 0x7d0L))
+		return 0;
+	if (!l7406(&cur, (void *)(uintptr_t)g_a5_long(-13034),
+	           0x53545247L /* 'STRG' */, 0x1c00L))
+		return 0;
+	/* scan the string table: if it's all-NUL, re-seed the region */
+	{
+		unsigned char *p = (unsigned char *)(uintptr_t)g_a5_long(-13034);
+		short cnt = 0;
+		while (cnt < 7168 && *p == 0) {
+			p++;
+			cnt++;
+		}
+		if (cnt >= 7168)
+			l4db4((void *)(uintptr_t)g_a5_long(-13034), (short)7168);
+		l4e3a((void *)(uintptr_t)g_a5_long(-13034));
+	}
+	return 1;
+}
+
+/* L720a (CODE 7 + 0x720a) — thin wrapper: 0 if the GEO parse
+ * succeeded, -1 (error) otherwise. */
+static short l720a(unsigned char *buf)
+{
+	PROBE("L720a");
+	return l7226(buf) ? 0 : -1;
+}
+
+/* JT[198] (CODE 7 + 0x7124) — load GEOnnn.DAT for the given level
+ * number. Reads the file into the GEO buffer (jt1004), checks the
+ * byte count against the fixed 12962-byte GEO size, parses it into
+ * design state (L720a -> L7226), then records the level number in
+ * the design header (g_a5_-28006[19]) and resets the load flags. */
+static void  jt198(short geo_num)
+{
+	unsigned char *buf;
+	short out = 0;
+	short expected;
+	char *hdr;
+	char *ds;
+
+	PROBE("jt198");
+	jt132((short)51);
+	jt131((short)6);
+	buf = (unsigned char *)(uintptr_t)jt1004();
+	jt127("GEO", geo_num, &out, buf);
+	expected = 12962;
+	if (expected & 1)
+		expected++;
+	if (out != expected)
+		jt69();
+	else if (l720a(buf) < 0)
+		jt69();
+	jt131((short)0);
+	hdr = (char *)(uintptr_t)g_a5_long(-28006);
+	if (hdr)
+		hdr[19] = (char)(geo_num & 0xff);
+	ds = (char *)(uintptr_t)g_a5_long(-12300);
+	if (ds && !(ds[7] & 1))
+		g_a5_byte(-12290) = 0;
+	g_a5_word(-12296) = -1;
+}
+
+/* L4cc0 (CODE 6 + 0x4cc0) — design subsystem bring-up: allocate
+ * every per-design buffer at design open.  Lifted as a STRUCTURAL
+ * SKELETON — the GEO content path's buffers are allocated for real
+ * (GEO read buffer, design header, NCR/STRG, design state); the
+ * unrelated combat/sprite tables (g_a5_-27944/-27920/-22306/-25318
+ * and the L30cc/L311c/L3144/L3154/L531e/L59ca/L30f4/L317c/L31a4
+ * sub-allocators) are DEFERRED until their consumers are lifted. */
+static void  l4cc0(void)
+{
+	PROBE("L4cc0");
+	jt1002((long)0x9400);                       /* GEO buffer (37888 B) -> -4582 */
+	/* jt442(40) — DEFERRED */
+	g_a5_long(-28006) = jt387((short)1024);     /* design header (1024 B) */
+	if (g_a5_long(-28006) != 0)
+		g_a5_long(-28006) -= 1;             /* THINK C 1-based: store ptr-1 */
+	jt231();                                    /* NCR + string-table buffers */
+	/* jt387(2064)->-27944; jt387(4590)->-27920;
+	 * L30cc(8); L311c(640); L3144(200); L3154(400) — DEFERRED */
+	jt211();                                    /* design-state buffer -> -12300 */
+	/* L59ca(); L531e(2738)->-22306; L531e(1260)->-25318;
+	 * L30f4(60); L317c(70); L31a4(68) — DEFERRED */
+}
+
 /* JT[361] (CODE 8 + 0x71ec) — load the design GAME header.
  *
  *   jt132(51);                                   // file group = GAME
@@ -639,21 +965,35 @@ static void  jt361(short a)
 		/* L7222 post-step: clamp the header's level byte into
 		 * g_a5_-10374 and reset the design-state cursor.
 		 *
-		 * The design-state buffer (g_a5_-12300) is normally
-		 * allocated by the CODE 6 init path (L4cc0 -> jt211),
-		 * which isn't lifted yet. The DATA-pool image leaves a
-		 * stale non-zero value in g_a5_-12300, so a plain
-		 * "if (== 0)" check wouldn't catch it and L7222 would
-		 * write a short through a bogus pointer. Force a real
-		 * allocation once via a static guard until the real init
-		 * path lands (then this becomes redundant). */
-		static int ds_allocated;
+		 * The design subsystem buffers (GEO read buffer, design
+		 * header, NCR/STRG, design state) are allocated by the
+		 * CODE 6 init path L4cc0; run it once before the post-
+		 * load step so every slot points at real storage. */
+		static int ds_inited;
 
-		if (!ds_allocated) {
-			jt211();
-			ds_allocated = 1;
+		if (!ds_inited) {
+			l4cc0();
+			ds_inited = 1;
 		}
 		l7222();
+
+#ifdef FRUA_ENGINE_PROBE
+		/* TEST: exercise the GEO content loader against the
+		 * tutorial's GEO040.DAT now that the design buffers
+		 * exist. Expect ds[0]=106 (valid header word) and
+		 * dims=264 (11x24 map), with jt69 NOT firing. */
+		jt198((short)40);
+		{
+			char *ds = (char *)(uintptr_t)g_a5_long(-12300);
+			if (ds) {
+				dbg_log_num("jt198: ds[0] = ",
+				            *(unsigned short *)ds);
+				dbg_log_num("jt198: dims = ",
+				            (unsigned char)ds[2] *
+				            (unsigned char)ds[3]);
+			}
+		}
+#endif
 	}
 }
 static void  jt919(void)                           { PROBE("jt919"); }            /* CODE 12 + 0x1b12 */
