@@ -7743,8 +7743,105 @@ static short l1a0c(const char *prompt, void *buf)    { PROBE("L1a0c"); (void)pro
 /* New PROBE-stub helpers L1bfe references. */
 static short jt138(void *rec, short cmd, ...)        { PROBE("jt138"); (void)rec; (void)cmd; return 0; }
 static short jt139(void *rec, short cmd, ...)        { PROBE("jt139"); (void)rec; (void)cmd; return 0; }
-static void  l1aea(short item_arg, short width, void *buf)
-                                                     { PROBE("L1aea"); (void)item_arg; (void)width; (void)buf; }
+#define g_a5_13002 g_a5_byte(-13002)   /* "selection highlight active" flag */
+#define g_a5_13001 g_a5_byte(-13001)   /* currently-selected item index */
+
+/* L1aea (CODE 7 + 0x1aea) — per-row roster paint loop.
+ *
+ * Iterates the `count` entries in buf[] (an array of char*), one
+ * DLItem per entry. For each row:
+ *
+ *   short item_len = jt423(buf[i]);
+ *
+ *   ; Pick the shape opcode based on highlight state:
+ *   if (g_a5_-13002) {                  ; selection-highlight mode on
+ *       shape = (g_a5_-13001 < i) ? 8089 : 8095;  ; before/after selected
+ *   } else {
+ *       shape = 8094;                   ; normal
+ *   }
+ *
+ *   char first = buf[i][0];
+ *   short upper = JT[422](first);       ; toupper
+ *   short lower = JT[395](first);       ; tolower
+ *
+ *   ; Install DLItem stream:
+ *   JT[452](1, shape, item_x, buf[i],
+ *           36, item_len,                ; cmd=36 -> rec[24] = item_len
+ *           32, upper,                   ; cmd=32 -> rec[29] = upper shortcut
+ *           33, lower,                   ; cmd=33 -> rec[30] = lower shortcut
+ *           20, 21, 0);                  ; cmd=20 enable, cmd=21 visible, 0 = end
+ *
+ *   ; Advance X coord for the next row, unless this was the
+ *   ; selected entry (selected stays anchored at start_x).
+ *   if (g_a5_-13002 && g_a5_-13001 == i)
+ *       item_x = start_x;
+ *   else
+ *       item_x += (item_len + 1) * 4;
+ *
+ * The jt452 stream has cmd-arg pairs after the shape's three slots
+ * (shape, item_x, str_ptr). Our port-side jt452 lift is simplified
+ * for the boot-menu's (label, sel, page, phr) pattern — it consumes
+ * the first 4 varargs after shape0 and drains the rest until a 0
+ * sentinel. The L1aea call shape doesn't line up with that
+ * (shape/item_x/str_ptr/36 -> label/sel/page/phr in jt452's eyes),
+ * so the per-cell shortcut + size fields won't actually land in the
+ * DLItem record. Tagged TODO — the eventual fix is to switch jt452
+ * to a proper Mac-style stream parser keyed on cmd codes (1, 20,
+ * 21, 32, 33, 36, etc.).
+ *
+ * Highlight-stay behaviour: the selected row anchors at start_x
+ * while siblings advance, so the highlighted entry visually
+ * overlaps the next slot. That's how the Mac roster shows a
+ * "current selection" cell hovering at a fixed position while the
+ * other entries flow past it. */
+static void l1aea(short item_arg, short count, void *buf)
+{
+	short start_x = item_arg;
+	short i;
+
+	PROBE("L1aea");
+	if (buf == NULL)
+		return;
+
+	for (i = 0; i < count; i++) {
+		char **entry = (char **)((char *)buf + (long)i * 4);
+		char  *str   = *entry;
+		short  item_len;
+		short  shape;
+		short  upper;
+		short  lower;
+
+		if (str == NULL)
+			continue;
+		item_len = jt423(str);
+
+		if (g_a5_13002 != 0) {
+			shape = (g_a5_13001 < i) ? (short)8089 : (short)8095;
+		} else {
+			shape = (short)8094;
+		}
+
+		upper = jt422((short)(unsigned char)str[0]);
+		lower = l46b2((short)(unsigned char)str[0]);
+
+		/* TODO: jt452's current vararg consumer is simplified for
+		 * the boot menu (label, sel, page, phr) — the cmd-arg
+		 * stream below leaks past the first 4 slots. Switch to
+		 * a Mac-style stream parser to surface the per-row size
+		 * + shortcut fields in the DLItem record. */
+		jt452((long)1, (long)shape, (long)item_arg,
+		      (long)(uintptr_t)str,
+		      (long)36, (long)item_len,
+		      (long)32, (long)upper,
+		      (long)33, (long)lower,
+		      (long)20, (long)21, (long)0);
+
+		if (g_a5_13002 != 0 && g_a5_13001 == i)
+			item_arg = start_x;
+		else
+			item_arg = (short)(item_arg + (item_len + 1) * 4);
+	}
+}
 
 /* L1bfe (CODE 7 + 0x1bfe) — roster-row content renderer.
  *
