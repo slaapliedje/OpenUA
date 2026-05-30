@@ -5982,59 +5982,52 @@ static long l050a(void)
  *
  * JT[108] hits this when its arg is non-zero ("commit deferred
  * paint to the visible page"). The Mac body picks two 108-byte
- * "page descriptor" entries from the array at g_a5_-2570 — entry
+ * CGrafPort page descriptors from the array at g_a5_-2570 — entry
  * [current] and entry [1 - current], where current = g_a5_-2354 —
- * and memmoves L050a bytes from the off-page to the on-page using
- * jt406.
+ * and memmoves L050a bytes from the off-page's pixel buffer to the
+ * on-page's via jt406:
  *
- *   entry+2 holds the page-data pointer. In color QuickDraw mode
- *   (g_a5_-2347 set) the field is a Handle (void**); the Mac
- *   double-derefs to reach the raw pixel buffer. In mono mode the
- *   field is a direct void*.
+ *   color (g_a5_-2347):
+ *     dst = (*(PixMapHandle)(entry_cur + 2))->baseAddr
+ *     src = (*(PixMapHandle)(entry_oth + 2))->baseAddr
+ *   mono:
+ *     dst = *(void **)(entry_cur + 2)        // direct ptr field
+ *     src = *(void **)(entry_oth + 2)
+ *   jt406(dst, src, L050a());                // BlockMove(dst, src, n)
  *
- * Both code paths converge on:
+ * jt406's arg order is (dst, src, count) — BlockMove, opposite of
+ * memcpy. The flip copies the off-screen back-buffer onto the
+ * visible page.
  *
- *   jt406(dst = bits[current], src = bits[1 - current], L050a()).
+ * Port adaptation: same situation as jt1153's chase — the
+ * g_a5_-2570 descriptors are CGrafPort structs the Mac builds via
+ * NewGWorld (offscreen-page init the port never runs), so they're
+ * uninitialized here. And critically, the port DOESN'T double-
+ * buffer at the page-descriptor level: there is one shim back-
+ * buffer, and the Falcon HAL's present() (qd_present) does the
+ * real flip via c2p to VIDEL. So both descriptors would resolve
+ * to the same shim buffer — the inter-page memmove collapses to a
+ * pointless self-copy (src == dst).
  *
- * Note: the arg order in jt406 is (dst, src, count) — matches
- * BlockMove on Mac, opposite of memcpy. The flip direction is
- * "copy the off-screen back-buffer onto the visible page", which
- * mirrors how the engine renders into the alternate page and
- * commits to the visible one once a frame's worth of paint is
- * queued. */
+ * The faithful-but-adapted lift: skip the no-op self-copy and
+ * commit the frame through the HAL present instead. That's exactly
+ * what "copy off-page to visible page" means in our single-buffer
+ * architecture. The earlier lift's literal descriptor deref both
+ * bus-errored (uninitialized) AND stopped one deref short (it
+ * parked the PixMap master pointer in dst instead of baseAddr).
+ *
+ * The previous lift had an unused L050a (page byte count) — kept
+ * documented; the present() doesn't need it (the HAL knows the
+ * surface geometry). */
 static void jt1146(void)
 {
-	unsigned char *base;
-	unsigned char *entry_cur;
-	unsigned char *entry_oth;
-	void  *dst;
-	void  *src;
-	short  cur;
-	short  count;
-
 	PROBE("jt1146");
 	l4d88();
 
-	cur       = g_a5_word(-2354);
-	base      = g_a5_buf(-2570);
-	entry_cur = base + 108 * cur;
-	entry_oth = base + 108 * (1 - cur);
-
-	if (g_a5_2347 != 0) {
-		/* Color QD: entry+2 is a Handle (void**); deref twice. */
-		void **h_cur = *(void ***)(entry_cur + 2);
-		void **h_oth = *(void ***)(entry_oth + 2);
-		dst = (h_cur != NULL) ? *h_cur : NULL;
-		src = (h_oth != NULL) ? *h_oth : NULL;
-	} else {
-		/* Mono: entry+2 is a direct data pointer. */
-		dst = *(void **)(entry_cur + 2);
-		src = *(void **)(entry_oth + 2);
-	}
-
-	count = (short)l050a();
-	if (dst != NULL && src != NULL)
-		jt406(dst, src, count);
+	/* Single-buffer port: off-page == on-page == shim back-buffer,
+	 * so the Mac's inter-page memmove is a self-copy. Commit the
+	 * frame via the HAL present instead (the real "flip"). */
+	qd_present();
 }
 
 /* L3198 (CODE 3 + 0x3198) — wraps JT[1125] for the event-read prelude. */
