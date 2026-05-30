@@ -251,8 +251,16 @@ expanded back via `jt1171` — the decompressor, deferred to a stub
 since every testable MONST file is stored at the full 450 bytes
 (`dst[0..1]` would hold the big-endian uncompressed length).
 
-`jt263` (CODE 10 + 0x5acc), the `JT[1]` state machine that drives
-`L6028` as one arm of a larger monster-setup flow, is still deferred.
+`jt263` (CODE 10 + 0x5acc), the monster/NPC setup state machine that
+drives `L6028` as one arm, is lifted as a **structural skeleton**: the
+`JT[1]` state dispatch, the per-state field setup, the state-8
+MONST-load arm, and the trailing `JT[3]` flag-packing switch are
+faithful; the middle NPC-editor + `JT[325]` record-serialize block
+(the `setup_done == 0` path, "Re-create NPC?" / "change class?"
+dialogs through ~10 editor entries) is deferred. Note that `JT[1]`
+(CODE 1 + 0x130) is a *value-list* dispatch — distinct from the
+`JT[3]` range switch — where each inline table entry is an
+`(offset, value)` pair and the branch target is `&offset + offset`.
 
 `TUTORIAL.DSN` ships no `MONST*.DAT`; stage the full sample with
 `make gamedata DSN=HEIRS.DSN` (4 MONST files + 26 GEO maps) to
