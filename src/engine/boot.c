@@ -9010,6 +9010,31 @@ static void jt904(unsigned char *out_done)
 	if (out_done == NULL)
 		return;
 
+	/* ===== TEST SCAFFOLD — REVERT WHEN jt1146/jt1153 LAND =====
+	 * Mac's "menu disappears, roster takes over" comes from page
+	 * flipping (jt1146 commits the off-page; jt1153's CGrafPort
+	 * PixMap chase swaps the back buffer). The CGrafPort init isn't
+	 * in the port yet (commit acfb400 deferred it). Without that,
+	 * roster cells paint OVER the boot menu's bottom-left.
+	 *
+	 * Workaround: EraseRect the full screen via the QuickDraw shim
+	 * before the roster paints. Removes the menu pixels cleanly so
+	 * the roster has a clean canvas.
+	 *
+	 * Remove the EraseRect call once the page-flip chain produces
+	 * proper double-buffered swaps. */
+	{
+		GrafPtr port = NULL;
+
+		GetPort(&port);
+		if (port != NULL) {
+			Rect full = port->portRect;
+
+			EraseRect(&full);
+		}
+	}
+	/* ===== end TEST SCAFFOLD ===== */
+
 	*out_done = 0;
 	last_key  = -1;
 	g_a5_27936 = g_a5_27932;
