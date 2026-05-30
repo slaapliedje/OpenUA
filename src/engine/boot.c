@@ -1466,10 +1466,9 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* detailed single map with decoded wall/door
-			 * colours (GEO040, 21x21, fits the cell grid). */
-			jt198((short)40);
-			port_render_geo_map();
+			/* real tile art: rasterize the TOPVIEW.TLB
+			 * top-down map tiles via the GLIB glyph blit. */
+			port_render_topview();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -5420,6 +5419,94 @@ void port_render_geo_map(void)
 			}
 		}
 	}
+	qd_present();
+}
+
+/* blit_glyph_1bpp — from-scratch GLIB glyph rasterizer (the option-B
+ * blit from docs/decompilation.md). Reads a 1-bit-per-pixel glyph —
+ * `metric[0..1]` = height (rows), `metric[6]` = bpp_w (bytes per
+ * row), MSB-first within each byte — and paints set bits as `pen`
+ * straight into the 8-bit back buffer at (x0,y0). This diverges from
+ * the faithful jt995 path (which composites into a bit-packed page);
+ * it draws chunky pixels at the shim's depth instead. */
+static void blit_glyph_1bpp(unsigned char *px, short pitch, short sw, short sh,
+                            const unsigned char *metric, const unsigned char *bmp,
+                            short x0, short y0, unsigned char pen, short scale)
+{
+	short height = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+	short bpp_w  = metric[6];
+	short row, byte, bit, sx, sy;
+
+	if (scale < 1)
+		scale = 1;
+	for (row = 0; row < height; row++) {
+		for (byte = 0; byte < bpp_w; byte++) {
+			unsigned char bits = bmp[row * bpp_w + byte];
+			for (bit = 0; bit < 8; bit++) {
+				short col = (short)(byte * 8 + bit);
+				if (!(bits & (0x80 >> bit)))
+					continue;
+				for (sy = 0; sy < scale; sy++)
+					for (sx = 0; sx < scale; sx++)
+						map_px(px, pitch, sw, sh,
+						       (short)(x0 + col * scale + sx),
+						       (short)(y0 + row * scale + sy),
+						       pen);
+			}
+		}
+	}
+}
+
+/* port_render_topview — load the real TOPVIEW.TLB tile library
+ * (Disk1, a GLIB of 16x16 1bpp top-down map tiles) and rasterize
+ * every glyph into a grid via blit_glyph_1bpp + the validated
+ * L37aa/L2856 extraction. Confirms the GLIB blit path renders real
+ * game tile art onto the Falcon. */
+void port_render_topview(void)
+{
+	static unsigned char buf[2048];
+	unsigned char metric[8];
+	unsigned char *px;
+	short pitch, sw, sh, i, slot = 0;
+	long base, count;
+	short refnum = 0;
+	RGBColor c[2];
+
+	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
+		return;
+	count = (long)sizeof buf;
+	(void)FSRead(refnum, &count, buf);    /* reads to EOF (eofErr ok) */
+	(void)FSClose(refnum);
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+	base = (long)(uintptr_t)buf;
+	if (l37aa(base, 0) == 0)              /* validate 'GLIB' magic */
+		return;
+
+	c[0].red = c[0].green = c[0].blue = 0;          /* 0 black   */
+	c[1].red = c[1].green = c[1].blue = 0xffff;     /* 1 white   */
+	qd_set_palette(c, 0, 2);
+	for (i = 0; i < sh; i++)
+		memset(px + (long)i * pitch, 0, (size_t)sw);
+
+	/* item 0 is the directory; glyphs are items 1.. */
+	for (i = 1; ; i++) {
+		long bmp = l2856(base, i, metric);
+		short ox, oy;
+
+		if (bmp == 0)
+			break;                       /* past the last item */
+		ox = (short)((slot % 8) * 38 + 8);
+		oy = (short)((slot / 8) * 38 + 8);
+		blit_glyph_1bpp(px, pitch, sw, sh, metric,
+		                (const unsigned char *)(uintptr_t)bmp,
+		                ox, oy, 1, 2);          /* 2x scale */
+		slot++;
+	}
+#ifdef FRUA_ENGINE_PROBE
+	dbg_log_num("topview tiles drawn = ", slot);
+#endif
 	qd_present();
 }
 

@@ -42,4 +42,11 @@ void port_render_geo_map(void);
  */
 void port_render_geo_contact(void);
 
+/*
+ * Load the real TOPVIEW.TLB tile library and rasterize its 16x16
+ * 1bpp top-down map tiles into a grid via a from-scratch GLIB glyph
+ * blit — proves the tile-art path renders real game graphics.
+ */
+void port_render_topview(void);
+
 #endif /* ENGINE_BOOT_H */
