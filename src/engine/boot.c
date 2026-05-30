@@ -625,6 +625,8 @@ static void  jt131(short a);
 static const char *jt488(const char *fmt, ...);
 static short jt393(const char *a, const char *b);
 static int   jt394(char *buf, const char *fmt, ...);
+static int   jt1200(void);
+static void  l30cc(short n);
 
 /* JT[421] (CODE 3 + 0x36d6) — NewPtr(size). JT[1028](size,0) ==
  * _NewPtr; returns the block (0 on failure). Unlike jt387 this
@@ -930,8 +932,9 @@ static void  l4cc0(void)
 	if (g_a5_long(-28006) != 0)
 		g_a5_long(-28006) -= 1;             /* THINK C 1-based: store ptr-1 */
 	jt231();                                    /* NCR + string-table buffers */
-	/* jt387(2064)->-27944; jt387(4590)->-27920;
-	 * L30cc(8); L311c(640); L3144(200) — DEFERRED */
+	/* jt387(2064)->-27944; jt387(4590)->-27920 — DEFERRED */
+	l30cc((short)8);                            /* record staging buffer -> -22208 */
+	/* L311c(640); L3144(200) — DEFERRED */
 	l3154((short)400);                          /* STRG scratch buffer -> -21148 */
 	jt211();                                    /* design-state buffer -> -12300 */
 	/* L59ca(); L531e(2738)->-22306; L531e(1260)->-25318;
@@ -1055,6 +1058,128 @@ static short jt370(short arg, short mode)
 	PROBE("jt370");
 	(void)arg; (void)mode;
 	return 0;
+}
+
+/* L30cc (CODE 6 + 0x30cc) — allocate the record staging buffer:
+ * g_a5_-22212 = n, g_a5_-22210 = 398, g_a5_-22208 = NewPtr(n*398).
+ * Called from L4cc0 with n=8 (a 3184-byte buffer); JT[325] stages
+ * records here before writing them. */
+static void  l30cc(short n)
+{
+	PROBE("L30cc");
+	g_a5_word(-22212) = n;
+	g_a5_word(-22210) = 398;
+	g_a5_long(-22208) = jt387((short)(n * 398));
+}
+
+/* JT[134] (CODE 6 + 0x0138) — set the file-group sub-id byte
+ * (g_a5_-31235). Paired with jt132's group id. */
+static void  jt134(short b)
+{
+	PROBE("jt134");
+	g_a5_byte(-31235) = (unsigned char)(b & 0xff);
+}
+
+/* JT[113] (CODE 6 + 0x338c) — set the record file format byte
+ * (g_a5_-18396): the caller's value when the platform probe
+ * (jt1200) reports 3, else the default 52. */
+static void  jt113(short b)
+{
+	PROBE("jt113");
+	if (jt1200() == 3)
+		g_a5_byte(-18396) = (unsigned char)(b & 0xff);
+	else
+		g_a5_byte(-18396) = 52;
+}
+
+/* JT[1014] (CODE 5 + 0x36a4) — register a named file in a group's
+ * cache, resolving it against the shared .GLB libraries. Deferred
+ * to a PROBE stub: the JT[325] prologue's data path uses the
+ * pre-allocated staging buffer (g_a5_-22208) directly and does not
+ * depend on this registration's side effects. */
+static void  jt1014(short group, const char *name, short size)
+{
+	PROBE("jt1014");
+	(void)group; (void)name; (void)size;
+}
+
+/* JT[325] (CODE 9 + 0x22d8) — the design-record database engine:
+ * stage / load / store a fixed-size record (monsters, items, map
+ * tiles, ...) keyed by a record type (1/21/33/51/52) and a command
+ * (0..7). Called 8x across CODE 2/10/11.
+ *
+ * Lifted PARTIALLY — the prologue + input command class only:
+ *   - file-group setup (jt131/jt134/jt113/jt1014);
+ *   - point the staging cursor at the record buffer (g_a5_-11660 =
+ *     g_a5_-22208, the L30cc block) and grab the field buffer
+ *     (g_a5_-11656 = jt1004);
+ *   - cmd 2/5/6/7: BlockMove the caller's source into the staging
+ *     buffer and stamp the record tag (rec[20..22] = 20,50,15);
+ *   - cmd 0/1: clear the 450-byte record;
+ *   - write the control-block header (type, slot, arg).
+ *
+ * DEFERRED — the ~3000-byte per-type field-serialization tail
+ * (asm 0x242c..0x30c2): the cmd-3 record fetch and the L258e type
+ * dispatch that encodes/decodes individual fields across record
+ * types. The function therefore stages the raw record but does not
+ * yet transform fields; it returns a provisional 0 status (the
+ * real status word fp@(-14) is accumulated in the deferred tail).
+ *
+ * Args mirror the Mac stack: a8 (stored to the control block),
+ * rec (caller record ptr), ctrl (control block), type, src (input
+ * buffer), cmd, count. */
+static short jt325(short a8, long *rec, void *ctrl, short type,
+                   void *src, short cmd, short count)
+{
+	unsigned char *cb = (unsigned char *)ctrl;
+	unsigned char *stage;
+	short status = 0;            /* fp@(-14) — provisional, see tail */
+	short flag20;
+	short slot10;
+
+	PROBE("jt325");
+	jt131((short)4);
+	jt134((short)0);
+	jt113((short)51);
+	jt1014((short)51, "script", (short)24);
+	g_a5_long(-11656) = jt1004();
+	g_a5_long(-11660) = g_a5_long(-22208);
+	stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+
+	if (cmd == 2 || cmd == 5 || cmd == 6 || cmd == 7) {
+		stage[20] = 20;
+		stage[21] = 50;
+		stage[22] = 15;
+		jt406(stage, src, count);     /* BlockMove src -> staging */
+		stage[2510] = 0;
+	} else if (cmd == 0 || cmd == 1) {
+		jt399(stage, (short)450, (short)0);
+		stage[2510] = 1;
+	}
+
+	flag20 = (type < 51) ? 0 : -1;
+	*(short *)cb = type;
+	if (cmd == 3 || cmd == 4) {
+		slot10 = *(short *)(cb + 2);
+	} else {
+		slot10 = (type < 51) ? 2 : 1;
+		if ((type == 51 || type == 52) && *(short *)(cb + 6) != 0) {
+			slot10 = *(short *)(cb + 6);
+			*(short *)(cb + 6) = 0;
+		}
+		*(short *)(cb + 4) = 0;
+		*(short *)(cb + 8) = a8;
+	}
+
+	/* DEFERRED: per-type field serialization (asm 0x242c..0x30c2) —
+	 * the cmd-3 record fetch + the L258e type dispatch. ~3000 bytes
+	 * across record types 1/21/33/51/52, reached through JT[447],
+	 * L1ae2 and the per-field encoders. The staging buffer now
+	 * holds the raw record from the input copy above. */
+	(void)flag20; (void)slot10; (void)rec;
+
+	jt134((short)1);             /* file op end */
+	return status;
 }
 
 /* JT[263] (CODE 10 + 0x5acc) — monster/NPC setup state machine.
@@ -1303,6 +1428,32 @@ static void  jt361(short a)
 			dbg_log_num("jt263(8) -> ",
 			            jt263((short)8, &res, tctx));
 			dbg_log_num("  ctx[3] = ", tctx[3]);
+		}
+		/* TEST: jt325 cmd-2 record stage. Copy a known 450-byte
+		 * source into the staging buffer and confirm the bytes
+		 * + record tag (rec[20..22]=20,50,15, rec[2510]=0)
+		 * landed in g_a5_-22208. */
+		{
+			static unsigned char tsrc[450];
+			static unsigned char tcb[16];
+			unsigned char *stg;
+			long res = 0;
+			int i;
+
+			for (i = 0; i < 450; i++)
+				tsrc[i] = (unsigned char)(i & 0xff);
+			jt325((short)0, &res, tcb, (short)57,
+			      tsrc, (short)2, (short)450);
+			stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+			if (stg) {
+				/* src[i]=i&0xff was copied over the tag, so
+				 * stage[0/200/449] == 0/200/193; rec[2510]
+				 * is the post-copy marker (0 = cmd 2/5/6/7). */
+				dbg_log_num("jt325: stage[0] = ", stg[0]);
+				dbg_log_num("jt325: stage[200] = ", stg[200]);
+				dbg_log_num("jt325: stage[449] = ", stg[449]);
+				dbg_log_num("jt325: rec2510 = ", stg[2510]);
+			}
 		}
 #endif
 	}
