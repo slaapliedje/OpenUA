@@ -7647,7 +7647,60 @@ static void   jt585(void)                        { PROBE("jt585"); }
  * the design-load path sets up). Reading through NULL would
  * bus-error, so the walks are guarded behind a non-NULL check.
  */
-static void   l1276(void)                            { PROBE("L1276"); }
+/* New PROBE-stub helper L1276's prologue calls. jt25 / jt94 are
+ * already lifted earlier in this file. */
+static void   jt82(void)                             { PROBE("jt82"); }
+
+/* L1276 (CODE 19 + 0x1276) — character status panel renderer.
+ *
+ * Entry side effects + ~600 lines of formatted field paints. The
+ * prologue is lifted faithfully; the field paints stay PROBE-only
+ * until JT[94] (formatted text) and the character-data deref chain
+ * are wired (none of the field paints fire safely when g_a5_-5806
+ * is NULL).
+ *
+ * Prologue:
+ *   g_a5_-5806 = g_a5_-27932;          ; current record = design ptr
+ *   JT[82]();                          ; per-paint init
+ *   JT[25](g_a5_-5806, 1, 1, 0);       ; paint frame
+ *
+ * Field-paint loop (deferred):
+ *   "Status:" label at (20,1) — col 7 (color) or 11 (mono) via JT[94]
+ *   class name      at (27,1) — table lookup g_a5_-14480[ rec[94] ]
+ *   race name       at (1,3)  — table lookup g_a5_-14500[ rec[92] ]
+ *   "%d years" age  at (8,3)  — JT[488] sprintf + JT[94]
+ *   alignment name  at (1,4)  — table lookup g_a5_-14536[ rec[93] ]
+ *   profession      at (20,4) — table lookup g_a5_-14564[ rec[88] ]
+ *   gender          at (??,?) — table lookup g_a5_-14636[ rec[89] ]
+ *   ability scores  at (??,?) — six fields (str/int/wis/dex/con/cha)
+ *   HP / AC / saves / equipment / spells follow.
+ *
+ * Each field uses JT[94](x, y, color, format_mode, string) where
+ * color is 7 (white) in color-QD mode (JT[1200]=3) or 11 (black on
+ * white) in mono. format_mode controls bold / inverse highlight.
+ *
+ * The 14480 / 14500 / 14536 / 14564 / 14636 tables are arrays of
+ * (char *) loaded from STRS during resource pool replay — index
+ * the per-character record byte into them to get the name string.
+ *
+ * NULL guard: skip everything past the prologue when g_a5_-5806 is
+ * NULL (no design loaded) — the Mac body would dereference rec[N]
+ * for many N's, but the port's boot path has no character data.
+ *
+ * Called by jt904 once on entry and again from its dispatch loop
+ * after cases 0/1/2 (re-paint after state change). */
+static void l1276(void)
+{
+	PROBE("L1276");
+	g_a5_long(-5806) = g_a5_long(-27932);
+	jt82();
+	jt25(g_a5_long(-5806), (short)1, (short)1, (short)0);
+
+	if (g_a5_long(-5806) == 0)
+		return;                /* no character record -> no field paints */
+
+	/* Field paint loop deferred — see comment block above. */
+}
 static signed char l25ce(unsigned char *p)           { PROBE("L25ce"); if (p) *p = 1; return 0; }
 static void   l4334(void)                            { PROBE("L4334"); }
 static void   l46e0(short a)                         { PROBE("L46e0"); (void)a; }
