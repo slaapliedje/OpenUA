@@ -5918,19 +5918,30 @@ static long jt1134(void)
  * blink, scroll) so the change is immediately on-screen. arg=0 is
  * the normal flip: render into the off-page, then jt1146 commits.
  *
- * Partial lift: the back-index assignment + L4d88 prelude run, but
- * the CGrafPort / PixMapHandle deref chain at g_a5_-2570[back] is
- * skipped — the port hasn't lifted the CGrafPort init that would
- * populate those slots, and the raw bytes there resolve to bogus
- * I/O addresses (Hatari bus-errors at $fff1fd28 reading through
- * the uninitialized PixMapHandle). Leaving g_a5_-3076 as the port's
- * default (zero or whatever DATA seeded) is benign — the engine's
- * blit primitives don't read it yet (we draw via the Falcon HAL,
- * not the Mac framebuffer ptr). Restore the chase once the
- * CGrafPort / PixMap shim lands. */
+ * Port-adapted chase: the g_a5_-2570 page descriptors ARE 108-byte
+ * CGrafPort structs (the descriptor stride 108 == sizeof CGrafPort,
+ * and the chased field at descriptor+2 == CGrafPort.portPixMap).
+ * The Mac builds them via NewGWorld during the offscreen-page init
+ * at CODE 4 + 0x4ad2, which calls Toolbox traps (0xaa95 etc.) the
+ * port doesn't run — so those slots stay uninitialized and the
+ * literal chase bus-errors at $fff1fd28.
+ *
+ * Instead chase the QuickDraw shim's *real* screen CGrafPort, whose
+ * portPixMap is a live PixMapHandle the display HAL set up via
+ * qd_attach_screen. The deref shape is identical to the Mac's
+ * (PixMapHandle -> PixMap -> baseAddr at offset 0); only the source
+ * port differs. Both page indices map to the same shim back-buffer
+ * — the port doesn't double-buffer at the page-descriptor level;
+ * the Falcon HAL's present() performs the actual flip. So
+ * g_a5_-3076 lands a valid pixel base regardless of `back`.
+ *
+ * The mono branch (g_a5_-2347 == 0, descriptor+2 a direct ptr) is
+ * unreachable on Falcon VIDEL (always 8bpp color, g_a5_-2347 set);
+ * we take the color/PixMapHandle path unconditionally. */
 static void jt1153(short arg)
 {
-	short back;
+	short        back;
+	GrafPtr      port;
 
 	PROBE("jt1153");
 	l4d88();
@@ -5940,7 +5951,15 @@ static void jt1153(short arg)
 	     : (short)(1 - g_a5_word(-2354));
 	g_a5_word(-2352) = back;
 
-	/* CGrafPort / PixMap chase deferred — see comment block. */
+	/* Faithful PixMapHandle chase against the shim's screen port. */
+	port = qd_screen_port();
+	if (port != NULL) {
+		PixMapHandle pm = ((CGrafPtr)port)->portPixMap;
+
+		if (pm != NULL && *pm != NULL)
+			g_a5_long(-3076) =
+			    (long)(uintptr_t)(*pm)->baseAddr;
+	}
 }
 /* L050a (CODE 4 + 0x050a, CODE-local) — page byte-count selector.
  *
