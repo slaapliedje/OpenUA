@@ -7707,8 +7707,111 @@ static void   l46e0(short a)                         { PROBE("L46e0"); (void)a; 
 static void   l19ac(void)                            { PROBE("L19ac"); }
 static void   l4f2c(long ptr)                        { PROBE("L4f2c"); (void)ptr; }
 static void   l4ff6(long ptr)                        { PROBE("L4ff6"); (void)ptr; }
-static signed char l4e56(long ptr)                   { PROBE("L4e56"); (void)ptr; return 0; }
-static signed char l4ec6(long ptr)                   { PROBE("L4ec6"); (void)ptr; return 0; }
+/* JT[29] stub — character-class-conditional inequality probe.
+ * The Mac body: tmp = JT[35](rec); return (rec[138] > tmp) ? -1 : 0;
+ * JT[35] itself walks rec[88]/rec[88+i] for i=0..5 to derive a
+ * threshold (class-table lookup). Lifting either requires the
+ * class-table data and rec to be non-NULL; for our boot path
+ * (rec = NULL), the gate trivially returns 0. */
+static signed char jt29(const unsigned char *rec) __attribute__((unused));
+static signed char jt29(const unsigned char *rec)
+{
+	PROBE("jt29");
+	(void)rec;
+	return 0;
+}
+
+/* L4e56 (CODE 19 + 0x4e56) — "import character?" gate for
+ * jt904's jt155(5) call.
+ *
+ *   rec_a0 = rec;
+ *   if (rec[89] == 3) goto check_mode;
+ *   if (rec[167] > 0 && JT[29](rec)) goto check_mode;
+ *   goto false;
+ *
+ *  check_mode:
+ *   if (g_a5_-27990 == 5)        goto false;
+ *   if (rec[94] != 0)             goto false;
+ *   if (JT[41](rec, 140, &local)) goto true;
+ *   goto false;
+ *
+ * NULL guard: returns 0 if rec is NULL — Mac body would deref
+ * rec[89] / rec[94] etc, but the port's boot path has no
+ * character record yet. L1276's prologue copies g_a5_-27932
+ * (design ptr, NULL in boot) to g_a5_-5806, so jt904's call
+ * `l4e56(g_a5_-27932)` passes NULL through. */
+static signed char l4e56(long ptr)
+{
+	const unsigned char *rec = (const unsigned char *)(uintptr_t)ptr;
+	long                 local = 0;
+
+	PROBE("L4e56");
+	if (rec == NULL)
+		return 0;
+
+	{
+		int check_mode = 0;
+
+		if (rec[89] == 3)
+			check_mode = 1;
+		else if (rec[167] > 0 && jt29(rec))
+			check_mode = 1;
+
+		if (!check_mode)
+			return 0;
+		if (g_a5_27990 == 5)
+			return 0;
+		if (rec[94] != 0)
+			return 0;
+		if (jt41(ptr, (short)140, &local) != 0)
+			return (signed char)1;
+		return 0;
+	}
+}
+
+/* L4ec6 (CODE 19 + 0x4ec6) — "export character?" gate for
+ * jt904's jt155(6) call.
+ *
+ *   if (rec[89] == 3) goto check_mode;
+ *   if (rec[167] > 0 && JT[29](rec)) goto check_mode;
+ *   goto false;
+ *
+ *  check_mode:
+ *   if (g_a5_-27990 == 5)  goto false;
+ *   if (rec[94] != 0)      goto false;
+ *   if (rec[128] >= 1)     goto true;       ; the only diff vs L4e56
+ *   goto false;
+ *
+ * The body is identical to L4e56 except the final check: L4ec6
+ * tests rec[128] (a count byte — non-zero means "has exportable
+ * items"), while L4e56 calls JT[41] to walk the import list. */
+static signed char l4ec6(long ptr)
+{
+	const unsigned char *rec = (const unsigned char *)(uintptr_t)ptr;
+
+	PROBE("L4ec6");
+	if (rec == NULL)
+		return 0;
+
+	{
+		int check_mode = 0;
+
+		if (rec[89] == 3)
+			check_mode = 1;
+		else if (rec[167] > 0 && jt29(rec))
+			check_mode = 1;
+
+		if (!check_mode)
+			return 0;
+		if (g_a5_27990 == 5)
+			return 0;
+		if (rec[94] != 0)
+			return 0;
+		if (rec[128] >= 1)
+			return (signed char)1;
+		return 0;
+	}
+}
 /* JT[182] (CODE 7 + 0x34f0) — interactive roster prompt dispatcher.
  *
  *   if (jt396(p2, g_a5_-14644))     ; case-insensitive strcmp
