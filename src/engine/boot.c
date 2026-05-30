@@ -7688,10 +7688,172 @@ static void  l206e(long p2, unsigned char *buf,
                     const char *p1, unsigned char *arg3_lo)
                                                      { PROBE("L206e"); (void)p2; (void)buf; (void)p1; (void)arg3_lo; }
 static short l23b4(short v)                          { PROBE("L23b4"); (void)v; return 0; }
-static short l25b6(short tmp, unsigned char *buf, unsigned char *flag_out)
-                                                     { PROBE("L25b6"); (void)tmp; (void)buf; (void)flag_out; return 0; }
 
+/* New PROBE-stub helpers L25b6 calls. */
+static short l217e(void)                             { PROBE("L217e"); return 0; }
+static void  l2170(short arg)                        { PROBE("L2170"); (void)arg; }
+static signed char l15bc(void)                       { PROBE("L15bc"); return 0; }
+static void  jt548(short d, short a, short b)        { PROBE("jt548"); (void)d; (void)a; (void)b; }
+static void  jt559(short a)                          { PROBE("jt559"); (void)a; }
+
+#define g_a5_13006 g_a5_byte(-13006)   /* "use cached result" flag (L25b6 early-out) */
+#define g_a5_24134 g_a5_byte(-24134)   /* cached result (when -13006 != 0) */
+#define g_a5_13010 g_a5_word(-13010)   /* JT[548] arg pair */
+#define g_a5_13008 g_a5_word(-13008)   /* JT[548] arg pair */
+#define g_a5_13004 g_a5_byte(-13004)   /* mode-7/13 special-key gate */
+#define g_a5_12914 g_a5_word(-12914)   /* pending-key extended code (high range) */
+#define g_a5_12913 g_a5_byte(-12913)   /* pending-key char (low byte) */
 #define g_a5_14644 g_a5_buf(-14644)    /* cached prompt string for jt396 fast-path */
+
+/* L25b6 (CODE 7 + 0x25b6) — interactive roster select.
+ *
+ * The body L23b4's "opcode" -> L25b6 hands to. It reads the
+ * dispatcher mode at g_a5_-13018 and either resolves the next
+ * key from cached state or runs one of seven mode-specific arms:
+ *
+ *   mode 1, 4: 8-arm JT[3] dispatch on (arg_count - L217e()), each
+ *             arm produces a high-bit "shape" byte (0x81..0x88)
+ *             encoding the roster cell the user picked.
+ *   mode 4 (special): when arg_count - L217e() == 9, return ' '
+ *             (space = "next page").
+ *   mode 5:    JT[548]() then return 27 (ESC) — paginated cancel.
+ *   mode 10:   L2170 + L217e arithmetic on arg_count, JT[559](1),
+ *             return low byte of arg_count.
+ *   mode 7, 13: when g_a5_-13004 != 0, return 'S' (save shortcut).
+ *   mode 12:   when L15bc() != 0, return 'S'.
+ *
+ * Fallback (no mode matched): scan g_a5_-24126 (the 20-entry
+ * index buffer jt155 builds in jt904) for the character at
+ * *(*(char**)buf + arg_count - 1) — i.e., the prompt's last
+ * shortcut byte. Match returns the paired index; no match returns
+ * -1 ("nothing pressed"). The byte 0x60 ('`') is remapped to 27
+ * (ESC). Any returned byte <= 20 sets g_a5_-24139 (the special-
+ * key flag jt182 reads).
+ *
+ * Exit: write 2 into g_a5_-13018 (mark "consumed"), return byte
+ * result.
+ *
+ * Sub-helpers L217e / L2170 / L15bc / JT[548] / JT[559] all
+ * PROBE-only. With L217e returning 0 and all gates false, the
+ * fallback fires; arg_count = 0 from jt182's L23b4 result gives
+ * the "arg8_count == 0" sub-path which reads g_a5_-12913 (pending
+ * key char) and returns it. In the boot path the pending byte is
+ * 0 so L25b6 returns 0 -> jt904 case 0 -> L25ce sets *out_done.
+ */
+static short l25b6(short arg_count, unsigned char *buf,
+                   unsigned char *flag_out)
+{
+	short          tmp;
+	unsigned char  result;
+	unsigned char  ch;
+	short          i;
+
+	PROBE("L25b6");
+	(void)flag_out;        /* &g_a5_-24139, same slot the body writes directly */
+
+	/* Fast path: cached result. */
+	if (g_a5_13006 != 0)
+		return (short)g_a5_24134;
+
+	tmp = l217e();
+	if (g_a5_13018 == 1)
+		tmp++;
+
+	/* Modes 1 / 4: 8-arm JT[3] dispatch on (arg_count - tmp). */
+	if (g_a5_13018 == 4 || g_a5_13018 == 1) {
+		if (arg_count > tmp && (short)(tmp + 8) >= arg_count) {
+			short arm = (short)(arg_count - tmp);
+			g_a5_24139 = 1;
+			switch (arm) {
+			case 1: result = 0x86; goto exit;
+			case 2: result = 0x88; goto exit;
+			case 3: result = 0x82; goto exit;
+			case 4: result = 0x84; goto exit;
+			case 5: result = 0x87; goto exit;
+			case 6: result = 0x81; goto exit;
+			case 7: result = 0x83; goto exit;
+			case 8: result = 0x85; goto exit;
+			default: break;        /* fall through to mode 4 special */
+			}
+		}
+	}
+
+	/* Mode 4 special: +9 page-down marker. */
+	if (g_a5_13018 == 4 && (short)(tmp + 9) == arg_count) {
+		g_a5_24139 = 1;
+		result = 0x20;             /* space */
+		goto exit;
+	}
+
+	/* Mode 5: paginated cancel via JT[548]. */
+	if (g_a5_13018 == 5 && arg_count > tmp && arg_count != 255) {
+		jt548((short)(arg_count - tmp), g_a5_13010, g_a5_13008);
+		result = 27;                /* ESC */
+		goto exit;
+	}
+
+	/* Mode 10: row-advance via L2170 + L217e. */
+	if (g_a5_13018 == 10 && arg_count > tmp && arg_count != 255) {
+		short d = l217e();
+
+		l2170((short)(d + 1));
+		arg_count = (short)(arg_count - l217e());
+		result = (unsigned char)(arg_count & 0xff);
+		jt559((short)1);
+		goto exit;
+	}
+
+	/* Modes 7 / 13: save shortcut. */
+	if (g_a5_13018 == 7 && g_a5_13004 != 0) {
+		result = 'S';
+		goto exit;
+	}
+	if (g_a5_13018 == 13 && g_a5_13004 != 0) {
+		result = 'S';
+		goto exit;
+	}
+
+	/* Mode 12: L15bc-gated save. */
+	if (g_a5_13018 == 12 && l15bc() != 0) {
+		result = 'S';
+		goto exit;
+	}
+
+	/* Fallback: lookup in the 20-entry index buffer. */
+	if (arg_count == 0) {
+		/* No items: surface the pending key. */
+		if (g_a5_12914 > 255) {
+			result = (unsigned char)((g_a5_12914 & 0x7F) + 128);
+		} else {
+			result = g_a5_12913;
+			if (g_a5_12914 < 32)
+				g_a5_24139 = 1;
+		}
+	} else {
+		/* buf[] is an array of (char *) — the last entry's first
+		 * character is the user's pressed key. Scan g_a5_-24126
+		 * (20 entries x 2 bytes: [idx, code]) for a code match;
+		 * return the paired idx on hit, -1 on miss. */
+		ch = **((unsigned char **)buf + (arg_count - 1));
+		for (i = 0; i < 20; i++) {
+			if (g_a5_24126[i * 2 + 1] == ch)
+				break;
+		}
+		if (i < 20)
+			result = g_a5_24126[i * 2];
+		else
+			result = 0xff;          /* -1: no match */
+	}
+
+	if (result == 0x60)                  /* '`' -> ESC */
+		result = 27;
+	if (result <= 20)
+		g_a5_24139 = 1;
+
+exit:
+	g_a5_13018 = 2;                       /* mark consumed */
+	return (short)(unsigned char)result;
+}
 
 static short jt182(const char *p1, long p2, short arg3, short arg4)
 {
