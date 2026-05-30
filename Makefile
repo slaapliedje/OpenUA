@@ -123,6 +123,9 @@ run: $(TARGET)
 # or for the visible run, point hatari -d at it.
 GAMEDATA_DIR := data/work/gamedata
 MAC_JOINED   := data/frua-mac/joined
+# Which design directory to flatten in alongside the shared libs.
+# Override to test other modules, e.g. `make gamedata DSN=HEIRS.DSN`.
+DSN ?= TUTORIAL.DSN
 gamedata: $(TARGET) frua.rsc
 	@if [ ! -d "$(MAC_JOINED)" ]; then \
 		echo "  gamedata: $(MAC_JOINED) not found — unpack the Mac release first (docs/mac-release.md)"; \
@@ -130,14 +133,14 @@ gamedata: $(TARGET) frua.rsc
 	fi
 	@rm -rf "$(GAMEDATA_DIR)"
 	@mkdir -p "$(GAMEDATA_DIR)"
-	@for d in Disk1 Disk2 Disk3 Disk4 TUTORIAL.DSN; do \
+	@for d in Disk1 Disk2 Disk3 Disk4 $(DSN); do \
 		for f in "$(MAC_JOINED)/$$d"/*; do \
 			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/"; \
 		done; \
 	done
 	@ln -sf "$(abspath $(TARGET))"  "$(GAMEDATA_DIR)/$(TARGET)"
 	@ln -sf "$(abspath frua.rsc)"   "$(GAMEDATA_DIR)/frua.rsc"
-	@echo "  gamedata: staged $$(ls "$(GAMEDATA_DIR)" | grep -ivc frua) files + TUTORIAL.DSN into $(GAMEDATA_DIR)"
+	@echo "  gamedata: staged $$(ls "$(GAMEDATA_DIR)" | grep -ivc frua) files + $(DSN) into $(GAMEDATA_DIR)"
 
 run-game: gamedata
 	$(HATARI) --machine falcon $(HATARI_FPU) --dsp emu --tos $(FALCON_TOS) \
