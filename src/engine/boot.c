@@ -7740,8 +7740,114 @@ static void  l1806(short v)                          { PROBE("L1806"); (void)v; 
 /* New PROBE-stub helpers L206e calls. */
 static void  l2184(const char *src)                  { PROBE("L2184"); (void)src; }
 static short l1a0c(const char *prompt, void *buf)    { PROBE("L1a0c"); (void)prompt; (void)buf; return 0; }
-static void  l1bfe(short width, void *buf, const char *suffix,
-                    short trail, short flag)         { PROBE("L1bfe"); (void)width; (void)buf; (void)suffix; (void)trail; (void)flag; }
+/* New PROBE-stub helpers L1bfe references. */
+static short jt138(void *rec, short cmd, ...)        { PROBE("jt138"); (void)rec; (void)cmd; return 0; }
+static short jt139(void *rec, short cmd, ...)        { PROBE("jt139"); (void)rec; (void)cmd; return 0; }
+static void  l1aea(short item_arg, short width, void *buf)
+                                                     { PROBE("L1aea"); (void)item_arg; (void)width; (void)buf; }
+
+/* L1bfe (CODE 7 + 0x1bfe) — roster-row content renderer.
+ *
+ * The body L206e hands to last. Paints the suffix string (with
+ * tail-trim / space-append normalisation) and installs a shape-7
+ * DLItem for the user response, dispatching the actual per-row
+ * paint via L1aea when the response buffer is non-empty.
+ *
+ *   g_a5_-24139 = 0;
+ *
+ *   if (*suffix == 0) goto empty;       ; no suffix -> shape 8003
+ *
+ *   ; Normalise the suffix tail.
+ *   char tmp[46];
+ *   jt384(tmp, suffix);                  ; copy
+ *   short len = jt423(tmp);              ; strlen
+ *   if (tmp[len-1] == ' ' || tmp[len-1] == '@') {
+ *       if (tmp[len-2] == ':') {         ; ":" before space -> trim
+ *           len--;
+ *           tmp[len-1] = 0;
+ *       }
+ *   } else if (tmp[len-1] != ':') {
+ *       jt404(tmp, " ");                 ; append space
+ *       len++;
+ *   }
+ *
+ *   if (flag) JT[94](0, 24, 0, 7, "%s", tmp);   ; paint suffix
+ *
+ *   short item_arg = len * 4 + 8004;
+ *   goto common;
+ *
+ *  empty:
+ *   item_arg = 8003;
+ *
+ *  common:
+ *   if (flag) {
+ *       void *cb = trail ? JT[138] : JT[139];   ; pick callback
+ *       JT[452](7, 20, cb, 0);                   ; install row item
+ *       if (**buf != 0)
+ *           L1aea(item_arg, width, buf);         ; render row content
+ *   }
+ *
+ * Suffix normalisation is the bit that makes the Mac roster's
+ * "Item:" prompts line up — trailing colons get stripped when
+ * followed by a space/@, otherwise a space is appended so the
+ * roster text never butts up against the user's typing area.
+ *
+ * L1aea (the row-content render) and JT[138] / JT[139] (the
+ * DLItem callbacks) stay PROBE-only — they're the actual pixel
+ * paint and the click-hit-test methods for the roster cells.
+ * Lifting this commit surfaces the row-install + per-row paint
+ * dispatch in the trace; L1aea is the natural next layer for
+ * visible content. */
+static void l1bfe(short width, void *buf, const char *suffix,
+                  short trail, short flag)
+{
+	unsigned char  tmp[46];
+	short          len;
+	short          item_arg;
+
+	PROBE("L1bfe");
+	g_a5_24139 = 0;
+
+	if (suffix == NULL || *suffix == 0) {
+		item_arg = (short)8003;
+	} else {
+		jt384((char *)tmp, suffix);
+		len = jt423((char *)tmp);
+		if (len > 0
+		    && (tmp[len - 1] == ' ' || tmp[len - 1] == '@')) {
+			if (len > 1 && tmp[len - 2] == ':') {
+				len--;
+				tmp[len - 1] = 0;
+			}
+		} else if (len > 0 && tmp[len - 1] != ':') {
+			jt404((char *)tmp, " ");
+			len++;
+		}
+
+		if (flag != 0)
+			(void)jt94((short)0, (short)24, (short)0,
+			           (short)7, "%s", (const char *)tmp);
+
+		item_arg = (short)(len * 4 + 8004);
+	}
+
+	if (flag != 0) {
+		dlitem_method_t cb = (trail != 0)
+		                   ? (dlitem_method_t)jt138
+		                   : (dlitem_method_t)jt139;
+
+		jt452((long)7, (long)20, (long)(uintptr_t)cb, (long)0);
+
+		/* Mac: a0 = *(void **)buf; if (*(byte*)a0 != 0)
+		 *   L1aea(item_arg, width, buf); */
+		if (buf != NULL) {
+			unsigned char *first = *(unsigned char **)buf;
+
+			if (first != NULL && *first != 0)
+				l1aea(item_arg, width, buf);
+		}
+	}
+}
 static void  l162e(void)                             { PROBE("L162e"); }
 
 /* JT[393] (CODE 3 + 0x3b8c) — signed strcmp (returns -1 / 0 / 1).
