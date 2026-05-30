@@ -283,6 +283,21 @@ record but does not yet transform fields and returns a provisional
 0. The probe boot stages a 450-byte test record and confirms it
 lands intact in `g_a5_-22208`.
 
+**The tail is the record *editor*, not a data codec.** A trace
+(1023 lines, ~40 entries) shows every command routes through
+either `L1ae2` (CODE 9 + 0x1ae2, 566 lines — the field codec, but
+it reads each record's field-layout *script* and edits fields via
+the `JT[452]` cmd-arg stream parser ×6, plus `JT[1012]` GLIB,
+`JT[468]`, `JT[423]`; `L0052` is its per-field descriptor accessor,
+a `JT[3]` type switch 50..53 = byte/word/long over the staging
+buffer) or the `L2626+` editor UI (`JT[1089]` field/"Page %2d"
+strings, `JT[155]` driver, `JT[452]` menus). The return status is
+written in ~10 places across the editor body, so there is no
+faithful slice that completes the read/write contract without
+lifting the editor — it is a multi-session subsystem arc, tracked
+in the deferred-block comment in `jt325`. Record types in the
+tail: 1, 21, 33, 51, 52.
+
 ### Display — screen and drawing (CODE 4 / CODE 5)
 
 FRUA's display layer spans CODE 4 (Mac Toolbox init, page management) and
