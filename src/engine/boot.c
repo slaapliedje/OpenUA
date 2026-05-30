@@ -541,6 +541,52 @@ static void  jt989(void (*handler)(void), short flag,
  * further down / just below; jt361 calls them. */
 static void jt127(const char *prefix, short num, short *out, void *buffer);
 
+/* JT[387] (CODE 3 + 0x36bc) — allocate a heap block. Mac:
+ * JT[1028](size, 0) == _NewPtr. The port routes to the compat
+ * NewPtr. Returns the block address (0 on failure). */
+static long  jt387(short size)
+{
+	PROBE("jt387");
+	return (long)(uintptr_t)NewPtr((Size)(unsigned short)size);
+}
+
+/* JT[211] (CODE 7 + 0x57bc) — allocate the 3746-byte design-state
+ * buffer, park it in g_a5_-12300, and clear its first short. The
+ * Mac init path (CODE 6 L4cc0) calls this; the port also calls it
+ * lazily from jt361 when the buffer hasn't been allocated yet. */
+static void  jt211(void)
+{
+	PROBE("jt211");
+	g_a5_long(-12300) = jt387((short)3746);
+	if (g_a5_long(-12300) != 0)
+		*(short *)(uintptr_t)g_a5_long(-12300) = 0;
+}
+
+/* L6e50 (CODE 8 + 0x6e50) — g_a5_-10374 = clamp(arg, 0, 40). The
+ * Mac uses JT[413] (min) + JT[397] (max); inlined here as a plain
+ * clamp to avoid forward-declaring those (identical result). */
+static void  l6e50(short arg)
+{
+	short v = arg;
+
+	PROBE("L6e50");
+	if (v > 40) v = 40;
+	if (v < 0)  v = 0;
+	g_a5_byte(-10374) = (unsigned char)v;
+}
+
+/* L7222 / JT[369] (CODE 8 + 0x7222) — design-header post-load step:
+ *   L6e50(g_a5_-18828);            // active level/page, clamped 0..40
+ *   *(short *)g_a5_-12300 = 0;      // reset the design-state cursor
+ * g_a5_-18828 is a byte from the just-loaded GAME header. */
+static void  l7222(void)
+{
+	PROBE("L7222");
+	l6e50((short)(signed char)g_a5_byte(-18828));
+	if (g_a5_long(-12300) != 0)
+		*(short *)(uintptr_t)g_a5_long(-12300) = 0;
+}
+
 /* JT[132] (CODE 6 + 0x0092) — set the current file-group id.
  *   g_a5_-31236 = (byte)id;
  * The group id (51 / 0x33 for GAME) tags subsequent file-cache
@@ -590,9 +636,24 @@ static void  jt361(short a)
 	}
 #endif
 	if (a != 0) {
-		/* L7222 post-step deferred — see header (g_a5_-12300 /
-		 * L6e50 not yet set up). */
-		PROBE("jt361:L7222-deferred");
+		/* L7222 post-step: clamp the header's level byte into
+		 * g_a5_-10374 and reset the design-state cursor.
+		 *
+		 * The design-state buffer (g_a5_-12300) is normally
+		 * allocated by the CODE 6 init path (L4cc0 -> jt211),
+		 * which isn't lifted yet. The DATA-pool image leaves a
+		 * stale non-zero value in g_a5_-12300, so a plain
+		 * "if (== 0)" check wouldn't catch it and L7222 would
+		 * write a short through a bogus pointer. Force a real
+		 * allocation once via a static guard until the real init
+		 * path lands (then this becomes redundant). */
+		static int ds_allocated;
+
+		if (!ds_allocated) {
+			jt211();
+			ds_allocated = 1;
+		}
+		l7222();
 	}
 }
 static void  jt919(void)                           { PROBE("jt919"); }            /* CODE 12 + 0x1b12 */
