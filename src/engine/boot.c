@@ -426,13 +426,21 @@ static short jt398(const char *path, short flags)
 #endif
 	return status;
 }
-/* JT[411] (CODE 3 + 0x3de2) — "error status reporter" via JT[1042].
- * Mac body sets up a 50-byte local frame, stashes the status arg
- * into a slot, then calls JT[1042](0, &local_buf, 0) and returns
- * -1 if the dialog reports cancel, else 0. JT[1042] is a dialog
- * runner. PROBE stub since the dialog manager path is deferred —
- * caller (boot-error reporter at line 497) discards the return. */
-static void  jt411(short status)                   { PROBE("jt411"); (void)status; }  /* CODE 3 + 0x3de2 */
+/* JT[411] (CODE 3 + 0x3de2) — close a file. Mac body builds a
+ * 50-byte PBClose param block (ioRefNum = arg) and calls JT[1042]
+ * (PBClose via the File Manager); returns 0 on success, -1 on
+ * error. The port routes to the compat FSClose. Paired with jt398
+ * (open): ua_main opens :DISK4:ALWAYS.CTL then closes it here, and
+ * jt127 closes each design file after reading it.
+ *
+ * (Earlier mislabelled an "error status reporter" — the param-block
+ * + JT[1042] shape is PBClose, confirmed against jt127's open/read/
+ * close sequence.) */
+static short jt411(short refNum)                   /* CODE 3 + 0x3de2 */
+{
+	PROBE("jt411");
+	return (FSClose(refNum) == noErr) ? (short)0 : (short)-1;
+}
 /* jt480 is the string-table setter — lifted in str.c; ua_main forwards
  * its own arg1 / arg2 here so the THINK C runtime's (count, table) flows
  * in. PROBE-instrumented inside str.c if needed for tracing; the engine
@@ -4202,6 +4210,9 @@ static void jt452_init(void)
 
 /* TEST SCAFFOLD — forward decl; defined just below. */
 void port_test_seed_design(void);
+/* Forward — jt127 (design-data loader) lifts further down; the
+ * probe self-test below calls it. */
+static void jt127(const char *prefix, short num, short *out, void *buffer);
 
 void boot_a5_seed_defaults(void)
 {
@@ -4312,6 +4323,27 @@ void boot_a5_seed_defaults(void)
 		/* Expected: ret-base=48, height=8, ybear=2, xbear=1,
 		 * bpp_w=3, flags=128, bitmap[0]=0xAA(170). */
 	}
+
+	/* jt127 self-test — load the tutorial's first map. Drives the
+	 * design-data open/read path (jt127 -> jt398 -> jt401) against
+	 * the staged TUTORIAL.DSN. Expects GEO040.DAT (12962 bytes,
+	 * IFF "FORM" magic). Only meaningful when run with
+	 * GEMDOS_DIR=data/work/gamedata; with the repo-root mount the
+	 * file is absent and the read returns 0. */
+	{
+		static unsigned char geobuf[13000];
+		short out = -1;
+
+		geobuf[0] = geobuf[1] = geobuf[2] = geobuf[3] = 0;
+		jt127("GEO", (short)40, &out, geobuf);
+		dbg_log_num("jt127 self-test: bytes read = ", out);
+		{
+			char tag[6];
+			tag[0]=' '; tag[1]=geobuf[0]; tag[2]=geobuf[1];
+			tag[3]=geobuf[2]; tag[4]=geobuf[3]; tag[5]=0;
+			dbg_log(tag);   /* expect " FORM" from GEO040.DAT */
+		}
+	}
 #endif
 }
 
@@ -4360,6 +4392,21 @@ void port_test_seed_design(void)
 
 	g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
 	g_a5_long(-13804) = (long)(uintptr_t)k_test_prompt;
+
+	/* Seed the current design name so jt127 builds the real
+	 * "<design>:<file>" path. mac_path_to_c strips the design
+	 * prefix, so the exact value only matters for path fidelity /
+	 * future subfolder support — the flat staging resolves the
+	 * bare filename either way. */
+	{
+		static const char dn[] = "tutorial.dsn";
+		char *dst = (char *)&g_a5_31336;
+		int   i;
+
+		for (i = 0; dn[i] != 0; i++)
+			dst[i] = dn[i];
+		dst[i] = 0;
+	}
 }
 
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
@@ -7725,6 +7772,87 @@ static int jt394(char *buf, const char *fmt, ...)
 	n = vsprintf(buf, fmt, ap);
 	va_end(ap);
 	return n;
+}
+
+/* JT[401] (CODE 3 + 0x3d4c) — read from an open file. Mac builds a
+ * PBRead param block + JT[1043]; the port routes to the compat
+ * FSRead. Returns bytes read (partial reads on eofErr are kept),
+ * or -1 on a hard error. */
+static short jt401(short refNum, void *buffer, short count)
+                                                __attribute__((unused));
+static short jt401(short refNum, void *buffer, short count)
+{
+	long  n = (long)(unsigned short)count;
+	OSErr err;
+
+	PROBE("jt401");
+	if (buffer == NULL)
+		return -1;
+	err = FSRead(refNum, &n, buffer);
+	if (err != noErr && err != (OSErr)-39)     /* -39 = eofErr (partial ok) */
+		return -1;
+	return (short)n;
+}
+
+/* JT[127] (CODE 6 + 0x0146) — load a design data file, with
+ * shared-library fallback.
+ *
+ *   JT[394](path, "%s%03d.dat", prefix, num);     // "GEO040.dat"
+ *   designpath = "";
+ *   JT[431](designpath, g_a5_-31336);             // current design name
+ *   JT[431](designpath, path);                     // "<design>:GEO040.dat"
+ *   refnum = JT[398](designpath, 0);               // open per-design file
+ *   if (refnum >= 0) {
+ *       *out = JT[401](refnum, buffer, 32766);     // read
+ *       JT[411](refnum);                            // close
+ *       return;                                     // success
+ *   }
+ *   // else fall back to the shared "<prefix>.glb" library, pulling
+ *   // item `num` through the file cache (JT[987]/JT[467]/JT[468]).
+ *
+ * The per-design open uses the <design>:<file> HFS path; the compat
+ * FSOpen strips it to the bare filename, which resolves in the flat
+ * staged gamedata folder. A design overrides individual maps /
+ * sprites by shipping its own GEOnnn.DAT etc.; an absent per-design
+ * file falls through to the shared GLIB library.
+ *
+ * Signature: (prefix, num, *out, buffer). *out receives the byte
+ * count read; the engine's load routines read it back.
+ *
+ * The .glb fallback is DEFERRED — it needs the FC group-load path
+ * (JT[987] group register + JT[467] fc_read + JT[468] cached handle
+ * + GLIB item extract). Until then a non-overridden file reads
+ * nothing (the TUTORIAL.DSN tutorial ships GEO040.DAT, GAME001.DAT,
+ * STRG003.DAT, so its core files take the per-design path). */
+static void jt127(const char *prefix, short num, short *out, void *buffer)
+                                                __attribute__((unused));
+static void jt127(const char *prefix, short num, short *out, void *buffer)
+{
+	char  path[402];
+	char  dpath[202];
+	short refnum;
+	short n;
+
+	PROBE("jt127");
+
+	jt394(path, "%s%03d.dat", prefix, (int)(unsigned char)num);
+	dpath[0] = 0;
+	jt431(dpath, &g_a5_31336);     /* prepend the current design name */
+	jt431(dpath, path);            /* "<design>:<prefix><num>.dat"     */
+
+	refnum = jt398(dpath, 0);
+	if (refnum >= 0) {
+		n = jt401(refnum, buffer, (short)32766);
+		if (out != NULL)
+			*out = n;
+		jt411(refnum);
+		return;
+	}
+
+	/* .glb shared-library fallback — deferred (see header). */
+	PROBE("jt127:glb-fallback-deferred");
+	if (out != NULL)
+		*out = 0;
 }
 
 /* jt176 lands further down (window-paint init/commit). Forward
