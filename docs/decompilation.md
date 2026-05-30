@@ -233,8 +233,15 @@ case (3456 = 576·6), so `ds[2]·ds[3] ≤ 576`; `tile(x,y)` lives at
 tile[6] = { N_wall, S_wall, E_wall, W_wall, 0 (reserved), floor_flag }
 ```
 
-Each wall byte is 0 (no edge) or an edge code — `0xe1`/`0xeb`/`0xe6`
-walls, `0x09`/`0x0e` doors; `floor_flag` is 0..3.
+Each wall byte is 0 (no edge) or an edge code; `floor_flag` is 0..3.
+The 55 distinct edge codes seen across the 26 HEIRS maps split
+cleanly on **bit 7**: a set bit 7 (the `0xe0..0xff` cluster, e.g.
+`0xe1`/`0xeb`/`0xf0`) is a **solid wall** (the low nibble selects
+one of the wall textures); a clear bit 7 (the `0x01..0x5a` cluster,
+e.g. `0x05`/`0x09`/`0x0e`) is a **door / passage**. `edge_color`
+(boot.c) renders walls as a grey ramp by texture and doors as bright
+colours by type — so doorways read as coloured gaps in the room
+walls.
 
 Map dimensions are **variable**: rendering all 26 HEIRS maps shows
 15×38, 28×20, 19×19, 24×24, 16×16, … — anything with `w·h ≤ 576`.
