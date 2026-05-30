@@ -498,6 +498,20 @@ would be a synthetic test glyph. Banked here as a self-contained, well-
 specified task; pick it up alongside (or after) real design-module loading
 so there's actual content to render and verify against.
 
+**Update (option B implemented).** `blit_glyph_1bpp` + `port_render_topview`
+(boot.c) take the pragmatic route: a from-scratch 1bpp→8bpp rasterizer that
+reads a GLIB glyph (`metric[0..1]` = height, `metric[6]` = `bpp_w`
+bytes/row, MSB-first) and paints set bits as the pen colour straight into
+the 8-bit shim buffer — bypassing the bit-packed-page mismatch entirely.
+Verified against the real `TOPVIEW.TLB` (Disk1): 24 × 16×16 1bpp top-down
+map tiles (items 1..24; height=16, `bpp_w`=2; items 17..24 add a 2nd mask
+plane via flags bit 0; item 0 is the directory) extracted with the lifted
+`L37aa`/`L2856` and rendered on the Falcon — floor/wall textures and the
+directional/corridor markers. The faithful `jt995` bit-packed-page blit
+(variants `JT[1181]`…) stays deferred; option B is what draws tile art for
+now. Next: map the wall-edge codes / `GEO.GLB` item-0 index table onto the
+tile set so the GEO map draws with real tiles instead of coloured cells.
+
 ## Lifting to C
 
 Per ADR-0008 the runtime comes first. Per routine:
