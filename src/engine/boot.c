@@ -7721,7 +7721,157 @@ static void   jt176(void)
 	l2062();
 }
 static void   jt584(long a, const char *str)     { PROBE("jt584"); (void)a; (void)str; }
-static void   jt585(void)                        { PROBE("jt585"); }
+/* Forward — jt182 / jt176 / jt394 / jt179 lifted further down. */
+static short jt182(const char *p1, long p2, short arg3, short arg4);
+static void  jt176(void);
+
+/* New PROBE-stub helpers jt585 calls. */
+static signed char l005a(void)                   { PROBE("L005a"); return 1; }
+static signed char l00e0(const char *fn, void *cb)
+                                                 { PROBE("L00e0"); (void)fn; (void)cb; return 0; }
+static void  jt419(char *path, const char *ext, short flags)
+                                                 { PROBE("jt419"); (void)path; (void)ext; (void)flags; }
+static short jt580(void)                         { PROBE("jt580"); return 0; }
+static void  l1c92(void)                         { PROBE("L1c92"); }
+static void  l1cd2(void)                         { PROBE("L1cd2"); }
+
+#define g_a5_18486 g_a5_byte(-18486)   /* "save-flag" gate for player[49] clear */
+#define g_a5_18877 g_a5_byte(-18877)   /* per-player byte copied into player[19] */
+#define g_a5_13904 g_a5_long(-13904)   /* JT[182] source prompt for save picker */
+#define g_a5_13776 g_a5_long(-13776)   /* JT[182] target buffer for save picker */
+#define g_a5_22733 g_a5_byte(-22733)   /* save-mode flag */
+
+/* JT[585] (CODE 15 + 0x1a24, 104 lines) — save / load slot picker.
+ *
+ * Despite the "Save Saved Game" naming in jt918's case-11 path
+ * (l120c), this function handles BOTH save and load via the
+ * g_a5_-27990 mode flag. The Mac asm:
+ *
+ *   ; Seed the player handle with current state bytes.
+ *   player = *g_a5_-28006;
+ *   player[67] = g_a5_-12288;
+ *   player[68] = g_a5_-12287;
+ *   player[17] = g_a5_-12286;
+ *   player[19] = g_a5_-18877;
+ *   if (g_a5_-18486 == 0) player[49] = 0;
+ *
+ *   loop:
+ *     JT[179](9);                                 ; reset 9-slot picker
+ *     short mode = (g_a5_-27990 == 2) ? -1 : 0;   ; -1 = "load" mode
+ *     short slot = JT[182](g_a5_-13904,
+ *                          g_a5_-13776, 0, mode);
+ *     ; Keep looping if slot < 10 AND not (special-flag + ESC)
+ *     if (slot < 10 && !(g_a5_-24139 && slot == 27))
+ *         goto loop;
+ *
+ *   if (slot > 9) goto exit;                       ; cancelled
+ *
+ *   byte slot_char = 'A' + slot;
+ *   if (!L005a()) goto exit;                       ; "insert save disk"
+ *
+ *   JT[176]();                                     ; paint frame
+ *   JT[94](0, 24, 0, 7, "Saving...Please Wait");
+ *
+ *   char fn[44];
+ *   JT[394](fn, "%s%c", "SavGam", slot_char);      ; "SavGamA".."SavGamJ"
+ *   JT[419](fn, "csv", 1);                          ; append extension
+ *
+ *   g_a5_-22733 = 1;
+ *   if (!L00e0(fn, JT[580])) {                     ; write file via callback
+ *       JT[176]();
+ *       goto exit;
+ *   }
+ *
+ *   if (g_a5_-22218 != slot_char) {                ; slot index changed?
+ *       L1c92();
+ *       g_a5_-22218 = slot_char;
+ *       L1cd2();
+ *   }
+ *   g_a5_-27946 = 1;                                ; "save complete" flag
+ *   JT[176]();
+ *
+ * The L00e0(fn, JT[580]) callback writes the actual file bytes —
+ * JT[580] is the per-byte write hook the file I/O loop calls.
+ *
+ * Level-2 lift: structure preserved, sub-helpers PROBE-only. The
+ * player handle deref (g_a5_-28006) is NULL-guarded since our boot
+ * path has no player data yet — without the design-load chain, no
+ * one populates g_a5_-28006. iter_guard caps the slot-picker loop
+ * while JT[182] is structurally complete but driven through the
+ * test scaffold's empty roster.
+ *
+ * Caveat: NOT actually wired into the boot dispatch path — jt918
+ * case 11 (l120c) gates on g_a5_-14429 which our fresh-init leaves
+ * 0, so jt585 doesn't fire from a real 'L' press. Lift is mostly
+ * documentation + structural readiness for when g_a5_-14429 gets
+ * enabled (or the design-load chain populates it). */
+static void   jt585(void)
+{
+	char           fn[44];
+	unsigned char  slot_idx;
+	unsigned char  slot_char;
+	short          iter_guard;
+	unsigned char *player;
+
+	PROBE("jt585");
+
+	player = (unsigned char *)g_a5_28006;
+	if (player != NULL) {
+		player[67] = g_a5_12288;
+		player[68] = g_a5_12287;
+		player[17] = g_a5_12286;
+		player[19] = g_a5_18877;
+		if (g_a5_18486 == 0)
+			player[49] = 0;
+	}
+
+	slot_idx = 0xFF;
+	for (iter_guard = 0; iter_guard < 8; iter_guard++) {
+		short mode;
+		short pick;
+
+		jt179((short)9);
+		mode = (g_a5_27990 == 2) ? (short)-1 : (short)0;
+		pick = jt182((const char *)(uintptr_t)g_a5_13904,
+		             g_a5_13776, (short)0, mode);
+		slot_idx = (unsigned char)pick;
+
+		/* Loop exit: slot_idx >= 10 OR (special-flag AND ESC). */
+		if (slot_idx >= 10)
+			break;
+		if (g_a5_24139 != 0 && slot_idx == 27)
+			break;
+	}
+
+	if (slot_idx > 9)
+		return;                       /* cancelled */
+
+	slot_char = (unsigned char)('A' + slot_idx);
+
+	if (l005a() == 0)
+		return;                       /* save disk missing */
+
+	jt176();
+	(void)jt94((short)0, (short)24, (short)0, (short)7,
+	           "%s", "Saving...Please Wait");
+
+	(void)jt394(fn, "%s%c", "SavGam", slot_char);
+	jt419(fn, "csv", (short)1);
+
+	g_a5_22733 = 1;
+	if (l00e0(fn, (void *)jt580) == 0) {
+		jt176();
+		return;
+	}
+
+	if (g_a5_22218 != slot_char) {
+		l1c92();
+		g_a5_22218 = slot_char;
+		l1cd2();
+	}
+	g_a5_27946 = 1;
+	jt176();
+}
 /* JT[904] (CODE 19 + 0x213e) — Add Character roster screen.
  *
  * Structural level-2 lift. The interactive body is a do/while
