@@ -1044,6 +1044,159 @@ static long  l6028(short num)
 	return ok ? (long)(uintptr_t)dest : 0;
 }
 
+/* JT[370] (CODE 8 + 0x6ed2) — default-stat / attribute lookup,
+ * keyed by a class/type byte (arg) with a JT[3] switch (1..14) and
+ * two flag bits (bit7 if mode>0, bit6 if arg<6). Deferred to a
+ * PROBE stub returning 0 — jt263 only feeds the result into the
+ * high byte of a geo packing word, harmless while the monster
+ * editor flow is itself deferred. */
+static short jt370(short arg, short mode)
+{
+	PROBE("jt370");
+	(void)arg; (void)mode;
+	return 0;
+}
+
+/* JT[263] (CODE 10 + 0x5acc) — monster/NPC setup state machine.
+ *
+ * Lifted as a STRUCTURAL SKELETON (ADR-0002 level 2). The state
+ * dispatch (a JT[1] value-switch on `state`), the per-state field
+ * setup, the MONST-load arm (state 8 -> L6028), and the trailing
+ * flag-packing switch (a JT[3] on the geo sub-state) are lifted
+ * faithfully. The middle NPC-editor + record-serialize block (the
+ * `setup_done == 0` path, asm 0x5c1c..0x5e9c) is DEFERRED: it runs
+ * the "Re-create NPC?" / "change class?" dialogs and the JT[325]
+ * record serializer through ~10 editor entries not yet lifted.
+ * States 1 and 8 set setup_done and skip that block, so the lifted
+ * paths are complete on their own.
+ *
+ * `ctx`  (the arg) is the live monster context:
+ *   ctx[0]  word  state echo      ctx[2]  byte flag
+ *   ctx[3]  byte  record id       ctx[4]  byte packed
+ *   ctx[6]  long  -> geo block    ctx[10] long -> monster record
+ * `geo`:
+ *   geo[10] word  sub-state       geo[12] word packed value
+ * `result` (long*) receives packed display flags. Returns the new
+ * geo sub-state. */
+static short jt263(short state, long *result, void *ctxp)
+{
+	unsigned char *ctx;
+	unsigned char *geo;
+	char setup_done = 0;
+	char mode = 3;                /* fp@(-21) — serialize mode */
+
+	PROBE("jt263");
+	if (ctxp == 0)
+		return 0;
+	ctx = (unsigned char *)ctxp;
+	g_a5_long(-11718) = (long)(uintptr_t)ctx;
+	geo = *(unsigned char **)(ctx + 6);
+
+	switch (state) {              /* JT[1] value-switch on the state */
+	case 1:                       /* L5b1c — fresh init */
+		*(long *)(ctx + 10) = 0;
+		setup_done = 1;
+		*(short *)(ctx + 0) = state;
+		ctx[2] = 1;
+		*(short *)(geo + 10) = 8;
+		*(short *)(geo + 12) =
+			(short)((jt370(3, 0) & 0xff) << 8);
+		break;
+	case 5:                       /* L5b64 */
+		if (*(short *)(geo + 10) == 6)
+			state = 6;
+		mode = 2;
+		break;
+	case 8:                       /* L5b80 — load the MONST record */
+		if (*result & 0x8000L) {
+			short id = (short)(*result & 0xff);
+			if (l6028(id) != 0) {
+				ctx[3] = (unsigned char)id;
+				ctx[4] = (unsigned char)((*result >> 8) & 0x7f);
+				if (ctx[2] != 0) {
+					state = 1;
+					ctx[2] = 0;
+				}
+				mode = 2;
+				break;
+			}
+		}
+		/* load skipped/failed (L5bf8) */
+		if (ctx[2] != 0) {
+			setup_done = 1;
+			*(short *)(geo + 10) = *(short *)(ctx + 0);
+		}
+		break;
+	case 10:                      /* L5c14 — fall straight through */
+	case 11:
+	default:
+		break;
+	}
+
+	/* L5c14 */
+	if (!setup_done) {
+		/* DEFERRED — NPC editor + JT[325] record serialize
+		 * (asm 0x5c1c..0x5e9c). Drives the "Re-create NPC?" /
+		 * "change class?" dialogs (jt159/jt574/jt556/jt76/
+		 * jt557/jt575/jt150/l65be), the design-record field
+		 * walks (two JT[471] list loops + the @430 clear +
+		 * jt591), and finally JT[325](state, result, geo,
+		 * cmd 57|54, rec, mode, 450) to pack the 450-byte
+		 * record, with L611c(ctx[3]) on a success result.
+		 * Lift when the monster/NPC editor subsystem lands. */
+		(void)mode;
+	}
+
+	/* L5e9e — pack display flags into *result by the geo sub-state */
+	*result &= 0xffff0000L;
+	switch (*(short *)(geo + 10)) {          /* JT[3], min=1 max=11 */
+	case 1:                                  /* L5ee4 */
+		if (ctx[2] == 0) {
+			ctx[2] = 1;
+			*(short *)(geo + 10) = 8;
+			*(short *)(geo + 12) =
+				(short)(((jt370(3, 0) & 0xff) << 8) | ctx[3]);
+			/* fall through to the case-8 packing */
+		} else {
+			break;
+		}
+		/* FALLTHROUGH */
+	case 8:                                  /* L5f2a */
+		((unsigned char *)result)[4] = (ctx[2] == 0) ? 1 : 0;
+		*result |= (long)*(short *)(geo + 12);   /* sign-extend (moveaw) */
+		break;
+	case 6:                                  /* L5f54 */
+		*(short *)(geo + 10) = 5;
+		/* FALLTHROUGH */
+	case 5: {                                /* L5f5e */
+		short g12 = *(short *)(geo + 12);
+		short slot;
+
+		*result |= (long)(g12 & 0xff);   /* swap/clrw/swap = byte zero-extend */
+		g12 = (short)(g12 >> 8);          /* asrw #8 — arithmetic */
+		*(short *)(geo + 12) = g12;
+		slot = (short)(g12 - 48);
+		if (slot < 32) {
+			*result |= ((long)(short)(slot / 4) << 11) | 0x200L;
+		} else if ((slot -= 32) < 32) {
+			*result |= ((long)(short)(slot / 4) << 11) | 0x300L;
+		} else if ((slot -= 32) < 8) {
+			*result |= ((long)slot << 11) | 0x400L;
+		}
+		break;
+	}
+	case 10:                                 /* L5ed0 */
+	case 11:
+		*result |= (long)*(short *)(geo + 12);   /* sign-extend (moveaw) */
+		break;
+	default:                                 /* L6012 */
+		*(short *)(geo + 10) = 1;
+		break;
+	}
+
+	return *(short *)(geo + 10);
+}
+
 /* JT[361] (CODE 8 + 0x71ec) — load the design GAME header.
  *
  *   jt132(51);                                   // file group = GAME
@@ -1131,6 +1284,25 @@ static void  jt361(short a)
 			            jt363((long *)0, (short)1));
 			dbg_log_num("L6028(101) ok = ",
 			            l6028((short)101) != 0);
+		}
+		/* TEST: drive the lifted jt263 state arms against a
+		 * synthetic context. State 1 inits (geo sub-state 8,
+		 * returns 8); state 8 loads MONST101 via L6028 and
+		 * records the id in ctx[3]. The deferred editor block
+		 * is skipped (both states set setup_done). */
+		{
+			static unsigned char tgeo[64];
+			static unsigned char tctx[32];
+			long res = 0;
+
+			*(unsigned char **)(tctx + 6) = tgeo;
+			dbg_log_num("jt263(1) -> ",
+			            jt263((short)1, &res, tctx));
+			res = 0x8000L | 101;
+			tctx[2] = 0;
+			dbg_log_num("jt263(8) -> ",
+			            jt263((short)8, &res, tctx));
+			dbg_log_num("  ctx[3] = ", tctx[3]);
 		}
 #endif
 	}
