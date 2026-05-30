@@ -223,21 +223,32 @@ formType; it opens straight onto the `AMOD` wrapper, and `L7470`
     'STRG' <0x1c00 = 7168>-> g_a5_-13034 (string table)
 ```
 
-The `'MAP '` chunk is a **fixed 24×24 tile grid** (3456 = 24·24·6),
-**6 bytes per tile**, row-major with a stride of 24 (the used area is
-the top-left `ds[2]×ds[3]`):
+The `'MAP '` chunk holds the tile grid, **6 bytes per tile**,
+row-major, **packed at the map's own width** `ds[2]` (the stride is
+`ds[2]`, *not* a fixed 24 — see below). It is sized for the worst
+case (3456 = 576·6), so `ds[2]·ds[3] ≤ 576`; `tile(x,y)` lives at
+`MAP + (y·ds[2] + x)·6`:
 
 ```
 tile[6] = { N_wall, S_wall, E_wall, W_wall, 0 (reserved), floor_flag }
 ```
 
 Each wall byte is 0 (no edge) or an edge code — `0xe1`/`0xeb`/`0xe6`
-walls, `0x09`/`0x0e` doors; `floor_flag` is 0..3. `port_render_geo_map`
-(boot.c, behind `make FRUA_MAP_DEMO=1`) paints this as a cell grid —
-floor squares shaded by flag, white wall edges — straight into the
-8-bit back buffer via `qd_screen_pixels`, bypassing the deferred 1bpp
-GLIB blit. Verified visually in Hatari: HEIRS `GEO040` (21×21,
-dims=441) draws as a recognizable dungeon of rooms and corridors.
+walls, `0x09`/`0x0e` doors; `floor_flag` is 0..3.
+
+Map dimensions are **variable**: rendering all 26 HEIRS maps shows
+15×38, 28×20, 19×19, 24×24, 16×16, … — anything with `w·h ≤ 576`.
+The header gate only checks the product, so a renderer must not
+assume `w,h ≤ 24` (an early version did and silently dropped the 10
+maps wider/taller than 24).
+
+`port_render_geo_map` / `port_render_geo_contact` (boot.c, behind
+`make FRUA_MAP_DEMO=1`) paint the grid — floor squares shaded by
+flag, white walls — straight into the 8-bit back buffer via
+`qd_screen_pixels`, bypassing the deferred 1bpp GLIB blit. Verified
+visually in Hatari: HEIRS `GEO040` (21×21) draws as a dungeon of
+rooms and corridors, and the 26-map contact sheet renders every map
+with its correct aspect ratio.
 
 Header sanity gates: `ds[0]` (a big-endian word) in `100..106`, and
 `ds[2]*ds[3]` (map dims) in `1..576`. A handful of HDR words at `+272`
