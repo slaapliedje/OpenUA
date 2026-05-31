@@ -6992,29 +6992,33 @@ static short geo_hdr_word(const unsigned char *ds)
 
 /* ctile_blit — decode and blit one of FRUA's COLOUR tiles (the mode-1
  * "C"-file art: CBODY paperdolls, COMSPR combat sprites, CPIC creatures)
- * straight to the 8-bit screen. Faithful to the lifted colour row-blit
- * (L2970 -> JT[1165]/JT[1202]/the 0x710 colour-key variant): the source
- * is 8bpp (one byte = one clut-129 palette index), copied a byte per
- * pixel with a colour-key index (255) treated as transparent. The row
- * stride is 2*bpp_w bytes (= the pixel width at 8bpp). Scaled by `scale`. */
+ * straight to the 8-bit screen.
+ *
+ * Geometry recovered from L2d4e's parameter math: the glyph metric's
+ * bpp_w byte is the 1bpp byte-width, so the pixel width is bpp_w*8 and
+ * the row stride is 2*bpp_w bytes — i.e. (2*bpp_w*8)/(bpp_w*8) = 2 bits
+ * per pixel. So these are 2bpp (4-colour) tiles: each source byte packs
+ * four pixels (2 bits each, MSB-first), value 0..3 indexing clut 129's
+ * first four entries. CBODY/COMSPR are 32x32, CPIC 64-wide. The
+ * background value (3) is treated as the transparent colour key. */
 static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
                        short x, short y, const unsigned char *metric,
                        const unsigned char *body, short scale)
 {
 	short h      = (short)(((unsigned short)metric[0] << 8) | metric[1]);
 	short bppw   = (short)metric[6];
-	short stride = (short)(2 * bppw);        /* bytes/row = pixel width @8bpp */
+	short stride = (short)(2 * bppw);        /* bytes per row */
+	short w      = (short)(8 * bppw);        /* pixels per row (2bpp) */
 	short row, col, dx, dy;
 
 	if (h <= 0 || bppw <= 0)
 		return;
 	for (row = 0; row < h; row++) {
 		const unsigned char *r = body + (long)row * stride;
-		for (col = 0; col < stride; col++) {
-			unsigned char idx = r[col];
+		for (col = 0; col < w; col++) {
+			unsigned char v   = r[col >> 2];
+			unsigned char idx = (unsigned char)((v >> (2 * (3 - (col & 3)))) & 3);
 
-			if (idx == 255)                  /* colour-key transparent */
-				continue;
 			for (dy = 0; dy < scale; dy++)
 				for (dx = 0; dx < scale; dx++) {
 					short sx = (short)(x + col * scale + dx);
@@ -7057,7 +7061,7 @@ static short sprite_row(unsigned char *buf, long buflen,
 		bppw = (short)metric[6];
 		if (h <= 0 || bppw <= 0 || (metric[7] & 0x0f) != 1)
 			continue;                    /* not a mode-1 colour tile */
-		w = (short)(2 * bppw);           /* 8bpp pixel width = row stride */
+		w = (short)(8 * bppw);           /* 2bpp pixel width */
 		if (xx + w * scale > sw)
 			break;
 		ctile_blit(px, pitch, sw, sh, xx, ytop, metric,
