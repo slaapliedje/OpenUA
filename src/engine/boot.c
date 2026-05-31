@@ -5559,13 +5559,26 @@ void port_render_geo_tiles(void)
 	for (y = 0; y < sh; y++)
 		memset(px + (long)y * pitch, 0, (size_t)sw);
 
-	/* door edge -> directional TOPVIEW door tile (arrow points to the
-	 * door): N=17, S=19, W=18, E=20 (plane 1 = the arrow). */
-	for (y = 0; y < h; y++) {
-		for (x = 0; x < w; x++) {
-			const unsigned char *t = map + ((long)y * w + x) * 6;
+	/* Layout per JT[202] (the runtime wall query, CODE 7 + 0x5e52):
+	 * the map is COLUMN-MAJOR with stride = height (ds[3]) — tile
+	 * (col,row) = MAP + (col*h + row)*6 — and the edge byte's high
+	 * nibble selects the wall art: 0xe_ = a standard wall texture,
+	 * 0x0_/0x3_ = a special edge from GEO.GLB's 43-entry table
+	 * (doors / archways / secret etc.). We draw standard walls
+	 * (bit 7 set) as the wall-combination tile and overlay each
+	 * special edge with the directional TOPVIEW door tile (N=17,
+	 * S=19, E=20, W=18 — plane 1 = the arrow).
+	 *
+	 * (JT[202] returns the edge's LOW nibble; against the editor's
+	 * movement-type list — Free/Blocked/Open/Open-secret/Locked.. —
+	 * that nibble is the per-edge movement attribute the runtime
+	 * uses for collision. The automap's exact door-glyph rule is
+	 * the editor's, unlifted; the high-nibble art split is the
+	 * visual heuristic here.) */
+	for (y = 0; y < h; y++) {            /* y = row */
+		for (x = 0; x < w; x++) {        /* x = column */
+			const unsigned char *t = map + ((long)x * h + y) * 6;
 			short px0 = (short)(x * 16), py0 = (short)(y * 16);
-			/* solid walls only (edge bit 7 set) form the outline */
 			short mask = (short)(((t[0] & 0x80) ? 1 : 0)
 			                   | ((t[2] & 0x80) ? 2 : 0)
 			                   | ((t[1] & 0x80) ? 4 : 0)
@@ -5578,15 +5591,14 @@ void port_render_geo_tiles(void)
 				                (const unsigned char *)(uintptr_t)bmp,
 				                px0, py0, 1, 1, 0);
 
-			/* a door is a non-zero edge with bit 7 clear */
-			door_tile[0] = 17;  /* N */
-			door_tile[1] = 19;  /* S (edge byte t[1]) */
-			door_tile[2] = 20;  /* E (edge byte t[2]) */
-			door_tile[3] = 18;  /* W (edge byte t[3]) */
+			door_tile[0] = 17;  /* N (edge t[0]) */
+			door_tile[1] = 19;  /* S (edge t[1]) */
+			door_tile[2] = 20;  /* E (edge t[2]) */
+			door_tile[3] = 18;  /* W (edge t[3]) */
 			for (e = 0; e < 4; e++) {
 				long db;
 				if (t[e] == 0 || (t[e] & 0x80))
-					continue;          /* no edge, or solid wall */
+					continue;          /* no edge, or standard wall */
 				db = l2856(tvbase, door_tile[e], metric);
 				if (db == 0)
 					continue;
