@@ -1583,8 +1583,8 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* colour-sprite renderer (mode-1 C-file tiles). */
-			port_sprite_demo();
+			/* 3D view + wall-loader byte-depth log. */
+			port_play_demo();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -6870,6 +6870,25 @@ void port_play_demo(void)
 				long lb = l2856(nested, (short)(i + 1), g_wall_metric[i]);
 				g_wall_bmp[i] = (lb != 0)
 				              ? (const unsigned char *)(uintptr_t)lb : NULL;
+#ifdef FRUA_ENGINE_PROBE
+				/* Bit-depth check (per the bytes-read-vs-expected test):
+				 * the item body the loader gets vs the 1bpp/8bpp sizes
+				 * implied by the metric (h x bpp_w). Body == 1bpp size
+				 * means the file stores 1bpp; it is not a truncated 8bpp
+				 * texture. */
+				if (i < 4 && lb != 0) {
+					long  a1 = l37aa(nested, (short)(i + 1));
+					long  a2 = l37aa(nested, (short)(i + 2));
+					short hh = (short)(((unsigned short)g_wall_metric[i][0] << 8)
+					                 | g_wall_metric[i][1]);
+					short bw = (short)g_wall_metric[i][6];
+					dbg_log_num("wall tile h = ", (long)hh);
+					dbg_log_num("  bpp_w     = ", (long)bw);
+					dbg_log_num("  body read = ", (a2 > a1) ? (a2 - a1 - 8) : -1);
+					dbg_log_num("  1bpp want = ", (long)hh * bw);
+					dbg_log_num("  8bpp want = ", (long)hh * bw * 8);
+				}
+#endif
 			}
 			g_wall_n = WALL_NTILES;
 		}
