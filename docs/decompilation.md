@@ -320,18 +320,43 @@ render faithfully on its own:
   struct fields @14/@15/@16 at CODE 11+0x070c, and updated on each
   move at CODE 11+0x19b8/0x1988/0x18f0).
 - The **direction-delta tables** are the first bytes of the `-27862`
-  *view-state struct* (drow at `-27862+dir`, dcol at `-27853+dir`),
-  initialised — together with the live slot-layout globals — by the
-  view-init in **CODE 21** (the dungeon-geometry module; `jt954` =
-  JT[953] = CODE 21+0x38f4 lives here). At boot these are zero, so an
-  isolated demo cannot walk; the layout globals' boot values likewise
-  aren't the play-time values.
+  *view-state struct* (drow at `-27862+dir`, dcol at `-27853+dir`).
+  They read **zero** in our build.
 
-So integration = lift **`JT[312]`** (the view render: clip + bg +
-sprite passes + `jt199`) and the **CODE 21 view-init** that seeds the
-`-27862` struct (deltas + layout) and engages deep mode, then call
-`JT[312]` from the play loop with the real party globals. `jt199`
-itself is ready; it just needs that runtime state.
+##### Root cause of the zero deltas (hunt result, 2026-05-31)
+
+There is **no view-init that fills `-27862`** — not in CODE 21, not in
+any of the 23 CODE segments. The hunt established:
+
+- The A5-world **DATA image is 12694 bytes** (one `DATA` resource, id 0),
+  covering offsets **`-12694..-1`**. The slot-layout globals (`-12202`
+  etc.) sit *inside* it, so 175/516 are their genuine DATA values.
+- `-27862` is far below `-12694`. The DREL relocs reach only to
+  `-20096` (A4 string-pool pointers) / `-9258` (A5) — still above
+  `-27862`. So that region is **zeroed BSS, untouched by DATA, relocs,
+  or code**.
+- Across all 23 segments the `-27862` delta bytes are only ever **read**
+  (direct `a5@(-27862)`), never written — no store, no `lea`+fill, no
+  indexed/`movem` fill.
+
+So the direction table is an **uninitialised A5-world table** in our
+port. The pragmatic fix is to **seed the 8-direction step table in
+`boot_a5_seed_defaults()`** (the same convention used for other non-zero
+A5 scalars) — its entries are the cardinal/ordinal `(drow, dcol)` steps
+over the column-major map (exact dir→compass mapping still to confirm).
+
+A **second, independent puzzle** blocks pixels even once the deltas are
+seeded: `l5b42`'s deep-mode coord math on the real layout global
+`g_a5_-12202 = 175` (low byte `-81`) sends the side-wall X off-screen
+(`((8016 + (-81)*4) - 8012) << 2 + 8 = -1272`). The deep coordinate
+pipeline (`l5b42`'s `<<2`/`8012` anchor + `l309c_tile`'s `jt1135`) needs
+re-derivation before the slots land in the view rect. Both the delta
+seed and the coordinate model must be resolved for a render.
+
+So integration = lift **`JT[312]`** (done — the view render: clip + bg +
+sprite passes + `jt199`), **seed the `-27862` direction table**, and
+**re-derive the deep coordinate model**, then call `JT[312]` from the
+play loop with the real party globals. `jt199` itself is ready.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
 "Play the Game / Select a Design / ..."; the party menu `jt918` shows
