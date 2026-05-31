@@ -144,6 +144,41 @@ post-roll-call setup and the path to playing a `.DSN` lead out from here.
 Maps of FRUA subsystems as they are traced, to guide lifting into
 `src/engine/`.
 
+### Play path — boot to a running adventure (the road map)
+
+Traced route from the boot to actually playing a module, with the
+current lift status of each gate. The runtime spine:
+
+```
+ua_main (CODE 6)
+  └─ while (jt315())            top-level loop predicate  [stub: 1-shot]
+       └─ l07dc()               per-iteration PLAY BODY    [lifted]
+            ├─ jt918(1)         party / new-game menu      [skeleton; dispatches]
+            │    └─ case 9 "Begin Adventuring" -> L1142    [lifted]
+            │         └─ jt585()  save state + slot         [partial, CODE 15]
+            ├─ L0bbc()          ENTER A LEVEL               [LIFTED]
+            │    └─ jt198(level)  load the GEO map           [lifted — GEO loader]
+            │         + place the party from the start tile
+            └─ (CODE 20 play loop, ~4500 lines)             [NOT lifted]
+                 └─ jt952/L-fns -> jt954 (CODE 21)          [NOT lifted]
+                      the movement + first-person VIEW
+                      └─ jt332 (CODE 8) perspective walls   [skeleton]
+                           via JT[1161] lines + jt995 sprites
+```
+
+What works today: the boot reaches the **main menu** (`jt315` builds
+"Play the Game / Select a Design / ..."; the party menu `jt918` shows
+"Add Character / Begin Adventuring / ..."), the design + level loaders
+run (`jt361`, `jt127`, `jt198`, `jt363`), and `L0bbc` loads a level's
+map and places the party. The gap to a *playable* adventure is the
+**CODE 20 play loop** (movement, turns, the per-frame orchestration)
+and the **CODE 21 / CODE 8 first-person view** rendering — plus a real
+**party** (`g_a5_-28006` player record, the character-creation arc) so
+the "Begin Adventuring" gate (`L1142`: design loaded + `g_a5_-27928`
+party present) passes for real rather than via the test scaffold.
+This is the next multi-session arc; the top-down automap tiles are a
+separate **editor** feature (ADR-0008, deferred).
+
 ### FC — the file cache (CODE 3)
 
 FRUA's data-file manager: a large allocated buffer holds file data; up to 48
