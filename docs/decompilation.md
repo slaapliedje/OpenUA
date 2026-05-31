@@ -193,12 +193,22 @@ tile by its code (`pick_wall`), so wall/door types texture
 differently. `fill_wall_trap` texture-maps the tile across the
 side-wall trapezoids **perspective-correctly** (horizontal texcoord
 proportional to 1/depth; front faces stay affine), depth-shaded. The
-remaining gap to FRUA's exact look is its `jt954`/`jt332` renderer
-compositing *pre-rendered* perspective wall pieces through the
-`jt995` blit (vs our texture-mapping), and the design's real
-wall-set -> tile assignment. Still ahead: **encounters / events**,
-and a real **party** so "Begin Adventuring" runs without the test
-scaffold.
+remaining gap to FRUA's exact look is the design's real wall-set ->
+tile assignment, which (traced) is **not a static table**: the dungeon
+wall art `DUNGCOM.TLB` is a GLIB-of-GLIBs with 5 nested `TILE`
+libraries (~135 **32x32 1bpp** tiles total — FRUA also textures from
+32x32 tiles), but the edge-code -> tile *index* is resolved per-frame
+by the 3D renderer. The chain: `jt954` (CODE 21) -> `JT[914]` (CODE 19,
+shuffles the player-record view bytes around the draws `L025a`/`L006c`)
+-> `JT[342]` (CODE 8 + 0x567c), which **screen-region hit-tests** the
+visible wall against the wall-piece layout table `g_a5_-10472` (8-byte
+records, count `g_a5_-10474`) and returns a packed value whose nibbles
+`(v>>8)&0xf` / `v&0xf` are the graphic + sub-index, then `jt332`
+(CODE 8 + 0x4a16) blits it via `JT[1161]` + `jt995`. So a faithful
+wall-set map means lifting that renderer subsystem; `pick_wall`'s
+code-nibble selection is the structurally-plausible stand-in until
+then. Still ahead: **encounters / events**, and a real **party** so
+"Begin Adventuring" runs without the test scaffold.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
 "Play the Game / Select a Design / ..."; the party menu `jt918` shows
