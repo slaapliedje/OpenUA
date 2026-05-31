@@ -216,7 +216,7 @@ The complete chain and what each part needs:
 | `jt338` (CODE 8 + 0x5504) | build the wall-slot layout `g_a5_-10472` (8-byte records: screen-x@4 at +8000, width@6, flags@8/10), laid out cumulatively | wall-set descriptors |
 | `JT[342]` (CODE 8 + 0x567c) | screen-region hit-test vs `g_a5_-10472` -> packed wall value | — |
 | `jt332` (CODE 8 + 0x4a16) | resolve the wall graphic **by name** (`JT[394]` sprintf + `JT[423]`) from a wall-set descriptor, then blit | file-cache name lookup; wall-set definition format |
-| `jt995` (CODE 5 + 0x21fc) | the actual **scaled** bitmap blit (pixel-walk + the JT[1181] family) | pixel-walk + dispatch core + both-axis clip + jt1135 remap — DONE (`bp_blit`); jt995's own scale loop still to lift |
+| `jt995` (CODE 5 + 0x21fc) | the 1:1 clipped text/glyph blit (pixel-walk + the JT[1181] family; per-plane loop, **not** a scaler) | pixel-walk + dispatch core + both-axis clip + jt1135 remap — DONE (`bp_blit`). The dungeon view uses JT[200]→JT[999]→L2d4e instead (see below) |
 
 **Option-A blit foundation — done (`bp_blit_or` / `bp_blit_andnot` /
 `bp_present`).** The JT[1181] family splits into: two writing
@@ -243,18 +243,44 @@ edge writes only its on-page bytes — the safe equivalent of jt995's
 on-page clip guarantee. Verified host-bit-exact (left/right/corner
 clip, no underflow) and in Hatari (`port_blit_demo`: left-clipped OR
 sliver + left-clipped AND-NOT carve, both showing only their visible
-12 px). jt995's collision (mode 1/3) and 2-source (mode 2) variants,
-and its **scale** loop, remain ahead.
+12 px). jt995's collision (mode 1/3) and 2-source (mode 2) variants
+remain ahead. **There is no scale loop in jt995** — see below.
 
-So a faithful wall lift is now gated on (1) `jt995`'s own **scale**
-loop (it scales a 32x32 tile to each perspective slot's size before
-the shift-blit), (2) the wall-set definition + file-cache name
-resolution that `jt332` reads, and (3) the slot-layout descriptors
-`jt338` consumes. `render_3d_view`'s option-B texture-mapping already produces
-the *result* (32x32 DUNGCOM tiles on the perspective walls); the
-remaining gap to FRUA-exact is this whole chain, and `pick_wall`'s
-code-nibble selection stands in for the wall-set tile map until it
-lands. Still ahead: **encounters / events**, and a real **party** so
+### The dungeon view renders pre-rendered slot tiles 1:1 — no scaling
+
+An earlier note here claimed "jt995's own scale loop scales a 32x32
+tile to each perspective slot." That was **wrong** (corrected
+2026-05-31, verified against the Mac asm). FRUA's walls are
+**pre-rendered art blitted 1:1** — DUNGCOM.TLB's ~135 tiles ARE the
+walls already drawn at every (distance, position) slot. There is no
+runtime scaler anywhere in the path:
+
+- `jt995` (JT[995], CODE 5+0x21fc) is the 1:1 *text/glyph* blit; its
+  outer loop is over **colour planes**, not a scale ratio. The dungeon
+  does not call it.
+- The dungeon view calls **`JT[200]`** (CODE 7+0x59d4) per wall slot.
+  It decomposes the wall code into `(group, position)`
+  (`while(code>5){code-=5;group++}`), checks the wall-set enable flag
+  `design_state(g_a5_-12300)[group]@4`, and draws **1 or 2 tile layers**
+  (code<=1 → one; code>1 → a far face `sub+1` then a near face, `sub`
+  recomputed). Group 2 → `JT[1004]`+`JT[999]` (DUNGCOM handle
+  `g_a5_-4582`); other groups → `JT[114]` with handles from
+  `g_a5_-27894[group*4]`.
+- **`L5bfa`** (CODE 7+0x5bfa) is the raycaster — walks map cells via
+  the direction-delta tables `g_a5_-27862` / `-27853`, bounds-checked by
+  **`L5baa`** (against design dims `g_a5_-12300@2`,`@3`); **`L5b42`**
+  sets up per-step coords (the `8000`-anchor remap when `JT[1200]==3`).
+- Blit leaf: **`JT[999]`/`L309c`** (coord remap + multi-part sprite
+  composite) → **`L2d4e`** (1:1 clip against `g_a5_-3050..-3056` + mode
+  dispatch; mode 10 = two-segment page wrap) → **`L2970`** (mono
+  row-blit). All 1:1 — `bp_blit` already implements the mono case.
+
+So a faithful 3D view = lift `JT[200]` (tile selection) + the raycaster
+(`L5bfa`/`L5baa`/`L5b42`) and draw each selected tile through the
+already-verified `bp_blit`. `render_3d_view`'s option-B texture-mapper
+is *less* faithful than this and is slated for replacement by it.
+`pick_wall`'s code-nibble selection stands in until `JT[200]` lands.
+Still ahead too: **encounters / events**, and a real **party** so
 "Begin Adventuring" runs without the test scaffold.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
