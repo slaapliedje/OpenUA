@@ -7040,18 +7040,36 @@ static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
 	}
 }
 
+/* clut_nearest — index of the clut-129 entry closest to an 8-bit RGB. */
+static unsigned char clut_nearest(const RGBColor *pal, short r, short g, short b)
+{
+	long best = 0x7fffffffL;
+	unsigned char bi = 0;
+	short i;
+
+	for (i = 0; i < 256; i++) {
+		short dr = (short)((pal[i].red   >> 8) - r);
+		short dg = (short)((pal[i].green >> 8) - g);
+		short db = (short)((pal[i].blue  >> 8) - b);
+		long  d  = (long)dr * dr + (long)dg * dg + (long)db * db;
+		if (d < best) { best = d; bi = (unsigned char)i; }
+	}
+	return bi;
+}
+
 /* sprite_row — load a colour "C"-file tile library and blit a run of its
- * tiles across one screen row. `buf` is a caller-owned scratch buffer
- * (the file is read into it). Returns the tile width used so the caller
- * can stack rows. Tiles are at GLIB items `start..start+n`. */
+ * tiles across one screen row, using the file's OWN sub-palette (item 1,
+ * four RGB triples) matched to clut 129. `start` is the GLIB tile index
+ * of the appearance to draw (FRUA picks it per character from the record
+ * field @189); `buf`/`pal` are caller-owned. Returns the tile width. */
 static short sprite_row(unsigned char *buf, long buflen,
                         const char *pname, short start, short n,
                         unsigned char *px, short pitch, short sw, short sh,
-                        short ytop, short scale, const unsigned char *subpal)
+                        short ytop, short scale, const RGBColor *pal)
 {
-	unsigned char metric[8];
+	unsigned char metric[8], subpal[4];
 	short refnum = 0, i, xx = 4, tilew = 0;
-	long count, base, lb;
+	long count, base, lb, pl;
 
 	if (FSOpen((ConstStr255Param)pname, 0, &refnum) != noErr)
 		return 0;
@@ -7061,6 +7079,18 @@ static short sprite_row(unsigned char *buf, long buflen,
 	base = (long)(uintptr_t)buf;
 	if (l37aa(base, 0) == 0)
 		return 0;
+
+	/* item 1 is the file's default sub-palette: four RGB triples for the
+	 * 2bpp levels (the rest filled with the magenta "unused" marker).
+	 * Match each to a clut-129 index; level 3 is the transparent bg. */
+	subpal[0] = 0; subpal[1] = 15; subpal[2] = 2; subpal[3] = 0xff;
+	pl = l2856(base, 1, metric);
+	if (pl != 0) {
+		const unsigned char *p = (const unsigned char *)(uintptr_t)pl;
+		for (i = 0; i < 3; i++)
+			subpal[i] = clut_nearest(pal, p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+		subpal[3] = 0xff;
+	}
 	for (i = 0; i < n; i++) {
 		short h, bppw, w;
 
@@ -7094,20 +7124,9 @@ void port_sprite_demo(void)
 	RGBColor pal[256];
 	Handle ch;
 
-	/* Per-character sub-palettes: the 2bpp levels (0 body, 1 highlight,
-	 * 2 accent, 3 background) are recoloured per character. We reserve
-	 * clut slots 240 (panel background) and 241..252 (four colours for
-	 * three "characters"), demonstrating how the same paperdoll tiles
-	 * recolour per character. Level 3 maps to 0xff = transparent. */
-	static const unsigned char subA[4] = { 241, 242, 243, 0xff }; /* warrior */
-	static const unsigned char subB[4] = { 244, 245, 246, 0xff }; /* mage    */
-	static const unsigned char subC[4] = { 247, 248, 249, 0xff }; /* rogue   */
-	static const unsigned char slot_rgb[10][3] = {
-		{  56,  56,  72 },   /* 240 panel bg (dark blue-grey) */
-		{ 206, 160, 120 }, { 240, 212, 180 }, { 120,  78,  40 }, /* warrior */
-		{  84, 104, 210 }, { 176, 196, 255 }, {  32,  44, 120 }, /* mage    */
-		{  92, 170,  92 }, { 176, 232, 176 }, {  44,  96,  44 }, /* rogue   */
-	};
+	static unsigned char rec[256];           /* synthetic character record */
+	const unsigned char *cr;
+	short app;
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
 		return;
@@ -7122,24 +7141,35 @@ void port_sprite_demo(void)
 			pal[i].blue  = (unsigned short)((cd[8 + i * 8 + 6] << 8) | cd[8 + i * 8 + 7]);
 		}
 	}
-	/* override slots 240..249 with the panel bg + per-character colours */
-	for (i = 0; i < 10; i++) {
-		pal[240 + i].red   = (unsigned short)(slot_rgb[i][0] * 257);
-		pal[240 + i].green = (unsigned short)(slot_rgb[i][1] * 257);
-		pal[240 + i].blue  = (unsigned short)(slot_rgb[i][2] * 257);
-	}
+	/* reserve index 254 as a neutral panel background (clut greys vary) */
+	pal[254].red = pal[254].green = pal[254].blue = 0x5800;
 	qd_set_palette(pal, 0, 256);
 
-	for (y = 0; y < sh; y++)
-		memset(px + (long)y * pitch, 240, (size_t)sw);   /* panel bg */
+	/* Seed a synthetic character record and point the engine's current-
+	 * character pointer (g_a5_-27932) at it, so we read the appearance the
+	 * way the game does — record field @189 (the icon FRUA's character
+	 * creation stores; CODE 15's CBODYS load feeds it to the tile pick).
+	 * The COLOURS come from each C-file's own item-1 sub-palette (derived
+	 * in sprite_row), matched to clut 129 — i.e. FRUA's real art colours,
+	 * not hand-picked. */
+	for (i = 0; i < 256; i++)
+		rec[i] = 0;
+	rec[189] = 6;                            /* an appearance/icon index */
+	g_a5_long(-27932) = (long)(uintptr_t)rec;
+	cr  = (const unsigned char *)(uintptr_t)g_a5_long(-27932);
+	app = (short)cr[189];                    /* read it back as the engine does */
 
-	/* the SAME CBODY paperdoll tiles, recoloured per character */
-	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB", 2, 12,
-	                 px, pitch, sw, sh, (short)8,   (short)2, subA);
-	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB", 2, 12,
-	                 px, pitch, sw, sh, (short)78,  (short)2, subB);
-	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB", 2, 12,
-	                 px, pitch, sw, sh, (short)148, (short)2, subC);
+	for (y = 0; y < sh; y++)
+		memset(px + (long)y * pitch, 254, (size_t)sw);   /* panel bg */
+
+	/* Each C-file rendered with ITS OWN item-1 sub-palette (FRUA's real
+	 * colours). CBODY starts at the record's appearance index. */
+	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB",  (short)(2 + app), 10,
+	                 px, pitch, sw, sh, (short)8,   (short)2, pal);
+	(void)sprite_row(buf, (long)sizeof buf, "\012COMSPR.TLB", 2, 10,
+	                 px, pitch, sw, sh, (short)78,  (short)2, pal);
+	(void)sprite_row(buf, (long)sizeof buf, "\010CPIC.TLB",   2, 10,
+	                 px, pitch, sw, sh, (short)148, (short)2, pal);
 
 	qd_present();
 	for (;;)
