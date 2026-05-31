@@ -78,4 +78,10 @@ void port_blit_demo(void);
  */
 void port_wall_demo(void);
 
+/*
+ * Drive jt199 (JT[199]) — the first-person frustum walker — over the
+ * loaded design's GEO map: render the dungeon view from the party cell.
+ */
+void port_view_demo(void);
+
 #endif /* ENGINE_BOOT_H */
