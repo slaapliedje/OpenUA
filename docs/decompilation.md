@@ -216,7 +216,7 @@ The complete chain and what each part needs:
 | `jt338` (CODE 8 + 0x5504) | build the wall-slot layout `g_a5_-10472` (8-byte records: screen-x@4 at +8000, width@6, flags@8/10), laid out cumulatively | wall-set descriptors |
 | `JT[342]` (CODE 8 + 0x567c) | screen-region hit-test vs `g_a5_-10472` -> packed wall value | — |
 | `jt332` (CODE 8 + 0x4a16) | resolve the wall graphic **by name** (`JT[394]` sprintf + `JT[423]`) from a wall-set descriptor, then blit | file-cache name lookup; wall-set definition format |
-| `jt995` (CODE 5 + 0x21fc) | the actual **scaled** bitmap blit (pixel-walk + the JT[1181] family) | option-A blit foundation (below) — DONE; jt995's own scale loop still to lift |
+| `jt995` (CODE 5 + 0x21fc) | the actual **scaled** bitmap blit (pixel-walk + the JT[1181] family) | pixel-walk + dispatch core + both-axis clip + jt1135 remap — DONE (`bp_blit`); jt995's own scale loop still to lift |
 
 **Option-A blit foundation — done (`bp_blit_or` / `bp_blit_andnot` /
 `bp_present`).** The JT[1181] family splits into: two writing
@@ -230,6 +230,21 @@ blit** — colour is the *pen* applied at conversion (`bp_present`'s
 fg/bg), one colour per wall/depth. `L05dc`/`L05ea` + `g_a5_-3076/-3078/
 -3084` are FRUA's pen-position bookkeeping (dest word addr / sub-word
 shift / row stride); `bp_blit_*` take dx/dy explicitly instead.
+
+**jt995 dispatch core — done (`bp_blit`).** Over those primitives,
+`bp_blit` lifts jt995's per-blit dispatch: decode the glyph metric,
+remap the position through `jt1135` (the VIDEL coord remap jt995
+applies before clipping), clip the bitmap to the page in **both axes**
+(0x230c..0x23fe: intersect the pixel span with the clip rect, reduce to
+the visible source words, trim the partial edge words with `lmask`/
+`rmask`), then dispatch by mode (0 = OR, 1 = AND-NOT). The primitives
+clamp each word's composite to its row, so a word straddling the page
+edge writes only its on-page bytes — the safe equivalent of jt995's
+on-page clip guarantee. Verified host-bit-exact (left/right/corner
+clip, no underflow) and in Hatari (`port_blit_demo`: left-clipped OR
+sliver + left-clipped AND-NOT carve, both showing only their visible
+12 px). jt995's collision (mode 1/3) and 2-source (mode 2) variants,
+and its **scale** loop, remain ahead.
 
 So a faithful wall lift is now gated on (1) `jt995`'s own **scale**
 loop (it scales a 32x32 tile to each perspective slot's size before
