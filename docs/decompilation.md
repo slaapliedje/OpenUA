@@ -159,12 +159,26 @@ ua_main (CODE 6)
             ├─ L0bbc()          ENTER A LEVEL               [LIFTED]
             │    └─ jt198(level)  load the GEO map           [lifted — GEO loader]
             │         + place the party from the start tile
-            └─ (CODE 20 play loop, ~4500 lines)             [NOT lifted]
+            └─ (CODE 20 play loop, ~4500 lines)             [movement core lifted]
+                 ├─ party_step: turn/move + collision        [LIFTED — clean model]
                  └─ jt952/L-fns -> jt954 (CODE 21)          [NOT lifted]
-                      the movement + first-person VIEW
+                      the first-person VIEW render
                       └─ jt332 (CODE 8) perspective walls   [skeleton]
                            via JT[1161] lines + jt995 sprites
 ```
+
+**Movement loop (working).** The play loop's render-input-move-render
+cycle runs as `port_play_demo` (an interactive automap walk; `make
+FRUA_MAP_DEMO=1`): `L0bbc` enters a level (loads the map via `jt198`,
+places the party), then each frame draws the automap + party marker
+and reads a key. `party_step` is the movement model distilled from the
+CODE 20 dispatch + `JT[202]`: facing 0..7 (cardinals N=0/E=2/S=4/W=6),
+turn = facing±2 mod 8, forward/back advance one cell when the facing
+edge `t[(f&6)>>1]` is passable (movement nibble 0). Verified the party
+walks a real HEIRS level deterministically and interactively. Still
+ahead: the **3D first-person view** (`jt954` + the perspective wall
+graphics) and **encounters / events**, plus a real **party** so
+"Begin Adventuring" runs without the test scaffold.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
 "Play the Game / Select a Design / ..."; the party menu `jt918` shows
