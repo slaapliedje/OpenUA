@@ -5824,12 +5824,33 @@ static int cell_blocked(short x, short y, short f)
 	return t[(f & 6) >> 1] != 0;
 }
 
-/* fill_wall_trap — fill a side-wall trapezoid: a vertical face whose
- * half-height is `hNear` at screen column `xNear` and `hFar` at
- * `xFar` (linearly interpolated), centred on `vcy`, in colour `c`. */
+/* tile_bit — sample a 1bpp glyph (metric[0..1]=height rows,
+ * metric[6]=bytes/row, MSB-first) at (u,v), wrapping both axes. */
+static int tile_bit(const unsigned char *m, const unsigned char *b,
+                    short u, short v)
+{
+	short bw, h, ww;
+
+	if (b == NULL)
+		return 0;
+	bw = m[6];
+	h  = (short)(((unsigned short)m[0] << 8) | m[1]);
+	if (bw <= 0 || h <= 0)
+		return 0;
+	ww = (short)(bw * 8);
+	u = (short)(((u % ww) + ww) % ww);
+	v = (short)(((v % h) + h) % h);
+	return (b[v * bw + (u >> 3)] >> (7 - (u & 7))) & 1;
+}
+
+/* fill_wall_trap — a textured side-wall trapezoid: half-height hNear
+ * at column xNear -> hFar at xFar (lerp'd), centred on vcy, sampling
+ * the 1bpp wall tile (m/b). u runs along the cell with screen x, v
+ * down the wall height; set bit -> fg, clear -> bg. */
 static void fill_wall_trap(unsigned char *px, short pitch, short sw, short sh,
                            short xNear, short xFar, short hNear, short hFar,
-                           short vcy, unsigned char c)
+                           short vcy, const unsigned char *m, const unsigned char *b,
+                           unsigned char fg, unsigned char bg)
 {
 	short lo = xNear < xFar ? xNear : xFar;
 	short hi = xNear < xFar ? xFar : xNear;
@@ -5839,22 +5860,36 @@ static void fill_wall_trap(unsigned char *px, short pitch, short sw, short sh,
 	if (denom == 0)
 		denom = 1;
 	for (x = lo; x <= hi; x++) {
-		long frac = ((long)(x - xNear) * 256) / denom;     /* 0..256 */
-		short ht = (short)(hNear + (((long)(hFar - hNear) * frac) >> 8));
-		short y0 = (short)(vcy - ht), y1 = (short)(vcy + ht);
-		for (y = y0; y <= y1; y++)
-			map_px(px, pitch, sw, sh, x, y, c);
+		long  frac = ((long)(x - xNear) * 256) / denom;
+		short ht, y0, y1, span, u, v;
+
+		if (frac < 0)
+			frac = -frac;
+		ht   = (short)(hNear + (((long)(hFar - hNear) * frac) >> 8));
+		y0   = (short)(vcy - ht);
+		y1   = (short)(vcy + ht);
+		span = (short)(2 * ht);
+		if (span < 1)
+			span = 1;
+		u = (short)((frac * 32) >> 8);
+		for (y = y0; y <= y1; y++) {
+			v = (short)(((long)(y - y0) * 32) / span);
+			map_px(px, pitch, sw, sh, x, y,
+			       tile_bit(m, b, u, v) ? fg : bg);
+		}
 	}
 }
 
-/* render_3d_view — a flat-shaded first-person corridor view from the
- * party's (x,y,facing). Walks forward through depth slices; at each
- * depth draws the left/right side walls as perspective trapezoids and
- * the front wall (stopping the walk) as a far rectangle, over a
- * ceiling/floor split. Geometry-faithful (the cells the engine's
- * JT[201/202] queries cover); textures (the wall-set art) are a later
- * layer. Viewport ~220x150 centred at (118,83). */
-static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
+/* render_3d_view — a textured first-person corridor view from the
+ * party's (x,y,facing), using a real FRUA 32x32 1bpp wall tile (m/b).
+ * Walks depth slices 0..3; at each depth draws the left/right side
+ * walls as textured perspective trapezoids and, where the way is
+ * blocked, the textured front face (then stops), over a ceiling/floor
+ * split. Geometry-faithful to FRUA's view (the cells JT[201/202]
+ * cover); depth-shaded via the per-depth fg/bg colour pair. Viewport
+ * ~220x150 centred at (118,83). */
+static void render_3d_view(unsigned char *px, short pitch, short sw, short sh,
+                           const unsigned char *m, const unsigned char *b)
 {
 	static const short hw[5] = { 110, 68, 42, 26, 16 };
 	static const short hh[5] = {  74, 46, 28, 17, 11 };
@@ -5864,7 +5899,6 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 	short rf = (short)((f + 2) & 7);
 	short x, y, d;
 
-	/* ceiling (top) + floor (bottom) of the front opening */
 	for (y = (short)(vcy - hh[0]); y <= vcy + hh[0]; y++)
 		for (x = (short)(vcx - hw[0]); x <= vcx + hw[0]; x++)
 			map_px(px, pitch, sw, sh, x, y, (y < vcy) ? 4 : 5);
@@ -5872,22 +5906,36 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 	for (d = 0; d < 4; d++) {
 		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
-		unsigned char side = (unsigned char)(8 + d);
-		unsigned char front = (unsigned char)(12 + d);
+		unsigned char fg  = (unsigned char)(8 + d);
+		unsigned char bg  = (unsigned char)(12 + d);
+		short fd = (short)(d + 1 < 4 ? d + 1 : 3);
 
 		if (cell_blocked(cx, cy, lf))
 			fill_wall_trap(px, pitch, sw, sh,
 			               (short)(vcx - hw[d]), (short)(vcx - hw[d + 1]),
-			               hh[d], hh[d + 1], vcy, side);
+			               hh[d], hh[d + 1], vcy, m, b, fg, bg);
 		if (cell_blocked(cx, cy, rf))
 			fill_wall_trap(px, pitch, sw, sh,
 			               (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
-			               hh[d], hh[d + 1], vcy, side);
+			               hh[d], hh[d + 1], vcy, m, b, fg, bg);
 		if (cell_blocked(cx, cy, f)) {
-			for (x = (short)(vcx - hw[d + 1]); x <= vcx + hw[d + 1]; x++)
-				for (y = (short)(vcy - hh[d + 1]); y <= vcy + hh[d + 1]; y++)
-					map_px(px, pitch, sw, sh, x, y, front);
-			break;                       /* wall ahead — can't see past */
+			short xl = (short)(vcx - hw[d + 1]), xr = (short)(vcx + hw[d + 1]);
+			short yt = (short)(vcy - hh[d + 1]), yb = (short)(vcy + hh[d + 1]);
+			short fw = (short)(xr - xl), fh = (short)(yb - yt);
+			unsigned char ffg = (unsigned char)(8 + fd);
+			unsigned char fbg = (unsigned char)(12 + fd);
+
+			if (fw < 1) fw = 1;
+			if (fh < 1) fh = 1;
+			for (x = xl; x <= xr; x++) {
+				short u = (short)(((long)(x - xl) * 32) / fw);
+				for (y = yt; y <= yb; y++) {
+					short v = (short)(((long)(y - yt) * 32) / fh);
+					map_px(px, pitch, sw, sh, x, y,
+					       tile_bit(m, b, u, v) ? ffg : fbg);
+				}
+			}
+			break;
 		}
 	}
 }
@@ -5952,6 +6000,9 @@ static void draw_map_tiles(long tvbase, unsigned char *px,
 void port_play_demo(void)
 {
 	static unsigned char tv[2048];
+	static unsigned char dc[20480];
+	unsigned char wall_metric[8];
+	const unsigned char *wall_bmp = NULL;
 	unsigned char *px;
 	short pitch, sw, sh, refnum = 0, i, show_map = 0;
 	long tvbase, count;
@@ -5966,6 +6017,26 @@ void port_play_demo(void)
 	tvbase = (long)(uintptr_t)tv;
 	if (l37aa(tvbase, 0) == 0)
 		return;
+
+	/* Load the dungeon wall set (DUNGCOM.TLB) and grab one 32x32 1bpp
+	 * wall tile to texture the 3D view. DUNGCOM is a GLIB-of-GLIBs:
+	 * item 1 is a nested 'TILE' library; its leaf 1 is a wall tile. */
+	refnum = 0;
+	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) == noErr) {
+		long dcbase, nested;
+		count = (long)sizeof dc;
+		(void)FSRead(refnum, &count, dc);
+		(void)FSClose(refnum);
+		dcbase = (long)(uintptr_t)dc;
+		if (l37aa(dcbase, 0) != 0) {
+			nested = l37aa(dcbase, 1);          /* item 1 = nested GLIB */
+			if (nested != 0) {
+				long lb = l2856(nested, 1, wall_metric); /* leaf 1 */
+				if (lb != 0)
+					wall_bmp = (const unsigned char *)(uintptr_t)lb;
+			}
+		}
+	}
 
 	pl = (unsigned char *)g_a5_28006;
 	if (pl != NULL)
@@ -6012,7 +6083,7 @@ void port_play_demo(void)
 			draw_party(px, pitch, sw, sh, (short)g_a5_12288,
 			           (short)g_a5_12287, (short)g_a5_12286);
 		} else {
-			render_3d_view(px, pitch, sw, sh);
+			render_3d_view(px, pitch, sw, sh, wall_metric, wall_bmp);
 		}
 		qd_present();
 
