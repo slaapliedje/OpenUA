@@ -216,13 +216,26 @@ The complete chain and what each part needs:
 | `jt338` (CODE 8 + 0x5504) | build the wall-slot layout `g_a5_-10472` (8-byte records: screen-x@4 at +8000, width@6, flags@8/10), laid out cumulatively | wall-set descriptors |
 | `JT[342]` (CODE 8 + 0x567c) | screen-region hit-test vs `g_a5_-10472` -> packed wall value | — |
 | `jt332` (CODE 8 + 0x4a16) | resolve the wall graphic **by name** (`JT[394]` sprintf + `JT[423]`) from a wall-set descriptor, then blit | file-cache name lookup; wall-set definition format |
-| `jt995` (CODE 5 + 0x21fc) | the actual bitmap blit | the **deferred** 1bpp shift-blit into the bit-packed 320×200 page (`JT[1181]`/`1184`/`1183`/`1188`) — option A |
+| `jt995` (CODE 5 + 0x21fc) | the actual **scaled** bitmap blit (pixel-walk + the JT[1181] family) | option-A blit foundation (below) — DONE; jt995's own scale loop still to lift |
 
-So a faithful lift is gated on (1) the `jt995` bit-packed-page blit
-machinery (option A — page + masked row primitives + a page->8bpp
-converter), (2) the wall-set definition + file-cache name resolution
-that `jt332` reads, and (3) the slot-layout descriptors `jt338`
-consumes. `render_3d_view`'s option-B texture-mapping already produces
+**Option-A blit foundation — done (`bp_blit_or` / `bp_blit_andnot` /
+`bp_present`).** The JT[1181] family splits into: two writing
+primitives — `JT[1181]` OR/set (`bp_blit_or`) and `JT[1184]` AND-NOT/
+clear (`bp_blit_andnot`), both lifted + Hatari-verified — plus two
+**collision tests** `JT[1183]`/`JT[1188]` (they `andl a3@` to read the
+dest and return a hit flag; they never write — used for combat/move,
+not rendering) and the 2-source composites `JT[1189]`/`JT[1191]`. The
+page is **1bpp** and the wall tiles are 1bpp, so there is **no colour
+blit** — colour is the *pen* applied at conversion (`bp_present`'s
+fg/bg), one colour per wall/depth. `L05dc`/`L05ea` + `g_a5_-3076/-3078/
+-3084` are FRUA's pen-position bookkeeping (dest word addr / sub-word
+shift / row stride); `bp_blit_*` take dx/dy explicitly instead.
+
+So a faithful wall lift is now gated on (1) `jt995`'s own **scale**
+loop (it scales a 32x32 tile to each perspective slot's size before
+the shift-blit), (2) the wall-set definition + file-cache name
+resolution that `jt332` reads, and (3) the slot-layout descriptors
+`jt338` consumes. `render_3d_view`'s option-B texture-mapping already produces
 the *result* (32x32 DUNGCOM tiles on the perspective walls); the
 remaining gap to FRUA-exact is this whole chain, and `pick_wall`'s
 code-nibble selection stands in for the wall-set tile map until it
