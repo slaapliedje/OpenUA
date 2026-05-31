@@ -71,4 +71,11 @@ void port_play_demo(void);
  */
 void port_blit_demo(void);
 
+/*
+ * Drive jt200 (JT[200]) — the per-slot wall-tile selector — against the
+ * real DUNGCOM wall set: prove the faithful (wall code -> group/position
+ * -> tile index -> 1:1 blit) path draws real pre-rendered wall art.
+ */
+void port_wall_demo(void);
+
 #endif /* ENGINE_BOOT_H */
