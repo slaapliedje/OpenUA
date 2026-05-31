@@ -5801,6 +5801,97 @@ static void draw_party(unsigned char *px, short pitch, short sw, short sh,
 		       (short)(cy + dir_dy[f & 7] * i), 3);
 }
 
+/* cell_blocked — does the edge of cell (x,y) in direction `f` carry a
+ * wall to DRAW (or is it the map boundary)? Uses the whole edge byte
+ * t[(f&6)>>1] != 0: any non-zero edge has a wall graphic (a 0xe_/0xf_
+ * texture or a special-art door), even an 0xf0 archway whose movement
+ * nibble is 0 (passable) — the view shows it, movement walks through.
+ * Off-map reads as a wall so the corridor is enclosed. */
+static int cell_blocked(short x, short y, short f)
+{
+	const unsigned char *ds =
+		(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	const unsigned char *t;
+	short w, h;
+
+	if (ds == NULL)
+		return 1;
+	w = (unsigned char)ds[2];
+	h = (unsigned char)ds[3];
+	if (x < 0 || x >= w || y < 0 || y >= h)
+		return 1;
+	t = ds + 290 + ((long)x * h + y) * 6;
+	return t[(f & 6) >> 1] != 0;
+}
+
+/* fill_wall_trap — fill a side-wall trapezoid: a vertical face whose
+ * half-height is `hNear` at screen column `xNear` and `hFar` at
+ * `xFar` (linearly interpolated), centred on `vcy`, in colour `c`. */
+static void fill_wall_trap(unsigned char *px, short pitch, short sw, short sh,
+                           short xNear, short xFar, short hNear, short hFar,
+                           short vcy, unsigned char c)
+{
+	short lo = xNear < xFar ? xNear : xFar;
+	short hi = xNear < xFar ? xFar : xNear;
+	short denom = (short)(xFar - xNear);
+	short x, y;
+
+	if (denom == 0)
+		denom = 1;
+	for (x = lo; x <= hi; x++) {
+		long frac = ((long)(x - xNear) * 256) / denom;     /* 0..256 */
+		short ht = (short)(hNear + (((long)(hFar - hNear) * frac) >> 8));
+		short y0 = (short)(vcy - ht), y1 = (short)(vcy + ht);
+		for (y = y0; y <= y1; y++)
+			map_px(px, pitch, sw, sh, x, y, c);
+	}
+}
+
+/* render_3d_view — a flat-shaded first-person corridor view from the
+ * party's (x,y,facing). Walks forward through depth slices; at each
+ * depth draws the left/right side walls as perspective trapezoids and
+ * the front wall (stopping the walk) as a far rectangle, over a
+ * ceiling/floor split. Geometry-faithful (the cells the engine's
+ * JT[201/202] queries cover); textures (the wall-set art) are a later
+ * layer. Viewport ~220x150 centred at (118,83). */
+static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
+{
+	static const short hw[5] = { 110, 68, 42, 26, 16 };
+	static const short hh[5] = {  74, 46, 28, 17, 11 };
+	const short vcx = 118, vcy = 83;
+	short f  = (short)(g_a5_12286 & 7);
+	short lf = (short)((f + 6) & 7);
+	short rf = (short)((f + 2) & 7);
+	short x, y, d;
+
+	/* ceiling (top) + floor (bottom) of the front opening */
+	for (y = (short)(vcy - hh[0]); y <= vcy + hh[0]; y++)
+		for (x = (short)(vcx - hw[0]); x <= vcx + hw[0]; x++)
+			map_px(px, pitch, sw, sh, x, y, (y < vcy) ? 4 : 5);
+
+	for (d = 0; d < 4; d++) {
+		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
+		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
+		unsigned char side = (unsigned char)(8 + d);
+		unsigned char front = (unsigned char)(12 + d);
+
+		if (cell_blocked(cx, cy, lf))
+			fill_wall_trap(px, pitch, sw, sh,
+			               (short)(vcx - hw[d]), (short)(vcx - hw[d + 1]),
+			               hh[d], hh[d + 1], vcy, side);
+		if (cell_blocked(cx, cy, rf))
+			fill_wall_trap(px, pitch, sw, sh,
+			               (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
+			               hh[d], hh[d + 1], vcy, side);
+		if (cell_blocked(cx, cy, f)) {
+			for (x = (short)(vcx - hw[d + 1]); x <= vcx + hw[d + 1]; x++)
+				for (y = (short)(vcy - hh[d + 1]); y <= vcy + hh[d + 1]; y++)
+					map_px(px, pitch, sw, sh, x, y, front);
+			break;                       /* wall ahead — can't see past */
+		}
+	}
+}
+
 /* draw_map_tiles — render the currently-loaded design-state map as
  * TOPVIEW automap tiles (shared with port_render_geo_tiles, edge
  * order [N,E,S,W] per JT[202]). `tvbase` is a loaded TOPVIEW GLIB. */
@@ -5862,10 +5953,10 @@ void port_play_demo(void)
 {
 	static unsigned char tv[2048];
 	unsigned char *px;
-	short pitch, sw, sh, refnum = 0;
+	short pitch, sw, sh, refnum = 0, i, show_map = 0;
 	long tvbase, count;
 	unsigned char *pl;
-	RGBColor c4[4];
+	RGBColor c4[16];
 
 	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
 		return;
@@ -5883,15 +5974,32 @@ void port_play_demo(void)
 	g_a5_18878 = 1;
 	g_a5_18488 = 0;
 	l0bbc();                          /* load level 1 + place the party */
-	g_a5_12286 = (unsigned char)(g_a5_12286 & 6);   /* face a cardinal */
+	/* the level's HDR start (g_a5_-18488 unknown) lands in open space;
+	 * for the demo drop the party into a known E-W corridor facing E
+	 * so the 3D view shows side walls receding. */
+	g_a5_12288 = 2;                   /* x */
+	g_a5_12287 = 13;                  /* y */
+	g_a5_12286 = 2;                   /* facing E */
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
 		return;
-	c4[0].red = c4[0].green = c4[0].blue = 0;                  /* black  */
-	c4[1].red = c4[1].green = c4[1].blue = 0xffff;             /* walls  */
-	c4[2].red = 0xffff; c4[2].green = 0xd000; c4[2].blue = 0;  /* door   */
-	c4[3].red = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party */
-	qd_set_palette(c4, 0, 4);
+	/* shared CLUT: 0..3 automap, 4 ceiling, 5 floor, 8..11 side-wall
+	 * shades (near->far), 12..15 front-wall shades. */
+	for (i = 0; i < 16; i++)
+		c4[i].red = c4[i].green = c4[i].blue = 0;
+	c4[1].red  = c4[1].green = c4[1].blue = 0xffff;            /* automap walls */
+	c4[2].red  = 0xffff; c4[2].green = 0xd000; c4[2].blue = 0; /* automap door  */
+	c4[3].red  = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party    */
+	c4[4].red  = 0x1000; c4[4].green = 0x1800; c4[4].blue = 0x3000; /* ceiling  */
+	c4[5].red  = 0x3000; c4[5].green = 0x2400; c4[5].blue = 0x1800; /* floor    */
+	for (i = 0; i < 4; i++) {
+		unsigned short v = (unsigned short)(0xe000 - i * 0x3000); /* near->far */
+		c4[8 + i].red = c4[8 + i].green = c4[8 + i].blue = v;     /* side  */
+		c4[12 + i].red = (unsigned short)(v * 3 / 4);
+		c4[12 + i].green = (unsigned short)(v * 3 / 4);
+		c4[12 + i].blue = v;                                     /* front (bluer) */
+	}
+	qd_set_palette(c4, 0, 16);
 
 	for (;;) {
 		unsigned char scan = 0, ascii = 0;
@@ -5899,9 +6007,13 @@ void port_play_demo(void)
 
 		for (y = 0; y < sh; y++)
 			memset(px + (long)y * pitch, 0, (size_t)sw);
-		draw_map_tiles(tvbase, px, pitch, sw, sh);
-		draw_party(px, pitch, sw, sh, (short)g_a5_12288,
-		           (short)g_a5_12287, (short)g_a5_12286);
+		if (show_map) {
+			draw_map_tiles(tvbase, px, pitch, sw, sh);
+			draw_party(px, pitch, sw, sh, (short)g_a5_12288,
+			           (short)g_a5_12287, (short)g_a5_12286);
+		} else {
+			render_3d_view(px, pitch, sw, sh);
+		}
 		qd_present();
 
 		while (!plat_kb_poll(&scan, &ascii))
@@ -5913,6 +6025,7 @@ void port_play_demo(void)
 		case 'd': case 'D': party_step(1); break;
 		case 'w': case 'W': party_step(2); break;
 		case 's': case 'S': party_step(3); break;
+		case 'm': case 'M': show_map = (short)!show_map; break;
 		default: break;
 		}
 	}
