@@ -6992,39 +6992,29 @@ static short geo_hdr_word(const unsigned char *ds)
 
 /* ctile_blit — decode and blit one of FRUA's COLOUR tiles (the mode-1
  * "C"-file art: CBODY paperdolls, COMSPR combat sprites, CPIC creatures)
- * straight to the 8-bit screen. The glyph metric's bpp_w byte gives the
- * depth (4 => 4bpp/16-colour, 8 => 8bpp/256-colour); the row stride is
- * 2*bpp_w bytes and the tile is 16 px wide (32 px at 4bpp = 8 bytes/row).
- * Pixels are clut-129 palette indices; the per-depth background index
- * (15 @4bpp / 255 @8bpp) is treated as transparent. Scaled by `scale`. */
+ * straight to the 8-bit screen. Faithful to the lifted colour row-blit
+ * (L2970 -> JT[1165]/JT[1202]/the 0x710 colour-key variant): the source
+ * is 8bpp (one byte = one clut-129 palette index), copied a byte per
+ * pixel with a colour-key index (255) treated as transparent. The row
+ * stride is 2*bpp_w bytes (= the pixel width at 8bpp). Scaled by `scale`. */
 static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
                        short x, short y, const unsigned char *metric,
                        const unsigned char *body, short scale)
 {
 	short h      = (short)(((unsigned short)metric[0] << 8) | metric[1]);
 	short bppw   = (short)metric[6];
-	short stride = (short)(2 * bppw);
-	short w      = (bppw >= 8) ? stride : (short)(stride * 2);
+	short stride = (short)(2 * bppw);        /* bytes/row = pixel width @8bpp */
 	short row, col, dx, dy;
 
 	if (h <= 0 || bppw <= 0)
 		return;
 	for (row = 0; row < h; row++) {
 		const unsigned char *r = body + (long)row * stride;
-		for (col = 0; col < w; col++) {
-			unsigned char idx;
+		for (col = 0; col < stride; col++) {
+			unsigned char idx = r[col];
 
-			if (bppw >= 8)
-				idx = r[col];
-			else {
-				unsigned char v = r[col >> 1];
-				idx = (col & 1) ? (unsigned char)(v & 15)
-				                : (unsigned char)(v >> 4);
-			}
-			/* draw every pixel (the tiles carry their own
-			 * background); in-game compositing would treat the
-			 * border index as transparent, but for the showcase
-			 * the full tile reads clearest. */
+			if (idx == 255)                  /* colour-key transparent */
+				continue;
 			for (dy = 0; dy < scale; dy++)
 				for (dx = 0; dx < scale; dx++) {
 					short sx = (short)(x + col * scale + dx);
@@ -7067,7 +7057,7 @@ static short sprite_row(unsigned char *buf, long buflen,
 		bppw = (short)metric[6];
 		if (h <= 0 || bppw <= 0 || (metric[7] & 0x0f) != 1)
 			continue;                    /* not a mode-1 colour tile */
-		w = (bppw >= 8) ? (short)(2 * bppw) : (short)(4 * bppw);
+		w = (short)(2 * bppw);           /* 8bpp pixel width = row stride */
 		if (xx + w * scale > sw)
 			break;
 		ctile_blit(px, pitch, sw, sh, xx, ytop, metric,
