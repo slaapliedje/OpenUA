@@ -6105,6 +6105,47 @@ static void bp_blit_or(unsigned char *page, short dx, short dy,
 	}
 }
 
+/* bp_blit_andnot — lift of JT[1184] (CODE 4 + 0xd7c), the AND-NOT /
+ * clear primitive: like bp_blit_or but the source word is inverted
+ * (notw), windowed, inverted again (notl), and AND'd into the dest
+ * (*dest &= ~win) — the mask/clear pass that pairs with bp_blit_or to
+ * composite a 1bpp sprite (clear the footprint, then OR the data). */
+static void bp_blit_andnot(unsigned char *page, short dx, short dy,
+                           const unsigned char *src, short src_stride,
+                           short nwords, short h, unsigned short lmask,
+                           unsigned short rmask)
+{
+	short shift = (short)(dx & 15);
+	long  byteoff = (long)(dx >> 4) * 2;
+	short r, w;
+
+	for (r = 0; r < h; r++) {
+		unsigned char       *d = page + (long)(dy + r) * BP_STRIDE + byteoff;
+		const unsigned char *s = src + (long)r * src_stride;
+
+		for (w = 0; w < nwords; w++) {
+			unsigned short inv = (unsigned short)(~(((unsigned short)s[w * 2] << 8)
+			                                       | s[w * 2 + 1]));
+			unsigned char *p;
+			unsigned long  win, cur;
+
+			if (w == 0)
+				inv &= lmask;
+			if (w == nwords - 1)
+				inv &= rmask;
+			win = ((unsigned long)inv << 16) >> shift;
+			p   = d + (long)w * 2;
+			cur = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
+			    | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
+			cur &= ~win;
+			p[0] = (unsigned char)(cur >> 24);
+			p[1] = (unsigned char)(cur >> 16);
+			p[2] = (unsigned char)(cur >> 8);
+			p[3] = (unsigned char)cur;
+		}
+	}
+}
+
 /* bp_present — expand the 1bpp bit-packed page to the 8-bit shim
  * buffer: each set bit -> fg, clear -> bg. */
 static void bp_present(const unsigned char *page, unsigned char *px,
@@ -6155,16 +6196,30 @@ void port_blit_demo(void)
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
 		return;
 
-	for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
-		page[i] = 0;
-	/* blit the tile at 16 sub-word x offsets across two rows so the
-	 * shift path (0..15) is all exercised. metric[6]=bpp_w=4 -> 2 words. */
-	for (i = 0; i < 16; i++) {
-		short dx = (short)(8 + i * 30);
-		short dy = (short)(20 + (i & 1) * 80);
-		bp_blit_or(page, dx, dy, src, (short)metric[6], 2,
-		           (short)(((unsigned short)metric[0] << 8) | metric[1]),
-		           0xffff, 0xffff);
+	{
+		short th = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+		short bpp_w = (short)metric[6];
+
+		for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
+			page[i] = 0;
+
+		/* top: OR-blit the tile on black at sub-word x offsets (0..15). */
+		for (i = 0; i < 9; i++)
+			bp_blit_or(page, (short)(8 + i * 34), (short)20,
+			           src, bpp_w, 2, th, 0xffff, 0xffff);
+
+		/* bottom: a solid white band, then AND-NOT the tile into it at
+		 * the same offsets — the cleared pixels carve the tile pattern
+		 * out of the field, verifying the clear primitive. */
+		{
+			short y;
+			for (y = 130; y < 130 + 32; y++)
+				for (i = 0; i < BP_STRIDE; i++)
+					page[(long)y * BP_STRIDE + i] = 0xff;
+		}
+		for (i = 0; i < 9; i++)
+			bp_blit_andnot(page, (short)(8 + i * 34), (short)130,
+			               src, bpp_w, 2, th, 0xffff, 0xffff);
 	}
 
 	c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg black */
