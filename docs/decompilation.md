@@ -161,10 +161,10 @@ ua_main (CODE 6)
             │         + place the party from the start tile
             └─ (CODE 20 play loop, ~4500 lines)             [movement core lifted]
                  ├─ party_step: turn/move + collision        [LIFTED — clean model]
-                 └─ jt952/L-fns -> jt954 (CODE 21)          [NOT lifted]
-                      the first-person VIEW render
-                      └─ jt332 (CODE 8) perspective walls   [skeleton]
-                           via JT[1161] lines + jt995 sprites
+                 └─ first-person 3D VIEW                     [LIFTED — flat-shaded]
+                      render_3d_view (from-scratch perspective)
+                      jt954 (CODE 21) / jt332 (CODE 8)        [textured view: NOT lifted]
+                           wall-set TLB art via jt995 blit
 ```
 
 **Movement loop (working).** The play loop's render-input-move-render
@@ -175,10 +175,19 @@ and reads a key. `party_step` is the movement model distilled from the
 CODE 20 dispatch + `JT[202]`: facing 0..7 (cardinals N=0/E=2/S=4/W=6),
 turn = facing±2 mod 8, forward/back advance one cell when the facing
 edge `t[(f&6)>>1]` is passable (movement nibble 0). Verified the party
-walks a real HEIRS level deterministically and interactively. Still
-ahead: the **3D first-person view** (`jt954` + the perspective wall
-graphics) and **encounters / events**, plus a real **party** so
-"Begin Adventuring" runs without the test scaffold.
+walks a real HEIRS level deterministically and interactively.
+
+**First-person 3D view (working, flat-shaded).** `render_3d_view`
+draws the corridor ahead from the party's (x,y,facing): depth slices
+0..3, side walls as perspective trapezoids, a front wall where the
+way is blocked, over a ceiling/floor split, depth-shaded. It is
+geometry-faithful to FRUA's view (the cells `JT[201]`/`JT[202]`
+cover) but renders flat colours; `port_play_demo` shows it by default
+(`m` toggles the automap). The **textured** view — FRUA's `jt954`
+(CODE 21) compositing wall-set TLB art through the `jt995` perspective
+blit — is the next layer. Still ahead beyond that: **encounters /
+events**, and a real **party** so "Begin Adventuring" runs without
+the test scaffold.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
 "Play the Game / Select a Design / ..."; the party menu `jt918` shows
