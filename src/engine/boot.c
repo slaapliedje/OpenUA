@@ -6550,6 +6550,64 @@ static void jt199(unsigned char *page, short Y, short X, short row,
 	jt199_front(page, Y, X, v6, v8, right, +2, -12236, -12216, +1, 2); /* R front */
 }
 
+/* l04d6 (CODE 22 + 0x04d6) — return a map cell's floor/ceiling
+ * decoration byte (cell byte 4, at design_state + cell*6 + 294). */
+static short l04d6(short cell) __attribute__((unused));
+static short l04d6(short cell)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	if (ds == NULL)
+		return 0;
+	return (short)ds[(long)cell * 6 + 294];
+}
+
+/* jt312 (JT[312], CODE 22 + 0x23ee) — the dungeon-view render, the
+ * play-loop site that drives jt199. Structural lift (level 2) of the
+ * 3D-dungeon path: it computes the party cell, then in the deep display
+ * mode (jt1200()==3) runs the view passes — page/palette setup, the
+ * view clip rect, a background fill, a backdrop sprite — and finally
+ * jt199 for the walls, then a present.
+ *
+ * The cosmetic passes (JT[131]/JT[80]/JT[108] page setup, JT[1173] clip
+ * rect, JT[219] view clear, JT[1193], JT[1001] background fill, JT[118]
+ * backdrop, JT[117] present) operate on the engine's GrafPort / page
+ * descriptor; our jt199 writes an explicit bit-packed `page`. Unifying
+ * those two surfaces (so the background, walls, and overlays composite
+ * together) is the remaining integration work — along with the CODE 21
+ * view-init that seeds the deep-mode view-state (the -27862 direction
+ * struct + the slot-layout globals). Hence the passes are noted but not
+ * yet wired to `page`; jt199 is called with the faithful arguments the
+ * Mac uses. The non-deep (JT[221]) and wilderness branches, and the
+ * position/compass overlays (L2806/L265e), are deferred TODOs. */
+static void jt312(unsigned char *page) __attribute__((unused));
+static void jt312(unsigned char *page)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short row, col, facing, cell;
+
+	if (ds == NULL)
+		return;
+	row    = (short)(signed char)g_a5_byte(-12288);
+	col    = (short)(signed char)g_a5_byte(-12287);
+	facing = (short)(g_a5_byte(-12286) & 7);
+	cell   = (short)((long)col * ds[3] + row);     /* party cell index */
+
+	if (jt1200() == 3) {                            /* deep dungeon view */
+		g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
+		/* TODO: page/palette setup JT[131](0); JT[80](0); JT[108](1);
+		 *       JT[1173] reset; JT[219](); JT[1193]();
+		 *       view clip JT[1173](8007,8000,8067,8160);
+		 *       background JT[1001](16,8000,1,9); JT[1193]();
+		 *       backdrop  JT[118](8,24,1,0,g_a5_-22222);
+		 * — all on the engine page; to be unified with `page`. */
+		jt199(page, (short)8012, (short)8016, row, col, facing);
+		/* TODO: JT[117]() present. */
+	}
+	/* TODO: non-deep JT[221] view, wilderness branch, L2806/L265e
+	 * position + compass overlays. */
+}
+
 /* port_view_demo — drive jt199, the first-person frustum walker, over
  * the real loaded design's GEO map. Seeds the DUNGCOM wall-set handle,
  * logs the runtime view state (the slot-layout DATA globals, the map
@@ -6579,12 +6637,16 @@ void port_view_demo(void)
 
 	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 
-	/* The direction-delta tables (g_a5_-27862 drow / -27853 dcol) are
-	 * runtime-initialised by the play loop when the dungeon view is
-	 * entered; at this boot-time demo point they're still zero, so the
-	 * frustum walk can't step. Seed the standard cardinal deltas (dir
-	 * 0=N,2=E,4=S,6=W over the column-major map) as a documented
-	 * stand-in so jt199's geometry can be exercised here. */
+	/* The dungeon view's runtime state is normally established by the
+	 * CODE 21 view-init when a module is entered; at this boot-time demo
+	 * point it's absent, so seed enough to exercise the jt312 -> jt199
+	 * path: engage deep display mode (g_a5_2347 = 0 -> jt1200()==3), seed
+	 * the standard cardinal direction deltas into the -27862 view-state
+	 * struct, and place the party near the column-0 wall run (row 5,
+	 * col 3, facing 6 = west). A faithful on-screen view still needs the
+	 * real CODE 21 view-init (the live layout globals) and the page
+	 * passes unified with `page` — see jt312. */
+	g_a5_2347 = 0;
 	{
 		static const signed char dr[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
 		static const signed char dc[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
@@ -6594,13 +6656,14 @@ void port_view_demo(void)
 			g_a5_byte(-27853 + k) = (unsigned char)dc[k];
 		}
 	}
+	g_a5_byte(-12288) = 5;          /* party row */
+	g_a5_byte(-12287) = 3;          /* party col */
+	g_a5_byte(-12286) = 6;          /* facing west */
 
 	for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
 		page[i] = 0;
-	/* stand near the column-0 wall run (rows 0..8) and face west into
-	 * it: party at (row 5, col 3), facing 6 (W). */
 	if (ds)
-		jt199(page, (short)160, (short)100, (short)5, (short)3, (short)6);
+		jt312(page);
 
 	c2[0].red = c2[0].green = c2[0].blue = 0;
 	c2[1].red = c2[1].green = c2[1].blue = 0xffff;
