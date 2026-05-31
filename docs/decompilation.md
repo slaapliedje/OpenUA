@@ -186,14 +186,19 @@ geometry-faithful to FRUA's view (the cells `JT[201]`/`JT[202]`
 cover); `port_play_demo` shows it by default (`m` toggles the
 automap). The walls are **textured** with a real 32x32 1bpp tile from
 the dungeon wall set: `DUNGCOM.TLB` is a GLIB-of-GLIBs (item 1 = a
-nested `TILE` library of wall tiles), reached with `L37aa`/`L2856`;
-`tile_bit` samples it and `fill_wall_trap` / `render_3d_view`
-texture-map it across the perspective faces, depth-shaded. The
-mapping is affine (not yet perspective-correct) and the tile is fixed
-— per-wall tile selection from the design's wall set, and the
-faithful `jt954`/`jt332` pre-rendered-piece blit, are the next
-layers. Still ahead: **encounters / events**, and a real **party** so
-"Begin Adventuring" runs without the test scaffold.
+nested `TILE` library of 32x32 1bpp wall tiles), reached with
+`L37aa`/`L2856`. `port_play_demo` loads the tiles into a table;
+`render_3d_view` reads each wall's edge byte (`cell_edge`) and picks a
+tile by its code (`pick_wall`), so wall/door types texture
+differently. `fill_wall_trap` texture-maps the tile across the
+side-wall trapezoids **perspective-correctly** (horizontal texcoord
+proportional to 1/depth; front faces stay affine), depth-shaded. The
+remaining gap to FRUA's exact look is its `jt954`/`jt332` renderer
+compositing *pre-rendered* perspective wall pieces through the
+`jt995` blit (vs our texture-mapping), and the design's real
+wall-set -> tile assignment. Still ahead: **encounters / events**,
+and a real **party** so "Begin Adventuring" runs without the test
+scaffold.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
 "Play the Game / Select a Design / ..."; the party menu `jt918` shows
