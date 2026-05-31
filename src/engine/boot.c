@@ -6955,14 +6955,21 @@ void port_play_demo(void)
 	c4[1].red  = c4[1].green = c4[1].blue = 0xffff;            /* automap walls */
 	c4[2].red  = 0xffff; c4[2].green = 0xd000; c4[2].blue = 0; /* automap door  */
 	c4[3].red  = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party    */
-	c4[4].red  = 0x1000; c4[4].green = 0x1800; c4[4].blue = 0x3000; /* ceiling  */
-	c4[5].red  = 0x3000; c4[5].green = 0x2400; c4[5].blue = 0x1800; /* floor    */
+	c4[4].red  = 0x0c00; c4[4].green = 0x0900; c4[4].blue = 0x0600; /* ceiling (dark warm) */
+	c4[5].red  = 0x7000; c4[5].green = 0x5400; c4[5].blue = 0x3200; /* floor (cobble brown) */
+	/* Brown stone ramp: near bright -> far dark (the tunnel goes black at
+	 * the vanishing point). 8..11 = lit stone (set bits / fg), 12..15 =
+	 * mortar / shadow (clear bits / bg, darker). RGB ~ (1.0, 0.72, 0.42)
+	 * of the per-depth brightness for a warm stone tone. */
 	for (i = 0; i < 4; i++) {
-		unsigned short v = (unsigned short)(0xe000 - i * 0x3000); /* near->far */
-		c4[8 + i].red = c4[8 + i].green = c4[8 + i].blue = v;     /* side  */
-		c4[12 + i].red = (unsigned short)(v * 3 / 4);
-		c4[12 + i].green = (unsigned short)(v * 3 / 4);
-		c4[12 + i].blue = v;                                     /* front (bluer) */
+		unsigned short b = (unsigned short)(0xe800 - i * 0x3600); /* near->far */
+		unsigned short m = (unsigned short)((long)b * 42 / 100);  /* mortar */
+		c4[8 + i].red   = b;
+		c4[8 + i].green = (unsigned short)(((long)b * 184) >> 8);
+		c4[8 + i].blue  = (unsigned short)(((long)b * 108) >> 8);
+		c4[12 + i].red   = m;
+		c4[12 + i].green = (unsigned short)(((long)m * 184) >> 8);
+		c4[12 + i].blue  = (unsigned short)(((long)m * 108) >> 8);
 	}
 	qd_set_palette(c4, 0, 16);
 
