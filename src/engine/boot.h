@@ -49,4 +49,12 @@ void port_render_geo_contact(void);
  */
 void port_render_topview(void);
 
+/*
+ * Draw the loaded GEO map with real TOPVIEW tiles: each cell is
+ * rendered as the automap tile for its wall combination
+ * (tile 1 + N|E|S|W mask) — the GEO map as the game's own top-down
+ * view instead of coloured cells.
+ */
+void port_render_geo_tiles(void);
+
 #endif /* ENGINE_BOOT_H */
