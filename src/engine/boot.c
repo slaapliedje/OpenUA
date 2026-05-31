@@ -5431,17 +5431,19 @@ void port_render_geo_map(void)
  * it draws chunky pixels at the shim's depth instead. */
 static void blit_glyph_1bpp(unsigned char *px, short pitch, short sw, short sh,
                             const unsigned char *metric, const unsigned char *bmp,
-                            short x0, short y0, unsigned char pen, short scale)
+                            short x0, short y0, unsigned char pen, short scale,
+                            short plane)
 {
 	short height = (short)(((unsigned short)metric[0] << 8) | metric[1]);
 	short bpp_w  = metric[6];
 	short row, byte, bit, sx, sy;
+	const unsigned char *src = bmp + (long)plane * height * bpp_w;
 
 	if (scale < 1)
 		scale = 1;
 	for (row = 0; row < height; row++) {
 		for (byte = 0; byte < bpp_w; byte++) {
-			unsigned char bits = bmp[row * bpp_w + byte];
+			unsigned char bits = src[row * bpp_w + byte];
 			for (bit = 0; bit < 8; bit++) {
 				short col = (short)(byte * 8 + bit);
 				if (!(bits & (0x80 >> bit)))
@@ -5501,7 +5503,7 @@ void port_render_topview(void)
 		oy = (short)((slot / 8) * 38 + 8);
 		blit_glyph_1bpp(px, pitch, sw, sh, metric,
 		                (const unsigned char *)(uintptr_t)bmp,
-		                ox, oy, 1, 2);          /* 2x scale */
+		                ox, oy, 1, 2, 0);       /* 2x scale, plane 0 */
 		slot++;
 	}
 #ifdef FRUA_ENGINE_PROBE
@@ -5527,7 +5529,7 @@ void port_render_geo_tiles(void)
 	short pitch, sw, sh, w, h, x, y, refnum = 0;
 	const unsigned char *ds, *map;
 	long tvbase, count;
-	RGBColor c[2];
+	RGBColor c3[3];
 
 	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
 		return;
@@ -5550,24 +5552,48 @@ void port_render_geo_tiles(void)
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
 		return;
-	c[0].red = c[0].green = c[0].blue = 0;       /* 0 black */
-	c[1].red = c[1].green = c[1].blue = 0xffff;  /* 1 white */
-	qd_set_palette(c, 0, 2);
+	c3[0].red = c3[0].green = c3[0].blue = 0;          /* 0 black  */
+	c3[1].red = c3[1].green = c3[1].blue = 0xffff;     /* 1 white walls */
+	c3[2].red = 0xffff; c3[2].green = 0xd000; c3[2].blue = 0; /* 2 door amber */
+	qd_set_palette(c3, 0, 3);
 	for (y = 0; y < sh; y++)
 		memset(px + (long)y * pitch, 0, (size_t)sw);
 
+	/* door edge -> directional TOPVIEW door tile (arrow points to the
+	 * door): N=17, S=19, W=18, E=20 (plane 1 = the arrow). */
 	for (y = 0; y < h; y++) {
 		for (x = 0; x < w; x++) {
 			const unsigned char *t = map + ((long)y * w + x) * 6;
-			short mask = (short)((t[0] ? 1 : 0) | (t[2] ? 2 : 0)
-			                   | (t[1] ? 4 : 0) | (t[3] ? 8 : 0));
+			short px0 = (short)(x * 16), py0 = (short)(y * 16);
+			/* solid walls only (edge bit 7 set) form the outline */
+			short mask = (short)(((t[0] & 0x80) ? 1 : 0)
+			                   | ((t[2] & 0x80) ? 2 : 0)
+			                   | ((t[1] & 0x80) ? 4 : 0)
+			                   | ((t[3] & 0x80) ? 8 : 0));
 			long bmp = l2856(tvbase, (short)(1 + mask), metric);
+			short e, door_tile[4];
 
-			if (bmp == 0)
-				continue;
-			blit_glyph_1bpp(px, pitch, sw, sh, metric,
-			                (const unsigned char *)(uintptr_t)bmp,
-			                (short)(x * 16), (short)(y * 16), 1, 1);
+			if (bmp != 0)
+				blit_glyph_1bpp(px, pitch, sw, sh, metric,
+				                (const unsigned char *)(uintptr_t)bmp,
+				                px0, py0, 1, 1, 0);
+
+			/* a door is a non-zero edge with bit 7 clear */
+			door_tile[0] = 17;  /* N */
+			door_tile[1] = 19;  /* S (edge byte t[1]) */
+			door_tile[2] = 20;  /* E (edge byte t[2]) */
+			door_tile[3] = 18;  /* W (edge byte t[3]) */
+			for (e = 0; e < 4; e++) {
+				long db;
+				if (t[e] == 0 || (t[e] & 0x80))
+					continue;          /* no edge, or solid wall */
+				db = l2856(tvbase, door_tile[e], metric);
+				if (db == 0)
+					continue;
+				blit_glyph_1bpp(px, pitch, sw, sh, metric,
+				                (const unsigned char *)(uintptr_t)db,
+				                px0, py0, 2, 1, 1);  /* door colour, plane 1 */
+			}
 		}
 	}
 	qd_present();
