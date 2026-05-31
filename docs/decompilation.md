@@ -519,13 +519,27 @@ computes that mask from each GEO cell's four edge bytes and rasterizes the
 matching tile, so the loaded map renders as the game's own dithered-floor +
 wall-bar top-down view instead of coloured cells (verified on GEO040, all
 441 cells). Glyphs 17..24 (with a 2nd plane = a direction arrow) are the
-door / arrow variants; doors (a non-zero edge with bit 7 clear) are now
-wired to them — solid walls draw the white wall tile, each door edge
-overlays the matching directional door glyph (N=17, S=19, E=20, W=18) in a
-distinct colour, so walls and doors read apart on the automap. The exact
-automap *door-code* semantics (which bit-7-clear values are doors vs open
-passages vs secret doors) aren't lifted yet — the split currently follows
-the confirmed wall/door bit-7 boundary.
+door / arrow variants; doors are wired to them — solid walls draw the
+white wall tile, each special edge overlays the matching directional door
+glyph (N=17, S=19, E=20, W=18) in a distinct colour, so walls and doors
+read apart on the automap.
+
+**Map layout + edge codes, from `JT[202]`.** `JT[202]` (CODE 7 + 0x5e52),
+the runtime wall query, is the authority: the `'MAP '` data is **column-
+major**, stride = height (`ds[3]`) — a tile is at `MAP + (col·h + row)·6`,
+*not* row-major (an earlier renderer was transposed; harmless on square
+maps but wrong). The edge byte splits in two: the **high nibble** is the
+wall art — `0xe_` = a standard wall texture, `0x0_`/`0x3_` = a special edge
+from GEO.GLB's 43-entry code→graphic-set table — and the **low nibble** is
+the per-edge **movement type** `JT[202]` returns for collision, indexing
+the editor's 16-type list (found in the rfork: *Free movement, Movement
+blocked, Open, Open secret, Locked, Locked secret, Locked wizard, Lock wiz
+scrt, Locked key1..8*). The full top-down tile automap is an **editor**
+feature (not in the lifted runtime, ADR-0008); the runtime has `jt954`
+(CODE 21, the movement / first-person view) plus the party-position inset
+(`jt927`/`jt928`). So the exact automap door-*glyph* rule is the editor's,
+unlifted — `port_render_geo_tiles` uses the high-nibble art split (standard
+wall vs special edge) as the visual heuristic, now grounded in `JT[202]`.
 
 ## Lifting to C
 
