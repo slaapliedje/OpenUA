@@ -1466,9 +1466,9 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* real tile art: rasterize the TOPVIEW.TLB
-			 * top-down map tiles via the GLIB glyph blit. */
-			port_render_topview();
+			/* the GEO map drawn with real TOPVIEW automap
+			 * tiles (wall-combination glyphs per cell). */
+			port_render_geo_tiles();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -5507,6 +5507,69 @@ void port_render_topview(void)
 #ifdef FRUA_ENGINE_PROBE
 	dbg_log_num("topview tiles drawn = ", slot);
 #endif
+	qd_present();
+}
+
+/* port_render_geo_tiles — draw the loaded GEO map with REAL tiles.
+ * Each TOPVIEW.TLB glyph 1..16 is the automap cell for one wall
+ * combination: tile (1 + mask), where mask = N|E<<1|S<<2|W<<3 over
+ * the cell's four edge bytes (a wall present on that side). So for
+ * each map cell we compute its wall mask and rasterize the matching
+ * 16x16 tile — the GEO map rendered as the game's own top-down
+ * automap, not coloured cells. (Tile semantics confirmed straight
+ * from the glyph bitmaps: tile 2 = N bar, 3 = E bar, ... 16 = all
+ * four.) The screen is a 20x15-cell viewport; larger maps clip. */
+void port_render_geo_tiles(void)
+{
+	static unsigned char tv[2048];
+	unsigned char metric[8];
+	unsigned char *px;
+	short pitch, sw, sh, w, h, x, y, refnum = 0;
+	const unsigned char *ds, *map;
+	long tvbase, count;
+	RGBColor c[2];
+
+	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
+		return;
+	count = (long)sizeof tv;
+	(void)FSRead(refnum, &count, tv);
+	(void)FSClose(refnum);
+	tvbase = (long)(uintptr_t)tv;
+	if (l37aa(tvbase, 0) == 0)
+		return;
+
+	jt198((short)40);                          /* load a real map */
+	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	if (ds == 0)
+		return;
+	w = (unsigned char)ds[2];
+	h = (unsigned char)ds[3];
+	map = ds + 290;
+	if (w <= 0 || h <= 0 || (long)w * h > 576)
+		return;
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+	c[0].red = c[0].green = c[0].blue = 0;       /* 0 black */
+	c[1].red = c[1].green = c[1].blue = 0xffff;  /* 1 white */
+	qd_set_palette(c, 0, 2);
+	for (y = 0; y < sh; y++)
+		memset(px + (long)y * pitch, 0, (size_t)sw);
+
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			const unsigned char *t = map + ((long)y * w + x) * 6;
+			short mask = (short)((t[0] ? 1 : 0) | (t[2] ? 2 : 0)
+			                   | (t[1] ? 4 : 0) | (t[3] ? 8 : 0));
+			long bmp = l2856(tvbase, (short)(1 + mask), metric);
+
+			if (bmp == 0)
+				continue;
+			blit_glyph_1bpp(px, pitch, sw, sh, metric,
+			                (const unsigned char *)(uintptr_t)bmp,
+			                (short)(x * 16), (short)(y * 16), 1, 1);
+		}
+	}
 	qd_present();
 }
 
