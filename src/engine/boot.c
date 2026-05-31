@@ -5855,23 +5855,34 @@ static void fill_wall_trap(unsigned char *px, short pitch, short sw, short sh,
 	short lo = xNear < xFar ? xNear : xFar;
 	short hi = xNear < xFar ? xFar : xNear;
 	short denom = (short)(xFar - xNear);
+	/* perspective-correct horizontal texcoord: world depth z ~ 1/h,
+	 * so u is linear in 1/h(x), not in screen x (affine). */
+	long invN = hNear > 0 ? 16384L / hNear : 0;
+	long invF = hFar  > 0 ? 16384L / hFar  : 0;
+	long dinv = invF - invN;
 	short x, y;
 
 	if (denom == 0)
 		denom = 1;
+	if (dinv == 0)
+		dinv = 1;
 	for (x = lo; x <= hi; x++) {
 		long  frac = ((long)(x - xNear) * 256) / denom;
 		short ht, y0, y1, span, u, v;
+		long  inv;
 
 		if (frac < 0)
 			frac = -frac;
 		ht   = (short)(hNear + (((long)(hFar - hNear) * frac) >> 8));
+		if (ht < 1)
+			ht = 1;
 		y0   = (short)(vcy - ht);
 		y1   = (short)(vcy + ht);
 		span = (short)(2 * ht);
 		if (span < 1)
 			span = 1;
-		u = (short)((frac * 32) >> 8);
+		inv = 16384L / ht;
+		u   = (short)(((inv - invN) * 32) / dinv);     /* 0 near .. 32 far */
 		for (y = y0; y <= y1; y++) {
 			v = (short)(((long)(y - y0) * 32) / span);
 			map_px(px, pitch, sw, sh, x, y,
@@ -5880,16 +5891,52 @@ static void fill_wall_trap(unsigned char *px, short pitch, short sw, short sh,
 	}
 }
 
+/* The dungeon wall-tile table, filled by port_play_demo from
+ * DUNGCOM.TLB's nested 'TILE' library: one 32x32 1bpp tile per slot. */
+#define WALL_NTILES 16
+static unsigned char        g_wall_metric[WALL_NTILES][8];
+static const unsigned char *g_wall_bmp[WALL_NTILES];
+static short                g_wall_n;
+
+/* cell_edge — the edge byte of cell (x,y) in direction `f` (0 if open;
+ * off-map returns a standard wall code so boundaries are textured). */
+static unsigned char cell_edge(short x, short y, short f)
+{
+	const unsigned char *ds =
+		(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short w, h;
+
+	if (ds == NULL)
+		return 0xe1;
+	w = (unsigned char)ds[2];
+	h = (unsigned char)ds[3];
+	if (x < 0 || x >= w || y < 0 || y >= h)
+		return 0xe1;
+	return ds[290 + ((long)x * h + y) * 6 + ((f & 6) >> 1)];
+}
+
+/* pick_wall — choose a wall tile slot from an edge code: the low
+ * nibble selects the texture, so different wall/door types render
+ * with different DUNGCOM tiles (clamped to what loaded). */
+static short pick_wall(unsigned char code)
+{
+	short i = (short)(code & 0x0f);
+	if (g_wall_n <= 0)
+		return 0;
+	if (i >= g_wall_n || g_wall_bmp[i] == NULL)
+		i = 0;
+	return i;
+}
+
 /* render_3d_view — a textured first-person corridor view from the
- * party's (x,y,facing), using a real FRUA 32x32 1bpp wall tile (m/b).
- * Walks depth slices 0..3; at each depth draws the left/right side
- * walls as textured perspective trapezoids and, where the way is
- * blocked, the textured front face (then stops), over a ceiling/floor
- * split. Geometry-faithful to FRUA's view (the cells JT[201/202]
- * cover); depth-shaded via the per-depth fg/bg colour pair. Viewport
- * ~220x150 centred at (118,83). */
-static void render_3d_view(unsigned char *px, short pitch, short sw, short sh,
-                           const unsigned char *m, const unsigned char *b)
+ * party's (x,y,facing). Walks depth slices 0..3; at each depth draws
+ * the left/right side walls as perspective-correct textured
+ * trapezoids and, where the way is blocked, the textured front face
+ * (then stops), over a ceiling/floor split. Each wall's texture is
+ * selected per-edge (pick_wall) from the wall-tile table, depth-
+ * shaded via the per-depth fg/bg colour pair. Viewport ~220x150
+ * centred at (118,83). */
+static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 {
 	static const short hw[5] = { 110, 68, 42, 26, 16 };
 	static const short hh[5] = {  74, 46, 28, 17, 11 };
@@ -5909,22 +5956,37 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh,
 		unsigned char fg  = (unsigned char)(8 + d);
 		unsigned char bg  = (unsigned char)(12 + d);
 		short fd = (short)(d + 1 < 4 ? d + 1 : 3);
+		unsigned char ec;
+		short ti;
 
-		if (cell_blocked(cx, cy, lf))
+		ec = cell_edge(cx, cy, lf);
+		if (ec) {
+			ti = pick_wall(ec);
 			fill_wall_trap(px, pitch, sw, sh,
 			               (short)(vcx - hw[d]), (short)(vcx - hw[d + 1]),
-			               hh[d], hh[d + 1], vcy, m, b, fg, bg);
-		if (cell_blocked(cx, cy, rf))
+			               hh[d], hh[d + 1], vcy,
+			               g_wall_metric[ti], g_wall_bmp[ti], fg, bg);
+		}
+		ec = cell_edge(cx, cy, rf);
+		if (ec) {
+			ti = pick_wall(ec);
 			fill_wall_trap(px, pitch, sw, sh,
 			               (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
-			               hh[d], hh[d + 1], vcy, m, b, fg, bg);
-		if (cell_blocked(cx, cy, f)) {
+			               hh[d], hh[d + 1], vcy,
+			               g_wall_metric[ti], g_wall_bmp[ti], fg, bg);
+		}
+		ec = cell_edge(cx, cy, f);
+		if (ec) {
 			short xl = (short)(vcx - hw[d + 1]), xr = (short)(vcx + hw[d + 1]);
 			short yt = (short)(vcy - hh[d + 1]), yb = (short)(vcy + hh[d + 1]);
 			short fw = (short)(xr - xl), fh = (short)(yb - yt);
 			unsigned char ffg = (unsigned char)(8 + fd);
 			unsigned char fbg = (unsigned char)(12 + fd);
+			const unsigned char *fm, *fb;
 
+			ti = pick_wall(ec);
+			fm = g_wall_metric[ti];
+			fb = g_wall_bmp[ti];
 			if (fw < 1) fw = 1;
 			if (fh < 1) fh = 1;
 			for (x = xl; x <= xr; x++) {
@@ -5932,7 +5994,7 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh,
 				for (y = yt; y <= yb; y++) {
 					short v = (short)(((long)(y - yt) * 32) / fh);
 					map_px(px, pitch, sw, sh, x, y,
-					       tile_bit(m, b, u, v) ? ffg : fbg);
+					       tile_bit(fm, fb, u, v) ? ffg : fbg);
 				}
 			}
 			break;
@@ -6001,8 +6063,6 @@ void port_play_demo(void)
 {
 	static unsigned char tv[2048];
 	static unsigned char dc[20480];
-	unsigned char wall_metric[8];
-	const unsigned char *wall_bmp = NULL;
 	unsigned char *px;
 	short pitch, sw, sh, refnum = 0, i, show_map = 0;
 	long tvbase, count;
@@ -6018,9 +6078,11 @@ void port_play_demo(void)
 	if (l37aa(tvbase, 0) == 0)
 		return;
 
-	/* Load the dungeon wall set (DUNGCOM.TLB) and grab one 32x32 1bpp
-	 * wall tile to texture the 3D view. DUNGCOM is a GLIB-of-GLIBs:
-	 * item 1 is a nested 'TILE' library; its leaf 1 is a wall tile. */
+	/* Load the dungeon wall set (DUNGCOM.TLB) into the wall-tile
+	 * table: it is a GLIB-of-GLIBs, item 1 a nested 'TILE' library of
+	 * 32x32 1bpp wall tiles. Grab the first WALL_NTILES so the view
+	 * can pick a texture per wall edge. */
+	g_wall_n = 0;
 	refnum = 0;
 	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) == noErr) {
 		long dcbase, nested;
@@ -6028,13 +6090,14 @@ void port_play_demo(void)
 		(void)FSRead(refnum, &count, dc);
 		(void)FSClose(refnum);
 		dcbase = (long)(uintptr_t)dc;
-		if (l37aa(dcbase, 0) != 0) {
-			nested = l37aa(dcbase, 1);          /* item 1 = nested GLIB */
-			if (nested != 0) {
-				long lb = l2856(nested, 1, wall_metric); /* leaf 1 */
-				if (lb != 0)
-					wall_bmp = (const unsigned char *)(uintptr_t)lb;
+		if (l37aa(dcbase, 0) != 0 && (nested = l37aa(dcbase, 1)) != 0) {
+			for (i = 0; i < WALL_NTILES; i++) {
+				/* leaf 0 is the directory; tiles start at leaf 1 */
+				long lb = l2856(nested, (short)(i + 1), g_wall_metric[i]);
+				g_wall_bmp[i] = (lb != 0)
+				              ? (const unsigned char *)(uintptr_t)lb : NULL;
 			}
+			g_wall_n = WALL_NTILES;
 		}
 	}
 
@@ -6047,7 +6110,7 @@ void port_play_demo(void)
 	l0bbc();                          /* load level 1 + place the party */
 	/* the level's HDR start (g_a5_-18488 unknown) lands in open space;
 	 * for the demo drop the party into a known E-W corridor facing E
-	 * so the 3D view shows side walls receding. */
+	 * so the 3D view shows side walls receding in perspective. */
 	g_a5_12288 = 2;                   /* x */
 	g_a5_12287 = 13;                  /* y */
 	g_a5_12286 = 2;                   /* facing E */
@@ -6083,7 +6146,7 @@ void port_play_demo(void)
 			draw_party(px, pitch, sw, sh, (short)g_a5_12288,
 			           (short)g_a5_12287, (short)g_a5_12286);
 		} else {
-			render_3d_view(px, pitch, sw, sh, wall_metric, wall_bmp);
+			render_3d_view(px, pitch, sw, sh);
 		}
 		qd_present();
 
