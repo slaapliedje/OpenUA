@@ -48,6 +48,7 @@
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
 #include "menus.h"            /* MenuKey (L6dd0 keyDown arm)         */
 #include "input.h"            /* plat_kb_poll (port_play_demo)        */
+#include "resources.h"        /* GetResource (clut 129 for colour art) */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -1582,8 +1583,8 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* textured first-person perspective corridor view. */
-			port_play_demo();
+			/* colour-sprite renderer (mode-1 C-file tiles). */
+			port_sprite_demo();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -6987,6 +6988,137 @@ void port_play_demo(void)
 static short geo_hdr_word(const unsigned char *ds)
 {
 	return (short)(((unsigned short)ds[0] << 8) | ds[1]);
+}
+
+/* ctile_blit — decode and blit one of FRUA's COLOUR tiles (the mode-1
+ * "C"-file art: CBODY paperdolls, COMSPR combat sprites, CPIC creatures)
+ * straight to the 8-bit screen. The glyph metric's bpp_w byte gives the
+ * depth (4 => 4bpp/16-colour, 8 => 8bpp/256-colour); the row stride is
+ * 2*bpp_w bytes and the tile is 16 px wide (32 px at 4bpp = 8 bytes/row).
+ * Pixels are clut-129 palette indices; the per-depth background index
+ * (15 @4bpp / 255 @8bpp) is treated as transparent. Scaled by `scale`. */
+static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
+                       short x, short y, const unsigned char *metric,
+                       const unsigned char *body, short scale)
+{
+	short h      = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+	short bppw   = (short)metric[6];
+	short stride = (short)(2 * bppw);
+	short w      = (bppw >= 8) ? stride : (short)(stride * 2);
+	short row, col, dx, dy;
+
+	if (h <= 0 || bppw <= 0)
+		return;
+	for (row = 0; row < h; row++) {
+		const unsigned char *r = body + (long)row * stride;
+		for (col = 0; col < w; col++) {
+			unsigned char idx;
+
+			if (bppw >= 8)
+				idx = r[col];
+			else {
+				unsigned char v = r[col >> 1];
+				idx = (col & 1) ? (unsigned char)(v & 15)
+				                : (unsigned char)(v >> 4);
+			}
+			/* draw every pixel (the tiles carry their own
+			 * background); in-game compositing would treat the
+			 * border index as transparent, but for the showcase
+			 * the full tile reads clearest. */
+			for (dy = 0; dy < scale; dy++)
+				for (dx = 0; dx < scale; dx++) {
+					short sx = (short)(x + col * scale + dx);
+					short sy = (short)(y + row * scale + dy);
+					if (sx >= 0 && sx < sw && sy >= 0 && sy < sh)
+						px[(long)sy * pitch + sx] = idx;
+				}
+		}
+	}
+}
+
+/* sprite_row — load a colour "C"-file tile library and blit a run of its
+ * tiles across one screen row. `buf` is a caller-owned scratch buffer
+ * (the file is read into it). Returns the tile width used so the caller
+ * can stack rows. Tiles are at GLIB items `start..start+n`. */
+static short sprite_row(unsigned char *buf, long buflen,
+                        const char *pname, short start, short n,
+                        unsigned char *px, short pitch, short sw, short sh,
+                        short ytop, short scale)
+{
+	unsigned char metric[8];
+	short refnum = 0, i, xx = 4, tilew = 0;
+	long count, base, lb;
+
+	if (FSOpen((ConstStr255Param)pname, 0, &refnum) != noErr)
+		return 0;
+	count = buflen;
+	(void)FSRead(refnum, &count, buf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)buf;
+	if (l37aa(base, 0) == 0)
+		return 0;
+	for (i = 0; i < n; i++) {
+		short h, bppw, w;
+
+		lb = l2856(base, (short)(start + i), metric);
+		if (lb == 0)
+			continue;
+		h    = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+		bppw = (short)metric[6];
+		if (h <= 0 || bppw <= 0 || (metric[7] & 0x0f) != 1)
+			continue;                    /* not a mode-1 colour tile */
+		w = (bppw >= 8) ? (short)(2 * bppw) : (short)(4 * bppw);
+		if (xx + w * scale > sw)
+			break;
+		ctile_blit(px, pitch, sw, sh, xx, ytop, metric,
+		           (const unsigned char *)(uintptr_t)lb, scale);
+		xx = (short)(xx + w * scale + 2);
+		tilew = w;
+	}
+	return tilew;
+}
+
+/* port_sprite_demo — render FRUA's COLOUR art (mode-1 4bpp/8bpp tiles
+ * from the "C" files) through clut 129: rows of character paperdolls
+ * (CBODY), combat sprites (COMSPR), and creature pictures (CPIC). Proves
+ * the colour-sprite path the B&W dungeon walls don't exercise. */
+void port_sprite_demo(void)
+{
+	static unsigned char buf[120000];
+	unsigned char *px;
+	short pitch, sw, sh, y, i;
+	RGBColor pal[256];
+	Handle ch;
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+
+	/* install clut 129 (the 256-colour game palette) as the screen CLUT */
+	ch = GetResource(0x636C7574L /* 'clut' */, 129);
+	if (ch != NULL && *ch != NULL) {
+		const unsigned char *cd = (const unsigned char *)*ch;
+		for (i = 0; i < 256; i++) {
+			pal[i].red   = (unsigned short)((cd[8 + i * 8 + 2] << 8) | cd[8 + i * 8 + 3]);
+			pal[i].green = (unsigned short)((cd[8 + i * 8 + 4] << 8) | cd[8 + i * 8 + 5]);
+			pal[i].blue  = (unsigned short)((cd[8 + i * 8 + 6] << 8) | cd[8 + i * 8 + 7]);
+		}
+		qd_set_palette(pal, 0, 256);
+	}
+
+	for (y = 0; y < sh; y++)
+		memset(px + (long)y * pitch, 0, (size_t)sw);
+
+	/* tiles start at GLIB item 2 (item 0 = directory, 1 = header) */
+	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB",  2, 14,
+	                 px, pitch, sw, sh, (short)6,   (short)2);
+	(void)sprite_row(buf, (long)sizeof buf, "\012COMSPR.TLB", 2, 14,
+	                 px, pitch, sw, sh, (short)76,  (short)2);
+	(void)sprite_row(buf, (long)sizeof buf, "\010CPIC.TLB",   2, 14,
+	                 px, pitch, sw, sh, (short)146, (short)2);
+
+	qd_present();
+	for (;;)
+		qd_present();
 }
 
 void port_render_geo_contact(void)

@@ -84,4 +84,12 @@ void port_wall_demo(void);
  */
 void port_view_demo(void);
 
+/*
+ * Render FRUA's colour art (the mode-1 4bpp/8bpp "C"-file tiles —
+ * CBODY paperdolls, COMSPR combat sprites, CPIC creatures) through the
+ * game's 256-colour clut 129. The colour-sprite path the 1bpp dungeon
+ * walls don't exercise.
+ */
+void port_sprite_demo(void);
+
 #endif /* ENGINE_BOOT_H */
