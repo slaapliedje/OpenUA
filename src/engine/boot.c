@@ -5912,8 +5912,11 @@ static void fill_wall_trap(unsigned char *px, short pitch, short sw, short sh,
 }
 
 /* The dungeon wall-tile table, filled by port_play_demo from
- * DUNGCOM.TLB's nested 'TILE' library: one 32x32 1bpp tile per slot. */
-#define WALL_NTILES 16
+ * DUNGCOM.TLB's nested 'TILE' library: one 32x32 1bpp tile per slot. The
+ * stone set (sub-library 1) holds 26 perspective pieces (tile 0 is the
+ * directory marker); load the whole set so the slot compositor can reach
+ * the deeper-depth variants (jt200 selects up to idx 23). */
+#define WALL_NTILES 27
 static unsigned char        g_wall_metric[WALL_NTILES][8];
 static const unsigned char *g_wall_bmp[WALL_NTILES];
 static short                g_wall_n;
@@ -5946,6 +5949,132 @@ static short pick_wall(unsigned char code)
 	if (i >= g_wall_n || g_wall_bmp[i] == NULL)
 		i = 0;
 	return i;
+}
+
+/* blit_tile_1to1 — tile a 32x32 1bpp source (metric m / bitmap b) to
+ * fill the screen rect (x0,y0,w,h) at native scale (NO scaling — the
+ * faithful 1:1 blit the dungeon view uses), wrapping the source over
+ * the rect. Set bit -> fg clut index; clear bit -> bg, unless keybg is
+ * non-zero, in which case clear bits are left transparent (the source
+ * overlays whatever is already there — used for the diagonal corner
+ * pieces that slope over floor/ceiling). */
+static void blit_tile_1to1(unsigned char *px, short pitch, short sw, short sh,
+                           short x0, short y0, short w, short h,
+                           const unsigned char *m, const unsigned char *b,
+                           unsigned char fg, unsigned char bg, int keybg)
+{
+	short x, y;
+
+	for (y = 0; y < h; y++)
+		for (x = 0; x < w; x++) {
+			int set = tile_bit(m, b, x, y);
+			if (!set && keybg)
+				continue;
+			map_px(px, pitch, sw, sh,
+			       (short)(x0 + x), (short)(y0 + y),
+			       set ? fg : bg);
+		}
+}
+
+/* fill_band_1to1 — a side-wall band as a sloped trapezoid filled with a
+ * 32x32 stone tile at NATIVE 1:1 scale (the faithful pre-rendered blit,
+ * no texture stretching). The band spans screen columns xa..xb; the
+ * wall half-height lerps ha->hb across it, so its top and bottom edges
+ * slope toward the vanishing point (ceiling/floor already painted
+ * underneath). Source is sampled by absolute screen offset from the
+ * band origin, so the masonry is continuous and unscaled. */
+static void fill_band_1to1(unsigned char *px, short pitch, short sw, short sh,
+                           short xa, short xb, short ha, short hb, short vcy,
+                           const unsigned char *m, const unsigned char *b,
+                           unsigned char fg, unsigned char bg)
+{
+	short lo = xa < xb ? xa : xb;
+	short hi = xa < xb ? xb : xa;
+	short denom = (short)(xb - xa);
+	short x, y;
+
+	if (denom == 0)
+		denom = 1;
+	for (x = lo; x <= hi; x++) {
+		long  frac = ((long)(x - xa) << 8) / denom;
+		short ht   = (short)(ha + (((long)(hb - ha) * frac) >> 8));
+		short y0   = (short)(vcy - ht);
+		short y1   = (short)(vcy + ht);
+		for (y = y0; y <= y1; y++)
+			map_px(px, pitch, sw, sh, x, y,
+			       tile_bit(m, b, (short)(x - lo), (short)(y - y0)) ? fg : bg);
+	}
+}
+
+/* render_3d_assembled — the FAITHFUL slot-assembly first-person view:
+ * the dungeon is built from DUNGCOM's pre-drawn 32x32 stone pieces
+ * blitted 1:1 into EOB-style depth slots (no runtime texture-mapping).
+ *
+ * Wall reads are faithful (cell_edge over the loaded map); tile roles
+ * come from jt200's index math (idx 1 = receding diagonal edge piece,
+ * idx 2 = near side-wall face, idx 3/4 = front faces). The slot
+ * rectangles are hand-computed here (the engine's own coordinate
+ * pipeline — l5b42's 8000-anchor deep-mode remap — needs runtime view
+ * state we don't reconstruct; see the dungeon-render-architecture
+ * note). g_wall_bmp[i] holds DUNGCOM sub-library-1 tile (i+1).
+ *
+ * Geometry: nested square rings at depths 0..3 (ring d spans
+ * [vcx-hw[d], vcx+hw[d]] x [vcy-hh[d], vcy+hh[d]]). A side wall at
+ * depth d fills the band between ring d and ring d+1 with the stone
+ * face tile; the diagonal edge piece is overlaid at the band's top
+ * and bottom corners to slope ceiling/floor toward the vanishing
+ * point. Depth shading via the per-depth fg/bg clut pair (8+d / 12+d).
+ */
+static void render_3d_assembled(unsigned char *px, short pitch, short sw, short sh)
+{
+	static const short hw[5] = { 108, 64, 36, 18, 8 };
+	static const short hh[5] = {  73, 44, 25, 13, 6 };
+	const short vcx = 118, vcy = 83;
+	short f  = (short)(g_a5_12286 & 7);
+	short lf = (short)((f + 6) & 7);
+	short rf = (short)((f + 2) & 7);
+	const unsigned char *em = g_wall_metric[0];   /* idx1: diagonal edge  */
+	const unsigned char *eb = g_wall_bmp[0];
+	const unsigned char *wm = g_wall_metric[1];   /* idx2: near stone face */
+	const unsigned char *wb = g_wall_bmp[1];
+	const unsigned char *frm = g_wall_metric[2];  /* idx3: front face      */
+	const unsigned char *frb = g_wall_bmp[2];
+	short x, y, d;
+
+	if (g_wall_n <= 0)
+		return;
+
+	/* ceiling (clut 4) over floor (clut 5), the full near ring. */
+	for (y = (short)(vcy - hh[0]); y <= vcy + hh[0]; y++)
+		for (x = (short)(vcx - hw[0]); x <= vcx + hw[0]; x++)
+			map_px(px, pitch, sw, sh, x, y, (y < vcy) ? 4 : 5);
+
+	for (d = 0; d < 4; d++) {
+		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
+		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
+		unsigned char fg = (unsigned char)(8 + d);
+		unsigned char bg = (unsigned char)(12 + d);
+		short L0 = (short)(vcx - hw[d]),  L1 = (short)(vcx - hw[d + 1]);
+		short R1 = (short)(vcx + hw[d + 1]), R0 = (short)(vcx + hw[d]);
+		short T1 = (short)(vcy - hh[d + 1]);
+		short bandh = (short)(2 * hh[d + 1]);
+		(void)em; (void)eb;
+
+		/* LEFT / RIGHT side walls: sloped stone trapezoids, the ceiling
+		 * and floor edges converging toward the vanishing point. */
+		if (cell_edge(cx, cy, lf))
+			fill_band_1to1(px, pitch, sw, sh, L0, L1, hh[d], hh[d + 1],
+			               vcy, wm, wb, fg, bg);
+		if (cell_edge(cx, cy, rf))
+			fill_band_1to1(px, pitch, sw, sh, R0, R1, hh[d], hh[d + 1],
+			               vcy, wm, wb, fg, bg);
+		/* FRONT face: blocked ahead — fill the inner opening and stop. */
+		if (cell_edge(cx, cy, f)) {
+			blit_tile_1to1(px, pitch, sw, sh, L1, T1,
+			               (short)(R1 - L1), bandh, frm, frb, fg, bg, 0);
+			break;
+		}
+	}
 }
 
 /* render_3d_view — a textured first-person corridor view from the
@@ -6921,11 +7050,17 @@ void port_play_demo(void)
 				for (sy = 0; sy < mh; sy++)
 					for (sx = 0; sx < mw; sx++) {
 						short cx = sx, cy = sy, score = 0, d;
+						/* count consecutive depths that are a true
+						 * corridor: walls on BOTH sides AND open ahead
+						 * (so it recedes). A straight tunnel like the
+						 * Mac reference scores high; a single wall in
+						 * the face or an open plaza scores 0. */
 						for (d = 0; d < 4; d++) {
-							if (cell_edge(cx, cy, lf) || cell_edge(cx, cy, rf))
-								score++;
+							if (!cell_edge(cx, cy, lf) || !cell_edge(cx, cy, rf))
+								break;        /* not flanked -> not a corridor */
 							if (cell_edge(cx, cy, sf))
-								break;        /* corridor blocked ahead */
+								break;        /* blocked ahead -> stop */
+							score++;
 							cx = (short)(cx + dir_dx[sf]);
 							cy = (short)(cy + dir_dy[sf]);
 						}
@@ -6984,7 +7119,7 @@ void port_play_demo(void)
 			draw_party(px, pitch, sw, sh, (short)g_a5_12288,
 			           (short)g_a5_12287, (short)g_a5_12286);
 		} else {
-			render_3d_view(px, pitch, sw, sh);
+			render_3d_assembled(px, pitch, sw, sh);
 		}
 		qd_present();
 
