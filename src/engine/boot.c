@@ -6027,8 +6027,12 @@ static void fill_band_1to1(unsigned char *px, short pitch, short sw, short sh,
  */
 static void render_3d_assembled(unsigned char *px, short pitch, short sw, short sh)
 {
-	static const short hw[5] = { 108, 64, 36, 18, 8 };
-	static const short hh[5] = {  73, 44, 25, 13, 6 };
+	/* Six depth rings (depths 0..5) tightening to a near-point, so an
+	 * open corridor recedes far into the dark instead of stopping at a
+	 * big inner square. */
+	static const short hw[7] = { 108, 70, 45, 28, 16, 8, 3 };
+	static const short hh[7] = {  73, 47, 30, 19, 11, 5, 2 };
+	const short ndepth = 6;
 	const short vcx = 118, vcy = 83;
 	short f  = (short)(g_a5_12286 & 7);
 	short lf = (short)((f + 6) & 7);
@@ -6049,11 +6053,14 @@ static void render_3d_assembled(unsigned char *px, short pitch, short sw, short 
 		for (x = (short)(vcx - hw[0]); x <= vcx + hw[0]; x++)
 			map_px(px, pitch, sw, sh, x, y, (y < vcy) ? 4 : 5);
 
-	for (d = 0; d < 4; d++) {
+	for (d = 0; d < ndepth; d++) {
 		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
-		unsigned char fg = (unsigned char)(8 + d);
-		unsigned char bg = (unsigned char)(12 + d);
+		/* Depth shading over the 8-step brown ramp at clut 8..15: stone
+		 * face = 8+d (near bright .. far near-black), mortar two steps
+		 * darker. */
+		unsigned char fg = (unsigned char)(8 + (d < 7 ? d : 7));
+		unsigned char bg = (unsigned char)(8 + (d + 2 < 7 ? d + 2 : 7));
 		short L0 = (short)(vcx - hw[d]),  L1 = (short)(vcx - hw[d + 1]);
 		short R1 = (short)(vcx + hw[d + 1]), R0 = (short)(vcx + hw[d]);
 		short T1 = (short)(vcy - hh[d + 1]);
@@ -6068,10 +6075,14 @@ static void render_3d_assembled(unsigned char *px, short pitch, short sw, short 
 		if (cell_edge(cx, cy, rf))
 			fill_band_1to1(px, pitch, sw, sh, R0, R1, hh[d], hh[d + 1],
 			               vcy, wm, wb, fg, bg);
-		/* FRONT face: blocked ahead — fill the inner opening and stop. */
+		/* FRONT face: blocked ahead — fill the inner opening and stop.
+		 * Shade it a step deeper than the side walls at this depth so a
+		 * dead end reads as receding into shadow. */
 		if (cell_edge(cx, cy, f)) {
+			unsigned char ffg = (unsigned char)(8 + (d + 1 < 7 ? d + 1 : 7));
+			unsigned char fbg = (unsigned char)(8 + (d + 3 < 7 ? d + 3 : 7));
 			blit_tile_1to1(px, pitch, sw, sh, L1, T1,
-			               (short)(R1 - L1), bandh, frm, frb, fg, bg, 0);
+			               (short)(R1 - L1), bandh, frm, frb, ffg, fbg, 0);
 			break;
 		}
 	}
@@ -7092,19 +7103,21 @@ void port_play_demo(void)
 	c4[3].red  = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party    */
 	c4[4].red  = 0x0c00; c4[4].green = 0x0900; c4[4].blue = 0x0600; /* ceiling (dark warm) */
 	c4[5].red  = 0x7000; c4[5].green = 0x5400; c4[5].blue = 0x3200; /* floor (cobble brown) */
-	/* Brown stone ramp: near bright -> far dark (the tunnel goes black at
-	 * the vanishing point). 8..11 = lit stone (set bits / fg), 12..15 =
-	 * mortar / shadow (clear bits / bg, darker). RGB ~ (1.0, 0.72, 0.42)
-	 * of the per-depth brightness for a warm stone tone. */
-	for (i = 0; i < 4; i++) {
-		unsigned short b = (unsigned short)(0xe800 - i * 0x3600); /* near->far */
-		unsigned short m = (unsigned short)((long)b * 42 / 100);  /* mortar */
-		c4[8 + i].red   = b;
-		c4[8 + i].green = (unsigned short)(((long)b * 184) >> 8);
-		c4[8 + i].blue  = (unsigned short)(((long)b * 108) >> 8);
-		c4[12 + i].red   = m;
-		c4[12 + i].green = (unsigned short)(((long)m * 184) >> 8);
-		c4[12 + i].blue  = (unsigned short)(((long)m * 108) >> 8);
+	/* Brown stone depth ramp at clut 8..15: eight warm-stone shades from
+	 * bright near (8) falling geometrically to near-black far (15), so
+	 * the corridor recedes into darkness at the vanishing point. The
+	 * slot compositor indexes this by depth (stone face 8+d, mortar two
+	 * steps darker). RGB ~ (1.0, 0.72, 0.42) of brightness for warm tone. */
+	{
+		static const unsigned short ramp[8] = {
+			0xe800, 0xc200, 0x9e00, 0x7c00, 0x5c00, 0x4000, 0x2800, 0x1400
+		};
+		for (i = 0; i < 8; i++) {
+			unsigned short b = ramp[i];
+			c4[8 + i].red   = b;
+			c4[8 + i].green = (unsigned short)(((long)b * 184) >> 8);
+			c4[8 + i].blue  = (unsigned short)(((long)b * 108) >> 8);
+		}
 	}
 	qd_set_palette(c4, 0, 16);
 
