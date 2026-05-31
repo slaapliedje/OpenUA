@@ -1582,8 +1582,8 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* jt995 option-A: bit-packed shift-blit foundation. */
-			port_blit_demo();
+			/* faithful per-slot wall-tile selector (JT[200]). */
+			port_wall_demo();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -6282,6 +6282,76 @@ static void l309c_tile(unsigned char *page, short top, short left,
 	        metric, (const unsigned char *)(uintptr_t)info, 0);
 }
 
+/* jt200_layer — draw one wall-tile layer for jt200. Group 2 is the
+ * DUNGCOM wall set (handle JT[1004] = g_a5_-4582), drawn 1:1 via the
+ * faithful l309c_tile path. The other groups (0/1/3/4) blit through
+ * JT[114] (CODE 6 + 0x3804) with per-group handles from the table
+ * g_a5_-27894[group*4]; those tile libraries aren't loaded yet, so
+ * that arm is a documented TODO. */
+static void jt200_layer(unsigned char *page, short top, short left,
+                        short group, short idx)
+{
+	if (group == 2) {
+		l309c_tile(page, top, left, jt1004_handle(), idx);
+	}
+	/* else: jt114(top, left, idx, 0, g_a5_-27894[group*4]) — needs the
+	 * per-group wall-set tile-lib handle table populated. TODO. */
+}
+
+/* jt200 (JT[200], CODE 7 + 0x59d4) — draw one dungeon wall slot.
+ *
+ * Faithful lift. A wall code carries the wall-set group folded in:
+ * peel off fives to recover (group, position-in-group). The wall set
+ * must be enabled in the design state (a per-group flag byte at
+ * design_state[group + 4]). Then 1 or 2 pre-rendered tile layers are
+ * drawn (a near face always; a far face first when position > 1),
+ * the tile index for each computed from (code, sub). `left` (the
+ * horizontal anchor) steps per non-edge slot — by 16 in the deep
+ * (jt1200()==3, VIDEL-doubled) display mode, else by 4.
+ *
+ * Coords: top = Y, left = X, matching l309c_tile / L2d4e. Threads an
+ * explicit page (the port's drawing surface). */
+static void jt200(unsigned char *page, short top, short left,
+                  short code, short sub) __attribute__((unused));
+static void jt200(unsigned char *page, short top, short left,
+                  short code, short sub)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short group = 0;
+
+	/* recover (group, position) from the folded wall code. */
+	while ((code & 0xff) > 5) {
+		code -= 5;
+		group++;
+	}
+	if (ds == NULL || ds[group + 4] == 0)
+		return;                          /* wall set disabled */
+
+	sub++;
+	if ((sub & 0xff) == 10) {
+		sub = 0;
+		if ((code & 0xff) > 2)
+			code = 1;
+	}
+	if ((sub & 0xff) < 8) {                  /* step the horizontal anchor */
+		if (jt1200() == 3) {
+			if (left < 8000)
+				left = (short)(left + 16);
+		} else {
+			left = (short)(left + 4);
+		}
+	}
+
+	code--;
+	if ((code & 0xff) <= 1) {
+		sub = (short)((code & 0xff) * 10 + sub + 1);
+	} else {
+		jt200_layer(page, top, left, group, (short)(sub + 1)); /* far face */
+		sub = (short)((code & 0xff) * 9 + sub + 2);
+	}
+	jt200_layer(page, top, left, group, sub);                      /* near face */
+}
+
 /* port_blit_demo — exercise the bit-packed blit foundation: load a real
  * 32x32 1bpp DUNGCOM tile, OR-blit it into the page at a run of sub-word
  * x offsets (shift 0..15) via bp_blit_or, then convert the page to the
@@ -6351,6 +6421,64 @@ void port_blit_demo(void)
 
 	c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg black */
 	c2[1].red = c2[1].green = c2[1].blue = 0xffff;     /* fg white */
+	qd_set_palette(c2, 0, 2);
+	bp_present(page, px, pitch, sw, sh, 1, 0);
+	qd_present();
+	for (;;)
+		qd_present();
+}
+
+/* port_wall_demo — drive jt200 (JT[200]), the per-slot wall-tile
+ * selector, against the real DUNGCOM wall set. Seeds the engine state
+ * jt200 reads (the DUNGCOM handle g_a5_-4582, a design state with the
+ * wall-set groups enabled, a non-deep display mode so coords stay
+ * plain), then calls jt200 for rows of slots with different wall codes
+ * — proving the faithful (code -> group/position -> tile-index -> 1:1
+ * blit) selection draws real pre-rendered wall art. The L5bfa raycaster
+ * that feeds jt200 real map cells is the next piece. */
+void port_wall_demo(void)
+{
+	static unsigned char dc[20480];
+	static unsigned char page[BP_STRIDE * BP_ROWS];
+	static unsigned char ds[16];
+	unsigned char *px;
+	short pitch, sw, sh, refnum = 0, i;
+	long count, dcbase, nested;
+	RGBColor c2[2];
+
+	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) != noErr)
+		return;
+	count = (long)sizeof dc;
+	(void)FSRead(refnum, &count, dc);
+	(void)FSClose(refnum);
+	dcbase = (long)(uintptr_t)dc;
+	if (l37aa(dcbase, 0) == 0 || (nested = l37aa(dcbase, 1)) == 0)
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+
+	/* seed what jt200 reads: the DUNGCOM wall-set handle, a design
+	 * state with every wall-set group enabled, and a non-deep display
+	 * mode so coords stay plain (jt1200() -> 0/1, no 8000 anchor). */
+	g_a5_long(-4582) = (long)(uintptr_t)nested;
+	for (i = 0; i < (short)sizeof ds; i++)
+		ds[i] = 1;
+	g_a5_long(-12300) = (long)(uintptr_t)ds;
+	g_a5_2347 = 1;
+
+	for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
+		page[i] = 0;
+
+	/* two rows of single-layer group-2 slots; stepping `sub` walks
+	 * consecutive pre-rendered tiles. code 11 -> group 2 position 1
+	 * (tile range ~2..8), code 12 -> group 2 position 2 (~12..18). */
+	for (i = 0; i < 7; i++)
+		jt200(page, (short)40,  (short)(20 + i * 40), (short)11, (short)i);
+	for (i = 0; i < 7; i++)
+		jt200(page, (short)150, (short)(20 + i * 40), (short)12, (short)i);
+
+	c2[0].red = c2[0].green = c2[0].blue = 0;
+	c2[1].red = c2[1].green = c2[1].blue = 0xffff;
 	qd_set_palette(c2, 0, 2);
 	bp_present(page, px, pitch, sw, sh, 1, 0);
 	qd_present();
