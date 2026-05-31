@@ -64,4 +64,11 @@ void port_render_geo_tiles(void);
  */
 void port_play_demo(void);
 
+/*
+ * Exercise the jt995 bit-packed-page blit foundation: OR-blit a real
+ * 1bpp wall tile into the bit-packed page at a run of sub-word offsets,
+ * then convert the page to the 8-bit screen.
+ */
+void port_blit_demo(void);
+
 #endif /* ENGINE_BOOT_H */
