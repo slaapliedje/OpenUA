@@ -1582,8 +1582,8 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* faithful first-person frustum walker (JT[199]). */
-			port_view_demo();
+			/* textured first-person perspective corridor view. */
+			port_play_demo();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -6885,6 +6885,44 @@ void port_play_demo(void)
 	g_a5_12288 = 2;                   /* x */
 	g_a5_12287 = 13;                  /* y */
 	g_a5_12286 = 2;                   /* facing E */
+	/* Auto-pick the best vantage: the (cell, facing) whose view ray
+	 * stays open ahead the longest while flanked by side walls — i.e.
+	 * looking down a corridor, so render_3d_view shows the side-wall
+	 * trapezoids receding in perspective rather than a wall in the face. */
+	{
+		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		if (ds != NULL) {
+			short mw = ds[2], mh = ds[3];
+			short sx, sy, sf, bx = 2, by = 13, bf = 2, bscore = -1;
+			for (sf = 0; sf < 8; sf += 2) {
+				short lf = (short)((sf + 6) & 7), rf = (short)((sf + 2) & 7);
+				for (sy = 0; sy < mh; sy++)
+					for (sx = 0; sx < mw; sx++) {
+						short cx = sx, cy = sy, score = 0, d;
+						for (d = 0; d < 4; d++) {
+							if (cell_edge(cx, cy, lf) || cell_edge(cx, cy, rf))
+								score++;
+							if (cell_edge(cx, cy, sf))
+								break;        /* corridor blocked ahead */
+							cx = (short)(cx + dir_dx[sf]);
+							cy = (short)(cy + dir_dy[sf]);
+						}
+						if (score > bscore) {
+							bscore = score; bx = sx; by = sy; bf = sf;
+						}
+					}
+			}
+			g_a5_12288 = bx;
+			g_a5_12287 = by;
+			g_a5_12286 = bf;
+#ifdef FRUA_ENGINE_PROBE
+			dbg_log_num("vantage x=", (long)bx);
+			dbg_log_num("vantage y=", (long)by);
+			dbg_log_num("vantage f=", (long)bf);
+			dbg_log_num("vantage score=", (long)bscore);
+#endif
+		}
+	}
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
 		return;
