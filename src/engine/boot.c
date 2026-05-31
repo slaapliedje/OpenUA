@@ -1582,9 +1582,8 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* interactive play loop: walk the party around
-			 * the loaded level on the automap. */
-			port_play_demo();
+			/* jt995 option-A: bit-packed shift-blit foundation. */
+			port_blit_demo();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -6050,6 +6049,129 @@ static void draw_map_tiles(long tvbase, unsigned char *px,
 			}
 		}
 	}
+}
+
+/* ===== jt995 option A — the bit-packed-page blit foundation =====
+ *
+ * FRUA's faithful bitmap path (jt995 -> the JT[1181] family) composites
+ * 1bpp source into a bit-packed page, then the page is converted to the
+ * screen. bp_blit_or is the lift of JT[1181] (CODE 4 + 0xcf2), the OR /
+ * set primitive: each 16-bit source word is dropped into the high half
+ * of a 32-bit window and shifted right by a sub-word pen offset (0..15),
+ * then OR'd word-by-word into the destination long (a3 advances one
+ * word per source word, so a shifted word straddles two dest words and
+ * the overlap accumulates). lmask/rmask trim the first/last words.
+ *
+ * The page is 1bpp bit-packed (stride bytes/row); bp_present expands it
+ * to the 8-bit shim buffer (set bit -> fg pen, clear -> bg). The deeper
+ * jt995 clip math + the column cursor (L05dc) + the colour-mode
+ * primitive (JT[1188]) + wiring this under the 3D view follow. */
+#define BP_STRIDE 64                       /* 512 px/row, bit-packed */
+#define BP_ROWS   240
+
+static void bp_blit_or(unsigned char *page, short dx, short dy,
+                       const unsigned char *src, short src_stride,
+                       short nwords, short h, unsigned short lmask,
+                       unsigned short rmask)
+{
+	short shift = (short)(dx & 15);
+	long  byteoff = (long)(dx >> 4) * 2;
+	short r, w;
+
+	for (r = 0; r < h; r++) {
+		unsigned char       *d = page + (long)(dy + r) * BP_STRIDE + byteoff;
+		const unsigned char *s = src + (long)r * src_stride;
+
+		for (w = 0; w < nwords; w++) {
+			unsigned long sword = ((unsigned long)s[w * 2] << 8)
+			                    | s[w * 2 + 1];
+			unsigned char *p;
+			unsigned long  win, cur;
+
+			if (w == 0)
+				sword &= lmask;
+			if (w == nwords - 1)
+				sword &= rmask;
+			win = (sword << 16) >> shift;          /* 32-bit window */
+			p   = d + (long)w * 2;
+			cur = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
+			    | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
+			cur |= win;
+			p[0] = (unsigned char)(cur >> 24);
+			p[1] = (unsigned char)(cur >> 16);
+			p[2] = (unsigned char)(cur >> 8);
+			p[3] = (unsigned char)cur;
+		}
+	}
+}
+
+/* bp_present — expand the 1bpp bit-packed page to the 8-bit shim
+ * buffer: each set bit -> fg, clear -> bg. */
+static void bp_present(const unsigned char *page, unsigned char *px,
+                       short pitch, short sw, short sh,
+                       unsigned char fg, unsigned char bg)
+{
+	short x, y;
+
+	for (y = 0; y < sh; y++) {
+		const unsigned char *row = page + (long)y * BP_STRIDE;
+		unsigned char       *o   = px + (long)y * pitch;
+		for (x = 0; x < sw; x++)
+			o[x] = ((row[x >> 3] >> (7 - (x & 7))) & 1) ? fg : bg;
+	}
+}
+
+/* port_blit_demo — exercise the bit-packed blit foundation: load a real
+ * 32x32 1bpp DUNGCOM tile, OR-blit it into the page at a run of sub-word
+ * x offsets (shift 0..15) via bp_blit_or, then convert the page to the
+ * 8-bit screen. Proves the shift-blit composites correctly at every
+ * sub-pixel offset. */
+void port_blit_demo(void)
+{
+	static unsigned char dc[20480];
+	static unsigned char page[BP_STRIDE * BP_ROWS];
+	unsigned char metric[8];
+	const unsigned char *src;
+	unsigned char *px;
+	short pitch, sw, sh, refnum = 0, i;
+	long count, dcbase, nested, lb;
+	RGBColor c2[2];
+
+	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) != noErr)
+		return;
+	count = (long)sizeof dc;
+	(void)FSRead(refnum, &count, dc);
+	(void)FSClose(refnum);
+	dcbase = (long)(uintptr_t)dc;
+	if (l37aa(dcbase, 0) == 0 || (nested = l37aa(dcbase, 1)) == 0)
+		return;
+	lb = l2856(nested, 1, metric);           /* leaf 1: 32x32 1bpp tile */
+	if (lb == 0)
+		return;
+	src = (const unsigned char *)(uintptr_t)lb;
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+
+	for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
+		page[i] = 0;
+	/* blit the tile at 16 sub-word x offsets across two rows so the
+	 * shift path (0..15) is all exercised. metric[6]=bpp_w=4 -> 2 words. */
+	for (i = 0; i < 16; i++) {
+		short dx = (short)(8 + i * 30);
+		short dy = (short)(20 + (i & 1) * 80);
+		bp_blit_or(page, dx, dy, src, (short)metric[6], 2,
+		           (short)(((unsigned short)metric[0] << 8) | metric[1]),
+		           0xffff, 0xffff);
+	}
+
+	c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg black */
+	c2[1].red = c2[1].green = c2[1].blue = 0xffff;     /* fg white */
+	qd_set_palette(c2, 0, 2);
+	bp_present(page, px, pitch, sw, sh, 1, 0);
+	qd_present();
+	for (;;)
+		qd_present();
 }
 
 /* port_play_demo — the play loop core as an interactive dungeon walk
