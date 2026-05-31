@@ -6063,9 +6063,10 @@ static void draw_map_tiles(long tvbase, unsigned char *px,
  * the overlap accumulates). lmask/rmask trim the first/last words.
  *
  * The page is 1bpp bit-packed (stride bytes/row); bp_present expands it
- * to the 8-bit shim buffer (set bit -> fg pen, clear -> bg). The deeper
- * jt995 clip math + the column cursor (L05dc) + the colour-mode
- * primitive (JT[1188]) + wiring this under the 3D view follow. */
+ * to the 8-bit shim buffer (set bit -> fg pen, clear -> bg). jt995's
+ * clip math (both axes) and the jt1135 coord remap are lifted in bp_blit
+ * below; the column cursor (L05dc), the collision-test primitive
+ * (JT[1188]), and wiring this under the 3D view follow. */
 #define BP_STRIDE 64                       /* 512 px/row, bit-packed */
 #define BP_ROWS   480                      /* covers the shim surface height */
 
@@ -6079,28 +6080,31 @@ static void bp_blit_or(unsigned char *page, short dx, short dy,
 	short r, w;
 
 	for (r = 0; r < h; r++) {
-		unsigned char       *d = page + (long)(dy + r) * BP_STRIDE + byteoff;
+		long                 row = (long)(dy + r) * BP_STRIDE;
 		const unsigned char *s = src + (long)r * src_stride;
 
 		for (w = 0; w < nwords; w++) {
 			unsigned long sword = ((unsigned long)s[w * 2] << 8)
 			                    | s[w * 2 + 1];
-			unsigned char *p;
-			unsigned long  win, cur;
+			long          off = byteoff + (long)w * 2;
+			unsigned long win;
+			int           k;
 
 			if (w == 0)
 				sword &= lmask;
 			if (w == nwords - 1)
 				sword &= rmask;
 			win = (sword << 16) >> shift;          /* 32-bit window */
-			p   = d + (long)w * 2;
-			cur = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
-			    | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
-			cur |= win;
-			p[0] = (unsigned char)(cur >> 24);
-			p[1] = (unsigned char)(cur >> 16);
-			p[2] = (unsigned char)(cur >> 8);
-			p[3] = (unsigned char)cur;
+			/* OR the 4-byte window into the dest, clamping each byte
+			 * to the row: a word straddling the page edge writes only
+			 * its on-page bytes (jt995's clip guarantees on-page; the
+			 * clamp is the safe equivalent for sub-word edge spans). */
+			for (k = 0; k < 4; k++) {
+				long o = off + k;
+				if (o < 0 || o >= BP_STRIDE)
+					continue;
+				page[row + o] |= (unsigned char)(win >> (24 - k * 8));
+			}
 		}
 	}
 }
@@ -6120,28 +6124,28 @@ static void bp_blit_andnot(unsigned char *page, short dx, short dy,
 	short r, w;
 
 	for (r = 0; r < h; r++) {
-		unsigned char       *d = page + (long)(dy + r) * BP_STRIDE + byteoff;
+		long                 row = (long)(dy + r) * BP_STRIDE;
 		const unsigned char *s = src + (long)r * src_stride;
 
 		for (w = 0; w < nwords; w++) {
 			unsigned short inv = (unsigned short)(~(((unsigned short)s[w * 2] << 8)
 			                                       | s[w * 2 + 1]));
-			unsigned char *p;
-			unsigned long  win, cur;
+			long           off = byteoff + (long)w * 2;
+			unsigned long  win;
+			int            k;
 
 			if (w == 0)
 				inv &= lmask;
 			if (w == nwords - 1)
 				inv &= rmask;
 			win = ((unsigned long)inv << 16) >> shift;
-			p   = d + (long)w * 2;
-			cur = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
-			    | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
-			cur &= ~win;
-			p[0] = (unsigned char)(cur >> 24);
-			p[1] = (unsigned char)(cur >> 16);
-			p[2] = (unsigned char)(cur >> 8);
-			p[3] = (unsigned char)cur;
+			/* clear (AND-NOT) the 4-byte window, clamped to the row. */
+			for (k = 0; k < 4; k++) {
+				long o = off + k;
+				if (o < 0 || o >= BP_STRIDE)
+					continue;
+				page[row + o] &= (unsigned char)~(win >> (24 - k * 8));
+			}
 		}
 	}
 }
@@ -6166,12 +6170,19 @@ static void bp_present(const unsigned char *page, unsigned char *px,
 
 /* bp_blit — jt995's per-blit dispatch core (CODE 5 + 0x21fc), over the
  * lifted pixel-walk primitives. Decodes the glyph metric (height @0
- * word, bytes/row @6), VERTICALLY clips the bitmap to the page, and
- * dispatches by mode: 0 = draw (OR / set), 1 = clear (AND-NOT). Source
- * words are passed whole (lmask/rmask 0xffff). jt995 additionally does
- * the VIDEL coord remap (jt1135), the sub-word horizontal clip against
- * the clip rect (g_a5_-3050..-3056), and the collision (1/3) / 2-source
- * (mode 2) variants — those remain on the option-A list. */
+ * word, bytes/row @6), remaps the position through jt1135 (the VIDEL
+ * coord remap jt995 applies before clipping), clips the bitmap to the
+ * page in BOTH axes, then dispatches by mode: 0 = draw (OR / set),
+ * 1 = clear (AND-NOT).
+ *
+ * Horizontal clip mirrors jt995's setup (0x230c..0x23fe): intersect the
+ * blit's pixel span with the clip rect, reduce to the visible source
+ * words, and trim the partial edge words with lmask/rmask. jt995 reads
+ * those masks from the edge-mask tables at g_a5_-4646 / g_a5_-4614 and
+ * clips against the clip-rect globals g_a5_-3050..-3056; here the clip
+ * rect is the page itself ([0,pw) x [0,BP_ROWS)) and the masks are
+ * computed directly. The collision (mode 1/3) / 2-source (mode 2)
+ * variants remain on the option-A list. */
 static void bp_blit(unsigned char *page, short x, short y,
                     const unsigned char *metric, const unsigned char *src,
                     short mode)
@@ -6179,32 +6190,53 @@ static void bp_blit(unsigned char *page, short x, short y,
 	short h      = (short)(((unsigned short)metric[0] << 8) | metric[1]);
 	short bpp_w  = (short)metric[6];
 	short nwords = (short)((bpp_w + 1) / 2);
+	short pw     = BP_STRIDE * 8;            /* page width in pixels */
+	short sx = x, sy = y;
 	short r0 = 0;
+	short Wpx, sp0, sp1, w0, w1, nw, ddx, rb;
+	unsigned short lmask, rmask;
 
 	if (h <= 0 || nwords <= 0)
 		return;
-	if (y < 0)                       /* clip top */
-		r0 = (short)(-y);
-	if (y + h > BP_ROWS)             /* clip bottom */
-		h = (short)(BP_ROWS - y);
+
+	/* jt995 remaps logical coords (jt1135) before any clip math. */
+	jt1135(x, y, &sx, &sy);
+
+	/* vertical clip */
+	if (sy < 0)
+		r0 = (short)(-sy);
+	if (sy + h > BP_ROWS)
+		h = (short)(BP_ROWS - sy);
 	if (r0 >= h)
-		return;                  /* fully off-page vertically */
-	/* horizontal: skip if the shifted span would leave the page
-	 * (faithful sub-word edge masking is the remaining jt995 piece). */
-	if (x < 0 || (long)x + nwords * 16 + 16 > BP_STRIDE * 8)
-		return;
+		return;                          /* fully off-page vertically */
+
+	/* horizontal clip: visible source-pixel span [sp0, sp1) against
+	 * the page, then the source words it covers + edge masks. */
+	Wpx = (short)(nwords * 16);
+	sp0 = (sx < 0) ? (short)(-sx) : 0;
+	sp1 = (sx + Wpx > pw) ? (short)(pw - sx) : Wpx;
+	if (sp0 >= sp1)
+		return;                          /* fully off-page horizontally */
+	w0  = (short)(sp0 >> 4);                 /* first source word touched */
+	w1  = (short)((sp1 - 1) >> 4);           /* last source word touched  */
+	nw  = (short)(w1 - w0 + 1);
+	ddx = (short)(sx + w0 * 16);             /* dest x of word w0 (may be <0) */
+	lmask = (unsigned short)(0xffffu >> (sp0 & 15));     /* drop leading bits */
+	rb    = (short)(sp1 & 15);
+	rmask = rb ? (unsigned short)(0xffffu << (16 - rb))  /* keep up to sp1   */
+	           : (unsigned short)0xffff;
 
 	{
-		const unsigned char *s = src + (long)r0 * bpp_w;
+		const unsigned char *s = src + (long)r0 * bpp_w + (long)w0 * 2;
 		short rows = (short)(h - r0);
-		short dy   = (short)(y + r0);
+		short dy   = (short)(sy + r0);
 
 		if (mode == 1)
-			bp_blit_andnot(page, x, dy, s, bpp_w, nwords, rows,
-			               0xffff, 0xffff);
+			bp_blit_andnot(page, ddx, dy, s, bpp_w, nw, rows,
+			               lmask, rmask);
 		else
-			bp_blit_or(page, x, dy, s, bpp_w, nwords, rows,
-			           0xffff, 0xffff);
+			bp_blit_or(page, ddx, dy, s, bpp_w, nw, rows,
+			           lmask, rmask);
 	}
 }
 
@@ -6246,20 +6278,27 @@ void port_blit_demo(void)
 		for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
 			page[i] = 0;
 
-		/* top: bp_blit (mode 0 = OR) the tile on black at sub-word x
-		 * offsets; the leftmost is clipped above the top (y = -12) to
-		 * exercise the vertical clip. */
-		bp_blit(page, (short)8, (short)-12, metric, src, 0);
-		for (i = 1; i < 9; i++)
-			bp_blit(page, (short)(8 + i * 34), (short)20, metric, src, 0);
+		/* row of full tiles (mode 0 = OR) at sub-word x offsets. */
+		for (i = 0; i < 8; i++)
+			bp_blit(page, (short)(64 + i * 34), (short)40, metric, src, 0);
+
+		/* edge clips: a tile clipped above the top (y = -12), one
+		 * clipped past the left edge (x = -20, only its right 12 px
+		 * show), and a corner-clipped tile (x = -16, y = -16). All
+		 * must render only their visible part with no wrap / overflow. */
+		bp_blit(page, (short)20,  (short)-12, metric, src, 0);
+		bp_blit(page, (short)-20, (short)40,  metric, src, 0);
+		bp_blit(page, (short)-16, (short)-16, metric, src, 0);
 
 		/* bottom: a solid white band, then bp_blit mode 1 (AND-NOT)
-		 * carves the tile pattern out of it. */
+		 * carves the tile pattern out of it — including one carve
+		 * clipped past the left edge to exercise the mask path. */
 		for (y = 130; y < 130 + 32; y++)
 			for (i = 0; i < BP_STRIDE; i++)
 				page[(long)y * BP_STRIDE + i] = 0xff;
-		for (i = 0; i < 9; i++)
-			bp_blit(page, (short)(8 + i * 34), (short)130, metric, src, 1);
+		bp_blit(page, (short)-20, (short)130, metric, src, 1);
+		for (i = 0; i < 8; i++)
+			bp_blit(page, (short)(64 + i * 34), (short)130, metric, src, 1);
 	}
 
 	c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg black */
