@@ -6164,6 +6164,50 @@ static void bp_present(const unsigned char *page, unsigned char *px,
 	}
 }
 
+/* bp_blit — jt995's per-blit dispatch core (CODE 5 + 0x21fc), over the
+ * lifted pixel-walk primitives. Decodes the glyph metric (height @0
+ * word, bytes/row @6), VERTICALLY clips the bitmap to the page, and
+ * dispatches by mode: 0 = draw (OR / set), 1 = clear (AND-NOT). Source
+ * words are passed whole (lmask/rmask 0xffff). jt995 additionally does
+ * the VIDEL coord remap (jt1135), the sub-word horizontal clip against
+ * the clip rect (g_a5_-3050..-3056), and the collision (1/3) / 2-source
+ * (mode 2) variants — those remain on the option-A list. */
+static void bp_blit(unsigned char *page, short x, short y,
+                    const unsigned char *metric, const unsigned char *src,
+                    short mode)
+{
+	short h      = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+	short bpp_w  = (short)metric[6];
+	short nwords = (short)((bpp_w + 1) / 2);
+	short r0 = 0;
+
+	if (h <= 0 || nwords <= 0)
+		return;
+	if (y < 0)                       /* clip top */
+		r0 = (short)(-y);
+	if (y + h > BP_ROWS)             /* clip bottom */
+		h = (short)(BP_ROWS - y);
+	if (r0 >= h)
+		return;                  /* fully off-page vertically */
+	/* horizontal: skip if the shifted span would leave the page
+	 * (faithful sub-word edge masking is the remaining jt995 piece). */
+	if (x < 0 || (long)x + nwords * 16 + 16 > BP_STRIDE * 8)
+		return;
+
+	{
+		const unsigned char *s = src + (long)r0 * bpp_w;
+		short rows = (short)(h - r0);
+		short dy   = (short)(y + r0);
+
+		if (mode == 1)
+			bp_blit_andnot(page, x, dy, s, bpp_w, nwords, rows,
+			               0xffff, 0xffff);
+		else
+			bp_blit_or(page, x, dy, s, bpp_w, nwords, rows,
+			           0xffff, 0xffff);
+	}
+}
+
 /* port_blit_demo — exercise the bit-packed blit foundation: load a real
  * 32x32 1bpp DUNGCOM tile, OR-blit it into the page at a run of sub-word
  * x offsets (shift 0..15) via bp_blit_or, then convert the page to the
@@ -6197,29 +6241,25 @@ void port_blit_demo(void)
 		return;
 
 	{
-		short th = (short)(((unsigned short)metric[0] << 8) | metric[1]);
-		short bpp_w = (short)metric[6];
+		short y;
 
 		for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
 			page[i] = 0;
 
-		/* top: OR-blit the tile on black at sub-word x offsets (0..15). */
-		for (i = 0; i < 9; i++)
-			bp_blit_or(page, (short)(8 + i * 34), (short)20,
-			           src, bpp_w, 2, th, 0xffff, 0xffff);
+		/* top: bp_blit (mode 0 = OR) the tile on black at sub-word x
+		 * offsets; the leftmost is clipped above the top (y = -12) to
+		 * exercise the vertical clip. */
+		bp_blit(page, (short)8, (short)-12, metric, src, 0);
+		for (i = 1; i < 9; i++)
+			bp_blit(page, (short)(8 + i * 34), (short)20, metric, src, 0);
 
-		/* bottom: a solid white band, then AND-NOT the tile into it at
-		 * the same offsets — the cleared pixels carve the tile pattern
-		 * out of the field, verifying the clear primitive. */
-		{
-			short y;
-			for (y = 130; y < 130 + 32; y++)
-				for (i = 0; i < BP_STRIDE; i++)
-					page[(long)y * BP_STRIDE + i] = 0xff;
-		}
+		/* bottom: a solid white band, then bp_blit mode 1 (AND-NOT)
+		 * carves the tile pattern out of it. */
+		for (y = 130; y < 130 + 32; y++)
+			for (i = 0; i < BP_STRIDE; i++)
+				page[(long)y * BP_STRIDE + i] = 0xff;
 		for (i = 0; i < 9; i++)
-			bp_blit_andnot(page, (short)(8 + i * 34), (short)130,
-			               src, bpp_w, 2, th, 0xffff, 0xffff);
+			bp_blit(page, (short)(8 + i * 34), (short)130, metric, src, 1);
 	}
 
 	c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg black */
