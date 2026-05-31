@@ -161,10 +161,11 @@ ua_main (CODE 6)
             │         + place the party from the start tile
             └─ (CODE 20 play loop, ~4500 lines)             [movement core lifted]
                  ├─ party_step: turn/move + collision        [LIFTED — clean model]
-                 └─ first-person 3D VIEW                     [LIFTED — flat-shaded]
-                      render_3d_view (from-scratch perspective)
-                      jt954 (CODE 21) / jt332 (CODE 8)        [textured view: NOT lifted]
-                           wall-set TLB art via jt995 blit
+                 └─ first-person 3D VIEW                     [LIFTED — textured]
+                      render_3d_view (from-scratch perspective,
+                        DUNGCOM.TLB wall tile texture-mapped)
+                      jt954 (CODE 21) / jt332 (CODE 8)        [faithful blit: NOT lifted]
+                           pre-rendered wall pieces via jt995
 ```
 
 **Movement loop (working).** The play loop's render-input-move-render
@@ -182,12 +183,17 @@ draws the corridor ahead from the party's (x,y,facing): depth slices
 0..3, side walls as perspective trapezoids, a front wall where the
 way is blocked, over a ceiling/floor split, depth-shaded. It is
 geometry-faithful to FRUA's view (the cells `JT[201]`/`JT[202]`
-cover) but renders flat colours; `port_play_demo` shows it by default
-(`m` toggles the automap). The **textured** view — FRUA's `jt954`
-(CODE 21) compositing wall-set TLB art through the `jt995` perspective
-blit — is the next layer. Still ahead beyond that: **encounters /
-events**, and a real **party** so "Begin Adventuring" runs without
-the test scaffold.
+cover); `port_play_demo` shows it by default (`m` toggles the
+automap). The walls are **textured** with a real 32x32 1bpp tile from
+the dungeon wall set: `DUNGCOM.TLB` is a GLIB-of-GLIBs (item 1 = a
+nested `TILE` library of wall tiles), reached with `L37aa`/`L2856`;
+`tile_bit` samples it and `fill_wall_trap` / `render_3d_view`
+texture-map it across the perspective faces, depth-shaded. The
+mapping is affine (not yet perspective-correct) and the tile is fixed
+— per-wall tile selection from the design's wall set, and the
+faithful `jt954`/`jt332` pre-rendered-piece blit, are the next
+layers. Still ahead: **encounters / events**, and a real **party** so
+"Begin Adventuring" runs without the test scaffold.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
 "Play the Game / Select a Design / ..."; the party menu `jt918` shows
