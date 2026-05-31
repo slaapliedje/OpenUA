@@ -905,6 +905,87 @@ static void  jt198(short geo_num)
 	g_a5_word(-12296) = -1;
 }
 
+/* L0b88 (CODE 20 + 0x0b88) — set "look/edit" play mode: clear the
+ * player record's in-play flag (offset 34), set offset 36, and put
+ * the play-state byte g_a5_-27990 = 3. */
+static void  l0b88(void)
+{
+	unsigned char *p = (unsigned char *)g_a5_28006;
+
+	PROBE("L0b88");
+	if (p != NULL) {
+		p[34] = 0;
+		p[36] = 1;
+	}
+	g_a5_27990 = 3;
+}
+
+/* L0ba2 / JT[952] (CODE 20 + 0x0ba2) — set "in-play" mode: player
+ * record offset 34 = 1, offset 36 = 0, play-state g_a5_-27990 = 4. */
+static void  l0ba2(void)
+{
+	unsigned char *p = (unsigned char *)g_a5_28006;
+
+	PROBE("L0ba2");
+	if (p != NULL) {
+		p[34] = 1;
+		p[36] = 0;
+	}
+	g_a5_27990 = 4;
+}
+
+/* L0bbc (CODE 20 + 0x0bbc) — ENTER A LEVEL. The bridge from the
+ * lifted GEO loader into the adventure runtime: set the file group,
+ * load the current level's GEO map (g_a5_-18878) via jt198, then
+ * place the party. On a fresh entry the party start (x,y,facing) is
+ * read from the map's start tile at design-state + g_a5_-18488*4
+ * (bytes 15/14/16&7); on a resume it is restored from the player
+ * record. The live party globals are g_a5_-12288 (x) / -12287 (y) /
+ * -12286 (facing); for levels <= 4 they are also copied into the
+ * player record (offsets 37/38 map, 67/68 saved, 23/24). Finishes by
+ * selecting play vs look mode (L0ba2 / L0b88) by level number. */
+static void  l0bbc(void)
+{
+	unsigned char *p = (unsigned char *)g_a5_28006;
+
+	PROBE("L0bbc");
+	jt132((short)51);
+
+	if (p != NULL && p[134] != 0) {
+		/* resume: restore the party position from the record */
+		if (g_a5_18485 == 0) {
+			g_a5_12287 = p[68];
+			g_a5_12288 = p[67];
+			g_a5_12286 = p[17];
+		}
+	} else {
+		/* fresh entry */
+		if (g_a5_18485 == 0) {
+			unsigned char *ds;
+
+			jt198((short)g_a5_18878);          /* load the level map */
+			ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+			if (ds != NULL) {
+				unsigned char *st =
+					ds + (((long)(unsigned char)g_a5_18488) << 2);
+				g_a5_12288 = st[15];               /* party X      */
+				g_a5_12287 = st[14];               /* party Y      */
+				g_a5_12286 = (unsigned char)(st[16] & 7); /* facing */
+			}
+		}
+		if (g_a5_18878 <= 4 && p != NULL) {
+			p[37] = g_a5_12288; p[38] = g_a5_12287;
+			p[67] = g_a5_12288; p[68] = g_a5_12287;
+			p[23] = g_a5_12288; p[24] = g_a5_12287;
+		}
+	}
+
+	if (g_a5_18878 <= 4)
+		l0b88();
+	else
+		l0ba2();
+}
+
 /* L3154 (CODE 6 + 0x3154) — allocate the STRG load scratch buffer:
  * g_a5_-21152 = arg, g_a5_-21150 = 10, g_a5_-21148 = NewPtr(arg*10).
  * Called from L4cc0 with arg=400 (a 4000-byte buffer). */
@@ -1446,6 +1527,22 @@ static void  jt361(short a)
 			dbg_log_num("jt263(8) -> ",
 			            jt263((short)8, &res, tctx));
 			dbg_log_num("  ctx[3] = ", tctx[3]);
+		}
+		/* TEST: L0bbc level-entry — the bridge into the adventure
+		 * runtime. Loads level 1's GEO map via jt198 and places
+		 * the party from the start tile / record. */
+		{
+			unsigned char *pl = (unsigned char *)g_a5_28006;
+			if (pl != NULL)
+				pl[134] = 0;          /* fresh-entry path */
+			g_a5_18485 = 0;               /* not the editor */
+			g_a5_18878 = 1;               /* level 1 */
+			g_a5_18488 = 0;
+			l0bbc();
+			dbg_log_num("L0bbc party x = ", g_a5_12288);
+			dbg_log_num("L0bbc party y = ", g_a5_12287);
+			dbg_log_num("L0bbc facing  = ", g_a5_12286);
+			dbg_log_num("L0bbc mode    = ", g_a5_27990);
 		}
 		/* TEST: jt325 cmd-2 record stage. Copy a known 450-byte
 		 * source into the staging buffer and confirm the bytes
