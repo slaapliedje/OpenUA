@@ -6998,12 +6998,19 @@ static short geo_hdr_word(const unsigned char *ds)
  * bpp_w byte is the 1bpp byte-width, so the pixel width is bpp_w*8 and
  * the row stride is 2*bpp_w bytes — i.e. (2*bpp_w*8)/(bpp_w*8) = 2 bits
  * per pixel. So these are 2bpp (4-colour) tiles: each source byte packs
- * four pixels (2 bits each, MSB-first), value 0..3 indexing clut 129's
- * first four entries. CBODY/COMSPR are 32x32, CPIC 64-wide. The
- * background value (3) is treated as the transparent colour key. */
+ * four pixels (2 bits each, MSB-first), value 0..3. CBODY/COMSPR are
+ * 32x32, CPIC 64-wide.
+ *
+ * The four 2bpp levels are a stencil (0 = body, 1 = highlight, 2 =
+ * accent, 3 = background): the actual colours are a per-sprite SUB-
+ * PALETTE. FRUA stores a default in each C-file's item-1 header and
+ * recolours levels per character from the character record (CODE 15
+ * reads colour fields @188/@189). `subpal[4]` maps each level to a clut
+ * 129 index; a level whose entry is 0xff is transparent. */
 static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
                        short x, short y, const unsigned char *metric,
-                       const unsigned char *body, short scale)
+                       const unsigned char *body, short scale,
+                       const unsigned char *subpal)
 {
 	short h      = (short)(((unsigned short)metric[0] << 8) | metric[1]);
 	short bppw   = (short)metric[6];
@@ -7016,9 +7023,12 @@ static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
 	for (row = 0; row < h; row++) {
 		const unsigned char *r = body + (long)row * stride;
 		for (col = 0; col < w; col++) {
-			unsigned char v   = r[col >> 2];
-			unsigned char idx = (unsigned char)((v >> (2 * (3 - (col & 3)))) & 3);
+			unsigned char v     = r[col >> 2];
+			unsigned char level = (unsigned char)((v >> (2 * (3 - (col & 3)))) & 3);
+			unsigned char idx   = subpal[level];
 
+			if (idx == 0xff)                 /* transparent level */
+				continue;
 			for (dy = 0; dy < scale; dy++)
 				for (dx = 0; dx < scale; dx++) {
 					short sx = (short)(x + col * scale + dx);
@@ -7037,7 +7047,7 @@ static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
 static short sprite_row(unsigned char *buf, long buflen,
                         const char *pname, short start, short n,
                         unsigned char *px, short pitch, short sw, short sh,
-                        short ytop, short scale)
+                        short ytop, short scale, const unsigned char *subpal)
 {
 	unsigned char metric[8];
 	short refnum = 0, i, xx = 4, tilew = 0;
@@ -7065,7 +7075,7 @@ static short sprite_row(unsigned char *buf, long buflen,
 		if (xx + w * scale > sw)
 			break;
 		ctile_blit(px, pitch, sw, sh, xx, ytop, metric,
-		           (const unsigned char *)(uintptr_t)lb, scale);
+		           (const unsigned char *)(uintptr_t)lb, scale, subpal);
 		xx = (short)(xx + w * scale + 2);
 		tilew = w;
 	}
@@ -7084,6 +7094,21 @@ void port_sprite_demo(void)
 	RGBColor pal[256];
 	Handle ch;
 
+	/* Per-character sub-palettes: the 2bpp levels (0 body, 1 highlight,
+	 * 2 accent, 3 background) are recoloured per character. We reserve
+	 * clut slots 240 (panel background) and 241..252 (four colours for
+	 * three "characters"), demonstrating how the same paperdoll tiles
+	 * recolour per character. Level 3 maps to 0xff = transparent. */
+	static const unsigned char subA[4] = { 241, 242, 243, 0xff }; /* warrior */
+	static const unsigned char subB[4] = { 244, 245, 246, 0xff }; /* mage    */
+	static const unsigned char subC[4] = { 247, 248, 249, 0xff }; /* rogue   */
+	static const unsigned char slot_rgb[10][3] = {
+		{  56,  56,  72 },   /* 240 panel bg (dark blue-grey) */
+		{ 206, 160, 120 }, { 240, 212, 180 }, { 120,  78,  40 }, /* warrior */
+		{  84, 104, 210 }, { 176, 196, 255 }, {  32,  44, 120 }, /* mage    */
+		{  92, 170,  92 }, { 176, 232, 176 }, {  44,  96,  44 }, /* rogue   */
+	};
+
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
 		return;
 
@@ -7096,19 +7121,25 @@ void port_sprite_demo(void)
 			pal[i].green = (unsigned short)((cd[8 + i * 8 + 4] << 8) | cd[8 + i * 8 + 5]);
 			pal[i].blue  = (unsigned short)((cd[8 + i * 8 + 6] << 8) | cd[8 + i * 8 + 7]);
 		}
-		qd_set_palette(pal, 0, 256);
 	}
+	/* override slots 240..249 with the panel bg + per-character colours */
+	for (i = 0; i < 10; i++) {
+		pal[240 + i].red   = (unsigned short)(slot_rgb[i][0] * 257);
+		pal[240 + i].green = (unsigned short)(slot_rgb[i][1] * 257);
+		pal[240 + i].blue  = (unsigned short)(slot_rgb[i][2] * 257);
+	}
+	qd_set_palette(pal, 0, 256);
 
 	for (y = 0; y < sh; y++)
-		memset(px + (long)y * pitch, 0, (size_t)sw);
+		memset(px + (long)y * pitch, 240, (size_t)sw);   /* panel bg */
 
-	/* tiles start at GLIB item 2 (item 0 = directory, 1 = header) */
-	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB",  2, 14,
-	                 px, pitch, sw, sh, (short)6,   (short)2);
-	(void)sprite_row(buf, (long)sizeof buf, "\012COMSPR.TLB", 2, 14,
-	                 px, pitch, sw, sh, (short)76,  (short)2);
-	(void)sprite_row(buf, (long)sizeof buf, "\010CPIC.TLB",   2, 14,
-	                 px, pitch, sw, sh, (short)146, (short)2);
+	/* the SAME CBODY paperdoll tiles, recoloured per character */
+	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB", 2, 12,
+	                 px, pitch, sw, sh, (short)8,   (short)2, subA);
+	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB", 2, 12,
+	                 px, pitch, sw, sh, (short)78,  (short)2, subB);
+	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB", 2, 12,
+	                 px, pitch, sw, sh, (short)148, (short)2, subC);
 
 	qd_present();
 	for (;;)
