@@ -518,8 +518,14 @@ four, i.e. **tile = 1 + (N | E<<1 | S<<2 | W<<3)**. `port_render_geo_tiles`
 computes that mask from each GEO cell's four edge bytes and rasterizes the
 matching tile, so the loaded map renders as the game's own dithered-floor +
 wall-bar top-down view instead of coloured cells (verified on GEO040, all
-441 cells). Glyphs 17..24 (with a 2nd mask plane) are the door / arrow
-variants — wiring doors (edge bit 7 clear) to them is the next refinement.
+441 cells). Glyphs 17..24 (with a 2nd plane = a direction arrow) are the
+door / arrow variants; doors (a non-zero edge with bit 7 clear) are now
+wired to them — solid walls draw the white wall tile, each door edge
+overlays the matching directional door glyph (N=17, S=19, E=20, W=18) in a
+distinct colour, so walls and doors read apart on the automap. The exact
+automap *door-code* semantics (which bit-7-clear values are doors vs open
+passages vs secret doors) aren't lifted yet — the split currently follows
+the confirmed wall/door bit-7 boundary.
 
 ## Lifting to C
 
