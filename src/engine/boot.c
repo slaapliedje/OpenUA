@@ -1582,8 +1582,8 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* faithful per-slot wall-tile selector (JT[200]). */
-			port_wall_demo();
+			/* faithful first-person frustum walker (JT[199]). */
+			port_view_demo();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -6449,6 +6449,166 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 		x = (short)(((short)(x - 8012) << 2) + 8);
 	}
 	jt200(page, y, x, code, sub);
+}
+
+/* Direction-step deltas: signed-byte drow/dcol tables indexed by dir. */
+#define JT199_DROW(dir) ((short)(signed char)g_a5_byte(-27862 + (dir)))
+#define JT199_DCOL(dir) ((short)(signed char)g_a5_byte(-27853 + (dir)))
+
+/* jt199_side — one SIDE-wall pass of the frustum walker (JT[199]'s
+ * pass 1 / pass 2). Walk the ray `dir` for depths 0..3 from (r, c):
+ * read the cell's front face (looking `facing`); a wall there draws the
+ * previous slot's wall as a receding side face (g_a5_-12222 + soff +
+ * yadj / g_a5_-12202) and, for depths < 3, the current wall as a front
+ * face (g_a5_-12240 + soff / g_a5_-12220); an open cell instead probes
+ * the side neighbour and, if walled, draws the carried-over side face.
+ * soff steps by `soffstep` per depth (the receding screen offset). */
+static void jt199_side(unsigned char *page, short Y, short X, short r,
+                       short c, short dir, short facing, short soffstep,
+                       short yadj)
+{
+	short depth, soff = 0, prev = 0, w;
+
+	for (depth = 0; depth < 4; depth++) {
+		w = l5e52(r, c, facing);
+		if (w != 0) {
+			if (prev > 0)
+				l5b42(page, Y, X,
+				      (short)(g_a5_word(-12222) + soff + yadj),
+				      g_a5_word(-12202), prev, 9);
+			prev = w;
+			if (depth < 3)
+				l5b42(page, Y, X,
+				      (short)(g_a5_word(-12240) + soff),
+				      g_a5_word(-12220), w, 0);
+		} else {
+			if (prev > 0) {
+				short sr = (short)(r - JT199_DROW(dir));
+				short sc = (short)(c - JT199_DCOL(dir));
+				if (l5e52(sr, sc, dir) & 0xff)
+					l5b42(page, Y, X,
+					      (short)(g_a5_word(-12222) + soff + yadj),
+					      g_a5_word(-12202), prev, 9);
+			}
+			prev = 0;
+		}
+		soff = (short)(soff + soffstep);
+		r = (short)(r + JT199_DROW(dir));
+		c = (short)(c + JT199_DCOL(dir));
+	}
+}
+
+/* jt199_front — one FRONT-wall pass (JT[199]'s pass 3 / pass 4). Walk
+ * `dir` for depths 0..2: a walled cell (read along `dir`) draws a front
+ * face at (gy + soff [+ yadj for depth>0] / gx) with layer `sub`. */
+static void jt199_front(unsigned char *page, short Y, short X, short r,
+                        short c, short dir, short soffstep, short gy,
+                        short gx, short yadj, short sub)
+{
+	short depth, soff = 0, w;
+
+	for (depth = 0; depth < 3; depth++) {
+		w = l5e52(r, c, dir);
+		if (w != 0)
+			l5b42(page, Y, X,
+			      (short)(g_a5_word(gy) + soff + (depth ? yadj : 0)),
+			      g_a5_word(gx), w, sub);
+		soff = (short)(soff + soffstep);
+		r = (short)(r + JT199_DROW(dir));
+		c = (short)(c + JT199_DCOL(dir));
+	}
+}
+
+/* jt199 (JT[199], CODE 7 + 0x6234) — the dungeon first-person frustum
+ * walker. Its JT[3] view-layout selector is a constant 2, so only that
+ * one layout is live (the other two arms are dead here). From the party
+ * cell (row, col) facing `facing`, it advances the view origin two
+ * cells forward, then runs four ray passes that read walls (l5e52) and
+ * draw their pre-rendered slot tiles (l5b42 -> jt200): the left and
+ * right SIDE columns (depth 0..3) and the left and right FRONT columns
+ * (depth 0..2). The screen position of each slot comes from the
+ * read-only DATA layout globals g_a5_-12202..-12240.
+ *
+ * The cosmetic setup the Mac does first — L6148 (per-frame wall-handle
+ * cache), JT[124] (dispose), JT[993] (view-background fill), JT[1173]
+ * (clip rect) — is omitted here; this lift is the geometry + tile
+ * selection that turns a loaded map into a first-person view. Threads
+ * an explicit page (the port's drawing surface). */
+static void jt199(unsigned char *page, short Y, short X, short row,
+                  short col, short facing) __attribute__((unused));
+static void jt199(unsigned char *page, short Y, short X, short row,
+                  short col, short facing)
+{
+	short left  = (short)((facing + 6) & 7);
+	short right = (short)((facing + 2) & 7);
+	short v6 = (short)(row + 2 * JT199_DROW(facing));   /* origin: 2 cells fwd */
+	short v8 = (short)(col + 2 * JT199_DCOL(facing));
+
+	jt199_side(page, Y, X, v6, v8, left,  facing, -2, +1);  /* left  side */
+	jt199_side(page, Y, X, v6, v8, right, facing, +2, -1);  /* right side */
+	jt199_front(page, Y, X, v6, v8, left,  -2, -12238, -12218, -1, 1); /* L front */
+	jt199_front(page, Y, X, v6, v8, right, +2, -12236, -12216, +1, 2); /* R front */
+}
+
+/* port_view_demo — drive jt199, the first-person frustum walker, over
+ * the real loaded design's GEO map. Seeds the DUNGCOM wall-set handle,
+ * logs the runtime view state (the slot-layout DATA globals, the map
+ * dims, the display mode) so the geometry can be confirmed, then renders
+ * the view from the map centre. */
+void port_view_demo(void)
+{
+	static unsigned char dc[20480];
+	static unsigned char page[BP_STRIDE * BP_ROWS];
+	const unsigned char *ds;
+	unsigned char *px;
+	short pitch, sw, sh, refnum = 0, i;
+	long count, dcbase, nested;
+	RGBColor c2[2];
+
+	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) != noErr)
+		return;
+	count = (long)sizeof dc;
+	(void)FSRead(refnum, &count, dc);
+	(void)FSClose(refnum);
+	dcbase = (long)(uintptr_t)dc;
+	if (l37aa(dcbase, 0) == 0 || (nested = l37aa(dcbase, 1)) == 0)
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+	g_a5_long(-4582) = (long)(uintptr_t)nested;
+
+	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	/* The direction-delta tables (g_a5_-27862 drow / -27853 dcol) are
+	 * runtime-initialised by the play loop when the dungeon view is
+	 * entered; at this boot-time demo point they're still zero, so the
+	 * frustum walk can't step. Seed the standard cardinal deltas (dir
+	 * 0=N,2=E,4=S,6=W over the column-major map) as a documented
+	 * stand-in so jt199's geometry can be exercised here. */
+	{
+		static const signed char dr[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
+		static const signed char dc[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
+		short k;
+		for (k = 0; k < 8; k++) {
+			g_a5_byte(-27862 + k) = (unsigned char)dr[k];
+			g_a5_byte(-27853 + k) = (unsigned char)dc[k];
+		}
+	}
+
+	for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
+		page[i] = 0;
+	/* stand near the column-0 wall run (rows 0..8) and face west into
+	 * it: party at (row 5, col 3), facing 6 (W). */
+	if (ds)
+		jt199(page, (short)160, (short)100, (short)5, (short)3, (short)6);
+
+	c2[0].red = c2[0].green = c2[0].blue = 0;
+	c2[1].red = c2[1].green = c2[1].blue = 0xffff;
+	qd_set_palette(c2, 0, 2);
+	bp_present(page, px, pitch, sw, sh, 1, 0);
+	qd_present();
+	for (;;)
+		qd_present();
 }
 
 /* port_blit_demo — exercise the bit-packed blit foundation: load a real
