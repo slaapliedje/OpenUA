@@ -47,6 +47,7 @@
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
 #include "menus.h"            /* MenuKey (L6dd0 keyDown arm)         */
+#include "input.h"            /* plat_kb_poll (port_play_demo)        */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -622,6 +623,7 @@ static void  jt399(void *buf, short size, short fill);
 static void  jt406(void *dst, const void *src, short count);
 static short jt1180(short v);
 static void  jt131(short a);
+static void  party_step(short cmd);          /* play-loop movement (defined late) */
 static const char *jt488(const char *fmt, ...);
 static short jt393(const char *a, const char *b);
 static int   jt394(char *buf, const char *fmt, ...);
@@ -1543,6 +1545,23 @@ static void  jt361(short a)
 			dbg_log_num("L0bbc party y = ", g_a5_12287);
 			dbg_log_num("L0bbc facing  = ", g_a5_12286);
 			dbg_log_num("L0bbc mode    = ", g_a5_27990);
+
+			/* TEST: the play-loop movement core — drive a fixed
+			 * command sequence and log the party state each step,
+			 * so the render-input-move cycle is verifiable without
+			 * live input. (cmd: 0 turnL 1 turnR 2 fwd 3 back) */
+			{
+				static const short seq[6] = { 2, 2, 1, 2, 0, 2 };
+				int s;
+				g_a5_12286 = (unsigned char)(g_a5_12286 & 6);
+				for (s = 0; s < 6; s++) {
+					party_step(seq[s]);
+					dbg_log_num("  step cmd*1000+x = ",
+					            (long)seq[s] * 1000 + g_a5_12288);
+					dbg_log_num("       y*100+face = ",
+					            (long)g_a5_12287 * 100 + g_a5_12286);
+				}
+			}
 		}
 		/* TEST: jt325 cmd-2 record stage. Copy a known 450-byte
 		 * source into the staging buffer and confirm the bytes
@@ -1563,9 +1582,9 @@ static void  jt361(short a)
 			/* Visualize the last-loaded GEO map (geo 40 above) as
 			 * a colored tile grid and hold it on screen for a
 			 * screenshot. Blocks here, before the menu paint. */
-			/* the GEO map drawn with real TOPVIEW automap
-			 * tiles (wall-combination glyphs per cell). */
-			port_render_geo_tiles();
+			/* interactive play loop: walk the party around
+			 * the loaded level on the automap. */
+			port_play_demo();
 			/* hold the snapshot: re-present forever so the
 			 * engine's menu paint can't overwrite it (Crawcin
 			 * doesn't block under --fast-forward). */
@@ -5677,8 +5696,8 @@ void port_render_geo_tiles(void)
 			const unsigned char *t = map + ((long)x * h + y) * 6;
 			short px0 = (short)(x * 16), py0 = (short)(y * 16);
 			short mask = (short)(((t[0] & 0x80) ? 1 : 0)
-			                   | ((t[2] & 0x80) ? 2 : 0)
-			                   | ((t[1] & 0x80) ? 4 : 0)
+			                   | ((t[1] & 0x80) ? 2 : 0)
+			                   | ((t[2] & 0x80) ? 4 : 0)
 			                   | ((t[3] & 0x80) ? 8 : 0));
 			long bmp = l2856(tvbase, (short)(1 + mask), metric);
 			short e, door_tile[4];
@@ -5688,10 +5707,11 @@ void port_render_geo_tiles(void)
 				                (const unsigned char *)(uintptr_t)bmp,
 				                px0, py0, 1, 1, 0);
 
-			door_tile[0] = 17;  /* N (edge t[0]) */
-			door_tile[1] = 19;  /* S (edge t[1]) */
-			door_tile[2] = 20;  /* E (edge t[2]) */
-			door_tile[3] = 18;  /* W (edge t[3]) */
+			/* edge order [N,E,S,W] = t[0..3] per JT[202] */
+			door_tile[0] = 17;  /* N */
+			door_tile[1] = 20;  /* E */
+			door_tile[2] = 19;  /* S */
+			door_tile[3] = 18;  /* W */
 			for (e = 0; e < 4; e++) {
 				long db;
 				if (t[e] == 0 || (t[e] & 0x80))
@@ -5706,6 +5726,196 @@ void port_render_geo_tiles(void)
 		}
 	}
 	qd_present();
+}
+
+/* --- the play loop core: walk the party around the loaded map --- */
+
+/* 8-direction deltas (facing 0=N, 2=E, 4=S, 6=W; odd = diagonal). */
+static const signed char dir_dx[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
+static const signed char dir_dy[8] = { -1, -1, 0, 1, 1,  1,  0, -1 };
+
+/* party_passable — may the party leave cell (x,y) heading `f`? Per
+ * JT[202] the blocking edge is t[(f&6)>>1]; passable iff that edge's
+ * movement nibble is 0 (Free movement). */
+static int party_passable(short x, short y, short f)
+{
+	const unsigned char *ds =
+		(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	const unsigned char *t;
+	short hh;
+
+	if (ds == NULL)
+		return 0;
+	hh = (unsigned char)ds[3];
+	t = ds + 290 + ((long)x * hh + y) * 6;
+	return (short)(t[(f & 6) >> 1] & 0x0f) == 0;
+}
+
+/* party_step — apply a movement command to the live party globals
+ * (g_a5_-12288 x / -12287 y / -12286 facing): 0 turn left, 1 turn
+ * right, 2 forward, 3 back. Turns rotate +-2 mod 8 (the engine's
+ * cardinal step); moves advance one cell if the facing edge is
+ * passable and the destination stays on the map. */
+static void party_step(short cmd)
+{
+	const unsigned char *ds =
+		(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short f = (short)(g_a5_12286 & 7);
+	short w, h, mf, nx, ny;
+
+	if (ds == NULL)
+		return;
+	w = (unsigned char)ds[2];
+	h = (unsigned char)ds[3];
+
+	switch (cmd) {
+	case 0: g_a5_12286 = (unsigned char)((f + 6) & 7); return;
+	case 1: g_a5_12286 = (unsigned char)((f + 2) & 7); return;
+	case 2: mf = f;                    break;
+	case 3: mf = (short)((f + 4) & 7); break;
+	default: return;
+	}
+	if (!party_passable((short)g_a5_12288, (short)g_a5_12287, mf))
+		return;
+	nx = (short)((short)g_a5_12288 + dir_dx[mf]);
+	ny = (short)((short)g_a5_12287 + dir_dy[mf]);
+	if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+		g_a5_12288 = (unsigned char)nx;
+		g_a5_12287 = (unsigned char)ny;
+	}
+}
+
+/* draw_party — a marker at the party cell with a nub pointing in the
+ * facing direction (CLUT index 3). */
+static void draw_party(unsigned char *px, short pitch, short sw, short sh,
+                       short x, short y, short f)
+{
+	short cx = (short)(x * 16 + 8), cy = (short)(y * 16 + 8), i, j;
+
+	for (j = -3; j <= 3; j++)
+		for (i = -3; i <= 3; i++)
+			map_px(px, pitch, sw, sh, (short)(cx + i), (short)(cy + j), 3);
+	for (i = 1; i <= 6; i++)
+		map_px(px, pitch, sw, sh,
+		       (short)(cx + dir_dx[f & 7] * i),
+		       (short)(cy + dir_dy[f & 7] * i), 3);
+}
+
+/* draw_map_tiles — render the currently-loaded design-state map as
+ * TOPVIEW automap tiles (shared with port_render_geo_tiles, edge
+ * order [N,E,S,W] per JT[202]). `tvbase` is a loaded TOPVIEW GLIB. */
+static void draw_map_tiles(long tvbase, unsigned char *px,
+                           short pitch, short sw, short sh)
+{
+	unsigned char metric[8];
+	const unsigned char *ds =
+		(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	const unsigned char *map;
+	short w, h, x, y;
+	static const short door_tile[4] = { 17, 20, 19, 18 };  /* N,E,S,W */
+
+	if (ds == NULL)
+		return;
+	w = (unsigned char)ds[2];
+	h = (unsigned char)ds[3];
+	map = ds + 290;
+	if (w <= 0 || h <= 0 || (long)w * h > 576)
+		return;
+
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			const unsigned char *t = map + ((long)x * h + y) * 6;
+			short px0 = (short)(x * 16), py0 = (short)(y * 16);
+			short mask = (short)(((t[0] & 0x80) ? 1 : 0)
+			                   | ((t[1] & 0x80) ? 2 : 0)
+			                   | ((t[2] & 0x80) ? 4 : 0)
+			                   | ((t[3] & 0x80) ? 8 : 0));
+			long bmp = l2856(tvbase, (short)(1 + mask), metric);
+			short e;
+
+			if (bmp != 0)
+				blit_glyph_1bpp(px, pitch, sw, sh, metric,
+				                (const unsigned char *)(uintptr_t)bmp,
+				                px0, py0, 1, 1, 0);
+			for (e = 0; e < 4; e++) {
+				long db;
+				if (t[e] == 0 || (t[e] & 0x80))
+					continue;
+				db = l2856(tvbase, door_tile[e], metric);
+				if (db != 0)
+					blit_glyph_1bpp(px, pitch, sw, sh, metric,
+					                (const unsigned char *)(uintptr_t)db,
+					                px0, py0, 2, 1, 1);
+			}
+		}
+	}
+}
+
+/* port_play_demo — the play loop core as an interactive dungeon walk
+ * on the automap. Loads the TOPVIEW tiles, enters level 1 (L0bbc
+ * loads the map + places the party), then cycles: draw the map +
+ * party marker, read a key, move. Keys: w forward / s back / a turn
+ * left / d turn right / q quit. This is the runtime's render-input-
+ * move-render loop, driven on the automap instead of the (unlifted)
+ * 3D view. */
+void port_play_demo(void)
+{
+	static unsigned char tv[2048];
+	unsigned char *px;
+	short pitch, sw, sh, refnum = 0;
+	long tvbase, count;
+	unsigned char *pl;
+	RGBColor c4[4];
+
+	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
+		return;
+	count = (long)sizeof tv;
+	(void)FSRead(refnum, &count, tv);
+	(void)FSClose(refnum);
+	tvbase = (long)(uintptr_t)tv;
+	if (l37aa(tvbase, 0) == 0)
+		return;
+
+	pl = (unsigned char *)g_a5_28006;
+	if (pl != NULL)
+		pl[134] = 0;
+	g_a5_18485 = 0;
+	g_a5_18878 = 1;
+	g_a5_18488 = 0;
+	l0bbc();                          /* load level 1 + place the party */
+	g_a5_12286 = (unsigned char)(g_a5_12286 & 6);   /* face a cardinal */
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
+	c4[0].red = c4[0].green = c4[0].blue = 0;                  /* black  */
+	c4[1].red = c4[1].green = c4[1].blue = 0xffff;             /* walls  */
+	c4[2].red = 0xffff; c4[2].green = 0xd000; c4[2].blue = 0;  /* door   */
+	c4[3].red = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party */
+	qd_set_palette(c4, 0, 4);
+
+	for (;;) {
+		unsigned char scan = 0, ascii = 0;
+		short y;
+
+		for (y = 0; y < sh; y++)
+			memset(px + (long)y * pitch, 0, (size_t)sw);
+		draw_map_tiles(tvbase, px, pitch, sw, sh);
+		draw_party(px, pitch, sw, sh, (short)g_a5_12288,
+		           (short)g_a5_12287, (short)g_a5_12286);
+		qd_present();
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 'q' || ascii == 'Q' || ascii == 27)
+			break;
+		switch (ascii) {
+		case 'a': case 'A': party_step(0); break;
+		case 'd': case 'D': party_step(1); break;
+		case 'w': case 'W': party_step(2); break;
+		case 's': case 'S': party_step(3); break;
+		default: break;
+		}
+	}
 }
 
 /* port_render_geo_contact — load every GEOnnn (1..40) in turn and
