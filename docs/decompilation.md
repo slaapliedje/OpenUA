@@ -509,8 +509,17 @@ plane via flags bit 0; item 0 is the directory) extracted with the lifted
 `L37aa`/`L2856` and rendered on the Falcon — floor/wall textures and the
 directional/corridor markers. The faithful `jt995` bit-packed-page blit
 (variants `JT[1181]`…) stays deferred; option B is what draws tile art for
-now. Next: map the wall-edge codes / `GEO.GLB` item-0 index table onto the
-tile set so the GEO map draws with real tiles instead of coloured cells.
+now.
+
+**The GEO map drawn with real tiles.** `TOPVIEW.TLB` glyphs 1..16 are the
+automap cell graphics, one per wall combination — confirmed directly from
+the bitmaps: tile 2 = a solid N bar, 3 = E, 5 = S, 9 = W, ... 16 = all
+four, i.e. **tile = 1 + (N | E<<1 | S<<2 | W<<3)**. `port_render_geo_tiles`
+computes that mask from each GEO cell's four edge bytes and rasterizes the
+matching tile, so the loaded map renders as the game's own dithered-floor +
+wall-bar top-down view instead of coloured cells (verified on GEO040, all
+441 cells). Glyphs 17..24 (with a 2nd mask plane) are the door / arrow
+variants — wiring doors (edge bit 7 clear) to them is the next refinement.
 
 ## Lifting to C
 
