@@ -6401,6 +6401,56 @@ static void jt200(unsigned char *page, short top, short left,
 	jt200_layer(page, top, left, group, sub);                      /* near face */
 }
 
+/* l5e52 (CODE 7 + 0x5e52) — read a cell edge's MOVEMENT-TYPE code (the
+ * LOW nibble), clamping the cell to the map rather than failing: the
+ * frustum walker (JT[199]) uses it to test whether a view ray can see
+ * past a cell (open) or is blocked. Coords off the map wrap to the
+ * opposite edge (row > H-1 -> 0, row < 0 -> H-1; same for col vs W).
+ * Same map layout as jt210 (column-major, stride = height, map at
+ * design_state + 290) but the low nibble and a clamp instead of a
+ * bounds-fail; edge index = (dir & 6) >> 1. */
+static short l5e52(short row, short col, short dir) __attribute__((unused));
+static short l5e52(short row, short col, short dir)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	const unsigned char *cell;
+	short edge;
+
+	if (ds == NULL)
+		return 0;
+	if (row > (short)ds[3] - 1)
+		row = 0;
+	else if (row < 0)
+		row = (short)(ds[3] - 1);
+	if (col > (short)ds[2] - 1)
+		col = 0;
+	else if (col < 0)
+		col = (short)(ds[2] - 1);
+	edge = (short)((dir & 6) >> 1);
+	cell = ds + 290 + ((long)col * ds[3] + row) * 6 + edge;
+	return (short)(*cell & 15);              /* movement-type low nibble */
+}
+
+/* l5b42 (CODE 7 + 0x5b42) — place and draw one wall slot for the
+ * frustum walker: offset the party's screen anchor (y, x) by the
+ * slot's per-depth screen deltas (ydelta, xdelta, signed bytes from
+ * the slot-layout globals), apply the deep-mode (jt1200()==3) 8000-
+ * anchor remap, then hand off to jt200 with the wall code + sub/layer.
+ * (The Mac writes to the engine page descriptor; we thread the page.) */
+static void l5b42(unsigned char *page, short y, short x, short ydelta,
+                  short xdelta, short code, short sub) __attribute__((unused));
+static void l5b42(unsigned char *page, short y, short x, short ydelta,
+                  short xdelta, short code, short sub)
+{
+	y = (short)(y + ((short)(signed char)ydelta << 2));
+	x = (short)(x + ((short)(signed char)xdelta << 2));
+	if (jt1200() == 3) {
+		y = (short)(((short)(y - 8012) << 2) + 8);
+		x = (short)(((short)(x - 8012) << 2) + 8);
+	}
+	jt200(page, y, x, code, sub);
+}
+
 /* port_blit_demo — exercise the bit-packed blit foundation: load a real
  * 32x32 1bpp DUNGCOM tile, OR-blit it into the page at a run of sub-word
  * x offsets (shift 0..15) via bp_blit_or, then convert the page to the
