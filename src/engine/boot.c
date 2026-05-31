@@ -6067,7 +6067,7 @@ static void draw_map_tiles(long tvbase, unsigned char *px,
  * jt995 clip math + the column cursor (L05dc) + the colour-mode
  * primitive (JT[1188]) + wiring this under the 3D view follow. */
 #define BP_STRIDE 64                       /* 512 px/row, bit-packed */
-#define BP_ROWS   240
+#define BP_ROWS   480                      /* covers the shim surface height */
 
 static void bp_blit_or(unsigned char *page, short dx, short dy,
                        const unsigned char *src, short src_stride,
@@ -6113,10 +6113,12 @@ static void bp_present(const unsigned char *page, unsigned char *px,
 {
 	short x, y;
 
+	if (sh > BP_ROWS)
+		sh = BP_ROWS;
 	for (y = 0; y < sh; y++) {
 		const unsigned char *row = page + (long)y * BP_STRIDE;
 		unsigned char       *o   = px + (long)y * pitch;
-		for (x = 0; x < sw; x++)
+		for (x = 0; x < sw && (x >> 3) < BP_STRIDE; x++)
 			o[x] = ((row[x >> 3] >> (7 - (x & 7))) & 1) ? fg : bg;
 	}
 }
