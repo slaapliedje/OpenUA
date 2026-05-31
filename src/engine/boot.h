@@ -57,4 +57,11 @@ void port_render_topview(void);
  */
 void port_render_geo_tiles(void);
 
+/*
+ * Interactive play-loop demo: enter level 1, then walk the party
+ * around the loaded map on the automap (w/s/a/d move, q quit) — the
+ * runtime's render-input-move-render cycle.
+ */
+void port_play_demo(void);
+
 #endif /* ENGINE_BOOT_H */
