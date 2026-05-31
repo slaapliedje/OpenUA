@@ -6168,21 +6168,23 @@ static void bp_present(const unsigned char *page, unsigned char *px,
 	}
 }
 
-/* bp_blit — jt995's per-blit dispatch core (CODE 5 + 0x21fc), over the
- * lifted pixel-walk primitives. Decodes the glyph metric (height @0
- * word, bytes/row @6), remaps the position through jt1135 (the VIDEL
- * coord remap jt995 applies before clipping), clips the bitmap to the
- * page in BOTH axes, then dispatches by mode: 0 = draw (OR / set),
- * 1 = clear (AND-NOT).
+/* bp_blit — the 1:1 clipped tile blit, i.e. the leaf L2d4e (CODE 5 +
+ * 0x2d4e) that the dungeon blit JT[999]/L309c delegates to (and the
+ * structural twin of jt995's per-plane blit). Takes already-remapped
+ * dest coords (x, y): the VIDEL coord remap (jt1135) and the glyph
+ * bearing adjust belong to the L309c entry above the leaf, not here.
+ * Decodes the glyph metric (height @0 word, bytes/row @6), clips the
+ * bitmap to the page in BOTH axes, then dispatches by mode: 0 = draw
+ * (OR / set), 1 = clear (AND-NOT).
  *
- * Horizontal clip mirrors jt995's setup (0x230c..0x23fe): intersect the
- * blit's pixel span with the clip rect, reduce to the visible source
- * words, and trim the partial edge words with lmask/rmask. jt995 reads
- * those masks from the edge-mask tables at g_a5_-4646 / g_a5_-4614 and
- * clips against the clip-rect globals g_a5_-3050..-3056; here the clip
- * rect is the page itself ([0,pw) x [0,BP_ROWS)) and the masks are
- * computed directly. The collision (mode 1/3) / 2-source (mode 2)
- * variants remain on the option-A list. */
+ * Horizontal clip mirrors L2d4e / jt995's setup (0x230c..0x23fe):
+ * intersect the blit's pixel span with the clip rect, reduce to the
+ * visible source words, and trim the partial edge words with lmask/
+ * rmask. The Mac reads those masks from the edge-mask tables at
+ * g_a5_-4646 / g_a5_-4614 and clips against the clip-rect globals
+ * g_a5_-3050..-3056; here the clip rect is the page itself ([0,pw) x
+ * [0,BP_ROWS)) and the masks are computed directly. The collision
+ * (mode 1/3) / 2-source (mode 2) variants remain ahead. */
 static void bp_blit(unsigned char *page, short x, short y,
                     const unsigned char *metric, const unsigned char *src,
                     short mode)
@@ -6198,9 +6200,6 @@ static void bp_blit(unsigned char *page, short x, short y,
 
 	if (h <= 0 || nwords <= 0)
 		return;
-
-	/* jt995 remaps logical coords (jt1135) before any clip math. */
-	jt1135(x, y, &sx, &sy);
 
 	/* vertical clip */
 	if (sy < 0)
@@ -6238,6 +6237,49 @@ static void bp_blit(unsigned char *page, short x, short y,
 			bp_blit_or(page, ddx, dy, s, bpp_w, nw, rows,
 			           lmask, rmask);
 	}
+}
+
+/* jt1004 (JT[1004], CODE 5 + 0x2850) — return the current wall-tile
+ * library handle (g_a5_-4582), the DUNGCOM GLIB the dungeon view blits
+ * its pre-rendered slot tiles from. (The Mac body is a one-line
+ * `movel g_a5_-4582,d0; rts`.) */
+static long jt1004_handle(void) __attribute__((unused));
+static long jt1004_handle(void)
+{
+	return g_a5_long(-4582);
+}
+
+/* l309c — JT[999] (CODE 5 + 0x309c), the dungeon's bitmap blit entry
+ * (mono path). Remaps the dest coords (jt1135, the VIDEL anchor remap),
+ * fetches tile `idx` from `handle` (l2856 -> 8-byte glyph metric + the
+ * 1bpp bits), shifts by the glyph bearing (ybear @2, xbear @4), and
+ * draws 1:1 through the leaf bp_blit (= L2d4e -> L2970 for 1bpp).
+ *
+ * Faithful to L309c's prologue (0x30a0..0x30ea): jt1135 remap, l2856
+ * fetch, early-out on no glyph, then (top,left) -= (ybear,xbear). The
+ * multi-part-sprite arm (metric[7]&15 == 9, which recurses over 6-byte
+ * sub-part descriptors via JT[406]) and L2d4e's deep / composite arms
+ * remain ahead — opaque 1bpp wall tiles take the mono OR path. Threads
+ * an explicit page instead of the Mac page descriptor (g_a5_-2570);
+ * distinct from the older l309c() channel stub that jt1001 still uses. */
+static void l309c_tile(unsigned char *page, short top, short left,
+                       long handle, short idx) __attribute__((unused));
+static void l309c_tile(unsigned char *page, short top, short left,
+                       long handle, short idx)
+{
+	unsigned char metric[8];
+	long  info;
+	short sy = top, sx = left;
+	short ybear, xbear;
+
+	jt1135(top, left, &sy, &sx);
+	info = l2856(handle, idx, metric);
+	if (info == 0)
+		return;
+	ybear = (short)(((unsigned short)metric[2] << 8) | metric[3]);
+	xbear = (short)(((unsigned short)metric[4] << 8) | metric[5]);
+	bp_blit(page, (short)(sx - xbear), (short)(sy - ybear),
+	        metric, (const unsigned char *)(uintptr_t)info, 0);
 }
 
 /* port_blit_demo — exercise the bit-packed blit foundation: load a real
@@ -6299,6 +6341,12 @@ void port_blit_demo(void)
 		bp_blit(page, (short)-20, (short)130, metric, src, 1);
 		for (i = 0; i < 8; i++)
 			bp_blit(page, (short)(64 + i * 34), (short)130, metric, src, 1);
+
+		/* l309c (JT[999]) end-to-end: fetch tile 1 from the nested
+		 * handle and draw it via the faithful remap+bearing+leaf path
+		 * (proves the dungeon blit entry, not just the raw leaf). */
+		l309c_tile(page, (short)210, (short)140, nested, (short)1);
+		l309c_tile(page, (short)210, (short)180, nested, (short)1);
 	}
 
 	c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg black */
