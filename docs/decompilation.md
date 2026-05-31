@@ -283,6 +283,56 @@ is *less* faithful than this and is slated for replacement by it.
 Still ahead too: **encounters / events**, and a real **party** so
 "Begin Adventuring" runs without the test scaffold.
 
+#### Renderer status (lifted) + play-loop integration (next)
+
+The whole renderer stack is now lifted in `src/engine/boot.c`:
+`bp_blit_or`/`bp_blit_andnot` (pixel-walk) → `bp_blit` (`L2d4e` 1:1
+clip+blit) → `l309c_tile` (`JT[999]` blit entry) → `jt200` (per-slot
+selector) → `l5baa`/`jt210`/`l5e52` (cell readers) + `l5b42` (slot
+coord-setup) → **`jt199`** (`JT[199]` frustum walker — 4 ray passes).
+Everything is host- or Hatari-verified except the on-screen `jt199`
+view, which needs the play-loop context below.
+
+**The frustum walker is driven by `JT[312]` (CODE 22 + 0x23ee), the
+dungeon-view render.** Its body around the `jsr JT[199]` (0x24e6) is the
+integration target:
+
+```
+JT[1173](8000, 8007, ...)          ; set the view clip rect
+JT[1001](16, 8000, 1, 9)           ; background / ceiling-floor fill
+JT[1193](); JT[118](24, 8, 1, 0, g_a5_-22222)   ; backdrop sprites
+jt199(8012, 8016,                  ; Y base 8012, X base 8016
+      g_a5_-12288,                 ;   row   = party row
+      g_a5_-12287,                 ;   col   = party col
+      g_a5_-12286 & 7)             ;   facing
+JT[117](); JT[221](...)            ; foreground overlays
+```
+
+Key facts the boot-time `port_view_demo` confirmed, and why it can't
+render faithfully on its own:
+
+- The view runs in **deep display mode** (`JT[1200]()==3`, i.e.
+  `g_a5_2347==0`); the `8012`/`8016` and `8000`-anchored coords are
+  remapped down by `l5b42`/`l309c_tile`'s `jt1135`. The demo saw
+  `jt1200()==0` (plain) at boot — wrong coordinate regime.
+- **Party state** lives in `g_a5_-12288` (row) / `-12287` (col) /
+  `-12286` (facing), set by **CODE 11** (movement; e.g. from the party
+  struct fields @14/@15/@16 at CODE 11+0x070c, and updated on each
+  move at CODE 11+0x19b8/0x1988/0x18f0).
+- The **direction-delta tables** are the first bytes of the `-27862`
+  *view-state struct* (drow at `-27862+dir`, dcol at `-27853+dir`),
+  initialised — together with the live slot-layout globals — by the
+  view-init in **CODE 21** (the dungeon-geometry module; `jt954` =
+  JT[953] = CODE 21+0x38f4 lives here). At boot these are zero, so an
+  isolated demo cannot walk; the layout globals' boot values likewise
+  aren't the play-time values.
+
+So integration = lift **`JT[312]`** (the view render: clip + bg +
+sprite passes + `jt199`) and the **CODE 21 view-init** that seeds the
+`-27862` struct (deltas + layout) and engages deep mode, then call
+`JT[312]` from the play loop with the real party globals. `jt199`
+itself is ready; it just needs that runtime state.
+
 What works today: the boot reaches the **main menu** (`jt315` builds
 "Play the Game / Select a Design / ..."; the party menu `jt918` shows
 "Add Character / Begin Adventuring / ..."), the design + level loaders
