@@ -6282,6 +6282,55 @@ static void l309c_tile(unsigned char *page, short top, short left,
 	        metric, (const unsigned char *)(uintptr_t)info, 0);
 }
 
+/* l5baa (CODE 7 + 0x5baa) — is map cell (row, col) inside the loaded
+ * design's GEO map? The map is column-major with stride = height: the
+ * row index spans [0, ds[3]) and the column index spans [0, ds[2])
+ * (ds = design state g_a5_-12300; ds[2] = width, ds[3] = height). */
+static int l5baa(short row, short col) __attribute__((unused));
+static int l5baa(short row, short col)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	if (ds == NULL)
+		return 0;
+	if (row < 0 || row > (short)ds[3] - 1)
+		return 0;
+	if (col < 0 || col > (short)ds[2] - 1)
+		return 0;
+	return 1;
+}
+
+/* jt210 / l5bfa (JT[210], CODE 7 + 0x5bfa) — read the wall-art code of
+ * map cell (row, col)'s edge facing direction `dir`. The cell readers
+ * the frustum walker (JT[199]) uses to probe walls along each view ray.
+ *
+ * Faithful: an odd `dir` first steps one cell along the direction-delta
+ * tables (g_a5_-27862 = drow, g_a5_-27853 = dcol, indexed by the raw
+ * dir, signed bytes) and rotates dir by 2; then the cell is bounds-
+ * checked (l5baa -> 0 = no wall when off-map), the edge index is
+ * (dir & 6) >> 1, and the cell's edge byte at map+ (col*height + row)*6
+ * + edge is read — its HIGH nibble is the wall-art code (the low nibble
+ * is the movement type). The map lives at design_state + 290. */
+static short jt210(short row, short col, short dir) __attribute__((unused));
+static short jt210(short row, short col, short dir)
+{
+	const unsigned char *ds, *cell;
+	short edge;
+
+	if (dir & 1) {
+		dir--;
+		row = (short)(row + (signed char)g_a5_byte(-27862 + dir));
+		col = (short)(col + (signed char)g_a5_byte(-27853 + dir));
+		dir = (short)((dir + 2) & 6);
+	}
+	if (!l5baa(row, col))
+		return 0;                        /* off-map: no wall */
+	edge = (short)((dir & 6) >> 1);
+	ds   = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	cell = ds + 290 + ((long)col * ds[3] + row) * 6 + edge;
+	return (short)((*cell >> 4) & 15);
+}
+
 /* jt200_layer — draw one wall-tile layer for jt200. Group 2 is the
  * DUNGCOM wall set (handle JT[1004] = g_a5_-4582), drawn 1:1 via the
  * faithful l309c_tile path. The other groups (0/1/3/4) blit through
