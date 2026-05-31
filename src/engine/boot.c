@@ -5323,11 +5323,13 @@ void boot_a5_seed_defaults(void)
 	/* Dungeon-view direction-step tables (the -27862 view-state struct:
 	 * drow at -27862+dir, dcol at -27853+dir, dir 0..7). These read zero
 	 * in our build — they fall in the BSS region below the 12694-byte
-	 * DATA image (-12694..-1) and below the lowest DREL reloc (-20096),
-	 * and no CODE segment ever writes them, so the frustum walker
-	 * (jt199 / jt210 / l5e52) can't step without them. Seed the standard
-	 * cardinal/ordinal steps over the column-major map (cell = col*height
-	 * + row): dir 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW. */
+	 * DATA image (-12694..-1; CODE 0's below-A5 size is 31336, so -27862
+	 * is genuinely BSS), below the lowest DREL reloc, and no CODE segment
+	 * ever writes them, so the frustum walker (jt199 / jt210 / l5e52)
+	 * can't step without them. Seed the cardinal/ordinal steps over the
+	 * column-major map (cell = col*height + row): drow == dir_dy and
+	 * dcol == dir_dx — the same movement deltas render_3d_view walks the
+	 * map with, so these are validated, not guessed. */
 	{
 		static const signed char drow[8] = { -1, -1,  0,  1,  1,  1,  0, -1 };
 		static const signed char dcol[8] = {  0,  1,  1,  1,  0, -1, -1, -1 };
