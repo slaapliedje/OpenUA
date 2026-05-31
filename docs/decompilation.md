@@ -204,10 +204,29 @@ shuffles the player-record view bytes around the draws `L025a`/`L006c`)
 visible wall against the wall-piece layout table `g_a5_-10472` (8-byte
 records, count `g_a5_-10474`) and returns a packed value whose nibbles
 `(v>>8)&0xf` / `v&0xf` are the graphic + sub-index, then `jt332`
-(CODE 8 + 0x4a16) blits it via `JT[1161]` + `jt995`. So a faithful
-wall-set map means lifting that renderer subsystem; `pick_wall`'s
-code-nibble selection is the structurally-plausible stand-in until
-then. Still ahead: **encounters / events**, and a real **party** so
+(CODE 8 + 0x4a16) blits it.
+
+**Full wall-render subsystem (traced; a multi-session arc).**
+The complete chain and what each part needs:
+
+| Part | Role | Blocker to a faithful lift |
+|------|------|----------------------------|
+| `jt954` (CODE 21) | per-frame view orchestrate | — |
+| `JT[914]` (CODE 19) | shuffle view bytes, call `L025a`/`L006c` | — |
+| `jt338` (CODE 8 + 0x5504) | build the wall-slot layout `g_a5_-10472` (8-byte records: screen-x@4 at +8000, width@6, flags@8/10), laid out cumulatively | wall-set descriptors |
+| `JT[342]` (CODE 8 + 0x567c) | screen-region hit-test vs `g_a5_-10472` -> packed wall value | — |
+| `jt332` (CODE 8 + 0x4a16) | resolve the wall graphic **by name** (`JT[394]` sprintf + `JT[423]`) from a wall-set descriptor, then blit | file-cache name lookup; wall-set definition format |
+| `jt995` (CODE 5 + 0x21fc) | the actual bitmap blit | the **deferred** 1bpp shift-blit into the bit-packed 320×200 page (`JT[1181]`/`1184`/`1183`/`1188`) — option A |
+
+So a faithful lift is gated on (1) the `jt995` bit-packed-page blit
+machinery (option A — page + masked row primitives + a page->8bpp
+converter), (2) the wall-set definition + file-cache name resolution
+that `jt332` reads, and (3) the slot-layout descriptors `jt338`
+consumes. `render_3d_view`'s option-B texture-mapping already produces
+the *result* (32x32 DUNGCOM tiles on the perspective walls); the
+remaining gap to FRUA-exact is this whole chain, and `pick_wall`'s
+code-nibble selection stands in for the wall-set tile map until it
+lands. Still ahead: **encounters / events**, and a real **party** so
 "Begin Adventuring" runs without the test scaffold.
 
 What works today: the boot reaches the **main menu** (`jt315` builds
