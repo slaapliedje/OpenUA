@@ -5320,6 +5320,24 @@ void boot_a5_seed_defaults(void)
 	 * pull entropy from TickCount or similar. */
 	g_a5_4902 = 1;
 
+	/* Dungeon-view direction-step tables (the -27862 view-state struct:
+	 * drow at -27862+dir, dcol at -27853+dir, dir 0..7). These read zero
+	 * in our build — they fall in the BSS region below the 12694-byte
+	 * DATA image (-12694..-1) and below the lowest DREL reloc (-20096),
+	 * and no CODE segment ever writes them, so the frustum walker
+	 * (jt199 / jt210 / l5e52) can't step without them. Seed the standard
+	 * cardinal/ordinal steps over the column-major map (cell = col*height
+	 * + row): dir 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW. */
+	{
+		static const signed char drow[8] = { -1, -1,  0,  1,  1,  1,  0, -1 };
+		static const signed char dcol[8] = {  0,  1,  1,  1,  0, -1, -1, -1 };
+		short k;
+		for (k = 0; k < 8; k++) {
+			g_a5_byte(-27862 + k) = (unsigned char)drow[k];
+			g_a5_byte(-27853 + k) = (unsigned char)dcol[k];
+		}
+	}
+
 	/* DLItem pool base. jt447 (dialog reset) copies g_a5_9286 →
 	 * g_a5_9254 on every dialog open, so this slot must hold the
 	 * pool address before the first dialog. On the Mac, jt442
@@ -6637,23 +6655,20 @@ void port_view_demo(void)
 
 	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 
-	/* The dungeon view's runtime state is normally established by the
-	 * CODE 21 view-init when a module is entered; at this boot-time demo
-	 * point it's absent, so seed enough to exercise the jt312 -> jt199
-	 * path: engage deep display mode (g_a5_2347 = 0 -> jt1200()==3), seed
-	 * the standard cardinal direction deltas into the -27862 view-state
-	 * struct, and place the party near the column-0 wall run (row 5,
-	 * col 3, facing 6 = west). A faithful on-screen view still needs the
-	 * real CODE 21 view-init (the live layout globals) and the page
-	 * passes unified with `page` — see jt312. */
+	/* Engage the deep display mode the dungeon view uses (g_a5_2347 = 0
+	 * -> jt1200()==3) and place the party near the column-0 wall run
+	 * (row 5, col 3, facing 6 = west). boot_a5_seed_defaults() seeds the
+	 * direction-step tables, but the -27862 BSS region gets cleared by a
+	 * later boot allocation, so re-seed them here right before the view
+	 * render. The live slot-layout globals come from DATA. */
 	g_a5_2347 = 0;
 	{
-		static const signed char dr[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
-		static const signed char dc[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
+		static const signed char drow[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
+		static const signed char dcol[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
 		short k;
 		for (k = 0; k < 8; k++) {
-			g_a5_byte(-27862 + k) = (unsigned char)dr[k];
-			g_a5_byte(-27853 + k) = (unsigned char)dc[k];
+			g_a5_byte(-27862 + k) = (unsigned char)drow[k];
+			g_a5_byte(-27853 + k) = (unsigned char)dcol[k];
 		}
 	}
 	g_a5_byte(-12288) = 5;          /* party row */
