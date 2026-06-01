@@ -80,52 +80,45 @@ WIP / next iterations:
     pieces along a near-vertical line at X~88; the *perspective* must come
     from the PRE-SIZED pieces (jt200's `sub`/idx picking smaller far tiles),
     EOB-style — not from the anchor moving in 2D.
-- LIFT VERIFIED FAITHFUL (full asm re-read, L6234..L67e2): the four scans
-  (side L/R `L63a2`/`L6556`, front L/R `L66f2`/`L67e2`) match jt199_side/
-  jt199_front exactly — same globals (-12222/-12240/-12202/-12220 side;
-  -12238/-12218 front-L; -12236/-12216 front-R), same sub (9/0 side, 1/2
-  front), same yadj. The JT[3] view selector is a literal `moveq #2`
-  (L636a) — constant 2, so the 4-call decomposition is complete (no outer
-  column fan). jt200's index math (L59d4) matches the lift too (peel-fives,
-  sub++, ==10 wrap, left+=4 step, code*10+sub+1 / code*9+sub+2). So the
-  walk + jt200 code logic is NOT the bug.
+- GROUND TRUTH CAPTURED (2026-06-01, mon BasiliskII + a non-intrusive
+  instruction-loop hook at jt200 entry 0x01E5B2D4 and its 4 blit jsr sites;
+  log saved /tmp/jt200_capture.log, 100 jt200 calls of a real HEIRS 3D
+  frame). This OVERTURNS two earlier wrong conclusions and pinpoints the
+  real bug:
 
-- ROOT CAUSE FOUND (2026-06-01, disassembly only — no emulator needed):
-  the faithful path blits RAW GLIB items, but the real wall tiles are
-  **synthesized at load time** and my `load_cw_full` reads the unbuilt
-  placeholders. The chain:
-  * jt200 -> JT[114] (CODE6+0x3804) -> JT[1001] (CODE5+0x31ac) -> L309c.
-    JT[1001] is just JT[468]+L309c, so the blit + idx semantics are
-    identical to the group-2 path; the ONLY difference is the *handle
-    content*. The handle is `g_a5_-27894[group]` (Wall1/2/3).
-  * That handle is populated by **L6148 -> L6eea** (the per-frame wall-set
-    loader my jt199 lift skipped as "cosmetic"). L6eea: builds "8x8d%c%d",
-    JT[110] loads the GLIB into the handle slot, then LOOPS item indices
-    `4,7,10,14,17,...,47` and for each whose byte size is `<16` (an EMPTY
-    placeholder, measured by JT[1015]=CODE5+0x3834, which returns
-    `offset[idx+1]-offset[idx]`) calls **JT[111]** (CODE6+0x3b1e).
-  * JT[111] is the tile GENERATOR: it sizes the source item `idx-1`
-    (JT[1015]), (re)allocates the dest item `idx` (JT[1022]=CODE5+0x46a6),
-    then runs **JT[1012]** (CODE5+0x37aa) — the pixel transform that builds
-    the larger perspective tile `idx` from its neighbor `idx-1`. So the set
-    ships only some sizes (items 1,2=8x8 ... 8=56x56, 9,10=88x16 per
-    10-item facet band) and DERIVES the rest at load. Reading the raw CTL
-    gives placeholders for exactly the near/big indices → the render shows
-    only the small far tiles. This is the whole discrepancy; the jt199/
-    jt200 lift was correct all along. (Supersedes the earlier "needs a
-    runtime jt200-args capture" plan — static analysis fully explains it.)
+  * **jt200 (L59d4) is 100% correct.** All 24 distinct (code,sub)->idx
+    tuples match the lift exactly, e.g. code=9,sub=0 -> peel to code=4/grp1,
+    code-- =3, far idx=sub+1=2, near idx=code*9+sub+2=30 — matches
+    `far idx=2 near idx=30`. code=1,sub=6 -> idx 8; code=5,sub=3 -> idx 42;
+    code=2,sub=1 -> idx 13. Every line verified.
 
-- NEXT (the lift): port the L6eea tile-synthesis pipeline so the faithful
-  path draws built tiles. Pieces to lift: JT[110] (load), JT[1015] (item
-  byte size, easy off l37aa offsets), JT[1022] (GLIB item realloc),
-  JT[111] (generate dst from src), and the core JT[1012] (CODE5+0x37aa,
-  the scale/derive pixel op). Then `load_cw_full` runs the same 4,7,10..47
-  synthesis pass before the render reads g_cwf_body[idx].
+  * **The bug is jt199: my lift is INCOMPLETE, not faithful.** I wrongly
+    concluded the JT[3] view selector is constant 2. It is NOT — the
+    `moveq #2` (L636a) only seeds it; an OUTER LOOP (tail L6e4a) iterates
+    the selector 2 -> 1 -> 0, dispatching three scan BANDS:
+      - case 2 (L63a2): side scans (sub 0 front-face / 9 side-face, both
+        constant) + near front scans L66f2 (sub=1) / L67e2 (sub=2).
+      - case 1 (L68be): mid band, nested depth loop, sub=3 (glob
+        -12234/-12214) and sub=4 (-12232/-12212).
+      - case 0 (L6bc2): far band, sub=5 and sub=6.
+    So the real walk emits sub = 0,1,2,3,4,5,6 (+9 side) — a depth RAMP.
+    My jt199_front froze sub at 1/2, so jt200 never saw sub>2 and never
+    produced the near/big idx (30/31/32/33/42, and side idx 6/7/8). THAT
+    is why only small far tiles drew. Earlier "synthesis is the root cause"
+    and "needs no emulator" were both wrong; the capture was decisive.
+
+- NEXT (the lift): RE-LIFT jt199 faithfully — the selector 2->1->0 outer
+  loop + all three JT[3] case bands (L63a2 / L68be / L6bc2) with their
+  nested depth loops, soff steps, and the per-band layout globals
+  (-12238/-12236/-12234/-12232 ydelta, -12218/-12216/-12214/-12212 xdelta,
+  etc.). Validate the emitted (code,sub,top,left) sequence against
+  /tmp/jt200_capture.log (should reproduce all 100 calls). jt200 stays
+  as-is. THEN revisit the .tlb-vs-.ctl + synthesis question (deep mode
+  loads .tlb w/ placeholder synthesis via JT[111]; non-deep loads .ctl,
+  all sizes present) — but that is downstream of getting jt199's
+  (code,sub) sequence right.
 - Meanwhile render_3d_raycast (visibility-faithful, on-screen, looks right)
   is the working demo renderer; the pixel-exact jt199 path is in progress.
-- Per-group walls: `render_3d_faithful` loads ONE set (the level's Wall1)
-  for all faces; give each Wall1-3 group its own piece store for true
-  per-edge faithful walls.
 - Strip the `g_cwf_blits` debug logging once the layout is correct.
 
 ### Pivot: faithful WALK + our texture renderer
