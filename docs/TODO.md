@@ -80,12 +80,24 @@ WIP / next iterations:
     pieces along a near-vertical line at X~88; the *perspective* must come
     from the PRE-SIZED pieces (jt200's `sub`/idx picking smaller far tiles),
     EOB-style — not from the anchor moving in 2D.
-- REMAINING: only ~7 small far pieces draw. To finish, reconcile the lifted
-  scan + jt200 `sub`/index selection (and the piece bearings) against the
-  real 3D view (captured: the door-corridor screenshot is the target) so
-  the near/big pieces and the full left+right+front scans land. This is a
-  focused jt199 re-lift, no more emulator capture needed (globals + target
-  screenshot in hand).
+- LIFT VERIFIED FAITHFUL (full asm re-read, L6234..L67e2): the four scans
+  (side L/R `L63a2`/`L6556`, front L/R `L66f2`/`L67e2`) match jt199_side/
+  jt199_front exactly — same globals (-12222/-12240/-12202/-12220 side;
+  -12238/-12218 front-L; -12236/-12216 front-R), same sub (9/0 side, 1/2
+  front), same yadj. jt200's index math (L59d4) matches the lift too
+  (peel-fives, sub++, ==10 wrap, left+=4 step, code*10+sub+1 / code*9+sub+2).
+  So the code logic is NOT the bug.
+- REMAINING (the real gap): the render still shows only a few small pieces.
+  Since the lift+jt200 are verified faithful, the discrepancy is in the
+  PIECE-DATA interpretation or some runtime state I haven't matched — not
+  resolvable by more static reading (the code is provably correct). The
+  definitive resolver is to see the REAL output: capture jt200's actual
+  (top,left,idx) per slot during a live render. A logging hook in the
+  emulator's instruction loop (PC==jt200 entry -> fprintf the stack args)
+  does this NON-INTRUSIVELY — it never enters the monitor, so it won't
+  crash/quit the emulator the way SIGINT->mon does. The hook is already
+  written (uae_cpu/newcpu.cpp, define BII_JT200_HOOK) and jt200's entry is
+  0x01E5B2D4 (stable). Rebuild + one navigate = ground-truth slots.
 - Meanwhile render_3d_raycast (visibility-faithful, on-screen, looks right)
   is the working demo renderer; the pixel-exact jt199 path is in progress.
 - Per-group walls: `render_3d_faithful` loads ONE set (the level's Wall1)
