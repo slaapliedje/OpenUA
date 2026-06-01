@@ -45,10 +45,20 @@ Confirmed against the asm:
   writes it), so 175 is its permanent value. There is no recoverable
   state that maps the side walls on-screen.
 
-So a literal 1:1 *pixel* raycaster render isn't reconstructible from the
-decompilation data alone — the Mac sets up the slot-layout coordinates
-in a way our static image doesn't capture (would need real-hardware /
-emulator runtime capture of `g_a5_-12240..-12196` at render time).
+UPDATE 2026-06-01 — UNBLOCKED by mon capture. Ran FRUA under the
+mon-enabled BasiliskII (`docs/mac-emulator.md`) and dumped the live
+globals: `CurrentA5` confirmed `0x01F74AC0`, and the layout table
+`g_a5_-12240..-12198` (16-bit words) is **5 4 6 4 2 7 2 0 / 9 5 4 3 3 3 1 1
+/ 1 0 0 4 0 0** — tiny values, NOT the 175/516/250 the static DATA image
+held (a launch-time init overwrites them). The side xdelta `-12202` is
+**4**, so `l5b42`'s deep transform `((8016+4·4)−8012)·4+8 = 88` lands
+on-screen. So the static-DATA off-screen result was the red herring; the
+faithful pixel path IS reconstructible with the real coords.
+NEXT: seed these real values for the `jt199`/`l5b42` path (or read them
+the same way the Mac does), wire `jt200_layer` to blit the colour slot
+pieces at the `l5b42` positions, and switch the dungeon view to it. (Ideal
+follow-up: a second capture *inside* the 3D view to confirm they're
+unchanged at render time — almost certainly, since they're set at launch.)
 
 ### Pivot: faithful WALK + our texture renderer
 
