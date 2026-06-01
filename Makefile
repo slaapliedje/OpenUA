@@ -161,10 +161,16 @@ run-game: gamedata
 # best corridor vantage so the textured perspective view shows side
 # walls receding. A clean rebuild is forced because the build flags
 # differ from a plain `make`.
+# Default to HEIRS.DSN ("Heirs to Skull Crag", the bundled sample
+# module): its level 1 has real multi-cell dungeon corridors, so the
+# vantage scan can drop the party into a deep receding tunnel. TUTORIAL
+# is mostly open rooms (deepest corridor is 1 cell). Override with
+# `make walk DSN=TUTORIAL.DSN`.
+walk: DSN := HEIRS.DSN
 walk:
 	$(MAKE) clean
 	$(MAKE) ENGINE_PROBE=1 FRUA_MAP_DEMO=1
-	$(MAKE) gamedata
+	$(MAKE) gamedata DSN=$(DSN)
 	$(HATARI) --machine falcon $(HATARI_FPU) --dsp emu --tos $(FALCON_TOS) \
 	          -d "$(GAMEDATA_DIR)" --auto 'C:\$(TARGET)'
 
