@@ -7243,15 +7243,47 @@ static void jt199_front(unsigned char *page, short Y, short X, short r,
 	}
 }
 
+/* jt199_band — a mid/far-band scan (JT[3] cases 1 and 0). Walk `advdir`
+ * for `ndepth` depths from (r, c): each step draws a FACING-face tile
+ * (gyA + soff / gxA, layer subA) when the facing wall is set and
+ * depth < aMaxDepth, and a SIDE-face tile (gyB + soff / gxB, layer subB)
+ * read along `bdir` when depth > 0 and that wall is set. soff steps by
+ * `soffstep` per depth. (Cases 1/0 of jt199's selector loop; the near
+ * band — case 2 — uses jt199_side/jt199_front instead.) */
+static void jt199_band(unsigned char *page, short Y, short X, short r,
+                       short c, short facing, short bdir, short advdir,
+                       short soff0, short soffstep, short ndepth,
+                       short gyA, short gxA, short subA, short aMaxDepth,
+                       short gyB, short gxB, short subB)
+{
+	short depth, soff = soff0, w, w2;
+
+	for (depth = 0; depth < ndepth; depth++) {
+		w = l5e52(r, c, facing);
+		if (w != 0 && depth < aMaxDepth)
+			l5b42(page, Y, X, (short)(g_a5_word(gyA) + soff),
+			      g_a5_word(gxA), w, subA);
+		w2 = l5e52(r, c, bdir);
+		if (depth > 0 && w2 != 0)
+			l5b42(page, Y, X, (short)(g_a5_word(gyB) + soff),
+			      g_a5_word(gxB), w2, subB);
+		soff = (short)(soff + soffstep);
+		r = (short)(r + JT199_DROW(advdir));
+		c = (short)(c + JT199_DCOL(advdir));
+	}
+}
+
 /* jt199 (JT[199], CODE 7 + 0x6234) — the dungeon first-person frustum
- * walker. Its JT[3] view-layout selector is a constant 2, so only that
- * one layout is live (the other two arms are dead here). From the party
- * cell (row, col) facing `facing`, it advances the view origin two
- * cells forward, then runs four ray passes that read walls (l5e52) and
- * draw their pre-rendered slot tiles (l5b42 -> jt200): the left and
- * right SIDE columns (depth 0..3) and the left and right FRONT columns
- * (depth 0..2). The screen position of each slot comes from the
- * read-only DATA layout globals g_a5_-12202..-12240.
+ * walker. Its JT[3] view-layout selector is NOT constant: a `moveq #2`
+ * seeds it, then an outer loop (L6e4a) iterates it 2 -> 1 -> 0, running
+ * three depth BANDS as the view origin recedes one cell per pass (start
+ * 2 cells forward, then 1, then the party cell). Each band reads walls
+ * (l5e52) and draws their pre-rendered slot tiles (l5b42 -> jt200) with a
+ * band-specific `sub` (depth) layer: case 2 = sub 0/9 side + 1/2 front;
+ * case 1 = sub 3/4/5; case 0 = sub 6/7/8. Verified against a live capture
+ * (docs/TODO.md): jt200's idx math + this sub ramp reproduce the real
+ * (code,sub)->idx slots. The screen positions come from the runtime
+ * layout globals g_a5_-12204..-12240.
  *
  * The cosmetic setup the Mac does first — L6148 (per-frame wall-handle
  * cache), JT[124] (dispose), JT[993] (view-background fill), JT[1173]
@@ -7265,13 +7297,37 @@ static void jt199(unsigned char *page, short Y, short X, short row,
 {
 	short left  = (short)((facing + 6) & 7);
 	short right = (short)((facing + 2) & 7);
-	short v6 = (short)(row + 2 * JT199_DROW(facing));   /* origin: 2 cells fwd */
-	short v8 = (short)(col + 2 * JT199_DCOL(facing));
+	short back  = (short)((facing + 4) & 7);
+	short Lr = JT199_DROW(left),  Lc = JT199_DCOL(left);
+	short Rr = JT199_DROW(right), Rc = JT199_DCOL(right);
+	short orow = (short)(row + 2 * JT199_DROW(facing));  /* origin: 2 fwd */
+	short ocol = (short)(col + 2 * JT199_DCOL(facing));
+	short sel;
 
-	jt199_side(page, Y, X, v6, v8, left,  facing, -2, +1);  /* left  side */
-	jt199_side(page, Y, X, v6, v8, right, facing, +2, -1);  /* right side */
-	jt199_front(page, Y, X, v6, v8, left,  -2, -12238, -12218, -1, 1); /* L front */
-	jt199_front(page, Y, X, v6, v8, right, +2, -12236, -12216, +1, 2); /* R front */
+	for (sel = 2; sel >= 0; sel--) {
+		if (sel == 2) {                                  /* near band */
+			jt199_side(page, Y, X, orow, ocol, left,  facing, -2, +1);
+			jt199_side(page, Y, X, orow, ocol, right, facing, +2, -1);
+			jt199_front(page, Y, X, orow, ocol, left,  -2, -12238, -12218, -1, 1);
+			jt199_front(page, Y, X, orow, ocol, right, +2, -12236, -12216, +1, 2);
+		} else if (sel == 1) {                           /* mid band */
+			jt199_band(page, Y, X, (short)(orow + 2 * Lr), (short)(ocol + 2 * Lc),
+			           facing, left,  right, -6, +3, 3,
+			           -12234, -12214, 3, 99, -12232, -12212, 4);
+			jt199_band(page, Y, X, (short)(orow + 2 * Rr), (short)(ocol + 2 * Rc),
+			           facing, right, left,   6, -3, 3,
+			           -12234, -12214, 3,  2, -12230, -12210, 5);
+		} else {                                         /* far band */
+			jt199_band(page, Y, X, (short)(orow + Lr), (short)(ocol + Lc),
+			           facing, left,  right, -7, +7, 2,
+			           -12228, -12208, 6, 99, -12226, -12206, 7);
+			jt199_band(page, Y, X, (short)(orow + Rr), (short)(ocol + Rc),
+			           facing, right, left,   7, -7, 2,
+			           -12228, -12208, 6,  1, -12224, -12204, 8);
+		}
+		orow = (short)(orow + JT199_DROW(back));         /* recede one cell */
+		ocol = (short)(ocol + JT199_DCOL(back));
+	}
 }
 
 /* render_3d_faithful — the 1:1 Mac slot-assembly view: jt199 walks the
