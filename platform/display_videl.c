@@ -18,13 +18,19 @@
 #include <mint/falcon.h>
 #include <mint/linea.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "display.h"
 #include "dbglog.h"
 
 static dsp_surface_t  g_surface;
-static void          *g_screen_raw;     /* the Mxalloc'd block            */
-static unsigned char *g_screen;         /* 256-byte-aligned planar screen */
+/* Double-buffered planar screen: c2p always writes the back buffer (never
+ * displayed), then we flip physbase to it at vsync — so the beam never sees
+ * a half-converted frame (the old single buffer tore on every move). */
+static void          *g_screen_raw[2];  /* the two Mxalloc'd blocks        */
+static unsigned char *g_screen[2];      /* 256-byte-aligned planar screens */
+static short          g_front;          /* index currently displayed       */
+static long           g_screen_bytes;   /* size of one planar buffer       */
 static short          g_save_mode;
 static void          *g_save_log;
 static void          *g_save_phys;
@@ -78,18 +84,27 @@ static int videl_init(short want_w, short want_h)
 	g_surface.height = h;
 	g_surface.pitch  = w;
 
-	raw = Mxalloc(bytes + 256, 0);               /* 0 = ST-RAM */
-	if (raw <= 0) {
-		dbg_log("  videl_init: Mxalloc FAILED");
-		free(g_surface.pixels);
-		g_surface.pixels = NULL;
-		VsetMode(g_save_mode);
-		return -1;
+	/* Two planar buffers for double buffering (see present()). */
+	g_screen_bytes = bytes;
+	{
+		short b;
+		for (b = 0; b < 2; b++) {
+			raw = Mxalloc(bytes + 256, 0);       /* 0 = ST-RAM */
+			if (raw <= 0) {
+				dbg_log("  videl_init: Mxalloc FAILED");
+				if (b > 0) Mfree(g_screen_raw[0]);
+				free(g_surface.pixels);
+				g_surface.pixels = NULL;
+				VsetMode(g_save_mode);
+				return -1;
+			}
+			g_screen_raw[b] = (void *)raw;
+			g_screen[b] = (unsigned char *)((raw + 255) & ~255L);
+			memset(g_screen[b], 0, (size_t)bytes);
+		}
 	}
-	g_screen_raw = (void *)raw;
-	g_screen = (unsigned char *)((raw + 255) & ~255L);
-
-	VsetScreen(g_screen, g_screen, -1, -1);      /* point the VIDEL at it */
+	g_front = 0;
+	VsetScreen(g_screen[0], g_screen[0], -1, -1);  /* point the VIDEL at it */
 
 	/* Self-test the hand-asm c2p against the C reference on a fixed
 	 * pattern; only enable it if they agree byte-for-byte (else a bug in
@@ -117,9 +132,13 @@ static void videl_shutdown(void)
 	VsetMode(g_save_mode);                     /* restore the desktop mode  */
 	VsetScreen(g_save_log, g_save_phys, -1, -1);
 	VsetRGB(0, 256, g_save_palette);           /* restore the desktop palette */
-	if (g_screen_raw != NULL) {
-		Mfree(g_screen_raw);
-		g_screen_raw = NULL;
+	{
+		short b;
+		for (b = 0; b < 2; b++)
+			if (g_screen_raw[b] != NULL) {
+				Mfree(g_screen_raw[b]);
+				g_screen_raw[b] = NULL;
+			}
 	}
 	free(g_surface.pixels);
 	g_surface.pixels = NULL;
@@ -177,11 +196,12 @@ static void c2p_group_c(const unsigned long *sl, unsigned short *pw)
  * even pitch, 16-px groups) so the group reads four aligned longs. Uses
  * the asm group converter when the self-test passed, else the C one.
  */
-static void videl_c2p_rows(short y0, short y1, short g0, short g1)
+static void videl_c2p_rows(unsigned char *dst, short y0, short y1,
+                           short g0, short g1)
 {
 	short w = g_surface.width;
 	const unsigned char *src = g_surface.pixels + (long)y0 * g_surface.pitch;
-	unsigned char       *row = g_screen + (long)y0 * w;
+	unsigned char       *row = dst + (long)y0 * w;
 	short y, g;
 
 	for (y = y0; y < y1; y++) {
@@ -200,16 +220,30 @@ static void videl_c2p_rows(short y0, short y1, short g0, short g1)
 	}
 }
 
-static void videl_present(void)
+/* Flip: make the just-converted back buffer visible at the next vblank.
+ * VsetScreen latches physbase at vblank; Vsync waits for it, so the beam
+ * only ever scans a fully-converted buffer (no mid-frame tear). */
+static void videl_flip(unsigned char *back)
 {
+	VsetScreen(back, back, -1, -1);
 	Vsync();
-	videl_c2p_rows(0, g_surface.height, 0, g_surface.width / 16);
 }
 
-/* Convert only the dirty rect, snapped out to 16-pixel group columns and
- * clamped to the surface — the static parts of the screen are left as-is. */
+static void videl_present(void)
+{
+	short back = (short)(1 - g_front);
+	videl_c2p_rows(g_screen[back], 0, g_surface.height, 0, g_surface.width / 16);
+	videl_flip(g_screen[back]);
+	g_front = back;
+}
+
+/* Convert only the dirty rect (snapped to 16-pixel groups, clamped) into
+ * the hidden back buffer, then flip. The static surround is identical in
+ * both buffers (cleared at init, black for the dungeon view), so only the
+ * viewport is reconverted each frame yet the whole frame stays consistent. */
 static void videl_present_rect(short x, short y, short w, short h)
 {
+	short back = (short)(1 - g_front);
 	short gmax = g_surface.width / 16;
 	short g0 = (short)(x / 16);
 	short g1 = (short)((x + w + 15) / 16);
@@ -221,8 +255,9 @@ static void videl_present_rect(short x, short y, short w, short h)
 	if (g1 > gmax) g1 = gmax;
 	if (y1 <= y || g1 <= g0)
 		return;
-	Vsync();
-	videl_c2p_rows(y, y1, g0, g1);
+	videl_c2p_rows(g_screen[back], y, y1, g0, g1);
+	videl_flip(g_screen[back]);
+	g_front = back;
 }
 
 static void videl_set_palette(const dsp_color_t *colors, short first,
