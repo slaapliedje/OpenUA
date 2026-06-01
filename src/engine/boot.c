@@ -7065,8 +7065,9 @@ void port_play_demo(void)
 						 * corridor: walls on BOTH sides AND open ahead
 						 * (so it recedes). A straight tunnel like the
 						 * Mac reference scores high; a single wall in
-						 * the face or an open plaza scores 0. */
-						for (d = 0; d < 4; d++) {
+						 * the face or an open plaza scores 0. Search as
+						 * deep as the view draws so the deepest run wins. */
+						for (d = 0; d < 8; d++) {
 							if (!cell_edge(cx, cy, lf) || !cell_edge(cx, cy, rf))
 								break;        /* not flanked -> not a corridor */
 							if (cell_edge(cx, cy, sf))
