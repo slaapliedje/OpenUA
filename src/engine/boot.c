@@ -5895,11 +5895,37 @@ static short cw_lvl(short idx, short col, short row)
 	return (short)((b[row * stride + (col >> 2)] >> (2 * (3 - (col & 3)))) & 3);
 }
 
-/* fill_wall_trap_c — like fill_wall_trap but COLOUR: samples a 32x32 flat
- * cobblestone window of colour piece `texidx` (offset `voff` down, to skip
- * the piece's transparent upper region) and writes the depth-shaded clut
- * entry (32 + depth*4 + level). Same perspective-correct trapezoid as the
- * mono version, so geometry/alignment are unchanged. */
+/* cw_pix — sample the 8bpp chunky byte (a clut-129 index) of colour wall
+ * piece `idx` at (col,row), clamped. The 8X8DC .CTL pieces are 8bpp
+ * (1 byte/pixel, stride = width = 8*bpp_w), unlike the .TLB's 1/2bpp. */
+static short g_cw_8bpp = 0;            /* pieces are 8bpp chunky (from .CTL) */
+static unsigned char cw_pix(short idx, short col, short row)
+{
+	const unsigned char *b;
+	short bw, h, w;
+
+	if (idx < 0 || idx >= g_cw_n)
+		return 0;
+	b = g_cw_body[idx];
+	if (b == NULL)
+		return 0;
+	bw = g_cw_bw[idx];
+	h  = g_cw_h[idx];
+	w  = (short)(8 * bw);                  /* 8bpp: stride == width */
+	if (col < 0) col = 0; else if (col >= w) col = (short)(w - 1);
+	if (row < 0) row = 0; else if (row >= h) row = (short)(h - 1);
+	return b[(long)row * w + col];
+}
+
+/* Per-depth darkening remap over clut 129: g_depth_remap[d][c] = the
+ * clut-129 index whose colour is clut129[c] scaled by the depth factor.
+ * Built in dungeon_view_setup; identity until then. */
+static unsigned char g_depth_remap[4][256];
+
+/* fill_wall_trap_c — like fill_wall_trap but COLOUR (8bpp): samples a 32x32
+ * cobblestone window of colour piece `texidx` (offset `voff` down) and
+ * writes the clut-129 index, depth-darkened via g_depth_remap[depth].
+ * Same perspective-correct trapezoid as the mono version. */
 static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
                              short xNear, short xFar, short hNear, short hFar,
                              short vcy, short texidx, short voff, short depth)
@@ -5910,7 +5936,7 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 	long invN = hNear > 0 ? 16384L / hNear : 0;
 	long invF = hFar  > 0 ? 16384L / hFar  : 0;
 	long dinv = invF - invN;
-	short base = (short)(32 + depth * 4);
+	const unsigned char *rmp = g_depth_remap[depth & 3];
 	short x, y;
 
 	if (denom == 0) denom = 1;
@@ -5930,10 +5956,9 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 		inv = 16384L / ht;
 		u = (short)(((inv - invN) * 32) / dinv);       /* 0 near .. 32 far */
 		for (y = y0; y <= y1; y++) {
-			short lvl;
 			v = (short)(((long)(y - y0) * 32) / span);
-			lvl = cw_lvl(texidx, (short)(u & 31), (short)(voff + (v & 31)));
-			map_px(px, pitch, sw, sh, x, y, (unsigned char)(base + lvl));
+			map_px(px, pitch, sw, sh, x, y,
+			       rmp[cw_pix(texidx, (short)(u & 31), (short)(voff + (v & 31)))]);
 		}
 	}
 }
@@ -6175,19 +6200,22 @@ static void render_3d_assembled(unsigned char *px, short pitch, short sw, short 
  * the colour trapezoid sampler.)
  * ===================================================================== */
 
-/* load 8X8DC environment `set` (1-based top item) into the piece store
- * and program its 4-colour sub-palette into clut entries 16..19. The
- * set's tile 0 body is 48 bytes = 16 RGB byte-triples; only 0..3 are
- * live (4..15 are the magenta "unused" marker). */
+/* Load 8X8DC environment `set` (1-based top item) from the .CTL file —
+ * the 8bpp chunky colour wall textures (the .TLB holds only 1/2bpp). Each
+ * piece body is h*w bytes, one clut-129 index per pixel. Also installs
+ * clut 129 as the screen palette and builds the per-depth darken remap
+ * (g_depth_remap) so render_3d_view can shade the colour walls by depth. */
 static int load_color_wallset(short set)
 {
-	static unsigned char buf[65536];
-	short refnum = 0, i;
-	long count, base, sub, g0;
-	RGBColor pal[4];
+	static unsigned char buf[65536];      /* set 1 lives in the first ~34KB */
+	static unsigned char cr[256], cg[256], cb[256];
+	static RGBColor pal[256];
+	short refnum = 0, i, k, n = 0;
+	long count, base, sub;
+	Handle clutH;
 
 	g_cw_n = 0;
-	if (FSOpen((ConstStr255Param)"\0118X8DC.TLB", 0, &refnum) != noErr)
+	if (FSOpen((ConstStr255Param)"\0118X8DC.CTL", 0, &refnum) != noErr)
 		return 0;
 	count = (long)sizeof buf;
 	(void)FSRead(refnum, &count, buf);
@@ -6196,53 +6224,63 @@ static int load_color_wallset(short set)
 	sub = l37aa(base, set);                 /* environment set sub-GLIB */
 	if (sub == 0)
 		return 0;
-
 	for (i = 0; i < CW_NPIECE; i++) {
 		unsigned char metric[8];
 		long b = l2856(sub, i, metric);
-		g_cw_h[i]    = metric[1];           /* height fits a byte here   */
+		g_cw_h[i]    = metric[1];           /* height (< 256 for .CTL)   */
 		g_cw_bw[i]   = metric[6];
 		g_cw_fl[i]   = metric[7];
 		g_cw_body[i] = (b != 0) ? (const unsigned char *)(uintptr_t)b : NULL;
 	}
 	g_cw_n = CW_NPIECE;
+	g_cw_8bpp = 1;
 
-	/* Sub-palette for the 4 levels at clut 16..19. tile 0's body
-	 * (black/white/green/blue) is a fixed editor TEMPLATE, byte-identical
-	 * across all environment sets, so it is NOT the real per-set colours;
-	 * the real game palette is clut 129, whose first 16 entries are the
-	 * classic EGA set. The pieces are 2bpp (4 levels): level 0 is the
-	 * transparent perspective wedge (keyed out by the renderer), and the
-	 * wall body is level 3 with levels 1/2 as detail. Map them to clut
-	 * 129's real stone colours: brown (idx 6) body, light/dark grey (idx
-	 * 7/8) detail — FRUA's actual palette, not invented RGB. (8-bit
-	 * channels widened to 16-bit via v<<8|v.) */
-	(void)g0;
-	pal[0].red = 0x0000; pal[0].green = 0x0000; pal[0].blue = 0x0000; /* lvl0 keyed */
-	pal[1].red = 0xAAAA; pal[1].green = 0xAAAA; pal[1].blue = 0xAAAA; /* lt grey  7 */
-	pal[2].red = 0x5555; pal[2].green = 0x5555; pal[2].blue = 0x5555; /* dk grey  8 */
-	pal[3].red = 0xAAAA; pal[3].green = 0x5555; pal[3].blue = 0x0000; /* brown    6 */
-	for (i = 0; i < 4; i++)
-		g_cw_clut[i] = (unsigned char)(16 + i);
-	qd_set_palette(pal, 16, 4);
+	/* clut 129 = the 256-colour game palette the 8bpp indices point into. */
+	for (k = 0; k < 256; k++) cr[k] = cg[k] = cb[k] = 0;
+	clutH = GetResource(0x636C7574L /* 'clut' */, 129);
+	if (clutH != NULL && *clutH != NULL) {
+		const unsigned char *cl = (const unsigned char *)*clutH;
+		const unsigned char *cs = cl + 8;        /* ColorSpec[] */
+		n = (short)((((unsigned short)cl[6] << 8) | cl[7]) + 1);  /* ccSize+1 */
+		if (n > 256) n = 256;
+		for (k = 0; k < n; k++) {
+			cr[k] = cs[k * 8 + 2];               /* hi byte of each chan */
+			cg[k] = cs[k * 8 + 4];
+			cb[k] = cs[k * 8 + 6];
+		}
+	}
+	if (n == 0) {                                /* no clut: greyscale ramp */
+		for (k = 0; k < 256; k++) cr[k] = cg[k] = cb[k] = (unsigned char)k;
+		n = 256;
+	}
+	for (k = 0; k < 256; k++) {
+		pal[k].red   = (unsigned short)((cr[k] << 8) | cr[k]);
+		pal[k].green = (unsigned short)((cg[k] << 8) | cg[k]);
+		pal[k].blue  = (unsigned short)((cb[k] << 8) | cb[k]);
+	}
+	/* ceiling (4) dark, floor (5) brown — the walls don't use these idx. */
+	pal[4].red = 0x1000; pal[4].green = 0x0c00; pal[4].blue = 0x0800;
+	pal[5].red = 0x7000; pal[5].green = 0x4800; pal[5].blue = 0x2400;
+	qd_set_palette(pal, 0, 256);
 
-	/* Depth-shaded wall ramp at clut 32..47 = depth(0..3)*4 + level(0..3),
-	 * for render_3d_view's colour trapezoids: a warm-stone tone per 2-bit
-	 * level, darkened with depth so the corridor recedes into shadow. */
+	/* g_depth_remap[d][c] = clut index nearest to clut[c] * depth factor. */
 	{
-		RGBColor wc[16];
-		static const unsigned short lvlb[4]   = { 0x40, 0x96, 0x70, 0xC8 };
-		static const unsigned short depthf[4] = { 255, 196, 150, 112 };
-		short dd, ll;
-		for (dd = 0; dd < 4; dd++)
-			for (ll = 0; ll < 4; ll++) {
-				long b = (long)lvlb[ll] * depthf[dd] / 255;   /* 0..200ish */
-				short k = (short)(dd * 4 + ll);
-				wc[k].red   = (unsigned short)(b << 8);
-				wc[k].green = (unsigned short)(((b * 168) >> 8) << 8);
-				wc[k].blue  = (unsigned short)(((b * 100) >> 8) << 8);
+		static const short fct[4] = { 256, 178, 128, 92 };
+		short d, c, j;
+		for (d = 0; d < 4; d++)
+			for (c = 0; c < 256; c++) {
+				short tr = (short)((cr[c] * fct[d]) >> 8);
+				short tg = (short)((cg[c] * fct[d]) >> 8);
+				short tb = (short)((cb[c] * fct[d]) >> 8);
+				long  bestd = 0x7fffffffL;
+				short best = c;
+				for (j = 0; j < n; j++) {
+					long dr = cr[j] - tr, dg = cg[j] - tg, db = cb[j] - tb;
+					long dd2 = dr * dr + dg * dg + db * db;
+					if (dd2 < bestd) { bestd = dd2; best = j; }
+				}
+				g_depth_remap[d][c] = (unsigned char)best;
 			}
-		qd_set_palette(wc, 32, 16);
 	}
 	return 1;
 }
@@ -6405,11 +6443,11 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 		for (x = (short)(vcx - hw[0]); x <= vcx + hw[0]; x++)
 			map_px(px, pitch, sw, sh, x, y, (y < vcy) ? 4 : 5);
 
-	/* Tile a flat cobblestone window from the colour wall set (8X8DC
-	 * piece 8: transparent upper half, solid cobblestone below ~y64) as
-	 * the wall texture. Colours come from the depth-shaded clut ramp
-	 * 32..47 (depth*4 + 2-bit level), set up in dungeon_view_setup. */
-	const short TEX = 8, VOFF = 72;
+	/* Tile a 32x32 cobblestone window from the colour wall set's 8bpp
+	 * texture (8X8DC.CTL piece 8 = 56x56 chunky; VOFF skips its top edge
+	 * band). Each sampled byte is a clut-129 index; render_3d_view writes
+	 * it depth-darkened via g_depth_remap. */
+	const short TEX = 8, VOFF = 8;
 
 	for (d = 0; d < 4; d++) {
 		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
@@ -6428,7 +6466,7 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 			short xl = (short)(vcx - hw[d + 1]), xr = (short)(vcx + hw[d + 1]);
 			short yt = (short)(vcy - hh[d + 1]), yb = (short)(vcy + hh[d + 1]);
 			short fw = (short)(xr - xl), fh = (short)(yb - yt);
-			short base = (short)(32 + fd * 4);
+			const unsigned char *rmp = g_depth_remap[fd & 3];
 
 			if (fw < 1) fw = 1;
 			if (fh < 1) fh = 1;
@@ -6436,10 +6474,9 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 				short u = (short)(((long)(x - xl) * 32) / fw);
 				for (y = yt; y <= yb; y++) {
 					short v = (short)(((long)(y - yt) * 32) / fh);
-					short lvl = cw_lvl(TEX, (short)(u & 31),
-					                   (short)(VOFF + (v & 31)));
 					map_px(px, pitch, sw, sh, x, y,
-					       (unsigned char)(base + lvl));
+					       rmp[cw_pix(TEX, (short)(u & 31),
+					                  (short)(VOFF + (v & 31)))]);
 				}
 			}
 			break;
