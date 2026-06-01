@@ -30,6 +30,11 @@ static void          *g_save_log;
 static void          *g_save_phys;
 static long           g_save_palette[256];   /* desktop palette, restored on exit */
 
+/* c2p group converters (defined below) + the self-test gate. */
+extern void c2p_group_asm(const unsigned long *src, unsigned short *dst);
+static void c2p_group_c(const unsigned long *sl, unsigned short *pw);
+static int  g_c2p_use_asm = 0;
+
 static int videl_init(short want_w, short want_h)
 {
 	short w, h, newmode;
@@ -85,6 +90,24 @@ static int videl_init(short want_w, short want_h)
 	g_screen = (unsigned char *)((raw + 255) & ~255L);
 
 	VsetScreen(g_screen, g_screen, -1, -1);      /* point the VIDEL at it */
+
+	/* Self-test the hand-asm c2p against the C reference on a fixed
+	 * pattern; only enable it if they agree byte-for-byte (else a bug in
+	 * the asm degrades to the C path instead of corrupting the screen). */
+	{
+		static const unsigned long t_in[4] = {
+			0x12345678UL, 0x9ABCDEF0UL, 0x0F1E2D3CUL, 0x4B5A6978UL
+		};
+		unsigned short a[8], c[8];
+		short i, ok = 1;
+		c2p_group_asm(t_in, a);
+		c2p_group_c(t_in, c);
+		for (i = 0; i < 8; i++)
+			if (a[i] != c[i]) ok = 0;
+		g_c2p_use_asm = ok;
+		dbg_log_num("  videl_init: c2p asm ok = ", ok);
+	}
+
 	dbg_log("  videl_init: done");
 	return 0;
 }
@@ -108,61 +131,70 @@ static dsp_surface_t *videl_surface(void)
 }
 
 /*
- * 8x8 bit-matrix transpose (Hacker's Delight): the 8 bytes packed into x
- * (byte i = matrix row i) come back with rows<->columns swapped. The c2p
- * uses it to gather, for each of 8 source pixels, bit b of all of them
- * into plane b — turning the per-pixel/per-plane double loop (128 bit
- * tests per 16 px) into two transposes.
+ * 8x8 bit-matrix transpose, 32-bit native (Hacker's Delight
+ * transpose8rS32), operating in place on the two longs (x = source bytes
+ * 0..3, y = bytes 4..7, each byte = one pixel, pixel 0 in the MSB). After
+ * it, x/y hold the transposed bytes: byte i gathers bit i of the 8 source
+ * pixels — i.e. all eight plane rows at once. The 030 has no 64-bit ALU,
+ * so this 32-bit path avoids the emulated long-long the first cut used,
+ * and taking longs in/out (vs byte arrays) drops 16 byte loads/stores per
+ * 8 px — that I/O, not the math, was the cost.
  */
-static unsigned long long c2p_transpose8(unsigned long long x)
+#define C2P_TR8(x, y) do {                                            \
+	unsigned long t_;                                                \
+	t_ = ((x) ^ ((x) >> 7))  & 0x00AA00AAUL; (x) ^= t_ ^ (t_ << 7);  \
+	t_ = ((y) ^ ((y) >> 7))  & 0x00AA00AAUL; (y) ^= t_ ^ (t_ << 7);  \
+	t_ = ((x) ^ ((x) >> 14)) & 0x0000CCCCUL; (x) ^= t_ ^ (t_ << 14); \
+	t_ = ((y) ^ ((y) >> 14)) & 0x0000CCCCUL; (y) ^= t_ ^ (t_ << 14); \
+	t_ = ((x) & 0xF0F0F0F0UL) | (((y) >> 4) & 0x0F0F0F0FUL);          \
+	(y) = (((x) << 4) & 0xF0F0F0F0UL) | ((y) & 0x0F0F0F0FUL);         \
+	(x) = t_;                                                        \
+} while (0)
+
+/* One 16-pixel group, chunky (4 longs) -> 8 plane words. The C reference;
+ * the hand-asm c2p_group_asm is a faithful translation, self-tested
+ * against this at init. */
+static void c2p_group_c(const unsigned long *sl, unsigned short *pw)
 {
-	x = (x & 0xAA55AA55AA55AA55ULL)
-	  | ((x & 0x00AA00AA00AA00AAULL) << 7)
-	  | ((x >> 7) & 0x00AA00AA00AA00AAULL);
-	x = (x & 0xCCCC3333CCCC3333ULL)
-	  | ((x & 0x0000CCCC0000CCCCULL) << 14)
-	  | ((x >> 14) & 0x0000CCCC0000CCCCULL);
-	x = (x & 0xF0F0F0F00F0F0F0FULL)
-	  | ((x & 0x00000000F0F0F0F0ULL) << 28)
-	  | ((x >> 28) & 0x00000000F0F0F0F0ULL);
-	return x;
+	unsigned long hx = sl[0], hy = sl[1];   /* pixels 0..7  */
+	unsigned long lx = sl[2], ly = sl[3];   /* pixels 8..15 */
+
+	C2P_TR8(hx, hy);
+	C2P_TR8(lx, ly);
+	pw[0] = (unsigned short)(((hy & 0xff) << 8) | (ly & 0xff));
+	pw[1] = (unsigned short)((((hy >> 8) & 0xff) << 8) | ((ly >> 8) & 0xff));
+	pw[2] = (unsigned short)((((hy >> 16) & 0xff) << 8) | ((ly >> 16) & 0xff));
+	pw[3] = (unsigned short)((((hy >> 24) & 0xff) << 8) | ((ly >> 24) & 0xff));
+	pw[4] = (unsigned short)(((hx & 0xff) << 8) | (lx & 0xff));
+	pw[5] = (unsigned short)((((hx >> 8) & 0xff) << 8) | ((lx >> 8) & 0xff));
+	pw[6] = (unsigned short)((((hx >> 16) & 0xff) << 8) | ((lx >> 16) & 0xff));
+	pw[7] = (unsigned short)((((hx >> 24) & 0xff) << 8) | ((lx >> 24) & 0xff));
 }
 
 /*
- * Chunky 8-bit -> Falcon 8-plane interleaved, via the bit transpose above.
- * Per 16-pixel group the screen holds eight 16-bit plane-words; pixel p
- * contributes its bit b to plane b at bit 15-p. We split the 16 pixels
- * into two 8-pixel halves, transpose each (so transposed byte b holds bit
- * b of the 8 source pixels, pixel 0 in the MSB), and pack: plane b's high
- * byte = bit-b row of pixels 0..7, low byte = pixels 8..15. Verified
- * byte-identical to the naive loop. (Vsync first, as before.)
+ * Chunky 8-bit -> Falcon 8-plane interleaved over the 16-pixel-group
+ * columns [g0,g1) of rows [y0,y1). The surface is 4-aligned (malloc base,
+ * even pitch, 16-px groups) so the group reads four aligned longs. Uses
+ * the asm group converter when the self-test passed, else the C one.
  */
-/* c2p the 16-pixel-group columns [g0,g1) of rows [y0,y1) of the surface. */
 static void videl_c2p_rows(short y0, short y1, short g0, short g1)
 {
 	short w = g_surface.width;
 	const unsigned char *src = g_surface.pixels + (long)y0 * g_surface.pitch;
 	unsigned char       *row = g_screen + (long)y0 * w;
-	short y, g, b;
+	short y, g;
 
 	for (y = y0; y < y1; y++) {
-		for (g = g0; g < g1; g++) {
-			const unsigned char *s = src + g * 16;
-			unsigned short      *pw = (unsigned short *)(row + g * 16);
-			unsigned long long   xhi = 0, xlo = 0, thi, tlo;
-			short                i;
+		const unsigned long *sl = (const unsigned long *)(src + g0 * 16);
+		unsigned short      *pw = (unsigned short *)(row + g0 * 16);
 
-			for (i = 0; i < 8; i++) {
-				xhi = (xhi << 8) | s[i];
-				xlo = (xlo << 8) | s[i + 8];
-			}
-			thi = c2p_transpose8(xhi);
-			tlo = c2p_transpose8(xlo);
-			for (b = 0; b < 8; b++)
-				pw[b] = (unsigned short)
-				        ((((thi >> (8 * b)) & 0xff) << 8)
-				         | ((tlo >> (8 * b)) & 0xff));
-		}
+		if (g_c2p_use_asm)
+			for (g = g0; g < g1; g++, sl += 4, pw += 8)
+				c2p_group_asm(sl, pw);
+		else
+			for (g = g0; g < g1; g++, sl += 4, pw += 8)
+				c2p_group_c(sl, pw);
+
 		src += g_surface.pitch;
 		row += w;                        /* 8bpp planar rowbytes == width */
 	}
