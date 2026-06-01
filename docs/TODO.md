@@ -63,11 +63,23 @@ pre-sized colour pieces 1:1 on screen. Fixed a row/col transpose (pass
 `row=partyY, col=partyX` so `l5b42`'s `cell=col*h+row` matches the map).
 
 WIP / next iterations:
-- The walk now fires real slots (e.g. 7 in a corridor vs 0 before) and they
-  land at the captured coords, but only the far/small front pieces show —
-  the near side walls (big pieces) aren't filling yet. Tune the `jt199_side`
-  side-face draws + `soff` stepping / depth coverage so the full frustum
-  renders.
+- The walk fires real slots (7 in a corridor vs 0 before). Two transposes
+  fixed: cell indexing (pass row=partyY,col=partyX) and the screen axes
+  (l5b42's `top` is X, `left` is Y — `soff` spreads on `top`). Slots now
+  spread horizontally.
+- REMAINING BLOCKER: the output is confined to a narrow Y band (~72-88) and
+  only small far pieces (idx 1/3/4) — no near/big walls, no vertical depth.
+  Why: `jt199_front`/`jt199_side` pass a FIXED xdelta (-12220/-12218/-12202,
+  all =4 here) -> a constant Y for every depth, so the whole walk draws into
+  one horizontal strip instead of a full-height frustum, and `sub` stays
+  small so jt200 picks far pieces, never the near (idx 8/18) ones. The
+  jt199 coordinate model (how depth maps to Y/size, and the sub/piece
+  selection per slot) needs deeper reverse-engineering — the lift's known
+  uncertainty. Best lever: a mon capture of the REAL jt200 (top,left,idx)
+  args during a live render (break in inside jt200) for ground-truth slots.
+- Meanwhile render_3d_raycast (visibility-faithful, on-screen, looks right)
+  is the working demo renderer; the pixel-exact jt199 path is the purist
+  goal still in progress.
 - Per-group walls: `render_3d_faithful` loads ONE set (the level's Wall1)
   for all faces; give each Wall1-3 group its own 48-piece store for true
   per-edge faithful walls.
