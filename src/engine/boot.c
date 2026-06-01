@@ -5869,6 +5869,8 @@ static const char *const g_cw_files[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
 static short g_cw_file   = 0;        /* index into g_cw_files            */
 static short g_cw_set    = CW_SET;   /* 1-based environment set          */
 static short g_cw_setmax = 7;        /* valid sets in the current file   */
+static short g_cw_auto = 1;          /* 1 = pick the set from the level's
+                                      * Wall1; 't'/'y' set 0 to browse */
 static short g_view_force_full = 0;  /* set on a live switch -> full clear+present next frame */
 
 /* Backdrop (BACK.CTL) — the floor/ceiling/sky drawn behind the walls.
@@ -6185,6 +6187,22 @@ static short cell_backdrop_id(const unsigned char *ds)
 	cell = (long)x * h + y;
 	zone = ds[290 + cell * 6 + 5];
 	return ua_backdrop_to_back((short)(unsigned char)ds[8 + (zone & 3)]);
+}
+
+/* wallset_for_id — map a FRUA wall-set id (level header Wall1-3, ds[4..6])
+ * to a wall library + set. The Mac engine builds the art name "8x8d%c%d"
+ * (CODE 7 L6eea): the letter is 'b' for id < 10, 'c' for id >= 10, and the
+ * number is the set within that library. The port's gamedata combined the
+ * Mac's separate 8x8db1..9 / 8x8dc1..7 files into 8X8DB.CTL / 8X8DC.CTL as
+ * sub-GLIB sets, so id 1..9 -> 8X8DB set id, id 10..16 -> 8X8DC set id-9.
+ * Returns 1 and fills *file/*set for a real wall id, 0 for none/overland. */
+static int wallset_for_id(short id, short *file, short *set)
+{
+	if (id < 1 || id == 255)            /* 255 = overland / no wall set */
+		return 0;
+	if (id < 10) { *file = 1; *set = id; }       /* 8X8DB */
+	else         { *file = 0; *set = (short)(id - 9); }  /* 8X8DC */
+	return 1;
 }
 
 /* render_3d_view — a textured first-person corridor view from the
@@ -6981,6 +6999,25 @@ static void jt312(unsigned char *page)
 	cell = (short)((long)(short)g_a5_12288 * ds[3] + (short)g_a5_12287);
 	g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
 
+	/* Pick the wall set from the level's primary wall group (Wall1 =
+	 * ds[4]) unless pinned with 't'/'y'. One set serves all faces here;
+	 * true per-edge Wall1-3 selection needs multi-band palettes (TODO). */
+	if (g_cw_auto) {
+		short file, set;
+		if (wallset_for_id((short)(unsigned char)ds[4], &file, &set)
+		 && (file != g_cw_file || set != g_cw_set)) {
+			g_cw_file = file;
+			g_cw_set  = set;
+			load_color_wallset(set);
+			load_backdrop(g_back_set);   /* wall clut write clobbers its band */
+			g_view_force_full = 1;
+#ifdef FRUA_ENGINE_PROBE
+			dbg_log_num("auto wall file ", file);
+			dbg_log_num("auto wall set  ", set);
+#endif
+		}
+	}
+
 	/* Pick the floor/ceiling backdrop for the current cell's zone (unless
 	 * the demo pinned one with 'b'); reload only when it changes. */
 	if (g_back_auto) {
@@ -7218,12 +7255,13 @@ void port_wall_demo(void)
  * loads the map + places the party), then cycles: draw the map +
  * party marker, read a key, move. Keys: w forward / s back / a turn
  * left / d turn right / m toggle automap / t next wall set / y toggle
- * wall library (8X8DC<->8X8DB) / b browse backdrops (pins manual) / q
- * quit. The floor/ceiling backdrop is normally auto-picked per map cell
- * (each cell's zone selects one of the level's four backdrops); 'b' pins
- * a manual one for browsing. t/y/b live-swap the 3D art — a quick visual
- * regression check over every environment without a rebuild. This is the
- * runtime's render-input-move-render loop. */
+ * wall library (8X8DC<->8X8DB) / b browse backdrops / q quit. Normally
+ * the wall set is auto-picked from the level's Wall1 and the floor/ceiling
+ * backdrop per map cell (its zone selects one of the level's four); t/y
+ * pin a manual wall set and b a manual backdrop, for browsing. They
+ * live-swap the 3D art — a quick visual regression check over every
+ * environment without a rebuild. This is the runtime's render-input-
+ * move-render loop. */
 void port_play_demo(void)
 {
 	static unsigned char tv[2048];
@@ -7449,7 +7487,8 @@ void port_play_demo(void)
 		case 'w': case 'W': party_step(2); break;
 		case 's': case 'S': party_step(3); break;
 		case 'm': case 'M': show_map = (short)!show_map; break;
-		case 't': case 'T':     /* next environment set (wraps) */
+		case 't': case 'T':     /* browse: next set (pins auto off) */
+			g_cw_auto = 0;
 			g_cw_set = (short)(g_cw_set >= g_cw_setmax ? 1 : g_cw_set + 1);
 			load_color_wallset(g_cw_set);
 			load_backdrop(g_back_set);   /* wall clut write clobbered its band */
@@ -7458,7 +7497,8 @@ void port_play_demo(void)
 			dbg_log_num("wall set -> ", g_cw_set);
 #endif
 			break;
-		case 'y': case 'Y':     /* toggle 8X8DC <-> 8X8DB library */
+		case 'y': case 'Y':     /* browse: toggle 8X8DC <-> 8X8DB (pins auto off) */
+			g_cw_auto = 0;
 			g_cw_file ^= 1;
 			g_cw_set = 1;
 			load_color_wallset(g_cw_set);
