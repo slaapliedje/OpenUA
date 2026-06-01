@@ -6768,6 +6768,20 @@ static short l5e52(short row, short col, short dir)
  * the slot-layout globals), apply the deep-mode (jt1200()==3) 8000-
  * anchor remap, then hand off to jt200 with the wall code + sub/layer.
  * (The Mac writes to the engine page descriptor; we thread the page.) */
+/* COORD-PIPELINE FINDINGS (2026-05-31, faithful-path investigation):
+ * the runtime layout globals dumped from the loaded design are
+ *   -12206..-12198 = {40,100,175,250,325}   -12216..-12208 = {175,550,875,1200,1600}
+ *   -12222 = 516   -12220 = 18   -12202 = 175   (-12238/-12236 etc = 260/15)
+ * l5b42 reads ydelta/xdelta as the LOW BYTE (asm: moveb fp@(13)/fp@(15) +
+ * extw + lslw#2 — byte-truncation is FAITHFUL, verified). So the side-wall
+ * x-delta g_a5_-12202 = 175 -> signed byte -81; x = 8016 + (-81<<2) = 7692;
+ * deep remap ((7692-8012)<<2)+8 = -1272 -> off-screen. -12202 is READ-ONLY
+ * across all 23 CODE segments (only jt199 reads it; nothing writes it), so
+ * 175 is its permanent DATA value. Front-wall globals (low byte 4) land
+ * on-screen but not centred. CONCLUSION: the 8000-anchor / deep-mode
+ * transform model needs re-derivation before the faithful slot coords are
+ * usable; the layout values themselves are a structured perspective table.
+ * (render_3d_color currently hand-places the colour pieces instead.) */
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub) __attribute__((unused));
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
