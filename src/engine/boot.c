@@ -5857,6 +5857,20 @@ static unsigned char        g_cw_fl[CW_NPIECE];    /* glyph flags         */
 static const unsigned char *g_cw_body[CW_NPIECE];  /* pixel data          */
 static short                g_cw_n;
 
+/* Active environment selector — CW_SET picks the initial set at build
+ * time (1=marble 2=forest 4=coral 6=lava 7=brick in 8X8DC); the walk demo
+ * cycles g_cw_set / g_cw_file live (keys 't' / 'y') for regression. The
+ * two files are the Gold Box dungeon wall libraries: 8X8DC (8 sets) and
+ * 8X8DB (10 sets). g_cw_setmax is filled from the top GLIB count on load. */
+#ifndef CW_SET
+#define CW_SET 1
+#endif
+static const char *const g_cw_files[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
+static short g_cw_file   = 0;        /* index into g_cw_files            */
+static short g_cw_set    = CW_SET;   /* 1-based environment set          */
+static short g_cw_setmax = 7;        /* valid sets in the current file   */
+static short g_view_force_full = 0;  /* set on a live switch -> full clear+present next frame */
+
 /* cw_pix — sample the 8bpp chunky byte (a clut-129 index) of colour wall
  * piece `idx` at (col,row), clamped. The 8X8DC .CTL pieces are 8bpp
  * (1 byte/pixel, stride = width = 8*bpp_w), unlike the .TLB's 1/2bpp. */
@@ -5945,12 +5959,16 @@ static int load_color_wallset(short set)
 	Handle clutH;
 
 	g_cw_n = 0;
-	if (FSOpen((ConstStr255Param)"\0118X8DC.CTL", 0, &refnum) != noErr)
+	if (FSOpen((ConstStr255Param)g_cw_files[g_cw_file & 1], 0, &refnum) != noErr)
 		return 0;
 	count = (long)sizeof buf;
 	(void)FSRead(refnum, &count, buf);
 	(void)FSClose(refnum);
 	base = (long)(uintptr_t)buf;
+	if (l37aa(base, 0) == 0)                 /* validate 'GLIB' magic */
+		return 0;
+	g_cw_setmax = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;  /* top sets-1 */
+	if (g_cw_setmax < 1) g_cw_setmax = 1;
 	sub = l37aa(base, set);                 /* environment set sub-GLIB */
 	if (sub == 0)
 		return 0;
@@ -6768,13 +6786,10 @@ static int dungeon_view_setup(void)
 		}
 	}
 	qd_set_palette(c4, 0, 16);
-	/* Load the real colour wall set (8X8DC environment) into the clut
-	 * band + piece store; the colour renderer prefers it. CW_SET picks
-	 * the environment (1=marble 2=forest 4=coral 6=lava 7=brick). */
-#ifndef CW_SET
-#define CW_SET 1
-#endif
-	load_color_wallset(CW_SET);
+	/* Load the active colour wall set (g_cw_file / g_cw_set, seeded from
+	 * CW_SET) into the clut band + piece store; the walk demo cycles them
+	 * live for regression (keys 't' next set, 'y' toggle library). */
+	load_color_wallset(g_cw_set);
 	return (g_wall_n > 0) || (g_cw_n > 0);
 }
 
@@ -6818,7 +6833,7 @@ static void jt312(unsigned char *page)
 	/* Clear the whole surface + full-present once, to flush the black
 	 * surround; thereafter only the viewport changes, so we present just
 	 * that rect (the c2p of the static 320x400 screen was the perf wall). */
-	if (s_view_first) {
+	if (s_view_first || g_view_force_full) {
 		for (y = 0; y < sh; y++)
 			memset(px + (long)y * pitch, 0, (size_t)sw);
 	}
@@ -6826,9 +6841,10 @@ static void jt312(unsigned char *page)
 	 * geometry + depth shading), now sampling the colour 8X8DC cobblestone
 	 * texture via the clut 32..47 depth ramp. */
 	render_3d_view(px, pitch, sw, sh);
-	if (s_view_first) {
-		qd_present();
+	if (s_view_first || g_view_force_full) {
+		qd_present();           /* flush whole screen under the new palette */
 		s_view_first = 0;
+		g_view_force_full = 0;
 	} else {
 		/* present just the render_3d_view viewport (x 8..228, y 9..157). */
 		qd_present_rect((short)8, (short)9, (short)221, (short)149);
@@ -7036,9 +7052,11 @@ void port_wall_demo(void)
  * on the automap. Loads the TOPVIEW tiles, enters level 1 (L0bbc
  * loads the map + places the party), then cycles: draw the map +
  * party marker, read a key, move. Keys: w forward / s back / a turn
- * left / d turn right / q quit. This is the runtime's render-input-
- * move-render loop, driven on the automap instead of the (unlifted)
- * 3D view. */
+ * left / d turn right / m toggle automap / t next wall set / y toggle
+ * wall library (8X8DC<->8X8DB) / q quit. The t/y keys live-swap the 3D
+ * dungeon textures — a quick visual regression check over every
+ * environment without a rebuild. This is the runtime's render-input-
+ * move-render loop. */
 void port_play_demo(void)
 {
 	static unsigned char tv[2048];
@@ -7261,6 +7279,23 @@ void port_play_demo(void)
 		case 'w': case 'W': party_step(2); break;
 		case 's': case 'S': party_step(3); break;
 		case 'm': case 'M': show_map = (short)!show_map; break;
+		case 't': case 'T':     /* next environment set (wraps) */
+			g_cw_set = (short)(g_cw_set >= g_cw_setmax ? 1 : g_cw_set + 1);
+			load_color_wallset(g_cw_set);
+			g_view_force_full = 1;
+#ifdef FRUA_ENGINE_PROBE
+			dbg_log_num("wall set -> ", g_cw_set);
+#endif
+			break;
+		case 'y': case 'Y':     /* toggle 8X8DC <-> 8X8DB library */
+			g_cw_file ^= 1;
+			g_cw_set = 1;
+			load_color_wallset(g_cw_set);
+			g_view_force_full = 1;
+#ifdef FRUA_ENGINE_PROBE
+			dbg_log_num("wall file -> ", g_cw_file);
+#endif
+			break;
 		default: break;
 		}
 	}
