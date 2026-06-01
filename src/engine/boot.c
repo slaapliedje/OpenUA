@@ -5943,12 +5943,18 @@ static unsigned char cw_shade(short slot, short facet, short depth,
 	return (unsigned char)(g_cw_base[slot] + g_cw_remap[slot][depth & 3][off]);
 }
 
-/* fill_wall_trap_c — perspective-correct trapezoid for one side wall,
- * sampling a 32x32 window (offset `voff` down) of wall-set slot `slot`'s
- * plain-wall texture, depth-shaded. */
+/* fill_wall_trap_c — perspective-correct trapezoid for one side wall:
+ * the plain wall (facet 0) tiled in a 32x32 window (offset `voff` down) of
+ * slot `slot`, depth-shaded. If `facet` > 0 the cell's decoration is
+ * overlaid: the trapezoid is one cell's side face, so its perspective depth
+ * axis maps to the cell's horizontal (0..CW_CELL) and the decoration is
+ * placed at its bearing, transparent pixels showing the wall. (Mapped onto
+ * the slanted face, so foreshortened — the faithful oblique pieces aren't
+ * used by this trapezoid renderer.) */
 static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
                              short xNear, short xFar, short hNear, short hFar,
-                             short vcy, short slot, short voff, short depth)
+                             short vcy, short slot, short facet,
+                             short voff, short depth)
 {
 	short lo = xNear < xFar ? xNear : xFar;
 	short hi = xNear < xFar ? xFar : xNear;
@@ -5956,13 +5962,17 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 	long invN = hNear > 0 ? 16384L / hNear : 0;
 	long invF = hFar  > 0 ? 16384L / hFar  : 0;
 	long dinv = invF - invN;
+	short xo = facet > 0 ? g_cw_fxo[slot][facet] : 0;
+	short yo = facet > 0 ? g_cw_fyo[slot][facet] : 0;
+	short ow = facet > 0 ? g_cw_fw[slot][facet] : 0;
+	short oh = facet > 0 ? g_cw_fh[slot][facet] : 0;
 	short x, y;
 
 	if (denom == 0) denom = 1;
 	if (dinv == 0)  dinv = 1;
 	for (x = lo; x <= hi; x++) {
 		long  frac = ((long)(x - xNear) * 256) / denom;
-		short ht, y0, y1, span, u, v;
+		short ht, y0, y1, span, u, cu, v;
 		long  inv;
 
 		if (frac < 0) frac = -frac;
@@ -5973,12 +5983,21 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 		span = (short)(2 * ht);
 		if (span < 1) span = 1;
 		inv = 16384L / ht;
-		u = (short)(((inv - invN) * 32) / dinv);       /* 0 near .. 32 far */
+		u  = (short)(((inv - invN) * 32) / dinv);        /* 0 near .. 32 far */
+		cu = (short)(((inv - invN) * CW_CELL) / dinv);   /* cell horiz 0..56 */
 		for (y = y0; y <= y1; y++) {
 			unsigned char c;
 			v = (short)(((long)(y - y0) * 32) / span);
 			c = cw_shade(slot, 0, depth, (short)(u & 31),
 			             (short)(voff + (v & 31)));   /* facet 0 = plain wall */
+			if (facet > 0) {
+				short cv = (short)(((long)(y - y0) * CW_CELL) / span);
+				short du = (short)(cu - xo), dv = (short)(cv - yo);
+				if (du >= 0 && du < ow && dv >= 0 && dv < oh) {
+					unsigned char o = cw_shade(slot, facet, depth, du, dv);
+					if (o != CW_CLEAR) c = o;
+				}
+			}
 			if (c != CW_CLEAR)
 				map_px(px, pitch, sw, sh, x, y, c);
 		}
@@ -6300,6 +6319,14 @@ static short wall_slot_for_edge(short e)
 	return slot;
 }
 
+/* facet_for_edge — the decoration facet (0-4) for a map edge byte: the low
+ * nibble's position within its group. 0 (plain) in manual browse mode. */
+static short facet_for_edge(short e)
+{
+	short w = (short)(e & 0x0F);
+	return (g_cw_auto && w) ? (short)(((w - 1) % CW_FACETS)) : 0;
+}
+
 /* render_3d_view — a textured first-person corridor view from the
  * party's (x,y,facing). Walks depth slices 0..3; at each depth draws
  * the left/right side walls as perspective-correct textured
@@ -6348,18 +6375,20 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
 		short fd = (short)(d + 1 < 4 ? d + 1 : 3);
-		short sl, sr2, sff;
+		short sl, sr2, sff, el, er;
 
-		sl = wall_slot_for_edge(cell_edge(cx, cy, lf));
+		el = cell_edge(cx, cy, lf);
+		sl = wall_slot_for_edge(el);
 		if (sl >= 0)
 			fill_wall_trap_c(px, pitch, sw, sh,
 			                 (short)(vcx - hw[d]), (short)(vcx - hw[d + 1]),
-			                 hh[d], hh[d + 1], vcy, sl, VOFF, d);
-		sr2 = wall_slot_for_edge(cell_edge(cx, cy, rf));
+			                 hh[d], hh[d + 1], vcy, sl, facet_for_edge(el), VOFF, d);
+		er = cell_edge(cx, cy, rf);
+		sr2 = wall_slot_for_edge(er);
 		if (sr2 >= 0)
 			fill_wall_trap_c(px, pitch, sw, sh,
 			                 (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
-			                 hh[d], hh[d + 1], vcy, sr2, VOFF, d);
+			                 hh[d], hh[d + 1], vcy, sr2, facet_for_edge(er), VOFF, d);
 		{
 			short fe = cell_edge(cx, cy, f);
 			sff = wall_slot_for_edge(fe);
@@ -6370,8 +6399,7 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 			 * cell, with the cell's facet decoration (window/door/...)
 			 * overlaid at its bearing, transparent pixels showing the
 			 * wall. Facets only in the map-driven mode. */
-			short fac = (g_cw_auto && (fe & 0x0F))
-				? (short)(((fe & 0x0F) - 1) % CW_FACETS) : 0;
+			short fac = facet_for_edge(fe);
 			short xl = (short)(vcx - hw[d + 1]), xr = (short)(vcx + hw[d + 1]);
 			short yt = (short)(vcy - hh[d + 1]), yb = (short)(vcy + hh[d + 1]);
 			short fw = (short)(xr - xl), fh = (short)(yb - yt);
