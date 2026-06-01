@@ -6182,11 +6182,15 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
 
 	for (y = 0; y < h; y++) {
 		short sy = (short)(y0 + y);
+		const unsigned char *srow;
+		unsigned char *drow;
 		if (sy < 0 || sy >= sh)
 			continue;
+		srow = b + (long)y * stride;        /* hoist source row     */
+		drow = px + (long)sy * pitch;       /* hoist dest row ptr    */
 		for (x = 0; x < w; x++) {
 			short src = flipx ? (short)(w - 1 - x) : x;
-			unsigned char byte = b[y * stride + (src >> 2)];
+			unsigned char byte = srow[src >> 2];
 			short lvl = (byte >> (2 * (3 - (src & 3)))) & 3;
 			short sx;
 			if (lvl == keylvl)
@@ -6194,7 +6198,7 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
 			sx = (short)(x0 + x);
 			if (sx < 0 || sx >= sw)
 				continue;
-			px[(long)sy * pitch + sx] = (unsigned char)(16 + lvl);
+			drow[sx] = (unsigned char)(16 + lvl);
 		}
 	}
 }
@@ -6227,10 +6231,11 @@ static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 	if (g_cw_n <= 0)
 		return;
 
-	/* ceiling (clut 4) over floor (clut 5) across the viewport only. */
+	/* ceiling (clut 4) over floor (clut 5) across the viewport only.
+	 * memset per row (one run-fill instead of a per-pixel multiply). */
 	for (y = vT; y <= vB; y++)
-		for (x = vL; x <= vR; x++)
-			px[(long)y * pitch + x] = (y < vcy) ? 4 : 5;
+		memset(px + (long)y * pitch + vL,
+		       (y < vcy) ? 4 : 5, (size_t)(vR - vL + 1));
 
 	/* Far -> near so nearer strips overdraw farther ones. */
 	for (d = NDEPTH - 1; d >= 0; d--) {
@@ -6819,6 +6824,16 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 		y = (short)(((short)(y - 8012) << 2) + 8);
 		x = (short)(((short)(x - 8012) << 2) + 8);
 	}
+#ifdef FRUA_COORD_TRACE
+	/* Runtime coord trace: raw deltas (low byte) and the final screen
+	 * (y,x). Fit these against the clip viewport x:[21,201] to re-derive
+	 * the transform. Canonical map is (v-8000)*3; clip from L77fe. */
+	dbg_log_num("l5b42 yd=", (long)(signed char)ydelta);
+	dbg_log_num("      xd=", (long)(signed char)xdelta);
+	dbg_log_num("   scr y=", (long)y);
+	dbg_log_num("   scr x=", (long)x);
+	dbg_log_num("  cd/sub=", (long)code * 100 + sub);
+#endif
 	jt200(page, y, x, code, sub);
 }
 
@@ -7400,6 +7415,39 @@ void port_play_demo(void)
 	/* Engage the deep dungeon-view display mode (jt1200() == 3) so
 	 * jt312 renders the first-person view rather than early-returning. */
 	g_a5_2347 = 0;
+
+#if defined(FRUA_COORD_TRACE) || defined(FRUA_PERF_TEST)
+	{
+		extern long TickCount(void);
+		static unsigned char jpage[BP_STRIDE * BP_ROWS];
+		long t0, t1; short k;
+		(void)jpage; (void)t0; (void)t1; (void)k;
+		dungeon_view_setup();           /* load walls + clut before timing */
+		dbg_log_num("cw_n at bench=", (long)g_cw_n);
+#ifdef FRUA_COORD_TRACE
+		/* Drive the faithful frustum walker once so l5b42 logs every
+		 * slot's screen coord for this vantage. */
+		dbg_log_num("=== jt199 coord trace (clip x[21,201]) facing=",
+		            (long)(g_a5_12286 & 7));
+		jt199(jpage, (short)8012, (short)8016, (short)g_a5_12288,
+		      (short)g_a5_12287, (short)(g_a5_12286 & 7));
+#endif
+#ifdef FRUA_PERF_TEST
+		/* Frame-time benchmark: how many 60Hz ticks for 60 render
+		 * frames, render-only vs render+present. */
+		t0 = TickCount();
+		for (k = 0; k < 10; k++)
+			render_3d_color(px, pitch, sw, sh);
+		t1 = TickCount();
+		dbg_log_num("PERF render-only x10 ticks=", t1 - t0);
+		t0 = TickCount();
+		for (k = 0; k < 10; k++)
+			qd_present();
+		t1 = TickCount();
+		dbg_log_num("PERF present-only x10 ticks=", t1 - t0);
+#endif
+	}
+#endif
 
 	for (;;) {
 		unsigned char scan = 0, ascii = 0;

@@ -51,6 +51,20 @@ ifeq ($(FRUA_MAP_DEMO),1)
 CFLAGS += -DFRUA_MAP_DEMO
 endif
 
+# Faithful frustum-walker coordinate trace: drive jt199 once and log every
+# slot's screen coord (via l5b42) so the 8000-space->screen transform can
+# be re-derived against the clip viewport. Opt in with FRUA_COORD_TRACE=1.
+ifeq ($(FRUA_COORD_TRACE),1)
+CFLAGS += -DFRUA_COORD_TRACE
+endif
+
+# 3D-view frame-time benchmark: time 60 render frames (render-only and
+# render+present) and log the tick counts, to gauge dungeon-view perf on
+# the target. Opt in with FRUA_PERF_TEST=1.
+ifeq ($(FRUA_PERF_TEST),1)
+CFLAGS += -DFRUA_PERF_TEST
+endif
+
 all: $(TARGET) frua.rsc
 
 $(TARGET): $(OBJ)
