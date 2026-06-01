@@ -5849,6 +5849,8 @@ static short                g_wall_n;
 /* Colour wall set (8X8DC) piece store — declared here so the colour
  * trapezoid sampler below can read it; loaded by load_color_wallset. */
 #define CW_NPIECE 48
+#define CW_PAL_BASE 32     /* clut index the per-set palette band loads at */
+#define CW_PAL_N    40     /* entries in that band (grey/brown ramp + key)  */
 static unsigned char        g_cw_h[CW_NPIECE];     /* piece height        */
 static unsigned char        g_cw_bw[CW_NPIECE];    /* bytes/row (mode-1)  */
 static unsigned char        g_cw_fl[CW_NPIECE];    /* glyph flags         */
@@ -5925,9 +5927,11 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 
 /* Load 8X8DC environment `set` (1-based top item) from the .CTL file —
  * the 8bpp chunky colour wall textures (the .TLB holds only 1/2bpp). Each
- * piece body is h*w bytes, one clut-129 index per pixel. Also installs
- * clut 129 as the screen palette and builds the per-depth darken remap
- * (g_depth_remap) so render_3d_view can shade the colour walls by depth. */
+ * piece body is h*w bytes, one palette index per pixel. Installs clut 129
+ * as the screen palette but overlays the set's own 40-colour environment
+ * palette (CTL item 0) at clut[32] — that band is what the tile bytes
+ * actually index — then builds the per-depth darken remap (g_depth_remap)
+ * so render_3d_view can shade the colour walls by depth. */
 static int load_color_wallset(short set)
 {
 	static unsigned char buf[65536];      /* set 1 lives in the first ~34KB */
@@ -5975,6 +5979,31 @@ static int load_color_wallset(short set)
 		for (k = 0; k < 256; k++) cr[k] = cg[k] = cb[k] = (unsigned char)k;
 		n = 256;
 	}
+
+	/* Per-set environment palette: item 0 of the set's sub-GLIB is a run
+	 * of RGB triples (8-bit channels) — set 1 is a grey/white marble ramp,
+	 * set 2 a green forest ramp, etc. The 8bpp tile bytes are NOT generic
+	 * clut-129 indices: they point into this 40-colour band loaded at
+	 * clut[32]. (clut 129 alone gave every wall a candy colour cast — it's
+	 * a generic RGB cube, not the dungeon palette.) Layout within the band:
+	 * 0..20 light/dark ramp, 21..30 brown/fire, 31..36 the magenta
+	 * transparency key, so the opaque wall idx 38..52 land in 32+(6..20). */
+	{
+		long p0 = l37aa(sub, 0), p1 = l37aa(sub, 1);
+		if (p0 != 0 && p1 > p0) {
+			const unsigned char *pp =
+				(const unsigned char *)(uintptr_t)(p0 + 8);
+			short pe = (short)((p1 - p0 - 8) / 3);
+			if (pe > CW_PAL_N) pe = CW_PAL_N;
+			for (k = 0; k < pe; k++) {
+				cr[CW_PAL_BASE + k] = pp[k * 3 + 0];
+				cg[CW_PAL_BASE + k] = pp[k * 3 + 1];
+				cb[CW_PAL_BASE + k] = pp[k * 3 + 2];
+			}
+			if (CW_PAL_BASE + pe > n) n = (short)(CW_PAL_BASE + pe);
+		}
+	}
+
 	for (k = 0; k < 256; k++) {
 		pal[k].red   = (unsigned short)((cr[k] << 8) | cr[k]);
 		pal[k].green = (unsigned short)((cg[k] << 8) | cg[k]);
