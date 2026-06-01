@@ -6434,6 +6434,126 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 	}
 }
 
+/* draw_front_face — draw wall-set slot `slot`'s plain wall (facet 0) scaled
+ * into the rect [xl,xr]x[yt,yb], then overlay its facet decoration at the
+ * facet's bearing (transparent pixels show the wall). Shared by the corridor
+ * and frustum renderers. `fd` is the depth-shade level. */
+static void draw_front_face(unsigned char *px, short pitch, short sw, short sh,
+                            short xl, short xr, short yt, short yb,
+                            short slot, short fac, short fd)
+{
+	short fw = (short)(xr - xl), fh = (short)(yb - yt);
+	short xo = g_cw_fxo[slot][fac], yo = g_cw_fyo[slot][fac];
+	short ow = g_cw_fw[slot][fac], oh = g_cw_fh[slot][fac];
+	short x, y;
+
+	if (fw < 1) fw = 1;
+	if (fh < 1) fh = 1;
+	for (x = xl; x <= xr; x++) {
+		short cu = (short)(((long)(x - xl) * CW_CELL) / fw);
+		for (y = yt; y <= yb; y++) {
+			short cv = (short)(((long)(y - yt) * CW_CELL) / fh);
+			unsigned char c = cw_shade(slot, 0, fd, cu, cv);
+			if (fac > 0) {
+				short du = (short)(cu - xo), dv = (short)(cv - yo);
+				if (du >= 0 && du < ow && dv >= 0 && dv < oh) {
+					unsigned char o = cw_shade(slot, fac, fd, du, dv);
+					if (o != CW_CLEAR) c = o;
+				}
+			}
+			if (c != CW_CLEAR)
+				map_px(px, pitch, sw, sh, x, y, c);
+		}
+	}
+}
+
+/* render_3d_raycast — the faithful-frustum view: the wider 3-cell-wide
+ * field jt199 walks (left/center/right columns), versus render_3d_view's
+ * single corridor. Drawn back-to-front (far depth first) so nearer cells
+ * overdraw farther ones (occlusion), using the same perspective ramp and
+ * colour wall/facet system. The lateral column step is 2*hw[d+1], matching
+ * the front-face width, so adjacent columns' front faces tile exactly (no
+ * chevrons). This is jt199's visibility logic over our texture renderer —
+ * the Mac's own l5b42 pixel coords aren't reconstructible (see docs/TODO). */
+static void render_3d_raycast(unsigned char *px, short pitch, short sw, short sh)
+{
+	static const short hw[5] = { 110, 68, 42, 26, 16 };
+	static const short hh[5] = {  74, 46, 28, 17, 11 };
+	const short vcx = 118, vcy = 83, VOFF = 8;
+	short f  = (short)(g_a5_12286 & 7);
+	short lf = (short)((f + 6) & 7);
+	short rf = (short)((f + 2) & 7);
+	short L, d;
+
+	/* backdrop (floor/ceiling/sky) over the whole viewport */
+	{
+		short y0 = (short)(vcy - hh[0]), y1 = (short)(vcy + hh[0]);
+		short x0 = (short)(vcx - hw[0]), x1 = (short)(vcx + hw[0]);
+		short vh = (short)(y1 - y0 + 1), vw = (short)(x1 - x0 + 1);
+		short x, y;
+		for (y = y0; y <= y1; y++) {
+			short by = g_back_h ? (short)(((long)(y - y0) * g_back_h) / vh) : 0;
+			for (x = x0; x <= x1; x++) {
+				short c;
+				if (g_back_w) {
+					short bx = (short)(((long)(x - x0) * g_back_w) / vw);
+					unsigned char v = g_back_img[(long)by * g_back_w + bx];
+					c = v ? (short)v : 4;
+				} else {
+					c = (y < vcy) ? 4 : 5;
+				}
+				map_px(px, pitch, sw, sh, x, y, (unsigned char)c);
+			}
+		}
+	}
+
+	/* frustum: far depth first, three lateral columns; near overdraws far.
+	 * A side column (L=±1) is only visible THROUGH an opening — draw it only
+	 * where the centre corridor's wall toward it is open at that depth (the
+	 * occlusion jt199's walk does); otherwise the corridor wall hides it.
+	 * The centre column then paints last (below), covering closed walls. */
+	for (d = 3; d >= 0; d--) {
+		short fd = (short)(d + 1 < 4 ? d + 1 : 3);
+		short colw = (short)(2 * hw[d + 1]);   /* lateral column step */
+		short ccx = (short)((short)g_a5_12288 + dir_dx[f] * d);
+		short ccy = (short)((short)g_a5_12287 + dir_dy[f] * d);
+		for (L = -1; L <= 1; L++) {
+			short cx  = (short)((short)g_a5_12288 + dir_dx[f] * d + dir_dx[rf] * L);
+			short cy  = (short)((short)g_a5_12287 + dir_dy[f] * d + dir_dy[rf] * L);
+			short cxs = (short)(vcx + L * colw);
+			short el, er, fe, sl, sr2, sff;
+
+			/* gate side columns on a clear line of sight through the wall */
+			if (L < 0 && (cell_edge(ccx, ccy, lf) & 0x0F))
+				continue;                 /* left wall closed -> can't see left */
+			if (L > 0 && (cell_edge(ccx, ccy, rf) & 0x0F))
+				continue;                 /* right wall closed -> can't see right */
+
+			el = cell_edge(cx, cy, lf);
+			sl = wall_slot_for_edge(el);
+			if (sl >= 0)
+				fill_wall_trap_c(px, pitch, sw, sh,
+				                 (short)(cxs - hw[d]), (short)(cxs - hw[d + 1]),
+				                 hh[d], hh[d + 1], vcy, sl, facet_for_edge(el),
+				                 VOFF, d);
+			er = cell_edge(cx, cy, rf);
+			sr2 = wall_slot_for_edge(er);
+			if (sr2 >= 0)
+				fill_wall_trap_c(px, pitch, sw, sh,
+				                 (short)(cxs + hw[d]), (short)(cxs + hw[d + 1]),
+				                 hh[d], hh[d + 1], vcy, sr2, facet_for_edge(er),
+				                 VOFF, d);
+			fe = cell_edge(cx, cy, f);
+			sff = wall_slot_for_edge(fe);
+			if (sff >= 0)
+				draw_front_face(px, pitch, sw, sh,
+				                (short)(cxs - hw[d + 1]), (short)(cxs + hw[d + 1]),
+				                (short)(vcy - hh[d + 1]), (short)(vcy + hh[d + 1]),
+				                sff, facet_for_edge(fe), fd);
+		}
+	}
+}
+
 /* draw_map_tiles — render the currently-loaded design-state map as
  * TOPVIEW automap tiles (shared with port_render_geo_tiles, edge
  * order [N,E,S,W] per JT[202]). `tvbase` is a loaded TOPVIEW GLIB. */
@@ -7178,10 +7298,14 @@ static void jt312(unsigned char *page)
 		for (y = 0; y < sh; y++)
 			memset(px + (long)y * pitch, 0, (size_t)sw);
 	}
-	/* render_3d_view: the perspective-correct trapezoid corridor (correct
-	 * geometry + depth shading), now sampling the colour 8X8DC cobblestone
-	 * texture via the clut 32..47 depth ramp. */
+	/* render_3d_raycast: jt199's wider 3-column frustum (shows side passages)
+	 * over the colour wall/facet system — parity with the old single-corridor
+	 * render_3d_view on straight corridors. FRUA_CORRIDOR selects the latter. */
+#ifdef FRUA_CORRIDOR
 	render_3d_view(px, pitch, sw, sh);
+#else
+	render_3d_raycast(px, pitch, sw, sh);
+#endif
 	if (s_view_first || g_view_force_full) {
 		qd_present();           /* flush whole screen under the new palette */
 		s_view_first = 0;
