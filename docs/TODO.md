@@ -67,19 +67,27 @@ WIP / next iterations:
   fixed: cell indexing (pass row=partyY,col=partyX) and the screen axes
   (l5b42's `top` is X, `left` is Y — `soff` spreads on `top`). Slots now
   spread horizontally.
-- REMAINING BLOCKER: the output is confined to a narrow Y band (~72-88) and
-  only small far pieces (idx 1/3/4) — no near/big walls, no vertical depth.
-  Why: `jt199_front`/`jt199_side` pass a FIXED xdelta (-12220/-12218/-12202,
-  all =4 here) -> a constant Y for every depth, so the whole walk draws into
-  one horizontal strip instead of a full-height frustum, and `sub` stays
-  small so jt200 picks far pieces, never the near (idx 8/18) ones. The
-  jt199 coordinate model (how depth maps to Y/size, and the sub/piece
-  selection per slot) needs deeper reverse-engineering — the lift's known
-  uncertainty. Best lever: a mon capture of the REAL jt200 (top,left,idx)
-  args during a live render (break in inside jt200) for ground-truth slots.
+- DISASSEMBLY FINDINGS (CODE 7 L6234, re-verified):
+  * `l5b42` adds `ydelta+soff` to arg1 (`top` = Mac Rect Y) and `xdelta` to
+    arg2 (`left` = X). So Mac convention `top=Y, left=X` — the original lift
+    naming was right (an X/Y swap experiment was reverted).
+  * `jt199` is MULTI-SCAN: the JT[3] selector is constant 2, but case 2
+    (L63a2) is a leftward lateral scan that FALLS THROUGH to a rightward
+    scan (L6556, `yadj=-1` vs the left scan's `+1`), and presumably the
+    front passes after. The lift's 4-call decomposition is roughly right.
+  * Each scan varies only `soff` (on the Y/top axis) while `xdelta` is
+    constant (-12202/-12220 = 4 -> X = 4*16+24 = 88). So a scan lays its
+    pieces along a near-vertical line at X~88; the *perspective* must come
+    from the PRE-SIZED pieces (jt200's `sub`/idx picking smaller far tiles),
+    EOB-style — not from the anchor moving in 2D.
+- REMAINING: only ~7 small far pieces draw. To finish, reconcile the lifted
+  scan + jt200 `sub`/index selection (and the piece bearings) against the
+  real 3D view (captured: the door-corridor screenshot is the target) so
+  the near/big pieces and the full left+right+front scans land. This is a
+  focused jt199 re-lift, no more emulator capture needed (globals + target
+  screenshot in hand).
 - Meanwhile render_3d_raycast (visibility-faithful, on-screen, looks right)
-  is the working demo renderer; the pixel-exact jt199 path is the purist
-  goal still in progress.
+  is the working demo renderer; the pixel-exact jt199 path is in progress.
 - Per-group walls: `render_3d_faithful` loads ONE set (the level's Wall1)
   for all faces; give each Wall1-3 group its own 48-piece store for true
   per-edge faithful walls.

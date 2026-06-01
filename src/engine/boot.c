@@ -6937,11 +6937,9 @@ static void cw_blit_piece(short top, short left, short idx)
 		return;
 	w = g_cwf_w[idx];
 	h = g_cwf_h[idx];
-	/* l5b42's (top,left) are transposed vs screen: soff (the per-slot
-	 * spread) lands in `top`, so `top` is the horizontal axis and `left`
-	 * the vertical. Map top->X, left->Y. */
-	ox = (short)(top  - g_cwf_xb[idx]);
-	oy = (short)(left - g_cwf_yb[idx]);
+	/* Mac Rect convention: top = Y (vertical), left = X (horizontal). */
+	ox = (short)(left - g_cwf_xb[idx]);
+	oy = (short)(top  - g_cwf_yb[idx]);
 #ifdef FRUA_ENGINE_PROBE
 	if (g_cwf_blits < 12) {
 		dbg_log_num("blit idx=", (long)idx);
