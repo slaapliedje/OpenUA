@@ -5884,6 +5884,8 @@ static unsigned char g_back_img[BACK_W * BACK_H];
 static short g_back_w = 0, g_back_h = 0;   /* loaded dims (0 = none)       */
 static short g_back_set = 1;               /* 1-based backdrop index       */
 static short g_back_max = 19;
+static short g_back_auto = 1;              /* 1 = pick per-cell from the map;
+                                            * 'b' sets 0 to browse manually */
 
 /* cw_pix — sample the 8bpp chunky byte (a clut-129 index) of colour wall
  * piece `idx` at (col,row), clamped. The 8X8DC .CTL pieces are 8bpp
@@ -6148,6 +6150,41 @@ static int load_backdrop(short n)
 		qd_set_palette(bpal, BACK_PAL_BASE, pe);
 	}
 	return 1;
+}
+
+/* ua_backdrop_to_back — map a FRUA level-header backdrop id (the values
+ * stored in ds[8..11]) to a BACK.CTL backdrop index (1-based). The day
+ * backdrops (UA 1..13) index BACK.CTL directly; the night variants
+ * (UA 32..37) are the six images stored after them, at 14..19; anything
+ * else (e.g. 255 'none' or the 240 overland marker) falls back to 1. */
+static short ua_backdrop_to_back(short ua)
+{
+	short id;
+	if (ua >= 1 && ua <= 19)        id = ua;
+	else if (ua >= 32 && ua <= 37)  id = (short)(ua - 18);
+	else                            id = 1;
+	if (id > g_back_max) id = g_back_max;
+	if (id < 1)          id = 1;
+	return id;
+}
+
+/* cell_backdrop_id — the BACK.CTL backdrop for the party's current cell.
+ * Each map cell's 6th byte is its BackdropZone: the low two bits pick one
+ * of the level's four backdrops (ds[8..11] = Backdrop1..4), the high bits
+ * are the monster/event zone. So the floor/ceiling can change as the
+ * party walks between zones. */
+static short cell_backdrop_id(const unsigned char *ds)
+{
+	short x = (short)g_a5_12288, y = (short)g_a5_12287;
+	short w = (unsigned char)ds[2], h = (unsigned char)ds[3];
+	long  cell;
+	unsigned char zone;
+
+	if (x < 0 || y < 0 || x >= w || y >= h)
+		return g_back_set;
+	cell = (long)x * h + y;
+	zone = ds[290 + cell * 6 + 5];
+	return ua_backdrop_to_back((short)(unsigned char)ds[8 + (zone & 3)]);
 }
 
 /* render_3d_view — a textured first-person corridor view from the
@@ -6944,6 +6981,20 @@ static void jt312(unsigned char *page)
 	cell = (short)((long)(short)g_a5_12288 * ds[3] + (short)g_a5_12287);
 	g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
 
+	/* Pick the floor/ceiling backdrop for the current cell's zone (unless
+	 * the demo pinned one with 'b'); reload only when it changes. */
+	if (g_back_auto) {
+		short id = cell_backdrop_id(ds);
+		if (id != g_back_set) {
+			g_back_set = id;
+			load_backdrop(id);
+			g_view_force_full = 1;
+#ifdef FRUA_ENGINE_PROBE
+			dbg_log_num("cell backdrop -> ", id);
+#endif
+		}
+	}
+
 	/* Clear the whole surface + full-present once, to flush the black
 	 * surround; thereafter only the viewport changes, so we present just
 	 * that rect (the c2p of the static 320x400 screen was the perf wall). */
@@ -7167,8 +7218,10 @@ void port_wall_demo(void)
  * loads the map + places the party), then cycles: draw the map +
  * party marker, read a key, move. Keys: w forward / s back / a turn
  * left / d turn right / m toggle automap / t next wall set / y toggle
- * wall library (8X8DC<->8X8DB) / b next backdrop (floor/ceiling/sky) /
- * q quit. The t/y/b keys live-swap the 3D dungeon art — a quick visual
+ * wall library (8X8DC<->8X8DB) / b browse backdrops (pins manual) / q
+ * quit. The floor/ceiling backdrop is normally auto-picked per map cell
+ * (each cell's zone selects one of the level's four backdrops); 'b' pins
+ * a manual one for browsing. t/y/b live-swap the 3D art — a quick visual
  * regression check over every environment without a rebuild. This is the
  * runtime's render-input-move-render loop. */
 void port_play_demo(void)
@@ -7239,9 +7292,12 @@ void port_play_demo(void)
 	if (pl != NULL)
 		pl[134] = 0;
 	g_a5_18485 = 0;
-	g_a5_18878 = 1;
+#ifndef DEMO_LEVEL
+#define DEMO_LEVEL 1
+#endif
+	g_a5_18878 = DEMO_LEVEL;          /* GEOnnn to load (1=overland start) */
 	g_a5_18488 = 0;
-	l0bbc();                          /* load level 1 + place the party */
+	l0bbc();                          /* load the level + place the party */
 	/* the level's HDR start (g_a5_-18488 unknown) lands in open space;
 	 * for the demo drop the party into a known E-W corridor facing E
 	 * so the 3D view shows side walls receding in perspective. */
@@ -7412,7 +7468,8 @@ void port_play_demo(void)
 			dbg_log_num("wall file -> ", g_cw_file);
 #endif
 			break;
-		case 'b': case 'B':     /* next backdrop (floor/ceiling/sky) */
+		case 'b': case 'B':     /* browse backdrops manually (pins auto off) */
+			g_back_auto = 0;
 			g_back_set = (short)(g_back_set >= g_back_max ? 1 : g_back_set + 1);
 			load_backdrop(g_back_set);
 			g_view_force_full = 1;
