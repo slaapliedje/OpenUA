@@ -5341,6 +5341,24 @@ void boot_a5_seed_defaults(void)
 		}
 	}
 
+	/* Dungeon-view slot-layout globals g_a5_-12240..-12198 (22 words), the
+	 * per-slot screen deltas jt199/l5b42 read. CAPTURED LIVE from real FRUA
+	 * under a mon-enabled BasiliskII (CurrentA5-confirmed = 0x01F74AC0; see
+	 * docs/mac-emulator.md). The static DATA image held different, off-screen
+	 * values (175/516/...) — a launch-time init overwrites them with these
+	 * small deltas, and l5b42's deep transform maps them on-screen (e.g.
+	 * side xdelta -12202=4 -> ((8016+4*4)-8012)<<2+8 = x 88). This is what
+	 * unblocks the faithful jt199 pixel render. */
+	{
+		static const short layout[22] = {
+			5, 4, 6, 4, 2, 7, 2, 0,  9, 5, 4, 3, 3, 3, 1, 1,
+			1, 0, 0, 4, 0, 0
+		};
+		short k;
+		for (k = 0; k < 22; k++)
+			g_a5_word(-12240 + k * 2) = layout[k];
+	}
+
 	/* DLItem pool base. jt447 (dialog reset) copies g_a5_9286 →
 	 * g_a5_9254 on every dialog open, so this slot must hold the
 	 * pool address before the first dialog. On the Mac, jt442
