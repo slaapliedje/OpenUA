@@ -44,6 +44,11 @@ typedef struct dsp_backend {
 	/* Copy/flip the back buffer to the visible screen. */
 	void (*present)(void);
 
+	/* Present only the dirty rect (x,y,w,h). Optional (may be NULL);
+	 * lets a backend skip converting the static parts of the screen.
+	 * The backend may snap the rect to its conversion granularity. */
+	void (*present_rect)(short x, short y, short w, short h);
+
 	/* Load count CLUT entries starting at index first. */
 	void (*set_palette)(const dsp_color_t *colors, short first, short count);
 } dsp_backend_t;

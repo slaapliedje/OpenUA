@@ -7032,6 +7032,7 @@ static int dungeon_view_setup(void)
 static void jt312(unsigned char *page)
 {
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	static int s_view_first = 1;
 	unsigned char *px;
 	short pitch, sw, sh, y, cell;
 
@@ -7046,15 +7047,25 @@ static void jt312(unsigned char *page)
 	cell = (short)((long)(short)g_a5_12288 * ds[3] + (short)g_a5_12287);
 	g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
 
-	for (y = 0; y < sh; y++)
-		memset(px + (long)y * pitch, 0, (size_t)sw);
+	/* Clear the whole surface + full-present once, to flush the black
+	 * surround; thereafter only the viewport changes, so we present just
+	 * that rect (the c2p of the static 320x400 screen was the perf wall). */
+	if (s_view_first) {
+		for (y = 0; y < sh; y++)
+			memset(px + (long)y * pitch, 0, (size_t)sw);
+	}
 	/* Prefer the real colour wall set (8X8DC); fall back to the DUNGCOM
 	 * 1bpp slot-assembly corridor if the colour set didn't load. */
 	if (g_cw_n > 0)
 		render_3d_color(px, pitch, sw, sh);
 	else
 		render_3d_assembled(px, pitch, sw, sh);
-	qd_present();
+	if (s_view_first) {
+		qd_present();
+		s_view_first = 0;
+	} else {
+		qd_present_rect((short)8, (short)9, (short)221, (short)149);
+	}
 }
 
 /* port_view_demo — drive jt199, the first-person frustum walker, over
@@ -7444,7 +7455,12 @@ void port_play_demo(void)
 		for (k = 0; k < 10; k++)
 			qd_present();
 		t1 = TickCount();
-		dbg_log_num("PERF present-only x10 ticks=", t1 - t0);
+		dbg_log_num("PERF present-FULL x10 ticks=", t1 - t0);
+		t0 = TickCount();
+		for (k = 0; k < 10; k++)
+			qd_present_rect((short)8, (short)9, (short)221, (short)149);
+		t1 = TickCount();
+		dbg_log_num("PERF present-RECT x10 ticks=", t1 - t0);
 #endif
 	}
 #endif

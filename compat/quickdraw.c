@@ -276,6 +276,22 @@ void qd_present(void)
 		g_present_hook();
 }
 
+/* Dirty-rect present hook — see quickdraw.h. */
+static qd_present_rect_fn g_present_rect_hook;
+
+void qd_set_present_rect(qd_present_rect_fn fn)
+{
+	g_present_rect_hook = fn;
+}
+
+void qd_present_rect(short x, short y, short w, short h)
+{
+	if (g_present_rect_hook != NULL)
+		g_present_rect_hook(x, y, w, h);
+	else if (g_present_hook != NULL)
+		g_present_hook();            /* fall back to a full present */
+}
+
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
 {
 	CGrafPtr     cp = &g_screen_port;

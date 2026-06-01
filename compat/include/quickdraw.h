@@ -280,6 +280,13 @@ typedef void (*qd_present_fn)(void);
 void          qd_set_present(qd_present_fn fn);
 void          qd_present(void);              /* call the registered hook */
 
+/* Present only a dirty rect, when the backend supports it (else falls
+ * back to a full present). Lets the dungeon view skip converting the
+ * static parts of the screen each frame. */
+typedef void (*qd_present_rect_fn)(short x, short y, short w, short h);
+void          qd_set_present_rect(qd_present_rect_fn fn);
+void          qd_present_rect(short x, short y, short w, short h);
+
 /*
  * Initialise the drawing defaults the Mac sets in OpenPort — pnSize (1,1),
  * patCopy mode, solid pen pattern, fgColor 255, bkColor 0. qd_attach_screen

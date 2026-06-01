@@ -322,6 +322,7 @@ int main(void)
 
 	qd_attach_screen(surf->pixels, surf->pitch, surf->width, surf->height);
 	qd_set_present(dsp->present);
+	qd_set_present_rect(dsp->present_rect);   /* NULL-safe: falls back */
 	plat_input_init(surf->width, surf->height);
 	if (plat_sound_init() == 0)
 		dbg_log("main: sound chip locked");
