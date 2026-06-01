@@ -6138,18 +6138,21 @@ static int load_color_wallset(short set)
 	}
 	g_cw_n = CW_NPIECE;
 
-	/* Sub-palette for the 4 levels at clut 16..19. NOTE: tile 0's body
-	 * (black/white/green/blue) is a fixed editor TEMPLATE — byte-identical
-	 * across all environment sets — so it is NOT the real wall colours.
-	 * The real colours live in the game's 256-colour clut 129; the
-	 * level->clut-129 mapping is still to be resolved. Until then we use a
-	 * neutral stone ramp (dark mortar / lit stone / highlight / shadow) so
-	 * the geometry reads as stone rather than the placeholder blue. */
+	/* Sub-palette for the 4 levels at clut 16..19. tile 0's body
+	 * (black/white/green/blue) is a fixed editor TEMPLATE, byte-identical
+	 * across all environment sets, so it is NOT the real per-set colours;
+	 * the real game palette is clut 129, whose first 16 entries are the
+	 * classic EGA set. The pieces are 2bpp (4 levels): level 0 is the
+	 * transparent perspective wedge (keyed out by the renderer), and the
+	 * wall body is level 3 with levels 1/2 as detail. Map them to clut
+	 * 129's real stone colours: brown (idx 6) body, light/dark grey (idx
+	 * 7/8) detail — FRUA's actual palette, not invented RGB. (8-bit
+	 * channels widened to 16-bit via v<<8|v.) */
 	(void)g0;
-	pal[0].red = 0x2800; pal[0].green = 0x2200; pal[0].blue = 0x1a00; /* shadow */
-	pal[1].red = 0xb800; pal[1].green = 0xa400; pal[1].blue = 0x8000; /* lit    */
-	pal[2].red = 0xe800; pal[2].green = 0xd800; pal[2].blue = 0xb800; /* hilite */
-	pal[3].red = 0x6800; pal[3].green = 0x5800; pal[3].blue = 0x4000; /* mid    */
+	pal[0].red = 0x0000; pal[0].green = 0x0000; pal[0].blue = 0x0000; /* lvl0 keyed */
+	pal[1].red = 0xAAAA; pal[1].green = 0xAAAA; pal[1].blue = 0xAAAA; /* lt grey  7 */
+	pal[2].red = 0x5555; pal[2].green = 0x5555; pal[2].blue = 0x5555; /* dk grey  8 */
+	pal[3].red = 0xAAAA; pal[3].green = 0x5555; pal[3].blue = 0x0000; /* brown    6 */
 	for (i = 0; i < 4; i++)
 		g_cw_clut[i] = (unsigned char)(16 + i);
 	qd_set_palette(pal, 16, 4);
@@ -6203,61 +6206,61 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
 	}
 }
 
-/* render_3d_color — first-person view from the real colour wall set.
- * Fills ceiling/floor, then stacks the pre-sized side-wall strips inward
- * for each open depth (left + mirrored right), drawing a front face when
- * a depth is blocked. Pieces carry their own perspective, so this is
- * pure placement. Slot table is hand-tuned to the piece sizes; depths
- * recede toward the viewport centre. */
+/* The dungeon viewport is a square 2*VIEW_HALF on a side, centred
+ * horizontally with its vertical centre at VIEW_CY — matching the Mac's
+ * square 3D-view frame. The 8X8DC pieces are pre-drawn for exactly this
+ * size: the ring half-widths {88,56,24,8} are the front-face piece sizes
+ * (176/112/48/16 over two), so placing each piece at its native size and
+ * slot makes its baked ceiling/floor perspective wedges line up. */
+#define VIEW_HALF 88
+#define VIEW_CY   96
+
+/* render_3d_color — first-person view from the real colour wall set,
+ * EOB-style nested rings. ring[d] half-width rw[d]; the side wall at
+ * depth d fills the band between ring d and ring d+1 (native piece,
+ * full ring-d height), and a blocked depth's front face fills ring d+1.
+ * Pieces carry their own perspective, so this is pure native placement —
+ * no scaling, no hand-tuned offsets. */
 static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 {
-	/* Three depth slots, near->far. Each side wall is one pre-sized
-	 * strip (32 wide) carrying its own ceiling/floor perspective wedge;
-	 * the strips abut from the viewport edge inward, leaving an open
-	 * centre for the far view. front_piece is the centred face drawn
-	 * where a depth is blocked. (A first-pass slot table; the exact
-	 * Gold Box piece->slot layout still wants the UAF reference.) */
-	static const short side_piece[3]  = { 9, 6, 46 };   /* near .. far     */
-	static const short left_edge[3]   = { 8, 40, 72 };  /* viewport-rel X  */
-	static const short front_piece[3] = { 8, 27, 15 };  /* by depth        */
-	const short vL = 8, vR = 228, vT = 9, vB = 157;     /* viewport         */
-	const short vcx = 118, vcy = 83;
-	const short NDEPTH = 3;
+	static const short side_piece[3]  = { 9, 6, 3 };   /* 176x32,112x32,48x16 */
+	static const short front_piece[3] = { 8, 15, 21 }; /* 112,48,16 square    */
+	static const short rw[4]          = { 88, 56, 24, 8 }; /* ring half-widths */
+	const short vcx = (short)(sw / 2), vcy = VIEW_CY;
 	short f  = (short)(g_a5_12286 & 7);
 	short lf = (short)((f + 6) & 7);
 	short rf = (short)((f + 2) & 7);
-	short x, y, d;
+	short y, d;
 
 	if (g_cw_n <= 0)
 		return;
 
-	/* ceiling (clut 4) over floor (clut 5) across the viewport only.
-	 * memset per row (one run-fill instead of a per-pixel multiply). */
-	for (y = vT; y <= vB; y++)
-		memset(px + (long)y * pitch + vL,
-		       (y < vcy) ? 4 : 5, (size_t)(vR - vL + 1));
+	/* ceiling (clut 4) over floor (clut 5) across the square viewport. */
+	for (y = (short)(vcy - VIEW_HALF); y < vcy + VIEW_HALF; y++)
+		memset(px + (long)y * pitch + (vcx - VIEW_HALF),
+		       (y < vcy) ? 4 : 5, (size_t)(2 * VIEW_HALF));
 
-	/* Far -> near so nearer strips overdraw farther ones. */
-	for (d = NDEPTH - 1; d >= 0; d--) {
+	/* Far -> near so nearer rings overdraw farther ones. */
+	for (d = 2; d >= 0; d--) {
 		short cxx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cyy = (short)((short)g_a5_12287 + dir_dy[f] * d);
-		short sp  = side_piece[d];
-		short ph  = g_cw_h[sp];
-		short pw  = (short)(8 * g_cw_bw[sp]);
-		short top = (short)(vcy - ph / 2);
+		short outer = rw[d], inner = rw[d + 1];
+		short sp = side_piece[d], fp = front_piece[d];
+		short top = (short)(vcy - outer);
 
+		/* Side pieces are mostly level-0 (the perspective wedge / empty
+		 * area) which is transparent — key it out so the ceiling/floor
+		 * and farther rings show through; only the wall texture draws. */
 		if (cell_edge(cxx, cyy, lf))
 			blit_piece(px, pitch, sw, sh,
-			           (short)(vL + left_edge[d]), top, sp, 0, -1);
+			           (short)(vcx - outer), top, sp, 0, 0);
 		if (cell_edge(cxx, cyy, rf))
 			blit_piece(px, pitch, sw, sh,
-			           (short)(vR - left_edge[d] - pw), top, sp, 1, -1);
+			           (short)(vcx + inner), top, sp, 1, 0);
 		if (cell_edge(cxx, cyy, f)) {
-			short fp = front_piece[d];
-			short fh = g_cw_h[fp], fw = (short)(8 * g_cw_bw[fp]);
 			blit_piece(px, pitch, sw, sh,
-			           (short)(vcx - fw / 2), (short)(vcy - fh / 2),
-			           fp, 0, -1);
+			           (short)(vcx - inner), (short)(vcy - inner),
+			           fp, 0, 0);
 			break;
 		}
 	}
@@ -7064,7 +7067,10 @@ static void jt312(unsigned char *page)
 		qd_present();
 		s_view_first = 0;
 	} else {
-		qd_present_rect((short)8, (short)9, (short)221, (short)149);
+		/* present just the square dungeon viewport (see render_3d_color). */
+		qd_present_rect((short)(sw / 2 - VIEW_HALF),
+		                (short)(VIEW_CY - VIEW_HALF),
+		                (short)(2 * VIEW_HALF), (short)(2 * VIEW_HALF));
 	}
 }
 
