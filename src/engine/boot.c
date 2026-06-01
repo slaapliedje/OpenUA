@@ -6088,6 +6088,171 @@ static void render_3d_assembled(unsigned char *px, short pitch, short sw, short 
 	}
 }
 
+/* ========================================================================
+ * Colour 3D walls — the real first-person wall set (8X8DC.TLB).
+ *
+ * Unlike DUNGCOM (1bpp automap/combat tiles), 8X8DC holds the Gold Box
+ * colour wall art: per-environment sets of PRE-SIZED perspective pieces
+ * (mode-1, 2bpp into a 4-entry sub-palette). The side-wall strips carry
+ * the ceiling/floor perspective wedges baked in, so stacking them inward
+ * builds the corridor with no runtime perspective math. See the
+ * frua-art memory note.
+ * ===================================================================== */
+#define CW_NPIECE 48
+static unsigned char        g_cw_h[CW_NPIECE];     /* piece height        */
+static unsigned char        g_cw_bw[CW_NPIECE];    /* bytes/row (mode-1)  */
+static unsigned char        g_cw_fl[CW_NPIECE];    /* glyph flags         */
+static const unsigned char *g_cw_body[CW_NPIECE];  /* pixel data          */
+static short                g_cw_n;
+static unsigned char        g_cw_clut[4];          /* sub-palette -> clut  */
+
+/* load 8X8DC environment `set` (1-based top item) into the piece store
+ * and program its 4-colour sub-palette into clut entries 16..19. The
+ * set's tile 0 body is 48 bytes = 16 RGB byte-triples; only 0..3 are
+ * live (4..15 are the magenta "unused" marker). */
+static int load_color_wallset(short set)
+{
+	static unsigned char buf[65536];
+	short refnum = 0, i;
+	long count, base, sub, g0;
+	RGBColor pal[4];
+
+	g_cw_n = 0;
+	if (FSOpen((ConstStr255Param)"\0118X8DC.TLB", 0, &refnum) != noErr)
+		return 0;
+	count = (long)sizeof buf;
+	(void)FSRead(refnum, &count, buf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)buf;
+	sub = l37aa(base, set);                 /* environment set sub-GLIB */
+	if (sub == 0)
+		return 0;
+
+	for (i = 0; i < CW_NPIECE; i++) {
+		unsigned char metric[8];
+		long b = l2856(sub, i, metric);
+		g_cw_h[i]    = metric[1];           /* height fits a byte here   */
+		g_cw_bw[i]   = metric[6];
+		g_cw_fl[i]   = metric[7];
+		g_cw_body[i] = (b != 0) ? (const unsigned char *)(uintptr_t)b : NULL;
+	}
+	g_cw_n = CW_NPIECE;
+
+	/* tile 0 body -> 4 RGB triples -> clut 16..19. */
+	g0 = (long)(uintptr_t)g_cw_body[0];
+	if (g0 != 0) {
+		const unsigned char *p = (const unsigned char *)(uintptr_t)g0;
+		for (i = 0; i < 4; i++) {
+			pal[i].red   = (unsigned short)(p[3 * i + 0] << 8 | p[3 * i + 0]);
+			pal[i].green = (unsigned short)(p[3 * i + 1] << 8 | p[3 * i + 1]);
+			pal[i].blue  = (unsigned short)(p[3 * i + 2] << 8 | p[3 * i + 2]);
+			g_cw_clut[i] = (unsigned char)(16 + i);
+		}
+		qd_set_palette(pal, 16, 4);
+	}
+	return 1;
+}
+
+/* blit_piece — draw colour wall piece `idx` to the screen at (x0,y0),
+ * 1:1, decoding mode-1 2bpp (stride = 2*bw, width = 8*bw, MSB-first
+ * 2-bit pixels) to clut 16+level. `flipx` mirrors horizontally (for the
+ * right-hand side walls). When `keylvl >= 0` that level is transparent
+ * (the side pieces' baked perspective wedges show the ceiling/floor
+ * behind); front faces pass keylvl = -1 (opaque). */
+static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
+                       short x0, short y0, short idx, int flipx, int keylvl)
+{
+	const unsigned char *b;
+	short h, bw, w, stride, x, y;
+
+	if (idx < 0 || idx >= g_cw_n)
+		return;
+	b = g_cw_body[idx];
+	if (b == NULL || (g_cw_fl[idx] & 0x0f) != 1)
+		return;
+	h = g_cw_h[idx];
+	bw = g_cw_bw[idx];
+	if (h <= 0 || bw <= 0)
+		return;
+	stride = (short)(2 * bw);
+	w = (short)(8 * bw);
+
+	for (y = 0; y < h; y++) {
+		short sy = (short)(y0 + y);
+		if (sy < 0 || sy >= sh)
+			continue;
+		for (x = 0; x < w; x++) {
+			short src = flipx ? (short)(w - 1 - x) : x;
+			unsigned char byte = b[y * stride + (src >> 2)];
+			short lvl = (byte >> (2 * (3 - (src & 3)))) & 3;
+			short sx;
+			if (lvl == keylvl)
+				continue;
+			sx = (short)(x0 + x);
+			if (sx < 0 || sx >= sw)
+				continue;
+			px[(long)sy * pitch + sx] = (unsigned char)(16 + lvl);
+		}
+	}
+}
+
+/* render_3d_color — first-person view from the real colour wall set.
+ * Fills ceiling/floor, then stacks the pre-sized side-wall strips inward
+ * for each open depth (left + mirrored right), drawing a front face when
+ * a depth is blocked. Pieces carry their own perspective, so this is
+ * pure placement. Slot table is hand-tuned to the piece sizes; depths
+ * recede toward the viewport centre. */
+static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
+{
+	/* per-depth side-wall piece (near->far) and its OUTER (screen-edge)
+	 * X for the left wall; the piece carries its own perspective wedges,
+	 * so we just step the outer edge inward toward the vanishing point. */
+	static const short side_piece[4] = { 9, 6, 43, 22 };
+	static const short left_edge[4]  = { 8, 44, 74, 96 };   /* viewport-rel */
+	static const short front_piece[4]= { 8, 27, 5, 1 };     /* by depth     */
+	const short vL = 8, vR = 228, vT = 9, vB = 157;          /* viewport      */
+	const short vcx = 118, vcy = 83;
+	short f  = (short)(g_a5_12286 & 7);
+	short lf = (short)((f + 6) & 7);
+	short rf = (short)((f + 2) & 7);
+	short x, y, d;
+
+	if (g_cw_n <= 0)
+		return;
+
+	/* ceiling (clut 4) over floor (clut 5) across the viewport only. */
+	for (y = vT; y <= vB; y++)
+		for (x = vL; x <= vR; x++)
+			px[(long)y * pitch + x] = (y < vcy) ? 4 : 5;
+
+	/* Far -> near so nearer strips overdraw farther ones. Side pieces
+	 * are drawn opaque (their baked wedges are the ceiling/floor). */
+	for (d = 3; d >= 0; d--) {
+		short cxx = (short)((short)g_a5_12288 + dir_dx[f] * d);
+		short cyy = (short)((short)g_a5_12287 + dir_dy[f] * d);
+		short ph  = g_cw_h[side_piece[d]];
+		short pw  = (short)(8 * g_cw_bw[side_piece[d]]);
+		short top = (short)(vcy - ph / 2);
+
+		if (cell_edge(cxx, cyy, lf))
+			blit_piece(px, pitch, sw, sh,
+			           (short)(vL + left_edge[d]), top,
+			           side_piece[d], 0, -1);
+		if (cell_edge(cxx, cyy, rf))
+			blit_piece(px, pitch, sw, sh,
+			           (short)(vR - left_edge[d] - pw), top,
+			           side_piece[d], 1, -1);
+		if (cell_edge(cxx, cyy, f)) {
+			short fp = front_piece[d];
+			short fh = g_cw_h[fp], fw = (short)(8 * g_cw_bw[fp]);
+			blit_piece(px, pitch, sw, sh,
+			           (short)(vcx - fw / 2), (short)(vcy - fh / 2),
+			           fp, 0, -1);
+			break;
+		}
+	}
+}
+
 /* render_3d_view — a textured first-person corridor view from the
  * party's (x,y,facing). Walks depth slices 0..3; at each depth draws
  * the left/right side walls as perspective-correct textured
@@ -6778,7 +6943,10 @@ static int dungeon_view_setup(void)
 		}
 	}
 	qd_set_palette(c4, 0, 16);
-	return g_wall_n > 0;
+	/* Load the real colour wall set (8X8DC environment 1) into clut
+	 * 16..19 + the piece store; the colour renderer prefers it. */
+	load_color_wallset(1);
+	return (g_wall_n > 0) || (g_cw_n > 0);
 }
 
 /* jt312 (JT[312], CODE 22 + 0x23ee) — the dungeon-view render, the
@@ -6820,7 +6988,12 @@ static void jt312(unsigned char *page)
 
 	for (y = 0; y < sh; y++)
 		memset(px + (long)y * pitch, 0, (size_t)sw);
-	render_3d_assembled(px, pitch, sw, sh);
+	/* Prefer the real colour wall set (8X8DC); fall back to the DUNGCOM
+	 * 1bpp slot-assembly corridor if the colour set didn't load. */
+	if (g_cw_n > 0)
+		render_3d_color(px, pitch, sw, sh);
+	else
+		render_3d_assembled(px, pitch, sw, sh);
 	qd_present();
 }
 
@@ -7088,10 +7261,9 @@ void port_play_demo(void)
 			g_wall_n = WALL_NTILES;
 		}
 	}
-	/* The walls + view CLUT are now loaded; mark the engine's dungeon
-	 * render entry (jt312 -> dungeon_view_setup) ready so it reuses them
-	 * rather than reloading. */
-	g_dungeon_view_ready = 1;
+	/* NOTE: do NOT pre-mark g_dungeon_view_ready here — jt312's
+	 * dungeon_view_setup must run on first call so it also loads the
+	 * colour wall set (8X8DC) into the piece store + clut 16..19. */
 
 	pl = (unsigned char *)g_a5_28006;
 	if (pl != NULL)
@@ -7180,6 +7352,9 @@ void port_play_demo(void)
 		}
 	}
 	qd_set_palette(c4, 0, 16);
+	/* Engage the deep dungeon-view display mode (jt1200() == 3) so
+	 * jt312 renders the first-person view rather than early-returning. */
+	g_a5_2347 = 0;
 
 	for (;;) {
 		unsigned char scan = 0, ascii = 0;
