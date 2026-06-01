@@ -6723,50 +6723,105 @@ static short l04d6(short cell)
 	return (short)ds[(long)cell * 6 + 294];
 }
 
+/* dungeon_view_setup — one-time bring-up of what the dungeon view needs:
+ * load DUNGCOM.TLB's stone set into the wall-tile table and program the
+ * view CLUT (automap 1..3, ceiling 4 / floor 5, and the 8-step brown
+ * stone depth ramp at 8..15). Idempotent; returns non-zero once the
+ * wall set is loaded. Called lazily by jt312 so the engine's dungeon
+ * render entry is self-sufficient (the Mac build's CODE 21 view-init
+ * loads these; we stand in for it here until that path is lifted). */
+static int g_dungeon_view_ready = 0;
+static int dungeon_view_setup(void)
+{
+	static unsigned char dc[20480];
+	short refnum = 0, i;
+	long count;
+	RGBColor c4[16];
+
+	if (g_dungeon_view_ready)
+		return g_wall_n > 0;
+	g_dungeon_view_ready = 1;
+
+	g_wall_n = 0;
+	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) == noErr) {
+		long dcbase, nested;
+		count = (long)sizeof dc;
+		(void)FSRead(refnum, &count, dc);
+		(void)FSClose(refnum);
+		dcbase = (long)(uintptr_t)dc;
+		if (l37aa(dcbase, 0) != 0 && (nested = l37aa(dcbase, 1)) != 0) {
+			for (i = 0; i < WALL_NTILES; i++) {
+				long lb = l2856(nested, (short)(i + 1), g_wall_metric[i]);
+				g_wall_bmp[i] = (lb != 0)
+				              ? (const unsigned char *)(uintptr_t)lb : NULL;
+			}
+			g_wall_n = WALL_NTILES;
+		}
+	}
+
+	for (i = 0; i < 16; i++)
+		c4[i].red = c4[i].green = c4[i].blue = 0;
+	c4[1].red  = c4[1].green = c4[1].blue = 0xffff;            /* automap walls */
+	c4[2].red  = 0xffff; c4[2].green = 0xd000; c4[2].blue = 0; /* automap door  */
+	c4[3].red  = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party    */
+	c4[4].red  = 0x0c00; c4[4].green = 0x0900; c4[4].blue = 0x0600; /* ceiling  */
+	c4[5].red  = 0x7000; c4[5].green = 0x5400; c4[5].blue = 0x3200; /* floor    */
+	{
+		static const unsigned short ramp[8] = {
+			0xe800, 0xc200, 0x9e00, 0x7c00, 0x5c00, 0x4000, 0x2800, 0x1400
+		};
+		for (i = 0; i < 8; i++) {
+			unsigned short b = ramp[i];
+			c4[8 + i].red   = b;
+			c4[8 + i].green = (unsigned short)(((long)b * 184) >> 8);
+			c4[8 + i].blue  = (unsigned short)(((long)b * 108) >> 8);
+		}
+	}
+	qd_set_palette(c4, 0, 16);
+	return g_wall_n > 0;
+}
+
 /* jt312 (JT[312], CODE 22 + 0x23ee) — the dungeon-view render, the
- * play-loop site that drives jt199. Structural lift (level 2) of the
- * 3D-dungeon path: it computes the party cell, then in the deep display
- * mode (jt1200()==3) runs the view passes — page/palette setup, the
- * view clip rect, a background fill, a backdrop sprite — and finally
- * jt199 for the walls, then a present.
+ * play-loop site that draws the first-person view. In the Mac build
+ * this runs the page/palette setup, the view clip + background fill, a
+ * backdrop sprite, then jt199 (the frustum walker) and a present.
  *
- * The cosmetic passes (JT[131]/JT[80]/JT[108] page setup, JT[1173] clip
- * rect, JT[219] view clear, JT[1193], JT[1001] background fill, JT[118]
- * backdrop, JT[117] present) operate on the engine's GrafPort / page
- * descriptor; our jt199 writes an explicit bit-packed `page`. Unifying
- * those two surfaces (so the background, walls, and overlays composite
- * together) is the remaining integration work — along with the CODE 21
- * view-init that seeds the deep-mode view-state (the -27862 direction
- * struct + the slot-layout globals). Hence the passes are noted but not
- * yet wired to `page`; jt199 is called with the faithful arguments the
- * Mac uses. The non-deep (JT[221]) and wilderness branches, and the
- * position/compass overlays (L2806/L265e), are deferred TODOs. */
-static void jt312(unsigned char *page) __attribute__((unused));
+ * Here jt312 is the engine's live dungeon render entry: in the deep
+ * display mode (jt1200()==3) it ensures the wall set + view CLUT are up
+ * (dungeon_view_setup), stamps the cell's floor/ceiling decoration byte,
+ * then draws the faithful slot-assembly corridor (render_3d_assembled,
+ * which reads the live party globals g_a5_-12288/-12287/-12286) straight
+ * to the screen and presents. render_3d_assembled stands in for the
+ * jt199 -> l5b42 -> jt200 path with hand-computed slot rectangles,
+ * because the Mac coordinate pipeline (l5b42's 8000-anchor deep-mode
+ * remap) needs runtime view state we don't reconstruct — see the
+ * dungeon-render-architecture note. The `page` arg (the Mac engine's
+ * bit-packed surface) is unused now that we draw to the shim screen.
+ *
+ * Deferred (the Mac does these around the walls): JT[1001] background
+ * fill, JT[118] backdrop, the non-deep JT[221] view + wilderness
+ * branch, and the L2806/L265e position + compass overlays. */
 static void jt312(unsigned char *page)
 {
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-	short row, col, facing, cell;
+	unsigned char *px;
+	short pitch, sw, sh, y, cell;
 
-	if (ds == NULL)
+	(void)page;
+	if (ds == NULL || jt1200() != 3)        /* deep dungeon view only */
 		return;
-	row    = (short)(signed char)g_a5_byte(-12288);
-	col    = (short)(signed char)g_a5_byte(-12287);
-	facing = (short)(g_a5_byte(-12286) & 7);
-	cell   = (short)((long)col * ds[3] + row);     /* party cell index */
+	if (!dungeon_view_setup())
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+		return;
 
-	if (jt1200() == 3) {                            /* deep dungeon view */
-		g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
-		/* TODO: page/palette setup JT[131](0); JT[80](0); JT[108](1);
-		 *       JT[1173] reset; JT[219](); JT[1193]();
-		 *       view clip JT[1173](8007,8000,8067,8160);
-		 *       background JT[1001](16,8000,1,9); JT[1193]();
-		 *       backdrop  JT[118](8,24,1,0,g_a5_-22222);
-		 * — all on the engine page; to be unified with `page`. */
-		jt199(page, (short)8012, (short)8016, row, col, facing);
-		/* TODO: JT[117]() present. */
-	}
-	/* TODO: non-deep JT[221] view, wilderness branch, L2806/L265e
-	 * position + compass overlays. */
+	cell = (short)((long)(short)g_a5_12288 * ds[3] + (short)g_a5_12287);
+	g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
+
+	for (y = 0; y < sh; y++)
+		memset(px + (long)y * pitch, 0, (size_t)sw);
+	render_3d_assembled(px, pitch, sw, sh);
+	qd_present();
 }
 
 /* port_view_demo — drive jt199, the first-person frustum walker, over
@@ -7033,6 +7088,10 @@ void port_play_demo(void)
 			g_wall_n = WALL_NTILES;
 		}
 	}
+	/* The walls + view CLUT are now loaded; mark the engine's dungeon
+	 * render entry (jt312 -> dungeon_view_setup) ready so it reuses them
+	 * rather than reloading. */
+	g_dungeon_view_ready = 1;
 
 	pl = (unsigned char *)g_a5_28006;
 	if (pl != NULL)
@@ -7126,16 +7185,20 @@ void port_play_demo(void)
 		unsigned char scan = 0, ascii = 0;
 		short y;
 
-		for (y = 0; y < sh; y++)
-			memset(px + (long)y * pitch, 0, (size_t)sw);
 		if (show_map) {
+			for (y = 0; y < sh; y++)
+				memset(px + (long)y * pitch, 0, (size_t)sw);
 			draw_map_tiles(tvbase, px, pitch, sw, sh);
 			draw_party(px, pitch, sw, sh, (short)g_a5_12288,
 			           (short)g_a5_12287, (short)g_a5_12286);
+			qd_present();
 		} else {
-			render_3d_assembled(px, pitch, sw, sh);
+			/* Render through the engine's real dungeon-view entry
+			 * (jt312), not a demo-only call — jt312 reads the live
+			 * party globals, draws the slot-assembly corridor, clears,
+			 * and presents. This is the play-loop render path. */
+			jt312((unsigned char *)0);
 		}
-		qd_present();
 
 		while (!plat_kb_poll(&scan, &ascii))
 			;
