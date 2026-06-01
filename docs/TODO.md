@@ -107,16 +107,30 @@ WIP / next iterations:
     is why only small far tiles drew. Earlier "synthesis is the root cause"
     and "needs no emulator" were both wrong; the capture was decisive.
 
-- NEXT (the lift): RE-LIFT jt199 faithfully — the selector 2->1->0 outer
-  loop + all three JT[3] case bands (L63a2 / L68be / L6bc2) with their
-  nested depth loops, soff steps, and the per-band layout globals
-  (-12238/-12236/-12234/-12232 ydelta, -12218/-12216/-12214/-12212 xdelta,
-  etc.). Validate the emitted (code,sub,top,left) sequence against
-  /tmp/jt200_capture.log (should reproduce all 100 calls). jt200 stays
-  as-is. THEN revisit the .tlb-vs-.ctl + synthesis question (deep mode
-  loads .tlb w/ placeholder synthesis via JT[111]; non-deep loads .ctl,
-  all sizes present) — but that is downstream of getting jt199's
-  (code,sub) sequence right.
+- DONE: jt199 RE-LIFTED faithfully (boot.c). Added `jt199_band` (the
+  case-1/0 facing+side scan) and rewrote `jt199` with the selector
+  2->1->0 outer loop + all three JT[3] bands, transcribed line-by-line
+  from the asm:
+  * case 2 (sel=2, origin +2 fwd): the existing jt199_side x2 + jt199_front
+    x2 (sub 0/9 side, 1/2 front) — unchanged, already faithful.
+  * case 1 (sel=1, +1 fwd): jt199_band x2 — start orow+2*left (facing->sub3
+    / left->sub4, soff -6 step +3) and orow+2*right (facing->sub3 depth<2 /
+    right->sub5, soff +6 step -3), depth 0..2, globs -12234/-12214,
+    -12232/-12212, -12230/-12210.
+  * case 0 (sel=0, party cell): jt199_band x2 — start orow+left
+    (facing->sub6 / left->sub7, soff -7 step +7) and orow+right
+    (facing->sub6 depth<1 / right->sub8, soff +7 step -7), depth 0..1,
+    globs -12228/-12208, -12226/-12206, -12224/-12204.
+  Origin recedes one cell (back dir) per selector pass. Builds clean;
+  asm-faithful + jt200 already verified against /tmp/jt200_capture.log.
+  Visual confirmation deferred — the FRUA_MAP_DEMO entry (port_play_demo)
+  is no longer on the boot path (the port now boots the real Training Hall
+  UI), so rendering the 3D view needs menu navigation or a demo re-wire.
+- NEXT: revisit the .tlb-vs-.ctl + synthesis question (deep mode loads
+  .tlb w/ placeholder synthesis via JT[111]; non-deep loads .ctl, all
+  sizes present) so render_3d_faithful blits the right tiles for the now-
+  correct (code,sub) sequence. And re-wire a demo entry that reaches the
+  3D view for visual regression.
 - Meanwhile render_3d_raycast (visibility-faithful, on-screen, looks right)
   is the working demo renderer; the pixel-exact jt199 path is in progress.
 - Strip the `g_cwf_blits` debug logging once the layout is correct.
