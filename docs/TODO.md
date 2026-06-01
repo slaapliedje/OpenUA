@@ -28,20 +28,43 @@ faithful frustum walker so the port is 1:1 with the original:
   tile 1:1 (no scale loop), at the screen positions held in the read-only
   DATA layout globals `g_a5_-12202..-12240`.
 
-Sub-tasks to make it the real, colour view:
+FINDING (2026-06-01, byte-exact re-trace of CODE 7): the faithful PIXEL
+pipeline is **blocked** by layout-global state we can't reconstruct.
+Confirmed against the asm:
 
-1. **Fix `l5b42` screen positioning.** The lift has a suspected X/Y swap
-   and the `((v-8012)<<2)+8` coord math overshoots the clip rect (see the
-   long comment on `l5b42`). Needs runtime instrumentation — log the
-   actual output coords for a known cell and reconcile against the Mac.
-2. **Wire the colour slot pieces.** `jt200_layer` currently blits only the
-   DUNGCOM 1bpp set (group 2); the 3D walls are `8X8DC`/`8X8DB`. Load the
-   full perspective piece set (all 48, not just the 5 facet near-pieces
-   the trapezoid path uses) and blit the per-slot piece at `(top,left)`
-   1:1 with the per-set palette band.
-3. **Replace `render_3d_view`** in `jt312` with the `jt199` path once the
-   geometry + colour are correct. Keep the trapezoid renderer behind a
-   build flag during bring-up.
+- `jt199` (L6234) deep clip rect is `((v-8012)<<2)+8` off the (8012,8016)
+  anchor → the on-screen viewport is *small* deltas (screen =
+  `delta_lowbyte<<4 + 8`, so the layout-global low bytes must be ~0-12).
+- The side-wall pass (L63a2 case 2) passes `l5b42(8012, 8016,
+  ydelta=g_a5_-12222+soff, xdelta=g_a5_-12202, …)` — the lift is faithful.
+- `l5b42` (L5b42) reads each delta's **low byte** (signed). `-12222=516`
+  → low byte 4 → on-screen; but `-12202=175` → low byte −81 → screen
+  coord ≈ −1272, **off-screen**, on either axis (the X/Y-swap reading
+  doesn't rescue it).
+- `-12202` is **read-only across all 23 CODE segments** (no view-init
+  writes it), so 175 is its permanent value. There is no recoverable
+  state that maps the side walls on-screen.
+
+So a literal 1:1 *pixel* raycaster render isn't reconstructible from the
+decompilation data alone — the Mac sets up the slot-layout coordinates
+in a way our static image doesn't capture (would need real-hardware /
+emulator runtime capture of `g_a5_-12240..-12196` at render time).
+
+### Pivot: faithful WALK + our texture renderer
+
+The faithful part that IS sound: `jt199`'s frustum-walk logic + `l5e52`
+wall probes (which walls are visible at each depth/side). Plan: drive the
+colour render from that faithful visibility, but place slots with an
+on-screen coordinate model (the viewport geometry render_3d_view already
+uses) instead of the un-reconstructible `l5b42` pixel coords. That is "the
+raycaster mixed with the textures" — authentic visibility, working visuals.
+
+- [ ] Port `jt199`'s four-pass walk to emit visible (depth, side, wall id)
+      slots, replacing render_3d_view's simpler 4-slice probing.
+- [ ] Render each slot with the existing per-edge wall + facet system at
+      viewport-derived positions.
+- [ ] Keep `l5b42`/`jt200` lifts in place (faithful, documented) for if/when
+      the runtime layout state is ever recovered.
 
 ## Future additions
 
