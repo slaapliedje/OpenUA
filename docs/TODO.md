@@ -59,12 +59,21 @@ on-screen coordinate model (the viewport geometry render_3d_view already
 uses) instead of the un-reconstructible `l5b42` pixel coords. That is "the
 raycaster mixed with the textures" — authentic visibility, working visuals.
 
-- [ ] Port `jt199`'s four-pass walk to emit visible (depth, side, wall id)
-      slots, replacing render_3d_view's simpler 4-slice probing.
-- [ ] Render each slot with the existing per-edge wall + facet system at
+- [x] Port `jt199`'s frustum visibility — `render_3d_raycast` walks the
+      wider 3-column (left/center/right) field, back-to-front, gating side
+      columns on a clear line of sight (the corridor wall toward them being
+      open), so it matches the old corridor view on straight halls and opens
+      up at junctions/rooms. Now the default; `FRUA_CORRIDOR` selects the old
+      `render_3d_view`. Renders with the per-edge wall + facet system at
       viewport-derived positions.
 - [ ] Keep `l5b42`/`jt200` lifts in place (faithful, documented) for if/when
       the runtime layout state is ever recovered.
+
+**Unblock route (runtime capture):** a BasiliskII Mac emulator is set up.
+Running the real FRUA there and dumping the A5 slot-layout globals
+(`g_a5_-12240..-12196`) at the moment `jt199` renders would give the real
+on-screen coords and make the pixel-1:1 `l5b42` path renderable. (Needs the
+game's copy-protection answers from the manual; not a porting blocker.)
 
 ## Future additions
 
