@@ -6791,7 +6791,23 @@ static short l5e52(short row, short col, short dir)
  * screen map is jt1135's (v-8000)*scale. But l5b42 uses a DIFFERENT map,
  * ((v-8012)<<2)+8, gated on jt1200()==3. Two different transforms for one
  * space -> re-derive which is correct (trace JT[1173]/the GrafPort) and
- * whether l5b42's deep branch should fire at all. */
+ * whether l5b42's deep branch should fire at all.
+ *
+ * TRANSFORM TRACED (CODE 4): JT[1173]'s clip transform L77fe is byte-for-
+ * byte jt1135: out = (v>6000) ? (v-8000)*scale : v, scale=(g_a5_-2347==0)
+ * ?3:2. So the canonical 8000-space->screen map is (v-8000)*3 (deep); the
+ * clip rect lands x:[21,201] y:[0,480]. l5b42's ((v-8012)<<2)+8 is NOT
+ * that map -> inconsistent. AND the layout table (-12240..-12196) is pure
+ * static DATA: NOTHING writes it (jt954/JT[953] is party MOVEMENT, not a
+ * view-init; full-segment grep finds no store/lea into -12240..-12202).
+ * LIKELY LIFT BUG: the two near-face l5b42 calls are identical and add the
+ * per-side stepping `soff` to the value added to fp@(8); since soff is
+ * what separates the left/right walls, fp@(8) must be the HORIZONTAL (X)
+ * coord -> the jt199/l5b42 lift has X and Y SWAPPED (param1=8012 is X, not
+ * Y), which transposes jt200's top/left. Even so the magnitudes overshoot
+ * the clip ~1.5-2x, so a scale/anchor factor is still wrong. RESOLUTION
+ * needs runtime instrumentation: log l5b42's actual output coords for a
+ * known frame and fit them to the clip viewport, with X/Y unswapped. */
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub) __attribute__((unused));
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
