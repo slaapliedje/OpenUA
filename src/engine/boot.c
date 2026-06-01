@@ -6165,8 +6165,13 @@ static int load_color_wallset(short set)
  * right-hand side walls). When `keylvl >= 0` that level is transparent
  * (the side pieces' baked perspective wedges show the ceiling/floor
  * behind); front faces pass keylvl = -1 (opaque). */
+/* blit a sub-column range [srcx0, srcx0+srcw) of colour piece `idx` to
+ * the screen at (x0,y0), 1:1. Side pieces pack the left wall in cols
+ * 0..15 and the right wall in cols 16..31, so each side slot draws just
+ * its 16-wide half. srcw<=0 means the whole piece. keylvl is transparent. */
 static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
-                       short x0, short y0, short idx, int flipx, int keylvl)
+                       short x0, short y0, short idx,
+                       short srcx0, short srcw, int keylvl)
 {
 	const unsigned char *b;
 	short h, bw, w, stride, x, y;
@@ -6182,6 +6187,7 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
 		return;
 	stride = (short)(2 * bw);
 	w = (short)(8 * bw);
+	if (srcw <= 0) { srcx0 = 0; srcw = w; }
 
 	for (y = 0; y < h; y++) {
 		short sy = (short)(y0 + y);
@@ -6191,12 +6197,12 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
 			continue;
 		srow = b + (long)y * stride;        /* hoist source row     */
 		drow = px + (long)sy * pitch;       /* hoist dest row ptr    */
-		for (x = 0; x < w; x++) {
-			short src = flipx ? (short)(w - 1 - x) : x;
+		for (x = 0; x < srcw; x++) {
+			short src = (short)(srcx0 + x);
 			unsigned char byte = srow[src >> 2];
 			short lvl = (byte >> (2 * (3 - (src & 3)))) & 3;
 			short sx;
-			if (lvl == keylvl)
+			if (src >= w || lvl == keylvl)
 				continue;
 			sx = (short)(x0 + x);
 			if (sx < 0 || sx >= sw)
@@ -6233,15 +6239,14 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
  * over it (back-to-front). */
 static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 {
-	/* per-depth side wall: left x, right x, shared y, piece (d0, d1). */
-	static const short side_lx[2] = {   0,  32 };
-	static const short side_rx[2] = { 144, 112 };
-	static const short side_ly[2] = {   0,  33 };
-	static const short side_pc[2] = {   9,   6 };
-	/* per-depth front face: x, y, piece (d0=E, d1=H, d2=P). The front
-	 * faces are the COMPLETE wall images (idx 18 = full 112x112 wall with
-	 * windows; idx 8 is a partial/floor piece, not a front wall). */
-	static const short front_x[3] = {  32,  64,  64 };
+	/* Side pieces pack the LEFT wall in source cols 0..15 and the RIGHT
+	 * wall in cols 16..31 (each 16 wide). Per depth: the side piece + its
+	 * height (for vertical centring); left walls step inward by 16 per
+	 * depth, right walls likewise from the right edge. */
+	static const short side_pc[2] = {   9, 6 };   /* 176-tall, 112-tall   */
+	static const short side_h[2]  = { 176, 112 };
+	/* per-depth front face (whole piece): x, y, piece (d0=E, d1=H, d2=P). */
+	static const short front_x[3] = {  32,  64,  80 };
 	static const short front_y[3] = {  33,  65,  80 };
 	static const short front_pc[3]= {  18,  15,  21 };
 	const short VW = (short)(2 * VIEW_HALF);     /* 176 */
@@ -6270,18 +6275,23 @@ static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 	/* blocking front face first (the farthest visible surface). */
 	if (bd < 3)
 		blit_piece(px, pitch, sw, sh, (short)(vox + front_x[bd]),
-		           (short)(voy + front_y[bd]), front_pc[bd], 0, 0);
+		           (short)(voy + front_y[bd]), front_pc[bd], 0, 0, 0);
 
-	/* side walls, deepest open depth -> nearest, over the front face. */
+	/* side walls, deepest open depth -> nearest, over the front face.
+	 * Only depths 0,1 have side pieces (9,6). */
 	for (d = (short)((bd < 2 ? bd : 2) - 1); d >= 0; d--) {
 		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
-		if (cell_edge(cx, cy, lf))
-			blit_piece(px, pitch, sw, sh, (short)(vox + side_lx[d]),
-			           (short)(voy + side_ly[d]), side_pc[d], 0, 0);
-		if (cell_edge(cx, cy, rf))
-			blit_piece(px, pitch, sw, sh, (short)(vox + side_rx[d]),
-			           (short)(voy + side_ly[d]), side_pc[d], 1, 0);
+		short sp = side_pc[d];
+		short top = (short)(voy + (VW - side_h[d]) / 2);
+		short xin = (short)(16 * d);
+
+		if (cell_edge(cx, cy, lf))           /* left wall  = cols 0..15  */
+			blit_piece(px, pitch, sw, sh, (short)(vox + xin),
+			           top, sp, 0, 16, 0);
+		if (cell_edge(cx, cy, rf))           /* right wall = cols 16..31 */
+			blit_piece(px, pitch, sw, sh, (short)(vox + VW - 16 - xin),
+			           top, sp, 16, 16, 0);
 	}
 }
 
