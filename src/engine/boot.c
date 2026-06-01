@@ -6238,10 +6238,12 @@ static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 	static const short side_rx[2] = { 144, 112 };
 	static const short side_ly[2] = {   0,  33 };
 	static const short side_pc[2] = {   9,   6 };
-	/* per-depth front face: x, y, piece (d0=E, d1=H, d2=P). */
+	/* per-depth front face: x, y, piece (d0=E, d1=H, d2=P). The front
+	 * faces are the COMPLETE wall images (idx 18 = full 112x112 wall with
+	 * windows; idx 8 is a partial/floor piece, not a front wall). */
 	static const short front_x[3] = {  32,  64,  64 };
 	static const short front_y[3] = {  33,  65,  80 };
-	static const short front_pc[3]= {   8,  15,  21 };
+	static const short front_pc[3]= {  18,  15,  21 };
 	const short VW = (short)(2 * VIEW_HALF);     /* 176 */
 	const short vox = (short)(sw / 2 - VIEW_HALF);
 	const short voy = (short)(VIEW_CY - VIEW_HALF);
