@@ -47,7 +47,34 @@ the correct half by region. If a page's paragraph/word counting is off
 
 The pixel-exact `jt199` path is blocked because the slot-layout globals
 `g_a5_-12240..-12196` map off-screen with the static DATA values and no
-disassembled code writes them (`docs/TODO.md`). Dumping those A5 offsets
-from the live game at the moment it renders the 3D view — via a Mac-side
-memory tool (e.g. MacsBug) writing to the shared folder — would give the
-real coordinates and let `l5b42`'s placement be reconstructed.
+disassembled code writes them (`docs/TODO.md`). The plan: dump those A5
+offsets from the live game with a **mon-enabled BasiliskII** (host-side
+machine monitor), which is now built and proven.
+
+### mon build + capture harness
+
+Built from `~/macemu-mon` (cebix/macemu + bundled cxmon):
+
+    cd ~/macemu-mon/BasiliskII/src/Unix
+    ./autogen.sh && ./configure --with-mon && make
+
+This build uses **X11 video** (a grabbable window, unlike the SDL build)
+and reads `~/.basilisk_ii_prefs` (not the XDG path the packaged build uses
+— copy the working config there, then `chmod 444` it so BasiliskII can't
+clobber it on exit). `SIGINT` triggers `m68k_dumpstate` (prints all 68k
+registers incl. **A5**) then drops into `mon` on the controlling terminal.
+
+`tools/bii_mon_harness.py` runs it on a PTY so `mon`'s readline has a tty,
+streaming output to `/tmp/bii.log` and taking commands on `/tmp/bii.ctl`:
+
+    BII=~/macemu-mon/BasiliskII/src/Unix/BasiliskII \
+        setsid python3 tools/bii_mon_harness.py &   # boots; X11 window grabbable
+    printf '__SIGINT__\n' > /tmp/bii.ctl             # break -> A5 + mon prompt
+    printf 'm <A5-0x2FD0> <A5-0x2FA4>\n' > /tmp/bii.ctl   # dump g_a5_-12240..-12196
+    tail -40 /tmp/bii.log
+
+Capture procedure: launch FRUA (its layout globals are static DATA, valid
+as soon as it's running past copy protection — no need to reach the 3D
+view), `__SIGINT__`, read `A5` from the register dump in the log, then
+`m A5-0x2FD0 …` (12240 = 0x2FD0, 12196 = 0x2FA4). The dumped words are the
+real slot-layout coords to reconcile against `l5b42` (`docs/TODO.md`).
