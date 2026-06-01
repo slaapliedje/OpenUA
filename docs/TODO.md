@@ -54,11 +54,24 @@ held (a launch-time init overwrites them). The side xdelta `-12202` is
 **4**, so `l5b42`'s deep transform `((8016+4·4)−8012)·4+8 = 88` lands
 on-screen. So the static-DATA off-screen result was the red herring; the
 faithful pixel path IS reconstructible with the real coords.
-NEXT: seed these real values for the `jt199`/`l5b42` path (or read them
-the same way the Mac does), wire `jt200_layer` to blit the colour slot
-pieces at the `l5b42` positions, and switch the dungeon view to it. (Ideal
-follow-up: a second capture *inside* the 3D view to confirm they're
-unchanged at render time — almost certainly, since they're set at launch.)
+DONE: seeded the captured values in `boot_a5_seed_defaults` and confirmed
+identical inside the live 3D view (second mon capture). Wired the faithful
+colour path — `render_3d_faithful` (behind `FRUA_FAITHFUL`) loads the
+active set's 48 pieces (`load_cw_full`) + palette band, and `jt199`'s walk
+→ `l5b42` (real coords) → `jt200_layer` → `cw_blit_piece` blits the
+pre-sized colour pieces 1:1 on screen. Fixed a row/col transpose (pass
+`row=partyY, col=partyX` so `l5b42`'s `cell=col*h+row` matches the map).
+
+WIP / next iterations:
+- The walk now fires real slots (e.g. 7 in a corridor vs 0 before) and they
+  land at the captured coords, but only the far/small front pieces show —
+  the near side walls (big pieces) aren't filling yet. Tune the `jt199_side`
+  side-face draws + `soff` stepping / depth coverage so the full frustum
+  renders.
+- Per-group walls: `render_3d_faithful` loads ONE set (the level's Wall1)
+  for all faces; give each Wall1-3 group its own 48-piece store for true
+  per-edge faithful walls.
+- Strip the `g_cwf_blits` debug logging once the layout is correct.
 
 ### Pivot: faithful WALK + our texture renderer
 
