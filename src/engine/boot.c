@@ -5854,19 +5854,27 @@ static short                g_wall_n;
  * its band. A per-slot/per-depth darken table (g_cw_remap) shades within
  * the band. The 8X8DC .CTL pieces are 8bpp (1 byte/pixel, stride = width
  * = 8*bpp_w), unlike the .TLB's 1/2bpp. */
-#define CW_NPIECE 48          /* pieces per set; we sample the plain wall  */
-#define CW_WALL_PIECE 8       /* item 8 = the full 56x56 plain wall        */
+#define CW_NPIECE 48          /* pieces per set                            */
 #define CW_SLOTS 3            /* one per wall group (Wall1-3)              */
+#define CW_FACETS 5           /* facets per group: wall/window/door/...    */
 #define CW_BAND  32           /* clut entries per wall band                */
+/* Facet (position-in-group, 0-4) -> near-face piece, from jt200's tile
+ * arithmetic. Facet 0 = plain wall; 1 = window, 2 = door, 3 = brazier,
+ * 4 = fireplace — the last four are decoration overlays (their magenta
+ * key is transparent, showing the wall behind). */
+static const short g_cw_facet_piece[CW_FACETS] = { 8, 18, 27, 36, 45 };
 static const short g_cw_base[CW_SLOTS] = { 32, 64, 96 };  /* clut band bases */
-static unsigned char g_cw_sbody[CW_SLOTS][56 * 56];  /* piece-8 pixels      */
-static short g_cw_sh[CW_SLOTS], g_cw_sw[CW_SLOTS];   /* piece-8 h, w(=8*bw)  */
+static unsigned char g_cw_sbody[CW_SLOTS][CW_FACETS][56 * 56]; /* facet pixels */
+static short g_cw_fh[CW_SLOTS][CW_FACETS], g_cw_fw[CW_SLOTS][CW_FACETS];
+static short g_cw_fxo[CW_SLOTS][CW_FACETS], g_cw_fyo[CW_SLOTS][CW_FACETS]; /* -bear */
 static short g_cw_sid[CW_SLOTS];                     /* loaded id (0 = empty)*/
 static unsigned char g_cw_sr[CW_SLOTS][CW_BAND];     /* band palette R/G/B   */
 static unsigned char g_cw_sg[CW_SLOTS][CW_BAND];
 static unsigned char g_cw_sb[CW_SLOTS][CW_BAND];
+static unsigned char g_cw_strans[CW_SLOTS][CW_BAND]; /* 1 = magenta key (clear)*/
 static unsigned char g_cw_remap[CW_SLOTS][4][CW_BAND]; /* depth->darker off  */
 static short g_cw_grp[CW_SLOTS] = { -1, -1, -1 };    /* cached Wall1-3 ids   */
+#define CW_CELL 56            /* wall-cell size the facet bearings sit in  */
 
 /* Active environment selector — CW_SET picks the initial set at build
  * time (1=marble 2=forest 4=coral 6=lava 7=brick in 8X8DC); the walk demo
@@ -5900,26 +5908,38 @@ static short g_back_max = 19;
 static short g_back_auto = 1;              /* 1 = pick per-cell from the map;
                                             * 'b' sets 0 to browse manually */
 
-/* cw_shade — sample slot `slot`'s plain-wall piece at (col,row) and return
- * the depth-shaded clut index. The stored byte is a per-set band value
- * (32..71); subtract 32 to get the band offset, darken it for `depth` via
- * the slot's remap, then add the slot's clut base. Empty slot -> 0. */
-static unsigned char cw_shade(short slot, short depth, short col, short row)
+/* CW_CLEAR — cw_shade's "transparent pixel" sentinel (clut 255 is unused by
+ * the dungeon view: walls 32..127, backdrop 145..176). Callers drawing an
+ * overlay skip it to leave whatever's behind. */
+#define CW_CLEAR 255
+
+/* cw_shade — sample slot `slot`, facet `facet` at (col,row) and return the
+ * depth-shaded clut index, or CW_CLEAR if the pixel is transparent (the
+ * global key 255 or the per-set magenta key). The stored byte is a per-set
+ * band value (32..); subtract 32 for the band offset, darken it for
+ * `depth` via the slot's remap, add the slot's clut base. */
+static unsigned char cw_shade(short slot, short facet, short depth,
+                              short col, short row)
 {
 	short w, h, off;
 	unsigned char raw;
 
-	if (slot < 0 || slot >= CW_SLOTS || g_cw_sid[slot] == 0)
-		return 0;
-	w = g_cw_sw[slot];
-	h = g_cw_sh[slot];
+	if (slot < 0 || slot >= CW_SLOTS || g_cw_sid[slot] == 0
+	 || facet < 0 || facet >= CW_FACETS)
+		return CW_CLEAR;
+	w = g_cw_fw[slot][facet];
+	h = g_cw_fh[slot][facet];
 	if (w < 1 || h < 1)
-		return 0;
+		return CW_CLEAR;
 	if (col < 0) col = 0; else if (col >= w) col = (short)(w - 1);
 	if (row < 0) row = 0; else if (row >= h) row = (short)(h - 1);
-	raw = g_cw_sbody[slot][(long)row * w + col];
+	raw = g_cw_sbody[slot][facet][(long)row * w + col];
+	if (raw == 255)                          /* global transparency key */
+		return CW_CLEAR;
 	off = (short)(raw - 32);
 	if (off < 0) off = 0; else if (off >= CW_BAND) off = (short)(CW_BAND - 1);
+	if (g_cw_strans[slot][off])              /* magenta key -> transparent */
+		return CW_CLEAR;
 	return (unsigned char)(g_cw_base[slot] + g_cw_remap[slot][depth & 3][off]);
 }
 
@@ -5955,10 +5975,12 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 		inv = 16384L / ht;
 		u = (short)(((inv - invN) * 32) / dinv);       /* 0 near .. 32 far */
 		for (y = y0; y <= y1; y++) {
+			unsigned char c;
 			v = (short)(((long)(y - y0) * 32) / span);
-			map_px(px, pitch, sw, sh, x, y,
-			       cw_shade(slot, depth, (short)(u & 31),
-			                (short)(voff + (v & 31))));
+			c = cw_shade(slot, 0, depth, (short)(u & 31),
+			             (short)(voff + (v & 31)));   /* facet 0 = plain wall */
+			if (c != CW_CLEAR)
+				map_px(px, pitch, sw, sh, x, y, c);
 		}
 	}
 }
@@ -5979,7 +6001,7 @@ static int cw_load_slot(short slot, short file, short set)
 {
 	static unsigned char buf[327680];        /* holds 8X8DB.CTL (~296KB) */
 	short refnum = 0, k;
-	long count, base, sub, p0, p1, b8;
+	long count, base, sub, p0, p1;
 	unsigned char metric[8];
 	short h, w;
 
@@ -6000,24 +6022,37 @@ static int cw_load_slot(short slot, short file, short set)
 	if (sub == 0)
 		return 0;
 
-	/* item 8 = the plain wall; copy it out (buf is reused next call). */
-	b8 = l2856(sub, CW_WALL_PIECE, metric);
-	if (b8 == 0)
-		return 0;
-	h = metric[1];
-	w = (short)(8 * metric[6]);               /* 8bpp: stride == width */
-	if (w > 56) w = 56;
-	if (h > 56) h = 56;
+	/* Copy each facet's near-face piece (item g_cw_facet_piece[facet]) out
+	 * of the file buffer (it is reused next call), with its bearing — the
+	 * signed (xbear,ybear) the piece sits at within the CW_CELL wall cell;
+	 * we store the negated bearing as the draw offset. */
 	{
-		const unsigned char *s = (const unsigned char *)(uintptr_t)b8;
-		long n = (long)h * w;
-		for (count = 0; count < n; count++)
-			g_cw_sbody[slot][count] = s[count];
+		short fct;
+		for (fct = 0; fct < CW_FACETS; fct++) {
+			long b = l2856(sub, g_cw_facet_piece[fct], metric);
+			const unsigned char *s = (const unsigned char *)(uintptr_t)b;
+			long n;
+			h = metric[1];
+			w = (short)(8 * metric[6]);
+			if (w > 56) w = 56;
+			if (h > 56) h = 56;
+			if (b == 0) { w = h = 0; }
+			n = (long)h * w;
+			for (count = 0; count < n; count++)
+				g_cw_sbody[slot][fct][count] = s[count];
+			g_cw_fh[slot][fct] = h;
+			g_cw_fw[slot][fct] = w;
+			/* metric ybear/xbear are signed words; the piece draws at
+			 * (-xbear,-ybear) in the cell. */
+			g_cw_fxo[slot][fct] =
+				(short)-(short)((metric[4] << 8) | metric[5]);
+			g_cw_fyo[slot][fct] =
+				(short)-(short)((metric[2] << 8) | metric[3]);
+		}
 	}
-	g_cw_sh[slot] = h;
-	g_cw_sw[slot] = w;
 
-	/* item 0 = the set's RGB-triple palette -> the slot's band colours. */
+	/* item 0 = the set's RGB-triple palette -> the slot's band colours;
+	 * flag the magenta key (255,103,255) entries as transparent. */
 	p0 = l37aa(sub, 0);
 	p1 = l37aa(sub, 1);
 	{
@@ -6025,9 +6060,14 @@ static int cw_load_slot(short slot, short file, short set)
 			? (const unsigned char *)(uintptr_t)(p0 + 8) : NULL;
 		short pe = pp ? (short)((p1 - p0 - 8) / 3) : 0;
 		for (k = 0; k < CW_BAND; k++) {
-			g_cw_sr[slot][k] = (k < pe) ? pp[k * 3 + 0] : 0;
-			g_cw_sg[slot][k] = (k < pe) ? pp[k * 3 + 1] : 0;
-			g_cw_sb[slot][k] = (k < pe) ? pp[k * 3 + 2] : 0;
+			unsigned char r = (k < pe) ? pp[k * 3 + 0] : 0;
+			unsigned char g = (k < pe) ? pp[k * 3 + 1] : 0;
+			unsigned char b = (k < pe) ? pp[k * 3 + 2] : 0;
+			g_cw_sr[slot][k] = r;
+			g_cw_sg[slot][k] = g;
+			g_cw_sb[slot][k] = b;
+			g_cw_strans[slot][k] =
+				(r == 255 && g == 103 && b == 255) ? 1 : 0;
 		}
 	}
 	g_cw_sid[slot] = (short)(set ? set : 1);
@@ -6320,22 +6360,42 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 			fill_wall_trap_c(px, pitch, sw, sh,
 			                 (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
 			                 hh[d], hh[d + 1], vcy, sr2, VOFF, d);
-		sff = wall_slot_for_edge(cell_edge(cx, cy, f));
-		if (sff >= 0) {
+		{
+			short fe = cell_edge(cx, cy, f);
+			sff = wall_slot_for_edge(fe);
+			if (sff < 0)
+				continue;
+			{
+			/* Front face: the full plain wall (facet 0) scaled to the
+			 * cell, with the cell's facet decoration (window/door/...)
+			 * overlaid at its bearing, transparent pixels showing the
+			 * wall. Facets only in the map-driven mode. */
+			short fac = (g_cw_auto && (fe & 0x0F))
+				? (short)(((fe & 0x0F) - 1) % CW_FACETS) : 0;
 			short xl = (short)(vcx - hw[d + 1]), xr = (short)(vcx + hw[d + 1]);
 			short yt = (short)(vcy - hh[d + 1]), yb = (short)(vcy + hh[d + 1]);
 			short fw = (short)(xr - xl), fh = (short)(yb - yt);
+			short xo = g_cw_fxo[sff][fac], yo = g_cw_fyo[sff][fac];
+			short ow = g_cw_fw[sff][fac], oh = g_cw_fh[sff][fac];
 
 			if (fw < 1) fw = 1;
 			if (fh < 1) fh = 1;
 			for (x = xl; x <= xr; x++) {
-				short u = (short)(((long)(x - xl) * 32) / fw);
+				short cu = (short)(((long)(x - xl) * CW_CELL) / fw);
 				for (y = yt; y <= yb; y++) {
-					short v = (short)(((long)(y - yt) * 32) / fh);
-					map_px(px, pitch, sw, sh, x, y,
-					       cw_shade(sff, fd, (short)(u & 31),
-					                (short)(VOFF + (v & 31))));
+					short cv = (short)(((long)(y - yt) * CW_CELL) / fh);
+					unsigned char c = cw_shade(sff, 0, fd, cu, cv);
+					if (fac > 0) {
+						short du = (short)(cu - xo), dv = (short)(cv - yo);
+						if (du >= 0 && du < ow && dv >= 0 && dv < oh) {
+							unsigned char o = cw_shade(sff, fac, fd, du, dv);
+							if (o != CW_CLEAR) c = o;
+						}
+					}
+					if (c != CW_CLEAR)
+						map_px(px, pitch, sw, sh, x, y, c);
 				}
+			}
 			}
 			break;
 		}
@@ -7426,6 +7486,11 @@ void port_play_demo(void)
 			g_a5_12288 = bx;
 			g_a5_12287 = by;
 			g_a5_12286 = bf;
+#if defined(DEMO_X) && defined(DEMO_Y) && defined(DEMO_F)
+			g_a5_12288 = DEMO_X;   /* fixed start, to face a known cell */
+			g_a5_12287 = DEMO_Y;
+			g_a5_12286 = DEMO_F;
+#endif
 #ifdef FRUA_ENGINE_PROBE
 			dbg_log_num("vantage x=", (long)bx);
 			dbg_log_num("vantage y=", (long)by);
