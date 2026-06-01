@@ -5846,16 +5846,27 @@ static unsigned char        g_wall_metric[WALL_NTILES][8];
 static const unsigned char *g_wall_bmp[WALL_NTILES];
 static short                g_wall_n;
 
-/* Colour wall set (8X8DC) piece store — declared here so the colour
- * trapezoid sampler below can read it; loaded by load_color_wallset. */
-#define CW_NPIECE 48
-#define CW_PAL_BASE 32     /* clut index the per-set palette band loads at */
-#define CW_PAL_N    40     /* entries in that band (grey/brown ramp + key)  */
-static unsigned char        g_cw_h[CW_NPIECE];     /* piece height        */
-static unsigned char        g_cw_bw[CW_NPIECE];    /* bytes/row (mode-1)  */
-static unsigned char        g_cw_fl[CW_NPIECE];    /* glyph flags         */
-static const unsigned char *g_cw_body[CW_NPIECE];  /* pixel data          */
-static short                g_cw_n;
+/* Colour wall sets — up to CW_SLOTS loaded at once so the three wall
+ * groups a level can use (Wall1-3) are all on screen. Each slot holds a
+ * copy of its set's plain-wall piece (item 8, 8bpp chunky, <=56x56) and a
+ * 32-colour palette band in the clut at g_cw_base[slot]; the tile bytes
+ * are 32..71 (a per-set band that points at clut 32), remapped per slot to
+ * its band. A per-slot/per-depth darken table (g_cw_remap) shades within
+ * the band. The 8X8DC .CTL pieces are 8bpp (1 byte/pixel, stride = width
+ * = 8*bpp_w), unlike the .TLB's 1/2bpp. */
+#define CW_NPIECE 48          /* pieces per set; we sample the plain wall  */
+#define CW_WALL_PIECE 8       /* item 8 = the full 56x56 plain wall        */
+#define CW_SLOTS 3            /* one per wall group (Wall1-3)              */
+#define CW_BAND  32           /* clut entries per wall band                */
+static const short g_cw_base[CW_SLOTS] = { 32, 64, 96 };  /* clut band bases */
+static unsigned char g_cw_sbody[CW_SLOTS][56 * 56];  /* piece-8 pixels      */
+static short g_cw_sh[CW_SLOTS], g_cw_sw[CW_SLOTS];   /* piece-8 h, w(=8*bw)  */
+static short g_cw_sid[CW_SLOTS];                     /* loaded id (0 = empty)*/
+static unsigned char g_cw_sr[CW_SLOTS][CW_BAND];     /* band palette R/G/B   */
+static unsigned char g_cw_sg[CW_SLOTS][CW_BAND];
+static unsigned char g_cw_sb[CW_SLOTS][CW_BAND];
+static unsigned char g_cw_remap[CW_SLOTS][4][CW_BAND]; /* depth->darker off  */
+static short g_cw_grp[CW_SLOTS] = { -1, -1, -1 };    /* cached Wall1-3 ids   */
 
 /* Active environment selector — CW_SET picks the initial set at build
  * time (1=marble 2=forest 4=coral 6=lava 7=brick in 8X8DC); the walk demo
@@ -5889,39 +5900,35 @@ static short g_back_max = 19;
 static short g_back_auto = 1;              /* 1 = pick per-cell from the map;
                                             * 'b' sets 0 to browse manually */
 
-/* cw_pix — sample the 8bpp chunky byte (a clut-129 index) of colour wall
- * piece `idx` at (col,row), clamped. The 8X8DC .CTL pieces are 8bpp
- * (1 byte/pixel, stride = width = 8*bpp_w), unlike the .TLB's 1/2bpp. */
-static unsigned char cw_pix(short idx, short col, short row)
+/* cw_shade — sample slot `slot`'s plain-wall piece at (col,row) and return
+ * the depth-shaded clut index. The stored byte is a per-set band value
+ * (32..71); subtract 32 to get the band offset, darken it for `depth` via
+ * the slot's remap, then add the slot's clut base. Empty slot -> 0. */
+static unsigned char cw_shade(short slot, short depth, short col, short row)
 {
-	const unsigned char *b;
-	short bw, h, w;
+	short w, h, off;
+	unsigned char raw;
 
-	if (idx < 0 || idx >= g_cw_n)
+	if (slot < 0 || slot >= CW_SLOTS || g_cw_sid[slot] == 0)
 		return 0;
-	b = g_cw_body[idx];
-	if (b == NULL)
+	w = g_cw_sw[slot];
+	h = g_cw_sh[slot];
+	if (w < 1 || h < 1)
 		return 0;
-	bw = g_cw_bw[idx];
-	h  = g_cw_h[idx];
-	w  = (short)(8 * bw);                  /* 8bpp: stride == width */
 	if (col < 0) col = 0; else if (col >= w) col = (short)(w - 1);
 	if (row < 0) row = 0; else if (row >= h) row = (short)(h - 1);
-	return b[(long)row * w + col];
+	raw = g_cw_sbody[slot][(long)row * w + col];
+	off = (short)(raw - 32);
+	if (off < 0) off = 0; else if (off >= CW_BAND) off = (short)(CW_BAND - 1);
+	return (unsigned char)(g_cw_base[slot] + g_cw_remap[slot][depth & 3][off]);
 }
 
-/* Per-depth darkening remap over clut 129: g_depth_remap[d][c] = the
- * clut-129 index whose colour is clut129[c] scaled by the depth factor.
- * Built in dungeon_view_setup; identity until then. */
-static unsigned char g_depth_remap[4][256];
-
-/* fill_wall_trap_c — like fill_wall_trap but COLOUR (8bpp): samples a 32x32
- * cobblestone window of colour piece `texidx` (offset `voff` down) and
- * writes the clut-129 index, depth-darkened via g_depth_remap[depth].
- * Same perspective-correct trapezoid as the mono version. */
+/* fill_wall_trap_c — perspective-correct trapezoid for one side wall,
+ * sampling a 32x32 window (offset `voff` down) of wall-set slot `slot`'s
+ * plain-wall texture, depth-shaded. */
 static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
                              short xNear, short xFar, short hNear, short hFar,
-                             short vcy, short texidx, short voff, short depth)
+                             short vcy, short slot, short voff, short depth)
 {
 	short lo = xNear < xFar ? xNear : xFar;
 	short hi = xNear < xFar ? xFar : xNear;
@@ -5929,7 +5936,6 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 	long invN = hNear > 0 ? 16384L / hNear : 0;
 	long invF = hFar  > 0 ? 16384L / hFar  : 0;
 	long dinv = invF - invN;
-	const unsigned char *rmp = g_depth_remap[depth & 3];
 	short x, y;
 
 	if (denom == 0) denom = 1;
@@ -5951,128 +5957,158 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
 		for (y = y0; y <= y1; y++) {
 			v = (short)(((long)(y - y0) * 32) / span);
 			map_px(px, pitch, sw, sh, x, y,
-			       rmp[cw_pix(texidx, (short)(u & 31), (short)(voff + (v & 31)))]);
+			       cw_shade(slot, depth, (short)(u & 31),
+			                (short)(voff + (v & 31))));
 		}
 	}
 }
 
 
-/* Load 8X8DC environment `set` (1-based top item) from the .CTL file —
- * the 8bpp chunky colour wall textures (the .TLB holds only 1/2bpp). Each
- * piece body is h*w bytes, one palette index per pixel. Installs clut 129
- * as the screen palette but overlays the set's own 40-colour environment
- * palette (CTL item 0) at clut[32] — that band is what the tile bytes
- * actually index — then builds the per-depth darken remap (g_depth_remap)
- * so render_3d_view can shade the colour walls by depth. */
-static int load_color_wallset(short set)
-{
-	/* Whole 8X8DC.CTL (~232KB) must stay resident: g_cw_body[] points into
-	 * it and render_3d_view samples those after this returns. The later
-	 * environment sets (coral/lava/brick) live well past the first 64KB. */
-	static unsigned char buf[262144];
-	static unsigned char cr[256], cg[256], cb[256];
-	static RGBColor pal[256];
-	short refnum = 0, i, k, n = 0;
-	long count, base, sub;
-	Handle clutH;
+/* defined further down — used by cw_finalize / load_wall_groups */
+static int load_backdrop(short n);
+static int wallset_for_id(short id, short *file, short *set);
 
-	g_cw_n = 0;
-	if (FSOpen((ConstStr255Param)g_cw_files[g_cw_file & 1], 0, &refnum) != noErr)
+/* cw_load_slot — load wall-set (`file`,`set`) into slot `slot`: copy its
+ * plain-wall piece (item 8) and its 32-colour palette band into the slot's
+ * storage. The .CTL pieces are 8bpp chunky (the .TLB holds only 1/2bpp);
+ * the per-set palette (sub-GLIB item 0) is RGB triples — set 1 marble grey,
+ * set 2 forest green, etc. — and the tile bytes index it (band value 32..,
+ * 0..20 light/dark ramp, 21..30 brown/fire, 31.. the magenta key). Returns
+ * 1 on success. The big file buffer is shared+reused (we copy out). */
+static int cw_load_slot(short slot, short file, short set)
+{
+	static unsigned char buf[327680];        /* holds 8X8DB.CTL (~296KB) */
+	short refnum = 0, k;
+	long count, base, sub, p0, p1, b8;
+	unsigned char metric[8];
+	short h, w;
+
+	g_cw_sid[slot] = 0;
+	if (FSOpen((ConstStr255Param)g_cw_files[file & 1], 0, &refnum) != noErr)
 		return 0;
 	count = (long)sizeof buf;
 	(void)FSRead(refnum, &count, buf);
 	(void)FSClose(refnum);
 	base = (long)(uintptr_t)buf;
-	if (l37aa(base, 0) == 0)                 /* validate 'GLIB' magic */
+	if (l37aa(base, 0) == 0)                  /* validate 'GLIB' magic */
 		return 0;
-	g_cw_setmax = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;  /* top sets-1 */
-	if (g_cw_setmax < 1) g_cw_setmax = 1;
-	sub = l37aa(base, set);                 /* environment set sub-GLIB */
+	if (slot == 0) {                          /* track set count for 't' cycling */
+		g_cw_setmax = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;
+		if (g_cw_setmax < 1) g_cw_setmax = 1;
+	}
+	sub = l37aa(base, set);
 	if (sub == 0)
 		return 0;
-	for (i = 0; i < CW_NPIECE; i++) {
-		unsigned char metric[8];
-		long b = l2856(sub, i, metric);
-		g_cw_h[i]    = metric[1];           /* height (< 256 for .CTL)   */
-		g_cw_bw[i]   = metric[6];
-		g_cw_fl[i]   = metric[7];
-		g_cw_body[i] = (b != 0) ? (const unsigned char *)(uintptr_t)b : NULL;
-	}
-	g_cw_n = CW_NPIECE;
 
-	/* clut 129 = the 256-colour game palette the 8bpp indices point into. */
-	for (k = 0; k < 256; k++) cr[k] = cg[k] = cb[k] = 0;
-	clutH = GetResource(0x636C7574L /* 'clut' */, 129);
-	if (clutH != NULL && *clutH != NULL) {
-		const unsigned char *cl = (const unsigned char *)*clutH;
-		const unsigned char *cs = cl + 8;        /* ColorSpec[] */
-		n = (short)((((unsigned short)cl[6] << 8) | cl[7]) + 1);  /* ccSize+1 */
-		if (n > 256) n = 256;
-		for (k = 0; k < n; k++) {
-			cr[k] = cs[k * 8 + 2];               /* hi byte of each chan */
-			cg[k] = cs[k * 8 + 4];
-			cb[k] = cs[k * 8 + 6];
-		}
-	}
-	if (n == 0) {                                /* no clut: greyscale ramp */
-		for (k = 0; k < 256; k++) cr[k] = cg[k] = cb[k] = (unsigned char)k;
-		n = 256;
-	}
-
-	/* Per-set environment palette: item 0 of the set's sub-GLIB is a run
-	 * of RGB triples (8-bit channels) — set 1 is a grey/white marble ramp,
-	 * set 2 a green forest ramp, etc. The 8bpp tile bytes are NOT generic
-	 * clut-129 indices: they point into this 40-colour band loaded at
-	 * clut[32]. (clut 129 alone gave every wall a candy colour cast — it's
-	 * a generic RGB cube, not the dungeon palette.) Layout within the band:
-	 * 0..20 light/dark ramp, 21..30 brown/fire, 31..36 the magenta
-	 * transparency key, so the opaque wall idx 38..52 land in 32+(6..20). */
+	/* item 8 = the plain wall; copy it out (buf is reused next call). */
+	b8 = l2856(sub, CW_WALL_PIECE, metric);
+	if (b8 == 0)
+		return 0;
+	h = metric[1];
+	w = (short)(8 * metric[6]);               /* 8bpp: stride == width */
+	if (w > 56) w = 56;
+	if (h > 56) h = 56;
 	{
-		long p0 = l37aa(sub, 0), p1 = l37aa(sub, 1);
-		if (p0 != 0 && p1 > p0) {
-			const unsigned char *pp =
-				(const unsigned char *)(uintptr_t)(p0 + 8);
-			short pe = (short)((p1 - p0 - 8) / 3);
-			if (pe > CW_PAL_N) pe = CW_PAL_N;
-			for (k = 0; k < pe; k++) {
-				cr[CW_PAL_BASE + k] = pp[k * 3 + 0];
-				cg[CW_PAL_BASE + k] = pp[k * 3 + 1];
-				cb[CW_PAL_BASE + k] = pp[k * 3 + 2];
-			}
-			if (CW_PAL_BASE + pe > n) n = (short)(CW_PAL_BASE + pe);
+		const unsigned char *s = (const unsigned char *)(uintptr_t)b8;
+		long n = (long)h * w;
+		for (count = 0; count < n; count++)
+			g_cw_sbody[slot][count] = s[count];
+	}
+	g_cw_sh[slot] = h;
+	g_cw_sw[slot] = w;
+
+	/* item 0 = the set's RGB-triple palette -> the slot's band colours. */
+	p0 = l37aa(sub, 0);
+	p1 = l37aa(sub, 1);
+	{
+		const unsigned char *pp = (p0 && p1 > p0)
+			? (const unsigned char *)(uintptr_t)(p0 + 8) : NULL;
+		short pe = pp ? (short)((p1 - p0 - 8) / 3) : 0;
+		for (k = 0; k < CW_BAND; k++) {
+			g_cw_sr[slot][k] = (k < pe) ? pp[k * 3 + 0] : 0;
+			g_cw_sg[slot][k] = (k < pe) ? pp[k * 3 + 1] : 0;
+			g_cw_sb[slot][k] = (k < pe) ? pp[k * 3 + 2] : 0;
 		}
 	}
+	g_cw_sid[slot] = (short)(set ? set : 1);
+	return 1;
+}
 
-	for (k = 0; k < 256; k++) {
-		pal[k].red   = (unsigned short)((cr[k] << 8) | cr[k]);
-		pal[k].green = (unsigned short)((cg[k] << 8) | cg[k]);
-		pal[k].blue  = (unsigned short)((cb[k] << 8) | cb[k]);
+/* cw_finalize — after the slots are loaded, push every loaded slot's band
+ * into the clut, set the ceiling/floor fallback colours, build the per-slot
+ * per-depth darken remap (nearest darker colour within the slot's own
+ * band), and re-lay the backdrop band (which this clut write clobbers). */
+static void cw_finalize(void)
+{
+	static const short fct[4] = { 256, 178, 128, 92 };
+	static RGBColor pal[256];
+	short i, slot, d, k, j;
+
+	for (i = 0; i < 256; i++)
+		pal[i].red = pal[i].green = pal[i].blue = 0;
+	pal[4].red = 0x1000; pal[4].green = 0x0c00; pal[4].blue = 0x0800; /* ceiling */
+	pal[5].red = 0x7000; pal[5].green = 0x4800; pal[5].blue = 0x2400; /* floor   */
+	for (slot = 0; slot < CW_SLOTS; slot++) {
+		short base = g_cw_base[slot];
+		if (g_cw_sid[slot] == 0)
+			continue;
+		for (k = 0; k < CW_BAND; k++) {
+			unsigned char r = g_cw_sr[slot][k];
+			unsigned char g = g_cw_sg[slot][k];
+			unsigned char b = g_cw_sb[slot][k];
+			pal[base + k].red   = (unsigned short)((r << 8) | r);
+			pal[base + k].green = (unsigned short)((g << 8) | g);
+			pal[base + k].blue  = (unsigned short)((b << 8) | b);
+		}
 	}
-	/* ceiling (4) dark, floor (5) brown — the walls don't use these idx. */
-	pal[4].red = 0x1000; pal[4].green = 0x0c00; pal[4].blue = 0x0800;
-	pal[5].red = 0x7000; pal[5].green = 0x4800; pal[5].blue = 0x2400;
 	qd_set_palette(pal, 0, 256);
 
-	/* g_depth_remap[d][c] = clut index nearest to clut[c] * depth factor. */
-	{
-		static const short fct[4] = { 256, 178, 128, 92 };
-		short d, c, j;
+	for (slot = 0; slot < CW_SLOTS; slot++)
 		for (d = 0; d < 4; d++)
-			for (c = 0; c < 256; c++) {
-				short tr = (short)((cr[c] * fct[d]) >> 8);
-				short tg = (short)((cg[c] * fct[d]) >> 8);
-				short tb = (short)((cb[c] * fct[d]) >> 8);
+			for (k = 0; k < CW_BAND; k++) {
+				short tr = (short)((g_cw_sr[slot][k] * fct[d]) >> 8);
+				short tg = (short)((g_cw_sg[slot][k] * fct[d]) >> 8);
+				short tb = (short)((g_cw_sb[slot][k] * fct[d]) >> 8);
 				long  bestd = 0x7fffffffL;
-				short best = c;
-				for (j = 0; j < n; j++) {
-					long dr = cr[j] - tr, dg = cg[j] - tg, db = cb[j] - tb;
+				short best = k;
+				for (j = 0; j < CW_BAND; j++) {
+					long dr = g_cw_sr[slot][j] - tr;
+					long dg = g_cw_sg[slot][j] - tg;
+					long db = g_cw_sb[slot][j] - tb;
 					long dd2 = dr * dr + dg * dg + db * db;
 					if (dd2 < bestd) { bestd = dd2; best = j; }
 				}
-				g_depth_remap[d][c] = (unsigned char)best;
+				g_cw_remap[slot][d][k] = (unsigned char)best;
 			}
+
+	load_backdrop(g_back_set);
+}
+
+/* load_color_wallset — manual/initial path: load the current (g_cw_file,
+ * `set`) into slot 0 and leave slots 1-2 empty, so every face uses it. */
+static int load_color_wallset(short set)
+{
+	cw_load_slot(0, g_cw_file, set);
+	g_cw_sid[1] = g_cw_sid[2] = 0;
+	g_cw_grp[0] = g_cw_grp[1] = g_cw_grp[2] = -1;  /* invalidate auto cache */
+	cw_finalize();
+	return g_cw_sid[0] ? 1 : 0;
+}
+
+/* load_wall_groups — auto path: load the level's three wall groups (Wall1-3
+ * = ds[4..6]) into slots 0-2 so each map face can use its own set. */
+static void load_wall_groups(const unsigned char *ds)
+{
+	short i, file, set;
+	for (i = 0; i < CW_SLOTS; i++) {
+		short id = (short)(unsigned char)ds[4 + i];
+		g_cw_grp[i] = id;
+		if (wallset_for_id(id, &file, &set))
+			cw_load_slot(i, file, set);
+		else
+			g_cw_sid[i] = 0;
 	}
-	return 1;
+	cw_finalize();
 }
 
 /* load_backdrop — load BACK.CTL backdrop `n` (1-based): the 88x88 8bpp
@@ -6205,6 +6241,25 @@ static int wallset_for_id(short id, short *file, short *set)
 	return 1;
 }
 
+/* wall_slot_for_edge — given a map edge byte, return the wall-set slot to
+ * draw that face with, or -1 for no wall. The low nibble (1-15) is the wall
+ * slot: 1-5 use Wall1, 6-10 Wall2, 11-15 Wall3 (UAF OffsetWallSlotIndex),
+ * i.e. group (w-1)/5 -> slot. In manual ('t'/'y') mode every face uses
+ * slot 0; an unloaded group also falls back to slot 0. */
+static short wall_slot_for_edge(short e)
+{
+	short w = (short)(e & 0x0F);
+	short slot;
+
+	if (w == 0)
+		return -1;
+	slot = g_cw_auto ? (short)((w - 1) / 5) : 0;
+	if (slot < 0) slot = 0; else if (slot >= CW_SLOTS) slot = (short)(CW_SLOTS - 1);
+	if (g_cw_sid[slot] == 0)
+		slot = 0;
+	return slot;
+}
+
 /* render_3d_view — a textured first-person corridor view from the
  * party's (x,y,facing). Walks depth slices 0..3; at each depth draws
  * the left/right side walls as perspective-correct textured
@@ -6244,30 +6299,32 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 		}
 	}
 
-	/* Tile a 32x32 cobblestone window from the colour wall set's 8bpp
-	 * texture (8X8DC.CTL piece 8 = 56x56 chunky; VOFF skips its top edge
-	 * band). Each sampled byte is a clut-129 index; render_3d_view writes
-	 * it depth-darkened via g_depth_remap. */
-	const short TEX = 8, VOFF = 8;
+	/* Each wall face's texture comes from its own set: the edge byte's low
+	 * nibble (1-15) picks one of the level's three wall groups (Wall1-3 ->
+	 * slots 0-2) via wall_slot_for_edge; VOFF skips piece 8's top edge band. */
+	const short VOFF = 8;
 
 	for (d = 0; d < 4; d++) {
 		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
 		short fd = (short)(d + 1 < 4 ? d + 1 : 3);
+		short sl, sr2, sff;
 
-		if (cell_edge(cx, cy, lf))
+		sl = wall_slot_for_edge(cell_edge(cx, cy, lf));
+		if (sl >= 0)
 			fill_wall_trap_c(px, pitch, sw, sh,
 			                 (short)(vcx - hw[d]), (short)(vcx - hw[d + 1]),
-			                 hh[d], hh[d + 1], vcy, TEX, VOFF, d);
-		if (cell_edge(cx, cy, rf))
+			                 hh[d], hh[d + 1], vcy, sl, VOFF, d);
+		sr2 = wall_slot_for_edge(cell_edge(cx, cy, rf));
+		if (sr2 >= 0)
 			fill_wall_trap_c(px, pitch, sw, sh,
 			                 (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
-			                 hh[d], hh[d + 1], vcy, TEX, VOFF, d);
-		if (cell_edge(cx, cy, f)) {
+			                 hh[d], hh[d + 1], vcy, sr2, VOFF, d);
+		sff = wall_slot_for_edge(cell_edge(cx, cy, f));
+		if (sff >= 0) {
 			short xl = (short)(vcx - hw[d + 1]), xr = (short)(vcx + hw[d + 1]);
 			short yt = (short)(vcy - hh[d + 1]), yb = (short)(vcy + hh[d + 1]);
 			short fw = (short)(xr - xl), fh = (short)(yb - yt);
-			const unsigned char *rmp = g_depth_remap[fd & 3];
 
 			if (fw < 1) fw = 1;
 			if (fh < 1) fh = 1;
@@ -6276,8 +6333,8 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 				for (y = yt; y <= yb; y++) {
 					short v = (short)(((long)(y - yt) * 32) / fh);
 					map_px(px, pitch, sw, sh, x, y,
-					       rmp[cw_pix(TEX, (short)(u & 31),
-					                  (short)(VOFF + (v & 31)))]);
+					       cw_shade(sff, fd, (short)(u & 31),
+					                (short)(VOFF + (v & 31))));
 				}
 			}
 			break;
@@ -6951,15 +7008,10 @@ static int dungeon_view_setup(void)
 		}
 	}
 	qd_set_palette(c4, 0, 16);
-	/* Load the active colour wall set (g_cw_file / g_cw_set, seeded from
-	 * CW_SET) into the clut band + piece store; the walk demo cycles them
-	 * live for regression (keys 't' next set, 'y' toggle library). */
+	/* Initial wall set into slot 0 (cw_finalize also lays the backdrop
+	 * band); jt312 then auto-loads the level's Wall1-3 into the slots. */
 	load_color_wallset(g_cw_set);
-	/* Backdrop (floor/ceiling/sky) behind the walls; loaded after the wall
-	 * set so its palette band (clut 145+) survives the wall set's clut
-	 * write. 'b' cycles it in the walk demo. */
-	load_backdrop(g_back_set);
-	return (g_wall_n > 0) || (g_cw_n > 0);
+	return (g_wall_n > 0) || (g_cw_sid[0] != 0);
 }
 
 /* jt312 (JT[312], CODE 22 + 0x23ee) — the dungeon-view render, the
@@ -6999,23 +7051,18 @@ static void jt312(unsigned char *page)
 	cell = (short)((long)(short)g_a5_12288 * ds[3] + (short)g_a5_12287);
 	g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
 
-	/* Pick the wall set from the level's primary wall group (Wall1 =
-	 * ds[4]) unless pinned with 't'/'y'. One set serves all faces here;
-	 * true per-edge Wall1-3 selection needs multi-band palettes (TODO). */
-	if (g_cw_auto) {
-		short file, set;
-		if (wallset_for_id((short)(unsigned char)ds[4], &file, &set)
-		 && (file != g_cw_file || set != g_cw_set)) {
-			g_cw_file = file;
-			g_cw_set  = set;
-			load_color_wallset(set);
-			load_backdrop(g_back_set);   /* wall clut write clobbers its band */
-			g_view_force_full = 1;
+	/* Load the level's three wall groups (Wall1-3 = ds[4..6]) into the
+	 * three slots so each map face draws with its own set (unless pinned
+	 * with 't'/'y'); reload only when the group ids change. */
+	if (g_cw_auto
+	 && (ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2])) {
+		load_wall_groups(ds);
+		g_view_force_full = 1;
 #ifdef FRUA_ENGINE_PROBE
-			dbg_log_num("auto wall file ", file);
-			dbg_log_num("auto wall set  ", set);
+		dbg_log_num("auto Wall1 ", g_cw_grp[0]);
+		dbg_log_num("auto Wall2 ", g_cw_grp[1]);
+		dbg_log_num("auto Wall3 ", g_cw_grp[2]);
 #endif
-		}
 	}
 
 	/* Pick the floor/ceiling backdrop for the current cell's zone (unless
@@ -7427,7 +7474,7 @@ void port_play_demo(void)
 		long t0, t1; short k;
 		(void)jpage; (void)t0; (void)t1; (void)k;
 		dungeon_view_setup();           /* load walls + clut before timing */
-		dbg_log_num("cw_n at bench=", (long)g_cw_n);
+		dbg_log_num("cw slot0 id=", (long)g_cw_sid[0]);
 #ifdef FRUA_COORD_TRACE
 		/* Drive the faithful frustum walker once so l5b42 logs every
 		 * slot's screen coord for this vantage. */
@@ -7490,8 +7537,7 @@ void port_play_demo(void)
 		case 't': case 'T':     /* browse: next set (pins auto off) */
 			g_cw_auto = 0;
 			g_cw_set = (short)(g_cw_set >= g_cw_setmax ? 1 : g_cw_set + 1);
-			load_color_wallset(g_cw_set);
-			load_backdrop(g_back_set);   /* wall clut write clobbered its band */
+			load_color_wallset(g_cw_set);   /* cw_finalize re-lays the backdrop */
 			g_view_force_full = 1;
 #ifdef FRUA_ENGINE_PROBE
 			dbg_log_num("wall set -> ", g_cw_set);
@@ -7502,7 +7548,6 @@ void port_play_demo(void)
 			g_cw_file ^= 1;
 			g_cw_set = 1;
 			load_color_wallset(g_cw_set);
-			load_backdrop(g_back_set);
 			g_view_force_full = 1;
 #ifdef FRUA_ENGINE_PROBE
 			dbg_log_num("wall file -> ", g_cw_file);
