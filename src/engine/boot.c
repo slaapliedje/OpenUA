@@ -6216,53 +6216,70 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
 #define VIEW_CY   96
 
 /* render_3d_color — first-person view from the real colour wall set,
- * EOB-style nested rings. ring[d] half-width rw[d]; the side wall at
- * depth d fills the band between ring d and ring d+1 (native piece,
- * full ring-d height), and a blocked depth's front face fills ring d+1.
- * Pieces carry their own perspective, so this is pure native placement —
- * no scaling, no hand-tuned offsets. */
+ * using the FRUA/Gold Box slot layout recovered from the Dungeon Craft
+ * (UAF) source (Shared/Viewport.cpp). The 176x211 UAF viewport scales to
+ * the Mac pieces' native 176x176 (heights x0.835), so each piece lands at
+ * its slot 1:1 — no stretching. Slots used here (relative to the viewport
+ * top-left), with the Mac 8X8DC piece for each:
+ *   A near-left side  (0,0)   32x176  piece 9
+ *   B near-right side (144,0) 32x176  piece 9 mirrored
+ *   F depth-1 left    (32,33) 32x112  piece 6
+ *   G depth-1 right   (112,33)32x112  piece 6 mirrored
+ *   E near front      (32,33) 112x112 piece 8
+ *   H depth-1 front   (64,65) 48x48   piece 15
+ *   P depth-2 front   (64,80) 16x16   piece 21
+ * Wall art is level-0-keyed transparent (the perspective wedge / empty
+ * area). Draw the blocking front face first, then the nearer side walls
+ * over it (back-to-front). */
 static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 {
-	static const short side_piece[3]  = { 9, 6, 3 };   /* 176x32,112x32,48x16 */
-	static const short front_piece[3] = { 8, 15, 21 }; /* 112,48,16 square    */
-	static const short rw[4]          = { 88, 56, 24, 8 }; /* ring half-widths */
-	const short vcx = (short)(sw / 2), vcy = VIEW_CY;
+	/* per-depth side wall: left x, right x, shared y, piece (d0, d1). */
+	static const short side_lx[2] = {   0,  32 };
+	static const short side_rx[2] = { 144, 112 };
+	static const short side_ly[2] = {   0,  33 };
+	static const short side_pc[2] = {   9,   6 };
+	/* per-depth front face: x, y, piece (d0=E, d1=H, d2=P). */
+	static const short front_x[3] = {  32,  64,  64 };
+	static const short front_y[3] = {  33,  65,  80 };
+	static const short front_pc[3]= {   8,  15,  21 };
+	const short VW = (short)(2 * VIEW_HALF);     /* 176 */
+	const short vox = (short)(sw / 2 - VIEW_HALF);
+	const short voy = (short)(VIEW_CY - VIEW_HALF);
 	short f  = (short)(g_a5_12286 & 7);
 	short lf = (short)((f + 6) & 7);
 	short rf = (short)((f + 2) & 7);
-	short y, d;
+	short y, d, bd = 3;
 
 	if (g_cw_n <= 0)
 		return;
 
 	/* ceiling (clut 4) over floor (clut 5) across the square viewport. */
-	for (y = (short)(vcy - VIEW_HALF); y < vcy + VIEW_HALF; y++)
-		memset(px + (long)y * pitch + (vcx - VIEW_HALF),
-		       (y < vcy) ? 4 : 5, (size_t)(2 * VIEW_HALF));
+	for (y = 0; y < VW; y++)
+		memset(px + (long)(voy + y) * pitch + vox,
+		       (y < VIEW_HALF) ? 4 : 5, (size_t)VW);
 
-	/* Far -> near so nearer rings overdraw farther ones. */
-	for (d = 2; d >= 0; d--) {
-		short cxx = (short)((short)g_a5_12288 + dir_dx[f] * d);
-		short cyy = (short)((short)g_a5_12287 + dir_dy[f] * d);
-		short outer = rw[d], inner = rw[d + 1];
-		short sp = side_piece[d], fp = front_piece[d];
-		short top = (short)(vcy - outer);
+	/* find the first depth (0..2) whose front edge is a wall. */
+	for (d = 0; d < 3; d++) {
+		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
+		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
+		if (cell_edge(cx, cy, f)) { bd = d; break; }
+	}
 
-		/* Side pieces are mostly level-0 (the perspective wedge / empty
-		 * area) which is transparent — key it out so the ceiling/floor
-		 * and farther rings show through; only the wall texture draws. */
-		if (cell_edge(cxx, cyy, lf))
-			blit_piece(px, pitch, sw, sh,
-			           (short)(vcx - outer), top, sp, 0, 0);
-		if (cell_edge(cxx, cyy, rf))
-			blit_piece(px, pitch, sw, sh,
-			           (short)(vcx + inner), top, sp, 1, 0);
-		if (cell_edge(cxx, cyy, f)) {
-			blit_piece(px, pitch, sw, sh,
-			           (short)(vcx - inner), (short)(vcy - inner),
-			           fp, 0, 0);
-			break;
-		}
+	/* blocking front face first (the farthest visible surface). */
+	if (bd < 3)
+		blit_piece(px, pitch, sw, sh, (short)(vox + front_x[bd]),
+		           (short)(voy + front_y[bd]), front_pc[bd], 0, 0);
+
+	/* side walls, deepest open depth -> nearest, over the front face. */
+	for (d = (short)((bd < 2 ? bd : 2) - 1); d >= 0; d--) {
+		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
+		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
+		if (cell_edge(cx, cy, lf))
+			blit_piece(px, pitch, sw, sh, (short)(vox + side_lx[d]),
+			           (short)(voy + side_ly[d]), side_pc[d], 0, 0);
+		if (cell_edge(cx, cy, rf))
+			blit_piece(px, pitch, sw, sh, (short)(vox + side_rx[d]),
+			           (short)(voy + side_ly[d]), side_pc[d], 1, 0);
 	}
 }
 
