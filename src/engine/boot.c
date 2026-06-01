@@ -6049,24 +6049,28 @@ static int cw_load_slot(short slot, short file, short set)
 		short fct;
 		for (fct = 0; fct < CW_FACETS; fct++) {
 			long b = l2856(sub, g_cw_facet_piece[fct], metric);
-			const unsigned char *s = (const unsigned char *)(uintptr_t)b;
-			long n;
-			h = metric[1];
-			w = (short)(8 * metric[6]);
-			if (w > 56) w = 56;
-			if (h > 56) h = 56;
-			if (b == 0) { w = h = 0; }
-			n = (long)h * w;
-			for (count = 0; count < n; count++)
-				g_cw_sbody[slot][fct][count] = s[count];
+			short xo = 0, yo = 0;
+			h = w = 0;
+			if (b != 0) {
+				const unsigned char *s =
+					(const unsigned char *)(uintptr_t)b;
+				long n;
+				h = metric[1];
+				w = (short)(8 * metric[6]);
+				if (w > 56) w = 56;
+				if (h > 56) h = 56;
+				n = (long)h * w;
+				for (count = 0; count < n; count++)
+					g_cw_sbody[slot][fct][count] = s[count];
+				/* metric ybear/xbear are signed words; the piece draws
+				 * at (-xbear,-ybear) within the cell. */
+				xo = (short)-(short)((metric[4] << 8) | metric[5]);
+				yo = (short)-(short)((metric[2] << 8) | metric[3]);
+			}
 			g_cw_fh[slot][fct] = h;
 			g_cw_fw[slot][fct] = w;
-			/* metric ybear/xbear are signed words; the piece draws at
-			 * (-xbear,-ybear) in the cell. */
-			g_cw_fxo[slot][fct] =
-				(short)-(short)((metric[4] << 8) | metric[5]);
-			g_cw_fyo[slot][fct] =
-				(short)-(short)((metric[2] << 8) | metric[3]);
+			g_cw_fxo[slot][fct] = xo;
+			g_cw_fyo[slot][fct] = yo;
 		}
 	}
 
@@ -6290,7 +6294,7 @@ static short cell_backdrop_id(const unsigned char *ds)
  * number is the set within that library. The port's gamedata combined the
  * Mac's separate 8x8db1..9 / 8x8dc1..7 files into 8X8DB.CTL / 8X8DC.CTL as
  * sub-GLIB sets, so id 1..9 -> 8X8DB set id, id 10..16 -> 8X8DC set id-9.
- * Returns 1 and fills *file/*set for a real wall id, 0 for none/overland. */
+ * Returns 1 and fills file/set for a real wall id, 0 for none/overland. */
 static int wallset_for_id(short id, short *file, short *set)
 {
 	if (id < 1 || id == 255)            /* 255 = overland / no wall set */
