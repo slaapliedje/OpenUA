@@ -6781,7 +6781,17 @@ static short l5e52(short row, short col, short dir)
  * on-screen but not centred. CONCLUSION: the 8000-anchor / deep-mode
  * transform model needs re-derivation before the faithful slot coords are
  * usable; the layout values themselves are a structured perspective table.
- * (render_3d_color currently hand-places the colour pieces instead.) */
+ * (render_3d_color currently hand-places the colour pieces instead.)
+ *
+ * ENTRY COORDS VERIFIED (CODE 22 jt312 @ 0x24c4..0x24e6): jt199 is called
+ * with (Y=8012, X=8016, row=g_a5_-12288, col=g_a5_-12287,
+ * facing=g_a5_-12286&7) — EXACTLY as lifted, so the anchor is not the bug.
+ * NEXT THREAD: jt312 sets the view up entirely in 8000-anchored space
+ * (clip JT[1173](8007,8000,8067,8160); bg JT[1001](16,8000,1,9)) and the
+ * screen map is jt1135's (v-8000)*scale. But l5b42 uses a DIFFERENT map,
+ * ((v-8012)<<2)+8, gated on jt1200()==3. Two different transforms for one
+ * space -> re-derive which is correct (trace JT[1173]/the GrafPort) and
+ * whether l5b42's deep branch should fire at all. */
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub) __attribute__((unused));
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
