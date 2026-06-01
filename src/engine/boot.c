@@ -6138,18 +6138,21 @@ static int load_color_wallset(short set)
 	}
 	g_cw_n = CW_NPIECE;
 
-	/* tile 0 body -> 4 RGB triples -> clut 16..19. */
-	g0 = (long)(uintptr_t)g_cw_body[0];
-	if (g0 != 0) {
-		const unsigned char *p = (const unsigned char *)(uintptr_t)g0;
-		for (i = 0; i < 4; i++) {
-			pal[i].red   = (unsigned short)(p[3 * i + 0] << 8 | p[3 * i + 0]);
-			pal[i].green = (unsigned short)(p[3 * i + 1] << 8 | p[3 * i + 1]);
-			pal[i].blue  = (unsigned short)(p[3 * i + 2] << 8 | p[3 * i + 2]);
-			g_cw_clut[i] = (unsigned char)(16 + i);
-		}
-		qd_set_palette(pal, 16, 4);
-	}
+	/* Sub-palette for the 4 levels at clut 16..19. NOTE: tile 0's body
+	 * (black/white/green/blue) is a fixed editor TEMPLATE — byte-identical
+	 * across all environment sets — so it is NOT the real wall colours.
+	 * The real colours live in the game's 256-colour clut 129; the
+	 * level->clut-129 mapping is still to be resolved. Until then we use a
+	 * neutral stone ramp (dark mortar / lit stone / highlight / shadow) so
+	 * the geometry reads as stone rather than the placeholder blue. */
+	(void)g0;
+	pal[0].red = 0x2800; pal[0].green = 0x2200; pal[0].blue = 0x1a00; /* shadow */
+	pal[1].red = 0xb800; pal[1].green = 0xa400; pal[1].blue = 0x8000; /* lit    */
+	pal[2].red = 0xe800; pal[2].green = 0xd800; pal[2].blue = 0xb800; /* hilite */
+	pal[3].red = 0x6800; pal[3].green = 0x5800; pal[3].blue = 0x4000; /* mid    */
+	for (i = 0; i < 4; i++)
+		g_cw_clut[i] = (unsigned char)(16 + i);
+	qd_set_palette(pal, 16, 4);
 	return 1;
 }
 
@@ -6204,14 +6207,18 @@ static void blit_piece(unsigned char *px, short pitch, short sw, short sh,
  * recede toward the viewport centre. */
 static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 {
-	/* per-depth side-wall piece (near->far) and its OUTER (screen-edge)
-	 * X for the left wall; the piece carries its own perspective wedges,
-	 * so we just step the outer edge inward toward the vanishing point. */
-	static const short side_piece[4] = { 9, 6, 43, 22 };
-	static const short left_edge[4]  = { 8, 44, 74, 96 };   /* viewport-rel */
-	static const short front_piece[4]= { 8, 27, 5, 1 };     /* by depth     */
-	const short vL = 8, vR = 228, vT = 9, vB = 157;          /* viewport      */
+	/* Three depth slots, near->far. Each side wall is one pre-sized
+	 * strip (32 wide) carrying its own ceiling/floor perspective wedge;
+	 * the strips abut from the viewport edge inward, leaving an open
+	 * centre for the far view. front_piece is the centred face drawn
+	 * where a depth is blocked. (A first-pass slot table; the exact
+	 * Gold Box piece->slot layout still wants the UAF reference.) */
+	static const short side_piece[3]  = { 9, 6, 46 };   /* near .. far     */
+	static const short left_edge[3]   = { 8, 40, 72 };  /* viewport-rel X  */
+	static const short front_piece[3] = { 8, 27, 15 };  /* by depth        */
+	const short vL = 8, vR = 228, vT = 9, vB = 157;     /* viewport         */
 	const short vcx = 118, vcy = 83;
+	const short NDEPTH = 3;
 	short f  = (short)(g_a5_12286 & 7);
 	short lf = (short)((f + 6) & 7);
 	short rf = (short)((f + 2) & 7);
@@ -6225,23 +6232,21 @@ static void render_3d_color(unsigned char *px, short pitch, short sw, short sh)
 		for (x = vL; x <= vR; x++)
 			px[(long)y * pitch + x] = (y < vcy) ? 4 : 5;
 
-	/* Far -> near so nearer strips overdraw farther ones. Side pieces
-	 * are drawn opaque (their baked wedges are the ceiling/floor). */
-	for (d = 3; d >= 0; d--) {
+	/* Far -> near so nearer strips overdraw farther ones. */
+	for (d = NDEPTH - 1; d >= 0; d--) {
 		short cxx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cyy = (short)((short)g_a5_12287 + dir_dy[f] * d);
-		short ph  = g_cw_h[side_piece[d]];
-		short pw  = (short)(8 * g_cw_bw[side_piece[d]]);
+		short sp  = side_piece[d];
+		short ph  = g_cw_h[sp];
+		short pw  = (short)(8 * g_cw_bw[sp]);
 		short top = (short)(vcy - ph / 2);
 
 		if (cell_edge(cxx, cyy, lf))
 			blit_piece(px, pitch, sw, sh,
-			           (short)(vL + left_edge[d]), top,
-			           side_piece[d], 0, -1);
+			           (short)(vL + left_edge[d]), top, sp, 0, -1);
 		if (cell_edge(cxx, cyy, rf))
 			blit_piece(px, pitch, sw, sh,
-			           (short)(vR - left_edge[d] - pw), top,
-			           side_piece[d], 1, -1);
+			           (short)(vR - left_edge[d] - pw), top, sp, 1, -1);
 		if (cell_edge(cxx, cyy, f)) {
 			short fp = front_piece[d];
 			short fh = g_cw_h[fp], fw = (short)(8 * g_cw_bw[fp]);
