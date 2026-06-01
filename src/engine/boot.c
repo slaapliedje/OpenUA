@@ -5934,7 +5934,10 @@ static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
  * so render_3d_view can shade the colour walls by depth. */
 static int load_color_wallset(short set)
 {
-	static unsigned char buf[65536];      /* set 1 lives in the first ~34KB */
+	/* Whole 8X8DC.CTL (~232KB) must stay resident: g_cw_body[] points into
+	 * it and render_3d_view samples those after this returns. The later
+	 * environment sets (coral/lava/brick) live well past the first 64KB. */
+	static unsigned char buf[262144];
 	static unsigned char cr[256], cg[256], cb[256];
 	static RGBColor pal[256];
 	short refnum = 0, i, k, n = 0;
@@ -6765,9 +6768,13 @@ static int dungeon_view_setup(void)
 		}
 	}
 	qd_set_palette(c4, 0, 16);
-	/* Load the real colour wall set (8X8DC environment 1) into clut
-	 * 16..19 + the piece store; the colour renderer prefers it. */
-	load_color_wallset(1);
+	/* Load the real colour wall set (8X8DC environment) into the clut
+	 * band + piece store; the colour renderer prefers it. CW_SET picks
+	 * the environment (1=marble 2=forest 4=coral 6=lava 7=brick). */
+#ifndef CW_SET
+#define CW_SET 1
+#endif
+	load_color_wallset(CW_SET);
 	return (g_wall_n > 0) || (g_cw_n > 0);
 }
 

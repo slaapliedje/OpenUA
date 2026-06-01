@@ -27,6 +27,7 @@ endif
 DEP  := $(OBJ:.o=.d)
 
 CFLAGS += $(INCLUDE)
+CFLAGS += $(EXTRA_CFLAGS)
 
 # Engine bring-up probe: instrument the engine's unlifted stubs (boot.c,
 # master.c) so each logs its name when called. Default off so production
