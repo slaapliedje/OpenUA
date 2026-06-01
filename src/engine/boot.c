@@ -5894,6 +5894,22 @@ static unsigned char g_cw_remap[CW_SLOTS][4][CW_BAND]; /* depth->darker off  */
 static short g_cw_grp[CW_SLOTS] = { -1, -1, -1 };    /* cached Wall1-3 ids   */
 #define CW_CELL 56            /* wall-cell size the facet bearings sit in  */
 
+/* Full piece store for the FAITHFUL renderer: all 48 pieces of one active
+ * set, kept resident, blitted 1:1 at jt199/l5b42 screen positions (no
+ * scaling) — the real Mac slot-assembly. The pieces' bytes are band values
+ * (32..71) and the active set's palette band is loaded at clut 32 (by
+ * load_color_wallset), so a byte IS its clut index. g_cwf_px gates the
+ * colour blit in jt200_layer; NULL = the 1bpp DUNGCOM path. */
+static unsigned char        g_cwf_buf[327680];       /* resident CTL file   */
+static const unsigned char *g_cwf_body[CW_NPIECE];   /* piece pixel data    */
+static short g_cwf_h[CW_NPIECE], g_cwf_w[CW_NPIECE];
+static short g_cwf_xb[CW_NPIECE], g_cwf_yb[CW_NPIECE]; /* signed bearings    */
+static short g_cwf_n;                                /* pieces loaded (0=no)*/
+static short g_cwf_grp = -1;                         /* cached (file<<8|set) */
+static unsigned char *g_cwf_px;                      /* blit surface (NULL off) */
+static short g_cwf_pitch, g_cwf_sw, g_cwf_sh;
+static short g_cwf_blits __attribute__((unused));    /* debug: blit count   */
+
 /* Active environment selector — CW_SET picks the initial set at build
  * time (1=marble 2=forest 4=coral 6=lava 7=brick in 8X8DC); the walk demo
  * cycles g_cw_set / g_cw_file live (keys 't' / 'y') for regression. The
@@ -6357,6 +6373,8 @@ static short facet_for_edge(short e)
  * selected per-edge (pick_wall) from the wall-tile table, depth-
  * shaded via the per-depth fg/bg colour pair. Viewport ~220x150
  * centred at (118,83). */
+static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
+	__attribute__((unused));
 static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 {
 	static const short hw[5] = { 110, 68, 42, 26, 16 };
@@ -6902,6 +6920,86 @@ static short jt210(short row, short col, short dir)
 	return (short)((*cell >> 4) & 15);
 }
 
+/* cw_blit_piece — blit one full-set piece `idx` (1-based) at screen
+ * (top,left), 1:1, into the faithful blit surface. The piece sits at
+ * (top - ybear, left - xbear) in the cell (the glyph bearing convention);
+ * bytes are clut indices (32..71 via the active set's clut-32 band),
+ * skipping the 255 / magenta transparency key. No scaling, no shade. */
+static void cw_blit_piece(short top, short left, short idx)
+{
+	const unsigned char *b;
+	short w, h, x, y, ox, oy;
+
+	if (g_cwf_px == NULL || idx < 1 || idx >= CW_NPIECE)
+		return;
+	b = g_cwf_body[idx];
+	if (b == NULL)
+		return;
+	w = g_cwf_w[idx];
+	h = g_cwf_h[idx];
+	ox = (short)(left - g_cwf_xb[idx]);
+	oy = (short)(top  - g_cwf_yb[idx]);
+#ifdef FRUA_ENGINE_PROBE
+	if (g_cwf_blits < 12) {
+		dbg_log_num("blit idx=", (long)idx);
+		dbg_log_num("   top=", (long)top);
+		dbg_log_num("  left=", (long)left);
+	}
+	g_cwf_blits++;
+#endif
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			unsigned char v = b[(long)y * w + x];
+			short off;
+			if (v == 255)
+				continue;                 /* global transparency key */
+			off = (short)(v - 32);
+			if (off >= 0 && off < CW_BAND && g_cw_strans[0][off])
+				continue;                 /* per-set magenta key */
+			map_px(g_cwf_px, g_cwf_pitch, g_cwf_sw, g_cwf_sh,
+			       (short)(ox + x), (short)(oy + y), v);
+		}
+	}
+}
+
+/* load_cw_full — load all 48 pieces of wall-set (`file`,`set`) into the
+ * resident store (bodies + dims + signed bearings). Cached on (file,set);
+ * call load_color_wallset(set) first so the palette band is at clut 32. */
+static int load_cw_full(short file, short set)
+{
+	short refnum = 0, i;
+	long count, base, sub;
+	short key = (short)((file << 8) | (set & 0xff));
+
+	if (g_cwf_n > 0 && g_cwf_grp == key)
+		return 1;                                 /* already loaded */
+	g_cwf_n = 0;
+	if (FSOpen((ConstStr255Param)g_cw_files[file & 1], 0, &refnum) != noErr)
+		return 0;
+	count = (long)sizeof g_cwf_buf;
+	(void)FSRead(refnum, &count, g_cwf_buf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)g_cwf_buf;
+	if (l37aa(base, 0) == 0)
+		return 0;
+	sub = l37aa(base, set);
+	if (sub == 0)
+		return 0;
+	for (i = 0; i < CW_NPIECE; i++) {
+		unsigned char metric[8];
+		long b = l2856(sub, i, metric);
+		if (b == 0) { g_cwf_body[i] = NULL; g_cwf_h[i] = g_cwf_w[i] = 0; continue; }
+		g_cwf_body[i] = (const unsigned char *)(uintptr_t)b;
+		g_cwf_h[i]  = metric[1];
+		g_cwf_w[i]  = (short)(8 * metric[6]);
+		g_cwf_xb[i] = (short)((metric[4] << 8) | metric[5]);   /* signed */
+		g_cwf_yb[i] = (short)((metric[2] << 8) | metric[3]);
+	}
+	g_cwf_n = CW_NPIECE;
+	g_cwf_grp = key;
+	return 1;
+}
+
 /* jt200_layer — draw one wall-tile layer for jt200. Group 2 is the
  * DUNGCOM wall set (handle JT[1004] = g_a5_-4582), drawn 1:1 via the
  * faithful l309c_tile path. The other groups (0/1/3/4) blit through
@@ -6911,6 +7009,10 @@ static short jt210(short row, short col, short dir)
 static void jt200_layer(unsigned char *page, short top, short left,
                         short group, short idx)
 {
+	if (g_cwf_px != NULL) {           /* faithful colour path: blit piece idx */
+		cw_blit_piece(top, left, idx);
+		return;
+	}
 	if (group == 2) {
 		l309c_tile(page, top, left, jt1004_handle(), idx);
 	}
@@ -7171,6 +7273,76 @@ static void jt199(unsigned char *page, short Y, short X, short row,
 	jt199_front(page, Y, X, v6, v8, right, +2, -12236, -12216, +1, 2); /* R front */
 }
 
+/* render_3d_faithful — the 1:1 Mac slot-assembly view: jt199 walks the
+ * frustum and l5b42 places each visible wall slot at the real screen coords
+ * (from the captured layout globals); jt200_layer blits the pre-sized
+ * colour piece there via cw_blit_piece. Single wall set for now (the
+ * level's Wall1); per-group Wall1-3 piece stores are a follow-up. */
+static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
+	__attribute__((unused));
+static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
+{
+	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
+	static const short hw0 = 110, hh0 = 74;
+	const short vcx = 118, vcy = 83;
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short f = (short)(g_a5_12286 & 7);
+	short file, set, x, y;
+
+	if (ds == NULL)
+		return;
+
+	/* active wall set = the level's Wall1; (re)load its clut-32 palette
+	 * band + the full 48-piece store when it changes. */
+	if (wallset_for_id((short)(unsigned char)ds[4], &file, &set)) {
+		short key = (short)((file << 8) | (set & 0xff));
+		if (g_cwf_grp != key) {
+			g_cw_file = file;
+			g_cw_set  = set;
+			load_color_wallset(set);          /* palette band @ clut 32 + strans */
+			load_cw_full(file, set);          /* 48 pieces resident */
+			load_backdrop(g_back_set);        /* re-lay backdrop band (clut 145) */
+		}
+	}
+
+	/* backdrop (floor/ceiling/sky) under the walls */
+	{
+		short y0 = (short)(vcy - hh0), y1 = (short)(vcy + hh0);
+		short x0 = (short)(vcx - hw0), x1 = (short)(vcx + hw0);
+		short vh = (short)(y1 - y0 + 1), vw = (short)(x1 - x0 + 1);
+		for (y = y0; y <= y1; y++) {
+			short by = g_back_h ? (short)(((long)(y - y0) * g_back_h) / vh) : 0;
+			for (x = x0; x <= x1; x++) {
+				short c;
+				if (g_back_w) {
+					short bx = (short)(((long)(x - x0) * g_back_w) / vw);
+					unsigned char v = g_back_img[(long)by * g_back_w + bx];
+					c = v ? (short)v : 4;
+				} else {
+					c = (y < vcy) ? 4 : 5;
+				}
+				map_px(px, pitch, sw, sh, x, y, (unsigned char)c);
+			}
+		}
+	}
+
+	/* run the faithful walk, drawing colour pieces to px */
+	g_cwf_px = px; g_cwf_pitch = pitch; g_cwf_sw = sw; g_cwf_sh = sh;
+#ifdef FRUA_ENGINE_PROBE
+	g_cwf_blits = 0;
+	dbg_log_num("faithful: cwf_n=", (long)g_cwf_n);
+	dbg_log_num("  ds[4..6]=", (long)ds[4] * 10000 + ds[5] * 100 + ds[6]);
+#endif
+	/* l5e52 indexes cell = col*h + row, but the map (cell_edge) is x*h+y,
+	 * so pass row=partyY, col=partyX (swapped) to read the right cells. */
+	jt199(page, (short)8012, (short)8016,
+	      (short)g_a5_12287, (short)g_a5_12288, f);
+	g_cwf_px = NULL;
+#ifdef FRUA_ENGINE_PROBE
+	dbg_log_num("faithful: blits=", (long)g_cwf_blits);
+#endif
+}
+
 /* l04d6 (CODE 22 + 0x04d6) — return a map cell's floor/ceiling
  * decoration byte (cell byte 4, at design_state + cell*6 + 294). */
 static short l04d6(short cell) __attribute__((unused));
@@ -7319,7 +7491,9 @@ static void jt312(unsigned char *page)
 	/* render_3d_raycast: jt199's wider 3-column frustum (shows side passages)
 	 * over the colour wall/facet system — parity with the old single-corridor
 	 * render_3d_view on straight corridors. FRUA_CORRIDOR selects the latter. */
-#ifdef FRUA_CORRIDOR
+#if defined(FRUA_FAITHFUL)
+	render_3d_faithful(px, pitch, sw, sh);   /* 1:1 jt199 slot-assembly */
+#elif defined(FRUA_CORRIDOR)
 	render_3d_view(px, pitch, sw, sh);
 #else
 	render_3d_raycast(px, pitch, sw, sh);
