@@ -5863,6 +5863,81 @@ static int tile_bit(const unsigned char *m, const unsigned char *b,
 	return (b[v * bw + (u >> 3)] >> (7 - (u & 7))) & 1;
 }
 
+/* Colour wall set (8X8DC) piece store — declared here so the colour
+ * trapezoid sampler below can read it; loaded by load_color_wallset. */
+#define CW_NPIECE 48
+static unsigned char        g_cw_h[CW_NPIECE];     /* piece height        */
+static unsigned char        g_cw_bw[CW_NPIECE];    /* bytes/row (mode-1)  */
+static unsigned char        g_cw_fl[CW_NPIECE];    /* glyph flags         */
+static const unsigned char *g_cw_body[CW_NPIECE];  /* pixel data          */
+static short                g_cw_n;
+static unsigned char        g_cw_clut[4];          /* sub-palette -> clut  */
+
+/* cw_lvl — sample the 2-bit level of colour wall piece `idx` at (col,row),
+ * clamped to the piece. Used to tile a flat region of an 8X8DC piece as a
+ * colour wall texture. */
+static short cw_lvl(short idx, short col, short row)
+{
+	const unsigned char *b;
+	short bw, h, w, stride;
+
+	if (idx < 0 || idx >= g_cw_n)
+		return 0;
+	b = g_cw_body[idx];
+	if (b == NULL)
+		return 0;
+	bw = g_cw_bw[idx];
+	h  = g_cw_h[idx];
+	w  = (short)(8 * bw);
+	stride = (short)(2 * bw);
+	if (col < 0) col = 0; else if (col >= w) col = (short)(w - 1);
+	if (row < 0) row = 0; else if (row >= h) row = (short)(h - 1);
+	return (short)((b[row * stride + (col >> 2)] >> (2 * (3 - (col & 3)))) & 3);
+}
+
+/* fill_wall_trap_c — like fill_wall_trap but COLOUR: samples a 32x32 flat
+ * cobblestone window of colour piece `texidx` (offset `voff` down, to skip
+ * the piece's transparent upper region) and writes the depth-shaded clut
+ * entry (32 + depth*4 + level). Same perspective-correct trapezoid as the
+ * mono version, so geometry/alignment are unchanged. */
+static void fill_wall_trap_c(unsigned char *px, short pitch, short sw, short sh,
+                             short xNear, short xFar, short hNear, short hFar,
+                             short vcy, short texidx, short voff, short depth)
+{
+	short lo = xNear < xFar ? xNear : xFar;
+	short hi = xNear < xFar ? xFar : xNear;
+	short denom = (short)(xFar - xNear);
+	long invN = hNear > 0 ? 16384L / hNear : 0;
+	long invF = hFar  > 0 ? 16384L / hFar  : 0;
+	long dinv = invF - invN;
+	short base = (short)(32 + depth * 4);
+	short x, y;
+
+	if (denom == 0) denom = 1;
+	if (dinv == 0)  dinv = 1;
+	for (x = lo; x <= hi; x++) {
+		long  frac = ((long)(x - xNear) * 256) / denom;
+		short ht, y0, y1, span, u, v;
+		long  inv;
+
+		if (frac < 0) frac = -frac;
+		ht = (short)(hNear + (((long)(hFar - hNear) * frac) >> 8));
+		if (ht < 1) ht = 1;
+		y0 = (short)(vcy - ht);
+		y1 = (short)(vcy + ht);
+		span = (short)(2 * ht);
+		if (span < 1) span = 1;
+		inv = 16384L / ht;
+		u = (short)(((inv - invN) * 32) / dinv);       /* 0 near .. 32 far */
+		for (y = y0; y <= y1; y++) {
+			short lvl;
+			v = (short)(((long)(y - y0) * 32) / span);
+			lvl = cw_lvl(texidx, (short)(u & 31), (short)(voff + (v & 31)));
+			map_px(px, pitch, sw, sh, x, y, (unsigned char)(base + lvl));
+		}
+	}
+}
+
 /* fill_wall_trap — a textured side-wall trapezoid: half-height hNear
  * at column xNear -> hFar at xFar (lerp'd), centred on vcy, sampling
  * the 1bpp wall tile (m/b). u runs along the cell with screen x, v
@@ -6096,15 +6171,9 @@ static void render_3d_assembled(unsigned char *px, short pitch, short sw, short 
  * (mode-1, 2bpp into a 4-entry sub-palette). The side-wall strips carry
  * the ceiling/floor perspective wedges baked in, so stacking them inward
  * builds the corridor with no runtime perspective math. See the
- * frua-art memory note.
+ * frua-art memory note. (The g_cw_* piece store is declared earlier, by
+ * the colour trapezoid sampler.)
  * ===================================================================== */
-#define CW_NPIECE 48
-static unsigned char        g_cw_h[CW_NPIECE];     /* piece height        */
-static unsigned char        g_cw_bw[CW_NPIECE];    /* bytes/row (mode-1)  */
-static unsigned char        g_cw_fl[CW_NPIECE];    /* glyph flags         */
-static const unsigned char *g_cw_body[CW_NPIECE];  /* pixel data          */
-static short                g_cw_n;
-static unsigned char        g_cw_clut[4];          /* sub-palette -> clut  */
 
 /* load 8X8DC environment `set` (1-based top item) into the piece store
  * and program its 4-colour sub-palette into clut entries 16..19. The
@@ -6156,6 +6225,25 @@ static int load_color_wallset(short set)
 	for (i = 0; i < 4; i++)
 		g_cw_clut[i] = (unsigned char)(16 + i);
 	qd_set_palette(pal, 16, 4);
+
+	/* Depth-shaded wall ramp at clut 32..47 = depth(0..3)*4 + level(0..3),
+	 * for render_3d_view's colour trapezoids: a warm-stone tone per 2-bit
+	 * level, darkened with depth so the corridor recedes into shadow. */
+	{
+		RGBColor wc[16];
+		static const unsigned short lvlb[4]   = { 0x40, 0x96, 0x70, 0xC8 };
+		static const unsigned short depthf[4] = { 255, 196, 150, 112 };
+		short dd, ll;
+		for (dd = 0; dd < 4; dd++)
+			for (ll = 0; ll < 4; ll++) {
+				long b = (long)lvlb[ll] * depthf[dd] / 255;   /* 0..200ish */
+				short k = (short)(dd * 4 + ll);
+				wc[k].red   = (unsigned short)(b << 8);
+				wc[k].green = (unsigned short)(((b * 168) >> 8) << 8);
+				wc[k].blue  = (unsigned short)(((b * 100) >> 8) << 8);
+			}
+		qd_set_palette(wc, 32, 16);
+	}
 	return 1;
 }
 
@@ -6317,51 +6405,41 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 		for (x = (short)(vcx - hw[0]); x <= vcx + hw[0]; x++)
 			map_px(px, pitch, sw, sh, x, y, (y < vcy) ? 4 : 5);
 
+	/* Tile a flat cobblestone window from the colour wall set (8X8DC
+	 * piece 8: transparent upper half, solid cobblestone below ~y64) as
+	 * the wall texture. Colours come from the depth-shaded clut ramp
+	 * 32..47 (depth*4 + 2-bit level), set up in dungeon_view_setup. */
+	const short TEX = 8, VOFF = 72;
+
 	for (d = 0; d < 4; d++) {
 		short cx = (short)((short)g_a5_12288 + dir_dx[f] * d);
 		short cy = (short)((short)g_a5_12287 + dir_dy[f] * d);
-		unsigned char fg  = (unsigned char)(8 + d);
-		unsigned char bg  = (unsigned char)(12 + d);
 		short fd = (short)(d + 1 < 4 ? d + 1 : 3);
-		unsigned char ec;
-		short ti;
 
-		ec = cell_edge(cx, cy, lf);
-		if (ec) {
-			ti = pick_wall(ec);
-			fill_wall_trap(px, pitch, sw, sh,
-			               (short)(vcx - hw[d]), (short)(vcx - hw[d + 1]),
-			               hh[d], hh[d + 1], vcy,
-			               g_wall_metric[ti], g_wall_bmp[ti], fg, bg);
-		}
-		ec = cell_edge(cx, cy, rf);
-		if (ec) {
-			ti = pick_wall(ec);
-			fill_wall_trap(px, pitch, sw, sh,
-			               (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
-			               hh[d], hh[d + 1], vcy,
-			               g_wall_metric[ti], g_wall_bmp[ti], fg, bg);
-		}
-		ec = cell_edge(cx, cy, f);
-		if (ec) {
+		if (cell_edge(cx, cy, lf))
+			fill_wall_trap_c(px, pitch, sw, sh,
+			                 (short)(vcx - hw[d]), (short)(vcx - hw[d + 1]),
+			                 hh[d], hh[d + 1], vcy, TEX, VOFF, d);
+		if (cell_edge(cx, cy, rf))
+			fill_wall_trap_c(px, pitch, sw, sh,
+			                 (short)(vcx + hw[d]), (short)(vcx + hw[d + 1]),
+			                 hh[d], hh[d + 1], vcy, TEX, VOFF, d);
+		if (cell_edge(cx, cy, f)) {
 			short xl = (short)(vcx - hw[d + 1]), xr = (short)(vcx + hw[d + 1]);
 			short yt = (short)(vcy - hh[d + 1]), yb = (short)(vcy + hh[d + 1]);
 			short fw = (short)(xr - xl), fh = (short)(yb - yt);
-			unsigned char ffg = (unsigned char)(8 + fd);
-			unsigned char fbg = (unsigned char)(12 + fd);
-			const unsigned char *fm, *fb;
+			short base = (short)(32 + fd * 4);
 
-			ti = pick_wall(ec);
-			fm = g_wall_metric[ti];
-			fb = g_wall_bmp[ti];
 			if (fw < 1) fw = 1;
 			if (fh < 1) fh = 1;
 			for (x = xl; x <= xr; x++) {
 				short u = (short)(((long)(x - xl) * 32) / fw);
 				for (y = yt; y <= yb; y++) {
 					short v = (short)(((long)(y - yt) * 32) / fh);
+					short lvl = cw_lvl(TEX, (short)(u & 31),
+					                   (short)(VOFF + (v & 31)));
 					map_px(px, pitch, sw, sh, x, y,
-					       tile_bit(fm, fb, u, v) ? ffg : fbg);
+					       (unsigned char)(base + lvl));
 				}
 			}
 			break;
@@ -7086,20 +7164,16 @@ static void jt312(unsigned char *page)
 		for (y = 0; y < sh; y++)
 			memset(px + (long)y * pitch, 0, (size_t)sw);
 	}
-	/* Prefer the real colour wall set (8X8DC); fall back to the DUNGCOM
-	 * 1bpp slot-assembly corridor if the colour set didn't load. */
-	if (g_cw_n > 0)
-		render_3d_color(px, pitch, sw, sh);
-	else
-		render_3d_assembled(px, pitch, sw, sh);
+	/* render_3d_view: the perspective-correct trapezoid corridor (correct
+	 * geometry + depth shading), now sampling the colour 8X8DC cobblestone
+	 * texture via the clut 32..47 depth ramp. */
+	render_3d_view(px, pitch, sw, sh);
 	if (s_view_first) {
 		qd_present();
 		s_view_first = 0;
 	} else {
-		/* present just the square dungeon viewport (see render_3d_color). */
-		qd_present_rect((short)(sw / 2 - VIEW_HALF),
-		                (short)(VIEW_CY - VIEW_HALF),
-		                (short)(2 * VIEW_HALF), (short)(2 * VIEW_HALF));
+		/* present just the render_3d_view viewport (x 8..228, y 9..157). */
+		qd_present_rect((short)8, (short)9, (short)221, (short)149);
 	}
 }
 
