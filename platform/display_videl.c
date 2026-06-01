@@ -108,38 +108,89 @@ static dsp_surface_t *videl_surface(void)
 }
 
 /*
- * Chunky 8-bit -> Falcon 8-plane interleaved. For each group of 16 pixels
- * the screen holds eight 16-bit plane-words; pixel p contributes its bit b
- * to plane b at bit 15-p. Correctness-first — a fast c2p is a known TODO.
+ * 8x8 bit-matrix transpose (Hacker's Delight): the 8 bytes packed into x
+ * (byte i = matrix row i) come back with rows<->columns swapped. The c2p
+ * uses it to gather, for each of 8 source pixels, bit b of all of them
+ * into plane b — turning the per-pixel/per-plane double loop (128 bit
+ * tests per 16 px) into two transposes.
  */
-static void videl_present(void)
+static unsigned long long c2p_transpose8(unsigned long long x)
 {
-	const unsigned char *src = g_surface.pixels;
-	unsigned char       *row = g_screen;
+	x = (x & 0xAA55AA55AA55AA55ULL)
+	  | ((x & 0x00AA00AA00AA00AAULL) << 7)
+	  | ((x >> 7) & 0x00AA00AA00AA00AAULL);
+	x = (x & 0xCCCC3333CCCC3333ULL)
+	  | ((x & 0x0000CCCC0000CCCCULL) << 14)
+	  | ((x >> 14) & 0x0000CCCC0000CCCCULL);
+	x = (x & 0xF0F0F0F00F0F0F0FULL)
+	  | ((x & 0x00000000F0F0F0F0ULL) << 28)
+	  | ((x >> 28) & 0x00000000F0F0F0F0ULL);
+	return x;
+}
+
+/*
+ * Chunky 8-bit -> Falcon 8-plane interleaved, via the bit transpose above.
+ * Per 16-pixel group the screen holds eight 16-bit plane-words; pixel p
+ * contributes its bit b to plane b at bit 15-p. We split the 16 pixels
+ * into two 8-pixel halves, transpose each (so transposed byte b holds bit
+ * b of the 8 source pixels, pixel 0 in the MSB), and pack: plane b's high
+ * byte = bit-b row of pixels 0..7, low byte = pixels 8..15. Verified
+ * byte-identical to the naive loop. (Vsync first, as before.)
+ */
+/* c2p the 16-pixel-group columns [g0,g1) of rows [y0,y1) of the surface. */
+static void videl_c2p_rows(short y0, short y1, short g0, short g1)
+{
 	short w = g_surface.width;
-	short h = g_surface.height;
-	short y, g, p, b;
+	const unsigned char *src = g_surface.pixels + (long)y0 * g_surface.pitch;
+	unsigned char       *row = g_screen + (long)y0 * w;
+	short y, g, b;
 
-	Vsync();
-	for (y = 0; y < h; y++) {
-		for (g = 0; g < w / 16; g++) {
-			unsigned short *pw = (unsigned short *)(row + g * 16);
-			unsigned short  plane[8];
+	for (y = y0; y < y1; y++) {
+		for (g = g0; g < g1; g++) {
+			const unsigned char *s = src + g * 16;
+			unsigned short      *pw = (unsigned short *)(row + g * 16);
+			unsigned long long   xhi = 0, xlo = 0, thi, tlo;
+			short                i;
 
-			for (b = 0; b < 8; b++)
-				plane[b] = 0;
-			for (p = 0; p < 16; p++) {
-				unsigned char c = src[g * 16 + p];
-				for (b = 0; b < 8; b++)
-					if (c & (1 << b))
-						plane[b] |= (unsigned short)(1 << (15 - p));
+			for (i = 0; i < 8; i++) {
+				xhi = (xhi << 8) | s[i];
+				xlo = (xlo << 8) | s[i + 8];
 			}
+			thi = c2p_transpose8(xhi);
+			tlo = c2p_transpose8(xlo);
 			for (b = 0; b < 8; b++)
-				pw[b] = plane[b];
+				pw[b] = (unsigned short)
+				        ((((thi >> (8 * b)) & 0xff) << 8)
+				         | ((tlo >> (8 * b)) & 0xff));
 		}
 		src += g_surface.pitch;
 		row += w;                        /* 8bpp planar rowbytes == width */
 	}
+}
+
+static void videl_present(void)
+{
+	Vsync();
+	videl_c2p_rows(0, g_surface.height, 0, g_surface.width / 16);
+}
+
+/* Convert only the dirty rect, snapped out to 16-pixel group columns and
+ * clamped to the surface — the static parts of the screen are left as-is. */
+static void videl_present_rect(short x, short y, short w, short h)
+{
+	short gmax = g_surface.width / 16;
+	short g0 = (short)(x / 16);
+	short g1 = (short)((x + w + 15) / 16);
+	short y1 = (short)(y + h);
+
+	if (y < 0) y = 0;
+	if (y1 > g_surface.height) y1 = g_surface.height;
+	if (g0 < 0) g0 = 0;
+	if (g1 > gmax) g1 = gmax;
+	if (y1 <= y || g1 <= g0)
+		return;
+	Vsync();
+	videl_c2p_rows(y, y1, g0, g1);
 }
 
 static void videl_set_palette(const dsp_color_t *colors, short first,
@@ -163,6 +214,7 @@ static const dsp_backend_t videl_backend = {
 	videl_shutdown,
 	videl_surface,
 	videl_present,
+	videl_present_rect,
 	videl_set_palette,
 };
 
