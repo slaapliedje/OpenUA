@@ -5871,6 +5871,20 @@ static short g_cw_set    = CW_SET;   /* 1-based environment set          */
 static short g_cw_setmax = 7;        /* valid sets in the current file   */
 static short g_view_force_full = 0;  /* set on a live switch -> full clear+present next frame */
 
+/* Backdrop (BACK.CTL) — the floor/ceiling/sky drawn behind the walls.
+ * 20 backdrops, each an 88x88 8bpp image whose indices live at clut
+ * [BACK_PAL_BASE..] (the image's own 32-colour palette is item 0); image
+ * index 0 is the dark ceiling. The walls' transparent regions reveal it;
+ * here render_3d_view paints it as the viewport background under the
+ * (opaque) wall trapezoids. 'b' cycles backdrops in the walk demo. */
+#define BACK_W 88
+#define BACK_H 88
+#define BACK_PAL_BASE 145
+static unsigned char g_back_img[BACK_W * BACK_H];
+static short g_back_w = 0, g_back_h = 0;   /* loaded dims (0 = none)       */
+static short g_back_set = 1;               /* 1-based backdrop index       */
+static short g_back_max = 19;
+
 /* cw_pix — sample the 8bpp chunky byte (a clut-129 index) of colour wall
  * piece `idx` at (col,row), clamped. The 8X8DC .CTL pieces are 8bpp
  * (1 byte/pixel, stride = width = 8*bpp_w), unlike the .TLB's 1/2bpp. */
@@ -6057,6 +6071,85 @@ static int load_color_wallset(short set)
 	return 1;
 }
 
+/* load_backdrop — load BACK.CTL backdrop `n` (1-based): the 88x88 8bpp
+ * floor/ceiling/sky image (sub-GLIB item 1) into g_back_img, and its own
+ * 32-colour palette (item 0) into the screen clut at BACK_PAL_BASE — the
+ * band the image's indices point into. The magenta transparency-key
+ * entries are folded to a dark tone so the horizon band reads as shadow
+ * rather than bright pink. Leaves clut 0..144 (EGA + clut129 + the wall
+ * band at 32) untouched so it composes with the active wall set. */
+static int load_backdrop(short n)
+{
+	static unsigned char buf[163840];     /* BACK.CTL is ~150KB */
+	static RGBColor bpal[32];
+	short refnum = 0, k, pe;
+	long count, base, sub, p0, p1, img;
+	unsigned char metric[8];
+	short w, h;
+
+	g_back_w = g_back_h = 0;
+	if (FSOpen((ConstStr255Param)"\010BACK.CTL", 0, &refnum) != noErr)
+		return 0;
+	count = (long)sizeof buf;
+	(void)FSRead(refnum, &count, buf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)buf;
+	if (l37aa(base, 0) == 0)
+		return 0;
+	g_back_max = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;
+	if (g_back_max < 1) g_back_max = 1;
+	if (n < 1) n = 1;
+	if (n > g_back_max) n = g_back_max;
+	sub = l37aa(base, n);
+	if (sub == 0)
+		return 0;
+
+	/* item 1 = the 88x88 image; copy it out (buf gets reused next call). */
+	img = l2856(sub, 1, metric);
+	if (img == 0)
+		return 0;
+	h = metric[1];
+	w = (short)(metric[6] * 8);
+	if (w > BACK_W) w = BACK_W;
+	if (h > BACK_H) h = BACK_H;
+	{
+		const unsigned char *s = (const unsigned char *)(uintptr_t)img;
+		long nbytes = (long)w * h;
+		for (count = 0; count < nbytes; count++)
+			g_back_img[count] = s[count];
+	}
+	g_back_w = w;
+	g_back_h = h;
+
+	/* item 0 = the backdrop's RGB-triple palette -> clut[BACK_PAL_BASE..]. */
+	p0 = l37aa(sub, 0);
+	p1 = l37aa(sub, 1);
+	if (p0 == 0 || p1 <= p0)
+		return 1;                         /* image loaded; palette as-is */
+	{
+		const unsigned char *pp = (const unsigned char *)(uintptr_t)(p0 + 8);
+		pe = (short)((p1 - p0 - 8) / 3);
+		if (pe > 32) pe = 32;
+		for (k = 0; k < pe; k++) {
+			unsigned char r = pp[k * 3 + 0];
+			unsigned char g = pp[k * 3 + 1];
+			unsigned char b = pp[k * 3 + 2];
+			/* The bright horizon/transparency markers (magenta key and
+			 * the cyan transition) read as speckle noise here — fold them
+			 * to a dark shadow tone so the horizon band stays neutral. */
+			if ((r == 255 && g == 103 && b == 255) ||
+			    (r == 127 && g == 255 && b == 255)) {
+				r = 0x18; g = 0x14; b = 0x10;
+			}
+			bpal[k].red   = (unsigned short)((r << 8) | r);
+			bpal[k].green = (unsigned short)((g << 8) | g);
+			bpal[k].blue  = (unsigned short)((b << 8) | b);
+		}
+		qd_set_palette(bpal, BACK_PAL_BASE, pe);
+	}
+	return 1;
+}
+
 /* render_3d_view — a textured first-person corridor view from the
  * party's (x,y,facing). Walks depth slices 0..3; at each depth draws
  * the left/right side walls as perspective-correct textured
@@ -6075,9 +6168,26 @@ static void render_3d_view(unsigned char *px, short pitch, short sw, short sh)
 	short rf = (short)((f + 2) & 7);
 	short x, y, d;
 
-	for (y = (short)(vcy - hh[0]); y <= vcy + hh[0]; y++)
-		for (x = (short)(vcx - hw[0]); x <= vcx + hw[0]; x++)
-			map_px(px, pitch, sw, sh, x, y, (y < vcy) ? 4 : 5);
+	{
+		short y0 = (short)(vcy - hh[0]), y1 = (short)(vcy + hh[0]);
+		short x0 = (short)(vcx - hw[0]), x1 = (short)(vcx + hw[0]);
+		short vh = (short)(y1 - y0 + 1), vw = (short)(x1 - x0 + 1);
+		for (y = y0; y <= y1; y++) {
+			short by = g_back_h ? (short)(((long)(y - y0) * g_back_h) / vh) : 0;
+			for (x = x0; x <= x1; x++) {
+				short c;
+				if (g_back_w) {
+					short bx = (short)(((long)(x - x0) * g_back_w) / vw);
+					unsigned char v = g_back_img[(long)by * g_back_w + bx];
+					/* image idx 0 = dark ceiling; else the backdrop band. */
+					c = v ? (short)v : 4;
+				} else {
+					c = (y < vcy) ? 4 : 5;  /* fallback solid split */
+				}
+				map_px(px, pitch, sw, sh, x, y, (unsigned char)c);
+			}
+		}
+	}
 
 	/* Tile a 32x32 cobblestone window from the colour wall set's 8bpp
 	 * texture (8X8DC.CTL piece 8 = 56x56 chunky; VOFF skips its top edge
@@ -6790,6 +6900,10 @@ static int dungeon_view_setup(void)
 	 * CW_SET) into the clut band + piece store; the walk demo cycles them
 	 * live for regression (keys 't' next set, 'y' toggle library). */
 	load_color_wallset(g_cw_set);
+	/* Backdrop (floor/ceiling/sky) behind the walls; loaded after the wall
+	 * set so its palette band (clut 145+) survives the wall set's clut
+	 * write. 'b' cycles it in the walk demo. */
+	load_backdrop(g_back_set);
 	return (g_wall_n > 0) || (g_cw_n > 0);
 }
 
@@ -7053,10 +7167,10 @@ void port_wall_demo(void)
  * loads the map + places the party), then cycles: draw the map +
  * party marker, read a key, move. Keys: w forward / s back / a turn
  * left / d turn right / m toggle automap / t next wall set / y toggle
- * wall library (8X8DC<->8X8DB) / q quit. The t/y keys live-swap the 3D
- * dungeon textures — a quick visual regression check over every
- * environment without a rebuild. This is the runtime's render-input-
- * move-render loop. */
+ * wall library (8X8DC<->8X8DB) / b next backdrop (floor/ceiling/sky) /
+ * q quit. The t/y/b keys live-swap the 3D dungeon art — a quick visual
+ * regression check over every environment without a rebuild. This is the
+ * runtime's render-input-move-render loop. */
 void port_play_demo(void)
 {
 	static unsigned char tv[2048];
@@ -7282,6 +7396,7 @@ void port_play_demo(void)
 		case 't': case 'T':     /* next environment set (wraps) */
 			g_cw_set = (short)(g_cw_set >= g_cw_setmax ? 1 : g_cw_set + 1);
 			load_color_wallset(g_cw_set);
+			load_backdrop(g_back_set);   /* wall clut write clobbered its band */
 			g_view_force_full = 1;
 #ifdef FRUA_ENGINE_PROBE
 			dbg_log_num("wall set -> ", g_cw_set);
@@ -7291,9 +7406,18 @@ void port_play_demo(void)
 			g_cw_file ^= 1;
 			g_cw_set = 1;
 			load_color_wallset(g_cw_set);
+			load_backdrop(g_back_set);
 			g_view_force_full = 1;
 #ifdef FRUA_ENGINE_PROBE
 			dbg_log_num("wall file -> ", g_cw_file);
+#endif
+			break;
+		case 'b': case 'B':     /* next backdrop (floor/ceiling/sky) */
+			g_back_set = (short)(g_back_set >= g_back_max ? 1 : g_back_set + 1);
+			load_backdrop(g_back_set);
+			g_view_force_full = 1;
+#ifdef FRUA_ENGINE_PROBE
+			dbg_log_num("backdrop -> ", g_back_set);
 #endif
 			break;
 		default: break;
