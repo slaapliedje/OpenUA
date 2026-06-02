@@ -3,6 +3,23 @@
 Working notes on what's next. Ratified architecture decisions live in
 `docs/decisions.md`; this file is the rolling task list.
 
+## Boot UI / menus
+
+- DONE: main menu renders (`jt315`, CODE 22 + 0x4d8a). Builds the ten
+  DLItem buttons (jt447/jt452), paints (l2c60 -> jt382 DrawString), draws
+  the "Current Game Design:" banner (jt94), runs the dialog event loop
+  (jt453). Full screen of UI matching the Mac; Quit-confirm dialog works.
+- NEXT (boot UI):
+  - Per-selection dispatch: Play -> the play loop (l07dc / jt918 dialog),
+    Select/Create/Delete design, Unlock Editor (password), etc. Most land
+    in CODE 8/2/12 entries still PROBE-stubbed.
+  - Version banner: find the real source for the two top lines
+    (g_a5_-13948/-13944 hold a "%s%03d.dat" template in this build).
+  - jt131(6) screen-clear is a stub — jt315 paints its own backdrop +
+    primes qd_present as a workaround; lift the real clear when convenient.
+  - The play-loop body l07dc + jt918 (new-game / Training Hall) and their
+    CODE 12/17/18 case bodies are the next big stubbed area.
+
 ## 3D dungeon view
 
 Done (data-driven from the loaded map):
