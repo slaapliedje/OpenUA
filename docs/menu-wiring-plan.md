@@ -141,8 +141,16 @@ Ordered easiest → hardest; each is its own commit using `menu_run`.
 
 1. Roster ops: Modify/Remove/View character, Human Change Class
    (`l02dc` grid + `jt182` popup are partly there).
-2. **Create Character → CODE 17 char-gen** (the big subsystem: race/class/
-   stat-roll state machine, `JT[557]/574/556/560`). Multi-session.
+2. **Create Character → CODE 17 char-gen** (the big subsystem). STARTED
+   (commit 0e3e437): jt574 shows the char-gen screen on the shared stone
+   chrome with the PICK headers (l35f8) + the option lists (cg_draw_lists:
+   6 races, 9 alignments, Male/Female); jt557 (Create, Training Hall case 3)
+   opens it. cg_draw_lists is a port stand-in for the jt568 selection state
+   machine. REMAINING (multi-session): the stat roll (L34f0 over the race/
+   class tables at g_a5_-30450), the per-step pick state machine (jt568:
+   race -> class list appears -> alignment/gender, with AD&D race/class/
+   alignment constraints), the rolled ability scores display, character
+   naming (TextEdit), and the fresh-record build + add-to-roster.
 3. Load/Save game modals.
 4. **Begin Adventuring** — replace the `port_play_demo` bridge with the
    faithful `l1142 → jt585 → CODE 15/19` adventure entry.
