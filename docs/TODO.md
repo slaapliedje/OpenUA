@@ -400,3 +400,12 @@ solid:
   original, so gated behind a setting, built on top of the faithful
   renderer rather than replacing it.
 - The trapezoid `render_3d_view` may stay as a fast/low-spec fallback.
+
+## Connecting all the menus
+
+See docs/menu-wiring-plan.md — phased plan to wire every menu on the shared
+chrome/runner. Phase 0 = factor the chrome into a reusable menu_run() driven
+by the live DLItem group (raised/recessed from rec[28]); then wire jt315's
+faithful JT[3] dispatch (CODE22+0x5112) and lift each sub-menu. Deferred
+polish: backdrop tile has a baked-in white 3D bevel line (FRAME.CTL item4 is
+a framing piece, not a clean field — /tmp/frame_bar.png); bars/sizing.
