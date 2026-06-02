@@ -80,6 +80,16 @@ grey) so it's calm + uniform; (3) composite FRAME.TLB bevels per command;
 (4) draw the TITLE block. Each is a focused step with a Hatari check.
 The GEN backdrop (below) is a stopgap and should be replaced by the above.
 
+DONE (commit 7edb43e): steps 1+2. load_menu_ui() installs MENU.CTL item0
+(256-entry UI palette) and tiles item1 (320x16 stone course) as the
+backdrop. jt315 draws the heading cyan + design/title gold; jt382 forces
+button labels white (clut 15). Verified in Hatari — calm grey stone bg,
+cyan/gold/white text per the reference. GEN backdrop now unused.
+STILL TODO: (3) FRAME.TLB bevels around each command (raised 3D boxes);
+(4) the TITLE block ("UNLIMITED ADVENTURES / VERSION 1.0 / APRIL 27,1993");
+plus gold hotkey-letter highlight; and the design/title row overlap (the
+heading+name share row 9, the module title on row 10 sits too close).
+
 ## Initial-screen texture (GEN backdrop) — stopgap (wrong asset)
 
 The main menu now renders the GEN.CTL marbled-stone backdrop. GEN.CTL = a
