@@ -1134,10 +1134,11 @@ void DrawChar(short ch)
 	if (g_mac_font_loaded) {
 		/* Real Mac bitmap font path — variable-width glyphs, per-row
 		 * bit lookup against the strike. */
-		short top, row, col, x, y, sw;
+		short top, row, col, x, y, sw, lsb;
 
 		sw      = mac_font_strike_width(ch);
 		advance = mac_font_advance(ch);
+		lsb     = mac_font_offset(ch);   /* left-side bearing within the cell */
 		if (draw) {
 			top = (short)(port->pnLoc.v - (g_mac_font.ascent - 1));
 			for (row = 0; row < g_mac_font.height; row++) {
@@ -1145,7 +1146,7 @@ void DrawChar(short ch)
 				if (y < clip.top || y >= clip.bottom)
 					continue;
 				for (col = 0; col < sw; col++) {
-					x = (short)(port->pnLoc.h + col);
+					x = (short)(port->pnLoc.h + lsb + col);
 					if (x < clip.left || x >= clip.right)
 						continue;
 					if (mac_font_pixel(ch, col, row)) {
