@@ -10783,48 +10783,80 @@ static short   jt313(void *rec, short cmd, ...)
  * straight from jt315's jt452 build (CODE 22 + 0x4dde..0x4fe8): label,
  * x, y (8000-anchored), and the selector hotkey letter. The two disabled
  * spacer rows at y=8087 are omitted. */
-static const struct { const char *label; short x, y, hotkey; } g_mainmenu[] = {
-	{ "Play the Game",     8004, 8059, 'P' },
-	{ "Select a Design",   8004, 8066, 'S' },
-	{ "Create New Design", 8004, 8073, 'C' },
-	{ "Delete the Design", 8004, 8080, 'D' },
-	{ "Unlock Editor",     8004, 8094, 'U' },
-	{ "Game Settings",     8084, 8059, 'G' },
-	{ "Edit Modules",      8084, 8066, 'E' },
-	{ "Art Gallery",       8084, 8073, 'A' },
-	{ "Monster Editor",    8084, 8080, 'M' },
-	{ "Quit From Game",    8084, 8094, 'Q' },
+/* `recessed` = 1 draws the command's plate sunken (highlight bottom/right)
+ * rather than raised — the disabled commands (Delete / Unlock, greyed
+ * until a design exists) match the title block's sunken look in the
+ * reference. Wire this to the real enable state (jt158 / rec[28]) once the
+ * sub-menus are lifted; hard-coded to the boot-state layout for now. */
+static const struct {
+	const char *label; short x, y, hotkey; int recessed;
+} g_mainmenu[] = {
+	{ "Play the Game",     8004, 8059, 'P', 0 },
+	{ "Select a Design",   8004, 8066, 'S', 0 },
+	{ "Create New Design", 8004, 8073, 'C', 0 },
+	{ "Delete the Design", 8004, 8080, 'D', 1 },
+	{ "Unlock Editor",     8004, 8094, 'U', 1 },
+	{ "Game Settings",     8084, 8059, 'G', 0 },
+	{ "Edit Modules",      8084, 8066, 'E', 0 },
+	{ "Art Gallery",       8084, 8073, 'A', 0 },
+	{ "Monster Editor",    8084, 8080, 'M', 0 },
+	{ "Quit From Game",    8084, 8094, 'Q', 0 },
 };
 
-/* GEN.CTL main-menu backdrop. The Mac draws it via JT[81]; here we load the
- * "gen" tile library directly. GEN.CTL = a 2-item GLIB: item 0 is a 16-colour
- * RGB palette band (installed at clut 16), item 1 is a 320x90 PackBits-RLE
- * backdrop image whose pixels are clut indices 16..31 (the band) + 0. */
-/* MENU.CTL — the main-menu UI asset GLIB (3 items):
- *   item 0 : the 256-entry UI palette (EGA-style 0..15 — 11 = cyan,
- *            14 = gold, 15 = white — plus grey stone shades 16..31).
- *   item 1 : a 320x16 raw-8bpp (flags 0xc0) stone-block course — the
- *            calm grey backdrop tile, repeated down the whole screen.
- *   item 2 : a second 320x16 course (running-bond offset); unused here.
+/* Main-menu UI assets, assembled from two GLIBs:
  *
- * This replaces the earlier GEN.CTL backdrop, which was the wrong asset
- * (a high-contrast marble wall image). The menu draws on its own UI
- * palette + its own stone tile; see docs/TODO.md "Main-menu chrome". */
+ *   MENU.CTL item 0 — the 256-entry base UI palette (11 = cyan headings,
+ *                     15 = white, 7 = light grey text).
+ *   FRAME.CTL item 0 — a 16-colour "band" of warm greys installed over
+ *                     clut 16..31 (the UI stone ramp: 16 = light 167,
+ *                     23 = 91,83,79 the plate face, 31 = near-black). The
+ *                     FRAME tiles index into this band.
+ *   FRAME.CTL item 4 — a 320x16 PackBits-8bpp dark warm stone-block tile;
+ *                     the menu backdrop, repeated across the whole screen
+ *                     (visible in the gaps between the raised plates).
+ *
+ * (Earlier cuts used MENU.CTL's own stone courses + a hand-darkened fill;
+ * the genuine UI backdrop + warm palette live in FRAME.CTL.) */
 static unsigned char g_menu_file[16384];
-static unsigned char g_menu_tile[320 * 16];
-static short         g_menu_tw, g_menu_th;
+static unsigned char g_frame_file[40960];
+static unsigned char g_frame_bg[320 * 16];   /* decoded backdrop tile      */
+static short         g_frame_bw, g_frame_bh;
 static int           g_menu_state;           /* 0 untried, 1 ok, -1 failed */
 static RGBColor      g_menu_pal[256];
 static short         g_menu_pe;
+
+/* Decode a PackBits-RLE run into dst (cap bytes). Returns bytes written. */
+static long unpackbits(const unsigned char *src, long srclen,
+                       unsigned char *dst, long cap)
+{
+	long o = 0, si = 0;
+	while (si < srclen && o < cap) {
+		signed char c = (signed char)src[si++];
+		if (c >= 0) {                         /* c+1 literals */
+			short n = (short)(c + 1);
+			while (n-- > 0 && si < srclen && o < cap)
+				dst[o++] = src[si++];
+		} else if (c != -128) {               /* repeat next byte 1-c times */
+			short n = (short)(1 - c);
+			unsigned char v = src[si++];
+			while (n-- > 0 && o < cap)
+				dst[o++] = v;
+		}
+	}
+	return o;
+}
 
 static void load_menu_ui(void)
 {
 	if (g_menu_state == 0) {
 		short refnum = 0;
-		long  flen, base, p0, p1;
+		long  flen, base, p0;
 
 		g_menu_state = -1;
+
+		/* --- MENU.CTL item 0: the 256-entry base palette --- */
 		if (FSOpen((ConstStr255Param)"\010MENU.CTL", 0, &refnum) == noErr) {
+			long p1;
 			flen = (long)sizeof g_menu_file;
 			(void)FSRead(refnum, &flen, g_menu_file);
 			(void)FSClose(refnum);
@@ -10834,12 +10866,6 @@ static void load_menu_ui(void)
 				const unsigned char *pp =
 				    (const unsigned char *)(uintptr_t)(p0 + 8);
 				short pe = (short)((p1 - p0 - 8) / 3), k;
-				const unsigned char *it1 =
-				    (const unsigned char *)(uintptr_t)p1;
-				short h = (short)(((unsigned)it1[0] << 8) | it1[1]);
-				short w = (short)(8 * it1[6]);
-				long  n = (long)w * h;
-
 				if (pe > 256) pe = 256;
 				for (k = 0; k < pe; k++) {
 					g_menu_pal[k].red   =
@@ -10850,14 +10876,46 @@ static void load_menu_ui(void)
 					    (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
 				}
 				g_menu_pe = pe;
-				/* item 1 is raw 8bpp chunky (stride == width). */
-				if (n > (long)sizeof g_menu_tile)
-					n = (long)sizeof g_menu_tile;
-				memcpy(g_menu_tile, it1 + 8, (size_t)n);
-				g_menu_tw = w;
-				g_menu_th = h;
-				if (w > 0 && h > 0)
+			}
+		}
+
+		/* --- FRAME.CTL: band over clut 16..31 + the backdrop tile --- */
+		refnum = 0;
+		if (g_menu_pe > 0
+		 && FSOpen((ConstStr255Param)"\011FRAME.CTL", 0, &refnum) == noErr) {
+			long pb, p4;
+			flen = (long)sizeof g_frame_file;
+			(void)FSRead(refnum, &flen, g_frame_file);
+			(void)FSClose(refnum);
+			base = (long)(uintptr_t)g_frame_file;
+			pb = l37aa(base, 0);                  /* 16-colour band */
+			p4 = l37aa(base, 4);                  /* 320x16 backdrop tile */
+			if (pb != 0) {
+				const unsigned char *bd =
+				    (const unsigned char *)(uintptr_t)(pb + 8);
+				short k;
+				for (k = 0; k < 16; k++) {
+					g_menu_pal[16 + k].red   =
+					    (unsigned short)((bd[k*3+0] << 8) | bd[k*3+0]);
+					g_menu_pal[16 + k].green =
+					    (unsigned short)((bd[k*3+1] << 8) | bd[k*3+1]);
+					g_menu_pal[16 + k].blue  =
+					    (unsigned short)((bd[k*3+2] << 8) | bd[k*3+2]);
+				}
+			}
+			if (p4 != 0) {
+				const unsigned char *it =
+				    (const unsigned char *)(uintptr_t)p4;
+				short h = (short)(((unsigned)it[0] << 8) | it[1]);
+				short w = (short)(8 * it[6]);
+				long  srclen = flen - (p4 - base) - 8;
+				long  got = unpackbits(it + 8, srclen, g_frame_bg,
+				                       (long)sizeof g_frame_bg);
+				if (w > 0 && h > 0 && got >= (long)w * h) {
+					g_frame_bw = w;
+					g_frame_bh = h;
 					g_menu_state = 1;
+				}
 			}
 		}
 	}
@@ -10879,44 +10937,37 @@ static void load_menu_ui(void)
  * Palette: stone shades run clut 16 (light, lum 196) .. 31 (dark, 57);
  * plate fill is the flat mid grey clut 8 (103); bevel uses clut 7 (light)
  * + clut 0 (dark). */
-#define MENU_PLATE_FILL   8     /* flat lighter grey for raised plates  */
-#define MENU_BEVEL_LIGHT  7     /* top/left highlight                   */
-#define MENU_BEVEL_DARK   0     /* bottom/right shadow                  */
+#define MENU_PLATE_FILL   23    /* clut 23 = 91,83,79  warm plate face   */
+#define MENU_BEVEL_LIGHT  16    /* clut 16 = 167,167,167  band highlight */
+#define MENU_BEVEL_DARK   31    /* clut 31 = 27,27,39     band shadow    */
 
-/* Pull a stone-tile index toward the dark end for the recessed backdrop
- * (compress 16..31 into 27..30; bright pixels 7/15 darken too). */
-static unsigned char stone_dark(unsigned char v)
-{
-	if (v >= 16 && v <= 31) return (unsigned char)(27 + ((v - 16) >> 2));
-	if (v == 7 || v == 15)  return 29;
-	return v;                                  /* 0 (black mortar) stays */
-}
-
-/* Tile the MENU stone course across a rect, darkened, as the backdrop. */
-static void fill_stone_dark(unsigned char *px, short pitch,
-                            short x0, short y0, short x1, short y1)
+/* Tile the FRAME.CTL backdrop (dark warm stone blocks) across a rect. */
+static void fill_backdrop(unsigned char *px, short pitch,
+                          short x0, short y0, short x1, short y1)
 {
 	short x, y;
-	if (g_menu_state != 1)
+	if (g_menu_state != 1 || g_frame_bh <= 0)
 		return;
 	for (y = y0; y <= y1; y++) {
-		const unsigned char *row = g_menu_tile
-		    + (long)(y % g_menu_th) * g_menu_tw;
+		const unsigned char *row = g_frame_bg
+		    + (long)(y % g_frame_bh) * g_frame_bw;
 		unsigned char *d = px + (long)y * pitch;
-		for (x = x0; x <= x1; x++) {
-			unsigned char v = (x < g_menu_tw) ? row[x]
-			                                  : row[g_menu_tw - 1];
-			d[x] = stone_dark(v);
-		}
+		for (x = x0; x <= x1; x++)
+			d[x] = (x < g_frame_bw) ? row[x] : row[g_frame_bw - 1];
 	}
 }
 
-/* A raised plate: flat lighter fill + a 1px bevel (light top+left, dark
- * bottom+right). Clipped to the surface. */
+/* A bevelled plate over the backdrop: flat warm-grey face + a 1px bevel.
+ * `recessed` flips the bevel — raised = highlight top/left, shadow
+ * bottom/right (active buttons); recessed = highlight bottom/right, shadow
+ * top/left (the title block + disabled/empty boxes). */
 static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
-                       short x0, short y0, short x1, short y1)
+                       short x0, short y0, short x1, short y1, int recessed)
 {
+	unsigned char tl = recessed ? MENU_BEVEL_DARK  : MENU_BEVEL_LIGHT;
+	unsigned char br = recessed ? MENU_BEVEL_LIGHT : MENU_BEVEL_DARK;
 	short x, y;
+
 	if (x0 < 0) x0 = 0;
 	if (y0 < 0) y0 = 0;
 	if (x1 > sw - 1) x1 = (short)(sw - 1);
@@ -10928,34 +10979,44 @@ static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
 		memset(px + (long)y * pitch + x0, MENU_PLATE_FILL,
 		       (size_t)(x1 - x0 + 1));
 	for (x = x0; x <= x1; x++) {
-		px[(long)y0 * pitch + x] = MENU_BEVEL_LIGHT;
-		px[(long)y1 * pitch + x] = MENU_BEVEL_DARK;
+		px[(long)y0 * pitch + x] = tl;
+		px[(long)y1 * pitch + x] = br;
 	}
 	for (y = y0; y <= y1; y++) {
-		px[(long)y * pitch + x0] = MENU_BEVEL_LIGHT;
-		px[(long)y * pitch + x1] = MENU_BEVEL_DARK;
+		px[(long)y * pitch + x0] = tl;
+		px[(long)y * pitch + x1] = br;
 	}
 }
 
-/* Draw a raised plate behind every main-menu command. Geometry comes from
- * each command's engine coords (g_mainmenu) via jt1135 — the same
- * transform jt382 uses for the label — so the plates track the labels.
- * Called before l2c60 so the text lands on top. */
+/* Draw a plate behind every main-menu command, plus the two empty
+ * "spacer" boxes. Geometry comes from each command's engine coords
+ * (g_mainmenu) via jt1135 — the same transform jt382 uses for the label.
+ * Active commands are raised; disabled ones (Delete / Unlock) and the two
+ * empty boxes are recessed, matching data/frua_mac_menu.png. Called
+ * before l2c60 so the labels land on top. */
 static void draw_menu_plates(void)
 {
 	unsigned char *px;
-	short pitch, sw, sh, i;
+	short pitch, sw, sh, i, py = 0, pxx = 0;
+	/* the empty spacer row sits between the 4th command and the last
+	 * (engine y 8087); draw a recessed box in each column. */
+	static const short spacer[2][2] = { {8004, 8087}, {8084, 8087} };
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
 	for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++) {
-		short py = 0, pxx = 0;
-
 		jt1135(g_mainmenu[i].y, g_mainmenu[i].x, &py, &pxx);
 		draw_plate(px, pitch, sw, sh,
 		           (short)(pxx - 5), (short)(py - 11),
-		           (short)(pxx - 5 + 150), (short)(py + 2));
+		           (short)(pxx - 5 + 150), (short)(py + 2),
+		           g_mainmenu[i].recessed);
+	}
+	for (i = 0; i < 2; i++) {
+		jt1135(spacer[i][1], spacer[i][0], &py, &pxx);
+		draw_plate(px, pitch, sw, sh,
+		           (short)(pxx - 5), (short)(py - 11),
+		           (short)(pxx - 5 + 150), (short)(py + 2), 1);
 	}
 }
 
@@ -10995,10 +11056,11 @@ static int   jt315(void)
 			unsigned char *px; short pitch, sw, sh, yy;
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 				if (g_menu_state == 1) {
-					fill_stone_dark(px, pitch, 0, 0,
-					                (short)(sw - 1), (short)(sh - 1));
-					/* title plate (ref bbox ~x6..313, y6..96) */
-					draw_plate(px, pitch, sw, sh, 6, 6, 313, 96);
+					fill_backdrop(px, pitch, 0, 0,
+					              (short)(sw - 1), (short)(sh - 1));
+					/* title block — recessed (sunken) plate, ref bbox
+					 * ~x6..313, y6..96. */
+					draw_plate(px, pitch, sw, sh, 6, 6, 313, 96, 1);
 				} else {
 					for (yy = 0; yy < sh; yy++)
 						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
