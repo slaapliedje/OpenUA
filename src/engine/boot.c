@@ -3435,10 +3435,20 @@ static int  l0aae(void);                                                        
  * inside CODE 6 — they land in the window-paint cluster that the
  * display HAL hasn't been wired to yet, so they stay PROBE stubs and
  * the lift below records the call sequence rather than the pixels. */
+static void jt94(short page, short row, short col, short style,
+                 const char *fmt, ...);   /* defined below */
+/* jt25 (CODE 6 + 0x4b0e) — paint a roster entry's NAME. The Mac body
+ * draws name + class/level/status via the record-paint funnel; the port
+ * surfaces the name (record offset +96, a C-string) through the lifted
+ * jt94 text path so the roster grid (l02dc) shows real entries, not just
+ * the highlighted one. */
 static void jt25(long entry, short page, short row, short style)
-                                            { PROBE("jt25"); (void)entry;
-                                              (void)page; (void)row;
-                                              (void)style; }
+{
+	const unsigned char *e = (const unsigned char *)(uintptr_t)entry;
+	PROBE("jt25");
+	if (e != NULL)
+		jt94(page, row, (short)11, style, "%s", (const char *)&e[96]);
+}
 static void jt32(long entry, short col, short row, short a, short b)
                                             { PROBE("jt32"); (void)entry;
                                               (void)col; (void)row;
@@ -8345,6 +8355,32 @@ void port_test_seed_design(void)
 	g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
 	g_a5_long(-13804) = (long)(uintptr_t)k_test_prompt;
 
+	/* Seed a test PARTY so the Training Hall roster grid (l02dc) shows
+	 * real entries. The roster is a linked list (next ptr at record +0)
+	 * walked from g_a5_-27928; each record carries the name at +96, HP at
+	 * +385, AC at +395 (the fields l02dc / jt25 / jt32 / jt34 read). Until
+	 * character creation (CODE 17) lands, this stands in for a created
+	 * party so "a party exists" and the roster is populated. */
+	{
+		static unsigned char k_party[3][512];
+		static const char   *k_names[3] = { "Bramble", "Korin Vale", "Sable" };
+		static const unsigned char k_hp[3] = { 18, 24, 11 };
+		static const unsigned char k_ac[3] = { 5, 7, 4 };
+		int p, c;
+
+		for (p = 0; p < 3; p++) {
+			memset(k_party[p], 0, sizeof k_party[p]);
+			for (c = 0; k_names[p][c] != 0 && c < 15; c++)
+				k_party[p][96 + c] = (unsigned char)k_names[p][c];
+			k_party[p][96 + c] = 0;
+			k_party[p][385] = k_hp[p];           /* HP  */
+			k_party[p][395] = k_ac[p];           /* AC  */
+			*(long *)(k_party[p]) =              /* next ptr (+0) */
+			    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
+		}
+		g_a5_long(-27928) = (long)(uintptr_t)k_party[0];   /* roster head */
+	}
+
 	/* Seed the current design name so jt127 builds the real
 	 * "<design>:<file>" path. mac_path_to_c strips the design
 	 * prefix, so the exact value only matters for path fidelity /
@@ -11095,18 +11131,6 @@ static int l0aae(void)
 	int   selection;
 
 	PROBE("L0aae");
-
-	/* Clear the Training Hall background + prime the present path (same
-	 * workaround jt315 uses — jt131(6)/jt174 don't reach the VIDEL buffer
-	 * in the port yet). */
-	{
-		unsigned char *px; short pitch, sw, sh, yy;
-		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-			for (yy = 0; yy < sh; yy++)
-				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
-			qd_present();
-		}
-	}
 
 	jt174();
 	jt447();
@@ -14095,6 +14119,19 @@ static int jt918(short a)
 	 * jt453 spinning on l2d3e and the IKBD chain live, the loop now
 	 * blocks on real input. */
 	for (;;) {
+		/* Clear the Training Hall backdrop + prime present ONCE per frame,
+		 * before l02dc paints the roster grid and l0aae paints the menu
+		 * (so the menu's draw no longer wipes the roster). jt131(6)/jt174
+		 * are stubs in the port, so do it here. */
+		{
+			unsigned char *px; short pitch, sw, sh, yy;
+			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+				for (yy = 0; yy < sh; yy++)
+					memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+				qd_present();
+			}
+		}
+
 		/* L0dd4: per-iteration prologue. */
 		(void)jt112(1);
 		if (local > 11)
