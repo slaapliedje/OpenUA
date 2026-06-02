@@ -10981,6 +10981,8 @@ static unsigned char g_glib_dec[320 * 96];   /* PackBits decode scratch */
  * 90-row repeat boundaries match (seamless), since GEN.CTL ships only the
  * one section and the screen is taller. */
 static void ui_glib_blit(long handle, short idx, short top, short left,
+                         int transparent, int flip) __attribute__((unused));
+static void ui_glib_blit(long handle, short idx, short top, short left,
                          int transparent, int flip)
 {
 	unsigned char metric[8];
@@ -11075,26 +11077,33 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 #define MENU_BEVEL_LIGHT  16    /* clut 16 = 167,167,167  band highlight */
 #define MENU_BEVEL_DARK   31    /* clut 31 = 27,27,39     band shadow    */
 
-/* Tile the GEN.CTL stone backdrop down the screen, drawn through the
- * lifted blit (ui_glib_blit), opaque. GEN item 1 is one bearing-placed
- * section of the Mac's multi-section "gen" backdrop (ybear shifts it down
- * the screen); GEN.CTL ships only that section, so we repeat it to cover
- * the whole field. To land a copy with its top at pixel `py`, the engine
- * Y must satisfy (eng-8000)*2 - ybear == py, i.e. eng = 8000 + (py+ybear)/2
- * (jt1135 + the bearing adjust inside ui_glib_blit). */
+/* Tile the GEN.CTL stone field across the screen as the backdrop.
+ *
+ * GEN item 1 (decoded into g_bg) is one bearing-placed section of the Mac's
+ * "gen" backdrop; its row 0 is a bright panel-top highlight (mean clut ~17
+ * vs the ~27 dark interior) meant for where the section sits at its bearing
+ * (y110). When the section is *tiled* to cover the screen, that bright row
+ * repeats as a stray light bar at every tile boundary, so we tile only the
+ * dark interior (rows 1..h-1) and mirror alternate copies (a triangle wave)
+ * so the repeat is seamless. (The lifted ui_glib_blit draws whole images;
+ * this is a tuned interior tile, since gen's bright edge isn't part of the
+ * tileable field.) */
 static void fill_backdrop(unsigned char *px, short pitch,
                           short x0, short y0, short x1, short y1)
 {
-	short py;
-	int   tile = 0;
-	(void)px; (void)pitch; (void)x0; (void)y0; (void)x1;
-	if (g_menu_state != 1 || g_bg_h <= 0)
+	short x, y;
+	short T = (short)(g_bg_h - 1);       /* interior height (skip row 0) */
+
+	if (g_menu_state != 1 || T <= 0)
 		return;
-	/* Mirror alternate copies so the 90-row repeat is seamless. */
-	for (py = 0; py <= y1; py = (short)(py + g_bg_h), tile++)
-		ui_glib_blit(g_gen_base, 1,
-		             (short)(8000 + (py + g_bg_ybear) / 2),
-		             (short)8000, 0 /* opaque */, tile & 1 /* flip */);
+	for (y = y0; y <= y1; y++) {
+		short m  = (short)(y % (2 * T));         /* triangle wave period */
+		short si = (m < T) ? m : (short)(2 * T - 1 - m);
+		const unsigned char *row = g_bg + (long)(1 + si) * g_bg_w;
+		unsigned char *d = px + (long)y * pitch;
+		for (x = x0; x <= x1; x++)
+			d[x] = (x < g_bg_w) ? row[x] : row[g_bg_w - 1];
+	}
 }
 
 /* A bevelled plate over the backdrop: flat warm-grey face + a 1px bevel.
@@ -11141,16 +11150,15 @@ static void menu_draw_plates(const menu_item_t *items, short n)
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
-	/* Plate box per row. Rows are 14px apart (engine y step 7, scale 2);
-	 * a 14px plate touches its neighbours, so use 11px (top py-9 ..
-	 * bottom py+1) to leave a ~3px gap between rows, matching the spaced
-	 * buttons in data/frua_mac_menu.png. The label baseline is py and the
-	 * 8px font sits at py-6..py+1, so it still fits. */
+	/* Plate box per row. Rows are 14px apart (engine y step 7, scale 2).
+	 * The 8px label sits at py-6..py+1, so a py-7..py+2 box (10px) centres
+	 * it with a 1px margin top and bottom, and leaves a ~4px gap between
+	 * rows — matching the spaced, centred buttons in the reference. */
 	for (i = 0; i < n; i++) {
 		jt1135(items[i].y, items[i].x, &py, &pxx);
 		draw_plate(px, pitch, sw, sh,
-		           (short)(pxx - 5), (short)(py - 9),
-		           (short)(pxx - 5 + 150), (short)(py + 1),
+		           (short)(pxx - 5), (short)(py - 7),
+		           (short)(pxx - 5 + 150), (short)(py + 2),
 		           items[i].recessed);
 	}
 }
