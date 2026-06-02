@@ -10823,7 +10823,9 @@ static const struct {
  * Backdrop pixels index clut 16..31 too, so they render through the same
  * FRAME band — a warm dark stone, matching data/frua_mac_menu.png. */
 static unsigned char g_menu_file[16384];
-static unsigned char g_frame_file[40960];
+static unsigned char g_frame_file[40960];    /* FRAME.CTL, kept resident    */
+static unsigned char g_gen_file[28672];      /* GEN.CTL, kept resident      */
+static long          g_frame_base, g_gen_base;  /* GLIB bases for ui_glib_blit */
 static unsigned char g_bg[320 * 90];         /* decoded GEN backdrop image  */
 static short         g_bg_w, g_bg_h;
 static int           g_menu_state;           /* 0 untried, 1 ok, -1 failed */
@@ -10893,6 +10895,7 @@ static void load_menu_ui(void)
 			(void)FSRead(refnum, &flen, g_frame_file);
 			(void)FSClose(refnum);
 			base = (long)(uintptr_t)g_frame_file;
+			g_frame_base = base;                  /* keep FRAME.CTL resident */
 			pb = l37aa(base, 0);                  /* 16-colour band */
 			if (pb != 0) {
 				const unsigned char *bd =
@@ -10914,10 +10917,11 @@ static void load_menu_ui(void)
 		if (g_menu_pe > 0
 		 && FSOpen((ConstStr255Param)"\007GEN.CTL", 0, &refnum) == noErr) {
 			long p1;
-			flen = (long)sizeof g_frame_file;       /* reuse the scratch buf */
-			(void)FSRead(refnum, &flen, g_frame_file);
+			flen = (long)sizeof g_gen_file;
+			(void)FSRead(refnum, &flen, g_gen_file);
 			(void)FSClose(refnum);
-			base = (long)(uintptr_t)g_frame_file;
+			base = (long)(uintptr_t)g_gen_file;
+			g_gen_base = base;                    /* keep GEN.CTL resident   */
 			p1 = l37aa(base, 1);                  /* 320x90 PackBits image */
 			if (p1 != 0) {
 				const unsigned char *it =
@@ -10937,6 +10941,102 @@ static void load_menu_ui(void)
 	}
 	if (g_menu_state == 1)               /* install the UI palette */
 		qd_set_palette(g_menu_pal, (short)0, g_menu_pe);
+}
+
+/* ui_glib_blit — the faithful l309c (CODE 5 + 0x309c) for the chunky UI
+ * surface. Draws sub-image `idx` of GLIB `handle` at engine coords
+ * (top,left):
+ *
+ *   1. jt1135 remaps (top,left) to screen pixels (idempotent on pixel-
+ *      range values, so the composite recursion below is safe);
+ *   2. l2856 fetches the 8-byte metric + the bits pointer;
+ *   3. the (ybear,xbear) bearing shifts the draw origin;
+ *   4. composite arm (metric[7] & 0x0F == 9): the body is a list of
+ *      6-byte {sub_idx, count, dy, dx} records — recurse for each piece at
+ *      its offset (this is the frame placement data);
+ *   5. else: blit the leaf 8bpp image — PackBits (flag nibble 2) decoded
+ *      first, raw (0/5) copied directly; index 0 is transparent.
+ *
+ * Targets qd_screen_pixels (the chunky 8bpp surface) rather than the Mac
+ * page descriptor; the l2d4e leaf's planar/scaled/clip-global arms are
+ * collapsed to a direct chunky copy clipped to the surface. Reusable for
+ * every UI GLIB image (frame molding, Art Gallery, portraits, …). */
+static unsigned char g_glib_dec[320 * 96];   /* PackBits decode scratch */
+
+static void ui_glib_blit(long handle, short idx, short top, short left)
+	__attribute__((unused));
+static void ui_glib_blit(long handle, short idx, short top, short left)
+{
+	unsigned char metric[8];
+	long          info;
+	short         y = top, x = left, ybear, xbear, w, h;
+	unsigned char flags;
+	unsigned char *px;
+	short          pitch, sw, sh, row, col;
+	const unsigned char *src;
+
+	if (handle == 0)
+		return;
+	jt1135(top, left, &y, &x);
+	info = l2856(handle, idx, metric);
+	if (info == 0)
+		return;
+	ybear = (short)(((unsigned short)metric[2] << 8) | metric[3]);
+	xbear = (short)(((unsigned short)metric[4] << 8) | metric[5]);
+	y = (short)(y - ybear);
+	x = (short)(x - xbear);
+
+	if ((metric[7] & 0x0f) == 9) {           /* composite sub-part list */
+		const unsigned char *rec = (const unsigned char *)(uintptr_t)info;
+		short count = 1, i;
+		for (i = 0; i < count; i++) {
+			short sub = rec[0];
+			short cnt = rec[1];
+			short dy  = (short)(((unsigned short)rec[2] << 8) | rec[3]);
+			short dx  = (short)(((unsigned short)rec[4] << 8) | rec[5]);
+			rec += 6;
+			ui_glib_blit(handle, sub, (short)(y + dy), (short)(x + dx));
+			count = cnt;
+		}
+		return;
+	}
+
+	h     = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+	w     = (short)(metric[6] * 8);
+	flags = metric[7];
+	if (h <= 0 || w <= 0)
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+
+	if ((flags & 0x0f) == 2) {               /* PackBits 8bpp */
+		long cap = (long)w * h;
+		if (cap > (long)sizeof g_glib_dec)
+			return;
+		(void)unpackbits((const unsigned char *)(uintptr_t)info,
+		                 (long)sizeof g_glib_dec, g_glib_dec, cap);
+		src = g_glib_dec;
+	} else {                                 /* raw 8bpp chunky (0 / 5) */
+		src = (const unsigned char *)(uintptr_t)info;
+	}
+
+	for (row = 0; row < h; row++) {
+		short dy = (short)(y + row);
+		const unsigned char *s = src + (long)row * w;
+		unsigned char *d;
+		if (dy < 0 || dy >= sh)
+			continue;
+		d = px + (long)dy * pitch;
+		for (col = 0; col < w; col++) {
+			short dx = (short)(x + col);
+			unsigned char v = s[col];
+			if (v == 0)                  /* index 0 = transparent */
+				continue;
+			if (dx < 0 || dx >= sw)
+				continue;
+			d[dx] = v;
+		}
+	}
 }
 
 /* --- main-menu chrome: dark stone surround + raised lighter plates ---
