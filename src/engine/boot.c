@@ -11201,11 +11201,76 @@ static int l0aae(void)
  * 17 / CODE 18, etc. They stay PROBE-only until the cases below are
  * lifted individually; for now the dispatcher routes correctly and the
  * trace reports which case the loop hits. */
-/* JT[574] (CODE 17 + 0x3b5e) — Train Character action entry. Body
- * lives in CODE 17 which we haven't touched yet; stays a PROBE stub
- * until the CODE 17 lifts begin. The single long arg is consistently
- * 0 at the L0f1a call site. */
-static int  jt574(long ctx)        { PROBE("jt574"); (void)ctx; return 0; }
+/* L35f8 (CODE 17 + 0x35f8) — draw the four character-creation PICK headers
+ * (race / alignment / gender / class) via the jt1089 text path, at their
+ * 8000-anchored screen coords. g_a5_-7016 is the text colour the screen
+ * init (L3666) sets per display mode. */
+static void l35f8(void)
+{
+	short col = g_a5_word(-7016);
+
+	PROBE("L35f8");
+	jt76();
+	jt1089((short)8006, (short)8006, col, "PICK RACE");
+	jt1089((short)8040, (short)8006, col, "PICK ALIGNMENT");
+	jt1089((short)8076, (short)8006, col, "PICK GENDER");
+	jt1089((short)8012, (short)8068, col, "PICK CLASS");
+}
+
+/* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
+ * Sets the window dims for the display mode, paints the PICK headers, and
+ * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls
+ * ability scores (the L34f0 loop over the race/class tables at g_a5_-30450)
+ * and runs the pick state machine — that is the large multi-session
+ * remainder of the CODE 17 lift and stays TODO. */
+static void l3666(void)
+{
+	PROBE("L3666");
+	g_a5_byte(-7038) = 0;
+	if (jt1200() == 3) {                 /* deep mode */
+		g_a5_word(-7000) = 15;
+		g_a5_word(-7016) = 15;
+	} else {
+		g_a5_word(-7000) = 135;
+		g_a5_word(-7016) = 140;
+	}
+	l35f8();
+	jt117();
+	g_a5_word(-7026) = 6;
+	g_a5_word(-7024) = 1;
+	g_a5_word(-7022) = 1;
+	g_a5_word(-7020) = 1;
+	g_a5_word(-7018) = 3;                 /* wizard step */
+	/* TODO: ability-score roll (L34f0) + the per-step pick state machine
+	 * (jt568 dispatcher, race/class/gender/alignment selection). */
+}
+
+/* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
+ * case 0). FIRST SLICE of the CODE 17 lift: show the char-creation screen
+ * (L3666 -> the PICK race/class/gender/alignment headers) on a cleared
+ * backdrop, then hold until a key. The selection + stat-roll state machine
+ * is the deferred remainder. */
+static int  jt574(long ctx)
+{
+	unsigned char scan = 0, ascii = 0;
+	unsigned char *px; short pitch, sw, sh, yy;
+
+	PROBE("jt574");
+	(void)ctx;
+
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+		for (yy = 0; yy < sh; yy++)
+			memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+		qd_present();
+	}
+	l3666();                             /* draw the char-creation screen */
+	qd_present();
+	while (plat_kb_poll(&scan, &ascii))  /* drain the key that triggered us */
+		;
+	while (!plat_kb_poll(&scan, &ascii)) /* then hold the screen until a key */
+		;
+	return 0;                            /* back to the Training Hall */
+}
 
 /* L0f1a — case 0 of jt918's JT[3] switch. CODE 12 + 0x0f1a.
  *
