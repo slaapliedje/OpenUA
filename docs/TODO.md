@@ -51,7 +51,36 @@ Working notes on what's next. Ratified architecture decisions live in
     machine (race/class/gender/alignment selection + the created record).
     BLOCKED on visual confirm by the present issue below.
 
-## Initial-screen texture (GEN backdrop) — DONE
+## Main-menu chrome — WRONG ASSET; needs a methodical rework
+
+Feedback (correct): the current menu backdrop uses GEN.CTL, a high-contrast
+marble image — the WRONG asset (same over-application pattern as DUNGCOM).
+The real FRUA menu uses dedicated UI assets. Confirmed by dumping them:
+- MENU.CTL = 3-item GLIB. item 0 is the FULL 256-colour UI PALETTE (EGA-style:
+  14 = gold, 15 = white, 16..31 = grey stone). item 1/2 are 320x16 raw-8bpp
+  tiles (flags 0xc0). So the menu's palette + backdrop live here, NOT clut 129
+  (the game palette, which gives the wrong cyan text).
+- FRAME.CTL/TLB = ~29 items: the raised 3D frame/bevel graphics that box each
+  menu command (the "bars"). Each item composites a frame border — they are
+  ART, not the hand-drawn rectangles I tried.
+- TITLE.CTL/TLB = the title-screen art ("UNLIMITED ADVENTURES / VERSION 1.0 /
+  APRIL 27, 1993" block) — currently missing entirely.
+
+Pitfalls hit when I tried MENU.CTL quickly (so do it carefully):
+- item 1 tiled vertically shows horizontal STRIPES (it has internal line
+  structure — likely a separator/edge piece, not a seamless fill; item 2 or a
+  solid grey may be the field).
+- Installing MENU.CTL's 256-palette turned the menu text MAGENTA — the label
+  fgColor index maps to magenta there. The labels must be drawn in white (15)
+  / gold (14) explicitly; the UI text colour is its own thing, not inherited.
+
+Plan (methodical, per asset): (1) install MENU.CTL palette + set the menu
+text fgColor to white/gold; (2) pick the right MENU bg field (item 2 / solid
+grey) so it's calm + uniform; (3) composite FRAME.TLB bevels per command;
+(4) draw the TITLE block. Each is a focused step with a Hatari check.
+The GEN backdrop (below) is a stopgap and should be replaced by the above.
+
+## Initial-screen texture (GEN backdrop) — stopgap (wrong asset)
 
 The main menu now renders the GEN.CTL marbled-stone backdrop. GEN.CTL = a
 2-item GLIB: item 0 = a 16-colour RGB palette band (installed at clut 16),
