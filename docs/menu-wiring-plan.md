@@ -120,6 +120,21 @@ Ordered easiest → hardest; each is its own commit using `menu_run`.
    largest; their own multi-session efforts (ADR-0008 puts the runtime
    before the editors, so these come last).
 
+> **Started (commit 066dd47).** The Play -> Training Hall menu (jt918 /
+> l0aae) now uses the shared chrome: jt918 paints the stone backdrop +
+> UI palette (was flat clut-8 + the dungeon palette), and l0aae draws a
+> bevelled plate per command (menu_draw_plates), recessed = disabled (its
+> c79x enable flags). The 12 commands get plates + hotkey highlights +
+> kerned text, with the roster (seeded party) intact. Phase 2's main-menu
+> sub-commands were all heavy subsystems or blocked by our single-loose-
+> design data, so the Training Hall (a real list menu, reachable now, with
+> our data) was the productive next reuse of menu_run.
+> REMAINING Training Hall polish: the roster header ("Name … HP AC") column
+> positions are off (l02dc / jt32 / jt34 number paint still stubs); verify
+> the recessed/enabled plate states against a loaded design; then the
+> per-command actions (Add/Create -> CODE 17 char-gen, Begin Adventuring ->
+> the faithful jt585 chain).
+
 ## Phase 3 — Training Hall + play-side menus
 
 `jt918` already uses the runner-ish pattern; finish it on top of Phase 0:
