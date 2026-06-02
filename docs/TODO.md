@@ -34,9 +34,16 @@ Working notes on what's next. Ratified architecture decisions live in
   * Party data g_a5_-5806 is NULL until a real roster block exists; the
     character record format (base+76 party slots, base+198.. roster flags,
     base[94]/[147]/[382] fields read by jt904) needs RE to seed a test party.
-  * Two tractable next steps: (i) RE the character record + seed one test
-    character so a party exists and View Character / the roster show real
-    data; (ii) start lifting CODE 17 Create Character incrementally.
+  * DONE (i): seeded a test party. Decoded the roster data model from l02dc
+    — linked list off g_a5_-27928 (next@+0), name@+96, HP@+385, AC@+395.
+    port_test_seed_design seeds 3 characters (Bramble/Korin Vale/Sable);
+    lifted jt25 (row name paint) so all entries show; moved the backdrop
+    clear to jt918's loop top so the menu no longer wipes the roster.
+    Training Hall now lists the party. REMAINING POLISH: lift jt32/jt34
+    (AC/HP number paint, still stubs) and fix the "Name"/"AC HP" header
+    column positions (jt94 col mapping). The party is a static stand-in —
+    replace with real created/loaded characters once CODE 17 lands.
+  * NEXT (ii): start lifting CODE 17 Create Character incrementally.
 - NEXT (boot UI):
   - The faithful Begin Adventuring (jt585 -> CODE 15/19 -> the real play
     loop) so the port_play_demo bridge can come off. Exit From Play
