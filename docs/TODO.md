@@ -117,11 +117,23 @@ dithered stone border), and 96x56 tiles (top22-25). Encodings: flags
 funnel l309c/jt1001 is a PROBE stub, so faithful FRAME = reverse the
 encoding + the Mac's piece-placement. Multi-step; deferred.
 
-OPTIONAL refinements: (a) faithful FRAME.TLB art (above); (b) warmer
-plate fill (ref plates are brownish ~91,83,79 vs our neutral clut-8 103);
-(c) disabled items (Delete/Unlock) dimmer — comes with button wiring;
-(d) text rows a touch cramped (compat 8x8 font full-height on scale-2
-8px rows; faithful to asm coords, a font limitation).
+DONE (commit f1f4041): switched the menu chrome to the FRAME.CTL color
+assets. The .CTL files hold the 8bpp COLOR data (flags 0xc0 raw / 0xc2
+PackBits); the .TLB files are the low-bpp (0x90/91/92) masks. So:
+- backdrop = FRAME.CTL item 4 (320x16 PackBits dark warm stone tile),
+  tiled across the whole screen (shows in the gaps + perimeter);
+- UI palette = MENU.CTL item 0 (256 base, cyan/white/grey text) + FRAME.CTL
+  item 0 (16-colour warm-grey band) installed over clut 16..31; plate
+  face = clut 23 (91,83,79), bevel = clut 16 light / 31 dark;
+- bevel state via draw_plate(... recessed): active = raised, title +
+  Delete/Unlock + the 2 empty spacer boxes = recessed (g_mainmenu.recessed;
+  wire to jt158/rec[28] real enable state when the sub-menus lift).
+
+OPTIONAL refinements: (a) faithful FRAME.TLB mask+corner compositing (the
+.CTL color tiles cover the look now; the .TLB masks + l309c/jt1001 blit
+remain unlifted); (b) disabled-item TEXT dimming — comes with button
+wiring; (c) text rows a touch cramped (compat 8x8 font full-height on
+scale-2 8px rows; faithful to asm coords, a font limitation).
 
 ## Initial-screen texture (GEN backdrop) — stopgap (wrong asset)
 
