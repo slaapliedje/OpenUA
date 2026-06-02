@@ -129,11 +129,22 @@ PackBits); the .TLB files are the low-bpp (0x90/91/92) masks. So:
   Delete/Unlock + the 2 empty spacer boxes = recessed (g_mainmenu.recessed;
   wire to jt158/rec[28] real enable state when the sub-menus lift).
 
+DONE (commit 236ed7d): font kerning. DrawChar's Mac-FONT path now applies
+the per-glyph left-side bearing (mac_font_offset = OW high byte + kernMax)
+so glyphs sit correctly within their advance cell. FONT -27001 is fixed
+8px advance with positioned glyphs (e.g. 'I' width 3 offset 3); before,
+all glyphs left-aligned and spacing looked uneven. This is in the shared
+compat text path, so it fixes kerning for EVERY menu/screen in the game.
+
+Main-menu chrome is now a faithful match to data/frua_mac_menu.png
+(backdrop, warm palette, raised/recessed plates, kerned text, hotkey
+highlights). The frame/plate/text system is reusable for all the game's
+other menus, which share this format.
+
 OPTIONAL refinements: (a) faithful FRAME.TLB mask+corner compositing (the
 .CTL color tiles cover the look now; the .TLB masks + l309c/jt1001 blit
 remain unlifted); (b) disabled-item TEXT dimming — comes with button
-wiring; (c) text rows a touch cramped (compat 8x8 font full-height on
-scale-2 8px rows; faithful to asm coords, a font limitation).
+wiring.
 
 ## Initial-screen texture (GEN backdrop) — stopgap (wrong asset)
 
