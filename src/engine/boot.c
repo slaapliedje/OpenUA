@@ -8381,6 +8381,10 @@ void port_test_seed_design(void)
 		g_a5_long(-27928) = (long)(uintptr_t)k_party[0];   /* roster head */
 	}
 
+	/* Enable the case-0 Training Hall action (Train Character) so its
+	 * handler l0f1a -> jt574 fires, reaching the char-creation screen. */
+	g_a5_byte(-14440) = 1;
+
 	/* Seed the current design name so jt127 builds the real
 	 * "<design>:<file>" path. mac_path_to_c strips the design
 	 * prefix, so the exact value only matters for path fidelity /
@@ -11353,6 +11357,12 @@ static int  jt574(long ctx)
 
 	PROBE("jt574");
 	(void)ctx;
+
+	/* The char-creation screen's label coords (8006/8040/8076…) assume the
+	 * deep display scale (jt1135 ×3); the Training Hall left g_a5_-2347 = 1
+	 * (×2), which packs the PICK headers on top of each other. Use the deep
+	 * scale here. */
+	g_a5_2347 = 0;
 
 	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 		for (yy = 0; yy < sh; yy++)
