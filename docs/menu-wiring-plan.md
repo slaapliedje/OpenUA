@@ -150,11 +150,15 @@ Ordered easiest → hardest; each is its own commit using `menu_run`.
    advances, Esc backs up); the class list is gated to the picked race's
    allowed classes (cg_allowed_classes + cg_race_classes single-class table;
    faithful source g_a5_-30450). Verified: Halfling -> Fighter/Thief only.
+   STAT ROLL (commit e3d051a): after the class pick, step 3 rolls the six
+   ability scores (3d6 via ua_rand + the cg_race_adj race mods, clamped
+   3..18) and shows STR/INT/WIS/DEX/CON/CHA with R = re-roll / Return =
+   keep. Verified: Dwarf cleric rolls + re-rolls.
    Still a PORT keyboard interaction pending the faithful jt568 machine.
-   REMAINING (multi-session): multi-class combos, the alignment pick
-   (class-gated), the stat roll (L34f0 over the race/class tables at
-   g_a5_-30450), the rolled ability-score display, character naming
-   (TextEdit), and the fresh-record build + add-to-roster.
+   REMAINING (multi-session): class-minimum re-rolls + multi-class combos,
+   the alignment pick (class-gated), character naming (TextEdit), and the
+   fresh-record build + add-to-roster (the payoff — persists the character
+   into the party). Faithful stat ranges/mods live in g_a5_-30450 / L34f0.
 3. Load/Save game modals.
 4. **Begin Adventuring** — replace the `port_play_demo` bridge with the
    faithful `l1142 → jt585 → CODE 15/19` adventure entry.
