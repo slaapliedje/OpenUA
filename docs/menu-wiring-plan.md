@@ -109,21 +109,50 @@ Ordered easiest → hardest; each is its own commit using `menu_run`.
 4. **Begin Adventuring** — replace the `port_play_demo` bridge with the
    faithful `l1142 → jt585 → CODE 15/19` adventure entry.
 
+## The faithful frame system (RE notes)
+
+`jt81` (CODE 6 + 0x6a10) is the menu frame setup. It:
+1. loads the named **"gen"** asset via the named-GLIB loader (`L33ac`,
+   = JT[110]) into handle `g_a5_-13044`;
+2. blits its sections `JT[1001](8000, 8000, 1, N)` for N = 1,2,3 (and 4 in
+   deep mode, gated on `jt1200()==3`) — `JT[1001]` → `l309c(a, c,
+   jt468(b), d)`, the masked pixmap blit;
+3. cleans up (`L384c`/`L3918`/`JT[174]`/`L31dc`).
+
+So the menu **field = the GEN.CTL stone image** (320x90), drawn in
+sections — *not* a FRAME molding tile. This is now done (commit 07f199d):
+the backdrop is GEN.CTL item 1, tiled, rendered through the FRAME warm-grey
+band — clean dark stone, artifact gone.
+
+The decorative **border molding** is FRAME.CTL's edge/corner pieces:
+item 1 = top edge (320x8), item 2/3 = left/right edges (8x184), item 4/6/7
+= horizontal dividers, item 9 = a complete ornate sub-panel frame
+(136x135), items 10-16/26-28 = corner caps + 8x8 fills. Each carries a
+signed `(ybear, xbear)` = its placement offset from the frame origin, and
+index 0 = transparent (field shows through). Formats by flag byte:
+`0xc0/0xc5` = raw 8bpp, `0xc2` = PackBits, `0xc7/0xc9` = more compressed
+(RLE variants, TBD), `0xc8` = palette band.
+
+**To finish faithfully (the remaining work):** RE `l309c` (the ~150-line
+masked pixmap blit) + `jt468` (page→ptr) — that gives the exact section
+placement, the `0xc7/0xc9` decodes, and the index-0 transparency. Then the
+border molding composites from FRAME.CTL pieces at their bearings, and the
+per-button/plate frames come from the real art instead of the procedural
+bevels. `l309c` is the linchpin and is reused by *every* GLIB image blit in
+the game (Art Gallery, portraits, etc.), so it's high-value to lift well.
+
 ## Deferred visual polish (tracked, not blocking)
 
-- **Backdrop tile artifact** — the current backdrop (FRAME.CTL item 4) has
-  a baked-in white 3D bevel highlight (it's a *framing* edge piece, not a
-  clean field). It tiles across the gaps/perimeter as a stray light line
-  (`/tmp/frame_bar.png`). Fix: pick the clean field tile (try FRAME.CTL
-  item 1, or a non-bevel sub-row of item 4), or composite the perimeter
-  frame separately from the field so the field tile carries no 3D edge.
+- **Backdrop seams** — GEN is 320x90 tiled to 200; the vertical repeat can
+  show faint seams (mostly hidden under the plates). The Mac's section
+  placement (l309c, above) positions them to avoid this.
+- **Procedural plate bevels** — our plates are drawn procedurally (flat
+  fill + 1px bevel); the faithful version composites FRAME.CTL molding
+  pieces (needs l309c). Looks close today.
 - **Bars touching / button sizing** — the Mac frames abut with no gap and
   size to content; our plates have small gaps and a fixed 150px width.
 - **Disabled-item dimming** — falls out of Phase 0.1 (drive state from
   `rec[28]`); disabled labels also draw dimmer text.
-- **Faithful FRAME.TLB compositing** — mask + corner + edge tiles via
-  `l309c`/`jt1001` (still PROBE stubs); the `.CTL` color tiles approximate
-  the look today.
 
 ## Definition of done
 
