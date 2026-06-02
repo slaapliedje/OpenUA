@@ -11825,18 +11825,38 @@ static const signed char cg_race_adj[CG_NRACES][6] = {
 
 extern short ua_rand(short n);   /* CODE 5 / JT[1083] LCG, 0..n-1 */
 
-/* Roll the six ability scores: 3d6 each (the FRUA LCG), + the race
- * adjustment, clamped to 3..18. Class-minimum re-rolls (Fighter STR>=9,
- * Mage INT>=9, Paladin's full set, …) are the deferred refinement. */
-static void cg_roll_stats(short race, short *stats)
+/* Per-class ability minimums (AD&D-1e prime-requisite / restriction
+ * thresholds; 0 = no minimum). Stat order STR INT WIS DEX CON CHA;
+ * class order Cleric Fighter Mage Thief Paladin Ranger. */
+static const unsigned char cg_class_min[CG_NCLASSES][6] = {
+	{  0,  0,  9,  0,  0,  0 },   /* Cleric:  WIS 9                       */
+	{  9,  0,  0,  0,  0,  0 },   /* Fighter: STR 9                       */
+	{  0,  9,  0,  0,  0,  0 },   /* Magic-User: INT 9                    */
+	{  0,  0,  0,  9,  0,  0 },   /* Thief:   DEX 9                       */
+	{ 12,  9, 13,  0,  9, 17 },   /* Paladin: STR12 INT9 WIS13 CON9 CHA17 */
+	{ 13, 13, 14,  0, 14,  0 },   /* Ranger:  STR13 INT13 WIS14 CON14     */
+};
+
+/* Roll the six ability scores: 3d6 each (the FRUA LCG) + the race
+ * adjustment, clamped 3..18, and re-rolled per stat until the chosen
+ * class's minimum is met (so the character is class-legal — the game
+ * guarantees a usable roll for the picked class). */
+static void cg_roll_stats(short race, short klass, short *stats)
 {
-	short i;
+	short i, t;
 	for (i = 0; i < 6; i++) {
-		short v = (short)((ua_rand(6) + 1) + (ua_rand(6) + 1)
-		                + (ua_rand(6) + 1));
-		v = (short)(v + cg_race_adj[race][i]);
-		if (v < 3)  v = 3;
-		if (v > 18) v = 18;
+		short mn = (short)cg_class_min[klass][i];
+		short v  = 3;
+		for (t = 0; t < 2000; t++) {
+			v = (short)((ua_rand(6) + 1) + (ua_rand(6) + 1)
+			          + (ua_rand(6) + 1) + cg_race_adj[race][i]);
+			if (v < 3)  v = 3;
+			if (v > 18) v = 18;
+			if (v >= mn)
+				break;
+		}
+		if (v < mn)            /* fallback (shouldn't happen, mn <= 18) */
+			v = mn;
 		stats[i] = v;
 	}
 }
@@ -12016,7 +12036,7 @@ static int  jt574(long ctx)
 		if (s.race < 0 || s.race >= CG_NRACES)
 			s.race = 0;
 		s.nallowed = cg_allowed_classes(s.race, s.allowed);
-		cg_roll_stats(s.race, s.stats);
+		cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
 
 		while (plat_kb_poll(&scan, &ascii))    /* drain the triggering key */
 			;
@@ -12044,7 +12064,7 @@ static int  jt574(long ctx)
 					    s.allowed[s.ksel], s.aligned);
 					s.asel = 0;
 				} else if (s.step == 3) {      /* alignment -> roll stats */
-					cg_roll_stats(s.race, s.stats);
+					cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
 				} else if (s.step == 5) {      /* name entered -> create */
 					if (s.namelen == 0)
 						continue;      /* need a name first */
@@ -12059,7 +12079,7 @@ static int  jt574(long ctx)
 				}
 			} else if (s.step == 4) {              /* stat-roll step */
 				if (ascii == 'r' || ascii == 'R' || ascii == ' ')
-					cg_roll_stats(s.race, s.stats);
+					cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
 			} else if (s.step == 5) {              /* name-entry step */
 				if (ascii == 8 || ascii == 127) {      /* backspace */
 					if (s.namelen > 0)
