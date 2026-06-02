@@ -1822,7 +1822,9 @@ static int           jt574(long ctx);                                           
  * jt918 case handlers above their definitions). */
 static void          cg_view_sheet(void);
 static void          cg_modify_sheet(void);
-static void          cg_delete_character(int from_party);
+static void          cg_add_character(void);
+static void          cg_remove_from_party(void);
+static void          cg_delete_character(void);
 /* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
  * (Modify Character roster grid, lifted further down). */
 static void          l02dc(long highlight);
@@ -4148,6 +4150,9 @@ static int  jt1200(void)
 #define CHAR_LEVEL  202
 #define CHAR_STATS  203   /* 6 bytes: STR INT WIS DEX CON CHA (record order) */
 #define CHAR_ALIGN  209   /* index into cg_aligns[9]                          */
+#define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
+
+#define CG_PARTY_MAX 6    /* active-party slot count                          */
 
 /* Short race / class names for the narrow roster columns (the char-gen
  * tables use the long "Magic-User"; the roster abbreviates to "Mage"). */
@@ -8419,25 +8424,59 @@ void port_render_geo_contact(void)
 
 /* --- roster save / load to disk (PARTY.SAV) ------------------------------
  *
- * Persists the party roster across full restarts. The faithful "Save / Load
- * Game" (l115a/l120c -> jt176/jt585) is the engine's whole-game-state save,
- * still skeletal; this is a focused port roster store: the linked-list
- * records (g_a5_-27928, next@+0) are written as [long count][count*512], and
- * read back into g_roster_pool with the next-ptrs rebuilt. cg_build_record
- * re-saves after each create; the seed path loads on first boot. */
-static unsigned char g_roster_pool[16][512];
+ * Persists the saved-character pool across full restarts. The faithful
+ * "Save / Load Game" (l115a/l120c -> jt176/jt585) is the engine's whole-
+ * game-state save, still skeletal; this is a focused port store: the pool
+ * is written as [long count][count*512], each record carrying its
+ * CHAR_INPARTY flag, and read back with the party relinked from those
+ * flags. The character-management screens re-save after each edit; the
+ * seed path loads on first boot. */
+/* The saved-character POOL: every character that exists in the design
+ * (the test seed, char-gen creations, disk loads). The active PARTY is the
+ * subset flagged CHAR_INPARTY, threaded through the g_a5_-27928 linked
+ * list (.next at +0) by cg_party_relink. PARTY.SAV stores the whole pool
+ * (each record carries its CHAR_INPARTY flag), so both the pool and the
+ * party membership round-trip. */
+static unsigned char cg_pool[16][512];
+static short         cg_pool_count;
+
+/* Rebuild the active-party list (g_a5_-27928) from the in-party pool
+ * records, in pool order — the roster grid (l02dc) and the party screens
+ * walk this list. */
+static void cg_party_relink(void)
+{
+	unsigned char *prev = NULL;
+	short          i;
+
+	g_a5_long(-27928) = 0;
+	for (i = 0; i < cg_pool_count; i++) {
+		if (cg_pool[i][CHAR_INPARTY] == 0)
+			continue;
+		if (prev == NULL)
+			g_a5_long(-27928) = (long)(uintptr_t)cg_pool[i];
+		else
+			*(long *)prev = (long)(uintptr_t)cg_pool[i];
+		prev = cg_pool[i];
+		*(long *)prev = 0;
+	}
+}
+
+static short cg_party_size(void)
+{
+	short i, n = 0;
+	for (i = 0; i < cg_pool_count; i++)
+		if (cg_pool[i][CHAR_INPARTY])
+			n++;
+	return n;
+}
 
 static void save_roster(void)
 {
 	short refnum = 0;
-	long  n, cnt = 0, hdr;
-	unsigned char *p = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	long  n, hdr;
+	short i;
 
-	while (p != NULL && cnt < 16) {
-		cnt++;
-		p = (unsigned char *)(uintptr_t)(*(long *)p);
-	}
-	if (cnt == 0)
+	if (cg_pool_count <= 0)
 		return;
 
 	(void)Create((ConstStr255Param)"\011PARTY.SAV", 0,
@@ -8445,18 +8484,16 @@ static void save_roster(void)
 	if (FSOpen((ConstStr255Param)"\011PARTY.SAV", 0, &refnum) != noErr)
 		return;
 	(void)SetEOF(refnum, 0);
-	hdr = cnt;
+	hdr = cg_pool_count;
 	n = 4;   (void)FSWrite(refnum, &n, &hdr);
-	p = (unsigned char *)(uintptr_t)g_a5_long(-27928);
-	while (p != NULL) {
-		n = 512; (void)FSWrite(refnum, &n, p);
-		p = (unsigned char *)(uintptr_t)(*(long *)p);
+	for (i = 0; i < cg_pool_count; i++) {
+		n = 512; (void)FSWrite(refnum, &n, cg_pool[i]);
 	}
 	(void)FSClose(refnum);
 }
 
-/* Load PARTY.SAV into g_roster_pool, relink, set the roster head. Returns 1
- * if a non-empty roster was loaded, 0 otherwise (no file / empty / error). */
+/* Load PARTY.SAV into the pool, then relink the party from the per-record
+ * CHAR_INPARTY flags. Returns 1 if a non-empty pool was loaded. */
 static int load_roster(void)
 {
 	short refnum = 0;
@@ -8473,7 +8510,7 @@ static int load_roster(void)
 		cnt = 16;
 	for (i = 0; i < cnt; i++) {
 		n = 512;
-		if (FSRead(refnum, &n, g_roster_pool[i]) != noErr || n != 512) {
+		if (FSRead(refnum, &n, cg_pool[i]) != noErr || n != 512) {
 			cnt = i;                 /* truncated — keep what loaded */
 			break;
 		}
@@ -8481,10 +8518,8 @@ static int load_roster(void)
 	(void)FSClose(refnum);
 	if (cnt <= 0)
 		return 0;
-	for (i = 0; i < cnt; i++)
-		*(long *)g_roster_pool[i] =
-		    (i < cnt - 1) ? (long)(uintptr_t)g_roster_pool[i + 1] : 0L;
-	g_a5_long(-27928) = (long)(uintptr_t)g_roster_pool[0];
+	cg_pool_count = (short)cnt;
+	cg_party_relink();
 	return 1;
 }
 
@@ -8507,22 +8542,18 @@ void port_test_seed_design(void)
 	g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
 	g_a5_long(-13804) = (long)(uintptr_t)k_test_prompt;
 
-	/* Seed a test PARTY so the Training Hall roster grid (l02dc) shows
-	 * real entries. The roster is a linked list (next ptr at record +0)
-	 * walked from g_a5_-27928; each record carries the name at +96, HP at
-	 * +385, AC at +395 (the fields l02dc / jt25 / jt32 / jt34 read). This
-	 * stands in for a saved party until real save/load lands.
-	 *
-	 * Built ONCE: l07dc re-runs this on every Play, but char-gen appends
-	 * created characters to the end of this list (k_party[2].next -> the
-	 * new record), so rebuilding k_party each time would sever them. Seed
-	 * the base party once; only re-point the roster head each Play (which
-	 * keeps any appended created characters across Play sessions). */
+	/* Seed a test pool so the Training Hall has real characters. The pool
+	 * (cg_pool) is the master list of saved characters; the active party
+	 * (the roster grid l02dc walks off g_a5_-27928) is the CHAR_INPARTY
+	 * subset, rebuilt by cg_party_relink. Seeded ONCE — l07dc re-runs this
+	 * on every Play, but the pool persists in memory (and on disk via
+	 * save_roster), so we just relink the party each Play. That keeps
+	 * created / added / removed / deleted edits across Play sessions. */
 	{
-		static unsigned char k_party[3][512];
-		static const char   *k_names[3] = { "Bramble", "Korin Vale", "Sable" };
-		static const unsigned char k_hp[3] = { 18, 24, 11 };
-		static const unsigned char k_ac[3] = { 5, 7, 4 };
+		static const char *const k_names[3] =
+		    { "Bramble", "Korin Vale", "Sable" };
+		static const unsigned char k_hp[3]    = { 18, 24, 11 };
+		static const unsigned char k_ac[3]    = {  5,  7,  4 };
 		/* race / class indices into k_roster_races / k_roster_classes:
 		 * Bramble = Human Fighter L3, Korin = Elf Mage L2,
 		 * Sable = Halfling Thief L3. */
@@ -8536,42 +8567,32 @@ void port_test_seed_design(void)
 			{ 12, 13, 10, 17, 14, 11 },   /* Sable    */
 		};
 		static const unsigned char k_align[3] = { 0, 4, 6 };
-		static int  seeded = 0;
-		static long roster_head = 0;
+		static int seeded = 0;
 
 		if (!seeded) {
 			seeded = 1;
-			if (load_roster()) {                 /* saved party from disk */
-				roster_head = g_a5_long(-27928);
-			} else {                             /* none -> seed the test party */
+			if (!load_roster()) {        /* no disk save -> seed pool */
 				int p, c;
 				for (p = 0; p < 3; p++) {
-					memset(k_party[p], 0, sizeof k_party[p]);
+					unsigned char *r = cg_pool[p];
+					memset(r, 0, 512);
 					for (c = 0; k_names[p][c] != 0 && c < 15; c++)
-						k_party[p][96 + c] = (unsigned char)k_names[p][c];
-					k_party[p][96 + c] = 0;
-					k_party[p][385] = k_hp[p];           /* HP  */
-					k_party[p][395] = k_ac[p];           /* AC  */
-					k_party[p][CHAR_RACE]  = k_race[p];
-					k_party[p][CHAR_CLASS] = k_class[p];
-					k_party[p][CHAR_LEVEL] = k_lvl[p];
+						r[96 + c] = (unsigned char)k_names[p][c];
+					r[96 + c] = 0;
+					r[385] = k_hp[p];
+					r[395] = k_ac[p];
+					r[CHAR_RACE]  = k_race[p];
+					r[CHAR_CLASS] = k_class[p];
+					r[CHAR_LEVEL] = k_lvl[p];
 					for (c = 0; c < 6; c++)
-						k_party[p][CHAR_STATS + c] =
-						    k_stats[p][c];
-					k_party[p][CHAR_ALIGN] = k_align[p];
-					*(long *)(k_party[p]) =              /* next ptr (+0) */
-					    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
+						r[CHAR_STATS + c] = k_stats[p][c];
+					r[CHAR_ALIGN]   = k_align[p];
+					r[CHAR_INPARTY] = 1;
 				}
-				roster_head = (long)(uintptr_t)k_party[0];
+				cg_pool_count = 3;
 			}
-		} else if (g_a5_long(-27928) != 0) {
-			/* Preserve live roster edits (create / delete) across a
-			 * re-Play in the same session: the head may have moved
-			 * if the first character was deleted, so re-read it
-			 * rather than restoring the stale seed head. */
-			roster_head = g_a5_long(-27928);
 		}
-		g_a5_long(-27928) = roster_head;     /* re-point head each Play */
+		cg_party_relink();           /* rebuild the party list each Play */
 	}
 
 	/* Enable the case-0 Training Hall action (Train Character) so its
@@ -12104,11 +12125,6 @@ static void cg_draw(const cg_state *s)
 		       "Name: %s_", s->name);
 }
 
-/* Created characters live here once char-gen finishes (the roster holds
- * pointers into this pool via the next-ptr at record+0). */
-static unsigned char cg_char_pool[8][512];
-static int           cg_char_count;
-
 /* Per-class hit die (Cleric Fighter Mage Thief Paladin Ranger). */
 static const unsigned char cg_class_hd[CG_NCLASSES] = { 8, 10, 4, 6, 10, 8 };
 
@@ -12120,45 +12136,39 @@ static const unsigned char cg_class_hd[CG_NCLASSES] = { 8, 10, 4, 6, 10, 8 };
  * the next slice; this makes the created character appear in the party. */
 static void cg_build_record(const cg_state *s)
 {
-	unsigned char *rec = cg_char_pool[cg_char_count & 7];
+	unsigned char *rec;
 	short klass  = s->allowed[s->ksel];
 	short con    = s->stats[4], dex = s->stats[3];
 	short conmod = (con >= 16) ? 2 : (con >= 15) ? 1 : (con <= 6) ? -1 : 0;
 	short dexmod = (dex >= 15) ? (dex - 14) : 0;
 	short hp, ac, c;
-	long  head;
 
+	if (cg_pool_count >= 16)             /* pool full — drop the create */
+		return;
 	if (dexmod > 4) dexmod = 4;
 	hp = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
 	if (hp < 1) hp = 1;
 	ac = (short)(10 - dexmod);
 
-	cg_char_count++;
+	rec = cg_pool[cg_pool_count++];
 	memset(rec, 0, 512);
 	for (c = 0; c < s->namelen && c < 15; c++)
 		rec[96 + c] = (unsigned char)s->name[c];
 	rec[96 + c]  = 0;
 	rec[385]     = (unsigned char)hp;
 	rec[395]     = (unsigned char)ac;
-	rec[CHAR_RACE]  = (unsigned char)s->race;   /* roster columns */
+	rec[CHAR_RACE]  = (unsigned char)s->race;
 	rec[CHAR_CLASS] = (unsigned char)klass;
-	rec[CHAR_LEVEL] = 1;                         /* new character */
-	for (c = 0; c < 6; c++)                      /* ability scores */
+	rec[CHAR_LEVEL] = 1;
+	for (c = 0; c < 6; c++)
 		rec[CHAR_STATS + c] = (unsigned char)s->stats[c];
 	rec[CHAR_ALIGN] = (unsigned char)s->aligned[s->asel];
-	*(long *)rec = 0;                    /* next = end of list */
+	/* Creating a character joins the active party if there's a free slot;
+	 * otherwise it stays benched in the pool (add it later via Add). */
+	rec[CHAR_INPARTY] = (cg_party_size() < CG_PARTY_MAX) ? 1 : 0;
 
-	head = g_a5_long(-27928);
-	if (head == 0) {
-		g_a5_long(-27928) = (long)(uintptr_t)rec;
-	} else {                             /* append after the last entry */
-		unsigned char *p = (unsigned char *)(uintptr_t)head;
-		while (*(long *)p != 0)
-			p = (unsigned char *)(uintptr_t)(*(long *)p);
-		*(long *)p = (long)(uintptr_t)rec;
-	}
-
-	save_roster();                       /* persist the roster to disk */
+	cg_party_relink();
+	save_roster();
 }
 
 /* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
@@ -14647,6 +14657,7 @@ static void   jt23(void)                             { PROBE("jt23"); }
 #define g_a5_27936 g_a5_long(-27936)   /* saved design ptr cache */
 #define g_a5_13804 g_a5_long(-13804)   /* roster cluster arg for jt182 */
 
+static void jt904(unsigned char *out_done) __attribute__((unused));
 static void jt904(unsigned char *out_done)
 {
 	unsigned char  status1, cond1, cond2;
@@ -14824,7 +14835,7 @@ static int l0f3e(short a)
 		return 0;
 	g_a5_18882 = jt1199(g_a5_18844);
 	jt560();                             /* faithful skeleton (trace) */
-	cg_delete_character(0);              /* port: delete from roster  */
+	cg_delete_character();               /* port: erase from the pool */
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -14877,7 +14888,7 @@ static int l0f74(short a)
 	if (g_a5_14436 == 0)
 		return 0;
 
-	cg_delete_character(1);              /* port: remove from party */
+	cg_remove_from_party();              /* port: bench (back to pool) */
 
 	local = (short)(signed char)jt556(g_a5_27932);
 	if (local == 17) {
@@ -14914,10 +14925,15 @@ static int l1036(short a)
 	unsigned char local_byte = 0;
 
 	(void)a;
+	(void)local_byte;
 	PROBE("jt918/case5 L1036");
 	if (g_a5_14435 == 0)
 		return 0;
-	jt904(&local_byte);
+	/* Faithful Add is jt904 -> the jt182 Add/Modify/Delete popup (a
+	 * blocking l2d3e pump, only partially lifted); the port screen stands
+	 * in for it, so jt904 isn't called here. It stays the deferred
+	 * remainder. */
+	cg_add_character();                  /* port: pool -> active party */
 	return 0;
 }
 
@@ -14930,9 +14946,9 @@ static int l1036(short a)
  * cg_build_record + the test-party seed write (see the CHAR_* macros
  * above l02dc). */
 
-/* Collect the roster (linked list, .next at +0) into party[]; the cap is
- * `max`. Returns the entry count. */
-static short cg_collect_party(unsigned char **party, short max)
+/* Collect the active party (linked list, .next at +0) into `out`; the cap
+ * is `max`. Returns the entry count. */
+static short cg_collect_party(unsigned char **out, short max)
 {
 	unsigned char *e;
 	short          n = 0;
@@ -14940,8 +14956,54 @@ static short cg_collect_party(unsigned char **party, short max)
 	for (e = (unsigned char *)(uintptr_t)g_a5_long(-27928);
 	     e != NULL && n < max;
 	     e = *(unsigned char **)e)
-		party[n++] = e;
+		out[n++] = e;
 	return n;
+}
+
+/* Collect every pool character into `out` (Delete picker). */
+static short cg_collect_pool(unsigned char **out, short max)
+{
+	short i, n = 0;
+	for (i = 0; i < cg_pool_count && n < max; i++)
+		out[n++] = cg_pool[i];
+	return n;
+}
+
+/* Collect benched pool characters (CHAR_INPARTY == 0) into `out` — the
+ * Add picker's candidates. */
+static short cg_collect_addable(unsigned char **out, short max)
+{
+	short i, n = 0;
+	for (i = 0; i < cg_pool_count && n < max; i++)
+		if (cg_pool[i][CHAR_INPARTY] == 0)
+			out[n++] = cg_pool[i];
+	return n;
+}
+
+/* A one/two-line notice on the shared chrome; waits for any key. */
+static void cg_message(const char *l1, const char *l2)
+{
+	unsigned char *px; short pitch, sw, sh, yy;
+	unsigned char  scan = 0, ascii = 0;
+
+	while (plat_kb_poll(&scan, &ascii))
+		;
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+		if (g_menu_state == 1) {
+			fill_backdrop(px, pitch, 0, 0,
+			              (short)(sw - 1), (short)(sh - 1));
+			draw_plate(px, pitch, sw, sh, 6, 60, 313, 130, 1);
+		} else {
+			for (yy = 0; yy < sh; yy++)
+				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+		}
+	}
+	jt94((short)6, (short)9,  15, 0, "%s", l1);
+	if (l2)
+		jt94((short)6, (short)11, 7, 0, "%s", l2);
+	qd_present();
+	while (!plat_kb_poll(&scan, &ascii))
+		;
 }
 
 /* Draw one character's full sheet (name, race/class/level, alignment, the
@@ -15138,44 +15200,111 @@ static void cg_modify_sheet(void)
 	}
 }
 
-/* Unlink `victim` from the roster list (head at g_a5_-27928, .next at +0).
- * The records live in static pools (no free); unlinking drops it from the
- * displayed list + the persisted save. */
-static void cg_unlink_record(unsigned char *victim)
+/* Add Character — page the benched pool characters with Up/Down; Return
+ * brings the highlighted one into the active party (sets CHAR_INPARTY), up
+ * to CG_PARTY_MAX slots. Esc backs out. */
+static void cg_add_character(void)
 {
-	unsigned char *head = (unsigned char *)(uintptr_t)g_a5_long(-27928);
-	unsigned char *p;
+	unsigned char *cand[16];
+	short          n, sel = 0;
+	unsigned char  scan = 0, ascii = 0;
 
-	if (head == NULL || victim == NULL)
-		return;
-	if (head == victim) {
-		g_a5_long(-27928) = *(long *)victim;   /* head = victim->next */
+	if (cg_collect_addable(cand, 16) == 0) {
+		cg_message("No characters to add.",
+		           "Create one first.  Any key to go back.");
 		return;
 	}
-	for (p = head; p != NULL; p = *(unsigned char **)p) {
-		if (*(unsigned char **)p == victim) {
-			*(long *)p = *(long *)victim;      /* p->next = v->next */
-			return;
-		}
+
+	g_a5_2347 = 1;
+	load_menu_ui();
+	while (plat_kb_poll(&scan, &ascii))
+		;
+
+	for (;;) {
+		char foot[64];
+
+		n = cg_collect_addable(cand, 16);
+		if (n == 0)                          /* added the last one */
+			break;
+		if (sel >= n)
+			sel = (short)(n - 1);
+
+		if (cg_party_size() >= CG_PARTY_MAX)
+			sprintf(foot, "Party full (%d)   Esc back",
+			        (int)CG_PARTY_MAX);
+		else
+			sprintf(foot, "Up/Dn char   Return add   Esc back");
+		cg_draw_sheet(cand[sel], foot);
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 27)                     /* Esc -> back */
+			break;
+		if ((ascii == 13 || ascii == 3)      /* Return -> add */
+		    && cg_party_size() < CG_PARTY_MAX) {
+			cand[sel][CHAR_INPARTY] = 1;
+			cg_party_relink();
+			save_roster();
+		} else if (scan == 0x48)
+			sel = (short)((sel + n - 1) % n);
+		else if (scan == 0x50)
+			sel = (short)((sel + 1) % n);
 	}
 }
 
-/* Delete / Remove Character — page the party with Up/Down, Return picks
- * the highlighted character and asks Y/N, then unlinks it and persists.
- * `from_party` only changes the wording: in the port's single-list model
- * Remove (take out of the active party) and Delete (erase from the saved
- * roster) collapse to the same unlink — the faithful party-vs-saved-pool
- * split (l0f74's jt41/jt878 membership flags) is the deferred remainder. */
-static void cg_delete_character(int from_party)
+/* Remove Character — page the active party with Up/Down; Return benches the
+ * highlighted member (clears CHAR_INPARTY — it stays in the pool, addable
+ * again later). Esc backs out. Non-destructive, so no confirm. */
+static void cg_remove_from_party(void)
 {
 	unsigned char *party[16];
 	short          nparty, sel = 0;
 	unsigned char  scan = 0, ascii = 0;
-	int            confirming = 0;
-	const char    *verb = from_party ? "Remove" : "Delete";
 
-	nparty = cg_collect_party(party, 16);
-	if (nparty == 0)
+	if (cg_collect_party(party, 16) == 0)
+		return;
+
+	g_a5_2347 = 1;
+	load_menu_ui();
+	while (plat_kb_poll(&scan, &ascii))
+		;
+
+	for (;;) {
+		nparty = cg_collect_party(party, 16);
+		if (nparty == 0)
+			break;
+		if (sel >= nparty)
+			sel = (short)(nparty - 1);
+
+		cg_draw_sheet(party[sel],
+		    "Up/Dn char   Return remove   Esc back");
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 27)                     /* Esc -> back */
+			break;
+		if (ascii == 13 || ascii == 3) {     /* Return -> bench */
+			party[sel][CHAR_INPARTY] = 0;
+			cg_party_relink();
+			save_roster();
+		} else if (scan == 0x48)
+			sel = (short)((sel + nparty - 1) % nparty);
+		else if (scan == 0x50)
+			sel = (short)((sel + 1) % nparty);
+	}
+}
+
+/* Delete Character — page the whole pool with Up/Down; Return picks the
+ * highlighted character and asks Y/N, then erases it from the pool (and so
+ * the party) permanently and persists. */
+static void cg_delete_character(void)
+{
+	unsigned char *pool[16];
+	short          n, sel = 0;
+	unsigned char  scan = 0, ascii = 0;
+	int            confirming = 0;
+
+	if (cg_collect_pool(pool, 16) == 0)
 		return;
 
 	g_a5_2347 = 1;
@@ -15185,28 +15314,38 @@ static void cg_delete_character(int from_party)
 
 	for (;;) {
 		char foot[64];
+
+		n = cg_collect_pool(pool, 16);
+		if (n == 0)
+			break;
+		if (sel >= n)
+			sel = (short)(n - 1);
+
 		if (confirming)
-			sprintf(foot, "%s %s?   Y / N", verb,
-			        (const char *)&party[sel][96]);
+			sprintf(foot, "Delete %s?   Y / N",
+			        (const char *)&pool[sel][96]);
 		else
-			sprintf(foot, "Up/Dn char   Return %s   Esc back",
-			        from_party ? "remove" : "delete");
-		cg_draw_sheet(party[sel], foot);
+			sprintf(foot, "Up/Dn char   Return delete   Esc back");
+		cg_draw_sheet(pool[sel], foot);
 
 		while (!plat_kb_poll(&scan, &ascii))
 			;
 
 		if (confirming) {
 			if (ascii == 'y' || ascii == 'Y') {
-				cg_unlink_record(party[sel]);
+				/* Find pool[sel]'s index, shift the array down. */
+				short k, idx = -1;
+				for (k = 0; k < cg_pool_count; k++)
+					if (cg_pool[k] == pool[sel]) { idx = k; break; }
+				if (idx >= 0) {
+					for (k = idx; k < cg_pool_count - 1; k++)
+						memcpy(cg_pool[k], cg_pool[k + 1], 512);
+					cg_pool_count--;
+				}
+				cg_party_relink();
 				save_roster();
-				nparty = cg_collect_party(party, 16);
-				if (nparty == 0)
-					return;
-				if (sel >= nparty)
-					sel = (short)(nparty - 1);
 			}
-			confirming = 0;          /* y/n/esc all clear the prompt */
+			confirming = 0;
 			continue;
 		}
 
@@ -15214,10 +15353,10 @@ static void cg_delete_character(int from_party)
 			break;
 		if (ascii == 13 || ascii == 3)              /* Return -> confirm */
 			confirming = 1;
-		else if (scan == 0x48)                      /* Up   */
-			sel = (short)((sel + nparty - 1) % nparty);
-		else if (scan == 0x50)                      /* Down */
-			sel = (short)((sel + 1) % nparty);
+		else if (scan == 0x48)
+			sel = (short)((sel + n - 1) % n);
+		else if (scan == 0x50)
+			sel = (short)((sel + 1) % n);
 	}
 }
 
