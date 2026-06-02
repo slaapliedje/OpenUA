@@ -1610,21 +1610,10 @@ static int   jt931(void)                           { PROBE("jt931"); return 0; }
 /* JT[949] (CODE 20 + 0x77a2) — Mac body is just `rts`. Genuinely
  * a no-op placeholder hook. */
 static void  jt949(void)                           { PROBE("jt949"); }            /* CODE 20 + 0x77a2 */
-static int   jt315(void)
-{
-	/* Fire once so the play-loop body runs (the engine's dialog
-	 * loop, paint walker, etc.). The Mac body uses a segment-load
-	 * predicate that we haven't lifted; for now a single pass is
-	 * enough to drive the dialog event loop visibly. */
-	static int fired;
-	if (!fired) {
-		fired = 1;
-		PROBE("jt315 (firing)");
-		return 1;
-	}
-	PROBE("jt315 (done)");
-	return 0;
-}
+/* jt315 (CODE 22 + 0x4d8a) — the main menu. Defined after the dialog /
+ * DLItem machinery it drives (jt447 / jt452 / l2c60 / jt94 / jt453); the
+ * forward declaration lets ua_main's play loop call it. */
+static int   jt315(void);
 
 /* Intra-CODE-6 helpers, still to lift. */
 static void  l0444(void)        { PROBE("l0444"); }     /* CODE 6 + 0x0444 */
@@ -10688,6 +10677,104 @@ static short jt453(jt453_filter_t filterProc)
 				return hit;
 		}
 	}
+}
+
+/* jt313 (CODE 22 + 0x4d3c) — the main menu's item event-filter PROC,
+ * stored in the shape-7 DLItem (rec+4) jt315 builds. The Mac body polls
+ * the IKBD (jt1118) and maps the arrow keys 338/339 to scroll (jt50/jt51);
+ * a return of 0 means "not consumed". Minimal for now — the menu items are
+ * keyboard/click-selectable through l2d3e directly. */
+static short   jt313(void *rec, short cmd, ...)
+{
+	PROBE("jt313");
+	(void)rec; (void)cmd;
+	return 0;
+}
+
+/* The ten main-menu commands, two columns (left x=8004, right x=8084),
+ * straight from jt315's jt452 build (CODE 22 + 0x4dde..0x4fe8): label,
+ * x, y (8000-anchored), and the selector hotkey letter. The two disabled
+ * spacer rows at y=8087 are omitted. */
+static const struct { const char *label; short x, y, hotkey; } g_mainmenu[] = {
+	{ "Play the Game",     8004, 8059, 'P' },
+	{ "Select a Design",   8004, 8066, 'S' },
+	{ "Create New Design", 8004, 8073, 'C' },
+	{ "Delete the Design", 8004, 8080, 'D' },
+	{ "Unlock Editor",     8004, 8094, 'U' },
+	{ "Game Settings",     8084, 8059, 'G' },
+	{ "Edit Modules",      8084, 8066, 'E' },
+	{ "Art Gallery",       8084, 8073, 'A' },
+	{ "Monster Editor",    8084, 8080, 'M' },
+	{ "Quit From Game",    8084, 8094, 'Q' },
+};
+
+/* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop. Builds the
+ * DLItem button list (jt447 + jt452), paints it (l2c60), draws the title
+ * banner (jt94), presents (jt117), then blocks in the dialog event loop
+ * (jt453) until the user picks an item. Returns 1 to keep ua_main's play
+ * loop running (Play / sub-menus), 0 on "Quit From Game".
+ *
+ * Lifted from the asm's build + paint + banner; the per-selection dispatch
+ * (new/select/delete design, unlock editor, …) is simplified to
+ * play-vs-quit for now — the sub-actions live in CODE 8/2 entries that are
+ * still PROBE stubs. The setup/re-entry flag dance (jt215/jt356/g_a5_-11662)
+ * is omitted; the menu rebuilds each pass. */
+static int   jt315(void)
+{
+	short hit, i;
+	const char *design, *title;
+
+	PROBE("jt315");
+
+	/* Clear the menu background. jt131(6) is the engine's screen-mode /
+	 * clear call but is a PROBE stub in the port, so paint a flat backdrop
+	 * over the VIDEL buffer ourselves (clut-129 dark grey) and prime the
+	 * present path before the QuickDraw text + DLItem buttons draw on top. */
+	{
+		unsigned char *px; short pitch, sw, sh, yy;
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+			for (yy = 0; yy < sh; yy++)
+				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+			qd_present();
+		}
+	}
+
+	/* --- build the menu --- */
+	jt131((short)6);                 /* clear to the menu screen mode  */
+	jt112((short)1);
+	jt81();                          /* (frame setup — PROBE stub)     */
+	jt447();                         /* init the DLItem group          */
+	for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++)
+		jt452((long)1, (long)g_mainmenu[i].y, (long)g_mainmenu[i].x,
+		      (long)(uintptr_t)g_mainmenu[i].label,
+		      (long)32, (long)g_mainmenu[i].hotkey,
+		      (long)36, (long)18, (long)20, (long)21, (long)0);
+	jt452((long)7, (long)(uintptr_t)jt313, (long)20, (long)0);  /* action item */
+
+	/* --- paint the buttons --- */
+	l2c60((short)1);
+
+	/* --- title banner (jt94: page,row,col,style,fmt) ---
+	 * The two version lines the Mac draws come from g_a5_-13948/-13944,
+	 * which in this build hold a GEO filename template ("%s%03d.dat") not
+	 * version text, so they're skipped until that source is identified. */
+	design = (const char *)g_a5_buf(-31336);
+	title  = (const char *)g_a5_buf(-18876);
+	jt94((short)4,  (short)9,  (short)11, (short)0, "Current Game Design:");
+	if (design[0]) jt94((short)25, (short)9,  (short)7, (short)0, "%s", design);
+	if (title[0])  jt94((short)4,  (short)10, (short)7, (short)0, "%s", title);
+
+	jt112((short)0);
+	jt117();                         /* present (engine path) */
+	qd_present();                    /* c2p the QD port to VIDEL + flip */
+
+	/* --- block until the user selects an item --- */
+	hit = jt453((jt453_filter_t)0);
+
+	/* simplified dispatch: the Quit item ends the play loop. */
+	if (hit == 9)                    /* "Quit From Game" (table index 9) */
+		return 0;
+	return 1;
 }
 
 /* JT[140] / JT[156] (CODE 7 + 0x1e58 / 0x1d5c) — item-callback PROCs
