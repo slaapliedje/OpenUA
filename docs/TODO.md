@@ -51,6 +51,29 @@ Working notes on what's next. Ratified architecture decisions live in
     machine (race/class/gender/alignment selection + the created record).
     BLOCKED on visual confirm by the present issue below.
 
+## Initial-screen texture (GEN backdrop) — investigated, NOT done
+
+The Mac main menu's textured background is drawn by JT[81] (CODE 6 + 0x6a10):
+it loads the "gen" tile library and blits backdrop tiles (idx 1,2,3, +4 in
+deep mode) at (8000,8000) via JT[1001]/L309c, then disposes the handle.
+Two blockers found:
+- JT[110] (CODE 6 + 0x33ac), the NAMED-GLIB loader JT[81] uses to load
+  "gen", is NOT lifted. (It's reusable — loads any "<name>.ctl/.tlb" — worth
+  lifting on its own.)
+- GEN.CTL has a NON-STANDARD tile format, unlike the 8X8 wall sets. Outer
+  GLIB = 2 entries: item 0 looks like an RGB palette band (flags 0xc8),
+  item 1 a colour image (flags 0xc2, ybear -110, metric[6]=0x28). Decoding
+  item 1 as width=8*metric[6]=320 x h=90 gives a 28 800-byte body that does
+  NOT fit the 26 818-byte file, so that width is wrong; a direct-blit
+  attempt produced magenta/colour NOISE (wrong width/stride + the
+  transparency key not skipped). GEN's width/stride/transparency need
+  proper RE.
+A direct load-and-tile attempt (mirroring the wall-set colour path) was
+reverted — the menu keeps its flat clut-32 backdrop for now. NEXT: lift
+JT[110], decode GEN's real tile format (probably stride=metric[6] not
+8*metric[6], with a magenta-key transparency band), and blit per JT[81]'s
+coords. (Also gated by the present-buffer issue below in some contexts.)
+
 ## Display present / buffer plumbing (NOW THE PRIORITY UNBLOCKER)
 
 A recurring issue gates several screens: a draw + qd_present does NOT reach
