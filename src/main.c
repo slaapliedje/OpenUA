@@ -261,7 +261,10 @@ static void load_frua_rsrc(void)
  * Resource Manager must already be open (load_frua_rsrc) and the screen
  * port must already be attached (qd_attach_screen) before this runs.
  */
-static void load_frua_palette(void)
+/* Non-static: the engine (jt315) re-installs this on menu redraw, since the
+ * dungeon play loop (port_play_demo) overwrites clut 0..15 and doesn't
+ * restore them — the menu would otherwise paint with the dungeon palette. */
+void load_frua_palette(void)
 {
 	static RGBColor      pal[256];
 	Handle               h;
