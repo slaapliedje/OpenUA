@@ -6,8 +6,9 @@
  * the Falcon's 256-colour mode is 8 interleaved bitplanes, so present()
  * does a chunky-to-planar conversion onto the screen.
  *
- * init() switches the VIDEL to a native 256-colour mode (the desktop
- * mode with STMODES cleared and 8 planes / VERTFLAG set) and sizes the
+ * init() switches the VIDEL to a native 256-colour 320x200 mode (matching
+ * the Mac game's logical screen): mode 0x003 on an RGB/TV monitor, or
+ * 0x113 (320x240) on VGA where 320x200 isn't available. It sizes the
  * planar screen from VgetSize().
  *
  * First cut — single-buffered, with a naive (correct but slow) c2p. A fast
@@ -55,12 +56,21 @@ static int videl_init(short want_w, short want_h)
 	g_save_phys = (void *)Physbase();
 	VgetRGB(0, 256, g_save_palette);
 
-	/* 256 colours needs a VIDEL-native mode: clear STMODES — the
-	 * ST-shifter compatibility flag, which caps at 16 colours — and set
-	 * 8 planes. VERTFLAG selects the 400-line variant. Switch the mode
-	 * first, then size the screen from VgetSize(): line-A's V_Y_MAX
-	 * reports 200 for this mode and can't be trusted for the height. */
-	newmode = (short)((g_save_mode & ~(STMODES | 7)) | BPS8 | VERTFLAG);
+	/* The Mac game renders a 320x200 logical screen, so match it 1:1
+	 * rather than the old 320x400 (VERTFLAG) buffer — that left the whole
+	 * play area in the top half (the engine's jt1135 transform is scaled
+	 * for 320x200) with 200 dead lines below.
+	 *
+	 * The exact 320x200 mode is monitor-dependent: an RGB/TV monitor does
+	 * 320x200 directly (NTSC, no VERTFLAG, mode 0x003); a VGA monitor's
+	 * smallest VIDEL res is 320x240 (VGA + double-line, mode 0x113). Pick
+	 * from the boot mode's VGA bit. Both are 256-colour (BPS8) with
+	 * STMODES (the 16-colour ST-shifter compat flag) cleared. Size the
+	 * surface from VgetSize() after the switch. */
+	if (g_save_mode & VGA)
+		newmode = (short)(VGA | VERTFLAG | BPS8);   /* 0x113 -> 320x240 */
+	else
+		newmode = (short)(BPS8);                    /* 0x003 -> 320x200 */
 	dbg_log_num("  videl_init: old mode = ", g_save_mode);
 	dbg_log_num("  videl_init: new mode = ", newmode);
 
