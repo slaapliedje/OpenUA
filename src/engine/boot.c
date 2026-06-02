@@ -49,6 +49,7 @@
 #include "menus.h"            /* MenuKey (L6dd0 keyDown arm)         */
 #include "input.h"            /* plat_kb_poll (port_play_demo)        */
 #include "resources.h"        /* GetResource (clut 129 for colour art) */
+#include "mac_font.h"         /* mac_font_pixel (the in-dungeon party HUD) */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -7861,9 +7862,97 @@ void port_wall_demo(void)
 }
 
 /* Real-play flag: set by port_begin_adventure (Begin Adventuring) so the
- * shared dungeon loop drops the wall-set browse keys; clear for the
- * regression browse demo. */
+ * shared dungeon loop shows the party HUD and drops the wall-set browse
+ * keys; clear for the regression browse demo. */
 static int g_adventure_mode;
+
+/* The QuickDraw shim's embedded 8x8 fallback font (compat/font_8x8.c),
+ * one byte per row, MSB-first. */
+extern const unsigned char qd_font_8x8[256][8];
+
+/* hud_text — blit a string straight to the chunky screen buffer at (x,y)
+ * in `color` (a clut index), clipped to the screen. Bypasses jt94 / the
+ * QuickDraw text path, which clips to the 3D viewport and assumes the menu
+ * palette — neither holds in the deep dungeon view, so the HUD draws its
+ * own glyphs in dedicated HUD-palette colours. Uses the real Mac font
+ * (every glyph) when loaded, else the sparse 8x8 fallback. */
+static void hud_text(unsigned char *px, short pitch, short sw, short sh,
+                     short x, short y, unsigned char color, const char *s)
+{
+	if (g_mac_font_loaded) {
+		short h = g_mac_font.height;
+		for (; *s != 0 && x < sw; s++) {
+			short c   = (short)(unsigned char)*s;
+			short gw  = mac_font_strike_width(c);
+			short adv = mac_font_advance(c);
+			short row, col;
+			for (row = 0; row < h && y + row < sh; row++)
+				for (col = 0; col < gw && x + col < sw; col++)
+					if (mac_font_pixel(c, col, row))
+						px[(long)(y + row) * pitch
+						   + x + col] = color;
+			x = (short)(x + (adv > 0 ? adv : gw + 1));
+		}
+		return;
+	}
+	for (; *s != 0 && x + 8 <= sw; s++, x = (short)(x + 8)) {
+		const unsigned char *g = qd_font_8x8[(unsigned char)*s];
+		short row, col;
+		for (row = 0; row < 8 && y + row < sh; row++) {
+			unsigned char  bits = g[row];
+			unsigned char *dst  = px + (long)(y + row) * pitch + x;
+			for (col = 0; col < 8; col++)
+				if (bits & (unsigned char)(0x80 >> col))
+					dst[col] = color;
+		}
+	}
+}
+
+/* HUD clut slots — high indices the dungeon wall palette doesn't touch, so
+ * the panel text stays a stable white/gold regardless of the loaded wall
+ * set's colours (which run roughly clut 0..165). */
+#define HUD_CLUT_WHITE 254
+#define HUD_CLUT_GOLD  255
+
+/* Draw the active-party status panel down the right of the dungeon view
+ * (the ~220px viewport leaves x>=226 free): a gold header, then each
+ * member's name (white) and HP/AC. Drawn straight to the chunky surface
+ * after jt312's viewport render. Two full presents push it into both flip
+ * buffers (jt312's rect-present only refreshes the viewport). */
+static void draw_party_panel(void)
+{
+	unsigned char *px; short pitch, sw, sh, y;
+	unsigned char *party[16];
+	short          n, i;
+	const short    X = 226;
+	RGBColor       hud[2];
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0 || sw <= X)
+		return;
+
+	hud[0].red = hud[0].green = hud[0].blue = 0xffff;           /* white */
+	hud[1].red = 0xffff; hud[1].green = 0xd000; hud[1].blue = 0; /* gold */
+	qd_set_palette(hud, HUD_CLUT_WHITE, 2);
+
+	/* clear the panel column (clut 0 = black) so no stale pixels show */
+	for (y = 0; y < sh; y++)
+		memset(px + (long)y * pitch + X, 0, (size_t)(sw - X));
+
+	n = cg_collect_party(party, 16);
+	hud_text(px, pitch, sw, sh, X, (short)4, HUD_CLUT_GOLD, "PARTY");
+	for (i = 0; i < n; i++) {
+		char  hp[20];
+		short ty = (short)(16 + i * 18);
+		hud_text(px, pitch, sw, sh, X, ty, HUD_CLUT_WHITE,
+		         (const char *)&party[i][96]);
+		sprintf(hp, "HP%d AC%d", (int)party[i][385],
+		        (int)party[i][395]);
+		hud_text(px, pitch, sw, sh, X, (short)(ty + 9), HUD_CLUT_WHITE,
+		         hp);
+	}
+	qd_present();
+	qd_present();   /* both flip buffers (jt312 rect-presents the viewport) */
+}
 
 /* port_play_demo — the play loop core as an interactive dungeon walk
  * on the automap. Loads the TOPVIEW tiles, enters level 1 (L0bbc
@@ -8095,6 +8184,8 @@ void port_play_demo(void)
 			 * party globals, draws the slot-assembly corridor, clears,
 			 * and presents. This is the play-loop render path. */
 			jt312((unsigned char *)0);
+			if (g_adventure_mode)
+				draw_party_panel();    /* party status HUD */
 		}
 
 		while (!plat_kb_poll(&scan, &ascii))
