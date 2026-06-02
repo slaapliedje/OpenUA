@@ -10893,17 +10893,30 @@ static int   jt315(void)
 		l2c60((short)1);
 
 		/* --- title banner (jt94: page,row,col,style,fmt) ---
-		 * The two version lines the Mac draws come from g_a5_-13948/-13944,
-		 * which in this build hold a GEO filename template ("%s%03d.dat")
-		 * not version text, so they're skipped until that source is found. */
+		 * Faithful to CODE 22 + 0x506e..0x50ee: five jt94 calls.
+		 *   row 3  col 11  <A5 -13948>   the product title   (cyan)
+		 *   row 4  col 7   <A5 -13944>   version / build line (light grey)
+		 *   row 9  col 11  "Current Game Design:"            (cyan)
+		 *   row 9  col 7   <A5 -31336>   the design filename  (light grey)
+		 *   row 10 col 7   <A5 -18876>   the module title     (light grey)
+		 * MENU.CTL UI palette: col 11 = cyan (103,255,255), col 7 = light
+		 * grey (187,187,187) — verified against data/frua_mac_main_menu.png
+		 * (no gold; the headings are cyan and the values light grey).
+		 *
+		 * The Mac sources the title + version lines from A5 globals
+		 * -13948 / -13944; our DATA-pool replay leaves those holding a GEO
+		 * filename template rather than the title strings, so we draw the
+		 * literal product/version text here (the same page/row/col the asm
+		 * uses). The design name + module title still come from their A5
+		 * slots, which the play path does populate. */
 		design = (const char *)g_a5_buf(-31336);
 		title  = (const char *)g_a5_buf(-18876);
-		/* MENU.CTL UI palette: 11 = cyan (headings), 14 = gold (values).
-		 * Matches data/frua_mac_main_menu.png — "Current Game Design:" cyan,
-		 * the design filename + module title in gold. */
+		jt94((short)8,  (short)3,  (short)11, (short)0, "Unlimited Adventures");
+		jt94((short)4,  (short)4,  (short)7,  (short)0,
+		     "Version 1.0          April 27, 1993");
 		jt94((short)4,  (short)9,  (short)11, (short)0, "Current Game Design:");
-		if (design[0]) jt94((short)25, (short)9,  (short)14, (short)0, "%s", design);
-		if (title[0])  jt94((short)4,  (short)10, (short)14, (short)0, "%s", title);
+		if (design[0]) jt94((short)25, (short)9,  (short)7, (short)0, "%s", design);
+		if (title[0])  jt94((short)4,  (short)10, (short)7, (short)0, "%s", title);
 
 		jt112((short)0);
 		jt117();                         /* present (engine path) */
