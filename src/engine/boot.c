@@ -10865,49 +10865,97 @@ static void load_menu_ui(void)
 		qd_set_palette(g_menu_pal, (short)0, g_menu_pe);
 }
 
-/* Draw the raised-bevel boxes behind the main-menu commands.
+/* --- main-menu chrome: dark stone surround + raised lighter plates ---
  *
- * The Mac paints each command as a 3D button via the paint funnel
- * (l148a -> jt995, still PROBE stubs in the port), so the bevels are
- * rendered here procedurally: a light edge on the top + left and a dark
- * edge on the bottom + right of each command's box, drawn over the stone
- * backdrop. Matches the raised buttons in data/frua_mac_menu.png.
+ * data/frua_mac_menu.png is a dark, textured stone *background* with the
+ * title block and each command sitting on a raised, smoother, lighter
+ * stone *plate* (bg lum ~70, plates ~95-100). The faithful art is in
+ * FRAME.TLB — a mask + edge + corner compositing system whose blit
+ * (l309c / jt1001) is still a PROBE stub, so reproducing it means
+ * reversing both its pixel encoding and the Mac's piece-placement logic
+ * (a multi-step RE). Until then the port renders the same look directly:
+ * a darkened stone backdrop with flat lighter bevelled plates.
  *
- * Box geometry is derived from each command's engine coords (g_mainmenu)
- * transformed by jt1135 — the same transform jt382 uses to place the
- * label — so the boxes track the labels exactly. Drawn into the QuickDraw
- * port pixels before l2c60 paints the labels, so the text sits on top. */
-static void draw_menu_bevels(void)
+ * Palette: stone shades run clut 16 (light, lum 196) .. 31 (dark, 57);
+ * plate fill is the flat mid grey clut 8 (103); bevel uses clut 7 (light)
+ * + clut 0 (dark). */
+#define MENU_PLATE_FILL   8     /* flat lighter grey for raised plates  */
+#define MENU_BEVEL_LIGHT  7     /* top/left highlight                   */
+#define MENU_BEVEL_DARK   0     /* bottom/right shadow                  */
+
+/* Pull a stone-tile index toward the dark end for the recessed backdrop
+ * (compress 16..31 into 27..30; bright pixels 7/15 darken too). */
+static unsigned char stone_dark(unsigned char v)
+{
+	if (v >= 16 && v <= 31) return (unsigned char)(27 + ((v - 16) >> 2));
+	if (v == 7 || v == 15)  return 29;
+	return v;                                  /* 0 (black mortar) stays */
+}
+
+/* Tile the MENU stone course across a rect, darkened, as the backdrop. */
+static void fill_stone_dark(unsigned char *px, short pitch,
+                            short x0, short y0, short x1, short y1)
+{
+	short x, y;
+	if (g_menu_state != 1)
+		return;
+	for (y = y0; y <= y1; y++) {
+		const unsigned char *row = g_menu_tile
+		    + (long)(y % g_menu_th) * g_menu_tw;
+		unsigned char *d = px + (long)y * pitch;
+		for (x = x0; x <= x1; x++) {
+			unsigned char v = (x < g_menu_tw) ? row[x]
+			                                  : row[g_menu_tw - 1];
+			d[x] = stone_dark(v);
+		}
+	}
+}
+
+/* A raised plate: flat lighter fill + a 1px bevel (light top+left, dark
+ * bottom+right). Clipped to the surface. */
+static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
+                       short x0, short y0, short x1, short y1)
+{
+	short x, y;
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > sw - 1) x1 = (short)(sw - 1);
+	if (y1 > sh - 1) y1 = (short)(sh - 1);
+	if (x1 <= x0 || y1 <= y0)
+		return;
+
+	for (y = y0; y <= y1; y++)
+		memset(px + (long)y * pitch + x0, MENU_PLATE_FILL,
+		       (size_t)(x1 - x0 + 1));
+	for (x = x0; x <= x1; x++) {
+		px[(long)y0 * pitch + x] = MENU_BEVEL_LIGHT;
+		px[(long)y1 * pitch + x] = MENU_BEVEL_DARK;
+	}
+	for (y = y0; y <= y1; y++) {
+		px[(long)y * pitch + x0] = MENU_BEVEL_LIGHT;
+		px[(long)y * pitch + x1] = MENU_BEVEL_DARK;
+	}
+}
+
+/* Draw a raised plate behind every main-menu command. Geometry comes from
+ * each command's engine coords (g_mainmenu) via jt1135 — the same
+ * transform jt382 uses for the label — so the plates track the labels.
+ * Called before l2c60 so the text lands on top. */
+static void draw_menu_plates(void)
 {
 	unsigned char *px;
 	short pitch, sw, sh, i;
-	const unsigned char LIGHT = 7;       /* clut 7 = 187,187,187 (highlight) */
-	const unsigned char DARK  = 0;       /* clut 0 = black        (shadow)   */
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
 	for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++) {
-		short py = 0, pxx = 0, x0, y0, x1, y1, x, y;
+		short py = 0, pxx = 0;
 
 		jt1135(g_mainmenu[i].y, g_mainmenu[i].x, &py, &pxx);
-		x0 = (short)(pxx - 5);
-		y0 = (short)(py - 11);
-		x1 = (short)(x0 + 150);
-		y1 = (short)(py + 2);
-		if (x0 < 0)        x0 = 0;
-		if (y0 < 0)        y0 = 0;
-		if (x1 > sw - 1)   x1 = (short)(sw - 1);
-		if (y1 > sh - 1)   y1 = (short)(sh - 1);
-
-		for (x = x0; x <= x1; x++) {     /* top = light, bottom = dark */
-			px[(long)y0 * pitch + x] = LIGHT;
-			px[(long)y1 * pitch + x] = DARK;
-		}
-		for (y = y0; y <= y1; y++) {     /* left = light, right = dark */
-			px[(long)y * pitch + x0] = LIGHT;
-			px[(long)y * pitch + x1] = DARK;
-		}
+		draw_plate(px, pitch, sw, sh,
+		           (short)(pxx - 5), (short)(py - 11),
+		           (short)(pxx - 5 + 150), (short)(py + 2));
 	}
 }
 
@@ -10938,24 +10986,22 @@ static int   jt315(void)
 		g_a5_2347 = 1;                   /* non-encounter: jt1135 scale 2 */
 		load_menu_ui();                  /* install the MENU.CTL UI palette */
 
-		/* Paint the menu background: the MENU.CTL stone-block course tiled
-		 * down the whole screen (its own calm grey UI texture), then prime
-		 * the present path before the QuickDraw text + DLItem buttons draw
-		 * on top. (jt131(6), the engine clear, is a PROBE stub in the port.) */
+		/* Paint the menu chrome: a dark, recessed stone backdrop with a
+		 * raised lighter plate behind the title block (the per-command
+		 * plates are drawn just before l2c60, below). Matches the layout in
+		 * data/frua_mac_menu.png. (jt131(6), the engine clear, is a PROBE
+		 * stub in the port.) */
 		{
-			unsigned char *px; short pitch, sw, sh, xx, yy;
+			unsigned char *px; short pitch, sw, sh, yy;
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-				for (yy = 0; yy < sh; yy++) {
-					unsigned char *d = px + (long)yy * pitch;
-					if (g_menu_state == 1) {
-						const unsigned char *row = g_menu_tile
-						    + (long)(yy % g_menu_th) * g_menu_tw;
-						for (xx = 0; xx < sw; xx++)
-							d[xx] = (xx < g_menu_tw)
-							      ? row[xx] : row[g_menu_tw - 1];
-					} else {
-						memset(d, 0x08, (size_t)sw);
-					}
+				if (g_menu_state == 1) {
+					fill_stone_dark(px, pitch, 0, 0,
+					                (short)(sw - 1), (short)(sh - 1));
+					/* title plate (ref bbox ~x6..313, y6..96) */
+					draw_plate(px, pitch, sw, sh, 6, 6, 313, 96);
+				} else {
+					for (yy = 0; yy < sh; yy++)
+						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 				}
 				qd_present();
 			}
@@ -10973,8 +11019,8 @@ static int   jt315(void)
 			      (long)36, (long)18, (long)20, (long)21, (long)0);
 		jt452((long)7, (long)(uintptr_t)jt313, (long)20, (long)0);  /* action item */
 
-		/* --- raised bevel boxes (under the labels) --- */
-		draw_menu_bevels();
+		/* --- raised plates behind each command (under the labels) --- */
+		draw_menu_plates();
 
 		/* --- paint the buttons --- */
 		l2c60((short)1);
