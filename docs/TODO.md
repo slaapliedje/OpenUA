@@ -101,11 +101,27 @@ body in light grey (clut 7) and the accelerator letter (rec[29]) in white
 DONE (commit fa33ca7): switched the Falcon to 320x200x256 (mode 0x003
 RGB / 0x113 VGA) so the menu fills the screen 1:1 with the Mac instead of
 the top half of a 320x400 buffer.
-OPTIONAL refinements: (a) FRAME.TLB art (the faithful bevels live in the
-l148a/jt995 funnel — our boxes are procedural); (b) a darker stone field
-inside each box; (c) disabled items (Delete/Unlock) should render dimmer;
-(d) text rows are a touch cramped — the compat 8x8 font is full-height on
-8px (scale-2) row spacing, faithful to the asm coords, a font limitation.
+DONE (commit 77f7ba4): dark stone surround + raised lighter plates.
+fill_stone_dark() darkens the stone tile for the recessed backdrop;
+draw_plate() = flat clut-8 fill + bevel; jt315 draws a title plate and
+draw_menu_plates() draws one plate per command. Replaced the procedural
+outline-boxes that overlaid everything. Matches the reference layout.
+
+FRAME.TLB analysis (for when the faithful art is lifted): it's a flat
+30-item GLIB of frame pieces — wide edge strips (top1 480x12, top4
+480x24, top6 480x16), tall side strips (top2/3 16x276), 16x17 corner
+tiles (top10-15), a 280x264 panel MASK (top5, 1bpp — solid interior +
+dithered stone border), and 96x56 tiles (top22-25). Encodings: flags
+0x90=1bpp (verified, top5 renders clean), 0x91/0x92 are NOT plain
+2/4bpp-chunky (top4 as 4bpp = noise) — needs the real decode. The blit
+funnel l309c/jt1001 is a PROBE stub, so faithful FRAME = reverse the
+encoding + the Mac's piece-placement. Multi-step; deferred.
+
+OPTIONAL refinements: (a) faithful FRAME.TLB art (above); (b) warmer
+plate fill (ref plates are brownish ~91,83,79 vs our neutral clut-8 103);
+(c) disabled items (Delete/Unlock) dimmer — comes with button wiring;
+(d) text rows a touch cramped (compat 8x8 font full-height on scale-2
+8px rows; faithful to asm coords, a font limitation).
 
 ## Initial-screen texture (GEN backdrop) — stopgap (wrong asset)
 
