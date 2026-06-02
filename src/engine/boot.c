@@ -8416,25 +8416,34 @@ void port_test_seed_design(void)
 	/* Seed a test PARTY so the Training Hall roster grid (l02dc) shows
 	 * real entries. The roster is a linked list (next ptr at record +0)
 	 * walked from g_a5_-27928; each record carries the name at +96, HP at
-	 * +385, AC at +395 (the fields l02dc / jt25 / jt32 / jt34 read). Until
-	 * character creation (CODE 17) lands, this stands in for a created
-	 * party so "a party exists" and the roster is populated. */
+	 * +385, AC at +395 (the fields l02dc / jt25 / jt32 / jt34 read). This
+	 * stands in for a saved party until real save/load lands.
+	 *
+	 * Built ONCE: l07dc re-runs this on every Play, but char-gen appends
+	 * created characters to the end of this list (k_party[2].next -> the
+	 * new record), so rebuilding k_party each time would sever them. Seed
+	 * the base party once; only re-point the roster head each Play (which
+	 * keeps any appended created characters across Play sessions). */
 	{
 		static unsigned char k_party[3][512];
 		static const char   *k_names[3] = { "Bramble", "Korin Vale", "Sable" };
 		static const unsigned char k_hp[3] = { 18, 24, 11 };
 		static const unsigned char k_ac[3] = { 5, 7, 4 };
-		int p, c;
+		static int seeded = 0;
 
-		for (p = 0; p < 3; p++) {
-			memset(k_party[p], 0, sizeof k_party[p]);
-			for (c = 0; k_names[p][c] != 0 && c < 15; c++)
-				k_party[p][96 + c] = (unsigned char)k_names[p][c];
-			k_party[p][96 + c] = 0;
-			k_party[p][385] = k_hp[p];           /* HP  */
-			k_party[p][395] = k_ac[p];           /* AC  */
-			*(long *)(k_party[p]) =              /* next ptr (+0) */
-			    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
+		if (!seeded) {
+			int p, c;
+			seeded = 1;
+			for (p = 0; p < 3; p++) {
+				memset(k_party[p], 0, sizeof k_party[p]);
+				for (c = 0; k_names[p][c] != 0 && c < 15; c++)
+					k_party[p][96 + c] = (unsigned char)k_names[p][c];
+				k_party[p][96 + c] = 0;
+				k_party[p][385] = k_hp[p];           /* HP  */
+				k_party[p][395] = k_ac[p];           /* AC  */
+				*(long *)(k_party[p]) =              /* next ptr (+0) */
+				    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
+			}
 		}
 		g_a5_long(-27928) = (long)(uintptr_t)k_party[0];   /* roster head */
 	}
