@@ -10783,14 +10783,22 @@ static short   jt313(void *rec, short cmd, ...)
  * straight from jt315's jt452 build (CODE 22 + 0x4dde..0x4fe8): label,
  * x, y (8000-anchored), and the selector hotkey letter. The two disabled
  * spacer rows at y=8087 are omitted. */
-/* `recessed` = 1 draws the command's plate sunken (highlight bottom/right)
- * rather than raised — the disabled commands (Delete / Unlock, greyed
- * until a design exists) match the title block's sunken look in the
- * reference. Wire this to the real enable state (jt158 / rec[28]) once the
- * sub-menus are lifted; hard-coded to the boot-state layout for now. */
-static const struct {
-	const char *label; short x, y, hotkey; int recessed;
-} g_mainmenu[] = {
+/* A menu command (or a label-less spacer plate). The reusable menu runner
+ * (menu_run) builds a DLItem per entry with a label, draws a bevelled plate
+ * per entry, and dispatches on the selected index. Every menu in the game
+ * shares this format, so new menus are just a menu_item_t[] + an optional
+ * decorate callback (title plate + banner).
+ *
+ * `recessed` = 1 draws the plate sunken (disabled commands / spacers /
+ * title) vs raised (active). Wire to the real enable state (jt158 /
+ * rec[28]) once the sub-menus are lifted; hard-coded to boot-state now. */
+typedef struct {
+	const char *label;        /* NULL = spacer: plate only, no DLItem */
+	short       x, y, hotkey;
+	int         recessed;
+} menu_item_t;
+
+static const menu_item_t g_mainmenu[] = {
 	{ "Play the Game",     8004, 8059, 'P', 0 },
 	{ "Select a Design",   8004, 8066, 'S', 0 },
 	{ "Create New Design", 8004, 8073, 'C', 0 },
@@ -10801,6 +10809,8 @@ static const struct {
 	{ "Art Gallery",       8084, 8073, 'A', 0 },
 	{ "Monster Editor",    8084, 8080, 'M', 0 },
 	{ "Quit From Game",    8084, 8094, 'Q', 0 },
+	{ NULL,                8004, 8087,  0,  1 },   /* spacer (left)  */
+	{ NULL,                8084, 8087,  0,  1 },   /* spacer (right) */
 };
 
 /* Main-menu UI assets, assembled from two GLIBs:
@@ -11118,149 +11128,145 @@ static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
 	}
 }
 
-/* Draw a plate behind every main-menu command, plus the two empty
- * "spacer" boxes. Geometry comes from each command's engine coords
- * (g_mainmenu) via jt1135 — the same transform jt382 uses for the label.
- * Active commands are raised; disabled ones (Delete / Unlock) and the two
- * empty boxes are recessed, matching data/frua_mac_menu.png. Called
- * before l2c60 so the labels land on top. */
-static void draw_menu_plates(void)
+/* Draw a bevelled plate behind every entry of a menu spec (commands and
+ * label-less spacers alike). Geometry comes from each entry's engine
+ * coords via jt1135 — the same transform jt382 uses for the label — so the
+ * plates track the labels. Active = raised, recessed = sunken (per the
+ * spec). Called before l2c60 so the labels land on top. */
+static void menu_draw_plates(const menu_item_t *items, short n)
 {
 	unsigned char *px;
 	short pitch, sw, sh, i, py = 0, pxx = 0;
-	/* the empty spacer row sits between the 4th command and the last
-	 * (engine y 8087); draw a recessed box in each column. */
-	static const short spacer[2][2] = { {8004, 8087}, {8084, 8087} };
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
-	for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++) {
-		jt1135(g_mainmenu[i].y, g_mainmenu[i].x, &py, &pxx);
+	for (i = 0; i < n; i++) {
+		jt1135(items[i].y, items[i].x, &py, &pxx);
 		draw_plate(px, pitch, sw, sh,
 		           (short)(pxx - 5), (short)(py - 11),
 		           (short)(pxx - 5 + 150), (short)(py + 2),
-		           g_mainmenu[i].recessed);
-	}
-	for (i = 0; i < 2; i++) {
-		jt1135(spacer[i][1], spacer[i][0], &py, &pxx);
-		draw_plate(px, pitch, sw, sh,
-		           (short)(pxx - 5), (short)(py - 11),
-		           (short)(pxx - 5 + 150), (short)(py + 2), 1);
+		           items[i].recessed);
 	}
 }
 
-/* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop. Builds the
- * DLItem button list (jt447 + jt452), paints it (l2c60), draws the title
- * banner (jt94), presents (jt117), then blocks in the dialog event loop
- * (jt453) until the user picks an item. Returns 1 to keep ua_main's play
- * loop running (Play / sub-menus), 0 on "Quit From Game".
+/* menu_run — the reusable DLItem menu runner shared by every menu screen.
  *
- * Lifted from the asm's build + paint + banner; the per-selection dispatch
- * (new/select/delete design, unlock editor, …) is simplified to
- * play-vs-quit for now — the sub-actions live in CODE 8/2 entries that are
- * still PROBE stubs. The setup/re-entry flag dance (jt215/jt356/g_a5_-11662)
- * is omitted; the menu rebuilds each pass. */
+ * Restores the menu display state (jt1135 scale 2 + the UI palette), paints
+ * the shared chrome (stone backdrop + a bevelled plate per spec entry),
+ * builds the DLItem group from the spec (jt447 + jt452), paints the labels
+ * (l2c60), presents (jt117), then blocks in the dialog event loop (jt453)
+ * and returns the selected index (jt452 order over the labelled entries).
+ *
+ *   items / n  — the menu spec; entries with a label get a DLItem + plate,
+ *                label-less entries get a recessed spacer plate only.
+ *   proc       — the shape-7 action PROC for this menu (may be NULL).
+ *   decorate   — menu-specific chrome (may be NULL): phase 0 is called over
+ *                the backdrop (e.g. a title plate), phase 1 after l2c60 (the
+ *                banner text). One callback, two phases, so a menu's extra
+ *                art and text stay together.
+ *
+ * New menus are a menu_item_t[] + a proc + an optional decorate — no copy
+ * of the build/paint/loop boilerplate. */
+static short menu_run(const menu_item_t *items, short n, void *proc,
+                      void (*decorate)(unsigned char *, short, short, short, int))
+{
+	short i;
+
+	g_a5_2347 = 1;                       /* non-encounter: jt1135 scale 2 */
+	load_menu_ui();
+
+	/* backdrop + menu-specific chrome (phase 0), then prime the present */
+	{
+		unsigned char *px; short pitch, sw, sh, yy;
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+			if (g_menu_state == 1) {
+				fill_backdrop(px, pitch, 0, 0,
+				              (short)(sw - 1), (short)(sh - 1));
+				if (decorate) decorate(px, pitch, sw, sh, 0);
+			} else {
+				for (yy = 0; yy < sh; yy++)
+					memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+			}
+			qd_present();
+		}
+	}
+
+	/* build the DLItem group from the spec */
+	jt131((short)6);
+	jt112((short)1);
+	jt81();
+	jt447();
+	for (i = 0; i < n; i++)
+		if (items[i].label != NULL)
+			jt452((long)1, (long)items[i].y, (long)items[i].x,
+			      (long)(uintptr_t)items[i].label,
+			      (long)32, (long)items[i].hotkey,
+			      (long)36, (long)18, (long)20, (long)21, (long)0);
+	if (proc != NULL)
+		jt452((long)7, (long)(uintptr_t)proc, (long)20, (long)0);
+
+	/* plates under the labels, then paint the labels */
+	menu_draw_plates(items, n);
+	l2c60((short)1);
+
+	/* menu-specific banner (phase 1) on top of the labels */
+	if (decorate) {
+		unsigned char *px; short pitch, sw, sh;
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh))
+			decorate(px, pitch, sw, sh, 1);
+	}
+
+	jt112((short)0);
+	jt117();
+	qd_present();
+
+	return jt453((jt453_filter_t)0);
+}
+
+/* The main menu's decorate callback: the recessed title plate (phase 0) +
+ * the five-line banner (phase 1). Faithful to CODE 22 + 0x506e..0x50ee:
+ * "Unlimited Adventures" (row 3, col 11 cyan), the version/build line
+ * (row 4, col 7 grey), "Current Game Design:" (row 9, col 11) + the design
+ * name + module title (col 7). The Mac sources the title/version from A5
+ * -13948/-13944, which our DATA replay leaves holding a GEO template, so
+ * those two lines are drawn literally; the design/title come from their A5
+ * slots (populated by the play path). */
+static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
+                           int phase)
+{
+	if (phase == 0) {
+		draw_plate(px, pitch, sw, sh, 6, 6, 313, 96, 1);  /* title plate */
+		return;
+	}
+	{
+		const char *design = (const char *)g_a5_buf(-31336);
+		const char *title  = (const char *)g_a5_buf(-18876);
+		jt94((short)8, (short)3, (short)11, (short)0, "Unlimited Adventures");
+		jt94((short)4, (short)4, (short)7,  (short)0,
+		     "Version 1.0          April 27, 1993");
+		jt94((short)4, (short)9, (short)11, (short)0, "Current Game Design:");
+		if (design[0]) jt94((short)25, (short)9, (short)7, (short)0, "%s", design);
+		if (title[0])  jt94((short)4, (short)10, (short)7, (short)0, "%s", title);
+	}
+}
+
+/* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop, now on the
+ * shared menu_run. Returns 1 to keep ua_main's play loop running (Play /
+ * sub-menus), 0 on "Quit From Game". The per-selection dispatch is still
+ * play-vs-quit; the other commands (CODE 8/2/12 sub-menus) redraw until
+ * they are lifted (see docs/menu-wiring-plan.md). */
 static int   jt315(void)
 {
-	short hit, i;
-	const char *design, *title;
-
 	PROBE("jt315");
 
 	for (;;) {
-		/* Restore the menu's display state after a dungeon visit. The play
-		 * loop overwrites clut 0..15 (corridor shading) and switches to deep
-		 * mode (g_a5_-2347 = 0, jt1135 scale 3); without restoring, the menu
-		 * paints with the dungeon palette (near-black) and deep-scaled coords
-		 * (shifted/clipped). */
-		g_a5_2347 = 1;                   /* non-encounter: jt1135 scale 2 */
-		load_menu_ui();                  /* install the MENU.CTL UI palette */
-
-		/* Paint the menu chrome: a dark, recessed stone backdrop with a
-		 * raised lighter plate behind the title block (the per-command
-		 * plates are drawn just before l2c60, below). Matches the layout in
-		 * data/frua_mac_menu.png. (jt131(6), the engine clear, is a PROBE
-		 * stub in the port.) */
-		{
-			unsigned char *px; short pitch, sw, sh, yy;
-			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-				if (g_menu_state == 1) {
-					fill_backdrop(px, pitch, 0, 0,
-					              (short)(sw - 1), (short)(sh - 1));
-					/* title block — recessed (sunken) plate, ref bbox
-					 * ~x6..313, y6..96. */
-					draw_plate(px, pitch, sw, sh, 6, 6, 313, 96, 1);
-				} else {
-					for (yy = 0; yy < sh; yy++)
-						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
-				}
-				qd_present();
-			}
-		}
-
-		/* --- build the menu --- */
-		jt131((short)6);                 /* clear to the menu screen mode */
-		jt112((short)1);
-		jt81();                          /* (frame setup — PROBE stub)    */
-		jt447();                         /* init the DLItem group         */
-		for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++)
-			jt452((long)1, (long)g_mainmenu[i].y, (long)g_mainmenu[i].x,
-			      (long)(uintptr_t)g_mainmenu[i].label,
-			      (long)32, (long)g_mainmenu[i].hotkey,
-			      (long)36, (long)18, (long)20, (long)21, (long)0);
-		jt452((long)7, (long)(uintptr_t)jt313, (long)20, (long)0);  /* action item */
-
-		/* --- raised plates behind each command (under the labels) --- */
-		draw_menu_plates();
-
-		/* --- paint the buttons --- */
-		l2c60((short)1);
-
-		/* --- title banner (jt94: page,row,col,style,fmt) ---
-		 * Faithful to CODE 22 + 0x506e..0x50ee: five jt94 calls.
-		 *   row 3  col 11  <A5 -13948>   the product title   (cyan)
-		 *   row 4  col 7   <A5 -13944>   version / build line (light grey)
-		 *   row 9  col 11  "Current Game Design:"            (cyan)
-		 *   row 9  col 7   <A5 -31336>   the design filename  (light grey)
-		 *   row 10 col 7   <A5 -18876>   the module title     (light grey)
-		 * MENU.CTL UI palette: col 11 = cyan (103,255,255), col 7 = light
-		 * grey (187,187,187) — verified against data/frua_mac_main_menu.png
-		 * (no gold; the headings are cyan and the values light grey).
-		 *
-		 * The Mac sources the title + version lines from A5 globals
-		 * -13948 / -13944; our DATA-pool replay leaves those holding a GEO
-		 * filename template rather than the title strings, so we draw the
-		 * literal product/version text here (the same page/row/col the asm
-		 * uses). The design name + module title still come from their A5
-		 * slots, which the play path does populate. */
-		design = (const char *)g_a5_buf(-31336);
-		title  = (const char *)g_a5_buf(-18876);
-		jt94((short)8,  (short)3,  (short)11, (short)0, "Unlimited Adventures");
-		jt94((short)4,  (short)4,  (short)7,  (short)0,
-		     "Version 1.0          April 27, 1993");
-		jt94((short)4,  (short)9,  (short)11, (short)0, "Current Game Design:");
-		if (design[0]) jt94((short)25, (short)9,  (short)7, (short)0, "%s", design);
-		if (title[0])  jt94((short)4,  (short)10, (short)7, (short)0, "%s", title);
-
-		jt112((short)0);
-		jt117();                         /* present (engine path) */
-		qd_present();                    /* c2p the QD port to VIDEL + flip */
-
-		/* --- block until the user selects an item --- */
-		hit = jt453((jt453_filter_t)0);
-
-		/* Dispatch on the selected DLItem (l2d3e returns the pool index,
-		 * g_mainmenu order). The faithful Play path is jt315 -> return 1
-		 * -> ua_main's l07dc -> jt918 party setup, but l07dc/jt918 and the
-		 * Training Hall are still PROBE stubs, so Play instead enters the
-		 * working first-person play loop (port_play_demo: load level, place
-		 * the party, render jt312, walk with WASD; returns on 'q'). Other
-		 * design/editor items redraw the menu until their CODE 8/2/12
-		 * handlers are lifted. */
+		short hit = menu_run(g_mainmenu,
+		    (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]),
+		    (void *)(uintptr_t)jt313, jt315_decorate);
 		switch (hit) {
 		case 0:                          /* Play the Game */
-			return 1;                /* -> ua_main's l07dc -> jt918 Training Hall */
+			return 1;
 		case 9:                          /* Quit From Game */
 			return 0;
 		default:
