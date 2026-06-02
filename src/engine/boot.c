@@ -5127,20 +5127,58 @@ static short jt382(void *rec_v, short cmd, ...)
 				}
 #endif
 				if (len > 0) {
-					GrafPtr bport;
 					/* The Mac paint chain (L148a/jt995) sets the pen
 					 * colour; our collapsed path doesn't, so the label
-					 * would inherit a stale fgColor (cyan/magenta under
-					 * the menu's UI palette). Force white (UI clut 15) so
-					 * button labels match data/frua_mac_main_menu.png. The
-					 * per-hotkey gold highlight is a separate step. */
+					 * would inherit a stale fgColor. Draw the body in the
+					 * UI's light grey (clut 7) and the accelerator letter
+					 * in white (clut 15) — the highlighted hotkey letter
+					 * in data/frua_mac_menu.png. The accelerator code is
+					 * rec[29] (set by jt452 cmd 32); we highlight its first
+					 * case-insensitive match in the label. */
+					const unsigned char BODY = 7, HOT = 15;
+					unsigned char hk = rec[29];
+					short hi = -1, k;
+					CGrafPtr cport;
+					GrafPtr  bport;
+
 					GetPort(&bport);
-					if (bport != NULL)
-						((CGrafPtr)bport)->fgColor = (unsigned char)15;
-					pbuf[0] = (unsigned char)len;
-					memcpy(pbuf + 1, label, (size_t)len);
+					cport = (CGrafPtr)bport;
+
+					if (hk != 0) {
+						unsigned char hu = (unsigned char)
+						    ((hk >= 'a' && hk <= 'z') ? hk - 32 : hk);
+						for (k = 0; k < len; k++) {
+							unsigned char c = (unsigned char)label[k];
+							if (c >= 'a' && c <= 'z') c -= 32;
+							if (c == hu) { hi = k; break; }
+						}
+					}
+
 					MoveTo(x_pix, y_pix);
-					DrawString(pbuf);
+					if (hi < 0) {            /* no accelerator: all body */
+						if (cport) cport->fgColor = BODY;
+						pbuf[0] = (unsigned char)len;
+						memcpy(pbuf + 1, label, (size_t)len);
+						DrawString(pbuf);
+					} else {
+						if (hi > 0) {    /* prefix (body) */
+							if (cport) cport->fgColor = BODY;
+							pbuf[0] = (unsigned char)hi;
+							memcpy(pbuf + 1, label, (size_t)hi);
+							DrawString(pbuf);
+						}
+						if (cport) cport->fgColor = HOT;  /* hotkey */
+						pbuf[0] = 1;
+						pbuf[1] = (unsigned char)label[hi];
+						DrawString(pbuf);
+						if (hi + 1 < len) {  /* suffix (body) */
+							short n = (short)(len - hi - 1);
+							if (cport) cport->fgColor = BODY;
+							pbuf[0] = (unsigned char)n;
+							memcpy(pbuf + 1, label + hi + 1, (size_t)n);
+							DrawString(pbuf);
+						}
+					}
 				}
 			}
 		}
