@@ -11080,26 +11080,26 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 /* Tile the GEN.CTL stone field across the screen as the backdrop.
  *
  * GEN item 1 (decoded into g_bg) is one bearing-placed section of the Mac's
- * "gen" backdrop; its row 0 is a bright panel-top highlight (mean clut ~17
- * vs the ~27 dark interior) meant for where the section sits at its bearing
- * (y110). When the section is *tiled* to cover the screen, that bright row
- * repeats as a stray light bar at every tile boundary, so we tile only the
- * dark interior (rows 1..h-1) and mirror alternate copies (a triangle wave)
- * so the repeat is seamless. (The lifted ui_glib_blit draws whole images;
- * this is a tuned interior tile, since gen's bright edge isn't part of the
- * tileable field.) */
+ * "gen" backdrop; rows 0..1 are a bright panel-top highlight + transition
+ * (mean clut ~17 / ~21 vs the ~27 dark interior) meant for where the
+ * section sits at its bearing. Tiling the whole section repeats those at
+ * every boundary as stray light bars, so we tile only the dark interior
+ * (rows 2..h-1). A straight repeat there is essentially seamless: the
+ * row(h-1)->row2 wrap differs by ~3, the same as adjacent interior rows
+ * (~2), and unlike mirroring it doesn't reverse the diagonal grain (which
+ * read as a chevron at the fold). The lifted ui_glib_blit draws whole
+ * images; this is a tuned interior tile, since gen's bright edge isn't part
+ * of the tileable field. */
 static void fill_backdrop(unsigned char *px, short pitch,
                           short x0, short y0, short x1, short y1)
 {
 	short x, y;
-	short T = (short)(g_bg_h - 1);       /* interior height (skip row 0) */
+	short T = (short)(g_bg_h - 2);       /* interior height (skip rows 0,1) */
 
 	if (g_menu_state != 1 || T <= 0)
 		return;
 	for (y = y0; y <= y1; y++) {
-		short m  = (short)(y % (2 * T));         /* triangle wave period */
-		short si = (m < T) ? m : (short)(2 * T - 1 - m);
-		const unsigned char *row = g_bg + (long)(1 + si) * g_bg_w;
+		const unsigned char *row = g_bg + (long)(2 + y % T) * g_bg_w;
 		unsigned char *d = px + (long)y * pitch;
 		for (x = x0; x <= x1; x++)
 			d[x] = (x < g_bg_w) ? row[x] : row[g_bg_w - 1];
