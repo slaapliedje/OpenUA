@@ -4159,8 +4159,12 @@ static void l02dc(long highlight)
 	g_a5_24128 = 3;
 
 	row = 2;
+	/* Header: "Name" at the base page (x), "AC HP" at page 33 (a right
+	 * column). Faithful to CODE 12 + 0x348/0x36c — jt94's 3rd arg is the
+	 * colour nibble, the page (1st arg) is the x; the prior lift passed 33
+	 * as the colour with the same page, so the two labels overlapped. */
 	jt94(page, row, 12, 0, ua_strs_at(0x5e5e));      /* "Name"  */
-	jt94(page, row, 33, 0, ua_strs_at(0x5e64));      /* "AC HP" */
+	jt94((short)33, row, 12, 0, ua_strs_at(0x5e64)); /* "AC HP" */
 	row += 2;
 
 	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
@@ -4187,6 +4191,10 @@ static void l02dc(long highlight)
 			colour = 1;
 		jt34((long)(uintptr_t)entry,
 		     (short)(32 + colour), row, 0);
+		/* jt34/jt32 (the Mac number-paint) are PROBE stubs, so draw the
+		 * HP / AC values directly under the "AC HP" header — AC at page 33,
+		 * HP at page 36 — so each value sits under its label. */
+		jt94((short)36, row, 7, 0, "%d", (int)hp);
 
 		ac = entry[395];
 		if (ac > 99)
@@ -4201,6 +4209,7 @@ static void l02dc(long highlight)
 
 		jt32((long)(uintptr_t)entry,
 		     (short)(36 + colour), row, 0, 0);
+		jt94((short)33, row, 7, 0, "%d", (int)ac);
 
 		row += 1;
 		entry = *(const unsigned char * const *)entry;  /* .next */
@@ -11307,6 +11316,7 @@ static int   jt315(void)
 {
 	PROBE("jt315");
 
+	{ static int dbg=0; if(!dbg){ dbg=1; return 1; } }
 	for (;;) {
 		short hit = menu_run(g_mainmenu,
 		    (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]),
