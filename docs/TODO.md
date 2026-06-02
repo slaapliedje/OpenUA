@@ -9,10 +9,23 @@ Working notes on what's next. Ratified architecture decisions live in
   DLItem buttons (jt447/jt452), paints (l2c60 -> jt382 DrawString), draws
   the "Current Game Design:" banner (jt94), runs the dialog event loop
   (jt453). Full screen of UI matching the Mac; Quit-confirm dialog works.
+- DONE: per-selection dispatch. jt315 loops + dispatches on the selected
+  DLItem index (g_mainmenu order). "Play the Game" (0) -> port_play_demo
+  (load level, place party, render jt312, walk WASD, back on 'q'); "Quit
+  From Game" (9) -> return 0. Verified in Hatari (-DDEMO_LEVEL=2): boot ->
+  menu -> 'P' -> the 3D dungeon corridor. Selection works via the item
+  hotkey (jt382 hit-test + l1676 commit -> l2d3e returns the index).
 - NEXT (boot UI):
-  - Per-selection dispatch: Play -> the play loop (l07dc / jt918 dialog),
-    Select/Create/Delete design, Unlock Editor (password), etc. Most land
-    in CODE 8/2/12 entries still PROBE-stubbed.
+  - ROUND-TRIP GLITCH: returning from the dungeon ('q') redraws the menu
+    BLACK — after port_play_demo's double-buffered VIDEL mode, even jt315's
+    gray-fill + qd_present doesn't reach the visible buffer (the dungeon
+    present path and qd_present target different buffers/state). Double
+    qd_present didn't fix it; needs a display-HAL present/buffer reset on
+    menu re-entry (platform/display_videl.c). The forward path
+    (menu -> Play) is unaffected.
+  - The faithful Play path (jt315 -> return 1 -> l07dc -> jt918 party
+    setup / Training Hall) and Select/Create/Delete design + Unlock Editor
+    land in CODE 8/2/12 entries still PROBE-stubbed.
   - Version banner: find the real source for the two top lines
     (g_a5_-13948/-13944 hold a "%s%03d.dat" template in this build).
   - jt131(6) screen-clear is a stub — jt315 paints its own backdrop +
