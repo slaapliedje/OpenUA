@@ -1640,6 +1640,8 @@ static void  l07dc(void);                              /* defined below */
 static void  jt10_handler(void) { }     /* CODE 6 + 0x0538 (jump-table entry 10) */
 static void  jt11_handler(void) { }     /* CODE 6 + 0x04c0 (jump-table entry 11) */
 
+void port_play_demo(void);              /* interactive 3D-view demo (FRUA_3D_DEMO) */
+
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
  *
@@ -1682,6 +1684,15 @@ int ua_main(short arg1, long arg2)
 	l4d98();
 	l0444();
 	jt361(1);
+#ifdef FRUA_3D_DEMO
+	/* Interactive dungeon-walk demo. jt361(1) has run l4cc0 (design
+	 * buffers) and l7222, so the play-loop core can load DEMO_LEVEL,
+	 * place the party at a corridor vantage, and render the first-person
+	 * 3D view (jt312 -> the active renderer). WASD/turn keys walk; never
+	 * returns. Opt in with `make EXTRA_CFLAGS=-DFRUA_3D_DEMO ...`; off by
+	 * default so the normal boot lands on the engine UI. */
+	port_play_demo();
+#endif
 	jt920();
 	jt1009(8096, 0);
 
