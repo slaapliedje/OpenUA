@@ -74,20 +74,22 @@ JT[110], decode GEN's real tile format (probably stride=metric[6] not
 8*metric[6], with a magenta-key transparency band), and blit per JT[81]'s
 coords. (Also gated by the present-buffer issue below in some contexts.)
 
-## Display present / buffer plumbing (NOW THE PRIORITY UNBLOCKER)
+## Display present / buffer plumbing
 
-A recurring issue gates several screens: a draw + qd_present does NOT reach
-the visible VIDEL buffer in certain call contexts, even a flat gray-fill.
-Confirmed cases:
-- Dungeon round-trip: 'q' out of port_play_demo -> menu redraws BLACK (the
-  3D view's double-buffered mode leaves qd_present on the wrong page).
-- Char-gen (jt574) reached via l07dc -> jt918: the screen draws black.
-- BUT it works fine for: jt315 main menu, l0aae/jt918 Training Hall loop
-  (their in-loop clear+present shows).
-So qd_present works in some contexts and not others — likely a front/back
-page-tracking bug in platform/display_videl.c (videl_flip / the qd_present
-hook) when the active page was changed by a prior screen. Fixing this
-unblocks the char-gen render, the round-trip, and future screens.
+RESOLVED (the round-trip black screen). It was NOT a present/buffer bug:
+instrumenting videl_present showed it ran correctly (front alternating, the
+chunky surface held the gray fill, chunky[0]=8) — but clut[8] had become a
+near-black DUNGEON shade. port_play_demo overwrites clut 0..15 (corridor
+shading) and switches to deep mode (g_a5_-2347=0, jt1135 scale 3) and never
+restores either, so the menu painted with the dungeon palette + deep-scaled
+(shifted/clipped) coords. FIX: jt315 and jt918 now restore g_a5_-2347 = 1 +
+load_frua_palette() (clut 129, made non-static) on every menu redraw.
+Verified: Play -> dungeon -> q -> menu redraws fully (was black).
+- STILL OPEN (separate, NOT this issue): char-gen (jt574 via L3666) drew
+  black even with NO dungeon visited (clut/mode were the menu's), so that's
+  a draw bug in L3666/jt1089/the jt574 context, not palette/present. Revisit
+  when resuming the CODE 17 char-gen lift; now that jt918 restores the menu
+  state, re-enabling Train (g_a5_-14440) is safe to retry.
 - NEXT (boot UI):
   - The faithful Begin Adventuring (jt585 -> CODE 15/19 -> the real play
     loop) so the port_play_demo bridge can come off. Exit From Play
