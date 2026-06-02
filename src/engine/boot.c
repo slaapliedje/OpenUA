@@ -10744,6 +10744,84 @@ static const struct { const char *label; short x, y, hotkey; } g_mainmenu[] = {
 	{ "Quit From Game",    8084, 8094, 'Q' },
 };
 
+/* GEN.CTL main-menu backdrop. The Mac draws it via JT[81]; here we load the
+ * "gen" tile library directly. GEN.CTL = a 2-item GLIB: item 0 is a 16-colour
+ * RGB palette band (installed at clut 16), item 1 is a 320x90 PackBits-RLE
+ * backdrop image whose pixels are clut indices 16..31 (the band) + 0. */
+static unsigned char g_gen_file[32768];
+static unsigned char g_gen_img[320 * 90];
+static short         g_gen_w, g_gen_h;
+static int           g_gen_state;            /* 0 untried, 1 ok, -1 failed */
+static unsigned char g_gen_pr[16], g_gen_pg[16], g_gen_pb[16];
+
+static void load_gen_bg(void)
+{
+	if (g_gen_state == 0) {
+		short refnum = 0;
+		long  flen, base, p0, p1;
+
+		g_gen_state = -1;
+		if (FSOpen((ConstStr255Param)"\007GEN.CTL", 0, &refnum) == noErr) {
+			flen = (long)sizeof g_gen_file;
+			(void)FSRead(refnum, &flen, g_gen_file);
+			(void)FSClose(refnum);
+			base = (long)(uintptr_t)g_gen_file;
+			if (l37aa(base, 0) != 0
+			 && (p0 = l37aa(base, 0)) != 0
+			 && (p1 = l37aa(base, 1)) != 0 && p1 > p0) {
+				const unsigned char *pp =
+				    (const unsigned char *)(uintptr_t)(p0 + 8);
+				short pe = (short)((p1 - p0 - 8) / 3), k;
+				const unsigned char *it1 =
+				    (const unsigned char *)(uintptr_t)p1;
+				short h = (short)(((unsigned)it1[0] << 8) | it1[1]);
+				short w = (short)(8 * it1[6]);
+				const unsigned char *src = it1 + 8;
+				long  srclen = flen - (p1 - base) - 8;
+				long  cap = (long)w * h;
+				long  o = 0, si = 0;
+
+				if (pe > 16) pe = 16;
+				for (k = 0; k < pe; k++) {
+					g_gen_pr[k] = pp[k * 3 + 0];
+					g_gen_pg[k] = pp[k * 3 + 1];
+					g_gen_pb[k] = pp[k * 3 + 2];
+				}
+				/* PackBits decode item 1 into g_gen_img */
+				if (cap > (long)sizeof g_gen_img)
+					cap = (long)sizeof g_gen_img;
+				while (si < srclen && o < cap) {
+					signed char c = (signed char)src[si++];
+					if (c >= 0) {            /* c+1 literals */
+						short n = (short)(c + 1);
+						while (n-- > 0 && si < srclen && o < cap)
+							g_gen_img[o++] = src[si++];
+					} else if (c != -128) {  /* repeat next byte 1-c times */
+						short n = (short)(1 - c);
+						unsigned char v = src[si++];
+						while (n-- > 0 && o < cap)
+							g_gen_img[o++] = v;
+					}
+				}
+				g_gen_w = w;
+				g_gen_h = h;
+				if (o >= (long)w * h)
+					g_gen_state = 1;
+			}
+		}
+	}
+	if (g_gen_state == 1) {              /* (re)install the band at clut 16 */
+		RGBColor c[16];
+		short k;
+		for (k = 0; k < 16; k++) {
+			c[k].red   = (unsigned short)((g_gen_pr[k] << 8) | g_gen_pr[k]);
+			c[k].green = (unsigned short)((g_gen_pg[k] << 8) | g_gen_pg[k]);
+			c[k].blue  = (unsigned short)((g_gen_pb[k] << 8) | g_gen_pb[k]);
+		}
+		qd_set_palette(c, (short)16, (short)16);
+	}
+}
+
 /* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop. Builds the
  * DLItem button list (jt447 + jt452), paints it (l2c60), draws the title
  * banner (jt94), presents (jt117), then blocks in the dialog event loop
@@ -10770,17 +10848,27 @@ static int   jt315(void)
 		 * (shifted/clipped). */
 		g_a5_2347 = 1;                   /* non-encounter: jt1135 scale 2 */
 		{ extern void load_frua_palette(void); load_frua_palette(); }
+		load_gen_bg();                   /* GEN band -> clut 16 (after clut 129) */
 
-		/* Clear the menu background. jt131(6) is the engine's screen-mode
-		 * / clear call but is a PROBE stub in the port, so paint a flat
-		 * backdrop over the VIDEL buffer ourselves (clut-129 dark grey)
-		 * and prime the present path before the QuickDraw text + DLItem
-		 * buttons draw on top. */
+		/* Paint the menu background: the GEN.CTL backdrop image across the
+		 * top, flat clut-8 grey below it, then prime the present path before
+		 * the QuickDraw text + DLItem buttons draw on top. (jt131(6), the
+		 * engine clear, is a PROBE stub in the port.) */
 		{
-			unsigned char *px; short pitch, sw, sh, yy;
+			unsigned char *px; short pitch, sw, sh, xx, yy;
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-				for (yy = 0; yy < sh; yy++)
-					memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+				for (yy = 0; yy < sh; yy++) {
+					unsigned char *d = px + (long)yy * pitch;
+					if (g_gen_state == 1 && yy < g_gen_h) {
+						const unsigned char *row =
+						    g_gen_img + (long)yy * g_gen_w;
+						for (xx = 0; xx < sw; xx++)
+							d[xx] = (xx < g_gen_w)
+							      ? row[xx] : (unsigned char)0x08;
+					} else {
+						memset(d, 0x08, (size_t)sw);
+					}
+				}
 				qd_present();
 			}
 		}
