@@ -10783,8 +10783,7 @@ static int   jt315(void)
 		 * handlers are lifted. */
 		switch (hit) {
 		case 0:                          /* Play the Game */
-			port_play_demo();        /* enter the dungeon; back on 'q' */
-			break;                   /* then redraw the menu           */
+			return 1;                /* -> ua_main's l07dc -> jt918 Training Hall */
 		case 9:                          /* Quit From Game */
 			return 0;
 		default:
@@ -11097,6 +11096,18 @@ static int l0aae(void)
 
 	PROBE("L0aae");
 
+	/* Clear the Training Hall background + prime the present path (same
+	 * workaround jt315 uses — jt131(6)/jt174 don't reach the VIDEL buffer
+	 * in the port yet). */
+	{
+		unsigned char *px; short pitch, sw, sh, yy;
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+			for (yy = 0; yy < sh; yy++)
+				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+			qd_present();
+		}
+	}
+
 	jt174();
 	jt447();
 
@@ -11142,9 +11153,10 @@ static int l0aae(void)
 			jt444(i, (short)(*flags[i] != 0 ? 24 : 16), 0, 0);
 	}
 
-	jt449(1);
+	l2c60(1);                            /* real DLItem paint walker (jt449 is a stub) */
 	(void)jt112(0);
 	(void)jt117();
+	qd_present();                        /* c2p the QD port to VIDEL + flip */
 
 	selection = jt453(NULL);
 	if (jt146() != 0) {
