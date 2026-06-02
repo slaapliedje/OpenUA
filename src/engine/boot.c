@@ -10810,17 +10810,22 @@ static const struct {
  *   FRAME.CTL item 0 — a 16-colour "band" of warm greys installed over
  *                     clut 16..31 (the UI stone ramp: 16 = light 167,
  *                     23 = 91,83,79 the plate face, 31 = near-black). The
- *                     FRAME tiles index into this band.
- *   FRAME.CTL item 4 — a 320x16 PackBits-8bpp dark warm stone-block tile;
- *                     the menu backdrop, repeated across the whole screen
- *                     (visible in the gaps between the raised plates).
+ *                     FRAME tiles + plates index into this band.
+ *   GEN.CTL item 1   — a 320x90 PackBits-8bpp dark stone texture; the menu
+ *                     backdrop. The Mac's jt81 (CODE 6 + 0x6a10) loads the
+ *                     "gen" asset and blits it in sections via JT[1001] ->
+ *                     l309c to fill the screen, so the field is the GEN
+ *                     stone, NOT a frame molding strip. (An earlier cut
+ *                     tiled FRAME.CTL item 4 — a divider molding with a
+ *                     baked-in 3D bevel highlight — which left a stray
+ *                     light line across the gaps; GEN is the real field.)
  *
- * (Earlier cuts used MENU.CTL's own stone courses + a hand-darkened fill;
- * the genuine UI backdrop + warm palette live in FRAME.CTL.) */
+ * Backdrop pixels index clut 16..31 too, so they render through the same
+ * FRAME band — a warm dark stone, matching data/frua_mac_menu.png. */
 static unsigned char g_menu_file[16384];
 static unsigned char g_frame_file[40960];
-static unsigned char g_frame_bg[320 * 16];   /* decoded backdrop tile      */
-static short         g_frame_bw, g_frame_bh;
+static unsigned char g_bg[320 * 90];         /* decoded GEN backdrop image  */
+static short         g_bg_w, g_bg_h;
 static int           g_menu_state;           /* 0 untried, 1 ok, -1 failed */
 static RGBColor      g_menu_pal[256];
 static short         g_menu_pe;
@@ -10879,17 +10884,16 @@ static void load_menu_ui(void)
 			}
 		}
 
-		/* --- FRAME.CTL: band over clut 16..31 + the backdrop tile --- */
+		/* --- FRAME.CTL item 0: the warm-grey band over clut 16..31 --- */
 		refnum = 0;
 		if (g_menu_pe > 0
 		 && FSOpen((ConstStr255Param)"\011FRAME.CTL", 0, &refnum) == noErr) {
-			long pb, p4;
+			long pb;
 			flen = (long)sizeof g_frame_file;
 			(void)FSRead(refnum, &flen, g_frame_file);
 			(void)FSClose(refnum);
 			base = (long)(uintptr_t)g_frame_file;
 			pb = l37aa(base, 0);                  /* 16-colour band */
-			p4 = l37aa(base, 4);                  /* 320x16 backdrop tile */
 			if (pb != 0) {
 				const unsigned char *bd =
 				    (const unsigned char *)(uintptr_t)(pb + 8);
@@ -10903,17 +10907,29 @@ static void load_menu_ui(void)
 					    (unsigned short)((bd[k*3+2] << 8) | bd[k*3+2]);
 				}
 			}
-			if (p4 != 0) {
+		}
+
+		/* --- GEN.CTL item 1: the stone backdrop image (jt81's "gen") --- */
+		refnum = 0;
+		if (g_menu_pe > 0
+		 && FSOpen((ConstStr255Param)"\007GEN.CTL", 0, &refnum) == noErr) {
+			long p1;
+			flen = (long)sizeof g_frame_file;       /* reuse the scratch buf */
+			(void)FSRead(refnum, &flen, g_frame_file);
+			(void)FSClose(refnum);
+			base = (long)(uintptr_t)g_frame_file;
+			p1 = l37aa(base, 1);                  /* 320x90 PackBits image */
+			if (p1 != 0) {
 				const unsigned char *it =
-				    (const unsigned char *)(uintptr_t)p4;
+				    (const unsigned char *)(uintptr_t)p1;
 				short h = (short)(((unsigned)it[0] << 8) | it[1]);
 				short w = (short)(8 * it[6]);
-				long  srclen = flen - (p4 - base) - 8;
-				long  got = unpackbits(it + 8, srclen, g_frame_bg,
-				                       (long)sizeof g_frame_bg);
+				long  srclen = flen - (p1 - base) - 8;
+				long  got = unpackbits(it + 8, srclen, g_bg,
+				                       (long)sizeof g_bg);
 				if (w > 0 && h > 0 && got >= (long)w * h) {
-					g_frame_bw = w;
-					g_frame_bh = h;
+					g_bg_w = w;
+					g_bg_h = h;
 					g_menu_state = 1;
 				}
 			}
@@ -10941,19 +10957,19 @@ static void load_menu_ui(void)
 #define MENU_BEVEL_LIGHT  16    /* clut 16 = 167,167,167  band highlight */
 #define MENU_BEVEL_DARK   31    /* clut 31 = 27,27,39     band shadow    */
 
-/* Tile the FRAME.CTL backdrop (dark warm stone blocks) across a rect. */
+/* Tile the GEN.CTL stone backdrop (dark warm stone) across a rect,
+ * repeating vertically (the image is 320x90; the screen is 200 tall). */
 static void fill_backdrop(unsigned char *px, short pitch,
                           short x0, short y0, short x1, short y1)
 {
 	short x, y;
-	if (g_menu_state != 1 || g_frame_bh <= 0)
+	if (g_menu_state != 1 || g_bg_h <= 0)
 		return;
 	for (y = y0; y <= y1; y++) {
-		const unsigned char *row = g_frame_bg
-		    + (long)(y % g_frame_bh) * g_frame_bw;
+		const unsigned char *row = g_bg + (long)(y % g_bg_h) * g_bg_w;
 		unsigned char *d = px + (long)y * pitch;
 		for (x = x0; x <= x1; x++)
-			d[x] = (x < g_frame_bw) ? row[x] : row[g_frame_bw - 1];
+			d[x] = (x < g_bg_w) ? row[x] : row[g_bg_w - 1];
 	}
 }
 
