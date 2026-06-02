@@ -8564,6 +8564,12 @@ void port_test_seed_design(void)
 				}
 				roster_head = (long)(uintptr_t)k_party[0];
 			}
+		} else if (g_a5_long(-27928) != 0) {
+			/* Preserve live roster edits (create / delete) across a
+			 * re-Play in the same session: the head may have moved
+			 * if the first character was deleted, so re-read it
+			 * rather than restoring the stale seed head. */
+			roster_head = g_a5_long(-27928);
 		}
 		g_a5_long(-27928) = roster_head;     /* re-point head each Play */
 	}
@@ -14817,7 +14823,8 @@ static int l0f3e(short a)
 	if (g_a5_14438 == 0)
 		return 0;
 	g_a5_18882 = jt1199(g_a5_18844);
-	jt560();
+	jt560();                             /* faithful skeleton (trace) */
+	cg_delete_character(0);              /* port: delete from roster  */
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -14869,6 +14876,8 @@ static int l0f74(short a)
 	PROBE("jt918/case4 L0f74");
 	if (g_a5_14436 == 0)
 		return 0;
+
+	cg_delete_character(1);              /* port: remove from party */
 
 	local = (short)(signed char)jt556(g_a5_27932);
 	if (local == 17) {
@@ -15126,6 +15135,89 @@ static void cg_modify_sheet(void)
 			c[395] = (unsigned char)(10 - dexmod);   /* AC */
 			save_roster();
 		}
+	}
+}
+
+/* Unlink `victim` from the roster list (head at g_a5_-27928, .next at +0).
+ * The records live in static pools (no free); unlinking drops it from the
+ * displayed list + the persisted save. */
+static void cg_unlink_record(unsigned char *victim)
+{
+	unsigned char *head = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	unsigned char *p;
+
+	if (head == NULL || victim == NULL)
+		return;
+	if (head == victim) {
+		g_a5_long(-27928) = *(long *)victim;   /* head = victim->next */
+		return;
+	}
+	for (p = head; p != NULL; p = *(unsigned char **)p) {
+		if (*(unsigned char **)p == victim) {
+			*(long *)p = *(long *)victim;      /* p->next = v->next */
+			return;
+		}
+	}
+}
+
+/* Delete / Remove Character — page the party with Up/Down, Return picks
+ * the highlighted character and asks Y/N, then unlinks it and persists.
+ * `from_party` only changes the wording: in the port's single-list model
+ * Remove (take out of the active party) and Delete (erase from the saved
+ * roster) collapse to the same unlink — the faithful party-vs-saved-pool
+ * split (l0f74's jt41/jt878 membership flags) is the deferred remainder. */
+static void cg_delete_character(int from_party)
+{
+	unsigned char *party[16];
+	short          nparty, sel = 0;
+	unsigned char  scan = 0, ascii = 0;
+	int            confirming = 0;
+	const char    *verb = from_party ? "Remove" : "Delete";
+
+	nparty = cg_collect_party(party, 16);
+	if (nparty == 0)
+		return;
+
+	g_a5_2347 = 1;
+	load_menu_ui();
+	while (plat_kb_poll(&scan, &ascii))
+		;
+
+	for (;;) {
+		char foot[64];
+		if (confirming)
+			sprintf(foot, "%s %s?   Y / N", verb,
+			        (const char *)&party[sel][96]);
+		else
+			sprintf(foot, "Up/Dn char   Return %s   Esc back",
+			        from_party ? "remove" : "delete");
+		cg_draw_sheet(party[sel], foot);
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+
+		if (confirming) {
+			if (ascii == 'y' || ascii == 'Y') {
+				cg_unlink_record(party[sel]);
+				save_roster();
+				nparty = cg_collect_party(party, 16);
+				if (nparty == 0)
+					return;
+				if (sel >= nparty)
+					sel = (short)(nparty - 1);
+			}
+			confirming = 0;          /* y/n/esc all clear the prompt */
+			continue;
+		}
+
+		if (ascii == 27)                            /* Esc -> back */
+			break;
+		if (ascii == 13 || ascii == 3)              /* Return -> confirm */
+			confirming = 1;
+		else if (scan == 0x48)                      /* Up   */
+			sel = (short)((sel + nparty - 1) % nparty);
+		else if (scan == 0x50)                      /* Down */
+			sel = (short)((sel + 1) % nparty);
 	}
 }
 
@@ -15490,9 +15582,9 @@ static int jt918(short a)
 			 * design-load gating becomes meaningful.
 			 */
 			g_a5_14439 = 1;
-			g_a5_14438 = 0;
+			g_a5_14438 = 1;            /* port enable: Delete   */
 			g_a5_14437 = 0;
-			g_a5_14436 = 0;
+			g_a5_14436 = 1;            /* port enable: Remove   */
 			g_a5_14435 = 1;            /* port enable for trace */
 			g_a5_14434 = 1;
 			g_a5_14433 = 0;
