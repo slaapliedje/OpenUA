@@ -10827,6 +10827,52 @@ static void load_menu_ui(void)
 		qd_set_palette(g_menu_pal, (short)0, g_menu_pe);
 }
 
+/* Draw the raised-bevel boxes behind the main-menu commands.
+ *
+ * The Mac paints each command as a 3D button via the paint funnel
+ * (l148a -> jt995, still PROBE stubs in the port), so the bevels are
+ * rendered here procedurally: a light edge on the top + left and a dark
+ * edge on the bottom + right of each command's box, drawn over the stone
+ * backdrop. Matches the raised buttons in data/frua_mac_menu.png.
+ *
+ * Box geometry is derived from each command's engine coords (g_mainmenu)
+ * transformed by jt1135 — the same transform jt382 uses to place the
+ * label — so the boxes track the labels exactly. Drawn into the QuickDraw
+ * port pixels before l2c60 paints the labels, so the text sits on top. */
+static void draw_menu_bevels(void)
+{
+	unsigned char *px;
+	short pitch, sw, sh, i;
+	const unsigned char LIGHT = 7;       /* clut 7 = 187,187,187 (highlight) */
+	const unsigned char DARK  = 0;       /* clut 0 = black        (shadow)   */
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+
+	for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++) {
+		short py = 0, pxx = 0, x0, y0, x1, y1, x, y;
+
+		jt1135(g_mainmenu[i].y, g_mainmenu[i].x, &py, &pxx);
+		x0 = (short)(pxx - 5);
+		y0 = (short)(py - 11);
+		x1 = (short)(x0 + 150);
+		y1 = (short)(py + 2);
+		if (x0 < 0)        x0 = 0;
+		if (y0 < 0)        y0 = 0;
+		if (x1 > sw - 1)   x1 = (short)(sw - 1);
+		if (y1 > sh - 1)   y1 = (short)(sh - 1);
+
+		for (x = x0; x <= x1; x++) {     /* top = light, bottom = dark */
+			px[(long)y0 * pitch + x] = LIGHT;
+			px[(long)y1 * pitch + x] = DARK;
+		}
+		for (y = y0; y <= y1; y++) {     /* left = light, right = dark */
+			px[(long)y * pitch + x0] = LIGHT;
+			px[(long)y * pitch + x1] = DARK;
+		}
+	}
+}
+
 /* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop. Builds the
  * DLItem button list (jt447 + jt452), paints it (l2c60), draws the title
  * banner (jt94), presents (jt117), then blocks in the dialog event loop
@@ -10888,6 +10934,9 @@ static int   jt315(void)
 			      (long)32, (long)g_mainmenu[i].hotkey,
 			      (long)36, (long)18, (long)20, (long)21, (long)0);
 		jt452((long)7, (long)(uintptr_t)jt313, (long)20, (long)0);  /* action item */
+
+		/* --- raised bevel boxes (under the labels) --- */
+		draw_menu_bevels();
 
 		/* --- paint the buttons --- */
 		l2c60((short)1);
