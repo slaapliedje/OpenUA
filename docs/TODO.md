@@ -51,7 +51,19 @@ Working notes on what's next. Ratified architecture decisions live in
     machine (race/class/gender/alignment selection + the created record).
     BLOCKED on visual confirm by the present issue below.
 
-## Initial-screen texture (GEN backdrop) — investigated, NOT done
+## Initial-screen texture (GEN backdrop) — DONE
+
+The main menu now renders the GEN.CTL marbled-stone backdrop. GEN.CTL = a
+2-item GLIB: item 0 = a 16-colour RGB palette band (installed at clut 16),
+item 1 = a 320x90 PackBits-RLE image (flags 0xc2; decodes to exactly 28800
+bytes) whose pixels are clut indices 16..31 + 0. load_gen_bg() decodes it
+once + installs the band each menu redraw (after load_frua_palette, which
+would otherwise clobber clut 16..31); jt315 paints it across the top rows.
+The earlier "magenta noise" was reading the compressed bytes as raw pixels.
+JT[110] (the named loader) is still unlifted — load_gen_bg opens GEN.CTL
+directly. (Old notes below kept for the format reference.)
+
+### (historical) initial GEN investigation
 
 The Mac main menu's textured background is drawn by JT[81] (CODE 6 + 0x6a10):
 it loads the "gen" tile library and blits backdrop tiles (idx 1,2,3, +4 in
