@@ -42,6 +42,16 @@ list + handle the result".
 - **Add Character popup** (`jt182` via `jt904`): renders; CODE 17 char-gen
   behind it is barely lifted.
 
+> **Phase 0 DONE (commit 5a99162).** `menu_run(items, n, proc, decorate)`
+> is the shared runner: it paints the chrome (backdrop + a plate per spec
+> entry), builds the DLItem group from a `menu_item_t[]` (label-less entries
+> = spacer plates), paints labels, runs the jt453 loop, returns the index.
+> `decorate(...,phase)` does menu-specific chrome (phase 0 = title plate,
+> phase 1 = banner). `jt315` is now ~10 lines on top of it (pixel-identical).
+> New menus = a spec + proc + decorate. Not yet done: driving `recessed`
+> from the live `rec[28]` enable bit (kept as a per-spec flag until jt158
+> wires real enable state) — see step 1 below.
+
 ## Phase 0 — Make the chrome a reusable runner (do first)
 
 Today `jt315` hardcodes the title plate and drives `draw_menu_plates` from
