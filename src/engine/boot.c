@@ -5127,6 +5127,16 @@ static short jt382(void *rec_v, short cmd, ...)
 				}
 #endif
 				if (len > 0) {
+					GrafPtr bport;
+					/* The Mac paint chain (L148a/jt995) sets the pen
+					 * colour; our collapsed path doesn't, so the label
+					 * would inherit a stale fgColor (cyan/magenta under
+					 * the menu's UI palette). Force white (UI clut 15) so
+					 * button labels match data/frua_mac_main_menu.png. The
+					 * per-hotkey gold highlight is a separate step. */
+					GetPort(&bport);
+					if (bport != NULL)
+						((CGrafPtr)bport)->fgColor = (unsigned char)15;
 					pbuf[0] = (unsigned char)len;
 					memcpy(pbuf + 1, label, (size_t)len);
 					MoveTo(x_pix, y_pix);
@@ -10752,26 +10762,36 @@ static const struct { const char *label; short x, y, hotkey; } g_mainmenu[] = {
  * "gen" tile library directly. GEN.CTL = a 2-item GLIB: item 0 is a 16-colour
  * RGB palette band (installed at clut 16), item 1 is a 320x90 PackBits-RLE
  * backdrop image whose pixels are clut indices 16..31 (the band) + 0. */
-static unsigned char g_gen_file[32768];
-static unsigned char g_gen_img[320 * 90];
-static short         g_gen_w, g_gen_h;
-static int           g_gen_state;            /* 0 untried, 1 ok, -1 failed */
-static unsigned char g_gen_pr[16], g_gen_pg[16], g_gen_pb[16];
+/* MENU.CTL — the main-menu UI asset GLIB (3 items):
+ *   item 0 : the 256-entry UI palette (EGA-style 0..15 — 11 = cyan,
+ *            14 = gold, 15 = white — plus grey stone shades 16..31).
+ *   item 1 : a 320x16 raw-8bpp (flags 0xc0) stone-block course — the
+ *            calm grey backdrop tile, repeated down the whole screen.
+ *   item 2 : a second 320x16 course (running-bond offset); unused here.
+ *
+ * This replaces the earlier GEN.CTL backdrop, which was the wrong asset
+ * (a high-contrast marble wall image). The menu draws on its own UI
+ * palette + its own stone tile; see docs/TODO.md "Main-menu chrome". */
+static unsigned char g_menu_file[16384];
+static unsigned char g_menu_tile[320 * 16];
+static short         g_menu_tw, g_menu_th;
+static int           g_menu_state;           /* 0 untried, 1 ok, -1 failed */
+static RGBColor      g_menu_pal[256];
+static short         g_menu_pe;
 
-static void load_gen_bg(void)
+static void load_menu_ui(void)
 {
-	if (g_gen_state == 0) {
+	if (g_menu_state == 0) {
 		short refnum = 0;
 		long  flen, base, p0, p1;
 
-		g_gen_state = -1;
-		if (FSOpen((ConstStr255Param)"\007GEN.CTL", 0, &refnum) == noErr) {
-			flen = (long)sizeof g_gen_file;
-			(void)FSRead(refnum, &flen, g_gen_file);
+		g_menu_state = -1;
+		if (FSOpen((ConstStr255Param)"\010MENU.CTL", 0, &refnum) == noErr) {
+			flen = (long)sizeof g_menu_file;
+			(void)FSRead(refnum, &flen, g_menu_file);
 			(void)FSClose(refnum);
-			base = (long)(uintptr_t)g_gen_file;
-			if (l37aa(base, 0) != 0
-			 && (p0 = l37aa(base, 0)) != 0
+			base = (long)(uintptr_t)g_menu_file;
+			if ((p0 = l37aa(base, 0)) != 0
 			 && (p1 = l37aa(base, 1)) != 0 && p1 > p0) {
 				const unsigned char *pp =
 				    (const unsigned char *)(uintptr_t)(p0 + 8);
@@ -10780,50 +10800,31 @@ static void load_gen_bg(void)
 				    (const unsigned char *)(uintptr_t)p1;
 				short h = (short)(((unsigned)it1[0] << 8) | it1[1]);
 				short w = (short)(8 * it1[6]);
-				const unsigned char *src = it1 + 8;
-				long  srclen = flen - (p1 - base) - 8;
-				long  cap = (long)w * h;
-				long  o = 0, si = 0;
+				long  n = (long)w * h;
 
-				if (pe > 16) pe = 16;
+				if (pe > 256) pe = 256;
 				for (k = 0; k < pe; k++) {
-					g_gen_pr[k] = pp[k * 3 + 0];
-					g_gen_pg[k] = pp[k * 3 + 1];
-					g_gen_pb[k] = pp[k * 3 + 2];
+					g_menu_pal[k].red   =
+					    (unsigned short)((pp[k*3+0] << 8) | pp[k*3+0]);
+					g_menu_pal[k].green =
+					    (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
+					g_menu_pal[k].blue  =
+					    (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
 				}
-				/* PackBits decode item 1 into g_gen_img */
-				if (cap > (long)sizeof g_gen_img)
-					cap = (long)sizeof g_gen_img;
-				while (si < srclen && o < cap) {
-					signed char c = (signed char)src[si++];
-					if (c >= 0) {            /* c+1 literals */
-						short n = (short)(c + 1);
-						while (n-- > 0 && si < srclen && o < cap)
-							g_gen_img[o++] = src[si++];
-					} else if (c != -128) {  /* repeat next byte 1-c times */
-						short n = (short)(1 - c);
-						unsigned char v = src[si++];
-						while (n-- > 0 && o < cap)
-							g_gen_img[o++] = v;
-					}
-				}
-				g_gen_w = w;
-				g_gen_h = h;
-				if (o >= (long)w * h)
-					g_gen_state = 1;
+				g_menu_pe = pe;
+				/* item 1 is raw 8bpp chunky (stride == width). */
+				if (n > (long)sizeof g_menu_tile)
+					n = (long)sizeof g_menu_tile;
+				memcpy(g_menu_tile, it1 + 8, (size_t)n);
+				g_menu_tw = w;
+				g_menu_th = h;
+				if (w > 0 && h > 0)
+					g_menu_state = 1;
 			}
 		}
 	}
-	if (g_gen_state == 1) {              /* (re)install the band at clut 16 */
-		RGBColor c[16];
-		short k;
-		for (k = 0; k < 16; k++) {
-			c[k].red   = (unsigned short)((g_gen_pr[k] << 8) | g_gen_pr[k]);
-			c[k].green = (unsigned short)((g_gen_pg[k] << 8) | g_gen_pg[k]);
-			c[k].blue  = (unsigned short)((g_gen_pb[k] << 8) | g_gen_pb[k]);
-		}
-		qd_set_palette(c, (short)16, (short)16);
-	}
+	if (g_menu_state == 1)               /* install the UI palette */
+		qd_set_palette(g_menu_pal, (short)0, g_menu_pe);
 }
 
 /* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop. Builds the
@@ -10851,24 +10852,23 @@ static int   jt315(void)
 		 * paints with the dungeon palette (near-black) and deep-scaled coords
 		 * (shifted/clipped). */
 		g_a5_2347 = 1;                   /* non-encounter: jt1135 scale 2 */
-		{ extern void load_frua_palette(void); load_frua_palette(); }
-		load_gen_bg();                   /* GEN band -> clut 16 (after clut 129) */
+		load_menu_ui();                  /* install the MENU.CTL UI palette */
 
-		/* Paint the menu background: the GEN.CTL backdrop image across the
-		 * top, flat clut-8 grey below it, then prime the present path before
-		 * the QuickDraw text + DLItem buttons draw on top. (jt131(6), the
-		 * engine clear, is a PROBE stub in the port.) */
+		/* Paint the menu background: the MENU.CTL stone-block course tiled
+		 * down the whole screen (its own calm grey UI texture), then prime
+		 * the present path before the QuickDraw text + DLItem buttons draw
+		 * on top. (jt131(6), the engine clear, is a PROBE stub in the port.) */
 		{
 			unsigned char *px; short pitch, sw, sh, xx, yy;
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 				for (yy = 0; yy < sh; yy++) {
 					unsigned char *d = px + (long)yy * pitch;
-					if (g_gen_state == 1 && yy < g_gen_h) {
-						const unsigned char *row =
-						    g_gen_img + (long)yy * g_gen_w;
+					if (g_menu_state == 1) {
+						const unsigned char *row = g_menu_tile
+						    + (long)(yy % g_menu_th) * g_menu_tw;
 						for (xx = 0; xx < sw; xx++)
-							d[xx] = (xx < g_gen_w)
-							      ? row[xx] : (unsigned char)0x08;
+							d[xx] = (xx < g_menu_tw)
+							      ? row[xx] : row[g_menu_tw - 1];
 					} else {
 						memset(d, 0x08, (size_t)sw);
 					}
@@ -10898,9 +10898,12 @@ static int   jt315(void)
 		 * not version text, so they're skipped until that source is found. */
 		design = (const char *)g_a5_buf(-31336);
 		title  = (const char *)g_a5_buf(-18876);
+		/* MENU.CTL UI palette: 11 = cyan (headings), 14 = gold (values).
+		 * Matches data/frua_mac_main_menu.png — "Current Game Design:" cyan,
+		 * the design filename + module title in gold. */
 		jt94((short)4,  (short)9,  (short)11, (short)0, "Current Game Design:");
-		if (design[0]) jt94((short)25, (short)9,  (short)7, (short)0, "%s", design);
-		if (title[0])  jt94((short)4,  (short)10, (short)7, (short)0, "%s", title);
+		if (design[0]) jt94((short)25, (short)9,  (short)14, (short)0, "%s", design);
+		if (title[0])  jt94((short)4,  (short)10, (short)14, (short)0, "%s", title);
 
 		jt112((short)0);
 		jt117();                         /* present (engine path) */
