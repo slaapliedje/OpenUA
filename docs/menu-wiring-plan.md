@@ -160,14 +160,21 @@ vertical stone strips of various heights (item17 = 120, 18 = 63, 19 = 43,
 full screen-border assembly is done by engine code placing edges/corners/
 fills (the top-level layout isn't a single composite item).
 
-**Remaining frame work:** (1) resolve the multi-section "gen" backdrop
-(jt468 page→ptr + where sections 2-4 live) so the field is the real
-sections, not a repeat of section 1; (2) for ornate dialog frames, blit
-the FRAME composite/edge pieces via `ui_glib_blit` (proven with item 9);
-(3) add the `0xc7` leaf decode (L2b9a) when a needed piece uses it. The
-main menu's simple bevels stay procedural (faithful — it has no ornate
-molding). The blit is reused by *every* GLIB image (Art Gallery,
-portraits, dungeon art).
+**gen backdrop — resolved (commit eea6822).** `L33ac` builds `'%s.ctl'`
+so "gen" = GEN.CTL, which has exactly one image section (item 1, 320x90,
+ybear -110); jt81's sub-items 2-4 don't exist. The reference backdrop is
+continuous full-screen stone (verified by uniform luminance), so the
+faithful field is that one section tiled. Tiled through `ui_glib_blit`
+with alternate copies mirrored (the new `flip` arg) so the 90-row repeat
+is seamless. The jt468/jt1001 page-table indirection (g_a5_-18468 slots)
+is internal plumbing that yields the same pixels — deferred, not needed
+for the field.
+
+**Remaining frame work:** (1) for ornate dialog frames, blit the FRAME
+composite/edge pieces via `ui_glib_blit` (proven with item 9); (2) add the
+`0xc7` leaf decode (L2b9a) when a needed piece uses it. The main menu's
+simple bevels stay procedural (faithful — it has no ornate molding). The
+blit is reused by *every* GLIB image (Art Gallery, portraits, dungeon art).
 
 ## Deferred visual polish (tracked, not blocking)
 
