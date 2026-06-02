@@ -1818,6 +1818,11 @@ static void          jt941(void)
 }
 static int           jt918(short a);                                             /* CODE 12 + 0x0d90 — lifted below */
 static int           jt574(long ctx);                                            /* CODE 17 + 0x3b5e — char-gen entry, lifted below */
+/* Port character-management screens (defined further down, used by the
+ * jt918 case handlers above their definitions). */
+static void          cg_view_sheet(void);
+static void          cg_modify_sheet(void);
+static void          cg_delete_character(int from_party);
 /* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
  * (Modify Character roster grid, lifted further down). */
 static void          l02dc(long highlight);
@@ -14789,8 +14794,10 @@ static int l0f2e(short a)
 {
 	(void)a;
 	PROBE("jt918/case1 L0f2e");
-	if (g_a5_14439 != 0)
-		l15e2();
+	if (g_a5_14439 != 0) {
+		l15e2();                     /* faithful skeleton (trace) */
+		cg_modify_sheet();           /* port: rename / re-roll    */
+	}
 	return 0;
 }
 
@@ -14905,28 +14912,98 @@ static int l1036(short a)
 	return 0;
 }
 
-/* View Character — a read-only character sheet, one roster entry at a
- * time. The faithful path (l12a0 -> the jt568 selection machine) is the
- * deferred remainder; this port screen walks the party list off
- * g_a5_-27928, drawing the full sheet (name, race/class/level, alignment,
- * the six ability scores, HP, AC) on the shared stone chrome. Up/Down
- * page through the party, Esc/Return back out to the Training Hall.
+/* ---- Character-sheet helpers (shared by View / Modify / Delete) ------
  *
- * The stats / alignment are read from the port-local record offsets
- * (CHAR_STATS / CHAR_ALIGN) that cg_build_record + the test-party seed
- * write — see the CHAR_* macros above l02dc. */
+ * The faithful paths (l12a0 / l15e2 / jt560 -> the jt568 selection
+ * machine) are the deferred remainder; these port screens walk the
+ * roster list off g_a5_-27928 directly. Stats / alignment come from the
+ * port-local record offsets (CHAR_STATS / CHAR_ALIGN) that
+ * cg_build_record + the test-party seed write (see the CHAR_* macros
+ * above l02dc). */
+
+/* Collect the roster (linked list, .next at +0) into party[]; the cap is
+ * `max`. Returns the entry count. */
+static short cg_collect_party(unsigned char **party, short max)
+{
+	unsigned char *e;
+	short          n = 0;
+
+	for (e = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     e != NULL && n < max;
+	     e = *(unsigned char **)e)
+		party[n++] = e;
+	return n;
+}
+
+/* Draw one character's full sheet (name, race/class/level, alignment, the
+ * six ability scores, HP, AC) on the shared stone chrome with `footer` as
+ * the bottom hint line, then present. */
+static void cg_draw_sheet(const unsigned char *c, const char *footer)
+{
+	unsigned char *px; short pitch, sw, sh, yy, i;
+	short race  = c[CHAR_RACE], klass = c[CHAR_CLASS];
+	short lvl   = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
+	short align = c[CHAR_ALIGN];
+
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+		if (g_menu_state == 1) {
+			fill_backdrop(px, pitch, 0, 0,
+			              (short)(sw - 1), (short)(sh - 1));
+			draw_plate(px, pitch, sw, sh, 6, 8, 313, 150, 1);
+		} else {
+			for (yy = 0; yy < sh; yy++)
+				memset(px + (long)yy * pitch, 0x08,
+				       (size_t)sw);
+		}
+	}
+
+	jt94((short)3,  (short)2, 14, 0, "%s",
+	     (const char *)&c[96]);              /* name, gold */
+
+	jt94((short)3,  (short)4,  7, 0, "Race:");
+	jt94((short)10, (short)4, 15, 0, "%s",
+	     (race  < 6) ? k_roster_races[race]    : "?");
+	jt94((short)24, (short)4,  7, 0, "Class:");
+	jt94((short)31, (short)4, 15, 0, "%s",
+	     (klass < 6) ? k_roster_classes[klass] : "?");
+
+	jt94((short)3,  (short)5,  7, 0, "Level:");
+	jt94((short)10, (short)5, 15, 0, "%d", (int)lvl);
+	/* Alignment gets its own full-width row — "Lawful Good" etc is too
+	 * long to share row 5 without running off the plate. */
+	jt94((short)3,  (short)6,  7, 0, "Align:");
+	jt94((short)10, (short)6, 15, 0, "%s",
+	     (align < CG_NALIGNS) ? cg_aligns[align] : "?");
+
+	jt94((short)3,  (short)8, 11, 0, "Ability Scores");
+	for (i = 0; i < 6; i++) {
+		short col = (i < 3) ? (short)3 : (short)20;
+		short rw  = (short)(9 + (i % 3));
+		jt94(col,              rw,  7, 0, "%s", cg_stat_names[i]);
+		jt94((short)(col + 6), rw, 15, 0, "%d",
+		     (int)c[CHAR_STATS + i]);
+	}
+
+	jt94((short)3,  (short)13, 7,  0, "HP:");
+	jt94((short)8,  (short)13, 15, 0, "%d", (int)c[385]);
+	jt94((short)20, (short)13, 7,  0, "AC:");
+	jt94((short)25, (short)13, 15, 0, "%d", (int)c[395]);
+
+	if (footer)
+		jt94((short)3, (short)16, 7, 0, "%s", footer);
+
+	qd_present();
+}
+
+/* View Character — read-only sheet; Up/Down page the party, Esc/Return
+ * back out to the Training Hall. */
 static void cg_view_sheet(void)
 {
-	const unsigned char *party[16];
-	short          nparty = 0, sel = 0;
-	const unsigned char *e;
+	unsigned char *party[16];
+	short          nparty, sel = 0;
 	unsigned char  scan = 0, ascii = 0;
-	unsigned char *px; short pitch, sw, sh, yy;
 
-	for (e = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
-	     e != NULL && nparty < 16;
-	     e = *(const unsigned char * const *)e)
-		party[nparty++] = e;
+	nparty = cg_collect_party(party, 16);
 	if (nparty == 0)
 		return;
 
@@ -14936,65 +15013,13 @@ static void cg_view_sheet(void)
 		;
 
 	for (;;) {
-		const unsigned char *c = party[sel];
-		short race  = c[CHAR_RACE], klass = c[CHAR_CLASS];
-		short lvl   = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
-		short align = c[CHAR_ALIGN];
-		short i;
-
-		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-			if (g_menu_state == 1) {
-				fill_backdrop(px, pitch, 0, 0,
-				              (short)(sw - 1), (short)(sh - 1));
-				draw_plate(px, pitch, sw, sh, 6, 8, 313, 150, 1);
-			} else {
-				for (yy = 0; yy < sh; yy++)
-					memset(px + (long)yy * pitch, 0x08,
-					       (size_t)sw);
-			}
-		}
-
-		jt94((short)3,  (short)2, 14, 0, "%s",
-		     (const char *)&c[96]);              /* name, gold */
-
-		jt94((short)3,  (short)4,  7, 0, "Race:");
-		jt94((short)10, (short)4, 15, 0, "%s",
-		     (race  < 6) ? k_roster_races[race]    : "?");
-		jt94((short)24, (short)4,  7, 0, "Class:");
-		jt94((short)31, (short)4, 15, 0, "%s",
-		     (klass < 6) ? k_roster_classes[klass] : "?");
-
-		jt94((short)3,  (short)5,  7, 0, "Level:");
-		jt94((short)10, (short)5, 15, 0, "%d", (int)lvl);
-		/* Alignment gets its own full-width row — "Lawful Good" etc
-		 * is too long to share row 5 without running off the plate. */
-		jt94((short)3,  (short)6,  7, 0, "Align:");
-		jt94((short)10, (short)6, 15, 0, "%s",
-		     (align < CG_NALIGNS) ? cg_aligns[align] : "?");
-
-		jt94((short)3,  (short)8, 11, 0, "Ability Scores");
-		for (i = 0; i < 6; i++) {
-			short col = (i < 3) ? (short)3 : (short)20;
-			short rw  = (short)(9 + (i % 3));
-			jt94(col,             rw,  7, 0, "%s",
-			     cg_stat_names[i]);
-			jt94((short)(col + 6), rw, 15, 0, "%d",
-			     (int)c[CHAR_STATS + i]);
-		}
-
-		jt94((short)3,  (short)13, 7,  0, "HP:");
-		jt94((short)8,  (short)13, 15, 0, "%d", (int)c[385]);
-		jt94((short)20, (short)13, 7,  0, "AC:");
-		jt94((short)25, (short)13, 15, 0, "%d", (int)c[395]);
-
+		char foot[64];
 		if (nparty > 1)
-			jt94((short)3, (short)16, 7, 0,
-			     "%d of %d   Up/Down: next   Esc: back",
-			     (int)(sel + 1), (int)nparty);
+			sprintf(foot, "%d of %d   Up/Down: next   Esc: back",
+			        (int)(sel + 1), (int)nparty);
 		else
-			jt94((short)3, (short)16, 7, 0, "Esc: back");
-
-		qd_present();
+			sprintf(foot, "Esc: back");
+		cg_draw_sheet(party[sel], foot);
 
 		while (!plat_kb_poll(&scan, &ascii))
 			;
@@ -15004,6 +15029,103 @@ static void cg_view_sheet(void)
 			sel = (short)((sel + nparty - 1) % nparty);
 		else if (scan == 0x50)               /* Down */
 			sel = (short)((sel + 1) % nparty);
+	}
+}
+
+/* Inline name editor for Modify — types into the record's name (+96)
+ * live (the gold sheet name updates as you go); Return commits + persists,
+ * Esc restores the original. */
+static void cg_rename(unsigned char *c)
+{
+	unsigned char orig[16];
+	short         len, k;
+	unsigned char scan = 0, ascii = 0;
+
+	for (k = 0; k < 16; k++)
+		orig[k] = c[96 + k];
+	for (len = 0; len < 15 && c[96 + len] != 0; len++)
+		;
+	while (plat_kb_poll(&scan, &ascii))
+		;
+
+	for (;;) {
+		char foot[40];
+		sprintf(foot, "Name: %s_", (const char *)&c[96]);
+		cg_draw_sheet(c, foot);
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 13 || ascii == 3) {            /* Return -> commit */
+			if (len > 0)
+				save_roster();
+			else                                /* empty -> restore */
+				for (k = 0; k < 16; k++)
+					c[96 + k] = orig[k];
+			return;
+		}
+		if (ascii == 27) {                          /* Esc -> cancel */
+			for (k = 0; k < 16; k++)
+				c[96 + k] = orig[k];
+			return;
+		}
+		if ((ascii == 8 || ascii == 127) && len > 0) {
+			c[96 + --len] = 0;
+		} else if (ascii >= 32 && ascii < 127 && len < 15) {
+			c[96 + len++] = (unsigned char)ascii;
+			c[96 + len]   = 0;
+		}
+	}
+}
+
+/* Modify Character — page the party (Up/Down); N renames, R re-rolls the
+ * ability scores (race/class-legal, re-deriving AC from the new DEX — HP
+ * is earned over levels, so it's left intact). Esc/Return done. */
+static void cg_modify_sheet(void)
+{
+	unsigned char *party[16];
+	short          nparty, sel = 0;
+	unsigned char  scan = 0, ascii = 0;
+
+	nparty = cg_collect_party(party, 16);
+	if (nparty == 0)
+		return;
+
+	g_a5_2347 = 1;
+	load_menu_ui();
+	while (plat_kb_poll(&scan, &ascii))
+		;
+
+	for (;;) {
+		unsigned char *c = party[sel];
+		cg_draw_sheet(c,
+		    "N rename  R reroll  Up/Dn  Esc done");
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 27 || ascii == 13 || ascii == 3)
+			break;
+		else if (scan == 0x48)
+			sel = (short)((sel + nparty - 1) % nparty);
+		else if (scan == 0x50)
+			sel = (short)((sel + 1) % nparty);
+		else if (ascii == 'n' || ascii == 'N')
+			cg_rename(c);
+		else if (ascii == 'r' || ascii == 'R') {
+			short st[6];
+			short race  = c[CHAR_RACE], klass = c[CHAR_CLASS];
+			short dex, dexmod, k;
+
+			if (race  >= CG_NRACES)   race  = 0;
+			if (klass >= CG_NCLASSES) klass = 0;
+			cg_roll_stats(race, klass, st);
+			for (k = 0; k < 6; k++)
+				c[CHAR_STATS + k] = (unsigned char)st[k];
+			dex    = st[3];
+			dexmod = (dex >= 15) ? (short)(dex - 14) : 0;
+			if (dexmod > 4) dexmod = 4;
+			c[395] = (unsigned char)(10 - dexmod);   /* AC */
+			save_roster();
+		}
 	}
 }
 
