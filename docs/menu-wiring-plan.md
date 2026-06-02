@@ -75,6 +75,19 @@ same look:
 Deliverable: `jt315` reimplemented on top of `menu_run`, pixel-identical to
 now. No behaviour change — pure refactor that unlocks the rest.
 
+> **Phase 1 DONE (commit b4d0b19).** The JT[3] table at CODE22+0x5112 was
+> decoded (12 cases, min 0 / max 11). jt315 now dispatches every command to
+> a handler: Play -> return 1, Quit -> return 0, and each design / settings /
+> editor command opens a sub-screen via `menu_todo()`. The **menu-stack
+> pattern** is proven end-to-end — a command runs its own `menu_run` loop
+> (header plate + name + "Not yet implemented" + Exit) and returns to the
+> dispatch. The port dispatches on its own g_mainmenu index rather than
+> replicating the asm's jt452 build order. Phase 2 replaces each `menu_todo`
+> with the faithful sub-menu (JT entry noted per case). Note: Game Settings
+> (JT[247]) turned out to be a dynamic settings *dialog* (sprintf'd values,
+> JT[148] list), not a static list — so no single "easy first" sub-menu;
+> each is its own subsystem.
+
 ## Phase 1 — Faithful main-menu dispatch + a menu stack
 
 1. Decode the `JT[3]` table at CODE22+0x5112 and replace `jt315`'s
