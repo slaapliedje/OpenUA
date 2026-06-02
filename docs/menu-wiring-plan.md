@@ -156,11 +156,17 @@ Ordered easiest → hardest; each is its own commit using `menu_run`.
    stat roll (3d6 + race mods, R = re-roll). Pick state is a cg_state
    struct. Verified: Dwarf Thief -> 6 non-lawful alignments; Halfling ->
    Fighter/Thief classes only.
+   END TO END (commit a24aef1): + a name step (typed entry) and the record
+   build — cg_build_record assembles a 512-byte record (name@+96, HP@+385 =
+   hit die + CON bonus, AC@+395 = 10 - DEX bonus) and appends it to the
+   roster (g_a5_-27928, the list l02dc walks). So char-gen now produces a
+   real party member: race -> gender -> class -> alignment -> stats -> name.
    Still a PORT keyboard interaction pending the faithful jt568 machine.
-   REMAINING: class-minimum stat re-rolls + multi-class combos, character
-   naming (TextEdit), and the fresh-record build + add-to-roster (the
-   payoff — persists the character into the party). Faithful stat ranges/
-   mods + class/align tables live in g_a5_-30450 / L34f0.
+   REMAINING refinements: faithful play-record fidelity (stats/class/saves
+   at their canonical record offsets + derived combat fields), class-minimum
+   stat re-rolls, multi-class combos, and persistence (the play-entry
+   re-seed port_test_seed_design wipes created chars until real save/load
+   lands). Faithful tables live in g_a5_-30450 / L34f0.
 3. Load/Save game modals.
 4. **Begin Adventuring** — replace the `port_play_demo` bridge with the
    faithful `l1142 → jt585 → CODE 15/19` adventure entry.
