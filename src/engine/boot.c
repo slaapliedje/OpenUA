@@ -10966,8 +10966,12 @@ static void load_menu_ui(void)
  * every UI GLIB image (frame molding, Art Gallery, portraits, …). */
 static unsigned char g_glib_dec[320 * 96];   /* PackBits decode scratch */
 
+/* `flip` vertically mirrors the leaf (source row h-1-row) — not a Mac blit
+ * feature, but it lets the backdrop tiler mirror alternate copies so the
+ * 90-row repeat boundaries match (seamless), since GEN.CTL ships only the
+ * one section and the screen is taller. */
 static void ui_glib_blit(long handle, short idx, short top, short left,
-                         int transparent)
+                         int transparent, int flip)
 {
 	unsigned char metric[8];
 	long          info;
@@ -10998,7 +11002,7 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 			short dx  = (short)(((unsigned short)rec[4] << 8) | rec[5]);
 			rec += 6;
 			ui_glib_blit(handle, sub, (short)(y + dy), (short)(x + dx),
-			             transparent);
+			             transparent, 0);
 			count = cnt;
 		}
 		return;
@@ -11025,7 +11029,8 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 
 	for (row = 0; row < h; row++) {
 		short dy = (short)(y + row);
-		const unsigned char *s = src + (long)row * w;
+		short srow = flip ? (short)(h - 1 - row) : row;
+		const unsigned char *s = src + (long)srow * w;
 		unsigned char *d;
 		if (dy < 0 || dy >= sh)
 			continue;
@@ -11071,13 +11076,15 @@ static void fill_backdrop(unsigned char *px, short pitch,
                           short x0, short y0, short x1, short y1)
 {
 	short py;
+	int   tile = 0;
 	(void)px; (void)pitch; (void)x0; (void)y0; (void)x1;
 	if (g_menu_state != 1 || g_bg_h <= 0)
 		return;
-	for (py = 0; py <= y1; py = (short)(py + g_bg_h))
+	/* Mirror alternate copies so the 90-row repeat is seamless. */
+	for (py = 0; py <= y1; py = (short)(py + g_bg_h), tile++)
 		ui_glib_blit(g_gen_base, 1,
 		             (short)(8000 + (py + g_bg_ybear) / 2),
-		             (short)8000, 0 /* opaque */);
+		             (short)8000, 0 /* opaque */, tile & 1 /* flip */);
 }
 
 /* A bevelled plate over the backdrop: flat warm-grey face + a 1px bevel.
