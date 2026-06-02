@@ -15134,12 +15134,18 @@ static int jt918(short a)
 		{
 			unsigned char *px; short pitch, sw, sh, yy;
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-				if (g_menu_state == 1)
+				if (g_menu_state == 1) {
 					fill_backdrop(px, pitch, 0, 0,
 					              (short)(sw - 1), (short)(sh - 1));
-				else
+					/* Flat recessed plate behind the roster grid (top of
+					 * the screen, l02dc rows ~2..12) so the names + AC/HP
+					 * read clearly off the stone — the original draws the
+					 * roster on a flat grey area too. */
+					draw_plate(px, pitch, sw, sh, 6, 8, 313, 104, 1);
+				} else {
 					for (yy = 0; yy < sh; yy++)
 						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+				}
 				qd_present();
 			}
 		}
