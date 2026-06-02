@@ -8394,6 +8394,78 @@ void port_render_geo_contact(void)
  *
  * Remove both call sites + this function once the design-load
  * chain lifts upstream and sets g_a5_-27932 from real data. */
+
+/* --- roster save / load to disk (PARTY.SAV) ------------------------------
+ *
+ * Persists the party roster across full restarts. The faithful "Save / Load
+ * Game" (l115a/l120c -> jt176/jt585) is the engine's whole-game-state save,
+ * still skeletal; this is a focused port roster store: the linked-list
+ * records (g_a5_-27928, next@+0) are written as [long count][count*512], and
+ * read back into g_roster_pool with the next-ptrs rebuilt. cg_build_record
+ * re-saves after each create; the seed path loads on first boot. */
+static unsigned char g_roster_pool[16][512];
+
+static void save_roster(void)
+{
+	short refnum = 0;
+	long  n, cnt = 0, hdr;
+	unsigned char *p = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+
+	while (p != NULL && cnt < 16) {
+		cnt++;
+		p = (unsigned char *)(uintptr_t)(*(long *)p);
+	}
+	if (cnt == 0)
+		return;
+
+	(void)Create((ConstStr255Param)"\011PARTY.SAV", 0,
+	             0x46525541L /* 'FRUA' */, 0x53415645L /* 'SAVE' */);
+	if (FSOpen((ConstStr255Param)"\011PARTY.SAV", 0, &refnum) != noErr)
+		return;
+	(void)SetEOF(refnum, 0);
+	hdr = cnt;
+	n = 4;   (void)FSWrite(refnum, &n, &hdr);
+	p = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	while (p != NULL) {
+		n = 512; (void)FSWrite(refnum, &n, p);
+		p = (unsigned char *)(uintptr_t)(*(long *)p);
+	}
+	(void)FSClose(refnum);
+}
+
+/* Load PARTY.SAV into g_roster_pool, relink, set the roster head. Returns 1
+ * if a non-empty roster was loaded, 0 otherwise (no file / empty / error). */
+static int load_roster(void)
+{
+	short refnum = 0;
+	long  n, cnt, i;
+
+	if (FSOpen((ConstStr255Param)"\011PARTY.SAV", 0, &refnum) != noErr)
+		return 0;
+	n = 4;
+	if (FSRead(refnum, &n, &cnt) != noErr || n != 4 || cnt <= 0) {
+		(void)FSClose(refnum);
+		return 0;
+	}
+	if (cnt > 16)
+		cnt = 16;
+	for (i = 0; i < cnt; i++) {
+		n = 512;
+		if (FSRead(refnum, &n, g_roster_pool[i]) != noErr || n != 512) {
+			cnt = i;                 /* truncated — keep what loaded */
+			break;
+		}
+	}
+	(void)FSClose(refnum);
+	if (cnt <= 0)
+		return 0;
+	for (i = 0; i < cnt; i++)
+		*(long *)g_roster_pool[i] =
+		    (i < cnt - 1) ? (long)(uintptr_t)g_roster_pool[i + 1] : 0L;
+	g_a5_long(-27928) = (long)(uintptr_t)g_roster_pool[0];
+	return 1;
+}
+
 void port_test_seed_design(void)
 {
 	static unsigned char k_test_record[512];
@@ -8429,23 +8501,29 @@ void port_test_seed_design(void)
 		static const char   *k_names[3] = { "Bramble", "Korin Vale", "Sable" };
 		static const unsigned char k_hp[3] = { 18, 24, 11 };
 		static const unsigned char k_ac[3] = { 5, 7, 4 };
-		static int seeded = 0;
+		static int  seeded = 0;
+		static long roster_head = 0;
 
 		if (!seeded) {
-			int p, c;
 			seeded = 1;
-			for (p = 0; p < 3; p++) {
-				memset(k_party[p], 0, sizeof k_party[p]);
-				for (c = 0; k_names[p][c] != 0 && c < 15; c++)
-					k_party[p][96 + c] = (unsigned char)k_names[p][c];
-				k_party[p][96 + c] = 0;
-				k_party[p][385] = k_hp[p];           /* HP  */
-				k_party[p][395] = k_ac[p];           /* AC  */
-				*(long *)(k_party[p]) =              /* next ptr (+0) */
-				    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
+			if (load_roster()) {                 /* saved party from disk */
+				roster_head = g_a5_long(-27928);
+			} else {                             /* none -> seed the test party */
+				int p, c;
+				for (p = 0; p < 3; p++) {
+					memset(k_party[p], 0, sizeof k_party[p]);
+					for (c = 0; k_names[p][c] != 0 && c < 15; c++)
+						k_party[p][96 + c] = (unsigned char)k_names[p][c];
+					k_party[p][96 + c] = 0;
+					k_party[p][385] = k_hp[p];           /* HP  */
+					k_party[p][395] = k_ac[p];           /* AC  */
+					*(long *)(k_party[p]) =              /* next ptr (+0) */
+					    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
+				}
+				roster_head = (long)(uintptr_t)k_party[0];
 			}
 		}
-		g_a5_long(-27928) = (long)(uintptr_t)k_party[0];   /* roster head */
+		g_a5_long(-27928) = roster_head;     /* re-point head each Play */
 	}
 
 	/* Enable the case-0 Training Hall action (Train Character) so its
@@ -12005,6 +12083,8 @@ static void cg_build_record(const cg_state *s)
 			p = (unsigned char *)(uintptr_t)(*(long *)p);
 		*(long *)p = (long)(uintptr_t)rec;
 	}
+
+	save_roster();                       /* persist the roster to disk */
 }
 
 /* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
