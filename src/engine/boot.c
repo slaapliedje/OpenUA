@@ -13919,9 +13919,18 @@ static int l1142(short a)
 {
 	(void)a;
 	PROBE("jt918/case9 L1142");
+	/* Begin Adventuring. Faithful path: jt585() -> the CODE 15/19 adventure
+	 * setup -> the play loop, gated on a created party (g_a5_27928). Both
+	 * jt585 and character creation are still PROBE stubs, so bridge straight
+	 * to the working first-person play loop (load level, place party, render
+	 * jt312, walk with WASD; returns on 'q') so the chain
+	 * menu -> Play -> Training Hall -> Begin Adventuring -> dungeon works
+	 * end to end. Revert to the gated jt585() call once the adventure
+	 * setup + party creation lift. */
 	if (g_a5_14431 != 0 && g_a5_27928 != 0)
 		jt585();
-	return 0;
+	port_play_demo();        /* enter the dungeon; returns to the hall on 'q' */
+	return 0;                /* redraw the Training Hall */
 }
 
 /* L115a — case 10 (Save Current Game). CODE 12 + 0x115a.
