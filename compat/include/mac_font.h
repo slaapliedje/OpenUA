@@ -28,6 +28,7 @@ typedef struct {
 	short                 height;        /* fRectHeight                   */
 	short                 rowBytes;      /* strike row width in bytes     */
 	short                 maxWidth;
+	short                 kernMax;       /* max left-side bearing (<= 0)  */
 } mac_font_t;
 
 extern int          g_mac_font_loaded;
@@ -45,6 +46,12 @@ short mac_font_strike_width(short c);
 /* Per-char advance — how far the pen moves after drawing this glyph.
  * Comes from the offset/width table, low byte. */
 short mac_font_advance(short c);
+
+/* Per-char left-side bearing — how far right of the pen the glyph's bit
+ * image starts (offset/width table high byte + kernMax). Glyphs must be
+ * drawn at pen.h + this, or narrow chars left-align in their advance cell
+ * and the spacing looks uneven. */
+short mac_font_offset(short c);
 
 /* Pixel at (col, row) inside the glyph for char c. col is 0..strike_width,
  * row is 0..height. Returns 1 if set, 0 otherwise. */

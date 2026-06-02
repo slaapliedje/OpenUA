@@ -56,7 +56,7 @@ int mac_font_load(short id)
 	const unsigned char *base;
 	long                 size;
 	short                fType, firstC, lastC;
-	short                fRH, owTLoc, asc, desc, rowW;
+	short                fRH, owTLoc, asc, desc, rowW, kernM;
 	short                rowBytes, n_chars;
 	long                 strike_bytes, ow_table_off;
 
@@ -73,6 +73,7 @@ int mac_font_load(short id)
 	fType   = (short)be16(base + 0);
 	firstC  = (short)be16(base + 2);
 	lastC   = (short)be16(base + 4);
+	kernM   = (short)be16(base + 8);
 	fRH     = (short)be16(base + 14);
 	owTLoc  = (short)be16(base + 16);
 	asc     = (short)be16(base + 18);
@@ -112,6 +113,7 @@ int mac_font_load(short id)
 	g_mac_font.height    = fRH;
 	g_mac_font.rowBytes  = rowBytes;
 	g_mac_font.maxWidth  = (short)be16(base + 6);
+	g_mac_font.kernMax   = kernM;
 	g_mac_font_loaded    = 1;
 	return 0;
 }
@@ -157,6 +159,22 @@ short mac_font_advance(short c)
 	if (ow[0] == 0xFF && ow[1] == 0xFF)
 		return mac_font_strike_width(c);    /* no entry → strike width */
 	return (short)ow[1];                    /* low byte = advance      */
+}
+
+short mac_font_offset(short c)
+{
+	short                idx;
+	const unsigned char *ow;
+
+	if (!g_mac_font_loaded)
+		return 0;
+	idx = slot_for(c);
+	ow  = g_mac_font.owTable + (long)idx * 2;
+	if (ow[0] == 0xFF && ow[1] == 0xFF)
+		return 0;                           /* missing glyph: no shift */
+	/* The high byte stores (leftBearing - kernMax) as an unsigned span;
+	 * recover the bearing. kernMax <= 0. */
+	return (short)((short)ow[0] + g_mac_font.kernMax);
 }
 
 int mac_font_pixel(short c, short col, short row)
