@@ -4141,6 +4141,8 @@ static int  jt1200(void)
 #define CHAR_RACE   200
 #define CHAR_CLASS  201
 #define CHAR_LEVEL  202
+#define CHAR_STATS  203   /* 6 bytes: STR INT WIS DEX CON CHA (record order) */
+#define CHAR_ALIGN  209   /* index into cg_aligns[9]                          */
 
 /* Short race / class names for the narrow roster columns (the char-gen
  * tables use the long "Magic-User"; the roster abbreviates to "Mage"). */
@@ -8522,6 +8524,13 @@ void port_test_seed_design(void)
 		static const unsigned char k_race[3]  = { 0, 1, 5 };
 		static const unsigned char k_class[3] = { 1, 2, 3 };
 		static const unsigned char k_lvl[3]   = { 3, 2, 3 };
+		/* ability scores (STR INT WIS DEX CON CHA) + alignment index */
+		static const unsigned char k_stats[3][6] = {
+			{ 16, 10, 11, 14, 15, 12 },   /* Bramble  */
+			{  9, 17, 12, 16, 11, 13 },   /* Korin    */
+			{ 12, 13, 10, 17, 14, 11 },   /* Sable    */
+		};
+		static const unsigned char k_align[3] = { 0, 4, 6 };
 		static int  seeded = 0;
 		static long roster_head = 0;
 
@@ -8541,6 +8550,10 @@ void port_test_seed_design(void)
 					k_party[p][CHAR_RACE]  = k_race[p];
 					k_party[p][CHAR_CLASS] = k_class[p];
 					k_party[p][CHAR_LEVEL] = k_lvl[p];
+					for (c = 0; c < 6; c++)
+						k_party[p][CHAR_STATS + c] =
+						    k_stats[p][c];
+					k_party[p][CHAR_ALIGN] = k_align[p];
 					*(long *)(k_party[p]) =              /* next ptr (+0) */
 					    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
 				}
@@ -12119,6 +12132,9 @@ static void cg_build_record(const cg_state *s)
 	rec[CHAR_RACE]  = (unsigned char)s->race;   /* roster columns */
 	rec[CHAR_CLASS] = (unsigned char)klass;
 	rec[CHAR_LEVEL] = 1;                         /* new character */
+	for (c = 0; c < 6; c++)                      /* ability scores */
+		rec[CHAR_STATS + c] = (unsigned char)s->stats[c];
+	rec[CHAR_ALIGN] = (unsigned char)s->aligned[s->asel];
 	*(long *)rec = 0;                    /* next = end of list */
 
 	head = g_a5_long(-27928);
@@ -14889,6 +14905,108 @@ static int l1036(short a)
 	return 0;
 }
 
+/* View Character — a read-only character sheet, one roster entry at a
+ * time. The faithful path (l12a0 -> the jt568 selection machine) is the
+ * deferred remainder; this port screen walks the party list off
+ * g_a5_-27928, drawing the full sheet (name, race/class/level, alignment,
+ * the six ability scores, HP, AC) on the shared stone chrome. Up/Down
+ * page through the party, Esc/Return back out to the Training Hall.
+ *
+ * The stats / alignment are read from the port-local record offsets
+ * (CHAR_STATS / CHAR_ALIGN) that cg_build_record + the test-party seed
+ * write — see the CHAR_* macros above l02dc. */
+static void cg_view_sheet(void)
+{
+	const unsigned char *party[16];
+	short          nparty = 0, sel = 0;
+	const unsigned char *e;
+	unsigned char  scan = 0, ascii = 0;
+	unsigned char *px; short pitch, sw, sh, yy;
+
+	for (e = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     e != NULL && nparty < 16;
+	     e = *(const unsigned char * const *)e)
+		party[nparty++] = e;
+	if (nparty == 0)
+		return;
+
+	g_a5_2347 = 1;                       /* ×2 scale, matching the roster */
+	load_menu_ui();
+	while (plat_kb_poll(&scan, &ascii))  /* drain the triggering key */
+		;
+
+	for (;;) {
+		const unsigned char *c = party[sel];
+		short race  = c[CHAR_RACE], klass = c[CHAR_CLASS];
+		short lvl   = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
+		short align = c[CHAR_ALIGN];
+		short i;
+
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+			if (g_menu_state == 1) {
+				fill_backdrop(px, pitch, 0, 0,
+				              (short)(sw - 1), (short)(sh - 1));
+				draw_plate(px, pitch, sw, sh, 6, 8, 313, 150, 1);
+			} else {
+				for (yy = 0; yy < sh; yy++)
+					memset(px + (long)yy * pitch, 0x08,
+					       (size_t)sw);
+			}
+		}
+
+		jt94((short)3,  (short)2, 14, 0, "%s",
+		     (const char *)&c[96]);              /* name, gold */
+
+		jt94((short)3,  (short)4,  7, 0, "Race:");
+		jt94((short)10, (short)4, 15, 0, "%s",
+		     (race  < 6) ? k_roster_races[race]    : "?");
+		jt94((short)24, (short)4,  7, 0, "Class:");
+		jt94((short)31, (short)4, 15, 0, "%s",
+		     (klass < 6) ? k_roster_classes[klass] : "?");
+
+		jt94((short)3,  (short)5,  7, 0, "Level:");
+		jt94((short)10, (short)5, 15, 0, "%d", (int)lvl);
+		/* Alignment gets its own full-width row — "Lawful Good" etc
+		 * is too long to share row 5 without running off the plate. */
+		jt94((short)3,  (short)6,  7, 0, "Align:");
+		jt94((short)10, (short)6, 15, 0, "%s",
+		     (align < CG_NALIGNS) ? cg_aligns[align] : "?");
+
+		jt94((short)3,  (short)8, 11, 0, "Ability Scores");
+		for (i = 0; i < 6; i++) {
+			short col = (i < 3) ? (short)3 : (short)20;
+			short rw  = (short)(9 + (i % 3));
+			jt94(col,             rw,  7, 0, "%s",
+			     cg_stat_names[i]);
+			jt94((short)(col + 6), rw, 15, 0, "%d",
+			     (int)c[CHAR_STATS + i]);
+		}
+
+		jt94((short)3,  (short)13, 7,  0, "HP:");
+		jt94((short)8,  (short)13, 15, 0, "%d", (int)c[385]);
+		jt94((short)20, (short)13, 7,  0, "AC:");
+		jt94((short)25, (short)13, 15, 0, "%d", (int)c[395]);
+
+		if (nparty > 1)
+			jt94((short)3, (short)16, 7, 0,
+			     "%d of %d   Up/Down: next   Esc: back",
+			     (int)(sel + 1), (int)nparty);
+		else
+			jt94((short)3, (short)16, 7, 0, "Esc: back");
+
+		qd_present();
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 27 || ascii == 13 || ascii == 3)
+			break;                       /* Esc / Return -> back */
+		if (scan == 0x48)                    /* Up   */
+			sel = (short)((sel + nparty - 1) % nparty);
+		else if (scan == 0x50)               /* Down */
+			sel = (short)((sel + 1) % nparty);
+	}
+}
+
 /* L104c — case 6 (View Character). CODE 12 + 0x104c.
  *
  *   tstb a5@(-14434); beqw L1242
@@ -14903,6 +15021,7 @@ static int l104c(short a)
 	if (g_a5_14434 == 0)
 		return 0;
 	l12a0();
+	cg_view_sheet();                     /* port: the read-only sheet */
 	g_a5_27946 = 0;
 	return 0;
 }
