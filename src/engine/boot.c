@@ -11268,11 +11268,40 @@ static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
 	}
 }
 
-/* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop, now on the
- * shared menu_run. Returns 1 to keep ua_main's play loop running (Play /
- * sub-menus), 0 on "Quit From Game". The per-selection dispatch is still
- * play-vs-quit; the other commands (CODE 8/2/12 sub-menus) redraw until
- * they are lifted (see docs/menu-wiring-plan.md). */
+/* --- the menu-stack pattern: a sub-menu is a C function that runs its own
+ * menu_run loop and returns to the caller's dispatch. menu_todo() is the
+ * Phase 1 placeholder sub-screen: it proves the pattern end-to-end (a main
+ * command opens a sub-screen with its own chrome, and "Exit" backs out)
+ * while each command's faithful content is lifted per Phase 2. */
+static const char *g_submenu_title;
+
+static void submenu_decorate(unsigned char *px, short pitch, short sw, short sh,
+                             int phase)
+{
+	if (phase == 0) {
+		draw_plate(px, pitch, sw, sh, 6, 6, 313, 40, 1);  /* header plate */
+		return;
+	}
+	jt94((short)8, (short)3, (short)11, (short)0, "%s", g_submenu_title);
+	jt94((short)8, (short)6, (short)7,  (short)0, "Not yet implemented");
+}
+
+static void menu_todo(const char *title)
+{
+	static const menu_item_t items[] = {
+		{ "Exit", 8056, 8080, 'E', 0 },
+	};
+	g_submenu_title = title;
+	/* one item -> any selection (the Exit button / its hotkey) returns. */
+	(void)menu_run(items, 1, (void *)(uintptr_t)jt313, submenu_decorate);
+}
+
+/* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop, on the
+ * shared menu_run. Returns 1 to keep ua_main's play loop running, 0 on
+ * "Quit From Game". The dispatch now routes every command to a handler
+ * (the menu-stack pattern); the design / settings / editor sub-menus open
+ * the menu_todo placeholder until their faithful content is lifted
+ * (Phase 2 — JT entries noted, see docs/menu-wiring-plan.md). */
 static int   jt315(void)
 {
 	PROBE("jt315");
@@ -11282,12 +11311,20 @@ static int   jt315(void)
 		    (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]),
 		    (void *)(uintptr_t)jt313, jt315_decorate);
 		switch (hit) {
-		case 0:                          /* Play the Game */
+		case 0:                          /* Play the Game -> Training Hall */
 			return 1;
+		case 1: menu_todo("Select a Design");   break;  /* CODE 8 JT[361/369] */
+		case 2: menu_todo("Create New Design"); break;  /* CODE 8 */
+		case 3: menu_todo("Delete the Design"); break;  /* CODE 8 */
+		case 4: break;                   /* Unlock Editor — disabled */
+		case 5: menu_todo("Game Settings");     break;  /* JT[247] CODE 2 */
+		case 6: menu_todo("Edit Modules");      break;  /* CODE 12 editor */
+		case 7: menu_todo("Art Gallery");       break;  /* JT[1080] CODE 5 */
+		case 8: menu_todo("Monster Editor");    break;  /* CODE 12 editor */
 		case 9:                          /* Quit From Game */
 			return 0;
 		default:
-			break;                   /* redraw (selection not yet wired) */
+			break;
 		}
 	}
 }
