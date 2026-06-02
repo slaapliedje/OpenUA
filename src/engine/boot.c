@@ -5070,13 +5070,18 @@ static short jt382(void *rec_v, short cmd, ...)
 		 * faithfully we'll route through them instead. */
 		short ss = *(short *)(rec + 26);
 		short highlighted;
+		short dim;
 
 		rec[28] |= 0x80;
 
 		if ((rec[28] & 0x02) != 0)
-			return 0;                       /* disabled */
+			return 0;                       /* disabled, no draw */
 
 		highlighted = ((rec[28] & 0x09) != 0) ? 1 : 0;
+		/* Bit 2 (0x04) = "dimmed" — visible but disabled, drawn in a
+		 * darker stone grey so the player reads it as unavailable. Set
+		 * by the menu builders (jt452 cmd 18) on recessed commands. */
+		dim = ((rec[28] & 0x04) != 0) ? 1 : 0;
 
 		if (ss < 0) {
 			/* style_size == -1: no-paint sentinel.
@@ -5145,7 +5150,8 @@ static short jt382(void *rec_v, short cmd, ...)
 					 * in data/frua_mac_menu.png. The accelerator code is
 					 * rec[29] (set by jt452 cmd 32); we highlight its first
 					 * case-insensitive match in the label. */
-					const unsigned char BODY = 7, HOT = 15;
+					const unsigned char BODY = dim ? 18 : 7;
+					const unsigned char HOT  = dim ? 18 : 15;
 					unsigned char hk = rec[29];
 					short hi = -1, k;
 					CGrafPtr cport;
@@ -11308,11 +11314,23 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	jt81();
 	jt447();
 	for (i = 0; i < n; i++)
-		if (items[i].label != NULL)
-			jt452((long)1, (long)items[i].y, (long)items[i].x,
-			      (long)(uintptr_t)items[i].label,
-			      (long)32, (long)items[i].hotkey,
-			      (long)36, (long)18, (long)20, (long)21, (long)0);
+		if (items[i].label != NULL) {
+			/* Recessed (disabled) commands get an extra cmd 18 =
+			 * set rec[28] bit 2, so jt382 paints their label in the
+			 * dim stone grey. cmd 36 consumes the first 18 as its
+			 * arg (rec[24]); the second 18 is the standalone set-bit. */
+			if (items[i].recessed)
+				jt452((long)1, (long)items[i].y, (long)items[i].x,
+				      (long)(uintptr_t)items[i].label,
+				      (long)32, (long)items[i].hotkey,
+				      (long)36, (long)18, (long)18,
+				      (long)20, (long)21, (long)0);
+			else
+				jt452((long)1, (long)items[i].y, (long)items[i].x,
+				      (long)(uintptr_t)items[i].label,
+				      (long)32, (long)items[i].hotkey,
+				      (long)36, (long)18, (long)20, (long)21, (long)0);
+		}
 	if (proc != NULL)
 		jt452((long)7, (long)(uintptr_t)proc, (long)20, (long)0);
 
@@ -11771,8 +11789,16 @@ static int l0aae(void)
 			&g_a5_14436, &g_a5_14435, &g_a5_14434, &g_a5_14433,
 			&g_a5_14432, &g_a5_14431, &g_a5_14430, &g_a5_14429,
 		};
-		for (i = 0; i < 12; i++)
+		for (i = 0; i < 12; i++) {
 			jt444(i, (short)(*flags[i] != 0 ? 24 : 16), 0, 0);
+			/* Disabled commands (flag 0) get rec[28] bit 2 set so
+			 * jt382 paints the label in the dim stone grey. The
+			 * DLItem recs are pool slots 0..11 (jt452 allocated them
+			 * in order above). */
+			if (*flags[i] == 0)
+				(g_dlitem_pool + (long)i * DLITEM_BYTES)[28]
+				    |= 0x04;
+		}
 
 		/* Shared chrome: a bevelled plate behind each command, drawn (like
 		 * the main menu) before the labels. recessed = disabled (flag 0),
