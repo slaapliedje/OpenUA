@@ -13643,6 +13643,19 @@ static void jt904(unsigned char *out_done)
 			jt155((short)6, &status1);
 		jt155((short)7, &status1);
 
+		/* Clear the roster-menu backdrop + prime present (the jt182 popup
+		 * paints its items via l2d3e but the engine clear path is stubbed,
+		 * so the items would otherwise sit on a black page — same fix as
+		 * jt315 / l0aae). */
+		{
+			unsigned char *px; short pitch, sw, sh, yy;
+			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+				for (yy = 0; yy < sh; yy++)
+					memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+				qd_present();
+			}
+		}
+
 		g_a5_24140 = exit_flag;
 		last_key   = jt182(ua_strs_at(0x5a34), g_a5_13804,
 		                   (short)0, (short)0);
