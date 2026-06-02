@@ -10726,55 +10726,71 @@ static int   jt315(void)
 
 	PROBE("jt315");
 
-	/* Clear the menu background. jt131(6) is the engine's screen-mode /
-	 * clear call but is a PROBE stub in the port, so paint a flat backdrop
-	 * over the VIDEL buffer ourselves (clut-129 dark grey) and prime the
-	 * present path before the QuickDraw text + DLItem buttons draw on top. */
-	{
-		unsigned char *px; short pitch, sw, sh, yy;
-		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-			for (yy = 0; yy < sh; yy++)
-				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
-			qd_present();
+	for (;;) {
+		/* Clear the menu background. jt131(6) is the engine's screen-mode
+		 * / clear call but is a PROBE stub in the port, so paint a flat
+		 * backdrop over the VIDEL buffer ourselves (clut-129 dark grey)
+		 * and prime the present path before the QuickDraw text + DLItem
+		 * buttons draw on top. */
+		{
+			unsigned char *px; short pitch, sw, sh, yy;
+			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+				for (yy = 0; yy < sh; yy++)
+					memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+				qd_present();
+			}
+		}
+
+		/* --- build the menu --- */
+		jt131((short)6);                 /* clear to the menu screen mode */
+		jt112((short)1);
+		jt81();                          /* (frame setup — PROBE stub)    */
+		jt447();                         /* init the DLItem group         */
+		for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++)
+			jt452((long)1, (long)g_mainmenu[i].y, (long)g_mainmenu[i].x,
+			      (long)(uintptr_t)g_mainmenu[i].label,
+			      (long)32, (long)g_mainmenu[i].hotkey,
+			      (long)36, (long)18, (long)20, (long)21, (long)0);
+		jt452((long)7, (long)(uintptr_t)jt313, (long)20, (long)0);  /* action item */
+
+		/* --- paint the buttons --- */
+		l2c60((short)1);
+
+		/* --- title banner (jt94: page,row,col,style,fmt) ---
+		 * The two version lines the Mac draws come from g_a5_-13948/-13944,
+		 * which in this build hold a GEO filename template ("%s%03d.dat")
+		 * not version text, so they're skipped until that source is found. */
+		design = (const char *)g_a5_buf(-31336);
+		title  = (const char *)g_a5_buf(-18876);
+		jt94((short)4,  (short)9,  (short)11, (short)0, "Current Game Design:");
+		if (design[0]) jt94((short)25, (short)9,  (short)7, (short)0, "%s", design);
+		if (title[0])  jt94((short)4,  (short)10, (short)7, (short)0, "%s", title);
+
+		jt112((short)0);
+		jt117();                         /* present (engine path) */
+		qd_present();                    /* c2p the QD port to VIDEL + flip */
+
+		/* --- block until the user selects an item --- */
+		hit = jt453((jt453_filter_t)0);
+
+		/* Dispatch on the selected DLItem (l2d3e returns the pool index,
+		 * g_mainmenu order). The faithful Play path is jt315 -> return 1
+		 * -> ua_main's l07dc -> jt918 party setup, but l07dc/jt918 and the
+		 * Training Hall are still PROBE stubs, so Play instead enters the
+		 * working first-person play loop (port_play_demo: load level, place
+		 * the party, render jt312, walk with WASD; returns on 'q'). Other
+		 * design/editor items redraw the menu until their CODE 8/2/12
+		 * handlers are lifted. */
+		switch (hit) {
+		case 0:                          /* Play the Game */
+			port_play_demo();        /* enter the dungeon; back on 'q' */
+			break;                   /* then redraw the menu           */
+		case 9:                          /* Quit From Game */
+			return 0;
+		default:
+			break;                   /* redraw (selection not yet wired) */
 		}
 	}
-
-	/* --- build the menu --- */
-	jt131((short)6);                 /* clear to the menu screen mode  */
-	jt112((short)1);
-	jt81();                          /* (frame setup — PROBE stub)     */
-	jt447();                         /* init the DLItem group          */
-	for (i = 0; i < (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]); i++)
-		jt452((long)1, (long)g_mainmenu[i].y, (long)g_mainmenu[i].x,
-		      (long)(uintptr_t)g_mainmenu[i].label,
-		      (long)32, (long)g_mainmenu[i].hotkey,
-		      (long)36, (long)18, (long)20, (long)21, (long)0);
-	jt452((long)7, (long)(uintptr_t)jt313, (long)20, (long)0);  /* action item */
-
-	/* --- paint the buttons --- */
-	l2c60((short)1);
-
-	/* --- title banner (jt94: page,row,col,style,fmt) ---
-	 * The two version lines the Mac draws come from g_a5_-13948/-13944,
-	 * which in this build hold a GEO filename template ("%s%03d.dat") not
-	 * version text, so they're skipped until that source is identified. */
-	design = (const char *)g_a5_buf(-31336);
-	title  = (const char *)g_a5_buf(-18876);
-	jt94((short)4,  (short)9,  (short)11, (short)0, "Current Game Design:");
-	if (design[0]) jt94((short)25, (short)9,  (short)7, (short)0, "%s", design);
-	if (title[0])  jt94((short)4,  (short)10, (short)7, (short)0, "%s", title);
-
-	jt112((short)0);
-	jt117();                         /* present (engine path) */
-	qd_present();                    /* c2p the QD port to VIDEL + flip */
-
-	/* --- block until the user selects an item --- */
-	hit = jt453((jt453_filter_t)0);
-
-	/* simplified dispatch: the Quit item ends the play loop. */
-	if (hit == 9)                    /* "Quit From Game" (table index 9) */
-		return 0;
-	return 1;
 }
 
 /* JT[140] / JT[156] (CODE 7 + 0x1e58 / 0x1d5c) — item-callback PROCs
