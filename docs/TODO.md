@@ -97,11 +97,15 @@ restores either, so the menu painted with the dungeon palette + deep-scaled
 (shifted/clipped) coords. FIX: jt315 and jt918 now restore g_a5_-2347 = 1 +
 load_frua_palette() (clut 129, made non-static) on every menu redraw.
 Verified: Play -> dungeon -> q -> menu redraws fully (was black).
-- STILL OPEN (separate, NOT this issue): char-gen (jt574 via L3666) drew
-  black even with NO dungeon visited (clut/mode were the menu's), so that's
-  a draw bug in L3666/jt1089/the jt574 context, not palette/present. Revisit
-  when resuming the CODE 17 char-gen lift; now that jt918 restores the menu
-  state, re-enabling Train (g_a5_-14440) is safe to retry.
+- RESOLVED: char-gen draw bug. jt574 -> L3666 (PICK race/class/gender/
+  alignment) drew black only because I first probed it at jt918 ENTRY, before
+  the loop sets up the clear/present + palette/mode state. Reached properly
+  (Train -> case 0 -> l0f1a -> jt574, inside jt918's loop), it renders. Fix:
+  port_test_seed_design enables Train (g_a5_-14440=1); jt574 sets g_a5_-2347=0
+  (deep jt1135 x3 scale) so the PICK headers lay out spaced + legible (the
+  Training Hall's x2 scale packed them together). Verified. The full wizard
+  (stat roll, race/class lists, selection state machine) is the deferred
+  CODE 17 lift; the screen now renders as the first slice.
 - NEXT (boot UI):
   - The faithful Begin Adventuring (jt585 -> CODE 15/19 -> the real play
     loop) so the port_play_demo bridge can come off. Exit From Play
