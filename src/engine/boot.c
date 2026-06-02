@@ -11770,29 +11770,70 @@ static void l3666(void)
  * dependent (appears after the race pick) and is deferred with the
  * selection machine. Options in light grey (col 7) under the white (15)
  * headers. */
-#define CG_NRACES 6
+#define CG_NRACES   6
+#define CG_NGENDERS 2
+#define CG_NCLASSES 6
 static const char *const cg_races[CG_NRACES] = {
 	"Human", "Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling",
 };
+static const char *const cg_genders[CG_NGENDERS] = { "Male", "Female" };
+static const char *const cg_classes[CG_NCLASSES] = {
+	"Cleric", "Fighter", "Magic-User", "Thief", "Paladin", "Ranger",
+};
 
-static void cg_draw_lists(short sel_race)
+/* Which single classes each race may be (bit i = cg_classes[i] allowed) —
+ * the AD&D-1e race/class table FRUA follows. The faithful source is the
+ * game's own table at g_a5_-30450 (read by jt568); this hard-codes the
+ * single-class allowances (multi-class combos are the deferred remainder)
+ * so the class list is correctly gated by the picked race. */
+static const unsigned char cg_race_classes[CG_NRACES] = {
+	0x3F,   /* Human:    Cleric Fighter Mage Thief Paladin Ranger */
+	0x2F,   /* Elf:      Cleric Fighter Mage Thief Ranger          */
+	0x2F,   /* Half-Elf: Cleric Fighter Mage Thief Ranger          */
+	0x0B,   /* Dwarf:    Cleric Fighter Thief                      */
+	0x0B,   /* Gnome:    Cleric Fighter Thief                      */
+	0x0A,   /* Halfling: Fighter Thief                             */
+};
+
+/* Build the allowed-class index list for `race`; returns the count. */
+static short cg_allowed_classes(short race, short *out)
+{
+	short i, n = 0;
+	unsigned char mask = cg_race_classes[race];
+	for (i = 0; i < CG_NCLASSES; i++)
+		if (mask & (1u << i))
+			out[n++] = i;
+	return n;
+}
+
+/* Draw the char-gen pick lists. `step` is the active pick (0 race, 1
+ * gender, 2 class); each region shows its current choice in cyan once it's
+ * been reached, the rest light grey. The class list shows only the picked
+ * race's allowed classes (gated). */
+static void cg_draw(short race, short gender, short ksel, short step,
+                    const short *allowed, short nallowed)
 {
 	static const char *const aligns[] = {
 		"Lawful Good", "Lawful Neut", "Lawful Evil",
 		"Neutral Good", "Neutral", "Neutral Evil",
 		"Chaotic Good", "Chaotic Neut", "Chaotic Evil",
 	};
-	static const char *const genders[] = { "Male", "Female" };
 	short k;
 
-	/* current race highlighted cyan (col 11), the rest light grey (7). */
 	for (k = 0; k < CG_NRACES; k++)
 		jt1089((short)8006, (short)(8010 + 3 * k),
-		       (short)(k == sel_race ? 11 : 7), "%s", cg_races[k]);
+		       (short)(k == race ? 11 : 7), "%s", cg_races[k]);
 	for (k = 0; k < (short)(sizeof aligns / sizeof aligns[0]); k++)
 		jt1089((short)8040, (short)(8010 + 3 * k), (short)7, "%s", aligns[k]);
-	for (k = 0; k < (short)(sizeof genders / sizeof genders[0]); k++)
-		jt1089((short)8076, (short)(8010 + 3 * k), (short)7, "%s", genders[k]);
+	for (k = 0; k < CG_NGENDERS; k++)
+		jt1089((short)8076, (short)(8010 + 3 * k),
+		       (short)(k == gender && step >= 1 ? 11 : 7), "%s",
+		       cg_genders[k]);
+	if (step >= 2)                       /* class list (race-gated) */
+		for (k = 0; k < nallowed; k++)
+			jt1089((short)8006, (short)(8035 + 3 * k),
+			       (short)(k == ksel ? 11 : 7), "%s",
+			       cg_classes[allowed[k]]);
 }
 
 /* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
@@ -11826,19 +11867,29 @@ static int  jt574(long ctx)
 	}
 	l3666();                             /* seed wizard state + PICK headers */
 
-	/* Interactive race pick (PORT interaction, pending the faithful jt568
-	 * mouse state machine): a keyboard cursor over the race list — Up/Down
-	 * (scan 0x48/0x50) move the highlight, Return picks, Esc cancels. The
-	 * picked race is stored in g_a5_-7027 (the race index jt568 reads from
-	 * the table at g_a5_-30450); the gender/class/alignment steps + the stat
-	 * roll (L34f0) + the record build are the deferred remainder. */
+	/* Interactive pick flow (PORT interaction, pending the faithful jt568
+	 * mouse state machine): a keyboard cursor advances through the picks —
+	 * race -> gender -> class. Up/Down (scan 0x48/0x50) move the highlight
+	 * in the active list, Return advances to the next pick, Esc backs up
+	 * (and cancels out of race). The class list is gated to the picked
+	 * race's allowed classes (cg_allowed_classes). The chosen race is
+	 * stored in g_a5_-7027; the stat roll (L34f0), alignment pick, naming,
+	 * and the record build + add-to-roster are the deferred remainder. */
 	{
 		short race = (short)(signed char)g_a5_byte(-7027);
+		short gender = 0, ksel = 0, step = 0;
+		short allowed[CG_NCLASSES];
+		short nallowed;
+
 		if (race < 0 || race >= CG_NRACES)
 			race = 0;
+		nallowed = cg_allowed_classes(race, allowed);
+
 		while (plat_kb_poll(&scan, &ascii))    /* drain the triggering key */
 			;
 		for (;;) {
+			short *cur; short n;
+
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 				if (g_menu_state == 1)
 					fill_backdrop(px, pitch, 0, 0,
@@ -11848,21 +11899,35 @@ static int  jt574(long ctx)
 						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 			}
 			l35f8();                       /* PICK headers */
-			cg_draw_lists(race);           /* options, current race highlighted */
+			cg_draw(race, gender, ksel, step, allowed, nallowed);
 			qd_present();
+
+			/* which list the cursor drives this step */
+			if (step == 0)      { cur = &race;   n = CG_NRACES;   }
+			else if (step == 1) { cur = &gender; n = CG_NGENDERS; }
+			else                { cur = &ksel;   n = nallowed;    }
 
 			while (!plat_kb_poll(&scan, &ascii))
 				;
-			if (ascii == 13 || ascii == 3)         /* Return / Enter -> pick */
-				break;
-			if (ascii == 27)                       /* Esc -> cancel */
-				break;
-			if (scan == 0x48)                      /* Up */
-				race = (short)((race + CG_NRACES - 1) % CG_NRACES);
-			else if (scan == 0x50)                 /* Down */
-				race = (short)((race + 1) % CG_NRACES);
+			if (ascii == 13 || ascii == 3) {       /* Return -> advance */
+				if (step == 0)                 /* race picked: gate classes */
+					nallowed = cg_allowed_classes(race, allowed);
+				if (++step > 2)
+					break;                 /* race+gender+class chosen */
+			} else if (ascii == 27) {              /* Esc -> back up / cancel */
+				if (--step < 0) {
+					g_a5_byte(-7027) = (unsigned char)race;
+					return 0;
+				}
+			} else if (scan == 0x48) {             /* Up */
+				*cur = (short)((*cur + n - 1) % n);
+			} else if (scan == 0x50) {             /* Down */
+				*cur = (short)((*cur + 1) % n);
+			}
 		}
 		g_a5_byte(-7027) = (unsigned char)race;    /* store the chosen race */
+		/* race/gender/class picked (gender, allowed[ksel] in scope); the
+		 * record build that persists them is the next char-gen slice. */
 	}
 	return 0;                            /* back to the Training Hall */
 }
