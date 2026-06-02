@@ -1817,6 +1817,7 @@ static void          jt941(void)
 	}
 }
 static int           jt918(short a);                                             /* CODE 12 + 0x0d90 — lifted below */
+static int           jt574(long ctx);                                            /* CODE 17 + 0x3b5e — char-gen entry, lifted below */
 /* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
  * (Modify Character roster grid, lifted further down). */
 static void          l02dc(long highlight);
@@ -11761,11 +11762,40 @@ static void l3666(void)
 	 * (jt568 dispatcher, race/class/gender/alignment selection). */
 }
 
+/* Char-gen option lists under the PICK headers. PORT ADDITION: the Mac
+ * draws these through the jt568 selection state machine (CODE 17) which
+ * isn't lifted yet; this lists the choices so the screen reads as the real
+ * char-gen, under each header's column (RACE top-left, ALIGNMENT top-mid,
+ * GENDER top-right — matching l35f8's header coords). CLASS is race-
+ * dependent (appears after the race pick) and is deferred with the
+ * selection machine. Options in light grey (col 7) under the white (15)
+ * headers. */
+static void cg_draw_lists(void)
+{
+	static const char *races[] = {
+		"Human", "Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling",
+	};
+	static const char *aligns[] = {
+		"Lawful Good", "Lawful Neut", "Lawful Evil",
+		"Neutral Good", "Neutral", "Neutral Evil",
+		"Chaotic Good", "Chaotic Neut", "Chaotic Evil",
+	};
+	static const char *genders[] = { "Male", "Female" };
+	short k;
+
+	for (k = 0; k < (short)(sizeof races / sizeof races[0]); k++)
+		jt1089((short)8006, (short)(8010 + 3 * k), (short)7, "%s", races[k]);
+	for (k = 0; k < (short)(sizeof aligns / sizeof aligns[0]); k++)
+		jt1089((short)8040, (short)(8010 + 3 * k), (short)7, "%s", aligns[k]);
+	for (k = 0; k < (short)(sizeof genders / sizeof genders[0]); k++)
+		jt1089((short)8076, (short)(8010 + 3 * k), (short)7, "%s", genders[k]);
+}
+
 /* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
- * case 0). FIRST SLICE of the CODE 17 lift: show the char-creation screen
- * (L3666 -> the PICK race/class/gender/alignment headers) on a cleared
- * backdrop, then hold until a key. The selection + stat-roll state machine
- * is the deferred remainder. */
+ * case 0). Shows the char-creation screen (L3666 -> the PICK race/class/
+ * gender/alignment headers + the option lists) on the shared stone chrome,
+ * then holds until a key. The selection + stat-roll state machine is the
+ * deferred remainder (docs/menu-wiring-plan.md / TODO). */
 static int  jt574(long ctx)
 {
 	unsigned char scan = 0, ascii = 0;
@@ -11779,13 +11809,19 @@ static int  jt574(long ctx)
 	 * (×2), which packs the PICK headers on top of each other. Use the deep
 	 * scale here. */
 	g_a5_2347 = 0;
+	load_menu_ui();                      /* shared UI palette + backdrop */
 
 	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-		for (yy = 0; yy < sh; yy++)
-			memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+		if (g_menu_state == 1)
+			fill_backdrop(px, pitch, 0, 0,
+			              (short)(sw - 1), (short)(sh - 1));
+		else
+			for (yy = 0; yy < sh; yy++)
+				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 		qd_present();
 	}
-	l3666();                             /* draw the char-creation screen */
+	l3666();                             /* PICK headers */
+	cg_draw_lists();                     /* the race/alignment/gender options */
 	qd_present();
 	while (plat_kb_poll(&scan, &ascii))  /* drain the key that triggered us */
 		;
@@ -12150,7 +12186,11 @@ static int    jt41(long handle_long, short find_byte, void *descriptor)
 }
 static int    jt556(long a)                    { PROBE("jt556"); (void)a;
                                                   return 0; }
-static void   jt557(void)                       { PROBE("jt557"); }
+/* JT[557] — Create Character (Training Hall case 3, l0f60). Opens the
+ * char-gen screen (jt574 shows PICK race/align/gender + the option lists);
+ * the fresh-record build + selection state machine is the deferred CODE 17
+ * remainder. */
+static void   jt557(void)                       { PROBE("jt557"); (void)jt574(0); }
 static void   jt560(void)                       { PROBE("jt560"); }
 static void   jt876(long a, short b, short c, short d, short e)
                                                 { PROBE("jt876"); (void)a;
