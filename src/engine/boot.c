@@ -11676,6 +11676,21 @@ static int l0aae(void)
 		};
 		for (i = 0; i < 12; i++)
 			jt444(i, (short)(*flags[i] != 0 ? 24 : 16), 0, 0);
+
+		/* Shared chrome: a bevelled plate behind each command, drawn (like
+		 * the main menu) before the labels. recessed = disabled (flag 0),
+		 * so greyed commands render sunken — matching jt315's look. */
+		{
+			menu_item_t ti[12];
+			for (i = 0; i < 12; i++) {
+				ti[i].label    = "";
+				ti[i].x        = k_jt918_menu_items[i].page;
+				ti[i].y        = k_jt918_menu_items[i].phrase;
+				ti[i].hotkey   = k_jt918_menu_items[i].selector;
+				ti[i].recessed = (*flags[i] == 0);
+			}
+			menu_draw_plates(ti, 12);
+		}
 	}
 
 	l2c60(1);                            /* real DLItem paint walker (jt449 is a stub) */
@@ -14695,17 +14710,21 @@ static int jt918(short a)
 		 * Adventuring -> port_play_demo leaves clut 0..15 + deep mode
 		 * changed) — same fix as jt315. */
 		g_a5_2347 = 1;
-		{ extern void load_frua_palette(void); load_frua_palette(); }
+		load_menu_ui();                  /* shared UI palette (was clut 129) */
 
-		/* Clear the Training Hall backdrop + prime present ONCE per frame,
-		 * before l02dc paints the roster grid and l0aae paints the menu
-		 * (so the menu's draw no longer wipes the roster). jt131(6)/jt174
-		 * are stubs in the port, so do it here. */
+		/* Paint the Training Hall on the shared menu chrome — the stone
+		 * backdrop — ONCE per frame, before l02dc paints the roster grid and
+		 * l0aae paints the menu (so the menu's draw no longer wipes the
+		 * roster). jt131(6)/jt174 are stubs in the port, so do it here. */
 		{
 			unsigned char *px; short pitch, sw, sh, yy;
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-				for (yy = 0; yy < sh; yy++)
-					memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+				if (g_menu_state == 1)
+					fill_backdrop(px, pitch, 0, 0,
+					              (short)(sw - 1), (short)(sh - 1));
+				else
+					for (yy = 0; yy < sh; yy++)
+						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 				qd_present();
 			}
 		}
