@@ -146,14 +146,28 @@ index 0 = transparent (field shows through). Formats by flag byte:
   + index-0 transparency + composite recursion + clip), validated against
   FRAME.CTL item 9 (ornate panel blits with a see-through interior).
 
-**Remaining frame work (now unblocked):** (1) wire `ui_glib_blit` into the
-frame draw — either via `jt81`/`jt1001` (needs `jt468`, the page→ptr map)
-or call it directly from the menu chrome; (2) identify the composite items
-(FRAME.CTL `0xc9`, items 17-20) that lay out the screen border + panels,
-and blit them for the real molding instead of the procedural bevels;
-(3) add the `0xc7` leaf decode (L2b9a) if any needed piece uses it. The
-blit is reused by *every* GLIB image (Art Gallery, portraits, dungeon
-art), so it was high-value to lift.
+**Wired (commit d011a3f):** the menu backdrop now draws through
+`ui_glib_blit` — `fill_backdrop` tiles the GEN field via the lifted blit
+(opaque), so the menu's field goes through the real l309c path. GEN item 1
+is one bearing-placed section (ybear -110) of the multi-section "gen"
+backdrop; GEN.CTL ships only that section, so we repeat it to cover the
+screen.
+
+FRAME.CTL composite RE: items 17-20 (`0xc9`) are **column fills** — they
+stack the 8x8 tiles (26 = top cap, 27 = middle, 28 = bottom cap) into
+vertical stone strips of various heights (item17 = 120, 18 = 63, 19 = 43,
+20 = 31). So FRAME's composites build larger fills from 8x8 tiles; the
+full screen-border assembly is done by engine code placing edges/corners/
+fills (the top-level layout isn't a single composite item).
+
+**Remaining frame work:** (1) resolve the multi-section "gen" backdrop
+(jt468 page→ptr + where sections 2-4 live) so the field is the real
+sections, not a repeat of section 1; (2) for ornate dialog frames, blit
+the FRAME composite/edge pieces via `ui_glib_blit` (proven with item 9);
+(3) add the `0xc7` leaf decode (L2b9a) when a needed piece uses it. The
+main menu's simple bevels stay procedural (faithful — it has no ornate
+molding). The blit is reused by *every* GLIB image (Art Gallery,
+portraits, dungeon art).
 
 ## Deferred visual polish (tracked, not blocking)
 
