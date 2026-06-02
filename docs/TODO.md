@@ -43,7 +43,28 @@ Working notes on what's next. Ratified architecture decisions live in
     (AC/HP number paint, still stubs) and fix the "Name"/"AC HP" header
     column positions (jt94 col mapping). The party is a static stand-in —
     replace with real created/loaded characters once CODE 17 lands.
-  * NEXT (ii): start lifting CODE 17 Create Character incrementally.
+  * STARTED (ii): CODE 17 char-gen. Lifted L35f8 (the PICK RACE/ALIGNMENT/
+    GENDER/CLASS headers via jt1089) + L3666 (char-gen screen init skeleton:
+    dims, draw headers, seed wizard step g_a5_-7018) + jt574 (case-0 entry
+    shows the screen). The big remainder: the ability-score roll (L34f0 over
+    the race/class tables at g_a5_-30450) + the jt568 per-step pick state
+    machine (race/class/gender/alignment selection + the created record).
+    BLOCKED on visual confirm by the present issue below.
+
+## Display present / buffer plumbing (NOW THE PRIORITY UNBLOCKER)
+
+A recurring issue gates several screens: a draw + qd_present does NOT reach
+the visible VIDEL buffer in certain call contexts, even a flat gray-fill.
+Confirmed cases:
+- Dungeon round-trip: 'q' out of port_play_demo -> menu redraws BLACK (the
+  3D view's double-buffered mode leaves qd_present on the wrong page).
+- Char-gen (jt574) reached via l07dc -> jt918: the screen draws black.
+- BUT it works fine for: jt315 main menu, l0aae/jt918 Training Hall loop
+  (their in-loop clear+present shows).
+So qd_present works in some contexts and not others — likely a front/back
+page-tracking bug in platform/display_videl.c (videl_flip / the qd_present
+hook) when the active page was changed by a prior screen. Fixing this
+unblocks the char-gen render, the round-trip, and future screens.
 - NEXT (boot UI):
   - The faithful Begin Adventuring (jt585 -> CODE 15/19 -> the real play
     loop) so the port_play_demo bridge can come off. Exit From Play
