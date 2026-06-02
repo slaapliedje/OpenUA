@@ -145,12 +145,16 @@ Ordered easiest → hardest; each is its own commit using `menu_run`.
    (commit 0e3e437): jt574 shows the char-gen screen on the shared stone
    chrome with the PICK headers (l35f8) + the option lists (cg_draw_lists:
    6 races, 9 alignments, Male/Female); jt557 (Create, Training Hall case 3)
-   opens it. cg_draw_lists is a port stand-in for the jt568 selection state
-   machine. REMAINING (multi-session): the stat roll (L34f0 over the race/
-   class tables at g_a5_-30450), the per-step pick state machine (jt568:
-   race -> class list appears -> alignment/gender, with AD&D race/class/
-   alignment constraints), the rolled ability scores display, character
-   naming (TextEdit), and the fresh-record build + add-to-roster.
+   opens it. INTERACTIVE (commits bd55d6a, 19cf09b): a keyboard cursor
+   advances the picks race -> gender -> class (Up/Down move, Return
+   advances, Esc backs up); the class list is gated to the picked race's
+   allowed classes (cg_allowed_classes + cg_race_classes single-class table;
+   faithful source g_a5_-30450). Verified: Halfling -> Fighter/Thief only.
+   Still a PORT keyboard interaction pending the faithful jt568 machine.
+   REMAINING (multi-session): multi-class combos, the alignment pick
+   (class-gated), the stat roll (L34f0 over the race/class tables at
+   g_a5_-30450), the rolled ability-score display, character naming
+   (TextEdit), and the fresh-record build + add-to-roster.
 3. Load/Save game modals.
 4. **Begin Adventuring** — replace the `port_play_demo` bridge with the
    faithful `l1142 → jt585 → CODE 15/19` adventure entry.
