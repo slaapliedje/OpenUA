@@ -133,13 +133,27 @@ index 0 = transparent (field shows through). Formats by flag byte:
 `0xc0/0xc5` = raw 8bpp, `0xc2` = PackBits, `0xc7/0xc9` = more compressed
 (RLE variants, TBD), `0xc8` = palette band.
 
-**To finish faithfully (the remaining work):** RE `l309c` (the ~150-line
-masked pixmap blit) + `jt468` (page→ptr) — that gives the exact section
-placement, the `0xc7/0xc9` decodes, and the index-0 transparency. Then the
-border molding composites from FRAME.CTL pieces at their bearings, and the
-per-button/plate frames come from the real art instead of the procedural
-bevels. `l309c` is the linchpin and is reused by *every* GLIB image blit in
-the game (Art Gallery, portraits, etc.), so it's high-value to lift well.
+**`l309c` is now lifted** (commit 48e92a2) as `ui_glib_blit`. RE result:
+- `l309c` (CODE 5 + 0x309c) is the *dispatcher* (not a 150-line blit — the
+  old stub comment was wrong): jt1135 remap → l2856 metric → (ybear,xbear)
+  bearing → composite arm (`metric[7]&0xF==9`: a list of 6-byte
+  `{sub_idx,count,dy,dx}` records, recursed) or the leaf.
+- `l2d4e` (CODE 5 + 0x2d4e) is the leaf, dispatched by flag low-nibble:
+  `3` = scaled column blit (JT[1170/1177/1185]), `2` = PackBits (L2bfc),
+  `7` = L2b9a, `0/5` = raw (L2970, = the dungeon's `bp_blit`), `0x0a` =
+  deep split; clips against `g_a5_-3050..-3056`.
+- `ui_glib_blit` reproduces this for the chunky UI surface (PackBits + raw
+  + index-0 transparency + composite recursion + clip), validated against
+  FRAME.CTL item 9 (ornate panel blits with a see-through interior).
+
+**Remaining frame work (now unblocked):** (1) wire `ui_glib_blit` into the
+frame draw — either via `jt81`/`jt1001` (needs `jt468`, the page→ptr map)
+or call it directly from the menu chrome; (2) identify the composite items
+(FRAME.CTL `0xc9`, items 17-20) that lay out the screen border + panels,
+and blit them for the real molding instead of the procedural bevels;
+(3) add the `0xc7` leaf decode (L2b9a) if any needed piece uses it. The
+blit is reused by *every* GLIB image (Art Gallery, portraits, dungeon
+art), so it was high-value to lift.
 
 ## Deferred visual polish (tracked, not blocking)
 
