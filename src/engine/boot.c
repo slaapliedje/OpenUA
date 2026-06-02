@@ -4133,15 +4133,30 @@ static int  jt1200(void)
  *          Draw AC via JT[32] at col 36 + colour.
  *      Step row, advance.
  *   5. Footer: if row < 12, draw final separator via JT[103]. */
+/* Roster-column data lives at port-local record offsets until the
+ * canonical play-record layout (race/class/level positions) is lifted
+ * with the combat/play code. cg_build_record and the test-party seed are
+ * the only writers; l02dc reads them for the Name/Race/Class/Level grid.
+ * The gap 199..384 sits between the +197/198 status flags and HP@385. */
+#define CHAR_RACE   200
+#define CHAR_CLASS  201
+#define CHAR_LEVEL  202
+
+/* Short race / class names for the narrow roster columns (the char-gen
+ * tables use the long "Magic-User"; the roster abbreviates to "Mage"). */
+static const char *const k_roster_races[6] = {
+	"Human", "Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling",
+};
+static const char *const k_roster_classes[6] = {
+	"Cleric", "Fighter", "Mage", "Thief", "Paladin", "Ranger",
+};
+
 static void l02dc(long highlight)
 {
 	const unsigned char *handle = (const unsigned char *)g_a5_28006;
 	const unsigned char *entry;
 	short page;
 	short row;
-	short hp;
-	short ac;
-	short colour;
 
 	PROBE("L02dc");
 
@@ -4159,12 +4174,14 @@ static void l02dc(long highlight)
 	g_a5_24128 = 3;
 
 	row = 2;
-	/* Header: "Name" at the base page (x), "AC HP" at page 33 (a right
-	 * column). Faithful to CODE 12 + 0x348/0x36c — jt94's 3rd arg is the
-	 * colour nibble, the page (1st arg) is the x; the prior lift passed 33
-	 * as the colour with the same page, so the two labels overlapped. */
-	jt94(page, row, 12, 0, ua_strs_at(0x5e5e));      /* "Name"  */
-	jt94((short)33, row, 12, 0, ua_strs_at(0x5e64)); /* "AC HP" */
+	/* Column headers in red (colour 12). The original lists names only;
+	 * the port shows Name / Race / Class / Level — the at-a-glance party
+	 * facts. jt94's x is page*8 px: Name 8, Race 136, Class 208, Level
+	 * 272, spread across the roster panel (x6..313). */
+	jt94(page,       row, 12, 0, ua_strs_at(0x5e5e)); /* "Name" */
+	jt94((short)17,  row, 12, 0, "Race");
+	jt94((short)26,  row, 12, 0, "Class");
+	jt94((short)34,  row, 12, 0, "Level");
 	row += 2;
 
 	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
@@ -4180,36 +4197,28 @@ static void l02dc(long highlight)
 			jt25((long)(uintptr_t)entry, page, row, 0);
 		}
 
-		hp = entry[385];
-		if (hp == 0 || hp > 69)
-			colour = 0;
-		else if (hp < 50)
-			colour = 1;
-		else if (hp < 60)
-			colour = 2;
-		else
-			colour = 1;
-		jt34((long)(uintptr_t)entry,
-		     (short)(32 + colour), row, 0);
-		/* jt34/jt32 (the Mac number-paint) are PROBE stubs, so draw the
-		 * HP / AC values directly under the "AC HP" header — AC at page 33,
-		 * HP at page 36 — so each value sits under its label. */
-		jt94((short)36, row, 7, 0, "%d", (int)hp);
+		/* Race / Class / Level in light grey (colour 7) under their
+		 * headers. Race + class are indices into the roster name
+		 * tables (port-local record bytes); level is a small count. */
+		{
+			unsigned char race  = entry[CHAR_RACE];
+			unsigned char klass = entry[CHAR_CLASS];
+			unsigned char lvl   = entry[CHAR_LEVEL];
 
-		ac = entry[395];
-		if (ac > 99)
-			colour = 0;
-		else if (ac > 9)
-			colour = 1;
-		else
-			colour = 2;
+			if (race < 6)
+				jt94((short)17, row, 7, 0, "%s",
+				     k_roster_races[race]);
+			if (klass < 6)
+				jt94((short)26, row, 7, 0, "%s",
+				     k_roster_classes[klass]);
+			jt94((short)34, row, 7, 0, "%d",
+			     (int)(lvl ? lvl : 1));
+		}
 
+		/* "*" status overlay (mid-operation marker) — faithful to the
+		 * original; drawn only when jt1200()==3 and the +197 flag set. */
 		if (jt1200() == 3 && entry[197] != 0)
-			jt97(35, row, 12, 0, 1, 42, 1);  /* "*" overlay */
-
-		jt32((long)(uintptr_t)entry,
-		     (short)(36 + colour), row, 0, 0);
-		jt94((short)33, row, 7, 0, "%d", (int)ac);
+			jt97(33, row, 12, 0, 1, 42, 1);
 
 		row += 1;
 		entry = *(const unsigned char * const *)entry;  /* .next */
@@ -8507,6 +8516,12 @@ void port_test_seed_design(void)
 		static const char   *k_names[3] = { "Bramble", "Korin Vale", "Sable" };
 		static const unsigned char k_hp[3] = { 18, 24, 11 };
 		static const unsigned char k_ac[3] = { 5, 7, 4 };
+		/* race / class indices into k_roster_races / k_roster_classes:
+		 * Bramble = Human Fighter L3, Korin = Elf Mage L2,
+		 * Sable = Halfling Thief L3. */
+		static const unsigned char k_race[3]  = { 0, 1, 5 };
+		static const unsigned char k_class[3] = { 1, 2, 3 };
+		static const unsigned char k_lvl[3]   = { 3, 2, 3 };
 		static int  seeded = 0;
 		static long roster_head = 0;
 
@@ -8523,6 +8538,9 @@ void port_test_seed_design(void)
 					k_party[p][96 + c] = 0;
 					k_party[p][385] = k_hp[p];           /* HP  */
 					k_party[p][395] = k_ac[p];           /* AC  */
+					k_party[p][CHAR_RACE]  = k_race[p];
+					k_party[p][CHAR_CLASS] = k_class[p];
+					k_party[p][CHAR_LEVEL] = k_lvl[p];
 					*(long *)(k_party[p]) =              /* next ptr (+0) */
 					    (p < 2) ? (long)(uintptr_t)k_party[p + 1] : 0L;
 				}
@@ -12098,6 +12116,9 @@ static void cg_build_record(const cg_state *s)
 	rec[96 + c]  = 0;
 	rec[385]     = (unsigned char)hp;
 	rec[395]     = (unsigned char)ac;
+	rec[CHAR_RACE]  = (unsigned char)s->race;   /* roster columns */
+	rec[CHAR_CLASS] = (unsigned char)klass;
+	rec[CHAR_LEVEL] = 1;                         /* new character */
 	*(long *)rec = 0;                    /* next = end of list */
 
 	head = g_a5_long(-27928);
