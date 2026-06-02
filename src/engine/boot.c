@@ -10827,7 +10827,7 @@ static unsigned char g_frame_file[40960];    /* FRAME.CTL, kept resident    */
 static unsigned char g_gen_file[28672];      /* GEN.CTL, kept resident      */
 static long          g_frame_base, g_gen_base;  /* GLIB bases for ui_glib_blit */
 static unsigned char g_bg[320 * 90];         /* decoded GEN backdrop image  */
-static short         g_bg_w, g_bg_h;
+static short         g_bg_w, g_bg_h, g_bg_ybear;
 static int           g_menu_state;           /* 0 untried, 1 ok, -1 failed */
 static RGBColor      g_menu_pal[256];
 static short         g_menu_pe;
@@ -10934,6 +10934,8 @@ static void load_menu_ui(void)
 				if (w > 0 && h > 0 && got >= (long)w * h) {
 					g_bg_w = w;
 					g_bg_h = h;
+					g_bg_ybear =
+					    (short)(((unsigned short)it[2] << 8) | it[3]);
 					g_menu_state = 1;
 				}
 			}
@@ -10955,7 +10957,8 @@ static void load_menu_ui(void)
  *      6-byte {sub_idx, count, dy, dx} records — recurse for each piece at
  *      its offset (this is the frame placement data);
  *   5. else: blit the leaf 8bpp image — PackBits (flag nibble 2) decoded
- *      first, raw (0/5) copied directly; index 0 is transparent.
+ *      first, raw (0/5) copied directly. `transparent` controls index 0:
+ *      skip it (molding over the field) vs copy it (the opaque field).
  *
  * Targets qd_screen_pixels (the chunky 8bpp surface) rather than the Mac
  * page descriptor; the l2d4e leaf's planar/scaled/clip-global arms are
@@ -10963,9 +10966,8 @@ static void load_menu_ui(void)
  * every UI GLIB image (frame molding, Art Gallery, portraits, …). */
 static unsigned char g_glib_dec[320 * 96];   /* PackBits decode scratch */
 
-static void ui_glib_blit(long handle, short idx, short top, short left)
-	__attribute__((unused));
-static void ui_glib_blit(long handle, short idx, short top, short left)
+static void ui_glib_blit(long handle, short idx, short top, short left,
+                         int transparent)
 {
 	unsigned char metric[8];
 	long          info;
@@ -10995,7 +10997,8 @@ static void ui_glib_blit(long handle, short idx, short top, short left)
 			short dy  = (short)(((unsigned short)rec[2] << 8) | rec[3]);
 			short dx  = (short)(((unsigned short)rec[4] << 8) | rec[5]);
 			rec += 6;
-			ui_glib_blit(handle, sub, (short)(y + dy), (short)(x + dx));
+			ui_glib_blit(handle, sub, (short)(y + dy), (short)(x + dx),
+			             transparent);
 			count = cnt;
 		}
 		return;
@@ -11030,7 +11033,7 @@ static void ui_glib_blit(long handle, short idx, short top, short left)
 		for (col = 0; col < w; col++) {
 			short dx = (short)(x + col);
 			unsigned char v = s[col];
-			if (v == 0)                  /* index 0 = transparent */
+			if (transparent && v == 0)   /* index 0 = transparent */
 				continue;
 			if (dx < 0 || dx >= sw)
 				continue;
@@ -11057,20 +11060,24 @@ static void ui_glib_blit(long handle, short idx, short top, short left)
 #define MENU_BEVEL_LIGHT  16    /* clut 16 = 167,167,167  band highlight */
 #define MENU_BEVEL_DARK   31    /* clut 31 = 27,27,39     band shadow    */
 
-/* Tile the GEN.CTL stone backdrop (dark warm stone) across a rect,
- * repeating vertically (the image is 320x90; the screen is 200 tall). */
+/* Tile the GEN.CTL stone backdrop down the screen, drawn through the
+ * lifted blit (ui_glib_blit), opaque. GEN item 1 is one bearing-placed
+ * section of the Mac's multi-section "gen" backdrop (ybear shifts it down
+ * the screen); GEN.CTL ships only that section, so we repeat it to cover
+ * the whole field. To land a copy with its top at pixel `py`, the engine
+ * Y must satisfy (eng-8000)*2 - ybear == py, i.e. eng = 8000 + (py+ybear)/2
+ * (jt1135 + the bearing adjust inside ui_glib_blit). */
 static void fill_backdrop(unsigned char *px, short pitch,
                           short x0, short y0, short x1, short y1)
 {
-	short x, y;
+	short py;
+	(void)px; (void)pitch; (void)x0; (void)y0; (void)x1;
 	if (g_menu_state != 1 || g_bg_h <= 0)
 		return;
-	for (y = y0; y <= y1; y++) {
-		const unsigned char *row = g_bg + (long)(y % g_bg_h) * g_bg_w;
-		unsigned char *d = px + (long)y * pitch;
-		for (x = x0; x <= x1; x++)
-			d[x] = (x < g_bg_w) ? row[x] : row[g_bg_w - 1];
-	}
+	for (py = 0; py <= y1; py = (short)(py + g_bg_h))
+		ui_glib_blit(g_gen_base, 1,
+		             (short)(8000 + (py + g_bg_ybear) / 2),
+		             (short)8000, 0 /* opaque */);
 }
 
 /* A bevelled plate over the backdrop: flat warm-grey face + a 1px bevel.
