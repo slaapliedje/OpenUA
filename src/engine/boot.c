@@ -10763,6 +10763,14 @@ static int   jt315(void)
 	PROBE("jt315");
 
 	for (;;) {
+		/* Restore the menu's display state after a dungeon visit. The play
+		 * loop overwrites clut 0..15 (corridor shading) and switches to deep
+		 * mode (g_a5_-2347 = 0, jt1135 scale 3); without restoring, the menu
+		 * paints with the dungeon palette (near-black) and deep-scaled coords
+		 * (shifted/clipped). */
+		g_a5_2347 = 1;                   /* non-encounter: jt1135 scale 2 */
+		{ extern void load_frua_palette(void); load_frua_palette(); }
+
 		/* Clear the menu background. jt131(6) is the engine's screen-mode
 		 * / clear call but is a PROBE stub in the port, so paint a flat
 		 * backdrop over the VIDEL buffer ourselves (clut-129 dark grey)
@@ -14184,6 +14192,12 @@ static int jt918(short a)
 	 * jt453 spinning on l2d3e and the IKBD chain live, the loop now
 	 * blocks on real input. */
 	for (;;) {
+		/* Restore the menu display state after a dungeon visit (Begin
+		 * Adventuring -> port_play_demo leaves clut 0..15 + deep mode
+		 * changed) — same fix as jt315. */
+		g_a5_2347 = 1;
+		{ extern void load_frua_palette(void); load_frua_palette(); }
+
 		/* Clear the Training Hall backdrop + prime present ONCE per frame,
 		 * before l02dc paints the roster grid and l0aae paints the menu
 		 * (so the menu's draw no longer wipes the roster). jt131(6)/jt174
