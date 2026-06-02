@@ -15,7 +15,19 @@ Working notes on what's next. Ratified architecture decisions live in
   From Game" (9) -> return 0. Verified in Hatari (-DDEMO_LEVEL=2): boot ->
   menu -> 'P' -> the 3D dungeon corridor. Selection works via the item
   hotkey (jt382 hit-test + l1676 commit -> l2d3e returns the index).
+- DONE: faithful Play path to the Training Hall. jt315 Play -> return 1 ->
+  ua_main l07dc -> jt918 -> l0aae renders the party-management menu (Add/
+  Remove/Modify/Train/View Character, Human Change Class, Create/Delete,
+  Load/Save, Begin Adventuring, Exit From Play). l0aae was lifted earlier
+  but painted via the jt449 stub + never presented; fixed (clear + l2c60 +
+  qd_present, like jt315). "Begin Adventuring" (case 9 / l1142) bridges to
+  port_play_demo -> the 3D dungeon (faithful jt585/CODE15-19 chain is still
+  stubbed). Full chain verified: menu -> P -> Training Hall -> B -> dungeon.
 - NEXT (boot UI):
+  - Lift the per-action handlers so the Training Hall does real work:
+    Create/Add Character (jt904 roster + CODE 17 char-gen), and the faithful
+    Begin Adventuring (jt585 -> CODE 15/19 -> the real play loop) so the
+    bridge can come off. Exit From Play (case 8 / l10ca) -> back to main menu.
   - ROUND-TRIP GLITCH: returning from the dungeon ('q') redraws the menu
     BLACK — after port_play_demo's double-buffered VIDEL mode, even jt315's
     gray-fill + qd_present doesn't reach the visible buffer (the dungeon
