@@ -6370,11 +6370,14 @@ static int load_backdrop(short n)
 			unsigned char r = pp[k * 3 + 0];
 			unsigned char g = pp[k * 3 + 1];
 			unsigned char b = pp[k * 3 + 2];
-			/* The bright horizon/transparency markers (magenta key and
-			 * the cyan transition) read as speckle noise here — fold them
-			 * to a dark shadow tone so the horizon band stays neutral. */
+			/* The bright horizon/transparency markers (the magenta key,
+			 * the cyan transition, and any other strongly blue-dominant
+			 * marker) read as speckle noise in the first-person view — a
+			 * stone floor/ceiling has no saturated blue — so fold them to
+			 * a dark shadow tone, keeping the horizon band neutral. */
 			if ((r == 255 && g == 103 && b == 255) ||
-			    (r == 127 && g == 255 && b == 255)) {
+			    (r == 127 && g == 255 && b == 255) ||
+			    (b > 150 && b >= r + 48 && b >= g + 16)) {
 				r = 0x18; g = 0x14; b = 0x10;
 			}
 			bpal[k].red   = (unsigned short)((r << 8) | r);
