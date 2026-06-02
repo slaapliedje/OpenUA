@@ -161,12 +161,17 @@ Ordered easiest → hardest; each is its own commit using `menu_run`.
    hit die + CON bonus, AC@+395 = 10 - DEX bonus) and appends it to the
    roster (g_a5_-27928, the list l02dc walks). So char-gen now produces a
    real party member: race -> gender -> class -> alignment -> stats -> name.
+   CLASS-LEGAL ROLLS (commit 029fd4c): cg_roll_stats takes the class and
+   re-rolls each ability to its class minimum (cg_class_min: Fighter STR>=9,
+   Paladin STR12/INT9/WIS13/CON9/CHA17, Ranger STR13/INT13/WIS14/CON14, …),
+   so a created character is always legal. Verified: Dwarf Fighter -> STR 15.
    Still a PORT keyboard interaction pending the faithful jt568 machine.
    REMAINING refinements: faithful play-record fidelity (stats/class/saves
-   at their canonical record offsets + derived combat fields), class-minimum
-   stat re-rolls, multi-class combos, and persistence (the play-entry
-   re-seed port_test_seed_design wipes created chars until real save/load
-   lands). Faithful tables live in g_a5_-30450 / L34f0.
+   at their canonical record offsets + derived combat fields — needs the
+   CODE 17 record-commit RE'd; the working record is g_a5_-7008, fields at
+   +89/+93, but the six-stat offsets aren't pinned and nothing consumes them
+   yet), multi-class combos, and persistence (the play-entry re-seed
+   port_test_seed_design wipes created chars until real save/load lands).
 3. Load/Save game modals.
 4. **Begin Adventuring** — replace the `port_play_demo` bridge with the
    faithful `l1142 → jt585 → CODE 15/19` adventure entry.
