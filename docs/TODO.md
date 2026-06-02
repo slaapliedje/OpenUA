@@ -126,11 +126,20 @@ WIP / next iterations:
   Visual confirmation deferred — the FRUA_MAP_DEMO entry (port_play_demo)
   is no longer on the boot path (the port now boots the real Training Hall
   UI), so rendering the 3D view needs menu navigation or a demo re-wire.
-- NEXT: revisit the .tlb-vs-.ctl + synthesis question (deep mode loads
-  .tlb w/ placeholder synthesis via JT[111]; non-deep loads .ctl, all
-  sizes present) so render_3d_faithful blits the right tiles for the now-
-  correct (code,sub) sequence. And re-wire a demo entry that reaches the
-  3D view for visual regression.
+- DONE: demo re-wired. `port_play_demo` was buried behind FRUA_ENGINE_PROBE
+  + FRUA_MAP_DEMO in jt361's test soup; added a clean independent hook in
+  ua_main after jt361(1) under FRUA_3D_DEMO. `make EXTRA_CFLAGS="-DFRUA_3D_DEMO
+  -DFRUA_FAITHFUL -DDEMO_LEVEL=2"` boots straight into the 3D view. CONFIRMED
+  the jt199 re-lift: renders a receding stone corridor with side-wall wedges
+  at multiple depths (the band/sub ramp firing) — the frozen-sub lift could
+  not produce this.
+- NEXT: the .tlb-vs-.ctl + synthesis question (deep mode loads .tlb w/
+  placeholder synthesis via JT[111]; non-deep loads .ctl, all sizes
+  present). The demo render shows the right STRUCTURE but wrong palette
+  (blue speckle) + aspect — render_3d_faithful loads .ctl while deep mode
+  wants .tlb-with-synthesis. Resolve so it blits the right tiles for the
+  now-correct (code,sub) sequence. Also: keyboard walk (WASD) under
+  --fast-forward didn't visibly step — check plat_kb_poll input plumbing.
 - Meanwhile render_3d_raycast (visibility-faithful, on-screen, looks right)
   is the working demo renderer; the pixel-exact jt199 path is in progress.
 - Strip the `g_cwf_blits` debug logging once the layout is correct.
