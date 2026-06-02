@@ -11870,13 +11870,14 @@ static short cg_allowed_aligns(short klass, short *out)
 }
 
 /* The whole char-gen pick state. Steps: 0 race, 1 gender, 2 class,
- * 3 alignment, 4 stats. The class list is gated by race; the alignment
- * list by the chosen class. */
+ * 3 alignment, 4 stats, 5 name. The class list is gated by race; the
+ * alignment list by the chosen class. */
 typedef struct {
 	short race, gender, ksel, asel, step;
 	short allowed[CG_NCLASSES]; short nallowed;   /* race-gated classes   */
 	short aligned[CG_NALIGNS];  short naligned;    /* class-gated aligns   */
 	short stats[6];
+	char  name[16]; short namelen;
 } cg_state;
 
 /* Draw the char-gen screen from the pick state: each region shows its
@@ -11907,12 +11908,64 @@ static void cg_draw(const cg_state *s)
 		for (k = 0; k < CG_NALIGNS; k++)
 			jt1089((short)8040, (short)(8010 + 3 * k), (short)7,
 			       "%s", cg_aligns[k]);
-	if (s->step >= 4) {                  /* rolled ability scores */
+	if (s->step >= 4)                    /* rolled ability scores */
 		for (k = 0; k < 6; k++)
 			jt1089((short)8076, (short)(8024 + 3 * k), (short)7,
 			       "%s %d", cg_stat_names[k], s->stats[k]);
+	if (s->step == 4)
 		jt1089((short)8006, (short)8058, (short)7,
 		       "R = re-roll   Return = keep");
+	else if (s->step == 5)               /* name entry */
+		jt1089((short)8006, (short)8058, (short)11,
+		       "Name: %s_", s->name);
+}
+
+/* Created characters live here once char-gen finishes (the roster holds
+ * pointers into this pool via the next-ptr at record+0). */
+static unsigned char cg_char_pool[8][512];
+static int           cg_char_count;
+
+/* Per-class hit die (Cleric Fighter Mage Thief Paladin Ranger). */
+static const unsigned char cg_class_hd[CG_NCLASSES] = { 8, 10, 4, 6, 10, 8 };
+
+/* Build a character record from the finished pick state and append it to
+ * the roster (g_a5_-27928 linked list, next ptr at +0). Sets the fields
+ * the roster grid reads — name@+96, HP@+385, AC@+395 — with HP from the
+ * class hit die + CON bonus and AC from 10 - DEX bonus (AD&D-1e style).
+ * The full play-record (stats/class/saves at their faithful offsets) is
+ * the next slice; this makes the created character appear in the party. */
+static void cg_build_record(const cg_state *s)
+{
+	unsigned char *rec = cg_char_pool[cg_char_count & 7];
+	short klass  = s->allowed[s->ksel];
+	short con    = s->stats[4], dex = s->stats[3];
+	short conmod = (con >= 16) ? 2 : (con >= 15) ? 1 : (con <= 6) ? -1 : 0;
+	short dexmod = (dex >= 15) ? (dex - 14) : 0;
+	short hp, ac, c;
+	long  head;
+
+	if (dexmod > 4) dexmod = 4;
+	hp = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
+	if (hp < 1) hp = 1;
+	ac = (short)(10 - dexmod);
+
+	cg_char_count++;
+	memset(rec, 0, 512);
+	for (c = 0; c < s->namelen && c < 15; c++)
+		rec[96 + c] = (unsigned char)s->name[c];
+	rec[96 + c]  = 0;
+	rec[385]     = (unsigned char)hp;
+	rec[395]     = (unsigned char)ac;
+	*(long *)rec = 0;                    /* next = end of list */
+
+	head = g_a5_long(-27928);
+	if (head == 0) {
+		g_a5_long(-27928) = (long)(uintptr_t)rec;
+	} else {                             /* append after the last entry */
+		unsigned char *p = (unsigned char *)(uintptr_t)head;
+		while (*(long *)p != 0)
+			p = (unsigned char *)(uintptr_t)(*(long *)p);
+		*(long *)p = (long)(uintptr_t)rec;
 	}
 }
 
@@ -11986,16 +12039,19 @@ static int  jt574(long ctx)
 				if (s.step == 0) {             /* race -> gate classes */
 					s.nallowed = cg_allowed_classes(s.race, s.allowed);
 					s.ksel = 0;
-				}
-				if (s.step == 2) {             /* class -> gate alignments */
+				} else if (s.step == 2) {      /* class -> gate alignments */
 					s.naligned = cg_allowed_aligns(
 					    s.allowed[s.ksel], s.aligned);
 					s.asel = 0;
-				}
-				if (s.step == 3)               /* alignment -> roll stats */
+				} else if (s.step == 3) {      /* alignment -> roll stats */
 					cg_roll_stats(s.race, s.stats);
-				if (++s.step > 4)
-					break;                 /* all picks made */
+				} else if (s.step == 5) {      /* name entered -> create */
+					if (s.namelen == 0)
+						continue;      /* need a name first */
+					cg_build_record(&s);
+					break;                 /* character created */
+				}
+				s.step++;                      /* race/gender/class/align/stats */
 			} else if (ascii == 27) {              /* Esc -> back up / cancel */
 				if (--s.step < 0) {
 					g_a5_byte(-7027) = (unsigned char)s.race;
@@ -12004,6 +12060,15 @@ static int  jt574(long ctx)
 			} else if (s.step == 4) {              /* stat-roll step */
 				if (ascii == 'r' || ascii == 'R' || ascii == ' ')
 					cg_roll_stats(s.race, s.stats);
+			} else if (s.step == 5) {              /* name-entry step */
+				if (ascii == 8 || ascii == 127) {      /* backspace */
+					if (s.namelen > 0)
+						s.name[--s.namelen] = 0;
+				} else if (ascii >= 32 && ascii < 127
+				        && s.namelen < 15) {           /* printable */
+					s.name[s.namelen++] = (char)ascii;
+					s.name[s.namelen] = 0;
+				}
 			} else {                               /* list-pick step */
 				short *cur = (s.step == 0) ? &s.race
 				           : (s.step == 1) ? &s.gender
@@ -12018,9 +12083,6 @@ static int  jt574(long ctx)
 			}
 		}
 		g_a5_byte(-7027) = (unsigned char)s.race;  /* store the chosen race */
-		/* s.race / s.gender / s.allowed[s.ksel] / s.aligned[s.asel] /
-		 * s.stats[] are now chosen; the record build that persists them
-		 * into the roster (and naming) is the next char-gen slice. */
 	}
 	return 0;                            /* back to the Training Hall */
 }
