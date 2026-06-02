@@ -11841,38 +11841,76 @@ static void cg_roll_stats(short race, short *stats)
 	}
 }
 
-/* Draw the char-gen pick lists. `step` is the active pick (0 race, 1
- * gender, 2 class); each region shows its current choice in cyan once it's
- * been reached, the rest light grey. The class list shows only the picked
- * race's allowed classes (gated). */
-static void cg_draw(short race, short gender, short ksel, short step,
-                    const short *allowed, short nallowed, const short *stats)
+#define CG_NALIGNS 9
+static const char *const cg_aligns[CG_NALIGNS] = {
+	"Lawful Good", "Lawful Neut", "Lawful Evil",
+	"Neutral Good", "Neutral",     "Neutral Evil",
+	"Chaotic Good", "Chaotic Neut", "Chaotic Evil",
+};
+
+/* Which alignments each class may be (bit i = cg_aligns[i]). The AD&D-1e
+ * restrictions FRUA follows; the game's own table is the faithful source. */
+static const unsigned short cg_class_aligns[CG_NCLASSES] = {
+	0x1FF,   /* Cleric:     any          */
+	0x1FF,   /* Fighter:    any          */
+	0x1FF,   /* Magic-User: any          */
+	0x1F8,   /* Thief:      non-lawful   */
+	0x001,   /* Paladin:    Lawful Good  */
+	0x049,   /* Ranger:     any Good     */
+};
+
+static short cg_allowed_aligns(short klass, short *out)
 {
-	static const char *const aligns[] = {
-		"Lawful Good", "Lawful Neut", "Lawful Evil",
-		"Neutral Good", "Neutral", "Neutral Evil",
-		"Chaotic Good", "Chaotic Neut", "Chaotic Evil",
-	};
+	short i, n = 0;
+	unsigned short mask = cg_class_aligns[klass];
+	for (i = 0; i < CG_NALIGNS; i++)
+		if (mask & (1u << i))
+			out[n++] = i;
+	return n;
+}
+
+/* The whole char-gen pick state. Steps: 0 race, 1 gender, 2 class,
+ * 3 alignment, 4 stats. The class list is gated by race; the alignment
+ * list by the chosen class. */
+typedef struct {
+	short race, gender, ksel, asel, step;
+	short allowed[CG_NCLASSES]; short nallowed;   /* race-gated classes   */
+	short aligned[CG_NALIGNS];  short naligned;    /* class-gated aligns   */
+	short stats[6];
+} cg_state;
+
+/* Draw the char-gen screen from the pick state: each region shows its
+ * current choice in cyan once reached, the rest light grey; the class and
+ * alignment lists show only their gated options. */
+static void cg_draw(const cg_state *s)
+{
 	short k;
 
 	for (k = 0; k < CG_NRACES; k++)
 		jt1089((short)8006, (short)(8010 + 3 * k),
-		       (short)(k == race ? 11 : 7), "%s", cg_races[k]);
-	for (k = 0; k < (short)(sizeof aligns / sizeof aligns[0]); k++)
-		jt1089((short)8040, (short)(8010 + 3 * k), (short)7, "%s", aligns[k]);
+		       (short)(k == s->race ? 11 : 7), "%s", cg_races[k]);
 	for (k = 0; k < CG_NGENDERS; k++)
 		jt1089((short)8076, (short)(8010 + 3 * k),
-		       (short)(k == gender && step >= 1 ? 11 : 7), "%s",
+		       (short)(k == s->gender && s->step >= 1 ? 11 : 7), "%s",
 		       cg_genders[k]);
-	if (step >= 2)                       /* class list (race-gated) */
-		for (k = 0; k < nallowed; k++)
+	if (s->step >= 2)                    /* class list (race-gated) */
+		for (k = 0; k < s->nallowed; k++)
 			jt1089((short)8006, (short)(8035 + 3 * k),
-			       (short)(k == ksel ? 11 : 7), "%s",
-			       cg_classes[allowed[k]]);
-	if (step >= 3) {                     /* rolled ability scores */
+			       (short)(k == s->ksel ? 11 : 7), "%s",
+			       cg_classes[s->allowed[k]]);
+	if (s->step >= 3)                    /* alignment list (class-gated) */
+		for (k = 0; k < s->naligned; k++)
+			jt1089((short)8040, (short)(8010 + 3 * k),
+			       (short)(k == s->asel ? 11 : 7), "%s",
+			       cg_aligns[s->aligned[k]]);
+	else                                 /* before class pick: show all 9 */
+		for (k = 0; k < CG_NALIGNS; k++)
+			jt1089((short)8040, (short)(8010 + 3 * k), (short)7,
+			       "%s", cg_aligns[k]);
+	if (s->step >= 4) {                  /* rolled ability scores */
 		for (k = 0; k < 6; k++)
 			jt1089((short)8076, (short)(8024 + 3 * k), (short)7,
-			       "%s %d", cg_stat_names[k], stats[k]);
+			       "%s %d", cg_stat_names[k], s->stats[k]);
 		jt1089((short)8006, (short)8058, (short)7,
 		       "R = re-roll   Return = keep");
 	}
@@ -11910,24 +11948,22 @@ static int  jt574(long ctx)
 	l3666();                             /* seed wizard state + PICK headers */
 
 	/* Interactive pick flow (PORT interaction, pending the faithful jt568
-	 * mouse state machine): a keyboard cursor advances through the picks —
-	 * race -> gender -> class. Up/Down (scan 0x48/0x50) move the highlight
-	 * in the active list, Return advances to the next pick, Esc backs up
-	 * (and cancels out of race). The class list is gated to the picked
-	 * race's allowed classes (cg_allowed_classes). The chosen race is
-	 * stored in g_a5_-7027; the stat roll (L34f0), alignment pick, naming,
-	 * and the record build + add-to-roster are the deferred remainder. */
+	 * mouse state machine): a keyboard cursor advances through the picks in
+	 * order — race -> gender -> class -> alignment -> stats. Up/Down (scan
+	 * 0x48/0x50) move the highlight in the active list, Return advances, Esc
+	 * backs up (cancelling out of race). The class list is gated to the
+	 * race's allowed classes, the alignment list to the chosen class's
+	 * allowed alignments. The chosen race is stored in g_a5_-7027; the
+	 * record build + add-to-roster (and naming) are the deferred remainder. */
 	{
-		short race = (short)(signed char)g_a5_byte(-7027);
-		short gender = 0, ksel = 0, step = 0;
-		short allowed[CG_NCLASSES];
-		short nallowed;
-		short stats[6];
+		cg_state s;
 
-		if (race < 0 || race >= CG_NRACES)
-			race = 0;
-		nallowed = cg_allowed_classes(race, allowed);
-		cg_roll_stats(race, stats);
+		memset(&s, 0, sizeof s);
+		s.race = (short)(signed char)g_a5_byte(-7027);
+		if (s.race < 0 || s.race >= CG_NRACES)
+			s.race = 0;
+		s.nallowed = cg_allowed_classes(s.race, s.allowed);
+		cg_roll_stats(s.race, s.stats);
 
 		while (plat_kb_poll(&scan, &ascii))    /* drain the triggering key */
 			;
@@ -11941,41 +11977,50 @@ static int  jt574(long ctx)
 						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 			}
 			l35f8();                       /* PICK headers */
-			cg_draw(race, gender, ksel, step, allowed, nallowed, stats);
+			cg_draw(&s);
 			qd_present();
 
 			while (!plat_kb_poll(&scan, &ascii))
 				;
 			if (ascii == 13 || ascii == 3) {       /* Return -> advance */
-				if (step == 0)                 /* race picked: gate classes */
-					nallowed = cg_allowed_classes(race, allowed);
-				if (step == 2)                 /* class picked: roll stats */
-					cg_roll_stats(race, stats);
-				if (++step > 3)
-					break;                 /* race+gender+class+stats done */
+				if (s.step == 0) {             /* race -> gate classes */
+					s.nallowed = cg_allowed_classes(s.race, s.allowed);
+					s.ksel = 0;
+				}
+				if (s.step == 2) {             /* class -> gate alignments */
+					s.naligned = cg_allowed_aligns(
+					    s.allowed[s.ksel], s.aligned);
+					s.asel = 0;
+				}
+				if (s.step == 3)               /* alignment -> roll stats */
+					cg_roll_stats(s.race, s.stats);
+				if (++s.step > 4)
+					break;                 /* all picks made */
 			} else if (ascii == 27) {              /* Esc -> back up / cancel */
-				if (--step < 0) {
-					g_a5_byte(-7027) = (unsigned char)race;
+				if (--s.step < 0) {
+					g_a5_byte(-7027) = (unsigned char)s.race;
 					return 0;
 				}
-			} else if (step == 3) {                /* stat-roll step */
+			} else if (s.step == 4) {              /* stat-roll step */
 				if (ascii == 'r' || ascii == 'R' || ascii == ' ')
-					cg_roll_stats(race, stats);
+					cg_roll_stats(s.race, s.stats);
 			} else {                               /* list-pick step */
-				short *cur = (step == 0) ? &race
-				           : (step == 1) ? &gender : &ksel;
-				short  n   = (step == 0) ? CG_NRACES
-				           : (step == 1) ? CG_NGENDERS : nallowed;
+				short *cur = (s.step == 0) ? &s.race
+				           : (s.step == 1) ? &s.gender
+				           : (s.step == 2) ? &s.ksel : &s.asel;
+				short  n   = (s.step == 0) ? CG_NRACES
+				           : (s.step == 1) ? CG_NGENDERS
+				           : (s.step == 2) ? s.nallowed : s.naligned;
 				if (scan == 0x48)              /* Up */
 					*cur = (short)((*cur + n - 1) % n);
 				else if (scan == 0x50)         /* Down */
 					*cur = (short)((*cur + 1) % n);
 			}
 		}
-		g_a5_byte(-7027) = (unsigned char)race;    /* store the chosen race */
-		/* race / gender / allowed[ksel] / stats[] are now chosen; the
-		 * record build that persists them into the roster is the next
-		 * char-gen slice (alignment pick + naming come with it). */
+		g_a5_byte(-7027) = (unsigned char)s.race;  /* store the chosen race */
+		/* s.race / s.gender / s.allowed[s.ksel] / s.aligned[s.asel] /
+		 * s.stats[] are now chosen; the record build that persists them
+		 * into the roster (and naming) is the next char-gen slice. */
 	}
 	return 0;                            /* back to the Training Hall */
 }
