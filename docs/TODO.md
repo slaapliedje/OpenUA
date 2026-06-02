@@ -85,10 +85,18 @@ DONE (commit 7edb43e): steps 1+2. load_menu_ui() installs MENU.CTL item0
 backdrop. jt315 draws the heading cyan + design/title gold; jt382 forces
 button labels white (clut 15). Verified in Hatari — calm grey stone bg,
 cyan/gold/white text per the reference. GEN backdrop now unused.
+DONE (commit 94b1f9e): the TITLE block. jt315 now draws all five banner
+lines the asm does (CODE 22 + 0x506e): "Unlimited Adventures" (row 3, col
+11 cyan) + version/build line (row 4, col 7) + "Current Game Design:" +
+design name + module title. Sampling the reference proved there is NO
+gold — cyan headings (col 11), light-grey values (col 7, 187,187,187) —
+so the earlier gold (col 14) change was reverted to the faithful col 7.
 STILL TODO: (3) FRAME.TLB bevels around each command (raised 3D boxes);
-(4) the TITLE block ("UNLIMITED ADVENTURES / VERSION 1.0 / APRIL 27,1993");
-plus gold hotkey-letter highlight; and the design/title row overlap (the
-heading+name share row 9, the module title on row 10 sits too close).
+button body should be light grey (col 7) with the hotkey letter brighter/
+white (currently jt382 forces the whole label white, clut 15) — this is
+the hotkey-highlight step. Also: text rows overlap slightly because the
+compat 8x8 font is full-height on 8px (scale-2) row spacing; faithful to
+the asm's coords, a font-metrics limitation, not a layout bug.
 
 ## Initial-screen texture (GEN backdrop) — stopgap (wrong asset)
 
