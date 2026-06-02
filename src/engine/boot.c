@@ -11316,7 +11316,6 @@ static int   jt315(void)
 {
 	PROBE("jt315");
 
-	{ static int dbg=0; if(!dbg){ dbg=1; return 1; } }
 	for (;;) {
 		short hit = menu_run(g_mainmenu,
 		    (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]),
