@@ -23,11 +23,24 @@ Working notes on what's next. Ratified architecture decisions live in
   qd_present, like jt315). "Begin Adventuring" (case 9 / l1142) bridges to
   port_play_demo -> the 3D dungeon (faithful jt585/CODE15-19 chain is still
   stubbed). Full chain verified: menu -> P -> Training Hall -> B -> dungeon.
+- PARTIAL: the roster/Adventure menu renders. "Add Character" -> jt904 ->
+  jt182 (Add/Modify/Delete roster popup) now displays on a clean backdrop
+  (jt155 value list + l206e/l23b4/l25b6 over the l2d3e pump were lifted;
+  added the clear+present prime). CHARACTER CREATION + A POPULATED PARTY are
+  a LARGE subsystem, NOT done:
+  * Create/Add character -> CODE 17 char-gen (~10k lines of asm, barely
+    lifted): JT[557] create, JT[574] train, JT[556], JT[560], etc. — all
+    PROBE stubs. This is the multi-session piece.
+  * Party data g_a5_-5806 is NULL until a real roster block exists; the
+    character record format (base+76 party slots, base+198.. roster flags,
+    base[94]/[147]/[382] fields read by jt904) needs RE to seed a test party.
+  * Two tractable next steps: (i) RE the character record + seed one test
+    character so a party exists and View Character / the roster show real
+    data; (ii) start lifting CODE 17 Create Character incrementally.
 - NEXT (boot UI):
-  - Lift the per-action handlers so the Training Hall does real work:
-    Create/Add Character (jt904 roster + CODE 17 char-gen), and the faithful
-    Begin Adventuring (jt585 -> CODE 15/19 -> the real play loop) so the
-    bridge can come off. Exit From Play (case 8 / l10ca) -> back to main menu.
+  - The faithful Begin Adventuring (jt585 -> CODE 15/19 -> the real play
+    loop) so the port_play_demo bridge can come off. Exit From Play
+    (case 8 / l10ca) -> back to main menu.
   - ROUND-TRIP GLITCH: returning from the dungeon ('q') redraws the menu
     BLACK — after port_play_demo's double-buffered VIDEL mode, even jt315's
     gray-fill + qd_present doesn't reach the visible buffer (the dungeon
