@@ -11770,21 +11770,25 @@ static void l3666(void)
  * dependent (appears after the race pick) and is deferred with the
  * selection machine. Options in light grey (col 7) under the white (15)
  * headers. */
-static void cg_draw_lists(void)
+#define CG_NRACES 6
+static const char *const cg_races[CG_NRACES] = {
+	"Human", "Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling",
+};
+
+static void cg_draw_lists(short sel_race)
 {
-	static const char *races[] = {
-		"Human", "Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling",
-	};
-	static const char *aligns[] = {
+	static const char *const aligns[] = {
 		"Lawful Good", "Lawful Neut", "Lawful Evil",
 		"Neutral Good", "Neutral", "Neutral Evil",
 		"Chaotic Good", "Chaotic Neut", "Chaotic Evil",
 	};
-	static const char *genders[] = { "Male", "Female" };
+	static const char *const genders[] = { "Male", "Female" };
 	short k;
 
-	for (k = 0; k < (short)(sizeof races / sizeof races[0]); k++)
-		jt1089((short)8006, (short)(8010 + 3 * k), (short)7, "%s", races[k]);
+	/* current race highlighted cyan (col 11), the rest light grey (7). */
+	for (k = 0; k < CG_NRACES; k++)
+		jt1089((short)8006, (short)(8010 + 3 * k),
+		       (short)(k == sel_race ? 11 : 7), "%s", cg_races[k]);
 	for (k = 0; k < (short)(sizeof aligns / sizeof aligns[0]); k++)
 		jt1089((short)8040, (short)(8010 + 3 * k), (short)7, "%s", aligns[k]);
 	for (k = 0; k < (short)(sizeof genders / sizeof genders[0]); k++)
@@ -11820,13 +11824,46 @@ static int  jt574(long ctx)
 				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 		qd_present();
 	}
-	l3666();                             /* PICK headers */
-	cg_draw_lists();                     /* the race/alignment/gender options */
-	qd_present();
-	while (plat_kb_poll(&scan, &ascii))  /* drain the key that triggered us */
-		;
-	while (!plat_kb_poll(&scan, &ascii)) /* then hold the screen until a key */
-		;
+	l3666();                             /* seed wizard state + PICK headers */
+
+	/* Interactive race pick (PORT interaction, pending the faithful jt568
+	 * mouse state machine): a keyboard cursor over the race list — Up/Down
+	 * (scan 0x48/0x50) move the highlight, Return picks, Esc cancels. The
+	 * picked race is stored in g_a5_-7027 (the race index jt568 reads from
+	 * the table at g_a5_-30450); the gender/class/alignment steps + the stat
+	 * roll (L34f0) + the record build are the deferred remainder. */
+	{
+		short race = (short)(signed char)g_a5_byte(-7027);
+		if (race < 0 || race >= CG_NRACES)
+			race = 0;
+		while (plat_kb_poll(&scan, &ascii))    /* drain the triggering key */
+			;
+		for (;;) {
+			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+				if (g_menu_state == 1)
+					fill_backdrop(px, pitch, 0, 0,
+					              (short)(sw - 1), (short)(sh - 1));
+				else
+					for (yy = 0; yy < sh; yy++)
+						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+			}
+			l35f8();                       /* PICK headers */
+			cg_draw_lists(race);           /* options, current race highlighted */
+			qd_present();
+
+			while (!plat_kb_poll(&scan, &ascii))
+				;
+			if (ascii == 13 || ascii == 3)         /* Return / Enter -> pick */
+				break;
+			if (ascii == 27)                       /* Esc -> cancel */
+				break;
+			if (scan == 0x48)                      /* Up */
+				race = (short)((race + CG_NRACES - 1) % CG_NRACES);
+			else if (scan == 0x50)                 /* Down */
+				race = (short)((race + 1) % CG_NRACES);
+		}
+		g_a5_byte(-7027) = (unsigned char)race;    /* store the chosen race */
+	}
 	return 0;                            /* back to the Training Hall */
 }
 
