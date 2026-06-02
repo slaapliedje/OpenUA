@@ -1825,6 +1825,9 @@ static void          cg_modify_sheet(void);
 static void          cg_add_character(void);
 static void          cg_remove_from_party(void);
 static void          cg_delete_character(void);
+static short         cg_collect_party(unsigned char **out, short max);
+static void          cg_message(const char *l1, const char *l2);
+void                 port_begin_adventure(void);
 /* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
  * (Modify Character roster grid, lifted further down). */
 static void          l02dc(long highlight);
@@ -7857,6 +7860,11 @@ void port_wall_demo(void)
 		qd_present();
 }
 
+/* Real-play flag: set by port_begin_adventure (Begin Adventuring) so the
+ * shared dungeon loop drops the wall-set browse keys; clear for the
+ * regression browse demo. */
+static int g_adventure_mode;
+
 /* port_play_demo — the play loop core as an interactive dungeon walk
  * on the automap. Loads the TOPVIEW tiles, enters level 1 (L0bbc
  * loads the map + places the party), then cycles: draw the map +
@@ -8100,6 +8108,7 @@ void port_play_demo(void)
 		case 's': case 'S': party_step(3); break;
 		case 'm': case 'M': show_map = (short)!show_map; break;
 		case 't': case 'T':     /* browse: next set (pins auto off) */
+			if (g_adventure_mode) break;   /* play: no wall browsing */
 			g_cw_auto = 0;
 			g_cw_set = (short)(g_cw_set >= g_cw_setmax ? 1 : g_cw_set + 1);
 			load_color_wallset(g_cw_set);   /* cw_finalize re-lays the backdrop */
@@ -8109,6 +8118,7 @@ void port_play_demo(void)
 #endif
 			break;
 		case 'y': case 'Y':     /* browse: toggle 8X8DC <-> 8X8DB (pins auto off) */
+			if (g_adventure_mode) break;
 			g_cw_auto = 0;
 			g_cw_file ^= 1;
 			g_cw_set = 1;
@@ -8119,6 +8129,7 @@ void port_play_demo(void)
 #endif
 			break;
 		case 'b': case 'B':     /* browse backdrops manually (pins auto off) */
+			if (g_adventure_mode) break;
 			g_back_auto = 0;
 			g_back_set = (short)(g_back_set >= g_back_max ? 1 : g_back_set + 1);
 			load_backdrop(g_back_set);
@@ -15360,6 +15371,71 @@ static void cg_delete_character(void)
 	}
 }
 
+/* "The party sets forth" — list the assembled party on the shared chrome
+ * before descending, so it's clear which characters are adventuring. (An
+ * in-dungeon status HUD wants jt94's deep-mode text path sorted out — a
+ * follow-up; this confirms the party on the chrome, where text is solid.) */
+static void cg_party_setforth_screen(void)
+{
+	unsigned char *party[16];
+	short          n, i;
+	unsigned char *px; short pitch, sw, sh, yy;
+	unsigned char  scan = 0, ascii = 0;
+
+	n = cg_collect_party(party, 16);
+	g_a5_2347 = 1;
+	load_menu_ui();
+	while (plat_kb_poll(&scan, &ascii))
+		;
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+		if (g_menu_state == 1) {
+			fill_backdrop(px, pitch, 0, 0,
+			              (short)(sw - 1), (short)(sh - 1));
+			draw_plate(px, pitch, sw, sh, 6, 8, 313, 150, 1);
+		} else {
+			for (yy = 0; yy < sh; yy++)
+				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
+		}
+	}
+
+	jt94((short)3,  (short)2, 14, 0, "The party sets forth!");
+	jt94((short)3,  (short)4, 12, 0, "Name");
+	jt94((short)17, (short)4, 12, 0, "Class");
+	jt94((short)28, (short)4, 12, 0, "HP");
+	for (i = 0; i < n; i++) {
+		short row   = (short)(6 + i);
+		short klass = party[i][CHAR_CLASS];
+		jt94((short)3,  row, 15, 0, "%s",
+		     (const char *)&party[i][96]);
+		jt94((short)17, row, 7, 0, "%s",
+		     (klass < 6) ? k_roster_classes[klass] : "?");
+		jt94((short)28, row, 7, 0, "%d", (int)party[i][385]);
+	}
+	jt94((short)3, (short)16, 7, 0, "Press any key to descend.");
+	qd_present();
+
+	while (!plat_kb_poll(&scan, &ascii))
+		;
+}
+
+/* port_begin_adventure — the real "Begin Adventuring" entry (Training Hall
+ * case 9 / l1142). Gated on a non-empty active party (the faithful CODE
+ * 15-19 play setup is the deferred remainder): show who is adventuring,
+ * then drop the party into the dungeon via the shared play loop with the
+ * wall-set browse keys off. */
+void port_begin_adventure(void)
+{
+	if (g_a5_long(-27928) == 0) {        /* no one in the party */
+		cg_message("You have no party!",
+		           "Add or create a character first.");
+		return;
+	}
+	cg_party_setforth_screen();          /* show who is adventuring */
+	g_adventure_mode = 1;
+	port_play_demo();                    /* movement: WASD, M map, Q quit */
+	g_adventure_mode = 0;
+}
+
 /* L104c — case 6 (View Character). CODE 12 + 0x104c.
  *
  *   tstb a5@(-14434); beqw L1242
@@ -15477,17 +15553,13 @@ static int l1142(short a)
 {
 	(void)a;
 	PROBE("jt918/case9 L1142");
-	/* Begin Adventuring. Faithful path: jt585() -> the CODE 15/19 adventure
-	 * setup -> the play loop, gated on a created party (g_a5_27928). Both
-	 * jt585 and character creation are still PROBE stubs, so bridge straight
-	 * to the working first-person play loop (load level, place party, render
-	 * jt312, walk with WASD; returns on 'q') so the chain
-	 * menu -> Play -> Training Hall -> Begin Adventuring -> dungeon works
-	 * end to end. Revert to the gated jt585() call once the adventure
-	 * setup + party creation lift. */
-	if (g_a5_14431 != 0 && g_a5_27928 != 0)
-		jt585();
-	port_play_demo();        /* enter the dungeon; returns to the hall on 'q' */
+	/* Begin Adventuring. The faithful path (the CODE 15-19 adventure setup
+	 * + play loop) is the deferred remainder; port_begin_adventure gates on
+	 * the assembled party and drops it into the working first-person play
+	 * loop (load level, place party, render jt312, walk WASD; returns on
+	 * 'q'), so menu -> Play -> Training Hall -> Begin Adventuring -> dungeon
+	 * works end to end with the real party. */
+	port_begin_adventure();
 	return 0;                /* redraw the Training Hall */
 }
 
