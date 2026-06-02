@@ -91,12 +91,21 @@ lines the asm does (CODE 22 + 0x506e): "Unlimited Adventures" (row 3, col
 design name + module title. Sampling the reference proved there is NO
 gold — cyan headings (col 11), light-grey values (col 7, 187,187,187) —
 so the earlier gold (col 14) change was reverted to the faithful col 7.
-STILL TODO: (3) FRAME.TLB bevels around each command (raised 3D boxes);
-button body should be light grey (col 7) with the hotkey letter brighter/
-white (currently jt382 forces the whole label white, clut 15) — this is
-the hotkey-highlight step. Also: text rows overlap slightly because the
-compat 8x8 font is full-height on 8px (scale-2) row spacing; faithful to
-the asm's coords, a font-metrics limitation, not a layout bug.
+DONE (commit 0e99658): bevel boxes — draw_menu_bevels() draws a raised
+box (light top+left, dark bottom+right) per command from g_mainmenu via
+jt1135, before l2c60. Outline-only (stone shows through); a darker field
+fill is an optional refinement.
+DONE (commit decd60f): hotkey-letter highlight — jt382 draws the label
+body in light grey (clut 7) and the accelerator letter (rec[29]) in white
+(clut 15). Matches the P/S/C/D/G/E/A/M/Q highlights in the reference.
+DONE (commit fa33ca7): switched the Falcon to 320x200x256 (mode 0x003
+RGB / 0x113 VGA) so the menu fills the screen 1:1 with the Mac instead of
+the top half of a 320x400 buffer.
+OPTIONAL refinements: (a) FRAME.TLB art (the faithful bevels live in the
+l148a/jt995 funnel — our boxes are procedural); (b) a darker stone field
+inside each box; (c) disabled items (Delete/Unlock) should render dimmer;
+(d) text rows are a touch cramped — the compat 8x8 font is full-height on
+8px (scale-2) row spacing, faithful to the asm coords, a font limitation.
 
 ## Initial-screen texture (GEN backdrop) — stopgap (wrong asset)
 
