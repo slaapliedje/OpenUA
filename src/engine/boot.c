@@ -11141,11 +11141,16 @@ static void menu_draw_plates(const menu_item_t *items, short n)
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
+	/* Plate box per row. Rows are 14px apart (engine y step 7, scale 2);
+	 * a 14px plate touches its neighbours, so use 11px (top py-9 ..
+	 * bottom py+1) to leave a ~3px gap between rows, matching the spaced
+	 * buttons in data/frua_mac_menu.png. The label baseline is py and the
+	 * 8px font sits at py-6..py+1, so it still fits. */
 	for (i = 0; i < n; i++) {
 		jt1135(items[i].y, items[i].x, &py, &pxx);
 		draw_plate(px, pitch, sw, sh,
-		           (short)(pxx - 5), (short)(py - 11),
-		           (short)(pxx - 5 + 150), (short)(py + 2),
+		           (short)(pxx - 5), (short)(py - 9),
+		           (short)(pxx - 5 + 150), (short)(py + 1),
 		           items[i].recessed);
 	}
 }
@@ -11243,8 +11248,12 @@ static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
 		const char *design = (const char *)g_a5_buf(-31336);
 		const char *title  = (const char *)g_a5_buf(-18876);
 		jt94((short)8, (short)3, (short)11, (short)0, "Unlimited Adventures");
-		jt94((short)4, (short)4, (short)7,  (short)0,
-		     "Version 1.0          April 27, 1993");
+		/* Port version + build date. The Mac drew one A5 string here; we
+		 * draw two literals (version left, date a few cols right) so the
+		 * gap is tight, and use __DATE__ so the build date tracks the
+		 * actual build. Edit "Version 0.1" to bump the port version. */
+		jt94((short)4,  (short)4, (short)7, (short)0, "Version 0.1");
+		jt94((short)18, (short)4, (short)7, (short)0, "%s", __DATE__);
 		jt94((short)4, (short)9, (short)11, (short)0, "Current Game Design:");
 		if (design[0]) jt94((short)25, (short)9, (short)7, (short)0, "%s", design);
 		if (title[0])  jt94((short)4, (short)10, (short)7, (short)0, "%s", title);
