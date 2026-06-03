@@ -11770,7 +11770,9 @@ static void load_menu_ui(void)
  * page descriptor; the l2d4e leaf's planar/scaled/clip-global arms are
  * collapsed to a direct chunky copy clipped to the surface. Reusable for
  * every UI GLIB image (frame molding, Art Gallery, portraits, …). */
-static unsigned char g_glib_dec[320 * 96];   /* PackBits decode scratch */
+static unsigned char g_glib_dec[320 * 200];  /* PackBits decode scratch
+                                              * (full screen: the title
+                                              * backdrop is 320x200) */
 
 /* `flip` vertically mirrors the leaf (source row h-1-row) — not a Mac blit
  * feature, but it lets the backdrop tiler mirror alternate copies so the
@@ -11877,11 +11879,22 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
  * mirrors both onto the chunky surface, so each screen is just "install the
  * palette, composite the pieces."
  *
- * Set 1 is the copy-protection / manual-check backdrop, which the port
- * bypasses; sets 2..6 are the SSI / Micro Magic, AD&D / TSR, Forgotten
- * Realms, Unlimited Adventures title and game-credits screens, shown in
- * turn (advance on a key / click, or after a short delay).  The UI palette
- * (clut 129) is restored for the menu on the way out. */
+ * Palette model (verified against the real Mac game running in BasiliskII):
+ *   - Set 1 is the title MASTER: its 256-entry palette + its red-gradient /
+ *     stone-frame background IMAGE (item 1). The logo screens are authored
+ *     for this master palette, NOT their own — e.g. Micro Magic's gold, the
+ *     AD&D logo's metal and Forgotten Realms' gold lettering live in set 1's
+ *     ramp; each screen's own item-0 palette is a red herring for the title.
+ *   - Logo screens (sets 2=SSI, 3=AD&D/TSR, 4=Forgotten Realms, 6=credits):
+ *     blit set 1's backdrop opaque, then the screen's logo pieces with index-0
+ *     transparency, all under the master palette.
+ *   - The Unlimited Adventures title (set 5) is the exception: a full-screen
+ *     image authored for its OWN palette, so set 5's 0..223 overlay the master
+ *     (whose 240..254 keep clut 129's blue/grey ramp for the crystal-ball
+ *     globe). It is blitted opaque with no set-1 backdrop.
+ * (The copy-protection / manual-check prompt is a separate grey dialog the
+ * port bypasses entirely.) The UI palette (clut 129) is restored for the menu
+ * on the way out. */
 extern void load_frua_palette(void);
 
 /* Overlay a TITLE.CTL screen's RGB palette (item 0 of set `set`) onto
@@ -11974,7 +11987,7 @@ static void port_show_intro(void)
 	(void)intro_load_palette(base, 1, base_pal, (short)256);
 
 	for (set = 2; set <= 6; set++) {
-		long          handle, deadline;
+		long          handle, set1h, deadline;
 		unsigned char *px;
 		short          pitch, sw, sh, i, r;
 		EventRecord    ev;
@@ -11983,19 +11996,37 @@ static void port_show_intro(void)
 		if (handle == 0)
 			break;
 
-		/* base CLUT + this screen's own 0..223 -> upload all 256.
-		 * (224..255 stay the shared silver-stone base from set 1.) */
-		memcpy(pal, base_pal, sizeof pal);
-		(void)intro_load_palette(base, set, pal, (short)224);
-		qd_set_palette(pal, (short)0, (short)256);
-
-		/* clear the field to index 0 (each palette's background colour),
-		 * then composite the screen's art pieces (items 1..). */
+		/* clear the field to index 0. */
 		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL)
 			for (r = 0; r < sh; r++)
 				memset(px + (long)r * pitch, 0, (size_t)sw);
-		for (i = 1; i < 4; i++)          /* up to 3 pieces per screen */
-			ui_glib_blit(handle, i, (short)0, (short)0, 1, 0);
+
+		if (set == 5) {
+			/* The Unlimited Adventures title is a full-screen image
+			 * authored for its OWN palette (sets 2/3/4/6 are logos drawn
+			 * against the master). Overlay set 5's 0..223 onto the master
+			 * (which keeps clut 129's blue/grey ramp at 240..254 for the
+			 * crystal-ball globe), then blit its pieces opaque. */
+			memcpy(pal, base_pal, sizeof pal);
+			(void)intro_load_palette(base, set, pal, (short)224);
+			qd_set_palette(pal, (short)0, (short)256);
+			for (i = 1; i < 4; i++)
+				ui_glib_blit(handle, i, (short)0, (short)0, 0, 0);
+		} else {
+			/* Logo screens (SSI, AD&D/TSR, Forgotten Realms, credits) are
+			 * drawn against set 1's red-gradient / stone backdrop using the
+			 * master palette — the logo art is authored for it (e.g. Micro
+			 * Magic's gold and the AD&D logo live in set 1's ramp, NOT the
+			 * screen's own palette, which is why an earlier per-screen
+			 * overlay turned them tan/green). Draw the set-1 backdrop opaque,
+			 * then the logo pieces with index-0 transparency. */
+			qd_set_palette(base_pal, (short)0, (short)256);
+			set1h = l37aa(base, (short)1);
+			if (set1h != 0)
+				ui_glib_blit(set1h, (short)1, (short)0, (short)0, 0, 0);
+			for (i = 1; i < 4; i++)
+				ui_glib_blit(handle, i, (short)0, (short)0, 1, 0);
+		}
 		qd_present();
 
 		/* hold until a key / click, or auto-advance after ~4 s so a
