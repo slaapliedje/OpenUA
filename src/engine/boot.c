@@ -13087,22 +13087,99 @@ static void jt587(void *dst, void *bucket, short a, short b)
                                             { PROBE("jt587"); (void)dst;
                                               (void)bucket; (void)a;
                                               (void)b; }
-/* jt990 (CODE 5 + 0x1b76) — open a wildcard catalog scan over a save folder.
- * The Mac body parses a drive/volume letter from arg0 (JT[408]/JT[389]
- * isalpha/isdigit), builds a "*.*" pattern under the path (L16c6) and primes
- * the first indexed catalog read (JT[423]).  DEFERRED leaf: the CODE 5 drive
- * / path machinery (L16c6, JT[408/389/423]) isn't lifted yet, so this returns
- * 0 (no volume / scan failed).  Its faithful Atari mapping is the GEMDOS
- * Fsfirst wildcard search already in compat/files.c (files_find_first). */
-static int  jt990(short drive, void *path, const void *suffix,
-                  short a, short b)          { PROBE("jt990"); (void)drive;
-                                              (void)path; (void)suffix;
-                                              (void)a; (void)b; return 0; }
-/* jt991 (CODE 5 + 0x1cb6) — read the next entry from a jt990 scan; returns a
- * pointer to the entry's name C-string, or 0 at end of directory.  DEFERRED
- * leaf (pairs with jt990; maps to GEMDOS Fsnext / files_find_next). */
-static long jt991(void *entry)              { PROBE("jt991"); (void)entry;
-                                              return 0; }
+/* jt990 / jt991 (CODE 5 + 0x1b76 / +0x1cb6) — enumerate the entries of a
+ * folder, one at a time, with a keep-files / keep-dirs / name-match filter.
+ *
+ * The Mac builds a "*.*" pattern under the folder path and opens an indexed
+ * catalog read (JT[426]); jt991 walks it (JT[432]) and, per entry, drops
+ * directories unless g_a5_-4657 is set, drops files unless g_a5_-4656 is set,
+ * skips "." / "..", and (when a match name g_a5_-4654 is set) keeps only names
+ * that JT[396]-match it — returning the entry's name pointer and writing the
+ * is-directory flag through the caller's pointer, or 0 at end.
+ *
+ * The faithful Atari mapping is a GEMDOS Fsfirst/Fsnext wildcard scan, which
+ * the file shim already wraps (compat/files.c files_find_first/_next — the
+ * same primitives load_roster uses).  jt990 converts the engine's HFS-style
+ * "vol:folder" path to the GEMDOS leaf the shim speaks (everything after the
+ * last ':') and scans "<leaf>\*.*"; Fsfirst's attr 0 already excludes
+ * directories, so the keep-dirs arm never fires.  The Mac's filter state is
+ * preserved in the same A5 globals (g_a5_-4654 match / -4656 keep-files /
+ * -4657 keep-dirs) for the consumers that read them.
+ *
+ * Note: the design SAVE folder is not populated in the port's flat GEMDOS
+ * mount (saved characters currently live as CHAR*.CHR via save_roster), so
+ * this scan returns empty today — which is also what keeps L01be safe while
+ * its two-cursor list-link is still a TODO. */
+static char g_dir_cur[16];          /* DTA name of the pending entry        */
+static int  g_dir_pending;          /* an entry is waiting in g_dir_cur     */
+static char g_dir_ret[16];          /* stable name handed back to caller    */
+
+static void dir_pattern(char *out, int max, const char *hfs)
+{
+	const char *leaf = hfs, *p;
+	int         n = 0;
+
+	for (p = hfs; *p != 0; p++)              /* GEMDOS leaf = after last ':' */
+		if (*p == ':')
+			leaf = p + 1;
+	while (leaf[n] != 0 && n < max - 5) {
+		out[n] = leaf[n];
+		n++;
+	}
+	if (n > 0)
+		out[n++] = '\\';                 /* "<leaf>\*.*"                 */
+	out[n++] = '*';
+	out[n++] = '.';
+	out[n++] = '*';
+	out[n]   = 0;
+}
+
+static int jt990(short drive, void *path, const void *matchname,
+                 short keepfiles, short keepdirs)
+{
+	char pattern[32];
+
+	PROBE("jt990");
+	(void)drive;
+	g_a5_long(-4654) = (long)(uintptr_t)matchname;   /* name filter         */
+	g_a5_byte(-4656) = (signed char)keepfiles;       /* keep files          */
+	g_a5_byte(-4657) = (signed char)keepdirs;        /* keep directories    */
+	if (path == NULL)
+		return 0;
+	dir_pattern(pattern, (int)sizeof pattern, (const char *)path);
+	g_dir_pending = files_find_first(pattern, g_dir_cur,
+	                                 (int)sizeof g_dir_cur);
+	return g_dir_pending ? 1 : 0;
+}
+
+static long jt991(void *out_is_dir)
+{
+	char name[16];
+	int  i;
+
+	PROBE("jt991");
+	while (g_dir_pending) {
+		for (i = 0; i < (int)sizeof name - 1 && g_dir_cur[i] != 0; i++)
+			name[i] = g_dir_cur[i];
+		name[i] = 0;
+		g_dir_pending = files_find_next(g_dir_cur,    /* prime next call */
+		                                (int)sizeof g_dir_cur);
+
+		if (g_a5_byte(-4656) == 0)
+			continue;                     /* not keeping files       */
+		if (g_a5_long(-4654) != 0
+		 && jt396((const char *)(uintptr_t)g_a5_long(-4654), name) == 0)
+			continue;                     /* name filter rejected    */
+
+		for (i = 0; i < (int)sizeof g_dir_ret - 1 && name[i] != 0; i++)
+			g_dir_ret[i] = name[i];
+		g_dir_ret[i] = 0;
+		if (out_is_dir != NULL)
+			*(signed char *)out_is_dir = 0;   /* Fsfirst attr 0 = file */
+		return (long)(uintptr_t)g_dir_ret;
+	}
+	return 0;
+}
 
 /* l005a (the save-folder precondition) and jt42 (the notice alert) are lifted
  * further down the file; forward-declare them so jt589's roster dispatch here
@@ -13121,12 +13198,14 @@ static void jt42(const char *msg);
  * (g_a5_22733 == 1) each file is also opened via L0006 with the jt576 record
  * reader, to validate the entry.
  *
- * Structural lift (the call sequence is faithful): JT[990]/JT[991] are still
- * deferred leaves, so the enumeration yields no entries and the list comes
- * back empty — exactly as the prior stub.  The inner two-cursor list-link
- * juggling (asm 0x2ae..0x2d8), the g_a5_6922 first-name cache (0x322), and the
- * save-mode L0006/jt576 arm (0x338) are left as TODOs until JT[990]/JT[991]
- * and the CODE 5 catalog reader are lifted. */
+ * Structural lift (the call sequence is faithful).  JT[990]/JT[991] are now
+ * lifted onto the GEMDOS dir scan, but the design SAVE folder isn't populated
+ * in the port's flat mount yet (saved characters live as CHAR*.CHR), so the
+ * enumeration still yields no entries and the list comes back empty.  The
+ * inner two-cursor list-link juggling (asm 0x2ae..0x2d8 — note the nodes are
+ * cleared *after* linking, so the sequence needs care), the g_a5_6922
+ * first-name cache (0x322), and the save-mode L0006/jt576 arm (0x338) remain
+ * TODO; they must land (with a faithful save side) before this goes live. */
 static void l01be(const char *suffix, long *out1, long *out2)
 {
 	unsigned char  path[214];                      /* fp@(-214) Pascal buf */
@@ -13977,8 +14056,9 @@ static void  jt176(void);
  * "SAVE" leaf, via JT[431]) and opens a scan over it (JT[990]); on failure it
  * prompts "Please insert save disk." (JT[182], Ok/Exit) and retries, returning
  * 0 if the user picks Exit.  On success it drains the scan (JT[991]) and
- * returns 1.  JT[990]/JT[991] are deferred leaves, so today this falls into
- * the insert-disk prompt; the call sequence is faithful. */
+ * returns 1.  JT[990]/JT[991] now run a real GEMDOS dir scan; with no SAVE
+ * folder in the port's flat mount the scan comes back empty, so this still
+ * falls into the insert-disk prompt for now. */
 static int l005a(void)
 {
 	unsigned char path[206];                       /* fp@(-200) Pascal buf */
