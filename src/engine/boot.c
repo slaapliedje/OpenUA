@@ -8913,23 +8913,34 @@ void port_render_geo_contact(void)
  * Remove both call sites + this function once the design-load
  * chain lifts upstream and sets g_a5_-27932 from real data. */
 
-/* --- roster save / load to disk (PARTY.SAV) ------------------------------
+/* --- roster save / load: one file per character ---------------------------
  *
- * Persists the saved-character pool across full restarts. The faithful
- * "Save / Load Game" (l115a/l120c -> jt176/jt585) is the engine's whole-
- * game-state save, still skeletal; this is a focused port store: the pool
- * is written as [long count][count*512], each record carrying its
- * CHAR_INPARTY flag, and read back with the party relinked from those
- * flags. The character-management screens re-save after each edit; the
- * seed path loads on first boot. */
-/* The saved-character POOL: every character that exists in the design
- * (the test seed, char-gen creations, disk loads). The active PARTY is the
- * subset flagged CHAR_INPARTY, threaded through the g_a5_-27928 linked
- * list (.next at +0) by cg_party_relink. PARTY.SAV stores the whole pool
- * (each record carries its CHAR_INPARTY flag), so both the pool and the
- * party membership round-trip. */
+ * Step 1 of the faithful file-based roster (docs/decompilation.md "Character
+ * storage"): FRUA keeps each saved character in its own file, not a single
+ * blob. The port mirrors that — every pool slot persists to "CHARnnnn.CHR"
+ * (512 bytes, type 'FRUA'/'SAVE'). GEMDOS is 8.3 and character names carry
+ * spaces, so files are slot-numbered (CHAR0000..CHAR0015) with the name kept
+ * inside the record at +96; the faithful name-derived path + the JT[589]
+ * directory enumeration are the next steps (this scheme probes fixed slots).
+ *
+ * The saved-character POOL is every character in the design; the active
+ * PARTY is the CHAR_INPARTY subset threaded into the g_a5_-27928 list by
+ * cg_party_relink. CHAR_INPARTY rides in each record, so party membership
+ * round-trips with the per-character files. */
 static unsigned char cg_pool[16][512];
 static short         cg_pool_count;
+
+/* Pascal filename "CHARnnnn.CHR" for pool slot 0..15. */
+static void cg_char_fn(short slot, char *fn)
+{
+	fn[0]  = 12;
+	fn[1]  = 'C'; fn[2] = 'H'; fn[3] = 'A'; fn[4] = 'R';
+	fn[5]  = (char)('0' + (slot / 1000) % 10);
+	fn[6]  = (char)('0' + (slot / 100)  % 10);
+	fn[7]  = (char)('0' + (slot / 10)   % 10);
+	fn[8]  = (char)('0' +  slot         % 10);
+	fn[9]  = '.'; fn[10] = 'C'; fn[11] = 'H'; fn[12] = 'R';
+}
 
 /* Rebuild the active-party list (g_a5_-27928) from the in-party pool
  * records, in pool order — the roster grid (l02dc) and the party screens
@@ -8961,55 +8972,53 @@ static short cg_party_size(void)
 	return n;
 }
 
+/* Write each pool character to its own CHARnnnn.CHR file; delete the files
+ * for the now-unused higher slots so a removed character doesn't linger. */
 static void save_roster(void)
 {
-	short refnum = 0;
-	long  n, hdr;
-	short i;
+	short i, refnum;
+	long  n;
+	char  fn[16];
 
-	if (cg_pool_count <= 0)
-		return;
-
-	(void)Create((ConstStr255Param)"\011PARTY.SAV", 0,
-	             0x46525541L /* 'FRUA' */, 0x53415645L /* 'SAVE' */);
-	if (FSOpen((ConstStr255Param)"\011PARTY.SAV", 0, &refnum) != noErr)
-		return;
-	(void)SetEOF(refnum, 0);
-	hdr = cg_pool_count;
-	n = 4;   (void)FSWrite(refnum, &n, &hdr);
-	for (i = 0; i < cg_pool_count; i++) {
-		n = 512; (void)FSWrite(refnum, &n, cg_pool[i]);
-	}
-	(void)FSClose(refnum);
-}
-
-/* Load PARTY.SAV into the pool, then relink the party from the per-record
- * CHAR_INPARTY flags. Returns 1 if a non-empty pool was loaded. */
-static int load_roster(void)
-{
-	short refnum = 0;
-	long  n, cnt, i;
-
-	if (FSOpen((ConstStr255Param)"\011PARTY.SAV", 0, &refnum) != noErr)
-		return 0;
-	n = 4;
-	if (FSRead(refnum, &n, &cnt) != noErr || n != 4 || cnt <= 0) {
-		(void)FSClose(refnum);
-		return 0;
-	}
-	if (cnt > 16)
-		cnt = 16;
-	for (i = 0; i < cnt; i++) {
-		n = 512;
-		if (FSRead(refnum, &n, cg_pool[i]) != noErr || n != 512) {
-			cnt = i;                 /* truncated — keep what loaded */
-			break;
+	for (i = 0; i < 16; i++) {
+		cg_char_fn(i, fn);
+		if (i < cg_pool_count) {
+			(void)Create((ConstStr255Param)fn, 0,
+			             0x46525541L /* 'FRUA' */,
+			             0x53415645L /* 'SAVE' */);
+			if (FSOpen((ConstStr255Param)fn, 0, &refnum) == noErr) {
+				(void)SetEOF(refnum, 0);
+				n = 512;
+				(void)FSWrite(refnum, &n, cg_pool[i]);
+				(void)FSClose(refnum);
+			}
+		} else {
+			(void)FSDelete((ConstStr255Param)fn, 0);  /* clear stale slot */
 		}
 	}
-	(void)FSClose(refnum);
-	if (cnt <= 0)
+}
+
+/* Scan CHAR0000..CHAR0015.CHR into the pool (compacting over gaps), then
+ * relink the party from each record's CHAR_INPARTY flag. Returns 1 if any
+ * character loaded. */
+static int load_roster(void)
+{
+	short i, refnum, n2 = 0;
+	long  n;
+	char  fn[16];
+
+	for (i = 0; i < 16; i++) {
+		cg_char_fn(i, fn);
+		if (FSOpen((ConstStr255Param)fn, 0, &refnum) != noErr)
+			continue;
+		n = 512;
+		if (FSRead(refnum, &n, cg_pool[n2]) == noErr && n == 512)
+			n2++;
+		(void)FSClose(refnum);
+	}
+	if (n2 == 0)
 		return 0;
-	cg_pool_count = (short)cnt;
+	cg_pool_count = n2;
 	cg_party_relink();
 	return 1;
 }
