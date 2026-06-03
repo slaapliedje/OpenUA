@@ -1828,6 +1828,8 @@ static void          cg_remove_from_party(void);
 static void          cg_delete_character(void);
 static short         cg_collect_party(unsigned char **out, short max);
 static void          cg_message(const char *l1, const char *l2);
+static void          save_roster(void);
+extern short         ua_rand(short n);   /* rand.h — CODE 5 / JT[1083] LCG */
 void                 port_begin_adventure(void);
 /* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
  * (Modify Character roster grid, lifted further down). */
@@ -7957,6 +7959,189 @@ static void draw_party_panel(void)
 	qd_present();   /* both flip buffers (jt312 rect-presents the viewport) */
 }
 
+/* ---- Encounters (play-engine, first slice) -------------------------
+ *
+ * The faithful tactical combat (CODE 15-19: the combat grid, initiative,
+ * spells, the per-level monster-data tables) is the large deferred
+ * remainder. This is a self-contained encounter loop hung off dungeon
+ * movement: stepping into a monster zone may spring an encounter, and the
+ * party can fight (a simplified round-based auto-resolve over the real
+ * party HP / level / AC) or try to flee. Outcomes — HP loss, deaths —
+ * persist to the roster. Drawn on a black screen via hud_text so the
+ * dungeon palette is left intact (no menu-palette switch to restore).
+ *
+ * Monster types stand in for the real MONSTnnn.DAT tables until those
+ * lift; the cell's monster zone scales which one + the group size. */
+static const struct { const char *name; short hd; short dmg; } k_monsters[] = {
+	{ "Giant Rats", 1,  2 },
+	{ "Kobolds",    1,  3 },
+	{ "Goblins",    1,  4 },
+	{ "Skeletons",  1,  5 },
+	{ "Orcs",       2,  6 },
+	{ "Hobgoblins", 2,  7 },
+	{ "Gnolls",     3,  8 },
+	{ "Ogres",      4, 10 },
+};
+#define N_MONSTERS ((short)(sizeof k_monsters / sizeof k_monsters[0]))
+
+/* Fill the screen black and set the white/gold HUD clut for encounter text. */
+static unsigned char *encounter_screen(short *pitch, short *sw, short *sh)
+{
+	unsigned char *px; short y;
+	RGBColor       hud[2];
+
+	if (!qd_screen_pixels(&px, pitch, sw, sh) || px == 0)
+		return NULL;
+	hud[0].red = hud[0].green = hud[0].blue = 0xffff;            /* white */
+	hud[1].red = 0xffff; hud[1].green = 0xd000; hud[1].blue = 0; /* gold  */
+	qd_set_palette(hud, HUD_CLUT_WHITE, 2);
+	for (y = 0; y < *sh; y++)
+		memset(px + (long)y * *pitch, 0, (size_t)*sw);
+	return px;
+}
+
+/* port_run_encounter — announce, then Fight (auto-resolve) or Run. */
+static void port_run_encounter(short zone)
+{
+	unsigned char *party[16];
+	short          nparty = cg_collect_party(party, 16);
+	unsigned char *px; short pitch, sw, sh, i;
+	unsigned char  scan = 0, ascii = 0;
+	short          mi, mcount, hp_each, round;
+	long           mhp;
+	int            fled = 0, victory = 0;
+	char           line[48];
+
+	if (nparty == 0)
+		return;
+
+	mi      = (short)(zone % N_MONSTERS);
+	mcount  = (short)(2 + (short)ua_rand(4) + (zone & 3));
+	if (mcount > 12) mcount = 12;
+	hp_each = (short)(k_monsters[mi].hd * 4 + 3);
+	mhp     = (long)mcount * hp_each;
+
+	/* announce + choice */
+	while (plat_kb_poll(&scan, &ascii))
+		;
+	for (;;) {
+		px = encounter_screen(&pitch, &sw, &sh);
+		if (px) {
+			hud_text(px, pitch, sw, sh, 20, 24, HUD_CLUT_GOLD,
+			         "-- ENCOUNTER --");
+			sprintf(line, "%d %s block the way!", (int)mcount,
+			        k_monsters[mi].name);
+			hud_text(px, pitch, sw, sh, 20, 48, HUD_CLUT_WHITE, line);
+			hud_text(px, pitch, sw, sh, 20, 80, HUD_CLUT_WHITE,
+			         "F) Fight");
+			hud_text(px, pitch, sw, sh, 20, 96, HUD_CLUT_WHITE,
+			         "R) Run");
+			qd_present(); qd_present();
+		}
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 'f' || ascii == 'F')
+			break;
+		if (ascii == 'r' || ascii == 'R' || ascii == 27) {
+			fled = (ua_rand(2) == 0);   /* 50% clean escape */
+			break;
+		}
+	}
+
+	if (fled) {
+		cg_message("You slip away!", "Press any key.");
+		return;
+	}
+
+	/* round-based auto-resolve over the real party */
+	for (round = 1; round <= 50 && mhp > 0; round++) {
+		short msurv, alive;
+
+		for (i = 0; i < nparty; i++)                 /* party strikes */
+			if (party[i][385] != 0)
+				mhp -= (long)(ua_rand(8) + 1
+				              + party[i][CHAR_LEVEL]);
+		if (mhp <= 0) { victory = 1; break; }
+
+		msurv = (short)((mhp + hp_each - 1) / hp_each);
+		if (msurv > mcount) msurv = mcount;
+		for (i = 0; i < msurv; i++) {                /* monsters strike */
+			short live[16], nl = 0, t, thresh, hp;
+			for (t = 0; t < nparty; t++)
+				if (party[t][385] != 0) live[nl++] = t;
+			if (nl == 0) break;
+			t = live[ua_rand(nl)];
+			thresh = (short)(18 - party[t][395]);    /* lower AC = harder */
+			if (thresh < 2)  thresh = 2;
+			if (thresh > 19) thresh = 19;
+			if ((short)(ua_rand(20) + 1) >= thresh) {
+				hp = (short)(party[t][385]
+				             - (short)(ua_rand(k_monsters[mi].dmg) + 1));
+				party[t][385] = (unsigned char)(hp < 0 ? 0 : hp);
+			}
+		}
+		alive = 0;
+		for (i = 0; i < nparty; i++)
+			if (party[i][385] != 0) alive++;
+		if (alive == 0) break;
+	}
+	if (mhp <= 0) victory = 1;
+
+	save_roster();                                   /* persist HP / deaths */
+
+	/* outcome */
+	while (plat_kb_poll(&scan, &ascii))
+		;
+	px = encounter_screen(&pitch, &sw, &sh);
+	if (px) {
+		hud_text(px, pitch, sw, sh, 20, 24,
+		         victory ? HUD_CLUT_GOLD : HUD_CLUT_WHITE,
+		         victory ? "Victory!" : "The party has fallen...");
+		for (i = 0; i < nparty; i++) {
+			sprintf(line, "%-14s %s", (const char *)&party[i][96],
+			        party[i][385] ? "" : "(dead)");
+			hud_text(px, pitch, sw, sh, 20, (short)(48 + i * 14),
+			         party[i][385] ? HUD_CLUT_WHITE : HUD_CLUT_GOLD,
+			         line);
+			sprintf(line, "HP %d", (int)party[i][385]);
+			hud_text(px, pitch, sw, sh, 170, (short)(48 + i * 14),
+			         HUD_CLUT_WHITE, line);
+		}
+		hud_text(px, pitch, sw, sh, 20, 170, HUD_CLUT_WHITE,
+		         "Press any key.");
+		qd_present(); qd_present();
+	}
+	while (!plat_kb_poll(&scan, &ascii))
+		;
+}
+
+/* encounter_check — after a dungeon step, read the new cell's monster zone
+ * (high 6 bits of the cell's 6th byte) and, if non-zero, roll for a random
+ * encounter. Returns 1 if one fired (so the caller can refresh the view). */
+static int encounter_check(void)
+{
+	const unsigned char *ds =
+		(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short x = (short)g_a5_12288, y = (short)g_a5_12287;
+	short w, h, zone;
+	long  cell;
+
+	if (ds == NULL)
+		return 0;
+	w = (unsigned char)ds[2];
+	h = (unsigned char)ds[3];
+	if (x < 0 || y < 0 || x >= w || y >= h)
+		return 0;
+	cell = (long)x * h + y;
+	zone = (short)(ds[290 + cell * 6 + 5] >> 2);     /* monster/event zone */
+	if (zone == 0)
+		return 0;
+	if (ua_rand(8) != 0)                             /* ~12% per step */
+		return 0;
+	port_run_encounter(zone);
+	return 1;
+}
+
 /* port_play_demo — the play loop core as an interactive dungeon walk
  * on the automap. Loads the TOPVIEW tiles, enters level 1 (L0bbc
  * loads the map + places the party), then cycles: draw the map +
@@ -8198,8 +8383,17 @@ void port_play_demo(void)
 		switch (ascii) {
 		case 'a': case 'A': party_step(0); break;
 		case 'd': case 'D': party_step(1); break;
-		case 'w': case 'W': party_step(2); break;
-		case 's': case 'S': party_step(3); break;
+		case 'w': case 'W':
+		case 's': case 'S': {
+			short ox = (short)g_a5_12288, oy = (short)g_a5_12287;
+			party_step(ascii == 'w' || ascii == 'W' ? 2 : 3);
+			/* a real step into a monster zone may spring an encounter */
+			if (g_adventure_mode
+			 && (g_a5_12288 != ox || g_a5_12287 != oy)
+			 && encounter_check())
+				g_view_force_full = 1;   /* wipe the encounter screen */
+			break;
+		}
 		case 'm': case 'M': show_map = (short)!show_map; break;
 		case 't': case 'T':     /* browse: next set (pins auto off) */
 			if (g_adventure_mode) break;   /* play: no wall browsing */
