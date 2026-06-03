@@ -1077,16 +1077,44 @@ static short jt363(long *out, short num)
 	return 0;
 }
 
-/* JT[1171] (CODE 4 + 0x108e) — record decompressor. Expands a
- * compressed MONST record (src) of `rawlen` uncompressed bytes
- * into dst. Deferred to a PROBE stub: the only MONST files we can
- * test (HEIRS.DSN) are stored at the full 450-byte size, so the
- * decompress arm isn't exercised. Lift when a compressed module
- * needs it. */
-static void  jt1171(void *src, void *dst, short rawlen)
+/* JT[1171] (CODE 4 + 0x108e) — the Mac `_UnpackBits` trap (0xa8d0)
+ * wrapper. The Mac code is literally:
+ *
+ *   UnpackBits(&srcPtr, &dstPtr, dstBytes);  // trap 0xa8d0
+ *   return srcPtr;                            // advanced source
+ *
+ * i.e. standard PackBits expansion that produces exactly `dstBytes`
+ * output bytes and returns the source pointer advanced past the runs
+ * it consumed. Faithfully reimplemented here (no Toolbox trap on the
+ * Atari). A run that would overshoot the requested byte count is
+ * written in full, matching the Mac trap — callers (L6028's record
+ * buffer, the type-2 strip decoder) size their destination with the
+ * slack to absorb it. Used by L6028 to expand RLE-packed MONST
+ * records; the chunky UI blit path uses the whole-buffer `unpackbits`
+ * helper instead. */
+static void *jt1171(const void *src, void *dst, short dstBytes)
 {
+	const unsigned char *s = (const unsigned char *)src;
+	unsigned char       *d = (unsigned char *)dst;
+	long                 n = dstBytes;
+
 	PROBE("jt1171");
-	(void)src; (void)dst; (void)rawlen;
+	while (n > 0) {
+		signed char c = (signed char)*s++;
+		if (c >= 0) {                         /* c+1 literal bytes */
+			short cnt = (short)(c + 1);
+			n -= cnt;
+			while (cnt-- > 0)
+				*d++ = *s++;
+		} else if (c != -128) {               /* repeat next byte 1-c times */
+			short cnt = (short)(1 - c);
+			unsigned char v = *s++;
+			n -= cnt;
+			while (cnt-- > 0)
+				*d++ = v;
+		}                                     /* c == -128: no-op */
+	}
+	return (void *)s;
 }
 
 /* L6028 (CODE 10 + 0x6028) — load MONSTnnn.DAT for monster slot
@@ -1638,6 +1666,7 @@ void port_play_demo(void);              /* interactive 3D-view demo (FRUA_3D_DEM
  * arg1 / arg2 are the two values the THINK C runtime passes; they flow
  * through to the screen and secondary init.
  */
+static void port_show_intro(void);          /* title / credits sequence */
 int ua_main(short arg1, long arg2)
 {
 	short status;
@@ -1665,6 +1694,11 @@ int ua_main(short arg1, long arg2)
 	} else {
 		master_init(-5, arg2, 160, 400);
 	}
+
+	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
+	 * Adventures / credits screens (TITLE.CTL art) shown before the menu.
+	 * No-ops when the design data isn't mounted (e.g. a plain `make run`). */
+	port_show_intro();
 
 	/* Phase 4 — secondary init and the first UI handler. arg1 / arg2
 	 * carry the THINK C runtime's (string-table count, pointer); jt480
@@ -11584,6 +11618,47 @@ static long unpackbits(const unsigned char *src, long srclen,
 	return o;
 }
 
+/* Decode a "type 7" GLIB piece (metric[7] & 0x0f == 7): the chunky
+ * transparency RLE that the faithful blit hands to JT[1195] (CODE 4 +
+ * 0xc08) one strip at a time. JT[1195] walks the source as a stream of
+ * control bytes, writing into the destination scanline and advancing
+ * by the destination row stride on a 0 byte:
+ *
+ *   b == 0            -> end of row: drop to the next scanline (x = 0)
+ *   b in 1..127       -> copy b literal pixels, advance src + dst by b
+ *   b in 0x80..0xFF   -> skip (256 - b) transparent pixels (dst only)
+ *
+ * (In the Mac, the 0-byte advance is `a3 = a2 + L04de()` where L04de is
+ * the dest row stride, 320 in 8-bit colour; here we model the same as
+ * a newline into a w-wide chunky buffer.) Transparent pixels are left
+ * as index 0, so the caller blits with index-0 transparency. Decodes
+ * the whole image (h rows) into dst[w*h]; dst must be pre-zeroed.
+ * Returns the source pointer advanced past the bytes consumed. */
+static const unsigned char *decode_glib_t7(const unsigned char *src,
+                                           unsigned char *dst,
+                                           short w, short h)
+{
+	short x = 0, y = 0;
+	while (y < h) {
+		unsigned char b = *src++;
+		if (b == 0) {                         /* next row */
+			y++;
+			x = 0;
+		} else if (b < 128) {                 /* copy b literals */
+			short n = b;
+			while (n-- > 0) {
+				if (x < w)
+					dst[(long)y * w + x] = *src;
+				src++;
+				x++;
+			}
+		} else {                              /* skip 256-b transparent */
+			x = (short)(x + (256 - b));
+		}
+	}
+	return src;
+}
+
 static void load_menu_ui(void)
 {
 	if (g_menu_state == 0) {
@@ -11749,6 +11824,7 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
+	int xparent = transparent;
 	if ((flags & 0x0f) == 2) {               /* PackBits 8bpp */
 		long cap = (long)w * h;
 		if (cap > (long)sizeof g_glib_dec)
@@ -11756,6 +11832,15 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 		(void)unpackbits((const unsigned char *)(uintptr_t)info,
 		                 (long)sizeof g_glib_dec, g_glib_dec, cap);
 		src = g_glib_dec;
+	} else if ((flags & 0x0f) == 7) {        /* transparency RLE (JT[1195]) */
+		long cap = (long)w * h;
+		if (cap > (long)sizeof g_glib_dec)
+			return;
+		memset(g_glib_dec, 0, (size_t)cap);
+		(void)decode_glib_t7((const unsigned char *)(uintptr_t)info,
+		                     g_glib_dec, w, h);
+		src = g_glib_dec;
+		xparent = 1;                     /* type 7 is intrinsically sparse */
 	} else {                                 /* raw 8bpp chunky (0 / 5) */
 		src = (const unsigned char *)(uintptr_t)info;
 	}
@@ -11771,13 +11856,103 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 		for (col = 0; col < w; col++) {
 			short dx = (short)(x + col);
 			unsigned char v = s[col];
-			if (transparent && v == 0)   /* index 0 = transparent */
+			if (xparent && v == 0)       /* index 0 = transparent */
 				continue;
 			if (dx < 0 || dx >= sw)
 				continue;
 			d[dx] = v;
 		}
 	}
+}
+
+/* port_show_intro — FRUA's title / credits sequence.
+ *
+ * TITLE.CTL is a GLIB of 7 sets.  Set 0 is a screen-order table; sets 1..6
+ * are one screen each — item 0 is the screen's 256-entry RGB palette and
+ * items 1.. are the art pieces.  Each piece is a metric-headed chunky 8bpp
+ * image: a type-2 whole-screen PackBits backdrop (SSI/credits surrounds,
+ * the Unlimited Adventures title) or a type-7 transparency-RLE logo placed
+ * by its bearings.  The faithful blit (l309c / l2d4e) routes type 2 through
+ * the PackBits strip decoder and type 7 through JT[1195]; ui_glib_blit now
+ * mirrors both onto the chunky surface, so each screen is just "install the
+ * palette, composite the pieces."
+ *
+ * Set 1 is the copy-protection / manual-check backdrop, which the port
+ * bypasses; sets 2..6 are the SSI / Micro Magic, AD&D / TSR, Forgotten
+ * Realms, Unlimited Adventures title and game-credits screens, shown in
+ * turn (advance on a key / click, or after a short delay).  The UI palette
+ * (clut 129) is restored for the menu on the way out. */
+extern void load_frua_palette(void);
+
+static void port_show_intro(void)
+{
+	static unsigned char file[200000];      /* TITLE.CTL (~168KB)        */
+	static RGBColor      pal[256];
+	short        refnum = 0, set;
+	long         count, base;
+
+	extern long TickCount(void);
+
+	if (FSOpen((ConstStr255Param)"\011TITLE.CTL", 0, &refnum) != noErr)
+		return;                          /* data not mounted — skip   */
+	count = (long)sizeof file;
+	(void)FSRead(refnum, &count, file);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)file;
+	if (l37aa(base, 0) == 0)                 /* not a GLIB                */
+		return;
+
+	for (set = 2; set <= 6; set++) {
+		long          handle, p0, p1, deadline;
+		unsigned char *px;
+		short          pitch, sw, sh, i, k, n, r;
+		EventRecord    ev;
+
+		handle = l37aa(base, set);
+		if (handle == 0)
+			break;
+
+		/* item 0 = this screen's 256-entry RGB palette. */
+		p0 = l37aa(handle, 0);
+		p1 = l37aa(handle, 1);
+		if (p0 != 0 && p1 > p0) {
+			const unsigned char *pp =
+				(const unsigned char *)(uintptr_t)(p0 + 8);
+			n = (short)((p1 - p0 - 8) / 3);
+			if (n > 256) n = 256;
+			for (k = 0; k < n; k++) {
+				pal[k].red   =
+				    (unsigned short)((pp[k*3+0] << 8) | pp[k*3+0]);
+				pal[k].green =
+				    (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
+				pal[k].blue  =
+				    (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
+			}
+			qd_set_palette(pal, (short)0, n);
+		}
+
+		/* clear the field to index 0 (each palette's background colour),
+		 * then composite the screen's art pieces (items 1..). */
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL)
+			for (r = 0; r < sh; r++)
+				memset(px + (long)r * pitch, 0, (size_t)sw);
+		for (i = 1; i < 4; i++)          /* up to 3 pieces per screen */
+			ui_glib_blit(handle, i, (short)0, (short)0, 1, 0);
+		qd_present();
+
+		/* hold until a key / click, or auto-advance after ~4 s so a
+		 * headless boot can't wedge. */
+		deadline = TickCount() + 240;    /* 60 ticks/s */
+		for (;;) {
+			if (WaitNextEvent(everyEvent, &ev, 6, NULL)
+			 && (ev.what == keyDown || ev.what == mouseDown))
+				break;
+			if (TickCount() >= deadline)
+				break;
+		}
+	}
+
+	load_frua_palette();                     /* restore the UI palette    */
 }
 
 /* --- main-menu chrome: dark stone surround + raised lighter plates ---
