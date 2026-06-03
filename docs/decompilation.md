@@ -555,6 +555,23 @@ template→combatant fill lives in the combat-init code that isn't lifted).
 `port_run_encounter` (src/engine/boot.c) reads AC@385 and falls back to a
 THAC0-derived AC when it's 0, then runs AD&D to-hit (`d20 >= THAC0 - AC`).
 
+**Combat-init conversion — investigated, not isolated.** Attempting to pin
+how the template's stats reach the combatant fields (`+384/+385/+395`):
+`jt263` (CODE 10 + 0x5acc), the `L6028` caller, is the monster *editor*
+setup — it manipulates a small **context** record (offsets 0..12: geo
+block @6, record ptr @10) via `JT[370]`, not the 450-byte combatant, so it
+is not the combat-arena build. The combatant field writes that do exist
+are combat **effects**, not an init copy: `+385` ±2..4 = armor spells
+(CODE 18), `+395 = 1` = a near-death/cure clamp (CODE 16 + 0x842 after "is
+affected"), `+384` get/set pairs in CODE 6. No clean template→combatant
+fill surfaced by static search; it lives in the unlifted combat-arena
+setup (the encounter→combat transition that populates the combatant arrays
+at `g_a5_-23508/-23512`). Likely the template is used largely as-is with
+derived fields (THAC0 from `+137`, etc.) computed at combat entry — which
+would make the uniform `+385 == 0` across the four samples a real AC 0
+rather than an unset field — but confirming that needs the arena setup
+lifted first. Tracked as the next combat-RE step.
+
 #### `JT[325]` — the record-database engine (lifted: prologue only)
 
 `jt263`'s serialize step and several CODE 2 callers route record
