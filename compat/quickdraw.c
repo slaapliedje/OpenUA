@@ -25,6 +25,7 @@
 #include "display.h"            /* dsp_color_t, dsp_detect — palette forward */
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 #include "mac_font.h"           /* g_mac_font — preferred when loaded */
+#include "input.h"              /* plat_mouse_pos — software cursor   */
 
 void SetPt(Point *pt, short h, short v)
 {
@@ -270,10 +271,18 @@ void qd_set_present(qd_present_fn fn)
 	g_present_hook = fn;
 }
 
+/* Software cursor compositor (defined below, after qd_nearest_color):
+ * draw the cursor onto the back buffer just before the HAL flushes it,
+ * then restore the pixels underneath so the engine's buffer is untouched. */
+static void cursor_composite(void);
+static void cursor_restore(void);
+
 void qd_present(void)
 {
+	cursor_composite();
 	if (g_present_hook != NULL)
 		g_present_hook();
+	cursor_restore();
 }
 
 /* Dirty-rect present hook — see quickdraw.h. */
@@ -1060,6 +1069,147 @@ static unsigned char qd_nearest_color(const RGBColor *color)
 		}
 	}
 	return best;
+}
+
+/* ===================== Cursor Manager ===================== *
+ *
+ * One current cursor + a visibility level (Mac semantics: 0 = visible,
+ * HideCursor decrements, ShowCursor increments up to 0). The compositor
+ * (called from qd_present) draws the cursor at the live IKBD mouse
+ * position onto the chunky back buffer, saving the pixels underneath so
+ * cursor_restore() can put them back after the HAL flips — leaving the
+ * engine's buffer untouched between frames (no trails). FRUA uses the
+ * system arrow + watch; both are generic shapes, not FRUA art.
+ */
+static const Cursor k_arrow_cursor = {
+	{ 0x0000, 0x4000, 0x6000, 0x7000, 0x7800, 0x7C00, 0x7E00, 0x7F00,
+	  0x7F80, 0x7FC0, 0x7C00, 0x4C00, 0x0600, 0x0600, 0x0300, 0x0000 },
+	{ 0xC000, 0xE000, 0xF000, 0xF800, 0xFC00, 0xFE00, 0xFF00, 0xFF80,
+	  0xFFC0, 0xFFE0, 0xFFE0, 0xFE00, 0xEF00, 0x0F00, 0x0780, 0x0380 },
+	{ 0, 0 }                        /* hotspot at the tip (v,h) */
+};
+/* A small "watch" disc (GetCursor(4)); good enough as a busy marker. */
+static const Cursor k_watch_cursor = {
+	{ 0x0000, 0x0FE0, 0x1FF0, 0x3CF8, 0x3CF8, 0x39B8, 0x3FF8, 0x3E78,
+	  0x3C78, 0x3FF8, 0x3CF8, 0x3CF8, 0x1FF0, 0x0FE0, 0x0000, 0x0000 },
+	{ 0x0FE0, 0x1FF0, 0x3FF8, 0x7FFC, 0x7FFC, 0x7FFC, 0x7FFC, 0x7FFC,
+	  0x7FFC, 0x7FFC, 0x7FFC, 0x7FFC, 0x3FF8, 0x1FF0, 0x0FE0, 0x0000 },
+	{ 7, 7 }
+};
+
+static Cursor        g_cursor = k_arrow_cursor;
+static short         g_cursor_level;            /* 0 visible, <0 hidden */
+static int           g_cursor_init;
+static unsigned char g_cursor_save[16 * 16];    /* pixels under the cursor */
+static short         g_cursor_save_x, g_cursor_save_y;
+static int           g_cursor_saved;
+
+void InitCursor(void)
+{
+	g_cursor       = k_arrow_cursor;
+	g_cursor_level = 0;
+	g_cursor_init  = 1;
+}
+
+void SetCursor(const Cursor *c)
+{
+	if (c != NULL) {
+		g_cursor      = *c;
+		g_cursor_init = 1;
+	}
+}
+
+void HideCursor(void)
+{
+	g_cursor_level--;
+}
+
+void ShowCursor(void)
+{
+	if (g_cursor_level < 0)
+		g_cursor_level++;
+}
+
+void ObscureCursor(void)
+{
+	/* Mac hides until the next mouse move; the shim just hides one frame. */
+	g_cursor_level--;
+}
+
+CursHandle GetCursor(short cursorID)
+{
+	static Cursor  s_cur;           /* GetCursor returns a handle           */
+	static Cursor *s_ptr = &s_cur;
+	s_cur = (cursorID == 4) ? k_watch_cursor : k_arrow_cursor;
+	return &s_ptr;
+}
+
+static void cursor_composite(void)
+{
+	unsigned char *px;
+	short          pitch, sw, sh, x, y, mx, my, ox, oy;
+	unsigned char  black, white;
+	RGBColor       bk = { 0, 0, 0 };
+	RGBColor       wh = { 0xFFFF, 0xFFFF, 0xFFFF };
+
+	g_cursor_saved = 0;
+	if (!g_cursor_init || g_cursor_level < 0)
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+
+	plat_mouse_pos(&mx, &my);
+	ox = (short)(mx - g_cursor.hotSpot.h);
+	oy = (short)(my - g_cursor.hotSpot.v);
+	black = qd_nearest_color(&bk);
+	white = qd_nearest_color(&wh);
+
+	for (y = 0; y < 16; y++) {
+		short          dy   = (short)(oy + y);
+		unsigned short dbit = g_cursor.data[y];
+		unsigned short mbit = g_cursor.mask[y];
+		unsigned char *d    = (dy >= 0 && dy < sh) ? px + (long)dy * pitch : NULL;
+		for (x = 0; x < 16; x++) {
+			short          dx  = (short)(ox + x);
+			unsigned short bit = (unsigned short)(0x8000u >> x);
+			unsigned char *sv  = &g_cursor_save[y * 16 + x];
+			if (d == NULL || dx < 0 || dx >= sw) {
+				*sv = 0;
+				continue;
+			}
+			*sv = d[dx];                    /* save underneath */
+			if (mbit & bit)                 /* opaque: black or white */
+				d[dx] = (dbit & bit) ? black : white;
+		}
+	}
+	g_cursor_save_x = ox;
+	g_cursor_save_y = oy;
+	g_cursor_saved  = 1;
+}
+
+static void cursor_restore(void)
+{
+	unsigned char *px;
+	short          pitch, sw, sh, x, y;
+
+	if (!g_cursor_saved)
+		return;
+	g_cursor_saved = 0;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	for (y = 0; y < 16; y++) {
+		short dy = (short)(g_cursor_save_y + y);
+		unsigned char *d;
+		if (dy < 0 || dy >= sh)
+			continue;
+		d = px + (long)dy * pitch;
+		for (x = 0; x < 16; x++) {
+			short dx = (short)(g_cursor_save_x + x);
+			if (dx < 0 || dx >= sw)
+				continue;
+			d[dx] = g_cursor_save[y * 16 + x];
+		}
+	}
 }
 
 void RGBForeColor(const RGBColor *color)
