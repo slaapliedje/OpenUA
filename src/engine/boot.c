@@ -11885,10 +11885,19 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 extern void load_frua_palette(void);
 
 /* Overlay a TITLE.CTL screen's RGB palette (item 0 of set `set`) onto
- * `dst[0..]`. Item 0 is a metric-headed block of RGB byte triples; entry
- * count = (length - 8) / 3 (the 224-entry screens leave 224..255 for the
- * caller's base palette). Returns the number of entries written. */
-static short intro_load_palette(long base, short set, RGBColor *dst)
+ * `dst[0..]`, writing at most `maxn` entries. Item 0 is a metric-headed
+ * block of RGB byte triples; entry count = (length - 8) / 3.
+ *
+ * Magenta (255,0,255) is the "unused / defer" sentinel: those slots are
+ * left untouched so `dst` keeps its more-general value (the fall-back
+ * chain is clut 129 master -> set 1 title base -> the screen). This is
+ * how every screen shares the upper CLUT: the logo screens take the
+ * silver-stone ramp at 224..239 from set 1, and the Unlimited Adventures
+ * title's crystal-ball globe takes the blue/grey ramp at 240..254 from
+ * the clut-129 master. Without it, set 1's magenta 240..254 paints the
+ * globe magenta and set 2's spurious 218..227 paints the SSI title text
+ * blue/green. Returns the number of entries considered. */
+static short intro_load_palette(long base, short set, RGBColor *dst, short maxn)
 {
 	long  handle = l37aa(base, set);
 	long  p0, p1;
@@ -11903,11 +11912,14 @@ static short intro_load_palette(long base, short set, RGBColor *dst)
 		return 0;
 	pp = (const unsigned char *)(uintptr_t)(p0 + 8);
 	n  = (short)((p1 - p0 - 8) / 3);
-	if (n > 256) n = 256;
+	if (n > maxn) n = maxn;
 	for (k = 0; k < n; k++) {
-		dst[k].red   = (unsigned short)((pp[k*3+0] << 8) | pp[k*3+0]);
-		dst[k].green = (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
-		dst[k].blue  = (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
+		unsigned char r = pp[k*3+0], g = pp[k*3+1], b = pp[k*3+2];
+		if (r == 255 && g == 0 && b == 255)  /* magenta sentinel: defer */
+			continue;
+		dst[k].red   = (unsigned short)((r << 8) | r);
+		dst[k].green = (unsigned short)((g << 8) | g);
+		dst[k].blue  = (unsigned short)((b << 8) | b);
 	}
 	return n;
 }
@@ -11931,14 +11943,35 @@ static void port_show_intro(void)
 	if (l37aa(base, 0) == 0)                 /* not a GLIB                */
 		return;
 
-	/* Set 1 (the bypassed copy-protection backdrop) carries the 256-entry
-	 * base CLUT.  The logo screens (sets 3/4/6) only define indices 0..223
-	 * and draw their silver-stone frames out of 224..255 — so seed every
-	 * screen from this base, then patch the screen's own low entries on top.
-	 * Without the base, set 4's dominant index (227) lands in stale CLUT and
-	 * the Forgotten Realms logo comes out green. */
+	/* Build the shared base CLUT in two layers (the upper indices 224..255
+	 * are common to all screens and come from neither the screen nor set 1
+	 * alone):
+	 *   1. clut 129 — the 256-entry master FRUA palette (already resident
+	 *      from boot). Supplies the blue/grey ramp at 240..254 the Unlimited
+	 *      Adventures globe draws from.
+	 *   2. set 1 — the title base (the bypassed copy-protection backdrop's
+	 *      palette). Overrides clut 129 with the silver-stone ramp at
+	 *      224..239 the logo frames + title text use. Its 240..254 are the
+	 *      magenta "defer" sentinel, so clut 129 shows through there.
+	 * Each screen then overlays its own 0..223 (magenta entries deferring to
+	 * this base) — see intro_load_palette. */
 	memset(base_pal, 0, sizeof base_pal);
-	(void)intro_load_palette(base, 1, base_pal);
+	{
+		Handle ch = GetResource(0x636C7574L /* 'clut' */, 129);
+		if (ch != NULL && *ch != NULL) {
+			const unsigned char *cd = (const unsigned char *)*ch;
+			short i;
+			for (i = 0; i < 256; i++) {
+				base_pal[i].red   = (unsigned short)
+				    ((cd[8+i*8+2] << 8) | cd[8+i*8+3]);
+				base_pal[i].green = (unsigned short)
+				    ((cd[8+i*8+4] << 8) | cd[8+i*8+5]);
+				base_pal[i].blue  = (unsigned short)
+				    ((cd[8+i*8+6] << 8) | cd[8+i*8+7]);
+			}
+		}
+	}
+	(void)intro_load_palette(base, 1, base_pal, (short)256);
 
 	for (set = 2; set <= 6; set++) {
 		long          handle, deadline;
@@ -11950,9 +11983,10 @@ static void port_show_intro(void)
 		if (handle == 0)
 			break;
 
-		/* base CLUT + this screen's low entries -> upload all 256. */
+		/* base CLUT + this screen's own 0..223 -> upload all 256.
+		 * (224..255 stay the shared silver-stone base from set 1.) */
 		memcpy(pal, base_pal, sizeof pal);
-		(void)intro_load_palette(base, set, pal);
+		(void)intro_load_palette(base, set, pal, (short)224);
 		qd_set_palette(pal, (short)0, (short)256);
 
 		/* clear the field to index 0 (each palette's background colour),
