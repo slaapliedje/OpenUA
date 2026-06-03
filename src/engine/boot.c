@@ -13198,21 +13198,20 @@ static void jt42(const char *msg);
  * (g_a5_22733 == 1) each file is also opened via L0006 with the jt576 record
  * reader, to validate the entry.
  *
- * Structural lift (the call sequence is faithful).  JT[990]/JT[991] are now
- * lifted onto the GEMDOS dir scan, but the design SAVE folder isn't populated
- * in the port's flat mount yet (saved characters live as CHAR*.CHR), so the
- * enumeration still yields no entries and the list comes back empty.  The
- * inner two-cursor list-link juggling (asm 0x2ae..0x2d8 — note the nodes are
- * cleared *after* linking, so the sequence needs care), the g_a5_6922
- * first-name cache (0x322), and the save-mode L0006/jt576 arm (0x338) remain
- * TODO; they must land (with a faithful save side) before this goes live. */
+ * JT[990]/JT[991] are lifted onto the GEMDOS dir scan and the two lists are
+ * built (the Mac's opaque two-cursor pool relink is reimplemented as a plain
+ * tail-append — same singly-linked result; see the loop).  The design SAVE
+ * folder isn't populated in the port's flat mount yet (saved characters live
+ * as CHAR*.CHR via save_roster), so the enumeration still yields no entries
+ * today.  Remaining: the save-mode L0006/jt576 record-read arm (0x338), and a
+ * faithful save side that writes the SAVE folder, before this goes live. */
 static void l01be(const char *suffix, long *out1, long *out2)
 {
 	unsigned char  path[214];                      /* fp@(-214) Pascal buf */
 	unsigned char  dta[12];                        /* fp@(-14) scan state  */
 	long           entry;                          /* fp@(-12) cur name    */
-	long           node1 = 0, node2 = 0;           /* fp@(-4) / fp@(-8)    */
-	int            first;
+	long           node1 = 0, node2 = 0;           /* freshly-alloc'd nodes */
+	long           tail1 = 0, tail2 = 0;           /* append cursors        */
 
 	PROBE("L01be");
 	if (out2 != NULL) *out2 = 0;
@@ -13227,35 +13226,42 @@ static void l01be(const char *suffix, long *out1, long *out2)
 	if (entry == 0)
 		return;                                /* empty folder         */
 
-	first = 1;
-	do {
-		jt477((void *)(uintptr_t)g_a5_21156, 40, &node1); /* list 1 node */
-		jt477((void *)(uintptr_t)g_a5_21156, 40, &node2); /* list 2 node */
+	for (;;) {
+		jt477((void *)(uintptr_t)g_a5_21156, 40, &node1); /* peer node  */
+		jt477((void *)(uintptr_t)g_a5_21156, 40, &node2); /* name node  */
 		if (node2 == 0) {                      /* pool exhausted       */
 			if (out1 != NULL) *out1 = 0;
 			if (out2 != NULL) *out2 = 0;
 			return;
 		}
-		if (first) {
-			if (out2 != NULL) *out2 = node2;
-			if (out1 != NULL) *out1 = node1;
-			first = 0;
-		} else {
-			/* TODO: link node1/node2 onto the tails of out1/out2
-			 * (asm 0x2ae..0x2d8 two-cursor insert). */
-		}
-
-		jt399((void *)(uintptr_t)node1, 40, 0);          /* clear node1 */
-		jt399((void *)(uintptr_t)node2, 40, 0);          /* clear node2 */
-		jt384((char *)(uintptr_t)(node2 + 5),            /* name -> +5  */
+		jt399((void *)(uintptr_t)node1, 40, 0);          /* clear (.next=0) */
+		jt399((void *)(uintptr_t)node2, 40, 0);
+		jt384((char *)(uintptr_t)(node2 + 5),            /* name -> node2+5 */
 		      (const char *)(uintptr_t)entry);
-		/* TODO: g_a5_6922 = node1 + 5 (first-name cache, 0x322). */
+		g_a5_long(-6922) = node1 + 5;                    /* name-field cache */
+
+		/* Append to both lists (.next at offset 0).  The Mac splices via an
+		 * opaque two-cursor pool relink (asm 0x2ae..0x2d8) that depends on
+		 * jt477's slot threading and clears nodes *after* linking; a plain
+		 * tail-append yields the same singly-linked result the consumers
+		 * (l15e2 / l4f2c, JT[471]) walk — list2/out2 = display names, list1/
+		 * out1 = the peer record nodes. */
+		if (tail1 != 0) *(long *)(uintptr_t)tail1 = node1;
+		else if (out1 != NULL) *out1 = node1;
+		tail1 = node1;
+		if (tail2 != 0) *(long *)(uintptr_t)tail2 = node2;
+		else if (out2 != NULL) *out2 = node2;
+		tail2 = node2;
+
 		if (g_a5_22733 == 1) {
-			/* TODO: save-mode validation via L0006 + jt576 (0x338). */
+			/* TODO: save-mode validation — open the file (L0006) and read
+			 * the character record via jt576 into the peer node (0x338). */
 		}
 
 		entry = jt991(dta);                    /* next entry           */
-	} while (entry != 0);
+		if (entry == 0)
+			break;
+	}
 }
 
 /* jt589 (CODE 15 + 0x362) — roster-list builder entry.  Checks the save
