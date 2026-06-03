@@ -13444,7 +13444,6 @@ static void l15e2(void)
 	long  head = 0;
 	long  tail = 0;
 	long  entry;
-	long  matched;
 	short input;
 	short idx = 0;
 	unsigned char loop_flag = 0;
@@ -13496,20 +13495,44 @@ static void l15e2(void)
 				goto skip_delete;
 				/* "Are you sure? " */
 
-			matched = jt165(idx, tail);
-			path_buf[0] = 0;
-			jt431(path_buf, &g_a5_31336);
-			jt431(path_buf, ua_strs_at(0x6024));   /* "SAVE" */
-			jt431(path_buf,
-			      &((const unsigned char *)
-			        (uintptr_t)matched)[5]);
-			(void)jt988(path_buf, 3, path_buf, 0);
+			/* Port: delete the saved character.  The Mac looks
+			 * the entry up (jt165), builds its SAVE path and
+			 * unlinks the file (jt988).  The port keeps characters
+			 * as CHAR*.CHR mirroring cg_pool, so drop the matching
+			 * pool slot and let save_roster rewrite the files (it
+			 * deletes the now-stale top slot), then relink. */
+			{
+				const char *nm = (const char *)&e[5 + marker];
+				short si, sj;
+				for (si = 0; si < cg_pool_count; si++)
+					if (jt396((const char *)&cg_pool[si][96],
+					          nm) != 0) {
+						for (sj = si;
+						     sj < cg_pool_count - 1; sj++)
+							memcpy(cg_pool[sj],
+							       cg_pool[sj + 1],
+							       512);
+						cg_pool_count--;
+						break;
+					}
+				save_roster();
+				cg_party_relink();
+			}
 
-			/* Unlink `entry` from g_a5_27928 chain, then from
-			 * the peer chain rooted at head. JT[471] reclaims
-			 * the slot on both lists. */
+			/* Unlink the picked node from the list so the
+			 * refreshed picker drops it, and reclaim it. */
+			if (head == entry) {
+				head = *(long *)(uintptr_t)entry;
+			} else {
+				long pr = head;
+				while (pr != 0 &&
+				       *(long *)(uintptr_t)pr != entry)
+					pr = *(long *)(uintptr_t)pr;
+				if (pr != 0)
+					*(long *)(uintptr_t)pr =
+						*(long *)(uintptr_t)entry;
+			}
 			jt471(entry, 40, (void *)(uintptr_t)g_a5_21156);
-			jt471(matched, 40, (void *)(uintptr_t)g_a5_21156);
 		}
 skip_delete:
 		if (input == 1 || head == 0)
@@ -14129,9 +14152,37 @@ static void l5124(void);
  * bodies reach into. All PROBE stubs — the real bodies live in
  * segments we haven't started yet. */
 static void   jt19(short a, short b)             { PROBE("jt19"); (void)a; (void)b; }
-static int    jt159(const char *prompt, short b) { PROBE("jt159");
-                                                   (void)prompt; (void)b;
-                                                   return 0; }
+/* jt159 (CODE 7 + 0x16ea) — a yes/no confirmation prompt; returns 1 to
+ * confirm, 0 to cancel.  The Mac renders it through the JT[182] alert (buttons
+ * string g_a5_-13852, then maps Return->confirm / Escape->cancel); that alert
+ * subsystem (l206e/l23b4/l25b6) and the buttons-string global aren't lifted,
+ * so this is a functional reimplementation over the same primitives the roster
+ * picker uses — draw the prompt + Y/N hint with jt94, qd_present, and read a
+ * key.  Y / Return confirm; N / Escape cancel. */
+static int    jt159(const char *prompt, short b)
+{
+	EventRecord ev;
+
+	PROBE("jt159");
+	(void)b;
+	jt94(2, 10, 15, 0, "%s", (prompt != NULL) ? prompt : "");
+	jt94(2, 12, 11, 0, "Y = Yes     N = No");
+	qd_present();
+	for (;;) {
+		if (!WaitNextEvent(everyEvent, &ev, 1, NULL))
+			continue;
+		if (ev.what != keyDown && ev.what != autoKey)
+			continue;
+		switch ((short)(ev.message & 0xff)) {
+		case 'y': case 'Y': case 13: case 3:
+			return 1;
+		case 'n': case 'N': case 27:
+			return 0;
+		default:
+			break;
+		}
+	}
+}
 /* JT[1173] / JT[1193] / L2062 — paint init/commit leaves JT[176]
  * reaches into. PROBE for now; bodies live further inside the
  * window-paint cluster (CODE 4 + 0x164c, CODE 4 + 0x16e0, CODE 7
