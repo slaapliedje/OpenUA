@@ -49,6 +49,29 @@ typedef struct {
 	short right;
 } Rect;
 
+/* --- Cursor Manager ---
+ *
+ * A Mac Cursor is a 16x16 image + mask + hotspot. The shim keeps one
+ * "current" cursor and a visibility level; the present path composites it
+ * onto the screen at the live mouse position (platform IKBD), picking the
+ * nearest black/white CLUT entries. FRUA uses the system arrow (InitCursor)
+ * and the watch (GetCursor(4)) — both supplied here as generic shapes.
+ */
+typedef struct {
+	unsigned short data[16];        /* 1 = black                     */
+	unsigned short mask[16];        /* 1 = opaque (else see-through) */
+	Point          hotSpot;         /* the click point               */
+} Cursor;
+typedef Cursor  *CursPtr;
+typedef Cursor **CursHandle;
+
+void       InitCursor(void);            /* set the arrow, make visible       */
+void       SetCursor(const Cursor *c);  /* install a cursor                  */
+void       HideCursor(void);            /* nest-hide (level--)               */
+void       ShowCursor(void);            /* nest-show (level++, max visible)  */
+void       ObscureCursor(void);         /* hide until the mouse next moves   */
+CursHandle GetCursor(short cursorID);   /* standard IDs: 4 = watch, else arrow */
+
 void    SetPt(Point *pt, short h, short v);
 void    SetRect(Rect *r, short left, short top, short right, short bottom);
 void    OffsetRect(Rect *r, short dh, short dv);

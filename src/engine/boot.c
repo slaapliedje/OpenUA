@@ -12030,12 +12030,14 @@ static void port_show_intro(void)
 		qd_present();
 
 		/* hold until a key / click, or auto-advance after ~4 s so a
-		 * headless boot can't wedge. */
+		 * headless boot can't wedge. qd_present() each spin redraws the
+		 * software cursor at the live mouse position so it tracks. */
 		deadline = TickCount() + 240;    /* 60 ticks/s */
 		for (;;) {
-			if (WaitNextEvent(everyEvent, &ev, 6, NULL)
+			if (WaitNextEvent(everyEvent, &ev, 2, NULL)
 			 && (ev.what == keyDown || ev.what == mouseDown))
 				break;
+			qd_present();
 			if (TickCount() >= deadline)
 				break;
 		}
