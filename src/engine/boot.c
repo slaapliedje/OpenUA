@@ -12823,7 +12823,8 @@ static void cg_train_screen(void)
 		short          lvl  = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
 		long           xp   = *(long *)(c + CHAR_XP);
 		long           need = cg_train_threshold(lvl);
-		int            ready = (xp >= need && lvl < 20);
+		int            dead  = (c[385] == 0);
+		int            ready = (!dead && xp >= need && lvl < 20);
 		char           buf[48];
 
 		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
@@ -12842,17 +12843,23 @@ static void cg_train_screen(void)
 		     (const char *)&c[96]);
 		sprintf(buf, "Level %d   XP %ld", (int)lvl, xp);
 		jt94((short)3, (short)6, 7, 0, "%s", buf);
-		sprintf(buf, "Train to level %d at %ld XP",
-		        (int)(lvl + 1), need);
-		jt94((short)3, (short)7, 7, 0, "%s", buf);
-		if (ready)
+		if (dead) {
+			jt94((short)3, (short)7, 12, 0, "Has fallen in battle.");
 			jt94((short)3, (short)10, 11, 0,
-			     "Ready to train!  (T)");
-		else
-			jt94((short)3, (short)10, 7, 0,
-			     "Not enough experience yet.");
+			     "The temple can raise them.  (R)");
+		} else {
+			sprintf(buf, "Train to level %d at %ld XP",
+			        (int)(lvl + 1), need);
+			jt94((short)3, (short)7, 7, 0, "%s", buf);
+			if (ready)
+				jt94((short)3, (short)10, 11, 0,
+				     "Ready to train!  (T)");
+			else
+				jt94((short)3, (short)10, 7, 0,
+				     "Not enough experience yet.");
+		}
 		jt94((short)3, (short)16, 7, 0,
-		     "T train   Up/Dn char   Esc done");
+		     "T train  R raise  Up/Dn  Esc done");
 		qd_present();
 
 		while (!plat_kb_poll(&scan, &ascii))
@@ -12876,6 +12883,12 @@ static void cg_train_screen(void)
 			c[385]        = (unsigned char)(nhp  > 255 ? 255 : nhp);
 			c[CHAR_MAXHP] = (unsigned char)(nmax > 255 ? 255 : nmax);
 			c[CHAR_LEVEL] = (unsigned char)(lvl + 1);
+			save_roster();
+		} else if ((ascii == 'r' || ascii == 'R') && dead) {
+			/* temple raise: restore the fallen to full HP */
+			short mx = c[CHAR_MAXHP];
+			if (mx < 1) mx = (short)(lvl * 4 + 1);   /* legacy/unset */
+			c[385] = (unsigned char)(mx > 255 ? 255 : mx);
 			save_roster();
 		}
 	}
