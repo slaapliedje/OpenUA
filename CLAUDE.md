@@ -55,6 +55,21 @@ make run        # boot in Hatari (Falcon mode)
 make test       # host-side pytest suite over tools/ (tests/, synthetic data)
 ```
 
+## Toolchain flags (non-negotiable)
+
+- `-m68020-60` — runs on 020/030/040/060; gets 32-bit muls/divs and
+  bitfield ops. Falcon030 and TT030 are both 68030, so this is the
+  correct target. Do NOT use bare `-m68000` or default codegen.
+- `-msoft-float` in the default build (Falcon030 has no FPU).
+- `make FPU=1` flips to `-m68881` and drops `-msoft-float`; only for
+  the TT030 variant.
+- `-std=gnu99`, `-fomit-frame-pointer`, `-Wall -Wextra`.
+- Verify with: `m68k-atari-mint-objdump -d build/<obj>.o | grep -E 'muls\.l|bfextu|bfins'`
+  — if you see none of these across the whole build, the flag isn't taking effect.
+
+If a build error looks fixable by changing flags, fix the Makefile and
+show the diff before touching source.
+
 Default build is **soft-float** so one binary serves the FPU-less Falcon030
 and the 68882-equipped TT030. Do not assume an FPU in shared code.
 
@@ -116,6 +131,32 @@ the buffer is zero on startup.
 stay file-static in C — the address ends up in an A5 *pointer* slot,
 but the bytes themselves are not part of the A5 world. `g_dlitem_pool`
 is the canonical example.
+
+### Toolbox shim (compat/)
+
+Mac Toolbox types and calls live in `compat/mac_compat.h` (+ `.c` for
+non-inline bodies). Engine code keeps the Mac spellings — `FSOpen`,
+`NewHandle`, `OSErr`, `Str255`, `ConstStr255Param`, `noErr`, `fnfErr`,
+etc. — and the shim routes them to GEMDOS / Mxalloc / etc.
+
+Rules:
+- New Toolbox symbols go into `mac_compat.h`; never inline a GEMDOS
+  call in `src/engine/`.
+- Keep returning Mac `OSErr` to callers. Translate GEMDOS errors at
+  the shim boundary (`gemdos_to_oserr()`).
+- Pascal strings are converted to C strings inside the shim
+  (`p2cstr_buf`); call sites stay Pascal.
+- File handles: GEMDOS handle fits in `int16_t`, store directly in
+  the Mac `refNum` slot. No descriptor table needed.
+- Memory: `NewPtr`/`NewHandle` over `malloc`. Use `Mxalloc(size, 0)`
+  (ST-RAM) for buffers the Videl/DMA-sound/DSP will touch; flag
+  these as `NewPtrST` in the shim and call them explicitly from
+  `platform/` — not from engine code.
+- When a Toolbox manager's coverage changes, update
+  `docs/toolbox-mapping.md` in the same commit.
+
+If a Toolbox call has no clean GEMDOS/HAL mapping, stop and ask —
+do NOT stub it to return `noErr`.
 
 ### THINK C inline switch (JT[3])
 
