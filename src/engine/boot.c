@@ -7984,14 +7984,19 @@ static const struct { const char *name; short hd; short dmg; } k_monsters[] = {
 };
 #define N_MONSTERS ((short)(sizeof k_monsters / sizeof k_monsters[0]))
 
-/* Real monsters loaded from the design's MONSTnnn.DAT records. The 450-byte
- * record (the GEO-loader shape L6028 reads, here read straight off disk
- * since the sample files are stored uncompressed) carries the monster name
- * as a C-string at +96. The full AD&D stat block (AC / THAC0 / the attack
- * table) is the deferred record-layout RE; for the encounter resolver we
- * take a damage-die byte (+135) and an HD-ish byte (+131), clamped to sane
- * ranges. */
-static struct { char name[24]; short hd, dmg; } g_mdb[24];
+/* Real monsters loaded from the design's MONSTnnn.DAT records (read straight
+ * off disk; the sample files are stored uncompressed at the full 450 bytes).
+ * Decoded on-disk fields:
+ *   +96  name    C-string
+ *   +137 THAC0   AD&D to-hit (14/13/11/8 across the sample) — confident
+ *   +135 dmg     per-hit damage die sides
+ *   +395 HP      (63/59/50/34) — also the in-memory combatant HP offset
+ * The faithful *in-memory* combatant layout (from the CODE 19 record sheet:
+ * AC@385, HP@395, THAC0=60-[384], move@396, encumbrance@86) is the target
+ * once combat lifts; the on-disk field-script transform (jt325/L1ae2) that
+ * relocates fields to those offsets is the deferred remainder, so the
+ * on-disk AC offset isn't pinned — AC is derived from THAC0 here. */
+static struct { char name[24]; short hp, thac0, dmg; } g_mdb[24];
 static short g_mdb_n = -1;     /* -1 = not yet scanned */
 
 static void load_monsters(void)
@@ -8018,17 +8023,18 @@ static void load_monsters(void)
 		n = 450;
 		if (FSRead(refnum, &n, rec) == noErr && n == 450 && rec[96]) {
 			char *d = g_mdb[g_mdb_n].name;
+			short v;
 			for (c = 0; c < 22 && rec[96 + c]; c++)
 				d[c] = (char)rec[96 + c];
 			d[c] = 0;
 			if (d[0] >= 'a' && d[0] <= 'z')  /* capitalise the name */
 				d[0] = (char)(d[0] - 32);
-			g_mdb[g_mdb_n].hd  = (short)rec[131];
-			if (g_mdb[g_mdb_n].hd  < 1) g_mdb[g_mdb_n].hd  = 1;
-			if (g_mdb[g_mdb_n].hd  > 8) g_mdb[g_mdb_n].hd  = 8;
-			g_mdb[g_mdb_n].dmg = (short)rec[135];
-			if (g_mdb[g_mdb_n].dmg < 2) g_mdb[g_mdb_n].dmg = 2;
-			if (g_mdb[g_mdb_n].dmg > 12) g_mdb[g_mdb_n].dmg = 12;
+			v = (short)rec[395];                       /* HP    */
+			g_mdb[g_mdb_n].hp    = (v < 1) ? 8 : v;
+			v = (short)rec[137];                       /* THAC0 */
+			g_mdb[g_mdb_n].thac0 = (v < 2 || v > 20) ? 19 : v;
+			v = (short)rec[135];                       /* dmg die */
+			g_mdb[g_mdb_n].dmg   = (v < 2) ? 4 : (v > 12 ? 12 : v);
 			g_mdb_n++;
 		}
 		(void)FSClose(refnum);
@@ -8058,7 +8064,7 @@ static void port_run_encounter(short zone)
 	short          nparty = cg_collect_party(party, 16);
 	unsigned char *px; short pitch, sw, sh, i;
 	unsigned char  scan = 0, ascii = 0;
-	short          mcount, hp_each, round, mhd, mdmg;
+	short          mcount, hp_each, round, mthac0, mdmg, mac;
 	const char    *mname;
 	long           mhp;
 	int            fled = 0, victory = 0;
@@ -8067,23 +8073,30 @@ static void port_run_encounter(short zone)
 	if (nparty == 0)
 		return;
 
-	/* pick a monster — a real MONSTnnn.DAT one if the design has any,
-	 * else a synthesized stand-in; the zone scales the group size. */
+	/* pick a monster — a real MONSTnnn.DAT one (true HP + THAC0 + damage)
+	 * if the design has any, else a synthesized stand-in; the zone scales
+	 * the group size. The monster's own AC isn't pinned on disk yet, so
+	 * it's derived from THAC0 (tougher attacker -> better armour). */
 	load_monsters();
 	if (g_mdb_n > 0) {
 		short mi = (short)ua_rand(g_mdb_n);
-		mname = g_mdb[mi].name;
-		mhd   = g_mdb[mi].hd;
-		mdmg  = g_mdb[mi].dmg;
+		mname  = g_mdb[mi].name;
+		hp_each = g_mdb[mi].hp;
+		mthac0 = g_mdb[mi].thac0;
+		mdmg   = g_mdb[mi].dmg;
 	} else {
 		short mi = (short)(zone % N_MONSTERS);
-		mname = k_monsters[mi].name;
-		mhd   = k_monsters[mi].hd;
-		mdmg  = k_monsters[mi].dmg;
+		mname  = k_monsters[mi].name;
+		hp_each = (short)(k_monsters[mi].hd * 4 + 3);
+		mthac0 = (short)(20 - k_monsters[mi].hd);
+		mdmg   = k_monsters[mi].dmg;
 	}
-	mcount  = (short)(1 + (short)ua_rand(3) + (zone & 3));
-	if (mcount > 6) mcount = 6;
-	hp_each = (short)(mhd * 4 + 3);
+	mac = (short)(mthac0 - 4);
+	if (mac < 2)  mac = 2;
+	if (mac > 10) mac = 10;
+	/* real records can be boss-tier (50+ HP), so keep the group small */
+	mcount  = (short)(1 + (short)ua_rand(hp_each >= 30 ? 2 : 4) + (zone & 1));
+	if (mcount > 5) mcount = 5;
 	mhp     = (long)mcount * hp_each;
 
 	/* announce + choice */
@@ -8118,28 +8131,31 @@ static void port_run_encounter(short zone)
 		return;
 	}
 
-	/* round-based auto-resolve over the real party */
+	/* round-based auto-resolve over the real party, AD&D to-hit both ways:
+	 * a hit needs d20 >= attacker THAC0 - defender AC (lower AC = harder). */
 	for (round = 1; round <= 50 && mhp > 0; round++) {
 		short msurv, alive;
 
-		for (i = 0; i < nparty; i++)                 /* party strikes */
-			if (party[i][385] != 0)
-				mhp -= (long)(ua_rand(8) + 1
-				              + party[i][CHAR_LEVEL]);
+		for (i = 0; i < nparty; i++) {               /* party strikes */
+			short lvl, pthac0;
+			if (party[i][385] == 0)
+				continue;
+			lvl    = party[i][CHAR_LEVEL]; if (lvl < 1) lvl = 1;
+			pthac0 = (short)(21 - lvl);    if (pthac0 < 1) pthac0 = 1;
+			if ((short)(ua_rand(20) + 1) >= pthac0 - mac)
+				mhp -= (long)(ua_rand(8) + 1 + lvl / 2);
+		}
 		if (mhp <= 0) { victory = 1; break; }
 
 		msurv = (short)((mhp + hp_each - 1) / hp_each);
 		if (msurv > mcount) msurv = mcount;
 		for (i = 0; i < msurv; i++) {                /* monsters strike */
-			short live[16], nl = 0, t, thresh, hp;
+			short live[16], nl = 0, t, hp;
 			for (t = 0; t < nparty; t++)
 				if (party[t][385] != 0) live[nl++] = t;
 			if (nl == 0) break;
 			t = live[ua_rand(nl)];
-			thresh = (short)(18 - party[t][395]);    /* lower AC = harder */
-			if (thresh < 2)  thresh = 2;
-			if (thresh > 19) thresh = 19;
-			if ((short)(ua_rand(20) + 1) >= thresh) {
+			if ((short)(ua_rand(20) + 1) >= mthac0 - party[t][395]) {
 				hp = (short)(party[t][385]
 				             - (short)(ua_rand(mdmg) + 1));
 				party[t][385] = (unsigned char)(hp < 0 ? 0 : hp);
