@@ -1697,8 +1697,11 @@ int ua_main(short arg1, long arg2)
 
 	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
 	 * Adventures / credits screens (TITLE.CTL art) shown before the menu.
-	 * No-ops when the design data isn't mounted (e.g. a plain `make run`). */
+	 * No-ops when the design data isn't mounted (e.g. a plain `make run`).
+	 * Skipped in the 3D-walk demo build so it lands straight in the view. */
+#ifndef FRUA_MAP_DEMO
 	port_show_intro();
+#endif
 
 	/* Phase 4 — secondary init and the first UI handler. arg1 / arg2
 	 * carry the THINK C runtime's (string-table count, pointer); jt480
@@ -6672,9 +6675,13 @@ static void draw_front_face(unsigned char *px, short pitch, short sw, short sh,
  * the Mac's own l5b42 pixel coords aren't reconstructible (see docs/TODO). */
 static void render_3d_raycast(unsigned char *px, short pitch, short sw, short sh)
 {
-	static const short hw[5] = { 110, 68, 42, 26, 16 };
-	static const short hh[5] = {  74, 46, 28, 17, 11 };
-	const short vcx = 118, vcy = 83, VOFF = 8;
+	/* The faithful Mac play viewport is 88x88 at (24,24)-(111,111) (the hole
+	 * in FRAME.CTL's set-9 frame; BACK.CTL backdrops are 88x88 -> 1:1). Centre
+	 * (68,68), half-size 44; the perspective rings keep the original ramp
+	 * ratios scaled to the square 44-half viewport. */
+	static const short hw[5] = { 44, 27, 17, 10, 6 };
+	static const short hh[5] = { 44, 27, 17, 10, 6 };
+	const short vcx = 68, vcy = 68, VOFF = 8;
 	short f  = (short)(g_a5_12286 & 7);
 	short lf = (short)((f + 6) & 7);
 	short rf = (short)((f + 2) & 7);
@@ -7719,8 +7726,8 @@ static void jt312(unsigned char *page)
 		s_view_first = 0;
 		g_view_force_full = 0;
 	} else {
-		/* present just the render_3d_view viewport (x 8..228, y 9..157). */
-		qd_present_rect((short)8, (short)9, (short)221, (short)149);
+		/* present just the 88x88 viewport at (24,24)-(111,111). */
+		qd_present_rect((short)24, (short)24, (short)88, (short)88);
 	}
 }
 
