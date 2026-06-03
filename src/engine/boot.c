@@ -15616,6 +15616,53 @@ static void cg_message(const char *l1, const char *l2)
 /* Draw one character's full sheet (name, race/class/level, alignment, the
  * six ability scores, HP, AC) on the shared stone chrome with `footer` as
  * the bottom hint line, then present. */
+/* JT[892] (CODE 19 + 0x1abe) — the combatant record-sheet stats block:
+ * Hit Points / Armor Class / Encumbrance / THAC0 / Movement. Structural
+ * lift of the CODE 19 painter: faithful label set + screen coords, the
+ * JT[1200] label-colour split (grey 7 in combat / cyan 11 on the sheet),
+ * the AC-shade classify over rec[385], and THAC0 = 60 - rec[384]. The
+ * value funnels JT[32]/JT[34] (and the unlifted JT[59]/JT[63]/JT[37]) are
+ * PROBE stubs, so the numbers are drawn via JT[94] off the faithful CHAR_*
+ * offsets too (the port-addition pattern l02dc uses). The faithful code
+ * reads g_a5_-27932; the port passes the viewed record. STRS label offsets
+ * (non-encounter copies): HP 0x599e, AC 0x59b6, Enc 0x59ce, THAC0 0x59e2,
+ * Move 0x59f4. */
+static void jt892(const unsigned char *rec)
+{
+	long  e   = (long)(uintptr_t)rec;
+	short lc  = (jt1200() == 3) ? (short)7 : (short)11;   /* label colour */
+	short ac  = rec[CHAR_AC];
+	short enc = (short)(((unsigned)rec[86] << 8) | rec[87]);
+	short shade;
+
+	/* Hit Points */
+	jt94((short)20, (short)3, lc, 0, "Hit Points");
+	jt103((short)31, (short)3, (short)37, (short)3);
+	jt32(e, (short)31, (short)3, 0, 1);
+	jt94((short)31, (short)3, 7, 0, "%d", (int)rec[CHAR_HP]);
+
+	/* Armor Class — value shaded by the faithful classify of +385 */
+	jt94((short)1, (short)17, lc, 0, "Armor Class");
+	if      (ac < 1 || ac > 69) shade = 15;
+	else if (ac <= 50)          shade = 16;
+	else if (ac <= 60)          shade = 17;
+	else                        shade = 16;
+	jt34(e, shade, (short)17, 0);
+	jt94((short)17, (short)17, 7, 0, "%d", (int)ac);
+
+	/* Encumbrance (word @ +86) */
+	jt94((short)20, (short)17, lc, 0, "Encumbrance");
+	jt94((short)33, (short)17, 7, 0, "%d", (int)enc);
+
+	/* THAC0 = 60 - rec[384] */
+	jt94((short)1, (short)18, lc, 0, "THAC0.");
+	jt94((short)16, (short)18, 7, 0, "%d", (int)(60 - rec[CHAR_THAC0]));
+
+	/* Movement */
+	jt94((short)20, (short)18, lc, 0, "Movement");
+	jt94((short)33, (short)18, 7, 0, "%d", (int)rec[CHAR_MOVE]);
+}
+
 static void cg_draw_sheet(const unsigned char *c, const char *footer)
 {
 	unsigned char *px; short pitch, sw, sh, yy, i;
@@ -15627,7 +15674,7 @@ static void cg_draw_sheet(const unsigned char *c, const char *footer)
 		if (g_menu_state == 1) {
 			fill_backdrop(px, pitch, 0, 0,
 			              (short)(sw - 1), (short)(sh - 1));
-			draw_plate(px, pitch, sw, sh, 6, 8, 313, 150, 1);
+			draw_plate(px, pitch, sw, sh, 6, 8, 313, 160, 1);
 		} else {
 			for (yy = 0; yy < sh; yy++)
 				memset(px + (long)yy * pitch, 0x08,
@@ -15662,13 +15709,11 @@ static void cg_draw_sheet(const unsigned char *c, const char *footer)
 		     (int)c[CHAR_STATS + i]);
 	}
 
-	jt94((short)3,  (short)13, 7,  0, "HP:");
-	jt94((short)8,  (short)13, 15, 0, "%d", (int)c[CHAR_HP]);
-	jt94((short)20, (short)13, 7,  0, "AC:");
-	jt94((short)25, (short)13, 15, 0, "%d", (int)c[CHAR_AC]);
+	/* Faithful combat-stats block (HP / AC / Encumbrance / THAC0 / Move). */
+	jt892(c);
 
 	if (footer)
-		jt94((short)3, (short)16, 7, 0, "%s", footer);
+		jt94((short)3, (short)14, 7, 0, "%s", footer);
 
 	qd_present();
 }
