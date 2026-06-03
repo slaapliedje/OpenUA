@@ -4158,6 +4158,7 @@ static int  jt1200(void)
 #define CHAR_ALIGN  209   /* index into cg_aligns[9]                          */
 #define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
 #define CHAR_XP      212  /* experience points (long; +212..215)              */
+#define CHAR_MAXHP   216  /* full HP, to heal toward on rest                  */
 
 #define CG_PARTY_MAX 6    /* active-party slot count                          */
 
@@ -8062,6 +8063,28 @@ static unsigned char *encounter_screen(short *pitch, short *sw, short *sh)
 	return px;
 }
 
+/* port_play_message — a two-line notice during play (black screen + the
+ * hud_text glyph blitter). Used instead of cg_message in the dungeon: the
+ * deep view (g_a5_2347 == 0) is jt94's broken-text mode, so the chrome
+ * cg_message would draw blank. Waits for a key. */
+static void port_play_message(const char *l1, const char *l2)
+{
+	unsigned char *px; short pitch, sw, sh;
+	unsigned char  scan = 0, ascii = 0;
+
+	while (plat_kb_poll(&scan, &ascii))
+		;
+	px = encounter_screen(&pitch, &sw, &sh);
+	if (px) {
+		hud_text(px, pitch, sw, sh, 20, 60, HUD_CLUT_WHITE, l1);
+		if (l2)
+			hud_text(px, pitch, sw, sh, 20, 80, HUD_CLUT_WHITE, l2);
+		qd_present(); qd_present();
+	}
+	while (!plat_kb_poll(&scan, &ascii))
+		;
+}
+
 /* port_run_encounter — announce, then Fight (auto-resolve) or Run. */
 static void port_run_encounter(short zone)
 {
@@ -8135,7 +8158,7 @@ static void port_run_encounter(short zone)
 	}
 
 	if (fled) {
-		cg_message("You slip away!", "Press any key.");
+		port_play_message("You slip away!", "Press any key.");
 		return;
 	}
 
@@ -8251,6 +8274,52 @@ static int encounter_check(void)
 		return 0;
 	port_run_encounter(zone);
 	return 1;
+}
+
+/* port_rest — camp to recover. Heals every living member to full
+ * (CHAR_MAXHP), with a ~1-in-4 chance the rest is interrupted by a
+ * wandering encounter (no healing then). The dead (HP 0) need a raise,
+ * not rest, so they stay down. */
+static void port_rest(void)
+{
+	unsigned char *party[16];
+	short          nparty = cg_collect_party(party, 16), i;
+	unsigned char  scan = 0, ascii = 0;
+
+	if (nparty == 0)
+		return;
+	while (plat_kb_poll(&scan, &ascii))
+		;
+
+	if (ua_rand(4) == 0) {                  /* wandering monsters! */
+		const unsigned char *ds =
+			(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		short zone = 1;
+		if (ds != NULL) {
+			short x = (short)g_a5_12288, y = (short)g_a5_12287;
+			short w = (unsigned char)ds[2], h = (unsigned char)ds[3];
+			if (x >= 0 && y >= 0 && x < w && y < h) {
+				long cell = (long)x * h + y;
+				zone = (short)(ds[290 + cell * 6 + 5] >> 2);
+				if (zone == 0) zone = 1;
+			}
+		}
+		port_play_message("Your rest is interrupted!", "Press any key.");
+		port_run_encounter(zone);
+		return;
+	}
+
+	for (i = 0; i < nparty; i++) {
+		short mx;
+		if (party[i][385] == 0)         /* the dead need a raise, not rest */
+			continue;
+		mx = party[i][CHAR_MAXHP];
+		if (mx < party[i][385]) mx = party[i][385];   /* legacy clamp */
+		party[i][CHAR_MAXHP] = (unsigned char)mx;
+		party[i][385] = (unsigned char)mx;
+	}
+	save_roster();
+	port_play_message("The party makes camp and recovers.", "Press any key.");
 }
 
 /* port_play_demo — the play loop core as an interactive dungeon walk
@@ -8506,6 +8575,12 @@ void port_play_demo(void)
 			break;
 		}
 		case 'm': case 'M': show_map = (short)!show_map; break;
+		case 'r': case 'R':            /* camp to rest (real play only) */
+			if (g_adventure_mode) {
+				port_rest();
+				g_view_force_full = 1;
+			}
+			break;
 		case 't': case 'T':     /* browse: next set (pins auto off) */
 			if (g_adventure_mode) break;   /* play: no wall browsing */
 			g_cw_auto = 0;
@@ -8993,6 +9068,7 @@ void port_test_seed_design(void)
 						r[96 + c] = (unsigned char)k_names[p][c];
 					r[96 + c] = 0;
 					r[385] = k_hp[p];
+					r[CHAR_MAXHP] = k_hp[p];
 					r[395] = k_ac[p];
 					r[CHAR_RACE]  = k_race[p];
 					r[CHAR_CLASS] = k_class[p];
@@ -12570,6 +12646,7 @@ static void cg_build_record(const cg_state *s)
 		rec[96 + c] = (unsigned char)s->name[c];
 	rec[96 + c]  = 0;
 	rec[385]     = (unsigned char)hp;
+	rec[CHAR_MAXHP] = (unsigned char)hp;
 	rec[395]     = (unsigned char)ac;
 	rec[CHAR_RACE]  = (unsigned char)s->race;
 	rec[CHAR_CLASS] = (unsigned char)klass;
@@ -12792,10 +12869,12 @@ static void cg_train_screen(void)
 			short conmod = (con >= 16) ? 2 : (con >= 15) ? 1
 			             : (con <= 6) ? -1 : 0;
 			short gain   = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
-			short nhp;
+			short nhp, nmax;
 			if (gain < 1) gain = 1;
-			nhp = (short)(c[385] + gain);
-			c[385]      = (unsigned char)(nhp > 255 ? 255 : nhp);
+			nhp  = (short)(c[385] + gain);
+			nmax = (short)(c[CHAR_MAXHP] + gain);
+			c[385]        = (unsigned char)(nhp  > 255 ? 255 : nhp);
+			c[CHAR_MAXHP] = (unsigned char)(nmax > 255 ? 255 : nmax);
 			c[CHAR_LEVEL] = (unsigned char)(lvl + 1);
 			save_roster();
 		}
