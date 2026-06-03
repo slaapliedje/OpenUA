@@ -11898,24 +11898,25 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 extern void load_frua_palette(void);
 
 /* Overlay a TITLE.CTL screen's RGB palette (item 0 of set `set`) onto
- * `dst[0..]`, writing at most `maxn` entries. Item 0 is a metric-headed
- * block of RGB byte triples; entry count = (length - 8) / 3.
+ * `dst[]`, honouring the palette's allotted CLUT range. Item 0 is an
+ * 8-byte-metric-headed block of RGB byte triples; the metric encodes the
+ * partition (per FRUA's design): ybear (metric[2..3]) = the FIRST CLUT slot
+ * the sub-palette occupies, xbear (metric[4..5]) = the entry count. So
+ * set 1 is start=0/count=256 (the full 256-colour base/master), while the
+ * picture screens (sets 2..6) are start=32/count=224 — their sub-palette
+ * loads into slots 32..255, leaving the 0..31 system/UI base intact.
  *
  * Magenta (255,0,255) is the "unused / defer" sentinel: those slots are
- * left untouched so `dst` keeps its more-general value (the fall-back
- * chain is clut 129 master -> set 1 title base -> the screen). This is
- * how every screen shares the upper CLUT: the logo screens take the
- * silver-stone ramp at 224..239 from set 1, and the Unlimited Adventures
- * title's crystal-ball globe takes the blue/grey ramp at 240..254 from
- * the clut-129 master. Without it, set 1's magenta 240..254 paints the
- * globe magenta and set 2's spurious 218..227 paints the SSI title text
- * blue/green. Returns the number of entries considered. */
-static short intro_load_palette(long base, short set, RGBColor *dst, short maxn)
+ * skipped so `dst` keeps its base value. Returns the number of entries
+ * written. (The Unlimited Adventures globe's blues live at set 5 entries
+ * 208..223 -> slots 240..255 — which is why loading at slot 0 turned the
+ * globe magenta and the art washed-out.) */
+static short intro_load_palette(long base, short set, RGBColor *dst)
 {
 	long  handle = l37aa(base, set);
 	long  p0, p1;
-	const unsigned char *pp;
-	short n, k;
+	const unsigned char *m, *pp;
+	short start, n, avail, k;
 
 	if (handle == 0)
 		return 0;
@@ -11923,16 +11924,22 @@ static short intro_load_palette(long base, short set, RGBColor *dst, short maxn)
 	p1 = l37aa(handle, 1);
 	if (p0 == 0 || p1 <= p0)
 		return 0;
+	m     = (const unsigned char *)(uintptr_t)p0;          /* 8-byte metric */
+	start = (short)(((unsigned short)m[2] << 8) | m[3]);   /* first CLUT slot */
+	n     = (short)(((unsigned short)m[4] << 8) | m[5]);   /* entry count     */
+	avail = (short)((p1 - p0 - 8) / 3);
+	if (n > avail) n = avail;
 	pp = (const unsigned char *)(uintptr_t)(p0 + 8);
-	n  = (short)((p1 - p0 - 8) / 3);
-	if (n > maxn) n = maxn;
 	for (k = 0; k < n; k++) {
+		short         slot = (short)(start + k);
 		unsigned char r = pp[k*3+0], g = pp[k*3+1], b = pp[k*3+2];
+		if (slot < 0 || slot > 255)
+			continue;
 		if (r == 255 && g == 0 && b == 255)  /* magenta sentinel: defer */
 			continue;
-		dst[k].red   = (unsigned short)((r << 8) | r);
-		dst[k].green = (unsigned short)((g << 8) | g);
-		dst[k].blue  = (unsigned short)((b << 8) | b);
+		dst[slot].red   = (unsigned short)((r << 8) | r);
+		dst[slot].green = (unsigned short)((g << 8) | g);
+		dst[slot].blue  = (unsigned short)((b << 8) | b);
 	}
 	return n;
 }
@@ -11984,7 +11991,7 @@ static void port_show_intro(void)
 			}
 		}
 	}
-	(void)intro_load_palette(base, 1, base_pal, (short)256);
+	(void)intro_load_palette(base, 1, base_pal);   /* set 1: full 0..255 base */
 
 	for (set = 2; set <= 6; set++) {
 		long          handle, set1h, deadline;
@@ -12002,13 +12009,13 @@ static void port_show_intro(void)
 				memset(px + (long)r * pitch, 0, (size_t)sw);
 
 		if (set == 5) {
-			/* The Unlimited Adventures title is a full-screen image
-			 * authored for its OWN palette (sets 2/3/4/6 are logos drawn
-			 * against the master). Overlay set 5's 0..223 onto the master
-			 * (which keeps clut 129's blue/grey ramp at 240..254 for the
-			 * crystal-ball globe), then blit its pieces opaque. */
+			/* The Unlimited Adventures title is a full-screen "Big Picture":
+			 * its 224-colour sub-palette loads into slots 32..255 (per set 5's
+			 * palette metric, start=32), over the set-1 base (0..31). The art
+			 * indexes 32..254, so the globe's blues (set 5 entries 208..223 ->
+			 * slots 240..255) land correctly. Blit its pieces opaque. */
 			memcpy(pal, base_pal, sizeof pal);
-			(void)intro_load_palette(base, set, pal, (short)224);
+			(void)intro_load_palette(base, set, pal);
 			qd_set_palette(pal, (short)0, (short)256);
 			for (i = 1; i < 4; i++)
 				ui_glib_blit(handle, i, (short)0, (short)0, 0, 0);
