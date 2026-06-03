@@ -4157,6 +4157,7 @@ static int  jt1200(void)
 #define CHAR_STATS  203   /* 6 bytes: STR INT WIS DEX CON CHA (record order) */
 #define CHAR_ALIGN  209   /* index into cg_aligns[9]                          */
 #define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
+#define CHAR_XP      212  /* experience points (long; +212..215)              */
 
 #define CG_PARTY_MAX 6    /* active-party slot count                          */
 
@@ -8070,7 +8071,7 @@ static void port_run_encounter(short zone)
 	unsigned char  scan = 0, ascii = 0;
 	short          mcount, hp_each, round, mthac0, mdmg, mac;
 	const char    *mname;
-	long           mhp;
+	long           mhp, xp_award = 0;
 	int            fled = 0, victory = 0;
 	char           line[48];
 
@@ -8175,7 +8176,21 @@ static void port_run_encounter(short zone)
 	}
 	if (mhp <= 0) victory = 1;
 
-	save_roster();                                   /* persist HP / deaths */
+	/* award XP on victory: a monster-XP pool (HP-scaled) split among the
+	 * survivors, added to each one's running XP (CHAR_XP). */
+	if (victory) {
+		short surv = 0;
+		long  pool;
+		for (i = 0; i < nparty; i++)
+			if (party[i][385] != 0) surv++;
+		pool = (long)mcount * hp_each * 10;
+		xp_award = surv ? pool / surv : 0;
+		for (i = 0; i < nparty; i++)
+			if (party[i][385] != 0)
+				*(long *)(party[i] + CHAR_XP) += xp_award;
+	}
+
+	save_roster();                                   /* persist HP / deaths / XP */
 
 	/* outcome */
 	while (plat_kb_poll(&scan, &ascii))
@@ -8196,6 +8211,12 @@ static void port_run_encounter(short zone)
 			else
 				sprintf(line, "DEAD");
 			hud_text(px, pitch, sw, sh, 170, ty, col, line);
+		}
+		if (victory && xp_award > 0) {
+			sprintf(line, "Each survivor earns %ld XP.",
+			        xp_award);
+			hud_text(px, pitch, sw, sh, 20, 150, HUD_CLUT_GOLD,
+			         line);
 		}
 		hud_text(px, pitch, sw, sh, 20, 170, HUD_CLUT_WHITE,
 		         "Press any key.");
@@ -8956,6 +8977,9 @@ void port_test_seed_design(void)
 			{ 12, 13, 10, 17, 14, 11 },   /* Sable    */
 		};
 		static const unsigned char k_align[3] = { 0, 4, 6 };
+		/* seed XP near the train thresholds (level*1000): Bramble L3 +
+		 * Korin L2 ready to train, Sable L3 not yet. */
+		static const long k_xp[3] = { 3100, 2100, 1500 };
 		static int seeded = 0;
 
 		if (!seeded) {
@@ -8977,6 +9001,7 @@ void port_test_seed_design(void)
 						r[CHAR_STATS + c] = k_stats[p][c];
 					r[CHAR_ALIGN]   = k_align[p];
 					r[CHAR_INPARTY] = 1;
+					*(long *)(r + CHAR_XP) = k_xp[p];
 				}
 				cg_pool_count = 3;
 			}
@@ -12690,12 +12715,99 @@ static int  jt574(long ctx)
  * The matching menu item is "Train Character" (selector 'T'); the
  * c79x flag g_a5_14440 is set by the L0df6 / L0e98 cluster init when
  * the action is available. */
+/* Train Character — the port's leveling screen (case 0). Page the party;
+ * a member whose running XP (CHAR_XP) has reached the next-level threshold
+ * (level * 1000) can train up: level +1 and a hit-die + CON HP gain. Combat
+ * THAC0 improves implicitly (the resolver uses 21 - level). The faithful
+ * per-class advancement tables (saves, spell slots, exact THAC0 steps) are
+ * the deferred remainder. */
+static long cg_train_threshold(short level)
+{
+	return (long)(level < 1 ? 1 : level) * 1000;
+}
+
+static void cg_train_screen(void)
+{
+	unsigned char *party[16];
+	short          nparty, sel = 0;
+	unsigned char *px; short pitch, sw, sh, yy;
+	unsigned char  scan = 0, ascii = 0;
+
+	nparty = cg_collect_party(party, 16);
+	if (nparty == 0)
+		return;
+	g_a5_2347 = 1;
+	load_menu_ui();
+	while (plat_kb_poll(&scan, &ascii))
+		;
+
+	for (;;) {
+		unsigned char *c    = party[sel];
+		short          lvl  = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
+		long           xp   = *(long *)(c + CHAR_XP);
+		long           need = cg_train_threshold(lvl);
+		int            ready = (xp >= need && lvl < 20);
+		char           buf[48];
+
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+			if (g_menu_state == 1) {
+				fill_backdrop(px, pitch, 0, 0,
+				              (short)(sw - 1), (short)(sh - 1));
+				draw_plate(px, pitch, sw, sh, 6, 8, 313, 150, 1);
+			} else {
+				for (yy = 0; yy < sh; yy++)
+					memset(px + (long)yy * pitch, 0x08,
+					       (size_t)sw);
+			}
+		}
+		jt94((short)3, (short)2, 14, 0, "Training Hall");
+		jt94((short)3, (short)4, 15, 0, "%s",
+		     (const char *)&c[96]);
+		sprintf(buf, "Level %d   XP %ld", (int)lvl, xp);
+		jt94((short)3, (short)6, 7, 0, "%s", buf);
+		sprintf(buf, "Train to level %d at %ld XP",
+		        (int)(lvl + 1), need);
+		jt94((short)3, (short)7, 7, 0, "%s", buf);
+		if (ready)
+			jt94((short)3, (short)10, 11, 0,
+			     "Ready to train!  (T)");
+		else
+			jt94((short)3, (short)10, 7, 0,
+			     "Not enough experience yet.");
+		jt94((short)3, (short)16, 7, 0,
+		     "T train   Up/Dn char   Esc done");
+		qd_present();
+
+		while (!plat_kb_poll(&scan, &ascii))
+			;
+		if (ascii == 27 || ascii == 13 || ascii == 3)
+			break;
+		else if (scan == 0x48)
+			sel = (short)((sel + nparty - 1) % nparty);
+		else if (scan == 0x50)
+			sel = (short)((sel + 1) % nparty);
+		else if ((ascii == 't' || ascii == 'T') && ready) {
+			short klass  = c[CHAR_CLASS]; if (klass >= CG_NCLASSES) klass = 0;
+			short con    = c[CHAR_STATS + 4];
+			short conmod = (con >= 16) ? 2 : (con >= 15) ? 1
+			             : (con <= 6) ? -1 : 0;
+			short gain   = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
+			short nhp;
+			if (gain < 1) gain = 1;
+			nhp = (short)(c[385] + gain);
+			c[385]      = (unsigned char)(nhp > 255 ? 255 : nhp);
+			c[CHAR_LEVEL] = (unsigned char)(lvl + 1);
+			save_roster();
+		}
+	}
+}
+
 static int l0f1a(short a)
 {
 	(void)a;
 	PROBE("jt918/case0 L0f1a");
 	if (g_a5_14440 != 0)
-		(void)jt574(0);
+		cg_train_screen();           /* port: level up on earned XP */
 	return 0;
 }
 /* Forward — jt488 and jt159 are defined further down (sprintf into
