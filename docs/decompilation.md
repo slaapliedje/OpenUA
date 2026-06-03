@@ -603,6 +603,57 @@ lifting the editor — it is a multi-session subsystem arc, tracked
 in the deferred-block comment in `jt325`. Record types in the
 tail: 1, 21, 33, 51, 52.
 
+#### Character storage — party, roster, save files (RE; migration foundation)
+
+Reverse-engineered to scope the faithful Add/Modify/Delete/Remove popups.
+There are **three** distinct things, not one:
+
+1. **The active party** — `g_a5_-27928` is the head of a linked list of
+   512-byte *combatant* records (`.next` at +0). Each carries name@96, the
+   ability scores, AC@385, HP@395, THAC0 = 60-[384], move@396 (the layout
+   `jt892` / `l02dc` read; see the combatant-layout note under MONSTnnn). The
+   port already builds + walks this list (`cg_party_relink`), so the party
+   side is faithful-compatible today.
+
+2. **The saved-character roster** — a *separate* structure, and the real
+   blocker. Characters are **individual save files on disk**: `l15e2`
+   (Delete) builds a path from `g_a5_-31336` (the design name) + the "SAVE"
+   leaf + the character's name and deletes it via `JT[988]`. The in-memory
+   roster is a linked list of small **directory nodes** (name as a C-string
+   at **+5**, `.next` at +0 — note: +5, *not* the +96 of a combatant
+   record), produced by `JT[589]` (head/tail iterator over the save dir),
+   indexed by `JT[165]` (idx -> node), torn down by `JT[471]`. So a roster
+   node is a lightweight handle to a character *file*, distinct from the
+   loaded 512-byte party record. Add = pick a roster node -> load its file
+   -> link into the party; Create = char-gen -> write a file -> add a node;
+   Delete = unlink node (both the roster list and the party chain) + delete
+   the file.
+
+3. **The save-game bookkeeping** in the player/design record. `jt904` reads
+   `base = g_a5_-5806` (= `g_a5_-27932`, the current design/player record,
+   set by `l1276`): party slots at `base[76 + j*2]` (shorts) and 140
+   roster-status flags at `base[198 + i]` (`& 0x7F`). These gate which popup
+   actions appear (`jt155(0..7, ...)`), i.e. the save-game's view of which
+   roster slots are filled / in the party.
+
+Record cross-pointers seen in `l25ce`: +0 next, +8 a long (handle), +64 a
+long pointer chased to another record. The action handlers `l25ce` / `l4334`
+/ `l46e0` / `l4f2c` / `l4ff6` and `JT[556]/557/560/876/878/1199` are PROBE
+stubs, and the directory primitives `JT[589]/165/471/988` live in unlifted
+CODE.
+
+**Migration implication.** The port's `cg_pool` is an in-memory array with
+no per-character files and no `JT[589]` directory — fundamentally a
+different model from the faithful file-based roster. Making the faithful
+popups functional therefore needs either (a) a file-based character DB
+(per-character SAVE files + the roster-directory primitives), or (b)
+adapting the lifted popup shell to read `cg_pool` instead of the directory.
+Path (a) is the faithful route and a multi-session subsystem (comparable to
+the combat-arena lift); (b) is a pragmatic shortcut that keeps the popups'
+look while diverging from the on-disk model. Either way the five action
+handlers above still need lifting. Until then the port `cg_*` screens stand
+in. This is the documented foundation for that migration.
+
 ### Display — screen and drawing (CODE 4 / CODE 5)
 
 FRUA's display layer spans CODE 4 (Mac Toolbox init, page management) and
