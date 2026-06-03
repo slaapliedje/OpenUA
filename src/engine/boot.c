@@ -11884,9 +11884,38 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
  * (clut 129) is restored for the menu on the way out. */
 extern void load_frua_palette(void);
 
+/* Overlay a TITLE.CTL screen's RGB palette (item 0 of set `set`) onto
+ * `dst[0..]`. Item 0 is a metric-headed block of RGB byte triples; entry
+ * count = (length - 8) / 3 (the 224-entry screens leave 224..255 for the
+ * caller's base palette). Returns the number of entries written. */
+static short intro_load_palette(long base, short set, RGBColor *dst)
+{
+	long  handle = l37aa(base, set);
+	long  p0, p1;
+	const unsigned char *pp;
+	short n, k;
+
+	if (handle == 0)
+		return 0;
+	p0 = l37aa(handle, 0);
+	p1 = l37aa(handle, 1);
+	if (p0 == 0 || p1 <= p0)
+		return 0;
+	pp = (const unsigned char *)(uintptr_t)(p0 + 8);
+	n  = (short)((p1 - p0 - 8) / 3);
+	if (n > 256) n = 256;
+	for (k = 0; k < n; k++) {
+		dst[k].red   = (unsigned short)((pp[k*3+0] << 8) | pp[k*3+0]);
+		dst[k].green = (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
+		dst[k].blue  = (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
+	}
+	return n;
+}
+
 static void port_show_intro(void)
 {
 	static unsigned char file[200000];      /* TITLE.CTL (~168KB)        */
+	static RGBColor      base_pal[256];     /* set 1: the shared base    */
 	static RGBColor      pal[256];
 	short        refnum = 0, set;
 	long         count, base;
@@ -11902,34 +11931,29 @@ static void port_show_intro(void)
 	if (l37aa(base, 0) == 0)                 /* not a GLIB                */
 		return;
 
+	/* Set 1 (the bypassed copy-protection backdrop) carries the 256-entry
+	 * base CLUT.  The logo screens (sets 3/4/6) only define indices 0..223
+	 * and draw their silver-stone frames out of 224..255 — so seed every
+	 * screen from this base, then patch the screen's own low entries on top.
+	 * Without the base, set 4's dominant index (227) lands in stale CLUT and
+	 * the Forgotten Realms logo comes out green. */
+	memset(base_pal, 0, sizeof base_pal);
+	(void)intro_load_palette(base, 1, base_pal);
+
 	for (set = 2; set <= 6; set++) {
-		long          handle, p0, p1, deadline;
+		long          handle, deadline;
 		unsigned char *px;
-		short          pitch, sw, sh, i, k, n, r;
+		short          pitch, sw, sh, i, r;
 		EventRecord    ev;
 
 		handle = l37aa(base, set);
 		if (handle == 0)
 			break;
 
-		/* item 0 = this screen's 256-entry RGB palette. */
-		p0 = l37aa(handle, 0);
-		p1 = l37aa(handle, 1);
-		if (p0 != 0 && p1 > p0) {
-			const unsigned char *pp =
-				(const unsigned char *)(uintptr_t)(p0 + 8);
-			n = (short)((p1 - p0 - 8) / 3);
-			if (n > 256) n = 256;
-			for (k = 0; k < n; k++) {
-				pal[k].red   =
-				    (unsigned short)((pp[k*3+0] << 8) | pp[k*3+0]);
-				pal[k].green =
-				    (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
-				pal[k].blue  =
-				    (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
-			}
-			qd_set_palette(pal, (short)0, n);
-		}
+		/* base CLUT + this screen's low entries -> upload all 256. */
+		memcpy(pal, base_pal, sizeof pal);
+		(void)intro_load_palette(base, set, pal);
+		qd_set_palette(pal, (short)0, (short)256);
 
 		/* clear the field to index 0 (each palette's background colour),
 		 * then composite the screen's art pieces (items 1..). */
