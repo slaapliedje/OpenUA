@@ -1212,6 +1212,12 @@ void DrawString(ConstStr255Param str)
 
 	if (str == NULL)
 		return;
+	/* Ensure the real FRUA bitmap font (FONT -27001) is in before drawing.
+	 * A few engine text paints run before main()'s mac_font_load, and the
+	 * built-in 8x8 fallback only carries ~20 glyphs (everything else renders
+	 * as a hollow box), so lazy-load the full font on first use. */
+	if (!g_mac_font_loaded)
+		mac_font_load(-27001);
 	len = str[0];
 	for (i = 1; i <= len; i++)
 		DrawChar((short)str[i]);
