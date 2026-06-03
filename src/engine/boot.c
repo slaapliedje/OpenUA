@@ -12969,16 +12969,95 @@ static int  jt159(const char *prompt, short b);
 static int  jt165(short id, long ctx)
                                             { PROBE("jt165"); (void)id;
                                               (void)ctx; return 0; }
+/* jt169 (CODE 7 + 0x3600) — the scrollable saved-character list picker the
+ * roster dialogs (L15e2 / L12a0) open: it renders the node list (names at +5,
+ * .next at 0) inside the dialog window and lets the user move a selection and
+ * pick one.  The Mac body is a ~225-instruction interactive loop with its own
+ * render/scroll/input sub-helpers; this is a functional reimplementation over
+ * the port's primitives — jt94 for the rows, WaitNextEvent for the keys —
+ * preserving the faithful contract: return 0 + *next = chosen node on select,
+ * 27 on Escape (or empty list), and *idx = the current row.  Up/Down move the
+ * selection; Return/Enter select; Escape cancels. */
 static int  jt169(long h1, long h2, short top, short left,
-                  short right, short bottom, long entry,
+                  short right, short bottom, long head,
                   short a, short b,
                   unsigned char *flag, short *idx, long *next)
-                                            { PROBE("jt169"); (void)h1;
-                                              (void)h2; (void)top; (void)left;
-                                              (void)right; (void)bottom;
-                                              (void)entry; (void)a; (void)b;
-                                              (void)flag; (void)idx;
-                                              (void)next; return 0; }
+{
+	EventRecord ev;
+	long        e;
+	short       count = 0, sel, visible, scroll, i;
+	int         dirty = 1;
+
+	PROBE("jt169");
+	(void)h1; (void)h2; (void)right; (void)a; (void)b;
+
+	for (e = head; e != 0; e = *(const long *)(uintptr_t)e)
+		count++;
+	if (count == 0) {
+		if (idx  != NULL) *idx  = 0;
+		if (next != NULL) *next = 0;
+		return 27;
+	}
+
+	sel = (idx != NULL) ? *idx : 0;
+	if (sel < 0)        sel = 0;
+	if (sel >= count)   sel = (short)(count - 1);
+	visible = (short)(bottom - top);
+	if (visible < 1)    visible = 1;
+
+	for (;;) {
+		if (dirty) {
+			scroll = (short)((sel >= visible) ? sel - visible + 1 : 0);
+			e = head;
+			for (i = 0; i < scroll && e != 0; i++)
+				e = *(const long *)(uintptr_t)e;
+			for (i = 0; i < visible && e != 0; i++) {
+				const unsigned char *n =
+					(const unsigned char *)(uintptr_t)e;
+				short row = (short)(top + i);
+				short who = (short)(scroll + i);
+				jt94(left, row, (short)(who == sel ? 15 : 11), 0,
+				     "%c%s", (who == sel) ? '>' : ' ',
+				     (const char *)&n[5]);
+				e = *(const long *)(uintptr_t)e;
+			}
+			if (flag != NULL) *flag = 1;
+			qd_present();           /* flush the rows to VIDEL */
+			dirty = 0;
+		}
+
+		if (!WaitNextEvent(everyEvent, &ev, 1, NULL))
+			continue;
+		if (ev.what != keyDown && ev.what != autoKey)
+			continue;
+
+		switch ((short)(ev.message & 0xff)) {
+		case 30:                                   /* up arrow      */
+			sel = (short)((sel > 0) ? sel - 1 : count - 1);
+			dirty = 1;
+			break;
+		case 31:                                   /* down arrow    */
+			sel = (short)((sel < count - 1) ? sel + 1 : 0);
+			dirty = 1;
+			break;
+		case 13: case 3:                           /* Return / Enter */
+			if (idx != NULL) *idx = sel;
+			if (next != NULL) {
+				e = head;
+				for (i = 0; i < sel && e != 0; i++)
+					e = *(const long *)(uintptr_t)e;
+				*next = e;
+			}
+			return 0;
+		case 27:                                   /* Escape        */
+			if (idx  != NULL) *idx  = sel;
+			if (next != NULL) *next = 0;
+			return 27;
+		default:
+			break;
+		}
+	}
+}
 /* JT[396] (CODE 3 + 0x3bda) — public entry for the case-insensitive
  * string-equal lifted as l3bda earlier in this file. The jump-table
  * entry was a stub returning 0; route it to the real body so callers
