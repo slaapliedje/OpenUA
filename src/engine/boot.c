@@ -8972,6 +8972,27 @@ static short cg_party_size(void)
 	return n;
 }
 
+/* Port-local node pool for the 40-byte roster / design-list nodes the engine
+ * allocates from g_a5_-21156 (JT[477] reserve / JT[471] free).  The bucket
+ * layout matches what jt477 reads: max_count@0, record_size@2, base_ptr@4,
+ * then a 1-bit-per-slot allocation bitmap@8.  The Mac's pool init isn't lifted
+ * yet, so stand one up here; until it's set up, jt477's NULL-bucket guard
+ * makes the roster builders harmless no-ops (empty list). */
+#define NODE_POOL_COUNT 64
+static unsigned char g_node_pool_store[NODE_POOL_COUNT * 40];
+static unsigned char g_node_pool_bucket[8 + (NODE_POOL_COUNT + 7) / 8]
+	__attribute__((aligned(4)));
+
+static void node_pool_init(void)
+{
+	*(short *)(void *)(g_node_pool_bucket + 0) = NODE_POOL_COUNT;
+	*(short *)(void *)(g_node_pool_bucket + 2) = 40;
+	*(long  *)(void *)(g_node_pool_bucket + 4) =
+		(long)(uintptr_t)g_node_pool_store;
+	memset(g_node_pool_bucket + 8, 0, sizeof g_node_pool_bucket - 8);
+	g_a5_21156 = (long)(uintptr_t)g_node_pool_bucket;
+}
+
 /* Write each pool character to its own CHARnnnn.CHR file; delete the files
  * for the now-unused higher slots so a removed character doesn't linger. */
 static void save_roster(void)
@@ -9084,6 +9105,7 @@ void port_test_seed_design(void)
 
 		if (!seeded) {
 			seeded = 1;
+			node_pool_init();            /* roster / design node pool */
 			if (!load_roster()) {        /* no disk save -> seed pool */
 				int p, c;
 				for (p = 0; p < 3; p++) {
@@ -9107,6 +9129,9 @@ void port_test_seed_design(void)
 					*(long *)(r + CHAR_XP) = k_xp[p];
 				}
 				cg_pool_count = 3;
+				save_roster();       /* persist the seed as CHAR*.CHR so
+				                      * the saved-character roster
+				                      * (jt589 / L01be) can enumerate it */
 			}
 		}
 		cg_party_relink();           /* rebuild the party list each Play */
@@ -13099,55 +13124,32 @@ static void jt587(void *dst, void *bucket, short a, short b)
  *
  * The faithful Atari mapping is a GEMDOS Fsfirst/Fsnext wildcard scan, which
  * the file shim already wraps (compat/files.c files_find_first/_next — the
- * same primitives load_roster uses).  jt990 converts the engine's HFS-style
- * "vol:folder" path to the GEMDOS leaf the shim speaks (everything after the
- * last ':') and scans "<leaf>\*.*"; Fsfirst's attr 0 already excludes
- * directories, so the keep-dirs arm never fires.  The Mac's filter state is
- * preserved in the same A5 globals (g_a5_-4654 match / -4656 keep-files /
- * -4657 keep-dirs) for the consumers that read them.
+ * same primitives load_roster uses).  jt990 takes the GEMDOS pattern directly
+ * and primes the scan; Fsfirst's attr 0 already excludes directories, so the
+ * keep-dirs arm never fires.  The Mac's filter state is preserved in the same
+ * A5 globals (g_a5_-4654 match / -4656 keep-files / -4657 keep-dirs) for the
+ * consumers that read them.
  *
- * Note: the design SAVE folder is not populated in the port's flat GEMDOS
- * mount (saved characters currently live as CHAR*.CHR via save_roster), so
- * this scan returns empty today — which is also what keeps L01be safe while
- * its two-cursor list-link is still a TODO. */
+ * Port reconciliation: the Mac scans the design's HFS SAVE folder filtered by
+ * the "cch" character-file type; the port stores saved characters as
+ * slot-named CHAR*.CHR files in the working dir (GEMDOS 8.3 can't hold the
+ * Mac's name-based files), so L01be passes the "CHAR*.CHR" pattern and reads
+ * each record's name field for the display name. */
 static char g_dir_cur[16];          /* DTA name of the pending entry        */
 static int  g_dir_pending;          /* an entry is waiting in g_dir_cur     */
 static char g_dir_ret[16];          /* stable name handed back to caller    */
 
-static void dir_pattern(char *out, int max, const char *hfs)
-{
-	const char *leaf = hfs, *p;
-	int         n = 0;
-
-	for (p = hfs; *p != 0; p++)              /* GEMDOS leaf = after last ':' */
-		if (*p == ':')
-			leaf = p + 1;
-	while (leaf[n] != 0 && n < max - 5) {
-		out[n] = leaf[n];
-		n++;
-	}
-	if (n > 0)
-		out[n++] = '\\';                 /* "<leaf>\*.*"                 */
-	out[n++] = '*';
-	out[n++] = '.';
-	out[n++] = '*';
-	out[n]   = 0;
-}
-
-static int jt990(short drive, void *path, const void *matchname,
+static int jt990(short drive, void *pattern, const void *matchname,
                  short keepfiles, short keepdirs)
 {
-	char pattern[32];
-
 	PROBE("jt990");
 	(void)drive;
 	g_a5_long(-4654) = (long)(uintptr_t)matchname;   /* name filter         */
 	g_a5_byte(-4656) = (signed char)keepfiles;       /* keep files          */
 	g_a5_byte(-4657) = (signed char)keepdirs;        /* keep directories    */
-	if (path == NULL)
+	if (pattern == NULL)
 		return 0;
-	dir_pattern(pattern, (int)sizeof pattern, (const char *)path);
-	g_dir_pending = files_find_first(pattern, g_dir_cur,
+	g_dir_pending = files_find_first((const char *)pattern, g_dir_cur,
 	                                 (int)sizeof g_dir_cur);
 	return g_dir_pending ? 1 : 0;
 }
@@ -13189,63 +13191,71 @@ static void jt42(const char *msg);
 
 /* L01be (CODE 15 + 0x1be) — build the in-memory saved-character roster.
  *
- * Enumerates the design's SAVE folder (JT[431] path build, JT[990] open,
- * JT[991] per-entry) and, for each character file, allocates a 40-byte node
- * from the g_a5_21156 pool (JT[477]), clears it (JT[399]) and copies the
- * character name into the node's name slot at +5 (JT[384]); the .next link is
- * at offset 0.  TWO parallel lists are built (out1 / out2 — a display list and
- * a lookup peer list); jt589 hands both back.  In save (delete) mode
- * (g_a5_22733 == 1) each file is also opened via L0006 with the jt576 record
- * reader, to validate the entry.
+ * Enumerates the saved-character files (JT[990] open, JT[991] per-entry) and,
+ * for each, allocates a 40-byte node from the g_a5_21156 pool (JT[477]),
+ * clears it (JT[399]) and copies the character's display name into the node's
+ * name slot at +5 (JT[384]); .next is at offset 0.  TWO parallel lists are
+ * built (out1 / out2 — a peer list and the display-name list); jt589 hands
+ * both back, l15e2 / l4f2c walk out2 and free both via JT[471].  The Mac's
+ * opaque two-cursor pool relink (asm 0x2ae..0x2d8 — clears nodes *after*
+ * linking) is reimplemented as a plain tail-append: same singly-linked result.
  *
- * JT[990]/JT[991] are lifted onto the GEMDOS dir scan and the two lists are
- * built (the Mac's opaque two-cursor pool relink is reimplemented as a plain
- * tail-append — same singly-linked result; see the loop).  The design SAVE
- * folder isn't populated in the port's flat mount yet (saved characters live
- * as CHAR*.CHR via save_roster), so the enumeration still yields no entries
- * today.  Remaining: the save-mode L0006/jt576 record-read arm (0x338), and a
- * faithful save side that writes the SAVE folder, before this goes live. */
+ * Port reconciliation: the Mac's saved characters are name-as-filename files
+ * in the design SAVE folder, so it copies the filename to the node.  The port
+ * stores them as slot-named CHAR*.CHR (GEMDOS 8.3), so we scan that pattern
+ * and read the real display name from each record (name@96) instead — folding
+ * in the record read the Mac defers to its save-mode L0006/jt576 arm. */
 static void l01be(const char *suffix, long *out1, long *out2)
 {
-	unsigned char  path[214];                      /* fp@(-214) Pascal buf */
-	unsigned char  dta[12];                        /* fp@(-14) scan state  */
-	long           entry;                          /* fp@(-12) cur name    */
-	long           node1 = 0, node2 = 0;           /* freshly-alloc'd nodes */
-	long           tail1 = 0, tail2 = 0;           /* append cursors        */
+	signed char    isdir;                          /* jt991 is-dir out      */
+	long           entry;                          /* current file name     */
+	long           node1 = 0, node2 = 0;           /* freshly-alloc'd nodes  */
+	long           tail1 = 0, tail2 = 0;           /* append cursors         */
 
 	PROBE("L01be");
+	(void)suffix;
 	if (out2 != NULL) *out2 = 0;
 	if (out1 != NULL) *out1 = 0;
 
-	path[0] = 0;
-	jt431(path, &g_a5_31336);                      /* design dir name      */
-	jt431(path, ua_strs_at(0x4c3e));               /* "SAVE" leaf          */
-
-	jt990(0, path, suffix, 1, 0);                  /* open the scan        */
-	entry = jt991(dta);                            /* first entry          */
+	jt990(0, "CHAR*.CHR", NULL, 1, 0);             /* scan saved-char files */
+	entry = jt991(&isdir);                         /* first entry           */
 	if (entry == 0)
-		return;                                /* empty folder         */
+		return;                                /* no saved characters   */
 
 	for (;;) {
-		jt477((void *)(uintptr_t)g_a5_21156, 40, &node1); /* peer node  */
-		jt477((void *)(uintptr_t)g_a5_21156, 40, &node2); /* name node  */
-		if (node2 == 0) {                      /* pool exhausted       */
+		char          pfn[20];
+		unsigned char rec[128];
+		const char   *cfn;
+		short         refnum, len;
+		long          n;
+
+		jt477((void *)(uintptr_t)g_a5_21156, 40, &node1); /* peer node   */
+		jt477((void *)(uintptr_t)g_a5_21156, 40, &node2); /* name node   */
+		if (node2 == 0) {                      /* pool exhausted        */
 			if (out1 != NULL) *out1 = 0;
 			if (out2 != NULL) *out2 = 0;
 			return;
 		}
 		jt399((void *)(uintptr_t)node1, 40, 0);          /* clear (.next=0) */
 		jt399((void *)(uintptr_t)node2, 40, 0);
-		jt384((char *)(uintptr_t)(node2 + 5),            /* name -> node2+5 */
-		      (const char *)(uintptr_t)entry);
+
+		/* Pull the display name from the record (name@96, a C string). */
+		cfn = (const char *)(uintptr_t)entry;
+		for (len = 0; cfn[len] != 0 && len < 16; len++)
+			pfn[len + 1] = cfn[len];
+		pfn[0] = (char)len;
+		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) == noErr) {
+			n = (long)sizeof rec;
+			if (FSRead(refnum, &n, rec) == noErr && n > 96) {
+				rec[sizeof rec - 1] = 0;
+				jt384((char *)(uintptr_t)(node2 + 5),
+				      (const char *)&rec[96]);
+			}
+			(void)FSClose(refnum);
+		}
 		g_a5_long(-6922) = node1 + 5;                    /* name-field cache */
 
-		/* Append to both lists (.next at offset 0).  The Mac splices via an
-		 * opaque two-cursor pool relink (asm 0x2ae..0x2d8) that depends on
-		 * jt477's slot threading and clears nodes *after* linking; a plain
-		 * tail-append yields the same singly-linked result the consumers
-		 * (l15e2 / l4f2c, JT[471]) walk — list2/out2 = display names, list1/
-		 * out1 = the peer record nodes. */
+		/* Tail-append onto both lists (.next at offset 0). */
 		if (tail1 != 0) *(long *)(uintptr_t)tail1 = node1;
 		else if (out1 != NULL) *out1 = node1;
 		tail1 = node1;
@@ -13253,12 +13263,7 @@ static void l01be(const char *suffix, long *out1, long *out2)
 		else if (out2 != NULL) *out2 = node2;
 		tail2 = node2;
 
-		if (g_a5_22733 == 1) {
-			/* TODO: save-mode validation — open the file (L0006) and read
-			 * the character record via jt576 into the peer node (0x338). */
-		}
-
-		entry = jt991(dta);                    /* next entry           */
+		entry = jt991(&isdir);                 /* next entry            */
 		if (entry == 0)
 			break;
 	}
@@ -13269,8 +13274,8 @@ static void l01be(const char *suffix, long *out1, long *out2)
  * in save (delete) mode (the JT[3] switch on g_a5_22733, case 1) builds the
  * roster node lists via L01be("cch").  Finally, if the primary list is empty,
  * posts the "No characters to load/delete." notice (JT[42]); flag selects the
- * verb.  L01be's enumeration leaves are deferred, so the lists build empty for
- * now and the notice fires — the dispatch shape is faithful. */
+ * verb.  L01be now enumerates the port's CHAR*.CHR saved characters, so the
+ * lists populate with real names; the notice fires only when none are saved. */
 static void jt589(short flag, long *tail, long *head)
 {
 	PROBE("jt589");
@@ -14057,35 +14062,20 @@ static void   jt584(long a, const char *str)     { PROBE("jt584"); (void)a; (voi
 static short jt182(const char *p1, long p2, short arg3, short arg4);
 static void  jt176(void);
 
-/* L005a (CODE 15 + 0x5a) — "is the save folder reachable?" precondition for
- * the roster builders.  Builds the save path (current design dir g_a5_31336 +
- * "SAVE" leaf, via JT[431]) and opens a scan over it (JT[990]); on failure it
- * prompts "Please insert save disk." (JT[182], Ok/Exit) and retries, returning
- * 0 if the user picks Exit.  On success it drains the scan (JT[991]) and
- * returns 1.  JT[990]/JT[991] now run a real GEMDOS dir scan; with no SAVE
- * folder in the port's flat mount the scan comes back empty, so this still
- * falls into the insert-disk prompt for now. */
+/* L005a (CODE 15 + 0x5a) — "is the save medium reachable?" precondition for
+ * the roster builders.  The Mac builds the design's SAVE path and opens a scan
+ * over it (JT[990]); on failure it prompts "Please insert save disk."
+ * (JT[182], Ok/Exit) and retries, returning 0 if the user gives up.
+ *
+ * Port reconciliation: the Atari's saved characters live on the always-present
+ * hard disk (CHAR*.CHR in the working dir), so the medium is always reachable
+ * and the removable-disk prompt is moot — return 1.  Whether any characters
+ * actually exist is then up to L01be's scan (jt589 posts "No characters ..."
+ * when the resulting list is empty). */
 static int l005a(void)
 {
-	unsigned char path[206];                       /* fp@(-200) Pascal buf */
-
 	PROBE("L005a");
-	path[0] = 0;
-	jt431(path, &g_a5_31336);                      /* design dir name      */
-	jt431(path, ua_strs_at(0x4bf4));               /* "SAVE" leaf          */
-
-	for (;;) {
-		if (jt990(0, path, NULL, 1, 0)) {
-			while (jt991(path) != 0)       /* drain the scan       */
-				;
-			return 1;
-		}
-		jt179(1);                              /* cursor / UI prep     */
-		if ((jt182(ua_strs_at(0x4bfa),         /* "Please insert..."   */
-		           (long)(uintptr_t)ua_strs_at(0x4c14), /* "Ok Exit"   */
-		           0, 0) & 0xff) == 1)
-			return 0;                      /* user chose Exit      */
-	}
+	return 1;
 }
 
 /* New PROBE-stub helpers jt585 calls. */
