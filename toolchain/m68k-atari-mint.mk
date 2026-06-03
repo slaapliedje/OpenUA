@@ -1,9 +1,16 @@
 # m68k-atari-mint cross toolchain configuration.
 #
-# Requires Vincent Rivière's m68k-atari-mint GCC binaries, or a toolchain
-# built from cross-mint. Override CROSS= if your prefix differs.
-
-CROSS  ?= m68k-atari-mint-
+# Uses a private cross toolchain (th-otto m68k-atari-mint gcc 15.2.0) built
+# with an added soft-float m68020-60 multilib — see
+# docs/toolchain-softfloat-020.md. The stock distribution ships only an
+# m68000 soft-float runtime and a *hard*-float m68020-60 one, so this repo
+# needs the extra multilib to link FPU-less 020 code (the layer rule and the
+# Falcon030's missing FPU both demand it).
+#
+# Override TOOLROOT if the toolchain lives elsewhere, or CROSS to use a
+# different prefix entirely.
+TOOLROOT ?= $(HOME)/opt/cross-mint
+CROSS  ?= $(TOOLROOT)/bin/m68k-atari-mint-
 CC     := $(CROSS)gcc
 LD     := $(CROSS)gcc
 AR     := $(CROSS)ar
@@ -12,23 +19,19 @@ HATARI ?= hatari
 
 # Target CPU (see CLAUDE.md "Toolchain flags").
 #
-# Falcon030 and TT030 are both 68030, so COMPILE for 020/030/040/060
-# (-m68020-60 -msoft-float): it gets 32-bit muls/divs and bitfield ops that
-# bare -m68000 can't emit, with the soft-float ABI (no FPU instructions).
+# Falcon030 and TT030 are both 68030, so build for 020/030/040/060
+# (-m68020-60): it gets 32-bit muls/divs and bitfield ops that bare -m68000
+# can't emit. -msoft-float selects the private soft-float m68020-60 multilib
+# (FPU-less crt0/libgcc/libc), correct on the FPU-less Falcon030. Compile and
+# link CPU now match — no m68000 link shim is needed.
 #
-# But m68k-atari-mint ships no soft-float 020 *multilib* — `-m68020-60`
-# selects the hard-float libgcc/crt0, whose startup aborts with "requires a
-# 68881" on the FPU-less Falcon030. So we LINK against the default (m68000)
-# soft-float runtime instead (LDCPU = -m68000): 020 object code + the
-# FPU-less soft-float crt0/libgcc/libc. The soft-float helper routines are
-# CPU-agnostic, so 020 objects call them fine and the binary boots without
-# an FPU. `make FPU=1` uses the hard-float 020-60 multilib throughout (TT030
-# / an FPU'd Falcon), where compile and link CPU match.
+# `make FPU=1` switches to the hard-float 68881 m68020-60 multilib for the
+# TT030 / an FPU-equipped Falcon.
 #
-# Verify the compile flag took with:
+# Verify 020 codegen took with:
 #   m68k-atari-mint-objdump -d <obj>.o | grep -E 'muls\.l|bfextu|bfins'
 CPU   := -m68020-60 -msoft-float
-LDCPU := -m68000
+LDCPU := -m68020-60 -msoft-float
 ifeq ($(FPU),1)
   CPU   := -m68020-60 -m68881
   LDCPU := -m68020-60 -m68881

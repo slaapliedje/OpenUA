@@ -1,0 +1,29 @@
+diff --git a/gcc/config/m68k/t-mint b/gcc/config/m68k/t-mint
+index 347bf1a23..916e99e15 100644
+--- a/gcc/config/m68k/t-mint
++++ b/gcc/config/m68k/t-mint
+@@ -21,9 +21,9 @@ ifeq ($(filter m$(M68K_MLIB_DEFAULT),$(M68K_MLIB_CPUS)),)
+ $(error Error default cpu '$(target_cpu_default)' is not in multilib set '$(M68K_MLIB_CPUS)')
+ endif
+ 
+-MULTILIB_OPTIONS = m68020-60/mcpu=5475 mshort mfastcall
++MULTILIB_OPTIONS = m68020-60/mcpu=5475 msoft-float mshort mfastcall
+ 
+-MULTILIB_DIRNAMES = m68020-60 m5475 mshort mfastcall
++MULTILIB_DIRNAMES = m68020-60 m5475 msoft-float mshort mfastcall
+ 
+ MULTILIB_MATCHES = \
+ 	m68020-60=m68881 \
+@@ -56,4 +56,11 @@ MULTILIB_MATCHES = \
+ 	mcpu?5475=mcpu?5485 \
+ 	mcpu?5475=mcpu?548x
+ 
+-MULTILIB_EXCEPTIONS :=
++# -msoft-float only adds a multilib under m68020-60 (the FPU-less Falcon030 /
++# straight 68030 target).  The m68000 default multilib is already soft-float,
++# and ColdFire v4e (mcpu=5475) has an FPU, so a soft-float variant of either
++# would be redundant — exclude every -msoft-float combination that is not
++# rooted at m68020-60.
++MULTILIB_EXCEPTIONS = \
++	msoft-float* \
++	mcpu=5475/msoft-float*
