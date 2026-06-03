@@ -13087,10 +13087,124 @@ static void jt587(void *dst, void *bucket, short a, short b)
                                             { PROBE("jt587"); (void)dst;
                                               (void)bucket; (void)a;
                                               (void)b; }
+/* jt990 (CODE 5 + 0x1b76) — open a wildcard catalog scan over a save folder.
+ * The Mac body parses a drive/volume letter from arg0 (JT[408]/JT[389]
+ * isalpha/isdigit), builds a "*.*" pattern under the path (L16c6) and primes
+ * the first indexed catalog read (JT[423]).  DEFERRED leaf: the CODE 5 drive
+ * / path machinery (L16c6, JT[408/389/423]) isn't lifted yet, so this returns
+ * 0 (no volume / scan failed).  Its faithful Atari mapping is the GEMDOS
+ * Fsfirst wildcard search already in compat/files.c (files_find_first). */
+static int  jt990(short drive, void *path, const void *suffix,
+                  short a, short b)          { PROBE("jt990"); (void)drive;
+                                              (void)path; (void)suffix;
+                                              (void)a; (void)b; return 0; }
+/* jt991 (CODE 5 + 0x1cb6) — read the next entry from a jt990 scan; returns a
+ * pointer to the entry's name C-string, or 0 at end of directory.  DEFERRED
+ * leaf (pairs with jt990; maps to GEMDOS Fsnext / files_find_next). */
+static long jt991(void *entry)              { PROBE("jt991"); (void)entry;
+                                              return 0; }
+
+/* l005a (the save-folder precondition) and jt42 (the notice alert) are lifted
+ * further down the file; forward-declare them so jt589's roster dispatch here
+ * can call them. */
+static int  l005a(void);
+static void jt42(const char *msg);
+
+/* L01be (CODE 15 + 0x1be) — build the in-memory saved-character roster.
+ *
+ * Enumerates the design's SAVE folder (JT[431] path build, JT[990] open,
+ * JT[991] per-entry) and, for each character file, allocates a 40-byte node
+ * from the g_a5_21156 pool (JT[477]), clears it (JT[399]) and copies the
+ * character name into the node's name slot at +5 (JT[384]); the .next link is
+ * at offset 0.  TWO parallel lists are built (out1 / out2 — a display list and
+ * a lookup peer list); jt589 hands both back.  In save (delete) mode
+ * (g_a5_22733 == 1) each file is also opened via L0006 with the jt576 record
+ * reader, to validate the entry.
+ *
+ * Structural lift (the call sequence is faithful): JT[990]/JT[991] are still
+ * deferred leaves, so the enumeration yields no entries and the list comes
+ * back empty — exactly as the prior stub.  The inner two-cursor list-link
+ * juggling (asm 0x2ae..0x2d8), the g_a5_6922 first-name cache (0x322), and the
+ * save-mode L0006/jt576 arm (0x338) are left as TODOs until JT[990]/JT[991]
+ * and the CODE 5 catalog reader are lifted. */
+static void l01be(const char *suffix, long *out1, long *out2)
+{
+	unsigned char  path[214];                      /* fp@(-214) Pascal buf */
+	unsigned char  dta[12];                        /* fp@(-14) scan state  */
+	long           entry;                          /* fp@(-12) cur name    */
+	long           node1 = 0, node2 = 0;           /* fp@(-4) / fp@(-8)    */
+	int            first;
+
+	PROBE("L01be");
+	if (out2 != NULL) *out2 = 0;
+	if (out1 != NULL) *out1 = 0;
+
+	path[0] = 0;
+	jt431(path, &g_a5_31336);                      /* design dir name      */
+	jt431(path, ua_strs_at(0x4c3e));               /* "SAVE" leaf          */
+
+	jt990(0, path, suffix, 1, 0);                  /* open the scan        */
+	entry = jt991(dta);                            /* first entry          */
+	if (entry == 0)
+		return;                                /* empty folder         */
+
+	first = 1;
+	do {
+		jt477((void *)(uintptr_t)g_a5_21156, 40, &node1); /* list 1 node */
+		jt477((void *)(uintptr_t)g_a5_21156, 40, &node2); /* list 2 node */
+		if (node2 == 0) {                      /* pool exhausted       */
+			if (out1 != NULL) *out1 = 0;
+			if (out2 != NULL) *out2 = 0;
+			return;
+		}
+		if (first) {
+			if (out2 != NULL) *out2 = node2;
+			if (out1 != NULL) *out1 = node1;
+			first = 0;
+		} else {
+			/* TODO: link node1/node2 onto the tails of out1/out2
+			 * (asm 0x2ae..0x2d8 two-cursor insert). */
+		}
+
+		jt399((void *)(uintptr_t)node1, 40, 0);          /* clear node1 */
+		jt399((void *)(uintptr_t)node2, 40, 0);          /* clear node2 */
+		jt384((char *)(uintptr_t)(node2 + 5),            /* name -> +5  */
+		      (const char *)(uintptr_t)entry);
+		/* TODO: g_a5_6922 = node1 + 5 (first-name cache, 0x322). */
+		if (g_a5_22733 == 1) {
+			/* TODO: save-mode validation via L0006 + jt576 (0x338). */
+		}
+
+		entry = jt991(dta);                    /* next entry           */
+	} while (entry != 0);
+}
+
+/* jt589 (CODE 15 + 0x362) — roster-list builder entry.  Checks the save
+ * folder is reachable (L005a); if not, hands back two empty lists.  Otherwise,
+ * in save (delete) mode (the JT[3] switch on g_a5_22733, case 1) builds the
+ * roster node lists via L01be("cch").  Finally, if the primary list is empty,
+ * posts the "No characters to load/delete." notice (JT[42]); flag selects the
+ * verb.  L01be's enumeration leaves are deferred, so the lists build empty for
+ * now and the notice fires — the dispatch shape is faithful. */
 static void jt589(short flag, long *tail, long *head)
-                                            { PROBE("jt589"); (void)flag;
-                                              if (tail != NULL) *tail = 0;
-                                              if (head != NULL) *head = 0; }
+{
+	PROBE("jt589");
+	if (!l005a()) {
+		if (head != NULL) *head = 0;
+		if (tail != NULL) *tail = 0;
+		return;
+	}
+	switch (g_a5_22733) {
+	case 1:
+		l01be(ua_strs_at(0x4c44), tail, head); /* "cch"                */
+		break;
+	default:
+		break;
+	}
+	if (tail != NULL && *tail == 0)
+		jt42(flag ? ua_strs_at(0x4c48)         /* "No ... to delete."  */
+		          : ua_strs_at(0x4c62));       /* "No ... to load."    */
+}
 static void jt590(void *entry)              { PROBE("jt590"); (void)entry; }
 static void jt593(short a)                  { PROBE("jt593"); (void)a; }
 static int  jt988(void *path, short mode, void *name, long zero)
@@ -13858,8 +13972,37 @@ static void   jt584(long a, const char *str)     { PROBE("jt584"); (void)a; (voi
 static short jt182(const char *p1, long p2, short arg3, short arg4);
 static void  jt176(void);
 
+/* L005a (CODE 15 + 0x5a) — "is the save folder reachable?" precondition for
+ * the roster builders.  Builds the save path (current design dir g_a5_31336 +
+ * "SAVE" leaf, via JT[431]) and opens a scan over it (JT[990]); on failure it
+ * prompts "Please insert save disk." (JT[182], Ok/Exit) and retries, returning
+ * 0 if the user picks Exit.  On success it drains the scan (JT[991]) and
+ * returns 1.  JT[990]/JT[991] are deferred leaves, so today this falls into
+ * the insert-disk prompt; the call sequence is faithful. */
+static int l005a(void)
+{
+	unsigned char path[206];                       /* fp@(-200) Pascal buf */
+
+	PROBE("L005a");
+	path[0] = 0;
+	jt431(path, &g_a5_31336);                      /* design dir name      */
+	jt431(path, ua_strs_at(0x4bf4));               /* "SAVE" leaf          */
+
+	for (;;) {
+		if (jt990(0, path, NULL, 1, 0)) {
+			while (jt991(path) != 0)       /* drain the scan       */
+				;
+			return 1;
+		}
+		jt179(1);                              /* cursor / UI prep     */
+		if ((jt182(ua_strs_at(0x4bfa),         /* "Please insert..."   */
+		           (long)(uintptr_t)ua_strs_at(0x4c14), /* "Ok Exit"   */
+		           0, 0) & 0xff) == 1)
+			return 0;                      /* user chose Exit      */
+	}
+}
+
 /* New PROBE-stub helpers jt585 calls. */
-static signed char l005a(void)                   { PROBE("L005a"); return 1; }
 static signed char l00e0(const char *fn, void *cb)
                                                  { PROBE("L00e0"); (void)fn; (void)cb; return 0; }
 static void  jt419(char *path, const char *ext, short flags)
