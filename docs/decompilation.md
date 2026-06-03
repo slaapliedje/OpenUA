@@ -538,16 +538,22 @@ Movement" sheet over `g_a5_-27932`): **AC = `rec[385]`** (JT[34]),
 character offsets (the port uses HP@385 / AC@395 internally, kept
 consistent within the port; swap to the faithful pair when combat lifts).
 
-The on-disk `MONSTnnn.DAT` uses a **different, field-scripted layout** (the
-`jt325`/`L1ae2` codec relocates fields to the in-memory offsets on load;
-that transform is still deferred). Confidently decoded on-disk fields, by
-inspecting the four sample records (Khulzond / mordroka / keremish /
-xelez-dar): **name `+96`** (C-string), **THAC0 `+137`** (14/13/11/8 — a
-clean AD&D spread), **damage die `+135`**, **HP `+395`** (63/59/50/34).
-The on-disk AC offset isn't pinned yet (the in-memory AC@385 reads 0 on
-disk); the port's encounter resolver derives monster AC from THAC0 until
-the field script is decoded. `port_run_encounter` (src/engine/boot.c)
-loads these and runs AD&D to-hit (`d20 >= THAC0 - AC`).
+**AC is `+385`** — pinned by tracing combat, not the disk record: CODE 16
+`jt608` reads the defender's AC at `rec[385]` and feeds the to-hit
+(JT[864], CODE 18); CODE 18's armor spells modify `rec[385]` by ±2..4
+("Dissolves %s's armor!"). So AC lives at the same +385 the record sheet
+shows.
+
+The on-disk `MONSTnnn.DAT` fields, by inspecting the four sample records
+(Khulzond / mordroka / keremish / xelez-dar): **name `+96`** (C-string),
+**THAC0 `+137`** (14/13/11/8 — a clean AD&D spread), **damage die `+135`**,
+**HP `+395`** (63/59/50/34), **AC `+385`** (reads **0** in all four). The 0
+is ambiguous — either these boss-tier creatures have AC 0, or the
+template's AC is written into +385 by the **combat-setup conversion**
+(unlifted: no `@(385)`/`@(137)` writes found in CODE 10 jt263, so the
+template→combatant fill lives in the combat-init code that isn't lifted).
+`port_run_encounter` (src/engine/boot.c) reads AC@385 and falls back to a
+THAC0-derived AC when it's 0, then runs AD&D to-hit (`d20 >= THAC0 - AC`).
 
 #### `JT[325]` — the record-database engine (lifted: prologue only)
 
