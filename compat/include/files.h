@@ -79,4 +79,11 @@ OSErr GetVol(unsigned char *volName, short *vRefNum);
 OSErr SetVol(ConstStr255Param volName, short vRefNum);
 OSErr FlushVol(ConstStr255Param volName, short vRefNum);
 
+/* Directory enumeration (GEMDOS Fsfirst/Fsnext) — list files matching an
+ * 8.3 wildcard `pattern` (e.g. "CHAR*.CHR"). first starts a scan, next
+ * continues it; each writes the matched filename (C string) to `out`.
+ * Returns 1 while a name was found, 0 at the end. One scan at a time. */
+int files_find_first(const char *pattern, char *out, int max);
+int files_find_next(char *out, int max);
+
 #endif /* COMPAT_FILES_H */
