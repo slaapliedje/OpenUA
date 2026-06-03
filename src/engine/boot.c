@@ -13780,6 +13780,24 @@ static void l12a0(void)
 			if (e[5] == '*')
 				goto exit_check;
 
+			/* Port: add the picked saved character to the active
+			 * party.  The Mac copies the saved record into a fresh
+			 * 398-byte party-pool slot (jt477 + jt165 + jt587); the
+			 * port's party is the CHAR_INPARTY subset of cg_pool, so
+			 * flag the matching slot and relink.  Matched on the raw
+			 * name (before the "* " marker is prefixed below). */
+			{
+				short pi;
+				for (pi = 0; pi < cg_pool_count; pi++)
+					if (jt396((const char *)&cg_pool[pi][96],
+					          (const char *)&e[5]) != 0) {
+						cg_pool[pi][CHAR_INPARTY] = 1;
+						break;
+					}
+				cg_party_relink();
+				save_roster();
+			}
+
 			jt477(&g_a5_22212, 398, fresh_slot);
 			matched = jt165(idx, tail);
 			jt587(fresh_slot, (void *)(uintptr_t)matched, 0, 1);
