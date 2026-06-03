@@ -14152,36 +14152,23 @@ static void l5124(void);
  * bodies reach into. All PROBE stubs — the real bodies live in
  * segments we haven't started yet. */
 static void   jt19(short a, short b)             { PROBE("jt19"); (void)a; (void)b; }
+static short jt182(const char *p1, long p2, short arg3, short arg4);
 /* jt159 (CODE 7 + 0x16ea) — a yes/no confirmation prompt; returns 1 to
- * confirm, 0 to cancel.  The Mac renders it through the JT[182] alert (buttons
- * string g_a5_-13852, then maps Return->confirm / Escape->cancel); that alert
- * subsystem (l206e/l23b4/l25b6) and the buttons-string global aren't lifted,
- * so this is a functional reimplementation over the same primitives the roster
- * picker uses — draw the prompt + Y/N hint with jt94, qd_present, and read a
- * key.  Y / Return confirm; N / Escape cancel. */
+ * confirm, 0 to cancel.  Renders `prompt` through the faithful JT[182] alert
+ * (layout L206e / modal loop L23b4 / button map L25b6) and maps the picked
+ * button: first button (Yes) => confirm, second (No) => cancel.  The Mac reads
+ * the buttons from g_a5_-13852, but that slot holds a filename template in the
+ * port's A5 image (the init that re-points it to the confirm buttons isn't
+ * lifted), so pass the "Yes No" labels explicitly. */
 static int    jt159(const char *prompt, short b)
 {
-	EventRecord ev;
+	short r;
 
 	PROBE("jt159");
 	(void)b;
-	jt94(2, 10, 15, 0, "%s", (prompt != NULL) ? prompt : "");
-	jt94(2, 12, 11, 0, "Y = Yes     N = No");
-	qd_present();
-	for (;;) {
-		if (!WaitNextEvent(everyEvent, &ev, 1, NULL))
-			continue;
-		if (ev.what != keyDown && ev.what != autoKey)
-			continue;
-		switch ((short)(ev.message & 0xff)) {
-		case 'y': case 'Y': case 13: case 3:
-			return 1;
-		case 'n': case 'N': case 27:
-			return 0;
-		default:
-			break;
-		}
-	}
+	jt179(1);
+	r = jt182(prompt, (long)(uintptr_t)"Yes No", 1, g_a5_22281);
+	return (r == 0) ? 1 : 0;
 }
 /* JT[1173] / JT[1193] / L2062 — paint init/commit leaves JT[176]
  * reaches into. PROBE for now; bodies live further inside the
