@@ -7639,6 +7639,79 @@ static int dungeon_view_setup(void)
 	return (g_wall_n > 0) || (g_cw_sid[0] != 0);
 }
 
+/* --- play-screen frame (FRAME.CTL) --- *
+ *
+ * The Mac play screen's chrome is FRAME.CTL: 29 top-level pieces that
+ * self-position by their metric bearings (ybear/xbear, subtracted by
+ * ui_glib_blit). set 0 is the frame's 16-colour palette (greys); the
+ * pieces index 16..31 (the partition's "window borders / menu controls"
+ * band), with index 0 = transparent. So the band loads into clut 16..31
+ * and the pieces blit over the play background.
+ *   set 9      = ornate 88x88-hole viewport frame (top-left)
+ *   sets 1..8  = screen border strips + the viewport/panel divider
+ *   sets 17-20 = type-9 composite corner/edge assemblies
+ *   set 21 + 22-25 = compass surround + faces
+ */
+static long g_frame_base;
+static void ui_glib_blit(long handle, short idx, short top, short left,
+                         int transparent, int flip);   /* defined below */
+
+static void port_frame_load(void)
+{
+	static unsigned char fbuf[40000];
+	short refnum = 0;
+	long  n, base;
+
+	if (g_frame_base)
+		return;
+	if (FSOpen((ConstStr255Param)"\011FRAME.CTL", 0, &refnum) != noErr)
+		return;
+	n = (long)sizeof fbuf;
+	(void)FSRead(refnum, &n, fbuf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)fbuf;
+	if (l37aa(base, 0) != 0)
+		g_frame_base = base;
+}
+
+/* Fill the play background grey, install the frame palette band (clut
+ * 16..31), and blit every FRAME.CTL piece at its bearing. Called on the
+ * dungeon view's full-clear frames (the chrome is static; the 88x88
+ * viewport is overdrawn by the 3D render and refreshed via present-rect). */
+static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh)
+{
+	const unsigned char *base8;
+	short count, s, r;
+
+	port_frame_load();
+	if (!g_frame_base)
+		return;
+	base8 = (const unsigned char *)(uintptr_t)g_frame_base;
+
+	/* set 0 -> clut 16..31 (re-installed each call: the wall-set load
+	 * rewrites the CLUT, and the frame band must survive it). */
+	{
+		const unsigned char *pp =
+			(const unsigned char *)(uintptr_t)(l37aa(g_frame_base, 0) + 8);
+		RGBColor fp[16];
+		short k;
+		for (k = 0; k < 16; k++) {
+			fp[k].red   = (unsigned short)((pp[k*3+0] << 8) | pp[k*3+0]);
+			fp[k].green = (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
+			fp[k].blue  = (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
+		}
+		qd_set_palette(fp, (short)16, (short)16);
+	}
+
+	/* grey stone background (clut 21 ~ mid stone) under the chrome. */
+	for (r = 0; r < sh; r++)
+		memset(px + (long)r * pitch, 21, (size_t)sw);
+
+	count = (short)(((unsigned)base8[8] << 8) | base8[9]);
+	for (s = 1; s < count; s++)
+		ui_glib_blit(g_frame_base, s, (short)0, (short)0, 1, 0);
+}
+
 /* jt312 (JT[312], CODE 22 + 0x23ee) — the dungeon-view render, the
  * play-loop site that draws the first-person view. In the Mac build
  * this runs the page/palette setup, the view clip + background fill, a
@@ -7663,7 +7736,7 @@ static void jt312(unsigned char *page)
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	static int s_view_first = 1;
 	unsigned char *px;
-	short pitch, sw, sh, y, cell;
+	short pitch, sw, sh, cell;
 
 	(void)page;
 	if (ds == NULL || jt1200() != 3)        /* deep dungeon view only */
@@ -7704,12 +7777,12 @@ static void jt312(unsigned char *page)
 		}
 	}
 
-	/* Clear the whole surface + full-present once, to flush the black
-	 * surround; thereafter only the viewport changes, so we present just
-	 * that rect (the c2p of the static 320x400 screen was the perf wall). */
+	/* Draw the play-screen frame (FRAME.CTL chrome) + full-present once;
+	 * thereafter only the 88x88 viewport changes, so we present just that
+	 * rect (the c2p of the static 320x400 screen was the perf wall). The
+	 * chrome is static, so it persists between viewport-only presents. */
 	if (s_view_first || g_view_force_full) {
-		for (y = 0; y < sh; y++)
-			memset(px + (long)y * pitch, 0, (size_t)sw);
+		port_draw_play_frame(px, pitch, sw, sh);
 	}
 	/* render_3d_raycast: jt199's wider 3-column frustum (shows side passages)
 	 * over the colour wall/facet system — parity with the old single-corridor
