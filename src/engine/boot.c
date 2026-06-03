@@ -12043,6 +12043,10 @@ static void port_show_intro(void)
 	if (l37aa(base, 0) == 0)                 /* not a GLIB                */
 		return;
 
+	/* The Mac hides the cursor through the whole intro (clicks still skip);
+	 * the sword cursor only returns at the menu. ShowCursor() below re-shows. */
+	HideCursor();
+
 	/* Build the shared base CLUT in two layers (the upper indices 224..255
 	 * are common to all screens and come from neither the screen nor set 1
 	 * alone):
@@ -12082,32 +12086,34 @@ static void port_show_intro(void)
 		handle = l37aa(base, set);
 		if (handle == 0)
 			break;
+		if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+			break;
 
-		/* clear the field to index 0. */
-		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL)
-			for (r = 0; r < sh; r++)
-				memset(px + (long)r * pitch, 0, (size_t)sw);
+		/* TRANSITION: blank the *displayed* screen to a solid field and
+		 * present it under the CURRENT palette, BEFORE swapping palettes.
+		 * Otherwise the next qd_set_palette recolours the previous screen's
+		 * still-displayed image for a frame (the corrupted-image flash). */
+		for (r = 0; r < sh; r++)
+			memset(px + (long)r * pitch, 0, (size_t)sw);
+		qd_present();
+
+		/* Every screen's palette = the set-1 base (full 0..255) + this
+		 * screen's own sub-palette loaded at its metric start slot (32 for
+		 * the picture screens, so their art's 32..255 indices get the right
+		 * colours — Micro Magic gold, the AD&D logo, the FR plaque, the UA
+		 * globe). intro_load_palette honours the start slot + skips magenta. */
+		memcpy(pal, base_pal, sizeof pal);
+		(void)intro_load_palette(base, set, pal);
+		qd_set_palette(pal, (short)0, (short)256);
 
 		if (set == 5) {
-			/* The Unlimited Adventures title is a full-screen "Big Picture":
-			 * its 224-colour sub-palette loads into slots 32..255 (per set 5's
-			 * palette metric, start=32), over the set-1 base (0..31). The art
-			 * indexes 32..254, so the globe's blues (set 5 entries 208..223 ->
-			 * slots 240..255) land correctly. Blit its pieces opaque. */
-			memcpy(pal, base_pal, sizeof pal);
-			(void)intro_load_palette(base, set, pal);
-			qd_set_palette(pal, (short)0, (short)256);
+			/* The Unlimited Adventures title is a full-screen image — blit
+			 * its pieces opaque, no backdrop. */
 			for (i = 1; i < 4; i++)
 				ui_glib_blit(handle, i, (short)0, (short)0, 0, 0);
 		} else {
-			/* Logo screens (SSI, AD&D/TSR, Forgotten Realms, credits) are
-			 * drawn against set 1's red-gradient / stone backdrop using the
-			 * master palette — the logo art is authored for it (e.g. Micro
-			 * Magic's gold and the AD&D logo live in set 1's ramp, NOT the
-			 * screen's own palette, which is why an earlier per-screen
-			 * overlay turned them tan/green). Draw the set-1 backdrop opaque,
+			/* Logo screens: set 1's red-gradient / stone backdrop opaque,
 			 * then the logo pieces with index-0 transparency. */
-			qd_set_palette(base_pal, (short)0, (short)256);
 			set1h = l37aa(base, (short)1);
 			if (set1h != 0)
 				ui_glib_blit(set1h, (short)1, (short)0, (short)0, 0, 0);
@@ -12117,19 +12123,29 @@ static void port_show_intro(void)
 		qd_present();
 
 		/* hold until a key / click, or auto-advance after ~4 s so a
-		 * headless boot can't wedge. qd_present() each spin redraws the
-		 * software cursor at the live mouse position so it tracks. */
+		 * headless boot can't wedge. (Cursor hidden, so nothing to redraw.) */
 		deadline = TickCount() + 240;    /* 60 ticks/s */
 		for (;;) {
-			if (WaitNextEvent(everyEvent, &ev, 2, NULL)
+			if (WaitNextEvent(everyEvent, &ev, 6, NULL)
 			 && (ev.what == keyDown || ev.what == mouseDown))
 				break;
-			qd_present();
 			if (TickCount() >= deadline)
 				break;
 		}
 	}
 
+	/* Blank to solid before the menu palette loads, so the last screen's
+	 * image (the UA title) can't flash corrupted under clut 129. */
+	{
+		unsigned char *px;
+		short pitch, sw, sh, r;
+		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL) {
+			for (r = 0; r < sh; r++)
+				memset(px + (long)r * pitch, 0, (size_t)sw);
+			qd_present();
+		}
+	}
+	ShowCursor();                            /* cursor returns for the menu */
 	load_frua_palette();                     /* restore the UI palette    */
 }
 
