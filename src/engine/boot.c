@@ -15465,9 +15465,13 @@ static short l23b4(short arg)
 	return item;
 }
 
-/* New PROBE-stub helpers L25b6 calls. */
-static short l217e(void)                             { PROBE("L217e"); return 0; }
-static void  l2170(short arg)                        { PROBE("L2170"); (void)arg; }
+/* L217e / L2170 (CODE 7 + 0x217e / +0x2188) — getter/setter for the alert's
+ * button-base index in g_a5_-13016 (the word L206e stamps during layout).
+ * L25b6 maps the picked DLItem to a button via (arg_count - L217e()). */
+static short l217e(void)                             { PROBE("L217e");
+                                                       return g_a5_13016; }
+static void  l2170(short arg)                        { PROBE("L2170");
+                                                       g_a5_13016 = arg; }
 static signed char l15bc(void)                       { PROBE("L15bc"); return 0; }
 static void  jt548(short d, short a, short b)        { PROBE("jt548"); (void)d; (void)a; (void)b; }
 static void  jt559(short a)                          { PROBE("jt559"); (void)a; }
