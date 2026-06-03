@@ -90,6 +90,9 @@ static int videl_init(short want_w, short want_h)
 		VsetMode(g_save_mode);
 		return -1;
 	}
+	memset(g_surface.pixels, 0, (size_t)bytes);   /* clear chunky surface so
+	                                               * uninitialised bytes don't
+	                                               * c2p to boot-time garbage */
 	g_surface.width  = w;
 	g_surface.height = h;
 	g_surface.pitch  = w;
