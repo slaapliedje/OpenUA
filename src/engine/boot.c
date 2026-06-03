@@ -4203,14 +4203,10 @@ static void l02dc(long highlight)
 	g_a5_24128 = 3;
 
 	row = 2;
-	/* Column headers in red (colour 12). The original lists names only;
-	 * the port shows Name / Race / Class / Level — the at-a-glance party
-	 * facts. jt94's x is page*8 px: Name 8, Race 136, Class 208, Level
-	 * 272, spread across the roster panel (x6..313). */
-	jt94(page,       row, 12, 0, ua_strs_at(0x5e5e)); /* "Name" */
-	jt94((short)17,  row, 12, 0, "Race");
-	jt94((short)26,  row, 12, 0, "Class");
-	jt94((short)34,  row, 12, 0, "Level");
+	/* Faithful headers (CODE 12 + 0x348/0x36c): "Name" at the base page,
+	 * "AC HP" at page 33, both red (colour 12). */
+	jt94(page,       row, 12, 0, ua_strs_at(0x5e5e)); /* "Name"  */
+	jt94((short)33,  row, 12, 0, ua_strs_at(0x5e64)); /* "AC HP" */
 	row += 2;
 
 	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
@@ -4226,28 +4222,29 @@ static void l02dc(long highlight)
 			jt25((long)(uintptr_t)entry, page, row, 0);
 		}
 
-		/* Race / Class / Level in light grey (colour 7) under their
-		 * headers. Race + class are indices into the roster name
-		 * tables (port-local record bytes); level is a small count. */
+		/* HP (page 36) + AC (page 33), faithfully shaded by value range.
+		 * The Mac paints these through JT[34]/JT[32] (called here for the
+		 * trace); those are PROBE stubs, so the numbers are drawn via JT[94]
+		 * off the migrated CHAR_HP/CHAR_AC offsets. */
 		{
-			unsigned char race  = entry[CHAR_RACE];
-			unsigned char klass = entry[CHAR_CLASS];
-			unsigned char lvl   = entry[CHAR_LEVEL];
+			short hp = entry[CHAR_HP], ac = entry[CHAR_AC], colour;
 
-			if (race < 6)
-				jt94((short)17, row, 7, 0, "%s",
-				     k_roster_races[race]);
-			if (klass < 6)
-				jt94((short)26, row, 7, 0, "%s",
-				     k_roster_classes[klass]);
-			jt94((short)34, row, 7, 0, "%d",
-			     (int)(lvl ? lvl : 1));
+			if (hp == 0 || hp > 69) colour = 0;
+			else if (hp < 50)       colour = 1;
+			else if (hp < 60)       colour = 2;
+			else                    colour = 1;
+			jt34((long)(uintptr_t)entry, (short)(32 + colour), row, 0);
+			jt94((short)36, row, 7, 0, "%d", (int)hp);
+
+			if (ac > 99) colour = 0; else if (ac > 9) colour = 1;
+			else         colour = 2;
+			/* "*" overlay before the AC number (faithful: mid-operation
+			 * marker when jt1200()==3 and the +197 flag is set). */
+			if (jt1200() == 3 && entry[197] != 0)
+				jt97(35, row, 12, 0, 1, 42, 1);
+			jt32((long)(uintptr_t)entry, (short)(36 + colour), row, 0, 0);
+			jt94((short)33, row, 7, 0, "%d", (int)ac);
 		}
-
-		/* "*" status overlay (mid-operation marker) — faithful to the
-		 * original; drawn only when jt1200()==3 and the +197 flag set. */
-		if (jt1200() == 3 && entry[197] != 0)
-			jt97(33, row, 12, 0, 1, 42, 1);
 
 		row += 1;
 		entry = *(const unsigned char * const *)entry;  /* .next */
