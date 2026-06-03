@@ -7984,6 +7984,57 @@ static const struct { const char *name; short hd; short dmg; } k_monsters[] = {
 };
 #define N_MONSTERS ((short)(sizeof k_monsters / sizeof k_monsters[0]))
 
+/* Real monsters loaded from the design's MONSTnnn.DAT records. The 450-byte
+ * record (the GEO-loader shape L6028 reads, here read straight off disk
+ * since the sample files are stored uncompressed) carries the monster name
+ * as a C-string at +96. The full AD&D stat block (AC / THAC0 / the attack
+ * table) is the deferred record-layout RE; for the encounter resolver we
+ * take a damage-die byte (+135) and an HD-ish byte (+131), clamped to sane
+ * ranges. */
+static struct { char name[24]; short hd, dmg; } g_mdb[24];
+static short g_mdb_n = -1;     /* -1 = not yet scanned */
+
+static void load_monsters(void)
+{
+	short num;
+
+	if (g_mdb_n >= 0)
+		return;
+	g_mdb_n = 0;
+	for (num = 100; num <= 140 && g_mdb_n < 24; num++) {
+		static unsigned char rec[450];
+		char  fn[16];
+		short refnum = 0, c;
+		long  n;
+
+		fn[0] = 12;                          /* "MONSTnnn.DAT" */
+		fn[1]='M'; fn[2]='O'; fn[3]='N'; fn[4]='S'; fn[5]='T';
+		fn[6] = (char)('0' + (num / 100) % 10);
+		fn[7] = (char)('0' + (num / 10)  % 10);
+		fn[8] = (char)('0' + num % 10);
+		fn[9]='.'; fn[10]='D'; fn[11]='A'; fn[12]='T';
+		if (FSOpen((ConstStr255Param)fn, 0, &refnum) != noErr)
+			continue;
+		n = 450;
+		if (FSRead(refnum, &n, rec) == noErr && n == 450 && rec[96]) {
+			char *d = g_mdb[g_mdb_n].name;
+			for (c = 0; c < 22 && rec[96 + c]; c++)
+				d[c] = (char)rec[96 + c];
+			d[c] = 0;
+			if (d[0] >= 'a' && d[0] <= 'z')  /* capitalise the name */
+				d[0] = (char)(d[0] - 32);
+			g_mdb[g_mdb_n].hd  = (short)rec[131];
+			if (g_mdb[g_mdb_n].hd  < 1) g_mdb[g_mdb_n].hd  = 1;
+			if (g_mdb[g_mdb_n].hd  > 8) g_mdb[g_mdb_n].hd  = 8;
+			g_mdb[g_mdb_n].dmg = (short)rec[135];
+			if (g_mdb[g_mdb_n].dmg < 2) g_mdb[g_mdb_n].dmg = 2;
+			if (g_mdb[g_mdb_n].dmg > 12) g_mdb[g_mdb_n].dmg = 12;
+			g_mdb_n++;
+		}
+		(void)FSClose(refnum);
+	}
+}
+
 /* Fill the screen black and set the white/gold HUD clut for encounter text. */
 static unsigned char *encounter_screen(short *pitch, short *sw, short *sh)
 {
@@ -8007,7 +8058,8 @@ static void port_run_encounter(short zone)
 	short          nparty = cg_collect_party(party, 16);
 	unsigned char *px; short pitch, sw, sh, i;
 	unsigned char  scan = 0, ascii = 0;
-	short          mi, mcount, hp_each, round;
+	short          mcount, hp_each, round, mhd, mdmg;
+	const char    *mname;
 	long           mhp;
 	int            fled = 0, victory = 0;
 	char           line[48];
@@ -8015,10 +8067,23 @@ static void port_run_encounter(short zone)
 	if (nparty == 0)
 		return;
 
-	mi      = (short)(zone % N_MONSTERS);
-	mcount  = (short)(2 + (short)ua_rand(4) + (zone & 3));
-	if (mcount > 12) mcount = 12;
-	hp_each = (short)(k_monsters[mi].hd * 4 + 3);
+	/* pick a monster — a real MONSTnnn.DAT one if the design has any,
+	 * else a synthesized stand-in; the zone scales the group size. */
+	load_monsters();
+	if (g_mdb_n > 0) {
+		short mi = (short)ua_rand(g_mdb_n);
+		mname = g_mdb[mi].name;
+		mhd   = g_mdb[mi].hd;
+		mdmg  = g_mdb[mi].dmg;
+	} else {
+		short mi = (short)(zone % N_MONSTERS);
+		mname = k_monsters[mi].name;
+		mhd   = k_monsters[mi].hd;
+		mdmg  = k_monsters[mi].dmg;
+	}
+	mcount  = (short)(1 + (short)ua_rand(3) + (zone & 3));
+	if (mcount > 6) mcount = 6;
+	hp_each = (short)(mhd * 4 + 3);
 	mhp     = (long)mcount * hp_each;
 
 	/* announce + choice */
@@ -8030,7 +8095,7 @@ static void port_run_encounter(short zone)
 			hud_text(px, pitch, sw, sh, 20, 24, HUD_CLUT_GOLD,
 			         "-- ENCOUNTER --");
 			sprintf(line, "%d %s block the way!", (int)mcount,
-			        k_monsters[mi].name);
+			        mname);
 			hud_text(px, pitch, sw, sh, 20, 48, HUD_CLUT_WHITE, line);
 			hud_text(px, pitch, sw, sh, 20, 80, HUD_CLUT_WHITE,
 			         "F) Fight");
@@ -8076,7 +8141,7 @@ static void port_run_encounter(short zone)
 			if (thresh > 19) thresh = 19;
 			if ((short)(ua_rand(20) + 1) >= thresh) {
 				hp = (short)(party[t][385]
-				             - (short)(ua_rand(k_monsters[mi].dmg) + 1));
+				             - (short)(ua_rand(mdmg) + 1));
 				party[t][385] = (unsigned char)(hp < 0 ? 0 : hp);
 			}
 		}
@@ -8098,14 +8163,16 @@ static void port_run_encounter(short zone)
 		         victory ? HUD_CLUT_GOLD : HUD_CLUT_WHITE,
 		         victory ? "Victory!" : "The party has fallen...");
 		for (i = 0; i < nparty; i++) {
-			sprintf(line, "%-14s %s", (const char *)&party[i][96],
-			        party[i][385] ? "" : "(dead)");
-			hud_text(px, pitch, sw, sh, 20, (short)(48 + i * 14),
-			         party[i][385] ? HUD_CLUT_WHITE : HUD_CLUT_GOLD,
-			         line);
-			sprintf(line, "HP %d", (int)party[i][385]);
-			hud_text(px, pitch, sw, sh, 170, (short)(48 + i * 14),
-			         HUD_CLUT_WHITE, line);
+			short ty = (short)(48 + i * 14);
+			unsigned char col = party[i][385]
+			                  ? HUD_CLUT_WHITE : HUD_CLUT_GOLD;
+			hud_text(px, pitch, sw, sh, 20, ty, col,
+			         (const char *)&party[i][96]);
+			if (party[i][385])
+				sprintf(line, "HP %d", (int)party[i][385]);
+			else
+				sprintf(line, "DEAD");
+			hud_text(px, pitch, sw, sh, 170, ty, col, line);
 		}
 		hud_text(px, pitch, sw, sh, 20, 170, HUD_CLUT_WHITE,
 		         "Press any key.");
