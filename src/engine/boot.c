@@ -7986,17 +7986,20 @@ static const struct { const char *name; short hd; short dmg; } k_monsters[] = {
 
 /* Real monsters loaded from the design's MONSTnnn.DAT records (read straight
  * off disk; the sample files are stored uncompressed at the full 450 bytes).
- * Decoded on-disk fields:
+ * Decoded fields:
  *   +96  name    C-string
  *   +137 THAC0   AD&D to-hit (14/13/11/8 across the sample) — confident
  *   +135 dmg     per-hit damage die sides
- *   +395 HP      (63/59/50/34) — also the in-memory combatant HP offset
- * The faithful *in-memory* combatant layout (from the CODE 19 record sheet:
- * AC@385, HP@395, THAC0=60-[384], move@396, encumbrance@86) is the target
- * once combat lifts; the on-disk field-script transform (jt325/L1ae2) that
- * relocates fields to those offsets is the deferred remainder, so the
- * on-disk AC offset isn't pinned — AC is derived from THAC0 here. */
-static struct { char name[24]; short hp, thac0, dmg; } g_mdb[24];
+ *   +385 AC      the combatant AC offset — confirmed from combat (CODE 16
+ *                jt608 reads defender AC@385 for the to-hit; CODE 18 armor
+ *                spells modify @385 by +/-2..4). It reads 0 in these four
+ *                template files: either AC 0, or the template's AC is filled
+ *                into @385 by the combat-setup conversion (unlifted), so we
+ *                fall back to a THAC0-derived AC when it's 0.
+ *   +395 HP      (63/59/50/34) — the combatant HP offset.
+ * Faithful in-combat layout (CODE 19 record sheet): AC@385, HP@395,
+ * THAC0=60-[384], move@396, encumbrance@86. */
+static struct { char name[24]; short hp, thac0, dmg, ac; } g_mdb[24];
 static short g_mdb_n = -1;     /* -1 = not yet scanned */
 
 static void load_monsters(void)
@@ -8035,6 +8038,7 @@ static void load_monsters(void)
 			g_mdb[g_mdb_n].thac0 = (v < 2 || v > 20) ? 19 : v;
 			v = (short)rec[135];                       /* dmg die */
 			g_mdb[g_mdb_n].dmg   = (v < 2) ? 4 : (v > 12 ? 12 : v);
+			g_mdb[g_mdb_n].ac    = (short)rec[385];    /* AC (0 = fall back) */
 			g_mdb_n++;
 		}
 		(void)FSClose(refnum);
@@ -8078,12 +8082,14 @@ static void port_run_encounter(short zone)
 	 * the group size. The monster's own AC isn't pinned on disk yet, so
 	 * it's derived from THAC0 (tougher attacker -> better armour). */
 	load_monsters();
+	mac = 0;
 	if (g_mdb_n > 0) {
 		short mi = (short)ua_rand(g_mdb_n);
 		mname  = g_mdb[mi].name;
 		hp_each = g_mdb[mi].hp;
 		mthac0 = g_mdb[mi].thac0;
 		mdmg   = g_mdb[mi].dmg;
+		mac    = g_mdb[mi].ac;       /* AC@385; 0 -> derive below */
 	} else {
 		short mi = (short)(zone % N_MONSTERS);
 		mname  = k_monsters[mi].name;
@@ -8091,7 +8097,8 @@ static void port_run_encounter(short zone)
 		mthac0 = (short)(20 - k_monsters[mi].hd);
 		mdmg   = k_monsters[mi].dmg;
 	}
-	mac = (short)(mthac0 - 4);
+	if (mac <= 0)                        /* template AC unset -> derive */
+		mac = (short)(mthac0 - 4);
 	if (mac < 2)  mac = 2;
 	if (mac > 10) mac = 10;
 	/* real records can be boss-tier (50+ HP), so keep the group small */
