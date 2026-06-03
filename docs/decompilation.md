@@ -528,6 +528,27 @@ dialogs through ~10 editor entries) is deferred. Note that `JT[1]`
 exercise the loaders. The probe boots verify GEO001/002/040 parse
 (dims 570/570/441), STRG cache hit/miss, and MONST101 load.
 
+**Stat layout (partial decode).** The combatant record's *in-memory*
+field offsets are authoritative from the CODE 19 record-sheet painter
+(`jt892`, L1abe — the "Hit Points / Armor Class / THAC0 / Encumbrance /
+Movement" sheet over `g_a5_-27932`): **AC = `rec[385]`** (JT[34]),
+**HP = `rec[395]`** (JT[32]), **THAC0 = `60 - rec[384]`**,
+**Movement = `rec[396]`** (JT[63]), **Encumbrance = word `rec[86]`**
+(JT[59]). NOTE these are the *opposite* of the port's provisional
+character offsets (the port uses HP@385 / AC@395 internally, kept
+consistent within the port; swap to the faithful pair when combat lifts).
+
+The on-disk `MONSTnnn.DAT` uses a **different, field-scripted layout** (the
+`jt325`/`L1ae2` codec relocates fields to the in-memory offsets on load;
+that transform is still deferred). Confidently decoded on-disk fields, by
+inspecting the four sample records (Khulzond / mordroka / keremish /
+xelez-dar): **name `+96`** (C-string), **THAC0 `+137`** (14/13/11/8 — a
+clean AD&D spread), **damage die `+135`**, **HP `+395`** (63/59/50/34).
+The on-disk AC offset isn't pinned yet (the in-memory AC@385 reads 0 on
+disk); the port's encounter resolver derives monster AC from THAC0 until
+the field script is decoded. `port_run_encounter` (src/engine/boot.c)
+loads these and runs AD&D to-hit (`d20 >= THAC0 - AC`).
+
 #### `JT[325]` — the record-database engine (lifted: prologue only)
 
 `jt263`'s serialize step and several CODE 2 callers route record
