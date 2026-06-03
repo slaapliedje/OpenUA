@@ -3662,10 +3662,23 @@ static void jt97(short col, short row, short page, short style,
                                               (void)row; (void)page;
                                               (void)style; (void)a;
                                               (void)ch; (void)flag; }
+/* jt103 (CODE 6 + 0x4bf6) — draw a dialog window box.  Scales the char-cell
+ * rect (cols/rows) into the 8000-anchored coordinate space — each edge *4,
+ * the top/left anchored at 8000 and the bottom/right at 8004 — and paints it
+ * via the rect-fill primitive (the Mac routes through L3f88 → JT[1161]; L3f88
+ * is a pure thunk, inlined here).  fill mode 8 is the dialog-box style.  The
+ * 8000-space coords are turned into pixels by JT[1135] inside jt1161 (x2 in
+ * dialog mode), so a 38x22 box lands as the ~304px-wide popup frame. */
+static void jt1161(short top, short left, short bottom, short right, short fill);
 static void jt103(short top, short left, short right, short bottom)
-                                            { PROBE("jt103"); (void)top;
-                                              (void)left; (void)right;
-                                              (void)bottom; }
+{
+	PROBE("jt103");
+	jt1161((short)(left   * 4 + 8000),    /* L3f88 arg1 (d0 = left)   */
+	       (short)(top    * 4 + 8000),    /* L3f88 arg2 (d1 = top)    */
+	       (short)(bottom * 4 + 8004),    /* L3f88 arg3 (d2 = bottom) */
+	       (short)(right  * 4 + 8004),    /* L3f88 arg4 (d3 = right)  */
+	       8);
+}
 
 /* JT[1135] (CODE 4 + 0x77fe) — 2D coordinate transform.
  *
