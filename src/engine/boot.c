@@ -2190,7 +2190,7 @@ static int l466a(short ch)
 	return (ch >= 'A' && ch <= 'Z') ? 1 : 0;
 }
 
-/* JT[395] / L46b2 (CODE 3 + 0x46b2) — tolower. JT[395] route lands here. */
+/* JT[CHAR_AC] / L46b2 (CODE 3 + 0x46b2) — tolower. JT[CHAR_AC] route lands here. */
 static short l46b2(short ch)
 {
 	return (short)(l466a(ch) ? ch + 32 : ch);
@@ -4139,9 +4139,9 @@ static int  jt1200(void)
  *        - separator at current row via JT[103].
  *        - if (entry == highlight) highlight via JT[94]("%s", name);
  *          else regular draw via JT[25].
- *        - HP byte = entry[385].  Classify into colour 0/1/2 and
+ *        - HP byte = entry[CHAR_HP].  Classify into colour 0/1/2 and
  *          draw via JT[34] at col 32 + colour.
- *        - AC byte = entry[395].  Classify; if JT[1200]() == 3 and
+ *        - AC byte = entry[CHAR_AC].  Classify; if JT[1200]() == 3 and
  *          entry[197] != 0, paint a "*" overlay via JT[97] at col 35.
  *          Draw AC via JT[32] at col 36 + colour.
  *      Step row, advance.
@@ -4150,7 +4150,7 @@ static int  jt1200(void)
  * canonical play-record layout (race/class/level positions) is lifted
  * with the combat/play code. cg_build_record and the test-party seed are
  * the only writers; l02dc reads them for the Name/Race/Class/Level grid.
- * The gap 199..384 sits between the +197/198 status flags and HP@385. */
+ * The gap 199..383 sits between the +197/198 status flags and AC@385. */
 #define CHAR_RACE   200
 #define CHAR_CLASS  201
 #define CHAR_LEVEL  202
@@ -4159,6 +4159,15 @@ static int  jt1200(void)
 #define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
 #define CHAR_XP      212  /* experience points (long; +212..215)              */
 #define CHAR_MAXHP   216  /* full HP, to heal toward on rest                  */
+
+/* Faithful in-memory combatant offsets, decoded from the CODE 19 record
+ * sheet (jt892) + combat: AC@385 (JT[34], combat reads defender AC here),
+ * HP@395 (JT[32]), THAC0 = 60 - CHAR_THAC0 (the sheet's "THAC0." line),
+ * Movement@396 (JT[63]). The port now stores records at these offsets. */
+#define CHAR_AC      385
+#define CHAR_HP      395
+#define CHAR_THAC0   384  /* displayed THAC0 = 60 - this byte                 */
+#define CHAR_MOVE    396
 
 #define CG_PARTY_MAX 6    /* active-party slot count                          */
 
@@ -7952,8 +7961,8 @@ static void draw_party_panel(void)
 		short ty = (short)(16 + i * 18);
 		hud_text(px, pitch, sw, sh, X, ty, HUD_CLUT_WHITE,
 		         (const char *)&party[i][96]);
-		sprintf(hp, "HP%d AC%d", (int)party[i][385],
-		        (int)party[i][395]);
+		sprintf(hp, "HP%d AC%d", (int)party[i][CHAR_HP],
+		        (int)party[i][CHAR_AC]);
 		hud_text(px, pitch, sw, sh, X, (short)(ty + 9), HUD_CLUT_WHITE,
 		         hp);
 	}
@@ -8034,13 +8043,13 @@ static void load_monsters(void)
 			d[c] = 0;
 			if (d[0] >= 'a' && d[0] <= 'z')  /* capitalise the name */
 				d[0] = (char)(d[0] - 32);
-			v = (short)rec[395];                       /* HP    */
+			v = (short)rec[CHAR_AC];                       /* HP    */
 			g_mdb[g_mdb_n].hp    = (v < 1) ? 8 : v;
 			v = (short)rec[137];                       /* THAC0 */
 			g_mdb[g_mdb_n].thac0 = (v < 2 || v > 20) ? 19 : v;
 			v = (short)rec[135];                       /* dmg die */
 			g_mdb[g_mdb_n].dmg   = (v < 2) ? 4 : (v > 12 ? 12 : v);
-			g_mdb[g_mdb_n].ac    = (short)rec[385];    /* AC (0 = fall back) */
+			g_mdb[g_mdb_n].ac    = (short)rec[CHAR_HP];    /* AC (0 = fall back) */
 			g_mdb_n++;
 		}
 		(void)FSClose(refnum);
@@ -8169,7 +8178,7 @@ static void port_run_encounter(short zone)
 
 		for (i = 0; i < nparty; i++) {               /* party strikes */
 			short lvl, pthac0;
-			if (party[i][385] == 0)
+			if (party[i][CHAR_HP] == 0)
 				continue;
 			lvl    = party[i][CHAR_LEVEL]; if (lvl < 1) lvl = 1;
 			pthac0 = (short)(21 - lvl);    if (pthac0 < 1) pthac0 = 1;
@@ -8183,18 +8192,18 @@ static void port_run_encounter(short zone)
 		for (i = 0; i < msurv; i++) {                /* monsters strike */
 			short live[16], nl = 0, t, hp;
 			for (t = 0; t < nparty; t++)
-				if (party[t][385] != 0) live[nl++] = t;
+				if (party[t][CHAR_HP] != 0) live[nl++] = t;
 			if (nl == 0) break;
 			t = live[ua_rand(nl)];
-			if ((short)(ua_rand(20) + 1) >= mthac0 - party[t][395]) {
-				hp = (short)(party[t][385]
+			if ((short)(ua_rand(20) + 1) >= mthac0 - party[t][CHAR_AC]) {
+				hp = (short)(party[t][CHAR_HP]
 				             - (short)(ua_rand(mdmg) + 1));
-				party[t][385] = (unsigned char)(hp < 0 ? 0 : hp);
+				party[t][CHAR_HP] = (unsigned char)(hp < 0 ? 0 : hp);
 			}
 		}
 		alive = 0;
 		for (i = 0; i < nparty; i++)
-			if (party[i][385] != 0) alive++;
+			if (party[i][CHAR_HP] != 0) alive++;
 		if (alive == 0) break;
 	}
 	if (mhp <= 0) victory = 1;
@@ -8205,11 +8214,11 @@ static void port_run_encounter(short zone)
 		short surv = 0;
 		long  pool;
 		for (i = 0; i < nparty; i++)
-			if (party[i][385] != 0) surv++;
+			if (party[i][CHAR_HP] != 0) surv++;
 		pool = (long)mcount * hp_each * 10;
 		xp_award = surv ? pool / surv : 0;
 		for (i = 0; i < nparty; i++)
-			if (party[i][385] != 0)
+			if (party[i][CHAR_HP] != 0)
 				*(long *)(party[i] + CHAR_XP) += xp_award;
 	}
 
@@ -8225,12 +8234,12 @@ static void port_run_encounter(short zone)
 		         victory ? "Victory!" : "The party has fallen...");
 		for (i = 0; i < nparty; i++) {
 			short ty = (short)(48 + i * 14);
-			unsigned char col = party[i][385]
+			unsigned char col = party[i][CHAR_HP]
 			                  ? HUD_CLUT_WHITE : HUD_CLUT_GOLD;
 			hud_text(px, pitch, sw, sh, 20, ty, col,
 			         (const char *)&party[i][96]);
-			if (party[i][385])
-				sprintf(line, "HP %d", (int)party[i][385]);
+			if (party[i][CHAR_HP])
+				sprintf(line, "HP %d", (int)party[i][CHAR_HP]);
 			else
 				sprintf(line, "DEAD");
 			hud_text(px, pitch, sw, sh, 170, ty, col, line);
@@ -8311,12 +8320,12 @@ static void port_rest(void)
 
 	for (i = 0; i < nparty; i++) {
 		short mx;
-		if (party[i][385] == 0)         /* the dead need a raise, not rest */
+		if (party[i][CHAR_HP] == 0)         /* the dead need a raise, not rest */
 			continue;
 		mx = party[i][CHAR_MAXHP];
-		if (mx < party[i][385]) mx = party[i][385];   /* legacy clamp */
+		if (mx < party[i][CHAR_HP]) mx = party[i][CHAR_HP];   /* legacy clamp */
 		party[i][CHAR_MAXHP] = (unsigned char)mx;
-		party[i][385] = (unsigned char)mx;
+		party[i][CHAR_HP] = (unsigned char)mx;
 	}
 	save_roster();
 	port_play_message("The party makes camp and recovers.", "Press any key.");
@@ -9067,9 +9076,11 @@ void port_test_seed_design(void)
 					for (c = 0; k_names[p][c] != 0 && c < 15; c++)
 						r[96 + c] = (unsigned char)k_names[p][c];
 					r[96 + c] = 0;
-					r[385] = k_hp[p];
+					r[CHAR_HP] = k_hp[p];
 					r[CHAR_MAXHP] = k_hp[p];
-					r[395] = k_ac[p];
+					r[CHAR_AC] = k_ac[p];
+					r[CHAR_THAC0] = (unsigned char)(39 + k_lvl[p]);
+					r[CHAR_MOVE]  = 12;
 					r[CHAR_RACE]  = k_race[p];
 					r[CHAR_CLASS] = k_class[p];
 					r[CHAR_LEVEL] = k_lvl[p];
@@ -12620,7 +12631,7 @@ static const unsigned char cg_class_hd[CG_NCLASSES] = { 8, 10, 4, 6, 10, 8 };
 
 /* Build a character record from the finished pick state and append it to
  * the roster (g_a5_-27928 linked list, next ptr at +0). Sets the fields
- * the roster grid reads — name@+96, HP@+385, AC@+395 — with HP from the
+ * the roster grid reads — name@+96, AC@+385, HP@+395 — with HP from the
  * class hit die + CON bonus and AC from 10 - DEX bonus (AD&D-1e style).
  * The full play-record (stats/class/saves at their faithful offsets) is
  * the next slice; this makes the created character appear in the party. */
@@ -12645,9 +12656,11 @@ static void cg_build_record(const cg_state *s)
 	for (c = 0; c < s->namelen && c < 15; c++)
 		rec[96 + c] = (unsigned char)s->name[c];
 	rec[96 + c]  = 0;
-	rec[385]     = (unsigned char)hp;
+	rec[CHAR_HP]     = (unsigned char)hp;
 	rec[CHAR_MAXHP] = (unsigned char)hp;
-	rec[395]     = (unsigned char)ac;
+	rec[CHAR_AC]     = (unsigned char)ac;
+	rec[CHAR_THAC0] = 40;                /* level 1 -> THAC0 20 */
+	rec[CHAR_MOVE]  = 12;
 	rec[CHAR_RACE]  = (unsigned char)s->race;
 	rec[CHAR_CLASS] = (unsigned char)klass;
 	rec[CHAR_LEVEL] = 1;
@@ -12823,7 +12836,7 @@ static void cg_train_screen(void)
 		short          lvl  = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
 		long           xp   = *(long *)(c + CHAR_XP);
 		long           need = cg_train_threshold(lvl);
-		int            dead  = (c[385] == 0);
+		int            dead  = (c[CHAR_HP] == 0);
 		int            ready = (!dead && xp >= need && lvl < 20);
 		char           buf[48];
 
@@ -12878,17 +12891,18 @@ static void cg_train_screen(void)
 			short gain   = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
 			short nhp, nmax;
 			if (gain < 1) gain = 1;
-			nhp  = (short)(c[385] + gain);
+			nhp  = (short)(c[CHAR_HP] + gain);
 			nmax = (short)(c[CHAR_MAXHP] + gain);
-			c[385]        = (unsigned char)(nhp  > 255 ? 255 : nhp);
+			c[CHAR_HP]        = (unsigned char)(nhp  > 255 ? 255 : nhp);
 			c[CHAR_MAXHP] = (unsigned char)(nmax > 255 ? 255 : nmax);
 			c[CHAR_LEVEL] = (unsigned char)(lvl + 1);
+			c[CHAR_THAC0] = (unsigned char)(39 + (lvl + 1)); /* THAC0 improves */
 			save_roster();
 		} else if ((ascii == 'r' || ascii == 'R') && dead) {
 			/* temple raise: restore the fallen to full HP */
 			short mx = c[CHAR_MAXHP];
 			if (mx < 1) mx = (short)(lvl * 4 + 1);   /* legacy/unset */
-			c[385] = (unsigned char)(mx > 255 ? 255 : mx);
+			c[CHAR_HP] = (unsigned char)(mx > 255 ? 255 : mx);
 			save_roster();
 		}
 	}
@@ -14575,7 +14589,7 @@ static short jt139(void *rec, short cmd, ...)        { PROBE("jt139"); (void)rec
  *
  *   char first = buf[i][0];
  *   short upper = JT[422](first);       ; toupper
- *   short lower = JT[395](first);       ; tolower
+ *   short lower = JT[CHAR_AC](first);       ; tolower
  *
  *   ; Install DLItem stream:
  *   JT[452](1, shape, item_x, buf[i],
@@ -15649,9 +15663,9 @@ static void cg_draw_sheet(const unsigned char *c, const char *footer)
 	}
 
 	jt94((short)3,  (short)13, 7,  0, "HP:");
-	jt94((short)8,  (short)13, 15, 0, "%d", (int)c[385]);
+	jt94((short)8,  (short)13, 15, 0, "%d", (int)c[CHAR_HP]);
 	jt94((short)20, (short)13, 7,  0, "AC:");
-	jt94((short)25, (short)13, 15, 0, "%d", (int)c[395]);
+	jt94((short)25, (short)13, 15, 0, "%d", (int)c[CHAR_AC]);
 
 	if (footer)
 		jt94((short)3, (short)16, 7, 0, "%s", footer);
@@ -15787,7 +15801,7 @@ static void cg_modify_sheet(void)
 			dex    = st[3];
 			dexmod = (dex >= 15) ? (short)(dex - 14) : 0;
 			if (dexmod > 4) dexmod = 4;
-			c[395] = (unsigned char)(10 - dexmod);   /* AC */
+			c[CHAR_AC] = (unsigned char)(10 - dexmod);   /* AC */
 			save_roster();
 		}
 	}
@@ -15991,7 +16005,7 @@ static void cg_party_setforth_screen(void)
 		     (const char *)&party[i][96]);
 		jt94((short)17, row, 7, 0, "%s",
 		     (klass < 6) ? k_roster_classes[klass] : "?");
-		jt94((short)28, row, 7, 0, "%d", (int)party[i][385]);
+		jt94((short)28, row, 7, 0, "%d", (int)party[i][CHAR_HP]);
 	}
 	jt94((short)3, (short)16, 7, 0, "Press any key to descend.");
 	qd_present();
