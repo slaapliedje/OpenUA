@@ -348,3 +348,43 @@ OSErr FlushVol(ConstStr255Param volName, short vRefNum)
 	(void)vRefNum;
 	return noErr;                         /* GEMDOS writes synchronously */
 }
+
+/* --- directory enumeration ---
+ *
+ * The Mac File Manager walks a folder with indexed PBGetCatInfo; the
+ * faithful roster scanner (JT[589]) needs that to list saved-character
+ * files. GEMDOS does it with Fsfirst / Fsnext over a DTA (set by Fsetdta).
+ * files_find_first(pattern, ...) starts a scan ("CHAR*.CHR" etc.) and
+ * files_find_next continues it; each fills `out` with the matched 8.3
+ * filename (a C string). Returns 1 while a name was found, 0 at the end.
+ * One scan at a time (the DTA is shared) — fine for the roster load. */
+static _DTA g_find_dta;
+
+static void copy_dta_name(char *out, int max)
+{
+	int i;
+	for (i = 0; i < max - 1 && g_find_dta.dta_name[i]; i++)
+		out[i] = g_find_dta.dta_name[i];
+	out[i] = '\0';
+}
+
+int files_find_first(const char *pattern, char *out, int max)
+{
+	if (out == NULL || max < 1)
+		return 0;
+	Fsetdta(&g_find_dta);
+	if (Fsfirst(pattern, 0) != 0L)        /* attr 0 = ordinary files */
+		return 0;
+	copy_dta_name(out, max);
+	return 1;
+}
+
+int files_find_next(char *out, int max)
+{
+	if (out == NULL || max < 1)
+		return 0;
+	if (Fsnext() != 0L)
+		return 0;
+	copy_dta_name(out, max);
+	return 1;
+}

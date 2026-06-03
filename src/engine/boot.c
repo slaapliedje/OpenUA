@@ -8998,18 +8998,28 @@ static void save_roster(void)
 	}
 }
 
-/* Scan CHAR0000..CHAR0015.CHR into the pool (compacting over gaps), then
- * relink the party from each record's CHAR_INPARTY flag. Returns 1 if any
- * character loaded. */
+/* Scan the design folder for CHAR*.CHR via the FS shim's directory
+ * enumeration (the capability JT[589] needs), reading each into the pool,
+ * then relink the party from each record's CHAR_INPARTY flag. Returns 1 if
+ * any character loaded. */
 static int load_roster(void)
 {
-	short i, refnum, n2 = 0;
+	char  cname[16];
+	short refnum, n2 = 0;
 	long  n;
-	char  fn[16];
+	int   found;
 
-	for (i = 0; i < 16; i++) {
-		cg_char_fn(i, fn);
-		if (FSOpen((ConstStr255Param)fn, 0, &refnum) != noErr)
+	for (found = files_find_first("CHAR*.CHR", cname, (int)sizeof cname);
+	     found && n2 < 16;
+	     found = files_find_next(cname, (int)sizeof cname)) {
+		char pfn[18];
+		short len = 0;
+		while (cname[len] != 0 && len < 16) {
+			pfn[len + 1] = cname[len];
+			len++;
+		}
+		pfn[0] = (char)len;
+		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) != noErr)
 			continue;
 		n = 512;
 		if (FSRead(refnum, &n, cg_pool[n2]) == noErr && n == 512)
