@@ -9337,6 +9337,10 @@ void port_play_demo(void)
 		memset(ctx, 0, sizeof ctx);
 		*(short *)(ctx + 4) = 14;          /* mode 14 = play/dungeon action */
 		*(short *)(ctx + 2) = 11;          /* first-entry command           */
+		/* rec = &ctx[16]; rec[4] = area kind (1 = dungeon). The menu-driven
+		 * level-entry path the port shortcuts past would set this; seed it so
+		 * L6256 registers the walk input sources (it no-ops for kind 0). */
+		ctx[16 + 4] = 1;
 		g_a5_long(-11714) = (long)(uintptr_t)(ctx + 6);  /* JT[316..321] hook */
 		(void)px; (void)pitch; (void)sw; (void)sh; (void)tvbase;
 		(void)l0096(ctx);
