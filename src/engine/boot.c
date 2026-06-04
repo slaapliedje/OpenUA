@@ -8863,6 +8863,55 @@ static void port_rest(void)
 	port_play_message("The party makes camp and recovers.", "Press any key.");
 }
 
+/* L0096 (CODE 22 + 0x96) — the master mode loop. The whole play side is a
+ * state machine over a 342-byte context struct (set up by L0004, CODE 22+0x4):
+ *   ctx[0]  byte  stop flag — the loop runs while it is 0
+ *   ctx[2]  word  command (passed to / returned by the mode handler)
+ *   ctx[4]  word  current mode (1..21), the JT[3] selector
+ *   ctx[6]  ..    published via A5-11714 to JT[316..321] (start/stop pokes)
+ *   ctx[8]  long  status flags (JT[241]'s flagsp = &ctx[8])
+ *   ctx[16] ..    the play record (JT[241]'s rec = &ctx[16])
+ *   ctx[328]      a per-mode scratch sub-struct some handlers point into
+ *
+ * Each iteration dispatches ctx[4] to its mode handler, then commits
+ * (ctx[2]=ctx[4]; ctx[4]=result) and re-tests the stop flag. Mode 14 is the
+ * play/dungeon action (JT[241]); a terminal mode (1) or any unhandled mode
+ * sets the stop flag and ends the machine.
+ *
+ * The full mode -> handler map from the JT[3] table @ 0x00aa (min 1 max 21):
+ *   1  stop          6  JT[258]    11 JT[248]    16 JT[259]
+ *   2  JT[243]       7  JT[263]    12 JT[249]    17..21 JT[?] (CODE 2/8/10)
+ *   3  JT[253]       8  JT[269]    13 JT[239]
+ *   4  JT[251]       9  JT[233]    14 JT[241]  <-- play action
+ *   5  JT[250]      10  JT[247]    15 JT[240]
+ * Only mode 14 is wired live here; the other arms are deferred (level-2
+ * skeleton, per CLAUDE.md) — they need their CODE 2/8/10/11 handlers lifted,
+ * and reaching them faithfully needs L0004's menu-mode entry path. Until then
+ * an unhandled mode stops the machine rather than spinning on a stub. */
+static short l0096(unsigned char *ctx)
+{
+	short res = 0;                          /* fp@(-2): handler result */
+
+	PROBE("L0096");
+	while (ctx[0] == 0) {                    /* L0468 -> L009e */
+		short mode = *(short *)(ctx + 4);
+
+		switch (mode) {                 /* JT[3] on ctx[4] */
+		case 14:                        /* L02f4 — play/dungeon action */
+			res = jt241(*(short *)(ctx + 2),
+			            (long *)(ctx + 8), ctx + 16);
+			break;
+		default:                        /* L0448 + deferred modes: stop */
+			ctx[0] = 1;
+			res = mode;
+			break;
+		}
+		*(short *)(ctx + 2) = *(short *)(ctx + 4);  /* L0450 */
+		*(short *)(ctx + 4) = res;
+	}
+	return *(short *)(ctx + 2);
+}
+
 /* port_play_demo — the play loop core as an interactive dungeon walk
  * on the automap. Loads the TOPVIEW tiles, enters level 1 (L0bbc
  * loads the map + places the party), then cycles: draw the map +
@@ -8880,7 +8929,7 @@ void port_play_demo(void)
 	static unsigned char tv[2048];
 	static unsigned char dc[20480];
 	unsigned char *px;
-	short pitch, sw, sh, refnum = 0, i, show_map = 0;
+	short pitch, sw, sh, refnum = 0, i;
 	long tvbase, count;
 	unsigned char *pl;
 	RGBColor c4[16];
@@ -9076,96 +9125,31 @@ void port_play_demo(void)
 	}
 #endif
 
-	for (;;) {
-		unsigned char scan = 0, ascii = 0;
-		short y;
-
-		if (show_map) {
-			for (y = 0; y < sh; y++)
-				memset(px + (long)y * pitch, 0, (size_t)sw);
-			draw_map_tiles(tvbase, px, pitch, sw, sh);
-			draw_party(px, pitch, sw, sh, (short)g_a5_12288,
-			           (short)g_a5_12287, (short)g_a5_12286);
-			qd_present();
-		} else {
-			/* Render through the engine's real dungeon-view entry
-			 * (jt312), not a demo-only call — jt312 reads the live
-			 * party globals, draws the slot-assembly corridor, clears,
-			 * and presents. This is the play-loop render path. */
-			jt312((unsigned char *)0);
-			if (g_adventure_mode)
-				draw_party_panel();    /* party status HUD */
-		}
-
-		while (!plat_kb_poll(&scan, &ascii))
-			;
-		if (ascii == 'q' || ascii == 'Q' || ascii == 27)
-			break;
-		switch (ascii) {
-		case 'a': case 'A': party_step(0); break;
-		case 'd': case 'D': party_step(1); break;
-		case 'w': case 'W':
-		case 's': case 'S': {
-			short ox = (short)g_a5_12288, oy = (short)g_a5_12287;
-			party_step(ascii == 'w' || ascii == 'W' ? 2 : 3);
-			/* a real step into a monster zone may spring an encounter */
-			if (g_adventure_mode
-			 && (g_a5_12288 != ox || g_a5_12287 != oy)
-			 && encounter_check())
-				g_view_force_full = 1;   /* wipe the encounter screen */
-			break;
-		}
-		case 'm': case 'M': show_map = (short)!show_map; break;
-		case 'r': case 'R':            /* camp to rest (real play only) */
-			if (g_adventure_mode) {
-				port_rest();
-				g_view_force_full = 1;
-			}
-			break;
-		case 'c': case 'C':            /* faithful command bar (jt953) */
-			if (g_adventure_mode) {
-				short prev = (short)g_a5_2347;
-				g_a5_2347 = 1;         /* jt1135 UI scale 2 */
-				g_a5_27990 = 4;        /* command-bar mode */
-				jt131((short)6); jt112((short)1); jt81(); jt447();
-				(void)jt953();
-				g_a5_2347 = prev;
-				g_view_force_full = 1;
-			}
-			break;
-		case 't': case 'T':     /* browse: next set (pins auto off) */
-			if (g_adventure_mode) break;   /* play: no wall browsing */
-			g_cw_auto = 0;
-			g_cw_set = (short)(g_cw_set >= g_cw_setmax ? 1 : g_cw_set + 1);
-			load_color_wallset(g_cw_set);   /* cw_finalize re-lays the backdrop */
-			g_view_force_full = 1;
-#ifdef FRUA_ENGINE_PROBE
-			dbg_log_num("wall set -> ", g_cw_set);
-#endif
-			break;
-		case 'y': case 'Y':     /* browse: toggle 8X8DC <-> 8X8DB (pins auto off) */
-			if (g_adventure_mode) break;
-			g_cw_auto = 0;
-			g_cw_file ^= 1;
-			g_cw_set = 1;
-			load_color_wallset(g_cw_set);
-			g_view_force_full = 1;
-#ifdef FRUA_ENGINE_PROBE
-			dbg_log_num("wall file -> ", g_cw_file);
-#endif
-			break;
-		case 'b': case 'B':     /* browse backdrops manually (pins auto off) */
-			if (g_adventure_mode) break;
-			g_back_auto = 0;
-			g_back_set = (short)(g_back_set >= g_back_max ? 1 : g_back_set + 1);
-			load_backdrop(g_back_set);
-			g_view_force_full = 1;
-#ifdef FRUA_ENGINE_PROBE
-			dbg_log_num("backdrop -> ", g_back_set);
-#endif
-			break;
-		default: break;
-		}
+	/* --- the faithful play loop ---
+	 * Drive CODE 22's master mode machine (L0096) seeded at mode 14 (the
+	 * play/dungeon action, JT[241]). l0bbc above loaded the level and placed
+	 * the party; jt241 sets up the view layers, the title, the command bar
+	 * (JT[179]+JT[148]) and the area-list header (L53a6), then runs the walk
+	 * loop (L63c0) with the automap / cell-block callbacks (JT[237]/JT[236]).
+	 *
+	 * The ctx struct mirrors L0004's: ctx[4]=mode, ctx[2]=command,
+	 * ctx[8]=status flags, ctx[16]=play record. We enter directly at the
+	 * play mode (the menu-mode entry path L0004 walks — modes 6..9 -> ... ->
+	 * 14 — needs its CODE 2/8/10 handlers lifted first).
+	 *
+	 * KNOWN LIMITATION: l63c0's event poll (jt456) and movement (jt311/jt297)
+	 * are still stubs, so the faithful frame renders once and then the loop
+	 * idles without reading input — interactivity returns when jt456/jt311
+	 * are lifted (the next steps). This replaces the old port-side WASD demo
+	 * walk with the real play entry. */
+	{
+		static unsigned char ctx[342];     /* L0004's master state struct */
+		memset(ctx, 0, sizeof ctx);
+		*(short *)(ctx + 4) = 14;          /* mode 14 = play/dungeon action */
+		*(short *)(ctx + 2) = 11;          /* first-entry command           */
+		g_a5_long(-11714) = (long)(uintptr_t)(ctx + 6);  /* JT[316..321] hook */
+		(void)px; (void)pitch; (void)sw; (void)sh; (void)tvbase;
+		(void)l0096(ctx);
 	}
 }
 
