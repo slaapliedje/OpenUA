@@ -7846,7 +7846,54 @@ static void jt1080(void);
 static int         jt273(void)                          { PROBE("jt273"); return 0; }        /* CODE 22+0x4900 */
 static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
 static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
-static void        jt303(void *rec)                     { PROBE("jt303"); (void)rec; }        /* status line, CODE 22+0x2180 */
+static short       jt358(void)                          { PROBE("jt358"); return 0; }         /* CODE 8+0x6e4a counter */
+static void        jt367(short v, void *buf)            { PROBE("jt367"); (void)v;(void)buf; } /* CODE 8+0x6e78 counter fmt */
+
+/* JT[303] (CODE 22 + 0x2180) — the play-view status header, drawn with jt1089.
+ * Line positions depend on rec[4] (wilderness vs dungeon). Draws the module
+ * title (g_a5_-18876 override padded to 16 via JT[394], else g_a5_-10616), a
+ * counter line (JT[358] -> JT[367]; both stubbed for now), and the map
+ * dimensions (g_a5_-12300[2] x [3], fmt g_a5_-11324). jt1161/JT[394]/jt1089
+ * are real, so the header text renders.
+ *
+ * TODO: the design-name line (memmove level[+118] -> buf, then draw "%s" at
+ * 140) is deferred. It goes through JT[406], whose port lift jt406(dst,src)
+ * has its first two params REVERSED vs the real L57f8 BlockMove(src,dst) —
+ * calling it faithfully (jt406(level+118, buf, 16)) would copy buf INTO the
+ * level header and corrupt it. Restore this line once jt406's arg order is
+ * audited and fixed across its callers. */
+static void jt303(void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	char buf[40];                           /* fp@(-40) */
+	short tx, ty, dx, dy;
+	const unsigned char *lvl;
+
+	PROBE("jt303");
+
+	if (rec[4] == 0) {                      /* wilderness */
+		tx = 8068; ty = 8004; dx = 8053; dy = 8104;
+	} else {                                /* dungeon */
+		tx = 8008; ty = 8092; dx = 8020; dy = 8092;
+	}
+
+	if (g_a5_byte(-18876) != 0)
+		jt394(buf, ua_strs_at(0x3072) /* "%*s" */, 16,
+		      (const char *)&g_a5_byte(-18876));
+	else
+		jt394(buf, (const char *)(uintptr_t)g_a5_long(-10616));
+	jt1089(tx, ty, (short)135, ua_strs_at(0x3076) /* "%s" */, buf);
+
+	jt367((short)(jt358() & 0xff), buf);
+	jt1089((short)(tx + 4), ty, (short)135, buf);
+
+	/* design-name line deferred — see the jt406 note above. */
+
+	lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	jt1089(dx, dy, (short)135,
+	       (const char *)(uintptr_t)g_a5_long(-11324),
+	       (int)lvl[2], (int)lvl[3]);
+}
 static void        l2788(void)                          { PROBE("L2788"); }                                   /* CODE 22-local wilderness compass */
 
 /* JT[280] (CODE 22 + 0x265e) — the dungeon position / compass readout drawn
