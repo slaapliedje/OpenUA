@@ -8011,6 +8011,45 @@ static void jt237(unsigned char *rec)
 	jt1130();
 }
 
+/* L53a6 (CODE 11 + 0x53a6) — the automap screen's title + area-list panel
+ * (L63c0's wilderness-arm header). Fills a header panel (jt1161), prints the
+ * design + module title (jt488 "%s %s" -> jt1089 "%*s"), then walks the 8
+ * visible map areas printing each one's number + "(x, y) name" — the name is
+ * a fixed string (jt273 set) or the per-area label table at g_a5_-10924.
+ * Uses the already-lifted jt1161 / jt488 / jt1089; coords match the asm. */
+static void l53a6(void)
+{
+	short       a1 = (short)8032;   /* fp@(-2): row anchor, advances down */
+	short       a2 = (short)8092;   /* fp@(-4): column, constant          */
+	short       i;
+	const char *title;
+
+	PROBE("L53a6");
+	jt1161(a1, a2, (short)(a1 + 56), (short)(a2 + 64), (short)8);
+	title = jt488("%s %s", (const char *)(uintptr_t)g_a5_long(-10804),
+	              (const char *)(uintptr_t)g_a5_long(-10788));
+	jt1089((short)(a1 + 2), a2, (short)139, "%*s", (int)16, title);
+	jt1089((short)(a1 + 6), a2, (short)139, "%s",
+	       (const char *)(uintptr_t)g_a5_long(-11140));
+	a1 = (short)(a1 + 10);
+	for (i = 0; i < 8; i++) {
+		unsigned char *cell = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-12300) + (long)i * 4);
+		const char    *name;
+
+		jt1089(a1, a2, (short)240, "%d", (int)(i + 1));
+		if (jt273()) {
+			name = ua_strs_at(0x2b06);
+		} else {
+			short idx = (short)((cell[16] & 6) >> 1);
+			name = (const char *)(uintptr_t)g_a5_long(-10924 + idx * 4);
+		}
+		jt1089((short)(a1 + 6), a2, (short)135, "(%2d, %2d) %5s",
+		       (int)cell[15], (int)cell[14], name);
+		a1 = (short)(a1 + 6);
+	}
+}
+
 /* port_view_demo — drive jt199, the first-person frustum walker, over
  * the real loaded design's GEO map. Seeds the DUNGCOM wall-set handle,
  * logs the runtime view state (the slot-layout DATA globals, the map
