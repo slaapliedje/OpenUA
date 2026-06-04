@@ -7805,6 +7805,141 @@ static void jt312(unsigned char *page)
 	}
 }
 
+/* ===================================================================== *
+ * CODE 11 exploration loop — L63c0 (CODE 11 + 0x63c0), milestone 2 of the
+ * play-loop lift. FRUA's dungeon-walk loop: paint the view background +
+ * status line + first-person view, then spin an input loop — poll (jt456) ->
+ * classify (jt152) -> JT[3] dispatch (move / turn / select) -> redraw ->
+ * repeat until an exit command. Structural skeleton (lift level 2): the CFG
+ * + every JT call are faithful; the leaf action routines below are PROBE
+ * stubs until lifted, so the loop's shape is real but the per-arm movement /
+ * cell-change work is deferred. Unwired for now (the faithful caller is the
+ * JT[233/234] play-screen entry, milestone 3); replaces port_play_demo's
+ * loop once wired. */
+/* L63c0 deps defined later in the file — forward decls. */
+static void jt1173(short top, short left, short bottom, short right);
+static void jt1193(void);
+static void jt1067(void);
+static void jt1080(void);
+static int         jt273(void)                          { PROBE("jt273"); return 0; }        /* CODE 22+0x4900 */
+static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
+static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
+static void        jt303(void *rec)                     { PROBE("jt303"); (void)rec; }        /* status line, CODE 22+0x2180 */
+static void        jt280(void *rec, short a, short b, short c)
+                                                        { PROBE("jt280"); (void)rec;(void)a;(void)b;(void)c; } /* CODE 22+0x265e */
+static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1)*o1=0; if(o2)*o2=0; }        /* CODE 4+0x6204 */
+static short       jt456(void)                          { PROBE("jt456"); return (short)-1; }                 /* event poll, CODE 3+0x2d3e */
+static short       jt152(short a)                       { PROBE("jt152"); (void)a; return (short)-1; }        /* CODE 7+0x3370 */
+static void        jt297(void *rec, short key, long cb) { PROBE("jt297"); (void)rec;(void)key;(void)cb; }      /* CODE 22+0x1c3e */
+static signed char jt1160(void)                         { PROBE("jt1160"); return 0; }                        /* CODE 4+0x67c6 */
+static void        jt311(void *rec, short dir, long cb) { PROBE("jt311"); (void)rec;(void)dir;(void)cb; }      /* CODE 22+0x1a6e */
+static signed char l67e4(void *rec, short a)            { PROBE("L67e4"); (void)rec;(void)a; return 0; }       /* CODE 11-local */
+static void        jt238(void *rec)                     { PROBE("jt238"); (void)rec; }                        /* default dispatch cb, CODE 11+0x67d0 */
+
+static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
+                         short a_deep, long cb1, long cb2)
+{
+	unsigned char  ctx[54];                 /* fp@(-54): {rec ptr, working copy} */
+	unsigned char  deep;                    /* fp@(-2)  */
+	signed char    exitflag = 0;            /* fp@(-1): 0 keep looping, !=0 exit */
+	short          pollres, procres = 0;    /* fp@(-8), fp@(-6) */
+	short          o10 = 0, o12 = 0;        /* fp@(-10), fp@(-12) */
+
+	PROBE("L63c0");
+
+	/* deep flag = wilderness arg set AND (cell flag rec[5] or jt273) */
+	deep = ((unsigned char)a_wild != 0
+	        && (rec[5] != 0 || jt273() != 0)) ? 1 : 0;
+
+	*(unsigned char **)ctx = rec;           /* ctx[0..3] = rec ptr */
+	g_a5_long(-11666) = (long)(uintptr_t)ctx;
+
+	/* paint the view-interior background rect (jt1161, fill colour 8) */
+	jt1161((short)g_a5_word(-11674), (short)g_a5_word(-11672),
+	       (short)(g_a5_word(-11674) + g_a5_word(-11670)),
+	       (short)(g_a5_word(-11672) + g_a5_word(-11668)), (short)8);
+	l4226(ctx);
+	jt303(rec);                             /* status line */
+
+	/* initial first-person view (deep) or top-down (wilderness) */
+	if ((unsigned char)a_deep) {
+		jt1173((short)8024, (short)8092, (short)8058, (short)8156);
+		jt312(ctx);
+		jt1193();
+	} else {
+		jt280(rec, (short)8024, (short)8092, (short)0);
+	}
+
+	if (cb1 == 0)
+		cb1 = (long)(uintptr_t)(void *)jt238;
+	((void (*)(unsigned char *))(uintptr_t)cb1)(rec);   /* per-screen dispatch */
+
+	/* --- the input / movement loop (L64ae .. L67ae) --- */
+	for (;;) {
+		if (jt1163() == 0 && jt1200() != 0)
+			jt1067();
+		if ((unsigned char)a_deep)
+			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
+		jt1113(&o10, &o12);
+		/* TODO: the cell-change detection + re-render arms
+		 * (L64f2..L666c: jt272/jt284 hit-test, facing/coord update into
+		 * g_a5_-12286/-12287/-12288, jt312/jt280 redraw) are deferred —
+		 * they need jt272/284/297/311 lifted. */
+		(void)o12;
+
+		pollres = jt456();              /* event poll */
+		if (pollres < 0) {
+			jt1080();                   /* idle */
+			if (exitflag != 0)
+				break;
+			continue;
+		}
+		if (deep)
+			rec[5] = (unsigned char)exitflag;
+
+		procres = jt152(pollres);       /* classify */
+		if (procres < 0) {
+			exitflag = (procres == 0 && !(unsigned char)a_deep) ? 1 : -1;
+			break;
+		}
+
+		switch (pollres) {              /* JT[3] min 0 max 5 */
+		case 0:                         /* keyboard (L66e8) */
+			if (jt1160() && (unsigned short)g_a5_word(-10372) >= 257
+			             && (unsigned short)g_a5_word(-10372) <= 264) {
+				jt297(ctx, (short)g_a5_word(-10372), cb2);
+			} else if (g_a5_word(-10372) == 27) {
+				exitflag = -1;          /* Esc */
+			} else if (g_a5_word(-10372) == 13 && (unsigned char)a_sel == 0) {
+				exitflag = 1;           /* Return */
+			} else {
+				jt1080();
+			}
+			break;
+		case 1: case 2: case 3: case 4: /* directional move (L674a) */
+			jt311(ctx, (short)(258 + (procres - 1) * 2), cb2);
+			break;
+		case 5:                         /* select (L676a) */
+			if ((unsigned char)a_sel && l67e4(ctx, (short)(signed char)a_wild)
+			    && cb2 != 0
+			    && ((signed char (*)(unsigned char *))(uintptr_t)cb2)(rec))
+				exitflag = 2;
+			else
+				jt1080();
+			break;
+		default:
+			jt1080();
+			break;
+		}
+		if (exitflag != 0)
+			break;
+	}
+
+	jt451();
+	(void)l4268;
+	return (exitflag > 0) ? exitflag : 0;
+}
+
 /* port_view_demo — drive jt199, the first-person frustum walker, over
  * the real loaded design's GEO map. Seeds the DUNGCOM wall-set handle,
  * logs the runtime view state (the slot-layout DATA globals, the map
