@@ -8329,6 +8329,7 @@ static void jt296(short cellX, short cellY, short width, short height,
 
 /* forward decls — defined later in the file */
 static void jt1007(short cur_sel, short key);
+static void jt216(short cellX, short cellY, short screenX, short screenY, short facing);
 static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
                   short cells_a, short cells_b, short special,
                   short pmark, short batch, short entry);
@@ -8337,10 +8338,62 @@ static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
  * — the live path when jt273()==0 (i.e. JT[358] view-depth 0); it is the next
  * lift. jt213 (CODE 7+0x56f2) records the party cell; jt1088 (CODE 5+0xa8) is a
  * post-render leaf. Stubbed for now. */
+/* L3a1a (CODE 22+0x3a1a, ~489 instrs) — the flat-automap per-cell tile draw
+ * (walls via JT[205] style + JT[212] bit, doors/markers via JT[89]/JT[90],
+ * L06e2/L0788). The big remaining renderer; stubbed pending its own lift, so
+ * L3806 frames the map (origin/window/fill/marker) but the cells are blank. */
+static void l3a1a(short cx, short cy, short sa, short scrx, short special)
+                  { PROBE("L3a1a"); (void)cx;(void)cy;(void)sa;(void)scrx;(void)special; }
+
+/* L3806 (CODE 22 + 0x3806) — the FLAT automap renderer (jt304's depth-0 path;
+ * the live top-down area map). Maps the view anchor to a screen top-left
+ * (jt1135), fills the view background (jt1161), stores the screen origin
+ * (g_a5_-12282/-12280) and visible window dims (g_a5_-12274/-12273 =
+ * clamp(view cells, map dim)), loops the visible cells through L3a1a, and
+ * draws the party marker (JT[216]). Simpler than L3fd8 (no clip/backdrop/3D
+ * setup). Args mirror jt304's call. */
 static void l3806(short p_y, short p_x, short facing, short v1, short v2,
-                  short cells_a, short cells_b, short special, short flag, short batch)
-                  { PROBE("L3806"); (void)p_y;(void)p_x;(void)facing;(void)v1;(void)v2;
-                    (void)cells_a;(void)cells_b;(void)special;(void)flag;(void)batch; }
+                  short cells_a, short cells_b, short special, short pmark, short batch)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short sa, sb, t1, t2, cs, i, j;
+
+	PROBE("L3806");
+
+	if ((batch & 0xff) == 0)
+		jt108((short)1);
+
+	t1 = jt397(v1, (short)8000);
+	t2 = jt397(v2, (short)8000);
+	jt1135(t1, t2, &sa, &sb);
+	cs = g_a5_word(-12272);
+
+	jt1161(sa, sb, (short)(cells_a * cs + sa),
+	       (short)(cells_b * cs + sb), (short)8);
+
+	if ((batch & 0xff) != 0)
+		jt108((short)1);
+
+	g_a5_word(-12282) = sa;
+	g_a5_word(-12280) = sb;
+	g_a5_byte(-12274) = (unsigned char)jt413(jt397(cells_a, (short)1), (short)lvl[2]);
+	g_a5_byte(-12273) = (unsigned char)jt413(jt397(cells_b, (short)1), (short)lvl[3]);
+
+	for (i = 0; i < (short)(unsigned char)g_a5_byte(-12274); i++) {
+		for (j = 0; j < (short)(unsigned char)g_a5_byte(-12273); j++)
+			l3a1a((short)(i + g_a5_word(-12278)),
+			      (short)(j + g_a5_word(-12276)),
+			      sa, (short)(j * cs + sb), (short)(special & 0xff));
+		sa = (short)(sa + cs);
+	}
+
+	if ((pmark & 0xff) != 0)
+		jt216((short)(p_x - g_a5_word(-12278)),
+		      (short)(p_y - g_a5_word(-12276)),
+		      g_a5_word(-12282), g_a5_word(-12280), facing);
+
+	jt117();
+}
 static void jt213(short a, short b, short c)
                   { PROBE("jt213"); (void)a;(void)b;(void)c; }   /* CODE 7+0x56f2 */
 static void jt1088(void)      { PROBE("jt1088"); }              /* CODE 5+0xa8 */
