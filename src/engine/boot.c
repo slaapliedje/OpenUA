@@ -7851,7 +7851,7 @@ static void        jt280(void *rec, short a, short b, short c)
                                                         { PROBE("jt280"); (void)rec;(void)a;(void)b;(void)c; } /* CODE 22+0x265e */
 static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1)*o1=0; if(o2)*o2=0; }        /* CODE 4+0x6204 */
 static short       l2d3e(void);                         /* JT[456] event poll, CODE 3+0x2d3e (full lift, defined below) */
-static short       jt152(short a)                       { PROBE("jt152"); (void)a; return (short)-1; }        /* CODE 7+0x3370 */
+static short       jt152(short sel);                    /* CODE 7+0x3370 classifier (defined below) */
 static void        jt297(void *rec, short key, long cb) { PROBE("jt297"); (void)rec;(void)key;(void)cb; }      /* CODE 22+0x1c3e */
 static signed char jt1160(void)                         { PROBE("jt1160"); return 0; }                        /* CODE 4+0x67c6 */
 static void        l1798(void *rec, short a)            { PROBE("L1798"); (void)rec;(void)a; }                /* CODE 22-local post-move default */
@@ -8107,12 +8107,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		if (deep)
 			rec[5] = (unsigned char)exitflag;
 
-		procres = jt152(pollres);       /* classify */
-		if (procres < 0) {
-			exitflag = (procres == 0 && !(unsigned char)a_deep) ? 1 : -1;
+		procres = jt152(pollres);       /* classify (L66ac) */
+		if (procres >= 0) {
+			/* a command-bar command: end the walk loop. Return 1 only
+			 * for the implicit Move (procres 0) outside deep mode. */
+			exitflag = (procres == 0 && (unsigned char)a_deep == 0)
+			           ? 1 : -1;
 			break;
 		}
 
+		/* procres < 0: not a command -> dispatch the input source */
 		switch (pollres) {              /* JT[3] min 0 max 5 */
 		case 0:                         /* keyboard (L66e8) */
 			if (jt1160() && (unsigned short)g_a5_word(-10372) >= 257
@@ -8127,7 +8131,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			}
 			break;
 		case 1: case 2: case 3: case 4: /* directional move (L674a) */
-			jt311(ctx, (short)(258 + (procres - 1) * 2), cb2);
+			jt311(ctx, (short)(258 + (pollres - 1) * 2), cb2);
 			break;
 		case 5:                         /* select (L676a) */
 			if ((unsigned char)a_sel && l67e4(ctx, (short)(signed char)a_wild)
@@ -16743,6 +16747,37 @@ static short jt164(long prompt, long cmdstring, short arg3, short arg4)
 	}
 	tmp = l23b4((short)(signed char)(arg4 & 0xff));
 	return l25b6(tmp, buf, &g_a5_24139);
+}
+
+/* JT[152] (CODE 7 + 0x3370) — classify a poll result as a command-bar
+ * command or "not a command". L63c0's input loop runs procres = jt152(pollres)
+ * and, if procres >= 0, treats it as a command (and ends the walk loop); if
+ * procres < 0 it dispatches pollres as movement / keyboard / select.
+ *
+ * It copies the live command string (g_a5_-13000) into the scratch buffer
+ * (g_a5_-12908) via JT[384], splits it into words (L1a0c -> count), and maps
+ * a poll index that falls inside [g_a5_-12666, g_a5_-12666 + count] to a
+ * command code via L25b6 (against the accelerator table at g_a5_-24139). An
+ * empty bar returns 13 (the implicit "Move"); an index outside the bar's
+ * range returns -1, which is exactly what routes the directional / keyboard
+ * sources on to L63c0's movement switch. */
+static short jt152(short sel)
+{
+	char *split[20];                /* fp@(-82): L1a0c word-offset scratch */
+	short count;
+
+	PROBE("jt152");
+	jt384((char *)g_a5_buf(-12908), (const char *)g_a5_buf(-13000));
+	count = l1a0c((const char *)g_a5_buf(-12908), split);
+	if (count == 0)
+		return 13;
+	if (sel < g_a5_word(-12666))
+		return (short)-1;
+	if ((short)(g_a5_word(-12666) + count) < sel)
+		return (short)-1;
+	return (short)(l25b6((short)(sel - g_a5_word(-12666)),
+	                     (unsigned char *)split,
+	                     &g_a5_byte(-24139)) & 0xff);
 }
 
 /* Forward decls for jt953's arms defined later in this file. */
