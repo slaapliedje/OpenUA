@@ -7808,8 +7808,9 @@ static void jt312(unsigned char *page)
 /* ===================================================================== *
  * CODE 11 exploration loop — L63c0 (CODE 11 + 0x63c0), milestone 2 of the
  * play-loop lift. FRUA's dungeon-walk loop: paint the view background +
- * status line + first-person view, then spin an input loop — poll (jt456) ->
- * classify (jt152) -> JT[3] dispatch (move / turn / select) -> redraw ->
+ * status line + first-person view, then spin an input loop — poll (l2d3e,
+ * the real JT[456] DLItem event poll) -> classify (jt152) -> JT[3] dispatch
+ * (move / turn / select) -> redraw ->
  * repeat until an exit command. Structural skeleton (lift level 2): the CFG
  * + every JT call are faithful; the leaf action routines below are PROBE
  * stubs until lifted, so the loop's shape is real but the per-arm movement /
@@ -7828,7 +7829,7 @@ static void        jt303(void *rec)                     { PROBE("jt303"); (void)
 static void        jt280(void *rec, short a, short b, short c)
                                                         { PROBE("jt280"); (void)rec;(void)a;(void)b;(void)c; } /* CODE 22+0x265e */
 static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1)*o1=0; if(o2)*o2=0; }        /* CODE 4+0x6204 */
-static short       jt456(void)                          { PROBE("jt456"); return (short)-1; }                 /* event poll, CODE 3+0x2d3e */
+static short       l2d3e(void);                         /* JT[456] event poll, CODE 3+0x2d3e (full lift, defined below) */
 static short       jt152(short a)                       { PROBE("jt152"); (void)a; return (short)-1; }        /* CODE 7+0x3370 */
 static void        jt297(void *rec, short key, long cb) { PROBE("jt297"); (void)rec;(void)key;(void)cb; }      /* CODE 22+0x1c3e */
 static signed char jt1160(void)                         { PROBE("jt1160"); return 0; }                        /* CODE 4+0x67c6 */
@@ -7913,7 +7914,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		 * they need jt272/284/297/311 lifted. */
 		(void)o12;
 
-		pollres = jt456();              /* event poll */
+		pollres = l2d3e();              /* event poll (JT[456]) */
 		if (pollres < 0) {
 			jt1080();                   /* idle */
 			if (exitflag != 0)
@@ -9137,11 +9138,13 @@ void port_play_demo(void)
 	 * play mode (the menu-mode entry path L0004 walks — modes 6..9 -> ... ->
 	 * 14 — needs its CODE 2/8/10 handlers lifted first).
 	 *
-	 * KNOWN LIMITATION: l63c0's event poll (jt456) and movement (jt311/jt297)
-	 * are still stubs, so the faithful frame renders once and then the loop
-	 * idles without reading input — interactivity returns when jt456/jt311
-	 * are lifted (the next steps). This replaces the old port-side WASD demo
-	 * walk with the real play entry. */
+	 * KNOWN LIMITATION: l63c0 now polls the real event poll (l2d3e / JT[456]),
+	 * but the play screen hasn't yet registered its input-source DLItems
+	 * (keyboard, the four directional pads, select) via JT[447]/JT[452], so
+	 * l2d3e finds no source to catch movement/keys and returns -1 — the loop
+	 * renders the faithful frame then idles. Interactivity returns once that
+	 * source registration + the movement handlers (jt311/jt297) are lifted
+	 * (the next steps). This replaces the old port-side WASD demo walk. */
 	{
 		static unsigned char ctx[342];     /* L0004's master state struct */
 		memset(ctx, 0, sizeof ctx);
@@ -11828,12 +11831,18 @@ static void jt1080(void)
  *      L31f0 / further DLItem method dispatch.
  *   5. Return -1 when no item was selected.
  *
- * The v1 lift runs phase 1 + phase 2 with PROBE-stubbed event-read
- * helpers and guards the DLItem method calls against the NULL method
- * pointers JT[452] currently leaves behind (the shape-code dispatch
- * isn't lifted yet). Phases 3+ are documented in the comment but the
- * function always returns -1 — combined with JT[453]'s 30-iteration
- * cap the engine stays responsive without spinning.
+ * Full lift: all five phases run, with the real event-read helpers
+ * (l3198 -> JT[1125] WaitNextEvent, l31ea -> JT[1118], l31f0 -> JT[1133]
+ * keyboard read). DLItem method calls are still guarded against the NULL
+ * method pointers JT[452] leaves behind until its shape-code dispatch is
+ * lifted, so a faithful per-item hit-test can't fire yet — the port
+ * mouse-hit fallback below covers clicks on positioned items in the
+ * meantime. Returns the index of the DLItem that caught the event, or -1.
+ *
+ * This is JT[456]: L63c0's exploration loop and JT[453]'s modal loop both
+ * poll it. For the dungeon walk to resolve movement/keys, the play screen
+ * must first register its input-source DLItems (keyboard, the four
+ * directional pads, select) via JT[447]/JT[452] — the next step.
  */
 static short l2d3e(void)
 {
