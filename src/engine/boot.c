@@ -16058,6 +16058,78 @@ static short jt182(const char *p1, long p2, short arg3, short arg4)
 		return l25b6(tmp, buf, &g_a5_24139);
 	}
 }
+
+/* L2858 (CODE 7 + 0x2858) — stash the picker "mode" word that the bar's
+ * party-row layout (L1f3e) branches on. jt164 sets mode 1. */
+static void l2858(short mode)
+{
+	g_a5_13018 = mode;
+}
+
+/* L1f3e (CODE 7 + 0x1f3e) — size the button bar to the active party. Walks
+ * the g_a5_-27928 party list (.next @ +0, capped at 9) to count members and
+ * caches the count in g_a5_-19176 / g_a5_-12910. When the prompt changed it
+ * also installs one shape-5 DLItem spanning the roster row (proc JT[140] /
+ * JT[156] per the L2858 mode) so a click on the party area registers, and on
+ * a count change it refreshes via JT[444]. That roster-row target is cosmetic
+ * for command selection (the command buttons come from L206e), so the DLItem
+ * install is deferred here — the faithful count walk + cache update run so the
+ * picker's refresh bookkeeping stays correct. */
+static void l1f3e(short a8, short a10)
+{
+	long  node = g_a5_long(-27928);
+	short n    = 0;
+
+	PROBE("L1f3e");
+	(void)a8; (void)a10;
+	while (node != 0 && n < 9) {
+		node = *(long *)(uintptr_t)node;       /* follow .next (offset 0) */
+		n++;
+	}
+	g_a5_19176 = n;
+	/* TODO: install the roster-row DLItem (jt452 shape 5 + JT[156]/JT[140])
+	 * / JT[444] refresh, per CODE 7 + 0x1f6e..0x2054. */
+	g_a5_12910 = g_a5_19176;
+}
+
+/* jt164 (CODE 7 + 0x2fa4) — the horizontal button-bar picker. The play
+ * command bar runs through here: L206e lays a space-delimited button string
+ * (e.g. "Move Area Cast View Encamp Search Look Inv", the A5-13764 global)
+ * into DLItems, the JT[452] stream paints the bar's four bevel-frame items,
+ * L1f3e sizes it to the party, then L23b4 spins the modal loop and L25b6 maps
+ * the pick to a 0-based button index. Sibling of jt182 (the alert); shares
+ * L206e / L23b4 / L25b6. Args mirror jt182: prompt, button string, the
+ * default-item byte (arg3), and the modal-loop seed (arg4). */
+static short jt164(long prompt, long cmdstring, short arg3, short arg4)
+{
+	unsigned char buf[80];
+	unsigned char arg3_lo = (unsigned char)(arg3 & 0xff);
+	short         tmp;
+
+	PROBE("jt164");
+	g_a5_19172 = 8016;
+	g_a5_19174 = 8068;
+	l2858((short)1);
+	l206e(cmdstring, buf, (const char *)(uintptr_t)prompt, &arg3_lo);
+	l1f3e((short)g_a5_19172, (short)g_a5_19174);
+	if (g_a5_12911 != 0) {
+		/* The bar's four bevel-frame DLItems — shape 5 (rec[16]=y,
+		 * rec[18]=x, rec[22], rec[24]) + cmd 41 setter + cmd 20 set-bit,
+		 * faithful to CODE 7 + 0x2ff4..0x3076 (read in JT[452] order). */
+		jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
+		      (long)41, (long)22, (long)20,
+		      (long)5, (long)8000, (long)8020, (long)50, (long)28,
+		      (long)41, (long)11, (long)20,
+		      (long)5, (long)8000, (long)8048, (long)50, (long)20,
+		      (long)41, (long)21, (long)20,
+		      (long)5, (long)8050, (long)8000, (long)30, (long)68,
+		      (long)41, (long)23, (long)20,
+		      (long)0);
+	}
+	tmp = l23b4((short)(signed char)(arg4 & 0xff));
+	return l25b6(tmp, buf, &g_a5_24139);
+}
+
 static short  jt595(short a, short b, short *p1, unsigned char *p2)
                                                      { PROBE("jt595"); (void)a; (void)b; (void)p1; (void)p2; return 0; }
 static void   jt527(void)                            { PROBE("jt527"); }
