@@ -7940,6 +7940,77 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	return (exitflag > 0) ? exitflag : 0;
 }
 
+/* JT[296] (CODE 22 + 0x3792) — map a cell (x,y) to screen coords within the
+ * visible map window. dx/dy = cell - window origin (g_a5_-12278/-12276);
+ * out-of-window -> (-1,-1); else cellsize (g_a5_-12272) * d + screen origin
+ * (g_a5_-12282/-12280). */
+static void jt296(short cellX, short cellY, short width, short height,
+                  short *outX, short *outY)
+{
+	short dx = (short)(cellX - g_a5_word(-12278));
+	short dy = (short)(cellY - g_a5_word(-12276));
+
+	PROBE("jt296");
+	if (dx < 0 || dy < 0
+	    || (short)(unsigned char)width <= dx
+	    || dy >= (short)(unsigned char)height) {
+		if (outX) *outX = (short)-1;
+		if (outY) *outY = (short)-1;
+	} else {
+		if (outX) *outX = (short)(g_a5_word(-12272) * dx + g_a5_word(-12282));
+		if (outY) *outY = (short)(g_a5_word(-12272) * dy + g_a5_word(-12280));
+	}
+}
+
+static void jt304(void *rec)  { PROBE("jt304"); (void)rec; }   /* CODE 22+0x17ca setup */
+static void jt1148(void)      { PROBE("jt1148"); }             /* CODE 4+0x61f8 init   */
+static void jt1087(short a)   { PROBE("jt1087"); (void)a; }    /* CODE 5+0x12c per-row */
+
+/* L52f2 (CODE 11 + 0x52f2) — draw one automap cell: map the cell's stored
+ * (x,y) to the screen (jt296); if it lands in the map window, draw its column
+ * number via jt1089 (colour alternates per map row). jt1139 re-derives the
+ * row/col anchor the Mac feeds the text. */
+static void l52f2(short cellX, short cellY, short width, short height,
+                  short col, short rowhalf)
+{
+	short outX = 0, outY = 0, sx, sy;
+
+	PROBE("L52f2");
+	jt296(cellX, cellY, width, height, &outX, &outY);
+	if (outX < 0 || outY < 0)
+		return;
+	sx = (short)(outX + g_a5_word(-12272));
+	sy = (short)(outY + g_a5_word(-12272));
+	jt1139((short)8000, (short)8000, outX, outY, &sx, &sy);
+	jt1089((short)(sx + 8000), (short)(sy + 8000),
+	       ((unsigned char)rowhalf != 0) ? (short)15 : (short)240,
+	       "%d", (int)((unsigned char)col + 1));
+}
+
+/* JT[237] (CODE 11 + 0x5236) — the automap render (L63c0's cb1 in the
+ * wilderness arm). jt304 setup, then walk the 5x8 visible cells drawing each
+ * one's number (L52f2). jt1087 advances the map row each pass (stubbed, so the
+ * skeleton repeats the first row until lifted); jt1148/jt1130 frame it. */
+static void jt237(unsigned char *rec)
+{
+	short row, col;
+
+	PROBE("jt237");
+	jt304(rec);
+	jt1148();
+	for (row = 0; row < 5; row++) {
+		for (col = 7; col >= 0; col--) {
+			unsigned char *cell = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-12300) + (long)col * 4);
+			l52f2((short)cell[14], (short)cell[15],
+			      (short)g_a5_byte(-11708), (short)g_a5_byte(-11707),
+			      col, (short)(row & 1));
+		}
+		jt1087((short)2);
+	}
+	jt1130();
+}
+
 /* port_view_demo — drive jt199, the first-person frustum walker, over
  * the real loaded design's GEO map. Seeds the DUNGCOM wall-set handle,
  * logs the runtime view state (the slot-layout DATA globals, the map
