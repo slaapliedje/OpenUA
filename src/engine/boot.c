@@ -1659,6 +1659,7 @@ static void  jt10_handler(void) { }     /* CODE 6 + 0x0538 (jump-table entry 10)
 static void  jt11_handler(void) { }     /* CODE 6 + 0x04c0 (jump-table entry 11) */
 
 void port_play_demo(void);              /* interactive 3D-view demo (FRUA_3D_DEMO) */
+static short jt953(void);                /* exploration command dispatcher */
 
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
@@ -8711,6 +8712,17 @@ void port_play_demo(void)
 		case 'r': case 'R':            /* camp to rest (real play only) */
 			if (g_adventure_mode) {
 				port_rest();
+				g_view_force_full = 1;
+			}
+			break;
+		case 'c': case 'C':            /* faithful command bar (jt953) */
+			if (g_adventure_mode) {
+				short prev = (short)g_a5_2347;
+				g_a5_2347 = 1;         /* jt1135 UI scale 2 */
+				g_a5_27990 = 4;        /* command-bar mode */
+				jt131((short)6); jt112((short)1); jt81(); jt447();
+				(void)jt953();
+				g_a5_2347 = prev;
 				g_view_force_full = 1;
 			}
 			break;
