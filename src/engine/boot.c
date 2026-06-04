@@ -8336,8 +8336,112 @@ static void jt1087(short a)   { PROBE("jt1087"); (void)a; }    /* CODE 5+0x12c p
  * ~17 local helpers) is the dungeon-cell tile draw; jt214 (CODE 7+0x71c6) and
  * jt124 (CODE 6+0x3eea) are per-view setup leaves; jt448 (CODE 3+0x148a) is the
  * glyph drawer JT[216] uses. */
+static short l0788(short cx, short cy)
+                              { PROBE("L0788"); (void)cx;(void)cy; return 0; } /* CODE 22+0x788 cell-fill colour */
+
+/* JT[212] (CODE 7 + 0x5cc8) — wall-bit test for the automap. Reads the GEO
+ * cell record (level base g_a5_-12300 + 290 + (lvl[3]*col + row)*6) and returns
+ * the high nibble of the byte for the requested edge ((edge & 6) >> 1) — 0 =
+ * open, nonzero = a wall of that type. */
+static short jt212(short row, short col, short edge)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short eidx = (short)((edge & 6) >> 1);
+	long  idx  = (long)((short)lvl[3] * col + row);
+	unsigned char w = lvl[290 + idx * 6 + eidx];
+
+	PROBE("jt212");
+	return (short)((w >> 4) & 15);
+}
+
+/* L4430 (CODE 22 + 0x4430) — draw one automap cell. Dispatches on the cell
+ * `special` kind: 0 = a normal cell (draw a white wall line on each of the 4
+ * edges that has no open passage to its neighbour — tested via JT[212] and the
+ * direction-step tables g_a5_-27862 [drow] / -27853 [dcol]); 2 = a filled cell
+ * (L0788 colour) + optional marker; 3 = a special/visited marker; 1/4 = blank.
+ * (cx,cy) is the cell, (sa,scrx) its screen top-left, cs the cell pixel size. */
 static void l4430(short cx, short cy, short sa, short scrx, short special)
-                              { PROBE("L4430"); (void)cx;(void)cy;(void)sa;(void)scrx;(void)special; }
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short cs    = g_a5_word(-12272);
+	short far_x = (short)(sa + cs);         /* fp@(-2) */
+	short far_y = (short)(scrx + cs);       /* fp@(-4) */
+	short edge;
+
+	PROBE("L4430");
+	if ((special & 0xff) == 4)
+		return;
+
+	switch (special & 0xff) {
+	case 0:                                 /* normal cell — wall lines */
+		for (edge = 2; edge <= 8; edge += 2) {
+			short ncol = (short)((signed char)g_a5_byte(-27853 + (edge & 7)) + cx);
+			short nrow = (short)((signed char)g_a5_byte(-27862 + edge) + cy);
+			short opp  = (short)(edge + 4);
+			short wall = 1;
+
+			if (opp > 8) opp -= 8;
+			if (ncol >= 0 && ncol < (short)lvl[2]
+			 && nrow >= 0 && nrow < (short)lvl[3]
+			 && jt212(nrow, ncol, opp) == 0)
+				wall = 0;               /* open passage -> no wall */
+			if (!wall)
+				continue;
+			switch (edge) {
+			case 2:  /* right edge */
+				jt1161((short)(sa + 1), (short)(far_y - 1),
+				       (short)(far_x - 1), far_y, (short)15);
+				break;
+			case 4:  /* bottom edge */
+				jt1161((short)(far_x - 1), (short)(scrx + 1),
+				       far_x, (short)(far_y - 1), (short)15);
+				break;
+			case 6:  /* left edge */
+				jt1161((short)(sa + 1), scrx,
+				       (short)(far_x - 1), (short)(scrx + 1), (short)15);
+				break;
+			case 8:  /* top edge */
+				jt1161(sa, (short)(scrx + 1),
+				       (short)(sa + 1), (short)(far_y - 1), (short)15);
+				break;
+			default: break;
+			}
+		}
+		break;
+
+	case 2: {                               /* filled cell + marker */
+		short color = (short)(l0788(cx, cy) & 0xff);
+		long  idx;
+		jt1161((short)(sa + 2), (short)(scrx + 2),
+		       (short)(far_x - 2), (short)(far_y - 2), color);
+		idx = (long)((short)lvl[3] * cx + cy);
+		if (jt276((short)idx) != 0)
+			jt1161((short)(sa + 3), (short)(scrx + 3),
+			       (short)(far_x - 3), (short)(far_y - 3), (short)15);
+		break;
+	}
+
+	case 3: {                               /* special / visited marker */
+		long idx = (long)((short)lvl[3] * cx + cy);
+		if (jt276((short)idx) != 0) {
+			jt1161((short)(sa + 3), (short)(scrx + 3),
+			       (short)(far_x - 3), (short)(far_y - 3), (short)15);
+		} else {
+			const unsigned char *cell = lvl + idx * 6;
+			if (cell[294] != 0) {
+				/* a hollow 2px box border (four edge bands) */
+				jt1161(sa, scrx, (short)(sa + 2), far_y, (short)15);
+				jt1161(sa, (short)(far_y - 2), far_x, far_y, (short)15);
+				jt1161((short)(far_x - 2), scrx, far_x, far_y, (short)15);
+				jt1161(sa, scrx, far_x, (short)(scrx + 2), (short)15);
+			}
+		}
+		break;
+	}
+	default:
+		break;
+	}
+}
 static void jt214(void)       { PROBE("jt214"); }              /* CODE 7+0x71c6 view setup */
 static void jt124(long h)     { PROBE("jt124"); (void)h; }     /* CODE 6+0x3eea backdrop   */
 static void jt448(short x, short y, short color, short glyph)
