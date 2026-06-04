@@ -9753,6 +9753,8 @@ static short jt1118(void)
  * input — clicks and keys from the host flow into the menu
  * system. Previously the loop spun forever because every poll
  * returned 0. */
+short g_event_was_click;   /* set by jt1125: 1 if the last event was a click */
+
 static short  jt1125(short kind, long p1, long p2)
 {
 	EventRecord ev;
@@ -9770,6 +9772,7 @@ static short  jt1125(short kind, long p1, long p2)
 		return 0;
 	}
 
+	g_event_was_click = (ev.what == mouseDown) ? 1 : 0;
 	switch (ev.what) {
 	case keyDown:
 	case autoKey:
@@ -11444,6 +11447,33 @@ static short l2d3e(void)
 	jt1153(1);
 	l2c60((short)0);                /* walk dirty items with cmd=1 */
 	key = l3198(7, (long)&mouse_y, (long)&mouse_x);
+
+	/* Port mouse hit-test: the faithful per-item method(rec,2,y,x) hit-test
+	 * needs the shape-7 DLItem method dispatch, which is unlifted (the method
+	 * pointers are NULL), so a click never lands. When jt1125 reported a
+	 * mouseDown (mouse_y = where.h = x, mouse_x = where.v = y), walk the
+	 * positioned DLItems (rec[16]=y, rec[18]=x in 8000-space) and reproduce
+	 * the plate rect (menu_draw_plates: jt1135 -> [pxx-5,pxx+145) x
+	 * [py-7,py+3)); commit + return the item under the click. */
+	if (key != 0 && g_event_was_click) {
+		short cx = mouse_y, cy = mouse_x;
+		unsigned char *hr = (unsigned char *)g_a5_9254;
+		for (i = 0; i < count; i++) {
+			short iy = *(short *)(hr + 16);
+			short ix = *(short *)(hr + 18);
+			if (iy >= 8000) {              /* a positioned (drawable) item */
+				short py, pxx;
+				jt1135(iy, ix, &py, &pxx);
+				if (cx >= (short)(pxx - 5) && cx < (short)(pxx + 145)
+				 && cy >= (short)(py - 7) && cy < (short)(py + 3)) {
+					hr[28] |= 0x10;
+					return i;
+				}
+			}
+			hr += DLITEM_BYTES;
+		}
+		/* click missed every item — fall through (no selection) */
+	}
 
 	/* Phase 2 — hit-test: walk DLItems calling method(rec, 2, y, x).
 	 * First non-zero return is the item under the mouse. Method
