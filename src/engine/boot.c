@@ -8330,6 +8330,8 @@ static void jt296(short cellX, short cellY, short width, short height,
 /* forward decls — defined later in the file */
 static void jt1007(short cur_sel, short key);
 static void jt216(short cellX, short cellY, short screenX, short screenY, short facing);
+static short jt212(short row, short col, short edge);
+static short l0788(short cx, short cy);
 static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
                   short cells_a, short cells_b, short special,
                   short pmark, short batch, short entry);
@@ -8338,12 +8340,135 @@ static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
  * — the live path when jt273()==0 (i.e. JT[358] view-depth 0); it is the next
  * lift. jt213 (CODE 7+0x56f2) records the party cell; jt1088 (CODE 5+0xa8) is a
  * post-render leaf. Stubbed for now. */
-/* L3a1a (CODE 22+0x3a1a, ~489 instrs) — the flat-automap per-cell tile draw
- * (walls via JT[205] style + JT[212] bit, doors/markers via JT[89]/JT[90],
- * L06e2/L0788). The big remaining renderer; stubbed pending its own lift, so
- * L3806 frames the map (origin/window/fill/marker) but the cells are blank. */
+/* JT[205] (CODE 7 + 0x5f18) — wall-STYLE test, twin of JT[212]: same GEO cell
+ * record read (lvl + 290 + (lvl[3]*col + row)*6 + ((edge&6)>>1)) but returns
+ * the LOW nibble (the wall graphic/style; JT[212] returns the high nibble). */
+static short jt205(short row, short col, short edge)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short eidx = (short)((edge & 6) >> 1);
+	long  idx  = (long)((short)lvl[3] * col + row);
+
+	PROBE("jt205");
+	return (short)(lvl[290 + idx * 6 + eidx] & 15);
+}
+
+static void  jt89(void)               { PROBE("jt89"); }   /* CODE 6+0x4d7c pre-fill */
+static void  jt90(void)               { PROBE("jt90"); }   /* CODE 6+0x4d8c post-fill */
+static short l06e2(short cx, short cy) { PROBE("L06e2"); (void)cx;(void)cy; return 0; } /* CODE 22+0x6e2 */
+
+/* L3a1a (CODE 22 + 0x3a1a) — draw one flat-automap cell. Clears the cell,
+ * dots its 4 corners, draws a wall line on each edge that has a wall style
+ * (JT[205]; colour 15 in deep mode else the style), opens a door gap where the
+ * wall bit (JT[212]) is a doorway (<= 1), then either: special 0 -> per-edge
+ * door jamb marks; special 1/2/3 -> a feature fill (colour from L06e2 / L0788 /
+ * the cell's byte[294]); special 4 -> nothing more. cx/cy = cell, sa/scrx =
+ * its screen top-left, cs = cell pixel size. */
 static void l3a1a(short cx, short cy, short sa, short scrx, short special)
-                  { PROBE("L3a1a"); (void)cx;(void)cy;(void)sa;(void)scrx;(void)special; }
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short cs    = g_a5_word(-12272);
+	short far_x = (short)(sa + cs);
+	short far_y = (short)(scrx + cs);
+	short st_n, st_e, st_s, st_w;       /* JT[205] wall styles, edges 8/2/4/6 */
+	short bt_n, bt_e, bt_s, bt_w;       /* JT[212] wall bits */
+	short off, color, px, py;
+	short deep = (jt1200() == 3);
+
+	PROBE("L3a1a");
+
+	jt1161(sa, scrx, far_x, far_y, (short)0);           /* clear */
+
+	/* four corner dots (colour 15) */
+	jt1135(sa, scrx, &px, &py);
+	jt1161(px, py, (short)(px + 1), (short)(py + 1), (short)15);
+	jt1135(sa, (short)(far_y - 1), &px, &py);
+	jt1161(px, py, (short)(px + 1), (short)(py + 1), (short)15);
+	jt1135((short)(far_x - 1), scrx, &px, &py);
+	jt1161(px, py, (short)(px + 1), (short)(py + 1), (short)15);
+	jt1135((short)(far_x - 1), (short)(far_y - 1), &px, &py);
+	jt1161(px, py, (short)(px + 1), (short)(py + 1), (short)15);
+
+	/* wall lines: edge 8/N, 2/E, 4/S, 6/W */
+	st_n = jt205(cy, cx, (short)8);
+	if (st_n != 0) {
+		color = deep ? (short)15 : st_n;
+		jt1161(sa, (short)(scrx + 1), (short)(sa + 1), (short)(far_y - 1), color);
+	}
+	st_e = jt205(cy, cx, (short)2);
+	if (st_e != 0) {
+		color = deep ? (short)15 : st_e;
+		jt1161((short)(sa + 1), (short)(far_y - 1), (short)(far_x - 1), far_y, color);
+	}
+	st_s = jt205(cy, cx, (short)4);
+	if (st_s != 0) {
+		color = deep ? (short)15 : st_s;
+		jt1161((short)(far_x - 1), (short)(scrx + 1), far_x, (short)(far_y - 1), color);
+	}
+	st_w = jt205(cy, cx, (short)6);
+	if (st_w != 0) {
+		color = deep ? (short)15 : st_w;
+		jt1161((short)(sa + 1), scrx, (short)(far_x - 1), (short)(scrx + 1), color);
+	}
+
+	/* wall bits (doorways) */
+	bt_n = jt212(cy, cx, (short)8);
+	bt_e = jt212(cy, cx, (short)2);
+	bt_s = jt212(cy, cx, (short)4);
+	bt_w = jt212(cy, cx, (short)6);
+
+	off = (short)((cs - 2) / 2);
+
+	/* door gaps (clear, colour 0) where there is a wall and a doorway bit */
+	if (st_n != 0 && bt_n <= 1)
+		jt1161(sa, (short)(scrx + off), (short)(sa + 1), (short)(scrx + off + 2), (short)0);
+	if (st_e != 0 && bt_e <= 1)
+		jt1161((short)(sa + off), (short)(far_y - 1), (short)(sa + off + 2), far_y, (short)0);
+	if (st_s != 0 && bt_s <= 1)
+		jt1161((short)(far_x - 1), (short)(scrx + off), far_x, (short)(scrx + off + 2), (short)0);
+	if (st_w != 0 && bt_w <= 1)
+		jt1161((short)(sa + off), scrx, (short)(sa + off + 2), (short)(scrx + 1), (short)0);
+
+	if ((special & 0xff) == 0) {
+		/* per-edge door jamb marks (colour = the wall bit value) */
+		short o2 = (short)(off - 1);
+		if (bt_n != 0)
+			jt1161((short)(sa + 1), (short)(scrx + o2), (short)(sa + 2),
+			       (short)(scrx + o2 + 4), bt_n);
+		if (bt_e != 0)
+			jt1161((short)(sa + o2), (short)(far_y - 2), (short)(sa + o2 + 4),
+			       (short)(far_y - 1), bt_e);
+		if (bt_s != 0)
+			jt1161((short)(far_x - 2), (short)(scrx + o2), (short)(far_x - 1),
+			       (short)(scrx + o2 + 4), bt_s);
+		if (bt_w != 0)
+			jt1161((short)(sa + o2), (short)(scrx + 1), (short)(sa + o2 + 4),
+			       (short)(scrx + 2), bt_w);
+		return;
+	}
+
+	if ((special & 0xff) == 4)
+		return;
+
+	/* special 1/2/3: a feature fill, inset by 1px */
+	sa    = (short)(sa + 1);
+	scrx  = (short)(scrx + 1);
+	far_x = (short)(far_x - 1);
+	far_y = (short)(far_y - 1);
+	switch (special & 0xff) {
+	case 2:  color = (short)(l0788(cx, cy) & 0xff); break;
+	case 1:  color = (short)(l06e2(cx, cy) & 0xff); break;
+	case 3: {
+		const unsigned char *cell = lvl + (long)((short)lvl[3] * cx + cy) * 6;
+		color = (cell[294] != 0) ? (short)15 : (short)0;
+		break;
+	}
+	default: color = 0; break;
+	}
+	if (deep) jt89();
+	jt1161(sa, scrx, far_x, far_y, color);
+	if (deep) jt90();
+}
 
 /* L3806 (CODE 22 + 0x3806) — the FLAT automap renderer (jt304's depth-0 path;
  * the live top-down area map). Maps the view anchor to a screen top-left
