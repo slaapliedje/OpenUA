@@ -8331,6 +8331,127 @@ static void jt304(void *rec)  { PROBE("jt304"); (void)rec; }   /* CODE 22+0x17ca
 static void jt1148(void)      { PROBE("jt1148"); }             /* CODE 4+0x61f8 init   */
 static void jt1087(short a)   { PROBE("jt1087"); (void)a; }    /* CODE 5+0x12c per-row */
 
+/* L3fd8 cluster deps — the per-cell tile renderer and a few leaf setups stay
+ * PROBE stubs pending their own lifts. L4430 (CODE 22+0x4430, ~270 instrs +
+ * ~17 local helpers) is the dungeon-cell tile draw; jt214 (CODE 7+0x71c6) and
+ * jt124 (CODE 6+0x3eea) are per-view setup leaves; jt448 (CODE 3+0x148a) is the
+ * glyph drawer JT[216] uses. */
+static void l4430(short cx, short cy, short sa, short scrx, short special)
+                              { PROBE("L4430"); (void)cx;(void)cy;(void)sa;(void)scrx;(void)special; }
+static void jt214(void)       { PROBE("jt214"); }              /* CODE 7+0x71c6 view setup */
+static void jt124(long h)     { PROBE("jt124"); (void)h; }     /* CODE 6+0x3eea backdrop   */
+static void jt448(short x, short y, short color, short glyph)
+                              { PROBE("jt448"); (void)x;(void)y;(void)color;(void)glyph; } /* CODE 3+0x148a */
+
+/* JT[216] (CODE 7 + 0x5752) — draw the party-position marker on the automap.
+ * Advances (screenX, screenY) by the cell offset * cellsize, picks a glyph
+ * from the facing (17 + ((facing&6)>>1), +4 in the cellsize-12 layout), and
+ * blits it via jt448. */
+static void jt216(short cellX, short cellY, short screenX, short screenY, short facing)
+{
+	short glyph;
+
+	PROBE("jt216");
+	screenX = (short)(cellX * g_a5_word(-12272) + screenX);
+	screenY = (short)(cellY * g_a5_word(-12272) + screenY);
+	glyph   = (g_a5_word(-12272) == 12) ? (short)4 : (short)0;
+	glyph  += (short)((facing & 6) >> 1);
+	glyph  += (short)17;
+	jt448(screenX, screenY, (short)12, glyph);
+}
+
+/* L3fd8 (CODE 22 + 0x3fd8) — the play-view (automap / dungeon-view) renderer.
+ * Maps the view anchor to a screen top-left (jt1135), fills the view-interior
+ * background (jt1161), stores the screen origin (g_a5_-12282/-12280) and the
+ * visible window dimensions (g_a5_-12274/-12273 = clamp(view cells, map dim)),
+ * sets the engine clip to the cell grid (jt1173), positions the backdrop
+ * (jt1139 / JT[1001] / jt124 / jt1193), then loops the visible cells drawing
+ * each through L4430 and finally the party marker (JT[216]).
+ *
+ * Structural lift (level 2): the setup / origin / clip / window / fill and the
+ * cell-loop control flow are faithful; the per-cell tile draw (L4430) is a stub
+ * pending its own lift, so the grid frames correctly but the wall/floor tiles
+ * are blank. jt214 / jt124 (leaf setups) are stubs too. Args mirror jt304's
+ * call: party (y,x,facing), the view anchor (v1,v2), the view-cell dims
+ * (cells_a,cells_b), and the special/marker/batch/entry flags. */
+static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
+                  short cells_a, short cells_b, short special,
+                  short pmark, short batch, short entry) __attribute__((unused));
+static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
+                  short cells_a, short cells_b, short special,
+                  short pmark, short batch, short entry)
+{
+	const unsigned char *lvl;
+	short sa, sb;                   /* fp@(-10)/(-12): screen top-left */
+	short t1, t2;                   /* fp@(-6)/(-8) */
+	short i, j, cs;
+
+	PROBE("L3fd8");
+
+	if ((batch & 0xff) == 0)
+		jt112((short)1);        /* paint batch begin (JT[108] in asm; jt112 ok) */
+
+	t1 = jt397(v1, (short)8000);
+	t2 = jt397(v2, (short)8000);
+	jt1135(t1, t2, &sa, &sb);
+
+	cs = g_a5_word(-12272);
+
+	/* view-interior background fill (colour 8) */
+	jt1161((short)(((batch & 0xff) == 0 ? (short)(cs * 15) : (short)0) + sa),
+	       sb,
+	       (short)(cells_a * cs + sa),
+	       (short)(cells_b * cs + sb), (short)8);
+
+	if ((batch & 0xff) != 0)
+		jt112((short)1);
+
+	entry = jt397((short)1, jt413((short)4, (short)(entry & 0xff)));
+	jt214();
+
+	g_a5_word(-12282) = sa;
+	g_a5_word(-12280) = sb;
+	lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	g_a5_byte(-12274) = (unsigned char)jt413(jt397(cells_a, (short)1), (short)lvl[2]);
+	g_a5_byte(-12273) = (unsigned char)jt413(jt397(cells_b, (short)1), (short)lvl[3]);
+
+	/* clip to the visible cell grid */
+	jt1173(sa, sb,
+	       (short)((short)(unsigned char)g_a5_byte(-12274) * cs + sa),
+	       (short)((short)(unsigned char)g_a5_byte(-12273) * cs + sb));
+
+	/* position the backdrop under the cells */
+	t1 = (short)(g_a5_word(-12278) * cs);
+	t2 = (short)(g_a5_word(-12276) * cs);
+	{
+		short bx, by;
+		jt1139(sa, sb, t1, t2, &bx, &by);
+		jt1001((short)(8000 - bx), (short)(8000 - by),
+		       *(short *)(uintptr_t)g_a5_long(-24260), (short)1);
+	}
+	jt124(g_a5_long(-24260));
+	jt1193();
+
+	/* per-cell render (L4430 stubbed) */
+	if ((special & 0xff) != 4) {
+		for (i = 0; i < (short)(unsigned char)g_a5_byte(-12274); i++) {
+			for (j = 0; j < (short)(unsigned char)g_a5_byte(-12273); j++)
+				l4430((short)(i + g_a5_word(-12278)),
+				      (short)(j + g_a5_word(-12276)),
+				      sa, (short)(j * cs + sb), (short)(special & 0xff));
+			sa = (short)(sa + cs);
+		}
+	}
+
+	/* party-position marker */
+	if ((pmark & 0xff) != 0)
+		jt216((short)(p_x - g_a5_word(-12278)),
+		      (short)(p_y - g_a5_word(-12276)),
+		      g_a5_word(-12282), g_a5_word(-12280), facing);
+
+	jt117();
+}
+
 /* L52f2 (CODE 11 + 0x52f2) — draw one automap cell: map the cell's stored
  * (x,y) to the screen (jt296); if it lands in the map window, draw its column
  * number via jt1089 (colour alternates per map row). jt1139 re-derives the
