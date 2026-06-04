@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from datapool import (                                                  # noqa: E402
     RELOC_BASE_A4,
     RELOC_BASE_A5,
+    expand_data,
     parse_data,
     parse_drel,
 )
@@ -145,7 +146,11 @@ def main(argv=None):
         drel_bytes = b""
     else:
         blob = Path(args.archive).read_bytes()
-        data_bytes = _frsc_lookup(blob, b"DATA", 0)
+        # DATA is THINK C's compressed globals image; expand it with the ZERO
+        # run-length table (CODE 1's L009c) so the full below-A5 world — every
+        # string-pointer global included — is reproduced before relocation.
+        data_bytes = expand_data(_frsc_lookup(blob, b"DATA", 0),
+                                 _frsc_lookup(blob, b"ZERO", 0))
         drel_bytes = _frsc_lookup(blob, b"DREL", 0)
     table = parse_drel(drel_bytes)
     pool = parse_data(data_bytes, drel_min_a5_offset=table.a5_min())

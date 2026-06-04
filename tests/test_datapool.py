@@ -10,10 +10,46 @@ from datapool import (
     RELOC_BASE_A4,
     RELOC_BASE_A5,
     data_offset_for,
+    expand_data,
     parse_data,
     parse_drel,
     read_initial_long,
 )
+
+
+def test_expand_data_passes_through_nonzero_words():
+    # No 0x0000 words -> output identical to input, ZERO untouched.
+    data = struct.pack(">4H", 0x1234, 0xABCD, 0x00FF, 0xFF00)
+    assert expand_data(data, b"") == data
+
+
+def test_expand_data_zero_run_emits_word_plus_n_bytes():
+    # A 0x0000 word emits the 2 copied bytes plus `n` more zero bytes
+    # (the dbf loop runs n times, not n+1). n=3 here -> 5 zero bytes,
+    # framed by the literal words on either side.
+    data = struct.pack(">H", 0x1111) + b"\x00\x00" + struct.pack(">H", 0x2222)
+    zero = struct.pack(">H", 3)
+    out = expand_data(data, zero)
+    assert out == b"\x11\x11" + b"\x00" * 5 + b"\x22\x22"
+
+
+def test_expand_data_zero_run_n_zero_is_just_the_word():
+    # n=0 -> only the 2 bytes from the copied zero word, no extra.
+    data = b"\x00\x00" + struct.pack(">H", 0x4242)
+    out = expand_data(data, struct.pack(">H", 0))
+    assert out == b"\x00\x00\x42\x42"
+
+
+def test_expand_data_consumes_one_zero_entry_per_zero_word():
+    data = b"\x00\x00" b"\x00\x00"
+    zero = struct.pack(">2H", 1, 2)
+    # word1 -> 2 + 1 zeros; word2 -> 2 + 2 zeros.
+    assert expand_data(data, zero) == b"\x00" * (2 + 1 + 2 + 2)
+
+
+def test_expand_data_raises_when_zero_table_short():
+    with pytest.raises(ValueError):
+        expand_data(b"\x00\x00", b"")
 
 
 def test_parse_data_records_byte_count():
