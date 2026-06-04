@@ -4915,6 +4915,14 @@ static short l1676(unsigned char *rec, short cmd, ...)
 	return 0;
 }
 
+/* jt376 — shape 7 method: the keyboard / command source. Real JT[376]
+ * (CODE 3+0x2862): on a key event (cmd 5) with an action proc installed at
+ * rec[4] and the item enabled (rec[28] & 3 == 0), call that proc with the
+ * source's index ((rec - g_a5_-9254) / DLITEM_BYTES) and the key, returning
+ * its result. cmd 4 returns 0; everything else (paint, etc.) delegates to
+ * l1676. The dungeon-walk keyboard source's action proc is JT[287] (installed
+ * by l6256); until JT[287] is lifted the proc returns 0, so l2d3e doesn't yet
+ * latch a key — but the handler dispatch is now faithful. */
 static short jt376(void *rec_v, short cmd, ...) __attribute__((unused));
 static short jt376(void *rec_v, short cmd, ...)
 {
@@ -4929,6 +4937,19 @@ static short jt376(void *rec_v, short cmd, ...)
 	a = (short)va_arg(ap, int);
 	b = (short)va_arg(ap, int);
 	va_end(ap);
+
+	if (cmd == 5) {
+		long proc = *(long *)(rec + 4);
+		if (proc != 0 && (rec[28] & 3) == 0) {
+			short idx = (short)(((unsigned char *)rec
+			            - (unsigned char *)(uintptr_t)g_a5_9254)
+			            / DLITEM_BYTES);
+			return ((short (*)(short, short))(uintptr_t)proc)(idx, a);
+		}
+		return l1676(rec, cmd, a, b);   /* no proc / disabled -> default */
+	}
+	if (cmd == 4)
+		return 0;
 	return l1676(rec, cmd, a, b);
 }
 static short jt377(void *rec_v, short cmd, ...) __attribute__((unused));
@@ -7848,8 +7869,8 @@ static void        l429c(short a, short b)               { PROBE("L429c"); (void
 static void        l476e(short a, short b)               { PROBE("L476e"); (void)a;(void)b; }                  /* CODE 11-local */
 static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
 static signed char jt276(short cell)                    { PROBE("jt276"); (void)cell; return 0; }             /* CODE 22+0x475e */
-static void        jt287(void)                          { PROBE("jt287"); }                                   /* walk action proc, CODE 22+0x1bc6 */
-static void        jt294(void)                          { PROBE("jt294"); }                                   /* select action proc, CODE 22+0x1c26 */
+static short       jt287(short idx, short key)          { PROBE("jt287"); (void)idx;(void)key; return 0; }    /* kbd action proc, CODE 22+0x1bc6 */
+static short       jt294(short flag, short y, short x)   { PROBE("jt294"); (void)flag;(void)y;(void)x; return 0; } /* region action proc, CODE 22+0x1c26 */
 static void        jt179(short count);                  /* defined far below (CODE 7+0x11ee) */
 static void        jt452(long shape0, ...);             /* DLItem stream builder (defined below) */
 
@@ -11882,11 +11903,10 @@ static void jt1080(void)
  *
  * Full lift: all five phases run, with the real event-read helpers
  * (l3198 -> JT[1125] WaitNextEvent, l31ea -> JT[1118], l31f0 -> JT[1133]
- * keyboard read). DLItem method calls are still guarded against the NULL
- * method pointers JT[452] leaves behind until its shape-code dispatch is
- * lifted, so a faithful per-item hit-test can't fire yet — the port
- * mouse-hit fallback below covers clicks on positioned items in the
- * meantime. Returns the index of the DLItem that caught the event, or -1.
+ * keyboard read). The DLItem method table (g_a5_-9282, the 7 shape handlers
+ * jt376..jt382) is populated at boot, so JT[452] parks real method pointers
+ * and the per-item hit-test / key dispatch fires; the NULL guard stays
+ * defensive. Returns the index of the DLItem that caught the event, or -1.
  *
  * This is JT[456]: L63c0's exploration loop and JT[453]'s modal loop both
  * poll it. For the dungeon walk to resolve movement/keys, the play screen
