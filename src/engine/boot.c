@@ -14598,14 +14598,35 @@ static int    jt159(const char *prompt, short b)
 	r = jt182(prompt, (long)(uintptr_t)"Yes No", 1, g_a5_22281);
 	return (r == 0) ? 1 : 0;
 }
-/* JT[1173] / JT[1193] / L2062 — paint init/commit leaves JT[176]
- * reaches into. PROBE for now; bodies live further inside the
- * window-paint cluster (CODE 4 + 0x164c, CODE 4 + 0x16e0, CODE 7
- * + 0x2062). */
-static void jt1173(short top, short left, short right, short bottom)
-                                                  { PROBE("jt1173"); (void)top;
-                                                    (void)left; (void)right;
-                                                    (void)bottom; }
+/* JT[1173] (CODE 4 + 0x164c) — set the engine clip rect. Lifted: each arg is
+ * an 8000-space coord run through L77fe (== jt1135: (v>6000)?(v-8000)*scale:v,
+ * scale = (g_a5_-2347==0)?3:2) into the clip globals, then clamped to the
+ * screen and zeroed if degenerate. Arg order is (top, left, bottom, right) —
+ * the old stub's name had bottom/right swapped, but the call sites already
+ * pass the values positionally, so they're unchanged.
+ *
+ *   g_a5_-3054 = top    g_a5_-3056 = left
+ *   g_a5_-3050 = bottom g_a5_-3052 = right     (L04cc = height, L04de = width) */
+static void jt1173(short top, short left, short bottom, short right)
+{
+	PROBE("jt1173");
+	jt1135(top, left, &g_a5_3054, &g_a5_3056);
+	jt1135(bottom, right, &g_a5_3050, &g_a5_3052);
+	if (g_a5_3054 < 0)
+		g_a5_3054 = 0;
+	if (g_a5_3056 < 0)
+		g_a5_3056 = 0;
+	if (l04cc() < g_a5_3050)
+		g_a5_3050 = l04cc();
+	if (l04de() < g_a5_3052)
+		g_a5_3052 = l04de();
+	if (g_a5_3054 >= g_a5_3050 || g_a5_3056 >= g_a5_3052) {
+		g_a5_3050 = 0;
+		g_a5_3052 = 0;
+		g_a5_3054 = 0;
+		g_a5_3056 = 0;
+	}
+}
 static void jt1193(void)                          { PROBE("jt1193"); }
 static void l2062(void)                           { PROBE("l2062"); }
 
