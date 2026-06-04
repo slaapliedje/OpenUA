@@ -32,6 +32,7 @@
 #include "resources.h"
 #include "windows.h"
 
+#ifdef FRUA_SHIM_DEMO
 /*
  * Pop up DLOG `id`, run the modal loop, return the dismissing item
  * (1-based) or 0 if the dialog couldn't be loaded. The OK / Cancel
@@ -205,6 +206,7 @@ static void show_name_prompt(short surf_w, short surf_h)
 	DisposeDialog(d);
 	DisposeHandle(h_ditl);
 }
+#endif /* FRUA_SHIM_DEMO */
 
 /*
  * Open frua.rsc through the File Manager and hand the bytes to the
@@ -385,6 +387,8 @@ int main(void)
 		             (long)(void *)strtab);
 	}
 	dbg_log_num("main: ua_main rc = ", (long)rc);
+
+#ifdef FRUA_SHIM_DEMO
 	dsp->present();
 	dbg_log("main: snapshot after ua_main");
 	(void)Cnecin();
@@ -558,6 +562,7 @@ int main(void)
 			}
 		}
 	}
+#endif /* FRUA_SHIM_DEMO */
 
 	plat_sound_shutdown();
 	plat_input_shutdown();

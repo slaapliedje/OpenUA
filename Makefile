@@ -66,6 +66,15 @@ ifeq ($(FRUA_PERF_TEST),1)
 CFLAGS += -DFRUA_PERF_TEST
 endif
 
+# Toolbox shim bring-up demo: after ua_main returns, run the legacy
+# WIND/menu-bar/Control-Manager exercise loop in main.c that proved the
+# shim lands pixels during early bring-up. Default off — the real engine
+# menu now owns the UI, and its Quit returns through ua_main straight to a
+# clean teardown / desktop exit. Opt in with `make FRUA_SHIM_DEMO=1 run`.
+ifeq ($(FRUA_SHIM_DEMO),1)
+CFLAGS += -DFRUA_SHIM_DEMO
+endif
+
 all: $(TARGET) frua.rsc
 
 $(TARGET): $(OBJ)
