@@ -11564,6 +11564,22 @@ static short l2d3e(void)
 		}
 	}
 
+	/* Port mouse tracking: the software cursor is composited at present
+	 * time (qd_present), but this modal spin otherwise only presents on a
+	 * content change, so a moving pointer would lag a frame behind the
+	 * IKBD. Present whenever the mouse has moved since the last spin so the
+	 * sword tracks smoothly without burning c2p while the pointer is idle. */
+	{
+		static short last_h = -0x7fff, last_v = -0x7fff;
+		short mh, mv;
+		plat_mouse_pos(&mh, &mv);
+		if (mh != last_h || mv != last_v) {
+			last_h = mh;
+			last_v = mv;
+			qd_present();
+		}
+	}
+
 	return (short)-1;
 }
 
@@ -12307,6 +12323,7 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	short i;
 
 	g_a5_2347 = 1;                       /* non-encounter: jt1135 scale 2 */
+	SetCursor(qd_sword_cursor());        /* engine sword cursor at the UI */
 	load_menu_ui();
 
 	/* backdrop + menu-specific chrome (phase 0), then prime the present */

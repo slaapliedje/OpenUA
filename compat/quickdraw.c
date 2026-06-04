@@ -1097,6 +1097,19 @@ static const Cursor k_watch_cursor = {
 	{ 7, 7 }
 };
 
+/* The engine cursor: FRUA points a diagonal sword (tip top-left = hotspot)
+ * once the UI comes up. The real game loads its sword into A5 -892 at
+ * runtime — it isn't seeded in the DATA fork, so there's nothing to lift;
+ * this is a generic placeholder shape (black blade + crossguard, white
+ * outline), not FRUA art. SetCursor(qd_sword_cursor()) installs it. */
+static const Cursor k_sword_cursor = {
+	{ 0x8000, 0x4000, 0x6000, 0x3000, 0x1800, 0x0C00, 0x0600, 0x0300,
+	  0x0180, 0x08D0, 0x04D0, 0x03E0, 0x0C30, 0x1810, 0x0000, 0x0000 },
+	{ 0x8000, 0xC000, 0xE000, 0x7000, 0x3800, 0x1C00, 0x0E00, 0x0700,
+	  0x1390, 0x19F0, 0x0FF0, 0x0FF0, 0x1F70, 0x3C38, 0x3818, 0x0000 },
+	{ 0, 0 }                        /* hotspot at the blade tip (v,h) */
+};
+
 static Cursor        g_cursor = k_arrow_cursor;
 static short         g_cursor_level;            /* 0 visible, <0 hidden */
 static int           g_cursor_init;
@@ -1134,6 +1147,11 @@ void ObscureCursor(void)
 {
 	/* Mac hides until the next mouse move; the shim just hides one frame. */
 	g_cursor_level--;
+}
+
+const Cursor *qd_sword_cursor(void)
+{
+	return &k_sword_cursor;
 }
 
 CursHandle GetCursor(short cursorID)
