@@ -7854,7 +7854,120 @@ static short       l2d3e(void);                         /* JT[456] event poll, C
 static short       jt152(short a)                       { PROBE("jt152"); (void)a; return (short)-1; }        /* CODE 7+0x3370 */
 static void        jt297(void *rec, short key, long cb) { PROBE("jt297"); (void)rec;(void)key;(void)cb; }      /* CODE 22+0x1c3e */
 static signed char jt1160(void)                         { PROBE("jt1160"); return 0; }                        /* CODE 4+0x67c6 */
-static void        jt311(void *rec, short dir, long cb) { PROBE("jt311"); (void)rec;(void)dir;(void)cb; }      /* CODE 22+0x1a6e */
+static void        l1798(void *rec, short a)            { PROBE("L1798"); (void)rec;(void)a; }                /* CODE 22-local post-move default */
+
+/* L5368 (CODE 7 + 0x5368) — one-axis scroll-window solver for the overland
+ * map. Wraps *coord into [0, dim) (the map is toroidal), then returns the
+ * viewport origin that keeps the wrapped cell inside a `span`-wide window:
+ * the origin is clamped onto the map and the cell is re-followed when it
+ * scrolls off an edge. wrap != 0 takes the keep-centred path; wrap == 0 the
+ * edge-follow path. JT[397]/JT[413] are the clamp(>=) / clamp(<=) helpers. */
+static short l5368(short span, short dim, signed char *coord, short origin, short wrap)
+{
+	short c;
+
+	PROBE("L5368");
+
+	if (*coord < 0) {
+		short rem = (short)(((short)(-(short)*coord)) % dim);
+		*coord = (signed char)(dim - rem);
+	} else {
+		*coord = (signed char)((short)*coord % dim);
+	}
+
+	span   = jt413(dim, jt397(1, span));
+	origin = jt413(jt397(0, origin), (short)(dim - span));
+
+	c = (short)*coord;
+	if ((wrap & 0xff) != 0) {
+		short v = jt413((short)(dim - span), (short)(c - span / 2));
+		return jt397(0, v);
+	}
+	if (c >= (short)(origin + span))
+		return jt397(0, jt413((short)(dim - span),
+		                      (short)(c - span + 1)));
+	if (c >= origin)
+		return origin;
+	return c;
+}
+
+/* JT[218] (CODE 7 + 0x52b8) — overland move + view recentre. Wraps the
+ * proposed row/col edge markers into the map (L5368 per axis), updates the
+ * map-view centre (g_a5_-12278 / -12276) and the caller's origin out-params,
+ * and returns 1 if the view actually moved (else 0 = blocked). */
+static signed char jt218(signed char *rowp, signed char *colp,
+                         short *out_row, short *out_col,
+                         short span_r, short span_c, short wrap)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short new_r, new_c;
+	signed char changed = 0;
+
+	PROBE("jt218");
+	new_r = l5368(span_r, (short)lvl[2], rowp, g_a5_word(-12278), wrap);
+	new_c = l5368(span_c, (short)lvl[3], colp, g_a5_word(-12276), wrap);
+
+	if (new_r != g_a5_word(-12278)) { changed = 1; g_a5_word(-12278) = new_r; }
+	if (new_c != g_a5_word(-12276)) { changed = 1; g_a5_word(-12276) = new_c; }
+
+	if (out_row != NULL) *out_row = new_r;
+	if (out_col != NULL) *out_col = new_c;
+	return changed;
+}
+
+/* JT[311] (CODE 22 + 0x1a6e) — directional move on the overland / automap.
+ * Computes the party's offset within the view (JT[397] clamp), pushes the
+ * row/col edge markers in the requested direction (the 257..264 key codes),
+ * then JT[218] wraps + recentres the view; on a real move it updates the
+ * party cell (g_a5_-12288 / -12287) and fires the per-step callback (cb,
+ * here L63c0's cb2 = JT[236]), else JT[1080] sounds the blocked cue. */
+static void jt311(void *rec_v, short dir, long cb)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short off_y, off_x;
+	signed char edge_r, edge_c;
+
+	PROBE("jt311");
+
+	off_y = jt397(0, (short)((signed char)g_a5_byte(-12287) - g_a5_word(-11706)));
+	off_x = jt397(0, (short)((signed char)g_a5_byte(-12288) - g_a5_word(-11704)));
+	edge_r = (signed char)g_a5_byte(-11705);
+	edge_c = (signed char)g_a5_byte(-11703);
+
+	switch (dir) {                  /* row edge marker */
+	case 257: case 263: case 264:
+		edge_r = (signed char)jt397(0, (short)(g_a5_word(-11706) - 19));
+		break;
+	case 259: case 260: case 261:
+		edge_r = (signed char)jt413((short)(lvl[2] - 1),
+		                            (short)(g_a5_word(-11706) + 39));
+		break;
+	default: break;
+	}
+	switch (dir) {                  /* col edge marker */
+	case 261: case 262: case 263:
+		edge_c = (signed char)jt397(0, (short)(g_a5_word(-11704) - 20));
+		break;
+	case 257: case 258: case 259:
+		edge_c = (signed char)jt413((short)(lvl[3] - 1),
+		                            (short)(g_a5_word(-11704) + 41));
+		break;
+	default: break;
+	}
+
+	if (jt218(&edge_r, &edge_c,
+	          (short *)&g_a5_byte(-11706), (short *)&g_a5_byte(-11704),
+	          20, 21, 0) != 0) {
+		g_a5_byte(-12287) = (unsigned char)(g_a5_word(-11706) + off_y);
+		g_a5_byte(-12288) = (unsigned char)(g_a5_word(-11704) + off_x);
+		if (cb != 0)
+			((void (*)(long))(uintptr_t)cb)(*(long *)rec_v);
+		else
+			l1798(rec_v, 0);
+	} else {
+		jt1080();
+	}
+}
 static signed char l67e4(void *rec, short a)            { PROBE("L67e4"); (void)rec;(void)a; return 0; }       /* CODE 11-local */
 static void        jt238(void *rec)                     { PROBE("jt238"); (void)rec; }                        /* default dispatch cb, CODE 11+0x67d0 */
 
