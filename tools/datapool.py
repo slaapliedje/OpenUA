@@ -77,6 +77,38 @@ class RelocTable:
         return min(a5s) if a5s else 0
 
 
+def expand_data(data_bytes: bytes, zero_bytes: bytes) -> bytes:
+    """Expand THINK C's compressed DATA using the ZERO run-length table.
+
+    CODE 1's startup (CODE 1 + 0x9c, `L009c`) fills the A5-below region by
+    copying DATA word-by-word; a `0x0000` word is a zero-run escape. On the
+    Mac the copied word writes 2 zero bytes, then a `dbf d1` loop clears `n`
+    MORE bytes, where `n` is the next big-endian 16-bit value pulled from the
+    `ZERO` resource (the loop runs `d1` times, *not* `d1 + 1` — entry skips the
+    first `clrb` via the `bra`, and `dbf` decrements before testing). Non-zero
+    words copy through verbatim, so a zero word expands to `n + 2` zero bytes.
+
+    The raw DATA resource is the compressed stream; expanding it reproduces the
+    full below-A5 globals image the runtime would build (verified against the
+    Quadra's live A5 world: CurStackBase 0x01f6d058 .. CurrentA5 0x01f74ac0 =
+    31336 bytes, and the string-pointer globals land at their real offsets).
+    """
+    out = bytearray()
+    di = 0
+    zi = 0
+    while di + 2 <= len(data_bytes):
+        word = data_bytes[di:di + 2]
+        di += 2
+        out += word
+        if word == b"\x00\x00":
+            if zi + 2 > len(zero_bytes):
+                raise ValueError("ZERO resource exhausted during DATA expansion")
+            n = struct.unpack_from(">H", zero_bytes, zi)[0]
+            zi += 2
+            out += b"\x00" * n
+    return bytes(out)
+
+
 def parse_data(data_bytes: bytes, drel_min_a5_offset: int = 0) -> DataPool:
     """Wrap raw DATA bytes in a DataPool, inferring the A5-below size.
 
