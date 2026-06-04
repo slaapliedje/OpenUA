@@ -8080,7 +8080,39 @@ static void        jt238(void *rec)                     { PROBE("jt238"); (void)
 static void        jt148(long prompt, char *title, short flag)
                                                         { PROBE("jt148"); (void)prompt;(void)title;(void)flag; } /* CODE 7+0x33dc */
 static void        l429c(short a, short b)               { PROBE("L429c"); (void)a;(void)b; }                  /* CODE 11-local */
-static void        l476e(short a, short b)               { PROBE("L476e"); (void)a;(void)b; }                  /* CODE 11-local */
+/* L476e (CODE 11 + 0x476e) — set up the play-view interior rect. `active`
+ * (low byte) gates; `layout` picks the view: 0 = the compact dungeon view
+ * (9x9 cells anchored at 8008,8068), nonzero = the full area map (20x21 cells
+ * at 8008,8004). Stores the rect's screen-space top-left in g_a5_-11674/-11672
+ * (via jt1135) and the pixel dimensions in g_a5_-11670/-11668 (= min(view
+ * cells, map dim from g_a5_-12300[2]/[3]) * cellsize g_a5_-12272). These feed
+ * L63c0's jt1161 background fill and the cell-coordinate mapping. */
+static void l476e(short active, short layout)
+{
+	const unsigned char *lvl;
+
+	PROBE("L476e");
+	if ((active & 0xff) == 0)
+		return;
+
+	if (layout == 0) {                      /* compact dungeon view */
+		g_a5_byte(-11708) = 9;
+		g_a5_byte(-11707) = 9;
+		jt1135((short)8008, (short)8068,
+		       (short *)&g_a5_byte(-11674), (short *)&g_a5_byte(-11672));
+	} else {                                /* full area map */
+		g_a5_byte(-11708) = 20;
+		g_a5_byte(-11707) = 21;
+		jt1135((short)8008, (short)8004,
+		       (short *)&g_a5_byte(-11674), (short *)&g_a5_byte(-11672));
+	}
+
+	lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	g_a5_word(-11670) = (short)(jt413((short)(unsigned char)g_a5_byte(-11708),
+	                                  (short)lvl[2]) * g_a5_word(-12272));
+	g_a5_word(-11668) = (short)(jt413((short)(unsigned char)g_a5_byte(-11707),
+	                                  (short)lvl[3]) * g_a5_word(-12272));
+}
 static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
 static signed char jt276(short cell)                    { PROBE("jt276"); (void)cell; return 0; }             /* CODE 22+0x475e */
 static short       jt287(short idx, short key)          { PROBE("jt287"); (void)idx;(void)key; return 0; }    /* kbd action proc, CODE 22+0x1bc6 */
@@ -8184,6 +8216,13 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	if (cb1 == 0)
 		cb1 = (long)(uintptr_t)(void *)jt238;
 	((void (*)(unsigned char *))(uintptr_t)cb1)(rec);   /* per-screen dispatch */
+
+	/* Port adaptation: the Mac draws immediately to the visible CGrafPort,
+	 * but our QuickDraw shim renders into a back-buffer that the Falcon HAL
+	 * c2p-flips on qd_present. The initial play frame (bg fill + status +
+	 * coords + automap above) is now complete, so flush it to VIDEL; the
+	 * modal poll loop (l2d3e) re-presents on changes. */
+	qd_present();
 
 	/* --- the input / movement loop (L64ae .. L67ae) --- */
 	for (;;) {
@@ -9435,6 +9474,15 @@ void port_play_demo(void)
 	 * area map (bg fill, status header jt303, coords jt280, automap jt237 ->
 	 * l52f2 cells) renders via jt1089 in the scale-2 mode set above. This
 	 * replaces the old port-side WASD demo walk. */
+	/* Reproduce the play-screen entry setup the port shortcuts past: L476e
+	 * lays the full area-map view-interior rect (g_a5_-11674.. / -11670..)
+	 * that L63c0's jt1161 background fill and the cell mapping need, and the
+	 * engine clip is opened to the full screen (the real entry path narrows
+	 * it via jt1173; full-screen is a safe superset for the demo). Without
+	 * these the view rect and clip are 0, so every fill/text clips to nothing. */
+	l476e((short)1, (short)1);
+	g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
+
 	{
 		static unsigned char ctx[342];     /* L0004's master state struct */
 		memset(ctx, 0, sizeof ctx);
@@ -9445,7 +9493,7 @@ void port_play_demo(void)
 		 * L6256 registers the walk input sources (it no-ops for kind 0). */
 		ctx[16 + 4] = 1;
 		g_a5_long(-11714) = (long)(uintptr_t)(ctx + 6);  /* JT[316..321] hook */
-		(void)px; (void)pitch; (void)sw; (void)sh; (void)tvbase;
+		(void)px; (void)pitch; (void)tvbase;
 		(void)l0096(ctx);
 	}
 }
