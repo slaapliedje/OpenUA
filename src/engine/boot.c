@@ -7838,17 +7838,66 @@ static signed char l67e4(void *rec, short a)            { PROBE("L67e4"); (void)
 static void        jt238(void *rec)                     { PROBE("jt238"); (void)rec; }                        /* default dispatch cb, CODE 11+0x67d0 */
 
 /* JT[241] play-action helpers — leaf / CODE-local deps stubbed pending their
- * own lifts. l6256 / l429c build the view layers from rec[4] (the area
- * kind); l476e flips the party/screen entry mode; jt148 (CODE 7+0x33dc)
- * paints the command-prompt line; l4810 releases a transient. */
+ * own lifts. l429c builds the view layers from rec[4] (the area kind);
+ * l476e flips the party/screen entry mode; jt148 (CODE 7+0x33dc) paints the
+ * command-prompt line; l4810 releases a transient. jt287/jt294 (CODE 22) are
+ * the action procs the registered walk DLItems carry (see l6256). */
 static void        jt148(long prompt, char *title, short flag)
                                                         { PROBE("jt148"); (void)prompt;(void)title;(void)flag; } /* CODE 7+0x33dc */
-static void        l6256(short a, short b)               { PROBE("L6256"); (void)a;(void)b; }                  /* CODE 11-local */
 static void        l429c(short a, short b)               { PROBE("L429c"); (void)a;(void)b; }                  /* CODE 11-local */
 static void        l476e(short a, short b)               { PROBE("L476e"); (void)a;(void)b; }                  /* CODE 11-local */
 static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
 static signed char jt276(short cell)                    { PROBE("jt276"); (void)cell; return 0; }             /* CODE 22+0x475e */
+static void        jt287(void)                          { PROBE("jt287"); }                                   /* walk action proc, CODE 22+0x1bc6 */
+static void        jt294(void)                          { PROBE("jt294"); }                                   /* select action proc, CODE 22+0x1c26 */
 static void        jt179(short count);                  /* defined far below (CODE 7+0x11ee) */
+static void        jt452(long shape0, ...);             /* DLItem stream builder (defined below) */
+
+/* L6256 (CODE 11 + 0x6256) — register the dungeon-walk input sources.
+ * jt241 calls this at the top of the play render path (l6256(rec[4], 1));
+ * it runs only for area kind == 1 (a dungeon). It maps the party cell to a
+ * screen origin (JT[1139]), resets the DLItem source table (JT[447]), then
+ * installs the walk controls via the JT[452] stream builder:
+ *   - shape 7: the keyboard / command source, carrying action proc JT[287];
+ *   - five shape-5 hit regions positioned around the view, each tagged with
+ *     a key code in rec[20] (5 / 7 / 9 / 11) — the directional + region pads;
+ *   - a shape-5 select region carrying action proc JT[294] (rec[4]);
+ *   - a trailing JT[452](41, ...) stamping the last source's rec[20] with
+ *     -1 or 1 per the caller's flag byte.
+ * Each source's rec[28] bit 4 (the "active" flag) is set (JT[452] cmd 20).
+ * l2d3e polls these by index, matching L63c0's switch (0=keyboard, 1-4=dir,
+ * 5=select). They stay inert until their shape handlers (g_a5_-9282[]) and
+ * the action procs JT[287]/JT[294] are lifted. */
+static void l6256(short kind, short flag)
+{
+	short row, col;                          /* fp@(-2), fp@(-4): view origin */
+	short cy, cx;
+
+	PROBE("L6256");
+	if (kind != 1)                           /* wilderness: no walk sources */
+		return;
+
+	cy = (short)((unsigned char)g_a5_byte(-11708) * g_a5_word(-12272));
+	cx = (short)((unsigned char)g_a5_byte(-11707) * g_a5_word(-12272));
+	jt1139((short)8000, (short)8000, cy, cx, &row, &col);
+
+	jt447();
+	jt452((long)7, (long)(uintptr_t)&jt287, (long)20, (long)0);
+	jt452((long)5, (long)8004, (long)(col + 8004), (long)(row + 8),
+	      (long)4, (long)41, (long)5, (long)20, (long)0);
+	jt452((long)5, (long)(row + 8008), (long)8004, (long)4, (long)col,
+	      (long)41, (long)7, (long)20, (long)0);
+	jt452((long)5, (long)8004, (long)8000, (long)(row + 8), (long)4,
+	      (long)41, (long)9, (long)20, (long)0);
+	jt452((long)5, (long)8004, (long)8004, (long)4, (long)col,
+	      (long)41, (long)11, (long)20, (long)0);
+	jt452((long)5, (long)8008, (long)8004, (long)row, (long)col,
+	      (long)34, (long)(uintptr_t)&jt294, (long)20, (long)0);
+	if ((flag & 0xff) != 0)
+		jt452((long)41, (long)-1, (long)0);
+	else
+		jt452((long)41, (long)1, (long)0);
+}
 
 /* JT[236] (CODE 11 + 0x5868) — L63c0's cb2 (default / dungeon arm): is the
  * party's current cell blocked? Cell index = level_width*party_y + party_x
@@ -8145,7 +8194,7 @@ static short jt241(short cmd, long *flagsp, unsigned char *rec)
 	}
 
 	/* --- L5632: build the view layers, command bar, header --- */
-	l6256(1, rec[4]);
+	l6256(rec[4], 1);               /* register the walk sources (dungeon kind) */
 	jt108(1);
 	jt112(1);
 	l429c(0, rec[4]);
