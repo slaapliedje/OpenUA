@@ -8327,7 +8327,63 @@ static void jt296(short cellX, short cellY, short width, short height,
 	}
 }
 
-static void jt304(void *rec)  { PROBE("jt304"); (void)rec; }   /* CODE 22+0x17ca setup */
+/* forward decls — defined later in the file */
+static void jt1007(short cur_sel, short key);
+static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
+                  short cells_a, short cells_b, short special,
+                  short pmark, short batch, short entry);
+
+/* jt304 deps: L3806 (CODE 22+0x3806, ~125 instrs) is the FLAT automap renderer
+ * — the live path when jt273()==0 (i.e. JT[358] view-depth 0); it is the next
+ * lift. jt213 (CODE 7+0x56f2) records the party cell; jt1088 (CODE 5+0xa8) is a
+ * post-render leaf. Stubbed for now. */
+static void l3806(short p_y, short p_x, short facing, short v1, short v2,
+                  short cells_a, short cells_b, short special, short flag, short batch)
+                  { PROBE("L3806"); (void)p_y;(void)p_x;(void)facing;(void)v1;(void)v2;
+                    (void)cells_a;(void)cells_b;(void)special;(void)flag;(void)batch; }
+static void jt213(short a, short b, short c)
+                  { PROBE("jt213"); (void)a;(void)b;(void)c; }   /* CODE 7+0x56f2 */
+static void jt1088(void)      { PROBE("jt1088"); }              /* CODE 5+0xa8 */
+
+/* JT[304] (CODE 22 + 0x17ca) — the automap-view setup jt237 runs before its
+ * cell pass. Picks the view anchor by area kind (dungeon 8008,8004 / wilderness
+ * 8008,8068), runs the selection-nav primitive JT[1007], then dispatches the
+ * actual render by view depth: jt273() (= JT[358], the depth, 0..4) selects
+ * L3fd8 (the deep/3D view, depth >= 1) or L3806 (the flat automap, depth 0).
+ * For a dungeon it then records the party cell (JT[213] from rec[46..48]) and
+ * runs the post-render leaf JT[1088]. Args: rec, batch flag (fp@13). */
+static void jt304(void *rec_v, short batch)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	short v1, v2, depth;
+
+	PROBE("jt304");
+	v1 = (short)8008;
+	v2 = (rec[4] == 0) ? (short)8068 : (short)8004;
+
+	jt1007((short)0, (short)26);
+	depth = (short)jt273();
+
+	if (depth != 0)
+		l3fd8((short)(signed char)g_a5_byte(-12287),
+		      (short)(signed char)g_a5_byte(-12288),
+		      (short)g_a5_byte(-12286), v1, v2,
+		      (short)(signed char)g_a5_byte(-11708),
+		      (short)(signed char)g_a5_byte(-11707),
+		      (short)rec[5], (short)0, batch, depth);
+	else
+		l3806((short)(signed char)g_a5_byte(-12287),
+		      (short)(signed char)g_a5_byte(-12288),
+		      (short)g_a5_byte(-12286), v1, v2,
+		      (short)(signed char)g_a5_byte(-11708),
+		      (short)(signed char)g_a5_byte(-11707),
+		      (short)rec[5], (short)(rec[4] == 0 ? 1 : 0), batch);
+
+	if (rec[4] == 1)
+		jt213((short)(signed char)rec[47], (short)(signed char)rec[46],
+		      (short)(signed char)rec[48]);
+	jt1088();
+}
 static void jt1148(void)      { PROBE("jt1148"); }             /* CODE 4+0x61f8 init   */
 static void jt1087(short a)   { PROBE("jt1087"); (void)a; }    /* CODE 5+0x12c per-row */
 
@@ -8586,7 +8642,7 @@ static void jt237(unsigned char *rec)
 	short row, col;
 
 	PROBE("jt237");
-	jt304(rec);
+	jt304(rec, (short)0);
 	jt1148();
 	for (row = 0; row < 5; row++) {
 		for (col = 7; col >= 0; col--) {
