@@ -9372,9 +9372,13 @@ void port_play_demo(void)
 		}
 	}
 	qd_set_palette(c4, 0, 16);
-	/* Engage the deep dungeon-view display mode (jt1200() == 3) so
-	 * jt312 renders the first-person view rather than early-returning. */
-	g_a5_2347 = 0;
+	/* The faithful play entry (jt241 -> l63c0 with a_deep=0) draws the
+	 * TOP-DOWN area map, not the first-person 3D view, so it must run in the
+	 * normal 2D display mode: jt1135 uses scale 2 when g_a5_-2347 != 0, scale
+	 * 3 (the deep dungeon-view layout) when 0. Under scale 3 the map's jt1089
+	 * text lands at vertical ~276 — off the bottom of the screen — which is
+	 * why the frame was invisible; scale 2 keeps it on-screen. */
+	g_a5_2347 = 1;
 
 #if defined(FRUA_COORD_TRACE) || defined(FRUA_PERF_TEST)
 	{
@@ -9426,13 +9430,11 @@ void port_play_demo(void)
 	 * play mode (the menu-mode entry path L0004 walks — modes 6..9 -> ... ->
 	 * 14 — needs its CODE 2/8/10 handlers lifted first).
 	 *
-	 * KNOWN LIMITATION: l63c0 now polls the real event poll (l2d3e / JT[456]),
-	 * but the play screen hasn't yet registered its input-source DLItems
-	 * (keyboard, the four directional pads, select) via JT[447]/JT[452], so
-	 * l2d3e finds no source to catch movement/keys and returns -1 — the loop
-	 * renders the faithful frame then idles. Interactivity returns once that
-	 * source registration + the movement handlers (jt311/jt297) are lifted
-	 * (the next steps). This replaces the old port-side WASD demo walk. */
+	 * L6256 (via the rec[4]=1 seed) registers the walk input-source DLItems,
+	 * and l63c0 polls them through the real event loop (l2d3e). The top-down
+	 * area map (bg fill, status header jt303, coords jt280, automap jt237 ->
+	 * l52f2 cells) renders via jt1089 in the scale-2 mode set above. This
+	 * replaces the old port-side WASD demo walk. */
 	{
 		static unsigned char ctx[342];     /* L0004's master state struct */
 		memset(ctx, 0, sizeof ctx);
