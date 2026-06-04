@@ -8113,6 +8113,17 @@ static void l476e(short active, short layout)
 	g_a5_word(-11668) = (short)(jt413((short)(unsigned char)g_a5_byte(-11707),
 	                                  (short)lvl[3]) * g_a5_word(-12272));
 }
+
+/* JT[215] (CODE 7 + 0x57a6) — set the automap cell pixel size. 12 in the
+ * deep dungeon-view mode (jt1200()==3), 8 in the normal 2D area-map mode.
+ * The play-screen entry runs this before L476e (which multiplies it into
+ * the view-rect dimensions) and before the cell mapping; with it 0 the whole
+ * map collapses to a point. */
+static void jt215(void)
+{
+	PROBE("jt215");
+	g_a5_word(-12272) = (jt1200() == 3) ? (short)12 : (short)8;
+}
 static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
 static signed char jt276(short cell)                    { PROBE("jt276"); (void)cell; return 0; }             /* CODE 22+0x475e */
 static short       jt287(short idx, short key)          { PROBE("jt287"); (void)idx;(void)key; return 0; }    /* kbd action proc, CODE 22+0x1bc6 */
@@ -9480,6 +9491,7 @@ void port_play_demo(void)
 	 * engine clip is opened to the full screen (the real entry path narrows
 	 * it via jt1173; full-screen is a safe superset for the demo). Without
 	 * these the view rect and clip are 0, so every fill/text clips to nothing. */
+	jt215();                  /* set the automap cell size (2D map -> 8px) */
 	l476e((short)1, (short)1);
 	g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
 
