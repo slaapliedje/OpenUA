@@ -7847,8 +7847,62 @@ static int         jt273(void)                          { PROBE("jt273"); return
 static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
 static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
 static void        jt303(void *rec)                     { PROBE("jt303"); (void)rec; }        /* status line, CODE 22+0x2180 */
-static void        jt280(void *rec, short a, short b, short c)
-                                                        { PROBE("jt280"); (void)rec;(void)a;(void)b;(void)c; } /* CODE 22+0x265e */
+static void        l2788(void)                          { PROBE("L2788"); }                                   /* CODE 22-local wilderness compass */
+
+/* JT[280] (CODE 22 + 0x265e) — the dungeon position / compass readout drawn
+ * at the top of the play view (all via jt1089, the real text drawer):
+ *   line 1: the party (x, y) coordinate — format g_a5_-11332 with the party
+ *           coords (g_a5_-12288/-12287) when mode != 0, else g_a5_-11328 with
+ *           " -" placeholders (STRS 0x308c / 0x3090).
+ *   line 2 (x+4): the area name — g_a5_-10820 plus the facing-indexed name
+ *           from g_a5_-10924[(facing & 6) >> 1], or a "%12s" placeholder when
+ *           the cell's name slot (rec[5]) is hidden.
+ * The wilderness arm (rec[4]==0) defers to L2788 (a directional indicator) —
+ * off the dungeon path, stubbed. */
+static void jt280(void *rec_v, short x, short y, short mode)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+
+	PROBE("jt280");
+
+	if (mode != 0)
+		jt1089(x, y, (short)135,
+		       (const char *)(uintptr_t)g_a5_long(-11332),
+		       (int)(short)(signed char)g_a5_byte(-12288),
+		       (int)(short)(signed char)g_a5_byte(-12287));
+	else
+		jt1089(x, y, (short)135,
+		       (const char *)(uintptr_t)g_a5_long(-11328),
+		       ua_strs_at(0x308c), ua_strs_at(0x3090));
+
+	if (rec[4] == 0) {              /* wilderness */
+		l2788();
+		return;
+	}
+
+	/* dungeon: the area-name line, one step below the coords */
+	{
+		int show_name;
+		if (rec[5] == 255)      show_name = 1;
+		else if (rec[5] != 0)   show_name = 0;
+		else                    show_name = (jt273() != 0) ? 0 : 1;
+
+		if (!show_name)
+			jt1089((short)(x + 4), y, (short)135,
+			       ua_strs_at(0x30a6) /* "%12s" */,
+			       ua_strs_at(0x30ac));
+		else if (mode != 0) {
+			short idx = (short)((g_a5_byte(-12286) & 6) >> 1);
+			jt1089((short)(x + 4), y, (short)135,
+			       ua_strs_at(0x3094) /* "%s %5s" */,
+			       (const char *)(uintptr_t)g_a5_long(-10820),
+			       (const char *)(uintptr_t)g_a5_long(-10924 + idx * 4));
+		} else
+			jt1089((short)(x + 4), y, (short)135,
+			       ua_strs_at(0x309c) /* "%s -    " */,
+			       (const char *)(uintptr_t)g_a5_long(-10820));
+	}
+}
 static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1)*o1=0; if(o2)*o2=0; }        /* CODE 4+0x6204 */
 static short       l2d3e(void);                         /* JT[456] event poll, CODE 3+0x2d3e (full lift, defined below) */
 static short       jt152(short sel);                    /* CODE 7+0x3370 classifier (defined below) */
