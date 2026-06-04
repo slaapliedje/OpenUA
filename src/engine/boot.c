@@ -7836,6 +7836,32 @@ static void        jt311(void *rec, short dir, long cb) { PROBE("jt311"); (void)
 static signed char l67e4(void *rec, short a)            { PROBE("L67e4"); (void)rec;(void)a; return 0; }       /* CODE 11-local */
 static void        jt238(void *rec)                     { PROBE("jt238"); (void)rec; }                        /* default dispatch cb, CODE 11+0x67d0 */
 
+/* JT[241] play-action helpers — leaf / CODE-local deps stubbed pending their
+ * own lifts. l6256 / l429c build the view layers from rec[4] (the area
+ * kind); l476e flips the party/screen entry mode; jt148 (CODE 7+0x33dc)
+ * paints the command-prompt line; l4810 releases a transient. */
+static void        jt148(long prompt, char *title, short flag)
+                                                        { PROBE("jt148"); (void)prompt;(void)title;(void)flag; } /* CODE 7+0x33dc */
+static void        l6256(short a, short b)               { PROBE("L6256"); (void)a;(void)b; }                  /* CODE 11-local */
+static void        l429c(short a, short b)               { PROBE("L429c"); (void)a;(void)b; }                  /* CODE 11-local */
+static void        l476e(short a, short b)               { PROBE("L476e"); (void)a;(void)b; }                  /* CODE 11-local */
+static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
+static signed char jt276(short cell)                    { PROBE("jt276"); (void)cell; return 0; }             /* CODE 22+0x475e */
+static void        jt179(short count);                  /* defined far below (CODE 7+0x11ee) */
+
+/* JT[236] (CODE 11 + 0x5868) — L63c0's cb2 (default / dungeon arm): is the
+ * party's current cell blocked? Cell index = level_width*party_y + party_x
+ * into JT[276]; returns 1 when that cell tests as 0 (impassable), else 0. */
+static short jt236(void)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short cell;
+	PROBE("jt236");
+	cell = (short)((short)lvl[3] * (short)(signed char)g_a5_12287
+	               + (short)(signed char)g_a5_12288);
+	return jt276(cell) == 0 ? 1 : 0;
+}
+
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
                          short a_deep, long cb1, long cb2)
 {
@@ -8048,6 +8074,142 @@ static void l53a6(void)
 		       (int)cell[15], (int)cell[14], name);
 		a1 = (short)(a1 + 6);
 	}
+}
+
+/* JT[241] (CODE 11 + 0x5514) — the play-action state machine. The play loop
+ * calls it with a command code and a status-flags word; it sets up the
+ * dungeon/wilderness view, lays the title (JT[394]) and command bar
+ * (JT[179] + JT[148]), draws the area-list header (L53a6), then runs the
+ * walk loop (L63c0 with the automap/cell callbacks JT[237] / JT[236]). On
+ * return it reconciles the party<->cell occupancy tables and, when the
+ * resolved command is 2, writes the party position back into the A5 world
+ * (g_a5_-12288..). Returns the (possibly rewritten) command code.
+ *
+ * Args: cmd = command code (word, fp@8); flagsp = status-flags long
+ * (fp@10); rec = the play record (fp@14).  rec layout touched here:
+ *   rec[4]  area kind (0 wilderness / 1 dungeon)
+ *   rec[17] state bits (bit 2 = "cells claimed")
+ *   rec[39] "blocked" marker
+ *   rec[46..51] party x/y/facing snapshot
+ *   rec[i*4 + 52..54] per-slot occupancy (mirrors g_a5_-12300[i*4 +14..16]) */
+static short jt241(short cmd, long *flagsp, unsigned char *rec) __attribute__((unused));
+static short jt241(short cmd, long *flagsp, unsigned char *rec)
+{
+	char        title[26];          /* fp@(-26): "<area> <sub>" */
+	short       i;                  /* fp@(-28): loop counter    */
+	signed char t;                  /* fp@(-1):  walk result/nibble */
+
+	PROBE("jt241");
+
+	if (rec == NULL)                /* L5526 */
+		return cmd;
+
+	/* JT[1] sparse switch on the command code (CODE 1+0x130 dispatch):
+	 * case 2 -> resume, case 11 -> first entry, default -> coerce to 2. */
+	switch (cmd) {
+	case 2:                         /* L5542 */
+		rec[17] &= (unsigned char)~(1 << 2);
+		if (rec[4] == 0)
+			l476e(1, 1);
+		rec[4] = 1;
+		break;
+	case 11:                        /* L5576 */
+		cmd = 2;
+		if (!(rec[17] & (1 << 2))) {
+			/* first entry: claim the cells and seed each slot's
+			 * occupancy from the live level table (-12300). */
+			rec[17] |= (unsigned char)(1 << 2);
+			for (i = 0; i < 8; i++) {
+				unsigned char *re = rec + i * 4;
+				const unsigned char *ae =
+				    (const unsigned char *)(uintptr_t)g_a5_long(-12300)
+				    + i * 4;
+				*(long *)(re + 52) = *(const long *)(ae + 14);
+			}
+		}
+		/* If the flags word carries a destination cell (low nibble set),
+		 * stamp the party position into that level-table slot. */
+		if ((*flagsp & 15) != 0) {
+			unsigned char *ae;
+			t  = (signed char)((*flagsp & 0xff0) >> 4);
+			ae = (unsigned char *)(uintptr_t)g_a5_long(-12300) + t * 4;
+			ae[15] = g_a5_12288;
+			ae[14] = g_a5_12287;
+			ae[16] = g_a5_12286;
+		}
+		break;
+	default:                        /* L562c */
+		cmd = 2;
+		break;
+	}
+
+	/* --- L5632: build the view layers, command bar, header --- */
+	l6256(1, rec[4]);
+	jt108(1);
+	jt112(1);
+	l429c(0, rec[4]);
+	jt394(title, ua_strs_at(0x2b08),                /* "%s %s" */
+	      (const char *)(uintptr_t)g_a5_long(-10696),
+	      (const char *)(uintptr_t)g_a5_long(-10692));
+	jt179(1);                                       /* seed command-bar slots */
+	jt148(g_a5_long(-13952), title, 0);             /* prompt line */
+	jt449(1);
+	l53a6();                                        /* area-list header panel */
+	jt112(0);
+	jt117();
+
+	*flagsp &= ~0xffff0000L;                        /* clear flags' high word */
+
+	/* --- the walk loop; cb1=automap (JT[237]), cb2=cell-block (JT[236]) --- */
+	t = l63c0(rec, 1, 1, 0,
+	          (long)(uintptr_t)&jt237, (long)(uintptr_t)&jt236);
+
+	if (t == 0) {                                   /* L57ce: walk returned 0 */
+		if (rec[17] & (1 << 2)) {
+			/* restore each slot's occupancy from the rec mirror. */
+			for (i = 0; i < 8; i++) {
+				unsigned char *ae =
+				    (unsigned char *)(uintptr_t)g_a5_long(-12300)
+				    + i * 4;
+				const unsigned char *re = rec + i * 4;
+				*(long *)(ae + 14) = *(const long *)(re + 52);
+			}
+		}
+	} else {
+		/* JT[3] on the walk result: 1 -> occupancy compare, else blocked. */
+		if (t == 1) {                           /* L5704 */
+			signed char changed = 0;
+			for (i = 0; i < 8 && changed == 0; i++) {
+				const unsigned char *ae =
+				    (const unsigned char *)(uintptr_t)g_a5_long(-12300)
+				    + i * 4;
+				const unsigned char *re = rec + i * 4;
+				if (ae[15] != re[53]) { changed = 1; continue; }
+				if (ae[14] != re[52]) { changed = 1; continue; }
+				if (ae[16] != re[54]) { changed = 1; }
+			}
+			if (changed) {                  /* L57a4 */
+				((unsigned char *)flagsp)[3] |= 1;
+				rec[39] = 0xff;
+			}
+		} else {                                /* L57bc */
+			*flagsp |= 3;
+			cmd = 11;
+		}
+	}
+
+	/* --- L5812: cleanup + (cmd==2) party-position write-back --- */
+	jt451();
+	if (cmd == 2) {
+		unsigned char *dst = &g_a5_12288;       /* -12288 .. -12283 */
+		for (i = 0; i < 6; i++)
+			dst[i] = rec[46 + i];
+		if (jt273() == 0)                       /* L5836 */
+			l4810(rec + 4, 0L);
+		if (rec[4] == 0)                        /* L5846 */
+			l476e(1, 0);
+	}
+	return cmd;                                     /* L5860 / L5864 */
 }
 
 /* port_view_demo — drive jt199, the first-person frustum walker, over
