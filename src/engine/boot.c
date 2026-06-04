@@ -16130,6 +16130,115 @@ static short jt164(long prompt, long cmdstring, short arg3, short arg4)
 	return l25b6(tmp, buf, &g_a5_24139);
 }
 
+/* Forward decls for jt953's arms defined later in this file. */
+static void jt23(void);
+static void jt904(unsigned char *out_done);
+
+/* jt953 (JT[953] = CODE 21 + 0x4038) — the exploration command processor.
+ * Structural skeleton (lift level 2): the CFG + the loop + every *available*
+ * JT call are faithful; arms whose action helper isn't lifted yet are TODO.
+ *
+ * The play selector g_a5_-27990 (JT[3] switch) picks the mode: 4 = the
+ * standing command bar, 3 = the "Move" direction sub-mode.
+ *
+ * State 4 — the command-bar loop: each pass runs JT[155] x7 (the per-slot
+ * input / roster-status refresh), shows the jt164 button bar over the
+ * A5-13764 command string ("Move Area Cast View Encamp Search Look Inv"),
+ * then dispatches the picked index 0..7:
+ *   0 Move | 1 Area | 2 Cast | 3 View | 4 Encamp (leave) | 5 Search |
+ *   6 Look | 7 Inv. It repeats until Encamp, or g_a5_-24139 flags a cancel.
+ *   The Area / Cast / Search / Look / Inv / Move-step actions reach
+ *   still-stubbed JT entries (JT[221] area, L06d6 cast, JT[201/202] step,
+ *   JT[914/947], L3b80) and are deferred here.
+ * State 3 — Move sub-mode: JT[171] is the direction-bar variant (result
+ *   129..136 -> facing g_a5_-12286); jt171 isn't lifted, so deferred whole.
+ *
+ * On the way out (L44f6) it stands up the play frame once via jt103. Returns
+ * the last picked command byte. */
+static short jt953(void)
+{
+	unsigned char *pl = (unsigned char *)(uintptr_t)g_a5_28006;
+	unsigned char  saved6;
+	unsigned char  exit_flag = 0;
+	short          cmd = -1;
+	short          i;
+	short          local4;
+	short          guard;
+
+	PROBE("jt953");
+	if (pl != NULL)
+		pl[3] = 0;
+	saved6 = g_a5_24140;
+
+	switch (g_a5_27990) {
+	case 4:
+		/* L4068 — the command-bar loop. The faithful loop is bounded only
+		 * by the exit command; jt164's modal (L23b4) blocks per pass, so
+		 * this isn't a busy-spin. A guard caps it defensively (matching
+		 * L23b4's own guard) in case it runs without a live event source. */
+		for (guard = 0; guard < 256 && exit_flag == 0; guard++) {
+			local4 = 0;
+			for (i = 1; i <= 7; i++)
+				jt155(i, &local4);
+			g_a5_24140 = saved6;
+			cmd = jt164(g_a5_long(-13952), g_a5_long(-13764),
+			            (short)1, (short)0);
+			saved6 = g_a5_24140;
+			g_a5_22268 = 1;
+			if (g_a5_24139 != 0) {          /* L424e — cancel/commit */
+				jt938();
+				exit_flag = 1;
+				cmd = -1;
+				continue;
+			}
+			switch (cmd) {                  /* JT[3] min 0 max 7 */
+			case 0:                         /* Move */
+				g_a5_22268 = 1;
+				break;
+			case 1:                         /* Area — TODO: JT[221]/JT[101] */
+				break;
+			case 2:                         /* Cast — TODO: L06d6 */
+				break;
+			case 3: {                       /* View character */
+				unsigned char done = 0;
+				jt904(&done);
+				break;
+			}
+			case 4:                         /* Encamp -> leave the loop */
+				exit_flag = 1;
+				break;
+			case 5:                         /* Search — TODO: JT[914/201/947] */
+				jt938();
+				break;
+			case 6:                         /* Look — TODO */
+				jt938();
+				break;
+			case 7:                         /* Inventory — TODO: L3b80 */
+				jt23();
+				break;
+			default:                        /* L421e — TODO: JT[936/934] */
+				break;
+			}
+		}
+		break;
+
+	case 3:
+		/* Move direction sub-mode via JT[171] — deferred (jt171 unlifted). */
+		g_a5_22268 = 1;
+		break;
+
+	default:
+		break;
+	}
+
+	/* L44f6 — stand up the play frame the first time through (jt103). */
+	if (g_a5_byte(-22278) == 0) {
+		jt103((short)1, (short)17, (short)38, (short)22);
+		g_a5_byte(-22278) = 1;
+	}
+	return cmd;
+}
+
 static short  jt595(short a, short b, short *p1, unsigned char *p2)
                                                      { PROBE("jt595"); (void)a; (void)b; (void)p1; (void)p2; return 0; }
 static void   jt527(void)                            { PROBE("jt527"); }
