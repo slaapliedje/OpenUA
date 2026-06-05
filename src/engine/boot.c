@@ -7845,68 +7845,43 @@ static short l5e52(short row, short col, short dir)
  * the slot-layout globals), apply the deep-mode (jt1200()==3) 8000-
  * anchor remap, then hand off to jt200 with the wall code + sub/layer.
  * (The Mac writes to the engine page descriptor; we thread the page.) */
-/* COORD-PIPELINE FINDINGS (2026-05-31, faithful-path investigation):
- * the runtime layout globals dumped from the loaded design are
- *   -12206..-12198 = {40,100,175,250,325}   -12216..-12208 = {175,550,875,1200,1600}
- *   -12222 = 516   -12220 = 18   -12202 = 175   (-12238/-12236 etc = 260/15)
- * l5b42 reads ydelta/xdelta as the LOW BYTE (asm: moveb fp@(13)/fp@(15) +
- * extw + lslw#2 — byte-truncation is FAITHFUL, verified). So the side-wall
- * x-delta g_a5_-12202 = 175 -> signed byte -81; x = 8016 + (-81<<2) = 7692;
- * deep remap ((7692-8012)<<2)+8 = -1272 -> off-screen. -12202 is READ-ONLY
- * across all 23 CODE segments (only jt199 reads it; nothing writes it), so
- * 175 is its permanent DATA value. Front-wall globals (low byte 4) land
- * on-screen but not centred. CONCLUSION: the 8000-anchor / deep-mode
- * transform model needs re-derivation before the faithful slot coords are
- * usable; the layout values themselves are a structured perspective table.
- * (render_3d_color currently hand-places the colour pieces instead.)
+/* AXIS MAPPING (RESOLVED 2026-06-05, from L6234/L5b42 asm):
+ * the L6234 deep-mode clip setup (0x628c..0x62c8) builds JT[1173]'s rect
+ * from its two coord args: fp@(8) feeds left/right, fp@(10) feeds top/bottom.
+ * So fp@(8) is the HORIZONTAL (X) anchor and fp@(10) the VERTICAL (Y) anchor.
+ * At each L5b42 call (e.g. 0x63ee..0x6412) the first delta (the -12222/-12240
+ * "wide" family, +soff) is added to fp@(8) -> HORIZONTAL, and the second
+ * delta (the -12202/-12220 "narrow" family) is added to fp@(10) -> VERTICAL;
+ * jt200 is then called (fp@8, fp@10) = (horizontal, vertical).
  *
- * ENTRY COORDS VERIFIED (CODE 22 jt312 @ 0x24c4..0x24e6): jt199 is called
- * with (Y=8012, X=8016, row=g_a5_-12288, col=g_a5_-12287,
- * facing=g_a5_-12286&7) — EXACTLY as lifted, so the anchor is not the bug.
- * NEXT THREAD: jt312 sets the view up entirely in 8000-anchored space
- * (clip JT[1173](8007,8000,8067,8160); bg JT[1001](16,8000,1,9)) and the
- * screen map is jt1135's (v-8000)*scale. But l5b42 uses a DIFFERENT map,
- * ((v-8012)<<2)+8, gated on jt1200()==3. Two different transforms for one
- * space -> re-derive which is correct (trace JT[1173]/the GrafPort) and
- * whether l5b42's deep branch should fire at all.
- *
- * TRANSFORM TRACED (CODE 4): JT[1173]'s clip transform L77fe is byte-for-
- * byte jt1135: out = (v>6000) ? (v-8000)*scale : v, scale=(g_a5_-2347==0)
- * ?3:2. So the canonical 8000-space->screen map is (v-8000)*3 (deep); the
- * clip rect lands x:[21,201] y:[0,480]. l5b42's ((v-8012)<<2)+8 is NOT
- * that map -> inconsistent. AND the layout table (-12240..-12196) is pure
- * static DATA: NOTHING writes it (jt954/JT[953] is party MOVEMENT, not a
- * view-init; full-segment grep finds no store/lea into -12240..-12202).
- * LIKELY LIFT BUG: the two near-face l5b42 calls are identical and add the
- * per-side stepping `soff` to the value added to fp@(8); since soff is
- * what separates the left/right walls, fp@(8) must be the HORIZONTAL (X)
- * coord -> the jt199/l5b42 lift has X and Y SWAPPED (param1=8012 is X, not
- * Y), which transposes jt200's top/left. Even so the magnitudes overshoot
- * the clip ~1.5-2x, so a scale/anchor factor is still wrong. RESOLUTION
- * needs runtime instrumentation: log l5b42's actual output coords for a
- * known frame and fit them to the clip viewport, with X/Y unswapped. */
+ * jt199's helpers pass the wide family as `ydelta` (arg4) and the narrow as
+ * `xdelta` (arg5), with y = the Y anchor (8012) and x = the X anchor (8016).
+ * To match the asm the deltas must CROSS the anchors: the wide `ydelta`
+ * drives the horizontal (x anchor), the narrow `xdelta` the vertical (y
+ * anchor). The earlier lift added each delta to its like-named anchor, which
+ * put the wide corridor-receding spread on the vertical axis and transposed
+ * the whole view. Deltas are the LOW BYTE, signed (asm: moveb + extw + lslw#2
+ * — faithful). Deep-mode (jt1200()==3) remap is ((v-8012)<<2)+8 on both. */
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub) __attribute__((unused));
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub)
 {
-	y = (short)(y + ((short)(signed char)ydelta << 2));
-	x = (short)(x + ((short)(signed char)xdelta << 2));
+	/* wide family (ydelta) -> horizontal (X anchor); narrow (xdelta) -> vertical */
+	short horiz = (short)(x + ((short)(signed char)ydelta << 2));
+	short vert  = (short)(y + ((short)(signed char)xdelta << 2));
 	if (jt1200() == 3) {
-		y = (short)(((short)(y - 8012) << 2) + 8);
-		x = (short)(((short)(x - 8012) << 2) + 8);
+		horiz = (short)(((short)(horiz - 8012) << 2) + 8);
+		vert  = (short)(((short)(vert  - 8012) << 2) + 8);
 	}
 #ifdef FRUA_COORD_TRACE
-	/* Runtime coord trace: raw deltas (low byte) and the final screen
-	 * (y,x). Fit these against the clip viewport x:[21,201] to re-derive
-	 * the transform. Canonical map is (v-8000)*3; clip from L77fe. */
-	dbg_log_num("l5b42 yd=", (long)(signed char)ydelta);
-	dbg_log_num("      xd=", (long)(signed char)xdelta);
-	dbg_log_num("   scr y=", (long)y);
-	dbg_log_num("   scr x=", (long)x);
-	dbg_log_num("  cd/sub=", (long)code * 100 + sub);
+	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
+	dbg_log_num("     narrow=", (long)(signed char)xdelta);
+	dbg_log_num("   scr top=", (long)vert);
+	dbg_log_num("  scr left=", (long)horiz);
+	dbg_log_num("    cd/sub=", (long)code * 100 + sub);
 #endif
-	jt200(page, y, x, code, sub);
+	jt200(page, vert, horiz, code, sub);   /* jt200(top, left) */
 }
 
 /* Direction-step deltas: signed-byte drow/dcol tables indexed by dir. */
