@@ -7896,8 +7896,11 @@ static void jt200(unsigned char *page, short top, short left,
 	}
 	if ((sub & 0xff) < 8) {                  /* step the horizontal anchor */
 		if (jt1200() == 3) {
+			/* native 320x200: the per-slot step is 8px (the Mac's 16 is the
+			 * 640x400 doubled space — see l5b42). left here is already the
+			 * transformed (native) screen coord. */
 			if (left < 8000)
-				left = (short)(left + 16);
+				left = (short)(left + 8);
 		} else {
 			left = (short)(left + 4);
 		}
@@ -7980,8 +7983,13 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 	short horiz = (short)(y + ((short)(signed char)ydelta << 2));
 	short vert  = (short)(x + ((short)(signed char)xdelta << 2));
 	if (jt1200() == 3) {
-		horiz = (short)(((short)(horiz - 8012) << 2) + 8);
-		vert  = (short)(((short)(vert  - 8012) << 2) + 8);
+		/* The Mac deep transform is ((v-8012)<<2)+8 — that is the 640x400
+		 * DOUBLED space. FRUA is natively 320x200 (the 3D pane is 88x88, not
+		 * 176x176), so halve the scale to <<1 (+4) for the native view. This
+		 * also closes the far-row gaps: 8px tiles stepped 16px apart in the
+		 * doubled space land 8px apart native, so they abut. */
+		horiz = (short)(((short)(horiz - 8012) << 1) + 4);
+		vert  = (short)(((short)(vert  - 8012) << 1) + 4);
 	}
 #ifdef FRUA_COORD_TRACE
 	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
@@ -8158,9 +8166,11 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
-	/* L6234's clip rect (left=8 top=24 right=184 bottom=200): the 176x176
-	 * first-person pane in the play screen's upper-left. */
-	const short VL = 8, VT = 24, VR = 184, VB = 200;
+	/* The native 320x200 first-person pane: 88x88 (FRAME.CTL set 9's hole).
+	 * L6234's clip is left=8 top=24 right=184 bottom=200 in the Mac's 640x400
+	 * DOUBLED space; halved for native it is left=4 top=12 right=92 bottom=100
+	 * — the l5b42 deep transform is halved to match. */
+	const short VL = 4, VT = 12, VR = 92, VB = 100;
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short f = (short)(g_a5_12286 & 7);
 	short x, y;
@@ -9791,11 +9801,11 @@ void port_l6234_verify(void)
 		}
 		for (i = 0; i < (long)pitch * sh; i++)
 			px[i] = 0;
-		/* Mark the L6234 viewport rect: ceiling colour (clut 4) above the
-		 * mid-line, floor (clut 5) below, + a white 1px border, so the frame
-		 * bounds are visible and we can confirm the walls stay inside. */
+		/* Mark the native 88x88 viewport rect: ceiling colour (clut 4) above
+		 * the mid-line, floor (clut 5) below, + a white 1px border, so the
+		 * frame bounds are visible and we can confirm the walls stay inside. */
 		{
-			short vt = 24, vl = 8, vb = 200, vr = 184, rr, cc;
+			short vt = 12, vl = 4, vb = 100, vr = 92, rr, cc;
 			for (rr = vt; rr < vb; rr++)
 				for (cc = vl; cc < vr; cc++)
 					px[(long)rr * pitch + cc] = (rr < (vt + vb) / 2) ? 4 : 5;
@@ -9810,7 +9820,7 @@ void port_l6234_verify(void)
 		}
 
 		g_cwf_px = px;
-		cw_view_clip(pitch, sw, sh, 8, 24, 184, 200);   /* L6234 viewport rect */
+		cw_view_clip(pitch, sw, sh, 4, 12, 92, 100);    /* native 88x88 pane */
 		l6148();                                /* load the .CTL wall sets */
 		/* Dump the perspective layout table (-12240..-12196, word each) and
 		 * the level's three wall-set ids (ds[4..6]) — if the table is zero the
