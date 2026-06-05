@@ -1886,12 +1886,52 @@ static void  jt20(void);
 static void  jt23(void);
 static int   l5baa(short row, short col);                 /* CODE 7+0x5baa — cell bounds test */
 static void  jt214(void);                                 /* CODE 7+0x71c6 — view setup */
+static void  jt80(short arg);                             /* CODE 6+0x68ae */
+static int   jt108(short a);                              /* CODE 6+0x38d0 */
+static int   jt117(void);                                 /* CODE 6+0x3994 */
 
-/* CODE-local / JT helpers jt948 drives — PROBE stubs until lifted. */
-static void  jt221(short x, short y, short facing)        /* CODE 7+0x6076 — render the view at (x,y,facing) */
-                                      { PROBE("jt221"); (void)x;(void)y;(void)facing; }
+/* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
+ * L6234 in particular is the ~1083-instruction first-person render (the
+ * faithful equivalent of the port's jt312 / render_3d_* path) and is a lift
+ * of its own. */
+static void  l6234(short a, short b, short x, short y, short facing)
+                                      { PROBE("L6234"); (void)a;(void)b;(void)x;(void)y;(void)facing; } /* CODE 7+0x6234 — first-person 3D render */
+static void  l52b8(short *py, short *px, long a, long b, short c, short d, short e)
+                                      { PROBE("L52b8"); (void)py;(void)px;(void)a;(void)b;(void)c;(void)d;(void)e; } /* CODE 7+0x52b8 — area-map step */
+static void  l50fe(short y, short x, short facing, short a, short b,
+                   short c, short d, short e, short f)
+                                      { PROBE("L50fe"); (void)y;(void)x;(void)facing;(void)a;(void)b;(void)c;(void)d;(void)e;(void)f; } /* CODE 7+0x50fe — area-map render */
+static void  l57f2(void)              { PROBE("L57f2"); } /* CODE 7-local — dungeon-view prep */
 static void  jt44(void)               { PROBE("jt44"); }   /* CODE 6+0x5822 — full play-screen redraw */
 static void  l2cf4(void)              { PROBE("L2cf4"); }  /* CODE 12-local — redraw tail */
+
+/* JT[221] (CODE 7 + 0x6076) — render the play view at the party position
+ * (x,y,facing). Brackets the draw with JT[131]/JT[80] (begin) and dispatches
+ * on g_a5_-12290 (the overland/automap flag):
+ *   != 0  -> area-map: L52b8 steps the scroll origin (it writes back through
+ *            &x/&y), then L50fe paints the top-down map; x/y are restored.
+ *   == 0  -> dungeon: JT[108](1), L57f2 preps, then L6234 paints the first-
+ *            person 3D view anchored at 8012/8012 (8000-space), JT[117] ends.
+ * The renderers (L6234/L52b8/L50fe/L57f2) are the deferred deep layer. */
+static void jt221(short x, short y, short facing)
+{
+	PROBE("jt221");
+	jt131(0);                               /* begin / lock the port */
+	jt80(0);
+
+	if (g_a5_byte(-12290) != 0) {           /* L608e — area-map / overland */
+		short sx = x, sy = y;           /* fp@(-2)/fp@(-4): save x,y */
+		l52b8(&y, &x, 0L, 0L, (short)11, (short)11, (short)1);
+		l50fe(y, x, facing, (short)8012, (short)8012,
+		      (short)11, (short)11, (short)1, (short)0);
+		x = sx; y = sy;                 /* L60fc: restore from the save */
+	} else {                                /* L610a — first-person dungeon */
+		jt108(1);
+		l57f2();
+		l6234((short)8012, (short)8012, x, y, facing);
+		(void)jt117();
+	}
+}
 
 /* JT[201] (CODE 7 + 0x5f6a) — return the special-feature byte of map cell
  * (x,y). L5baa bounds-tests the cell; out of range -> 0. Otherwise it indexes
