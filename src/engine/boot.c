@@ -7720,6 +7720,7 @@ static short jt210(short row, short col, short dir)
  * (top - ybear, left - xbear) in the cell (the glyph bearing convention);
  * bytes are clut indices (32..71 via the active set's clut-32 band),
  * skipping the 255 / magenta transparency key. No scaling, no shade. */
+static void cw_blit_piece(short top, short left, short idx) __attribute__((unused));
 static void cw_blit_piece(short top, short left, short idx)
 {
 	const unsigned char *b;
@@ -7796,24 +7797,30 @@ static int load_cw_full(short file, short set)
 	return 1;
 }
 
-/* jt200_layer — draw one wall-tile layer for jt200. Group 2 is the
- * DUNGCOM wall set (handle JT[1004] = g_a5_-4582), drawn 1:1 via the
- * faithful l309c_tile path. The other groups (0/1/3/4) blit through
- * JT[114] (CODE 6 + 0x3804) with per-group handles from the table
- * g_a5_-27894[group*4]; those tile libraries aren't loaded yet, so
- * that arm is a documented TODO. */
+/* JT[114] (CODE 6 + 0x3804) — blit wall tile `idx` from a wall-set tile-
+ * library handle. The Mac forwards to JT[1001] (CODE 5+0x31ac, = JT[468] +
+ * L309c, the GLIB tile blit); the port routes to l309c_tile with the handle.
+ * `handle` is one of the per-group wall-set GLIBs L6eea loads. */
+static void jt114(unsigned char *page, short top, short left, short idx,
+                  long handle)
+{
+	PROBE("jt114");
+	if (handle != 0)
+		l309c_tile(page, top, left, (long)(uintptr_t)handle, idx);
+}
+
+/* jt200_layer — draw one wall-tile layer for jt200. FAITHFUL path: blit tile
+ * `idx` from the per-group wall-set tile-library handle (the table at
+ * g_a5_-27894, one long per group), via JT[114]. L6eea loads those handles
+ * from the level's colour wall sets (8X8DC-family). The cw_blit_piece colour
+ * stand-in and the group-2 DUNGCOM fallback are dropped: DUNGCOM is ENCOUNTER
+ * art (the combat sub-map), not the 3D walls — see [[dungeon-render-architecture]].
+ * Groups whose handle is still 0 (L6eea not yet lifted / set not configured)
+ * draw nothing rather than a stand-in. */
 static void jt200_layer(unsigned char *page, short top, short left,
                         short group, short idx)
 {
-	if (g_cwf_px != NULL) {           /* faithful colour path: blit piece idx */
-		cw_blit_piece(top, left, idx);
-		return;
-	}
-	if (group == 2) {
-		l309c_tile(page, top, left, jt1004_handle(), idx);
-	}
-	/* else: jt114(top, left, idx, 0, g_a5_-27894[group*4]) — needs the
-	 * per-group wall-set tile-lib handle table populated. TODO. */
+	jt114(page, top, left, idx, g_a5_long(-27894 + (long)group * 4));
 }
 
 /* jt200 (JT[200], CODE 7 + 0x59d4) — draw one dungeon wall slot.
