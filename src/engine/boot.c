@@ -1929,35 +1929,48 @@ static int  wallset_for_id(short id, short *file, short *set);  /* wall-set id -
  * the .TLB for the deep view and GLIB-indexes the set with the port's
  * primitives. The JT[111] synthesis of the bigger near tiles from the shipped
  * far ones is deferred (TODO). type 2 (backdrop) is skipped. */
-static unsigned char *g_wallset_tlb[2];          /* resident GLIB per group 0/1 (heap) */
+/* The two colour wall libraries are cached one buffer PER FILE (not per
+ * group): a level's three groups usually share a file (e.g. all in 8X8DB),
+ * so three per-group 327KB buffers blew the heap and starved the last load.
+ * Each file is read once; the per-group handle is just a sub-pointer into it. */
+#define CW_FILEBUF_SZ 327680
+static unsigned char *g_wallset_filebuf[2];      /* resident .CTL per file (heap) */
+static long           g_wallset_filebase[2];     /* file GLIB base (0 = unloaded) */
 static void l6eea(short zone, short type)
 {
 	/* The persistent HUD first-person view uses the COLOUR .CTL sets (8bpp,
 	 * clut-129), all tiles present (no synthesis). 8X8DC for ids 1..9 vs DB
-	 * picked by wallset_for_id's file. */
+	 * picked by wallset_for_id's file. type 0/1/2 = the level's three wall
+	 * groups (ds[4]=Wall1 -> -27894, ds[5]=Wall2 -> -27890, ds[6]=Wall3 ->
+	 * -27886); jt200 folds a wall code's group and indexes -27894 + group*4. */
 	static const char *const ctl[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
 	short file = 0, set = 0, refnum = 0;
 	long  count, base, sub;
-	unsigned char *buf;
 
 	PROBE("L6eea");
-	if ((zone & 0xff) == 255 || type < 0 || type > 1)
+	if ((zone & 0xff) == 255 || type < 0 || type > 2)
 		return;
 	if (!wallset_for_id(zone, &file, &set))
 		return;
-	if (g_wallset_tlb[type] == NULL)
-		g_wallset_tlb[type] = (unsigned char *)NewPtr(327680);
-	buf = g_wallset_tlb[type];
-	if (buf == NULL)
-		return;
-	if (FSOpen((ConstStr255Param)ctl[file & 1], 0, &refnum) != noErr)
-		return;
-	count = 327680;
-	(void)FSRead(refnum, &count, buf);
-	(void)FSClose(refnum);
-	base = (long)(uintptr_t)buf;
-	if (l37aa(base, 0) == 0)                  /* validate 'GLIB' magic */
-		return;
+	file &= 1;
+	if (g_wallset_filebase[file] == 0) {     /* load this .CTL once, resident */
+		unsigned char *buf = g_wallset_filebuf[file];
+		if (buf == NULL) {
+			buf = (unsigned char *)NewPtr(CW_FILEBUF_SZ);
+			g_wallset_filebuf[file] = buf;
+		}
+		if (buf == NULL)
+			return;
+		if (FSOpen((ConstStr255Param)ctl[file], 0, &refnum) != noErr)
+			return;
+		count = CW_FILEBUF_SZ;
+		(void)FSRead(refnum, &count, buf);
+		(void)FSClose(refnum);
+		if (l37aa((long)(uintptr_t)buf, 0) == 0)   /* validate 'GLIB' magic */
+			return;
+		g_wallset_filebase[file] = (long)(uintptr_t)buf;
+	}
+	base = g_wallset_filebase[file];
 	sub = l37aa(base, set);                   /* the set's 48-tile sub-GLIB */
 	if (sub != 0)
 		g_a5_long(-27894 + (long)type * 4) = sub;
@@ -1985,8 +1998,9 @@ static void l6148(void)
 		return;
 
 	if (lvl[6] != 0 && (short)lvl[6] != (short)g_a5_word(-12296)) {
-		l6eea((short)lvl[6], 2);        /* backdrop set */
-		/* TODO: reload the backdrop bitmap into the -27886 handle. */
+		l6eea((short)lvl[6], 2);        /* wall set 3 (Wall3) -> handle -27886 */
+		/* TODO: the Mac post-processes -27886 (JT[468]/JT[1004]/JT[459]/
+		 * JT[406]/JT[115]) after the load — deferred; the raw set suffices. */
 		g_a5_word(-12296) = (short)lvl[6];
 	}
 	if (lvl[4] != 0 && g_a5_long(-27894) == 0)
@@ -9705,6 +9719,16 @@ void port_l6234_verify(void)
 			dbg_log_num("ds[4] wall1 = ", ds ? (long)ds[4] : -1);
 			dbg_log_num("ds[5] wall2 = ", ds ? (long)ds[5] : -1);
 			dbg_log_num("ds[6] wall3 = ", ds ? (long)ds[6] : -1);
+			dbg_log_num("band slot0 sid = ", (long)g_cw_sid[0]);
+			dbg_log_num("  band[0] r = ", (long)g_cw_sr[0][0]);
+			dbg_log_num("  band[0] g = ", (long)g_cw_sg[0][0]);
+			dbg_log_num("  band[0] b = ", (long)g_cw_sb[0][0]);
+			dbg_log_num("  band[8] r = ", (long)g_cw_sr[0][8]);
+			dbg_log_num("  band[8] g = ", (long)g_cw_sg[0][8]);
+			dbg_log_num("  band[8] b = ", (long)g_cw_sb[0][8]);
+			dbg_log_num("hdl grp0 = ", g_a5_long(-27894));
+			dbg_log_num("hdl grp1 = ", g_a5_long(-27890));
+			dbg_log_num("hdl grp2 = ", g_a5_long(-27886));
 			for (off = 12240; off >= 12196; off -= 2)
 				dbg_log_num((off == 12240 ? "layout[-12240..] = " : "  ... = "),
 				            (long)g_a5_word(-off));
