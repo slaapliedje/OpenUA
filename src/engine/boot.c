@@ -1975,15 +1975,16 @@ static void l6234(short a, short b, short x, short y, short facing)
 		jt1173(b, a, (short)(b + 44), (short)(a + 44));
 	}
 
-	/* --- the frustum render body --- L6234 walks 4 depth bands forward from
-	 * the party cell and paints the wall slots via L5b42 (which blits the
-	 * wall faces through jt200_layer). The per-slot screen deltas come from
-	 * the slot-layout globals (-12202/-12220/-12222/-12240, per-depth word
-	 * arrays stepped by `slotidx`). a/b are the view anchor L5b42 maps the
-	 * deltas against. This first cut lifts the LEFT wall column (0x63be..
-	 * 0x6536); the front and right columns (0x653a..0x6df0, ~12 more L5b42
-	 * slots) and the floor/ceiling backdrop tail (L7406/L7470 @0x7284) are
-	 * the remaining body, deferred. NOT yet visually verified. */
+	/* --- the frustum render body --- from a start cell 2 ahead of the party
+	 * (party + 2*forward), L6234 scans the view's wall columns and paints
+	 * each slot via L5b42 (which blits the wall faces through jt200_layer).
+	 * Per-slot screen deltas come from the slot-layout globals (-12202/
+	 * -12220/-12222/-12240, per-depth word arrays stepped by `slotidx`); a/b
+	 * is the view anchor L5b42 maps them against. Lifted so far: the LEFT
+	 * column (scan dleft, 0x63be..0x6536) and the RIGHT column (scan dright,
+	 * 0x653a..0x66cc). The remaining centre/front-wall slots (0x66cc..0x6df0)
+	 * and the floor/ceiling backdrop tail (L7406/L7470 @0x7284) are deferred.
+	 * NOT yet visually verified (needs a Hatari diff vs the port jt312). */
 	{
 		unsigned char *page; short pitch, sw, sh;
 		short cr, cc;                   /* fp@(-14)/(-16): slot map coords  */
@@ -2018,18 +2019,57 @@ static void l6234(short a, short b, short x, short y, short facing)
 					short lc = (short)(cc - ldcol);
 					if ((l5e52(lr, lc, dleft) & 0xff) != 0)
 						l5b42(page, a, b,
-						      (short)(g_a5_word(-12222) + slotidx),
+						      (short)(g_a5_word(-12222) + slotidx + 1),
 						      (short)g_a5_word(-12202), prevocc, 9);
 				}
 				prevocc = 0;
 			}
 			slotidx = (short)(slotidx - 2);
-			cr = (short)(cr + fdrow);
-			cc = (short)(cc + fdcol);
+			cr = (short)(cr + ldrow);       /* walk LEFT (dleft), not forward */
+			cc = (short)(cc + ldcol);
 		}
 
-		/* TODO: front + right wall columns and the backdrop tail. */
-		(void)dback; (void)dright;
+		/* --- right wall column (L653a..L66cc) --- same 2-ahead start, but
+		 * scans rightward (dright), slotidx steps +2, the side wall uses
+		 * slotidx-1, and the front facet is drawn only at depths 1..2. */
+		{
+			short rdrow = (short)(signed char)g_a5_byte(-27862 + dright);
+			short rdcol = (short)(signed char)g_a5_byte(-27853 + dright);
+			cr = (short)(x + 2 * fdrow);
+			cc = (short)(y + 2 * fdcol);
+			slotidx = 0; prevocc = 0;
+			for (depth = 0; depth < 4; depth++) {
+				occ = (short)(l5e52(cr, cc, facing) & 0xff);
+				if (occ != 0) {
+					if (prevocc > 0)
+						l5b42(page, a, b,
+						      (short)(g_a5_word(-12222) + slotidx - 1),
+						      (short)g_a5_word(-12202), prevocc, 9);
+					prevocc = occ;
+					if (depth != 0 && depth < 3)
+						l5b42(page, a, b,
+						      (short)(g_a5_word(-12240) + slotidx),
+						      (short)g_a5_word(-12220), occ, 0);
+				} else {
+					if (prevocc > 0) {
+						short rr = (short)(cr - rdrow);
+						short rc = (short)(cc - rdcol);
+						if ((l5e52(rr, rc, dright) & 0xff) != 0)
+							l5b42(page, a, b,
+							      (short)(g_a5_word(-12222) + slotidx - 1),
+							      (short)g_a5_word(-12202), prevocc, 9);
+					}
+					prevocc = 0;
+				}
+				slotidx = (short)(slotidx + 2);
+				cr = (short)(cr + rdrow);
+				cc = (short)(cc + rdcol);
+			}
+		}
+
+		/* TODO: the centre/front-wall slots and the floor/ceiling backdrop
+		 * tail (L7406/L7470 @0x7284) — the remaining body. */
+		(void)dback;
 	}
 }
 /* L52b8 (CODE 7 + 0x52b8) — step the area-map scroll origin. For each axis it
