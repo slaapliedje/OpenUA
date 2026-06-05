@@ -1891,6 +1891,13 @@ static int   jt108(short a);                              /* CODE 6+0x38d0 */
 static int   jt117(void);                                 /* CODE 6+0x3994 */
 static short l5368(short span, short dim, signed char *coord,
                    short origin, short wrap);              /* CODE 7+0x5368 — toroidal mover */
+/* L50fe area-map render callees, defined further down. */
+static short jt397(short a, short b);
+static short jt413(short a, short b);
+static void  jt1135(short v1, short v2, short *out1, short *out2);
+static void  jt1161(short top, short left, short bottom, short right, short fill);
+static void  jt448(short x, short y, short color, short glyph);
+static short l5e52(short row, short col, short dir);
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -1922,9 +1929,148 @@ static signed char l52b8(signed char *coord1, signed char *coord2,
 	if (out2 != NULL) *out2 = n2;
 	return changed;
 }
-static void  l50fe(short y, short x, short facing, short a, short b,
-                   short c, short d, short e, short f)
-                                      { PROBE("L50fe"); (void)y;(void)x;(void)facing;(void)a;(void)b;(void)c;(void)d;(void)e;(void)f; } /* CODE 7+0x50fe — area-map render */
+/* L5bfa (CODE 7 + 0x5bfa) — the wall-style code at cell (row,col) edge `dir`.
+ * For an odd dir (an edge between two cells) it first steps to the neighbour
+ * cell via the direction tables (-27862 drow / -27853 dcol) and normalises the
+ * edge; bounds-tests with L5baa (0 outside the map); then returns the high
+ * nibble of the cell record's edge byte (lvl[290 + (lvl[3]*col+row)*6 + dir/2]
+ * >> 4) — the same record layout jt205/jt212 read. */
+static short l5bfa(short row, short col, short dir)
+{
+	const unsigned char *lvl;
+	long  idx;
+	short eidx;
+
+	PROBE("L5bfa");
+	if (dir & 1) {                                  /* edge between cells */
+		dir--;
+		row = (short)(row + (signed char)g_a5_byte(-27862 + dir));
+		col = (short)(col + (signed char)g_a5_byte(-27853 + dir));
+		dir = (short)((dir + 2) & 6);
+	}
+	if (l5baa(row, col) == 0)
+		return 0;
+	eidx = (short)((dir & 6) >> 1);
+	lvl  = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	idx  = (long)((short)lvl[3] * col + row);
+	return (short)((lvl[290 + idx * 6 + eidx] >> 4) & 15);
+}
+
+/* L5484 (CODE 7 + 0x5484) — classify map cell (row,col) edge `dir` for the
+ * area map: 0 = nothing (no edge present, L5e52==0), else map the wall-style
+ * code (L5bfa, 0..15) to 2 for the "open/secret" styles {1,3,5,14} and 1 for
+ * every other present style. JT[3] table @0x54ba. */
+static short l5484(short row, short col, short dir)
+{
+	short t;
+
+	PROBE("L5484");
+	if (l5e52(row, col, dir) == 0)
+		return 0;
+	t = (short)(l5bfa(row, col, dir) & 0xff);
+	switch (t) {                                    /* JT[3] @0x54ba */
+	case 1: case 3: case 5: case 14:
+		return 2;
+	case 0:
+		return 0;
+	default:
+		return 1;
+	}
+}
+
+/* L54f2 (CODE 7 + 0x54f2) — draw one area-map cell at screen (sy,sx). Queries
+ * the cell (L5484, edge 8); empty -> nothing. Otherwise paints the cell's top
+ * edge as a 1px bar (fill 7), and for a style-1 cell adds a short centre mark
+ * (fill 8) — this is the dashed top-down automap look. */
+static void l54f2(short maprow, short mapcol, short sy, short sx)
+{
+	short cs    = (short)g_a5_word(-12272);         /* cell size */
+	short right = (short)(sx + cs);
+	short half  = (short)((cs - 2) / 2);
+	short t;
+
+	PROBE("L54f2");
+	t = l5484(maprow, mapcol, 8);
+	if (t == 0)
+		return;
+	jt1161(sy, sx, (short)(sy + 1), right, 7);      /* top bar */
+	if (t == 1) {
+		short x0 = (short)(sx + half);
+		jt1161(sy, x0, (short)(sy + 1), (short)(x0 + 2), 8);
+	}
+}
+
+/* L5752 (CODE 7 + 0x5752) — draw the party marker on the area map. Places it
+ * at the view origin + the party's window-relative cell, picks the facing
+ * arrow glyph (17 + facing/2, +4 for the 12px cell size), and blits it via
+ * JT[448] in colour 12. */
+static void l5752(short rrow, short rcol, short vy, short vx, short facing)
+{
+	short cs    = (short)g_a5_word(-12272);
+	short sy    = (short)(vy + rrow * cs);
+	short sx    = (short)(vx + rcol * cs);
+	short glyph = (short)(((cs == 12) ? 4 : 0) + ((facing & 6) >> 1) + 17);
+
+	PROBE("L5752");
+	jt448(sy, sx, 12, glyph);
+}
+
+/* L50fe (CODE 7 + 0x50fe) — paint the top-down area map. Transforms the view
+ * anchor (p4/p5, 8000-space) to screen via JT[397]/JT[1135], fills the view
+ * interior (JT[1161], colour 8), stores the view origin (-12282/-12280) and
+ * window dimensions in cells (-12274/-12273 = JT[413](JT[397](span),mapdim)),
+ * then loops the visible window drawing each cell (L54f2) offset by the scroll
+ * origin (-12278/-12276). Finally, if p8 is set, draws the party marker
+ * (L5752). p9 gates the JT[108] dialog-suppress bracket. */
+static void l50fe(short y, short x, short facing, short p4, short p5,
+                  short p6, short p7, short p8, short p9)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short oy, ox;                                   /* view origin (screen) */
+	short r, c, sy;
+
+	PROBE("L50fe");
+	if ((p9 & 0xff) == 0)
+		jt108(1);
+	if (jt1200() == 3)
+		g_a5_word(-12272) = 16;
+
+	oy = jt397(p4, 8000);
+	ox = jt397(p5, 8000);
+	jt1135(oy, ox, &oy, &ox);                       /* 8000-space -> screen */
+	if (jt1200() == 3) { oy = (short)(oy - 28); ox = (short)(ox - 28); }
+
+	jt1161(oy, ox,
+	       (short)(p6 * (short)g_a5_word(-12272) + oy),
+	       (short)(p7 * (short)g_a5_word(-12272) + ox), 8);
+	if ((p9 & 0xff) == 0)
+		jt108(1);
+
+	g_a5_word(-12282) = oy;
+	g_a5_word(-12280) = ox;
+	g_a5_byte(-12274) = (unsigned char)jt413(jt397(p6, 1), (short)lvl[2]);
+	g_a5_byte(-12273) = (unsigned char)jt413(jt397(p7, 1), (short)lvl[3]);
+
+	sy = oy;
+	for (r = 0; r < (short)(unsigned char)g_a5_byte(-12274); r++) {
+		for (c = 0; c < (short)(unsigned char)g_a5_byte(-12273); c++) {
+			short maprow = (short)(r + (short)g_a5_word(-12278));
+			short mapcol = (short)(c + (short)g_a5_word(-12276));
+			short sx = (short)(c * (short)g_a5_word(-12272) + ox);
+			l54f2(maprow, mapcol, sy, sx);
+		}
+		sy = (short)(sy + (short)g_a5_word(-12272));
+	}
+
+	if ((p8 & 0xff) != 0)
+		l5752((short)(y - (short)g_a5_word(-12278)),
+		      (short)(x - (short)g_a5_word(-12276)),
+		      (short)g_a5_word(-12282), (short)g_a5_word(-12280), facing);
+
+	if (jt1200() == 3)
+		g_a5_word(-12272) = 16;
+	(void)jt117();
+}
 static void  l57f2(void)              { PROBE("L57f2"); } /* CODE 7-local — dungeon-view prep */
 static void  jt44(void)               { PROBE("jt44"); }   /* CODE 6+0x5822 — full play-screen redraw */
 static void  l2cf4(void)              { PROBE("L2cf4"); }  /* CODE 12-local — redraw tail */
