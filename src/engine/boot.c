@@ -1916,7 +1916,49 @@ static void  jt199(unsigned char *page, short Y, short X, short row,
  * L6234 in particular is the ~1083-instruction first-person render (the
  * faithful equivalent of the port's jt312 / render_3d_* path) and is a lift
  * of its own. */
-static void  l6eea(short zone, short type) { PROBE("L6eea"); (void)zone;(void)type; } /* CODE 7+0x6eea — load an art set (186 insns; TODO) */
+static long l37aa(long base_long, short idx);             /* CODE 5+0x37aa — GLIB item lookup */
+static int  wallset_for_id(short id, short *file, short *set);  /* wall-set id -> (file,set) */
+
+/* L6eea (CODE 7 + 0x6eea) — load a wall set's tile library into a per-group
+ * tile-lib handle for the first-person view. In the DEEP view (jt1200()==3)
+ * the walls are the 1bpp .TLB sets (8X8DB for wall-set ids 1..9, 8X8DC for
+ * 10..16), each a GLIB-of-GLIBs; l37aa picks the set's 48-tile sub-GLIB,
+ * stored in the handle table g_a5_-27894 + type*4, which jt114 -> l309c_tile
+ * -> bp_blit blits 1:1. The Mac builds the name (JT[394]) + loads via JT[110],
+ * choosing .ctl(colour)/.tlb(1bpp) by display mode; this focused load opens
+ * the .TLB for the deep view and GLIB-indexes the set with the port's
+ * primitives. The JT[111] synthesis of the bigger near tiles from the shipped
+ * far ones is deferred (TODO). type 2 (backdrop) is skipped. */
+static unsigned char *g_wallset_tlb[2];          /* resident GLIB per group 0/1 (heap) */
+static void l6eea(short zone, short type)
+{
+	static const char *const tlb[2] = { "\0118X8DC.TLB", "\0118X8DB.TLB" };
+	short file = 0, set = 0, refnum = 0;
+	long  count, base, sub;
+	unsigned char *buf;
+
+	PROBE("L6eea");
+	if ((zone & 0xff) == 255 || type < 0 || type > 1)
+		return;
+	if (!wallset_for_id(zone, &file, &set))
+		return;
+	if (g_wallset_tlb[type] == NULL)
+		g_wallset_tlb[type] = (unsigned char *)NewPtr(212992);
+	buf = g_wallset_tlb[type];
+	if (buf == NULL)
+		return;
+	if (FSOpen((ConstStr255Param)tlb[file & 1], 0, &refnum) != noErr)
+		return;
+	count = 212992;
+	(void)FSRead(refnum, &count, buf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)buf;
+	if (l37aa(base, 0) == 0)                  /* validate 'GLIB' magic */
+		return;
+	sub = l37aa(base, set);                   /* the set's 48-tile sub-GLIB */
+	if (sub != 0)
+		g_a5_long(-27894 + (long)type * 4) = sub;
+}
 
 /* L6148 (CODE 7 + 0x6148) — load the current level's 3D art. Gated on the
  * party's view-distance setting (record[19] >= 5). Lazily (re)loads, keyed by
@@ -2147,8 +2189,11 @@ static void jt221(short x, short y, short facing)
 		jt108(1);
 		l57f2();
 		/* L6234 == JT[199] (CODE 7+0x6234): the faithful frustum walker,
-		 * lifted complete (all 3 bands) further down. (The page is the
-		 * port's drawing surface the Mac draws to the global port.) */
+		 * lifted complete (all 3 bands) further down. jt199 OMITS the
+		 * per-frame art-load setup L6234 does first, so run L6148 here to
+		 * load the level's wall-set tile libs into the -27894 handles.
+		 * (page is the port's drawing surface the Mac draws to the port.) */
+		l6148();
 		if (qd_screen_pixels(&page, &pitch, &sw, &sh) && page != NULL)
 			jt199(page, (short)8012, (short)8016, y, x, facing);
 		(void)jt117();
