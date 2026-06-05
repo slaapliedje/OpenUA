@@ -1659,6 +1659,9 @@ static void  jt10_handler(void) { }     /* CODE 6 + 0x0538 (jump-table entry 10)
 static void  jt11_handler(void) { }     /* CODE 6 + 0x04c0 (jump-table entry 11) */
 
 void port_play_demo(void);              /* interactive 3D-view demo (FRUA_3D_DEMO) */
+#ifdef FRUA_L6234_VERIFY
+void port_l6234_verify(void);           /* faithful 3D-render geometry verification */
+#endif
 static short jt953(void);                /* exploration command dispatcher */
 
 /*
@@ -1749,6 +1752,9 @@ int ua_main(short arg1, long arg2)
 	 * / _UnLoadSeg paging it is just this: run JT[949], JT[956], JT[920]
 	 * and the per-iteration body L07dc while JT[315] stays true.
 	 */
+#ifdef FRUA_L6234_VERIFY
+	port_l6234_verify();    /* never returns — geometry check for L6234 */
+#endif
 	while (jt315()) {
 		jt949();
 		jt956();
@@ -1963,6 +1969,18 @@ static void l6234(short a, short b, short x, short y, short facing)
 	short fdcol  = (short)(signed char)g_a5_byte(-27853 + facing);
 
 	PROBE("L6234");
+#ifdef FRUA_L6234_VERIFY
+	dbg_log_num("L6234 a/b anchor = ", a);
+	dbg_log_num("  party x = ", x);
+	dbg_log_num("  party y = ", y);
+	dbg_log_num("  facing  = ", facing);
+	dbg_log_num("  deep(jt1200) = ", (long)jt1200());
+	dbg_log_num("  map(-12300) = ", g_a5_long(-12300));
+	dbg_log_num("  slot -12202 = ", (long)(short)g_a5_word(-12202));
+	dbg_log_num("  slot -12220 = ", (long)(short)g_a5_word(-12220));
+	dbg_log_num("  slot -12222 = ", (long)(short)g_a5_word(-12222));
+	dbg_log_num("  slot -12240 = ", (long)(short)g_a5_word(-12240));
+#endif
 	l6148();                                /* load the level's 3D art */
 
 	if (g_a5_long(-27894) != 0) jt124(g_a5_long(-27894));   /* free old handles */
@@ -9653,6 +9671,79 @@ void port_view_demo(void)
 	for (;;)
 		qd_present();
 }
+
+#ifdef FRUA_L6234_VERIFY
+/* port_l6234_verify — geometry-verification harness for the faithful
+ * first-person render (jt221 -> L6234). Loads a real level so L5e52 has map
+ * data, engages deep mode (g_a5_2347=0 -> jt1200()==3 -> the L6234 branch),
+ * drops the party at a known dungeon spot, loads the colour wall pieces, then
+ * renders via jt221 (which logs the slot-layout globals + dispatches to L6234)
+ * and holds the frame for a screenshot. Lets us confirm L6234 walks the map
+ * and assembles slots correctly (geometry) before L6eea (textures) lands. */
+void port_l6234_verify(void)
+{
+	unsigned char *pl, *px;
+	short pitch, sw, sh;
+	short k;
+	static const signed char drow[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
+	static const signed char dcol[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
+
+	pl = (unsigned char *)g_a5_28006;
+	if (pl != NULL)
+		pl[134] = 0;
+	g_a5_18485 = 0;
+	g_a5_18878 = 1;
+	g_a5_18488 = 0;
+	l0bbc();                                /* load level 1 + place party */
+
+	g_a5_2347 = 0;                          /* deep dungeon-view mode */
+	g_a5_byte(-12290) = 0;                  /* dungeon (not automap) branch */
+	for (k = 0; k < 8; k++) {
+		g_a5_byte(-27862 + k) = (unsigned char)drow[k];
+		g_a5_byte(-27853 + k) = (unsigned char)dcol[k];
+	}
+	/* Scan for a vantage in L6234's OWN convention (L5e52 + the drow/dcol
+	 * step tables = -27862/-27853, where cell = col*height + row): find a
+	 * cell with a wall on the `facing` edge, then place the party two cells
+	 * back along that facing so L6234's 2-ahead start lands on the wall and
+	 * the frustum has geometry in view. (cell_edge/dir_dx use the opposite
+	 * row/col axis, so they can't drive this scan.) */
+	{
+		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		short mw = ds ? ds[2] : 0, mh = ds ? ds[3] : 0;
+		short r, c, f, found = 0;
+		for (f = 0; f < 8 && !found; f += 2)
+			for (c = 0; c < mw && !found; c++)
+				for (r = 0; r < mh && !found; r++) {
+					if ((l5e52(r, c, f) & 0xff) == 0)
+						continue;
+					g_a5_byte(-12288) = (unsigned char)(r - 2 * (signed char)g_a5_byte(-27862 + f));
+					g_a5_byte(-12287) = (unsigned char)(c - 2 * (signed char)g_a5_byte(-27853 + f));
+					g_a5_byte(-12286) = (unsigned char)f;
+					found = 1;
+				}
+		dbg_log_num("verify wall-cell found = ", found);
+		dbg_log_num("  party x=", (long)(signed char)g_a5_byte(-12288));
+		dbg_log_num("  party y=", (long)(signed char)g_a5_byte(-12287));
+		dbg_log_num("  facing =", (long)(signed char)g_a5_byte(-12286));
+	}
+
+	(void)dungeon_view_setup();             /* load the wall pieces */
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+
+	dbg_log("=== FRUA_L6234_VERIFY: jt221 -> L6234 ===");
+	jt221((short)(signed char)g_a5_byte(-12288),
+	      (short)(signed char)g_a5_byte(-12287),
+	      (short)(signed char)g_a5_byte(-12286));
+	dbg_log("=== L6234 returned ===");
+
+	qd_present();
+	qd_present();
+	for (;;)
+		qd_present();
+}
+#endif
 
 /* port_blit_demo — exercise the bit-packed blit foundation: load a real
  * 32x32 1bpp DUNGCOM tile, OR-blit it into the page at a run of sub-word
