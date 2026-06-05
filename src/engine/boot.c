@@ -7846,6 +7846,7 @@ static void jt1080(void);
 static int         jt273(void)                          { PROBE("jt273"); return 0; }        /* CODE 22+0x4900 */
 static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
 static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
+static short       jt354(void)                          { PROBE("jt354"); return 0; }         /* CODE 8+0x5ef8 */
 static short       jt358(void)                          { PROBE("jt358"); return 0; }         /* CODE 8+0x6e4a counter */
 static void        jt367(short v, void *buf)            { PROBE("jt367"); (void)v;(void)buf; } /* CODE 8+0x6e78 counter fmt */
 
@@ -9708,6 +9709,69 @@ static short l0096(unsigned char *ctx)
 		*(short *)(ctx + 4) = res;
 	}
 	return *(short *)(ctx + 2);
+}
+
+/* L0004 (CODE 22 + 0x4) — the play/edit state-machine ENTRY. This is the
+ * faithful menu->play bridge L0096's header refers to ("reaching them needs
+ * L0004's menu-mode entry path"). It builds the 342-byte master context on
+ * the stack, clears it (JT[399]), publishes ctx+6 to A5-11714 (the
+ * JT[316..321] start/stop hook), seeds command=1, then JT[3]-switches the
+ * entry arg to the STARTING mode and runs the mode loop:
+ *
+ *   arg 6 -> mode 4  (JT[251], CODE 2 — the design-action dispatcher)
+ *   arg 7 -> mode 2  (JT[243], CODE 11)
+ *   arg 8 -> mode 8  (JT[269], CODE 10); also seeds ctx[12]=JT[354](),
+ *                                        ctx[14]=-1
+ *   arg 9 -> mode 7  (JT[263], CODE 10)
+ *   else  -> set the stop flag (no run)
+ *
+ * Before the loop JT[358]() is OR'd into the flags' high word (ctx[8]).
+ * The chosen start handler then transitions among modes until one returns
+ * mode 14 (JT[241], the play/dungeon action) — e.g. mode 4 -> ... -> mode 11
+ * (JT[248], CODE 2+0x2a86 returns 14) -> mode 14. Those CODE 2/10 mode
+ * handlers are the deferred next step (see jt315's selection dispatch); until
+ * they land an unhandled start mode stops L0096 cleanly, so this entry is
+ * lifted but not yet wired into the live menu (port_play_demo still seeds
+ * mode 14 directly). Called locally from jt315 (CODE 22+0x5180/0x5266).
+ *
+ * Field offsets in the 342-byte ctx (= L0096's struct):
+ *   ctx[0] byte stop  ctx[2] word command  ctx[4] word mode
+ *   ctx[6] hook->A5-11714  ctx[8] long flags  ctx[12] byte  ctx[14] word */
+static short l0004_22(short arg) __attribute__((unused));
+static short l0004_22(short arg)
+{
+	unsigned char ctx[342];
+
+	PROBE("L0004_22");
+	jt399(ctx, (short)342, (short)0);               /* clear the context */
+	g_a5_long(-11714) = (long)(uintptr_t)(ctx + 6); /* JT[316..321] hook */
+	*(short *)(ctx + 2) = 1;                         /* command = 1 */
+
+	switch (arg) {                                  /* JT[3] min=6 max=9 */
+	case 6:                                         /* L003c */
+		*(short *)(ctx + 4) = 4;
+		break;
+	case 7:                                         /* L0044 */
+		*(short *)(ctx + 4) = 2;
+		break;
+	case 8:                                         /* L004c */
+		ctx[12] = (unsigned char)jt354();
+		*(short *)(ctx + 14) = (short)-1;
+		*(short *)(ctx + 4) = 8;
+		break;
+	case 9:                                         /* L0062 */
+		*(short *)(ctx + 4) = 7;
+		break;
+	default:                                        /* L006a */
+		ctx[0] = 1;                             /* stop -> no run */
+		break;
+	}
+
+	/* L0070: fold JT[358]'s byte into the flags' high word, then run. */
+	*(long *)(ctx + 8) |= ((long)(jt358() & 0xff)) << 16;
+	if (ctx[0] == 0)
+		(void)l0096(ctx);
+	return 0;
 }
 
 /* port_play_demo — the play loop core as an interactive dungeon walk
