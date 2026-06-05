@@ -1911,6 +1911,7 @@ static void  l5b42(unsigned char *page, short y, short x, short ydelta,
 static short jt212(short row, short col, short edge);      /* CODE 7+0x5cc8 — wall high nibble */
 static void  jt199(unsigned char *page, short Y, short X, short row,
                    short col, short facing);                /* JT[199]=CODE 7+0x6234 frustum walker */
+static void  render_3d_faithful(unsigned char *px, short pitch, short sw, short sh);
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -2223,14 +2224,14 @@ static void jt221(short x, short y, short facing)
 		unsigned char *page; short pitch, sw, sh;
 		jt108(1);
 		l57f2();
-		/* L6234 == JT[199] (CODE 7+0x6234): the faithful frustum walker,
-		 * lifted complete (all 3 bands) further down. jt199 OMITS the
-		 * per-frame art-load setup L6234 does first, so run L6148 here to
-		 * load the level's wall-set tile libs into the -27894 handles.
+		/* The faithful first-person view: render_3d_faithful does the full
+		 * frame-integrated draw — load_wall_groups (the three Wall1-3 CLUTs at
+		 * clut 32/64/96), L6148 (the -27894 tile-lib handles), the viewport
+		 * clip + backdrop, and jt199 (= L6234's frustum walk). It reads the
+		 * party from g_a5_-12286/-12287/-12288 (same source as jt221's args).
 		 * (page is the port's drawing surface the Mac draws to the port.) */
-		l6148();
 		if (qd_screen_pixels(&page, &pitch, &sw, &sh) && page != NULL)
-			jt199(page, (short)8012, (short)8016, y, x, facing);
+			render_3d_faithful(page, pitch, sw, sh);
 		(void)jt117();
 	}
 }
