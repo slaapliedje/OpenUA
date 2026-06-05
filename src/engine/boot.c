@@ -1900,6 +1900,8 @@ static void  jt448(short x, short y, short color, short glyph);
 static short l5e52(short row, short col, short dir);
 static void  jt124(long h);                               /* CODE 6+0x3eea — free art handle */
 static void  jt1173(short top, short left, short bottom, short right); /* CODE 4+0x... — set clip */
+static void  l5b42(unsigned char *page, short y, short x, short ydelta,
+                   short xdelta, short code, short sub);   /* CODE 7+0x5b42 — draw one wall slot */
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -1973,10 +1975,62 @@ static void l6234(short a, short b, short x, short y, short facing)
 		jt1173(b, a, (short)(b + 44), (short)(a + 44));
 	}
 
-	/* TODO: the frustum render body — the per-depth 18-slot wall assembly
-	 * via L5b42 + L7406/L7470. Deferred to the next lifts. */
-	(void)dleft; (void)dback; (void)dright; (void)fdrow; (void)fdcol;
-	(void)x; (void)y;
+	/* --- the frustum render body --- L6234 walks 4 depth bands forward from
+	 * the party cell and paints the wall slots via L5b42 (which blits the
+	 * wall faces through jt200_layer). The per-slot screen deltas come from
+	 * the slot-layout globals (-12202/-12220/-12222/-12240, per-depth word
+	 * arrays stepped by `slotidx`). a/b are the view anchor L5b42 maps the
+	 * deltas against. This first cut lifts the LEFT wall column (0x63be..
+	 * 0x6536); the front and right columns (0x653a..0x6df0, ~12 more L5b42
+	 * slots) and the floor/ceiling backdrop tail (L7406/L7470 @0x7284) are
+	 * the remaining body, deferred. NOT yet visually verified. */
+	{
+		unsigned char *page; short pitch, sw, sh;
+		short cr, cc;                   /* fp@(-14)/(-16): slot map coords  */
+		short depth;                    /* fp@(-17)                          */
+		short slotidx = 0;              /* fp@(-20): per-depth delta index   */
+		short occ, prevocc = 0;         /* fp@(-22)/(-24): occupancy carry   */
+		short ldrow = (short)(signed char)g_a5_byte(-27862 + dleft);
+		short ldcol = (short)(signed char)g_a5_byte(-27853 + dleft);
+
+		if (!qd_screen_pixels(&page, &pitch, &sw, &sh) || page == NULL)
+			return;
+
+		/* start two cells ahead of the party (L6234 head @0x6370). */
+		cr = (short)(x + 2 * fdrow);
+		cc = (short)(y + 2 * fdcol);
+
+		for (depth = 0; depth < 4; depth++) {       /* L63be..L6536 */
+			occ = (short)(l5e52(cr, cc, facing) & 0xff);
+			if (occ != 0) {
+				if (prevocc > 0)                /* side wall to prev depth */
+					l5b42(page, a, b,
+					      (short)(g_a5_word(-12222) + slotidx + 1),
+					      (short)g_a5_word(-12202), prevocc, 9);
+				prevocc = occ;
+				if (depth < 3)                  /* front facet */
+					l5b42(page, a, b,
+					      (short)(g_a5_word(-12240) + slotidx),
+					      (short)g_a5_word(-12220), occ, 0);
+			} else {
+				if (prevocc > 0) {              /* left-facing wall */
+					short lr = (short)(cr - ldrow);
+					short lc = (short)(cc - ldcol);
+					if ((l5e52(lr, lc, dleft) & 0xff) != 0)
+						l5b42(page, a, b,
+						      (short)(g_a5_word(-12222) + slotidx),
+						      (short)g_a5_word(-12202), prevocc, 9);
+				}
+				prevocc = 0;
+			}
+			slotidx = (short)(slotidx - 2);
+			cr = (short)(cr + fdrow);
+			cc = (short)(cc + fdcol);
+		}
+
+		/* TODO: front + right wall columns and the backdrop tail. */
+		(void)dback; (void)dright;
+	}
 }
 /* L52b8 (CODE 7 + 0x52b8) — step the area-map scroll origin. For each axis it
  * runs the toroidal mover L5368 (span, the map dimension, the party coord,
