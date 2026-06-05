@@ -6671,6 +6671,11 @@ static short g_cwf_pitch, g_cwf_sw, g_cwf_sh;
  * the play screen's 3D pane (L6234's clip resolves to left=8 top=24 right=184
  * bottom=200). cw_view_clip() sets it; default = whole surface. */
 static short g_cwf_clip_l, g_cwf_clip_t, g_cwf_clip_r, g_cwf_clip_b;
+/* Pane-origin shift for the first-person view: l5b42's deep transform places
+ * the view at its natural origin (~4,12); these slide it (uniformly, so the
+ * internal layout is preserved) to the FRAME.CTL viewport hole. Set by the
+ * renderer; 0 = natural origin. */
+static short g_cwf_ox, g_cwf_oy;
 /* Colour slot (= wall group 0/1/2) of the tile l309c_tile is currently
  * blitting; set by jt200_layer. Selects the clut band (g_cw_base) the tile's
  * 32-based bytes rebase into, so each wall set keeps its own CLUT. */
@@ -7988,8 +7993,8 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 		 * 176x176), so halve the scale to <<1 (+4) for the native view. This
 		 * also closes the far-row gaps: 8px tiles stepped 16px apart in the
 		 * doubled space land 8px apart native, so they abut. */
-		horiz = (short)(((short)(horiz - 8012) << 1) + 4);
-		vert  = (short)(((short)(vert  - 8012) << 1) + 4);
+		horiz = (short)(((short)(horiz - 8012) << 1) + 4 + g_cwf_ox);
+		vert  = (short)(((short)(vert  - 8012) << 1) + 4 + g_cwf_oy);
 	}
 #ifdef FRUA_COORD_TRACE
 	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
@@ -8166,11 +8171,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
-	/* The native 320x200 first-person pane: 88x88 (FRAME.CTL set 9's hole).
-	 * L6234's clip is left=8 top=24 right=184 bottom=200 in the Mac's 640x400
-	 * DOUBLED space; halved for native it is left=4 top=12 right=92 bottom=100
-	 * — the l5b42 deep transform is halved to match. */
-	const short VL = 4, VT = 12, VR = 92, VB = 100;
+	/* The native 320x200 first-person pane: 88x88 at FRAME.CTL set 9's hole
+	 * (24,24)-(112,112). l5b42's deep transform places the view at its natural
+	 * origin (~4,12); g_cwf_ox/oy slide it into the hole (24-4=20, 24-12=12). */
+	const short VL = 24, VT = 24, VR = 112, VB = 112;
+	g_cwf_ox = 20;
+	g_cwf_oy = 12;
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short f = (short)(g_a5_12286 & 7);
 	short x, y;
@@ -9799,29 +9805,13 @@ void port_l6234_verify(void)
 			if (ds)
 				load_wall_groups(ds);   /* Wall1/2/3 CLUTs -> clut bands 32/64/96 */
 		}
-		for (i = 0; i < (long)pitch * sh; i++)
-			px[i] = 0;
-		/* Mark the native 88x88 viewport rect: ceiling colour (clut 4) above
-		 * the mid-line, floor (clut 5) below, + a white 1px border, so the
-		 * frame bounds are visible and we can confirm the walls stay inside. */
-		{
-			short vt = 12, vl = 4, vb = 100, vr = 92, rr, cc;
-			for (rr = vt; rr < vb; rr++)
-				for (cc = vl; cc < vr; cc++)
-					px[(long)rr * pitch + cc] = (rr < (vt + vb) / 2) ? 4 : 5;
-			for (cc = vl; cc < vr; cc++) {
-				px[(long)vt * pitch + cc] = 1;
-				px[(long)(vb - 1) * pitch + cc] = 1;
-			}
-			for (rr = vt; rr < vb; rr++) {
-				px[(long)rr * pitch + vl] = 1;
-				px[(long)rr * pitch + (vr - 1)] = 1;
-			}
-		}
-
-		g_cwf_px = px;
-		cw_view_clip(pitch, sw, sh, 4, 12, 92, 100);    /* native 88x88 pane */
-		l6148();                                /* load the .CTL wall sets */
+		(void)i;
+		/* Draw the FRAME.CTL play-screen chrome (fills the screen grey + the
+		 * 29 frame pieces, leaving the 88x88 viewport hole at (24,24)). The
+		 * faithful render (jt935 -> jt221 -> render_3d_faithful) then draws the
+		 * first-person view into that hole, aligned via g_cwf_ox/oy. */
+		port_draw_play_frame(px, pitch, sw, sh);
+		l6148();                                /* load the .CTL wall sets (for dump) */
 		/* Dump the perspective layout table (-12240..-12196, word each) and
 		 * the level's three wall-set ids (ds[4..6]) — if the table is zero the
 		 * slot coords collapse to the top-left and only soff separates them. */
