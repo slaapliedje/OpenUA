@@ -1898,13 +1898,54 @@ static void  jt1135(short v1, short v2, short *out1, short *out2);
 static void  jt1161(short top, short left, short bottom, short right, short fill);
 static void  jt448(short x, short y, short color, short glyph);
 static short l5e52(short row, short col, short dir);
+static void  jt124(long h);                               /* CODE 6+0x3eea — free art handle */
+static void  jt1173(short top, short left, short bottom, short right); /* CODE 4+0x... — set clip */
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
  * faithful equivalent of the port's jt312 / render_3d_* path) and is a lift
  * of its own. */
-static void  l6234(short a, short b, short x, short y, short facing)
-                                      { PROBE("L6234"); (void)a;(void)b;(void)x;(void)y;(void)facing; } /* CODE 7+0x6234 — first-person 3D render */
+static void  l6148(void)              { PROBE("L6148"); } /* CODE 7+0x6148 — load the level's 3D art (TODO: full lift; lazily loads backdrop + 2 wall sets via L6eea, keyed by level zone bytes lvl[4]/[5]/[6]) */
+
+/* L6234 (CODE 7 + 0x6234) — the faithful first-person frustum render (the
+ * real equivalent of the port's parked render_3d_faithful). STRUCTURAL
+ * SKELETON, first cut: the setup head is faithful —
+ *   - L6148 loads the level's backdrop + two wall sets (lazily, by zone),
+ *   - the previous frame's two scratch wall handles (-27894/-27890) are freed,
+ *   - the view clip rect is set via JT[1173] (deep scale-3 vs flat scale-2),
+ *   - the facing-relative directions (left/back/right = facing +6/+4/+2 & 7)
+ *     and the forward step (drow/dcol from the -27862/-27853 tables) are
+ *     computed,
+ * — but the frustum render BODY (walk the visible depths from (x,y); for each
+ * of the 18 wall slots compute its screen trapezoid with L5b42 and paint the
+ * wall/facet/backdrop) is the deferred bulk (~1000 insns, 18 L5b42 + the
+ * L7406/L7470 wall draws) and the next lifts. a/b are the 8012 view anchor. */
+static void l6234(short a, short b, short x, short y, short facing)
+{
+	short dleft  = (short)((facing + 6) & 7);
+	short dback  = (short)((facing + 4) & 7);
+	short dright = (short)((facing + 2) & 7);
+	short fdrow  = (short)(signed char)g_a5_byte(-27862 + facing);
+	short fdcol  = (short)(signed char)g_a5_byte(-27853 + facing);
+
+	PROBE("L6234");
+	l6148();                                /* load the level's 3D art */
+
+	if (g_a5_long(-27894) != 0) jt124(g_a5_long(-27894));   /* free old handles */
+	if (g_a5_long(-27890) != 0) jt124(g_a5_long(-27890));
+
+	if (jt1200() == 3) {                    /* deep / scale-3 clip */
+		jt1173((short)((b - 8012) * 4 + 8),  (short)((a - 8012) * 4 + 8),
+		       (short)((b - 8012) * 4 + 184), (short)((a - 8012) * 4 + 184));
+	} else {                                /* flat / scale-2 clip */
+		jt1173(b, a, (short)(b + 44), (short)(a + 44));
+	}
+
+	/* TODO: the frustum render body — the per-depth 18-slot wall assembly
+	 * via L5b42 + L7406/L7470. Deferred to the next lifts. */
+	(void)dleft; (void)dback; (void)dright; (void)fdrow; (void)fdcol;
+	(void)x; (void)y;
+}
 /* L52b8 (CODE 7 + 0x52b8) — step the area-map scroll origin. For each axis it
  * runs the toroidal mover L5368 (span, the map dimension, the party coord,
  * the current window origin, wrap) to get the new top-left origin; when that
