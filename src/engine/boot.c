@@ -1912,6 +1912,7 @@ static short jt212(short row, short col, short edge);      /* CODE 7+0x5cc8 — 
 static void  jt199(unsigned char *page, short Y, short X, short row,
                    short col, short facing);                /* JT[199]=CODE 7+0x6234 frustum walker */
 static void  render_3d_faithful(unsigned char *px, short pitch, short sw, short sh);
+static void  port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh);
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -8171,6 +8172,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
+	static short s_chrome_drawn = 0;          /* FRAME.CTL chrome painted? */
 	/* The native 320x200 first-person pane: 88x88 at FRAME.CTL set 9's hole
 	 * (24,24)-(112,112). l5b42's deep transform places the view at its natural
 	 * origin (~4,12); g_cwf_ox/oy slide it into the hole (24-4=20, 24-12=12). */
@@ -8191,6 +8193,16 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	if (ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2]) {
 		load_wall_groups(ds);                 /* slots 0/1/2 + cw_finalize bands */
 		load_backdrop(g_back_set);            /* re-lay backdrop band (clut 145) */
+		s_chrome_drawn = 0;                   /* clut wiped -> repaint chrome */
+	}
+
+	/* Draw the FRAME.CTL play-screen chrome once (and after a wall-set change).
+	 * MUST run AFTER load_wall_groups, which wipes the clut, so the frame band
+	 * (16-31) survives; the 88x88 view then draws into the hole over it. The
+	 * chrome is static, so subsequent frames only repaint the hole. */
+	if (!s_chrome_drawn) {
+		port_draw_play_frame(px, pitch, sw, sh);
+		s_chrome_drawn = 1;
 	}
 
 	/* backdrop (floor/ceiling/sky) inside the viewport rect */
@@ -9806,11 +9818,9 @@ void port_l6234_verify(void)
 				load_wall_groups(ds);   /* Wall1/2/3 CLUTs -> clut bands 32/64/96 */
 		}
 		(void)i;
-		/* Draw the FRAME.CTL play-screen chrome (fills the screen grey + the
-		 * 29 frame pieces, leaving the 88x88 viewport hole at (24,24)). The
-		 * faithful render (jt935 -> jt221 -> render_3d_faithful) then draws the
-		 * first-person view into that hole, aligned via g_cwf_ox/oy. */
-		port_draw_play_frame(px, pitch, sw, sh);
+		/* render_3d_faithful (via jt935 -> jt221) now draws the FRAME.CTL
+		 * chrome itself, once, after the wall load, then the view into the
+		 * 88x88 hole — so no explicit chrome draw here. */
 		l6148();                                /* load the .CTL wall sets (for dump) */
 		/* Dump the perspective layout table (-12240..-12196, word each) and
 		 * the level's three wall-set ids (ds[4..6]) — if the table is zero the
