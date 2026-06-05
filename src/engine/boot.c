@@ -9702,6 +9702,33 @@ void port_l6234_verify(void)
 		g_a5_byte(-27862 + k) = (unsigned char)drow[k];
 		g_a5_byte(-27853 + k) = (unsigned char)dcol[k];
 	}
+	/* Diagnostic: dump the loaded map's cell records to see whether wall
+	 * data is present and which nibble it lives in (L5e52 reads the low
+	 * nibble; jt212 the high). cell records start at ds+290, 6 bytes each. */
+	{
+		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		short mw = ds ? ds[2] : 0, mh = ds ? ds[3] : 0;
+		const unsigned char *base = ds ? ds + 290 : NULL;
+		long total = (long)mw * mh * 6, i, nnz = 0, nlo = 0, nhi = 0, k = 0;
+		dbg_log_num("map mw = ", mw);
+		dbg_log_num("map mh = ", mh);
+		for (i = 0; base && i < total; i++) {
+			unsigned char bb = base[i];
+			if (bb != 0) nnz++;
+			if (bb & 0x0f) nlo++;
+			if (bb & 0xf0) nhi++;
+		}
+		dbg_log_num("cell bytes nonzero = ", nnz);
+		dbg_log_num("  low-nibble set   = ", nlo);
+		dbg_log_num("  high-nibble set  = ", nhi);
+		for (i = 0; base && i < total && k < 10; i++)
+			if (base[i] != 0) {
+				dbg_log_num("  nz cell off = ", i);
+				dbg_log_num("       val   = ", (long)base[i]);
+				k++;
+			}
+	}
+
 	/* Scan for a vantage in L6234's OWN convention (L5e52 + the drow/dcol
 	 * step tables = -27862/-27853, where cell = col*height + row): find a
 	 * cell with a wall on the `facing` edge, then place the party two cells
