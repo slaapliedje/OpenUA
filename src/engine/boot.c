@@ -6613,7 +6613,23 @@ static short g_cwf_n;                                /* pieces loaded (0=no)*/
 static short g_cwf_grp = -1;                         /* cached (file<<8|set) */
 static unsigned char *g_cwf_px;                      /* blit surface (NULL off) */
 static short g_cwf_pitch, g_cwf_sw, g_cwf_sh;
+/* Viewport clip for the faithful 3D blit (l309c_tile): pixels outside
+ * [clip_l, clip_r) x [clip_t, clip_b) are dropped so the corridor stays in
+ * the play screen's 3D pane (L6234's clip resolves to left=8 top=24 right=184
+ * bottom=200). cw_view_clip() sets it; default = whole surface. */
+static short g_cwf_clip_l, g_cwf_clip_t, g_cwf_clip_r, g_cwf_clip_b;
 static short g_cwf_blits __attribute__((unused));    /* debug: blit count   */
+
+/* Set the faithful-view clip rect (and the surface dims it blits into). */
+static void cw_view_clip(short pitch, short sw, short sh,
+                         short l, short t, short r, short b)
+{
+	g_cwf_pitch = pitch; g_cwf_sw = sw; g_cwf_sh = sh;
+	g_cwf_clip_l = (l < 0) ? 0 : l;
+	g_cwf_clip_t = (t < 0) ? 0 : t;
+	g_cwf_clip_r = (r > sw) ? sw : r;
+	g_cwf_clip_b = (b > sh) ? sh : b;
+}
 
 /* Active environment selector — CW_SET picks the initial set at build
  * time (1=marble 2=forest 4=coral 6=lava 7=brick in 8X8DC); the walk demo
@@ -7592,7 +7608,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		short r, c;
 		for (r = 0; r < h; r++) {
 			short dy = (short)(y0 + r);
-			if (dy < 0 || dy >= g_cwf_sh)
+			if (dy < g_cwf_clip_t || dy >= g_cwf_clip_b)
 				continue;
 			for (c = 0; c < w; c++) {
 				unsigned char v = body[(long)r * w + c];
@@ -7600,7 +7616,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 				if (v == 255)
 					continue;
 				dx = (short)(x0 + c);
-				if (dx < 0 || dx >= g_cwf_sw)
+				if (dx < g_cwf_clip_l || dx >= g_cwf_clip_r)
 					continue;
 				g_cwf_px[(long)dy * g_cwf_pitch + dx] = v;
 			}
@@ -7868,22 +7884,27 @@ static short l5e52(short row, short col, short dir)
  * delta (the -12202/-12220 "narrow" family) is added to fp@(10) -> VERTICAL;
  * jt200 is then called (fp@8, fp@10) = (horizontal, vertical).
  *
- * jt199's helpers pass the wide family as `ydelta` (arg4) and the narrow as
- * `xdelta` (arg5), with y = the Y anchor (8012) and x = the X anchor (8016).
- * To match the asm the deltas must CROSS the anchors: the wide `ydelta`
- * drives the horizontal (x anchor), the narrow `xdelta` the vertical (y
- * anchor). The earlier lift added each delta to its like-named anchor, which
- * put the wide corridor-receding spread on the vertical axis and transposed
- * the whole view. Deltas are the LOW BYTE, signed (asm: moveb + extw + lslw#2
- * — faithful). Deep-mode (jt1200()==3) remap is ((v-8012)<<2)+8 on both. */
+ * jt199 is called jt199(8012, 8016, ...) so its arg1 (the `y` param here) is
+ * the asm's fp@(8) = the HORIZONTAL anchor (8012), and arg2 (`x`) is fp@(10) =
+ * the VERTICAL anchor (8016). The helpers pass the wide -12222/-12240 family
+ * as `ydelta` (added to fp@(8)) and the narrow -12202/-12220 family as
+ * `xdelta` (added to fp@(10)). So `ydelta` (wide) + `y` (8012) form the
+ * HORIZONTAL coord and `xdelta` (narrow) + `x` (8016) the VERTICAL — no axis
+ * cross; the only fix vs the original lift is the jt200 output order, since
+ * jt200(arg1, arg2) = (horizontal, vertical) but our jt200 takes (top, left).
+ * The original added each delta to its anchor but emitted jt200(y, x) as
+ * (top, left), putting the wide corridor-receding spread on the vertical axis
+ * and transposing the view. Deltas are the LOW BYTE, signed (asm: moveb +
+ * extw + lslw#2). Deep-mode (jt1200()==3) remap is ((v-8012)<<2)+8 on both;
+ * with these anchors that yields horiz = 16*wide + 8, vert = 16*narrow + 24. */
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub) __attribute__((unused));
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub)
 {
-	/* wide family (ydelta) -> horizontal (X anchor); narrow (xdelta) -> vertical */
-	short horiz = (short)(x + ((short)(signed char)ydelta << 2));
-	short vert  = (short)(y + ((short)(signed char)xdelta << 2));
+	/* y (8012) + wide ydelta -> horizontal; x (8016) + narrow xdelta -> vertical */
+	short horiz = (short)(y + ((short)(signed char)ydelta << 2));
+	short vert  = (short)(x + ((short)(signed char)xdelta << 2));
 	if (jt1200() == 3) {
 		horiz = (short)(((short)(horiz - 8012) << 2) + 8);
 		vert  = (short)(((short)(vert  - 8012) << 2) + 8);
@@ -8063,8 +8084,10 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
-	static const short hw0 = 110, hh0 = 74;
-	const short vcx = 118, vcy = 83;
+	static short s_band_key = -1;                     /* cached clut-32 band set */
+	/* L6234's clip rect (left=8 top=24 right=184 bottom=200): the 176x176
+	 * first-person pane in the play screen's upper-left. */
+	const short VL = 8, VT = 24, VR = 184, VB = 200;
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short f = (short)(g_a5_12286 & 7);
 	short file, set, x, y;
@@ -8072,55 +8095,52 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	if (ds == NULL)
 		return;
 
-	/* active wall set = the level's Wall1; (re)load its clut-32 palette
-	 * band + the full 48-piece store when it changes. */
+	/* Install the level's Wall1 RGB band at clut 32 (the .CTL tile bytes
+	 * index it); reload only when it changes. Per-group bands (Wall2/3 at
+	 * their own clut bases) are a follow-up — all groups share clut 32 now. */
 	if (wallset_for_id((short)(unsigned char)ds[4], &file, &set)) {
 		short key = (short)((file << 8) | (set & 0xff));
-		if (g_cwf_grp != key) {
+		if (s_band_key != key) {
 			g_cw_file = file;
 			g_cw_set  = set;
 			load_color_wallset(set);          /* palette band @ clut 32 + strans */
-			load_cw_full(file, set);          /* 48 pieces resident */
 			load_backdrop(g_back_set);        /* re-lay backdrop band (clut 145) */
+			s_band_key = key;
 		}
 	}
 
-	/* backdrop (floor/ceiling/sky) under the walls */
+	/* backdrop (floor/ceiling/sky) inside the viewport rect */
 	{
-		short y0 = (short)(vcy - hh0), y1 = (short)(vcy + hh0);
-		short x0 = (short)(vcx - hw0), x1 = (short)(vcx + hw0);
-		short vh = (short)(y1 - y0 + 1), vw = (short)(x1 - x0 + 1);
-		for (y = y0; y <= y1; y++) {
-			short by = g_back_h ? (short)(((long)(y - y0) * g_back_h) / vh) : 0;
-			for (x = x0; x <= x1; x++) {
+		short vh = (short)(VB - VT), vw = (short)(VR - VL);
+		for (y = VT; y < VB; y++) {
+			short by = g_back_h ? (short)(((long)(y - VT) * g_back_h) / vh) : 0;
+			for (x = VL; x < VR; x++) {
 				short c;
 				if (g_back_w) {
-					short bx = (short)(((long)(x - x0) * g_back_w) / vw);
+					short bx = (short)(((long)(x - VL) * g_back_w) / vw);
 					unsigned char v = g_back_img[(long)by * g_back_w + bx];
 					c = v ? (short)v : 4;
 				} else {
-					c = (y < vcy) ? 4 : 5;
+					c = (y < (short)((VT + VB) / 2)) ? 4 : 5;
 				}
 				map_px(px, pitch, sw, sh, x, y, (unsigned char)c);
 			}
 		}
 	}
 
-	/* run the faithful walk, drawing colour pieces to px */
-	g_cwf_px = px; g_cwf_pitch = pitch; g_cwf_sw = sw; g_cwf_sh = sh;
+	/* faithful walk: l6148 loads Wall1-3 into the -27894/-27890/-27886
+	 * handles; jt199 -> l5b42 -> jt200 -> jt114 -> l309c_tile blits the
+	 * pre-sized colour tiles, clipped to the viewport. jt199 args are
+	 * (horizontal=8012, vertical=8016, row=partyY, col=partyX, facing). */
+	g_cwf_px = px;
+	cw_view_clip(pitch, sw, sh, VL, VT, VR, VB);
+	l6148();
 #ifdef FRUA_ENGINE_PROBE
-	g_cwf_blits = 0;
-	dbg_log_num("faithful: cwf_n=", (long)g_cwf_n);
-	dbg_log_num("  ds[4..6]=", (long)ds[4] * 10000 + ds[5] * 100 + ds[6]);
+	dbg_log_num("faithful: ds[4..6]=", (long)ds[4] * 10000 + ds[5] * 100 + ds[6]);
 #endif
-	/* l5e52 indexes cell = col*h + row, but the map (cell_edge) is x*h+y,
-	 * so pass row=partyY, col=partyX (swapped) to read the right cells. */
 	jt199(page, (short)8012, (short)8016,
 	      (short)g_a5_12287, (short)g_a5_12288, f);
 	g_cwf_px = NULL;
-#ifdef FRUA_ENGINE_PROBE
-	dbg_log_num("faithful: blits=", (long)g_cwf_blits);
-#endif
 }
 
 /* l04d6 (CODE 22 + 0x04d6) — return a map cell's floor/ceiling
@@ -9706,8 +9726,26 @@ void port_l6234_verify(void)
 		}
 		for (i = 0; i < (long)pitch * sh; i++)
 			px[i] = 0;
+		/* Mark the L6234 viewport rect: ceiling colour (clut 4) above the
+		 * mid-line, floor (clut 5) below, + a white 1px border, so the frame
+		 * bounds are visible and we can confirm the walls stay inside. */
+		{
+			short vt = 24, vl = 8, vb = 200, vr = 184, rr, cc;
+			for (rr = vt; rr < vb; rr++)
+				for (cc = vl; cc < vr; cc++)
+					px[(long)rr * pitch + cc] = (rr < (vt + vb) / 2) ? 4 : 5;
+			for (cc = vl; cc < vr; cc++) {
+				px[(long)vt * pitch + cc] = 1;
+				px[(long)(vb - 1) * pitch + cc] = 1;
+			}
+			for (rr = vt; rr < vb; rr++) {
+				px[(long)rr * pitch + vl] = 1;
+				px[(long)rr * pitch + (vr - 1)] = 1;
+			}
+		}
 
-		g_cwf_px = px; g_cwf_pitch = pitch; g_cwf_sw = sw; g_cwf_sh = sh;
+		g_cwf_px = px;
+		cw_view_clip(pitch, sw, sh, 8, 24, 184, 200);   /* L6234 viewport rect */
 		l6148();                                /* load the .CTL wall sets */
 		/* Dump the perspective layout table (-12240..-12196, word each) and
 		 * the level's three wall-set ids (ds[4..6]) — if the table is zero the
