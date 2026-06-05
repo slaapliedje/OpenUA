@@ -9702,9 +9702,9 @@ void port_l6234_verify(void)
 	if (pl != NULL)
 		pl[134] = 0;
 	g_a5_18485 = 0;
-	g_a5_18878 = 1;
+	g_a5_18878 = 5;                         /* a DUNGEON level (<=4 = overland, no wall sets) */
 	g_a5_18488 = 0;
-	l0bbc();                                /* load level 1 + place party */
+	l0bbc();                                /* load the dungeon level + place party */
 
 	g_a5_2347 = 0;                          /* deep dungeon-view mode */
 	g_a5_byte(-12290) = 0;                  /* dungeon (not automap) branch */
@@ -9765,14 +9765,42 @@ void port_l6234_verify(void)
 		dbg_log_num("  facing =", (long)(signed char)g_a5_byte(-12286));
 	}
 
-	(void)dungeon_view_setup();             /* load the wall pieces */
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
+
+	/* Load the level's colour wall set and point the faithful colour
+	 * blitter at the framebuffer — exactly render_3d_faithful's setup — so
+	 * L6234's l5b42 -> jt200_layer -> cw_blit_piece paints real wall pieces
+	 * (g_cwf_px gates that path; it's NULL outside this setup). */
+	{
+		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		short file = 0, set = 0, ok = 0;
+		if (ds) {
+			dbg_log_num("ds[4] wall1 = ", (long)ds[4]);
+			dbg_log_num("ds[5] wall2 = ", (long)ds[5]);
+			dbg_log_num("ds[6] backdrop = ", (long)ds[6]);
+			ok = wallset_for_id((short)(unsigned char)ds[4], &file, &set);
+		}
+		dbg_log_num("wallset_for_id ok = ", (long)ok);
+		dbg_log_num("  file = ", (long)file);
+		dbg_log_num("  set  = ", (long)set);
+		if (ok) {
+			g_cw_file = file;
+			g_cw_set  = set;
+			load_color_wallset(set);
+			load_cw_full(file, set);
+		}
+	}
+	g_cwf_px = px; g_cwf_pitch = pitch; g_cwf_sw = sw; g_cwf_sh = sh;
+	dbg_log_num("verify g_cwf_n (pieces) = ", (long)g_cwf_n);
+	g_cwf_blits = 0;
 
 	dbg_log("=== FRUA_L6234_VERIFY: jt221 -> L6234 ===");
 	jt221((short)(signed char)g_a5_byte(-12288),
 	      (short)(signed char)g_a5_byte(-12287),
 	      (short)(signed char)g_a5_byte(-12286));
+	g_cwf_px = NULL;
+	dbg_log_num("verify cw_blit_piece blits = ", (long)g_cwf_blits);
 	dbg_log("=== L6234 returned ===");
 
 	qd_present();
