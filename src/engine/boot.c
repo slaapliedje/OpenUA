@@ -1908,6 +1908,7 @@ static void  jt124(long h);                               /* CODE 6+0x3eea — f
 static void  jt1173(short top, short left, short bottom, short right); /* CODE 4+0x... — set clip */
 static void  l5b42(unsigned char *page, short y, short x, short ydelta,
                    short xdelta, short code, short sub);   /* CODE 7+0x5b42 — draw one wall slot */
+static short jt212(short row, short col, short edge);      /* CODE 7+0x5cc8 — wall high nibble */
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -2002,7 +2003,16 @@ static void l6234(short a, short b, short x, short y, short facing)
 	 * column (scan dleft, 0x63be..0x6536) and the RIGHT column (scan dright,
 	 * 0x653a..0x66cc). The remaining centre/front-wall slots (0x66cc..0x6df0)
 	 * and the floor/ceiling backdrop tail (L7406/L7470 @0x7284) are deferred.
-	 * NOT yet visually verified (needs a Hatari diff vs the port jt312). */
+	 *
+	 * Wall query: the Mac gates these on L5e52 (the cell edge's LOW nibble),
+	 * but the loaded GEO stores wall presence/type in the HIGH nibble (file-
+	 * confirmed 0xF0 on edge bytes; jt212 reads it, and the flat automap
+	 * renders off it) — the low nibble is 0, so L5e52 would see an all-open
+	 * map. So we read the wall via jt212 (high nibble, same col*h+row index as
+	 * L5e52). The verify harness confirms this issues correct slot draws
+	 * (l5b42 fires per depth with codes 15/7). The low-vs-high discrepancy is
+	 * a GEO-load/format question (see the FRUA_L6234_VERIFY findings); reading
+	 * the high nibble is what matches the actual loaded map data. */
 	{
 		unsigned char *page; short pitch, sw, sh;
 		short cr, cc;                   /* fp@(-14)/(-16): slot map coords  */
@@ -2020,7 +2030,7 @@ static void l6234(short a, short b, short x, short y, short facing)
 		cc = (short)(y + 2 * fdcol);
 
 		for (depth = 0; depth < 4; depth++) {       /* L63be..L6536 */
-			occ = (short)(l5e52(cr, cc, facing) & 0xff);
+			occ = (short)(jt212(cr, cc, facing) & 0xff);  /* high nibble = wall */
 			if (occ != 0) {
 				if (prevocc > 0)                /* side wall to prev depth */
 					l5b42(page, a, b,
@@ -2035,7 +2045,7 @@ static void l6234(short a, short b, short x, short y, short facing)
 				if (prevocc > 0) {              /* left-facing wall */
 					short lr = (short)(cr - ldrow);
 					short lc = (short)(cc - ldcol);
-					if ((l5e52(lr, lc, dleft) & 0xff) != 0)
+					if ((jt212(lr, lc, dleft) & 0xff) != 0)
 						l5b42(page, a, b,
 						      (short)(g_a5_word(-12222) + slotidx + 1),
 						      (short)g_a5_word(-12202), prevocc, 9);
@@ -2057,7 +2067,7 @@ static void l6234(short a, short b, short x, short y, short facing)
 			cc = (short)(y + 2 * fdcol);
 			slotidx = 0; prevocc = 0;
 			for (depth = 0; depth < 4; depth++) {
-				occ = (short)(l5e52(cr, cc, facing) & 0xff);
+				occ = (short)(jt212(cr, cc, facing) & 0xff);  /* high nibble = wall */
 				if (occ != 0) {
 					if (prevocc > 0)
 						l5b42(page, a, b,
@@ -2072,7 +2082,7 @@ static void l6234(short a, short b, short x, short y, short facing)
 					if (prevocc > 0) {
 						short rr = (short)(cr - rdrow);
 						short rc = (short)(cc - rdcol);
-						if ((l5e52(rr, rc, dright) & 0xff) != 0)
+						if ((jt212(rr, rc, dright) & 0xff) != 0)
 							l5b42(page, a, b,
 							      (short)(g_a5_word(-12222) + slotidx - 1),
 							      (short)g_a5_word(-12202), prevocc, 9);
@@ -9742,7 +9752,7 @@ void port_l6234_verify(void)
 		for (f = 0; f < 8 && !found; f += 2)
 			for (c = 0; c < mw && !found; c++)
 				for (r = 0; r < mh && !found; r++) {
-					if ((l5e52(r, c, f) & 0xff) == 0)
+					if ((jt212(r, c, f) & 0xff) == 0)
 						continue;
 					g_a5_byte(-12288) = (unsigned char)(r - 2 * (signed char)g_a5_byte(-27862 + f));
 					g_a5_byte(-12287) = (unsigned char)(c - 2 * (signed char)g_a5_byte(-27853 + f));
