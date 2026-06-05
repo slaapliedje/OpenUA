@@ -1889,6 +1889,8 @@ static void  jt214(void);                                 /* CODE 7+0x71c6 — v
 static void  jt80(short arg);                             /* CODE 6+0x68ae */
 static int   jt108(short a);                              /* CODE 6+0x38d0 */
 static int   jt117(void);                                 /* CODE 6+0x3994 */
+static short l5368(short span, short dim, signed char *coord,
+                   short origin, short wrap);              /* CODE 7+0x5368 — toroidal mover */
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -1896,8 +1898,30 @@ static int   jt117(void);                                 /* CODE 6+0x3994 */
  * of its own. */
 static void  l6234(short a, short b, short x, short y, short facing)
                                       { PROBE("L6234"); (void)a;(void)b;(void)x;(void)y;(void)facing; } /* CODE 7+0x6234 — first-person 3D render */
-static void  l52b8(short *py, short *px, long a, long b, short c, short d, short e)
-                                      { PROBE("L52b8"); (void)py;(void)px;(void)a;(void)b;(void)c;(void)d;(void)e; } /* CODE 7+0x52b8 — area-map step */
+/* L52b8 (CODE 7 + 0x52b8) — step the area-map scroll origin. For each axis it
+ * runs the toroidal mover L5368 (span, the map dimension, the party coord,
+ * the current window origin, wrap) to get the new top-left origin; when that
+ * differs from the window-origin global (-12278 axis 1 / -12276 axis 2) it
+ * flags a change and stores the new origin. Optionally writes the new origins
+ * back through out1/out2 (jt221 passes NULL). Returns 1 if either moved.
+ * L5368 also wraps the coord in place. */
+static signed char l52b8(signed char *coord1, signed char *coord2,
+                         short *out1, short *out2,
+                         short span1, short span2, short wrap)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	signed char changed = 0;
+	short n1, n2;
+
+	PROBE("L52b8");
+	n1 = l5368(span1, (short)lvl[2], coord1, (short)g_a5_word(-12278), wrap);
+	if (n1 != (short)g_a5_word(-12278)) { changed = 1; g_a5_word(-12278) = n1; }
+	n2 = l5368(span2, (short)lvl[3], coord2, (short)g_a5_word(-12276), wrap);
+	if (n2 != (short)g_a5_word(-12276)) { changed = 1; g_a5_word(-12276) = n2; }
+	if (out1 != NULL) *out1 = n1;
+	if (out2 != NULL) *out2 = n2;
+	return changed;
+}
 static void  l50fe(short y, short x, short facing, short a, short b,
                    short c, short d, short e, short f)
                                       { PROBE("L50fe"); (void)y;(void)x;(void)facing;(void)a;(void)b;(void)c;(void)d;(void)e;(void)f; } /* CODE 7+0x50fe — area-map render */
@@ -1920,11 +1944,13 @@ static void jt221(short x, short y, short facing)
 	jt80(0);
 
 	if (g_a5_byte(-12290) != 0) {           /* L608e — area-map / overland */
-		short sx = x, sy = y;           /* fp@(-2)/fp@(-4): save x,y */
-		l52b8(&y, &x, 0L, 0L, (short)11, (short)11, (short)1);
-		l50fe(y, x, facing, (short)8012, (short)8012,
+		/* L52b8 wraps/steps the coords in place; L50fe paints with the
+		 * stepped values. The party x/y aren't returned, so the asm's
+		 * save/restore of them is a no-op here. */
+		signed char cy = (signed char)y, cx = (signed char)x;
+		l52b8(&cy, &cx, NULL, NULL, (short)11, (short)11, (short)1);
+		l50fe((short)cy, (short)cx, facing, (short)8012, (short)8012,
 		      (short)11, (short)11, (short)1, (short)0);
-		x = sx; y = sy;                 /* L60fc: restore from the save */
 	} else {                                /* L610a — first-person dungeon */
 		jt108(1);
 		l57f2();
