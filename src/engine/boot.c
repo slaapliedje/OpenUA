@@ -1979,15 +1979,25 @@ static void l6eea(short zone, short type)
 /* L6148 (CODE 7 + 0x6148) — load the current level's 3D art. Gated on the
  * party's view-distance setting (record[19] >= 5). Lazily (re)loads, keyed by
  * the level's zone bytes, via L6eea(zone, type):
- *   lvl[6] (backdrop) when it changed since -12296,
- *   lvl[4] (wall set 1) when handle -27894 is empty,
- *   lvl[5] (wall set 2) when handle -27890 is empty.
+ *   lvl[6] (Wall3) when it changed since -12296,
+ *   lvl[4] (Wall1) into handle -27894,
+ *   lvl[5] (Wall2) into handle -27890.
+ *
+ * LEVEL-CHANGE RELOAD: the Mac disposes -27894/-27890 every frame (L6234's
+ * prologue) and lets the Resource Manager cache the reload, so each frame
+ * picks up the current level's sets for free. Re-reading the 296KB .CTL per
+ * frame is far too slow here, so instead we track the loaded Wall1/Wall2 ids
+ * (s_w1/s_w2) and clear the handle when the id changes — l6eea then reloads
+ * the new set (the per-file buffer stays cached; only the sub-GLIB pointer is
+ * recomputed). Wall3 already reloads on change via the -12296 key.
+ *
  * The backdrop-bitmap reload dance (JT[468]/JT[1004]/JT[459]/JT[405]/JT[115]
- * on the -27886 handle) and L6eea's body are the deferred deep layer. */
+ * on the -27886 handle) is the deferred deep layer. */
 static void l6148(void)
 {
 	const unsigned char *h = (const unsigned char *)g_a5_28006;
 	const unsigned char *lvl;
+	static short s_w1 = -1, s_w2 = -1;      /* last-loaded Wall1/Wall2 ids */
 
 	PROBE("L6148");
 	jt131(0);
@@ -2002,6 +2012,14 @@ static void l6148(void)
 		/* TODO: the Mac post-processes -27886 (JT[468]/JT[1004]/JT[459]/
 		 * JT[406]/JT[115]) after the load — deferred; the raw set suffices. */
 		g_a5_word(-12296) = (short)lvl[6];
+	}
+	if ((short)lvl[4] != s_w1) {            /* Wall1 changed -> force reload */
+		g_a5_long(-27894) = 0;
+		s_w1 = (short)lvl[4];
+	}
+	if ((short)lvl[5] != s_w2) {            /* Wall2 changed -> force reload */
+		g_a5_long(-27890) = 0;
+		s_w2 = (short)lvl[5];
 	}
 	if (lvl[4] != 0 && g_a5_long(-27894) == 0)
 		l6eea((short)lvl[4], 0);        /* wall set 1 */
@@ -9787,6 +9805,20 @@ void port_l6234_verify(void)
 		jt199(px, (short)8012, (short)8016, row, col, f);
 		dbg_log("=== jt199 returned ===");
 		g_cwf_px = NULL;
+
+		/* Level-change reload test: poke Wall1 to a set in the OTHER file
+		 * (id 10 -> 8X8DC set 1) and re-run l6148. The grp0 handle should
+		 * change (reloaded) and the DC file buffer should load on demand. */
+		{
+			unsigned char *dsw = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+			dbg_log("=== level-change reload test ===");
+			dbg_log_num("  grp0 handle before = ", g_a5_long(-27894));
+			if (dsw) dsw[4] = 10;
+			l6148();
+			dbg_log_num("  grp0 handle after  = ", g_a5_long(-27894));
+			dbg_log_num("  filebase DC(0) = ", g_wallset_filebase[0]);
+			dbg_log_num("  filebase DB(1) = ", g_wallset_filebase[1]);
+		}
 
 		qd_present();
 		for (;;)
