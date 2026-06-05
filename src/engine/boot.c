@@ -1909,6 +1909,8 @@ static void  jt1173(short top, short left, short bottom, short right); /* CODE 4
 static void  l5b42(unsigned char *page, short y, short x, short ydelta,
                    short xdelta, short code, short sub);   /* CODE 7+0x5b42 — draw one wall slot */
 static short jt212(short row, short col, short edge);      /* CODE 7+0x5cc8 — wall high nibble */
+static void  jt199(unsigned char *page, short Y, short X, short row,
+                   short col, short facing);                /* JT[199]=CODE 7+0x6234 frustum walker */
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -1948,158 +1950,6 @@ static void l6148(void)
 		l6eea((short)lvl[5], 1);        /* wall set 2 */
 }
 
-/* L6234 (CODE 7 + 0x6234) — the faithful first-person frustum render (the
- * real equivalent of the port's parked render_3d_faithful). STRUCTURAL
- * SKELETON, first cut: the setup head is faithful —
- *   - L6148 loads the level's backdrop + two wall sets (lazily, by zone),
- *   - the previous frame's two scratch wall handles (-27894/-27890) are freed,
- *   - the view clip rect is set via JT[1173] (deep scale-3 vs flat scale-2),
- *   - the facing-relative directions (left/back/right = facing +6/+4/+2 & 7)
- *     and the forward step (drow/dcol from the -27862/-27853 tables) are
- *     computed,
- * — but the frustum render BODY (walk the visible depths from (x,y); for each
- * of the 18 wall slots compute its screen trapezoid with L5b42 and paint the
- * wall/facet/backdrop) is the deferred bulk (~1000 insns, 18 L5b42 + the
- * L7406/L7470 wall draws) and the next lifts. a/b are the 8012 view anchor. */
-static void l6234(short a, short b, short x, short y, short facing)
-{
-	short dleft  = (short)((facing + 6) & 7);
-	short dback  = (short)((facing + 4) & 7);
-	short dright = (short)((facing + 2) & 7);
-	short fdrow  = (short)(signed char)g_a5_byte(-27862 + facing);
-	short fdcol  = (short)(signed char)g_a5_byte(-27853 + facing);
-
-	PROBE("L6234");
-#ifdef FRUA_L6234_VERIFY
-	dbg_log_num("L6234 a/b anchor = ", a);
-	dbg_log_num("  party x = ", x);
-	dbg_log_num("  party y = ", y);
-	dbg_log_num("  facing  = ", facing);
-	dbg_log_num("  deep(jt1200) = ", (long)jt1200());
-	dbg_log_num("  map(-12300) = ", g_a5_long(-12300));
-	dbg_log_num("  slot -12202 = ", (long)(short)g_a5_word(-12202));
-	dbg_log_num("  slot -12220 = ", (long)(short)g_a5_word(-12220));
-	dbg_log_num("  slot -12222 = ", (long)(short)g_a5_word(-12222));
-	dbg_log_num("  slot -12240 = ", (long)(short)g_a5_word(-12240));
-#endif
-	l6148();                                /* load the level's 3D art */
-
-	if (g_a5_long(-27894) != 0) jt124(g_a5_long(-27894));   /* free old handles */
-	if (g_a5_long(-27890) != 0) jt124(g_a5_long(-27890));
-
-	if (jt1200() == 3) {                    /* deep / scale-3 clip */
-		jt1173((short)((b - 8012) * 4 + 8),  (short)((a - 8012) * 4 + 8),
-		       (short)((b - 8012) * 4 + 184), (short)((a - 8012) * 4 + 184));
-	} else {                                /* flat / scale-2 clip */
-		jt1173(b, a, (short)(b + 44), (short)(a + 44));
-	}
-
-	/* --- the frustum render body --- from a start cell 2 ahead of the party
-	 * (party + 2*forward), L6234 scans the view's wall columns and paints
-	 * each slot via L5b42 (which blits the wall faces through jt200_layer).
-	 * Per-slot screen deltas come from the slot-layout globals (-12202/
-	 * -12220/-12222/-12240, per-depth word arrays stepped by `slotidx`); a/b
-	 * is the view anchor L5b42 maps them against. Lifted so far: the LEFT
-	 * column (scan dleft, 0x63be..0x6536) and the RIGHT column (scan dright,
-	 * 0x653a..0x66cc). The remaining centre/front-wall slots (0x66cc..0x6df0)
-	 * and the floor/ceiling backdrop tail (L7406/L7470 @0x7284) are deferred.
-	 *
-	 * Wall query: the Mac gates these on L5e52 (the cell edge's LOW nibble),
-	 * but the loaded GEO stores wall presence/type in the HIGH nibble (file-
-	 * confirmed 0xF0 on edge bytes; jt212 reads it, and the flat automap
-	 * renders off it) — the low nibble is 0, so L5e52 would see an all-open
-	 * map. So we read the wall via jt212 (high nibble, same col*h+row index as
-	 * L5e52). The verify harness confirms this issues correct slot draws
-	 * (l5b42 fires per depth with codes 15/7). The low-vs-high discrepancy is
-	 * a GEO-load/format question (see the FRUA_L6234_VERIFY findings); reading
-	 * the high nibble is what matches the actual loaded map data. */
-	{
-		unsigned char *page; short pitch, sw, sh;
-		short cr, cc;                   /* fp@(-14)/(-16): slot map coords  */
-		short depth;                    /* fp@(-17)                          */
-		short slotidx = 0;              /* fp@(-20): per-depth delta index   */
-		short occ, prevocc = 0;         /* fp@(-22)/(-24): occupancy carry   */
-		short ldrow = (short)(signed char)g_a5_byte(-27862 + dleft);
-		short ldcol = (short)(signed char)g_a5_byte(-27853 + dleft);
-
-		if (!qd_screen_pixels(&page, &pitch, &sw, &sh) || page == NULL)
-			return;
-
-		/* start two cells ahead of the party (L6234 head @0x6370). */
-		cr = (short)(x + 2 * fdrow);
-		cc = (short)(y + 2 * fdcol);
-
-		for (depth = 0; depth < 4; depth++) {       /* L63be..L6536 */
-			occ = (short)(jt212(cr, cc, facing) & 0xff);  /* high nibble = wall */
-			if (occ != 0) {
-				if (prevocc > 0)                /* side wall to prev depth */
-					l5b42(page, a, b,
-					      (short)(g_a5_word(-12222) + slotidx + 1),
-					      (short)g_a5_word(-12202), prevocc, 9);
-				prevocc = occ;
-				if (depth < 3)                  /* front facet */
-					l5b42(page, a, b,
-					      (short)(g_a5_word(-12240) + slotidx),
-					      (short)g_a5_word(-12220), occ, 0);
-			} else {
-				if (prevocc > 0) {              /* left-facing wall */
-					short lr = (short)(cr - ldrow);
-					short lc = (short)(cc - ldcol);
-					if ((jt212(lr, lc, dleft) & 0xff) != 0)
-						l5b42(page, a, b,
-						      (short)(g_a5_word(-12222) + slotidx + 1),
-						      (short)g_a5_word(-12202), prevocc, 9);
-				}
-				prevocc = 0;
-			}
-			slotidx = (short)(slotidx - 2);
-			cr = (short)(cr + ldrow);       /* walk LEFT (dleft), not forward */
-			cc = (short)(cc + ldcol);
-		}
-
-		/* --- right wall column (L653a..L66cc) --- same 2-ahead start, but
-		 * scans rightward (dright), slotidx steps +2, the side wall uses
-		 * slotidx-1, and the front facet is drawn only at depths 1..2. */
-		{
-			short rdrow = (short)(signed char)g_a5_byte(-27862 + dright);
-			short rdcol = (short)(signed char)g_a5_byte(-27853 + dright);
-			cr = (short)(x + 2 * fdrow);
-			cc = (short)(y + 2 * fdcol);
-			slotidx = 0; prevocc = 0;
-			for (depth = 0; depth < 4; depth++) {
-				occ = (short)(jt212(cr, cc, facing) & 0xff);  /* high nibble = wall */
-				if (occ != 0) {
-					if (prevocc > 0)
-						l5b42(page, a, b,
-						      (short)(g_a5_word(-12222) + slotidx - 1),
-						      (short)g_a5_word(-12202), prevocc, 9);
-					prevocc = occ;
-					if (depth != 0 && depth < 3)
-						l5b42(page, a, b,
-						      (short)(g_a5_word(-12240) + slotidx),
-						      (short)g_a5_word(-12220), occ, 0);
-				} else {
-					if (prevocc > 0) {
-						short rr = (short)(cr - rdrow);
-						short rc = (short)(cc - rdcol);
-						if ((jt212(rr, rc, dright) & 0xff) != 0)
-							l5b42(page, a, b,
-							      (short)(g_a5_word(-12222) + slotidx - 1),
-							      (short)g_a5_word(-12202), prevocc, 9);
-					}
-					prevocc = 0;
-				}
-				slotidx = (short)(slotidx + 2);
-				cr = (short)(cr + rdrow);
-				cc = (short)(cc + rdcol);
-			}
-		}
-
-		/* TODO: the centre/front-wall slots and the floor/ceiling backdrop
-		 * tail (L7406/L7470 @0x7284) — the remaining body. */
-		(void)dback;
-	}
-}
 /* L52b8 (CODE 7 + 0x52b8) — step the area-map scroll origin. For each axis it
  * runs the toroidal mover L5368 (span, the map dimension, the party coord,
  * the current window origin, wrap) to get the new top-left origin; when that
@@ -2293,9 +2143,14 @@ static void jt221(short x, short y, short facing)
 		l50fe((short)cy, (short)cx, facing, (short)8012, (short)8012,
 		      (short)11, (short)11, (short)1, (short)0);
 	} else {                                /* L610a — first-person dungeon */
+		unsigned char *page; short pitch, sw, sh;
 		jt108(1);
 		l57f2();
-		l6234((short)8012, (short)8012, x, y, facing);
+		/* L6234 == JT[199] (CODE 7+0x6234): the faithful frustum walker,
+		 * lifted complete (all 3 bands) further down. (The page is the
+		 * port's drawing surface the Mac draws to the global port.) */
+		if (qd_screen_pixels(&page, &pitch, &sw, &sh) && page != NULL)
+			jt199(page, (short)8012, (short)8016, y, x, facing);
 		(void)jt117();
 	}
 }
@@ -9759,7 +9614,7 @@ void port_l6234_verify(void)
 		for (f = 0; f < 8 && !found; f += 2)
 			for (c = 0; c < mw && !found; c++)
 				for (r = 0; r < mh && !found; r++) {
-					if ((jt212(r, c, f) & 0xff) == 0)
+					if ((l5e52(r, c, f) & 0xff) == 0)   /* low nibble = the real wall code jt199 reads */
 						continue;
 					g_a5_byte(-12288) = (unsigned char)(r - 2 * (signed char)g_a5_byte(-27862 + f));
 					g_a5_byte(-12287) = (unsigned char)(c - 2 * (signed char)g_a5_byte(-27853 + f));
