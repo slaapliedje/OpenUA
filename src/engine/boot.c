@@ -8607,7 +8607,15 @@ static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1
 static short       l2d3e(void);                         /* JT[456] event poll, CODE 3+0x2d3e (full lift, defined below) */
 static short       jt152(short sel);                    /* CODE 7+0x3370 classifier (defined below) */
 static void        jt297(void *rec, short key, long cb) { PROBE("jt297"); (void)rec;(void)key;(void)cb; }      /* CODE 22+0x1c3e */
-static signed char jt1160(void)                         { PROBE("jt1160"); return 0; }                        /* CODE 4+0x67c6 */
+/* JT[1160] (CODE 4 + 0x67c6) — is the TOP-DOWN / automap view active? Tests
+ * bit 1 of g_a5_-2592 (the view-mode flags). jt297 uses it to route keyboard
+ * movement: set -> the overland absolute mover (jt311); clear -> the
+ * first-person facing-relative mover (L1908). */
+static signed char jt1160(void)
+{
+	PROBE("jt1160");
+	return (g_a5_byte(-2592) & 0x02) ? 1 : 0;
+}
 static void        l1798(void *rec, short a)            { PROBE("L1798"); (void)rec;(void)a; }                /* CODE 22-local post-move default */
 
 /* L5368 (CODE 7 + 0x5368) — one-axis scroll-window solver for the overland
