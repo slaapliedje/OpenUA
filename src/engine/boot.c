@@ -1932,7 +1932,10 @@ static int  wallset_for_id(short id, short *file, short *set);  /* wall-set id -
 static unsigned char *g_wallset_tlb[2];          /* resident GLIB per group 0/1 (heap) */
 static void l6eea(short zone, short type)
 {
-	static const char *const tlb[2] = { "\0118X8DC.TLB", "\0118X8DB.TLB" };
+	/* The persistent HUD first-person view uses the COLOUR .CTL sets (8bpp,
+	 * clut-129), all tiles present (no synthesis). 8X8DC for ids 1..9 vs DB
+	 * picked by wallset_for_id's file. */
+	static const char *const ctl[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
 	short file = 0, set = 0, refnum = 0;
 	long  count, base, sub;
 	unsigned char *buf;
@@ -1943,13 +1946,13 @@ static void l6eea(short zone, short type)
 	if (!wallset_for_id(zone, &file, &set))
 		return;
 	if (g_wallset_tlb[type] == NULL)
-		g_wallset_tlb[type] = (unsigned char *)NewPtr(212992);
+		g_wallset_tlb[type] = (unsigned char *)NewPtr(327680);
 	buf = g_wallset_tlb[type];
 	if (buf == NULL)
 		return;
-	if (FSOpen((ConstStr255Param)tlb[file & 1], 0, &refnum) != noErr)
+	if (FSOpen((ConstStr255Param)ctl[file & 1], 0, &refnum) != noErr)
 		return;
-	count = 212992;
+	count = 327680;
 	(void)FSRead(refnum, &count, buf);
 	(void)FSClose(refnum);
 	base = (long)(uintptr_t)buf;
@@ -7562,6 +7565,35 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		return;
 	ybear = (short)(((unsigned short)metric[2] << 8) | metric[3]);
 	xbear = (short)(((unsigned short)metric[4] << 8) | metric[5]);
+
+	/* 8bpp COLOUR tile (.CTL, flags bit 6 set; body = h*width, width =
+	 * 8*bpp_w, one clut-129 index per pixel, 255 = transparent) — the
+	 * persistent HUD wall format. Blit straight into the 8bpp framebuffer
+	 * (g_cwf_px, set by the caller) instead of the 1bpp bp_blit page. */
+	if ((metric[7] & 0x40) && g_cwf_px != NULL) {
+		short h = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+		short w = (short)(metric[6] * 8);
+		const unsigned char *body = (const unsigned char *)(uintptr_t)info;
+		short x0 = (short)(sx - xbear), y0 = (short)(sy - ybear);
+		short r, c;
+		for (r = 0; r < h; r++) {
+			short dy = (short)(y0 + r);
+			if (dy < 0 || dy >= g_cwf_sh)
+				continue;
+			for (c = 0; c < w; c++) {
+				unsigned char v = body[(long)r * w + c];
+				short dx;
+				if (v == 255)
+					continue;
+				dx = (short)(x0 + c);
+				if (dx < 0 || dx >= g_cwf_sw)
+					continue;
+				g_cwf_px[(long)dy * g_cwf_pitch + dx] = v;
+			}
+		}
+		return;
+	}
+
 	bp_blit(page, (short)(sx - xbear), (short)(sy - ybear),
 	        metric, (const unsigned char *)(uintptr_t)info, 0);
 }
@@ -9646,61 +9678,67 @@ void port_l6234_verify(void)
 			}
 	}
 
-	/* Scan for a vantage in L6234's OWN convention (L5e52 + the drow/dcol
-	 * step tables = -27862/-27853, where cell = col*height + row): find a
-	 * cell with a wall on the `facing` edge, then place the party two cells
-	 * back along that facing so L6234's 2-ahead start lands on the wall and
-	 * the frustum has geometry in view. (cell_edge/dir_dx use the opposite
-	 * row/col axis, so they can't drive this scan.) */
-	{
-		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-		short mw = ds ? ds[2] : 0, mh = ds ? ds[3] : 0;
-		short r, c, f, found = 0;
-		for (f = 0; f < 8 && !found; f += 2)
-			for (c = 0; c < mw && !found; c++)
-				for (r = 0; r < mh && !found; r++) {
-					if ((l5e52(r, c, f) & 0xff) == 0)   /* low nibble = the real wall code jt199 reads */
-						continue;
-					g_a5_byte(-12288) = (unsigned char)(r - 2 * (signed char)g_a5_byte(-27862 + f));
-					g_a5_byte(-12287) = (unsigned char)(c - 2 * (signed char)g_a5_byte(-27853 + f));
-					g_a5_byte(-12286) = (unsigned char)f;
-					found = 1;
-				}
-		dbg_log_num("verify wall-cell found = ", found);
-		dbg_log_num("  party x=", (long)(signed char)g_a5_byte(-12288));
-		dbg_log_num("  party y=", (long)(signed char)g_a5_byte(-12287));
-		dbg_log_num("  facing =", (long)(signed char)g_a5_byte(-12286));
-	}
+	/* Use l0bbc's REAL party placement (it loads the design and seeds the
+	 * party cell + facing at -12288/-12287/-12286) rather than a synthetic
+	 * corner scan — a real in-map vantage is what gives jt199 walls to walk.
+	 * The earlier scan overwrote the loaded spot with the map's first wall
+	 * cell, which sat at the (0,0) corner and saw almost nothing. */
+	dbg_log_num("verify party x=", (long)(signed char)g_a5_byte(-12288));
+	dbg_log_num("  party y=", (long)(signed char)g_a5_byte(-12287));
+	dbg_log_num("  facing =", (long)(signed char)g_a5_byte(-12286));
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
-	/* Faithful 1bpp deep render: L6148 loads the wall-set .TLB into the
-	 * -27894 handles; jt199 walks the frustum drawing the 1bpp wall tiles
-	 * into a BIT-PACKED page via jt200 -> jt114 -> l309c_tile -> bp_blit
-	 * (1bpp, NOT the 8bpp framebuffer). Then bp_present converts that page to
-	 * the 8bpp screen, 2-colour (black bg, white walls) — the way
-	 * port_view_demo presents jt199. (No cw_* colour stand-in, no DUNGCOM.) */
+	/* Faithful COLOUR render: L6148 loads the wall set's .CTL (8bpp colour)
+	 * into the -27894 handles; jt199 walks the frustum and jt200 -> jt114 ->
+	 * l309c_tile's 8bpp arm blits the clut-129 colour tiles straight into the
+	 * 8bpp framebuffer (g_cwf_px). The game palette (clut 129) is installed at
+	 * boot, so present directly. (No cw_* stand-in, no DUNGCOM.) */
 	{
-		static unsigned char page1[BP_STRIDE * BP_ROWS];
-		RGBColor c2[2];
 		short row = (short)(signed char)g_a5_byte(-12287);
 		short col = (short)(signed char)g_a5_byte(-12288);
 		short f   = (short)(g_a5_byte(-12286) & 7);
 		long i;
 
-		for (i = 0; i < (long)sizeof page1; i++)
-			page1[i] = 0;
+		/* Install the wall set's RGB band (sub-GLIB item 0) at clut 32 so the
+		 * tile bytes (32..) index real colours, and clear the screen. MUST use
+		 * the SAME library file as L6eea loads the tiles from: wallset_for_id
+		 * maps ds[4] to (file,set); load_color_wallset reads its band from the
+		 * global g_cw_file, so set it first — otherwise the band comes from the
+		 * other .CTL (8X8DC vs 8X8DB) and every wall is mis-tinted (blue). */
+		{
+			const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+			short file = 0, set = 0;
+			if (ds && wallset_for_id((short)(unsigned char)ds[4], &file, &set)) {
+				g_cw_file = file;
+				load_color_wallset(set);
+			}
+		}
+		for (i = 0; i < (long)pitch * sh; i++)
+			px[i] = 0;
 
-		l6148();                                /* load the wall-set tile libs */
-		dbg_log("=== FRUA_L6234_VERIFY: jt199 (1bpp) ===");
-		jt199(page1, (short)8012, (short)8016, row, col, f);
+		g_cwf_px = px; g_cwf_pitch = pitch; g_cwf_sw = sw; g_cwf_sh = sh;
+		l6148();                                /* load the .CTL wall sets */
+		/* Dump the perspective layout table (-12240..-12196, word each) and
+		 * the level's three wall-set ids (ds[4..6]) — if the table is zero the
+		 * slot coords collapse to the top-left and only soff separates them. */
+		{
+			const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+			short off;
+			dbg_log_num("jt1200 = ", (long)jt1200());
+			dbg_log_num("ds[4] wall1 = ", ds ? (long)ds[4] : -1);
+			dbg_log_num("ds[5] wall2 = ", ds ? (long)ds[5] : -1);
+			dbg_log_num("ds[6] wall3 = ", ds ? (long)ds[6] : -1);
+			for (off = 12240; off >= 12196; off -= 2)
+				dbg_log_num((off == 12240 ? "layout[-12240..] = " : "  ... = "),
+				            (long)g_a5_word(-off));
+		}
+		dbg_log("=== FRUA_L6234_VERIFY: jt199 (colour .CTL) ===");
+		jt199(px, (short)8012, (short)8016, row, col, f);
 		dbg_log("=== jt199 returned ===");
+		g_cwf_px = NULL;
 
-		c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg = black   */
-		c2[1].red = c2[1].green = c2[1].blue = 0xffff;     /* walls = white */
-		qd_set_palette(c2, 0, 2);
-		bp_present(page1, px, pitch, sw, sh, 1, 0);
 		qd_present();
 		for (;;)
 			qd_present();
