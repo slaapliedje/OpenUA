@@ -1880,7 +1880,151 @@ static void          jt937(long a)
 static void          jt938(void)              { PROBE("jt938"); }                /* CODE 12 + 0x0562 */
 static void          jt217(short a, short b, short c, short d) { PROBE("jt217"); }
                                                                                  /* CODE 7 + 0x57d2 */
-static void          jt948(void)              { PROBE("jt948"); }                /* CODE 20 + 0x4a12 */
+/* jt948's callees not yet declared at this point. */
+static void  jt19(short a, short b);
+static void  jt20(void);
+static void  jt23(void);
+/* CODE-local / JT helpers jt948 drives — PROBE stubs until lifted. */
+static short jt201(short x, short y)  { PROBE("jt201"); (void)x;(void)y; return 0; } /* CODE 7+0x5f6a — cell special at (x,y) */
+static void  jt935(void)              { PROBE("jt935"); }   /* CODE 12+0x4 — play-screen refresh */
+static void  jt955(void) __attribute__((unused));
+static void  jt955(void)              { PROBE("jt955"); }   /* CODE 21+0x453c — used by a deferred jt948 arm */
+static void  l0006_20(void)           { PROBE("L0006_20"); } /* CODE 20+0x6 — post-load init */
+static void  l709e(short a)           { PROBE("L709e"); (void)a; }  /* CODE 20-local — apply cell special */
+static void  l473e(short a)           { PROBE("L473e"); (void)a; }  /* CODE 20-local */
+static void  l47f2(void)              { PROBE("L47f2"); }   /* CODE 20-local */
+static signed char l4738(void)        { PROBE("L4738"); return 0; }  /* CODE 20-local */
+
+/* JT[948] (CODE 20 + 0x4a12) — the adventure-level dungeon loop, the body
+ * L07dc runs once the party is assembled. STRUCTURAL SKELETON (level 2): the
+ * spine is faithful — (re)load the level (L0bbc), set up the play screen,
+ * then spin the exploration command dispatcher (JT[953]) and react to its
+ * result — but the intricate level-transition arms (the [133]/[134]/[49]
+ * stair-direction + level-number scroll setup at 0x4ad6..0x4be4, and the
+ * saved-game party-handle walk) are translated to their spine and marked
+ * TODO. JT[953] is the lifted play loop; L0bbc is the lifted level loader.
+ *
+ * Outer loop L4a1a reloads the level on a stair transition; the inner loop
+ * L4be8 re-dispatches JT[953] until the player leaves the area. Result codes
+ * from JT[953]: 4 = exit the adventure (L473e), 6 = area/stairs swap (reload),
+ * else keep exploring. -27982 is the "active adventure" gate (set by jt918's
+ * Begin-Adventuring path); -5221 forces an immediate area-leave. */
+static void jt948(void)
+{
+	unsigned char *h;
+	unsigned char *node;
+	signed char    res;             /* fp@(-1): JT[953] result   */
+	signed char    want = 1;        /* fp@(-7)                   */
+	short          special;         /* fp@(-8): JT[201] cell code */
+
+	PROBE("jt948");
+
+	for (;;) {                                      /* L4a1a — level (re)load */
+		g_a5_long(-5218) = g_a5_long(-27932);
+		g_a5_byte(-23188) = 1;
+		g_a5_byte(-5220) = 0;
+		g_a5_byte(-5221) = 0;
+		jt942(0);
+
+		h = (unsigned char *)g_a5_28006;
+		if (h != NULL && h[22] != 0) {          /* L4a64 — keep current zone */
+			g_a5_byte(-22285) = h[22];
+		} else if (g_a5_byte(-27988) != 0) {    /* saved game */
+			g_a5_byte(-22285) = 7;
+		} else {                                /* fresh: zone 4 + roster */
+			g_a5_byte(-22285) = 4;
+			jt937(g_a5_long(-27932));
+		}
+		if (h != NULL && h[34] == 0)            /* L4a82 */
+			g_a5_27990 = 3;
+
+		/* TODO: faithful L0bbc takes the zone (-22285) as a word arg; the
+		 * port's l0bbc() reads the level/zone from globals instead, so the
+		 * arg is dropped here until l0bbc grows the parameter. */
+		l0bbc();                                /* load the level + place party */
+		l0006_20();
+		l0bbc();                                /* faithful: L0bbc runs twice */
+
+		if (g_a5_byte(-27988) != 0) {           /* saved-game: walk the handle list */
+			node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+			while (node != NULL) {          /* L4ab0 */
+				g_a5_long(-27932) = (long)(uintptr_t)node;
+				node = *(unsigned char **)node;
+				jt19(1, 1);
+			}
+			break;                          /* L4d22 — exit */
+		}
+
+		/* L4ad6: TODO — the stair-direction / level-number transition arms
+		 * (h[133]/h[134]/h[49], -18878, -27990) scroll the party onto the
+		 * new level's entry stairs and pick the redraw mode. The spine
+		 * below sets up the play screen for the common (no-stair) entry;
+		 * the per-arm scroll detail is deferred. */
+		jt23();
+		g_a5_byte(-23188) = 1;
+		jt935();
+		g_a5_byte(-22268) = 0;
+		want = 1;
+		special = jt201((short)(signed char)g_a5_12288,
+		                (short)(signed char)g_a5_12287);
+		l709e(special);
+		h = (unsigned char *)g_a5_28006;
+		if (h != NULL)
+			h[134] = 1;
+		if (g_a5_byte(-27982) == 0)
+			jt938();                        /* status / clock line */
+		jt935();
+
+		for (;;) {                              /* L4be8 — the play loop */
+			g_a5_byte(-24140) = want;
+			res = (signed char)jt953();     /* exploration command dispatch */
+			want = (signed char)g_a5_byte(-24140);
+			g_a5_long(-5218) = g_a5_long(-27932);
+			if (g_a5_byte(-5221) != 0)
+				break;                  /* immediate area-leave */
+
+			if (res == 4) {                 /* L4c18 — exit adventure */
+				l473e(1);
+				break;
+			}
+			if (res == 6) {                 /* L4c3c — area/stairs swap */
+				h = (unsigned char *)g_a5_28006;
+				if (h != NULL) {
+					g_a5_byte(-22284) = (unsigned char)(h[25] & 1);
+					h[25] = 1;
+				}
+				g_a5_byte(-23188) = 1;
+				jt935();
+				l47f2();
+				h = (unsigned char *)g_a5_28006;
+				if (h != NULL)
+					h[25] = g_a5_byte(-22284);
+				break;
+			}
+			if (g_a5_byte(-27982) != 0)     /* still adventuring -> keep playing */
+				continue;
+			break;
+		}
+
+		/* L4cda: reload the level for a stair transition while the
+		 * adventure is still active; otherwise fall through to exit. */
+		if (g_a5_byte(-27982) != 0) {
+			g_a5_byte(-27982) = 0;
+			continue;                       /* -> L4a1a reload */
+		}
+
+		/* exit: walk the party-handle list (JT[19]) then JT[582]. */
+		node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+		while (node != NULL) {                  /* L4cf6 */
+			g_a5_long(-27932) = (long)(uintptr_t)node;
+			node = *(unsigned char **)node;
+			jt19(0, 1);
+		}
+		if (l4738() != 0)
+			jt582();
+		break;
+	}
+}
 static int           jt943(void)
 {
 	/* CODE 20 + 0x4738: moveb A5_-4944, d0 — read the predicate flag.
