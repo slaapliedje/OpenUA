@@ -1905,7 +1905,39 @@ static void  jt1173(short top, short left, short bottom, short right); /* CODE 4
  * L6234 in particular is the ~1083-instruction first-person render (the
  * faithful equivalent of the port's jt312 / render_3d_* path) and is a lift
  * of its own. */
-static void  l6148(void)              { PROBE("L6148"); } /* CODE 7+0x6148 — load the level's 3D art (TODO: full lift; lazily loads backdrop + 2 wall sets via L6eea, keyed by level zone bytes lvl[4]/[5]/[6]) */
+static void  l6eea(short zone, short type) { PROBE("L6eea"); (void)zone;(void)type; } /* CODE 7+0x6eea — load an art set (186 insns; TODO) */
+
+/* L6148 (CODE 7 + 0x6148) — load the current level's 3D art. Gated on the
+ * party's view-distance setting (record[19] >= 5). Lazily (re)loads, keyed by
+ * the level's zone bytes, via L6eea(zone, type):
+ *   lvl[6] (backdrop) when it changed since -12296,
+ *   lvl[4] (wall set 1) when handle -27894 is empty,
+ *   lvl[5] (wall set 2) when handle -27890 is empty.
+ * The backdrop-bitmap reload dance (JT[468]/JT[1004]/JT[459]/JT[405]/JT[115]
+ * on the -27886 handle) and L6eea's body are the deferred deep layer. */
+static void l6148(void)
+{
+	const unsigned char *h = (const unsigned char *)g_a5_28006;
+	const unsigned char *lvl;
+
+	PROBE("L6148");
+	jt131(0);
+	if (h == NULL || h[19] < 5)             /* view-distance gate */
+		return;
+	lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	if (lvl == NULL)
+		return;
+
+	if (lvl[6] != 0 && (short)lvl[6] != (short)g_a5_word(-12296)) {
+		l6eea((short)lvl[6], 2);        /* backdrop set */
+		/* TODO: reload the backdrop bitmap into the -27886 handle. */
+		g_a5_word(-12296) = (short)lvl[6];
+	}
+	if (lvl[4] != 0 && g_a5_long(-27894) == 0)
+		l6eea((short)lvl[4], 0);        /* wall set 1 */
+	if (lvl[5] != 0 && g_a5_long(-27890) == 0)
+		l6eea((short)lvl[5], 1);        /* wall set 2 */
+}
 
 /* L6234 (CODE 7 + 0x6234) — the faithful first-person frustum render (the
  * real equivalent of the port's parked render_3d_faithful). STRUCTURAL
