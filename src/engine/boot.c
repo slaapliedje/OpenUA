@@ -1884,9 +1884,65 @@ static void          jt217(short a, short b, short c, short d) { PROBE("jt217");
 static void  jt19(short a, short b);
 static void  jt20(void);
 static void  jt23(void);
+static int   l5baa(short row, short col);                 /* CODE 7+0x5baa — cell bounds test */
+static void  jt214(void);                                 /* CODE 7+0x71c6 — view setup */
+
 /* CODE-local / JT helpers jt948 drives — PROBE stubs until lifted. */
-static short jt201(short x, short y)  { PROBE("jt201"); (void)x;(void)y; return 0; } /* CODE 7+0x5f6a — cell special at (x,y) */
-static void  jt935(void)              { PROBE("jt935"); }   /* CODE 12+0x4 — play-screen refresh */
+static void  jt221(short x, short y, short facing)        /* CODE 7+0x6076 — render the view at (x,y,facing) */
+                                      { PROBE("jt221"); (void)x;(void)y;(void)facing; }
+static void  jt44(void)               { PROBE("jt44"); }   /* CODE 6+0x5822 — full play-screen redraw */
+static void  l2cf4(void)              { PROBE("L2cf4"); }  /* CODE 12-local — redraw tail */
+
+/* JT[201] (CODE 7 + 0x5f6a) — return the special-feature byte of map cell
+ * (x,y). L5baa bounds-tests the cell; out of range -> 0. Otherwise it indexes
+ * the level's 6-byte cell records (base lvl+290, same layout jt205/jt212 read)
+ * at field +4: lvl[290 + (lvl[3]*y + x)*6 + 4]. jt948/L709e use it to apply
+ * the cell the party stands on (special encounters / triggers). */
+static short jt201(short x, short y)
+{
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	long idx;
+
+	PROBE("jt201");
+	if (lvl == NULL || l5baa(x, y) == 0)            /* L5f88 — out of bounds */
+		return 0;
+	idx = (long)((short)lvl[3] * y + x);            /* cell index (col=y, row=x) */
+	return (short)lvl[290 + idx * 6 + 4];           /* a0@(294): record field +4 */
+}
+
+/* JT[935] (CODE 12 + 0x4) — the play-screen refresh. Skips while -27982 is
+ * set (mid transition). On first entry (record[34]==0, record[36]==1, dirty
+ * flag -23188 set) it does the full chrome redraw (JT[214] view setup +
+ * JT[44] + L2cf4); otherwise, when in a render mode (-27990==4, or ==3 unless
+ * record[36]==1), it renders the first-person/area view at the party position
+ * via JT[221](x,y,facing). Clears the dirty flag after either render. */
+static void jt935(void)
+{
+	unsigned char *h;
+
+	PROBE("jt935");
+	if (g_a5_byte(-27982) != 0)                     /* L0080 — suppressed */
+		return;
+
+	h = (unsigned char *)g_a5_28006;
+	if (h != NULL && h[34] == 0 && h[36] == 1
+	 && g_a5_byte(-23188) != 0) {                   /* first-entry full redraw */
+		jt214();
+		jt44();
+		l2cf4();
+		g_a5_byte(-23188) = 0;                  /* L007c */
+		return;
+	}
+
+	/* L003e: render the view when in a play render mode. */
+	if (g_a5_27990 == 4
+	 || (g_a5_27990 == 3 && !(h != NULL && h[36] == 1))) {
+		jt221((short)(signed char)g_a5_12288,
+		      (short)(signed char)g_a5_12287,
+		      (short)(signed char)g_a5_12286);
+		g_a5_byte(-23188) = 0;                  /* L007c */
+	}
+}
 static void  jt955(void) __attribute__((unused));
 static void  jt955(void)              { PROBE("jt955"); }   /* CODE 21+0x453c — used by a deferred jt948 arm */
 static void  l0006_20(void)           { PROBE("L0006_20"); } /* CODE 20+0x6 — post-load init */
