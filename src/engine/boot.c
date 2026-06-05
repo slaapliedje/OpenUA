@@ -7847,6 +7847,7 @@ static int         jt273(void)                          { PROBE("jt273"); return
 static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
 static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
 static short       jt354(void)                          { PROBE("jt354"); return 0; }         /* CODE 8+0x5ef8 */
+static void        jt365(void)                          { PROBE("jt365"); }                   /* CODE 8+0x7238 */
 static short       jt358(void)                          { PROBE("jt358"); return 0; }         /* CODE 8+0x6e4a counter */
 static void        jt367(short v, void *buf)            { PROBE("jt367"); (void)v;(void)buf; } /* CODE 8+0x6e78 counter fmt */
 
@@ -9687,6 +9688,95 @@ static void port_rest(void)
  * skeleton, per CLAUDE.md) — they need their CODE 2/8/10/11 handlers lifted,
  * and reaching them faithfully needs L0004's menu-mode entry path. Until then
  * an unhandled mode stops the machine rather than spinning on a stub. */
+/* JT[251] (CODE 2 + 0x4284) — the mode-4 handler: the design/play action
+ * dispatcher. L0096 calls it as jt251(command=ctx[2], flagsp=&ctx[8],
+ * rec=ctx+16). It echoes/reloads the command per a JT[1] switch, runs the
+ * record-stage op (JT[325], which advances master[10] = the NEXT mode),
+ * clamps mode 6->5, rebuilds the mode-change flag bits in *flagsp from the
+ * resolved mode, and returns rec[2] (= master[10]) as the next mode for
+ * L0096 to dispatch.
+ *
+ * rec is the 342-ctx play record (ctx+16):
+ *   rec[0] word command echo  rec[2] word next mode
+ *   rec[4] word sub-selector  rec[6] long master sub-struct
+ * master[10] word = mode field; master[12] word = the cell/page index the
+ * flag arms fold into *flagsp's low word. The three inner JT[1] tables were
+ * decoded with tools/jt1_extract.py (cmd @0x42b6, mode @0x4388, an empty
+ * 0-case sub-switch @0x430c). */
+static void jt365(void);
+static short jt251(short command, long *flagsp, void *rec_v) __attribute__((unused));
+static short jt251(short command, long *flagsp, void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	unsigned char *master;
+	short          state = 3;               /* fp@(-7) */
+	short          res;                     /* fp@(-6): JT[325] status */
+
+	PROBE("jt251");
+	if (rec_v == NULL)
+		return 0;                       /* L428e */
+
+	master = *(unsigned char **)(rec + 6);
+
+	switch (command) {                      /* JT[1] @ 0x42b6 */
+	case 1:                                 /* L42ce */
+		*(short *)(rec + 0) = command;
+		state = 2;
+		break;
+	case 5:                                 /* L42e0 */
+		command = *(short *)(rec + 0);
+		state = 2;
+		break;
+	case 10:                                /* L42f2 */
+		*(short *)(rec + 2) = *(short *)(master + 10);
+		/* inner JT[1] @ 0x430c has 0 cases -> falls through. */
+		break;
+	default:                                /* 8, 11 -> L4310 */
+		break;
+	}
+
+	/* L4310: the record-stage op. fp@(-1) (the "skip" guard) is always 0
+	 * on this entry, so the block always runs. */
+	res = jt325(command, flagsp, master, (short)53,
+	            g_a5_buf(-18876), state, (short)388);
+	if (*(short *)(master + 10) == 6)       /* clamp 6 -> 5 */
+		*(short *)(master + 10) = 5;
+	*(short *)(rec + 2) = *(short *)(master + 10);
+	if (res == 1)
+		jt365();
+
+	/* L4372: clear *flagsp's low word, then OR in the redraw bits keyed
+	 * by the resolved next mode (JT[1] @ 0x4388). */
+	*flagsp &= 0xffff0000L;
+	switch (*(short *)(rec + 2)) {
+	case 10:                                /* L43a0 */
+		if (*(short *)(rec + 2) == *(short *)(master + 10))
+			*flagsp |= (long)*(short *)(master + 12);
+		else
+			*flagsp |= (long)*(short *)(rec + 4);
+		break;
+	case 8:                                 /* L43da */
+		((unsigned char *)flagsp)[4] = 1;
+		*flagsp |= (long)*(short *)(master + 12);
+		break;
+	case 11:                                /* L44ae */
+		*flagsp |= (long)*(short *)(master + 12);
+		break;
+	case 5:                                 /* L43f8 */
+		/* TODO: the receding-cell redraw-hint encoding (0x43f8..0x445c)
+		 * folds (master[12]&0xff)<<16 plus a cell index derived from the
+		 * level base into *flagsp. The two A5-12300 loads in the disasm
+		 * are a CREL reloc the disassembler couldn't tell apart, so the
+		 * second global is unresolved — deferred. It only tunes the
+		 * redraw hint for mode-5 transitions, not the returned mode. */
+		break;
+	default:                                /* 1 -> L44be */
+		break;
+	}
+
+	return *(short *)(rec + 2);             /* next mode = master[10] */
+}
+
 static short l0096(unsigned char *ctx)
 {
 	short res = 0;                          /* fp@(-2): handler result */
@@ -9696,6 +9786,10 @@ static short l0096(unsigned char *ctx)
 		short mode = *(short *)(ctx + 4);
 
 		switch (mode) {                 /* JT[3] on ctx[4] */
+		case 4:                         /* L0314 — design/play action (JT[251]) */
+			res = jt251(*(short *)(ctx + 2),
+			            (long *)(ctx + 8), ctx + 16);
+			break;
 		case 14:                        /* L02f4 — play/dungeon action */
 			res = jt241(*(short *)(ctx + 2),
 			            (long *)(ctx + 8), ctx + 16);
