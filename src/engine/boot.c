@@ -2354,25 +2354,59 @@ static void jt948(void)
 			break;                          /* L4d22 — exit */
 		}
 
-		/* L4ad6: TODO — the stair-direction / level-number transition arms
-		 * (h[133]/h[134]/h[49], -18878, -27990) scroll the party onto the
-		 * new level's entry stairs and pick the redraw mode. The spine
-		 * below sets up the play screen for the common (no-stair) entry;
-		 * the per-arm scroll detail is deferred. */
-		jt23();
+		/* L4ad6 — the level-entry / stair-transition arms (0x4ad6..0x4be4).
+		 * h[133] = pending stair-scroll direction, h[134] = "view
+		 * established" flag, h[49] = level-number special; -18878 = current
+		 * level (>=5 = dungeon), -27990 = play render mode. These set the
+		 * dungeon render mode (4), draw the entry view, and apply the special
+		 * of the cell the party lands on (L709e) — picking the arm by which of
+		 * h[134]/h[133]/h[49] is live. Without the -27990=4 dungeon-mode setup
+		 * jt953's mode switch falls through and the play loop escapes. */
+		h = (unsigned char *)g_a5_28006;
+
+		/* 4ad6: not mode 3, and the view already established -> set dungeon
+		 * mode and (when no stair scroll is pending) redraw. */
+		if (g_a5_27990 != 3 && h != NULL && h[134] != 0) {
+			if ((short)g_a5_18878 >= 5)
+				g_a5_27990 = 4;
+			if (h[133] == 0) {              /* L4af6 */
+				jt23();
+				g_a5_byte(-23188) = 1;
+				jt935();
+			}
+		}
+
+		/* L4b0e: a dungeon entered fresh (no view yet) -> mode 4 + jt23. */
+		if ((short)g_a5_18878 >= 5 && h != NULL && h[134] == 0) {
+			g_a5_27990 = 4;
+			jt23();
+		}
+
+		/* L4b2a / L4b3e: mark dirty, reset the move flag, draw the view
+		 * (unless a stair scroll is pending on h[133]). */
 		g_a5_byte(-23188) = 1;
-		jt935();
+		if (h != NULL && h[133] == 0)
+			jt935();
 		g_a5_byte(-22268) = 0;
 		want = 1;
-		special = jt201((short)(signed char)g_a5_12288,
-		                (short)(signed char)g_a5_12287);
-		l709e(special);
-		h = (unsigned char *)g_a5_28006;
-		if (h != NULL)
+		if (h != NULL && h[133] == 0)
+			jt935();
+
+		/* L4b56: pick the entry arm and apply the landing cell's special. */
+		if (h != NULL && h[134] == 0) {        /* fresh entry */
+			special = jt201((short)(signed char)g_a5_12288,
+			                (short)(signed char)g_a5_12287);
+			l709e(special);
 			h[134] = 1;
-		if (g_a5_byte(-27982) == 0)
-			jt938();                        /* status / clock line */
-		jt935();
+			if (g_a5_byte(-27982) == 0) {
+				jt938();                /* status / clock line */
+				jt935();
+			}
+		} else if (h != NULL && h[133] != 0) { /* L4ba6 — stair direction */
+			l709e((short)h[133]);
+		} else if (h != NULL && h[49] != 0) {  /* L4bc6 — level-number */
+			l709e((short)h[49]);
+		}
 
 		for (;;) {                              /* L4be8 — the play loop */
 			g_a5_byte(-24140) = want;
@@ -9833,6 +9867,15 @@ void port_l6234_verify(void)
 		dbg_log("=== FRUA_L6234_VERIFY: jt935 -> jt221 (play path) ===");
 		jt935();
 		dbg_log("=== jt935 returned ===");
+
+#ifdef FRUA_PLAY_JT948
+		/* Deterministic repro of the live "Begin Adventuring -> dungeon"
+		 * crash: drive the real adventure loop. The probe trace's last line
+		 * before the run_probe SIGKILL pinpoints where it dies/hangs. */
+		dbg_log("=== FRUA: jt948 (adventure loop) ===");
+		jt948();
+		dbg_log("=== jt948 returned ===");
+#endif
 
 		/* Level-change reload test: poke Wall1 to a set in the OTHER file
 		 * (id 10 -> 8X8DC set 1) and re-run l6148. The grp0 handle should
