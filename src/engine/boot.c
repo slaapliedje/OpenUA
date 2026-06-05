@@ -6618,6 +6618,10 @@ static short g_cwf_pitch, g_cwf_sw, g_cwf_sh;
  * the play screen's 3D pane (L6234's clip resolves to left=8 top=24 right=184
  * bottom=200). cw_view_clip() sets it; default = whole surface. */
 static short g_cwf_clip_l, g_cwf_clip_t, g_cwf_clip_r, g_cwf_clip_b;
+/* Colour slot (= wall group 0/1/2) of the tile l309c_tile is currently
+ * blitting; set by jt200_layer. Selects the clut band (g_cw_base) the tile's
+ * 32-based bytes rebase into, so each wall set keeps its own CLUT. */
+static short g_cwf_slot;
 static short g_cwf_blits __attribute__((unused));    /* debug: blit count   */
 
 /* Set the faithful-view clip rect (and the surface dims it blits into). */
@@ -7606,15 +7610,28 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		const unsigned char *body = (const unsigned char *)(uintptr_t)info;
 		short x0 = (short)(sx - xbear), y0 = (short)(sy - ybear);
 		short r, c;
+		/* The tile bytes are 32-based indices into the set's own CLUT; rebase
+		 * them into this group's clut band (g_cw_base[slot] = 32/64/96) so
+		 * Wall1/2/3 each keep their palette. Bytes outside the band (shared
+		 * mortar/shadow colours) and the 255 / per-set magenta keys pass or
+		 * skip unchanged. */
+		short slot = (g_cwf_slot >= 0 && g_cwf_slot < CW_SLOTS) ? g_cwf_slot : 0;
+		short base = g_cw_base[slot];
 		for (r = 0; r < h; r++) {
 			short dy = (short)(y0 + r);
 			if (dy < g_cwf_clip_t || dy >= g_cwf_clip_b)
 				continue;
 			for (c = 0; c < w; c++) {
 				unsigned char v = body[(long)r * w + c];
-				short dx;
+				short off, dx;
 				if (v == 255)
-					continue;
+					continue;            /* global transparency key */
+				off = (short)(v - 32);
+				if (off >= 0 && off < CW_BAND) {
+					if (g_cw_strans[slot][off])
+						continue;        /* per-set magenta key */
+					v = (unsigned char)(base + off);
+				}
 				dx = (short)(x0 + c);
 				if (dx < g_cwf_clip_l || dx >= g_cwf_clip_r)
 					continue;
@@ -7782,6 +7799,10 @@ static void jt114(unsigned char *page, short top, short left, short idx,
 static void jt200_layer(unsigned char *page, short top, short left,
                         short group, short idx)
 {
+	/* The group is also its colour slot (Wall1->slot0, Wall2->slot1,
+	 * Wall3->slot2): l309c_tile rebases the tile's 32-based bytes into that
+	 * slot's clut band (32/64/96) so each set keeps its own CLUT. */
+	g_cwf_slot = group;
 	jt114(page, top, left, idx, g_a5_long(-27894 + (long)group * 4));
 }
 
@@ -8084,29 +8105,23 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
-	static short s_band_key = -1;                     /* cached clut-32 band set */
 	/* L6234's clip rect (left=8 top=24 right=184 bottom=200): the 176x176
 	 * first-person pane in the play screen's upper-left. */
 	const short VL = 8, VT = 24, VR = 184, VB = 200;
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short f = (short)(g_a5_12286 & 7);
-	short file, set, x, y;
+	short x, y;
 
 	if (ds == NULL)
 		return;
 
-	/* Install the level's Wall1 RGB band at clut 32 (the .CTL tile bytes
-	 * index it); reload only when it changes. Per-group bands (Wall2/3 at
-	 * their own clut bases) are a follow-up — all groups share clut 32 now. */
-	if (wallset_for_id((short)(unsigned char)ds[4], &file, &set)) {
-		short key = (short)((file << 8) | (set & 0xff));
-		if (s_band_key != key) {
-			g_cw_file = file;
-			g_cw_set  = set;
-			load_color_wallset(set);          /* palette band @ clut 32 + strans */
-			load_backdrop(g_back_set);        /* re-lay backdrop band (clut 145) */
-			s_band_key = key;
-		}
+	/* Install the level's THREE wall sets' CLUTs (Wall1/2/3 = ds[4..6]) into
+	 * their clut bands (32/64/96) via the existing per-slot loader; l309c_tile
+	 * rebases each group's 32-based tile bytes into its band. Reload only when
+	 * the group ids change (each set's CLUT lives in its .CTL, sub-GLIB 0). */
+	if (ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2]) {
+		load_wall_groups(ds);                 /* slots 0/1/2 + cw_finalize bands */
+		load_backdrop(g_back_set);            /* re-lay backdrop band (clut 145) */
 	}
 
 	/* backdrop (floor/ceiling/sky) inside the viewport rect */
@@ -9718,11 +9733,8 @@ void port_l6234_verify(void)
 		 * other .CTL (8X8DC vs 8X8DB) and every wall is mis-tinted (blue). */
 		{
 			const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-			short file = 0, set = 0;
-			if (ds && wallset_for_id((short)(unsigned char)ds[4], &file, &set)) {
-				g_cw_file = file;
-				load_color_wallset(set);
-			}
+			if (ds)
+				load_wall_groups(ds);   /* Wall1/2/3 CLUTs -> clut bands 32/64/96 */
 		}
 		for (i = 0; i < (long)pitch * sh; i++)
 			px[i] = 0;
