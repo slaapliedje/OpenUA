@@ -18557,7 +18557,13 @@ static int l1060(short a)
 	return 0;
 }
 
-/* L10ca — case 8 (Exit From Play). CODE 12 + 0x10ca.
+/* L10ca — case 8 (Exit From Play / proceed-to-adventure). CODE 12 + 0x10ca.
+ *
+ * THIS is the real "Begin Adventuring" bridge: its L112c path is the ONLY
+ * jt918 arm that returns 1, and L07dc proceeds into the dungeon exactly when
+ * jt918 returns non-zero (`if (jt918(1) == 0) goto cleanup`). The L112c path
+ * calls JT[942](1) (the adventure-mode setup) then returns 1. (Case 9 / l1142,
+ * once mislabelled "Begin Adventuring", is actually Save Game — JT[585].)
  *
  *   tstb a5@(-14432); beqw L1242
  *   tstl a5@(-27932); beqs L10f4
@@ -18601,24 +18607,30 @@ static int l10ca(short a)
 	return 1;       /* L1262 — return 1 */
 }
 
-/* L1142 — case 9 (Begin Adventuring). CODE 12 + 0x1142.
+/* L1142 — case 9. CODE 12 + 0x1142. FAITHFULLY THIS IS *SAVE GAME*, not
+ * "Begin Adventuring" (the earlier label was wrong — confirmed by decoding
+ * jt918's JT[3] dispatch @0x0efc with jt3_extract and reading the arms):
  *
- *   tstb a5@(-14431); beqw L1242
- *   tstl a5@(-27928); beqw L1242
- *   jsr  JT[585]
- *   braw L1242
- */
+ *   tstb a5@(-14431); beqw L1242        ; menu item enabled?
+ *   tstl a5@(-27928); beqw L1242        ; party present?
+ *   jsr  JT[585]                        ; CODE 15+0x1a24 = Save Game
+ *   braw L1242                          ; continue the Training-Hall loop
+ *
+ * JT[585] is the save routine ("Saving...Please Wait", "SavGam%c"). The
+ * REAL "Begin Adventuring" is case 8 (l10ca) — it is the only arm that
+ * returns 1, which is what makes L07dc proceed into the dungeon.
+ *
+ * Port note: until L07dc's post-jt918 dungeon entry (l67ca/jt937/jt938 +
+ * the play loop) is fully lifted, this case-9 slot HOSTS the dungeon demo
+ * (port_begin_adventure -> port_play_demo) so the menu can reach the
+ * first-person view. That is a deliberate port stand-in in the wrong
+ * faithful slot, to be moved onto case 8's real return-1 path once the
+ * l07dc dungeon entry lands. */
 static int l1142(short a)
 {
 	(void)a;
 	PROBE("jt918/case9 L1142");
-	/* Begin Adventuring. The faithful path (the CODE 15-19 adventure setup
-	 * + play loop) is the deferred remainder; port_begin_adventure gates on
-	 * the assembled party and drops it into the working first-person play
-	 * loop (load level, place party, render jt312, walk WASD; returns on
-	 * 'q'), so menu -> Play -> Training Hall -> Begin Adventuring -> dungeon
-	 * works end to end with the real party. */
-	port_begin_adventure();
+	port_begin_adventure();  /* PORT: demo dungeon entry (faithful = Save Game) */
 	return 0;                /* redraw the Training Hall */
 }
 
