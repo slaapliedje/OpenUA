@@ -9675,45 +9675,36 @@ void port_l6234_verify(void)
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
-	/* Load the level's colour wall set and point the faithful colour
-	 * blitter at the framebuffer — exactly render_3d_faithful's setup — so
-	 * L6234's l5b42 -> jt200_layer -> cw_blit_piece paints real wall pieces
-	 * (g_cwf_px gates that path; it's NULL outside this setup). */
+	/* Faithful 1bpp deep render: L6148 loads the wall-set .TLB into the
+	 * -27894 handles; jt199 walks the frustum drawing the 1bpp wall tiles
+	 * into a BIT-PACKED page via jt200 -> jt114 -> l309c_tile -> bp_blit
+	 * (1bpp, NOT the 8bpp framebuffer). Then bp_present converts that page to
+	 * the 8bpp screen, 2-colour (black bg, white walls) — the way
+	 * port_view_demo presents jt199. (No cw_* colour stand-in, no DUNGCOM.) */
 	{
-		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-		short file = 0, set = 0, ok = 0;
-		if (ds) {
-			dbg_log_num("ds[4] wall1 = ", (long)ds[4]);
-			dbg_log_num("ds[5] wall2 = ", (long)ds[5]);
-			dbg_log_num("ds[6] backdrop = ", (long)ds[6]);
-			ok = wallset_for_id((short)(unsigned char)ds[4], &file, &set);
-		}
-		dbg_log_num("wallset_for_id ok = ", (long)ok);
-		dbg_log_num("  file = ", (long)file);
-		dbg_log_num("  set  = ", (long)set);
-		if (ok) {
-			g_cw_file = file;
-			g_cw_set  = set;
-			load_color_wallset(set);
-			load_cw_full(file, set);
-		}
-	}
-	g_cwf_px = px; g_cwf_pitch = pitch; g_cwf_sw = sw; g_cwf_sh = sh;
-	dbg_log_num("verify g_cwf_n (pieces) = ", (long)g_cwf_n);
-	g_cwf_blits = 0;
+		static unsigned char page1[BP_STRIDE * BP_ROWS];
+		RGBColor c2[2];
+		short row = (short)(signed char)g_a5_byte(-12287);
+		short col = (short)(signed char)g_a5_byte(-12288);
+		short f   = (short)(g_a5_byte(-12286) & 7);
+		long i;
 
-	dbg_log("=== FRUA_L6234_VERIFY: jt221 -> L6234 ===");
-	jt221((short)(signed char)g_a5_byte(-12288),
-	      (short)(signed char)g_a5_byte(-12287),
-	      (short)(signed char)g_a5_byte(-12286));
-	g_cwf_px = NULL;
-	dbg_log_num("verify cw_blit_piece blits = ", (long)g_cwf_blits);
-	dbg_log("=== L6234 returned ===");
+		for (i = 0; i < (long)sizeof page1; i++)
+			page1[i] = 0;
 
-	qd_present();
-	qd_present();
-	for (;;)
+		l6148();                                /* load the wall-set tile libs */
+		dbg_log("=== FRUA_L6234_VERIFY: jt199 (1bpp) ===");
+		jt199(page1, (short)8012, (short)8016, row, col, f);
+		dbg_log("=== jt199 returned ===");
+
+		c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg = black   */
+		c2[1].red = c2[1].green = c2[1].blue = 0xffff;     /* walls = white */
+		qd_set_palette(c2, 0, 2);
+		bp_present(page1, px, pitch, sw, sh, 1, 0);
 		qd_present();
+		for (;;)
+			qd_present();
+	}
 }
 #endif
 
