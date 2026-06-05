@@ -9802,10 +9802,37 @@ void port_l6234_verify(void)
 				dbg_log_num((off == 12240 ? "layout[-12240..] = " : "  ... = "),
 				            (long)g_a5_word(-off));
 		}
-		dbg_log("=== FRUA_L6234_VERIFY: jt199 (colour .CTL) ===");
-		jt199(px, (short)8012, (short)8016, row, col, f);
-		dbg_log("=== jt199 returned ===");
-		g_cwf_px = NULL;
+		(void)row; (void)col; (void)f;
+
+		/* Begin-Adventuring reachability proof: seed the design + party the
+		 * way l07dc does, then confirm jt918's case-10 gate inputs are live
+		 * (g_a5_27932 = design -> enables g_a5_14430; g_a5_27928 = party).
+		 * With both set, l115a (case 10) returns 1 and l07dc proceeds to
+		 * jt948 -> jt935 -> jt221 -> the faithful dungeon render. */
+		{
+			extern void port_test_seed_design(void);
+			port_test_seed_design();
+			dbg_log("=== Begin-Adventuring gate ===");
+			dbg_log_num("  design g_a5_27932 = ", g_a5_long(-27932));
+			dbg_log_num("  party  g_a5_27928 = ", g_a5_long(-27928));
+		}
+
+		/* Render through the REAL play-refresh entry (jt935 -> jt221 ->
+		 * render_3d_faithful), not jt199 directly, so the path Begin
+		 * Adventuring reaches is what we exercise. g_a5_27990=4 = the
+		 * command-bar render mode; -27982=0 = not mid-transition; -12290=0 =
+		 * dungeon (not automap). */
+		g_cwf_px = NULL;                         /* jt221 sets its own */
+		g_a5_27990 = 4;
+		g_a5_byte(-27982) = 0;
+		g_a5_byte(-12290) = 0;
+		{
+			unsigned char *hh = (unsigned char *)g_a5_28006;
+			if (hh != NULL) hh[36] = 0;     /* avoid jt935's first-entry redraw arm */
+		}
+		dbg_log("=== FRUA_L6234_VERIFY: jt935 -> jt221 (play path) ===");
+		jt935();
+		dbg_log("=== jt935 returned ===");
 
 		/* Level-change reload test: poke Wall1 to a set in the OTHER file
 		 * (id 10 -> 8X8DC set 1) and re-run l6148. The grp0 handle should
