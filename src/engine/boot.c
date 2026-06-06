@@ -2298,6 +2298,12 @@ static void  l473e(short a)           { PROBE("L473e"); (void)a; }  /* CODE 20-l
 static void  l47f2(void)              { PROBE("L47f2"); }   /* CODE 20-local */
 static signed char l4738(void)        { PROBE("L4738"); return 0; }  /* CODE 20-local */
 static short jt240(short cmd, long *flagsp, unsigned char *rec);     /* deep walk loop (CODE 11+0x4ffe), defined below */
+/* The command-bar index L63c0 latches on exit (jt152/l25b6 result, 0..7 =
+ * Move/Area/Cast/View/Encamp/Search/Look/Inv), or -1 for an Esc / non-command
+ * exit. jt948's dungeon walk loop reads it to dispatch the command. */
+static short g_walk_cmd = -1;
+static void  jt23(void);                                            /* play-frame stand-up (defined below) */
+static void  jt904(unsigned char *out_done);                        /* View-character screen (defined below) */
 
 /* JT[948] (CODE 20 + 0x4a12) — the adventure-level dungeon loop, the body
  * L07dc runs once the party is assembled. STRUCTURAL SKELETON (level 2): the
@@ -2439,8 +2445,31 @@ static void jt948(void)
 				play_rec[4] = 1;            /* dungeon kind */
 				for (kk = 0; kk < 6; kk++)
 					play_rec[46 + kk] = g_a5_byte(-12288 + kk);
+				g_walk_cmd = -1;
 				(void)jt240((short)11, &pflags, play_rec);
-				res = 4;                    /* leave the area after the loop */
+				/* Dispatch the latched command bar pick (0..7 = Move/Area/
+				 * Cast/View/Encamp/Search/Look/Inv). Encamp (4) or an Esc /
+				 * non-command exit (-1) leaves the area; every other command
+				 * runs its action (the lifted View/Inv; Area/Cast/Search/Look
+				 * are still stubbed) and keeps exploring. This mirrors jt953's
+				 * command switch but on l63c0's unified walk+command loop. */
+				if (g_walk_cmd == 4 || g_walk_cmd < 0) {
+					res = 4;            /* Encamp / Esc -> leave the area */
+				} else {
+					switch (g_walk_cmd) {
+					case 3: {           /* View character */
+						unsigned char done = 0;
+						jt904(&done);
+						break;
+					}
+					case 7:             /* Inventory */
+						jt23();
+						break;
+					default:            /* Move / Area / Cast / Search / Look */
+						break;          /* (actions TODO) — stay in the dungeon */
+					}
+					continue;           /* re-enter the walk loop */
+				}
 			} else {
 				res = (signed char)jt953(); /* overland command dispatch */
 			}
@@ -9215,8 +9244,10 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		 * break the play loop. Real command-bar items have pollres > 5. */
 		procres = (pollres == 0) ? (short)-1 : jt152(pollres);
 		if (procres >= 0) {
-			/* a command-bar command: end the walk loop. Return 1 only
-			 * for the implicit Move (procres 0) outside deep mode. */
+			/* a command-bar command: latch it for the caller (jt948's
+			 * dungeon loop dispatches by this index) and end the walk loop.
+			 * Return 1 only for the implicit Move (procres 0) outside deep. */
+			g_walk_cmd = procres;
 			exitflag = (procres == 0 && (unsigned char)a_deep == 0)
 			           ? 1 : -1;
 			break;
@@ -9238,6 +9269,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 				jt297(ctx, (short)g_a5_word(-10372), cb2);
 			} else if (g_a5_word(-10372) == 27) {
 				exitflag = -1;          /* Esc */
+				g_walk_cmd = -1;        /* no command picked */
 			} else if (g_a5_word(-10372) == 13 && (unsigned char)a_sel == 0) {
 				exitflag = 1;           /* Return */
 			} else {
