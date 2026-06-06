@@ -6677,6 +6677,11 @@ static short g_cwf_clip_l, g_cwf_clip_t, g_cwf_clip_r, g_cwf_clip_b;
  * internal layout is preserved) to the FRAME.CTL viewport hole. Set by the
  * renderer; 0 = natural origin. */
 static short g_cwf_ox, g_cwf_oy;
+/* Set while l63c0 is in its walk loop, so l2d3e routes movement/control keys
+ * (arrows / Esc / Return) to the keyboard source (return 0) instead of the
+ * command-bar DLItem match — otherwise an arrow is consumed as a command and
+ * the play loop exits. Off everywhere else so the menus are unaffected. */
+static short g_walk_input;
 /* Colour slot (= wall group 0/1/2) of the tile l309c_tile is currently
  * blitting; set by jt200_layer. Selects the clut band (g_cw_base) the tile's
  * 32-based bytes rebase into, so each wall set keeps its own CLUT. */
@@ -9079,6 +9084,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * modal poll loop (l2d3e) re-presents on changes. */
 	qd_present();
 
+	/* Set the view-mode bit jt1160() reads (top-down for the wilderness, so
+	 * arrow keys route through jt297 -> jt311; first-person for a_deep), and
+	 * arm the walk-input gate so l2d3e routes movement keys to the keyboard
+	 * source instead of the command bar. */
+	if ((unsigned char)a_deep)
+		g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
+	else
+		g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) | 0x02);
+	g_walk_input = 1;
+
 	/* --- the input / movement loop (L64ae .. L67ae) --- */
 	for (;;) {
 		if (jt1163() == 0 && jt1200() != 0)
@@ -9142,8 +9157,21 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		}
 		if (exitflag != 0)
 			break;
+
+		/* Re-render after a move so it's visible (the faithful per-step
+		 * re-render arms L64f2..L666c are deferred). Repaint the view +
+		 * automap (cb1 = jt237) at the new party position and flush. */
+		if ((unsigned char)a_deep) {
+			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
+			jt312(ctx);
+		} else {
+			jt280(rec, (short)8024, (short)8092, (short)0);
+		}
+		((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
+		qd_present();
 	}
 
+	g_walk_input = 0;
 	jt451();
 	(void)l4268;
 	return (exitflag > 0) ? exitflag : 0;
@@ -13890,6 +13918,19 @@ static short l2d3e(void)
 	jt1153(1);
 	l2c60((short)0);                /* walk dirty items with cmd=1 */
 	key = l3198(7, (long)&mouse_y, (long)&mouse_x);
+
+	/* Record the last key where l63c0's keyboard arm (case 0) reads it. */
+	if (key != 0 && !g_event_was_click)
+		g_a5_word(-10372) = key;
+
+	/* In the walk loop, route movement/control keys to the keyboard source
+	 * (return 0) before the command-bar DLItem match — an arrow / Esc /
+	 * Return must reach l63c0's switch(0) -> jt297, not be swallowed as a
+	 * command (which exits the play loop). Letter keys (command accelerators)
+	 * still fall through to the command bar. */
+	if (g_walk_input && key != 0 && !g_event_was_click
+	    && ((key >= 257 && key <= 264) || key == 27 || key == 13))
+		return (short)0;
 
 	/* Port mouse hit-test: the faithful per-item method(rec,2,y,x) hit-test
 	 * needs the shape-7 DLItem method dispatch, which is unlifted (the method
