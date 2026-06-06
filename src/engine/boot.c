@@ -8606,7 +8606,185 @@ static void jt280(void *rec_v, short x, short y, short mode)
 static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1)*o1=0; if(o2)*o2=0; }        /* CODE 4+0x6204 */
 static short       l2d3e(void);                         /* JT[456] event poll, CODE 3+0x2d3e (full lift, defined below) */
 static short       jt152(short sel);                    /* CODE 7+0x3370 classifier (defined below) */
-static void        jt297(void *rec, short key, long cb) { PROBE("jt297"); (void)rec;(void)key;(void)cb; }      /* CODE 22+0x1c3e */
+/* forward decls for jt297 (the movers + helpers are defined just below). */
+static signed char jt1160(void);
+static void        jt311(void *rec_v, short dir, long cb);
+static signed char jt218(signed char *rowp, signed char *colp,
+                         short *out_row, short *out_col,
+                         short span_r, short span_c, short wrap);
+static void        l1798(void *rec, short a);
+static void        jt50(void) { PROBE("jt50"); }   /* CODE 6+0x5ac2 — page (deferred) */
+static void        jt51(void) { PROBE("jt51"); }   /* CODE 6+0x5ad8 — page (deferred) */
+
+/* L05ca (CODE 22 + 0x05ca) — wall code on cell `cell`'s edge facing `dir`:
+ * edge = (dir & 6) >> 1 (0..3); returns the HIGH nibble of the cell record's
+ * edge byte (lvl + cell*6 + 290 + edge), the wall-art/style code. jt297 treats
+ * a result > 1 as "blocked" before stepping forward. */
+static short l05ca(short cell, short dir)
+{
+	const unsigned char *lvl;
+	short edge = (short)((dir & 6) >> 1);
+
+	PROBE("L05ca");
+	if (edge < 0 || edge >= 4)
+		return 0;
+	lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	if (lvl == NULL)
+		return 0;
+	return (short)((lvl[(long)cell * 6 + 290 + edge] >> 4) & 15);
+}
+
+/* L1908 (CODE 22 + 0x1908) — commit a first-person move/turn: normalise the
+ * new facing to [1,8], write the party cell (-12287 row / -12288 col / -12286
+ * facing), recentre the view (JT[218]), mirror the cell into rec+46, and (when
+ * the redraw flag is set and rec is a live deep view) repaint via jt312.
+ * MINIMAL lift: the move sound + smooth-scroll animation (L4900 / L423e /
+ * L3998) and the blocked-step recentre (JT[213]) are deferred — the geometry
+ * (cell update + recentre + redraw) is what makes the party walk. */
+static void l1908(void *rec_v, short row, short col, short facing, short redraw)
+{
+	unsigned char *rec = *(unsigned char **)rec_v;
+	signed char moved;
+	short k;
+
+	PROBE("L1908");
+	if (facing <= 0)
+		facing = (short)(facing + 8);
+	else if (facing > 8)
+		facing = (short)(facing - 8);
+
+	/* TODO: L4900 / L423e / L3998 — move sound + smooth-scroll animation. */
+	g_a5_byte(-12287) = (unsigned char)row;
+	g_a5_byte(-12288) = (unsigned char)col;
+	g_a5_byte(-12286) = (unsigned char)facing;
+
+	moved = jt218((signed char *)&g_a5_byte(-12287),
+	              (signed char *)&g_a5_byte(-12288),
+	              (short *)&g_a5_byte(-11706),
+	              (short *)&g_a5_byte(-11704),
+	              (short)g_a5_byte(-11708),
+	              (short)g_a5_byte(-11707),
+	              (short)(rec[4] == 0 ? 1 : 0));
+
+	/* mirror the (possibly wrapped) party cell into rec+46. */
+	for (k = 0; k < 6; k++)
+		rec[46 + k] = g_a5_byte(-12288 + k);
+
+	if (moved)
+		l1798(rec_v, 0);
+	/* else: JT[213] blocked-step recentre redraw — deferred. */
+
+	if (redraw && rec[4] != 0 && rec[5] == 0)
+		jt312((unsigned char *)rec_v);
+}
+
+/* JT[297] (CODE 22 + 0x1c3e) — the keyboard movement handler l63c0 dispatches
+ * arrow keys (257..264) to. Routes per jt1160(): TOP-DOWN -> jt311 (the
+ * overland absolute mover, gated on map size); FIRST-PERSON -> facing-relative
+ * via L1908. Controls: 264 = forward (L05ca wall check first), 258 = turn
+ * right (+2), 262 = turn left (-2), 260 = about-face (+4), 257/263 = strafe
+ * (turn, step, turn back), 259/261 = back-step (about-face, step, face back).
+ * Keys 338/339 page via JT[50]/JT[51] (deferred). The first-person+arrow case
+ * swaps in the rec+46 party mirror for the move, then restores the view cell. */
+static void jt297(void *rec_v, short key, long cb)
+{
+	unsigned char *rec = *(unsigned char **)rec_v;
+	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short cell, fp3, fp4, facing, k;
+	unsigned char snap[6];
+	int snapped = 0;
+
+	PROBE("jt297");
+	if (key == 338) { jt50(); return; }
+	if (key == 339) { jt51(); return; }
+	if (lvl == NULL)
+		return;
+
+	cell = (short)((short)lvl[3] * (short)(signed char)g_a5_byte(-12287)
+	               + (short)(signed char)g_a5_byte(-12288));
+	fp3  = jt1160() ? 0 : 1;                 /* first-person? */
+
+	if (fp3 && rec[4] == 1 && key >= 257 && key <= 264) {
+		for (k = 0; k < 6; k++) snap[k] = g_a5_byte(-12288 + k);
+		for (k = 0; k < 6; k++) g_a5_byte(-12288 + k) = rec[46 + k];
+		snapped = 1;
+	}
+	fp4    = (rec[4] == 0 && rec[9] != 0) ? 1 : 0;
+	facing = (short)g_a5_byte(-12286);
+
+	#define JT297_ROW ((short)(signed char)g_a5_byte(-12287))
+	#define JT297_COL ((short)(signed char)g_a5_byte(-12288))
+	#define JT297_FWD_ROW ((short)(JT297_ROW + (signed char)g_a5_byte(-11693 + g_a5_byte(-12286))))
+	#define JT297_FWD_COL ((short)(JT297_COL + (signed char)g_a5_byte(-11684 + g_a5_byte(-12286))))
+
+	switch (key) {
+	case 264:                                /* forward */
+		if (!fp3) {
+			if ((short)lvl[2] > 20) jt311(rec_v, key, cb); else jt1080();
+		} else if (fp4 && l05ca(cell, facing) > 1) {
+			jt1080();
+		} else {
+			l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL, facing, 1);
+		}
+		break;
+	case 260:                                /* about-face (+4) */
+		if (!fp3) { if ((short)lvl[2] > 20) jt311(rec_v, key, cb); else jt1080(); }
+		else l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + 4), 1);
+		break;
+	case 262:                                /* turn left (-2) */
+		if (!fp3) { if ((short)lvl[3] > 21) jt311(rec_v, key, cb); else jt1080(); }
+		else l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing - 2), 1);
+		break;
+	case 258:                                /* turn right (+2) */
+		if (!fp3) { if ((short)lvl[3] > 21) jt311(rec_v, key, cb); else jt1080(); }
+		else l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + 2), 1);
+		break;
+	case 257: case 263:                      /* strafe: turn, step, turn back */
+		if (!fp3) {
+			if ((short)lvl[2] > 20 || (short)lvl[3] > 21) jt311(rec_v, key, cb);
+			else jt1080();
+		} else {
+			short t = (key == 257) ? 2 : -2;
+			l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + t), 0);
+			if (fp4 && l05ca(cell, (short)g_a5_byte(-12286)) > 1)
+				jt1080();
+			else
+				l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL,
+				      (short)g_a5_byte(-12286), 0);
+			l1908(rec_v, JT297_ROW, JT297_COL,
+			      (short)((short)g_a5_byte(-12286) - t), 1);
+		}
+		break;
+	case 259: case 261:                      /* back-step: about-face, step, face back */
+		if (!fp3) {
+			if ((short)lvl[2] > 20 || (short)lvl[3] > 21) jt311(rec_v, key, cb);
+			else jt1080();
+		} else {
+			l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + 4), 0);
+			if (fp4 && l05ca(cell, (short)g_a5_byte(-12286)) > 1)
+				jt1080();
+			else
+				l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL,
+				      (short)g_a5_byte(-12286), 0);
+			l1908(rec_v, JT297_ROW, JT297_COL,
+			      (short)((short)g_a5_byte(-12286) - 4), 1);
+		}
+		break;
+	case 0:
+		break;
+	default:
+		jt1080();
+		break;
+	}
+
+	#undef JT297_ROW
+	#undef JT297_COL
+	#undef JT297_FWD_ROW
+	#undef JT297_FWD_COL
+
+	if (snapped)
+		for (k = 0; k < 6; k++) g_a5_byte(-12288 + k) = snap[k];
+}
 /* JT[1160] (CODE 4 + 0x67c6) — is the TOP-DOWN / automap view active? Tests
  * bit 1 of g_a5_-2592 (the view-mode flags). jt297 uses it to route keyboard
  * movement: set -> the overland absolute mover (jt311); clear -> the
@@ -9885,6 +10063,32 @@ void port_l6234_verify(void)
 		dbg_log("=== FRUA_L6234_VERIFY: jt935 -> jt221 (play path) ===");
 		jt935();
 		dbg_log("=== jt935 returned ===");
+
+		/* Movement test: drive jt297 (the keyboard mover) first-person and
+		 * confirm the party turns + steps. A minimal ctx (rec[4]=1 first-
+		 * person, rec[5]=1 so l1908 skips the jt312 redraw here, rec[9]=0),
+		 * deep mode (jt1160 false via -2592 bit1 clear). 258=turn right,
+		 * 264=forward. */
+		{
+			static unsigned char trec[128];
+			static unsigned char *tctx;
+			tctx = trec;
+			/* rec[4]=0 = the normal first-person walk (no view/party
+			 * snapshot decoupling), rec[5]=1 so l1908 skips jt312 here. */
+			trec[4] = 0; trec[5] = 1; trec[9] = 0;
+			{ int kk; for (kk = 0; kk < 6; kk++) trec[46 + kk] = g_a5_byte(-12288 + kk); }
+			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
+			dbg_log("=== jt297 movement test ===");
+			dbg_log_num("  facing before = ", (long)g_a5_byte(-12286));
+			dbg_log_num("  x before = ", (long)(signed char)g_a5_byte(-12288));
+			dbg_log_num("  y before = ", (long)(signed char)g_a5_byte(-12287));
+			jt297(&tctx, 258, 0);                  /* turn right */
+			dbg_log_num("  facing after turn = ", (long)g_a5_byte(-12286));
+			jt297(&tctx, 264, 0);                  /* step forward */
+			dbg_log_num("  x after fwd = ", (long)(signed char)g_a5_byte(-12288));
+			dbg_log_num("  y after fwd = ", (long)(signed char)g_a5_byte(-12287));
+			dbg_log_num("  facing after fwd = ", (long)g_a5_byte(-12286));
+		}
 
 #ifdef FRUA_PLAY_JT948
 		/* Deterministic repro of the live "Begin Adventuring -> dungeon"
