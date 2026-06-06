@@ -18069,11 +18069,10 @@ static void l1aea(short item_arg, short count, void *buf)
 		upper = jt422((short)(unsigned char)str[0]);
 		lower = l46b2((short)(unsigned char)str[0]);
 
-		/* TODO: jt452's current vararg consumer is simplified for
-		 * the boot menu (label, sel, page, phr) — the cmd-arg
-		 * stream below leaks past the first 4 slots. Switch to
-		 * a Mac-style stream parser to surface the per-row size
-		 * + shortcut fields in the DLItem record. */
+		/* jt452 is the full Mac stream parser (verified vs CODE 3 +
+		 * 0x29a0): cmd 1 alloc (rec[16]=shape, rec[18]=item_arg,
+		 * rec[12]=str), then 36=rec[24] size, 32/33=rec[29]/[30]
+		 * shortcut upper/lower, 20/21=set rec[28] bits 4/5. */
 		jt452((long)1, (long)shape, (long)item_arg,
 		      (long)(uintptr_t)str,
 		      (long)36, (long)item_len,
