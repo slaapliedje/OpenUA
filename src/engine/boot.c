@@ -11737,6 +11737,8 @@ static int load_roster(void)
 	return 1;
 }
 
+static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
+
 void port_test_seed_design(void)
 {
 	static unsigned char k_test_record[512];
@@ -11764,26 +11766,36 @@ void port_test_seed_design(void)
 	 * save_roster), so we just relink the party each Play. That keeps
 	 * created / added / removed / deleted edits across Play sessions. */
 	{
-		static const char *const k_names[3] =
-		    { "Bramble", "Korin Vale", "Sable" };
-		static const unsigned char k_hp[3]    = { 18, 24, 11 };
-		static const unsigned char k_ac[3]    = {  5,  7,  4 };
+		static const char *const k_names[4] =
+		    { "Bramble", "Korin Vale", "Sable", "Bob" };
+		static const unsigned char k_hp[4]    = { 18, 24, 11, 0 };
+		static const unsigned char k_ac[4]    = {  5,  7,  4, 5 };
 		/* race / class indices into k_roster_races / k_roster_classes:
 		 * Bramble = Human Fighter L3, Korin = Elf Mage L2,
-		 * Sable = Halfling Thief L3. */
-		static const unsigned char k_race[3]  = { 0, 1, 5 };
-		static const unsigned char k_class[3] = { 1, 2, 3 };
-		static const unsigned char k_lvl[3]   = { 3, 2, 3 };
-		/* ability scores (STR INT WIS DEX CON CHA) + alignment index */
-		static const unsigned char k_stats[3][6] = {
+		 * Sable = Halfling Thief L3, Bob = the real BasiliskII-saved
+		 * character (BOB.cch) — Human Fighter, HP computed by L29ae. */
+		static const unsigned char k_race[4]  = { 0, 1, 5, 0 };
+		static const unsigned char k_class[4] = { 1, 2, 3, 1 };
+		static const unsigned char k_lvl[4]   = { 3, 2, 3, 5 };
+		/* ability scores (STR INT WIS DEX CON CHA) + alignment index.
+		 * Bob's are BOB.cch's real rolled stats (record @112). */
+		static const unsigned char k_stats[4][6] = {
 			{ 16, 10, 11, 14, 15, 12 },   /* Bramble  */
 			{  9, 17, 12, 16, 11, 13 },   /* Korin    */
 			{ 12, 13, 10, 17, 14, 11 },   /* Sable    */
+			{ 16, 13, 16, 14, 17, 15 },   /* Bob (real)*/
 		};
-		static const unsigned char k_align[3] = { 0, 4, 6 };
+		static const unsigned char k_align[4] = { 0, 4, 6, 0 };
 		/* seed XP near the train thresholds (level*1000): Bramble L3 +
 		 * Korin L2 ready to train, Sable L3 not yet. */
-		static const long k_xp[3] = { 3100, 2100, 1500 };
+		static const long k_xp[4] = { 3100, 2100, 1500, 5000 };
+		/* faithful CODE 17 class / combination-type (rec[88]/rec[89]) for
+		 * the L29ae HP finalize. 0xff = skip (no faithful fields). Bob uses
+		 * BOB.cch's real class=2 / kind=2 -> the live -30780 table entry
+		 * (count=5 die=4 base=40) -> HP = 5d4 + 40 + 10 (= 55..70). */
+		static const unsigned char k_fclass[4] = { 0xff, 0xff, 0xff, 2 };
+		static const unsigned char k_fkind[4]  = { 0,    0,    0,    2 };
+		static const int           k_count = 4;
 		static int seeded = 0;
 
 		if (!seeded) {
@@ -11791,7 +11803,7 @@ void port_test_seed_design(void)
 			node_pool_init();            /* roster / design node pool */
 			if (!load_roster()) {        /* no disk save -> seed pool */
 				int p, c;
-				for (p = 0; p < 3; p++) {
+				for (p = 0; p < k_count; p++) {
 					unsigned char *r = cg_pool[p];
 					memset(r, 0, 512);
 					for (c = 0; k_names[p][c] != 0 && c < 15; c++)
@@ -11810,8 +11822,24 @@ void port_test_seed_design(void)
 					r[CHAR_ALIGN]   = k_align[p];
 					r[CHAR_INPARTY] = 1;
 					*(long *)(r + CHAR_XP) = k_xp[p];
+
+					/* Real-data path: when a faithful class/kind is set,
+					 * compute max HP via the validated CODE 17 finalize
+					 * (L29ae) from the live -30780 class table, and surface
+					 * it into the port roster's HP fields. */
+					if (k_fclass[p] != 0xff) {
+						short hp;
+						r[88] = k_fclass[p];   /* faithful class */
+						r[89] = k_fkind[p];    /* faithful kind  */
+						l29ae(r);              /* -> max HP at rec[82] */
+						hp = *(short *)(r + 82);
+						if (hp > 0 && hp < 256) {
+							r[CHAR_HP]    = (unsigned char)hp;
+							r[CHAR_MAXHP] = (unsigned char)hp;
+						}
+					}
 				}
-				cg_pool_count = 3;
+				cg_pool_count = k_count;
 				save_roster();       /* persist the seed as CHAR*.CHR so
 				                      * the saved-character roster
 				                      * (jt589 / L01be) can enumerate it */
