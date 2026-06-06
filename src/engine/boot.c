@@ -8482,15 +8482,18 @@ static void jt312(unsigned char *page)
 	if (s_view_first || g_view_force_full) {
 		port_draw_play_frame(px, pitch, sw, sh);
 	}
-	/* render_3d_raycast: jt199's wider 3-column frustum (shows side passages)
-	 * over the colour wall/facet system — parity with the old single-corridor
-	 * render_3d_view on straight corridors. FRUA_CORRIDOR selects the latter. */
-#if defined(FRUA_FAITHFUL)
-	render_3d_faithful(px, pitch, sw, sh);   /* 1:1 jt199 slot-assembly */
-#elif defined(FRUA_CORRIDOR)
+	/* LIVE DEFAULT: render_3d_faithful — the 1:1 Mac jt199 -> l5b42 -> jt200
+	 * slot-assembly view (perspective fixed in 0f62432). This matches jt221's
+	 * dungeon branch, so the initial draw (jt214 -> jt221) and the per-step
+	 * movement redraws (l63c0 -> jt312) now use the SAME faithful renderer.
+	 * FRUA_CORRIDOR (texture-mapped trapezoids) and FRUA_RAYCAST (the wider
+	 * 3-column frustum that opens side passages) remain selectable fallbacks. */
+#if defined(FRUA_CORRIDOR)
 	render_3d_view(px, pitch, sw, sh);
-#else
+#elif defined(FRUA_RAYCAST)
 	render_3d_raycast(px, pitch, sw, sh);
+#else
+	render_3d_faithful(px, pitch, sw, sh);
 #endif
 	if (s_view_first || g_view_force_full) {
 		qd_present();           /* flush whole screen under the new palette */
