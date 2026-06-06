@@ -7908,15 +7908,19 @@ static void jt200(unsigned char *page, short top, short left,
 		if ((code & 0xff) > 2)
 			code = 1;
 	}
-	if ((sub & 0xff) < 8) {                  /* step the horizontal anchor */
+	if ((sub & 0xff) < 8) {                  /* step the VERTICAL anchor (asm fp@10) */
+		/* L59d4 5a28-5a52: in deep mode adds 16 to fp@(10) — the 8016-anchored
+		 * coord, which l5b42 emits as jt200's `top` (vertical). The old lift
+		 * stepped `left` (horizontal), transposing the per-layer step and
+		 * inverting the depth stack (far walls rode up to the screen top, near
+		 * walls sat too low — "facing wall too far back, tops don't meet").
+		 * Native 320x200 halves the Mac's 16 -> 8 (see l5b42's halved deep
+		 * transform); top here is already the transformed native coord. */
 		if (jt1200() == 3) {
-			/* native 320x200: the per-slot step is 8px (the Mac's 16 is the
-			 * 640x400 doubled space — see l5b42). left here is already the
-			 * transformed (native) screen coord. */
-			if (left < 8000)
-				left = (short)(left + 8);
+			if (top < 8000)
+				top = (short)(top + 8);
 		} else {
-			left = (short)(left + 4);
+			top = (short)(top + 4);
 		}
 	}
 
