@@ -9522,8 +9522,19 @@ static void l4430(short cx, short cy, short sa, short scrx, short special)
 }
 static void jt214(void)       { PROBE("jt214"); }              /* CODE 7+0x71c6 view setup */
 static void jt124(long h)     { PROBE("jt124"); (void)h; }     /* CODE 6+0x3eea backdrop   */
+/* JT[448] (CODE 3 + 0x148a) — blit glyph `glyph` (a font index) at (x,y) in
+ * colour. Forwards to the glyph blitter by display mode: deep (jt1200()==3)
+ * -> JT[995] with mode 2, else JT[1001]. Used for the automap party marker
+ * (jt216, glyph 17+facing) and other index-glyph draws that were no-ops while
+ * this was stubbed. */
 static void jt448(short x, short y, short color, short glyph)
-                              { PROBE("jt448"); (void)x;(void)y;(void)color;(void)glyph; } /* CODE 3+0x148a */
+{
+	PROBE("jt448");
+	if (jt1200() == 3)
+		jt995(x, y, color, glyph, (short)2);
+	else
+		jt1001(x, y, color, glyph);
+}
 
 /* JT[216] (CODE 7 + 0x5752) — draw the party-position marker on the automap.
  * Advances (screenX, screenY) by the cell offset * cellsize, picks a glyph
