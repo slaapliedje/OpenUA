@@ -18436,10 +18436,14 @@ static short l23b4(short arg)
 		rc   = jt1085();
 		item = (short)l2d3e();
 
-		if (rc != 0)
-			break;
-
-		if (mode_with_timer) {
+		/* jt1085 (rc) != 0 only SKIPS the per-iteration timer/animation
+		 * block (asm L23b4 0x245e: bne L259a) — it is NOT a loop exit. The
+		 * loop exits at L259a/259e when l2d3e returns a selection
+		 * (item >= 0), or via the mode-2/7/12/13 timeout below. The earlier
+		 * `if (rc != 0) break` was wrong (it would return item=-1 on any
+		 * pending event once jt1085 is lifted); harmless while jt1085 stubs
+		 * to 0, fixed here for faithfulness. */
+		if (rc == 0 && mode_with_timer) {
 			/* Mode-3 special: g_a5_-27990 == 3 + g_a5_-24256
 			 * == 121 + g_a5_-24262 != 80 cell-advance. */
 			if (g_a5_27990 == 3 && g_a5_24256 == 121
