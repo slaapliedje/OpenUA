@@ -8185,8 +8185,21 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * (24,24)-(112,112). l5b42's deep transform places the view at its natural
 	 * origin (~4,12); g_cwf_ox/oy slide it into the hole (24-4=20, 24-12=12). */
 	const short VL = 24, VT = 24, VR = 112, VB = 112;
-	g_cwf_ox = 20;
-	g_cwf_oy = 12;
+	static short s_off_init = 0;
+	if (!s_off_init) {
+		/* Faithful native placement: the Mac deep-view clip origin is (4,12)
+		 * native; FRAME.CTL set 9's hole is at (24,24), so slide the view by
+		 * (24-4, 24-12) = (20, 12). Measured span (FRUA_COORD_TRACE) confirms
+		 * the geometry's vanishing centre sits ~mid-hole at this offset; the
+		 * near side-walls overhang and clip at the pane edges by design.
+		 * Set once so the FRUA_L6234_VERIFY walk loop can nudge it live. */
+#ifdef FRUA_COORD_TRACE
+		g_cwf_ox = 0; g_cwf_oy = 0;    /* measurement build: log natural span */
+#else
+		g_cwf_ox = 20; g_cwf_oy = 12;
+#endif
+		s_off_init = 1;
+	}
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short f = (short)(g_a5_12286 & 7);
 	short x, y;
@@ -10168,7 +10181,7 @@ void port_l6234_verify(void)
 			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
 			render_3d_faithful(px, pitch, sw, sh);
 			qd_present();
-			dbg_log("=== dungeon walk: arrows move, Esc holds ===");
+			dbg_log("=== dungeon walk: arrows move, []/,. nudge view, Esc holds ===");
 			for (;;) {
 				ky = 0; kx = 0;
 				ev = l3198((short)7, (long)&ky, (long)&kx);
@@ -10176,7 +10189,16 @@ void port_l6234_verify(void)
 					kc = ky;                     /* arrows -> 257..264 */
 					if (kc == 27)
 						break;
-					if (kc >= 257 && kc <= 264) {
+					/* live view-offset tuning: [ / ] shift X, , / . shift Y */
+					if (kc == '[' || kc == ']' || kc == ',' || kc == '.') {
+						if (kc == '[') g_cwf_ox--;
+						else if (kc == ']') g_cwf_ox++;
+						else if (kc == ',') g_cwf_oy--;
+						else g_cwf_oy++;
+						dbg_log_num("view ox=", (long)g_cwf_ox);
+						dbg_log_num("     oy=", (long)g_cwf_oy);
+						render_3d_faithful(px, pitch, sw, sh);
+					} else if (kc >= 257 && kc <= 264) {
 						for (kk = 0; kk < 6; kk++)
 							wrec[46 + kk] = g_a5_byte(-12288 + kk);
 						jt297(&wctx, kc, 0);
