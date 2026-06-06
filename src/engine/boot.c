@@ -18719,6 +18719,68 @@ static void l1f3e(short a8, short a10)
 	g_a5_12910 = g_a5_19176;
 }
 
+/* jt171 (CODE 7 + 0x30aa) — the direction-bar picker. The play "Move"
+ * sub-mode (jt953 state 3) runs through here: it is jt164's sibling, but
+ * instead of a horizontal word bar it lays a 3x3 directional PAD of nine
+ * shape-5 hit regions (the 8 compass cells + a centre), polls via L23b4
+ * (mode 4, set by L2858), and maps the pick via L25b6 — whose mode-4 arm
+ * returns 0x81..0x88 (129..136), the absolute facing the caller writes to
+ * g_a5_-12286. Faithful transcription of CODE 7 + 0x30aa..0x336e: same
+ * L2062 / L2858 / L206e / L23b4 / L25b6 spine as jt164; the three JT[452]
+ * streams below are the pad geometry (rec16/18 = top/left, rec22/24 = h/w,
+ * cmd 41 = rec20 key code, cmd 20 = set rec[28] bit 4), positions computed
+ * from the base (x,y) the caller passes (player-handle bytes 38/37), each
+ * pre-scaled x4 like the asm. Args mirror the asm: (prompt, cmdstring, a3,
+ * a4, x, y). */
+static short jt171(long prompt, long cmdstring, short a3, short a4,
+                   short ax, short ay) __attribute__((unused));
+static short jt171(long prompt, long cmdstring, short a3, short a4,
+                   short ax, short ay)
+{
+	unsigned char buf[80];
+	unsigned char a3_lo = (unsigned char)(a3 & 0xff);
+	short         x, y, tmp;
+
+	PROBE("jt171");
+	l2062();
+	x = (short)(((unsigned)(unsigned char)ax << 2) & 0xff);   /* fp@21 x4 */
+	y = (short)(((unsigned)(unsigned char)ay << 2) & 0xff);   /* fp@23 x4 */
+	l2858((short)4);
+	l206e(cmdstring, buf, (const char *)(uintptr_t)prompt, &a3_lo);
+	/* (L2170(width) is redundant — l206e already set g_a5_-13016.) */
+
+	if (g_a5_12911 != 0) {
+		/* Stream 1 (asm 0x3154-0x31ea): the N/E/S/W cells (key codes
+		 * 9/11/5/7). cmd 5 = {rec16=top, rec18=left, rec22=h, rec24=w}. */
+		jt452((long)5, (long)(x + 8002), (long)7999, (long)6, (long)(y + 3),
+		      (long)41, (long)9,  (long)20,
+		      (long)5, (long)7999, (long)(y + 8002), (long)(x + 3), (long)6,
+		      (long)41, (long)11, (long)20,
+		      (long)5, (long)(x + 8002), (long)(y + 8008), (long)6, (long)(255 - y),
+		      (long)41, (long)5,  (long)20,
+		      (long)5, (long)(x + 8008), (long)(y + 8002), (long)(255 - x), (long)6,
+		      (long)41, (long)7,  (long)20,
+		      (long)0);
+		/* Stream 2 (asm 0x31fa-0x3300): the four diagonal cells
+		 * (key codes 10/4/6/8). */
+		jt452((long)5, (long)7999, (long)7999, (long)(x + 3), (long)(y + 3),
+		      (long)41, (long)10, (long)20,
+		      (long)5, (long)7999, (long)(y + 8008), (long)(x + 3), (long)(255 - y),
+		      (long)41, (long)4,  (long)20,
+		      (long)5, (long)(x + 8008), (long)(y + 8008), (long)(255 - x), (long)(255 - y),
+		      (long)41, (long)6,  (long)20,
+		      (long)5, (long)(x + 8008), (long)7999, (long)(255 - x), (long)(y + 3),
+		      (long)41, (long)8,  (long)20,
+		      (long)0);
+		/* Stream 3 (asm 0x3304-0x3338): the centre cell (key code 3). */
+		jt452((long)5, (long)(x + 8002), (long)(y + 8002), (long)6, (long)6,
+		      (long)41, (long)3, (long)0);
+	}
+
+	tmp = l23b4((short)(signed char)(a4 & 0xff));
+	return l25b6(tmp, buf, &g_a5_24139);
+}
+
 /* jt164 (CODE 7 + 0x2fa4) — the horizontal button-bar picker. The play
  * command bar runs through here: L206e lays a space-delimited button string
  * (e.g. "Move Area Cast View Encamp Search Look Inv", the A5-13764 global)
@@ -18881,8 +18943,35 @@ static short jt953(void)
 		break;
 
 	case 3:
-		/* Move direction sub-mode via JT[171] — deferred (jt171 unlifted). */
+		/* L43ce — the Move sub-mode: loop the direction pad (jt171) and set
+		 * the absolute facing g_a5_-12286 on a committed pick (129..136 ->
+		 * facing 1..8); a commit or cmd 4 (back) ends the sub-mode. Faithful
+		 * to CODE 21 + 0x43ce..0x44f4. (A guard caps the no-input spin, like
+		 * the state-4 loop; the asm relies on jt171 returning a commit.) */
 		g_a5_22268 = 1;
+		if (pl != NULL && pl[36] != 0) {
+			short done = 0;
+			for (guard = 0; guard < 256 && !done; guard++) {
+				jt399(g_a5_buf(-24126), (short)40, (short)0xFF);
+				local4 = 0;
+				jt399(g_a5_buf(-24126), (short)40, (short)0xFF);
+				jt155((short)4, &local4);
+				g_a5_24140 = saved6;
+				cmd = jt171(g_a5_long(-13952), g_a5_long(-13764),
+				            (short)1, (short)0,
+				            (short)pl[38], (short)pl[37]);
+				saved6 = g_a5_24140;
+				if (g_a5_24139 != 0) {        /* L4486 — committed pick */
+					done = 1;
+					if (cmd >= 129 && cmd <= 136)
+						g_a5_12286 = (unsigned char)(cmd - 128);
+					else
+						done = 0;             /* L44ea — no facing */
+				} else if (cmd == 4) {        /* L4474 — back / exit */
+					done = 1;
+				}
+			}
+		}
 		break;
 
 	default:
