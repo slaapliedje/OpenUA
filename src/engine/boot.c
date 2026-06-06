@@ -9117,7 +9117,12 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		if (deep)
 			rec[5] = (unsigned char)exitflag;
 
-		procres = jt152(pollres);       /* classify (L66ac) */
+		/* pollres 0 = the keyboard source (l2d3e routes arrows/Esc/Return
+		 * here): go straight to the switch (case 0 -> jt297) — don't run it
+		 * through jt152, which would mis-classify it as a command-bar pick
+		 * (the port's command-bar base isn't above the movement sources) and
+		 * break the play loop. Real command-bar items have pollres > 5. */
+		procres = (pollres == 0) ? (short)-1 : jt152(pollres);
 		if (procres >= 0) {
 			/* a command-bar command: end the walk loop. Return 1 only
 			 * for the implicit Move (procres 0) outside deep mode. */
@@ -12241,8 +12246,25 @@ static short  jt1125(short kind, long p1, long p2)
 	g_event_was_click = (ev.what == mouseDown) ? 1 : 0;
 	switch (ev.what) {
 	case keyDown:
-	case autoKey:
-		*out1 = (short)(ev.message & 0xff);
+	case autoKey: {
+		short ascii = (short)(ev.message & 0xff);
+		short scan  = (short)((ev.message >> 8) & 0xff);
+		/* Arrow keys carry no ASCII (ascii==0); their scancode is in the
+		 * high byte. Map the cursor keys to the engine's movement codes
+		 * (257..264) the play loop (jt297/jt311) expects. */
+		if (ascii == 0) {
+#ifdef FRUA_ENGINE_PROBE
+			dbg_log_num("keyDown scan = ", (long)scan);
+#endif
+			switch (scan) {
+			case 0x48: ascii = 264; break;   /* Up    -> N / forward */
+			case 0x50: ascii = 260; break;   /* Down  -> S */
+			case 0x4b: ascii = 262; break;   /* Left  -> W / turn left */
+			case 0x4d: ascii = 258; break;   /* Right -> E / turn right */
+			default: break;
+			}
+		}
+		*out1 = ascii;
 		*out2 = ev.modifiers;
 		/* Mac engine has TWO event paths: jt1125 (used by L2d3e
 		 * Phase 1) and L725c->L6dd0 (used by L731e pump). On the
@@ -12253,9 +12275,10 @@ static short  jt1125(short kind, long p1, long p2)
 		 * can route it to L6dd0. Stamp the engine's "key pending"
 		 * state here so L2d3e Phase 5 (l31ea -> jt1118 -> jt1133)
 		 * still sees the key and the cmd=5 shortcut walk fires. */
-		g_a5_word(-818) = (short)(ev.message & 0xff);
+		g_a5_word(-818) = ascii;
 		g_a5_byte(-820) = 1;
 		return (ev.modifiers & cmdKey) ? (short)2 : (short)1;
+	}
 	case mouseDown:
 		*out1 = ev.where.h;
 		*out2 = ev.where.v;
@@ -13919,18 +13942,24 @@ static short l2d3e(void)
 	l2c60((short)0);                /* walk dirty items with cmd=1 */
 	key = l3198(7, (long)&mouse_y, (long)&mouse_x);
 
-	/* Record the last key where l63c0's keyboard arm (case 0) reads it. */
-	if (key != 0 && !g_event_was_click)
-		g_a5_word(-10372) = key;
-
-	/* In the walk loop, route movement/control keys to the keyboard source
-	 * (return 0) before the command-bar DLItem match — an arrow / Esc /
-	 * Return must reach l63c0's switch(0) -> jt297, not be swallowed as a
-	 * command (which exits the play loop). Letter keys (command accelerators)
-	 * still fall through to the command bar. */
-	if (g_walk_input && key != 0 && !g_event_was_click
-	    && ((key >= 257 && key <= 264) || key == 27 || key == 13))
-		return (short)0;
+	/* l3198/jt1125 return the event TYPE (1 key / 2 cmd-key / 1 mouse); the
+	 * actual key char is in mouse_y (out1) for a keyDown, modifiers in mouse_x.
+	 * Translate the cursor keys to the engine's movement codes (257..264) and
+	 * stash where l63c0's keyboard arm (case 0) reads them. */
+	if ((key == 1 || key == 2) && !g_event_was_click) {
+		short kc = mouse_y;           /* jt1125 already maps arrows->257..264 */
+#ifdef FRUA_ENGINE_PROBE
+		if (g_walk_input)
+			dbg_log_num("walk key = ", (long)kc);
+#endif
+		g_a5_word(-10372) = kc;
+		/* In the walk loop, route movement/control keys to the keyboard
+		 * source (return 0) before the command-bar DLItem match, so they
+		 * reach l63c0's switch(0) -> jt297 rather than exiting the loop. */
+		if (g_walk_input
+		    && ((kc >= 257 && kc <= 264) || kc == 27 || kc == 13))
+			return (short)0;
+	}
 
 	/* Port mouse hit-test: the faithful per-item method(rec,2,y,x) hit-test
 	 * needs the shape-7 DLItem method dispatch, which is unlifted (the method
