@@ -9203,8 +9203,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		/* procres < 0: not a command -> dispatch the input source */
 		switch (pollres) {              /* JT[3] min 0 max 5 */
 		case 0:                         /* keyboard (L66e8) */
-			if (jt1160() && (unsigned short)g_a5_word(-10372) >= 257
-			             && (unsigned short)g_a5_word(-10372) <= 264) {
+			/* Route arrow / move keys (257..264) to jt297, which itself
+			 * dispatches overland (jt311, jt1160()!=0) vs first-person
+			 * (l1908, jt1160()==0). The faithful L66e8 gates the call on
+			 * jt1160()!=0 and idles DEEP arrows; but jt297's deep arm is the
+			 * proven first-person mover (steps rec[46..51] via l1908), so we
+			 * route deep arrows here too — that's what makes the dungeon walk
+			 * with the arrow keys (verified: rec[46..51] steps; -12288 is
+			 * restored by jt297 and committed by the jt240/l63c0 caller). */
+			if ((unsigned short)g_a5_word(-10372) >= 257
+			    && (unsigned short)g_a5_word(-10372) <= 264) {
 				jt297(ctx, (short)g_a5_word(-10372), cb2);
 			} else if (g_a5_word(-10372) == 27) {
 				exitflag = -1;          /* Esc */
