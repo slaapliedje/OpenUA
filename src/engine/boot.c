@@ -10008,6 +10008,15 @@ void port_view_demo(void)
 		qd_present();
 }
 
+/* The play/area-state record the engine reaches through g_a5_-28006. The Mac
+ * stands it up in L4cc0 (CODE 6 + 0x4cc0) as JT[387](1024) stored base-1 so
+ * the asm's field offsets are 1-based; every reader here is lifted C using the
+ * same p[N] offsets, so a plain buffer is equivalent (no faithful asm writes
+ * it). l0bbc / jt948 read h[17] facing, h[34]/h[36] mode flags, h[67]/h[68]
+ * saved party x/y, h[133] stair dir, h[134] "view established". */
+static unsigned char g_area_state[1024];
+static int           g_savgame_loaded;   /* a BasiliskII save was resumed */
+
 #ifdef FRUA_L6234_VERIFY
 static short l3198(short kind, long p1, long p2);   /* event poll (defined below) */
 /* port_l6234_verify — geometry-verification harness for the faithful
@@ -10199,6 +10208,14 @@ void port_l6234_verify(void)
 		/* Deterministic repro of the live "Begin Adventuring -> dungeon"
 		 * crash: drive the real adventure loop. The probe trace's last line
 		 * before the run_probe SIGKILL pinpoints where it dies/hangs. */
+		/* The FRUA_L6234_VERIFY geometry pass above zeroed h[134] (line ~10034)
+		 * for its FRESH placement test; the real l07dc->jt918->jt948 flow never
+		 * runs that pass, so re-assert the resume state a loaded save set up,
+		 * exercising l0bbc's RESUME branch here the way the real flow does. */
+		if (g_savgame_loaded) {
+			g_a5_28006 = g_area_state;
+			g_area_state[134] = 1;
+		}
 		dbg_log("=== FRUA: jt948 (adventure loop) ===");
 		jt948();
 		dbg_log("=== jt948 returned ===");
@@ -11614,6 +11631,7 @@ void port_render_geo_contact(void)
 static unsigned char cg_pool[16][512];
 static short         cg_pool_count;
 
+
 /* Pascal filename "CHARnnnn.CHR" for pool slot 0..15. */
 static void cg_char_fn(short slot, char *fn)
 {
@@ -11806,13 +11824,28 @@ static int port_load_savgame(void)
 		cg_party_relink();
 
 		/* Restore the saved dungeon position/level (header fields pinned by
-		 * the A-vs-B diff). l0bbc may re-place on a fresh load; the faithful
-		 * saved-game resume (l0bbc's -27988 branch) is the follow-up. */
+		 * the A-vs-B diff). Route the position through the FAITHFUL resume
+		 * path: stand up the area-state record (g_a5_-28006, normally
+		 * allocated by L4cc0) and set the saved party x/y/facing at
+		 * h[67]/h[68]/h[17] plus the "view established" flag h[134]. On entry
+		 * l0bbc sees h[134] != 0 and takes its RESUME branch — restoring the
+		 * saved cell instead of re-placing the party at the level start tile;
+		 * jt948 then takes the "view established" arm (no fresh-entry special).
+		 * The direct g_a5_-12288/-12287/-12286 writes below match what l0bbc
+		 * will restore (belt-and-suspenders for the pre-l0bbc render). */
 		g_a5_18878 = (short)(sg[18] ? sg[18] : 5);   /* level (>=5 dungeon) */
 		g_a5_12288 = (unsigned char)sg[66];          /* party x */
 		g_a5_12287 = (unsigned char)sg[67];          /* party y */
 		if (g_a5_12286 == 0)
 			g_a5_12286 = 1;                      /* facing (default N) */
+
+		memset(g_area_state, 0, sizeof g_area_state);
+		g_a5_28006 = g_area_state;
+		g_area_state[134] = 1;                       /* view established -> resume */
+		g_area_state[67]  = (unsigned char)sg[66];   /* saved party x */
+		g_area_state[68]  = (unsigned char)sg[67];   /* saved party y */
+		g_area_state[17]  = (unsigned char)g_a5_12286; /* saved facing */
+		g_savgame_loaded  = 1;
 		dbg_log("port_load_savgame: loaded SAVGAMA.CSV");
 		dbg_log_num("  party x@66 = ", (long)sg[66]);
 		dbg_log_num("  party y@67 = ", (long)sg[67]);
