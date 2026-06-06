@@ -10136,6 +10136,14 @@ void port_l6234_verify(void)
 		dbg_log("=== FRUA_L6234_VERIFY: jt935 -> jt221 (play path) ===");
 		jt935();
 		dbg_log("=== jt935 returned ===");
+#ifdef FRUA_HOLD_JT935
+		/* Gap-A diagnostic: freeze on jt935 -> jt221 -> render_3d_faithful's
+		 * output (the play-path view, BEFORE jt948/jt953/jt164 touch it). */
+		qd_present();
+		dbg_log("=== HOLD: jt935/jt221 render ===");
+		for (;;)
+			qd_present();
+#endif
 
 		/* Movement test: drive jt297 (the keyboard mover) first-person and
 		 * confirm the party turns + steps. A minimal ctx (rec[4]=1 first-
