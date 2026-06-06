@@ -8808,6 +8808,11 @@ static short l5368(short span, short dim, signed char *coord, short origin, shor
 
 	PROBE("L5368");
 
+	if (dim <= 0)                   /* guard: %dim / -dim with a zero/garbage
+	                                 * map dimension is a 68k divide-by-zero
+	                                 * (the move-crash); leave the coord put. */
+		return (short)*coord;
+
 	if (*coord < 0) {
 		short rem = (short)(((short)(-(short)*coord)) % dim);
 		*coord = (signed char)(dim - rem);
