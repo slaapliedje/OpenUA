@@ -16,14 +16,29 @@ live in `jt221`+`jt312`), and arrow/mouse movement (`jt297`→`L1908`).
 The two large faithful efforts standing between this and a playable game:
 1. **CODE 15/19 play-entry chain** (the real Begin-Adventuring → in-dungeon
    loop) — also closes the overland→dungeon reachability gap and replaces
-   the `port_play_demo`/`port_begin_adventure` bridges. **← next target.**
-2. **CODE 17 character generation** (~10k asm) — to create a real party
-   instead of `port_test_seed_design`'s static stand-in.
+   the `port_play_demo`/`port_begin_adventure` bridges. **← in progress
+   (task #100).** Progress so far: the faithful adventure loop **jt948 runs**
+   (jt942→l0bbc→jt103→jt935→**jt953** command-bar loop, no crash); the play
+   screen **renders cleanly** — 3D view + party roster HUD (NAME/AC HP) +
+   compass + the bottom command bar (`AREA CAST VIEW ENCAMP SEARCH LOOK INV`),
+   matching the Mac HUD. Two fixes landed: the native-scale decoupling
+   (`g_cwf_force_deep` + play screen at `g_a5_2347=1`, 253a2e4) and the
+   command-bar stripes (l1bfe's jt452 type-7 arg order, 5a09d42). **Remaining
+   for #100:** lift `jt164`'s `l23b4` poll to return real command selections;
+   lift `jt171` + the state-3 Move step arms; wire l07dc's case-10 return-1
+   path and drop the l1142 `port_play_demo` bridge; then faithful combat.
+   See the `faithful-play-entry-chain` memory note for the full map.
+2. **CODE 17 character generation** (~10k asm, task #101) — to create a real
+   party instead of `port_test_seed_design`'s static stand-in.
 
 Caveat: combat/encounters/rest/leveling are currently **port-local**
 scaffolding (`port_run_encounter`, `encounter_check`, `port_rest`,
 `load_monsters`), NOT the faithful CODE 15-19 combat engine. Replacing them
 is part of target (1).
+
+NOTE (process): `jt452` is the full Mac DLItem stream parser (verified vs
+CODE 3 + 0x29a0) — the old "simplified for the boot menu" claim was stale and
+cost a detour; don't relitigate it.
 
 ## Boot UI / menus
 
