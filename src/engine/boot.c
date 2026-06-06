@@ -275,8 +275,11 @@
  * and drive the next lifting priority. See docs/engine-bring-up.md
  * for the first probe's results and how to re-run.
  */
+#include "dbglog.h"     /* dbg_log / dbg_log_num — always declared (the bodies
+                         * live in platform/dbglog.c); only the per-call PROBE
+                         * trace is gated, so harnesses can dbg_log without the
+                         * full probe flood. */
 #ifdef FRUA_ENGINE_PROBE
-#  include "dbglog.h"
 #  define PROBE(name) dbg_log("stub: " name)
 #else
 #  define PROBE(name) ((void)0)
@@ -9962,6 +9965,7 @@ void port_view_demo(void)
 }
 
 #ifdef FRUA_L6234_VERIFY
+static short l3198(short kind, long p1, long p2);   /* event poll (defined below) */
 /* port_l6234_verify — geometry-verification harness for the faithful
  * first-person render (jt221 -> L6234). Loads a real level so L5e52 has map
  * data, engages deep mode (g_a5_2347=0 -> jt1200()==3 -> the L6234 branch),
@@ -10148,18 +10152,39 @@ void port_l6234_verify(void)
 		dbg_log("=== jt948 returned ===");
 #endif
 
-		/* Level-change reload test: poke Wall1 to a set in the OTHER file
-		 * (id 10 -> 8X8DC set 1) and re-run l6148. The grp0 handle should
-		 * change (reloaded) and the DC file buffer should load on demand. */
+		/* Interactive first-person dungeon walk on the faithful 88x88 render.
+		 * Deep mode (jt1160 false) so jt297 takes the first-person arms ->
+		 * L1908: Up = forward (264), Left/Right = turn (262/258), Down =
+		 * about-face (260). Poll keys via l3198 (jt1125 maps arrows to
+		 * 257..264), move, re-render. Esc holds the last frame. */
 		{
-			unsigned char *dsw = (unsigned char *)(uintptr_t)g_a5_long(-12300);
-			dbg_log("=== level-change reload test ===");
-			dbg_log_num("  grp0 handle before = ", g_a5_long(-27894));
-			if (dsw) dsw[4] = 10;
-			l6148();
-			dbg_log_num("  grp0 handle after  = ", g_a5_long(-27894));
-			dbg_log_num("  filebase DC(0) = ", g_wallset_filebase[0]);
-			dbg_log_num("  filebase DB(1) = ", g_wallset_filebase[1]);
+			static unsigned char wrec[128];
+			static unsigned char *wctx;
+			short ky, kx, ev, kc;
+			int kk;
+
+			wctx = wrec;
+			wrec[4] = 0; wrec[5] = 1; wrec[9] = 0;
+			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
+			render_3d_faithful(px, pitch, sw, sh);
+			qd_present();
+			dbg_log("=== dungeon walk: arrows move, Esc holds ===");
+			for (;;) {
+				ky = 0; kx = 0;
+				ev = l3198((short)7, (long)&ky, (long)&kx);
+				if (ev == 1 || ev == 2) {            /* keyDown */
+					kc = ky;                     /* arrows -> 257..264 */
+					if (kc == 27)
+						break;
+					if (kc >= 257 && kc <= 264) {
+						for (kk = 0; kk < 6; kk++)
+							wrec[46 + kk] = g_a5_byte(-12288 + kk);
+						jt297(&wctx, kc, 0);
+						render_3d_faithful(px, pitch, sw, sh);
+					}
+				}
+				qd_present();
+			}
 		}
 
 		qd_present();
