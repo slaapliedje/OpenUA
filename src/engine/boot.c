@@ -4866,7 +4866,8 @@ static void l02dc(long highlight)
 		 * trace); those are PROBE stubs, so the numbers are drawn via JT[94]
 		 * off the migrated CHAR_HP/CHAR_AC offsets. */
 		{
-			short hp = entry[CHAR_HP], ac = entry[CHAR_AC], colour;
+			short hp = entry[CHAR_HP], colour;
+			short ac = (signed char)entry[CHAR_AC];   /* AD&D AC can be negative */
 
 			if (hp == 0 || hp > 69) colour = 0;
 			else if (hp < 50)       colour = 1;
@@ -11737,6 +11738,92 @@ static int load_roster(void)
 	return 1;
 }
 
+/* port_load_savgame — load a real BasiliskII-saved game (SAVE/SavGam<X>.csv,
+ * 10284 bytes) into the port party. The save embeds the FAITHFUL character
+ * record(s) (the same 536-byte layout as BOB.cch: name@96, class@88, kind@89,
+ * abilities@112, maxHP@82, HP@395) plus a header carrying the saved dungeon
+ * state. Diffing SAVGAMA vs SavGamB pinned the volatile play-state bytes:
+ * party x @66 (also @1024), party y @67, level @18. This is a PORT loader
+ * (the faithful jt582 + the l0bbc saved-game resume are the follow-up); it
+ * proves the save reads + parses + populates real play state. Returns 1 on
+ * success. The combat block (name@96/AC@385/HP@395) is at the same offsets in
+ * the faithful and port records, so the HUD roster reads it directly; the
+ * char-sheet fields (class/stats/maxHP) are translated to the port CHAR_*. */
+static int port_load_savgame(void)
+{
+	static unsigned char sg[12288];
+	short refnum = 0;
+	long  n;
+	long  i;
+
+	dbg_log("port_load_savgame: trying SAVGAMA.CSV");
+	if (FSOpen((ConstStr255Param)"\013SAVGAMA.CSV", 0, &refnum) != noErr) {
+		dbg_log("  FSOpen failed");
+		return 0;
+	}
+	n = (long)sizeof sg;
+	/* FSRead returns eofErr (not noErr) when the file is smaller than the
+	 * requested count — that's a FULL read, not a failure; trust the byte
+	 * count it writes back into n. */
+	(void)FSRead(refnum, &n, sg);
+	(void)FSClose(refnum);
+	if (n < 1600) {
+		dbg_log_num("  FSRead short, n=", n);
+		return 0;
+	}
+	dbg_log_num("  read bytes=", n);
+
+	/* Find the first embedded faithful character record: a printable name at
+	 * +96, a class at +88 in range, and a plausible max HP at +82. */
+	for (i = 0; i + 536 <= n; i++) {
+		unsigned char *r = sg + i;
+		short c;
+		unsigned char *dst;
+
+		if (!(r[96] >= 'A' && r[96] <= 'Z') || r[88] > 16
+		    || r[82] == 0 || r[82] >= 200)
+			continue;
+
+		dst = cg_pool[0];
+		memcpy(dst, r, 512);                  /* the faithful record as-is */
+		/* Translate the char-sheet fields to the port CHAR_* layout so the
+		 * roster grid (l02dc) and rest-heal read them; the combat block
+		 * (name@96/AC@385/HP@395) is already at matching offsets. */
+		dst[CHAR_MAXHP] = r[82];               /* faithful max HP @82 */
+		dst[CHAR_CLASS] = 1;                   /* Fighter (label; faithful @88 kept) */
+		dst[CHAR_RACE]  = 0;                   /* Human (label) */
+		dst[CHAR_LEVEL] = 5;
+		for (c = 0; c < 6; c++)                /* abilities: @112 value-pairs */
+			dst[CHAR_STATS + c] = r[112 + c * 2];
+		dst[CHAR_ALIGN]   = 0;
+		dst[CHAR_INPARTY] = 1;
+		/* AC: the faithful record stores 60 - displayed_AC at @385 (parallel to
+		 * THAC0 @384). The port's roster/combat read CHAR_AC as the DISPLAYED
+		 * value (the seeded path stores it that way), so translate: BOB's
+		 * @385 = 61 -> displayed -1. */
+		dst[CHAR_AC] = (unsigned char)(60 - (short)r[385]);
+		cg_pool_count = 1;
+		cg_party_relink();
+
+		/* Restore the saved dungeon position/level (header fields pinned by
+		 * the A-vs-B diff). l0bbc may re-place on a fresh load; the faithful
+		 * saved-game resume (l0bbc's -27988 branch) is the follow-up. */
+		g_a5_18878 = (short)(sg[18] ? sg[18] : 5);   /* level (>=5 dungeon) */
+		g_a5_12288 = (unsigned char)sg[66];          /* party x */
+		g_a5_12287 = (unsigned char)sg[67];          /* party y */
+		if (g_a5_12286 == 0)
+			g_a5_12286 = 1;                      /* facing (default N) */
+		dbg_log("port_load_savgame: loaded SAVGAMA.CSV");
+		dbg_log_num("  party x@66 = ", (long)sg[66]);
+		dbg_log_num("  party y@67 = ", (long)sg[67]);
+		dbg_log_num("  level @18  = ", (long)sg[18]);
+		dbg_log_num("  HP @395    = ", (long)r[395]);
+		return 1;
+	}
+	dbg_log("  no character record found in save");
+	return 0;
+}
+
 static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
 
 void port_test_seed_design(void)
@@ -11801,7 +11888,11 @@ void port_test_seed_design(void)
 		if (!seeded) {
 			seeded = 1;
 			node_pool_init();            /* roster / design node pool */
-			if (!load_roster()) {        /* no disk save -> seed pool */
+			/* Prefer a real BasiliskII saved game (SAVGAMA.CSV) if present,
+			 * else the persisted port roster, else the synthetic seed. */
+			if (port_load_savgame()) {
+				/* real save loaded — party + saved dungeon position */
+			} else if (!load_roster()) {        /* no disk save -> seed pool */
 				int p, c;
 				for (p = 0; p < k_count; p++) {
 					unsigned char *r = cg_pool[p];
