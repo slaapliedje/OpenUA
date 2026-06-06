@@ -15488,6 +15488,57 @@ static void l35f8(void)
 	jt1089((short)8012, (short)8068, col, "PICK CLASS");
 }
 
+/* L29ae (CODE 17 + 0x29ae) — character max-HP finalize. Computes rec[82]
+ * (max HP, a word) from the class hit-dice table at g_a5_-30780 (28 bytes
+ * per class = 7 four-byte sub-entries of [xp16][count][die]) selected by the
+ * class rec[88] and the class-combination type rec[89]:
+ *   single-class (rec[89] 0..6): e = base + rec[89]*4;
+ *       HP = jt870(e[2], e[3])  [a real rec[89]==count d rec[3] roll]
+ *            + word(e[0:1]) + 10.
+ *   multi-class (rec[89] 8..16, JT[3] @0x2a74): the deterministic product
+ *       HP = e[3]*e[2] + word(e[0:1]) of a fixed sub-entry (0 for 8..12,
+ *       2 for 14, 5 for 13/15/16) — the pre-averaged multi-class HP.
+ * The asm tail (L2da6) republishes g_a5_-27932 and refreshes the status
+ * panel (JT[886]/L24d2/L23fa/L618c); that redraw is deferred — this lift is
+ * the HP computation. Fed by the pick flow (jt568 sets rec[88]/rec[89]); the
+ * -30780 data is live from the DATA pool ([[code17-chargen-map]]). */
+static void l29ae(unsigned char *rec) __attribute__((unused));
+static void l29ae(unsigned char *rec)
+{
+	short          cls, kind, sub = -1;
+	unsigned char *base, *e;
+
+	PROBE("l29ae");
+	if (rec == NULL)
+		return;
+	cls  = (short)rec[88];
+	kind = (short)rec[89];
+	base = (unsigned char *)g_a5_buf(-30780) + (long)cls * 28;
+
+	if ((kind & 0xff) <= 6) {                       /* single-class: real roll */
+		e = base + (long)kind * 4;
+		*(short *)(rec + 82) = (short)(jt870((short)e[2], (short)e[3])
+		                               + *(short *)e + 10);
+	} else {
+		switch (kind & 0xff) {                  /* JT[3] @0x2a74, 8..16 */
+		case 8: case 9: case 10:
+		case 11: case 12: sub = 0; break;
+		case 14:          sub = 2; break;
+		case 13: case 15:
+		case 16:          sub = 5; break;
+		default:          sub = -1; break;      /* -> no HP set */
+		}
+		if (sub >= 0) {
+			e = base + (long)sub * 4;
+			*(short *)(rec + 82) =
+			    (short)((short)e[3] * (short)e[2] + *(short *)e);
+		}
+	}
+
+	/* L2da6 tail — republish the record; status-panel refresh deferred. */
+	g_a5_long(-27932) = (long)(uintptr_t)rec;
+}
+
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
  * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls
