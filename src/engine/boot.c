@@ -18178,7 +18178,12 @@ static void l1bfe(short width, void *buf, const char *suffix,
 		                   ? (dlitem_method_t)jt138
 		                   : (dlitem_method_t)jt139;
 
-		jt452((long)7, (long)20, (long)(uintptr_t)cb, (long)0);
+		/* Faithful arg order (CODE 7 + 0x1ce4): jt452(7, cb, 20, 0) — cmd 7
+		 * stores the action proc in rec[4], THEN cmd 20 sets rec[28] bit 4.
+		 * The lift had (7, 20, cb, 0): rec[4]=20 and cb mis-parsed as a
+		 * command -> a malformed type-7 DLItem at (0,0) that rendered as the
+		 * top stripes over the roster. */
+		jt452((long)7, (long)(uintptr_t)cb, (long)20, (long)0);
 
 		/* Mac: a0 = *(void **)buf; if (*(byte*)a0 != 0)
 		 *   L1aea(item_arg, width, buf); */
