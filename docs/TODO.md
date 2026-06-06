@@ -3,6 +3,28 @@
 Working notes on what's next. Ratified architecture decisions live in
 `docs/decisions.md`; this file is the rolling task list.
 
+## Status snapshot (2026-06-06)
+
+The faithful spine now runs for **display + navigation**: boot → main menu
+→ Play → Training Hall → (bridge) → a walkable, correctly-perspectived
+first-person dungeon. Lifted & working: the Toolbox shim (Memory Manager
+done; QuickDraw/Resource/File/Event/Window/Menu/Dialog/Control/TextEdit/
+Sound all functional-`wip`), the boot/menu chrome, `jt918` Training Hall
+with all 12 case skeletons, the **faithful 3D view** (`render_3d_faithful`,
+live in `jt221`+`jt312`), and arrow/mouse movement (`jt297`→`L1908`).
+
+The two large faithful efforts standing between this and a playable game:
+1. **CODE 15/19 play-entry chain** (the real Begin-Adventuring → in-dungeon
+   loop) — also closes the overland→dungeon reachability gap and replaces
+   the `port_play_demo`/`port_begin_adventure` bridges. **← next target.**
+2. **CODE 17 character generation** (~10k asm) — to create a real party
+   instead of `port_test_seed_design`'s static stand-in.
+
+Caveat: combat/encounters/rest/leveling are currently **port-local**
+scaffolding (`port_run_encounter`, `encounter_check`, `port_rest`,
+`load_monsters`), NOT the faithful CODE 15-19 combat engine. Replacing them
+is part of target (1).
+
 ## Boot UI / menus
 
 - DONE: main menu renders (`jt315`, CODE 22 + 0x4d8a). Builds the ten
@@ -222,24 +244,63 @@ Verified: Play -> dungeon -> q -> menu redraws fully (was black).
   - The play-loop body l07dc + jt918 (new-game / Training Hall) and their
     CODE 12/17/18 case bodies are the next big stubbed area.
 
-## 3D dungeon view
+## 3D dungeon view — FAITHFUL PATH RESOLVED (2026-06-06)
 
-Done (data-driven from the loaded map):
+The live renderer is **`render_3d_faithful`** — the 1:1 Mac slot-assembly
+view (`jt199` frustum walk → `l5b42` transform → `jt200` tile select →
+`jt114`/`l309c_tile` 8bpp blit). It is wired into BOTH live render sites
+(`jt221` initial draw and `jt312` per-step movement redraw, commit 9f7ab27),
+gated on deep mode (`jt1200()==3`). `render_3d_view` (texture trapezoids)
+and `render_3d_raycast` (3-column frustum) remain selectable fallbacks
+behind `FRUA_CORRIDOR` / `FRUA_RAYCAST`.
 
-- Per-edge wall sets — each face draws its level's Wall1-3 group
-  (`wallset_for_id`, `8X8DB`/`8X8DC`, 3 clut bands).
-- Per-edge facets — wall/window/door/brazier/fireplace overlays on the
-  front and side faces (`g_cw_facet_piece`, bearings, transparency key).
-- Per-cell floor/ceiling/sky backdrop from `BACK.CTL`
-  (`cell_backdrop_id`, the level's Backdrop1-4 zones).
-- Double-buffered VIDEL present — c2p into the hidden buffer, flip at
-  vsync (no more tear-on-move).
+Done:
+- Per-group wall sets — Wall1-3 (`8X8DB`/`8X8DC` `.CTL`), each its own CLUT
+  band at clut 32/64/96 (`load_wall_groups`); level-change handle reload
+  (`l6148`).
+- Per-cell floor/ceiling/sky backdrop from `BACK.CTL` (`cell_backdrop_id`).
+- FRAME.CTL set-9 chrome integration: the 88×88 native view seats in the
+  hole at (24,24); `g_cwf_ox/oy = (20,12)` = the Mac deep-view clip origin
+  (4,12) native slid into the hole.
+- Double-buffered VIDEL present (c2p into the hidden buffer, vsync flip).
+- Movement: arrow/mouse → `jt297` → `L1908` (turn/step); automap render
+  cluster + party marker (`jt448`).
 
-### Current focus: faithful raycaster (1:1 port)
+The two bugs that had blocked this for many sessions, both now fixed:
+1. **View axis/scale** — `l5b42`'s deep transform is `((v-8012)<<2)+8`
+   (×4+8, doubled-space); native 320×200 is a clean uniform halve to
+   `<<1 +4` (the view is 88×88, not 176×176 — see the screen-size note).
+   The earlier "side walls off-screen" was the static-DATA red herring
+   (layout globals are byte-truncated, so render-time values are small
+   0–9, captured live: `5 4 6 4 2 7 2 0 9 5 4 3 3 3 1 1 1 0 0 4`).
+2. **jt200 per-layer step on the WRONG AXIS** (the real fix, commit
+   0f62432) — `L59d4` 5a28-5a52 steps `fp@(10)` (the 8016-anchored
+   VERTICAL coord, = jt200's `top`); the lift stepped `left` (horizontal),
+   inverting the depth stack (far walls rode to the screen top, side-wall
+   tops didn't meet the facing wall, ceiling read as a black void). Now
+   steps `top` (deep +16 halved to +8). User-confirmed "perspective is
+   perfect."
 
-The active renderer is `render_3d_view` — a perspective-trapezoid
-*reconstruction*, not the Mac engine's real view. Replace it with the
-faithful frustum walker so the port is 1:1 with the original:
+`jt199` + `l5b42` were verified faithful line-by-line against `CODE_07.s`
+(the full L6234 band walk: near ×4 + mid ×2 + far ×2, origins, advdir/bdir,
+soff0, soffsteps ±2/±3/±7, aMaxDepth gates 99/2/99/1, sub layers) and
+`jt200` against `/tmp/jt200_capture.log` (100 calls, all 24 (code,sub)→idx
+tuples match).
+
+Remaining 3D polish (non-blocking):
+- The `-27886` Wall3 post-process (`JT[468]/1004/459/406/115`), deferred.
+- Faithful per-step re-render arms `L64f2..L666c` in `l63c0`.
+- `render_3d_faithful` seeds `g_cwf_ox/oy` once so the `FRUA_L6234_VERIFY`
+  walk loop can nudge the view live (`[` `]` / `,` `.`) for any fine-tuning.
+
+### (historical) the blocked-pixel-path investigation
+
+The notes below trace how the faithful pixel path was diagnosed over many
+sessions. Kept for the RE record; superseded by the RESOLVED summary above.
+
+The active renderer WAS `render_3d_view` — a perspective-trapezoid
+*reconstruction*, not the Mac engine's real view. The goal was to replace it
+with the faithful frustum walker so the port is 1:1 with the original:
 
 - `jt199` (CODE 7 +0x6234) is lifted — `jt199_side` / `jt199_front` walk
   the four ray passes and call `l5b42` to place each visible wall slot.
