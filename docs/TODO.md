@@ -40,6 +40,30 @@ NOTE (process): `jt452` is the full Mac DLItem stream parser (verified vs
 CODE 3 + 0x29a0) — the old "simplified for the boot menu" claim was stale and
 cost a detour; don't relitigate it.
 
+## Play-screen HUD polish (future work)
+
+Observed in the faithful play-screen render (jt948 → jt953); cosmetic, tackle
+after the play-loop logic (#100) lands. Full notes in the
+`play-screen-hud-polish` memory. Native 320x200 vs Mac 640x400 is the
+recurring suspect.
+
+1. **3D view reads as a placeholder, not "live."** Likely the test pipeline —
+   jt948's `l0bbc` loads a different level/position than the verify's seeded
+   level 5. Verify it tracks the live party cell + real walls before treating
+   it as a render bug.
+2. **Stray frame dividers mid-screen (scale bug).** A small divider under the
+   compass (offset right + down) and a vertical line through the compass —
+   `port_draw_play_frame` → `ui_glib_blit` places FRAME.CTL pieces by their
+   metric bearings; if those are 640x400 units they land at ~2x on native.
+   Fix: halve the piece bearings/placement for native (ui_glib_blit is
+   absolute + bearings, no jt1135 scaling — the bearings are the lever).
+3. **3D-view frame gaps are GRAY, the Mac HUD is BLACK.**
+   `port_draw_play_frame` fills clut 21 (stone) then blits pieces; the gaps
+   show gray. Check the Mac: black (clut 0) underlay, or seamless tiling.
+4. **Command-bar text is BLACK + not on buttons.** Should match the menu:
+   accelerator letter white (clut 15), rest light grey (clut 7), on raised
+   bevel plates. Part of finishing jt164/l23b4 (#100-B).
+
 ## Boot UI / menus
 
 - DONE: main menu renders (`jt315`, CODE 22 + 0x4d8a). Builds the ten
