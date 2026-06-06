@@ -9022,7 +9022,29 @@ static void jt215(void)
 }
 static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
 static signed char jt276(short cell)                    { PROBE("jt276"); (void)cell; return 0; }             /* CODE 22+0x475e */
-static short       jt287(short idx, short key)          { PROBE("jt287"); (void)idx;(void)key; return 0; }    /* kbd action proc, CODE 22+0x1bc6 */
+/* JT[287] (CODE 22 + 0x1bc6) — the dungeon-walk KEYBOARD action proc l6256
+ * installs on the shape-7 keyboard source. l2d3e calls it (idx, key) on a key
+ * event; it accepts the movement / command keys and stashes the accepted key
+ * in g_a5_-10372 (where L63c0's CODE 11 keyboard arm reads it), returning 1 to
+ * signal "consumed". Accepted: ESC (27); the cursor / first-person move codes
+ * 256..264; and the command-letter range 320..344. Anything else clears the
+ * stash and returns 0 (let the command-bar DLItems try the key). Faithful to
+ * the asm (the inner L1bee range test). */
+static short       jt287(short idx, short key)
+{
+	PROBE("jt287");
+	(void)idx;
+	if (key == 27) {                          /* ESC */
+		g_a5_word(-10372) = key;
+		return 1;
+	}
+	if ((key >= 256 && key <= 264) || (key >= 320 && key <= 344)) {
+		g_a5_word(-10372) = key;
+		return 1;
+	}
+	g_a5_word(-10372) = 0;
+	return 0;
+}
 static short       jt294(short flag, short y, short x)   { PROBE("jt294"); (void)flag;(void)y;(void)x; return 0; } /* region action proc, CODE 22+0x1c26 */
 static void        jt179(short count);                  /* defined far below (CODE 7+0x11ee) */
 static void        jt452(long shape0, ...);             /* DLItem stream builder (defined below) */
