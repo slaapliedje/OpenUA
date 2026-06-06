@@ -9967,6 +9967,97 @@ static short jt241(short cmd, long *flagsp, unsigned char *rec)
 	return cmd;                                     /* L5860 / L5864 */
 }
 
+/* L5126 (CODE 11 + 0x5126) — the deep dungeon status-header panel jt240 draws
+ * above the first-person view. Fills the header rect (JT[1161]) then paints
+ * four text rows via JT[1089]: the area-name line (g_a5_-10640/-11136/-10816),
+ * a second descriptor line (-10556/-10640/-10780), the party-position line
+ * (format string at g_a5_-11332 with rec[46]=x, rec[47]=y), and a status line
+ * (-10820 + a light/condition word indexed by rec[48] bits 1-2 into the
+ * g_a5_-10924 table). Faithful to the asm; the strings are the runtime
+ * area-state globals the area-load seeds. */
+static void l5126(unsigned char *rec)
+{
+	const short top = 8058, left = 8092;            /* fp@(-2), fp@(-4) */
+
+	PROBE("L5126");
+	jt1161((short)(top + 4), left, (short)(top + 26),
+	       (short)(left + 64), (short)8);
+	jt1089((short)(top + 4), left, (short)139, "%s %s %s",
+	       (const char *)(uintptr_t)g_a5_long(-10640),
+	       (const char *)(uintptr_t)g_a5_long(-11136),
+	       (const char *)(uintptr_t)g_a5_long(-10816));
+	jt1089((short)(top + 12), left, (short)135, "%s %s %s",
+	       (const char *)(uintptr_t)g_a5_long(-10556),
+	       (const char *)(uintptr_t)g_a5_long(-10640),
+	       (const char *)(uintptr_t)g_a5_long(-10780));
+	jt1089((short)(top + 16), left, (short)135,
+	       (const char *)(uintptr_t)g_a5_long(-11332),
+	       (int)rec[46], (int)rec[47]);
+	jt1089((short)(top + 20), left, (short)135, "%s %5s",
+	       (const char *)(uintptr_t)g_a5_long(-10820),
+	       (const char *)(uintptr_t)g_a5_long(-10924 + ((rec[48] & 6) >> 1) * 4));
+}
+
+/* JT[240] (CODE 11 + 0x4ffe) — the DEEP (first-person) dungeon walk driver,
+ * the dungeon counterpart of jt241 (which is the top-down wilderness walker).
+ * It registers the walk input sources (l6256), lays the title + command bar +
+ * the deep status header (l5126), then spins the faithful walk loop L63c0 with
+ * a_deep = 1 (first-person) and the cell-block callback JT[236]. On a moving
+ * exit it advances the party-position snapshot in the record (rec[46..51]) and
+ * flags the redraw; on a non-moving exit it restores the party position from
+ * that snapshot. Returns the command code unchanged.
+ *
+ * Args mirror jt241: cmd (word, fp@8), flagsp (long, fp@10), rec (long, fp@14).
+ * NOTE: this is the driver; the deep first-person STEP itself lives in L63c0's
+ * deep arms (L64f2..L666c), which are still deferred — so jt240 runs the loop
+ * but the per-cell step lands once those arms are lifted. */
+static short jt240(short cmd, long *flagsp, unsigned char *rec) __attribute__((unused));
+static short jt240(short cmd, long *flagsp, unsigned char *rec)
+{
+	char        title[24];          /* fp@(-20) */
+	signed char awild = 1;          /* fp@(-21): wilderness/deep flag */
+
+	PROBE("jt240");
+
+	if (rec == NULL)                /* L5010 */
+		return cmd;
+
+	l6256(rec[4], 0);               /* register the dungeon walk sources */
+	jt108(1);
+	jt112(1);
+	l429c(0, rec[4]);
+	jt394(title, ua_strs_at(0x2ac0),               /* "%s" */
+	      (const char *)(uintptr_t)g_a5_long(-10692));
+	jt179(0);                                       /* seed command-bar slots */
+	jt148(g_a5_long(-10484), title, 0);             /* prompt line */
+	jt449(1);
+	l5126(rec);                                     /* deep status header panel */
+	jt112(0);
+	jt117();
+
+	*flagsp &= ~0xffff0000L;                        /* clear flags' high word */
+
+	/* the deep walk loop: cb1 = default (jt238), cb2 = cell-block (JT[236]) */
+	if (l63c0(rec, awild, 1, 1, 0, (long)(uintptr_t)&jt236) != 0) {
+		/* moved: shift the old snapshot down, refresh it from the live
+		 * party position, and flag the redraw. */
+		short i;
+		for (i = 0; i < 6; i++)
+			rec[40 + i] = rec[46 + i];
+		for (i = 0; i < 6; i++)
+			rec[46 + i] = (&g_a5_12288)[i];
+		((unsigned char *)flagsp)[3] |= 1;
+	} else {
+		/* no move: restore the party position from the snapshot. */
+		short i;
+		for (i = 0; i < 6; i++)
+			(&g_a5_12288)[i] = rec[46 + i];
+	}
+
+	jt451();
+	return cmd;                                     /* L5122 */
+}
+
 /* port_view_demo — drive jt199, the first-person frustum walker, over
  * the real loaded design's GEO map. Seeds the DUNGCOM wall-set handle,
  * logs the runtime view state (the slot-layout DATA globals, the map
