@@ -2297,6 +2297,7 @@ static void  l709e(short a)           { PROBE("L709e"); (void)a; }  /* CODE 20-l
 static void  l473e(short a)           { PROBE("L473e"); (void)a; }  /* CODE 20-local */
 static void  l47f2(void)              { PROBE("L47f2"); }   /* CODE 20-local */
 static signed char l4738(void)        { PROBE("L4738"); return 0; }  /* CODE 20-local */
+static short jt240(short cmd, long *flagsp, unsigned char *rec);     /* deep walk loop (CODE 11+0x4ffe), defined below */
 
 /* JT[948] (CODE 20 + 0x4a12) — the adventure-level dungeon loop, the body
  * L07dc runs once the party is assembled. STRUCTURAL SKELETON (level 2): the
@@ -2421,7 +2422,28 @@ static void jt948(void)
 
 		for (;;) {                              /* L4be8 — the play loop */
 			g_a5_byte(-24140) = want;
-			res = (signed char)jt953();     /* exploration command dispatch */
+			if ((short)g_a5_18878 >= 5) {
+				/* DUNGEON: run the faithful unified walk + command loop
+				 * (jt240 -> l63c0, a_deep=1). It registers the walk input
+				 * sources (l6256) AND the command bar (jt179/jt148), then
+				 * l63c0 polls both: arrow / move keys step the party (case 0
+				 * -> jt297 -> l1908 -> jt312 re-render), command-bar picks end
+				 * the loop. jt240 commits the party position to -12288 on exit.
+				 * This is the real movement loop CODE 20/21's jt953 (command/
+				 * turn only) never provided; for now its return leaves the area
+				 * (the per-command menu dispatch is the next wiring step). */
+				static unsigned char play_rec[342];
+				long  pflags = 0;
+				short kk;
+				memset(play_rec, 0, sizeof play_rec);
+				play_rec[4] = 1;            /* dungeon kind */
+				for (kk = 0; kk < 6; kk++)
+					play_rec[46 + kk] = g_a5_byte(-12288 + kk);
+				(void)jt240((short)11, &pflags, play_rec);
+				res = 4;                    /* leave the area after the loop */
+			} else {
+				res = (signed char)jt953(); /* overland command dispatch */
+			}
 			want = (signed char)g_a5_byte(-24140);
 			g_a5_long(-5218) = g_a5_long(-27932);
 			if (g_a5_byte(-5221) != 0)
