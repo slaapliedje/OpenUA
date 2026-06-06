@@ -2322,6 +2322,13 @@ static void jt948(void)
 
 	PROBE("jt948");
 
+	/* PORT DEVIATION (native 320x200): the Mac runs the dungeon screen at
+	 * g_a5_2347=0 (jt1135 scale 3 = its 640x400 doubled space). Natively we
+	 * want the command bar / HUD at scale 2 (the layout the menu uses), so
+	 * run the play screen at g_a5_2347=1; the first-person view still renders
+	 * deep via g_cwf_force_deep (see render_3d_faithful). */
+	g_a5_2347 = 1;
+
 	for (;;) {                                      /* L4a1a — level (re)load */
 		g_a5_long(-5218) = g_a5_long(-27932);
 		g_a5_byte(-23188) = 1;
@@ -6680,6 +6687,14 @@ static short g_cwf_clip_l, g_cwf_clip_t, g_cwf_clip_r, g_cwf_clip_b;
  * internal layout is preserved) to the FRAME.CTL viewport hole. Set by the
  * renderer; 0 = natural origin. */
 static short g_cwf_ox, g_cwf_oy;
+/* Set while render_3d_faithful walks the frustum (jt199 -> l5b42 -> jt200), so
+ * the view's deep slot transform fires regardless of g_a5_2347. This decouples
+ * the native 88x88 3D view from the global display mode: the play screen runs
+ * at g_a5_2347=1 (scale 2) so the command bar / HUD draw at the native
+ * 320x200 layout the menu was built for, while the 3D view still renders deep.
+ * (Without this, the deep view required g_a5_2347=0 -> jt1135 scale 3 = the
+ * Mac's 640x400 doubled space -> the command bar landed at 1.5x position.) */
+static short g_cwf_force_deep;
 /* Set while l63c0 is in its walk loop, so l2d3e routes movement/control keys
  * (arrows / Esc / Return) to the keyboard source (return 0) instead of the
  * command-bar DLItem match — otherwise an arrow is consumed as a command and
@@ -7908,15 +7923,18 @@ static void jt200(unsigned char *page, short top, short left,
 		if ((code & 0xff) > 2)
 			code = 1;
 	}
-	if ((sub & 0xff) < 8) {                  /* step the VERTICAL anchor (asm fp@10) */
-		/* L59d4 5a28-5a52: in deep mode adds 16 to fp@(10) — the 8016-anchored
+	if ((sub & 0xff) < 8) {
+		/* step the VERTICAL anchor (asm fp@10).
+		 * L59d4 5a28-5a52: in deep mode adds 16 to fp@(10) — the 8016-anchored
 		 * coord, which l5b42 emits as jt200's `top` (vertical). The old lift
 		 * stepped `left` (horizontal), transposing the per-layer step and
 		 * inverting the depth stack (far walls rode up to the screen top, near
 		 * walls sat too low — "facing wall too far back, tops don't meet").
 		 * Native 320x200 halves the Mac's 16 -> 8 (see l5b42's halved deep
-		 * transform); top here is already the transformed native coord. */
-		if (jt1200() == 3) {
+		 * transform); top here is already the transformed native coord.
+		 * g_cwf_force_deep keeps the deep step firing while the play screen
+		 * runs at g_a5_2347=1 (so the command bar draws at native scale). */
+		if (jt1200() == 3 || g_cwf_force_deep) {
 			if (top < 8000)
 				top = (short)(top + 8);
 		} else {
@@ -8000,7 +8018,7 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 	/* y (8012) + wide ydelta -> horizontal; x (8016) + narrow xdelta -> vertical */
 	short horiz = (short)(y + ((short)(signed char)ydelta << 2));
 	short vert  = (short)(x + ((short)(signed char)xdelta << 2));
-	if (jt1200() == 3) {
+	if (jt1200() == 3 || g_cwf_force_deep) {
 		/* The Mac deep transform is ((v-8012)<<2)+8 — that is the 640x400
 		 * DOUBLED space. FRUA is natively 320x200 (the 3D pane is 88x88, not
 		 * 176x176), so halve the scale to <<1 (+4) for the native view. This
@@ -8259,8 +8277,13 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 #ifdef FRUA_ENGINE_PROBE
 	dbg_log_num("faithful: ds[4..6]=", (long)ds[4] * 10000 + ds[5] * 100 + ds[6]);
 #endif
+	/* Force the deep slot transform for the view walk regardless of g_a5_2347,
+	 * so the play screen can stay at g_a5_2347=1 (native scale 2) for the
+	 * command bar / HUD while the 88x88 first-person view still renders deep. */
+	g_cwf_force_deep = 1;
 	jt199(page, (short)8012, (short)8016,
 	      (short)g_a5_12287, (short)g_a5_12288, f);
+	g_cwf_force_deep = 0;
 	g_cwf_px = NULL;
 }
 
