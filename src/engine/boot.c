@@ -16028,6 +16028,93 @@ static void jt571(void)
 	g_a5_byte(-7038) = 1;
 }
 
+/* CODE 17-local record finalizers jt572 calls (L2284 = pre-finalize, L13ee =
+ * derived-field setup), plus the CODE 19 stat-finalize entries JT[907] (run
+ * when rec[163] > 0) / JT[906]. PROBE stubs — char-gen commits the picked
+ * fields without them; the derived combat stats they compute land when CODE
+ * 17/19 finalize is fully lifted. */
+static void l2284(unsigned char *rec) { PROBE("L2284"); (void)rec; }
+static void l13ee(unsigned char *rec) { PROBE("L13ee"); (void)rec; }
+static void jt906(unsigned char *rec) { PROBE("jt906"); (void)rec; }
+static void jt907(unsigned char *rec) { PROBE("jt907"); (void)rec; }
+
+/* JT[566] (CODE 17 + 0x3222) — the RACE list action proc. Stores the picked
+ * race (g_a5_-7026, 1-based) in rec[88], then for every class index 0..16 scans
+ * the race's allowed-class list at g_a5_-30864 (14 bytes/race: byte[0] = count,
+ * byte[1..count] = the allowed class indices) and enables (group 24) or
+ * disables (group 16) that class's DLItem (item = class + 11). If the currently
+ * selected class (g_a5_-7018 - 1) is no longer allowed, reset the class-list
+ * selection (DLItem 10) to the first allowed class. */
+static void jt566(void) __attribute__((unused));
+static void jt566(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-7008);
+	short count, firstok = 0xff, invalid = 0, cls;
+
+	PROBE("jt566");
+	rec[88] = (unsigned char)((short)g_a5_word(-7026) - 1);
+	count = ((unsigned char *)g_a5_buf(-30864) + (long)rec[88] * 14)[0];
+
+	for (cls = 0; cls <= 16; cls++) {
+		unsigned char *e = (unsigned char *)g_a5_buf(-30864)
+		    + (long)rec[88] * 14;
+		short matched = 0, i;
+		for (i = 0; i < count && matched == 0; i++) {
+			if ((short)(signed char)e[1 + i] == cls) {
+				if (firstok == 0xff)
+					firstok = cls;
+				matched = 1;
+			}
+		}
+		if (matched) {
+			jt444((short)(cls + 11), 24, 0, 0);    /* enable */
+		} else {
+			if (cls == (short)g_a5_word(-7018) - 1)
+				invalid = 1;
+			jt444((short)(cls + 11), 16, 0, 0);    /* disable */
+		}
+	}
+	if (invalid)
+		jt444(10, 4, (short)(firstok + 1), 0);         /* reset selection */
+	g_a5_byte(-7027) = 0;
+}
+
+/* JT[572] (CODE 17 + 0x2e6c) — the "Done" button finalize: commit the picked
+ * character. L2284 pre-finalize; copy the design handle into rec[68]; mark
+ * rec[137] = 1; L13ee derived setup; JT[907] if rec[163] > 0; derive rec[127]
+ * (the max per-ability table[0] over the six scores) and rec[183] (the bonus
+ * sum) from g_a5_-23184 (22 bytes/ability, indexed by the score rec[157+i]) and
+ * g_a5_-23030; JT[906]; then set the created record current (g_a5_-27932). */
+static void jt572(void) __attribute__((unused));
+static void jt572(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-7008);
+	short i;
+
+	PROBE("jt572");
+	l2284(rec);
+	*(long *)(rec + 68) = g_a5_long(-18882);
+	rec[137] = 1;
+	l13ee(rec);
+	if ((short)(signed char)rec[163] > 0)
+		jt907(rec);
+	rec[183] = 0;
+	rec[127] = 0;
+	for (i = 0; i <= 6; i++) {
+		unsigned char *e;
+		short score = rec[157 + i];
+		if (score == 0)
+			continue;
+		e = (unsigned char *)g_a5_buf(-23184) + (long)i * 22 + score;
+		if ((unsigned char)e[0] > (unsigned char)rec[127])
+			rec[127] = e[0];
+		rec[183] = (unsigned char)(rec[183]
+		           + ((unsigned char *)g_a5_buf(-23030) + i)[0]);
+	}
+	jt906(rec);
+	g_a5_long(-27932) = (long)(uintptr_t)rec;
+}
+
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
  * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls
