@@ -5913,20 +5913,79 @@ static short jt380(void *rec_v, short cmd, ...)
 	return 0;
 }
 static short jt381(void *rec_v, short cmd, ...) __attribute__((unused));
+/* jt381 — shape 2 method: the radio-GROUP container (L20c4). Its children
+ * are the 1-based DLItems that immediately follow it (child N = rec + N*32).
+ * rec[24] = the selected child index, rec[8] = the value-output global ptr,
+ * rec[4] = the action proc fired on a pick (jt566/jt567/jt568/jt569/jt570).
+ *
+ *   cmd 0  (L2114) sync: read the value global, select that child.
+ *   cmd 4  (L214c) select index: clear the radio bit (cmd 26 -> bit2) on the
+ *          old child, set it (cmd 18 -> bit2) on the new, write the value
+ *          global, then fire the action proc.
+ *   cmd 16..22 / 24..30 (L21f4): forward the set/clear-bit to every child.
+ *   else   (L222c): default to l1676.
+ *
+ * The bit2 the radio sets is what L14d0/L148a render as the SELECTED marker
+ * (red-dot circle); the action proc's jt444 enable/disable of sibling items
+ * (e.g. jt566 disabling classes a race can't be) drives the UNAVAILABLE
+ * (no-ring) marker via bit0. */
 static short jt381(void *rec_v, short cmd, ...)
 {
 	unsigned char *rec = (unsigned char *)rec_v;
 	va_list ap;
-	short a, b;
 
 	PROBE("jt381");
 	SHAPE_CMD_PROBE("jt381");
 
-	va_start(ap, cmd);
-	a = (short)va_arg(ap, int);
-	b = (short)va_arg(ap, int);
-	va_end(ap);
-	return l1676(rec, cmd, a, b);
+	switch (cmd) {
+	case 0: {
+		long  vp  = *(long *)(rec + 8);
+		short val = (vp != 0) ? *(short *)(uintptr_t)vp : (short)1;
+		(void)jt381(rec, (short)4, (int)val);
+		return 0;
+	}
+	case 4: {
+		short idx, old;
+		va_start(ap, cmd);
+		idx = (short)va_arg(ap, int);
+		va_end(ap);
+		old = *(short *)(rec + 24);
+		if (idx != old) {
+			if (old != 0)
+				(void)jt380(rec + (long)old * DLITEM_BYTES,
+				            (short)26, 0, 0);  /* clear bit2 (old) */
+			*(short *)(rec + 24) = idx;
+			{
+				long vp = *(long *)(rec + 8);
+				if (vp != 0)
+					*(short *)(uintptr_t)vp = idx;
+			}
+		}
+		if (idx != 0)
+			(void)jt380(rec + (long)idx * DLITEM_BYTES,
+			            (short)18, 0, 0);      /* set bit2 (new) */
+		if (*(long *)(rec + 4) != 0) {
+			void (*proc)(void) = *(void (**)(void))(rec + 4);
+			proc();                            /* action proc reads globals */
+		}
+		return 0;
+	}
+	case 16: case 17: case 18: case 19: case 20: case 21: case 22:
+	case 24: case 25: case 26: case 27: case 28: case 29: case 30: {
+		short n = *(short *)(rec + 22), i;
+		for (i = 1; i <= n; i++)
+			(void)jt380(rec + (long)i * DLITEM_BYTES, cmd, 0, 0);
+		return 0;
+	}
+	default: {
+		short a, b;
+		va_start(ap, cmd);
+		a = (short)va_arg(ap, int);
+		b = (short)va_arg(ap, int);
+		va_end(ap);
+		return l1676(rec, cmd, a, b);
+	}
+	}
 }
 /* jt382 — shape 1 (button) method dispatcher. cmd=2 hit-test is
  * the dominant boot-path call (90 of 92 per boot). The hit-test
@@ -12534,9 +12593,26 @@ exit:
 }
 /* L30ba (CODE 3 + 0x30ba) — DLItem focus / select helper. Body lives
  * inside CODE 3's dialog runtime; stays a PROBE stub for now. */
-static void   l30ba(short a, short b, short c)
-                                                  { PROBE("L30ba"); (void)a;
-                                                    (void)b; (void)c; }
+/* L30ba (CODE 3 + 0x30ba) — call method(rec, cmd, ...) for items
+ * [start..end]. jt453 runs l30ba(0, count-1, 0) before the poll, so every
+ * item gets a cmd 0; the shape-2 radio containers (jt381) act on it to sync
+ * their selection from the value global (highlighting the default pick). */
+static void   l30ba(short start, short end, short cmd)
+{
+	short i;
+
+	PROBE("L30ba");
+	if (g_a5_9248 == 0)
+		return;
+	for (i = start; i <= end; i++) {
+		unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_9254
+		    + (long)i * DLITEM_BYTES;
+		short (*method)(void *, short, ...) =
+		    *(short (**)(void *, short, ...))rec;
+		if (method != NULL)
+			(void)method(rec, cmd, (short)0, (short)0);
+	}
+}
 
 /* L2c60 (CODE 3 + 0x2c60) — DLItem paint walker.
  *
