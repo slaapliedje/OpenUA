@@ -16861,13 +16861,15 @@ static int l3666(void)
 	 * button wide; DONE at x 8004, EXIT at x 8024 (the build coords). */
 	{
 		short py = 0, pxx = 0;
-		/* Two abutting plates (DONE x 8004, EXIT x 8024 = 40px apart) so
-		 * each covers its centred label and the shared edge reads as the
-		 * Mac's DONE|EXIT divider. */
+		/* Two abutting plates (DONE x 8004, EXIT x 8024 = 40px apart). Like
+		 * menu_draw_plates, the plate starts 5px LEFT of the button origin
+		 * so the left-justified label (drawn at the origin by jt382) sits in
+		 * from the plate's left bevel instead of on it. The shared edge
+		 * reads as the Mac's DONE|EXIT divider. */
 		jt1135((short)8098, (short)8004, &py, &pxx);
-		port_menu_bar((short)(py - 9), pxx, (short)40, (short)1);
+		port_menu_bar((short)(py - 9), (short)(pxx - 5), (short)40, (short)1);
 		jt1135((short)8098, (short)8024, &py, &pxx);
-		port_menu_bar((short)(py - 9), pxx, (short)40, (short)1);
+		port_menu_bar((short)(py - 9), (short)(pxx - 5), (short)40, (short)1);
 	}
 
 	jt449(1);
