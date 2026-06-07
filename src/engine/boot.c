@@ -3484,13 +3484,25 @@ static void jt131(short a)
  * The Mac also calls L1282 first (resource-load validation); for
  * the port the tables are populated by data_pool_replay so the
  * load step is implicit. Return 0 on out-of-range. */
+static long port_ui_group_base(short group);   /* groups 0/1 -> ALWAYS/FRAME GLIB */
+
 static long jt468(short tag)
 {
 	short id;
+	long  ui;
 
 	PROBE("jt468");
 	if (tag < 0 || (unsigned short)tag >= (unsigned short)G_A5_10074_LEN)
 		return 0;
+	/* Groups 0 (ALWAYS.CTL) and 1 (FRAME.CTL) hold the UI glyphs — button
+	 * faces, radio markers, frame bevel edges (see [[glib-resource-groups]]).
+	 * The faithful jt997 group loader isn't wired in the port, so resolve
+	 * these two from the resident GLIB buffers the port already loads, so the
+	 * L148a/jt76 -> L309c glyph blit can find them. Other groups fall through
+	 * to the engine resource cache. */
+	ui = port_ui_group_base(tag);
+	if (ui != 0)
+		return ui;
 	id = (signed char)g_a5_10074[tag];
 	if (id < 0 || (unsigned short)id >= (unsigned short)G_A5_10270_LEN)
 		return 0;
@@ -8744,6 +8756,35 @@ static void port_frame_load(void)
 	base = (long)(uintptr_t)fbuf;
 	if (l37aa(base, 0) != 0)
 		g_frame_base = base;
+}
+
+/* ALWAYS.CTL = jt468 group 0 — the always-resident UI glyph GLIB (button
+ * faces, radio markers). Loaded resident like FRAME.CTL. */
+static long g_always_base;
+static void port_always_load(void)
+{
+	static unsigned char abuf[8192];
+	short refnum = 0;
+	long  n, base;
+
+	if (g_always_base)
+		return;
+	if (FSOpen((ConstStr255Param)"\012ALWAYS.CTL", 0, &refnum) != noErr)
+		return;
+	n = (long)sizeof abuf;
+	(void)FSRead(refnum, &n, abuf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)abuf;
+	if (l37aa(base, 0) != 0)               /* 'GLIB' magic */
+		g_always_base = base;
+}
+
+/* jt468 groups 0/1 -> the port's resident UI GLIBs (see [[glib-resource-groups]]). */
+static long port_ui_group_base(short group)
+{
+	if (group == 0) { port_always_load(); return g_always_base; }
+	if (group == 1) { port_frame_load();  return g_frame_base;  }
+	return 0;
 }
 
 /* Fill the play background grey, install the frame palette band (clut
