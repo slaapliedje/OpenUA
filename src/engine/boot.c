@@ -6279,47 +6279,13 @@ static short jt382(void *rec_v, short cmd, ...)
 					dbg_log(tmp);
 				}
 #endif
-				/* Button face. The MENU's wide command buttons (rec[24]=18)
-				 * get their real beveled bar from the live GLIB blit in the
-				 * menu screen's own setup (incl. the empty spacer rows), so
-				 * drawing a plate here would double-draw and run off the
-				 * edge — that earlier hack is gone. But narrow buttons like
-				 * char-gen's DONE/EXIT (rec[24]=4) are NOT painted a face by
-				 * their screen (jt574) yet, so they'd be bare. As a stopgap,
-				 * keep the draw_bevel plate ONLY for those (rec[24] small),
-				 * sized to the rec[24] piece span. Replacing this with each
-				 * screen's real GLIB face is task #105. */
-				if (len > 0 && *(short *)(rec + 24) < 11) {
-					unsigned char *ppx;
-					short ppitch, psw, psh;
-					if (qd_screen_pixels(&ppx, &ppitch, &psw, &psh) && ppx) {
-						short cnt = *(short *)(rec + 24);
-						short ry = 0, rx = 0;
-						short pl, pr;
-						short pt = (short)(y_pix - 8);
-						short pb = (short)(y_pix + 3);
-						short yy, xx;
-
-						if (cnt >= 2) {
-							jt1135(*(short *)(rec + 16),
-							       (short)(*(short *)(rec + 18)
-							               + (cnt - 1) * 4),
-							       &ry, &rx);
-							pl = (short)(x_pix - 2);
-							pr = (short)(rx + 16);
-						} else {
-							pl = (short)(x_pix - 6);
-							pr = (short)(x_pix + len * 8 + 6);
-						}
-						for (yy = pt; yy < pb; yy++)
-							if (yy >= 0 && yy < psh)
-								for (xx = pl; xx < pr; xx++)
-									if (xx >= 0 && xx < psw)
-										ppx[(long)yy * ppitch + xx] = 8;
-						draw_bevel(ppx, ppitch, psw, psh,
-						           pl, pt, pr, pb, 1);   /* raised */
-					}
-				}
+				/* No port plate here: jt382 cmd-1 only lays down the label. The
+				 * button's beveled BAR is real screen chrome from the GLIB blit —
+				 * for char-gen that's FRAME.CTL item 4 (the full-width bottom
+				 * command bar) via l35f8 -> jt76 -> jt1001(FRAME) -> L309c ->
+				 * L2d4e (mode-2). The draw_bevel stopgap is retired. (The main
+				 * MENU still uses the port menu_draw_plates stand-in until the
+				 * faithful CODE-15/19 menu is lifted — task #105.) */
 				if (len > 0) {
 					/* The Mac paint chain (L148a/jt995) sets the pen
 					 * colour; our collapsed path doesn't, so the label
@@ -16805,10 +16771,12 @@ static int l3666(void)
 	      3L, 8068L, 8006L, (long)(uintptr_t)ua_strs_at(0x49fa), 38L, (long)g_a5_word(-7000),
 	      0L);
 
-	/* Done (jt572, hotkey 'D') + Exit (jt571, hotkey 'E') buttons [shape 1]. */
-	jt452(1L, 8094L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
+	/* Done (jt572, hotkey 'D') + Exit (jt571, hotkey 'E') buttons [shape 1].
+	 * y=8098 (vs the Mac's 8094) seats the label + item-14 glyph on the
+	 * FRAME.CTL bottom command bar (item 4, drawn by jt76) — verified. */
+	jt452(1L, 8098L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt572, 21L,
-	      1L, 8094L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
+	      1L, 8098L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt571, 21L,
 	      0L);
 
