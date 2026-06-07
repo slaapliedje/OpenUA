@@ -1666,6 +1666,9 @@ void port_play_demo(void);              /* interactive 3D-view demo (FRUA_3D_DEM
 void port_l6234_verify(void);           /* faithful 3D-render geometry verification */
 #endif
 static short jt953(void);                /* exploration command dispatcher */
+#ifdef FRUA_CHARGEN
+static int   jt574(long ctx);            /* CODE 17 char-gen entry (harness) */
+#endif
 
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
@@ -1757,6 +1760,14 @@ int ua_main(short arg1, long arg2)
 	 */
 #ifdef FRUA_L6234_VERIFY
 	port_l6234_verify();    /* never returns — geometry check for L6234 */
+#endif
+#ifdef FRUA_CHARGEN
+	/* Jump straight to character generation (jt574) to verify the GLIB
+	 * glyph blit (markers/buttons/frame via L148a/jt76 -> L309c -> L2d4e).
+	 * Opt in with `make EXTRA_CFLAGS=-DFRUA_CHARGEN`. Never returns. */
+	(void)jt574(0);
+	for (;;)
+		jt920();
 #endif
 	while (jt315()) {
 		jt949();
@@ -3530,23 +3541,30 @@ static void jt1135(short v1, short v2, short *out1, short *out2);
  * writers (JT[1165/1172/1176/1202]) that scale by jt1200() for the
  * 320->640 doubling. The port renders native 1:1 into the 8bpp shim
  * surface (per the all-320x200 decision), so the mono arm here is the
- * straight masked-OR equivalent: each set source bit lays down the
- * current QuickDraw foreground index, clear bits stay transparent,
- * clipped per-pixel to the clip rect intersected with the surface. The
- * scaled colour/RLE/composite/wrap arms remain deferred (the resident
- * UI GLIBs — ALWAYS.CTL / FRAME.CTL — are mono). */
+ * straight per-pixel copy into that surface.
+ *
+ * Glyph storage (confirmed from ALWAYS.CTL / FRAME.CTL item sizes): the
+ * resident UI GLIBs are 8bpp COLOUR — one CLUT index per pixel, byte 255
+ * = transparent, width_px = bpp_w*8 = bytes per row (the flags 0x40 bit,
+ * set on every UI item, marks colour; the dungeon's 1bpp DUNGCOM tiles
+ * clear it). So the common arm here is the 8bpp 255-keyed copy (Mac mode
+ * 5 -> JT[1190]); mode 0 (opaque frame edges) shares it harmlessly. The
+ * compressed/scaled arms — 2 = PackBits (L2bfc/JT[1171]), 7 = RLE
+ * transparency (L2b9a/JT[1195]), 3 = composite, 10 = wrap — stay
+ * deferred (the big FRAME chrome pieces; the play frame is drawn by
+ * port_draw_play_frame for now). A 1bpp source (flags 0x40 clear) falls
+ * back to the mono OR leaf in the current QD foreground colour. */
 static void l2d4e(const unsigned char *src, short bpp_w, short height,
-                  short y, short x, short mode)
+                  short y, short x, short flags)
 {
 	short top    = g_a5_3054;
 	short bottom = g_a5_3050;
 	short left   = g_a5_3056;
 	short right  = g_a5_3052;
 	short pix_w  = (short)(bpp_w * 8);
+	short mode   = (short)(flags & 15);
 	unsigned char *px;
 	short pitch, sw, sh;
-	GrafPtr port;
-	unsigned char fg = 0;
 	short r, c;
 
 	if (src == NULL || height <= 0 || bpp_w <= 0)
@@ -3558,38 +3576,62 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	if (x >= right || x + pix_w <= left)
 		return;
 
-	mode &= 15;
 	if (mode == 2 || mode == 3 || mode == 7 || mode == 10) {
-		PROBE("l2d4e-mode");          /* deferred non-mono arms */
+		PROBE("l2d4e-mode");          /* deferred compressed/scaled arms */
 		return;
 	}
 
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
-	GetPort(&port);
-	if (port != NULL)
-		fg = ((CGrafPtr)port)->fgColor;
-
 	if (top < 0)     top = 0;
 	if (left < 0)    left = 0;
 	if (bottom > sh) bottom = sh;
 	if (right > sw)  right = sw;
 
-	for (r = 0; r < height; r++) {
-		short dy = (short)(y + r);
-		const unsigned char *srow = src + (long)r * bpp_w;
+	if (flags & 0x40) {
+		/* 8bpp colour glyph: stride = pix_w bytes, 255 = transparent. */
+		for (r = 0; r < height; r++) {
+			short dy = (short)(y + r);
+			const unsigned char *srow = src + (long)r * pix_w;
 
-		if (dy < top || dy >= bottom)
-			continue;
-		for (c = 0; c < pix_w; c++) {
-			short dx;
+			if (dy < top || dy >= bottom)
+				continue;
+			for (c = 0; c < pix_w; c++) {
+				unsigned char v = srow[c];
+				short dx;
 
-			if (!(srow[c >> 3] & (0x80 >> (c & 7))))
+				if (v == 255)
+					continue;
+				dx = (short)(x + c);
+				if (dx < left || dx >= right)
+					continue;
+				px[(long)dy * pitch + dx] = v;
+			}
+		}
+	} else {
+		/* 1bpp mono glyph: set bits -> fgColor (Mac L2970 mode-0 OR). */
+		GrafPtr port;
+		unsigned char fg = 0;
+
+		GetPort(&port);
+		if (port != NULL)
+			fg = ((CGrafPtr)port)->fgColor;
+		for (r = 0; r < height; r++) {
+			short dy = (short)(y + r);
+			const unsigned char *srow = src + (long)r * bpp_w;
+
+			if (dy < top || dy >= bottom)
 				continue;
-			dx = (short)(x + c);
-			if (dx < left || dx >= right)
-				continue;
-			px[(long)dy * pitch + dx] = fg;
+			for (c = 0; c < pix_w; c++) {
+				short dx;
+
+				if (!(srow[c >> 3] & (0x80 >> (c & 7))))
+					continue;
+				dx = (short)(x + c);
+				if (dx < left || dx >= right)
+					continue;
+				px[(long)dy * pitch + dx] = fg;
+			}
 		}
 	}
 }
@@ -4001,95 +4043,32 @@ static short jt995(short top, short left, short style, short size_high,
 	return (short)composite;
 }
 
-/* draw_radio_marker — the pick-list radio bullet at framebuffer (x, y).
- * A ~7px white disc, in one of three states (matching the Mac glyph the
- * GLIB would blit):
- *   kind 0 AVAILABLE   — white disc + black outline ring (enabled, not picked)
- *   kind 1 SELECTED    — white disc + black ring + red centre dot (picked)
- *   kind 2 UNAVAILABLE — plain white disc, no ring (option the race can't take)
- * Centred on the text body, just left of the jt1141 +6-inset label. */
-static void draw_radio_marker(unsigned char *px, short pitch, short sw,
-                              short sh, short x, short y, short kind)
-{
-	const unsigned char WHITE = 15, BLACK = 0, RED = 12;
-	/* Per-row half-widths for a round 7x7 disc (flat 3px top/bottom, not the
-	 * pointy 1px tip a pure d2<=9 mask gives — that read as a diamond). */
-	static const signed char hw[7] = { 1, 2, 3, 3, 3, 2, 1 };
-	short cx = (short)(x + 3);            /* disc centre */
-	short cy = (short)(y - 4);            /* sit on the glyph body */
-	short r;
-
-	for (r = 0; r < 7; r++) {
-		short dy  = (short)(r - 3);
-		short row = (short)(cy + dy);
-		short h   = hw[r];
-		short dx;
-
-		if (row < 0 || row >= sh)
-			continue;
-		for (dx = -h; dx <= h; dx++) {
-			short col = (short)(cx + dx);
-			unsigned char c;
-
-			if (col < 0 || col >= sw)
-				continue;
-			/* ring = the arc: top/bottom rows + the side pixels of each row */
-			if (kind != 2 && (dx == -h || dx == h || dy == -3 || dy == 3))
-				c = BLACK;                      /* outline ring */
-			else
-				c = WHITE;                      /* disc body */
-			if (kind == 1 && (dx * dx + dy * dy) <= 1)
-				c = RED;                        /* selected centre dot */
-			px[(long)row * pitch + col] = c;
-		}
-	}
-}
-
 /* L148a (CODE 3 + 0x148a) — per-item glyph/marker paint dispatcher.
  *
  *   if (jt1200() == 3)  jt995(top, left, style, size_h, 2);   // deep
  *   else                jt1001(top, left, style, size_h);     // shallow
  *
- * Both arms blit GLIB glyph item `size_h` from library jt468(style) at
- * (top,left) via L309c — for a shape-3 pick row that glyph IS the radio
- * MARKER bullet (Mac item 16 = hollow, 18 = filled/selected; L14d0 feeds
- * size = 16 + hl, hl = 2 when rec[28] bit0 is set). Buttons (jt382) pass
- * size 14, which carries no marker.
- *
- * The port has no GLIB glyph renderer (text goes through the QuickDraw
- * shim's DrawString, fills through PaintRect — ADR-0003), so collapse the
- * marker the same way: draw a small diamond straight into the HAL
- * framebuffer, filled for the selected option, hollow otherwise. The
- * deep/shallow split is only a clip-mode difference, which the screen-
- * bounds guard in draw_radio_marker covers uniformly. */
+ * Both arms blit GLIB glyph item `size_h` from group jt468(style) at
+ * (top,left) via L309c. For a shape-3 pick row that glyph IS the radio
+ * MARKER: L14d0 calls l148a(rec[16], rec[18], style=0, 16+hl), style 0 =
+ * ALWAYS.CTL, and the marker states live at items 16..20 there —
+ *   16 hl=0 available (white disc + black ring),
+ *   17 hl=1 selected  (red centre dot),
+ *   18 hl=2 unavailable (white disc, no ring),
+ *   19/20 the focus variants.
+ * Each is a 7-row 8bpp colour glyph (255-keyed) the L309c/L2d4e path now
+ * blits straight into the shim surface — replacing the old port-collapse
+ * diamond. The shallow/deep split is only the clip mode; jt995 carries
+ * its own deep blit. */
 static void l148a(short top, short left, short style, short size_high) __attribute__((unused));
 static void l148a(short top, short left, short style, short size_high)
 {
-	unsigned char *px;
-	short pitch, sw, sh;
-	short my = 0, mx = 0;
-	short kind;
-
 	PROBE("L148a");
-	(void)style;
 
-	if (size_high < 16)                  /* buttons (14/15): no radio marker */
-		return;
-
-	/* size = 16 + hl encodes the row state (L14d0): hl 0 = no bits
-	 * (available), hl 1 = bit2 selected, hl 2 = bit0 disabled. */
-	if (size_high == 18)                  /* bit0 -> disabled / unavailable */
-		kind = 2;
-	else if (size_high == 17 || size_high == 20)  /* bit2 -> selected */
-		kind = 1;
-	else                                  /* 16 (available) / 19 (focus) */
-		kind = 0;
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
-		return;
-
-	jt1135(top, left, &my, &mx);         /* 8000-space -> pixel: my=y, mx=x */
-	draw_radio_marker(px, pitch, sw, sh, mx, my, kind);
+	if (jt1200() == 3)
+		(void)jt995(top, left, style, size_high, 2);   /* deep */
+	else
+		jt1001(top, left, style, size_high);           /* shallow */
 }
 
 static void jt174(void);                                                          /* CODE 7 + 0x2062 (lifted below) */
@@ -4523,8 +4502,11 @@ static void jt1135(short v1, short v2, short *out1, short *out2);
 /* Draw a 1px 3D bevel on the pixel rect [x1,x2) x [y1,y2). raised=0 gives the
  * LOWERED/inset look (dark top+left, light bottom+right); raised=1 the opposite.
  * The Mac frames its dialog boxes (jt76's GLIB edge pieces) and bevels its
- * buttons this way; the port has no GLIB glyphs so we stroke the edges into the
- * HAL framebuffer directly (same collapse as jt1089/jt1161/draw_radio_marker). */
+ * buttons this way; this port-collapse strokes the edges into the HAL
+ * framebuffer directly (same collapse as jt1089/jt1161). Still used for the
+ * jt103 panel + jt382 button plates; the radio markers now come from the real
+ * GLIB blit (L148a -> L309c -> L2d4e), and the frame/button glyphs are the
+ * next pieces to migrate off this hack. */
 static void draw_bevel(unsigned char *px, short pitch, short sw, short sh,
                        short x1, short y1, short x2, short y2, int raised)
 {
