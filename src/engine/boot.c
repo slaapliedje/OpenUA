@@ -6349,7 +6349,25 @@ static short jt382(void *rec_v, short cmd, ...)
 						}
 					}
 
-					MoveTo(x_pix, y_pix);
+					{
+							short cnt = *(short *)(rec + 24);
+							short lx = x_pix;
+							/* Centre label in the bar like the Mac (L1bfe:
+							 * JT[1005]+L39ae string-width). Bar spans rec[18]
+							 * ..rec[18]+(rec[24]-1)*4; port font 8px/char. */
+							if (cnt >= 2) {
+								short ry = 0, rx = 0, bw;
+								jt1135(*(short *)(rec + 16),
+								       (short)(*(short *)(rec + 18)
+								               + (cnt - 1) * 4),
+								       &ry, &rx);
+								bw = (short)(rx + 16 - x_pix);
+								lx = (short)(x_pix + (bw - len * 8) / 2);
+								if (lx < x_pix)
+									lx = x_pix;
+							}
+							MoveTo(lx, y_pix);
+						}
 					if (hi < 0) {            /* no accelerator: all body */
 						if (cport) cport->fgColor = BODY;
 						pbuf[0] = (unsigned char)len;
