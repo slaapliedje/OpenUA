@@ -15825,13 +15825,15 @@ static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
 	{
 		const char *design = (const char *)g_a5_buf(-31336);
 		const char *title  = (const char *)g_a5_buf(-18876);
-		jt94((short)8, (short)3, (short)11, (short)0, "Unlimited Adventures");
-		/* Port version + build date. The Mac drew one A5 string here; we
-		 * draw two literals (version left, date a few cols right) so the
-		 * gap is tight, and use __DATE__ so the build date tracks the
-		 * actual build. Edit "Version 0.1" to bump the port version. */
+		/* "Unlimited Adventures" (20 chars) centred in the 40-col screen
+		 * (page = (40-20)/2 = 10), matching the Mac title. */
+		jt94((short)10, (short)3, (short)11, (short)0, "Unlimited Adventures");
+		/* Port version + build date. The Mac drew one A5 string here, laid
+		 * out version at the left and the date right-of-centre; mirror that
+		 * spread (version col 4, date col 23) with __DATE__ so the build
+		 * date tracks the build. Edit "Version 0.1" to bump the version. */
 		jt94((short)4,  (short)4, (short)7, (short)0, "Version 0.1");
-		jt94((short)18, (short)4, (short)7, (short)0, "%s", __DATE__);
+		jt94((short)23, (short)4, (short)7, (short)0, "%s", __DATE__);
 		jt94((short)4, (short)9, (short)11, (short)0, "Current Game Design:");
 		if (design[0]) jt94((short)25, (short)9, (short)7, (short)0, "%s", design);
 		if (title[0])  jt94((short)4, (short)10, (short)7, (short)0, "%s", title);
