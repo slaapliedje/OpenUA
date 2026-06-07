@@ -8884,11 +8884,80 @@ static void port_always_load(void)
 		g_always_base = base;
 }
 
-/* jt468 groups 0/1 -> the port's resident UI GLIBs (see [[glib-resource-groups]]). */
+/* MENU.CTL = jt468 group 24 — the menu chrome GLIB. Item 1 is a 320x16
+ * mode-0 8bpp command-BAR glyph (plate-face grey indices in the FRAME band
+ * 16..31, with a stone/bevel top edge); item 2 is the recessed variant. The
+ * faithful main menu (jt315/CODE 22) draws a bar per command from this; the
+ * port blits it per button via port_menu_bar (clipped to the button width).
+ * See [[faithful-main-menu-code22]]. */
+static long g_menu_base;
+static void port_menu_load(void)
+{
+	static unsigned char mbuf[12000];      /* MENU.CTL is ~11064 bytes */
+	short refnum = 0;
+	long  n, base;
+
+	if (g_menu_base)
+		return;
+	if (FSOpen((ConstStr255Param)"\010MENU.CTL", 0, &refnum) != noErr)
+		return;
+	n = (long)sizeof mbuf;
+	(void)FSRead(refnum, &n, mbuf);
+	(void)FSClose(refnum);
+	base = (long)(uintptr_t)mbuf;
+	if (l37aa(base, 0) != 0)                /* 'GLIB' magic */
+		g_menu_base = base;
+}
+
+/* Blit MENU.CTL bar glyph `idx` (1 = raised, 2 = recessed) at pixel
+ * (top,left), clipped to `width` px and the surface. Mode-0 raw 8bpp =
+ * opaque copy; the bar's 16px height carries its 3D bevel. The FRAME band
+ * (clut 16..31) is installed by load_menu_ui before this runs. */
+static void port_menu_bar(short top, short left, short width, short idx)
+{
+	unsigned char metric[8];
+	long  info;
+	const unsigned char *src;
+	unsigned char *px;
+	short pitch, sw, sh, r, c, h, w;
+
+	port_menu_load();
+	if (!g_menu_base)
+		return;
+	info = l2856(g_menu_base, idx, metric);
+	if (info == 0)
+		return;
+	h = (short)(((unsigned short)metric[0] << 8) | metric[1]);   /* 16 */
+	w = (short)(metric[6] * 8);                                   /* 320 */
+	if (h <= 0 || w <= 0)
+		return;
+	src = (const unsigned char *)(uintptr_t)info;                /* raw 8bpp */
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	if (width > w)
+		width = w;
+	for (r = 0; r < h; r++) {
+		short dy = (short)(top + r);
+		const unsigned char *s = src + (long)r * w;
+
+		if (dy < 0 || dy >= sh)
+			continue;
+		for (c = 0; c < width; c++) {
+			short dx = (short)(left + c);
+
+			if (dx < 0 || dx >= sw)
+				continue;
+			px[(long)dy * pitch + dx] = s[c];
+		}
+	}
+}
+
+/* jt468 groups 0/1/24 -> the port's resident UI GLIBs (see [[glib-resource-groups]]). */
 static long port_ui_group_base(short group)
 {
-	if (group == 0) { port_always_load(); return g_always_base; }
-	if (group == 1) { port_frame_load();  return g_frame_base;  }
+	if (group == 0)  { port_always_load(); return g_always_base; }
+	if (group == 1)  { port_frame_load();  return g_frame_base;  }
+	if (group == 24) { port_menu_load();   return g_menu_base;   }
 	return 0;
 }
 
@@ -15667,22 +15736,17 @@ static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
  * spec). Called before l2c60 so the labels land on top. */
 static void menu_draw_plates(const menu_item_t *items, short n)
 {
-	unsigned char *px;
-	short pitch, sw, sh, i, py = 0, pxx = 0;
+	short i, py = 0, pxx = 0;
 
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
-		return;
-
-	/* Plate box per row. Rows are 14px apart (engine y step 7, scale 2).
-	 * The 8px label sits at py-6..py+1, so a py-7..py+2 box (10px) centres
-	 * it with a 1px margin top and bottom, and leaves a ~4px gap between
-	 * rows — matching the spaced, centred buttons in the reference. */
+	/* One command bar per row from the real GLIB: MENU.CTL item 1 (raised) /
+	 * item 2 (recessed), the same glyph the faithful menu (jt315/CODE 22)
+	 * uses, blitted at the button origin and clipped to the button width
+	 * (rows are 14px apart, engine y step 7 @ scale 2). Replaces the earlier
+	 * hand-rolled draw_plate bevel. */
 	for (i = 0; i < n; i++) {
 		jt1135(items[i].y, items[i].x, &py, &pxx);
-		draw_plate(px, pitch, sw, sh,
-		           (short)(pxx - 5), (short)(py - 7),
-		           (short)(pxx - 5 + 150), (short)(py + 2),
-		           items[i].recessed);
+		port_menu_bar((short)(py - 9), (short)(pxx - 5),
+		              (short)150, items[i].recessed ? (short)2 : (short)1);
 	}
 }
 
