@@ -3904,28 +3904,90 @@ static short jt995(short top, short left, short style, short size_high,
 	return (short)composite;
 }
 
-/* L148a (CODE 3 + 0x148a) — text/bitmap paint dispatcher.
+/* draw_radio_marker — the pick-list radio bullet at framebuffer (x, y).
+ * A ~7px white disc, in one of three states (matching the Mac glyph the
+ * GLIB would blit):
+ *   kind 0 AVAILABLE   — white disc + black outline ring (enabled, not picked)
+ *   kind 1 SELECTED    — white disc + black ring + red centre dot (picked)
+ *   kind 2 UNAVAILABLE — plain white disc, no ring (option the race can't take)
+ * Centred on the text body, just left of the jt1141 +6-inset label. */
+static void draw_radio_marker(unsigned char *px, short pitch, short sw,
+                              short sh, short x, short y, short kind)
+{
+	const unsigned char WHITE = 15, BLACK = 0, RED = 12;
+	short cx = (short)(x + 3);            /* disc centre */
+	short cy = (short)(y - 4);            /* sit on the glyph body */
+	short dy;
+
+	for (dy = -3; dy <= 3; dy++) {
+		short row = (short)(cy + dy);
+		short dx;
+
+		if (row < 0 || row >= sh)
+			continue;
+		for (dx = -3; dx <= 3; dx++) {
+			short col = (short)(cx + dx);
+			short d2  = (short)(dx * dx + dy * dy);
+			unsigned char c;
+
+			if (col < 0 || col >= sw || d2 > 9)
+				continue;                       /* outside the disc */
+			if (kind != 2 && d2 >= 5)
+				c = BLACK;                      /* outline ring */
+			else
+				c = WHITE;                      /* disc body */
+			if (kind == 1 && d2 <= 1)
+				c = RED;                        /* selected centre dot */
+			px[(long)row * pitch + col] = c;
+		}
+	}
+}
+
+/* L148a (CODE 3 + 0x148a) — per-item glyph/marker paint dispatcher.
  *
- *   if (jt1200() == 3)                             // mode 3 (deep)
- *       jt995(top, left, style, size_h, 2);
- *   else                                            // mode 0 / 1
- *       jt1001(top, left, style, size_h);
+ *   if (jt1200() == 3)  jt995(top, left, style, size_h, 2);   // deep
+ *   else                jt1001(top, left, style, size_h);     // shallow
  *
- * jt382 cmd=1 funnels through here; both branches end up doing
- * a scaled-bitmap blit (jt995 directly, jt1001 via jt468 +
- * l309c). For the port the actual rendering both arms do is
- * dormant (PROBE stubs), so L148a fires without producing
- * pixels — jt382 cmd=1 still has its own DrawString call for
- * the text label as a port addition. */
+ * Both arms blit GLIB glyph item `size_h` from library jt468(style) at
+ * (top,left) via L309c — for a shape-3 pick row that glyph IS the radio
+ * MARKER bullet (Mac item 16 = hollow, 18 = filled/selected; L14d0 feeds
+ * size = 16 + hl, hl = 2 when rec[28] bit0 is set). Buttons (jt382) pass
+ * size 14, which carries no marker.
+ *
+ * The port has no GLIB glyph renderer (text goes through the QuickDraw
+ * shim's DrawString, fills through PaintRect — ADR-0003), so collapse the
+ * marker the same way: draw a small diamond straight into the HAL
+ * framebuffer, filled for the selected option, hollow otherwise. The
+ * deep/shallow split is only a clip-mode difference, which the screen-
+ * bounds guard in draw_radio_marker covers uniformly. */
 static void l148a(short top, short left, short style, short size_high) __attribute__((unused));
 static void l148a(short top, short left, short style, short size_high)
 {
+	unsigned char *px;
+	short pitch, sw, sh;
+	short my = 0, mx = 0;
+	short kind;
+
 	PROBE("L148a");
-	if (jt1200() == 3) {
-		(void)jt995(top, left, style, size_high, (short)2);
-	} else {
-		jt1001(top, left, style, size_high);
-	}
+	(void)style;
+
+	if (size_high < 16)                  /* buttons (14/15): no radio marker */
+		return;
+
+	/* size = 16 + hl encodes the row state (L14d0): hl 0 = no bits
+	 * (available), hl 1 = bit2 selected, hl 2 = bit0 disabled. */
+	if (size_high == 18)                  /* bit0 -> disabled / unavailable */
+		kind = 2;
+	else if (size_high == 17 || size_high == 20)  /* bit2 -> selected */
+		kind = 1;
+	else                                  /* 16 (available) / 19 (focus) */
+		kind = 0;
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+
+	jt1135(top, left, &my, &mx);         /* 8000-space -> pixel: my=y, mx=x */
+	draw_radio_marker(px, pitch, sw, sh, mx, my, kind);
 }
 
 static void jt174(void);                                                          /* CODE 7 + 0x2062 (lifted below) */
