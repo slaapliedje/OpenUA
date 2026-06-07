@@ -6279,28 +6279,28 @@ static short jt382(void *rec_v, short cmd, ...)
 					dbg_log(tmp);
 				}
 #endif
-				/* Raised-3D button plate behind the label. The Mac draws
-				 * the face by tiling rec[24] GLIB pieces 4 units apart from
-				 * rec[18] (L1a5e icon loop), so the button WIDTH is the
-				 * piece count — not the label length. Size the plate to that
-				 * span (mapped through jt1135 so it tracks the scale): every
-				 * row gets the same width, matching the Mac's uniform
-				 * columns. (draw_bevel is still a stand-in for the real
-				 * ALWAYS.CTL 9-slice face — task #105.) Buttons without a
-				 * piece count (rec[24] < 2, e.g. text-sized dialog buttons)
-				 * fall back to the label-length plate. */
-				if (len > 0) {
+				/* Button face. The MENU's wide command buttons (rec[24]=18)
+				 * get their real beveled bar from the live GLIB blit in the
+				 * menu screen's own setup (incl. the empty spacer rows), so
+				 * drawing a plate here would double-draw and run off the
+				 * edge — that earlier hack is gone. But narrow buttons like
+				 * char-gen's DONE/EXIT (rec[24]=4) are NOT painted a face by
+				 * their screen (jt574) yet, so they'd be bare. As a stopgap,
+				 * keep the draw_bevel plate ONLY for those (rec[24] small),
+				 * sized to the rec[24] piece span. Replacing this with each
+				 * screen's real GLIB face is task #105. */
+				if (len > 0 && *(short *)(rec + 24) < 11) {
 					unsigned char *ppx;
 					short ppitch, psw, psh;
 					if (qd_screen_pixels(&ppx, &ppitch, &psw, &psh) && ppx) {
 						short cnt = *(short *)(rec + 24);
+						short ry = 0, rx = 0;
 						short pl, pr;
 						short pt = (short)(y_pix - 8);
 						short pb = (short)(y_pix + 3);
 						short yy, xx;
 
 						if (cnt >= 2) {
-							short ry = 0, rx = 0;
 							jt1135(*(short *)(rec + 16),
 							       (short)(*(short *)(rec + 18)
 							               + (cnt - 1) * 4),
