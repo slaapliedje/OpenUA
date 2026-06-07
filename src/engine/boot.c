@@ -4572,18 +4572,18 @@ static void jt103(short top, short left, short right, short bottom)
 	short y1 = 0, x1 = 0, y2 = 0, x2 = 0;
 
 	PROBE("jt103");
+	(void)px; (void)pitch; (void)sw; (void)sh;
+	(void)y1; (void)x1; (void)y2; (void)x2;
+	/* Faithful: jt103 (L4bf6) is ONLY a jt1161 mode-8 box fill — the visible
+	 * 3D frame comes from the FRAME.CTL edge glyphs jt76 blits (jt1001), not
+	 * from jt103. The earlier port-added draw_bevel here stroked a second
+	 * border at the panel edge, doubling the line next to the FRAME.CTL edge
+	 * and making the frame look too wide; removed. */
 	jt1161((short)(left   * 4 + 8000),    /* L3f88 arg1 (d0 = left)   */
 	       (short)(top    * 4 + 8000),    /* L3f88 arg2 (d1 = top)    */
 	       (short)(bottom * 4 + 8004),    /* L3f88 arg3 (d2 = bottom) */
 	       (short)(right  * 4 + 8004),    /* L3f88 arg4 (d3 = right)  */
 	       8);
-
-	/* Stroke the lowered-3D border the Mac's GLIB frame pieces would draw. */
-	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL) {
-		jt1135((short)(left * 4 + 8000), (short)(top * 4 + 8000), &y1, &x1);
-		jt1135((short)(bottom * 4 + 8004), (short)(right * 4 + 8004), &y2, &x2);
-		draw_bevel(px, pitch, sw, sh, x1, y1, x2, y2, 0);
-	}
 }
 
 /* JT[1135] (CODE 4 + 0x77fe) — 2D coordinate transform.
