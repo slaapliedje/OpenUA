@@ -3548,12 +3548,13 @@ static void jt1135(short v1, short v2, short *out1, short *out2);
  * = transparent, width_px = bpp_w*8 = bytes per row (the flags 0x40 bit,
  * set on every UI item, marks colour; the dungeon's 1bpp DUNGCOM tiles
  * clear it). So the common arm here is the 8bpp 255-keyed copy (Mac mode
- * 5 -> JT[1190]); mode 0 (opaque frame edges) shares it harmlessly. The
- * compressed/scaled arms — 2 = PackBits (L2bfc/JT[1171]), 7 = RLE
- * transparency (L2b9a/JT[1195]), 3 = composite, 10 = wrap — stay
- * deferred (the big FRAME chrome pieces; the play frame is drawn by
- * port_draw_play_frame for now). A 1bpp source (flags 0x40 clear) falls
- * back to the mono OR leaf in the current QD foreground colour. */
+ * 5 -> JT[1190]); mode 0 (opaque frame edges) shares it harmlessly.
+ * Mode 2 (Mac L2bfc) is PackBits-compressed 8bpp colour, decoded per row
+ * via jt1171 (_UnpackBits) — the FRAME.CTL top/bottom bars and the play
+ * command bar. The remaining arms — 7 = RLE transparency (L2b9a/
+ * JT[1195]), 3 = composite, 10 = wrap — stay deferred. A 1bpp source
+ * (flags 0x40 clear) falls back to the mono OR leaf in the current QD
+ * foreground colour. */
 static void l2d4e(const unsigned char *src, short bpp_w, short height,
                   short y, short x, short flags)
 {
@@ -3576,8 +3577,8 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	if (x >= right || x + pix_w <= left)
 		return;
 
-	if (mode == 2 || mode == 3 || mode == 7 || mode == 10) {
-		PROBE("l2d4e-mode");          /* deferred compressed/scaled arms */
+	if (mode == 3 || mode == 7 || mode == 10) {
+		PROBE("l2d4e-mode");          /* deferred composite/RLE/wrap arms */
 		return;
 	}
 
@@ -3587,6 +3588,39 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	if (left < 0)    left = 0;
 	if (bottom > sh) bottom = sh;
 	if (right > sw)  right = sw;
+
+	if (mode == 2) {
+		/* PackBits-compressed 8bpp colour rows (Mac L2bfc): each row is
+		 * RLE-packed; jt1171 (_UnpackBits) expands pix_w bytes and returns
+		 * the advanced source, so rows are decoded in sequence. 255 =
+		 * transparent. The scratch is oversized to absorb a trailing run
+		 * that overshoots pix_w (jt1171 emits the full run, as the Mac
+		 * trap does). */
+		unsigned char rowbuf[640];
+		const unsigned char *s = src;
+
+		if (pix_w > 512)                  /* keep the run overshoot in bounds */
+			return;
+		for (r = 0; r < height; r++) {
+			short dy = (short)(y + r);
+
+			s = (const unsigned char *)jt1171(s, rowbuf, pix_w);
+			if (dy < top || dy >= bottom)
+				continue;
+			for (c = 0; c < pix_w; c++) {
+				unsigned char v = rowbuf[c];
+				short dx;
+
+				if (v == 255)
+					continue;
+				dx = (short)(x + c);
+				if (dx < left || dx >= right)
+					continue;
+				px[(long)dy * pitch + dx] = v;
+			}
+		}
+		return;
+	}
 
 	if (flags & 0x40) {
 		/* 8bpp colour glyph: stride = pix_w bytes, 255 = transparent. */
