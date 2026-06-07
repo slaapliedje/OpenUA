@@ -3470,7 +3470,6 @@ static void jt131(short a)
 		jt209(1);
 }
 
-static void l4bf6(short a, short b, short c, short d) { PROBE("l4bf6"); }         /* CODE 6 + 0x4bf6  */
 
 /* JT[468] (CODE 3 + 0xd1a) — translates a short arg into a long sub-
  * resource handle / channel pointer. Real body chains into the fc
@@ -4001,14 +4000,21 @@ static void l66e6(short n)
 	jt1001((short)(8000 + (short)(n << 2)), 8000, 1, 7);
 }
 
+static void jt103(short top, short left, short right, short bottom);  /* CODE 6 + 0x4bf6 */
+
 static void jt76(void)
 {
-	/* CODE 6 + 0x670c — a fixed setup sequence: clear via jt108, set
-	 * dimensions via L4bf6, then four channel-init calls through
-	 * JT[1001], closing with jt174's two-byte flag. */
+	/* CODE 6 + 0x670c — a fixed setup sequence: clear via jt108, paint the
+	 * window box (jt103 = CODE 6 + 0x4bf6), then four channel-init calls
+	 * through JT[1001], closing with jt174's two-byte flag.
+	 *
+	 * The Mac pushes 22,38,1,1 → jt103(1,1,38,22): the char-cell box
+	 * (top=1,left=1,right=38,bottom=22) → the ~(8,8)-(312,184)px grey panel
+	 * the PICK lists sit in. (An earlier cut called a stub l4bf6 with the
+	 * args reversed, so the rect was degenerate and no panel drew.) */
 	PROBE("jt76");
 	(void)jt108(0);
-	l4bf6(22, 38, 1, 1);
+	jt103((short)1, (short)1, (short)38, (short)22);
 	jt1001(8000, 8000, 1, 1);
 	jt1001(8000, 8000, 1, 2);
 	jt1001(8000, 8000, 1, 3);
@@ -16748,6 +16754,13 @@ static int  jt574(long ctx)
 			for (yy = 0; yy < sh; yy++)
 				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 		qd_present();
+		/* Open the engine clip to the full screen. The faithful entry sets
+		 * this when the char-gen window opens; the port shortcuts that, so
+		 * without it g_a5_-3050/-3052 are 0 and every jt1161 fill (the jt76
+		 * grey panel, l3666's frame) clips to nothing. jt1089 text is
+		 * unaffected (it doesn't clip), which is why the labels showed but
+		 * the panel didn't. */
+		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
 	}
 	/* Set up the faithful working record (g_a5_-7008) the pick action procs
 	 * write into, seed the char-gen defaults, and the design handle jt572
