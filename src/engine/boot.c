@@ -15866,6 +15866,117 @@ static void l29ae(unsigned char *rec)
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
 }
 
+/* CODE 17-local list helpers jt568 calls. L30de redraws the option-list
+ * highlight; L2f8e / L31d4 are the pass-1-match / pass-2-fallback finalizers.
+ * PROBE stubs for now — the grid-scan/highlight bookkeeping (jt568's own body,
+ * lifted below) is the state machine; these draw/finalize the result and are
+ * the remaining leaf work. */
+static void l2f8e(void) { PROBE("L2f8e"); }
+static void l31d4(void) { PROBE("L31d4"); }
+static void l30de(void) { PROBE("L30de"); }
+
+/* JT[568] (CODE 17 + 0x3382) — the character-creation PICK state machine: per
+ * step, set up the option list + the highlight cursor for the current
+ * selection. g_a5_-7018 = the step (1=race, 2=align, 3=gender, 4=class, ...);
+ * g_a5_-7008 = the working 398-byte record; rec[89] = step-1; rec[93] = the
+ * current linear option index. The option table at g_a5_-30450 is 12 bytes per
+ * entry: byte[0] = option count, byte[1..count] = the valid option values for
+ * that step (indexed by g_a5_-7027 race-base + rec[89]).
+ *
+ * Body (faithful to 0x3382): (1) enable/disable the step's three option-column
+ * DLItems via JT[444] (group 24 = enable / clear the disable bit, 16 = disable
+ * / set it); alignment (steps 1,3) hides columns 30/31. (2) read the option
+ * count into g_a5_-7011. (3) two symmetric passes scan the option values to
+ * locate the current selection (rec[93]) in the 3-column grid: pass 1 varies
+ * the column g_a5_-7009 over the fixed row g_a5_-7024; pass 2 varies g_a5_-7010
+ * over g_a5_-7022. -7014 / -7013 latch the match; -22307 is the per-entry walk
+ * counter. (4) redraw the list (L30de) and set the highlight DLItems 28/32 to
+ * the resolved rows. The list-draw leaves (L2f8e/L31d4/L30de) are stubs. */
+static void jt568(void) __attribute__((unused));
+static void jt568(void)
+{
+	unsigned char *rec  = (unsigned char *)g_a5_ptr(-7008);
+	short          step = g_a5_word(-7018);
+	short          base;
+
+	PROBE("jt568");
+	rec[89] = (unsigned char)(step - 1);
+
+	switch (step - 1) {                     /* JT[3] @0x339a — column enables */
+	case 1: case 3:                         /* alignment: enable col 29, hide 30/31 */
+		jt444(29, 24, 0, 0);
+		jt444(30, 16, 0, 0);
+		jt444(31, 16, 0, 0);
+		break;
+	case 0: case 2: case 4: case 5: case 6: case 8: case 9:
+	case 10: case 11: case 12: case 13: case 14: case 15: case 16:
+		jt444(29, 24, 0, 0);            /* race/gender/class: enable all 3 */
+		jt444(30, 24, 0, 0);
+		jt444(31, 24, 0, 0);
+		break;
+	default:                                /* step 7 / out of range: no change */
+		break;
+	}
+
+	/* L3444 — option count for this step's table entry */
+	base = (short)(((short)(unsigned char)g_a5_byte(-7027) + rec[89]) * 12);
+	g_a5_byte(-7011) = ((unsigned char *)g_a5_buf(-30450) + base)[0];
+	g_a5_byte(-7014) = 0;
+	g_a5_byte(-7009) = 1;
+
+	/* L34f0 — pass 1: find the column (-7009) of the current selection */
+	while ((unsigned char)g_a5_byte(-7009) < 3 && g_a5_byte(-7014) == 0) {
+		g_a5_byte(-22307) = 0;                          /* L3472 */
+		while ((unsigned char)g_a5_byte(-22307) < (unsigned char)g_a5_byte(-7011)
+		       && g_a5_byte(-7014) == 0) {              /* L34d6/L3478 */
+			unsigned char *e;
+			rec[93] = (unsigned char)
+			    (((short)g_a5_word(-7024) - 1) * 3
+			     + (short)(unsigned char)g_a5_byte(-7009) - 1);
+			e = (unsigned char *)g_a5_buf(-30450) + base
+			    + (unsigned char)g_a5_byte(-22307);
+			if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
+				g_a5_byte(-7014) = 1;
+			g_a5_byte(-22307)++;
+		}
+		g_a5_byte(-7009)++;                             /* L34ec */
+	}
+	g_a5_byte(-7009)--;                                     /* L3504 */
+
+	if (g_a5_byte(-7014) != 0) {
+		l2f8e();                                       /* pass 1 matched */
+	} else {
+		g_a5_byte(-7013) = 0;                          /* L3516 — pass 2 */
+		g_a5_byte(-7010) = 1;
+		while ((unsigned char)g_a5_byte(-7010) < 3 && g_a5_byte(-7013) == 0) {
+			g_a5_byte(-22307) = 0;                  /* L3524 */
+			while ((unsigned char)g_a5_byte(-22307) < (unsigned char)g_a5_byte(-7011)
+			       && g_a5_byte(-7013) == 0) {      /* L3586/L352a */
+				unsigned char *e;
+				rec[93] = (unsigned char)
+				    (((short)(unsigned char)g_a5_byte(-7010) - 1) * 3
+				     + (short)g_a5_word(-7022) - 1);
+				e = (unsigned char *)g_a5_buf(-30450) + base
+				    + (unsigned char)g_a5_byte(-22307);
+				if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
+					g_a5_byte(-7013) = 1;
+				g_a5_byte(-22307)++;
+			}
+			g_a5_byte(-7010)++;                     /* L359c */
+		}
+		g_a5_byte(-7010)--;                             /* L35b4 */
+		if (g_a5_byte(-7013) != 0)
+			g_a5_word(-7024) = (short)(unsigned char)g_a5_byte(-7010);
+		else
+			l31d4();
+	}
+
+	/* L35ce — redraw the list + set the two highlight DLItems */
+	l30de();
+	jt444(28, 4, (short)g_a5_word(-7024), 0);
+	jt444(32, 4, (short)g_a5_word(-7022), 0);
+}
+
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
  * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls
