@@ -15875,6 +15875,16 @@ static void l2f8e(void) { PROBE("L2f8e"); }
 static void l31d4(void) { PROBE("L31d4"); }
 static void l30de(void) { PROBE("L30de"); }
 
+/* L2f74 (CODE 17 + 0x2f74) — fold the two alignment-axis grid coords into the
+ * record's linear option index: rec[93] = (-7024 - 1)*3 + -7022 - 1. */
+static void l2f74(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-7008);
+	PROBE("L2f74");
+	rec[93] = (unsigned char)(((short)g_a5_word(-7024) - 1) * 3
+	          + (short)g_a5_word(-7022) - 1);
+}
+
 /* JT[568] (CODE 17 + 0x3382) — the character-creation PICK state machine: per
  * step, set up the option list + the highlight cursor for the current
  * selection. g_a5_-7018 = the step (1=race, 2=align, 3=gender, 4=class, ...);
@@ -15975,6 +15985,47 @@ static void jt568(void)
 	l30de();
 	jt444(28, 4, (short)g_a5_word(-7024), 0);
 	jt444(32, 4, (short)g_a5_word(-7022), 0);
+}
+
+/* JT[567] (CODE 17 + 0x3372) — the GENDER list action proc: store the picked
+ * gender (g_a5_-7020, 1-based) into rec[92]. */
+static void jt567(void) __attribute__((unused));
+static void jt567(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-7008);
+	PROBE("jt567");
+	rec[92] = (unsigned char)((short)g_a5_word(-7020) - 1);
+}
+
+/* JT[569] (CODE 17 + 0x336c) — alignment axis-1 (law/chaos) action proc:
+ * recompute the linear alignment index. */
+static void jt569(void) __attribute__((unused));
+static void jt569(void)
+{
+	PROBE("jt569");
+	l2f74();
+}
+
+/* JT[570] (CODE 17 + 0x334c) — alignment axis-2 (good/evil) action proc:
+ * redraw the list highlight, set DLItem 32 to the axis-2 row, recompute the
+ * linear alignment index. */
+static void jt570(void) __attribute__((unused));
+static void jt570(void)
+{
+	PROBE("jt570");
+	l30de();
+	l2f8e();
+	jt444(32, 4, (short)g_a5_word(-7022), 0);
+	l2f74();
+}
+
+/* JT[571] (CODE 17 + 0x2f6c) — the "Exit" button action proc: set the
+ * cancel/result flag g_a5_-7038 = 1 so L3666's poll (jt453) ends. */
+static void jt571(void) __attribute__((unused));
+static void jt571(void)
+{
+	PROBE("jt571");
+	g_a5_byte(-7038) = 1;
 }
 
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
