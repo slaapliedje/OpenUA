@@ -16854,6 +16854,19 @@ static int l3666(void)
 	      34L, (long)(uintptr_t)&jt571, 21L,
 	      0L);
 
+	/* DONE / EXIT each get the real MENU.CTL command-bar plate (item 1),
+	 * the same plate the main-menu command buttons get — jt382 (shape 1)
+	 * only paints the label + item-14 glyph, so the plate is drawn here
+	 * (before the paint walk, so the labels land on top). Each is ~one
+	 * button wide; DONE at x 8004, EXIT at x 8024 (the build coords). */
+	{
+		short py = 0, pxx = 0;
+		jt1135((short)8098, (short)8004, &py, &pxx);
+		port_menu_bar((short)(py - 9), (short)(pxx - 4), (short)38, (short)1);
+		jt1135((short)8098, (short)8024, &py, &pxx);
+		port_menu_bar((short)(py - 9), (short)(pxx - 4), (short)38, (short)1);
+	}
+
 	jt449(1);
 	jt453((jt453_filter_t)0);            /* the modal pick poll */
 	jt451();
