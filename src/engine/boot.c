@@ -6165,6 +6165,28 @@ static short jt382(void *rec_v, short cmd, ...)
 					dbg_log(tmp);
 				}
 #endif
+				/* Raised-3D button plate behind the label. The Mac draws
+				 * the button face as a GLIB glyph (L148a -> L309c, size 14);
+				 * the port has no GLIB so stroke a raised bevel + face into
+				 * the framebuffer, sized to the label. */
+				if (len > 0) {
+					unsigned char *ppx;
+					short ppitch, psw, psh;
+					if (qd_screen_pixels(&ppx, &ppitch, &psw, &psh) && ppx) {
+						short pl = (short)(x_pix - 6);
+						short pr = (short)(x_pix + len * 8 + 6);
+						short pt = (short)(y_pix - 8);
+						short pb = (short)(y_pix + 3);
+						short yy, xx;
+						for (yy = pt; yy < pb; yy++)
+							if (yy >= 0 && yy < psh)
+								for (xx = pl; xx < pr; xx++)
+									if (xx >= 0 && xx < psw)
+										ppx[(long)yy * ppitch + xx] = 8;
+						draw_bevel(ppx, ppitch, psw, psh,
+						           pl, pt, pr, pb, 1);   /* raised */
+					}
+				}
 				if (len > 0) {
 					/* The Mac paint chain (L148a/jt995) sets the pen
 					 * colour; our collapsed path doesn't, so the label
