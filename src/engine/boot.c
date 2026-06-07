@@ -17095,13 +17095,13 @@ static int  jt574(long ctx)
 	PROBE("jt574");
 	(void)ctx;
 
-	/* Char-gen is a normal full-screen UI, drawn at the native 320x200 scale
-	 * (jt1135 ×2, g_a5_-2347 = 1) like the menu and every other screen —
-	 * nothing in this game renders in the Mac's 640x400 doubled space. (An
-	 * earlier cut forced ×3 here to stop the PICK headers stacking on top of
-	 * each other, but that was a symptom of l35f8/L14d0 passing jt1089 coords
-	 * in Mac Point (v, h) order instead of the port's (h, v); with that fixed
-	 * the headers lay out correctly at the native scale.) */
+	/* Char-gen content (l35f8/l3666, 8006.. coords) is authored for the
+	 * deep ×3 scale (g_a5_-2347 = 0): at ×3 PICK RACE sits at y18 with the
+	 * Mac's top margin and the text is full-size, but the content then spans
+	 * ~290x282 — which needs a 640x400 surface. The port's videl is locked
+	 * to 320x200, so ×3 overflows (CLASS clips right, GENDER/DONE clip
+	 * bottom). Until the UI screens get a 640x400 video mode, run ×2 (fits
+	 * 320x200, PICK RACE tight at y12). Tracked in #105 / the 640x400 mode. */
 	g_a5_2347 = 1;
 	load_menu_ui();                      /* shared UI palette + backdrop */
 
