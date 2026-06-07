@@ -5998,8 +5998,12 @@ static void l14d0(unsigned char *rec, short arg)
 	/* Mac calls jt1089(v, h, ...) in Point (vertical, horizontal) order;
 	 * the port's jt1089 takes (horizontal, vertical) — it swaps at both
 	 * the sink and every caller (see jt94), so a faithful caller must
-	 * pass (h, v) here to land on the port convention. */
-	jt1089(h, v, col, "%s", *(const char **)(rec + 12));
+	 * pass (h, v) here to land on the port convention.
+	 * v+6: the radio marker glyph is drawn with its TOP at the row pen
+	 * (jt1135(rec16)), but DrawString puts the label BASELINE there, so the
+	 * 8px text rode ~6px high above the 7px marker. +6 drops the baseline to
+	 * vertically centre the label on the marker (race/align/gender/class). */
+	jt1089(h, (short)(v + 6), col, "%s", *(const char **)(rec + 12));
 }
 
 /* jt380 — shape 3 method dispatcher. cmd=2 has a primary text-
