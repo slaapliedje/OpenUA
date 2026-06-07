@@ -16339,8 +16339,14 @@ static void l35f8(void)
 	jt76();
 	/* Mac coords are (v, h); the port's jt1089 takes (h, v) — pass swapped
 	 * so RACE/ALIGNMENT/GENDER stack down the left column and CLASS sits in
-	 * the right column (the real FRUA two-column pick layout). */
-	jt1089((short)8006, (short)8006, col, "PICK RACE");
+	 * the right column (the real FRUA two-column pick layout).
+	 * PICK RACE y nudged 8006->8008 (y12->y16): at the port's mandatory ×2
+	 * the 8px header font reaches up to y5 and clipped the FRAME top bar
+	 * (y0-8); +4px clears it while keeping an 8px gap to the ELF row (y24).
+	 * The other headers sit lower and already clear the bar. (320x200
+	 * content-vs-frame alignment — the content is also drawable at the Mac's
+	 * ×3 where the fixed frame has more room; we never use ×3 — task #108.) */
+	jt1089((short)8006, (short)8008, col, "PICK RACE");
 	jt1089((short)8006, (short)8040, col, "PICK ALIGNMENT");
 	jt1089((short)8006, (short)8076, col, "PICK GENDER");
 	jt1089((short)8068, (short)8012, col, "PICK CLASS");
