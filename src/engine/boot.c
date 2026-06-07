@@ -4589,9 +4589,23 @@ static void jt1141(short top, short left, short h, short w,
 static void jt1141(short top, short left, short h, short w,
                    short *out_bottom, short *out_right)
 {
+	/* L78e8: remap (top, left) 8000-space -> pixel via L77fe (the same
+	 * >6000 gate jt1135 uses; values <=6000 pass through as absolute
+	 * pixels), then add the height/width — each likewise remapped when
+	 * given in 8000-space. */
+	short scale = (g_a5_2347 == 0) ? 3 : 2;
+	short top2  = (top  > 6000) ? (short)((top  - 8000) * scale) : top;
+	short left2 = (left > 6000) ? (short)((left - 8000) * scale) : left;
+
 	PROBE("jt1141");
-	(void)top; (void)left; (void)h; (void)w;
-	(void)out_bottom; (void)out_right;
+	if (out_bottom != NULL)
+		*out_bottom = (h > 6000)
+		    ? (short)((h - 8000) * scale + top2)
+		    : (short)(top2 + h);
+	if (out_right != NULL)
+		*out_right = (w > 6000)
+		    ? (short)((w - 8000) * scale + left2)
+		    : (short)(left2 + w);
 }
 
 /* L3994 (CODE 6 + 0x3994) — GrafPort save / paint setup. Reads
@@ -5676,6 +5690,89 @@ static short jt379(void *rec_v, short cmd, ...)
 	return l1676(rec, cmd, a, b);
 }
 
+/* L14d0 (CODE 3 + 0x14d0) — shape-3 (list-row / radio-item) paint.
+ * jt380 cmd=1 funnels here. Faithful to the Mac body:
+ *
+ *   rec[28] |= 0x80;                       // mark painted
+ *   if (rec[28] & 0x02) return;            // disabled -> no draw
+ *   // highlight/style offset hl from the state bits:
+ *   if      (rec[28] & 0x01) hl = 2;       // pressed/selected
+ *   else  { hl = (rec[28] & 0x08) ? 3 : 0; // focus
+ *           if (rec[28] & 0x04) hl++; }    // dim
+ *   short ss = rec[26];
+ *   if (ss >= 0)                            // ss < 0 = no glyph/style
+ *       L148a(rec[16], rec[18], (ss?ss>>10:0),
+ *             (ss?ss&0x3ff:arg) + hl);      // font/style paint
+ *   if (rec[12] == 0) return;              // no label
+ *   // colour byte from rec[31] + selection state:
+ *   if (rec[28] & 0x01)                     // selected
+ *       col = rec[31] ? ((rec[31]&0xf0)==0x90 ? 152
+ *                        : (rec[31]&0xf0)|7) : 23;
+ *   else                                    // normal
+ *       col = rec[31] ? rec[31] : 240;
+ *   jt1141(rec[16], rec[18], 0, 8006, &v, &h);  // -> pixel, +6 inset
+ *   jt1089(v, h, col, rec[12]);            // draw the label string
+ *
+ * L148a routes through jt995 / jt1001 (font-bitmap blit) which are
+ * PROBE stubs in the port, so the visible glyphs come from jt1089's
+ * DrawString — the same QuickDraw shim path the headers (l35f8) and
+ * jt382 button labels render through. The jt452 list-builds tag each
+ * row with rec[31] = g_a5_-7000 (135 shallow / 15 deep), so col's low
+ * nibble lands on a visible CLUT index (7 = light grey) rather than
+ * the bare-default 0xf0 (index 0). The selection marker is a separate
+ * highlight DLItem jt568 toggles, not a colour change here. */
+static void l14d0(unsigned char *rec, short arg)
+{
+	short hl;
+	short ss;
+	short col;
+	short v = 0, h = 0;
+
+	PROBE("L14d0");
+
+	rec[28] |= 0x80;                         /* mark painted */
+	if ((rec[28] & 0x02) != 0)
+		return;                             /* disabled */
+
+	if ((rec[28] & 0x01) != 0) {
+		hl = 2;
+	} else {
+		hl = ((rec[28] & 0x08) != 0) ? 3 : 0;
+		if ((rec[28] & 0x04) != 0)
+			hl++;
+	}
+
+	ss = *(short *)(rec + 26);
+	if (ss >= 0) {
+		short style = (ss != 0) ? (short)(ss >> 10) : (short)0;
+		short size  = (ss != 0) ? (short)(ss & 0x03ff) : arg;
+		l148a(*(short *)(rec + 16), *(short *)(rec + 18),
+		      style, (short)(size + hl));
+	}
+
+	if (*(long *)(rec + 12) == 0)
+		return;                             /* no label string */
+
+	if ((rec[28] & 0x01) != 0) {            /* selected */
+		if (rec[31] != 0)
+			col = ((rec[31] & 0xf0) == 0x90)
+			    ? (short)152
+			    : (short)((rec[31] & 0xf0) | 7);
+		else
+			col = 23;
+	} else {                                /* normal */
+		col = (rec[31] != 0) ? (short)rec[31] : (short)240;
+	}
+
+	jt1141(*(short *)(rec + 16), *(short *)(rec + 18),
+	       0, 8006, &v, &h);
+	/* Mac calls jt1089(v, h, ...) in Point (vertical, horizontal) order;
+	 * the port's jt1089 takes (horizontal, vertical) — it swaps at both
+	 * the sink and every caller (see jt94), so a faithful caller must
+	 * pass (h, v) here to land on the port convention. */
+	jt1089(h, v, col, "%s", *(const char **)(rec + 12));
+}
+
 /* jt380 — shape 3 method dispatcher. cmd=2 has a primary text-
  * bounds hit-test like jt382's, plus a secondary fallback when
  * the primary misses (lifted from L2278). The fallback measures
@@ -5693,6 +5790,12 @@ static short jt380(void *rec_v, short cmd, ...)
 
 	PROBE("jt380");
 	SHAPE_CMD_PROBE("jt380");
+
+	if (cmd == 1) {
+		/* L2266: paint via L14d0(rec, 16). */
+		l14d0(rec, (short)16);
+		return 0;
+	}
 
 	if (cmd != 2) {
 		short la, lb;
@@ -15809,10 +15912,13 @@ static void l35f8(void)
 
 	PROBE("L35f8");
 	jt76();
+	/* Mac coords are (v, h); the port's jt1089 takes (h, v) — pass swapped
+	 * so RACE/ALIGNMENT/GENDER stack down the left column and CLASS sits in
+	 * the right column (the real FRUA two-column pick layout). */
 	jt1089((short)8006, (short)8006, col, "PICK RACE");
-	jt1089((short)8040, (short)8006, col, "PICK ALIGNMENT");
-	jt1089((short)8076, (short)8006, col, "PICK GENDER");
-	jt1089((short)8012, (short)8068, col, "PICK CLASS");
+	jt1089((short)8006, (short)8040, col, "PICK ALIGNMENT");
+	jt1089((short)8006, (short)8076, col, "PICK GENDER");
+	jt1089((short)8068, (short)8012, col, "PICK CLASS");
 }
 
 /* L29ae (CODE 17 + 0x29ae) — character max-HP finalize. Computes rec[82]
@@ -16562,11 +16668,14 @@ static int  jt574(long ctx)
 	PROBE("jt574");
 	(void)ctx;
 
-	/* The char-creation screen's label coords (8006/8040/8076…) assume the
-	 * deep display scale (jt1135 ×3); the Training Hall left g_a5_-2347 = 1
-	 * (×2), which packs the PICK headers on top of each other. Use the deep
-	 * scale here. */
-	g_a5_2347 = 0;
+	/* Char-gen is a normal full-screen UI, drawn at the native 320x200 scale
+	 * (jt1135 ×2, g_a5_-2347 = 1) like the menu and every other screen —
+	 * nothing in this game renders in the Mac's 640x400 doubled space. (An
+	 * earlier cut forced ×3 here to stop the PICK headers stacking on top of
+	 * each other, but that was a symptom of l35f8/L14d0 passing jt1089 coords
+	 * in Mac Point (v, h) order instead of the port's (h, v); with that fixed
+	 * the headers lay out correctly at the native scale.) */
+	g_a5_2347 = 1;
 	load_menu_ui();                      /* shared UI palette + backdrop */
 
 	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
