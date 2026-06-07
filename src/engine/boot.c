@@ -9089,11 +9089,22 @@ static void jt312(unsigned char *page)
 	render_3d_faithful(px, pitch, sw, sh);
 #endif
 	if (s_view_first || g_view_force_full) {
-		qd_present();           /* flush whole screen under the new palette */
+		/* DOUBLE full present: the HAL double-buffers two planar pages and
+		 * each qd_present c2p's the full chunky buffer to ONE page then
+		 * flips, so present TWICE to put the complete frame (the static
+		 * FRAME.CTL chrome + the view) on BOTH pages. Otherwise the next
+		 * viewport-only qd_present_rect flips to the page that never received
+		 * the chrome -> a black frame around the view on the first movement
+		 * (the dungeon-render / round-trip black, #103). */
+		qd_present();
+		qd_present();
 		s_view_first = 0;
 		g_view_force_full = 0;
 	} else {
-		/* present just the 88x88 viewport at (24,24)-(111,111). */
+		/* Both pages already hold the chrome (from the double present above);
+		 * c2p just the 88x88 viewport at (24,24)-(111,111) to the back page
+		 * each frame — its hole is refreshed right before the flip, so every
+		 * flip shows the current view over the persistent chrome. */
 		qd_present_rect((short)24, (short)24, (short)88, (short)88);
 	}
 }
@@ -10928,18 +10939,16 @@ void port_l6234_verify(void)
 			wctx = wrec;
 			wrec[4] = 0; wrec[5] = 1; wrec[9] = 0;
 			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
-			/* Re-fetch the screen: jt935's internal qd_present flipped the
-			 * double buffer, so the px captured before jt935 now points at
-			 * the FRONT page — rendering there then presenting shows the
-			 * other (black) page. Re-fetch the current back page, and force
-			 * the FRAME.CTL chrome onto it (render_3d_faithful's s_chrome_drawn
-			 * is already set from jt935's pass, so it would skip the chrome on
-			 * this page) before drawing the view. */
-			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL) {
-				g_cw_grp[0] = g_cw_grp[1] = g_cw_grp[2] = 0xff;  /* force chrome+wall reload */
-				render_3d_faithful(px, pitch, sw, sh);
-				qd_present();
-			}
+			(void)px; (void)pitch; (void)sw; (void)sh;
+			/* Route the walk through the LIVE jt312 render so the harness
+			 * exercises the production path (#103): jt312 fetches its own back
+			 * page, draws the FRAME.CTL chrome on the first/forced frame and
+			 * DOUBLE-presents (both flip pages get the chrome), then on every
+			 * subsequent frame rect-presents just the 88x88 viewport. Forcing
+			 * the wall ids to 0xFF makes jt312 reload + set g_view_force_full
+			 * for the first frame. */
+			g_cw_grp[0] = g_cw_grp[1] = g_cw_grp[2] = 0xff;
+			jt312(NULL);
 			dbg_log("=== dungeon walk: arrows move, []/,. nudge view, Esc holds ===");
 			for (;;) {
 				ky = 0; kx = 0;
@@ -10948,7 +10957,8 @@ void port_l6234_verify(void)
 					kc = ky;                     /* arrows -> 257..264 */
 					if (kc == 27)
 						break;
-					/* live view-offset tuning: [ / ] shift X, , / . shift Y */
+					/* live view-offset tuning: [ / ] shift X, , / . shift Y.
+					 * Force a full present so both pages pick up the shift. */
 					if (kc == '[' || kc == ']' || kc == ',' || kc == '.') {
 						if (kc == '[') g_cwf_ox--;
 						else if (kc == ']') g_cwf_ox++;
@@ -10956,15 +10966,17 @@ void port_l6234_verify(void)
 						else g_cwf_oy++;
 						dbg_log_num("view ox=", (long)g_cwf_ox);
 						dbg_log_num("     oy=", (long)g_cwf_oy);
-						render_3d_faithful(px, pitch, sw, sh);
+						g_view_force_full = 1;
+						jt312(NULL);
 					} else if (kc >= 257 && kc <= 264) {
 						for (kk = 0; kk < 6; kk++)
 							wrec[46 + kk] = g_a5_byte(-12288 + kk);
 						jt297(&wctx, kc, 0);
-						render_3d_faithful(px, pitch, sw, sh);
+						/* movement: jt312 rect-presents the viewport only —
+						 * the case the double-buffer fix must keep framed. */
+						jt312(NULL);
 					}
 				}
-				qd_present();
 			}
 		}
 
