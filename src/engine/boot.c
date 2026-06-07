@@ -15871,9 +15871,109 @@ static void l29ae(unsigned char *rec)
  * PROBE stubs for now — the grid-scan/highlight bookkeeping (jt568's own body,
  * lifted below) is the state machine; these draw/finalize the result and are
  * the remaining leaf work. */
-static void l2f8e(void) { PROBE("L2f8e"); }
-static void l31d4(void) { PROBE("L31d4"); }
-static void l30de(void) { PROBE("L30de"); }
+/* L31d4 (CODE 17 + 0x31d4) — pass-2 fallback: when the current selection has no
+ * valid grid cell, reset the highlight position by class (g_a5_-7018 - 1):
+ * the multi-class-ish set {6,12,14,15,16} -> (2,2), the rest {0..5,7..11,13} ->
+ * (1,1); out of range leaves it unchanged. */
+static void l31d4(void)
+{
+	PROBE("L31d4");
+	switch ((short)g_a5_word(-7018) - 1) {
+	case 6: case 12: case 14: case 15: case 16:
+		g_a5_word(-7024) = 2; g_a5_word(-7022) = 2;
+		break;
+	case 0: case 1: case 2: case 3: case 4: case 5:
+	case 7: case 8: case 9: case 10: case 11: case 13:
+		g_a5_word(-7024) = 1; g_a5_word(-7022) = 1;
+		break;
+	default:
+		break;
+	}
+}
+
+/* L2f8e (CODE 17 + 0x2f8e) — re-validate the alignment grid position. Pass 1
+ * tests whether the current (-7024,-7022) cell holds a valid option value
+ * (-7012 latches the match); if not, pass 2 sweeps -7022 over 1..3 for a valid
+ * cell; if still none, L31d4 resets to the class default. Walks the option
+ * value list at g_a5_-30450 (byte[0]=count, byte[1..]=values). */
+static void l2f8e(void)
+{
+	unsigned char *rec  = (unsigned char *)g_a5_ptr(-7008);
+	short          base = (short)(((short)(unsigned char)g_a5_byte(-7027)
+	                               + rec[89]) * 12);
+
+	PROBE("L2f8e");
+	g_a5_byte(-7011) = ((unsigned char *)g_a5_buf(-30450) + base)[0];
+	g_a5_byte(-7012) = 0;
+
+	g_a5_byte(-22307) = 0;                          /* pass 1: current cell */
+	while ((unsigned char)g_a5_byte(-22307) < (unsigned char)g_a5_byte(-7011)
+	       && g_a5_byte(-7012) == 0) {
+		unsigned char *e;
+		rec[93] = (unsigned char)(((short)g_a5_word(-7024) - 1) * 3
+		          + (short)g_a5_word(-7022) - 1);
+		e = (unsigned char *)g_a5_buf(-30450) + base
+		    + (unsigned char)g_a5_byte(-22307);
+		if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
+			g_a5_byte(-7012) = 1;
+		g_a5_byte(-22307)++;
+	}
+	if (g_a5_byte(-7012) != 0)
+		return;
+
+	{                                               /* pass 2: sweep -7022 */
+		short matched = 0;
+		g_a5_word(-7022) = 1;
+		while ((unsigned short)g_a5_word(-7022) < 3 && matched == 0) {
+			rec[93] = (unsigned char)(((short)g_a5_word(-7024) - 1) * 3
+			          + (short)g_a5_word(-7022) - 1);
+			g_a5_byte(-22307) = 0;
+			while ((unsigned char)g_a5_byte(-22307)
+			       < (unsigned char)g_a5_byte(-7011) && matched == 0) {
+				unsigned char *e = (unsigned char *)g_a5_buf(-30450)
+				    + base + (unsigned char)g_a5_byte(-22307);
+				if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
+					matched = 1;
+				g_a5_byte(-22307)++;
+			}
+			g_a5_word(-7022)++;
+		}
+		g_a5_word(-7022)--;
+		if (matched == 0)
+			l31d4();
+	}
+}
+
+/* L30de (CODE 17 + 0x30de) — redraw the option-list highlight: for each of the
+ * three columns, test whether the current selection ((-7024-1)*3 + col - 1) is
+ * a valid option value and enable (group 24) or disable (group 16) that
+ * column's highlight DLItem (item = col + 32). */
+static void l30de(void)
+{
+	unsigned char *rec  = (unsigned char *)g_a5_ptr(-7008);
+	short          base = (short)(((short)(unsigned char)g_a5_byte(-7027)
+	                               + rec[89]) * 12);
+	short          count = ((unsigned char *)g_a5_buf(-30450) + base)[0];
+	short          col;
+
+	PROBE("L30de");
+	for (col = 1; col <= 3; col++) {
+		short matched = 0;
+		g_a5_byte(-22307) = 0;
+		while ((unsigned char)g_a5_byte(-22307) < (unsigned char)count
+		       && matched == 0) {
+			unsigned char *e;
+			rec[93] = (unsigned char)(((short)g_a5_word(-7024) - 1) * 3
+			          + col - 1);
+			e = (unsigned char *)g_a5_buf(-30450) + base
+			    + (unsigned char)g_a5_byte(-22307);
+			if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
+				matched = 1;
+			g_a5_byte(-22307)++;
+		}
+		jt444((short)(col + 32), matched ? 24 : 16, 0, 0);
+	}
+}
 
 /* L2f74 (CODE 17 + 0x2f74) — fold the two alignment-axis grid coords into the
  * record's linear option index: rec[93] = (-7024 - 1)*3 + -7022 - 1. */
@@ -16359,7 +16459,9 @@ typedef struct {
 
 /* Draw the char-gen screen from the pick state: each region shows its
  * current choice in cyan once reached, the rest light grey; the class and
- * alignment lists show only their gated options. */
+ * alignment lists show only their gated options.
+ * (Superseded by the faithful L3666 DLItem lists; kept for reference.) */
+static void cg_draw(const cg_state *s) __attribute__((unused));
 static void cg_draw(const cg_state *s)
 {
 	short k;
@@ -16481,8 +16583,7 @@ static int  jt574(long ctx)
 	 * (Done) stamps into rec[68]. Then run the faithful pick screen L3666 (the
 	 * jt452 race/gender/class/alignment lists + the jt453 modal poll firing
 	 * jt566..jt572). On a Done commit jt572 sets g_a5_-27932 = rec; Exit/cancel
-	 * returns 0. The derived-stat finalize (L29ae/L238e/L0006) and the roster/
-	 * save wiring are the next steps. */
+	 * returns 0. */
 	{
 		static unsigned char cg_rec[398];
 
@@ -16492,7 +16593,35 @@ static int  jt574(long ctx)
 		cg_rec[382] = 1;  cg_rec[130] = 1;  cg_rec[189] = 8;
 		g_a5_18882 = jt1199(g_a5_18844);   /* new-character design handle */
 
-		(void)l3666();                     /* the faithful PICK screen */
+		if (l3666() != 0) {
+			/* Done committed: add a roster character from the faithful picks.
+			 * The faithful derived-stat finalize (L238e/L0006) + name-entry +
+			 * .CHR save (jt584) aren't lifted yet, so the picked RACE drives a
+			 * valid class/alignment, the stats are rolled port-side, and the
+			 * name is a placeholder (rename later). cg_build_record threads it
+			 * into the pool/party (g_a5_-27928) and persists it. */
+			cg_state s;
+			short k;
+			static const char placeholder[] = "NEW HERO";
+
+			memset(&s, 0, sizeof s);
+			s.race = (short)(unsigned char)g_a5_byte(-7026) - 1;
+			if (s.race < 0 || s.race >= CG_NRACES)
+				s.race = 0;
+			s.gender = (short)(unsigned char)g_a5_byte(-7020) - 1;
+			if (s.gender < 0 || s.gender >= CG_NGENDERS)
+				s.gender = 0;
+			s.nallowed = cg_allowed_classes(s.race, s.allowed);
+			s.ksel     = 0;                /* first class the race allows */
+			s.naligned = cg_allowed_aligns(s.allowed[s.ksel], s.aligned);
+			s.asel     = 0;
+			cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
+			for (k = 0; placeholder[k] && k < 15; k++)
+				s.name[k] = placeholder[k];
+			s.name[k] = 0;
+			s.namelen = k;
+			cg_build_record(&s);
+		}
 	}
 	return 0;                            /* back to the Training Hall */
 }
