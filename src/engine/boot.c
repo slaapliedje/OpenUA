@@ -16121,8 +16121,10 @@ static void jt572(void)
  * ability scores (the L34f0 loop over the race/class tables at g_a5_-30450)
  * and runs the pick state machine — that is the large multi-session
  * remainder of the CODE 17 lift and stays TODO. */
-static void l3666(void)
+static int l3666(void)
 {
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-7008);
+
 	PROBE("L3666");
 	g_a5_byte(-7038) = 0;
 	if (jt1200() == 3) {                 /* deep mode */
@@ -16132,15 +16134,89 @@ static void l3666(void)
 		g_a5_word(-7000) = 135;
 		g_a5_word(-7016) = 140;
 	}
-	l35f8();
+	l35f8();                             /* PICK headers */
 	jt117();
-	g_a5_word(-7026) = 6;
+	g_a5_word(-7026) = 6;                /* default race index */
 	g_a5_word(-7024) = 1;
 	g_a5_word(-7022) = 1;
 	g_a5_word(-7020) = 1;
-	g_a5_word(-7018) = 3;                 /* wizard step */
-	/* TODO: ability-score roll (L34f0) + the per-step pick state machine
-	 * (jt568 dispatcher, race/class/gender/alignment selection). */
+	g_a5_word(-7018) = 3;                /* default class index */
+	rec[88] = 5; rec[93] = 0; rec[92] = 0; rec[89] = 2;
+
+	jt174();
+	jt447();                             /* reset the DLItem table */
+
+	/* The faithful jt452 option-list builds (one container [shape 2] + item
+	 * rows [shape 3], each carrying the value-output global + the action proc
+	 * jt453's poll fires on a pick). Streams transcribed from L3666's asm
+	 * (cmd 34 = action proc, 35 = value addr, 38 = rec[31] row tag, 17 = the
+	 * default-row flag). g_a5_-7000 = the per-row tag (15 deep / 135 shallow). */
+
+	/* RACE list (jt566 -> g_a5_-7026): ELF..HUMAN */
+	jt452(2L, 6L, 34L, (long)(uintptr_t)&jt566, 35L, (long)(uintptr_t)&g_a5_byte(-7026),
+	      3L, 8012L, 8006L, (long)(uintptr_t)ua_strs_at(0x48c6), 38L, (long)g_a5_word(-7000),
+	      3L, 8016L, 8006L, (long)(uintptr_t)ua_strs_at(0x48ca), 38L, (long)g_a5_word(-7000),
+	      3L, 8020L, 8006L, (long)(uintptr_t)ua_strs_at(0x48d4), 38L, (long)g_a5_word(-7000),
+	      3L, 8024L, 8006L, (long)(uintptr_t)ua_strs_at(0x48da), 38L, (long)g_a5_word(-7000),
+	      3L, 8028L, 8006L, (long)(uintptr_t)ua_strs_at(0x48e0), 38L, (long)g_a5_word(-7000),
+	      3L, 8032L, 8006L, (long)(uintptr_t)ua_strs_at(0x48ea), 38L, (long)g_a5_word(-7000),
+	      0L);
+
+	/* GENDER list (jt567 -> g_a5_-7020): MALE, FEMALE */
+	jt452(2L, 2L, 34L, (long)(uintptr_t)&jt567, 35L, (long)(uintptr_t)&g_a5_byte(-7020),
+	      3L, 8082L, 8006L, (long)(uintptr_t)ua_strs_at(0x48f0), 38L, (long)g_a5_word(-7000),
+	      3L, 8086L, 8006L, (long)(uintptr_t)ua_strs_at(0x48f6), 38L, (long)g_a5_word(-7000),
+	      0L);
+
+	/* CLASS list (jt568 -> g_a5_-7018), built in three jt452 calls: the single
+	 * classes then the multi-class combos (cmd 17 flags the default row). */
+	jt452(2L, 17L, 34L, (long)(uintptr_t)&jt568, 35L, (long)(uintptr_t)&g_a5_byte(-7018),
+	      3L, 8018L, 8070L, (long)(uintptr_t)ua_strs_at(0x48fe), 38L, (long)g_a5_word(-7000),
+	      3L, 8022L, 8070L, (long)(uintptr_t)ua_strs_at(0x4906), 38L, (long)g_a5_word(-7000), 17L,
+	      3L, 8022L, 8070L, (long)(uintptr_t)ua_strs_at(0x490c), 38L, (long)g_a5_word(-7000),
+	      3L, 8026L, 8070L, (long)(uintptr_t)ua_strs_at(0x4914), 38L, (long)g_a5_word(-7000),
+	      3L, 8030L, 8070L, (long)(uintptr_t)ua_strs_at(0x491c), 38L, (long)g_a5_word(-7000),
+	      0L);
+	jt452(3L, 8034L, 8070L, (long)(uintptr_t)ua_strs_at(0x4924), 38L, (long)g_a5_word(-7000),
+	      3L, 8038L, 8070L, (long)(uintptr_t)ua_strs_at(0x4930), 38L, (long)g_a5_word(-7000),
+	      3L, 8042L, 8070L, (long)(uintptr_t)ua_strs_at(0x4936), 38L, (long)g_a5_word(-7000), 17L,
+	      3L, 8042L, 8070L, (long)(uintptr_t)ua_strs_at(0x493c), 38L, (long)g_a5_word(-7000),
+	      3L, 8046L, 8070L, (long)(uintptr_t)ua_strs_at(0x494c), 38L, (long)g_a5_word(-7000),
+	      3L, 8050L, 8070L, (long)(uintptr_t)ua_strs_at(0x4960), 38L, (long)g_a5_word(-7000),
+	      0L);
+	jt452(3L, 8054L, 8070L, (long)(uintptr_t)ua_strs_at(0x496e), 38L, (long)g_a5_word(-7000),
+	      3L, 8054L, 8070L, (long)(uintptr_t)ua_strs_at(0x4980), 38L, (long)g_a5_word(-7000), 17L,
+	      3L, 8058L, 8070L, (long)(uintptr_t)ua_strs_at(0x498e), 38L, (long)g_a5_word(-7000),
+	      3L, 8062L, 8070L, (long)(uintptr_t)ua_strs_at(0x49a2), 38L, (long)g_a5_word(-7000),
+	      3L, 8066L, 8070L, (long)(uintptr_t)ua_strs_at(0x49b0), 38L, (long)g_a5_word(-7000),
+	      3L, 8070L, 8070L, (long)(uintptr_t)ua_strs_at(0x49c2), 38L, (long)g_a5_word(-7000),
+	      0L);
+
+	/* ALIGNMENT: axis-2 law/chaos (jt570 -> g_a5_-7024) then axis-1 good/evil
+	 * (jt569 -> g_a5_-7022), both in one jt452 call. */
+	jt452(2L, 3L, 34L, (long)(uintptr_t)&jt570, 35L, (long)(uintptr_t)&g_a5_byte(-7024),
+	      3L, 8046L, 8006L, (long)(uintptr_t)ua_strs_at(0x49d4), 38L, (long)g_a5_word(-7000),
+	      3L, 8050L, 8006L, (long)(uintptr_t)ua_strs_at(0x49dc), 38L, (long)g_a5_word(-7000),
+	      3L, 8054L, 8006L, (long)(uintptr_t)ua_strs_at(0x49e4), 38L, (long)g_a5_word(-7000),
+	      2L, 3L, 34L, (long)(uintptr_t)&jt569, 35L, (long)(uintptr_t)&g_a5_byte(-7022),
+	      3L, 8060L, 8006L, (long)(uintptr_t)ua_strs_at(0x49ec), 38L, (long)g_a5_word(-7000),
+	      3L, 8064L, 8006L, (long)(uintptr_t)ua_strs_at(0x49f2), 38L, (long)g_a5_word(-7000),
+	      3L, 8068L, 8006L, (long)(uintptr_t)ua_strs_at(0x49fa), 38L, (long)g_a5_word(-7000),
+	      0L);
+
+	/* Done (jt572, hotkey 'D') + Exit (jt571, hotkey 'E') buttons [shape 1]. */
+	jt452(1L, 8094L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
+	      34L, (long)(uintptr_t)&jt572, 21L,
+	      1L, 8094L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
+	      34L, (long)(uintptr_t)&jt571, 21L,
+	      0L);
+
+	jt449(1);
+	jt453((jt453_filter_t)0);            /* the modal pick poll */
+	jt451();
+
+	/* return 1 = Done / committed, 0 = Exit / cancelled (g_a5_-7038 set). */
+	return (g_a5_byte(-7038) == 0) ? 1 : 0;
 }
 
 /* Char-gen option lists under the PICK headers. PORT ADDITION: the Mac
@@ -16370,6 +16446,8 @@ static void cg_build_record(const cg_state *s)
 	save_roster();
 }
 
+static long jt1199(long a);   /* design-handle helper (defined below) */
+
 /* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
  * case 0). Shows the char-creation screen (L3666 -> the PICK race/class/
  * gender/alignment headers + the option lists) on the shared stone chrome,
@@ -16377,7 +16455,6 @@ static void cg_build_record(const cg_state *s)
  * deferred remainder (docs/menu-wiring-plan.md / TODO). */
 static int  jt574(long ctx)
 {
-	unsigned char scan = 0, ascii = 0;
 	unsigned char *px; short pitch, sw, sh, yy;
 
 	PROBE("jt574");
@@ -16399,91 +16476,23 @@ static int  jt574(long ctx)
 				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 		qd_present();
 	}
-	l3666();                             /* seed wizard state + PICK headers */
-
-	/* Interactive pick flow (PORT interaction, pending the faithful jt568
-	 * mouse state machine): a keyboard cursor advances through the picks in
-	 * order — race -> gender -> class -> alignment -> stats. Up/Down (scan
-	 * 0x48/0x50) move the highlight in the active list, Return advances, Esc
-	 * backs up (cancelling out of race). The class list is gated to the
-	 * race's allowed classes, the alignment list to the chosen class's
-	 * allowed alignments. The chosen race is stored in g_a5_-7027; the
-	 * record build + add-to-roster (and naming) are the deferred remainder. */
+	/* Set up the faithful working record (g_a5_-7008) the pick action procs
+	 * write into, seed the char-gen defaults, and the design handle jt572
+	 * (Done) stamps into rec[68]. Then run the faithful pick screen L3666 (the
+	 * jt452 race/gender/class/alignment lists + the jt453 modal poll firing
+	 * jt566..jt572). On a Done commit jt572 sets g_a5_-27932 = rec; Exit/cancel
+	 * returns 0. The derived-stat finalize (L29ae/L238e/L0006) and the roster/
+	 * save wiring are the next steps. */
 	{
-		cg_state s;
+		static unsigned char cg_rec[398];
 
-		memset(&s, 0, sizeof s);
-		s.race = (short)(signed char)g_a5_byte(-7027);
-		if (s.race < 0 || s.race >= CG_NRACES)
-			s.race = 0;
-		s.nallowed = cg_allowed_classes(s.race, s.allowed);
-		cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
+		memset(cg_rec, 0, sizeof cg_rec);
+		g_a5_ptr(-7008) = cg_rec;
+		cg_rec[179] = 50; cg_rec[127] = 40; cg_rec[94] = 0;
+		cg_rec[382] = 1;  cg_rec[130] = 1;  cg_rec[189] = 8;
+		g_a5_18882 = jt1199(g_a5_18844);   /* new-character design handle */
 
-		while (plat_kb_poll(&scan, &ascii))    /* drain the triggering key */
-			;
-		for (;;) {
-			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-				if (g_menu_state == 1)
-					fill_backdrop(px, pitch, 0, 0,
-					              (short)(sw - 1), (short)(sh - 1));
-				else
-					for (yy = 0; yy < sh; yy++)
-						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
-			}
-			l35f8();                       /* PICK headers */
-			cg_draw(&s);
-			qd_present();
-
-			while (!plat_kb_poll(&scan, &ascii))
-				;
-			if (ascii == 13 || ascii == 3) {       /* Return -> advance */
-				if (s.step == 0) {             /* race -> gate classes */
-					s.nallowed = cg_allowed_classes(s.race, s.allowed);
-					s.ksel = 0;
-				} else if (s.step == 2) {      /* class -> gate alignments */
-					s.naligned = cg_allowed_aligns(
-					    s.allowed[s.ksel], s.aligned);
-					s.asel = 0;
-				} else if (s.step == 3) {      /* alignment -> roll stats */
-					cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
-				} else if (s.step == 5) {      /* name entered -> create */
-					if (s.namelen == 0)
-						continue;      /* need a name first */
-					cg_build_record(&s);
-					break;                 /* character created */
-				}
-				s.step++;                      /* race/gender/class/align/stats */
-			} else if (ascii == 27) {              /* Esc -> back up / cancel */
-				if (--s.step < 0) {
-					g_a5_byte(-7027) = (unsigned char)s.race;
-					return 0;
-				}
-			} else if (s.step == 4) {              /* stat-roll step */
-				if (ascii == 'r' || ascii == 'R' || ascii == ' ')
-					cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
-			} else if (s.step == 5) {              /* name-entry step */
-				if (ascii == 8 || ascii == 127) {      /* backspace */
-					if (s.namelen > 0)
-						s.name[--s.namelen] = 0;
-				} else if (ascii >= 32 && ascii < 127
-				        && s.namelen < 15) {           /* printable */
-					s.name[s.namelen++] = (char)ascii;
-					s.name[s.namelen] = 0;
-				}
-			} else {                               /* list-pick step */
-				short *cur = (s.step == 0) ? &s.race
-				           : (s.step == 1) ? &s.gender
-				           : (s.step == 2) ? &s.ksel : &s.asel;
-				short  n   = (s.step == 0) ? CG_NRACES
-				           : (s.step == 1) ? CG_NGENDERS
-				           : (s.step == 2) ? s.nallowed : s.naligned;
-				if (scan == 0x48)              /* Up */
-					*cur = (short)((*cur + n - 1) % n);
-				else if (scan == 0x50)         /* Down */
-					*cur = (short)((*cur + 1) % n);
-			}
-		}
-		g_a5_byte(-7027) = (unsigned char)s.race;  /* store the chosen race */
+		(void)l3666();                     /* the faithful PICK screen */
 	}
 	return 0;                            /* back to the Training Hall */
 }
