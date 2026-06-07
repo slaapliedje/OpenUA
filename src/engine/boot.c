@@ -3914,28 +3914,33 @@ static void draw_radio_marker(unsigned char *px, short pitch, short sw,
                               short sh, short x, short y, short kind)
 {
 	const unsigned char WHITE = 15, BLACK = 0, RED = 12;
+	/* Per-row half-widths for a round 7x7 disc (flat 3px top/bottom, not the
+	 * pointy 1px tip a pure d2<=9 mask gives — that read as a diamond). */
+	static const signed char hw[7] = { 1, 2, 3, 3, 3, 2, 1 };
 	short cx = (short)(x + 3);            /* disc centre */
 	short cy = (short)(y - 4);            /* sit on the glyph body */
-	short dy;
+	short r;
 
-	for (dy = -3; dy <= 3; dy++) {
+	for (r = 0; r < 7; r++) {
+		short dy  = (short)(r - 3);
 		short row = (short)(cy + dy);
+		short h   = hw[r];
 		short dx;
 
 		if (row < 0 || row >= sh)
 			continue;
-		for (dx = -3; dx <= 3; dx++) {
+		for (dx = -h; dx <= h; dx++) {
 			short col = (short)(cx + dx);
-			short d2  = (short)(dx * dx + dy * dy);
 			unsigned char c;
 
-			if (col < 0 || col >= sw || d2 > 9)
-				continue;                       /* outside the disc */
-			if (kind != 2 && d2 >= 5)
+			if (col < 0 || col >= sw)
+				continue;
+			/* ring = the arc: top/bottom rows + the side pixels of each row */
+			if (kind != 2 && (dx == -h || dx == h || dy == -3 || dy == 3))
 				c = BLACK;                      /* outline ring */
 			else
 				c = WHITE;                      /* disc body */
-			if (kind == 1 && d2 <= 1)
+			if (kind == 1 && (dx * dx + dy * dy) <= 1)
 				c = RED;                        /* selected centre dot */
 			px[(long)row * pitch + col] = c;
 		}
@@ -4415,14 +4420,56 @@ static void jt97(short col, short row, short page, short style,
  * 8000-space coords are turned into pixels by JT[1135] inside jt1161 (x2 in
  * dialog mode), so a 38x22 box lands as the ~304px-wide popup frame. */
 static void jt1161(short top, short left, short bottom, short right, short fill);
+static void jt1135(short v1, short v2, short *out1, short *out2);
+
+/* Draw a 1px 3D bevel on the pixel rect [x1,x2) x [y1,y2). raised=0 gives the
+ * LOWERED/inset look (dark top+left, light bottom+right); raised=1 the opposite.
+ * The Mac frames its dialog boxes (jt76's GLIB edge pieces) and bevels its
+ * buttons this way; the port has no GLIB glyphs so we stroke the edges into the
+ * HAL framebuffer directly (same collapse as jt1089/jt1161/draw_radio_marker). */
+static void draw_bevel(unsigned char *px, short pitch, short sw, short sh,
+                       short x1, short y1, short x2, short y2, int raised)
+{
+	const unsigned char DARK = 0, LIGHT = 7;     /* black / light grey */
+	unsigned char tl = raised ? LIGHT : DARK;    /* top + left edge */
+	unsigned char br = raised ? DARK : LIGHT;    /* bottom + right edge */
+	short i;
+
+	if (x2 <= x1 || y2 <= y1)
+		return;
+	for (i = x1; i < x2; i++) {              /* top / bottom rows */
+		if (i >= 0 && i < sw) {
+			if (y1 >= 0 && y1 < sh)        px[(long)y1 * pitch + i] = tl;
+			if (y2 - 1 >= 0 && y2 - 1 < sh) px[(long)(y2 - 1) * pitch + i] = br;
+		}
+	}
+	for (i = y1; i < y2; i++) {              /* left / right cols */
+		if (i >= 0 && i < sh) {
+			if (x1 >= 0 && x1 < sw)        px[(long)i * pitch + x1] = tl;
+			if (x2 - 1 >= 0 && x2 - 1 < sw) px[(long)i * pitch + (x2 - 1)] = br;
+		}
+	}
+}
+
 static void jt103(short top, short left, short right, short bottom)
 {
+	unsigned char *px;
+	short pitch, sw, sh;
+	short y1 = 0, x1 = 0, y2 = 0, x2 = 0;
+
 	PROBE("jt103");
 	jt1161((short)(left   * 4 + 8000),    /* L3f88 arg1 (d0 = left)   */
 	       (short)(top    * 4 + 8000),    /* L3f88 arg2 (d1 = top)    */
 	       (short)(bottom * 4 + 8004),    /* L3f88 arg3 (d2 = bottom) */
 	       (short)(right  * 4 + 8004),    /* L3f88 arg4 (d3 = right)  */
 	       8);
+
+	/* Stroke the lowered-3D border the Mac's GLIB frame pieces would draw. */
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL) {
+		jt1135((short)(left * 4 + 8000), (short)(top * 4 + 8000), &y1, &x1);
+		jt1135((short)(bottom * 4 + 8004), (short)(right * 4 + 8004), &y2, &x2);
+		draw_bevel(px, pitch, sw, sh, x1, y1, x2, y2, 0);
+	}
 }
 
 /* JT[1135] (CODE 4 + 0x77fe) — 2D coordinate transform.
