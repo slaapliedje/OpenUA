@@ -6239,12 +6239,15 @@ static short jt382(void *rec_v, short cmd, ...)
 			const char *label = *(const char **)(rec + 12);
 			short y_pix = 0, x_pix = 0;
 
-			/* Faithful: route through the Mac paint dispatcher.
-			 * In our port jt995 / jt1001 are PROBE stubs so this
-			 * doesn't produce visible pixels — see below for the
-			 * port-side text rendering. */
-			l148a(*(short *)(rec + 16), *(short *)(rec + 18),
-			      style, (short)(size + highlighted));
+			/* The Mac paint dispatches l148a(rec16, rec18, style,
+			 * size+hl) here; for ss=0 buttons size=14, i.e. ALWAYS
+			 * item 14 — which is a small DOWN-ARROW glyph. The Mac
+			 * doesn't render it visibly on menu/DONE-EXIT buttons (the
+			 * face is the command-bar plate + centred label), and now
+			 * that the GLIB blit is live it drew a stray triangle below
+			 * each button, so it's suppressed. (The shape-3 radio
+			 * markers go through l14d0's own l148a — unaffected.) */
+			(void)style; (void)size;
 
 			/* Port addition: render the label text. The Mac paint
 			 * chain handles button bitmaps + decoration; the
@@ -16861,10 +16864,13 @@ static int l3666(void)
 	 * button wide; DONE at x 8004, EXIT at x 8024 (the build coords). */
 	{
 		short py = 0, pxx = 0;
+		/* Two abutting plates (DONE x 8004, EXIT x 8024 = 40px apart) so
+		 * each covers its centred label and the shared edge reads as the
+		 * Mac's DONE|EXIT divider. */
 		jt1135((short)8098, (short)8004, &py, &pxx);
-		port_menu_bar((short)(py - 9), (short)(pxx - 4), (short)38, (short)1);
+		port_menu_bar((short)(py - 9), pxx, (short)40, (short)1);
 		jt1135((short)8098, (short)8024, &py, &pxx);
-		port_menu_bar((short)(py - 9), (short)(pxx - 4), (short)38, (short)1);
+		port_menu_bar((short)(py - 9), pxx, (short)40, (short)1);
 	}
 
 	jt449(1);
