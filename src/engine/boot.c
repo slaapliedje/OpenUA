@@ -3509,64 +3509,150 @@ static long jt468(short tag)
 	return g_a5_10270[id];
 }
 
-/* L309c (CODE 5 + 0x309c) = JT[999] — render scaled bitmap into
- * channel.
+/* Forward decls for the GLIB glyph blit entry below (full bodies later). */
+static long l2856(long font_handle, short size, void *out_8bytes);
+static void jt1135(short v1, short v2, short *out1, short *out2);
+
+/* l2d4e (CODE 5 + 0x2d4e) — the GLIB bitmap blit dispatcher + clipper,
+ * the leaf L309c delegates the actual pixel write to.
  *
- * Despite earlier "channel-write" guess, this is a 200+ line
- * scaled-blit dispatcher. Reads four args (target_x, target_y,
- * bitmap_handle, mode), then:
+ * Faithful to L2d4e's prologue: reject when the (y,height)x(x,width)
+ * rectangle falls fully outside the QuickDraw clip rect (top=g_a5_-3054,
+ * bottom=-3050, left=-3056, right=-3052), then dispatch on the glyph's
+ * mode nibble (metric[7] & 15):
+ *   - 2  colour-map blit        (Mac L2bfc)
+ *   - 3  multi-source composite (Mac L289a loop)
+ *   - 7  transparency RLE       (Mac L2b9a, JT[1195])
+ *   - 10 horizontal wrap        (Mac self-recursion)
+ *   - else  the mono OR leaf    (Mac L2970 default arm)
  *
- *   jt1135(arg_x, arg_y, &scaled_x, &scaled_y);   // coord remap
- *   long bytes_needed = L2856(...);                // font/bitmap metric
- *   if (bytes_needed != 0) {
- *       L4d88();                                    // flush invalrect
- *       arg_x -= scaled_x; arg_y -= scaled_y;       // adjust origin
- *       int half = (fp@(-1) & 0x0F) == 9;          // half-pixel mode
- *       if (half) ...                              // half-pixel branch
- *       ... 150+ more lines of pixel-walk, mask,
- *       ... clip-region intersection, color-table
- *       ... lookups, _BlockMove into the page descriptor's
- *       ... bits ptr (from g_a5_-2570[N].entry+2).
- *   }
- *
- * Stays a PROBE stub — the full body needs the engine's font
- * cache + a Falcon-side pixel destination. With jt1001 stubbing
- * the 4 calls in boot to "do nothing," the pixel rendering is
- * deferred to the display HAL phase. The "channel" framing was
- * a misnomer — it's a pixmap blit, not audio. */
-static void l309c(short a, short b, long c, short d)
+ * The Mac leaf (L2970) writes through a family of page-descriptor row
+ * writers (JT[1165/1172/1176/1202]) that scale by jt1200() for the
+ * 320->640 doubling. The port renders native 1:1 into the 8bpp shim
+ * surface (per the all-320x200 decision), so the mono arm here is the
+ * straight masked-OR equivalent: each set source bit lays down the
+ * current QuickDraw foreground index, clear bits stay transparent,
+ * clipped per-pixel to the clip rect intersected with the surface. The
+ * scaled colour/RLE/composite/wrap arms remain deferred (the resident
+ * UI GLIBs — ALWAYS.CTL / FRAME.CTL — are mono). */
+static void l2d4e(const unsigned char *src, short bpp_w, short height,
+                  short y, short x, short mode)
 {
-	PROBE("L309c");
-	(void)a; (void)b; (void)c; (void)d;
+	short top    = g_a5_3054;
+	short bottom = g_a5_3050;
+	short left   = g_a5_3056;
+	short right  = g_a5_3052;
+	short pix_w  = (short)(bpp_w * 8);
+	unsigned char *px;
+	short pitch, sw, sh;
+	GrafPtr port;
+	unsigned char fg = 0;
+	short r, c;
+
+	if (src == NULL || height <= 0 || bpp_w <= 0)
+		return;
+
+	/* clip-reject (L2d4e 0x2d52..0x2d8c) */
+	if (y >= bottom || y + height <= top)
+		return;
+	if (x >= right || x + pix_w <= left)
+		return;
+
+	mode &= 15;
+	if (mode == 2 || mode == 3 || mode == 7 || mode == 10) {
+		PROBE("l2d4e-mode");          /* deferred non-mono arms */
+		return;
+	}
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	GetPort(&port);
+	if (port != NULL)
+		fg = ((CGrafPtr)port)->fgColor;
+
+	if (top < 0)     top = 0;
+	if (left < 0)    left = 0;
+	if (bottom > sh) bottom = sh;
+	if (right > sw)  right = sw;
+
+	for (r = 0; r < height; r++) {
+		short dy = (short)(y + r);
+		const unsigned char *srow = src + (long)r * bpp_w;
+
+		if (dy < top || dy >= bottom)
+			continue;
+		for (c = 0; c < pix_w; c++) {
+			short dx;
+
+			if (!(srow[c >> 3] & (0x80 >> (c & 7))))
+				continue;
+			dx = (short)(x + c);
+			if (dx < left || dx >= right)
+				continue;
+			px[(long)dy * pitch + dx] = fg;
+		}
+	}
 }
 
-/* JT[1001] — the workhorse "select sub-resource n, write to channel"
- * service. CODE 5 + 0x31ac.
+/* L309c (CODE 5 + 0x309c) = JT[999] — the UI GLIB glyph blit entry.
  *
- *   linkw fp, #0
- *   movew fp@(12), sp@-          ; push b
- *   jsr   JT[468]                  ; d0 = jt468(b)
- *   addql #2, sp
- *   movew fp@(14), sp@-           ; push d (fourth caller arg)
- *   movel d0, sp@-                 ; push the long jt468 returned
- *   movew fp@(10), sp@-            ; push c
- *   movew fp@(8), sp@-             ; push a
- *   jsr   L309c                    ; l309c(a, c, jt468(b), d)
- *   lea   sp@(10), sp
- *   unlk fp; rts
+ * Faithful to L309c's prologue (0x30a0..0x30ea): remap the pen (a=top,
+ * b=left) through jt1135, fetch glyph item `size` from `handle` via
+ * l2856 (8-byte metric + the 1bpp bits), early-out when absent, then
+ * back off the pen by the glyph bearings (ybear @2, xbear @4). A mode-9
+ * glyph is a multi-part composite (0x30f4: it walks 6-byte sub-part
+ * descriptors via JT[406] and recurses) — deferred, the resident UI
+ * glyphs are single-part. Everything else hands the decoded bitmap to
+ * l2d4e. (Distinct from l309c_tile, the dungeon's 8bpp tile channel.) */
+static void l309c(short a, short b, long handle, short size)
+{
+	unsigned char metric[8];
+	long  info;
+	short sy = a, sx = b;
+	short ybear, xbear, mode, height, bpp_w;
+
+	PROBE("L309c");
+
+	jt1135(a, b, &sy, &sx);              /* 8000-space -> pixels */
+	info = l2856(handle, size, metric);
+	if (info == 0)
+		return;
+	ybear = (short)(((unsigned short)metric[2] << 8) | metric[3]);
+	xbear = (short)(((unsigned short)metric[4] << 8) | metric[5]);
+	sy = (short)(sy - ybear);
+	sx = (short)(sx - xbear);
+
+	mode = (short)metric[7];
+	if ((mode & 15) == 9) {
+		PROBE("l309c-composite");
+		return;
+	}
+
+	height = (short)(((unsigned short)metric[0] << 8) | metric[1]);
+	bpp_w  = (short)metric[6];
+	l2d4e((const unsigned char *)(uintptr_t)info, bpp_w, height,
+	      sy, sx, mode);
+}
+
+/* JT[1001] (CODE 5 + 0x31ac) — select GLIB resource group `c`, blit its
+ * item `d` at pen (a, b).
  *
- * jt76 / l66e6 / jt80 / l67ca / L0aae all call this with (page-base,
- * channel-id, 1, mode-byte) tuples. jt468 owns the page → ptr map; the
- * real machinery follows when an engine path actually demands audio /
- * graphics output.
- */
+ *   movew fp@(12), sp@-     ; push c  (3rd arg = the group)
+ *   jsr   JT[468]           ; base = jt468(c)
+ *   ...
+ *   jsr   L309c             ; l309c(a, b, jt468(c), d)
+ *
+ * jt76 calls jt1001(8000,8000,1,1..4) — FRAME.CTL (group 1) bevel
+ * pieces; L148a calls jt1001(top,left,style,size) — ALWAYS.CTL markers/
+ * buttons. (The earlier stub swapped args 2/3: it did jt468(b)+l309c(a,c)
+ * — harmless while L309c was a no-op, fixed now that the blit is live.) */
 static void jt1001(short a, short b, short c, short d)
 {
-	long t;
+	long base;
 
 	PROBE("jt1001");
-	t = jt468(b);
-	l309c(a, c, t, d);
+	base = jt468(c);                     /* c = resource group id */
+	l309c(a, b, base, d);                /* d = glyph index in the group */
 }
 
 /* Forward — jt1200 / l2856 / l4d88 / jt1135 / l731e lift further
