@@ -10928,8 +10928,18 @@ void port_l6234_verify(void)
 			wctx = wrec;
 			wrec[4] = 0; wrec[5] = 1; wrec[9] = 0;
 			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
-			render_3d_faithful(px, pitch, sw, sh);
-			qd_present();
+			/* Re-fetch the screen: jt935's internal qd_present flipped the
+			 * double buffer, so the px captured before jt935 now points at
+			 * the FRONT page — rendering there then presenting shows the
+			 * other (black) page. Re-fetch the current back page, and force
+			 * the FRAME.CTL chrome onto it (render_3d_faithful's s_chrome_drawn
+			 * is already set from jt935's pass, so it would skip the chrome on
+			 * this page) before drawing the view. */
+			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL) {
+				g_cw_grp[0] = g_cw_grp[1] = g_cw_grp[2] = 0xff;  /* force chrome+wall reload */
+				render_3d_faithful(px, pitch, sw, sh);
+				qd_present();
+			}
 			dbg_log("=== dungeon walk: arrows move, []/,. nudge view, Esc holds ===");
 			for (;;) {
 				ky = 0; kx = 0;
