@@ -6322,25 +6322,10 @@ static short jt382(void *rec_v, short cmd, ...)
 						}
 					}
 
-					{
-							short cnt = *(short *)(rec + 24);
-							short lx = x_pix;
-							/* Centre label in the bar like the Mac (L1bfe:
-							 * JT[1005]+L39ae string-width). Bar spans rec[18]
-							 * ..rec[18]+(rec[24]-1)*4; port font 8px/char. */
-							if (cnt >= 2) {
-								short ry = 0, rx = 0, bw;
-								jt1135(*(short *)(rec + 16),
-								       (short)(*(short *)(rec + 18)
-								               + (cnt - 1) * 4),
-								       &ry, &rx);
-								bw = (short)(rx + 16 - x_pix);
-								lx = (short)(x_pix + (bw - len * 8) / 2);
-								if (lx < x_pix)
-									lx = x_pix;
-							}
-							MoveTo(lx, y_pix);
-						}
+					/* Left-justify the label at the button origin (the plate
+						 * carries its own left margin), like the Mac menu — the
+						 * labels are NOT centred. */
+						MoveTo(x_pix, y_pix);
 					if (hi < 0) {            /* no accelerator: all body */
 						if (cport) cport->fgColor = BODY;
 						pbuf[0] = (unsigned char)len;
@@ -8916,10 +8901,19 @@ static void port_menu_load(void)
 		g_menu_base = base;
 }
 
-/* Blit MENU.CTL bar glyph `idx` (1 = raised, 2 = recessed) at pixel
- * (top,left), clipped to `width` px and the surface. Mode-0 raw 8bpp =
- * opaque copy; the bar's 16px height carries its 3D bevel. The FRAME band
- * (clut 16..31) is installed by load_menu_ui before this runs. */
+/* Blit a clean MENU.CTL command-bar plate `idx` (1 = raised, 2 = recessed)
+ * at pixel (top,left), `width` px, mode-0 raw 8bpp.
+ *
+ * MENU.CTL item 1/2 is a 320x16 glyph holding THREE ~102px command slots
+ * separated by [30,0,7] section dividers (the Mac draws one slot per
+ * command; its proportional font fits ~102px). The port's fixed 8px font
+ * needs wider plates, so a straight clip catches a divider mid-plate. To
+ * get a clean bar of any width, reconstruct it from the slot's left cap
+ * (source cols 0..3 = the outer bevel + light raised edge) tiled with a
+ * single face column (col 10: row1 light highlight, rows 2..13 face 23,
+ * rows 14..15 dark shadow) — the divider columns are never sampled. The
+ * FRAME band (clut 16..31) is installed by load_menu_ui before this. */
+#define MENU_BAR_FACE_COL 10
 static void port_menu_bar(short top, short left, short width, short idx)
 {
 	unsigned char metric[8];
@@ -8941,8 +8935,6 @@ static void port_menu_bar(short top, short left, short width, short idx)
 	src = (const unsigned char *)(uintptr_t)info;                /* raw 8bpp */
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
-	if (width > w)
-		width = w;
 	for (r = 0; r < h; r++) {
 		short dy = (short)(top + r);
 		const unsigned char *s = src + (long)r * w;
@@ -8951,10 +8943,15 @@ static void port_menu_bar(short top, short left, short width, short idx)
 			continue;
 		for (c = 0; c < width; c++) {
 			short dx = (short)(left + c);
+			short srcc = (c < 4) ? c : MENU_BAR_FACE_COL;
+			unsigned char v;
 
 			if (dx < 0 || dx >= sw)
 				continue;
-			px[(long)dy * pitch + dx] = s[c];
+			v = s[srcc];
+			if (v == 255)
+				continue;
+			px[(long)dy * pitch + dx] = v;
 		}
 	}
 }
