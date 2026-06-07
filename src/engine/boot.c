@@ -17095,13 +17095,13 @@ static int  jt574(long ctx)
 	PROBE("jt574");
 	(void)ctx;
 
-	/* Char-gen content (l35f8/l3666, 8006.. coords) is authored for the
-	 * deep ×3 scale (g_a5_-2347 = 0): at ×3 PICK RACE sits at y18 with the
-	 * Mac's top margin and the text is full-size, but the content then spans
-	 * ~290x282 — which needs a 640x400 surface. The port's videl is locked
-	 * to 320x200, so ×3 overflows (CLASS clips right, GENDER/DONE clip
-	 * bottom). Until the UI screens get a 640x400 video mode, run ×2 (fits
-	 * 320x200, PICK RACE tight at y12). Tracked in #105 / the 640x400 mode. */
+	/* 320x200 ×2 — like EVERY screen. The port is full-screen 320x200; the
+	 * Mac's 640x400 (×3 / g_a5_-2347 = 0) is a windowed-desktop scale we
+	 * NEVER use (640x400 @256c exceeds a stock Falcon's VIDEL bandwidth).
+	 * Char-gen's 8006.. coords render correctly here (PICK RACE y12 etc.);
+	 * do NOT switch to ×3 to gain margin (it engages deep mode — wrong
+	 * colours/markers — and overflows 320x200). Any header-vs-frame
+	 * tightness is a 320x200 alignment detail (task #108). */
 	g_a5_2347 = 1;
 	load_menu_ui();                      /* shared UI palette + backdrop */
 
