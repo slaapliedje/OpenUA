@@ -9003,6 +9003,8 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 		ui_glib_blit(g_frame_base, s, (short)0, (short)0, 1, 0);
 }
 
+static signed char jt1160(void);        /* view-mode bit; defined below */
+
 /* jt312 (JT[312], CODE 22 + 0x23ee) — the dungeon-view render, the
  * play-loop site that draws the first-person view. In the Mac build
  * this runs the page/palette setup, the view clip + background fill, a
@@ -9030,7 +9032,17 @@ static void jt312(unsigned char *page)
 	short pitch, sw, sh, cell;
 
 	(void)page;
-	if (ds == NULL || jt1200() != 3)        /* deep dungeon view only */
+	/* First-person dungeon view only. The view-mode bit jt1160() reads
+	 * (g_a5_-2592 & 0x02: set = top-down/overland, clear = first-person)
+	 * is the engine's real dungeon-vs-overland discriminator, independent
+	 * of the display scale. The old gate was jt1200()==3, which conflates
+	 * "deep view" with "640x400 scale mode" (g_a5_-2347==0): the port runs
+	 * EVERY screen at native 320x200 (g_a5_-2347==1), so jt1200() is never
+	 * 3 in live play and that gate would bail before rendering. The 88x88
+	 * view still renders deep via g_cwf_force_deep (set inside
+	 * render_3d_faithful), so gating on jt1160() is the right, scale-
+	 * independent test. See [[screen-320x200-not-640x400]]. */
+	if (ds == NULL || jt1160() != 0)        /* first-person dungeon view only */
 		return;
 	if (!dungeon_view_setup())
 		return;
@@ -10940,6 +10952,13 @@ void port_l6234_verify(void)
 			wrec[4] = 0; wrec[5] = 1; wrec[9] = 0;
 			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
 			(void)px; (void)pitch; (void)sw; (void)sh;
+			/* Switch to the NATIVE display mode (g_a5_-2347 = 1 -> jt1135
+			 * scale 2, jt1200() != 3) the real play screen uses — the verify
+			 * pass above ran deep (g_a5_-2347 = 0). This proves jt312 now
+			 * renders under the live-play condition: the view stays deep via
+			 * g_cwf_force_deep and the gate keys off jt1160() (first-person),
+			 * not the old jt1200()==3 that native scale never satisfies. */
+			g_a5_2347 = 1;
 			/* Route the walk through the LIVE jt312 render so the harness
 			 * exercises the production path (#103): jt312 fetches its own back
 			 * page, draws the FRAME.CTL chrome on the first/forced frame and
