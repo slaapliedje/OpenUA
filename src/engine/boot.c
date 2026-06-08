@@ -5124,15 +5124,8 @@ static void l42a0(short col, short row, short s5, short s6,
 		       ua_strs_at(0x6c4) /* "%c" */, (int)(unsigned char)ch);
 }
 
-/* L435a — per-glyph display pacing for the slow-text option (g_a5_-27981);
- * the port runs with that off, so this arm is never exercised. PROBE stub
- * (the timing accumulator + JT[1134] tick) until slow-text is wanted. */
-static void l435a(void) { PROBE("L435a"); }
-
-/* L4c46 — the "press a key to continue" pause shown when a cell's text
- * overflows the cell and paginates. Deferred (alert leaves L6048/L4b84). */
-static void l4c46(void) { PROBE("L4c46"); }
-
+static void l435a(void);                /* CODE 6 — slow-text pacing (lifted after its deps) */
+static void l4c46(void);                /* CODE 6 — pagination "press a key" pause (lifted later) */
 static void jt176(void);                /* CODE 7+0x162e — scroll/clear (lifted below) */
 
 /* jt96 (CODE 6 + 0x43c4) — render `val` word-wrapped into the cell rect
@@ -15480,6 +15473,156 @@ static short jt453(jt453_filter_t filterProc)
 		}
 	}
 }
+
+/* ===================================================================== *
+ * jt96 slow-text-pacing + pagination-pause cluster (was stubbed). All of
+ * these bottom out on already-lifted leaves (jt1118/jt1125/jt1133/jt983/
+ * jt453/jt1151/jt1134 + the DLItem/text primitives), so the whole chain
+ * is real now — no stubs left in jt96. Defined here, after jt453.
+ * ===================================================================== */
+
+static void l162e(void);                /* CODE 7 — defined below */
+static void l2062(void);                /* CODE 7 — defined below */
+
+/* JT[1154] (CODE 4+0x77e8) — read the page-scroll latch g_a5_-806. */
+static short jt1154_pg(void) { PROBE("jt1154"); return (short)(unsigned char)g_a5_byte(-806); }
+/* JT[1140] (CODE 4+0x77d0) — set the page-scroll latch; when clearing it
+ * (v==0) reset the scroll state via JT[1151] (=L765c). */
+static void  jt1140_pg(short v)
+{
+	PROBE("jt1140");
+	if ((v & 0xff) == 0)
+		jt1151();                       /* L765c — scroll-state reset */
+	g_a5_byte(-806) = (unsigned char)v;
+}
+
+/* L5f3a (CODE 6+0x5f3a) — stash the pause "cancel" key in g_a5_-13084. */
+static void l5f3a(short v) { PROBE("L5f3a"); g_a5_byte(-13084) = (unsigned char)v; }
+
+/* L5ac2 (CODE 6+0x5ac2) — page-up while paused: toggle the latch via
+ * JT[1140](!JT[1154]). */
+static void l5ac2(void) { PROBE("L5ac2"); jt1140_pg((short)(jt1154_pg() == 0)); }
+
+/* L5ad8 (CODE 6+0x5ad8) — page-down while paused: toggle g_a5_-17443 and
+ * feed it to the scroll dispatcher JT[983]. */
+static void l5ad8(void)
+{
+	PROBE("L5ad8");
+	g_a5_byte(-17443) = (unsigned char)(g_a5_byte(-17443) == 0);
+	jt983((short)(unsigned char)g_a5_byte(-17443));
+}
+
+/* L5f84 (CODE 6+0x5f84) — the pause key reader: poll a key (jt1133), handle
+ * Esc/`(27/96 -> cancel via L5f3a) and the page-up/down keys (338/339), then
+ * drain any further pending events (jt1118). Returns the key (>=256 folded by
+ * -128, the extended-key normalisation). */
+static short l5f84(void)
+{
+	short key;
+
+	PROBE("L5f84");
+	if (g_a5_byte(-27988) != 0) {
+		key = jt1118() ? (short)jt1133() : (short)0;
+		if (key == 27 || key == 96)
+			l5f3a(1);
+	} else {
+		key = (short)jt1133();
+	}
+	if (key == 338) l5ac2();
+	if (key == 339) l5ad8();
+	if (key != 0) {
+		while (jt1118()) {
+			key = (short)jt1133();
+			if (key == 338) l5ac2();
+			if (key == 339) l5ad8();
+			if (g_a5_byte(-27988) != 0 && (key == 27 || key == 96))
+				l5f3a(1);
+		}
+	}
+	if (key >= 256)
+		key = (short)(key - 128);
+	return (short)(unsigned char)key;
+}
+
+/* L604e (CODE 6+0x604e) — pump one event: if an event is pending (jt1118)
+ * run the pause key reader (L5f84), then refresh the IKBD via jt1125(7). */
+static void l604e(void)
+{
+	long a = 0, b = 0;
+	PROBE("L604e");
+	if (jt1118())
+		(void)l5f84();
+	(void)jt1125((short)7, (long)&b, (long)&a);
+}
+
+/* L6048 / JT[66] (CODE 6+0x6048) — thin wrapper over L604e. */
+static void l6048(void) { PROBE("L6048"); l604e(); }
+
+/* L435a (CODE 6+0x435a) — slow-text per-glyph pacing: accumulate the party
+ * speed (handle[18]) into g_a5_-17522, convert each 6 units into a target
+ * tick on g_a5_-17526, and busy-wait jt1134() up to that tick. */
+static void l435a(void)
+{
+	const unsigned char *h = (const unsigned char *)g_a5_28006;
+	short count;
+	long  t;
+
+	PROBE("L435a");
+	if (h == NULL)
+		return;
+	g_a5_long(-17522) = g_a5_long(-17522) + (long)(h[18] & 0xff);
+	if (g_a5_long(-17522) < 6)
+		return;
+	count = 0;
+	while (g_a5_long(-17522) >= 6) {
+		g_a5_long(-17522) = g_a5_long(-17522) - 6;
+		count++;
+	}
+	g_a5_long(-17526) = g_a5_long(-17526) + count;
+	t = jt1134();
+	if (t > g_a5_long(-17526))
+		g_a5_long(-17526) = t;          /* fell behind: catch the target up */
+	else
+		while (jt1134() < g_a5_long(-17526))
+			;                       /* pace to the target tick */
+}
+
+/* L177a (CODE 7+0x177a) — lay the "Press <Return> to continue." prompt: pump
+ * (jt66/L6048), open the frame (jt108 + L162e), draw the text (jt94), build
+ * the Return button DLItem (jt447 + jt452), paint (jt449), commit (jt117). */
+static void l177a(void)
+{
+	PROBE("L177a");
+	l6048();                                /* JT[66] */
+	(void)jt108((short)1);
+	l162e();
+	jt94((short)7, (short)24, (short)0, (short)7, "%s",
+	     ua_strs_at(0x275c) /* "Press        to continue." */);
+	l2062();
+	jt447();
+	jt452((long)1, (long)8094, (long)8056,
+	      (long)(uintptr_t)ua_strs_at(0x2776) /* "Return" */,
+	      (long)36, (long)6, (long)32, (long)64,
+	      (long)20, (long)22, (long)21, (long)0);
+	(void)jt449((short)1);
+	(void)jt117();
+}
+
+/* jt175 (CODE 7+0x17f8) — show the prompt (L177a) then run the modal poll
+ * (jt453) until the user dismisses it. */
+static void jt175(void)
+{
+	PROBE("jt175");
+	l177a();
+	(void)jt453((jt453_filter_t)0);
+}
+
+/* L4b84 (CODE 6+0x4b84) — thin wrapper over jt175 (the modal prompt). */
+static void l4b84(void) { PROBE("L4b84"); jt175(); }
+
+/* L4c46 (CODE 6+0x4c46) — the pagination "press a key to continue" pause:
+ * pump events (L6048) then run the modal prompt (L4b84 -> jt175). */
+static void l4c46(void) { PROBE("L4c46"); l6048(); l4b84(); }
 
 /* jt313 (CODE 22 + 0x4d3c) — the main menu's item event-filter PROC,
  * stored in the shape-7 DLItem (rec+4) jt315 builds. The Mac body polls
