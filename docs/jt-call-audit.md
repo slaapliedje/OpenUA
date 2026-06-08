@@ -217,17 +217,37 @@ NO rewiring needed). The item handle table is g_a5_-10270.
 DONE (this session): the GLIB library readers jt412 (seek -> SetFPos/GetFPos),
 jt1011 (load item), jt1013 (find by id). The 'GLIB' header + index format.
 
-REMAINING for the mode-0 hot path (the read-into-memory + storage layer):
-- jt1016 (CODE 5+0x3640, ~26): jt460 read + jt459 group-handle + L4010 commit;
-  on fail jt462.
-- jt460 (CODE 3+0xc0a, ~85): read the item bytes (likely the PackBits/type-2/7/9
-  decompress entry — see [[glib-art-codecs]]).
-- jt459 (CODE 3+0xd44, ~77): the group's storage handle (alloc into -10270).
-- L4010 (CODE 5, ~164): commit the read/decompressed data into the slot.
-- jt462 (CODE 3+0xb16, ~27): release a group (-10074 scan).
-Then jt104 itself (mode-0 arm hot, mode-1/2 arms skeleton), then L33ac (the
-binder), then Hatari-verify: the UI GLIB (groups 0/1) STILL renders AND a real
-PIC/.ctl parses (trace the jt104 -> jt1016 -> commit + a visible backdrop).
+DONE (read-into-pool layer, this step): the FAR-pool model is one
+contiguous buffer; g_a5_10270[i] (longs) = START *pointer* of the i-th
+group, g_a5_10270[count] = used end, g_a5_9304 = capacity end, g_a5_9306
+= group count, g_a5_10074 = 48-byte freemap (id->seq, 0xFF free). NO
+decompression at load — raw bytes only; codecs run at blit time
+([[glib-art-codecs]]). The file I/O collapsed onto already-lifted shims:
+L3888 (seek) = jt412, L3d98 (read) = jt401/FSRead. Lifted:
+- jt459 (CODE 3+0xd44): size query — id>=0 group size, -2 capacity,
+  -1 free. FULL.
+- l3e0c (=JT[409]): find-byte helper. FULL.
+- L11ca (CODE 3+0x11ca): one compaction pass; jt1083 RNG picks orphan
+  scan order; releases via L103c. FULL.
+- L0a6e (CODE 3+0xa6e): ensure free tail, compacting until enough. FULL.
+- L0ab8 (CODE 3+0xab8): extend the in-progress group (slot[count]+=size),
+  track g_a5_9300 low-water. FULL.
+- jt460 (CODE 3+0xc0a): append `length` raw bytes (neg = read-to-EOF);
+  on jt412(seek)+jt401(read)+l0ab8. FULL.
+- jt462 (CODE 3+0xb16): unwind the in-progress group on failure. FULL.
+- jt1016 (CODE 5+0x3640): driver — jt460 read + jt459 size + L4010
+  commit; jt462 on fail. FULL CFG.
+
+REMAINING:
+- L4010 (CODE 5, ~164): _LBConvert — validate the loaded 'GLIB' header
+  in place + relocate its index (jt468/jt406/L3e50). Currently a PROBE
+  stub returning 0 (commit-OK) so jt1016 links; lift next.
+- The FAR-pool master-buffer alloc + init (slot[0]/-9304 seeded) — the
+  pool isn't stood up yet, so this layer is built but not yet exercised.
+- jt104 itself (mode-0 arm hot via jt1013/jt1011/jt1016; mode-1/2 cold),
+  then L33ac (the binder).
+Then Hatari-verify: the UI GLIB (groups 0/1) STILL renders AND a real
+PIC/.ctl parses (trace jt104 -> jt1016 -> commit + a visible backdrop).
 Then palette (jt1069/1066/993/1017), de-skeleton L541a/L579e/L3eea.
 
 ### L17e2 (CODE 5+0x17e2) — decoded (historical notes)
