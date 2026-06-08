@@ -21075,6 +21075,99 @@ static void  jt1142(void) { PROBE("jt1142"); }
 static short jt1121(void) __attribute__((unused));
 static short jt1121(void) { PROBE("jt1121"); return 0; }
 
+/* --- GLIB library-file readers (the jt104 read callback's stack) --------- *
+ * The .ctl/.tlb library format: a 16-byte header ('GLIB' magic + a u16 item
+ * count at +8 + a flag byte at +10), an index table (one u32 file offset per
+ * item, at header+16), then the item data. Read by streaming over the open
+ * file via jt412 (seek) + jt401 (read), the faithful counterpart to the
+ * port's buffered l37aa/l2856. */
+
+/* JT[412] (CODE 3+0x3888) — seek (mode 0 = from start, 1 = from mark, 2 =
+ * from end); returns the new absolute position, or -1. Maps onto the compat
+ * SetFPos/GetFPos shim (the Mac _SetFPos param-block + traps). */
+static long jt412(short refnum, long pos, short mode) __attribute__((unused));
+static long jt412(short refnum, long pos, short mode)
+{
+	short pm = (mode == 0) ? fsFromStart
+	         : (mode == 1) ? fsFromMark
+	                       : fsFromLEOF;
+	long  cur;
+	PROBE("jt412");
+	if (SetFPos(refnum, pm, pos) != noErr)
+		return -1;
+	if (GetFPos(refnum, &cur) != noErr)
+		return -1;
+	return cur;
+}
+
+/* JT[1011] (CODE 5+0x3a0e) — load library item `item`: validate the GLIB
+ * header, seek to the index entry, read the item's [offset,end] pair, seek to
+ * the item data, and return its byte size (file left positioned at the data).
+ * Returns -1 on I/O error, 0 on a bad item index. */
+static long jt1011(short refnum, short item) __attribute__((unused));
+static long jt1011(short refnum, short item)
+{
+	unsigned char hdr[16];
+	unsigned char ent[8];
+	long  base, entry_off, item_off, item_end;
+	short count;
+
+	PROBE("jt1011");
+	base = jt412(refnum, 0, 1);                 /* tell: the library's base */
+	if (jt401(refnum, hdr, 16) != 16)
+		return -1;
+	if (*(const long *)hdr != 0x474C4942L /* 'GLIB' */ || hdr[10] != 0) {
+		l036a("Invalid Library File (%d)", (int)hdr[10]);
+		return -1;
+	}
+	count = *(const short *)(hdr + 8);
+	if (item < 0 || item >= count) {
+		l036a("Invalid item (%d/%d)", (int)item, (int)count);
+		return 0;
+	}
+	entry_off = base + (long)item * 4 + 16;
+	if (jt412(refnum, entry_off, 0) != entry_off)
+		return -1;
+	if (jt401(refnum, ent, 8) != 8)
+		return -1;
+	item_off = *(const long *)ent;
+	item_end = *(const long *)(ent + 4);
+	if (jt412(refnum, base + item_off, 0) < 0)
+		return -1;
+	return item_end - item_off;
+}
+
+/* JT[1013] (CODE 5+0x396c) — find the item index for resource `id`: load the
+ * directory (item 0), read its entry count, then scan the [id,index] pairs.
+ * Returns the matching index, 0 if not found, -1 on error. */
+static short jt1013(short refnum, short id) __attribute__((unused));
+static short jt1013(short refnum, short id)
+{
+	long  base;
+	short count;
+	unsigned char ent[4];
+
+	PROBE("jt1013");
+	base = jt412(refnum, 0, 1);
+	if (jt1011(refnum, 0) <= 0)                 /* the directory item */
+		return -1;
+	if (jt401(refnum, &count, 2) != 2)
+		return -1;
+	goto test;
+ body:
+	if (jt401(refnum, ent, 4) != 4)
+		return -1;
+	if (*(const short *)ent == id) {            /* ent = {id u16, index u16} */
+		jt412(refnum, base, 0);
+		return *(const short *)(ent + 2);
+	}
+ test:
+	if (--count >= 0)
+		goto body;
+	jt412(refnum, base, 0);
+	return 0;
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
