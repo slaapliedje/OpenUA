@@ -70,6 +70,33 @@ Verified against the Mac body; leave them.
 | jt1163 | 36 | returns 0 |
 | jt949 | 2 | empty (`rts`) |
 
+## Progress
+
+- **jt913 + jt938 lifted** (9a1b42b): the game clock / position panel. jt938
+  runs in jt948's faithful arms; making it VISIBLE in the jt240 arrow-walk is
+  a follow-up (same HUD integration the command bar got).
+
+## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
+
+jt96 (43 sites) is a **word-wrap text-in-box renderer** for record-sheet /
+roster cells (driven by jt18/jt20). It is NOT a single function — a faithful
+lift pulls in a cluster:
+
+- **jt96** (CODE 6+0x43c4, ~150 instr): bounds-check (page/row/width 0..39),
+  cell-cache (g_a5_-27912 page / -27911 row), jt103 box if s7!=0, strlen
+  (jt483), then a word-boundary scan that measures words against the cell
+  width (arg `width`) and wraps lines.
+- **L433a** (tiny): is-this-char-a-delimiter — JT[390] lookup in the set
+  `"()[]{}-.,?!\":;"`. Needs **jt390** (char-in-set, CODE 3+0x3e3c).
+- **L42a0** (~51 instr): draw one text run (the per-substring blit).
+- **L435a** (~28 instr) + **L4c46** (~7 instr): line-advance / cell helpers.
+- also JT[476] (CODE 3+0x46a), JT[176] (CODE 7+0x162e).
+
+~250 instr across 5–6 functions, HIGH blast radius (43 callsites span the
+record sheet + the play roster). Do it as a focused effort: leaf-first
+(jt390 → L433a → L42a0 → L435a/L4c46), then jt96, then drop the port's jt94-
+based l02dc roster stand-in for the faithful jt18/jt20 → jt96 path.
+
 ## Caveat
 
 `(JT[N])` counts are *static call sites* in the disasm, not runtime hotness —
