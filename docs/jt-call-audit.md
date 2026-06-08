@@ -191,7 +191,24 @@ cold. jt987 deps mostly lifted/skeletoned: L036a(done), L0062(skeleton),
 jt415(stub), event prims(done); still need jt1152/jt1142/jt1121 (cursor +
 event), jt408, L157c (the disk dialog), L0156.
 
-### L17e2 (CODE 5+0x17e2) — decoded; LEAVES LIFTED, assembly remains
+### L17e2 + jt987 — ASSEMBLED + HATARI-VERIFIED (0d9132a)
+
+Both lifted (faithful CFG; cold save/dialog arms skeletoned). Verified in
+Hatari against real game data (data/work/gamedata, --conout 2 trace) with a
+throwaway probe in ua_main Phase 3:
+  CHECKPOINT l17e2 ALWAYS.CTL  = 1   (open refnum 64 -> jt411 close -> 1)
+  CHECKPOINT jt987  ALWAYS.CTL = 1   (wrapper, first try, no retry dialog)
+  CHECKPOINT l17e2  MISSING.CTL = 0  (3 retries, refnum -1 -> 0)
+Trace confirmed the path: L17e2 -> jt420/jt408/jt389 classify -> L16c6 path
+-> jt398 (l322c/l45d6/l328e) -> refnum -> jt411. The opener works.
+
+NEXT: the read **callback jt104** (CODE 6+0x3214) — L33ac passes it as
+JT[987]'s arg16; it reads/parses the open resource into the GLIB slot. Then
+L33ac (the binder) wires jt987 into the picture path; verify a real .ctl
+parses (not just opens) in Hatari. Then palette (jt1069/1066/993/1017),
+de-skeleton L541a/L579e/L3eea.
+
+### L17e2 (CODE 5+0x17e2) — decoded (historical notes)
 
 L17e2(kind, name, arg14_mode, callback) is a 3-attempt resource-file opener:
 build the path (L16c6), open by mode, run the caller's `callback(refnum,
