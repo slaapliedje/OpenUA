@@ -10646,7 +10646,12 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 	l429c(0, rec[4]);
 	jt394(title, ua_strs_at(0x2ac0),               /* "%s" */
 	      (const char *)(uintptr_t)g_a5_long(-10692));
-	jt179(0);                                       /* seed command-bar slots */
+	/* Seed 8 command-bar slots (indices 0..7) in g_a5_-24126 so L2184
+	 * extracts ALL eight words of the command string ("Move Area Cast
+	 * View Encamp Search Look Inv"), not just the first. jt179(0) (the
+	 * faithful jt240 title use) seeds a single slot -> only "Move" drew;
+	 * jt953 seeds the full set the same way for its jt164 bar. */
+	jt179(7);                                       /* seed command-bar slots 0..7 */
 	/* PORT: the faithful jt240 lays a one-line TITLE here (jt148(-10484,
 	 * title)); the Mac deep walk reaches the "Move Area Cast..." command bar
 	 * only through jt953/jt164. The port routes the dungeon walk through jt240
