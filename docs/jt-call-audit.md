@@ -202,11 +202,33 @@ throwaway probe in ua_main Phase 3:
 Trace confirmed the path: L17e2 -> jt420/jt408/jt389 classify -> L16c6 path
 -> jt398 (l322c/l45d6/l328e) -> refnum -> jt411. The opener works.
 
-NEXT: the read **callback jt104** (CODE 6+0x3214) — L33ac passes it as
-JT[987]'s arg16; it reads/parses the open resource into the GLIB slot. Then
-L33ac (the binder) wires jt987 into the picture path; verify a real .ctl
-parses (not just opens) in Hatari. Then palette (jt1069/1066/993/1017),
-de-skeleton L541a/L579e/L3eea.
+### jt104 read callback — decoded; reader FOUNDATION lifted
+
+jt104 (CODE 6+0x3214) finds the item by id (jt1013), loads it (jt1011), then
+stores it into the GLIB group slot. KEY SPLIT by mode (g_a5_-18398, set by
+L33ac):
+- **mode 0 (the picture .ctl case): JT[1016]** — read into the group slot.
+- mode 1/2 (TLB/title): jt462 release + jt1024 dir-create + jt1021 + jt1023.
+  COLD for pictures.
+
+The group table jt462/jt468 use is g_a5_-10074 (jt468 already resolves it —
+NO rewiring needed). The item handle table is g_a5_-10270.
+
+DONE (this session): the GLIB library readers jt412 (seek -> SetFPos/GetFPos),
+jt1011 (load item), jt1013 (find by id). The 'GLIB' header + index format.
+
+REMAINING for the mode-0 hot path (the read-into-memory + storage layer):
+- jt1016 (CODE 5+0x3640, ~26): jt460 read + jt459 group-handle + L4010 commit;
+  on fail jt462.
+- jt460 (CODE 3+0xc0a, ~85): read the item bytes (likely the PackBits/type-2/7/9
+  decompress entry — see [[glib-art-codecs]]).
+- jt459 (CODE 3+0xd44, ~77): the group's storage handle (alloc into -10270).
+- L4010 (CODE 5, ~164): commit the read/decompressed data into the slot.
+- jt462 (CODE 3+0xb16, ~27): release a group (-10074 scan).
+Then jt104 itself (mode-0 arm hot, mode-1/2 arms skeleton), then L33ac (the
+binder), then Hatari-verify: the UI GLIB (groups 0/1) STILL renders AND a real
+PIC/.ctl parses (trace the jt104 -> jt1016 -> commit + a visible backdrop).
+Then palette (jt1069/1066/993/1017), de-skeleton L541a/L579e/L3eea.
 
 ### L17e2 (CODE 5+0x17e2) — decoded (historical notes)
 
