@@ -4333,21 +4333,12 @@ static void jt34(long entry, short col, short row, short style)
                                               (void)col; (void)row;
                                               (void)style; }
 
-/* JT[96] (CODE 6 + 0x43c4, 43 sites) — 9-arg record-body paint
- * helper. The jt18 / jt20 record renderer dispatch through here
- * for the row of stats below the entry's name. PROBE-deferred;
- * the inner paint primitives (JT[1135] / JT[1161] / JT[1089])
- * are in place, but jt96's body has substantial coord/clip logic
- * that's its own commit. */
+/* JT[96] (CODE 6 + 0x43c4, 43 sites) — the record-body word-wrap text
+ * renderer (the row of stats below an entry's name, driven by jt18/jt20).
+ * Lifted below, after its paint deps (jt1089/jt103/jt483/l3994). */
 static void jt96(short page, short row, short width, short height,
-                  short s5,   short s6,  short s7,
-                  long  val,  short s9)
-{
-	PROBE("jt96");
-	(void)page; (void)row; (void)width; (void)height;
-	(void)s5;   (void)s6;  (void)s7;
-	(void)val;  (void)s9;
-}
+                 short s5,   short s6,  short s7,
+                 long  val,  short s9);
 
 /* Forward — jt103 / jt1200 / l4bac are defined further down; jt18
  * and jt20 call them. jt20 lifts immediately after jt18 and is
@@ -5086,6 +5077,183 @@ static void jt1161(short top, short left, short bottom, short right,
 	SetRect(&r, cl, ct, cr, cb);
 	PaintRect(&r);
 }
+
+/* ===================================================================== *
+ * jt96 — the record-body word-wrap text renderer (CODE 6 + 0x43c4), and
+ * its leaf helpers. Flows a string into a char-grid cell rect, greedily
+ * wrapping on word boundaries. The pen (column g_a5_-27912 / row -27911)
+ * persists across calls so consecutive jt96 calls continue the same cell.
+ * ===================================================================== */
+
+/* JT[390] (CODE 3 + 0x3e3c) — scan `set` for `ch`; return a pointer to the
+ * match, or to the terminating NUL when not found (strchr that yields the
+ * NUL slot instead of NULL). */
+static const char *jt390(const char *set, short ch)
+{
+	PROBE("jt390");
+	while (*set != 0 && (unsigned char)*set != (unsigned char)ch)
+		set++;
+	return set;
+}
+
+/* L433a (CODE 6 + 0x433a) — is `ch` a word-break delimiter? Returns the char
+ * (non-zero) when it's one of "()[]{}-.,?!\":;", else 0. */
+static short l433a(short ch)
+{
+	PROBE("L433a");
+	return (short)(unsigned char)*jt390("()[]{}-.,?!\":;", ch);
+}
+
+/* L42a0 (CODE 6 + 0x42a0) — draw `ch` `count` times from char-cell (col,row),
+ * each glyph one cell (4 units in 8000-space) apart, in colour (s6<<4)|s5
+ * (s6 defaults to style 8). The Mac passes jt1089 in Point (v,h) order; the
+ * port's jt1089 takes (h,v), so x/y are swapped here as in jt94. */
+static void l42a0(short col, short row, short s5, short s6,
+                  short count, short ch)
+{
+	short ybase = (short)((row << 2) + 8000);
+	short xbase = (short)((col << 2) + 8000);
+	short i, color;
+
+	PROBE("L42a0");
+	if (s6 == 0)
+		s6 = 8;
+	color = (short)((s6 << 4) | (unsigned char)s5);
+	for (i = 0; i < count; i++)
+		jt1089((short)((i << 2) + xbase), ybase, color,
+		       ua_strs_at(0x6c4) /* "%c" */, (int)(unsigned char)ch);
+}
+
+/* L435a — per-glyph display pacing for the slow-text option (g_a5_-27981);
+ * the port runs with that off, so this arm is never exercised. PROBE stub
+ * (the timing accumulator + JT[1134] tick) until slow-text is wanted. */
+static void l435a(void) { PROBE("L435a"); }
+
+/* L4c46 — the "press a key to continue" pause shown when a cell's text
+ * overflows the cell and paginates. Deferred (alert leaves L6048/L4b84). */
+static void l4c46(void) { PROBE("L4c46"); }
+
+static void jt176(void);                /* CODE 7+0x162e — scroll/clear (lifted below) */
+
+/* jt96 (CODE 6 + 0x43c4) — render `val` word-wrapped into the cell rect
+ * (a,b)-(c,d) in char coords; s6 = style/colour, s7 != 0 draws the box.
+ * Lift level 3: the CFG mirrors the asm (L44b8..L4756) via labels; the
+ * slow-text pacing (g_a5_-27981) and the overflow pagination prompt are the
+ * only deferred arms (l435a / l4c46 stubs). */
+static void jt96(short a, short b, short c, short d,
+                 short s5, short s6, short s7, long val, short s9)
+{
+	const char *str = (const char *)(uintptr_t)val;
+	short out, i, len, width;
+
+	PROBE("jt96");
+	(void)s9;
+	l3994();                                /* GrafPort snapshot */
+	if (s6 == 0)                            /* style default */
+		s6 = 8;
+
+	/* cell-rect bounds (char coords): col 0..39, row 0..24 */
+	if ((unsigned char)a > 39 || (unsigned char)b > 24
+	 || (unsigned char)c > 39 || (unsigned char)d > 39)
+		return;
+
+	/* re-home the persistent pen if it's outside this cell (L4428..L4462) */
+	{
+		short pc = (short)(unsigned char)g_a5_byte(-27912);
+		short pr = (short)(unsigned char)g_a5_byte(-27911);
+		if (!(pc >= a && pc <= (short)(c + 1) && pr >= b && pr <= d)) {
+			g_a5_byte(-27912) = (unsigned char)a;
+			g_a5_byte(-27911) = (unsigned char)b;
+		}
+	}
+	if (s7 != 0) {                          /* draw the cell box */
+		jt103(a, b, c, d);
+		g_a5_byte(-27912) = (unsigned char)a;
+		g_a5_byte(-27911) = (unsigned char)b;
+	}
+	if (str == NULL)
+		return;
+	len = (short)(jt483(str) - 1);          /* last char index */
+	if (len < 0)
+		return;
+
+	out = 0;
+ word:                                          /* L44b8 */
+	i = out;
+	while (i < len && l433a((short)(unsigned char)str[i]) != 0)
+		i++;                            /* skip leading delimiters */
+	while (i < len && l433a((short)(unsigned char)str[i]) == 0
+	       && str[i] != ' ')
+		i++;                            /* scan the word */
+	while (i < len && l433a((short)(unsigned char)str[i]) != 0)
+		i++;                            /* skip trailing delimiters */
+	if (i < len && str[i] != ' ')
+		i--;                            /* back up off a non-space */
+
+	width = (short)((i - out) + (short)(unsigned char)g_a5_byte(-27912));
+	if (width <= c)
+		goto draw_fit;                  /* L4744 — fits this line */
+	if (width == (short)(c + 1) && str[i] == ' ') {
+		i--;
+		goto draw_trail;                /* L4612 — draw, then break */
+	}
+	goto break_line;                        /* L461c */
+
+ draw_fit:                                      /* L46f4 / L4744 */
+	while (out <= i) {
+		l42a0((short)(unsigned char)g_a5_byte(-27912),
+		      (short)(unsigned char)g_a5_byte(-27911), s5, s6, 1,
+		      (short)(unsigned char)str[out]);
+		if (g_a5_27981 != 0)
+			l435a();
+		out++;
+		g_a5_byte(-27912) = (unsigned char)(g_a5_byte(-27912) + 1);
+	}
+	goto next;                              /* L474e */
+
+ draw_trail:                                    /* L45b0 / L4612, then falls into break */
+	while (out <= i) {
+		l42a0((short)(unsigned char)g_a5_byte(-27912),
+		      (short)(unsigned char)g_a5_byte(-27911), s5, s6, 1,
+		      (short)(unsigned char)str[out]);
+		if (g_a5_27981 != 0)
+			l435a();                /* asm uses JT[476] here; same slow-text no-op */
+		out++;
+		g_a5_byte(-27912) = (unsigned char)(g_a5_byte(-27912) + 1);
+	}
+	/* fall through */
+
+ break_line:                                    /* L461c */
+	g_a5_byte(-27912) = (unsigned char)a;
+	g_a5_byte(-27911) = (unsigned char)(g_a5_byte(-27911) + 1);
+	while (out <= len && str[out] == ' ')
+		out++;                          /* skip leading spaces (L462c) */
+	if ((short)(unsigned char)g_a5_byte(-27911) <= d)
+		goto next;                      /* still room — wrap, re-scan word */
+	if (out >= len)
+		goto next;
+	/* overflowed the cell bottom: paginate (prompt + clear + redraw box) */
+	g_a5_byte(-27912) = (unsigned char)a;
+	g_a5_byte(-27911) = (unsigned char)b;
+	jt176();
+	l4c46();
+	jt103(a, b, c, d);
+	while (out <= i) {                      /* L4698 — draw on the fresh page */
+		l42a0((short)(unsigned char)g_a5_byte(-27912),
+		      (short)(unsigned char)g_a5_byte(-27911), s5, s6, 1,
+		      (short)(unsigned char)str[out]);
+		if (g_a5_27981 != 0)
+			l435a();
+		out++;
+		g_a5_byte(-27912) = (unsigned char)(g_a5_byte(-27912) + 1);
+	}
+	/* fall through */
+
+ next:                                          /* L474e */
+	if (out <= len)
+		goto word;
+}
+
 /* JT[1200] (CODE 4 + 0x04f0) — encounter-mode state classifier.
  *
  * Reads two A5 byte flags and returns one of three states the
