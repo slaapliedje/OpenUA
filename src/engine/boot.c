@@ -20977,6 +20977,27 @@ static void   jt527(void)                            { PROBE("jt527"); }
 
 static unsigned char *g_a5_13038;   /* record-table base (defined near l5124) */
 
+/* GLIB picture-subsystem leaves (lifted leaf-first; wired when L33ac lands). */
+
+/* JT[389] (CODE 3+0x3738) — isdigit(c): '0'..'9' -> 1, else 0. */
+static short jt389(short c) __attribute__((unused));
+static short jt389(short c) { PROBE("jt389"); return (c >= '0' && c <= '9') ? 1 : 0; }
+
+/* L31dc (CODE 6+0x31dc) — release a GLIB group slot: free its tag (jt461),
+ * mark the slot word free (-1), and clear the caller's slot pointer. */
+static void l31dc(void *pp) __attribute__((unused));
+static void l31dc(void *pp)
+{
+	short **p = (short **)pp;
+	PROBE("L31dc");
+	if (*p == NULL)
+		return;
+	if (**p >= 0)
+		jt461(**p);
+	**p = -1;
+	*p = NULL;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
