@@ -191,14 +191,31 @@ cold. jt987 deps mostly lifted/skeletoned: L036a(done), L0062(skeleton),
 jt415(stub), event prims(done); still need jt1152/jt1142/jt1121 (cursor +
 event), jt408, L157c (the disk dialog), L0156.
 
-**NEXT: L17e2 (CODE 5+0x17e2, ~205 instr) — the actual resource-archive
-reader.** Opens the .ctl/.tlb (jt398 FSOpen-done / jt411-done) and reads +
-parses the GLIB resource (jt392/408/416/420/422/1109 + L00da/L16c6/L0156).
-This is the resource-fork reader; it overlaps compat/resources.c + data_pool
-and WANTS asset-based Hatari verification (does it parse a real .ctl?). Lift
-L17e2 first, then jt987's thin retry loop closes over it. After that: L33ac
-binder, then the palette path (jt1069/jt1066/jt993/jt1017), then de-skeleton
-L541a/L579e/L3eea.
+### L17e2 (CODE 5+0x17e2) — decoded; LEAVES LIFTED, assembly remains
+
+L17e2(kind, name, arg14_mode, callback) is a 3-attempt resource-file opener:
+build the path (L16c6), open by mode, run the caller's `callback(refnum,
+filespec)` to read it, close (jt411); on failure show the disk-retry dialog
+(L157c) and retry. KEY SPLIT:
+- **mode 3 = READ/LOAD (the picture case): uses jt398 (open, DONE).**
+- mode 1/4 = WRITE/SAVE: uses jt392 (create) -> L3386 + L341a (save dialog).
+
+Leaves now LIFTED: L16c6 path builder, jt408/jt420 classifiers (jt422
+already done), L00da (wait), L0156 (cursor flash), and the open helpers
+jt398/jt411/l322c/l31fc/l45d6/l328e were already lifted. jt1122/jt1134 lifted.
+
+REMAINING to close L17e2 + jt987 (next session):
+1. jt416 (CODE 3+0x35d6) -> L45d6 + jt1054 (CODE 5+0x5b74): the mode-3 load
+   finalize. Lift jt1054 (check size), then jt416.
+2. Cold-path skeletons (rare in the port — files are on GEMDOS disk):
+   L157c (disk-retry dialog ~111), jt1109 (post-load notify ~108).
+3. SAVE path: jt392 + L3386 (create ~53) + L341a (save dialog) — or skeleton
+   jt392 (not needed by the picture subsystem).
+4. Assemble L17e2's CFG (gate/mode-switch/retry loop), then jt987's thin
+   retry-dialog loop over it.
+Then: L33ac binder, palette path (jt1069/jt1066/jt993/jt1017), de-skeleton
+L541a/L579e/L3eea. The loader WANTS asset-based Hatari verification (does it
+open + parse a real .ctl/.tlb?) — verify mode-3 load before building on it.
 
 ## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
 
