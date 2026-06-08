@@ -75,6 +75,9 @@ Verified against the Mac body; leave them.
 - **jt913 + jt938 lifted** (9a1b42b): the game clock / position panel. jt938
   runs in jt948's faithful arms; making it VISIBLE in the jt240 arrow-walk is
   a follow-up (same HUD integration the command bar got).
+- **jt96 subsystem lifted** (9fb7024): jt390 + l433a + l42a0 + jt96 (word-wrap
+  text-in-box). Slow-text (l435a) + pagination (l4c46) arms stubbed. Visible
+  wiring (jt18/jt20 record sheet, drop cg_view_sheet) is the follow-up.
 
 ## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
 
