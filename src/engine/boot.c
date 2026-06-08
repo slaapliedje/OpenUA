@@ -4324,14 +4324,64 @@ static void jt25(long entry, short page, short row, short style)
 	if (e != NULL)
 		jt94(page, row, (short)11, style, "%s", (const char *)&e[96]);
 }
-static void jt32(long entry, short col, short row, short a, short b)
-                                            { PROBE("jt32"); (void)entry;
-                                              (void)col; (void)row;
-                                              (void)a; (void)b; }
-static void jt34(long entry, short col, short row, short style)
-                                            { PROBE("jt34"); (void)entry;
-                                              (void)col; (void)row;
-                                              (void)style; }
+/* JT[478] (CODE 3+0x6) — sprintf("%d") of a word into the caller buffer. */
+static void jt478(short value, char *buf)
+{
+	PROBE("jt478");
+	jt394(buf, "%d", (int)value);
+}
+
+/* JT[388] (CODE 3+0x3b70) — abs() of a short. */
+static short jt388(short v) { PROBE("jt388"); return (v < 0) ? (short)-v : v; }
+
+/* L60b4 (CODE 6+0x60b4) — decimal string of a byte into the shared
+ * -13083 scratch buffer; returns its address. */
+static char *l60b4(short v)
+{
+	PROBE("L60b4");
+	jt478((short)(unsigned char)v, g_a5_chars(-13083));
+	return g_a5_chars(-13083);
+}
+
+/* JT[34] (CODE 6+0x11a0) — the THAC0/AC-modifier column: draws the signed
+ * value (p[385] - 60) as "|v| " (a trailing space), with a '-' prefix when
+ * the raw value is positive. Always colour 7. The 4th arg is unused (the
+ * Mac body reads only entry/page/row). */
+static void jt34(long entry, short page, short row, short unused)
+{
+	const unsigned char *p = (const unsigned char *)(uintptr_t)entry;
+	short v = (short)p[385] - 60;
+	char buf[84];
+	PROBE("jt34");
+	(void)unused;
+	jt384(buf, l60b4(jt388(v)));            /* decimal of |v| */
+	jt404(buf, " ");                        /* trailing space */
+	if (v > 0)                              /* '-' prefix when positive */
+		jt384(buf, jt488("-%s", buf));
+	jt94(page, row, 7, 0, buf);
+}
+
+/* JT[32] (CODE 6+0x1238) — the HP column: draws current HP (p[395]) red
+ * (colour 11) when below max (p[129]) else white (7); `forceRed` overrides
+ * to red; when `showMax` is set, appends "/<max>" in white at the next
+ * column. */
+static void jt32(long entry, short page, short row, short forceRed, short showMax)
+{
+	const unsigned char *p = (const unsigned char *)(uintptr_t)entry;
+	short cur = p[395];
+	short max = p[129];
+	short colour = (cur >= max) ? (short)7 : (short)11;
+	char buf[80];
+	PROBE("jt32");
+	if (forceRed)
+		colour = 11;
+	jt384(buf, l60b4(cur));
+	jt94(page, row, colour, 0, buf);
+	if (showMax) {
+		short col = (short)(page + jt483(buf));   /* column past the number */
+		jt94(col, row, 7, 0, jt488("/%d", (int)max));
+	}
+}
 
 /* JT[96] (CODE 6 + 0x43c4, 43 sites) — the record-body word-wrap text
  * renderer (the row of stats below an entry's name, driven by jt18/jt20).
@@ -5361,6 +5411,8 @@ static void l02dc(long highlight)
 
 	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
 	while (entry != NULL) {
+		short v, colour;
+
 		g_a5_24128 += 1;
 		jt103(page, row, 38, row);
 
@@ -5372,30 +5424,24 @@ static void l02dc(long highlight)
 			jt25((long)(uintptr_t)entry, page, row, 0);
 		}
 
-		/* HP (page 36) + AC (page 33), faithfully shaded by value range.
-		 * The Mac paints these through JT[34]/JT[32] (called here for the
-		 * trace); those are PROBE stubs, so the numbers are drawn via JT[94]
-		 * off the migrated CHAR_HP/CHAR_AC offsets. */
-		{
-			short hp = entry[CHAR_HP], colour;
-			short ac = (signed char)entry[CHAR_AC];   /* AD&D AC can be negative */
+		/* Column 1 (offset 385): colour band, then JT[34] draws the value. */
+		v = entry[385];
+		if (v > 69)       colour = 0;
+		else if (v <= 50) colour = 1;
+		else if (v <= 60) colour = 2;
+		else              colour = 1;
+		jt34((long)(uintptr_t)entry, (short)(32 + colour), row, 0);
 
-			if (hp == 0 || hp > 69) colour = 0;
-			else if (hp < 50)       colour = 1;
-			else if (hp < 60)       colour = 2;
-			else                    colour = 1;
-			jt34((long)(uintptr_t)entry, (short)(32 + colour), row, 0);
-			jt94((short)36, row, 7, 0, "%d", (int)hp);
-
-			if (ac > 99) colour = 0; else if (ac > 9) colour = 1;
-			else         colour = 2;
-			/* "*" overlay before the AC number (faithful: mid-operation
-			 * marker when jt1200()==3 and the +197 flag is set). */
-			if (jt1200() == 3 && entry[197] != 0)
-				jt97(35, row, 12, 0, 1, 42, 1);
-			jt32((long)(uintptr_t)entry, (short)(36 + colour), row, 0, 0);
-			jt94((short)33, row, 7, 0, "%d", (int)ac);
-		}
+		/* Column 2 (offset 395): colour band + optional mid-operation "*"
+		 * marker (glyph 42, when jt1200()==3 and the +197 flag is set),
+		 * then JT[32] draws the HP value. */
+		v = entry[395];
+		if (v > 99)      colour = 0;
+		else if (v > 9)  colour = 1;
+		else             colour = 2;
+		if (jt1200() == 3 && entry[197] != 0)
+			jt97(35, row, 12, 0, 1, 42, 1);
+		jt32((long)(uintptr_t)entry, (short)(36 + colour), row, 0, 0);
 
 		row += 1;
 		entry = *(const unsigned char * const *)entry;  /* .next */
