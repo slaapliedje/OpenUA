@@ -109,6 +109,53 @@ lift:
 These are the screen-backdrop / palette path; lifting them lights up the
 play-screen picture window + the cases-2/6 area backdrops.
 
+### Dependency map (mapped 2026-06-08) + lift sequencing
+
+Already lifted (reuse): jt384, jt394, jt419, jt423, jt431, jt398, jt411,
+jt461, jt468, jt406, jt1200, jt1163, jt1134, l2856, jt204, jt209, l5700,
+l5864, jt1066? (no — stub).
+
+The load path bottoms out in TWO gatekeepers that are event-loop / dialog
+code (NOT verifiable by reading — need the real assets in Hatari):
+
+- **jt987** (CODE 5+0x1a0c, ~120 instr, 16 call targets) — the library-file
+  open + read loop with a progress/error dialog (jt1118/jt1133 event poll,
+  jt1152/jt1142/jt1121, jt415/jt408, l036a, + l157c/l0156/l00a8/l0f9c/l0088/
+  l0062 sub-functions).
+- **l036a** (CODE 5+0x36a, modal "Error: %r" dialog) — draws an alert box
+  (jt1161) + its own key-wait loop (jt1116/jt1205/jt1193/jt1153/jt1147/l024c/
+  l0264/l0306/jt1118/jt1133/l0062). jt1069 + jt1066 also route errors here.
+
+Mid-layer (closes ONLY once jt987/l036a land):
+- jt997 (CODE 5+0x27be, ~29) -> jt419 + L36a4.  L36a4 (CODE 5+0x36a4, ~43)
+  -> jt464 + jt987 + jt468 + jt406 + l036a (verifies the 'GLIB' magic).
+- L33ac (CODE 6+0x33ac, ~204) — the binder: finds a free -18468 group slot,
+  builds the .ctl/.tlb filename, opens (jt464/jt398/jt431/jt460/jt411), and
+  loads via jt987 (name path) or jt997 (id path); sets the -18402.. blit
+  descriptor + calls jt104/JT[987].
+
+Palette path (self-contained-ish, HAL-verifiable but long; routes errors to
+l036a):
+- jt1069 (CODE 5+0x71b0, ~329) — walk the -3258 palette table, set CLUT.
+  Deps: jt406, jt1134, l01ae, l036a + one CODE4 JT.
+- jt1066 (CODE 5+0x759a, ~200, currently a STUB) — palette save/restore over
+  the -3162/-3258/-3354 tables (jt406).
+- jt993 (TNPalette) + jt1017 (LBIndxType) — the L3eea commit, over jt1069.
+
+Still-missing small leaves: jt389 (DONE), l31dc (DONE), jt464, jt460, jt104,
+l01ae, l024c, l0264, l0306, l0062, l0088, l00a8, l0f9c, l0156, l157c.
+
+**Recommended sequencing** (each its own verified commit):
+1. leaves: jt389 + l31dc (DONE, 5dadbbb+).  Then jt464/jt460 (CODE3 file
+   tests over the resource archive — check against compat/resources.c).
+2. l036a error dialog (gatekeeper #1) — verify the alert renders in Hatari.
+3. jt987 loader loop (gatekeeper #2) — verify a .ctl/.tlb opens + reads.
+4. L33ac binder + jt997/L36a4 — de-skeleton L541a/L579e.
+5. jt1069 + jt1066 + jt993/jt1017 — de-skeleton L3eea (palette commit).
+The codec/loader interiors (2-5) should be lifted one at a time with a
+Hatari checkpoint each; blind transcription of all ~800 lines at once is not
+verifiable.
+
 ## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
 
 jt96 (43 sites) is a **word-wrap text-in-box renderer** for record-sheet /
