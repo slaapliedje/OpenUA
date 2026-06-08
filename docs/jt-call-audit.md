@@ -156,6 +156,27 @@ The codec/loader interiors (2-5) should be lifted one at a time with a
 Hatari checkpoint each; blind transcription of all ~800 lines at once is not
 verifiable.
 
+### l036a error dialog — actual breakdown (mapped + partly lifted 2026-06-08)
+
+l036a(fmt, ...): jt1116 save-state; jt1205; jt1193; jt1153(1); jt1161 box;
+L024c(240)+L0264+L0306("Error: %r",va) text; jt1147; L00a8 drain; wait
+(L0088); on key 'q' (113) -> L0062 quit + jt415(1); L00a8; L024c(15)+jt1161
+erase; jt1167; jt1153(restore).
+
+- DONE (ac899c1): the event + pen primitives — jt437-441, L0088, L00a8,
+  L024c, L0264 (+ jt1108/jt1137). All faithful over the lifted event buffer.
+- jt1161/jt1118/jt1133/jt1125/jt1135/jt1153 already lifted.
+- **BLOCKER — L0306 text draw needs jt400 (CODE 3+0x3fb8, ~489 instr): a full
+  printf-with-output-callbacks engine** (%r/%s/%d/%lx/%03d…, sinks jt966-969,
+  ~33 instr each). DECISION NEEDED: transcribe verbatim, or map L0306 onto the
+  port's existing format path (jt394/jt488 sprintf) + the GLIB char draw —
+  per the Mac-Toolbox-shim architecture (ADR-0003) string formatting is a shim
+  concern, arguing for reuse not re-lift.
+- still missing (CODE 4 display-state, small — TBR): jt1116, jt1205, jt1147,
+  jt1167; jt1193 (stub), jt415 (stub, quit/abort).
+- L0062 quit path (only on 'q'): jt466/1156/1119/1114/1158 + L27bc/L35f8(done)/
+  L01ac/L0f14 — defer (rare abort branch).
+
 ## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
 
 jt96 (43 sites) is a **word-wrap text-in-box renderer** for record-sheet /
