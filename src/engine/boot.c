@@ -5310,7 +5310,13 @@ static void    jt447(void)
 	g_a5_9248 = 1;
 	g_a5_9247 = 0;
 }
-static void    jt449(short a)                       { PROBE("jt449"); (void)a; }
+/* JT[449] (CODE 3) — the DLItem paint walker. The Mac jump table exports it
+ * as L2c60 itself (entry_jt449: L2c60), so jt449 IS l2c60: walk the item list
+ * and repaint. The port had stubbed it separately, making every jt449(1) in
+ * the play paths (jt240/jt241/l206e) a no-op — the command bar only drew
+ * because the modal poll's own l2c60 happened to run. Wire it to l2c60. */
+static void    l2c60(short force_paint);            /* defined below (CODE 3+0x2c60) */
+static void    jt449(short a)                       { PROBE("jt449"); l2c60(a); }
 static void    jt451(void)                          { PROBE("jt451"); }
 
 /* JT[376] .. JT[382] (CODE 3) — the 7 DLItem shape-method handlers
@@ -6175,6 +6181,10 @@ static short jt381(void *rec_v, short cmd, ...)
  * (custom-position) path uses only the already-lifted JT[1135],
  * so its hit-test is real today — that's the arm that will fire
  * once L2d3e gets coordinates from a real click. */
+/* Set while the play screen repaints its command bar (jt312 forced frame) so
+ * jt382 draws the labels in the dungeon-safe HUD palette (253/254) instead of
+ * the menu's clut 7/15 (wall colours in the dungeon). Off everywhere else. */
+static short g_hud_paint;
 static short jt382(void *rec_v, short cmd, ...) __attribute__((unused));
 static short jt382(void *rec_v, short cmd, ...)
 {
@@ -6302,8 +6312,8 @@ static short jt382(void *rec_v, short cmd, ...)
 					 * in data/frua_mac_menu.png. The accelerator code is
 					 * rec[29] (set by jt452 cmd 32); we highlight its first
 					 * case-insensitive match in the label. */
-					const unsigned char BODY = dim ? 18 : 7;
-					const unsigned char HOT  = dim ? 18 : 15;
+					const unsigned char BODY = g_hud_paint ? 253 : (dim ? 18 : 7);
+					const unsigned char HOT  = g_hud_paint ? 254 : (dim ? 18 : 15);
 					unsigned char hk = rec[29];
 					short hi = -1, k;
 					CGrafPtr cport;
@@ -9113,6 +9123,28 @@ static void jt312(unsigned char *page)
 #else
 	render_3d_faithful(px, pitch, sw, sh);
 #endif
+	/* HUD command bar: on the chrome-redraw frames, re-lay the dark plate and
+	 * force-repaint the command-word DLItems on top in the HUD palette. The
+	 * chrome wipe (port_draw_play_frame) and the view both ran above, and the
+	 * bar's labels carry the "painted" bit (set when jt240's jt449 first drew
+	 * them), so the poll-loop l2c60(0) would skip them — l2c60(1) forces the
+	 * repaint regardless. Install the HUD clut entries right here (252 dark /
+	 * 253 grey / 254 white), after dungeon_view_setup's clut-129 256-entry
+	 * load, so they aren't clobbered. */
+	if (s_view_first || g_view_force_full) {
+		RGBColor hud[3];
+		short rr;
+
+		hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0x1818;
+		hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xC8C8;
+		hud[2].red = hud[2].green = hud[2].blue = (unsigned short)0xFFFF;
+		qd_set_palette(hud, (short)252, (short)3);
+		for (rr = 181; rr < 199 && rr < sh; rr++)
+			memset(px + (long)rr * pitch, 252, (size_t)sw);
+		g_hud_paint = 1;
+		l2c60((short)1);                /* force-repaint the bar on the plate */
+		g_hud_paint = 0;
+	}
 	if (s_view_first || g_view_force_full) {
 		/* DOUBLE full present: the HAL double-buffers two planar pages and
 		 * each qd_present c2p's the full chunky buffer to ONE page then
