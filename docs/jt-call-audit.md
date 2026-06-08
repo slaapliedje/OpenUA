@@ -177,6 +177,29 @@ erase; jt1167; jt1153(restore).
 - L0062 quit path (only on 'q'): jt466/1156/1119/1114/1158 + L27bc/L35f8(done)/
   L01ac/L0f14 — defer (rare abort branch).
 
+### l036a DONE (7d0088c)
+Lifted faithful-on-shim: jt1116/jt1205/jt1167/jt1147 (+ SysBeep shim), L0062
+skeleton, l036a itself. The jt400/%r text path mapped onto jt1089 (the
+established vsnprintf+DrawString equivalent). Event/pen prims were ac899c1.
+
+### jt987 (gatekeeper #2) — anatomy + next target
+jt987 (CODE 5+0x1a0c) is NOT the loader — it's a **load-with-retry-dialog
+wrapper**: it calls the real loader L17e2 and, on failure, shows the
+"please insert disk / Cancel / Quit" dialog (L157c) and retries. For the
+port (files on GEMDOS disk) L17e2 should just succeed, so the retry UI is
+cold. jt987 deps mostly lifted/skeletoned: L036a(done), L0062(skeleton),
+jt415(stub), event prims(done); still need jt1152/jt1142/jt1121 (cursor +
+event), jt408, L157c (the disk dialog), L0156.
+
+**NEXT: L17e2 (CODE 5+0x17e2, ~205 instr) — the actual resource-archive
+reader.** Opens the .ctl/.tlb (jt398 FSOpen-done / jt411-done) and reads +
+parses the GLIB resource (jt392/408/416/420/422/1109 + L00da/L16c6/L0156).
+This is the resource-fork reader; it overlaps compat/resources.c + data_pool
+and WANTS asset-based Hatari verification (does it parse a real .ctl?). Lift
+L17e2 first, then jt987's thin retry loop closes over it. After that: L33ac
+binder, then the palette path (jt1069/jt1066/jt993/jt1017), then de-skeleton
+L541a/L579e/L3eea.
+
 ## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
 
 jt96 (43 sites) is a **word-wrap text-in-box renderer** for record-sheet /
