@@ -1897,7 +1897,7 @@ static void          jt937(long a)
 	PROBE("jt937");
 	l02dc(a);
 }
-static void          jt938(void)              { PROBE("jt938"); }                /* CODE 12 + 0x0562 */
+static void          jt938(void);                                                /* CODE 12 + 0x0562 — clock/position HUD, lifted after its deps */
 static void          jt217(short a, short b, short c, short d) { PROBE("jt217"); }
                                                                                  /* CODE 7 + 0x57d2 */
 /* jt948's callees not yet declared at this point. */
@@ -4516,6 +4516,62 @@ static void jt94(short page, short row, short col, short style,
 	y     = (short)((row  << 2) + 8000);
 	color = (short)((style << 4) | (unsigned char)col);
 	jt1089(x, y, color, ua_strs_at(0x6c0) /* "%s" */, local_buf);
+}
+
+/* JT[913] (CODE 19 + 0x528) — format a 0..N number into buf with a leading
+ * zero when < 10 (the minutes field of the game clock: "05", "45"). */
+static void jt913(short val, char *buf)
+{
+	PROBE("jt913");
+	jt394(buf, (val < 10) ? "0%d" : "%d", (int)val);
+}
+
+/* jt938 (CODE 12 + 0x562) — the play-screen clock + party-position panel
+ * (the Mac HUD's "11,6 / 12:05 AM" box). Faithful lift: reads the game clock
+ * from the player-data handle g_a5_-28006 (byte 8 = hour 0..23, bytes 7/6 =
+ * minutes tens/ones), formats 12-hour AM/PM (jt913 zero-pads the minutes,
+ * jt488 builds the string, jt384 copies it), boxes it with jt103, and draws
+ * the time + the party cell (g_a5_-12288,-12287) via jt94. The deep/encounter
+ * arm (g_a5_-27990 == 3, L0844) is deferred. */
+static void jt938(void)
+{
+	const unsigned char *h = (const unsigned char *)g_a5_28006;
+	char  timebuf[90];                      /* fp@(-90) */
+	char  posbuf[48];                       /* fp@(-48) */
+	char  minbuf[8];                        /* fp@(-6)  */
+	short px, py, hour, minutes;
+
+	PROBE("jt938");
+	if (g_a5_27990 == 3)                    /* L0844 deep arm — deferred */
+		return;
+	if (h == NULL)
+		return;
+
+	px = (short)(unsigned char)g_a5_byte(-12288);   /* fp@(-1) party col */
+	py = (short)(unsigned char)g_a5_byte(-12287);   /* fp@(-2) party row */
+
+	minutes = (short)(h[7] * 10 + h[6]);
+	jt913(minutes, minbuf);                 /* "MM" */
+	jt103((short)26, (short)13, (short)38, (short)15);      /* clock box */
+
+	hour = (short)h[8];
+	if (hour / 12 == 0) {                   /* AM (hours 0..11) */
+		if (hour == 0)
+			jt384(timebuf, jt488("12:%s AM", minbuf));
+		else
+			jt384(timebuf, jt488("%d:%s AM", (int)hour, minbuf));
+	} else {                                /* PM (hours 12..23) */
+		if (hour == 12)
+			jt384(timebuf, jt488("%d:%s PM", (int)hour, minbuf));
+		else
+			jt384(timebuf, jt488("%d:%s PM", (int)(hour - 12), minbuf));
+	}
+	jt94((short)26, (short)15, (short)7, (short)0, "%s", timebuf);
+
+	if (h[26] == 0) {                       /* show the party cell */
+		jt384(posbuf, jt488("%d,%d", (int)px, (int)py));
+		jt94((short)26, (short)13, (short)7, (short)0, "%s", posbuf);
+	}
 }
 static void jt97(short col, short row, short page, short style,
                  short a, short ch, short flag)
