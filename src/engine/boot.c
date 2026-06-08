@@ -9416,12 +9416,22 @@ static void jt1173(short top, short left, short bottom, short right);
 static void jt1193(void);
 static void jt1067(void);
 static void jt1080(void);
-static int         jt273(void)                          { PROBE("jt273"); return 0; }        /* CODE 22+0x4900 */
+static short       jt358(void);                                                              /* CODE 8+0x6e4a — defined below */
+/* JT[273] (CODE 22+0x4900) — deep/turn-counter gate: returns the counter
+ * jt358() when it is <= 4, else 0. (l63c0 ORs this into its deep-view flag.) */
+static int         jt273(void)
+{
+	short v = (short)(jt358() & 0xff);
+	PROBE("jt273");
+	return (v <= 4) ? (int)v : 0;
+}
 static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
 static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
 static short       jt354(void)                          { PROBE("jt354"); return 0; }         /* CODE 8+0x5ef8 */
 static void        jt365(void)                          { PROBE("jt365"); }                   /* CODE 8+0x7238 */
-static short       jt358(void)                          { PROBE("jt358"); return 0; }         /* CODE 8+0x6e4a counter */
+/* JT[358] (CODE 8+0x6e4a) — read the game counter byte g_a5_-10374
+ * (shown in the status line via jt367; gated by jt273). */
+static short       jt358(void)                          { PROBE("jt358"); return (short)(unsigned char)g_a5_byte(-10374); }
 static void        jt367(short v, void *buf)            { PROBE("jt367"); (void)v;(void)buf; } /* CODE 8+0x6e78 counter fmt */
 
 /* JT[303] (CODE 22 + 0x2180) — the play-view status header, drawn with jt1089.
