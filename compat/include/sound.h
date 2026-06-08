@@ -123,4 +123,12 @@ OSErr SndDoImmediate(SndChannelPtr chan, const SndCommand *cmd);
  * version the Mac System 7 build FRUA was compiled against ships. */
 NumVersion SndSoundManagerVersion(void);
 
+/*
+ * SysBeep — the classic alert beep (l036a's error dialog calls it).
+ * `duration` is the Mac tick count, ignored here. The port has no tone
+ * generator yet (the DMA path is sample-only), so this is a documented
+ * no-op for now; TODO: emit a short tone via XBIOS Dosound / YM2149.
+ */
+void SysBeep(short duration);
+
 #endif /* COMPAT_SOUND_H */

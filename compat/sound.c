@@ -222,3 +222,11 @@ NumVersion SndSoundManagerVersion(void)
 	v.nonRelRev      = 0;
 	return v;
 }
+
+void SysBeep(short duration)
+{
+	/* No tone generator yet (the DMA path is sample-only). Log it so the
+	 * error/alert paths are visible in the boot trace; TODO: emit a short
+	 * tone via XBIOS Dosound / the YM2149. */
+	dbg_log_num("snd: SysBeep ticks = ", (long)duration);
+}

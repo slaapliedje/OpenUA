@@ -49,6 +49,7 @@
 #include "menus.h"            /* MenuKey (L6dd0 keyDown arm)         */
 #include "input.h"            /* plat_kb_poll (port_play_demo)        */
 #include "resources.h"        /* GetResource (clut 129 for colour art) */
+#include "sound.h"            /* SysBeep (jt1147 error-dialog beep)     */
 #include "mac_font.h"         /* mac_font_pixel (the in-dungeon party HUD) */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
@@ -150,6 +151,12 @@
 #define g_a5_3056  g_a5_word(-3056)    /* clip left   */
 #define g_a5_3050  g_a5_word(-3050)    /* clip bottom */
 #define g_a5_3052  g_a5_word(-3052)    /* clip right  */
+#define g_a5_3046  g_a5_word(-3046)    /* saved clip top    (jt1205/jt1167) */
+#define g_a5_3048  g_a5_word(-3048)    /* saved clip left                   */
+#define g_a5_3042  g_a5_word(-3042)    /* saved clip bottom                 */
+#define g_a5_3044  g_a5_word(-3044)    /* saved clip right                  */
+#define g_a5_2352  g_a5_word(-2352)    /* jt1116 state word A               */
+#define g_a5_2354  g_a5_word(-2354)    /* jt1116 state word B               */
 #define g_a5_27990 g_a5_byte(-27990)
 #define g_a5_18485 g_a5_byte(-18485)
 #define g_a5_18828 g_a5_byte(-18828)
@@ -21070,6 +21077,88 @@ static void l0264(short x, short y)
 {
 	PROBE("L0264");
 	jt1135(x, y, &g_a5_4898, &g_a5_4896);
+}
+
+/* JT[1116] (CODE 4+0x5d8c) — is the menu/cursor state word "up"? (-2352 == -2354) */
+static short jt1116(void) __attribute__((unused));
+static short jt1116(void) { PROBE("jt1116"); return (short)(g_a5_2352 == g_a5_2354 ? 1 : 0); }
+
+/* JT[1205] (CODE 4+0x179e) — save the clip bounds into the spare slots. */
+static void jt1205(void) __attribute__((unused));
+static void jt1205(void)
+{
+	PROBE("jt1205");
+	g_a5_3046 = g_a5_3054;
+	g_a5_3048 = g_a5_3056;
+	g_a5_3042 = g_a5_3050;
+	g_a5_3044 = g_a5_3052;
+}
+
+/* JT[1167] (CODE 4+0x17b8) — restore the saved clip bounds. */
+static void jt1167(void) __attribute__((unused));
+static void jt1167(void)
+{
+	PROBE("jt1167");
+	g_a5_3054 = g_a5_3046;
+	g_a5_3056 = g_a5_3048;
+	g_a5_3050 = g_a5_3042;
+	g_a5_3052 = g_a5_3044;
+}
+
+/* JT[1147] (CODE 4+0x77f6) — _SysBeep(6) (the alert beep). */
+static void jt1147(void) __attribute__((unused));
+static void jt1147(void) { PROBE("jt1147"); SysBeep(6); }
+
+/* L0062 (CODE 5+0x62) — the "quit from the error dialog" teardown (jt466/
+ * jt1156/jt1119/jt1114/jt1158 + L27bc/L35f8/L01ac/L0f14). Level-2 skeleton:
+ * the rare 'q'-from-error abort branch, lifted with the loader/quit path. */
+static void l0062(void) __attribute__((unused));
+static void l0062(void) { PROBE("L0062"); }
+
+/* L036a (CODE 5+0x36a) — the modal "Error: <msg>" alert. Faithful CFG over
+ * the lifted box (jt1161), event (l0088/l00a8/jt1118/jt1133) and clip-save
+ * (jt1205/jt1167) primitives. The text path — L024c(240)+L0264+L0306 with
+ * jt400's "%r" recursive format — is mapped onto the shim: %r recursively
+ * formats the caller's own (fmt,args) and jt1089 is the established
+ * vsnprintf+DrawString equivalent of the L024c/L0264/L0306 trio. */
+static void l036a(const char *fmt, ...) __attribute__((unused));
+static void l036a(const char *fmt, ...)
+{
+	char    msg[256];
+	char    line[300];
+	va_list ap;
+	short   saved;
+
+	PROBE("L036a");
+
+	saved = jt1116();
+	jt1205();
+	jt1193();
+	jt1153(1);
+	jt1161(8096, 8000, 8100, 8160, 15);    /* the alert box, colour 15 */
+
+	va_start(ap, fmt);
+	vsnprintf(msg, sizeof msg, fmt, ap);   /* %r -> the caller's message */
+	va_end(ap);
+	snprintf(line, sizeof line, "Error: %s", msg);
+	jt1089(8096, 8000, 240, "%s", line);   /* == L024c(240)+L0264+L0306 */
+	jt1147();                              /* beep */
+
+	l00a8();                               /* drain stale events */
+	while (!l0088())                       /* wait for any event */
+		;
+	if (jt1118()) {
+		if (jt1133() == 113) {             /* 'q' -> quit from the error */
+			l0062();
+			jt415(1);
+		}
+	}
+
+	l00a8();
+	l024c(15);
+	jt1161(8096, 8000, 8100, 8160, 0);     /* erase the box */
+	jt1167();                              /* restore the clip bounds */
+	jt1153(saved);
 }
 
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
