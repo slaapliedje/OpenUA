@@ -220,6 +220,14 @@
 #define g_a5_27932 g_a5_long(-27932)
 #define g_a5_22222 g_a5_long(-22222)
 #define g_a5_9254  g_a5_long(-9254)
+/* GLIB FAR-pool watermarks. The pool is one contiguous buffer: -10270[i]
+ * (g_a5_10270, longs) holds the START *pointer* of the i-th group in
+ * sequence, -9304 is the capacity end (fixed at pool alloc), -9300 the
+ * peak high-water mark. Group free tail = -9304 - -10270[count]. */
+#define g_a5_9304  g_a5_long(-9304)
+#define g_a5_9300  g_a5_long(-9300)
+#define g_a5_9294  g_a5_word(-9294)    /* compaction counter (purge=1) */
+#define g_a5_9292  g_a5_word(-9292)    /* compaction counter (purge=0) */
 #define g_a5_14284 g_a5_long(-14284)
 #define g_a5_18844 g_a5_long(-18844)
 #define g_a5_18882 g_a5_long(-18882)
@@ -21165,6 +21173,225 @@ static short jt1013(short refnum, short id)
 	if (--count >= 0)
 		goto body;
 	jt412(refnum, base, 0);
+	return 0;
+}
+
+/* ===================================================================
+ * GLIB FAR-pool read layer (CODE 3) — jt104's mode-0 hot path.
+ *
+ * The pool is one contiguous buffer carved into a sequence of groups.
+ * g_a5_10270[i] (longs) is the START pointer of the i-th group;
+ * g_a5_10270[count] is the used end; g_a5_9304 the capacity end;
+ * g_a5_9306 the group count; g_a5_10074 the 48-byte freemap (group-id
+ * -> sequence-index, 0xFF = free). Loading reads raw item bytes onto
+ * the tail (no decompression here — the PackBits/type-7/9 codecs run
+ * at blit time, see [[glib-art-codecs]]).
+ * =================================================================== */
+
+/* L3e0c (=JT[409]) — first index in buf[0..count) equal to `val`, or
+ * `count` if absent. The freemap/companion scans search by it. */
+static short l3e0c(const unsigned char *buf, short count, unsigned char val)
+    __attribute__((unused));
+static short l3e0c(const unsigned char *buf, short count, unsigned char val)
+{
+	short i;
+
+	for (i = 0; i < count; i++)
+		if (buf[i] == val)
+			break;
+	return i;
+}
+
+/* JT[459] (CODE 3+0xd44) — size query over the pool.
+ *   id >= 0 : byte count of the group bound to freemap id `id`
+ *             (0 if unbound); = slot[seq+1] - slot[seq].
+ *   id == -2: total pool capacity (g_a5_9304 - slot[0]).
+ *   id == -1: free bytes = capacity minus every live group's size. */
+static long jt459(short id) __attribute__((unused));
+static long jt459(short id)
+{
+	long  avail;
+	short i;
+
+	PROBE("jt459");
+	if (id < 0) {
+		avail = g_a5_9304 - g_a5_10270[0];     /* capacity - base */
+		if (id == -2)
+			return avail;
+		for (i = 0; i < g_a5_9306; i++) {
+			/* group sequence i counts only if some freemap slot
+			 * still references it (i.e. it is live, not orphaned). */
+			if (l3e0c(g_a5_10074, 48, (unsigned char)i) < 48)
+				avail -= g_a5_10270[i + 1] - g_a5_10270[i];
+		}
+		return avail;
+	}
+	if (id >= 48)
+		return 0;
+	if ((signed char)g_a5_10074[id] & 0x80)        /* 0xFF -> unbound */
+		return 0;
+	{
+		short seq = (signed char)g_a5_10074[id];
+		return g_a5_10270[seq + 1] - g_a5_10270[seq];
+	}
+}
+
+/* L11ca (CODE 3+0x11ca) — one compaction pass: pick an orphaned group
+ * (loaded but referenced by no freemap entry) and release it via L103c,
+ * freeing its bytes from the tail. The RNG (jt1083) randomises whether
+ * candidates are scanned by sequence index or by the g_a5_9354 priority
+ * companion. Returns 1 if it freed a group, 0 if none was releasable. */
+static unsigned char l11ca(unsigned char purge) __attribute__((unused));
+static unsigned char l11ca(unsigned char purge)
+{
+	short i;
+
+	PROBE("L11ca");
+	if (purge)
+		g_a5_9294++;
+	else
+		g_a5_9292++;
+
+	if (jt1083(3) != 0) {
+		for (i = (short)(g_a5_9306 - 1); i >= 0; i--) {
+			if (l3e0c(g_a5_10074, 48, (unsigned char)i) >= 48) {
+				l103c(i);
+				return 1;
+			}
+		}
+	} else {
+		for (i = (short)(g_a5_9306 - 1); i >= 0; i--) {
+			unsigned char id = g_a5_9354[i];
+
+			if (l3e0c(g_a5_10074, 48, id) >= 48) {
+				l103c(id);
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+/* L0a6e (CODE 3+0xa6e) — guarantee `need` free bytes on the pool tail,
+ * compacting (L11ca) until enough is freed. Returns 0 when even full
+ * compaction can't satisfy the request (the Mac then alerts "Out of FAR
+ * memory!" via JT[1084] and aborts through L0846; the port logs it). */
+static unsigned char l0a6e(long need) __attribute__((unused));
+static unsigned char l0a6e(long need)
+{
+	for (;;) {
+		long freetail = g_a5_9304 - g_a5_10270[g_a5_9306];
+
+		if (freetail >= need)
+			return 1;
+		if (!l11ca(0))
+			break;
+	}
+	dbg_log("glib: Out of FAR memory!");
+	return 0;
+}
+
+/* L0ab8 (CODE 3+0xab8) — extend the in-progress group's region by
+ * `size` bytes (advance slot[count]), after ensuring the tail has room.
+ * Tracks the usage low-water of free space in g_a5_9300. */
+static unsigned char l0ab8(long size) __attribute__((unused));
+static unsigned char l0ab8(long size)
+{
+	long freenow;
+
+	if (!l0a6e(size))
+		return 0;
+	g_a5_10270[g_a5_9306] = g_a5_10270[g_a5_9306] + size;
+	freenow = jt459(-1);
+	if (freenow < g_a5_9300)
+		g_a5_9300 = freenow;
+	return 1;
+}
+
+/* JT[460] (CODE 3+0xc0a) — append `length` raw bytes from the open
+ * refnum onto the current group. A negative length means "read to EOF"
+ * (tell, seek to LEOF for the size, seek back). The low bit of the
+ * packed long is a +1 odd-size pad. Returns 1 on a complete read. */
+static unsigned char jt460(short refnum, long arg) __attribute__((unused));
+static unsigned char jt460(short refnum, long arg)
+{
+	long  length = arg;
+	short flagbit0 = (short)(arg & 1);
+	long  avail, dest;
+
+	PROBE("jt460");
+	if (length < 0) {                          /* read-to-EOF */
+		long tellpos = jt412(refnum, 0, 1);    /* tell (from mark) */
+
+		if (tellpos < 0)
+			return 0;
+		length = jt412(refnum, 0, 2);          /* LEOF -> total size */
+		if (length < 0)
+			return 0;
+		if (jt412(refnum, tellpos, 0) < 0)     /* seek back */
+			return 0;
+		length -= tellpos;
+	}
+
+	/* old end of the current group = slot[count-1] + (slot[count]-slot[count-1]) */
+	avail = g_a5_10270[g_a5_9306] - g_a5_10270[g_a5_9306 - 1];
+	if (!l0ab8(length + flagbit0))
+		return 0;
+	dest = g_a5_10270[g_a5_9306 - 1] + avail;
+
+	{
+		short got = jt401(refnum, (void *)(uintptr_t)dest, (short)length);
+
+		return (got == (short)length) ? 1 : 0;
+	}
+}
+
+/* JT[462] (CODE 3+0xb16) — drop the in-progress (last) group: decrement
+ * the count, unmap any freemap entry that referenced it, and shift the
+ * g_a5_9354 priority companion down one. Called when a load fails. */
+static void jt462(void) __attribute__((unused));
+static void jt462(void)
+{
+	short i;
+
+	PROBE("jt462");
+	if (g_a5_9306 > 0)
+		g_a5_9306--;
+	for (i = 0; i < 48; i++) {
+		if ((signed char)g_a5_10074[i] == (signed char)g_a5_9306)
+			g_a5_10074[i] = 0xFF;
+	}
+	l366a(&g_a5_9354[1], &g_a5_9354[0], (short)g_a5_9306);
+}
+
+/* L4010 (CODE 5) — _LBConvert: validate the just-loaded 'GLIB' header in
+ * place and relocate its index table into pool pointers. Lifted in the
+ * next step; this PROBE stub commits successfully so the read path links
+ * and the structural CFG of jt1016 is exercised. */
+static long l4010(short group, long off, long size) __attribute__((unused));
+static long l4010(short group, long off, long size)
+{
+	PROBE("L4010");
+	(void)group;
+	(void)off;
+	(void)size;
+	return 0;
+}
+
+/* JT[1016] (CODE 5+0x3640) — read one library/picture item into a group
+ * and bind it: jt460 reads the bytes, jt459 sizes the group, L4010
+ * commits/relocates. On any failure jt462 unwinds the half-built group. */
+static long jt1016(short refnum, long arg, short groupid) __attribute__((unused));
+static long jt1016(short refnum, long arg, short groupid)
+{
+	PROBE("jt1016");
+	if (jt460(refnum, arg)) {
+		long size = jt459(groupid);
+
+		if (l4010(groupid, 0, size) >= 0)
+			return 1;
+	}
+	jt462();
 	return 0;
 }
 
