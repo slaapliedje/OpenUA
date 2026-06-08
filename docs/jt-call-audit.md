@@ -47,17 +47,17 @@ stand-in pressure.
 
 | JT | calls | what (CODE addr) |
 |----|-------|------------------|
-| jt96 | 43 | rect/paint wrapper over jt1135/jt1161/jt1089 |
-| jt23 | 37 | play-frame stand-up (Inv/redraw) |
+| ~~jt96~~ | 43 | DONE — word-wrap text-in-box subsystem |
+| ~~jt23~~ | 37 | DONE — play-frame redraw dispatcher (603facc) |
 | jt1084 | 34 | setter (buf, val) |
-| jt938 | 27 | status / clock line (CODE 12+0x562) — HUD clock |
-| jt358 | 27 | counter (CODE 8+0x6e4a) |
+| ~~jt938~~ | 27 | DONE — HUD clock (9a1b42b) |
+| ~~jt358~~ | 27 | DONE — counter (d69fceb) |
 | jt1193 | 24 | (CODE 7) view-prep tail |
 | jt876 | 22 | popup action handler (CODE 18+0x1666) |
 | jt1177 | 22 | row-blit draw primitive (HAL-deferred) |
-| jt273 | 22 | deep-mode flag (CODE 22+0x4900) |
+| ~~jt273~~ | 22 | DONE — deep-mode flag (d69fceb) |
 
-Play/HUD-relevant subset (current critical path): **jt23, jt938, jt273, jt96**.
+Remaining high-leverage TRUE stubs: **jt1084, jt1193, jt876, jt1177**.
 
 ## Genuine no-ops / constants — faithful AS stubs, do NOT "lift"
 
@@ -78,6 +78,36 @@ Verified against the Mac body; leave them.
 - **jt96 subsystem lifted** (9fb7024): jt390 + l433a + l42a0 + jt96 (word-wrap
   text-in-box). Slow-text (l435a) + pagination (l4c46) arms stubbed. Visible
   wiring (jt18/jt20 record sheet, drop cg_view_sheet) is the follow-up.
+- **jt96 fully de-stubbed** (9ab51a0): l435a/l4c46 + the 13-fn pause/pacing
+  cluster lifted (all bottom out on already-lifted leaves).
+- **jt937 / jt32 / jt34 lifted** (6870674): jt937 (=L02dc roster grid) was
+  already faithful but called two stub column drawers — jt34 (THAC0/AC,
+  p[385]-60 signed) + jt32 (HP cur/max) lifted, plus helpers jt478/jt388/
+  l60b4. l02dc's loop restored to the faithful colour-band form (the jt94
+  "%d" stand-ins dropped). NOTE: jt937 does NOT call jt96 — the roster uses
+  jt94/jt103/jt25/jt32/jt34. jt96's live wiring is jt18/jt20, still pending.
+- **jt23 lifted** (603facc): the play-frame redraw dispatcher. Full CFG (gate
+  + 11-case mode switch) + the stand-up spine (L670c/L534a/L3804/L3880) full;
+  the backdrop-picture helpers (L541a/L5822/L579e/L3eea) are level-2 skeletons
+  pending the GLIB picture subsystem.
+
+## jt23 follow-up: the GLIB picture subsystem (== task #105 territory)
+
+jt23's backdrop arms (cases 2/6, the L5822 full-refresh, and the L3eea
+sprite/palette commit) call into a coherent unlifted subsystem worth a focused
+lift:
+
+- **L33ac** (CODE 6, ~204 instr) — the PIC resource decode + blit core.
+- **L541a** (CODE 6, ~235 instr) — PIC name builder (PIC%c1 / %s%s / bigpi%c%d
+  variants over the area id) feeding L33ac.
+- **L579e** (CODE 6) — bigpic loader (cached on g_a5_-24256/-17446).
+- **jt993** (CODE 5+0x20d0, TNPalette) + **jt1017** (CODE 5+0x38be, LBIndxType)
+  — the palette commit, pulling L2856 (library lookup) + jt1069 (palette set).
+- leaf helpers: L035e (group set, -> jt204/jt209/L5700/L5864), L338c, L31dc,
+  L3f3c (-> jt1066/jt1069).
+
+These are the screen-backdrop / palette path; lifting them lights up the
+play-screen picture window + the cases-2/6 area backdrops.
 
 ## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
 
