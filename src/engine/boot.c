@@ -20998,6 +20998,80 @@ static void l31dc(void *pp)
 	*p = NULL;
 }
 
+/* --- l036a/jt987 event + pen primitives (faithful, over the lifted event
+ * buffer l731e / jt1118 / jt1133 / jt1125 and the jt1135 coord scale) ------ */
+
+/* JT[1108] (CODE 4+0x62e4) — pump the event buffer (mode 1) and report the
+ * pending-event byte (g_a5_-904). */
+static short jt1108(void) __attribute__((unused));
+static short jt1108(void)
+{
+	PROBE("jt1108");
+	l731e(1);
+	return (short)(signed char)g_a5_byte(-904);
+}
+
+/* JT[1137] (CODE 4+0x7a10) — FlushEvents: a no-op in this port (returns 0). */
+static short jt1137(void) __attribute__((unused));
+static short jt1137(void) { PROBE("jt1137"); return 0; }
+
+/* JT[437..441] (CODE 3) — the thin event-queue wrappers l036a/jt987 poll. */
+static short jt437(void) __attribute__((unused));
+static short jt437(void) { PROBE("jt437"); return jt1108(); }
+static short jt438(void) __attribute__((unused));
+static short jt438(void) { PROBE("jt438"); return jt1137(); }
+static short jt439(void) __attribute__((unused));
+static short jt439(void) { PROBE("jt439"); return jt1133(); }
+static short jt440(short kind, long p1, long p2) __attribute__((unused));
+static short jt440(short kind, long p1, long p2)
+{
+	PROBE("jt440");
+	return jt1125(kind, p1, p2);
+}
+static short jt441(void) __attribute__((unused));
+static short jt441(void) { PROBE("jt441"); return jt1118(); }
+
+/* L0088 (CODE 5+0x88) — is any event available? */
+static short l0088(void) __attribute__((unused));
+static short l0088(void)
+{
+	PROBE("L0088");
+	if (jt441()) return 1;
+	if (jt437()) return 1;
+	if (jt438()) return 1;
+	return 0;
+}
+
+/* L00a8 (CODE 5+0xa8) — drain the event queue (pending keys, then kind-7). */
+static void l00a8(void) __attribute__((unused));
+static void l00a8(void)
+{
+	short a, b;
+	PROBE("L00a8");
+	while (jt441())
+		jt439();
+	while (jt440((short)7, (long)(uintptr_t)&a, (long)(uintptr_t)&b))
+		;
+	jt438();
+}
+
+/* L024c (CODE 5+0x24c) — set the GLIB pen colour (low word + high byte). */
+static void l024c(short colour) __attribute__((unused));
+static void l024c(short colour)
+{
+	PROBE("L024c");
+	g_a5_4894 = colour;
+	g_a5_4892 = (unsigned char)(colour >> 8);
+}
+
+/* L0264 (CODE 5+0x264) — set the GLIB pen position (8000-space -> screen). */
+static void l0264(short x, short y) __attribute__((unused));
+static void l0264(short x, short y)
+{
+	PROBE("L0264");
+	jt1135(x, y, &g_a5_4898, &g_a5_4896);
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
