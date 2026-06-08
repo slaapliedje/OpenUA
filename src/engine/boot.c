@@ -98,6 +98,12 @@
 #define g_a5_27946 g_a5_byte(-27946)
 #define g_a5_24262 g_a5_byte(-24262)
 #define g_a5_24256 g_a5_byte(-24256)
+#define g_a5_23188 g_a5_byte(-23188)   /* jt23: "view stood up" flag       */
+#define g_a5_22292 g_a5_byte(-22292)   /* jt23 case 1: pending-go-away flag */
+#define g_a5_17446 g_a5_byte(-17446)   /* L5822/L579e: last-loaded bigpic id*/
+#define g_a5_12300 g_a5_ptr(-12300)    /* jt23 cases 2/6: current-area block */
+/* g_a5_13038 (jt23 gate: record-table base ptr) is a file-static buffer
+ * pointer defined near l5124; forward-declared for jt23 below. */
 
 /* Remaining scalar globals — bytes / shorts / longs / pointers from
  * across boot.c, all bound to their A5-relative slots in the replay
@@ -20953,7 +20959,210 @@ static short jt953(void)
 static short  jt595(short a, short b, short *p1, unsigned char *p2)
                                                      { PROBE("jt595"); (void)a; (void)b; (void)p1; (void)p2; return 0; }
 static void   jt527(void)                            { PROBE("jt527"); }
-static void   jt23(void)                             { PROBE("jt23"); }
+/* ---------------------------------------------------------------------------
+ * JT[23] — the play-frame redraw dispatcher (CODE 6 + 0x2890), and its
+ * stand-up spine. jt23 gates on the live record's slot, then switches on the
+ * play selector g_a5_-27990 to repaint the viewport (L670c), the GLIB picture
+ * backdrop (L541a), the per-frame view (L534a), the roster (jt937) and the
+ * clock (jt938).
+ *
+ * The stand-up spine (L670c / L534a / L3804 / L3880) is a full lift — it
+ * composes the already-lifted jt103 / jt1001 / jt108 / jt117 / jt174 / jt1200
+ * primitives. The backdrop-picture helpers (L541a / L5822 / L579e) and the
+ * sprite/palette commit (L3eea) bottom out in the GLIB picture subsystem
+ * (the 200-instr L33ac decoder + jt993 TNPalette + jt1017 LBIndxType), so they
+ * are level-2 skeletons here: faithful gate + state, with the codec interior
+ * marked TODO for the GLIB picture lift (task #105).
+ * ------------------------------------------------------------------------- */
+
+static unsigned char *g_a5_13038;   /* record-table base (defined near l5124) */
+
+/* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
+static void l3804(short c1, short c2, short frame, short unused, void *ptr)
+{
+	PROBE("L3804");
+	(void)unused;
+	jt1001(c2, c1, *(short *)ptr, frame);
+}
+
+/* L3880 (CODE 6+0x3880) — blit one GLIB cell at cell (a,b): each cell is
+ * 4 units, offset into the 8000-origin view space. */
+static void l3880(short a, short b, short frame, void *ptr)
+{
+	PROBE("L3880");
+	jt1001((short)(8000 + 4 * b), (short)(8000 + 4 * a),
+	       *(short *)ptr, frame);
+}
+
+/* L3eea (CODE 6+0x3eea) — commit the GLIB picture + palette for handle *p.
+ * Level-2 skeleton: the visibility gate is faithful; the palette commit
+ * (jt468 lookup -> jt1017 LBIndxType check -> jt993 TNPalette) is part of the
+ * GLIB picture subsystem (task #105). */
+static void l3eea(void *p)
+{
+	PROBE("L3eea");
+	if (jt1163() == 0 && jt1200() != 0)
+		return;
+	(void)p;   /* TODO: jt993(jt468(*p), jt1017(jt468(*p)) != 0); */
+}
+
+/* L670c (CODE 6+0x670c) — stand up the empty viewport: clear, frame box, and
+ * blit the four border cells, then run the view-prep tail (jt174). */
+static void l670c(void)
+{
+	PROBE("L670c");
+	jt108(0);
+	jt103(1, 1, 38, 22);
+	jt1001(8000, 8000, 1, 1);
+	jt1001(8000, 8000, 1, 2);
+	jt1001(8000, 8000, 1, 3);
+	jt1001(8000, 8000, 1, 4);
+	jt174();
+}
+
+/* L534a (CODE 6+0x534a) — redraw the active GLIB view (handle g_a5_-24320):
+ * in deep mode (jt1200()==3) at raw 8000-space via L3804, else at cell space
+ * via L3880; frame 1 (when the count `d` is non-zero) plus frame d+1, then
+ * commit (L3eea) and present (jt117). */
+static void l534a(short a, short b, short c, short d)
+{
+	PROBE("L534a");
+	if (g_a5_24320 == NULL)
+		return;
+	if (jt1200() == 3) {
+		if (c != 0) {
+			jt108(1);
+			if (d != 0)
+				l3804(8, 8, 1, 0, g_a5_24320);
+			l3804(8, 8, (short)(d + 1), 0, g_a5_24320);
+		}
+	} else {
+		if (c != 0) {
+			jt108(1);
+			if (d != 0)
+				l3880(a, b, 1, g_a5_24320);
+			l3880(a, b, (short)(d + 1), g_a5_24320);
+		}
+	}
+	l3eea(g_a5_24320);
+	jt117();
+}
+
+/* L579e (CODE 6+0x579e) — load the "bigpic" backdrop for id; cached against
+ * g_a5_-24256. Level-2 skeleton: the cache gate + state writes are faithful;
+ * the name build + L33ac decode/blit is the GLIB picture lift (task #105). */
+static void l579e(short id)
+{
+	PROBE("L579e");
+	if ((short)(unsigned char)g_a5_24256 == id)
+		return;
+	/* TODO (GLIB picture subsystem): L035e(3); L338c(50);
+	 * name = jt488("bigpi%c%d", id < 248 ? 120 : 99, g_a5_-23185);
+	 * L33ac(name, id, 0, 0, &g_a5_-24260); L3f3c(32, 255); */
+	g_a5_24256 = (unsigned char)id;
+	g_a5_17446 = (unsigned char)id;
+}
+
+/* L5822 (CODE 6+0x5822) — full-screen backdrop refresh: (re)load the cached
+ * bigpic, then blit + commit it at cell (1,1). */
+static void l5822(void)
+{
+	PROBE("L5822");
+	if ((short)(unsigned char)g_a5_24256 == 255)
+		l579e((short)(unsigned char)g_a5_17446);
+	l68f8();
+	l3880(1, 1, 1, g_a5_24260);
+	l3eea(g_a5_24260);
+}
+
+/* L541a (CODE 6+0x541a) — load + blit a "PIC" backdrop resource into `buf`.
+ * Level-2 skeleton: the GLIB picture subsystem (the PIC%c1 / %s%s name build
+ * over `id` + the L33ac decode/blit into (char*)buf+2) is task #105. */
+static void l541a(const char *type, short id, short flag, void *buf)
+{
+	PROBE("L541a");
+	(void)type; (void)flag; (void)id; (void)buf;
+}
+
+/* JT[23] (CODE 6+0x2890) — the play-frame redraw dispatcher. */
+static void jt23(void)
+{
+	unsigned char *handle = (unsigned char *)g_a5_28006;
+	short mode;
+	int   gate;
+
+	PROBE("jt23");
+	g_a5_23188 = 1;
+
+	/* Gate (L2896..L28d4): a full-screen refresh (L5822) pre-empts the
+	 * per-mode redraw when the live record's slot is "big" (rec[6] >= 240)
+	 * and the -18474 flag is set. */
+	gate = 0;
+	if (handle != NULL && handle[133] != 0 && g_a5_13038 != NULL) {
+		unsigned char *rec = g_a5_13038 + (handle[133] - 1) * 20;
+		if (rec[6] >= 240 && g_a5_18474 != 0)
+			gate = 1;
+	}
+	if (gate) {
+		l5822();
+		return;
+	}
+
+	mode = (short)(signed char)g_a5_27990;
+	switch (mode) {                          /* JT[3] table: min 0, max 10 */
+	case 0:                                  /* L28fe */
+		l670c();
+		break;
+	case 1:
+	case 10:                                 /* L2906 */
+		if (g_a5_27987 != 0) {
+			l5822();                         /* L293c */
+			break;
+		}
+		if (g_a5_22292 != 0)
+			l67ca();
+		l534a(3, 3, 1, 0);
+		jt937(g_a5_27932);
+		jt938();
+		break;
+	case 2: {                                /* L2944 */
+		unsigned char *area = (unsigned char *)g_a5_12300;
+		l67ca();
+		if (area[288] == 0)
+			l541a(ua_strs_at(0x102), 128, 0, &g_a5_24322);
+		else
+			l541a(ua_strs_at(0x106), area[288], 0, &g_a5_24322);
+		l534a(3, 3, 1, 0);
+		jt937(g_a5_27932);
+		jt938();
+		break;
+	}
+	case 3:                                  /* L29d0 */
+		if (handle != NULL && handle[36] == 1)
+			jt935();
+		break;
+	case 4:                                  /* L29b6 */
+		l67ca();
+		jt935();
+		jt937(g_a5_27932);
+		jt938();
+		break;
+	case 6: {                                /* L29ea */
+		unsigned char *area = (unsigned char *)g_a5_12300;
+		l67ca();
+		if (area[289] == 0)
+			l541a(ua_strs_at(0x10a), 129, 0, &g_a5_24322);
+		else
+			l541a(ua_strs_at(0x10e), area[289], 0, &g_a5_24322);
+		l541a(ua_strs_at(0x112), 129, 0, &g_a5_24322);   /* always */
+		l534a(3, 3, 1, 0);
+		jt937(g_a5_27932);
+		break;
+	}
+	default:                                 /* 5, 7, 8, 9 -> nothing */
+		break;
+	}
+}
 
 #define g_a5_5806  g_a5_long(-5806)    /* per-character record ptr (NULL until design-load) */
 #define g_a5_27936 g_a5_long(-27936)   /* saved design ptr cache */
