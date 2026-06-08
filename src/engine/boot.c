@@ -20990,6 +20990,57 @@ static unsigned char *g_a5_13038;   /* record-table base (defined near l5124) */
 static short jt389(short c) __attribute__((unused));
 static short jt389(short c) { PROBE("jt389"); return (c >= '0' && c <= '9') ? 1 : 0; }
 
+/* JT[408] (CODE 3+0x466a) — isupper('A'..'Z'). */
+static short jt408(short c) __attribute__((unused));
+static short jt408(short c) { PROBE("jt408"); return (c >= 'A' && c <= 'Z') ? 1 : 0; }
+
+/* JT[420] (CODE 3+0x4648) — islower('a'..'z'). */
+static short jt420(short c) __attribute__((unused));
+static short jt420(short c) { PROBE("jt420"); return (c >= 'a' && c <= 'z') ? 1 : 0; }
+
+/* JT[422] (toupper) is already lifted near L6dd0's Cmd-key path. */
+
+/* L16c6 (CODE 5+0x16c6) — build a GLIB data-file path from (kind, counter,
+ * name). counter==0 / kind==0 give the bare name; otherwise the volume/folder
+ * prefix (g_a5_-4674) plus, per the -4676 path-style flag, a ":" (HFS) or a
+ * ":SAVE" / "DISK<kind>" component, then the name appended (jt431). */
+static void l16c6(char *dst, short kind, short counter, const char *name)
+    __attribute__((unused));
+static void l16c6(char *dst, short kind, short counter, const char *name)
+{
+	PROBE("L16c6");
+	if (kind == 0) {                       /* no group -> bare name */
+		jt384(dst, name);
+		return;
+	}
+	dst[0] = 0;
+	if (counter != 0) {
+		const char *prefix = (const char *)(uintptr_t)g_a5_4674;
+		short n;
+		jt384(dst, prefix);
+		jt404(dst, " ");                   /* placeholder byte */
+		n = jt423(prefix);
+		dst[n] = (kind == 'S')
+		         ? (char)(unsigned char)g_a5_4670
+		         : (char)kind;             /* overwrite the placeholder */
+	}
+	if ((unsigned char)g_a5_4676 == 0) {
+		jt404(dst, ":");                   /* HFS separator */
+	} else {
+		if (kind != 0)
+			jt404(dst, ":");
+		if (kind == 'S') {
+			jt404(dst, "SAVE");
+		} else if (kind > 32) {
+			short n;
+			jt404(dst, "DISKA");
+			n = jt423(dst);
+			dst[n - 1] = (char)kind;       /* "DISKA" -> "DISK<kind>" */
+		}
+	}
+	jt431(dst, name);
+}
+
 /* L31dc (CODE 6+0x31dc) — release a GLIB group slot: free its tag (jt461),
  * mark the slot word free (-1), and clear the caller's slot pointer. */
 static void l31dc(void *pp) __attribute__((unused));
