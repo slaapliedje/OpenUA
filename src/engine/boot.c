@@ -21312,31 +21312,40 @@ static int l10ca(short a)
 	return 1;       /* L1262 — return 1 */
 }
 
-/* L1142 — case 9. CODE 12 + 0x1142. FAITHFULLY THIS IS *SAVE GAME*, not
- * "Begin Adventuring" (the earlier label was wrong — confirmed by decoding
- * jt918's JT[3] dispatch @0x0efc with jt3_extract and reading the arms):
+/* L1142 — case 9 = the "Begin Adventuring" menu item. CODE 12 + 0x1142.
  *
- *   tstb a5@(-14431); beqw L1242        ; menu item enabled?
- *   tstl a5@(-27928); beqw L1242        ; party present?
- *   jsr  JT[585]                        ; CODE 15+0x1a24 = Save Game
- *   braw L1242                          ; continue the Training-Hall loop
+ * RAW-DISASM ODDITY (verified, 2026-06-07): the STRS label rendered at this
+ * build slot is "Begin Adventuring" (dumped live from the resource), the
+ * jt918 JT[3] table (0x0efc) maps selection 9 -> 0x1142 (identity), yet the
+ * 0x1142 body calls JT[585] = CODE 15+0x1a24, which is the SAVE routine
+ * ("Saving...Please Wait", "SavGam%s%c"+"csv"). So the shipped CODE-12
+ * dispatch sends the "Begin Adventuring" button to save code and "Save
+ * Current Game" (sel 10 -> l115a) to the return-1 play-entry — inverted from
+ * the labels. That label/case knot in the original save subsystem is not yet
+ * fully resolved; rather than ship a button that lies, the port routes the
+ * "Begin Adventuring" item to the engine's begin-adventure primitive so the
+ * labelled button reaches the faithful dungeon.
  *
- * JT[585] is the save routine ("Saving...Please Wait", "SavGam%c"). The
- * REAL "Begin Adventuring" is case 8 (l10ca) — it is the only arm that
- * returns 1, which is what makes L07dc proceed into the dungeon.
- *
- * Port note: until L07dc's post-jt918 dungeon entry (l67ca/jt937/jt938 +
- * the play loop) is fully lifted, this case-9 slot HOSTS the dungeon demo
- * (port_begin_adventure -> port_play_demo) so the menu can reach the
- * first-person view. That is a deliberate port stand-in in the wrong
- * faithful slot, to be moved onto case 8's real return-1 path once the
- * l07dc dungeon entry lands. */
+ * The begin primitive is l10ca's L112c arm verbatim: jt942(1) (sets the
+ * adventure loop-continue flag g_a5_-4944 that l07dc's jt943 reads),
+ * g_a5_-27982 = 1 (active-adventure gate jt948 checks), return 1 — which
+ * makes l07dc proceed l67ca/jt937/jt938 -> jt217 -> JT[948], the faithful
+ * dungeon walk loop (jt240 -> l63c0 -> jt297 -> l1908 -> jt312). Gated like
+ * the real arm on the item-enable flag (g_a5_-14431) + an assembled party
+ * (g_a5_-27928). Replaces the old port_begin_adventure/port_play_demo bridge. */
 static int l1142(short a)
 {
 	(void)a;
 	PROBE("jt918/case9 L1142");
-	port_begin_adventure();  /* PORT: demo dungeon entry (faithful = Save Game) */
-	return 0;                /* redraw the Training Hall */
+	if (g_a5_14431 == 0)            /* "Begin Adventuring" item disabled */
+		return 0;
+	if (g_a5_27928 == 0) {          /* no party assembled */
+		jt159(ua_strs_at(0x5fb6), 1);   /* faithful: the item would be dimmed */
+		return 0;
+	}
+	jt942(1);                       /* adventure-mode loop flag (l10ca L112c) */
+	g_a5_27982 = 1;                 /* active-adventure gate */
+	return 1;                       /* -> l07dc -> jt948 (faithful dungeon) */
 }
 
 /* L115a — case 10 (Save Current Game). CODE 12 + 0x115a.
