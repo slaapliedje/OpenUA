@@ -9578,8 +9578,7 @@ static void        jt238(void *rec)                     { PROBE("jt238"); (void)
  * l476e flips the party/screen entry mode; jt148 (CODE 7+0x33dc) paints the
  * command-prompt line; l4810 releases a transient. jt287/jt294 (CODE 22) are
  * the action procs the registered walk DLItems carry (see l6256). */
-static void        jt148(long prompt, char *title, short flag)
-                                                        { PROBE("jt148"); (void)prompt;(void)title;(void)flag; } /* CODE 7+0x33dc */
+static void        jt148(long prompt, char *title, short flag);  /* CODE 7+0x33dc — lifted near l206e */
 static void        l429c(short a, short b)               { PROBE("L429c"); (void)a;(void)b; }                  /* CODE 11-local */
 /* L476e (CODE 11 + 0x476e) — set up the play-view interior rect. `active`
  * (low byte) gates; `layout` picks the view: 0 = the compact dungeon view
@@ -19714,6 +19713,70 @@ static void l206e(long p1, unsigned char *buf,
 	g_a5_12911 = g_a5_12912;
 	g_a5_12912 = 0;
 }
+
+static void  l2170(short arg);          /* defined below (CODE 7+0x2170) */
+static void  l2858(short mode);         /* defined below (CODE 7+0x2858) */
+
+/* JT[455] (CODE 3 + 0x2c5a) — return the live DLItem count (g_a5_-9250). */
+static short jt455(void)
+{
+	PROBE("jt455");
+	return (short)g_a5_word(-9250);
+}
+
+/* jt148 (CODE 7 + 0x33dc) — the play-screen command/prompt bar paint, the
+ * piece jt240/jt241 call to lay the bottom bar. Two modes, on JT[396](title,
+ * g_a5_-14644) — the engine's "is this the standard play prompt" compare:
+ *
+ *   nonzero (a one-off "press a key" prompt): draw "Press ... to continue."
+ *     (jt94) + a single "Return" shape-1 button DLItem (jt452), arm the modal
+ *     (l2062 / l2858(2)), clear the cancel byte (-24139).
+ *
+ *   zero (the standard command bar): the prompt-cluster build, mirroring
+ *     l206e but with the bar's own STRS suffixes and an unconditional dirty:
+ *     L2184(title) fills the working prompt (-13000); copy it to the L1a0c
+ *     buffer (-12908) and stage the two command suffixes (STRS 0x27ae/0x27b0)
+ *     into -12828/-12748; L1a0c measures the glyph layout into buf; L2170
+ *     caches the base index (g_a5_-13016); L1bfe paints the bar from buf with
+ *     the caller's prompt as the suffix; then roll the dirty cache. The bar
+ *     now renders through the real DLItem/GLIB glyph path (l1bfe -> the glyph
+ *     blitter) instead of the old stub, so the in-dungeon command bar draws
+ *     with the same foundation as the menus. */
+static void jt148(long prompt, char *title, short flag)
+{
+	unsigned char buf[82];          /* fp@(-82) — the L1a0c glyph layout */
+	short         width;            /* fp@(-2)  */
+
+	PROBE("jt148");
+	g_a5_word(-12666) = jt455();
+
+	if (jt396(title, (const char *)(uintptr_t)g_a5_long(-14644)) != 0) {
+		/* one-off "press a key" prompt + a Return button */
+		jt94((short)7, (short)24, (short)7, (short)0, "%s",
+		     ua_strs_at(0x278c));               /* "Press ... to continue." */
+		jt452((long)1, (long)8094, (long)8056,
+		      (long)(uintptr_t)ua_strs_at(0x27a6),      /* "Return" */
+		      (long)32, (long)6, (long)36, (long)20, (long)22, (long)21, (long)0);
+		l2062();
+		l2858((short)2);
+		g_a5_byte(-24139) = 0;
+		return;
+	}
+
+	/* the standard command bar (prompt cluster) */
+	l2184(title);
+	g_a5_12912 = 1;                                 /* force a repaint */
+	jt384((char *)g_a5_12908_str, (const char *)g_a5_13000_str);
+	jt384((char *)g_a5_12828_str, ua_strs_at(0x27ae));
+	jt384((char *)g_a5_12748_str, ua_strs_at(0x27b0));
+	width = l1a0c((const char *)g_a5_12908_str, buf);
+	l2170(width);                                   /* g_a5_-13016 = base */
+	l1bfe(width, buf, (const char *)(uintptr_t)prompt,
+	      (short)(flag & 0xff), (short)g_a5_12912);
+	g_a5_12911 = g_a5_12912;
+	g_a5_12912 = 0;
+}
+
 /* New PROBE-stub helpers L23b4 needs. */
 static long  jt100(void)                             { PROBE("jt100"); return 0; }
 static signed char jt1085(void)                      { PROBE("jt1085"); return 0; }
