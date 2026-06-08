@@ -6182,9 +6182,11 @@ static short jt381(void *rec_v, short cmd, ...)
  * so its hit-test is real today — that's the arm that will fire
  * once L2d3e gets coordinates from a real click. */
 /* Set while the play screen repaints its command bar (jt312 forced frame) so
- * jt382 draws the labels in the dungeon-safe HUD palette (253/254) instead of
- * the menu's clut 7/15 (wall colours in the dungeon). Off everywhere else. */
+ * jt382 draws each command label on its own beveled MENU.CTL plate in the
+ * dungeon-safe HUD palette (253/254), instead of the menu's clut 7/15 (wall
+ * colours in the dungeon). Off everywhere else. */
 static short g_hud_paint;
+static void  port_menu_bar(short top, short left, short width, short idx); /* MENU.CTL plate */
 static short jt382(void *rec_v, short cmd, ...) __attribute__((unused));
 static short jt382(void *rec_v, short cmd, ...)
 {
@@ -6304,6 +6306,15 @@ static short jt382(void *rec_v, short cmd, ...)
 				 * MENU still uses the port menu_draw_plates stand-in until the
 				 * faithful CODE-15/19 menu is lifted — task #105.) */
 				if (len > 0) {
+					/* Play command bar: draw each command on its own
+					 * beveled MENU.CTL plate (the Mac HUD's per-command
+					 * bevel cells). Cells advance (len+1)*8 px (l1aea's
+					 * (len+1)*4 at scale 2), so this width abuts them; the
+					 * left cap sits just left of the label origin. */
+					if (g_hud_paint)
+						port_menu_bar((short)(y_pix - 9),
+						              (short)(x_pix - 4),
+						              (short)((len + 1) * 8), (short)1);
 					/* The Mac paint chain (L148a/jt995) sets the pen
 					 * colour; our collapsed path doesn't, so the label
 					 * would inherit a stale fgColor. Draw the body in the
@@ -9123,26 +9134,24 @@ static void jt312(unsigned char *page)
 #else
 	render_3d_faithful(px, pitch, sw, sh);
 #endif
-	/* HUD command bar: on the chrome-redraw frames, re-lay the dark plate and
-	 * force-repaint the command-word DLItems on top in the HUD palette. The
-	 * chrome wipe (port_draw_play_frame) and the view both ran above, and the
-	 * bar's labels carry the "painted" bit (set when jt240's jt449 first drew
-	 * them), so the poll-loop l2c60(0) would skip them — l2c60(1) forces the
-	 * repaint regardless. Install the HUD clut entries right here (252 dark /
-	 * 253 grey / 254 white), after dungeon_view_setup's clut-129 256-entry
-	 * load, so they aren't clobbered. */
+	/* HUD command bar: on the chrome-redraw frames, lay the beveled command-bar
+	 * plate and force-repaint the command-word DLItems on top. The chrome wipe
+	 * (port_draw_play_frame) and the view both ran above, and the bar's labels
+	 * carry the "painted" bit (set when jt240's jt449 first drew them), so the
+	 * poll-loop l2c60(0) would skip them — l2c60(1) forces the repaint. Each
+	 * command word gets its own beveled MENU.CTL plate (jt382 draws it per
+	 * label when g_hud_paint), matching the Mac HUD's per-command bevel cells;
+	 * the labels paint in the HUD palette (253 grey / 254 white hotkey),
+	 * installed right here so dungeon_view_setup's clut-129 256-entry load can't
+	 * clobber it. */
 	if (s_view_first || g_view_force_full) {
-		RGBColor hud[3];
-		short rr;
+		RGBColor hud[2];
 
-		hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0x1818;
-		hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xC8C8;
-		hud[2].red = hud[2].green = hud[2].blue = (unsigned short)0xFFFF;
-		qd_set_palette(hud, (short)252, (short)3);
-		for (rr = 181; rr < 199 && rr < sh; rr++)
-			memset(px + (long)rr * pitch, 252, (size_t)sw);
+		hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0xC8C8;
+		hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xFFFF;
+		qd_set_palette(hud, (short)253, (short)2);
 		g_hud_paint = 1;
-		l2c60((short)1);                /* force-repaint the bar on the plate */
+		l2c60((short)1);                /* force-repaint the bar (plate per word) */
 		g_hud_paint = 0;
 	}
 	if (s_view_first || g_view_force_full) {
@@ -9686,6 +9695,7 @@ static short       jt287(short idx, short key)
 }
 static short       jt294(short flag, short y, short x)   { PROBE("jt294"); (void)flag;(void)y;(void)x; return 0; } /* region action proc, CODE 22+0x1c26 */
 static void        jt179(short count);                  /* defined far below (CODE 7+0x11ee) */
+static void        jt155(short value, void *counter);   /* CODE 7+0x11a8 — slot append */
 static void        jt452(long shape0, ...);             /* DLItem stream builder (defined below) */
 
 /* L6256 (CODE 11 + 0x6256) — register the dungeon-walk input sources.
@@ -10678,12 +10688,18 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 	l429c(0, rec[4]);
 	jt394(title, ua_strs_at(0x2ac0),               /* "%s" */
 	      (const char *)(uintptr_t)g_a5_long(-10692));
-	/* Seed 8 command-bar slots (indices 0..7) in g_a5_-24126 so L2184
-	 * extracts ALL eight words of the command string ("Move Area Cast
-	 * View Encamp Search Look Inv"), not just the first. jt179(0) (the
-	 * faithful jt240 title use) seeds a single slot -> only "Move" drew;
-	 * jt953 seeds the full set the same way for its jt164 bar. */
-	jt179(7);                                       /* seed command-bar slots 0..7 */
+	/* Seed command-bar slots in g_a5_-24126 the faithful jt953 way: jt155(1..7)
+	 * writes slot VALUES 1..7, so L2184 extracts the command words at uppercase
+	 * positions 1..7 of the string ("Move Area Cast View Encamp Search Look
+	 * Inv") = Area..Inv — SKIPPING "Move" (index 0), the implicit walk default.
+	 * That is exactly what the Mac HUD shows (Area..Inv), and the 7 words fit
+	 * 320px where all 8 (jt179(7)) overran the right edge past INV. */
+	{
+		unsigned char cnt = 0;
+		short ci;
+		for (ci = 1; ci <= 7; ci++)
+			jt155(ci, &cnt);
+	}
 	/* PORT: the faithful jt240 lays a one-line TITLE here (jt148(-10484,
 	 * title)); the Mac deep walk reaches the "Move Area Cast..." command bar
 	 * only through jt953/jt164. The port routes the dungeon walk through jt240
