@@ -157,6 +157,7 @@
 #define g_a5_3044  g_a5_word(-3044)    /* saved clip right                  */
 #define g_a5_2352  g_a5_word(-2352)    /* jt1116 state word A               */
 #define g_a5_2354  g_a5_word(-2354)    /* jt1116 state word B               */
+#define g_a5_4668  g_a5_shorts(-4668)  /* L17e2/jt987 per-group retry counters*/
 #define g_a5_27990 g_a5_byte(-27990)
 #define g_a5_18485 g_a5_byte(-18485)
 #define g_a5_18828 g_a5_byte(-18828)
@@ -21039,6 +21040,168 @@ static void l16c6(char *dst, short kind, short counter, const char *name)
 		}
 	}
 	jt431(dst, name);
+}
+
+/* Event / dialog helpers defined later in this cluster. */
+static short l0088(void);
+static void  l00a8(void);
+static void  l00da(void);
+static void  l0156(void);
+static void  l0062(void);
+static void  l036a(const char *fmt, ...);
+
+/* The GLIB resource read callback (L17e2 arg16): given the open file's
+ * refNum + the built FileSpec, read/parse the resource into its slot and
+ * return non-zero on success. L33ac passes JT[104]. */
+typedef unsigned char (*glib_load_cb)(short refnum, void *spec);
+
+/* Cold-path skeletons for L17e2 / jt987. None are on the picture-LOAD path
+ * (arg14 == 0): jt392 is the SAVE/create path, jt416/jt1109 are the mode-3 /
+ * non-zero finalize, and L157c / jt1152 / jt1142 / jt1121 are the disk-retry
+ * dialog the port (files on GEMDOS disk) never enters. Lifted with the save
+ * path + the loader's disk-swap UI. */
+static short jt392(const char *spec, short n) __attribute__((unused));
+static short jt392(const char *spec, short n) { PROBE("jt392"); (void)spec; (void)n; return -1; }
+static short jt416(const char *spec) __attribute__((unused));
+static short jt416(const char *spec) { PROBE("jt416"); (void)spec; return 0; }
+static void  jt1109(void) __attribute__((unused));
+static void  jt1109(void) { PROBE("jt1109"); }
+static void  l157c(short a, short b, long c) __attribute__((unused));
+static void  l157c(short a, short b, long c) { PROBE("L157c"); (void)a; (void)b; (void)c; }
+static void  jt1152(void) __attribute__((unused));
+static void  jt1152(void) { PROBE("jt1152"); }
+static void  jt1142(void) __attribute__((unused));
+static void  jt1142(void) { PROBE("jt1142"); }
+static short jt1121(void) __attribute__((unused));
+static short jt1121(void) { PROBE("jt1121"); return 0; }
+
+/* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
+ * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
+ * the caller's read callback, close (jt411); on failure bump the per-group
+ * retry counter and try again (up to 3 attempts). The picture-LOAD path is
+ * mode 0: open + callback + close. */
+static short l17e2(short kind, const char *name, short mode, void *cbp)
+    __attribute__((unused));
+static short l17e2(short kind, const char *name, short mode, void *cbp)
+{
+	char         spec[210];          /* fp@-208 — the built FileSpec/path */
+	short        forced, group, attempts, counter, refnum;
+	short        k  = (short)(unsigned char)kind;
+	glib_load_cb cb = (glib_load_cb)cbp;
+
+	PROBE("L17e2");
+
+	if (k & 0x80) {                  /* high bit -> "forced" (no retry bump) */
+		forced = 1;
+		k &= 0x7f;
+	} else if (jt420(k)) {           /* lower-case kind -> force + upcase */
+		forced = 1;
+		k = jt422(k);
+	} else {
+		forced = 0;
+	}
+
+	if (k == 'S')      group = 4;                    /* the SAVE group */
+	else if (jt408(k)) group = (short)(k - 65);      /* 'A'.. -> 0..   */
+	else if (jt389(k)) group = (short)(k - 48);      /* '0'.. -> 0..   */
+	else               group = 0;
+
+	attempts = 3;
+	goto loop_test;
+
+ body:
+	counter = (k != 0) ? g_a5_4668[group] : 0;
+	l16c6(spec, k, counter, name);
+
+	if (mode != 4) {
+		refnum = jt398(spec, (short)(mode == 3 ? 0 : mode));
+		if (refnum < 0)
+			goto retry;              /* open failed: straight to retry */
+	}
+	if (mode == 1) {
+		jt411(refnum);
+		refnum = jt392(spec, 512);
+	} else if (mode == 4) {
+		refnum = jt392(spec, 512);
+	}
+
+	if (refnum >= 0) {
+		unsigned char ok = 1;
+		if (cb != NULL)
+			ok = (*cb)(refnum, spec);
+		if (ok) {
+			jt411(refnum);           /* close */
+			if (mode == 3) jt416(spec);
+			if (mode != 0) jt1109();
+			return 1;                /* SUCCESS */
+		}
+	}
+	/* callback rejected, or the create failed: close (if open) + complain */
+	if (refnum >= 0)
+		jt411(refnum);
+	l157c(2, (short)(mode != 0 ? 1 : 0), 0L);
+	l0156();
+	l00da();
+	l157c(0, 0, 0L);
+
+ retry:
+	if (k != 0 && !forced) {
+		if (++g_a5_4668[group] >= 2) {
+			g_a5_4668[group] = 0;
+			attempts--;              /* the doubled miss costs an attempt */
+		}
+	}
+ loop_test:
+	attempts--;
+	if (attempts >= 0)
+		goto body;
+	return 0;                        /* FAILURE (out of attempts) */
+}
+
+/* JT[987] (CODE 5+0x1a0c) — load a GLIB resource with the disk-swap retry
+ * dialog. Calls L17e2; on failure shows the "please insert disk" prompt
+ * (L157c) and retries, honouring Cancel ('C') / Quit ('Q') / Help ('?').
+ * For the port the file is on disk, so L17e2 succeeds first try and the
+ * dialog body is cold. */
+static short jt987(short kind, const char *name, short mode, void *cb)
+    __attribute__((unused));
+static short jt987(short kind, const char *name, short mode, void *cb)
+{
+	short k = (short)(unsigned char)kind;
+	short group, key;
+
+	PROBE("jt987");
+	for (;;) {
+		if (l17e2(kind, name, mode, cb))
+			return 1;                /* loaded */
+
+		/* L1a14 — the cold disk-retry dialog */
+		jt1152();
+		jt1142();
+		l157c(1, kind, (long)(uintptr_t)name);
+		l0156();
+		l00a8();
+		while (!l0088() && jt1121() == 0)
+			;
+		key = jt1118() ? jt1133() : (l00a8(), (short)0);
+		l157c(0, 0, 0L);
+		if (key == 81) {             /* 'Q' -> quit */
+			l0062();
+			jt415(1);
+		} else if (key == 67) {      /* 'C' -> cancel */
+			return 0;
+		} else if (key == 63) {      /* '?' -> error help */
+			l036a("On '%s'", name);
+		}
+
+		/* L1ab0 — bump the group's retry counter, then loop to retry. */
+		if (k == 'S')      group = 4;
+		else if (jt408(k)) group = (short)(k - 65);
+		else if (jt389(k)) group = (short)(k - 48);
+		else               group = 0;
+		if (k != 0 && g_a5_4668[group] == 0)
+			g_a5_4668[group]++;
+	}
 }
 
 /* L31dc (CODE 6+0x31dc) — release a GLIB group slot: free its tag (jt461),
