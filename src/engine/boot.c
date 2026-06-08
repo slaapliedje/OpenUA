@@ -21113,6 +21113,33 @@ static void l00a8(void)
 	jt438();
 }
 
+/* L00da (CODE 5+0xda) — drain, then block until the next event, then drain. */
+static void l00da(void) __attribute__((unused));
+static void l00da(void)
+{
+	PROBE("L00da");
+	l00a8();
+	while (!l0088())
+		;
+	l00a8();
+}
+
+/* L0156 (CODE 5+0x156) — the brief "working" cursor flash: pulse jt1122
+ * (slot 1189) for ~5 ticks, clear it, wait one more. */
+static void l0156(void) __attribute__((unused));
+static void l0156(void)
+{
+	long start;
+	PROBE("L0156");
+	start = jt1134();
+	jt1122((short)2, (short)1189, (short)127);
+	while (jt1134() < start + 5)
+		;
+	jt1122((short)2, (short)0, (short)0);
+	while (jt1134() < start + 6)
+		;
+}
+
 /* L024c (CODE 5+0x24c) — set the GLIB pen colour (low word + high byte). */
 static void l024c(short colour) __attribute__((unused));
 static void l024c(short colour)
