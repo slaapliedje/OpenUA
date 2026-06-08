@@ -8904,23 +8904,29 @@ static void port_menu_load(void)
 /* Blit a clean MENU.CTL command-bar plate `idx` (1 = raised, 2 = recessed)
  * at pixel (top,left), `width` px, mode-0 raw 8bpp.
  *
- * MENU.CTL item 1/2 is a 320x16 glyph holding THREE ~102px command slots
- * separated by [30,0,7] section dividers (the Mac draws one slot per
- * command; its proportional font fits ~102px). The port's fixed 8px font
- * needs wider plates, so a straight clip catches a divider mid-plate. To
- * get a clean bar of any width, reconstruct it from the slot's left cap
- * (source cols 0..3 = the outer bevel + light raised edge) tiled with a
- * single face column (col 10: row1 light highlight, rows 2..13 face 23,
- * rows 14..15 dark shadow) — the divider columns are never sampled. The
- * FRAME band (clut 16..31) is installed by load_menu_ui before this. */
-#define MENU_BAR_FACE_COL 10
+ * MENU.CTL item 1/2 is a 320x16 glyph: a horizontal command bar split into
+ * THREE ~106px slots by [22,0] dividers. Its art (dumped from the live glyph):
+ *   vertical bevel (any face column) row0=31 (bright top), row1=7 (highlight),
+ *     rows2..10=23 (face), row11=30 (shadow), row12=0 (black), row13=18 (dark).
+ *   left cap (cols 0..3) = [30,30,30,7] (dark outer border + inner highlight).
+ * The port draws individual 2-column menu plates wider than a slot, so a
+ * straight clip catches a divider. Instead reconstruct an arbitrary-width
+ * beveled plate from the bar's REAL pixels: the left cap verbatim (cols 0..3),
+ * a tiled face column for the middle, and the right cap as the MIRROR of the
+ * left cap ([7,30,30,30] = inner highlight then dark border). Draw 14 rows
+ * (0..13), which tiles exactly at the menu's 14px row pitch (engine y step 7 @
+ * scale 2): no 2px overlap, and row13's dark line abuts the next plate's bright
+ * top to form the recessed divider the Mac shows. The FRAME band (clut 16..31)
+ * is installed by load_menu_ui before this. */
+#define MENU_BAR_FACE_COL 50    /* a clean face column (full vertical bevel) */
+#define MENU_BAR_ROWS     14    /* draw 14 of the 16 rows -> exact 14px tiling */
 static void port_menu_bar(short top, short left, short width, short idx)
 {
 	unsigned char metric[8];
 	long  info;
 	const unsigned char *src;
 	unsigned char *px;
-	short pitch, sw, sh, r, c, h, w;
+	short pitch, sw, sh, r, c, h, w, nrows;
 
 	port_menu_load();
 	if (!g_menu_base)
@@ -8935,7 +8941,8 @@ static void port_menu_bar(short top, short left, short width, short idx)
 	src = (const unsigned char *)(uintptr_t)info;                /* raw 8bpp */
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
-	for (r = 0; r < h; r++) {
+	nrows = (h < MENU_BAR_ROWS) ? h : MENU_BAR_ROWS;
+	for (r = 0; r < nrows; r++) {
 		short dy = (short)(top + r);
 		const unsigned char *s = src + (long)r * w;
 
@@ -8943,11 +8950,17 @@ static void port_menu_bar(short top, short left, short width, short idx)
 			continue;
 		for (c = 0; c < width; c++) {
 			short dx = (short)(left + c);
-			short srcc = (c < 4) ? c : MENU_BAR_FACE_COL;
+			short srcc;
 			unsigned char v;
 
 			if (dx < 0 || dx >= sw)
 				continue;
+			if (c < 4)
+				srcc = c;                       /* real left cap */
+			else if (c >= width - 4)
+				srcc = (short)(3 - (c - (width - 4)));  /* mirror = right cap */
+			else
+				srcc = MENU_BAR_FACE_COL;       /* tiled face column */
 			v = s[srcc];
 			if (v == 255)
 				continue;
@@ -15783,12 +15796,14 @@ static void menu_draw_plates(const menu_item_t *items, short n)
 {
 	short i, py = 0, pxx = 0;
 
-	/* One command bar per row from the real GLIB: MENU.CTL item 1 (raised) /
-	 * item 2 (recessed), the same glyph the faithful menu (jt315/CODE 22)
-	 * uses, blitted at the button origin and clipped to the button width
-	 * (rows are 14px apart, engine y step 7 @ scale 2). Replaces the earlier
-	 * hand-rolled draw_plate bevel. */
+	/* One beveled plate per LABELLED command, reconstructed from MENU.CTL
+	 * item 1 (raised) / item 2 (recessed) — see port_menu_bar. Label-less
+	 * entries are layout spacers: the Mac shows BARE STONE there (a gap
+	 * between the main command block and the bottom Unlock/Quit row), so we
+	 * skip them rather than drawing an empty plate. */
 	for (i = 0; i < n; i++) {
+		if (items[i].label == NULL)
+			continue;
 		jt1135(items[i].y, items[i].x, &py, &pxx);
 		port_menu_bar((short)(py - 9), (short)(pxx - 5),
 		              (short)150, items[i].recessed ? (short)2 : (short)1);
