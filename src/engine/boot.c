@@ -9579,6 +9579,9 @@ static void        jt238(void *rec)                     { PROBE("jt238"); (void)
  * command-prompt line; l4810 releases a transient. jt287/jt294 (CODE 22) are
  * the action procs the registered walk DLItems carry (see l6256). */
 static void        jt148(long prompt, char *title, short flag);  /* CODE 7+0x33dc — lifted near l206e */
+static void        l206e(long p1, unsigned char *buf, const char *suffix, unsigned char *byte_ptr); /* CODE 7+0x206e */
+static void        l1f3e(short a8, short a10);            /* CODE 7+0x1f3e — bar sizer */
+static void        l2858(short mode);                    /* CODE 7+0x2858 */
 static void        l429c(short a, short b)               { PROBE("L429c"); (void)a;(void)b; }                  /* CODE 11-local */
 /* L476e (CODE 11 + 0x476e) — set up the play-view interior rect. `active`
  * (low byte) gates; `layout` picks the view: 0 = the compact dungeon view
@@ -10644,7 +10647,37 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 	jt394(title, ua_strs_at(0x2ac0),               /* "%s" */
 	      (const char *)(uintptr_t)g_a5_long(-10692));
 	jt179(0);                                       /* seed command-bar slots */
-	jt148(g_a5_long(-10484), title, 0);             /* prompt line */
+	/* PORT: the faithful jt240 lays a one-line TITLE here (jt148(-10484,
+	 * title)); the Mac deep walk reaches the "Move Area Cast..." command bar
+	 * only through jt953/jt164. The port routes the dungeon walk through jt240
+	 * (arrow movement), so to surface the real command bar in the walk we run
+	 * jt164's BUILD here (minus its l23b4 modal — l63c0's own poll drives it):
+	 * l206e lays the A5-13764 command string ("Move Area Cast View Encamp
+	 * Search Look Inv") into command DLItems + caches it in g_a5_-13000 (what
+	 * l63c0's jt152 classifier reads), l1f3e sizes the bar to the party, and
+	 * the four shape-5 bevel-frame items draw the bar frame. */
+	{
+		static unsigned char cbar_buf[80];
+		unsigned char defitem = 0;
+
+		g_a5_19172 = 8016;
+		g_a5_19174 = 8068;
+		l2858((short)1);
+		l206e(g_a5_long(-13764), cbar_buf,
+		      (const char *)(uintptr_t)g_a5_long(-13952), &defitem);
+		l1f3e((short)g_a5_19172, (short)g_a5_19174);
+		if (g_a5_12911 != 0) {
+			jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
+			      (long)41, (long)22, (long)20,
+			      (long)5, (long)8000, (long)8020, (long)50, (long)28,
+			      (long)41, (long)11, (long)20,
+			      (long)5, (long)8000, (long)8048, (long)50, (long)20,
+			      (long)41, (long)21, (long)20,
+			      (long)5, (long)8050, (long)8000, (long)30, (long)68,
+			      (long)41, (long)23, (long)20,
+			      (long)0);
+		}
+	}
 	jt449(1);
 	l5126(rec);                                     /* deep status header panel */
 	jt112(0);
