@@ -22196,6 +22196,32 @@ static short jt1017(void *lib)
 	return (short)hdr[11];
 }
 
+/* JT[1020] (CODE 5 + 0x38fa) — look up key `target` in the GLIB group's
+ * remap sub-table: l37aa loads the group, the first word is the entry
+ * count, then `count` 4-byte (key, value) records follow. Returns the
+ * matching value, or -1 if `target` isn't present. */
+static short jt1020(long lib, short target) __attribute__((unused));
+static short jt1020(long lib, short target)
+{
+	unsigned char            *p;
+	short                     n;
+	struct { short key, val; } e;
+
+	PROBE("jt1020");
+	p = (unsigned char *)(uintptr_t)l37aa(lib, 0);
+	jt406(&n, p, 2);
+	p += 2;
+	for (;;) {
+		n--;
+		if (n < 0)
+			return -1;
+		jt406(&e, p, 4);
+		p += 4;
+		if (e.key == target)
+			return e.val;
+	}
+}
+
 /* L4010 (CODE 5) — _LBConvert: validate the just-loaded 'GLIB' header in
  * place, then relocate its index table. For each index entry it invokes
  * the registered converter for the library's signature (hdr[12]); for a
