@@ -20176,6 +20176,107 @@ static void jt521(short bx, short by, short c, short dir)
 	l5e9a(tx, ty);
 	(void)jt117();
 }
+
+/* ====================================================================
+ * jt501 area-map line/region renderer (CODE 13). jt501 walks a Bresenham
+ * line across the area map (targeting cursors, AoE outlines, paths);
+ * these helpers do the sign/coordinate math and the line stepping over a
+ * 24-byte line descriptor: [0/2/4/6]=x1/y1/x2/y2, [8]=error, [10/12]=
+ * |dx|/|dy|, [14/16]=cur x/y, [18/20]=x/y step sign, [22]=step count,
+ * [23]=direction byte.
+ * ==================================================================== */
+
+/* L6d1e (CODE 13 + 0x6d1e) — sign of a word: -1 / 0 / +1. */
+static short l6d1e(short v) __attribute__((unused));
+static short l6d1e(short v) { PROBE("L6d1e"); return (v < 0) ? -1 : (v > 0) ? 1 : 0; }
+
+/* L1944 / L1972 (CODE 13 + 0x1944 / 0x1972) — map column -> screen x: the
+ * native (v*32)/3 + 24 in render mode 3, else the doubled-space v*4 + 8004.
+ * (The two entries are byte-identical in the Mac build.) */
+static short l1944(short v) __attribute__((unused));
+static short l1944(short v)
+{
+	PROBE("L1944");
+	if (jt1200() == 3)
+		return (short)((short)(v << 5) / 3 + 24);
+	return (short)((short)(v << 2) + 8004);
+}
+static short l1972(short v) __attribute__((unused));
+static short l1972(short v)
+{
+	PROBE("L1972");
+	if (jt1200() == 3)
+		return (short)((short)(v << 5) / 3 + 24);
+	return (short)((short)(v << 2) + 8004);
+}
+
+/* L6eba (CODE 13 + 0x6eba) — initialise a line descriptor `r` from its
+ * endpoints: current = start, |dx|/|dy| (jt388), step signs (l6d1e), error
+ * and step count cleared. */
+static void l6eba(unsigned char *r) __attribute__((unused));
+static void l6eba(unsigned char *r)
+{
+	short dx = (short)(*(short *)(r + 4) - *(short *)(r + 0));
+	short dy = (short)(*(short *)(r + 6) - *(short *)(r + 2));
+
+	PROBE("L6eba");
+	*(short *)(r + 14) = *(short *)(r + 0);
+	*(short *)(r + 16) = *(short *)(r + 2);
+	*(short *)(r + 10) = jt388(dx);
+	*(short *)(r + 12) = jt388(dy);
+	*(short *)(r + 18) = l6d1e(dx);
+	*(short *)(r + 20) = l6d1e(dy);
+	*(short *)(r + 8)  = 0;
+	r[22] = 0;
+}
+
+/* L6f68 (CODE 13 + 0x6f68) — advance the line descriptor `r` one Bresenham
+ * step along its major axis (with a minor-axis step on error overflow), set
+ * the step-direction byte r[23] from the 3x3 g_a5_27956 table, and return
+ * whether a step was taken (0 at the endpoint). */
+static short l6f68(unsigned char *r) __attribute__((unused));
+static short l6f68(unsigned char *r)
+{
+	unsigned char stepped = 0;
+	short sx = 1, sy = 1;
+
+	PROBE("L6f68");
+	if (*(short *)(r + 10) >= *(short *)(r + 12)) {          /* x-major */
+		if (*(short *)(r + 14) != *(short *)(r + 4)) {
+			*(short *)(r + 14) += *(short *)(r + 18);
+			sx = (short)(*(short *)(r + 18) + 1);
+			*(short *)(r + 8) += *(short *)(r + 12);
+			*(short *)(r + 8) += *(short *)(r + 12);
+			r[22] += 2;
+			if (*(short *)(r + 8) >= *(short *)(r + 10)) {
+				*(short *)(r + 8) -= *(short *)(r + 10);
+				*(short *)(r + 8) -= *(short *)(r + 10);
+				*(short *)(r + 16) += *(short *)(r + 20);
+				sy = (short)(*(short *)(r + 20) + 1);
+				r[22]++;
+			}
+			stepped = 1;
+		}
+	} else {                                                /* y-major */
+		if (*(short *)(r + 16) != *(short *)(r + 6)) {
+			*(short *)(r + 16) += *(short *)(r + 20);
+			sy = (short)(*(short *)(r + 20) + 1);
+			*(short *)(r + 8) += *(short *)(r + 10);
+			*(short *)(r + 8) += *(short *)(r + 10);
+			r[22] += 2;
+			if (*(short *)(r + 8) >= *(short *)(r + 12)) {
+				*(short *)(r + 8) -= *(short *)(r + 12);
+				*(short *)(r + 8) -= *(short *)(r + 12);
+				*(short *)(r + 14) += *(short *)(r + 18);
+				sx = (short)(*(short *)(r + 18) + 1);
+				r[22]++;
+			}
+			stepped = 1;
+		}
+	}
+	r[23] = g_a5_buf(-27956)[sy * 3 + sx];
+	return stepped;
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
