@@ -19815,6 +19815,66 @@ static void l744e(void)
 	else
 		jt1173(8004, 8004, 8088, 8088);
 }
+
+/* L5e0e (CODE 14 + 0x5e0e) — recompute every active creature's on-screen cell
+ * (g_a5_27059[i]/g_a5_26991[i]) as its world position (g_a5_27472 record i,
+ * 6 bytes: x@0, y@2) minus the current map-scroll origin (g_a5_25318 +2/+4).
+ * Count is g_a5_27468. */
+static void l5e0e(void) __attribute__((unused));
+static void l5e0e(void)
+{
+	unsigned char *scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short i;
+
+	PROBE("L5e0e");
+	for (i = 1; i <= (unsigned char)g_a5_byte(-27468); i++) {
+		unsigned char *ent = g_a5_buf(-27472) + i * 6;
+		g_a5_buf(-27059)[i] =
+			(unsigned char)(*(short *)ent     - *(short *)(scroll + 2));
+		g_a5_buf(-26991)[i] =
+			(unsigned char)(*(short *)(ent + 2) - *(short *)(scroll + 4));
+	}
+}
+
+/* L6554 (CODE 14 + 0x6554) — is the creature `entity` within the 7x7 map
+ * viewport? Resolve its zone (l6bbe), walk the 6 step offsets of its facing
+ * (g_a5_27472[zone].dir, via l5d92) and test each landing cell against the
+ * window (l6520). With `flag` clear it returns 1 on the first visible step
+ * ("any corner in view"); with `flag` set it returns 0 on the first off-screen
+ * step ("fully in view"). Zero direction -> not present. */
+static short l6554(long entity, short flag) __attribute__((unused));
+static short l6554(long entity, short flag)
+{
+	unsigned char  zone = (unsigned char)l6bbe(entity);
+	unsigned char  result = 1;
+	short j;
+
+	PROBE("L6554");
+	if (g_a5_buf(-27472)[zone * 6 + 5] == 0)
+		return 0;
+
+	for (j = 0; j <= 5; j++) {
+		unsigned char dir = g_a5_buf(-27472)[zone * 6 + 5];
+		unsigned char dx, dy;
+		short tx, ty;
+
+		if (!l5d92(dir, j, &dx, &dy))
+			continue;
+		tx = (short)((signed char)g_a5_buf(-27059)[zone] + (signed char)dx);
+		ty = (short)((signed char)g_a5_buf(-26991)[zone] + (signed char)dy);
+		if (l6520(tx, ty)) {
+			result = 1;
+			if (flag != 0)
+				continue;
+			return result;
+		}
+		result = 0;
+		if (flag == 0)
+			continue;
+		return result;
+	}
+	return result;
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
