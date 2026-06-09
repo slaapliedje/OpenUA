@@ -6835,6 +6835,9 @@ static void jt452_init(void)
 
 /* TEST SCAFFOLD — forward decl; defined just below. */
 void port_test_seed_design(void);
+/* GLIB FAR-pool self-test — defined down by jt463 where the pool layer
+ * is in scope; the probe block below calls it. */
+static void glib_pool_selftest(void) __attribute__((unused));
 /* Forward — jt127 (design-data loader) lifts further down; the
  * probe self-test below calls it. */
 static void jt127(const char *prefix, short num, short *out, void *buffer);
@@ -7007,6 +7010,8 @@ void boot_a5_seed_defaults(void)
 			dbg_log(tag);   /* expect " FORM" from GEO040.DAT */
 		}
 	}
+
+	glib_pool_selftest();
 #endif
 }
 
@@ -21571,6 +21576,48 @@ static void jt463(void)
 	g_a5_9294 = 0;
 	g_a5_9296 = 0;
 	glib_lb_init();                  /* register 'GLIB' -> l4010 */
+}
+
+/* GLIB FAR-pool self-test (probe-gated). Stand up the pool, then read a
+ * real .ctl entirely into a manually-bound group via jt1016 (jt460 read
+ * + jt459 size + l4010 validate/relocate) and report the committed
+ * group's 'GLIB' magic. Verifies the read+commit layer against real
+ * data; the 3-line manual group bind stands in for jt464 (the binder's
+ * group-creation, lifted next). Needs GEMDOS_DIR=data/work/gamedata. */
+static void glib_pool_selftest(void)
+{
+#ifdef FRUA_ENGINE_PROBE
+	short refnum = 0;
+	long  fsize;
+
+	jt463();
+	dbg_log_num("GLIB pool: capacity = ", jt459(-2));
+	dbg_log_num("GLIB pool: free     = ", jt459(-1));
+
+	if (FSOpen((ConstStr255Param)"\012ALWAYS.CTL", 0, &refnum) != noErr) {
+		dbg_log("GLIB: ALWAYS.CTL not found (mount gamedata)");
+		return;
+	}
+
+	/* manual group-0 bind (stands in for jt464): id 0 -> seq 0, empty */
+	g_a5_9306     = 1;
+	g_a5_10074[0] = 0;
+	g_a5_10270[1] = g_a5_10270[0];
+
+	fsize = jt412(refnum, 0, 2);             /* LEOF = file size */
+	jt412(refnum, 0, 0);                     /* seek back to start */
+	dbg_log_num("GLIB: ALWAYS.CTL size = ", fsize);
+
+	if (jt1016(refnum, fsize, 0)) {
+		dbg_log_num("GLIB: jt1016 OK, group0 size = ", jt459(0));
+		dbg_log_num("GLIB: group0 magic = ",
+		            *(const long *)(uintptr_t)jt468(0));
+		/* expect 0x474C4942 = 'GLIB' = 1196181826 */
+	} else {
+		dbg_log("GLIB: jt1016 FAILED");
+	}
+	FSClose(refnum);
+#endif
 }
 
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
