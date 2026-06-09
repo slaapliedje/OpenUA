@@ -21848,6 +21848,116 @@ static unsigned char jt104(short refnum, void *spec)
 	return 0;
 }
 
+/* JT[464] (CODE 3+0x644) — does the named file already exist in the
+ * group cache? Returns non-zero when present (the binder then bails).
+ * PROBE stub returning 0 (proceed) pending the cache-index lift. */
+static unsigned char jt464(const char *name, short group) __attribute__((unused));
+static unsigned char jt464(const char *name, short group)
+{
+	PROBE("jt464");
+	(void)name; (void)group;
+	return 0;
+}
+
+/* JT[997] (CODE 5+0x27be) — plain-name (no numeric suffix) loader: build
+ * "<name>.CTL" / ".TLB" and hand off to the jt1014 cache loader. The
+ * jt1014 tower is itself a PROBE stub, so this records the dispatch but
+ * does not yet stand the library up; the numbered path (jt987 -> jt104)
+ * is the one exercised end-to-end. */
+static unsigned char jt997(short mode, const char *name, short group)
+    __attribute__((unused));
+static unsigned char jt997(short mode, const char *name, short group)
+{
+	char buf[200];
+
+	PROBE("jt997");
+	(void)mode;
+	jt384(buf, name);
+	jt419(buf, (jt1200() == 3) ? "TLB" : "CTL", 1);
+	jt1014(group, buf, 0);
+	return 0;
+}
+
+/* JT[110] / L33ac (CODE 6+0x33ac) — the library binder. Claims a -18468
+ * binder slot, builds the library's filename, stamps the binder context
+ * (-18402/-18406/-18408/-18404/-18398) and dispatches the load: plain
+ * names go to jt997, numeric-suffixed names to jt987 with jt104 as the
+ * per-file callback. Structural skeleton (level 2): the slot/context
+ * spine and dispatch are faithful; the dual filename-format arms are
+ * condensed and the jt464/jt997/jt1014 cache leaves are stubs. */
+static void l33ac(const char *name, short kindB, short modeB, short subB,
+                  void **slotpp) __attribute__((unused));
+static void l33ac(const char *name, short kindB, short modeB, short subB,
+                  void **slotpp)
+{
+	char   namebuf[210];      /* fp@(-220): working/numbered filename     */
+	char   fullname[210];     /* fp@(-206): the name handed to jt987      */
+	char   path[420];         /* fp@(-420): prefix + name for the open    */
+	short  i, len, digit, refnum;
+	short *slot;
+
+	PROBE("L33ac");
+
+	/* release any binding already parked in *slotpp */
+	if (*slotpp != NULL)
+		l31dc(slotpp);
+
+	/* claim the first free -18468 slot (10 x 6 bytes; word[0] < 0 == free) */
+	for (i = 0; i < 10; i++)
+		if (*(short *)&g_a5_18468[i * 6] < 0)
+			break;
+	slot = (short *)(void *)&g_a5_18468[i * 6];
+	*slotpp = slot;
+	slot[0] = (short)(i + 2);          /* group id */
+	slot[1] = (short)kindB;            /* kind at +2 */
+
+	len   = jt423(name);
+	digit = (short)(unsigned char)name[len - 1];
+
+	if (!jt389(digit)) {                       /* plain name -> jt997 */
+		jt997(g_a5_18396, name, (short)(i + 2));
+		return;
+	}
+
+	/* numbered name: strip the digit, build "<base>.ctl"/".tlb" for jt987
+	 * and the concrete "<base><kind><nnn>.ctl" for the existence/open. */
+	slot[1] = 0;
+	digit  -= '0';
+	jt384(namebuf, name);
+	namebuf[len - 1] = 0;
+	jt394(fullname, (jt1200() == 3) ? "%s.tlb" : "%s.ctl", namebuf);
+	jt394(namebuf, (jt1200() == 3) ? "%s%d%03d.tlb" : "%s%d%03d.ctl",
+	      fullname, digit, (short)kindB);
+
+	if (jt464(namebuf, (short)(i + 2))) {      /* already present -> bail */
+		g_a5_18397 = 0;
+		return;
+	}
+	g_a5_18397 = 1;
+
+	/* read the whole library into the pool up front (inline open path) */
+	path[0] = 0;
+	jt431(path, g_a5_buf(-31336));             /* directory prefix */
+	jt431(path, namebuf);
+	refnum = jt398(path, 0);
+	if (refnum >= 0) {
+		jt460(refnum, -1);                 /* read-to-EOF into the pool */
+		jt411(refnum);
+	}
+
+	/* stamp the binder context jt104 will read (consumed synchronously
+	 * inside jt987's callback, while this frame is still live) */
+	g_a5_18402 = (long)(uintptr_t)namebuf;
+	g_a5_18408 = (short)kindB;
+	g_a5_18406 = (short)(i + 2);
+	g_a5_18404 = digit;
+	g_a5_18398 = (modeB == 3) ? 1 : 0;
+	if (g_a5_18398 != 0 && subB == 15)
+		g_a5_18398 = 2;
+
+	jt987(g_a5_18396, fullname, 0, (void *)jt104);
+}
+
 /* --- l036a/jt987 event + pen primitives (faithful, over the lifted event
  * buffer l731e / jt1118 / jt1133 / jt1125 and the jt1135 coord scale) ------ */
 

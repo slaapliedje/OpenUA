@@ -252,15 +252,31 @@ registry. Lifted alongside:
 - l3e50 (the hdr[10]!=0 typed-.tlb sub-convert arm): PROBE stub
   (identity); plain UI .ctl GLIBs leave hdr[10]==0, so untaken.
 
+DONE (pool stand-up + extractor + binder + Hatari checkpoint):
+- jt463 (_LBOpen): stands up the FAR pool — group count 0, freemap 0xFF,
+  alloc the master buffer (fixed 768K), seed slot[0]/-9304/-9300, register
+  'GLIB'->l4010 via glib_lb_init.
+- jt104 (CODE6+0x3214): the per-file callback jt987 invokes after open;
+  finds the binder-context item (-18408 base id, +100*-18404 fallback),
+  sizes it, and for mode 0 (-18398==0, hot) commits via jt1016. Modes 1/2
+  (TLB cache) are a faithful skeleton over jt1021/1023/1024 stubs.
+- L33ac (JT[110], the binder): level-2 skeleton — claims a -18468 slot,
+  builds the filename, stamps the context (-18402/-18406/-18408/-18404/
+  -18398), and dispatches: plain names -> jt997, numbered -> jt987+jt104.
+  jt464/jt997/jt1014 cache leaves remain PROBE stubs.
+- VERIFIED under Hatari (glib_pool_selftest, GEMDOS_DIR=gamedata): jt463
+  pool capacity=786432; ALWAYS.CTL (5368B) read via jt1016 -> group0
+  size=5368, group0 magic=0x474C4942 ('GLIB'). The read+commit layer
+  parses real FRUA data end-to-end. All pool code is probe-only/unused,
+  so the production build + live buffered UI loader are untouched.
+
 REMAINING:
-- The FAR-pool master-buffer alloc + init (slot[0]/-9304 seeded) + a
-  glib_lb_init() call site — the pool isn't stood up yet, so the read +
-  convert layer is built but not yet exercised.
-- jt104 itself (mode-0 arm hot via jt1013/jt1011/jt1016; mode-1/2 cold),
-  then L33ac (the binder).
-Then Hatari-verify: the UI GLIB (groups 0/1) STILL renders AND a real
-PIC/.ctl parses (trace jt104 -> jt1016 -> commit + a visible backdrop).
-Then palette (jt1069/1066/993/1017), de-skeleton L541a/L579e/L3eea.
+- jt464 (cache-index existence) + jt997/jt1014 plain-name loader tower —
+  needed to load the no-suffix UI .ctls (ALWAYS/FRAME) through the
+  faithful path rather than the manual self-test bind.
+- Wire jt463/glib_lb_init into the real init path + replace the live
+  l37aa/l2856 buffered loader with the faithful pool (the flip).
+- palette (jt1069/1066/993/1017), de-skeleton L541a/L579e/L3eea.
 
 ### L17e2 (CODE 5+0x17e2) — decoded (historical notes)
 
