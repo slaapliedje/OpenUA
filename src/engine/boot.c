@@ -19552,6 +19552,204 @@ static void jt871(long entity, short code, short s14, short d_arg,
 		jt20();
 	}
 }
+
+/* L18fa (CODE 18 + 0x18fa) — decode an effect item's packed magnitude byte
+ * (item[4], low 7 bits) into a (value, level) pair: codes >101 carry a literal
+ * value-100; codes <=101 mean "set ability to 18 with exceptional-% level". */
+static void l18fa(const unsigned char *a, unsigned char *bval,
+                  unsigned char *clvl) __attribute__((unused));
+static void l18fa(const unsigned char *a, unsigned char *bval, unsigned char *clvl)
+{
+	PROBE("L18fa");
+	*clvl = 0;
+	*bval = (unsigned char)(a[4] & 0x7f);
+	if (*bval > 101) {
+		*bval = (unsigned char)(*bval - 100);
+	} else {
+		*clvl = (unsigned char)(*bval - 1);
+		*bval = 18;
+	}
+}
+
+/* L19b2 (CODE 18 + 0x19b2) — keep the better of two (value, level) pairs:
+ * copy (d,b) into (c,a) when the candidate value *d beats *c, or ties at 18
+ * with a higher level *b. */
+static void l19b2(unsigned char *a, unsigned char *b,
+                  unsigned char *c, unsigned char *d) __attribute__((unused));
+static void l19b2(unsigned char *a, unsigned char *b, unsigned char *c, unsigned char *d)
+{
+	PROBE("L19b2");
+	if (*d > *c || (*d == 18 && *b > *a)) {
+		*c = *d;
+		*a = *b;
+	}
+}
+
+/* L19f8 (CODE 18 + 0x19f8) — accumulate a per-class HP/effect bonus into *acc,
+ * scaled by caster `level` (clamped to the g_a5_23007 cap for `kind`, +1 for
+ * kinds 1/4). For caster kinds 1-4 the multiplier is set by the effect id
+ * (*val): 15-19 -> (id-14), 20 -> 5, 21-23 -> 6, 24-25 -> 7; for other kinds,
+ * id>15 -> 2 and id==15 -> 1. */
+static void l19f8(short kind, short level, unsigned char *acc,
+                  const unsigned char *val) __attribute__((unused));
+static void l19f8(short kind, short level, unsigned char *acc, const unsigned char *val)
+{
+	unsigned char cap = g_a5_buf(-23007)[kind];
+	short v = *val;
+
+	PROBE("L19f8");
+	if ((unsigned char)level >= cap)
+		level = (short)(cap - 1);
+	if (kind == 4 || kind == 1)
+		level++;
+
+	if (kind == 1 || kind == 2 || kind == 3 || kind == 4) {
+		if (v >= 15 && v <= 19)       *acc = (unsigned char)(*acc + (v - 14) * level);
+		else if (v == 20)             *acc = (unsigned char)(*acc + level * 5);
+		else if (v >= 21 && v <= 23)  *acc = (unsigned char)(*acc + level * 6);
+		else if (v >= 24 && v <= 25)  *acc = (unsigned char)(*acc + level * 7);
+	} else {
+		if (v > 15)        *acc = (unsigned char)(*acc + level * 2);
+		else if (v == 15)  *acc = (unsigned char)(*acc + level);
+	}
+}
+
+/* JT[875] (CODE 18 + 0x1b14, 18 sites) — recompute one of a character's
+ * ability/derived fields (`idx`) from its base plus every relevant magic-item
+ * effect, via L18fa (decode) / L19b2 (keep-best) / L19f8 (level-scaled HP).
+ *   idx 0   -> Strength: scan worn effect items (item[56] bit7), then fold in
+ *              jt41 effects 38/113/12, with exceptional-strength (18/xx) math;
+ *              writes mp[113]/mp[124].
+ *   idx 1,2 -> other ability via effect 68 -> mp[113+idx*2].
+ *   idx 4   -> hit points: reset to base mp[184], sum each class's level-scaled
+ *              bonus (L19f8) into mp[129], track current-HP mp[395] by the
+ *              delta, then grant/remove the low-HP effect 62 (jt876/jt878).
+ *   idx 5   -> effect 14 bonus -> mp[123].
+ * Args are the member pointer and the field index (low byte of the word). */
+static void jt875(long member, short idx) __attribute__((unused));
+static void jt875(long member, short idx)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)member;
+	unsigned char *item;
+	void          *eff = 0;
+	unsigned char  val, base, ev = 0, eb = 0;
+	short          i = (short)(signed char)(idx & 0xff);
+
+	PROBE("jt875");
+	val  = m[112 + i * 2];
+	base = m[125];
+
+	if (i == 0) {                           /* worn effect-item scan (STR) */
+		for (item = *(unsigned char **)(m + 8); item != NULL;
+		     item = *(unsigned char **)item) {
+			unsigned char e56;
+			if (item[56] <= 128 || item[50] == 0)
+				continue;
+			e56 = (unsigned char)(item[56] & 0x7f);
+			switch (e56) {          /* JT[3] @ 0x1b94 (min 3, max 5) */
+			case 3:
+				ev = 3; eb = 100;
+				break;
+			case 5:
+				ev = (unsigned char)(item[55] + 18);
+				if (ev == 18) eb = 100;
+				break;
+			default:                /* case 4 / out of range: no-op */
+				break;
+			}
+			l19b2(&base, &eb, &val, &ev);
+		}
+	}
+
+	switch (i) {                            /* JT[3] @ 0x1c04 (min 0, max 5) */
+	case 0:
+		if (jt41(member, 38, &eff)) {
+			l18fa((unsigned char *)eff, &ev, &eb);
+			if (val <= 18 && base < 100) {
+				ev = (unsigned char)(ev + val);
+				if (ev > 18) {
+					if (m[159] || m[160] || m[161] || m[158]) {
+						short d = (short)((ev - 18) * 10);
+						eb = (unsigned char)(m[124] + d);
+						if (eb > 100) eb = 100;
+					}
+					ev = 18;
+				}
+			}
+			l19b2(&base, &eb, &val, &ev);
+		}
+		if (jt41(member, 113, &eff)) {
+			l18fa((unsigned char *)eff, &ev, &eb);
+			l19b2(&base, &eb, &val, &ev);
+		}
+		if (jt41(member, 12, &eff)) {
+			l18fa((unsigned char *)eff, &ev, &eb);
+			l19b2(&base, &eb, &val, &ev);
+		}
+		m[113] = val;
+		m[124] = base;
+		break;
+
+	case 1:
+	case 2:
+		if (jt41(member, 68, &eff))
+			val = 3;
+		m[113 + i * 2] = val;
+		break;
+
+	case 4: {
+		unsigned char oldhp = m[129];
+		unsigned char acc = 0;
+		unsigned char count = 0;
+		short cls;
+
+		m[129] = m[184];
+		for (cls = 0; cls <= 6; cls++) {
+			unsigned char cv = (m + cls)[164];
+			unsigned char cap;
+			if (cv > 0)
+				l19f8(cls, cv, &acc, &val);
+			cv = (m + cls)[157];
+			if (cv > 0)
+				count++;
+			cap = g_a5_buf(-23007)[cls];
+			if (cv > cap)
+				cv = cap;
+			if (cv > m[138]) {
+				cv = (unsigned char)(cv - m[138]);
+				l19f8(cls, cv, &acc, &val);
+			}
+		}
+		if (count != 0)                 /* asm divuw; count>=1 for a real char */
+			acc = (unsigned char)((unsigned short)acc / count);
+		m[129] = (unsigned char)(m[129] + acc);
+		if (m[129] > oldhp && m[395] != 0)
+			m[395] = (unsigned char)(m[395] + (m[129] - oldhp));
+		if (m[129] < oldhp && m[395] != 0) {
+			short loss = (short)(oldhp - m[129]);
+			if (m[395] > loss)
+				m[395] = (unsigned char)(m[395] - loss);
+			else
+				m[395] = 0;
+		}
+		m[121] = val;
+		if (m[121] >= 20)
+			jt876(member, 62, 60, 255, 1);
+		else
+			jt878(member, 62, 0);
+		break;
+	}
+
+	case 5:
+		if (jt41(member, 14, &eff))
+			val = (unsigned char)(val + ((unsigned char *)eff)[4]);
+		m[123] = val;
+		break;
+
+	default:                                /* case 3 etc.: nothing */
+		break;
+	}
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
