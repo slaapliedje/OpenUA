@@ -19199,10 +19199,65 @@ static void jt508(short a, short b, short c, short d, short e)
 	g_a5_18894 = 0;
 }
 
-/* JT[17] (CODE 6) — LEAF STUB (still a band-1 dispatcher to lift). L01de
- * uses its result as a party-slot index; 0 is a safe placeholder. */
+static short l2fd8(const unsigned char *m, short idx);   /* class-field max (defined below) */
+
+/* JT[17] (CODE 6 + 0x2716) — effective level / class-cap lookup for the current
+ * character (g_a5_27932).  Reads the class descriptor table (g_a5_16906, 16
+ * bytes/entry, indexed by class id `a`) for the category selector and the
+ * per-class field maxes (l2fd8) to derive a level value: 6 for a multi/no-class
+ * default, else a per-category formula, force-6 for the -23230 flag, capped to
+ * 31 when `b` is set.  Used by l01de as (11 - result) in the auto-cast save. */
 static short jt17(short a, short b) __attribute__((unused));
-static short jt17(short a, short b) { PROBE("jt17"); (void)a; (void)b; return 0; }
+static short jt17(short a, short b)
+{
+	const unsigned char *m   = (const unsigned char *)(uintptr_t)g_a5_long(-27932);
+	const unsigned char *cls = g_a5_buf(-16906) + (a & 0xff) * 16;
+	signed char res = 0;            /* the asm leaves this stack-garbage in the
+	                                 * case-3/default arm; 0 keeps it defined. */
+	signed char tmp;
+
+	PROBE("jt17");
+
+	if ((l2fd8(m, 0) & 255) == 0 &&
+	    (l2fd8(m, 5) & 255) == 0 &&
+	    (l2fd8(m, 4) & 255) < 8 &&
+	    (l2fd8(m, 1) & 255) < 9) {
+		res = 6;                                /* multi/non-class default */
+	} else {
+		switch ((signed char)cls[0]) {          /* L277e — class category */
+		case 0:                                 /* L27aa */
+			res = (signed char)l2fd8(m, 0);
+			tmp = (signed char)l2fd8(m, 3);
+			if (res < tmp)
+				res = tmp;
+			break;
+		case 1:                                 /* L27e2 */
+			res = (signed char)((l2fd8(m, 4) & 255) - 7);
+			if (res < 0)
+				res = 0;
+			break;
+		case 2:                                 /* L2806 */
+			res = (signed char)l2fd8(m, 5);
+			tmp = (signed char)((l2fd8(m, 4) & 255) - 8);
+			if (res < tmp)
+				res = tmp;
+			break;
+		case 4:                                 /* L2842 */
+			res = 12;
+			break;
+		case 3:                                 /* L2848 — default, no change */
+		default:
+			break;
+		}
+	}
+
+	/* L2848 — non-category-4 records with the -23230 flag are forced to 6. */
+	if (g_a5_byte(-23230) != 0 && cls[0] != 4)
+		res = 6;
+	if ((b & 0xff) != 0 && res > 31)            /* L286e — `b` caps to 31 */
+		res = 31;
+	return (short)(unsigned char)res;
+}
 
 /* L01de (CODE 18 + 0x01de) — "auto-cast on entry" hook for cases 6/9: if
  * the entity carries effect byte [196] and the active context flags

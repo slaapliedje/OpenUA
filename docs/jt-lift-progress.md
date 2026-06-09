@@ -13,13 +13,13 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 268 done (257 lifted, 8 noop, 3 alias), 93 stub, 844 missing.
+**1205 distinct JT entries are called.** Overall: 269 done (258 lifted, 8 noop, 3 alias), 92 stub, 844 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **97/100** | 88 | 9 | 2 | 1 |
+| 1 | 1–100 | **98/100** | 89 | 9 | 1 | 1 |
 | 2 | 101–200 | **37/100** | 37 | 0 | 16 | 47 |
 | 3 | 201–300 | **26/100** | 26 | 0 | 12 | 62 |
 | 4 | 301–400 | **23/100** | 22 | 1 | 4 | 73 |
@@ -94,7 +94,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 55 | jt108 | 30 | LIFTED |  |
 | 56 | jt868 | 30 | LIFTED |  |
 | 57 | jt1198 | 30 | NOOP |  |
-| 58 | jt17 | 29 | **STUB** |  |
+| 58 | jt17 | 29 | LIFTED |  |
 | 59 | jt102 | 29 | LIFTED |  |
 | 60 | jt471 | 28 | LIFTED |  |
 | 61 | jt937 | 28 | LIFTED |  |
@@ -252,7 +252,6 @@ an uncharted multi-function cluster — lift the cluster first);
 **trap-shim** (issues a Mac OS trap the HAL must route); **HAL**
 (needs a display/row-blit backend, not a transcription).
 
-- jt17 (29 calls) — stub — dispatcher — 111-line; currently a leaf stub for L01de (jt868 hub). Own session to lift the real body
 - jt52 (24 calls) — missing — system-tick / housekeeping dispatcher (JT[1] switch). NOT the sound hub (earlier mis-call): jt984/979/980 are the timed-callback table (jt1149=_TickCount, jt1151/jt1145=menu-bar); only a couple arms touch audio. SysBeep is jt1147 (already lifted); the real sound work is the .slb music engine (jt986/981 + codec L1a0c/jt974/jt975 + DMA HAL) — its own session
 - jt1177 (22 calls) — stub — HAL — Mac framebuffer addressing; needs the row-blit display backend, not a transcription
 
