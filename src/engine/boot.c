@@ -19083,6 +19083,32 @@ static short jt401(short refNum, void *buffer, short count)
 	return (short)n;
 }
 
+/* JT[410] (CODE 3 + 0x384a, 22 sites) — write to an open file, the
+ * PBWrite sibling of jt401's PBRead. The Mac builds a param block and
+ * issues JT[1044] (CODE 5+0x5716 = the _Write trap glue, 0xa003 / async
+ * 0xa403); the port shims the File Manager layer straight to the compat
+ * FSWrite, exactly as jt401/jt412/jt403 already do. Returns bytes
+ * written (ioActCount), or -1 on a hard error.
+ *
+ * NB: boot.c's `jt1044` symbol is an unrelated Window-Manager stub — a
+ * stale mis-identification of this JT entry. The faithful File path is
+ * the GEMDOS shim here, not that stub. */
+static short jt410(short refNum, void *buffer, short count)
+                                                __attribute__((unused));
+static short jt410(short refNum, void *buffer, short count)
+{
+	long  n = (long)(unsigned short)count;
+	OSErr err;
+
+	PROBE("jt410");
+	if (buffer == NULL)
+		return -1;
+	err = FSWrite(refNum, &n, buffer);
+	if (err != noErr)
+		return -1;
+	return (short)n;
+}
+
 /* JT[127] (CODE 6 + 0x0146) — load a design data file, with
  * shared-library fallback.
  *
