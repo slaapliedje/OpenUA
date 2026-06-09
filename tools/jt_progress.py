@@ -73,7 +73,9 @@ PENDING_NOTES = {
     28:   "dispatcher — 307-line. Own session",
     936:  "dispatcher — 187-line. Own session",
     521:  "dispatcher — 162-line. Own session",
-    52:   "dispatcher — 160-line. Own session",
+    52:   "sound/music control hub — JT[1] switch over the unlifted sound "
+          "engine (jt979/980/984/986/981/965, L5ac2/L5876). Needs the "
+          "sound HAL session, not a quick switch lift",
     17:   "dispatcher — 111-line; currently a leaf stub for L01de (jt868 "
           "hub). Own session to lift the real body",
     497:  "dispatcher — 106-line. Own session",
