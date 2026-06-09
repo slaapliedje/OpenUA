@@ -18710,6 +18710,34 @@ static void jt118(unsigned char *page, short top, short left, short idx,
 	jt114(page, top, left, idx, handle);
 }
 
+/* JT[305] (CODE 22 + 0x07be, 18 sites) — set a list-row's value byte and
+ * optionally re-label + repaint its DLItem. Stores `val` into rec[18],
+ * formats the row's display string from the g_a5_-11072 source pointer
+ * into the shared -11699 label buffer (jt384), and when `repaint` is set
+ * pushes that label into DLItem (l48e4(rec))+4 via message 39 — the
+ * buffer address rides the b/c short slots, exactly as the Mac packs the
+ * 32-bit pointer through jt444's two trailing word args — then repaints
+ * the dialog (l2c60 = JT[449]).
+ *
+ * l48e4(rec) = rec[4] ? 8 : 7 (inlined): the base DLItem id of the row. */
+static void jt305(void *rec, char val, char repaint) __attribute__((unused));
+static void jt305(void *rec, char val, char repaint)
+{
+	unsigned char *r = (unsigned char *)rec;
+	uintptr_t lbl;
+	short k;
+
+	PROBE("jt305");
+	r[18] = (unsigned char)val;
+	jt384(g_a5_chars(-11699), (const char *)g_a5_long(-11072));
+	if (repaint) {
+		k = r[4] ? 8 : 7;
+		lbl = (uintptr_t)g_a5_buf(-11699);
+		jt444((short)(k + 4), 39, (short)(lbl >> 16), (short)lbl);
+		l2c60(0);
+	}
+}
+
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
