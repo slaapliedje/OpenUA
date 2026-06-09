@@ -13,17 +13,17 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 242 done (231 lifted, 8 noop, 3 alias), 91 stub, 872 missing.
+**1205 distinct JT entries are called.** Overall: 243 done (232 lifted, 8 noop, 3 alias), 92 stub, 870 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **87/100** | 78 | 9 | 2 | 11 |
+| 1 | 1–100 | **88/100** | 79 | 9 | 2 | 10 |
 | 2 | 101–200 | **36/100** | 36 | 0 | 15 | 49 |
 | 3 | 201–300 | **24/100** | 24 | 0 | 12 | 64 |
 | 4 | 301–400 | **19/100** | 18 | 1 | 4 | 77 |
-| 5 | 401–500 | **15/100** | 15 | 0 | 14 | 71 |
+| 5 | 401–500 | **15/100** | 15 | 0 | 15 | 70 |
 | 6 | 501–600 | **13/100** | 12 | 1 | 13 | 74 |
 | 7 | 601–700 | **14/100** | 14 | 0 | 7 | 79 |
 | 8 | 701–800 | **23/100** | 23 | 0 | 7 | 70 |
@@ -109,7 +109,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 70 | jt52 | 24 | **MISSING** |  |
 | 71 | jt1170 | 24 | NOOP |  |
 | 72 | jt1193 | 24 | LIFTED |  |
-| 73 | jt57 | 23 | **MISSING** |  |
+| 73 | jt57 | 23 | LIFTED |  |
 | 74 | jt182 | 23 | LIFTED |  |
 | 75 | jt1173 | 23 | LIFTED |  |
 | 76 | jt118 | 22 | LIFTED |  |
@@ -256,7 +256,6 @@ an uncharted multi-function cluster — lift the cluster first);
 - jt17 (29 calls) — stub — dispatcher — 111-line; currently a leaf stub for L01de (jt868 hub). Own session to lift the real body
 - jt21 (26 calls) — missing — dispatcher — 454-line. Own session
 - jt52 (24 calls) — missing — dispatcher — 160-line. Own session
-- jt57 (23 calls) — missing — dispatcher — 74-line. Own session
 - jt1177 (22 calls) — stub — HAL — Mac framebuffer addressing; needs the row-blit display backend, not a transcription
 - jt871 (20 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
 - jt28 (18 calls) — missing — dispatcher — 307-line. Own session
