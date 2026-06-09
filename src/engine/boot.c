@@ -638,6 +638,12 @@ static void  l7222(void)
 		*(short *)(uintptr_t)g_a5_long(-12300) = 0;
 }
 
+/* JT[1084] (CODE 5 + 0x36a) is the error/alert dialog — the SAME Mac
+ * function as l036a (identical address). It's lifted as l036a (defined
+ * far below); this early forward decl lets the few JT[1084] call sites
+ * resolve to it without a separate stub. */
+static void  l036a(const char *fmt, ...);
+
 /* JT[132] (CODE 6 + 0x0092) — set the current file-group id.
  *   g_a5_-31236 = (byte)id;
  * The group id (51 / 0x33 for GAME) tags subsequent file-cache
@@ -14186,13 +14192,6 @@ static void l4350(short flag)
 	PROBE("L4350");
 	(void)flag;
 }
-static void jt1084(void *buf, short val) __attribute__((unused));
-static void jt1084(void *buf, short val)
-{
-	PROBE("jt1084");
-	(void)buf; (void)val;
-}
-
 /* L3e38 (CODE 4 + 0x3e38) = JT[1162] — window content repaint
  * dispatcher. Called inside the BeginUpdate / EndUpdate bracket
  * of L7090 (updateEvt arm).
@@ -14203,7 +14202,7 @@ static void jt1084(void *buf, short val)
  *   short cur_page = g_a5_-2354;
  *   // Normalize page index to [0, 1].
  *   if (cur_page < 0 || cur_page > 1) {
- *       jt1084(&g_a5_-2610, cur_page);        // error / log
+ *       JT[1084]("...", cur_page);            // error dialog (= l036a)
  *       g_a5_-2354 = 1;
  *   }
  *
@@ -14232,7 +14231,7 @@ static void l3e38(void)
 	cur_page = g_a5_word(-2354);
 
 	if (cur_page < 0 || cur_page > 1) {
-		jt1084(g_a5_buf(-2610), cur_page);
+		l036a("repaint page out of range: %d", cur_page);  /* JT[1084] */
 		g_a5_word(-2354) = 1;
 		cur_page = 1;
 	}

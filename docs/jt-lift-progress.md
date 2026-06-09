@@ -13,13 +13,13 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 215 done (211 lifted, 4 noop, 0 alias), 96 stub, 894 missing.
+**1205 distinct JT entries are called.** Overall: 217 done (211 lifted, 5 noop, 1 alias), 94 stub, 894 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **69/100** | 66 | 3 | 5 | 26 |
+| 1 | 1–100 | **71/100** | 66 | 5 | 3 | 26 |
 | 2 | 101–200 | **33/100** | 33 | 0 | 15 | 52 |
 | 3 | 201–300 | **22/100** | 22 | 0 | 13 | 65 |
 | 4 | 301–400 | **17/100** | 17 | 0 | 4 | 79 |
@@ -37,7 +37,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
 | rank | JT | calls | status | note |
 |-----:|----|------:|--------|------|
-| 1 | jt3 | 307 | **STUB** |  |
+| 1 | jt3 | 307 | NOOP |  |
 | 2 | jt384 | 287 | LIFTED |  |
 | 3 | jt1200 | 187 | LIFTED |  |
 | 4 | jt394 | 156 | LIFTED |  |
@@ -87,7 +87,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 48 | jt1163 | 36 | NOOP |  |
 | 49 | jt401 | 35 | LIFTED |  |
 | 50 | jt404 | 34 | LIFTED |  |
-| 51 | jt1084 | 34 | **STUB** |  |
+| 51 | jt1084 | 34 | ALIAS | lifted as l036a (same address, the error dialog) |
 | 52 | jt76 | 33 | LIFTED |  |
 | 53 | jt936 | 31 | **MISSING** |  |
 | 54 | jt1139 | 31 | LIFTED |  |
@@ -245,10 +245,8 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
 ## The pending queue (top-100 stubs + missing, by call count)
 
-- jt3 (307 calls) — stub
 - jt1 (95 calls) — missing
 - jt1061 (38 calls) — missing
-- jt1084 (34 calls) — stub
 - jt936 (31 calls) — missing
 - jt868 (30 calls) — missing
 - jt17 (29 calls) — missing
