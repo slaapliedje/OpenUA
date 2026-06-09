@@ -22152,6 +22152,50 @@ static void glib_lb_init(void)
 	glib_lb_register(0x474C4942L, l4010);   /* 'GLIB' */
 }
 
+/* JT[1015] (CODE 5 + 0x3834, = LBISize) — byte size of GLIB item `item`
+ * in library `lib`: validate the 16-byte 'GLIB' header, range-check the
+ * item against the header's count (hdr[8] word), then return the gap
+ * between consecutive 4-byte index entries (index[item+1] - index[item]).
+ * The index table starts 16 bytes into the library; the two jt406 reads
+ * pull the header and the entry pair out as little local copies. */
+static long jt1015(void *lib, short item) __attribute__((unused));
+static long jt1015(void *lib, short item)
+{
+	unsigned char hdr[16];
+	long          pair[2];
+	short         count;
+
+	PROBE("jt1015");
+	jt406(hdr, lib, 16);                        /* dst=hdr, src=lib */
+	if (*(const long *)hdr != 0x474C4942L) {    /* 'GLIB' */
+		l036a("LBISize: Invalid Library File");
+		return 0;
+	}
+	count = *(const short *)(hdr + 8);
+	if (item < 0 || item >= count) {
+		l036a("Invalid item (%d/%d)", (int)item, (int)count);
+		return 0;
+	}
+	jt406(pair, (unsigned char *)lib + 16 + (long)item * 4, 8);
+	return pair[1] - pair[0];
+}
+
+/* JT[1017] (CODE 5 + 0x38be, = LBIndxType) — the GLIB index-type byte
+ * (hdr[11]) of `lib`, after validating the 'GLIB' header. */
+static short jt1017(void *lib) __attribute__((unused));
+static short jt1017(void *lib)
+{
+	unsigned char hdr[16];
+
+	PROBE("jt1017");
+	jt406(hdr, lib, 16);
+	if (*(const long *)hdr != 0x474C4942L) {
+		l036a("LBIndxType: Invalid Library File");
+		return 0;
+	}
+	return (short)hdr[11];
+}
+
 /* L4010 (CODE 5) — _LBConvert: validate the just-loaded 'GLIB' header in
  * place, then relocate its index table. For each index entry it invokes
  * the registered converter for the library's signature (hdr[12]); for a
