@@ -19972,6 +19972,158 @@ static void l78fa(short vx, short vy, short mx, short my)
 		       (short)((tile2 + 1) & 0xff));
 	}
 }
+
+/* L635e (CODE 14 + 0x635e) — redraw the cells a creature (or the party)
+ * occupies. `which` 0 means redraw the single viewport cell (vx,vy) -> world
+ * (vx+scroll, vy+scroll), looking up its occupant via l62ec; otherwise it is a
+ * creature index whose facing fan (l5d92 over g_a5_27472[which].dir) is
+ * redrawn cell-by-cell (l78fa) where visible (l6520). */
+static void l635e(short vx, short vy, short which) __attribute__((unused));
+static void l635e(short vx, short vy, short which)
+{
+	unsigned char *scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short wx = 0, wy = 0, i;
+
+	PROBE("L635e");
+	if (which == 0) {
+		unsigned char a, b;
+		wx = (short)(vx + *(short *)(scroll + 2));
+		wy = (short)(vy + *(short *)(scroll + 4));
+		l62ec(wx, wy, &a, &b);
+		which = a;
+	}
+	if (which == 0) {
+		if (l6520(vx, vy))
+			l78fa(vx, vy, wx, wy);
+		return;
+	}
+
+	vx = (signed char)g_a5_buf(-27059)[which];
+	vy = (signed char)g_a5_buf(-26991)[which];
+	wx = (short)(vx + *(short *)(scroll + 2));
+	wy = (short)(vy + *(short *)(scroll + 4));
+	for (i = 0; i <= 5; i++) {
+		unsigned char dx, dy;
+		short tvx, tvy;
+		if (!l5d92(g_a5_buf(-27472)[which * 6 + 5], i, &dx, &dy))
+			continue;
+		tvx = (short)(vx + (signed char)dx);
+		tvy = (short)(vy + (signed char)dy);
+		if (l6520(tvx, tvy))
+			l78fa(tvx, tvy, (short)(wx + (signed char)dx),
+			      (short)(wy + (signed char)dy));
+	}
+}
+
+/* L6652 (CODE 14 + 0x6652) — scroll the map view so (tx,ty) stays within a
+ * `margin` cell window of the centre (mode 255 forces a recentre); returns 0
+ * if no scroll was needed. On a scroll it moves the origin (g_a5_25318 +2/+4,
+ * clamped to 3..46 / 3..21), redraws the full 7x7 viewport (l78fa) and
+ * recomputes creature screen positions (l5e0e). */
+static short l6652(short tx, short ty, short mode) __attribute__((unused));
+static short l6652(short tx, short ty, short mode)
+{
+	unsigned char *scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short cx = (short)(*(short *)(scroll + 2) + 3);
+	short cy = (short)(*(short *)(scroll + 4) + 3);
+	short margin = ((mode & 0xff) == 255) ? 0 : (mode & 0xff);
+	short lo_x = (short)(cx - margin), hi_x = (short)(cx + margin);
+	short lo_y = (short)(cy - margin), hi_y = (short)(cy + margin);
+	short itx = (signed char)tx, ity = (signed char)ty;
+	short row, col;
+
+	PROBE("L6652");
+	if ((mode & 0xff) != 255
+	 && itx >= lo_x && itx <= hi_x && ity >= lo_y && ity <= hi_y)
+		return 0;
+
+	if (itx < lo_x)        { while (itx < cx && cx > 3)  cx--; }
+	else if (itx > hi_x)   { while (itx > cx && cx < 46) cx++; }
+	if (ity < lo_y)        { while (ity < cy && cy > 3)  cy--; }
+	else if (ity > hi_y)   { while (ity > cy && cy < 21) cy++; }
+
+	*(short *)(scroll + 2) = (short)(cx - 3);
+	*(short *)(scroll + 4) = (short)(cy - 3);
+	for (row = 0; row <= 6; row++)
+		for (col = 0; col <= 6; col++)
+			l78fa(col, row, (short)(scroll[3] + col),
+			      (short)(scroll[5] + row));
+	l5e0e();
+	return 1;
+}
+
+/* L5e9a (CODE 14 + 0x5e9a) — draw the party's facing fan plus the creature on
+ * the party's own cell. Sets the clip (l744e), walks the 6 facing steps
+ * (l5d92 over scroll[7]) drawing each visible cell (l78fa) and a party marker
+ * (jt57 glyph 30 when scroll[6] is set), then draws the occupant of (px,py)
+ * (l62ec -> g_a5_25676 entity, sprite via jt57) and flushes (jt1193). */
+static void l5e9a(short px, short py) __attribute__((unused));
+static void l5e9a(short px, short py)
+{
+	unsigned char *scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short ox = (short)(px - *(short *)(scroll + 2));
+	short oy = (short)(py - *(short *)(scroll + 4));
+	unsigned char idx, feat;
+	short i;
+
+	PROBE("L5e9a");
+	l744e();
+	for (i = 0; i <= 5; i++) {
+		unsigned char dx, dy;
+		short vx, vy;
+		if (!l5d92(scroll[7], i, &dx, &dy))
+			continue;
+		vx = (short)((signed char)ox + (signed char)dx);
+		vy = (short)((signed char)oy + (signed char)dy);
+		if (l6520(vx, vy)) {
+			l78fa(vx, vy, (short)(px + (signed char)dx),
+			      (short)(py + (signed char)dy));
+			if (scroll[6] != 0)
+				jt57(vx, vy, 0, 0, 30);
+		}
+	}
+
+	l62ec(px, py, &idx, &feat);
+	if (idx != 0) {
+		long e = *(long *)(g_a5_buf(-25676) + idx * 4);
+		if (l6554(e, 0)) {
+			unsigned char *ep = (unsigned char *)(uintptr_t)e;
+			long gr = *(long *)(ep + 64);
+			jt57((short)(signed char)g_a5_buf(-27059)[idx],
+			     (short)(signed char)g_a5_buf(-26991)[idx],
+			     ((unsigned char *)(uintptr_t)gr)[11], 0, ep[189]);
+		}
+	}
+	jt1193();
+}
+
+/* L6090 (CODE 14 + 0x6090) — redraw a single world cell (px,py) and the
+ * creature on it: clip (l744e), redraw the terrain cell (l635e, party-
+ * relative), then the occupant sprite (l62ec -> g_a5_25676 -> jt57), flush. */
+static void l6090(short px, short py) __attribute__((unused));
+static void l6090(short px, short py)
+{
+	unsigned char *scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short ox = (short)(px - *(short *)(scroll + 2));
+	short oy = (short)(py - *(short *)(scroll + 4));
+	unsigned char idx, feat;
+
+	PROBE("L6090");
+	l744e();
+	l635e(ox, oy, 0);
+	l62ec(px, py, &idx, &feat);
+	if (idx != 0) {
+		long e = *(long *)(g_a5_buf(-25676) + idx * 4);
+		if (l6554(e, 0)) {
+			unsigned char *ep = (unsigned char *)(uintptr_t)e;
+			long gr = *(long *)(ep + 64);
+			jt57((short)(signed char)g_a5_buf(-27059)[idx],
+			     (short)(signed char)g_a5_buf(-26991)[idx],
+			     ((unsigned char *)(uintptr_t)gr)[11], 0, ep[189]);
+		}
+	}
+	jt1193();
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
