@@ -57,6 +57,35 @@ ALIAS_LIFTED = {
     63: "lifted as l60b4 (same address, byte->decimal scratch)",
 }
 
+# Why each still-open top-100 entry is open — keeps the pending queue
+# self-documenting so the next unit of work picks itself. Tags: subsystem
+# (small body over an uncharted helper cluster), dispatcher (big multi-case
+# switch), trap-shim (issues a Mac trap), HAL (needs a display backend).
+PENDING_NOTES = {
+    1177: "HAL — Mac framebuffer addressing; needs the row-blit display "
+          "backend, not a transcription",
+    1061: "trap-shim — issues Mac OS traps 0xa05d/0xaded/0xa9ee (Memory "
+          "Manager handle-state family); needs the handle-flags shim",
+    232:  "subsystem — small body over the word-wrap measurement cluster "
+          "(L4fbe -> L4ab6/L4a30/L4c88, the x4/3 char-pixel scaling)",
+    181:  "subsystem — small body over the panel-draw cluster "
+          "(L177a/L2858/L23b4/L25b6)",
+    868:  "dispatcher — 771-line 25-case popup/menu hub; gates jt866/jt871/"
+          "jt875. Own session",
+    501:  "dispatcher — 598-line. Own session",
+    21:   "dispatcher — 454-line. Own session",
+    28:   "dispatcher — 307-line. Own session",
+    936:  "dispatcher — 187-line. Own session",
+    521:  "dispatcher — 162-line. Own session",
+    52:   "dispatcher — 160-line. Own session",
+    17:   "dispatcher — 111-line. Own session",
+    497:  "dispatcher — 106-line. Own session",
+    57:   "dispatcher — 74-line. Own session",
+    866:  "gated by jt868 (the popup hub dispatches it)",
+    871:  "gated by jt868 (the popup hub dispatches it)",
+    875:  "gated by jt868 (the popup hub dispatches it)",
+}
+
 
 def call_frequency():
     """Map JT number -> static call count across all CODE segments."""
@@ -225,16 +254,20 @@ def main():
         A("")
 
     A("## The pending queue (top-100 stubs + missing, by call count)\n")
+    A("Each carries _why_ it is still open, so the next unit of work is")
+    A("self-selecting. Categories: **subsystem** (small body, but gated on")
+    A("an uncharted multi-function cluster — lift the cluster first);")
+    A("**dispatcher** (large multi-case switch, a session on its own);")
+    A("**trap-shim** (issues a Mac OS trap the HAL must route); **HAL**")
+    A("(needs a display/row-blit backend, not a transcription).\n")
     pend = [(n, c) for n, c in ranked[:100]
             if status[n] in ("STUB", "MISSING")]
     if not pend:
         A("_None — the top 100 are fully lifted._\n")
     else:
         for n, c in pend:
-            extra = ""
-            if n == 1177:
-                extra = " — HAL-BLOCKED (Mac framebuffer addressing; needs "\
-                        "the row-blit display HAL, not a transcription)"
+            note = PENDING_NOTES.get(n, "")
+            extra = f" — {note}" if note else ""
             A(f"- jt{n} ({c} calls) — {status[n].lower()}{extra}")
         A("")
 

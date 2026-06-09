@@ -245,21 +245,28 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
 ## The pending queue (top-100 stubs + missing, by call count)
 
-- jt1061 (38 calls) — missing
-- jt936 (31 calls) — missing
-- jt868 (30 calls) — missing
-- jt17 (29 calls) — missing
-- jt181 (27 calls) — missing
-- jt232 (27 calls) — missing
-- jt21 (26 calls) — missing
-- jt52 (24 calls) — missing
-- jt57 (23 calls) — missing
-- jt1177 (22 calls) — stub — HAL-BLOCKED (Mac framebuffer addressing; needs the row-blit display HAL, not a transcription)
-- jt871 (20 calls) — missing
-- jt28 (18 calls) — missing
-- jt501 (18 calls) — missing
-- jt875 (18 calls) — missing
-- jt497 (17 calls) — missing
-- jt521 (17 calls) — missing
-- jt866 (17 calls) — missing
+Each carries _why_ it is still open, so the next unit of work is
+self-selecting. Categories: **subsystem** (small body, but gated on
+an uncharted multi-function cluster — lift the cluster first);
+**dispatcher** (large multi-case switch, a session on its own);
+**trap-shim** (issues a Mac OS trap the HAL must route); **HAL**
+(needs a display/row-blit backend, not a transcription).
+
+- jt1061 (38 calls) — missing — trap-shim — issues Mac OS traps 0xa05d/0xaded/0xa9ee (Memory Manager handle-state family); needs the handle-flags shim
+- jt936 (31 calls) — missing — dispatcher — 187-line. Own session
+- jt868 (30 calls) — missing — dispatcher — 771-line 25-case popup/menu hub; gates jt866/jt871/jt875. Own session
+- jt17 (29 calls) — missing — dispatcher — 111-line. Own session
+- jt181 (27 calls) — missing — subsystem — small body over the panel-draw cluster (L177a/L2858/L23b4/L25b6)
+- jt232 (27 calls) — missing — subsystem — small body over the word-wrap measurement cluster (L4fbe -> L4ab6/L4a30/L4c88, the x4/3 char-pixel scaling)
+- jt21 (26 calls) — missing — dispatcher — 454-line. Own session
+- jt52 (24 calls) — missing — dispatcher — 160-line. Own session
+- jt57 (23 calls) — missing — dispatcher — 74-line. Own session
+- jt1177 (22 calls) — stub — HAL — Mac framebuffer addressing; needs the row-blit display backend, not a transcription
+- jt871 (20 calls) — missing — gated by jt868 (the popup hub dispatches it)
+- jt28 (18 calls) — missing — dispatcher — 307-line. Own session
+- jt501 (18 calls) — missing — dispatcher — 598-line. Own session
+- jt875 (18 calls) — missing — gated by jt868 (the popup hub dispatches it)
+- jt497 (17 calls) — missing — dispatcher — 106-line. Own session
+- jt521 (17 calls) — missing — dispatcher — 162-line. Own session
+- jt866 (17 calls) — missing — gated by jt868 (the popup hub dispatches it)
 
