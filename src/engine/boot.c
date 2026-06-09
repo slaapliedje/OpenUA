@@ -236,6 +236,7 @@
 #define g_a5_3654  g_a5_longs(-3654)
 #define g_a5_3638  g_a5_longs(-3638)
 #define g_a5_9296  g_a5_word(-9296)    /* pool init counter */
+#define g_a5_3622  g_a5_word(-3622)    /* jt972/jt1014 current-load group id */
 
 /* Library binder context (L33ac stamps these; jt104 reads them as the
  * jt987 open-callback). -18402 = group base offset/ptr, -18406 = group
@@ -1264,11 +1265,9 @@ static void  jt113(short b)
  * to a PROBE stub: the JT[325] prologue's data path uses the
  * pre-allocated staging buffer (g_a5_-22208) directly and does not
  * depend on this registration's side effects. */
-static void  jt1014(short group, const char *name, short size)
-{
-	PROBE("jt1014");
-	(void)group; (void)name; (void)size;
-}
+/* Real signature is (kind, name, group); lifted in the GLIB loader
+ * cluster below where its callees (jt464/jt987/jt972) are in scope. */
+static void  jt1014(short kind, const char *name, short group);
 
 /* JT[325] (CODE 9 + 0x22d8) — the design-record database engine:
  * stage / load / store a fixed-size record (monsters, items, map
@@ -21677,11 +21676,14 @@ static void jt463(void)
 }
 
 /* GLIB FAR-pool self-test (probe-gated). Stand up the pool, then read a
- * real .ctl entirely into a manually-bound group via jt1016 (jt460 read
- * + jt459 size + l4010 validate/relocate) and report the committed
- * group's 'GLIB' magic. Verifies the read+commit layer against real
- * data; the 3-line manual group bind stands in for jt464 (the binder's
- * group-creation, lifted next). Needs GEMDOS_DIR=data/work/gamedata. */
+ * real .ctl entirely into a real group (jt464 group-creation) via the
+ * faithful jt972 callback (jt403 size + jt1016 read + l4010 validate)
+ * and report the committed group's 'GLIB' magic. Exercises jt463 +
+ * jt464 + jt403 + jt972 + jt1016 on real data. Needs
+ * GEMDOS_DIR=data/work/gamedata. */
+static long          jt403(short refnum);
+static unsigned char jt464(const char *name, short group);
+static unsigned char jt972(short refnum, void *spec);
 static void glib_pool_selftest(void)
 {
 #ifdef FRUA_ENGINE_PROBE
@@ -21697,22 +21699,20 @@ static void glib_pool_selftest(void)
 		return;
 	}
 
-	/* manual group-0 bind (stands in for jt464): id 0 -> seq 0, empty */
-	g_a5_9306     = 1;
-	g_a5_10074[0] = 0;
-	g_a5_10270[1] = g_a5_10270[0];
-
-	fsize = jt412(refnum, 0, 2);             /* LEOF = file size */
-	jt412(refnum, 0, 0);                     /* seek back to start */
+	fsize = jt403(refnum);                   /* position-preserving size */
 	dbg_log_num("GLIB: ALWAYS.CTL size = ", fsize);
 
-	if (jt1016(refnum, fsize, 0)) {
-		dbg_log_num("GLIB: jt1016 OK, group0 size = ", jt459(0));
+	/* real group creation (jt464) — no more manual bind */
+	g_a5_3622 = 0;
+	dbg_log_num("GLIB: jt464 (0=new group) = ", jt464("ALWAYS", 0));
+
+	if (jt972(refnum, NULL)) {               /* real callback -> jt1016 */
+		dbg_log_num("GLIB: jt972 OK, group0 size = ", jt459(0));
 		dbg_log_num("GLIB: group0 magic = ",
 		            *(const long *)(uintptr_t)jt468(0));
 		/* expect 0x474C4942 = 'GLIB' = 1196181826 */
 	} else {
-		dbg_log("GLIB: jt1016 FAILED");
+		dbg_log("GLIB: jt972 FAILED");
 	}
 	FSClose(refnum);
 #endif
@@ -21946,22 +21946,125 @@ static unsigned char jt104(short refnum, void *spec)
 	return 0;
 }
 
-/* JT[464] (CODE 3+0x644) — does the named file already exist in the
- * group cache? Returns non-zero when present (the binder then bails).
- * PROBE stub returning 0 (proceed) pending the cache-index lift. */
+/* JT[464] (CODE 3+0x644) — register a named library under a group id,
+ * the FAR pool's group-creation. Build the 14-byte record key from the
+ * name (l3cfa), validate the group, and reject re-binding a live group.
+ * Then scan the existing records (g_a5_10026, 14 bytes each):
+ *   - a match (and key[0] != '%') rebinds the group to that record,
+ *     moves it to the front of the -9354 MRU companion, and returns 1
+ *     (already cached — the caller SKIPS loading);
+ *   - no match creates a new record: append the key, bind the freemap
+ *     slot, push it onto the MRU, bump the count, start the new group's
+ *     pool region empty (slot[count] = slot[count-1]), and return 0
+ *     (the caller PROCEEDS to load). When the table is full it compacts
+ *     (l11ca) or errors. */
 static unsigned char jt464(const char *name, short group) __attribute__((unused));
 static unsigned char jt464(const char *name, short group)
 {
+	char  key[202];
+	short i;
+
 	PROBE("jt464");
-	(void)name; (void)group;
+	l3cfa(name, key);
+	key[13] = 0;
+
+	if (group < 0 || group >= 48)
+		l036a("Invalid group (%d)", group);
+	if (!(g_a5_10074[group] & 0x80))             /* slot already bound */
+		l036a("Group %d in use for '%s'", group,
+		      (char *)&g_a5_10026[(g_a5_10074[group]) * 14]);
+
+	for (i = 0; i < g_a5_9306; i++) {
+		unsigned char *rec = &g_a5_10026[i * 14];
+
+		if (!l3bda((const char *)rec, key))
+			continue;
+		if ((unsigned char)key[0] == 37)         /* '%' — never cache */
+			continue;
+		/* found an existing record: rebind + promote to MRU front */
+		g_a5_10074[group] = (unsigned char)i;
+		{
+			short pos = l3e0c(g_a5_9354, g_a5_9306, (unsigned char)i);
+
+			l366a(&g_a5_9354[0], &g_a5_9354[1], pos);
+			g_a5_9354[0] = (unsigned char)i;
+		}
+		return 1;
+	}
+
+	/* no match — make room and create a new record */
+	if (g_a5_9306 >= 48) {
+		if (!l11ca(1))
+			l036a("FCSetup: too many file groups");
+		return 1;
+	}
+	{
+		unsigned char idx = (unsigned char)g_a5_9306;
+
+		jt384((char *)&g_a5_10026[g_a5_9306 * 14], key);
+		g_a5_10074[group] = idx;
+		l366a(&g_a5_9354[0], &g_a5_9354[1], g_a5_9306);
+		g_a5_9354[0] = idx;
+		g_a5_9306++;
+		g_a5_10270[g_a5_9306] = g_a5_10270[g_a5_9306 - 1];
+		if (g_a5_9296 < g_a5_9306)
+			g_a5_9296 = g_a5_9306;
+	}
 	return 0;
 }
 
+/* JT[403] (CODE 3+0x38ea) — query a file's length without moving its
+ * mark (Mac PBGetEOF via JT[1047]). The port routes through jt412:
+ * remember the mark, seek to LEOF for the size, restore the mark. */
+static long jt403(short refnum) __attribute__((unused));
+static long jt403(short refnum)
+{
+	long cur  = jt412(refnum, 0, 1);     /* tell */
+	long size = jt412(refnum, 0, 2);     /* LEOF -> size */
+
+	if (cur < 0 || size < 0)
+		return -1;
+	jt412(refnum, cur, 0);               /* restore the mark */
+	return size;
+}
+
+/* JT[972] (CODE 5+0x3682) — the library-load callback jt1014 hands to
+ * jt987: read the whole open file into the current group (-3622) via
+ * jt1016 (jt403 sizes it). Matches the glib_load_cb shape. */
+static unsigned char jt972(short refnum, void *spec) __attribute__((unused));
+static unsigned char jt972(short refnum, void *spec)
+{
+	PROBE("jt972");
+	(void)spec;
+	return (unsigned char)jt1016(refnum, jt403(refnum), g_a5_3622);
+}
+
+/* JT[1014] (CODE 5+0x36a4) — the plain-name library loader. Build the
+ * filename (default '.GLB' extension), register/create the group
+ * (jt464); if it isn't already cached, stamp the current-load group
+ * (-3622) and open it through jt987 with jt972 as the read callback.
+ * Finally validate the loaded 'GLIB' header in place. */
+static void jt1014(short kind, const char *name, short group)
+{
+	char          buf[216];
+	unsigned char hdr[16];
+
+	PROBE("jt1014");
+	jt384(buf, name);
+	jt419(buf, "GLB", 0);                       /* default extension */
+	if (jt464(buf, group) == 0) {               /* not cached -> load */
+		g_a5_3622 = group;
+		jt987(kind, buf, 0, (void *)jt972);
+	}
+	jt406(hdr, (const void *)(uintptr_t)jt468(group), 16);
+	if (*(const long *)hdr != 0x474C4942L)
+		l036a("LBLoad: Bad Lib: '%s'", buf);
+}
+
 /* JT[997] (CODE 5+0x27be) — plain-name (no numeric suffix) loader: build
- * "<name>.CTL" / ".TLB" and hand off to the jt1014 cache loader. The
- * jt1014 tower is itself a PROBE stub, so this records the dispatch but
- * does not yet stand the library up; the numbered path (jt987 -> jt104)
- * is the one exercised end-to-end. */
+ * "<name>.CTL" / ".TLB" and hand off to the jt1014 cache loader. With
+ * jt464/jt1014 now real, this stands the library up through the faithful
+ * FAR-pool path. */
 static unsigned char jt997(short mode, const char *name, short group)
     __attribute__((unused));
 static unsigned char jt997(short mode, const char *name, short group)
@@ -21969,10 +22072,9 @@ static unsigned char jt997(short mode, const char *name, short group)
 	char buf[200];
 
 	PROBE("jt997");
-	(void)mode;
 	jt384(buf, name);
 	jt419(buf, (jt1200() == 3) ? "TLB" : "CTL", 1);
-	jt1014(group, buf, 0);
+	jt1014(mode, buf, group);
 	return 0;
 }
 
