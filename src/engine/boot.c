@@ -9916,8 +9916,12 @@ static signed char jt218(signed char *rowp, signed char *colp,
                          short *out_row, short *out_col,
                          short span_r, short span_c, short wrap);
 static void        l1798(void *rec, short a);
-static void        jt50(void) { PROBE("jt50"); }   /* CODE 6+0x5ac2 — page (deferred) */
-static void        jt51(void) { PROBE("jt51"); }   /* CODE 6+0x5ad8 — page (deferred) */
+/* JT[50] / JT[51] (CODE 6 + 0x5ac2 / 0x5ad8) — the page-up / page-down
+ * (pause-scroll) toggles, already lifted below under their lXXXX names
+ * l5ac2 / l5ad8 (toggle g_a5_-806 / toggle g_a5_-17443 -> jt983).
+ * Forward-declared here for jt297's key 338/339 dispatch. */
+static void l5ac2(void);
+static void l5ad8(void);
 
 /* L05ca (CODE 22 + 0x05ca) — wall code on cell `cell`'s edge facing `dir`:
  * edge = (dir & 6) >> 1 (0..3); returns the HIGH nibble of the cell record's
@@ -9998,8 +10002,8 @@ static void jt297(void *rec_v, short key, long cb)
 	int snapped = 0;
 
 	PROBE("jt297");
-	if (key == 338) { jt50(); return; }
-	if (key == 339) { jt51(); return; }
+	if (key == 338) { l5ac2(); return; }
+	if (key == 339) { l5ad8(); return; }
 	if (lvl == NULL)
 		return;
 

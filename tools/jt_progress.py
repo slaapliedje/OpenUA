@@ -55,6 +55,8 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061}
 # differently-spelled wrapper; the JT symbol may be absent but the work
 # is done. Add (jt_number: "note") as these are confirmed.
 ALIAS_LIFTED = {
+    50: "lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338)",
+    51: "lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339)",
     449: "lifted as l2c60",
     1084: "lifted as l036a (same address, the error dialog)",
     63: "lifted as l60b4 (same address, byte->decimal scratch)",

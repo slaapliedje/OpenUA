@@ -13,16 +13,16 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 274 done (263 lifted, 8 noop, 3 alias), 94 stub, 837 missing.
+**1205 distinct JT entries are called.** Overall: 277 done (264 lifted, 8 noop, 5 alias), 91 stub, 837 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
 | 1 | 1–100 | **99/100** | 90 | 9 | 1 | 0 |
-| 2 | 101–200 | **37/100** | 37 | 0 | 16 | 47 |
+| 2 | 101–200 | **39/100** | 37 | 2 | 14 | 47 |
 | 3 | 201–300 | **26/100** | 26 | 0 | 12 | 62 |
-| 4 | 301–400 | **23/100** | 22 | 1 | 4 | 73 |
+| 4 | 301–400 | **24/100** | 23 | 1 | 3 | 73 |
 | 5 | 401–500 | **18/100** | 18 | 0 | 15 | 67 |
 | 6 | 501–600 | **14/100** | 13 | 1 | 13 | 73 |
 | 7 | 601–700 | **15/100** | 15 | 0 | 7 | 78 |
@@ -165,14 +165,14 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 121 | jt869 | 14 | **MISSING** |  |
 | 122 | jt1113 | 14 | LIFTED |  |
 | 123 | jt1141 | 14 | LIFTED |  |
-| 124 | jt51 | 13 | **STUB** |  |
+| 124 | jt51 | 13 | ALIAS | lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339) |
 | 125 | jt101 | 13 | **MISSING** |  |
 | 126 | jt167 | 13 | **MISSING** |  |
 | 127 | jt361 | 13 | LIFTED |  |
 | 128 | jt411 | 13 | LIFTED |  |
 | 129 | jt493 | 13 | **MISSING** |  |
 | 130 | jt503 | 13 | **STUB** |  |
-| 131 | jt50 | 12 | **STUB** |  |
+| 131 | jt50 | 12 | ALIAS | lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338) |
 | 132 | jt100 | 12 | **STUB** |  |
 | 133 | jt207 | 12 | **MISSING** |  |
 | 134 | jt356 | 12 | **MISSING** |  |
