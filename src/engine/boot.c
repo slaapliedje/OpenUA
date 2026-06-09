@@ -5407,15 +5407,15 @@ static int  jt1200(void)
 	return (g_a5_1312 != 0) ? 0 : 1;
 }
 
-/* L3b1e (CODE 6 + 0x3b1e) — sprite-overlay region setup for jt57's
- * "animated/large" branch (jt1022 / jt468+jt1020 over the GLIB sprite
- * cluster). LEAF STUB: those GLIB sprite-region helpers (jt992/jt1020/
- * jt1022) are not lifted yet, so the overlay is skipped. */
-static void l3b1e(long handle, short idx, short z, long handle2, short g)
+/* JT[111] (CODE 6 + 0x3b1e, = L3b1e) — sprite-overlay region setup used by
+ * jt57 and jt495 (jt1022 / jt468+jt1020 over the GLIB sprite cluster).
+ * LEAF STUB: those GLIB sprite-region helpers (jt992/jt1020/jt1022) are
+ * not lifted yet, so the overlay is skipped. */
+static void jt111(long handle, short idx, short z, long handle2, short g)
                                                 __attribute__((unused));
-static void l3b1e(long handle, short idx, short z, long handle2, short g)
+static void jt111(long handle, short idx, short z, long handle2, short g)
 {
-	PROBE("L3b1e");
+	PROBE("jt111");
 	(void)handle; (void)idx; (void)z; (void)handle2; (void)g;
 }
 
@@ -5423,6 +5423,36 @@ static void l3b1e(long handle, short idx, short z, long handle2, short g)
  * LEAF STUB pending jt992. */
 static void jt123(long handle, short b) __attribute__((unused));
 static void jt123(long handle, short b) { PROBE("jt123"); (void)handle; (void)b; }
+
+/* JT[495] (CODE 13 + 0x1888, = L1888) — install one sprite-overlay tile of
+ * actor `actor` from the library g_a5_-27866: region index row*38 + actor,
+ * glyph 77 + tile (jt111); when `commit` is set, jt123 flushes it. */
+static void jt495(short actor, short row, short tile, short commit)
+                                                __attribute__((unused));
+static void jt495(short actor, short row, short tile, short commit)
+{
+	long  handle = g_a5_long(-27866);
+	short index  = (short)((unsigned char)row * 38 + (unsigned char)actor);
+	short glyph  = (short)((unsigned char)tile + 77);
+
+	PROBE("jt495");
+	jt111(handle, index, 0, handle, glyph);
+	if ((unsigned char)commit != 0)
+		jt123(handle, glyph);
+}
+
+/* JT[497] (CODE 13 + 0x18de, 17 sites) — install actor `actor`'s 2x2 large-
+ * sprite overlay: four jt495 tiles (glyphs 77..80), committing the middle
+ * two. The Mac unrolls the four calls; transcribed verbatim. */
+static void jt497(short actor) __attribute__((unused));
+static void jt497(short actor)
+{
+	PROBE("jt497");
+	jt495(actor, 0, 0, 0);
+	jt495(actor, 0, 1, 1);
+	jt495(actor, 1, 2, 1);
+	jt495(actor, 1, 3, 0);
+}
 
 /* JT[57] (CODE 6 + 0x5dba, 23 sites) — draw a map sprite (party/monster
  * marker, record index rec_hi*38 + rec_lo) at cell (x, y) from the sprite
@@ -5458,7 +5488,7 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 		y = (short)(y * 12 + 8004);
 	}
 	if ((unsigned char)kind > 3) {
-		l3b1e(handle, idx, 0, handle, 76);
+		jt111(handle, idx, 0, handle, 76);
 		jt123(handle, 76);
 		(void)jt108(1);
 		jt1001(y, x, group, 76);

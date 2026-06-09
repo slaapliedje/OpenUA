@@ -13,17 +13,17 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 243 done (232 lifted, 8 noop, 3 alias), 92 stub, 870 missing.
+**1205 distinct JT entries are called.** Overall: 245 done (234 lifted, 8 noop, 3 alias), 93 stub, 867 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **88/100** | 79 | 9 | 2 | 10 |
+| 1 | 1–100 | **89/100** | 80 | 9 | 2 | 9 |
 | 2 | 101–200 | **36/100** | 36 | 0 | 15 | 49 |
-| 3 | 201–300 | **24/100** | 24 | 0 | 12 | 64 |
+| 3 | 201–300 | **25/100** | 25 | 0 | 12 | 63 |
 | 4 | 301–400 | **19/100** | 18 | 1 | 4 | 77 |
-| 5 | 401–500 | **15/100** | 15 | 0 | 15 | 70 |
+| 5 | 401–500 | **15/100** | 15 | 0 | 16 | 69 |
 | 6 | 501–600 | **13/100** | 12 | 1 | 13 | 74 |
 | 7 | 601–700 | **14/100** | 14 | 0 | 7 | 79 |
 | 8 | 701–800 | **23/100** | 23 | 0 | 7 | 70 |
@@ -134,7 +134,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 95 | jt873 | 18 | LIFTED |  |
 | 96 | jt875 | 18 | **MISSING** |  |
 | 97 | jt447 | 17 | LIFTED |  |
-| 98 | jt497 | 17 | **MISSING** |  |
+| 98 | jt497 | 17 | LIFTED |  |
 | 99 | jt521 | 17 | **MISSING** |  |
 | 100 | jt866 | 17 | **MISSING** |  |
 
@@ -261,7 +261,6 @@ an uncharted multi-function cluster — lift the cluster first);
 - jt28 (18 calls) — missing — dispatcher — 307-line. Own session
 - jt501 (18 calls) — missing — dispatcher — 598-line. Own session
 - jt875 (18 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
-- jt497 (17 calls) — missing — dispatcher — 106-line. Own session
 - jt521 (17 calls) — missing — dispatcher — 162-line. Own session
 - jt866 (17 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
 
