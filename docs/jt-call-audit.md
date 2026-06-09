@@ -332,3 +332,19 @@ but for "what's most depended-on across the code" they're the right proxy. The
 list above counts single-line stubs only; a few heavily-called multi-line
 functions (jt1134, jt878, jt1061, jt936, jt868, jt935…) are partial lifts worth
 spot-checking individually.
+
+## jt406 argument-order audit (2026-06)
+
+Ground truth: the memmove core L57f8 reads from the arg at `fp@(8)` and
+writes to `fp@(12)`, so the Mac `JT[406]` is **BlockMove(src, dst, count)**
+— src first. boot.c's `jt406` wrapper is declared `(dst, src, count)` (C
+memmove order), i.e. **the first two args are flipped vs the Mac asm**.
+
+That is safe *as long as every caller passes (dst, src)*. Audited all 16
+boot.c callsites — all honour the (dst, src) contract (several carry
+`/* dst, src, n */` comments; L4010's header read into a local `hdr` is
+Hatari-verified reading magic 'GLIB'). **No caller is reversed.** The
+risk is only for future transcriptions of a Mac callsite that copy its
+positional order verbatim — a banner comment on `jt406` now warns of it.
+`jt479` (= the same L366a core, used by L026e's save/restore) keeps the
+faithful Mac (src, dst) spelling.
