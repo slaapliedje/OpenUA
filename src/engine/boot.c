@@ -235,6 +235,22 @@
 #define g_a5_3656  g_a5_word(-3656)
 #define g_a5_3654  g_a5_longs(-3654)
 #define g_a5_3638  g_a5_longs(-3638)
+#define g_a5_9296  g_a5_word(-9296)    /* pool init counter */
+
+/* Library binder context (L33ac stamps these; jt104 reads them as the
+ * jt987 open-callback). -18402 = group base offset/ptr, -18406 = group
+ * id, -18408 = base item id, -18404 = section index, -18398 = mode
+ * (0 plain load / 1 TLB save / 2 TLB append), -18397/-18396 status/flag,
+ * -18468 = the 10-entry x 6-byte binder slot pool. */
+#define g_a5_18402 g_a5_long(-18402)
+#define g_a5_18406 g_a5_word(-18406)
+#define g_a5_18408 g_a5_word(-18408)
+#define g_a5_18404 g_a5_word(-18404)
+#define g_a5_18398 g_a5_byte(-18398)
+#define g_a5_18397 g_a5_byte(-18397)
+#define g_a5_18396 g_a5_byte(-18396)
+#define G_A5_18468_LEN 60
+#define g_a5_18468 g_a5_buf(-18468)
 #define g_a5_14284 g_a5_long(-14284)
 #define g_a5_18844 g_a5_long(-18844)
 #define g_a5_18882 g_a5_long(-18882)
@@ -21520,6 +21536,43 @@ static long jt1016(short refnum, long arg, short groupid)
 	return 0;
 }
 
+/* The FAR pool's master buffer. The Mac (jt463) negotiates a size from
+ * free memory (freemem - 32K) via JT[1026]/JT[1028]; the port reserves a
+ * fixed generous block — large enough for the UI .ctl GLIBs and a loaded
+ * picture set. Lives in normal RAM (the codecs CPU-read it before the
+ * c2p blit; nothing DMAs the pool directly). */
+#define GLIB_POOL_SIZE  (768L * 1024L)
+
+/* JT[463] (CODE 3+0x538) — _LBOpen: stand up the FAR pool. Zero the
+ * group count, set the freemap to 0xFF (all free) and the record table
+ * to 0, allocate the master buffer, seed slot[0] = base, g_a5_9304 =
+ * capacity end, g_a5_9300 = free high-water, and register the built-in
+ * 'GLIB' converter. Must run once before any library load. (The Mac's
+ * free-memory size negotiation is condensed to a fixed reservation.) */
+static void jt463(void) __attribute__((unused));
+static void jt463(void)
+{
+	char *base;
+
+	PROBE("jt463");
+	g_a5_9306 = 0;
+	jt399(g_a5_10074, 48, -1);
+	jt399(g_a5_10026, (short)G_A5_10026_LEN, 0);
+
+	base = (char *)NewPtr((Size)GLIB_POOL_SIZE);
+	if (base == NULL) {
+		dbg_log("glib: Insufficient FAR Memory!");
+		return;
+	}
+	g_a5_10270[0] = (long)(uintptr_t)base;
+	g_a5_9304     = (long)(uintptr_t)base + GLIB_POOL_SIZE;
+	g_a5_9300     = GLIB_POOL_SIZE;
+	g_a5_9292 = 0;
+	g_a5_9294 = 0;
+	g_a5_9296 = 0;
+	glib_lb_init();                  /* register 'GLIB' -> l4010 */
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
@@ -21662,6 +21715,90 @@ static void l31dc(void *pp)
 		jt461(**p);
 	**p = -1;
 	*p = NULL;
+}
+
+/* --- TLB-cache save path (cold) — PROBE stubs --------------------------
+ * jt104's modes 1/2 build a .tlb cache of converted tiles. The port
+ * doesn't write the cache yet (mode 0 — plain load — is the hot path);
+ * these record the calls so the CFG is traceable and slot in a real
+ * lift later. */
+static unsigned char jt1023(short refnum, long size, short group, short flag,
+                            long sig) __attribute__((unused));
+static unsigned char jt1023(short refnum, long size, short group, short flag,
+                            long sig)
+{
+	PROBE("jt1023");
+	(void)refnum; (void)size; (void)group; (void)flag; (void)sig;
+	return 0;
+}
+
+static void jt1021(short group, short flag, long x) __attribute__((unused));
+static void jt1021(short group, short flag, long x)
+{
+	PROBE("jt1021");
+	(void)group; (void)flag; (void)x;
+}
+
+static void jt1024(long base, short group, long sig) __attribute__((unused));
+static void jt1024(long base, short group, long sig)
+{
+	PROBE("jt1024");
+	(void)base; (void)group; (void)sig;
+}
+
+/* JT[104] (CODE 6+0x3214) — the per-file load callback jt987 invokes
+ * after opening a library/picture file. Reads the binder-context item
+ * (-18408 base id, +100*-18404 alt section) out of the open file and,
+ * for mode 0 (-18398 == 0), commits it into group -18406 via jt1016 —
+ * the hot path. Modes 1/2 build a TLB cache (cold; structural skeleton
+ * over the jt1021/jt1023/jt1024 stubs). */
+static unsigned char jt104(short refnum, void *spec) __attribute__((unused));
+static unsigned char jt104(short refnum, void *spec)
+{
+	short idx;
+	long  size;
+
+	PROBE("jt104");
+	(void)spec;
+
+	idx = jt1013(refnum, g_a5_18408);
+	if (idx <= 0) {
+		idx = jt1013(refnum,
+		             (short)(g_a5_18408 + 100 * g_a5_18404));
+		if (idx <= 0)
+			return 0;
+	}
+	size = jt1011(refnum, idx);
+	if (size < 0)
+		return 0;
+
+	if (g_a5_18398 == 0)                          /* mode 0 — plain load */
+		return jt1016(refnum, size, g_a5_18406) ? 1 : 0;
+
+	/* modes 1/2 — TLB cache build/append */
+	jt462();
+	jt1024(g_a5_18402, g_a5_18406, 0x54494C45L);          /* 'TILE' */
+	jt1021(g_a5_18406, 0, 0);
+	if (!jt1023(refnum, size, g_a5_18406, 0, 0x54494C45L))
+		goto fail;
+	if (g_a5_18398 != 2)
+		return 1;
+	/* mode 2: also append the +128 section */
+	jt1021(g_a5_18406, 1, 0);
+	if (jt412(refnum, 0, 0) < 0)
+		goto fail;
+	idx = jt1013(refnum, (short)(g_a5_18408 + 128));
+	if (idx <= 0)
+		goto fail;
+	size = jt1011(refnum, idx);
+	if (size < 0)
+		goto fail;
+	if (jt1023(refnum, size, g_a5_18406, 1, 0x54494C45L))
+		return 1;
+ fail:
+	jt461(g_a5_18406);
+	jt465((const char *)(uintptr_t)g_a5_18402);
+	return 0;
 }
 
 /* --- l036a/jt987 event + pen primitives (faithful, over the lifted event
