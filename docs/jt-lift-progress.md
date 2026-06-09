@@ -13,13 +13,13 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 219 done (213 lifted, 5 noop, 1 alias), 92 stub, 894 missing.
+**1205 distinct JT entries are called.** Overall: 223 done (216 lifted, 5 noop, 2 alias), 92 stub, 890 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **73/100** | 68 | 5 | 1 | 26 |
+| 1 | 1–100 | **77/100** | 71 | 6 | 1 | 22 |
 | 2 | 101–200 | **33/100** | 33 | 0 | 15 | 52 |
 | 3 | 201–300 | **22/100** | 22 | 0 | 13 | 65 |
 | 4 | 301–400 | **17/100** | 17 | 0 | 4 | 79 |
@@ -98,7 +98,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 59 | jt102 | 29 | **MISSING** |  |
 | 60 | jt471 | 28 | LIFTED |  |
 | 61 | jt937 | 28 | LIFTED |  |
-| 62 | jt65 | 27 | **MISSING** |  |
+| 62 | jt65 | 27 | LIFTED |  |
 | 63 | jt181 | 27 | **MISSING** |  |
 | 64 | jt232 | 27 | **MISSING** |  |
 | 65 | jt358 | 27 | LIFTED |  |
@@ -124,14 +124,14 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 85 | jt485 | 20 | LIFTED |  |
 | 86 | jt871 | 20 | **MISSING** |  |
 | 87 | jt1153 | 20 | LIFTED |  |
-| 88 | jt63 | 19 | **MISSING** |  |
+| 88 | jt63 | 19 | ALIAS | lifted as l60b4 (same address, byte->decimal scratch) |
 | 89 | jt1118 | 19 | LIFTED |  |
 | 90 | jt28 | 18 | **MISSING** |  |
-| 91 | jt147 | 18 | **MISSING** |  |
+| 91 | jt147 | 18 | LIFTED |  |
 | 92 | jt305 | 18 | **MISSING** |  |
 | 93 | jt449 | 18 | LIFTED | lifted as l2c60 |
 | 94 | jt501 | 18 | **MISSING** |  |
-| 95 | jt873 | 18 | **MISSING** |  |
+| 95 | jt873 | 18 | LIFTED |  |
 | 96 | jt875 | 18 | **MISSING** |  |
 | 97 | jt447 | 17 | LIFTED |  |
 | 98 | jt497 | 17 | **MISSING** |  |
@@ -251,7 +251,6 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 - jt868 (30 calls) — missing
 - jt17 (29 calls) — missing
 - jt102 (29 calls) — missing
-- jt65 (27 calls) — missing
 - jt181 (27 calls) — missing
 - jt232 (27 calls) — missing
 - jt21 (26 calls) — missing
@@ -262,12 +261,9 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 - jt1177 (22 calls) — stub
 - jt498 (21 calls) — missing
 - jt871 (20 calls) — missing
-- jt63 (19 calls) — missing
 - jt28 (18 calls) — missing
-- jt147 (18 calls) — missing
 - jt305 (18 calls) — missing
 - jt501 (18 calls) — missing
-- jt873 (18 calls) — missing
 - jt875 (18 calls) — missing
 - jt497 (17 calls) — missing
 - jt521 (17 calls) — missing

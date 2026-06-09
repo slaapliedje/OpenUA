@@ -52,6 +52,7 @@ NOOP = {1170, 1198, 1163, 949, 3}
 ALIAS_LIFTED = {
     449: "lifted as l2c60",
     1084: "lifted as l036a (same address, the error dialog)",
+    63: "lifted as l60b4 (same address, byte->decimal scratch)",
 }
 
 
