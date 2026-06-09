@@ -228,6 +228,13 @@
 #define g_a5_9300  g_a5_long(-9300)
 #define g_a5_9294  g_a5_word(-9294)    /* compaction counter (purge=1) */
 #define g_a5_9292  g_a5_word(-9292)    /* compaction counter (purge=0) */
+/* GLIB library-converter registry (_LBInit / _LBRegister). -3656 = count
+ * (max 3), -3654[i] = the 4-char library signature, -3638[i] = the
+ * converter fn-ptr. FRUA registers exactly one: 'GLIB' -> L4010 itself,
+ * so L4010's relocation recurses over GLIB-of-GLIBs. */
+#define g_a5_3656  g_a5_word(-3656)
+#define g_a5_3654  g_a5_longs(-3654)
+#define g_a5_3638  g_a5_longs(-3638)
 #define g_a5_14284 g_a5_long(-14284)
 #define g_a5_18844 g_a5_long(-18844)
 #define g_a5_18882 g_a5_long(-18882)
@@ -21364,18 +21371,136 @@ static void jt462(void)
 	l366a(&g_a5_9354[1], &g_a5_9354[0], (short)g_a5_9306);
 }
 
-/* L4010 (CODE 5) — _LBConvert: validate the just-loaded 'GLIB' header in
- * place and relocate its index table into pool pointers. Lifted in the
- * next step; this PROBE stub commits successfully so the read path links
- * and the structural CFG of jt1016 is exercised. */
-static long l4010(short group, long off, long size) __attribute__((unused));
-static long l4010(short group, long off, long size)
+/* L3e50 (CODE 5) — per-type library converter for headers whose type
+ * flag (hdr[10]) is non-zero (compressed .tlb variants). The plain
+ * UI .ctl GLIBs leave hdr[10] == 0 so this arm is not taken; lifted
+ * when a typed library actually needs it. PROBE stub for now. */
+static void l3e50(short group, long off, long passedSize, long *outSize,
+                  short typeFlag) __attribute__((unused));
+static void l3e50(short group, long off, long passedSize, long *outSize,
+                  short typeFlag)
 {
-	PROBE("L4010");
+	PROBE("L3e50");
 	(void)group;
 	(void)off;
-	(void)size;
-	return 0;
+	(void)typeFlag;
+	if (outSize != NULL)
+		*outSize = passedSize;          /* identity: no size change */
+}
+
+/* The library-converter calling convention: convert the sub-range
+ * [off, off+size) of `group` in place, returning its new end offset
+ * (>= 0) or < 0 on error. The 'GLIB' converter is L4010 itself. */
+typedef long (*lb_converter)(short group, long off, long size);
+
+static long l4010(short group, long off, long size);
+
+/* L35fa (CODE 5+0x35fa) — _LBRegister: record one (signature, converter)
+ * pair. Max 3; overflow alerts "Too many library signatures". */
+static void glib_lb_register(long sig, lb_converter fn) __attribute__((unused));
+static void glib_lb_register(long sig, lb_converter fn)
+{
+	if (g_a5_3656 >= 3) {
+		l036a("Too many library signatures");
+		return;
+	}
+	g_a5_3654[g_a5_3656] = sig;
+	g_a5_3638[g_a5_3656] = (long)(uintptr_t)fn;
+	g_a5_3656++;
+}
+
+/* L35e2 (CODE 5+0x35e2) — _LBInit: clear the registry and register the
+ * one built-in signature, 'GLIB' -> L4010 (recursive descent). Must run
+ * once before the FAR pool loads any library. */
+static void glib_lb_init(void) __attribute__((unused));
+static void glib_lb_init(void)
+{
+	g_a5_3656 = 0;
+	glib_lb_register(0x474C4942L, l4010);   /* 'GLIB' */
+}
+
+/* L4010 (CODE 5) — _LBConvert: validate the just-loaded 'GLIB' header in
+ * place, then relocate its index table. For each index entry it invokes
+ * the registered converter for the library's signature (hdr[12]); for a
+ * GLIB-of-GLIBs that converter is L4010 itself, so the call recurses
+ * down to leaf art (whose signature isn't registered, terminating the
+ * recursion). Rewrites the index entries and header in place and returns
+ * the (possibly grown) total size, or -1 on a bad header. */
+static long l4010(short group, long off, long size)
+{
+	unsigned char hdr[16];
+	long  p, prev, cur, newend, acc;
+	short i;
+
+	PROBE("L4010");
+
+	p = jt468(group) + off;
+	jt406(hdr, (const void *)(uintptr_t)p, 16);
+	if (*(const long *)hdr != 0x474C4942L)            /* 'GLIB' */
+		l036a("_LBConvert: Bad Lib Header");
+
+	if (hdr[10] != 0) {                                /* typed -> sub-convert */
+		long converted = *(const long *)(hdr + 4);
+
+		l3e50(group, off, size, &converted, (short)hdr[10]);
+		size = converted;
+		*(long *)(hdr + 4) = converted;
+		hdr[10] = 0;
+		p = jt468(group) + off;
+	}
+
+	if (hdr[7] & 1)                                    /* odd-size pad */
+		*(long *)(hdr + 4) += 1;
+
+	if (*(const long *)hdr != 0x474C4942L
+	 || *(const long *)(hdr + 4) != size) {
+		l036a("Invalid library header");
+		return -1;
+	}
+
+	/* find a converter for this library's signature (hdr[12]) */
+	{
+		long  sig = *(const long *)(hdr + 12);
+		short count = (short)*(const short *)(hdr + 8);
+
+		for (i = 0; i < g_a5_3656; i++)
+			if (g_a5_3654[i] == sig)
+				break;
+		if (i >= g_a5_3656)
+			goto write_header;                 /* no converter -> leaf */
+
+		{
+			lb_converter conv = (lb_converter)(uintptr_t)g_a5_3638[i];
+
+			p = jt468(group) + off + 16;       /* first index entry */
+			jt406(&cur, (const void *)(uintptr_t)p, 4);
+			acc = 0;
+			for (i = 0; i < count; i++) {
+				prev = cur;
+				p += 4;
+				jt406(&cur, (const void *)(uintptr_t)p, 4);
+				cur += acc;
+				/* convert every entry but optionally skip the
+				 * first when hdr[11] says so */
+				if (i != 0 || hdr[11] == 0) {
+					newend = conv(group, off + prev, cur - prev);
+					if (newend < 0)
+						return 0;
+					acc += (newend - cur) + prev;
+					cur  = prev + newend;
+				}
+				/* rewrite this index entry in place */
+				p = jt468(group) + off + 16 + (long)(i + 1) * 4;
+				jt406((void *)(uintptr_t)p, &cur, 4);
+			}
+			*(long *)(hdr + 4) += acc;
+		}
+	}
+
+ write_header:
+	p = jt468(group) + off;
+	jt406((void *)(uintptr_t)p, hdr, 16);
+	return *(const long *)(hdr + 4);
 }
 
 /* JT[1016] (CODE 5+0x3640) — read one library/picture item into a group
