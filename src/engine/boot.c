@@ -20651,6 +20651,126 @@ static void jt21(long mp)
 	m[148] = (unsigned char)jt397(m[148], (short)(l2fd8(m, 3) & 0xff));
 }
 
+/* JT[472] (CODE 3 + 0x035e) — test the low bit of a word (odd/even). */
+static short jt472(short v) __attribute__((unused));
+static short jt472(short v) { PROBE("jt472"); return (short)(v & 1); }
+
+/* L3fd6 (CODE 6 + 0x3fd6) — LEAF STUB. The 712-byte "%r"-format magical-
+ * properties renderer (over JT[394]/JT[1135]/JT[1161]/JT[423]/L3994) that
+ * appends an item's detailed stat line. jt28 calls it only in its verbose
+ * branch (the f22 arg); deferred to its own lift. */
+static void l3fd6(short a, short b, short c, short d, char *out) __attribute__((unused));
+static void l3fd6(short a, short b, short c, short d, char *out)
+                  { PROBE("L3fd6"); (void)a; (void)b; (void)c; (void)d; (void)out; }
+
+/* JT[28] (CODE 6 + 0x0dc6, 18 sites) — build an item's display name into the
+ * item record's own buffer (item+5). The AD&D item-naming grammar:
+ *   - optional " Yes."/" No. " usability tag (f20);
+ *   - "* " when any party member has identified the item (jt41 code 5) and it
+ *     carries a magic bonus ([48]/[49]/[52]);
+ *   - a quantity prefix ("<n> ") for stacked, non-type-73 items;
+ *   - up to three name-part words (indices item[41..43] into the g_a5_13628
+ *     string table), gated by a bitmask of which parts are "known"
+ *     (item[51] bits) and pluralised ("s ") per a type/slot rule set;
+ *   - an optional detailed-stats line (L3fd6) when f22 is set.
+ * s16/s18 are the stat-line layout args forwarded to L3fd6. arg0 is unused. */
+static void jt28(long arg0, long item, short s16, short s18,
+                 short f20, short f22) __attribute__((unused));
+static void jt28(long arg0, long item, short s16, short s18,
+                 short f20, short f22)
+{
+	unsigned char *it  = (unsigned char *)(uintptr_t)item;
+	char          *out = (char *)(it + 5);
+	char           scratch[42];
+	void          *desc = 0;
+	long           mem;
+	unsigned char  found = 0;
+	unsigned char  mask = 0;
+	unsigned char  plural_done = 0;
+	short          i;
+
+	PROBE("jt28");
+	(void)arg0;
+	it[5] = 0;                                      /* empty the name buffer */
+
+	if ((f20 & 0xff) != 0)                          /* usability tag */
+		jt384(out, it[50] != 0 ? " Yes." : " No. ");
+
+	/* "* " when an identifying party member knows this magic item. */
+	for (mem = (long)(uintptr_t)g_a5_27928; mem != 0 && !found;
+	     mem = *(long *)(uintptr_t)mem) {
+		if (jt41(mem, 5, &desc) != 0)
+			found = 1;
+	}
+	if (found && ((signed char)it[48] > 0 || (signed char)it[49] > 0
+	           || it[52] != 0))
+		jt404(out, "* ");
+
+	/* quantity prefix for stacked items (except type 73). */
+	if (it[53] != 0 && it[40] != 73) {
+		jt404(out, l60b4(it[53]));
+		jt404(out, " ");
+	}
+
+	/* Build the "known name-part" bitmask from item[41..43] / item[51]. */
+	for (i = 1; i <= 3; i++) {
+		if (it[41 + (i - 1)] != 0
+		 && ((it[51] >> (3 - i)) & 1) == 0)
+			mask = (unsigned char)(mask + (1 << (i - 1)));
+	}
+
+	/* Emit the name parts high-to-low, with pluralisation. */
+	for (i = 3; i >= 1; i--) {
+		short bit_i;
+		int   plural;
+
+		if (((mask >> (i - 1)) & 1) == 0)       /* part not known: skip */
+			continue;
+
+		if (it[40] == 73 && i == 2) {           /* type 73: numeric part 2 */
+			jt384(scratch, jt488("%d", (int)it[53]));
+			jt384(out, jt488("%s%s", out, scratch));
+		} else {
+			short idx = it[41 + (i - 1)];
+			const char *name =
+				*(const char **)(g_a5_buf(-13628) + idx * 4);
+			jt384(out, jt488("%s%s", out, name));
+		}
+
+		if (it[53] < 2 || plural_done != 0) {   /* L1038 — plain separator */
+			jt404(out, " ");
+			continue;
+		}
+
+		/* L1050 — decide plural "s " vs " " for this part. */
+		bit_i = (short)(1 << (i - 1));
+		if (bit_i == mask)
+			plural = 1;
+		else if (i == 1 && mask > 4)
+			plural = 1;
+		else if (i == 1 && it[40] == 73)
+			plural = 1;
+		else if (i == 2 && jt472(mask) == 0)
+			plural = 1;
+		else if (i == 3 && it[43] != 93
+		      && (it[40] == 55 || it[40] == 30 || it[40] == 5
+		       || it[40] == 7  || it[40] == 12))
+			plural = 1;
+		else
+			plural = 0;
+
+		if (plural) {
+			jt404(out, "s ");
+			plural_done = 1;
+		} else {
+			jt404(out, " ");
+		}
+	}
+
+	if ((f22 & 0xff) != 0)                          /* verbose stat line */
+		l3fd6(s16, s18, 7, 0, out);
+}
+
 #define g_a5_18486 g_a5_byte(-18486)   /* "save-flag" gate for player[49] clear */
 #define g_a5_18877 g_a5_byte(-18877)   /* per-player byte copied into player[19] */
 #define g_a5_13904 g_a5_long(-13904)   /* JT[182] source prompt for save picker */
