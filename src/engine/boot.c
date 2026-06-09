@@ -20277,6 +20277,95 @@ static short l6f68(unsigned char *r)
 	r[23] = g_a5_buf(-27956)[sy * 3 + sx];
 	return stepped;
 }
+
+/* ---- GLIB pixel-blit codec (CODE 4) used by the jt119/jt122 sprite draws.
+ * The blit cursor is g_a5_3076 (current dest ptr), g_a5_3080 (column),
+ * g_a5_3084 (row stride); g_a5_2347/1312/2346 select the pixel depth/mode. */
+
+/* L05e4 (CODE 4 + 0x05e4) — the current GLIB blit cursor (dest pointer). */
+static long l05e4(void) __attribute__((unused));
+static long l05e4(void) { PROBE("L05e4"); return g_a5_long(-3076); }
+
+/* L04f0 (CODE 4 + 0x04f0) — the GLIB pixel-depth shift: 3 (1bpp packed) when
+ * g_a5_2347 is clear, else 0/1 by the g_a5_1312 colour-mode flag. */
+static long l04f0(void) __attribute__((unused));
+static long l04f0(void)
+{
+	PROBE("L04f0");
+	if (g_a5_byte(-2347) == 0)
+		return 3;
+	return (g_a5_byte(-1312) != 0) ? 0 : 1;
+}
+
+/* L05ea (CODE 4 + 0x05ea) — after a blit of `n` columns x `row` rows, mark the
+ * affected GLIB region dirty (InvalRect, depth/mode-adjusted) and advance the
+ * blit column g_a5_3080. No-op unless l5d8c() says a port is current. */
+static void l05ea(short n, short row) __attribute__((unused));
+static void l05ea(short n, short row)
+{
+	Rect rect;
+	short mask, sh;
+
+	PROBE("L05ea");
+	if (!l5d8c())
+		return;
+	rect.top = g_a5_word(-3080);
+	sh = (g_a5_byte(-2347) != 0) ? ((g_a5_byte(-1312) != 0) ? 1 : 3) : 15;
+	mask = (short)(g_a5_word(-3078) & ~sh);
+	rect.left   = mask;
+	rect.bottom = (short)(g_a5_word(-3080) + n);
+	rect.right  = (short)((row << l04f0()) + mask);
+	if (g_a5_byte(-2346) != 0) {
+		rect.top    = (short)(rect.top << 1);
+		rect.left   = (short)(rect.left << 1);
+		rect.bottom = (short)(rect.bottom << 1);
+		rect.right  = (short)(rect.right << 1);
+	}
+	InvalRect(&rect);
+	g_a5_word(-3080) = (short)(g_a5_word(-3080) + n);
+}
+
+/* JT[1197] (CODE 4 + 0x083e) — save-under: read a `count` x `runlen` block from
+ * the GLIB cursor (row stride g_a5_3084) into the packed buffer `buf`, leaving
+ * the cursor (g_a5_3076) at the end. The transparency-RLE codec's backing-store
+ * read (paired with jt1202's draw). */
+static void jt1197(unsigned char *buf, short count, short runlen) __attribute__((unused));
+static void jt1197(unsigned char *buf, short count, short runlen)
+{
+	unsigned char *dst = (unsigned char *)(uintptr_t)l05e4();
+	short i, k;
+
+	PROBE("jt1197");
+	for (i = count - 1; i >= 0; i--) {
+		unsigned char *rowdst = dst;
+		for (k = runlen - 1; k >= 0; k--)
+			*buf++ = *dst++;                /* GLIB -> buffer */
+		dst = rowdst + g_a5_long(-3084);
+	}
+	g_a5_long(-3076) = (long)(uintptr_t)dst;
+}
+
+/* JT[1202] (CODE 4 + 0x06be) — draw: copy a `w`-row x `h`-byte block from `src`
+ * (per-row stride `stride2`) to the GLIB cursor (row stride g_a5_3084) and mark
+ * it dirty (l05ea). */
+static void jt1202(unsigned char *src, short w, short h, short stride2) __attribute__((unused));
+static void jt1202(unsigned char *src, short w, short h, short stride2)
+{
+	unsigned char *dst;
+	short r, k;
+
+	PROBE("jt1202");
+	l05ea(w, h);
+	dst = (unsigned char *)(uintptr_t)l05e4();
+	for (r = 0; r < w; r++) {
+		unsigned char *rowdst = dst;
+		for (k = 0; k < h; k++)
+			*dst++ = *src++;                /* buffer -> GLIB */
+		src += stride2;
+		dst = rowdst + g_a5_long(-3084);
+	}
+	g_a5_long(-3076) = (long)(uintptr_t)dst;
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
