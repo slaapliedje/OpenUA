@@ -19171,7 +19171,8 @@ static void l1b14(void *entity, short class)
  *              also pulls JT[517]; its grid is what L026e's mode-5 scan
  *              reads, so that one branch is inert until jt508 lands.
  *   - jt17   : a 111-line dispatcher L01de needs (still on the band-1 queue)
- *   - L15f4  : an L01de probability helper
+ * (L01de's probability roll L15f4 is CODE 18+0x15f4 = jt870, the real 1dN
+ * dice primitive — wired below, not stubbed.)
  * These are CLAUDE.md level-3 leaf stubs (the dispatcher + engine above
  * them are real). See docs/jt-call-audit.md. =========================== */
 
@@ -19203,12 +19204,6 @@ static void jt508(short a, short b, short c, short d, short e)
 static short jt17(short a, short b) __attribute__((unused));
 static short jt17(short a, short b) { PROBE("jt17"); (void)a; (void)b; return 0; }
 
-/* L15f4 (CODE 7) — LEAF STUB. An L01de probability roll (1..100-ish);
- * returns 100 so the "skip" branch (roll > limit) is taken — i.e. L01de
- * makes no auto-cast change until lifted. */
-static short l15f4(short a, short b) __attribute__((unused));
-static short l15f4(short a, short b) { PROBE("L15f4"); (void)a; (void)b; return 100; }
-
 /* L01de (CODE 18 + 0x01de) — "auto-cast on entry" hook for cases 6/9: if
  * the entity carries effect byte [196] and the active context flags
  * (-25268 / -25266 bit 3) allow it, roll L15f4 against a slot-scaled limit
@@ -19228,7 +19223,7 @@ static void l01de(void *entity_v)
 		return;
 	r = jt17((short)(unsigned char)g_a5_byte(-25262), 0);
 	limit = (short)((11 - r) * 5 + v);
-	if (l15f4(1, 100) > limit)
+	if (jt870(1, 100) > limit)              /* L15f4 = jt870 (1d100) */
 		return;
 	g_a5_word(-25242) = 0;
 	if ((unsigned char)g_a5_byte(-25268) == 91)
@@ -19374,6 +19369,62 @@ static void jt868(short sel, void *arg)
 	case 0: case 22: case 23: default:
 		break;
 	}
+}
+
+/* JT[866] (CODE 18 + 0x1532, 17 sites) — the "fits / encumbrance gate" probe
+ * for the member at `member`, returning a can-carry flag (g_a5_25245).
+ *
+ *   1. Seed the flag to 1 and roll a 1d20 capacity base into g_a5_25269
+ *      (jt870 = the 1dN dice primitive).
+ *   2. Probe whether the member already holds item-type 118 (jt41); if so,
+ *      pin the carried value to 1.
+ *   3. Dispatch (THINK C JT[1] switch) on that value:
+ *        1   -> flag = 0 (no room)
+ *        20  -> flag = 1 (room)
+ *        else: add the member's signed weight field [195] and `delta`, stash
+ *              `idx` in g_a5_25246, run the type-12 item-effect list (jt868),
+ *              then flag = (carried < (member+idx)[131]) ? 0 : 1 — i.e. it
+ *              fits when the carried total reaches the slot's capacity [131].
+ *
+ * `idx`/`delta` arrive as the low bytes of word args and are treated signed.
+ * No lifted caller yet (the CODE 18 carry/equip path). */
+static short jt866(long member, short idx, short delta) __attribute__((unused));
+static short jt866(long member, short idx, short delta)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)member;
+	short value;
+	void *out = 0;
+
+	PROBE("jt866");
+	g_a5_byte(-25245) = 1;                          /* L1532 */
+	g_a5_byte(-25269) = (unsigned char)jt870(1, 20);
+	if (jt41(member, 118, &out) != 0)               /* already holds type 118 */
+		g_a5_byte(-25269) = 1;
+
+	value = (short)(unsigned char)g_a5_byte(-25269);
+	switch (value) {                                /* JT[1] @ 0x1576 */
+	case 1:                                         /* L1582 */
+		g_a5_byte(-25245) = 0;
+		break;
+	case 20:                                        /* L1588 */
+		g_a5_byte(-25245) = 1;
+		break;
+	default: {                                      /* L1590 */
+		short i      = (short)(signed char)(idx & 0xff);
+		short newv   = value
+		             + (short)(signed char)m[195]
+		             + (short)(signed char)(delta & 0xff);
+		g_a5_byte(-25269) = (unsigned char)newv;
+		g_a5_byte(-25246) = (unsigned char)(idx & 0xff);
+		jt868(12, (void *)&member);             /* L0420 case 12 */
+		if ((unsigned char)g_a5_byte(-25269) < m[i + 131])
+			g_a5_byte(-25245) = 0;          /* L15e2 */
+		else
+			g_a5_byte(-25245) = 1;
+		break;
+	}
+	}
+	return (short)(unsigned char)g_a5_byte(-25245); /* L15e6 */
 }
 
 /* JT[878] (CODE 18 + 0x009e, 39 sites) — remove item from
