@@ -303,6 +303,13 @@
 #define g_a5_25676 g_a5_longs(-25676)
 #define g_a5_27472 g_a5_buf  (-27472)
 
+/* L026e / jt508 item-grant grid: -19166 is a 272-byte scratch the walk
+ * snapshots/restores; -19170 is a 4-byte-stride record array (byte 0 is
+ * the matched id) jt508 builds and L026e scans; -18894 is its entry count. */
+#define g_a5_19166 g_a5_buf (-19166)
+#define g_a5_19170 g_a5_buf (-19170)
+#define g_a5_18894 g_a5_byte(-18894)
+
 /* JT[1009] / JT[977] paint-stack arrays — three parallel short
  * arrays indexed by g_a5_4886 (depth 0..4). jt1009 pushes a frame,
  * jt977 pops. The depth tracks nested deferred paint regions. */
@@ -16726,6 +16733,16 @@ static unsigned char jt531(long key)
 	idx = (l6bbe(key) & 0xff) * 6;
 	return g_a5_27472[idx + 3];
 }
+/* JT[513] (CODE 14 + 0x6b94) — field 5 of the same 6-byte id-table row
+ * (the item "category" byte L026e branches on). Sibling of jt525/jt531. */
+static unsigned char jt513(long key) __attribute__((unused));
+static unsigned char jt513(long key)
+{
+	short idx;
+	PROBE("jt513");
+	idx = (l6bbe(key) & 0xff) * 6;
+	return g_a5_27472[idx + 5];
+}
 
 /* JT[158] — walk the design list, then either add a menu item per
  * design (modes 7 / 9 / 12 / other) or disable a stale slot (when
@@ -18869,6 +18886,225 @@ static void l77a0(short item_type, void *entity, void *target, short flag)
 static void l1b14(void *entity, short class)
                                             { PROBE("l1b14"); (void)entity;
                                               (void)class; }
+
+/* ===================================================================
+ * jt868 — the item-grant popup hub (CODE 18). For a game-event selector
+ * (0..24) it walks a fixed list of item-type codes and runs each through
+ * L026e, the per-item engine: L026e checks whether the primary entity
+ * (*arg) — and, for the "spell/ability" codes 21/45/46/49, every party
+ * member — already holds that item, and if so fires the equip-removal
+ * hook L77a0. Cases 6 and 9 bracket their lists with L01de / L28b2, the
+ * "auto-cast on entry / clear-on-condition" hooks.
+ *
+ * Faithful lift; the deep leaves it bottoms out on stay PROBE stubs:
+ *   - jt508  : the 250-line item-layout grid builder (-19170 table), which
+ *              also pulls JT[517]; its grid is what L026e's mode-5 scan
+ *              reads, so that one branch is inert until jt508 lands.
+ *   - jt17   : a 111-line dispatcher L01de needs (still on the band-1 queue)
+ *   - L15f4  : an L01de probability helper
+ * These are CLAUDE.md level-3 leaf stubs (the dispatcher + engine above
+ * them are real). See docs/jt-call-audit.md. =========================== */
+
+/* JT[479] (CODE 3 + 0x036c) — block copy via the memmove core L366a, in
+ * true Mac BlockMove(src, dst, count) order. (Note: the JT[406] lift names
+ * its params (dst, src) — a known mismatch vs this/the Mac order; see the
+ * jt406 audit note. jt479 keeps the faithful (src, dst) spelling.) */
+static void jt479(const void *src, void *dst, short count) __attribute__((unused));
+static void jt479(const void *src, void *dst, short count)
+{
+	PROBE("jt479");
+	if (src && dst && count > 0)
+		memmove(dst, src, (size_t)(unsigned short)count);
+}
+
+/* JT[508] (CODE 13 + 0x76da) — LEAF STUB. Builds the -19170 item-layout
+ * grid (count in -18894) that L026e's mode-5 branch scans; ~250 lines over
+ * JT[517]. Stubbed: clears the count so the scan finds nothing (graceful). */
+static void jt508(short a, short b, short c, short d, short e) __attribute__((unused));
+static void jt508(short a, short b, short c, short d, short e)
+{
+	PROBE("jt508");
+	(void)a; (void)b; (void)c; (void)d; (void)e;
+	g_a5_18894 = 0;
+}
+
+/* JT[17] (CODE 6) — LEAF STUB (still a band-1 dispatcher to lift). L01de
+ * uses its result as a party-slot index; 0 is a safe placeholder. */
+static short jt17(short a, short b) __attribute__((unused));
+static short jt17(short a, short b) { PROBE("jt17"); (void)a; (void)b; return 0; }
+
+/* L15f4 (CODE 7) — LEAF STUB. An L01de probability roll (1..100-ish);
+ * returns 100 so the "skip" branch (roll > limit) is taken — i.e. L01de
+ * makes no auto-cast change until lifted. */
+static short l15f4(short a, short b) __attribute__((unused));
+static short l15f4(short a, short b) { PROBE("L15f4"); (void)a; (void)b; return 100; }
+
+/* L01de (CODE 18 + 0x01de) — "auto-cast on entry" hook for cases 6/9: if
+ * the entity carries effect byte [196] and the active context flags
+ * (-25268 / -25266 bit 3) allow it, roll L15f4 against a slot-scaled limit
+ * and, on success, clear the pending-effect globals. */
+static void l01de(void *entity_v) __attribute__((unused));
+static void l01de(void *entity_v)
+{
+	const unsigned char *e = (const unsigned char *)entity_v;
+	short v = (short)(unsigned char)e[196];
+	short r, limit;
+
+	PROBE("L01de");
+	if (v == 0)
+		return;
+	if ((unsigned char)g_a5_byte(-25268) == 0 &&
+	    (g_a5_word(-25266) & 8) == 0)
+		return;
+	r = jt17((short)(unsigned char)g_a5_byte(-25262), 0);
+	limit = (short)((11 - r) * 5 + v);
+	if (l15f4(1, 100) > limit)
+		return;
+	g_a5_word(-25242) = 0;
+	if ((unsigned char)g_a5_byte(-25268) == 91)
+		return;
+	if ((unsigned char)g_a5_byte(-25268) == 82)
+		return;
+	g_a5_byte(-25268) = 0;
+}
+
+/* L28b2 (CODE 18 + 0x28b2) — "clear pending effect" hook for case 6: if a
+ * context flag (-25266 bit 7 / bit 6) and the entity's matching status bit
+ * ([192] bit 4 / bit 3) are both set, clear the pending-effect globals. */
+static void l28b2(void *entity_v) __attribute__((unused));
+static void l28b2(void *entity_v)
+{
+	const unsigned char *e = (const unsigned char *)entity_v;
+	unsigned char done = 0;
+
+	PROBE("L28b2");
+	if ((g_a5_word(-25266) & 128) && (e[192] & 16))
+		done = 1;
+	if ((g_a5_word(-25266) & 64) && (e[192] & 8))
+		done = 1;
+	if (done) {
+		g_a5_word(-25242) = 0;
+		g_a5_byte(-25268) = 0;
+	}
+}
+
+/* L026e (CODE 18 + 0x026e) — the per-item engine. `arg` points to a handle
+ * slot; `code` is the item-type id. If the primary entity (*arg) holds the
+ * item, fire L77a0. For codes 21/45/46/49 also sweep the party list
+ * (-27928, .next @ +0): in context mode 5 (-27990==5) pull the item's
+ * attributes (jt525/jt531/jt513), let jt508 build the layout grid, and scan
+ * it (-19170 / -18894) for a match; otherwise any holder counts. */
+static void l026e(void *arg, short code_w) __attribute__((unused));
+static void l026e(void *arg, short code_w)
+{
+	short          code = (short)(unsigned char)code_w;
+	unsigned char  found = 0;
+	void          *out = 0;
+	long           member;
+	unsigned char  local272[272];
+
+	PROBE("L026e");
+	if (jt41((long)*(void **)arg, code, &out) != 0) {
+		found = 1;
+	} else if (code == 21 || code == 45 || code == 46 || code == 49) {
+		member = (long)(uintptr_t)g_a5_27928;
+		jt479(g_a5_19166, local272, 272);          /* save */
+		while (member != 0 && !found) {
+			if (jt41(member, code, &out) != 0) {
+				if ((unsigned char)g_a5_27990 != 5) {
+					found = 1;
+				} else {
+					short cat = (code == 49) ? 6 : 1;
+					short a   = (short)jt525(member);
+					short b   = (short)jt531(member);
+					short ee  = (short)(jt513(member) & 0xff);
+					short i;
+
+					jt508(a, b, cat, 255, ee);
+					for (i = 1; i <= (short)(unsigned char)g_a5_18894; i++)
+						if (g_a5_19170[i * 4] ==
+						    (unsigned char)l6bbe((long)*(void **)arg))
+							found = 1;
+				}
+			}
+			member = *(long *)(uintptr_t)member;   /* .next @ +0 */
+		}
+		jt479(local272, g_a5_19166, 272);          /* restore */
+	}
+	if (found)
+		l77a0(code, *(void **)arg, out, 0);
+}
+
+/* Apply L026e to each code in a context's list. */
+static void l026e_list(void *arg, const unsigned char *codes, short n)
+                                                __attribute__((unused));
+static void l026e_list(void *arg, const unsigned char *codes, short n)
+{
+	short i;
+	for (i = 0; i < n; i++)
+		l026e(arg, (short)codes[i]);
+}
+
+/* JT[868] (CODE 18 + 0x0420, 30 sites) — dispatch the item-grant code list
+ * for game-event `sel`. The per-case code lists are transcribed verbatim
+ * from the Mac JT[3] switch (case 1's leading code recovered from the raw
+ * binary — the odd-aligned jump table mis-disassembles its first word). */
+static void jt868(short sel, void *arg) __attribute__((unused));
+static void jt868(short sel, void *arg)
+{
+	PROBE("jt868");
+	switch ((unsigned char)sel) {
+	case 1: { static const unsigned char c[] = {25,69,37};
+		l026e_list(arg, c, sizeof c); break; }
+	case 2: { static const unsigned char c[] = {86,101,102,121,65,115,32,224,170,176,220,132};
+		l026e_list(arg, c, sizeof c); break; }
+	case 3: { static const unsigned char c[] = {64,86,101,102,121,65,32,104,108,170,176,132,88};
+		l026e_list(arg, c, sizeof c); break; }
+	case 4: { static const unsigned char c[] = {29,105,120,75,116,186};
+		l026e_list(arg, c, sizeof c); break; }
+	case 5: { static const unsigned char c[] = {28,41,60,66,67,80,81,112,82,103,125,217,168,169,159,174,175,193};
+		l026e_list(arg, c, sizeof c); break; }
+	case 6: { static const unsigned char c[] = {10,17,20,28,6,40,50,54,61,73,79,93,98,63,57,217,168,173,174,119,219};
+		l01de(*(void **)arg);
+		l026e_list(arg, c, sizeof c);
+		l28b2(*(void **)arg); break; }
+	case 7: { static const unsigned char c[] = {3,27,31,52,53,106,51,120};
+		l026e_list(arg, c, sizeof c); break; }
+	case 8: { static const unsigned char c[] = {89,100,171,195};
+		l026e_list(arg, c, sizeof c); break; }
+	case 9: { static const unsigned char c[] = {18,28,40,57,63,76,79,92,95,123,158,93,141,143};
+		l01de(*(void **)arg);
+		l026e_list(arg, c, sizeof c); break; }
+	case 10: { static const unsigned char c[] = {1,2,7,26,33,36,49,120,148};
+		l026e_list(arg, c, sizeof c); break; }
+	case 11: { static const unsigned char c[] = {4,8,9,13,17,30,33,45,46,118,71,122};
+		l026e_list(arg, c, sizeof c); break; }
+	case 12: { static const unsigned char c[] = {8,9,10,13,17,20,33,36,45,46,49,50,54,61,94,97,126,143};
+		l026e_list(arg, c, sizeof c); break; }
+	case 13: { static const unsigned char c[] = {179,216};
+		l026e_list(arg, c, sizeof c); break; }
+	case 14: { static const unsigned char c[] = {70,83,84,85,90,91,96,58,117,114,179,203,223,124};
+		l026e_list(arg, c, sizeof c); break; }
+	case 15: { static const unsigned char c[] = {56,11,21,30,68,82,177,137};
+		l026e_list(arg, c, sizeof c); break; }
+	case 16: { static const unsigned char c[] = {25,69,37,47,48,89};
+		l026e_list(arg, c, sizeof c); break; }
+	case 17: { static const unsigned char c[] = {1,11};
+		l026e_list(arg, c, sizeof c); break; }
+	case 18: { static const unsigned char c[] = {74,39,42,99,178,221};
+		l026e_list(arg, c, sizeof c); break; }
+	case 19: { static const unsigned char c[] = {11,23,217};
+		l026e_list(arg, c, sizeof c); break; }
+	case 20: { static const unsigned char c[] = {50,54};
+		l026e_list(arg, c, sizeof c); break; }
+	case 21: { static const unsigned char c[] = {35};
+		l026e_list(arg, c, sizeof c); break; }
+	case 24: { static const unsigned char c[] = {100};
+		l026e_list(arg, c, sizeof c); break; }
+	case 0: case 22: case 23: default:
+		break;
+	}
+}
 
 /* JT[878] (CODE 18 + 0x009e, 39 sites) — remove item from
  * inventory.

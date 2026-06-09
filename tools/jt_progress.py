@@ -67,20 +67,19 @@ PENDING_NOTES = {
           "backend, not a transcription",
     1061: "trap-shim — issues Mac OS traps 0xa05d/0xaded/0xa9ee (Memory "
           "Manager handle-state family); needs the handle-flags shim",
-    868:  "dispatcher — 771-line 25-case popup/menu hub; gates jt866/jt871/"
-          "jt875. Own session",
     501:  "dispatcher — 598-line. Own session",
     21:   "dispatcher — 454-line. Own session",
     28:   "dispatcher — 307-line. Own session",
     936:  "dispatcher — 187-line. Own session",
     521:  "dispatcher — 162-line. Own session",
     52:   "dispatcher — 160-line. Own session",
-    17:   "dispatcher — 111-line. Own session",
+    17:   "dispatcher — 111-line; currently a leaf stub for L01de (jt868 "
+          "hub). Own session to lift the real body",
     497:  "dispatcher — 106-line. Own session",
     57:   "dispatcher — 74-line. Own session",
-    866:  "gated by jt868 (the popup hub dispatches it)",
-    871:  "gated by jt868 (the popup hub dispatches it)",
-    875:  "gated by jt868 (the popup hub dispatches it)",
+    866:  "CODE 18 sibling of jt868 (NOT dispatched by it). Own lift",
+    871:  "CODE 18 sibling of jt868 (NOT dispatched by it). Own lift",
+    875:  "CODE 18 sibling of jt868 (NOT dispatched by it). Own lift",
 }
 
 
