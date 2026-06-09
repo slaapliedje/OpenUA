@@ -2728,17 +2728,22 @@ static void jt399(void *buf, short size, short fill)
 		p[i] = (unsigned char)fill;
 }
 
-/* JT[406] (CODE 3 + 0x366a) — overlap-safe block copy.
+/* JT[406] (CODE 3 + 0x366a) — overlap-safe block copy. C memmove gives
+ * the same forward/backward semantics as the engine's core L57f8.
  *
- * Thin wrapper over the engine's memmove core (L57f8 in CODE 3):
- * passes (dst, src, count) and lets the inner routine handle the
- * forward/backward copy direction. C's standard memmove gives the
- * same semantics.
+ * !!! ARGUMENT ORDER — READ BEFORE TRANSCRIBING A Mac CALLSITE !!!
+ * This wrapper takes (DST, SRC, count) — the C memmove order. The Mac
+ * positional order is the OPPOSITE: L57f8 reads from the arg at fp@(8)
+ * and writes to fp@(12), i.e. the asm pushes (src, dst, count) =
+ * BlockMove(src, dst). So a faithful lift of a Mac `JT[406]` callsite
+ * must SWAP the first two args when writing the C call. JT[479]
+ * (jt479, src,dst order) and the inner L366a keep the Mac spelling;
+ * only this jt406 entry is flipped to read like memmove.
  *
- * 153 callsites — every "snapshot a record", "restore from backing
- * store" (L3994's GrafPort-save path), "copy a row of map tiles"
- * etc. uses this. With it lifted, the snapshot/restore plumbing
- * that JT[94] / JT[1089] depend on works correctly. */
+ * Audited 2026-06: all 16 boot.c callsites honour the (dst, src)
+ * contract (e.g. L4010 reads the pool into a local `hdr` then checks
+ * hdr=='GLIB' — Hatari-verified). No caller is reversed. The hazard is
+ * purely for future transcriptions, hence this banner. */
 static void jt406(void *dst, const void *src, short count) __attribute__((unused));
 static void jt406(void *dst, const void *src, short count)
 {
