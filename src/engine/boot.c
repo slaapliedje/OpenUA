@@ -5408,9 +5408,10 @@ static int  jt1200(void)
 }
 
 /* GLIB sprite-region primitives, defined in the GLIB cluster further
- * down; jt111 below calls them. */
+ * down; jt111 / jt123 below call them. */
 static long  jt1015(void *lib, short item);
 static short jt1020(long lib, short target);
+static void  jt992(long spec, short kind);
 
 /* JT[1022] (CODE 5 + 0x46a6, = LBResize) — grow/shrink GLIB item `item`
  * in group `tag` to `newsize` bytes, shifting the index table. LEAF STUB:
@@ -5465,10 +5466,14 @@ static void jt111(long handle, short idx, short z, long handle2, short g)
 	jt406((void *)(uintptr_t)dst, (void *)(uintptr_t)src, (short)off1);
 }
 
-/* JT[123] (CODE 6 + 0x3828) — jt992(jt468(*handle), b): a GLIB sprite op.
- * LEAF STUB pending jt992. */
+/* JT[123] (CODE 6 + 0x3828) — mirror the sprite piece keyed by `b` in the
+ * group `*(short*)handle`: jt992(jt468(group), b) flips it horizontally. */
 static void jt123(long handle, short b) __attribute__((unused));
-static void jt123(long handle, short b) { PROBE("jt123"); (void)handle; (void)b; }
+static void jt123(long handle, short b)
+{
+	PROBE("jt123");
+	jt992(jt468(*(short *)(uintptr_t)handle), b);
+}
 
 /* JT[495] (CODE 13 + 0x1888, = L1888) — install one sprite-overlay tile of
  * actor `actor` from the library g_a5_-27866: region index row*38 + actor,
@@ -22265,6 +22270,99 @@ static short jt1020(long lib, short target)
 		p += 4;
 		if (e.key == target)
 			return e.val;
+	}
+}
+
+/* Row horizontal-mirror primitives (CODE 4) — flip `n` bytes of one pixel
+ * row in place: reverse the byte order, then reverse within each byte at
+ * the row's pixel depth. They work on the sprite's GLIB data (not screen
+ * pixels), so they are display-HAL-independent.
+ *   jt1164 — 1bpp: also bit-reverse each byte (8 px/byte)
+ *   jt1169 — 4bpp: also swap nibbles    (2 px/byte)
+ *   jt1175 — 8bpp: byte order only      (1 px/byte) */
+static void jt1175(unsigned char *p, short n) __attribute__((unused));
+static void jt1175(unsigned char *p, short n)
+{
+	short i, half = (short)(n >> 1);
+	PROBE("jt1175");
+	for (i = 0; i < half; i++) {
+		unsigned char r = p[n - 1 - i], l = p[i];
+		p[n - 1 - i] = l;
+		p[i] = r;
+	}
+}
+static void jt1169(unsigned char *p, short n) __attribute__((unused));
+static void jt1169(unsigned char *p, short n)
+{
+	short i, half = (short)(n >> 1);
+	PROBE("jt1169");
+	for (i = 0; i < half; i++) {
+		unsigned char r = p[n - 1 - i], l = p[i];
+		p[n - 1 - i] = l;
+		p[i] = r;
+	}
+	for (i = 0; i < n; i++)
+		p[i] = (unsigned char)((p[i] >> 4) | (p[i] << 4));   /* rorb #4 */
+}
+static void jt1164(unsigned char *p, short n) __attribute__((unused));
+static void jt1164(unsigned char *p, short n)
+{
+	short i, j, half = (short)(n >> 1);
+	PROBE("jt1164");
+	for (i = 0; i < half; i++) {
+		unsigned char r = p[n - 1 - i], l = p[i];
+		p[n - 1 - i] = l;
+		p[i] = r;
+	}
+	for (i = 0; i < n; i++) {
+		unsigned char v = p[i], out = 0;
+		for (j = 0; j < 8; j++) {           /* bit-reverse */
+			out = (unsigned char)((out << 1) | (v & 1));
+			v = (unsigned char)(v >> 1);
+		}
+		p[i] = out;
+	}
+}
+
+/* JT[992] (CODE 5 + 0x1d70, = "Mirror") — horizontally flip the sprite
+ * piece `kind` of group-handle `spec` in place, for facing-direction
+ * sprites. l2856 loads the piece and fills an 8-byte descriptor (height at
+ * [0], row byte-width at [6], codec type nibble at [7]); for each of
+ * jt1198() planes (one more when type==1) it mirrors `height` rows of the
+ * row width, picking the depth-specific primitive by the screen mode
+ * jt1200() (0->8bpp jt1175, 1->4bpp jt1169, 3->1bpp jt1164). The width is
+ * scaled x8 in mode 0. type 0/1/5 are valid; anything else is an error. */
+static void jt992(long spec, short kind)
+{
+	unsigned char meta[8];
+	long          handle;
+	short         n, planes, type, height;
+
+	PROBE("jt992");
+	handle = l2856(spec, kind, meta);
+	if (handle == 0)
+		return;
+	n = (short)(unsigned char)meta[6];
+	if (jt1200() == 0)
+		n = (short)(n << 3);
+	planes = jt1198();
+	type = (short)(meta[7] & 0x0f);
+	if (type == 1)
+		planes++;
+	else if (type != 0 && type != 5)
+		l036a("Invalid type (%x) to Mirror", (int)(unsigned char)meta[7]);
+	height = *(short *)meta;
+	while (--planes >= 0) {
+		short rows = height;
+		while (--rows >= 0) {
+			switch (jt1200()) {
+			case 0: jt1175((unsigned char *)(uintptr_t)handle, n); break;
+			case 1: jt1169((unsigned char *)(uintptr_t)handle, n); break;
+			case 3: jt1164((unsigned char *)(uintptr_t)handle, n); break;
+			default: break;
+			}
+			handle += n;
+		}
 	}
 }
 
