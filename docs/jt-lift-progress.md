@@ -13,16 +13,16 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 254 done (243 lifted, 8 noop, 3 alias), 92 stub, 859 missing.
+**1205 distinct JT entries are called.** Overall: 268 done (257 lifted, 8 noop, 3 alias), 93 stub, 844 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **89/100** | 80 | 9 | 2 | 9 |
-| 2 | 101–200 | **36/100** | 36 | 0 | 15 | 49 |
-| 3 | 201–300 | **25/100** | 25 | 0 | 12 | 63 |
-| 4 | 301–400 | **19/100** | 18 | 1 | 4 | 77 |
+| 1 | 1–100 | **97/100** | 88 | 9 | 2 | 1 |
+| 2 | 101–200 | **37/100** | 37 | 0 | 16 | 47 |
+| 3 | 201–300 | **26/100** | 26 | 0 | 12 | 62 |
+| 4 | 301–400 | **23/100** | 22 | 1 | 4 | 73 |
 | 5 | 401–500 | **18/100** | 18 | 0 | 15 | 67 |
 | 6 | 501–600 | **14/100** | 13 | 1 | 13 | 73 |
 | 7 | 601–700 | **14/100** | 14 | 0 | 7 | 79 |
@@ -89,7 +89,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 50 | jt404 | 34 | LIFTED |  |
 | 51 | jt1084 | 34 | ALIAS | lifted as l036a (same address, the error dialog) |
 | 52 | jt76 | 33 | LIFTED |  |
-| 53 | jt936 | 31 | **MISSING** |  |
+| 53 | jt936 | 31 | LIFTED |  |
 | 54 | jt1139 | 31 | LIFTED |  |
 | 55 | jt108 | 30 | LIFTED |  |
 | 56 | jt868 | 30 | LIFTED |  |
@@ -105,7 +105,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 66 | jt396 | 27 | LIFTED |  |
 | 67 | jt935 | 27 | LIFTED |  |
 | 68 | jt938 | 27 | LIFTED |  |
-| 69 | jt21 | 26 | **MISSING** |  |
+| 69 | jt21 | 26 | LIFTED |  |
 | 70 | jt52 | 24 | **MISSING** |  |
 | 71 | jt1170 | 24 | NOOP |  |
 | 72 | jt1193 | 24 | LIFTED |  |
@@ -122,21 +122,21 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 83 | jt210 | 20 | LIFTED |  |
 | 84 | jt388 | 20 | LIFTED |  |
 | 85 | jt485 | 20 | LIFTED |  |
-| 86 | jt871 | 20 | **MISSING** |  |
+| 86 | jt871 | 20 | LIFTED |  |
 | 87 | jt1153 | 20 | LIFTED |  |
 | 88 | jt63 | 19 | ALIAS | lifted as l60b4 (same address, byte->decimal scratch) |
 | 89 | jt1118 | 19 | LIFTED |  |
-| 90 | jt28 | 18 | **MISSING** |  |
+| 90 | jt28 | 18 | LIFTED |  |
 | 91 | jt147 | 18 | LIFTED |  |
 | 92 | jt305 | 18 | LIFTED |  |
 | 93 | jt449 | 18 | LIFTED | lifted as l2c60 |
-| 94 | jt501 | 18 | **MISSING** |  |
+| 94 | jt501 | 18 | LIFTED |  |
 | 95 | jt873 | 18 | LIFTED |  |
-| 96 | jt875 | 18 | **MISSING** |  |
+| 96 | jt875 | 18 | LIFTED |  |
 | 97 | jt447 | 17 | LIFTED |  |
 | 98 | jt497 | 17 | LIFTED |  |
-| 99 | jt521 | 17 | **MISSING** |  |
-| 100 | jt866 | 17 | **MISSING** |  |
+| 99 | jt521 | 17 | LIFTED |  |
+| 100 | jt866 | 17 | LIFTED |  |
 
 ## Band 2 detail (rank 101–200)
 
@@ -171,7 +171,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 127 | jt361 | 13 | LIFTED |  |
 | 128 | jt411 | 13 | LIFTED |  |
 | 129 | jt493 | 13 | **MISSING** |  |
-| 130 | jt503 | 13 | **MISSING** |  |
+| 130 | jt503 | 13 | **STUB** |  |
 | 131 | jt50 | 12 | **STUB** |  |
 | 132 | jt100 | 12 | **STUB** |  |
 | 133 | jt207 | 12 | **MISSING** |  |
@@ -219,7 +219,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 175 | jt904 | 9 | LIFTED |  |
 | 176 | jt983 | 9 | LIFTED |  |
 | 177 | jt987 | 9 | LIFTED |  |
-| 178 | jt1197 | 9 | **MISSING** |  |
+| 178 | jt1197 | 9 | LIFTED |  |
 | 179 | jt5 | 8 | LIFTED |  |
 | 180 | jt31 | 8 | **MISSING** |  |
 | 181 | jt54 | 8 | **MISSING** |  |
@@ -252,15 +252,7 @@ an uncharted multi-function cluster — lift the cluster first);
 **trap-shim** (issues a Mac OS trap the HAL must route); **HAL**
 (needs a display/row-blit backend, not a transcription).
 
-- jt936 (31 calls) — missing — dispatcher — 187-line. Own session
 - jt17 (29 calls) — stub — dispatcher — 111-line; currently a leaf stub for L01de (jt868 hub). Own session to lift the real body
-- jt21 (26 calls) — missing — dispatcher — 454-line. Own session
 - jt52 (24 calls) — missing — system-tick / housekeeping dispatcher (JT[1] switch). NOT the sound hub (earlier mis-call): jt984/979/980 are the timed-callback table (jt1149=_TickCount, jt1151/jt1145=menu-bar); only a couple arms touch audio. SysBeep is jt1147 (already lifted); the real sound work is the .slb music engine (jt986/981 + codec L1a0c/jt974/jt975 + DMA HAL) — its own session
 - jt1177 (22 calls) — stub — HAL — Mac framebuffer addressing; needs the row-blit display backend, not a transcription
-- jt871 (20 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
-- jt28 (18 calls) — missing — dispatcher — 307-line. Own session
-- jt501 (18 calls) — missing — dispatcher — 598-line. Own session
-- jt875 (18 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
-- jt521 (17 calls) — missing — dispatcher — 162-line. Own session
-- jt866 (17 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
 

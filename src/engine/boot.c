@@ -20453,6 +20453,211 @@ static void l19a0(short x, short y, short c, short d, long e)
 		jt121(x, y, c, d, e);
 	}
 }
+
+/* JT[501] (CODE 13 + 0x1a24) — animated area-map line / region renderer.
+ * Walks a Bresenham line (built into the buf148 direction list via l6eba/l6f68)
+ * between the clamped endpoints (x1,y1)-(x2,y2), scrolling the viewport
+ * (g_a5_25318) to keep the line on screen and drawing an animated `77+frame`
+ * glyph (g_a5_27866) along it.  `animMax` is the frame-cycle length and `delay`
+ * the per-step dwell (jt476, x2).  Used for targeting cursors / trajectory
+ * lines / AoE outlines on the overland & area maps.  Frame layout: buf148 is
+ * the per-step direction list, desc24 the line descriptor; the rest are the
+ * running anchor (x1,y1), scroll center (ctrX,ctrY), sub-cell accumulators
+ * (accX,accY) and screen sub-coordinates (sx,sy, in thirds-of-a-cell). */
+static void jt501(short x1, short y1, short x2, short y2,
+                  short animMax, short delay) __attribute__((unused));
+static void jt501(short x1, short y1, short x2, short y2,
+                  short animMax, short delay)
+{
+	unsigned char buf148[148];
+	unsigned char desc24[24];
+	unsigned char *scroll;
+	short count, len, anim, needRefresh, edge;
+	short ctrX, ctrY, accX, accY, dx, dy, stepDX, stepDY, sx, sy, tmp;
+
+	PROBE("jt501");
+
+	/* Phase 0 — clamp endpoints to the 50x25 area-map grid. */
+	if (x1 < 0) x1 = 0; else if (x1 > 49) x1 = 49;
+	if (y1 < 0) y1 = 0; else if (y1 > 24) y1 = 24;
+	if (x2 < 0) x2 = 0; else if (x2 > 49) x2 = 49;
+	if (y2 < 0) y2 = 0; else if (y2 > 24) y2 = 24;
+
+	/* Phase 1 — build the per-step direction list (in thirds of a cell). */
+	jt399(buf148, 148, 8);
+	jt399(desc24, 24, 0);
+	count = 0;
+	anim  = 0;
+	*(short *)(desc24 + 0) = (short)(x1 * 3);
+	*(short *)(desc24 + 2) = (short)(y1 * 3);
+	*(short *)(desc24 + 4) = (short)(x2 * 3);
+	*(short *)(desc24 + 6) = (short)(y2 * 3);
+	l6eba(desc24);
+	do {
+		edge = (l6f68(desc24) == 0) ? 1 : 0;
+		buf148[count++] = desc24[23];
+	} while (edge == 0);
+	if ((unsigned char)count < 4)
+		return;
+	len = (short)(count - 2);
+
+	/* Phase 2 — choose the scroll center: midpoint when both endpoints are on
+	 * screen (or the span is small), else the viewport-relative +3 cell. */
+	dx = (short)(x2 - x1);
+	dy = (short)(y2 - y1);
+	scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	if (l6520((short)(x1 - *(short *)(scroll + 2)),
+	          (short)(y1 - *(short *)(scroll + 4))) &&
+	    l6520((short)(x2 - *(short *)(scroll + 2)),
+	          (short)(y2 - *(short *)(scroll + 4)))) {
+		needRefresh = 1;                                /* L1c18 — both in */
+		ctrX = (short)(*(short *)(scroll + 2) + 3);
+		ctrY = (short)(*(short *)(scroll + 4) + 3);
+	} else if (jt388(dx) <= 6 && jt388(dy) <= 6) {
+		needRefresh = 1;                                /* L1bca — small span */
+		ctrX = (short)(dx / 2 + x1);
+		ctrY = (short)(dy / 2 + y1);
+	} else {
+		needRefresh = 0;                                /* L1bf6 — off-window */
+		ctrX = (short)(*(short *)(scroll + 2) + 3);
+		ctrY = (short)(*(short *)(scroll + 4) + 3);
+	}
+	jt521(ctrX, ctrY, 255, 8);
+	count = 0;
+	accX  = 0;
+	accY  = 0;
+
+	/* Phase 3 — drive the animation.  Each outer pass walks the line from the
+	 * running anchor; if it runs off the window it walks back from the far
+	 * endpoint, scrolling the viewport, and the loop repeats (needRefresh==0)
+	 * until the whole line fits. */
+	for (;;) {
+		scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		sx = (short)((short)((x1 - *(short *)(scroll + 2)) * 3) + accX);
+		sy = (short)((short)((y1 - *(short *)(scroll + 4)) * 3) + accY);
+		edge = 0;
+
+		/* forward walk */
+		do {
+			unsigned char dir = buf148[count];
+			stepDX = (signed char)g_a5_buf(-27862)[dir];
+			stepDY = (signed char)g_a5_buf(-27853)[dir];
+			sx = (short)(sx + stepDX);
+			sy = (short)(sy + stepDY);
+
+			if (delay != 0 || (sx % 3) == 0 || (sy % 3) == 0) {
+				jt112(2);
+				tmp = l1944(sy);
+				jt119(tmp, l1972(sx), 12, 12);
+				l19a0(sx, sy, (short)(77 + anim), 5, g_a5_long(-27866));
+				jt476((short)(delay * 2));
+				tmp = l1944(sy);
+				jt122(tmp, l1972(sx), 12, 12);
+				if (++anim >= animMax)
+					anim = 0;
+				jt112(0);
+			}
+			count++;
+
+			if (sx < 0 || sx > 18 || sy < 0 || sy > 18)
+				edge = 1;
+
+			if (edge == 0 && (unsigned char)count < (unsigned char)len) {
+				accX = (short)(accX + stepDX);
+				accY = (short)(accY + stepDY);
+				if (jt388(accX) == 3) {
+					x1   = (short)(x1 + l6d1e(accX));
+					ctrX = (short)(ctrX + l6d1e(accX));
+					accX = 0;
+				}
+				if (jt388(accY) == 3) {
+					y1   = (short)(y1 + l6d1e(accY));
+					ctrY = (short)(ctrY + l6d1e(accY));
+					accY = 0;
+				}
+			}
+		} while ((unsigned char)count < (unsigned char)len && edge == 0);
+
+		if ((unsigned char)count >= (unsigned char)len) {
+			/* L20d8 — line fully traversed: draw the final endpoint. */
+			needRefresh = 1;
+			scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+			if (!l6520((short)(x2 - *(short *)(scroll + 2)),
+			           (short)(y2 - *(short *)(scroll + 4))))
+				jt521(x2, y2, 3, 8);
+			scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+			sx = (short)((x2 - *(short *)(scroll + 2)) * 3);
+			sy = (short)((y2 - *(short *)(scroll + 4)) * 3);
+			tmp = l1944(sy);
+			jt119(tmp, l1972(sx), 12, 12);
+			l19a0(sx, sy, (short)(77 + anim), 5, g_a5_long(-27866));
+			if (delay != 0) {
+				jt117();
+				jt476((short)(delay * 2));
+				tmp = l1944(sy);
+				jt122(tmp, l1972(sx), 12, 12);
+			}
+		} else {
+			/* L1ea2 — hit the window edge: walk back from the far endpoint,
+			 * scrolling the viewport to follow. */
+			short adjX = 0, adjY = 0;
+			accY = 0;
+			accX = 0;
+			x1 = x2;
+			y1 = y2;
+			if (x2 + 3 > 49)      adjX = (short)(x2 - 49);
+			else if (x2 < 3)      adjX = (short)(3 - x2);
+			if (y2 + 3 > 24)      adjY = (short)(y2 - 24);
+			else if (y2 < 3)      adjY = (short)(3 - y2);
+			ctrX = (short)(x2 + adjX);
+			ctrY = (short)(y2 + adjY);
+			jt521(ctrX, ctrY, 255, 8);
+			scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+			sx = (short)((x2 - *(short *)(scroll + 2)) * 3);
+			sy = (short)((y2 - *(short *)(scroll + 4)) * 3);
+			count = len;
+			edge  = 0;
+
+			do {
+				unsigned char dir = buf148[count];
+				stepDX = (short)-(signed char)g_a5_buf(-27862)[dir];
+				stepDY = (short)-(signed char)g_a5_buf(-27853)[dir];
+				sx = (short)(sx + stepDX);
+				sy = (short)(sy + stepDY);
+
+				if (sx > 18)      x1 = (short)(*(short *)(scroll + 2) + 6);
+				else if (sx < 0)  x1 = *(short *)(scroll + 2);
+				if (sy > 18)      y1 = (short)(*(short *)(scroll + 4) + 6);
+				else if (sy < 0)  y1 = *(short *)(scroll + 4);
+
+				if (sx < 0 || sx > 18 || sy < 0 || sy > 18)
+					edge = 1;
+
+				if (edge == 0) {
+					accX = (short)(accX + stepDX);
+					accY = (short)(accY + stepDY);
+					if (jt388(accX) == 3) {
+						x1   = (short)(x1 + l6d1e(accX));
+						ctrX = (short)(ctrX + l6d1e(accX));
+						accX = 0;
+					}
+					if (jt388(accY) == 3) {
+						y1   = (short)(y1 + l6d1e(accY));
+						ctrY = (short)(ctrY + l6d1e(accY));
+						accY = 0;
+					}
+					count--;
+				}
+			} while (edge == 0);
+		}
+
+		/* L21dc — refresh and finish, or loop again until the line fits. */
+		if (needRefresh != 0) {
+			jt117();
+			return;
+		}
+	}
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
