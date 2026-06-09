@@ -238,12 +238,24 @@ L3888 (seek) = jt412, L3d98 (read) = jt401/FSRead. Lifted:
 - jt1016 (CODE 5+0x3640): driver — jt460 read + jt459 size + L4010
   commit; jt462 on fail. FULL CFG.
 
+DONE (commit/relocate step): L4010 (_LBConvert) FULL. Key finding: the
+converter registered for 'GLIB' is JT[973], and JT[973] == L4010 itself
+(CODE5+0x4010) — so the index relocation is RECURSIVE descent over
+GLIB-of-GLIBs, bottoming out at leaf art whose signature isn't in the
+registry. Lifted alongside:
+- l4010: validate magic, odd-pad, then walk the 16-byte-header index;
+  for each entry call the signature's converter (recurses), accumulate
+  the size delta, rewrite each index entry + the header in place.
+- glib_lb_register (L35fa) / glib_lb_init (L35e2): the converter
+  registry (-3654 sig / -3638 fn / -3656 count); init registers exactly
+  'GLIB' -> l4010. MUST be called once before the pool loads a library.
+- l3e50 (the hdr[10]!=0 typed-.tlb sub-convert arm): PROBE stub
+  (identity); plain UI .ctl GLIBs leave hdr[10]==0, so untaken.
+
 REMAINING:
-- L4010 (CODE 5, ~164): _LBConvert — validate the loaded 'GLIB' header
-  in place + relocate its index (jt468/jt406/L3e50). Currently a PROBE
-  stub returning 0 (commit-OK) so jt1016 links; lift next.
-- The FAR-pool master-buffer alloc + init (slot[0]/-9304 seeded) — the
-  pool isn't stood up yet, so this layer is built but not yet exercised.
+- The FAR-pool master-buffer alloc + init (slot[0]/-9304 seeded) + a
+  glib_lb_init() call site — the pool isn't stood up yet, so the read +
+  convert layer is built but not yet exercised.
 - jt104 itself (mode-0 arm hot via jt1013/jt1011/jt1016; mode-1/2 cold),
   then L33ac (the binder).
 Then Hatari-verify: the UI GLIB (groups 0/1) STILL renders AND a real
