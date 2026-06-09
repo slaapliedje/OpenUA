@@ -5407,16 +5407,62 @@ static int  jt1200(void)
 	return (g_a5_1312 != 0) ? 0 : 1;
 }
 
-/* JT[111] (CODE 6 + 0x3b1e, = L3b1e) — sprite-overlay region setup used by
- * jt57 and jt495 (jt1022 / jt468+jt1020 over the GLIB sprite cluster).
- * LEAF STUB: those GLIB sprite-region helpers (jt992/jt1020/jt1022) are
- * not lifted yet, so the overlay is skipped. */
+/* GLIB sprite-region primitives, defined in the GLIB cluster further
+ * down; jt111 below calls them. */
+static long  jt1015(void *lib, short item);
+static short jt1020(long lib, short target);
+
+/* JT[1022] (CODE 5 + 0x46a6, = LBResize) — grow/shrink GLIB item `item`
+ * in group `tag` to `newsize` bytes, shifting the index table. LEAF STUB:
+ * it needs the GLIB library-edit layer (L3736 + JT[469] realloc), which
+ * isn't lifted. Runtime sprite items are fixed-size, so jt111 only invokes
+ * it when a destination slot is too small (off2 < off1) — i.e. on the
+ * design-edit path, not the play path. */
+static void jt1022(short tag, short item, long newsize) __attribute__((unused));
+static void jt1022(short tag, short item, long newsize)
+{
+	PROBE("jt1022");
+	(void)tag; (void)item; (void)newsize;
+}
+
+/* JT[111] (CODE 6 + 0x3b1e, = L3b1e) — copy a GLIB sprite item between
+ * groups: resolve the source item index (jt1020 remap when `z` is set,
+ * else `idx`), measure it (jt1015 = LBISize), make sure the destination
+ * item `g` in group2 is at least that big (jt1022 resize when it isn't),
+ * then blit the bytes from group1[item] to group2[g] (l37aa = JT[1012]
+ * gives each item's address; jt406 copies). `handle`/`handle2` point at
+ * the group-tag word the groups are keyed by; handle==0 just resizes
+ * item g to zero. */
 static void jt111(long handle, short idx, short z, long handle2, short g)
                                                 __attribute__((unused));
 static void jt111(long handle, short idx, short z, long handle2, short g)
 {
+	short tag1, tag2, item;
+	long  off1, src, dst;
+
 	PROBE("jt111");
-	(void)handle; (void)idx; (void)z; (void)handle2; (void)g;
+	tag2 = *(short *)(uintptr_t)handle2;
+	if (handle == 0) {
+		jt1022(tag2, (short)(unsigned char)g, 0L);
+		return;
+	}
+	tag1 = *(short *)(uintptr_t)handle;
+	if ((unsigned char)z != 0)
+		item = jt1020(jt468(tag1), (short)(unsigned char)idx);
+	else
+		item = (short)(unsigned char)idx;
+	off1 = jt1015((void *)(uintptr_t)jt468(tag1), item);
+	if ((unsigned char)g >= 76) {
+		long off2 = jt1015((void *)(uintptr_t)jt468(tag2),
+		                   (short)(unsigned char)g);
+		if (off2 < off1)
+			jt1022(tag2, (short)(unsigned char)g, off1);
+	} else {
+		jt1022(tag2, (short)(unsigned char)g, off1);
+	}
+	src = l37aa(jt468(tag1), item);
+	dst = l37aa(jt468(tag2), (short)(unsigned char)g);
+	jt406((void *)(uintptr_t)dst, (void *)(uintptr_t)src, (short)off1);
 }
 
 /* JT[123] (CODE 6 + 0x3828) — jt992(jt468(*handle), b): a GLIB sprite op.
