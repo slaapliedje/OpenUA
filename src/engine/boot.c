@@ -18556,10 +18556,43 @@ static int    jt556(long a)                    { PROBE("jt556"); (void)a;
  * remainder. */
 static void   jt557(void)                       { PROBE("jt557"); (void)jt574(0); }
 static void   jt560(void)                       { PROBE("jt560"); }
+/* JT[876] (CODE 18 + 0x1666) — append an item node to an entity's list
+ * (the inverse of jt878's remove). Reserve a 10-byte node from the
+ * inventory bucket (g_a5_21152), link it onto the tail of rec's chain
+ * (head at rec+4, .next at node+6), and stamp its fields:
+ *   node[0] = kind (b), node[2] = value word (c), node[4] = d, node[5] = e.
+ * A zero kind is a no-op. Args are the Mac word slots; the low byte of
+ * b/d/e is used. */
 static void   jt876(long a, short b, short c, short d, short e)
-                                                { PROBE("jt876"); (void)a;
-                                                  (void)b; (void)c;
-                                                  (void)d; (void)e; }
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)a;
+	unsigned char *node;
+	long           node_l = 0;
+
+	PROBE("jt876");
+	if ((b & 0xff) == 0)
+		return;
+
+	jt477(&g_a5_21152, 10, &node_l);        /* reserve a list node */
+	if (node_l == 0)                        /* bucket full (port guard) */
+		return;
+	node = (unsigned char *)(uintptr_t)node_l;
+
+	if (*(long *)(rec + 4) == 0) {
+		*(long *)(rec + 4) = node_l;        /* first item */
+	} else {
+		unsigned char *p =
+		    (unsigned char *)(uintptr_t)*(long *)(rec + 4);
+		while (*(long *)(p + 6) != 0)
+			p = (unsigned char *)(uintptr_t)*(long *)(p + 6);
+		*(long *)(p + 6) = node_l;          /* append to tail */
+	}
+	*(long *)(node + 6) = 0;                 /* .next = NULL */
+	node[0]             = (unsigned char)(b & 0xff);
+	*(short *)(node + 2) = c;
+	node[5]             = (unsigned char)(e & 0xff);
+	node[4]             = (unsigned char)(d & 0xff);
+}
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
@@ -19162,7 +19195,19 @@ static void jt1173(short top, short left, short bottom, short right)
 		g_a5_3056 = 0;
 	}
 }
-static void jt1193(void)                          { PROBE("jt1193"); }
+/* JT[1193] (CODE 4 + 0x16e0) — reset the accumulated dirty/clip
+ * rectangle to the full screen: the max corner (left/top, -3056/-3054)
+ * to 0 and the min corner (bottom/right, -3050/-3052) to the screen
+ * extent (L04cc height / L04de width). Subsequent draws grow/shrink
+ * these via JT[397] (max) / JT[413] (min) into the painted bbox. */
+static void jt1193(void)
+{
+	PROBE("jt1193");
+	g_a5_3056 = 0;            /* left   */
+	g_a5_3054 = 0;            /* top    */
+	g_a5_3050 = l04cc();     /* bottom = screen height */
+	g_a5_3052 = l04de();     /* right  = screen width  */
+}
 static void l2062(void)                           { PROBE("l2062"); }
 
 /* JT[176] (CODE 7 + 0x162e, 36 sites) — window paint init / commit.
