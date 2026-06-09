@@ -713,6 +713,32 @@ static void  jt1002(long size)
 	g_a5_long(-4582) = jt421(size);
 }
 
+/* JT[1061] (CODE 5 + 0x6456, 38 sites) — _SwapMMUMode ($A05D) glue:
+ *
+ *   d0.b = *modep;  d0.b = _SwapMMUMode(d0.b);  *modep = d0.b;
+ *
+ * the documented Memory Manager trap that flips the 68k between 24-bit
+ * and 32-bit addressing and returns the prior mode. FRUA calls it around
+ * its direct-to-framebuffer blits (all 38 sites are in CODE 4, each
+ * gated by g_a5_-1313 — a flag set from the screen's GDevice depth via
+ * JT[1025]) so that on a 24-bit-addressing Mac the blit loop can reach a
+ * 32-bit-addressed video buffer.
+ *
+ * The Falcon030 / TT030 68030 has a single, flat 32-bit addressing mode —
+ * there is no 24/32-bit MMU mode to swap, and the display HAL addresses
+ * the framebuffer directly. So this is a faithful no-op: _SwapMMUMode on
+ * a machine with one mode returns that same mode, i.e. the "previous
+ * mode" equals the requested one, leaving *modep unchanged. (g_a5_-2584,
+ * the only byte ever passed in, is never read back — confirmed in the
+ * disasm — so even the write-back is immaterial.) NOT a stub-to-noErr:
+ * the hardware difference makes the operation genuinely empty here. */
+static void jt1061(unsigned char *modep) __attribute__((unused));
+static void jt1061(unsigned char *modep)
+{
+	PROBE("jt1061");
+	(void)modep;   /* 68030 is always 32-bit addressing; leave *modep as-is */
+}
+
 /* L4ab6 (CODE 7 + 0x4ab6) — point the string-table cursors at a
  * (possibly new) base. Cached so repeated loads of the same table
  * skip the re-seed. */

@@ -46,7 +46,10 @@ OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
 #           own inline table and emits an equivalent C switch (see
 #           CLAUDE.md). The jtN function form is a permanent placeholder,
 #           never called on the real path.
-NOOP = {1170, 1198, 1163, 949, 3, 1, 2}
+#   jt1061 — _SwapMMUMode ($A05D): flips the 68k between 24/32-bit
+#           addressing. The 68030 Falcon/TT has one flat 32-bit mode, so
+#           the trap is genuinely a no-op on the target (done, not pending).
+NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061}
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
@@ -65,8 +68,6 @@ ALIAS_LIFTED = {
 PENDING_NOTES = {
     1177: "HAL — Mac framebuffer addressing; needs the row-blit display "
           "backend, not a transcription",
-    1061: "trap-shim — issues Mac OS traps 0xa05d/0xaded/0xa9ee (Memory "
-          "Manager handle-state family); needs the handle-flags shim",
     501:  "dispatcher — 598-line. Own session",
     21:   "dispatcher — 454-line. Own session",
     28:   "dispatcher — 307-line. Own session",
