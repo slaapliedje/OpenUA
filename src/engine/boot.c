@@ -20524,6 +20524,133 @@ static short l1554(unsigned char *m)
 	return (short)(unsigned char)g_a5_byte(-25263);
 }
 
+/* JT[21] (CODE 6 + 0x16aa, 26 sites) — recompute every derived field of a
+ * character record `mp` from its inventory and ability scores. The spine:
+ *   1. Clear the 13 equip-by-kind slots (mp+12..mp+60), reset counters.
+ *   2. First inventory pass: tally carried weight (mp[86]), and for each
+ *      equipped item (item[50]) file it into the slot for its type-record
+ *      kind (rec[0]); kind 9 -> the two ring slots mp+48/mp+52; item type 30
+ *      -> ammo (mp+56); types 12/74 -> off-hand (mp+60); accumulate rec[1]
+ *      into mp[194].
+ *   3. Add the three base-weight words mp[76/78/80] into the capacity mp[86].
+ *   4. Copy the base combat columns mp[173..178] into mp[389..394].
+ *   5. Reset to-hit/damage/move/save to their bases; seed the adjustment
+ *      buffer adj[0] with the L1ba4 ability bonus; for an unarmed char add the
+ *      Strength to-hit/damage (L1e58/L1f3e); recompute the weapon columns
+ *      (L08f4).
+ *   6. Second pass: apply each equipped item's movement (L0b3e) and fold its
+ *      AC/save bonuses into adj[] (L0be0); cap the shield/cloak terms.
+ *   7. Recompute attacks/movement (L1554), fold adj[] into the save stat
+ *      mp[385], set AC mp[386] = adj sums - 2, and (unless class 6) walk the
+ *      save category mp[148] through L2fd8/jt397 for the 2/4/3 columns. */
+static void jt21(long mp) __attribute__((unused));
+static void jt21(long mp)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)mp;
+	const unsigned char *base =
+		(const unsigned char *)(uintptr_t)g_a5_long(-27944);
+	unsigned char *item;
+	unsigned char  adj[6];          /* fp@(-14..-9): ability + item bonuses */
+	unsigned char  flag = 0;        /* fp@(-7) */
+	short i, n;
+
+	PROBE("jt21");
+
+	for (i = 0; i <= 12; i++)               /* clear equip-by-kind slots */
+		*(long *)(m + 12 + i * 4) = 0;
+	m[193] = 0;
+	m[194] = 0;
+	*(short *)(m + 86) = 0;
+	g_a5_word(-31232) = 0;
+
+	/* First inventory pass: weight tally + equip-slot filing. */
+	for (item = *(unsigned char **)(m + 8); item != NULL;
+	     item = *(unsigned char **)item) {
+		short w = *(short *)(item + 44);
+		unsigned char kind;
+
+		m[193]++;
+		if (item[53] != 0)
+			w = (short)(item[53] * w);      /* * quantity */
+		*(short *)(m + 86) += w;
+		if (item[50] == 0)                      /* not equipped */
+			continue;
+
+		g_a5_word(-31232) += w;
+		kind = base[item[40] * 16 + 0];
+		if (kind <= 8) {                        /* JT[3] cases 0..8 */
+			*(long *)(m + 12 + kind * 4) = (long)(uintptr_t)item;
+		} else if (kind == 9) {                 /* two ring slots */
+			if (*(long *)(m + 48) == 0)
+				*(long *)(m + 48) = (long)(uintptr_t)item;
+			else if (*(long *)(m + 52) == 0)
+				*(long *)(m + 52) = (long)(uintptr_t)item;
+		}
+		if (item[40] == 30)                     /* ammo */
+			*(long *)(m + 56) = (long)(uintptr_t)item;
+		if (item[40] == 12 || item[40] == 74)   /* off-hand */
+			*(long *)(m + 60) = (long)(uintptr_t)item;
+		m[194] = (unsigned char)(m[194] + base[item[40] * 16 + 1]);
+	}
+
+	for (i = 0; i <= 2; i++)                /* fold base weights into capacity */
+		*(short *)(m + 86) += *(short *)(m + 76 + i * 2);
+
+	for (i = 1; i <= 2; i++) {              /* copy base combat columns */
+		m[389 + (i - 1)] = m[173 + (i - 1)];
+		m[391 + (i - 1)] = m[175 + (i - 1)];
+		m[393 + (i - 1)] = m[177 + (i - 1)];
+	}
+
+	/* Reset combat/move/save bases + Strength adjustments. */
+	l5f4e(adj, 6);
+	flag = 0;
+	m[195] = 0;
+	m[385] = m[179];
+	m[396] = m[136];
+	m[384] = m[127];
+	adj[0] = (unsigned char)l1ba4(m);
+	if (*(long *)(m + 12) == 0) {           /* unarmed: STR to-hit/damage */
+		m[384] = (unsigned char)(m[384] + l1e58(m));
+		m[393] = (unsigned char)((signed char)m[393] + l1f3e_c6(m));
+	}
+	l08f4(m);                               /* weapon columns */
+
+	/* Second pass: per-item movement + AC/save accumulation into adj[]. */
+	for (item = *(unsigned char **)(m + 8); item != NULL;
+	     item = *(unsigned char **)item) {
+		if (item[50] != 0) {
+			l0b3e(m, item);
+			l0be0(m, item, adj, &flag);
+		}
+	}
+	if (flag != 0) {                        /* L1a24 — cap shield/cloak terms */
+		if ((signed char)adj[3] > 0)
+			adj[3] = 0;
+		if ((signed char)adj[4] > 0) {
+			unsigned char *sh = *(unsigned char **)(m + 40);
+			if (sh == NULL || sh[40] != 58)
+				adj[4] = 0;
+		}
+	}
+
+	/* Attacks/movement, then fold adj[] into the save stat + AC + categories. */
+	m[396] = (unsigned char)((l1554(m) & 0xff) >> 1);
+	if ((unsigned short)(signed char)adj[5] < (unsigned short)m[385])
+		adj[5] = m[385];
+	m[385] = 0;
+	for (n = 0; n <= 5; n++)
+		m[385] = (unsigned char)((unsigned char)m[385] + (signed char)adj[n]);
+	m[386] = (unsigned char)((signed char)adj[2] + (signed char)adj[5]
+	                       + (signed char)adj[4] + (signed char)adj[3] - 2);
+	m[148] = 1;
+	if (m[88] == 6)                         /* class 6 (monster): no save calc */
+		return;
+	m[148] = (unsigned char)jt397(m[148], (short)(l2fd8(m, 2) & 0xff));
+	m[148] = (unsigned char)jt397(m[148], (short)(l2fd8(m, 4) & 0xff));
+	m[148] = (unsigned char)jt397(m[148], (short)(l2fd8(m, 3) & 0xff));
+}
+
 #define g_a5_18486 g_a5_byte(-18486)   /* "save-flag" gate for player[49] clear */
 #define g_a5_18877 g_a5_byte(-18877)   /* per-player byte copied into player[19] */
 #define g_a5_13904 g_a5_long(-13904)   /* JT[182] source prompt for save picker */
