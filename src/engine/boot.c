@@ -20401,6 +20401,129 @@ static short l1f3e_c6(const unsigned char *m)
 	return 0;
 }
 
+/* L1c92 (CODE 6 + 0x1c92) — a second adjustment keyed on player[119] (used by
+ * L08f4 as a magic-weapon to-hit term): 0-2 -> -4, 3-5 -> -3..-1, 6-15 -> 0,
+ * 16-18 -> +1..+3, 19-20 -> +3, 21-23 -> +4, 24-25 -> +5, else 0. Named
+ * l1c92_c6: the bare l1c92 is an unrelated CODE save-helper stub. */
+static short l1c92_c6(const unsigned char *m) __attribute__((unused));
+static short l1c92_c6(const unsigned char *m)
+{
+	short v = m[119];
+
+	PROBE("L1c92");
+	if (v > 25)   return 0;
+	if (v <= 2)   return -4;
+	if (v <= 5)   return (short)(v - 6);
+	if (v <= 15)  return 0;
+	if (v <= 18)  return (short)(v - 15);
+	if (v <= 20)  return 3;
+	if (v <= 23)  return 4;
+	return 5;               /* 24..25 */
+}
+
+/* L08f4 (CODE 6 + 0x08f4) — recompute the equipped-weapon combat columns from
+ * the weapon in player[12]. Resets to-hit (player[384] <- player[127]) and
+ * damage (player[393] <- weapon record[11]), then folds in, gated by the
+ * weapon type-record's flag byte (rec[14]):
+ *   bit1 -> + L1c92 (a STR/[119] to-hit term)
+ *   bit2 -> + L1e58 to-hit and + L1f3e damage (STR adjustments)
+ * Adds the weapon's [48] bonus (plus an off-hand item [60] when rec bit7, and
+ * ammo [56] when rec bit0) to damage; a proficiency +1 (weapon types 18, 19,
+ * 21-27 when player[88]==0) goes to to-hit. Finally stamps the range columns
+ * player[389]/[391] from rec[9]/[10]. */
+static void l08f4(unsigned char *m) __attribute__((unused));
+static void l08f4(unsigned char *m)
+{
+	unsigned char *item = *(unsigned char **)(m + 12);
+	const unsigned char *base =
+		(const unsigned char *)(uintptr_t)g_a5_long(-27944);
+	unsigned char itype;
+	short tmp;
+
+	PROBE("L08f4");
+	if (item == NULL)
+		return;
+	itype = item[40];
+
+	m[384] = m[127];                                /* to-hit base */
+	if (base[itype * 16 + 14] & 2)
+		m[384] = (unsigned char)(m[384] + l1c92_c6(m));
+
+	m[393] = base[itype * 16 + 11];                 /* damage base */
+	if (base[itype * 16 + 14] & 4) {
+		m[384] = (unsigned char)(m[384] + l1e58(m));
+		m[393] = (unsigned char)((signed char)m[393] + l1f3e_c6(m));
+	}
+
+	tmp = (signed char)item[48];                    /* weapon bonus */
+	if ((base[itype * 16 + 14] & 0x80) && *(long *)(m + 60) != 0) {
+		unsigned char *off = *(unsigned char **)(m + 60);
+		tmp = (short)(tmp + (signed char)off[48]);
+	}
+	if ((base[itype * 16 + 14] & 1) && *(long *)(m + 56) != 0) {
+		unsigned char *ammo = *(unsigned char **)(m + 56);
+		tmp = (short)(tmp + (signed char)ammo[48]);
+	}
+	m[393] = (unsigned char)((signed char)m[393] + tmp);    /* damage += bonus */
+
+	if (m[88] == 0) {                               /* proficiency +1 */
+		short it = item[40];
+		if ((it >= 21 && it <= 27) || it == 19 || it == 18)
+			tmp++;
+	}
+	m[384] = (unsigned char)(m[384] + tmp);         /* to-hit += bonus(+prof) */
+
+	m[389] = base[itype * 16 + 9];
+	m[391] = base[itype * 16 + 10];
+}
+
+/* L1554 (CODE 6 + 0x1554) — recompute movement (player[396]) and the
+ * attacks-per-round count (g_a5_25263). Reset move to the racial base
+ * player[136], let each carried mount/vehicle item (item[50] set) override it
+ * (L0b3e), clamp by encumbrance (L0d44), then double/halve for the
+ * haste/slow/extra conditions (jt41 codes 39/42/74). The attack count starts
+ * from the move rate, adds the active-monster bonus g_a5_28006[28] (min 1) for
+ * a 0 player[95], is doubled, and is zeroed by condition 178. */
+static short l1554(unsigned char *m) __attribute__((unused));
+static short l1554(unsigned char *m)
+{
+	unsigned char *item;
+	void *desc = 0;
+
+	PROBE("L1554");
+	m[396] = m[136];                                /* base move */
+	for (item = *(unsigned char **)(m + 8); item != NULL;
+	     item = *(unsigned char **)item) {
+		if (item[50] != 0)
+			l0b3e(m, item);
+	}
+	l0d44(m);                                       /* encumbrance clamp */
+
+	if (jt41((long)(uintptr_t)m, 39, &desc))
+		m[396] = (unsigned char)(m[396] * 2);
+	if (jt41((long)(uintptr_t)m, 42, &desc))
+		m[396] = (unsigned char)(m[396] >> 1);
+	if (jt41((long)(uintptr_t)m, 74, &desc))
+		m[396] = (unsigned char)(m[396] * 2);
+
+	g_a5_byte(-25263) = m[396];
+
+	if (m[95] == 0) {                               /* L1626 */
+		const unsigned char *h = (const unsigned char *)g_a5_28006;
+		short base = (short)(unsigned char)g_a5_byte(-25263);
+		if ((short)((signed char)h[28] + base) < 1)
+			g_a5_byte(-25263) = 1;
+		else
+			g_a5_byte(-25263) =
+				(unsigned char)((unsigned char)h[28] + base);
+	}
+	g_a5_byte(-25263) = (unsigned char)(g_a5_byte(-25263) * 2);
+	if (jt41((long)(uintptr_t)m, 178, &desc))
+		g_a5_byte(-25263) = 0;
+
+	return (short)(unsigned char)g_a5_byte(-25263);
+}
+
 #define g_a5_18486 g_a5_byte(-18486)   /* "save-flag" gate for player[49] clear */
 #define g_a5_18877 g_a5_byte(-18877)   /* per-player byte copied into player[19] */
 #define g_a5_13904 g_a5_long(-13904)   /* JT[182] source prompt for save picker */
