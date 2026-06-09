@@ -18738,6 +18738,127 @@ static void jt305(void *rec, char val, char repaint)
 	}
 }
 
+/* ===================================================================
+ * String-table decompressor (CODE 7) — FRUA packs its in-game text as
+ * 6-bit characters in a per-design string record bound by l4ab6 (above):
+ * a 6-byte header, a 400-entry length table at +6 (one byte per string,
+ * 255 = unused slot), then the 6-bit-packed data at +406. l4a30/l4c88/
+ * l4fbe + jt232 read a numbered string out of it.
+ * =================================================================== */
+
+/* L4a30 (CODE 7 + 0x4a30) — byte offset of string `count` in the packed
+ * data: sum of the first `count` length-table entries, skipping any 255
+ * (unused-slot) marker. */
+static short l4a30(short count) __attribute__((unused));
+static short l4a30(short count)
+{
+	const unsigned char *lt =
+		(const unsigned char *)(uintptr_t)g_a5_long(-12314);
+	short sum = 0;
+	short i;
+
+	PROBE("L4a30");
+	for (i = 0; i < count; i++)
+		if (lt[i] != 255)
+			sum += lt[i];
+	return sum;
+}
+
+/* L4c88 (CODE 7 + 0x4c88) — unpack `count` 6-bit characters from `src`
+ * into `dst` (null-terminated). Four 6-bit fields straddle every three
+ * source bytes; phase 1..4 selects the field and only phases 1..3 pull a
+ * fresh byte. A non-zero code in 1..31 is biased by 64 (the packed
+ * alphabet's control range maps up into ASCII). Transcribed bit-for-bit
+ * from the Mac; only the low 6 bits of each field survive the mask. */
+static void l4c88(const unsigned char *src, char *dst, short count)
+                                                __attribute__((unused));
+static void l4c88(const unsigned char *src, char *dst, short count)
+{
+	short         phase = 1;        /* fp@(-6)  */
+	short         si    = -1;       /* fp@(-10) source byte index */
+	unsigned char cur   = 0;        /* fp@(-3)  */
+	unsigned char prev  = 0;        /* fp@(-4)  */
+	short         i;
+
+	PROBE("L4c88");
+	for (i = 0; i < count; i++) {
+		unsigned char val = 0;      /* fp@(-7) */
+
+		if (phase < 4) {
+			si++;
+			prev = cur;
+			cur  = src[si];
+		}
+		switch (phase) {
+		case 1: val = (unsigned char)((cur >> 2) & 0x3f); break;
+		case 2: val = (unsigned char)(((prev << 4) + (cur >> 4)) & 0x3f); break;
+		case 3: val = (unsigned char)(((prev << 2) + (cur >> 6)) & 0x3f); break;
+		case 4: val = (unsigned char)(cur & 0x3f); break;
+		default: break;
+		}
+		phase = (phase < 4) ? (short)(phase + 1) : 1;
+		if (val != 0 && val <= 31)
+			val = (unsigned char)(val + 64);
+		*dst++ = (char)val;
+	}
+	*dst = 0;
+}
+
+/* L4fbe (CODE 7 + 0x4fbe) — decompress string `index` of record `rec`
+ * into `out`. The packed byte-length scales to a character count by
+ * x4/3 (three packed bytes carry four 6-bit chars). Out-of-range index
+ * yields the empty string. */
+static void l4fbe(void *rec, short index, char *out) __attribute__((unused));
+static void l4fbe(void *rec, short index, char *out)
+{
+	const unsigned char *src;
+	const unsigned char *lt;
+	short                nchars;
+
+	PROBE("L4fbe");
+	l4ab6(rec);
+	if (index < 0 || index >= 400) {
+		*out = 0;
+		return;
+	}
+	src    = (const unsigned char *)(uintptr_t)g_a5_long(-12318)
+	       + l4a30(index);
+	lt     = (const unsigned char *)(uintptr_t)g_a5_long(-12314);
+	nchars = (short)((((unsigned short)lt[index] << 2) & 0xffff) / 3);
+	l4c88(src, out, nchars);
+}
+
+/* JT[232] (CODE 7 + 0x0138, 27 sites) — fetch in-game string `num` from
+ * record `rec` into `out`, then expand the first two '^' markers to the
+ * active character's name (g_a5_-27932 + 96), shifting the buffer in
+ * place; a third and later marker is left literal (the Mac caps the
+ * substitution counter at 3 before the compare). The name insert opens a
+ * gap (tail moves right by namelen-1) then copies the name over the
+ * marker. */
+static void jt232(void *rec, short num, char *out) __attribute__((unused));
+static void jt232(void *rec, short num, char *out)
+{
+	const char *name = (const char *)g_a5_27932 + 96;
+	short       subs = 0;
+	char       *p;
+
+	PROBE("jt232");
+	l4fbe(rec, (short)(num - 1), out);
+	for (p = out; *p != 0; p++) {
+		if (*p == '^') {
+			short namelen;
+			if (++subs >= 3)
+				continue;
+			namelen = jt423(name);
+			/* open a namelen-1 gap: move the tail (incl. NUL) right */
+			jt406(p + namelen, p + 1, jt423(p));
+			/* write the name over the marker */
+			jt406(p, name, namelen);
+			p += namelen - 1;
+		}
+	}
+}
+
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
