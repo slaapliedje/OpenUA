@@ -40,11 +40,13 @@ OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
 
 # Faithful-as-a-stub: the Mac body really is empty or a bare constant.
 # Verified against the disassembly; these are DONE, not pending.
-#   jt3   — THINK C inline `switch` dispatch: there is NO shared body to
-#           lift; every call site reads its own inline table and emits an
-#           equivalent C switch (see CLAUDE.md). The jtN function form is
-#           a permanent placeholder, never called on the real path.
-NOOP = {1170, 1198, 1163, 949, 3}
+#   jt1/jt2/jt3 — the THINK C inline `switch` dispatch family (jt3 =
+#           range table, jt1 = word-value list, jt2 = long-value list):
+#           there is NO shared body to lift; every call site reads its
+#           own inline table and emits an equivalent C switch (see
+#           CLAUDE.md). The jtN function form is a permanent placeholder,
+#           never called on the real path.
+NOOP = {1170, 1198, 1163, 949, 3, 1, 2}
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work

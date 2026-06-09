@@ -18631,6 +18631,22 @@ static unsigned char jt873(short a, short b)
 	return (unsigned char)jt870((short)(a & 0xff), (short)(b & 0xff));
 }
 
+/* JT[498] (CODE 13 + 0x26ea) — reset the combat-actor's order block
+ * (rec->[64]): clear the queued-move word (+4) and the state bytes
+ * (+0, +8 guard, +9). Always returns 1. */
+static unsigned char jt498(long rec) __attribute__((unused));
+static unsigned char jt498(long rec)
+{
+	unsigned char *e = *(unsigned char **)(uintptr_t)(rec + 64);
+
+	PROBE("jt498");
+	*(short *)(e + 4) = 0;
+	e[0] = 0;
+	e[9] = 0;
+	e[8] = 0;
+	return 1;
+}
+
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
