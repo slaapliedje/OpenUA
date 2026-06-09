@@ -19495,6 +19495,63 @@ static void   jt878(long entity_long, short item_type, long item_long)
 		l1b14(entity, 2);
 	}
 }
+
+/* JT[503] (CODE 13 + 0x21ec) — LEAF STUB. The 0x218-byte effect-resolution
+ * routine (23 jsrs over JT[516]/JT[525]/L18de) that renders a rolled effect's
+ * on-screen result. jt871 invokes it only in its optional trailing result-
+ * pointer branch; deferred to its own lift. */
+static void jt503(long entity, short a, long ptr) __attribute__((unused));
+static void jt503(long entity, short a, long ptr)
+                                  { PROBE("jt503"); (void)entity; (void)a; (void)ptr; }
+
+/* JT[871] (CODE 18 + 0x2308, 20 sites) — apply an item/spell effect of type
+ * `code` to `entity` and report the outcome.
+ *
+ *   1. Stash `code` in g_a5_25268 and run the type-9 item-effect list
+ *      (jt868 = L0420 case 9), which may zero g_a5_25268 if absorbed.
+ *   2. If g_a5_25268 is now 0, OR the caller flagged an immunity
+ *      (s22 != 0 && s20 == 1), print "<name> is Unaffected" (jt18) and stop.
+ *   3. Otherwise: if the entity already holds an instance of the type with a
+ *      non-zero duration ([2]), remove it first (jt878); append the new
+ *      effect node to the entity's list (jt876 = L1666); and if a result
+ *      pointer was supplied and is non-empty, resolve it on screen
+ *      (jt503 + jt20).
+ *
+ * Args are the Mac word slots; the byte-sized ones use their low byte. No
+ * lifted caller yet (the CODE 18 spell/effect-apply path). */
+static void jt871(long entity, short code, short s14, short d_arg,
+                  short e_arg, short s20, short s22, long ptr24)
+                                                        __attribute__((unused));
+static void jt871(long entity, short code, short s14, short d_arg,
+                  short e_arg, short s20, short s22, long ptr24)
+{
+	unsigned char *e = (unsigned char *)(uintptr_t)entity;
+	void *out = 0;
+
+	PROBE("jt871");
+	g_a5_byte(-25268) = (unsigned char)(code & 0xff);
+	jt868(9, (void *)&entity);              /* L0420 case 9 */
+
+	if ((unsigned char)g_a5_byte(-25268) == 0
+	 || ((s22 & 0xff) != 0 && (s20 & 0xff) == 1)) {  /* L2338 — immune */
+		jt18(e, (long)(uintptr_t)"is Unaffected", 10, 1);
+		return;
+	}
+
+	/* L2356 — apply the effect. */
+	if (jt41(entity, (short)(unsigned char)g_a5_byte(-25268), &out) != 0) {
+		unsigned char *held = (unsigned char *)out;
+		if (held != NULL && *(short *)(held + 2) != 0)
+			jt878(entity, code, (long)(uintptr_t)held);
+	}
+
+	jt876(entity, code, s14, d_arg, e_arg); /* L1666 — append the effect node */
+
+	if (ptr24 != 0 && *(unsigned char *)(uintptr_t)ptr24 != 0) {
+		jt503(entity, 1, ptr24);
+		jt20();
+	}
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
