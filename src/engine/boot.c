@@ -20124,6 +20124,58 @@ static void l6090(short px, short py)
 	}
 	jt1193();
 }
+
+/* JT[521] (CODE 14 + 0x6836, 17 sites) — scroll/redraw the overland-map view
+ * one step in direction `dir` from base cell (bx,by). Computes the target cell
+ * via the facing-delta tables (g_a5_27862/27853); if the view must scroll
+ * (l6652, margin `c`) it redraws the clipped viewport and every visible
+ * creature (l6554 -> jt57 from the g_a5_25676 table). Then it redraws the base
+ * cell (l6090), clamps the target to the 50x25 map when it falls outside the
+ * 7x7 window (l6520), draws the party fan there (l5e9a), and ends (jt117). */
+static void jt521(short bx, short by, short c, short dir) __attribute__((unused));
+static void jt521(short bx, short by, short c, short dir)
+{
+	unsigned char *scroll;
+	short tx, ty, j;
+
+	PROBE("jt521");
+	(void)jt108(1);
+	tx = (short)((signed char)g_a5_buf(-27862)[dir] + bx);
+	ty = (short)((signed char)g_a5_buf(-27853)[dir] + by);
+
+	if (l6652(tx, ty, c)) {
+		l744e();
+		for (j = 1; j <= (unsigned char)g_a5_byte(-27468); j++) {
+			long e = *(long *)(g_a5_buf(-25676) + j * 4);
+			unsigned char *ep = (unsigned char *)(uintptr_t)e;
+			long gr;
+			if (ep == NULL || ep[382] == 0)
+				continue;
+			if (g_a5_buf(-27472)[j * 6 + 5] == 0)
+				continue;
+			if (!l6554(e, 0))
+				continue;
+			gr = *(long *)(ep + 64);
+			jt57((short)(signed char)g_a5_buf(-27059)[j],
+			     (short)(signed char)g_a5_buf(-26991)[j],
+			     ((unsigned char *)(uintptr_t)gr)[11], 0, ep[189]);
+		}
+		jt1193();
+	}
+
+	l6090(bx, by);
+
+	scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	if (!l6520((short)(tx - *(short *)(scroll + 2)),
+	           (short)(ty - *(short *)(scroll + 4)))) {
+		if (tx > 49) tx = 49;
+		if (tx < 0)  tx = 0;
+		if (ty > 24) ty = 24;
+		if (ty < 0)  ty = 0;
+	}
+	l5e9a(tx, ty);
+	(void)jt117();
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
