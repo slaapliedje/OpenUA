@@ -20171,6 +20171,193 @@ static short jt580(void)                         { PROBE("jt580"); return 0; }
 static void  l1c92(void)                         { PROBE("L1c92"); }
 static void  l1cd2(void)                         { PROBE("L1cd2"); }
 
+/* ====================================================================
+ * jt21 derived-stat math primitives (CODE 6). These pure-logic helpers
+ * compute the AD&D Strength index, weight allowance, encumbrance-driven
+ * movement, and the AC / save contributions of equipped items; jt21
+ * (the character-record recompute) wires them together. The item-type
+ * table base is g_a5_27944 (16-byte records: [0]=kind, [6]=codec byte).
+ * ==================================================================== */
+
+/* L1d54 (CODE 6 + 0x1d54) — map a character's Strength (player[113], plus the
+ * exceptional-strength percentile player[124] when STR is 18) to the dense
+ * 0..30 index the weight/encumbrance tables key on. 18/01-50 -> 19, /51-75 ->
+ * 20, /76-90 -> 21, /91-99 -> 22, /00 -> 23; STR 19..25 (giant) -> STR+5. */
+static short l1d54(const unsigned char *m) __attribute__((unused));
+static short l1d54(const unsigned char *m)
+{
+	short s = m[113];
+
+	PROBE("L1d54");
+	if (s <= 17)                    /* L1d78 — ordinary STR 0..17 */
+		return m[113];
+	if (s == 18) {                  /* L1d86 — exceptional STR */
+		short pct = m[124];
+		if (pct == 0)   return 18;
+		if (pct <= 50)  return 19;
+		if (pct <= 75)  return 20;
+		if (pct <= 90)  return 21;
+		if (pct <= 99)  return 22;
+		return 23;              /* pct == 100 */
+	}
+	if (s >= 19 && s <= 25)         /* L1e28 — giant Strength */
+		return (short)(m[113] + 5);
+	return 0;
+}
+
+/* L2000 (CODE 6 + 0x2000) — the AD&D weight-allowance adjustment (tenths of a
+ * pound) for a character's Strength index (via L1d54): negative for weak STR,
+ * climbing steeply for 18/xx and giant grades. */
+static short l2000(const unsigned char *m) __attribute__((unused));
+static short l2000(const unsigned char *m)
+{
+	short s = l1d54(m);
+
+	PROBE("L2000");
+	if (s <= 0)   return 0;         /* (asm leaves it unset; 0 is safe) */
+	if (s <= 3)   return -350;
+	if (s <= 5)   return -250;
+	if (s <= 7)   return -150;
+	if (s <= 11)  return 0;
+	if (s <= 13)  return 100;
+	if (s <= 15)  return 200;
+	if (s <= 16)  return 350;
+	if (s <= 21)  return (short)((s - 17) * 250 + 500);
+	if (s <= 26)  return (short)((s - 22) * 1000 + 2000);
+	if (s <= 27)  return 7500;
+	if (s <= 30)  return (short)((s - 28) * 3000 + 9000);
+	return 0;
+}
+
+/* L0d44 (CODE 6 + 0x0d44) — clamp a character's movement rate (player[396]) by
+ * encumbrance: the remaining allowance is the carry capacity (player[86]) less
+ * the Strength weight allowance (L2000), bucketed >768 -> 6, >512 -> 9, else
+ * keep current; only ever lowers the rate. */
+static void l0d44(unsigned char *m) __attribute__((unused));
+static void l0d44(unsigned char *m)
+{
+	short rem = (short)(*(short *)(m + 86) - l2000(m));
+	short mc;
+
+	PROBE("L0d44");
+	if (rem < 0)
+		rem = 0;
+	if (rem > 1024)         mc = 3;
+	else if (rem <= 512)    mc = m[396];
+	else if (rem <= 768)    mc = 9;
+	else                    mc = 6;
+	if ((unsigned char)mc < m[396])
+		m[396] = (unsigned char)mc;
+}
+
+/* L1ba4 (CODE 6 + 0x1ba4) — the to-hit / damage style adjustment keyed on
+ * player[119] (a low attribute score): 1-3 -> -4, 4-6 -> -3..-1, 15-18 ->
+ * +1..+4, 19-20 -> +4, 21-23 -> +5, 24-25 -> +6, else 0. */
+static short l1ba4(const unsigned char *m) __attribute__((unused));
+static short l1ba4(const unsigned char *m)
+{
+	short v = m[119];
+
+	PROBE("L1ba4");
+	if (v >= 1 && v <= 3)    return -4;
+	if (v >= 4 && v <= 6)    return (short)(v - 7);
+	if (v >= 15 && v <= 18)  return (short)(v - 14);
+	if (v >= 19 && v <= 20)  return 4;
+	if (v >= 21 && v <= 23)  return 5;
+	if (v >= 24 && v <= 25)  return 6;
+	return 0;
+}
+
+/* L0b3e (CODE 6 + 0x0b3e) — set movement rate (player[396]) from an item whose
+ * type record (g_a5_27944 + item[40]*16) is kind 2 (a mount/vehicle): by the
+ * item's speed field item[44] (>399 -> 6, <=150 -> base player[136], else 9),
+ * +3 when item[48] is set and the rate is still <=9. */
+static void l0b3e(unsigned char *m, const unsigned char *item) __attribute__((unused));
+static void l0b3e(unsigned char *m, const unsigned char *item)
+{
+	const unsigned char *rec =
+		(const unsigned char *)(uintptr_t)g_a5_long(-27944)
+		+ ((unsigned)item[40] << 4);
+	unsigned short w;
+
+	PROBE("L0b3e");
+	if (rec[0] != 2)
+		return;
+	w = *(unsigned short *)(item + 44);
+	if (w > 399)            m[396] = 6;
+	else if (w <= 150)      m[396] = m[136];
+	else                    m[396] = 9;
+	if (item[48] != 0 && m[396] <= 9)
+		m[396] = (unsigned char)(m[396] + 3);
+}
+
+/* L0be0 (CODE 6 + 0x0be0) — fold one equipped item's contributions into the
+ * AC / save accumulator `acc` (6 bytes) and the carried-weight field
+ * player[195]. The item type record's codec byte (rec[6]) gates the item
+ * (bit7 must be set) and carries a magnitude in its low 7 bits; rec[0] (kind)
+ * selects which slot the item's [48] bonus lands in:
+ *   kind 1            -> acc[1] = mag + bonus
+ *   mag != 0          -> acc[5] = max(acc[5], mag + bonus); flag a worn shield
+ *                        (flagout) when bonus>0 and kind==2
+ *   mag == 0, kind 9  -> acc[3] = max(acc[3], bonus)
+ *   mag == 0, kind 7  -> acc[4] = bonus
+ *   mag == 0, else    -> acc[2] += bonus, and player[195] += item[49] */
+static void l0be0(unsigned char *m, const unsigned char *item,
+                  unsigned char *acc, unsigned char *flagout) __attribute__((unused));
+static void l0be0(unsigned char *m, const unsigned char *item,
+                  unsigned char *acc, unsigned char *flagout)
+{
+	const unsigned char *rec =
+		(const unsigned char *)(uintptr_t)g_a5_long(-27944)
+		+ ((unsigned)item[40] << 4);
+	short mag  = rec[6];
+	short kind;
+	short bonus = (signed char)item[48];
+
+	PROBE("L0be0");
+	if ((mag & 0x80) == 0)                  /* codec bit 7 must be set */
+		return;
+	mag &= 0x7f;
+	kind = rec[0];
+
+	if (kind == 1) {                        /* L0b88-ish: direct slot */
+		acc[1] = (unsigned char)(mag + bonus);
+		return;
+	}
+	if (mag != 0) {                         /* L0cec — best-of magnitude */
+		short v = (short)(bonus + mag);
+		if ((unsigned short)v <= (unsigned short)(signed char)acc[5])
+			return;
+		acc[5] = (unsigned char)v;
+		if (bonus > 0 && kind == 2)
+			flagout[0] = 1;
+		return;
+	}
+	/* mag == 0 (L0c60) */
+	if (kind == 9) {                        /* AC: keep the best */
+		if (bonus > (signed char)acc[3])
+			acc[3] = (unsigned char)bonus;
+	} else if (kind == 7) {
+		acc[4] = (unsigned char)bonus;
+	} else {
+		acc[2] = (unsigned char)((signed char)acc[2] + bonus);
+	}
+	m[195] = (unsigned char)((signed char)m[195] + (signed char)item[49]);
+}
+
+/* L2fd8 (CODE 6 + 0x2fd8) — the higher of a class field player[idx+157] and,
+ * when L2f4c says the class has the alternate progression, player[idx+164]. */
+static short l2fd8(const unsigned char *m, short idx) __attribute__((unused));
+static short l2fd8(const unsigned char *m, short idx)
+{
+	short i = (short)(signed char)(idx & 0xff);
+	unsigned char a = (m + i)[157];
+	unsigned char b = l2f4c(m) ? (m + i)[164] : 0;
+
+	PROBE("L2fd8");
+	return (a > b) ? (short)a : (short)b;
+}
+
 #define g_a5_18486 g_a5_byte(-18486)   /* "save-flag" gate for player[49] clear */
 #define g_a5_18877 g_a5_byte(-18877)   /* per-player byte copied into player[19] */
 #define g_a5_13904 g_a5_long(-13904)   /* JT[182] source prompt for save picker */
