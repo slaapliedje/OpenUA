@@ -18859,6 +18859,7 @@ static void jt232(void *rec, short num, char *out)
 	}
 }
 
+
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
@@ -19954,14 +19955,31 @@ static signed char l4ec6(long ptr)
  *
  * Both arg3 and arg4 are accessed by the Mac via fp@(17) / fp@(19),
  * the low bytes of the two trailing short slots. Modelled here as
- * proper short args; their low bytes feed L1806 / L206e / L23b4.
- *
- * L1806 / L206e / L23b4 / L25b6 stay PROBE stubs — L25b6 alone is
- * a 200+-line interactive event loop with its own 8-arm JT[3]
- * dispatch (the design-roster selection grid). With L25b6
- * returning 0, jt182 returns 0, jt904 case 0 -> L25ce sets
- * *out_done = 1, jt904 exits cleanly through its loop predicate. */
-static void  l1806(short v)                          { PROBE("L1806"); (void)v; }
+ * proper short args; their low bytes feed L1806 / L206e / L23b4. */
+
+/* L23b4 (the modal event loop) and L25b6 (the result translator) are
+ * defined further down; L1806 calls both. */
+static short l23b4(short arg);
+static short l25b6(short arg_count, unsigned char *buf,
+                   unsigned char *flag_out);
+
+/* L1806 / JT[181] (CODE 7 + 0x1806, 27 sites) — put up the modal "Press
+ * [Return] to continue." panel and wait for the user. Faithful: draw the
+ * panel + Return button (L177a), arm any-key mode 2 (L2858), run the modal
+ * event loop (L23b4), and translate its result (L25b6). The item buffer is
+ * NULL — unlike the roster pickers (jt182 et al.) this prompt has no
+ * selection grid. g_a5_-24139 is the cancel byte L25b6 also writes via
+ * flag_out. */
+static void l1806(short v)
+{
+	short tmp;
+
+	PROBE("L1806");
+	l177a();
+	l2858((short)2);
+	tmp = l23b4((short)(signed char)(v & 0xff));
+	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
+}
 /* New PROBE-stub helpers L206e calls. */
 /* JT[482] (CODE 3 + 0x0024) — substring extract into g_a5_-10362.
  *

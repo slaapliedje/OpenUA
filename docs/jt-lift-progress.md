@@ -13,13 +13,13 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 236 done (227 lifted, 7 noop, 2 alias), 90 stub, 879 missing.
+**1205 distinct JT entries are called.** Overall: 237 done (227 lifted, 7 noop, 3 alias), 90 stub, 878 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **84/100** | 77 | 7 | 1 | 15 |
+| 1 | 1–100 | **85/100** | 77 | 8 | 1 | 14 |
 | 2 | 101–200 | **34/100** | 34 | 0 | 15 | 51 |
 | 3 | 201–300 | **23/100** | 23 | 0 | 12 | 65 |
 | 4 | 301–400 | **19/100** | 18 | 1 | 4 | 77 |
@@ -99,7 +99,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 60 | jt471 | 28 | LIFTED |  |
 | 61 | jt937 | 28 | LIFTED |  |
 | 62 | jt65 | 27 | LIFTED |  |
-| 63 | jt181 | 27 | **MISSING** |  |
+| 63 | jt181 | 27 | ALIAS | lifted as l1806 (same address, the modal 'press a key' prompt) |
 | 64 | jt232 | 27 | LIFTED |  |
 | 65 | jt358 | 27 | LIFTED |  |
 | 66 | jt396 | 27 | LIFTED |  |
@@ -256,7 +256,6 @@ an uncharted multi-function cluster — lift the cluster first);
 - jt936 (31 calls) — missing — dispatcher — 187-line. Own session
 - jt868 (30 calls) — missing — dispatcher — 771-line 25-case popup/menu hub; gates jt866/jt871/jt875. Own session
 - jt17 (29 calls) — missing — dispatcher — 111-line. Own session
-- jt181 (27 calls) — missing — subsystem — small body over the panel-draw cluster (L177a/L2858/L23b4/L25b6)
 - jt21 (26 calls) — missing — dispatcher — 454-line. Own session
 - jt52 (24 calls) — missing — dispatcher — 160-line. Own session
 - jt57 (23 calls) — missing — dispatcher — 74-line. Own session

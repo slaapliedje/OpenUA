@@ -55,6 +55,7 @@ ALIAS_LIFTED = {
     449: "lifted as l2c60",
     1084: "lifted as l036a (same address, the error dialog)",
     63: "lifted as l60b4 (same address, byte->decimal scratch)",
+    181: "lifted as l1806 (same address, the modal 'press a key' prompt)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
@@ -66,10 +67,6 @@ PENDING_NOTES = {
           "backend, not a transcription",
     1061: "trap-shim — issues Mac OS traps 0xa05d/0xaded/0xa9ee (Memory "
           "Manager handle-state family); needs the handle-flags shim",
-    232:  "subsystem — small body over the word-wrap measurement cluster "
-          "(L4fbe -> L4ab6/L4a30/L4c88, the x4/3 char-pixel scaling)",
-    181:  "subsystem — small body over the panel-draw cluster "
-          "(L177a/L2858/L23b4/L25b6)",
     868:  "dispatcher — 771-line 25-case popup/menu hub; gates jt866/jt871/"
           "jt875. Own session",
     501:  "dispatcher — 598-line. Own session",
