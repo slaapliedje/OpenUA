@@ -10274,7 +10274,53 @@ static void jt215(void)
 	g_a5_word(-12272) = (jt1200() == 3) ? (short)12 : (short)8;
 }
 static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
-static signed char jt276(short cell)                    { PROBE("jt276"); (void)cell; return 0; }             /* CODE 22+0x475e */
+/* JT[276] (CODE 22 + 0x475e) — area-map cell topology test.  Walks the four
+ * neighbours of `cell` (N/E/S/W, via a JT[3] direction switch) in the level
+ * cell array (base g_a5_-12300; base[2]=height, base[3]=width; cell records are
+ * 6 bytes starting at base+290, dir wall bytes at +290 S / +291 W / +292 N /
+ * +293 E).  Returns 0 as soon as a neighbour exists (not a map edge) whose wall
+ * byte's high nibble is 0 (passable), else 1 (the cell is fully enclosed by
+ * walls / map edges).  cb2 (jt236) inverts this for the walk's block test. */
+static signed char jt276(short cell)
+{
+	unsigned char *base = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short width  = base[3];
+	short height = base[2];
+	short d;
+
+	PROBE("jt276");
+	for (d = 0; d < 4; d++) {
+		unsigned char *nb = NULL;
+
+		switch (d) {
+		case 0: {                               /* North (L4782) */
+			short row = (short)(cell - width);
+			if (row >= 0)                   /* not off the top edge */
+				nb = base + (long)row * 6 + 292;
+			break;
+		}
+		case 1:                                 /* East (L47b8) */
+			if ((unsigned short)(cell + 1) % (unsigned short)width != 0)
+				nb = base + (long)(cell + 1) * 6 + 293;
+			break;
+		case 2: {                               /* South (L47f8) */
+			short row = (short)((unsigned short)cell / (unsigned short)width);
+			if ((unsigned short)(row + 1) < (unsigned short)height)
+				nb = base + (long)(cell + width) * 6 + 290;
+			break;
+		}
+		case 3:                                 /* West (L483e) */
+			if ((unsigned short)((cell - 1)) % (unsigned short)width
+			    < (unsigned short)(width - 1))
+				nb = base + (long)(cell - 1) * 6 + 291;
+			break;
+		}
+
+		if (nb != NULL && ((*nb >> 4) & 15) == 0)
+			return 0;
+	}
+	return 1;
+}
 /* JT[287] (CODE 22 + 0x1bc6) — the dungeon-walk KEYBOARD action proc l6256
  * installs on the shape-7 keyboard source. l2d3e calls it (idx, key) on a key
  * event; it accepts the movement / command keys and stashes the accepted key
