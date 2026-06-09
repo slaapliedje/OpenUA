@@ -17299,8 +17299,16 @@ static const struct {
 	{ 0x5f40, 'V', 8004, 8094 },   /* 6  "View Character"     */
 	{ 0x5f2c, 'H', 8004, 8087 },   /* 7  "Human Change Class" */
 	{ 0x5fa4, 'E', 8084, 8094 },   /* 8  "Exit From Play"     */
-	{ 0x5f92, 'B', 8084, 8087 },   /* 9  "Begin Adventuring"  */
-	{ 0x5f80, 'S', 8084, 8080 },   /* 10 "Save Current Game"  */
+	/* The install index IS the JT[3] dispatch case (jt453 returns it).
+	 * Save before Begin here so the index->case bodies line up with the
+	 * labels: case 9 (l1142) = disk save, case 10 (l115a) = play-entry.
+	 * Verified on the real Mac (BasiliskII, 2026-06-09): clicking "Save
+	 * Current Game" pops the A-J slot dialog (case 9 save); "Begin
+	 * Adventuring" enters the dungeon with no save (case 10 play). The
+	 * y-coords (phrase 8080 above 8087) keep Save drawn above Begin
+	 * on screen, matching the Mac. */
+	{ 0x5f80, 'S', 8084, 8080 },   /* 9  "Save Current Game" -> case 9  (l1142 save) */
+	{ 0x5f92, 'B', 8084, 8087 },   /* 10 "Begin Adventuring" -> case 10 (l115a play) */
 	{ 0x5f70, 'L', 8084, 8073 },   /* 11 "Load Saved Game"    */
 };
 
@@ -26399,11 +26407,12 @@ static int l1060(short a)
 
 /* L10ca — case 8 (Exit From Play / proceed-to-adventure). CODE 12 + 0x10ca.
  *
- * THIS is the real "Begin Adventuring" bridge: its L112c path is the ONLY
- * jt918 arm that returns 1, and L07dc proceeds into the dungeon exactly when
- * jt918 returns non-zero (`if (jt918(1) == 0) goto cleanup`). The L112c path
- * calls JT[942](1) (the adventure-mode setup) then returns 1. (Case 9 / l1142,
- * once mislabelled "Begin Adventuring", is actually Save Game — JT[585].)
+ * "Exit From Play" with the design's quit/teardown. Its L112c path (taken when
+ * arg a==0) is a return-1 begin-primitive (JT[942](1) then return 1), but l07dc
+ * calls jt918(1) so a!=0 here -> the unload/JT[582] path -> return 0; this arm
+ * does NOT begin in normal play. The faithful play-entry is case 10 (l115a),
+ * which "Begin Adventuring" reaches; case 9 (l1142) is Save Game — JT[585].
+ * (Runtime-verified on BasiliskII, 2026-06-09; see l1142's comment.)
  *
  *   tstb a5@(-14432); beqw L1242
  *   tstl a5@(-27932); beqs L10f4
@@ -26447,40 +26456,33 @@ static int l10ca(short a)
 	return 1;       /* L1262 — return 1 */
 }
 
-/* L1142 — case 9 = the "Begin Adventuring" menu item. CODE 12 + 0x1142.
+/* L1142 — case 9 = "Save Current Game". CODE 12 + 0x1142.
  *
- * RAW-DISASM ODDITY (verified, 2026-06-07): the STRS label rendered at this
- * build slot is "Begin Adventuring" (dumped live from the resource), the
- * jt918 JT[3] table (0x0efc) maps selection 9 -> 0x1142 (identity), yet the
- * 0x1142 body calls JT[585] = CODE 15+0x1a24, which is the SAVE routine
- * ("Saving...Please Wait", "SavGam%s%c"+"csv"). So the shipped CODE-12
- * dispatch sends the "Begin Adventuring" button to save code and "Save
- * Current Game" (sel 10 -> l115a) to the return-1 play-entry — inverted from
- * the labels. That label/case knot in the original save subsystem is not yet
- * fully resolved; rather than ship a button that lies, the port routes the
- * "Begin Adventuring" item to the engine's begin-adventure primitive so the
- * labelled button reaches the faithful dungeon.
+ * KNOT RESOLVED (BasiliskII runtime observation, 2026-06-09). The static read
+ * *looked* inverted ("Begin Adventuring" label -> a save body), and the port
+ * used to bridge around it by routing case 9 to the begin-primitive. Runtime
+ * settled it: the menu install index IS the JT[3] dispatch case (jt453 returns
+ * it), and the port's k_jt918_menu_items had rows 9/10 in the wrong order. On
+ * the real Mac, "Save Current Game" pops the A-J slot dialog (case 9 = this
+ * body, JT[585]) and "Begin Adventuring" enters the dungeon with no save
+ * (case 10 = l115a, the return-1 play-entry). With rows 9/10 swapped so Save
+ * sits at index 9 and Begin at index 10, the labels reach their faithful
+ * bodies and the bridge is gone: "Begin Adventuring" -> case 10 (l115a) ->
+ * return 1 -> l07dc -> jt948.
  *
- * The begin primitive is l10ca's L112c arm verbatim: jt942(1) (sets the
- * adventure loop-continue flag g_a5_-4944 that l07dc's jt943 reads),
- * g_a5_-27982 = 1 (active-adventure gate jt948 checks), return 1 — which
- * makes l07dc proceed l67ca/jt937/jt938 -> jt217 -> JT[948], the faithful
- * dungeon walk loop (jt240 -> l63c0 -> jt297 -> l1908 -> jt312). Gated like
- * the real arm on the item-enable flag (g_a5_-14431) + an assembled party
- * (g_a5_-27928). Replaces the old port_begin_adventure/port_play_demo bridge. */
+ * Faithful body: gated on the item-enable flag (g_a5_-14431) + a party to
+ * save (g_a5_-27928); calls JT[585] (the "Save Which Game" dialog) then
+ * returns 0, so a save stays in the menu. */
 static int l1142(short a)
 {
 	(void)a;
 	PROBE("jt918/case9 L1142");
-	if (g_a5_14431 == 0)            /* "Begin Adventuring" item disabled */
+	if (g_a5_14431 == 0)            /* "Save Current Game" item disabled */
 		return 0;
-	if (g_a5_27928 == 0) {          /* no party assembled */
-		jt159(ua_strs_at(0x5fb6), 1);   /* faithful: the item would be dimmed */
+	if (g_a5_27928 == 0)            /* no party to save */
 		return 0;
-	}
-	jt942(1);                       /* adventure-mode loop flag (l10ca L112c) */
-	g_a5_27982 = 1;                 /* active-adventure gate */
-	return 1;                       /* -> l07dc -> jt948 (faithful dungeon) */
+	jt585();                        /* the "Save Which Game" A-J save dialog */
+	return 0;                       /* L1242 — save returns 0 (stay in menu) */
 }
 
 /* L115a — case 10 (Save Current Game). CODE 12 + 0x115a.
