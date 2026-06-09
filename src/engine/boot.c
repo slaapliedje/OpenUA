@@ -18593,6 +18593,44 @@ static void   jt876(long a, short b, short c, short d, short e)
 	node[5]             = (unsigned char)(e & 0xff);
 	node[4]             = (unsigned char)(d & 0xff);
 }
+/* JT[65] (CODE 6 + 0x5f4e) — zero-fill `size` bytes at `ptr`
+ * (jt399 with fill 0). */
+static void jt65(long ptr, short size) __attribute__((unused));
+static void jt65(long ptr, short size)
+{
+	PROBE("jt65");
+	jt399((void *)(uintptr_t)ptr, size, 0);
+}
+
+/* JT[147] (CODE 7 + 0x18d4) — free a singly-linked list whose .next is
+ * at offset 0: walk from *head, releasing each 40-byte node back to the
+ * g_a5_21156 bucket via jt471. */
+static void jt147(void *headp) __attribute__((unused));
+static void jt147(void *headp)
+{
+	long cur;
+
+	PROBE("jt147");
+	cur = *(long *)headp;
+	while (cur != 0) {
+		long prev = cur;
+
+		cur = *(long *)(uintptr_t)cur;            /* .next at +0 */
+		jt471(prev, 40, (void *)(uintptr_t)g_a5_21156);
+	}
+}
+
+/* JT[873] (CODE 18 + 0x1638) — stash the popup's selected row index
+ * (-25261) and return the pixel height of `a` rows of item `b`
+ * (jt870 = sum of jt485(b)+1). */
+static unsigned char jt873(short a, short b) __attribute__((unused));
+static unsigned char jt873(short a, short b)
+{
+	PROBE("jt873");
+	g_a5_byte(-25261) = (unsigned char)(a & 0xff);
+	return (unsigned char)jt870((short)(a & 0xff), (short)(b & 0xff));
+}
+
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
