@@ -18695,6 +18695,21 @@ static void jt102(void)
 	jt476((short)(p[18] * 100));
 }
 
+/* JT[118] (CODE 6 + 0x37d6, 22 sites) — cursor-safe wall-tile blit.
+ * Byte-identical to JT[114] in the Mac binary except it first runs
+ * jt108(1) to hide the cursor / mark the page dirty; THINK C inlined
+ * the shared tail rather than sharing it, so delegating to jt114 here
+ * is the faithful equivalent. */
+static void jt118(unsigned char *page, short top, short left, short idx,
+                  long handle) __attribute__((unused));
+static void jt118(unsigned char *page, short top, short left, short idx,
+                  long handle)
+{
+	PROBE("jt118");
+	jt108(1);
+	jt114(page, top, left, idx, handle);
+}
+
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
