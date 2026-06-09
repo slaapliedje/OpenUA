@@ -2384,6 +2384,103 @@ static void jt935(void)
 		g_a5_byte(-23188) = 0;                  /* L007c */
 	}
 }
+/* JT[936] (CODE 12 + 0x82, 31 sites) — repaint ONE party-roster HUD row.
+ * Walks the party linked list (head g_a5_27928, link at member offset 0),
+ * advancing a vertical row counter, and repaints the row for the target
+ * `member` AND for the previously-active member stashed in g_a5_27940 (so the
+ * old highlight is cleared). When `highlight` is set and the member is the
+ * target, the name is drawn directly in colour `attr` (jt94) instead of via
+ * the default roster funnel (jt25). Each painted row also draws the THAC0/AC
+ * column (jt34), an active-spell marker (jt97, only when jt1200()==3 and the
+ * member's flag at +197 is set), and the HP-fraction column (jt32). After the
+ * walk, if fewer than 12 rows were emitted it closes the box (jt103).
+ *
+ * attr = colour 1 normally, 17 when g_a5_27990 != 0 (the alternate palette).
+ * -24128..-24131 are a 4-byte text-window descriptor seeded here. Returns
+ * early when in render mode 3 with record[36]==1, or when -27987 is set. */
+static void jt94(short page, short row, short col, short style,
+                 const char *fmt, ...);
+static void jt25(long entry, short page, short row, short style);
+static void jt34(long entry, short page, short row, short unused);
+static void jt32(long entry, short page, short row, short forceRed, short showMax);
+static void jt97(short col, short row, short page, short style,
+                 short a, short ch, short flag);
+static void jt103(short top, short left, short right, short bottom);
+static void jt936(long member, short highlight) __attribute__((unused));
+static void jt936(long member, short highlight)
+{
+	const unsigned char *h;
+	const unsigned char *mp;
+	short attr;             /* fp@(-5): name colour (1 or 17)        */
+	short row;              /* fp@(-6): vertical row counter         */
+	short state;            /* fp@(-7): status-derived column offset */
+	short b;
+
+	PROBE("jt936");
+
+	if (g_a5_byte(-27990) == 3) {                   /* L0082 */
+		h = (const unsigned char *)g_a5_28006;
+		if (h != NULL && h[36] == 1)
+			return;                         /* L02d8 */
+	}
+	if (g_a5_byte(-27987) != 0)                     /* L00a0 */
+		return;
+
+	if (g_a5_long(-27940) == 0)                     /* stash the active member */
+		g_a5_long(-27940) = member;
+
+	attr = (g_a5_byte(-27990) != 0) ? (short)17 : (short)1; /* L00b4 */
+	g_a5_byte(-24131) = (unsigned char)attr;
+	g_a5_byte(-24129) = 4;
+	g_a5_byte(-24130) = 38;
+	g_a5_byte(-24128) = 3;
+
+	row = 4;                                        /* fp@(-6) */
+	mp = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+
+	for (; mp != NULL; mp = *(const unsigned char **)mp) {   /* L029e / L0292 */
+		g_a5_byte(-24128)++;                    /* L00f0 */
+
+		/* paint only the active member and the target; otherwise the
+		 * row still advances so each member keeps its slot. */
+		if ((long)(uintptr_t)mp != g_a5_long(-27940)
+		 && (long)(uintptr_t)mp != member) {
+			row++;                          /* L0292 */
+			continue;
+		}
+
+		if ((highlight & 0xff) && (long)(uintptr_t)mp == member) /* L010a */
+			jt94(attr, row, 11, 0, "%s", (const char *)&mp[96]);
+		else                                                     /* L0148 */
+			jt25((long)(uintptr_t)mp, attr, row, 0);
+
+		/* L0166: condition column from the status byte at +385. */
+		b = mp[385];
+		if (b <= 50)            state = 1;
+		else if (b <= 60)       state = 2;
+		else if (b <= 69)       state = 1;
+		else                    state = 0;
+		jt34((long)(uintptr_t)mp, (short)(state + 32), row, 0);  /* L01e2 */
+
+		/* L0200: HP-fraction column from the byte at +395. */
+		b = mp[395];
+		if (b > 99)             state = 0;
+		else if (b > 9)         state = 1;
+		else                    state = 2;
+
+		if (jt1200() == 3 && mp[197] != 0)              /* L0234 */
+			jt97(35, row, 15, 0, 1, 42, 1);
+
+		jt32((long)(uintptr_t)mp, (short)(state + 36), row, 0, 0); /* L026e */
+
+		row++;                                          /* L0292 */
+	}
+
+	if (row < 12)                                   /* L02a6 — close the box */
+		jt103(attr, row, 38, row);
+
+	g_a5_long(-27940) = 0;                          /* L02d4 */
+}
 static void  jt955(void) __attribute__((unused));
 static void  jt955(void)              { PROBE("jt955"); }   /* CODE 21+0x453c — used by a deferred jt948 arm */
 static void  l0006_20(void)           { PROBE("L0006_20"); } /* CODE 20+0x6 — post-load init */
