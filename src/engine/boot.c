@@ -19750,6 +19750,71 @@ static void jt875(long member, short idx)
 		break;
 	}
 }
+/* ====================================================================
+ * jt521 area-map render tree (CODE 14). jt521 draws the overland/area
+ * map view centred on the party; these leaf helpers do the map-cell and
+ * bounds lookups it builds on. The live map row stride is 50 cells.
+ * ==================================================================== */
+
+/* L6520 (CODE 14 + 0x6520) — is a (dx,dy) within the 0..6 viewport window? */
+static short l6520(short a, short b) __attribute__((unused));
+static short l6520(short a, short b)
+{
+	PROBE("L6520");
+	if ((signed char)a >= 0 && (signed char)a <= 6
+	 && (signed char)b >= 0 && (signed char)b <= 6)
+		return 1;
+	return 0;
+}
+
+/* L62ec (CODE 14 + 0x62ec) — fetch a map cell at (x,y): the terrain byte from
+ * the g_a5_26922 grid into *out_a and the feature byte (cell+9 of the live map
+ * g_a5_25318) into *out_b; both 0 when out of the 50x25 bounds. */
+static void l62ec(short x, short y, unsigned char *out_a,
+                  unsigned char *out_b) __attribute__((unused));
+static void l62ec(short x, short y, unsigned char *out_a, unsigned char *out_b)
+{
+	PROBE("L62ec");
+	if ((signed char)x < 0 || (signed char)x > 49
+	 || (signed char)y < 0 || (signed char)y > 24) {
+		*out_a = 0;
+		*out_b = 0;
+	} else {
+		unsigned char *base = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		*out_b = base[y * 50 + x + 9];
+		*out_a = g_a5_buf(-26922)[y * 50 + x];
+	}
+}
+
+/* L5d92 (CODE 14 + 0x5d92) — look up a directional step in the g_a5_27540
+ * move table (row a*12, entry b*2): the two bytes into *out_c/*out_d; returns
+ * 1 when the step is walkable (*out_c >= 0). a==0 means "no move" -> 0. */
+static short l5d92(short a, short b, unsigned char *out_c,
+                   unsigned char *out_d) __attribute__((unused));
+static short l5d92(short a, short b, unsigned char *out_c, unsigned char *out_d)
+{
+	unsigned char *p;
+
+	PROBE("L5d92");
+	if ((a & 0xff) == 0)
+		return 0;
+	p = g_a5_buf(-27540) + (a & 0xff) * 12 + (b & 0xff) * 2;
+	*out_c = p[0];
+	*out_d = p[1];
+	return ((signed char)*out_c >= 0) ? 1 : 0;
+}
+
+/* L744e (CODE 14 + 0x744e) — set the map-view clip rectangle: the native
+ * 24..248 box in render mode 3, else the doubled-space 8004..8088 box. */
+static void l744e(void) __attribute__((unused));
+static void l744e(void)
+{
+	PROBE("L744e");
+	if (jt1200() == 3)
+		jt1173(24, 24, 248, 248);
+	else
+		jt1173(8004, 8004, 8088, 8088);
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
