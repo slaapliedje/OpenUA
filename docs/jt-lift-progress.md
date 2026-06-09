@@ -13,15 +13,15 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 237 done (227 lifted, 7 noop, 3 alias), 90 stub, 878 missing.
+**1205 distinct JT entries are called.** Overall: 241 done (231 lifted, 7 noop, 3 alias), 91 stub, 873 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **85/100** | 77 | 8 | 1 | 14 |
-| 2 | 101–200 | **34/100** | 34 | 0 | 15 | 51 |
-| 3 | 201–300 | **23/100** | 23 | 0 | 12 | 65 |
+| 1 | 1–100 | **86/100** | 78 | 8 | 2 | 12 |
+| 2 | 101–200 | **36/100** | 36 | 0 | 15 | 49 |
+| 3 | 201–300 | **24/100** | 24 | 0 | 12 | 64 |
 | 4 | 301–400 | **19/100** | 18 | 1 | 4 | 77 |
 | 5 | 401–500 | **15/100** | 15 | 0 | 14 | 71 |
 | 6 | 501–600 | **13/100** | 12 | 1 | 13 | 74 |
@@ -92,9 +92,9 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 53 | jt936 | 31 | **MISSING** |  |
 | 54 | jt1139 | 31 | LIFTED |  |
 | 55 | jt108 | 30 | LIFTED |  |
-| 56 | jt868 | 30 | **MISSING** |  |
+| 56 | jt868 | 30 | LIFTED |  |
 | 57 | jt1198 | 30 | NOOP |  |
-| 58 | jt17 | 29 | **MISSING** |  |
+| 58 | jt17 | 29 | **STUB** |  |
 | 59 | jt102 | 29 | LIFTED |  |
 | 60 | jt471 | 28 | LIFTED |  |
 | 61 | jt937 | 28 | LIFTED |  |
@@ -148,7 +148,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 104 | jt321 | 16 | **MISSING** |  |
 | 105 | jt393 | 16 | LIFTED |  |
 | 106 | jt451 | 16 | **STUB** |  |
-| 107 | jt508 | 16 | **MISSING** |  |
+| 107 | jt508 | 16 | LIFTED |  |
 | 108 | jt595 | 16 | **STUB** |  |
 | 109 | jt1133 | 16 | LIFTED |  |
 | 110 | jt1166 | 16 | **MISSING** |  |
@@ -159,7 +159,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 115 | jt934 | 15 | **MISSING** |  |
 | 116 | jt1012 | 15 | **STUB** |  |
 | 117 | jt387 | 14 | LIFTED |  |
-| 118 | jt479 | 14 | **MISSING** |  |
+| 118 | jt479 | 14 | LIFTED |  |
 | 119 | jt523 | 14 | **MISSING** |  |
 | 120 | jt857 | 14 | **MISSING** |  |
 | 121 | jt869 | 14 | **MISSING** |  |
@@ -254,17 +254,16 @@ an uncharted multi-function cluster — lift the cluster first);
 
 - jt1061 (38 calls) — missing — trap-shim — issues Mac OS traps 0xa05d/0xaded/0xa9ee (Memory Manager handle-state family); needs the handle-flags shim
 - jt936 (31 calls) — missing — dispatcher — 187-line. Own session
-- jt868 (30 calls) — missing — dispatcher — 771-line 25-case popup/menu hub; gates jt866/jt871/jt875. Own session
-- jt17 (29 calls) — missing — dispatcher — 111-line. Own session
+- jt17 (29 calls) — stub — dispatcher — 111-line; currently a leaf stub for L01de (jt868 hub). Own session to lift the real body
 - jt21 (26 calls) — missing — dispatcher — 454-line. Own session
 - jt52 (24 calls) — missing — dispatcher — 160-line. Own session
 - jt57 (23 calls) — missing — dispatcher — 74-line. Own session
 - jt1177 (22 calls) — stub — HAL — Mac framebuffer addressing; needs the row-blit display backend, not a transcription
-- jt871 (20 calls) — missing — gated by jt868 (the popup hub dispatches it)
+- jt871 (20 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
 - jt28 (18 calls) — missing — dispatcher — 307-line. Own session
 - jt501 (18 calls) — missing — dispatcher — 598-line. Own session
-- jt875 (18 calls) — missing — gated by jt868 (the popup hub dispatches it)
+- jt875 (18 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
 - jt497 (17 calls) — missing — dispatcher — 106-line. Own session
 - jt521 (17 calls) — missing — dispatcher — 162-line. Own session
-- jt866 (17 calls) — missing — gated by jt868 (the popup hub dispatches it)
+- jt866 (17 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
 
