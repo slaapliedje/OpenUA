@@ -18646,6 +18646,55 @@ static unsigned char jt498(long rec)
 	return 1;
 }
 
+/* JT[476] (CODE 3 + 0x046a, called by jt102/jt92/jt100) — tick-paced
+ * wait. The argument is a "game-speed" count in hundredths; the loop
+ * converts it to ticks (n * 72 / 1000, with the leftover fraction
+ * rounded up probabilistically against the 0..999 RNG) to land on an
+ * absolute target on the JT[1134] tick clock, then spins until the
+ * clock reaches it — pumping the idle/event pollers each turn so the
+ * UI stays alive during the wait. n == 0 returns immediately.
+ *
+ * jt1163 != 0 (a pending event) or jt1200 == 0 (no modal owner) both
+ * select the jt1067 idle pump; only "event-quiet AND modal-owned"
+ * skips it. */
+static void jt476(short n) __attribute__((unused));
+static void jt476(short n)
+{
+	long target, rem;
+	short r;
+
+	PROBE("jt476");
+	if (n == 0)
+		return;
+	jt117();
+	target = (unsigned short)n;
+	target = jt4(target, 72);          /* n * 72            */
+	rem    = jt8(target, 1000);        /* leftover (0..999) */
+	target = jt7(target, 1000);        /* whole ticks       */
+	r = jt1083(1000);
+	if (r < rem)
+		target += 1;                   /* round the fraction up */
+	target += jt1134();                /* absolute target tick  */
+	while (jt1134() < target) {
+		if (jt1163() != 0 || jt1200() == 0)
+			jt1067();
+	}
+}
+
+/* JT[102] (CODE 6 + 0x4b90, 29 sites) — "pause for one game-speed
+ * beat": reads the speed byte at offset 18 of the g_a5_28006 record,
+ * scales it by 100, and hands it to the tick-paced wait jt476. */
+static void jt102(void) __attribute__((unused));
+static void jt102(void)
+{
+	const unsigned char *p;
+
+	PROBE("jt102");
+	jt1134();
+	p = (const unsigned char *)g_a5_28006;
+	jt476((short)(p[18] * 100));
+}
+
 /* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
  * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
