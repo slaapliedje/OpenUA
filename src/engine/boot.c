@@ -19875,6 +19875,103 @@ static short l6554(long entity, short flag)
 	}
 	return result;
 }
+
+/* L7488 (CODE 14 + 0x7488) — resolve the *displayed* feature of map cell
+ * (cx,cy): normally the static map feature (live map g_a5_25318, cell+9), but
+ * for multi-cell object cells (27/28/29) it walks the object list g_a5_23234
+ * (segment k = obj+k, offset tables g_a5_24085 -> g_a5_27862/27853) to find
+ * the segment covering (cx,cy) and uses its tile (seg[8]); for active-event
+ * cells (31) it scans the g_a5_25410 event table (10-byte records, count
+ * g_a5_25320) for one at (cx,cy). */
+static short l7488(short cx, short cy) __attribute__((unused));
+static short l7488(short cx, short cy)
+{
+	unsigned char *map = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short feat = map[cy * 50 + cx + 9];
+	short k;
+
+	PROBE("L7488");
+	if (feat == 29 || feat == 28 || feat == 27) {
+		unsigned char *obj = (unsigned char *)(uintptr_t)g_a5_long(-23234);
+		for (; obj != NULL; obj = *(unsigned char **)(obj + 4)) {
+			for (k = 1; k <= 9; k++) {
+				unsigned char idx, dx, dy;
+				if ((obj + k)[18] == 0)
+					continue;
+				idx = g_a5_buf(-24085)[k];
+				dx  = g_a5_buf(-27862)[idx];
+				if ((short)((signed char)obj[28] + (signed char)dx) != cx)
+					continue;
+				idx = g_a5_buf(-24085)[k];
+				dy  = g_a5_buf(-27853)[idx];
+				if ((short)((signed char)obj[29] + (signed char)dy) != cy)
+					continue;
+				feat = (obj + k)[8];
+			}
+		}
+	} else if (feat == 31) {
+		for (k = 1; k <= (unsigned char)g_a5_byte(-25320); k++) {
+			unsigned char *rec = g_a5_buf(-25410) + k * 10;
+			if (*(short *)(rec + 4) == cx && *(short *)(rec + 6) == cy)
+				feat = rec[8];
+		}
+	}
+	return feat;
+}
+
+/* L78fa (CODE 14 + 0x78fa) — draw one map cell. Computes the screen position
+ * from the viewport cell (vx,vy) — native vx*32+24 in mode 3, else the doubled
+ * vx*12+8004 — looks up the world cell (mx,my) feature, picks its tile from the
+ * g_a5_27848 table, and blits via jt108+jt1001 (the faithful jt118 forwarding;
+ * the port jt118 mis-binds a coordinate as a page ptr, so it is sidestepped as
+ * in jt57). Object/event cells (27-31) draw the L7488-resolved terrain tile
+ * (GLIB g_a5_27870) plus the static overlay tile+15 (GLIB g_a5_27866). */
+static void l78fa(short vx, short vy, short mx, short my) __attribute__((unused));
+static void l78fa(short vx, short vy, short mx, short my)
+{
+	unsigned char *map = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short sx, sy, feat, tile2;
+
+	PROBE("L78fa");
+	if (jt1200() == 3) {
+		sx = (short)((vx << 5) + 24);
+		sy = (short)((vy << 5) + 24);
+	} else {
+		sx = (short)(vx * 12 + 8004);
+		sy = (short)(vy * 12 + 8004);
+	}
+
+	feat = map[my * 50 + mx + 9];
+	if (feat >= 76 || feat == 0)
+		feat = 21;
+	tile2 = g_a5_buf(-27848)[feat * 4 + 3];
+
+	if (feat == 27 || feat == 28 || feat == 29 || feat == 30 || feat == 31) {
+		short tile3, j;
+		feat = l7488(mx, my);
+		if (feat == 30 || feat == 31) {         /* active-event override */
+			for (j = 1; j <= (unsigned char)g_a5_byte(-25320); j++) {
+				unsigned char *rec = g_a5_buf(-25410) + j * 10;
+				if (*(short *)(rec + 4) == mx && *(short *)(rec + 6) == my)
+					feat = rec[8];
+			}
+		}
+		if (feat >= 76 || feat == 0)
+			feat = 21;
+		tile3 = g_a5_buf(-27848)[feat * 4 + 3];
+
+		(void)jt108(1);
+		jt1001(sy, sx, *(short *)(uintptr_t)g_a5_long(-27870),
+		       (short)((tile3 + 1) & 0xff));
+		(void)jt108(1);
+		jt1001(sy, sx, *(short *)(uintptr_t)g_a5_long(-27866),
+		       (short)((tile2 + 15) & 0xff));
+	} else {
+		(void)jt108(1);
+		jt1001(sy, sx, *(short *)(uintptr_t)g_a5_long(-27870),
+		       (short)((tile2 + 1) & 0xff));
+	}
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
