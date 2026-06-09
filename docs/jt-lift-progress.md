@@ -255,7 +255,7 @@ an uncharted multi-function cluster — lift the cluster first);
 - jt936 (31 calls) — missing — dispatcher — 187-line. Own session
 - jt17 (29 calls) — stub — dispatcher — 111-line; currently a leaf stub for L01de (jt868 hub). Own session to lift the real body
 - jt21 (26 calls) — missing — dispatcher — 454-line. Own session
-- jt52 (24 calls) — missing — sound/music control hub — JT[1] switch over the unlifted sound engine (jt979/980/984/986/981/965, L5ac2/L5876). Needs the sound HAL session, not a quick switch lift
+- jt52 (24 calls) — missing — system-tick / housekeeping dispatcher (JT[1] switch). NOT the sound hub (earlier mis-call): jt984/979/980 are the timed-callback table (jt1149=_TickCount, jt1151/jt1145=menu-bar); only a couple arms touch audio. SysBeep is jt1147 (already lifted); the real sound work is the .slb music engine (jt986/981 + codec L1a0c/jt974/jt975 + DMA HAL) — its own session
 - jt1177 (22 calls) — stub — HAL — Mac framebuffer addressing; needs the row-blit display backend, not a transcription
 - jt871 (20 calls) — missing — CODE 18 sibling of jt868 (NOT dispatched by it). Own lift
 - jt28 (18 calls) — missing — dispatcher — 307-line. Own session
