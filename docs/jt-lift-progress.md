@@ -13,7 +13,7 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 226 done (217 lifted, 7 noop, 2 alias), 92 stub, 887 missing.
+**1205 distinct JT entries are called.** Overall: 230 done (221 lifted, 7 noop, 2 alias), 90 stub, 885 missing.
 
 ## Progress by band (100 most-called at a time)
 
@@ -21,15 +21,15 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 |------|------|-----:|-------:|-----------:|-----:|--------:|
 | 1 | 1–100 | **79/100** | 72 | 7 | 1 | 20 |
 | 2 | 101–200 | **33/100** | 33 | 0 | 15 | 52 |
-| 3 | 201–300 | **22/100** | 22 | 0 | 13 | 65 |
-| 4 | 301–400 | **18/100** | 17 | 1 | 4 | 78 |
+| 3 | 201–300 | **23/100** | 23 | 0 | 12 | 65 |
+| 4 | 301–400 | **19/100** | 18 | 1 | 4 | 77 |
 | 5 | 401–500 | **15/100** | 15 | 0 | 14 | 71 |
-| 6 | 501–600 | **12/100** | 11 | 1 | 14 | 74 |
+| 6 | 501–600 | **13/100** | 12 | 1 | 13 | 74 |
 | 7 | 601–700 | **14/100** | 14 | 0 | 7 | 79 |
 | 8 | 701–800 | **23/100** | 23 | 0 | 7 | 70 |
 | 9 | 801–900 | **0/100** | 0 | 0 | 1 | 99 |
 | 10 | 901–1000 | **0/100** | 0 | 0 | 0 | 100 |
-| 11 | 1001–1100 | **5/100** | 5 | 0 | 3 | 92 |
+| 11 | 1001–1100 | **6/100** | 6 | 0 | 3 | 91 |
 | 12 | 1101–1200 | **4/100** | 4 | 0 | 13 | 83 |
 | 13 | 1201–1205 | **1/5** | 1 | 0 | 0 | 4 |
 
@@ -257,7 +257,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 - jt57 (23 calls) — missing
 - jt118 (22 calls) — missing
 - jt410 (22 calls) — missing
-- jt1177 (22 calls) — stub
+- jt1177 (22 calls) — stub — HAL-BLOCKED (Mac framebuffer addressing; needs the row-blit display HAL, not a transcription)
 - jt871 (20 calls) — missing
 - jt28 (18 calls) — missing
 - jt305 (18 calls) — missing
