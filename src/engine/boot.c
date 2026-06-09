@@ -20358,6 +20358,49 @@ static short l2fd8(const unsigned char *m, short idx)
 	return (a > b) ? (short)a : (short)b;
 }
 
+/* L1e58 (CODE 6 + 0x1e58) — the AD&D Strength "to-hit" adjustment, keyed on
+ * the Strength index (L1d54): -3 at STR 1-3 ... +1 at 17-19, climbing to +7
+ * at giant STR 30. */
+static short l1e58(const unsigned char *m) __attribute__((unused));
+static short l1e58(const unsigned char *m)
+{
+	short s = l1d54(m);
+
+	PROBE("L1e58");
+	if (s <= 0)   return 0;
+	if (s <= 3)   return -3;
+	if (s <= 5)   return -2;
+	if (s <= 7)   return -1;
+	if (s <= 16)  return 0;
+	if (s <= 19)  return 1;
+	if (s <= 22)  return 2;
+	if (s <= 25)  return 3;
+	if (s <= 27)  return 4;
+	if (s <= 30)  return (short)(s - 23);
+	return 0;
+}
+
+/* L1f3e (CODE 6 + 0x1f3e) — the AD&D Strength "damage" adjustment, keyed on
+ * the Strength index (L1d54): -2 at STR 1-2 ... +1 at 16-17, climbing to +14
+ * at giant STR 30. Named l1f3e_c6: the bare l1f3e is CODE 7's bar sizer (a
+ * distinct function at the same segment-local offset). */
+static short l1f3e_c6(const unsigned char *m) __attribute__((unused));
+static short l1f3e_c6(const unsigned char *m)
+{
+	short s = l1d54(m);
+
+	PROBE("L1f3e");
+	if (s <= 0)   return 0;
+	if (s <= 2)   return -2;
+	if (s <= 5)   return -1;
+	if (s <= 15)  return 0;
+	if (s == 16)  return 1;
+	if (s <= 19)  return (short)(s - 16);
+	if (s <= 29)  return (short)(s - 17);
+	if (s == 30)  return 14;
+	return 0;
+}
+
 #define g_a5_18486 g_a5_byte(-18486)   /* "save-flag" gate for player[49] clear */
 #define g_a5_18877 g_a5_byte(-18877)   /* per-player byte copied into player[19] */
 #define g_a5_13904 g_a5_long(-13904)   /* JT[182] source prompt for save picker */
