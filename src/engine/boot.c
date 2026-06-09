@@ -20366,6 +20366,93 @@ static void jt1202(unsigned char *src, short w, short h, short stride2)
 	}
 	g_a5_long(-3076) = (long)(uintptr_t)dst;
 }
+
+/* JT[121] (CODE 6 + 0x379c) — draw a tile glyph `c` from GLIB `handle` at map
+ * cell (x,y) in doubled space (x*4+8004, y*4+8004), via jt108 + jt1001. */
+static void jt121(short x, short y, short c, short d, long handle) __attribute__((unused));
+static void jt121(short x, short y, short c, short d, long handle)
+{
+	PROBE("jt121");
+	(void)d;
+	(void)jt108(1);
+	jt1001((short)((y << 2) + 8004), (short)((x << 2) + 8004),
+	       *(short *)(uintptr_t)handle, c);
+}
+
+/* JT[119] (CODE 6 + 0x3d3a) — save-under: capture the GLIB backing store for a
+ * sprite at (x,y) into the g_a5_18288 row buffers (144 bytes/row). Transforms
+ * the position (jt1135) with a mode-3 alignment nudge, sets the clip
+ * (jt1177), then reads jt1198() rows via jt1197 (jt1170 advances each row). */
+static void jt119(short x, short y, short c, short d) __attribute__((unused));
+static void jt119(short x, short y, short c, short d)
+{
+	short save, i;
+
+	PROBE("jt119");
+	jt1135(x, y, &x, &y);
+	if (jt1200() == 3) {
+		y &= ~7;
+		if ((y & 8) == 0) {
+			y -= 8;
+			d += 4;
+		}
+	}
+	jt1135((short)(c + 8000), (short)(d + 8000), &save, &d);
+	d = (short)((d >> 3) << (3 - jt1200()));
+	if (d & 1)
+		d++;
+	jt1177(x, y);
+	for (i = 0; jt1198() > i; i++) {
+		jt1170();
+		jt1197(g_a5_buf(-18288) + i * 144, save, d);
+	}
+}
+
+/* JT[122] (CODE 6 + 0x3e10) — draw: blit the g_a5_18288 row buffers back to the
+ * GLIB at (x,y) (the restore/paint paired with jt119's save), same transform
+ * and row loop but via jt1202. */
+static void jt122(short x, short y, short c, short d) __attribute__((unused));
+static void jt122(short x, short y, short c, short d)
+{
+	short save, i;
+
+	PROBE("jt122");
+	jt1135(x, y, &x, &y);
+	if (jt1200() == 3) {
+		y &= ~7;
+		if ((y & 8) == 0) {
+			y -= 8;
+			d += 4;
+		}
+	}
+	jt1135((short)(c + 8000), (short)(d + 8000), &save, &d);
+	d = (short)((d >> 3) << (3 - jt1200()));
+	if (d & 1)
+		d++;
+	jt1177(x, y);
+	for (i = 0; jt1198() > i; i++) {
+		jt1170();
+		jt1202(g_a5_buf(-18288) + i * 144, save, d, 0);
+	}
+}
+
+/* L19a0 (CODE 13 + 0x19a0) — draw tile glyph `c` (GLIB handle `e`) at map cell
+ * (x,y): in render mode 3 convert to the native screen ((v*32)/3+24) and blit
+ * via jt108+jt1001 (the faithful jt118 forwarding, sidestepping the port jt118
+ * signature mismatch as jt57 does); otherwise jt121 (doubled space). */
+static void l19a0(short x, short y, short c, short d, long e) __attribute__((unused));
+static void l19a0(short x, short y, short c, short d, long e)
+{
+	PROBE("L19a0");
+	if (jt1200() == 3) {
+		y = (short)((short)(y << 5) / 3 + 24);
+		x = (short)((short)(x << 5) / 3 + 24);
+		(void)jt108(1);
+		jt1001(y, x, *(short *)(uintptr_t)e, (short)(c & 0xff));
+	} else {
+		jt121(x, y, c, d, e);
+	}
+}
 static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
                                                   return 0; }
 
