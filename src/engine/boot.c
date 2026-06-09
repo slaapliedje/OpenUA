@@ -5407,6 +5407,67 @@ static int  jt1200(void)
 	return (g_a5_1312 != 0) ? 0 : 1;
 }
 
+/* L3b1e (CODE 6 + 0x3b1e) — sprite-overlay region setup for jt57's
+ * "animated/large" branch (jt1022 / jt468+jt1020 over the GLIB sprite
+ * cluster). LEAF STUB: those GLIB sprite-region helpers (jt992/jt1020/
+ * jt1022) are not lifted yet, so the overlay is skipped. */
+static void l3b1e(long handle, short idx, short z, long handle2, short g)
+                                                __attribute__((unused));
+static void l3b1e(long handle, short idx, short z, long handle2, short g)
+{
+	PROBE("L3b1e");
+	(void)handle; (void)idx; (void)z; (void)handle2; (void)g;
+}
+
+/* JT[123] (CODE 6 + 0x3828) — jt992(jt468(*handle), b): a GLIB sprite op.
+ * LEAF STUB pending jt992. */
+static void jt123(long handle, short b) __attribute__((unused));
+static void jt123(long handle, short b) { PROBE("jt123"); (void)handle; (void)b; }
+
+/* JT[57] (CODE 6 + 0x5dba, 23 sites) — draw a map sprite (party/monster
+ * marker, record index rec_hi*38 + rec_lo) at cell (x, y) from the sprite
+ * library g_a5_-27866. Two coordinate spaces: the 3D dungeon view
+ * (jt1200()==3 and y>=-900) uses 32-px cells (<<5)+24; the overland/combat
+ * map uses 12-px cells +8004 (the doubled coordinate space), with y wrapped
+ * by +1000 when below -900.
+ *
+ * The Mac draws via jt118, which is just jt108(1) (hide cursor) + jt1001
+ * (group blit); we call those directly — the port's jt118 is a render-path
+ * variant with a different signature, so this stays faithful to the Mac
+ * effect: jt1001(y, x, *(short*)handle = group id, glyph).
+ *
+ * kind>3 (animated/large markers) first runs the L3b1e/jt123 overlay setup
+ * (LEAF STUBS, see above) and draws base glyph 76; kind<=3 draws the record
+ * glyph directly. */
+static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
+                                                __attribute__((unused));
+static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
+{
+	long  handle = g_a5_long(-27866);
+	short group  = *(short *)(uintptr_t)handle;
+	short idx    = (short)((unsigned char)rec_hi * 38 + (unsigned char)rec_lo);
+
+	PROBE("jt57");
+	if (jt1200() == 3 && y >= -900) {
+		x = (short)((x << 5) + 24);
+		y = (short)((y << 5) + 24);
+	} else {
+		x = (short)(x * 12 + 8004);
+		if (y < -900)
+			y = (short)(y + 1000);
+		y = (short)(y * 12 + 8004);
+	}
+	if ((unsigned char)kind > 3) {
+		l3b1e(handle, idx, 0, handle, 76);
+		jt123(handle, 76);
+		(void)jt108(1);
+		jt1001(y, x, group, 76);
+	} else {
+		(void)jt108(1);
+		jt1001(y, x, group, (short)(idx & 0xff));
+	}
+}
+
 /* L02dc (CODE 12 + 0x02dc) — Modify Character roster grid.
  *
  * Repaints the design-edit roster: per-row name, then HP / overlay /
