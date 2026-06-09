@@ -231,7 +231,11 @@ def main():
         A("_None — the top 100 are fully lifted._\n")
     else:
         for n, c in pend:
-            A(f"- jt{n} ({c} calls) — {status[n].lower()}")
+            extra = ""
+            if n == 1177:
+                extra = " — HAL-BLOCKED (Mac framebuffer addressing; needs "\
+                        "the row-blit display HAL, not a transcription)"
+            A(f"- jt{n} ({c} calls) — {status[n].lower()}{extra}")
         A("")
 
     with open(OUT_MD, "w") as fh:
