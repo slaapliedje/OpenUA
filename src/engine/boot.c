@@ -15512,6 +15512,151 @@ static void jt1122(short mode, short slot_val, short c)
 	g_a5_byte(-779) = 1;
 }
 
+/* ====================================================================
+ * jt52 sound/music command dispatcher (CODE 6) + its voice-table tree.
+ *
+ * The sound subsystem keeps a 5-slot active-voice table at g_a5_-4848
+ * (14 bytes/slot), an active-song word g_a5_-4778, a song count
+ * g_a5_-4758, a sound-active flag g_a5_-806, and a per-voice service
+ * callback g_a5_-4774 (registered by the playback engine).  The actual
+ * audio-output leaves (jt985 song play -> jt11a2, jt965 sfx play ->
+ * l7ee0) bottom out in the .slb engine over the Falcon DMA sound HAL
+ * and are stubbed here (level-2 lift); the dispatcher and voice-table
+ * management are faithful.  See [[band1-tail-triage]].
+ * ==================================================================== */
+
+/* JT[1149] (CODE 4 + 0x79c2) — ticks since the sound-timer base (g_a5_-130). */
+static long jt1149(void) __attribute__((unused));
+static long jt1149(void) { PROBE("jt1149"); return TickCount() - g_a5_long(-130); }
+
+/* The sound-active flag (g_a5_-806) accessors JT[1154]/JT[1140] and the toggle
+ * L5ac2 are already lifted in the pause-key cluster below as jt1154_pg /
+ * jt1140_pg / l5ac2; forward-declare them for jt52's use. */
+static short jt1154_pg(void);
+static void  l5ac2(void);
+
+/* L0faa (CODE 5 + 0x0faa) — dispatch the registered voice-service callback
+ * (g_a5_-4774) with `arg`; no-op when none is registered (the port never
+ * registers one yet, so this currently does nothing). */
+static void l0faa(long arg) __attribute__((unused));
+static void l0faa(long arg)
+{
+	PROBE("L0faa");
+	if (g_a5_long(-4774) != 0)
+		((void (*)(long))(uintptr_t)g_a5_long(-4774))(arg);
+}
+
+/* JT[980] (CODE 5 + 0x0f9c) — service one voice with the current timer tick. */
+static void jt980(void) __attribute__((unused));
+static void jt980(void) { PROBE("jt980"); l0faa(jt1149()); }
+
+/* JT[979] (CODE 5 + 0x0f48) — count active voices in the 5-slot table (a slot
+ * is live when its leading long is non-zero). */
+static char jt979(void) __attribute__((unused));
+static char jt979(void)
+{
+	short i;
+	unsigned char count = 0;
+
+	PROBE("jt979");
+	for (i = 0; i < 5; i++)
+		if (*(long *)(g_a5_buf(-4848) + i * 14) != 0)
+			count++;
+	return (char)count;
+}
+
+/* JT[984] (CODE 5 + 0x0f1e) — stop all voices: reset the active-song word, clear
+ * the 5-slot voice table, refresh (jt1151). */
+static void jt984(void) __attribute__((unused));
+static void jt984(void)
+{
+	short i;
+
+	PROBE("jt984");
+	g_a5_word(-4778) = -1;
+	for (i = 0; i < 5; i++)
+		*(long *)(g_a5_buf(-4848) + i * 14) = 0;
+	jt1151();
+}
+
+/* JT[985] (CODE 5 + 0x12b4) — play song index `n`, range-checked against the
+ * song count g_a5_-4758 (else "Song out of range").  AUDIO LEAF: the playback
+ * (jt11a2) is the .slb engine over the Falcon DMA sound HAL — stubbed. */
+static void jt985(short n) __attribute__((unused));
+static void jt985(short n) { PROBE("jt985"); (void)n; }
+
+/* JT[965] (CODE 5 + 0x7dee) — play a sound effect (loads the sound resource via
+ * jt468, then drives the output leaf l7ee0 in a loop).  AUDIO LEAF: stubbed. */
+static void jt965(short count, short id, short a, short b,
+                  short reps, short c) __attribute__((unused));
+static void jt965(short count, short id, short a, short b, short reps, short c)
+{
+	PROBE("jt965");
+	(void)count; (void)id; (void)a; (void)b; (void)reps; (void)c;
+}
+
+/* L5876 (CODE 6 + 0x5876) — forward to the song player (JT[985]). */
+static void l5876(short n) __attribute__((unused));
+static void l5876(short n) { PROBE("L5876"); jt985(n); }
+
+/* JT[52] (CODE 6 + 0x5888) — the sound/music command dispatcher.  `cmd`:
+ *   255   = stop all voices (jt984)
+ *   0 / 1 = turn the sound-active flag off / on (l5ac2, guarded by jt1154)
+ *   2     = drain queued voices (jt980 while jt979), then refresh (jt1151)
+ *   3-15  = a timed beat (jt1134 mouse-tick spin + jt1122/jt1151) unless muted
+ *           (g_a5_-17444), in which case play sfx (jt965)
+ *   32-39 = play song (cmd-32) via l5876 -> jt985
+ * Only cmd < 42 (unsigned) or cmd == 255 are accepted (L5888 gate). */
+static void jt52(short cmd) __attribute__((unused));
+static void jt52(short cmd)
+{
+	PROBE("jt52");
+	if (!((unsigned short)cmd < 42 || cmd == 255))
+		return;
+
+	switch (cmd) {
+	case 255:                                /* L591e — stop all voices */
+		jt984();
+		break;
+	case 0:                                  /* L5926 */
+		if (jt1154_pg())
+			l5ac2();
+		break;
+	case 1:                                  /* L5938 */
+		if (!jt1154_pg())
+			l5ac2();
+		break;
+	case 2:                                  /* L594e — drain queued voices.
+	                                          * Relies on the (currently
+	                                          * unregistered) voice callback to
+	                                          * empty slots; safe while the
+	                                          * stubbed engine never fills them. */
+		while (jt979())
+			jt980();
+		jt1151();
+		break;
+	case 3:  case 4:  case 5:  case 6:  case 7:   /* L595e — timed beat / sfx */
+	case 8:  case 9:  case 10: case 11: case 12:
+	case 13: case 14: case 15:
+		if (g_a5_byte(-17444) == 0) {
+			long limit = jt1134() + 2;
+			jt1122(1, 2, 127);
+			while (jt1134() < limit)
+				;                /* spin ~2 timer ticks */
+			jt1151();
+		} else {
+			jt965(1, (short)(cmd - 3), -1, -1, 1, -1);
+		}
+		break;
+	case 32: case 33: case 34: case 35:      /* L59b6 — play song (cmd-32) */
+	case 36: case 37: case 38: case 39:
+		l5876((short)(cmd - 32));
+		break;
+	default:                                 /* L59c6 — accepted, no arm */
+		break;
+	}
+}
+
 /* JT[1131] (CODE 4 + 0x7760) — semitone -> menu-slot dispatcher.
  *
  *   short tmp   = g_a5_shorts(-804)[midi % 12];   // 12-entry octave row
