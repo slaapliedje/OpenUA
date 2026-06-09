@@ -13,13 +13,13 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 241 done (231 lifted, 7 noop, 3 alias), 91 stub, 873 missing.
+**1205 distinct JT entries are called.** Overall: 242 done (231 lifted, 8 noop, 3 alias), 91 stub, 872 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **86/100** | 78 | 8 | 2 | 12 |
+| 1 | 1–100 | **87/100** | 78 | 9 | 2 | 11 |
 | 2 | 101–200 | **36/100** | 36 | 0 | 15 | 49 |
 | 3 | 201–300 | **24/100** | 24 | 0 | 12 | 64 |
 | 4 | 301–400 | **19/100** | 18 | 1 | 4 | 77 |
@@ -80,7 +80,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 41 | jt878 | 39 | LIFTED |  |
 | 42 | jt40 | 38 | LIFTED |  |
 | 43 | jt159 | 38 | LIFTED |  |
-| 44 | jt1061 | 38 | **MISSING** |  |
+| 44 | jt1061 | 38 | NOOP |  |
 | 45 | jt23 | 37 | LIFTED |  |
 | 46 | jt176 | 36 | LIFTED |  |
 | 47 | jt483 | 36 | LIFTED |  |
@@ -252,7 +252,6 @@ an uncharted multi-function cluster — lift the cluster first);
 **trap-shim** (issues a Mac OS trap the HAL must route); **HAL**
 (needs a display/row-blit backend, not a transcription).
 
-- jt1061 (38 calls) — missing — trap-shim — issues Mac OS traps 0xa05d/0xaded/0xa9ee (Memory Manager handle-state family); needs the handle-flags shim
 - jt936 (31 calls) — missing — dispatcher — 187-line. Own session
 - jt17 (29 calls) — stub — dispatcher — 111-line; currently a leaf stub for L01de (jt868 hub). Own session to lift the real body
 - jt21 (26 calls) — missing — dispatcher — 454-line. Own session
