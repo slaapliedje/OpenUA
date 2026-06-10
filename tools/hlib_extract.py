@@ -189,13 +189,40 @@ def contact_sheet(lib, path, scale=4, cols=8, bg=(255, 0, 255, 255)):
     return sheet
 
 
+def emit_cursor_pack(lib, path):
+    """Write a flat 'FCUR' cursor pack (big-endian, for the 68k engine) of
+    every tile in the library, so the port can install the colour cursors at
+    runtime from the user's own DOS data (no FRUA pixels are committed).
+
+        0  4   'FCUR'
+        4  2   version (1)
+        6  2   cursor count
+        8  48  source palette, 16 RGB triples
+        per cursor: u16 width, height, xhot, yhot, then width*height bytes of
+        palette indices (0xFF = transparent).
+
+    Tile order matches the library (ALWAYS.TLB: #1 sword, #2 shield, #4-11
+    directional arrows, #21-23 turns, #24 crosshair, #26 hourglass)."""
+    out = bytearray(b"FCUR")
+    out += struct.pack(">HH", 1, len(lib.tiles))
+    for (r, g, b) in lib.palette:
+        out += bytes((r, g, b))
+    for t in lib.tiles:
+        out += struct.pack(">HHHH", t.width, t.height, t.hotspot[0], t.hotspot[1])
+        out += t.pixels
+    with open(path, "wb") as f:
+        f.write(out)
+    return len(out)
+
+
 def main(argv):
-    ap = argparse.ArgumentParser(description="Decode FRUA DOS HLIB (*.TLB) tile libraries.")
+    ap = argparse.ArgumentParser(description="Decode FRUA HLIB/GLIB (*.TLB/*.GLB) tile libraries.")
     ap.add_argument("file")
     ap.add_argument("--sheet", metavar="PNG", help="write a contact sheet of all tiles")
     ap.add_argument("--dump", metavar="DIR", help="write each tile as DIR/NNN.png")
     ap.add_argument("--tile", type=int, help="select a single tile index")
     ap.add_argument("--png", metavar="PNG", help="with --tile: write that tile")
+    ap.add_argument("--emit", metavar="FCUR", help="write a flat cursor pack for the engine")
     ap.add_argument("--scale", type=int, default=4, help="zoom for --sheet/--png")
     args = ap.parse_args(argv)
 
@@ -228,6 +255,10 @@ def main(argv):
         img = img.resize((t.width * args.scale, t.height * args.scale))
         img.save(args.png)
         print("wrote tile #%d -> %s" % (args.tile, args.png))
+    if args.emit:
+        n = emit_cursor_pack(lib, args.emit)
+        print("wrote cursor pack (%d cursors, %d bytes) -> %s"
+              % (len(lib.tiles), n, args.emit))
     return 0
 
 

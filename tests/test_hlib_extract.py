@@ -3,7 +3,7 @@ import struct
 
 import pytest
 
-from hlib_extract import HLib, TRANSPARENT
+from hlib_extract import HLib, TRANSPARENT, emit_cursor_pack
 
 
 def _planarize(rows, width):
@@ -206,3 +206,25 @@ def test_both_magics_share_reader():
     g = HLib(_build_glib(VGA16, [(8, 0, 0, 0x0291, ["BWBWBWBW"])]))
     assert h.kind == "HLIB" and h.endian == "<"
     assert g.kind == "GLIB" and g.endian == ">"
+
+
+# --- FCUR cursor-pack emit (consumed by the engine's load_frua_cursors) ---
+
+def test_emit_cursor_pack(tmp_path):
+    rows = [[(x + y) & 15 for x in range(16)] for y in range(16)]
+    lib = HLib(_build_hlib(VGA16, [(16, 2, 3, 0x1504, rows)]))
+    out = tmp_path / "frua.cur"
+    n = emit_cursor_pack(lib, str(out))
+    blob = out.read_bytes()
+    assert len(blob) == n
+    assert blob[:4] == b"FCUR"
+    ver, count = struct.unpack_from(">HH", blob, 4)
+    assert ver == 1 and count == 1
+    # palette: 16 RGB at offset 8
+    assert tuple(blob[8:11]) == VGA16[0]
+    # first cursor header at offset 8+48
+    w, h, hx, hy = struct.unpack_from(">HHHH", blob, 56)
+    assert (w, h, hx, hy) == (16, 16, 2, 3)
+    body = blob[64:64 + w * h]
+    got = [list(body[y * 16:(y + 1) * 16]) for y in range(16)]
+    assert got == rows

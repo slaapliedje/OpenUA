@@ -308,6 +308,59 @@ void load_frua_palette(void)
 	dbg_log_num("main: clut 129 installed, entries = ", n_entries);
 }
 
+/*
+ * Optional colour mouse pointer. The Mac release's cursors are 1bpp; the DOS
+ * release ships the same cursor set in 8bpp colour. tools/hlib_extract.py
+ * converts the DOS ALWAYS.TLB into a flat 'FCUR' pack staged next to the
+ * binary; if it's there we install cursor 0 (the sword pointer) in colour.
+ * Absent it, the engine keeps the mono cursor. Must run after the palette
+ * is up (qd_install_color_pointer maps the cursor palette to the CLUT). The
+ * buffer leaks on purpose, like frua.rsc — the install copies what it needs.
+ */
+static void load_frua_cursors(void)
+{
+	short          ref;
+	long           size, n;
+	unsigned char *buf;
+	OSErr          err;
+	unsigned short count, w, h, hx, hy;
+	unsigned char *p;
+
+	if (FSOpen((ConstStr255Param)"\010frua.cur", 0, &ref) != noErr) {
+		dbg_log("main: frua.cur absent (mono cursor)");
+		return;
+	}
+	err = GetEOF(ref, &size);
+	if (err != noErr || size < 8 + 48 + 8 + 256) {
+		(void)FSClose(ref);
+		return;
+	}
+	buf = NewPtr(size);
+	if (buf == NULL) {
+		(void)FSClose(ref);
+		return;
+	}
+	n = size;
+	err = FSRead(ref, &n, buf);
+	(void)FSClose(ref);
+	if (err != noErr || n != size
+	 || buf[0] != 'F' || buf[1] != 'C' || buf[2] != 'U' || buf[3] != 'R') {
+		dbg_log("main: frua.cur not an FCUR pack");
+		return;
+	}
+	count = (unsigned short)((buf[6] << 8) | buf[7]);
+	if (count < 1)
+		return;
+	p  = buf + 8 + 48;                        /* first cursor (the sword) */
+	w  = (unsigned short)((p[0] << 8) | p[1]);
+	h  = (unsigned short)((p[2] << 8) | p[3]);
+	hx = (unsigned short)((p[4] << 8) | p[5]);
+	hy = (unsigned short)((p[6] << 8) | p[7]);
+	qd_install_color_pointer((short)w, (short)h, (short)hx, (short)hy,
+	                         p + 8, buf + 8);
+	dbg_log("main: frua.cur colour pointer installed");
+}
+
 int main(void)
 {
 	const dsp_backend_t *dsp;
@@ -340,6 +393,7 @@ int main(void)
 	data_pool_replay();
 	boot_a5_seed_defaults();
 	load_frua_palette();
+	load_frua_cursors();                      /* optional DOS colour pointer */
 	if (mac_font_load(-27001) == 0)
 		dbg_log("main: FONT -27001 loaded");
 	else
