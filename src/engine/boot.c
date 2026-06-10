@@ -9725,23 +9725,14 @@ static void jt312(unsigned char *page)
 	 * rect (the c2p of the static 320x400 screen was the perf wall). The
 	 * chrome is static, so it persists between viewport-only presents. */
 	if (s_view_first || g_view_force_full) {
-		/* The faithful play-screen frame is the "bigpic" backdrop — one
-		 * image that IS the ornate border + viewport hole + roster panel +
-		 * compass. jt214 selects its id and loads it (l579e); jt44 (= l5822)
-		 * blits the cached picture. port_draw_play_frame's 29-piece FRAME.CTL
-		 * reconstruction was the stand-in for not loading it.
-		 *
-		 * BRING-UP: draw the reconstruction first as the base (clut band +
-		 * grey fill + pieces), then overlay the bigpic — index-0 transparent,
-		 * so the bigpic wins where it has pixels and the reconstruction fills
-		 * any gap. Once the bigpic is confirmed to cover the full frame,
-		 * port_draw_play_frame retires (and the per-step viewport refresh
-		 * stays as-is). */
+		/* The faithful frame is the "bigpic" backdrop (jt214 -> l579e load,
+		 * jt44 = l5822 blit). Overlaying it here regressed badly: the loaded
+		 * picture lands as black blocks over the roster/clock and clobbers the
+		 * command-bar palette — so the bigpic id/decode or its palette commit
+		 * (l3eea/L3f3c, still stubbed) is wrong, not just uncoloured. Reverted
+		 * to the reconstruction until the bigpic is understood; the jt214/jt44/
+		 * l579e lifts stay (latent) for when the composer (L3fd8) is wired. */
 		port_draw_play_frame(px, pitch, sw, sh);
-		jt214();                        /* select id + load the bigpic   */
-		jt44();                         /* = l5822: blit the cached bigpic */
-		if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-			return;
 	}
 	/* LIVE DEFAULT: render_3d_faithful — the 1:1 Mac jt199 -> l5b42 -> jt200
 	 * slot-assembly view (perspective fixed in 0f62432). This matches jt221's
