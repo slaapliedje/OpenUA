@@ -4330,6 +4330,58 @@ static void jt76(void)
 	jt1001(8000, 8000, 1, 4);
 	jt174();
 }
+/* JT[1] (CODE 1 + 0x130) / JT[2] (CODE 1 + 0x144) — THINK C's *sparse*
+ * inline switch runtime, the sibling of JT[3]. The compiler emits these
+ * when the case labels are scattered (so a dense min..max offset table —
+ * JT[3] — would waste space). Layout of the inline table after the JSR:
+ *
+ *      jsr   JT[1]
+ *      .short count             ; number of case entries (N)
+ *      .short off0  .short key0  ; case 0: match value == key0 -> off0
+ *      .short off1  .short key1  ; case 1
+ *      ...
+ *      .short offN-1 .short keyN-1
+ *      .short off_default       ; the default arm
+ *
+ * The body pops the return PC, walks the (off, key) pairs with a `dbeq`
+ * loop comparing the switch value (d0) against each key, and JMPs to the
+ * matched arm's PC-relative offset (default if none match). JT[1] keys are
+ * words (`cmpw`); JT[2] is the identical dispatcher with long keys
+ * (`cmpl`) — the L02dc/'E'/'N'/'S'/'W'-style direction switches use JT[1].
+ *
+ * Same lift convention as JT[3]: there is no shared dispatch to lift — at
+ * every call site read the inline table (tools/jt1_extract.py decodes it
+ * and prints a ready C `switch`) and emit an equivalent C `switch (value)`.
+ * The stubs below are the fallback for any unlifted caller; the PROBE flags
+ * that a sparse-switch site was reached without being lifted. */
+static int  jt1(short value) __attribute__((unused));
+static int  jt1(short value)
+{
+	PROBE("jt1");
+	(void)value;                            /* see comment — lift the call site */
+	return -1;
+}
+static int  jt2(long value) __attribute__((unused));
+static int  jt2(long value)
+{
+	PROBE("jt2");
+	(void)value;
+	return -1;
+}
+/* For the rare wide sparse table: scan `keys[0..n)` for `value` and return
+ * the matched case index (0..n-1), or -1 for the default arm. Lifted
+ * callers normally hand-write a `switch` over the keys instead. */
+static int  jt1_dispatch(short value, const short *keys, short n)
+                                                __attribute__((unused));
+static int  jt1_dispatch(short value, const short *keys, short n)
+{
+	short i;
+	for (i = 0; i < n; i++)
+		if (keys[i] == value)
+			return i;
+	return -1;
+}
+
 /* JT[3] (CODE 1 + 0x158) — THINK C inline switch runtime.
  *
  * Every C `switch` statement in the Mac build compiles to a JSR JT[3]

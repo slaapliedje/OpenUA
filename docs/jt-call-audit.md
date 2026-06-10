@@ -42,22 +42,29 @@ above it breaks.
 
 ## High-leverage TRUE stubs to lift (most-called, real work pending)
 
-The actionable queue — sorted by call count. Lifting these removes the most
-stand-in pressure.
+**RE-AUDITED 2026-06-10 against current boot.c** (regenerate `/tmp/jt_freq.txt`
+per above, then classify each of the top 60 by MISSING / PROBE-only STUB /
+lifted). Result: of the **60 most-called JT entries, only TWO are not lifted** —
+`jt1` and `jt1084`. The prior "remaining" list below was stale; jt1193 and jt876
+are in fact fully lifted, and jt1177 is a leave-as-stub (below). **The
+high-frequency foundational tier is essentially complete** — further "common
+function" digging has diminishing returns; what's left is lower-frequency
+entries and coherent SUBSYSTEMS (the JT[400] printf engine, the GLIB
+picture/palette path), not isolated hot primitives.
 
-| JT | calls | what (CODE addr) |
-|----|-------|------------------|
-| ~~jt96~~ | 43 | DONE — word-wrap text-in-box subsystem |
-| ~~jt23~~ | 37 | DONE — play-frame redraw dispatcher (603facc) |
-| jt1084 | 34 | setter (buf, val) |
-| ~~jt938~~ | 27 | DONE — HUD clock (9a1b42b) |
-| ~~jt358~~ | 27 | DONE — counter (d69fceb) |
-| jt1193 | 24 | (CODE 7) view-prep tail |
-| jt876 | 22 | popup action handler (CODE 18+0x1666) |
-| jt1177 | 22 | row-blit draw primitive (HAL-deferred) |
-| ~~jt273~~ | 22 | DONE — deep-mode flag (d69fceb) |
+| JT | calls | status (2026-06-10) |
+|----|-------|---------------------|
+| jt1 | 95 | sparse-switch dispatcher (CODE 1+0x130). NOT a function to lift — like jt3, each call site reads its inline (off,key) table -> C `switch` (tools/jt1_extract.py). Fallback `jt1()`/`jt2()` stubs ADDED this session. |
+| jt1084 | 34 | **the one genuine hot stub left.** MISSING. Modal "Error: %r" alert (CODE 5+0x036a): box + format + key-wait + restore. Bottoms out in the **JT[400] custom-printf engine** (~490 instr, + conversion handlers jt966-969 + the `%r` resource conversion) — lift that subsystem first. |
+| ~~jt96 / jt23 / jt938 / jt358 / jt273~~ | | DONE (prior sessions). |
+| ~~jt1193~~ | 24 | DONE — resets the QuickDraw clip rect to full screen (boot.c:22050). Audit table was stale. |
+| ~~jt876~~ | 22 | DONE — linked-list node append / effect-entry builder (boot.c:19631). Audit table was stale. |
+| jt1177 | 22 | row-blit draw primitive — HAL-deferred; bus-errors on uninit NewGWorld page descriptors. Leave as stub. |
 
-Remaining high-leverage TRUE stubs: **jt1084, jt1193, jt876, jt1177**.
+Next genuine targets are SUBSYSTEMS, not single hot stubs:
+**(1) the JT[400] printf engine** (unlocks jt1084 + faithful error/text formatting),
+**(2) the GLIB picture/palette path** (jt1069/jt1066 + l3eea/L3f3c — unlocks the
+overland/area bigpic backdrop, see [[dungeon-hud-chrome-arch]]).
 
 ## Genuine no-ops / constants — faithful AS stubs, do NOT "lift"
 
