@@ -161,6 +161,12 @@ MAC_JOINED   := data/frua-mac/joined
 # Which design directory to flatten in alongside the shared libs.
 # Override to test other modules, e.g. `make gamedata DSN=HEIRS.DSN`.
 DSN ?= TUTORIAL.DSN
+# Optional: path to the DOS release's ALWAYS.TLB. If set, its 8bpp colour
+# cursors are converted to a flat frua.cur pack and staged, so the engine
+# shows the colour mouse pointer (the one asset the DOS release has over the
+# Mac's mono cursors). Unset -> the engine keeps the mono cursor.
+#   make run-game DOS_ALWAYS="/path/to/DOS/DATA/DISK1/ALWAYS.TLB"
+DOS_ALWAYS ?=
 gamedata: $(TARGET) frua.rsc
 	@if [ ! -d "$(MAC_JOINED)" ]; then \
 		echo "  gamedata: $(MAC_JOINED) not found — unpack the Mac release first (docs/mac-release.md)"; \
@@ -175,6 +181,10 @@ gamedata: $(TARGET) frua.rsc
 	done
 	@ln -sf "$(abspath $(TARGET))"  "$(GAMEDATA_DIR)/$(TARGET)"
 	@ln -sf "$(abspath frua.rsc)"   "$(GAMEDATA_DIR)/frua.rsc"
+	@if [ -n "$(DOS_ALWAYS)" ] && [ -f "$(DOS_ALWAYS)" ]; then \
+		python3 tools/hlib_extract.py "$(DOS_ALWAYS)" --emit "$(GAMEDATA_DIR)/frua.cur" >/dev/null \
+			&& echo "  gamedata: staged colour cursors from $(DOS_ALWAYS)"; \
+	fi
 	@echo "  gamedata: staged $$(ls "$(GAMEDATA_DIR)" | grep -ivc frua) files + $(DSN) into $(GAMEDATA_DIR)"
 
 run-game: gamedata

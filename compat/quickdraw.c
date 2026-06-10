@@ -1162,11 +1162,49 @@ CursHandle GetCursor(short cursorID)
 	return &s_ptr;
 }
 
+/* Optional colour pointer (DOS FRUA cursor art, loaded at runtime). When
+ * loaded, it overrides the mono cursor while visible. img holds CLUT indices
+ * (already mapped through the live palette), 0xFF = transparent. */
+static struct {
+	int           loaded;
+	short         hotx, hoty;
+	unsigned char img[16 * 16];
+} g_color_cursor;
+
+void qd_install_color_pointer(short w, short h, short hotx, short hoty,
+                              const unsigned char *idx,
+                              const unsigned char *pal_rgb)
+{
+	unsigned char map[16];
+	short          i, n;
+
+	if (w != 16 || h != 16 || idx == NULL || pal_rgb == NULL)
+		return;                         /* 16x16 only for now */
+	for (i = 0; i < 16; i++) {
+		RGBColor c;
+		c.red   = (unsigned short)(pal_rgb[i * 3 + 0] * 257);
+		c.green = (unsigned short)(pal_rgb[i * 3 + 1] * 257);
+		c.blue  = (unsigned short)(pal_rgb[i * 3 + 2] * 257);
+		map[i]  = qd_nearest_color(&c);
+	}
+	n = (short)(w * h);
+	for (i = 0; i < n; i++) {
+		unsigned char v = idx[i];
+		g_color_cursor.img[i] = (v == 0xFF) ? 0xFF : map[v & 0x0F];
+	}
+	g_color_cursor.hotx   = hotx;
+	g_color_cursor.hoty   = hoty;
+	g_color_cursor.loaded = 1;
+}
+
 static void cursor_composite(void)
 {
 	unsigned char *px;
 	short          pitch, sw, sh, x, y, mx, my, ox, oy;
 	unsigned char  black, white;
+	int            color = g_color_cursor.loaded;
+	short          hx = color ? g_color_cursor.hotx : g_cursor.hotSpot.h;
+	short          hy = color ? g_color_cursor.hoty : g_cursor.hotSpot.v;
 	RGBColor       bk = { 0, 0, 0 };
 	RGBColor       wh = { 0xFFFF, 0xFFFF, 0xFFFF };
 
@@ -1177,15 +1215,15 @@ static void cursor_composite(void)
 		return;
 
 	plat_mouse_pos(&mx, &my);
-	ox = (short)(mx - g_cursor.hotSpot.h);
-	oy = (short)(my - g_cursor.hotSpot.v);
+	ox = (short)(mx - hx);
+	oy = (short)(my - hy);
 	black = qd_nearest_color(&bk);
 	white = qd_nearest_color(&wh);
 
 	for (y = 0; y < 16; y++) {
 		short          dy   = (short)(oy + y);
-		unsigned short dbit = g_cursor.data[y];
-		unsigned short mbit = g_cursor.mask[y];
+		unsigned short dbit = color ? 0 : g_cursor.data[y];
+		unsigned short mbit = color ? 0 : g_cursor.mask[y];
 		unsigned char *d    = (dy >= 0 && dy < sh) ? px + (long)dy * pitch : NULL;
 		for (x = 0; x < 16; x++) {
 			short          dx  = (short)(ox + x);
@@ -1196,8 +1234,13 @@ static void cursor_composite(void)
 				continue;
 			}
 			*sv = d[dx];                    /* save underneath */
-			if (mbit & bit)                 /* opaque: black or white */
+			if (color) {
+				unsigned char cv = g_color_cursor.img[y * 16 + x];
+				if (cv != 0xFF)             /* opaque colour pixel */
+					d[dx] = cv;
+			} else if (mbit & bit) {        /* opaque: black or white */
 				d[dx] = (dbit & bit) ? black : white;
+			}
 		}
 	}
 	g_cursor_save_x = ox;

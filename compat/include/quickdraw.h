@@ -73,6 +73,19 @@ void       ObscureCursor(void);         /* hide until the mouse next moves   */
 CursHandle GetCursor(short cursorID);   /* standard IDs: 4 = watch, else arrow */
 const Cursor *qd_sword_cursor(void);    /* the FRUA engine sword (placeholder) */
 
+/*
+ * Install a colour pointer from the user's own art (the DOS FRUA cursors —
+ * the one thing the DOS release has over the Mac's, which is mono). `idx` is
+ * width*height 8-bit palette indices (0xFF = transparent); `pal_rgb` is 16
+ * RGB triples (the library palette). Each index is mapped to the nearest
+ * live CLUT entry now, so call this AFTER the palette is installed. Once set,
+ * it overrides the mono cursor while visible. 16x16 only (cursors are 16x16).
+ * Nothing FRUA is compiled in — the bytes come from a runtime-loaded pack.
+ */
+void qd_install_color_pointer(short w, short h, short hotx, short hoty,
+                              const unsigned char *idx,
+                              const unsigned char *pal_rgb);
+
 void    SetPt(Point *pt, short h, short v);
 void    SetRect(Rect *r, short left, short top, short right, short bottom);
 void    OffsetRect(Rect *r, short dh, short dv);
