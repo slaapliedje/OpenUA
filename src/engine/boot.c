@@ -16867,19 +16867,26 @@ static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh
  * (L15e2 / L12a0) leave it 0 and stay keyboard-only, unchanged. */
 static int g_picker_cmdbar;
 
-/* A dialog command button (Select / Cancel) at a pixel rect: a raised
- * menu_button_bevel with a CENTRED label (body clut 7, accelerator clut 15) —
- * the same chrome as the menu buttons. Returns the hit rect through
+/* A dialog command button (Select / Cancel): a raised menu_button_bevel with
+ * a CENTRED label (body clut 7, accelerator clut 15) — the same chrome as the
+ * menu buttons. The cell WIDTH is the faithful command-bar advance from l1aea:
+ * each word advances (item_len+1)*4 engine units, i.e. (len+1)*8 px at scale 2
+ * (the play HUD uses the same formula). Returns the hit rect through
  * rect[4] = {x0, y0, x1, y1} (half-open) for the caller's mouse test. */
 static void picker_cmd_button(unsigned char *px, short pitch, short sw, short sh,
-                              short x0, short y0, short w,
+                              short x0, short y0,
                               const char *label, char hot, short rect[4])
 {
-	short y1 = (short)(y0 + 10), x1 = (short)(x0 + w - 1);
-	short len = 0, lx, hi = -1, k;
+	short len = 0, w, y1, x1, lx, hi = -1, k;
 	unsigned char pbuf[40];
 	CGrafPtr cport;
 	GrafPtr  bport;
+
+	while (label[len] != 0 && len < 39)
+		len++;
+	w  = (short)((len + 1) * 8);                    /* l1aea cell advance */
+	y1 = (short)(y0 + 10);
+	x1 = (short)(x0 + w - 1);
 
 	menu_button_bevel(px, pitch, sw, sh, x0, y0, x1, y1, 0);
 	if (rect != NULL) {
@@ -16887,8 +16894,6 @@ static void picker_cmd_button(unsigned char *px, short pitch, short sw, short sh
 		rect[2] = (short)(x1 + 1); rect[3] = (short)(y1 + 1);
 	}
 
-	while (label[len] != 0 && len < 39)
-		len++;
 	lx = (short)(x0 + (w - len * 8) / 2);          /* centre the label */
 	if (hot != 0) {
 		unsigned char hu = (unsigned char)
@@ -18737,10 +18742,11 @@ static int  jt169(long h1, long h2, short top, short left,
 				unsigned char *px; short pitch, sw, sh;
 				if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 					picker_cmd_button(px, pitch, sw, sh,
-					    (short)4, (short)187, (short)64,
+					    (short)4, (short)187,
 					    "Select", 'S', sel_rect);
+					/* Cancel butts Select's right edge (sel_rect[2]). */
 					picker_cmd_button(px, pitch, sw, sh,
-					    (short)68, (short)187, (short)64,
+					    sel_rect[2], (short)187,
 					    "Cancel", 'C', cancel_rect);
 				}
 			}
