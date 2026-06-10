@@ -18494,9 +18494,11 @@ static int  jt169(long h1, long h2, short top, short left,
 					(const unsigned char *)(uintptr_t)e;
 				short row = (short)(top + i);
 				short who = (short)(scroll + i);
-				jt94(left, row, (short)(who == sel ? 15 : 11), 0,
-				     "%c%s", (who == sel) ? '>' : ' ',
-				     (const char *)&n[5]);
+				/* Mac highlights the selection by colour, not a
+				 * '>' marker: bright (15) for the selected row,
+				 * dim (9) for the rest. */
+				jt94(left, row, (short)(who == sel ? 15 : 9), 0,
+				     "%s", (const char *)&n[5]);
 				e = *(const long *)(uintptr_t)e;
 			}
 			if (flag != NULL) *flag = 1;

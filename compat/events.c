@@ -143,6 +143,20 @@ static Boolean kb_to_event(EventRecord *out)
 
 	if (!plat_kb_poll(&scan, &ascii))
 		return 0;
+	/* The arrow keys carry no ASCII on the Atari (scancode only), but the
+	 * Mac delivers them as char codes 28..31 in the event message's low
+	 * byte — which is what lifted dialogs (the JT[169] list picker, etc.)
+	 * test. Translate so Mac key handling works; the scancode stays in the
+	 * high byte for the movement path that reads it. */
+	if (ascii == 0) {
+		switch (scan) {
+		case 0x4b: ascii = 28; break;   /* left  */
+		case 0x4d: ascii = 29; break;   /* right */
+		case 0x48: ascii = 30; break;   /* up    */
+		case 0x50: ascii = 31; break;   /* down  */
+		default: break;
+		}
+	}
 	out->what    = keyDown;
 	out->message = ((long)scan << 8) | (long)ascii;
 	fill_common(out);
