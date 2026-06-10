@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
-"""hlib_extract.py — decode FRUA (DOS) HLIB tile libraries (*.TLB).
+"""hlib_extract.py — decode FRUA tile/art libraries (*.TLB, *.GLB, *.CTL).
 
-The MS-DOS release of Unlimited Adventures stores its UI/art tiles in an
-"HLIB" container.  This is NOT the shipping asset path for the port (we
-build from the Mac resource fork, ADR-0001/0007) — it is a one-off utility
-for *recovering reference art*, e.g. the mouse-cursor shapes that the Mac
-build loads at runtime and never seeds into a resource we can lift.
+Both Unlimited Adventures releases store UI/art tiles in the same container,
+under two endian-flipped labels:
 
-Format (all little-endian):
+  - DOS  "HLIB"  — little-endian; tiles are 8bpp colour (VGA Mode-X).
+  - Mac  "GLIB"  — big-endian;    tiles are 1bpp data+mask (UI/cursor libs)
+                                   or piece-coded art (walls/sprites, TODO).
 
-    offset  size  field
-    0       4     'HLIB' magic
-    4       4     total file size
-    8       4     entry count (N)
-    12      4     content tag ('TILE')
-    16      4*(N+1)  offset table; entry i spans [off[i], off[i+1]),
-                     off[N] == file size.
+The shared header (offsets are u32 in the file's endianness):
 
-    entry 0 : 16-colour palette.  8-byte header, then 16 RGB triples
-              (6-bit-ish VGA values 0x00/0x57/0xAB/0xFF...).
-    entry k : a tile.  8-byte header —
-                u16 width
-                u16 xhot     (cursor hot-spot x / placement origin)
-                u16 yhot     (cursor hot-spot y / placement origin)
-                u16 flags    (low byte ~0x15)
-              then the pixels in VGA *Mode-X* (unchained planar) order:
-              four planes of (stride*height) bytes, plane p holding the
-              columns x where x & 3 == p, stride = ceil(width/4) bytes per
-              plane-row.  Each byte is an 8-bit palette index; 0xFF means
-              transparent.  height = (len-8) / (stride*4).
+    0   4   magic              'HLIB' (DOS) or 'GLIB' (Mac)
+    4   4   total file size
+    8   2   entry count (N)
+    10  2   flags / version    (0 in the libraries seen)
+    12  4   content tag        'TILE' (tile lib) or 'DATA' (.GLB data lib)
+    16  4*(N+1)  offset table; entry i spans [off[i], off[i+1]), off[N]=EOF.
+
+    entry 0 : 16-colour palette — 8-byte header, then 16 RGB triples.
+    entry k : a tile — 8-byte header (u16 width, u16 xhot, u16 yhot,
+              u16 flags), then the pixels:
+                HLIB: VGA Mode-X (4 unchained planes, plane p = columns
+                      x&3==p, stride=ceil(width/4)); each byte an 8-bit
+                      palette index, 0xFF = transparent.
+                GLIB: a 1bpp data plane then a 1bpp mask plane, each
+                      ceil(width/16) words per row; data bit = black/white,
+                      mask bit = opaque (mask 0 = transparent).
+
+This is reference/ingest tooling (the port ships from the Mac fork per
+ADR-0001/0007); it embeds no FRUA data. Designs (.DSN/.DAT) are identical
+across both releases and need no conversion.
 
 Usage:
     python3 tools/hlib_extract.py LIB.TLB                 # summary
@@ -42,7 +43,8 @@ import struct
 import sys
 
 
-MAGIC = b"HLIB"
+MAGIC_DOS = b"HLIB"
+MAGIC_MAC = b"GLIB"
 TRANSPARENT = 0xFF
 
 
@@ -59,14 +61,24 @@ class Tile:
 
 
 class HLib:
+    """A FRUA tile/art library — DOS 'HLIB' (LE) or Mac 'GLIB' (BE)."""
+
     def __init__(self, data):
-        if data[:4] != MAGIC:
-            raise ValueError("not an HLIB file (bad magic %r)" % data[:4])
-        self.size, self.count = struct.unpack_from("<II", data, 4)
+        magic = data[:4]
+        if magic == MAGIC_DOS:
+            self.kind = "HLIB"
+            self.endian = "<"
+        elif magic == MAGIC_MAC:
+            self.kind = "GLIB"
+            self.endian = ">"
+        else:
+            raise ValueError("not an HLIB/GLIB file (bad magic %r)" % magic)
+        e = self.endian
+        (self.size,) = struct.unpack_from(e + "I", data, 4)
+        self.count, self.flags = struct.unpack_from(e + "HH", data, 8)
         self.tag = data[12:16]
-        table_off = 16
         self.offsets = list(
-            struct.unpack_from("<%dI" % (self.count + 1), data, table_off)
+            struct.unpack_from(e + "%dI" % (self.count + 1), data, 16)
         )
         self.data = data
         self.palette = self._read_palette()      # list[(r,g,b)] len 16
@@ -88,21 +100,45 @@ class HLib:
 
     def _read_tile(self, i):
         e = self._entry(i)
-        width, xhot, yhot, flags = struct.unpack_from("<HHHH", e, 0)
+        width, xhot, yhot, flags = struct.unpack_from(self.endian + "HHHH", e, 0)
         body = e[8:]
         if width == 0:
             return Tile(i, 0, 0, (xhot, yhot), flags, b"")
+        if self.kind == "HLIB":
+            return self._tile_modex(i, width, xhot, yhot, flags, body)
+        return self._tile_mono(i, width, xhot, yhot, flags, body)
+
+    def _tile_modex(self, i, width, xhot, yhot, flags, body):
+        """DOS: VGA Mode-X (4 unchained planes) -> row-major 8bpp indices."""
         stride = (width + 3) // 4            # bytes per plane-row
         per_plane = len(body) // 4
         height = per_plane // stride if stride else 0
-        # De-planarize Mode-X into a row-major buffer.
         out = bytearray(width * height)
         for y in range(height):
             for x in range(width):
-                plane = x & 3
-                col = x >> 2
-                src = plane * per_plane + y * stride + col
+                src = (x & 3) * per_plane + y * stride + (x >> 2)
                 out[y * width + x] = body[src] if src < len(body) else TRANSPARENT
+        return Tile(i, width, height, (xhot, yhot), flags, bytes(out))
+
+    def _tile_mono(self, i, width, xhot, yhot, flags, body):
+        """Mac: 1bpp data plane + 1bpp mask plane -> row-major indices,
+        mapping data bit to black(0)/white(15) and a clear mask bit to
+        transparent (0xFF). words_per_row = ceil(width/16)."""
+        wpr = (width + 15) // 16
+        rowbytes = wpr * 2
+        height = len(body) // (2 * rowbytes) if rowbytes else 0
+        data = body[:rowbytes * height]
+        mask = body[rowbytes * height:2 * rowbytes * height]
+        out = bytearray([TRANSPARENT]) * (width * height)
+        for y in range(height):
+            for x in range(width):
+                word = x >> 4
+                bit = 0x8000 >> (x & 15)
+                off = y * rowbytes + word * 2
+                d = struct.unpack_from(">H", data, off)[0]
+                m = struct.unpack_from(">H", mask, off)[0]
+                if m & bit:
+                    out[y * width + x] = 0 if (d & bit) else 15
         return Tile(i, width, height, (xhot, yhot), flags, bytes(out))
 
 
@@ -166,8 +202,8 @@ def main(argv):
     with open(args.file, "rb") as f:
         lib = HLib(f.read())
 
-    print("HLIB %s  tag=%r  entries=%d  size=%d" %
-          (args.file, lib.tag.decode("latin1"), lib.count, lib.size))
+    print("%s %s  tag=%r  entries=%d  size=%d" %
+          (lib.kind, args.file, lib.tag.decode("latin1"), lib.count, lib.size))
     print("palette:", " ".join("%02x%02x%02x" % c for c in lib.palette))
     for t in lib.tiles:
         print("  #%3d  %2dx%-2d  hotspot=%s flags=0x%04x" %
