@@ -22017,6 +22017,289 @@ static void l3e94(short value, short width, unsigned char zeroflag,
 	emit((short)(digit <= 9 ? (48 + digit) : (55 + digit)));   /* 0-9 / A-F */
 }
 
+/* L3f20 (CODE 3 + 0x3f20) — the LONG analog of l3e94, used by JT[400]'s "%l"
+ * arm. Same recursive most-significant-digit-first emitter, but the value is a
+ * 32-bit long (the Mac uses JT[5]/JT[6] = unsigned long div/mod; the m68k C
+ * compiler emits the equivalent for unsigned-long / and %). Sign is the caller's
+ * job (the %l arm negates + emits '-' when the encoded base is odd/signed). */
+static void l3f20(long value, short width, unsigned char zeroflag,
+                  short base, void (*emit)(short)) __attribute__((unused));
+static void l3f20(long value, short width, unsigned char zeroflag,
+                  short base, void (*emit)(short))
+{
+	unsigned long  v = (unsigned long)value;
+	unsigned long  b = (unsigned long)(unsigned short)base;
+	unsigned long  digit;
+
+	if (v >= b) {
+		l3f20((long)(v / b), (short)(width - 1), zeroflag, base, emit);
+	} else {
+		short w;
+		for (w = (short)(width - 1); w > 0; w--)
+			emit(zeroflag ? (short)48 : (short)32);   /* '0' or ' ' pad */
+	}
+	digit = v % b;
+	emit((short)(digit <= 9 ? (48 + digit) : (55 + digit)));   /* 0-9 / A-F */
+}
+
+/* JT[400] (CODE 3 + 0x3fb8, ~490 instr) — THINK C's "%r" recursive-format VM.
+ * NOT a printf: a template-driven accumulator machine that emits characters one
+ * at a time through the caller's `emit` callback. `args` is a flat word-stream
+ * arg cursor (advanced 2 per word arg, 4 per %s/%l/%r long). Each '%' loads the
+ * current arg into a 16-bit accumulator, then parses an optional [0][width] and
+ * a stream of operator chars: value arms (d/u/x/X/o/l/s/c/w) format+emit the
+ * accumulator; arithmetic arms (+ - * / # \ & | ^ ~ > < =) turn the template
+ * into a tiny calculator over the accumulator; group arms (%(..%) repeat,
+ * %[..%] indexed select) and %r (recurse on a sub-template) drive control flow.
+ * Faithful lift of L3fb8; the only deferral is the custom-handler descriptor
+ * CALL (the `handlers` set, L3e62) — Phase 4; no current caller passes one.
+ * See docs/jt400-format-vm.md. Frame-local names mirror the asm fp-slots. */
+static void jt400(char *fmt, void *args, void (*emit)(short),
+                  void *handlers, void *extra) __attribute__((unused));
+static void jt400(char *fmt, void *args, void (*emit)(short),
+                  void *handlers, void *extra)
+{
+	char          *argp = (char *)args;   /* fp@(-20) arg cursor          */
+	short          acc = 0;               /* fp@(-26) accumulator          */
+	short          width = 0;             /* fp@(-22) field width          */
+	short          operand = 0;           /* fp@(-24) op operand / count   */
+	unsigned char  zeroflag = 0;          /* fp@(-1)  '%0N' pad with '0'   */
+	short          counter = 0;           /* fp@(-28) %(..%) repeat count  */
+	char          *loop_start = NULL;     /* fp@(-10) %( body start        */
+	char          *sel_argp = NULL;       /* fp@(-32) %[ saved arg cursor  */
+	short          c;                     /* d7 current char               */
+
+	PROBE("jt400");
+
+	for (;;) {
+		c = (unsigned char)*fmt++;            /* L45c0 fetch next char     */
+		if (c == 0)
+			return;
+		if (c != '%') {                       /* L3fcc literal             */
+			emit(c);
+			continue;
+		}
+		acc = *(short *)argp;                 /* load current arg word     */
+
+	parse_conv:                                   /* L3fe0 parse [0][width] */
+		c = (unsigned char)*fmt++;
+		if (c >= '0' && c <= '9') {
+			zeroflag = (unsigned char)(c == '0');
+			width = (short)(c - '0');
+			for (;;) {
+				c = (unsigned char)*fmt++;
+				if (c < '0' || c > '9')
+					break;
+				width = (short)(width * 10 + (c - '0'));
+			}
+			operand = width;              /* L4040 operand = width     */
+		} else {
+			width = 0;                    /* L4048 no digits           */
+			zeroflag = 0;
+			operand = 1;
+		}
+		/* c now holds the operator/conversion char. */
+
+		if (handlers) {
+			/* TODO(jt400 phase 4): custom-handler descriptor lookup
+			 * (L3e62) + call. Deferred until the handler-set layout is
+			 * lifted; no current port caller passes a handler set, so
+			 * this falls through to the standard dispatch below. */
+		}
+
+	dispatch:                                     /* L4094 standard switch */
+		switch (c) {
+		/* ---- value arms: format the accumulator, advance argp, done --- */
+		case 'd':                             /* 0x4120 signed decimal     */
+			if (acc < 0) {
+				emit('-');
+				width--;
+				acc = (short)(-acc);
+			}
+			/* fall through */
+		case 'u':                             /* 0x4140 unsigned decimal   */
+			l3e94(acc, width, zeroflag, 10, emit);
+			argp += 2;
+			break;
+		case 'x':                             /* 0x4246 hex (X same arm)   */
+		case 'X':
+			l3e94(acc, width, zeroflag, 16, emit);
+			argp += 2;
+			break;
+		case 'o':                             /* 0x426e octal              */
+			l3e94(acc, width, zeroflag, 8, emit);
+			argp += 2;
+			break;
+		case 's': {                           /* 0x4168 string, right-pad  */
+			char *sp = *(char **)argp;
+			argp += 4;
+			if (sp)
+				while (*sp) {
+					emit((unsigned char)*sp++);
+					width--;
+				}
+			while (width-- > 0)           /* pad to width with ' '     */
+				emit(' ');
+			break;
+		}
+		case 'c':                             /* 0x41c8 char (high,low)    */
+			if (width > 1) {
+				while (width > 2) {   /* lead NUL pad to width     */
+					emit(0);
+					width--;
+				}
+				emit((short)(acc >> 8));
+			}
+			emit(acc);
+			argp += 2;
+			break;
+		case 'w':                             /* 0x421a word (low,high)    */
+			while (width > 2) {
+				emit(0);
+				width--;
+			}
+			emit(acc);
+			emit((short)(acc >> 8));
+			argp += 2;
+			break;
+		case 'l': {                           /* 0x4296 long modifier      */
+			char *lp = argp;              /* fp@(-40) arg snapshot     */
+			short base = 11;              /* default: signed decimal   */
+			short lc = (unsigned char)*fmt++;
+			switch (lc) {                 /* sub-table @ 0x42b2        */
+			case 'u': base = 10; break;
+			case 'd': base = 11; break;
+			case 'x': base = 16; break;
+			case 'o': base = 8;  break;
+			default:  fmt--;     break;   /* unknown: back up fmt      */
+			}
+			if (base & 1) {               /* odd base => signed        */
+				if (*(long *)lp < 0) {
+					emit('-');
+					width--;
+					*(long *)lp = -*(long *)lp;
+				}
+			}
+			l3f20(*(long *)lp, width, zeroflag,
+			      (short)(base & ~1), emit);
+			argp = lp + 4;
+			break;
+		}
+		case 'r': {                           /* 0x4344 recursive format   */
+			char *sub_fmt  = *(char **)argp; argp += 4;
+			void *sub_args = *(void **)argp; argp += 4;
+			jt400(sub_fmt, sub_args, emit, handlers, extra);
+			break;
+		}
+
+		/* ---- arithmetic arms: mutate acc, re-parse next operator ------ */
+		case '+': acc = (short)(acc + operand); goto parse_conv;   /* 0x438e */
+		case '-': acc = (short)(acc - operand); goto parse_conv;   /* 0x451c */
+		case '/': acc = (short)((short)acc / (short)operand);
+			  goto parse_conv;                                /* 0x4534 */
+		case '#': acc = (short)((short)acc % (short)operand);
+			  goto parse_conv;                                /* 0x4546 */
+		case '\\': acc = (short)((unsigned short)acc
+				       / (unsigned short)operand);
+			   goto parse_conv;                               /* 0x4570 */
+		case '&': acc = (short)(acc & operand); goto parse_conv;   /* 0x44d4 */
+		case '|': acc = (short)(acc | operand); goto parse_conv;   /* 0x455a */
+		case '^': acc = (short)(acc ^ operand); goto parse_conv;   /* 0x4528 */
+		case '~': acc = (short)(~acc);          goto parse_conv;   /* 0x4564 */
+		case '>': acc = (short)(acc >> operand); goto parse_conv;  /* 0x439a */
+		case '<': acc = (short)(acc << operand); goto parse_conv;  /* 0x43ac */
+		case '=': acc = width;                  goto parse_conv;   /* 0x4580 */
+		case '*':                             /* 0x44e0 multiply / *-width */
+			if (width != 0) {             /* %N*: acc *= operand       */
+				acc = (short)(acc * operand);
+				goto parse_conv;
+			}
+			operand = acc;                /* %*: width from this arg   */
+			width = acc;
+			argp += 2;
+			acc = *(short *)argp;         /* reload acc from next arg  */
+			c = (unsigned char)*fmt++;    /* dispatch following char   */
+			goto dispatch;
+
+		/* ---- group / control arms ------------------------------------ */
+		case '(':                             /* 0x43be %( repeat open     */
+			counter = acc;
+			loop_start = fmt;
+			argp += 2;
+			if (counter != 0)
+				break;                /* enter body                */
+			while (*fmt) {                /* count 0: skip to "%)"     */
+				if ((unsigned char)*fmt++ == '%'
+				    && *fmt == ')')
+					break;
+			}
+			if (*fmt)
+				fmt++;                /* skip ')'                  */
+			break;
+		case ')':                             /* 0x4408 %) repeat close     */
+			counter--;
+			if (counter > 0)
+				fmt = loop_start;
+			break;
+		case '[':                             /* 0x441e %[ select open      */
+			sel_argp = argp + 2;
+			for (;;) {                    /* skip `acc` cases          */
+				if (*fmt == 0 || acc <= 0)
+					break;
+				if ((unsigned char)*fmt++ == '%') {
+					short sc = (unsigned char)*fmt++;
+					if (sc == ';') {      /* case separator    */
+						acc--;
+						continue;
+					}
+					if (sc == ':')        /* selected case     */
+						break;
+					if (sc == ']') {      /* end of group      */
+						argp = sel_argp;
+						break;
+					}
+					/* default: keep scanning */
+				}
+			}
+			break;
+		case ']':                             /* 0x4480 %] select close     */
+			argp = sel_argp;
+			break;
+		case ';':                             /* 0x448a %; / %: -> skip to %] */
+		case ':':
+			while (*fmt) {
+				if ((unsigned char)*fmt++ == '%'
+				    && *fmt == ']')
+					break;
+			}
+			if (*fmt)
+				fmt++;                /* skip ']'                  */
+			argp = sel_argp;
+			break;
+		case 'g':                             /* 0x44c0 random-access arg   */
+			argp = (char *)args + (long)width * 2;
+			break;
+
+		/* ---- repeat-emit arms (0x4588 / default @ 0x45a2) ------------- */
+		case 'z':                             /* emit NUL `operand` times  */
+			c = 0;
+			goto repeat_emit;
+		case 0:                               /* 0x458c trailing '%'       */
+			fmt--;                        /* re-point at the NUL       */
+			c = '%';
+			goto repeat_emit;
+		default:                              /* unknown char: repeat it   */
+		repeat_emit: {
+			short n = operand;
+			while (n-- > 0)
+				emit(c);
+			break;
+		}
+		}
+		/* value/group/repeat arms land here -> next template char (L45c0) */
+	}
+}
+
 /* JT[401] (CODE 3 + 0x3d4c) — read from an open file. Mac builds a
  * PBRead param block + JT[1043]; the port routes to the compat
  * FSRead. Returns bytes read (partial reads on eofErr are kept),
