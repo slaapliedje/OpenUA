@@ -348,3 +348,75 @@ risk is only for future transcriptions of a Mac callsite that copy its
 positional order verbatim — a banner comment on `jt406` now warns of it.
 `jt479` (= the same L366a core, used by L026e's save/restore) keeps the
 faithful Mac (src, dst) spelling.
+
+## Band 2 audit (2026-06-10)
+
+Band 1 was the load-bearing primitives + the top true stubs. Band 2 is the
+next frequency tier of GENUINELY unlifted entries, re-derived from a fresh
+`/tmp/jt_freq.txt` cross-referenced against boot.c (true stub = PROBE + a
+constant/void return, no calls, args ignored). 1205 distinct JT called; ~88
+true stubs remain.
+
+### Faithful no-ops at high frequency — VERIFIED, leave as stubs
+
+| JT | calls | why it's genuinely empty here |
+|----|-------|-------------------------------|
+| jt1061 | 38 | `_SwapMMUMode` — 68030 has one flat 32-bit mode; no 24/32 swap |
+| jt1163 | 36 | returns 0 |
+| jt1198 | 30 | returns 1 (glyph row-step constant) |
+| jt1170 | 24 | empty body |
+| jt1130 / jt920 / jt956 | 10/6/.. | per-segment init no-ops |
+| jt1148 | 6 | CODE 4 init no-op |
+
+### Band-1 leftovers still open (highest individual stubs)
+
+| JT | calls | what |
+|----|-------|------|
+| jt1193 | 24 | (CODE 7) view-prep tail |
+| jt876 | 22 | popup action handler (CODE 18+0x1666) |
+| jt1177 | 22 | row-blit draw primitive (HAL-deferred — see [[band1-tail-triage]]) |
+| jt1084 | 34 | error/alert dialog == l036a (DONE) — routes there, effectively closed |
+
+### Band-2 actionable CLUSTERS (lift these as groups, leaf-first)
+
+Like band 1's GLIB-glyph and jt96 word-wrap finds, the leverage is in clusters:
+
+1. **Paint-state commit chain — l3994 → jt1012(15) / jt1128(11) / jt1066(6) /
+   jt1153.** Widest blast radius in band 2: every JT[94]/JT[108]/JT[112]/JT[117]
+   text paint flows through l3994's deferred pen-state commit, which is PROBE
+   because the QuickDraw shim doesn't publish GrafPort snapshot state yet.
+   Wiring it makes deferred paint commit at the right time (the
+   JT[108]→l3994→JT[1153] chain). Needs compat/quickdraw.c to expose the
+   port/clip snapshot first.
+
+2. **GLIB picture / backdrop subsystem — jt124(16) free-handle + jt993 /
+   jt1017 (palette commit) + L33ac / L541a / L579e / L5822.** The jt23 cases
+   2/6 + L5822 full-refresh backdrops. Lights up the play-screen picture
+   window + area backdrops. Already mapped above (the "jt23 follow-up" section)
+   and is task #105 territory; the read/commit pool layer is DONE, the
+   picture-decode + palette commit are the remaining pieces.
+
+3. **View-Character / record-sheet popup — jt595(16) + the jt904 dispatch
+   arms (jt18/jt20 record sheet, already lifted).** jt595 is the popup-action
+   handler the "View" command routes to. Surfaces the real character sheet.
+
+4. **Combat effect-resolution (CODE 13) — jt503(13) + the 0x218-byte effect
+   leaves.** Sits next to the DONE combat-render tree (jt875 / jt501 / jt521);
+   the natural continuation toward actual combat.
+
+5. **View-setup + counter leaves — jt213(11) party-cell record, jt1067(11),
+   jt593(9), jt367(7) counter-format.** Small leaves the dungeon/area view
+   setup calls; low risk, incremental.
+
+6. **Timing shim — jt100(12) = TickCount.** Small: gates l23b4's animation /
+   timeout timers (blinking-cell, timed dialogs). Map to the TOS frame clock.
+
+### Recommendation
+
+Highest USER-VISIBLE leverage is **task #108 (the 320x200 vs 640x400 frame
+scale)** — it's not a JT stub but it blocks the whole play HUD (#113: the
+jank dungeon frame, roster jt936, clock jt938 all sit on a mis-scaled frame).
+Among pure JT-stub clusters, **cluster 1 (paint-state commit)** has the widest
+reach and **cluster 2 (GLIB backdrops)** the most visible payoff. Suggested
+order: #108 frame scale → cluster 2 (backdrops, finishes task #105) →
+cluster 1 (paint commit) → clusters 3–6 incrementally.
