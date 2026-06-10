@@ -6904,15 +6904,14 @@ static short jt382(void *rec_v, short cmd, ...)
 				 * MENU still uses the port menu_draw_plates stand-in until the
 				 * faithful CODE-15/19 menu is lifted — task #105.) */
 				if (len > 0) {
-					/* Play command bar: draw each command on its own
-					 * beveled MENU.CTL plate (the Mac HUD's per-command
-					 * bevel cells). Cells advance (len+1)*8 px (l1aea's
-					 * (len+1)*4 at scale 2), so this width abuts them; the
-					 * left cap sits just left of the label origin. */
-					if (g_hud_paint)
-						port_menu_bar((short)(y_pix - 9),
-						              (short)(x_pix - 4),
-						              (short)((len + 1) * 8), (short)1);
+					/* HUD command bar: NO per-word plate. The faithful
+					 * bar background is FRAME.CTL item 4 (the full-width
+					 * bottom molding) already blitted by port_draw_play_frame
+					 * in the dungeon — jt382 cmd-1 only lays the label on top
+					 * (the disasm at CODE 3 0x1a5e is pure L148a, no fill).
+					 * The earlier port_menu_bar per-word plate was the same
+					 * redundant stopgap retired for char-gen in 6293291; the
+					 * labels still paint in the HUD palette (253/254) below. */
 					/* The Mac paint chain (L148a/jt995) sets the pen
 					 * colour; our collapsed path doesn't, so the label
 					 * would inherit a stale fgColor. Draw the body in the
