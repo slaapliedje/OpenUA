@@ -2010,6 +2010,13 @@ static void  jt199(unsigned char *page, short Y, short X, short row,
                    short col, short facing);                /* JT[199]=CODE 7+0x6234 frustum walker */
 static void  render_3d_faithful(unsigned char *px, short pitch, short sw, short sh);
 static void  port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh);
+/* Extra pixel y added to jt1089 text while composing the dungeon HUD. The
+ * QuickDraw shim is baseline-anchored (glyph body ABOVE y) while the Mac's
+ * jt94/rec[16] coords are text-TOP; the dungeon HUD text lands ~7px high vs
+ * the Mac (measured: command-bar baseline 188 vs Mac 195). Set to the font
+ * ascent during jt240's HUD draw, 0 everywhere else (menu/char-gen compensate
+ * in their own builds). */
+static short g_hud_dy;
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -5233,7 +5240,7 @@ static void jt1089(short x, short y, short color,
 	 * then MoveTo there. */
 	jt1135(x, y, &g_a5_4898, &g_a5_4896);
 	px = g_a5_4898;
-	py = g_a5_4896;
+	py = (short)(g_a5_4896 + g_hud_dy);   /* +ascent during the dungeon HUD draw */
 	MoveTo(px, py);
 
 	/* L0306: format the caller's args + DrawString. The Mac path
@@ -6777,6 +6784,7 @@ static short jt381(void *rec_v, short cmd, ...)
  * colours in the dungeon). Off everywhere else. */
 static short g_hud_paint;
 static void  port_menu_bar(short top, short left, short width, short idx); /* MENU.CTL plate */
+static void  port_hud_text_clut(void);  /* install UI text colours into the dungeon clut */
 static short jt382(void *rec_v, short cmd, ...) __attribute__((unused));
 static short jt382(void *rec_v, short cmd, ...)
 {
@@ -9751,6 +9759,20 @@ static void jt312(unsigned char *page)
 		g_hud_paint = 1;
 		l2c60((short)1);                /* force-repaint the bar (plate per word) */
 		g_hud_paint = 0;
+		/* The party roster (jt937 = L02dc grid, right panel) + clock/position
+		 * box (jt938, centre). They draw via jt94/jt1089 (fgColor = colour &
+		 * 0x0f -> UI indices 1/7/11/12/15) which the dungeon's clut 129 wiped,
+		 * so re-install the UI text colours first (port_hud_text_clut, without
+		 * touching the 3D backdrop @4/5, FRAME band @16..31, or walls @32+).
+		 * g_hud_dy nudges the baseline-anchored shim text down by the font
+		 * ascent to the Mac baseline. Drawn HERE (the full-present frame, both
+		 * pages) so they persist like the chrome + command bar; jt240's copies
+		 * were wiped by this block's port_draw_play_frame. */
+		port_hud_text_clut();
+		g_hud_dy = 7;
+		jt938();
+		jt937(g_a5_long(-27932));
+		g_hud_dy = 0;
 	}
 	if (s_view_first || g_view_force_full) {
 		/* DOUBLE full present: the HAL double-buffers two planar pages and
@@ -13368,6 +13390,15 @@ void port_test_seed_design(void)
 	g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
 	g_a5_long(-13804) = (long)(uintptr_t)k_test_prompt;
 
+	/* Entry level (stand-in for the GAME-header start-level parse, which the
+	 * port's design loader doesn't do yet). TUTORIAL.DSN's only map is
+	 * GEO040, a dungeon (>= 5): l0bbc -> l0ba2 sets in-play mode 4 (the
+	 * command bar) and jt948 routes the walk through jt240 (the real
+	 * "Area Cast View Encamp Search Look Inv" bar). Without this it defaults
+	 * to level 1 (overland, mode 3) -> empty GEO001 view + the single-command
+	 * "Encamp" bar. See [[play-hud-work]] / [[coord-model-task108]]. */
+	g_a5_18828 = 40;
+
 	/* Seed a test pool so the Training Hall has real characters. The pool
 	 * (cg_pool) is the master list of saved characters; the active party
 	 * (the roster grid l02dc walks off g_a5_-27928) is the CHAR_INPARTY
@@ -16537,6 +16568,22 @@ static void load_menu_ui(void)
 	}
 	if (g_menu_state == 1)               /* install the UI palette */
 		qd_set_palette(g_menu_pal, (short)0, g_menu_pe);
+}
+
+/* port_hud_text_clut — re-install the UI text colours into the live (dungeon)
+ * clut so jt94/jt1089 HUD text (fgColor = colour & 0x0f) is readable. The
+ * dungeon loads clut 129 (the 256-entry wall palette) over the low indices the
+ * UI text uses (1 name / 7 grey / 11 cyan / 12 red / 15 white), turning the
+ * roster/clock/status text grey-on-grey. g_menu_pal holds the real UI palette
+ * (load_menu_ui filled it before Play). Copy slots 6..15 + slot 1 from it; this
+ * avoids the 3D backdrop (indices 4/5), the FRAME chrome band (16..31) and the
+ * wall texture bands (32+), so only the text colours change. */
+static void port_hud_text_clut(void)
+{
+	if (g_menu_state != 1)
+		return;                          /* UI palette not loaded yet */
+	qd_set_palette(g_menu_pal + 6, (short)6, (short)10);   /* 6..15 */
+	qd_set_palette(g_menu_pal + 1, (short)1, (short)1);    /* name colour */
 }
 
 /* ui_glib_blit — the faithful l309c (CODE 5 + 0x309c) for the chunky UI
