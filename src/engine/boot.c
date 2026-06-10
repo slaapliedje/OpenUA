@@ -15808,6 +15808,121 @@ static void jt1080(void)
  * must first register its input-source DLItems (keyboard, the four
  * directional pads, select) via JT[447]/JT[452] — the next step.
  */
+/* menu_button_bevel is defined later (near menu_draw_plates); forward-declare
+ * it for the press-tracking helpers below. */
+static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh,
+                              short x0, short y0, short x1, short y1, int recessed);
+
+/* The full-plate rect of a positioned DLItem button. rec[16] is the label
+ * row (nudged +4 = +8px below the plate top by menu_run / l0aae), so the
+ * plate top is jt1135(rec[16]) - 8; the rect matches menu_draw_plates
+ * (x0=pxx-4..x1=pxx+147, 11px tall). Returns 1 if (h,v) is inside. */
+static int menu_button_hit(unsigned char *rec, short h, short v)
+{
+	short py = 0, pxx = 0, iy = *(short *)(rec + 16);
+
+	if (iy < 8000)
+		return 0;
+	jt1135(iy, *(short *)(rec + 18), &py, &pxx);
+	return (h >= (short)(pxx - 4) && h < (short)(pxx + 148)
+	     && v >= (short)(py - 8) && v < (short)(py + 3));
+}
+
+/* Repaint one DLItem button. pressed=0 = raised + normal label (grey body /
+ * white accelerator); pressed=1 = the Mac's button-down look: recessed bevel
+ * + the label recoloured (blue body clut 9 / cyan accelerator clut 11). The
+ * port draws the bevel (menu_button_bevel) and the label separately, so both
+ * are redrawn here. */
+static void menu_button_press_draw(unsigned char *rec, int pressed)
+{
+	unsigned char *px;
+	short pitch, sw, sh, py = 0, pxx = 0, plate_top, len = 0, hi = -1, k;
+	const char *label = *(const char **)(rec + 12);
+	unsigned char hk = rec[29];
+	/* Pressed: blue body / cyan accelerator (the Mac button-down look).
+	 * clut 152 = 679bff (the blue jt382's highlight path lands on), clut 11
+	 * = 67ffff cyan. Both are live menu-palette entries (152 is outside the
+	 * FRAME band 16..31 that load_menu_ui overwrites, so it stays 679bff). */
+	unsigned char body = (unsigned char)(pressed ? 152 : 7);   /* blue : grey  */
+	unsigned char hotc = (unsigned char)(pressed ? 11  : 15);  /* cyan : white */
+	unsigned char pbuf[64];
+	CGrafPtr cport;
+	GrafPtr  bport;
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	jt1135(*(short *)(rec + 16), *(short *)(rec + 18), &py, &pxx);
+	plate_top = (short)(py - 8);
+	menu_button_bevel(px, pitch, sw, sh, (short)(pxx - 4), plate_top,
+	                  (short)(pxx + 147), (short)(plate_top + 10), pressed);
+
+	if (label == NULL || (long)(uintptr_t)label <= 0x1000L)
+		return;
+	while (label[len] != 0 && len < 63)
+		len++;
+	if (hk != 0) {
+		unsigned char hu = (unsigned char)
+		    ((hk >= 'a' && hk <= 'z') ? hk - 32 : hk);
+		for (k = 0; k < len; k++) {
+			unsigned char c = (unsigned char)label[k];
+			if (c >= 'a' && c <= 'z') c -= 32;
+			if (c == hu) { hi = k; break; }
+		}
+	}
+	GetPort(&bport);
+	cport = (CGrafPtr)bport;
+	MoveTo(pxx, py);
+	if (hi < 0) {
+		if (cport) cport->fgColor = body;
+		pbuf[0] = (unsigned char)len;
+		memcpy(pbuf + 1, label, (size_t)len);
+		DrawString(pbuf);
+	} else {
+		if (hi > 0) {
+			if (cport) cport->fgColor = body;
+			pbuf[0] = (unsigned char)hi;
+			memcpy(pbuf + 1, label, (size_t)hi);
+			DrawString(pbuf);
+		}
+		if (cport) cport->fgColor = hotc;
+		pbuf[0] = 1;
+		pbuf[1] = (unsigned char)label[hi];
+		DrawString(pbuf);
+		if (hi + 1 < len) {
+			short n = (short)(len - hi - 1);
+			if (cport) cport->fgColor = body;
+			pbuf[0] = (unsigned char)n;
+			memcpy(pbuf + 1, label + hi + 1, (size_t)n);
+			DrawString(pbuf);
+		}
+	}
+}
+
+/* Track a press on DLItem `rec` until the mouse button releases — the faithful
+ * l1676 cmd=3 loop (highlight while held, toggle as the cursor drags on/off).
+ * Returns 1 if the release lands on the button (fire), 0 if it dragged off. */
+static int menu_button_track(unsigned char *rec)
+{
+	Point mp;
+	int over = 1;
+
+	menu_button_press_draw(rec, 1);
+	qd_present();
+	while (Button()) {
+		int now;
+		GetMouse(&mp);
+		now = menu_button_hit(rec, mp.h, mp.v);
+		if (now != over) {
+			menu_button_press_draw(rec, now);
+			qd_present();
+			over = now;
+		}
+	}
+	menu_button_press_draw(rec, 0);      /* release: raised + normal label */
+	qd_present();
+	return over;
+}
+
 static short l2d3e(void)
 {
 	short  key, mouse_x = 0, mouse_y = 0;
@@ -15855,15 +15970,17 @@ static short l2d3e(void)
 		unsigned char *hr = (unsigned char *)g_a5_9254;
 		for (i = 0; i < count; i++) {
 			short iy = *(short *)(hr + 16);
-			short ix = *(short *)(hr + 18);
-			if (iy >= 8000) {              /* a positioned (drawable) item */
-				short py, pxx;
-				jt1135(iy, ix, &py, &pxx);
-				if (cx >= (short)(pxx - 5) && cx < (short)(pxx + 145)
-				 && cy >= (short)(py - 7) && cy < (short)(py + 3)) {
+			/* Positioned + ENABLED (bit 2 = dim/disabled clears it). The
+			 * hit rect is the full plate (menu_button_hit). */
+			if (iy >= 8000 && (hr[28] & 0x04) == 0
+			 && menu_button_hit(hr, cx, cy)) {
+				/* Press feedback: recessed + blue/cyan while held, fire
+				 * on release-over-button (faithful l1676 cmd=3 track). */
+				if (menu_button_track(hr)) {
 					hr[28] |= 0x10;
 					return i;
 				}
+				return (short)-1;     /* released off the button: no pick */
 			}
 			hr += DLITEM_BYTES;
 		}
