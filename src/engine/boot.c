@@ -9636,16 +9636,26 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	for (r = 0; r < sh; r++)
 		memset(px + (long)r * pitch, 21, (size_t)sw);
 
-	/* The FAITHFUL dungeon frame = jt23 case 4 -> l67ca (already lifted):
-	 * jt76 (clear + char-cell box + FRAME border items 1-4) + l66e6 panel
-	 * dividers (item 7 at two offsets) + viewport frame (item 9) + compass
-	 * surround (item 21) + the ONE compass face for the party's facing
-	 * (item 22/23/24/25 for N/S/W/E). This replaces the old blit-all-29
-	 * loop, which over-drew every compass face at once plus a pile of corner
-	 * bevels the dungeon never uses — the "frame jank". The bigpic backdrop
-	 * (l5822) belongs to the OVERLAND/area modes (jt23 cases 1/2/6), NOT the
-	 * dungeon (mode 4). */
-	l67ca();
+	/* The FAITHFUL dungeon frame is jt23 case 4 -> l67ca: jt76 (clear +
+	 * char-cell box + FRAME border 1-4) + l66e6 dividers (item 7 x2) +
+	 * viewport frame (item 9) + compass surround (item 21) + the ONE compass
+	 * face for the party facing (22-25). That's the right PIECE LIST — but
+	 * dropping it in here regressed: most pieces got covered by the grey fill
+	 * and only the last-drawn box survived ("layers out of sync", user). The
+	 * cause is the port's render ordering — TWO port_draw_play_frame sites
+	 * (this one + render_3d_faithful's s_chrome_drawn one), cw_view_clip left
+	 * set on the GrafPort, and the double-buffer present — which l67ca's
+	 * jt76/jt103/jt1001 path trips where the flat ui_glib_blit loop didn't.
+	 * Reverted to the blit-all reconstruction (it shows the chrome) until that
+	 * ordering is untangled; the faithful l67ca swap is the goal once it is. */
+	{
+		const unsigned char *base8 =
+			(const unsigned char *)(uintptr_t)g_frame_base;
+		short count = (short)(((unsigned)base8[8] << 8) | base8[9]);
+		short s;
+		for (s = 1; s < count; s++)
+			ui_glib_blit(g_frame_base, s, (short)0, (short)0, 1, 0);
+	}
 }
 
 static signed char jt1160(void);        /* view-mode bit; defined below */
