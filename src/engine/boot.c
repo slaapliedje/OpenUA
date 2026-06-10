@@ -17503,8 +17503,13 @@ static int l0aae(void)
 		 *
 		 * Per the prior simplified parser's documented field map:
 		 * phr -> rec[16] (top), page -> rec[18] (left). */
+		/* phrase + 4 engine units (+8px): drop the label baseline into
+		 * the plate face. menu_draw_plates puts the plate top at the raw
+		 * phrase (rec[16]); the shim font is baseline-anchored (ascent 7),
+		 * so the label needs +8px to sit centred in the face — the same
+		 * nudge menu_run applies to the main menu's labels. */
 		jt452(1L,
-		      (long)k_jt918_menu_items[i].phrase,
+		      (long)(k_jt918_menu_items[i].phrase + 4),
 		      (long)k_jt918_menu_items[i].page,
 		      (long)(uintptr_t)ua_strs_at(
 		          k_jt918_menu_items[i].label_strs_off),
