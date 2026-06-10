@@ -312,6 +312,18 @@ void          qd_set_present_rect(qd_present_rect_fn fn);
 void          qd_present_rect(short x, short y, short w, short h);
 
 /*
+ * Cursor tracking — keep the on-screen cursor following the live IKBD
+ * mouse during engine idle/event-wait spins. The engine only repaints
+ * (and thus only composites the cursor) on a real qd_present, so between
+ * frames the cursor would freeze while the mouse keeps moving. The event
+ * pump (GetNextEvent's idle path) calls this every spin; it presents only
+ * when the mouse has actually moved since the last refresh, so a still
+ * mouse costs nothing and a moving one tracks at the present/VBL rate
+ * instead of waiting for the next engine-driven frame.
+ */
+void          qd_cursor_refresh(void);
+
+/*
  * Initialise the drawing defaults the Mac sets in OpenPort — pnSize (1,1),
  * patCopy mode, solid pen pattern, fgColor 255, bkColor 0. qd_attach_screen
  * and the Window Manager's NewWindow / NewCWindow both call this.
