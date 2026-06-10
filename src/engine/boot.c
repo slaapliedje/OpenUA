@@ -18737,10 +18737,10 @@ static int  jt169(long h1, long h2, short top, short left,
 				unsigned char *px; short pitch, sw, sh;
 				if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 					picker_cmd_button(px, pitch, sw, sh,
-					    (short)4, (short)188, (short)64,
+					    (short)4, (short)187, (short)64,
 					    "Select", 'S', sel_rect);
 					picker_cmd_button(px, pitch, sw, sh,
-					    (short)68, (short)188, (short)64,
+					    (short)68, (short)187, (short)64,
 					    "Cancel", 'C', cancel_rect);
 				}
 			}
