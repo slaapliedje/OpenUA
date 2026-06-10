@@ -16986,6 +16986,11 @@ static void menu_todo(const char *title)
 	(void)menu_run(items, 1, (void *)(uintptr_t)jt313, submenu_decorate);
 }
 
+/* "Select a Design" picker + design-name helpers (defined after jt392). */
+static int  l494e(void);
+static void jt356(void);
+static void jt128(void);
+
 /* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop, on the
  * shared menu_run. Returns 1 to keep ua_main's play loop running, 0 on
  * "Quit From Game". The dispatch now routes every command to a handler
@@ -17003,7 +17008,15 @@ static int   jt315(void)
 		switch (hit) {
 		case 0:                          /* Play the Game -> Training Hall */
 			return 1;
-		case 1: menu_todo("Select a Design");   break;  /* CODE 8 JT[361/369] */
+		case 1:                          /* Select a Design (CODE 22 L513a) */
+			if (l494e()) {
+				jt356();
+				jt361((short)1);
+				g_a5_byte(-11662) =
+				    (signed char)((g_a5_byte(-18504) == 0) ? 1 : 0);
+				jt128();
+			}
+			break;
 		case 2: menu_todo("Create New Design"); break;  /* CODE 8 */
 		case 3: menu_todo("Delete the Design"); break;  /* CODE 8 */
 		case 4: break;                   /* Unlock Editor — disabled */
@@ -24294,6 +24307,169 @@ static void  jt1142(void) __attribute__((unused));
 static void  jt1142(void) { PROBE("jt1142"); }
 static short jt1121(void) __attribute__((unused));
 static short jt1121(void) { PROBE("jt1121"); return 0; }
+
+/* ====================================================================
+ * "Select a Design" picker (jt315 case 1 -> L494e) and its helpers.
+ * ==================================================================== */
+
+/* JT[356] (CODE 8 + 0x5efe) — reset the design-state long g_a5_-10370. */
+static void jt356(void)
+{
+	PROBE("jt356");
+	g_a5_long(-10370) = 0;
+}
+
+/* JT[425] (CODE 3 + 0x4ca0) — copy `name`'s file extension (the text after
+ * the last '.') into `out`; empty if there's none, or a ':' is hit first.
+ * The picker uses it to test a directory entry's ".DSN" suffix. */
+static void jt425(const char *name, char *out)
+{
+	const char *p = name;
+
+	PROBE("jt425");
+	while (*p != 0)
+		p++;
+	while (p > name && p[-1] != '.' && p[-1] != ':')
+		p--;
+	if (p > name && p[-1] == '.')
+		jt384(out, p);
+	else
+		out[0] = 0;
+}
+
+/* JT[133] (CODE 6 + 0x3c2) — make `name` the current design: back the old
+ * name g_a5_-31336 up into g_a5_-31302, then copy `name` in. */
+static void jt133(const char *name)
+{
+	PROBE("jt133");
+	jt384((char *)&g_a5_byte(-31302), (const char *)&g_a5_byte(-31336));
+	jt384((char *)&g_a5_byte(-31336), name);
+}
+
+/* JT[135] (CODE 6 + 0x3e6) — restore the design name jt133 backed up. */
+static void jt135(void)
+{
+	PROBE("jt135");
+	jt384((char *)&g_a5_byte(-31336), (const char *)&g_a5_byte(-31302));
+}
+
+/* JT[128] (CODE 6 + 0x3f6) — persist the current design (g_a5_-31336, 34
+ * bytes) + the g_a5_-18476 flag to "start.dat" so the next boot resumes it.
+ * Faithful; no-ops until jt392 (file create) is lifted past its stub. */
+static void jt128(void)
+{
+	short ref;
+
+	PROBE("jt128");
+	ref = jt392("start.dat", (short)512);
+	if (ref >= 0) {
+		jt410(ref, &g_a5_byte(-31336), (short)34);
+		jt410(ref, &g_a5_byte(-18476), (short)1);
+		jt411(ref);
+	}
+}
+
+/* L494e (CODE 22 + 0x494e) — the "Select a Design" picker. Enumerates the
+ * *.DSN design folders, loads each one's GAME header to read its display
+ * name, builds two parallel linked lists (display names shown in the dialog,
+ * folder names used to set the design), runs the JT[169] list dialog, and on
+ * a selection sets the current design (jt133) + jt356. Returns 1 if a design
+ * was picked, 0 on cancel / none found.
+ *
+ * Faithful to CODE_22.s 0x494e-0x4be8. Port specifics: the gamedata stages
+ * each design as a real <name>.DSN subdirectory (Makefile + mac_path_to_c),
+ * which is what makes the *.DSN scan find anything; the enumeration pattern
+ * is the resolved "*.DSN" wildcard with a null matchname (the pattern + the
+ * jt425/"DSN" test already gate entries); and the dialog title is a literal
+ * rather than the four uncertain localized label globals the Mac splices. */
+static int l494e(void)
+{
+	unsigned char hdr_backup[388];
+	char          ext[64];
+	long          headA = 0, headB = 0;   /* display-name / folder-name lists */
+	long          saveA, saveB, newA, newB, entry, picked = 0;
+	signed char   is_dir = 0;
+	short         idx = 0, keycode;
+	unsigned char flag = 1;
+	int           result = 0;
+
+	PROBE("L494e");
+
+	jt406(hdr_backup, g_a5_buf(-18876), (short)388);    /* save GAME header */
+
+	if (jt990((short)0, "*.DSN", NULL, (short)0, (short)1)) {
+		for (entry = jt991(&is_dir); entry != 0; entry = jt991(&is_dir)) {
+			const char *name = (const char *)(uintptr_t)entry;
+
+			jt425(name, ext);
+			if (jt396(ext, "DSN") == 0)
+				continue;
+
+			saveA = headA;
+			jt477((void *)(uintptr_t)g_a5_21156, (short)40, &headA);
+			saveB = headB;
+			jt477((void *)(uintptr_t)g_a5_21156, (short)40, &headB);
+			newA = headA;
+			newB = headB;
+			if (newA == 0 || newB == 0) {
+				if (newA != 0)
+					jt471(newA, (short)40,
+					      (void *)(uintptr_t)g_a5_21156);
+				headA = saveA;          /* undo on alloc failure */
+				headB = saveB;
+				continue;
+			}
+			*(long *)(uintptr_t)newA = saveA;       /* prepend both */
+			*(long *)(uintptr_t)newB = saveB;
+			((unsigned char *)(uintptr_t)newA)[4] = 0;
+			jt384((char *)(uintptr_t)(newB + 5), name);   /* folder name */
+
+			/* load this design's GAME header to read its display name */
+			jt133(name);
+			jt361((short)0);
+			jt135();
+			jt384((char *)(uintptr_t)(newA + 5),
+			      (const char *)g_a5_buf(-18876));
+			if (((unsigned char *)(uintptr_t)newA)[5] == 0)
+				jt384((char *)(uintptr_t)(newA + 5), name);
+		}
+	}
+
+	jt406(g_a5_buf(-18876), hdr_backup, (short)388);    /* restore header */
+
+	if (headA == 0) {
+		jt1080();                       /* no designs to choose from */
+		return 0;
+	}
+
+	jt76();
+	(void)jt94((short)5, (short)2, (short)15, (short)0, "%s",
+	           "Select a Design");
+	jt179((short)1);
+	keycode = (short)(jt169((long)(uintptr_t)g_a5_long(-13952),
+	                        (long)(uintptr_t)"Designs",
+	                        (short)1, (short)4, (short)38, (short)22,
+	                        headA, (short)1, (short)0,
+	                        &flag, &idx, &picked) & 0xFF);
+	if (g_a5_24139 != 0 && keycode == 27)
+		keycode = 1;                    /* ESC -> cancel */
+	if (keycode == 0) {
+		long a = headA, b = headB;      /* lockstep walk to the pick */
+
+		while (a != picked && a != 0) {
+			a = *(const long *)(uintptr_t)a;
+			b = *(const long *)(uintptr_t)b;
+		}
+		if (b != 0)
+			jt133((const char *)(uintptr_t)(b + 5));
+		jt356();
+		result = 1;
+	}
+
+	jt147(&headA);                          /* free both lists */
+	jt147(&headB);
+	return result;
+}
 
 /* --- GLIB library-file readers (the jt104 read callback's stack) --------- *
  * The .ctl/.tlb library format: a 16-byte header ('GLIB' magic + a u16 item
