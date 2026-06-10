@@ -2300,7 +2300,8 @@ static void l50fe(short y, short x, short facing, short p4, short p5,
 	(void)jt117();
 }
 static void  l57f2(void)              { PROBE("L57f2"); } /* CODE 7-local — dungeon-view prep */
-static void  jt44(void)               { PROBE("jt44"); }   /* CODE 6+0x5822 — full play-screen redraw */
+static void  l5822(void);             /* CODE 6+0x5822 — full backdrop refresh (defined below) */
+static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L5822: reblit the cached bigpic backdrop */
 static void  l2cf4(void)              { PROBE("L2cf4"); }  /* CODE 12-local — redraw tail */
 
 /* JT[221] (CODE 7 + 0x6076) — render the play view at the party position
@@ -26393,17 +26394,42 @@ static void l534a(short a, short b, short c, short d)
 	jt117();
 }
 
-/* L579e (CODE 6+0x579e) — load the "bigpic" backdrop for id; cached against
- * g_a5_-24256. Level-2 skeleton: the cache gate + state writes are faithful;
- * the name build + L33ac decode/blit is the GLIB picture lift (task #105). */
+/* L338c (CODE 6 + 0x338c) — select the library load-mode byte (g_a5_-18396)
+ * that L33ac/jt997 pass to the loader as the file kind: the caller's `mode` in
+ * deep mode (jt1200()==3, the .tlb tile path), else a fixed 52 (the .ctl path
+ * the port runs at 320x200). l579e passes 50. */
+static void l338c(short mode)
+{
+	PROBE("L338c");
+	g_a5_18396 = (unsigned char)((jt1200() == 3) ? mode : 52);
+}
+
+/* L579e (CODE 6 + 0x579e) — load the "bigpic" play-screen backdrop for `id`,
+ * cached against g_a5_-24256. Faithful to the disasm: set the display mode
+ * (jt131 = L035e), bail if already the active backdrop, then pick the load
+ * kind (L338c), build the resource name ("bigpi%c%d" — 'x' for id<248 else
+ * 'c', suffixed by g_a5_-23185), and load it via the library binder L33ac,
+ * stamping the group handle into g_a5_-24260 (what l3880 blits + l3eea
+ * commits). The picture itself loads + blits through the (live, Hatari-
+ * verified) FAR-pool path; its PALETTE commit (L3f3c -> jt399/jt1069/jt1066)
+ * is the one remaining GLIB-picture leaf, still stubbed — until it lands the
+ * backdrop renders with the resident clut rather than its own palette. */
 static void l579e(short id)
 {
+	const char *name;
+
 	PROBE("L579e");
+	jt131((short)3);                        /* L035e(3): display-mode setup */
 	if ((short)(unsigned char)g_a5_24256 == id)
-		return;
-	/* TODO (GLIB picture subsystem): L035e(3); L338c(50);
-	 * name = jt488("bigpi%c%d", id < 248 ? 120 : 99, g_a5_-23185);
-	 * L33ac(name, id, 0, 0, &g_a5_-24260); L3f3c(32, 255); */
+		return;                          /* already the active backdrop */
+
+	l338c((short)50);                       /* select the bigpic load kind */
+	name = jt488(ua_strs_at(0x752),         /* "bigpi%c%d" */
+	             (id < 248) ? 120 : 99,
+	             (int)(unsigned char)g_a5_byte(-23185));
+	l33ac(name, id, (short)0, (short)0, (void **)&g_a5_24260);
+	/* TODO (palette): L3f3c(32, 255) installs the picture's own palette range
+	 * via jt399/jt1069/jt1066; jt1069 is the unlifted palette-table leaf. */
 	g_a5_24256 = (unsigned char)id;
 	g_a5_17446 = (unsigned char)id;
 }
