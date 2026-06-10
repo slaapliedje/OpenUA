@@ -5421,15 +5421,19 @@ static void jt969(short acc, short width)
  * the char through JT[1136] at the pen and advances it; the port draws through
  * the QuickDraw shim (ADR-0003), reading the pen from the A5 slots each char so
  * embedded %v/%k moves take effect, then advancing the X slot by the glyph
- * width. VISUAL-UNVERIFIED (no live caller yet). */
+ * width. Pen convention follows the FAITHFUL callers (L0264/jt1084 pass
+ * (top,left) and JT[1136]'s bounds put the wide axis in fp@10): g_a5_4896 = pen
+ * X (the advancing axis), g_a5_4898 = pen Y. (This is the opposite slot order
+ * from jt1089's self-consistent-but-swapped path, so they must not be mixed.)
+ * VISUAL-UNVERIFIED (baseline +g_hud_dy mirrors jt1089's DrawChar correction). */
 static void jt966(short c) __attribute__((unused));
 static void jt966(short c)
 {
 	char ch = (char)(unsigned char)c;
 
-	MoveTo(g_a5_4898, (short)(g_a5_4896 + g_hud_dy));
+	MoveTo(g_a5_4896, (short)(g_a5_4898 + g_hud_dy));   /* (X, Y) */
 	DrawChar(ch);
-	g_a5_4898 = (short)(g_a5_4898 + CharWidth(ch));
+	g_a5_4896 = (short)(g_a5_4896 + CharWidth(ch));     /* advance X */
 }
 
 /* L0306 (CODE 5 + 0x306) — draw a formatted template at the current pen. Runs
@@ -26987,17 +26991,20 @@ static void jt1147(void) { PROBE("jt1147"); SysBeep(6); }
 static void l0062(void) __attribute__((unused));
 static void l0062(void) { PROBE("L0062"); }
 
-/* L036a (CODE 5+0x36a) — the modal "Error: <msg>" alert. Faithful CFG over
- * the lifted box (jt1161), event (l0088/l00a8/jt1118/jt1133) and clip-save
- * (jt1205/jt1167) primitives. The text path — L024c(240)+L0264+L0306 with
- * jt400's "%r" recursive format — is mapped onto the shim: %r recursively
- * formats the caller's own (fmt,args) and jt1089 is the established
- * vsnprintf+DrawString equivalent of the L024c/L0264/L0306 trio. */
+/* L036a (CODE 5+0x36a) — the modal "Error: <msg>" alert (JT[1084]). Faithful
+ * CFG over the lifted box (jt1161), event (l0088/l00a8/jt1118/jt1133) and
+ * clip-save (jt1205/jt1167) primitives. The text now runs the REAL jt400 VM:
+ * L024c(240) pen + L0264 MoveTo + L0306 ("Error: %s" -> jt400 -> jt966/DrawChar).
+ * The Mac template is "Error: %r" (recursively format the caller's own
+ * fmt+args); the port can't word-stream C varargs through %r, so it flattens
+ * the message with vsnprintf first and feeds it as a %s arg block — jt400's %s
+ * consumes a 4-byte char* (ABI-safe), and the "Error: " literals + message
+ * emit through the faithful sink rather than DrawString. */
 static void l036a(const char *fmt, ...) __attribute__((unused));
 static void l036a(const char *fmt, ...)
 {
 	char    msg[256];
-	char    line[300];
+	char   *msgptr = msg;
 	va_list ap;
 	short   saved;
 
@@ -27010,10 +27017,12 @@ static void l036a(const char *fmt, ...)
 	jt1161(8096, 8000, 8100, 8160, 15);    /* the alert box, colour 15 */
 
 	va_start(ap, fmt);
-	vsnprintf(msg, sizeof msg, fmt, ap);   /* %r -> the caller's message */
+	vsnprintf(msg, sizeof msg, fmt, ap);   /* flatten the C-vararg message */
 	va_end(ap);
-	snprintf(line, sizeof line, "Error: %s", msg);
-	jt1089(8096, 8000, 240, "%s", line);   /* == L024c(240)+L0264+L0306 */
+
+	l024c(240);                            /* pen colour/style 240 */
+	l0264(8096, 8000);                     /* MoveTo (top, left) */
+	l0306("Error: %s", &msgptr);           /* faithful jt400 text path */
 	jt1147();                              /* beep */
 
 	l00a8();                               /* drain stale events */

@@ -118,16 +118,28 @@ no emit; these make the template a tiny calculator):
             jt969  "%a"        -> l024c set color/style
    ```
 
-   The L0306 island is lifted + staged (`unused`); jt966's pixel geometry
-   mirrors jt1089's proven path (g_a5_4898 = pen X, -4896 = pen Y, +g_hud_dy
-   ascent) but is VISUAL-UNVERIFIED (no live caller yet). Note jt1089 stays the
-   live text path — its callers pass C-promoted varargs, incompatible with
-   jt400's Mac word-stream arg model; only word-stream sites (jt1084) may call
-   l0306. **Remaining:** lift `jt1084` itself (CODE 5+0x36a) — the modal box
-   draw (JT[1161]/JT[1153]/JT[1147] are lifted) + its blocking input loop
-   (L0088/L00a8/L0062/JT[1167] event sub-tree), then point the live error path
-   at it. The arithmetic-handler ABI note: jt400 is variadic, handler #idx at
-   fp@(20+idx*4); see the L3e62 + phase-4 dispatch in boot.c.
+   **LIVE.** `l036a` (JT[1084], CODE 5+0x36a) — the engine's "Error: …" modal,
+   called from ~15 sites across the GLIB loader (LBLoad/LBISize/_LBConvert/
+   FCSetup/...) and the repaint path — now renders its text through l0306 ->
+   jt400 instead of vsnprintf+jt1089. So the live error path flows through the
+   faithful VM. Same trigger conditions as before (only HOW the text draws
+   changed), so no new modal behaviour. The box/input deps were already lifted
+   (jt1161/jt1153/jt1147/jt1116/jt1205/jt1167, l0088/l00a8 real event pump;
+   only l0062, the rare 'q'-abort teardown, is still a PROBE stub).
+
+   C-vararg bridge: l036a's callers pass C-promoted varargs, which can't be
+   word-streamed through jt400's "%r". So l036a flattens the message with
+   vsnprintf first and feeds it to l0306 as a `%s` arg block — jt400's %s
+   consumes a 4-byte char* (ABI-safe). The "Error: " literals + the message now
+   emit through jt966/DrawChar.
+
+   Pen geometry (jt966): g_a5_4896 = pen X (the advancing axis), g_a5_4898 =
+   pen Y — the FAITHFUL convention (L0264/jt1084 pass (top,left); JT[1136]'s
+   bounds put the wide axis in fp@10). This is the opposite slot order from
+   jt1089's self-consistent-but-swapped path; the two must not be mixed. jt1089
+   stays the live text path for C-vararg callers. The on-screen pixel position
+   is VISUAL-UNVERIFIED (no error modal exercised in Hatari yet); baseline
+   +g_hud_dy mirrors jt1089's DrawChar correction.
 
 ABI correction (handlers): JT[400] is **variadic** after the emit sink —
 `jt400(fmt, args, emit, handler_chars, h1, h2, ...)`. `handler_chars` (fp@20) is
