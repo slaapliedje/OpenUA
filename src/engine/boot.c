@@ -21527,13 +21527,88 @@ static int l005a(void)
 }
 
 /* New PROBE-stub helpers jt585 calls. */
-static signed char l00e0(const char *fn, void *cb)
-                                                 { PROBE("L00e0"); (void)fn; (void)cb; return 0; }
 static void  jt419(char *path, const char *ext, short flags)
                                                  { PROBE("jt419"); (void)path; (void)ext; (void)flags; }
-static short jt580(void)                         { PROBE("jt580"); return 0; }
 static void  l1c92(void)                         { PROBE("L1c92"); }
 static void  l1cd2(void)                         { PROBE("L1cd2"); }
+
+/* C-string -> Pascal, for the File Manager Create/FSOpen save-slot calls. */
+static void str_c2p(unsigned char *p, const char *s)
+{
+	short i = 0;
+
+	while (s[i] != 0 && i < 255) {
+		p[i + 1] = (unsigned char)s[i];
+		i++;
+	}
+	p[0] = (unsigned char)i;
+}
+
+/* jt580 (CODE 15 + 0x182c) — the SAVE serializer callback: stream the game
+ * state into the open slot file via jt410 (FSWrite). FIRST SLICE — the
+ * player record (1024 bytes from offset 1, which carries the dungeon
+ * position at [67]/[68]/[17]/[19]); symmetric with jt579 so the file
+ * round-trips and jt582's tail restores placement on reload.
+ *
+ * DEFERRED (the faithful field tail, see CODE_15.s 0x182c..0x1a20): the
+ * -12288 position block (5B), the -27989/-27990 state bytes, the party
+ * count + per-character roster (L0934 — fixed record + inventory-list walk
+ * + little-endian byte-swap via JT[1180]), and the ~10KB design-state block
+ * (g_a5_-27920, padded to 10284). Returns 0 on success (the Mac accumulates
+ * a per-field error flag with the same sense). */
+static short jt580(short refNum)
+{
+	unsigned char *player = (unsigned char *)g_a5_28006;
+	int            err = 0;
+
+	PROBE("jt580");
+	if (player != NULL)
+		err |= (jt410(refNum, player + 1, (short)1024) != 1024);
+	/* TODO: -12288 position block, -27989/-27990 state, party roster
+	 * (L0934), design block (g_a5_-27920). */
+	return (short)(err ? -1 : 0);
+}
+
+/* jt579 (CODE 15 + 0x124c) — the LOAD serializer, mirror of jt580: read the
+ * game state back via jt401 (FSRead). FIRST SLICE — the player record,
+ * symmetric with jt580. Same DEFERRED field tail. */
+static short jt579(short refNum)
+{
+	unsigned char *player = (unsigned char *)g_a5_28006;
+	int            err = 0;
+
+	PROBE("jt579");
+	if (player != NULL)
+		err |= (jt401(refNum, player + 1, (short)1024) != 1024);
+	return (short)(err ? -1 : 0);
+}
+
+/* L00e0 (CODE 15 + 0x00e0) — open the slot file for WRITE and run the
+ * serializer (jt580) over it. The faithful Mac path threads the FC group
+ * cache (JT[988] -> l17e2, built for the read-only GLIB art libraries); a
+ * sequential save file doesn't need it, so the port opens the file directly
+ * through the File Manager shim and invokes the callback with the live
+ * refNum. The design/"SAVE" HFS prefix collapses to the flat staged folder
+ * (the FSOpen shim strips paths), so the bare slot name is used. The old
+ * file is deleted first so the slot is rewritten, not appended. */
+static signed char l00e0(const char *fn, void *cb)
+{
+	unsigned char pstr[64];
+	short         ref;
+	short       (*serialize)(short) = (short (*)(short))cb;
+
+	PROBE("L00e0");
+	if (fn == NULL || cb == NULL)
+		return 0;
+	str_c2p(pstr, fn);
+	(void)FSDelete((ConstStr255Param)pstr, 0);
+	(void)Create((ConstStr255Param)pstr, 0, 'FRUA', 'SAVE');
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	serialize(ref);
+	(void)FSClose(ref);
+	return 1;
+}
 
 /* ====================================================================
  * jt21 derived-stat math primitives (CODE 6). These pure-logic helpers
@@ -22289,12 +22364,25 @@ static int jt407(const char *name, const char *prefix)
 	return 1;
 }
 
-/* L143e (CODE 15 + 0x143e) — the saved-game record READER core: streams the
- * picked slot file back into the player record (g_a5_-28006) + design state
- * via L0006 / JT[579], the mirror of jt585's L00e0 / jt580 writer. STUB at
- * the same level the writer is stubbed; until it lands the slot is selected
- * and the position tail runs, but no bytes are parsed off disk. */
-static void l143e(void) { PROBE("L143e"); }
+/* L143e (CODE 15 + 0x143e) — open the picked slot file for READ and run the
+ * load serializer (jt579) over it, the mirror of jt585's L00e0/jt580 writer.
+ * Port-adapted like L00e0: opens directly through the File Manager shim
+ * instead of the FC group cache (L0006 -> JT[987] -> l17e2). jt579 reads the
+ * player record back, then jt582's tail copies the position out of it. */
+static void l143e(const char *fn)
+{
+	unsigned char pstr[64];
+	short         ref;
+
+	PROBE("L143e");
+	if (fn == NULL)
+		return;
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return;
+	jt579(ref);                          /* read the slot file into the record */
+	(void)FSClose(ref);
+}
 
 /* jt582 (CODE 15 + 0x153e) — LOAD a saved game. Counterpart of jt585 (save).
  *
@@ -22407,7 +22495,7 @@ static void jt582(void)
 	jt94((short)0, (short)24, (short)7, (short)0, "%s", "Loading...Please Wait");
 
 	if (g_a5_22733 == 1)
-		l143e();                         /* read the slot file (STUB) */
+		l143e(fn);                       /* open + read the slot file */
 
 	jt176();
 	g_a5_27990 = 0;
