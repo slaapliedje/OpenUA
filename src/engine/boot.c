@@ -21990,6 +21990,26 @@ static int jt394(char *buf, const char *fmt, ...)
 	return n;
 }
 
+/* L3e62 (CODE 3 + 0x3e62) — JT[400]'s custom-handler lookup. Scans the
+ * handler-set string `set` (e.g. "vka") for conversion char `c`; returns its
+ * 1-based position (1='v', 2='k', 3='a' for "vka"), or 0 if absent. The 1-based
+ * index selects the matching handler fn from JT[400]'s vararg list (handler #idx
+ * sits at fp@(20 + idx*4), i.e. the idx-th vararg after the set string). */
+static short l3e62(const char *set, short c) __attribute__((unused));
+static short l3e62(const char *set, short c)
+{
+	short counter = 0;
+
+	if (set == NULL)
+		return 0;
+	while (*set) {
+		counter++;
+		if (*set++ == (char)c)
+			return counter;
+	}
+	return 0;
+}
+
 /* L3e94 (CODE 3 + 0x3e94) — the recursive unsigned-number emitter at the core
  * of the JT[400] "%r" format VM. Emits `value` in `base` (8/10/16, digits
  * 0-9A-F) through the `emit` callback, left-padded to `width` with '0' (when
@@ -22051,13 +22071,19 @@ static void l3f20(long value, short width, unsigned char zeroflag,
  * accumulator; arithmetic arms (+ - * / # \ & | ^ ~ > < =) turn the template
  * into a tiny calculator over the accumulator; group arms (%(..%) repeat,
  * %[..%] indexed select) and %r (recurse on a sub-template) drive control flow.
- * Faithful lift of L3fb8; the only deferral is the custom-handler descriptor
- * CALL (the `handlers` set, L3e62) — Phase 4; no current caller passes one.
- * See docs/jt400-format-vm.md. Frame-local names mirror the asm fp-slots. */
-static void jt400(char *fmt, void *args, void (*emit)(short),
-                  void *handlers, void *extra) __attribute__((unused));
-static void jt400(char *fmt, void *args, void (*emit)(short),
-                  void *handlers, void *extra)
+ * Faithful lift of L3fb8. JT[400] is VARIADIC after the emit sink: the Mac
+ * call (L0306) passes jt400(fmt, &args, emit, "vka", h1, h2, h3) — the set
+ * string names the custom conversions and the handler fns follow as varargs
+ * (handler #idx sits at fp@(20 + idx*4)). The public jt400() reads those into
+ * an array and hands them to jt400_run(), which holds the VM. Frame-local names
+ * mirror the asm fp-slots. See docs/jt400-format-vm.md. */
+typedef void (*jt400_handler)(short acc, short width);
+
+static void jt400_run(char *fmt, void *args, void (*emit)(short),
+                      const char *hchars, jt400_handler *hfns, short nh);
+
+static void jt400_run(char *fmt, void *args, void (*emit)(short),
+                      const char *hchars, jt400_handler *hfns, short nh)
 {
 	char          *argp = (char *)args;   /* fp@(-20) arg cursor          */
 	short          acc = 0;               /* fp@(-26) accumulator          */
@@ -22068,8 +22094,6 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
 	char          *loop_start = NULL;     /* fp@(-10) %( body start        */
 	char          *sel_argp = NULL;       /* fp@(-32) %[ saved arg cursor  */
 	short          c;                     /* d7 current char               */
-
-	PROBE("jt400");
 
 	for (;;) {
 		c = (unsigned char)*fmt++;            /* L45c0 fetch next char     */
@@ -22100,11 +22124,14 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
 		}
 		/* c now holds the operator/conversion char. */
 
-		if (handlers) {
-			/* TODO(jt400 phase 4): custom-handler descriptor lookup
-			 * (L3e62) + call. Deferred until the handler-set layout is
-			 * lifted; no current port caller passes a handler set, so
-			 * this falls through to the standard dispatch below. */
+		if (hchars) {                         /* L4056 custom handlers */
+			short idx = l3e62(hchars, c);
+			if (idx != 0 && idx <= nh) {
+				/* handler formats the pre-loaded accumulator;
+				 * the asm (0x4080) does NOT advance argp here. */
+				hfns[idx - 1](acc, width);
+				continue;             /* -> next template char */
+			}
 		}
 
 	dispatch:                                     /* L4094 standard switch */
@@ -22188,7 +22215,11 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
 		case 'r': {                           /* 0x4344 recursive format   */
 			char *sub_fmt  = *(char **)argp; argp += 4;
 			void *sub_args = *(void **)argp; argp += 4;
-			jt400(sub_fmt, sub_args, emit, handlers, extra);
+			/* Carry the full handler array across recursion. The Mac
+			 * forwards only h1 (0x436a pushes fp@24 alone), leaving
+			 * %k/%a inside a %r sub-template reading stack garbage —
+			 * a latent bug we decline to reproduce. */
+			jt400_run(sub_fmt, sub_args, emit, hchars, hfns, nh);
 			break;
 		}
 
@@ -22298,6 +22329,31 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
 		}
 		/* value/group/repeat arms land here -> next template char (L45c0) */
 	}
+}
+
+/* JT[400] public entry — the variadic face the Mac call sites use. Reads one
+ * handler fn per char of `hchars` off the vararg list (handler #idx <-> char
+ * #idx), then runs the VM. `hchars`/`...` are NULL/absent for plain templates
+ * (the standard %d/%s/... conversions need no custom handlers). */
+static void jt400(char *fmt, void *args, void (*emit)(short),
+                  const char *hchars, ...) __attribute__((unused));
+static void jt400(char *fmt, void *args, void (*emit)(short),
+                  const char *hchars, ...)
+{
+	jt400_handler hfns[16];
+	short         nh = 0;
+
+	PROBE("jt400");
+	if (hchars) {
+		const char *p = hchars;
+		va_list     ap;
+
+		va_start(ap, hchars);
+		while (*p++ && nh < (short)(sizeof hfns / sizeof hfns[0]))
+			hfns[nh++] = va_arg(ap, jt400_handler);
+		va_end(ap);
+	}
+	jt400_run(fmt, args, emit, hchars, hfns, nh);
 }
 
 /* JT[401] (CODE 3 + 0x3d4c) — read from an open file. Mac builds a
