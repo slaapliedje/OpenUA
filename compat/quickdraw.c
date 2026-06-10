@@ -1230,6 +1230,32 @@ static void cursor_restore(void)
 	}
 }
 
+/*
+ * qd_cursor_refresh — called from the event pump on every idle spin. The
+ * IKBD interrupt keeps plat_mouse_pos current in real time, but the cursor
+ * is only drawn during qd_present, so an engine sitting in an event-wait
+ * loop (WaitNextEvent / l725c / the input loops) would show a frozen cursor
+ * until the next repaint. Presenting unconditionally here would burn a full
+ * c2p + Vsync on every spin; instead we present only when the mouse has
+ * actually moved since the last refresh. A still mouse is free; a moving
+ * one re-presents (and the Vsync inside the present caps it at the refresh
+ * rate), so the cursor tracks smoothly without the engine having to redraw.
+ */
+void qd_cursor_refresh(void)
+{
+	static short last_x = -1, last_y = -1;
+	short        mx, my;
+
+	if (!g_cursor_init || g_cursor_level < 0)
+		return;
+	plat_mouse_pos(&mx, &my);
+	if (mx == last_x && my == last_y)
+		return;                          /* unmoved — nothing to do */
+	last_x = mx;
+	last_y = my;
+	qd_present();                            /* composites at the live pos */
+}
+
 void RGBForeColor(const RGBColor *color)
 {
 	GrafPtr  port;

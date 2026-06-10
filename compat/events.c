@@ -22,6 +22,7 @@
 #include "events.h"
 #include "windows.h"            /* WindowPeek, FrontWindow, updateRgn */
 #include "input.h"              /* plat_ticks, plat_kb_poll, ... */
+#include "quickdraw.h"          /* qd_cursor_refresh (idle cursor tracking) */
 
 #define EVENT_QUEUE_CAP 16
 
@@ -234,6 +235,10 @@ Boolean GetNextEvent(short eventMask, EventRecord *theEvent)
 		return 1;
 	if (event_matches(eventMask, updateEvt) && update_to_event(theEvent))
 		return 1;
+	/* Idle: no real event this pump. Keep the cursor following the live
+	 * mouse so it doesn't freeze between engine repaints (no-op unless the
+	 * mouse moved since the last pump). */
+	qd_cursor_refresh();
 	make_null(theEvent);
 	return 0;
 }
