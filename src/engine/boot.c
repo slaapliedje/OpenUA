@@ -16862,6 +16862,72 @@ static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh
 	}
 }
 
+/* Set by l494e (the design picker) around its jt169 call so jt169 draws a
+ * Select/Cancel command bar + accepts mouse clicks. The roster dialogs
+ * (L15e2 / L12a0) leave it 0 and stay keyboard-only, unchanged. */
+static int g_picker_cmdbar;
+
+/* A dialog command button (Select / Cancel) at a pixel rect: a raised
+ * menu_button_bevel with a CENTRED label (body clut 7, accelerator clut 15) —
+ * the same chrome as the menu buttons. Returns the hit rect through
+ * rect[4] = {x0, y0, x1, y1} (half-open) for the caller's mouse test. */
+static void picker_cmd_button(unsigned char *px, short pitch, short sw, short sh,
+                              short x0, short y0, short w,
+                              const char *label, char hot, short rect[4])
+{
+	short y1 = (short)(y0 + 10), x1 = (short)(x0 + w - 1);
+	short len = 0, lx, hi = -1, k;
+	unsigned char pbuf[40];
+	CGrafPtr cport;
+	GrafPtr  bport;
+
+	menu_button_bevel(px, pitch, sw, sh, x0, y0, x1, y1, 0);
+	if (rect != NULL) {
+		rect[0] = x0; rect[1] = y0;
+		rect[2] = (short)(x1 + 1); rect[3] = (short)(y1 + 1);
+	}
+
+	while (label[len] != 0 && len < 39)
+		len++;
+	lx = (short)(x0 + (w - len * 8) / 2);          /* centre the label */
+	if (hot != 0) {
+		unsigned char hu = (unsigned char)
+		    ((hot >= 'a' && hot <= 'z') ? hot - 32 : hot);
+		for (k = 0; k < len; k++) {
+			unsigned char c = (unsigned char)label[k];
+			if (c >= 'a' && c <= 'z') c -= 32;
+			if (c == hu) { hi = k; break; }
+		}
+	}
+	GetPort(&bport);
+	cport = (CGrafPtr)bport;
+	MoveTo(lx, (short)(y0 + 8));
+	if (hi < 0) {
+		if (cport) cport->fgColor = 7;
+		pbuf[0] = (unsigned char)len;
+		memcpy(pbuf + 1, label, (size_t)len);
+		DrawString(pbuf);
+	} else {
+		if (hi > 0) {
+			if (cport) cport->fgColor = 7;
+			pbuf[0] = (unsigned char)hi;
+			memcpy(pbuf + 1, label, (size_t)hi);
+			DrawString(pbuf);
+		}
+		if (cport) cport->fgColor = 15;
+		pbuf[0] = 1;
+		pbuf[1] = (unsigned char)label[hi];
+		DrawString(pbuf);
+		if (hi + 1 < len) {
+			short n = (short)(len - hi - 1);
+			if (cport) cport->fgColor = 7;
+			pbuf[0] = (unsigned char)n;
+			memcpy(pbuf + 1, label + hi + 1, (size_t)n);
+			DrawString(pbuf);
+		}
+	}
+}
+
 /* The recessed TITLE panel — a deeper sunken box than the 1px button bevel.
  * Sampled from frua_mac_main_menu.png: a clut-23 face with a 1px BLACK inner
  * edge on top + left, and a 2px LIGHT bevel (clut 17 outer, clut 19 inner) on
@@ -18593,6 +18659,21 @@ static int  jt165(short id, long ctx)
  * preserving the faithful contract: return 0 + *next = chosen node on select,
  * 27 on Escape (or empty list), and *idx = the current row.  Up/Down move the
  * selection; Return/Enter select; Escape cancels. */
+/* Fill *idx + *next (the chosen node) from the selected row index. */
+static void jt169_pick(long head, short sel, short *idx, long *next)
+{
+	long  e;
+	short i;
+
+	if (idx != NULL) *idx = sel;
+	if (next != NULL) {
+		e = head;
+		for (i = 0; i < sel && e != 0; i++)
+			e = *(const long *)(uintptr_t)e;
+		*next = e;
+	}
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
@@ -18602,6 +18683,11 @@ static int  jt169(long h1, long h2, short top, short left,
 	long        e;
 	short       count = 0, sel, visible, scroll, i;
 	int         dirty = 1;
+	int         has_bar = g_picker_cmdbar;         /* design picker only */
+	short       sel_rect[4] = {0,0,0,0};
+	short       cancel_rect[4] = {0,0,0,0};
+	short       last_who = -1;
+	long        last_tick = 0;
 
 	PROBE("jt169");
 	(void)h1; (void)h2; (void)right; (void)a; (void)b;
@@ -18639,6 +18725,24 @@ static int  jt169(long h1, long h2, short top, short left,
 				     "%s", (const char *)&n[5]);
 				e = *(const long *)(uintptr_t)e;
 			}
+			/* Faithful Select / Cancel command bar — the design picker
+			 * only. Coordinates from l1bfe (the dialog command-bar
+			 * painter): the bar sits at ROW 24 (its prompt draws at
+			 * jt94(0,24,...)), which is baseline pixel y=192; this
+			 * button's label baseline is y0+8, so y0=184. Left-aligned
+			 * at the screen edge like the prompt's col 0; the two
+			 * plates butt (no gap). Same bevel as the menu buttons. */
+			if (has_bar) {
+				unsigned char *px; short pitch, sw, sh;
+				if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+					picker_cmd_button(px, pitch, sw, sh,
+					    (short)4, (short)184, (short)64,
+					    "Select", 'S', sel_rect);
+					picker_cmd_button(px, pitch, sw, sh,
+					    (short)68, (short)184, (short)64,
+					    "Cancel", 'C', cancel_rect);
+				}
+			}
 			if (flag != NULL) *flag = 1;
 			qd_present();           /* flush the rows to VIDEL */
 			dirty = 0;
@@ -18646,6 +18750,40 @@ static int  jt169(long h1, long h2, short top, short left,
 
 		if (!WaitNextEvent(everyEvent, &ev, 1, NULL))
 			continue;
+
+		if (ev.what == mouseDown && has_bar) {
+			short h = ev.where.h, v = ev.where.v, nr, ii, who2;
+
+			if (h >= sel_rect[0] && h < sel_rect[2]
+			 && v >= sel_rect[1] && v < sel_rect[3]) {
+				jt169_pick(head, sel, idx, next);   /* Select */
+				return 0;
+			}
+			if (h >= cancel_rect[0] && h < cancel_rect[2]
+			 && v >= cancel_rect[1] && v < cancel_rect[3]) {
+				if (idx != NULL) *idx = sel;        /* Cancel */
+				if (next != NULL) *next = 0;
+				return 27;
+			}
+			/* List row: nearest baseline (rows are 8px apart). A
+			 * second click on the same row within ~0.5s confirms. */
+			nr   = (short)((v + 4) / 8);
+			ii   = (short)(nr - top);
+			who2 = (short)(scroll + ii);
+			if (ii >= 0 && ii < visible && who2 >= 0 && who2 < count) {
+				if (who2 == last_who
+				 && (TickCount() - last_tick) < 30) {
+					jt169_pick(head, who2, idx, next);
+					return 0;
+				}
+				sel = who2;
+				last_who  = who2;
+				last_tick = TickCount();
+				dirty = 1;
+			}
+			continue;
+		}
+
 		if (ev.what != keyDown && ev.what != autoKey)
 			continue;
 
@@ -18659,19 +18797,28 @@ static int  jt169(long h1, long h2, short top, short left,
 			dirty = 1;
 			break;
 		case 13: case 3:                           /* Return / Enter */
-			if (idx != NULL) *idx = sel;
-			if (next != NULL) {
-				e = head;
-				for (i = 0; i < sel && e != 0; i++)
-					e = *(const long *)(uintptr_t)e;
-				*next = e;
-			}
+			jt169_pick(head, sel, idx, next);
 			return 0;
 		case 27:                                   /* Escape        */
 			if (idx  != NULL) *idx  = sel;
 			if (next != NULL) *next = 0;
 			return 27;
 		default:
+			/* Select / Cancel accelerators — picker only, so the
+			 * roster dialogs (which share jt169) keep S/C as plain
+			 * keys. */
+			if (has_bar) {
+				short key = (short)(ev.message & 0xff);
+				if (key == 'S' || key == 's') {
+					jt169_pick(head, sel, idx, next);
+					return 0;
+				}
+				if (key == 'C' || key == 'c') {
+					if (idx  != NULL) *idx  = sel;
+					if (next != NULL) *next = 0;
+					return 27;
+				}
+			}
 			break;
 		}
 	}
@@ -24598,11 +24745,25 @@ static int l494e(void)
 	(void)jt94((short)5, (short)3, (short)15, (short)0, "%s",
 	           "PLEASE SELECT A GAME DESIGN:");
 	jt179((short)1);
+	/* Drain the Return/'S' that opened this picker so jt169's first poll
+	 * doesn't read it as an immediate confirm (which would auto-pick the
+	 * first design and close instantly). FlushEvents clears the software
+	 * queue; the GetNextEvent loop then drains the BIOS keyboard buffer
+	 * (kb_to_event reads Bconin) that FlushEvents can't reach. */
+	FlushEvents((short)everyEvent, (short)0);
+	{
+		EventRecord tmp;
+		short guard = 0;
+		while (GetNextEvent((short)everyEvent, &tmp) && ++guard < 64)
+			;
+	}
+	g_picker_cmdbar = 1;            /* draw Select/Cancel + accept mouse */
 	keycode = (short)(jt169((long)(uintptr_t)g_a5_long(-13952),
 	                        (long)(uintptr_t)"Designs",
 	                        (short)6, (short)1, (short)38, (short)22,
 	                        headA, (short)1, (short)0,
 	                        &flag, &idx, &picked) & 0xFF);
+	g_picker_cmdbar = 0;
 	if (g_a5_24139 != 0 && keycode == 27)
 		keycode = 1;                    /* ESC -> cancel */
 	if (keycode == 0) {
