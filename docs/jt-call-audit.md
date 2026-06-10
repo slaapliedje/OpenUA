@@ -271,12 +271,24 @@ DONE (pool stand-up + extractor + binder + Hatari checkpoint):
   so the production build + live buffered UI loader are untouched.
 
 REMAINING:
-- jt464 (cache-index existence) + jt997/jt1014 plain-name loader tower —
-  needed to load the no-suffix UI .ctls (ALWAYS/FRAME) through the
-  faithful path rather than the manual self-test bind.
+- ~~jt464 (cache-index existence) + jt997/jt1014 plain-name loader tower~~ —
+  DONE (lifted; full bodies at boot.c ~25922/26007/26028, jt972 ~25994). Still
+  `__attribute__((unused))` — lifted but not WIRED (l33ac binder drives them but
+  is itself a level-2 skeleton, unused live; the live UI load is still the
+  l37aa/l2856 buffered path via port_frame_load).
 - Wire jt463/glib_lb_init into the real init path + replace the live
   l37aa/l2856 buffered loader with the faithful pool (the flip).
 - palette (jt1069/1066/993/1017), de-skeleton L541a/L579e/L3eea.
+
+NOTE (2026-06-10): this whole loader/pool/palette tower is the BACKDROP-PICTURE
+path. It is NOT what task #114 (dungeon HUD frame chrome / button plates /
+content-window height) needs — those are the frame BLIT/composition
+(port_draw_play_frame blits all 29 FRAME.CTL pieces vs the faithful subset +
+positions), and FRAME.CTL is already loaded fine. The faithful dungeon-chrome
+composition was NOT found in jt214 (=backdrop index -> L579e) or jt44/L5822
+(=backdrop redraw L579e+L3880+L3eea); locate where the Mac blits the FRAME.CTL
+borders/dividers/viewport pieces (likely scattered jt1001 calls in the view
+setup, NOT a single function) before reworking port_draw_play_frame.
 
 ### L17e2 (CODE 5+0x17e2) — decoded (historical notes)
 
