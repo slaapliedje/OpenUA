@@ -2359,6 +2359,60 @@ static short jt201(short x, short y)
 	return (short)lvl[290 + idx * 6 + 4];           /* a0@(294): record field +4 */
 }
 
+/* JT[934] (CODE 12 + 0x0848, 15 sites) — roster cursor navigation: move the
+ * active party member (g_a5_-27932) to the next or previous entry in the party
+ * list (head g_a5_-27928, .next at member offset 0), wrapping at the ends. The
+ * prior active is stashed in g_a5_-27940 so jt936 can clear its old highlight.
+ *
+ * Selector (a Mac key code, low byte of the arg):
+ *   132 / 133  -> NEXT member; if the active one is the tail, wrap to head.
+ *   135 / 136  -> PREVIOUS;     if the active one is the head, wrap to the tail
+ *                 (walk to the last member), else step to the member whose
+ *                 .next is the active one.
+ *   anything else (incl. 134) -> no-op.
+ *
+ * Faithful lift of L0848: pure list-pointer logic, the JT[3] arm (132..136) is
+ * inlined as the if-ladder below. The new active is committed at the end even
+ * when the walk fell off the list (matches the asm's unconditional store).
+ *
+ * Not yet wired to a caller (the play-loop key handler in CODE 12/20 calls it);
+ * lifted now so the roster-cursor path is ready, like jt936 before it. */
+static void jt934(short sel) __attribute__((unused));
+static void jt934(short sel)
+{
+	long head   = g_a5_27928;
+	long active = g_a5_27932;
+	long member;
+
+	PROBE("jt934");
+	g_a5_long(-27940) = active;             /* save previous active */
+	sel &= 0xff;
+
+	if (head == 0)
+		return;
+	if (sel != 132 && sel != 133 && sel != 135 && sel != 136)
+		return;                         /* gate: only the four cursor keys */
+
+	member = head;                          /* L0848 inits the walk cursor to head */
+
+	if (sel == 135 || sel == 136) {         /* PREVIOUS */
+		if (member == active) {         /* active is head -> wrap to tail */
+			while (*(long *)(uintptr_t)member != 0)
+				member = *(long *)(uintptr_t)member;
+		} else {                        /* find the member before active */
+			while (member != 0
+			    && *(long *)(uintptr_t)member != active)
+				member = *(long *)(uintptr_t)member;
+		}
+	} else {                                /* NEXT (132/133) */
+		if (*(long *)(uintptr_t)active != 0)
+			member = *(long *)(uintptr_t)active;
+		/* else active is the tail -> member stays = head (wrap) */
+	}
+
+	g_a5_27932 = member;                    /* commit new active member */
+}
+
 /* JT[935] (CODE 12 + 0x4) — the play-screen refresh. Skips while -27982 is
  * set (mid transition). On first entry (record[34]==0, record[36]==1, dirty
  * flag -23188 set) it does the full chrome redraw (JT[214] view setup +
