@@ -19793,6 +19793,58 @@ static void   jt876(long a, short b, short c, short d, short e)
 	node[5]             = (unsigned char)(e & 0xff);
 	node[4]             = (unsigned char)(d & 0xff);
 }
+/* L6096 (CODE 6 + 0x6096) — release one 62-byte list node back to its pool:
+ * jt471(*pnode, 62, &g_a5_-21508). The inverse of the bucket reserve (jt477);
+ * takes a pointer-to-the-node-pointer the way the Mac call site does. */
+static void l6096(long *pnode)
+{
+	PROBE("L6096");
+	jt471(*pnode, (short)62, (void *)&g_a5_byte(-21508));
+}
+
+/* JT[30] (CODE 6 + 0x21a0) — dispose a list node and unlink it from its parent.
+ * Nodes are 62 bytes: .next (sibling) at +0, a type byte at +40, and a child
+ * sub-list head at +58 (children are themselves linked through their own +58).
+ *
+ *   - If node[40] == 73 ('I'), first free the whole child chain: pop each child
+ *     off node->58 (advancing the head to child->58) and release it (L6096).
+ *   - Then unlink `node` from the parent list whose head is holder->8 (walk the
+ *     .next/+0 chain to find node's predecessor; special-case the head), and
+ *     release node itself.
+ *
+ * Faithful lift of L21a0. The asm dereferences the predecessor unconditionally
+ * at the unlink; the port guards a NULL walk (node-not-in-list) instead of
+ * faulting. */
+static void jt30(long holder_l, long node_l) __attribute__((unused));
+static void jt30(long holder_l, long node_l)
+{
+	unsigned char *holder = (unsigned char *)(uintptr_t)holder_l;
+	unsigned char *node   = (unsigned char *)(uintptr_t)node_l;
+	long walk;
+
+	PROBE("jt30");
+	if (node[40] == 73) {                   /* dispose the child chain first */
+		while (*(long *)(node + 58) != 0) {
+			long child = *(long *)(node + 58);
+			*(long *)(node + 58) =
+			    *(long *)((uintptr_t)child + 58);   /* head = child->58 */
+			l6096(&child);
+		}
+	}
+
+	walk = *(long *)(holder + 8);           /* list head */
+	if (walk == node_l) {
+		*(long *)(holder + 8) = *(long *)node;          /* unlink head */
+	} else {
+		while (walk != 0 && *(long *)(uintptr_t)walk != node_l)
+			walk = *(long *)(uintptr_t)walk;            /* find predecessor */
+	}
+	if (walk != 0)
+		*(long *)(uintptr_t)walk = *(long *)node;       /* pred->next = node->next */
+	*(long *)node = 0;                      /* node->next = 0 */
+	l6096(&node_l);                         /* release the node */
+}
+
 /* JT[65] (CODE 6 + 0x5f4e) — zero-fill `size` bytes at `ptr`
  * (jt399 with fill 0). */
 static void jt65(long ptr, short size) __attribute__((unused));
