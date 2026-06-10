@@ -21990,6 +21990,33 @@ static int jt394(char *buf, const char *fmt, ...)
 	return n;
 }
 
+/* L3e94 (CODE 3 + 0x3e94) — the recursive unsigned-number emitter at the core
+ * of the JT[400] "%r" format VM. Emits `value` in `base` (8/10/16, digits
+ * 0-9A-F) through the `emit` callback, left-padded to `width` with '0' (when
+ * `zeroflag`) or ' '. Recurses on value/base so the most-significant digit
+ * prints first; the padding is emitted once, at the recursion base. Unsigned —
+ * the sign ('-' + negate) is the caller's job (JT[400]'s %d arm). First leaf of
+ * the JT[400] lift; see docs/jt400-format-vm.md for the full engine map. */
+static void l3e94(short value, short width, unsigned char zeroflag,
+                  short base, void (*emit)(short)) __attribute__((unused));
+static void l3e94(short value, short width, unsigned char zeroflag,
+                  short base, void (*emit)(short))
+{
+	unsigned short v = (unsigned short)value;
+	unsigned short b = (unsigned short)base;
+	unsigned short digit;
+
+	if (v >= b) {
+		l3e94((short)(v / b), (short)(width - 1), zeroflag, base, emit);
+	} else {
+		short w;
+		for (w = (short)(width - 1); w > 0; w--)
+			emit(zeroflag ? (short)48 : (short)32);   /* '0' or ' ' pad */
+	}
+	digit = (unsigned short)(v % b);
+	emit((short)(digit <= 9 ? (48 + digit) : (55 + digit)));   /* 0-9 / A-F */
+}
+
 /* JT[401] (CODE 3 + 0x3d4c) — read from an open file. Mac builds a
  * PBRead param block + JT[1043]; the port routes to the compat
  * FSRead. Returns bytes read (partial reads on eofErr are kept),
