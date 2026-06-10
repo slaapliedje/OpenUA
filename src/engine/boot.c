@@ -18693,26 +18693,37 @@ static int jt990(short drive, void *pattern, const void *matchname,
 	g_a5_byte(-4657) = (signed char)keepdirs;        /* keep directories    */
 	if (pattern == NULL)
 		return 0;
-	g_dir_pending = files_find_first((const char *)pattern, g_dir_cur,
-	                                 (int)sizeof g_dir_cur);
+	/* keepdirs -> include subdirectories in the scan (FA_SUBDIR = 0x10),
+	 * so the design picker can enumerate the *.DSN folders. */
+	g_dir_pending = keepdirs
+	    ? files_find_first_attr((const char *)pattern, 0x10, g_dir_cur,
+	                            (int)sizeof g_dir_cur)
+	    : files_find_first((const char *)pattern, g_dir_cur,
+	                       (int)sizeof g_dir_cur);
 	return g_dir_pending ? 1 : 0;
 }
 
 static long jt991(void *out_is_dir)
 {
 	char name[16];
-	int  i;
+	int  i, is_dir;
 
 	PROBE("jt991");
 	while (g_dir_pending) {
 		for (i = 0; i < (int)sizeof name - 1 && g_dir_cur[i] != 0; i++)
 			name[i] = g_dir_cur[i];
 		name[i] = 0;
+		is_dir = files_find_is_dir();         /* attr of the CURRENT entry */
 		g_dir_pending = files_find_next(g_dir_cur,    /* prime next call */
 		                                (int)sizeof g_dir_cur);
 
-		if (g_a5_byte(-4656) == 0)
-			continue;                     /* not keeping files       */
+		if (is_dir) {
+			if (g_a5_byte(-4657) == 0)
+				continue;             /* not keeping directories */
+		} else {
+			if (g_a5_byte(-4656) == 0)
+				continue;             /* not keeping files       */
+		}
 		if (g_a5_long(-4654) != 0
 		 && jt396((const char *)(uintptr_t)g_a5_long(-4654), name) == 0)
 			continue;                     /* name filter rejected    */
@@ -18721,7 +18732,7 @@ static long jt991(void *out_is_dir)
 			g_dir_ret[i] = name[i];
 		g_dir_ret[i] = 0;
 		if (out_is_dir != NULL)
-			*(signed char *)out_is_dir = 0;   /* Fsfirst attr 0 = file */
+			*(signed char *)out_is_dir = (signed char)is_dir;
 		return (long)(uintptr_t)g_dir_ret;
 	}
 	return 0;

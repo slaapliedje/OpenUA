@@ -174,9 +174,21 @@ gamedata: $(TARGET) frua.rsc
 	fi
 	@rm -rf "$(GAMEDATA_DIR)"
 	@mkdir -p "$(GAMEDATA_DIR)"
-	@for d in Disk1 Disk2 Disk3 Disk4 $(DSN); do \
+	@for d in Disk1 Disk2 Disk3 Disk4; do \
 		for f in "$(MAC_JOINED)/$$d"/*; do \
 			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/"; \
+		done; \
+	done
+	@# Each design is staged as its own .DSN subdirectory, so the picker
+	@# (jt315 -> L494e) can enumerate them and the file shim resolves
+	@# "<name>.DSN:<file>" into the matching folder. All bundled designs
+	@# are staged; $(DSN) is the one the boot seed makes current.
+	@for dsn in "$(MAC_JOINED)"/*.DSN; do \
+		[ -d "$$dsn" ] || continue; \
+		base=$$(basename "$$dsn"); \
+		mkdir -p "$(GAMEDATA_DIR)/$$base"; \
+		for f in "$$dsn"/*; do \
+			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/$$base/"; \
 		done; \
 	done
 	@ln -sf "$(abspath $(TARGET))"  "$(GAMEDATA_DIR)/$(TARGET)"
