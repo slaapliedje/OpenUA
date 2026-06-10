@@ -18726,20 +18726,21 @@ static int  jt169(long h1, long h2, short top, short left,
 				e = *(const long *)(uintptr_t)e;
 			}
 			/* Faithful Select / Cancel command bar — the design picker
-			 * only. Coordinates from l1bfe (the dialog command-bar
-			 * painter): the bar sits at ROW 24 (its prompt draws at
-			 * jt94(0,24,...)), which is baseline pixel y=192; this
-			 * button's label baseline is y0+8, so y0=184. Left-aligned
-			 * at the screen edge like the prompt's col 0; the two
-			 * plates butt (no gap). Same bevel as the menu buttons. */
+			 * only. Coordinates from l1aea (the command-bar word
+			 * painter l1bfe calls): each command DLItem is built with
+			 * rec[16] = shape = 8094 (the y) and rec[18] = item_arg (the
+			 * x). jt1135(8094) = (8094-8000)*2 = 188 is the plate-top
+			 * reference (same convention as the menu's items[i].y), and
+			 * item_arg with no prompt prefix is 8003 -> jt1135 -> x6 (~4,
+			 * the screen edge). The two plates butt (no gap). */
 			if (has_bar) {
 				unsigned char *px; short pitch, sw, sh;
 				if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 					picker_cmd_button(px, pitch, sw, sh,
-					    (short)4, (short)184, (short)64,
+					    (short)4, (short)188, (short)64,
 					    "Select", 'S', sel_rect);
 					picker_cmd_button(px, pitch, sw, sh,
-					    (short)68, (short)184, (short)64,
+					    (short)68, (short)188, (short)64,
 					    "Cancel", 'C', cancel_rect);
 				}
 			}
