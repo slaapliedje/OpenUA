@@ -5371,6 +5371,77 @@ static void jt1089(short x, short y, short color,
 	DrawString(pstr);
 }
 
+/* jt400 (the THINK C "%r" format VM) is defined far below, after its leaf
+ * helpers; forward-declared here for the on-screen text island. */
+static void jt400(char *fmt, void *args, void (*emit)(short),
+                  const char *hchars, ...);
+
+/* ---- JT[400] on-screen text island (L0306 + the "vka" handler set) --------
+ *
+ * The faithful counterpart of jt1089's collapsed vsnprintf path: L0306 streams
+ * a THINK-C template through the real jt400 VM, drawing each char at the pen.
+ * jt1089 above stays the live text path (its callers pass C-promoted varargs);
+ * this island is the word-stream-faithful path used by jt1084 ("Error: %r"),
+ * where the arg cursor walks Mac-packed shorts/longs. Staged (unused) until a
+ * caller goes live; geometry mirrors jt1089 (g_a5_4898 = pen X, -4896 = pen Y).
+ */
+
+/* L024c (set color/style pen) and L0264 (MoveTo) are lifted further down in the
+ * CODE 5 modal region; forward-declare L024c here for the "%a" handler. */
+static void l024c(short colour);
+
+/* JT[967] — the "%v" conversion: move the pen vertically. jt1135(width, acc,
+ * &g_a5_4898, &scratch) parks the field-width value in the first pen slot. */
+static void jt967(short acc, short width) __attribute__((unused));
+static void jt967(short acc, short width)
+{
+	short scratch;
+	jt1135(width, acc, &g_a5_4898, &scratch);
+}
+
+/* JT[968] — the "%k" conversion: move the pen horizontally. jt1135(acc, width,
+ * &scratch, &g_a5_4896) parks the field-width value in the second pen slot. */
+static void jt968(short acc, short width) __attribute__((unused));
+static void jt968(short acc, short width)
+{
+	short scratch;
+	jt1135(acc, width, &scratch, &g_a5_4896);
+}
+
+/* JT[969] — the "%a" conversion: set the text attribute (color/style) to the
+ * field-width value via L024c. */
+static void jt969(short acc, short width) __attribute__((unused));
+static void jt969(short acc, short width)
+{
+	(void)acc;
+	l024c(width);
+}
+
+/* JT[966] (CODE 5 + 0x2d6) — jt400's emit sink for screen text. The Mac batches
+ * the char through JT[1136] at the pen and advances it; the port draws through
+ * the QuickDraw shim (ADR-0003), reading the pen from the A5 slots each char so
+ * embedded %v/%k moves take effect, then advancing the X slot by the glyph
+ * width. VISUAL-UNVERIFIED (no live caller yet). */
+static void jt966(short c) __attribute__((unused));
+static void jt966(short c)
+{
+	char ch = (char)(unsigned char)c;
+
+	MoveTo(g_a5_4898, (short)(g_a5_4896 + g_hud_dy));
+	DrawChar(ch);
+	g_a5_4898 = (short)(g_a5_4898 + CharWidth(ch));
+}
+
+/* L0306 (CODE 5 + 0x306) — draw a formatted template at the current pen. Runs
+ * the faithful jt400 with the on-screen emit sink (jt966) and the "vka" custom
+ * conversions (v=move-y, k=move-x, a=set-attr). `args` points at the caller's
+ * Mac-packed word/long arg stream. The direct consumer of the faithful VM. */
+static void l0306(char *fmt, void *args) __attribute__((unused));
+static void l0306(char *fmt, void *args)
+{
+	jt400(fmt, args, jt966, "vka", jt967, jt968, jt969);
+}
+
 /* JT[1161] (CODE 4 + 0x1aa0) — clipped rectangle fill.
  *
  *   1. jt1135-transform both corners into screen pixels.

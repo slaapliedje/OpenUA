@@ -106,9 +106,34 @@ no emit; these make the template a tiny calculator):
    The jt400 lift already has the `if (handlers) { /* TODO phase 4 */ }` hook in
    place; it currently falls through to standard dispatch (no port caller passes
    a handler set yet, so this is dormant).
-5. **Wire-up** — point jt1084's "Error: %r" (L0306) at the faithful jt400, and
-   optionally migrate jt94/jt1089/jt394 off C vsprintf onto it. `jt400` is
-   currently `__attribute__((unused))` (dead-stripped) until wired.
+5. **Wire-up** ✓ **(core done)** — `l0306` (CODE 5+0x306) now runs the faithful
+   jt400 with the on-screen emit sink + the "vka" handler set. The chain:
+
+   ```
+   jt1084("Error: %r", ...) -> l0306(fmt, &args)
+       -> jt400(fmt, &args, jt966, "vka", jt967, jt968, jt969)
+            jt966  emit sink   -> QuickDraw DrawChar at the A5 pen (-4898/-4896)
+            jt967  "%v"        -> jt1135 move pen Y
+            jt968  "%k"        -> jt1135 move pen X
+            jt969  "%a"        -> l024c set color/style
+   ```
+
+   The L0306 island is lifted + staged (`unused`); jt966's pixel geometry
+   mirrors jt1089's proven path (g_a5_4898 = pen X, -4896 = pen Y, +g_hud_dy
+   ascent) but is VISUAL-UNVERIFIED (no live caller yet). Note jt1089 stays the
+   live text path — its callers pass C-promoted varargs, incompatible with
+   jt400's Mac word-stream arg model; only word-stream sites (jt1084) may call
+   l0306. **Remaining:** lift `jt1084` itself (CODE 5+0x36a) — the modal box
+   draw (JT[1161]/JT[1153]/JT[1147] are lifted) + its blocking input loop
+   (L0088/L00a8/L0062/JT[1167] event sub-tree), then point the live error path
+   at it. The arithmetic-handler ABI note: jt400 is variadic, handler #idx at
+   fp@(20+idx*4); see the L3e62 + phase-4 dispatch in boot.c.
+
+ABI correction (handlers): JT[400] is **variadic** after the emit sink —
+`jt400(fmt, args, emit, handler_chars, h1, h2, ...)`. `handler_chars` (fp@20) is
+the set-name string ("vka"); the handler fns follow as varargs, handler #idx at
+fp@(20 + idx*4). `L3e62(handler_chars, c)` returns the 1-based index. The handler
+is called as `h(acc, width)` and does NOT advance the arg cursor.
 
 ## Why this matters / why it was deferred
 
