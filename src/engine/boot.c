@@ -9611,13 +9611,11 @@ static long port_ui_group_base(short group)
  * viewport is overdrawn by the 3D render and refreshed via present-rect). */
 static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh)
 {
-	const unsigned char *base8;
-	short count, s, r;
+	short r;
 
 	port_frame_load();
 	if (!g_frame_base)
 		return;
-	base8 = (const unsigned char *)(uintptr_t)g_frame_base;
 
 	/* set 0 -> clut 16..31 (re-installed each call: the wall-set load
 	 * rewrites the CLUT, and the frame band must survive it). */
@@ -9638,9 +9636,16 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	for (r = 0; r < sh; r++)
 		memset(px + (long)r * pitch, 21, (size_t)sw);
 
-	count = (short)(((unsigned)base8[8] << 8) | base8[9]);
-	for (s = 1; s < count; s++)
-		ui_glib_blit(g_frame_base, s, (short)0, (short)0, 1, 0);
+	/* The FAITHFUL dungeon frame = jt23 case 4 -> l67ca (already lifted):
+	 * jt76 (clear + char-cell box + FRAME border items 1-4) + l66e6 panel
+	 * dividers (item 7 at two offsets) + viewport frame (item 9) + compass
+	 * surround (item 21) + the ONE compass face for the party's facing
+	 * (item 22/23/24/25 for N/S/W/E). This replaces the old blit-all-29
+	 * loop, which over-drew every compass face at once plus a pile of corner
+	 * bevels the dungeon never uses — the "frame jank". The bigpic backdrop
+	 * (l5822) belongs to the OVERLAND/area modes (jt23 cases 1/2/6), NOT the
+	 * dungeon (mode 4). */
+	l67ca();
 }
 
 static signed char jt1160(void);        /* view-mode bit; defined below */
