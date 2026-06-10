@@ -19845,6 +19845,37 @@ static void jt30(long holder_l, long node_l)
 	l6096(&node_l);                         /* release the node */
 }
 
+/* JT[26] (CODE 6 + 0x3038) — experience-points-for-level lookup. Indexed by a
+ * class `cls` into two A5 tables: g_a5_-30212 = 48-byte XP records (12 longs +
+ * tail), g_a5_-31228 = the per-class post-level-12 XP increment (one long).
+ * Returns the cumulative XP threshold for `level`:
+ *   level >= 41 -> 0x7fffffff (sentinel "max")
+ *   level <  12 -> record[level]                       (rec + level*4)
+ *   else        -> (level-11) * increment[cls] + record[11]  (rec+44, linear)
+ * The leading long the Mac caller passes (a record ptr) is unused by the body.
+ * JT[4] is the long multiply. Faithful lift of L3038; byte args masked as the
+ * asm reads them (low byte of each word). */
+static long jt26(long ctx, short level, short cls) __attribute__((unused));
+static long jt26(long ctx, short level, short cls)
+{
+	const unsigned char *rec;
+
+	PROBE("jt26");
+	(void)ctx;
+	level &= 0xff;
+	cls   &= 0xff;
+	if (level >= 41)
+		return 0x7fffffffL;
+	rec = (const unsigned char *)&g_a5_byte(-30212) + (long)cls * 48;
+	if (level < 12)
+		return *(const long *)(rec + (long)level * 4);
+	{
+		long inc = *(const long *)((const unsigned char *)&g_a5_byte(-31228)
+		                           + (long)cls * 4);
+		return jt4((long)(level - 11), inc) + *(const long *)(rec + 44);
+	}
+}
+
 /* JT[65] (CODE 6 + 0x5f4e) — zero-fill `size` bytes at `ptr`
  * (jt399 with fill 0). */
 static void jt65(long ptr, short size) __attribute__((unused));
