@@ -52,26 +52,56 @@ static OSErr gemdos_err(long r)
 	}
 }
 
+/* Lower-case one byte (ASCII), for the case-insensitive .DSN suffix test. */
+static char lc(unsigned char c)
+{
+	return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
+}
+
+/* True if the Pascal-string range [start, end) ends in ".DSN". */
+static int folder_is_dsn(ConstStr255Param p, int start, int end)
+{
+	int s = end - 4;
+	if (end - start < 4)
+		return 0;
+	return lc(p[s]) == '.' && lc(p[s + 1]) == 'd'
+	    && lc(p[s + 2]) == 's' && lc(p[s + 3]) == 'n';
+}
+
 /*
- * Translate a Mac Pascal filename into a C string suitable for GEMDOS:
- * drop everything up to and including the last ':' (HFS volume / folder
- * prefix the engine sometimes prepends), copy the rest, null-terminate.
- * The leading colon on a relative HFS path is allowed and dropped too.
+ * Translate a Mac Pascal filename into a C string suitable for GEMDOS.
+ *
+ * The engine prepends HFS volume / folder prefixes ("Vol:Folder:file").
+ * GEMDOS can't navigate Mac volumes, so by default everything up to and
+ * including the last ':' is dropped — the bare filename resolves in the
+ * flat staged gamedata folder (shared libraries, frua.rsc, save slots).
+ *
+ * The one exception is a design data folder: "<name>.DSN:<file>". The
+ * design picker stages each design as a real subdirectory, so a path whose
+ * folder component ends in ".DSN" is kept and the ':' becomes a GEMDOS '\'
+ * separator — "tutorial.dsn:GAME001.DAT" -> "tutorial.dsn\GAME001.DAT".
+ * That lets several designs coexist and be selected (jt315 -> L494e).
  */
 static void mac_path_to_c(ConstStr255Param p, char *out, int max)
 {
 	int len = p ? p[0] : 0;
-	int start = 1;
-	int i, j;
+	int lastcolon = 0, prevcolon = 0;
+	int i, j, fstart;
 
-	for (i = len; i >= 1; i--) {
-		if (p[i] == ':') {
-			start = i + 1;
-			break;
-		}
-	}
+	for (i = len; i >= 1; i--)
+		if (p[i] == ':') { lastcolon = i; break; }
+	for (i = lastcolon - 1; i >= 1; i--)
+		if (p[i] == ':') { prevcolon = i; break; }
+	fstart = prevcolon + 1;
+
 	j = 0;
-	for (i = start; i <= len && j < max - 1; i++)
+	if (lastcolon && folder_is_dsn(p, fstart, lastcolon)) {
+		for (i = fstart; i < lastcolon && j < max - 1; i++)
+			out[j++] = (char)p[i];
+		if (j < max - 1)
+			out[j++] = '\\';            /* GEMDOS path separator */
+	}
+	for (i = (lastcolon ? lastcolon + 1 : 1); i <= len && j < max - 1; i++)
 		out[j++] = (char)p[i];
 	out[j] = '\0';
 }
@@ -368,15 +398,31 @@ static void copy_dta_name(char *out, int max)
 	out[i] = '\0';
 }
 
-int files_find_first(const char *pattern, char *out, int max)
+/* GEMDOS Fsfirst attribute mask: also include subdirectories in the scan
+ * (the design picker enumerates *.DSN folders). */
+#define FA_SUBDIR 0x10
+
+int files_find_first_attr(const char *pattern, int attr, char *out, int max)
 {
 	if (out == NULL || max < 1)
 		return 0;
 	Fsetdta(&g_find_dta);
-	if (Fsfirst(pattern, 0) != 0L)        /* attr 0 = ordinary files */
+	if (Fsfirst(pattern, attr) != 0L)
 		return 0;
 	copy_dta_name(out, max);
 	return 1;
+}
+
+int files_find_first(const char *pattern, char *out, int max)
+{
+	return files_find_first_attr(pattern, 0, out, max);  /* attr 0 = files */
+}
+
+/* Whether the entry the last find_first/find_next landed on is a directory.
+ * Reads the DTA attribute byte GEMDOS filled in. */
+int files_find_is_dir(void)
+{
+	return (g_find_dta.dta_attribute & FA_SUBDIR) ? 1 : 0;
 }
 
 int files_find_next(char *out, int max)

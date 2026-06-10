@@ -84,6 +84,8 @@ OSErr FlushVol(ConstStr255Param volName, short vRefNum);
  * continues it; each writes the matched filename (C string) to `out`.
  * Returns 1 while a name was found, 0 at the end. One scan at a time. */
 int files_find_first(const char *pattern, char *out, int max);
+int files_find_first_attr(const char *pattern, int attr, char *out, int max);
 int files_find_next(char *out, int max);
+int files_find_is_dir(void);   /* 1 if the current match is a directory */
 
 #endif /* COMPAT_FILES_H */
