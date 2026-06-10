@@ -19876,6 +19876,39 @@ static long jt26(long ctx, short level, short cls)
 	}
 }
 
+/* JT[167] (CODE 7 + 0x183a) — build a chain of `count` 40-byte nodes drawn from
+ * the pool whose header pointer is g_a5_-21156, linking them through offset 0
+ * (.next) and zeroing each node's .next (+0) and the two flag bytes at +4/+5.
+ * The chain head is stored at *head_holder. Stops early if the pool runs dry.
+ * jt477 is the reserve; here the bucket is the pointer VALUE at -21156 (a heap
+ * bucket), unlike jt876's inline &g_a5_-21152. Faithful lift of L183a. */
+static void jt167(short count, long head_holder) __attribute__((unused));
+static void jt167(short count, long head_holder)
+{
+	void *bucket = (void *)(uintptr_t)g_a5_long(-21156);
+	long  node;
+	short i;
+
+	PROBE("jt167");
+	jt477(bucket, (short)40, (void *)(uintptr_t)head_holder);
+	node = *(long *)(uintptr_t)head_holder;
+	if (node == 0)
+		return;
+	*(long *)(uintptr_t)node = 0;                          /* .next = 0   */
+	((unsigned char *)(uintptr_t)node)[4] = 0;             /* flag byte +4 */
+	((unsigned char *)(uintptr_t)node)[5] = 0;             /* flag byte +5 */
+
+	for (i = 1; i < count; i++) {
+		jt477(bucket, (short)40, (void *)(uintptr_t)node); /* reserve into node->next */
+		if (*(long *)(uintptr_t)node == 0)
+			return;                                /* pool exhausted */
+		node = *(long *)(uintptr_t)node;               /* advance to new node */
+		*(long *)(uintptr_t)node = 0;
+		((unsigned char *)(uintptr_t)node)[4] = 0;
+		((unsigned char *)(uintptr_t)node)[5] = 0;
+	}
+}
+
 /* JT[65] (CODE 6 + 0x5f4e) — zero-fill `size` bytes at `ptr`
  * (jt399 with fill 0). */
 static void jt65(long ptr, short size) __attribute__((unused));
