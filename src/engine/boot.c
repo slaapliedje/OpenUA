@@ -6021,7 +6021,36 @@ static void    jt447(void)
  * because the modal poll's own l2c60 happened to run. Wire it to l2c60. */
 static void    l2c60(short force_paint);            /* defined below (CODE 3+0x2c60) */
 static void    jt449(short a)                       { PROBE("jt449"); l2c60(a); }
-static void    jt451(void)                          { PROBE("jt451"); }
+/* JT[451] (CODE 3 + 0x303c) — DLItem-manager teardown. Apply method 6 (the
+ * dispose arm) to every live item [0, g_a5_9250) via l30ba, then clear the
+ * manager-active flag g_a5_9248. The inverse of the init that sets count = 0 /
+ * active = 1 (see jt442/the g_a5_9248 seed). */
+static void    l30ba(short start, short end, short cmd);  /* defined below */
+static void    jt451(void)
+{
+	PROBE("jt451");
+	l30ba((short)0, (short)(g_a5_9250 - 1), (short)6);
+	g_a5_9248 = 0;
+}
+
+/* JT[321] (CODE 22 + 0x0476) — set the byte pointed to by g_a5_-11714 to 1
+ * (a single-flag raise through an A5 pointer slot). */
+static void    jt321(void) __attribute__((unused));
+static void    jt321(void)
+{
+	PROBE("jt321");
+	*(unsigned char *)(uintptr_t)g_a5_long(-11714) = 1;
+}
+
+/* JT[493] (CODE 13 + 0x2406) — predicate: return 1 when the record's byte at
+ * offset 95 is zero, else 0. */
+static short   jt493(long entry) __attribute__((unused));
+static short   jt493(long entry)
+{
+	const unsigned char *p = (const unsigned char *)(uintptr_t)entry;
+	PROBE("jt493");
+	return (short)(p[95] == 0 ? 1 : 0);
+}
 
 /* JT[376] .. JT[382] (CODE 3) — the 7 DLItem shape-method handlers
  * JT[442] parks in the g_a5_9282 table:
