@@ -1938,7 +1938,7 @@ static void          jt942(short a)
 	PROBE("jt942");
 	g_a5_4944 = (unsigned char)a;
 }
-static void          jt582(void)              { PROBE("jt582"); }                /* CODE 15 + 0x153e */
+static void          jt582(void);             /* CODE 15 + 0x153e — load (lifted near jt585) */
 static void          jt941(void)
 {
 	/* CODE 20 + 0x4108: copy two A5 / handle bytes into handle[23..24].
@@ -22271,6 +22271,159 @@ static void   jt585(void)
 	}
 	g_a5_27946 = 1;
 	jt176();
+}
+
+/* jt407 (CODE 3 + 0x3c34) — filename prefix test used by the load picker:
+ * non-zero when `name` begins with `prefix` (the "SavGam" save slots). The
+ * exact Mac File-Manager string op is deferred; prefix-match is its
+ * observable effect at this call site (JT[407](dirEntry, "SavGam")). */
+static int jt407(const char *name, const char *prefix)
+{
+	PROBE("jt407");
+	if (name == NULL || prefix == NULL)
+		return 0;
+	while (*prefix != 0) {
+		if (*name++ != *prefix++)
+			return 0;
+	}
+	return 1;
+}
+
+/* L143e (CODE 15 + 0x143e) — the saved-game record READER core: streams the
+ * picked slot file back into the player record (g_a5_-28006) + design state
+ * via L0006 / JT[579], the mirror of jt585's L00e0 / jt580 writer. STUB at
+ * the same level the writer is stubbed; until it lands the slot is selected
+ * and the position tail runs, but no bytes are parsed off disk. */
+static void l143e(void) { PROBE("L143e"); }
+
+/* jt582 (CODE 15 + 0x153e) — LOAD a saved game. Counterpart of jt585 (save).
+ *
+ *   JT[76](); JT[179](2);                          ; UI setup
+ *   ; entry JT[3] switch on a mode local (0 here) -> the .csv load arm:
+ *   g_a5_-22733 = 1; ext = "csv";
+ *   JT[399](present,10,0); JT[394](fn,"%sX","SavGam"); JT[419](fn,ext,1);
+ *   if (!L005a()) return;                           ; save disk gone
+ *   path=""; JT[431](path,&g_a5_-31336); JT[431](path,"SAVE");
+ *   JT[990](0, path, ext, 1, 0);                    ; open SAVE dir listing
+ *   for (e=JT[991](&isdir); e; e=JT[991](&isdir))   ; mark present A..J
+ *       if (JT[407](e,"SavGam") && 'A'<=e[6]<='J') present[e[6]-'A']=1;
+ *   JT[399](&g_a5_-24126, 40, 0xFF);                ; compact index of present
+ *   for (c=0,L='A'; L<='J'; L++,c++) if (present[L-'A']) idx[j++*2]=c;
+ *   if (idx[0]==0xFF) return;                        ; nothing to load
+ *   do { sel = JT[182](g_a5_-13908, g_a5_-13776, 0, 0);
+ *        g_a5_-6923 = (g_a5_-24139 && sel==27) ? 27 : sel+'A';
+ *   } while (!(g_a5_-6923 in 'A'..'J' or ==27));     ; slot picker
+ *   if (g_a5_-6923 == 27) return;                    ; cancelled
+ *   *(JT[390](fn,'.') - 1) = g_a5_-6923;             ; slot letter into name
+ *   JT[176](); JT[94](0,24,7,0,"Loading...Please Wait");
+ *   if (g_a5_-22733 == 1) L143e();                   ; read the file
+ *   JT[176](); g_a5_-27990 = 0;
+ *   ; restore dungeon position from the loaded record:
+ *   if (g_a5_-18485) player[38]=g_a5_-12287, player[37]=g_a5_-12288;
+ *   else g_a5_-12288=player[67], -12287=player[68], -12286=player[17];
+ *   g_a5_-18878 = player[19];
+ *
+ * Level-2 lift: the picker structure and the position-restore tail (the
+ * part that lands the party where the save left it) are faithful; the reader
+ * L143e (and JT[407]) are the I/O core — the next step toward a real
+ * round-trip with jt585. NULL-guarded on g_a5_-28006 like jt585, since the
+ * port's boot has no player record until the design-load chain runs. */
+static void jt582(void)
+{
+	char           fn[44];
+	char           path[266];
+	unsigned char  present[10];
+	signed char    is_dir;
+	const char    *ext;
+	void          *entry;
+	short          j, counter, letter, sel;
+	unsigned char *player;
+
+	PROBE("jt582");
+
+	jt76();
+	jt179((short)2);
+
+	/* entry JT[3] switch on a 0 mode -> the .csv load arm */
+	g_a5_22733 = 1;
+	ext = "csv";
+
+	jt399(present, (short)10, (short)0);
+	jt394(fn, "%sX", "SavGam");
+	jt419(fn, ext, (short)1);
+
+	if (l005a() == 0)
+		return;                          /* save disk missing */
+
+	path[0] = 0;
+	jt431(path, &g_a5_byte(-31336));
+	jt431(path, "SAVE");
+	jt990((short)0, path, ext, (short)1, (short)0);
+
+	for (entry = (void *)(uintptr_t)jt991(&is_dir); entry != NULL;
+	     entry = (void *)(uintptr_t)jt991(&is_dir)) {
+		const char   *nm = (const char *)entry;
+		unsigned char ch;
+
+		if (jt407(nm, "SavGam") == 0)
+			continue;
+		ch = (unsigned char)nm[6];
+		if (ch < 'A' || ch > 'J')
+			continue;
+		present[ch - 'A'] = 1;
+	}
+
+	jt399(g_a5_24126, (short)40, (short)0xFF);
+	j = 0;
+	for (counter = 0, letter = 'A'; letter <= 'J'; letter++, counter++) {
+		if (present[letter - 'A'])
+			g_a5_24126[j++ * 2] = (unsigned char)counter;
+	}
+	if (g_a5_24126[0] == 0xFF)
+		return;                          /* no saved games on disk */
+
+	for (;;) {
+		unsigned char L;
+
+		sel = jt182((const char *)(uintptr_t)g_a5_long(-13908),
+		            g_a5_13776, (short)0, (short)0);
+		if (g_a5_24139 != 0 && sel == 27)
+			g_a5_byte(-6923) = 27;
+		else
+			g_a5_byte(-6923) = (signed char)(sel + 'A');
+		L = (unsigned char)g_a5_byte(-6923);
+		if ((L >= 'A' && L <= 'J') || L == 27)
+			break;
+	}
+	if ((unsigned char)g_a5_byte(-6923) == 27)
+		return;                          /* cancelled */
+
+	{
+		char *dot = (char *)jt390(fn, (short)'.');
+		if (dot != fn)
+			dot[-1] = (char)g_a5_byte(-6923);
+	}
+	jt176();
+	jt94((short)0, (short)24, (short)7, (short)0, "%s", "Loading...Please Wait");
+
+	if (g_a5_22733 == 1)
+		l143e();                         /* read the slot file (STUB) */
+
+	jt176();
+	g_a5_27990 = 0;
+
+	player = (unsigned char *)g_a5_28006;
+	if (player != NULL) {
+		if (g_a5_18485 != 0) {           /* overland: globals -> record */
+			player[38] = g_a5_12287;
+			player[37] = g_a5_12288;
+		} else {                         /* dungeon: record -> globals */
+			g_a5_12288 = player[67];
+			g_a5_12287 = player[68];
+			g_a5_12286 = player[17];
+		}
+		g_a5_18878 = (short)player[19];
+	}
 }
 /* JT[904] (CODE 19 + 0x213e) — Add Character roster screen.
  *

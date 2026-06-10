@@ -13,7 +13,7 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 277 done (264 lifted, 8 noop, 5 alias), 91 stub, 837 missing.
+**1205 distinct JT entries are called.** Overall: 279 done (266 lifted, 8 noop, 5 alias), 90 stub, 836 missing.
 
 ## Progress by band (100 most-called at a time)
 
@@ -23,10 +23,10 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 2 | 101–200 | **39/100** | 37 | 2 | 14 | 47 |
 | 3 | 201–300 | **26/100** | 26 | 0 | 12 | 62 |
 | 4 | 301–400 | **24/100** | 23 | 1 | 3 | 73 |
-| 5 | 401–500 | **18/100** | 18 | 0 | 15 | 67 |
+| 5 | 401–500 | **19/100** | 19 | 0 | 14 | 67 |
 | 6 | 501–600 | **14/100** | 13 | 1 | 13 | 73 |
 | 7 | 601–700 | **15/100** | 15 | 0 | 7 | 78 |
-| 8 | 701–800 | **23/100** | 23 | 0 | 7 | 70 |
+| 8 | 701–800 | **24/100** | 24 | 0 | 7 | 69 |
 | 9 | 801–900 | **0/100** | 0 | 0 | 1 | 99 |
 | 10 | 901–1000 | **0/100** | 0 | 0 | 0 | 100 |
 | 11 | 1001–1100 | **9/100** | 9 | 0 | 5 | 86 |
