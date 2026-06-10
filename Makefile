@@ -158,6 +158,10 @@ run: $(TARGET)
 # or for the visible run, point hatari -d at it.
 GAMEDATA_DIR := data/work/gamedata
 MAC_JOINED   := data/frua-mac/joined
+# Extra hand-dropped designs to stage alongside the bundled ones (for .DSN
+# compatibility testing); each <name>.DSN folder there becomes a pickable
+# design. Override or leave empty to skip.
+DESIGNS_DIR  ?= data/designs
 # Which design directory to flatten in alongside the shared libs.
 # Override to test other modules, e.g. `make gamedata DSN=HEIRS.DSN`.
 DSN ?= TUTORIAL.DSN
@@ -183,7 +187,9 @@ gamedata: $(TARGET) frua.rsc
 	@# (jt315 -> L494e) can enumerate them and the file shim resolves
 	@# "<name>.DSN:<file>" into the matching folder. All bundled designs
 	@# are staged; $(DSN) is the one the boot seed makes current.
-	@for dsn in "$(MAC_JOINED)"/*.DSN; do \
+	@# Extra hand-dropped designs (data/designs/) are staged too, for
+	@# .DSN compatibility testing; .dsn or .DSN, case-insensitive.
+	@for dsn in "$(MAC_JOINED)"/*.DSN "$(DESIGNS_DIR)"/*.DSN "$(DESIGNS_DIR)"/*.dsn; do \
 		[ -d "$$dsn" ] || continue; \
 		base=$$(basename "$$dsn"); \
 		mkdir -p "$(GAMEDATA_DIR)/$$base"; \

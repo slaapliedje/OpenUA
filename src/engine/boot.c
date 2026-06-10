@@ -18495,9 +18495,10 @@ static int  jt169(long h1, long h2, short top, short left,
 				short row = (short)(top + i);
 				short who = (short)(scroll + i);
 				/* Mac highlights the selection by colour, not a
-				 * '>' marker: bright (15) for the selected row,
-				 * dim (9) for the rest. */
-				jt94(left, row, (short)(who == sel ? 15 : 9), 0,
+				 * '>' marker: clut 11 (55,ff,ff) — the same
+				 * bright blue the menu headers use — for the
+				 * selected row, white (15) for the rest. */
+				jt94(left, row, (short)(who == sel ? 11 : 15), 0,
 				     "%s", (const char *)&n[5]);
 				e = *(const long *)(uintptr_t)e;
 			}
@@ -24444,13 +24445,25 @@ static int l494e(void)
 		return 0;
 	}
 
+	/* The port's menu_run doesn't establish the faithful window clip, so
+	 * jt76's jt103 panel fill (which clips to g_a5_-3050..-3056) wouldn't
+	 * cover the menu underneath. Reset the clip to the full screen first so
+	 * the dialog panel paints over it cleanly. */
+	g_a5_3054 = 0;
+	g_a5_3056 = 0;
+	g_a5_3050 = l04cc();
+	g_a5_3052 = l04de();
+
 	jt76();
-	(void)jt94((short)5, (short)2, (short)15, (short)0, "%s",
-	           "Select a Design");
+	/* Title centred over the panel (col 5 ~ (38-28)/2), list left-justified
+	 * a couple of rows below so the two don't overlap. jt94's first arg is
+	 * the char column (x = (col<<2)+8000), not a page; the third is colour. */
+	(void)jt94((short)5, (short)3, (short)15, (short)0, "%s",
+	           "PLEASE SELECT A GAME DESIGN:");
 	jt179((short)1);
 	keycode = (short)(jt169((long)(uintptr_t)g_a5_long(-13952),
 	                        (long)(uintptr_t)"Designs",
-	                        (short)1, (short)4, (short)38, (short)22,
+	                        (short)6, (short)1, (short)38, (short)22,
 	                        headA, (short)1, (short)0,
 	                        &flag, &idx, &picked) & 0xFF);
 	if (g_a5_24139 != 0 && keycode == 27)
