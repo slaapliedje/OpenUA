@@ -6913,8 +6913,11 @@ static short jt382(void *rec_v, short cmd, ...)
 					 * in data/frua_mac_menu.png. The accelerator code is
 					 * rec[29] (set by jt452 cmd 32); we highlight its first
 					 * case-insensitive match in the label. */
-					const unsigned char BODY = g_hud_paint ? 253 : (dim ? 18 : 7);
-					const unsigned char HOT  = g_hud_paint ? 254 : (dim ? 18 : 15);
+					/* Disabled (dim) menu commands draw their label in
+					 * BLACK (clut 0) on the recessed plate — matching the
+					 * Mac original (Delete the Design / Unlock Editor). */
+					const unsigned char BODY = g_hud_paint ? 253 : (dim ? 0 : 7);
+					const unsigned char HOT  = g_hud_paint ? 254 : (dim ? 0 : 15);
 					unsigned char hk = rec[29];
 					short hi = -1, k;
 					CGrafPtr cport;
@@ -16752,8 +16755,11 @@ static void port_show_intro(void)
  * plate fill is the flat mid grey clut 8 (103); bevel uses clut 7 (light)
  * + clut 0 (dark). */
 #define MENU_PLATE_FILL   23    /* clut 23 = 91,83,79  warm plate face   */
-#define MENU_BEVEL_LIGHT  16    /* clut 16 = 167,167,167  band highlight */
-#define MENU_BEVEL_DARK   31    /* clut 31 = 27,27,39     band shadow    */
+#define MENU_BEVEL_LIGHT  19    /* clut 19 = 135,135,135  button highlight
+                                 * (matches the Mac menu button's top/left
+                                 * edge; sampled from frua_mac_main_menu.png) */
+#define MENU_BEVEL_DARK    0    /* black: the Mac button's bottom/right edge
+                                 * is literal black (0,0,0), not band shadow  */
 
 /* Tile the GEN.CTL stone field across the screen as the backdrop.
  *
@@ -16820,21 +16826,124 @@ static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
  * coords via jt1135 — the same transform jt382 uses for the label — so the
  * plates track the labels. Active = raised, recessed = sunken (per the
  * spec). Called before l2c60 so the labels land on top. */
+/* A MENU button face, matching the Mac main menu sampled from
+ * frua_mac_main_menu.png: a clut-23 face with a 1px bevel. RAISED (active /
+ * empty spacer) = clut-19 highlight on top + left, black on bottom + right.
+ * RECESSED (disabled command, e.g. Delete/Unlock) = the bevel reversed
+ * (black top + left, clut-19 bottom + right) so it reads as pushed in. The
+ * plates do NOT butt — each is shorter than the row pitch, so a few rows of
+ * the GEN stone backdrop show through between them (the Mac's separation is
+ * stone texture, not a dark line). */
+static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh,
+                              short x0, short y0, short x1, short y1, int recessed)
+{
+	const unsigned char HI = MENU_BEVEL_LIGHT;   /* clut 19 highlight */
+	const unsigned char FACE = MENU_PLATE_FILL;  /* clut 23 face      */
+	unsigned char tl = recessed ? 0  : HI;       /* top + left edge   */
+	unsigned char br = recessed ? HI : 0;        /* bottom + right    */
+	short x, y;
+
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > sw - 1) x1 = (short)(sw - 1);
+	if (y1 > sh - 1) y1 = (short)(sh - 1);
+	if (x1 <= x0 || y1 <= y0)
+		return;
+
+	for (y = y0; y <= y1; y++)               /* face */
+		memset(px + (long)y * pitch + x0, FACE, (size_t)(x1 - x0 + 1));
+	for (x = x0; x <= x1; x++) {             /* top / bottom edges */
+		px[(long)y0 * pitch + x] = tl;
+		px[(long)y1 * pitch + x] = br;
+	}
+	for (y = y0; y <= y1; y++) {             /* left / right edges */
+		px[(long)y * pitch + x0] = tl;
+		px[(long)y * pitch + x1] = br;
+	}
+}
+
+/* The recessed TITLE panel — a deeper sunken box than the 1px button bevel.
+ * Sampled from frua_mac_main_menu.png: a clut-23 face with a 1px BLACK inner
+ * edge on top + left, and a 2px LIGHT bevel (clut 17 outer, clut 19 inner) on
+ * bottom + right — the sunken panel catches the light along its lower-right.
+ * The buttons' single-line bevel left the panel border looking a line thin;
+ * this adds that second pixel on each side. */
+static void draw_title_panel(unsigned char *px, short pitch, short sw, short sh,
+                             short x0, short y0, short x1, short y1)
+{
+	short x, y;
+
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > sw - 1) x1 = (short)(sw - 1);
+	if (y1 > sh - 1) y1 = (short)(sh - 1);
+	if (x1 <= x0 + 2 || y1 <= y0 + 2)
+		return;
+
+	for (y = y0; y <= y1; y++)               /* face */
+		memset(px + (long)y * pitch + x0, MENU_PLATE_FILL,
+		       (size_t)(x1 - x0 + 1));
+	for (x = x0; x <= x1; x++) {             /* bottom 2px light, top 1px black */
+		px[(long)y1 * pitch + x]       = 17;
+		px[(long)(y1 - 1) * pitch + x] = 19;
+		px[(long)y0 * pitch + x]       = 0;
+	}
+	for (y = y0; y <= y1; y++) {             /* right 2px light, left 1px black */
+		px[(long)y * pitch + x1]       = 17;
+		px[(long)y * pitch + (x1 - 1)] = 19;
+		px[(long)y * pitch + x0]       = 0;
+	}
+}
+
 static void menu_draw_plates(const menu_item_t *items, short n)
 {
-	short i, py = 0, pxx = 0;
+	unsigned char *px;
+	short pitch, sw, sh, i, py = 0, pxx = 0;
 
-	/* One beveled plate per LABELLED command, reconstructed from MENU.CTL
-	 * item 1 (raised) / item 2 (recessed) — see port_menu_bar. Label-less
-	 * entries are layout spacers: the Mac shows BARE STONE there (a gap
-	 * between the main command block and the bottom Unlock/Quit row), so we
-	 * skip them rather than drawing an empty plate. */
+	/* One clean raised bevel per LABELLED command, drawn from the real
+	 * FRAME palette (clut 23 face, clut 19 top/left highlight, black
+	 * bottom/right shadow) — the exact structure sampled from the Mac
+	 * main menu (frua_mac_main_menu.png). This replaces the earlier
+	 * port_menu_bar reconstruction, which sampled MENU.CTL's HUD command-
+	 * bar glyph (darker shades + heavy dark side caps), giving the "boxed,
+	 * too-dark, gapped" look. The exhaustive CODE 22 trace
+	 * (jt315->jt449/l2c60->jt382->l148a) shows the real button paint emits
+	 * only an 8x16 icon + the centred label on the GEN stone backdrop — the
+	 * wide bevel is NOT in the engine's button paint, so it is reconstructed
+	 * here to match the reference pixel-for-pixel.
+	 *
+	 * Two columns, full-width buttons butted into a vertical block: left
+	 * col x 4..155, right col x 156..307 (the Mac column split). Each plate
+	 * is the row pitch tall (14px at scale 2) so consecutive buttons share
+	 * their highlight/shadow edge. Label-less spacer rows draw an EMPTY
+	 * raised bevel too — the Mac shows a blank beveled button between the
+	 * main block and the Unlock/Quit row (not bare stone). */
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
 	for (i = 0; i < n; i++) {
-		if (items[i].label == NULL)
-			continue;
+		short x0, x1, y0, y1;
+
 		jt1135(items[i].y, items[i].x, &py, &pxx);
-		port_menu_bar((short)(py - 9), (short)(pxx - 5),
-		              (short)150, items[i].recessed ? (short)2 : (short)1);
+		/* Button rect from the label's pixel origin (pxx = rec[18] mapped):
+		 * the Mac plate starts 4px LEFT of the label and is 152px wide
+		 * (measured: left col x4..155 for label x8; right col x164..315 for
+		 * label x168 — each 152px, an 8px stone gap between columns). */
+		x0 = (short)(pxx - 4);
+		x1 = (short)(pxx + 147);
+		/* Plate top highlight sits AT the spec's rec[16] (py) — the Mac's
+		 * button-top row — and the plate is 11px tall (face below), so the
+		 * label (drawn at py+2 by the build) lands centred in the face and
+		 * ~3px of GEN stone shows between this plate and the next (the row
+		 * pitch is 14px). The Mac's plate-to-plate separation is stone
+		 * texture, not a dark line. */
+		y0 = py;
+		y1 = (short)(py + 10);
+		/* Recessed spec entries draw a sunken bevel — both the disabled
+		 * commands (Delete the Design / Unlock Editor) AND the empty spacer
+		 * rows above Unlock/Quit, all of which the Mac shows pushed in.
+		 * Active commands (recessed == 0) draw raised. */
+		menu_button_bevel(px, pitch, sw, sh, x0, y0, x1, y1,
+		                  items[i].recessed);
 	}
 }
 
@@ -16888,18 +16997,26 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	jt447();
 	for (i = 0; i < n; i++)
 		if (items[i].label != NULL) {
+			/* Place the label baseline at plate_top + 8px. The plate's top
+			 * highlight sits at the spec's rec[16] (menu_draw_plates uses
+			 * it directly); the Mac label baseline sits 8px into the face
+			 * below that. DrawString is BASELINE-anchored (the 8x8 font has
+			 * ascent 7, so the glyph body is baseline-6..baseline), so to
+			 * land the body in the face the baseline must be +8px = +4 engine
+			 * units (scale 2) below rec[16]. */
+			long ly = (long)items[i].y + 4;
 			/* Recessed (disabled) commands get an extra cmd 18 =
 			 * set rec[28] bit 2, so jt382 paints their label in the
 			 * dim stone grey. cmd 36 consumes the first 18 as its
 			 * arg (rec[24]); the second 18 is the standalone set-bit. */
 			if (items[i].recessed)
-				jt452((long)1, (long)items[i].y, (long)items[i].x,
+				jt452((long)1, ly, (long)items[i].x,
 				      (long)(uintptr_t)items[i].label,
 				      (long)32, (long)items[i].hotkey,
 				      (long)36, (long)18, (long)18,
 				      (long)20, (long)21, (long)0);
 			else
-				jt452((long)1, (long)items[i].y, (long)items[i].x,
+				jt452((long)1, ly, (long)items[i].x,
 				      (long)(uintptr_t)items[i].label,
 				      (long)32, (long)items[i].hotkey,
 				      (long)36, (long)18, (long)20, (long)21, (long)0);
@@ -16937,24 +17054,39 @@ static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
                            int phase)
 {
 	if (phase == 0) {
-		draw_plate(px, pitch, sw, sh, 6, 6, 313, 96, 1);  /* title plate */
+		/* Title plate extents from the faithful jt81 panel jt103(1,1,38,13):
+		 * pixel y 8..112, x 8..312 (the grey title area the Mac shows the
+		 * GEN stone framing). The port box was 90px tall (y6..96), ending
+		 * ~14px too high above the buttons; extend it to ~y110 so it reaches
+		 * close to the first button row (py 118) like the Mac. */
+		draw_title_panel(px, pitch, sw, sh, 6, 6, 313, 110);  /* title plate */
 		return;
 	}
 	{
 		const char *design = (const char *)g_a5_buf(-31336);
 		const char *title  = (const char *)g_a5_buf(-18876);
+		/* title_text(page, row, col, s): like jt94 (style 0) but drops the
+		 * baseline +4px (+2 engine units) so the line sits where the Mac
+		 * shows it. The shim font is baseline-anchored (ascent 7), drawing
+		 * ~half a font cell above the row coord; jt94's row-only coord can't
+		 * express the half-row, so go through jt1089 directly. (Same fix the
+		 * menu labels got via their +4-unit nudge in menu_run.) */
+		#define title_text(page, row, col, s) \
+			jt1089((short)(((page) << 2) + 8000), \
+			       (short)(((row) << 2) + 8002), (short)(col), "%s", (s))
 		/* "Unlimited Adventures" (20 chars) centred in the 40-col screen
 		 * (page = (40-20)/2 = 10), matching the Mac title. */
-		jt94((short)10, (short)3, (short)11, (short)0, "Unlimited Adventures");
+		title_text(10, 3, 11, "Unlimited Adventures");
 		/* Port version + build date. The Mac drew one A5 string here, laid
 		 * out version at the left and the date right-of-centre; mirror that
 		 * spread (version col 4, date col 23) with __DATE__ so the build
 		 * date tracks the build. Edit "Version 0.1" to bump the version. */
-		jt94((short)4,  (short)4, (short)7, (short)0, "Version 0.1");
-		jt94((short)23, (short)4, (short)7, (short)0, "%s", __DATE__);
-		jt94((short)4, (short)9, (short)11, (short)0, "Current Game Design:");
-		if (design[0]) jt94((short)25, (short)9, (short)7, (short)0, "%s", design);
-		if (title[0])  jt94((short)4, (short)10, (short)7, (short)0, "%s", title);
+		title_text(4,  4, 7, "Version 0.1");
+		title_text(23, 4, 7, __DATE__);
+		title_text(4,  9, 11, "Current Game Design:");
+		if (design[0]) title_text(25, 9, 7, design);
+		if (title[0])  title_text(4, 10, 7, title);
+		#undef title_text
 	}
 }
 
