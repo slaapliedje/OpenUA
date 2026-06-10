@@ -16984,17 +16984,22 @@ static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh
  * (L15e2 / L12a0) leave it 0 and stay keyboard-only, unchanged. */
 static int g_picker_cmdbar;
 
-/* A dialog command button (Select / Cancel): a raised menu_button_bevel with
- * a CENTRED label (body clut 7, accelerator clut 15) — the same chrome as the
- * menu buttons. The cell WIDTH is the faithful command-bar advance from l1aea:
- * each word advances (item_len+1)*4 engine units, i.e. (len+1)*8 px at scale 2
- * (the play HUD uses the same formula). Returns the hit rect through
+/* A dialog command button (Select / Cancel): a menu_button_bevel with a
+ * CENTRED label — the same chrome as the menu buttons. pressed=0 = raised +
+ * normal label (body clut 7 / accelerator clut 15); pressed=1 = the button-
+ * down look (recessed bevel + blue body clut 152 / cyan accelerator clut 11),
+ * matching the menu/roster press feedback. The cell WIDTH is the faithful
+ * command-bar advance from l1aea: each word advances (item_len+1)*4 engine
+ * units = (len+1)*8 px at scale 2. Returns the hit rect through
  * rect[4] = {x0, y0, x1, y1} (half-open) for the caller's mouse test. */
 static void picker_cmd_button(unsigned char *px, short pitch, short sw, short sh,
                               short x0, short y0,
-                              const char *label, char hot, short rect[4])
+                              const char *label, char hot, int pressed,
+                              short rect[4])
 {
 	short len = 0, w, y1, x1, lx, hi = -1, k;
+	unsigned char body = (unsigned char)(pressed ? 152 : 7);
+	unsigned char hotc = (unsigned char)(pressed ? 11  : 15);
 	unsigned char pbuf[40];
 	CGrafPtr cport;
 	GrafPtr  bport;
@@ -17005,7 +17010,7 @@ static void picker_cmd_button(unsigned char *px, short pitch, short sw, short sh
 	y1 = (short)(y0 + 10);
 	x1 = (short)(x0 + w - 1);
 
-	menu_button_bevel(px, pitch, sw, sh, x0, y0, x1, y1, 0);
+	menu_button_bevel(px, pitch, sw, sh, x0, y0, x1, y1, pressed);
 	if (rect != NULL) {
 		rect[0] = x0; rect[1] = y0;
 		rect[2] = (short)(x1 + 1); rect[3] = (short)(y1 + 1);
@@ -17025,29 +17030,60 @@ static void picker_cmd_button(unsigned char *px, short pitch, short sw, short sh
 	cport = (CGrafPtr)bport;
 	MoveTo(lx, (short)(y0 + 8));
 	if (hi < 0) {
-		if (cport) cport->fgColor = 7;
+		if (cport) cport->fgColor = body;
 		pbuf[0] = (unsigned char)len;
 		memcpy(pbuf + 1, label, (size_t)len);
 		DrawString(pbuf);
 	} else {
 		if (hi > 0) {
-			if (cport) cport->fgColor = 7;
+			if (cport) cport->fgColor = body;
 			pbuf[0] = (unsigned char)hi;
 			memcpy(pbuf + 1, label, (size_t)hi);
 			DrawString(pbuf);
 		}
-		if (cport) cport->fgColor = 15;
+		if (cport) cport->fgColor = hotc;
 		pbuf[0] = 1;
 		pbuf[1] = (unsigned char)label[hi];
 		DrawString(pbuf);
 		if (hi + 1 < len) {
 			short n = (short)(len - hi - 1);
-			if (cport) cport->fgColor = 7;
+			if (cport) cport->fgColor = body;
 			pbuf[0] = (unsigned char)n;
 			memcpy(pbuf + 1, label + hi + 1, (size_t)n);
 			DrawString(pbuf);
 		}
 	}
+}
+
+/* Track a press on a picker command button until the mouse releases — the
+ * same on/off-drag behaviour as menu_button_track, returning 1 on release
+ * over the button. rect = the button's pixel rect; (x0,y0) its origin. */
+static int picker_button_track(short rect[4], short x0, short y0,
+                               const char *label, char hot)
+{
+	Point mp;
+	int over = 1;
+	unsigned char *px; short pitch, sw, sh;
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return 1;
+	picker_cmd_button(px, pitch, sw, sh, x0, y0, label, hot, 1, NULL);
+	qd_present();
+	while (Button()) {
+		int now;
+		GetMouse(&mp);
+		now = (mp.h >= rect[0] && mp.h < rect[2]
+		    && mp.v >= rect[1] && mp.v < rect[3]);
+		if (now != over) {
+			picker_cmd_button(px, pitch, sw, sh, x0, y0, label, hot,
+			                  now, NULL);
+			qd_present();
+			over = now;
+		}
+	}
+	picker_cmd_button(px, pitch, sw, sh, x0, y0, label, hot, 0, NULL);
+	qd_present();
+	return over;
 }
 
 /* The recessed TITLE panel — a deeper sunken box than the 1px button bevel.
@@ -18864,11 +18900,11 @@ static int  jt169(long h1, long h2, short top, short left,
 				if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 					picker_cmd_button(px, pitch, sw, sh,
 					    (short)4, (short)187,
-					    "Select", 'S', sel_rect);
+					    "Select", 'S', 0, sel_rect);
 					/* Cancel butts Select's right edge (sel_rect[2]). */
 					picker_cmd_button(px, pitch, sw, sh,
 					    sel_rect[2], (short)187,
-					    "Cancel", 'C', cancel_rect);
+					    "Cancel", 'C', 0, cancel_rect);
 				}
 			}
 			if (flag != NULL) *flag = 1;
@@ -18884,14 +18920,24 @@ static int  jt169(long h1, long h2, short top, short left,
 
 			if (h >= sel_rect[0] && h < sel_rect[2]
 			 && v >= sel_rect[1] && v < sel_rect[3]) {
-				jt169_pick(head, sel, idx, next);   /* Select */
-				return 0;
+				/* Press feedback (recessed + blue/cyan) while held,
+				 * fire on release over the button. */
+				if (picker_button_track(sel_rect, (short)4,
+				                        (short)187, "Select", 'S')) {
+					jt169_pick(head, sel, idx, next);
+					return 0;
+				}
+				continue;
 			}
 			if (h >= cancel_rect[0] && h < cancel_rect[2]
 			 && v >= cancel_rect[1] && v < cancel_rect[3]) {
-				if (idx != NULL) *idx = sel;        /* Cancel */
-				if (next != NULL) *next = 0;
-				return 27;
+				if (picker_button_track(cancel_rect, cancel_rect[0],
+				                        (short)187, "Cancel", 'C')) {
+					if (idx != NULL) *idx = sel;
+					if (next != NULL) *next = 0;
+					return 27;
+				}
+				continue;
 			}
 			/* List row: nearest baseline (rows are 8px apart). A
 			 * second click on the same row within ~0.5s confirms. */
