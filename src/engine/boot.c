@@ -10961,7 +10961,29 @@ static void l4430(short cx, short cy, short sa, short scrx, short special)
 		break;
 	}
 }
-static void jt214(void)       { PROBE("jt214"); }              /* CODE 7+0x71c6 view setup */
+static void l579e(short id);  /* JT[43] = CODE 6+0x579e — load the bigpic backdrop */
+/* jt214 (CODE 7 + 0x71c6) — pick the play-screen "bigpic" backdrop id and load
+ * it via JT[43] (L579e). Faithful to the disasm: the id is the current area/
+ * dungeon spec's byte 8 when non-zero (g_a5_-12300 -> [8]); otherwise the
+ * default derived from the live game record's byte 19 + 239 (g_a5_-28006 ->
+ * [19] + 239). L579e itself caches the id + (in the full GLIB-picture lift)
+ * builds the "bigpi%c%d" name and decodes it; jt214 is just the id selector. */
+static void jt214(void)
+{
+	const unsigned char *ds  = (const unsigned char *)g_a5_12300;
+	const unsigned char *rec = (const unsigned char *)g_a5_28006;
+	short id;
+
+	PROBE("jt214");
+
+	if (ds != NULL && ds[8] != 0)
+		id = (short)(unsigned char)ds[8];
+	else
+		id = (short)((rec != NULL ? (short)(unsigned char)rec[19] : 0)
+		             + 239);
+
+	l579e(id);
+}
 static void jt124(long h)     { PROBE("jt124"); (void)h; }     /* CODE 6+0x3eea backdrop   */
 /* JT[448] (CODE 3 + 0x148a) — blit glyph `glyph` (a font index) at (x,y) in
  * colour. Forwards to the glyph blitter by display mode: deep (jt1200()==3)
