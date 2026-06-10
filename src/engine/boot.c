@@ -17585,6 +17585,10 @@ static int l0aae(void)
 		      (long)(uintptr_t)ua_strs_at(
 		          k_jt918_menu_items[i].label_strs_off),
 		      32L, (long)k_jt918_menu_items[i].selector,
+		      36L, 18L,                 /* rec[24]=18: faithful to the original
+		                                 * l0aae (CODE 12+0xaae) + the main menu;
+		                                 * (18+1)*8 = 152px, the full-column width
+		                                 * menu_draw_plates draws. */
 		      20L, 21L, 0L);
 	}
 	/* The extra "page switch" item the Mac appends past the 12.
