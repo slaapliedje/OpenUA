@@ -25705,6 +25705,61 @@ static void l1e30(void *ev_v, long target)
 	g_a5_long(-27932) = saved_roster;
 }
 
+/* L009e (CODE 18+0x009e) — remove an effect from a combat actor. The actor
+ * keeps a singly-linked list of active effect nodes (rec[4]=head, node[0]=
+ * type, node[5]=removal-callback flag, node[6]=next). Find the node (by
+ * `type` if `node` is NULL), fire its per-type removal hook (L77a0), unlink
+ * it, free it into the -21152 bucket (jt471), then recompute the affected
+ * derived stat via L1b14 for the stat-bearing effect types (14 / 12 / 38 /
+ * 68). The hub of the combat effect system — called by ~28 effect sites
+ * (still unlifted), so marked unused. */
+static void l009e(void *rec_v, short type_w, void *node_v) __attribute__((unused));
+static void l009e(void *rec_v, short type_w, void *node_v)
+{
+	unsigned char *rec  = (unsigned char *)rec_v;
+	unsigned char  type = (unsigned char)type_w;       /* fp@13 */
+	unsigned char *node = (unsigned char *)node_v;     /* fp@-8 */
+	unsigned char *pred;
+
+	PROBE("L009e");
+	if (node == NULL) {                                /* search by type */
+		node = *(unsigned char **)(uintptr_t)(rec + 4);    /* head */
+		while (node != NULL) {
+			if (node[0] == type)
+				break;
+			node = *(unsigned char **)(uintptr_t)(node + 6);
+		}
+	}
+	if (node == NULL)
+		return;                                    /* not present */
+
+	if (node[5] != 0)                                  /* pre-removal hook */
+		l77a0((short)type, rec, node, 1);          /* (l77a0 still a stub) */
+
+	/* unlink from the actor's effect list */
+	if (*(unsigned char **)(uintptr_t)(rec + 4) == node) {
+		*(void **)(uintptr_t)(rec + 4) =
+			*(void **)(uintptr_t)(node + 6);
+	} else {
+		pred = *(unsigned char **)(uintptr_t)(rec + 4);
+		while (pred != NULL) {
+			if (*(unsigned char **)(uintptr_t)(pred + 6) == node)
+				break;
+			pred = *(unsigned char **)(uintptr_t)(pred + 6);
+		}
+		if (pred != NULL)
+			*(void **)(uintptr_t)(pred + 6) =
+				*(void **)(uintptr_t)(node + 6);
+	}
+
+	jt471((long)(uintptr_t)node, 10, &g_a5_byte(-21152));   /* free */
+
+	/* recompute the derived stat the removed effect contributed to */
+	if (type == 14)                 l1b14(rec, 5);
+	if (type == 12 || type == 38)   l1b14(rec, 0);
+	if (type == 68) {               l1b14(rec, 1); l1b14(rec, 2); }
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
