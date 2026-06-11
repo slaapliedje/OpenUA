@@ -26122,6 +26122,36 @@ static unsigned char jt519(long key)
 	return result;
 }
 
+/* L5d92 (CODE 14+0x5d92) — read a combat-grid cell's coordinates: from the
+ * -27540 grid (12 bytes per actor `idx`, 2 bytes [x,y] per `cell`), store
+ * x->*outx and y->*outy. Returns 1 if the x byte is non-negative (valid).
+ * Clean leaf. */
+static unsigned char l5d92(short idx, short cell, unsigned char *outx, unsigned char *outy) __attribute__((unused));
+static unsigned char l5d92(short idx, short cell, unsigned char *outx, unsigned char *outy)
+{
+	unsigned char *e;
+	PROBE("L5d92");
+	if ((unsigned char)idx == 0)
+		return 0;
+	e = (unsigned char *)&g_a5_byte(-27540)
+	  + (unsigned char)idx * 12 + (unsigned char)cell * 2;
+	*outx = e[0];
+	*outy = e[1];
+	return ((signed char)*outx >= 0) ? 1 : 0;
+}
+
+/* L6520 (CODE 14+0x6520) — combat-grid bounds check: 1 iff 0 <= x <= 6 and
+ * 0 <= y <= 6 (signed byte coords). Clean leaf. */
+static unsigned char l6520(short x, short y) __attribute__((unused));
+static unsigned char l6520(short x, short y)
+{
+	PROBE("L6520");
+	if ((signed char)x >= 0 && (signed char)x <= 6
+	 && (signed char)y >= 0 && (signed char)y <= 6)
+		return 1;
+	return 0;
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
