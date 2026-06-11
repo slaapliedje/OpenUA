@@ -25500,6 +25500,113 @@ static short l03f6(void *buf)
 	return sel;
 }
 
+/* JT[39] (CODE 6+0x257c) — apply `dmg` to a combatant record's HP and
+ * resolve the resulting status. A pure record/table state-machine — no
+ * calls; the first leaf of the CODE 13-19 combat exec tier.
+ *   rec[395] = current HP (unsigned)   rec[94]  = status byte
+ *   rec[382] = in-combat flag          rec[64]  = sub-struct ptr
+ *   rec[95]  = slot index into the -25298 per-type count table
+ *   -27990   = display mode (5 == the in-combat roster view)
+ * status: 0/1 = active, 4 = at 0 HP, 5 = dead, 6 = destroyed. */
+static void jt39(void *rec_v, short dmg)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	short          over  = 0;  /* fp@-2 : overkill (dmg - HP) when HP < dmg   */
+	unsigned char  dealt = 0;  /* fp@-3 : remaining HP (HP - dmg) when HP>=dmg */
+	short          status;
+	unsigned char *sub;
+
+	PROBE("jt39");
+	if (rec == NULL)
+		return;
+	if ((short)rec[395] < dmg)                 /* L25ac — would die (overflow) */
+		over = (short)(dmg - (short)rec[395]);
+	else                                       /* survives */
+		dealt = (unsigned char)((short)rec[395] - dmg);
+
+	if ((unsigned short)over > 9)              /* L25e2 — massive overkill */
+		rec[94] = 6;                       /* destroyed */
+	else if (dealt == 0 && rec[94] == 1)       /* 0 HP + status 1 -> destroyed */
+		rec[94] = 6;
+	else if (over > 0) {                       /* L25ee — died (overkill 1..9) */
+		rec[94] = 5;
+		if (g_a5_byte(-27990) == 5) {
+			sub = *(unsigned char **)(uintptr_t)(rec + 64);
+			if (sub != NULL)
+				sub[16] = (unsigned char)over;
+		}
+	} else if (dealt == 0) {                   /* L2616 — survived to exactly 0 HP */
+		rec[94] = 4;
+	}
+
+	/* L262a — active (status 0/1) commits the new HP; otherwise tear down
+	 * the combat state (leave combat, zero HP, drop the per-type count). */
+	status = (short)rec[94];
+	if (status != 0 && status != 1) {
+		rec[382] = 0;                      /* leave combat */
+		rec[395] = 0;                      /* HP -> 0 */
+		if (g_a5_byte(-27990) == 5) {
+			g_a5_byte(-25298 + (unsigned char)rec[95]) -= 1;
+			sub = *(unsigned char **)(uintptr_t)(rec + 64);
+			if (sub != NULL)
+				*(short *)(uintptr_t)(sub + 4) = 0;
+		}
+	} else {
+		rec[395] = dealt;                  /* L2690 — commit the new HP */
+	}
+}
+
+/* L0730 (CODE 20+0x0730) — the combat-damage message: emit
+ * "<name> is hit FOR <dmg> points of Damage." (or "<name> dies. " on a
+ * lethal-and-then-some hit) into the message box, then apply the damage
+ * via JT[39] and repaint the roster. Called by the CODE 13-19 combat
+ * exec tier (still stubbed); guarded by rec[382] (in-combat). */
+static void l0730(short dmg, void *rec_v) __attribute__((unused));
+static void l0730(short dmg, void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	char           numbuf[16];
+	char           msgbuf[96];
+	unsigned char  scroll = 0;             /* fp@-87 — line-scrolled this msg */
+
+	PROBE("L0730");
+	if (rec == NULL || rec[382] == 0)      /* not in combat -> nothing to say */
+		return;
+
+	jt478(dmg, numbuf);                    /* numbuf = "%d" of dmg */
+	if ((unsigned short)(rec[395] + 10) >= (unsigned short)dmg) {
+		/* L0788 — survivable hit: "<name> is hit FOR <n> points of Damage." */
+		const char *t = jt488(ua_strs_at(0x66ac) /* "%s%s%s%s" */,
+		                      (const char *)&rec[96],
+		                      ua_strs_at(0x66b6) /* " is hit FOR " */,
+		                      numbuf,
+		                      ua_strs_at(0x66c4) /* " points of Damage." */);
+		jt384(msgbuf, t);
+	} else {
+		/* lethal overkill: "<name> dies. " */
+		jt394(msgbuf, ua_strs_at(0x669e) /* "%s%s" */,
+		      (const char *)&rec[96], ua_strs_at(0x66a4) /* " dies. " */);
+	}
+
+	/* line bookkeeping (-27912 page / -27911 row) + scroll past the box */
+	if (g_a5_byte(-27912) != 1) {
+		g_a5_byte(-27912) = 1;
+		g_a5_byte(-27911) += 1;
+	}
+	if ((short)(unsigned char)g_a5_byte(-27911) >= 21) {
+		g_a5_byte(-27911) = 17;
+		scroll = 1;
+		l4b84();                       /* JT[99] -> jt175 (the page pause) */
+	}
+
+	jt96((short)1, (short)17, (short)38, (short)22, (short)11, (short)0,
+	     (short)scroll, (long)(uintptr_t)msgbuf, (short)0);
+	jt39(rec, dmg);
+	if (rec[94] == 5)                      /* dead -> show as unconscious icon */
+		rec[94] = 4;
+	jt937(g_a5_long(-27932));
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
