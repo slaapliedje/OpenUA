@@ -90,6 +90,17 @@ Verified against the Mac body; leave them.
 
 ## Progress
 
+- **combat/encounter ENCOUNTER PROMPT lifted** (task #115, 2026-06-11): the
+  l709e combat arm (cases 10/21) is faithful from the picture to the player's
+  choice + outcome dispatch. Gateway (l673e outcome dispatch / l3bee 8-slot
+  -4938 queue / l43ac once-only-bitmap clear), l3b0e prompt (display + text +
+  l4fbe string lookup), and BOTH choice renderers — l026e_c20/l0098/jt484
+  (common '~'/'^' menu) and l03f6/l0380 (type-21 JT[169] scrolling list). All
+  encounter prompts now return real player choices end-to-end. REMAINING for
+  #115 = the **CODE 13-19 combat EXEC tier** (the queued -4938 encounter →
+  actual fight): L0730 combat-damage message (needs jt39 ~150B + jt99=jt175()),
+  jt907/jt906 (CODE 19). This is band-2 cluster #4 below. See
+  [[combat-encounter-gateway]].
 - **jt913 + jt938 lifted** (9a1b42b): the game clock / position panel. jt938
   runs in jt948's faithful arms; making it VISIBLE in the jt240 arrow-walk is
   a follow-up (same HUD integration the command bar got).
@@ -430,9 +441,11 @@ Like band 1's GLIB-glyph and jt96 word-wrap finds, the leverage is in clusters:
    arms (jt18/jt20 record sheet, already lifted).** jt595 is the popup-action
    handler the "View" command routes to. Surfaces the real character sheet.
 
-4. **Combat effect-resolution (CODE 13) — jt503(13) + the 0x218-byte effect
-   leaves.** Sits next to the DONE combat-render tree (jt875 / jt501 / jt521);
-   the natural continuation toward actual combat.
+4. **Combat exec tier (CODE 13-19) — the queued -4938 encounter → fight.**
+   The encounter GATEWAY + PROMPT are now DONE (task #115; see Progress + the
+   render tree jt875 / jt501 / jt521). REMAINING entry points: L0730
+   combat-damage message (jt39 ~150B record state-machine + jt99=jt175()),
+   jt907/jt906 (CODE 19 record-sheet/combat), jt503(13) effect-resolution.
 
 5. **View-setup + counter leaves — jt213(11) party-cell record, jt1067(11),
    jt593(9), jt367(7) counter-format.** Small leaves the dungeon/area view
