@@ -105,9 +105,13 @@ debt; each should give way to its faithful CODE 13–19 path.
 ## Suggested order
 
 1. **Aliases** (§2) — two trivial delegates, removes false "stub" noise.
-2. **Small genuine wins** (≤25i): jt29/jt69/jt82/jt89/jt90 (CODE 6),
-   jt161/jt217/jt238 (CODE 7), jt527/jt559/jt581/jt593 (combat), jt294 (menu) —
-   most bottom out on lifted leaves, like the recent jt100/jt213/jt419 batch.
+2. **Small genuine wins** (≤25i) — PARTLY DONE (862989a): jt161/jt217/jt559
+   (A5 setters) + jt238 (->jt304) + jt581 (->jt147) lifted. STILL BLOCKED /
+   gotchas: jt29 (its L2f74 ≠ the port's `l2f74(void)` — different function,
+   signature mismatch), jt294 (uses a 4th arg fp@14 the 3-arg stub lacks),
+   jt527 (needs jt120=L3918, ~60i), jt593 (needs jt56), jt82 (needs L3918),
+   jt89/jt90 (need jt1182), jt69 (needs l5ac0/l4d7a/jt1081/jt415). Unblock by
+   lifting jt120 (frees jt527+jt82) and jt1182 (frees jt89+jt90) first.
 3. **A subsystem**: pick one coherent block — the CODE 4 sound family
    (jt1181–1191), the CODE 17 char-gen pair (jt556/jt560, task #101), or the
    CODE 5 giants (jt1044/jt1050) — rather than scattering.
