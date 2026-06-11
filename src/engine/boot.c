@@ -20671,9 +20671,166 @@ static void l77a0(short item_type, void *entity, void *target, short flag)
                                             { PROBE("l77a0"); (void)item_type;
                                               (void)entity; (void)target;
                                               (void)flag; }
+/* forward decls — l1b14 calls these effect-system functions defined below */
+static void jt878(long entity_long, short item_type, long item_long);
+static void jt876(long a, short b, short c, short d, short e);
+static void l18fa(const unsigned char *a, unsigned char *bval, unsigned char *clvl);
+static void l19b2(unsigned char *a, unsigned char *b, unsigned char *c, unsigned char *d);
+static void l19f8(short kind, short level, unsigned char *acc, const unsigned char *val);
+
+/* L1b14 (CODE 18+0x1b14) — recompute one of a combat actor's derived stat
+ * channels (`class`) from its active effects. Walks the rec[8] effect list
+ * merging "best" contributions (L19b2) for class 0, then a per-class arm:
+ *   0      — AC/protection: fold effects 38/113/12, with the HP-scaled
+ *            magnitude clamp; result -> rec[113]/rec[124].
+ *   1/2    — effect 68 (held) forces value 3; result -> rec[class*2+113].
+ *   4      — HP: sum per-class contributions (L19f8) over rec[i+164]/
+ *            rec[i+157] (i=0..6, capped at -23007[i], floored at rec[138]),
+ *            average by the contributing count, set rec[129] and adjust
+ *            current HP rec[395] by the max-HP delta; arm rec[121] regen via
+ *            jt876/jt878 (add/remove effect 62).
+ *   5      — effect 14 adds node[4] to the value; result -> rec[123].
+ *   3/else — no-op.
+ * Faithful transcription of the 366-instr Mac body; the divide is guarded
+ * against a zero contributor count (the Mac trusts count>=1). */
 static void l1b14(void *entity, short class)
-                                            { PROBE("l1b14"); (void)entity;
-                                              (void)class; }
+{
+	unsigned char *rec = (unsigned char *)entity;
+	unsigned char  v1, v2 = 0, v3, v4 = 0;   /* fp@-1/-2/-3/-4 (idx/newidx/val/newval) */
+	unsigned char  v9, v10 = 0, v11, v17, v18 = 0;
+	short          i;
+	unsigned char *node;
+	void          *nodeOut;
+
+	PROBE("l1b14");
+	if (rec == NULL)
+		return;
+
+	node = *(unsigned char **)(uintptr_t)(rec + 8);   /* rec[8] effect list */
+	v1   = rec[(short)(class * 2) + 112];
+	v3   = rec[125];
+
+	/* loop 1 — merge rec[8]-list contributions (class 0 only) */
+	while (node != NULL) {
+		if (node[56] > 128 && node[50] != 0) {
+			v17 = (unsigned char)(node[56] & 0x7f);
+			if (class == 0) {
+				switch (v17) {            /* JT[3] min3 max5 @0x1b94 */
+				case 3:
+					v2 = 18;
+					v4 = 100;
+					break;
+				case 5:
+					v2 = (unsigned char)(node[55] + 18);
+					if (v2 == 18)
+						v4 = 100;
+					break;
+				default:                  /* case 4 + default */
+					break;
+				}
+				l19b2(&v3, &v4, &v1, &v2);
+			}
+		}
+		node = *(unsigned char **)(uintptr_t)node;        /* next at node[0] */
+	}
+
+	switch (class) {                                  /* JT[3] min0 max5 @0x1c04 */
+	case 0:
+		/* effect 38 */
+		nodeOut = NULL;
+		if (jt41((long)(uintptr_t)rec, 38, &nodeOut) != 0) {
+			l18fa((const unsigned char *)nodeOut, &v2, &v4);
+			if (!(v1 > 18) && !(v3 >= 100)) {
+				v2 = (unsigned char)(v2 + v1);
+				if (v2 > 18) {
+					if (rec[159] || rec[160] || rec[161] || rec[158]) {
+						short nv = (short)(rec[124]
+						         + (short)((short)(v2 - 18) * 10));
+						if (nv > 100)
+							nv = 100;
+						v4 = (unsigned char)nv;
+					}
+					v2 = 18;
+				}
+			}
+			l19b2(&v3, &v4, &v1, &v2);
+		}
+		/* effect 113 */
+		nodeOut = NULL;
+		if (jt41((long)(uintptr_t)rec, 113, &nodeOut) != 0) {
+			l18fa((const unsigned char *)nodeOut, &v2, &v4);
+			l19b2(&v3, &v4, &v1, &v2);
+		}
+		/* effect 12 */
+		nodeOut = NULL;
+		if (jt41((long)(uintptr_t)rec, 12, &nodeOut) != 0) {
+			l18fa((const unsigned char *)nodeOut, &v2, &v4);
+			l19b2(&v3, &v4, &v1, &v2);
+		}
+		rec[113] = v1;
+		rec[124] = v3;
+		break;
+
+	case 1:
+	case 2:
+		nodeOut = NULL;
+		if (jt41((long)(uintptr_t)rec, 68, &nodeOut) != 0)
+			v1 = 3;
+		rec[(short)(class * 2) + 113] = v1;
+		break;
+
+	case 4: {
+		v18 = 0;
+		v9  = rec[129];
+		rec[129] = rec[184];
+		for (i = 0; i <= 6; i++) {
+			v11 = rec[i + 164];
+			if (v11 != 0)
+				l19f8(i, (short)v11, &v10, &v1);
+			v11 = rec[i + 157];
+			if (v11 != 0)
+				v18++;
+			{
+				unsigned char cap = (unsigned char)g_a5_byte(-23007 + i);
+				if (v11 > cap)              /* clamp to per-class cap */
+					v11 = cap;
+			}
+			if (v11 > rec[138]) {           /* above the floor */
+				v11 = (unsigned char)(v11 - rec[138]);
+				l19f8(i, (short)v11, &v10, &v1);
+			}
+		}
+		if (v18 != 0)                           /* Mac trusts count>=1 */
+			v10 = (unsigned char)((unsigned short)v10 / v18);
+		rec[129] = (unsigned char)(rec[129] + v10);
+		if (rec[129] > v9 && rec[395] != 0)     /* max HP up: raise cur HP */
+			rec[395] = (unsigned char)(rec[395] + (rec[129] - v9));
+		if (rec[129] < v9 && rec[395] != 0) {   /* max HP down: lower cur HP */
+			short drop = (short)(v9 - rec[129]);
+			if (rec[395] <= drop)
+				rec[395] = 0;
+			else
+				rec[395] = (unsigned char)(rec[395] - drop);
+		}
+		rec[121] = v1;
+		if (rec[121] < 20)
+			jt878((long)(uintptr_t)rec, 62, 0);          /* remove regen */
+		else
+			jt876((long)(uintptr_t)rec, 62, 60, 255, 1); /* add regen */
+		break;
+	}
+
+	case 5:
+		nodeOut = NULL;
+		if (jt41((long)(uintptr_t)rec, 14, &nodeOut) != 0)
+			v1 = (unsigned char)(v1 + ((unsigned char *)nodeOut)[4]);
+		rec[123] = v1;
+		break;
+
+	default:                                        /* case 3 + out-of-range */
+		break;
+	}
+}
 
 /* ===================================================================
  * jt868 — the item-grant popup hub (CODE 18). For a game-event selector
@@ -25705,102 +25862,48 @@ static void l1e30(void *ev_v, long target)
 	g_a5_long(-27932) = saved_roster;
 }
 
-/* L009e (CODE 18+0x009e) — remove an effect from a combat actor. The actor
- * keeps a singly-linked list of active effect nodes (rec[4]=head, node[0]=
- * type, node[5]=removal-callback flag, node[6]=next). Find the node (by
- * `type` if `node` is NULL), fire its per-type removal hook (L77a0), unlink
- * it, free it into the -21152 bucket (jt471), then recompute the affected
- * derived stat via L1b14 for the stat-bearing effect types (14 / 12 / 38 /
- * 68). The hub of the combat effect system — called by ~28 effect sites
- * (still unlifted), so marked unused. */
-static void l009e(void *rec_v, short type_w, void *node_v) __attribute__((unused));
-static void l009e(void *rec_v, short type_w, void *node_v)
-{
-	unsigned char *rec  = (unsigned char *)rec_v;
-	unsigned char  type = (unsigned char)type_w;       /* fp@13 */
-	unsigned char *node = (unsigned char *)node_v;     /* fp@-8 */
-	unsigned char *pred;
-
-	PROBE("L009e");
-	if (node == NULL) {                                /* search by type */
-		node = *(unsigned char **)(uintptr_t)(rec + 4);    /* head */
-		while (node != NULL) {
-			if (node[0] == type)
-				break;
-			node = *(unsigned char **)(uintptr_t)(node + 6);
-		}
-	}
-	if (node == NULL)
-		return;                                    /* not present */
-
-	if (node[5] != 0)                                  /* pre-removal hook */
-		l77a0((short)type, rec, node, 1);          /* (l77a0 still a stub) */
-
-	/* unlink from the actor's effect list */
-	if (*(unsigned char **)(uintptr_t)(rec + 4) == node) {
-		*(void **)(uintptr_t)(rec + 4) =
-			*(void **)(uintptr_t)(node + 6);
-	} else {
-		pred = *(unsigned char **)(uintptr_t)(rec + 4);
-		while (pred != NULL) {
-			if (*(unsigned char **)(uintptr_t)(pred + 6) == node)
-				break;
-			pred = *(unsigned char **)(uintptr_t)(pred + 6);
-		}
-		if (pred != NULL)
-			*(void **)(uintptr_t)(pred + 6) =
-				*(void **)(uintptr_t)(node + 6);
-	}
-
-	jt471((long)(uintptr_t)node, 10, &g_a5_byte(-21152));   /* free */
-
-	/* recompute the derived stat the removed effect contributed to */
-	if (type == 14)                 l1b14(rec, 5);
-	if (type == 12 || type == 38)   l1b14(rec, 0);
-	if (type == 68) {               l1b14(rec, 1); l1b14(rec, 2); }
-}
-
-/* L1864 (CODE 18+0x1864) — "cure" a single status effect: if the actor
+/* JT[872] (CODE 18+0x1864) — "cure" a single status effect: if the actor
  * carries an effect of `type` (jt41), print "<name> is Cured" (jt18) and
- * remove it (L009e). Returns 1 if something was cured. */
-static unsigned char l1864(void *rec_v, short type_w) __attribute__((unused));
-static unsigned char l1864(void *rec_v, short type_w)
+ * remove it (jt878). Returns 1 if something was cured. */
+static unsigned char jt872(long rec, short type) __attribute__((unused));
+static unsigned char jt872(long rec, short type)
 {
 	void *node = NULL;
-	PROBE("L1864");
-	if (jt41((long)(uintptr_t)rec_v, type_w, &node) == 0)
+	PROBE("jt872");
+	if (jt41(rec, type, &node) == 0)
 		return 0;
-	jt18(rec_v, (long)(uintptr_t)ua_strs_at(0x5432) /* "is Cured" */,
+	jt18((void *)(uintptr_t)rec,
+	     (long)(uintptr_t)ua_strs_at(0x5432) /* "is Cured" */,
 	     (short)10, (short)1);
-	l009e(rec_v, type_w, node);
+	jt878(rec, type, (long)(uintptr_t)node);
 	return 1;
 }
 
-/* L17ec (CODE 18+0x17ec) — remove all of the actor's standard status effects
- * (the 18-entry type table at -5895), then a special-case: if a type-77
- * effect remains and the actor is creature 179, clear rec[95]. */
-static void l17ec(void *rec_v) __attribute__((unused));
-static void l17ec(void *rec_v)
+/* JT[865] (CODE 18+0x17ec) — remove all of the actor's standard status
+ * effects (the 18-entry type table at -5895); then a special-case: if a
+ * type-77 effect remains and the actor is creature 179, clear rec[95]. */
+static void jt865(long rec_l) __attribute__((unused));
+static void jt865(long rec_l)
 {
-	unsigned char *rec = (unsigned char *)rec_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
 	void *node = NULL;
 	short i;
-	PROBE("L17ec");
+	PROBE("jt865");
 	for (i = 1; i <= 18; i++)
-		l009e(rec, (short)(unsigned char)g_a5_byte(-5895 + (i - 1)), NULL);
-	if (jt41((long)(uintptr_t)rec, 77, &node) != 0 && rec[147] == 179)
+		jt878(rec_l, (short)(unsigned char)g_a5_byte(-5895 + (i - 1)), 0);
+	if (jt41(rec_l, 77, &node) != 0 && rec[147] == 179)
 		rec[95] = 0;
 }
 
-/* L17b6 (CODE 18+0x17b6) — remove every type-25 effect the actor carries
- * (loop: find via jt41, remove via L009e, until none remain). */
-static void l17b6(void *rec_v) __attribute__((unused));
-static void l17b6(void *rec_v)
+/* JT[880] (CODE 18+0x17b6) — remove every type-25 effect the actor carries
+ * (loop: find via jt41, remove via jt878, until none remain). */
+static void jt880(long rec_l) __attribute__((unused));
+static void jt880(long rec_l)
 {
 	void *node = NULL;
-	PROBE("L17b6");
-	while (jt41((long)(uintptr_t)rec_v, 25, &node) != 0)
-		l009e(rec_v, 25, node);
+	PROBE("jt880");
+	while (jt41(rec_l, 25, &node) != 0)
+		jt878(rec_l, 25, (long)(uintptr_t)node);
 }
 
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
