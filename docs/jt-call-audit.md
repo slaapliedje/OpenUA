@@ -5,6 +5,48 @@ stand-ins fall away and the rest composes). Counts how often each `JT[N]` entry
 is *called* across the whole Macintosh decompilation, cross-referenced with the
 port's lift status.
 
+## Port completion estimate (2026-06-11)
+
+**≈ 81% call-weighted.** Methodology: classify every `JT[N]` entry that is
+*called* anywhere in the disasm (1205 distinct entries, 8612 static call sites),
+then weight each by its call count — a proxy for "how much of the running call
+graph is real C." The classifier lives in the repo history of this session
+(`/tmp/audit4.py`): it parses `boot.c` function bodies, marks a `jtN` as a real
+lift unless its body is PROBE-only (a constant/void return with no calls,
+assignments, control flow, or arithmetic), and resolves JT→`lXXXX` aliases via
+`jumptable.txt`.
+
+| bucket | entries | calls | share |
+|--------|--------:|------:|------:|
+| lifted (real `jtN` body) | 324 | 6385 | 74.1% |
+| lifted (`lXXXX` alias, e.g. jt99=l4b84) | 105 | 420 | 4.9% |
+| faithful-as-stub (jt3/jt1 dispatchers, no-ops, HAL-deferred) | 13 | 179 | 2.1% |
+| **DONE** | **442** | **6984** | **81.1%** |
+| pending stub (genuine PROBE-only debt) | 59 | 188 | 2.2% |
+| missing (no symbol — low-freq leaf tail) | 704 | 1440 | 16.7% |
+| **REMAINING** | **763** | **1628** | **18.9%** |
+
+Inventory: 542 KB across 23 CODE segments; ~657 lifted functions in `boot.c`
+(308 `jtN` + 349 `lXXXX` helpers — alias resolution counts a few more).
+
+**Caveats (don't over-read the 81%):**
+- *Call-weighted, not byte- or runtime-weighted.* Static call sites proxy
+  "depended-on-ness," but a 1-call 800-instr giant (jt1044) weighs the same as
+  a 1-call 4-instr leaf.
+- *"Lifted" includes level-2 skeletons* (faithful CFG, inner dispatch deferred),
+  so the truly-faithful fraction is a bit under 81%.
+- *By raw entry count it's only ~37%* — the 704 "missing" are a long tail of
+  low-frequency leaves (avg ~2 calls each), genuinely low-leverage.
+
+**Where the remaining work concentrates (pending+missing by segment):**
+CODE 18 (222 calls, combat exec / saving throws) · CODE 16 (199, unmapped —
+worth a look) · CODE 6 (186, engine core / play frame) · CODE 5 (165, GLIB
+decode + jt1044/jt1050 giants) · CODE 8 (112, overland?) · CODE 4 (104, Sound
+Manager) · CODE 7 (101, view/render) · CODE 22 (88, menu/design picker) ·
+CODE 13-14 (162, combat effects + area map) · CODE 19 (73, record sheet).
+Low tails: CODE 17 char-gen (15), CODE 15 play loop (20), CODE 20 (7, the
+exec-tier remainder this session is chipping at).
+
 ## Regenerate
 
 ```sh
