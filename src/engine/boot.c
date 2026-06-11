@@ -25760,6 +25760,49 @@ static void l009e(void *rec_v, short type_w, void *node_v)
 	if (type == 68) {               l1b14(rec, 1); l1b14(rec, 2); }
 }
 
+/* L1864 (CODE 18+0x1864) — "cure" a single status effect: if the actor
+ * carries an effect of `type` (jt41), print "<name> is Cured" (jt18) and
+ * remove it (L009e). Returns 1 if something was cured. */
+static unsigned char l1864(void *rec_v, short type_w) __attribute__((unused));
+static unsigned char l1864(void *rec_v, short type_w)
+{
+	void *node = NULL;
+	PROBE("L1864");
+	if (jt41((long)(uintptr_t)rec_v, type_w, &node) == 0)
+		return 0;
+	jt18(rec_v, (long)(uintptr_t)ua_strs_at(0x5432) /* "is Cured" */,
+	     (short)10, (short)1);
+	l009e(rec_v, type_w, node);
+	return 1;
+}
+
+/* L17ec (CODE 18+0x17ec) — remove all of the actor's standard status effects
+ * (the 18-entry type table at -5895), then a special-case: if a type-77
+ * effect remains and the actor is creature 179, clear rec[95]. */
+static void l17ec(void *rec_v) __attribute__((unused));
+static void l17ec(void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	void *node = NULL;
+	short i;
+	PROBE("L17ec");
+	for (i = 1; i <= 18; i++)
+		l009e(rec, (short)(unsigned char)g_a5_byte(-5895 + (i - 1)), NULL);
+	if (jt41((long)(uintptr_t)rec, 77, &node) != 0 && rec[147] == 179)
+		rec[95] = 0;
+}
+
+/* L17b6 (CODE 18+0x17b6) — remove every type-25 effect the actor carries
+ * (loop: find via jt41, remove via L009e, until none remain). */
+static void l17b6(void *rec_v) __attribute__((unused));
+static void l17b6(void *rec_v)
+{
+	void *node = NULL;
+	PROBE("L17b6");
+	while (jt41((long)(uintptr_t)rec_v, 25, &node) != 0)
+		l009e(rec_v, 25, node);
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
