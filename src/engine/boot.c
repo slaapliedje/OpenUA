@@ -21230,9 +21230,84 @@ static void   jt878(long entity_long, short item_type, long item_long)
  * routine (23 jsrs over JT[516]/JT[525]/L18de) that renders a rolled effect's
  * on-screen result. jt871 invokes it only in its optional trailing result-
  * pointer branch; deferred to its own lift. */
+/* Forward decls — jt503's callees defined later in this file. */
+static short l6554(long entity, short flag);
+static void jt521(short bx, short by, short c, short dir);
+static unsigned char jt519(long key);
+static short l1944(short v);
+static short l1972(short v);
+static void jt119(short x, short y, short c, short d);
+static void jt122(short x, short y, short c, short d);
+static void l19a0(short x, short y, short c, short d, long e);
+
+/* JT[503] (CODE 13 + 0x21ec) — report a combat effect result on screen.
+ *
+ * Out of combat view (display mode g_a5_-27990 != 5) it is just the message:
+ * jt18(entity, ptr, 10, 1). In combat view it animates the effect over the
+ * actor's grid cell:
+ *   1. Set up the 4-cell sprite frame via jt497 (=L18de), kind 23 (when `a`
+ *      set) or 25.
+ *   2. If the actor is off-screen (l6554(entity,1)==0) scroll the area map to
+ *      it: jt521(jt525(entity), jt531(entity), 3, 8).
+ *   3. Play the hit/miss sound (jt52: 5 when `a`, else 4) and print the
+ *      message (jt18(entity, ptr, 10, 0)).
+ *   4. Run the animation: `limit` passes ((*-28006)[18] when `a`, else 0),
+ *      each drawing a 4-frame 12x12 effect sprite at the actor's cell
+ *      (x = -27059[zone]*3, y = -26991[zone]*3): save (jt119), draw frame
+ *      (l19a0 glyph 77+frame), delay 70 (jt476), restore (jt122). jt117 at the
+ *      end; jt102 repaint when there was no animation (limit 0). */
 static void jt503(long entity, short a, long ptr) __attribute__((unused));
 static void jt503(long entity, short a, long ptr)
-                                  { PROBE("jt503"); (void)entity; (void)a; (void)ptr; }
+{
+	short kind, zone, pass, frame;
+	unsigned char limit;
+	signed char xb, yb;
+
+	PROBE("jt503");
+	if ((unsigned char)g_a5_byte(-27990) != 5) {           /* not combat view */
+		jt18((void *)(uintptr_t)entity, ptr, 10, 1);
+		return;
+	}
+
+	kind = (a & 0xff) ? 23 : 25;
+	jt497(kind);                                           /* L18de sprite setup */
+
+	if (l6554(entity, 1) == 0)                             /* JT[516]: off-screen? */
+		jt521(jt525(entity), jt531(entity), 3, 8);     /* scroll to actor */
+
+	jt52((a & 0xff) ? 5 : 4);                              /* hit / miss sound */
+	jt18((void *)(uintptr_t)entity, ptr, 10, 0);          /* print the message */
+
+	limit = (a & 0xff)
+	      ? ((unsigned char *)(uintptr_t)g_a5_long(-28006))[18]
+	      : 0;
+
+	zone = (short)jt519(entity);                          /* actor cell index */
+	xb = (signed char)((signed char)g_a5_buf(-27059)[zone] * 3);
+	yb = (signed char)((signed char)g_a5_buf(-26991)[zone] * 3);
+
+	for (pass = 0; pass <= (short)limit; pass++) {
+		for (frame = 0; frame <= 3; frame++) {
+			short ys, xs;
+
+			jt112(2);
+			ys = l1944(yb);
+			xs = l1972(xb);
+			jt119(ys, xs, 12, 12);                 /* save region */
+			l19a0(xb, yb, frame + 77, 5,
+			      g_a5_long(-27866));              /* draw frame */
+			jt476(70);                             /* delay */
+			ys = l1944(yb);
+			xs = l1972(xb);
+			jt122(ys, xs, 12, 12);                 /* restore region */
+			jt112(0);
+		}
+	}
+
+	jt117();
+	if (limit == 0)
+		jt102();
+}
 
 /* JT[871] (CODE 18 + 0x2308, 20 sites) — apply an item/spell effect of type
  * `code` to `entity` and report the outcome.
