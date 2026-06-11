@@ -26150,6 +26150,51 @@ static long jt1015(void *lib, short item)
 	return pair[1] - pair[0];
 }
 
+/* L6e58 (CODE 5 + 0x6e58) — the engine's SetEntries: push `count` CLUT entries
+ * from a 3-byte-per-colour RGB buffer (`buf`), starting at hardware index
+ * `start`. The Mac body drives the Color Manager (SetEntries / SaveEntries /
+ * RestoreEntries traps 0xAA9C/0xAA9A/0xAA94/0xAA39) and rewrites the active
+ * GDevice's ctTable; the port has no GDevice, so the faithful mapping is the
+ * RGB write itself, routed through qd_set_palette (the QuickDraw-shim CLUT ->
+ * VsetRGB via the display HAL — the same path boot's ad-hoc palette setups
+ * already use). The Mac reserves CLUT indices 0..15 (clamps `start` up to 16,
+ * dropping the leading colours) and never writes past 255; both kept here. The
+ * colour-device gate (-1312) and `mode` word have no port analogue — the
+ * Falcon is always an 8-bit colour device. This is the SINGLE hardware-palette
+ * boundary of the GLIB colour-range subsystem; jt1066 commits compacted ranges
+ * through here. See docs/glib-palette-subsystem.md. */
+static void l6e58(short start, short count, short mode,
+                  const unsigned char *buf) __attribute__((unused));
+static void l6e58(short start, short count, short mode,
+                  const unsigned char *buf)
+{
+	RGBColor colors[256];
+	short    i;
+
+	PROBE("L6e58");
+	(void)mode;
+	if (start < 16) {                       /* Mac reserves CLUT 0..15 */
+		short skip = (short)(16 - start);
+		count = (short)(count - skip);
+		buf  += (long)skip * 3;
+		start = 16;
+	}
+	if (count <= 0)
+		return;
+	if (count > (short)(256 - start))       /* never write past index 255 */
+		count = (short)(256 - start);
+	for (i = 0; i < count; i++) {
+		unsigned char r = buf[i * 3 + 0];
+		unsigned char g = buf[i * 3 + 1];
+		unsigned char b = buf[i * 3 + 2];
+		/* Mac widens each 8-bit channel to 16-bit as (b<<8)|b. */
+		colors[i].red   = (unsigned short)((r << 8) | r);
+		colors[i].green = (unsigned short)((g << 8) | g);
+		colors[i].blue  = (unsigned short)((b << 8) | b);
+	}
+	qd_set_palette(colors, start, count);
+}
+
 /* JT[1017] (CODE 5 + 0x38be, = LBIndxType) — the GLIB index-type byte
  * (hdr[11]) of `lib`, after validating the 'GLIB' header. */
 static short jt1017(void *lib) __attribute__((unused));
