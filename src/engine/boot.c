@@ -25981,6 +25981,37 @@ static void jt860(long rec_l, short status, long msg)
 		jt937(g_a5_long(-27932));
 }
 
+/* L18c8 (CODE 18+0x18c8) — encode an (index,value) effect pair back into a
+ * magnitude byte (the inverse of l18fa): index 18 -> value+1, else index+100. */
+static unsigned char l18c8(short idx, short val) __attribute__((unused));
+static unsigned char l18c8(short idx, short val)
+{
+	PROBE("L18c8");
+	if ((unsigned char)idx == 18)
+		return (unsigned char)((unsigned char)val + 1);
+	return (unsigned char)((unsigned char)idx + 100);
+}
+
+/* JT[863] (CODE 18+0x1956) — if a new (index,value) contribution beats the
+ * actor's current channel (rec[112] index, rec[125] value at index 18),
+ * encode it into *out (l18c8) and return 1; else return 0. */
+static unsigned char jt863(long rec_l, short newidx, short newval, void *out) __attribute__((unused));
+static unsigned char jt863(long rec_l, short newidx, short newval, void *out)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	PROBE("jt863");
+	if ((unsigned char)newidx > rec[112]
+	 || ((unsigned char)newidx == 18 && (unsigned char)newval >= rec[125])) {
+		*(unsigned char *)out = l18c8(newidx, newval);
+		return 1;
+	}
+	return 0;
+}
+
+/* JT[859] (CODE 18+0x77f6) — empty (rts only); faithful no-op. */
+static void jt859(void) __attribute__((unused));
+static void jt859(void) { PROBE("jt859"); }
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
