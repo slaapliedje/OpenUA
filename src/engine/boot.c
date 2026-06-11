@@ -2695,7 +2695,7 @@ static void  l4d26(void *ev)               { PROBE("L4d26"); (void)ev; }
 static void  l28b0(void *ev, short f)      { PROBE("L28b0"); (void)ev; (void)f; }
 static void  l40b4(void)                   { PROBE("L40b4"); }
 static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
-static void  l5676(void *ev, short t)      { PROBE("L5676"); (void)ev; (void)t; }  /* stairs / level change */
+static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
 static void  l2d32(void *ev, short a)      { PROBE("L2d32"); (void)ev; (void)a; }
 static short l4f9a(void *ev)               { PROBE("L4f9a"); (void)ev; return 0; }
 static void  l5586(void *ev)               { PROBE("L5586"); (void)ev; }
@@ -24511,6 +24511,124 @@ static void l1806(short v)
 	tmp = l23b4((short)(signed char)(v & 0xff));
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
 }
+
+/* l5676 peripheral sub-handlers (CODE 20 locals) — level-1 stubs: l442e =
+ * event display, l0b20 = transition fade/redraw, l3f22 = pre-move predicate,
+ * l4184 / l3ef8 = view refresh. Deferred; the transition spine below is faithful. */
+static void  l442e(void *ev)              { PROBE("L442e"); (void)ev; }
+static void  l0b20(void *p)               { PROBE("L0b20"); (void)p; }
+static short l3f22(void *ev)              { PROBE("L3f22"); (void)ev; return 0; }
+static void  l4184(void)                  { PROBE("L4184"); }
+static void  l3ef8(void)                  { PROBE("L3ef8"); }
+
+/* L5676 (CODE 20 + 0x5676) — the STAIRS / teleport / level-transition event
+ * handler (l709e cases 5/11/34). Faithful lift of the transition spine; the
+ * peripheral display/effect sub-handlers (l442e/l0b20/l3f22/l4184/l3ef8) and the
+ * rare drow-gear-dissolves party scan (ev[12] bit3) are deferred. The spine:
+ * type==11 sets the target level g_a5_-18878 = ev[14] and reloads (jt198 +
+ * l0b88/l0ba2 by depth + l0006_20 init); both paths set the landing cell
+ * g_a5_-4940/-4939 + facing -12286 (from a marker record at *(-12300)+(ev[13]-
+ * 1)*4 when ev[12] bit0, else ev[9]/ev[8] direct, clamped to the level dims by
+ * jt413) and stamp it into the party record -28006[23]/[24]. The early
+ * -18485 + type==11 case just raises the reload gate -27982 and returns. */
+static void  l5676(void *ev_v, short type)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  valid = 0, ev10nz, fp12;
+	short          t = (short)(type & 0xff);
+
+	PROBE("L5676");
+	if (ev == NULL || lvl == NULL || rec == NULL)
+		return;
+	g_a5_byte(-4943) = (unsigned char)(ev[12] & 4);
+
+	if (ev[6]) l442e(ev);                                   /* 5690 */
+
+	if (ev[7] & 0x20) {                                     /* 56a6 bit5 */
+		if (*(short *)(ev + 4) != 0) {                 /* ev[4] word */
+			short d = jt1180(*(short *)(ev + 4));
+			jt232((void *)(uintptr_t)g_a5_long(-13034), d,
+			      (char *)&g_a5_byte(-5213));
+			jt20();
+			rec[57] = 0;
+			l0b20(&g_a5_byte(-5213));
+		}
+		{
+			short want = (ev[7] & 0x40) ? 0 : 1;   /* bit6 inverted */
+			short got  = (short)(jt159(ua_strs_at(0x6a62), 1) & 0xff);
+			valid = (unsigned char)(got == want ? 1 : 0);
+			jt176(); jt20();
+		}
+	} else {                                               /* 573a bit5 clear */
+		valid = 1;
+		if (!l3f22(ev) && ev[6]) { jt102(); jt102(); jt102(); }
+	}
+
+	ev10nz = (unsigned char)(*(short *)(ev + 10) != 0 ? 1 : 0);
+	if (!(ev[7] & 0x10) && g_a5_byte(-27990) == 4 && t == 34)   /* 577c */
+		fp12 = 0;
+	else
+		fp12 = 1;
+
+	if (valid == 0)                                        /* 57a4 */
+		goto invalid;
+
+	if (g_a5_byte(-18485) != 0 && t == 11) {               /* 57ac early reload */
+		g_a5_byte(-27982) = 1;
+		return;
+	}
+	if (*(short *)(ev + 10) != 0) {                        /* 57cc */
+		short d = jt1180(*(short *)(ev + 10));
+		jt232((void *)(uintptr_t)g_a5_long(-13034), d,
+		      (char *)&g_a5_byte(-5213));
+	}
+
+	if (t == 11) {                                         /* level-change path */
+		if (ev[14] != g_a5_word(-18878) && ev[14] != 0) {
+			g_a5_byte(-5221) = 1;
+			g_a5_byte(-18484) = 0;
+		}
+		if (ev[14] != 0)
+			g_a5_word(-18878) = ev[14];            /* SET TARGET LEVEL */
+		/* TODO: drow-gear-dissolves scan (ev[12] bit3). */
+		jt198(g_a5_word(-18878));                      /* load the level */
+		if (g_a5_word(-18878) > 4) l0ba2(); else l0b88();
+		l0006_20();                                    /* post-load init */
+	}
+
+	/* set the landing cell + facing (both paths). */
+	if (ev[12] & 1) {                                      /* marker record */
+		unsigned char *mk = lvl + ((short)ev[13] - 1) * 4;
+		g_a5_byte(-4940)  = (unsigned char)jt413(mk[15], (short)(lvl[3] - 1));
+		g_a5_byte(-4939)  = (unsigned char)jt413(mk[14], (short)(lvl[2] - 1));
+		g_a5_byte(-12286) = (unsigned char)(mk[16] & 7);
+	} else {                                               /* direct ev[9]/ev[8] */
+		g_a5_byte(-4940)  = (unsigned char)jt413(ev[9], (short)(lvl[3] - 1));
+		g_a5_byte(-4939)  = (unsigned char)jt413(ev[8], (short)(lvl[2] - 1));
+		g_a5_byte(-12286) = (unsigned char)((ev[7] & 12) >> 1);
+	}
+
+	l4184();                                               /* L5b6c */
+	rec[23] = g_a5_byte(-4940);                            /* party cell X */
+	rec[24] = g_a5_byte(-4939);                            /* party cell Y */
+	l3ef8();
+	if (ev10nz) {
+		jt20();
+		rec[57] = 0;
+		l0b20(&g_a5_byte(-5213));
+		l1806(1);
+	}
+	g_a5_byte(-4942) = 1;                                  /* transition done */
+	return;
+
+invalid:
+	if (fp12) { l4144(); l085e(); g_a5_byte(-4942) = 1; }  /* 5bb6 */
+	if (fp12 == 0 || valid == 0)
+		l3ef8();
+}
+
 /* New PROBE-stub helpers L206e calls. */
 /* JT[482] (CODE 3 + 0x0024) — substring extract into g_a5_-10362.
  *
