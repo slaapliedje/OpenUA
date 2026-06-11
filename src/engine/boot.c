@@ -26866,6 +26866,160 @@ static void jt728(long rec_l, long node, short flag)
 	sub[1] = 0;
 }
 
+/* L3dda (CODE 18 + 0x3dda) — clear the pending-damage scratch: when `param`
+ * is 0 (unconditional) or matches the staged effect code g_a5_25268, zero
+ * the damage word g_a5_25242 and the code itself. */
+static void l3dda(short param) __attribute__((unused));
+static void l3dda(short param)
+{
+	unsigned char p = (unsigned char)param;
+
+	PROBE("L3dda");
+	if (p == 0 || (unsigned char)g_a5_byte(-25268) == p) {
+		g_a5_word(-25242) = 0;
+		g_a5_byte(-25268) = 0;
+	}
+}
+
+/* L3e40 (CODE 18 + 0x3e40) — negate the pending damage when its element
+ * flags (g_a5_25266) intersect `mask` (immunity gate over l3dda). */
+static void l3e40(short mask) __attribute__((unused));
+static void l3e40(short mask)
+{
+	PROBE("L3e40");
+	if ((unsigned char)(g_a5_word(-25266) & mask) != 0)
+		l3dda(0);
+}
+
+/* L3dfe (CODE 18 + 0x3dfe) — apply effect `type` to `rec` (magnitude `mag`,
+ * duration `dur`, announce flag 1 via jt876) unless the suppress flag
+ * g_a5_25258 is up. Returns 1 when the effect was applied. */
+static short l3dfe(long rec, short type, short mag, short dur) __attribute__((unused));
+static short l3dfe(long rec, short type, short mag, short dur)
+{
+	PROBE("L3dfe");
+	if (g_a5_byte(-25258) != 0)
+		return 0;
+	jt876(rec, (short)(unsigned char)type, dur,
+	      (short)(unsigned char)mag, 1);
+	return 1;
+}
+
+/* JT[741] (CODE 18 + 0x3efe, 2 sites) — save-modifier hook: on the rolling
+ * pass (flag 0), classes 2/5/8 of the active roster member (g_a5_27932,
+ * rec[93]) get +2 on the save accumulator g_a5_25269 and -2 off the rolled
+ * throw g_a5_25255. */
+static void jt741(long rec_l, long node, short flag) __attribute__((unused));
+static void jt741(long rec_l, long node, short flag)
+{
+	unsigned char cls;
+
+	PROBE("jt741");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	cls = ((unsigned char *)(uintptr_t)g_a5_long(-27932))[93];
+	if (cls == 2 || cls == 5 || cls == 8) {
+		g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) + 2);
+		g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) - 2);
+	}
+}
+
+/* JT[742] (CODE 18 + 0x3f44, 2 sites) — as jt741 but for classes 0/3/6. */
+static void jt742(long rec_l, long node, short flag) __attribute__((unused));
+static void jt742(long rec_l, long node, short flag)
+{
+	unsigned char cls;
+
+	PROBE("jt742");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	cls = ((unsigned char *)(uintptr_t)g_a5_long(-27932))[93];
+	if (cls == 0 || cls == 3 || cls == 6) {
+		g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) + 2);
+		g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) - 2);
+	}
+}
+
+/* JT[743] (CODE 18 + 0x3f88) — cold-resistance hook: on the rolling pass,
+ * Cold damage (g_a5_25266 bit 1) is halved (signed) and the save
+ * accumulator bumped by 3. */
+static void jt743(long rec_l, long node, short flag) __attribute__((unused));
+static void jt743(long rec_l, long node, short flag)
+{
+	PROBE("jt743");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 2) != 0) {
+		g_a5_word(-25242) = (short)((short)g_a5_word(-25242) / 2);
+		g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) + 3);
+	}
+}
+
+/* JT[744] (CODE 18 + 0x3fb2, 2 sites) — faithful no-op handler. */
+static void jt744(long rec_l, long node, short flag) __attribute__((unused));
+static void jt744(long rec_l, long node, short flag)
+{
+	PROBE("jt744");
+	(void)rec_l; (void)node; (void)flag;
+}
+
+/* JT[745] (CODE 18 + 0x3fba) — magic-save hook: on the rolling pass, +1 on
+ * the save accumulator unless the damage is Magic (g_a5_25266 bit 8), and
+ * -1 off the rolled throw either way. */
+static void jt745(long rec_l, long node, short flag) __attribute__((unused));
+static void jt745(long rec_l, long node, short flag)
+{
+	PROBE("jt745");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 8) == 0)
+		g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) + 1);
+	g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) - 1);
+}
+
+/* JT[746] (CODE 18 + 0x3fda) — faithful no-op handler. */
+static void jt746(long rec_l, long node, short flag) __attribute__((unused));
+static void jt746(long rec_l, long node, short flag)
+{
+	PROBE("jt746");
+	(void)rec_l; (void)node; (void)flag;
+}
+
+/* JT[747] (CODE 18 + 0x3fe2) — apply effect 26 (strength node[4], duration
+ * 10) via l3dfe; if it took and the target still has more than 1 HP
+ * (rec[395]), clear the element flags and deal 1 point of untyped damage
+ * (jt867), then — outside the combat view — refresh the roster highlight
+ * (jt936, lit when `rec` is the active member g_a5_27932). */
+static void jt747(long rec_l, long node, short flag) __attribute__((unused));
+static void jt747(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt747");
+	(void)flag;
+	if (l3dfe(rec_l, 26, (short)nd[4], 10) == 0)
+		return;
+	if (rec[395] <= 1)
+		return;
+	g_a5_word(-25266) = 0;
+	jt867(rec_l, 1, 0, 0);
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		jt936(rec_l, (rec_l == g_a5_long(-27932)) ? 1 : 0);
+}
+
+/* JT[748] (CODE 18 + 0x405a) — faithful no-op handler. */
+static void jt748(long rec_l, long node, short flag) __attribute__((unused));
+static void jt748(long rec_l, long node, short flag)
+{
+	PROBE("jt748");
+	(void)rec_l; (void)node; (void)flag;
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
