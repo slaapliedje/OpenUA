@@ -24513,10 +24513,225 @@ static void l1806(short v)
 }
 
 /* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop
- * painter (still a level-1 stub — its visual sub-tree jt43/l08ce/l0ac2/l1476 is
- * a separate session), l3f22 = pre-move predicate, l4184 / l3ef8 = view refresh
- * (stubs). l0b20 is LIFTED below. The transition spine in l5676 is faithful. */
-static void  l442e(void *ev)              { PROBE("L442e"); (void)ev; }
+ * painter (LIFTED below — drives the GLIB sprite/PIC/bigpic event display via
+ * jt43/l08ce/l0ac2/l1476), l3f22 = pre-move predicate, l4184 / l3ef8 = view
+ * refresh (stubs). l0b20 is LIFTED below. The l5676 spine is faithful. */
+static void l08ce(short a, short b, short depth, void *state_v);  /* CODE 20+0x08ce, defined later */
+
+/* JT[202] (CODE 7 + 0x5e52) — read a cell's wall nibble in a given facing.
+ * Clamps x/y into the level grid (width = lvl[3], height = lvl[2]); any
+ * out-of-range coord folds to 0 (matching the asm's sign-extend + unsigned
+ * compare). Indexes the 6-byte cell record at lvl[290 + (y*w + x)*6] and
+ * returns the low nibble of the byte selected by facing ((facing & 6) >> 1).
+ * Used by l1476 to probe how many open cells lie ahead in the view. */
+static short jt202(short x, short y, short facing)
+{
+	unsigned char *lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short w, h, dir;
+	long  idx;
+
+	PROBE("jt202");
+	if (lvl == NULL)
+		return 0;
+	w = (short)lvl[3];
+	h = (short)lvl[2];
+	/* x clamp: extw(byte) then unsigned <= (w-1); else 0 (the asm folds <0 here too) */
+	if ((unsigned short)(short)(signed char)x > (unsigned short)(w - 1))
+		x = 0;
+	else if ((signed char)x < 0)
+		x = (short)(w - 1);
+	if ((unsigned short)(short)(signed char)y > (unsigned short)(h - 1))
+		y = 0;
+	else if ((signed char)y < 0)
+		y = (short)(h - 1);
+	dir = (short)(((unsigned char)facing & 6) >> 1);
+	idx = (long)((short)(signed char)y * w + (short)(signed char)x);
+	return (short)(lvl[290 + idx * 6 + dir] & 15);
+}
+
+/* L1476 (CODE 20 + 0x1476) — marker depth probe. Walks forward from (x,y) in
+ * the facing direction, counting open cells (jt202 == 0) up to 2, and returns
+ * that depth — how far back the event sprite/PIC should be drawn for the
+ * pseudo-3D view. Returns 2 immediately when the live record is in combat
+ * (rec[34]); stops on the first wall. Facing step (JT[3], 0/2/4/6 = N/E/S/W). */
+static short l1476(short x, short y, short facing)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short depth = 0, hit = 0, result = 0;
+
+	PROBE("L1476");
+	if (rec && rec[34])                             /* in combat */
+		return 2;
+	for (;;) {
+		if (jt202(x, y, facing) != 0) {             /* wall ahead -> stop */
+			hit = 1;
+		} else {
+			depth++;
+			result = depth;
+			switch (facing) {                       /* step one cell forward */
+			case 0: y--; break;                     /* N */
+			case 2: x++; break;                     /* E */
+			case 4: y++; break;                     /* S */
+			case 6: x--; break;                     /* W */
+			default: break;
+			}
+		}
+		if ((unsigned short)depth >= 2 || hit)
+			break;
+	}
+	return result;
+}
+
+/* L0ac2 (CODE 20 + 0x0ac2) — composite animation loop. While the live record's
+ * depth counter rec[55] is non-zero, tick the frame timer (jt476), step the
+ * depth in one cell, and re-composite the event sprite/PIC closer (l08ce),
+ * bracketed by jt112 lock/unlock. Drives the "thing approaches" marker walk. */
+static void l0ac2(void)
+{
+	unsigned char *rec;
+
+	PROBE("L0ac2");
+	for (;;) {
+		rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		if (rec == NULL || (unsigned char)rec[55] == 0)
+			break;
+		jt476((short)600);
+		rec[55] -= 1;
+		jt112((short)2);
+		l08ce((short)(unsigned char)g_a5_byte(-22313),
+		      (short)(unsigned char)g_a5_byte(-22312),
+		      (short)(unsigned char)rec[55],
+		      &g_a5_byte(-22302));
+		jt112((short)0);
+	}
+}
+
+/* L442e (CODE 20 + 0x442e) — the event-display PAINTER. Given a 20-byte event
+ * record, sets up and draws its picture: a "bigpic" backdrop (id >= 240, via
+ * jt43/jt44 + slot-2 teardown l5864), or a sprite/PIC marker (id < 240). The
+ * sprite-vs-PIC split is ev[7] bit 7; in overview mode (-27990 == 3) the marker
+ * is suppressed. Computes the facing/highlight index rec[56] from the event
+ * type (15 -> -5237-1; 1/33 -> ev[14] bits5-6; else ev[7] bits0-1), probes the
+ * marker depth (l1476 -> rec[55], clamped down to rec[56]), then composites via
+ * l08ce — with a full play-frame refresh (jt221/jt938 + the l0ac2 approach
+ * loop) for animated type-1 events, else a plain roster repaint (jt937/jt117).
+ * The display-state struct lives inline at -22302 (st[0]/st[1], 2 bytes). */
+static void l442e(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char *rec;
+	short          handled = 0;
+
+	PROBE("L442e");
+	g_a5_byte(-18471) = 0;
+	if (ev == NULL || ev[6] == 0)
+		goto tail;
+
+	if ((unsigned char)ev[6] >= 240) {
+		/* bigpic backdrop */
+		if ((unsigned char)g_a5_byte(-4918) == ev[6]) {
+			handled = 1;                            /* already resident */
+			goto tail;
+		}
+		jt399(&g_a5_byte(-22302), (short)2, (short)0);
+		g_a5_byte(-27987) = 1;
+		g_a5_byte(-22301) = 1;
+		g_a5_byte(-22281) = 1;
+		l579e((short)(unsigned char)ev[6]);         /* JT[43] load bigpic */
+		jt44();                                     /* JT[44] draw bigpic */
+		g_a5_byte(-27987) = 1;
+		g_a5_byte(-23188) = 0;
+		l5864();                                    /* JT[48] slot-2 teardown */
+		g_a5_byte(-18473) = 1;
+		g_a5_byte(-18487) = 1;
+		g_a5_byte(-4918) = ev[6];
+		goto tail;
+	}
+
+	/* ev[6] < 240 : sprite / PIC marker */
+	g_a5_byte(-27987) = 0;
+	if (ev[7] & 0x80) {
+		/* sprite */
+		if ((unsigned char)g_a5_byte(-4918) == ev[6]) {
+			handled = 1;
+		} else {
+			jt399(&g_a5_byte(-22302), (short)2, (short)0);
+			g_a5_byte(-22313) = (unsigned char)0xff;
+			g_a5_byte(-22312) = ev[6];
+			if ((unsigned char)g_a5_byte(-22312) != 0) {
+				g_a5_byte(-4918) = ev[6];
+				g_a5_byte(-18471) = 1;
+			}
+		}
+	} else if ((unsigned char)g_a5_byte(-27990) == 3) {
+		/* overview mode — suppress the marker */
+		jt399(&g_a5_byte(-22302), (short)2, (short)0);
+		g_a5_byte(-4918) = 0;
+		g_a5_byte(-22312) = (unsigned char)0xff;
+		g_a5_byte(-22313) = (unsigned char)0xff;
+	} else {
+		/* in-view PIC */
+		jt399(&g_a5_byte(-22302), (short)2, (short)0);
+		g_a5_byte(-4918) = 0;
+		g_a5_byte(-22312) = (unsigned char)0xff;
+		g_a5_byte(-22313) = ev[6];
+	}
+
+	/* L4586 — set rec[56] (facing/highlight index) from the event type */
+	rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	if (ev[0] == 1 || ev[0] == 15 || ev[0] == 33) {
+		if (ev[0] == 15) {
+			if ((unsigned char)g_a5_byte(-5237) != 255 && rec)
+				rec[56] = (unsigned char)(g_a5_byte(-5237) - 1);
+		} else if (rec) {
+			rec[56] = (unsigned char)((ev[14] & 0x60) >> 5);
+		}
+	} else if (rec) {
+		rec[56] = (unsigned char)(ev[7] & 3);
+	}
+
+	/* L460c — probe the marker depth, then clamp rec[55] down to rec[56] */
+	{
+		short depth = l1476((short)(signed char)g_a5_byte(-12288),
+		                    (short)(signed char)g_a5_byte(-12287),
+		                    (short)(unsigned char)g_a5_byte(-12286));
+		rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		if (rec) {
+			rec[55] = (unsigned char)depth;
+			if ((unsigned char)rec[56] < (unsigned char)rec[55])
+				rec[55] = rec[56];
+		}
+	}
+
+	/* L4652 — refresh + composite */
+	if (ev[0] == 1 && (ev[12] & 0x20) &&
+	    (unsigned char)g_a5_byte(-27990) != 3 && !handled) {
+		jt221((short)(signed char)g_a5_byte(-12288),
+		      (short)(signed char)g_a5_byte(-12287),
+		      (short)(unsigned char)g_a5_byte(-12286));
+		jt938();
+		rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		l08ce((short)(unsigned char)g_a5_byte(-22313),
+		      (short)(unsigned char)g_a5_byte(-22312),
+		      (short)(unsigned char)(rec ? rec[55] : 0),
+		      &g_a5_byte(-22302));
+		l0ac2();
+	} else if (!handled) {
+		rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		l08ce((short)(unsigned char)g_a5_byte(-22313),
+		      (short)(unsigned char)g_a5_byte(-22312),
+		      (short)(unsigned char)(rec ? rec[55] : 0),
+		      &g_a5_byte(-22302));
+		jt937(g_a5_long(-27932));
+		jt117();
+	}
+	g_a5_byte(-18473) = 0;                           /* L470c */
+
+tail:
+	if ((unsigned char)g_a5_byte(-22312) != 255)
+		g_a5_byte(-4947) = 1;
+	g_a5_byte(-18471) = 0;
+}
 
 /* L0b20 (CODE 20 + 0x0b20) — draw an event's text buffer into the dungeon
  * message box. Faithful lift: pick the wrap style (3 if the party record's
