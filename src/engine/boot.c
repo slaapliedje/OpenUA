@@ -18353,6 +18353,16 @@ static void l2f74(void)
  * over g_a5_-7022. -7014 / -7013 latch the match; -22307 is the per-entry walk
  * counter. (4) redraw the list (L30de) and set the highlight DLItems 28/32 to
  * the resolved rows. The list-draw leaves (L2f8e/L31d4/L30de) are stubs. */
+/* JT[180] (CODE 7 + 0x38f8) — read the char-gen "name-edit active" flag byte
+ * (g_a5_-12647). Leaf used by jt560's Modify loop. */
+static short jt180(void) __attribute__((unused));
+static short jt180(void) { PROBE("jt180"); return (short)(unsigned char)g_a5_byte(-12647); }
+
+/* JT[909] (CODE 19 + 0x6af2) — "is this record dead?" predicate: rec[88] == 5
+ * (status 5 = dead). Leaf used by jt556's change-class qualification check. */
+static short jt909(void *rec) __attribute__((unused));
+static short jt909(void *rec) { PROBE("jt909"); return (short)(*((unsigned char *)rec + 88) == 5 ? 1 : 0); }
+
 static void jt568(void) __attribute__((unused));
 static void jt568(void)
 {
