@@ -47,6 +47,36 @@ CODE 13-14 (162, combat effects + area map) · CODE 19 (73, record sheet).
 Low tails: CODE 17 char-gen (15), CODE 15 play loop (20), CODE 20 (7, the
 exec-tier remainder this session is chipping at).
 
+## Snapshot — 2026-06-11b (`tools/seg_audit.py all`)
+
+Reproducible per-segment audit (resolves both the `lXXXX` and `jtNNN` name for
+every entry, so nothing is double-counted or missed). **1893 function entries
+total: 517 lifted (27%), 147 stub, 1229 missing.** By raw count that is 35%
+lifted-or-stub; call-weighted it is much higher (~65–81% depending on method —
+see the estimate above) because the lifted functions cluster in the
+high-traffic segments while the 1229 missing are a long tail of low-call
+leaves.
+
+Per-segment lifted %: CODE 3 (59), 6 (58), 7 (53), 1 (50) — the engine
+core/Toolbox spine, well covered. Mid: CODE 15 (36), 5/20 (34/33), 22/4 (31),
+14 (26), 17/12 (24/22), 13/19 (18/14), 18 (15), 11 (14). **Untouched blocks:**
+CODE 16 (0%, 134 fns — combat spell-casting, sits on top of CODE 18's effect
+engine), CODE 10 (4% — BIGP/tile art loader), CODE 21 (4% — spell/magic
+gameplay + dungeon events: "already knows that spell", "A secret door!"),
+CODE 8 (5% — packer/runtime helpers), CODE 9 (5% — **design tools**, the
+button editor; deferred by ADR-0008 runtime-first), CODE 2 (2% — THINK C
+number/format helpers, tiny leaves).
+
+**Active front (task #115, combat):** CODE 18 effect engine at 29/190. The
+jt503 effect-result renderer thread is CLOSED (whole tree was already lifted —
+jt503 was the only gap). jt857 hook dispatcher lifted; its jt856 registration
+is deferred (its only caller is CODE 6+0x510c, unlifted, and most of its ~60
+handlers aren't lifted yet). jt38 combat info-panel + jt13 lifted — this
+**unblocks jt867** (damage-with-resistance, 7 calls, the top genuine CODE-18
+target) and jt711. Next: jt867 → jt879 (main effect applicator, ~1176B) →
+the jt7xx handler tail → CODE 16 spells on top. Note jt736/jt859 show as STUB
+but are faithful no-ops (effectively done).
+
 ## Regenerate
 
 ```sh
