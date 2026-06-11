@@ -26195,6 +26195,37 @@ static void l6e58(short start, short count, short mode,
 	qd_set_palette(colors, start, count);
 }
 
+/* JT[1068] (CODE 5 + 0x70d2, "DNPInit") — initialise the GLIB palette
+ * subsystem: NewPtr the two 768-byte (256*3) RGB buffers (-3394 work, -3390
+ * live), zero them, set the -3386 used-bitmap all-255 (commit everything on the
+ * first pass), init the -3258 range table + -3354 backup to 12 empty entries,
+ * clear the -3162 flags, raise -3150. Faithful 1:1 lift of L70d2. Deps jt387
+ * (NewPtr) / jt399 (memset) / jt406 / l036a — all lifted. */
+static void jt1068(void) __attribute__((unused));
+static void jt1068(void)
+{
+	short i;
+
+	PROBE("jt1068");
+	if (g_a5_byte(-2347) == 0)                  /* 70d6 mode gate */
+		return;
+	g_a5_long(-3394) = (long)(uintptr_t)jt387(768);     /* 70e8 NewPtr */
+	if (g_a5_long(-3394) == 0)                  /* 70ee */
+		l036a("Insufficient memory in DNPInit");
+	g_a5_long(-3390) = (long)(uintptr_t)jt387(768);     /* 7106 NewPtr */
+	if (g_a5_long(-3390) == 0)                  /* 710c */
+		l036a("Insufficient memory in DNPInit");
+	jt399((void *)(uintptr_t)g_a5_long(-3394), 768, 0); /* 7124 zero work */
+	jt399((void *)(uintptr_t)g_a5_long(-3390), 768, 0); /* 7134 zero live */
+	jt399(&g_a5_byte(-3386), 32, 255);          /* 7146 bitmap all-used */
+	jt399(&g_a5_byte(-3354), 96, 0);            /* 7156 backup zero */
+	for (i = 0; i < 12; i++)                    /* 7162 backup empties */
+		*(long *)(&g_a5_byte(-3354) + i * 8) = 0x7fffffffL;
+	jt406(&g_a5_byte(-3258), &g_a5_byte(-3354), 96);    /* 718e -3354->-3258 */
+	jt399(&g_a5_byte(-3162), 12, 0);            /* 71a0 flags zero */
+	g_a5_byte(-3150) = 1;                       /* 71a8 dirty */
+}
+
 /* JT[1069] (CODE 5 + 0x71b0) — GLIB colour-range ALLOCATE. Pure data over the
  * A5 range tables (no hardware; jt1066 commits via l6e58). Faithful 1:1 lift of
  * L71b0, asm offsets in comments. The request covers CLUT slots [start,
@@ -26218,6 +26249,10 @@ static void jt1069(short start, short count, unsigned char *src,
 
 	PROBE("jt1069");
 	if (g_a5_byte(-2347) == 0)                          /* 71b4 mode gate */
+		return;
+	/* PORT-SAFETY: phase 2 writes the -3390 buffer; jt1068 must have run.
+	 * Bail if uninitialised (the Mac trusts it). */
+	if ((void *)(uintptr_t)g_a5_long(-3390) == NULL)
 		return;
 
 	/* Phase 1 (L71d2): is the request already satisfied by existing ranges,
@@ -26387,6 +26422,61 @@ static void jt1066(void)
 	if (min <= max)                             /* 7738 */
 		l6e58(min, (short)(max - min + 1), 1, work + min * 3);  /* 7760 */
 	g_a5_byte(-3150) = 1;                       /* 776a */
+}
+
+/* JT[993] (CODE 5 + 0x20d0, "TNPalette") — commit one GLIB picture's palette.
+ * Look the palette resource up (l2856), require a type-8 (palette) block, derive
+ * the CLUT window [start, count) (explicit when hdr[1] bit0 set, else 0..256 or
+ * 0..16 by mode), copy the colour block + remap table out of the resource, and
+ * hand them to jt1069 to allocate the ranges. Faithful 1:1 lift of L20d0.
+ * PORT: lazily runs jt1068 (DNPInit) if the -3390/-3394 buffers are not yet
+ * allocated (the Mac inits them from the CODE 6 scaled-mode setup); and clamps
+ * count/ncopy to the CLUT size so a malformed resource can't smash the stack
+ * copies (the Mac trusts the 64-byte/768-byte frame). */
+static void jt993(long handle, short idx) __attribute__((unused));
+static void jt993(long handle, short idx)
+{
+	unsigned char  hdr[8];
+	unsigned char  palbuf[768];          /* 256*3 */
+	unsigned char  rembuf[256];          /* 64 max real use; oversized guard */
+	unsigned char *src;
+	short          start, count, ncopy;
+
+	PROBE("jt993");
+	src = (unsigned char *)(uintptr_t)l2856(handle, idx, hdr);   /* 20e0 */
+	if (src == NULL)                                            /* 20ee */
+		return;
+	if ((hdr[7] & 15) != 8) {                                  /* 20f8 type */
+		l036a("Invalid TNPalette call %lx %d", handle, idx);
+		return;
+	}
+	if (hdr[1] & 1) {                                          /* 211c */
+		start = *(short *)(hdr + 2);
+		count = *(short *)(hdr + 4);
+	} else {
+		start = 0;                                        /* 2132 */
+		if (jt1163())
+			count = 256;
+		else
+			count = (short)(jt1200() ? 16 : 256);
+	}
+	if (!(hdr[1] & 2))                                        /* 215a */
+		hdr[6] = 0;
+	ncopy = hdr[6];
+
+	if (count < 0 || count > 256)            /* PORT: CLUT-size clamp */
+		count = 256;
+	if (ncopy > 64)                          /* PORT: rembuf guard */
+		ncopy = 64;
+
+	/* PORT lazy init: ensure the -3390/-3394 buffers exist before jt1069. */
+	if ((void *)(uintptr_t)g_a5_long(-3390) == NULL)
+		jt1068();
+
+	jt406(palbuf, src, (short)(count * 3));                   /* 2178 */
+	src += count * 3;                                         /* 2188 */
+	jt406(rembuf, src, (short)(ncopy * 4));                   /* 21a4 */
+	jt1069(start, count, palbuf, ncopy, rembuf);             /* 21c4 */
 }
 
 /* JT[1017] (CODE 5 + 0x38be, = LBIndxType) — the GLIB index-type byte
@@ -27356,10 +27446,17 @@ static void l3880(short a, short b, short frame, void *ptr)
  * GLIB picture subsystem (task #105). */
 static void l3eea(void *p)
 {
+	short pv;
+	long  h;
+	short idx;
+
 	PROBE("L3eea");
-	if (jt1163() == 0 && jt1200() != 0)
+	if (jt1163() == 0 && jt1200() != 0)         /* 3eee/3ef6 gate */
 		return;
-	(void)p;   /* TODO: jt993(jt468(*p), jt1017(jt468(*p)) != 0); */
+	pv  = *(short *)p;                          /* 3efe */
+	h   = jt468(pv);                            /* 3f04 group lookup */
+	idx = (short)(jt1017((void *)(uintptr_t)jt468(pv)) != 0);   /* 3f1c */
+	jt993(h, idx);                             /* 3f32 commit the palette */
 }
 
 /* L670c (CODE 6+0x670c) — stand up the empty viewport: clear, frame box, and
