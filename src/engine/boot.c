@@ -2548,7 +2548,208 @@ static void jt936(long member, short highlight)
 static void  jt955(void) __attribute__((unused));
 static void  jt955(void)              { PROBE("jt955"); }   /* CODE 21+0x453c — used by a deferred jt948 arm */
 static void  l0006_20(void)           { PROBE("L0006_20"); } /* CODE 20+0x6 — post-load init */
-static void  l709e(short a)           { PROBE("L709e"); (void)a; }  /* CODE 20-local — apply cell special */
+/* ---- l709e event-handler arms (CODE 20 locals) — level-1 stubs, the deferred
+ * per-event-type dispatch of the l709e skeleton below. Each is one dungeon
+ * special-event type (message / give / combat / stairs / teleport / ...), to be
+ * lifted bottom-up. Signatures inferred from the l709e call sites; the ones
+ * returning short yield a follow-on event index (0 = no chain). l694e gates the
+ * whole dispatch — while it returns 0 the skeleton runs but stays inert. */
+static short l694e(short idx)              { PROBE("L694e"); (void)idx; return 0; } /* event-valid gate */
+static void  l4336(short idx)              { PROBE("L4336"); (void)idx; }
+static void  l4144(void)                   { PROBE("L4144"); }
+static void  l085e(void)                   { PROBE("L085e"); }
+static void  l159a(void *ev, short f)      { PROBE("L159a"); (void)ev; (void)f; }
+static void  l4d26(void *ev)               { PROBE("L4d26"); (void)ev; }
+static void  l28b0(void *ev, short f)      { PROBE("L28b0"); (void)ev; (void)f; }
+static void  l40b4(void)                   { PROBE("L40b4"); }
+static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
+static void  l5676(void *ev, short t)      { PROBE("L5676"); (void)ev; (void)t; }  /* stairs / level change */
+static void  l2d32(void *ev, short a)      { PROBE("L2d32"); (void)ev; (void)a; }
+static short l4f9a(void *ev)               { PROBE("L4f9a"); (void)ev; return 0; }
+static void  l5586(void *ev)               { PROBE("L5586"); (void)ev; }
+static short l216a(void *ev)               { PROBE("L216a"); (void)ev; return 0; }
+static short l3b0e(void *ev)               { PROBE("L3b0e"); (void)ev; return 0; }
+static short l673e(void *ev, short a, short *pn) { PROBE("L673e"); (void)ev; (void)a; (void)pn; return 0; }
+static void  l2e42(void *ev)               { PROBE("L2e42"); (void)ev; }
+static void  l380a(void *ev)               { PROBE("L380a"); (void)ev; }
+static short l3fba(short v)                { PROBE("L3fba"); (void)v; return 0; }
+static short l1ad8(void *ev)               { PROBE("L1ad8"); (void)ev; return 0; }
+static void  l6020(void *ev)               { PROBE("L6020"); (void)ev; }
+static void  l3ac6(void *ev)               { PROBE("L3ac6"); (void)ev; }
+static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
+static short l3cd6(void *ev, short v)      { PROBE("L3cd6"); (void)ev; (void)v; return 0; }
+static short l364e(void *ev)               { PROBE("L364e"); (void)ev; return 0; }
+static short l29cc(void *ev)               { PROBE("L29cc"); (void)ev; return 0; }
+static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
+static void  l3a32(void *ev)               { PROBE("L3a32"); (void)ev; }
+static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
+static void  l5fcc(void *ev)               { PROBE("L5fcc"); (void)ev; }
+static void  l398a(void *ev, short v)      { PROBE("L398a"); (void)ev; (void)v; }
+static void  l38bc(void *ev)               { PROBE("L38bc"); (void)ev; }
+static short l6436(void *ev)               { PROBE("L6436"); (void)ev; return 0; }
+static short l3118(void *ev)               { PROBE("L3118"); (void)ev; return 0; }
+static void  l3bee(short v)                { PROBE("L3bee"); (void)v; }
+static void  l66cc(void *ev)               { PROBE("L66cc"); (void)ev; }
+static void  l661c(void *ev)               { PROBE("L661c"); (void)ev; }
+
+/* L709e (CODE 20 + 0x709e) — the dungeon EVENT DISPATCHER. Level-2 structural
+ * skeleton (faithful CFG; the 37 per-type handler arms above are level-1 stubs).
+ * Re-entrant event-chain loop: compute the event record (-13030 = -13038 +
+ * (idx-1)*20), gate on l694e (event valid), dispatch event[0] through a 39-case
+ * type switch, then converge -- an arm or the auto-chain (event[3] / jt201
+ * re-trigger) may queue a follow-on event (idx + the -4945 "continue" flag), and
+ * the loop repeats until no event is pending. The chain-control globals: -4945 =
+ * "process another", -5214 = "needs redraw", -4942/-4943/-4946 = deferred re-
+ * eval, -18484 = auto-chain enable. PORT-SAFETY: bail if the event table
+ * (-13038) is unallocated, and cap the chain length so a malformed/circular
+ * event list can't hang the play loop (the Mac trusts the data). */
+static void  l709e(short a)
+{
+	short         idx = a;
+	short         guard;
+
+	PROBE("L709e");
+	g_a5_byte(-4945) = (unsigned char)((idx & 0xff) != 0 ? 1 : 0);   /* L70b2 */
+	g_a5_byte(-5214) = 0;
+	g_a5_byte(-4942) = 0;
+	g_a5_byte(-4918) = 0;
+
+	if ((void *)(uintptr_t)g_a5_long(-13038) == NULL)                /* PORT */
+		return;
+
+	for (guard = 0; guard < 512; guard++) {                          /* L7708 */
+		unsigned char *ev;
+		short          type;
+		unsigned char  fp2 = 0;
+
+		if (g_a5_byte(-4945) == 0 || g_a5_byte(-4942) != 0)
+			break;
+
+		/* L70d4 — process event `idx`. */
+		g_a5_byte(-18470) = 1;
+		g_a5_byte(-4945) = 0;
+		ev = (unsigned char *)(uintptr_t)(g_a5_long(-13038)
+		     + (long)(((idx & 0xff) - 1) * 20));
+		g_a5_long(-13030) = (long)(uintptr_t)ev;
+
+		if (l694e((short)(idx & 0xff)) != 0) {
+			l4336((short)(idx & 0xff));
+			type = ev[0];
+
+			switch (type) {                                  /* JT[3] 0..38 */
+			case 1:  l159a(ev, 0); break;
+			case 2:  l4d26(ev); break;
+			case 3:  l28b0(ev, 1); break;
+			case 4:  l40b4(); l1f76(ev); break;
+			case 5:  l5676(ev, type); break;                 /* stairs */
+			case 6:  l2d32(ev, (short)(idx & 0xff)); break;
+			case 7:  idx = l4f9a(ev);
+				 if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				 break;
+			case 8:  l5586(ev); break;
+			case 9:  if (l216a(ev)) { idx = ev[12];
+				     if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; } }
+				 break;
+			case 10:
+			case 21: { short r = l3b0e(ev);
+				   idx = l673e(ev, r, &idx);
+				   if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				   else g_a5_byte(-5214) = 0; }
+				 break;
+			case 11: if ((ev[7] & 0x10) && g_a5_byte(-27990) == 4) l40b4();
+				 l5676(ev, type); break;
+			case 12: l2e42(ev); break;
+			case 13: l380a(ev); break;
+			case 14: if (l3fba(ev[5])) l4d26(ev); break;
+			case 15: idx = l1ad8(ev);
+				 if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				 break;
+			case 16: l6020(ev); break;
+			case 17: l3ac6(ev); break;
+			case 18: idx = l3cd6(ev, l3328(ev));
+				 if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				 break;
+			case 19: idx = l3cd6(ev, l364e(ev));
+				 if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				 break;
+			case 20: idx = l3cd6(ev, l29cc(ev));
+				 if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				 break;
+			case 22: { unsigned char *rec = (unsigned char *)g_a5_ptr(-28006);
+				   if (rec) rec[133] = (unsigned char)(idx & 0xff);
+				   l5bde(ev);
+				   if (rec) rec[133] = 0; }
+				 break;
+			case 23: idx = ev[8];
+				 if (idx & 0xff) g_a5_byte(-4945) = 1;
+				 else g_a5_byte(-5214) = 0;
+				 break;
+			case 24: g_a5_byte(-27989) = g_a5_byte(-27990);
+				 l3a32(ev);
+				 g_a5_byte(-27990) = g_a5_byte(-27989);
+				 break;
+			case 25: l28b0(ev, 0); break;
+			case 26: l40b4(); l2b2a(ev); break;
+			case 27: l40b4(); l5fcc(ev); break;
+			case 29: l398a(ev, (short)(idx & 0xff)); break;
+			case 32: l38bc(ev); break;
+			case 33: l159a(ev, 1); break;
+			case 34: l40b4(); l5676(ev, type); break;
+			case 35: idx = l6436(ev);
+				 if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				 break;
+			case 36: if (l3118(ev)) {                          /* yes-branch */
+					 if (ev[7] & 0x04) l3bee((short)(idx & 0xff));
+					 else if (ev[7] & 0x20) g_a5_byte(-4946) = 1;
+					 idx = ev[8];
+				 } else {                                  /* no-branch */
+					 if (ev[7] & 0x08) l3bee((short)(idx & 0xff));
+					 else if (ev[7] & 0x10) g_a5_byte(-4946) = 1;
+					 idx = ev[9];
+				 }
+				 if (idx & 0xff) { g_a5_byte(-4945)=1; g_a5_byte(-5214)=1; }
+				 else g_a5_byte(-5214) = 0;
+				 break;
+			case 37: l661c(ev); break;
+			case 38: l66cc(ev); break;
+			default: break;       /* 0/28/30/31 + unknown: no-op (L7650) */
+			}
+
+			if (type != 23)                                  /* L7650 */
+				fp2 = 1;
+		}
+
+		/* L7662 — convergence + auto-chain (runs whether or not dispatched). */
+		if (g_a5_byte(-27982) == 0) {
+			if (g_a5_byte(-4945) == 0) {                     /* L766a */
+				idx = 0;
+				if (g_a5_byte(-18484) != 0 && g_a5_byte(-4942) == 0)
+					idx = ev[3];
+				if (idx & 0xff) {
+					g_a5_byte(-4945) = 1;
+					if (fp2) g_a5_byte(-5214) = 1;
+				}
+			}
+			if (g_a5_byte(-4945) == 0) {                     /* L76a6 */
+				if (g_a5_byte(-4946) != 0) {
+					g_a5_byte(-4946) = 0;
+					l4144();
+					l085e();
+					g_a5_byte(-4942) = 1;
+				}
+				if (g_a5_byte(-4942) != 0 && g_a5_byte(-4943) != 0) {
+					idx = jt201((short)(signed char)g_a5_byte(-12288),
+						    (short)(signed char)g_a5_byte(-12287));
+					if (idx & 0xff) g_a5_byte(-4945) = 1;
+				}
+				g_a5_byte(-4943) = 0;
+			}
+		}
+		/* L76fe */
+		g_a5_byte(-4941) = g_a5_byte(-4942);
+		g_a5_byte(-4942) = 0;
+	}
+}
 static void  l473e(short a)           { PROBE("L473e"); (void)a; }  /* CODE 20-local */
 static void  l47f2(void)              { PROBE("L47f2"); }   /* CODE 20-local */
 static signed char l4738(void)        { PROBE("L4738"); return 0; }  /* CODE 20-local */
