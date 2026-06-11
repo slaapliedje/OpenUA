@@ -28384,6 +28384,123 @@ static void l541a(const char *type, short id, short flag, void *buf)
 	l68ae((short)0);
 }
 
+/* JT[49] (CODE 6 + 0x5730) — blit the cached overlay picture (-24320 slot) at
+ * the given frame/depth, then commit its palette. No-op when the slot is
+ * empty. In display mode 3 it lands at cell (8,8) via l3804, else (3,3) via
+ * l3880; l3918 finalizes, l3eea commits the palette, l3994 restores the port. */
+static void jt49(short frame)
+{
+	void *ptr = g_a5_24320;
+
+	PROBE("jt49");
+	if (ptr == NULL)
+		return;
+	if (jt1200() == 3)
+		l3804((short)8, (short)8, frame, (short)0, ptr);
+	else
+		l3880((short)3, (short)3, frame, ptr);
+	l3918((long)(uintptr_t)ptr);
+	l3eea(ptr);
+	l3994();
+}
+
+/* JT[78] (CODE 6 + 0x67ca) — repaint the dungeon play frame: base (l670c),
+ * the two side FRAME pieces (l66e6 16/12), clear any pending marker (l68ae 2),
+ * the viewport + status frame pieces (jt1001 9/21), then the compass arrow
+ * chosen by the party's facing letter (-27980[facing*3]: 'E'/'N'/'S'/'W' ->
+ * compass piece 25/22/23/24), and finally l08e6 to present. */
+static void jt78(void)
+{
+	short value;
+
+	PROBE("jt78");
+	l670c();
+	l66e6((short)16);
+	l66e6((short)12);
+	l68ae((short)2);
+	jt1001((short)8000, (short)8000, (short)1, (short)9);
+	jt1001((short)8000, (short)8000, (short)1, (short)21);
+
+	value = (short)g_a5_byte(-27980 + (short)(unsigned char)g_a5_byte(-12286) * 3);
+	switch (value) {                         /* JT[1] sparse: E/N/S/W */
+	case 69: jt1001((short)8000, (short)8000, (short)1, (short)25); break;
+	case 78: jt1001((short)8000, (short)8000, (short)1, (short)22); break;
+	case 83: jt1001((short)8000, (short)8000, (short)1, (short)23); break;
+	case 87: jt1001((short)8000, (short)8000, (short)1, (short)24); break;
+	default: break;
+	}
+	l08e6((short)1);
+}
+
+/* L08ce (CODE 20 + 0x08ce) — the event-display SPRITE/PIC composite. Draws up
+ * to two layers into the play view for an event: a sprite indexed by `a`
+ * (-22313) and a backdrop PIC indexed by `b` (-22312), at `depth` (the marker
+ * render distance), tracking which layers are already drawn in the 2-byte
+ * `state` struct (st[0]=sprite drawn, st[1]=pic drawn). Sprite layer: load via
+ * l541a("SPRIT") when the live record's in-combat flag rec[34] is set, then
+ * blit at depth via jt49 (mode 4 only). PIC layer: in-view path (mode 4) loads
+ * "PIC" + composites via l534a; the overview path (mode 3 / -18473) repaints
+ * the whole frame (jt78 + roster) first. Faithful to the disasm's goto chain
+ * (L098c/L0a26/L0abe convergence). */
+static void l08ce(short a, short b, short depth, void *state_v) __attribute__((unused));
+static void l08ce(short a, short b, short depth, void *state_v)
+{
+	unsigned char *st    = (unsigned char *)state_v;
+	unsigned char  abyte = (unsigned char)a;
+	unsigned char  bbyte = (unsigned char)b;
+	unsigned char  dbyte = (unsigned char)depth;
+	short          c1    = (short)(dbyte + 1);
+
+	PROBE("L08ce");
+
+	/* ---- sprite layer (a / -22313) ---- */
+	if (st[1] == 0 && abyte != 255) {
+		jt112((short)1);
+		if (st[0] != 0) {
+			g_a5_23188 = 1; jt935();
+		} else {
+			unsigned char *rec;
+			if (g_a5_12290 != 0) {
+				g_a5_12290 = 0; g_a5_23188 = 1; jt935();
+			}
+			rec = (unsigned char *)g_a5_28006;
+			if (rec != NULL && rec[34] != 0) {
+				g_a5_23188 = 1; jt935();
+				l541a(ua_strs_at(0x66d8), (short)abyte, (short)1,
+				      g_a5_buf(-24322));            /* "SPRIT" */
+				st[0] = 1; g_a5_22279 = 1;
+			}
+		}
+		if (g_a5_27990 == 4)
+			jt49(c1);
+		jt112((short)0);
+	}
+
+	/* ---- PIC layer (b / -22312), drawn when depth==0 or there's no sprite ---- */
+	if (st[1] == 0 && bbyte != 255 && !(dbyte != 0 && abyte != 255)) {
+		if (g_a5_27990 == 4 && g_a5_18473 == 0) {
+			unsigned char *rec;
+			g_a5_22281 = 1;
+			l541a(ua_strs_at(0x66de), (short)bbyte, (short)0,
+			      g_a5_buf(-24322));               /* "PIC" — in-view */
+			st[1] = 1;
+			l534a((short)3, (short)3, (short)1, (short)0);
+			rec = (unsigned char *)g_a5_28006;
+			if (rec != NULL && rec[133] != 0)
+				g_a5_byte(-18487) = 1;
+		} else if (g_a5_27990 == 3 || g_a5_18473 != 0) {
+			jt78();
+			jt937(g_a5_27932); jt938();
+			g_a5_22281 = 1;
+			l541a(ua_strs_at(0x66e2), (short)bbyte, (short)0,
+			      g_a5_buf(-24322));               /* "PIC" — overview */
+			st[1] = 1;
+			l534a((short)3, (short)3, (short)1, (short)0);
+			g_a5_byte(-18487) = 1;
+		}
+	}
+}
+
 /* JT[23] (CODE 6+0x2890) — the play-frame redraw dispatcher. */
 static void jt23(void)
 {
