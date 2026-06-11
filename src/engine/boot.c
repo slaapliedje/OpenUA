@@ -21768,6 +21768,69 @@ static void jt515(long entity, short featIdx,
 	}
 }
 
+/* JT[524] / L61ae (CODE 14 + 0x61ae) — rebuild the 50x25 combat occupancy
+ * grid (g_a5_26922): clear it (jt65), then for every active actor record
+ * (g_a5_27472, 6 bytes: x word @0, y word @2, facing @5) stamp the actor
+ * index into each cell of its facing footprint (the l5d92 step offsets off
+ * the map position), and refresh its on-screen cell (g_a5_27059/g_a5_26991
+ * = world position minus the scroll origin in the live-map header). */
+static void jt524(void) __attribute__((unused));
+static void jt524(void)
+{
+	short i, j;
+
+	PROBE("L61ae");
+	jt65((long)(uintptr_t)g_a5_buf(-26922), 1250);
+	for (i = 1; i <= (unsigned char)g_a5_byte(-27468); i++) {
+		unsigned char *ent = g_a5_buf(-27472) + i * 6;
+		unsigned char *scroll;
+
+		if (ent[5] == 0)
+			continue;                       /* not on the field */
+		for (j = 0; j <= 5; j++) {
+			unsigned char dx, dy;
+
+			if (l5d92((short)ent[5], j, &dx, &dy) == 0)
+				continue;
+			g_a5_buf(-26922)[((signed char)dy + *(short *)(ent + 2)) * 50
+			               +  (signed char)dx + *(short *)ent]
+				= (unsigned char)i;
+		}
+		scroll = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		g_a5_buf(-27059)[i] =
+			(unsigned char)(*(short *)ent       - *(short *)(scroll + 2));
+		g_a5_buf(-26991)[i] =
+			(unsigned char)(*(short *)(ent + 2) - *(short *)(scroll + 4));
+	}
+}
+
+/* JT[530] / L73cc (CODE 14 + 0x73cc) — stage a combat-status redraw of
+ * `entity` in the live-map header (g_a5_25318): byte 6 = `c`, byte 7 = the
+ * actor's facing; when scroll-into-view (g_a5_22626) is on, recentre the
+ * map on the actor (jt521 mode `b`, dir 8); then leave the header bytes in
+ * the post-update state (6 = 0, 7 = 1). */
+static void jt530(long entity, short b, short c) __attribute__((unused));
+static void jt530(long entity, short b, short c)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	unsigned char zone;
+
+	PROBE("L73cc");
+	hdr[6] = (unsigned char)c;
+	zone   = (unsigned char)jt519(entity);
+	hdr[7] = g_a5_buf(-27472)[zone * 6 + 5];
+
+	if (g_a5_byte(-22626) != 0) {
+		unsigned char j525 = jt525(entity);
+		unsigned char j531 = jt531(entity);
+
+		jt521((signed char)j525, (signed char)j531,
+		      (short)(unsigned char)b, 8);
+	}
+	hdr[6] = 0;
+	hdr[7] = 1;
+}
+
 /* L744e (CODE 14 + 0x744e) — set the map-view clip rectangle: the native
  * 24..248 box in render mode 3, else the doubled-space 8004..8088 box. */
 static void l744e(void) __attribute__((unused));
@@ -26621,6 +26684,42 @@ static short jt864(long entity, long member, short threshold)
 
 	g_a5_byte(-25240) = (g_a5_byte(-25240) != 0 && save != 0) ? 1 : 0;
 	return hit;
+}
+
+/* JT[877] (CODE 18 + 0x16fc, 3 sites) — kill/remove `entity` from the combat
+ * field with a death message. Gated on rec[382] (in-combat). Resolves the
+ * actor's zone (jt519), stages the redraw header (jt530 mode 3), prints `msg`
+ * (jt18 row 10), clears in-combat and sets rec[94] = `status` (zeroing the
+ * HP rec[395] unless status 3), redraws the vacated terrain cell (l635e) and
+ * presents (jt117), clears the actor's facing slot in the g_a5_27472 table,
+ * rebuilds the occupancy grid (jt524), and finally — when jt498 says the
+ * record still owns combat state — tears down its effects (jt865). */
+static void jt877(long entity, short status, long msg) __attribute__((unused));
+static void jt877(long entity, short status, long msg)
+{
+	unsigned char *e = (unsigned char *)(uintptr_t)entity;
+	unsigned char zone;
+
+	PROBE("jt877");
+	if (e[382] == 0)
+		return;
+
+	zone = (unsigned char)jt519(entity);
+	jt530(entity, 3, 0);
+	jt18((void *)(uintptr_t)entity, msg, 10, 1);
+
+	e[382] = 0;                              /* out of combat */
+	e[94]  = (unsigned char)status;
+	if (e[94] != 3)
+		e[395] = 0;                      /* zero HP unless status 3 */
+
+	l635e(0, 0, (short)zone);                /* redraw the vacated cell */
+	jt117();
+	g_a5_buf(-27472)[zone * 6 + 5] = 0;      /* clear the facing slot */
+	jt524();                                 /* rebuild occupancy grid */
+
+	if (jt498(entity) != 0)
+		jt865(entity);                   /* strip remaining effects */
 }
 
 /* JT[728] (CODE 18+0x2aa2) — clear a transient combat sub-state: out of the
