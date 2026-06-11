@@ -28179,16 +28179,36 @@ static void l338c(short mode)
 	g_a5_18396 = (unsigned char)((jt1200() == 3) ? mode : 52);
 }
 
+/* L3f3c (CODE 6 + 0x3f3c) — install the loaded bigpic's own palette into the
+ * upper colour range [lo..hi]. Faithful to the disasm: skip when the display
+ * is in the indexed mode that keeps the resident clut (jt1163()==0 &&
+ * jt1200()!=0); otherwise clear a 768-byte RGB scratch, reserve the colour
+ * range via the GLIB allocator jt1069, and commit it with jt1066. The
+ * scratch is zero-filled (jt399) — the allocator seeds the range, the
+ * picture's actual RGBs land when l3eea commits the group. jt1069/jt1066 are
+ * the palette-subsystem functions lifted earlier; this is the leaf that was
+ * deferred while they were stubs. */
+static void l3f3c(short lo, short hi)
+{
+	unsigned char buf[768];
+
+	PROBE("L3f3c");
+	if (jt1163() != 0 || jt1200() == 0) {
+		jt399(buf, (short)768, (short)0);
+		jt1069(lo, (short)(hi - lo + 1), buf, (short)0, (unsigned char *)0);
+		jt1066();
+	}
+}
+
 /* L579e (CODE 6 + 0x579e) — load the "bigpic" play-screen backdrop for `id`,
  * cached against g_a5_-24256. Faithful to the disasm: set the display mode
  * (jt131 = L035e), bail if already the active backdrop, then pick the load
  * kind (L338c), build the resource name ("bigpi%c%d" — 'x' for id<248 else
  * 'c', suffixed by g_a5_-23185), and load it via the library binder L33ac,
  * stamping the group handle into g_a5_-24260 (what l3880 blits + l3eea
- * commits). The picture itself loads + blits through the (live, Hatari-
- * verified) FAR-pool path; its PALETTE commit (L3f3c -> jt399/jt1069/jt1066)
- * is the one remaining GLIB-picture leaf, still stubbed — until it lands the
- * backdrop renders with the resident clut rather than its own palette. */
+ * commits). After loading, L3f3c installs the picture's own palette range
+ * (32..255) — now that the GLIB palette allocator (jt1069/jt1066) is lifted,
+ * the backdrop renders with its own clut instead of the resident one. */
 static void l579e(short id)
 {
 	const char *name;
@@ -28203,8 +28223,7 @@ static void l579e(short id)
 	             (id < 248) ? 120 : 99,
 	             (int)(unsigned char)g_a5_byte(-23185));
 	l33ac(name, id, (short)0, (short)0, (void **)&g_a5_24260);
-	/* TODO (palette): L3f3c(32, 255) installs the picture's own palette range
-	 * via jt399/jt1069/jt1066; jt1069 is the unlifted palette-table leaf. */
+	l3f3c((short)32, (short)255);           /* install the picture's palette range */
 	g_a5_24256 = (unsigned char)id;
 	g_a5_17446 = (unsigned char)id;
 }
