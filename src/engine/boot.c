@@ -28240,13 +28240,148 @@ static void l5822(void)
 	l3eea(g_a5_24260);
 }
 
-/* L541a (CODE 6+0x541a) — load + blit a "PIC" backdrop resource into `buf`.
- * Level-2 skeleton: the GLIB picture subsystem (the PIC%c1 / %s%s name build
- * over `id` + the L33ac decode/blit into (char*)buf+2) is task #105. */
+/* JT[1018] (CODE 5 + 0x3736) — "LBCount": read a GLIB library file's 16-byte
+ * header into a scratch, verify the "GLIB" magic, and return the entry count
+ * (the word at header offset 8). A bad magic raises the error modal (l036a)
+ * and returns 0. jt406 here is dst,src,count (the C lift's convention — the
+ * Mac BlockMove order is reversed, see its body), so dst = the scratch. */
+static short jt1018(void *handle)
+{
+	unsigned char hdr[16];
+
+	PROBE("jt1018");
+	jt406(hdr, handle, (short)16);
+	if (hdr[0] != 'G' || hdr[1] != 'L' || hdr[2] != 'I' || hdr[3] != 'B') {
+		l036a(ua_strs_at(0x6ee0));       /* "LBCount: Invalid Library File" */
+		return 0;
+	}
+	return *(short *)(hdr + 8);
+}
+
+/* L3780 (CODE 6 + 0x3780) — realize a loaded GLIB group: resolve the group
+ * tag (the handle's first word) via jt468, then count its entries (jt1018). */
+static short l3780(void *handle)
+{
+	PROBE("L3780");
+	return jt1018((void *)(uintptr_t)jt468(*(short *)handle));
+}
+
+/* L38d0 (CODE 6 + 0x38d0) — one-shot GWorld arm for the offscreen marker
+ * layer: unless already armed (-18395) or in mode 2 (-18394), optionally
+ * allocate the GWorld page (jt1146, only when `flag`) and lock it (jt1153),
+ * then latch -18395. jt1146 is the NewGWorld-deferred leaf; it only runs on
+ * the armed path, which l68ae(0) gates behind a prior l68ae(2). */
+static void l38d0(short flag)
+{
+	PROBE("L38d0");
+	if (g_a5_byte(-18395) == 0 && g_a5_byte(-18394) != 2) {
+		if (flag != 0)
+			jt1146();
+		jt1153((short)0);
+		g_a5_byte(-18395) = 1;
+	}
+}
+
+/* L68ae (CODE 6 + 0x68ae) — marker-overlay toggle. flag!=0 latches the
+ * "marker pending" flag -13046 (1 unless flag==2); flag==0 consumes a pending
+ * marker: clear it, arm the GWorld (l38d0) and repaint the marker frame piece
+ * (jt1001 at 8000,8000 — the offscreen scratch cell). */
+static void l68ae(short flag)
+{
+	PROBE("L68ae");
+	if (flag != 0) {
+		g_a5_byte(-13046) = (unsigned char)((flag != 2) ? 1 : 0);
+	} else if (g_a5_byte(-13046) != 0) {
+		g_a5_byte(-13046) = 0;
+		l38d0((short)1);
+		jt1001((short)8000, (short)8000, (short)1, (short)9);
+	}
+}
+
+/* L541a (CODE 6 + 0x541a) — load a GLIB backdrop/sprite resource of `type`
+ * ("PIC", "SPRIT", ...) and id into the slot struct `buf` (b[0]=frame count,
+ * b[1]=static-last flag, b[2..]=group handle). Faithful lift: set the display
+ * mode (jt131, 2 for PIC), bail if the same type+id is already resident or id
+ * is the 255 sentinel; otherwise cache the type name (-24304/-24262), build
+ * the resource name ("PIC%c1" with a letter chosen by id band for PIC, else
+ * "%s%s" type+suffix), bind it via l33ac, install the palette (l3f3c range for
+ * PIC, else l3eea+jt1066 group commit), realize the group (l3780) and stamp
+ * the frame count, then set the static-last flag and the PIC category globals
+ * (-24206/-24207, mode-dependent for a handful of ids). flag (fp@14) is unused
+ * in the Mac body. */
 static void l541a(const char *type, short id, short flag, void *buf)
 {
+	unsigned char *b   = (unsigned char *)buf;
+	unsigned char  idb = (unsigned char)id;
+	char           num[8];                   /* fp@-2 suffix scratch */
+	const char    *name;
+
 	PROBE("L541a");
-	(void)type; (void)flag; (void)id; (void)buf;
+	(void)flag;
+
+	jt131(jt396(type, ua_strs_at(0x72e)) ? (short)2 : (short)0);
+
+	if (jt396(type, g_a5_24304) && idb == (unsigned char)g_a5_24262)
+		return;                          /* already resident */
+	if (idb == 255)
+		return;                          /* sentinel: none */
+
+	l5700();
+	jt384(g_a5_24304, type);                 /* cache the type name */
+	g_a5_24262 = idb;
+	jt478((short)(unsigned char)g_a5_byte(-23185), num);
+	l338c((short)50);
+
+	if (jt396(type, ua_strs_at(0x732))) {    /* "PIC" → PIC[A-F]1 library */
+		short letter;
+		if      (idb < 76)  letter = 65; /* 'A' */
+		else if (idb < 138) letter = 66;
+		else if (idb < 164) letter = 67;
+		else if (idb < 193) letter = 68;
+		else if (idb < 227) letter = 69;
+		else                letter = 70; /* 'F' */
+		name = jt488(ua_strs_at(0x736), letter);        /* "PIC%c1" */
+	} else {
+		name = jt488(ua_strs_at(0x73e), type, num);     /* "%s%s" */
+	}
+	l33ac(name, (short)idb, (short)0, (short)0, (void **)(b + 2));
+
+	if (jt396(type, ua_strs_at(0x744))) {
+		l3f3c((short)32, (short)255);    /* PIC: install its own palette range */
+	} else {
+		l3eea(*(void **)(b + 2));        /* else commit the group palette */
+		jt1066();
+	}
+
+	b[0] = (unsigned char)l3780(*(void **)(b + 2));
+
+	if (jt396(type, ua_strs_at(0x748))) {    /* PIC keeps the last frame static */
+		b[0] = (unsigned char)(b[0] - 1);
+		b[1] = 1;
+	} else {
+		b[1] = 0;
+	}
+	g_a5_24206 = (unsigned char)(b[0] - 1);
+	g_a5_24207 = 0;
+
+	if (jt396(type, ua_strs_at(0x74c))) {    /* PIC category override by id */
+		if (jt1200() == 3) {
+			if      (idb == 57)  g_a5_24207 = 4;
+			else if (idb == 148) g_a5_24207 = 1;
+			else if (idb == 151) g_a5_24207 = 6;
+			else if (idb == 173) g_a5_24207 = 1;
+			else if (idb == 180) g_a5_24207 = 3;
+		} else {
+			if      (idb == 57)  g_a5_24207 = 4;
+			else if (idb == 148) g_a5_24207 = 5;
+			else if (idb == 151) g_a5_24207 = 6;
+			else if (idb == 173) g_a5_24207 = 1;
+			else if (idb == 180) g_a5_24207 = 6;
+		}
+	}
+	g_a5_byte(-24208) = 0;
+	g_a5_24205 = 0;
+	l68ae((short)0);
 }
 
 /* JT[23] (CODE 6+0x2890) — the play-frame redraw dispatcher. */
