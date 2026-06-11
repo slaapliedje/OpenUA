@@ -28979,6 +28979,337 @@ static void jt804(long rec_l, long node, short flag)
 	g_a5_byte(-25257) = 0;
 }
 
+/* JT[805] (CODE 18 + 0x5a88) — both passes: "+1 weapon to hit" check. */
+static void jt805(long rec_l, long node, short flag) __attribute__((unused));
+static void jt805(long rec_l, long node, short flag)
+{
+	PROBE("jt805");
+	(void)rec_l; (void)node; (void)flag;
+	l4b64(1);
+}
+
+/* JT[807] (CODE 18 + 0x5af6) — both passes: recount the linked-entity
+ * tally via jt498. */
+static void jt807(long rec_l, long node, short flag) __attribute__((unused));
+static void jt807(long rec_l, long node, short flag)
+{
+	PROBE("jt807");
+	(void)node; (void)flag;
+	jt498(rec_l);
+}
+
+/* JT[808] (CODE 18 + 0x5b08) — REMOVAL pass only: re-derive rec[128]
+ * from the slot-3 ability score (score/5 + 1, unsigned divide). */
+static void jt808(long rec_l, long node, short flag) __attribute__((unused));
+static void jt808(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt808");
+	(void)node;
+	if ((unsigned char)flag == 0)
+		return;
+	rec[128] = (unsigned char)
+	    ((unsigned short)jt40(rec, 3) / 5 + 1);
+}
+
+/* JT[810] (CODE 18 + 0x5bd8) — apply pass: paste the two-part flavor
+ * string (-14444 + -19644) into the message line. */
+static void jt810(long rec_l, long node, short flag) __attribute__((unused));
+static void jt810(long rec_l, long node, short flag)
+{
+	PROBE("jt810");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	jt18((void *)(uintptr_t)rec_l,
+	     (long)(uintptr_t)jt488(ua_strs_at(0x5752) /* "%s%s" */,
+				    (const char *)(uintptr_t)g_a5_long(-14444),
+				    (const char *)(uintptr_t)g_a5_long(-19644)),
+	     10, 1);
+}
+
+/* JT[812] (CODE 18 + 0x5e00) — both passes: the natural-attack flavor
+ * message + damage stage.  Switches on the -22651 attack-flavor byte:
+ * each arm rolls its dice (jt870), adds the STR adjust (jt16) + 4 into
+ * the staged damage word -25242, and formats "%s%s" from a per-arm
+ * string pair (the second half is always -13172).  The composed line is
+ * word-wrap-rendered into the message cell via jt96.
+ *
+ * NOTE: the Mac asm pushes only EIGHT args to JT[96] (a nine-arg
+ * function) — the ninth read caller stack garbage on the Mac.  Our jt96
+ * ignores s9, so we pass 0. */
+static void jt812(long rec_l, long node, short flag) __attribute__((unused));
+static void jt812(long rec_l, long node, short flag)
+{
+	char buf[42];
+	short h, roll = 0;
+	const char *fmt = NULL;
+	long second = 0;
+
+	PROBE("jt812");
+	(void)node; (void)flag;
+	jt384(buf, ua_strs_at(0x577e) /* "" */);
+	h = jt16(rec_l);
+	/* JT[3] inline table @ 0x5e2c (min=1, max=6) */
+	switch ((short)(unsigned char)g_a5_byte(-22651)) {
+	case 1:                                 /* L5e3e */
+		roll = jt870(1, 10);
+		second = g_a5_long(-13548);
+		fmt = ua_strs_at(0x5780);       /* "%s%s" */
+		break;
+	case 2:                                 /* L5e80 */
+		roll = jt870(2, 4);
+		second = g_a5_long(-13564);
+		fmt = ua_strs_at(0x5786);
+		break;
+	case 3:                                 /* L5ec2 */
+		roll = jt870(1, 8);
+		second = g_a5_long(-13556);
+		fmt = ua_strs_at(0x578c);
+		break;
+	case 4:                                 /* L5f04 */
+		roll = jt870(1, 8);
+		second = g_a5_long(-13576);
+		fmt = ua_strs_at(0x5792);
+		break;
+	case 5:                                 /* L5f46 */
+		roll = jt870(1, 4);
+		second = g_a5_long(-13612);
+		fmt = ua_strs_at(0x5798);
+		break;
+	case 6:                                 /* L5f86 */
+		roll = jt870(1, 6);
+		second = g_a5_long(-13572);
+		fmt = ua_strs_at(0x579e);
+		break;
+	default:
+		fmt = NULL;
+		break;
+	}
+	if (fmt != NULL) {
+		g_a5_word(-25242) = (short)(roll + h + 4);
+		jt384(buf, jt488(fmt,
+				 (const char *)(uintptr_t)second,
+				 (const char *)(uintptr_t)g_a5_long(-13172)));
+	}
+	/* L5fc4 — eight args pushed on the Mac; ninth is stack garbage */
+	jt96(23, 7, 38, 9, 7, 0, 1, (long)(uintptr_t)buf, 0);
+}
+
+/* JT[813] (CODE 18 + 0x5fee) — both passes: -4 to both save rows. */
+static void jt813(long rec_l, long node, short flag) __attribute__((unused));
+static void jt813(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt813");
+	(void)node; (void)flag;
+	rec[385] = (unsigned char)(rec[385] - 4);
+	rec[386] = (unsigned char)(rec[386] - 4);
+}
+
+/* JT[814] (CODE 18 + 0x6006) — both passes: fire-shield effect 119.
+ * When the Fire element flag is staged, the shield absorbs 12 points
+ * per magnitude unit: fully consumed -> subtract from the staged damage
+ * and remove the effect; partially consumed -> zero the damage and
+ * write back the remaining magnitude (removing at zero). */
+static void jt814(long rec_l, long node, short flag) __attribute__((unused));
+static void jt814(long rec_l, long node, short flag)
+{
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+	short amt = 6;
+
+	PROBE("jt814");
+	(void)flag;
+	if ((g_a5_word(-25266) & 1) == 0)
+		return;
+	amt = (short)((unsigned char)nd[4] * 12);
+	if ((unsigned short)amt <= (unsigned short)g_a5_word(-25242)) {
+		g_a5_word(-25242) = (short)(g_a5_word(-25242) - amt);
+		jt878(rec_l, 119, 0);
+	} else {
+		amt = (short)(amt - g_a5_word(-25242));
+		g_a5_word(-25242) = 0;
+		nd[4] = (unsigned char)((unsigned short)amt / 12);
+		if (nd[4] == 0)
+			jt878(rec_l, 119, 0);
+	}
+}
+
+/* JT[815] (CODE 18 + 0x6096) — both passes: low-level (rec[137] < 3)
+ * targets get a recount; the staged damage drops by 2 (floor 0) and
+ * the attack-roll stage -25255 by 2. */
+static void jt815(long rec_l, long node, short flag) __attribute__((unused));
+static void jt815(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt815");
+	(void)node; (void)flag;
+	if ((unsigned char)rec[137] < 3)
+		jt498(rec_l);
+	if (g_a5_word(-25242) > 2)
+		g_a5_word(-25242) = (short)(g_a5_word(-25242) - 2);
+	else
+		g_a5_word(-25242) = 0;
+	g_a5_byte(-25255) = (char)((unsigned char)g_a5_byte(-25255) - 2);
+}
+
+/* JT[816] (CODE 18 + 0x60ce) — both passes: +4 to both save rows. */
+static void jt816(long rec_l, long node, short flag) __attribute__((unused));
+static void jt816(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt816");
+	(void)node; (void)flag;
+	rec[385] = (unsigned char)(rec[385] + 4);
+	rec[386] = (unsigned char)(rec[386] + 4);
+}
+
+/* JT[817] (CODE 18 + 0x60e6) — both passes: absorb against attack
+ * forms 11/35/52/68/111. */
+static void jt817(long rec_l, long node, short flag) __attribute__((unused));
+static void jt817(long rec_l, long node, short flag)
+{
+	PROBE("jt817");
+	(void)rec_l; (void)node; (void)flag;
+	l3dda(11);
+	l3dda(35);
+	l3dda(52);
+	l3dda(68);
+	l3dda(111);
+}
+
+/* JT[818] (CODE 18 + 0x6120) — both passes: "+2 weapon to hit" check. */
+static void jt818(long rec_l, long node, short flag) __attribute__((unused));
+static void jt818(long rec_l, long node, short flag)
+{
+	PROBE("jt818");
+	(void)rec_l; (void)node; (void)flag;
+	l4b64(2);
+}
+
+/* JT[819] (CODE 18 + 0x6132) — both passes: when the bit-4 element
+ * flag is staged, SET the bonus stage -25269 to 20 (not add). */
+static void jt819(long rec_l, long node, short flag) __attribute__((unused));
+static void jt819(long rec_l, long node, short flag)
+{
+	PROBE("jt819");
+	(void)rec_l; (void)node; (void)flag;
+	if ((g_a5_word(-25266) & 16) != 0)
+		g_a5_byte(-25269) = 20;
+}
+
+/* L3d3a (CODE 18 local) — paralysis inflict on the effect's linked
+ * entity (rec[64]+12 -> -25250): row-0 save with `savemod`, then
+ * effect 52 for 10(+save) rounds — "is paralyzed" if the target
+ * carries effect 88 (the poison marker decides the flavor), else
+ * "is paralyzed by poison".  The middle argument is dead in the body
+ * (callers pass 100). */
+static void l3d3a(long rec_l, short unused100, short savemod) __attribute__((unused));
+static void l3d3a(long rec_l, short unused100, short savemod)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char sv;
+	void *out = 0;
+	long ent;
+
+	PROBE("l3d3a");
+	(void)unused100;
+	ent = *(long *)(*(unsigned char **)(rec + 64) + 12);
+	g_a5_long(-25250) = ent;
+	sv = (unsigned char)jt866(ent, 0, (short)(signed char)savemod);
+	if (jt41(rec_l, 88, &out) != 0)
+		jt871(ent, 52, 10, 12, 0, 1, (short)(signed char)sv,
+		      (long)(uintptr_t)ua_strs_at(0x562c)
+		      /* "is paralyzed" */);
+	else
+		jt871(ent, 52, 10, 12, 0, 1, (short)(signed char)sv,
+		      (long)(uintptr_t)ua_strs_at(0x563a)
+		      /* "is paralyzed by poison" */);
+}
+
+/* JT[821] (CODE 18 + 0x614a) — both passes: standard paralysis
+ * (l3d3a with no save modifier). */
+static void jt821(long rec_l, long node, short flag) __attribute__((unused));
+static void jt821(long rec_l, long node, short flag)
+{
+	PROBE("jt821");
+	(void)node; (void)flag;
+	l3d3a(rec_l, 100, 0);
+}
+
+/* JT[822] (CODE 18 + 0x6162) — both passes: explosion burst.  Announce
+ * (-14672 line), drop the blast marker on the actor's cell
+ * (jt525/jt531/jt513 -> jt508), then sweep the -19170 staging table
+ * (1-based actor indexes into g_a5_25676, entries 2..-18894): every
+ * opposing, save-failed, unprotected (no effect 118) combatant gets the
+ * -14676 result render (jt503) — and the SOURCE rec accumulates effect
+ * 148 once per victim (faithful oddity: the target of jt876 is rec, not
+ * the victim, inside the loop). */
+static void jt822(long rec_l, long node, short flag) __attribute__((unused));
+static void jt822(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char x, y, v;
+	void *out = 0;
+
+	PROBE("jt822");
+	(void)node; (void)flag;
+	jt18((void *)(uintptr_t)rec_l, g_a5_long(-14672), 10, 1);
+	x = jt525(rec_l);
+	y = jt531(rec_l);
+	v = jt513(rec_l);
+	jt508((short)(signed char)x, (short)(signed char)y, 1, 255,
+	      (short)v);
+	g_a5_byte(-22307) = 2;
+	while ((unsigned char)g_a5_byte(-22307)
+	       <= (unsigned char)g_a5_byte(-18894)) {		/* L6268 */
+		short i = (short)(unsigned char)g_a5_byte(-22307);
+		unsigned char idx = (unsigned char)g_a5_19170[i * 4];
+		long ent_l = g_a5_25676[idx];
+		unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+
+		if (ent[95] == rec[95])				/* same side */
+			goto next;
+		if ((unsigned char)jt866(ent_l, 4, 0) != 0)	/* saved */
+			goto next;
+		if (jt41(ent_l, 118, &out) != 0)		/* protected */
+			goto next;
+		jt503(ent_l, 1, g_a5_long(-14676));
+		jt876(rec_l, 148, 0, 255, 0);
+ next:
+		g_a5_byte(-22307)++;
+	}
+}
+
+/* JT[823] (CODE 18 + 0x627e) — both passes: absorb attack forms
+ * 11 and 53. */
+static void jt823(long rec_l, long node, short flag) __attribute__((unused));
+static void jt823(long rec_l, long node, short flag)
+{
+	PROBE("jt823");
+	(void)rec_l; (void)node; (void)flag;
+	l3dda(11);
+	l3dda(53);
+}
+
+/* JT[824] (CODE 18 + 0x629a) — both passes: absorb attack forms 55 and
+ * 52; when the attack-form byte -25246 is 0 the bonus stage -25269 is
+ * SET to 100. */
+static void jt824(long rec_l, long node, short flag) __attribute__((unused));
+static void jt824(long rec_l, long node, short flag)
+{
+	PROBE("jt824");
+	(void)rec_l; (void)node; (void)flag;
+	l3dda(55);
+	l3dda(52);
+	if ((unsigned char)g_a5_byte(-25246) == 0)
+		g_a5_byte(-25269) = 100;
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
