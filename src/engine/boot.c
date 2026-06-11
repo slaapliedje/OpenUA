@@ -28037,6 +28037,290 @@ static void jt730(long rec_l, long node, short flag)
 		g_a5_byte(-25264) = 0;
 }
 
+/* L3e6e (CODE 18 + 0x3e6e) — +1 save-modifier / +1 throw on the apply
+ * pass (the inverse of the -1 pair in jt768's else arm). */
+static void l3e6e(long rec_l, long node, short flag)
+{
+	PROBE("l3e6e");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_byte(-25269) = (char)(g_a5_byte(-25269) + 1);
+	g_a5_byte(-25255) = (char)(g_a5_byte(-25255) + 1);
+}
+
+/* JT[758] (CODE 18 + 0x446c) — composite hook: on the apply pass run
+ * the type-43 and type-44 removal hooks in turn (l77a0). */
+static void jt758(long rec_l, long node, short flag) __attribute__((unused));
+static void jt758(long rec_l, long node, short flag)
+{
+	PROBE("jt758");
+	if ((unsigned char)flag != 0)
+		return;
+	l77a0(43, (void *)(uintptr_t)rec_l, (void *)(uintptr_t)node, flag);
+	l77a0(44, (void *)(uintptr_t)rec_l, (void *)(uintptr_t)node, flag);
+}
+
+/* JT[759] (CODE 18 + 0x44b2) — -4 throw / -4 save modifier. */
+static void jt759(long rec_l, long node, short flag) __attribute__((unused));
+static void jt759(long rec_l, long node, short flag)
+{
+	PROBE("jt759");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_byte(-25255) = (char)(g_a5_byte(-25255) - 4);
+	g_a5_byte(-25269) = (char)(g_a5_byte(-25269) - 4);
+}
+
+/* JT[760] (CODE 18 + 0x44c8) — aging: once per node (bit 5 of the
+ * magnitude byte) the victim "ages" (+1 to the age word rec[82],
+ * roster-dirty flag -27916); every apply pass doubles the staged
+ * -25263/-25264 counters. */
+static void jt760(long rec_l, long node, short flag) __attribute__((unused));
+static void jt760(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt760");
+	if ((unsigned char)flag != 0)
+		return;
+	if ((nd[4] & 32) == 0) {
+		nd[4] = (unsigned char)(nd[4] + 32);
+		jt18(rec, (long)(uintptr_t)ua_strs_at(0x5680) /* "ages" */,
+		     10, 1);
+		*(short *)(rec + 82) = (short)(*(short *)(rec + 82) + 1);
+		g_a5_byte(-27916) = 1;
+	}
+	g_a5_byte(-25263) = (char)((unsigned char)g_a5_byte(-25263) * 2);
+	g_a5_byte(-25264) = (char)((unsigned char)g_a5_byte(-25264) * 2);
+}
+
+/* JT[761] (CODE 18 + 0x4540) — drop the staged damage when the active
+ * feature-sound id (-25262) names a hazard whose class byte
+ * (-16906[id*16+1]) is below 8. */
+static void jt761(long rec_l, long node, short flag) __attribute__((unused));
+static void jt761(long rec_l, long node, short flag)
+{
+	unsigned char id;
+
+	PROBE("jt761");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	id = (unsigned char)g_a5_byte(-25262);
+	if (id == 0)
+		return;
+	if (g_a5_buf(-16906)[id * 16 + 1] < 8)
+		l3dda(0);
+}
+
+/* JT[763] (CODE 18 + 0x466e) — halve the staged -25263/-25264
+ * counters on the apply pass. */
+static void jt763(long rec_l, long node, short flag) __attribute__((unused));
+static void jt763(long rec_l, long node, short flag)
+{
+	PROBE("jt763");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_byte(-25263) = (char)((unsigned char)g_a5_byte(-25263) >> 1);
+	g_a5_byte(-25264) = (char)((unsigned char)g_a5_byte(-25264) >> 1);
+}
+
+/* JT[764] (CODE 18 + 0x4694) — weakness: stage effect 43 (l3dfe,
+ * duration 60); when it lands, STR above 3 drops by one ("is
+ * weakened"), else a type-31 incapacity effect is added. */
+static void jt764(long rec_l, long node, short flag) __attribute__((unused));
+static void jt764(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt764");
+	(void)flag;
+	if (l3dfe(rec_l, 43, (short)nd[4], 60) == 0)
+		return;
+	if (rec[113] > 3) {
+		jt18(rec, (long)(uintptr_t)ua_strs_at(0x5690)
+		     /* "is weakened" */, 10, 1);
+		rec[113] = (unsigned char)(rec[113] - 1);
+	} else {
+		jt876(rec_l, 31, 0, 255, 0);
+	}
+}
+
+/* JT[765] (CODE 18 + 0x470c) — wounding: stage effect 44 (duration
+ * 10); when it lands, an actor above 1 HP takes 1 unflagged damage
+ * (jt867) with an out-of-combat roster repaint (jt936), else the
+ * type-31 incapacity effect is added. */
+static void jt765(long rec_l, long node, short flag) __attribute__((unused));
+static void jt765(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt765");
+	(void)flag;
+	if (l3dfe(rec_l, 44, (short)nd[4], 10) == 0)
+		return;
+	if (rec[395] > 1) {
+		g_a5_word(-25266) = 0;
+		jt867(rec_l, 1, 0, 0);
+		if ((unsigned char)g_a5_byte(-27990) != 5)
+			jt936(rec_l,
+			      (rec_l == g_a5_long(-27932)) ? 1 : 0);
+	} else {
+		jt876(rec_l, 31, 0, 255, 0);
+	}
+}
+
+/* JT[766] (CODE 18 + 0x47a0) — -4 throw vs the active roster member
+ * when its trait bit 2 is set. */
+static void jt766(long rec_l, long node, short flag) __attribute__((unused));
+static void jt766(long rec_l, long node, short flag)
+{
+	unsigned char *m;
+
+	PROBE("jt766");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if ((m[191] & 4) != 0)
+		g_a5_byte(-25255) = (char)(g_a5_byte(-25255) - 4);
+}
+
+/* JT[767] (CODE 18 + 0x47c4) — -4 throw vs the active roster member
+ * when its trait bit 5 is set. */
+static void jt767(long rec_l, long node, short flag) __attribute__((unused));
+static void jt767(long rec_l, long node, short flag)
+{
+	unsigned char *m;
+
+	PROBE("jt767");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if ((m[191] & 32) != 0)
+		g_a5_byte(-25255) = (char)(g_a5_byte(-25255) - 4);
+}
+
+/* JT[768] (CODE 18 + 0x47e8) — alignment-keyed save bias: the side
+ * encoded in the node's magnitude bit 7 gets +1 throw/+1 modifier
+ * (l3e6e), the other side -1/-1. */
+static void jt768(long rec_l, long node, short flag) __attribute__((unused));
+static void jt768(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+	short side;
+
+	PROBE("jt768");
+	if ((unsigned char)flag != 0)
+		return;
+	side = (short)((nd[4] & 128) >> 7);
+	if ((short)rec[95] == side) {
+		l3e6e(rec_l, node, flag);
+	} else {
+		g_a5_byte(-25255) = (char)(g_a5_byte(-25255) - 1);
+		g_a5_byte(-25269) = (char)(g_a5_byte(-25269) - 1);
+	}
+}
+
+/* JT[769] (CODE 18 + 0x4840) — cold resistance / fire vulnerability:
+ * Cold damage gives +2 save modifier and is halved (or zeroed when
+ * the -25245 negate flag is up); otherwise unresisted Fire damage is
+ * doubled. */
+static void jt769(long rec_l, long node, short flag) __attribute__((unused));
+static void jt769(long rec_l, long node, short flag)
+{
+	PROBE("jt769");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 2) != 0) {		/* Cold */
+		g_a5_byte(-25269) = (char)(g_a5_byte(-25269) + 2);
+		if (g_a5_byte(-25245) != 0)
+			g_a5_word(-25242) = 0;
+		else
+			g_a5_word(-25242) =
+				(short)((short)g_a5_word(-25242) / 2);
+	} else if ((g_a5_word(-25266) & 1) != 0 &&	/* Fire */
+		   g_a5_byte(-25245) == 0) {
+		g_a5_word(-25242) =
+			(short)((short)g_a5_word(-25242) * 2);
+	}
+}
+
+/* JT[770] (CODE 18 + 0x48a0) — fire resistance / cold vulnerability:
+ * the mirror image of jt769. */
+static void jt770(long rec_l, long node, short flag) __attribute__((unused));
+static void jt770(long rec_l, long node, short flag)
+{
+	PROBE("jt770");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 1) != 0) {		/* Fire */
+		g_a5_byte(-25269) = (char)(g_a5_byte(-25269) + 2);
+		if (g_a5_byte(-25245) != 0)
+			g_a5_word(-25242) = 0;
+		else
+			g_a5_word(-25242) =
+				(short)((short)g_a5_word(-25242) / 2);
+	} else if ((g_a5_word(-25266) & 2) != 0 &&	/* Cold */
+		   g_a5_byte(-25245) == 0) {
+		g_a5_word(-25242) =
+			(short)((short)g_a5_word(-25242) * 2);
+	}
+}
+
+/* JT[771] (CODE 18 + 0x48f2) — faithful no-op. */
+static void jt771(long rec_l, long node, short flag) __attribute__((unused));
+static void jt771(long rec_l, long node, short flag)
+{
+	PROBE("jt771");
+	(void)rec_l; (void)node; (void)flag;
+}
+
+/* JT[772] (CODE 18 + 0x48fa) — paired type-25 effect: the apply pass
+ * adds it (duration 1, magnitude 12), the removal pass strips it in
+ * the combat view. */
+static void jt772(long rec_l, long node, short flag) __attribute__((unused));
+static void jt772(long rec_l, long node, short flag)
+{
+	PROBE("jt772");
+	(void)node;
+	if ((unsigned char)flag != 0) {
+		if ((unsigned char)g_a5_byte(-27990) == 5)
+			jt878(rec_l, 25, 0);
+	} else {
+		jt876(rec_l, 25, 1, 12, 0);
+	}
+}
+
+/* JT[858] (CODE 18 + 0x493e) — drop the staged damage when the active
+ * feature-sound id names a hazard whose class byte is 4 or less
+ * (companion of jt761's <8 rule). */
+static void jt858(long rec_l, long node, short flag) __attribute__((unused));
+static void jt858(long rec_l, long node, short flag)
+{
+	unsigned char id;
+
+	PROBE("jt858");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	id = (unsigned char)g_a5_byte(-25262);
+	if (id == 0)
+		return;
+	if (g_a5_buf(-16906)[id * 16 + 1] <= 4)
+		l3dda(0);
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
