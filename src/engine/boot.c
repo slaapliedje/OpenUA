@@ -2723,7 +2723,7 @@ static void  l2d32(void *ev, short a)      { PROBE("L2d32"); (void)ev; (void)a; 
 static short l4f9a(void *ev)               { PROBE("L4f9a"); (void)ev; return 0; }
 static void  l5586(void *ev)               { PROBE("L5586"); (void)ev; }
 static short l216a(void *ev)               { PROBE("L216a"); (void)ev; return 0; }
-static short l3b0e(void *ev)               { PROBE("L3b0e"); (void)ev; return 0; }
+static short l3b0e(void *ev);              /* encounter prompt — defined after its deps */
 static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch — defined after its deps */
 static void  l2e42(void *ev)               { PROBE("L2e42"); (void)ev; }
 static void  l380a(void *ev)               { PROBE("L380a"); (void)ev; }
@@ -24981,6 +24981,70 @@ static short l673e(void *ev_v, short a, short *pn)
 		g_a5_byte(-5214) = 0;   /* L6942 — asm returns the uninit local here */
 		break;
 	}
+	return result;
+}
+
+/* The two encounter-prompt CHOICE renderers l3b0e branches to. Both are still
+ * level-1 stubs (their own slice): l026e_c20 is CODE 20's interactive Yes/No /
+ * menu prompt (note: NOT the lifted CODE-18 l026e — different function, hence
+ * the _c20 suffix; needs leaf l0098 -> jt484), l03f6 is the type-21 '~'/'^'
+ * markup renderer (needs jt39/jt99/l0380). Returning 0 makes l3b0e resolve to
+ * outcome 0 until they land. */
+static short l026e_c20(const char *str, void *buf, short flag2, short flag3)
+{
+	PROBE("L026e_c20");
+	(void)str; (void)buf; (void)flag2; (void)flag3;
+	return 0;
+}
+static short l03f6(void *buf)
+{
+	PROBE("L03f6");
+	(void)buf;
+	return 0;
+}
+
+/* L3b0e (CODE 20 + 0x3b0e) — the encounter PROMPT. Shows the event picture
+ * (l442e if ev[6], else just jt935), draws the lead-in text from ev[4] through
+ * jt232/l0b20, looks up the prompt string (l4fbe, id = word@ev[8] - 1), and if
+ * it is non-empty runs the interactive choice: l03f6 for type-21 events, else
+ * the CODE-20 l026e_c20 menu over the "STRS"@0x68bc template. Returns the
+ * player's choice (0..4), which l673e turns into the next-event branch.
+ *
+ * LEVEL-2 lift: the display + prompt-text + string-lookup path is faithful and
+ * live; the two choice renderers (l026e_c20 / l03f6) are still stubs, so the
+ * returned outcome is 0 until they are lifted. */
+static short l3b0e(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char *rec;
+	short          result = 0;
+	short          id;
+
+	PROBE("L3b0e");
+	if (ev[6] != 0)
+		l442e(ev);
+	else
+		jt935();
+	jt20();
+	if (*(short *)(ev + 4) != 0) {
+		short d = jt1180(*(short *)(ev + 4));
+		jt232((void *)(uintptr_t)g_a5_long(-13034), d,
+		      (char *)&g_a5_byte(-5213));
+		rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		if (rec)
+			rec[57] = 0;
+		l0b20(&g_a5_byte(-5213));
+	}
+	id = (short)(*(short *)(ev + 8) - 1);
+	l4fbe((void *)(uintptr_t)g_a5_long(-13034), id, (char *)&g_a5_byte(-5213));
+	if (g_a5_byte(-5213) != 0) {
+		if (ev[0] == 21)
+			result = l03f6(&g_a5_byte(-5213));
+		else
+			result = l026e_c20((const char *)ua_strs_at(0x68bc),
+			                   &g_a5_byte(-5213), 0, 1);
+	}
+	jt20();
 	return result;
 }
 
