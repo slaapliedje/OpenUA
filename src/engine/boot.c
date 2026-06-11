@@ -4915,12 +4915,28 @@ static void jt938(void)
 		jt94((short)26, (short)13, (short)7, (short)0, "%s", posbuf);
 	}
 }
+/* JT[97] (CODE 6 + 0x42a0) — draw `a` copies of char `ch` across cells from
+ * (col,row), via jt1089 "%c". Cell (col,row) -> 8000-space (×4 + 8000); each
+ * glyph steps one cell (×4) right; the colour word is (style<<4)|page with
+ * style defaulting to 8. Used live by l02dc (the roster grid '*' status mark).
+ * Faithful 1:1 lift of L42a0. */
 static void jt97(short col, short row, short page, short style,
                  short a, short ch, short flag)
-                                            { PROBE("jt97"); (void)col;
-                                              (void)row; (void)page;
-                                              (void)style; (void)a;
-                                              (void)ch; (void)flag; }
+{
+	short ycoord, xcoord, i;
+
+	PROBE("jt97");
+	ycoord = (short)(((row & 0xff) << 2) + 8000);          /* 42a4 */
+	xcoord = (short)(((col & 0xff) << 2) + 8000);          /* 42b4 */
+	if ((style & 0xff) == 0)                               /* 42c4 default 8 */
+		style = 8;
+	for (i = 0; i < (short)(unsigned char)a; i++) {        /* 432a i < a */
+		short cw = (short)(((style & 0xff) << 4) | (page & 0xff));
+		jt1089(ycoord, (short)(xcoord + i * 4), cw,
+		       "%c", (char)(unsigned char)ch);             /* 431e */
+	}
+	(void)flag;
+}
 /* jt103 (CODE 6 + 0x4bf6) — draw a dialog window box.  Scales the char-cell
  * rect (cols/rows) into the 8000-anchored coordinate space — each edge *4,
  * the top/left anchored at 8000 and the bottom/right at 8004 — and paints it
