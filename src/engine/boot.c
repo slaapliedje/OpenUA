@@ -21707,6 +21707,67 @@ static short l5d92(short a, short b, unsigned char *out_c, unsigned char *out_d)
 	return ((signed char)*out_c >= 0) ? 1 : 0;
 }
 
+/* JT[515] / L6c22 (CODE 14 + 0x6c22) — scan the six combat-grid directions out
+ * of `entity`'s cell for the best adjacent target/feature (used by the effect
+ * applicator jt879). For each direction j the step vector (l5d92) plus the
+ * featIdx offset tables (g_a5_-27862 x / g_a5_-27853 y) give a target cell;
+ * l62ec resolves its occupant + feature. Writes through three byte out-params:
+ *   *outA = an adjacent occupant cell (when present and not the actor's own),
+ *   *outC = the feature if it is a door (27/28/29),
+ *   *outB = the highest-priority (g_a5_-27848 table) non-zero feature seen,
+ *           initialised to 23 and latched to 0 once a direction yields none. */
+static void jt515(long entity, short featIdx,
+                  unsigned char *outA, unsigned char *outB, unsigned char *outC)
+{
+	unsigned char *combat;
+	short zone, j;
+	unsigned char basex, basey, prio;
+
+	PROBE("L6c22");
+	*outA = 0;
+	*outB = 23;
+	prio  = 1;
+	*outC = 0;
+
+	zone   = (unsigned char)jt519(entity);
+	combat = g_a5_buf(-27472) + zone * 6;
+	basex  = combat[1];
+	basey  = combat[3];
+
+	for (j = 0; j <= 5; j++) {
+		unsigned char dx, dy, occ, feat, txb, tyb;
+
+		combat = g_a5_buf(-27472) + zone * 6;
+		if (l5d92((short)combat[5], j, &dx, &dy) == 0)
+			continue;                       /* direction not valid */
+
+		txb = (unsigned char)((signed char)dx + (signed char)basex
+		    + (signed char)g_a5_buf(-27862)[(unsigned char)featIdx]);
+		tyb = (unsigned char)((signed char)dy + (signed char)basey
+		    + (signed char)g_a5_buf(-27853)[(unsigned char)featIdx]);
+
+		l62ec((signed char)txb, (signed char)tyb, &occ, &feat);
+		if (occ == (unsigned char)zone)
+			occ = 0;
+		if (occ != 0)
+			*outA = occ;
+		if (feat == 27 || feat == 28 || feat == 29)
+			*outC = feat;
+
+		if (feat == 0) {
+			*outB = 0;
+			continue;
+		}
+		if (*outB != 0) {                       /* still scanning */
+			unsigned char p = g_a5_buf(-27848)[feat * 4];
+			if (p < prio)
+				continue;
+			prio  = p;
+			*outB = feat;
+		}
+	}
+}
+
 /* L744e (CODE 14 + 0x744e) — set the map-view clip rectangle: the native
  * 24..248 box in render mode 3, else the doubled-space 8004..8088 box. */
 static void l744e(void) __attribute__((unused));
