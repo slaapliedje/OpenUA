@@ -24832,7 +24832,7 @@ static long  jt100(void)
 static short l0088(void);
 /* New PROBE-stub helpers L23b4 needs. */
 static signed char jt1085(void)                      { PROBE("jt1085"); return (signed char)l0088(); }
-static void  jt1067(void)                            { PROBE("jt1067"); }
+static void  jt1067(void);   /* GLIB palette colour-cycling, lifted near l6e58 */
 static void  jt46(short a, short b, short c, short d) { PROBE("jt46"); (void)a; (void)b; (void)c; (void)d; }
 
 /* Forward — l15bc lifts further down with L25b6's helpers. */
@@ -26477,6 +26477,69 @@ static void jt993(long handle, short idx)
 	src += count * 3;                                         /* 2188 */
 	jt406(rembuf, src, (short)(ncopy * 4));                   /* 21a4 */
 	jt1069(start, count, palbuf, ncopy, rembuf);             /* 21c4 */
+}
+
+/* JT[1067] (CODE 5 + 0x7772) — GLIB palette colour CYCLING. For each range
+ * whose next-cycle time (entry[0]) has come due against the current tick,
+ * rotate its colours in the work buffer (-3394) one step — forward (first
+ * colour -> end) when entry[4] bit0 is set, else backward (last -> front) —
+ * bumping the timer by entry[5] each step (catching up if behind), tracking the
+ * touched CLUT span, and committing it via l6e58. Faithful 1:1 lift of L7772.
+ * Gated on -3150 (a palette is loaded) + -2347. Empty ranges (entry[0] sentinel
+ * 0x7fffffff) are never due, so count stays valid. Deps jt406 (memmove, handles
+ * the overlapping shift) / jt1134 / jt397=max / jt413=min / l6e58. */
+static void jt1067(void)
+{
+	unsigned char *work = (unsigned char *)(uintptr_t)g_a5_long(-3394);
+	unsigned char *entry;
+	long           tick;
+	short          i, min = 256, max = 0;
+	unsigned char  mode = 1;
+
+	PROBE("jt1067");
+	if (g_a5_byte(-3150) == 0)                  /* 7780 no palette */
+		return;
+	if (g_a5_byte(-2347) == 0)                  /* 7788 mode gate */
+		return;
+	if (work == NULL)                           /* PORT-SAFETY */
+		return;
+
+	tick  = jt1134();                           /* 7796 */
+	entry = (unsigned char *)&g_a5_byte(-3258); /* 779e */
+
+	for (i = 0; i < 12; i++, entry += 8) {      /* 799c outer */
+		while (*(long *)entry <= tick) {    /* 7986 due? */
+			short base   = entry[6];        /* 77b0 */
+			short count1 = (short)(entry[7] - 1);   /* 77be */
+			unsigned char r, g, b;
+			if (entry[4] & 1) {             /* 77d8 forward */
+				r = work[base * 3 + 0];     /* 77e0 */
+				g = work[base * 3 + 1];
+				b = work[base * 3 + 2];
+				jt406(work + (base + 1) * 3, work + base * 3,
+				      (short)(count1 * 3)); /* 7842 shift up */
+				work[(base + count1) * 3 + 0] = r;  /* 785c */
+				work[(base + count1) * 3 + 1] = g;
+				work[(base + count1) * 3 + 2] = b;
+			} else {                        /* 7894 backward */
+				r = work[(base + count1) * 3 + 0];  /* 7894 */
+				g = work[(base + count1) * 3 + 1];
+				b = work[(base + count1) * 3 + 2];
+				jt406(work + base * 3, work + (base + 1) * 3,
+				      (short)(count1 * 3)); /* 7902 shift down */
+				work[base * 3 + 0] = r;     /* 7918 */
+				work[base * 3 + 1] = g;
+				work[base * 3 + 2] = b;
+			}
+			min  = jt413(base, min);                    /* 7944 */
+			max  = jt397((short)(base + count1), max);  /* 7956 */
+			mode = 0;                       /* 796e */
+			*(long *)entry += (entry[5] & 0xff);    /* 7984 timer */
+		}
+	}
+
+	if (max > min)                              /* 79a8 */
+		l6e58(min, (short)(max - min + 1), mode, work + min * 3);  /* 79d4 */
 }
 
 /* JT[1017] (CODE 5 + 0x38be, = LBIndxType) — the GLIB index-type byte

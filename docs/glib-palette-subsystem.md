@@ -74,9 +74,20 @@ over `jt1134` ticks, reads/writes `-3394`/`-3390`. The colour-cycling effect
 ## Lift sequencing (each its own verified commit)
 
 1. **l6e58** ✓ (done) — the HAL keystone.
-2. **jt1069** ✓ (done, a3a1263) — the allocator (pure data; faithful 1:1 lift,
-   destp NULL-guarded). Staged until jt1066 + wiring; visual-unverified.
-3. **jt1066** — compact + commit through l6e58 (pure data + l6e58). NEXT.
+2. **jt1069** ✓ (a3a1263) — the allocator (pure data; faithful 1:1, destp NULL-guarded).
+3. **jt1066** ✓ (328ed01) — compact + commit through l6e58; LIVE (present path).
+4. **jt1068 + jt993 + l3eea** ✓ (02e4b41) — DNPInit (buffer alloc) + per-picture
+   TNPalette commit; l3eea de-skeletoned and LIVE, so the whole chain runs.
+5. **jt1067** ✓ (done) — colour cycling; de-stubbed (live in the L23b4 loop).
+
+**SUBSYSTEM FULLY LIFTED.** Every function is present + faithful; the data ->
+hardware path is wired and crash-guarded (NULL buffers, -2347 gate, count/ncopy
+clamps, lazy jt1068 init). REMAINING (not lifts): (a) Hatari verification in
+scaled/encounter mode — first live exercise; a logic bug would mis-colour, not
+crash; (b) wiring the bigpic DRAW alongside the palette in jt23's backdrop arms
+(L5822/L579e) to retire port_draw_play_frame — see [[dungeon-hud-chrome-arch]].
+
+### Original sequence (historical)
 4. **jt993** + de-skeleton **l3eea** (= jt124) — the picture-commit wrappers.
 5. **jt1067** — colour cycling (cosmetic, last).
 6. Wire into jt23's backdrop arms (L5822/L579e/L33ac) → the bigpic renders with
