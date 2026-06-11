@@ -42,20 +42,31 @@ above it breaks.
 
 ## High-leverage TRUE stubs to lift (most-called, real work pending)
 
-**RE-AUDITED 2026-06-10 against current boot.c** (regenerate `/tmp/jt_freq.txt`
-per above, then classify each of the top 60 by MISSING / PROBE-only STUB /
-lifted). Result: of the **60 most-called JT entries, only TWO are not lifted** —
-`jt1` and `jt1084`. The prior "remaining" list below was stale; jt1193 and jt876
-are in fact fully lifted, and jt1177 is a leave-as-stub (below). **The
-high-frequency foundational tier is essentially complete** — further "common
-function" digging has diminishing returns; what's left is lower-frequency
-entries and coherent SUBSYSTEMS (the JT[400] printf engine, the GLIB
-picture/palette path), not isolated hot primitives.
+**RE-AUDITED 2026-06-10 (twice) against current boot.c** (regenerate
+`/tmp/jt_freq.txt` per above, then classify each entry MISSING / PROBE-only STUB
+/ lifted, extracting full balanced bodies). Result after the JT[400] arc:
+
+- **Bands 1 + 2 (top 60) are COMPLETE.** Every entry is a real lift, a faithful
+  no-op/constant, or an inline-switch dispatcher. `jt1084` — the last genuine
+  hot stub — is now lifted (as `l036a`) and LIVE behind the error modal, its
+  text running the faithful JT[400] VM. See [[jt400-format-vm]].
+- The only top-60 STUB/MISSING classifier hits are FALSE POSITIVES: `jt3`/`jt1`
+  (inline-switch dispatchers — not functions to lift), `jt1061` (68030
+  addressing-mode toggle — genuinely empty), `jt1163` (returns 0), `jt1198`
+  (returns 1), and `jt1084` (named `l036a`).
+
+**Band 3 (61-120) is the frontier**: mostly lifted, with alias false-positives
+(jt181=l1806, jt1166=l04cc, jt124=l3eea), faithful no-ops (jt1170),
+HAL-deferred (jt1177), and a real tail of lower-frequency lift targets — jt38,
+jt63, jt523, jt857, jt869, jt595, jt1012, then the 120-150 batch (jt519, jt492,
+jt180, jt160, jt699, jt638, jt50/51, jt100/101, jt207, jt860, jt599, jt1128,
+jt1067). Isolated routines, not shared foundation — diminishing returns vs. the
+one coherent SUBSYSTEM still open (the GLIB picture/palette path).
 
 | JT | calls | status (2026-06-10) |
 |----|-------|---------------------|
-| jt1 | 95 | sparse-switch dispatcher (CODE 1+0x130). NOT a function to lift — like jt3, each call site reads its inline (off,key) table -> C `switch` (tools/jt1_extract.py). Fallback `jt1()`/`jt2()` stubs ADDED this session. |
-| jt1084 | 34 | **the one genuine hot stub left.** MISSING. Modal "Error: %r" alert (CODE 5+0x036a): box + format + key-wait + restore. Bottoms out in the **JT[400] custom-printf engine** (~490 instr, + conversion handlers jt966-969 + the `%r` resource conversion) — lift that subsystem first. |
+| jt1 | 95 | sparse-switch dispatcher (CODE 1+0x130). NOT a function to lift — like jt3, each call site reads its inline (off,key) table -> C `switch` (tools/jt1_extract.py). Fallback `jt1()`/`jt2()` stubs in place. |
+| ~~jt1084~~ | 34 | **DONE (this session).** Modal "Error: %r" alert (CODE 5+0x036a = `l036a`): box + format + key-wait + restore. Now routes its text through the faithful JT[400] VM (l0306 -> jt400 -> jt966/DrawChar); LIVE behind ~15 GLIB-loader error sites. See [[jt400-format-vm]]. |
 | ~~jt96 / jt23 / jt938 / jt358 / jt273~~ | | DONE (prior sessions). |
 | ~~jt1193~~ | 24 | DONE — resets the QuickDraw clip rect to full screen (boot.c:22050). Audit table was stale. |
 | ~~jt876~~ | 22 | DONE — linked-list node append / effect-entry builder (boot.c:19631). Audit table was stale. |
