@@ -24512,11 +24512,31 @@ static void l1806(short v)
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
 }
 
-/* l5676 peripheral sub-handlers (CODE 20 locals) — level-1 stubs: l442e =
- * event display, l0b20 = transition fade/redraw, l3f22 = pre-move predicate,
- * l4184 / l3ef8 = view refresh. Deferred; the transition spine below is faithful. */
+/* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop
+ * painter (still a level-1 stub — its visual sub-tree jt43/l08ce/l0ac2/l1476 is
+ * a separate session), l3f22 = pre-move predicate, l4184 / l3ef8 = view refresh
+ * (stubs). l0b20 is LIFTED below. The transition spine in l5676 is faithful. */
 static void  l442e(void *ev)              { PROBE("L442e"); (void)ev; }
-static void  l0b20(void *p)               { PROBE("L0b20"); (void)p; }
+
+/* L0b20 (CODE 20 + 0x0b20) — draw an event's text buffer into the dungeon
+ * message box. Faithful lift: pick the wrap style (3 if the party record's
+ * "highlight" flag rec[57] is set, else 7), prime the slow-text/box state
+ * globals, and render the buffer at `p` through the JT[96] word-wrap box at the
+ * standard message rect (page 1, row 17, 38x22). Shared by l5676 (stairs) and
+ * l3b0e (the encounter prompt). */
+static void  l0b20(void *p)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          style = (rec && rec[57]) ? 3 : 7;
+
+	PROBE("L0b20");
+	g_a5_byte(-22278) = 0;
+	g_a5_byte(-27981) = 1;
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+	jt96(1, 17, 38, 22, style, 0, 0, (long)(uintptr_t)p, 17);
+	g_a5_byte(-27981) = 0;
+}
 static short l3f22(void *ev)              { PROBE("L3f22"); (void)ev; return 0; }
 static void  l4184(void)                  { PROBE("L4184"); }
 static void  l3ef8(void)                  { PROBE("L3ef8"); }
