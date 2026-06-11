@@ -27716,6 +27716,221 @@ static void jt721(long rec_l, long node, short flag)
 	     /* "goes berserk" */, 10, 1);
 }
 
+/* L5746 (CODE 18 + 0x5746) — the level-drain core ("gets drained"):
+ * picks the victim's best class level, knocks it down and rebuilds the
+ * derived stats. PROBE stub: ~830 bytes over JT[102]/JT[26], its own
+ * lift step. Callers jt726/jt731 below are faithful. */
+static void l5746(long ent_l, short levels)
+{
+	PROBE("l5746");
+	(void)ent_l; (void)levels;
+}
+
+/* JT[726] (CODE 18 + 0x32bc) — level-drain hook (one level): in the
+ * combat view, drain the effect's linked entity by one level. */
+static void jt726(long rec_l, long node, short flag) __attribute__((unused));
+static void jt726(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt726");
+	(void)node; (void)flag;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	l5746(*(long *)(sub + 12), 1);
+}
+
+/* JT[731] (CODE 18 + 0x32e2) — level-drain hook (two levels). */
+static void jt731(long rec_l, long node, short flag) __attribute__((unused));
+static void jt731(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt731");
+	(void)node; (void)flag;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	l5746(*(long *)(sub + 12), 2);
+}
+
+/* JT[710] (CODE 18 + 0x3308) — flame-tongue style retaliation: in the
+ * combat view the effect's linked entity takes 4d6 Fire|Magic damage
+ * (jt867 category 2) against a category-4 save. */
+static void jt710(long rec_l, long node, short flag) __attribute__((unused));
+static void jt710(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	long ent_l;
+	short d, sv;
+
+	PROBE("jt710");
+	(void)node; (void)flag;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;
+	ent_l = *(long *)(*(unsigned char **)(uintptr_t)(rec + 64) + 12);
+	if (ent_l == 0)
+		return;
+	g_a5_word(-25266) = 9;		/* Fire | Magic */
+	d  = (short)jt873(4, 6);
+	sv = jt866(ent_l, 4, 0);
+	jt867(ent_l, d, 2, sv);
+}
+
+/* JT[714] (CODE 18 + 0x336c) — charm: the apply pass sets the charm
+ * flag, swaps in the 0xb3/0xb2 creature placeholder, runs the JT[508]
+ * target pick and joins the opposite side of the picked combatant
+ * (linked into sub[12]); the removal pass restores the creature id
+ * and the original side stashed in the node's byte 4. */
+static void jt714(long rec_l, long node, short flag) __attribute__((unused));
+static void jt714(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+	unsigned char *sub, *ent;
+	unsigned char x, y, v, idx;
+
+	PROBE("jt714");
+	if (*(long *)(rec + 64) == 0)
+		return;
+	if ((unsigned char)flag != 0) {		/* removal pass */
+		if (rec[147] == 0xb3)
+			rec[147] = 0;
+		rec[95] = nd[4];
+		return;
+	}
+	rec[383] = 1;
+	if ((rec[147] & 0x80) == 0 || rec[147] == 0xb3)
+		rec[147] = 0xb3;
+	else
+		rec[147] = 0xb2;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	*(long *)(sub + 12) = 0;
+	x = jt525(rec_l);
+	y = jt531(rec_l);
+	v = jt513(rec_l);
+	jt508((short)(signed char)x, (short)(signed char)y, 255, 255,
+	      (short)v);
+	idx = (unsigned char)g_a5_byte(-19162);
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	*(long *)(sub + 12) = g_a5_25676[idx];
+	ent = *(unsigned char **)(uintptr_t)(sub + 12);
+	rec[95] = (unsigned char)(ent[95] ^ 1);
+}
+
+/* JT[719] (CODE 18 + 0x3486) — retaliation hook, 2d6 variant of
+ * jt710 (Fire|Magic, category-4 save, jt867 category 2). */
+static void jt719(long rec_l, long node, short flag) __attribute__((unused));
+static void jt719(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	long ent_l;
+	short d, sv;
+
+	PROBE("jt719");
+	(void)node; (void)flag;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;
+	ent_l = *(long *)(*(unsigned char **)(uintptr_t)(rec + 64) + 12);
+	if (ent_l == 0)
+		return;
+	g_a5_word(-25266) = 9;		/* Fire | Magic */
+	d  = (short)jt873(2, 6);
+	sv = jt866(ent_l, 4, 0);
+	jt867(ent_l, d, 2, sv);
+}
+
+/* JT[724] (CODE 18 + 0x34ea) — charm cleanup: runs only on the
+ * removal pass; restores the creature id / charm flag and clears the
+ * sub-record's fled marker (sub[18]). */
+static void jt724(long rec_l, long node, short flag) __attribute__((unused));
+static void jt724(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt724");
+	(void)node;
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag == 0)
+		return;
+	if (rec[147] == 0xb3) {
+		rec[147] = 0;
+		rec[383] = 0;
+	}
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	sub[18] = 0;
+}
+
+/* JT[729] (CODE 18 + 0x352e) — vorpal: in the combat view, on the
+ * apply pass, when the attack roll was a good one (-25240) and the
+ * linked entity isn't immune (byte 192 bit 5), it "is beheaded"
+ * (jt860 status 6). */
+static void jt729(long rec_l, long node, short flag) __attribute__((unused));
+static void jt729(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *ent;
+	long ent_l;
+
+	PROBE("jt729");
+	(void)node;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;
+	if ((unsigned char)flag != 0)
+		return;
+	if (g_a5_byte(-25240) == 0)
+		return;
+	ent_l = *(long *)(*(unsigned char **)(uintptr_t)(rec + 64) + 12);
+	ent = (unsigned char *)(uintptr_t)ent_l;
+	if ((ent[192] & 32) != 0)
+		return;
+	jt860(ent_l, 6,
+	      (long)(uintptr_t)ua_strs_at(0x55d8) /* "is beheaded" */);
+}
+
+/* JT[734] (CODE 18 + 0x3580) — retaliation hook, identical to jt719
+ * (2d6 Fire|Magic vs a category-4 save). */
+static void jt734(long rec_l, long node, short flag) __attribute__((unused));
+static void jt734(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	long ent_l;
+	short d, sv;
+
+	PROBE("jt734");
+	(void)node; (void)flag;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;
+	ent_l = *(long *)(*(unsigned char **)(uintptr_t)(rec + 64) + 12);
+	if (ent_l == 0)
+		return;
+	g_a5_word(-25266) = 9;		/* Fire | Magic */
+	d  = (short)jt873(2, 6);
+	sv = jt866(ent_l, 4, 0);
+	jt867(ent_l, d, 2, sv);
+}
+
+/* JT[730] (CODE 18 + 0x35e4) — clear the sub-record's byte 8 on both
+ * passes; when -25244 is set the -25264 stage flag is dropped too. */
+static void jt730(long rec_l, long node, short flag) __attribute__((unused));
+static void jt730(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt730");
+	(void)node; (void)flag;
+	if (*(long *)(rec + 64) == 0)
+		return;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	sub[8] = 0;
+	if (g_a5_byte(-25244) != 0)
+		g_a5_byte(-25264) = 0;
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
