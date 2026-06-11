@@ -5239,12 +5239,15 @@ static void jt1141(short top, short left, short h, short w,
  * snapshot and JT[1128] / JT[1153] for clip restore. PROBE for
  * now — the snapshot machinery wires once the QuickDraw shim
  * publishes GrafPort state. */
-/* JT[1012] / JT[1128] / JT[1066] are paint-system leaves L3994
- * reaches. PROBE for now. */
+/* JT[1012] (CODE 5 + 0x37aa) IS L37aa — the GLIB library item lookup (same
+ * address). Lifted as l37aa above; delegate. (JT[1128] / JT[1066] remain
+ * paint-system leaves L3994 reaches — PROBE for now.) */
 static long jt1012(long handle, short item) __attribute__((unused));
 static long jt1012(long handle, short item)
-                                            { PROBE("jt1012"); (void)handle;
-                                              (void)item; return 0; }
+{
+	PROBE("jt1012");
+	return l37aa(handle, item);
+}
 static void jt1128(void)                    { PROBE("jt1128"); }
 static void jt1066(void)                    { PROBE("jt1066"); }
 
@@ -11037,8 +11040,25 @@ static void l3806(short p_y, short p_x, short facing, short v1, short v2,
 
 	jt117();
 }
+/* JT[213] (CODE 7 + 0x56f2) — draw map cell (a,b) only if it falls inside the
+ * visible viewport. Subtract the viewport origin on each axis (-12278 / -12276),
+ * reject when the relative cell is outside [0, extent) (-12274 / -12273 byte
+ * extents), else hand the clipped cell to l5752 (== jt216) with the view anchors
+ * (-12282 / -12280) and facing c. */
 static void jt213(short a, short b, short c)
-                  { PROBE("jt213"); (void)a;(void)b;(void)c; }   /* CODE 7+0x56f2 */
+{
+	short ra, rb;
+
+	PROBE("jt213");
+	ra = (short)(a - g_a5_word(-12278));
+	if (ra < 0 || ra >= (unsigned char)g_a5_byte(-12274))
+		return;
+	rb = (short)(b - g_a5_word(-12276));
+	if (rb < 0 || rb >= (unsigned char)g_a5_byte(-12273))
+		return;
+	l5752(ra, rb, g_a5_word(-12282), g_a5_word(-12280),
+	      (short)(unsigned char)c);
+}
 static void jt1088(void)      { PROBE("jt1088"); }              /* CODE 5+0xa8 */
 
 /* JT[304] (CODE 22 + 0x17ca) — the automap-view setup jt237 runs before its
@@ -22795,8 +22815,27 @@ static int l005a(void)
 }
 
 /* New PROBE-stub helpers jt585 calls. */
+/* JT[419] (CODE 3 + 0x3c7e) — set/replace a filename's extension in place.
+ * Scan back from the end of `path` for '.' or ':'; a '.' is kept (replace
+ * mode), otherwise point at the end (append mode). When `flags` is set, or
+ * there is no existing extension, write '.' then copy `ext` after it. strlen
+ * via l39ae (=jt423); the tail copy via jt384 (=L3952 strcpy). */
 static void  jt419(char *path, const char *ext, short flags)
-                                                 { PROBE("jt419"); (void)path; (void)ext; (void)flags; }
+{
+	char *end, *p;
+
+	PROBE("jt419");
+	end = path + l39ae(path);
+	p = end;
+	while (p > path && *p != '.' && *p != ':')
+		p--;
+	if (*p != '.')
+		p = end;
+	if ((unsigned char)flags || *p == 0) {
+		*p++ = '.';
+		jt384(p, ext);
+	}
+}
 static void  l1c92(void)                         { PROBE("L1c92"); }
 static void  l1cd2(void)                         { PROBE("L1cd2"); }
 
