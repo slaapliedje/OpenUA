@@ -28321,6 +28321,415 @@ static void jt858(long rec_l, long node, short flag)
 		l3dda(0);
 }
 
+/* JT[491] (CODE 13+0x2bde) — resolve the item a combat member actually
+ * deals damage with: member[12] is the wielded item; its item-type row
+ * (the -27944 table, 16-byte stride) carries flags in byte 14 — bit4 =
+ * the weapon itself is the damage source, bit3 = fires loaded ammo
+ * (bit0 -> the member[56] slot, bit7 -> the member[60] slot). Returns
+ * nonzero when the resolution is conclusive (*out set, or the raw flag
+ * byte is exactly 10 or 12). */
+static unsigned char jt491(void *member, void **out) __attribute__((unused));
+static unsigned char jt491(void *member, void **out)
+{
+	unsigned char *m = (unsigned char *)member;
+	unsigned char *item;
+	unsigned char tflags = 0;
+	unsigned char ok = 0;
+
+	PROBE("jt491");
+	item = *(unsigned char **)(m + 12);
+	*out = 0;
+	if (item != NULL) {
+		const unsigned char *t =
+			(const unsigned char *)(uintptr_t)g_a5_long(-27944) +
+			((unsigned long)item[40] << 4);
+		tflags = t[14];
+		if ((tflags & 16) != 0)
+			*out = item;
+		if ((tflags & 8) != 0) {
+			if ((tflags & 1) != 0)
+				*out = *(void **)(m + 56);
+			if ((tflags & 128) != 0)
+				*out = *(void **)(m + 60);
+		}
+	}
+	if (*out != 0 || tflags == 10 || tflags == 12)
+		ok = 1;
+	return ok;
+}
+
+/* L45ea (CODE 18) — the weapon in use for damage purposes: jt491's
+ * resolution when it is conclusive and produced an item, otherwise fall
+ * back to the wielded item member[12] itself (NULL when unarmed). */
+static void *l45ea(long member_l) __attribute__((unused));
+static void *l45ea(long member_l)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)member_l;
+	void *out = 0;
+
+	PROBE("l45ea");
+	if (*(long *)(m + 12) != 0) {
+		unsigned char ok = jt491(m, &out);
+		if (ok == 0 || out == 0)
+			out = *(void **)(m + 12);
+	}
+	return out;
+}
+
+/* L4b64 (CODE 18) — "needs a +N weapon to hit": zero the staged damage
+ * (-25242) unless the active member's weapon-in-use enchantment
+ * (item[48], sign-extended) covers `need` — or, unarmed, the member is
+ * class 6 (monk) of level (member[137]) at least (need-1)*2+5. */
+static void l4b64(short need) __attribute__((unused));
+static void l4b64(short need)
+{
+	unsigned char *item;
+
+	PROBE("l4b64");
+	item = (unsigned char *)l45ea(g_a5_27932);
+	if (item != NULL) {
+		/* unsigned word compare of the sign-extended bonus, as on
+		 * the Mac: a negative (cursed) bonus wraps high and passes */
+		if ((unsigned short)(short)(signed char)item[48] <
+		    (unsigned short)(unsigned char)need)
+			g_a5_word(-25242) = 0;
+	} else {
+		unsigned char *m = (unsigned char *)(uintptr_t)g_a5_27932;
+
+		if (m[88] == 6) {
+			unsigned char lvl = (unsigned char)
+				(((unsigned char)need - 1) * 2 + 5);
+			if (lvl > m[137])
+				g_a5_word(-25242) = 0;
+		} else {
+			g_a5_word(-25242) = 0;
+		}
+	}
+}
+
+/* JT[14] (CODE 6+0x269e) — post-heal report: "is fully healed" when at
+ * max HP (rec[129]), else "is partially healed", announced through
+ * jt18; repaint the member's roster line when not in the combat view. */
+static void jt14(long rec_l) __attribute__((unused));
+static void jt14(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	char buf[42];
+
+	PROBE("jt14");
+	if (rec[395] == rec[129])
+		jt384(buf, ua_strs_at(0x00de) /* "is fully healed" */);
+	else
+		jt384(buf, ua_strs_at(0x00ee) /* "is partially healed" */);
+	jt18(rec, (long)(uintptr_t)buf, 10, 1);
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		jt936(rec_l, (short)(rec_l == g_a5_27932));
+}
+
+/* L2f28 (CODE 18) — save-or-succumb to effect 55 for the node's linked
+ * entity (sub+12): roll the row-0 save with modifier `mod`, inflict
+ * effect 55 via jt871 ("is %s" with the -19876 status name), repaint
+ * (jt102), and if the effect actually landed kill outright (status 6,
+ * "is killed"). */
+static void l2f28(long rec_l, short mod) __attribute__((unused));
+static void l2f28(long rec_l, short mod)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+	unsigned char sv;
+	const char *s;
+	void *out = 0;
+
+	PROBE("l2f28");
+	if (*(long *)(rec + 64) == 0)
+		return;
+	sub = *(unsigned char **)(rec + 64);
+	g_a5_long(-25250) = *(long *)(sub + 12);
+	sv = (unsigned char)jt866(g_a5_long(-25250), 0,
+				  (short)(signed char)mod);
+	s = jt488(ua_strs_at(0x5588) /* "is %s" */,
+		  (const char *)(uintptr_t)g_a5_long(-19876));
+	jt871(g_a5_long(-25250), 55, 0, 255, 0, 1,
+	      (short)(signed char)sv, (long)(uintptr_t)s);
+	jt102();
+	if (jt41(g_a5_long(-25250), 55, &out) != 0)
+		jt860(g_a5_long(-25250), 6,
+		      (long)(uintptr_t)ua_strs_at(0x558e) /* "is killed" */);
+}
+
+/* JT[774] (CODE 18 + 0x4b5c) — faithful no-op handler. */
+static void jt774(long rec_l, long node, short flag) __attribute__((unused));
+static void jt774(long rec_l, long node, short flag)
+{
+	PROBE("jt774");
+	(void)rec_l; (void)node; (void)flag;
+}
+
+/* JT[775] (CODE 18 + 0x4bd2) — the attacker needs a +3 weapon (or monk
+ * level) to damage this creature; runs L4b64 on both passes. */
+static void jt775(long rec_l, long node, short flag) __attribute__((unused));
+static void jt775(long rec_l, long node, short flag)
+{
+	PROBE("jt775");
+	(void)rec_l; (void)node; (void)flag;
+	l4b64(3);
+}
+
+/* JT[776] (CODE 18 + 0x4be4) — fire-damage reduction: -2 per staged
+ * damage die (-25261), floored at the staged die count; counts as a
+ * resistance (+4 to -25269) and absorbs the hit (l3dda(0)) unless the
+ * Magic flag rides along with the Fire flag. */
+static void jt776(long rec_l, long node, short flag) __attribute__((unused));
+static void jt776(long rec_l, long node, short flag)
+{
+	unsigned char i;
+
+	PROBE("jt776");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 1) == 0)		/* Fire */
+		return;
+	if ((short)g_a5_word(-25242) <= 0)
+		return;
+	for (i = 1; i <= (unsigned char)g_a5_byte(-25261); i++) {
+		g_a5_word(-25242) = (short)(g_a5_word(-25242) - 2);
+		if ((short)(unsigned char)g_a5_byte(-25261) >
+		    (short)g_a5_word(-25242))
+			g_a5_word(-25242) =
+				(short)(unsigned char)g_a5_byte(-25261);
+	}
+	g_a5_byte(-25269) = (char)(g_a5_byte(-25269) + 4);
+	if ((g_a5_word(-25266) & 8) == 0)		/* not also Magic */
+		l3dda(0);
+}
+
+/* JT[777] (CODE 18 + 0x4c4c) — regeneration tick: refresh effect 62
+ * (magnitude node[4], duration 60) and, when that lands, heal one point
+ * (jt869) and report it (jt14). Runs on both passes. */
+static void jt777(long rec_l, long node, short flag) __attribute__((unused));
+static void jt777(long rec_l, long node, short flag)
+{
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt777");
+	(void)flag;
+	if (!l3dfe(rec_l, 62, (short)(unsigned char)nd[4], 60))
+		return;
+	if (jt869(rec_l, 1, 1) == 0)
+		return;
+	jt14(rec_l);
+}
+
+/* JT[778] (CODE 18 + 0x4c98) — absorb the hit when the active
+ * feature-sound id names a hazard of class 3 or less (-16906 byte 1;
+ * companion of jt761's <8 and jt858's <=4 rules). */
+static void jt778(long rec_l, long node, short flag) __attribute__((unused));
+static void jt778(long rec_l, long node, short flag)
+{
+	unsigned char id;
+
+	PROBE("jt778");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	id = (unsigned char)g_a5_byte(-25262);
+	if (id == 0)
+		return;
+	if (g_a5_buf(-16906)[id * 16 + 1] <= 3)
+		l3dda(0);
+}
+
+/* JT[779] (CODE 18 + 0x4cd8) — apply pass: the save-or-die effect-55
+ * inflict (l2f28) with no save modifier. */
+static void jt779(long rec_l, long node, short flag) __attribute__((unused));
+static void jt779(long rec_l, long node, short flag)
+{
+	PROBE("jt779");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	l2f28(rec_l, 0);
+}
+
+/* JT[780] (CODE 18 + 0x4cf2) — halve the staged damage when the active
+ * member's weapon-in-use has a type-row class byte (+7) of 1 or less.
+ * Runs on both passes. */
+static void jt780(long rec_l, long node, short flag) __attribute__((unused));
+static void jt780(long rec_l, long node, short flag)
+{
+	unsigned char *item;
+
+	PROBE("jt780");
+	(void)rec_l; (void)node; (void)flag;
+	item = (unsigned char *)l45ea(g_a5_27932);
+	if (item == NULL)
+		return;
+	{
+		const unsigned char *t =
+			(const unsigned char *)(uintptr_t)g_a5_long(-27944) +
+			((unsigned long)item[40] << 4);
+		if (t[7] <= 1)
+			g_a5_word(-25242) =
+				(short)((short)g_a5_word(-25242) / 2);
+	}
+}
+
+/* JT[781] (CODE 18 + 0x4d48) — halve the staged damage when the active
+ * member's weapon-in-use has bit7 set in its type-row class byte (+7).
+ * Runs on both passes. */
+static void jt781(long rec_l, long node, short flag) __attribute__((unused));
+static void jt781(long rec_l, long node, short flag)
+{
+	unsigned char *item;
+
+	PROBE("jt781");
+	(void)rec_l; (void)node; (void)flag;
+	item = (unsigned char *)l45ea(g_a5_27932);
+	if (item == NULL)
+		return;
+	{
+		const unsigned char *t =
+			(const unsigned char *)(uintptr_t)g_a5_long(-27944) +
+			((unsigned long)item[40] << 4);
+		if ((t[7] & 128) != 0)
+			g_a5_word(-25242) =
+				(short)((short)g_a5_word(-25242) / 2);
+	}
+}
+
+/* JT[782] (CODE 18 + 0x4d98) — apply pass: a defender with any of trait
+ * bits 0/2/6 (rec[191] & 0x45) lowers the rolled throw (-25255) by 4
+ * unless effect 24 is already on the record. */
+static void jt782(long rec_l, long node, short flag) __attribute__((unused));
+static void jt782(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	void *out = 0;
+
+	PROBE("jt782");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((rec[191] & 0x45) == 0)
+		return;
+	if (jt41(rec_l, 24, &out) == 0)
+		g_a5_byte(-25255) = (char)(g_a5_byte(-25255) - 4);
+}
+
+/* JT[784] (CODE 18 + 0x4f12) — apply pass: -2 on both save-target rows
+ * rec[385]/rec[386]. */
+static void jt784(long rec_l, long node, short flag) __attribute__((unused));
+static void jt784(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt784");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	rec[385] = (unsigned char)(rec[385] - 2);
+	rec[386] = (unsigned char)(rec[386] - 2);
+}
+
+/* JT[785] (CODE 18 + 0x4f30) — faithful no-op handler. */
+static void jt785(long rec_l, long node, short flag) __attribute__((unused));
+static void jt785(long rec_l, long node, short flag)
+{
+	PROBE("jt785");
+	(void)rec_l; (void)node; (void)flag;
+}
+
+/* JT[786] (CODE 18 + 0x4f38) — apply pass: absorb the hit (l3dda(0))
+ * when damage-element flag 32 is staged. */
+static void jt786(long rec_l, long node, short flag) __attribute__((unused));
+static void jt786(long rec_l, long node, short flag)
+{
+	PROBE("jt786");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 32) != 0)
+		l3dda(0);
+}
+
+/* JT[787] (CODE 18 + 0x4f58) — apply pass: double the -25263 staged
+ * counter (companion of jt760's *2 / jt763's /2). */
+static void jt787(long rec_l, long node, short flag) __attribute__((unused));
+static void jt787(long rec_l, long node, short flag)
+{
+	PROBE("jt787");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_byte(-25263) =
+		(char)((unsigned char)g_a5_byte(-25263) * 2);
+}
+
+/* JT[788] (CODE 18 + 0x4f72) — apply pass: replace the hit with effect
+ * 34 (l3dda(34)). */
+static void jt788(long rec_l, long node, short flag) __attribute__((unused));
+static void jt788(long rec_l, long node, short flag)
+{
+	PROBE("jt788");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	l3dda(34);
+}
+
+/* JT[789] (CODE 18 + 0x4f8a) — apply pass: +1 on the save-modifier
+ * accumulator (-25269). */
+static void jt789(long rec_l, long node, short flag) __attribute__((unused));
+static void jt789(long rec_l, long node, short flag)
+{
+	PROBE("jt789");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_byte(-25269) = (char)(g_a5_byte(-25269) + 1);
+}
+
+/* JT[790] (CODE 18 + 0x4f9c) — fire-elemental style reaction to the
+ * staged damage element: magical Fire (1|8) HEALS the staged amount
+ * ("Is Healed.", clamped at max HP rec[129]); Electricity (4) instead
+ * applies effect 42 and announces "is %s" with the -19928 status name;
+ * in every arm the hit itself is absorbed (l3dda(0)). Runs on both
+ * passes. */
+static void jt790(long rec_l, long node, short flag) __attribute__((unused));
+static void jt790(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt790");
+	(void)node; (void)flag;
+	if ((g_a5_word(-25266) & 1) != 0 &&
+	    (g_a5_word(-25266) & 8) != 0) {		/* Fire + Magic */
+		short hp;
+
+		jt18(rec, (long)(uintptr_t)ua_strs_at(0x56e2)
+		     /* "Is Healed." */, 10, 1);
+		hp = (short)((unsigned char)rec[395] +
+			     (short)g_a5_word(-25242));
+		if ((unsigned short)(unsigned char)rec[129] <
+		    (unsigned short)hp)
+			rec[395] = rec[129];
+		else
+			rec[395] = (unsigned char)hp;
+		l3dda(0);
+	} else if ((g_a5_word(-25266) & 4) != 0) {	/* Electricity */
+		const char *s;
+
+		jt876(rec_l, 42, 3, 255, 0);
+		s = jt488(ua_strs_at(0x56ee) /* "is %s" */,
+			  (const char *)(uintptr_t)g_a5_long(-19928));
+		jt18(rec, (long)(uintptr_t)s, 10, 1);
+		l3dda(0);
+	} else {
+		l3dda(0);
+	}
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
