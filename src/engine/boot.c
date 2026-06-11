@@ -24984,18 +24984,12 @@ static short l673e(void *ev_v, short a, short *pn)
 	return result;
 }
 
-/* The two encounter-prompt CHOICE renderers l3b0e branches to. l026e_c20 is
- * CODE 20's interactive Yes/No / menu prompt (note: NOT the lifted CODE-18
- * l026e — different function, hence the _c20 suffix); it is LIFTED below.
- * l03f6 (the type-21 '~'/'^' markup renderer, needs jt39/jt99/l0380) is still
- * a stub — that path resolves to outcome 0 until it lands. */
+/* The two encounter-prompt CHOICE renderers l3b0e branches to, both LIFTED
+ * below: l026e_c20 is CODE 20's interactive Yes/No / menu prompt (note: NOT
+ * the lifted CODE-18 l026e — different function, hence the _c20 suffix); l03f6
+ * is the type-21 list-menu renderer (l0380 -> JT[169] list dialog). */
 static short l026e_c20(const char *str, void *buf, short flag2, short flag3);  /* defined after its deps */
-static short l03f6(void *buf)
-{
-	PROBE("L03f6");
-	(void)buf;
-	return 0;
-}
+static short l03f6(void *buf);  /* type-21 list-menu renderer — defined after l0098 */
 
 /* L3b0e (CODE 20 + 0x3b0e) — the encounter PROMPT. Shows the event picture
  * (l442e if ev[6], else just jt935), draws the lead-in text from ev[4] through
@@ -25375,6 +25369,135 @@ static short l026e_c20(const char *str, void *buf, short flag2, short flag3)
 		/* otherwise re-prompt */
 	}
 	return (key == 27) ? 0 : (short)key;
+}
+
+/* L0380 (CODE 20 + 0x0380) — present the type-21 encounter list dialog. Builds
+ * the title string from `src` (jt384 + l0098 marker pass), then runs the JT[169]
+ * scrolling list over `head` (the linked list of option strings l03f6 built),
+ * returning the selection through *idx. Faithful forwarder. */
+static void l0380(long h1, long src, short top, short left, short right,
+                  short bottom, long head, short a,
+                  unsigned char *flag, short *idx, long *next)
+{
+	char          title[52];        /* fp@-52 */
+	unsigned char nopts = 0;        /* fp@-53 */
+
+	PROBE("L0380");
+	jt384(title, (const char *)(uintptr_t)src);
+	l0098(title, &nopts);
+	jt179((short)0);
+	(void)jt169(h1, g_a5_long(-13848),
+	            (short)(signed char)top, (short)(signed char)left,
+	            (short)(signed char)right, (short)(signed char)bottom,
+	            head, (short)(signed char)a, (short)0, flag, idx, next);
+}
+
+/* L03f6 (CODE 20 + 0x03f6) — the type-21 encounter prompt's LIST renderer.
+ * Two passes over the prompt string: pass 1 counts the option "words" (runs
+ * not containing the '~'/'^' markers) and allocates that many list nodes
+ * (jt167); pass 2 copies each word's text into a node (offset +5), deletes the
+ * markers from the string (jt481), and records the running marker count per
+ * option in buf22 (the selection-remap table). Shows the list (l0380), maps the
+ * chosen row back through buf22, frees the nodes (jt147), repaints the message
+ * box (jt103), and returns the option index. */
+static short l03f6(void *buf)
+{
+	char          *str   = (char *)buf;
+	unsigned char  buf22[32] = {0};  /* fp@-22 — per-option marker-count remap */
+	unsigned char  flag13 = 1;       /* fp@-13 */
+	short          sel    = 0;       /* fp@-12 — selection */
+	long           head   = 0;       /* fp@-10 */
+	long           node   = 0;       /* fp@-6  */
+	short          i;                /* fp@-2  (1-based index) */
+	short          k;                /* fp@-1  */
+	unsigned char  words  = 0;       /* fp@-14 */
+	unsigned char  marks  = 0;       /* fp@-15 */
+	unsigned char  prevword = 0;     /* fp@-16 */
+	int            done;
+
+	PROBE("L03f6");
+	memmove(buf22, (const void *)&g_a5_byte(-5228), 4);
+	g_a5_byte(-24140) = 1;
+	g_a5_byte(-22278) = 0;
+	g_a5_byte(-22308) = 0;
+
+	/* PASS 1 — count option words (`words`) and markers (`marks`) */
+	i = 1;
+	while (g_a5_byte(-22308) == 0) {
+		if (i >= jt483(str)) {
+			g_a5_byte(-22308) = 1;
+			break;
+		}
+		if ((unsigned char)str[i] == 126 || (unsigned char)str[i] == 94) {
+			marks++;
+		} else if (str[i] != 0) {
+			do {
+				unsigned char c = (unsigned char)str[i];
+				done = (c == 126 || c == 94 || c == 0);
+				if (!done) i++;
+			} while (!done);
+			i--;
+			words++;
+		}
+		i++;
+	}
+
+	jt167((short)words, (long)(uintptr_t)&node);
+	head = node;
+	g_a5_byte(-27912) = 1;
+	g_a5_byte(-27911) = 17;
+
+	/* PASS 2 — fill the nodes; strip the markers from the string */
+	i = 1;
+	words = 0;
+	marks = 0;
+	prevword = 1;
+	while (node != 0) {
+		if (i >= jt483(str))
+			break;
+		if ((unsigned char)str[i] == 126 || (unsigned char)str[i] == 94) {
+			marks++;
+			if (prevword != 0) {
+				jt481(str, i, (short)1);
+				i--;
+			}
+			prevword = 1;
+		} else {
+			prevword = 0;
+			if (str[i] != 0) {
+				unsigned char *n = (unsigned char *)(uintptr_t)node;
+				k = 0;
+				for (;;) {
+					unsigned char c = (unsigned char)str[i];
+					done = (c == 126 || c == 94 || c == 0);
+					if (done)
+						break;
+					n[k + 5] = c;
+					i++;
+					k++;
+				}
+				n[k + 5] = 0;
+				n[4]     = 0;
+				node = *(long *)(uintptr_t)node;
+				i--;
+				buf22[words] = marks;
+				words++;
+			}
+		}
+		i++;
+	}
+
+	node = head;
+	sel  = 0;
+	l0380((long)(uintptr_t)ua_strs_at(0x669a),
+	      (long)(uintptr_t)ua_strs_at(0x669c),
+	      (short)3, (short)(g_a5_byte(-27911) + 1), (short)38, (short)23,
+	      node, (short)0, &flag13, &sel, &head);
+
+	sel = (short)(signed char)buf22[(unsigned char)sel];
+	jt147(&node);
+	jt103((short)1, (short)17, (short)38, (short)22);
+	return sel;
 }
 
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
