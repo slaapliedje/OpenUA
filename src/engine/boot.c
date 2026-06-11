@@ -10877,8 +10877,11 @@ static short jt205(short row, short col, short edge)
 	return (short)(lvl[290 + idx * 6 + eidx] & 15);
 }
 
-static void  jt89(void)               { PROBE("jt89"); }   /* CODE 6+0x4d7c pre-fill */
-static void  jt90(void)               { PROBE("jt90"); }   /* CODE 6+0x4d8c post-fill */
+/* JT[1182] (CODE 4+0x17d2) — copy the 16-byte block at g_a5_-3016 into `dst`. */
+static void jt1182(void *dst) __attribute__((unused));
+static void jt1182(void *dst)         { PROBE("jt1182"); jt406(dst, &g_a5_byte(-3016), 16); }
+static void  jt89(void)               { PROBE("jt89"); (void)jt1134(); jt1182(&g_a5_byte(-17466)); }   /* CODE 6+0x4d7c */
+static void  jt90(void)               { PROBE("jt90"); jt1182(&g_a5_byte(-17498)); }                   /* CODE 6+0x4d8c */
 static short l06e2(short cx, short cy) { PROBE("L06e2"); (void)cx;(void)cy; return 0; } /* CODE 22+0x6e2 */
 
 /* L3a1a (CODE 22 + 0x3a1a) — draw one flat-automap cell. Clears the cell,
@@ -23903,9 +23906,45 @@ static void jt582(void)
  * the design-load path sets up). Reading through NULL would
  * bus-error, so the walks are guarded behind a non-NULL check.
  */
-/* New PROBE-stub helper L1276's prologue calls. jt25 / jt94 are
- * already lifted earlier in this file. */
-static void   jt82(void)                             { PROBE("jt82"); }
+static long jt459(short id);   /* CODE 3+0xd44, defined below */
+static void l670c(void);       /* CODE 6+0x670c, defined below */
+
+/* JT[120] (CODE 6 + 0x3918) — set the "current view" cache. Key the arg via
+ * jt459 (id->index); if (arg,key) already match the cached pair (-18392/-18292)
+ * do nothing, else mark dirty (-18393), cache the pair, and (when arg != NULL)
+ * load the 96-byte descriptor from the GLIB item (jt468 group -> jt1012 lookup,
+ * +8) into g_a5_-18388. Faithful 1:1 lift of L3918. */
+static void jt120(void *arg) __attribute__((unused));
+static void jt120(void *arg)
+{
+	long key;
+
+	PROBE("jt120");
+	key = (arg != NULL) ? jt459(*(short *)arg) : -1L;       /* 391c */
+	if (g_a5_long(-18392) == (long)(uintptr_t)arg           /* 393e */
+	    && g_a5_long(-18292) == key)                        /* 3948 */
+		return;                                         /* 3990 unchanged */
+	g_a5_byte(-18393) = 1;                                  /* 3950 dirty */
+	g_a5_long(-18392) = (long)(uintptr_t)arg;               /* 3954 */
+	g_a5_long(-18292) = key;                                /* 395a */
+	if (arg != NULL) {                                      /* 3960 */
+		long h = jt1012(jt468(*(short *)arg), 0);       /* 3976 */
+		jt406(&g_a5_byte(-18388),
+		      (void *)(uintptr_t)(h + 8), 96);          /* 3988 */
+	}
+}
+
+/* JT[82] (CODE 6 + 0x6788) — stand up the empty 3D viewport frame: clear box
+ * (l670c) + the three panel dividers (l66e6) + the viewport FRAME piece
+ * (jt1001 group 1 item 8) + reset the view cache (jt120 NULL). */
+static void   jt82(void)
+{
+	PROBE("jt82");
+	l670c();
+	l66e6(8); l66e6(16); l66e6(20);
+	jt1001(8000, 8000, 1, 8);
+	jt120(NULL);
+}
 
 /* L1276 (CODE 19 + 0x1276) — character status panel renderer.
  *
@@ -25505,7 +25544,7 @@ static short jt953(void)
 
 static short  jt595(short a, short b, short *p1, unsigned char *p2)
                                                      { PROBE("jt595"); (void)a; (void)b; (void)p1; (void)p2; return 0; }
-static void   jt527(void)                            { PROBE("jt527"); }
+static void   jt527(void)                            { PROBE("jt527"); jt120((void *)(uintptr_t)g_a5_long(-27870)); }   /* CODE 14+0x5e8e -> jt120 */
 /* ---------------------------------------------------------------------------
  * JT[23] — the play-frame redraw dispatcher (CODE 6 + 0x2890), and its
  * stand-up spine. jt23 gates on the live record's slot, then switches on the
