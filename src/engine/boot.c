@@ -20665,12 +20665,31 @@ static void jt232(void *rec, short num, char *out)
 }
 
 
-/* L77a0 / L1b14 — equip-removal and class-specific cleanup hooks
- * that jt878 dispatches into. CODE 18 leaves, PROBE for now. */
+/* JT[857] / L77a0 (CODE 18 + 0x77a0, 14 sites) — dispatch an effect-removal
+ * hook by item/effect type. Either an installed override callback
+ * (g_a5_-24734, used when g_a5_-23187 is set) or the per-type slot
+ * g_a5_-25242[item_type] in the 230-entry hook table that jt856 builds. The
+ * hook takes (entity, target, flag); `flag` is the low byte, sign-extended.
+ *
+ * NULL-guarded: until jt856 (the table registration) runs the slots are zero,
+ * so this is a safe no-op — same observable behaviour as the old stub, but
+ * the dispatch is now faithful and goes live the moment the table is filled. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
-                                            { PROBE("l77a0"); (void)item_type;
-                                              (void)entity; (void)target;
-                                              (void)flag; }
+{
+	typedef void (*effect_hook_t)(void *entity, void *target, short flag);
+	effect_hook_t fn;
+	short fl = (signed char)flag;          /* callee reads low byte, sign-ext */
+
+	PROBE("l77a0");
+	if ((unsigned char)g_a5_byte(-23187) != 0)
+		fn = (effect_hook_t)(uintptr_t)g_a5_long(-24734);
+	else
+		fn = (effect_hook_t)(uintptr_t)
+		     g_a5_long(-25242 + (unsigned char)item_type * 4);
+
+	if (fn)
+		fn(entity, target, fl);
+}
 /* forward decls — l1b14 calls these effect-system functions defined below */
 static void jt878(long entity_long, short item_type, long item_long);
 static void jt876(long a, short b, short c, short d, short e);
