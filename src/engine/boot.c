@@ -26059,6 +26059,49 @@ static void jt713(long rec_l, long node, short flag)
 	jt498(rec_l);
 }
 
+/* JT[31] (CODE 6+0x2144) — flag a creature's matching ability slot active:
+ * scan rec[198..338] for the first byte == `type`; set its high bit
+ * (type|128) and stop. A clean leaf (no calls). */
+static void jt31(long rec_l, short type) __attribute__((unused));
+static void jt31(long rec_l, short type)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	short i;
+	PROBE("jt31");
+	for (i = 0; i <= 140; i++) {
+		if (rec[i + 198] == (unsigned char)type) {
+			rec[i + 198] = (unsigned char)((unsigned char)type | 128);
+			break;
+		}
+	}
+}
+
+/* JT[728] (CODE 18+0x2aa2) — clear a transient combat sub-state: out of the
+ * triggering pass (flag==0) and with a sub-record (rec[64]), if sub[2] is set
+ * announce "is <state>" (the -20012 name), re-flag the drained ability slot
+ * (jt31) when sub[0] is set, then clear sub[0]/sub[1]/sub[2]. */
+static void jt728(long rec_l, long node, short flag) __attribute__((unused));
+static void jt728(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+	PROBE("jt728");
+	(void)node;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	if (sub == NULL || (unsigned char)flag != 0)
+		return;
+	if (sub[2] != 0) {
+		const char *m = jt488(ua_strs_at(0x5524) /* "is %s" */,
+		                      g_a5_long(-20012));
+		jt18(rec, (long)(uintptr_t)m, (short)10, (short)1);
+	}
+	if (sub[0] != 0)
+		jt31(rec_l, (short)sub[0]);
+	sub[0] = 0;
+	sub[2] = 0;
+	sub[1] = 0;
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
