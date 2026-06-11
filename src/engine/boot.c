@@ -2691,7 +2691,7 @@ static void  l4336(short idx)              { PROBE("L4336"); (void)idx; }
 static void  l4144(void)                   { PROBE("L4144"); }
 static void  l085e(void)                   { PROBE("L085e"); }
 static void  l159a(void *ev, short f)      { PROBE("L159a"); (void)ev; (void)f; }
-static void  l4d26(void *ev)               { PROBE("L4d26"); (void)ev; }
+static void  l4d26(void *ev);              /* message/text event — defined after its deps */
 static void  l28b0(void *ev, short f)      { PROBE("L28b0"); (void)ev; (void)f; }
 static void  l40b4(void)                   { PROBE("L40b4"); }
 static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
@@ -24627,6 +24627,65 @@ invalid:
 	if (fp12) { l4144(); l085e(); g_a5_byte(-4942) = 1; }  /* 5bb6 */
 	if (fp12 == 0 || valid == 0)
 		l3ef8();
+}
+
+static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L4d26 (CODE 20 + 0x4d26) — the MESSAGE / event-text handler (l709e cases
+ * 2/14). Faithful lift: set up the text box (rows 17..38), play the event sound
+ * (jt52 over ev[18]), then walk the 5 text-ID word slots (ev[8]/[10]/[12]/[14]/
+ * [16]) loading each string (jt1180 + jt232) and drawing it in the word-wrap box
+ * (jt96, style 3/7 by ev[7] bit), pausing for confirm (l1806 + jt176) on the
+ * ev[4]-flagged lines; then refresh the dungeon view (jt23/jt935/jt937/jt938).
+ * The s9 box-row arg jt96 wants (port pagination) is the box top row, 17. */
+static void  l4d26(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          i, flag = 1;
+
+	PROBE("L4d26");
+	if (ev == NULL || rec == NULL)
+		return;
+	jt20();
+	l40b4();
+	if (ev[6]) l442e(ev);
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+	if (ev[18]) jt52(ev[18]);                               /* event sound */
+
+	for (i = 0; i <= 4; i++) {                              /* 5 text slots */
+		unsigned char *entry = ev + i * 2;
+		if (*(short *)(entry + 8) != 0) {
+			short d = jt1180(*(short *)(entry + 8));
+			short style = (ev[7] & (flag << 2)) ? 3 : 7;
+			jt232((void *)(uintptr_t)g_a5_long(-13034), d,
+			      (char *)&g_a5_byte(-5213));
+			g_a5_byte(-27981) = 1;
+			jt96(1, 17, 38, 22, style, 0, 0,
+			     (long)(uintptr_t)&g_a5_byte(-5213), 17);
+			if (ev[4] & flag) {                    /* confirm-paged line */
+				l1806(0);
+				g_a5_byte(-27911) = 17;
+				g_a5_byte(-27912) = 1;
+				jt20();
+				jt176();
+			}
+			g_a5_byte(-27981) = 0;
+		}
+		flag = (short)(flag << 1);
+	}
+
+	jt399(&g_a5_byte(-22302), 2, 0);
+	if (g_a5_byte(-27990) == 4 && ev[6] < 240) {            /* refresh view */
+		jt23();
+		jt935();
+		jt937(g_a5_long(-27932));
+		jt938();
+	}
+	rec[57] = 0;
+	if (ev[4] & 0x20)
+		g_a5_byte(-4946) = 1;
 }
 
 /* New PROBE-stub helpers L206e calls. */
