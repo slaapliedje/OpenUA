@@ -24984,18 +24984,12 @@ static short l673e(void *ev_v, short a, short *pn)
 	return result;
 }
 
-/* The two encounter-prompt CHOICE renderers l3b0e branches to. Both are still
- * level-1 stubs (their own slice): l026e_c20 is CODE 20's interactive Yes/No /
- * menu prompt (note: NOT the lifted CODE-18 l026e — different function, hence
- * the _c20 suffix; needs leaf l0098 -> jt484), l03f6 is the type-21 '~'/'^'
- * markup renderer (needs jt39/jt99/l0380). Returning 0 makes l3b0e resolve to
- * outcome 0 until they land. */
-static short l026e_c20(const char *str, void *buf, short flag2, short flag3)
-{
-	PROBE("L026e_c20");
-	(void)str; (void)buf; (void)flag2; (void)flag3;
-	return 0;
-}
+/* The two encounter-prompt CHOICE renderers l3b0e branches to. l026e_c20 is
+ * CODE 20's interactive Yes/No / menu prompt (note: NOT the lifted CODE-18
+ * l026e — different function, hence the _c20 suffix); it is LIFTED below.
+ * l03f6 (the type-21 '~'/'^' markup renderer, needs jt39/jt99/l0380) is still
+ * a stub — that path resolves to outcome 0 until it lands. */
+static short l026e_c20(const char *str, void *buf, short flag2, short flag3);  /* defined after its deps */
 static short l03f6(void *buf)
 {
 	PROBE("L03f6");
@@ -25275,6 +25269,112 @@ static void jt481(char *str, short offset, short count)
 	src = str + offset + count - 1;
 	remaining = strlen(src) + 1;
 	memmove(dst, src, remaining);
+}
+
+/* JT[484] (CODE 3 + 0x158) — insert string `ins` into `target` at 1-based
+ * position `pos`: open a gap of len(ins) by shifting the tail right (l366a),
+ * then copy `ins` into it. Used by l0098 to splice menu-marker templates into
+ * the prompt string. */
+static void jt484(char *ins, char *target, short pos)
+{
+	short  ins_len = l39ae(ins);
+	char  *gap     = target + (pos - 1);
+	char  *dst     = gap + ins_len;
+
+	PROBE("jt484");
+	l366a(gap, dst, (short)(l39ae(gap) + 1));   /* shift tail right (incl NUL) */
+	l366a(ins, gap, ins_len);                   /* drop ins into the gap */
+}
+
+/* L0098 (CODE 20 + 0x0098) — parse the encounter prompt string for its menu
+ * options. Walks `str`: lowercases A-Z (and shifts 0-9 by +32, as the Mac
+ * does), and for each '~'/'^' option marker splices in the marker templates
+ * (-5236 / -5234) via jt484, records the option (jt155 / jt481), and bumps the
+ * option count (*nopts) and the running marker index (-27914). l026e_c20 uses
+ * *nopts as the valid-selection range. */
+static void l0098(char *str, unsigned char *nopts)
+{
+	unsigned char w4buf[4]   = {0};   /* fp@-4  : 2-byte copy of -5236 */
+	unsigned char markbuf[8] = {0};   /* fp@-10 : 6-byte copy of -5234 */
+	unsigned char slotbyte   = 0;     /* fp@-11 */
+	short         i;                  /* fp@-1  */
+
+	PROBE("L0098");
+	memmove(w4buf,   (const void *)&g_a5_byte(-5236), 2);
+	memmove(markbuf, (const void *)&g_a5_byte(-5234), 6);
+	*nopts = 0;
+	g_a5_word(-27914) = 0;
+
+	for (i = 0; i < jt483(str); i++) {
+		unsigned char c = (unsigned char)str[i];
+
+		if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57))
+			str[i] = (char)(str[i] + 32);
+
+		if ((unsigned char)str[i] == 126 || (unsigned char)str[i] == 94) {
+			unsigned char c1 = (unsigned char)str[i + 1];
+
+			if (c1 == 126 || c1 == 94)
+				jt484((char *)markbuf, str, (short)(i + 2));
+			else
+				jt155(g_a5_word(-27914), &slotbyte);
+
+			if ((unsigned char)str[i] == 94) {      /* '^' -> '~', splice w4buf */
+				str[i] = 126;
+				jt484((char *)w4buf, str, (short)(i + 1));
+				i++;
+			}
+			jt481(str, (short)(i + 1), (short)1);
+			(*nopts)++;
+			g_a5_word(-27914)++;
+		}
+	}
+}
+
+/* L026e_c20 (CODE 20 + 0x026e) — the interactive encounter CHOICE prompt.
+ * (NOT the CODE-18 l026e per-item engine — a different function at the same
+ * local address.) Parses the prompt's menu options (l0098), then loops jt182
+ * (keystroke wait) until the player picks a valid option (key < option count)
+ * or hits ESC. During combat (rec[34]==1, not overview) arrow keys cycle the
+ * active roster member (jt934 bracketed by jt936 highlight toggles) instead of
+ * selecting. The jt396 predicate over -14640 short-circuits to a one-line
+ * status (jt181) with no choice. Returns the chosen option (0 on ESC). */
+static short l026e_c20(const char *str, void *buf, short flag2, short flag3)
+{
+	unsigned char numopts = 0;        /* fp@-2 */
+	unsigned char key;                /* fp@-1 */
+	short         cond4;              /* fp@-4 */
+
+	PROBE("L026e_c20");
+	cond4 = (jt396((const char *)(uintptr_t)g_a5_long(-14640),
+	               (const char *)buf) != 0) ? 1 : 0;
+	l0098((char *)buf, &numopts);
+	if (cond4 != 0) {
+		jt181((short)(signed char)flag3);
+		return 0;
+	}
+	for (;;) {
+		key = (unsigned char)jt182(str, (long)(uintptr_t)buf,
+		                           (short)1, (short)(signed char)flag3);
+		if (g_a5_byte(-24139) != 0 && key != 27) {
+			if ((unsigned char)g_a5_byte(-27990) != 3) {
+				unsigned char *rec =
+				    (unsigned char *)(uintptr_t)g_a5_long(-28006);
+				if (rec && rec[34] == 1) {
+					jt936(g_a5_long(-27932), 0);
+					jt934((short)key);
+					jt936(g_a5_long(-27932), 1);
+				}
+			}
+			key = 0xff;
+		}
+		if (key < numopts)
+			break;                /* valid selection */
+		if (key == 27 && g_a5_byte(-24139) != 0 && (flag2 & 0xff) != 0)
+			break;                /* ESC accepted */
+		/* otherwise re-prompt */
+	}
+	return (key == 27) ? 0 : (short)key;
 }
 
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
