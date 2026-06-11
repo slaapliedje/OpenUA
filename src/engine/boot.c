@@ -26566,6 +26566,63 @@ done:
 	g_a5_byte(-25257) = 0;
 }
 
+/* JT[864] (CODE 18 + 0x1414, 3 sites) — full saving throw for `entity` against
+ * `threshold`. Strips any type-25 effects (jt880), rolls 1d20 (jt870) into
+ * g_a5_-25255: a 1 auto-fails, a 20 becomes 100, and a roll >16 arms the
+ * "good roll" flag g_a5_-25240. Runs the type-10 and type-16 effect passes
+ * (jt868), derives the base save number from the class table g_a5_-28006
+ * ([47] adjusted by a JT[3] race/class modifier off [39], or [1] when rec[95]
+ * marks an override), and saves when rec[384] + roll + modifier >= threshold.
+ * Returns 1 on a successful save, and leaves -25240 set only when the save
+ * both succeeded and rolled high. */
+static short jt864(long entity, long member, short threshold) __attribute__((unused));
+static short jt864(long entity, long member, short threshold)
+{
+	unsigned char *e = (unsigned char *)(uintptr_t)entity;
+	unsigned char *tbl;
+	short save = 0, hit = 0;
+	signed char mod;
+
+	PROBE("jt864");
+	jt880(entity);                                   /* strip type-25 */
+	g_a5_byte(-25255) = (unsigned char)jt870(1, 20); /* 1d20 */
+	if ((signed char)g_a5_byte(-25255) <= 1)         /* natural 1 -> auto-fail */
+		return hit;
+
+	g_a5_byte(-25240) = ((signed char)g_a5_byte(-25255) > 16) ? 1 : 0;
+	if ((unsigned char)g_a5_byte(-25255) == 20)      /* natural 20 */
+		g_a5_byte(-25255) = 100;
+
+	jt868(10, (void *)&entity);
+	jt868(16, (void *)&member);
+
+	tbl = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	if ((unsigned char)e[95] == 0) {
+		mod = (signed char)tbl[47];
+		switch (tbl[39]) {                       /* race/class modifier */
+		case 1: mod += 2; break;
+		case 2: mod += 1; break;
+		case 4: mod -= 1; break;
+		case 5: mod -= 2; break;
+		default: break;
+		}
+	} else {
+		mod = (signed char)tbl[1];
+	}
+
+	if ((signed char)g_a5_byte(-25255) >= 0) {
+		short total = (short)((unsigned char)e[384]
+		            + (signed char)g_a5_byte(-25255) + mod);
+		if (total >= (short)(unsigned char)threshold) {
+			save = 1;
+			hit  = 1;
+		}
+	}
+
+	g_a5_byte(-25240) = (g_a5_byte(-25240) != 0 && save != 0) ? 1 : 0;
+	return hit;
+}
+
 /* JT[728] (CODE 18+0x2aa2) — clear a transient combat sub-state: out of the
  * triggering pass (flag==0) and with a sub-record (rec[64]), if sub[2] is set
  * announce "is <state>" (the -20012 name), re-flag the drained ability slot
