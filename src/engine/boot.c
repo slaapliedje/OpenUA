@@ -29310,6 +29310,480 @@ static void jt824(long rec_l, long node, short flag)
 		g_a5_byte(-25269) = 100;
 }
 
+/* JT[37] (CODE 6 + 0x1554) — attack-count recompute.  NOTE: invisible
+ * to seg_audit (the `entry_jt37:` label is immediately followed by the
+ * `L1554:` label line, so entries() drops it).  Re-derives rec[396]
+ * from the base count rec[136] + per-carried-item contributions
+ * (l0b3e) + l0d44, then doubles/halves for effects 39/42/74; the
+ * working copy -25263 gets the party-wide adjust ((-28006)[28], side 0
+ * only, floor 1 — first read sign-extended, second zero-extended in
+ * the asm), is doubled, and zeroes out when engulfed (effect 178). */
+static unsigned char jt37(long rec_l) __attribute__((unused));
+static unsigned char jt37(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *it;
+	void *out = 0;
+
+	PROBE("jt37");
+	rec[396] = rec[136];
+	for (it = *(unsigned char **)(rec + 8);
+	     it != NULL;
+	     it = *(unsigned char **)it) {
+		if (it[50] != 0)
+			l0b3e(rec, it);
+	}
+	l0d44(rec);
+	if (jt41(rec_l, 39, &out))
+		rec[396] = (unsigned char)(rec[396] * 2);
+	if (jt41(rec_l, 42, &out))
+		rec[396] = (unsigned char)(rec[396] >> 1);
+	if (jt41(rec_l, 74, &out))
+		rec[396] = (unsigned char)(rec[396] * 2);
+	g_a5_byte(-25263) = rec[396];
+	if (rec[95] == 0) {
+		unsigned char *p = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		if ((short)((signed char)p[28]
+			    + (short)(unsigned char)g_a5_byte(-25263)) < 1)
+			g_a5_byte(-25263) = 1;
+		else
+			g_a5_byte(-25263) = (char)
+			    ((unsigned char)g_a5_byte(-25263) + p[28]);
+	}
+	g_a5_byte(-25263) = (char)((unsigned char)g_a5_byte(-25263) * 2);
+	if (jt41(rec_l, 178, &out))
+		g_a5_byte(-25263) = 0;
+	return (unsigned char)g_a5_byte(-25263);
+}
+
+/* JT[555] (CODE 14 + 0x19dc) — PROBE-only stub: combat-map carry/drag
+ * placement (the engulfer drags its victim's cell along).  Body lives
+ * in CODE 14 we haven't lifted; jt838/jt850 call it on the carried
+ * path.  *out is left untouched (the callers overwrite it with the
+ * jt498 recount right after). */
+static void jt555(long rec_l, long ent_l, short a, long b, void *out);
+static void jt555(long rec_l, long ent_l, short a, long b, void *out)
+{
+	PROBE("jt555");
+	(void)rec_l; (void)ent_l; (void)a; (void)b; (void)out;
+}
+
+/* JT[825] (CODE 18 + 0x62c2) — both passes: attack-roll stage -2. */
+static void jt825(long rec_l, long node, short flag) __attribute__((unused));
+static void jt825(long rec_l, long node, short flag)
+{
+	PROBE("jt825");
+	(void)rec_l; (void)node; (void)flag;
+	g_a5_byte(-25255) = (char)((unsigned char)g_a5_byte(-25255) - 2);
+}
+
+/* JT[826] (CODE 18 + 0x62ce) — both passes: absorb attack form 52. */
+static void jt826(long rec_l, long node, short flag) __attribute__((unused));
+static void jt826(long rec_l, long node, short flag)
+{
+	PROBE("jt826");
+	(void)rec_l; (void)node; (void)flag;
+	l3dda(52);
+}
+
+/* JT[827] (CODE 18 + 0x62e0) — both passes: when the active member's
+ * held item (slot +12) is type 54, restage the damage as 1d6+1. */
+static void jt827(long rec_l, long node, short flag) __attribute__((unused));
+static void jt827(long rec_l, long node, short flag)
+{
+	unsigned char *it;
+
+	PROBE("jt827");
+	(void)rec_l; (void)node; (void)flag;
+	it = *(unsigned char **)
+	    ((unsigned char *)(uintptr_t)g_a5_27932 + 12);
+	if (it == NULL)
+		return;
+	if ((unsigned char)it[40] != 54)
+		return;
+	g_a5_word(-25242) = (short)((unsigned char)jt873(1, 6) + 1);
+}
+
+/* JT[828] (CODE 18 + 0x631c) — both passes: when -25265 bits 0 and 3
+ * are both set, add the staged dice count -25261 to the damage. */
+static void jt828(long rec_l, long node, short flag) __attribute__((unused));
+static void jt828(long rec_l, long node, short flag)
+{
+	PROBE("jt828");
+	(void)rec_l; (void)node; (void)flag;
+	if ((g_a5_byte(-25265) & 1) && (g_a5_byte(-25265) & 8))
+		g_a5_word(-25242) = (short)(g_a5_word(-25242)
+		    + (unsigned char)g_a5_byte(-25261));
+}
+
+/* JT[829] (CODE 18 + 0x6340) — both passes: halve the damage when the
+ * active member attacks with a plus-bonus weapon (item[48] > 0). */
+static void jt829(long rec_l, long node, short flag) __attribute__((unused));
+static void jt829(long rec_l, long node, short flag)
+{
+	unsigned char *w;
+
+	PROBE("jt829");
+	(void)rec_l; (void)node; (void)flag;
+	w = (unsigned char *)l45ea(g_a5_27932);
+	if (w == NULL)
+		return;
+	if ((signed char)w[48] > 0)
+		g_a5_word(-25242) = (short)(g_a5_word(-25242) / 2);
+}
+
+/* JT[830] (CODE 18 + 0x6374) — both passes: infect the linked entity
+ * (rec[64]+12) with disease unless already protected (effect 50) or
+ * already diseased (effect 215): effect 215 for 14400, an effect-172
+ * stage of (1d6<<5)+31 at magnitude -22336, and the "is Diseased"
+ * announcement. */
+static void jt830(long rec_l, long node, short flag) __attribute__((unused));
+static void jt830(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	void *out = 0;
+	long ent;
+	short roll;
+
+	PROBE("jt830");
+	(void)node; (void)flag;
+	ent = *(long *)(*(unsigned char **)(rec + 64) + 12);
+	g_a5_long(-25250) = ent;
+	if (jt41(ent, 50, &out) != 0)
+		return;
+	if (jt41(ent, 215, &out) != 0)
+		return;
+	jt876(ent, 215, 14400, 255, 1);
+	roll = jt870(1, 6);
+	jt876(ent, 172, -22336, (short)((roll << 5) + 31), 1);
+	jt18((void *)(uintptr_t)ent,
+	     (long)(uintptr_t)ua_strs_at(0x57a4) /* "is Diseased" */,
+	     10, 1);
+}
+
+/* JT[831] (CODE 18 + 0x6420) — both passes: fear wave over the party
+ * list.  Every in-combat member on the jt493(rec) side rolls a row-0
+ * save with situational modifier (+1 if his side's -25298 count >= 6,
+ * +2 if his status rec[88] is 5) and gets effect 52 for 1d4 rounds —
+ * "is paralyzed with fear".  Strips effect 171 from everyone first. */
+static void jt831(long rec_l, long node, short flag) __attribute__((unused));
+static void jt831(long rec_l, long node, short flag)
+{
+	unsigned char *m;
+
+	PROBE("jt831");
+	(void)node; (void)flag;
+	for (m = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     m != NULL;
+	     m = *(unsigned char **)m) {
+		unsigned char lf, sv;
+		short roll;
+
+		jt878((long)(uintptr_t)m, 171, 0);
+		if (m[382] == 0)
+			continue;
+		if ((short)(unsigned char)m[95]
+		    != (short)(signed char)jt493(rec_l))
+			continue;
+		lf = 0;
+		if ((unsigned char)g_a5_buf(-25298)[m[95]] >= 6)
+			lf = (unsigned char)(lf + 1);
+		if (m[88] == 5)
+			lf = (unsigned char)(lf + 2);
+		sv = (unsigned char)jt866((long)(uintptr_t)m, 0,
+					  (short)lf);
+		roll = jt870(1, 4);
+		jt871((long)(uintptr_t)m, 52, roll, 12, 0, 1,
+		      (short)(signed char)sv,
+		      (long)(uintptr_t)ua_strs_at(0x57b0)
+		      /* "is paralyzed with fear" */);
+	}
+}
+
+/* JT[832] (CODE 18 + 0x6508) — both passes: rot tick.  Announce
+ * "Rots...", walk rec[123] down by 2 (band 3..): then if the encoded
+ * stage (node[4] >> 5) still has more than one step left, knock a step
+ * off and re-arm the 172 stage; otherwise the victim dies rotting. */
+static void jt832(long rec_l, long node, short flag) __attribute__((unused));
+static void jt832(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt832");
+	(void)flag;
+	if (g_a5_byte(-25258) != 0)
+		return;
+	jt18((void *)(uintptr_t)rec_l,
+	     (long)(uintptr_t)ua_strs_at(0x57c8) /* "Rots..." */, 10, 1);
+	if ((unsigned char)rec[123] > 3)
+		rec[123] = (unsigned char)(rec[123] - 2);
+	if ((unsigned char)rec[123] < 3)
+		rec[123] = 3;
+	if (((unsigned short)(unsigned char)nd[4] >> 5) > 1) {
+		nd[4] = (unsigned char)(nd[4] - 32);
+		l3dfe(rec_l, 172, (short)(unsigned char)nd[4], -22336);
+	} else {
+		jt860(rec_l, 8,
+		      (long)(uintptr_t)ua_strs_at(0x57d0)
+		      /* "Dies rots away" */);
+	}
+}
+
+/* JT[833] (CODE 18 + 0x65b8) — both passes: when the bit-2 element
+ * flag is staged, absorb the hit and heal 8 HP.  The 1d8 roll's
+ * result is DISCARDED on the Mac (d0 unused; addqb #8 adds the
+ * constant) — kept faithful. */
+static void jt833(long rec_l, long node, short flag) __attribute__((unused));
+static void jt833(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt833");
+	(void)node; (void)flag;
+	if ((g_a5_word(-25266) & 4) == 0)
+		return;
+	l3dda(0);
+	(void)jt870(1, 8);              /* rolled, then thrown away */
+	rec[395] = (unsigned char)(rec[395] + 8);
+}
+
+/* JT[834] (CODE 18 + 0x65e8) — both passes: Fire/Cold half-damage with
+ * save: a made row-4 save zeroes the damage entirely when the hazard
+ * row's byte 8 is set; otherwise (made or failed) the damage halves. */
+static void jt834(long rec_l, long node, short flag) __attribute__((unused));
+static void jt834(long rec_l, long node, short flag)
+{
+	PROBE("jt834");
+	(void)node; (void)flag;
+	if ((g_a5_word(-25266) & 1) == 0 &&
+	    (g_a5_word(-25266) & 2) == 0)
+		return;
+	if ((unsigned char)jt866(rec_l, 4, 0) != 0) {
+		if (g_a5_buf(-16906)
+		    [(unsigned char)g_a5_byte(-25262) * 16 + 8] != 0) {
+			g_a5_word(-25242) = 0;
+			return;
+		}
+	}
+	g_a5_word(-25242) = (short)(g_a5_word(-25242) / 2);
+}
+
+/* JT[835] (CODE 18 + 0x6646) — both passes: halve the damage. */
+static void jt835(long rec_l, long node, short flag) __attribute__((unused));
+static void jt835(long rec_l, long node, short flag)
+{
+	PROBE("jt835");
+	(void)rec_l; (void)node; (void)flag;
+	g_a5_word(-25242) = (short)(g_a5_word(-25242) / 2);
+}
+
+/* JT[836] (CODE 18 + 0x665c) — both passes: engulf.  When the attack
+ * mode -25254 is 2 and the linked entity is in combat and not already
+ * engulfed (effects 178/177): announce "engulfs <name>", pin the
+ * victim with effect 178 keyed to its actor index (jt519) + fire the
+ * 178 hook, give it 2d4 of effect 177, and key the engulfer's own
+ * effect 179 to the victim's index. */
+static void jt836(long rec_l, long node, short flag) __attribute__((unused));
+static void jt836(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *ent;
+	long ent_l;
+	void *out = 0;
+	short roll;
+
+	PROBE("jt836");
+	(void)node; (void)flag;
+	ent_l = *(long *)(*(unsigned char **)(rec + 64) + 12);
+	if ((unsigned char)g_a5_byte(-25254) != 2)
+		return;
+	ent = (unsigned char *)(uintptr_t)ent_l;
+	if (ent[382] == 0)
+		return;
+	if (jt41(ent_l, 178, &out) != 0 || jt41(ent_l, 177, &out) != 0)
+		return;
+	ent_l = *(long *)(*(unsigned char **)(rec + 64) + 12);
+	ent = (unsigned char *)(uintptr_t)ent_l;
+	jt18((void *)(uintptr_t)rec_l,
+	     (long)(uintptr_t)jt488(ua_strs_at(0x57e0) /* "engulfs %s" */,
+				    (const char *)(ent + 96)),
+	     12, 1);
+	jt876(ent_l, 178, 0, (short)jt519(ent_l), 0);
+	l77a0(178, (void *)(uintptr_t)ent_l, 0, 0);
+	roll = jt870(2, 4);
+	jt876(ent_l, 177, 0, roll, 0);
+	jt876(rec_l, 179, 0, (short)jt519(ent_l), 1);
+}
+
+/* JT[837] (CODE 18 + 0x6782) — both passes: suffocation countdown —
+ * node[4] ticks down; at zero the victim Suffocates (status 6). */
+static void jt837(long rec_l, long node, short flag) __attribute__((unused));
+static void jt837(long rec_l, long node, short flag)
+{
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt837");
+	(void)flag;
+	if ((unsigned char)nd[4] == 0)
+		jt860(rec_l, 6,
+		      (long)(uintptr_t)ua_strs_at(0x57ec)
+		      /* "Suffocates" */);
+	else
+		nd[4] = (unsigned char)(nd[4] - 1);
+}
+
+/* JT[838] (CODE 18 + 0x67b8) — engulf maintenance on the ENGULFER's
+ * effect 179 (node[4] = the victim's actor index).  Victim gone ->
+ * just drop the 179 node.  Apply pass with both still in combat ->
+ * the carried path: stage the constriction attack (rec[387..391] =
+ * 2/0/2/8), drag the victim's cell along (jt555), recount, and if the
+ * victim went down release everything.  Otherwise -> release: strip
+ * the victim's 178/177 (rebuilding its attack count via jt37 in
+ * between) and, unless this is the removal pass with the engulfer
+ * still up, clear the node and drop 179. */
+static void jt838(long rec_l, long node, short flag) __attribute__((unused));
+static void jt838(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+	unsigned char *ent;
+	long ent_l;
+
+	PROBE("jt838");
+	ent_l = g_a5_25676[(unsigned char)nd[4]];
+	g_a5_long(-25250) = ent_l;
+	if (ent_l == 0) {
+		jt878(rec_l, 179, node);
+		return;
+	}
+	ent = (unsigned char *)(uintptr_t)ent_l;
+	if ((unsigned char)flag == 0 && rec[382] != 0 && ent[382] != 0) {
+		/* L6884 — carried */
+		rec[387] = 2;
+		rec[388] = 0;
+		rec[389] = 2;
+		rec[391] = 8;
+		jt555(rec_l, ent_l, 1, 0, &g_a5_byte(-22308));
+		g_a5_byte(-22308) = (char)jt498(rec_l);
+		if (ent[382] == 0) {
+			jt878(rec_l, 179, 0);
+			jt878(ent_l, 178, 0);
+			jt878(ent_l, 177, 0);
+		}
+		return;
+	}
+	/* L6812 — release */
+	jt878(ent_l, 178, 0);
+	{
+		unsigned char *sub = *(unsigned char **)(ent + 64);
+		sub[8] = jt37(ent_l);
+	}
+	jt878(ent_l, 177, 0);
+	if ((unsigned char)flag != 0 && rec[382] != 0)
+		return;
+	nd[5] = 0;
+	jt878(rec_l, 179, node);
+}
+
+/* JT[839] (CODE 18 + 0x6916) — armor dissolve.  Walk the linked
+ * entity's carried-item list: every equipped (it[50]) item whose
+ * -27944 type-row byte 0 is 2 (armor class) loses a point of its
+ * bonus it[48] — "is Disolving <name>'s armor!" — until it hits the
+ * floor (-1 for item types 35/36/38, else 0), at which point it
+ * "Dissolves" and is destroyed (jt30).  Any armor touched zeroes the
+ * staged damage. */
+static void jt839(long rec_l, long node, short flag) __attribute__((unused));
+static void jt839(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *ent, *it;
+	long ent_l;
+	unsigned char found = 0;
+
+	PROBE("jt839");
+	(void)node; (void)flag;
+	ent_l = *(long *)(*(unsigned char **)(rec + 64) + 12);
+	g_a5_long(-25250) = ent_l;
+	ent = (unsigned char *)(uintptr_t)ent_l;
+	for (it = *(unsigned char **)(ent + 8);
+	     it != NULL;
+	     it = *(unsigned char **)it) {
+		unsigned char *row;
+		short thresh;
+
+		if (it[50] == 0)
+			continue;
+		row = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-27944) + (long)(unsigned char)it[40] * 16);
+		if (row[0] != 2)
+			continue;
+		found = 1;
+		if ((unsigned char)it[40] == 35 ||
+		    (unsigned char)it[40] == 36 ||
+		    (unsigned char)it[40] == 38)
+			thresh = -1;
+		else
+			thresh = 0;
+		if ((short)(signed char)it[48] > thresh) {
+			it[48] = (unsigned char)(it[48] - 1);
+			jt18((void *)(uintptr_t)rec_l,
+			     (long)(uintptr_t)jt488(ua_strs_at(0x57f8)
+				 /* "is Disolving %s's armor!" */,
+				 (const char *)(ent + 96)),
+			     10, 1);
+		} else {
+			jt18((void *)(uintptr_t)rec_l,
+			     (long)(uintptr_t)jt488(ua_strs_at(0x5812)
+				 /* "Dissolves %s's armor!" */,
+				 (const char *)(ent + 96)),
+			     10, 1);
+			jt30(ent_l, (long)(uintptr_t)it);
+		}
+	}
+	if (found != 0)
+		g_a5_word(-25242) = 0;
+}
+
+/* JT[840] (CODE 18 + 0x6a46) — both passes: magic-weapon-required
+ * check (l4b64(255) — the wrap trick means only magic bonuses pass);
+ * an unarmed attacker without the -25265 bit-3 ability does no
+ * damage at all. */
+static void jt840(long rec_l, long node, short flag) __attribute__((unused));
+static void jt840(long rec_l, long node, short flag)
+{
+	void *w;
+
+	PROBE("jt840");
+	(void)rec_l; (void)node; (void)flag;
+	l4b64(255);
+	w = l45ea(g_a5_27932);
+	if (w == NULL && (g_a5_byte(-25265) & 8) == 0)
+		g_a5_word(-25242) = 0;
+}
+
+/* JT[841] (CODE 18 + 0x6a78) — both passes: if anyone in the party
+ * carries effect 195, the bearer rec gains effect 203 (255 mag, 4
+ * rounds) once. */
+static void jt841(long rec_l, long node, short flag) __attribute__((unused));
+static void jt841(long rec_l, long node, short flag)
+{
+	unsigned char *m;
+	void *out = 0;
+
+	PROBE("jt841");
+	(void)node; (void)flag;
+	for (m = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     m != NULL;
+	     m = *(unsigned char **)m) {
+		if (jt41((long)(uintptr_t)m, 195, &out) == 0)
+			continue;
+		if (jt41(rec_l, 203, &out) != 0)
+			continue;
+		jt876(rec_l, 203, 255, 4, 0);
+	}
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
