@@ -5249,7 +5249,7 @@ static long jt1012(long handle, short item)
 	return l37aa(handle, item);
 }
 static void jt1128(void)                    { PROBE("jt1128"); }
-static void jt1066(void)                    { PROBE("jt1066"); }
+static void jt1066(void);   /* GLIB palette compact+commit, lifted near l6e58 */
 
 /* L3994 — GrafPort save / paint-state commit. Called by JT[94] /
  * JT[112] / JT[117]; the chain is:
@@ -26312,6 +26312,81 @@ static void jt1069(short start, short count, unsigned char *src,
 		if (destp != NULL)
 			destp += 4;                         /* 7586 */
 	}
+}
+
+/* JT[1066] (CODE 5 + 0x759a) — GLIB palette COMPACT + COMMIT. Pure data over
+ * the A5 tables plus the one l6e58 hardware write. Faithful 1:1 lift of L759a,
+ * asm offsets in comments. Phase A restores flagged ranges from the -3354
+ * backup; phase B walks the -3386 used-slot bitmap (whole-empty byte -> skip 8,
+ * whole-full byte -> copy 8 colours, else bit-by-bit), copying each used slot's
+ * colour -3394 -> -3390 and tracking the touched span [min,max]; the tail
+ * commits -3394[min..max] to the CLUT via l6e58 and raises the -3150 dirty
+ * flag. See docs/glib-palette-subsystem.md. */
+static void jt1066(void) __attribute__((unused));
+static void jt1066(void)
+{
+	unsigned char *rng  = (unsigned char *)&g_a5_byte(-3258);
+	unsigned char *bak  = (unsigned char *)&g_a5_byte(-3354);
+	unsigned char *used = (unsigned char *)&g_a5_byte(-3386);
+	unsigned char *live = (unsigned char *)(uintptr_t)g_a5_long(-3390);
+	unsigned char *work = (unsigned char *)(uintptr_t)g_a5_long(-3394);
+	short min = 255, max = 0;
+	short i;
+
+	PROBE("jt1066");
+	if (g_a5_byte(-2347) == 0)                  /* 759e mode gate */
+		return;
+	/* PORT-SAFETY: the -3390/-3394 RGB buffers are allocated only once the
+	 * GLIB picture path is wired (jt1069 + the jt23 backdrop arms). Until
+	 * then they are NULL and the used-bitmap is empty, so this is inert;
+	 * guard so a future jt1069 wiring before buffer init can't bus-error. */
+	if (live == NULL || work == NULL)
+		return;
+	g_a5_byte(-3150) = 0;                       /* 75b0 clear dirty */
+
+	/* Phase A (L75ba): restore each flagged range from its backup. */
+	for (i = 0; i < 12; i++) {                   /* 7600 */
+		if (g_a5_byte(-3162 + i) == 0)      /* 75c2 */
+			continue;
+		jt406(rng + i * 8, bak + i * 8, 8); /* 75ea -3354 -> -3258 */
+		g_a5_byte(-3162 + i) = 0;           /* 75fa */
+	}
+
+	/* Phase B (L7610): walk the 256-slot used-bitmap; sync used slots
+	 * -3394 -> -3390, track [min,max], clear the bitmap. */
+	i = 0;
+	while (i < 256) {                           /* 772a */
+		if (used[i >> 3] == 0) {            /* 7610 empty byte */
+			i += 8;                     /* 7726 */
+			continue;
+		}
+		if (used[i >> 3] == 255) {          /* 7632 full byte */
+			if (min > i)                /* 763a */
+				min = i;
+			if ((short)(i + 7) > max)   /* 764a */
+				max = (short)(i + 7);
+			jt406(live + i * 3, work + i * 3, 24);  /* 7680 */
+			used[i >> 3] = 0;           /* 7694 */
+			i += 8;                     /* 7696 */
+			continue;
+		}
+		do {                                /* L769e partial byte */
+			if (used[i >> 3] & (1 << (i & 7))) {     /* 76b6 */
+				jt406(live + i * 3, work + i * 3, 3); /* 76de */
+				if (min > i)        /* 76e6 */
+					min = i;
+				if (max < i)        /* 76f6 */
+					max = i;
+			}
+			i++;                        /* 7706 */
+		} while ((i & 7) != 0);             /* 770a */
+		used[(i - 8) >> 3] = 0;             /* 7714 clear byte */
+	}
+
+	/* Tail (L7734): commit the touched span to the CLUT, raise dirty. */
+	if (min <= max)                             /* 7738 */
+		l6e58(min, (short)(max - min + 1), 1, work + min * 3);  /* 7760 */
+	g_a5_byte(-3150) = 1;                       /* 776a */
 }
 
 /* JT[1017] (CODE 5 + 0x38be, = LBIndxType) — the GLIB index-type byte
