@@ -26195,6 +26195,125 @@ static void l6e58(short start, short count, short mode,
 	qd_set_palette(colors, start, count);
 }
 
+/* JT[1069] (CODE 5 + 0x71b0) — GLIB colour-range ALLOCATE. Pure data over the
+ * A5 range tables (no hardware; jt1066 commits via l6e58). Faithful 1:1 lift of
+ * L71b0, asm offsets in comments. The request covers CLUT slots [start,
+ * start+count); `src` is a count*3 RGB block; `ncopy`/`destp` drive the
+ * destination-remap mode (destp == NULL / ncopy == 0 = allocate-only, the
+ * L3f3c bigpic path). PORT-SAFETY: the Mac derefs destp unconditionally; the
+ * allocate-only callers pass NULL, so destp accesses are guarded against it.
+ * Tables: -3258 range[12][8] (+0 long sentinel 0x7fffffff=empty, +6 base, +7
+ * count, +4..7 match key), -3386 used-slot bitmap, -3390 live RGB buffer (ptr),
+ * -3162 per-range flags. Deps jt406/jt1134/jt1083(=l01ae)/l036a. See
+ * docs/glib-palette-subsystem.md. */
+static void jt1069(short start, short count, unsigned char *src,
+                   short ncopy, unsigned char *destp) __attribute__((unused));
+static void jt1069(short start, short count, unsigned char *src,
+                   short ncopy, unsigned char *destp)
+{
+	unsigned char *rng  = (unsigned char *)&g_a5_byte(-3258);
+	unsigned char *used = (unsigned char *)&g_a5_byte(-3386);
+	unsigned char  dirty = 0;
+	short          i, j, k;
+
+	PROBE("jt1069");
+	if (g_a5_byte(-2347) == 0)                          /* 71b4 mode gate */
+		return;
+
+	/* Phase 1 (L71d2): is the request already satisfied by existing ranges,
+	 * byte-for-byte against destp? Stop at the first mismatch (dirty). */
+	j = 0;
+	for (i = 0; i < 12 && !dirty; i++) {                /* 72e4 */
+		unsigned char *e = rng + i * 8;
+		short base, cnt;
+		if (*(long *)e == 0x7fffffffL)              /* 71e0 empty */
+			continue;
+		base = e[6];
+		cnt  = e[7];
+		if (base >= (short)(start + count))         /* 7208 no overlap */
+			continue;
+		if ((short)(base + cnt) <= start)           /* 723a no overlap */
+			continue;
+		if (destp != NULL) {                        /* 723e compare key */
+			unsigned char *d = destp + j * 4;
+			if (e[4] != d[0] && e[5] != d[1] &&
+			    e[6] != d[2] && e[7] != d[3])
+				dirty = 1;                  /* 72d6 */
+		}
+		j++;                                        /* 72dc */
+	}
+	if (j != ncopy)                                     /* 72f4 */
+		dirty = 1;
+
+	/* Phase 2 (L7304): diff the request's colours against the live CLUT
+	 * buffer (-3390); mark changed slots used (-3386) + update -3390. */
+	{
+		unsigned char *buf =
+			(unsigned char *)(uintptr_t)g_a5_long(-3390) + start * 3;
+		for (k = start; k < (short)(start + count); k++) {   /* 73bc */
+			unsigned char r = *src++;           /* 7324 */
+			unsigned char g = *src++;
+			unsigned char b = *src++;
+			if (r == buf[0] && g == buf[1] && b == buf[2]) {
+				buf += 3;                   /* 73b4 unchanged */
+				continue;
+			}
+			dirty = 1;                          /* 7370 */
+			used[k >> 3] |= (unsigned char)(1 << (k & 7));
+			*buf++ = r;                         /* 738e write new */
+			*buf++ = g;
+			*buf++ = b;
+		}
+	}
+
+	if (!dirty)                                         /* 73c8 */
+		return;
+
+	/* Phase 3a (L73d8): free every range overlapping the request — mark its
+	 * slots used, empty the entry, set its -3162 flag. */
+	for (i = 0; i < 12; i++) {                          /* 74c0 */
+		unsigned char *e = rng + i * 8;
+		short base, cnt, m;
+		if (*(long *)e == 0x7fffffffL)              /* 73e6 empty */
+			continue;
+		base = e[6];
+		cnt  = e[7];
+		if (base >= (short)(start + count))         /* 740e */
+			continue;
+		if ((short)(base + cnt) <= start)           /* 7440 */
+			continue;
+		for (m = 0; m < cnt; m++, base++)           /* 7492 */
+			used[base >> 3] |= (unsigned char)(1 << (base & 7));
+		*(long *)e = 0x7fffffffL;                   /* 74aa empty */
+		g_a5_byte(-3162 + i) = 1;                   /* 74b8 flag */
+	}
+
+	/* Phase 3b (L74da): allocate `ncopy` fresh ranges into free slots,
+	 * remapping destp. Allocate-only callers pass ncopy 0 -> skipped. */
+	j = 0;
+	for (i = 0; i < ncopy; i++) {                       /* 758a */
+		unsigned char *e;
+		long val;
+		while (j < 12 && *(long *)(rng + j * 8) != 0x7fffffffL)
+			j++;                                /* 74da find free */
+		if (j >= 12) {                              /* 74f8 */
+			l036a("Out of color ranges!");
+			return;
+		}
+		e   = rng + j * 8;
+		val = (long)jt1083(8) + jt1134();           /* 7522 l01ae+tick */
+		if (destp != NULL)
+			val += ((long)destp[1] << 16);      /* 753a */
+		val -= 3;                                   /* 754c */
+		*(long *)e = val;                           /* 7552 */
+		if (destp != NULL)
+			jt406(destp, e + 4, 4);             /* 756e */
+		g_a5_byte(-3162 + j) = 1;                   /* 7576 flag */
+		if (destp != NULL)
+			destp += 4;                         /* 7586 */
+	}
+}
+
 /* JT[1017] (CODE 5 + 0x38be, = LBIndxType) — the GLIB index-type byte
  * (hdr[11]) of `lib`, after validating the 'GLIB' header. */
 static short jt1017(void *lib) __attribute__((unused));
