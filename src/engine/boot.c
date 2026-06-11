@@ -25607,6 +25607,104 @@ static void l0730(short dmg, void *rec_v)
 	jt937(g_a5_long(-27932));
 }
 
+/* JT[862] (CODE 18+0x137a) — a saving throw: roll 1d20 (jt870), apply the
+ * d20 special cases (natural 1 auto-fails, natural 20 -> 100), let jt868
+ * case-16 adjust the roll (-25255), then test roll + `saveCat` against the
+ * target's save number rec[385]. Returns 1 if the save was made.
+ *   -25255 = the working d20 roll   -25240 = the >16 "good roll" flag */
+static unsigned char jt862(long member, short saveCat) __attribute__((unused));
+static unsigned char jt862(long member, short saveCat)
+{
+	unsigned char *rec    = (unsigned char *)(uintptr_t)member;
+	unsigned char  result = 0;             /* fp@-1 */
+	short          roll, total;
+
+	PROBE("jt862");
+	g_a5_byte(-25255) = (unsigned char)jt870(1, 20);   /* 1d20 (L15f4) */
+	roll = (short)(signed char)g_a5_byte(-25255);
+	if (roll <= 1)                         /* natural 1 -> auto-fail */
+		return 0;
+	g_a5_byte(-25240) = (unsigned char)(roll > 16 ? 1 : 0);
+	if (roll == 20)                        /* natural 20 -> auto-success boost */
+		g_a5_byte(-25255) = 100;
+
+	jt868(16, (void *)&member);            /* L0420 case 16 — roll adjust */
+
+	if ((signed char)g_a5_byte(-25255) < 0)  /* spoiled -> fail */
+		return result;
+
+	total = (short)(signed char)g_a5_byte(-25255)
+	      + (short)(unsigned char)(saveCat & 0xff);
+	if (total >= (short)(unsigned char)rec[385])     /* made the save */
+		result = 1;
+
+	if (g_a5_byte(-25240) != 0)            /* AND the good-roll flag with the result */
+		g_a5_byte(-25240) = (unsigned char)(result != 0 ? 1 : 0);
+
+	return result;
+}
+
+/* L1e30 (CODE 20+0x1e30) — single-target attack/effect resolution: roll the
+ * effect's XdY+Z damage (jt873 dice + ev[11] bonus), run the saving throw
+ * (jt862 for save-category 3, else jt866), deal the result via L0730 (full,
+ * half on a made "save-for-half", or none), then recompute the combat-over
+ * reload gate (-27982) by scanning the party list (-27928) for any member
+ * still in combat (rec[382]). Called by the CODE 20 effect loop (L1f76,
+ * still stubbed). ev = the 20-byte effect record; `target` = the victim. */
+static void l1e30(void *ev_v, long target) __attribute__((unused));
+static void l1e30(void *ev_v, long target)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	long           saved_roster;           /* fp@-10 */
+	unsigned char  dmg;                     /* fp@-11 */
+	short          saveType;
+	long           node;                    /* fp@-6 */
+
+	PROBE("L1e30");
+	saved_roster = g_a5_long(-27932);
+
+	/* XdY+Z: jt873(ev[9] dice, ev[10] sides) + ev[11] bonus */
+	dmg = (unsigned char)((short)jt873((short)ev[9], (short)ev[10])
+	                      + (short)ev[11]);
+
+	saveType = (short)((ev[7] & 0x30) >> 4);
+	if (saveType == 3) {                   /* L1f16 — category gate (jt862) */
+		if (jt862(target, (short)ev[12]) != 0)
+			l0730((short)dmg, (void *)(uintptr_t)target);
+	} else {
+		/* save: jt866(target, (ev[13]>>4)&7, ev[13]&15) */
+		unsigned char saved = (unsigned char)jt866(target,
+			(short)((ev[13] & 0x70) >> 4), (short)(ev[13] & 0x0f));
+		if (saved == 0) {              /* L1f02 — save failed: full damage */
+			l0730((short)dmg, (void *)(uintptr_t)target);
+		} else {                       /* save made: scale by saveType */
+			switch (saveType) {    /* JT[3] @ 0x1ecc, min0 max2 */
+			case 0:                /* full */
+				l0730((short)dmg, (void *)(uintptr_t)target);
+				break;
+			case 1:                /* half ("save for half") */
+				l0730((short)(dmg >> 1), (void *)(uintptr_t)target);
+				break;
+			default:               /* case 2 -> none */
+				break;
+			}
+		}
+	}
+
+	/* L1f42 — set the reload/combat-over gate, then clear it if any party
+	 * member is still in combat. */
+	g_a5_byte(-27982) = 1;
+	node = g_a5_long(-27928);
+	while (node != 0) {
+		unsigned char *m = (unsigned char *)(uintptr_t)node;
+		if (m[382] != 0)
+			g_a5_byte(-27982) = 0;
+		node = *(long *)(uintptr_t)node;
+	}
+
+	g_a5_long(-27932) = saved_roster;
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
