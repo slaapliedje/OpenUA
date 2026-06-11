@@ -26424,6 +26424,148 @@ static void jt867(long entity, short amount, short saveCat, short saveFlag)
 	jt20();
 }
 
+/* JT[879] (CODE 18 + 0x0ede, 4 sites) — apply the ongoing "standing in a
+ * hazard" combat effect to `entity` for the cell it occupies. jt515 scans the
+ * actor's six neighbours for the dominant feature (door 27/28/29) and the
+ * applicator dispatches on it:
+ *   - 27 "spinning blades": jt868 case 9 gate, optional save (jt866) when
+ *     flag `a` set, "is cut by knives" + 8d8 damage (jt873 -> jt867).
+ *   - 28 "poison gas": gated on rec[192]&16; rec[137] severity (JT[3] 0..6)
+ *     selects "is Poisoned" + add effect 55 (jt876) + slay (jt860), with a
+ *     save for 5/6 and plain Nd-damage (jt873 -> jt867) for the default.
+ *   - 29 "disease cloud": gated on rec[90] / effects 31,143 / rec[192]&24;
+ *     a failed save (jt866) gives coughing (jt871 effect 30 + possible spell
+ *     loss via jt857/jt31/jt498), a made save gives nausea (jt871 effect 31).
+ * Off-screen actors are first scrolled into view (jt525/jt531/jt521). The
+ * g_a5_-25257 "applying" flag is raised for the duration and cleared on exit;
+ * -25262 is the per-feature sound id, -25266 the damage-type flags. */
+static void jt879(long entity, short a, short b) __attribute__((unused));
+static void jt879(long entity, short a, short b)
+{
+	unsigned char *e = (unsigned char *)(uintptr_t)entity;
+	unsigned char outA, outB, outC;
+	long node = 0, node30 = 0, roster;
+	unsigned char saved, j525;
+
+	PROBE("jt879");
+	if ((unsigned char)e[382] == 0)                  /* not in combat */
+		return;
+	g_a5_byte(-25257) = 1;
+
+	jt515(entity, 8, &outA, &outB, &outC);
+	if (outC == 0)
+		goto done;
+	if (outC == 29 && (b & 0xff) != 0)
+		goto done;
+
+	/* scroll the actor into view unless on-screen, or -22626 is clear */
+	if (!(l6554(entity, 1) != 0 || (unsigned char)g_a5_byte(-22626) == 0)) {
+		j525 = jt525(entity);
+		jt521(j525, jt531(entity), 255, 8);
+	}
+
+	g_a5_word(-25266) = 8;
+
+	switch (outC) {
+	case 27:                                         /* spinning blades */
+		g_a5_byte(-25262) = 101;
+		g_a5_word(-25242) = 255;
+		jt868(9, (void *)&entity);
+		if ((short)g_a5_word(-25242) == 0)
+			goto done;
+		e = (unsigned char *)(uintptr_t)entity;
+		if ((unsigned char)e[382] == 0)
+			goto done;
+		if ((a & 0xff) != 0 && jt866(entity, 4, 0) != 0)
+			goto done;
+		jt18((void *)e, (long)(uintptr_t)ua_strs_at(0x5420), /* "is cut by knives" */
+		     10, 0);
+		jt102();
+		jt867(entity, (short)(unsigned char)jt873(8, 8), 0, 0);
+		break;
+
+	case 28:                                         /* poison gas */
+		g_a5_byte(-25262) = 91;
+		if ((unsigned char)e[382] == 0)
+			goto done;
+		if ((e[192] & 16) != 0)
+			goto done;
+		switch ((unsigned char)e[137]) {         /* severity */
+		case 0: case 1: case 2: case 3: case 4:
+			jt18((void *)e, (long)(uintptr_t)ua_strs_at(0x53de), 10, 0);
+			jt102();
+			jt876(entity, 55, 0, 255, 0);
+			jt860(entity, 6, (long)(uintptr_t)ua_strs_at(0x53ea));
+			break;
+		case 5:
+			if (jt866(entity, 0, -4) != 0)
+				goto done;
+			jt18((void *)e, (long)(uintptr_t)ua_strs_at(0x53f4), 10, 0);
+			jt102();
+			jt876(entity, 55, 0, 255, 0);
+			jt860(entity, 6, (long)(uintptr_t)ua_strs_at(0x5400));
+			break;
+		case 6:
+			if (jt866(entity, 0, 0) != 0)
+				goto done;
+			jt18((void *)e, (long)(uintptr_t)ua_strs_at(0x540a), 10, 0);
+			jt102();
+			jt876(entity, 55, 0, 255, 0);
+			jt860(entity, 6, (long)(uintptr_t)ua_strs_at(0x5416));
+			break;
+		default:
+			g_a5_word(-25266) = 136;
+			jt867(entity, (short)(unsigned char)jt873(1, 10), 0, 0);
+			break;
+		}
+		break;
+
+	case 29:                                         /* disease cloud */
+		g_a5_byte(-25262) = 34;
+		if ((unsigned char)e[90] != 0)
+			goto done;
+		if (jt41(entity, 31, &node) != 0)
+			goto done;
+		if (jt41(entity, 143, &node) != 0)
+			goto done;
+		if ((e[192] & 24) != 0)
+			goto done;
+		saved = (unsigned char)jt866(entity, 0, 0);
+		if (saved != 0) {                        /* failed save -> coughing */
+			roster = g_a5_long(-27932);
+			jt871(entity, 30, (short)(jt870(1, 4) + 1), 255, 0, 0,
+			      saved, (long)(uintptr_t)ua_strs_at(0x53a4));
+			if (jt41(entity, 30, &node30) != 0) {
+				unsigned char *sub;
+				l77a0(30, (void *)e, (void *)(uintptr_t)node, 0);
+				sub = *(unsigned char **)(uintptr_t)(e + 64);
+				if (sub[0] != 0) {
+					jt18((void *)e,
+					     (long)(uintptr_t)ua_strs_at(0x53b4),
+					     12, 1);          /* "lost a spell" */
+					jt31(entity, sub[0]);
+					jt498(entity);
+				}
+			}
+			g_a5_long(-27932) = roster;
+		} else {                                 /* made save -> nausea */
+			roster = g_a5_long(-27932);
+			jt871(entity, 31, (short)(jt870(1, 4) + 1), 255, 0, 0,
+			      saved, (long)(uintptr_t)ua_strs_at(0x53c2));
+			if (jt41(entity, 31, &node) != 0)
+				l77a0(31, (void *)e, (void *)(uintptr_t)node, 0);
+			g_a5_long(-27932) = roster;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+done:
+	g_a5_byte(-25257) = 0;
+}
+
 /* JT[728] (CODE 18+0x2aa2) — clear a transient combat sub-state: out of the
  * triggering pass (flag==0) and with a sub-record (rec[64]), if sub[2] is set
  * announce "is <state>" (the -20012 name), re-flag the drained ability slot
