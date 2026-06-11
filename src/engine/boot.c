@@ -26102,6 +26102,26 @@ static void jt728(long rec_l, long node, short flag)
 	sub[1] = 0;
 }
 
+/* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
+ * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
+ * the table count (-27468). Returns the 1-based index, or 0 if not present.
+ * A clean leaf; unblocks jt516 and jt877. */
+static unsigned char jt519(long key) __attribute__((unused));
+static unsigned char jt519(long key)
+{
+	const long   *tbl   = (const long *)(uintptr_t)&g_a5_byte(-25676);
+	unsigned char found = 0, result = 0, i = 0;
+	PROBE("jt519");
+	do {
+		i++;
+		if (tbl[i] == key)
+			found = 1;
+	} while (!(found || i == (unsigned char)g_a5_byte(-27468)));
+	if (found)
+		result = i;
+	return result;
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
