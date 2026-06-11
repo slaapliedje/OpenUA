@@ -24777,9 +24777,22 @@ static void jt148(long prompt, char *title, short flag)
 	g_a5_12912 = 0;
 }
 
+/* JT[100] (CODE 6 + 0x4bd2) — a hundredths-of-a-second time base: the 60 Hz
+ * TickCount (jt1134) rescaled *100/72 (jt4 multiply, jt7 signed long divide).
+ * L23b4's pacing loop reads it as a monotonic clock; the old return-0 stub
+ * froze every delta comparison there. */
+static long  jt100(void)
+{
+	PROBE("jt100");
+	return jt7(jt4(jt1134(), 100), 72);
+}
+
+/* JT[1085] (CODE 5 + 0x88) IS L0088 — the same address: poll for a pending
+ * event (key / button / kind-7). Lifted as l0088 further down; delegate so the
+ * L23b4 loop sees real events instead of the old return-0 stub. */
+static short l0088(void);
 /* New PROBE-stub helpers L23b4 needs. */
-static long  jt100(void)                             { PROBE("jt100"); return 0; }
-static signed char jt1085(void)                      { PROBE("jt1085"); return 0; }
+static signed char jt1085(void)                      { PROBE("jt1085"); return (signed char)l0088(); }
 static void  jt1067(void)                            { PROBE("jt1067"); }
 static void  jt46(short a, short b, short c, short d) { PROBE("jt46"); (void)a; (void)b; (void)c; (void)d; }
 
