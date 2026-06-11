@@ -29784,6 +29784,240 @@ static void jt841(long rec_l, long node, short flag)
 	}
 }
 
+/* JT[843] (CODE 18 + 0x6d26) — both passes: disease tick.  Re-stage
+ * effect 215 (node[4] magnitude, 14400 duration); while it holds,
+ * a successful 1-point heal gets the jt14 heal report. */
+static void jt843(long rec_l, long node, short flag) __attribute__((unused));
+static void jt843(long rec_l, long node, short flag)
+{
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt843");
+	(void)flag;
+	if (l3dfe(rec_l, 215, (short)(unsigned char)nd[4], 14400) == 0)
+		return;
+	if (jt869(rec_l, 1, 1) == 0)
+		return;
+	jt14(rec_l);
+}
+
+/* JT[844] (CODE 18 + 0x6d72) — both passes: unless the Fire element
+ * flag is staged, gain effect 218 at 3d6 magnitude.  The Mac also
+ * tests bit 8 of -25266 with `tstb` — which only sees the LOW byte,
+ * so that branch can never fire; kept as the single &1 gate. */
+static void jt844(long rec_l, long node, short flag) __attribute__((unused));
+static void jt844(long rec_l, long node, short flag)
+{
+	short roll;
+
+	PROBE("jt844");
+	(void)node; (void)flag;
+	if ((g_a5_word(-25266) & 1) != 0)
+		return;
+	/* andiw #256 + tstb: dead test on the Mac, omitted */
+	roll = jt870(3, 6);
+	jt876(rec_l, 218, roll, 255, 1);
+}
+
+/* JT[845] (CODE 18 + 0x6e08) — both passes: gain effect 225 (3 mag,
+ * 255 rounds) unless already under 226 or 225. */
+static void jt845(long rec_l, long node, short flag) __attribute__((unused));
+static void jt845(long rec_l, long node, short flag)
+{
+	void *out = 0;
+
+	PROBE("jt845");
+	(void)node; (void)flag;
+	if (jt41(rec_l, 226, &out) != 0)
+		return;
+	if (jt41(rec_l, 225, &out) != 0)
+		return;
+	jt876(rec_l, 225, 3, 255, 1);
+}
+
+/* JT[846] (CODE 18 + 0x6e5c) — both passes: troll-style rise.  jt874
+ * raises the combatant at full HP ("stands up and grins"); if the
+ * raise didn't happen, re-stage effect 218 for one round. */
+static void jt846(long rec_l, long node, short flag) __attribute__((unused));
+static void jt846(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt846");
+	(void)flag;
+	if (jt874(rec_l, (short)(unsigned char)rec[129],
+		  (long)(uintptr_t)ua_strs_at(0x5856)
+		  /* "stands up and grins" */) != 0)
+		return;
+	l3dfe(rec_l, 218, (short)(unsigned char)nd[4], 1);
+}
+
+/* JT[847] (CODE 18 + 0x6ea6) — both passes: when the Fire element
+ * flag is staged, knock 1 off the damage per staged die (-25261),
+ * flooring at the die count itself. */
+static void jt847(long rec_l, long node, short flag) __attribute__((unused));
+static void jt847(long rec_l, long node, short flag)
+{
+	short i;
+
+	PROBE("jt847");
+	(void)rec_l; (void)node; (void)flag;
+	if ((g_a5_word(-25266) & 1) == 0)
+		return;
+	for (i = 1; i <= (short)(unsigned char)g_a5_byte(-25261); i++) {
+		g_a5_word(-25242) = (short)(g_a5_word(-25242) - 1);
+		if ((unsigned short)(unsigned char)g_a5_byte(-25261)
+		    > (unsigned short)g_a5_word(-25242))
+			g_a5_word(-25242) =
+			    (short)(unsigned char)g_a5_byte(-25261);
+	}
+}
+
+/* JT[848] (CODE 18 + 0x6ee8) — both passes: bear hug.  Fires only on
+ * an attack-roll stage of 18+ (signed): announce "hugs <name>", pin
+ * the linked entity with effect 221 keyed to its actor index + fire
+ * the 221 hook, and key the hugger's own effect 222 to it. */
+static void jt848(long rec_l, long node, short flag) __attribute__((unused));
+static void jt848(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *ent;
+	long ent_l;
+
+	PROBE("jt848");
+	(void)node; (void)flag;
+	if ((signed char)g_a5_byte(-25255) < 18)
+		return;
+	ent_l = *(long *)(*(unsigned char **)(rec + 64) + 12);
+	g_a5_long(-25250) = ent_l;
+	ent = (unsigned char *)(uintptr_t)ent_l;
+	jt18((void *)(uintptr_t)rec_l,
+	     (long)(uintptr_t)jt488(ua_strs_at(0x586a) /* "hugs %s" */,
+				    (const char *)(ent + 96)),
+	     12, 1);
+	jt876(ent_l, 221, 0, (short)jt519(ent_l), 0);
+	l77a0(221, (void *)(uintptr_t)ent_l, 0, 0);
+	jt876(rec_l, 222, 0, (short)jt519(ent_l), 1);
+}
+
+/* JT[849] (CODE 18 + 0x6f90) — both passes: clear the sub-record's
+ * byte 8 (the jt37 working count) and, if -25244 is set, the -25264
+ * stage too. */
+static void jt849(long rec_l, long node, short flag) __attribute__((unused));
+static void jt849(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt849");
+	(void)node; (void)flag;
+	sub = *(unsigned char **)(rec + 64);
+	if (sub == NULL)
+		return;
+	sub[8] = 0;
+	if (g_a5_byte(-25244) != 0)
+		g_a5_byte(-25264) = 0;
+}
+
+/* JT[850] (CODE 18 + 0x6fb8) — bear-hug maintenance on the HUGGER's
+ * effect 222 (node[4] = the victim's actor index); the 221/222
+ * sibling of jt838, without the jt37 rebuild and with a local out
+ * byte for jt555. */
+static void jt850(long rec_l, long node, short flag) __attribute__((unused));
+static void jt850(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+	unsigned char *ent;
+	long ent_l;
+	unsigned char lout;
+
+	PROBE("jt850");
+	ent_l = g_a5_25676[(unsigned char)nd[4]];
+	g_a5_long(-25250) = ent_l;
+	ent = (unsigned char *)(uintptr_t)ent_l;
+	if ((unsigned char)flag == 0 && rec[382] != 0 && ent[382] != 0) {
+		/* L702c — carried */
+		rec[387] = 1;
+		rec[388] = 0;
+		rec[389] = 2;
+		rec[391] = 8;
+		jt555(rec_l, ent_l, 1, 0, &lout);
+		lout = jt498(rec_l);
+		(void)lout;
+		if (ent[382] == 0) {
+			jt878(rec_l, 222, 0);
+			jt878(ent_l, 221, 0);
+		}
+		return;
+	}
+	/* L6ff2 — release */
+	jt878(ent_l, 221, 0);
+	if ((unsigned char)flag != 0)
+		return;
+	nd[5] = 0;
+	jt878(rec_l, 222, node);
+}
+
+/* JT[852] (CODE 18 + 0x71d0) — both passes: when the linked entity is
+ * not status-OK, inflict paralysis (l3d3a; second arg 63 here, dead
+ * in the body). */
+static void jt852(long rec_l, long node, short flag) __attribute__((unused));
+static void jt852(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *ent;
+
+	PROBE("jt852");
+	(void)node; (void)flag;
+	ent = *(unsigned char **)(*(unsigned char **)(rec + 64) + 12);
+	if (ent[88] == 0)
+		return;
+	l3d3a(rec_l, 63, 0);
+}
+
+/* JT[853] (CODE 18 + 0x6db8) — both passes: gain effect 226
+ * (255 rounds). */
+static void jt853(long rec_l, long node, short flag) __attribute__((unused));
+static void jt853(long rec_l, long node, short flag)
+{
+	PROBE("jt853");
+	(void)node; (void)flag;
+	jt876(rec_l, 226, 0, 255, 0);
+}
+
+/* JT[854] (CODE 18 + 0x6dd8) — both passes: regenerate 3 HP, capped
+ * at the derived max rec[129]. */
+static void jt854(long rec_l, long node, short flag) __attribute__((unused));
+static void jt854(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt854");
+	(void)node; (void)flag;
+	rec[395] = (unsigned char)(rec[395] + 3);
+	if ((unsigned char)rec[395] > (unsigned char)rec[129])
+		rec[395] = rec[129];
+}
+
+/* JT[820] (CODE 18 + 0x7206) — ITEM hook (second arg is the item, not
+ * an effect node): clear the -23187 hook override, then mirror the
+ * item's linked effect type (item[55]) onto the bearer — removal pass
+ * drops it, apply pass adds it (0 mag, 255 rounds). */
+static void jt820(long rec_l, long item, short flag) __attribute__((unused));
+static void jt820(long rec_l, long item, short flag)
+{
+	unsigned char *it = (unsigned char *)(uintptr_t)item;
+
+	PROBE("jt820");
+	g_a5_byte(-23187) = 0;
+	if ((unsigned char)flag != 0)
+		jt878(rec_l, (short)(unsigned char)it[55], 0);
+	else
+		jt876(rec_l, (short)(unsigned char)it[55], 0, 255, 1);
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
