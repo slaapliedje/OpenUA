@@ -26012,6 +26012,53 @@ static unsigned char jt863(long rec_l, short newidx, short newval, void *out)
 static void jt859(void) __attribute__((unused));
 static void jt859(void) { PROBE("jt859"); }
 
+/* ===== per-effect-type handlers (the jt7xx tail) =====
+ * Uniform signature (rec, node, flag): tick/apply one effect on the actor,
+ * optionally remove it (jt878), render the result message (jt503), repaint
+ * (jt20/jt498). */
+
+/* JT[718] (CODE 18+0x2988) — count a creature trait: when out of the
+ * triggering pass (flag==0) and the actor has a monster sub-record (rec[64]),
+ * cache it at -25250 and, if its trait byte [192] has bit 2 set, bump the
+ * per-pass counter -25255. */
+static void jt718(long rec_l, long node, short flag) __attribute__((unused));
+static void jt718(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *e, *sub;
+	PROBE("jt718");
+	(void)node;
+	e = *(unsigned char **)(uintptr_t)(rec + 64);
+	if (e == NULL || (unsigned char)flag != 0)
+		return;
+	g_a5_long(-25250) = *(long *)(uintptr_t)(e + 12);
+	sub = (unsigned char *)(uintptr_t)g_a5_long(-25250);
+	if ((sub[192] & 4) != 0)
+		g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) + 1);
+}
+
+/* JT[713] (CODE 18+0x2914) — tick the "fighting with snakes" effect: drain
+ * the effect node's counter node[4] by rec[388]+rec[387]; when it would run
+ * out, remove the effect (type 3, jt878). Then render the message (jt503),
+ * repaint the sheet (jt20), reset the order block (jt498). */
+static void jt713(long rec_l, long node, short flag) __attribute__((unused));
+static void jt713(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+	unsigned char  sum;
+	PROBE("jt713");
+	(void)flag;
+	sum = (unsigned char)(rec[388] + rec[387]);
+	if (nd[4] > sum)
+		nd[4] = (unsigned char)(nd[4] - sum);
+	else
+		jt878(rec_l, 3, 0);             /* effect expired -> remove */
+	jt503(rec_l, 1, (long)(uintptr_t)ua_strs_at(0x550c) /* "is fighting with snakes" */);
+	jt20();
+	jt498(rec_l);
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
