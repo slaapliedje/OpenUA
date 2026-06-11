@@ -26249,6 +26249,120 @@ static void jt31(long rec_l, short type)
 	}
 }
 
+/* JT[867] (CODE 18 + 0x2018, 7 sites) — deal `amount` damage to `entity` with
+ * an optional saving throw, build + show the "<name> takes N points of damage
+ * from <element>" message, apply it (jt39), then run the death cascade.
+ *
+ *   1. amount -> g_a5_-25242 (working damage); jt868 case 6 folds in
+ *      resistances. With saveFlag set, saveCat 1 negates / 2 halves the
+ *      damage; without it, jt868 case 20 runs instead.
+ *   2. Bail if no damage remains, or the actor is not in combat (rec[382]).
+ *   3. Build the message (jt394 / jt384) plus an element suffix from the
+ *      g_a5_-25266 damage-type flags (Fire/Cold/Electricity/Magic, appended
+ *      through jt488's %s).
+ *   4. Mark the info panel dirty (combat view only), draw it (jt38), show the
+ *      message (jt503), apply the damage (jt39).
+ *   5. In combat view a hit may cost an in-progress spell (jt18 "lost a
+ *      spell" + jt31 + jt498).
+ *   6. If the actor went down (rec[382]==0): "Goes Down" [+ " and is Dying"
+ *      for status 5, or replaced by "is killed" for status 6/7/8], print it
+ *      (jt18), then clean up (jt865 + jt868 case 13 + jt520, else jt92).
+ *      Always repaint (jt20). The g_a5_-25242 slot here is the combat damage
+ *      scratch word, not the jt857 hook table that shares the label. */
+static void jt867(long entity, short amount, short saveCat, short saveFlag)
+                                                        __attribute__((unused));
+static void jt867(long entity, short amount, short saveCat, short saveFlag)
+{
+	unsigned char *e;
+	char  buf[82];
+	short dmg, el;
+
+	PROBE("jt867");
+	g_a5_word(-25242) = (unsigned char)amount;        /* working damage */
+	jt868(6, (void *)&entity);                        /* resistances */
+
+	if ((saveFlag & 0xff) != 0) {
+		switch ((signed char)saveCat) {           /* JT[3] 1..2 */
+		case 1: g_a5_word(-25242) = 0; break;             /* save negates */
+		case 2: g_a5_word(-25242) =
+			    (short)g_a5_word(-25242) / 2; break;  /* save halves */
+		default: break;
+		}
+	} else {
+		jt868(20, (void *)&entity);
+	}
+
+	e = (unsigned char *)(uintptr_t)entity;
+	if ((short)g_a5_word(-25242) <= 0)                /* no damage left */
+		return;
+	if ((unsigned char)e[382] == 0)                   /* not in combat */
+		return;
+
+	dmg = (short)g_a5_word(-25242);
+	if (dmg == 1)
+		jt384(buf, ua_strs_at(0x545c));   /* "takes 1 point of damage " */
+	else
+		jt394(buf, ua_strs_at(0x543c),    /* "takes %d%s" */
+		      dmg, ua_strs_at(0x5448));   /* " points of damage " */
+
+	el = (short)((unsigned short)g_a5_word(-25266) & 0xfff7u);
+	switch (el) {                                     /* JT[3] 1,2,4 */
+	case 1: jt384(buf, jt488(ua_strs_at(0x5476), buf)); break; /* Fire */
+	case 2: jt384(buf, jt488(ua_strs_at(0x5482), buf)); break; /* Cold */
+	case 4: jt384(buf, jt488(ua_strs_at(0x548e), buf)); break; /* Electricity */
+	default:
+		if (((short)g_a5_word(-25266) & 8) == (short)g_a5_word(-25266))
+			jt384(buf, jt488(ua_strs_at(0x54a2), buf)); /* Magic */
+		break;
+	}
+
+	g_a5_byte(-22627) = 1;                            /* info panel dirty */
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		g_a5_byte(-22627) = 0;                    /* ...combat view only */
+	jt38(entity);
+	jt503(entity, 0, (long)(uintptr_t)buf);
+	jt39((void *)e, (short)g_a5_word(-25242));        /* apply the damage */
+
+	if ((unsigned char)g_a5_byte(-27990) == 5) {      /* spell loss on hit */
+		unsigned char *sub = *(unsigned char **)(uintptr_t)(e + 64);
+		sub[1] = 0;
+		sub = *(unsigned char **)(uintptr_t)(e + 64);
+		if (sub[0] != 0) {
+			jt18((void *)e, (long)(uintptr_t)ua_strs_at(0x54b0),
+			     12, 1);                      /* "lost a spell" */
+			jt31(entity, sub[0]);
+			jt498(entity);
+		}
+	}
+
+	if ((unsigned char)e[382] == 0) {                 /* actor went down */
+		jt384(buf, ua_strs_at(0x54be));           /* "Goes Down" */
+		if ((e[192] & 8) == 0) {
+			if ((unsigned char)e[94] == 5)
+				jt384(buf, jt488(ua_strs_at(0x54c8), buf));
+			if ((unsigned char)e[94] == 6
+			 || (unsigned char)e[94] == 8
+			 || (unsigned char)e[94] == 7)
+				jt384(buf, ua_strs_at(0x54d8));   /* "is killed" */
+		}
+		jt18((void *)e, (long)(uintptr_t)buf,
+		     (short)((unsigned char)g_a5_byte(-27911) + 1), 0);
+		if ((unsigned char)g_a5_byte(-27990) != 5) {
+			jt92();
+		} else {
+			jt865(entity);
+			jt868(13, (void *)&entity);
+			e = (unsigned char *)(uintptr_t)entity;
+			if ((unsigned char)e[382] != 0
+			 || (unsigned char)e[94] == 10)
+				jt92();
+			else
+				jt520(entity);
+		}
+	}
+	jt20();
+}
+
 /* JT[728] (CODE 18+0x2aa2) — clear a transient combat sub-state: out of the
  * triggering pass (flag==0) and with a sub-record (rec[64]), if sub[2] is set
  * announce "is <state>" (the -20012 name), re-flag the drained ability slot
