@@ -28730,6 +28730,255 @@ static void jt790(long rec_l, long node, short flag)
 	}
 }
 
+/* JT[791] (CODE 18 + 0x5078) — halve the staged damage unless the
+ * active member's weapon-in-use enchantment (item[48], signed) is at
+ * least +3. Runs on both passes. */
+static void jt791(long rec_l, long node, short flag) __attribute__((unused));
+static void jt791(long rec_l, long node, short flag)
+{
+	unsigned char *item;
+
+	PROBE("jt791");
+	(void)rec_l; (void)node; (void)flag;
+	item = (unsigned char *)l45ea(g_a5_27932);
+	if (item == NULL)
+		return;
+	if ((signed char)item[48] < 3)
+		g_a5_word(-25242) = (short)((short)g_a5_word(-25242) / 2);
+}
+
+/* JT[792] (CODE 18 + 0x50b6) — as jt791 but the threshold is +4. */
+static void jt792(long rec_l, long node, short flag) __attribute__((unused));
+static void jt792(long rec_l, long node, short flag)
+{
+	unsigned char *item;
+
+	PROBE("jt792");
+	(void)rec_l; (void)node; (void)flag;
+	item = (unsigned char *)l45ea(g_a5_27932);
+	if (item == NULL)
+		return;
+	if ((signed char)item[48] < 4)
+		g_a5_word(-25242) = (short)((short)g_a5_word(-25242) / 2);
+}
+
+/* JT[793] (CODE 18 + 0x50f4) — slaying weapon: when the weapon in use
+ * is item type 74 the defender "is slain" outright (status 6). Runs on
+ * both passes. */
+static void jt793(long rec_l, long node, short flag) __attribute__((unused));
+static void jt793(long rec_l, long node, short flag)
+{
+	unsigned char *item;
+
+	PROBE("jt793");
+	(void)node; (void)flag;
+	item = (unsigned char *)l45ea(g_a5_27932);
+	if (item == NULL)
+		return;
+	if (item[40] == 74)
+		jt860(rec_l, 6,
+		      (long)(uintptr_t)ua_strs_at(0x56f4) /* "is slain" */);
+}
+
+/* JT[794] (CODE 18 + 0x5136) — apply pass: the save-or-die effect-55
+ * inflict (l2f28) with a -2 save modifier. */
+static void jt794(long rec_l, long node, short flag) __attribute__((unused));
+static void jt794(long rec_l, long node, short flag)
+{
+	PROBE("jt794");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	l2f28(rec_l, -2);
+}
+
+/* JT[796] (CODE 18 + 0x5190) — once-only throw spoiler keyed on node
+ * bit 16: while neither the breath scratch (-22721) nor the rolled
+ * throw (-25255) is live, keep stripping the high node[4] bits; the
+ * first live throw forces it to 255 (auto-fail/max) and latches bit 16
+ * so it fires only once. */
+static void jt796(long rec_l, long node, short flag) __attribute__((unused));
+static void jt796(long rec_l, long node, short flag)
+{
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt796");
+	(void)rec_l;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((short)(unsigned char)g_a5_byte(-22721) == 0 &&
+	    g_a5_byte(-25255) == 0) {
+		nd[4] = (unsigned char)(nd[4] & 15);
+	} else if ((nd[4] & 16) == 0) {
+		g_a5_byte(-25255) = (char)0xff;
+		nd[4] = (unsigned char)(nd[4] | 16);
+	}
+}
+
+/* JT[797] (CODE 18 + 0x51f4) — apply pass: replace the hit with effect
+ * 111 (l3dda(111)). */
+static void jt797(long rec_l, long node, short flag) __attribute__((unused));
+static void jt797(long rec_l, long node, short flag)
+{
+	PROBE("jt797");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	l3dda(111);
+}
+
+/* JT[798] (CODE 18 + 0x520c) — l3e40(1) on both passes. */
+static void jt798(long rec_l, long node, short flag) __attribute__((unused));
+static void jt798(long rec_l, long node, short flag)
+{
+	PROBE("jt798");
+	(void)rec_l; (void)node; (void)flag;
+	l3e40(1);
+}
+
+/* JT[799] (CODE 18 + 0x521e) — apply pass, attack forms 0/2/4 (-25246):
+ * save-modifier bonus from the defender's rec[121] tier — 4-6 -> +1,
+ * 7-10 -> +2, 11-13 -> +3, 14-17 -> +4, 18-20 -> +5 (hidden moveq #1
+ * confirmed at 0x5278; outside 4..20 the Mac adds an uninitialized
+ * stack byte — translated as +0). */
+static void jt799(long rec_l, long node, short flag) __attribute__((unused));
+static void jt799(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char bonus = 0;
+
+	PROBE("jt799");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((unsigned char)g_a5_byte(-25246) != 4 &&
+	    (unsigned char)g_a5_byte(-25246) != 2 &&
+	    (unsigned char)g_a5_byte(-25246) != 0)
+		return;
+	/* JT[3] table at 0x5250 (min=4, max=20) */
+	switch ((short)(unsigned char)rec[121]) {
+	case 4: case 5: case 6:			bonus = 1; break;
+	case 7: case 8: case 9: case 10:	bonus = 2; break;
+	case 11: case 12: case 13:		bonus = 3; break;
+	case 14: case 15: case 16: case 17:	bonus = 4; break;
+	case 18: case 19: case 20:		bonus = 5; break;
+	default:				break;
+	}
+	g_a5_byte(-25269) = (char)((unsigned char)g_a5_byte(-25269) + bonus);
+}
+
+/* JT[800] (CODE 18 + 0x52b4) — apply pass: 90% of the time the hit is
+ * replaced by effects 11 and 53 (l3dda twice). */
+static void jt800(long rec_l, long node, short flag) __attribute__((unused));
+static void jt800(long rec_l, long node, short flag)
+{
+	PROBE("jt800");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if (jt870(1, 100) <= 90) {
+		l3dda(11);
+		l3dda(53);
+	}
+}
+
+/* JT[801] (CODE 18 + 0x52ea) — as jt799 but only for attack forms 4
+ * and 2 (not 0); same rec[121] tier table (hidden moveq #1 confirmed
+ * at 0x533e). */
+static void jt801(long rec_l, long node, short flag) __attribute__((unused));
+static void jt801(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char bonus = 0;
+
+	PROBE("jt801");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((unsigned char)g_a5_byte(-25246) != 4 &&
+	    (unsigned char)g_a5_byte(-25246) != 2)
+		return;
+	/* JT[3] table at 0x5316 (min=4, max=20) */
+	switch ((short)(unsigned char)rec[121]) {
+	case 4: case 5: case 6:			bonus = 1; break;
+	case 7: case 8: case 9: case 10:	bonus = 2; break;
+	case 11: case 12: case 13:		bonus = 3; break;
+	case 14: case 15: case 16: case 17:	bonus = 4; break;
+	case 18: case 19: case 20:		bonus = 5; break;
+	default:				break;
+	}
+	g_a5_byte(-25269) = (char)((unsigned char)g_a5_byte(-25269) + bonus);
+}
+
+/* JT[802] (CODE 18 + 0x537a) — apply pass: absorb the hit (l3dda(0))
+ * when the Cold element flag is staged. */
+static void jt802(long rec_l, long node, short flag) __attribute__((unused));
+static void jt802(long rec_l, long node, short flag)
+{
+	PROBE("jt802");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 2) != 0)
+		l3dda(0);
+}
+
+/* JT[803] (CODE 18 + 0x539a) — both passes: re-roll the defender's
+ * rec[388] column — 1-in-4 chance of 8, else 4. */
+static void jt803(long rec_l, long node, short flag) __attribute__((unused));
+static void jt803(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt803");
+	(void)node; (void)flag;
+	if (jt870(1, 4) == 1)
+		rec[388] = 8;
+	else
+		rec[388] = 4;
+}
+
+/* JT[804] (CODE 18 + 0x53cc) — fear aura, both passes: every opposing
+ * party member (-27928 list) of level (m[137]) below 6 and status OK,
+ * not already feared (effect 120) and not protected (effect 92), gets
+ * effect 120 "is terrified" for 4d6 with a row-4 save. The -25257
+ * applying-hazard flag brackets the sweep. */
+static void jt804(long rec_l, long node, short flag) __attribute__((unused));
+static void jt804(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *m;
+	void *out = 0;
+
+	PROBE("jt804");
+	(void)node; (void)flag;
+	g_a5_byte(-25257) = 1;
+	for (m = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     m != NULL;
+	     m = *(unsigned char **)m) {
+		short mag;
+		unsigned char sv;
+
+		if (m[95] == rec[95])			/* same side */
+			continue;
+		if (m[94] != 0)				/* not status-OK */
+			continue;
+		if ((unsigned char)m[137] >= 6)		/* level 6+ immune */
+			continue;
+		if (jt41((long)(uintptr_t)m, 120, &out) != 0)
+			continue;
+		if (jt41((long)(uintptr_t)m, 92, &out) != 0)
+			continue;
+		mag = jt870(4, 6);
+		sv = (unsigned char)jt866((long)(uintptr_t)m, 4, 0);
+		jt871((long)(uintptr_t)m, 120, mag, 0, 1, 1,
+		      (short)(signed char)sv,
+		      (long)(uintptr_t)ua_strs_at(0x56fe)
+		      /* "is terrified" */);
+	}
+	g_a5_byte(-25257) = 0;
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
