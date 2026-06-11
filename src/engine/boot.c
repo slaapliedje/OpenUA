@@ -27340,6 +27340,151 @@ static void jt757(long rec_l, long node, short flag)
 	g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) - 4);
 }
 
+/* JT[490] (CODE 13 + 0x242c) — recount the per-side combatant tallies
+ * g_a5_25298/g_a5_25297: walk the -27928 party list and bump the side
+ * counter (indexed by rec[95], the combat-side byte) for every in-combat
+ * (rec[382]) member whose status rec[94] isn't 9. */
+static void jt490(void) __attribute__((unused));
+static void jt490(void)
+{
+	long m;
+
+	PROBE("jt490");
+	g_a5_byte(-25298) = 0;
+	g_a5_byte(-25297) = 0;
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+		unsigned char *rec = (unsigned char *)(uintptr_t)m;
+		if (rec[382] == 0 || rec[94] == 9)
+			continue;
+		g_a5_buf(-25298)[rec[95]] =
+			(unsigned char)(g_a5_buf(-25298)[rec[95]] + 1);
+	}
+}
+
+/* JT[723] (CODE 18 + 0x29c4) — side-flip effect (charm/confusion): needs a
+ * sub-record (rec[64]). The removal pass restores the side bit saved in
+ * node[4] bit 6 to rec[95] and, when the creature id rec[147] is the
+ * placeholder 179, clears it and the rec[383] flag. The apply pass (once
+ * only — node[4] bit 5 marks it done) stashes the current side in node[4]
+ * bit 6, flips rec[95] from bit 7, arms rec[383], substitutes creature id
+ * 179 unless rec[147] has bit 7, clears the sub-record's linked entity
+ * (sub[12]) and recounts the sides (jt490); every apply pass pins the AC
+ * scratch -25252 at 100. */
+static void jt723(long rec_l, long node, short flag) __attribute__((unused));
+static void jt723(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+
+	PROBE("jt723");
+	if (*(long *)(rec + 64) == 0)
+		return;
+	if ((unsigned char)flag != 0) {
+		rec[95] = (unsigned char)((nd[4] & 64) >> 6);
+		if (rec[147] == 179) {
+			rec[147] = 0;
+			rec[383] = 0;
+		}
+		return;
+	}
+	if ((nd[4] & 32) == 0) {
+		unsigned char *sub;
+
+		nd[4]   = (unsigned char)(nd[4] + (rec[95] << 6) + 32);
+		rec[95] = (unsigned char)(nd[4] >> 7);
+		rec[383] = 1;
+		if ((rec[147] & 0x80) == 0)
+			rec[147] = 0xb3;
+		sub = *(unsigned char **)(uintptr_t)(rec + 64);
+		*(long *)(sub + 12) = 0;
+		jt490();
+	}
+	g_a5_byte(-25252) = 100;
+}
+
+/* JT[733] (CODE 18 + 0x2b3c) — on the rolling pass, latch the effect's
+ * linked entity (sub[12]) into g_a5_25250 and, when that entity's trait
+ * byte rec[191] has bit 7, +1 on the rolled throw. */
+static void jt733(long rec_l, long node, short flag) __attribute__((unused));
+static void jt733(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *ent;
+
+	PROBE("jt733");
+	(void)node;
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag != 0)
+		return;
+	g_a5_long(-25250) =
+		*(long *)(*(unsigned char **)(uintptr_t)(rec + 64) + 12);
+	ent = (unsigned char *)(uintptr_t)g_a5_long(-25250);
+	if ((ent[191] & 0x80) != 0)
+		g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) + 1);
+}
+
+/* JT[711] (CODE 18 + 0x2b78) — coughing fit (gas aftermath): in the combat
+ * view with a sub-record, announce "is coughing" while sub[2] is up, clear
+ * sub[1]/sub[2], recompute derived stats (jt21), -2 on both save stats,
+ * and refresh the info panel (jt38) when this is the active member. */
+static void jt711(long rec_l, long node, short flag) __attribute__((unused));
+static void jt711(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt711");
+	(void)node; (void)flag;
+	if (*(long *)(rec + 64) == 0)
+		return;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;                          /* combat view only */
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	if (sub[2] != 0)
+		jt18(rec,
+		     (long)(uintptr_t)ua_strs_at(0x552a) /* "is coughing" */,
+		     10, 1);
+	sub[2] = 0;
+	sub[1] = 0;
+	jt21(rec_l);
+	rec[385] = (unsigned char)(rec[385] - 2);
+	rec[386] = (unsigned char)(rec[386] - 2);
+	if (rec_l == g_a5_long(-27932))
+		jt38(rec_l);
+}
+
+/* JT[715] (CODE 18 + 0x2c04) — dispel evil: on the rolling pass, the
+ * effect's linked entity (sub[12] -> g_a5_25250) is dispelled (jt860
+ * status 8) when it is evil (ent[191] bit 0) and fails its save (jt866
+ * category 4), and the actor's type-4 and type-32 effects are stripped
+ * (jt878); otherwise it "resists dispel evil". */
+static void jt715(long rec_l, long node, short flag) __attribute__((unused));
+static void jt715(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char evil;
+	long ent_l;
+
+	PROBE("jt715");
+	(void)node;
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag != 0)
+		return;
+	ent_l = *(long *)(*(unsigned char **)(uintptr_t)(rec + 64) + 12);
+	g_a5_long(-25250) = ent_l;
+	evil = (unsigned char)
+		(((unsigned char *)(uintptr_t)ent_l)[191] & 1);
+	if ((unsigned char)jt866(ent_l, 4, 0) == 0 && evil != 0) {
+		jt860(ent_l, 8,
+		      (long)(uintptr_t)ua_strs_at(0x5536) /* "is dispelled" */);
+		jt878(rec_l, 4, 0);
+		jt878(rec_l, 32, 0);
+	} else {
+		jt18((void *)(uintptr_t)ent_l,
+		     (long)(uintptr_t)ua_strs_at(0x5544)
+		     /* "resists dispel evil" */,
+		     10, 1);
+	}
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
