@@ -27485,6 +27485,237 @@ static void jt715(long rec_l, long node, short flag)
 	}
 }
 
+/* JT[720] (CODE 18 + 0x2cba) — confusion tick: each apply pass rolls
+ * d100 and the victim 1-10 runs away (effect 35 stripped, sub[18] set,
+ * charm flag rec[383] + placeholder creature 0xb3, jt871 status 111),
+ * 11-60 "is confused" (skip-turn via jt855/jt498), 61-80 "goes berserk"
+ * (jt871 status 77 against its own side rec[95] + the type-77 removal
+ * hook), 81-100 "is enraged" (message only). A made save (jt866 cat 4,
+ * -2) then breaks the confusion (strip effect 35). */
+static void jt720(long rec_l, long node, short flag) __attribute__((unused));
+static void jt720(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+	unsigned char roll;
+
+	PROBE("jt720");
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag != 0)
+		return;
+	roll = (unsigned char)jt870(1, 100);
+	if (roll >= 1 && roll <= 10) {		/* runs away */
+		jt878(rec_l, 35, 0);
+		sub = *(unsigned char **)(uintptr_t)(rec + 64);
+		sub[18] = 1;
+		rec[383] = 1;
+		if ((rec[147] & 0x80) == 0)
+			rec[147] = 0xb3;
+		sub = *(unsigned char **)(uintptr_t)(rec + 64);
+		*(long *)(sub + 12) = 0;
+		jt871(rec_l, 111, 10, 0, 1, 1, 0,
+		      (long)(uintptr_t)ua_strs_at(0x5558) /* "runs away" */);
+	} else if (roll >= 11 && roll <= 60) {	/* is confused */
+		jt503(rec_l, 1,
+		      (long)(uintptr_t)ua_strs_at(0x5562) /* "is confused" */);
+		jt20();
+		jt855(rec_l);			/* L3e5c(rec, node, 0) */
+		(void)node;
+	} else if (roll >= 61 && roll <= 80) {	/* goes berserk */
+		jt871(rec_l, 77, 1, (short)rec[95], 1, 1, 0,
+		      (long)(uintptr_t)ua_strs_at(0x556e) /* "goes berserk" */);
+		l77a0(77, (void *)(uintptr_t)rec_l, 0, 0);
+	} else if (roll >= 81 && roll <= 100) {	/* is enraged */
+		jt503(rec_l, 1,
+		      (long)(uintptr_t)ua_strs_at(0x557c) /* "is enraged" */);
+		jt20();
+	}
+	if ((unsigned char)jt866(rec_l, 4, -2) != 0)
+		jt878(rec_l, 35, 0);
+}
+
+/* JT[725] (CODE 18 + 0x2ef6) — feeblemind-style save hook: on the apply
+ * pass, when the effect node's word at sub[4] is still zero the save is
+ * auto-failed (-25259 flag set, rolled throw -25255 forced to 0xff). */
+static void jt725(long rec_l, long node, short flag) __attribute__((unused));
+static void jt725(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt725");
+	(void)node;
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag != 0)
+		return;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	if (*(short *)(sub + 4) != 0)
+		return;
+	g_a5_byte(-25259) = 1;
+	g_a5_byte(-25255) = (char)0xff;
+}
+
+/* JT[16] (CODE 6 + 0x1f3e) — strength damage adjustment: maps the
+ * effective strength from l1d54 (18/xx exceptional folded to 19..23)
+ * to the AD&D melee damage bonus. */
+static short jt16(long rec_l) __attribute__((unused));
+static short jt16(long rec_l)
+{
+	unsigned char v;
+	signed char r = 0;
+
+	PROBE("jt16");
+	v = (unsigned char)l1d54((const unsigned char *)(uintptr_t)rec_l);
+	if (v == 0)
+		r = 0;
+	else if (v <= 2)
+		r = -2;
+	else if (v <= 5)
+		r = -1;
+	else if (v <= 15)
+		r = 0;
+	else if (v == 16)
+		r = 1;
+	else if (v <= 19)
+		r = (signed char)(v - 16);
+	else if (v <= 29)
+		r = (signed char)(v - 17);
+	else if (v == 30)
+		r = 14;
+	return r;
+}
+
+/* JT[735] (CODE 18 + 0x2fca) — petrify hook: on the apply pass the
+ * effect's linked entity (sub[12] -> g_a5_25250) makes a category-1
+ * save or "is turned to stone" (jt860 status 7). */
+static void jt735(long rec_l, long node, short flag) __attribute__((unused));
+static void jt735(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+
+	PROBE("jt735");
+	(void)node;
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag != 0)
+		return;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	g_a5_long(-25250) = *(long *)(sub + 12);
+	if ((unsigned char)jt866(g_a5_long(-25250), 1, 0) != 0)
+		return;
+	jt860(g_a5_long(-25250), 7,
+	      (long)(uintptr_t)ua_strs_at(0x5598)
+	      /* "is turned to stone" */);
+}
+
+/* JT[712] (CODE 18 + 0x301a) — feeblemind hook: on the apply pass INT
+ * and WIS (rec[115]/rec[117]) drop to 3 ("loses intellect"); in the
+ * combat view a spell being cast (sub[0]) is lost (jt31 flags the
+ * ability slot, "lost a spell"); then every memorized spell with the
+ * high bit set in rec[198..338] is wiped. */
+static void jt712(long rec_l, long node, short flag) __attribute__((unused));
+static void jt712(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+	unsigned char i;
+
+	PROBE("jt712");
+	(void)node;
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag != 0)
+		return;
+	rec[115] = 3;
+	rec[117] = 3;
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x55ac)
+	     /* "loses intellect" */, 10, 1);
+	if ((unsigned char)g_a5_byte(-27990) == 5) {	/* combat view */
+		sub = *(unsigned char **)(uintptr_t)(rec + 64);
+		sub[1] = 0;
+		if (sub[0] > 0) {
+			jt18(rec, (long)(uintptr_t)ua_strs_at(0x55bc)
+			     /* "lost a spell" */, 12, 1);
+			jt31(rec_l, (short)sub[0]);
+			sub[0] = 0;
+		}
+	}
+	for (i = 0; i <= 140; i++)
+		if ((rec[i + 198] & 0x80) != 0)
+			rec[i + 198] = 0;
+}
+
+/* JT[716] (CODE 18 + 0x310e) — energy-drain damage stage: when the
+ * effect's linked entity (sub[12] -> g_a5_25250) has trait bit 0 of
+ * byte 192 set, stage 6d6 (jt873) + the actor's strength damage
+ * adjustment (jt16) into the pending-damage word and bump the throw. */
+static void jt716(long rec_l, long node, short flag) __attribute__((unused));
+static void jt716(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub, *ent;
+	short d;
+
+	PROBE("jt716");
+	(void)node; (void)rec;
+	if (*(long *)(rec + 64) == 0 || (unsigned char)flag != 0)
+		return;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	g_a5_long(-25250) = *(long *)(sub + 12);
+	ent = (unsigned char *)(uintptr_t)g_a5_long(-25250);
+	if ((ent[192] & 1) == 0)
+		return;
+	d = (short)jt873(6, 6);
+	g_a5_word(-25242) = (short)(d + jt16(rec_l));
+	g_a5_byte(-25255) = (char)(g_a5_byte(-25255) + 1);
+}
+
+/* JT[721] (CODE 18 + 0x3170) — confusion-charm ("goes berserk"): the
+ * apply pass sets the charm flag and swaps the creature id to the
+ * 0xb3/0xb2 placeholder pair; in the combat view it runs the JT[508]
+ * target-pick animation over the actor's cell, links the picked
+ * combatant (g_a5_-19162 index into the active-actor table) into
+ * sub[12] and flips the actor onto the opposite side of its new
+ * target. The removal pass undoes the placeholder and zeroes the
+ * side byte. */
+static void jt721(long rec_l, long node, short flag) __attribute__((unused));
+static void jt721(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub, *ent;
+	unsigned char x, y, v, idx;
+
+	PROBE("jt721");
+	(void)node;
+	if (*(long *)(rec + 64) == 0)
+		return;
+	if ((unsigned char)flag != 0) {		/* removal pass */
+		if (rec[147] == 0xb3) {
+			rec[147] = 0;
+			rec[383] = 0;
+		}
+		rec[95] = 0;
+		return;
+	}
+	rec[383] = 1;
+	if ((rec[147] & 0x80) == 0 || rec[147] == 0xb3)
+		rec[147] = 0xb3;
+	else
+		rec[147] = 0xb2;
+	if ((unsigned char)g_a5_byte(-27990) != 5)	/* combat view only */
+		return;
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	*(long *)(sub + 12) = 0;
+	x = jt525(rec_l);
+	y = jt531(rec_l);
+	v = jt513(rec_l);
+	jt508((short)(signed char)x, (short)(signed char)y, 255, 255,
+	      (short)v);
+	idx = (unsigned char)g_a5_byte(-19162);
+	sub = *(unsigned char **)(uintptr_t)(rec + 64);
+	*(long *)(sub + 12) = g_a5_25676[idx];
+	sub[1] = 0;
+	ent = *(unsigned char **)(uintptr_t)(sub + 12);
+	rec[95] = (unsigned char)(ent[95] ^ 1);
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x55ca)
+	     /* "goes berserk" */, 10, 1);
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
