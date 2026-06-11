@@ -74,8 +74,9 @@ over `jt1134` ticks, reads/writes `-3394`/`-3390`. The colour-cycling effect
 ## Lift sequencing (each its own verified commit)
 
 1. **l6e58** ✓ (done) — the HAL keystone.
-2. **jt1069** — the allocator (pure data; all deps lifted). The big one.
-3. **jt1066** — compact + commit through l6e58 (pure data + l6e58).
+2. **jt1069** ✓ (done, a3a1263) — the allocator (pure data; faithful 1:1 lift,
+   destp NULL-guarded). Staged until jt1066 + wiring; visual-unverified.
+3. **jt1066** — compact + commit through l6e58 (pure data + l6e58). NEXT.
 4. **jt993** + de-skeleton **l3eea** (= jt124) — the picture-commit wrappers.
 5. **jt1067** — colour cycling (cosmetic, last).
 6. Wire into jt23's backdrop arms (L5822/L579e/L33ac) → the bigpic renders with
