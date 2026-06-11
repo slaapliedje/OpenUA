@@ -27146,6 +27146,200 @@ static void jt752(long rec_l, long node, short flag)
 	g_a5_byte(-25258) = 0;
 }
 
+/* JT[36] (CODE 6 + 0x223c) — give a copy of `item` to `holder`: reserve a
+ * 62-byte node from the g_a5_21508 item bucket (jt477), copy the item in
+ * (jt479), clear its next ptr (node[0]), and append it to the holder's
+ * item list (head rec[8]). */
+static void jt36(long holder_l, long item_l) __attribute__((unused));
+static void jt36(long holder_l, long item_l)
+{
+	unsigned char *holder = (unsigned char *)(uintptr_t)holder_l;
+	long nn = 0, cur;
+
+	PROBE("jt36");
+	jt477((void *)&g_a5_byte(-21508), 62, &nn);
+	jt479((const void *)(uintptr_t)item_l, (void *)(uintptr_t)nn, 62);
+	*(long *)(uintptr_t)nn = 0;
+	cur = *(long *)(holder + 8);
+	if (cur == 0) {
+		*(long *)(holder + 8) = nn;
+	} else {
+		while (*(long *)(uintptr_t)cur != 0)
+			cur = *(long *)(uintptr_t)cur;
+		*(long *)(uintptr_t)cur = nn;
+	}
+}
+
+/* JT[882] (CODE 19 + 0x30bc) — ready/equip an item: a 7-arm JT[3] state
+ * machine over the slot resolver L2f6e with curse handling ("It's
+ * Cursed!", "Wrong Class"). PROBE stub — the body belongs to the CODE 19
+ * record-sheet tier; until it lands, jt753's conjured item is given but
+ * not auto-readied. */
+static void jt882(long item_l) __attribute__((unused));
+static void jt882(long item_l)
+{
+	PROBE("jt882");
+	(void)item_l;
+}
+
+/* JT[753] (CODE 18 + 0x4156) — conjured-item effect ("Gains an item",
+ * type 6 / id 121, e.g. a magical blade). The removal pass (flag != 0)
+ * takes the item back (jt30). The apply pass, when the actor doesn't
+ * already hold one and rec[193] < 16: build the item in a scratch node
+ * (jt477 + jt65 zero-fill), hand a copy to the actor (jt36), free the
+ * scratch (jt471), then — with the actor briefly made the active roster
+ * member — auto-ready the copy (jt882, marked readied via item[50])
+ * when nothing is held (rec[12]). Always ends in the derived-stats
+ * recompute jt21. */
+static void jt753(long rec_l, long node, short flag) __attribute__((unused));
+static void jt753(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char found;
+	long it;
+
+	PROBE("jt753");
+	(void)node;
+	found = 0;                       /* an existing conjured item? */
+	for (it = *(long *)(rec + 8); it != 0; it = *(long *)(uintptr_t)it) {
+		unsigned char *ip = (unsigned char *)(uintptr_t)it;
+		if (ip[40] == 6 && ip[43] == 121) {
+			found = 1;
+			break;
+		}
+	}
+
+	if ((unsigned char)flag != 0 && it != 0)
+		jt30(rec_l, it);                /* removal pass */
+
+	if ((unsigned char)flag == 0 && found == 0 && rec[193] < 16) {
+		long saved;
+
+		jt477((void *)&g_a5_byte(-21508), 62, &it);
+		jt65(it, 62);
+		{
+			unsigned char *ip = (unsigned char *)(uintptr_t)it;
+			ip[40] = 6;
+			ip[42] = 6;
+			ip[43] = 121;
+			ip[48] = 1;
+			ip[55] = 23;
+			ip[56] = 0x89;
+		}
+		jt36(rec_l, it);
+		jt471(it, 62, (void *)&g_a5_byte(-21508));
+
+		found = 0;                      /* find the copy jt36 made */
+		for (it = *(long *)(rec + 8); it != 0;
+		     it = *(long *)(uintptr_t)it) {
+			unsigned char *ip = (unsigned char *)(uintptr_t)it;
+			if (ip[43] == 121 && ip[40] == 6) {
+				found = 1;
+				break;
+			}
+		}
+
+		saved = g_a5_long(-27932);
+		g_a5_long(-27932) = rec_l;
+		if (it != 0 && *(long *)(rec + 12) == 0) {
+			jt882(it);
+			((unsigned char *)(uintptr_t)it)[50] = 1;
+		}
+		g_a5_long(-27932) = saved;
+		jt18(rec,
+		     (long)(uintptr_t)ua_strs_at(0x5664) /* "Gains an item" */,
+		     10, 1);
+	}
+	jt21(rec_l);
+}
+
+/* JT[754] (CODE 18 + 0x430c) — on the rolling pass, when the active
+ * roster member does NOT carry a type-24 effect (jt41): arm the
+ * g_a5_25259 flag and -4 off the rolled throw. */
+static void jt754(long rec_l, long node, short flag) __attribute__((unused));
+static void jt754(long rec_l, long node, short flag)
+{
+	long n = 0;
+
+	PROBE("jt754");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if (jt41(g_a5_long(-27932), 24, &n) == 0) {
+		g_a5_byte(-25259) = 1;
+		g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) - 4);
+	}
+}
+
+/* JT[755] (CODE 18 + 0x433c) — mirror image: in the combat view, a hit
+ * rolls 1d(images+1) (images = node[4] >> 5); on anything above 1 an
+ * image absorbs it — unless the standing-hazard pass (-25257) is on and
+ * the hazard type's table byte (g_a5_16906[code*16+14]) opts out. The
+ * absorb clears the pending damage (l3dda 0), announces "lost an image",
+ * and decrements the image count: at zero the type-28 effect is removed
+ * (jt878), else node[4] keeps its low 5 bits and the new count. */
+static void jt755(long rec_l, long node, short flag) __attribute__((unused));
+static void jt755(long rec_l, long node, short flag)
+{
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+	unsigned char images;
+
+	PROBE("jt755");
+	if ((unsigned char)flag != 0)
+		return;
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return;                          /* combat view only */
+	if (jt870(1, (short)((nd[4] >> 5) + 1)) <= 1)
+		return;                          /* the real one is hit */
+	if (g_a5_byte(-25257) != 0) {
+		unsigned char code = (unsigned char)g_a5_byte(-25262);
+		if (code == 0)
+			return;
+		if (g_a5_buf(-16906)[code * 16 + 14] != 0)
+			return;                  /* hazard ignores images */
+	}
+	l3dda(0);
+	jt18((void *)(uintptr_t)rec_l,
+	     (long)(uintptr_t)ua_strs_at(0x5672) /* "lost an image" */,
+	     10, 1);
+	images = (unsigned char)((nd[4] >> 5) - 1);
+	if (images == 0)
+		jt878(rec_l, 28, 0);
+	else
+		nd[4] = (unsigned char)(((images << 5) & 0xff)
+		      | (nd[4] & 31));
+}
+
+/* JT[756] (CODE 18 + 0x4424) — on the rolling pass, shave a (signed)
+ * quarter off the pending damage word. */
+static void jt756(long rec_l, long node, short flag) __attribute__((unused));
+static void jt756(long rec_l, long node, short flag)
+{
+	PROBE("jt756");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag == 0)
+		g_a5_word(-25242) = (short)((short)g_a5_word(-25242)
+		                  - (short)g_a5_word(-25242) / 4);
+}
+
+/* JT[757] (CODE 18 + 0x4446) — on the rolling pass, -4 across the board:
+ * rolled throw (-25255), the actor's save stats rec[385]/rec[386], and
+ * the save accumulator (-25269). */
+static void jt757(long rec_l, long node, short flag) __attribute__((unused));
+static void jt757(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt757");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) - 4);
+	rec[385] = (unsigned char)(rec[385] - 4);
+	rec[386] = (unsigned char)(rec[386] - 4);
+	g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) - 4);
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
