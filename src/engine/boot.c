@@ -2689,7 +2689,30 @@ done:
 }
 static void  l4336(short idx)              { PROBE("L4336"); (void)idx; }
 static void  l4144(void)                   { PROBE("L4144"); }
-static void  l085e(void)                   { PROBE("L085e"); }
+static short jt202(short x, short y, short facing);  /* CODE 7+0x5e52, defined later */
+/* L085e (CODE 20 + 0x085e) — refresh the per-cell view caches and reset the
+ * display-state struct. Caches the current cell's special byte (jt201 ->
+ * -12284) and its facing wall nibble (jt202 -> -12285), clears the display
+ * state at -22302 (jt399), re-arms the view (jt935/jt938), and clears the
+ * sprite/PIC layer-drawn flags. Faithful leaf; called by l3ef8. */
+static void  l085e(void)
+{
+	PROBE("L085e");
+	g_a5_byte(-12284) = (unsigned char)jt201((short)(signed char)g_a5_byte(-12288),
+	                                         (short)(signed char)g_a5_byte(-12287));
+	jt399(&g_a5_byte(-22302), (short)2, (short)0);
+	g_a5_byte(-23188) = 1;
+	jt935();
+	jt938();
+	g_a5_byte(-22274) = 0;
+	g_a5_byte(-22277) = 0;
+	g_a5_byte(-22276) = 0;
+	g_a5_byte(-22281) = 0;
+	g_a5_byte(-22279) = 0;
+	g_a5_byte(-12285) = (unsigned char)jt202((short)(signed char)g_a5_byte(-12288),
+	                                         (short)(signed char)g_a5_byte(-12287),
+	                                         (short)(unsigned char)g_a5_byte(-12286));
+}
 static void  l159a(void *ev, short f)      { PROBE("L159a"); (void)ev; (void)f; }
 static void  l4d26(void *ev);              /* message/text event — defined after its deps */
 static void  l28b0(void *ev, short f)      { PROBE("L28b0"); (void)ev; (void)f; }
@@ -24752,9 +24775,130 @@ static void  l0b20(void *p)
 	jt96(1, 17, 38, 22, style, 0, 0, (long)(uintptr_t)p, 17);
 	g_a5_byte(-27981) = 0;
 }
-static short l3f22(void *ev)              { PROBE("L3f22"); (void)ev; return 0; }
-static void  l4184(void)                  { PROBE("L4184"); }
-static void  l3ef8(void)                  { PROBE("L3ef8"); }
+static void jt78(void);   /* CODE 6+0x67ca, defined later */
+
+/* JT[84] (CODE 6 + 0x68f8) — minimal play-frame reblit: lock the port (l670c)
+ * and draw frame piece 16 (l66e6). Used by l3ef8's overview-refresh arm. */
+static void jt84(void)
+{
+	PROBE("jt84");
+	l670c();
+	l66e6((short)16);
+}
+
+/* JT[181] (CODE 7 + 0x1806) — emit a one-line status/prompt string. Resets the
+ * text cursor (l177a), sets pen mode 2 (l2858), fetches string `n` (l23b4), and
+ * renders it through the dialog text path (l25b6) into the -24139 line buffer.
+ * Same string-emit pattern as the L15e2 dialog loop. */
+static void jt181(short n)
+{
+	short tmp;
+	PROBE("jt181");
+	l177a();
+	l2858((short)2);
+	tmp = l23b4((short)(signed char)(n & 0xff));
+	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
+}
+
+/* L4108 (CODE 20 + 0x4108) — stash the current map position into the live
+ * record's saved-position fields (rec[23]/rec[24]). In-view mode (-27990==4)
+ * takes the live cursor (-12288/-12287); otherwise it copies the overview
+ * position (rec[37]/rec[38]). Faithful record-only leaf; called by l4184. */
+static void l4108(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L4108");
+	if (rec == NULL)
+		return;
+	if ((unsigned char)g_a5_byte(-27990) == 4) {
+		rec[23] = (unsigned char)g_a5_byte(-12288);
+		rec[24] = (unsigned char)g_a5_byte(-12287);
+	} else {
+		rec[23] = rec[37];
+		rec[24] = rec[38];
+	}
+}
+
+/* L3f22 (CODE 20 + 0x3f22) — pre-move event predicate / prompt. Returns 1 when
+ * the event blocks the move (its string slot ev[4] resolves non-zero and the
+ * type isn't 22), drawing the prompt text into the message box (l0b20) on the
+ * way; returns 0 otherwise. Faithful lift. */
+static short l3f22(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char *rec;
+
+	PROBE("L3f22");
+	jt20();
+	if (jt1180(*(short *)(ev + 4)) == 0)
+		return 0;
+	if (ev[0] == 22)
+		return 0;
+	{
+		short d = jt1180(*(short *)(ev + 4));
+		jt232((void *)(uintptr_t)g_a5_long(-13034), d,
+		      (char *)&g_a5_byte(-5213));
+	}
+	rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	if (rec)
+		rec[57] = 0;
+	l0b20(&g_a5_byte(-5213));
+	jt181((short)1);
+	g_a5_byte(-4947) = 0;
+	jt20();
+	jt176();
+	return 1;
+}
+
+/* L4184 (CODE 20 + 0x4184) — apply a freshly-loaded saved position to the live
+ * cursor. l4108 first stashes the record fields; then copies the saved landing
+ * coords (-4940/-4939) into the active slots per the display mode (-27990:
+ * 4=in-view -> -12288/-12287; 3=overview -> rec[37]/rec[38]; 2 -> sub-mode
+ * -27989 picks the same two targets). */
+static void l4184(void)
+{
+	unsigned char *rec;
+
+	PROBE("L4184");
+	l4108();
+	rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	if ((unsigned char)g_a5_byte(-27990) == 4) {
+		g_a5_byte(-12288) = (unsigned char)g_a5_byte(-4940);
+		g_a5_byte(-12287) = (unsigned char)g_a5_byte(-4939);
+	} else if ((unsigned char)g_a5_byte(-27990) == 3) {
+		if (rec) {
+			rec[37] = (unsigned char)g_a5_byte(-4940);
+			rec[38] = (unsigned char)g_a5_byte(-4939);
+		}
+	} else if ((unsigned char)g_a5_byte(-27990) == 2) {
+		if ((unsigned char)g_a5_byte(-27989) == 4) {
+			g_a5_byte(-12288) = (unsigned char)g_a5_byte(-4940);
+			g_a5_byte(-12287) = (unsigned char)g_a5_byte(-4939);
+		} else if ((unsigned char)g_a5_byte(-27989) == 3 && rec) {
+			rec[37] = (unsigned char)g_a5_byte(-4940);
+			rec[38] = (unsigned char)g_a5_byte(-4939);
+		}
+	}
+}
+
+/* L3ef8 (CODE 20 + 0x3ef8) — post-event view refresh. In overview mode
+ * (-27990==3) it reblits the minimal frame (jt84) and re-stands the play frame
+ * (jt23); otherwise it repaints the in-view frame + compass (jt78), refreshes
+ * the per-cell caches (l085e), and redraws the roster (jt937). */
+static void l3ef8(void)
+{
+	PROBE("L3ef8");
+	if ((unsigned char)g_a5_byte(-27990) == 3) {
+		jt84();
+		jt23();
+	} else {
+		g_a5_byte(-27987) = 0;
+		jt78();
+		l085e();
+		jt937(g_a5_long(-27932));
+	}
+}
 
 /* L5676 (CODE 20 + 0x5676) — the STAIRS / teleport / level-transition event
  * handler (l709e cases 5/11/34). Faithful lift of the transition spine; the
