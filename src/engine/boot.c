@@ -26722,6 +26722,124 @@ static void jt877(long entity, short status, long msg)
 		jt865(entity);                   /* strip remaining effects */
 }
 
+/* L25a8 (CODE 18 + 0x25a8) — re-stamp every remaining standing cloud onto the
+ * map: walk the g_a5_23234 object list and for each active segment k
+ * (obj[18+k]) write the cloud's feature byte (obj[32]) into the live-map cell
+ * at obj[28]/obj[29] plus the k-th segment offset (g_a5_24085 ->
+ * g_a5_27862/g_a5_27853). Run after an expiry pass so overlapping clouds
+ * reassert the cells the expired one vacated. */
+static void l25a8(void) __attribute__((unused));
+static void l25a8(void)
+{
+	long obj;
+	short k;
+
+	PROBE("L25a8");
+	for (obj = g_a5_long(-23234); obj != 0;
+	     obj = *(long *)(uintptr_t)(obj + 4)) {
+		unsigned char *o = (unsigned char *)(uintptr_t)obj;
+
+		for (k = 1; k <= 9; k++) {
+			unsigned char idx;
+			short px, py;
+
+			if (o[18 + k] == 0)
+				continue;       /* segment not present */
+			idx = g_a5_buf(-24085)[k];
+			py  = (short)((signed char)g_a5_buf(-27853)[idx]
+			    +         (signed char)o[29]);
+			px  = (short)((signed char)g_a5_buf(-27862)[idx]
+			    +         (signed char)o[28]);
+			((unsigned char *)(uintptr_t)g_a5_long(-25318))
+				[py * 50 + px + 9] = o[32];
+		}
+	}
+}
+
+/* JT[861] (CODE 18 + 0x267e, 2 sites) — age/expire the standing clouds
+ * (wall of fog, stinking cloud, ...). Walks the g_a5_23234 object list:
+ * with `flag` set only force-expired objects (lifetime obj[30] == 0xff) go;
+ * otherwise an object whose lifetime has run down (<= 1) expires and every
+ * survivor's lifetime ticks down by one. An expiring object restores the
+ * map cell under each of its 9 segments — 31 when a live entry in the
+ * g_a5_25410 event table (10-byte records, count g_a5_25320) sits there,
+ * else the tile saved in obj[8+k] — then is unlinked and freed back to the
+ * g_a5_20800 bucket (jt471, size 34). If anything expired, the remaining
+ * clouds re-stamp their cells (l25a8) and "The air clears a little..."
+ * is announced (jt42). */
+static void jt861(short flag) __attribute__((unused));
+static void jt861(short flag)
+{
+	long prev = 0, obj, next;
+	unsigned char any = 0;
+
+	PROBE("jt861");
+	obj = g_a5_long(-23234);
+	while (obj != 0) {
+		unsigned char *o = (unsigned char *)(uintptr_t)obj;
+		unsigned char expired;
+
+		next = *(long *)(uintptr_t)(obj + 4);
+		if ((unsigned char)flag != 0)
+			expired = (o[30] == 0xff) ? 1 : 0;
+		else
+			expired = (o[30] <= 1) ? 1 : 0;
+
+		if (expired) {
+			short k;
+
+			for (k = 1; k <= 9; k++) {
+				unsigned char idx, found, ev;
+				unsigned char *cell;
+				short px, py;
+
+				if (o[18 + k] == 0)
+					continue;
+				idx = g_a5_buf(-24085)[k];
+				px = (short)((signed char)g_a5_buf(-27862)[idx]
+				   +         (signed char)o[28]);
+				py = (short)((signed char)g_a5_buf(-27853)[idx]
+				   +         (signed char)o[29]);
+
+				found = 0;      /* an event under the cloud? */
+				for (ev = 1;
+				     ev <= (unsigned char)g_a5_byte(-25320);
+				     ev++) {
+					unsigned char *er =
+						g_a5_buf(-25410) + ev * 10;
+					if (*(long *)er != 0
+					 && *(short *)(er + 4) == px
+					 && *(short *)(er + 6) == py)
+						found = 1;
+				}
+
+				cell = (unsigned char *)(uintptr_t)
+					g_a5_long(-25318) + py * 50 + px;
+				if (found != 0)
+					cell[9] = 31;        /* active event */
+				else
+					cell[9] = o[8 + k];  /* saved tile */
+			}
+			any = 1;
+			if (prev == 0)
+				g_a5_long(-23234) = next;
+			else
+				*(long *)(uintptr_t)(prev + 4) = next;
+			jt471(obj, 34, (void *)&g_a5_byte(-20800));
+		} else {
+			prev = obj;
+			if ((unsigned char)flag == 0)
+				o[30]--;                /* tick the lifetime */
+		}
+		obj = next;
+	}
+
+	if (any != 0) {
+		l25a8();
+		jt42(ua_strs_at(0x54f0));   /* "The air clears a little..." */
+	}
+}
+
 /* JT[728] (CODE 18+0x2aa2) — clear a transient combat sub-state: out of the
  * triggering pass (flag==0) and with a sub-record (rec[64]), if sub[2] is set
  * announce "is <state>" (the -20012 name), re-flag the drained ability slot
