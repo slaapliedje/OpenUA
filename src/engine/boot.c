@@ -25906,6 +25906,81 @@ static void jt880(long rec_l)
 		jt878(rec_l, 25, (long)(uintptr_t)node);
 }
 
+/* JT[736] (CODE 18+0x71fe) — empty body (linkw/unlk/rts); a faithful no-op. */
+static void jt736(void) __attribute__((unused));
+static void jt736(void) { PROBE("jt736"); }
+
+/* JT[855] (CODE 18+0x3e5c) — reset the actor's combat order block (jt498). */
+static void jt855(long rec_l) __attribute__((unused));
+static void jt855(long rec_l) { PROBE("jt855"); jt498(rec_l); }
+
+/* JT[520] (CODE 14+0x6de8) — area-map combat cleanup leaf; PROBE stub until
+ * the CODE 14 combat-status block is lifted (called by jt860). */
+static void jt520(long rec_l) __attribute__((unused));
+static void jt520(long rec_l) { PROBE("jt520"); (void)rec_l; }
+
+/* JT[869] (CODE 18+0x23e6) — heal `amount` HP. Only statuses 0/1/4/5 are
+ * healable; no-op if already at max (rec[129]) or (when flag==0) a type-215
+ * effect blocks it. Clamps cur HP rec[395] to max; out of combat a heal
+ * revives the dead (5->4) and rouses the unconscious (4->0, back into combat).
+ * Returns 1 if any HP was restored. */
+static unsigned char jt869(long rec_l, short amount, short flag) __attribute__((unused));
+static unsigned char jt869(long rec_l, short amount, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	void *node = NULL;
+	PROBE("jt869");
+	if (rec[94] != 0 && rec[94] != 1 && rec[94] != 4 && rec[94] != 5)
+		return 0;
+	if (rec[395] >= rec[129])                     /* already at max HP */
+		return 0;
+	if ((unsigned char)flag == 0
+	 && jt41(rec_l, 215, &node) != 0)             /* type-215 blocks healing */
+		return 0;
+	rec[395] = (unsigned char)(rec[395] + (unsigned char)amount);
+	if (rec[395] > rec[129])
+		rec[395] = rec[129];
+	if (rec[382] == 0) {                          /* not in combat */
+		if (rec[94] == 5)
+			rec[94] = 4;
+		if (rec[94] == 4 && g_a5_byte(-27990) != 5) {
+			rec[94]  = 0;
+			rec[382] = 1;
+		}
+	}
+	return 1;
+}
+
+/* JT[860] (CODE 18+0x0006) — set an actor's status (e.g. slain): print the
+ * message (jt18), and unless already in a terminal status (6/7/8) set
+ * rec[94]=status, drop it from combat (rec[382]=0, rec[395]=0), strip its
+ * effects (jt865), run the per-class teardown (jt868 case 13), the area
+ * cleanup (jt520) when out of combat, then repaint (jt102/jt20/jt937). */
+static void jt860(long rec_l, short status, long msg) __attribute__((unused));
+static void jt860(long rec_l, short status, long msg)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	PROBE("jt860");
+	jt18(rec, msg, (short)10, (short)0);
+	switch (rec[94]) {                            /* JT[3] min6 max8 @0x002e */
+	case 6: case 7: case 8:
+		return;
+	default:
+		break;
+	}
+	rec[94]  = (unsigned char)status;
+	rec[382] = 0;
+	rec[395] = 0;
+	jt865(rec_l);                                 /* clear effects */
+	jt868((short)13, (void *)&rec_l);             /* L0420 case 13 */
+	if (rec[382] == 0)
+		jt520(rec_l);
+	jt102();
+	jt20();
+	if (g_a5_byte(-27990) != 5)
+		jt937(g_a5_long(-27932));
+}
+
 /* L2184 (CODE 7 + 0x2184) — prompt-word extractor.
  *
  * The body L206e calls first to populate g_a5_-13000 with the
