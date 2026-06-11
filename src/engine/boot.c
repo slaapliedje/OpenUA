@@ -1981,7 +1981,9 @@ static void          jt937(long a)
 	l02dc(a);
 }
 static void          jt938(void);                                                /* CODE 12 + 0x0562 — clock/position HUD, lifted after its deps */
-static void          jt217(short a, short b, short c, short d) { PROBE("jt217"); }
+static void          jt217(short a, short b, short c, short d) { PROBE("jt217");   /* CODE 7+0x57d2 */
+	g_a5_byte(-12294) = (unsigned char)a; g_a5_byte(-12293) = (unsigned char)b;
+	g_a5_byte(-12292) = (unsigned char)c; g_a5_byte(-12291) = (unsigned char)d; }
                                                                                  /* CODE 7 + 0x57d2 */
 /* jt948's callees not yet declared at this point. */
 static void  jt19(short a, short b);
@@ -6028,7 +6030,7 @@ static int     jt117(void)
 	return 0;
 }
 static int     jt146(void)                          { PROBE("jt146"); return 0; }
-static void    jt161(short a)                       { PROBE("jt161"); (void)a; }
+static void    jt161(short a)                       { PROBE("jt161"); g_a5_byte(-13004) = (unsigned char)a; }   /* CODE 7+0x158c */
 
 /* DLItem record layout — kept here so JT[444] (above the JT[452]
  * cluster that defines the pool) can index the pool by record. */
@@ -10481,7 +10483,8 @@ static void jt311(void *rec_v, short dir, long cb)
 	}
 }
 static signed char l67e4(void *rec, short a)            { PROBE("L67e4"); (void)rec;(void)a; return 0; }       /* CODE 11-local */
-static void        jt238(void *rec)                     { PROBE("jt238"); (void)rec; }                        /* default dispatch cb, CODE 11+0x67d0 */
+static void jt304(void *rec_v, short batch);   /* CODE 22+0x17ca, defined below */
+static void        jt238(void *rec)                     { PROBE("jt238"); jt304(rec, 0); }                    /* CODE 11+0x67d0 -> jt304 */
 
 /* JT[241] play-action helpers — leaf / CODE-local deps stubbed pending their
  * own lifts. l429c builds the view layers from rec[4] (the area kind);
@@ -19448,8 +19451,9 @@ static void jt477(void *bucket, short tag, void *out)
 	b[8 + byte_idx] |= (unsigned char)(1 << bit_idx);
 	*out_long = base_ptr + (long)idx * record_size;
 }
-static void jt581(long head, long tail)     { PROBE("jt581"); (void)head;
-                                              (void)tail; }
+static void jt147(void *headp);   /* CODE 7+0x18d4, defined below */
+static void jt581(long head, long tail)     { PROBE("jt581");   /* CODE 15+0x1c76 */
+                                              jt147(&head); jt147(&tail); }
 static void jt587(void *dst, void *bucket, short a, short b)
                                             { PROBE("jt587"); (void)dst;
                                               (void)bucket; (void)a;
@@ -25017,7 +25021,7 @@ static void  l2170(short arg)                        { PROBE("L2170");
                                                        g_a5_13016 = arg; }
 static signed char l15bc(void)                       { PROBE("L15bc"); return 0; }
 static void  jt548(short d, short a, short b)        { PROBE("jt548"); (void)d; (void)a; (void)b; }
-static void  jt559(short a)                          { PROBE("jt559"); (void)a; }
+static void  jt559(short a)                          { PROBE("jt559"); g_a5_byte(-6927) = (unsigned char)a; }   /* CODE 17+0x4df0 */
 
 #define g_a5_13006 g_a5_byte(-13006)   /* "use cached result" flag (L25b6 early-out) */
 #define g_a5_24134 g_a5_byte(-24134)   /* cached result (when -13006 != 0) */
