@@ -2554,7 +2554,139 @@ static void  l0006_20(void)           { PROBE("L0006_20"); } /* CODE 20+0x6 — 
  * lifted bottom-up. Signatures inferred from the l709e call sites; the ones
  * returning short yield a follow-on event index (0 = no chain). l694e gates the
  * whole dispatch — while it returns 0 the skeleton runs but stays inert. */
-static short l694e(short idx)              { PROBE("L694e"); (void)idx; return 0; } /* event-valid gate */
+static short jt485(short n);                                  /* random, defined below */
+static int   jt41(long handle_long, short find_byte, void *descriptor);  /* defined below */
+static short l42c2(short idx)              { PROBE("L42c2"); (void)idx; return 0; } /* once-only event tracker (TODO) */
+
+/* l694e class-group match (case 16 inner switch on ev[2]): does class byte
+ * `cls` belong to the requested FRUA class group `which` (0..6)? */
+static unsigned char l694e_class_match(short which, unsigned char cls)
+{
+	switch (which) {
+	case 0: return (unsigned char)(cls==0||cls==8||cls==9||cls==10||cls==11||cls==12);
+	case 2: return (unsigned char)(cls==2||cls==8||cls==9||cls==13||cls==14||cls==15);
+	case 3: return (unsigned char)(cls==3);
+	case 4: return (unsigned char)(cls==4||cls==10);
+	case 5: return (unsigned char)(cls==5||cls==9||cls==11||cls==13||cls==15||cls==16);
+	case 6: return (unsigned char)(cls==6||cls==12||cls==14||cls==15||cls==16);
+	default: return 0;
+	}
+}
+
+/* L694e (CODE 20 + 0x694e) — the event-VALID gate / condition evaluator. Returns
+ * 1 if the current event (-13030) should fire given game state. Faithful 1:1
+ * lift of L694e: early gates (type 35 flag-match, type 38 flag/bit2, the ev[1]
+ * bit0 once-only check via l42c2), then an 18-way condition switch on ev[1]>>3
+ * (flag set/clear, in/out party-state range, percentage via jt485, marker
+ * flags, facing direction, party-class/iteration via jt41), and finally the
+ * -18484 auto-chain-enable flag from ev[1] bits 1/2. rec = the -28006 state
+ * record (flags at rec[idx+69]); the party is the -27928 linked list. */
+static short l694e(short idx, short flag2)
+{
+	unsigned char *ev  = (unsigned char *)(uintptr_t)g_a5_long(-13030);
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  result = 0;
+	short          type, ct;
+
+	PROBE("L694e");
+	if (ev == NULL || rec == NULL)
+		return 0;
+	type = ev[0];
+
+	/* early gate A (type 35): the flag at rec[ev[8]+69] must equal ev[9]. */
+	if (type == 35 && rec[ev[8] + 69] != ev[9])
+		goto done;
+	/* early gate B (type 38): invalid when (flag==0)==(ev[7] bit2 set). */
+	if (type == 38) {
+		unsigned char f = rec[ev[8] + 69];
+		unsigned char b = (unsigned char)(ev[7] & 0x04);
+		if ((f == 0 && b) || (f != 0 && !b))
+			goto done;
+	}
+	/* gate C: once-only events that already fired are invalid. */
+	if ((ev[1] & 0x01) && l42c2(idx))
+		goto done;
+
+	ct = (short)(ev[1] >> 3);                       /* condition type */
+	if (ct == 0) {                                  /* L7054 — always */
+		result = 1;
+		goto done;
+	}
+
+	switch (ct) {
+	case 1:  if (rec[ev[2] + 69] != 0) result = 1; break;
+	case 2:  if (rec[ev[2] + 69] == 0) result = 1; break;
+	case 3:  if (!(rec[8] >= 6 && rec[8] < 20)) result = 1; break;
+	case 4:  if (rec[8] >= 6 && rec[8] < 20) result = 1; break;
+	case 5:  if (jt485(100) <= ev[2]) result = 1; break;        /* % chance */
+	case 6:  if (rec[25] != 0) result = 1; break;
+	case 7:  if (rec[25] == 0) result = 1; break;
+	case 8:                                                     /* facing */
+		if (g_a5_byte(-27990) == 4) {
+			short bit = -1;
+			switch (g_a5_byte(-12286) & 0xff) {
+			case 0: bit = 0; break;
+			case 2: bit = 1; break;
+			case 4: bit = 2; break;
+			case 6: bit = 3; break;
+			default: result = 1; break;
+			}
+			if (bit >= 0 && (ev[2] & (1 << bit))) result = 1;
+		} else {
+			result = 1;
+		}
+		break;
+	case 9:  if (rec[ev[2] + 69] == 255) result = 1; break;
+	case 10: if (rec[ev[2] + 69] == 128) result = 1; break;
+	case 11: { unsigned char v = rec[ev[2] + 69];
+		   if (v != 0 && v != 128 && v != 255) result = 1; }
+		 break;
+	case 12: { long m = g_a5_long(-27928); unsigned char lf6;   /* any has 19 */
+		   while (m) { if (jt41(m, 19, &lf6)) result = 1;
+			       m = *(long *)(uintptr_t)m; } }
+		 break;
+	case 13: { long m = g_a5_long(-27928); unsigned char lf6;   /* none has 19 */
+		   result = 1;
+		   while (m) { if (jt41(m, 19, &lf6)) result = 0;
+			       m = *(long *)(uintptr_t)m; } }
+		 break;
+	case 14: { long m = g_a5_long(-27928); unsigned char lf6;   /* any has 24 */
+		   while (m) { if (jt41(m, 24, &lf6)) result = 1;
+			       m = *(long *)(uintptr_t)m; } }
+		 break;
+	case 15: { long m = g_a5_long(-27928); unsigned char lf6;   /* none has 24 */
+		   result = 1;
+		   while (m) { if (jt41(m, 24, &lf6)) result = 0;
+			       m = *(long *)(uintptr_t)m; } }
+		 break;
+	case 16: { long m = g_a5_long(-27928);                      /* party class */
+		   while (m) {
+			   unsigned char cls = ((unsigned char *)(uintptr_t)m)[89];
+			   if (l694e_class_match((short)ev[2], cls)) result = 1;
+			   m = *(long *)(uintptr_t)m;
+		   } }
+		 break;
+	case 17: { long m = g_a5_long(-27928);                      /* member at pos */
+		   while (m) {
+			   if (((unsigned char *)(uintptr_t)m)[88] == ev[2]) result = 1;
+			   m = *(long *)(uintptr_t)m;
+		   } }
+		 break;
+	default: break;
+	}
+
+done:
+	/* L705a — auto-chain-enable flag from the event flag bits. */
+	if ((flag2 & 0xff) == 0) {
+		g_a5_byte(-18484) = 1;
+		if (result) {
+			if (ev[1] & 0x04) g_a5_byte(-18484) = 0;
+		} else {
+			if (ev[1] & 0x02) g_a5_byte(-18484) = 0;
+		}
+	}
+	return result;
+}
 static void  l4336(short idx)              { PROBE("L4336"); (void)idx; }
 static void  l4144(void)                   { PROBE("L4144"); }
 static void  l085e(void)                   { PROBE("L085e"); }
@@ -2632,7 +2764,7 @@ static void  l709e(short a)
 		     + (long)(((idx & 0xff) - 1) * 20));
 		g_a5_long(-13030) = (long)(uintptr_t)ev;
 
-		if (l694e((short)(idx & 0xff)) != 0) {
+		if (l694e((short)(idx & 0xff), 0) != 0) {
 			l4336((short)(idx & 0xff));
 			type = ev[0];
 
