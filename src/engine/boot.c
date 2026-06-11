@@ -27020,6 +27020,132 @@ static void jt748(long rec_l, long node, short flag)
 	(void)rec_l; (void)node; (void)flag;
 }
 
+/* JT[737] (CODE 18 + 0x3e84) — on the rolling pass, +5 on the AC scratch
+ * g_a5_25252 and +1 on the rolled throw g_a5_25255. */
+static void jt737(long rec_l, long node, short flag) __attribute__((unused));
+static void jt737(long rec_l, long node, short flag)
+{
+	PROBE("jt737");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_byte(-25252) = (unsigned char)(g_a5_byte(-25252) + 5);
+	g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) + 1);
+}
+
+/* JT[738] (CODE 18 + 0x3e9a) — the inverse of jt737: -5 off the AC scratch
+ * (clamped at 0) and -1 off the rolled throw. */
+static void jt738(long rec_l, long node, short flag) __attribute__((unused));
+static void jt738(long rec_l, long node, short flag)
+{
+	PROBE("jt738");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((unsigned char)g_a5_byte(-25252) < 5)
+		g_a5_byte(-25252) = 0;
+	else
+		g_a5_byte(-25252) = (unsigned char)(g_a5_byte(-25252) - 5);
+	g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) - 1);
+}
+
+/* JT[739] (CODE 18 + 0x3ec2) — on the rolling pass, -7 off the rolled
+ * throw when the active roster member (g_a5_27932) has trait bit 1 of
+ * rec[191] set. */
+static void jt739(long rec_l, long node, short flag) __attribute__((unused));
+static void jt739(long rec_l, long node, short flag)
+{
+	PROBE("jt739");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((((unsigned char *)(uintptr_t)g_a5_long(-27932))[191] & 1) != 0)
+		g_a5_byte(-25255) = (unsigned char)(g_a5_byte(-25255) - 7);
+}
+
+/* JT[740] (CODE 18 + 0x3ee6) — Electricity immunity: negate the pending
+ * damage when element bit 4 is up (l3e40). */
+static void jt740(long rec_l, long node, short flag) __attribute__((unused));
+static void jt740(long rec_l, long node, short flag)
+{
+	PROBE("jt740");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag == 0)
+		l3e40(4);
+}
+
+/* JT[749] (CODE 18 + 0x4062) — on the rolling pass, raise the save stat
+ * rec[385] to at least 57, +1 on the save accumulator, and negate the
+ * pending damage when the staged feature sound is 15 (g_a5_25262). */
+static void jt749(long rec_l, long node, short flag) __attribute__((unused));
+static void jt749(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt749");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if (rec[385] < 57)
+		rec[385] = 57;
+	g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) + 1);
+	if ((unsigned char)g_a5_byte(-25262) == 15)
+		g_a5_word(-25242) = 0;
+}
+
+/* JT[750] (CODE 18 + 0x409e) — on the rolling pass, a 30% chance
+ * (jt870 1d100 <= 30) clears any pending type-11 and type-53 damage
+ * (l3dda). */
+static void jt750(long rec_l, long node, short flag) __attribute__((unused));
+static void jt750(long rec_l, long node, short flag)
+{
+	PROBE("jt750");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if (jt870(1, 100) <= 30) {
+		l3dda(11);
+		l3dda(53);
+	}
+}
+
+/* JT[751] (CODE 18 + 0x40d4) — fire resistance: on the rolling pass, Fire
+ * damage (g_a5_25266 bit 0) is halved (signed) and the save accumulator
+ * bumped by 3 (the Cold twin is jt743). */
+static void jt751(long rec_l, long node, short flag) __attribute__((unused));
+static void jt751(long rec_l, long node, short flag)
+{
+	PROBE("jt751");
+	(void)rec_l; (void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if ((g_a5_word(-25266) & 1) != 0) {
+		g_a5_word(-25242) = (short)((short)g_a5_word(-25242) / 2);
+		g_a5_byte(-25269) = (unsigned char)(g_a5_byte(-25269) + 3);
+	}
+}
+
+/* JT[752] (CODE 18 + 0x40fe) — delayed-poison removal: on the rolling
+ * pass, if the actor carries a type-55 effect (jt41) it "dies from
+ * poison" (jt860 status 6), then the type-15 effect is stripped (jt878)
+ * with the suppress flag g_a5_25258 held so no side hooks fire. */
+static void jt752(long rec_l, long node, short flag) __attribute__((unused));
+static void jt752(long rec_l, long node, short flag)
+{
+	long n = 0;
+
+	PROBE("jt752");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if (jt41(rec_l, 55, &n) != 0)
+		jt860(rec_l, 6,
+		      (long)(uintptr_t)ua_strs_at(0x5652) /* "dies from poison" */);
+	g_a5_byte(-25258) = 1;
+	jt878(rec_l, 15, 0);
+	g_a5_byte(-25258) = 0;
+}
+
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
  * scan the -25676 long-table (1-based) for the entry == `key`, stopping at
  * the table count (-27468). Returns the 1-based index, or 0 if not present.
