@@ -21831,6 +21831,112 @@ static void jt530(long entity, short b, short c)
 	hdr[7] = 1;
 }
 
+/* JT[526] (CODE 14 + 0x71aa) — place a combatant onto the combat map
+ * at (x, y): outside the combat view it trivially succeeds; otherwise
+ * the actor's combat-state record gets its facing (rec[130] & 127) and
+ * position, jt515 vets the destination (own-cell occupant must be
+ * empty, the feature must exist and not be the 255 sentinel in the
+ * -27848 priority table) — on failure the facing is cleared and 0
+ * returned. With `flag` set and the effect sub-record's byte 21 clear,
+ * the actor's corpse event records are wiped (jt399) and the cell
+ * feature under them restored unless another event still covers the
+ * cell. Always rebuilds the occupancy grid (jt524). */
+static unsigned char jt526(long entity, short x, short y, short flag)
+                                                __attribute__((unused));
+static unsigned char jt526(long entity, short x, short y, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)entity;
+	unsigned char *st, *sub;
+	unsigned char result = 0, zone, oa, ob, oc, found, i;
+
+	PROBE("jt526");
+	if ((unsigned char)g_a5_byte(-27990) != 5)
+		return 1;
+	zone = (unsigned char)jt519(entity);
+	st = g_a5_buf(-27472) + zone * 6;
+	st[5] = (unsigned char)(rec[130] & 127);
+	*(short *)(st + 0) = (short)(unsigned char)x;
+	*(short *)(st + 2) = (short)(unsigned char)y;
+	jt515(entity, 8, &oa, &ob, &oc);
+	if (oa != 0 || ob == 0 || g_a5_buf(-27848)[ob * 4] == 255) {
+		st = g_a5_buf(-27472) + zone * 6;
+		st[5] = 0;
+		return 0;
+	}
+	result = 1;
+	if ((unsigned char)flag != 0) {
+		sub = *(unsigned char **)(uintptr_t)(rec + 64);
+		if (sub[21] == 0) {
+			for (i = 1; i <= (unsigned char)g_a5_byte(-25320);
+			     i++) {
+				unsigned char *er =
+					g_a5_buf(-25410) + i * 10;
+				if (*(long *)er != entity)
+					continue;
+				if (er[8] != 31)
+					ob = er[8];
+				jt399(er, 10, 0);
+			}
+			found = 0;
+			for (i = 1; i <= (unsigned char)g_a5_byte(-25320);
+			     i++) {
+				unsigned char *er =
+					g_a5_buf(-25410) + i * 10;
+				if (*(long *)er != 0 &&
+				    (short)(unsigned char)x ==
+						*(short *)(er + 4) &&
+				    (short)(unsigned char)y ==
+						*(short *)(er + 6))
+					found = 1;
+			}
+			if (found == 0) {
+				unsigned char *cell =
+					(unsigned char *)(uintptr_t)
+					(g_a5_long(-25318) +
+					 (unsigned char)y * 50 +
+					 (unsigned char)x);
+				cell[9] = ob;
+			}
+		}
+	}
+	jt524();
+	return result;
+}
+
+static void jt490(void);
+
+/* JT[874] (CODE 18 + 0x24f8) — raise/return a combatant to the fight:
+ * place it back on the map at its own cell (jt526); on success clear
+ * the status, set in-combat, seed the HP, stage the redraw (jt530 with
+ * scroll-into-view forced on), announce via jt503 and recount the
+ * sides (jt490). Returns 1 when placed. */
+static unsigned char jt874(long entity, short hp, long msg)
+                                                __attribute__((unused));
+static unsigned char jt874(long entity, short hp, long msg)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)entity;
+	unsigned char x, y, saved;
+
+	PROBE("jt874");
+	x = jt525(entity);
+	y = jt531(entity);
+	if (jt526(entity, (short)(signed char)x, (short)(signed char)y,
+		  1) == 0)
+		return 0;
+	rec[94]  = 0;
+	rec[382] = 1;
+	rec[395] = (unsigned char)hp;
+	if ((unsigned char)g_a5_byte(-27990) == 5) {
+		saved = (unsigned char)g_a5_byte(-22626);
+		g_a5_byte(-22626) = 1;
+		jt530(entity, 3, 0);
+		g_a5_byte(-22626) = saved;
+	}
+	jt503(entity, 1, msg);
+	jt490();
+	return 1;
+}
+
 /* L744e (CODE 14 + 0x744e) — set the map-view clip rectangle: the native
  * 24..248 box in render mode 3, else the doubled-space 8004..8088 box. */
 static void l744e(void) __attribute__((unused));
