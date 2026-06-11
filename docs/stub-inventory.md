@@ -29,15 +29,17 @@ These are correct as one-liners; lifting them is wrong or pointless.
 | jt1130 / jt920 / jt956 / jt949 / jt445 (0–1i) | empty (`rts`-only) or alias shells. |
 | jt1137 / jt1152 (2i) | constants — verify, but almost certainly leave. |
 
-## 2. Aliases — DELEGATE (quick cleanups)
+## 2. Aliases — DELEGATE ✓ DONE
 
-These share a CODE address with an already-lifted `lXXXX`; the stub should just
-call it (like `jt1085`→`l0088`, `jt1012`→`l37aa`).
+These shared a CODE address with an already-lifted `lXXXX` (like `jt1085`→`l0088`,
+`jt1012`→`l37aa`). Both delegated — and not just cleanup: the targets draw the
+bigpic + commit the palette, and were already live at other sites, so the
+delegation activates the faithful path at the `jt`-named call sites too.
 
-| stub | = | action |
-|------|---|--------|
-| jt124 (6+0x3eea) | `l3eea` (lifted) | `jt124(long h)` → `l3eea((void*)h)` |
-| jt46 (6+0x534a) | `l534a` (lifted) | delegate to `l534a` |
+| stub | = | done |
+|------|---|------|
+| jt124 (6+0x3eea) | `l3eea` (palette commit) | `jt124(long h)` → `l3eea((void*)h)`; arg already deref'd at the call site |
+| jt46 (6+0x534a) | `l534a` (area-overview composer) | `jt46(a,b,c,d)` → `l534a(a,b,c,d)`; l534a NULL-guards internally |
 
 ## 3. Genuine lift targets — by subsystem (CODE segment)
 

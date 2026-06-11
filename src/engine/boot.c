@@ -11237,7 +11237,10 @@ static void jt214(void)
 
 	l579e(id);
 }
-static void jt124(long h)     { PROBE("jt124"); (void)h; }     /* CODE 6+0x3eea backdrop   */
+static void l3eea(void *p);   /* CODE 6+0x3eea — GLIB picture+palette commit, defined below */
+/* jt124 IS L3eea (same address); the arg is the art-handle pointer (already
+ * dereferenced at the call site), so delegate. */
+static void jt124(long h)     { PROBE("jt124"); l3eea((void *)(uintptr_t)h); }  /* CODE 6+0x3eea = L3eea */
 /* JT[448] (CODE 3 + 0x148a) — blit glyph `glyph` (a font index) at (x,y) in
  * colour. Forwards to the glyph blitter by display mode: deep (jt1200()==3)
  * -> JT[995] with mode 2, else JT[1001]. Used for the automap party marker
@@ -24833,7 +24836,10 @@ static short l0088(void);
 /* New PROBE-stub helpers L23b4 needs. */
 static signed char jt1085(void)                      { PROBE("jt1085"); return (signed char)l0088(); }
 static void  jt1067(void);   /* GLIB palette colour-cycling, lifted near l6e58 */
-static void  jt46(short a, short b, short c, short d) { PROBE("jt46"); (void)a; (void)b; (void)c; (void)d; }
+static void  l534a(short a, short b, short c, short d);   /* CODE 6+0x534a — area-overview composer, defined below */
+/* jt46 IS L534a (same address, same signature); delegate. l534a guards
+ * g_a5_24320==NULL internally and is already live at other sites. */
+static void  jt46(short a, short b, short c, short d) { PROBE("jt46"); l534a(a, b, c, d); }  /* CODE 6+0x534a = L534a */
 
 /* Forward — l15bc lifts further down with L25b6's helpers. */
 static signed char l15bc(void);
