@@ -2724,7 +2724,7 @@ static short l4f9a(void *ev)               { PROBE("L4f9a"); (void)ev; return 0;
 static void  l5586(void *ev)               { PROBE("L5586"); (void)ev; }
 static short l216a(void *ev)               { PROBE("L216a"); (void)ev; return 0; }
 static short l3b0e(void *ev)               { PROBE("L3b0e"); (void)ev; return 0; }
-static short l673e(void *ev, short a, short *pn) { PROBE("L673e"); (void)ev; (void)a; (void)pn; return 0; }
+static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch — defined after its deps */
 static void  l2e42(void *ev)               { PROBE("L2e42"); (void)ev; }
 static void  l380a(void *ev)               { PROBE("L380a"); (void)ev; }
 static short l3fba(short v)                { PROBE("L3fba"); (void)v; return 0; }
@@ -2743,7 +2743,8 @@ static void  l398a(void *ev, short v)      { PROBE("L398a"); (void)ev; (void)v; 
 static void  l38bc(void *ev)               { PROBE("L38bc"); (void)ev; }
 static short l6436(void *ev)               { PROBE("L6436"); (void)ev; return 0; }
 static short l3118(void *ev)               { PROBE("L3118"); (void)ev; return 0; }
-static void  l3bee(short v)                { PROBE("L3bee"); (void)v; }
+static void  l43ac(short idx);             /* once-triggered bitmap clear — defined after its deps */
+static void  l3bee(short v);               /* encounter-queue insert — defined after its deps */
 static void  l66cc(void *ev)               { PROBE("L66cc"); (void)ev; }
 static void  l661c(void *ev)               { PROBE("L661c"); (void)ev; }
 
@@ -24898,6 +24899,89 @@ static void l3ef8(void)
 		l085e();
 		jt937(g_a5_long(-27932));
 	}
+}
+
+/* ===== Combat / encounter gateway — outcome dispatch + queue (cases 10/21) =====
+ *
+ * The l709e dispatcher's combat arm runs `r = l3b0e(ev)` (the encounter prompt,
+ * still a stub) then `idx = l673e(ev, r, &idx)`. l673e selects one of the
+ * event's five result-branches by `r`, queues the encounter via l3bee (which
+ * marks it triggered through the l43ac once-only bitmap), and returns the next
+ * event index that drives the chain. These three are the bottom of the gateway;
+ * the prompt (l3b0e) and the downstream combat exec (CODE 13-19) follow. */
+
+/* L43ac (CODE 20 + 0x43ac) — clear the "available" bit for encounter `idx` in
+ * the live record's per-level once-only bitmap. The bit index is
+ * level(-18878)*100 + (idx-1); the byte lives at rec[525 + bit/8]. Pure record
+ * bit-twiddle, no external deps. The l42c2 tracker tests this same bitmap. */
+static void l43ac(short idx)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          bitpos, byteoff, mask;
+
+	PROBE("L43ac");
+	if (rec == NULL)
+		return;
+	bitpos  = (short)(g_a5_word(-18878) * 100 + (idx - 1));
+	byteoff = (short)(bitpos / 8);
+	mask    = (short)(unsigned char)~(1 << (bitpos % 8));
+	rec[525 + byteoff] = (unsigned char)(rec[525 + byteoff] & mask);
+}
+
+/* L3bee (CODE 20 + 0x3bee) — queue encounter `v` into the 8-slot pending table
+ * at -4938. No-op when v==0 or encounters are suppressed (-4931). Stores v in
+ * the first empty slot, marks it triggered (l43ac), and stops. */
+static void l3bee(short v)
+{
+	unsigned char  id = (unsigned char)v;
+	unsigned char *tbl = (unsigned char *)&g_a5_byte(-4938);
+	short          i;
+
+	PROBE("L3bee");
+	if (id == 0 || g_a5_byte(-4931) != 0)
+		return;
+	for (i = 0; i <= 7; i++) {
+		if (tbl[i] != 0)
+			continue;
+		tbl[i] = id;
+		l43ac((short)id);
+		break;                  /* asm sets i=7 + result=1, then exits */
+	}
+}
+
+/* L673e (CODE 20 + 0x673e) — encounter OUTCOME dispatch. JT[3] on `a` (the
+ * l3b0e result, 0..4) picks one of five result-branches of the event. Each arm
+ * k: if ev[7] bit (k+2) is set, queue the cell's encounter (l3bee on *pn); the
+ * next-event index is ev[10+k] (sets the chain-continue flags -4945/-5214 when
+ * non-zero, else clears -5214); ev[15] bit k sets the "blocked" flag -4946.
+ * Returns the next-event index. */
+static short l673e(void *ev_v, short a, short *pn)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	short          result = 0;
+	short          k;
+
+	PROBE("L673e");
+	switch (a & 0xff) {              /* JT[3] table @ 0x674c, min=0 max=4 */
+	case 0: case 1: case 2: case 3: case 4:
+		k = (short)(a & 0xff);
+		if (ev[7] & (1 << (k + 2)))
+			l3bee((short)*(unsigned char *)pn);
+		result = (short)(unsigned char)ev[10 + k];
+		if (result != 0) {
+			g_a5_byte(-4945) = 1;
+			g_a5_byte(-5214) = 1;
+		} else {
+			g_a5_byte(-5214) = 0;
+		}
+		if (ev[15] & (1 << k))
+			g_a5_byte(-4946) = 1;
+		break;
+	default:
+		g_a5_byte(-5214) = 0;   /* L6942 — asm returns the uninit local here */
+		break;
+	}
+	return result;
 }
 
 /* L5676 (CODE 20 + 0x5676) — the STAIRS / teleport / level-transition event
