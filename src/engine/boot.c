@@ -20665,6 +20665,85 @@ static void jt232(void *rec, short num, char *out)
 }
 
 
+/* JT[13] / L14fc (CODE 6 + 0x14fc) — does `entity` carry any of the four
+ * effect types in the g_a5_-25296 table? Scans i=0..3, jt41(entity, type[i],
+ * &node) for each, returns 1 if any is present (the "(Helpless)"-style
+ * disabling-effect test jt38 uses for the combat info panel). */
+static int jt13(long entity)
+{
+	unsigned char found = 0;
+	short i;
+	long node;
+
+	PROBE("jt13");
+	for (i = 0; i < 4; i++) {
+		if (jt41(entity, (unsigned char)g_a5_buf(-25296)[i], &node) != 0)
+			found = 1;
+	}
+	return found;
+}
+
+
+/* JT[38] / L130a (CODE 6 + 0x130a, 16 sites) — draw the combat info panel for
+ * `entity`: a framed box (jt103) with Hitpoints (jt94 label + jt32 value), AC
+ * (jt94 + jt34), the held item/monster sub-record when present (jt28 + jt96
+ * name box), and a status line — for a party member the class/status string
+ * from the g_a5_-14480 table indexed by rec[94]; for an in-combat actor
+ * "(Helpless)" when jt13 finds a disabling effect, else "(Casting)" when the
+ * rec[64] sub-record shows a memorised spell. Gated on the g_a5_-22627 "panel
+ * dirty" flag, which it clears. */
+static void jt28(long arg0, long item, short s16, short s18,
+                 short f20, short f22);
+static void jt38(long entity)
+{
+	unsigned char *e = (unsigned char *)(uintptr_t)entity;
+	short line;
+
+	PROBE("jt38");
+	if ((unsigned char)g_a5_byte(-22627) == 0)
+		return;
+	g_a5_byte(-22627) = 0;
+
+	jt103(23, 1, 38, 21);                            /* frame */
+	line = 1;
+	jt18((void *)e, (long)(uintptr_t)" ", line, 0);
+	line++;                                          /* 2 */
+	jt94(23, line + 1, 7, 0, "Hitpoints");
+	jt32(entity, 33, line + 1, 0, 0);                /* HP value */
+	line += 2;                                       /* 4 */
+	jt94(23, line + 1, 7, 0, "AC");
+	jt34(entity, 26, line + 1, 0);                   /* AC value */
+	g_a5_byte(-27911) = (unsigned char)(line + 1);   /* row = 5 */
+
+	if (*(long *)(e + 12) != 0) {                    /* held item sub-record */
+		long sub = *(long *)(e + 12);
+		line += 2;                               /* 6 */
+		jt28(entity, sub, 0, 0, 0, 0);
+		jt96(23, line + 1, 38, line + 3, 7, 0, 1,
+		     (long)(uintptr_t)((unsigned char *)(uintptr_t)sub + 5),
+		     0);
+	}
+
+	line = (short)((unsigned char)g_a5_byte(-27911) + 1);  /* 6 */
+
+	if ((unsigned char)e[382] == 0) {                /* not in combat */
+		long s = g_a5_long(-14480 + (unsigned char)e[94] * 4);
+		jt94(23, line + 1, 11, 0, (const char *)(uintptr_t)s);
+		return;
+	}
+
+	if (jt13(entity) != 0) {                         /* disabling effect */
+		jt94(23, line + 1, 11, 0, "(Helpless)");
+		return;
+	}
+	{
+		long sub64 = *(long *)(e + 64);
+		if ((short)*(unsigned char *)(uintptr_t)sub64 > 0)
+			jt94(23, line + 1, 11, 0, "(Casting)");
+	}
+}
+
+
 /* JT[857] / L77a0 (CODE 18 + 0x77a0, 14 sites) — dispatch an effect-removal
  * hook by item/effect type. Either an installed override callback
  * (g_a5_-24734, used when g_a5_-23187 is set) or the per-type slot
