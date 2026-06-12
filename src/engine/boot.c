@@ -28502,6 +28502,54 @@ static void jt761(long rec_l, long node, short flag)
 		l3dda(0);
 }
 
+static void *l45ea(long member_l);          /* weapon-in-use (defined below) */
+
+/* L4580 (CODE 18, local) — the avoidance roll: when the active member
+ * holds an item and stands more than 1 cell from `rec` (jt494 path
+ * distance), a 1d100 at or under `pct` lets rec "Avoid it": staged
+ * damage cleared, attack-mode byte -25255 = 0xff, stage count -25254
+ * decremented. */
+static void l4580(long rec_l, short pct) __attribute__((unused));
+static void l4580(long rec_l, short pct)
+{
+	unsigned char *active = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	unsigned char r;
+
+	PROBE("L4580");
+	if (*(long *)(void *)(active + 12) == 0)
+		return;                         /* no held item */
+	r = (unsigned char)jt494((long)(uintptr_t)active, rec_l);
+	if (r <= 1)
+		return;                         /* adjacent — no avoiding */
+	if ((unsigned short)jt870(1, 100) > (unsigned short)(unsigned char)pct)
+		return;
+	jt18((void *)(uintptr_t)rec_l,
+	     (long)(uintptr_t)ua_strs_at(0x5686) /* "Avoids it" */, 10, 1);
+	g_a5_word(-25242) = 0;
+	g_a5_byte(-25255) = (char)0xff;
+	g_a5_byte(-25254) = (char)(g_a5_byte(-25254) - 1);
+}
+
+/* JT[762] (CODE 18 + 0x4632) — apply pass: when the active member's
+ * weapon-in-use record exists and its byte 48 (ranged class) is clear,
+ * the melee attack can always be avoided (l4580 at 100%). */
+static void jt762(long rec_l, long node, short flag) __attribute__((unused));
+static void jt762(long rec_l, long node, short flag)
+{
+	unsigned char *w;
+
+	PROBE("jt762");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	if (l45ea(g_a5_long(-27932)) == 0)
+		return;
+	w = (unsigned char *)l45ea(g_a5_long(-27932));
+	if (w[48] != 0)
+		return;
+	l4580(rec_l, 100);
+}
+
 /* JT[763] (CODE 18 + 0x466e) — halve the staged -25263/-25264
  * counters on the apply pass. */
 static void jt763(long rec_l, long node, short flag) __attribute__((unused));
@@ -29374,6 +29422,33 @@ static void jt805(long rec_l, long node, short flag)
 	l4b64(1);
 }
 
+/* JT[806] (CODE 18 + 0x5a9a) — apply pass: when the linked entity (the
+ * attacker, latched into -25250) is within 1 cell (jt494) and its
+ * descriptor flag byte 191 has bit 3 set, add the slot-4 ability score
+ * to the staged damage. */
+static void jt806(long rec_l, long node, short flag) __attribute__((unused));
+static void jt806(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *ent;
+	unsigned char r;
+
+	PROBE("jt806");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_long(-25250) =
+	    *(long *)(void *)(*(unsigned char **)(void *)(rec + 64) + 12);
+	ent = (unsigned char *)(uintptr_t)g_a5_long(-25250);
+	r = (unsigned char)jt494(rec_l, (long)(uintptr_t)ent);
+	if (r > 1)
+		return;                         /* not adjacent */
+	if ((ent[191] & 8) == 0)
+		return;
+	g_a5_word(-25242) = (short)(g_a5_word(-25242)
+	    + (unsigned char)jt40(rec, 4));
+}
+
 /* JT[807] (CODE 18 + 0x5af6) — both passes: recount the linked-entity
  * tally via jt498. */
 static void jt807(long rec_l, long node, short flag) __attribute__((unused));
@@ -29397,6 +29472,40 @@ static void jt808(long rec_l, long node, short flag)
 		return;
 	rec[128] = (unsigned char)
 	    ((unsigned short)jt40(rec, 3) / 5 + 1);
+}
+
+/* JT[809] (CODE 18 + 0x5b3c) — apply pass: when the active member is
+ * within 1 cell of `rec` (jt494), reflect the attack back: double the
+ * staged damage and deal it to the ACTIVE member as element-type 8
+ * ("gets zapped", feature-sound 85) via the jt867 resistance path,
+ * then restore the staged damage/element/sound state. */
+static void jt809(long rec_l, long node, short flag) __attribute__((unused));
+static void jt809(long rec_l, long node, short flag)
+{
+	short sv_dmg, sv_elem, sv_snd;
+	unsigned char r;
+
+	PROBE("jt809");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	r = (unsigned char)jt494(g_a5_long(-27932), rec_l);
+	if (r >= 2)
+		return;                         /* not adjacent */
+	sv_dmg = g_a5_word(-25242);
+	g_a5_word(-25242) = (short)(g_a5_word(-25242) * 2);
+	if (g_a5_word(-25242) <= 0)
+		return;
+	sv_elem = g_a5_word(-25266);
+	g_a5_word(-25266) = 8;
+	sv_snd = (short)(unsigned char)g_a5_byte(-25262);
+	g_a5_byte(-25262) = 85;
+	jt18((void *)(uintptr_t)g_a5_long(-27932),
+	     (long)(uintptr_t)ua_strs_at(0x5746) /* "gets zapped" */, 10, 1);
+	jt867(g_a5_long(-27932), g_a5_word(-25242), 0, 0);
+	g_a5_word(-25242) = sv_dmg;
+	g_a5_word(-25266) = sv_elem;
+	g_a5_byte(-25262) = (char)sv_snd;
 }
 
 /* JT[810] (CODE 18 + 0x5bd8) — apply pass: paste the two-part flavor
