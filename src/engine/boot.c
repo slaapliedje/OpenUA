@@ -4552,25 +4552,22 @@ static short l21d0(short x)
 	return (short)(masked << (3 - m));
 }
 
-/* JT[1177] / JT[1183] / JT[1184] / JT[1188] / JT[1189] / JT[1191] —
- * the row-blit primitive family jt995 dispatches into.
+/* JT[1183] / JT[1184] / JT[1188] / JT[1189] / JT[1191] — the row-blit
+ * primitive family jt995 dispatches into.
  *
- *   jt1177(left, top)                            // begin column
  *   jt1183/jt1188(data, w, h, mask, lmask, rmask) → mode 0/1 vs 3
  *   jt1184/jt1181(data, w, h, mask, lmask, rmask) → mode 0/1 vs 3
  *   jt1189/jt1191(data, src2, w, h, mask, lmask, rmask) → 7 args
  *
- * Each writes a row of pixels into the engine's page-descriptor
- * back buffer (g_a5_-2570[page].entry+2 → pixel ptr). Stubs for
- * now — the Falcon HAL doesn't expose row-blit primitives here;
- * the engine's actual rendering happens via the QuickDraw shim
- * path that jt382 cmd=1 still hits inline. */
-static void jt1177(short left, short top) __attribute__((unused));
-static void jt1177(short left, short top)
-{
-	PROBE("jt1177");
-	(void)left; (void)top;
-}
+ * Each writes a row of pixels at the GLIB blit cursor. Stubs for
+ * now — the engine's actual rendering happens via the QuickDraw shim
+ * path that jt382 cmd=1 still hits inline.
+ *
+ * JT[1177] = L053e (CODE 4 + 0x053e) — the cursor SEEDER — is now a
+ * full lift (defined in the GLIB codec cluster below): it points the
+ * -3076 cursor at (row, col) on the shim's screen surface, which
+ * un-stubs the jt119/jt122 save-under path and the jt1126 scroll. */
+static void jt1177(short row, short col);       /* = L053e, defined below */
 static char jt1183(long data, short w, short h, short mask,
                    short lmask, short rmask) __attribute__((unused));
 static char jt1183(long data, short w, short h, short mask,
@@ -23807,6 +23804,156 @@ static long jt1194(const unsigned char *src, unsigned char *dst,
 	if (left == 8)
 		ret--;
 	return ret;
+}
+
+/* JT[1177] = L053e (CODE 4 + 0x053e) — seed the GLIB blit cursor at
+ * (row, col): caches the pair in -3080/-3078 and points -3076 at
+ * base + (rowbytes >> depth-shift) * row + (col >> depth-shift).
+ *
+ * The Mac reads the page base from the -2570 page-descriptor record
+ * (colour: entry+2 handle deref; mono: entry+2 direct) — the port
+ * never populates those GrafPorts (jt1128 page flips are presents,
+ * ADR-0003/0005), so the base comes from the shim's screen back
+ * buffer (qd_screen_pixels). This un-stubs every -3076 consumer:
+ * the jt119/jt122 save-under pair, jt1192/jt1194/jt1197/jt1202, and
+ * the jt1126 scroll below. The mulsw product keeps only its low 16
+ * bits on the Mac (swap/clrw/swap) — 320*200 fits, kept faithful. */
+static void jt1177(short row, short col)
+{
+	unsigned char *px = NULL;
+	short          rb, sw, sh;
+	long           base, shift;
+
+	PROBE("jt1177");
+	g_a5_word(-3080) = row;
+	g_a5_word(-3078) = col;
+	if (!qd_screen_pixels(&px, &rb, &sw, &sh) || px == NULL)
+		return;                 /* no surface — leave the cursor */
+	shift = l04f0();
+	base  = (long)(uintptr_t)px;
+	base += (long)(unsigned short)(((short)(l04de() >> shift)) * row);
+	base += (long)(col >> shift);
+	g_a5_long(-3076) = base;
+}
+
+/* jt1126 (CODE 4 + 0x5d9c) — the page SCROLL-BLIT: move the rect
+ * (v1,h1)-(v2,h2) by (dv,dh) within the current page and fill the
+ * exposed strips with `fill` (skipped when fill < 0), then InvalRect
+ * the whole rect. Callers: the CODE 7 message-window scroll and the
+ * CODE 8 design editor.
+ *
+ * Faithful flow: jt1135 maps both corners, jt1141 maps the deltas
+ * (then dv/dh = corner - mapped, the negated pixel delta), the
+ * corners are ordered, and the COLOUR path row-copies via the
+ * jt1177 cursor + JT[406] (memmove), walking up or down by the sign
+ * of dv so overlapping moves stay safe; the exposed strips fill via
+ * JT[1161] and the (possibly doubled, -2346) rect invalidates.
+ *
+ * PORT notes: the Mac brackets the copy with SetPort(page[-2352]) +
+ * GetCTable/RGBForeColor(black)/RGBBackColor(white) and restores the
+ * port after — elided (single shim surface, identity palette). The
+ * MONO path (-2347 == 0) builds two rects via JT[397]/JT[413] and
+ * _CopyBits them — dead in the port (colour is permanent), kept as
+ * a PROBE marker. */
+static void jt1126(short v1, short h1, short v2, short h2,
+                   short dv, short dh, short fill) __attribute__((unused));
+static void jt1126(short v1, short h1, short v2, short h2,
+                   short dv, short dh, short fill)
+{
+	short lo_v, lo_h;               /* fp@(-42) / fp@(-44) */
+	short src_col, dst_col, span;   /* fp@(-50) / fp@(10) / fp@(-56) */
+	short srow, drow;
+	Rect  r;
+
+	PROBE("jt1126");
+	l4d88();
+	jt1135(v1, h1, &v1, &h1);
+	jt1135(v2, h2, &v2, &h2);
+	jt1141(v1, h1, dv, dh, &dv, &dh);
+	dv = (short)(v1 - dv);
+	dh = (short)(h1 - dh);
+
+	if (v1 < v2) {
+		lo_v = v1;
+	} else {
+		lo_v = v2;
+		v2   = v1;
+	}
+	if (h1 < h2) {
+		lo_h = h1;
+	} else {
+		lo_h = h2;
+		h2   = h1;
+	}
+
+	if (g_a5_byte(-2347) != 0) {
+		/* the colour row-copy path (the port's live one) */
+		long sh = l04f0();
+
+		if (dh < 0) {
+			src_col = (short)(lo_h - dh);
+			dst_col = lo_h;
+			span    = (short)((h2 >> sh) - (src_col >> sh));
+		} else {
+			src_col = lo_h;
+			dst_col = (short)(lo_h + dh);
+			span    = (short)((h2 >> sh) - (dst_col >> sh));
+		}
+		if (dv < 0) {
+			for (srow = (short)(lo_v - dv), drow = lo_v;
+			     srow < v2; srow++, drow++) {
+				long src;
+
+				jt1177(srow, src_col);
+				src = g_a5_long(-3076);
+				jt1177(drow, dst_col);
+				jt406((void *)(uintptr_t)g_a5_long(-3076),
+				      (const void *)(uintptr_t)src, span);
+			}
+		} else {
+			srow = (short)(v2 - dv);
+			drow = v2;
+			while (--srow >= lo_v) {
+				long src;
+
+				drow--;
+				jt1177(srow, src_col);
+				src = g_a5_long(-3076);
+				jt1177(drow, dst_col);
+				jt406((void *)(uintptr_t)g_a5_long(-3076),
+				      (const void *)(uintptr_t)src, span);
+			}
+		}
+	} else {
+		/* mono _CopyBits arm — dead in the port (colour mode is
+		 * permanent; the -2570 GrafPort BitMaps aren't modelled). */
+		PROBE("jt1126: mono CopyBits arm (dead)");
+	}
+
+	if (fill >= 0) {
+		if (dv < 0)
+			jt1161((short)(v2 + dv), lo_h, v2, h2, fill);
+		else if (dv > 0)
+			jt1161(lo_v, lo_h, (short)(lo_v + dv), h2, fill);
+		if (dh < 0)
+			jt1161(lo_v, (short)(h2 + dh), v2, h2, fill);
+		else if (dh > 0)
+			jt1161(lo_v, lo_h, v2, (short)(lo_h + dh), fill);
+	}
+
+	r.top    = lo_v;
+	r.left   = lo_h;
+	r.bottom = v2;
+	r.right  = h2;
+	if (l5d8c() != 0) {
+		if (g_a5_byte(-2346) != 0) {
+			r.top    = (short)(r.top    << 1);
+			r.left   = (short)(r.left   << 1);
+			r.bottom = (short)(r.bottom << 1);
+			r.right  = (short)(r.right  << 1);
+		}
+		InvalRect(&r);
+	}
 }
 
 /* JT[121] (CODE 6 + 0x379c) — draw a tile glyph `c` from GLIB `handle` at map
