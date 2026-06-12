@@ -34442,12 +34442,36 @@ static void l48f4(long member, long str, short effect)
 	(void)member; (void)str; (void)effect;
 }
 
-/* JT[502] (CODE 13+0x2b2c) — set the projectile-sprite trail kind
- * for direction `dir`. Leaf PROBE stub pending its own lift. */
+/* L1888 (CODE 13+0x1888) — select the projectile sprite frame.
+ * Leaf PROBE stub pending its own lift. */
+static void l1888(short frame, short bank, short z, short mirror)
+{
+	PROBE("l1888");
+	(void)frame; (void)bank; (void)z; (void)mirror;
+}
+
+/* JT[502] (CODE 13+0x2b2c) — set the projectile-sprite trail for
+ * direction `dir`, full lift over the L1888 leaf stub: diagonal
+ * directions (jt472) pick bank 1/0 with the mirror flag for 5/7;
+ * cardinals decompose dir into frame (low 2 bits + kind) and bank
+ * (dir >> 2). */
+static short jt472(short v);
 static void jt502(short dir, short kind)
 {
+	unsigned char d = (unsigned char)dir;
+
 	PROBE("jt502");
-	(void)dir; (void)kind;
+	if (jt472((short)d)) {
+		if (d == 3 || d == 5)
+			l1888((short)((unsigned char)kind + 1), (short)1,
+			      (short)0, (short)((d == 5) ? -1 : 0));
+		else
+			l1888((short)((unsigned char)kind + 1), (short)0,
+			      (short)0, (short)((d == 7) ? -1 : 0));
+	} else {
+		l1888((short)((d & 3) + (unsigned char)kind),
+		      (short)(d >> 2), (short)0, (short)0);
+	}
 }
 
 /* JT[145] (CODE 7+0x1686) — combat post-action repaint: blit FRAME
@@ -38433,6 +38457,44 @@ static unsigned char jt107(void)
 {
 	PROBE("jt107");
 	return (unsigned char)g_a5_byte(-18397);
+}
+
+/* JT[897] (CODE 19+0x420e) — per-coin-bank XP credit hook. Leaf
+ * PROBE stub pending its own lift. */
+static void jt897(long rec, short amount)
+{
+	PROBE("jt897");
+	(void)rec; (void)amount;
+}
+
+/* JT[925] (CODE 12+0x1c8a) — bank the party's pooled coin/XP
+ * words: each live member (status 0 or the 179 charm placeholder)
+ * adds its three words at +76 into the -25314 pool longs and runs
+ * the jt897 credit hook (leaf stub), then the words clear (jt399).
+ * Raises the -23229 dirty flag. Full lift. */
+static void jt925(void) __attribute__((unused));
+static void jt925(void)
+{
+	unsigned char *rec;
+
+	PROBE("jt925");
+	g_a5_byte(-23229) = 1;
+	for (rec = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     rec != NULL;
+	     rec = (unsigned char *)(uintptr_t)*(long *)rec) {
+		short i;
+
+		if (rec[147] != 0 && rec[147] != 179)
+			continue;
+		for (i = 0; i <= 2; i++) {
+			g_a5_long(-25314 + (long)i * 4) +=
+			    (long)(unsigned short)
+			    *(short *)(rec + 76 + i * 2);
+			jt897((long)(uintptr_t)rec,
+			      *(short *)(rec + 76 + i * 2));
+		}
+		jt399(rec + 76, (short)6, (short)0);
+	}
 }
 
 /* --- band-5 small four ------------------------------------------------ */

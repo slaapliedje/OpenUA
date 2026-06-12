@@ -129,3 +129,9 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   16 row words), jt1071 FULL (the centered message-line print:
   (86-len)/2 right-shift via the overlap-safe jt406, jt399 space
   fill, l7ab4). Band 5 at 76/100.
+- 2026-06-12: jt502 FULL (the projectile-trail selector — diagonals
+  via jt472 pick bank 1/0 with the 5/7 mirror flag, cardinals
+  decompose into frame+bank; over the new l1888 frame leaf stub)
+  and jt925 FULL (bank the party's pooled coin/XP words into the
+  -25314 pool longs with the jt897 credit hook (leaf stub) and the
+  jt399 clear). Band 5 at 78/100.
