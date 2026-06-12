@@ -69,3 +69,29 @@ fields), boot the same design/position (Begin Adventuring start),
 and diff the two traces.  Divergence points directly at the broken
 piece: slot order = jt199, codes = jt201/jt205 map reads, idx = the
 jt200 selector tables, coords = l5b42's transform.
+
+## Menu / Training Hall capture recipe (the next trace wanted)
+
+The menu never touches JT[200]/[999]/[114] — hook these instead
+(same A5 jump-table slots as the existing hooks; THINK C args start
+at 4(sp) at function entry, return address at (sp)):
+
+| slot | CODE addr | args at entry | role |
+|---|---|---|---|
+| JT[1001] A5+0x1f68 | CODE 5+0x31ac | 4(sp)=top.w 6(sp)=left.w 8(sp)=group.w 10(sp)=item.w | THE glyph blit — every button bar piece, marker, frame bevel |
+| JT[995] A5+0x1f38 | CODE 5+0x21fc | top.w left.w group.w item.w mode.w | the deep-mode blit variant |
+| JT[1089] A5+0x2228 | CODE 5+0x0334 | 4(sp)=v.w 6(sp)=h.w 8(sp)=colour.w 10(sp)=fmt.l | every text draw (log the fmt string's first bytes if cheap) |
+| JT[117] A5+0x03c8 | CODE 6+0x3994 | none | present/commit — a FRAME DELIMITER, prints once per redraw |
+| JT[448] A5+0x0e20 | CODE 3+0x148a | top.w left.w group.w glyph.w | wrapper into 1001/995 — distinguishes jt137's button-bar pieces (it calls this directly) |
+| JT[94] A5+0x0310 | CODE 6+0x3fd6 | page.w row.w col.w colour.w fmt.l | the row/col text wrapper |
+| JT[137] A5+0x0468 | CODE 7+0x1234 | rec.l msg.w (args...) | the command-button method — fires via the -9282 method table, which holds the jump-table address, so the slot hook catches it |
+
+Minimum set for the missing-10% question: **1001 + 1089 + 117**
+(117 marks the frame boundaries the way the 4x repetition did in the
+3D trace).  448 + 137 + 94 + 995 refine attribution.
+
+Arm the hooks BEFORE the menu appears (during the "Loading...Please
+Wait" banner) — the menu paints once, not per frame.  Capture: (a)
+the main menu's first paint, (b) one hotkey press that repaints,
+(c) the Training Hall.  Diff target: the port's same-screen PROBE
+trail.
