@@ -126,6 +126,13 @@ Total ≈ 10 KB of asm.
   jt366 FULL-over-stubs (monster-art show: l6520_c8 art-class
   classifier lifted full — NOT CODE 14's l6520; l5f04 release +
   l62e0 bind are leaf PROBE stubs). Band 3 at 88/100.
+- 2026-06-12: jt56 FULL (numbered body/portrait library show:
+  CH*/CB* trailing-letter trim via jt482, l338c kind 50/49/51 from
+  the CPIC/COMSPR name compare, CPIC branch = "<name>1" l33ac bind
+  + the b / b+38 overlay pieces, non-CPIC = mode-1 bind with id a
+  or a+128; l31dc release). New leaf stub: l035e (file-group mode
+  switch). jt593's body-picture call chain is now real down to
+  l3b1e. Band 3 at 89/100.
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.
