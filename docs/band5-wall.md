@@ -116,3 +116,9 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   jt350 FULL (monster-record fetch over the new l6432 leaf stub +
   the jt362 STRG refresh = the Mac's L600c), jt93 FULL (the
   "%( %)" grouped-value text write through jt94). Band 5 at 71/100.
+- 2026-06-12: jt906 FULL (the five-saving-throw recompute: the
+  protection-ring scan (flag-bit-7, low flags 6, readied), the
+  -28818 class*110 + level*5 + slot table minimum across live
+  classes (jt40, level cap 21), and the slot-0 rec[121]-keyed
+  adjustments — the Mac applies them inside the class loop,
+  preserved). Hall-verified. Band 5 at 72/100.
