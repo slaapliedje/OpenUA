@@ -78,3 +78,25 @@ as soon as it's running past copy protection — no need to reach the 3D
 view), `__SIGINT__`, read `A5` from the register dump in the log, then
 `m A5-0x2FD0 …` (12240 = 0x2FD0, 12196 = 0x2FA4). The dumped words are the
 real slot-layout coords to reconcile against `l5b42` (`docs/TODO.md`).
+
+### BII_MENU_HOOK — menu/UI draw trace (2026-06-12)
+
+`~/macemu-mon/.../uae_cpu/newcpu.cpp` now also carries `BII_MENU_HOOK`
+alongside the jt200 hook.  Unlike the jt200 hook's hardcoded loaded
+address, this one SELF-RESOLVES: it polls `CurrentA5` (low global
+0x904) and reads each target's loaded entry out of its A5 jump-table
+slot once the slot holds a `JMP` (0x4EF9) — so no manual address
+capture is needed and it survives layout changes.
+
+Traced calls (stderr, same stream as the jt200 trace):
+  JT1001 #n top= left= group= item=     — every GLIB glyph blit
+  JT448  #n top= left= group= glyph=    — jt137's button-bar pieces
+  JT1089 #n v= h= colour= fmt="..."     — every text draw (+ format text)
+  JT117  ---- present #n ----           — frame/paint delimiters
+  JT137  #n rec= msg=                   — the command-button method
+
+Caps: 800/800/600/200/800 lines respectively (bump in newcpu.cpp if
+the intro eats too much budget).  Logging starts as soon as the
+segments load — the MENU paint is the block between two JT117
+markers right after the "Loading...Please Wait" phase; a re-paint
+can be forced any time by entering a submenu and backing out.
