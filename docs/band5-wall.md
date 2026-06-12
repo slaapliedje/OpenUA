@@ -135,3 +135,9 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   and jt925 FULL (bank the party's pooled coin/XP words into the
   -25314 pool longs with the jt897 credit hook (leaf stub) and the
   jt399 clear). Band 5 at 78/100.
+- 2026-06-12: REGRESSION + guard: jt1022's live body corrupts the
+  pool from jt111's boot-path resize arm (the 'GLIB' magic passes —
+  the .CTL pools DO keep headers — so the fault is in the resize
+  arithmetic vs the port pool layout; suspect the l3834 offsets or
+  the jt469 anchor). Guarded OFF pending instrumentation against
+  jt111's actual call values. Boot re-verified.
