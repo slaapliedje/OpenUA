@@ -19,17 +19,27 @@ evidence cited per row.
 | primitive | Mac order | evidence | port today | status |
 |---|---|---|---|---|
 | jt1135 | axis-agnostic pair scaler | (v1,v2,out1,out2) — pure | same | OK |
-| L0264 / pen slots | (v, h); -4898 = V, -4896 = H | CODE 5+0x264: jt1135(a,b,&-4898,&-4896); jt966 draws at -4896=X | jt1089 maps arg1 -> pen X (TRANSPOSED) | **FLIP** |
-| jt1089 | (v, h, colour, fmt, ...) | = L024c+L0264+L0306; see L0264 row.  boot.c:7209 already documents the Mac order | (h, v) | **FLIP + swap port-convention callers** |
-| jt1001 / jt995 / jt448 / L309c blit | (v, h, group, item) | CODE 5+0x31fc jt1005: arg1 -= metric y_bearing, arg1+height = extent; arg2 -= x_bearing | port l309c/l2d4e treats arg1 as X (jt216 passes screenX first and renders right) | **VERIFY l309c, FLIP + swap port callers (jt216 var names, l66e6 comment)** |
+| L0264 / pen slots | (v, h); -4898 = V, -4896 = H | CODE 5+0x264: jt1135(a,b,&-4898,&-4896); jt966 draws at -4896=X | slot writes were already faithful | **DONE** (da11006) |
+| jt1089 | (v, h, colour, fmt, ...) | = L024c+L0264+L0306; see L0264 row | FIXED: only the MoveTo read the slots crosswise; params renamed (v, h) | **DONE** (da11006) |
+| jt1001 / jt995 / jt448 / L309c blit | (v, h, group, item) | CODE 5+0x31fc jt1005: arg1 -= metric y_bearing | AUDITED: port l309c was already vertical-first (arg1->sy, -y_bearing); only caller VAR NAMES mislead (jt216 "screenX" holds the v value, etc.) | **DONE — names only, no behavior change** |
 | jt1161 | (top, left, bottom, right, fill) | lifted that way; jt1086 passes (0,0,h,w) | same | OK |
 | jt94 | (page, row, col, colour, fmt) | row before col | same | OK |
 | jt103 | (top, left, right, bottom) | jt76 faithful call (1,1,38,22) | same | OK |
 | DLItem rec[16]/rec[18] | rec16 = V, rec18 = H | jt137 asm: jt1089(scaled rec16+1, scaled rec18); l177a stream (8094=bottom row, 8056=h) | menu_run already packs rec16 = y ✓ | OK (the +4 baseline nudge in menu_run retires when jt137 goes live) |
 | l2d3e method msg 2 | (v, h) | jt137 msg2 compares arg1 vs scaled rec16 = V | passes (mouse_y, mouse_x) ✓ | OK (depends on l31b8 row) |
-| l31b8 mouse read | expect (&v, &h) — Mac GetMouse Point order | VERIFY from CODE 3 asm | port lift named (&mouse_y, &mouse_x) | **VERIFY** |
+| l31b8 mouse read | (&v, &h) — Mac Point order | l2d3e feeds them to method msg 2 whose first arg jt137 compares against scaled rec16 = V; menu clicks land | OK (verified live: jt137 msg-2 hit-tests work) |
 
-## 2. Caller inventory (the migration)
+## 2. Caller inventory (the migration) — EXECUTED (da11006 + jt151 enable)
+
+Un-swapped (their compensation comments retired): jt94's internal
+call, l42a0, the shape-3 radio label, the l35f8 PICK headers, the
+title_text macro.  Self-healed faithful sites: jt97, jt280, l53a6,
+l5126, l52f2, the l59d6/l4d98 banners, jt137.  cg_draw (dead code,
+unused attribute) left untouched.  jt151 is ENABLED — jt137 renders
+every shape-1 item (menu/Hall verified: labels + hotkey letters +
+key dispatch through the faithful chain).
+
+Original inventory kept below for reference:
 
 When jt1089 flips to faithful (v, h):
 - **Straight after the flip (faithful positional lifts, currently

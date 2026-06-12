@@ -38731,7 +38731,6 @@ static long jt450(short slot, long val)
 
 /* JT[151] (CODE 7+0x1572) — register jt137 as registry callback 1,
  * remembering the previous one in -12918. */
-static void jt151(void) __attribute__((unused));
 static void jt151(void)
 {
 	PROBE("jt151");
@@ -39146,12 +39145,7 @@ static void l4d98(void)
 	 * all four callees are lifted and ready). */
 	(void)0;
 	l3cb2();
-	/* jt151() — GATED on the (v, h) coordinate migration.  jt137 is
-	 * lifted and faithful, but the port's jt1089 / L309c primitives
-	 * are still horizontal-first (see docs/coord-audit.md), so
-	 * enabling the chain today transposes every label.  Flip the
-	 * primitives per the audit, then enable this and retire the
-	 * menu plate/bevel stand-ins. */
+	jt151();
 	l31cc();
 	l5f4e(&g_a5_byte(-27466), (short)408);
 	g_a5_27468 = 0;
