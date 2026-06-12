@@ -96,6 +96,42 @@ the main menu's first paint, (b) one hotkey press that repaints,
 (c) the Training Hall.  Diff target: the port's same-screen PROBE
 trail.
 
+## Begin Adventuring FULL-SCREEN capture (user trace, 2026-06-12)
+
+Second capture with the JT[1089] text hook armed — the complete play
+screen paint around the same 18-slot JT[200] frame. This pins the
+HUD text layer for task #114:
+
+    (pressed Hall button repaint right before entry)
+    v=175  h=168   colour=131 "Begin Adventuring" + 139 "%c"
+
+    ROSTER BLOCK (8000-space, painted TWICE per entry):
+    v=8008 h=8068  colour=140 "%s"     <- header left (NAME)
+    v=8008 h=8132  colour=140 "%s"     <- header right (AC/HP)
+    v=8016 h=8068  colour=139 "%s"     <- member row 1 name (139 = ACTIVE)
+    v=8016 h=8132  colour=135 "%s"     <- row 1 AC
+    v=8016 h=8148  colour=135 "%s"     <- row 1 HP
+    v=8020 h=8068/8132/8148 colour=135 <- member row 2 (rows step +4)
+
+    CLOCK / POSITION (8000-space, after the roster):
+    v=8060 h=8104  colour=135 "%s"
+    v=8052 h=8104  colour=135 "%s"
+
+    [the 18-slot JT200 frame, identical to the digest above, x4]
+
+    COMMAND BAR (RAW pixel space, v=189, after the frame):
+    h=6 "Area"  h=46 "Cast"  h=86 "View"  h=126 "Encamp"
+    h=182 "Search"  h=238 "Look"  h=278 "Inv"
+    each colour 135 + a 143 "%c" hotkey overlay at the same (v,h)
+
+Key facts: the roster/clock text is in 8000-space (jt94-routed,
+scale-mapped), while the command bar is RAW v=189 — two different
+coordinate regimes on one screen. Member rows step +4 units; the
+active member's name draws colour 139, everything else 135, headers
+140. The roster block paints twice per present (two passes), and the
+whole screen sequence repeats per frame pump exactly like the JT200
+slots.
+
 ## Saved-game slot picker (user trace, "Load Saved Game", 2026-06-12)
 
     JT1089 v=189 h=8004 colour=112 fmt="%s"        <- the prompt line

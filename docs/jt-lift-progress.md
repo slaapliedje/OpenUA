@@ -13,20 +13,20 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 577 done (559 lifted, 9 noop, 9 alias), 184 stub, 444 missing.
+**1205 distinct JT entries are called.** Overall: 632 done (596 lifted, 12 noop, 24 alias), 167 stub, 406 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
 | 1 | 1–100 | **99/100** | 91 | 8 | 1 | 0 |
-| 2 | 101–200 | **97/100** | 89 | 8 | 2 | 1 |
-| 3 | 201–300 | **45/100** | 45 | 0 | 16 | 39 |
-| 4 | 301–400 | **36/100** | 35 | 1 | 5 | 59 |
-| 5 | 401–500 | **38/100** | 38 | 0 | 14 | 48 |
+| 2 | 101–200 | **98/100** | 90 | 8 | 2 | 0 |
+| 3 | 201–300 | **96/100** | 79 | 17 | 0 | 4 |
+| 4 | 301–400 | **36/100** | 35 | 1 | 6 | 58 |
+| 5 | 401–500 | **40/100** | 39 | 1 | 13 | 47 |
 | 6 | 501–600 | **29/100** | 28 | 1 | 20 | 51 |
 | 7 | 601–700 | **26/100** | 26 | 0 | 4 | 70 |
-| 8 | 701–800 | **33/100** | 33 | 0 | 7 | 60 |
+| 8 | 701–800 | **34/100** | 34 | 0 | 6 | 60 |
 | 9 | 801–900 | **4/100** | 4 | 0 | 90 | 6 |
 | 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 |
 | 11 | 1001–1100 | **60/100** | 60 | 0 | 6 | 34 |
@@ -240,7 +240,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 196 | jt500 | 8 | LIFTED |  |
 | 197 | jt528 | 8 | ALIAS | lifted as l62ec (same address; combat map-cell fetch) |
 | 198 | jt529 | 8 | LIFTED |  |
-| 199 | jt883 | 8 | **MISSING** |  |
+| 199 | jt883 | 8 | LIFTED |  |
 | 200 | jt914 | 8 | LIFTED |  |
 
 ## The pending queue (top-100 stubs + missing, by call count)

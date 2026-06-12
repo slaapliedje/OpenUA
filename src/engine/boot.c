@@ -828,7 +828,7 @@ static void  jt461(short tag);
 static void  l5ac0(void);
 static void  jt69(void)
 {
-	PROBE("jt69");
+	dbg_log("jt69: FATAL content-load error");
 	jt461((short)0);
 	l5ac0();
 	jt1081();
@@ -998,10 +998,13 @@ static void  jt198(short geo_num)
 	expected = 12962;
 	if (expected & 1)
 		expected++;
-	if (out != expected)
+	if (out != expected) {
+		dbg_log_num("jt198: GEO bytes = ", out);
 		jt69();
-	else if (l720a(buf) < 0)
+	} else if (l720a(buf) < 0) {
+		dbg_log("jt198: l720a reject");
 		jt69();
+	}
 	jt131((short)0);
 	hdr = (char *)(uintptr_t)g_a5_long(-28006);
 	if (hdr)
@@ -16367,20 +16370,100 @@ static short l31f0(void)
  * function pointer the L2d3e dispatcher invokes with (rec, cmd, ...). */
 typedef short (*dlitem_method_t)(void *rec, short cmd, ...);
 
-/* JT[1007] / JT[1123] — L2d3e selection-nav primitives. PROBE
- * for now; once lifted, Tab/arrow keystrokes will actually
- * move the dialog's highlighted item. */
-static void jt1007(short cur_sel, short key) __attribute__((unused));
-static void jt1007(short cur_sel, short key)
-{
-	PROBE("jt1007");
-	(void)cur_sel; (void)key;
-}
-static void jt1123(short a) __attribute__((unused));
-static void jt1123(short a)
+/* JT[1123] (CODE 4+0x659a) — install the 516-byte cursor record
+ * (4-byte dims header + 256B image + 256B mask — a 16x16 8-bit
+ * COLOUR cursor; NULL resets). The old "selection-nav" attribution
+ * was wrong — this is the hardware-cursor install, the faithful
+ * home of task #107's colour cursor. PROBE stub pending the HAL
+ * cursor-image path. */
+static void jt1123(long rec)
 {
 	PROBE("jt1123");
-	(void)a;
+	(void)rec;
+}
+
+/* JT[1007] (CODE 5+0x330c) — build + install the cursor from GLIB
+ * piece `item` of `group`, full lift. l2856 fetches the piece (8-
+ * byte header: width word, hotspot bytes, depth byte at +6, flags
+ * at +7). Depth scales by jt1200 (<<3 when 0, then << again);
+ * oversized pieces (rowbytes*jt1198 > 256) clamp width/height via
+ * jt413 against the jt1198/jt1179 screen metrics. The 516-byte
+ * record at A5 -4172 gets the dims header, the first row block at
+ * -4168 (jt406), and per-row copies into the mask block at -3912
+ * (rows masked off by the 0xE0/0xF0 flag gates are zeroed). Piece
+ * type 5 (flags & 15) re-splits image/mask: pixel 255 -> mask 0,
+ * else the pixel moves into the mask and the image byte clears.
+ * JT[1123] installs the record. */
+static short jt1179(void);
+static long  jt4(long a, long b);
+static void jt1007(short group, short item) __attribute__((unused));
+static void jt1007(short group, short item)
+{
+	unsigned char  hdr[8];
+	long           piece;
+	short          width, rowbytes, stride, i, rows;
+	unsigned char  depth, flags;
+
+	PROBE("jt1007");
+	piece = l2856(jt468(group), item, hdr);
+	if (piece == 0)
+		return;
+
+	width = *(short *)(hdr + 0);
+	depth = hdr[6];
+	flags = hdr[7];
+	if (jt1200() == 0)
+		depth = (unsigned char)(depth << 3);
+	rowbytes = (short)((short)depth * width);
+	stride   = rowbytes;
+	depth    = (unsigned char)(depth << jt1200());
+
+	if (jt1198() * rowbytes > 256) {
+		width = jt413(width, (short)((jt1198() <= 1) ? 24 : 16));
+		depth = (unsigned char)jt413((short)depth,
+		                             (short)((jt1179() <= 400)
+		                                     ? 16 : 32));
+		stride = (short)(256 / jt1198());
+	}
+
+	jt399(&g_a5_byte(-4172), (short)516, (short)0);
+	g_a5_byte(-4172) = hdr[3];
+	g_a5_byte(-4171) = hdr[5];
+	g_a5_byte(-4170) = hdr[1];
+	g_a5_byte(-4169) = depth;
+
+	jt406(&g_a5_byte(-4168), (const void *)(uintptr_t)piece,
+	      (short)((jt1163() ? jt1198() : 1) * stride));
+	piece += jt4((long)rowbytes, (long)(jt1163() ? jt1198() : 1));
+
+	rows = jt413(jt1198(), (short)4);
+	for (i = 0; i < rows; i++) {
+		unsigned char *row = &g_a5_byte(-3912) + (long)i * 64;
+
+		if (i != 0 && (flags & 0xE0) != 0
+		    && (flags & 0xF0) < 0xD0)
+			jt399(row, stride, (short)0);
+		else
+			jt406(row, (const void *)(uintptr_t)piece, stride);
+		piece += rowbytes;
+	}
+
+	if ((flags & 15) == 5) {
+		unsigned char *img  = &g_a5_byte(-4168);
+		unsigned char *mask = &g_a5_byte(-3912);
+
+		for (i = 0; i < 256; i++) {
+			if (*img == 255) {
+				*mask++ = 0;
+				img++;
+			} else {
+				*mask++ = *img;
+				*img++  = 0;
+			}
+		}
+	}
+
+	jt1123((long)(uintptr_t)&g_a5_byte(-4172));
 }
 /* JT[1122] (CODE 4 + 0x7690) — menu-bar slot setter / blinker.
  *

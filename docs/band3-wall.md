@@ -150,6 +150,15 @@ Total ≈ 10 KB of asm.
   bump, jt469 table-slot + data-span inserts, offset-table rewalk
   with the +4/+size shifts; validation via the JT[1084] modals).
   Band 3 at 95/100; left: jt353, jt98, jt349, jt1007, jt947 (#115).
+- 2026-06-12: jt1007 FULL — it's the **cursor builder** (build the
+  516-byte record at A5 -4172 from a GLIB piece: dims header, 256B
+  image, 256B mask, the type-5 image/mask re-split) — NOT the
+  "L2d3e selection-nav" the old stub claimed. jt1123 (CODE 4+0x659a)
+  is the install that takes the record pointer = a 16x16 8-BIT
+  COLOUR cursor — the faithful home of task #107's colour-cursor
+  work (PROBE stub pending the HAL cursor-image path). jt304's
+  jt1007(0, 26) = "set the play-screen cursor to ALWAYS piece 26".
+  Band 3 at 96/100; left: jt353, jt98, jt349, jt947 (#115).
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.
