@@ -88,3 +88,12 @@ jt326 (CODE 9).
   l2180 leaf stubs), jt295 (cell redraw sequence over l3792 +
   jt1150 leaf stubs; l3a1a was already lifted). Band 4 at 72/100;
   CODE 22 leaves jt279 (498B).
+- 2026-06-12: CODE 6 small four + jt105 alias: jt105 = l3f3c (the
+  bigpic palette-range install, already lifted full). jt53 FULL-over-
+  stub (text cell -> char coords; l3c24 pen resolver = leaf stub),
+  jt116 FULL (message-window rect fill in half-v/x4-h space), jt129
+  FULL ("<name>%03d.dat" design-data load request via jt431 path
+  concat + jt987 mode 4; jt126 callback = leaf stub), jt130
+  FULL-over-stub (8-char basename build from the -31268 table;
+  l0004_c6 char appender = leaf stub — the bare l0004 name belongs
+  to another segment's lifted local). Band 4 at 77/100.
