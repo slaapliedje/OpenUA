@@ -81,6 +81,9 @@ ALIAS_LIFTED = {
     1154: "lifted as jt1154_pg (page-up toggle read, A5 -806)",
     99: "lifted as l4b84 (same address; the Mac body is just jsr JT[175])",
     1054: "the _Delete Pascal trap glue = the shim's FSDelete (jt416)",
+    1028: "the _NewPtr Pascal trap glue = the shim's NewPtr (macmemory)",
+    1032: "the _DisposHandle Pascal trap glue = the shim's DisposeHandle",
+    1045: "the _GetVInfo PB trap glue = the shim's files.c volume calls",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
