@@ -28503,8 +28503,10 @@ static void jt50(void) { PROBE("jt50"); l5ac2(); }
 static void jt51(void) { PROBE("jt51"); l5ad8(); }
 static void jt64(short flag) { PROBE("jt64"); l5f3a(flag); }
 
-/* JT[67] (CODE 6+0x5f48) — combat-abort poll; 0 = keep going. */
-static unsigned char jt67(void) { PROBE("jt67"); return 0; }
+/* JT[67] (CODE 6+0x5f48) — combat-abort poll: the -13084 flag byte
+ * (the Mac body is moveb a5@(-13084),d0; rts — the old stub's
+ * constant 0 replaced with the real read). */
+static unsigned char jt67(void) { PROBE("jt67"); return (unsigned char)g_a5_byte(-13084); }
 
 /* L3b1e (CODE 6+0x3b1e) — release one piece of the -27866 combat
  * overlay GLIB (args: 0L, 0, 0, group handle, piece id). Leaf PROBE
@@ -38166,6 +38168,15 @@ static void jt279(short y, short x, short b1, short b2, short b3)
 			      (short)(unsigned char)b3);
 		}
 	}
+}
+
+/* JT[107] (CODE 6+0x36da) — read the -18397 byte (the active
+ * file-group kind latch). The Mac body is a bare byte read. */
+static unsigned char jt107(void) __attribute__((unused));
+static unsigned char jt107(void)
+{
+	PROBE("jt107");
+	return (unsigned char)g_a5_byte(-18397);
 }
 
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
