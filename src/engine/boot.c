@@ -20357,14 +20357,79 @@ static void jt589(short flag, long *tail, long *head)
 		          : ua_strs_at(0x4c62));       /* "No ... to load."    */
 }
 static void jt590(void *entry)              { PROBE("jt590"); (void)entry; }
-/* JT[56] (CODE 6+0x5baa, ~360B) — load + show a numbered body/portrait
- * picture library ("CBODYS"/"CPIC"/"COMSPR" name classify -> load kind,
- * L338c, numbered-name build, library load + L3eea commit).  PROBE
- * stub pending its own lift. */
+/* jt56 deps defined later in the file. */
+static const char *jt482(const char *src, short offset, short count);
+static void        l3b1e(long a, short b, short c, long grp, short id);
+
+/* L035e (CODE 6+0x035e) — file-group mode switch on the -31234
+ * current-mode global (JT[3] over 0..6). Leaf PROBE stub pending
+ * its own lift. */
+static void l035e(short mode)
+{
+	PROBE("l035e");
+	(void)mode;
+}
+
+/* JT[56] (CODE 6+0x5baa) — load + show a numbered body/portrait
+ * picture library, full lift. "CH*"/"CB*" names drop their trailing
+ * letter (jt482 of strlen-1). The display kind (l338c) is 50 for
+ * "CPIC", 49 for "COMSPR", 51 otherwise. The CPIC branch binds
+ * "<name>1" through l33ac (sub-mode 0 for CH-names, 15 otherwise)
+ * and shows pieces b and b+38 of the -27866 combat overlay group;
+ * the non-CPIC branch enters file-group mode 1 (L035e leaf stub),
+ * binds the raw name (kind -1, mode 1), and shows piece b with
+ * id a (CH-names) or a+128, plus the b+38 pair. The slot handle is
+ * released through l31dc either way. */
 static void jt56(const char *name, short a, short b)
 {
+	char  buf[200];
+	void *handle = NULL;
+	short kind;
+
 	PROBE("jt56");
-	(void)name; (void)a; (void)b;
+	if (name[0] == 'C' && (name[1] == 'H' || name[1] == 'B'))
+		name = jt482(name, (short)1, (short)(jt423(name) - 1));
+
+	if (jt396(name, ua_strs_at(0x0ff0) /* "CPIC" */))
+		kind = 50;
+	else if (jt396(name, ua_strs_at(0x0ff6) /* "COMSPR" */))
+		kind = 49;
+	else
+		kind = 51;
+	l338c(kind);
+
+	jt384(buf, name);
+	jt404(buf, ua_strs_at(0x0ffe) /* "1" */);
+
+	if (jt396(name, ua_strs_at(0x1000) /* "CPIC" */)) {
+		short sub = (name[0] == 'C' && name[1] == 'H') ? 0 : 15;
+
+		l33ac(buf, (short)(unsigned char)a, (short)3, sub, &handle);
+		l3b1e((long)(uintptr_t)handle, (short)0, (short)0,
+		      g_a5_long(-27866), (short)(unsigned char)b);
+		l3b1e((long)(uintptr_t)handle,
+		      (short)((name[0] == 'C' && name[1] == 'H') ? 0 : 1),
+		      (short)0, g_a5_long(-27866),
+		      (short)((unsigned char)b + 38));
+	} else {
+		l035e((short)1);
+		l33ac(name, (short)-1, (short)1, (short)0, &handle);
+		l3b1e((long)(uintptr_t)handle, (short)(unsigned char)a,
+		      (short)1, g_a5_long(-27866),
+		      (short)(unsigned char)b);
+		if (name[0] == 'C' && name[1] == 'H')
+			l3b1e((long)(uintptr_t)handle,
+			      (short)(unsigned char)a, (short)1,
+			      g_a5_long(-27866),
+			      (short)((unsigned char)b + 38));
+		else
+			l3b1e((long)(uintptr_t)handle,
+			      (short)((unsigned char)a + 128), (short)1,
+			      g_a5_long(-27866),
+			      (short)((unsigned char)b + 38));
+	}
+
+	l31dc((void *)&handle);
 }
 
 /* JT[593] (CODE 15+0x03d2) — show the active member's (-27932) body
