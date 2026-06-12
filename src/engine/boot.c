@@ -24253,24 +24253,21 @@ static void jt92(void)
 	l4bac();
 }
 
-/* L2f4c (CODE 6 + 0x2f4c) — entity-has-second-stat predicate jt40
- * branches on. PROBE for now; bit-pattern reader for the entity's
- * class table. */
+/* L2f4c (CODE 6 + 0x2f4c) = JT[29] — the multi-class predicate jt40
+ * branches on. Lifted below as jt29 (the JT export name); this local
+ * spelling forwards there. */
+static signed char jt29(const unsigned char *rec);
 static int l2f4c(const void *entity) __attribute__((unused));
 static int l2f4c(const void *entity)
 {
-	PROBE("l2f4c");
-	(void)entity;
-	return 0;
+	return jt29((const unsigned char *)entity) != 0;
 }
 
 /* JT[40] (CODE 6 + 0x2fd8, 38 sites) — max of two stat bytes.
  *
- * Reads entity[157 + slot] as the primary stat; when L2f4c says
- * the entity has a multi-class second stat, reads entity[164 + slot]
- * too; returns the larger of the two. The lift is faithful but
- * L2f4c stays PROBE → returns 0 → secondary stat treated as 0,
- * so for now jt40 always returns the primary byte. */
+ * Reads entity[157 + slot] as the primary stat; when L2f4c (=jt29,
+ * now LIVE) says the entity has a multi-class second stat, reads
+ * entity[164 + slot] too; returns the larger of the two. */
 static unsigned char jt40(void *entity, short slot) __attribute__((unused));
 static unsigned char jt40(void *entity, short slot)
 {
@@ -25768,18 +25765,39 @@ static void   l46e0(short a)                         { PROBE("L46e0"); (void)a; 
 static void   l19ac(void)                            { PROBE("L19ac"); }
 static void   l4f2c(long ptr)                        { PROBE("L4f2c"); (void)ptr; }
 static void   l4ff6(long ptr)                        { PROBE("L4ff6"); (void)ptr; }
-/* JT[29] stub — character-class-conditional inequality probe.
- * The Mac body: tmp = JT[35](rec); return (rec[138] > tmp) ? -1 : 0;
- * JT[35] itself walks rec[88]/rec[88+i] for i=0..5 to derive a
- * threshold (class-table lookup). Lifting either requires the
- * class-table data and rec to be non-NULL; for our boot path
- * (rec = NULL), the gate trivially returns 0. */
+/* JT[35] (CODE 6 + 0x2f74) — the multi-class lead stat byte.
+ * If rec[88] (class id) != 5, returns 0. For class 5, scans the
+ * stat row rec[157..162] for the first non-zero byte and returns
+ * it (falling through to rec[163] when all six are zero — the asm
+ * re-reads rec[157+i] with the loop counter at 6).
+ * NOTE: a CODE 17 helper already owns the l2f74 name; this is the
+ * CODE 6 0x2f74 (see docs/band3-wall.md naming traps). */
+static unsigned char jt35(const unsigned char *rec)
+{
+	short i;
+
+	PROBE("jt35");
+	if (rec == NULL || rec[88] != 5)
+		return 0;
+	for (i = 0; i < 6; i++)
+		if (rec[157 + i] != 0)
+			break;
+	return rec[157 + i];
+}
+
+/* JT[29] (CODE 6 + 0x2f4c) — full lift. -1 when the class-5 lead
+ * stat (JT[35]) exceeds rec[138], unsigned (`shi` in the asm), else
+ * 0. The earlier stub's doc had the comparison reversed; the asm is
+ *   cmpb %a0@(138),%d0 ; shi ; negb   ->   (jt35(rec) > rec[138]).
+ * Same address as the l2f4c stub jt40 polls (now routed here), so
+ * jt40's multi-class secondary-stat arm goes live with this. */
 static signed char jt29(const unsigned char *rec) __attribute__((unused));
 static signed char jt29(const unsigned char *rec)
 {
 	PROBE("jt29");
-	(void)rec;
-	return 0;
+	if (rec == NULL)
+		return 0;
+	return (signed char)((jt35(rec) > rec[138]) ? -1 : 0);
 }
 
 /* L4e56 (CODE 19 + 0x4e56) — "import character?" gate for
