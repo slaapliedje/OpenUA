@@ -19377,7 +19377,73 @@ static void jt571(void)
  * 17/19 finalize is fully lifted. */
 static void l2284(unsigned char *rec) { PROBE("L2284"); (void)rec; }
 static void l13ee(unsigned char *rec) { PROBE("L13ee"); (void)rec; }
-static void jt906(unsigned char *rec) { PROBE("jt906"); (void)rec; }
+/* JT[906] (CODE 19+0x687e) — recompute the five saving throws,
+ * full lift. A readied flag-bit-7 item whose low flags are 6 (the
+ * protection-ring type) arms the bonus. Each save slot 0..4 starts
+ * at 20 and takes the minimum across the live classes (jt40 level,
+ * capped 21) from the -28818 table (class*110 + level*5 + slot).
+ * Slot 0 additionally takes the rec[121]-keyed adjustments per
+ * live class — +1..+5 for 4..18 when the protection item is on,
+ * +1..+4 for 19..25 always (the Mac applies these inside the class
+ * loop; preserved). */
+static unsigned char jt40(void *entity, short slot);
+static void jt906(unsigned char *rec)
+{
+	unsigned char *it;
+	signed char    prot = 0, slot, cls;
+
+	PROBE("jt906");
+	for (it = (unsigned char *)(uintptr_t)*(long *)(rec + 8);
+	     it != NULL && !prot;
+	     it = (unsigned char *)(uintptr_t)*(long *)it)
+		if ((it[56] & 0x80) && it[50] != 0
+		    && (it[56] & 127) == 6)
+			prot = 1;
+
+	for (slot = 0; slot <= 4; slot++) {
+		rec[131 + slot] = 20;
+		for (cls = 0; cls <= 6; cls++) {
+			unsigned char lvl = jt40(rec, (short)cls);
+			unsigned char entry;
+
+			if (lvl == 0)
+				continue;
+			if (lvl > 21)
+				lvl = 21;
+			entry = g_a5_buf(-28818)[(long)cls * 110
+			                         + (long)lvl * 5 + slot];
+			if (rec[131 + slot] > entry)
+				rec[131 + slot] = entry;
+
+			if (slot == 0 && prot) {
+				unsigned char w = rec[121];
+
+				if (w >= 4 && w <= 6)
+					rec[131] += 1;
+				else if (w >= 7 && w <= 10)
+					rec[131] += 2;
+				else if (w >= 11 && w <= 13)
+					rec[131] += 3;
+				else if (w >= 14 && w <= 17)
+					rec[131] += 4;
+				else if (w == 18)
+					rec[131] += 5;
+			}
+			if (slot == 0) {
+				unsigned char w = rec[121];
+
+				if (w >= 19 && w <= 20)
+					rec[131] += 1;
+				else if (w >= 21 && w <= 22)
+					rec[131] += 2;
+				else if (w >= 23 && w <= 24)
+					rec[131] += 3;
+				else if (w == 25)
+					rec[131] += 4;
+			}
+		}
+	}
+}
 static void jt907(unsigned char *rec) { PROBE("jt907"); (void)rec; }
 
 /* JT[566] (CODE 17 + 0x3222) — the RACE list action proc. Stores the picked
