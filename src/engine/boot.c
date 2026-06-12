@@ -35795,6 +35795,19 @@ static signed char jt504(const unsigned char *rec)
 	return (signed char)(((entry[14] & 20) == 20) ? 1 : 0);
 }
 
+/* JT[883] (CODE 19+0x4248) — adjust a member's encumbrance: the
+ * word at rec+86 += delta. (The band-2 "387-line" size note was an
+ * artifact — the lines belong to the L4264/L4334 locals that follow
+ * the entry, not to JT[883] itself.) */
+static void jt883(unsigned char *rec, short delta) __attribute__((unused));
+static void jt883(unsigned char *rec, short delta)
+{
+	PROBE("jt883");
+	if (rec == NULL)
+		return;
+	*(short *)(rec + 86) = (short)(*(short *)(rec + 86) + delta);
+}
+
 /* JT[926] (CODE 12+0x2504) — poll the editor's dirty flags: *out_a
  * = 1 when any of the three longs at A5 -25314/-25310/-25306 is
  * set, *out_b = 1 when the -25302 long is set (both cleared
