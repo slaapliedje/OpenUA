@@ -37373,11 +37373,58 @@ static unsigned char jt1023(short refnum, long size, short group, short flag,
 	return 0;
 }
 
-static void jt1021(short group, short flag, long x) __attribute__((unused));
-static void jt1021(short group, short flag, long x)
+/* JT[1021] (CODE 5+0x4414) — LBInsert: insert a new item of `size`
+ * bytes at index `item` of the list-block in GLIB group `group`,
+ * full lift. Layout: 16-byte header (total bytes long at +4, count
+ * word at +8) + a (count+1)-entry long offset table + the item
+ * data. Validates against l3736's count ("LBInsert invalid item/
+ * size" JT[1084] modals), bumps the header (count+1, total+size+4),
+ * inserts the new table slot via jt469, then walks the table:
+ * every surviving entry shifts +4 (the table grew); entries past
+ * the insert point shift +size too; the new slot inherits the
+ * insert offset (saved at i == item) +size as its end marker.
+ * Finally jt469 opens the item's data span. */
+static short l3736(long base);
+static void jt1021(short group, short item, long size) __attribute__((unused));
+static void jt1021(short group, short item, long size)
 {
+	unsigned char hdr[16];
+	long          base, cursor, val = 0, saved = 0;
+	short         i, count;
+
 	PROBE("jt1021");
-	(void)group; (void)flag; (void)x;
+	base = jt468(group);
+	if (item < 0 || item > l3736(base))
+		l036a(ua_strs_at(0x70aa) /* "LBInsert invalid item (%d)" */,
+		      (int)item);
+	if (size < 0)
+		l036a(ua_strs_at(0x70c6) /* "LBInsert invalid size (%l)" */,
+		      size);
+
+	jt406(hdr, (const void *)(uintptr_t)base, (short)16);
+	count = (short)(*(short *)(hdr + 8) + 1);
+	*(short *)(hdr + 8) = count;
+	*(long *)(hdr + 4) += size + 4;
+	jt406((void *)(uintptr_t)base, hdr, (short)16);
+
+	jt469(group, (long)(item + 1) * 4 + 16, 4L);
+
+	cursor = jt468(group) + 16;
+	for (i = 0; i <= count; i++) {
+		if (i != (short)(item + 1)) {
+			jt406(&val, (const void *)(uintptr_t)cursor,
+			      (short)4);
+			val += 4;
+		}
+		if (i == item)
+			saved = val;
+		else if (i > item)
+			val += size;
+		jt406((void *)(uintptr_t)cursor, &val, (short)4);
+		cursor += 4;
+	}
+
+	jt469(group, saved, size);
 }
 
 static void jt1024(long base, short group, long sig) __attribute__((unused));
