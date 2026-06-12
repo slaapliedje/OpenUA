@@ -35726,9 +35726,14 @@ static short jt953(void)
 
 /* JT[79] (CODE 6+0x69f8) — the non-combat record-window repaint
  * (jt595's else arm).  PROBE stub pending its own lift. */
+/* JT[79] (CODE 6+0x69f8) — close the play screen's paint pass:
+ * L670c, L66e6(2), L3918(0). Full lift (l3918 is a leaf stub). */
 static void jt79(void)
 {
 	PROBE("jt79");
+	l670c();
+	l66e6((short)2);
+	l3918(0L);
 }
 
 /* CODE 16 locals of the spell-list dialog, PROBE stubs pending their
@@ -37641,6 +37646,122 @@ static void jt357(short top, short left, short code, short sub)
 		      (short)(top + ((sub == 7 || sub == 8) ? 0 : -4)),
 		      left, code, sub);
 	jt117();
+}
+
+/* JT[77] (CODE 6+0x6920) — compose the PLAY-SCREEN frame chrome,
+ * full lift (the faithful #114 composer): l38d0(0) paint-begin,
+ * the two stone panels via jt103 (= the Mac L4bf6: the bottom
+ * content window (23,1)-(38,21) and the left view panel
+ * (1,1)-(21,21)), FRAME pieces 1/2/3/5 at the (8000,8000) anchor,
+ * the jt1173 clip set (8093,8000)-(8100,8160), piece 4, jt1193,
+ * piece 6, and the jt174 paint-commit. */
+static void jt77(void) __attribute__((unused));
+static void jt77(void)
+{
+	PROBE("jt77");
+	l38d0((short)0);
+	jt103((short)23, (short)1, (short)38, (short)21);
+	jt103((short)1, (short)1, (short)21, (short)21);
+	jt1001((short)8000, (short)8000, (short)1, (short)1);
+	jt1001((short)8000, (short)8000, (short)1, (short)2);
+	jt1001((short)8000, (short)8000, (short)1, (short)3);
+	jt1001((short)8000, (short)8000, (short)1, (short)5);
+	jt1173((short)8093, (short)8000, (short)8100, (short)8160);
+	jt1001((short)8000, (short)8000, (short)1, (short)4);
+	jt1193();
+	jt1001((short)8000, (short)8000, (short)1, (short)6);
+	jt174();
+}
+
+/* (JT[79] is lifted at its earlier stub site.) */
+
+/* L4a7a (CODE 7+0x4a7a) — char -> 6-bit code for the packed-name
+ * coding: lowercase folds (-32 past 95), then & 63. Shared by the
+ * jt196 packer (and jt191's decoder when it lifts). */
+static short l4a7a(long src, short i)
+{
+	signed char c = ((const char *)(uintptr_t)src)[i];
+
+	if (c > 95)
+		c = (signed char)(c - 32);
+	return (short)(c & 63);
+}
+
+/* JT[184] (CODE 7+0x483e) — build the conjured magic-scroll item
+ * record, full lift: jt65 zero-fill of 18 bytes, kind 39 (scroll)
+ * at +0/+2, 102 at +1, +8 = 1, word +4 = 1, word +6 = 3000 (the
+ * value), +12 = 0, +3 = 40 (template), +11 = 4 — then three random
+ * spells: roll jt870(1, 126) until the -16906 hazard row's byte 0
+ * is 2 (a castable spell), storing into rec[14..16] (slot+13 for
+ * the -22307 counter at 1..3). */
+static void jt184(long rec_l) __attribute__((unused));
+static void jt184(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt184");
+	jt65(rec_l, (short)18);
+	rec[0] = 39;
+	rec[2] = 39;
+	rec[1] = 102;
+	rec[8] = 1;
+	*(short *)(rec + 4) = 1;
+	*(short *)(rec + 6) = 3000;
+	rec[12] = 0;
+	rec[3]  = 40;
+	rec[11] = 4;
+	for (g_a5_byte(-22307) = 1; (signed char)g_a5_byte(-22307) <= 3;
+	     g_a5_byte(-22307)++) {
+		unsigned char r;
+
+		do {
+			r = (unsigned char)jt870((short)1, (short)126);
+		} while (*((const unsigned char *)&g_a5_byte(-16906)
+		           + (long)r * 16) != 2);
+		rec[(signed char)g_a5_byte(-22307) + 13] = r;
+	}
+}
+
+/* JT[196] (CODE 7+0x4aee) — pack a C-string name into the 6-bit
+ * 4-chars-in-3-bytes coding (jt191's inverse), full lift: each
+ * group packs c0<<2 | c1>>4 — c1<<4 | c2>>2 — c2<<6 | c3, with the
+ * L4a7a fold/mask per char, stopping at the source NUL (output
+ * capped at 255 bytes). The Mac's byte-shift sequence is kept
+ * verbatim (the &255 masks reflect the asm's byte registers). */
+static void jt196(long src, long dst) __attribute__((unused));
+static void jt196(long src, long dst)
+{
+	const char    *in  = (const char *)(uintptr_t)src;
+	unsigned char *out = (unsigned char *)(uintptr_t)dst;
+	short          i = 0, j = 0;
+	signed char    done = 0;
+	unsigned char  c;
+
+	PROBE("jt196");
+	while (!done && j < 255) {
+		out[j] = (unsigned char)(l4a7a(src, i) << 2);
+		if (in[i] == 0) { done = 1; break; }
+		i++;
+		c = (unsigned char)(l4a7a(src, i) << 2);
+		out[j] += (unsigned char)(c >> 6);
+		j++;
+
+		out[j] = (unsigned char)(l4a7a(src, i) << 4);
+		if (in[i] == 0) { done = 1; break; }
+		i++;
+		c = (unsigned char)l4a7a(src, i);
+		out[j] += (unsigned char)(((unsigned char)(c << 2)) >> 4);
+		j++;
+
+		out[j] = (unsigned char)(l4a7a(src, i) << 6);
+		if (in[i] == 0) { done = 1; break; }
+		i++;
+		out[j] += (unsigned char)
+		          (((unsigned char)(l4a7a(src, i) << 2)) >> 2);
+		j++;
+		if (in[i] == 0) { done = 1; break; }
+		i++;
+	}
 }
 
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
