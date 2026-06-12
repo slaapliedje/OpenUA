@@ -22,14 +22,24 @@ dispatch need before they fire for real:
 | jt856 | CODE 18+0x725c | 230-slot special-attack hook table (-25242) | **LIFTED** (3965c7f) |
 | jt610 | CODE 16+0x4b48 | combat init: installs jt601 into -24070, fills the handler table (90 stores), tail-calls L49e6 | **LIFTED** |
 | L49e6 | CODE 16 local | the other 44 handler-table stores (ids 1–44); true local, no JT export | **LIFTED** (l49e6) |
-| jt511 | CODE 13+0x05a6 | installs jt538 into -24070 (in-combat swap) | — |
+| jt511 | CODE 13+0x05a6 | the COMBAT MAIN LOOP; installs jt538 into -24070 at entry | **LIFTED** (level 2 — heavy locals stubbed, below) |
 | jt538 | CODE 14+0x2028 | in-combat target callback (~1.8KB) | **LIFTED** |
 | L1efa | CODE 14 local | one target pick for jt538 (crosshair / list / area re-aim) | **LIFTED** (l1efa) |
 | jt600 | CODE 16+0x5f26 | spell range from the -16906 row (base + per-level) | **LIFTED** |
 | jt539 | CODE 14+0x3b6c | interactive in-combat crosshair pick UI | stub |
 | L1dd6 | CODE 14 local (~292B) | repeat pick from the built area list | stub (l1dd6) |
 | L4dee | CODE 14 local | repeat pick with per-target area re-aim (jt508) | stub (l4dee) |
-| L0006 | CODE 13 (+0x010e site) | combat teardown; reinstalls jt601 | — |
+| L0006 | CODE 13 (+0x010e site) | combat teardown; reinstalls jt601 | **LIFTED** (l0006) |
+| L076e | CODE 13 local (~2.2KB) | execute one actor's combat turn (the heart of the loop) | stub (l076e) |
+| L0434 | CODE 13 local | per-round init: builds the -22624 initiative slots | stub (l0434) |
+| L102a | CODE 13 local | end-of-round bookkeeping; may end the fight | stub (l102a) |
+| L4f22 | CODE 13 local | combat entry staging | stub (l4f22) |
+| L0116 | CODE 13 local | post-combat aftermath (when -27916 set) | stub (l0116) |
+| jt542 | CODE 14+0x5434 | combat-field setup at loop entry | stub |
+| jt541 | CODE 14+0x0006 | per-member per-round prep | stub |
+| jt50/jt51/jt64 | CODE 6 | combat-loop keyboard handlers (338/339/Esc) | stub |
+| jt67 | CODE 6+0x5f48 | combat-abort poll | stub |
+| jt55/jt58 | CODE 6 | art/resource teardown leaves (l0006) | stub |
 | l510c_c6 | CODE 6+0x510c | combat setup; sole caller of jt856 | — |
 | jt599 | CODE 16+0x64a8 | cast/apply one effect by id (~1.25KB; the beholder self-casts through it) | stub |
 | jt546 | CODE 14+0x4186 | combat target picker (~570B; jt537 inert until lifted) | stub |
