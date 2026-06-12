@@ -36501,9 +36501,13 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 	digit  -= '0';
 	jt384(namebuf, name);
 	namebuf[len - 1] = 0;
+	/* concrete name from the BASE (an earlier cut formatted it from
+	 * `fullname`, yielding "bigpix.ctl0008.ctl" — the GEMDOS 8.3 clip
+	 * then missed the file); `path` is free until the open below. */
+	jt394(path, (jt1200() == 3) ? "%s%d%03d.tlb" : "%s%d%03d.ctl",
+	      namebuf, digit, (short)kindB);
 	jt394(fullname, (jt1200() == 3) ? "%s.tlb" : "%s.ctl", namebuf);
-	jt394(namebuf, (jt1200() == 3) ? "%s%d%03d.tlb" : "%s%d%03d.ctl",
-	      fullname, digit, (short)kindB);
+	jt384(namebuf, path);
 
 	if (jt464(namebuf, (short)(i + 2))) {      /* already present -> bail */
 		g_a5_18397 = 0;

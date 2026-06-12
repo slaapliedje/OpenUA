@@ -13,24 +13,24 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 527 done (517 lifted, 8 noop, 2 alias), 190 stub, 488 missing.
+**1205 distinct JT entries are called.** Overall: 550 done (540 lifted, 8 noop, 2 alias), 189 stub, 466 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
 | 1 | 1–100 | **99/100** | 91 | 8 | 1 | 0 |
-| 2 | 101–200 | **67/100** | 67 | 0 | 11 | 22 |
-| 3 | 201–300 | **44/100** | 44 | 0 | 15 | 41 |
-| 4 | 301–400 | **33/100** | 32 | 1 | 4 | 63 |
-| 5 | 401–500 | **37/100** | 37 | 0 | 14 | 49 |
-| 6 | 501–600 | **28/100** | 27 | 1 | 20 | 52 |
-| 7 | 601–700 | **20/100** | 20 | 0 | 5 | 75 |
-| 8 | 701–800 | **32/100** | 32 | 0 | 7 | 61 |
+| 2 | 101–200 | **70/100** | 70 | 0 | 9 | 21 |
+| 3 | 201–300 | **45/100** | 45 | 0 | 15 | 40 |
+| 4 | 301–400 | **36/100** | 35 | 1 | 4 | 60 |
+| 5 | 401–500 | **38/100** | 38 | 0 | 14 | 48 |
+| 6 | 501–600 | **29/100** | 28 | 1 | 20 | 51 |
+| 7 | 601–700 | **26/100** | 26 | 0 | 4 | 70 |
+| 8 | 701–800 | **33/100** | 33 | 0 | 7 | 60 |
 | 9 | 801–900 | **4/100** | 4 | 0 | 90 | 6 |
 | 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 |
-| 11 | 1001–1100 | **56/100** | 56 | 0 | 5 | 39 |
-| 12 | 1101–1200 | **11/100** | 11 | 0 | 13 | 76 |
+| 11 | 1001–1100 | **60/100** | 60 | 0 | 6 | 34 |
+| 12 | 1101–1200 | **14/100** | 14 | 0 | 14 | 72 |
 | 13 | 1201–1205 | **1/5** | 1 | 0 | 0 | 4 |
 
 ## Band 1 detail (rank 1–100)
@@ -151,7 +151,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 107 | jt508 | 16 | LIFTED |  |
 | 108 | jt595 | 16 | **STUB** |  |
 | 109 | jt1133 | 16 | LIFTED |  |
-| 110 | jt1166 | 16 | **MISSING** |  |
+| 110 | jt1166 | 16 | LIFTED |  |
 | 111 | jt26 | 15 | LIFTED |  |
 | 112 | jt30 | 15 | LIFTED |  |
 | 113 | jt419 | 15 | LIFTED |  |
@@ -165,14 +165,14 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 121 | jt869 | 14 | LIFTED |  |
 | 122 | jt1113 | 14 | LIFTED |  |
 | 123 | jt1141 | 14 | LIFTED |  |
-| 124 | jt51 | 13 | **STUB** | lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339) |
+| 124 | jt51 | 13 | LIFTED | lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339) |
 | 125 | jt101 | 13 | **MISSING** |  |
 | 126 | jt167 | 13 | LIFTED |  |
 | 127 | jt361 | 13 | LIFTED |  |
 | 128 | jt411 | 13 | LIFTED |  |
 | 129 | jt493 | 13 | LIFTED |  |
 | 130 | jt503 | 13 | LIFTED |  |
-| 131 | jt50 | 12 | **STUB** | lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338) |
+| 131 | jt50 | 12 | LIFTED | lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338) |
 | 132 | jt100 | 12 | LIFTED |  |
 | 133 | jt207 | 12 | **MISSING** |  |
 | 134 | jt356 | 12 | LIFTED |  |
