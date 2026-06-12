@@ -17536,11 +17536,56 @@ static short intro_load_palette(long base, short set, RGBColor *dst)
 	return n;
 }
 
+/* One palette cycle range (the 4-byte records after a palette piece's
+ * colour block — the same table jt1069 seeds jt1067 from): rotate
+ * CLUT [base, base+count) one step every `period` ticks; flags bit 0
+ * = forward (first -> end), clear = backward (last -> front). */
+struct intro_cycle {
+	unsigned char flags, period, base, count;
+	long          due;
+};
+
+/* Read set `set`'s palette-piece cycle records (metric byte 6 holds
+ * the count; the records follow the RGB block).  Returns how many. */
+static short intro_load_cycles(long base, short set,
+                               struct intro_cycle *out, short max)
+{
+	long  handle = l37aa(base, set);
+	long  p0, p1;
+	const unsigned char *m, *rp;
+	short n, ncyc, k;
+
+	if (handle == 0)
+		return 0;
+	p0 = l37aa(handle, 0);
+	p1 = l37aa(handle, 1);
+	if (p0 == 0 || p1 <= p0)
+		return 0;
+	m    = (const unsigned char *)(uintptr_t)p0;
+	n    = (short)(((unsigned short)m[4] << 8) | m[5]);   /* colours */
+	ncyc = (short)m[6];                                   /* ranges  */
+	if (ncyc > max)
+		ncyc = max;
+	if (p0 + 8 + (long)n * 3 + (long)ncyc * 4 > p1)
+		return 0;
+	rp = (const unsigned char *)(uintptr_t)(p0 + 8 + (long)n * 3);
+	for (k = 0; k < ncyc; k++) {
+		out[k].flags  = rp[k * 4 + 0];
+		out[k].period = rp[k * 4 + 1];
+		out[k].base   = rp[k * 4 + 2];
+		out[k].count  = rp[k * 4 + 3];
+		out[k].due    = 0;
+	}
+	return ncyc;
+}
+
 static void port_show_intro(void)
 {
 	static unsigned char file[200000];      /* TITLE.CTL (~168KB)        */
 	static RGBColor      base_pal[256];     /* set 1: the shared base    */
 	static RGBColor      pal[256];
+	struct intro_cycle   cyc[8];
+	short                ncyc;
 	short        refnum = 0, set;
 	long         count, base;
 
@@ -17617,6 +17662,9 @@ static void port_show_intro(void)
 		memcpy(pal, base_pal, sizeof pal);
 		(void)intro_load_palette(base, set, pal);
 		qd_set_palette(pal, (short)0, (short)256);
+		/* the set's palette CYCLE ranges (set 2 — the SSI screen —
+		 * carries three: the twinkling stars + logo shimmer) */
+		ncyc = intro_load_cycles(base, set, cyc, (short)8);
 
 		if (set == 5) {
 			/* The Unlimited Adventures title is a full-screen image — blit
@@ -17635,9 +17683,47 @@ static void port_show_intro(void)
 		qd_present();
 
 		/* hold until a key / click, or auto-advance after ~4 s so a
-		 * headless boot can't wedge. (Cursor hidden, so nothing to redraw.) */
+		 * headless boot can't wedge. (Cursor hidden, so nothing to redraw.)
+		 * While holding, run the palette CYCLES with jt1067's rules:
+		 * each due range rotates one step — forward (first -> end) when
+		 * flags bit 0 is set, else backward (last -> front) — and its
+		 * timer advances by the period (catching up when behind). */
 		deadline = TickCount() + 240;    /* 60 ticks/s */
+		{
+			short r;
+			for (r = 0; r < ncyc; r++)
+				cyc[r].due = TickCount() + cyc[r].period;
+		}
 		for (;;) {
+			long  now = TickCount();
+			short r;
+
+			for (r = 0; r < ncyc; r++) {
+				short cb = (short)cyc[r].base;
+				short cn = (short)cyc[r].count;
+				int   stepped = 0;
+
+				if (cn <= 1 || cyc[r].period == 0)
+					continue;
+				while (now >= cyc[r].due) {
+					RGBColor t;
+					if (cyc[r].flags & 1) {        /* forward */
+						t = pal[cb];
+						memmove(&pal[cb], &pal[cb + 1],
+						        (size_t)(cn - 1) * sizeof(RGBColor));
+						pal[cb + cn - 1] = t;
+					} else {                       /* backward */
+						t = pal[cb + cn - 1];
+						memmove(&pal[cb + 1], &pal[cb],
+						        (size_t)(cn - 1) * sizeof(RGBColor));
+						pal[cb] = t;
+					}
+					cyc[r].due += cyc[r].period;
+					stepped = 1;
+				}
+				if (stepped)
+					qd_set_palette(&pal[cb], cb, cn);
+			}
 			if (WaitNextEvent(everyEvent, &ev, 6, NULL)
 			 && (ev.what == keyDown || ev.what == mouseDown))
 				break;
