@@ -97,6 +97,10 @@ ALIAS_LIFTED = {
     886: "lifted as l1276 (same address; jt904 roster staging)",
     899: "lifted as l5274 (same address; max-HP ceiling)",
     105: "lifted as l3f3c (same address; bigpic palette-range install)",
+    1038: "the _GetOSEvent/SetTrapAddress trap glue = the shim's events",
+    1060: "the async-PB volume trap glue = the shim's files.c",
+    1062: "the _StripAddress glue — identity on the 68030's flat 32-bit bus",
+    1025: "the _SysEnvirons availability glue — the shim's environment is fixed",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
