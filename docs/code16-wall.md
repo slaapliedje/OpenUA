@@ -29,6 +29,15 @@ dispatch need before they fire for real:
 | jt539 | CODE 14+0x3b6c | interactive in-combat crosshair pick UI | stub |
 | L1dd6 | CODE 14 local (~292B) | repeat pick from the built area list | stub (l1dd6) |
 | L4dee | CODE 14 local | repeat pick with per-target area re-aim (jt508) | stub (l4dee) |
+| L4d98 | CODE 6+0x4d98 | the GAME-SESSION INIT — sole caller of jt610 + jt856; **REGISTRATION IS LIVE** (runs in ua_main at boot) | **LIFTED** (l4d98; resident-palette arm + jt151 PORT-DEFERRED, see code) |
+| jt86 / jt87 | CODE 6+0x4c96 / +0x5252 | ITEMS.DAT / item.dat load callbacks (item template + record tables) | **LIFTED** |
+| jt996 / jt1000 / jt1186 / jt1201 | CODE 5/4 | TPalette raw CLUT commit family (jt1186 port-maps to l6e58) | **LIFTED** (callers deferred w/ palette arm) |
+| jt986 / jt975 / jt964 / L3736 / L7eb8 | CODE 5 | sound-bank load (music.slb) + sample sign-flip ("sounds" GLIB 18) | **LIFTED** |
+| jt974 | CODE 5+0x1304 (~600B) | the sound-mixer pump installed at -4774 | stub |
+| jt137 | CODE 7+0x1234 (~1.5KB) | the shape-1 DLItem method jt151 installs (slot 1 of the -9282 method table = jt452's shape table!) | stub (jt151 deferred until lifted) |
+| jt900/jt1115/jt149/jt151/jt450/jt1086/jt1090/jt1166/jt1179/jt976/jt978 | misc | small session-init leaves | **LIFTED** |
+| L59d6/L31cc/L3cb2/L36e0/L3fb2/L5304 | CODE 6 locals | audio bring-up / name copy / binder reset+claim / audio tail / item.dat | **LIFTED** |
+| jt50/jt51/jt64 | CODE 6 | = the ALREADY-LIFTED l5ac2/l5ad8/l5f3a (dual-name trap caught in audit); JT names route there | **LIFTED** |
 | L0006 | CODE 13 (+0x010e site) | combat teardown; reinstalls jt601 | **LIFTED** (l0006) |
 | L076e | CODE 13 local (~2.2KB) | execute one actor's combat turn (the heart of the loop) | stub (l076e) |
 | L0434 | CODE 13 local | per-round init: builds the -22624 initiative slots | stub (l0434) |
@@ -40,7 +49,24 @@ dispatch need before they fire for real:
 | jt50/jt51/jt64 | CODE 6 | combat-loop keyboard handlers (338/339/Esc) | stub |
 | jt67 | CODE 6+0x5f48 | combat-abort poll | stub |
 | jt55/jt58 | CODE 6 | art/resource teardown leaves (l0006) | stub |
-| l510c_c6 | CODE 6+0x510c | combat setup; sole caller of jt856 | — |
+~~l510c_c6~~ — 0x510c turned out to be the jt856 CALL SITE inside L4d98, not a function; row retired.
+
+**Port bugs found by wiring L4d98 live (all fixed in the same commit):**
+- `JT465_RECORD_MAX` was 64; the Mac table is 48 (freemap size). The
+  oversized jt463 zero-fill wiped the DLItem shape-method table (-9282),
+  pool base (-9286) and dialog state — killing every menu label + key.
+- `jt1182` direction was inverted (jt406's Mac ABI is copy(src, dst, n) —
+  CODE 3 L57f8's first arg is the SOURCE); it now loads the -17498
+  template INTO -3016. **Audit the other jt406 lifts for the same
+  positional inversion** (jt993/jt1066/jt1067 verified correct).
+- The GLIB FAR pool was never opened in the live boot (only the probe
+  self-test); `glib_pool_open()` now runs in master_init at the Mac's
+  jt1079 call site, with the Mac-style negotiate-down sizing (4MB safe).
+- `g_a5_2347` (colour-mode flag) was unseeded at boot, so jt1200()==3
+  selected the B&W .TLB libraries; seeded to 1 in boot_a5_seed_defaults.
+- l4cc0 (design buffers) now runs at the Mac's spot (before L4d98) and
+  is idempotent; its -27944/-27920 item-table allocs are un-deferred
+  (jt86/jt87 are their consumers).
 | jt599 | CODE 16+0x64a8 | cast/apply one effect by id (~1.25KB; the beholder self-casts through it) | stub |
 | jt546 | CODE 14+0x4186 | combat target picker (~570B; jt537 inert until lifted) | stub |
 

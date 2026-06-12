@@ -92,4 +92,12 @@ void port_view_demo(void);
  */
 void port_sprite_demo(void);
 
+/*
+ * Stand up the GLIB FAR pool (the lifted JT[463] / _LBOpen).  The Mac
+ * calls it from jt1079/master_init right beside the file-cache init;
+ * master.c calls this wrapper at the same spot so the faithful
+ * jt997/jt1014 library loaders have a live pool from boot.
+ */
+void glib_pool_open(void);
+
 #endif /* ENGINE_BOOT_H */
