@@ -27171,7 +27171,119 @@ static void jt598(short code)
  * (jt598's void(void) ABI).  All PROBE stubs pending their own lifts —
  * the running worklist is docs/code16-wall.md; effect ids served by
  * each handler are noted (slot = A5 - 24066 + id*4). */
-static void jt602(void) { PROBE("jt602"); }	/* +0x0a62; id 34,91,101 */
+/* JT[522] (CODE 14+0x7488) — combat-map occupant-class fetch for a
+ * cell. Leaf PROBE stub pending its own lift. */
+static unsigned char jt522(short x, short y)
+{
+	PROBE("jt522");
+	(void)x; (void)y;
+	return 0;
+}
+
+/* JT[602] (CODE 16+0x0a62; handler ids 34/91/101) — spawn a
+ * lingering area hazard (wall of fire / cloudkill family), full
+ * lift over the jt522 leaf stub. Allocates a 34-byte hazard node
+ * from the -20800 bucket: anchor cell from -23236/-23235, the
+ * caster (-27932), duration from JT[17] (doubled into +30/+31).
+ * Effect 34 spreads radius 9 with glyph 28, 91 radius 4 glyph 27
+ * with triple duration, default (incl. 101) radius 4 glyph 29.
+ * Each spread cell (the -24085 pattern through the -27862/-27853
+ * dx/dy tables, bounds 0..49 x 0..24) fetches its occupant
+ * (jt528, deduplicated against earlier cells), takes the jt522
+ * terrain class into node[dir+8] with the -27848 kind-255 gate
+ * into node[dir+18], and active cells stamp the hazard glyph into
+ * the -25318 map row byte 9. The node pushes onto the -23234
+ * hazard list, the burst renders (jt521 255/8), and every
+ * deduplicated occupant takes the jt879 hit. */
+static void l62ec(short x, short y, unsigned char *occ, unsigned char *f);
+static void jt879(long entity, short a, short b);
+static void jt602(void)
+{
+	unsigned char *node = NULL;
+	short          codes[9];
+	unsigned char  radius, dir;
+	long           node_l = 0;
+
+	PROBE("jt602");
+	for (dir = 0; dir < 9; dir++)
+		codes[dir] = 0;
+	jt477((void *)&g_a5_byte(-20800), (short)34, &node_l);
+	jt65(node_l, (short)34);
+	node = (unsigned char *)(uintptr_t)node_l;
+
+	node[28] = g_a5_byte(-23236);
+	node[29] = g_a5_byte(-23235);
+	*(long *)node = g_a5_long(-27932);
+	node[31] = (unsigned char)
+	           jt17((short)(unsigned char)g_a5_byte(-25262),
+	                (short)1);
+	node[30] = node[31];
+
+	radius   = 4;
+	node[32] = 29;
+	switch ((unsigned char)g_a5_byte(-25262)) {
+	case 34:
+		radius   = 9;
+		node[32] = 28;
+		break;
+	case 91:
+		radius   = 4;
+		node[32] = 27;
+		node[30] = (unsigned char)(node[30] * 3);
+		break;
+	case 101:
+	default:
+		break;
+	}
+
+	for (dir = 1; dir <= radius; dir++) {
+		unsigned char spread = g_a5_buf(-24085)[dir];
+		short cx = (short)((signed char)node[28]
+		                   + (signed char)
+		                     g_a5_buf(-27862)[spread]);
+		short cy = (short)((signed char)node[29]
+		                   + (signed char)
+		                     g_a5_buf(-27853)[spread]);
+
+		if (cx < 0 || cx > 49 || cy < 0 || cy > 24) {
+			node[dir + 18] = 0;
+			continue;
+		}
+		{
+			unsigned char occ = 0, f11 = 0, pass, k;
+
+			l62ec(cx, cy, &occ, &f11);   /* = JT[528] */
+			for (k = 1; k < dir; k++)
+				if ((short)occ == codes[k - 1])
+					occ = 0;
+			codes[dir - 1] = (short)occ;
+
+			pass = jt522(cx, cy);
+			node[dir + 18] = (unsigned char)
+			    ((pass > 0
+			      && g_a5_buf(-27848)[(long)pass * 4] < 255)
+			     ? 1 : 0);
+			node[dir + 8] = pass;
+			if (node[dir + 18] != 0)
+				((unsigned char *)(uintptr_t)
+				 (g_a5_long(-25318) + (long)cy * 50
+				  + cx))[9] = node[32];
+		}
+	}
+
+	*(long *)(node + 4) = g_a5_long(-23234);
+	g_a5_long(-23234) = node_l;
+
+	jt521((short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235),
+	      (short)255, (short)8);
+
+	for (dir = 1; dir <= radius; dir++)
+		if (codes[dir - 1] > 0)
+			jt879(g_a5_long(-25676
+			          + (long)codes[dir - 1] * 4),
+			      (short)1, (short)0);
+}
 static void jt603(void) { PROBE("jt603"); }	/* +0x2806; id 84 */
 static void jt604(void) { PROBE("jt604"); }	/* +0x38d6; id 117 */
 static void jt605(void) { PROBE("jt605"); }	/* +0x2352; id 73 */
@@ -34424,12 +34536,45 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode,
 	return (unsigned char)(found ? 1 : 0);
 }
 
-/* L48f4 (CODE 16+0x48f4) — the combat "casts <spell>" announcement
- * line. Leaf PROBE stub pending its own lift. */
+/* L48f4 = JT[670] (CODE 16+0x48f4) — the "casts a spell" announce,
+ * full lift. In combat (mode 5): the jt18 record window with
+ * "Casts a Spell" (row 10, flagged), the jt145 repaint, and the
+ * "Spell:<name>" line (jt488 over the -17446 name table) at row 23
+ * col 7 via jt94. Out of combat: the jt103 (1,18)-(38,22) panel,
+ * the jt25 name header, the caller's string at the name length + 2
+ * column, the spell name at row 20, then jt92 + jt20. (The
+ * "1336-byte" size estimate included the separately-lifted L49e6
+ * registration fill that follows.) */
+static void jt92(void);
+static void jt145(void);
 static void l48f4(long member, long str, short effect)
 {
 	PROBE("l48f4");
-	(void)member; (void)str; (void)effect;
+	if ((unsigned char)g_a5_byte(-27990) == 5) {
+		jt18((void *)(uintptr_t)member,
+		     (long)(uintptr_t)
+		     ua_strs_at(0x52f0) /* "Casts a Spell" */,
+		     (short)10, (short)1);
+		jt145();
+		jt94((short)0, (short)23, (short)7, (short)0,
+		     jt488(ua_strs_at(0x52fe) /* "Spell:%s" */,
+		           (const char *)(uintptr_t)
+		           g_a5_long(-17446
+		               + (long)(unsigned char)effect * 4)));
+	} else {
+		jt103((short)1, (short)18, (short)38, (short)22);
+		jt25(member, (short)1, (short)19, (short)0);  /* decl at top */
+		jt94((short)(jt483((const char *)(uintptr_t)
+		                   (member + 96)) + 2),
+		     (short)19, (short)7, (short)0,
+		     (const char *)(uintptr_t)str);
+		jt94((short)1, (short)20, (short)7, (short)0,
+		     (const char *)(uintptr_t)
+		     g_a5_long(-17446
+		         + (long)(unsigned char)effect * 4));
+		jt92();
+		jt20();
+	}
 }
 
 /* L1888 (CODE 13+0x1888) — select the projectile sprite frame.
@@ -38485,6 +38630,76 @@ static void jt925(void)
 		}
 		jt399(rec + 76, (short)6, (short)0);
 	}
+}
+
+/* JT[661] (CODE 16+0x4718) — consume one charge of effect `want`
+ * from `item`, full lift. Charge slots live at item[54..56]
+ * (& 127); the count byte at +41 is biased by 100 (under 100 =
+ * spent). Kind 73 (the bundle) walks its +58 sub-stack chain: the
+ * matching sub-stack's slot zeroes, its count decrements, an
+ * emptied stack unlinks (the head's +53 stack count drops, and the
+ * LAST remaining sub-stack collapses into the head via a 62-byte
+ * jt406 copy) and frees through jt471. Plain items zero the slot,
+ * decrement, and jt30-remove from `holder` when spent. */
+static void jt661(long holder, long item_l, short want)
+                                                __attribute__((unused));
+static void jt661(long holder, long item_l, short want)
+{
+	unsigned char  w = (unsigned char)want;
+	unsigned char *item = (unsigned char *)(uintptr_t)item_l;
+	signed char    slot = 0;
+	short          i;
+
+	PROBE("jt661");
+	if (item[40] == 73) {
+		unsigned char *head = item, *prev;
+		signed char    found = 0;
+
+		do {
+			prev = item;
+			item = (unsigned char *)(uintptr_t)
+			       *(long *)(item + 58);
+			for (i = 1; i <= 3; i++) {
+				if ((item[i + 53] & 127) == w) {
+					slot  = (signed char)i;
+					found = 1;
+				}
+			}
+		} while (*(long *)(item + 58) != 0 && !found);
+
+		if (!found)
+			return;
+		item[slot + 53] = 0;
+		item[41]--;
+		if (item[41] >= 100)
+			return;
+
+		*(long *)(prev + 58) = *(long *)(item + 58);
+		head[53]--;
+		if (head[53] == 1) {
+			long next = *(long *)head;
+
+			jt406(head,
+			      (const void *)(uintptr_t)*(long *)(head + 58),
+			      (short)62);
+			*(long *)(head + 58) = 0;
+			*(long *)head = next;
+		}
+		if (item != NULL)
+			jt471((long)(uintptr_t)item, (short)62,
+			      (void *)&g_a5_byte(-21508));
+		return;
+	}
+
+	for (i = 1; i <= 3; i++)
+		if ((item[i + 53] & 127) == w)
+			slot = (signed char)i;
+	if (slot == 0)
+		return;
+	item[slot + 53] = 0;
+	item[41]--;
+	if (item[41] < 100)
+		jt30(holder, item_l);
 }
 
 /* L3834 (CODE 5+0x3834) — LBISize: the byte size of list-block

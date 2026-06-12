@@ -110,6 +110,7 @@ ALIAS_LIFTED = {
     950: "lifted as l0b20 (same address; the -28006 record helper)",
     1052: "the _Eject PB trap glue — no-op on a hard-disk install",
     1033: "the _HLock trap glue = the shim's HLock (macmemory)",
+    670: "lifted as l48f4 (same address; the cast-announce, full)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
