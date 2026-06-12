@@ -30171,16 +30171,138 @@ static void jt36(long holder_l, long item_l)
 	}
 }
 
-/* JT[882] (CODE 19 + 0x30bc) — ready/equip an item: a 7-arm JT[3] state
- * machine over the slot resolver L2f6e with curse handling ("It's
- * Cursed!", "Wrong Class"). PROBE stub — the body belongs to the CODE 19
- * record-sheet tier; until it lands, jt753's conjured item is given but
- * not auto-readied. */
+/* L2d78 (CODE 19+0x2d78) — apply/remove the readied magic item's
+ * side effects (the flag-bit-7 hook walk; ~500B). Leaf PROBE stub
+ * pending its own lift. mode 1 = applying (just readied), 0 =
+ * removing (just un-readied). */
+static void l2d78(long item, short mode)
+{
+	PROBE("l2d78");
+	(void)item; (void)mode;
+}
+
+/* L2f6e (CODE 19+0x2f6e) — can the active member ready `item`? Full
+ * lift. The item's 16-byte template at -27944[item[40]]: byte 1 =
+ * hands required (vs the member's hands-in-use count at +194; over
+ * 2 = verdict 3 "hands full"), byte 0 = the equip slot (stored to
+ * *slot_out; slots 0..8 conflict when member[12 + slot*4] holds an
+ * item, slot 9 checks the +52 long), byte 13 = the class-bit mask
+ * (vs member[183]; no overlap = verdict 1 "wrong class"). Item
+ * kinds 30 / 12-or-74 also conflict against the +56 / +60 longs
+ * (slot_out 11 / 12). Verdict 2 = slot occupied; 0 = OK. (The Mac
+ * never emits verdicts 4/5/6 here — the "Magical Order"/"Kender"/
+ * "Thief Level" arms in jt882 are engine leftovers.) */
+static signed char l2f6e(long member_l, long item_l,
+                         signed char *slot_out)
+{
+	unsigned char *member = (unsigned char *)(uintptr_t)member_l;
+	unsigned char *item   = (unsigned char *)(uintptr_t)item_l;
+	const unsigned char *tmpl =
+	    (const unsigned char *)(uintptr_t)
+	    (g_a5_long(-27944) + (long)item[40] * 16);
+	signed char    verdict = 0;
+	short          slot;
+
+	if ((short)tmpl[1] + (short)member[194] > 2)
+		verdict = 3;
+
+	*slot_out = (signed char)tmpl[0];
+	slot = (short)*slot_out;
+	switch (slot) {
+	case 0: case 1: case 2: case 3: case 4:
+	case 5: case 6: case 7: case 8:
+		if (*(long *)(member + (long)slot * 4 + 12) != 0)
+			verdict = 2;
+		break;
+	case 9:
+		if (*(long *)(member + 52) != 0)
+			verdict = 2;
+		break;
+	default:
+		break;
+	}
+
+	if (item[40] == 30 && *(long *)(member + 56) != 0) {
+		verdict   = 2;
+		*slot_out = 11;
+	}
+	if ((item[40] == 12 || item[40] == 74)
+	    && *(long *)(member + 60) != 0) {
+		verdict   = 2;
+		*slot_out = 12;
+	}
+
+	if (((short)tmpl[13] & (short)member[183]) == 0)
+		verdict = 1;
+
+	return verdict;
+}
+
+/* JT[882] (CODE 19+0x30bc) — ready/un-ready an item, full lift.
+ * Already-readied items un-ready (cursed ones refuse with "It's
+ * Cursed!"); otherwise the L2f6e verdict dispatches: 0 = ready it
+ * (item[50] = 1), 1 = "Wrong Class", 2 = slot conflict (jt28 panel
+ * line + "already using <holder>"), 3 = "Your hands are full!"
+ * (suppressed in mode 5 for a charmed member), 4/5/6 = the
+ * Dragonlance-leftover messages. Items with flag bit 7 (+56) run
+ * the L2d78 side-effect pass (leaf stub) on both transitions. */
 static void jt882(long item_l) __attribute__((unused));
 static void jt882(long item_l)
 {
+	unsigned char *item  = (unsigned char *)(uintptr_t)item_l;
+	long           member = g_a5_long(-27932);
+	unsigned char  hook  = (unsigned char)(item[56] & 0x80);
+	signed char    slot  = 0;
+
 	PROBE("jt882");
-	(void)item_l;
+	if (item[50] != 0) {                     /* un-ready */
+		if (item[52] != 0) {
+			jt42(ua_strs_at(0x5b48) /* "It's Cursed!" */);
+			return;
+		}
+		item[50] = 0;
+		if (hook)
+			l2d78(item_l, (short)0);
+		return;
+	}
+
+	switch (l2f6e(member, item_l, &slot)) {
+	case 0:
+		item[50] = 1;
+		if (hook)
+			l2d78(item_l, (short)1);
+		break;
+	case 1:
+		jt42(ua_strs_at(0x5b56) /* "Wrong Class" */);
+		break;
+	case 2: {
+		long holder = *(long *)(uintptr_t)
+		              (member + (long)slot * 4 + 12);
+
+		jt28(member, holder, (short)0, (short)0,
+		     (short)0, (short)0);
+		jt42(jt488(ua_strs_at(0x5b62) /* "already using %s" */,
+		           (const char *)(uintptr_t)(holder + 5)));
+		break;
+	}
+	case 3:
+		if (g_a5_byte(-27990) == 5
+		    && ((unsigned char *)(uintptr_t)member)[383] != 0)
+			break;
+		jt42(ua_strs_at(0x5b74) /* "Your hands are full!" */);
+		break;
+	case 4:
+		jt42(ua_strs_at(0x5b8a) /* "Wrong Magical Order" */);
+		break;
+	case 5:
+		jt42(ua_strs_at(0x5b9e) /* "Usable Only By Kender" */);
+		break;
+	case 6:
+		jt42(ua_strs_at(0x5bb4) /* "Thief Level Too Low" */);
+		break;
+	default:
+		break;
+	}
 }
 
 /* JT[753] (CODE 18 + 0x4156) — conjured-item effect ("Gains an item",
