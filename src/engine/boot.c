@@ -39505,11 +39505,49 @@ static void jt1021(short group, short item, long size)
 	jt469(group, saved, size);
 }
 
+/* JT[467] (CODE 3+0x07d0) — append `n` bytes from `src` to the
+ * in-progress FAR-pool group, full lift: the current group size is
+ * slot[count] - slot[count-1]; l0ab8 extends the region (0 when the
+ * pool can't grow), then l366a copies n+1 bytes (the Mac's count —
+ * the appender keeps a NUL guard) to the old tail. Returns 1. */
+static unsigned char jt467(long src, short n)
+{
+	long off, dst;
+
+	PROBE("jt467");
+	off = g_a5_10270[g_a5_9306] - g_a5_10270[g_a5_9306 - 1];
+	if (!l0ab8((long)n))
+		return 0;
+	dst = g_a5_10270[g_a5_9306 - 1] + off;
+	l366a((const void *)(uintptr_t)src, (void *)(uintptr_t)dst,
+	      (short)(n + 1));
+	return 1;
+}
+
+/* JT[1024] (CODE 5+0x43ba) — LBCreate: bind `name` into `group`
+ * (jt464; nonzero = it already existed, nothing to do) and lay
+ * down a fresh list-block: the 16-byte header ('GLIB' magic,
+ * total 20, count 0, two flag bytes, the caller's signature) plus
+ * the first offset-table long (20 = the data start), both through
+ * the jt467 appender. Full lift — this also releases jt1021's
+ * port guard (deleted in this commit). */
 static void jt1024(long base, short group, long sig) __attribute__((unused));
 static void jt1024(long base, short group, long sig)
 {
+	unsigned char hdr[16];
+	long          first = 20;
+
 	PROBE("jt1024");
-	(void)base; (void)group; (void)sig;
+	if (jt464((const char *)(uintptr_t)base, group))
+		return;
+	*(long *)(hdr + 0)  = 0x474C4942L;   /* 'GLIB' */
+	*(long *)(hdr + 4)  = 20;
+	*(short *)(hdr + 8) = 0;
+	hdr[10] = 0;
+	hdr[11] = 0;
+	*(long *)(hdr + 12) = sig;
+	jt467((long)(uintptr_t)hdr, (short)16);
+	jt467((long)(uintptr_t)&first, (short)4);
 }
 
 /* JT[104] (CODE 6+0x3214) — the per-file load callback jt987 invokes
