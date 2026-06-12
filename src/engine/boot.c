@@ -10164,6 +10164,65 @@ static short l04d6(short cell)
 	return (short)ds[(long)cell * 6 + 294];
 }
 
+/* The cell byte-5 packed pair (design_state + cell*6 + 295): bits 0-1 and
+ * bits 2-4 are the two editor-paintable cell codes the automap colour
+ * switch reads back (l06e2 / l0788). Accessors below are the CODE 22
+ * cluster at 0x0674..0x07bc; L069a / L0716 / L073e are also jump-table
+ * exports (jt288 / jt306 / jt298). */
+
+/* L0674 (CODE 22 + 0x0674) — cell code A: byte 295 & 3. */
+static short l0674(short cell) __attribute__((unused));
+static short l0674(short cell)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	if (ds == NULL)
+		return 0;
+	return (short)(ds[(long)cell * 6 + 295] & 3);
+}
+
+/* JT[288] = L069a (CODE 22 + 0x069a) — write cell code A; returns 1 when
+ * the value actually changed. */
+static short jt288(short cell, short v) __attribute__((unused));
+static short jt288(short cell, short v)
+{
+	unsigned char *b;
+
+	PROBE("jt288");
+	if (l0674(cell) == (short)(v & 3))
+		return 0;
+	b = (unsigned char *)(uintptr_t)g_a5_long(-12300) + (long)cell * 6 + 295;
+	*b = (unsigned char)((*b & ~3) | (v & 3));
+	return 1;
+}
+
+/* JT[306] = L0716 (CODE 22 + 0x0716) — cell code B: (byte 295 >> 2) & 7. */
+static short jt306(short cell) __attribute__((unused));
+static short jt306(short cell)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	PROBE("jt306");
+	if (ds == NULL)
+		return 0;
+	return (short)((ds[(long)cell * 6 + 295] >> 2) & 7);
+}
+
+/* JT[298] = L073e (CODE 22 + 0x073e) — write cell code B; returns 1 when
+ * the value actually changed. */
+static short jt298(short cell, short v) __attribute__((unused));
+static short jt298(short cell, short v)
+{
+	unsigned char *b;
+
+	PROBE("jt298");
+	if (jt306(cell) == (short)(v & 7))
+		return 0;
+	b = (unsigned char *)(uintptr_t)g_a5_long(-12300) + (long)cell * 6 + 295;
+	*b = (unsigned char)((*b & ~28) | ((v & 7) << 2));
+	return 1;
+}
+
 /* dungeon_view_setup — one-time bring-up of what the dungeon view needs:
  * load DUNGCOM.TLB's stone set into the wall-tile table and program the
  * view CLUT (automap 1..3, ceiling 4 / floor 5, and the 8-step brown
@@ -11474,7 +11533,17 @@ static void jt1182(void *src) __attribute__((unused));
 static void jt1182(void *src)         { PROBE("jt1182"); jt406(&g_a5_byte(-3016), src, 16); }
 static void  jt89(void)               { PROBE("jt89"); (void)jt1134(); jt1182(&g_a5_byte(-17466)); }   /* CODE 6+0x4d7c */
 static void  jt90(void)               { PROBE("jt90"); jt1182(&g_a5_byte(-17498)); }                   /* CODE 6+0x4d8c */
-static short l06e2(short cx, short cy) { PROBE("L06e2"); (void)cx;(void)cy; return 0; } /* CODE 22+0x6e2 */
+/* L06e2 (CODE 22 + 0x06e2) — cell code A by (x, y): l0674 of cell
+ * (width * y + x), width = design byte 3. Full lift (was a stub). */
+static short l06e2(short cx, short cy)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	PROBE("L06e2");
+	if (ds == NULL)
+		return 0;
+	return l0674((short)((short)ds[3] * cy + cx));
+}
 
 /* L3a1a (CODE 22 + 0x3a1a) — draw one flat-automap cell. Clears the cell,
  * dots its 4 corners, draws a wall line on each edge that has a wall style
@@ -11706,8 +11775,17 @@ static void jt1087(short a)   { PROBE("jt1087"); (void)a; }    /* CODE 5+0x12c p
  * ~17 local helpers) is the dungeon-cell tile draw; jt214 (CODE 7+0x71c6) and
  * jt124 (CODE 6+0x3eea) are per-view setup leaves; jt448 (CODE 3+0x148a) is the
  * glyph drawer JT[216] uses. */
+/* L0788 (CODE 22 + 0x0788) — cell code B by (x, y): jt306 of cell
+ * (width * y + x). Full lift (was a stub). */
 static short l0788(short cx, short cy)
-                              { PROBE("L0788"); (void)cx;(void)cy; return 0; } /* CODE 22+0x788 cell-fill colour */
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	PROBE("L0788");
+	if (ds == NULL)
+		return 0;
+	return jt306((short)((short)ds[3] * cy + cx));
+}
 
 /* JT[212] (CODE 7 + 0x5cc8) — wall-bit test for the automap. Reads the GEO
  * cell record (level base g_a5_-12300 + 290 + (lvl[3]*col + row)*6) and returns
@@ -37988,6 +38066,173 @@ static short jt284(short y, short x)
 	last  = (short)(cell - 1);
 	return (short)((rem_y != 0 && rem_x != 0
 	                && rem_y < last && rem_x < last) ? 1 : 0);
+}
+
+/* --- jt290 (the map-editor brush click) + its CODE 22 leaf cluster ------
+ * The heavy editor internals stay PROBE stubs with faithful signatures;
+ * jt290's own CFG is a full lift. */
+
+/* L1240 (CODE 22 + 0x1240) — the tool-0 click with the editor unlocked
+ * (the wall-pencil edit arm, ~1.4KB). Returns jt290's verdict byte. */
+static short l1240(long ctx, short y, short x, short adv, short flag)
+{
+	PROBE("L1240");
+	(void)ctx; (void)y; (void)x; (void)adv; (void)flag;
+	return 1;
+}
+
+/* L0ee6 (CODE 22 + 0x0ee6) — the tool-0 click with the editor locked
+ * (the play-map select/move arm, ~860B). */
+static void l0ee6(long ctx, short y, short x, short c, short adv, short flag)
+{
+	PROBE("L0ee6");
+	(void)ctx; (void)y; (void)x; (void)c; (void)adv; (void)flag;
+}
+
+/* L475e (CODE 22 + 0x475e) — "cell protected" predicate gating tool 3's
+ * pick in edit mode; stub returns 0 (permissive) until lifted. */
+static short l475e(short cell)
+{
+	PROBE("L475e");
+	(void)cell;
+	return 0;
+}
+
+/* L07be (CODE 22 + 0x07be) — tool 3's pick commit (runs after the state
+ * record is armed with mode 5). */
+static void l07be(long rec, short a, short b)
+{
+	PROBE("L07be");
+	(void)rec; (void)a; (void)b;
+}
+
+/* L423e / L3998 (CODE 22 + 0x423e / 0x3998) — repaint the brush cell
+ * after a step (unlocked / locked variants). */
+static void l423e(short y, short x, short sr, short sc, short tool)
+{
+	PROBE("L423e");
+	(void)y; (void)x; (void)sr; (void)sc; (void)tool;
+}
+static void l3998(short y, short x, short sr, short sc, short tool)
+{
+	PROBE("L3998");
+	(void)y; (void)x; (void)sr; (void)sc; (void)tool;
+}
+
+/* L23ee (CODE 22 + 0x23ee) — the editor status-line refresh after a
+ * brush step. */
+static void l23ee(long ctx, short a)
+{
+	PROBE("L23ee");
+	(void)ctx; (void)a;
+}
+
+/* jt290 (CODE 22 + 0x0bc0) — the map-editor BRUSH CLICK handler: apply
+ * the editor state's active tool (state byte +5) at map cell (y, x).
+ * `ctx` is the holder whose first long points at the editor state record;
+ * holder byte +4 is the "erase" (right-button) flag.
+ *
+ *   tool 0 — delegate the whole click: L1240 when the editor is unlocked
+ *            (L4900), else L0ee6.
+ *   tool 1 — save the cell's code A into state[25], paint code A with
+ *            state[14] (0 when erasing) via JT[288].
+ *   tool 2 — same for code B: state[26] / state[15] via JT[298].
+ *   tool 3 — the pick tool: in edit mode a protected cell (L475e) refuses
+ *            (return 0); otherwise save the floor/ceiling byte (l04d6)
+ *            into state[27], arm the state record (word +6 = 2 when
+ *            erasing else 1, word +0 = mode 5), latch the click into
+ *            -11702/-11701/-11700, commit via L07be, return -1.
+ *
+ * When the caller's `adv` flag is up (cleared by tool 3), step the brush
+ * via JT[218] (which updates y/x through the byte pointers and the
+ * -11706/-11704 view origin): off-map -> the L1798 post-move default;
+ * on-map -> repaint the cell (L423e unlocked / L3998 locked) and, when
+ * the brush lands on the party cell (state[47]/[46]), restamp the party
+ * marker (JT[213] with facing state[48]); either way refresh the status
+ * line (L23ee). Returns the verdict byte (1 handled, 0 refused, -1 pick
+ * armed). */
+static short jt290(long ctx, short y, short x, short c, short adv)
+                   __attribute__((unused));
+static short jt290(long ctx, short y, short x, short c, short adv)
+{
+	unsigned char *holder = (unsigned char *)(uintptr_t)ctx;
+	unsigned char *rec    = (unsigned char *)(uintptr_t)
+	                        *(long *)(uintptr_t)ctx;
+	signed char    result  = 1;             /* fp@(-1) */
+	signed char    editing = l4900();       /* fp@(-5) */
+	signed char    yb = (signed char)y;     /* fp@(13) — jt218 updates */
+	signed char    xb = (signed char)x;     /* fp@(15) */
+	unsigned char  advb = (unsigned char)adv;
+	short          tool = (short)rec[5];
+	short          cell;
+
+	PROBE("jt290");
+	if (tool == 0) {
+		if (editing != 0)
+			result = (signed char)l1240(ctx, y, x, adv,
+			                            (short)holder[4]);
+		else
+			l0ee6(ctx, y, x, c, adv, (short)holder[4]);
+		return (short)result;
+	}
+
+	cell = (short)(y * (short)((const unsigned char *)(uintptr_t)
+	                           g_a5_long(-12300))[3] + x);
+	switch (tool) {
+	case 1:
+		rec[25] = (unsigned char)l0674(cell);
+		(void)jt288(cell, (short)(holder[4] != 0 ? 0 : rec[14]));
+		break;
+	case 2:
+		rec[26] = (unsigned char)jt306(cell);
+		(void)jt298(cell, (short)(holder[4] != 0 ? 0 : rec[15]));
+		break;
+	case 3:
+		if (editing != 0 && l475e(cell) != 0) {
+			result = 0;
+			break;
+		}
+		rec[27] = (unsigned char)l04d6(cell);
+		*(short *)(rec + 6) = (holder[4] != 0) ? 2 : 1;
+		*(short *)(rec + 0) = 5;
+		result = -1;
+		advb   = 0;
+		g_a5_byte(-11702) = (unsigned char)y;
+		g_a5_byte(-11701) = (unsigned char)x;
+		g_a5_byte(-11700) = (unsigned char)c;
+		l07be((long)(uintptr_t)rec, (short)0, (short)0);
+		break;
+	default:
+		result = 0;
+		break;
+	}
+
+	if (advb != 0) {
+		if (jt218(&yb, &xb,
+		          (short *)&g_a5_word(-11706),
+		          (short *)&g_a5_word(-11704),
+		          (short)(unsigned char)g_a5_byte(-11708),
+		          (short)(unsigned char)g_a5_byte(-11707),
+		          (short)(rec[4] == 0 ? 1 : 0)) != 0) {
+			l1798((void *)(uintptr_t)ctx, (short)0);
+		} else {
+			if (editing != 0)
+				l423e((short)yb, (short)xb,
+				      (short)(unsigned char)g_a5_byte(-11708),
+				      (short)(unsigned char)g_a5_byte(-11707),
+				      (short)rec[5]);
+			else
+				l3998((short)yb, (short)xb,
+				      (short)(unsigned char)g_a5_byte(-11708),
+				      (short)(unsigned char)g_a5_byte(-11707),
+				      (short)rec[5]);
+			if ((unsigned char)xb == rec[46]
+			    && (unsigned char)yb == rec[47])
+				jt213((short)yb, (short)xb, (short)rec[48]);
+		}
+		l23ee(ctx, (short)0);
+	}
+	return (short)result;
 }
 
 /* JT[308] (CODE 22+0x22c4) — paint one saved-game slot row. State
