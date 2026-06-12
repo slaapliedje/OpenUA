@@ -29284,6 +29284,63 @@ static void jt721(long rec_l, long node, short flag)
 	     /* "goes berserk" */, 10, 1);
 }
 
+/* L54ac (CODE 18 + 0x54ac) — rebuild the memorized-spell list after a
+ * level change: walk the 141 memorized-spell bytes at rec[198..338],
+ * counting kept spells per class/level against the slot limits at
+ * rec[355 + class*9 + level-1] (class/level from the -16906 spell-info
+ * table, 16-byte stride).  Pass 1 keeps unmarked entries up to the
+ * limit; an over-limit entry survives only by consuming one -22727
+ * bonus slot (class 2 with a non-zero limit).  Pass 2 then fits the
+ * bit7-marked (cast-this-combat) entries into whatever slots remain —
+ * no bonus arm.  Entries that don't fit are zeroed in place.  Sole
+ * caller is l5746 (level drain). */
+static void l54ac(long rec_l) __attribute__((unused));
+static void l54ac(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	short counts[27];	/* fp-54: 3 classes x 9 spell levels */
+	unsigned char i, spell;
+	signed char cls, lvl;
+
+	PROBE("l54ac");
+	jt65((long)(uintptr_t)counts, 54);
+	for (i = 0; i <= 140; i++) {
+		if (rec[198 + i] == 0)
+			continue;
+		if ((rec[198 + i] & 0x80) != 0)
+			continue;
+		spell = (unsigned char)(rec[198 + i] & 127);
+		cls = (signed char)g_a5_byte(-16906 + (long)spell * 16);
+		lvl = (signed char)g_a5_byte(-16906 + (long)spell * 16 + 1);
+		if ((unsigned short)rec[(short)cls * 9 + (lvl - 1) + 355] >
+		    (unsigned short)counts[(short)cls * 9 + (lvl - 1)]) {
+			counts[(short)cls * 9 + (lvl - 1)]++;
+			continue;
+		}
+		if ((short)rec[(short)cls * 9 + (lvl - 1) + 355] != 0 &&
+		    (short)(unsigned char)g_a5_byte(-22727) != 0 &&
+		    cls == 2) {
+			g_a5_byte(-22727) = (char)
+			    ((unsigned char)g_a5_byte(-22727) - 1);
+			continue;
+		}
+		rec[198 + i] = 0;
+	}
+	for (i = 0; i <= 140; i++) {
+		if ((rec[198 + i] & 0x80) == 0)
+			continue;
+		spell = (unsigned char)(rec[198 + i] & 127);
+		cls = (signed char)g_a5_byte(-16906 + (long)spell * 16);
+		lvl = (signed char)g_a5_byte(-16906 + (long)spell * 16 + 1);
+		if ((unsigned short)rec[(short)cls * 9 + (lvl - 1) + 355] >
+		    (unsigned short)counts[(short)cls * 9 + (lvl - 1)]) {
+			counts[(short)cls * 9 + (lvl - 1)]++;
+			continue;
+		}
+		rec[198 + i] = 0;
+	}
+}
+
 /* L5746 (CODE 18 + 0x5746) — the level-drain core ("gets drained"):
  * picks the victim's best class level, knocks it down and rebuilds the
  * derived stats. PROBE stub: ~830 bytes over JT[102]/JT[26], its own
