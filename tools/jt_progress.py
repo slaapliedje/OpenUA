@@ -50,7 +50,8 @@ OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
 #           addressing. The 68030 Falcon/TT has one flat 32-bit mode, so
 #           the trap is genuinely a no-op on the target (done, not pending).
 NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
-        329, 920, 736}   # literal `rts` / empty linkw-unlk bodies on the Mac
+        329, 920, 736,   # literal `rts` / empty linkw-unlk bodies on the Mac
+        252, 260, 234, 271, 326}   # band-4 bare-rts entries (raw bytes checked)
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
@@ -84,6 +85,17 @@ ALIAS_LIFTED = {
     1028: "the _NewPtr Pascal trap glue = the shim's NewPtr (macmemory)",
     1032: "the _DisposHandle Pascal trap glue = the shim's DisposeHandle",
     1045: "the _GetVInfo PB trap glue = the shim's files.c volume calls",
+    446: "lifted as l30ba (same address)",
+    1162: "lifted as l3e38 (same address; idle dispatcher, L3e8e branch deferred)",
+    43: "lifted as l579e (same address; bigpic backdrop load)",
+    60: "lifted as l5f84 (same address)",
+    68: "lifted as l604e (same address)",
+    62: "lifted as l6096 (same address; -21508 node release)",
+    192: "lifted as l4e3a (same address)",
+    368: "lifted as l6520_c8 (same address; monster-art class)",
+    532: "lifted as l635e (same address; creature-cell redraw)",
+    886: "lifted as l1276 (same address; jt904 roster staging)",
+    899: "lifted as l5274 (same address; max-HP ceiling)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue

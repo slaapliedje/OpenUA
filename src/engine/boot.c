@@ -10627,7 +10627,7 @@ static int         jt273(void)
 }
 static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
 static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
-static short       jt354(void)                          { PROBE("jt354"); return 0; }         /* CODE 8+0x5ef8 */
+static short       jt354(void)                          { PROBE("jt354"); return (short)jt1160(); }   /* CODE 8+0x5ef8: thunk to JT[1160] */
 static void        jt365(void)                          { PROBE("jt365"); }                   /* CODE 8+0x7238 */
 /* JT[358] (CODE 8+0x6e4a) — read the game counter byte g_a5_-10374
  * (shown in the status line via jt367; gated by jt273). */
@@ -36849,6 +36849,29 @@ static short jt349(long node_l, short kind, short mask, short minlvl,
 
 	return (short)(rows + (((unsigned char)minlvl == 0) ? 1 : 0));
 }
+
+/* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
+
+/* JT[157] (CODE 7+0x38e4) — read the -12648 byte (the text-cursor
+ * column latch). The Mac body is moveb a5@(-12648),d0; rts. */
+static unsigned char jt157(void) __attribute__((unused));
+static unsigned char jt157(void)
+{
+	PROBE("jt157");
+	return (unsigned char)g_a5_byte(-12648);
+}
+
+/* JT[72] (CODE 6+0x61d4) — read the -13048 word. The Mac body is
+ * movew a5@(-13048),d0; rts. */
+static short jt72(void) __attribute__((unused));
+static short jt72(void)
+{
+	PROBE("jt72");
+	return g_a5_word(-13048);
+}
+
+/* (JT[354] — the JT[1160] thunk — is lifted at its earlier stub
+ * site near the view-mode helpers.) */
 
 /* JT[883] (CODE 19+0x4248) — adjust a member's encumbrance: the
  * word at rec+86 += delta. (The band-2 "387-line" size note was an
