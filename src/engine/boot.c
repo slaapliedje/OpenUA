@@ -18023,6 +18023,8 @@ static int picker_button_track(short rect[4], short x0, short y0,
  * The buttons' single-line bevel left the panel border looking a line thin;
  * this adds that second pixel on each side. */
 static void draw_title_panel(unsigned char *px, short pitch, short sw, short sh,
+                             short x0, short y0, short x1, short y1) __attribute__((unused));
+static void draw_title_panel(unsigned char *px, short pitch, short sw, short sh,
                              short x0, short y0, short x1, short y1)
 {
 	short x, y;
@@ -18049,6 +18051,7 @@ static void draw_title_panel(unsigned char *px, short pitch, short sw, short sh,
 	}
 }
 
+static void menu_draw_plates(const menu_item_t *items, short n) __attribute__((unused));
 static void menu_draw_plates(const menu_item_t *items, short n)
 {
 	unsigned char *px;
@@ -18662,13 +18665,10 @@ static int l0aae(void)
 		 *
 		 * Per the prior simplified parser's documented field map:
 		 * phr -> rec[16] (top), page -> rec[18] (left). */
-		/* phrase + 4 engine units (+8px): drop the label baseline into
-		 * the plate face. menu_draw_plates puts the plate top at the raw
-		 * phrase (rec[16]); the shim font is baseline-anchored (ascent 7),
-		 * so the label needs +8px to sit centred in the face — the same
-		 * nudge menu_run applies to the main menu's labels. */
+		/* Raw phrase row — jt137 owns the baseline (the old +4 nudge
+		 * compensated the retired baseline-anchored renderer). */
 		jt452(1L,
-		      (long)(k_jt918_menu_items[i].phrase + 4),
+		      (long)k_jt918_menu_items[i].phrase,
 		      (long)k_jt918_menu_items[i].page,
 		      (long)(uintptr_t)ua_strs_at(
 		          k_jt918_menu_items[i].label_strs_off),
@@ -18695,31 +18695,13 @@ static int l0aae(void)
 			&g_a5_14436, &g_a5_14435, &g_a5_14434, &g_a5_14433,
 			&g_a5_14432, &g_a5_14431, &g_a5_14430, &g_a5_14429,
 		};
-		for (i = 0; i < 12; i++) {
+		/* The faithful enable walk: cmd 24 clears / 16 sets rec[28]
+		 * BIT 0 through the item's method (jt137 then draws disabled
+		 * rows recessed with the black 128 label and rejects their
+		 * hits).  The old bit-2 poke + menu_draw_plates chrome are
+		 * retired — jt137's bars ARE the buttons. */
+		for (i = 0; i < 12; i++)
 			jt444(i, (short)(*flags[i] != 0 ? 24 : 16), 0, 0);
-			/* Disabled commands (flag 0) get rec[28] bit 2 set so
-			 * jt382 paints the label in the dim stone grey. The
-			 * DLItem recs are pool slots 0..11 (jt452 allocated them
-			 * in order above). */
-			if (*flags[i] == 0)
-				(g_dlitem_pool + (long)i * DLITEM_BYTES)[28]
-				    |= 0x04;
-		}
-
-		/* Shared chrome: a bevelled plate behind each command, drawn (like
-		 * the main menu) before the labels. recessed = disabled (flag 0),
-		 * so greyed commands render sunken — matching jt315's look. */
-		{
-			menu_item_t ti[12];
-			for (i = 0; i < 12; i++) {
-				ti[i].label    = "";
-				ti[i].x        = k_jt918_menu_items[i].page;
-				ti[i].y        = k_jt918_menu_items[i].phrase;
-				ti[i].hotkey   = k_jt918_menu_items[i].selector;
-				ti[i].recessed = (*flags[i] == 0);
-			}
-			menu_draw_plates(ti, 12);
-		}
 	}
 
 	l2c60(1);                            /* real DLItem paint walker (jt449 is a stub) */
