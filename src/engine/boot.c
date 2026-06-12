@@ -3388,6 +3388,18 @@ static void l384c(short row, short col, short *slot)
 static void jt81(void)
 {
 	PROBE("jt81");
+	/* PORT: seed the engine clip full-screen before the chrome blits.
+	 * On a fresh boot the -3054..-3050 clip rect is A5-zero, so every
+	 * l2d4e blit (the gen backdrop, frame edges AND the jt137 button
+	 * bars) is clip-rejected — the Mac's display init sets it before
+	 * any screen paints.  Same idiom the dungeon/area screens use. */
+	{
+		unsigned char *px; short pitch, sw, sh;
+		if (g_a5_3050 == 0 && qd_screen_pixels(&px, &pitch, &sw, &sh)) {
+			g_a5_3054 = 0; g_a5_3056 = 0;
+			g_a5_3050 = sh; g_a5_3052 = sw;
+		}
+	}
 	l338c((short)51);
 	l33ac(ua_strs_at(0x272e) /* "gen" */, (short)1, (short)0,
 	      (short)0, (void **)&g_a5_long(-13044));
