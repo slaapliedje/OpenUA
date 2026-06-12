@@ -38632,6 +38632,125 @@ static void jt925(void)
 	}
 }
 
+/* The CODE 19 rest-engine locals — leaf PROBE stubs pending their
+ * own lifts: L0572 = the camp clock/status repaint, L0694 = the
+ * spell-memorize setup (0 = nothing to rest for), L0418 = advance
+ * game time by (n, unit), L035c = the per-tick effect expiry,
+ * L07e6 = the per-tick healing pass, L0cb8 = the hunger/upkeep
+ * tick, L0d86 = the memorize-completion poll, L0e3e = the random-
+ * encounter roll for the zone (0 = quiet night). */
+static void          l0572_c19(short a)        { PROBE("l0572"); (void)a; }
+static unsigned char l0694(void)               { PROBE("l0694"); return 1; }
+static void          l0418(short n, short u)   { PROBE("l0418"); (void)n; (void)u; }
+static void          l035c(short n, short u)   { PROBE("l035c"); (void)n; (void)u; }
+static void          l07e6(short inter)        { PROBE("l07e6"); (void)inter; }
+static void          l0cb8(void)               { PROBE("l0cb8"); }
+static void          l0d86(void *out)          { PROBE("l0d86"); (void)out; }
+static unsigned char l0e3e(short zone)         { PROBE("l0e3e"); (void)zone; return 0; }
+
+/* JT[915] (CODE 19+0x0ffe) — the REST/Encamp engine, full CFG over
+ * the eight rest-tier leaf stubs. The zone resolves through jt197
+ * (the GEO header cell in mode 3, else the party cell); each
+ * member's -23201 rest flag clears; the 69-byte -5876 block fills
+ * with 1s (jt399). Interactive mode opens the jt103 (1,17)-(38,22)
+ * panel with the L0572 clock, and L0694's memorize setup can end
+ * the rest before it starts. The loop runs while any of the four
+ * -23206..-23212 need counters is up: an interactive keypress
+ * (jt486) offers "Stop Resting?" (jt159; declining resumes via
+ * jt176), each tick advances time 5 units (L0418 + the L035c
+ * expiry + the L07e6 healing + the L0cb8 upkeep + the L0d86
+ * completion poll, with the clock repainting every 5 interactive
+ * ticks), and unless the -18486 suppressor is up the L0e3e
+ * encounter roll can interrupt — "The party's repose is
+ * interrupted!" (jt94), and the zone's event byte (the -12300
+ * design entry +48) launches through jt947 (= l709e). Returns the
+ * interrupted flag; the panel closes and -23190/-27984 clear. */
+static short jt197(short a, short b);
+static short jt486(void);
+static unsigned char jt915(short interactive) __attribute__((unused));
+static unsigned char jt915(short interactive)
+{
+	unsigned char interrupted = 0, zone, ticks = 0, t9 = 0;
+	signed char   done;
+	long          m;
+	short         i;
+
+	PROBE("jt915");
+	if ((unsigned char)g_a5_byte(-27989) == 3) {
+		const unsigned char *hdr =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+		zone = (unsigned char)jt197((short)hdr[37],
+		                            (short)hdr[38]);
+	} else {
+		zone = (unsigned char)jt197(
+		    (short)(signed char)g_a5_byte(-12288),
+		    (short)(signed char)g_a5_byte(-12287));
+	}
+
+	for (i = 1, m = g_a5_long(-27928); m != 0;
+	     i++, m = *(long *)(uintptr_t)m)
+		g_a5_buf(-23201)[i] = 0;
+	jt399(&g_a5_byte(-5876), (short)69, (short)1);
+
+	if ((interactive & 0xff) != 0) {
+		jt103((short)1, (short)17, (short)38, (short)22);
+		l0572_c19((short)0);
+	}
+	g_a5_byte(-23190) = 1;
+	done = (signed char)
+	       (((interactive & 0xff) != 0) ? (l0694() == 0) : 0);
+
+	while (!done
+	       && (g_a5_word(-23206) > 0 || g_a5_word(-23208) > 0
+	           || g_a5_word(-23210) > 0
+	           || g_a5_word(-23212) > 0)) {
+		if ((interactive & 0xff) != 0 && jt486() != 0) {
+			(void)l5f84();      /* = JT[60], consume the key */
+			l0572_c19((short)0);
+			if (jt159(ua_strs_at(0x58d6) /* "Stop Resting?" */,
+			          (short)1)) {
+				done = 1;
+				continue;
+			}
+			jt176();
+		}
+
+		l0418((short)5, (short)1);
+		ticks++;
+		if ((interactive & 0xff) != 0 && ticks >= 5) {
+			l0572_c19((short)0);
+			ticks = 0;
+		}
+		l035c((short)5, (short)1);
+		l07e6((short)(unsigned char)interactive);
+		l0cb8();
+		l0d86(&t9);
+
+		if (g_a5_byte(-18486) != 0)
+			continue;
+		if (l0e3e((short)zone) != 0) {
+			jt20();
+			l0572_c19((short)0);
+			jt94((short)1, (short)19, (short)11, (short)0,
+			     ua_strs_at(0x58e4)
+			     /* "The party's repose is interrupted!" */);
+			interrupted = 1;
+			jt92();
+			jt20();
+			l709e((short)((const unsigned char *)(uintptr_t)
+			      (g_a5_long(-12300)
+			       + (long)zone * 4))[48]);
+			done = 1;
+		}
+	}
+
+	jt103((short)1, (short)17, (short)38, (short)22);
+	g_a5_byte(-23190) = 0;
+	g_a5_word(-27984) = 0;
+	return interrupted;
+}
+
 /* JT[661] (CODE 16+0x4718) — consume one charge of effect `want`
  * from `item`, full lift. Charge slots live at item[54..56]
  * (& 127); the count byte at +41 is biased by 100 (under 100 =

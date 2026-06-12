@@ -111,6 +111,8 @@ ALIAS_LIFTED = {
     1052: "the _Eject PB trap glue — no-op on a hard-disk install",
     1033: "the _HLock trap glue = the shim's HLock (macmemory)",
     670: "lifted as l48f4 (same address; the cast-announce, full)",
+    24: "lifted as l2000 (same address; the STR weight-allowance table)",
+    88: "lifted as l5124 (same address; the game-state reset)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
