@@ -25533,6 +25533,110 @@ static short jt163(unsigned char *str, long bar, short flag1, short flag2)
 	return l25b6(tmp, buf, &g_a5_24139);
 }
 
+/* JT[888] (CODE 19 + 0x596a) — the interactive target picker ("Cast
+ * Spell on whom").  Highlights the current pick (jt153/-13014), then
+ * loops: roster repaint (jt937), prompt + keystroke (jt163 over the
+ * -13844 bar), and a THINK C JT[1] SPARSE switch on the key — NOT a
+ * JT[3] dense table; the inline format is
+ *     .short n, default_off, (value, offset)*n
+ * (each offset PC-relative to its own slot; jt3_extract mis-decodes
+ * these).  Pairs here: ESC(27) -> cancel-key, CR(13)/0x84 -> cycle
+ * forward through the -27928 party list (wrap to head), 0x85/0x88 ->
+ * cycle backward (predecessor scan; wrap to tail), 0x87 -> keep,
+ * default -> clear the pick when `f1` is set.  Loop exits when the
+ * jt163 key class is < 2 or == 27.  The chosen record lands back in
+ * *target.  -22226/-22268 are saved/restored around the loop;
+ * -24148/-24146 stage the active combatant for the backward arm
+ * (read when -22225 is set). */
+static void jt888(long str_l, short f1, short f2, long *target)
+                                                 __attribute__((unused));
+static void jt888(long str_l, short f1, short f2, long *target)
+{
+	unsigned char *str = (unsigned char *)(uintptr_t)str_l;
+	unsigned char buf[52];
+	unsigned char saved26, saved68, key, ctr;
+	long cur;
+
+	PROBE("jt888");
+	jt153(*target);
+	saved26 = g_a5_byte(-22226);
+	g_a5_byte(-24148) = (unsigned char)f2;
+	g_a5_long(-24146) = g_a5_long(-27932);
+	key = 255;
+	saved68 = g_a5_byte(-22268);
+	g_a5_byte(-22268) = 0;
+
+	while (!(key < 2 || key == 27)) {
+		jt937(*target);
+		ctr = (g_a5_byte(-27990) == 2 ||
+		       g_a5_byte(-27990) == 6) ? 1 : 0;
+		if (g_a5_byte(-27990) == 0)
+			g_a5_byte(-22226) = 1;     /* dead store (faithful) */
+		g_a5_byte(-22226) = saved26;
+		cur = *target;
+		jt153(*target);
+		jt179((short)(((unsigned char)f1 != 0) ? 1 : 0));
+		if (str[0] != 0)
+			jt384((char *)buf,
+			      jt488(ua_strs_at(0x5e4e) /* "%s%s" */,
+			            (const char *)str,
+			            ua_strs_at(0x5e54) /* " " */));
+		else
+			jt384((char *)buf,
+			      jt488(ua_strs_at(0x5e56) /* "%s" */,
+			            (const char *)str));
+		key = (unsigned char)jt163(buf, g_a5_long(-13844),
+		                           (short)1, (short)ctr);
+		cur = jt162();
+		if (g_a5_byte(-24139) != 0) {
+			switch (key) {          /* JT[1] sparse table @0x5a94 */
+			case 27:                /* ESC -> cancel-key */
+				key = 0;
+				break;
+			case 13:                /* CR / 0x84 -> next member */
+			case 0x84:
+				cur = *(long *)(uintptr_t)cur;
+				if (cur == 0)
+					cur = g_a5_long(-27928);
+				break;
+			case 0x85:              /* 0x85 / 0x88 -> previous */
+			case 0x88:
+				if (g_a5_byte(-22225) != 0) {
+					cur = (g_a5_byte(-24148) != 0)
+					    ? g_a5_long(-24146)
+					    : g_a5_long(-27932);
+				} else {
+					cur = g_a5_long(-27928);
+					if (*target == g_a5_long(-27928)) {
+						/* wrap to the tail */
+						while (*(long *)(uintptr_t)cur != 0)
+							cur = *(long *)(uintptr_t)cur;
+					} else {
+						/* predecessor scan */
+						while (*(long *)(uintptr_t)cur != *target)
+							cur = *(long *)(uintptr_t)cur;
+					}
+				}
+				break;
+			case 0x87:              /* keep the pick */
+				break;
+			default:                /* anything else */
+				if ((unsigned char)f1 != 0)
+					cur = 0;
+				break;
+			}
+		} else {
+			if ((unsigned char)f1 != 0 && key == 1)
+				cur = 0;
+		}
+		*target = cur;
+		jt153(*target);
+	}
+
+	g_a5_byte(-22268) = saved68;
+	g_a5_byte(-24148) = 0;
+}
+
 /* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop
  * painter (LIFTED below — drives the GLIB sprite/PIC/bigpic event display via
  * jt43/l08ce/l0ac2/l1476), l3f22 = pre-move predicate, l4184 / l3ef8 = view
