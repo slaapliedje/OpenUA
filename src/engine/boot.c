@@ -10551,7 +10551,26 @@ static void        jt365(void)                          { PROBE("jt365"); }     
 /* JT[358] (CODE 8+0x6e4a) — read the game counter byte g_a5_-10374
  * (shown in the status line via jt367; gated by jt273). */
 static short       jt358(void)                          { PROBE("jt358"); return (short)(unsigned char)g_a5_byte(-10374); }
-static void        jt367(short v, void *buf)            { PROBE("jt367"); (void)v;(void)buf; } /* CODE 8+0x6e78 counter fmt */
+/* JT[367] (CODE 8+0x6e78) — format counter `v` (masked to 6 bits) into
+ * buf, full lift: v > 4 -> jt394 with the -10612 A5 format string on
+ * v-4; v in 1..4 -> the -10608 format on v; v == 0 -> strcpy of the
+ * -10600 default. */
+static void        jt367(short v, void *buf)
+{
+	PROBE("jt367");
+	v &= 63;
+	if (v > 4)
+		jt394((char *)buf,
+		      (const char *)(uintptr_t)g_a5_long(-10612),
+		      (int)(v - 4));
+	else if (v != 0)
+		jt394((char *)buf,
+		      (const char *)(uintptr_t)g_a5_long(-10608),
+		      (int)v);
+	else
+		jt384((char *)buf,
+		      (const char *)(uintptr_t)g_a5_long(-10600));
+}
 
 /* JT[303] (CODE 22 + 0x2180) — the play-view status header, drawn with jt1089.
  * Line positions depend on rec[4] (wilderness vs dungeon). Draws the module
@@ -35696,6 +35715,104 @@ static void jt1072(short n)
 	PROBE("jt1072");
 	while (--n >= 0)
 		l7ab4(NULL);
+}
+
+/* JT[95] (CODE 6+0x4c5c) — right-justify string `s` in place to
+ * `width` chars: while strlen (JT[483]) is short, re-format as
+ * " %s" (JT[488]) and copy back (JT[384]). Width is the low byte
+ * of the word param, as the asm reads fp@(13). */
+static void jt95(char *s, short width) __attribute__((unused));
+static void jt95(char *s, short width)
+{
+	unsigned char w = (unsigned char)width;
+
+	PROBE("jt95");
+	while ((unsigned short)jt483(s) < w)
+		jt384(s, jt488(ua_strs_at(0x06e2) /* " %s" */, s));
+}
+
+/* JT[142] (CODE 7+0x1d18) — screen point -> text cell: JT[1139]
+ * maps (y, x) against the (8004, 8004) origin, then the offsets
+ * divide by the 12-unit cell pitch into the A5 -13010 (row) and
+ * -13008 (col) cursor-cell globals. */
+static void jt142(short y, short x) __attribute__((unused));
+static void jt142(short y, short x)
+{
+	short row = 0, col = 0;
+
+	PROBE("jt142");
+	jt1139((short)8004, (short)8004, y, x, &row, &col);
+	g_a5_word(-13010) = (short)(row / 12);
+	g_a5_word(-13008) = (short)(col / 12);
+}
+
+/* JT[475] (CODE 3+0x03da) — indexed string-table get with fallback:
+ * entry `idx` of the pointer table at A5 -10280 (count at -10276),
+ * or the empty STRS string at +0x41c0 when the table is absent, the
+ * index is out of range, or the slot is NULL. */
+static const char *jt475(short idx) __attribute__((unused));
+static const char *jt475(short idx)
+{
+	const long *table = (const long *)(uintptr_t)g_a5_long(-10280);
+
+	PROBE("jt475");
+	if (table != NULL && idx >= 0 && idx < g_a5_word(-10276)
+	    && table[idx] != 0)
+		return (const char *)(uintptr_t)table[idx];
+	return ua_strs_at(0x41c0);
+}
+
+/* JT[499] (CODE 13+0x279c) — does combat record `rec` have a
+ * multi-unit kind? rec+12 -> aux record; aux[40] indexes the
+ * 16-byte entries at A5 -27944; true when entry[12] > 1. */
+static signed char jt499(const unsigned char *rec) __attribute__((unused));
+static signed char jt499(const unsigned char *rec)
+{
+	const unsigned char *aux, *entry;
+
+	PROBE("jt499");
+	if (rec == NULL || *(const long *)(rec + 12) == 0)
+		return 0;
+	aux   = (const unsigned char *)(uintptr_t)*(const long *)(rec + 12);
+	entry = (const unsigned char *)(uintptr_t)
+	        (g_a5_long(-27944) + (long)aux[40] * 16);
+	return (signed char)((entry[12] > 1) ? 1 : 0);
+}
+
+/* JT[504] (CODE 13+0x27e6) — JT[499] AND the entry's flag byte 14
+ * has both bits of mask 20 (0x14) set. */
+static signed char jt504(const unsigned char *rec) __attribute__((unused));
+static signed char jt504(const unsigned char *rec)
+{
+	const unsigned char *aux, *entry;
+
+	PROBE("jt504");
+	if (!jt499(rec))
+		return 0;
+	aux   = (const unsigned char *)(uintptr_t)*(const long *)(rec + 12);
+	entry = (const unsigned char *)(uintptr_t)
+	        (g_a5_long(-27944) + (long)aux[40] * 16);
+	return (signed char)(((entry[14] & 20) == 20) ? 1 : 0);
+}
+
+/* JT[926] (CODE 12+0x2504) — poll the editor's dirty flags: *out_a
+ * = 1 when any of the three longs at A5 -25314/-25310/-25306 is
+ * set, *out_b = 1 when the -25302 long is set (both cleared
+ * first). */
+static void jt926(unsigned char *out_a, unsigned char *out_b)
+                                                __attribute__((unused));
+static void jt926(unsigned char *out_a, unsigned char *out_b)
+{
+	short i;
+
+	PROBE("jt926");
+	*out_a = 0;
+	*out_b = 0;
+	for (i = 0; i <= 2; i++)
+		if (g_a5_long(-25314 + i * 4) != 0)
+			*out_a = 1;
+	if (g_a5_long(-25302) != 0)
+		*out_b = 1;
 }
 
 /* JT[459] (CODE 3+0xd44) — size query over the pool.

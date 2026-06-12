@@ -79,6 +79,7 @@ ALIAS_LIFTED = {
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
     1154: "lifted as jt1154_pg (page-up toggle read, A5 -806)",
+    99: "lifted as l4b84 (same address; the Mac body is just jsr JT[175])",
     1054: "the _Delete Pascal trap glue = the shim's FSDelete (jt416)",
 }
 
