@@ -28503,6 +28503,7 @@ static void jt761(long rec_l, long node, short flag)
 }
 
 static void *l45ea(long member_l);          /* weapon-in-use (defined below) */
+static void l3d3a(long rec_l, short unused100, short savemod);  /* below */
 
 /* L4580 (CODE 18, local) — the avoidance roll: when the active member
  * holds an item and stands more than 1 cell from `rec` (jt494 path
@@ -29224,6 +29225,26 @@ static void jt794(long rec_l, long node, short flag)
 	if ((unsigned char)flag != 0)
 		return;
 	l2f28(rec_l, -2);
+}
+
+/* JT[795] (CODE 18 + 0x5152) — apply pass: paralysing touch.  Only when
+ * the effect's linked entity (rec[64]+12) is within reach of the actor
+ * (jt494 distance < 2): inflict paralysis with no save modifier (l3d3a;
+ * the dead middle arg is 100 here). */
+static void jt795(long rec_l, long node, short flag) __attribute__((unused));
+static void jt795(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	long ent;
+
+	PROBE("jt795");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	ent = *(long *)(void *)(*(unsigned char **)(void *)(rec + 64) + 12);
+	if ((unsigned char)jt494(rec_l, ent) >= 2)
+		return;
+	l3d3a(rec_l, 100, 0);
 }
 
 /* JT[796] (CODE 18 + 0x5190) — once-only throw spoiler keyed on node
