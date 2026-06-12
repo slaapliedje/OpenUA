@@ -20940,10 +20940,9 @@ static void l1b14(void *entity, short class)
  * "auto-cast on entry / clear-on-condition" hooks.
  *
  * Faithful lift; the deep leaves it bottoms out on stay PROBE stubs:
- *   - jt508  : the 250-line item-layout grid builder (-19170 table), which
- *              also pulls JT[517]; its grid is what L026e's mode-5 scan
- *              reads, so that one branch is inert until jt508 lands.
  *   - jt17   : a 111-line dispatcher L01de needs (still on the band-1 queue)
+ * (jt508, formerly stubbed here, is now the full -19170 target-list
+ * builder — see the combat target-list block below.)
  * (L01de's probability roll L15f4 is CODE 18+0x15f4 = jt870, the real 1dN
  * dice primitive — wired below, not stubbed.)
  * These are CLAUDE.md level-3 leaf stubs (the dispatcher + engine above
@@ -20961,15 +20960,402 @@ static void jt479(const void *src, void *dst, short count)
 		memmove(dst, src, (size_t)(unsigned short)count);
 }
 
-/* JT[508] (CODE 13 + 0x76da) — LEAF STUB. Builds the -19170 item-layout
- * grid (count in -18894) that L026e's mode-5 branch scans; ~250 lines over
- * JT[517]. Stubbed: clears the count so the scan finds nothing (graceful). */
+static short l5d92(short a, short b, unsigned char *out_c,
+                   unsigned char *out_d);   /* JT[517] step table (defined below) */
+static short l6d1e(short v);                /* sign() (defined below) */
+
+/* ===================================================================
+ * The combat target-list builder (CODE 13, 0x6d4a-0x76da): the -19170
+ * "who can I reach" table.  jt508 sweeps every placed combatant
+ * (g_a5_27472), Bresenham-walks a line from each cell of the source
+ * footprint to each cell of the target footprint (jt509 init / jt507
+ * step / jt506 drive), gates the pairing on the direction-cone
+ * predicate jt505, and records (actor, path-cost, direction) entries
+ * sorted by cost (l6d4a).  jt494 wraps it as a "path distance to one
+ * specific entity" query.  This is the keystone under the CODE 18
+ * avoidance/breath handlers (l4580 -> jt762, jt806, jt809) and the
+ * L026e mode-5 grid scan. =========================================== */
+
+/* The Bresenham walker state jt509 fills and jt507 advances. Field
+ * offsets match the Mac 24-byte struct (words @0..@20, bytes @22/@23). */
+struct combat_walk {
+	short x0, y0;           /* @0/@2   line start              */
+	short x1, y1;           /* @4/@6   line end                */
+	short acc;              /* @8      error accumulator       */
+	short adx, ady;         /* @10/@12 |dx| / |dy|             */
+	short cx, cy;           /* @14/@16 current position        */
+	short sx, sy;           /* @18/@20 step signs (-1/0/+1)    */
+	unsigned char steps;    /* @22     accumulated step cost   */
+	unsigned char dircode;  /* @23     last step's direction   */
+};
+
+/* JT[509] (CODE 13 + 0x6eba) — init the walker from x0/y0/x1/y1. */
+static void jt509(struct combat_walk *w) __attribute__((unused));
+static void jt509(struct combat_walk *w)
+{
+	PROBE("jt509");
+	w->cx  = w->x0;
+	w->cy  = w->y0;
+	w->adx = jt388((short)(w->x1 - w->x0));
+	w->ady = jt388((short)(w->y1 - w->y0));
+	w->sx  = l6d1e((short)(w->x1 - w->x0));
+	w->sy  = l6d1e((short)(w->y1 - w->y0));
+	w->acc = 0;
+	w->steps = 0;
+}
+
+/* JT[507] (CODE 13 + 0x6f68) — one Bresenham step along the dominant
+ * axis (cost 2; +1 when the minor axis also steps). Returns 0 once the
+ * dominant axis has reached its end. The 3x3 matrix at -27956 (row =
+ * sy+1, col = sx+1 of the axes stepped THIS step) yields the dircode. */
+static short jt507(struct combat_walk *w) __attribute__((unused));
+static short jt507(struct combat_walk *w)
+{
+	short ret = 0, kx = 1, ky = 1;
+
+	PROBE("jt507");
+	if (w->adx >= w->ady) {
+		if (w->cx == w->x1)
+			goto out;
+		w->cx += w->sx;
+		kx = (short)(w->sx + 1);
+		w->acc = (short)(w->acc + w->ady * 2);
+		w->steps = (unsigned char)(w->steps + 2);
+		if (w->acc >= w->adx) {
+			w->acc = (short)(w->acc - w->adx * 2);
+			w->cy += w->sy;
+			ky = (short)(w->sy + 1);
+			w->steps++;
+		}
+		ret = 1;
+	} else {
+		if (w->cy == w->y1)
+			goto out;
+		w->cy += w->sy;
+		ky = (short)(w->sy + 1);
+		w->acc = (short)(w->acc + w->adx * 2);
+		w->steps = (unsigned char)(w->steps + 2);
+		if (w->acc >= w->ady) {
+			w->acc = (short)(w->acc - w->ady * 2);
+			w->cx += w->sx;
+			kx = (short)(w->sx + 1);
+			w->steps++;
+		}
+		ret = 1;
+	}
+out:
+	w->dircode = g_a5_byte(-27956 + ky * 3 + kx);
+	return ret;
+}
+
+/* JT[506] (CODE 13 + 0x713c) — walk the line from (x,y) to (*tx,*ty) on
+ * the live combat map (g_a5_25318, 50-byte rows at header offset 9).
+ * Blocked when a crossed cell's occupant pass-class (-27848 row byte 2)
+ * exceeds the second walker's interpolated allowance, or when the step
+ * cost exceeds *cost * 2 + 1.  On failure *tx/*ty get the cell where the
+ * walk stopped; *cost always gets the cost walked.  Returns reached?1:0.
+ * (Mac quirk kept: the allowance walker interpolates from the SOURCE
+ * cell's -27848 rate to the same source rate — the target cell's rate
+ * is never read; the second lookup repeats the first.) */
+static short jt506(short x, short y, unsigned char *tx, unsigned char *ty,
+                   unsigned short *cost) __attribute__((unused));
+static short jt506(short x, short y, unsigned char *tx, unsigned char *ty,
+                   unsigned short *cost)
+{
+	struct combat_walk w1, w2;
+	unsigned short limit;
+	unsigned char *map = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	unsigned char occ;
+
+	PROBE("jt506");
+	limit = (unsigned short)(*cost * 2 + 1);
+	w1.x0 = (short)(signed char)x;
+	w1.y0 = (short)(signed char)y;
+	w1.x1 = (short)(signed char)*tx;
+	w1.y1 = (short)(signed char)*ty;
+	jt509(&w1);
+
+	w2.x0 = 0;
+	occ = map[(signed char)y * 50 + (signed char)x + 9];
+	w2.y0 = g_a5_buf(-27848)[occ * 4 + 1];
+	w2.x1 = (w1.adx > w1.ady) ? w1.adx : w1.ady;
+	occ = map[(signed char)y * 50 + (signed char)x + 9];   /* Mac repeats the source lookup */
+	w2.y1 = g_a5_buf(-27848)[occ * 4 + 1];
+	jt509(&w2);
+
+	for (;;) {
+		map = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		if (map[8] == 0) {
+			unsigned char o = map[w1.cy * 50 + w1.cx + 9];
+
+			if ((unsigned short)g_a5_buf(-27848)[o * 4 + 2]
+			    > (unsigned short)w2.cy)
+				break;                  /* blocked */
+		}
+		if ((unsigned short)w1.steps > limit)
+			break;                          /* over budget */
+		jt507(&w2);
+		if (jt507(&w1) == 0) {
+			*cost = w1.steps;               /* reached the end */
+			return 1;
+		}
+	}
+	*tx = (unsigned char)w1.cx;
+	*ty = (unsigned char)w1.cy;
+	*cost = w1.steps;
+	return 0;
+}
+
+/* JT[505] (CODE 13 + 0x72d0) — is target cell (c,d) inside the facing
+ * cone of direction `dir` from source cell (a,b)?  The source is first
+ * advanced one step along `dir` via the -27862/-27853 offset tables
+ * (dir 255 maps to 8 = "no direction", whose cone test is always true).
+ * The eight arms are the eight 90-degree cones (0=N, clockwise). */
+static short jt505(short a0, short b0, short c0, short d0, short dir)
+                                                __attribute__((unused));
+static short jt505(short a0, short b0, short c0, short d0, short dir)
+{
+	short a = (signed char)a0, b = (signed char)b0;
+	short c = (signed char)c0, d = (signed char)d0;
+	short dr = (unsigned char)dir;
+	short ax, ay;
+
+	PROBE("jt505");
+	if (a < 0 || a > 49 || b < 0 || b > 24
+	 || c < 0 || c > 49 || d < 0 || d > 24)
+		return 0;
+	if (dr == 255)
+		dr = 8;
+	ax = (signed char)(a + (signed char)g_a5_buf(-27862)[dr]);
+	ay = (signed char)(b + (signed char)g_a5_buf(-27853)[dr]);
+	if ((a == c && b == d) || (ax == c && ay == d))
+		return 1;
+
+	/* JT[3] table at 0x73a6 (min=0, max=8). */
+	switch (dr) {
+	case 0:                                         /* N cone */
+		if (c >= ax && d <= (short)(ax - c + ay))
+			return 1;
+		if (c <= ax && d <= (short)(c - ax + ay))
+			return 1;
+		return 0;
+	case 1:                                         /* NE cone */
+		if (c >= ax && d <= (short)(ax - c + ay))
+			return 1;
+		if (c >= (short)(ax + ay - d) && d <= ay)
+			return 1;
+		return 0;
+	case 2:                                         /* E cone */
+		if (c >= (short)(ax + ay - d) && d <= ay)
+			return 1;
+		if (c >= (short)(ax + d - ay) && d >= ay)
+			return 1;
+		return 0;
+	case 3:                                         /* SE cone */
+		if (c >= (short)(ax + d - ay) && d >= ay)
+			return 1;
+		if (c >= ax && d >= (short)(c - ax + ay))
+			return 1;
+		return 0;
+	case 4:                                         /* S cone */
+		if (c >= ax && d >= (short)(c - ax + ay))
+			return 1;
+		if (c <= ax && d >= (short)(ax - c + ay))
+			return 1;
+		return 0;
+	case 5:                                         /* SW cone */
+		if (c <= ax && d >= (short)(ax - c + ay))
+			return 1;
+		if (c <= (short)(ax + ay - d) && d >= ay)
+			return 1;
+		return 0;
+	case 6:                                         /* W cone */
+		if (c <= (short)(ax + ay - d) && d >= ay)
+			return 1;
+		if (c <= (short)(ax + d - ay) && d <= ay)
+			return 1;
+		return 0;
+	case 7:                                         /* NW cone */
+		if (c <= (short)(ax + d - ay) && d <= ay)
+			return 1;
+		if (c <= ax && d <= (short)(c - ax + ay))
+			return 1;
+		return 0;
+	case 8:                                         /* no direction */
+		return 1;
+	default:
+		/* Mac returns an uninitialized frame byte here; unreachable
+		 * from the call sites (dir is always 0..8 by this point). */
+		return 0;
+	}
+}
+
+/* L6d4a (CODE 13, local) — sort the -19170 target list ascending by
+ * path cost (entry byte 1); cost ties prefer the lower direction code
+ * unless that trades an even (cardinal) code for an odd (diagonal). */
+static void l6d4a(void) __attribute__((unused));
+static void l6d4a(void)
+{
+	short i, k;
+
+	PROBE("L6d4a");
+	if ((unsigned char)g_a5_18894 <= 1)
+		return;
+	for (i = 1; i <= (short)((unsigned char)g_a5_18894 - 1); i++) {
+		for (k = (short)(i + 1); k <= (unsigned char)g_a5_18894; k++) {
+			unsigned char *ei = g_a5_19170 + i * 4;
+			unsigned char *ek = g_a5_19170 + k * 4;
+			unsigned char di = ei[2], dk = ek[2];
+			unsigned char t, n;
+
+			if (ek[1] >= ei[1]) {
+				if (ek[1] != ei[1])
+					continue;
+				if (dk >= di)
+					continue;
+				if ((dk & 1) > (di & 1))
+					continue;
+			}
+			for (n = 0; n < 4; n++) {       /* swap the 4-byte rows */
+				t = ei[n];
+				ei[n] = ek[n];
+				ek[n] = t;
+			}
+		}
+	}
+}
+
+/* JT[508] (CODE 13 + 0x76da) — build the -19170 target list around the
+ * source footprint `shape` at (x, y): for every placed combatant
+ * (g_a5_27472 row m, footprint cells via l5d92/JT[517]), take the
+ * cheapest jt506 path between any source cell and any target cell whose
+ * pairing passes the jt505 cone test for `d` (255 = any), starting from
+ * step budget `c`.  Each hit appends (m, cost, dir) — dir echoed from
+ * `d` when concrete, else the first dir 0..8 whose cone admits the best
+ * pair.  l6d4a then sorts by cost.  Count lands in g_a5_18894. */
 static void jt508(short a, short b, short c, short d, short e) __attribute__((unused));
 static void jt508(short a, short b, short c, short d, short e)
 {
+	signed char srcX[6], srcY[6], tgtX[6], tgtY[6];
+	unsigned char dx, dy;
+	short i, j, m;
+
 	PROBE("jt508");
-	(void)a; (void)b; (void)c; (void)d; (void)e;
+	for (i = 0; i <= 5; i++) {
+		if (l5d92((short)(unsigned char)e, i, &dx, &dy)) {
+			srcX[i] = (signed char)((signed char)dx + (signed char)a);
+			srcY[i] = (signed char)((signed char)dy + (signed char)b);
+		} else {
+			srcX[i] = -1;
+		}
+	}
 	g_a5_18894 = 0;
+	for (m = 1; m <= (unsigned char)g_a5_27468; m++) {
+		unsigned char *ent = g_a5_27472 + m * 6;
+		unsigned char found = 0;
+		unsigned short best = 255;
+		short bi = 0, bj = 0;
+		short dir;
+
+		if (ent[5] == 0)
+			continue;                       /* not on the field */
+		for (j = 0; j <= 5; j++) {
+			ent = g_a5_27472 + m * 6;
+			if (l5d92((short)ent[5], j, &dx, &dy)) {
+				tgtX[j] = (signed char)((signed char)dx
+				        + *(short *)(void *)(ent + 0));
+				tgtY[j] = (signed char)((signed char)dy
+				        + *(short *)(void *)(ent + 2));
+			} else {
+				tgtX[j] = -1;
+			}
+		}
+		for (j = 0; j <= 5; j++) {
+			if (tgtX[j] < 0)
+				continue;
+			for (i = 0; i <= 5; i++) {
+				unsigned char bx, by;
+				unsigned short cost;
+
+				if (srcX[i] < 0)
+					continue;
+				if (jt505(srcX[i], srcY[i], tgtX[j], tgtY[j],
+				          (short)(unsigned char)d) == 0)
+					continue;
+				bx = (unsigned char)tgtX[j];
+				by = (unsigned char)tgtY[j];
+				cost = (unsigned short)c;
+				if (jt506(srcX[i], srcY[i], &bx, &by,
+				          &cost) == 0)
+					continue;
+				found = 1;
+				if (cost < best) {
+					best = cost;
+					bi = i;
+					bj = j;
+				}
+			}
+		}
+		if (!found)
+			continue;
+		g_a5_18894 = (unsigned char)(g_a5_18894 + 1);
+		{
+			unsigned char *rec = g_a5_19170
+			                   + (unsigned char)g_a5_18894 * 4;
+
+			rec[0] = (unsigned char)m;
+			rec[1] = (unsigned char)best;
+			dir = 0;
+			if ((unsigned char)d < 8) {
+				dir = (unsigned char)d;
+			} else {
+				while (jt505(srcX[bi], srcY[bi],
+				             tgtX[bj], tgtY[bj], dir) == 0)
+					dir++;
+			}
+			rec[2] = (unsigned char)dir;
+		}
+	}
+	l6d4a();
+}
+
+/* JT[494] (CODE 13 + 0x25f4) — path distance (in whole cells) from
+ * `rec_l`'s combat position to entity `ent_l`: rebuild the -19170 list
+ * around rec's own footprint with occupancy blocking off (map header
+ * byte 8), find ent's row, return its cost byte halved.  (Mac quirk
+ * kept: the original declares a 1020-byte save buffer for the -19170
+ * table but copies only 4 bytes — entry 0, which jt508 never writes —
+ * so the rebuild's clobber of the table is NOT actually undone.) */
+static short jt494(long rec_l, long ent_l) __attribute__((unused));
+static short jt494(long rec_l, long ent_l)
+{
+	unsigned char save[4];
+	unsigned char *hdr;
+	unsigned char x, y, v, r;
+	short i;
+
+	PROBE("jt494");
+	jt479(&g_a5_byte(-19170), save, 4);
+	hdr = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	hdr[8] = 1;                     /* walk through occupied cells */
+	x = jt525(rec_l);
+	y = jt531(rec_l);
+	v = jt513(rec_l);
+	jt508((short)(signed char)x, (short)(signed char)y, 255, 255,
+	      (short)v);
+	hdr = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	hdr[8] = 0;
+	for (i = 1; ; i++) {
+		unsigned char idx = g_a5_19170[i * 4];
+
+		if (g_a5_25676[idx] == ent_l)
+			break;
+		if ((unsigned char)i >= (unsigned char)g_a5_18894)
+			break;
+	}
+	r = (unsigned char)((unsigned char)g_a5_19170[i * 4 + 1] >> 1);
+	jt479(save, &g_a5_byte(-19170), 4);
+	return r;
 }
 
 static short l2fd8(const unsigned char *m, short idx);   /* class-field max (defined below) */
