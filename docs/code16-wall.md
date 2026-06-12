@@ -23,7 +23,12 @@ dispatch need before they fire for real:
 | jt610 | CODE 16+0x4b48 | combat init: installs jt601 into -24070, fills the handler table (90 stores), tail-calls L49e6 | **LIFTED** |
 | L49e6 | CODE 16 local | the other 44 handler-table stores (ids 1–44); true local, no JT export | **LIFTED** (l49e6) |
 | jt511 | CODE 13+0x05a6 | installs jt538 into -24070 (in-combat swap) | — |
-| jt538 | CODE 14+0x2028 | in-combat target callback (~1.8KB) | — |
+| jt538 | CODE 14+0x2028 | in-combat target callback (~1.8KB) | **LIFTED** |
+| L1efa | CODE 14 local | one target pick for jt538 (crosshair / list / area re-aim) | **LIFTED** (l1efa) |
+| jt600 | CODE 16+0x5f26 | spell range from the -16906 row (base + per-level) | **LIFTED** |
+| jt539 | CODE 14+0x3b6c | interactive in-combat crosshair pick UI | stub |
+| L1dd6 | CODE 14 local (~292B) | repeat pick from the built area list | stub (l1dd6) |
+| L4dee | CODE 14 local | repeat pick with per-target area re-aim (jt508) | stub (l4dee) |
 | L0006 | CODE 13 (+0x010e site) | combat teardown; reinstalls jt601 | — |
 | l510c_c6 | CODE 6+0x510c | combat setup; sole caller of jt856 | — |
 | jt599 | CODE 16+0x64a8 | cast/apply one effect by id (~1.25KB; the beholder self-casts through it) | stub |
