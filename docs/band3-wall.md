@@ -78,3 +78,6 @@ Total ≈ 10 KB of asm.
 
 - 2026-06-12: campaign opened; 9 aliases recorded (jt395 jt45 jt47
   jt106 jt110 jt193 jt364 jt516 jt66).
+- 2026-06-12: jt35 + jt29 LIFTED (full); l2f4c routed to jt29 —
+  jt40's multi-class secondary-stat arm is live. The asm settled the
+  doc conflict: jt29 = (jt35(rec) > rec[138], unsigned) ? -1 : 0.
