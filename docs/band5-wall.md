@@ -83,3 +83,11 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   record; the l62fa in-window gate was already lifted). The jt304 ->
   jt1007 -> jt1123 -> SetCursor chain is wired end-to-end.
   Hatari-verified: dungeon renders, no regression. Band 5 at 50/100.
+- 2026-06-12: tiny batch (10): jt486 (present+poll), jt316/jt317/
+  jt320 (the -11714 state-record accessors), jt294 (the region
+  action proc — merged into its existing proc-signature stub; stamps
+  -11666 word +6), jt274 (6-byte record swap), jt226 (list scroll
+  over the new l501e leaf stub), jt359 (record-table pointer,
+  jt348's sibling), jt109 (GLIB piece draw over the new jt994 leaf
+  stub), jt1052 noted = the _Eject trap glue (hard-disk install:
+  no-op). Band 5 at 59/100.
