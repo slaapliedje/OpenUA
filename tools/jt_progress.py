@@ -49,7 +49,7 @@ OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
 #   jt1061 — _SwapMMUMode ($A05D): flips the 68k between 24/32-bit
 #           addressing. The 68030 Falcon/TT has one flat 32-bit mode, so
 #           the trap is genuinely a no-op on the target (done, not pending).
-NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061}
+NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130}
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
