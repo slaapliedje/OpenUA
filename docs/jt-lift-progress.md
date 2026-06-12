@@ -13,24 +13,24 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 279 done (266 lifted, 8 noop, 5 alias), 90 stub, 836 missing.
+**1205 distinct JT entries are called.** Overall: 527 done (517 lifted, 8 noop, 2 alias), 190 stub, 488 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **99/100** | 90 | 9 | 1 | 0 |
-| 2 | 101–200 | **39/100** | 37 | 2 | 14 | 47 |
-| 3 | 201–300 | **26/100** | 26 | 0 | 12 | 62 |
-| 4 | 301–400 | **24/100** | 23 | 1 | 3 | 73 |
-| 5 | 401–500 | **19/100** | 19 | 0 | 14 | 67 |
-| 6 | 501–600 | **14/100** | 13 | 1 | 13 | 73 |
-| 7 | 601–700 | **15/100** | 15 | 0 | 7 | 78 |
-| 8 | 701–800 | **24/100** | 24 | 0 | 7 | 69 |
-| 9 | 801–900 | **0/100** | 0 | 0 | 1 | 99 |
-| 10 | 901–1000 | **0/100** | 0 | 0 | 0 | 100 |
-| 11 | 1001–1100 | **9/100** | 9 | 0 | 5 | 86 |
-| 12 | 1101–1200 | **9/100** | 9 | 0 | 13 | 78 |
+| 1 | 1–100 | **99/100** | 91 | 8 | 1 | 0 |
+| 2 | 101–200 | **67/100** | 67 | 0 | 11 | 22 |
+| 3 | 201–300 | **44/100** | 44 | 0 | 15 | 41 |
+| 4 | 301–400 | **33/100** | 32 | 1 | 4 | 63 |
+| 5 | 401–500 | **37/100** | 37 | 0 | 14 | 49 |
+| 6 | 501–600 | **28/100** | 27 | 1 | 20 | 52 |
+| 7 | 601–700 | **20/100** | 20 | 0 | 5 | 75 |
+| 8 | 701–800 | **32/100** | 32 | 0 | 7 | 61 |
+| 9 | 801–900 | **4/100** | 4 | 0 | 90 | 6 |
+| 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 |
+| 11 | 1001–1100 | **56/100** | 56 | 0 | 5 | 39 |
+| 12 | 1101–1200 | **11/100** | 11 | 0 | 13 | 76 |
 | 13 | 1201–1205 | **1/5** | 1 | 0 | 0 | 4 |
 
 ## Band 1 detail (rank 1–100)
@@ -99,7 +99,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 60 | jt471 | 28 | LIFTED |  |
 | 61 | jt937 | 28 | LIFTED |  |
 | 62 | jt65 | 27 | LIFTED |  |
-| 63 | jt181 | 27 | ALIAS | lifted as l1806 (same address, the modal 'press a key' prompt) |
+| 63 | jt181 | 27 | LIFTED | lifted as l1806 (same address, the modal 'press a key' prompt) |
 | 64 | jt232 | 27 | LIFTED |  |
 | 65 | jt358 | 27 | LIFTED |  |
 | 66 | jt396 | 27 | LIFTED |  |
@@ -142,52 +142,52 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
 | rank | JT | calls | status | note |
 |-----:|----|------:|--------|------|
-| 101 | jt38 | 16 | **MISSING** |  |
-| 102 | jt124 | 16 | **STUB** |  |
+| 101 | jt38 | 16 | LIFTED |  |
+| 102 | jt124 | 16 | LIFTED |  |
 | 103 | jt131 | 16 | LIFTED |  |
-| 104 | jt321 | 16 | **MISSING** |  |
+| 104 | jt321 | 16 | LIFTED |  |
 | 105 | jt393 | 16 | LIFTED |  |
-| 106 | jt451 | 16 | **STUB** |  |
+| 106 | jt451 | 16 | LIFTED |  |
 | 107 | jt508 | 16 | LIFTED |  |
 | 108 | jt595 | 16 | **STUB** |  |
 | 109 | jt1133 | 16 | LIFTED |  |
 | 110 | jt1166 | 16 | **MISSING** |  |
-| 111 | jt26 | 15 | **MISSING** |  |
-| 112 | jt30 | 15 | **MISSING** |  |
-| 113 | jt419 | 15 | **STUB** |  |
+| 111 | jt26 | 15 | LIFTED |  |
+| 112 | jt30 | 15 | LIFTED |  |
+| 113 | jt419 | 15 | LIFTED |  |
 | 114 | jt476 | 15 | LIFTED |  |
-| 115 | jt934 | 15 | **MISSING** |  |
-| 116 | jt1012 | 15 | **STUB** |  |
+| 115 | jt934 | 15 | LIFTED |  |
+| 116 | jt1012 | 15 | LIFTED |  |
 | 117 | jt387 | 14 | LIFTED |  |
 | 118 | jt479 | 14 | LIFTED |  |
-| 119 | jt523 | 14 | **MISSING** |  |
+| 119 | jt523 | 14 | LIFTED |  |
 | 120 | jt857 | 14 | **MISSING** |  |
-| 121 | jt869 | 14 | **MISSING** |  |
+| 121 | jt869 | 14 | LIFTED |  |
 | 122 | jt1113 | 14 | LIFTED |  |
 | 123 | jt1141 | 14 | LIFTED |  |
-| 124 | jt51 | 13 | ALIAS | lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339) |
+| 124 | jt51 | 13 | **STUB** | lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339) |
 | 125 | jt101 | 13 | **MISSING** |  |
-| 126 | jt167 | 13 | **MISSING** |  |
+| 126 | jt167 | 13 | LIFTED |  |
 | 127 | jt361 | 13 | LIFTED |  |
 | 128 | jt411 | 13 | LIFTED |  |
-| 129 | jt493 | 13 | **MISSING** |  |
-| 130 | jt503 | 13 | **STUB** |  |
-| 131 | jt50 | 12 | ALIAS | lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338) |
-| 132 | jt100 | 12 | **STUB** |  |
+| 129 | jt493 | 13 | LIFTED |  |
+| 130 | jt503 | 13 | LIFTED |  |
+| 131 | jt50 | 12 | **STUB** | lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338) |
+| 132 | jt100 | 12 | LIFTED |  |
 | 133 | jt207 | 12 | **MISSING** |  |
-| 134 | jt356 | 12 | **MISSING** |  |
+| 134 | jt356 | 12 | LIFTED |  |
 | 135 | jt461 | 12 | LIFTED |  |
-| 136 | jt519 | 12 | **MISSING** |  |
+| 136 | jt519 | 12 | LIFTED |  |
 | 137 | jt25 | 11 | LIFTED |  |
 | 138 | jt160 | 11 | **MISSING** |  |
-| 139 | jt180 | 11 | **MISSING** |  |
+| 139 | jt180 | 11 | LIFTED |  |
 | 140 | jt201 | 11 | LIFTED |  |
-| 141 | jt213 | 11 | **STUB** |  |
+| 141 | jt213 | 11 | LIFTED |  |
 | 142 | jt312 | 11 | LIFTED |  |
 | 143 | jt492 | 11 | **MISSING** |  |
-| 144 | jt599 | 11 | **MISSING** |  |
-| 145 | jt860 | 11 | **MISSING** |  |
-| 146 | jt1067 | 11 | **STUB** |  |
+| 144 | jt599 | 11 | **STUB** |  |
+| 145 | jt860 | 11 | LIFTED |  |
+| 146 | jt1067 | 11 | LIFTED |  |
 | 147 | jt1128 | 11 | **STUB** |  |
 | 148 | jt19 | 10 | **STUB** |  |
 | 149 | jt92 | 10 | LIFTED |  |
@@ -196,34 +196,34 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 152 | jt346 | 10 | **MISSING** |  |
 | 153 | jt412 | 10 | LIFTED |  |
 | 154 | jt448 | 10 | LIFTED |  |
-| 155 | jt494 | 10 | **MISSING** |  |
+| 155 | jt494 | 10 | LIFTED |  |
 | 156 | jt638 | 10 | **MISSING** |  |
-| 157 | jt699 | 10 | **MISSING** |  |
+| 157 | jt699 | 10 | **STUB** |  |
 | 158 | jt1130 | 10 | **STUB** |  |
 | 159 | jt1132 | 10 | LIFTED |  |
 | 160 | jt1199 | 10 | **STUB** |  |
-| 161 | jt13 | 9 | **MISSING** |  |
+| 161 | jt13 | 9 | LIFTED |  |
 | 162 | jt73 | 9 | **MISSING** |  |
-| 163 | jt84 | 9 | **MISSING** |  |
+| 163 | jt84 | 9 | LIFTED |  |
 | 164 | jt132 | 9 | LIFTED |  |
-| 165 | jt135 | 9 | **MISSING** |  |
-| 166 | jt202 | 9 | **MISSING** |  |
+| 165 | jt135 | 9 | LIFTED |  |
+| 166 | jt202 | 9 | LIFTED |  |
 | 167 | jt218 | 9 | LIFTED |  |
 | 168 | jt443 | 9 | **MISSING** |  |
 | 169 | jt454 | 9 | **MISSING** |  |
 | 170 | jt455 | 9 | LIFTED |  |
 | 171 | jt478 | 9 | LIFTED |  |
 | 172 | jt593 | 9 | **STUB** |  |
-| 173 | jt872 | 9 | **MISSING** |  |
-| 174 | jt882 | 9 | **MISSING** |  |
+| 173 | jt872 | 9 | LIFTED |  |
+| 174 | jt882 | 9 | **STUB** |  |
 | 175 | jt904 | 9 | LIFTED |  |
 | 176 | jt983 | 9 | LIFTED |  |
 | 177 | jt987 | 9 | LIFTED |  |
 | 178 | jt1197 | 9 | LIFTED |  |
 | 179 | jt5 | 8 | LIFTED |  |
-| 180 | jt31 | 8 | **MISSING** |  |
+| 180 | jt31 | 8 | LIFTED |  |
 | 181 | jt54 | 8 | **MISSING** |  |
-| 182 | jt78 | 8 | **MISSING** |  |
+| 182 | jt78 | 8 | LIFTED |  |
 | 183 | jt80 | 8 | LIFTED |  |
 | 184 | jt115 | 8 | LIFTED |  |
 | 185 | jt150 | 8 | **MISSING** |  |
@@ -239,7 +239,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 195 | jt456 | 8 | **MISSING** |  |
 | 196 | jt500 | 8 | **MISSING** |  |
 | 197 | jt528 | 8 | **MISSING** |  |
-| 198 | jt529 | 8 | **MISSING** |  |
+| 198 | jt529 | 8 | LIFTED |  |
 | 199 | jt883 | 8 | **MISSING** |  |
 | 200 | jt914 | 8 | **MISSING** |  |
 

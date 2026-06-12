@@ -1098,14 +1098,23 @@ static void  l3154(short arg)
  * sub-allocators) are DEFERRED until their consumers are lifted. */
 static void  l4cc0(void)
 {
+	/* Idempotent: jt12/ua_main runs this at the faithful spot (before
+	 * L4d98), and jt361's design-load path keeps its own call for the
+	 * probe harnesses that enter without the full boot. */
+	static int l4cc0_done;
+
 	PROBE("L4cc0");
+	if (l4cc0_done)
+		return;
+	l4cc0_done = 1;
 	jt1002((long)0x9400);                       /* GEO buffer (37888 B) -> -4582 */
 	/* jt442(40) — DEFERRED */
 	g_a5_long(-28006) = jt387((short)1024);     /* design header (1024 B) */
 	if (g_a5_long(-28006) != 0)
 		g_a5_long(-28006) -= 1;             /* THINK C 1-based: store ptr-1 */
 	jt231();                                    /* NCR + string-table buffers */
-	/* jt387(2064)->-27944; jt387(4590)->-27920 — DEFERRED */
+	g_a5_long(-27944) = jt387((short)2064);     /* item-template table (jt86) */
+	g_a5_long(-27920) = jt387((short)4590);     /* item-record table (jt87) */
 	l30cc((short)8);                            /* record staging buffer -> -22208 */
 	/* L311c(640); L3144(200) — DEFERRED */
 	l3154((short)400);                          /* STRG scratch buffer -> -21148 */
@@ -1733,7 +1742,8 @@ static int   jt315(void);
 /* Intra-CODE-6 helpers, still to lift. */
 static void  l0444(void)        { PROBE("l0444"); }     /* CODE 6 + 0x0444 */
 static void  l3918(long a)      { PROBE("l3918"); }     /* CODE 6 + 0x3918 */
-static void  l4d98(void)        { PROBE("l4d98"); }     /* CODE 6 + 0x4d98 */
+static void  l4d98(void);       /* CODE 6 + 0x4d98 — lifted near EOF (the
+                                 * game-session init; needs the GLIB tier) */
 static void  l5888(short a)     { PROBE("l5888"); }     /* CODE 6 + 0x5888 */
 static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
 static void  l5f66(void)        { PROBE("l5f66"); }     /* CODE 6 + 0x5f66 */
@@ -1801,6 +1811,8 @@ int ua_main(short arg1, long arg2)
 	 * stows them in the A5-world globals ua_get_string reads from. */
 	jt480(arg1, (void *)arg2);
 	jt989(jt10_handler, 1, "Pod", 83);
+	l4cc0();        /* design buffers — the Mac's jt12 runs L4cc0 before
+	                 * L4d98 (ITEMS.DAT/item.dat read into its allocs) */
 	l4d98();
 	l0444();
 	jt361(1);
@@ -3707,7 +3719,13 @@ static void l3cfa(const char *src, char *dst)
  * replay lands; 64 is enough headroom for the boot paths exercised so
  * far. */
 #define JT465_RECORD_BYTES   14
-#define JT465_RECORD_MAX     64
+/* 48, NOT 64: the Mac table is 48 records (the freemap g_a5_10074 is 48
+ * bytes and jt464 range-checks group < 48).  At 64 the -10026 zero-fill
+ * in jt463 sweeps 224 bytes past the table's true end (-9354) and wipes
+ * the DLItem shape-method table (-9282), the DLItem pool base (-9286)
+ * and the dialog group state (-9254..-9247) — every menu label and key
+ * dies at the next dialog.  Found the hard way (2026-06-11). */
+#define JT465_RECORD_MAX     48
 /* g_a5_10026 → macro array (data_pool replay buffer) */
 /* g_a5_10270 → macro array (data_pool replay buffer) */
 /* g_a5_9354 → macro array (data_pool replay buffer) */
@@ -4113,10 +4131,11 @@ static long jt468(short tag)
 		return 0;
 	/* Groups 0 (ALWAYS.CTL) and 1 (FRAME.CTL) hold the UI glyphs — button
 	 * faces, radio markers, frame bevel edges (see [[glib-resource-groups]]).
-	 * The faithful jt997 group loader isn't wired in the port, so resolve
-	 * these two from the resident GLIB buffers the port already loads, so the
-	 * L148a/jt76 -> L309c glyph blit can find them. Other groups fall through
-	 * to the engine resource cache. */
+	 * The resident GLIB buffers the port loads at boot serve these two so
+	 * the L148a/jt76 -> L309c glyph blit can find them; the faithful
+	 * jt997/jt1014 pool loads (L4d98) carry the same file bytes, so the
+	 * resident copy stays authoritative for now.  Other groups resolve
+	 * through the FAR pool. */
 	ui = port_ui_group_base(tag);
 	if (ui != 0)
 		return ui;
@@ -7756,6 +7775,16 @@ void boot_a5_seed_defaults(void)
 	g_a5_byte(-809) = 0;
 	g_a5_long(-814) = 0;
 
+	/* The colour-mode flag.  On the Mac, -2347 == 0 means the B&W
+	 * 480x300 window (jt1200() == 3, the 1bpp .TLB libraries);
+	 * non-zero means colour 320x200 (the .CTL art).  The port runs
+	 * the colour mode permanently — every screen sets g_a5_2347 = 1
+	 * already (the deep dungeon render flips it temporarily) — but
+	 * boot-time code (L4d98's jt997 loads, jt1166/jt1179, jt1186)
+	 * runs before any screen does, so seed it here or the session
+	 * init loads the B&W .TLB libraries instead. */
+	g_a5_2347 = 1;
+
 	/* JT[1083] PRNG seed. A non-zero seed is required — with state
 	 * == 0 the LCG locks at state = 1 forever (state * mul + 1
 	 * → 1) and all rolls degenerate to 0. Plant 1 here so each
@@ -11250,9 +11279,13 @@ static short jt205(short row, short col, short edge)
 	return (short)(lvl[290 + idx * 6 + eidx] & 15);
 }
 
-/* JT[1182] (CODE 4+0x17d2) — copy the 16-byte block at g_a5_-3016 into `dst`. */
-static void jt1182(void *dst) __attribute__((unused));
-static void jt1182(void *dst)         { PROBE("jt1182"); jt406(dst, &g_a5_byte(-3016), 16); }
+/* JT[1182] (CODE 4+0x17d2) — load the 16-byte palette template at `src`
+ * into the live g_a5_-3016 slot.  DIRECTION FIX: the Mac jt406 core
+ * (CODE 3 L57f8) is copy(src, dst, n) — first arg is the SOURCE — so the
+ * asm `jt406(param, -3016, 16)` reads param -> -3016; the earlier lift
+ * had it backwards.  jt89/jt90 restore the editor/game templates. */
+static void jt1182(void *src) __attribute__((unused));
+static void jt1182(void *src)         { PROBE("jt1182"); jt406(&g_a5_byte(-3016), src, 16); }
 static void  jt89(void)               { PROBE("jt89"); (void)jt1134(); jt1182(&g_a5_byte(-17466)); }   /* CODE 6+0x4d7c */
 static void  jt90(void)               { PROBE("jt90"); jt1182(&g_a5_byte(-17498)); }                   /* CODE 6+0x4d8c */
 static short l06e2(short cx, short cy) { PROBE("L06e2"); (void)cx;(void)cy; return 0; } /* CODE 22+0x6e2 */
@@ -27795,13 +27828,14 @@ static void jt542(void) { PROBE("jt542"); }
 /* JT[541] (CODE 14+0x0006) — per-member per-round prep. */
 static void jt541(long member) { PROBE("jt541"); (void)member; }
 
-/* JT[50] (CODE 6+0x5ac2) / JT[51] (CODE 6+0x5ad8) — keyboard handlers
- * for keys 338/339 in the combat loop. */
-static void jt50(void) { PROBE("jt50"); }
-static void jt51(void) { PROBE("jt51"); }
-
-/* JT[64] (CODE 6+0x5f3a) — keyboard handler for keys 27/96 (Esc/`). */
-static void jt64(short flag) { PROBE("jt64"); (void)flag; }
+/* JT[50] (CODE 6+0x5ac2) / JT[51] (CODE 6+0x5ad8) / JT[64] (CODE
+ * 6+0x5f3a) — the pause/page-key handlers (combat-loop keys 338/339
+ * and Esc/`).  ALREADY LIFTED as the locals l5ac2 / l5ad8 / l5f3a in
+ * the jt96 pacing cluster (the dual-name trap, caught in the audit);
+ * these JT names just route there. */
+static void jt50(void) { PROBE("jt50"); l5ac2(); }
+static void jt51(void) { PROBE("jt51"); l5ad8(); }
+static void jt64(short flag) { PROBE("jt64"); l5f3a(flag); }
 
 /* JT[67] (CODE 6+0x5f48) — combat-abort poll; 0 = keep going. */
 static unsigned char jt67(void) { PROBE("jt67"); return 0; }
@@ -35979,18 +36013,42 @@ static void jt463(void)
 	jt399(g_a5_10074, 48, -1);
 	jt399(g_a5_10026, (short)G_A5_10026_LEN, 0);
 
-	base = (char *)NewPtr((Size)GLIB_POOL_SIZE);
-	if (base == NULL) {
-		dbg_log("glib: Insufficient FAR Memory!");
-		return;
+	/* The Mac negotiates the pool size down from free memory
+	 * (JT[1026]/JT[1028], freemem - 32K); mirror that by halving
+	 * from the full reservation until the allocation fits — the
+	 * boot-time .ctl groups need well under 128K, the rest gives
+	 * pictures room. */
+	{
+		Size want = (Size)GLIB_POOL_SIZE;
+
+		base = NULL;
+		while (base == NULL && want >= (Size)(128L * 1024L)) {
+			base = (char *)NewPtr(want);
+			if (base == NULL)
+				want /= 2;
+		}
+		if (base == NULL) {
+			dbg_log("glib: Insufficient FAR Memory!");
+			return;
+		}
+		g_a5_10270[0] = (long)(uintptr_t)base;
+		g_a5_9304     = (long)(uintptr_t)base + (long)want;
+		g_a5_9300     = (long)want;
 	}
-	g_a5_10270[0] = (long)(uintptr_t)base;
-	g_a5_9304     = (long)(uintptr_t)base + GLIB_POOL_SIZE;
-	g_a5_9300     = GLIB_POOL_SIZE;
 	g_a5_9292 = 0;
 	g_a5_9294 = 0;
 	g_a5_9296 = 0;
 	glib_lb_init();                  /* register 'GLIB' -> l4010 */
+}
+
+/* Exported wrapper: master_init runs the pool open at the Mac's
+ * jt1079 call site (see boot.h).  Idempotent — a second call (e.g.
+ * the probe self-test) would leak the first buffer, so guard. */
+void glib_pool_open(void)
+{
+	if (g_a5_10270[0] != 0)
+		return;
+	jt463();
 }
 
 /* GLIB FAR-pool self-test (probe-gated). Stand up the pool, then read a
@@ -38512,4 +38570,581 @@ static void l5124(void)
 	g_a5_27987 = 0;
 	g_a5_27916 = 0;
 	g_a5_22275 = 0;
+}
+
+/* =========================================================================
+ * L4d98 (CODE 6 + 0x4d98) — the game-session init, and its call tree.
+ * jt12/ua_main runs it once at boot (after jt989, before L0444/jt361);
+ * it is the SOLE caller of jt610 + jt856, so lifting it makes the
+ * -24066 spell-effect handler table and the -25242 special-attack hook
+ * table LIVE.  Everything below is part of its tree.
+ * ========================================================================= */
+
+/* JT[1115] (CODE 4+0x4cb2) — empty body on the Mac (linkw/unlk/rts);
+ * a faithful no-op (a compiled-out registration hook). */
+static void jt1115(short kind, const char *name)
+{
+	PROBE("jt1115");
+	(void)kind;
+	(void)name;
+}
+
+/* JT[900] (CODE 19+0x5234) — seed the idle-timer baseline -5802 with
+ * the current tick (its +0x523e sibling tests "<48 ticks since"). */
+static void jt900(void)
+{
+	PROBE("jt900");
+	g_a5_long(-5802) = jt1134();
+}
+
+/* JT[149] (CODE 7+0x38d6) — set the dialog-default flag byte -12648. */
+static void jt149(short v)
+{
+	PROBE("jt149");
+	g_a5_byte(-12648) = (unsigned char)v;
+}
+
+/* JT[137] (CODE 7+0x1234, ~1.5KB) — the window/dialog-frame redraw
+ * callback jt151 installs in the -9282 registry.  PROBE stub pending
+ * its own lift (dialog-manager tier). */
+static long jt137(long win, short msg)
+{
+	PROBE("jt137");
+	(void)win;
+	(void)msg;
+	return 0;
+}
+
+/* JT[450] (CODE 3+0x2950) — the -9282 callback registry: return slot
+ * `n` (1-based), installing `val` first when non-zero. */
+static long jt450(short slot, long val)
+{
+	long old = g_a5_long(-9282 + ((long)slot - 1) * 4);
+
+	PROBE("jt450");
+	if (val != 0)
+		g_a5_long(-9282 + ((long)slot - 1) * 4) = val;
+	return old;
+}
+
+/* JT[151] (CODE 7+0x1572) — register jt137 as registry callback 1,
+ * remembering the previous one in -12918. */
+static void jt151(void) __attribute__((unused));
+static void jt151(void)
+{
+	PROBE("jt151");
+	g_a5_long(-12918) = jt450((short)1, (long)(uintptr_t)jt137);
+}
+
+/* JT[1166] / JT[1179] (CODE 4+0x4cc / +0x4de) — screen height / width:
+ * 200 x 320 in the colour mode (-2347 set), 300 x 480 in the Mac's
+ * B&W window. */
+static short jt1166(void)
+{
+	PROBE("jt1166");
+	return (short)(g_a5_byte(-2347) ? 200 : 300);
+}
+
+static short jt1179(void)
+{
+	PROBE("jt1179");
+	return (short)(g_a5_byte(-2347) ? 320 : 480);
+}
+
+/* JT[1086] (CODE 5+0x208) — clear the whole screen to `fill` through
+ * the jt1161 rect filler. */
+static void jt1086(short fill)
+{
+	short h = jt1166();
+
+	PROBE("jt1086");
+	jt1161((short)0, (short)0, h, jt1179(), fill);
+}
+
+/* JT[1090] (CODE 5+0xda) — wait for a key/click: flush (L00a8), poll
+ * L0088 until it reports input, flush again. */
+static void jt1090(void)
+{
+	PROBE("jt1090");
+	l00a8();
+	while (l0088() == 0)
+		;
+	l00a8();
+}
+
+/* JT[978] (CODE 5+0xa82) — store `v` in the sound-channel word slot
+ * selected by the -4886 index (word array at -4860). */
+static void jt978(short v)
+{
+	PROBE("jt978");
+	g_a5_word(-4860 + (long)(short)g_a5_word(-4886) * 2) = v;
+}
+
+/* JT[976] (CODE 5+0xa9c) — set the sound replay mode byte -4850. */
+static void jt976(short v)
+{
+	PROBE("jt976");
+	g_a5_byte(-4850) = (unsigned char)v;
+}
+
+/* L3fb2 (CODE 6 local) — audio bring-up tail: jt1009(8094, 1), select
+ * channel value 143 (jt978), enable replay (jt976(1)). */
+static void l3fb2(void)
+{
+	PROBE("L3fb2");
+	jt1009((short)8094, (short)1);
+	jt978((short)143);
+	jt976((short)1);
+}
+
+/* JT[1186] (CODE 4+0x1468) — commit a whole 768-byte (256 x RGB)
+ * palette to the CLUT.  The Mac body widens each byte to the Color
+ * Manager's 16-bit components and SetEntries them (plus a B&W-dither
+ * arm for the -1312 mode); the port hands the bytes to the lifted
+ * l6e58 hardware-write path (-> qd_set_palette, ADR-0005) — the same
+ * boundary jt1066/jt1067 commit through.  Gated on -2347 as the Mac. */
+static void jt1186(unsigned char *pal)
+{
+	PROBE("jt1186");
+	if (g_a5_byte(-2347) == 0)
+		return;
+	l6e58((short)0, (short)256, (short)1, pal);
+}
+
+/* JT[1201] (CODE 4+0x1636) — jt1186 plus the Mac's page flip (L5104).
+ * The port presents through the display HAL every frame, so only the
+ * palette commit is routed here. */
+static void jt1201(unsigned char *pal, short page)
+{
+	PROBE("jt1201");
+	(void)page;
+	jt1186(pal);
+}
+
+/* JT[996] (CODE 5+0x3556, "TPalette") — look palette resource `idx` up
+ * in GLIB group `tag` and commit it RAW to the CLUT (no colour-range
+ * allocator, unlike jt993): must be a type-8 block ("Invalid TPalette
+ * call" otherwise); 768 bytes go to jt1201 (flip variant) when `flag`
+ * is set, else jt1186.  NOTE: Mac callers sometimes push only three
+ * words (L4d98 passes (0,0,0)); `page` is only read when `flag` set. */
+static void jt996(short tag, short idx, short flag, short page) __attribute__((unused));
+static void jt996(short tag, short idx, short flag, short page)
+{
+	unsigned char  hdr[8];
+	unsigned char  palbuf[768];
+	unsigned char *src;
+
+	PROBE("jt996");
+	src = (unsigned char *)(uintptr_t)l2856(jt468(tag), idx, hdr);
+	if (src == NULL)
+		return;
+	if ((hdr[7] & 15) != 8) {
+		l036a("Invalid TPalette call %d %d", tag, idx);
+		return;
+	}
+	jt406(palbuf, src, (short)768);
+	if ((unsigned char)flag != 0)
+		jt1201(palbuf, (short)(signed char)page);
+	else
+		jt1186(palbuf);
+}
+
+/* JT[1000] (CODE 5+0x28ce) — load the 16-byte palette template at
+ * `src` into the -4188 slot (the GLIB text-palette template). */
+static void jt1000(long src) __attribute__((unused));
+static void jt1000(long src)
+{
+	PROBE("jt1000");
+	jt406(&g_a5_byte(-4188), (void *)(uintptr_t)src, (short)16);
+}
+
+/* JT[975] (CODE 5+0x1042) — the ".slb" sound-bank load callback
+ * (glib_load_cb, registered by jt986): read the 10-byte bank header
+ * into -4766 (piece-count byte lands at -4758), the (count+1)-word
+ * offset table into -4756, lazily allocate the sample pool (-4770,
+ * sized by the table's last word; "Insufficient memory in MLoad" on
+ * failure) and read the samples; 1 if the full size arrived. */
+static unsigned char jt975(short refnum, void *spec)
+{
+	short size;
+
+	PROBE("jt975");
+	(void)spec;
+	jt401(refnum, &g_a5_byte(-4766), (short)10);
+	jt401(refnum, &g_a5_byte(-4756),
+	      (short)(((short)g_a5_byte(-4758) + 1) * 2));
+	size = (short)g_a5_word(-4756 + (long)g_a5_byte(-4758) * 2);
+	if (g_a5_long(-4770) == 0) {
+		g_a5_long(-4770) = jt387(size);
+		if (g_a5_long(-4770) == 0) {
+			l036a("Insufficient memory in MLoad");
+			return 0;
+		}
+	}
+	return (unsigned char)
+	    (jt401(refnum, (void *)(uintptr_t)g_a5_long(-4770), size)
+	     == size);
+}
+
+/* JT[974] (CODE 5+0x1304, ~600B) — the sound-mixer pump jt986 installs
+ * at -4774 (walks the -4848 channel table each tick, jt1131 output).
+ * PROBE stub pending the audio-output lift. */
+static void jt974(long tick)
+{
+	PROBE("jt974");
+	(void)tick;
+}
+
+/* JT[986] (CODE 5+0x10f0) — open the "<name>.slb" sound bank: build
+ * the filename (jt384 + jt419 "slb"), load it through the GLIB loader
+ * with jt975 as the per-file callback, then install the jt974 mixer
+ * pump at -4774. */
+static void jt986(short kind, const char *name)
+{
+	char buf[200];
+
+	PROBE("jt986");
+	jt384(buf, name);
+	jt419(buf, ua_strs_at(0x6d5e) /* "slb" */, (short)1);
+	jt987((short)(signed char)kind, buf, (short)0,
+	      (void *)(uintptr_t)jt975);
+	g_a5_long(-4774) = (long)(uintptr_t)jt974;
+}
+
+/* L3736 (CODE 5 local) — count the pieces in a GLIB pool: check the
+ * 'GLIB' magic in the 16-byte header ("LBCount: Invalid Library File"
+ * otherwise) and return the count word at +8. */
+static short l3736(long base)
+{
+	unsigned char hdr[16];
+
+	PROBE("L3736");
+	jt406(hdr, (void *)(uintptr_t)base, (short)16);
+	if (*(long *)(void *)hdr != 0x474C4942L) {      /* 'GLIB' */
+		l036a("LBCount: Invalid Library File");
+		return 0;
+	}
+	return *(short *)(void *)(hdr + 8);
+}
+
+/* L7eb8 (CODE 5 local) — flip the sign bit of `n` sample bytes
+ * (signed <-> excess-128 8-bit PCM). */
+static void l7eb8(unsigned char *p, short n)
+{
+	PROBE("L7eb8");
+	while (--n >= 0)
+		*p++ ^= 0x80;
+}
+
+/* JT[964] (CODE 5+0x7cce) — convert a loaded sound bank's samples in
+ * place: for each piece in GLIB group `tag` (l3736 count, walked
+ * back to front via l37aa) skip the 2-byte type word, read the 4-byte
+ * piece header (second word = sample count) and sign-flip the samples
+ * (l7eb8).  Also arms the -3088/-3087 replay state. */
+static void jt964(short tag)
+{
+	short i;
+
+	PROBE("jt964");
+	g_a5_byte(-3087) = (unsigned char)tag;
+	g_a5_byte(-3088) = 1;
+	for (i = (short)(l3736(jt468(tag)) - 1); i >= 0; i--) {
+		long  p = l37aa(jt468(tag), i) + 2;
+		short hdr2[2];
+
+		jt406(hdr2, (void *)(uintptr_t)p, (short)4);
+		p += 4;
+		l7eb8((unsigned char *)(uintptr_t)p, hdr2[1]);
+	}
+}
+
+/* L59d6 (CODE 6 local) — audio bring-up: open "music.slb" (jt986),
+ * then check free memory (jt459(-1)).  Under 211968 bytes the sound
+ * driver is skipped (-17444 = 0) with the apology screen ("There is
+ * not enough memory to load" / "sound driver, need %l bytes more." /
+ * wait for a key, jt1090) and the loading banner redrawn; otherwise
+ * -17444 = 1 and the "sounds" GLIB group 18 is loaded (jt1014) and
+ * converted (jt964).  Either way -17443 (audio enabled) is set. */
+static void l59d6(void)
+{
+	long avail;
+
+	PROBE("L59d6");
+	jt986((short)49, ua_strs_at(0x75c) /* "music" */);
+	avail = jt459((short)-1);
+	/* PORT-SAFETY: jt459 measures the GLIB FAR pool, which the port
+	 * hasn't wired up yet (the live l37aa loader allocates its own
+	 * buffers — see docs/jt-call-audit.md), so capacity reads 0 and
+	 * the Mac's RAM check would always fail into the wait-for-a-key
+	 * apology screen.  Only honour the check when the pool exists. */
+	if (avail < 211968L && jt459((short)-2) != 0) {
+		g_a5_byte(-17444) = 0;
+		jt1086((short)0);
+		jt1089((short)8028, (short)8004, (short)15,
+		       ua_strs_at(0x762)
+		       /* "There is not enough memory to load" */);
+		jt1089((short)8036, (short)8004, (short)15,
+		       ua_strs_at(0x786)
+		       /* "sound driver, need %l bytes more." */,
+		       211968L - avail);
+		jt1089((short)8096, (short)8004, (short)10,
+		       ua_strs_at(0x7a8)
+		       /* "Please hit any key to continue." */);
+		jt1090();
+		jt1086((short)0);
+		jt1089((short)8096, (short)8000, (short)10,
+		       ua_strs_at(0x7c8) /* "Loading...Please Wait" */);
+	} else {
+		g_a5_byte(-17444) = 1;
+		jt1014((short)49, ua_strs_at(0x7de) /* "sounds" */,
+		       (short)18);
+		jt964((short)18);
+	}
+	g_a5_byte(-17443) = 1;
+}
+
+/* L31cc (CODE 6 local) — copy the default design-name string (the
+ * -13448 DATA string-pointer global) into the -22253 name buffer. */
+static void l31cc(void)
+{
+	const char *src = (const char *)(uintptr_t)g_a5_long(-13448);
+
+	PROBE("L31cc");
+	if (src != NULL)        /* PORT-SAFETY: DATA seed not loaded */
+		jt384(g_str_22253, src);
+}
+
+/* L3cb2 (CODE 6 local) — free all 10 GLIB binder slots (the -18468
+ * pool, 6-byte stride): word[0] < 0 marks a slot free. */
+static void l3cb2(void)
+{
+	short i;
+
+	PROBE("L3cb2");
+	for (i = 0; i < 10; i++)
+		*(short *)&g_a5_18468[i * 6] = -1;
+}
+
+/* L36e0 (CODE 6 local) — claim a -18468 binder slot for the "activ"
+ * TILE group: release the previous binder (l31dc) if any, take the
+ * first free slot (word[0] < 0), stamp it (word[0] = group = index+2,
+ * word[1] = -1), register the group with the loader (jt1024, 'TILE'
+ * signature) and pre-clear `count` cache entries (jt1021). */
+static void l36e0(long *pp, short count)
+{
+	short  i = 0;
+	short *slot;
+
+	PROBE("L36e0");
+	if (*pp != 0)
+		l31dc(pp);
+	while (i < 10 && *(short *)&g_a5_18468[i * 6] >= 0)
+		i++;
+	slot = (short *)&g_a5_18468[i * 6];
+	*pp = (long)(uintptr_t)slot;
+	i += 2;
+	slot[0] = i;
+	slot[1] = -1;
+	jt1024((long)(uintptr_t)ua_strs_at(0x6b6) /* "activ" */, i,
+	       0x54494C45L /* 'TILE' */);
+	while (count-- != 0)
+		jt1021(i, (short)0, 0L);
+}
+
+/* JT[86] (CODE 6+0x4c96) — ITEMS.DAT load callback (glib_load_cb):
+ * read the 2048-byte item-template table into the -27944 buffer
+ * (128 x 16-byte records); 1 if the full size arrived. */
+static unsigned char jt86(short refnum, void *spec)
+{
+	void *dst = (void *)(uintptr_t)g_a5_long(-27944);
+
+	PROBE("jt86");
+	(void)spec;
+	if (dst == NULL)        /* PORT-SAFETY: L4cc0 alloc failed */
+		return 0;
+	return (unsigned char)(jt401(refnum, dst, (short)2048) == 2048);
+}
+
+/* JT[87] (CODE 6+0x5252) — item.dat load callback (glib_load_cb):
+ * 255-fill the 4590-byte item-record table (-27920, 255 x 18-byte
+ * records), read 4572 bytes at +18 (records 1..254), then fix the
+ * words at +4/+6 of every record through jt1180 (the byte-swap — the
+ * table ships little-endian).  1 on a full read. */
+static unsigned char jt87(short refnum, void *spec)
+{
+	unsigned char *base = (unsigned char *)(uintptr_t)g_a5_long(-27920);
+	short i;
+
+	PROBE("jt87");
+	(void)spec;
+	if (base == NULL)       /* PORT-SAFETY: L4cc0 alloc failed */
+		return 0;
+	jt399(base, (short)4590, (short)255);
+	if (jt401(refnum, base + 18, (short)4572) != 4572)
+		return 0;
+	for (i = 1; i <= 254; i++) {
+		unsigned char *rec = base + (long)i * 18;
+
+		*(short *)(void *)(rec + 4) =
+		    jt1180(*(short *)(void *)(rec + 4));
+		*(short *)(void *)(rec + 6) =
+		    jt1180(*(short *)(void *)(rec + 6));
+	}
+	return 1;
+}
+
+/* L5304 (CODE 6 local) — load "item.dat" (the 255 x 18-byte item
+ * record table) through the GLIB loader, jt87 as the callback. */
+static void l5304(void)
+{
+	PROBE("L5304");
+	jt987((short)49, ua_strs_at(0x724) /* "item.dat" */, (short)0,
+	      (void *)(uintptr_t)jt87);
+}
+
+/* L4d98 (CODE 6+0x4d98) — the game-session init proper.  In asm order:
+ * palette-template restore (jt1182 from the -17498 slot), jt1115
+ * no-op, jt900 idle-timer seed, the "Loading...Please Wait" banner,
+ * audio bring-up (L59d6), the "always" GLIB group (jt997; kind 49 in
+ * the .tlb deep mode, 52 for .ctl), the resident palette (jt1068 +
+ * jt993 + jt1066 + jt1000 in the colour modes, the raw TPalette jt996
+ * otherwise), binder-pool reset (L3cb2), jt151 dialog-callback
+ * registration, the default design name (L31cc), the game-state reset
+ * run (the same family jt88/L5124 re-runs per new game — identifiers
+ * shared with l5124 above so both hit the same storage), the COMSPR
+ * combat-sprite pre-bind (L36e0 + 2x23 jt111 loads into the -27866
+ * binder), "topview", ITEMS.DAT (jt86), the jt610 + jt856 handler /
+ * hook TABLE REGISTRATION, the audio tail (L3fb2), jt149(0), and
+ * item.dat (L5304). */
+static void l4d98(void)
+{
+	void *comspr = NULL;
+	short i;
+
+	PROBE("L4d98");
+	jt1182(&g_a5_byte(-17498));
+	jt1115((short)49, ua_strs_at(0x6e6) /* "game" */);
+	jt900();
+	jt1089((short)8096, (short)8000, (short)10,
+	       ua_strs_at(0x6ec) /* "Loading...Please Wait" */);
+	l59d6();
+	jt997((short)(jt1200() == 3 ? 49 : 52),
+	      ua_strs_at(0x702) /* "always" */, (short)0);
+	/* The resident-palette arm — PORT-DEFERRED.  The Mac commits the
+	 * "always" library's palette block to the CLUT here (jt1068 +
+	 * jt993(jt468(0), 0) + jt1066 + jt1000(-17482), or the raw
+	 * TPalette jt996(0,0,0) in the B&W modes).  The port's screens
+	 * install clut 129 and manage the UI palettes themselves; running
+	 * the resident commit on top recolours the CLUT ranges under the
+	 * port renderers (corrupted backdrop art in the Hall, frame-redraw
+	 * breakage in the dungeon).  Re-enable when the GLIB colour-range
+	 * subsystem owns the whole palette pipeline (docs/code16-wall.md;
+	 * all four callees are lifted and ready). */
+	(void)0;
+	l3cb2();
+	/* jt151() — DEFERRED: it installs jt137 (the dialog-frame redraw
+	 * callback, still a PROBE stub) into the -9282 registry slot 1.
+	 * The dialog machinery dispatches item drawing and key handling
+	 * through that slot, so registering the stub silently swallows
+	 * the menu's labels and keyboard input.  Re-enable with the
+	 * jt137 lift (see docs/code16-wall.md). */
+	l31cc();
+	l5f4e(&g_a5_byte(-27466), (short)408);
+	g_a5_27468 = 0;
+	g_a5_long(-22262) = 0;
+	l5f4e(&g_a5_byte(-27894), (short)4);
+	jt399(&g_a5_byte(-27870), (short)4, (short)0);
+	if (g_a5_28006 != NULL) {       /* PORT-SAFETY: L4cc0 alloc */
+		unsigned char *handle = (unsigned char *)g_a5_28006;
+
+		jt399(handle + 1, (short)1024, (short)0);
+		handle[39] = 3;
+		handle[34] = 1;
+	}
+	g_a5_18474 = 0;
+	g_a5_18473 = 0;
+	g_a5_4944  = 0;
+	g_a5_22218 = 90;
+	if (g_a5_22222 != 0)            /* PORT-SAFETY: jt204 slot */
+		l5f4e((void *)(uintptr_t)g_a5_22222, (short)4);
+	l36e0(&g_a5_long(-27866), (short)81);
+	l5f4e(&g_a5_byte(-24204), (short)36);
+	l5f4e(&g_a5_byte(-24236), (short)32);
+	for (i = 1; i <= 2; i++) {
+		g_a5_byte(-24322 + (long)i * 6) = 0xFF;
+		g_a5_long(-24322 + (long)i * 6 + 2) = 0;
+	}
+	jt399(&g_a5_byte(-24322), (short)6, (short)0);
+	g_a5_long(-24260) = 0;
+	g_a5_long(-25302) = 0;
+	jt399(&g_a5_byte(-12288), (short)6, (short)0);
+	g_a5_12288 = 0;
+	g_a5_12287 = 0;
+	g_a5_12286 = 4;
+	g_a5_byte(-27986) = 1;
+	g_a5_27981 = 1;
+	g_a5_27984 = 0;
+	g_a5_27928 = 0;
+	g_a5_27932 = 0;
+	g_a5_27936 = 0;
+	g_a5_27940 = 0;
+	if (g_a5_28006 != NULL) {
+		unsigned char *handle = (unsigned char *)g_a5_28006;
+
+		handle[18] = 4;
+		handle[32] = 0;
+	}
+	g_a5_27988 = 0;
+	g_a5_12290 = 0;
+	g_a5_24142 = 1;
+	g_a5_23190 = 0;
+	g_a5_22284 = 0;
+	g_a5_22283 = 0;
+	g_a5_22282 = 0;
+	g_a5_22281 = 0;
+	g_a5_27982 = 0;
+	g_a5_22279 = 0;
+	g_a5_24304[0] = 0;
+	g_a5_24283 = 0;
+	g_a5_24262 = 0xFF;
+	g_a5_24261 = 0xFF;
+	g_a5_27946 = 0;
+	g_a5_22330 = 0xE8;              /* moveq #-24 */
+	g_a5_22331 = 0xDB;              /* moveq #-37 */
+	g_a5_22273 = 0;
+	g_a5_24148 = 0;
+	g_a5_22626 = 1;
+	g_a5_24256 = 0xFF;
+	g_a5_24140 = 1;
+	g_a5_27990 = 4;
+	g_a5_27989 = 0;
+	g_a5_23187 = 0;
+	g_a5_byte(-23189) = 0;
+	g_a5_22275 = 0;
+	g_a5_27987 = 0;
+	g_a5_22269 = 0;
+	g_a5_22633 = 0;
+	g_a5_22635 = 0;
+	g_a5_22268 = 0;
+	g_a5_22225 = 0;
+	g_a5_27916 = 0;
+	l338c((short)49);
+	l33ac(ua_strs_at(0x70a) /* "COMSPR" */, (short)-1, (short)1,
+	      (short)0, &comspr);
+	for (i = 15; i <= 37; i++) {
+		jt111((long)(uintptr_t)comspr, (short)(i - 15), (short)1,
+		      g_a5_long(-27866), i);
+		jt111((long)(uintptr_t)comspr, (short)(i + 113), (short)1,
+		      g_a5_long(-27866), (short)(i + 38));
+	}
+	l31dc(&comspr);
+	jt997((short)(jt1200() == 3 ? 49 : 52),
+	      ua_strs_at(0x712) /* "topview" */, (short)12);
+	jt987((short)49, ua_strs_at(0x71a) /* "ITEMS.DAT" */, (short)0,
+	      (void *)(uintptr_t)jt86);
+	jt610();
+	jt856();
+	l3fb2();
+	jt149((short)0);
+	l5304();
 }

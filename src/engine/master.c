@@ -18,6 +18,7 @@
 #include "toolbox.h"          /* toolbox_init — the lifted JT[1144] */
 #include "data_pool_replay.h" /* g_a5_byte / g_a5_long / g_a5_word (jt1138) */
 #include "input.h"            /* plat_ticks — jt1155 stamps tick origin */
+#include "boot.h"             /* glib_pool_open — FAR pool (JT[463]) */
 
 /* Stub-trace probe; same as boot.c — see docs/engine-bring-up.md. */
 #ifdef FRUA_ENGINE_PROBE
@@ -116,7 +117,8 @@ void master_init(short arg1, long arg2, short kb_min, short kb_max)
 	jt1138();
 	l01a2();
 	l024c(15);
-	fc_init(kb_min, kb_max);       /* file cache — JT[463] */
+	fc_init(kb_min, kb_max);       /* file cache — JT[463]'s size half */
+	glib_pool_open();              /* FAR pool — JT[463]/_LBOpen proper */
 	l35e2();
 	l27a4();
 }
