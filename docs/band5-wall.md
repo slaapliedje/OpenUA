@@ -223,3 +223,25 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   +236 validation table — lift with jt328). NOTE: jt328 (CODE 8+0x16a8)
   is the 250-byte BIG-field sibling, still MISSING by design.
   Both own-session riders DONE — jt290 + jt327 closed.
+- 2026-06-12: **JT[1] TABLE-FORMAT DISCOVERY + the l2df8/jt328 pair.**
+  The JT[1] inline table is [count][(off,val) PAIRS][default_off] —
+  offsets FIRST in each pair, default LAST (per the CODE 1+0x130
+  dispatcher; tools/jt1_extract.py always had it right). The session
+  hand-decodes assumed [count][default][val,off], shifting EVERY arm
+  one case over. FIXED: jt327 relabelled (the arm map now matches the
+  DLItem cmd conventions: 1=paint, 2=hit, 5=key), jt599's cast-sound
+  (47->12, 51->9, default->3) and explosion tables re-bound. AUDIT of
+  all other hand-decoded JT[1] sites = task #122.
+  - l2df8 FULL (the line-editor keystroke primitive: left/home 262/263,
+    right/end 258/261, segment prev/next 264/260 via L21a4, BS 8 falls
+    into DEL 266, printable [32,126] insert with the trailing-space
+    reuse + JT[1080] beep; the seg-mode validation tail with the
+    recursive UNDO on L2756 failure and the gap re-clamp).
+  - L20c2 FULL (segment lookup + advance predicate), L21a4 FULL
+    (segment hop, column-preserving), L2724 FULL (250-byte tail scrub).
+  - jt328 FULL (the multi-line BIG-field method, all 14 arms: cursor at
+    buf[235], maxw 233, seg mode; ESC restores the full 250-byte copy;
+    the 24x152 grid box; L1dd8/L1eec flag-0 paths now live).
+  - LEAF STUBS left: l2756 (the ~1.7KB segment re-tokenizer + its
+    L2dca/L2d5e char classes), l24e8/l2410/l1f6c (the word-wrap paint
+    layer) — the next design-tools slice.
