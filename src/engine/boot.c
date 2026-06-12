@@ -2031,7 +2031,6 @@ static void  port_draw_play_frame(unsigned char *px, short pitch, short sw, shor
  * the Mac (measured: command-bar baseline 188 vs Mac 195). Set to the font
  * ascent during jt240's HUD draw, 0 everywhere else (menu/char-gen compensate
  * in their own builds). */
-static short g_hud_dy;
 
 /* jt221's inner renderers — the deep view-draw layer. PROBE stubs for now;
  * L6234 in particular is the ~1083-instruction first-person render (the
@@ -5815,7 +5814,13 @@ static void jt1089(short v, short h, short color,
 	 * caller; the per-site swaps that compensated are removed. */
 	jt1135(v, h, &g_a5_4898, &g_a5_4896);
 	px = g_a5_4896;
-	py = (short)(g_a5_4898 + g_hud_dy);   /* +ascent during the dungeon HUD draw */
+	/* The engine pen is TOP-anchored (pen v = glyph top; the Mac's
+	 * JT[1136] glyph writer draws downward).  DrawString is BASELINE-
+	 * anchored, so add the pen-top-to-baseline offset (6 — verified
+	 * against the Mac side by side) — always, not per screen: the old
+	 * g_hud_dy=7 dungeon nudge and the menu's +4-unit label nudge were
+	 * both partial compensations for this. */
+	py = (short)(g_a5_4898 + 6);
 	MoveTo(px, py);
 
 	/* L0306: format the caller's args + DrawString. The Mac path
@@ -5894,13 +5899,13 @@ static void jt969(short acc, short width)
  * (top,left) and JT[1136]'s bounds put the wide axis in fp@10): g_a5_4896 = pen
  * X (the advancing axis), g_a5_4898 = pen Y — the same order jt1089 uses
  * since the (v,h) migration, so the two paths share the slots safely.
- * VISUAL-UNVERIFIED (baseline +g_hud_dy mirrors jt1089's DrawChar correction). */
+ * Top-anchored pen (+7 ascent), same as jt1089. */
 static void jt966(short c) __attribute__((unused));
 static void jt966(short c)
 {
 	char ch = (char)(unsigned char)c;
 
-	MoveTo(g_a5_4896, (short)(g_a5_4898 + g_hud_dy));   /* (X, Y) */
+	MoveTo(g_a5_4896, (short)(g_a5_4898 + 6));   /* (X, Y); top-anchored pen */
 	DrawChar(ch);
 	g_a5_4896 = (short)(g_a5_4896 + CharWidth(ch));     /* advance X */
 }
@@ -10471,15 +10476,12 @@ static void jt312(unsigned char *page)
 		 * 0x0f -> UI indices 1/7/11/12/15) which the dungeon's clut 129 wiped,
 		 * so re-install the UI text colours first (port_hud_text_clut, without
 		 * touching the 3D backdrop @4/5, FRAME band @16..31, or walls @32+).
-		 * g_hud_dy nudges the baseline-anchored shim text down by the font
-		 * ascent to the Mac baseline. Drawn HERE (the full-present frame, both
+		 * (jt1089's pen is top-anchored since the ascent fix.) Drawn HERE (the full-present frame, both
 		 * pages) so they persist like the chrome + command bar; jt240's copies
 		 * were wiped by this block's port_draw_play_frame. */
 		port_hud_text_clut();
-		g_hud_dy = 7;
 		jt938();
 		jt937(g_a5_long(-27932));
-		g_hud_dy = 0;
 	}
 	if (s_view_first || g_view_force_full) {
 		/* DOUBLE full present: the HAL double-buffers two planar pages and
@@ -18186,7 +18188,7 @@ static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
 		 * express the half-row, so go through jt1089 directly. (Same fix the
 		 * menu labels got via their +4-unit nudge in menu_run.) */
 		#define title_text(page, row, col, s) \
-			jt1089((short)(((row) << 2) + 8002), \
+			jt1089((short)(((row) << 2) + 7998), \
 			       (short)(((page) << 2) + 8000), (short)(col), "%s", (s))
 		/* "Unlimited Adventures" (20 chars) centred in the 40-col screen
 		 * (page = (40-20)/2 = 10), matching the Mac title. */
@@ -18720,7 +18722,7 @@ static void l35f8(void)
 	 * The other headers sit lower and already clear the bar. (320x200
 	 * content-vs-frame alignment — the content is also drawable at the Mac's
 	 * ×3 where the fixed frame has more room; we never use ×3 — task #108.) */
-	jt1089((short)8008, (short)8006, col, "PICK RACE");
+	jt1089((short)8006, (short)8006, col, "PICK RACE");
 	jt1089((short)8040, (short)8006, col, "PICK ALIGNMENT");
 	jt1089((short)8076, (short)8006, col, "PICK GENDER");
 	jt1089((short)8012, (short)8068, col, "PICK CLASS");
