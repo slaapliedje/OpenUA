@@ -117,3 +117,15 @@ jt326 (CODE 9).
   jt357 512, jt362 164 (CODE 8), jt932 300 (CODE 12), jt1076 326
   (=l7ab4 paginator), jt1081 70 (by-design stub), jt546 568 +
   jt555 816 (CODE 14 combat, #115 overlap).
+- 2026-06-12: CODE 8 design-record tier COMPLETE (6 FULL lifts):
+  jt362 (STRG spell-name table (re)load — resident -10370 tag check
+  via jt393, (count+1)*14 sizing, jt132(51)+jt129 queue), jt347
+  (n'th matching spell entry — jt349's pick companion), jt338 (the
+  play-screen command-bar menu REGISTRAR: 12-slot -10472 table,
+  left-packing x with 4-unit gaps, width = strlen*4+8), jt355
+  (spell-school query via jt346 = the Mac L6f9e), jt352 (pickable-
+  row counter + selection resolver with first-row fallback), jt357
+  (single 3D-view cell repaint: -12260[sub]*4 rect clear, band art
+  commit via jt124 / jt993+jt1004, jt200 redraw — h-first Mac args
+  mapped per the l5b42 convention note, jt117 present). New leaf
+  stub: jt203 (repaint prologue). Band 4 at 90/100.

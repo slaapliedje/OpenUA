@@ -37311,6 +37311,338 @@ static short jt262(short val)
 	               ? -1 : 0);
 }
 
+/* --- band-4 CODE 8 design-record tier -------------------------------- */
+
+/* JT[362] (CODE 8+0x600c) — (re)load the STRG spell-name table for
+ * group `num` into `handle` (NULL = the resident -10370 slot, only
+ * when its "%3s@%1d" name tag at handle-6 matches "STR@num" —
+ * jt393 compare). The byte count is (count+1)*14 from the table
+ * header; jt132(51) selects the file group and jt129 queues the
+ * "STRG%03d.dat" load. Returns the byte count (0 on a miss). */
+static short jt362(long handle, short num) __attribute__((unused));
+static short jt362(long handle, short num)
+{
+	const unsigned char *h;
+	short size;
+
+	PROBE("jt362");
+	if (handle == 0) {
+		handle = g_a5_long(-10370);
+		if (handle == 0)
+			return 0;
+		if (jt393((const char *)(uintptr_t)(handle - 6),
+		          jt488(ua_strs_at(0x40e2) /* "%3s@%1d" */,
+		                ua_strs_at(0x40ea) /* "STR" */,
+		                (int)num)) != 0)
+			return 0;
+	}
+	h    = (const unsigned char *)(uintptr_t)handle;
+	size = (short)((((short)h[1] << 8 | h[0]) + 1) * 14);
+	jt132((short)51);
+	jt129((long)(uintptr_t)ua_strs_at(0x40ee) /* "STRG" */,
+	      num, size, handle);
+	return size;
+}
+
+/* JT[347] (CODE 8+0x6cb4) — fetch the n'th spell entry matching
+ * `mask` (and the optional per-level callback) from the kind-
+ * classed table L5f04 resolves; jt349's pick companion. flag == 0
+ * pre-decrements n (0-based pick). *out gets the entry pointer
+ * (the table head when nothing matches); returns the entry's level
+ * byte, or `flag` when the table runs out. */
+static short jt347(short n, short kind, short mask, short flag,
+                   long out, long proc) __attribute__((unused));
+static short jt347(short n, short kind, short mask, short flag,
+                   long out, long proc)
+{
+	long                 table = 0;
+	const unsigned char *entry;
+	short                idx, i = 0, total;
+
+	PROBE("jt347");
+	if (l5f04((long)(uintptr_t)&table, l6520_c8(kind)) == 0) {
+		if (out != 0)
+			*(long *)(uintptr_t)out = 0;
+		return 0;
+	}
+	mask = (short)((unsigned char)mask & 127);
+	entry = (const unsigned char *)(uintptr_t)table + 14;
+	if ((flag & 0xff) == 0)
+		n--;
+	if (out != 0)
+		*(long *)(uintptr_t)out = (long)(uintptr_t)entry;
+
+	total = (short)(((short)((const unsigned char *)
+	                         (uintptr_t)table)[1] << 8)
+	                | ((const unsigned char *)(uintptr_t)table)[0]);
+	for (idx = 0; idx < total; idx++, entry += 14) {
+		if (((short)entry[1] & mask) == 0)
+			continue;
+		if (proc != 0 && entry[0] != 0) {
+			unsigned char (*fn)(short) =
+			    (unsigned char (*)(short))(uintptr_t)proc;
+
+			if (fn((short)entry[0]) == 0)
+				continue;
+		}
+		if (i++ == n) {
+			if (out != 0)
+				*(long *)(uintptr_t)out =
+				    (long)(uintptr_t)entry;
+			return (short)entry[0];
+		}
+	}
+	return (short)(unsigned char)flag;
+}
+
+/* JT[338] (CODE 8+0x5504) — register one play-screen command-bar
+ * menu: the 12-slot table at -10474 (count) / -10473 (style bits) /
+ * -10472 (8-byte slots: rec ptr, x, width). Each menu packs right
+ * of the previous (prev x + prev width + 4; the first at 8004);
+ * width = label strlen * 4 + 8 (jt423 on the label at rec+0).
+ * rec[8] = 8004 (+1 with style bit 4), rec[10] = x, rec[13] |= 4.
+ * "Too many menus" (JT[1084]) past 12. Full lift. */
+static void jt338(long rec_l) __attribute__((unused));
+static void jt338(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *slot;
+	short          count, x;
+
+	PROBE("jt338");
+	count = (short)(signed char)g_a5_byte(-10474);
+	if (count >= 12) {
+		l036a(ua_strs_at(0x4088) /* "Too many menus" */);
+		return;
+	}
+	if (rec[13] & 0x10)
+		g_a5_byte(-10473) |= 0x10;
+	if (rec[13] & 0x20)
+		g_a5_byte(-10473) |= 0x20;
+	rec[13] |= 4;
+
+	slot = (unsigned char *)&g_a5_byte(-10472) + (long)count * 8;
+	*(long *)slot = rec_l;
+
+	if (count != 0) {
+		unsigned char *prev = (unsigned char *)&g_a5_byte(-10472)
+		                      + (long)(count - 1) * 8;
+
+		x = (short)(*(short *)(prev + 4)
+		            + *(short *)(prev + 6) + 4);
+	} else {
+		x = 8004;
+	}
+	*(short *)(slot + 4) = x;
+
+	*(short *)(rec + 8) = 8004;
+	if (g_a5_byte(-10473) & 0x10)
+		*(short *)(rec + 8) += 1;
+	*(short *)(rec + 10) = x;
+
+	*(short *)(slot + 6) = (short)
+	    (jt423((const char *)(uintptr_t)*(long *)rec) * 4 + 8);
+	g_a5_byte(-10474) = (unsigned char)(count + 1);
+}
+
+/* JT[355] (CODE 8+0x70dc) — query/show a spell school: kind 2 when
+ * the mask's bit 6 is up else 1 (L5f04 resident check; 0 on a
+ * miss). which == 0 reports the whole mask through jt346 (= the
+ * Mac's L6f9e); otherwise scan the table for level `which` with a
+ * school overlap and report (entry[1] & mask) | the preserved
+ * 0xC0 bits — or 10 for the bit6+bit5 combination when the level
+ * is absent. Full lift. */
+static short jt346(short flags, short *out);
+static short jt355(short mask, short which) __attribute__((unused));
+static short jt355(short mask, short which)
+{
+	long                 table;
+	const unsigned char *entry;
+	short                idx, total;
+	unsigned char        hi;
+
+	PROBE("jt355");
+	if (l5f04(0L, (short)(((unsigned char)mask & 0x40) ? 2 : 1))
+	    == 0)
+		return 0;
+	if ((which & 0xff) == 0)
+		return jt346((short)(unsigned char)mask, (short *)0);
+
+	hi    = (unsigned char)(mask & 0xC0);
+	mask  = (short)((unsigned char)mask & 0x3f);
+	table = g_a5_long(-10370);
+	total = (short)(((short)((const unsigned char *)
+	                         (uintptr_t)table)[1] << 8)
+	                | ((const unsigned char *)(uintptr_t)table)[0]);
+	entry = (const unsigned char *)(uintptr_t)table + 14;
+	for (idx = 0; idx < total; idx++, entry += 14) {
+		if (entry[0] == (unsigned char)which
+		    && ((short)entry[1] & mask) != 0)
+			break;
+	}
+	if (idx >= total) {
+		if ((hi & 0x40) && (mask & 0x20))
+			return 10;
+		return 0;
+	}
+	return jt346((short)((((short)entry[1] & mask) | hi)),
+	             (short *)0);
+}
+
+/* JT[352] (CODE 8+0x6712) — count the pickable spell rows between
+ * levels *lo_p..*hi_p (defaults 0/255; hi clamps up to lo) under
+ * `mask` and the optional callback, full lift. Section breaks
+ * (level 0) count as rows. When out_idx is given it resolves the
+ * row of the *cap_p level (falling back to the FIRST counted row,
+ * writing its level back through cap_p), and a zero lo bumps both
+ * the row index and the count by one (the header row). */
+static short jt352(short kind, short mask, long lo_p, long hi_p,
+                   long cap_p, long out_idx, long proc)
+                                                __attribute__((unused));
+static short jt352(short kind, short mask, long lo_p, long hi_p,
+                   long cap_p, long out_idx, long proc)
+{
+	long                 table = 0;
+	const unsigned char *entry;
+	short                lo, hi, sel, idx, row = 0, total;
+	short                fb_row = 0, fb_lvl = 0;
+	signed char          want, first = 1;
+
+	PROBE("jt352");
+	if (l5f04((long)(uintptr_t)&table, l6520_c8(kind)) == 0)
+		return 0;
+	mask = (short)((unsigned char)mask & 127);
+
+	want = (signed char)((out_idx != 0) ? -1 : 0);
+	if (want)
+		*(short *)(uintptr_t)out_idx = -1;
+
+	lo = (short)((lo_p != 0)
+	             ? *(const unsigned char *)(uintptr_t)lo_p : 0);
+	if (hi_p != 0) {
+		hi = (short)*(const unsigned char *)(uintptr_t)hi_p;
+		if (hi < lo)
+			hi = lo;
+	} else {
+		hi = 255;
+	}
+	sel = 0;
+	if (cap_p != 0) {
+		short c = (short)*(const unsigned char *)(uintptr_t)cap_p;
+
+		if (c >= lo && c <= hi)
+			sel = c;
+	}
+
+	entry = (const unsigned char *)(uintptr_t)table + 14;
+	total = (short)(((short)((const unsigned char *)
+	                         (uintptr_t)table)[1] << 8)
+	                | ((const unsigned char *)(uintptr_t)table)[0]);
+	for (idx = 0; idx < total; idx++, entry += 14) {
+		if (((short)entry[1] & mask) == 0)
+			continue;
+		if (proc != 0 && entry[0] != 0) {
+			unsigned char (*fn)(short) =
+			    (unsigned char (*)(short))(uintptr_t)proc;
+
+			if (fn((short)entry[0]) == 0)
+				continue;
+		}
+		if (entry[0] == 0) {            /* section break */
+			row++;
+			continue;
+		}
+		if ((short)entry[0] < lo || (short)entry[0] > hi)
+			continue;
+		if (want) {
+			if ((short)entry[0] == sel) {
+				*(short *)(uintptr_t)out_idx = row;
+			} else if (first
+			           && *(short *)(uintptr_t)out_idx < 0) {
+				fb_row = row;
+				fb_lvl = (short)entry[0];
+			}
+		}
+		row++;
+		first = 0;
+	}
+
+	if (want) {
+		if (*(short *)(uintptr_t)out_idx < 0) {
+			*(short *)(uintptr_t)out_idx = fb_row;
+			if (cap_p != 0)
+				*(unsigned char *)(uintptr_t)cap_p =
+				    (unsigned char)fb_lvl;
+		}
+		if (lo == 0)
+			(*(short *)(uintptr_t)out_idx)++;
+	}
+	if (lo == 0)
+		row++;
+	return row;
+}
+
+/* JT[203] (CODE 7+0x6148) — 3D-view repaint prologue. Leaf PROBE
+ * stub pending its own lift. */
+static void jt203(void)
+{
+	PROBE("jt203");
+}
+
+/* JT[357] (CODE 8+0x76aa) — repaint ONE 3D-view wall cell at
+ * (top, left), full lift: jt203 prologue, clear the cell rect
+ * (size = -12260[sub] * 4; the depth-3 variant scales by
+ * (4n+2)/3), then for a non-zero wall code commit the band's art —
+ * wall-set group (-27894[(code-1)/5]) via jt124 for bands 0/1,
+ * else the jt993/jt1004 page flush when the -12300 design byte 6
+ * is up — and redraw through jt200 (subs 7/8 keep the row, others
+ * sit -4) + jt117 present. The Mac's jt200 args are h-first; the
+ * port's jt200(page, top, left) order is applied per the l5b42
+ * convention note. */
+static void jt993(long handle, short idx);
+static void jt357(short top, short left, short code, short sub)
+                                                __attribute__((unused));
+static void jt357(short top, short left, short code, short sub)
+{
+	unsigned char *px;
+	short          pitch, sw, sh;
+	short          cell;
+
+	PROBE("jt357");
+	jt203();
+	sub  = (short)((sub * 3) / 3);       /* the Mac's sign idiom */
+	cell = (short)(g_a5_buf(-12260)[sub] * 4);
+
+	if (jt1200() == 3) {
+		short d = (short)(((unsigned short)(cell * 4 + 2)) / 3);
+
+		jt1161(top, left, (short)(top + d), (short)(left + d),
+		       (short)0);
+	} else {
+		jt1161(top, left, (short)(top + cell),
+		       (short)(left + cell), (short)0);
+	}
+
+	if (code == 0)
+		return;
+
+	{
+		short band = (short)((code - 1) / 5);
+
+		if (band < 2)
+			jt124(g_a5_long(-27894 + (long)band * 4));
+		else if (((const unsigned char *)(uintptr_t)
+		          g_a5_long(-12300))[6] != 0)
+			jt993(jt1004(), (short)0);
+	}
+
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL)
+		jt200(px,
+		      (short)(top + ((sub == 7 || sub == 8) ? 0 : -4)),
+		      left, code, sub);
+	jt117();
+}
+
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
 
 /* JT[157] (CODE 7+0x38e4) — read the -12648 byte (the text-cursor
