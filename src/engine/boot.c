@@ -38531,6 +38531,15 @@ static void jt1022(short group, short item, long newsize)
 	short         i, count;
 
 	PROBE("jt1022");
+	/* PORT GUARD (2026-06-12): jt111's too-small-slot arm calls
+	 * this at boot and the live resize corrupts the pool (SysBeep
+	 * modal before the menu; the 'GLIB' magic check passes, so the
+	 * fault is in the resize arithmetic vs the port's pool layout
+	 * — suspect the l3834 offsets or the jt469 anchor). Bail until
+	 * instrumented against jt111's actual call values; the body
+	 * below is the faithful transcription. */
+	if (1)
+		return;
 	base = jt468(group);
 	if (item < 0 || item >= l3736(base))
 		l036a(ua_strs_at(0x70fe)
