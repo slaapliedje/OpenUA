@@ -1329,11 +1329,19 @@ static short l6520_c8(short kind)
 
 /* L5f04 (CODE 8+0x5f04) — release/retarget the current "STR@n"
  * monster-art resource (the -10370 slot; jt488 "%3s@%1d" name
- * build + jt393 compare). Leaf PROBE stub pending its own lift. */
-static void l5f04(long holder, short which)
+ * build + jt393 compare). Fills *holder with the resolved data
+ * pointer and returns nonzero on success. Leaf PROBE stub pending
+ * its own lift: clears *holder (the asm's prologue does the same
+ * for foreign holders) and reports failure, so jt349 returns an
+ * empty list rather than walking garbage. */
+static short l5f04(long holder, short which)
 {
 	PROBE("l5f04");
-	(void)holder; (void)which;
+	(void)which;
+	if (holder != 0
+	    && holder != (long)(uintptr_t)&g_a5_long(-10370))
+		*(long *)(uintptr_t)holder = 0;
+	return 0;
 }
 
 /* L62e0 (CODE 8+0x62e0) — bind/load one monster-art entry into the
@@ -36366,6 +36374,157 @@ static char *jt98(long prompt, short fg, short bg, short maxlen)
 
 	jt405((char *)&g_a5_byte(-17568));
 	return (char *)&g_a5_byte(-17568);
+}
+
+/* L60b0 (CODE 8+0x60b0) — format the spell-list header text for
+ * (kind, mask) into `out`. Leaf PROBE stub pending its own lift
+ * (empties the buffer so jt349 skips the header row cleanly). */
+static void l60b0(short z, short kind, short mask, char *out)
+{
+	PROBE("l60b0");
+	(void)z; (void)kind; (void)mask;
+	out[0] = 0;
+}
+
+/* JT[191] (CODE 7+0x4c88) — decode a 6-bit-packed name (4 chars in
+ * 3 bytes, the SSI radix coding) into `out`, up to `max` chars.
+ * Leaf PROBE stub pending its own lift. */
+static void jt191(const void *packed, char *out, short max)
+{
+	PROBE("jt191");
+	(void)packed; (void)max;
+	out[0] = 0;
+}
+
+/* JT[349] (CODE 8+0x6910) — build the spell/scroll list rows, full
+ * lift. Walks the 14-byte entries of the (kind-classed) spell table
+ * L5f04 resolves (count = the table's first two bytes, lo|hi<<8),
+ * filtering by the level byte entry[0] (>= minlvl; 0 = a section
+ * break), the school mask entry[1] & mask, and the optional
+ * `proc(level)` callback. Each accepted entry decodes its packed
+ * name (JT[191]), prefixes '*' when kind 3 and the spell id is in
+ * the -11652 memorized list (jt261), '#' for kind-3 ids >= 112, and
+ * formats it into the row node's text at +5 — "%s%s - %s" + "%*s"
+ * width 17 when `hdrflag` (the two-column variant), else
+ * "%s%*s" width 17-pad — clearing the node flag byte +4 (section
+ * breaks set it instead) and advancing the node chain. minlvl == 0
+ * additionally emits the L60b0 header row first and counts +1.
+ * Returns the row count. */
+static short jt349(long node_l, short kind, short mask, short minlvl,
+                   short hdrflag, short unused6, long proc)
+                                                __attribute__((unused));
+static short jt349(long node_l, short kind, short mask, short minlvl,
+                   short hdrflag, short unused6, long proc)
+{
+	char           buf[40];
+	const char    *fmt_l;
+	unsigned char *node = (unsigned char *)(uintptr_t)node_l;
+	long           table = 0;
+	const unsigned char *entry;
+	short          idx = 0, rows = 0, total;
+	signed char    pad = 0, is3, starred;
+
+	PROBE("jt349");
+	(void)unused6;
+	if (node == NULL)
+		return 0;
+	is3  = (signed char)((((unsigned char)kind) == 3) ? -1 : 0);
+	mask = (short)((unsigned char)mask & 127);
+
+	if (l5f04((long)(uintptr_t)&table, l6520_c8(kind)) == 0)
+		return 0;
+
+	entry = (const unsigned char *)(uintptr_t)table + 14;
+	if (entry[0] == 0)
+		pad = 1;
+
+	if ((unsigned char)minlvl == 0) {
+		l60b0((short)0, (short)(unsigned char)kind, mask, buf);
+		if ((hdrflag & 0xff) != 0) {
+			if (buf[0] != 0) {
+				fmt_l = pad ? ua_strs_at(0x414a) /* " " */
+				            : ua_strs_at(0x414c) /* ""  */;
+				jt394((char *)(node + 5),
+				      ua_strs_at(0x415c) /* "%*s" */, 17,
+				      jt488(ua_strs_at(0x4140) /* "%s%s - %s" */,
+				            (const char *)(node + 5), fmt_l,
+				            buf));
+			}
+		} else {
+			fmt_l = pad ? ua_strs_at(0x4158) : ua_strs_at(0x415a);
+			jt394((char *)(node + 5),
+			      ua_strs_at(0x4152) /* "%s%*s" */, fmt_l,
+			      (int)(17 - pad), buf);
+		}
+		node[4] = 0;
+		node = (unsigned char *)(uintptr_t)*(long *)node;
+	}
+
+	total = (short)(((short)((const unsigned char *)
+	                         (uintptr_t)table)[1] << 8)
+	                | ((const unsigned char *)(uintptr_t)table)[0]);
+
+	for (idx = 0; idx < total && node != NULL;
+	     idx++, entry += 14) {
+		if (((short)entry[1] & mask) == 0)
+			continue;
+		if (proc != 0 && entry[0] != 0) {
+			unsigned char (*fn)(short) =
+			    (unsigned char (*)(short))(uintptr_t)proc;
+
+			if (fn((short)entry[0]) == 0)
+				continue;
+		}
+		if (entry[0] != 0 && entry[0] < (unsigned char)minlvl)
+			continue;
+
+		rows++;
+		jt191(entry + 2, buf, (short)15);
+
+		if (entry[0] == 0) {                /* section break */
+			jt394((char *)(node + 5),
+			      ua_strs_at(0x415c) /* "%*s" */, 17, buf);
+			node[4] = 1;
+			pad     = 1;
+			node = (unsigned char *)(uintptr_t)*(long *)node;
+			continue;
+		}
+
+		starred = (signed char)
+		          ((is3 && jt261((short)entry[0])) ? 1 : 0);
+		if (starred)
+			jt384(buf, jt488(ua_strs_at(0x4160) /* "%s%s" */,
+			                 ua_strs_at(0x4166) /* "*" */, buf));
+		if (is3 && entry[0] >= 112) {
+			jt384(buf, jt488(ua_strs_at(0x4168) /* "%s%s" */,
+			                 ua_strs_at(0x416e) /* "#" */, buf));
+			starred = 1;
+		}
+
+		if ((hdrflag & 0xff) != 0) {
+			if (buf[0] != 0) {
+				fmt_l = (pad && !starred)
+				        ? ua_strs_at(0x417a) /* " " */
+				        : ua_strs_at(0x417c) /* ""  */;
+				jt394((char *)(node + 5),
+				      ua_strs_at(0x417e) /* "%*s" */, 17,
+				      jt488(ua_strs_at(0x4170)
+				            /* "%s%s - %s" */,
+				            (const char *)(node + 5), fmt_l,
+				            buf));
+			}
+		} else {
+			fmt_l = (pad && !starred)
+			        ? ua_strs_at(0x4188) : ua_strs_at(0x418a);
+			jt394((char *)(node + 5),
+			      ua_strs_at(0x4182) /* "%s%*s" */, fmt_l,
+			      (int)(17 - pad), buf);
+		}
+		node[4] = 0;
+		node = (unsigned char *)(uintptr_t)*(long *)node;
+	}
+
+	return (short)(rows + (((unsigned char)minlvl == 0) ? 1 : 0));
 }
 
 /* JT[883] (CODE 19+0x4248) — adjust a member's encumbrance: the
