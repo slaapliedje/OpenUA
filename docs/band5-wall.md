@@ -193,3 +193,16 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   **BAND 5 CLOSED at 97/100** — open: jt1126 (above), jt290/jt327
   (own-session editor dispatchers). jt1022 stays GUARDED (the
   resize-debug rider, counts LIFTED).
+
+## Post-close riders (the own-session pair)
+
+- 2026-06-12: jt290 FULL (the map-editor BRUSH CLICK, CODE 22+0x0bc0):
+  tool dispatch on state byte +5 — tool 0 delegates to L1240 (edit) /
+  L0ee6 (locked, both new leaf stubs); tools 1/2 save + paint the cell
+  byte-295 packed codes; tool 3 arms the mode-5 pick (L475e protect
+  gate + L07be commit, leaf stubs) and latches -11702/-11701/-11700;
+  the adv tail steps the brush via JT[218] -> L1798 off-map / L423e/
+  L3998 repaint + the JT[213] party restamp + L23ee status (stubs).
+  RIDERS: jt288/jt306/jt298 FULL (the byte-295 code A/B accessors —
+  CODE 22 exports L069a/L0716/L073e) + l0674 FULL + the l06e2/l0788
+  automap-colour stubs upgraded to full lifts over them.
