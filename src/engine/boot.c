@@ -22534,6 +22534,97 @@ static void l635e(short vx, short vy, short which)
 	}
 }
 
+/* L7638 (CODE 14 + 0x7638) — 8-way compass octant from (x1,y1) toward
+ * (x2,y2): 0=N 1=NE 2=E 3=SE 4=S 5=SW 6=W 7=NW (indexes the g_a5_27862 /
+ * g_a5_27853 dx/dy tables). Diagonals accept the band between 106/256
+ * (~tan 22.5) and 618/256 (~tan 67.5) of |dx| vs |dy|. The scan starts at
+ * octant 7 and wraps until one accepts (octant 0 catches the degenerate
+ * same-cell case: 0 <= 0). */
+static unsigned char l7638(short x1, short y1, short x2, short y2) __attribute__((unused));
+static unsigned char l7638(short x1, short y1, short x2, short y2)
+{
+	short adx = jt388((short)(x2 - x1));
+	short ady = jt388((short)(y2 - y1));
+	short hi = (short)(((long)adx * 618) / 256);
+	short lo = (short)(((long)adx * 106) / 256);
+	unsigned char dir = 7;
+	unsigned char hit = 0;
+
+	PROBE("L7638");
+	for (;;) {
+		switch (dir) {
+		case 0: hit = (y2 <= y1 && hi <= ady); break;
+		case 1: hit = (y2 < y1 && x2 > x1 && hi >= ady && lo <= ady); break;
+		case 2: hit = (x2 >= x1 && lo >= ady); break;
+		case 3: hit = (y2 > y1 && x2 > x1 && hi >= ady && lo <= ady); break;
+		case 4: hit = (y2 >= y1 && hi <= ady); break;
+		case 5: hit = (y2 > y1 && x2 < x1 && hi >= ady && lo <= ady); break;
+		case 6: hit = (x2 <= x1 && lo >= ady); break;
+		case 7: hit = (y2 < y1 && x2 < x1 && hi >= ady && lo <= ady); break;
+		}
+		if (hit)
+			return dir;
+		if (++dir >= 8)
+			dir -= 8;
+	}
+}
+
+/* JT[529] (CODE 14 + 0x7894) — facing octant from combatant a toward
+ * combatant b: placement coords (jt525/jt531, sign-extended) through the
+ * l7638 compass. Used to pick the attack pose. */
+static unsigned char jt529(long a, long b) __attribute__((unused));
+static unsigned char jt529(long a, long b)
+{
+	short x1 = (short)(signed char)jt525(a);
+	short y1 = (short)(signed char)jt531(a);
+	short x2 = (short)(signed char)jt525(b);
+	short y2 = (short)(signed char)jt531(b);
+
+	PROBE("jt529");
+	return l7638(x1, y1, x2, y2);
+}
+
+/* JT[523] (CODE 14 + 0x6a10) — set a combatant's pose/facing byte and keep
+ * the combat view current. If the entity is off-screen while the view is
+ * live (-22626), scroll it into a 3-cell window first (jt521 mode 3/8).
+ * When the pose's upper bits change (or f15/suppress force it) the old
+ * footprint is redrawn (l635e), then the pose byte ent[64]@11 is written;
+ * unless `suppress`, the sprite is redrawn at its cell (l744e clip, jt57,
+ * jt1193 flush, jt117). */
+static void jt523(long entity, short pose, short f15, short suppress) __attribute__((unused));
+static void jt523(long entity, short pose, short f15, short suppress)
+{
+	unsigned char idx = (unsigned char)l6bbe(entity);
+	unsigned char *ent64;
+
+	PROBE("jt523");
+	if (l6554(entity, 1) == 0 && g_a5_byte(-22626) != 0) {
+		short bx = (short)(signed char)jt525(entity);
+		short by = (short)(signed char)jt531(entity);
+		jt521(bx, by, 3, 8);
+	}
+
+	ent64 = *(unsigned char **)(void *)((unsigned char *)(uintptr_t)entity + 64);
+	if (((short)(ent64[11] >> 2) != (short)(((unsigned char)pose) >> 2)
+	     || (unsigned char)f15 != 0 || (unsigned char)suppress != 0)
+	    && g_a5_byte(-22626) != 0)
+		l635e(0, 0, (short)idx);
+
+	ent64[11] = (unsigned char)pose;
+	if ((unsigned char)suppress != 0)
+		return;
+	if (l6554(entity, 0) == 0 || g_a5_byte(-22626) == 0)
+		return;
+	l744e();
+	jt57((short)(signed char)g_a5_buf(-27059)[idx],
+	     (short)(signed char)g_a5_buf(-26991)[idx],
+	     (short)(unsigned char)pose,
+	     (short)(signed char)f15,
+	     (short)((unsigned char *)(uintptr_t)entity)[189]);
+	jt1193();
+	(void)jt117();
+}
+
 /* L6652 (CODE 14 + 0x6652) — scroll the map view so (tx,ty) stays within a
  * `margin` cell window of the centre (mode 255 forces a recentre); returns 0
  * if no scroll was needed. On a scroll it moves the origin (g_a5_25318 +2/+4,
