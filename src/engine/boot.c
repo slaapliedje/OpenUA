@@ -5233,7 +5233,7 @@ static void jt94(short page, short row, short col, short style,
 	}
 	y     = (short)((row  << 2) + 8000);
 	color = (short)((style << 4) | (unsigned char)col);
-	jt1089(x, y, color, ua_strs_at(0x6c0) /* "%s" */, local_buf);
+	jt1089(y, x, color, ua_strs_at(0x6c0) /* "%s" */, local_buf);
 }
 
 /* JT[913] (CODE 19 + 0x528) — format a 0..N number into buf with a leading
@@ -5705,8 +5705,8 @@ static void l3994(void)
  * The C lift collapses the three local helpers inline:
  *
  *      g_a5_4894/4892 ← color           (decomposed)
- *      jt1135(x, y, &g_a5_4898, &g_a5_4896)
- *      MoveTo(g_a5_4898, g_a5_4896)
+ *      jt1135(v, h, &g_a5_4898, &g_a5_4896)
+ *      MoveTo(g_a5_4896, g_a5_4898)         // (h, v) -> screen (x, y)
  *      vsprintf(buf, fmt, ap)
  *      DrawString(pascal_form(buf))
  *
@@ -5715,7 +5715,7 @@ static void l3994(void)
  * on the right pen. With this in place every JT[94] / JT[42] caller
  * that reaches the default arm actually paints text into the
  * window's framebuffer. */
-static void jt1089(short x, short y, short color,
+static void jt1089(short v, short h, short color,
                    const char *fmt, ...)
 {
 	char    buf[256];
@@ -5740,11 +5740,14 @@ static void jt1089(short x, short y, short color,
 		((CGrafPtr)port)->fgColor =
 			(unsigned char)(color & 0x0f);
 
-	/* L0264: transform (x, y) via jt1135 + park in the pen slots,
-	 * then MoveTo there. */
-	jt1135(x, y, &g_a5_4898, &g_a5_4896);
-	px = g_a5_4898;
-	py = (short)(g_a5_4896 + g_hud_dy);   /* +ascent during the dungeon HUD draw */
+	/* L0264: transform (v, h) via jt1135 + park in the pen slots
+	 * (-4898 = V, -4896 = H — the faithful order, same as jt966),
+	 * then MoveTo.  (v,h) MIGRATION 2026-06-11: this MoveTo read the
+	 * slots crosswise (px from -4898), transposing every faithful
+	 * caller; the per-site swaps that compensated are removed. */
+	jt1135(v, h, &g_a5_4898, &g_a5_4896);
+	px = g_a5_4896;
+	py = (short)(g_a5_4898 + g_hud_dy);   /* +ascent during the dungeon HUD draw */
 	MoveTo(px, py);
 
 	/* L0306: format the caller's args + DrawString. The Mac path
@@ -5780,7 +5783,8 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
  * jt1089 above stays the live text path (its callers pass C-promoted varargs);
  * this island is the word-stream-faithful path used by jt1084 ("Error: %r"),
  * where the arg cursor walks Mac-packed shorts/longs. Staged (unused) until a
- * caller goes live; geometry mirrors jt1089 (g_a5_4898 = pen X, -4896 = pen Y).
+ * caller goes live; geometry shares jt1089's faithful slots (-4898 = pen V,
+ * -4896 = pen H).
  */
 
 /* L024c (set color/style pen) and L0264 (MoveTo) are lifted further down in the
@@ -5820,8 +5824,8 @@ static void jt969(short acc, short width)
  * embedded %v/%k moves take effect, then advancing the X slot by the glyph
  * width. Pen convention follows the FAITHFUL callers (L0264/jt1084 pass
  * (top,left) and JT[1136]'s bounds put the wide axis in fp@10): g_a5_4896 = pen
- * X (the advancing axis), g_a5_4898 = pen Y. (This is the opposite slot order
- * from jt1089's self-consistent-but-swapped path, so they must not be mixed.)
+ * X (the advancing axis), g_a5_4898 = pen Y — the same order jt1089 uses
+ * since the (v,h) migration, so the two paths share the slots safely.
  * VISUAL-UNVERIFIED (baseline +g_hud_dy mirrors jt1089's DrawChar correction). */
 static void jt966(short c) __attribute__((unused));
 static void jt966(short c)
@@ -5927,8 +5931,7 @@ static short l433a(short ch)
 
 /* L42a0 (CODE 6 + 0x42a0) — draw `ch` `count` times from char-cell (col,row),
  * each glyph one cell (4 units in 8000-space) apart, in colour (s6<<4)|s5
- * (s6 defaults to style 8). The Mac passes jt1089 in Point (v,h) order; the
- * port's jt1089 takes (h,v), so x/y are swapped here as in jt94. */
+ * (s6 defaults to style 8). jt1089 takes the faithful (v, h) order. */
 static void l42a0(short col, short row, short s5, short s6,
                   short count, short ch)
 {
@@ -5941,7 +5944,7 @@ static void l42a0(short col, short row, short s5, short s6,
 		s6 = 8;
 	color = (short)((s6 << 4) | (unsigned char)s5);
 	for (i = 0; i < count; i++)
-		jt1089((short)((i << 2) + xbase), ybase, color,
+		jt1089(ybase, (short)((i << 2) + xbase), color,
 		       ua_strs_at(0x6c4) /* "%c" */, (int)(unsigned char)ch);
 }
 
@@ -7206,15 +7209,12 @@ static void l14d0(unsigned char *rec, short arg)
 
 	jt1141(*(short *)(rec + 16), *(short *)(rec + 18),
 	       0, 8006, &v, &h);
-	/* Mac calls jt1089(v, h, ...) in Point (vertical, horizontal) order;
-	 * the port's jt1089 takes (horizontal, vertical) — it swaps at both
-	 * the sink and every caller (see jt94), so a faithful caller must
-	 * pass (h, v) here to land on the port convention.
+	/* jt1089 takes the faithful Point (v, h) order.
 	 * v+6: the radio marker glyph is drawn with its TOP at the row pen
 	 * (jt1135(rec16)), but DrawString puts the label BASELINE there, so the
 	 * 8px text rode ~6px high above the 7px marker. +6 drops the baseline to
 	 * vertically centre the label on the marker (race/align/gender/class). */
-	jt1089(h, (short)(v + 6), col, "%s", *(const char **)(rec + 12));
+	jt1089((short)(v + 6), h, col, "%s", *(const char **)(rec + 12));
 }
 
 /* jt380 — shape 3 method dispatcher. cmd=2 has a primary text-
@@ -18032,8 +18032,8 @@ static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
 		 * express the half-row, so go through jt1089 directly. (Same fix the
 		 * menu labels got via their +4-unit nudge in menu_run.) */
 		#define title_text(page, row, col, s) \
-			jt1089((short)(((page) << 2) + 8000), \
-			       (short)(((row) << 2) + 8002), (short)(col), "%s", (s))
+			jt1089((short)(((row) << 2) + 8002), \
+			       (short)(((page) << 2) + 8000), (short)(col), "%s", (s))
 		/* "Unlimited Adventures" (20 chars) centred in the 40-col screen
 		 * (page = (40-20)/2 = 10), matching the Mac title. */
 		title_text(10, 3, 11, "Unlimited Adventures");
@@ -18557,19 +18557,19 @@ static void l35f8(void)
 
 	PROBE("L35f8");
 	jt76();
-	/* Mac coords are (v, h); the port's jt1089 takes (h, v) — pass swapped
-	 * so RACE/ALIGNMENT/GENDER stack down the left column and CLASS sits in
-	 * the right column (the real FRUA two-column pick layout).
-	 * PICK RACE y nudged 8006->8008 (y12->y16): at the port's mandatory ×2
+	/* jt1089 takes the faithful Point (v, h) order: RACE/ALIGNMENT/
+	 * GENDER stack down the left column (h=8006), CLASS in the right
+	 * column (h=8068).
+	 * PICK RACE v nudged 8006->8008 (y12->y16): at the port's mandatory ×2
 	 * the 8px header font reaches up to y5 and clipped the FRAME top bar
 	 * (y0-8); +4px clears it while keeping an 8px gap to the ELF row (y24).
 	 * The other headers sit lower and already clear the bar. (320x200
 	 * content-vs-frame alignment — the content is also drawable at the Mac's
 	 * ×3 where the fixed frame has more room; we never use ×3 — task #108.) */
-	jt1089((short)8006, (short)8008, col, "PICK RACE");
-	jt1089((short)8006, (short)8040, col, "PICK ALIGNMENT");
-	jt1089((short)8006, (short)8076, col, "PICK GENDER");
-	jt1089((short)8068, (short)8012, col, "PICK CLASS");
+	jt1089((short)8008, (short)8006, col, "PICK RACE");
+	jt1089((short)8040, (short)8006, col, "PICK ALIGNMENT");
+	jt1089((short)8076, (short)8006, col, "PICK GENDER");
+	jt1089((short)8012, (short)8068, col, "PICK CLASS");
 }
 
 /* L29ae (CODE 17 + 0x29ae) — character max-HP finalize. Computes rec[82]
