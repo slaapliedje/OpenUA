@@ -35881,8 +35881,57 @@ typedef unsigned char (*glib_load_cb)(short refnum, void *spec);
  * non-zero finalize, and L157c / jt1152 / jt1142 / jt1121 are the disk-retry
  * dialog the port (files on GEMDOS disk) never enters. Lifted with the save
  * path + the loader's disk-swap UI. */
+/* L341a (CODE 3+0x341a) — the Mac SFPutFile save dialog ("File to
+ * save" picker; no GEMDOS equivalent yet). Leaf PROBE stub. The
+ * L322c volume split and L31fc name tail are already lifted near
+ * the top of the file. */
+static short l341a(const char *prompt, const char *dflt,
+                   long ftype, long creator)
+{
+	PROBE("l341a");
+	(void)prompt; (void)dflt; (void)ftype; (void)creator;
+	return 0;
+}
+
+/* L3386 (CODE 3+0x3386) — create the file with a Mac type/creator
+ * stamp. TOS has no type/creator metadata, so this maps to the
+ * shim's Create (which takes and ignores them) — the clean GEMDOS
+ * equivalent. */
+static short l3386(const char *pname, short vref, long ftype,
+                   long creator)
+{
+	return Create((ConstStr255Param)pname, vref, creator, ftype);
+}
+
+/* JT[392] (CODE 3+0x351c) — create a save file from `spec`, full
+ * lift. A "%" spec opens the Mac's SFPutFile dialog ("File to
+ * save", type 'GAME' creator 'MAG;' — L341a leaf stub, no TOS
+ * equivalent yet); otherwise split the volume ref (L322c) and name
+ * tail (L31fc), convert to a Pascal string (l45d6) and create with
+ * type 'TEXT' creator 'KAHL' when n == 0 (THINK C's text files)
+ * else 'GAME'/'MAG;'. */
 static short jt392(const char *spec, short n) __attribute__((unused));
-static short jt392(const char *spec, short n) { PROBE("jt392"); (void)spec; (void)n; return -1; }
+static short jt392(const char *spec, short n)
+{
+	char        pname[130];
+	short       vref;
+	const char *name;
+
+	PROBE("jt392");
+	if (spec[0] == '%')
+		return l341a(ua_strs_at(0x43ea) /* "File to save" */,
+		             ua_strs_at(0x43f8), 0x47414d45L /* GAME */,
+		             0x4d41473bL /* MAG; */);
+
+	vref = l322c(spec);
+	name = (vref != 0) ? l31fc(spec) : spec;
+	l45d6(pname, name);
+	if (n == 0)
+		return l3386(pname, vref, 0x54455854L /* TEXT */,
+		             0x4b41484cL /* KAHL */);
+	return l3386(pname, vref, 0x47414d45L /* GAME */,
+	             0x4d41473bL /* MAG; */);
+}
 /* JT[416] (CODE 3+0x35d6) — delete the file named by C string `spec`,
  * full lift: L45d6 converts to a Pascal string, JT[1054] (the _Delete
  * Pascal trap glue at CODE 5+0x5b74) = the shim's FSDelete(name, 0);

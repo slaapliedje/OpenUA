@@ -97,3 +97,13 @@ jt326 (CODE 9).
   FULL-over-stub (8-char basename build from the -31268 table;
   l0004_c6 char appender = leaf stub — the bare l0004 name belongs
   to another segment's lifted local). Band 4 at 77/100.
+- 2026-06-12: glue sweep + jt392. ALIAS x4: jt1038 (_GetOSEvent/
+  SetTrapAddress glue), jt1060 (async-PB volume glue), jt1062
+  (_StripAddress — identity on the 030's flat 32-bit bus), and
+  **jt1025 (1756B!) = the _SysEnvirons availability glue** — the
+  scary CODE 5 "big one" was the THINK C compatibility shim section,
+  not engine code. jt392 FULL (create-save-file: '%' spec = the Mac
+  SFPutFile dialog via the l341a leaf stub, else L322c/L31fc split
+  (already lifted) + l3386 = the shim's Create — TOS has no
+  type/creator metadata, 'TEXT'/'KAHL' vs 'GAME'/'MAG;' stamps
+  noted). Band 4 at 82/100.
