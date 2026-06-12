@@ -27,4 +27,10 @@ void InitDialogs(void *restartProc);    /* Dialog Manager */
 /* Run the seven inits above in the standard Mac startup order. */
 void toolbox_init(void);
 
+/* Process Manager: terminate the application immediately. Tears the
+ * platform back down (sound vector, input vector, display mode) before
+ * exiting so TOS gets its screen back — the Mac trap's "return to
+ * Finder" contract. */
+void ExitToShell(void) __attribute__((noreturn));
+
 #endif /* COMPAT_TOOLBOX_H */

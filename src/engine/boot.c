@@ -43,6 +43,7 @@
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "fc.h"               /* fc_dump */
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
+#include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
@@ -508,12 +509,11 @@ static short jt411(short refNum)                   /* CODE 3 + 0x3de2 */
  * Genuinely a no-op in the original; PROBE label for tracing
  * which paths reach it. */
 static void  jt445(void)                           { PROBE("jt445"); }            /* CODE 3 + 0x294e */
-/* JT[415] (CODE 3 + 0x37da) — wraps _ExitToShell. The Mac call
- * tears down the application and returns to Finder. No Atari
- * equivalent in the compat shim yet; treat as a no-op so boot
- * code doesn't accidentally exit. Firing this in production
- * should call exit() / Pterm0() once the shutdown path lifts. */
-static void  jt415(short a)                        { PROBE("jt415"); (void)a; }    /* CODE 3 + 0x37da */
+/* JT[415] (CODE 3 + 0x37da) — wraps _ExitToShell: terminate now.
+ * Callers push a word the body never reads (the asm is linkw /
+ * trap / unlk). The shim's ExitToShell restores the platform
+ * (sound/input vectors, display mode) before exiting. */
+static void  jt415(short a)                        { PROBE("jt415"); (void)a; ExitToShell(); }    /* CODE 3 + 0x37da */
 /* JT[1129] (CODE 4 + 0x4756) — 1-case JT[3] switch on `a`.
  *
  *   if (a == 1) g_a5_2344 = (unsigned char)a;
@@ -813,12 +813,26 @@ static long  jt1004(void)
 	return g_a5_long(-4582);
 }
 
-/* JT[69] (CODE 6 + 0x5f66) — content-load error reporter. The Mac
- * body runs the disk-error alert + cleanup chain (jt461 / jt1081 /
- * jt415); deferred to a PROBE stub. A failed GEO parse lands here. */
+/* JT[1081] (CODE 5 + 0x62) — global teardown chain (9 calls:
+ * L27bc, L35f8, jt466, jt1156, L01ac, jt1119, jt1114, L0f14,
+ * jt1158 — releases every subsystem before an exit). PROBE stub;
+ * only the jt69 fatal path reaches it, and jt415 exits right
+ * after, so the per-subsystem releases are moot on the port. */
+static void  jt1081(void)        { PROBE("jt1081"); }
+
+/* JT[69] (CODE 6 + 0x5f66) — content-load fatal error path, full
+ * lift: jt461(0) disk-error alert, l5ac0, jt1081 teardown chain,
+ * l4d7a (a bare rts on the Mac — elided), then jt415(0) =
+ * ExitToShell. A failed GEO parse lands here. */
+static void  jt461(short tag);
+static void  l5ac0(void);
 static void  jt69(void)
 {
 	PROBE("jt69");
+	jt461((short)0);
+	l5ac0();
+	jt1081();
+	jt415((short)0);
 }
 
 /* L7470 (CODE 7 + 0x7470) — IFF chunk walker. `*walker` is the
@@ -11582,7 +11596,7 @@ static void jt304(void *rec_v, short batch)
 		      (short)(signed char)rec[48]);
 	jt1088();
 }
-static void jt1148(void)      { PROBE("jt1148"); }             /* CODE 4+0x61f8 init   */
+static void jt1148(void)      { PROBE("jt1148"); ObscureCursor(); }  /* CODE 4+0x61f8: _ObscureCursor + rts */
 static void jt1087(short a)   { PROBE("jt1087"); (void)a; }    /* CODE 5+0x12c per-row */
 
 /* L3fd8 cluster deps — the per-cell tile renderer and a few leaf setups stay
@@ -28188,12 +28202,38 @@ static void jt64(short flag) { PROBE("jt64"); l5f3a(flag); }
 /* JT[67] (CODE 6+0x5f48) — combat-abort poll; 0 = keep going. */
 static unsigned char jt67(void) { PROBE("jt67"); return 0; }
 
-/* JT[55] (CODE 6+0x5b5e) — release one combat resource slot (the
- * teardown sweeps ids 8..14 and 76..80). */
-static void jt55(short id) { PROBE("jt55"); (void)id; }
+/* L3b1e (CODE 6+0x3b1e) — release one piece of the -27866 combat
+ * overlay GLIB (args: 0L, 0, 0, group handle, piece id). Leaf PROBE
+ * stub pending its own lift. */
+static void l3b1e(long a, short b, short c, long grp, short id)
+{
+	PROBE("l3b1e");
+	(void)a; (void)b; (void)c; (void)grp; (void)id;
+}
 
-/* JT[58] (CODE 6+0x5eba) — combat-screen art teardown. */
-static void jt58(void) { PROBE("jt58"); }
+/* JT[55] (CODE 6+0x5b5e) — release one combat resource slot, full
+ * lift: free piece `id` of the -27866 combat overlay GLIB, and (for
+ * ids < 38) its paired piece at id+38 (the second art bank). The
+ * teardown sweeps ids 8..14 and 76..80. */
+static void jt55(short id)
+{
+	unsigned char b = (unsigned char)id;
+
+	PROBE("jt55");
+	l3b1e(0L, (short)0, (short)0, g_a5_long(-27866), (short)b);
+	if (b < 38)
+		l3b1e(0L, (short)0, (short)0, g_a5_long(-27866),
+		      (short)(b + 38));
+}
+
+/* JT[58] (CODE 6+0x5eba) — combat-screen art teardown, full lift:
+ * release the -27870 slot through L31dc (jt461 on the live tag,
+ * then tag = -1, pointer cleared). */
+static void jt58(void)
+{
+	PROBE("jt58");
+	l31dc((void *)&g_a5_long(-27870));
+}
 
 /* CODE 13 locals of the combat loop, PROBE stubs pending lifts: */
 
@@ -28342,6 +28382,8 @@ static void jt511(void)
 }
 
 /* JT[736] (CODE 18+0x71fe) — empty body (linkw/unlk/rts); a faithful no-op. */
+/* JT[736] (CODE 18+0x71fe) — empty body on the Mac (linkw/unlk/rts);
+ * a faithful no-op like jt1130/jt920. */
 static void jt736(void) __attribute__((unused));
 static void jt736(void) { PROBE("jt736"); }
 
@@ -35214,8 +35256,19 @@ typedef unsigned char (*glib_load_cb)(short refnum, void *spec);
  * path + the loader's disk-swap UI. */
 static short jt392(const char *spec, short n) __attribute__((unused));
 static short jt392(const char *spec, short n) { PROBE("jt392"); (void)spec; (void)n; return -1; }
+/* JT[416] (CODE 3+0x35d6) — delete the file named by C string `spec`,
+ * full lift: L45d6 converts to a Pascal string, JT[1054] (the _Delete
+ * Pascal trap glue at CODE 5+0x5b74) = the shim's FSDelete(name, 0);
+ * returns the negated OSErr (the asm's negw). */
 static short jt416(const char *spec) __attribute__((unused));
-static short jt416(const char *spec) { PROBE("jt416"); (void)spec; return 0; }
+static short jt416(const char *spec)
+{
+	char pname[256];
+
+	PROBE("jt416");
+	l45d6(pname, spec);
+	return (short)-FSDelete((ConstStr255Param)pname, (short)0);
+}
 static void  jt1109(void) __attribute__((unused));
 static void  jt1109(void) { PROBE("jt1109"); }
 static void  l157c(short a, short b, long c) __attribute__((unused));
@@ -35533,6 +35586,116 @@ static short l3e0c(const unsigned char *buf, short count, unsigned char val)
 		if (buf[i] == val)
 			break;
 	return i;
+}
+
+/* --- band-3 tiny batch (docs/band3-wall.md) -------------------------- */
+
+/* L4648 (CODE 3+0x4648) — islower: 'a' <= ch <= 'z'. (Its sibling at
+ * +0x466a is the isupper twin l46b2/jt395 routes through.) */
+static int l4648(short ch)
+{
+	return ch >= 'a' && ch <= 'z';
+}
+
+/* JT[405] (CODE 3+0x46d8) — uppercase a C string in place: each
+ * lowercase byte gets -32 added (the asm's addib #-32). */
+static void jt405(char *s) __attribute__((unused));
+static void jt405(char *s)
+{
+	PROBE("jt405");
+	if (s == NULL)
+		return;
+	for (; *s != 0; s++)
+		if (l4648((short)*s))
+			*s = (char)(*s - 32);
+}
+
+/* JT[59] (CODE 6+0x60d4) — format `value` into the A5 -13073 scratch
+ * buffer via JT[478] (short -> decimal string) and return the buffer
+ * pointer. */
+static char *jt59(short value) __attribute__((unused));
+static char *jt59(short value)
+{
+	PROBE("jt59");
+	jt478(value, (char *)&g_a5_byte(-13073));
+	return (char *)&g_a5_byte(-13073);
+}
+
+/* JT[61] (CODE 6+0x6076) — reserve one 62-byte node from the
+ * -21508 item bucket (JT[477]) and return its pointer (0 when the
+ * bucket is full) — the allocation half of jt36's give-item. */
+static long jt61(void) __attribute__((unused));
+static long jt61(void)
+{
+	long node = 0;
+
+	PROBE("jt61");
+	jt477((void *)&g_a5_byte(-21508), (short)62, &node);
+	return node;
+}
+
+/* JT[261] (CODE 10+0x62c6) — is byte `val` one of the 28 entries of
+ * the -11652 list? -1 when found (JT[409]'s index < 28), else 0. */
+static short jt261(short val) __attribute__((unused));
+static short jt261(short val)
+{
+	short idx;
+
+	PROBE("jt261");
+	idx = l3e0c((const unsigned char *)&g_a5_byte(-11652), (short)28,
+	            (unsigned char)val);
+	return (short)((idx < 28) ? -1 : 0);
+}
+
+/* JT[307] (CODE 22+0x48e4) — design-entry kind: 8 when the entry's
+ * byte 4 (the locked/flag byte) is set, else 7. */
+static short jt307(const unsigned char *entry) __attribute__((unused));
+static short jt307(const unsigned char *entry)
+{
+	PROBE("jt307");
+	return (short)((entry != NULL && entry[4] != 0) ? 8 : 7);
+}
+
+/* JT[348] (CODE 8+0x6db2) — field 0 of record `n`-1 in the 20-byte
+ * record table at A5 -13038 (the jt23 record-table base); 0 when
+ * n == 0 (record ids are 1-based). */
+static unsigned char jt348(short n) __attribute__((unused));
+static unsigned char jt348(short n)
+{
+	unsigned char b = (unsigned char)n;
+
+	PROBE("jt348");
+	if (b == 0 || g_a5_13038 == NULL)
+		return 0;
+	return *(g_a5_13038 + (long)b * 20 - 20);
+}
+
+/* JT[351] (CODE 8+0x73f8) — fixed-arg wrapper: JT[209](1). */
+static void jt351(void) __attribute__((unused));
+static void jt351(void)
+{
+	PROBE("jt351");
+	jt209((short)1);
+}
+
+/* L7ab4 (CODE 5+0x7ab4) — the message-window pagination printer
+ * (printf-style; recurses through itself with the " %s%( %)Page %2d"
+ * footer format and re-enters JT[1072] with count 2). Leaf PROBE
+ * stub pending its own lift. */
+static void l7ab4(const char *fmt)
+{
+	PROBE("l7ab4");
+	(void)fmt;
+}
+
+/* JT[1072] (CODE 5+0x7c74) — flush `n` pending message-window lines:
+ * call L7ab4(NULL) n times (the asm pre-decrements, so exactly n). */
+static void jt1072(short n) __attribute__((unused));
+static void jt1072(short n)
+{
+	PROBE("jt1072");
+	while (--n >= 0)
+		l7ab4(NULL);
 }
 
 /* JT[459] (CODE 3+0xd44) — size query over the pool.

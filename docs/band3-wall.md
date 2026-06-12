@@ -81,3 +81,16 @@ Total ≈ 10 KB of asm.
 - 2026-06-12: jt35 + jt29 LIFTED (full); l2f4c routed to jt29 —
   jt40's multi-class secondary-stat arm is live. The asm settled the
   doc conflict: jt29 = (jt35(rec) > rec[138], unsigned) ? -1 : 0.
+- 2026-06-12: tiny batch (17 entries). FULL: jt415 (_ExitToShell —
+  shim ExitToShell added: platform teardown + exit), jt69 (fatal
+  error path; jt1081 teardown chain stubbed, l4d7a = bare rts
+  elided), jt1148 (_ObscureCursor — shim already had it), jt55
+  (combat slot release over an l3b1e leaf stub), jt58 (l31dc on the
+  -27870 slot), jt416 (FSDelete via l45d6 + the JT[1054] _Delete
+  glue = shim FSDelete), jt405+l4648 (strupr/islower), jt59 (jt478
+  decimal scratch), jt61 (jt477 item-node alloc), jt261 (l3e0c
+  28-list member test), jt307 (entry[4] ? 8 : 7), jt348 (-13038
+  record-table field 0), jt351 (jt209(1)), jt1072 (message-flush
+  loop over an l7ab4 leaf stub). NOOP-set: jt329 jt920 jt736
+  (literal rts). ALIAS: jt1154 = jt1154_pg, jt1054 = shim FSDelete.
+  Band 3 at 74/100 (19 MISSING + 7 STUB left).
