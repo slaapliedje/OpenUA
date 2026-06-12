@@ -18627,7 +18627,7 @@ static int   jt315(void)
  * them as ProcPtr; until the menu rendering reaches them, they stay
  * PROBE stubs. */
 static void    jt140(void)                          { PROBE("jt140"); }
-static void    jt156(void)                          { PROBE("jt156"); }
+static void    jt156(short item, short y, short x); /* full lift below */
 
 /* JT[158] globals.
  *  g_a5_13016 — the source / dialog id JT[158] passes through to JT[444]
@@ -18868,11 +18868,11 @@ static void jt158(short arg1, short arg2)
 	case 9:
 	case 12:
 		jt452((short)5, (long)arg1, (long)arg2, d0, d2,
-		      34L, (long)(void *)jt156, 20L, 0L);
+		      34L, (long)(uintptr_t)(void (*)(short, short, short))jt156, 20L, 0L);
 		break;
 	default:
 		jt452((short)5, (long)arg1, (long)arg2, d0, d2,
-		      34L, (long)(void *)jt156, 0L);
+		      34L, (long)(uintptr_t)(void (*)(short, short, short))jt156, 0L);
 		break;
 	}
 
@@ -38491,6 +38491,89 @@ static void jt925(void)
 			      *(short *)(rec + 76 + i * 2));
 		}
 		jt399(rec + 76, (short)6, (short)0);
+	}
+}
+
+/* JT[83] (CODE 6+0x6908) — jt79's sibling paint-pass close with
+ * count 16: l670c, l66e6(16), l3918(0). Full lift (the 466-byte
+ * size estimate measured the previous function). */
+static void jt83(void) __attribute__((unused));
+static void jt83(void)
+{
+	PROBE("jt83");
+	l670c();
+	l66e6((short)16);
+	l3918(0L);
+}
+
+/* JT[960] (CODE 21+0x1a34) — the roster-cycle sound/feedback tick.
+ * Leaf PROBE stub pending its own lift. */
+static void jt960(void)
+{
+	PROBE("jt960");
+}
+
+/* L15ae (CODE 7+0x15ae) — mode-12 post-pick hook. Leaf PROBE stub
+ * pending its own lift. */
+static void l15ae(short n)
+{
+	PROBE("l15ae");
+	(void)n;
+}
+
+/* JT[156] (CODE 7+0x1d5c) — the roster-pane CLICK handler, full
+ * lift over the jt960/l15ae leaf stubs. jt1139 maps the click
+ * against the -19172/-19174 roster origin; row = the local y / 4.
+ * A click on the ACTIVE member (its -27928 list index) in pick
+ * modes 13/9 confirms through jt444(item, 20) and sets -13004;
+ * otherwise the active member cycles (jt157's latch picks jt960 vs
+ * the jt934(133) advance) until the index matches, wrapping at the
+ * -19176 count. Without a confirm, mode 12 runs the L15ae hook,
+ * and the HUD roster repaints (jt937 + jt1134). */
+static unsigned char jt157(void);
+static void jt156(short item, short y, short x)
+{
+	short o1 = 0, o2 = 0, row, idx = 0;
+	signed char found = 0;
+	long  m;
+
+	PROBE("jt156");
+	g_a5_byte(-13004) = 0;
+	jt1139(g_a5_word(-19172), g_a5_word(-19174), y, x, &o1, &o2);
+	row = (short)(o1 / 4);
+
+	for (m = g_a5_long(-27928); ; ) {
+		if (m == g_a5_long(-27932)) {
+			found = 1;
+			break;
+		}
+		if (m == 0)
+			break;
+		m = *(long *)(uintptr_t)m;
+		idx++;
+	}
+	(void)found;
+
+	if (idx == row) {
+		if (g_a5_word(-13018) == 13 || g_a5_word(-13018) == 9) {
+			jt444(item, (short)20, 0, 0);
+			g_a5_byte(-13004) = 1;
+		}
+	} else {
+		while (idx != row) {
+			if (jt157() != 0)
+				jt960();
+			else
+				jt934((short)133);
+			idx = (short)((idx + 1) % g_a5_word(-19176));
+		}
+	}
+
+	if (g_a5_byte(-13004) == 0) {
+		if (g_a5_word(-13018) == 12)
+			l15ae((short)1);
+		jt937(g_a5_long(-27932));
+		jt1134();
 	}
 }
 
