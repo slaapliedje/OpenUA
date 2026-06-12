@@ -111,6 +111,15 @@ Total ≈ 10 KB of asm.
   jt278 STRUCTURAL (design-list entry painter: anchor/state/JT[1161]
   clear faithful, the four per-kind painters L2aaa/L2f24/L329c/L347a
   are leaf PROBE stubs). Band 3 at 84/100.
+- 2026-06-12: jt33 FULL (Training Hall "can train?" gate: per class
+  slot, JT[26] XP threshold + the -28048 class-cap table vs the XP
+  long at rec+68 — L3038 was ALREADY lifted as jt26, same address).
+  jt469 FULL (FCInsDel insert/delete-span over the FAR pool, with
+  the JT[1084] "Invalid offset"/"bad length" modals) + L0e10 lifted
+  full (group resize: slide later groups via l1020, advance the
+  -10270 slot table, low-water in -9300). NAMING TRAP hit: CODE 3's
+  L0d44 = jt459 and L0d1a = jt468 — boot.c's l0d44 is a CODE 19
+  local. Band 3 at 86/100.
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.

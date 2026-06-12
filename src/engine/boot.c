@@ -35795,6 +35795,38 @@ static signed char jt504(const unsigned char *rec)
 	return (signed char)(((entry[14] & 20) == 20) ? 1 : 0);
 }
 
+/* JT[33] (CODE 6+0x2d8e) — can this member train a level? For each
+ * class slot 0..6 with a live level byte (rec[157+i] in 1..39):
+ * the next level's XP threshold comes from JT[26] (the L3038 XP
+ * table), and the class-cap byte at -28048[rec[88]*7 + i] blocks
+ * slots already at their racial/class cap (level >= cap). True
+ * when the member's XP (long at rec+68) meets a positive threshold
+ * on an uncapped slot. */
+static signed char jt33(const unsigned char *rec) __attribute__((unused));
+static signed char jt33(const unsigned char *rec)
+{
+	signed char result = 0;
+	short       i;
+
+	PROBE("jt33");
+	for (i = 0; i <= 6 && result == 0; i++) {
+		unsigned char lvl = rec[157 + i];
+		long          need;
+		int           capped;
+
+		if (lvl == 0 || lvl >= 40)
+			continue;
+		need   = jt26((long)(uintptr_t)rec, (short)(lvl + 1),
+		              (short)i);
+		capped = (lvl >=
+		          g_a5_buf(-28048)[(long)rec[88] * 7 + i]);
+		if (*(const long *)(rec + 68) >= need && need > 0
+		    && !capped)
+			result = 1;
+	}
+	return result;
+}
+
 /* L4900 (CODE 22+0x4900) — diagonal-click direction gate: the
  * current facing (JT[358]) when it's a cardinal code (<= 4),
  * else 0. */
@@ -36045,6 +36077,83 @@ static unsigned char l0ab8(long size)
 	if (freenow < g_a5_9300)
 		g_a5_9300 = freenow;
 	return 1;
+}
+
+/* L0e10 (CODE 3+0xe10) — resize the group bound to freemap id `id`
+ * by `delta` bytes: clamp a shrink to the group's size (jt459),
+ * ensure tail room on a grow (l0a6e), slide the data of every later
+ * group (l1020 from slot[seq] over slot[count]-slot[seq] bytes),
+ * advance the slot table entries, and track the free-space
+ * low-water in g_a5_9300. Returns 0 only when the grow can't fit. */
+static unsigned char l0e10(short id, long delta)
+{
+	short seq, count = g_a5_9306;
+	long  size = jt459(id);
+
+	if (size < -delta)
+		delta = -size;
+	if (delta == 0)
+		goto low_water;
+	if (delta > 0 && !l0a6e(delta))
+		return 0;
+
+	seq = (short)((signed char)g_a5_10074[id] + 1);
+	if (seq < count)
+		l1020((const void *)(uintptr_t)g_a5_10270[seq],
+		      (void *)(uintptr_t)(g_a5_10270[seq] + delta),
+		      g_a5_10270[count] - g_a5_10270[seq]);
+	for (; seq <= count; seq++)
+		g_a5_10270[seq] = g_a5_10270[seq] + delta;
+
+low_water:
+	if (jt459(-1) < g_a5_9300)
+		g_a5_9300 = jt459(-1);
+	return 1;
+}
+
+/* JT[469] (CODE 3+0xf2a) — FCInsDel: insert (`length` > 0) or
+ * delete (`length` < 0) a span at `offset` inside the group bound
+ * to freemap id `id`, full lift. Validates the offset/length
+ * against the group size (jt459) with the Mac's JT[1084] error
+ * modals; deletes slide the tail down before the L0e10 resize,
+ * inserts slide it up after. jt468 (= the Mac's L0d1a) is the
+ * group base pointer. */
+static void jt469(short id, long offset, long length) __attribute__((unused));
+static void jt469(short id, long offset, long length)
+{
+	long size = jt459(id);
+	long base;
+
+	PROBE("jt469");
+	if (offset < 0 || offset > size) {
+		l036a(ua_strs_at(0x42a8) /* "FCInsDel: Invalid offset %l" */,
+		      offset);
+		return;
+	}
+	if (length < 0) {
+		if (offset - length > size) {
+			l036a(ua_strs_at(0x42c4) /* "FCInsDel: bad length %l" */,
+			      length);
+			return;
+		}
+	} else if (!l0a6e(length)) {
+		return;
+	}
+
+	if (length < 0) {
+		base = jt468(id) + offset;
+		l1020((const void *)(uintptr_t)(base - length),
+		      (void *)(uintptr_t)base,
+		      size - offset + length);
+	}
+	if (!l0e10(id, length))
+		return;
+	if (length > 0) {
+		base = jt468(id) + offset;
+		l1020((const void *)(uintptr_t)base,
+		      (void *)(uintptr_t)(base + length),
+		      size - offset);
+	}
 }
 
 /* JT[460] (CODE 3+0xc0a) — append `length` raw bytes from the open
