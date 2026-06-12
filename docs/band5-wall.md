@@ -67,3 +67,9 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
 
 - 2026-06-12: campaign opened; 5 aliases + 1 NOOP + jt107/jt67
   trivial lifts.
+- 2026-06-12: jt1024 (LBCreate) + jt467 (the pool appender) FULL —
+  and the jt1021 PORT GUARD IS DELETED: l36e0's "activ" claim now
+  creates a real list-block ('GLIB' header + first offset 20 via
+  jt464/jt467/l0ab8) before jt1021's LBInsert runs. Hatari-verified:
+  boot + Training Hall clean — the band-3 boot-corruption scenario
+  is structurally fixed. Band 5 at 49/100.
