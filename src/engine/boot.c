@@ -17105,10 +17105,29 @@ static void l4c46(void) { PROBE("L4c46"); l6048(); l4b84(); }
  * the IKBD (jt1118) and maps the arrow keys 338/339 to scroll (jt50/jt51);
  * a return of 0 means "not consumed". Minimal for now — the menu items are
  * keyboard/click-selectable through l2d3e directly. */
+static void jt50(void);         /* page keys — defined with the jt511 family */
+static void jt51(void);
+
 static short   jt313(void *rec, short cmd, ...)
 {
+	short key = cmd;        /* the Mac reuses the arg slot as scratch */
+
 	PROBE("jt313");
-	(void)rec; (void)cmd;
+	(void)rec;
+	/* Faithful body (CODE 22+0x4d3c): drain pending events, routing
+	 * the page keys (338 -> jt50, 339 -> jt51) as they pass, then
+	 * route the final key once more. */
+	while (jt1118() != 0) {
+		if (key == 338)
+			jt50();
+		else if (key == 339)
+			jt51();
+		key = jt1133();
+	}
+	if (key == 338)
+		jt50();
+	if (key == 339)
+		jt51();
 	return 0;
 }
 
@@ -18125,10 +18144,17 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 			 * dim stone grey. cmd 36 consumes the first 18 as its
 			 * arg (rec[24]); the second 18 is the standalone set-bit. */
 			if (recessed)
+				/* cmd 16 = set rec[28] BIT 0 — the Mac's DISABLED
+				 * state (jt444(item,16) post-build): jt137 keys on
+				 * it for the recessed bars (13/14/15 via the &9 pal
+				 * mask) AND the black 128 label, and msg-2 rejects
+				 * the hit.  (The old standalone cmd 18 set bit 2 —
+				 * the retired jt382-port "dim" convention jt137
+				 * never reads.) */
 				jt452((long)1, ly, (long)items[i].x,
 				      (long)(uintptr_t)lbl,
 				      (long)32, (long)items[i].hotkey,
-				      (long)36, (long)18, (long)18,
+				      (long)36, (long)18, (long)16,
 				      (long)20, (long)21, (long)0);
 			else
 				jt452((long)1, ly, (long)items[i].x,
@@ -18169,40 +18195,38 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 static void jt315_decorate(unsigned char *px, short pitch, short sw, short sh,
                            int phase)
 {
-	if (phase == 0) {
-		/* Title plate extents from the faithful jt81 panel jt103(1,1,38,13):
-		 * pixel y 8..112, x 8..312 (the grey title area the Mac shows the
-		 * GEN stone framing). The port box was 90px tall (y6..96), ending
-		 * ~14px too high above the buttons; extend it to ~y110 so it reaches
-		 * close to the first button row (py 118) like the Mac. */
-		draw_title_panel(px, pitch, sw, sh, 6, 6, 313, 110);  /* title plate */
-		return;
-	}
+	(void)px; (void)pitch; (void)sw; (void)sh;
+	if (phase == 0)
+		return;   /* the title panel IS jt81's jt103(1,1,38,13) box */
 	{
+		/* The FAITHFUL header (CODE 22+0x506e..0x50ee, confirmed
+		 * against the Mac blit trace): five jt94 lines —
+		 *   (8,3,11)  title string      <- A5 -13948
+		 *   (4,4,7)   version string    <- A5 -13944
+		 *   (4,9,11)  "Current Game Design:"
+		 *   (25,9,7)  the design filename (-31336)
+		 *   (4,10,7)  the design title   (-18876)
+		 * -13948/-13944 are DATA string pointers; fall back to
+		 * literals if the replay left them unprintable. */
+		const char *t = (const char *)(uintptr_t)g_a5_long(-13948);
+		const char *v = (const char *)(uintptr_t)g_a5_long(-13944);
 		const char *design = (const char *)g_a5_buf(-31336);
 		const char *title  = (const char *)g_a5_buf(-18876);
-		/* title_text(page, row, col, s): like jt94 (style 0) but drops the
-		 * baseline +4px (+2 engine units) so the line sits where the Mac
-		 * shows it. The shim font is baseline-anchored (ascent 7), drawing
-		 * ~half a font cell above the row coord; jt94's row-only coord can't
-		 * express the half-row, so go through jt1089 directly. (Same fix the
-		 * menu labels got via their +4-unit nudge in menu_run.) */
-		#define title_text(page, row, col, s) \
-			jt1089((short)(((row) << 2) + 7998), \
-			       (short)(((page) << 2) + 8000), (short)(col), "%s", (s))
-		/* "Unlimited Adventures" (20 chars) centred in the 40-col screen
-		 * (page = (40-20)/2 = 10), matching the Mac title. */
-		title_text(10, 3, 11, "Unlimited Adventures");
-		/* Port version + build date. The Mac drew one A5 string here, laid
-		 * out version at the left and the date right-of-centre; mirror that
-		 * spread (version col 4, date col 23) with __DATE__ so the build
-		 * date tracks the build. Edit "Version 0.1" to bump the version. */
-		title_text(4,  4, 7, "Version 0.1");
-		title_text(23, 4, 7, __DATE__);
-		title_text(4,  9, 11, "Current Game Design:");
-		if (design[0]) title_text(25, 9, 7, design);
-		if (title[0])  title_text(4, 10, 7, title);
-		#undef title_text
+
+		if (t == NULL || t[0] < 32 || t[0] > 126 || t[1] < 32)
+			t = "Unlimited Adventures";
+		if (v == NULL || v[0] < 32 || v[0] > 126 || v[1] < 32)
+			v = "Version 0.1  " __DATE__;
+		jt94((short)8,  (short)3,  (short)11, (short)0, "%s", t);
+		jt94((short)4,  (short)4,  (short)7,  (short)0, "%s", v);
+		jt94((short)4,  (short)9,  (short)11, (short)0, "%s",
+		     ua_strs_at(0x31e6) /* "Current Game Design:" */);
+		if (design[0])
+			jt94((short)25, (short)9,  (short)7, (short)0,
+			     "%s", design);
+		if (title[0])
+			jt94((short)4,  (short)10, (short)7, (short)0,
+			     "%s", title);
 	}
 }
 
