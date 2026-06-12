@@ -52,7 +52,8 @@ OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
 NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         329, 920, 736,   # literal `rts` / empty linkw-unlk bodies on the Mac
         252, 260, 234, 271, 326,   # band-4 bare-rts entries (raw bytes checked)
-        709}   # band-5 bare-rts (CODE 16+0x0004)
+        709,   # band-5 bare-rts (CODE 16+0x0004)
+        859}   # band-5 bare-rts (CODE 18+0x77f6: 4e75)
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
@@ -99,6 +100,7 @@ ALIAS_LIFTED = {
     899: "lifted as l5274 (same address; max-HP ceiling)",
     105: "lifted as l3f3c (same address; bigpic palette-range install)",
     1038: "the _GetOSEvent/SetTrapAddress trap glue = the shim's events",
+    1059: "the async-PB file trap glue (FSDispatch sel 9/10/16/17/11) = the shim's files.c",
     1060: "the async-PB volume trap glue = the shim's files.c",
     1062: "the _StripAddress glue — identity on the 68030's flat 32-bit bus",
     1025: "the _SysEnvirons availability glue — the shim's environment is fixed",
@@ -122,6 +124,10 @@ ALIAS_LIFTED = {
 PENDING_NOTES = {
     1177: "HAL — Mac framebuffer addressing; needs the row-blit display "
           "backend, not a transcription",
+    1126: "the page scroll-blit (CODE 4+0x5d9c): SetPort/CopyBits over the "
+          "-2570 NewGWorld page-descriptor table — the jt1146/jt1177 "
+          "bus-error family. Closes with task #105's page-record init; "
+          "needs L053e/L04de/L77fe/L78e8 leaf helpers too",
     501:  "dispatcher — 598-line. Own session",
     21:   "dispatcher — 454-line. Own session",
     28:   "dispatcher — 307-line. Own session",

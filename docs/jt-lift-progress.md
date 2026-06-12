@@ -13,24 +13,24 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 632 done (596 lifted, 12 noop, 24 alias), 167 stub, 406 missing.
+**1205 distinct JT entries are called.** Overall: 758 done (687 lifted, 19 noop, 52 alias), 157 stub, 290 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
 | 1 | 1–100 | **99/100** | 91 | 8 | 1 | 0 |
-| 2 | 101–200 | **98/100** | 90 | 8 | 2 | 0 |
-| 3 | 201–300 | **96/100** | 79 | 17 | 0 | 4 |
-| 4 | 301–400 | **36/100** | 35 | 1 | 6 | 58 |
-| 5 | 401–500 | **40/100** | 39 | 1 | 13 | 47 |
-| 6 | 501–600 | **29/100** | 28 | 1 | 20 | 51 |
-| 7 | 601–700 | **26/100** | 26 | 0 | 4 | 70 |
+| 2 | 101–200 | **100/100** | 92 | 8 | 0 | 0 |
+| 3 | 201–300 | **99/100** | 82 | 17 | 0 | 1 |
+| 4 | 301–400 | **99/100** | 76 | 23 | 1 | 0 |
+| 5 | 401–500 | **97/100** | 83 | 14 | 0 | 3 |
+| 6 | 501–600 | **29/100** | 28 | 1 | 23 | 48 |
+| 7 | 601–700 | **27/100** | 27 | 0 | 7 | 66 |
 | 8 | 701–800 | **34/100** | 34 | 0 | 6 | 60 |
 | 9 | 801–900 | **4/100** | 4 | 0 | 90 | 6 |
 | 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 |
-| 11 | 1001–1100 | **60/100** | 60 | 0 | 6 | 34 |
-| 12 | 1101–1200 | **14/100** | 14 | 0 | 14 | 72 |
+| 11 | 1001–1100 | **60/100** | 60 | 0 | 8 | 32 |
+| 12 | 1101–1200 | **14/100** | 14 | 0 | 16 | 70 |
 | 13 | 1201–1205 | **1/5** | 1 | 0 | 0 | 4 |
 
 ## Band 1 detail (rank 1–100)
@@ -185,7 +185,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 141 | jt213 | 11 | LIFTED |  |
 | 142 | jt312 | 11 | LIFTED |  |
 | 143 | jt492 | 11 | LIFTED |  |
-| 144 | jt599 | 11 | **STUB** |  |
+| 144 | jt599 | 11 | LIFTED |  |
 | 145 | jt860 | 11 | LIFTED |  |
 | 146 | jt1067 | 11 | LIFTED |  |
 | 147 | jt1128 | 11 | LIFTED |  |
@@ -215,7 +215,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 171 | jt478 | 9 | LIFTED |  |
 | 172 | jt593 | 9 | LIFTED |  |
 | 173 | jt872 | 9 | LIFTED |  |
-| 174 | jt882 | 9 | **STUB** |  |
+| 174 | jt882 | 9 | LIFTED |  |
 | 175 | jt904 | 9 | LIFTED |  |
 | 176 | jt983 | 9 | LIFTED |  |
 | 177 | jt987 | 9 | LIFTED |  |

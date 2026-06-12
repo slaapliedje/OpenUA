@@ -160,3 +160,36 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
     estimate included the separately-lifted L49e6 registration).
   Band 5 at 87/100. LEFT: jt24/jt88 partials, jt173, jt247, jt859,
   jt915, jt1059, jt1022-debug + the two own-session dispatchers.
+- 2026-06-12: jt915 REST engine (committed 021b9b0, see log there).
+- 2026-06-12: band-5 closer:
+  - jt859 = bare rts on the Mac (CODE 18+0x77f6: `4e75`) — NOOP set;
+    the "512B" estimate was the next-linkw artifact again.
+  - jt1059 ALIAS — the async-PB file trap glue (FSDispatch selectors
+    9/10/16/17/11, sync/async pairs) = the shim's files.c; same
+    THINK C glue band as jt1060/jt1062/jt1025.
+  - jt173 FULL + jt141 FULL (the AREA-MAP cell picker — jt171's
+    overland sibling on 12-unit cells over the 7x7 grid: same
+    L2062/L206e/L23b4/L25b6 spine, two jt452 streams of four edge
+    strips (keys 9/11/5/7) + four corner blocks (10/4/6/8) around
+    the cached cell (-12668/-12667), plus a shape-7 key source
+    (JT[141]) that latches SPACE into -13003 and returns it as ' ').
+  - jt247 FULL + l2558 FULL (the per-event GAME SETTINGS prompt:
+    title from the -11000 string table by *rec's low-6-bit type
+    (type 6 formats the +8-bit count), prompt = the -10724/-10716/
+    -10696/-10692 word combos, then the L2558 modal — centered
+    title at v=8034 colour 143, JT[148] prompt bar, the JT[245]
+    Return/Esc source when buttonless, JT[152]-classified poll,
+    verdict stored as (max - cmd) in *rec's low byte).
+  - jt1192 FULL (GLIB dither-pattern row fill: 16-word pattern
+    cycled per row at the word-aligned cursor (new l05dc helper),
+    stride -3084) and jt1194 FULL (the table-driven bit-stream
+    decoder: 256+256-byte symbol/control banks per level, bit-7
+    extend hops 512 to the next level, 16-bit window with byte
+    refill; returns the last consumed src address).
+  - jt1126 recorded PENDING by design — the page scroll-blit runs
+    SetPort/CopyBits over the -2570 NewGWorld page-descriptor table
+    (the jt1146/jt1177 bus-error family) + needs L053e/L04de/L77fe/
+    L78e8; closes with task #105's page-record init.
+  **BAND 5 CLOSED at 97/100** — open: jt1126 (above), jt290/jt327
+  (own-session editor dispatchers). jt1022 stays GUARDED (the
+  resize-debug rider, counts LIFTED).

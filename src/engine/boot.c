@@ -23637,6 +23637,100 @@ static void jt1202(unsigned char *src, short w, short h, short stride2)
 	g_a5_long(-3076) = (long)(uintptr_t)dst;
 }
 
+/* L05dc (CODE 4 + 0x05dc) — the GLIB blit cursor, word-aligned. */
+static long l05dc(void) __attribute__((unused));
+static long l05dc(void) { PROBE("L05dc"); return g_a5_long(-3076) & ~1L; }
+
+/* JT[1192] (CODE 4 + 0x08ea) — pattern fill: stamp `rows` rows x `wbytes`
+ * bytes of the 16-word dither pattern `pat` at the word-aligned GLIB cursor
+ * (L05dc), starting at pattern row (idx & 15) and cycling row-by-row; rows
+ * advance by the -3084 stride, and the cursor lands one stride past the
+ * last row (same convention as jt1202). */
+static void jt1192(short rows, short wbytes, const short *pat,
+                   short idx) __attribute__((unused));
+static void jt1192(short rows, short wbytes, const short *pat, short idx)
+{
+	long   stride = g_a5_long(-3084);
+	short *dst;
+	short  r, k, words, pi;
+
+	PROBE("jt1192");
+	l05ea(rows, wbytes);
+	dst   = (short *)(uintptr_t)l05dc();
+	pi    = (short)((idx & 15) * 2);
+	words = (short)((wbytes >> 1) - 1);
+	for (r = (short)(rows - 1); r >= 0; r--) {
+		short *row = dst;
+		short  v   = *(const short *)((const char *)pat + pi);
+
+		for (k = words; k >= 0; k--)
+			*dst++ = v;
+		pi  = (short)((pi + 2) & 30);
+		dst = (short *)((char *)row + stride);
+	}
+	g_a5_long(-3076) = (long)(uintptr_t)dst;
+}
+
+/* JT[1194] (CODE 4 + 0x10a8) — table-driven bit-stream decoder: emit `count`
+ * bytes into `dst` from the bit stream at `src`, decoding through `table`
+ * (256-byte symbol bank + 256-byte control bank per level). A control byte
+ * with bit 7 set un-emits the symbol, hops 512 bytes to the next table
+ * level (consuming its low-nibble bit count) and extends the loop by one;
+ * otherwise the control byte IS the bit count and the level resets. The
+ * 16-bit window refills a byte at a time (d5 = bits left in the low byte).
+ * Returns the address of the last consumed source byte. */
+static long jt1194(const unsigned char *src, unsigned char *dst,
+                   short count, const unsigned char *table)
+                   __attribute__((unused));
+static long jt1194(const unsigned char *src, unsigned char *dst,
+                   short count, const unsigned char *table)
+{
+	unsigned short win;             /* d6 — the bit window */
+	short          left = 8;        /* d5 — bits left in the low byte */
+	short          bank = 0;        /* d4 — table level | window high byte */
+	short          n;               /* d7 */
+	long           ret;
+
+	PROBE("jt1194");
+	win = (unsigned short)((unsigned short)*src++ << 8);
+	win = (unsigned short)(win | *src++);
+
+	n = (short)(count - 1);
+	do {
+		unsigned char ctl;
+		short         take;
+
+		bank = (short)((bank & 0xff00) | ((win >> 8) & 0xff));
+		*dst++ = table[bank];
+		bank   = (short)(bank + 256);
+		ctl    = table[bank];
+		if (ctl & 0x80) {               /* extend: deeper table level */
+			dst--;
+			bank = (short)(bank + 256);
+			n++;
+			take = (short)(ctl & 15);
+		} else {
+			bank = 0;
+			take = (short)ctl;
+		}
+		if (take >= left) {             /* refill across the byte seam */
+			win   = (unsigned short)(win << left);
+			win   = (unsigned short)(win | *src++);
+			take  = (short)(take - left);
+			win   = (unsigned short)(win << take);
+			left  = (short)(8 - take);
+		} else {
+			win   = (unsigned short)(win << take);
+			left  = (short)(left - take);
+		}
+	} while (--n >= 0);                     /* dbf d7 */
+
+	ret = (long)(uintptr_t)(src - 1);
+	if (left == 8)
+		ret--;
+	return ret;
+}
+
 /* JT[121] (CODE 6 + 0x379c) — draw a tile glyph `c` from GLIB `handle` at map
  * cell (x,y) in doubled space (x*4+8004, y*4+8004), via jt108 + jt1001. */
 static void jt121(short x, short y, short c, short d, long handle) __attribute__((unused));
@@ -36167,6 +36261,87 @@ static short jt171(long prompt, long cmdstring, short a3, short a4,
 	return l25b6(tmp, buf, &g_a5_24139);
 }
 
+/* JT[141] (CODE 7 + 0x29b0) — jt173's shape-7 key proc: SPACE (32) latches
+ * g_a5_-13003 (the "space pressed" flag jt173's tail converts back to ' '),
+ * pokes the item with cmd 20, and reports the key consumed. */
+static short jt141(short item, short key)
+{
+	PROBE("jt141");
+	if (key == 32) {
+		g_a5_byte(-13003) = 1;
+		jt444(item, (short)20, (short)0, (short)0);
+		return 1;
+	}
+	return 0;
+}
+
+/* jt173 (CODE 7 + 0x29da) — the AREA-MAP cell picker; jt171's overland
+ * sibling. Same L2062 / L206e / L23b4 / L25b6 spine, but the four edge
+ * strips (key codes 9/11/5/7) and four corner blocks (10/4/6/8) are laid
+ * around a 12-unit map cell at (cx, cy) on the 7x7 area grid, and the
+ * ninth item is a shape-7 key source (proc JT[141]) that latches SPACE
+ * into g_a5_-13003 — returned as ' ' (32) after the poll. The cell is
+ * cached in g_a5_-12668/-12667; a change re-arms the chrome via L2062.
+ * Modal mode is L2858(4) like jt171, but set AFTER the item build. */
+static short jt173(long prompt, long cmdstring, short a3, short a4,
+                   short cx, short cy) __attribute__((unused));
+static short jt173(long prompt, long cmdstring, short a3, short a4,
+                   short cx, short cy)
+{
+	unsigned char buf[80];
+	unsigned char a3_lo = (unsigned char)(a3 & 0xff);
+	short         x = (short)((unsigned char)cx);
+	short         y = (short)((unsigned char)cy);
+	short         tmp, res;
+
+	PROBE("jt173");
+	if ((short)g_a5_byte(-12668) != x ||
+	    (short)g_a5_byte(-12667) != y) {
+		l2062();
+		g_a5_byte(-12668) = (unsigned char)x;
+		g_a5_byte(-12667) = (unsigned char)y;
+	}
+	(void)l206e(cmdstring, buf, (const char *)(uintptr_t)prompt, &a3_lo);
+	/* (L2170(width) is redundant — l206e already set g_a5_-13016.) */
+
+	if (g_a5_12911 != 0) {
+		/* Stream 1 (asm 0x2aaa-0x2b48): the N/W/S/E edge strips
+		 * (key codes 9/11/5/7) around cell (x, y). cmd 5 =
+		 * {rec16, rec18, rec22, rec24} as in jt171. */
+		jt452((long)5, (long)(x*12 + 8004), (long)8000, (long)12, (long)(y*12 + 4),
+		      (long)41, (long)9,  (long)20,
+		      (long)5, (long)8000, (long)(y*12 + 8004), (long)(x*12 + 2), (long)12,
+		      (long)41, (long)11, (long)20,
+		      (long)5, (long)(x*12 + 8004), (long)((y + 1)*12 + 8002), (long)12, (long)((6 - y)*12 + 6),
+		      (long)41, (long)5,  (long)20,
+		      (long)5, (long)((x + 1)*12 + 8006), (long)(y*12 + 8002), (long)((6 - x)*12 + 4), (long)12,
+		      (long)41, (long)7,  (long)20,
+		      (long)0);
+		/* Stream 2 (asm 0x2bf4-0x2c92): the four corner blocks
+		 * (key codes 10/4/6/8). */
+		jt452((long)5, (long)8000, (long)8000, (long)(x*12 + 4), (long)(y*12 + 4),
+		      (long)41, (long)10, (long)20,
+		      (long)5, (long)8000, (long)((y + 1)*12 + 8004), (long)(x*12 + 4), (long)((6 - y)*12 + 4),
+		      (long)41, (long)4,  (long)20,
+		      (long)5, (long)((x + 1)*12 + 8004), (long)((y + 1)*12 + 8004), (long)((6 - x)*12 + 4), (long)((6 - y)*12 + 4),
+		      (long)41, (long)6,  (long)20,
+		      (long)5, (long)((x + 1)*12 + 8004), (long)8000, (long)((6 - x)*12 + 4), (long)(y*12 + 4),
+		      (long)41, (long)8,  (long)20,
+		      (long)0);
+		/* Stream 3 (asm 0x2c9c-0x2caa): the SPACE key source. */
+		jt452((long)7, (long)(uintptr_t)jt141, (long)0);
+	}
+
+	l2858((short)4);
+	tmp = l23b4((short)(signed char)(a4 & 0xff));
+	res = (short)(l25b6(tmp, buf, &g_a5_24139) & 0xff);
+	if (g_a5_byte(-13003) != 0) {
+		g_a5_byte(-13003) = 0;
+		res = 32;
+	}
+	return res;
+}
+
 /* jt164 (CODE 7 + 0x2fa4) — the horizontal button-bar picker. The play
  * command bar runs through here: L206e lays a space-delimited button string
  * (e.g. "Move Area Cast View Encamp Search Look Inv", the A5-13764 global)
@@ -39117,6 +39292,135 @@ static short jt245(short a, short key)
 	}
 	g_a5_word(-10372) = 0;
 	return 0;
+}
+
+/* L2558 (CODE 2 + 0x2558) — the settings/choice modal jt247 runs: paint the
+ * centered title (colour 143 at v=8034, 4-unit cells over a 38-col line),
+ * lay the prompt bar via JT[148], optionally install the JT[245] Return/Esc
+ * key source when there are no buttons (max == 0), then poll until JT[152]
+ * classifies a command index in [0, max]. The accelerator flag (-24139)
+ * maps Return to 0 and everything else (Esc / '`' included) to max; with
+ * no buttons the JT[245]-latched -10372 key (13/27) picks 0. The verdict
+ * lands in *rec's low byte as (max - cmd). */
+static void l2558(long *rec, const char *title, char *prompt, short max)
+{
+	short sel, cmd;
+
+	PROBE("L2558");
+	if (title == NULL)
+		return;
+	(void)jt108((short)1);
+	(void)jt112((short)1);
+	jt76();
+	jt1089((short)8034,
+	       (short)((short)((38 - jt423(title)) * 4) / 2 + 8004),
+	       (short)143, title);
+	jt447();
+	jt179(max);
+	jt148(g_a5_long(-13952), prompt, (short)0);
+	if (max == 0)
+		jt452((long)7, (long)(uintptr_t)jt245, (long)20, (long)0);
+	jt449((short)1);
+	(void)jt112((short)0);
+	(void)jt117();
+
+	for (;;) {
+		sel = l2d3e();                  /* JT[456] */
+		if (sel < 0) {
+			jt1067();
+			continue;
+		}
+		cmd = jt152(sel);
+		if (cmd >= 0) {
+			if (g_a5_byte(-24139) != 0) {
+				cmd = (cmd == 13) ? 0 : max;
+				g_a5_byte(-24139) = 0;
+			}
+		} else if (max == 0
+		           && (g_a5_word(-10372) == 13
+		               || g_a5_word(-10372) == 27)) {
+			cmd = 0;
+		}
+		if (cmd >= 0 && cmd <= max)
+			break;
+	}
+	jt451();
+	*rec = (long)((*rec & 0xffffff00L) | (long)(max - cmd));
+}
+
+/* jt247 (CODE 2 + 0x23be) — the per-event GAME SETTINGS prompt: read the
+ * event-type code from *rec's low 6 bits, build the title from the -11000
+ * string-pointer table and the prompt from the settings word pair, then
+ * run the L2558 modal which stores the pick back into *rec's low byte.
+ *   type 0       — three-way prompt ("%s %s %s" of -10724/-10716/-10692),
+ *                  max = 2;
+ *   types 1-5, 7 — two-way ("%s %s" of -10696/-10692), max = 1;
+ *   type 6       — title formatted with the count byte ((*rec >> 8 & 255)
+ *                  + 1), same two-way prompt;
+ *   types 8-10   — two-way only when *rec has the 0x300 bits, else the
+ *                  bare "%s" (-10696) with max = 0 (Return/Esc only);
+ *   type >= 11   — no prompt (title stays empty, modal skipped).
+ * Returns its first arg unchanged (the caller's pass-through code). */
+static short jt247(short ret, long *rec) __attribute__((unused));
+static short jt247(short ret, long *rec)
+{
+	char  prompt[46];               /* fp@(-90) */
+	short max = 0;                  /* fp@(-44) */
+	char  title[42];                /* fp@(-42) */
+	short type;                     /* fp@(-2)  */
+
+	PROBE("jt247");
+	prompt[0] = 0;
+	type = (short)(*rec & 63);
+	switch (type) {
+	case 0:
+		jt384(title, (const char *)(uintptr_t)
+		      g_a5_long(-11000 + (long)type * 4));
+		jt394(prompt, ua_strs_at(0x2bb6) /* "%s %s %s" */,
+		      (const char *)(uintptr_t)g_a5_long(-10724),
+		      (const char *)(uintptr_t)g_a5_long(-10716),
+		      (const char *)(uintptr_t)g_a5_long(-10692));
+		max = 2;
+		break;
+	case 1: case 2: case 3: case 4: case 5: case 7:
+		jt384(title, (const char *)(uintptr_t)
+		      g_a5_long(-11000 + (long)type * 4));
+		jt394(prompt, ua_strs_at(0x2bc0) /* "%s %s" */,
+		      (const char *)(uintptr_t)g_a5_long(-10696),
+		      (const char *)(uintptr_t)g_a5_long(-10692));
+		max = 1;
+		break;
+	case 6:
+		jt394(title, (const char *)(uintptr_t)
+		      g_a5_long(-11000 + (long)type * 4),
+		      (int)(((*rec & 0xff00L) >> 8) + 1));
+		jt394(prompt, ua_strs_at(0x2bc6) /* "%s %s" */,
+		      (const char *)(uintptr_t)g_a5_long(-10696),
+		      (const char *)(uintptr_t)g_a5_long(-10692));
+		max = 1;
+		break;
+	default:
+		if (type < 11) {
+			jt384(title, (const char *)(uintptr_t)
+			      g_a5_long(-11000 + (long)type * 4));
+			if ((*rec & 0x300L) != 0) {
+				jt394(prompt, ua_strs_at(0x2bcc) /* "%s %s" */,
+				      (const char *)(uintptr_t)g_a5_long(-10696),
+				      (const char *)(uintptr_t)g_a5_long(-10692));
+				max = 1;
+			} else {
+				jt394(prompt, ua_strs_at(0x2bd2) /* "%s" */,
+				      (const char *)(uintptr_t)g_a5_long(-10696));
+			}
+		} else {
+			title[0] = 0;
+		}
+		break;
+	}
+
+	if (title[0] != 0)
+		l2558(rec, title, prompt, max);
+	return ret;
 }
 
 /* JT[257] (CODE 2+0x20ee) — record one keystroke event: the
