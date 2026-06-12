@@ -122,3 +122,10 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   classes (jt40, level cap 21), and the slot-0 rec[121]-keyed
   adjustments — the Mac applies them inside the class loop,
   preserved). Hall-verified. Band 5 at 72/100.
+- 2026-06-12: small four: jt245 FULL (Return/Escape settings-key
+  latch into -10372), jt257 FULL (keystroke recorder into the
+  -12190/-12090 rings, cap 99/20), jt1006 FULL (colour fill pattern
+  — the depth-0 B&W arm expands through the -4572 dither table into
+  16 row words), jt1071 FULL (the centered message-line print:
+  (86-len)/2 right-shift via the overlap-safe jt406, jt399 space
+  fill, l7ab4). Band 5 at 76/100.
