@@ -10865,7 +10865,7 @@ static void        jt238(void *rec)                     { PROBE("jt238"); jt304(
  * command-prompt line; l4810 releases a transient. jt287/jt294 (CODE 22) are
  * the action procs the registered walk DLItems carry (see l6256). */
 static void        jt148(long prompt, char *title, short flag);  /* CODE 7+0x33dc — lifted near l206e */
-static void        l206e(long p1, unsigned char *buf, const char *suffix, unsigned char *byte_ptr); /* CODE 7+0x206e */
+static short       l206e(long p1, unsigned char *buf, const char *suffix, unsigned char *byte_ptr); /* CODE 7+0x206e */
 static void        l1f3e(short a8, short a10);            /* CODE 7+0x1f3e — bar sizer */
 static void        l2858(short mode);                    /* CODE 7+0x2858 */
 static void        l429c(short a, short b)               { PROBE("L429c"); (void)a;(void)b; }                  /* CODE 11-local */
@@ -25482,6 +25482,57 @@ static void l1806(short v)
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
 }
 
+static void l2170(short arg);   /* CODE 7+0x2170, defined below */
+
+/* JT[153] (CODE 7 + 0x159a) — set the current-pick record (-13014). */
+static void jt153(long rec_l) __attribute__((unused));
+static void jt153(long rec_l)
+{
+	PROBE("jt153");
+	g_a5_long(-13014) = rec_l;
+}
+
+/* JT[162] (CODE 7 + 0x15a8) — get the current-pick record (-13014). */
+static long jt162(void) __attribute__((unused));
+static long jt162(void)
+{
+	PROBE("jt162");
+	return g_a5_long(-13014);
+}
+
+/* JT[163] (CODE 7 + 0x2e30) — prompt + modal keystroke wait.  Arms pen
+ * mode 7 (l2858), lays the prompt cluster (l206e with `str` as the
+ * suffix and arg3's low byte as the trailing flag), stamps the returned
+ * width (l2170), sizes the bar (l1f3e; the -19174 bound depends on the
+ * play mode -27990), clears the special-key gate (-13004), then runs
+ * the modal loop (l23b4 on arg4's low byte, sign-extended) and
+ * translates the result (l25b6 into the cancel byte -24139).  Returns
+ * the translated key class. */
+static short jt163(unsigned char *str, long bar, short flag1, short flag2)
+                                                  __attribute__((unused));
+static short jt163(unsigned char *str, long bar, short flag1, short flag2)
+{
+	unsigned char buf[80];
+	unsigned char trail = (unsigned char)flag1;
+	short w, tmp;
+
+	PROBE("jt163");
+	l2858((short)7);
+	w = l206e(bar, buf, (const char *)str, &trail);
+	l2170(w);
+	if (g_a5_byte(-27990) == 0) {
+		g_a5_19172 = 8016;
+		g_a5_19174 = 8004;
+	} else {
+		g_a5_19172 = 8016;
+		g_a5_19174 = 8068;
+	}
+	l1f3e((short)g_a5_19172, (short)g_a5_19174);
+	g_a5_byte(-13004) = 0;
+	tmp = l23b4((short)(signed char)(flag2 & 0xff));
+	return l25b6(tmp, buf, &g_a5_24139);
+}
+
 /* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop
  * painter (LIFTED below — drives the GLIB sprite/PIC/bigpic event display via
  * jt43/l08ce/l0ac2/l1476), l3f22 = pre-move predicate, l4184 / l3ef8 = view
@@ -31086,8 +31137,8 @@ static short jt393(const char *a, const char *b)
  * cache-comparison + JT[384] copy chain runs as the Mac code
  * intended (jt393 lifted faithfully so the dirty flag tracks
  * real prompt changes). */
-static void l206e(long p1, unsigned char *buf,
-                  const char *suffix, unsigned char *byte_ptr)
+static short l206e(long p1, unsigned char *buf,
+                   const char *suffix, unsigned char *byte_ptr)
 {
 	short width;
 
@@ -31137,6 +31188,8 @@ static void l206e(long p1, unsigned char *buf,
 
 	g_a5_12911 = g_a5_12912;
 	g_a5_12912 = 0;
+	return width;          /* the asm leaves fp@(-2) (the width) in d0 —
+	                        * jt163 feeds it to L2170 */
 }
 
 static void  l2170(short arg);          /* defined below (CODE 7+0x2170) */
