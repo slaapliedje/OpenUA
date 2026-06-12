@@ -105,6 +105,12 @@ Total ≈ 10 KB of asm.
   was the next-linkw artifact). jt366 deferred to the CODE 8 group
   (needs the CODE 8 locals l6520/l5f04/l62e0 — NOT CODE 14's
   l6520!). Band 3 at 82/100 (12 MISSING + 6 STUB left).
+- 2026-06-12: CODE 22 pair. jt272 FULL (area-map click -> numpad
+  move direction; stores the clicked cell into -12287/-12288; the
+  L4900 diagonal gate lifted full = jt358 facing clamped to <= 4).
+  jt278 STRUCTURAL (design-list entry painter: anchor/state/JT[1161]
+  clear faithful, the four per-kind painters L2aaa/L2f24/L329c/L347a
+  are leaf PROBE stubs). Band 3 at 84/100.
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.

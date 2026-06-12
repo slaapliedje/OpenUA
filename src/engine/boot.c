@@ -35795,6 +35795,119 @@ static signed char jt504(const unsigned char *rec)
 	return (signed char)(((entry[14] & 20) == 20) ? 1 : 0);
 }
 
+/* L4900 (CODE 22+0x4900) — diagonal-click direction gate: the
+ * current facing (JT[358]) when it's a cardinal code (<= 4),
+ * else 0. */
+static signed char l4900(void)
+{
+	signed char v = (signed char)jt358();
+
+	return ((unsigned char)v <= 4) ? v : 0;
+}
+
+/* JT[272] (CODE 22+0x087c) — area-map click -> move direction.
+ * Translates (y, x) into the map viewport (-11674/-11672 origin,
+ * -11670/-11668 extent; -2 when outside), stores the clicked cell
+ * into the party-position globals (-12287 row / -12288 col, biased
+ * by the -11706/-11704 scroll), then classifies the click's offset
+ * inside the -12272-unit cell: 8 = top band, 4 = bottom, 6 = left,
+ * 2 = right (numpad directions); exact diagonals return -1 unless
+ * the L4900 facing gate passes. */
+static short jt272(short y, short x) __attribute__((unused));
+static short jt272(short y, short x)
+{
+	short cell, rem_y, rem_x, half, last;
+
+	PROBE("jt272");
+	y = (short)(y - g_a5_word(-11674));
+	x = (short)(x - g_a5_word(-11672));
+	if (y < 0 || y >= g_a5_word(-11670)
+	 || x < 0 || x >= g_a5_word(-11668))
+		return -2;
+
+	cell = g_a5_word(-12272);
+	g_a5_12287 = (unsigned char)(y / cell + g_a5_word(-11706));
+	g_a5_12288 = (unsigned char)(x / cell + g_a5_word(-11704));
+
+	rem_y = (short)(y % cell);
+	rem_x = (short)(x % cell);
+	half  = (short)(cell >> 1);
+	last  = (short)(cell - 1);
+
+	if (rem_x == rem_y || (short)(last - rem_y) == rem_x)
+		if (l4900() == 0)
+			return -1;
+
+	if (rem_y < half) {
+		if (rem_x < rem_y)
+			return 6;
+		if ((short)(last - rem_y) < rem_x)
+			return 2;
+		return 8;
+	}
+	if (rem_x > rem_y)
+		return 2;
+	if ((short)(last - rem_y) > rem_x)
+		return 6;
+	return 4;
+}
+
+/* CODE 22 design-entry painters (L2aaa / L2f24 / L329c / L347a) —
+ * one per entry kind 0..3; leaf PROBE stubs pending their own
+ * lifts. Args: the entry handle-holder, the (y, x) anchor in
+ * 8000-space, -1 (paint-all), the entry state byte, and the
+ * state==0 flag. */
+static void l2aaa(long hp, short y, short x, short sel, short st, short z)
+{ PROBE("l2aaa"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+static void l2f24(long hp, short y, short x, short sel, short st, short z)
+{ PROBE("l2f24"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+static void l329c(long hp, short y, short x, short sel, short st, short z)
+{ PROBE("l329c"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+static void l347a(long hp, short y, short x, short sel, short st, short z)
+{ PROBE("l347a"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+
+/* JT[278] (CODE 22+0x294e) — paint one design-list entry. The
+ * handle's record: byte 4 = state (0 picks the (8068, 8084) anchor
+ * and bar height 24, else (8058, 8092) and 26), byte 5 = kind
+ * (JT[3] switch 0..3 over the four painters), byte 36 = last
+ * painted state (stamped at exit). `repaint` clears the entry's
+ * rect first (JT[1161] fill 8). Structural lift: the call sequence
+ * is faithful, the per-kind painters are leaf stubs. */
+static void jt278(long handle_ptr, short repaint) __attribute__((unused));
+static void jt278(long handle_ptr, short repaint)
+{
+	unsigned char *rec =
+	    (unsigned char *)(uintptr_t)*(long *)(uintptr_t)handle_ptr;
+	short          is_zero = (short)((rec[4] == 0) ? -1 : 0);
+	short          y, x;
+
+	PROBE("jt278");
+	if (is_zero != 0) {
+		y = 8068; x = 8084;
+	} else {
+		y = 8058; x = 8092;
+	}
+
+	if ((repaint & 0xff) != 0)
+		jt1161((short)(y + 4), x,
+		       (short)(y + (is_zero != 0 ? 24 : 26)),
+		       (short)(x + 64), (short)8);
+
+	switch (rec[5]) {
+	case 0: l2aaa(handle_ptr, y, x, (short)-1,
+	              (short)(signed char)rec[4], is_zero); break;
+	case 1: l2f24(handle_ptr, y, x, (short)-1,
+	              (short)(signed char)rec[4], is_zero); break;
+	case 2: l329c(handle_ptr, y, x, (short)-1,
+	              (short)(signed char)rec[4], is_zero); break;
+	case 3: l347a(handle_ptr, y, x, (short)-1,
+	              (short)(signed char)rec[4], is_zero); break;
+	default: break;
+	}
+
+	rec[36] = rec[4];
+}
+
 /* JT[883] (CODE 19+0x4248) — adjust a member's encumbrance: the
  * word at rec+86 += delta. (The band-2 "387-line" size note was an
  * artifact — the lines belong to the L4264/L4334 locals that follow
