@@ -51,7 +51,8 @@ OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
 #           the trap is genuinely a no-op on the target (done, not pending).
 NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         329, 920, 736,   # literal `rts` / empty linkw-unlk bodies on the Mac
-        252, 260, 234, 271, 326}   # band-4 bare-rts entries (raw bytes checked)
+        252, 260, 234, 271, 326,   # band-4 bare-rts entries (raw bytes checked)
+        709}   # band-5 bare-rts (CODE 16+0x0004)
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
@@ -102,6 +103,11 @@ ALIAS_LIFTED = {
     1062: "the _StripAddress glue — identity on the 68030's flat 32-bit bus",
     1025: "the _SysEnvirons availability glue — the shim's environment is fixed",
     1076: "lifted as l7ab4 (same address; the message paginator, full)",
+    1124: "lifted as l4d88 (same address; CODE 4 rect helper)",
+    988: "lifted as l17e2 (same address; the .slb loader entry)",
+    48: "lifted as l5864 (same address; -24260 release + 0xFF flag)",
+    514: "lifted as l6520 (same address; the CODE 14 range check)",
+    950: "lifted as l0b20 (same address; the -28006 record helper)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
