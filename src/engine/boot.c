@@ -33271,16 +33271,155 @@ static unsigned char jt37(long rec_l)
 	return (unsigned char)g_a5_byte(-25263);
 }
 
-/* JT[555] (CODE 14 + 0x19dc) — PROBE-only stub: combat-map carry/drag
- * placement (the engulfer drags its victim's cell along).  Body lives
- * in CODE 14 we haven't lifted; jt838/jt850 call it on the carried
- * path.  *out is left untouched (the callers overwrite it with the
- * jt498 recount right after). */
+/* CODE 14 locals for jt555 — leaf PROBE stubs pending their own
+ * lifts: L7894 = the facing direction from one combatant to
+ * another (0..7), L14bc = the melee attack round (the big strike
+ * resolver), L2b24 = the missile/thrown strike. */
+static unsigned char l7894(long from, long to)
+{
+	PROBE("l7894");
+	(void)from; (void)to;
+	return 0;
+}
+static void l14bc(long atk, long def, short a, void *out, long ammo)
+{
+	PROBE("l14bc");
+	(void)atk; (void)def; (void)a; (void)out; (void)ammo;
+}
+static void l2b24(long atk, long def, long item)
+{
+	PROBE("l2b24");
+	(void)atk; (void)def; (void)item;
+}
+
+/* JT[555] (CODE 14+0x19dc) — execute one melee/missile attack, full
+ * lift over the L7894/L14bc/L2b24 leaf stubs. (The earlier stub's
+ * "carry/drag" attribution was wrong — the body is the attack
+ * executor.) Raises the -22626/-22627 repaint flags and seeds the
+ * -22720 ring head from -22721 + 15. The defender turns to face the
+ * attacker (sub-record pose (dir+4)&7, L7894; preserved poses when
+ * `a` is set) with the on-map jt523 pose flip; the attacker faces
+ * the defender (jt38 status line, jt523 swing pose, the remembered
+ * target at sub+12, the jt476(100) tick). A thrown item (`b`) or a
+ * readied bow/sling (item kind 28/29) routes through L2b24. *out
+ * is set; charmed/multi-attack actors (+387/+388) run the L14bc
+ * melee round with the attacker staged as the active member, then
+ * the ammo stack at `b` depletes by -22651 — an emptied non-23
+ * stack on a jt504 container moves into the -25302 ground list
+ * (jt477 node + jt479 copy, inserted at the -27924 cursor) before
+ * jt30 removes it — and jt21 recomputes. *out then takes the
+ * jt498 recount, and the attacker's pose returns through the
+ * jt523 pair when still on-map (l6554). */
+static signed char jt504(const unsigned char *rec);
 static void jt555(long rec_l, long ent_l, short a, long b, void *out);
 static void jt555(long rec_l, long ent_l, short a, long b, void *out)
 {
+	unsigned char *atk  = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *def  = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char *asub = (unsigned char *)(uintptr_t)
+	                      *(long *)(atk + 64);
+	unsigned char *dsub = (unsigned char *)(uintptr_t)
+	                      *(long *)(def + 64);
+	unsigned char  dir  = 0;
+
 	PROBE("jt555");
-	(void)rec_l; (void)ent_l; (void)a; (void)b; (void)out;
+	g_a5_byte(-22626) = 1;
+	g_a5_byte(-22627) = 1;
+	g_a5_buf(-22720)[0] =
+	    (unsigned char)(g_a5_byte(-22721) + 15);
+
+	if (dsub[17] < 2 && (a & 0xff) == 0) {
+		dir = l7894(ent_l, rec_l);
+		dsub[11] = (unsigned char)((dir + 4) & 7);
+	} else if (l6554(ent_l, (short)0)) {
+		dir = dsub[11];
+		if ((a & 0xff) == 0)
+			dsub[11] = (unsigned char)((dir + 4) & 7);
+	}
+	if (l6554(ent_l, (short)0))
+		jt523(ent_l, (short)dir, (short)0, (short)0);
+
+	dir = l7894(rec_l, ent_l);
+	jt38(rec_l);
+	jt523(rec_l, (short)dir, (short)1, (short)0);
+	*(long *)(asub + 12) = ent_l;
+	jt476((short)100);
+
+	if (b != 0)
+		l2b24(rec_l, ent_l, b);
+	{
+		unsigned char *held = (unsigned char *)(uintptr_t)
+		                      *(long *)(atk + 12);
+
+		if (held != NULL && (held[40] == 28 || held[40] == 29))
+			l2b24(rec_l, ent_l,
+			      (long)(uintptr_t)*(long *)(atk + 12));
+	}
+
+	*(unsigned char *)out = 1;
+
+	if (atk[387] > 0 || atk[388] > 0) {
+		long saved = g_a5_long(-27932);
+
+		g_a5_long(-27932) = rec_l;
+		l14bc(rec_l, ent_l, (short)(signed char)a, out, b);
+
+		if (b != 0) {
+			unsigned char *ammo =
+			    (unsigned char *)(uintptr_t)b;
+
+			if (ammo[53] > 0)
+				ammo[53] = (unsigned char)
+				    (ammo[53] - g_a5_byte(-22651));
+			if (ammo[53] == 0) {
+				if (jt504(atk) && ammo[55] != 23) {
+					long node = 0, cur;
+
+					jt477((void *)&g_a5_byte(-21508),
+					      (short)62, &node);
+					jt479((const void *)ammo,
+					      (void *)(uintptr_t)node,
+					      (short)62);
+					cur = g_a5_long(-25302);
+					if (cur == 0) {
+						g_a5_long(-25302) = node;
+						*(long *)(uintptr_t)node
+						    = 0;
+					} else {
+						while (*(long *)(uintptr_t)
+						       cur != 0
+						       && cur != g_a5_long(
+						              -27924))
+							cur = *(long *)
+							  (uintptr_t)cur;
+						*(long *)(uintptr_t)node =
+						    *(long *)(uintptr_t)
+						    cur;
+						*(long *)(uintptr_t)cur =
+						    node;
+					}
+					((unsigned char *)(uintptr_t)
+					 node)[50] = 0;
+					jt30(rec_l, b);
+					g_a5_long(-27924) = node;
+				} else {
+					jt30(rec_l, b);
+				}
+			}
+		}
+		jt21(rec_l);
+		g_a5_long(-27932) = saved;
+	}
+
+	if (*(unsigned char *)out != 0)
+		*(unsigned char *)out = jt498(rec_l);
+
+	if (l6554(rec_l, (short)0)) {
+		short pose = (short)asub[11];
+
+		jt523(rec_l, pose, (short)1, (short)1);
+		jt523(rec_l, pose, (short)0, (short)0);
+	}
 }
 
 /* JT[825] (CODE 18 + 0x62c2) — both passes: attack-roll stage -2. */
@@ -33933,16 +34072,108 @@ static void jt820(long rec_l, long item, short flag)
 		jt876(rec_l, (short)(unsigned char)it[55], 0, 255, 1);
 }
 
-/* JT[546] (CODE 14 + 0x4186) — pick the next combat target into the
- * actor's sub-record slot +12 (~570B: side/in-combat veto, distance
- * scan; mode 1 = fresh pick, 0 = re-pick, range limit 255 here).
- * Returns picked?1:0.  PROBE stub — leaf of the jt537 lift. */
+/* L10c4 (CODE 14+0x10c4) — line-of-sight / validity check between
+ * an actor and a candidate target. Leaf PROBE stub (allows) pending
+ * its own lift. */
+static unsigned char l10c4(long rec, long target, short mode)
+{
+	PROBE("l10c4");
+	(void)rec; (void)target; (void)mode;
+	return 1;
+}
+
+/* JT[546] (CODE 14+0x4186) — pick the next combat target into the
+ * actor's sub-record slot +12, full lift over the L10c4 LOS leaf
+ * stub. mode != 0 (fresh pick) clears the remembered target;
+ * otherwise it survives when it is an enemy (side byte 95 differs),
+ * still in combat (+382), and visible (L10c4). A surviving target
+ * returns immediately. The pick loops at most twice — the second
+ * pass raises the -25318[8] "ignore visibility" flag (honoured
+ * directly when `a` is set): build the candidate list (jt492 into
+ * the -22720 ring, count returned), roll a random start (jt870),
+ * and walk the ring — dead slots skip, an L10c4-visible candidate
+ * (resolved through the -25676 pointer table) is taken into the
+ * sub-record; an invisible one is zeroed from the ring and the walk
+ * continues while any live slot remains. Returns picked ? 1 : 0,
+ * always clearing the visibility flag. */
+static unsigned char jt492(long rec_l, short b, short c);
 static unsigned char jt546(long rec_l, short limit, short a, short mode,
                            short b)
 {
+	unsigned char *rec  = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub  = (unsigned char *)(uintptr_t)
+	                      *(long *)(rec + 64);
+	long           target = *(long *)(sub + 12);
+	signed char    passed = 0, found = 0, retry = 0;
+	unsigned char  count = 0, countdown, pick = 0;
+
 	PROBE("jt546");
-	(void)rec_l; (void)limit; (void)a; (void)mode; (void)b;
-	return 0;		/* no target picked */
+	if ((mode & 0xff) != 0) {
+		*(long *)(sub + 12) = 0;
+	} else if (target != 0) {
+		unsigned char *t = (unsigned char *)(uintptr_t)target;
+
+		if (t[95] == rec[95] || t[382] == 0
+		    || l10c4(rec_l, target, (short)(signed char)b) == 0)
+			*(long *)(sub + 12) = 0;
+	} else {
+		*(long *)(sub + 12) = 0;
+	}
+
+	if (*(long *)(sub + 12) != 0)
+		found = 1;
+
+	while (!found && !retry) {
+		retry = passed;
+		if (passed && (mode & 0xff) == 0)
+			((unsigned char *)(uintptr_t)
+			 g_a5_long(-25318))[8] = 1;
+
+		count = jt492(rec_l, (short)(unsigned char)limit,
+		              (short)(signed char)b);
+		if (count > 0)
+			pick = (unsigned char)jt870((short)1,
+			                            (short)count);
+		countdown = count;
+
+		while (countdown > 0 && !found && count != 0) {
+			countdown--;
+			if (g_a5_buf(-22720)[pick] != 0) {
+				target = g_a5_long(-25676
+				    + (long)g_a5_buf(-22720)[pick] * 4);
+				if (((a & 0xff) != 0
+				     && ((unsigned char *)(uintptr_t)
+				         g_a5_long(-25318))[8] != 0)
+				    || l10c4(rec_l, target,
+				             (short)(signed char)b) != 0) {
+					found = 1;
+					*(long *)(sub + 12) = target;
+				} else {
+					unsigned char i;
+					signed char   live = 0;
+
+					g_a5_buf(-22720)[pick] = 0;
+					for (i = 1; i <= count; i++)
+						if (g_a5_buf(-22720)[i]
+						    != 0)
+							live = 1;
+					if (!live)
+						count = 0;
+				}
+			}
+			if (!found) {
+				pick++;
+				if (pick > count)
+					pick = 1;
+			}
+		}
+
+		if (!passed)
+			passed = 1;
+	}
+
+	((unsigned char *)(uintptr_t)g_a5_long(-25318))[8] = 0;
+	return (unsigned char)(found ? 1 : 0);
 }
 
 /* L48f4 (CODE 16+0x48f4) — the combat "casts <spell>" announcement

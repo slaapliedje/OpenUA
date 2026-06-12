@@ -137,3 +137,13 @@ jt326 (CODE 9).
   random hazard-type-2 spells), jt196 + l4a7a FULL (the 6-bit
   packed-name ENCODER + char classifier — jt191's inverse; the
   classifier serves jt191's future decode too). Band 4 at 94/100.
+- 2026-06-12: jt932 FULL (XP-award scaler), jt279 FULL (area-map
+  party-marker painter), l7ab4 = jt1076 FULL (the message paginator
+  — page-header recursion, vsprintf bridge, JT[433]/L7a24 leaf
+  stubs), jt546 FULL (the two-pass random combat target picker over
+  the L10c4 LOS leaf stub — second pass raises the -25318[8]
+  ignore-visibility flag), jt555 FULL (the melee/missile attack
+  executor over L7894/L14bc/L2b24 leaf stubs — the old stub's
+  "carry/drag" attribution was wrong; includes the ammo-depletion
+  ground-drop chain). **BAND 4 COMPLETE at 99/100** — the one open
+  entry is jt1081, the by-design fatal-exit teardown stub.
