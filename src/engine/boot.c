@@ -36217,6 +36217,77 @@ static void jt278(long handle_ptr, short repaint)
 	rec[36] = rec[4];
 }
 
+/* L7490 (CODE 8+0x7490) — load area-map icon `n` into the -10366
+ * art slot. Leaf PROBE stub pending its own lift. */
+static void l7490(short n)
+{
+	PROBE("l7490");
+	(void)n;
+}
+
+/* JT[220] (CODE 7+0x6ea2) — load area-map icon `n` into the -22222
+ * art slot (the shared-icon variant). Leaf PROBE stub pending its
+ * own lift. */
+static void jt220(short n)
+{
+	PROBE("jt220");
+	(void)n;
+}
+
+/* JT[353] (CODE 8+0x7556) — paint one area-map icon at cell (x, y),
+ * full lift. Unless `flag` is set, icons >= 32 (except the 255
+ * sentinel) get +1 when the loaded GEO's kind byte (-28006 hdr[8])
+ * is < 6 or >= 20 (the alternate icon bank). Icon 0/255 = nothing.
+ * mode != 0 uses the -10366 slot (L7490 load, jt115 release), else
+ * the -22222 shared slot (JT[220] load, jt124 release). The blit is
+ * the Mac JT[118] (= jt108(1) + jt1001 raw — the port's jt118 is
+ * the incompatible render variant, so this inlines the faithful
+ * pair per the jt57 precedent) at depth 3 (jt1200()==3) with
+ * v = y*16-24 and h = x*16-96 (-24 in shared mode), else JT[121]
+ * in 8000-cell space. NOTE the Mac CODE 6 jt118/jt121/jt114 take
+ * (h, v) — settled against jt121's existing verified lift. */
+static void jt353(short x, short y, short icon, short mode, short flag)
+                                                __attribute__((unused));
+static void jt353(short x, short y, short icon, short mode, short flag)
+{
+	unsigned char ic = (unsigned char)icon;
+
+	PROBE("jt353");
+	if ((flag & 0xff) == 0 && ic >= 32 && ic != 255) {
+		const unsigned char *hdr =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+		if (hdr[8] < 6 || hdr[8] >= 20)
+			ic++;
+	}
+	if (ic == 0 || ic == 255)
+		return;
+
+	if ((mode & 0xff) != 0) {
+		l7490((short)ic);
+		if (jt1200() == 3) {
+			(void)jt108((short)1);
+			jt1001((short)(y * 16 - 24), (short)(x * 16 - 96),
+			       *(short *)(uintptr_t)g_a5_long(-10366),
+			       (short)1);
+		} else {
+			jt121(x, y, (short)1, (short)0, g_a5_long(-10366));
+		}
+		jt115((void *)&g_a5_long(-10366));
+	} else {
+		jt220((short)ic);
+		if (jt1200() == 3) {
+			(void)jt108((short)1);
+			jt1001((short)(y * 16 - 24), (short)(x * 16 - 24),
+			       *(short *)(uintptr_t)g_a5_long(-22222),
+			       (short)1);
+		} else {
+			jt121(x, y, (short)1, (short)0, g_a5_long(-22222));
+		}
+		jt124(g_a5_long(-22222));
+	}
+}
+
 /* JT[883] (CODE 19+0x4248) — adjust a member's encumbrance: the
  * word at rec+86 += delta. (The band-2 "387-line" size note was an
  * artifact — the lines belong to the L4264/L4334 locals that follow
