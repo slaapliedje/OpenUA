@@ -206,3 +206,20 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   RIDERS: jt288/jt306/jt298 FULL (the byte-295 code A/B accessors —
   CODE 22 exports L069a/L0716/L073e) + l0674 FULL + the l06e2/l0788
   automap-colour stubs upgraded to full lifts over them.
+- 2026-06-12: jt327 FULL (the design tools' editable TEXT-FIELD DLItem
+  method, CODE 8+0x0de4, all 14 JT[1] arms): default = (re)bind (stage
+  the 39-byte revert copy into the bound record, clamp width 1..38,
+  right-place after the label, default colour 0x87); 0 = paint (the
+  -27914 glyph-state counter, JT[448] glyph, right-aligned label, the
+  JT[1135]/JT[1161] box, L23d2 text, the L2338 inverted cursor cell);
+  1 = JT[1139] hit test; 27 = the JT[1132] modal edit entry; 3/18/128 =
+  focus / focusable / defocus; 26 = keystroke (ESC revert from the
+  staged copy, CR/LF commit, TAB walk to the next cmd-128 answerer,
+  else the L2df8 editor + incremental repaint); 5/42 = width/aux
+  setters; 36/40 = l1676 delegates. NEW FULL helpers: l1dd8 (take
+  focus), l1eec (drop focus), l20a0 (segment-mode reset), l1f18
+  (mouse -> cursor cell), l2338 (one-cell draw), l23d2 (text draw).
+  LEAF STUB: l2df8 (the ~1.1KB segmented keystroke primitive with the
+  +236 validation table — lift with jt328). NOTE: jt328 (CODE 8+0x16a8)
+  is the 250-byte BIG-field sibling, still MISSING by design.
+  Both own-session riders DONE — jt290 + jt327 closed.
