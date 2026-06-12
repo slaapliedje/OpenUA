@@ -94,3 +94,14 @@ Total ≈ 10 KB of asm.
   loop over an l7ab4 leaf stub). NOOP-set: jt329 jt920 jt736
   (literal rts). ALIAS: jt1154 = jt1154_pg, jt1054 = shim FSDelete.
   Band 3 at 74/100 (19 MISSING + 7 STUB left).
+- 2026-06-12: medium batch. FULL: jt367 (counter format over the
+  -10612/-10608/-10600 A5 format slots — its caller is the live HUD
+  clock line), jt95 (right-justify via jt483/jt488/jt384), jt142
+  (click -> text cell via jt1139 (stub leaf) / 12), jt475 (indexed
+  string-table get, -10280/-10276, STRS+0x41c0 fallback), jt499 +
+  jt504 (combat-kind predicates over the -27944 16-byte entries),
+  jt926 (editor dirty-flag poll, -25314x3 / -25302). ALIAS: jt99 =
+  l4b84 (the Mac body is just jsr JT[175] — the 114B size estimate
+  was the next-linkw artifact). jt366 deferred to the CODE 8 group
+  (needs the CODE 8 locals l6520/l5f04/l62e0 — NOT CODE 14's
+  l6520!). Band 3 at 82/100 (12 MISSING + 6 STUB left).
