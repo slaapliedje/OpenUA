@@ -27679,6 +27679,111 @@ static void jt727(long rec_l, long node, short flag)
 	g_a5_byte(-25257) = 0;
 }
 
+/* JT[732] (CODE 18 + 0x3a18) — "breathes %s": the generic elemental breath
+ * (the dragon attack). node[0] picks the element via a JT[1] sparse switch
+ * (table at 0x3a70): 84/default = "Fire" (damage-type 33, mode 3, range 9),
+ * 83 = "cold" (34, 3/7), 85 = "acid" (32, 1/6); 96 jumps straight to the
+ * common path with the element setup untouched (Mac quirk: mode/range/name
+ * are then stack garbage — zeroed here for defined C). The fire arm carries
+ * a dead nd[0]==83 branch (24d10+12 damage) the dispatch makes unreachable;
+ * kept faithfully. Common path: callback code 23 -> jt596 area build from
+ * the picked cell, group veto (jt493 vs EVERY target's rec[95]), "breathes
+ * %s" message, turn toward the target (jt529 -> jt523), jt497(19), breath
+ * line (jt501 anim 1/30), then per-target save (jt866 cat 3) + jt867
+ * rec[129] damage half-on-save. Charges in node[4], re-seeded to 3 outside
+ * the triggering pass -22721. */
+static void jt732(long rec_l, long node, short flag) __attribute__((unused));
+static void jt732(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+	char buf[32];
+	short dmg, ty2;
+	unsigned char mode = 0, range = 0;
+	unsigned char bx, by, pose, i, bx2, by2, tx2;
+
+	PROBE("jt732");
+	(void)flag;
+	g_a5_byte(-25257) = 1;
+	if ((unsigned char)g_a5_byte(-22721) == 0 || nd[4] > 3)
+		nd[4] = 3;
+	if (nd[4] == 0)
+		goto out;
+	dmg = (short)rec[129];
+	buf[0] = '\0';		/* type 96: Mac leaves the name garbage */
+	switch (nd[0]) {	/* JT[1] sparse table at 0x3a70 */
+	case 83:		/* cold */
+		g_a5_word(-25266) = 34;
+		mode = 3;
+		range = 7;
+		jt384(buf, ua_strs_at(0x5614) /* "cold" */);
+		break;
+	case 85:		/* acid */
+		g_a5_word(-25266) = 32;
+		mode = 1;
+		range = 6;
+		jt384(buf, ua_strs_at(0x561a) /* "acid" */);
+		break;
+	case 96:		/* no element setup (quirk above) */
+		break;
+	case 84:
+	default:		/* fire */
+		g_a5_word(-25266) = 33;
+		mode = 3;
+		range = 9;
+		jt384(buf, ua_strs_at(0x560e) /* "Fire" */);
+		if (nd[0] == 83)	/* dead: 83 goes to the cold arm */
+			dmg = (short)(jt873(24, 10) + 12);
+		break;
+	}
+	bx = jt525(rec_l);
+	by = jt531(rec_l);
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(23, 1,
+	    (unsigned char *)&g_a5_byte(-22308));
+	if ((unsigned char)g_a5_byte(-22308) == 0)
+		goto out;
+	jt596((short)(signed char)bx, (short)(signed char)by,
+	      (short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235),
+	      (short)mode, (short)range);
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510);
+	     i++) {
+		long tgt = g_a5_long(-23512 + (long)i * 4);
+		if ((short)(unsigned char)
+		    ((unsigned char *)(uintptr_t)tgt)[95] != jt493(rec_l))
+			g_a5_byte(-22308) = 0;
+	}
+	if ((unsigned char)g_a5_byte(-23510) == 0)
+		goto out;
+	if ((unsigned char)g_a5_byte(-22308) == 0)
+		goto out;
+	jt18(rec, (long)(uintptr_t)jt488(
+	    ua_strs_at(0x5620) /* "breathes %s" */, buf), 10, 1);
+	pose = jt529(rec_l, g_a5_long(-23508));
+	jt38(rec_l);
+	jt523(rec_l, (short)pose, 1, 0);
+	jt497(19);
+	bx2 = jt525(rec_l);
+	by2 = jt531(rec_l);
+	tx2 = jt525(g_a5_long(-23508));
+	ty2 = (short)(signed char)jt531(g_a5_long(-23508));
+	jt501((short)(signed char)bx2, (short)(signed char)by2,
+	      (short)(signed char)tx2, ty2, 1, 30);
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510);
+	     i++) {
+		long tgt = g_a5_long(-23512 + (long)i * 4);
+		short sv;
+		if (tgt == 0)
+			continue;
+		sv = (short)(signed char)jt866(tgt, 3, 0);
+		jt867(tgt, dmg, 2, sv);
+	}
+	nd[4] = (unsigned char)(nd[4] - 1);
+	jt498(rec_l);
+out:
+	g_a5_byte(-25257) = 0;
+}
+
 /* JT[773] (CODE 18 + 0x497e) — the petrifying gaze ("is turned to stone").
  * Hazard code 130 through the -24070 callback into the A5 pick flag -22308;
  * the pick is vetoed unless the target's rec[95] group matches jt493(rec).
