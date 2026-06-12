@@ -38435,6 +38435,100 @@ static unsigned char jt107(void)
 	return (unsigned char)g_a5_byte(-18397);
 }
 
+/* --- band-5 small four ------------------------------------------------ */
+
+/* JT[245] (CODE 2+0x4024) — keyboard-settings filter: Return (13)
+ * and Escape (27) latch into -10372 and report 1; anything else
+ * clears it. The first param is unread on the Mac. */
+static short jt245(short a, short key) __attribute__((unused));
+static short jt245(short a, short key)
+{
+	PROBE("jt245");
+	(void)a;
+	if (key == 13 || key == 27) {
+		g_a5_word(-10372) = key;
+		return 1;
+	}
+	g_a5_word(-10372) = 0;
+	return 0;
+}
+
+/* JT[257] (CODE 2+0x20ee) — record one keystroke event: the
+ * -13038 record table's field 0 for record byte -12191 + `off`
+ * gates (or the -12192 bit 0 override); the value appends to the
+ * -12190 ring (counter -12194, cap 99) and the offset byte to the
+ * -12090 ring (first 20 only). Full lift. */
+static void jt257(short off) __attribute__((unused));
+static void jt257(short off)
+{
+	unsigned char v;
+
+	PROBE("jt257");
+	v = *(g_a5_13038
+	      + (long)(unsigned char)g_a5_byte(-12191) * 20 + off - 20);
+	if (v == 0 && ((unsigned char)g_a5_byte(-12192) & 1) == 0)
+		return;
+	if (g_a5_word(-12194) >= 99)
+		return;
+	g_a5_word(-12194)++;
+	g_a5_buf(-12190)[g_a5_word(-12194)] = v;
+	if (g_a5_word(-12194) < 20)
+		g_a5_buf(-12090)[g_a5_word(-12194)] =
+		    (unsigned char)(off & 255);
+}
+
+/* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15):
+ * colour modes report the -4188 palette byte as one word; the
+ * depth-0 B&W mode expands it through the -4572 dither table
+ * (colour*4 + row&3, the byte doubled into both halves) into 16
+ * row words. Full lift. */
+static void jt1006(short idx, void *out) __attribute__((unused));
+static void jt1006(short idx, void *out)
+{
+	short *o = (short *)out;
+
+	PROBE("jt1006");
+	idx &= 15;
+	if (jt1163() != 0 || jt1200() != 0) {
+		*o = (short)g_a5_buf(-4188)[idx];
+		return;
+	}
+	{
+		short i;
+
+		for (i = 0; i < 16; i++) {
+			unsigned char c =
+			    (unsigned char)(g_a5_buf(-4188)[idx] & 127);
+			unsigned char w =
+			    g_a5_buf(-4572)[(long)c * 4 + (i & 3)];
+
+			*o++ = (short)(((short)w << 8) | w);
+		}
+	}
+}
+
+/* JT[1071] (CODE 5+0x7bfa) — print a CENTERED message line: format
+ * (the Mac's "%r" + arg tail = the port's vsprintf bridge), shift
+ * the text right by (86 - len)/2 (jt406 self-move), space-fill the
+ * left pad (jt399), and print through L7ab4. Full lift. */
+static void jt1071(const char *fmt, ...) __attribute__((unused));
+static void jt1071(const char *fmt, ...)
+{
+	char    buf[94];
+	short   pad;
+	va_list ap;
+
+	PROBE("jt1071");
+	va_start(ap, fmt);
+	vsprintf(buf, fmt ? fmt : "", ap);
+	va_end(ap);
+
+	pad = (short)((86 - jt423(buf)) / 2);
+	jt406(buf + pad, buf, (short)(80 - pad));
+	jt399(buf, pad, (short)' ');
+	l7ab4(ua_strs_at(0x71d2) /* "%s" */, buf);
+}
+
 /* --- band-5 CODE 8 trio + jt93 ---------------------------------------- */
 
 /* L35d6 (CODE 8+0x35d6 — NOT jt416's CODE 3+0x35d6) — paint one
