@@ -107,3 +107,13 @@ jt326 (CODE 9).
   (already lifted) + l3386 = the shim's Create — TOS has no
   type/creator metadata, 'TEXT'/'KAHL' vs 'GAME'/'MAG;' stamps
   noted). Band 4 at 82/100.
+- 2026-06-12: jt262 FULL (jt261's NOT-in-list inverse), jt145 FULL
+  (combat repaint = a single jt1001 FRAME piece-6 blit — the band-2
+  leaf stub upgraded). jt1081 stays a documented stub by design (its
+  9-call teardown chain only runs on the fatal-exit path where jt415
+  exits immediately after; lifting the chain is ceremony). Band 4 at
+  84/100. LEFT (16): jt79 226 STUB, jt77 442, jt184 210, jt196 410,
+  jt279 498 (CODE 22), jt338 288, jt347 254, jt352 510, jt355 272,
+  jt357 512, jt362 164 (CODE 8), jt932 300 (CODE 12), jt1076 326
+  (=l7ab4 paginator), jt1081 70 (by-design stub), jt546 568 +
+  jt555 816 (CODE 14 combat, #115 overlap).
