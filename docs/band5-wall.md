@@ -141,3 +141,22 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   arithmetic vs the port pool layout; suspect the l3834 offsets or
   the jt469 anchor). Guarded OFF pending instrumentation against
   jt111's actual call values. Boot re-verified.
+- 2026-06-12: the CODE 16 HEAVIES, all three FULL:
+  - jt661 (the charge-consume: slots at item[54..56] & 127, the
+    100-biased count at +41; kind-73 bundles walk the +58 sub-stack
+    chain with the emptied-stack unlink and the last-stack collapse
+    into the head; plain items jt30-remove when spent).
+  - jt602 (the lingering-hazard spawner, ids 34/91/101: a 34-byte
+    -20800 node, the -24085 spread pattern through -27862/-27853,
+    per-cell occupant dedup via l62ec/jt528, the jt522 terrain gate
+    (new leaf stub) + -27848 kind-255 check, the -25318 map glyph
+    stamps, the -23234 hazard-list push, the jt521 burst, and the
+    jt879 hits on every deduplicated occupant. Effect 34 = radius 9
+    glyph 28; 91 = radius 4 glyph 27 triple duration; default 4/29).
+  - jt670 = l48f4 (the cast announce — the band-2 leaf stub's full
+    body: the combat jt18 "Casts a Spell" window + jt145 + the
+    "Spell:%s" line, or the out-of-combat jt103 panel + jt25 header
+    + the caller string and spell name + jt92/jt20. The "1336B"
+    estimate included the separately-lifted L49e6 registration).
+  Band 5 at 87/100. LEFT: jt24/jt88 partials, jt173, jt247, jt859,
+  jt915, jt1059, jt1022-debug + the two own-session dispatchers.
