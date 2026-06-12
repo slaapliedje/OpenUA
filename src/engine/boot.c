@@ -27120,7 +27120,63 @@ static void jt603(void) { PROBE("jt603"); }	/* +0x2806; id 84 */
 static void jt604(void) { PROBE("jt604"); }	/* +0x38d6; id 117 */
 static void jt605(void) { PROBE("jt605"); }	/* +0x2352; id 73 */
 static void jt606(void) { PROBE("jt606"); }	/* +0x1fae; id 130 */
-static void jt607(void) { PROBE("jt607"); }	/* +0x16de; id 47,115,133 */
+static void l7026(short mod, const char *msg);
+static void l6114(short code, short a, short b, short c, short d,
+                  const char *msg);
+/* JT[607] (CODE 16+0x16de; the area-damage handler) — underwater
+ * vetoes everything except effect 51 ("That has no effect
+ * underwater!"). Otherwise raise -25257, take the dice count
+ * (effect 133 = jt870(1,3)*2+1, else JT[17] on the effect),
+ * underwater rebuilds the -23512 target table from the jt508
+ * radius collect (-19170 list, -18894 count), render the burst
+ * cell (jt521 dir 8), and announce the jt873(rolls, d6) damage
+ * (+rolls for effect 115) through L6114. Full lift. */
+static void jt607(void)
+{
+	const unsigned char *hdr =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char rolls, extra;
+	short         dmg;
+
+	PROBE("jt607");
+	if (hdr[60] != 0 && (unsigned char)g_a5_byte(-25262) != 51) {
+		jt42(ua_strs_at(0x4f30)
+		     /* "That has no effect underwater!" */);
+		return;
+	}
+
+	g_a5_byte(-25257) = 1;
+	if ((unsigned char)g_a5_byte(-25262) == 133)
+		rolls = (unsigned char)(jt870((short)1, (short)3) * 2 + 1);
+	else
+		rolls = (unsigned char)
+		        jt17((short)(unsigned char)g_a5_byte(-25262),
+		             (short)0);
+
+	if (hdr[60] != 0) {
+		unsigned char i;
+
+		jt508((short)(signed char)g_a5_byte(-23236),
+		      (short)(signed char)g_a5_byte(-23235),
+		      (short)2, (short)255, (short)1);
+		for (i = 1; i <= (unsigned char)g_a5_byte(-18894); i++)
+			g_a5_long(-23512 + (long)i * 4) =
+			    g_a5_long(-25676
+			        + (long)g_a5_buf(-19170)[i] * 4);
+		g_a5_byte(-23510) = g_a5_byte(-18894);
+	}
+
+	jt521((short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235),
+	      (short)0, (short)8);
+
+	extra = (unsigned char)
+	        (((unsigned char)g_a5_byte(-25262) == 115) ? rolls : 0);
+	dmg = (short)(jt873((short)rolls, (short)6) + extra);
+	l6114((short)(unsigned char)g_a5_byte(-25262),
+	      (short)0, (short)0, dmg, (short)9,
+	      ua_strs_at(0x4f50));
+}
 static void jt608(void) { PROBE("jt608"); }	/* +0x3c38; id 121 */
 static void jt609(void) { PROBE("jt609"); }	/* +0x1148; id 38 */
 static void jt611(void) { PROBE("jt611"); }	/* +0x2f2e; id 98 */
@@ -27135,7 +27191,32 @@ static void jt619(void) { PROBE("jt619"); }	/* +0x0da4; id 35 */
 static void jt620(void) { PROBE("jt620"); }	/* +0x0122; id 3 */
 static void jt621(void) { PROBE("jt621"); }	/* +0x2e08; id 135 */
 static void jt622(void) { PROBE("jt622"); }	/* +0x3384; id 109 */
-static void jt623(void) { PROBE("jt623"); }	/* +0x0756; id 23,49,94 */
+/* JT[623] (CODE 16+0x0756; the Hold handler) — the saving-throw
+ * modifier scales with the target count (-23510): 1 target = -3
+ * (-2 for effect 23), 2 = -1, 3/4 = 0 (the Mac's default arm reads
+ * an uninitialised local; the port keeps 0). L7026 announces
+ * "is held". Full body over the leaf stub. */
+static void jt623(void)
+{
+	signed char mod = 0;
+
+	PROBE("jt623");
+	switch ((unsigned char)g_a5_byte(-23510)) {
+	case 1:
+		mod = (signed char)
+		      (((unsigned char)g_a5_byte(-25262) == 23) ? -2 : -3);
+		break;
+	case 2:
+		mod = -1;
+		break;
+	case 3: case 4:
+		mod = 0;
+		break;
+	default:
+		break;
+	}
+	l7026((short)mod, ua_strs_at(0x4e0c) /* "is held" */);
+}
 static void jt624(void) { PROBE("jt624"); }	/* +0x01c8; id 8 */
 static void jt625(void) { PROBE("jt625"); }	/* +0x2c00; id 88 */
 static void jt626(void) { PROBE("jt626"); }	/* +0x2552; id 78 */
@@ -38287,6 +38368,19 @@ static unsigned char jt107(void)
 	PROBE("jt107");
 	return (unsigned char)g_a5_byte(-18397);
 }
+
+/* --- band-5 CODE 16 effect pair --------------------------------------- */
+
+/* L7026 (CODE 16+0x7026) — the saving-throw-modified effect
+ * announce ("is held" etc with modifier d). Leaf PROBE stub
+ * pending its own lift. */
+static void l7026(short mod, const char *msg)
+{
+	PROBE("l7026");
+	(void)mod; (void)msg;
+}
+
+
 
 /* --- band-5 CODE 22 / CODE 7 batch ----------------------------------- */
 

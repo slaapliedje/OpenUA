@@ -101,3 +101,11 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   new l4910 leaf stub; -12645 event table). jt327 + jt290 recorded
   as own-session dispatchers (14-case design-record edit; the
   806B editor click tool over 5 unlifted locals). Band 5 at 65/100.
+- 2026-06-12: CODE 16 effect pair: jt623 FULL (the Hold handler —
+  save modifier by target count, -2 for effect 23 single-target;
+  the Mac's default arm reads an uninitialised local, port keeps 0;
+  announce via the new l7026 leaf stub) and jt607 FULL (the area-
+  damage handler — underwater veto except 51, dice from jt870/jt17,
+  the underwater jt508 radius target-table rebuild, the jt521 burst
+  render, jt873 d6 damage +rolls for 115, l6114 announce).
+  Band 5 at 67/100.
