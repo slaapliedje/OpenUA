@@ -36288,6 +36288,86 @@ static void jt353(short x, short y, short icon, short mode, short flag)
 	}
 }
 
+/* L3f88 (CODE 6+0x3f88) — five-arg passthrough to JT[1161] (the
+ * filled-rect painter); the Mac kept it as a separate thunk. */
+static void l3f88(short top, short left, short bottom, short right,
+                  short fill)
+{
+	jt1161(top, left, bottom, right, fill);
+}
+
+/* JT[1078] (CODE 5+0x440) — the modal line editor: draw `prompt`,
+ * collect keystrokes into `buf` (up to `maxlen`), return nonzero on
+ * accept (Return) and 0 on cancel. Leaf PROBE stub pending its own
+ * lift — jt98's box draws, the input pends. */
+static unsigned char jt1078(long prompt, void *buf, short maxlen)
+{
+	PROBE("jt1078");
+	(void)prompt; (void)buf; (void)maxlen;
+	return 0;
+}
+
+/* JT[98] (CODE 6+0x479c) — prompt for a line of text in a framed
+ * input box, full lift. bg 0 defaults to 8; fg == bg collapses fg
+ * to 0; maxlen caps at 35 (jt413). The box geometry runs through
+ * jt1135 from rows 8094/8098 and cols 8000/8004/8156; the border
+ * is three JT[1161] strokes + the L3f88 bg fill; jt1009/jt977
+ * bracket the paint; the text colour byte is 15 at depth 3, else
+ * bg*16+fg (jt978). JT[1078] (leaf stub) edits into the A5 -17568
+ * buffer; the accept flag lands in -17567's neighbour -17528, the
+ * input is uppercased (jt405) and the buffer pointer returned. */
+static void jt978(short v);
+static char *jt98(long prompt, short fg, short bg, short maxlen)
+                                                __attribute__((unused));
+static char *jt98(long prompt, short fg, short bg, short maxlen)
+{
+	short y0 = 0, py = 0, x_l = 0, x_r = 0, y_b = 0;
+	short t6 = 0, t14 = 0, t16 = 0;
+
+	PROBE("jt98");
+	if ((unsigned char)bg == 0)
+		bg = 8;
+	if ((unsigned char)fg == (unsigned char)bg)
+		fg = 0;
+	maxlen = jt413((short)35, (short)(unsigned char)maxlen);
+
+	g_a5_byte(-17567) = 0;
+	g_a5_byte(-17568) = 0;
+
+	jt1135((short)8094, (short)8000, &y0, &t16);
+	y0 = (short)(y0 + 1);
+	t16 = 1;
+	jt1135(y0, (short)0, &py, &t6);
+	jt1135((short)8098, (short)(8000 + (t16 << 2)), &y_b, &x_l);
+	y_b = (short)(y_b + 1);
+	t6 = 38;
+	jt1135((short)0, (short)(8000 + ((t16 + t6) << 2)), &t14, &x_r);
+
+	jt1161((short)(py - 2), (short)(x_l - 1), (short)(py - 1),
+	       (short)(x_r + 1), (short)0);
+	l3f88((short)(py - 1), x_l, py, x_r, bg);
+	jt1161((short)(py - 1), (short)(x_l - 1), y_b, x_l, (short)0);
+	jt1161((short)(py - 1), x_r, y_b, (short)(x_r + 1), (short)0);
+	jt1161(y_b, (short)(x_l - 1), (short)(y_b + 1),
+	       (short)(x_r + 1), (short)0);
+
+	jt1009(y0, (short)1);
+	if (jt1200() == 3)
+		jt978((short)15);
+	else
+		jt978((short)(((unsigned char)bg << 4)
+		              + (unsigned char)fg));
+
+	if (jt1078(prompt, &g_a5_byte(-17568), maxlen))
+		g_a5_byte(-17528) = 1;
+	else
+		g_a5_byte(-17528) = 0;
+	jt977();
+
+	jt405((char *)&g_a5_byte(-17568));
+	return (char *)&g_a5_byte(-17568);
+}
+
 /* JT[883] (CODE 19+0x4248) — adjust a member's encumbrance: the
  * word at rec+86 += delta. (The band-2 "387-line" size note was an
  * artifact — the lines belong to the L4264/L4334 locals that follow
