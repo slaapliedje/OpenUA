@@ -36361,14 +36361,90 @@ static void jt351(void)
 	jt209((short)1);
 }
 
-/* L7ab4 (CODE 5+0x7ab4) — the message-window pagination printer
- * (printf-style; recurses through itself with the " %s%( %)Page %2d"
- * footer format and re-enters JT[1072] with count 2). Leaf PROBE
- * stub pending its own lift. */
+/* L7a24 (CODE 5+0x7a24) — the per-character page gate: nonzero
+ * while output may continue on the current page. Leaf stub: allow
+ * (the line accounting below still paginates). */
+static unsigned char l7a24(void)
+{
+	PROBE("l7a24");
+	return 1;
+}
+
+/* JT[433] (CODE 3+0x49a2) — emit one character to the message
+ * window/print stream. Leaf PROBE stub pending its own lift. */
+static void jt433(short ch)
+{
+	PROBE("jt433");
+	(void)ch;
+}
+
+/* L7ab4 = JT[1076] (CODE 5+0x7ab4) — the message-window pagination
+ * printer, full lift over the l7a24/jt433 leaf stubs. At the top of
+ * a page (-3148 == 0, page number -3146 set, header flag -3140 up)
+ * it recurses to print the " %s%( %)Page %2d" header (the -3144
+ * title, padded to 71 via jt423) bracketed by JT[1072] counts 2/3.
+ * The message formats through the port's vsprintf bridge (the Mac
+ * passes "%r" + its caller's THINK C arg tail to JT[394]; jt1072/
+ * jt1074 callers pass C varargs here — same compromise as jt394
+ * itself), guards > 80 chars with the Mac's "String to long on
+ * print %d" modals, and streams characters through JT[433] until a
+ * NUL / \n / \f, each gated by L7a24. A trailing newline emits when
+ * the gate allows, and the -3148 line counter wraps to a new page
+ * (-3146) at 66 lines. */
+static void jt1072(short n);
 static void l7ab4(const char *fmt, ...)
 {
+	char  buf[82];
+	char *p;
+
 	PROBE("l7ab4");
-	(void)fmt;
+	if (g_a5_word(-3148) == 0 && g_a5_word(-3146) != 0
+	    && g_a5_byte(-3140) != 0) {
+		const char *title =
+		    (const char *)(uintptr_t)g_a5_long(-3144);
+
+		g_a5_word(-3148)++;
+		jt1072((short)2);
+		l7ab4(ua_strs_at(0x718a) /* " %s%( %)Page %2d" */,
+		      title, (int)(71 - jt423(title)),
+		      (int)g_a5_word(-3146));
+		jt1072((short)3);
+		g_a5_word(-3148)--;
+	}
+
+	if (fmt != NULL) {
+		va_list ap;
+
+		va_start(ap, fmt);
+		vsprintf(buf, fmt, ap);
+		va_end(ap);
+
+		if (jt423(buf) > 80) {
+			l036a(ua_strs_at(0x71a0)
+			      /* "String to long on print %d" */,
+			      (int)jt423(buf));
+			buf[30] = 0;
+			l036a(ua_strs_at(0x71bc) /* "'%s'" */, buf);
+			buf[60] = 0;
+			l036a(ua_strs_at(0x71c2) /* "'%s'" */, buf + 31);
+			l036a(ua_strs_at(0x71c8) /* "'%s'" */, buf + 61);
+		}
+
+		for (p = buf; *p != 0 && l7a24(); ) {
+			if (*p == 10 || *p == 12)
+				break;
+			jt433((short)*p++);
+		}
+	}
+
+	if (l7a24())
+		jt433((short)10);
+
+	g_a5_word(-3148)++;
+	if (g_a5_word(-3148) >= 66) {
+		g_a5_word(-3148) = 0;
+		g_a5_word(-3146)++;
+	}
 }
 
 /* JT[1074] (CODE 5+0x7c90) — print one paginated message line:
@@ -37761,6 +37837,103 @@ static void jt196(long src, long dst)
 		j++;
 		if (in[i] == 0) { done = 1; break; }
 		i++;
+	}
+}
+
+/* JT[932] (CODE 12+0x45ca) — scale an experience award, full lift:
+ * base clamps up to 1 and multiplies by `mult` (jt4) when > 1, then
+ * kind dispatches — 0: nothing; 1..8: divide by the -5302 table
+ * byte (jt5, min 1); 9: base*2/3 (jt7, min 1); 10: base; 11:
+ * base*3/2; 12+: multiply by the -5294 table byte. */
+static long jt932(long base, short kind, short mult) __attribute__((unused));
+static long jt932(long base, short kind, short mult)
+{
+	unsigned char k = (unsigned char)kind;
+	long          r;
+
+	PROBE("jt932");
+	if (base < 1)
+		base = 1;
+	if ((unsigned short)mult > 1)
+		base = jt4(base, (long)(unsigned short)mult);
+
+	if (k == 0)
+		return 0;
+	if (k <= 8) {
+		r = (long)jt5((unsigned long)base,
+		              (unsigned long)g_a5_buf(-5302)[k - 1]);
+		return (r < 1) ? 1 : r;
+	}
+	if (k == 9) {
+		r = jt7(base * 2, 3L);
+		return (r < 1) ? 1 : r;
+	}
+	if (k == 10)
+		return base;
+	if (k == 11)
+		return jt7(jt4(base, 3L), 2L);
+	return jt4(base, (long)g_a5_buf(-5294)[k - 12]);
+}
+
+/* JT[279] (CODE 22+0x423e) — draw the area-map party marker at cell
+ * (y, x), full lift: L3792 transforms to pixels (negative = off-
+ * view), jt214 view setup + the -24260 marker group commit (jt124),
+ * the depth-3 clip aligns px down to 8 and pads the right edge
+ * (+4, +4 more when px bit 3), jt1139 maps the in-cell offset to
+ * the (8000,8000) pen (depth-3 negative-column nudge -2), the
+ * marker blits via jt1001 item 1, then jt1193 and the L4430 cell
+ * redraw — with a depth-3 neighbour-cell touch-up left or right
+ * depending on px bit 2. */
+static void jt279(short y, short x, short b1, short b2, short b3)
+                                                __attribute__((unused));
+static void jt279(short y, short x, short b1, short b2, short b3)
+{
+	short py = 0, px = 0, o1 = 0, o2 = 0;
+	short cell = g_a5_word(-12272);
+
+	PROBE("jt279");
+	l3792(y, x, (short)(unsigned char)b1, (short)(unsigned char)b2,
+	      &py, &px);
+	if (py < 0 || px < 0)
+		return;
+
+	jt214();
+	jt124(g_a5_long(-24260));
+
+	if (jt1200() == 3) {
+		short px8 = (short)(px & ~7);
+		short pad = (short)((px & 8) ? 4 : 0);
+
+		jt1173(py, px8, (short)(py + cell),
+		       (short)(px8 + cell + pad + 4));
+	} else {
+		jt1173(py, px, (short)(py + cell), (short)(px + cell));
+	}
+
+	jt1139((short)8000, (short)8000,
+	       (short)(py - y * cell), (short)(px - x * cell),
+	       &o1, &o2);
+	if (jt1200() == 3 && o2 < 0)
+		o2 = (short)(o2 - 2);
+
+	jt1001((short)(o1 + 8000), (short)(o2 + 8000),
+	       *(short *)(uintptr_t)g_a5_long(-24260), (short)1);
+	jt124(g_a5_long(-24260));
+	jt1193();
+
+	l4430(y, x, py, px, (short)(unsigned char)b3);
+
+	if (jt1200() == 3) {
+		if (px & 4) {
+			if (x > g_a5_word(-12276))
+				l4430(y, (short)(x - 1), py,
+				      (short)(px - cell),
+				      (short)(unsigned char)b3);
+		} else if ((short)(x - g_a5_word(-12276))
+		           < (short)((unsigned char)b2 - 1)) {
+			l4430(y, (short)(x + 1), py, (short)(px + cell),
+			      (short)(unsigned char)b3);
+		}
 	}
 }
 

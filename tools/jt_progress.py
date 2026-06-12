@@ -101,6 +101,7 @@ ALIAS_LIFTED = {
     1060: "the async-PB volume trap glue = the shim's files.c",
     1062: "the _StripAddress glue — identity on the 68030's flat 32-bit bus",
     1025: "the _SysEnvirons availability glue — the shim's environment is fixed",
+    1076: "lifted as l7ab4 (same address; the message paginator, full)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
