@@ -530,6 +530,7 @@ static void  jt1129(short a)
 /* JT[1130] / JT[920] / JT[956] (CODE 4 / CODE 12 / CODE 21) —
  * empty bodies (literally `rts`). Placeholder hooks the Mac
  * build left in for symmetry / future use. */
+/* JT[1130] (CODE 4+0x61f6) — bare rts on the Mac; a faithful no-op. */
 static void  jt1130(void)                          { PROBE("jt1130"); }
 static void  jt920(void)                           { PROBE("jt920"); }
 static void  jt956(void)                           { PROBE("jt956"); }
@@ -1914,8 +1915,8 @@ int ua_main(short arg1, long arg2)
 
 /* Local CODE-6 helpers L07dc calls — L5124 lifted below; the rest are stubs. */
 static void          l5124(void);                                                /* CODE 6 + 0x5124 — lifted below */
-static void          l4b40(const char *msg, short a, short b) { (void)msg; PROBE("l4b40"); }
-                                                                                 /* CODE 6 + 0x4b40 (alert?) */
+static void          jt101(const char *fmt, short a, short b);   /* = L4b40; the CODE 6 "%r" alert (lifted below) */
+                                                                                 
 static void          l67ca(void);                                                /* CODE 6 + 0x67ca — lifted below */
 static void          jt76(void);                                                  /* CODE 6 + 0x670c — lifted below */
 static void          l66e6(short n);                                              /* CODE 6 + 0x66e6 — lifted below */
@@ -3186,7 +3187,7 @@ static void l07dc(void)
 		if (g_a5_18485 != 0) {
 			jt582();
 			if (g_a5_27928 == 0) {
-				l4b40("No saved games!", 11, 0);
+				jt101("No saved games!", 11, 0);
 				return;
 			}
 			g_a5_27990 = g_a5_27989;
@@ -5642,7 +5643,12 @@ static long jt1012(long handle, short item)
 	PROBE("jt1012");
 	return l37aa(handle, item);
 }
-static void jt1128(void)                    { PROBE("jt1128"); }
+/* JT[1128] (CODE 4+0x5104) — the Mac's double-buffer PAGE FLIP: bump
+ * the -2354/-2352 page indices, point -3076 at the new page's pixels
+ * (the 108-byte GrafPort table at -2570) and run the L3e38 commit.
+ * The port renders to one shim surface and presents through the
+ * display HAL (ADR-0005), so the faithful effect is a present. */
+static void jt1128(void)                    { PROBE("jt1128"); qd_present(); }
 static void jt1066(void);   /* GLIB palette compact+commit, lifted near l6e58 */
 
 /* L3994 — GrafPort save / paint-state commit. Called by JT[94] /
@@ -20072,7 +20078,27 @@ static void jt589(short flag, long *tail, long *head)
 		          : ua_strs_at(0x4c62));       /* "No ... to load."    */
 }
 static void jt590(void *entry)              { PROBE("jt590"); (void)entry; }
-static void jt593(short a)                  { PROBE("jt593"); (void)a; }
+/* JT[56] (CODE 6+0x5baa, ~360B) — load + show a numbered body/portrait
+ * picture library ("CBODYS"/"CPIC"/"COMSPR" name classify -> load kind,
+ * L338c, numbered-name build, library load + L3eea commit).  PROBE
+ * stub pending its own lift. */
+static void jt56(const char *name, short a, short b)
+{
+	PROBE("jt56");
+	(void)name; (void)a; (void)b;
+}
+
+/* JT[593] (CODE 15+0x03d2) — show the active member's (-27932) body
+ * picture: jt56("CBODYS", rec[188], rec[189]). */
+static void jt593(short a)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+
+	PROBE("jt593");
+	(void)a;
+	jt56(ua_strs_at(0x4c7a) /* "CBODYS" */,
+	     (short)rec[188], (short)rec[189]);
+}
 static int  jt988(void *path, short mode, void *name, long zero)
                                             { PROBE("jt988"); (void)path;
                                               (void)mode; (void)name;
@@ -23302,8 +23328,16 @@ static void jt501(short x1, short y1, short x2, short y2,
 		}
 	}
 }
-static long   jt1199(long a)                   { PROBE("jt1199"); (void)a;
-                                                  return 0; }
+/* JT[1199] (CODE 4+0x22aa) — byte-swap a long (endian reverse; the
+ * design/save data is little-endian on disk). */
+static long   jt1199(long v)
+{
+	PROBE("jt1199");
+	return (long)(((unsigned long)v << 24)
+	            | (((unsigned long)v & 0xff00UL) << 8)
+	            | (((unsigned long)v & 0xff0000UL) >> 8)
+	            | ((unsigned long)v >> 24));
+}
 
 /* Globals case 2 manages. */
 /* g_a5_18844 → macro (data_pool replay buffer) */
@@ -24170,7 +24204,109 @@ static void l5124(void);
 /* Toolbox / CODE-7 / CODE-15 / CODE-19 / CODE-20 helpers the case
  * bodies reach into. All PROBE stubs — the real bodies live in
  * segments we haven't started yet. */
-static void   jt19(short a, short b)             { PROBE("jt19"); (void)a; (void)b; }
+/* CODE 6+0x2b40 (local) — destroy one party member record `*pp`:
+ * free the [64] sub-record (jt471 size 26 -> -20448; its byte[21]
+ * "keep" flag survives), every [8]-chain item (size 62 -> -21508;
+ * [40]==73 containers first free their own [58]-chain up to [53]
+ * deep), the [4]-chain effect nodes (size 10 -> -21152), then the
+ * 398-byte record itself — into the -21860 bucket when keep==1 or
+ * rec[95]==1, else the -22212 bucket.  *pp = 0. */
+static void l2b40(long *pp)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)*pp;
+	unsigned char  keep = 0;
+	long cur, t;
+
+	PROBE("L2b40");
+	if (*(long *)(void *)(m + 64) != 0) {
+		keep = ((unsigned char *)(uintptr_t)
+		        *(long *)(void *)(m + 64))[21];
+		jt471(*(long *)(void *)(m + 64), (short)26,
+		      (void *)&g_a5_byte(-20448));
+	}
+	g_a5_long(-22216) = *(long *)(void *)(m + 8);
+	while (g_a5_long(-22216) != 0) {
+		unsigned char *e = (unsigned char *)(uintptr_t)
+		    g_a5_long(-22216);
+
+		if (e[40] == 73) {
+			cur = *(long *)(void *)(e + 58);
+			g_22307 = 1;
+			while ((short)g_22307 <= (short)e[53]) {
+				if (cur != 0) {
+					t = cur;
+					cur = *(long *)(uintptr_t)(cur + 58);
+					jt471(t, (short)62,
+					      (void *)&g_a5_byte(-21508));
+				}
+				g_22307++;
+			}
+		}
+		t = g_a5_long(-22216);
+		g_a5_long(-22216) = *(long *)(void *)e;
+		jt471(t, (short)62, (void *)&g_a5_byte(-21508));
+	}
+	*(long *)(void *)(m + 8) = 0;
+	cur = *(long *)(void *)(m + 4);
+	while (cur != 0) {
+		t = cur;
+		cur = *(long *)(uintptr_t)(cur + 6);
+		jt471(t, (short)10, (void *)&g_a5_byte(-21152));
+	}
+	if (keep == 1 || m[95] == 1)
+		jt471(*pp, (short)398, (void *)&g_a5_byte(-21860));
+	else
+		jt471(*pp, (short)398, (void *)&g_a5_byte(-22212));
+	*pp = 0;
+}
+
+static void jt55(short id);     /* CODE 6+0x5b5e — defined below */
+
+/* JT[19] (CODE 6+0x2cb0) — remove the ACTIVE member (-27932) from the
+ * party list (-27928) and destroy the record (L2b40).  `b` != 0 first
+ * releases the member's body-picture slot (jt55(rec[189])); `a` == 0
+ * also decrements the roster count in the game record (byte 32).
+ * The active pointer moves to the successor (or the new head); if
+ * the removed member WAS the head, -27928 advances first. */
+static void jt19(short a, short b)
+{
+	unsigned char *act = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	long prev;
+
+	PROBE("jt19");
+	if (g_a5_long(-27928) == 0)
+		return;
+	if (g_a5_long(-27928) == g_a5_long(-27932)) {
+		/* removing the head */
+		if ((unsigned char)b != 0)
+			jt55((short)act[189]);
+		g_a5_long(-27928) = *(long *)(void *)act;
+		prev = *(long *)(void *)act;
+		l2b40(&g_a5_long(-27932));
+		g_a5_long(-27932) = prev;
+		if ((unsigned char)a == 0 && g_a5_28006 != NULL)
+			((unsigned char *)g_a5_28006)[32]--;
+	} else {
+		/* find the predecessor */
+		prev = g_a5_long(-27928);
+		while (*(long *)(uintptr_t)prev != g_a5_long(-27932)
+		       && *(long *)(uintptr_t)prev != 0)
+			prev = *(long *)(uintptr_t)prev;
+		if (*(long *)(uintptr_t)prev == 0)
+			; /* not found: fall through to the head re-point */
+		else {
+			if ((unsigned char)b != 0)
+				jt55((short)act[189]);
+			*(long *)(uintptr_t)prev = *(long *)(void *)act;
+			l2b40(&g_a5_long(-27932));
+			g_a5_long(-27932) = prev;   /* active -> the PREDECESSOR */
+			if ((unsigned char)a == 0 && g_a5_28006 != NULL)
+				((unsigned char *)g_a5_28006)[32]--;
+		}
+	}
+	if (g_a5_long(-27932) == 0)
+		g_a5_long(-27932) = g_a5_long(-27928);
+}
 static short jt182(const char *p1, long p2, short arg3, short arg4);
 /* jt159 (CODE 7 + 0x16ea) — a yes/no confirmation prompt; returns 1 to
  * confirm, 0 to cancel.  Renders `prompt` through the faithful JT[182] alert
@@ -26509,7 +26645,25 @@ static void jt695(void) { PROBE("jt695"); }	/* +0x00ec; id 2 */
 static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
 static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
 static void jt698(void) { PROBE("jt698"); }	/* +0x05fc; id 21 */
-static void jt699(void) { PROBE("jt699"); }	/* +0x01a8; ids 6,7,16,17,52,53,54,57,69,122 */
+/* CODE 16+0x6114 (local, ~660B) — the per-target effect-message
+ * applier loop (sets the -25266 damage word, walks the -23512 target
+ * slots applying the effect + message).  PROBE stub pending its own
+ * lift; jt699 and several other handlers funnel through it. */
+static void l6114(short code, short a, short b, short c, short d,
+                  const char *msg)
+{
+	PROBE("L6114");
+	(void)code; (void)a; (void)b; (void)c; (void)d; (void)msg;
+}
+
+/* +0x01a8; ids 6,7,16,17,52,53,54,57,69,122 — the shared "is
+ * protected" handler: l6114(-25262 hazard id, 0,0,0,0, the message). */
+static void jt699(void)
+{
+	PROBE("jt699");
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4d5a) /* "is protected" */);
+}
 static void jt700(void) { PROBE("jt700"); }	/* +0x2b90; id 87 */
 static void jt701(void) { PROBE("jt701"); }	/* +0x24a0; id 76 */
 static void jt702(void) { PROBE("jt702"); }	/* +0x2084; id 134 */
@@ -39249,4 +39403,194 @@ static void l4d98(void)
 	l3fb2();
 	jt149((short)0);
 	l5304();
+}
+
+/* =========================================================================
+ * Band-2 lifts (task #117) — the remaining most-called working set.
+ * ========================================================================= */
+
+/* JT[101] (CODE 6+0x4b40 = L4b40) — the CODE 6 "%r" ALERT: scroll-
+ * clear (jt176), draw the formatted message in the alert box (L3fd6
+ * row 24), commit the paint (L3994), scroll-advance (L4bac), clear
+ * again.  The Mac formats via the %r word-stream; the port flattens
+ * with vsnprintf first (same bridge as l036a).  L3fd6/L4bac are still
+ * PROBE stubs, so the alert is structurally faithful but invisible —
+ * exactly the prior stub behavior, now with the real call chain. */
+static void jt101(const char *fmt, short a, short b)
+{
+	char buf[256];
+
+	PROBE("jt101");
+	jt384(buf, fmt);
+	jt176();
+	l3fd6((short)0, (short)24, a, b, buf);
+	l3994();
+	l4bac();
+	jt176();
+}
+
+/* JT[318] (CODE 22+0x0488) — current cell's terrain byte: the byte at
+ * the -11714 pointer (the cell cursor the walk loop maintains). */
+static short jt318(void)
+{
+	PROBE("jt318");
+	return (short)*(unsigned char *)(uintptr_t)g_a5_long(-11714);
+}
+
+/* JT[150] (CODE 7+0x38d6's sibling, +0x38ea) — set the dialog flag
+ * byte -12647 (pairs with jt149's -12648). */
+static void jt150(short v)
+{
+	PROBE("jt150");
+	g_a5_byte(-12647) = (unsigned char)v;
+}
+
+/* JT[638] (CODE 16+0x46ca) — is the record an undead-ish type?  1 when
+ * rec[40] is 39, 40 or 73; 0 otherwise (or rec NULL). */
+static unsigned char jt638(long rec_l) __attribute__((unused));
+static unsigned char jt638(long rec_l)
+{
+	const unsigned char *rec = (const unsigned char *)(uintptr_t)rec_l;
+
+	PROBE("jt638");
+	if (rec == NULL)
+		return 0;
+	return (unsigned char)(rec[40] == 39 || rec[40] == 40
+	                       || rec[40] == 73);
+}
+
+/* JT[54] (CODE 6+0x5af8) — load + show picture library `name` (kind b)
+ * through the binder: L338c(50), optional picture slot select
+ * (-14682 = c when non-zero), L33ac into the -27870 slot, then L3eea
+ * commits the picture + palette. */
+static void jt54(const char *name, short b, short c) __attribute__((unused));
+static void jt54(const char *name, short b, short c)
+{
+	PROBE("jt54");
+	l338c((short)50);
+	if ((unsigned char)c != 0)
+		g_a5_word(-14682) = (short)(unsigned char)c;
+	l33ac(name, b, (short)0, (short)0,
+	      (void **)&g_a5_long(-27870));
+	l3eea((void *)(uintptr_t)g_a5_long(-27870));
+}
+
+/* JT[197] (CODE 7+0x601a) — secret-door style class for cell
+ * (row, col): 0 when out of bounds (L5baa), else bits 2..4 of the
+ * cell's byte 295 in the level map (-12300, 6-byte stride). */
+static short jt197(short a, short b) __attribute__((unused));
+static short jt197(short a, short b)
+{
+	const unsigned char *lvl;
+	long idx;
+
+	PROBE("jt197");
+	if (l5baa(a, b) == 0)
+		return 0;
+	lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	idx = (long)((short)(unsigned char)b * (short)lvl[3]
+	             + (short)(unsigned char)a);
+	return (short)((lvl[idx * 6 + 295] >> 2) & 7);
+}
+
+/* JT[73] (CODE 6+0x6114) — free the pending-item list (-25302): zero
+ * the 12-byte staging block (-25314), then for each entry free its
+ * [58]-chain when it is a [40]==73 container (size 62 -> the -21508
+ * bucket, up to [53] deep) and the entry itself; clear the head. */
+static void jt73(void) __attribute__((unused));
+static void jt73(void)
+{
+	long cur, t;
+
+	PROBE("jt73");
+	l5f4e(&g_a5_byte(-25314), (short)12);
+	g_a5_long(-22216) = g_a5_long(-25302);
+	while (g_a5_long(-22216) != 0) {
+		unsigned char *e = (unsigned char *)(uintptr_t)
+		    g_a5_long(-22216);
+
+		if (e[40] == 73) {
+			cur = *(long *)(void *)(e + 58);
+			g_22307 = 1;
+			while ((short)g_22307 <= (short)e[53]) {
+				if (cur != 0) {
+					t = cur;
+					cur = *(long *)(uintptr_t)(cur + 58);
+					jt471(t, (short)62,
+					      (void *)&g_a5_byte(-21508));
+				}
+				g_22307++;
+			}
+		}
+		t = g_a5_long(-22216);
+		g_a5_long(-22216) = *(long *)(void *)e;
+		jt471(t, (short)62, (void *)&g_a5_byte(-21508));
+	}
+	g_a5_long(-25302) = 0;
+}
+
+/* JT[454] (CODE 3+0x3108) — DLItem QUERY by (item, cmd): cmds 16..22
+ * test rec[28] bit (cmd-16); cmd 36 returns the word at rec[24];
+ * cmd 42 the word at rec[22]; anything else 0.  (JT[1] sparse switch
+ * @0x3114.) */
+static short jt454(short item, short cmd) __attribute__((unused));
+static short jt454(short item, short cmd)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)
+	    (g_a5_9254 + (long)item * 32);
+
+	PROBE("jt454");
+	if (cmd >= 16 && cmd <= 22)
+		return (short)((rec[28] & (1 << (cmd - 16))) ? 1 : 0);
+	if (cmd == 36)
+		return *(short *)(void *)(rec + 24);
+	if (cmd == 42)
+		return *(short *)(void *)(rec + 22);
+	return 0;
+}
+
+/* JT[160] (CODE 7+0x2ebc) — run a record-sheet style MODAL over the
+ * window: seed the pen anchor (-19172/-19174 = 8016/8068), then
+ *   - when `title` matches the current sheet (-14644, jt396): the
+ *     fast arm — L2170(1) clear, L2858(2) frame, L177a "Return"
+ *     prompt, L1f3e pen, L23b4 key wait on `e`, L25b6 dispatch with
+ *     a NULL text block (the -24139 echo flag cleared), result 13;
+ *   - else: full arm — L2858(2) unless the -13018 sheet id is 12/13,
+ *     L206e builds the text block (out fp-82, echo flag out fp+17),
+ *     L2170(n) clear, L1f3e, L23b4(e), L25b6 over the block.
+ * Returns the dispatch result (13 = Return on the fast arm). */
+static short jt160(long title, long block, short c, short e)
+                                                __attribute__((unused));
+static short jt160(long title, long block, short c, short e)
+{
+	char  buf[82];
+	unsigned char echob = (unsigned char)c;   /* Mac writes the arg's low byte */
+	short n;
+	short r;
+
+	PROBE("jt160");
+	g_a5_word(-19172) = 8016;
+	g_a5_word(-19174) = 8068;
+	if (jt396((const char *)(uintptr_t)block,
+	          (const char *)(uintptr_t)g_a5_long(-14644)) != 0) {
+		l2170((short)1);
+		l2858((short)2);
+		l177a();
+		l1f3e(g_a5_word(-19172), g_a5_word(-19174));
+		n = l23b4(e);
+		l25b6(n, (unsigned char *)0, (void *)&g_a5_byte(-24139));
+		g_a5_byte(-24139) = 0;
+		r = 13;
+	} else {
+		if (g_a5_word(-13018) != 12 && g_a5_word(-13018) != 13)
+			l2858((short)2);
+		n = l206e(block, (unsigned char *)buf,
+		          (const char *)(uintptr_t)title, &echob);
+		l2170(n);
+		l1f3e(g_a5_word(-19172), g_a5_word(-19174));
+		n = l23b4(e);
+		r = l25b6(n, (unsigned char *)buf,
+		          (void *)&g_a5_byte(-24139));
+	}
+	return r;
 }

@@ -13,15 +13,15 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 550 done (540 lifted, 8 noop, 2 alias), 189 stub, 466 missing.
+**1205 distinct JT entries are called.** Overall: 571 done (554 lifted, 8 noop, 9 alias), 185 stub, 449 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
 | 1 | 1–100 | **99/100** | 91 | 8 | 1 | 0 |
-| 2 | 101–200 | **70/100** | 70 | 0 | 9 | 21 |
-| 3 | 201–300 | **45/100** | 45 | 0 | 15 | 40 |
+| 2 | 101–200 | **91/100** | 84 | 7 | 4 | 5 |
+| 3 | 201–300 | **45/100** | 45 | 0 | 16 | 39 |
 | 4 | 301–400 | **36/100** | 35 | 1 | 4 | 60 |
 | 5 | 401–500 | **38/100** | 38 | 0 | 14 | 48 |
 | 6 | 501–600 | **29/100** | 28 | 1 | 20 | 51 |
@@ -161,12 +161,12 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 117 | jt387 | 14 | LIFTED |  |
 | 118 | jt479 | 14 | LIFTED |  |
 | 119 | jt523 | 14 | LIFTED |  |
-| 120 | jt857 | 14 | **MISSING** |  |
+| 120 | jt857 | 14 | ALIAS | lifted as l77a0 (same address; the -25242 hook-table walker) |
 | 121 | jt869 | 14 | LIFTED |  |
 | 122 | jt1113 | 14 | LIFTED |  |
 | 123 | jt1141 | 14 | LIFTED |  |
 | 124 | jt51 | 13 | LIFTED | lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339) |
-| 125 | jt101 | 13 | **MISSING** |  |
+| 125 | jt101 | 13 | LIFTED |  |
 | 126 | jt167 | 13 | LIFTED |  |
 | 127 | jt361 | 13 | LIFTED |  |
 | 128 | jt411 | 13 | LIFTED |  |
@@ -174,12 +174,12 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 130 | jt503 | 13 | LIFTED |  |
 | 131 | jt50 | 12 | LIFTED | lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338) |
 | 132 | jt100 | 12 | LIFTED |  |
-| 133 | jt207 | 12 | **MISSING** |  |
+| 133 | jt207 | 12 | ALIAS | lifted as l5484 (same address; map-cell edge classify) |
 | 134 | jt356 | 12 | LIFTED |  |
 | 135 | jt461 | 12 | LIFTED |  |
 | 136 | jt519 | 12 | LIFTED |  |
 | 137 | jt25 | 11 | LIFTED |  |
-| 138 | jt160 | 11 | **MISSING** |  |
+| 138 | jt160 | 11 | LIFTED |  |
 | 139 | jt180 | 11 | LIFTED |  |
 | 140 | jt201 | 11 | LIFTED |  |
 | 141 | jt213 | 11 | LIFTED |  |
@@ -188,8 +188,8 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 144 | jt599 | 11 | **STUB** |  |
 | 145 | jt860 | 11 | LIFTED |  |
 | 146 | jt1067 | 11 | LIFTED |  |
-| 147 | jt1128 | 11 | **STUB** |  |
-| 148 | jt19 | 10 | **STUB** |  |
+| 147 | jt1128 | 11 | LIFTED |  |
+| 148 | jt19 | 10 | LIFTED |  |
 | 149 | jt92 | 10 | LIFTED |  |
 | 150 | jt148 | 10 | LIFTED |  |
 | 151 | jt221 | 10 | LIFTED |  |
@@ -197,23 +197,23 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 153 | jt412 | 10 | LIFTED |  |
 | 154 | jt448 | 10 | LIFTED |  |
 | 155 | jt494 | 10 | LIFTED |  |
-| 156 | jt638 | 10 | **MISSING** |  |
-| 157 | jt699 | 10 | **STUB** |  |
+| 156 | jt638 | 10 | LIFTED |  |
+| 157 | jt699 | 10 | LIFTED |  |
 | 158 | jt1130 | 10 | **STUB** |  |
 | 159 | jt1132 | 10 | LIFTED |  |
-| 160 | jt1199 | 10 | **STUB** |  |
+| 160 | jt1199 | 10 | LIFTED |  |
 | 161 | jt13 | 9 | LIFTED |  |
-| 162 | jt73 | 9 | **MISSING** |  |
+| 162 | jt73 | 9 | LIFTED |  |
 | 163 | jt84 | 9 | LIFTED |  |
 | 164 | jt132 | 9 | LIFTED |  |
 | 165 | jt135 | 9 | LIFTED |  |
 | 166 | jt202 | 9 | LIFTED |  |
 | 167 | jt218 | 9 | LIFTED |  |
-| 168 | jt443 | 9 | **MISSING** |  |
-| 169 | jt454 | 9 | **MISSING** |  |
+| 168 | jt443 | 9 | ALIAS | lifted as l1676 (same address; the DLItem cmd dispatcher) |
+| 169 | jt454 | 9 | LIFTED |  |
 | 170 | jt455 | 9 | LIFTED |  |
 | 171 | jt478 | 9 | LIFTED |  |
-| 172 | jt593 | 9 | **STUB** |  |
+| 172 | jt593 | 9 | LIFTED |  |
 | 173 | jt872 | 9 | LIFTED |  |
 | 174 | jt882 | 9 | **STUB** |  |
 | 175 | jt904 | 9 | LIFTED |  |
@@ -222,23 +222,23 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 178 | jt1197 | 9 | LIFTED |  |
 | 179 | jt5 | 8 | LIFTED |  |
 | 180 | jt31 | 8 | LIFTED |  |
-| 181 | jt54 | 8 | **MISSING** |  |
+| 181 | jt54 | 8 | LIFTED |  |
 | 182 | jt78 | 8 | LIFTED |  |
 | 183 | jt80 | 8 | LIFTED |  |
 | 184 | jt115 | 8 | LIFTED |  |
-| 185 | jt150 | 8 | **MISSING** |  |
+| 185 | jt150 | 8 | LIFTED |  |
 | 186 | jt152 | 8 | LIFTED |  |
 | 187 | jt174 | 8 | LIFTED |  |
 | 188 | jt175 | 8 | LIFTED |  |
-| 189 | jt197 | 8 | **MISSING** |  |
-| 190 | jt293 | 8 | **MISSING** |  |
-| 191 | jt318 | 8 | **MISSING** |  |
+| 189 | jt197 | 8 | LIFTED |  |
+| 190 | jt293 | 8 | ALIAS | lifted as l05ca (same address; wall code on a cell edge) |
+| 191 | jt318 | 8 | LIFTED |  |
 | 192 | jt325 | 8 | LIFTED |  |
 | 193 | jt408 | 8 | LIFTED |  |
-| 194 | jt409 | 8 | **MISSING** |  |
-| 195 | jt456 | 8 | **MISSING** |  |
+| 194 | jt409 | 8 | ALIAS | lifted as l3e0c (same address; first-index-of scan) |
+| 195 | jt456 | 8 | ALIAS | lifted as l2d3e (same address; the DLItem event poll, full lift) |
 | 196 | jt500 | 8 | **MISSING** |  |
-| 197 | jt528 | 8 | **MISSING** |  |
+| 197 | jt528 | 8 | ALIAS | lifted as l62ec (same address; combat map-cell fetch) |
 | 198 | jt529 | 8 | LIFTED |  |
 | 199 | jt883 | 8 | **MISSING** |  |
 | 200 | jt914 | 8 | **MISSING** |  |
