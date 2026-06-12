@@ -18203,6 +18203,7 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	jt117();
 	qd_present();
 
+	dbg_log("menu: modal up");           /* harness readiness marker */
 	return jt453((jt453_filter_t)0);
 }
 
