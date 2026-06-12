@@ -85,7 +85,15 @@ Mac); menu_draw_plates RETIRED (the Mac draws no plates — the jt137
 bar strips ARE the buttons).  Hatari: real GEN stone backdrop + labels
 at the Mac rows (118/132/146/160/174/188).
 
-OPEN — the bar strips (FRAME items 10-15) blit invisibly: the GEN
+FIXED (the "invisible bars") — the engine clip rect (-3054..-3050)
+is A5-zero on a fresh boot, so bottom=0 clip-rejected EVERY l2d4e
+blit on the menu (backdrop, edges and bars alike; the stone we saw
+was the port fill, the text was DrawString which bypasses the engine
+clip).  jt81 now seeds the clip full-screen when unset (the same
+idiom the dungeon/area screens use).  The glyph data was never the
+problem.  Original analysis kept below:
+
+OPEN(retired) — the bar strips (FRAME items 10-15) blit invisibly: the GEN
 backdrop (group 3 item 1) and the FRAME edges draw through the same
 l309c/l2d4e path, so clip/pipeline are fine; items 10-15 differ by
 metric flags 0xC5/0xC0 (bit 7 + bit 6 set; mode nibble 5/0, h=11,
