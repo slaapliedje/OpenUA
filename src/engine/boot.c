@@ -38369,6 +38369,98 @@ static unsigned char jt107(void)
 	return (unsigned char)g_a5_byte(-18397);
 }
 
+/* --- band-5 CODE 8 trio + jt93 ---------------------------------------- */
+
+/* L35d6 (CODE 8+0x35d6 — NOT jt416's CODE 3+0x35d6) — paint one
+ * command-bar menu title bar. Leaf PROBE stub pending its own
+ * lift. */
+static void l35d6_c8(short y, short x, short w, long label, short z,
+                     short hot, short key, short style)
+{
+	PROBE("l35d6_c8");
+	(void)y; (void)x; (void)w; (void)label;
+	(void)z; (void)hot; (void)key; (void)style;
+}
+
+/* JT[343] (CODE 8+0x58e0) — paint every registered command-bar
+ * menu: walk the jt338 table at -10472 (count -10474) and L35d6
+ * each (y 8000, the slot x, width/4 in chars, the rec's label,
+ * style bit 0 as the hot flag, the rec's key word, rec[13] | 2).
+ * Full body over the leaf stub. */
+static void jt343(void) __attribute__((unused));
+static void jt343(void)
+{
+	short i;
+
+	PROBE("jt343");
+	for (i = 0; i < (short)(signed char)g_a5_byte(-10474); i++) {
+		unsigned char *slot =
+		    (unsigned char *)&g_a5_byte(-10472) + (long)i * 8;
+		unsigned char *rec =
+		    (unsigned char *)(uintptr_t)*(long *)slot;
+
+		l35d6_c8((short)8000, *(short *)(slot + 4),
+		         (short)(*(short *)(slot + 6) >> 2),
+		         *(long *)rec, (short)0,
+		         (short)(rec[13] & 1), *(short *)(rec + 14),
+		         (short)(rec[13] | 2));
+	}
+}
+
+/* JT[345] (CODE 8+0x6dfe) — the monster-name fetch: kind 3 copies
+ * the -10508 default string (jt384), else jt366 decodes entry
+ * kind*10 + id with art-kind 13 into buf. Full lift. */
+static void jt345(short id, short kind, long buf) __attribute__((unused));
+static void jt345(short id, short kind, long buf)
+{
+	PROBE("jt345");
+	if ((unsigned char)kind == 3)
+		jt384((char *)(uintptr_t)buf,
+		      (const char *)(uintptr_t)g_a5_long(-10508));
+	else
+		jt366((short)((unsigned char)kind * 10
+		              + (unsigned char)id),
+		      (short)13, buf);
+}
+
+/* L6432 (CODE 8+0x6432) — locate/load one monster-art record from
+ * the -10370 table. Leaf PROBE stub pending its own lift. */
+static unsigned char l6432(long handle, short a, short b, long c,
+                           long d)
+{
+	PROBE("l6432");
+	(void)handle; (void)a; (void)b; (void)c; (void)d;
+	return 0;
+}
+
+/* JT[350] (CODE 8+0x66b0) — fetch a monster record: prime the
+ * kind-classed table (l5f04/l6520_c8), L6432 the record, and on a
+ * hit refresh the STRG names through jt362 (the Mac's L600c).
+ * Full body over the L6432 leaf stub. */
+static void jt350(short a, short b, long c, long d) __attribute__((unused));
+static void jt350(short a, short b, long c, long d)
+{
+	PROBE("jt350");
+	l5f04(0L, l6520_c8((short)(unsigned char)b));
+	if (l6432(g_a5_long(-10370), (short)(unsigned char)a,
+	          (short)(unsigned char)b, c, d))
+		jt362(g_a5_long(-10370),
+		      l6520_c8((short)(unsigned char)b));
+}
+
+/* JT[93] (CODE 6+0x475e) — write a "%( %)"-grouped value at text
+ * cell (a, b) colour c (jt94 with style = the colour repeated, the
+ * THINK C group format passing value d). Full lift. */
+static void jt93(short a, short b, short c, short d) __attribute__((unused));
+static void jt93(short a, short b, short c, short d)
+{
+	PROBE("jt93");
+	jt94((short)(unsigned char)a, (short)(unsigned char)b,
+	     (short)(unsigned char)c, (short)(unsigned char)c,
+	     ua_strs_at(0x06d8) /* "%( %)" */,
+	     (int)(unsigned char)d);
+}
+
 /* --- band-5 CODE 16 effect pair --------------------------------------- */
 
 /* L7026 (CODE 16+0x7026) — the saving-throw-modified effect

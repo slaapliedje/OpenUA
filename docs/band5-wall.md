@@ -109,3 +109,10 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   the underwater jt508 radius target-table rebuild, the jt521 burst
   render, jt873 d6 damage +rolls for 115, l6114 announce).
   Band 5 at 67/100.
+- 2026-06-12: CODE 8 trio + jt93: jt343 FULL (paint every jt338-
+  registered command-bar menu via the new l35d6_c8 leaf stub — the
+  bare l35d6 name belongs to jt416's CODE 3 address), jt345 FULL
+  (monster-name fetch: kind 3 = the -10508 default, else jt366),
+  jt350 FULL (monster-record fetch over the new l6432 leaf stub +
+  the jt362 STRG refresh = the Mac's L600c), jt93 FULL (the
+  "%( %)" grouped-value text write through jt94). Band 5 at 71/100.
