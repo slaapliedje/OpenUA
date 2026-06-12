@@ -20030,9 +20030,19 @@ static int  jt159(const char *prompt, short b);
 /* JT entries L12a0 / L15e2 reach the design-edit dialog runtime through.
  * Everything past the window-open JT[103] stays PROBE-only; what the
  * lifts below buy is the call ordering, not the painted result. */
+/* JT[165] (CODE 7+0x15c2) — the n'th node of a linked list (next
+ * pointer at +0); 0 when the list is shorter. Full lift. */
 static int  jt165(short id, long ctx)
-                                            { PROBE("jt165"); (void)id;
-                                              (void)ctx; return 0; }
+{
+	short i = 0;
+
+	PROBE("jt165");
+	while (ctx != 0 && i != id) {
+		ctx = *(long *)(uintptr_t)ctx;
+		i++;
+	}
+	return (int)((i == id) ? ctx : 0);
+}
 /* jt169 (CODE 7 + 0x3600) — the scrollable saved-character list picker the
  * roster dialogs (L15e2 / L12a0) open: it renders the node list (names at +5,
  * .next at 0) inside the dialog window and lets the user move a selection and
@@ -38276,6 +38286,125 @@ static unsigned char jt107(void)
 {
 	PROBE("jt107");
 	return (unsigned char)g_a5_byte(-18397);
+}
+
+/* --- band-5 CODE 22 / CODE 7 batch ----------------------------------- */
+
+/* JT[289] (CODE 22+0x0a76) — snap a click to the nearest cell EDGE
+ * for the wall editor, full lift. The dominant axis (jt388 abs of
+ * the deltas to *py/*px) picks which coordinate snaps: the other
+ * one quantises to its cell origin plus an offset — cell/2
+ * normally, or (facing == 1 ? cell-1 : 0) when `flag` is set and
+ * the -12286 facing is odd (the second arm mirrors the test).
+ * Returns 3 (x snapped), 2 (y snapped), or 1 (tie). */
+static short jt289(short y, short x, short *py, short *px, short flag)
+                                                __attribute__((unused));
+static short jt289(short y, short x, short *py, short *px, short flag)
+{
+	short cell = g_a5_word(-12272);
+	short facing = (short)(((unsigned char)g_a5_byte(-12286) & 6) >> 1);
+	short diff = (short)(jt388((short)(y - *py))
+	                     - jt388((short)(x - *px)));
+	short base, off;
+
+	PROBE("jt289");
+	if (diff > 0) {
+		x = (short)(x - g_a5_word(-11672));
+		base = (short)((x / cell) * cell + g_a5_word(-11672));
+		if ((flag & 0xff) != 0 && (facing & 1) != 0)
+			off = (short)((facing == 1) ? cell - 1 : 0);
+		else
+			off = (short)(cell / 2);
+		*px = (short)(base + off);
+		return 3;
+	}
+	if (diff < 0) {
+		y = (short)(y - g_a5_word(-11674));
+		base = (short)((y / cell) * cell + g_a5_word(-11674));
+		if ((flag & 0xff) != 0 && (facing & 1) == 0)
+			off = (short)((facing != 0) ? cell - 1 : 0);
+		else
+			off = (short)(cell / 2);
+		*py = (short)(base + off);
+		return 2;
+	}
+	return 1;
+}
+
+/* JT[194] (CODE 7+0x50c0) — bind the text record (L4ab6) and report
+ * its dims in depth-3 scale: *out = width word * 4 / 3, returns
+ * height word * 4 / 3 (the -12304 bound record). Full lift. */
+static short jt194(long rec, short *out) __attribute__((unused));
+static short jt194(long rec, short *out)
+{
+	const unsigned char *r;
+	short h;
+
+	PROBE("jt194");
+	l4ab6((void *)(uintptr_t)rec);
+	r = (const unsigned char *)(uintptr_t)g_a5_long(-12304);
+	h = (short)((*(short *)(r + 4) * 4) / 3);
+	*out = (short)((*(short *)(r + 0) * 4) / 3);
+	return h;
+}
+
+/* JT[224] (CODE 7+0x0866) — page the scrolling text window: keys
+ * rec[14]+2 / rec[14]+3 move the view row (rec word 10) one page
+ * (rec word 4 - 1) up/down through L0264 (the pen/scroll setter —
+ * the Mac passes two trailing args (0, rec) the port lift found
+ * unread). Full lift. */
+static void l0264(short x, short y);
+static void jt224(short key) __attribute__((unused));
+static void jt224(short key)
+{
+	unsigned char *rec =
+	    (unsigned char *)(uintptr_t)g_a5_long(-13022);
+	short page = (short)(*(short *)(rec + 4) - 1);
+
+	PROBE("jt224");
+	switch (key - *(short *)(rec + 14)) {
+	case 2:
+		l0264((short)(*(short *)(rec + 10) - page),
+		      *(short *)(rec + 12));
+		break;
+	case 3:
+		l0264((short)(*(short *)(rec + 10) + page),
+		      *(short *)(rec + 12));
+		break;
+	default:
+		break;
+	}
+}
+
+/* L4910 (CODE 7+0x4910) — run one triggered cell event. Leaf PROBE
+ * stub pending its own lift. */
+static void l4910(short ev, short mode)
+{
+	PROBE("l4910");
+	(void)ev; (void)mode;
+}
+
+/* JT[188] (CODE 7+0x49aa) — scan a map cell's 20 trigger bits
+ * (bit i lives in byte 2 - i/8, mask 1 << (i & 7)); each set bit
+ * runs L4910 on the -12645 event table entry [hi-nibble * 20 + i].
+ * Returns 1 when anything fired. Full lift over the leaf stub. */
+static unsigned char jt188(const unsigned char *cell)
+                                                __attribute__((unused));
+static unsigned char jt188(const unsigned char *cell)
+{
+	unsigned char fired = 0;
+	short         hi = (short)((cell[0] >> 4) & 15);
+	short         i;
+
+	PROBE("jt188");
+	for (i = 19; i >= 0; i--) {
+		if (cell[2 - (i >> 3)] & (1 << (i & 7))) {
+			l4910((short)g_a5_buf(-12645)[hi * 20 + i],
+			      (short)1);
+			fired = 1;
+		}
+	}
+	return fired;
 }
 
 /* --- band-5 tiny batch (docs/band5-wall.md) -------------------------- */

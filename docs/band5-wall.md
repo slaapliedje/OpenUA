@@ -91,3 +91,13 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   jt348's sibling), jt109 (GLIB piece draw over the new jt994 leaf
   stub), jt1052 noted = the _Eject trap glue (hard-disk install:
   no-op). Band 5 at 59/100.
+- 2026-06-12: CODE 22/7 batch: jt289 FULL (click -> cell-edge
+  snapper for the wall editor: dominant axis via jt388, cell/2 or
+  facing-biased offsets), jt165 FULL (linked-list n'th node — merged
+  into the existing stub), jt194 FULL (text-record dims *4/3 via
+  l4ab6/-12304), jt224 FULL (text-window page up/down through
+  l0264; the Mac's two trailing args are unread per the existing
+  l0264 lift), jt188 FULL (the 20-bit cell trigger scan over the
+  new l4910 leaf stub; -12645 event table). jt327 + jt290 recorded
+  as own-session dispatchers (14-case design-record edit; the
+  806B editor click tool over 5 unlifted locals). Band 5 at 65/100.

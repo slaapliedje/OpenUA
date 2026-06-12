@@ -136,6 +136,9 @@ PENDING_NOTES = {
     866:  "CODE 18 sibling of jt868 (NOT dispatched by it). Own lift",
     871:  "CODE 18 sibling of jt868 (NOT dispatched by it). Own lift",
     875:  "CODE 18 sibling of jt868 (NOT dispatched by it). Own lift",
+    327:  "dispatcher — 14-case JT[1] design-record edit, 2.2KB. Own session",
+    290:  "dispatcher — the 806B editor click tool over 5 unlifted CODE 22 "
+          "locals (L1240/L0ee6/L0674/L069a/L0716). Own session",
 }
 
 
