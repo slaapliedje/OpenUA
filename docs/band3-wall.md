@@ -146,6 +146,10 @@ Total ≈ 10 KB of asm.
   "280-430B" size estimates were neighbouring-glue artifacts.
   Band 3 at 94/100; left: jt353, jt98, jt349, jt1007, jt1021,
   jt947 (#115).
+- 2026-06-12: jt1021 FULL (LBInsert: list-block item insert — header
+  bump, jt469 table-slot + data-span inserts, offset-table rewalk
+  with the +4/+size shifts; validation via the JT[1084] modals).
+  Band 3 at 95/100; left: jt353, jt98, jt349, jt1007, jt947 (#115).
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.
