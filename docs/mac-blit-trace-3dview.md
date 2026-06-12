@@ -107,7 +107,9 @@ trail.
 The menu's bottom-left "saved game letters" = an inline slot picker:
 one prompt string + a lettered button per existing save (jt990/jt991
 enumerate the SAVGAM files; see CODE 22+0x4cb2's enumeration loop).
-The at-boot "%s " x5 sequence at (189, 8032) from the first trace is
-the same UI's passive listing.  This is the next save/load UI piece
+(The first trace's pre-menu six text lines + the (189, 8032) "%s "
+sequence were the COPY-PROTECTION manual-word prompt — the user was
+typing the answer.  The port bypasses that screen by design, so
+nothing there is missing.)  This is the next save/load UI piece
 to lift (jt315's Load arm), AFTER which the menu screen is complete
 to the last line.
