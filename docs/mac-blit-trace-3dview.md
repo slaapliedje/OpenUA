@@ -1,0 +1,71 @@
+# Mac-emulator blit trace — "Begin Adventuring" first-person view
+
+Ground truth captured from the instrumented Macintosh release (real
+binary, Mac emulator), 2026-06-12.  Four identical frames of 18
+JT[200] calls each; one frame digested below.  This is the reference
+for verifying the port's render_3d_faithful (jt199 -> l5b42 -> jt200)
+output slot-by-slot.
+
+## The 18-slot frame (frustum walk order)
+
+| # | top | left | code | sub | blits (in order) |
+|--:|----:|-----:|-----:|----:|---|
+| 0 | 8032 | 8028 | 11 | 0 | near JT999 idx 2 (left 8032, top 8032) |
+| 1 | 8028 | 8028 | 11 | 9 | near JT999 idx 1 (left 8032, top 8028) |
+| 2 | 8036 | 8028 | 11 | 9 | near JT999 idx 1 (left 8032, top 8036) |
+| 3 | 8048 | 8028 | 11 | 0 | near JT999 idx 2 (left 8032, top 8048) |
+| 4 | 8052 | 8028 | 11 | 9 | near JT999 idx 1 (left 8032, top 8052) |
+| 5 | 8028 | 8024 | 11 | 1 | near JT999 idx 3 (left 8028, top 8028) |
+| 6 | 8036 | 8024 |  2 | 2 | near JT114 idx 14 (top 8036, left 8028) |
+| 7 | 8056 | 8024 | 13 | 2 | far JT999 idx 4 + near JT999 idx 23 (left 8028, top 8056) |
+| 8 | 8028 | 8024 |  6 | 3 | near JT114 idx 5 (top 8028, left 8028) |
+| 9 | 8020 | 8016 |  6 | 4 | near JT114 idx 6 (top 8020, left 8020) |
+| 10 | 8052 | 8024 | 11 | 3 | near JT999 idx 5 (left 8028, top 8052) |
+| 11 | 8040 | 8024 |  6 | 3 | near JT114 idx 5 (top 8040, left 8028) |
+| 12 | 8052 | 8016 | 10 | 5 | far JT114 idx 7 + near JT114 idx 44 (top 8052, left 8020) |
+| 13 | 7992 | 8016 |  6 | 6 | near JT114 idx 8 (top 7992, left 8020) |
+| 14 | 8020 | 8016 |  9 | 6 | far JT114 idx 8 + near JT114 idx 36 (top 8020, left 8020) |
+| 15 | 8012 | 8012 |  9 | 7 | far JT114 idx 9 + near JT114 idx 37 (top 8012, left 8012) |
+| 16 | 8048 | 8016 |  1 | 6 | near JT114 idx 8 (top 8048, left 8020) |
+| 17 | 8048 | 8012 |  5 | 8 | far JT114 idx 10 + near JT114 idx 47 (top 8048, left 8012) |
+
+## What the trace establishes
+
+1. **Two blitters with OPPOSITE axis order.**  The instrumentation
+   prints each callee's own arg order: `JT[999](left, top, ...)` is
+   HORIZONTAL-first; `JT[114](top, left, ...)` is VERTICAL-first.
+   Directly relevant to [[jt118-jt114-signature-mismatch]] and the
+   (v,h) audit (docs/coord-audit.md): jt114 follows the Point rule,
+   jt999 does not — verify the port's jt999/jt114 lifts against this
+   before trusting either's variable names.
+
+2. **Blitter selection is by frustum band, not wall code.**  Subs
+   0-1 and some 2-3 rows go through JT[999] (the near wall set);
+   deeper subs (3-8) through JT[114].  Wall code 11 always uses
+   JT[999] (its art lives in the near set even at sub 3); codes
+   2/6/9/10/1/5 use JT[114].
+
+3. **far-then-near pairs.**  When a slot draws both (codes 13, 10,
+   9, 5 at even subs), the FAR piece blits first, the NEAR piece
+   second (painter's order).  Far/near idx pairs observed:
+   4->23 (JT999), 7->44, 8->36, 9->37, 10->47 (JT114) — i.e. the
+   near-set index = far index + 29 for the JT114 wall set at these
+   slots (36-8=28, 37-9=28, 44-7=37, 47-10=37 — TWO strides: +28 for
+   sub 6/7, +37 for sub 5/8; bands use different art rows).
+
+4. **Coordinate ranges.**  top 7992..8056, left 8012..8032 — the
+   88x88 viewport region in 8000-space (native x4 steps).  Slot 0's
+   near column draws at left+4 (8028 -> 8032): the JT999 blit lands
+   one 4-unit cell right of the jt200 left arg.
+
+5. **18 calls/frame, 4x repeat** — the walk pumped four frames
+   (present cadence), confirming jt199's 18-slot frustum and that
+   jt200 re-runs the FULL slot list every frame (no caching).
+
+## How to use it
+
+Instrument the port's jt200 the same way (PROBE prints with the same
+fields), boot the same design/position (Begin Adventuring start),
+and diff the two traces.  Divergence points directly at the broken
+piece: slot order = jt199, codes = jt201/jt205 map reads, idx = the
+jt200 selector tables, coords = l5b42's transform.
