@@ -34859,8 +34859,71 @@ static short jt953(void)
 	return cmd;
 }
 
-static short  jt595(short a, short b, short *p1, unsigned char *p2)
-                                                     { PROBE("jt595"); (void)a; (void)b; (void)p1; (void)p2; return 0; }
+/* JT[79] (CODE 6+0x69f8) — the non-combat record-window repaint
+ * (jt595's else arm).  PROBE stub pending its own lift. */
+static void jt79(void)
+{
+	PROBE("jt79");
+}
+
+/* CODE 16 locals of the spell-list dialog, PROBE stubs pending their
+ * own lifts: L59c2 builds the spell list for context `code` (returns
+ * the count byte), L4faa runs the pick loop over it. */
+static unsigned char l59c2(short code)
+{
+	PROBE("L59c2");
+	(void)code;
+	return 0;
+}
+static short l4faa(short mode, short *sel)
+{
+	PROBE("L4faa");
+	(void)mode;
+	(void)sel;
+	return 0;
+}
+
+/* JT[595] (CODE 16+0x7284) — the SPELL LIST dialog.  Level-2 lift:
+ * pick the context suffix by `code` (0 "in Memory", 1/12 "in
+ * Grimoire", 2 "on Scroll", 3 "on Scrolls", 4 "to Choose", 5 "to
+ * Memorize", 6 "to Scribe", 7 "in Bundle", 8-11 empty), build the
+ * list (L59c2 -> *p2; empty = return 0), repaint the window when
+ * *p1 < 0 or mode 1 (jt76 in combat mode 5, else jt79 unless mode
+ * 2), draw the actor header (jt25) and the "Spells %s" title at the
+ * name width + 4 (jt483/jt488/jt94), then run the picker (L4faa). */
+static short  jt595(short code, short mode, short *p1, unsigned char *p2)
+{
+	const char *ctx;
+	short w;
+
+	PROBE("jt595");
+	switch ((unsigned char)code) {
+	case 0:           ctx = ua_strs_at(0x5342); break; /* "in Memory"   */
+	case 1: case 12:  ctx = ua_strs_at(0x534c); break; /* "in Grimoire" */
+	case 2:           ctx = ua_strs_at(0x5358); break; /* "on Scroll"   */
+	case 3:           ctx = ua_strs_at(0x536c); break; /* "on Scrolls"  */
+	case 4:           ctx = ua_strs_at(0x5378); break; /* "to Choose"   */
+	case 5:           ctx = ua_strs_at(0x5382); break; /* "to Memorize" */
+	case 6:           ctx = ua_strs_at(0x538e); break; /* "to Scribe"   */
+	case 7:           ctx = ua_strs_at(0x5362); break; /* "in Bundle"   */
+	default:          ctx = ua_strs_at(0x5398); break; /* ""            */
+	}
+	*p2 = l59c2(code);
+	if (*p2 == 0)
+		return 0;
+	if (*p1 < 0 || (unsigned char)mode == 1) {
+		if (g_a5_27990 == 5)
+			jt76();
+		else if ((unsigned char)mode != 2)
+			jt79();
+	}
+	jt25(g_a5_long(-27932), (short)1, (short)1, (short)1);
+	w = jt483((const char *)
+	          ((unsigned char *)(uintptr_t)g_a5_long(-27932) + 96));
+	jt94((short)(w + 4), (short)1, (short)7, (short)0,
+	     jt488(ua_strs_at(0x539a) /* "Spells %s" */, ctx));
+	return l4faa(mode, p1);
+}
 static void   jt527(void)                            { PROBE("jt527"); jt120((void *)(uintptr_t)g_a5_long(-27870)); }   /* CODE 14+0x5e8e -> jt120 */
 /* ---------------------------------------------------------------------------
  * JT[23] — the play-frame redraw dispatcher (CODE 6 + 0x2890), and its
@@ -39593,4 +39656,47 @@ static short jt160(long title, long block, short c, short e)
 		          (void *)&g_a5_byte(-24139));
 	}
 	return r;
+}
+
+/* JT[492] (CODE 13+0x2484) — build the SAME-GROUP neighbour list for
+ * `rec`: jt508 scans radius `b` around the actor's cell (jt525/jt531)
+ * with the jt513 range byte, then the -19170 match array is filtered
+ * to entries whose group byte [95] equals the actor's (rec[95] when
+ * `c` set, else jt493's resolved group), compacted in place (jt479),
+ * and the matched ids are copied into the -22720 byte list.  Returns
+ * (and stores at -18894) the filtered count. */
+static unsigned char jt492(long rec_l, short b, short c)
+                                                __attribute__((unused));
+static unsigned char jt492(long rec_l, short b, short c)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	short x, y, grp;
+	unsigned char n, cnt, k;
+
+	PROBE("jt492");
+	x = (short)(signed char)jt525(rec_l);
+	y = (short)(signed char)jt531(rec_l);
+	jt508(x, y, (short)(unsigned char)b, (short)255,
+	      (short)(jt513(rec_l) & 255));
+	n   = g_a5_18894;
+	cnt = 0;
+	grp = ((unsigned char)c != 0) ? (short)rec[95]
+	                              : (short)jt493(rec_l);
+	if (n > 0) {
+		for (k = 1; k <= n; k++) {
+			const unsigned char *e = (const unsigned char *)
+			    (uintptr_t)g_a5_25676[g_a5_19170[(long)k * 4]];
+
+			if ((short)e[95] == grp) {
+				cnt++;
+				jt479(&g_a5_19170[(long)k * 4],
+				      &g_a5_19170[(long)cnt * 4], (short)4);
+			}
+		}
+		n = cnt;
+		g_a5_18894 = cnt;
+	}
+	for (k = 1; k <= n; k++)
+		g_a5_byte(-22720 + (long)k) = g_a5_19170[(long)k * 4];
+	return n;
 }
