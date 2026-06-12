@@ -29761,13 +29761,101 @@ static void jt910(long ent_l)
 }
 
 /* L5746 (CODE 18 + 0x5746) — the level-drain core ("gets drained"):
- * picks the victim's best class level, knocks it down and rebuilds the
- * derived stats. PROBE stub: ~830 bytes over JT[102]/JT[26], its own
- * lift step. Callers jt726/jt731 below are faithful. */
+ * per drained level, pick the victim's best class level (ties broken
+ * toward the class with the LOWER jt26 XP threshold), bank the
+ * max-attained level (ent[150+j]) / XP (ent+72) / max HP (ent[182])
+ * for later restoration, set current XP (ent+68) to the midpoint of
+ * the now-lower level band via the jt7 long divide, decrement the
+ * level, re-roll the HP loss (jt885, gated on ent[157] >= ent[138]),
+ * recompute derived stats (jt910) and rebuild memorized spells
+ * (l54ac).  Tail: no levels left or max HP 0 -> status 8 "dies from
+ * draining"; current HP 0 -> status 4 "collapses from draining".
+ * Mac quirk: bestcls (fp-4) is uninitialized when all class levels
+ * are 0 — zero-seeded for defined C. */
 static void l5746(long ent_l, short levels)
 {
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char i, j, cnt, best, bestcls = 0, lvl, anyleft;
+	long lo, hi, x;
+
 	PROBE("l5746");
-	(void)ent_l; (void)levels;
+	if (ent_l == 0)
+		return;
+	jt18(ent, (long)(uintptr_t)ua_strs_at(0x570c)
+	     /* "gets drained" */, 10, 1);
+	jt102();
+	for (i = 1; i <= (unsigned char)levels; i++) {
+		cnt = 0;
+		best = 0;
+		for (j = 0; j <= 6; j++) {
+			lvl = ent[157 + j];
+			if ((unsigned char)lvl > 0 ||
+			    (unsigned char)ent[150 + j] > 0)
+				cnt++;
+			if (lvl > best) {
+				best = lvl;
+				bestcls = j;
+			} else if (lvl == best &&
+				   (unsigned char)best != 0) {
+				x = jt26(ent_l, (short)(unsigned char)lvl,
+					 (short)(signed char)bestcls);
+				if (jt26(ent_l, (short)(unsigned char)best,
+					 (short)(signed char)j) < x) {
+					best = lvl;
+					bestcls = j;
+				}
+			}
+		}
+		if (ent[150 + bestcls] <= ent[157 + bestcls])
+			ent[150 + bestcls] = ent[157 + bestcls];
+		if (*(long *)(void *)(ent + 72) <=
+		    *(long *)(void *)(ent + 68))
+			*(long *)(void *)(ent + 72) =
+			    *(long *)(void *)(ent + 68);
+		if (ent[182] < ent[129])
+			ent[182] = ent[129];
+		switch ((short)(unsigned char)best) {
+		case 1:
+			lo = 0;
+			hi = 0;
+			break;
+		case 2:
+			lo = 0;
+			hi = jt26(ent_l, (short)(unsigned char)best,
+				  (short)(signed char)bestcls);
+			break;
+		default:
+			lo = jt26(ent_l,
+				  (short)((short)(unsigned char)best - 1),
+				  (short)(signed char)bestcls);
+			hi = jt26(ent_l, (short)(unsigned char)best,
+				  (short)(signed char)bestcls);
+			break;
+		}
+		*(long *)(void *)(ent + 68) = lo + jt7(hi - lo, 2);
+		if ((unsigned char)ent[157 + bestcls] > 0)
+			ent[157 + bestcls]--;
+		if (ent[157 + bestcls] >= ent[138])
+			jt885(ent_l,
+			      (short)(unsigned char)
+			      g_a5_byte(-23023 + (long)bestcls),
+			      (short)(unsigned char)cnt, 0);
+		jt910(ent_l);
+		l54ac(ent_l);
+	}
+	anyleft = 0;
+	for (j = 0; j <= 6; j++) {
+		if ((unsigned char)ent[157 + j] > 0)
+			anyleft = 1;
+	}
+	if (anyleft == 0 || (unsigned char)ent[129] == 0) {
+		jt860(ent_l, 8, (long)(uintptr_t)ua_strs_at(0x571a)
+		      /* "dies from draining" */);
+		return;
+	}
+	if ((unsigned char)ent[395] == 0)
+		jt860(ent_l, 4, (long)(uintptr_t)ua_strs_at(0x572e)
+		      /* "collapses from draining" */);
 }
 
 /* JT[726] (CODE 18 + 0x32bc) — level-drain hook (one level): in the
