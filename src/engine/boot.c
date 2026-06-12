@@ -6267,18 +6267,11 @@ static long  jt1015(void *lib, short item);
 static short jt1020(long lib, short target);
 static void  jt992(long spec, short kind);
 
-/* JT[1022] (CODE 5 + 0x46a6, = LBResize) — grow/shrink GLIB item `item`
- * in group `tag` to `newsize` bytes, shifting the index table. LEAF STUB:
- * it needs the GLIB library-edit layer (L3736 + JT[469] realloc), which
- * isn't lifted. Runtime sprite items are fixed-size, so jt111 only invokes
- * it when a destination slot is too small (off2 < off1) — i.e. on the
- * design-edit path, not the play path. */
-static void jt1022(short tag, short item, long newsize) __attribute__((unused));
-static void jt1022(short tag, short item, long newsize)
-{
-	PROBE("jt1022");
-	(void)tag; (void)item; (void)newsize;
-}
+/* JT[1022] (CODE 5 + 0x46a6, = LBResize) — grow/shrink GLIB item
+ * `item` in group `tag` to `newsize` bytes. FULL LIFT defined later
+ * in the file (the GLIB library-edit layer — l3736 + jt469 — is
+ * lifted now). */
+static void jt1022(short tag, short item, long newsize);
 
 /* JT[111] (CODE 6 + 0x3b1e, = L3b1e) — copy a GLIB sprite item between
  * groups: resolve the source item index (jt1020 remap when `z` is set,
@@ -38492,6 +38485,81 @@ static void jt925(void)
 		}
 		jt399(rec + 76, (short)6, (short)0);
 	}
+}
+
+/* L3834 (CODE 5+0x3834) — LBISize: the byte size of list-block
+ * item `item`. Verifies the 'GLIB' magic and the item index
+ * against the header count (the Mac's JT[1084] modals), then
+ * returns offset[item+1] - offset[item] from the table at +16.
+ * Full lift. */
+static long l3834(long base, short item)
+{
+	unsigned char hdr[16];
+	long          offs[2];
+
+	jt406(hdr, (const void *)(uintptr_t)base, (short)16);
+	if (*(long *)hdr != 0x474C4942L) {
+		l036a(ua_strs_at(0x6f50)
+		      /* "LBISize: Invalid Library File" */);
+		return 0;
+	}
+	if (item < 0 || item >= *(short *)(hdr + 8)) {
+		l036a(ua_strs_at(0x6f6e) /* "Invalid item (%d/%d)" */,
+		      (int)item, (int)*(short *)(hdr + 8));
+		return 0;
+	}
+	jt406(offs,
+	      (const void *)(uintptr_t)(base + (long)item * 4 + 16),
+	      (short)8);
+	return offs[1] - offs[0];
+}
+
+/* JT[1022] (CODE 5+0x46a6) — LBResize: grow/shrink list-block item
+ * `item` of `group` to `newsize`, full lift. Validates against
+ * l3736 ("LBResize invalid item"), takes the delta vs L3834's
+ * current size (no-op at zero), bumps the header total, walks the
+ * offset table shifting every entry past the item by the delta
+ * (capturing the item's end offset — pulled back by a negative
+ * delta — as the FCInsDel anchor), and inserts/deletes the span
+ * through jt469. */
+static short l3736(long base);
+static void jt469(short id, long offset, long length);
+static void jt1022(short group, short item, long newsize)
+{
+	unsigned char hdr[16];
+	long          base, cursor, val = 0, keep = 0, delta;
+	short         i, count;
+
+	PROBE("jt1022");
+	base = jt468(group);
+	if (item < 0 || item >= l3736(base))
+		l036a(ua_strs_at(0x70fe)
+		      /* "LBResize invalid item (%d)" */, (int)item);
+
+	delta = newsize - l3834(base, item);
+	if (delta == 0)
+		return;
+
+	jt406(hdr, (const void *)(uintptr_t)base, (short)16);
+	count = *(short *)(hdr + 8);
+	*(long *)(hdr + 4) += delta;
+	jt406((void *)(uintptr_t)base, hdr, (short)16);
+
+	cursor = base + 16;
+	for (i = 0; i <= count; i++, cursor += 4) {
+		if (i <= item)
+			continue;
+		jt406(&val, (const void *)(uintptr_t)cursor, (short)4);
+		if (i == (short)(item + 1)) {
+			keep = val;
+			if (delta < 0)
+				keep += delta;
+		}
+		val += delta;
+		jt406((void *)(uintptr_t)cursor, &val, (short)4);
+	}
+
+	jt469(group, keep, delta);
 }
 
 /* JT[83] (CODE 6+0x6908) — jt79's sibling paint-pass close with
