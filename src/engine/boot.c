@@ -25732,7 +25732,7 @@ static void jt888(long str_l, short f1, short f2, long *target)
 /* The -24070 targeting callback ABI (the breath/gaze jt7xx handlers and
  * jt842/jt851 call through g_a5_long(-24070) with these args).  Two
  * implementations exist: jt601 (out of combat, below) and jt538
- * (CODE 14+0x2028, in combat — unlifted).  Registration sites: CODE 13
+ * (CODE 14+0x2028, in combat — also below).  Registration sites: CODE 13
  * L0006 (combat teardown, +0x010e) and jt610 (CODE 16 handler-table
  * init) install jt601; jt511 (CODE 13+0x5a6) installs jt538. */
 typedef void (*ua_target_cb)(short code, short cnt, unsigned char *out);
@@ -25791,6 +25791,359 @@ static void jt601(short code, short cnt, unsigned char *out)
 	default:
 		*out = 0;
 		break;
+	}
+}
+
+/* The 10-byte pick descriptor jt538/L1efa pass to the pickers (jt539 /
+ * L1dd6 / L4dee): the picked record's pointer, then its combat-map cell.
+ * The Mac reads the cell as the low BYTES at +5 / +7 (the X/Y words'
+ * low halves).  A failed pick zero-fills it via jt399(buf, 10, 0). */
+struct ua_pick10 {
+	long rec;	/* +0  picked record (entity ptr), 0 = none */
+	short x;	/* +4  cell X (low byte at +5 is what's read) */
+	short y;	/* +6  cell Y (low byte at +7) */
+	short extra;	/* +8 */
+};
+
+/* JT[600] (CODE 16 + 0x5f26) — spell range, in combat-map cells, from
+ * the -16906 hazard row for `code`: byte2 = base, byte3 = per-level
+ * multiplier.  In combat the level term is jt17(code, 0) (caster level,
+ * low byte); out of combat (-23230 set) it's a flat 6.  Code 125 is
+ * quartered; a zero range becomes 1 when byte6 (the targeting-mode
+ * field) is non-zero; 255 also folds to 1. */
+static unsigned char jt600(short code)
+{
+	const unsigned char *info =
+	    g_a5_buf(-16906) + (long)(unsigned char)code * 16;
+	unsigned char range;
+
+	PROBE("jt600");
+	if (g_a5_byte(-23230) == 0) {
+		short lvl = jt17((short)(unsigned char)code, (short)0);
+
+		range = (unsigned char)((lvl & 255) * info[3] + info[2]);
+	} else {
+		range = (unsigned char)(info[3] * 6 + info[2]);
+	}
+	if ((unsigned char)code == 125)
+		range = (unsigned char)(range >> 2);
+	if (range == 0 && info[6] != 0)
+		range = 1;
+	if (range == 255)
+		range = 1;
+	return range;
+}
+
+/* JT[539] (CODE 14 + 0x3b6c) — the in-combat interactive crosshair
+ * pick: arms the -24140 pick mode, runs the cursor UI over the combat
+ * map out to `range` cells from `actor`, and fills `buf` (rec + cell)
+ * with the choice, *res = picked.  PROBE stub pending its own lift:
+ * fail the pick the way the real entry starts out (zeroed buf, *res 0)
+ * so L1efa degrades to its no-target path. */
+static void jt539(long actor_l, short range, short zero, short areaflag,
+                  short flag, unsigned char *res, struct ua_pick10 *buf)
+{
+	PROBE("jt539");
+	(void)actor_l;
+	(void)range;
+	(void)zero;
+	(void)areaflag;
+	(void)flag;
+	jt399(buf, (short)10, (short)0);
+	*res = 0;
+}
+
+/* CODE 14 + 0x1dd6 (local, ~292 B) — pick the next target from the
+ * already-built area list (repeat picks, cnt != 0, no area re-aim).
+ * PROBE stub pending its own lift; returns 0 = no pick. */
+static unsigned char l1dd6(struct ua_pick10 *buf, short *a, short *b,
+                           char *code_p, unsigned char *c)
+{
+	PROBE("L1dd6");
+	(void)buf;
+	(void)a;
+	(void)b;
+	(void)code_p;
+	(void)c;
+	return 0;
+}
+
+/* CODE 14 + 0x4dee (local) — repeat-pick for the area modes that
+ * re-aim per target (cnt != 0, areaflag set, byte6 != 8): re-runs the
+ * jt508 area scan around the spell's special-case rules (codes 87 / 51
+ * / 115 / 47 vs the -28006 flags, like jt538's cases 8-14).  PROBE
+ * stub pending its own lift; returns 0 = no pick. */
+static unsigned char l4dee(short code, struct ua_pick10 *buf)
+{
+	PROBE("L4dee");
+	(void)code;
+	(void)buf;
+	return 0;
+}
+
+/* CODE 14 + 0x1efa (local) — one target pick for jt538.  First pick
+ * (cnt == 0): interactive crosshair via jt539 at jt600(code) range
+ * (aim-anywhere flag set unless code 83), and the choice is remembered
+ * in the actor's sub-record long +12.  Repeat picks (cnt != 0) come
+ * from the built list: L1dd6 when there's no area re-aim (areaflag 0,
+ * or targeting mode byte6 == 8), else L4dee.  A hit posts the cell to
+ * -23236/-23235 and returns 1; a miss zero-fills the descriptor. */
+static unsigned char l1efa(short code, short cnt, short areaflag,
+                           struct ua_pick10 *buf)
+{
+	unsigned char res = 0;
+	unsigned char ret;
+
+	PROBE("L1efa");
+	if ((unsigned char)cnt == 0) {
+		short flag = ((unsigned char)code != 83) ? 1 : 0;
+		unsigned char range = jt600(code);
+		unsigned char *actor =
+		    (unsigned char *)(uintptr_t)g_a5_long(-27932);
+
+		jt539(g_a5_long(-27932), (short)range, (short)0, areaflag,
+		      flag, &res, buf);
+		*(long *)(void *)
+		    (*(unsigned char **)(void *)(actor + 64) + 12) = buf->rec;
+	} else if ((unsigned char)areaflag == 0
+	           || g_a5_buf(-16906)[(long)(unsigned char)code * 16 + 6]
+	              == 8) {
+		short s1, s2;
+		unsigned char c1;
+		char codeb = (char)code;
+
+		res = l1dd6(buf, &s1, &s2, &codeb, &c1);
+	} else {
+		res = l4dee((short)(unsigned char)code, buf);
+	}
+	if (res != 0) {
+		ret = 1;
+		g_a5_byte(-23236) = (unsigned char)buf->x;
+		g_a5_byte(-23235) = (unsigned char)buf->y;
+	} else {
+		ret = 0;
+		jt399(buf, (short)10, (short)0);
+	}
+	return ret;
+}
+
+/* JT[538] (CODE 14 + 0x2028) — the IN-COMBAT targeting callback (the
+ * -24070 ABI's other implementation; jt511 installs it for combat).
+ * Clears the -23512 slot table and stages the picker at the active
+ * combatant's cell (jt525/jt531 of -27932), then dispatches on the low
+ * nibble of the -16906 hazard row's byte6 (targeting mode):
+ *   0  -> self: -23508 = -27932, count 1;
+ *   5  -> pick-many under a weight budget: cap = caster level for
+ *         code 79, else jt870(2, 4); each unique pick adds rec[137]
+ *         (or rec[130] for 79) class weight to the running mask and
+ *         stops once count > 1 and the mask exceeds the cap (unsigned);
+ *         a duplicate pick costs a cap point on repeat rounds or just
+ *         complains on the first;
+ *   8-14 -> area: one aimed pick, then jt508 scans the map around the
+ *         picked cell (special radii for codes 87/51 vs -28006 byte 60
+ *         and 115/47 vs byte 34, else byte6 & 7) and the -19170 match
+ *         array is resolved through -25676 into the slots;
+ *   15 -> like area but byte6 >> 4 is the radius, and a remembered
+ *         pick (actor sub +12) short-circuits to a single target;
+ *   default (1-4, 6, 7) -> pick (byte6 & 3) + 1 individual targets,
+ *         codes 23/49 may not self-target.
+ * Targets land in the -23512 slots (1-based; slot 1 aliases -23508),
+ * count in -23510; *out = 0 when no target was chosen. */
+static void jt538(short code, short cnt, unsigned char *out)
+                                                 __attribute__((unused));
+static void jt538(short code, short cnt, unsigned char *out)
+{
+	const unsigned char *info =
+	    g_a5_buf(-16906) + (long)(unsigned char)code * 16;
+	struct ua_pick10 buf;
+
+	PROBE("jt538");
+	jt65((long)(uintptr_t)&g_a5_long(-23512), (short)4);
+	*out = 1;
+	g_a5_byte(-23510) = 0;
+	g_a5_byte(-25257) = 0;
+	g_a5_byte(-23236) = jt525(g_a5_long(-27932));
+	g_a5_byte(-23235) = jt531(g_a5_long(-27932));
+	switch (info[6] & 15) {
+	case 0:		/* self */
+		g_a5_long(-23508) = g_a5_long(-27932);
+		g_a5_byte(-23510) = 1;
+		break;
+
+	case 5: {	/* pick-many under a weight budget */
+		unsigned char mask = 0, count = 0, done = 0, cap;
+
+		if ((unsigned char)code == 79)
+			cap = (unsigned char)jt17((short)79, (short)0);
+		else
+			cap = (unsigned char)jt870((short)2, (short)4);
+		do {
+			if (l1efa(code, cnt, (short)0, &buf) == 0) {
+				done = 1;
+			} else {
+				unsigned char dup = 0, k;
+				const unsigned char *rec = (const unsigned
+				    char *)(uintptr_t)buf.rec;
+
+				for (k = 1; k <= count; k++)
+					if (buf.rec ==
+					    g_a5_long(-23512 + (long)k * 4))
+						dup = 1;
+				if (!dup) {
+					count++;
+					g_a5_long(-23512 + (long)count * 4) =
+					    buf.rec;
+					g_a5_byte(-23236) = jt525(buf.rec);
+					g_a5_byte(-23235) = jt531(buf.rec);
+					g_a5_byte(-23510)++;
+					if ((unsigned char)code != 79) {
+						switch ((short)rec[137]) {
+						case 0: case 1:
+							mask += 1; break;
+						case 2: mask += 2; break;
+						case 3: mask += 4; break;
+						default: mask += 8; break;
+						}
+					} else {
+						switch ((short)rec[130]) {
+						case 1: mask += 1; break;
+						case 2: case 3:
+							mask += 2; break;
+						case 4: mask += 4; break;
+						default: break;
+						}
+					}
+					if (count > 1 && mask > cap)
+						done = 1;
+				} else if ((unsigned char)cnt != 0) {
+					cap--;
+				} else {
+					jt42(ua_strs_at(0x4680)
+					     /* "Already been targeted" */);
+				}
+				l6090((short)(signed char)jt525(buf.rec),
+				      (short)(signed char)jt531(buf.rec));
+			}
+		} while (!done && cap != 0);
+		break;
+	}
+
+	case 8: case 9: case 10: case 11:
+	case 12: case 13: case 14: {	/* aimed area */
+		const unsigned char *st = (const unsigned char *)g_a5_28006;
+		unsigned char k;
+
+		if (l1efa(code, cnt, (short)1, &buf) == 0) {
+			*out = 0;
+			break;
+		}
+		if ((unsigned char)code == 87 && st[60] != 0)
+			jt508((short)(signed char)g_a5_byte(-23236),
+			      (short)(signed char)g_a5_byte(-23235),
+			      (short)3, (short)255, (short)1);
+		else if ((unsigned char)code == 51 && st[60] != 0)
+			jt508((short)(signed char)g_a5_byte(-23236),
+			      (short)(signed char)g_a5_byte(-23235),
+			      (short)2, (short)255, (short)1);
+		else if ((unsigned char)code == 115 && st[34] == 0)
+			jt508((short)(signed char)g_a5_byte(-23236),
+			      (short)(signed char)g_a5_byte(-23235),
+			      (short)2, (short)255, (short)1);
+		else if ((unsigned char)code == 47 && st[34] == 0)
+			jt508((short)(signed char)g_a5_byte(-23236),
+			      (short)(signed char)g_a5_byte(-23235),
+			      (short)2, (short)255, (short)1);
+		else
+			jt508((short)(signed char)g_a5_byte(-23236),
+			      (short)(signed char)g_a5_byte(-23235),
+			      (short)(info[6] & 7), (short)255, (short)1);
+		/* resolve the -19170 match array through -25676 */
+		for (k = 1; k <= g_a5_18894; k++)
+			g_a5_long(-23512 + (long)k * 4) =
+			    g_a5_25676[g_a5_19170[(long)k * 4]];
+		g_a5_byte(-23510) = g_a5_18894;
+		g_a5_byte(-25257) = 1;
+		break;
+	}
+
+	case 15: {	/* area with remembered-pick short circuit */
+		unsigned char *actor =
+		    (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		long remembered;
+		unsigned char k;
+
+		if (l1efa(code, cnt, (short)0, &buf) == 0) {
+			*out = 0;
+			break;
+		}
+		remembered = *(long *)(void *)
+		    (*(unsigned char **)(void *)(actor + 64) + 12);
+		if (remembered != 0) {
+			g_a5_long(-23508) = remembered;
+			g_a5_byte(-23510) = 1;
+			break;
+		}
+		jt508((short)(signed char)g_a5_byte(-23236),
+		      (short)(signed char)g_a5_byte(-23235),
+		      (short)(info[6] >> 4), (short)255, (short)1);
+		for (k = 1; k <= g_a5_18894; k++)
+			g_a5_long(-23512 + (long)k * 4) =
+			    g_a5_25676[g_a5_19170[(long)k * 4]];
+		g_a5_byte(-23510) = g_a5_18894;
+		g_a5_byte(-25257) = 1;
+		break;
+	}
+
+	default: {	/* 1-4, 6, 7: (byte6 & 3) + 1 individual picks */
+		unsigned char remaining = (unsigned char)((info[6] & 3) + 1);
+		unsigned char count = 0;
+
+		while (remaining != 0) {
+			unsigned char dup, k;
+
+			if (l1efa(code, cnt, (short)0, &buf) == 0) {
+				remaining = 0;
+				continue;
+			}
+			dup = 0;
+			for (k = 1; k <= count; k++)
+				if (buf.rec ==
+				    g_a5_long(-23512 + (long)k * 4))
+					dup = 1;
+			if (((unsigned char)code == 23
+			     || (unsigned char)code == 49)
+			    && buf.rec == g_a5_long(-27932))
+				dup = 1;
+			if (!dup) {
+				count++;
+				g_a5_long(-23512 + (long)count * 4) = buf.rec;
+				remaining--;
+				g_a5_byte(-23236) = jt525(buf.rec);
+				g_a5_byte(-23235) = jt531(buf.rec);
+			} else if ((unsigned char)cnt == 0) {
+				if (buf.rec == g_a5_long(-27932))
+					jt42(ua_strs_at(0x4696)
+					     /* "Cannot target yourself" */);
+				else
+					jt42(ua_strs_at(0x46ae)
+					     /* "Already been targeted" */);
+			} else {
+				remaining--;
+			}
+			l6090((short)(signed char)jt525(buf.rec),
+			      (short)(signed char)jt531(buf.rec));
+		}
+		g_a5_byte(-23510) = count;
+		if (count == 0) {
+			*out = 0;
+		} else {
+			long last = g_a5_long(-23512 + (long)count * 4);
+
+			g_a5_byte(-23236) = jt525(last);
+			g_a5_byte(-23235) = jt531(last);
+		}
+		break;
+	}
 	}
 }
 
