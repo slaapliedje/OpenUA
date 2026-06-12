@@ -49,7 +49,8 @@ OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
 #   jt1061 — _SwapMMUMode ($A05D): flips the 68k between 24/32-bit
 #           addressing. The 68030 Falcon/TT has one flat 32-bit mode, so
 #           the trap is genuinely a no-op on the target (done, not pending).
-NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130}
+NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
+        329, 920, 736}   # literal `rts` / empty linkw-unlk bodies on the Mac
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
@@ -77,6 +78,8 @@ ALIAS_LIFTED = {
     364: "lifted as l6e50 (same address; clamp 0..40 -> -10374)",
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
+    1154: "lifted as jt1154_pg (page-up toggle read, A5 -806)",
+    1054: "the _Delete Pascal trap glue = the shim's FSDelete (jt416)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue

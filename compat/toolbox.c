@@ -10,10 +10,14 @@
  */
 
 #include <stddef.h>           /* NULL */
+#include <stdlib.h>           /* exit, for ExitToShell */
 
 #include "toolbox.h"
 #include "events.h"           /* FlushEvents + everyEvent for the prologue */
 #include "menus.h"            /* ClearMenuBar for InitMenus                */
+#include "display.h"          /* dsp_detect — ExitToShell display restore  */
+#include "input.h"            /* plat_input_shutdown                       */
+#include "plat_sound.h"       /* plat_sound_shutdown                       */
 
 /*
  * InitGraf — QuickDraw startup. The Mac caller passes a pointer to its
@@ -71,4 +75,19 @@ void toolbox_init(void)
 	TEInit();                    /* TextEdit    */
 	InitDialogs(NULL);           /* Dialog Mgr  */
 	FlushEvents(everyEvent, 0);  /* Event Mgr   */
+}
+
+/*
+ * ExitToShell — Process Manager process termination (the _ExitToShell
+ * trap; FRUA reaches it through JT[415], e.g. the JT[69] content-load
+ * error path). On the Mac this unwinds straight to the Finder; here the
+ * platform vectors and the display mode are restored first — the same
+ * teardown main() runs on a normal return — then the process exits.
+ */
+void ExitToShell(void)
+{
+	plat_sound_shutdown();
+	plat_input_shutdown();
+	dsp_detect()->shutdown();
+	exit(0);
 }
