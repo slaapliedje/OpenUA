@@ -26982,7 +26982,21 @@ static void jt669(void) { PROBE("jt669"); }	/* +0x2008; id 132 */
 static void jt671(void) { PROBE("jt671"); }	/* +0x2f9e; id 100 */
 static void jt672(void) { PROBE("jt672"); }	/* +0x118a; id 40 */
 static void jt673(void) { PROBE("jt673"); }	/* +0x32ae; id 105 */
-static void jt674(void) { PROBE("jt674"); }	/* +0x0188; id 5,11,18,22,29,60,77 */
+/* Defined later in the file. */
+static void          l6114(short code, short a, short b, short c, short d,
+                           const char *msg);
+static unsigned char jt872(long rec, short type);
+
+/* JT[674] (CODE 16+0x0188; handler ids 5,11,18,22,29,60,77) — the
+ * "is affected" announcer: L6114 on the -25262 current target with
+ * no stat deltas. Full lift. */
+static void jt674(void)
+{
+	PROBE("jt674");
+	l6114((short)(unsigned char)g_a5_byte(-25262),
+	      (short)0, (short)0, (short)0, (short)0,
+	      ua_strs_at(0x4d4e) /* "is affected" */);
+}
 static void jt675(void) { PROBE("jt675"); }	/* +0x096a; id 28 */
 static void jt676(void) { PROBE("jt676"); }	/* +0x04ec; id 14 */
 static void jt677(void) { PROBE("jt677"); }	/* +0x355e; id 111 */
@@ -26995,7 +27009,52 @@ static void jt683(void) { PROBE("jt683"); }	/* +0x2f0e; id 136 */
 static void jt684(void) { PROBE("jt684"); }	/* +0x3aa4; id 120 */
 static void jt685(void) { PROBE("jt685"); }	/* +0x07d2; id 25,59 */
 static void jt686(void) { PROBE("jt686"); }	/* +0x0236; id 10,63 */
-static void jt687(void) { PROBE("jt687"); }	/* +0x15ae; id 43,61,89 */
+/* JT[687] (CODE 16+0x15ae; handler ids 43,61,89) — Remove Curse,
+ * full lift. If the -23508 target already carries effect type 43
+ * (jt872), it just announces "is un-cursed" (jt503). Otherwise walk
+ * the item list at target+8: the first equipped (+52) cursed (+50)
+ * item gets its curse byte cleared; if its flags byte +56 has bit 7,
+ * the -23187 force flag is raised and the item is stripped through
+ * the type-127 hook walk (jt857 = l77a0) plus a jt875 effect
+ * re-resolve over slots 0..5. Announces "has an item un-cursed". */
+static void jt687(void)
+{
+	long target = g_a5_long(-23508);
+	long item;
+	signed char found = 0;
+
+	PROBE("jt687");
+	if (jt872(target, (short)43)) {
+		jt503(target, (short)1,
+		      (long)(uintptr_t)ua_strs_at(0x4eee) /* "is un-cursed" */);
+		return;
+	}
+
+	for (item = *(long *)(uintptr_t)(target + 8);
+	     item != 0 && !found;
+	     item = *(long *)(uintptr_t)item) {
+		unsigned char *it = (unsigned char *)(uintptr_t)item;
+
+		if (it[52] == 0 || it[50] == 0)
+			continue;
+		found  = 1;
+		it[50] = 0;
+		if (it[56] & 0x80) {
+			short i;
+
+			g_a5_byte(-23187) = 1;
+			l77a0((short)127, (void *)(uintptr_t)target,
+			      (void *)it, (short)1);
+			for (i = 0; i <= 5; i++)
+				jt875(target, i);
+		}
+	}
+
+	if (found)
+		jt503(target, (short)1,
+		      (long)(uintptr_t)
+		      ua_strs_at(0x4efc) /* "has an item un-cursed" */);
+}
 static void jt688(void) { PROBE("jt688"); }	/* +0x2c40; id 92 */
 static void jt689(void) { PROBE("jt689"); }	/* +0x2614; id 80 */
 static void jt690(void) { PROBE("jt690"); }	/* +0x21c8; id 68 */

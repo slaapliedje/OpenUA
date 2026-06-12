@@ -133,6 +133,12 @@ Total ≈ 10 KB of asm.
   or a+128; l31dc release). New leaf stub: l035e (file-group mode
   switch). jt593's body-picture call chain is now real down to
   l3b1e. Band 3 at 89/100.
+- 2026-06-12: CODE 16 handler pair FULL: jt674 ("is affected"
+  L6114 announcer, handler ids 5/11/18/22/29/60/77) and jt687
+  (Remove Curse: jt872 type-43 short-circuit, equipped+cursed item
+  walk at target+8, bit-7 strip via jt857/l77a0 type 127 + jt875
+  re-resolve, jt503 announcements). docs/code16-wall.md updated.
+  Band 3 at 91/100.
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.
