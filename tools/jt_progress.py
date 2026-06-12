@@ -57,6 +57,13 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061}
 ALIAS_LIFTED = {
     50: "lifted as l5ac2 (same address; page-up -806 toggle, jt297 key 338)",
     51: "lifted as l5ad8 (same address; page-down -17443 -> jt983, jt297 key 339)",
+    857: "lifted as l77a0 (same address; the -25242 hook-table walker)",
+    456: "lifted as l2d3e (same address; the DLItem event poll, full lift)",
+    443: "lifted as l1676 (same address; the DLItem cmd dispatcher)",
+    293: "lifted as l05ca (same address; wall code on a cell edge)",
+    528: "lifted as l62ec (same address; combat map-cell fetch)",
+    409: "lifted as l3e0c (same address; first-index-of scan)",
+    207: "lifted as l5484 (same address; map-cell edge classify)",
     449: "lifted as l2c60",
     1084: "lifted as l036a (same address, the error dialog)",
     63: "lifted as l60b4 (same address, byte->decimal scratch)",
