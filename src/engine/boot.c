@@ -3353,7 +3353,57 @@ static int  jt108(short a)
 	g_a5_18395 = 1;
 	return 0;
 }
-static void jt81(void)             { PROBE("jt81"); }                             /* CODE 6 + 0x6a10  */
+/* Forward decls for the jt81 chrome painter (bodies live further down). */
+static void  l338c(short mode);
+static void  l33ac(const char *name, short kindB, short modeB, short subB,
+                   void **slotpp);
+static void  l38d0(short flag);
+static void  l3918(long a);
+static void  jt174(void);
+static void  l31dc(void *pp);
+static void  jt103(short top, short left, short right, short bottom);
+static int   jt1200(void);
+static void  jt1001(short a, short b, short c, short d);
+
+/* CODE 6+0x384c (local) — blit the bound library slot's (group, item)
+ * pair at cell (row, col): jt1001(row*4+8000, col*4+8000, slot[0],
+ * slot[1]).  jt81 uses it to lay the "gen" stone backdrop (group 3
+ * item 1 — verified against the Mac-emulator blit trace). */
+static void l384c(short row, short col, short *slot)
+{
+	PROBE("L384c");
+	jt1001((short)(row * 4 + 8000), (short)(col * 4 + 8000),
+	       slot[0], slot[1]);
+}
+
+/* JT[81] (CODE 6+0x6a10) — paint the standard STONE WINDOW CHROME
+ * (the menu/Hall screens): bind "gen" through the library binder
+ * (L338c kind 51 + L33ac -> the -13044 slot; lands in binder slot 1
+ * = GLIB group 3), draw the content panel box (jt103 1,1,38,13),
+ * the FRAME edge pieces (group 1 items 1..3, +4 only in the deep
+ * mode), the gen backdrop itself (L384c -> group 3 item 1), then
+ * L3918(0) + jt174 commit and release the binder.  Verified line-
+ * by-line against the Mac-emulator blit trace (docs/
+ * mac-blit-trace-3dview.md). */
+static void jt81(void)
+{
+	PROBE("jt81");
+	l338c((short)51);
+	l33ac(ua_strs_at(0x272e) /* "gen" */, (short)1, (short)0,
+	      (short)0, (void **)&g_a5_long(-13044));
+	l38d0((short)0);
+	jt103((short)1, (short)1, (short)38, (short)13);
+	jt1001((short)8000, (short)8000, (short)1, (short)1);
+	jt1001((short)8000, (short)8000, (short)1, (short)2);
+	jt1001((short)8000, (short)8000, (short)1, (short)3);
+	if (jt1200() == 3)
+		jt1001((short)8000, (short)8000, (short)1, (short)4);
+	l384c((short)0, (short)0,
+	      (short *)(uintptr_t)g_a5_long(-13044));
+	l3918(0L);
+	jt174();
+	l31dc((void *)&g_a5_long(-13044));
+}
 
 /* --- L5700 / L5864 — mode-cleanup helpers jt131 dispatches into --- *
  *
@@ -17962,36 +18012,36 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	jt81();
 	jt447();
 	for (i = 0; i < n; i++)
-		if (items[i].label != NULL) {
-			/* Place the label baseline at plate_top + 8px. The plate's top
-			 * highlight sits at the spec's rec[16] (menu_draw_plates uses
-			 * it directly); the Mac label baseline sits 8px into the face
-			 * below that. DrawString is BASELINE-anchored (the 8x8 font has
-			 * ascent 7, so the glyph body is baseline-6..baseline), so to
-			 * land the body in the face the baseline must be +8px = +4 engine
-			 * units (scale 2) below rec[16]. */
-			long ly = (long)items[i].y + 4;
+		{
+			/* Faithful build (Mac-trace verified): the row coord goes in
+			 * RAW — jt137 owns the baseline math now.  Spacer entries
+			 * (label NULL) become recessed DLItems with an empty label,
+			 * exactly like the Mac's spacer rows (bars 13/14/15 + ""). */
+			const char *lbl = items[i].label ? items[i].label : "";
+			int recessed = items[i].recessed || items[i].label == NULL;
+			long ly = (long)items[i].y;
 			/* Recessed (disabled) commands get an extra cmd 18 =
 			 * set rec[28] bit 2, so jt382 paints their label in the
 			 * dim stone grey. cmd 36 consumes the first 18 as its
 			 * arg (rec[24]); the second 18 is the standalone set-bit. */
-			if (items[i].recessed)
+			if (recessed)
 				jt452((long)1, ly, (long)items[i].x,
-				      (long)(uintptr_t)items[i].label,
+				      (long)(uintptr_t)lbl,
 				      (long)32, (long)items[i].hotkey,
 				      (long)36, (long)18, (long)18,
 				      (long)20, (long)21, (long)0);
 			else
 				jt452((long)1, ly, (long)items[i].x,
-				      (long)(uintptr_t)items[i].label,
+				      (long)(uintptr_t)lbl,
 				      (long)32, (long)items[i].hotkey,
 				      (long)36, (long)18, (long)20, (long)21, (long)0);
 		}
 	if (proc != NULL)
 		jt452((long)7, (long)(uintptr_t)proc, (long)20, (long)0);
 
-	/* plates under the labels, then paint the labels */
-	menu_draw_plates(items, n);
+	/* The Mac draws NO plates — the jt137 bar strips over jt81's gen
+	 * backdrop ARE the buttons (Mac-emulator blit trace, 2026-06-12).
+	 * menu_draw_plates retired. */
 	l2c60((short)1);
 
 	/* menu-specific banner (phase 1) on top of the labels */
