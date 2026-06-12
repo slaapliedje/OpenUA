@@ -29284,6 +29284,311 @@ static void jt721(long rec_l, long node, short flag)
 	     /* "goes berserk" */, 10, 1);
 }
 
+/* JT[22] (CODE 6 + 0x2e76) — Constitution hit-point adjustment per hit
+ * die (the plain switch variant; jt881 below is the table variant).
+ * CON 3 -> -2, 4-6 -> -1, 7-14 -> 0, 15 -> +1, 16 -> +2, 17-19 ->
+ * CON-14 for the warrior classes (1-4) else +2.  Mac quirk: the
+ * default arm (CON < 3 or > 19) returns an UNINITIALIZED local; we
+ * zero-seed it for defined C. */
+static short jt22(long ent_l, short cls) __attribute__((unused));
+static short jt22(long ent_l, short cls)
+{
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	signed char ret = 0;
+
+	PROBE("jt22");
+	switch ((short)(unsigned char)ent[121]) {
+	case 3:
+		ret = -2;
+		break;
+	case 4: case 5: case 6:
+		ret = -1;
+		break;
+	case 7: case 8: case 9: case 10:
+	case 11: case 12: case 13: case 14:
+		ret = 0;
+		break;
+	case 15:
+		ret = 1;
+		break;
+	case 16:
+		ret = 2;
+		break;
+	case 17: case 18: case 19:
+		if ((char)cls == 2 || (char)cls == 4 ||
+		    (char)cls == 3 || (char)cls == 1)
+			ret = (signed char)((unsigned char)ent[121] - 14);
+		else
+			ret = 2;
+		break;
+	default:
+		break;
+	}
+	return (short)ret;
+}
+
+/* JT[881] (CODE 19 + 0x58d4; the asm's local label L58d4 — jt885 calls
+ * it PC-relative) — Constitution hit-point adjustment per hit die: the
+ * base value from the -30246 table indexed by CON (ent[121]), plus the
+ * warrior-class (1-4) high-CON arm: 17 -> +1, 18 -> +2, 19/20 -> +3,
+ * 21-23 -> +4, 24/25 -> +5. */
+static short jt881(long ent_l, short cls) __attribute__((unused));
+static short jt881(long ent_l, short cls)
+{
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char acc = 0;
+
+	PROBE("jt881");
+	acc = (unsigned char)(acc +
+	    (unsigned char)g_a5_byte(-30246 + (long)(unsigned char)ent[121]));
+	if ((char)cls == 2 || (char)cls == 4 ||
+	    (char)cls == 3 || (char)cls == 1) {
+		switch ((short)(unsigned char)ent[121]) {
+		case 17:
+			acc = (unsigned char)(acc + 1);
+			break;
+		case 18:
+			acc = (unsigned char)(acc + 2);
+			break;
+		case 19: case 20:
+			acc = (unsigned char)(acc + 3);
+			break;
+		case 21: case 22: case 23:
+			acc = (unsigned char)(acc + 4);
+			break;
+		case 24: case 25:
+			acc = (unsigned char)(acc + 5);
+			break;
+		default:
+			break;
+		}
+	}
+	return (short)(signed char)acc;
+}
+
+/* L5274 (CODE 19 + 0x5274) — the theoretical max-HP ceiling for the
+ * character's current class levels: per class, (die size -22993 +
+ * jt22 per-die CON bonus) x effective level below name level -23007,
+ * then the fixed +2/+3/+1-per-level past it (class 4 gets one extra
+ * die / +1 level), averaged over the classes counted via the
+ * ent[157+j] path.  ent[164+j] non-zero overrides the level (and is
+ * not averaged); ent[138] is a base subtracted from PC-path levels.
+ * jt885 uses the result as the floor a drain can't take max HP below.
+ * Mac quirk kept: the byte return is the LOW BYTE of the word total
+ * (THINK C truncation). */
+static short l5274(long ent_l) __attribute__((unused));
+static short l5274(long ent_l)
+{
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char cnt = 0;		/* fp-1: classes averaged */
+	unsigned short total = 0;	/* fp-4 */
+	unsigned char j;		/* fp-6 */
+	short bonus;			/* fp-5, sign-extended on use */
+	unsigned char eff;		/* fp-8 */
+	unsigned char flag;		/* fp-11 */
+	unsigned char levpart;		/* fp-7 */
+	short basepart;			/* fp-10 */
+
+	PROBE("l5274");
+	for (j = 0; j <= 6; j++) {
+		if (!((unsigned char)ent[157 + j] > 0 &&
+		      ent[157 + j] > ent[138]) &&
+		    (unsigned char)ent[164 + j] == 0)
+			continue;
+		bonus = (short)(signed char)jt22(ent_l, (short)j);
+		if ((unsigned char)ent[164 + j] > 0) {
+			eff = ent[164 + j];
+			flag = 1;
+		} else {
+			cnt++;
+			eff = ent[157 + j];
+			flag = (unsigned char)(ent[138] == 0 ? 1 : 0);
+		}
+		if (eff < (unsigned char)g_a5_byte(-23007 + (long)j)) {
+			if (flag == 0 && eff > ent[138]) {
+				eff = (unsigned char)(eff - ent[138]);
+				flag = 1;
+			}
+			if (j == 4)
+				eff++;
+			if (flag == 0)
+				continue;
+			total = (unsigned short)(total + (short)
+			    (((short)(unsigned char)
+			      g_a5_byte(-22993 + (long)j) + bonus) *
+			     (short)eff));
+			continue;
+		}
+		if (flag == 0 && eff > ent[138]) {
+			flag = 1;
+			if ((short)(unsigned char)ent[138] >=
+			    (short)((short)(unsigned char)
+				    g_a5_byte(-23007 + (long)j) - 1)) {
+				levpart = (unsigned char)(eff - ent[138]);
+				basepart = 0;
+			} else {
+				basepart = (short)
+				    (((short)(unsigned char)
+				      g_a5_byte(-23007 + (long)j) -
+				      (short)(unsigned char)ent[138] - 1) *
+				     ((short)(unsigned char)
+				      g_a5_byte(-22993 + (long)j) + bonus));
+				levpart = (unsigned char)
+				    (eff - (unsigned char)
+				     g_a5_byte(-23007 + (long)j) + 1);
+			}
+		} else {
+			levpart = (unsigned char)
+			    (eff - (unsigned char)
+			     g_a5_byte(-23007 + (long)j) + 1);
+			basepart = (short)
+			    (((short)(unsigned char)
+			      g_a5_byte(-23007 + (long)j) - 1) *
+			     ((short)(unsigned char)
+			      g_a5_byte(-22993 + (long)j) + bonus));
+		}
+		if (j == 4)
+			basepart = (short)(basepart +
+			    (short)(unsigned char)
+			    g_a5_byte(-22993 + (long)j) + bonus);
+		if (flag == 0)
+			continue;
+		switch ((short)j) {
+		case 0: case 4: case 6:
+			total = (unsigned short)
+			    (total + (short)levpart * 2 + basepart);
+			break;
+		case 2: case 3:
+			total = (unsigned short)
+			    (total + (short)levpart * 3 + basepart);
+			break;
+		case 5:
+			total = (unsigned short)
+			    (total + (short)levpart + basepart);
+			break;
+		default:	/* case 1 */
+			break;
+		}
+	}
+	if (cnt > 0)
+		total = (unsigned short)(total / cnt);
+	else if ((unsigned char)ent[138] == 0)
+		total = 0;
+	return (short)(unsigned char)total;
+}
+
+/* JT[885] (CODE 19 + 0x55a2) — re-roll one level's worth of hit dice
+ * and apply it to max HP, as a gain (gain != 0: level up) or a drain
+ * (gain == 0: level drain, floored at the l5274 ceiling for the
+ * already-reduced level).  mask selects classes via the -23023 class
+ * bit table; ncls divides the roll for multi-class characters.  Per
+ * class: below name level (-23007), roll Nd(-22993) twice via jt870
+ * and keep the better (N = -23000 at level <= 1, else 1) plus the
+ * jt881 CON bonus per die; at/past name level the fixed 3/2/1 amount
+ * is ASSIGNED, not added (Mac quirk kept).  ent[129] = max HP,
+ * ent[395] = current HP (damage taken is preserved across the
+ * change), ent[184] = the accumulated dice-only part. */
+static void jt885(long ent_l, short mask, short ncls, short gain)
+    __attribute__((unused));
+static void jt885(long ent_l, short mask, short ncls, short gain)
+{
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char dice = 0;		/* fp-3 */
+	unsigned char bonus = 0;	/* fp-5 */
+	unsigned char j;		/* fp-6 */
+	unsigned char ndice;		/* fp-4 */
+	unsigned char r1, r2;		/* fp-1, fp-2 */
+	unsigned char dmg;		/* fp-1 reused */
+	unsigned char total;		/* fp-7 */
+	unsigned char minhp;		/* fp-8 */
+
+	PROBE("jt885");
+	for (j = 0; j <= 6; j++) {
+		if ((unsigned char)ent[157 + j] == 0)
+			continue;
+		if (((unsigned char)mask &
+		     (unsigned char)g_a5_byte(-23023 + (long)j)) == 0)
+			continue;
+		if (ent[157 + j] <
+		    (unsigned char)g_a5_byte(-23007 + (long)j)) {
+			if ((unsigned char)ent[157 + j] > 1)
+				ndice = 1;
+			else
+				ndice = (unsigned char)
+				    g_a5_byte(-23000 + (long)j);
+			r1 = (unsigned char)jt870((short)ndice,
+			    (short)(unsigned char)
+			    g_a5_byte(-22993 + (long)j));
+			r2 = (unsigned char)jt870((short)ndice,
+			    (short)(unsigned char)
+			    g_a5_byte(-22993 + (long)j));
+			if (r2 > r1)
+				r1 = r2;
+			dice = (unsigned char)(dice + r1);
+			bonus = (unsigned char)(bonus +
+			    (unsigned char)(jt881(ent_l, (short)j) *
+					    (short)ndice));
+		} else {
+			switch ((short)j) {
+			case 2: case 3:
+				dice = 3;
+				break;
+			case 0: case 4: case 6:
+				dice = 2;
+				break;
+			case 5:
+				dice = 1;
+				break;
+			default:	/* case 1 */
+				break;
+			}
+		}
+	}
+	if ((unsigned char)ncls > 0) {
+		dice = (unsigned char)
+		    ((unsigned short)dice / (unsigned char)ncls);
+		if (dice < 1)
+			dice = 1;
+		bonus = (unsigned char)
+		    ((unsigned short)bonus / (unsigned char)ncls);
+	} else {
+		ent[395] = 0;
+		ent[184] = 0;
+		ent[129] = 0;
+		return;
+	}
+	dmg = (unsigned char)(ent[129] - ent[395]);
+	if ((unsigned char)gain != 0) {
+		ent[184] = (unsigned char)(ent[184] + dice);
+		ent[129] = (unsigned char)(ent[129] + dice + bonus);
+		if (dmg > ent[129])
+			ent[395] = 0;
+		else
+			ent[395] = (unsigned char)(ent[129] - dmg);
+		return;
+	}
+	total = (unsigned char)(dice + bonus);
+	minhp = (unsigned char)l5274(ent_l);
+	/* unsigned word compare: ent[129] < total wraps and still clamps */
+	if ((unsigned short)((short)(unsigned char)ent[129] -
+			     (short)total) > (unsigned short)minhp) {
+		total = (unsigned char)(ent[129] - minhp);
+		dice = (unsigned char)(total - bonus);
+	}
+	if (total > ent[129])
+		ent[129] = 0;
+	else
+		ent[129] = (unsigned char)(ent[129] - total);
+	if (ent[184] > dice)
+		ent[184] = (unsigned char)(ent[184] - dice);
+	else
+		ent[184] = 0;
+	if (dmg > ent[129])
+		ent[395] = 0;
+	else
+		ent[395] = (unsigned char)(ent[129] - dmg);
+}
+
 /* L54ac (CODE 18 + 0x54ac) — rebuild the memorized-spell list after a
  * level change: walk the 141 memorized-spell bytes at rec[198..338],
  * counting kept spells per class/level against the slot limits at
