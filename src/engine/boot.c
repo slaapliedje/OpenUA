@@ -20755,7 +20755,8 @@ static void jt38(long entity)
  * the dispatch is now faithful and goes live the moment the table is filled. */
 static void l77a0(short item_type, void *entity, void *target, short flag)
 {
-	typedef void (*effect_hook_t)(void *entity, void *target, short flag);
+	/* matches the lifted jt7xx handler ABI (long rec, long node, short) */
+	typedef void (*effect_hook_t)(long entity, long target, short flag);
 	effect_hook_t fn;
 	short fl = (signed char)flag;          /* callee reads low byte, sign-ext */
 
@@ -20767,7 +20768,7 @@ static void l77a0(short item_type, void *entity, void *target, short flag)
 		     g_a5_long(-25242 + (unsigned char)item_type * 4);
 
 	if (fn)
-		fn(entity, target, fl);
+		fn((long)(uintptr_t)entity, (long)(uintptr_t)target, fl);
 }
 /* forward decls — l1b14 calls these effect-system functions defined below */
 static void jt878(long entity_long, short item_type, long item_long);
@@ -31607,6 +31608,95 @@ static void jt820(long rec_l, long item, short flag)
 		jt878(rec_l, (short)(unsigned char)it[55], 0);
 	else
 		jt876(rec_l, (short)(unsigned char)it[55], 0, 255, 1);
+}
+
+/* JT[537] (CODE 14 + 0x5670) — the beholder: "fires a disintegrate ray"
+ * plus the rest of the eye-tyrant multi-ray sweep (~1KB; L55d0/L555a
+ * locals, JT[494] range gates, per-ray saves). Its own future lift —
+ * stubbed so the jt856 hook table (slot 117) can be registered now. */
+static void jt537(long rec_l, long node, short flag)
+{
+	PROBE("jt537");
+	(void)rec_l;
+	(void)node;
+	(void)flag;
+}
+
+/* JT[856] (CODE 18 + 0x725c) — build the 230-entry per-creature hook table
+ * at A5-25242 that jt857/l77a0 dispatches through: every slot defaults to
+ * jt736 (the no-op handler), then the specific special-attack handlers are
+ * installed by slot. Slot index = (A5 offset + 25242) / 4; the Mac splits
+ * the tail into a helper (L7686) only to stay within branch range — folded
+ * here. The slot-5 jt736 store is redundant with the default loop but kept
+ * (it is in the Mac code). Caller: the CODE 6 combat setup (+0x510c),
+ * still unlifted — until it runs the table stays zero and l77a0 no-ops. */
+static void jt856(void) __attribute__((unused));
+static void jt856(void)
+{
+	short i;
+
+	PROBE("jt856");
+	for (i = 0; i <= 229; i++)
+		g_a5_long(-25242 + (long)i * 4) = (long)(uintptr_t)jt736;
+#define UA_HOOK(slot, fn) \
+	(g_a5_long(-25242 + (long)(slot) * 4) = (long)(uintptr_t)(fn))
+	UA_HOOK(1, jt737);    UA_HOOK(2, jt738);    UA_HOOK(3, jt713);
+	UA_HOOK(4, jt739);    UA_HOOK(5, jt736);    UA_HOOK(6, jt740);
+	UA_HOOK(7, jt718);    UA_HOOK(8, jt741);    UA_HOOK(9, jt742);
+	UA_HOOK(10, jt743);   UA_HOOK(11, jt723);   UA_HOOK(12, jt744);
+	UA_HOOK(13, jt745);   UA_HOOK(14, jt746);   UA_HOOK(15, jt747);
+	UA_HOOK(16, jt748);   UA_HOOK(17, jt749);   UA_HOOK(18, jt750);
+	UA_HOOK(19, jt736);   UA_HOOK(20, jt751);   UA_HOOK(21, jt728);
+	UA_HOOK(22, jt752);   UA_HOOK(23, jt753);   UA_HOOK(24, jt736);
+	UA_HOOK(25, jt754);   UA_HOOK(26, jt733);   UA_HOOK(27, jt855);
+	UA_HOOK(28, jt755);   UA_HOOK(29, jt756);   UA_HOOK(30, jt711);
+	UA_HOOK(31, jt855);   UA_HOOK(32, jt715);   UA_HOOK(33, jt757);
+	UA_HOOK(34, jt758);   UA_HOOK(35, jt720);   UA_HOOK(36, jt759);
+	UA_HOOK(37, jt725);   UA_HOOK(38, jt744);   UA_HOOK(39, jt760);
+	UA_HOOK(40, jt761);   UA_HOOK(41, jt762);   UA_HOOK(42, jt763);
+	UA_HOOK(43, jt764);   UA_HOOK(44, jt765);   UA_HOOK(45, jt741);
+	UA_HOOK(46, jt742);   UA_HOOK(47, jt766);   UA_HOOK(48, jt767);
+	UA_HOOK(49, jt768);   UA_HOOK(50, jt769);   UA_HOOK(51, jt855);
+	UA_HOOK(52, jt855);   UA_HOOK(53, jt855);   UA_HOOK(54, jt770);
+	UA_HOOK(55, jt771);   UA_HOOK(56, jt772);   UA_HOOK(57, jt858);
+	UA_HOOK(58, jt773);   UA_HOOK(59, jt774);   UA_HOOK(60, jt775);
+	UA_HOOK(61, jt776);   UA_HOOK(62, jt777);   UA_HOOK(63, jt778);
+	UA_HOOK(64, jt779);   UA_HOOK(65, jt735);   UA_HOOK(66, jt780);
+	UA_HOOK(67, jt781);   UA_HOOK(68, jt712);   UA_HOOK(69, jt782);
+	UA_HOOK(70, jt783);   UA_HOOK(71, jt784);   UA_HOOK(72, jt785);
+	UA_HOOK(73, jt786);   UA_HOOK(74, jt787);   UA_HOOK(75, jt716);
+	UA_HOOK(76, jt788);   UA_HOOK(77, jt721);   UA_HOOK(78, jt789);
+	UA_HOOK(79, jt790);   UA_HOOK(80, jt791);   UA_HOOK(81, jt792);
+	UA_HOOK(82, jt793);   UA_HOOK(83, jt732);   UA_HOOK(84, jt732);
+	UA_HOOK(85, jt732);   UA_HOOK(86, jt794);   UA_HOOK(87, jt736);
+	UA_HOOK(88, jt795);   UA_HOOK(89, jt796);   UA_HOOK(90, jt717);
+	UA_HOOK(91, jt722);   UA_HOOK(92, jt797);   UA_HOOK(93, jt798);
+	UA_HOOK(94, jt799);   UA_HOOK(95, jt800);   UA_HOOK(96, jt732);
+	UA_HOOK(97, jt801);   UA_HOOK(98, jt802);   UA_HOOK(99, jt803);
+	UA_HOOK(100, jt804);  UA_HOOK(101, jt726);  UA_HOOK(102, jt731);
+	UA_HOOK(103, jt805);  UA_HOOK(104, jt710);  UA_HOOK(105, jt806);
+	UA_HOOK(106, jt807);  UA_HOOK(107, jt714);  UA_HOOK(108, jt719);
+	UA_HOOK(109, jt736);  UA_HOOK(110, jt808);  UA_HOOK(111, jt724);
+	UA_HOOK(112, jt809);  UA_HOOK(113, jt810);  UA_HOOK(114, jt811);
+	UA_HOOK(115, jt729);  UA_HOOK(116, jt812);  UA_HOOK(117, jt537);
+	UA_HOOK(118, jt813);  UA_HOOK(119, jt814);  UA_HOOK(120, jt815);
+	UA_HOOK(121, jt734);  UA_HOOK(122, jt816);  UA_HOOK(123, jt817);
+	UA_HOOK(124, jt727);  UA_HOOK(125, jt818);  UA_HOOK(126, jt819);
+	UA_HOOK(127, jt820);
+	/* the L7686 tail (sparse slots) */
+	UA_HOOK(132, jt821);  UA_HOOK(137, jt822);  UA_HOOK(141, jt823);
+	UA_HOOK(143, jt824);  UA_HOOK(148, jt825);  UA_HOOK(158, jt826);
+	UA_HOOK(159, jt827);  UA_HOOK(168, jt828);  UA_HOOK(169, jt829);
+	UA_HOOK(170, jt830);  UA_HOOK(171, jt831);  UA_HOOK(172, jt832);
+	UA_HOOK(173, jt833);  UA_HOOK(174, jt834);  UA_HOOK(175, jt835);
+	UA_HOOK(176, jt836);  UA_HOOK(177, jt837);  UA_HOOK(178, jt730);
+	UA_HOOK(179, jt838);  UA_HOOK(186, jt839);  UA_HOOK(193, jt840);
+	UA_HOOK(195, jt841);  UA_HOOK(203, jt842);  UA_HOOK(215, jt843);
+	UA_HOOK(216, jt844);  UA_HOOK(217, jt845);  UA_HOOK(218, jt846);
+	UA_HOOK(219, jt847);  UA_HOOK(220, jt848);  UA_HOOK(221, jt849);
+	UA_HOOK(222, jt850);  UA_HOOK(223, jt851);  UA_HOOK(224, jt852);
+	UA_HOOK(225, jt853);  UA_HOOK(226, jt854);
+#undef UA_HOOK
 }
 
 /* JT[519] (CODE 14+0x6bbe) — find a combatant in the active-actor table:
