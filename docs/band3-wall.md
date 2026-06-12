@@ -179,3 +179,14 @@ Total ≈ 10 KB of asm.
   A5 -17568 buffer, accept flag -17528, jt405 uppercase). New leaf
   stub: jt1078 (CODE 5+0x440, the modal line editor — the box draws,
   the editing pends). Band 3 at 98/100; left: jt349, jt947 (#115).
+- 2026-06-12: jt349 FULL (the spell/scroll list-row builder: walks
+  the kind-classed 14-byte spell-table entries L5f04 resolves,
+  filters by level/school-mask/callback, decodes packed names via
+  JT[191], prefixes '*' (memorized, jt261 vs the -11652 list) and
+  '#' (kind-3 id >= 112), formats the "%s%s - %s"/"%*s" rows into
+  the node chain). l5f04 stub fixed to return a status + fill the
+  holder; new leaf stubs l60b0 (header text) + jt191 (the 6-bit
+  packed-name decoder, ~280B, its own lift later).
+  **BAND 3 COMPLETE at 99/100** — the only non-done entry is jt947
+  = l709e, the CODE 20 event dispatcher, which closes via #115's
+  combat campaign by design.
