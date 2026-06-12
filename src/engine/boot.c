@@ -27786,6 +27786,179 @@ static void jt880(long rec_l)
 		jt878(rec_l, 25, (long)(uintptr_t)node);
 }
 
+/* --- jt511: the CODE 13 combat main loop ----------------------------
+ * Leaf JT entries it drives, PROBE stubs pending their own lifts: */
+
+/* JT[542] (CODE 14+0x5434) — combat-field setup run once at entry. */
+static void jt542(void) { PROBE("jt542"); }
+
+/* JT[541] (CODE 14+0x0006) — per-member per-round prep. */
+static void jt541(long member) { PROBE("jt541"); (void)member; }
+
+/* JT[50] (CODE 6+0x5ac2) / JT[51] (CODE 6+0x5ad8) — keyboard handlers
+ * for keys 338/339 in the combat loop. */
+static void jt50(void) { PROBE("jt50"); }
+static void jt51(void) { PROBE("jt51"); }
+
+/* JT[64] (CODE 6+0x5f3a) — keyboard handler for keys 27/96 (Esc/`). */
+static void jt64(short flag) { PROBE("jt64"); (void)flag; }
+
+/* JT[67] (CODE 6+0x5f48) — combat-abort poll; 0 = keep going. */
+static unsigned char jt67(void) { PROBE("jt67"); return 0; }
+
+/* JT[55] (CODE 6+0x5b5e) — release one combat resource slot (the
+ * teardown sweeps ids 8..14 and 76..80). */
+static void jt55(short id) { PROBE("jt55"); (void)id; }
+
+/* JT[58] (CODE 6+0x5eba) — combat-screen art teardown. */
+static void jt58(void) { PROBE("jt58"); }
+
+/* CODE 13 locals of the combat loop, PROBE stubs pending lifts: */
+
+/* CODE 13+0x4f22 — combat entry staging (run once after jt542). */
+static void l4f22(void) { PROBE("L4f22"); }
+
+/* CODE 13+0x0434 — per-round init: builds the -22624 initiative slot
+ * array (slot i at -22624 + 4i, first actor in -22620). */
+static void l0434(void) { PROBE("L0434"); }
+
+/* CODE 13+0x076e — execute one actor's combat turn (the big one:
+ * status gates at sub +17/+20/+9, jt868(7), jt516 visibility, jt530
+ * pose, jt21 recompute, then the action state machine). */
+static void l076e(long member) { PROBE("L076e"); (void)member; }
+
+/* CODE 13+0x102a — end-of-round bookkeeping; may set *done. */
+static void l102a(unsigned char *done) { PROBE("L102a"); (void)done; }
+
+/* CODE 13+0x0116 — post-combat treasure/aftermath sequence (only when
+ * -27916 is set). */
+static void l0116(void) { PROBE("L0116"); }
+
+/* CODE 13+0x0006 — combat teardown.  Frees the -23234 list into the
+ * -20800 bucket (jt471 size 34), then per party member: strip item
+ * type 176 (jt878), normalize a lingering type-11 effect on a
+ * status-0 member (rec[94] = 3 if more than one enemy group fought
+ * (-25297 > 1), else 0), and remove all standard status effects
+ * (jt865).  Then the art teardown: jt58, jt55 over ids 8..14 and
+ * 76..80, jt115 on the -27870 slot — and reinstall jt601 as the
+ * -24070 targeting callback (the +0x010e site). */
+static void l0006(void)
+{
+	long m;
+	short k;
+	void *node;
+
+	PROBE("L0006");
+	while (g_a5_long(-23234) != 0) {
+		long next = *(long *)(uintptr_t)(g_a5_long(-23234) + 4);
+
+		jt471(g_a5_long(-23234), (short)34,
+		      (void *)&g_a5_byte(-20800));
+		g_a5_long(-23234) = next;
+	}
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+		unsigned char *rec = (unsigned char *)(uintptr_t)m;
+
+		jt878(m, (short)176, 0);
+		node = NULL;
+		if (jt41(m, (short)11, &node) != 0 && rec[94] == 0) {
+			if (g_a5_byte(-25297) > 1)
+				rec[94] = 3;
+			else
+				rec[94] = 0;
+		}
+		jt865(m);
+	}
+	jt58();
+	for (k = 8; k <= 14; k++)
+		jt55(k);
+	for (k = 76; k < 81; k++)
+		jt55(k);
+	jt115((void *)&g_a5_byte(-27870));
+	g_a5_long(-24070) = (long)(uintptr_t)jt601;
+}
+
+/* JT[511] (CODE 13+0x05a6) — the COMBAT MAIN LOOP (and the other half
+ * of the -24070 registration: installs jt538 at entry, l0006 restores
+ * jt601 on the way out).  Structural lift — the round/actor control
+ * flow and every JT call are faithful; the heavy locals (l076e per-
+ * actor turn, l0434 initiative build, l102a round bookkeeping, l4f22
+ * staging, l0116 aftermath) are PROBE stubs pending their own lifts.
+ *   Round loop: jt490 message flush, jt541 prep over the -27928 party,
+ *   clear the game record's byte 46, l0434, then walk the -22624
+ *   initiative slots (index -22332, capped at 72): l076e per actor,
+ *   ending the fight after the current pass once either side is out
+ *   (-25298 / -25297 group counts, -22721 vs -22720 morale bytes).
+ *   Per actor: keyboard poll (-27988 set: jt1118/jt1133 — 338 jt50,
+ *   339 jt51, 27/96 jt64(1)) and the palette tick (jt1067 unless
+ *   jt1163() == 0 && jt1200() != 0); jt67 can abort the pass.
+ *   On exit: l0116 when -27916 is set, l0006 teardown, -27981 = 1. */
+static void jt511(void) __attribute__((unused));
+static void jt511(void)
+{
+	unsigned char over = 0;
+	unsigned char done = 0;
+	long m;
+
+	PROBE("jt511");
+	g_a5_byte(-27990) = 5;
+	g_a5_long(-24070) = (long)(uintptr_t)jt538;
+	jt542();
+	l4f22();
+	if (g_a5_byte(-25298) == 0 || g_a5_byte(-25297) == 0)
+		done = 1;
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		jt868((short)24, &m);
+	while (!done) {
+		jt490();			/* asm: local call to L242c */
+		for (m = g_a5_long(-27928); m != 0;
+		     m = *(long *)(uintptr_t)m)
+			jt541(m);
+		((unsigned char *)g_a5_28006)[46] = 0;
+		l0434();
+		m = g_a5_long(-22620);
+		g_a5_byte(-22332) = 1;
+		while (m != 0 && !done
+		       && (g_a5_byte(-27988) == 0 || jt67() == 0)) {
+			l076e(m);
+			g_a5_byte(-22332)++;
+			if (g_a5_byte(-22332) > 72)
+				m = 0;
+			else
+				m = g_a5_long(-22624
+				    + (long)g_a5_byte(-22332) * 4);
+			jt490();
+			if (!(g_a5_byte(-25298) != 0
+			      && g_a5_byte(-25297) != 0
+			      && g_a5_byte(-22721) < g_a5_byte(-22720))
+			    && !over) {
+				done = 1;
+				over = 1;
+			}
+			if (g_a5_byte(-27988) != 0
+			    && (unsigned char)jt1118() != 0) {
+				short key = jt1133();
+
+				if (key == 338)
+					jt50();
+				if (key == 339)
+					jt51();
+				if (key == 27 || key == 96)
+					jt64((short)1);
+			}
+			if (jt1163() != 0 || jt1200() == 0)
+				jt1067();
+		}
+		l102a(&done);
+		if (g_a5_byte(-27988) != 0 && jt67() != 0)
+			done = 1;
+	}
+	if (g_a5_byte(-27916) != 0)
+		l0116();
+	l0006();
+	g_a5_byte(-27981) = 1;
+}
+
 /* JT[736] (CODE 18+0x71fe) — empty body (linkw/unlk/rts); a faithful no-op. */
 static void jt736(void) __attribute__((unused));
 static void jt736(void) { PROBE("jt736"); }
