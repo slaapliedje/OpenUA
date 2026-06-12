@@ -163,3 +163,12 @@ Total ≈ 10 KB of asm.
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.
   Band 2 now 98/100 (jt882 + jt599 left).
+- 2026-06-12: jt353 FULL (area-map icon painter: GEO-kind icon-bank
+  +1 shift, -10366 / -22222 slot select, depth-3 raw blit inlined as
+  jt108+jt1001 per the jt57 precedent — the port's jt118 is the
+  incompatible render variant). New leaf stubs: l7490 + jt220 (icon
+  loaders). ARG-ORDER FINDING: the Mac CODE 6 jt114/jt118/jt121
+  take (h, v) — settled against jt121's verified lift; the
+  3dview-trace doc's "JT[114] = (top, left)" label likely reflects
+  the BII hook's printf labels, not the C param order. Band 3 at
+  97/100; left: jt98, jt349, jt947 (#115).
