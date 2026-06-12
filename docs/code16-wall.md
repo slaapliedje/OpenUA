@@ -34,7 +34,7 @@ dispatch need before they fire for real:
 | jt996 / jt1000 / jt1186 / jt1201 | CODE 5/4 | TPalette raw CLUT commit family (jt1186 port-maps to l6e58) | **LIFTED** (callers deferred w/ palette arm) |
 | jt986 / jt975 / jt964 / L3736 / L7eb8 | CODE 5 | sound-bank load (music.slb) + sample sign-flip ("sounds" GLIB 18) | **LIFTED** |
 | jt974 | CODE 5+0x1304 (~600B) | the sound-mixer pump installed at -4774 | stub |
-| jt137 | CODE 7+0x1234 (~1.5KB) | the shape-1 DLItem method jt151 installs (slot 1 of the -9282 method table = jt452's shape table!) | stub (jt151 deferred until lifted) |
+| jt137 | CODE 7+0x1234 (~830B) | the COMMAND-BUTTON DLItem method (bar from FRAME glyphs 10-15, label + hotkey letter via jt1089, scaled hit rect; chains other msgs to the saved jt382) | **LIFTED** — jt151 GATED on the (v,h) coordinate migration, see docs/coord-audit.md |
 | jt900/jt1115/jt149/jt151/jt450/jt1086/jt1090/jt1166/jt1179/jt976/jt978 | misc | small session-init leaves | **LIFTED** |
 | L59d6/L31cc/L3cb2/L36e0/L3fb2/L5304 | CODE 6 locals | audio bring-up / name copy / binder reset+claim / audio tail / item.dat | **LIFTED** |
 | jt50/jt51/jt64 | CODE 6 | = the ALREADY-LIFTED l5ac2/l5ad8/l5f3a (dual-name trap caught in audit); JT names route there | **LIFTED** |
