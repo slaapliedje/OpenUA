@@ -29646,14 +29646,218 @@ static void l54ac(long rec_l)
 	}
 }
 
-/* JT[908] (CODE 19 + 0x5df2; asm local label L5df2) — first stage of
- * the derived-stat recompute jt910 runs (~1.3KB).  PROBE stub: its
- * own lift step. */
+/* JT[911] (CODE 19 + 0x5ba0; asm local label L5ba0) — fill the cleric
+ * spell-slot row (ent[355..361]) from the -29876 progression table
+ * (261 = 29 levels x 9 spell levels per class sub-table; selector
+ * byte at -30220, 255 = no slots), then the Wisdom (ent[117]) bonus
+ * slots — 13/14 -> +1 1st each, 15/16 -> +1 2nd each, 17 -> +1 3rd,
+ * 18 -> +1 4th (only on rows already non-zero) — and the WIS gates:
+ * < 17 clears the 6th-level row (ent[360]), < 18 the 7th (ent[361]).
+ * Mac quirk kept: the -30220 selector index variable is cleared and
+ * never advanced, so slot [0] is read every iteration. */
+static void jt911(long ent_l) __attribute__((unused));
+static void jt911(long ent_l)
+{
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char lvl, k, sel;
+
+	PROBE("jt911");
+	lvl = jt40(ent, 0);
+	if ((unsigned char)lvl == 0)
+		return;
+	if ((short)(unsigned char)lvl > 29)
+		lvl = 29;
+	for (k = 1; k <= 7; k++) {
+		sel = (unsigned char)g_a5_byte(-30220);
+		if ((short)(unsigned char)sel == 255)
+			ent[355 + (k - 1)] = 0;
+		else
+			ent[355 + (k - 1)] = (unsigned char)
+			    g_a5_byte(-29876 + (long)sel * 261 +
+				      ((long)lvl - 1) * 9 + (k - 1));
+	}
+	if ((short)(unsigned char)ent[117] > 12 &&
+	    (unsigned char)ent[355] > 0)
+		ent[355]++;
+	if ((short)(unsigned char)ent[117] > 13 &&
+	    (unsigned char)ent[355] > 0)
+		ent[355]++;
+	if ((short)(unsigned char)ent[117] > 14 &&
+	    (unsigned char)ent[356] > 0)
+		ent[356]++;
+	if ((short)(unsigned char)ent[117] > 15 &&
+	    (unsigned char)ent[356] > 0)
+		ent[356]++;
+	if ((short)(unsigned char)ent[117] > 16 &&
+	    (unsigned char)ent[357] > 0)
+		ent[357]++;
+	if ((short)(unsigned char)ent[117] > 17 &&
+	    (unsigned char)ent[358] > 0)
+		ent[358]++;
+	if ((short)(unsigned char)ent[117] < 17)
+		ent[360] = 0;
+	if ((short)(unsigned char)ent[117] < 18)
+		ent[361] = 0;
+}
+
+/* JT[912] (CODE 19 + 0x5d8a; asm local label L5d8a) — Intelligence
+ * (ent[115]) gates on the high mage spell-slot rows: INT < 12 clears
+ * 6th (ent[378]), < 14 7th (ent[379]), < 16 8th (ent[380]), < 18 9th
+ * (ent[381]). */
+static void jt912(long ent_l) __attribute__((unused));
+static void jt912(long ent_l)
+{
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+
+	PROBE("jt912");
+	if ((short)(unsigned char)ent[115] < 12)
+		ent[378] = 0;
+	if ((short)(unsigned char)ent[115] < 14)
+		ent[379] = 0;
+	if ((short)(unsigned char)ent[115] < 16)
+		ent[380] = 0;
+	if ((short)(unsigned char)ent[115] < 18)
+		ent[381] = 0;
+}
+
+/* JT[908] (CODE 19 + 0x5df2; asm local label L5df2) — rebuild the
+ * spell-slot limit table at ent[355..381] (3 rows x 9 levels: cleric
+ * 355, druid 364, mage 373 — the limits l54ac fits memorized spells
+ * against) and the knowable-spell bitmap at ent[339..]: zero the 27
+ * bytes (jt399), then per class j (jt40 level, capped at 29):
+ *   0 cleric  - jt911 slot fill, then set the -18893 bit for every
+ *               class-0 spell whose level row is non-zero;
+ *   3 paladin - level > 8: add cleric slots 1-4 from the -29876
+ *               progression (selector -30217), same bit pass;
+ *   4 ranger  - level > 7: add druid slots 1-4 (selector -30216,
+ *               columns 1-4) and mage slots 1-4 (columns 5-8); bit
+ *               pass over class-1/class-2 spells (Mac quirk kept:
+ *               the re-check before setting the bit reads the DRUID
+ *               row even for class-2 spells);
+ *   5 mage    - add mage slots 1-9 (selector -30215), jt912 INT gate
+ *               re-run after every column.
+ * Tail: a readied item of type 129 DOUBLES ent[377] (first match
+ * only).  NAMING TRAPS: L5ba0 = jt911, L5d8a = jt912. */
 static void jt908(long ent_l) __attribute__((unused));
 static void jt908(long ent_l)
 {
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char *it;
+	unsigned char j, lvl, k, m;
+	unsigned short s;
+
 	PROBE("jt908");
-	(void)ent_l;
+	jt399(ent + 355, 27, 0);
+	for (j = 0; j <= 7; j++) {
+		lvl = jt40(ent, (short)j);
+		if ((short)(unsigned char)lvl > 29)
+			lvl = 29;
+		if ((unsigned char)lvl == 0)
+			continue;
+		switch ((short)j) {
+		case 0:
+			jt911(ent_l);
+			for (s = 1; s <= 126; s++) {
+				if ((unsigned char)
+				    g_a5_byte(-16906 + (long)s * 16) != 0)
+					continue;
+				if ((unsigned char)ent[355 +
+				    (unsigned char)g_a5_byte(-16906 +
+					(long)s * 16 + 1) - 1] == 0)
+					continue;
+				ent[339 + ((s - 1) >> 3)] |=
+				    (unsigned char)g_a5_byte(-18893 +
+					(long)((s - 1) & 7));
+			}
+			break;
+		case 3:
+			if ((short)(unsigned char)lvl <= 8)
+				break;
+			for (k = 1; k <= 4; k++)
+				ent[355 + (k - 1)] = (unsigned char)
+				    (ent[355 + (k - 1)] +
+				     (unsigned char)g_a5_byte(-29876 +
+					(long)(unsigned char)
+					g_a5_byte(-30217) * 261 +
+					((long)lvl - 1) * 9 + (k - 1)));
+			for (s = 1; s <= 126; s++) {
+				if ((unsigned char)
+				    g_a5_byte(-16906 + (long)s * 16) != 0)
+					continue;
+				if ((unsigned char)ent[355 +
+				    (unsigned char)g_a5_byte(-16906 +
+					(long)s * 16 + 1) - 1] == 0)
+					continue;
+				ent[339 + ((s - 1) >> 3)] |=
+				    (unsigned char)g_a5_byte(-18893 +
+					(long)((s - 1) & 7));
+			}
+			break;
+		case 4:
+			if ((short)(unsigned char)lvl > 7) {
+				for (k = 1; k <= 4; k++)
+					ent[364 + (k - 1)] = (unsigned char)
+					    (ent[364 + (k - 1)] +
+					     (unsigned char)g_a5_byte(-29876 +
+						(long)(unsigned char)
+						g_a5_byte(-30216) * 261 +
+						((long)lvl - 1) * 9 +
+						(k - 1)));
+				for (k = 5; k <= 8; k++) {
+					m = (unsigned char)(k - 4);
+					ent[373 + (m - 1)] = (unsigned char)
+					    (ent[373 + (m - 1)] +
+					     (unsigned char)g_a5_byte(-29876 +
+						(long)(unsigned char)
+						g_a5_byte(-30216) * 261 +
+						((long)lvl - 1) * 9 +
+						(k - 1)));
+				}
+			}
+			for (s = 1; s <= 126; s++) {
+				unsigned char cls = (unsigned char)
+				    g_a5_byte(-16906 + (long)s * 16);
+				unsigned char sl = (unsigned char)
+				    g_a5_byte(-16906 + (long)s * 16 + 1);
+				if (!((cls == 1 &&
+				       (unsigned char)
+				       ent[364 + sl - 1] > 0) ||
+				      (cls == 2 &&
+				       (unsigned char)
+				       ent[373 + sl - 1] > 0)))
+					continue;
+				/* Mac quirk: re-checks the DRUID row
+				 * (364) even for class-2 spells */
+				if ((unsigned char)ent[364 + sl - 1] == 0)
+					continue;
+				ent[339 + ((s - 1) >> 3)] |=
+				    (unsigned char)g_a5_byte(-18893 +
+					(long)((s - 1) & 7));
+			}
+			break;
+		case 5:
+			for (k = 1; k <= 9; k++) {
+				ent[373 + (k - 1)] = (unsigned char)
+				    (ent[373 + (k - 1)] +
+				     (unsigned char)g_a5_byte(-29876 +
+					(long)(unsigned char)
+					g_a5_byte(-30215) * 261 +
+					((long)lvl - 1) * 9 + (k - 1)));
+				jt912(ent_l);
+			}
+			break;
+		default:	/* classes 1, 2, 6, 7 */
+			break;
+		}
+	}
+	for (it = *(unsigned char **)(void *)(ent + 8); it != 0;
+	     it = *(unsigned char **)(void *)it) {
+		if ((short)(unsigned char)it[56] == 129 &&
+		    (unsigned char)it[50] != 0) {
+			ent[377] = (unsigned char)(ent[377] + ent[377]);
+			break;
+		}
+	}
 }
 
 /* JT[910] (CODE 19 + 0x631c) — recompute the level-derived combat
