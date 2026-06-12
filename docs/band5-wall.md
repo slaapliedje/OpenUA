@@ -245,3 +245,20 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   - LEAF STUBS left: l2756 (the ~1.7KB segment re-tokenizer + its
     L2dca/L2d5e char classes), l24e8/l2410/l1f6c (the word-wrap paint
     layer) — the next design-tools slice.
+- 2026-06-12: **jt1126 LIFTED — the band-5 page-table leftover closed.**
+  The keystone: JT[1177] IS L053e (CODE 4+0x053e), the GLIB blit-cursor
+  SEEDER — lifted against the shim's screen back buffer
+  (qd_screen_pixels) instead of the Mac's never-populated -2570
+  GrafPort records (jt1128 page flips are presents, ADR-0003/0005).
+  That one lift un-stubs every -3076 consumer: jt119/jt122 save-under,
+  jt1192/jt1194/jt1197/jt1202, and retires the old "jt1177 bus-error"
+  triage note. jt1126 FULL: jt1135 corner maps + jt1141 delta map
+  (jt1141 was already correctly lifted — the L78e8 inline transform
+  matches), corner ordering, the COLOUR row-copy path (jt1177 cursor +
+  jt406 memmove, up/down by the dv sign for overlap safety), the
+  JT[1161] exposed-strip fills (skipped when fill < 0), and the
+  doubled InvalRect tail. The mono _CopyBits arm = PROBE (dead: the
+  port runs colour permanently). SetPort/GetCTable/RGB colour
+  bracketing elided (single surface, identity palette). Callers: the
+  CODE 7 message-window scroll (0x047c/0x05d6) + the CODE 8 editor
+  (0x431c).

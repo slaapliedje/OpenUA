@@ -122,12 +122,6 @@ ALIAS_LIFTED = {
 # (small body over an uncharted helper cluster), dispatcher (big multi-case
 # switch), trap-shim (issues a Mac trap), HAL (needs a display backend).
 PENDING_NOTES = {
-    1177: "HAL — Mac framebuffer addressing; needs the row-blit display "
-          "backend, not a transcription",
-    1126: "the page scroll-blit (CODE 4+0x5d9c): SetPort/CopyBits over the "
-          "-2570 NewGWorld page-descriptor table — the jt1146/jt1177 "
-          "bus-error family. Closes with task #105's page-record init; "
-          "needs L053e/L04de/L77fe/L78e8 leaf helpers too",
     501:  "dispatcher — 598-line. Own session",
     21:   "dispatcher — 454-line. Own session",
     28:   "dispatcher — 307-line. Own session",

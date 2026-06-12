@@ -13,20 +13,20 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 758 done (687 lifted, 19 noop, 52 alias), 157 stub, 290 missing.
+**1205 distinct JT entries are called.** Overall: 766 done (695 lifted, 19 noop, 52 alias), 156 stub, 283 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **99/100** | 91 | 8 | 1 | 0 |
+| 1 | 1–100 | **100/100** | 92 | 8 | 0 | 0 |
 | 2 | 101–200 | **100/100** | 92 | 8 | 0 | 0 |
 | 3 | 201–300 | **99/100** | 82 | 17 | 0 | 1 |
 | 4 | 301–400 | **99/100** | 76 | 23 | 1 | 0 |
-| 5 | 401–500 | **97/100** | 83 | 14 | 0 | 3 |
+| 5 | 401–500 | **100/100** | 86 | 14 | 0 | 0 |
 | 6 | 501–600 | **29/100** | 28 | 1 | 23 | 48 |
-| 7 | 601–700 | **27/100** | 27 | 0 | 7 | 66 |
-| 8 | 701–800 | **34/100** | 34 | 0 | 6 | 60 |
+| 7 | 601–700 | **29/100** | 29 | 0 | 7 | 64 |
+| 8 | 701–800 | **36/100** | 36 | 0 | 6 | 58 |
 | 9 | 801–900 | **4/100** | 4 | 0 | 90 | 6 |
 | 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 |
 | 11 | 1001–1100 | **60/100** | 60 | 0 | 8 | 32 |
@@ -116,7 +116,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 77 | jt273 | 22 | LIFTED |  |
 | 78 | jt410 | 22 | LIFTED |  |
 | 79 | jt876 | 22 | LIFTED |  |
-| 80 | jt1177 | 22 | **STUB** |  |
+| 80 | jt1177 | 22 | LIFTED |  |
 | 81 | jt498 | 21 | LIFTED |  |
 | 82 | jt169 | 20 | LIFTED |  |
 | 83 | jt210 | 20 | LIFTED |  |
@@ -252,5 +252,5 @@ an uncharted multi-function cluster — lift the cluster first);
 **trap-shim** (issues a Mac OS trap the HAL must route); **HAL**
 (needs a display/row-blit backend, not a transcription).
 
-- jt1177 (22 calls) — stub — HAL — Mac framebuffer addressing; needs the row-blit display backend, not a transcription
+_None — the top 100 are fully lifted._
 
