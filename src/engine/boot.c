@@ -36309,10 +36309,29 @@ static void jt351(void)
  * (printf-style; recurses through itself with the " %s%( %)Page %2d"
  * footer format and re-enters JT[1072] with count 2). Leaf PROBE
  * stub pending its own lift. */
-static void l7ab4(const char *fmt)
+static void l7ab4(const char *fmt, ...)
 {
 	PROBE("l7ab4");
 	(void)fmt;
+}
+
+/* JT[1074] (CODE 5+0x7c90) — print one paginated message line:
+ * spill to a new page first when the -3148 line counter reaches
+ * 56 (L7a0e, leaf stub), then L7ab4 with the "%* %r" recursive
+ * format (width, the %r format long, and the caller's THINK C
+ * vararg tail — represented as a long here per the jt400 ABI
+ * notes). Full body over the two leaf stubs. */
+static void l7a0e(void)
+{
+	PROBE("l7a0e");
+}
+static void jt1074(short width, long rfmt, long tail) __attribute__((unused));
+static void jt1074(short width, long rfmt, long tail)
+{
+	PROBE("jt1074");
+	if (g_a5_word(-3148) >= 56)
+		l7a0e();
+	l7ab4(ua_strs_at(0x71d6) /* "%* %r" */, width, rfmt, tail);
 }
 
 /* JT[1072] (CODE 5+0x7c74) — flush `n` pending message-window lines:
@@ -36848,6 +36867,86 @@ static short jt349(long node_l, short kind, short mask, short minlvl,
 	}
 
 	return (short)(rows + (((unsigned char)minlvl == 0) ? 1 : 0));
+}
+
+/* --- band-4 tiny batch (docs/band4-wall.md) -------------------------- */
+
+/* JT[429] (CODE 3+0x4a28) — both the -9163 and -9164 flags up? */
+static short jt429(void) __attribute__((unused));
+static short jt429(void)
+{
+	PROBE("jt429");
+	return (short)((g_a5_byte(-9163) != 0
+	                && g_a5_byte(-9164) != 0) ? 1 : 0);
+}
+
+/* JT[319] (CODE 22+0x049c) — clear byte 1 of the -11714 record. */
+static void jt319(void) __attribute__((unused));
+static void jt319(void)
+{
+	PROBE("jt319");
+	((unsigned char *)(uintptr_t)g_a5_long(-11714))[1] = 0;
+}
+
+/* JT[275] (CODE 22+0x04b2) — pack two nibbles into the -18476
+ * byte: (a & 15) | ((b & 15) << 4). */
+static void jt275(short a, short b) __attribute__((unused));
+static void jt275(short a, short b)
+{
+	PROBE("jt275");
+	g_a5_byte(-18476) = (unsigned char)
+	    (((unsigned char)a & 15) | (((unsigned char)b & 15) << 4));
+}
+
+/* JT[91] (CODE 6+0x3fac) — the jt98 text-input accept flag
+ * (-17528). The Mac body is moveb a5@(-17528),d0; rts. */
+static unsigned char jt91(void) __attribute__((unused));
+static unsigned char jt91(void)
+{
+	PROBE("jt91");
+	return (unsigned char)g_a5_byte(-17528);
+}
+
+/* JT[70] (CODE 6+0x60f0) — format unsigned long `v` into the
+ * -13061 scratch ("%lu" via JT[394]) and return the pointer. */
+static char *jt70(long v) __attribute__((unused));
+static char *jt70(long v)
+{
+	PROBE("jt70");
+	jt394((char *)&g_a5_byte(-13061),
+	      ua_strs_at(0x272a) /* "%lu" */, v);
+	return (char *)&g_a5_byte(-13061);
+}
+
+/* JT[71] (CODE 6+0x61c6) — set the -13048 word (jt72's pair). */
+static void jt71(short v) __attribute__((unused));
+static void jt71(short v)
+{
+	PROBE("jt71");
+	g_a5_word(-13048) = v;
+}
+
+/* JT[168] (CODE 7+0x35e6) — stash the list-dialog context: the
+ * head pointer (-12654) and the two index bytes (-12650/-12649). */
+static void jt168(long head, short b1, short b2) __attribute__((unused));
+static void jt168(long head, short b1, short b2)
+{
+	PROBE("jt168");
+	g_a5_long(-12654) = head;
+	g_a5_byte(-12650) = (unsigned char)b1;
+	g_a5_byte(-12649) = (unsigned char)b2;
+}
+
+/* JT[229] (CODE 7+0x00d6) — clear field 0 of record `n` (1..100)
+ * of the -13038 record table (20-byte records); 1 on success. */
+static short jt229(short n) __attribute__((unused));
+static short jt229(short n)
+{
+	PROBE("jt229");
+	if (g_a5_13038 == NULL || n <= 0 || n > 100)
+		return 0;
+	*(g_a5_13038 + (long)n * 20 - 20) = 0;
+	return 1;
 }
 
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
