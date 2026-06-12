@@ -129,3 +129,11 @@ jt326 (CODE 9).
   commit via jt124 / jt993+jt1004, jt200 redraw — h-first Mac args
   mapped per the l5b42 convention note, jt117 present). New leaf
   stub: jt203 (repaint prologue). Band 4 at 90/100.
+- 2026-06-12: jt77 FULL (the faithful PLAY-SCREEN frame composer:
+  l38d0 + the two jt103 stone panels + FRAME pieces 1/2/3/5, the
+  jt1173 clip, piece 4, jt1193, piece 6, jt174 — feeds #114!),
+  jt79 FULL (paint-pass close: l670c + l66e6(2) + l3918), jt184
+  FULL (the conjured magic-scroll item builder with three jt870
+  random hazard-type-2 spells), jt196 + l4a7a FULL (the 6-bit
+  packed-name ENCODER + char classifier — jt191's inverse; the
+  classifier serves jt191's future decode too). Band 4 at 94/100.
