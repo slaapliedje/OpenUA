@@ -25793,6 +25793,224 @@ static void jt601(short code, short cnt, unsigned char *out)
 	}
 }
 
+/* CODE 16 + 0x698a — seed a combat_walk's endpoints from (sign-extended)
+ * byte coords and run the walker init (jt509). */
+static void l698a(short x0, short y0, short x1, short y1,
+                  struct combat_walk *w)
+{
+	PROBE("L698a");
+	w->x0 = (short)(signed char)x0;
+	w->y0 = (short)(signed char)y0;
+	w->x1 = (short)(signed char)x1;
+	w->y1 = (short)(signed char)y1;
+	jt509(w);
+}
+
+/* CODE 16 + 0x69d2 — clamp a combat-map coord pair to 0..49 x 0..24
+ * (signed byte compares; negative folds to 0). */
+static void l69d2(unsigned char *px, unsigned char *py)
+{
+	PROBE("L69d2");
+	if ((signed char)*px > 49)
+		*px = 49;
+	else if ((signed char)*px < 0)
+		*px = 0;
+	if ((signed char)*py > 24)
+		*py = 24;
+	else if ((signed char)*py < 0)
+		*py = 0;
+}
+
+/* CODE 16 + 0x6a1e — run a combat_walk ray to its end, inserting each
+ * cell's occupant (l62ec) into the NUL-terminated dedup array `arr`:
+ * an existing match stops the scan, else the first empty slot takes it. */
+static void l6a1e(unsigned char *arr, unsigned char *featp,
+                  unsigned char *occp, struct combat_walk *w,
+                  unsigned char *donep)
+{
+	PROBE("L6a1e");
+	do {
+		*donep = (unsigned char)(jt507(w) == 0);
+		if (*donep == 0) {
+			short k = 1;
+			unsigned char fin = 0;
+			l62ec(w->cx, w->cy, occp, featp);
+			if (*occp == 0)
+				continue;
+			while (!fin) {
+				if (arr[k - 1] == *occp) {
+					fin = 1;
+				} else if (arr[k - 1] == 0) {
+					arr[k - 1] = *occp;
+					fin = 1;
+				} else {
+					k++;
+				}
+			}
+		}
+	} while (*donep == 0);
+}
+
+/* JT[596] (CODE 16 + 0x6af8) — the area-effect target-list builder
+ * (breath weapons / bolts / cones).  Bresenham-walks a ray from the
+ * caster (x0,y0) through the picked cell (tx,ty) recording its
+ * direction pattern, extends the ray past the pick out to range*2
+ * movement points (orthogonal step = 2, diagonal = 3) by replaying the
+ * pattern cyclically, clamps (l69d2) and re-resolves the endpoint
+ * against the path-cost walker (jt506), then collects every occupant
+ * along the final ray into a 30-byte dedup array.  Modes 2+ add the
+ * flanking cone rays (the -5946/-5938 and -5930/-5922 per-octant offset
+ * tables, off the last hit's direction; mode 3 takes both flanks).
+ * Mode 255 instead takes the jt508 radius-3 -19170 sweep.  The array is
+ * finally resolved through the -25676 entity table into the -23512
+ * target slots (the caster -27932 excluded), count in -23510.
+ * Mac quirks kept: the -22307 scratch byte is a real A5 global, and the
+ * inline dedup flag is NOT recleared after a duplicate hit, so the cell
+ * after a duplicate is dropped too (the factored flank-ray collector
+ * l6a1e does not share the bug). */
+static void jt596(short x0, short y0, short tx, short ty, short mode,
+                  short range) __attribute__((unused));
+static void jt596(short x0, short y0, short tx, short ty, short mode,
+                  short range)
+{
+	struct combat_walk walk;
+	unsigned char dircodes[50];
+	unsigned char arr[30];
+	unsigned char txb = (unsigned char)tx;
+	unsigned char tyb = (unsigned char)ty;
+	unsigned char budget, last, cost, done, occ, feat;
+	unsigned char n = 0, count, slot, lastdir = 0, dup = 0;
+	unsigned short cost16;
+
+	PROBE("jt596");
+	l698a(x0, y0, (short)txb, (short)tyb, &walk);
+
+	/* phase 1: run the ray once, recording its direction pattern */
+	do {
+		done = (unsigned char)(jt507(&walk) == 0);
+		if (done == 0)
+			dircodes[n++] = walk.dircode;
+	} while (done == 0);
+	last = (unsigned char)(n - 1);
+	n = 0;
+
+	/* phase 2: extend past the pick, replaying the pattern */
+	budget = (unsigned char)((unsigned char)range * 2);
+	cost = walk.steps;
+	done = 0;
+	while (cost < budget && done == 0) {
+		if ((signed char)txb >= 49 || (signed char)txb <= 0
+		 || (signed char)tyb >= 24 || (signed char)tyb <= 0) {
+			done = 1;
+			continue;
+		}
+		switch ((short)dircodes[n]) {
+		case 0: case 2: case 4: case 6:
+			cost = (unsigned char)(cost + 2);
+			break;
+		case 1: case 3: case 5: case 7:
+			cost = (unsigned char)(cost + 3);
+			break;
+		default:
+			break;
+		}
+		txb = (unsigned char)(txb + g_a5_buf(-27862)[dircodes[n]]);
+		tyb = (unsigned char)(tyb + g_a5_buf(-27853)[dircodes[n]]);
+		if (n == last)
+			n = 0;
+		else
+			n++;
+	}
+
+	/* clamp + re-resolve the endpoint against the cost walker */
+	l69d2(&txb, &tyb);
+	cost16 = budget;
+	(void)jt506((short)(signed char)x0, (short)(signed char)y0,
+	            &txb, &tyb, &cost16);
+	l698a(x0, y0, (short)txb, (short)tyb, &walk);
+
+	/* phase 3: collect occupants along the final ray */
+	jt65((long)(uintptr_t)arr, 30);
+	count = 1;
+	do {
+		done = (unsigned char)(jt507(&walk) == 0);
+		if (done == 0) {
+			l62ec(walk.cx, walk.cy, &occ, &feat);
+			if (occ != 0) {
+				if (count > 1) {
+					/* dup NOT recleared here (Mac bug) */
+					for (g_a5_byte(-22307) = 1;
+					     (unsigned char)g_a5_byte(-22307)
+					       <= (unsigned char)(count - 1);
+					     g_a5_byte(-22307)++)
+						if (arr[(unsigned char)
+						        g_a5_byte(-22307) - 1]
+						    == occ)
+							dup = 1;
+				} else {
+					dup = 0;
+				}
+				if (dup == 0) {
+					arr[count - 1] = occ;
+					count++;
+				}
+				lastdir = walk.dircode;
+			}
+		}
+	} while (done == 0);
+
+	/* cone modes: the two flanking rays off the last hit's octant */
+	if ((unsigned char)mode > 1 && (unsigned char)mode != 255) {
+		unsigned char fx1, fy1, fx2, fy2;
+		fx1 = (unsigned char)((short)(signed char)
+		        g_a5_buf(-5946)[lastdir] + (short)(signed char)txb);
+		fy1 = (unsigned char)((short)(signed char)
+		        g_a5_buf(-5938)[lastdir] + (short)(signed char)tyb);
+		l69d2(&fx1, &fy1);
+		fx2 = (unsigned char)((short)(signed char)
+		        g_a5_buf(-5930)[lastdir] + (short)(signed char)txb);
+		fy2 = (unsigned char)((short)(signed char)
+		        g_a5_buf(-5922)[lastdir] + (short)(signed char)tyb);
+		l69d2(&fx2, &fy2);
+		l698a(x0, y0, (short)fx2, (short)fy2, &walk);
+		l6a1e(arr, &feat, &occ, &walk, &done);
+		if ((unsigned char)mode > 2) {
+			l698a(x0, y0, (short)fx1, (short)fy1, &walk);
+			l6a1e(arr, &feat, &occ, &walk, &done);
+		}
+	}
+
+	/* mode 255: the radius-3 jt508 sweep instead */
+	if ((unsigned char)mode == 255) {
+		jt508((short)(signed char)txb, (short)(signed char)tyb,
+		      3, 255, 1);
+		for (g_a5_byte(-22307) = 1;
+		     (unsigned char)g_a5_byte(-22307)
+		       <= (unsigned char)g_a5_18894;
+		     g_a5_byte(-22307)++)
+			arr[(unsigned char)g_a5_byte(-22307) - 1] =
+			    g_a5_buf(-19170)
+			        [(long)(unsigned char)g_a5_byte(-22307) * 4];
+	}
+
+	/* resolve the array into -23512 entity slots, caster excluded */
+	count = 1;
+	slot = 1;
+	g_a5_byte(-23510) = 0;
+	if (arr[0] == 0)
+		return;
+	do {
+		long e = *(long *)(void *)(g_a5_buf(-25676)
+		                           + (long)arr[count - 1] * 4);
+		if (e != g_a5_long(-27932)) {
+			g_a5_byte(-23510)++;
+			g_a5_long(-23512 + (long)slot * 4) = e;
+			slot++;
+		}
+		count++;
+	} while (arr[count - 1] != 0);
+}
+
 /* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop
  * painter (LIFTED below — drives the GLIB sprite/PIC/bigpic event display via
  * jt43/l08ce/l0ac2/l1476), l3f22 = pre-move predicate, l4184 / l3ef8 = view
