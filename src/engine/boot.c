@@ -27679,6 +27679,168 @@ static void jt727(long rec_l, long node, short flag)
 	g_a5_byte(-25257) = 0;
 }
 
+/* JT[773] (CODE 18 + 0x497e) — the petrifying gaze ("is turned to stone").
+ * Hazard code 130 through the -24070 callback into the A5 pick flag -22308;
+ * the pick is vetoed unless the target's rec[95] group matches jt493(rec).
+ * On a hit: -25250 = target, "gazes" message, jt497(20), gaze line (jt501
+ * anim 4/45). If the caster holds effect 59 and the target effect 72, the
+ * gaze "reflects it!" — the line is redrawn backwards and -25250 becomes
+ * the CASTER. Then a save vs cat 1 (jt866) or effects 126/79 negate;
+ * otherwise jt860 slays with status 7 "is turned to stone". */
+static void jt773(long rec_l, long node, short flag) __attribute__((unused));
+static void jt773(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	void *out = 0;
+	unsigned char bx, by, tx;
+	short ty;
+
+	PROBE("jt773");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(130, 1,
+	    (unsigned char *)&g_a5_byte(-22308));
+	if ((short)(unsigned char)
+	    ((unsigned char *)(uintptr_t)g_a5_long(-23508))[95]
+	    != jt493(rec_l))
+		g_a5_byte(-22308) = 0;
+	if ((unsigned char)g_a5_byte(-22308) == 0)
+		return;
+	g_a5_long(-25250) = g_a5_long(-23508);
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x569c) /* "gazes" */, 10, 0);
+	jt497(20);
+	bx = jt525(rec_l);
+	by = jt531(rec_l);
+	tx = jt525(g_a5_long(-25250));
+	ty = (short)(signed char)jt531(g_a5_long(-25250));
+	jt501((short)(signed char)bx, (short)(signed char)by,
+	      (short)(signed char)tx, ty, 4, 45);
+	if (jt41(rec_l, 59, &out) != 0
+	    && jt41(g_a5_long(-25250), 72, &out) != 0) {
+		jt18((void *)(uintptr_t)g_a5_long(-25250),
+		     (long)(uintptr_t)ua_strs_at(0x56a6)
+		     /* "reflects it!" */, 12, 0);
+		bx = jt525(g_a5_long(-25250));
+		by = jt531(g_a5_long(-25250));
+		tx = jt525(rec_l);
+		ty = (short)(signed char)jt531(rec_l);
+		jt501((short)(signed char)bx, (short)(signed char)by,
+		      (short)(signed char)tx, ty, 4, 45);
+		g_a5_long(-25250) = rec_l;
+	}
+	if (jt866(g_a5_long(-25250), 1, 0) != 0)
+		return;
+	if (jt41(g_a5_long(-25250), 126, &out) != 0)
+		return;
+	if (jt41(g_a5_long(-25250), 79, &out) != 0)
+		return;
+	jt860(g_a5_long(-25250), 7,
+	      (long)(uintptr_t)ua_strs_at(0x56b4)
+	      /* "is turned to stone" */);
+}
+
+/* JT[783] (CODE 18 + 0x4dd4) — the confusion gaze ("stares blankly").
+ * Hazard code 68 through the -24070 callback into a LOCAL out byte (not
+ * the A5 -22308 flag), and the gaze only lands when jt494 says the target
+ * is adjacent (distance < 2). Damage-type 16, "gazes" + jt497(20) + gaze
+ * line; a save vs cat 4 or effect 126 negates, otherwise jt871 applies
+ * effect 35 for 1d10+2 rounds keyed on the caster's rec[95]. Mac quirk
+ * kept: -25250 is set to the target BEFORE the pick flag is tested. */
+static void jt783(long rec_l, long node, short flag) __attribute__((unused));
+static void jt783(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	void *out = 0;
+	unsigned char ok, bx, by, tx;
+	short ty, roll;
+
+	PROBE("jt783");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(68, 1, &ok);
+	g_a5_long(-25250) = g_a5_long(-23508);
+	if (ok == 0)
+		return;
+	if (((unsigned short)jt494(rec_l, g_a5_long(-25250)) & 0xff) >= 2)
+		return;
+	g_a5_word(-25266) = 16;
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x56c8) /* "gazes" */, 10, 0);
+	jt497(20);
+	bx = jt525(rec_l);
+	by = jt531(rec_l);
+	tx = jt525(g_a5_long(-25250));
+	ty = (short)(signed char)jt531(g_a5_long(-25250));
+	jt501((short)(signed char)bx, (short)(signed char)by,
+	      (short)(signed char)tx, ty, 4, 45);
+	if (jt866(g_a5_long(-25250), 4, 0) != 0)
+		return;
+	if (jt41(g_a5_long(-25250), 126, &out) != 0)
+		return;
+	roll = jt870(1, 10);
+	jt871(g_a5_long(-25250), 35, (short)(roll + 2),
+	      (short)(unsigned char)rec[95], 1, 1, 0,
+	      (long)(uintptr_t)ua_strs_at(0x56d2) /* "stares blankly" */);
+}
+
+/* JT[811] (CODE 18 + 0x5c12) — the paralyzing gaze ("is paralyzed").
+ * Hazard code 10 through the -24070 callback into the A5 pick flag -22308,
+ * vetoed unless the target's rec[95] matches jt493(rec) (as jt773).
+ * Damage-type 16, "gazes" + jt497(20) + gaze line; caster effect 59 vs
+ * target effect 72 reflects it back onto the caster. The save (jt866 cat 1
+ * delta 3, or effect 126) does NOT bail out — it feeds jt871's s22 immune
+ * flag, so a made save prints "is Unaffected" instead of applying effect
+ * 52 for 10 rounds at strength 12 ("is paralyzed"). */
+static void jt811(long rec_l, long node, short flag) __attribute__((unused));
+static void jt811(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	void *out = 0;
+	unsigned char bx, by, tx, saved;
+	short ty;
+
+	PROBE("jt811");
+	(void)node;
+	if ((unsigned char)flag != 0)
+		return;
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(10, 1,
+	    (unsigned char *)&g_a5_byte(-22308));
+	if ((short)(unsigned char)
+	    ((unsigned char *)(uintptr_t)g_a5_long(-23508))[95]
+	    != jt493(rec_l))
+		g_a5_byte(-22308) = 0;
+	if ((unsigned char)g_a5_byte(-22308) == 0)
+		return;
+	g_a5_word(-25266) = 16;
+	g_a5_long(-25250) = g_a5_long(-23508);
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x5758) /* "gazes" */, 10, 0);
+	jt497(20);
+	bx = jt525(rec_l);
+	by = jt531(rec_l);
+	tx = jt525(g_a5_long(-25250));
+	ty = (short)(signed char)jt531(g_a5_long(-25250));
+	jt501((short)(signed char)bx, (short)(signed char)by,
+	      (short)(signed char)tx, ty, 4, 45);
+	if (jt41(rec_l, 59, &out) != 0
+	    && jt41(g_a5_long(-25250), 72, &out) != 0) {
+		jt18((void *)(uintptr_t)g_a5_long(-25250),
+		     (long)(uintptr_t)ua_strs_at(0x5762)
+		     /* "reflects it!" */, 12, 0);
+		bx = jt525(g_a5_long(-25250));
+		by = jt531(g_a5_long(-25250));
+		tx = jt525(rec_l);
+		ty = (short)(signed char)jt531(rec_l);
+		jt501((short)(signed char)bx, (short)(signed char)by,
+		      (short)(signed char)tx, ty, 4, 45);
+		g_a5_long(-25250) = rec_l;
+	}
+	saved = (jt866(g_a5_long(-25250), 1, 3) != 0
+	         || jt41(g_a5_long(-25250), 126, &out) != 0) ? 1 : 0;
+	jt871(g_a5_long(-25250), 52, 10, 12, 0, 1, (short)saved,
+	      (long)(uintptr_t)ua_strs_at(0x5770) /* "is paralyzed" */);
+}
+
 /* JT[879] (CODE 18 + 0x0ede, 4 sites) — apply the ongoing "standing in a
  * hazard" combat effect to `entity` for the cell it occupies. jt515 scans the
  * actor's six neighbours for the dominant feature (door 27/28/29) and the
