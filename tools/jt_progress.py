@@ -108,6 +108,7 @@ ALIAS_LIFTED = {
     48: "lifted as l5864 (same address; -24260 release + 0xFF flag)",
     514: "lifted as l6520 (same address; the CODE 14 range check)",
     950: "lifted as l0b20 (same address; the -28006 record helper)",
+    1052: "the _Eject PB trap glue — no-op on a hard-disk install",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue

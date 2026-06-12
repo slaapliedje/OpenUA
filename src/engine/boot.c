@@ -11197,7 +11197,16 @@ static short       jt287(short idx, short key)
 	g_a5_word(-10372) = 0;
 	return 0;
 }
-static short       jt294(short flag, short y, short x)   { PROBE("jt294"); (void)flag;(void)y;(void)x; return 0; } /* region action proc, CODE 22+0x1c26 */
+/* JT[294] (CODE 22+0x1c26, the region action proc) — stamp word +6
+ * of the -11666 record (when bound) with `x`; flag/y unread. */
+static short       jt294(short flag, short y, short x)
+{
+	PROBE("jt294");
+	(void)flag; (void)y;
+	if (g_a5_long(-11666) != 0)
+		*(short *)(uintptr_t)(g_a5_long(-11666) + 6) = x;
+	return 0;
+}
 static void        jt179(short count);                  /* defined far below (CODE 7+0x11ee) */
 static void        jt155(short value, void *counter);   /* CODE 7+0x11a8 — slot append */
 static void        jt452(long shape0, ...);             /* DLItem stream builder (defined below) */
@@ -38267,6 +38276,100 @@ static unsigned char jt107(void)
 {
 	PROBE("jt107");
 	return (unsigned char)g_a5_byte(-18397);
+}
+
+/* --- band-5 tiny batch (docs/band5-wall.md) -------------------------- */
+
+/* JT[486] (CODE 3+0x039a) — present (jt117) then poll for a
+ * pending event (jt1118); returns the poll result. */
+static short jt486(void) __attribute__((unused));
+static short jt486(void)
+{
+	PROBE("jt486");
+	jt117();
+	return jt1118();
+}
+
+/* The -11714 design-list state record accessors (CODE 22):
+ * jt316 clears byte 0, jt317 sets byte 1, jt320 reads byte 1
+ * (jt319, the byte-1 clear, was lifted with the band-4 batch). */
+static void jt316(void) __attribute__((unused));
+static void jt316(void)
+{
+	PROBE("jt316");
+	((unsigned char *)(uintptr_t)g_a5_long(-11714))[0] = 0;
+}
+static void jt317(void) __attribute__((unused));
+static void jt317(void)
+{
+	PROBE("jt317");
+	((unsigned char *)(uintptr_t)g_a5_long(-11714))[1] = 1;
+}
+static unsigned char jt320(void) __attribute__((unused));
+static unsigned char jt320(void)
+{
+	PROBE("jt320");
+	return ((unsigned char *)(uintptr_t)g_a5_long(-11714))[1];
+}
+
+/* JT[274] (CODE 22+0x4922) — swap two 6-byte records. */
+static void jt274(void *a, void *b) __attribute__((unused));
+static void jt274(void *a, void *b)
+{
+	unsigned char tmp[6];
+
+	PROBE("jt274");
+	memcpy(tmp, a, 6);
+	memcpy(a, b, 6);
+	memcpy(b, tmp, 6);
+}
+
+/* L501e (CODE 7+0x501e) — position the list-dialog scroll at row
+ * `n`. Leaf PROBE stub pending its own lift. */
+static void l501e(long head, short n)
+{
+	PROBE("l501e");
+	(void)head; (void)n;
+}
+
+/* JT[226] (CODE 7+0x0200) — scroll the list dialog to 1-based row
+ * `n` (L501e on n-1). Full call shape over the leaf stub. */
+static void jt226(long head, short n) __attribute__((unused));
+static void jt226(long head, short n)
+{
+	PROBE("jt226");
+	l501e(head, (short)(n - 1));
+}
+
+/* JT[359] (CODE 8+0x6dd8) — pointer to record `n` of the -13038
+ * record table (20-byte records, 1-based; 0 when n == 0) — jt348's
+ * address-returning sibling. */
+static long jt359(short n) __attribute__((unused));
+static long jt359(short n)
+{
+	unsigned char b = (unsigned char)n;
+
+	PROBE("jt359");
+	if (b == 0 || g_a5_13038 == NULL)
+		return 0;
+	return (long)(uintptr_t)(g_a5_13038 + (long)b * 20 - 20);
+}
+
+/* JT[994] (CODE 5+0x1f22) — draw a GLIB piece from a group base
+ * (the jt109 path). Leaf PROBE stub pending its own lift. */
+static void jt994(long base, short b, long a)
+{
+	PROBE("jt994");
+	(void)base; (void)b; (void)a;
+}
+
+/* JT[109] (CODE 6+0x3af8) — draw piece `b` of GLIB group `grp`
+ * through JT[994] on the jt468-resolved base. Full call shape. */
+static void jt109(long a, short b, short grp) __attribute__((unused));
+static void jt109(long a, short b, short grp)
+{
+	PROBE("jt109");
+	jt994(jt468(grp), b, a);
 }
 
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
