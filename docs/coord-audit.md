@@ -74,3 +74,24 @@ retire the stand-ins).
 - jt442(40) stays deferred in l4cc0 ("regressed ua_main" note) — the
   boot_a5_seed_defaults table seeding covers it; revisit when the
   dialog tier is fully faithful.
+
+## Faithful menu chrome (2026-06-12, from the Mac menu blit trace)
+
+DONE: jt81 lifted FULL (gen binder -> group 3 backdrop via new l384c +
+FRAME edges 1-3(+4) + jt103 panel + jt174; trace-verified order);
+menu_run faithful build (raw row coords — the +4 nudge retired, jt137
+owns baselines; spacers = recessed DLItems with "" labels like the
+Mac); menu_draw_plates RETIRED (the Mac draws no plates — the jt137
+bar strips ARE the buttons).  Hatari: real GEN stone backdrop + labels
+at the Mac rows (118/132/146/160/174/188).
+
+OPEN — the bar strips (FRAME items 10-15) blit invisibly: the GEN
+backdrop (group 3 item 1) and the FRAME edges draw through the same
+l309c/l2d4e path, so clip/pipeline are fine; items 10-15 differ by
+metric flags 0xC5/0xC0 (bit 7 + bit 6 set; mode nibble 5/0, h=11,
+bpp_w=1, x_bearing +8/0/-8).  Suspect l2d4e's handling of the high
+flag bits (bit 7 'single-row'?) — item data is 88 bytes = 11 full
+8-byte rows, so the repeat theory is wrong; check what the mode-5
+arm does with these exact glyphs (dump pixels host-side via
+tools/hlib_extract.py first — they may be mostly index 255 with the
+face expected from a different CLUT range).
