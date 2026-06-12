@@ -172,3 +172,10 @@ Total ≈ 10 KB of asm.
   3dview-trace doc's "JT[114] = (top, left)" label likely reflects
   the BII hook's printf labels, not the C param order. Band 3 at
   97/100; left: jt98, jt349, jt947 (#115).
+- 2026-06-12: jt98 FULL (the framed text-input prompt: jt1135 box
+  geometry from rows 8094/8098, JT[1161] border strokes + L3f88 bg
+  fill (a pure jt1161 thunk, lifted), jt1009/jt977 paint bracket,
+  jt978 colour byte (15 at depth 3, else bg*16+fg), input into the
+  A5 -17568 buffer, accept flag -17528, jt405 uppercase). New leaf
+  stub: jt1078 (CODE 5+0x440, the modal line editor — the box draws,
+  the editing pends). Band 3 at 98/100; left: jt349, jt947 (#115).
