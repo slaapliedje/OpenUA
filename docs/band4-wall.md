@@ -69,3 +69,12 @@ jt326 (CODE 9).
 
 - 2026-06-12: campaign opened. 11 aliases, 5 NOOPs, 3 trivial lifts
   (jt157/jt72/jt354).
+- 2026-06-12: tiny batch (9 FULL): jt429 (-9163/-9164 both-flags
+  predicate), jt319 (clear -11714 rec byte 1), jt275 (two-nibble
+  pack into -18476), jt91 (the jt98 accept flag read), jt70 ("%lu"
+  into the -13061 scratch), jt71 (-13048 word set, jt72's pair),
+  jt168 (list-dialog context stash), jt229 (record-table field-0
+  clear), jt1074 (paginated message line over the l7a0e page-spill
+  leaf stub; l7ab4 made variadic for the "%* %r" call). jt299
+  deferred to the CODE 22 cluster (needs l17ca/l2180/jt308).
+  Band 4 at 65/100.
