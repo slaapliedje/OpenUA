@@ -96,6 +96,7 @@ ALIAS_LIFTED = {
     532: "lifted as l635e (same address; creature-cell redraw)",
     886: "lifted as l1276 (same address; jt904 roster staging)",
     899: "lifted as l5274 (same address; max-HP ceiling)",
+    105: "lifted as l3f3c (same address; bigpic palette-range install)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue

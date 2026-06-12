@@ -37141,6 +37141,114 @@ static void jt295(short y, short x, short b1, short b2, short b3)
 	jt1130();
 }
 
+/* --- band-4 CODE 6 cluster ------------------------------------------- */
+
+/* L3c24 (CODE 6+0x3c24) — message-grid cell (idx) -> pixel pen for
+ * the -27866 glyph group. Leaf PROBE stub pending its own lift. */
+static void l3c24(long handle, short idx, short *px, short *py)
+{
+	PROBE("l3c24");
+	(void)handle; (void)idx;
+	if (px) *px = 0;
+	if (py) *py = 0;
+}
+
+/* JT[53] (CODE 6+0x5ec6) — text cell (col, row) -> character
+ * coordinates: L3c24 resolves the pen for index row*38 + col, then
+ * the depth divisor (10 at depth 3, else 12) scales both. Full
+ * body over the L3c24 leaf stub. */
+static void jt53(short col, short row, short *px, short *py)
+                                                __attribute__((unused));
+static void jt53(short col, short row, short *px, short *py)
+{
+	short idx = (short)((unsigned char)row * 38
+	                    + (unsigned char)col);
+
+	PROBE("jt53");
+	l3c24(g_a5_long(-27866), idx, px, py);
+	if (jt1200() == 3) {
+		*px = (short)(*px / 10);
+		*py = (short)(*py / 10);
+	} else {
+		*px = (short)(*px / 12);
+		*py = (short)(*py / 12);
+	}
+}
+
+/* JT[116] (CODE 6+0x3cde) — fill the message-window rect for text
+ * cells (a, b)..(a+c, b+d) with colour e: JT[1161] in the
+ * half-scale-v / x4-h 8000-space. Full lift. */
+static void jt116(short a, short b, short c, short d, short e)
+                                                __attribute__((unused));
+static void jt116(short a, short b, short c, short d, short e)
+{
+	PROBE("jt116");
+	jt1161((short)(((b + 8) >> 1) + 8000),
+	       (short)((a << 2) + 8004),
+	       (short)(((b + d + 8) >> 1) + 8000),
+	       (short)(((a + c) << 2) + 8004),
+	       (short)(unsigned char)e);
+}
+
+/* JT[126] (CODE 6+0x02d2) — the numbered-.dat load callback jt129
+ * registers with jt987. Leaf PROBE stub pending its own lift. */
+static unsigned char jt126(short refnum, void *spec)
+{
+	PROBE("jt126");
+	(void)refnum; (void)spec;
+	return 0;
+}
+
+/* JT[129] (CODE 6+0x02f6) — request a numbered design data file:
+ * build "<name>%03d.dat", prefix the design directory (-31336) via
+ * the JT[431] path concat, stash the destination (-31244) and size
+ * word (-31246), and queue it through jt987 mode 4 with the JT[126]
+ * callback. Full lift. */
+static short jt987(short kind, const char *name, short mode, void *cb);
+static void jt129(long name, short num, short w, long dest)
+                                                __attribute__((unused));
+static void jt129(long name, short num, short w, long dest)
+{
+	char fname[200];
+	char path[200];
+
+	PROBE("jt129");
+	jt394(fname, ua_strs_at(0x0018) /* "%s%03d.dat" */,
+	      (const char *)(uintptr_t)name, (int)(unsigned char)num);
+	path[0] = 0;
+	jt431(path, (const void *)&g_a5_byte(-31336));
+	jt431(path, fname);
+	g_a5_long(-31244) = dest;
+	g_a5_word(-31246) = w;
+	jt987((short)0, path, (short)4, (void *)(uintptr_t)jt126);
+}
+
+/* L0004 (CODE 6+0x0004 — NOT the lifted menu-selection l0004,
+ * hence the _c6 suffix) — append one classified character to the
+ * name buffer jt130 builds. Leaf PROBE stub pending its own
+ * lift. */
+static void l0004_c6(char *buf, short ch)
+{
+	PROBE("l0004_c6");
+	(void)buf; (void)ch;
+}
+
+/* JT[130] (CODE 6+0x0040) — build the design's 8-char file basename
+ * from the 17-byte -31268 name table (L0004 per char, leaf stub),
+ * truncate at 8, uppercase (jt405). Full body. */
+static void jt130(char *buf) __attribute__((unused));
+static void jt130(char *buf)
+{
+	short i;
+
+	PROBE("jt130");
+	for (i = 0; i < 17; i++)
+		l0004_c6(buf,
+		         (short)(signed char)g_a5_buf(-31268)[i]);
+	buf[8] = 0;
+	jt405(buf);
+}
+
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
 
 /* JT[157] (CODE 7+0x38e4) — read the -12648 byte (the text-cursor
