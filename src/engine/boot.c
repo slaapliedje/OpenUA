@@ -29646,6 +29646,120 @@ static void l54ac(long rec_l)
 	}
 }
 
+/* JT[908] (CODE 19 + 0x5df2; asm local label L5df2) — first stage of
+ * the derived-stat recompute jt910 runs (~1.3KB).  PROBE stub: its
+ * own lift step. */
+static void jt908(long ent_l) __attribute__((unused));
+static void jt908(long ent_l)
+{
+	PROBE("jt908");
+	(void)ent_l;
+}
+
+/* JT[910] (CODE 19 + 0x631c) — recompute the level-derived combat
+ * stats after a level change: ent[127] = best per-class value from
+ * the -23184 table (22 bytes/class, level capped at 21), ent[137] =
+ * highest effective level (jt40), ent[171] = attacks rating (3/4 at
+ * the warrior breakpoints, with the caster-level arm below), then
+ * jt908/jt906 (+ jt907 when ent[163] > 0), rebuild the ent[183]
+ * class-bit mask from the -23030 table, force-unready (jt882) any
+ * readied item whose descriptor byte 13 collides with the new mask,
+ * and re-derive the caster attack arms when jt29 says spellcaster.
+ * NAMING TRAPS: the asm calls these PC-relative as locals — L5df2 =
+ * jt908, L687e = jt906, L668e = jt907, L30bc = jt882. */
+static void jt910(long ent_l) __attribute__((unused));
+static void jt910(long ent_l)
+{
+	unsigned char *ent = (unsigned char *)(uintptr_t)ent_l;
+	unsigned char *it, *tdesc;
+	unsigned char j, lvl, cap, v, sl;
+	long saved;
+
+	PROBE("jt910");
+	ent[127] = 0;
+	for (j = 0; j <= 6; j++) {
+		lvl = jt40(ent, (short)j);
+		cap = (unsigned char)(lvl > 21 ? 21 : lvl);
+		v = (unsigned char)g_a5_byte(-23184 + (long)j * 22 +
+					     (long)cap);
+		if (ent[127] < v)
+			ent[127] = v;
+		if (ent[137] < lvl)
+			ent[137] = lvl;
+		switch ((short)j) {
+		case 1: case 2: case 3:
+			if ((short)lvl > 6)
+				ent[171] = 3;
+			if ((short)lvl > 12)
+				ent[171] = 4;
+			break;
+		case 4:
+			if ((short)lvl > 7)
+				ent[171] = 3;
+			if ((short)lvl > 14)
+				ent[171] = 4;
+			break;
+		default:
+			break;
+		}
+	}
+	jt908(ent_l);
+	jt906(ent);
+	if ((unsigned char)ent[163] > 0)
+		jt907(ent);
+	ent[183] = 0;
+	for (j = 0; j <= 6; j++) {
+		if ((unsigned char)ent[157 + j] > 0 ||
+		    ((unsigned char)ent[164 + j] > 0 &&
+		     ent[164 + j] < ent[137]))
+			ent[183] = (unsigned char)(ent[183] +
+			    (unsigned char)g_a5_byte(-23030 + (long)j));
+	}
+	for (j = 0; j <= 12; j++) {
+		it = *(unsigned char **)(void *)(ent + 12 + (long)j * 4);
+		if (it == 0)
+			continue;
+		tdesc = (unsigned char *)(uintptr_t)g_a5_long(-27944) +
+		    (long)(unsigned char)it[40] * 16;
+		if (((unsigned char)tdesc[13] &
+		     (unsigned char)ent[183]) != 0)
+			continue;
+		if ((unsigned char)it[52] != 0)
+			continue;
+		if ((unsigned char)it[50] == 0)
+			continue;
+		saved = g_a5_long(-27932);
+		g_a5_long(-27932) = ent_l;
+		jt882((long)(uintptr_t)it);
+		g_a5_long(-27932) = saved;
+	}
+	if (jt29(ent) == 0)
+		return;
+	for (j = 0; j <= 6; j++) {
+		sl = ent[164 + j];
+		switch ((short)j) {
+		case 2: case 3:
+			if ((short)(unsigned char)sl >= 13)
+				ent[171] = 4;
+			else if ((short)(unsigned char)sl >= 7)
+				ent[171] = 3;
+			break;
+		case 4:
+			if ((short)(unsigned char)sl >= 15)
+				ent[171] = 4;
+			else if ((short)(unsigned char)sl >= 8)
+				ent[171] = 3;
+			break;
+		case 6:
+			if ((short)(unsigned char)sl > 0)
+				jt907(ent);
+			break;
+		default:	/* cases 5 and out-of-range */
+			break;
+		}
+	}
+}
+
 /* L5746 (CODE 18 + 0x5746) — the level-drain core ("gets drained"):
  * picks the victim's best class level, knocks it down and rebuilds the
  * derived stats. PROBE stub: ~830 bytes over JT[102]/JT[26], its own
