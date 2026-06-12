@@ -73,3 +73,13 @@ jt709 (CODE 16+0x0004, bare rts — raw bytes checked).
   jt464/jt467/l0ab8) before jt1021's LBInsert runs. Hatari-verified:
   boot + Training Hall clean — the band-3 boot-corruption scenario
   is structurally fixed. Band 5 at 49/100.
+- 2026-06-12: jt1123 FULL — the colour-cursor INSTALL chain lands
+  (#107's wiring): depths 0/1 convert the 256B image+mask to 1-bit
+  plane 0 (L112c/L11f8 — planes 1-3 dropped, noted), L6330 stages
+  into the A5 -892 record which IS a 68-byte Mac Cursor (32B data +
+  32B mask + hotspot words at +64/+66), and the EXISTING l6538 is
+  COMPLETED — its documented-deferred SetCursor calls now run
+  through the shim (arrow = GetCursor(0), engine cursor = the -892
+  record; the l62fa in-window gate was already lifted). The jt304 ->
+  jt1007 -> jt1123 -> SetCursor chain is wired end-to-end.
+  Hatari-verified: dungeon renders, no regression. Band 5 at 50/100.
