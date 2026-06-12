@@ -139,6 +139,13 @@ Total ≈ 10 KB of asm.
   walk at target+8, bit-7 strip via jt857/l77a0 type 127 + jt875
   re-resolve, jt503 announcements). docs/code16-wall.md updated.
   Band 3 at 91/100.
+- 2026-06-12: jt1028 / jt1032 / jt1045 = THINK C **Mac trap glue**
+  (_NewPtr / _DisposHandle / _GetVInfo PB thunks in the CODE 5
+  0x4d00-0x5d00 glue library, same family as jt1054=_Delete) —
+  recorded as shim aliases, no engine callers by jt-name. The
+  "280-430B" size estimates were neighbouring-glue artifacts.
+  Band 3 at 94/100; left: jt353, jt98, jt349, jt1007, jt1021,
+  jt947 (#115).
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.
