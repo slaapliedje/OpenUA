@@ -25637,6 +25637,71 @@ static void jt888(long str_l, short f1, short f2, long *target)
 	g_a5_byte(-24148) = 0;
 }
 
+/* The -24070 targeting callback ABI (the breath/gaze jt7xx handlers and
+ * jt842/jt851 call through g_a5_long(-24070) with these args).  Two
+ * implementations exist: jt601 (out of combat, below) and jt538
+ * (CODE 14+0x2028, in combat — unlifted).  Registration sites: CODE 13
+ * L0006 (combat teardown, +0x010e) and jt610 (CODE 16 handler-table
+ * init) install jt601; jt511 (CODE 13+0x5a6) installs jt538. */
+typedef void (*ua_target_cb)(short code, short cnt, unsigned char *out);
+
+/* JT[601] (CODE 16 + 0x63ae) — the out-of-combat targeting callback.
+ * Stages the active combatant (-27932) as the target (-23508, which is
+ * slot 1 of the -23512 target table) with count (-23510) 1 and *out=1,
+ * then dispatches on byte 7 of the -16906 hazard row for `code`:
+ *   1 -> self only (keep the staging);
+ *   2 -> interactive pick: play-frame redraw (jt23), seed from the
+ *        remembered pick (-27936), run jt888 ("Cast Spell on whom"),
+ *        remember the result; a null pick clears count and *out;
+ *   3 -> the whole -27928 party list copied into the -23512 slots
+ *        (each record's first long is its next pointer), count = size;
+ *   default -> *out = 0. */
+static void jt601(short code, short cnt, unsigned char *out)
+                                                 __attribute__((unused));
+static void jt601(short code, short cnt, unsigned char *out)
+{
+	unsigned char idx = (unsigned char)code;
+
+	PROBE("jt601");
+	(void)cnt;
+	g_a5_long(-23508) = g_a5_long(-27932);
+	g_a5_byte(-23510) = 1;
+	*out = 1;
+	switch ((short)(signed char)g_a5_buf(-16906)[(long)idx * 16 + 7]) {
+	case 1:
+		break;
+	case 2:
+		jt23();
+		if (g_a5_long(-27936) != 0)
+			g_a5_long(-23508) = g_a5_long(-27936);
+		jt888((long)(uintptr_t)ua_strs_at(0x532e)
+		      /* "Cast Spell on whom" */,
+		      (short)1, (short)1, &g_a5_long(-23508));
+		g_a5_long(-27936) = g_a5_long(-23508);
+		if (g_a5_long(-23508) == 0) {
+			g_a5_byte(-23510) = 0;
+			*out = 0;
+		}
+		break;
+	case 3:
+		/* slot k lives at A5-23512 + 4k; the count -23510 is 1-based
+		 * and slot 1 aliases the -23508 target long */
+		g_a5_long(-23512 + (long)g_a5_byte(-23510) * 4) =
+			g_a5_long(-27928);
+		while (*(long *)(uintptr_t)
+		       g_a5_long(-23512 + (long)g_a5_byte(-23510) * 4) != 0) {
+			g_a5_long(-23512 + ((long)g_a5_byte(-23510) + 1) * 4) =
+			    *(long *)(uintptr_t)
+			    g_a5_long(-23512 + (long)g_a5_byte(-23510) * 4);
+			g_a5_byte(-23510)++;
+		}
+		break;
+	default:
+		*out = 0;
+		break;
+	}
+}
+
 /* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop
  * painter (LIFTED below — drives the GLIB sprite/PIC/bigpic event display via
  * jt43/l08ce/l0ac2/l1476), l3f22 = pre-move predicate, l4184 / l3ef8 = view
