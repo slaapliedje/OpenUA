@@ -95,3 +95,19 @@ Wait" banner) — the menu paints once, not per frame.  Capture: (a)
 the main menu's first paint, (b) one hotkey press that repaints,
 (c) the Training Hall.  Diff target: the port's same-screen PROBE
 trail.
+
+## Saved-game slot picker (user trace, "Load Saved Game", 2026-06-12)
+
+    JT1089 v=189 h=8004 colour=112 fmt="%s"        <- the prompt line
+    JT1089 v=189 h=136  colour=135 "A" + 143 "%c"  <- slot buttons:
+    JT1089 v=189 h=152  colour=135 "B" + 143 "%c"     real jt137
+    JT1089 v=189 h=168  colour=135 "C" + 143 "%c"     DLItems on the
+    JT1089 v=189 h=184  colour=135 "D" + 143 "%c"     bottom row
+
+The menu's bottom-left "saved game letters" = an inline slot picker:
+one prompt string + a lettered button per existing save (jt990/jt991
+enumerate the SAVGAM files; see CODE 22+0x4cb2's enumeration loop).
+The at-boot "%s " x5 sequence at (189, 8032) from the first trace is
+the same UI's passive listing.  This is the next save/load UI piece
+to lift (jt315's Load arm), AFTER which the menu screen is complete
+to the last line.
