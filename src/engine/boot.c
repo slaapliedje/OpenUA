@@ -20709,10 +20709,7 @@ static void jt593(short a)
 	jt56(ua_strs_at(0x4c7a) /* "CBODYS" */,
 	     (short)rec[188], (short)rec[189]);
 }
-static int  jt988(void *path, short mode, void *name, long zero)
-                                            { PROBE("jt988"); (void)path;
-                                              (void)mode; (void)name;
-                                              (void)zero; return 0; }
+/* (JT[988] is lifted as l17e2 — same address; no jt-named callers.) */
 
 /* L1266 (CODE 12 + 0x1266) — list-filter helper. Walks g_a5_27928
  * (head, .next at offset 0) and returns 1 if any entry's name slot
@@ -38495,6 +38492,119 @@ static void jt925(void)
 		}
 		jt399(rec + 76, (short)6, (short)0);
 	}
+}
+
+/* L1090 (CODE 14+0x1090) — attacks-per-round from the -25264 kind.
+ * Leaf PROBE stub pending its own lift (returns 1 attack). */
+static unsigned char l1090(short kind)
+{
+	PROBE("l1090");
+	(void)kind;
+	return 1;
+}
+
+/* JT[543] (CODE 14+0x0f60) — resolve the actor's attacks-per-round
+ * (rec[387]), full lift over the L1090 table leaf stub. The base
+ * count (rec[171]) stages in; a multi-shot weapon (jt499 kind +
+ * the jt491 ammo find) swaps in the weapon template's byte 5
+ * (min 2) as the -25264 kind, else the staged count. The JT[868]
+ * selector-18 effect hub adjusts, L1090 maps the kind to a count,
+ * ammo stacks clamp it, and the sub-record byte 10 gate decides
+ * whether the old count survives when lower. */
+static void jt543(long rec_l) __attribute__((unused));
+static void jt543(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char  saved = rec[387];
+	void          *ammo = NULL;
+	signed char    multi = 0;
+	unsigned char  count;
+	long           param = rec_l;
+
+	PROBE("jt543");
+	rec[387] = rec[171];
+	if (jt499(rec) && jt491(rec, &ammo)) {
+		unsigned char *held =
+		    (unsigned char *)(uintptr_t)*(long *)(rec + 12);
+		unsigned char  kind = *((const unsigned char *)(uintptr_t)
+		    (g_a5_long(-27944) + (long)held[40] * 16) + 5);
+
+		multi = 1;
+		if (kind < 2)
+			kind = 2;
+		g_a5_byte(-25264) = kind;
+	} else {
+		g_a5_byte(-25264) = rec[387];
+	}
+
+	g_a5_byte(-25244) = 0;
+	jt868((short)18, &param);
+	count = l1090((short)(unsigned char)g_a5_byte(-25264));
+
+	if (multi && ammo != NULL) {
+		unsigned char *am = (unsigned char *)ammo;
+		unsigned char  best = 1;
+
+		if (am[53] > best)
+			best = am[53];
+		if (best < count && am[53] > 0)
+			count = best;
+	}
+
+	{
+		unsigned char *sub = (unsigned char *)(uintptr_t)
+		                     *(long *)(rec + 64);
+
+		if (sub[10] != 0 && count >= saved)
+			rec[387] = saved;
+		else
+			rec[387] = count;
+	}
+}
+
+/* JT[545] (CODE 14+0x43be) — "The Gods intervene!" combat wipeout,
+ * full lift. Unless `flag` forces it, the design's string slot 3
+ * (jt475) must equal the -22253 trigger word (jt393) or nothing
+ * happens. Every party-list member is stripped of effect types 11
+ * and 77 (jt878); side-1 members leave combat (+382 = 0, status
+ * +94 = 6, their -27472 zone direction byte clears via l6bbe) and
+ * everyone recounts (jt498). The map redraws around the -25318
+ * scroll (+3, +3) via jt521(255, 8). Returns 1 when it fired. */
+static unsigned char jt545(short flag) __attribute__((unused));
+static unsigned char jt545(short flag)
+{
+	unsigned char *rec;
+
+	PROBE("jt545");
+	if ((flag & 0xff) == 0
+	    && jt393(jt475((short)3),
+	             (const char *)&g_a5_byte(-22253)) != 0)
+		return 0;
+
+	jt42(ua_strs_at(0x4710) /* "The Gods intervene!" */);
+	for (rec = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     rec != NULL;
+	     rec = (unsigned char *)(uintptr_t)*(long *)rec) {
+		jt878((long)(uintptr_t)rec, (short)11, 0L);
+		jt878((long)(uintptr_t)rec, (short)77, 0L);
+		if (rec[95] == 1) {
+			rec[382] = 0;
+			rec[94]  = 6;
+			g_a5_buf(-27472)[(long)(unsigned char)
+			    l6bbe((long)(uintptr_t)rec) * 6 + 5] = 0;
+		}
+		jt498((long)(uintptr_t)rec);
+	}
+
+	{
+		const unsigned char *sc = (const unsigned char *)(uintptr_t)
+		                          g_a5_long(-25318);
+
+		jt521((short)(*(short *)(sc + 2) + 3),
+		      (short)(*(short *)(sc + 4) + 3),
+		      (short)255, (short)8);
+	}
+	return 1;
 }
 
 /* --- band-5 small four ------------------------------------------------ */
