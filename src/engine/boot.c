@@ -26027,6 +26027,185 @@ static void jt598(short code)
 	fn();
 }
 
+/* The CODE 16 spell-effect handlers installed into the -24066 table
+ * (jt598's void(void) ABI).  All PROBE stubs pending their own lifts —
+ * the running worklist is docs/code16-wall.md; effect ids served by
+ * each handler are noted (slot = A5 - 24066 + id*4). */
+static void jt602(void) { PROBE("jt602"); }	/* +0x0a62; id 34,91,101 */
+static void jt603(void) { PROBE("jt603"); }	/* +0x2806; id 84 */
+static void jt604(void) { PROBE("jt604"); }	/* +0x38d6; id 117 */
+static void jt605(void) { PROBE("jt605"); }	/* +0x2352; id 73 */
+static void jt606(void) { PROBE("jt606"); }	/* +0x1fae; id 130 */
+static void jt607(void) { PROBE("jt607"); }	/* +0x16de; id 47,115,133 */
+static void jt608(void) { PROBE("jt608"); }	/* +0x3c38; id 121 */
+static void jt609(void) { PROBE("jt609"); }	/* +0x1148; id 38 */
+static void jt611(void) { PROBE("jt611"); }	/* +0x2f2e; id 98 */
+static void jt612(void) { PROBE("jt612"); }	/* +0x4338; id 125 */
+static void jt613(void) { PROBE("jt613"); }	/* +0x07f2; id 26 */
+static void jt614(void) { PROBE("jt614"); }	/* +0x030e; id 12 */
+static void jt615(void) { PROBE("jt615"); }	/* +0x2634; id 81 */
+static void jt616(void) { PROBE("jt616"); }	/* +0x2242; id 70 */
+static void jt617(void) { PROBE("jt617"); }	/* +0x1ee2; id 58 */
+static void jt618(void) { PROBE("jt618"); }	/* +0x3218; id 103 */
+static void jt619(void) { PROBE("jt619"); }	/* +0x0da4; id 35 */
+static void jt620(void) { PROBE("jt620"); }	/* +0x0122; id 3 */
+static void jt621(void) { PROBE("jt621"); }	/* +0x2e08; id 135 */
+static void jt622(void) { PROBE("jt622"); }	/* +0x3384; id 109 */
+static void jt623(void) { PROBE("jt623"); }	/* +0x0756; id 23,49,94 */
+static void jt624(void) { PROBE("jt624"); }	/* +0x01c8; id 8 */
+static void jt625(void) { PROBE("jt625"); }	/* +0x2c00; id 88 */
+static void jt626(void) { PROBE("jt626"); }	/* +0x2552; id 78 */
+static void jt627(void) { PROBE("jt627"); }	/* +0x20b6; id 66 */
+static void jt628(void) { PROBE("jt628"); }	/* +0x1dfa; id 55 */
+static void jt629(void) { PROBE("jt629"); }	/* +0x155e; id 42 */
+static void jt630(void) { PROBE("jt630"); }	/* +0x3634; id 113 */
+static void jt632(void) { PROBE("jt632"); }	/* +0x09c0; id 31 */
+static void jt633(void) { PROBE("jt633"); }	/* +0x3a4c; id 118 */
+static void jt634(void) { PROBE("jt634"); }	/* +0x058a; id 19 */
+static void jt635(void) { PROBE("jt635"); }	/* +0x2960; id 85 */
+static void jt636(void) { PROBE("jt636"); }	/* +0x239c; id 74 */
+static void jt637(void) { PROBE("jt637"); }	/* +0x1fce; id 131 */
+static void jt639(void) { PROBE("jt639"); }	/* +0x4458; id 126 */
+static void jt640(void) { PROBE("jt640"); }	/* +0x1168; id 39,106 */
+static void jt641(void) { PROBE("jt641"); }	/* +0x2f64; id 137 */
+static void jt642(void) { PROBE("jt642"); }	/* +0x089a; id 27 */
+static void jt643(void) { PROBE("jt643"); }	/* +0x0468; id 13 */
+static void jt644(void) { PROBE("jt644"); }	/* +0x323c; id 104 */
+static void jt645(void) { PROBE("jt645"); }	/* +0x26b2; id 82 */
+static void jt646(void) { PROBE("jt646"); }	/* +0x22e8; id 71 */
+static void jt647(void) { PROBE("jt647"); }	/* +0x1f1a; id 128 */
+static void jt648(void) { PROBE("jt648"); }	/* +0x3424; id 110 */
+static void jt649(void) { PROBE("jt649"); }	/* +0x0ff6; id 36 */
+static void jt650(void) { PROBE("jt650"); }	/* +0x0158; id 4 */
+static void jt651(void) { PROBE("jt651"); }	/* +0x2e28; id 96 */
+static void jt652(void) { PROBE("jt652"); }	/* +0x19aa; id 48 */
+static void jt653(void) { PROBE("jt653"); }	/* +0x37bc; id 114 */
+static void jt654(void) { PROBE("jt654"); }	/* +0x07b2; id 24 */
+static void jt655(void) { PROBE("jt655"); }	/* +0x01e8; id 9,64 */
+static void jt656(void) { PROBE("jt656"); }	/* +0x2c20; id 90 */
+static void jt657(void) { PROBE("jt657"); }	/* +0x2604; id 79 */
+static void jt658(void) { PROBE("jt658"); }	/* +0x20e8; id 67,107 */
+static void jt659(void) { PROBE("jt659"); }	/* +0x1e1a; id 56 */
+static void jt660(void) { PROBE("jt660"); }	/* +0x169e; id 44 */
+static void jt662(void) { PROBE("jt662"); }	/* +0x3a84; id 119 */
+static void jt663(void) { PROBE("jt663"); }	/* +0x09e0; id 32 */
+static void jt664(void) { PROBE("jt664"); }	/* +0x00c6; id 1,62 */
+static void jt665(void) { PROBE("jt665"); }	/* +0x3d02; id 123 */
+static void jt666(void) { PROBE("jt666"); }	/* +0x05aa; id 20 */
+static void jt667(void) { PROBE("jt667"); }	/* +0x2ab8; id 86 */
+static void jt668(void) { PROBE("jt668"); }	/* +0x23ea; id 75 */
+static void jt669(void) { PROBE("jt669"); }	/* +0x2008; id 132 */
+static void jt671(void) { PROBE("jt671"); }	/* +0x2f9e; id 100 */
+static void jt672(void) { PROBE("jt672"); }	/* +0x118a; id 40 */
+static void jt673(void) { PROBE("jt673"); }	/* +0x32ae; id 105 */
+static void jt674(void) { PROBE("jt674"); }	/* +0x0188; id 5,11,18,22,29,60,77 */
+static void jt675(void) { PROBE("jt675"); }	/* +0x096a; id 28 */
+static void jt676(void) { PROBE("jt676"); }	/* +0x04ec; id 14 */
+static void jt677(void) { PROBE("jt677"); }	/* +0x355e; id 111 */
+static void jt678(void) { PROBE("jt678"); }	/* +0x2776; id 83 */
+static void jt679(void) { PROBE("jt679"); }	/* +0x2320; id 72 */
+static void jt680(void) { PROBE("jt680"); }	/* +0x1f96; id 129 */
+static void jt681(void) { PROBE("jt681"); }	/* +0x381a; id 116 */
+static void jt682(void) { PROBE("jt682"); }	/* +0x111e; id 37 */
+static void jt683(void) { PROBE("jt683"); }	/* +0x2f0e; id 136 */
+static void jt684(void) { PROBE("jt684"); }	/* +0x3aa4; id 120 */
+static void jt685(void) { PROBE("jt685"); }	/* +0x07d2; id 25,59 */
+static void jt686(void) { PROBE("jt686"); }	/* +0x0236; id 10,63 */
+static void jt687(void) { PROBE("jt687"); }	/* +0x15ae; id 43,61,89 */
+static void jt688(void) { PROBE("jt688"); }	/* +0x2c40; id 92 */
+static void jt689(void) { PROBE("jt689"); }	/* +0x2614; id 80 */
+static void jt690(void) { PROBE("jt690"); }	/* +0x21c8; id 68 */
+static void jt691(void) { PROBE("jt691"); }	/* +0x1eb0; id 127 */
+static void jt692(void) { PROBE("jt692"); }	/* +0x16be; id 45 */
+static void jt693(void) { PROBE("jt693"); }	/* +0x3f8a; id 124 */
+static void jt694(void) { PROBE("jt694"); }	/* +0x0a42; id 33 */
+static void jt695(void) { PROBE("jt695"); }	/* +0x00ec; id 2 */
+static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
+static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
+static void jt698(void) { PROBE("jt698"); }	/* +0x05fc; id 21 */
+static void jt699(void) { PROBE("jt699"); }	/* +0x01a8; ids 6,7,16,17,52,53,54,57,69,122 */
+static void jt700(void) { PROBE("jt700"); }	/* +0x2b90; id 87 */
+static void jt701(void) { PROBE("jt701"); }	/* +0x24a0; id 76 */
+static void jt702(void) { PROBE("jt702"); }	/* +0x2084; id 134 */
+static void jt703(void) { PROBE("jt703"); }	/* +0x1da6; id 51 */
+static void jt704(void) { PROBE("jt704"); }	/* +0x1270; id 41,46 */
+static void jt705(void) { PROBE("jt705"); }	/* +0x3336; id 108 */
+static void jt706(void) { PROBE("jt706"); }	/* +0x09a0; id 30,50 */
+static void jt707(void) { PROBE("jt707"); }	/* +0x3614; id 112 */
+static void jt708(void) { PROBE("jt708"); }	/* +0x052a; id 15 */
+
+/* CODE 16 local L49e6 — the low half of the -24066 effect-handler fill
+ * (ids 1..44), tail-called by jt610; a true local, no JT export. */
+static void l49e6(void)
+{
+	PROBE("l49e6");
+#define UA_FX(id, fn) \
+	(g_a5_long(-24066 + (long)(id) * 4) = (long)(uintptr_t)(fn))
+	UA_FX(1, jt664);      UA_FX(2, jt695);      UA_FX(3, jt620);
+	UA_FX(4, jt650);      UA_FX(5, jt674);      UA_FX(6, jt699);
+	UA_FX(7, jt699);      UA_FX(8, jt624);      UA_FX(9, jt655);
+	UA_FX(10, jt686);     UA_FX(11, jt674);     UA_FX(12, jt614);
+	UA_FX(13, jt643);     UA_FX(14, jt676);     UA_FX(15, jt708);
+	UA_FX(16, jt699);     UA_FX(17, jt699);     UA_FX(18, jt674);
+	UA_FX(19, jt634);     UA_FX(20, jt666);     UA_FX(21, jt698);
+	UA_FX(22, jt674);     UA_FX(23, jt623);     UA_FX(24, jt654);
+	UA_FX(25, jt685);     UA_FX(26, jt613);     UA_FX(27, jt642);
+	UA_FX(28, jt675);     UA_FX(29, jt674);     UA_FX(30, jt706);
+	UA_FX(31, jt632);     UA_FX(32, jt663);     UA_FX(33, jt694);
+	UA_FX(34, jt602);     UA_FX(35, jt619);     UA_FX(36, jt649);
+	UA_FX(37, jt682);     UA_FX(38, jt609);     UA_FX(39, jt640);
+	UA_FX(40, jt672);     UA_FX(41, jt704);     UA_FX(42, jt629);
+	UA_FX(43, jt687);     UA_FX(44, jt660);
+}
+
+/* JT[610] (CODE 16 + 0x4b48) — combat-init registration: install jt601
+ * as the -24070 targeting callback, clear -25258/-23230, set -25256 = 1,
+ * then fill the -24066 spell-effect handler table (ids 45..137 here,
+ * 1..44 in the l49e6 tail; gaps stay NULL — id 0 is never installed).
+ * Store order kept from the asm.  Caller: the unlifted combat entry
+ * (see docs/code16-wall.md). */
+static void jt610(void) __attribute__((unused));
+static void jt610(void)
+{
+	PROBE("jt610");
+	g_a5_long(-24070) = (long)(uintptr_t)jt601;
+	g_a5_byte(-25258) = 0;
+	g_a5_byte(-23230) = 0;
+	g_a5_byte(-25256) = 1;
+	UA_FX(45, jt692);     UA_FX(46, jt704);     UA_FX(47, jt607);
+	UA_FX(48, jt652);     UA_FX(49, jt623);     UA_FX(50, jt706);
+	UA_FX(51, jt703);     UA_FX(52, jt699);     UA_FX(53, jt699);
+	UA_FX(54, jt699);     UA_FX(55, jt628);     UA_FX(56, jt659);
+	UA_FX(127, jt691);    UA_FX(58, jt617);     UA_FX(128, jt647);
+	UA_FX(129, jt680);    UA_FX(130, jt606);    UA_FX(131, jt637);
+	UA_FX(132, jt669);    UA_FX(133, jt607);    UA_FX(134, jt702);
+	UA_FX(66, jt627);     UA_FX(67, jt658);     UA_FX(68, jt690);
+	UA_FX(69, jt699);     UA_FX(70, jt616);     UA_FX(71, jt646);
+	UA_FX(72, jt679);     UA_FX(73, jt605);     UA_FX(74, jt636);
+	UA_FX(75, jt668);     UA_FX(76, jt701);     UA_FX(77, jt674);
+	UA_FX(78, jt626);     UA_FX(79, jt657);     UA_FX(80, jt689);
+	UA_FX(81, jt615);     UA_FX(82, jt645);     UA_FX(83, jt678);
+	UA_FX(84, jt603);     UA_FX(85, jt635);     UA_FX(86, jt667);
+	UA_FX(87, jt700);     UA_FX(88, jt625);     UA_FX(89, jt687);
+	UA_FX(90, jt656);     UA_FX(91, jt602);     UA_FX(92, jt688);
+	UA_FX(93, jt696);     UA_FX(94, jt623);     UA_FX(135, jt621);
+	UA_FX(96, jt651);     UA_FX(136, jt683);    UA_FX(98, jt611);
+	UA_FX(137, jt641);    UA_FX(100, jt671);    UA_FX(101, jt602);
+	UA_FX(102, jt697);    UA_FX(103, jt618);    UA_FX(104, jt644);
+	UA_FX(105, jt673);    UA_FX(106, jt640);    UA_FX(107, jt658);
+	UA_FX(108, jt705);    UA_FX(109, jt622);    UA_FX(110, jt648);
+	UA_FX(111, jt677);    UA_FX(112, jt707);    UA_FX(113, jt630);
+	UA_FX(114, jt653);    UA_FX(115, jt607);    UA_FX(116, jt681);
+	UA_FX(117, jt604);    UA_FX(118, jt633);    UA_FX(119, jt662);
+	UA_FX(120, jt684);    UA_FX(121, jt608);    UA_FX(122, jt699);
+	UA_FX(123, jt665);    UA_FX(124, jt693);    UA_FX(125, jt612);
+	UA_FX(126, jt639);    UA_FX(57, jt699);     UA_FX(59, jt685);
+	UA_FX(60, jt674);     UA_FX(61, jt687);     UA_FX(62, jt664);
+	UA_FX(63, jt686);     UA_FX(64, jt655);
+#undef UA_FX
+	l49e6();
+}
+
 /* JT[631] (CODE 16 + 0x19c8) — the bolt damage applier: a bouncing ray
  * from the caster through the pick, damaging occupants along the
  * reflected path (jt509/jt507 walks + l62ec occupant checks + the L1d2a
