@@ -32378,16 +32378,165 @@ static void jt820(long rec_l, long item, short flag)
 		jt876(rec_l, (short)(unsigned char)it[55], 0, 255, 1);
 }
 
-/* JT[537] (CODE 14 + 0x5670) — the beholder: "fires a disintegrate ray"
- * plus the rest of the eye-tyrant multi-ray sweep (~1KB; L55d0/L555a
- * locals, JT[494] range gates, per-ray saves). Its own future lift —
- * stubbed so the jt856 hook table (slot 117) can be registered now. */
+/* JT[546] (CODE 14 + 0x4186) — pick the next combat target into the
+ * actor's sub-record slot +12 (~570B: side/in-combat veto, distance
+ * scan; mode 1 = fresh pick, 0 = re-pick, range limit 255 here).
+ * Returns picked?1:0.  PROBE stub — leaf of the jt537 lift. */
+static unsigned char jt546(long rec_l, short limit, short a, short mode,
+                           short b)
+{
+	PROBE("jt546");
+	(void)rec_l; (void)limit; (void)a; (void)mode; (void)b;
+	return 0;		/* no target picked */
+}
+
+/* JT[599] (CODE 16 + 0x64a8) — cast/apply a spell-effect by id (~1.25KB,
+ * part of the CODE 16 spell-application tier with jt596/jt598; the
+ * beholder self-casts effects 84/55/21 through it).  PROBE stub — leaf
+ * of the jt537 lift. */
+static void jt599(short effect, short a, short b, unsigned char *out)
+{
+	PROBE("jt599");
+	(void)effect; (void)a; (void)b; (void)out;
+}
+
+/* CODE 14 local L555a — fire a ray: jt497(kind) sprite setup, then the
+ * animated jt501 trajectory line from the shooter to the target
+ * (anim 1, dwell 30). */
+static void l555a(short kind, long target_l, long rec_l)
+{
+	unsigned char sx, sy, tx;
+	short ty;
+
+	PROBE("l555a");
+	jt497(kind);
+	sx = jt525(rec_l);
+	sy = jt531(rec_l);
+	tx = jt525(target_l);
+	ty = (short)(signed char)jt531(target_l);
+	jt501((short)(signed char)sx, (short)(signed char)sy,
+	      (short)(signed char)tx, ty, 1, 30);
+}
+
+/* CODE 14 local L55d0 — pick the next ray target and walk the shot line:
+ * jt546 picks into the sub-record target slot (+12); on a pick, jt506
+ * walks the line from the shooter to the target with *dist as the cost
+ * budget.  *blocked = 1 unless the walk reaches the target (then 0). */
+static void l55d0(short mode, unsigned short *dist, long rec_l,
+                  unsigned char *blocked)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	long target;
+	unsigned char tx, ty;
+	short sx, sy;
+
+	PROBE("l55d0");
+	*blocked = 1;
+	if (jt546(rec_l, 255, 0, mode, 0) == 0)
+		return;
+	target = *(long *)(void *)
+	    ((unsigned char *)(uintptr_t)*(long *)(void *)(rec + 64) + 12);
+	tx = jt525(target);
+	ty = jt531(target);
+	sx = (short)(signed char)jt525(rec_l);
+	sy = (short)(signed char)jt531(rec_l);
+	if (jt506(sx, sy, &tx, &ty, dist) != 0)
+		*blocked = 0;
+}
+
+/* JT[537] (CODE 14 + 0x5670) — the BEHOLDER: up to four eye-ray attacks
+ * per activation, a used-ray bitmask making each ray fire at most once.
+ * Each pass re-reads the picked target and measures range (jt494):
+ *   <=2  bit 1   "fires a disintegrate ray"    save 3 / status 8
+ *                                              "is disintegrated"
+ *   <=3  bit 2   "fires a flesh to stone ray"  save 1 / status 7
+ *                                              "is Stoned"
+ *   <=4  bit 4   "fires a death ray" (dmg-type 72)  save 0 / status 6
+ *                                              "is killed"
+ *   <=5  bit 8   "Causes Serious Wounds"       2d8+1 via jt867, sound 66
+ *   else bits 16/32/64: self-cast effects 84/55/21 via jt599 (sounds
+ *        84/55/21); ranged arms re-pick through l55d0 (mode 0).
+ * Loop top re-arms damage-type 8; runs until the four rays are spent or
+ * no target is picked.  Hook-table slot 117 (see jt856).  Mac quirk
+ * kept: the first l55d0 line-walk runs with the range budget still
+ * uninitialized (fp-4 stack garbage) — zero-seeded here.  THREE naming
+ * traps cleared in the helpers: L6b40=jt525, L6b6a=jt531, L4186=jt546
+ * (JT exports reached PC-relative). */
 static void jt537(long rec_l, long node, short flag)
 {
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub = (unsigned char *)(uintptr_t)
+	    *(long *)(void *)(rec + 64);
+	long target;
+	unsigned short dist = 0;	/* Mac: garbage on the first walk */
+	unsigned char rays = 4, used = 0, blocked = 0;
+
 	PROBE("jt537");
-	(void)rec_l;
 	(void)node;
 	(void)flag;
+	*(long *)(void *)(sub + 12) = 0;
+	l55d0(1, &dist, rec_l, &blocked);
+	do {
+		g_a5_word(-25266) = 8;
+		target = *(long *)(void *)(sub + 12);
+		dist = (unsigned short)(jt494(rec_l, target) & 255);
+		rays = (unsigned char)(rays - 1);
+		if (target == 0) {
+			/* fall through to the loop check */
+		} else if (dist <= 2 && (used & 1) == 0) {
+			used |= 1;
+			jt18(rec, (long)(uintptr_t)ua_strs_at(0x4724)
+			     /* "fires a disintegrate ray" */, 10, 1);
+			l555a(19, target, rec_l);
+			if (jt866(target, 3, 0) == 0)
+				jt860(target, 8, (long)(uintptr_t)
+				      ua_strs_at(0x473e)
+				      /* "is disintegrated" */);
+			l55d0(0, &dist, rec_l, &blocked);
+		} else if (dist <= 3 && (used & 2) == 0) {
+			used |= 2;
+			jt18(rec, (long)(uintptr_t)ua_strs_at(0x4750)
+			     /* "fires a flesh to stone ray" */, 10, 1);
+			l555a(19, target, rec_l);
+			if (jt866(target, 1, 0) == 0)
+				jt860(target, 7, (long)(uintptr_t)
+				      ua_strs_at(0x476c) /* "is Stoned" */);
+			l55d0(0, &dist, rec_l, &blocked);
+		} else if (dist <= 4 && (used & 4) == 0) {
+			g_a5_word(-25266) = 72;
+			used |= 4;
+			jt18(rec, (long)(uintptr_t)ua_strs_at(0x4776)
+			     /* "fires a death ray" */, 10, 1);
+			l555a(19, target, rec_l);
+			if (jt866(target, 0, 0) == 0)
+				jt860(target, 6, (long)(uintptr_t)
+				      ua_strs_at(0x4788) /* "is killed" */);
+			l55d0(0, &dist, rec_l, &blocked);
+		} else if (dist <= 5 && (used & 8) == 0) {
+			unsigned char d;
+
+			used |= 8;
+			jt18(rec, (long)(uintptr_t)ua_strs_at(0x4792)
+			     /* "Causes Serious Wounds" */, 10, 1);
+			l555a(19, target, rec_l);
+			g_a5_byte(-25262) = 66;
+			d = jt873(2, 8);
+			jt867(target, (short)(d + 1), 0, 0);
+			l55d0(0, &dist, rec_l, &blocked);
+		} else if ((used & 16) == 0) {
+			g_a5_byte(-25262) = 84;
+			jt599(84, 1, 1, &blocked);
+			used |= 16;
+		} else if ((used & 32) == 0) {
+			g_a5_byte(-25262) = 55;
+			jt599(55, 1, 1, &blocked);
+			used |= 32;
+		} else if ((used & 64) == 0) {
+			g_a5_byte(-25262) = 21;
+			jt599(21, 1, 1, &blocked);
+			used |= 64;
+		}
+	} while (rays != 0 && *(long *)(void *)(sub + 12) != 0);
 }
 
 /* JT[856] (CODE 18 + 0x725c) — build the 230-entry per-creature hook table
