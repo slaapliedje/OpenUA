@@ -33961,11 +33961,13 @@ static void jt502(short dir, short kind)
 	(void)dir; (void)kind;
 }
 
-/* JT[145] (CODE 7+0x1686) — combat post-action repaint tick. Leaf
- * PROBE stub pending its own lift. */
+/* JT[145] (CODE 7+0x1686) — combat post-action repaint: blit FRAME
+ * piece 6 at the (8000, 8000) anchor. Full lift (the Mac body is a
+ * single jt1001 call). */
 static void jt145(void)
 {
 	PROBE("jt145");
+	jt1001((short)8000, (short)8000, (short)1, (short)6);
 }
 
 /* JT[599] (CODE 16+0x64a8) — cast a spell effect by id, full lift
@@ -37296,6 +37298,17 @@ static void jt130(char *buf)
 		         (short)(signed char)g_a5_buf(-31268)[i]);
 	buf[8] = 0;
 	jt405(buf);
+}
+
+/* JT[262] (CODE 10+0x62ee) — jt261's inverse: -1 when byte `val`
+ * is NOT in the 28-entry -11652 list (JT[409]'s index >= 28). */
+static short jt262(short val) __attribute__((unused));
+static short jt262(short val)
+{
+	PROBE("jt262");
+	return (short)((l3e0c((const unsigned char *)&g_a5_byte(-11652),
+	                      (short)28, (unsigned char)val) >= 28)
+	               ? -1 : 0);
 }
 
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
