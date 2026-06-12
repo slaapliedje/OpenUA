@@ -26011,6 +26011,35 @@ static void jt596(short x0, short y0, short tx, short ty, short mode,
 	} while (arr[count - 1] != 0);
 }
 
+/* JT[598] (CODE 16 + 0x73ea) — dispatch a spell/status-effect handler:
+ * call through the -24066 fn-ptr table slot `code` (the table jt610
+ * fills at combat init; empty until that registration is lifted). */
+static void jt598(short code) __attribute__((unused));
+static void jt598(short code)
+{
+	void (*fn)(void);
+
+	PROBE("jt598");
+	fn = (void (*)(void))(uintptr_t)
+	    (*(long *)(void *)(g_a5_buf(-24066)
+	                       + (long)(unsigned char)code * 4));
+	fn();
+}
+
+/* JT[631] (CODE 16 + 0x19c8) — the bolt damage applier: a bouncing ray
+ * from the caster through the pick, damaging occupants along the
+ * reflected path (jt509/jt507 walks + l62ec occupant checks + the L1d2a
+ * reflection helper). ~870B; PROBE stub until the CODE 16 spell-exec
+ * tier is lifted. Caller: jt722 (breathes lightning). */
+static void jt631(short mult, short dmg, short flag) __attribute__((unused));
+static void jt631(short mult, short dmg, short flag)
+{
+	PROBE("jt631");
+	(void)mult;
+	(void)dmg;
+	(void)flag;
+}
+
 /* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop
  * painter (LIFTED below — drives the GLIB sprite/PIC/bigpic event display via
  * jt43/l08ce/l0ac2/l1476), l3f22 = pre-move predicate, l4184 / l3ef8 = view
@@ -27506,6 +27535,148 @@ static void jt867(long entity, short amount, short saveCat, short saveFlag)
 		}
 	}
 	jt20();
+}
+
+/* JT[717] (CODE 18 + 0x360c) — "breathes poison": the dragon-breath area
+ * attack. Charges live in node[4] (re-seeded to 3 outside the triggering
+ * pass -22721); asks the -24070 targeting callback for hazard code 130,
+ * builds the target list (jt596 mode 255 toward the -23236/-23235 pick,
+ * range 3), then: damage-type flags -25266 = 32, "breathes poison"
+ * (jt18), turn toward the first target (jt529 -> jt523 via the -23508
+ * slot), breath sound + trajectory (jt497 19 + jt501 anim 1/30), and
+ * each -23512 target rolls a breath save (jt866 row 3) against rec[129]
+ * damage at save-cat 2 (jt867). One charge spent; jt498 order reset. */
+static void jt717(long rec_l, long node, short flag) __attribute__((unused));
+static void jt717(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+	unsigned char bx, by, ok, pose, lx1, ly1, lx2;
+	short i, ly2;
+
+	PROBE("jt717");
+	(void)flag;
+	g_a5_byte(-25257) = 1;
+	if ((unsigned char)g_a5_byte(-22721) == 0)
+		nd[4] = 3;
+	if (nd[4] != 0) {
+		bx = jt525(rec_l);
+		by = jt531(rec_l);
+		((ua_target_cb)(uintptr_t)g_a5_long(-24070))(130, 1, &ok);
+		if (ok != 0) {
+			jt596((short)(signed char)bx, (short)(signed char)by,
+			      (short)(signed char)g_a5_byte(-23236),
+			      (short)(signed char)g_a5_byte(-23235), 255, 3);
+			if ((unsigned char)g_a5_byte(-23510) != 0) {
+				g_a5_word(-25266) = 32;
+				jt18(rec, (long)(uintptr_t)ua_strs_at(0x55e4)
+				     /* "breathes poison" */, 10, 1);
+				pose = jt529(rec_l, g_a5_long(-23508));
+				jt38(rec_l);
+				jt523(rec_l, (short)pose, 1, 0);
+				jt497(19);
+				lx1 = jt525(rec_l);
+				ly1 = jt531(rec_l);
+				lx2 = jt525(g_a5_long(-23508));
+				ly2 = (short)(signed char)
+				      jt531(g_a5_long(-23508));
+				jt501((short)(signed char)lx1,
+				      (short)(signed char)ly1,
+				      (short)(signed char)lx2, ly2, 1, 30);
+				for (i = 1;
+				     (unsigned char)i
+				       <= (unsigned char)g_a5_byte(-23510);
+				     i++) {
+					long tgt =
+					    g_a5_long(-23512 + (long)i * 4);
+					short sv;
+					if (tgt == 0)
+						continue;
+					sv = (short)(signed char)
+					     jt866(tgt, 3, 0);
+					jt867(tgt, (short)rec[129], 2, sv);
+				}
+				nd[4] = (unsigned char)(nd[4] - 1);
+				jt498(rec_l);
+			}
+		}
+	}
+	g_a5_byte(-25257) = 0;
+}
+
+/* JT[722] (CODE 18 + 0x3808) — "breathes lightning": as jt717 but the
+ * charge re-seeds whenever node[4] > 3 too, hazard code 51, the pick
+ * out-param is the A5 global -22308, damage-type flags 36, sound jt52(9)
+ * + jt497(20), trajectory anim 4/50, and the damage lands through the
+ * jt631 bouncing-bolt applier instead of a per-target save loop. */
+static void jt722(long rec_l, long node, short flag) __attribute__((unused));
+static void jt722(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd  = (unsigned char *)(uintptr_t)node;
+	unsigned char bx, by, pose;
+
+	PROBE("jt722");
+	(void)flag;
+	if ((unsigned char)g_a5_byte(-22721) == 0 || nd[4] > 3)
+		nd[4] = 3;
+	if (nd[4] == 0)
+		return;
+	g_a5_word(-25266) = 36;
+	bx = jt525(rec_l);
+	by = jt531(rec_l);
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(51, 1,
+	    (unsigned char *)&g_a5_byte(-22308));
+	if ((unsigned char)g_a5_byte(-22308) == 0)
+		return;
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x55f4)
+	     /* "breathes lightning" */, 10, 1);
+	pose = jt529(rec_l, g_a5_long(-23508));
+	jt38(rec_l);
+	jt523(rec_l, (short)pose, 1, 0);
+	jt52(9);
+	jt497(20);
+	jt501((short)(signed char)bx, (short)(signed char)by,
+	      (short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), 4, 50);
+	jt631(9, (short)rec[129], 0);
+	nd[4] = (unsigned char)(nd[4] - 1);
+	jt498(rec_l);
+}
+
+/* JT[727] (CODE 18 + 0x3940) — "gazes": the gaze attack. Hazard code 10
+ * through the -24070 callback; on a pick: damage-type flags 16, "gazes"
+ * message, turn toward the target (jt529 -> jt523), jt497(19), gaze line
+ * (jt501 anim 4/50), then hazard sound id -25262 = 10 and the effect
+ * lands through the jt598 handler-table dispatch (slot 10). */
+static void jt727(long rec_l, long node, short flag) __attribute__((unused));
+static void jt727(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char ok, pose, bx;
+	short by;
+
+	PROBE("jt727");
+	(void)node;
+	(void)flag;
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(10, 1, &ok);
+	if (ok == 0)
+		return;
+	g_a5_byte(-25257) = 1;
+	g_a5_word(-25266) = 16;
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x5608)
+	     /* "gazes" */, 10, 1);
+	pose = jt529(rec_l, g_a5_long(-23508));
+	jt523(rec_l, (short)pose, 1, 0);
+	jt497(19);
+	bx = jt525(rec_l);
+	by = (short)(signed char)jt531(rec_l);
+	jt501((short)(signed char)bx, by,
+	      (short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), 4, 50);
+	g_a5_byte(-25262) = 10;
+	jt598(10);
+	g_a5_byte(-25257) = 0;
 }
 
 /* JT[879] (CODE 18 + 0x0ede, 4 sites) — apply the ongoing "standing in a
