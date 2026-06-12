@@ -34907,9 +34907,9 @@ announce:
 			jt523(member, dir, (short)1, (short)0);
 
 			switch (ec) {               /* cast sound (JT[1]) */
-			case 47: jt52((short)9);  break;
-			case 51: jt52((short)3);  break;
-			default: jt52((short)12); break;
+			case 47: jt52((short)12); break;
+			case 51: jt52((short)9);  break;
+			default: jt52((short)3);  break;
 			}
 
 			jt501((short)sx, (short)sy,
@@ -34922,31 +34922,34 @@ announce:
 				    (const unsigned char *)(uintptr_t)
 				    g_a5_long(-28006);
 
+				/* (Arm bindings re-decoded 2026-06-12 with
+				 * tools/jt1_extract.py — the hand decode had
+				 * every arm shifted one case over.) */
 				switch (ec) {
 				case 34:
+					jt500((short)1, (short)27,
+					      (short)12);
+					break;
+				case 91:
 					jt500((short)1, (short)28,
 					      (short)12);
 					break;
-				case 91: case 133: case 47:
+				case 133: case 47: case 115:
 					jt500((short)((hdr[34] == 0
 					               || ec == 133)
 					              ? 2 : 3),
 					      (short)25, (short)12);
 					break;
-				case 115:
+				case 87:
 					jt500((short)(hdr[60] ? 3 : 2),
 					      (short)26, (short)12);
 					break;
-				case 87:
+				case 51:
 					if (hdr[60])
 						jt500((short)2, (short)20,
 						      (short)9);
 					break;
-				case 51:
-					break;
 				default:
-					jt500((short)1, (short)27,
-					      (short)12);
 					break;
 				}
 			}
@@ -38563,16 +38566,256 @@ static void l20a0(char *buf)
 	buf[249] = 6;
 }
 
-/* L2df8 (CODE 8 + 0x2df8) — the segmented line-editor keystroke
- * primitive (~1.1KB, own JT[1] key dispatch over 258/259/261-264 +
- * the +236 per-segment (max,min) validation table). PROBE leaf stub:
- * returns 0 ("no text change") and leaves the cursor alone. */
+/* L20c2 (CODE 8 + 0x20c2) — find `pos`'s segment in the +236 table (up
+ * to 6 rows of (start, end) byte pairs at buf[236+2i]/buf[237+2i]) and,
+ * when `pos` sits exactly on a segment end with room to advance (the
+ * next segment starts here non-empty, or this segment is already 38
+ * wide), report 1 — bumping *idxp to the next segment when `bump`. */
+static short l20c2(char *buf, short pos, short *idxp, short bump)
+{
+	const unsigned char *t = (const unsigned char *)buf;
+
+	PROBE("L20c2");
+	*idxp = 0;
+	while (*idxp < 6 && t[2 * *idxp + 237] != 0
+	       && pos > (short)t[2 * *idxp + 237])
+		(*idxp)++;
+	if ((short)t[2 * *idxp + 237] != pos)
+		return 0;
+	if (*idxp >= 5)
+		return 0;
+	if ((short)t[2 * (*idxp + 1) + 236] == pos
+	    && t[2 * (*idxp + 1) + 237] != 0)
+		goto yes;
+	if ((unsigned short)(pos - t[2 * *idxp + 236]) < 38)
+		return 0;
+yes:
+	if ((bump & 0xff) != 0)
+		(*idxp)++;
+	return 1;
+}
+
+/* L21a4 (CODE 8 + 0x21a4) — hop the cursor one segment over (`down` !=
+ * 0 hops to the previous segment, 0 to the next): keep the column
+ * within the segment (clamped 0..37), land on the target's start +
+ * column capped at its end (minus one when the end char is real). */
+static short l21a4(char *buf, unsigned char *cursor, short down)
+{
+	const unsigned char *t = (const unsigned char *)buf;
+	short idx, has, col;
+
+	PROBE("L21a4");
+	(void)l20c2(buf, (short)*cursor, &idx, (short)1);
+	if ((down & 0xff) != 0) {
+		if (idx == 0)
+			return 0;
+	} else {
+		if (idx >= 5)
+			return 0;
+		if (t[2 * (idx + 1) + 237] == 0
+		    && (unsigned short)(t[2 * idx + 237]
+		                        - t[2 * idx + 236]) < 38)
+			return 0;
+	}
+	col = jt397((short)0,
+	            jt413((short)(*cursor - t[2 * idx + 236]), (short)37));
+	*cursor = (unsigned char)col;
+	idx = (short)(idx + (((down & 0xff) != 0) ? -1 : 1));
+	if (t[2 * idx + 237] != 0) {
+		*cursor = (unsigned char)(*cursor + t[2 * idx + 236]);
+		has = (buf[t[2 * idx + 237]] != 0) ? 1 : 0;
+		*cursor = (unsigned char)jt413((short)*cursor,
+		                (short)(t[2 * idx + 237] - has));
+	} else {
+		*cursor = t[2 * idx + 236];
+	}
+	return 1;
+}
+
+/* L2724 (CODE 8 + 0x2724) — zero-fill the 250-byte field buffer past
+ * the string (jt328's bind-time scrub). */
+static void l2724(char *buf)
+{
+	short len = jt423(buf);
+
+	PROBE("L2724");
+	jt399(buf + len, (short)(250 - len), (short)0);
+}
+
+/* L2756 (CODE 8 + 0x2756) — the segment-table maintainer: pos < 0
+ * wipes + re-tokenizes the whole buffer into word segments (the
+ * L2dca/L2d5e char classes, 38-col lines); pos >= 0 adjusts the table
+ * around an insert/delete at pos and validates the result. ~1.7KB —
+ * PROBE leaf stub returning 1 ("table fine"), so the seg machinery
+ * sees one empty segment and plain typing still works; lift together
+ * with the word-wrap paint layer (L24e8/L2410/L1f6c). */
+static short l2756(char *buf, short pos, short flag)
+{
+	PROBE("L2756");
+	(void)buf; (void)pos; (void)flag;
+	return 1;
+}
+
+/* L2df8 (CODE 8 + 0x2df8) — the line-editor keystroke primitive
+ * (FULL lift). JT[1] key dispatch (the (off,val)-pairs layout):
+ *   262/263 — cursor left / home (seg mode hops the left boundary to
+ *             the previous segment's end);
+ *   258/261 — cursor right / end, capped at min(len, seglimit+1)
+ *             (seg mode snaps a gap landing to the next segment start);
+ *   264/260 — previous / next segment via L21a4 (seg mode only);
+ *   8       — backspace = left + fall into
+ *   266     — delete at the cursor (saves the char for the validation
+ *             undo, shifts the tail, shrinks the string);
+ *   default — printable [32,126] insert: shift the tail right (full
+ *             non-seg buffers only re-use a trailing space, else
+ *             JT[1080] beep), grow the string when room, advance the
+ *             cursor up to the segment limit.
+ * Seg-mode tail: a change re-validates via L2756; failure beeps and
+ * UNDOES itself (recursive call with the inverse key: BS/DEL re-insert
+ * the saved char, an insert deletes), restoring the original cursor
+ * and returning -1; success re-clamps a cursor that drifted into the
+ * inter-segment gap. Returns 1 change / 0 no-op / -1 rejected. */
 static short l2df8(short key, unsigned char *cursor, char *buf,
                    short maxw, short seg)
 {
+	unsigned char *t = (unsigned char *)buf;
+	short  result = -1;             /* fp@(-2)  */
+	short  idx    = 0;              /* fp@(-4)  */
+	short  orig;                    /* fp@(-6)  */
+	short  slim;                    /* fp@(-8)  */
+	short  len;                     /* fp@(-10) */
+	char   delch  = 0;              /* fp@(-11) */
+	short  i;
+
 	PROBE("L2df8");
-	(void)key; (void)cursor; (void)buf; (void)maxw; (void)seg;
-	return 0;
+	if (cursor == NULL || buf == NULL || maxw == 0)
+		return 0;
+	orig = (short)*cursor;
+	len  = jt423(buf);
+	if ((seg & 0xff) != 0 && t[247] != 0)
+		slim = jt413(maxw, (short)(t[246] + 37));
+	else
+		slim = maxw;
+
+	switch (key) {
+
+	case 262: case 263:             /* left / home */
+		if (*cursor == 0)
+			break;
+		*cursor = (unsigned char)(*cursor
+		          - ((key == 262) ? 1 : *cursor));
+		if ((seg & 0xff) != 0 && key == 262) {
+			(void)l20c2(buf, (short)*cursor, &idx, (short)1);
+			if ((short)*cursor >= (short)t[2 * idx + 236])
+				break;
+			if (idx == 0)
+				break;
+			idx--;
+			*cursor = (unsigned char)jt413(
+			    (short)t[2 * idx + 237],
+			    (short)(t[2 * idx + 236] + 37));
+		}
+		break;
+
+	case 258: case 261: {           /* right / end */
+		short lim = jt413(len, (short)(slim + 1));
+
+		if ((short)*cursor >= lim)
+			break;
+		*cursor = (unsigned char)(*cursor + ((key == 258)
+		          ? 1
+		          : (short)(jt413(len, (short)(slim + 1))
+		                    - *cursor)));
+		if ((seg & 0xff) != 0 && key == 258) {
+			(void)l20c2(buf, (short)*cursor, &idx, (short)1);
+			if ((short)*cursor >= (short)t[2 * idx + 236])
+				break;
+			*cursor = t[2 * idx + 236];
+		}
+		break;
+	}
+
+	case 264: case 260:             /* segment prev / next */
+		if ((seg & 0xff) != 0)
+			(void)l21a4(buf, cursor,
+			            (short)(key == 264 ? 1 : 0));
+		break;
+
+	case 8:                         /* backspace = left + delete */
+		if (*cursor == 0)
+			break;
+		(*cursor)--;
+		/* FALLTHROUGH */
+		/* fall through */
+	case 266:                       /* delete at the cursor */
+		if ((short)*cursor >= len)
+			break;
+		delch = buf[*cursor];
+		for (i = (short)*cursor; jt413(len, maxw) > i; i++)
+			buf[i] = buf[i + 1];
+		if (len > 0) {
+			len--;
+			buf[len] = 0;
+		}
+		result = 1;
+		break;
+
+	default:                        /* printable insert */
+		if (key < 32 || key > 126) {
+			result = 0;
+			break;
+		}
+		if ((seg & 0xff) == 0 && maxw < len) {
+			if (buf[maxw] != ' ') {
+				jt1080();       /* full — beep */
+				break;          /* result stays -1 */
+			}
+		}
+		for (i = jt413(len, maxw); i > (short)*cursor; i--)
+			buf[i] = buf[i - 1];
+		if (maxw >= len) {
+			len++;
+			buf[len] = 0;
+		}
+		buf[*cursor] = (char)key;
+		if ((short)*cursor <= slim)
+			(*cursor)++;
+		result = 1;
+		break;
+	}
+
+	/* ---- the seg-mode validation tail (asm L3128) ---- */
+	if ((seg & 0xff) == 0 || result <= 0)
+		return result;
+	{
+		short moved = ((unsigned char)*cursor
+		               > (unsigned char)orig) ? 1 : 0;
+
+		if ((l2756(buf, (short)*cursor, moved) & 0xff) == 0) {
+			short undo;
+
+			jt1080();
+			if (key == 8 || key == 266)
+				undo = (short)(signed char)delch;
+			else
+				undo = 8;
+			(void)l2df8(undo, cursor, buf, maxw, (short)1);
+			*cursor = (unsigned char)orig;
+			return -1;
+		}
+		(void)l20c2(buf, (short)*cursor, &idx, (short)1);
+		if ((short)*cursor < (short)t[2 * idx + 236])
+			return result;
+		if ((short)*cursor < (short)t[2 * idx + 237])
+			return result;
+		if (idx >= 5)
+			return result;
+		if ((short)*cursor >= (short)t[2 * (idx + 1) + 236])
+			return result;
+		*cursor = (unsigned char)jt413((short)t[2 * idx + 237],
+		            (short)(t[2 * idx + 236] + 37));
+	}
+	return result;
 }
 
 /* L2338 (CODE 8 + 0x2338) — draw ONE field cell: in-range cells via
@@ -38659,36 +38902,40 @@ static short l1f18(short v, short h, char *buf)
 }
 
 /* jt327 (CODE 8 + 0x0de4) — the editable text-field DLItem method, the
- * design tools' string/number field shape. JT[1] dispatch on `cmd`:
+ * design tools' string/number field shape. JT[1] dispatch on `cmd`.
+ * (NOTE: the JT[1] inline table is [count][(off,val) pairs][default_off]
+ * — offsets FIRST in each pair, default LAST, per the CODE 1+0x130
+ * dispatcher. The arm map matches the standard DLItem cmds — 1 = paint,
+ * 2 = hit, 5 = key — exactly like jt376/jt378.)
  *
- *   default — (re)bind: zero the bound cursor, stage the revert copy
- *             (39 bytes), clamp the width to [1,38], place the field
- *             right of its label (max(right-align cap, label end + 4)),
- *             default the label colour to 0x87 when unset.
- *   0   — paint (once per pass, bit 7): bump the -27914 glyph-state
+ *   0   — (re)bind: zero the bound cursor, stage the revert copy
+ *         (39 bytes), clamp the width to [1,38], place the field
+ *         right of its label (max(right-align cap, label end + 4)),
+ *         default the label colour to 0x87 when unset.
+ *   1   — paint (once per pass, bit 7): bump the -27914 glyph-state
  *         counter (bit 2 focused -> +1, bit 0 disabled -> 2), the
  *         packed glyph via JT[448], the right-aligned label (colour 128
  *         when disabled), the box frame + fill (JT[1135]/JT[1161]; pal
  *         0x80 disabled / 0xF0 focused / 0x70 idle), the text (L23d2)
  *         and, when focused, the inverted cursor cell (L2338).
- *   1   — hit test via JT[1139]: row 0..3 and col < width*4+2.
- *   27  — modal edit: poll JT[1132] until a click, re-hit via cmd 2,
+ *   2   — hit test via JT[1139]: row 0..3 and col < width*4+2.
+ *   3   — modal edit: poll JT[1132] until a click, re-hit via cmd 2,
  *         map the click to the cursor (L1f18) and take focus (L1dd8).
- *   3   — focus request (L1dd8) when not already focused.
- *   18  — return 1 ("focusable"), falling into
- *   128 — defocus (L1eec) when focused.
- *   26  — keystroke: `/ESC reverts from the staged copy (re-clamping
+ *   18  — focus request (L1dd8) when not already focused.
+ *   128 — return 1 ("focusable"), falling into
+ *   26  — defocus (L1eec) when focused.
+ *   5   — keystroke: `/ESC reverts from the staged copy (re-clamping
  *         the cursor) and defocuses; CR/LF commits + defocuses; TAB
  *         walks the DLItem table for the next item answering cmd 128
  *         nonzero and sends it cmd 18; anything else goes through the
  *         L2df8 editor primitive with incremental repaint (changed tail
  *         via L23d2 + the trailing blank, or just the old cell) and the
  *         re-inverted cursor cell.
- *   5   — set width (clamped 1..38; dirties on change).
- *   42  — set the aux word +24 (dirties on change).
- *   36  — delegate to l1676, then clear flags19 bit 0.
- *   40  — delegate to l1676.
- *   2 / 4 / 19 — return 0. */
+ *   42  — set width (clamped 1..38; dirties on change).
+ *   36  — set the aux word +24 (dirties on change).
+ *   40  — delegate to l1676, then clear flags19 bit 0.
+ *   default — delegate to l1676.
+ *   4 / 19 / 27 — return 0. */
 static short jt327(long rec_l, short cmd, short a, short b)
                    __attribute__((unused));
 static short jt327(long rec_l, short cmd, short a, short b)
@@ -38707,7 +38954,7 @@ static short jt327(long rec_l, short cmd, short a, short b)
 
 	switch (cmd) {
 
-	default:                                /* (re)bind */
+	case 0:                                 /* (re)bind */
 		if (buf != NULL) {
 			if (bound != NULL) {    /* (Mac writes before its NULL check) */
 				bound[76] = 0;
@@ -38728,7 +38975,7 @@ static short jt327(long rec_l, short cmd, short a, short b)
 			rec[31] = 0x87;
 		break;
 
-	case 0: {                               /* paint */
+	case 1: {                               /* paint */
 		short pal, mv, mh, mv2, mh2;
 
 		if (rec[28] & 0x80)
@@ -38779,7 +39026,7 @@ static short jt327(long rec_l, short cmd, short a, short b)
 		break;
 	}
 
-	case 1: {                               /* hit test */
+	case 2: {                               /* hit test */
 		short row, col;
 
 		if (rec[28] & 3) {
@@ -38794,7 +39041,7 @@ static short jt327(long rec_l, short cmd, short a, short b)
 		break;
 	}
 
-	case 27: {                              /* modal edit entry */
+	case 3: {                               /* modal edit entry */
 		short row, col;
 
 		do {
@@ -38811,21 +39058,21 @@ static short jt327(long rec_l, short cmd, short a, short b)
 		break;
 	}
 
-	case 3:                                 /* focus request */
+	case 18:                                /* focus request */
 		if (!(rec[28] & 4))
 			l1dd8(rec_l, (short)1);
 		break;
 
-	case 18:                                /* focusable probe */
+	case 128:                               /* focusable probe */
 		result = 1;
 		/* FALLTHROUGH into the defocus (the Mac falls through). */
 		/* fall through */
-	case 128:                               /* defocus */
+	case 26:                                /* defocus */
 		if (rec[28] & 4)
 			l1eec(rec_l, (short)1);
 		break;
 
-	case 26: {                              /* keystroke */
+	case 5: {                               /* keystroke */
 		short old, key = a;
 
 		if (!(rec[28] & 4))
@@ -38908,7 +39155,7 @@ verdict:
 		break;
 	}
 
-	case 5: {                               /* set width */
+	case 42: {                              /* set width */
 		short w = jt397((short)1, jt413(a, (short)38));
 
 		if (w != *(short *)(rec + 22))
@@ -38917,22 +39164,303 @@ verdict:
 		break;
 	}
 
-	case 42:                                /* set the aux word */
+	case 36:                                /* set the aux word */
 		if (a != *(short *)(rec + 24)) {
 			rec[28] &= 0x7f;
 			*(short *)(rec + 24) = a;
 		}
 		break;
 
-	case 36:
+	case 40:
 		result = l1676(rec, cmd, a, b);
 		rec[19] &= (unsigned char)~1;
 		break;
-	case 40:
+	default:
 		result = l1676(rec, cmd, a, b);
 		break;
 
-	case 2: case 4: case 19:
+	case 4: case 19: case 27:
+		break;
+	}
+	return result;
+}
+
+/* --- jt328 (the BIG-field sibling) + its word-wrap paint layer --------
+ * The 250-byte multi-line field: text at buf[0..232], the cursor at
+ * buf[235], the 6-row segment (line) table at buf[236..249]; the bound
+ * record (rec+8) is the 250-byte revert copy with the label at +250.
+ * The grid is 38 cols x 6 rows (152 x 24 units). */
+
+/* L24e8 (CODE 8 + 0x24e8) — draw the field text from `from`, walking
+ * the segment table row by row (clamps `from` to buf[248] first).
+ * Word-wrap paint layer — PROBE leaf stub pending its lift. */
+static void l24e8(short v, short h, short from, short pal, char *buf)
+{
+	PROBE("L24e8");
+	(void)v; (void)h; (void)from; (void)pal; (void)buf;
+}
+
+/* L2410 (CODE 8 + 0x2410) — draw ONE grid cell: L20c2 locates `idx`'s
+ * segment for the row, the column is idx - segment start. PROBE leaf
+ * stub pending its lift. */
+static void l2410(short v, short h, short idx, short pal, char *buf,
+                  short ch)
+{
+	PROBE("L2410");
+	(void)v; (void)h; (void)idx; (void)pal; (void)buf; (void)ch;
+}
+
+/* L1f6c (CODE 8 + 0x1f6c) — map the mouse position into a cursor index
+ * on the 38x6 grid (row via the segment table, col /4). PROBE leaf
+ * stub pending its lift; returns 0 (cursor to the start). */
+static short l1f6c(short v, short h, char *buf)
+{
+	PROBE("L1f6c");
+	(void)v; (void)h; (void)buf;
+	return 0;
+}
+
+/* jt328 (CODE 8 + 0x16a8) — the multi-line BIG-field DLItem method,
+ * jt327's 250-byte sibling (same JT[1] arm map):
+ *   0   — bind: scrub the tail (L2724), re-tokenize the segment table
+ *         (L2756 pos -1), stage the 250-byte revert copy.
+ *   1   — paint: glyph/counter as jt327; full present block (JT[108]/
+ *         [112]/[117]); the label ABOVE the box (bound+250 at v-5); the
+ *         24x152 grid box (JT[1135] corners (v,h)/(v+24,h+152) + the
+ *         two JT[1161] fills); segment-mode reset (L20a0); the text
+ *         (L24e8) and the inverted cursor cell (L2410) when focused.
+ *   2   — hit test: row -1..24, col 0..151.
+ *   3   — modal edit: poll JT[1132], re-hit via cmd 2, map the click
+ *         (L1f6c -> buf[235]) and take focus (L1dd8 flag 0 = the
+ *         250-byte staging).
+ *   18  — focus request (L1dd8 flag 0).
+ *   128 — "focusable" (1), falling into
+ *   26  — defocus (L1eec flag 0 = run the L20a0 commit).
+ *   5   — keystroke: ESC/` restores the full 250-byte copy; CR/LF
+ *         commits; TAB walks to the next focusable; else L2df8 with
+ *         maxw 233 in SEG mode + incremental repaint (L24e8 tail /
+ *         L2410 old cell, then the inverted cursor cell).
+ *   36  — set the aux word +24.
+ *   40  — l1676 + clear flags19 bit 0; default — l1676.
+ *   4 / 19 / 27 / 42 — return 0 (no width setter — the grid is fixed). */
+static short jt328(long rec_l, short cmd, short a, short b)
+                   __attribute__((unused));
+static short jt328(long rec_l, short cmd, short a, short b)
+{
+	unsigned char *rec;
+	unsigned char *bound;
+	char          *buf;
+	short          result = 0;      /* fp@(-14) */
+
+	PROBE("jt328");
+	if (rec_l == 0)
+		return 0;
+	rec   = (unsigned char *)(uintptr_t)rec_l;
+	buf   = (char *)(uintptr_t)*(long *)(rec + 12);          /* fp@(-26) */
+	bound = (unsigned char *)(uintptr_t)*(long *)(rec + 8);  /* fp@(-30) */
+
+	switch (cmd) {
+
+	case 0:                         /* bind */
+		if (buf != NULL) {
+			l2724(buf);
+			(void)l2756(buf, (short)-1, (short)0);
+			if (bound != NULL)
+				jt406(bound, buf, (short)250);
+		}
+		rec[19] &= (unsigned char)~1;
+		if (rec[31] != 0)
+			break;
+		rec[31] = 0x87;
+		break;
+
+	case 1: {                       /* paint */
+		short pal, mv, mh, mv2, mh2;
+
+		if (rec[28] & 0x80)
+			break;
+		rec[28] |= 0x80;
+		if (rec[28] & 2)
+			break;
+		if (rec[28] & 4)
+			g_a5_word(-27914)++;
+		else if (rec[28] & 1)
+			g_a5_word(-27914) = 2;
+		if (*(short *)(rec + 26) != 0)
+			jt448(*(short *)(rec + 16), *(short *)(rec + 18),
+			      (short)(*(short *)(rec + 26) >> 10),
+			      (short)((*(short *)(rec + 26) & 1023)
+			              + g_a5_word(-27914)));
+		if (buf == NULL)
+			break;
+		(void)jt108((short)1);
+		(void)jt112((short)1);
+		if (bound != NULL) {            /* label above the box */
+			short lc = (rec[28] & 1) ? (short)128
+			                         : (short)rec[31];
+
+			jt1089((short)(*(short *)(rec + 16) - 5),
+			       *(short *)(rec + 18), lc,
+			       (const char *)bound + 250);
+		}
+		if (rec[28] & 1)      pal = 0x80;
+		else if (rec[28] & 4) pal = 0xf0;
+		else                  pal = 0x70;
+		jt1135(*(short *)(rec + 16), *(short *)(rec + 18),
+		       &mv, &mh);
+		jt1135((short)(*(short *)(rec + 16) + 24),
+		       (short)(*(short *)(rec + 18) + 152), &mv2, &mh2);
+		jt1161((short)(mv - 2), (short)(mh - 1),
+		       (short)(mv2 + 1), mh2, (short)0);
+		jt1161((short)(mv - 1), mh, mv2, mh2,
+		       (short)((pal & 0xf0) >> 4));
+		l20a0(buf);
+		l24e8(*(short *)(rec + 16), *(short *)(rec + 18),
+		      (short)0, pal, buf);
+		if (rec[28] & 4) {
+			short inv = (short)(((pal & 0xf0) >> 4)
+			                    | ((pal & 15) << 4));
+
+			l2410(*(short *)(rec + 16), *(short *)(rec + 18),
+			      (short)(unsigned char)buf[235], inv, buf,
+			      (short)0);
+		}
+		(void)jt112((short)0);
+		(void)jt117();
+		break;
+	}
+
+	case 2: {                       /* hit test (the 24x152 grid) */
+		short row, col;
+
+		if (rec[28] & 3) {
+			result = 0;
+			break;
+		}
+		jt1139(*(short *)(rec + 16), *(short *)(rec + 18),
+		       a, b, &row, &col);
+		result = (short)((row >= -1 && row <= 24
+		                  && col >= 0 && col < 152) ? 1 : 0);
+		break;
+	}
+
+	case 3: {                       /* modal edit entry */
+		short row, col;
+
+		do {
+			row = col = 0;
+		} while ((jt1132(&row, &col) & 0xff) == 0);
+		if (buf == NULL)
+			break;
+		if (jt328(rec_l, (short)2, row, col) == 0)
+			break;
+		buf[235] = (char)l1f6c(*(short *)(rec + 16),
+		                       *(short *)(rec + 18), buf);
+		l1dd8(rec_l, (short)0);
+		result = 1;
+		break;
+	}
+
+	case 18:                        /* focus request */
+		if (!(rec[28] & 4))
+			l1dd8(rec_l, (short)0);
+		break;
+
+	case 128:                       /* focusable probe */
+		result = 1;
+		/* FALLTHROUGH into the defocus (the Mac falls through). */
+		/* fall through */
+	case 26:                        /* defocus */
+		if (rec[28] & 4)
+			l1eec(rec_l, (short)0);
+		break;
+
+	case 5: {                       /* keystroke */
+		short old, key = a;
+
+		if (!(rec[28] & 4))
+			break;
+		if (buf == NULL)
+			break;
+		if (key == 96 || key == 27) {   /* ` / ESC — full revert */
+			if (bound != NULL)
+				jt406(buf, bound, (short)250);
+			l1eec(rec_l, (short)0);
+			result = 1;
+			break;
+		}
+		if (key == 13 || key == 10) {   /* CR / LF — commit */
+			l1eec(rec_l, (short)0);
+			result = 1;
+			break;
+		}
+		if (key == 9) {                 /* TAB — next field */
+			short i = (short)((rec_l - g_a5_long(-9254)) >> 5);
+
+			l1eec(rec_l, (short)0);
+			for (;;) {
+				unsigned char *ri;
+				short (*m)(void *, short, short, short);
+
+				if ((short)(jt455() - 1) <= i)
+					i = 0;
+				else
+					i++;
+				ri = (unsigned char *)(uintptr_t)
+				     (g_a5_long(-9254) + (long)i * 32);
+				m  = *(short (**)(void *, short,
+				                  short, short))ri;
+				if (m != NULL
+				    && m(ri, (short)128, (short)0,
+				         (short)0) != 0) {
+					m(ri, (short)18, (short)0,
+					  (short)0);
+					break;
+				}
+				if (m == NULL && i == 0)
+					break;  /* PORT: empty-table guard */
+			}
+			result = 1;
+			break;
+		}
+		old    = (short)(unsigned char)buf[235];
+		result = l2df8(key, (unsigned char *)buf + 235, buf,
+		               (short)233, (short)1);
+		if ((short)(unsigned char)buf[235] == old && result <= 0)
+			goto verdict328;
+		if (result > 0) {               /* text changed */
+			l24e8(*(short *)(rec + 16), *(short *)(rec + 18),
+			      jt413(old, (short)(unsigned char)buf[235]),
+			      (short)0xf0, buf);
+		} else {                        /* cursor moved */
+			l2410(*(short *)(rec + 16), *(short *)(rec + 18),
+			      old, (short)0xf0, buf, (short)0);
+		}
+		l2410(*(short *)(rec + 16), *(short *)(rec + 18),
+		      (short)(unsigned char)buf[235], (short)0x0f, buf,
+		      (short)0);
+		rec[28] |= 0x80;
+verdict328:
+		result = (short)(result != 0 ? 1 : 0);
+		break;
+	}
+
+	case 36:                        /* set the aux word */
+		if (a != *(short *)(rec + 24)) {
+			rec[28] &= 0x7f;
+			*(short *)(rec + 24) = a;
+		}
+		break;
+
+	case 40:
+		result = l1676(rec, cmd, a, b);
+		rec[19] &= (unsigned char)~1;
+		break;
+	default:
+		result = l1676(rec, cmd, a, b);
+		break;
+
+	case 4: case 19: case 27: case 42:
 		break;
 	}
 	return result;
