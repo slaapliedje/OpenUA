@@ -27946,6 +27946,114 @@ static void jt811(long rec_l, long node, short flag)
 	      (long)(uintptr_t)ua_strs_at(0x5770) /* "is paralyzed" */);
 }
 
+/* JT[842] (CODE 18 + 0x6ae0) — the gorgon's breath: a petrifying area
+ * breath. Same common shape as jt732 but with no element switch: damage-
+ * type 0, jt596 mode 2 range 6, and the per-target resolution is a save
+ * (jt866 cat 1) or jt860 slay status 7 "is petrified by the gorgon's
+ * breath" — no hit-point damage at all. Charge quirks kept: node[4] is
+ * decremented UP FRONT (a missed pick still burns a charge) and there is
+ * no -22721 re-seed. */
+static void jt842(long rec_l, long node, short flag) __attribute__((unused));
+static void jt842(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *nd = (unsigned char *)(uintptr_t)node;
+	unsigned char bx, by, pose, i, bx2, by2, tx2;
+	short ty2;
+
+	PROBE("jt842");
+	(void)flag;
+	if (nd[4] == 0)
+		return;
+	nd[4] = (unsigned char)(nd[4] - 1);
+	g_a5_byte(-25257) = 1;
+	g_a5_word(-25266) = 0;
+	bx = jt525(rec_l);
+	by = jt531(rec_l);
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(23, 1,
+	    (unsigned char *)&g_a5_byte(-22308));
+	if ((unsigned char)g_a5_byte(-22308) == 0)
+		goto out;
+	jt596((short)(signed char)bx, (short)(signed char)by,
+	      (short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), 2, 6);
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510);
+	     i++) {
+		long tgt = g_a5_long(-23512 + (long)i * 4);
+		if ((short)(unsigned char)
+		    ((unsigned char *)(uintptr_t)tgt)[95] != jt493(rec_l))
+			g_a5_byte(-22308) = 0;
+	}
+	if ((unsigned char)g_a5_byte(-23510) == 0)
+		goto out;
+	if ((unsigned char)g_a5_byte(-22308) == 0)
+		goto out;
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x5828) /* "breathes" */,
+	     10, 1);
+	pose = jt529(rec_l, g_a5_long(-23508));
+	jt38(rec_l);
+	jt523(rec_l, (short)pose, 1, 0);
+	jt497(19);
+	bx2 = jt525(rec_l);
+	by2 = jt531(rec_l);
+	tx2 = jt525(g_a5_long(-23508));
+	ty2 = (short)(signed char)jt531(g_a5_long(-23508));
+	jt501((short)(signed char)bx2, (short)(signed char)by2,
+	      (short)(signed char)tx2, ty2, 1, 30);
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510);
+	     i++) {
+		long tgt = g_a5_long(-23512 + (long)i * 4);
+		if (tgt == 0)
+			continue;
+		if (jt866(tgt, 1, 0) == 0)
+			jt860(tgt, 7, (long)(uintptr_t)ua_strs_at(0x5832)
+			      /* "is petrified by the gorgon's breath" */);
+	}
+	jt498(rec_l);
+out:
+	g_a5_byte(-25257) = 0;
+}
+
+/* JT[851] (CODE 18 + 0x70ac) — "Breathes Fire": the single-target fire
+ * breath (the hell hound). Gated on the rec+64 sub-record existing and
+ * flag == 0. Callback code 68 into a LOCAL out byte; -25250 = target is
+ * set BEFORE the pick is tested (as jt783). On a pick: damage-type 33,
+ * turn (jt529 -> jt523), "Breathes Fire", jt497(25), breath line (jt501
+ * anim 1/30), then jt866 cat-3 save into jt867 for a fixed 7 damage,
+ * half-on-save. No charge counter — node is unused. */
+static void jt851(long rec_l, long node, short flag) __attribute__((unused));
+static void jt851(long rec_l, long node, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char ok, pose, bx, by, tx;
+	short ty, sv;
+
+	PROBE("jt851");
+	(void)node;
+	if (*(long *)(void *)(rec + 64) == 0)
+		return;
+	if ((unsigned char)flag != 0)
+		return;
+	g_a5_word(-25266) = 33;
+	((ua_target_cb)(uintptr_t)g_a5_long(-24070))(68, 1, &ok);
+	g_a5_long(-25250) = g_a5_long(-23508);
+	if (ok == 0)
+		return;
+	pose = jt529(rec_l, g_a5_long(-25250));
+	jt523(rec_l, (short)pose, 1, 0);
+	jt18(rec, (long)(uintptr_t)ua_strs_at(0x5872) /* "Breathes Fire" */,
+	     10, 1);
+	jt497(25);
+	bx = jt525(rec_l);
+	by = jt531(rec_l);
+	tx = jt525(g_a5_long(-25250));
+	ty = (short)(signed char)jt531(g_a5_long(-25250));
+	jt501((short)(signed char)bx, (short)(signed char)by,
+	      (short)(signed char)tx, ty, 1, 30);
+	sv = (short)(signed char)jt866(g_a5_long(-25250), 3, 0);
+	jt867(g_a5_long(-25250), 7, 2, sv);
+}
+
 /* JT[879] (CODE 18 + 0x0ede, 4 sites) — apply the ongoing "standing in a
  * hazard" combat effect to `entity` for the cell it occupies. jt515 scans the
  * actor's six neighbours for the dominant feature (door 27/28/29) and the
