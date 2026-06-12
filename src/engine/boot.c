@@ -16608,6 +16608,8 @@ static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh
  * plate top is jt1135(rec[16]) - 8; the rect matches menu_draw_plates
  * (x0=pxx-4..x1=pxx+147, 11px tall). Returns 1 if (h,v) is inside. */
 static int menu_button_hit(unsigned char *rec, short h, short v)
+                                                __attribute__((unused));
+static int menu_button_hit(unsigned char *rec, short h, short v)
 {
 	short py = 0, pxx = 0, iy = *(short *)(rec + 16);
 
@@ -16623,6 +16625,8 @@ static int menu_button_hit(unsigned char *rec, short h, short v)
  * + the label recoloured (blue body clut 9 / cyan accelerator clut 11). The
  * port draws the bevel (menu_button_bevel) and the label separately, so both
  * are redrawn here. */
+static void menu_button_press_draw(unsigned char *rec, int pressed)
+                                                __attribute__((unused));
 static void menu_button_press_draw(unsigned char *rec, int pressed)
 {
 	unsigned char *px;
@@ -16695,20 +16699,33 @@ static int menu_button_track(unsigned char *rec)
 {
 	Point mp;
 	int over = 1;
+	short (*method)(void *, short, ...) =
+	    *(short (**)(void *, short, ...))rec;
 
-	menu_button_press_draw(rec, 1);
+	if (method == NULL)
+		return 0;
+	/* Press feedback through the item's own method (jt137): cmd 19
+	 * sets the highlight bit and cmd 1 repaints — the Mac's pressed
+	 * look (recessed bars 13/14/15, label colours 131/139) at the
+	 * item's true position.  (menu_button_press_draw, the old port
+	 * renderer, drew its own bevel and a baseline-anchored label
+	 * 8px high — the "drift" on activation.) */
+	method(rec, (short)19);
+	method(rec, (short)1);
 	qd_present();
 	while (Button()) {
 		int now;
 		GetMouse(&mp);
-		now = menu_button_hit(rec, mp.h, mp.v);
+		now = (method(rec, (short)2, mp.v, mp.h) != 0);
 		if (now != over) {
-			menu_button_press_draw(rec, now);
+			method(rec, (short)(now ? 19 : 27));
+			method(rec, (short)1);
 			qd_present();
 			over = now;
 		}
 	}
-	menu_button_press_draw(rec, 0);      /* release: raised + normal label */
+	method(rec, (short)27);
+	method(rec, (short)1);           /* release: back to the idle look */
 	qd_present();
 	return over;
 }
@@ -16760,10 +16777,12 @@ static short l2d3e(void)
 		unsigned char *hr = (unsigned char *)g_a5_9254;
 		for (i = 0; i < count; i++) {
 			short iy = *(short *)(hr + 16);
-			/* Positioned + ENABLED (bit 2 = dim/disabled clears it). The
-			 * hit rect is the full plate (menu_button_hit). */
-			if (iy >= 8000 && (hr[28] & 0x04) == 0
-			 && menu_button_hit(hr, cx, cy)) {
+			dlitem_method_t hm = *(dlitem_method_t *)hr;
+			/* Positioned items hit-test through their own method
+			 * (jt137 msg 2: the Mac's scaled rect; disabled items —
+			 * rec[28] bits 0/1 — reject themselves). */
+			if (iy >= 8000 && hm != NULL
+			 && hm(hr, (short)2, cy, cx) != 0) {
 				/* Press feedback: recessed + blue/cyan while held, fire
 				 * on release-over-button (faithful l1676 cmd=3 track). */
 				if (menu_button_track(hr)) {
