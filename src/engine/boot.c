@@ -1272,17 +1272,87 @@ static long  l6028(short num)
 	return ok ? (long)(uintptr_t)dest : 0;
 }
 
-/* JT[370] (CODE 8 + 0x6ed2) — default-stat / attribute lookup,
- * keyed by a class/type byte (arg) with a JT[3] switch (1..14) and
- * two flag bits (bit7 if mode>0, bit6 if arg<6). Deferred to a
- * PROBE stub returning 0 — jt263 only feeds the result into the
- * high byte of a geo packing word, harmless while the monster
- * editor flow is itself deferred. */
+/* JT[370] (CODE 8 + 0x6ed2) — kind byte -> capability flags, full
+ * lift: bit 7 when mode > 0, bit 6 when the kind byte >= 6 (the
+ * old stub doc had this reversed; the asm skips the bset on
+ * `bcs`), then the JT[3] arm (1..14) sets the kind's own bit:
+ * 1/6/11/12/13/14 -> bit 0, 2/7 -> bit 1, 3 -> bits 2+3,
+ * 4 -> bit 4 (unless bit 1 is already up), 5/10 -> bit 5,
+ * 8 -> bit 2, 9 -> bit 3. (Case 1's bset #0 is hidden inside the
+ * inline-table bytes the disassembler mangles.) */
 static short jt370(short arg, short mode)
 {
+	unsigned char flags = 0;
+	unsigned char kind  = (unsigned char)arg;
+
 	PROBE("jt370");
-	(void)arg; (void)mode;
+	if (mode > 0)
+		flags |= 0x80;
+	if (kind >= 6)
+		flags |= 0x40;
+	switch (kind) {
+	case 1:  flags |= 0x01; break;
+	case 2:  flags |= 0x02; break;
+	case 3:  flags |= 0x0c; break;
+	case 4:  if ((flags & 0x02) == 0) flags |= 0x10; break;
+	case 5:  flags |= 0x20; break;
+	case 6:  flags |= 0x01; break;
+	case 7:  flags |= 0x02; break;
+	case 8:  flags |= 0x04; break;
+	case 9:  flags |= 0x08; break;
+	case 10: flags |= 0x20; break;
+	case 11: flags |= 0x01; break;
+	case 12: case 13: case 14: flags |= 0x01; break;
+	default: break;
+	}
+	return (short)flags;
+}
+
+/* L6520 (CODE 8+0x6520 — NOT the lifted CODE 14 l6520, hence the
+ * _c8 suffix) — kind byte -> art class: 1 for kinds < 6, 2 for
+ * 6..10, 3/4/5/6 for 11/12/13/14, else 0. */
+static short l6520_c8(short kind)
+{
+	unsigned char k = (unsigned char)kind;
+
+	if (k < 6)
+		return 1;
+	if (k <= 10)
+		return 2;
+	if (k >= 11 && k <= 14)
+		return (short)(k - 8);
 	return 0;
+}
+
+/* L5f04 (CODE 8+0x5f04) — release/retarget the current "STR@n"
+ * monster-art resource (the -10370 slot; jt488 "%3s@%1d" name
+ * build + jt393 compare). Leaf PROBE stub pending its own lift. */
+static void l5f04(long holder, short which)
+{
+	PROBE("l5f04");
+	(void)holder; (void)which;
+}
+
+/* L62e0 (CODE 8+0x62e0) — bind/load one monster-art entry into the
+ * -10370 slot (re-runs JT[370] for the kind flags; 255 id wildcard
+ * for mid-band kinds). Leaf PROBE stub pending its own lift. */
+static void l62e0(long handle, short id, short kind, long out, long z)
+{
+	PROBE("l62e0");
+	(void)handle; (void)id; (void)kind; (void)out; (void)z;
+}
+
+/* JT[366] (CODE 8+0x6594) — show monster art for `kind`/`id`: the
+ * L6520 art class primes L5f04's release of the current slot, then
+ * L62e0 binds the new entry from the -10370 group. Full body; the
+ * two locals are leaf stubs. */
+static void jt366(short id, short kind, long out) __attribute__((unused));
+static void jt366(short id, short kind, long out)
+{
+	PROBE("jt366");
+	l5f04(0L, l6520_c8((short)(unsigned char)kind));
+	l62e0(g_a5_long(-10370), (short)(unsigned char)id,
+	      (short)(unsigned char)kind, out, 0L);
 }
 
 /* L30cc (CODE 6 + 0x30cc) — allocate the record staging buffer:

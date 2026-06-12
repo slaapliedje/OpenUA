@@ -120,6 +120,12 @@ Total ≈ 10 KB of asm.
   -10270 slot table, low-water in -9300). NAMING TRAP hit: CODE 3's
   L0d44 = jt459 and L0d1a = jt468 — boot.c's l0d44 is a CODE 19
   local. Band 3 at 86/100.
+- 2026-06-12: CODE 8 group. jt370 FULL (kind -> capability flags;
+  the stub doc's "bit6 if arg<6" was reversed — asm sets it on
+  arg >= 6; case 1's bset #0 hides inside the JT[3] table bytes).
+  jt366 FULL-over-stubs (monster-art show: l6520_c8 art-class
+  classifier lifted full — NOT CODE 14's l6520; l5f04 release +
+  l62e0 bind are leaf PROBE stubs). Band 3 at 88/100.
 - 2026-06-12: jt883 rider LIFTED (full) — it's a 26-byte encumbrance
   adjuster (rec word +86 += delta); the band-2 "387-line" estimate
   measured the L4264/L4334 locals after the entry, not the function.
