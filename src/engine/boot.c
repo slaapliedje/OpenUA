@@ -39700,3 +39700,180 @@ static unsigned char jt492(long rec_l, short b, short c)
 		g_a5_byte(-22720 + (long)k) = g_a5_19170[(long)k * 4];
 	return n;
 }
+
+/* CODE 19+0x025a (local) — normalize the 7-word date/time array
+ * against the per-field limits at -23228: each field that reaches its
+ * limit carries into the next.  The last field (6, the year) instead
+ * ages the whole party (rec word[82]++ per member), wraps the array's
+ * word at +12 down by -23216 and raises the -27916 flag. */
+static void l025a(short *days)
+{
+	short i;
+	long  m;
+
+	PROBE("L025a");
+	for (i = 0; i <= 6; i++) {
+		if ((unsigned short)days[i]
+		    < (unsigned short)g_a5_word(-23228 + (long)i * 2))
+			continue;
+		if (i != 6) {
+			days[i + 1]++;
+			days[i] = (short)(days[i]
+			          - g_a5_word(-23228 + (long)i * 2));
+		} else {
+			for (m = g_a5_long(-27928); m != 0;
+			     m = *(long *)(uintptr_t)m)
+				(*(short *)(uintptr_t)(m + 82))++;
+			days[6] = (short)(days[6] - g_a5_word(-23216));
+			g_a5_byte(-27916) = 1;
+		}
+	}
+}
+
+/* CODE 19+0x032c (local) — normalize the LIVE clock array (-23214)
+ * and fold the pending healing-rest bonus: -23206 += -23220 * -23204
+ * (then clear -23204), capped at 99. */
+static void l032c(void)
+{
+	PROBE("L032c");
+	l025a((short *)&g_a5_word(-23214));
+	if (g_a5_word(-23204) > 0) {
+		g_a5_word(-23206) = (short)(g_a5_word(-23206)
+		    + g_a5_word(-23220) * g_a5_word(-23204));
+		g_a5_word(-23204) = 0;
+		if ((unsigned short)g_a5_word(-23206) > 99)
+			g_a5_word(-23206) = 99;
+	}
+}
+
+/* CODE 19+0x006c (local, ~700B) — the post-advance side effects
+ * (timed-effect expiry over the party).  PROBE stub pending its own
+ * lift. */
+static void l006c(short count, short idx)
+{
+	PROBE("L006c");
+	(void)count;
+	(void)idx;
+}
+
+/* JT[914] (CODE 19+0x035c) — ADVANCE GAME TIME: copy the game
+ * record's 7 date/time bytes (h[5..11]) into a word array, bump field
+ * `idx` once per `count` with the L025a carry normalize each step,
+ * write the low bytes back, then run the L006c side effects. */
+static void jt914(short count, short idx) __attribute__((unused));
+static void jt914(short count, short idx)
+{
+	short days[7];
+	short i;
+	unsigned char j;
+	unsigned char *h = (unsigned char *)g_a5_28006;
+
+	PROBE("jt914");
+	if (h == NULL)          /* PORT-SAFETY: record not allocated */
+		return;
+	for (i = 0; i <= 6; i++)
+		days[i] = (short)h[i + 5];
+	for (j = 1; j <= (unsigned char)count; j++) {
+		days[(unsigned char)idx]++;
+		l025a(days);
+	}
+	for (i = 0; i <= 6; i++)
+		h[i + 5] = (unsigned char)days[i];
+	l006c(count, idx);
+}
+
+/* JT[346] (CODE 8+0x6f9e) — decode an item-position flags byte into a
+ * slot class.  *out (when given) = 1 if bit 7 set else -1.  Bit 6
+ * selects the bank: set -> scan bits 0..5 for the first set bit and
+ * map {0,1,2,3,4,5} -> {6,7,8,9,9,10}; clear -> map {0,1,2,3} ->
+ * {1,2,3,3}, bit 4 -> 5 when bit 5 is also set else 4, bit 5 -> 5.
+ * 0 when no bit matches. */
+static short jt346(short flags, short *out) __attribute__((unused));
+static short jt346(short flags, short *out)
+{
+	unsigned char f = (unsigned char)flags;
+	short r = 0;
+	short i;
+
+	PROBE("jt346");
+	if (out != NULL)
+		*out = (short)((f & 0x80) ? 1 : -1);
+	if (f & 0x40) {
+		for (i = 0; r == 0 && i < 6; i++, f >>= 1)
+			if (f & 1)
+				switch (i) {
+				case 0: r = 6;  break;
+				case 1: r = 7;  break;
+				case 2: r = 8;  break;
+				case 3: case 4: r = 9; break;
+				case 5: r = 10; break;
+				}
+	} else {
+		for (i = 0; r == 0 && i < 6; i++, f >>= 1)
+			if (f & 1)
+				switch (i) {
+				case 0: r = 1; break;
+				case 1: r = 2; break;
+				case 2: case 3: r = 3; break;
+				case 4: r = (short)((f & 2) ? 5 : 4); break;
+				case 5: r = 5; break;
+				}
+	}
+	return r;
+}
+
+/* JT[500] (CODE 13+0x28d8) — the EXPLOSION animation at the picked
+ * cell (-23236/-23235): redraw the cell area (jt521 255/8), play
+ * `sound` (jt52), stage the four art pieces (jt495 rows 0/0/1/1,
+ * tiles 0..3, commit 0/1/0/1), then rings*3+1 expanding rings of
+ * random sparks — each ring draws 2*ring-1 points at a random angle
+ * (the -8764 percent-sine table, +45 = cosine), scaled by the ring
+ * radius, edge-clamped near the map border, glyph 77+jt485(4) from
+ * the -27866 "activ" binder (L19a0), presenting per ring (jt117) —
+ * and a final cell redraw. */
+static void jt500(short rings, short art, short sound)
+                                                __attribute__((unused));
+static void jt500(short rings, short art, short sound)
+{
+	signed char cx = (signed char)g_a5_byte(-23236);
+	signed char cy = (signed char)g_a5_byte(-23235);
+	short ox = 0, oy = 0;
+	short total, ring, n, ang, dx, dy;
+
+	PROBE("jt500");
+	jt521((short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), (short)255, (short)8);
+	jt52(sound);
+	jt495(art, (short)0, (short)0, (short)0);
+	jt495(art, (short)0, (short)1, (short)1);
+	jt495(art, (short)1, (short)2, (short)0);
+	jt495(art, (short)1, (short)3, (short)1);
+	if (cx < 3)
+		ox = (short)((cx - 3) * 3);
+	else if (cx > 46)
+		ox = (short)((cx - 46) * 3);
+	if (cy < 3)
+		oy = (short)((cy - 3) * 3);
+	else if (cy > 21)
+		oy = (short)((cy - 21) * 3);
+	total = (short)((unsigned char)rings * 3 + 1);
+	for (ring = 1; ring <= total; ring++) {
+		for (n = (short)(ring * 2 - 2); n >= 0; n--) {
+			ang = ua_rand((short)180);
+			dx = (short)((short)(signed char)
+			     g_a5_buf(-8764)[(ang + 45) % 180] * ring + 50)
+			     / 100;
+			dx = (short)(dx + ox);
+			dy = (short)((short)(signed char)
+			     g_a5_buf(-8764)[ang] * ring + 50) / 100;
+			dy = (short)(dy + oy);
+			if (dx >= -9 && dx <= 9 && dy >= -9 && dy <= 9)
+				l19a0((short)(dx + 9), (short)(dy + 9),
+				      (short)(jt485((short)4) + 77),
+				      (short)4, g_a5_long(-27866));
+		}
+		jt117();
+	}
+	jt521((short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), (short)255, (short)8);
+}
