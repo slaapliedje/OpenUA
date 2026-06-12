@@ -33945,14 +33945,215 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode,
 	return 0;		/* no target picked */
 }
 
-/* JT[599] (CODE 16 + 0x64a8) — cast/apply a spell-effect by id (~1.25KB,
- * part of the CODE 16 spell-application tier with jt596/jt598; the
- * beholder self-casts effects 84/55/21 through it).  PROBE stub — leaf
- * of the jt537 lift. */
-static void jt599(short effect, short a, short b, unsigned char *out)
+/* L48f4 (CODE 16+0x48f4) — the combat "casts <spell>" announcement
+ * line. Leaf PROBE stub pending its own lift. */
+static void l48f4(long member, long str, short effect)
 {
+	PROBE("l48f4");
+	(void)member; (void)str; (void)effect;
+}
+
+/* JT[502] (CODE 13+0x2b2c) — set the projectile-sprite trail kind
+ * for direction `dir`. Leaf PROBE stub pending its own lift. */
+static void jt502(short dir, short kind)
+{
+	PROBE("jt502");
+	(void)dir; (void)kind;
+}
+
+/* JT[145] (CODE 7+0x1686) — combat post-action repaint tick. Leaf
+ * PROBE stub pending its own lift. */
+static void jt145(void)
+{
+	PROBE("jt145");
+}
+
+/* JT[599] (CODE 16+0x64a8) — cast a spell effect by id, full lift
+ * (~1.25KB; the beholder self-casts 84/55/21 through it, and the
+ * Cast command's pipeline ends here).
+ *
+ * Out of combat (-27990 != 5): unless the -16906 hazard row's byte
+ * 7 blocks it, prompt — "casts <-17446[effect] name>" rows via
+ * jt94 + the jt159 confirm (or the -14420/-14416/-14412 alternate
+ * set when -23230, which reports back through *out) — deduct the
+ * memorized spell (jt31) on a yes, and DON'T run the apply loop.
+ *
+ * In combat: announce through L48f4 (leaf stub), then loop: the
+ * -24070 targeting callback picks a target into -23236/-23235; a
+ * null pick offers the jt159(-14404) "abort?" prompt (declining
+ * retries the pick; accepting prints -14400 via jt42 and deducts).
+ * A pick animates — projectile sprite jt497 (32 for effects
+ * 47/115/74/133 with a jt502 trail, else 19), the jt505 direction
+ * scan, the caster pose flip (jt523), the cast sound (JT[1] value
+ * switch: 47 -> jt52(9), 51 -> jt52(3), else jt52(12)), the jt501
+ * trajectory, and the per-effect jt500 explosion (JT[1] table:
+ * 34 -> (1,28,12); 91/133/47 -> (2or3,25,12) on GEO hdr[34];
+ * 115 -> (2or3,26,12) on hdr[60]; 87 -> (2,20,9) underwater only;
+ * 51 -> none; default (1,27,12)) — then restores the pose when
+ * still on-map (l6554), runs jt880, deducts (jt31), and fires the
+ * registered effect handler through jt598 (the -24066 table — the
+ * jt610-registered handlers like jt674/jt687 now run end-to-end)
+ * with -25262 staged as the current target. jt20 closes; combat
+ * adds the jt145 repaint tick (leaf stub). */
+static void jt500(short rings, short glyph, short period);
+static void jt599(short effect, short b, short c, unsigned char *out)
+{
+	long          member = g_a5_long(-27932);
+	unsigned char ec     = (unsigned char)effect;
+	signed char   repeat = 1;
+
 	PROBE("jt599");
-	(void)effect; (void)a; (void)b; (void)out;
+	if ((unsigned char)g_a5_byte(-27990) != 5) {
+		const unsigned char *row =
+		    (const unsigned char *)&g_a5_byte(-16906) + (long)ec * 16;
+
+		if (row[7] != 0)
+			goto announce;
+		if (g_a5_byte(-23230) == 0) {
+			jt94((short)1, (short)19, (short)7, (short)0,
+			     (const char *)(uintptr_t)
+			     g_a5_long(-17446 + (long)ec * 4));
+			jt94((short)1, (short)20, (short)7, (short)0,
+			     (const char *)(uintptr_t)g_a5_long(-14424));
+			if (jt159((const char *)(uintptr_t)
+			          g_a5_long(-14428), (short)1))
+				jt31(member, (short)ec);
+		} else {
+			jt94((short)1, (short)19, (short)7, (short)0,
+			     (const char *)(uintptr_t)g_a5_long(-14420));
+			jt94((short)1, (short)20, (short)7, (short)0,
+			     (const char *)(uintptr_t)g_a5_long(-14416));
+			if (jt159((const char *)(uintptr_t)
+			          g_a5_long(-14412), (short)1))
+				*out = 1;
+		}
+		c      = 0;
+		repeat = 0;
+	}
+
+announce:
+	if ((c & 0xff) != 0 && g_a5_byte(-23230) == 0)
+		l48f4(member, g_a5_long(-14408), (short)ec);
+
+	while (repeat) {
+		ua_target_cb cb =
+		    (ua_target_cb)(uintptr_t)g_a5_long(-24070);
+
+		cb((short)ec, (short)(signed char)b, out);
+		if (*out == 0) {                        /* no target */
+			if ((unsigned char)g_a5_byte(-27990) != 5) {
+				repeat = 0;
+				continue;
+			}
+			if ((b & 0xff) == 0
+			    && !jt159((const char *)(uintptr_t)
+			              g_a5_long(-14404), (short)1))
+				continue;               /* retry the pick */
+			jt42((const char *)(uintptr_t)g_a5_long(-14400));
+			if (g_a5_byte(-23230) == 0 && ec > 0)
+				jt31(member, (short)ec);
+			repeat = 0;
+			continue;
+		}
+
+		repeat = 0;
+		if ((unsigned char)g_a5_byte(-27990) == 5 && ec != 124) {
+			signed char sx, sy, trail;
+			short       dir;
+
+			if (ec == 47 || ec == 115 || ec == 74 || ec == 133)
+				jt497((short)32);
+			else
+				jt497((short)19);
+			sx = (signed char)jt525(member);
+			sy = (signed char)jt531(member);
+			for (dir = 0;
+			     jt505((short)sx, (short)sy,
+			           (short)(signed char)g_a5_byte(-23236),
+			           (short)(signed char)g_a5_byte(-23235),
+			           dir) == 0;
+			     dir++)
+				;
+			if (ec == 47 || ec == 115 || ec == 74
+			    || ec == 133) {
+				trail = 1;
+				jt502(dir, (short)32);
+			} else {
+				trail = 4;
+			}
+			g_a5_byte(-22626) = 1;
+			jt523(member, dir, (short)1, (short)0);
+
+			switch (ec) {               /* cast sound (JT[1]) */
+			case 47: jt52((short)9);  break;
+			case 51: jt52((short)3);  break;
+			default: jt52((short)12); break;
+			}
+
+			jt501((short)sx, (short)sy,
+			      (short)(signed char)g_a5_byte(-23236),
+			      (short)(signed char)g_a5_byte(-23235),
+			      (short)trail, (short)30);
+
+			{                       /* explosion (JT[1] table) */
+				const unsigned char *hdr =
+				    (const unsigned char *)(uintptr_t)
+				    g_a5_long(-28006);
+
+				switch (ec) {
+				case 34:
+					jt500((short)1, (short)28,
+					      (short)12);
+					break;
+				case 91: case 133: case 47:
+					jt500((short)((hdr[34] == 0
+					               || ec == 133)
+					              ? 2 : 3),
+					      (short)25, (short)12);
+					break;
+				case 115:
+					jt500((short)(hdr[60] ? 3 : 2),
+					      (short)26, (short)12);
+					break;
+				case 87:
+					if (hdr[60])
+						jt500((short)2, (short)20,
+						      (short)9);
+					break;
+				case 51:
+					break;
+				default:
+					jt500((short)1, (short)27,
+					      (short)12);
+					break;
+				}
+			}
+
+			if (l6554(member, (short)0)) {
+				unsigned char *m = (unsigned char *)
+				                   (uintptr_t)member;
+				short pose = (short)
+				    ((unsigned char *)(uintptr_t)
+				     *(long *)(m + 64))[11];
+
+				jt523(member, pose, (short)1, (short)1);
+				jt523(member, pose, (short)0, (short)0);
+			}
+		}
+
+		jt880(member);
+		if (g_a5_byte(-23230) == 0 && ec > 0)
+			jt31(member, (short)ec);
+
+		g_a5_byte(-25262) = ec;
+		jt598((short)ec);                /* the -24066 handler */
+		g_a5_byte(-25262) = 0;
+		g_a5_byte(-25257) = 0;
+	}
+
+	jt20();
+	if ((unsigned char)g_a5_byte(-27990) == 5)
+		jt145();
 }
 
 /* CODE 14 local L555a — fire a ray: jt497(kind) sprite setup, then the
