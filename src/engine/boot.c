@@ -37393,6 +37393,16 @@ static void jt1021(short group, short item, long size)
 	short         i, count;
 
 	PROBE("jt1021");
+	/* PORT GUARD: jt1024 (LBCreate, the list-block group creator)
+	 * is still a PROBE stub, so no group is a real list-block yet —
+	 * the l36e0/jt104 TLB-cache callers reach here with a group id
+	 * that jt468 resolves to a LIVE UI group, and LBInsert then
+	 * corrupts it (the 2026-06-12 boot regression: garbled error
+	 * modal before the menu). Bail until jt1024 is lifted; delete
+	 * this guard in the same commit as that lift. */
+	if (1)
+		return;
+
 	base = jt468(group);
 	if (item < 0 || item > l3736(base))
 		l036a(ua_strs_at(0x70aa) /* "LBInsert invalid item (%d)" */,
