@@ -68,6 +68,15 @@ ALIAS_LIFTED = {
     1084: "lifted as l036a (same address, the error dialog)",
     63: "lifted as l60b4 (same address, byte->decimal scratch)",
     181: "lifted as l1806 (same address, the modal 'press a key' prompt)",
+    395: "lifted as l46b2 (same address; tolower)",
+    45: "lifted as l5700 (same address; slot-1 mode teardown)",
+    47: "lifted as l541a (same address; resource-slot loader)",
+    106: "lifted as l3880 (same address; GLIB cell blit)",
+    110: "lifted as l33ac (same address; binder open, the jt81 dep)",
+    193: "lifted as l4fbe (same address; see combat gateway notes)",
+    364: "lifted as l6e50 (same address; clamp 0..40 -> -10374)",
+    516: "lifted as l6554 (same address; creature-on-map predicate)",
+    66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
 }
 
 # Why each still-open top-100 entry is open — keeps the pending queue
