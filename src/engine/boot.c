@@ -38604,15 +38604,117 @@ static void jt149(short v)
 	g_a5_byte(-12648) = (unsigned char)v;
 }
 
-/* JT[137] (CODE 7+0x1234, ~1.5KB) — the window/dialog-frame redraw
- * callback jt151 installs in the -9282 registry.  PROBE stub pending
- * its own lift (dialog-manager tier). */
-static long jt137(long win, short msg)
+/* JT[137] (CODE 7+0x1234, ~830B) — the COMMAND-BUTTON DLItem method
+ * jt151 chains in FRONT of the shape-1 baseline (jt382, which jt151
+ * saves at -12918 and jt137 delegates non-paint/hit messages to).
+ *
+ *   msg 1 (paint): mark painted (rec[28] |= 0x80); hidden (bit 1) is
+ *     a no-op.  pal = 3 when selected/alt (bits 0/3).  The button BAR
+ *     comes from FRAME.CTL glyphs via jt448(scaledY, x, 1, pal+10..12):
+ *     left cap at rec[18], rec[24] middle pieces every 4 units, the
+ *     right cap over the last one; bit 5 clear nudges the row up 1.
+ *     Then the LABEL (rec[12]) via jt1089 at (scaledY+1, scaledX) in
+ *     the mode colour — B&W (jt1200()==3): 503 selected / 240; colour:
+ *     128 selected, 139/143 dim (bit 6), 131/135 normal (first of each
+ *     pair when pal != 0) — and, for plain enabled label-kind items in
+ *     the colour modes, the first letter redrawn in the HOTKEY colour
+ *     ((pal ? 11 : 15) + 128).  jt1166() >= 300 bumps pal 1 -> 2 (the
+ *     Mac's tall B&W window).
+ *   msg 2 (hit test): reject hidden/disabled (bits 0/1); the rect is
+ *     jt1135-scaled [rec16-1, rec16+5) x [rec18-2, rec18+rec24*4+2).
+ *   other msgs: forward (rec, msg, args) to the saved method. */
+static short jt1166(void);              /* defined just below */
+static short jt137(void *rec_v, short msg, ...)
 {
+	unsigned char *rec = (unsigned char *)rec_v;
+	va_list ap;
+	short   arg_a = 0, arg_b = 0;
+	short   y, x, pal, colour;
+	short   i;
+
 	PROBE("jt137");
-	(void)win;
-	(void)msg;
-	return 0;
+	va_start(ap, msg);
+	if (msg != 1) {
+		/* the Mac body blindly forwards fp+14/fp+16; mirror that */
+		arg_a = (short)va_arg(ap, int);
+		arg_b = (short)va_arg(ap, int);
+	}
+	va_end(ap);
+
+	if (msg == 1) {
+		rec[28] |= 0x80;
+		if (rec[28] & 0x02)
+			return 0;
+		pal = (short)((rec[28] & 0x09) ? 3 : 0);
+		jt1135(*(short *)(void *)(rec + 16), (short)8000, &y, &x);
+		if (!(rec[28] & 0x20))
+			y--;
+		jt448(y, *(short *)(void *)(rec + 18), (short)1,
+		      (short)(pal + 10));
+		for (i = 0; i < *(short *)(void *)(rec + 24); i++)
+			jt448(y,
+			      (short)(*(short *)(void *)(rec + 18) + i * 4),
+			      (short)1, (short)(pal + 11));
+		jt448(y,
+		      (short)(*(short *)(void *)(rec + 18) + (i - 1) * 4),
+		      (short)1, (short)(pal + 12));
+		if (pal != 0)
+			pal = 1;
+		x = *(short *)(void *)(rec + 18);
+		jt1135(*(short *)(void *)(rec + 16), x, &y, &x);
+		if (!(rec[28] & 0x20))
+			y--;
+		if (jt1200() == 3) {
+			colour = (short)((rec[28] & 1) ? 503 : 240);
+		} else if (rec[28] & 1) {
+			colour = 128;
+		} else if (rec[28] & 0x40) {
+			colour = (short)(pal ? 139 : 143);
+		} else {
+			colour = (short)(pal ? 131 : 135);
+		}
+		if (pal != 0 && jt1166() >= 300)
+			pal = 2;
+		jt1089((short)(y + 1), x, colour,
+		       (const char *)(uintptr_t)
+		       *(long *)(void *)(rec + 12));
+		if (jt1200() != 3 && !(rec[28] & 0x41)
+		    && (rec[28] & 0x20)) {
+			const char *lbl = (const char *)(uintptr_t)
+			    *(long *)(void *)(rec + 12);
+
+			jt1089((short)(y + 1), x,
+			       (short)((pal == 0 ? 15 : 11) + 128),
+			       ua_strs_at(0x2758) /* "%c" */,
+			       (int)(signed char)lbl[0]);
+		}
+		return 0;
+	}
+	if (msg == 2) {
+		short y2, x2;
+
+		if (rec[28] & 0x03)
+			return 0;
+		jt1135((short)(*(short *)(void *)(rec + 16) - 1),
+		       (short)(*(short *)(void *)(rec + 18) - 2),
+		       &y, &x);
+		jt1135((short)(*(short *)(void *)(rec + 16) + 5),
+		       (short)(*(short *)(void *)(rec + 18)
+		               + *(short *)(void *)(rec + 24) * 4 + 2),
+		       &y2, &x2);
+		if (y <= arg_a && arg_a < y2 && x <= arg_b && arg_b < x2)
+			return 1;
+		return 0;
+	}
+	{
+		typedef short (*dl_method_t)(void *, short, ...);
+		dl_method_t prev =
+		    (dl_method_t)(uintptr_t)g_a5_long(-12918);
+
+		if (prev == NULL)      /* PORT-SAFETY: jt151 not run */
+			return 0;
+		return prev(rec_v, msg, arg_a, arg_b);
+	}
 }
 
 /* JT[450] (CODE 3+0x2950) — the -9282 callback registry: return slot
@@ -38634,6 +38736,8 @@ static void jt151(void)
 {
 	PROBE("jt151");
 	g_a5_long(-12918) = jt450((short)1, (long)(uintptr_t)jt137);
+	/* (the saved previous method — jt382 — is what jt137 delegates
+	 * its non-paint/hit messages to) */
 }
 
 /* JT[1166] / JT[1179] (CODE 4+0x4cc / +0x4de) — screen height / width:
@@ -39042,12 +39146,12 @@ static void l4d98(void)
 	 * all four callees are lifted and ready). */
 	(void)0;
 	l3cb2();
-	/* jt151() — DEFERRED: it installs jt137 (the dialog-frame redraw
-	 * callback, still a PROBE stub) into the -9282 registry slot 1.
-	 * The dialog machinery dispatches item drawing and key handling
-	 * through that slot, so registering the stub silently swallows
-	 * the menu's labels and keyboard input.  Re-enable with the
-	 * jt137 lift (see docs/code16-wall.md). */
+	/* jt151() — GATED on the (v, h) coordinate migration.  jt137 is
+	 * lifted and faithful, but the port's jt1089 / L309c primitives
+	 * are still horizontal-first (see docs/coord-audit.md), so
+	 * enabling the chain today transposes every label.  Flip the
+	 * primitives per the audit, then enable this and retire the
+	 * menu plate/bevel stand-ins. */
 	l31cc();
 	l5f4e(&g_a5_byte(-27466), (short)408);
 	g_a5_27468 = 0;
