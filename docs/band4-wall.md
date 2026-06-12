@@ -78,3 +78,13 @@ jt326 (CODE 9).
   leaf stub; l7ab4 made variadic for the "%* %r" call). jt299
   deferred to the CODE 22 cluster (needs l17ca/l2180/jt308).
   Band 4 at 65/100.
+- 2026-06-12: CODE 22 cluster (7 lifts): jt285/jt277/jt283 FULL (the
+  map-cell wall-nibble read / low-set / high-set over the -12300
+  design base, 6B per cell + 290; jt283 reads via the lifted l05ca =
+  jt293), jt284 FULL (cell-interior click test, jt272's sibling),
+  jt308 FULL (saved-game slot row painter: -11304 class string,
+  "%15s" -13952 name, "%s %9s" status pair from -10796/-10804/
+  -10812/-11320), jt299 (slot repaint sequence over l17ca_c22 +
+  l2180 leaf stubs), jt295 (cell redraw sequence over l3792 +
+  jt1150 leaf stubs; l3a1a was already lifted). Band 4 at 72/100;
+  CODE 22 leaves jt279 (498B).

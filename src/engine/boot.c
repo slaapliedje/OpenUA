@@ -36949,6 +36949,198 @@ static short jt229(short n)
 	return 1;
 }
 
+/* --- band-4 CODE 22 cluster (the area-map cell editor family) -------- */
+
+/* JT[285] (CODE 22+0x0524) — read the LOW wall nibble for map cell
+ * `cell`, side `side` ((side & 6) >> 1 picks direction 0..3): the
+ * byte at -12300 design base + cell*6 + dir + 290. 0 when the
+ * direction is out of range. */
+static short jt285(short cell, short side) __attribute__((unused));
+static short jt285(short cell, short side)
+{
+	short dir = (short)((side & 6) >> 1);
+
+	PROBE("jt285");
+	if (dir < 0 || dir >= 4)
+		return 0;
+	return (short)(*(unsigned char *)(uintptr_t)
+	               (g_a5_long(-12300) + (long)cell * 6 + dir + 290)
+	               & 15);
+}
+
+/* JT[277] (CODE 22+0x056c) — set the LOW wall nibble for cell/side
+ * to `val`; 0 when unchanged, 1 when written. */
+static short jt277(short cell, short side, short val) __attribute__((unused));
+static short jt277(short cell, short side, short val)
+{
+	unsigned char *p;
+	short          dir;
+
+	PROBE("jt277");
+	if (jt285(cell, side) == val)
+		return 0;
+	dir = (short)((side & 6) >> 1);
+	p   = (unsigned char *)(uintptr_t)
+	      (g_a5_long(-12300) + (long)cell * 6 + dir + 290);
+	*p  = (unsigned char)((*p & ~15) | (val & 15));
+	return 1;
+}
+
+/* JT[283] (CODE 22+0x0614) — set the HIGH wall nibble (the decor
+ * half l05ca/jt293 reads) for cell/side to `val`; 0/1 as jt277. */
+static short jt283(short cell, short side, short val) __attribute__((unused));
+static short jt283(short cell, short side, short val)
+{
+	unsigned char *p;
+	short          dir;
+
+	PROBE("jt283");
+	if (l05ca(cell, side) == val)
+		return 0;
+	dir = (short)((side & 6) >> 1);
+	p   = (unsigned char *)(uintptr_t)
+	      (g_a5_long(-12300) + (long)cell * 6 + dir + 290);
+	*p  = (unsigned char)((*p & 0x0f) | ((val & 15) << 4));
+	return 1;
+}
+
+/* JT[284] (CODE 22+0x09b0) — is the click on a cell INTERIOR?
+ * jt272's sibling: same viewport translate (-2 outside) and cell
+ * store into -12287/-12288, then 1 when the facing gate (L4900)
+ * passes or the in-cell offset avoids every edge row/column,
+ * else 0. */
+static short jt284(short y, short x) __attribute__((unused));
+static short jt284(short y, short x)
+{
+	short cell, rem_y, rem_x, last;
+
+	PROBE("jt284");
+	y = (short)(y - g_a5_word(-11674));
+	x = (short)(x - g_a5_word(-11672));
+	if (y < 0 || y >= g_a5_word(-11670)
+	 || x < 0 || x >= g_a5_word(-11668))
+		return -1;
+
+	cell = g_a5_word(-12272);
+	g_a5_12287 = (unsigned char)(y / cell + g_a5_word(-11706));
+	g_a5_12288 = (unsigned char)(x / cell + g_a5_word(-11704));
+
+	if (l4900() != 0)
+		return 1;
+
+	rem_y = (short)(y % cell);
+	rem_x = (short)(x % cell);
+	last  = (short)(cell - 1);
+	return (short)((rem_y != 0 && rem_x != 0
+	                && rem_y < last && rem_x < last) ? 1 : 0);
+}
+
+/* JT[308] (CODE 22+0x22c4) — paint one saved-game slot row. State
+ * rec[4] == 0 anchors at (8068, 8084) and adds the -11304[rec[9]]
+ * class string at (y+16, 8004) colour 135; else (8058, 8092). Then
+ * the "%15s" name (-13952) and the "%s %9s" status pair — strA =
+ * -10796 when rec[37] is set on an un-readied slot else -10804,
+ * strB = -10812 when rec[5] == 0 with the L4900 gate up, else the
+ * -11320[rec[5]] kind string — all colour 139 via jt1089. */
+static void jt308(long holder) __attribute__((unused));
+static void jt308(long holder)
+{
+	unsigned char *rec =
+	    (unsigned char *)(uintptr_t)*(long *)(uintptr_t)holder;
+	short          y, x;
+	signed char    f5, f6;
+	long           str_a, str_b;
+
+	PROBE("jt308");
+	if (rec[4] == 0) {
+		y = 8068; x = 8084;
+		jt1089((short)(y + 16), (short)8004, (short)135,
+		       (const char *)(uintptr_t)
+		       g_a5_long(-11304 + (long)(signed char)rec[9] * 4));
+	} else {
+		y = 8058; x = 8092;
+	}
+
+	f5 = (signed char)((rec[37] != 0 && rec[4] == 0) ? 1 : 0);
+	f6 = (signed char)((rec[5] == 0 && l4900() != 0) ? 1 : 0);
+
+	jt1089(y, x, (short)139, ua_strs_at(0x307e) /* "%15s" */,
+	       (const char *)(uintptr_t)g_a5_long(-13952));
+
+	str_a = f5 ? g_a5_long(-10796) : g_a5_long(-10804);
+	str_b = f6 ? g_a5_long(-10812)
+	           : g_a5_long(-11320 + (long)rec[5] * 4);
+	jt1089(y, x, (short)139, ua_strs_at(0x3084) /* "%s %9s" */,
+	       (const char *)(uintptr_t)str_a,
+	       (const char *)(uintptr_t)str_b);
+}
+
+/* CODE 22 locals L17ca (per-entry state advance) and L2180 (entry
+ * box clear) — leaf PROBE stubs pending their own lifts. */
+static void l17ca_c22(long rec, short b)
+{
+	PROBE("l17ca");
+	(void)rec; (void)b;
+}
+static void l2180(long rec)
+{
+	PROBE("l2180");
+	(void)rec;
+}
+
+/* JT[299] (CODE 22+0x1798) — repaint one saved-game slot: L17ca
+ * state advance (leaf stub), L2180 box clear (leaf stub), then the
+ * jt308 row paint. Full call sequence. */
+static void jt299(long holder, short b) __attribute__((unused));
+static void jt299(long holder, short b)
+{
+	PROBE("jt299");
+	l17ca_c22(*(long *)(uintptr_t)holder, (short)(signed char)b);
+	l2180(*(long *)(uintptr_t)holder);
+	jt308(holder);
+}
+
+/* JT[1150] (CODE 4+0x61fc) — mark a screen rect dirty for the next
+ * present. Leaf PROBE stub pending its own lift. */
+static void jt1150(short top, short left, short bottom, short right)
+{
+	PROBE("jt1150");
+	(void)top; (void)left; (void)bottom; (void)right;
+}
+
+/* CODE 22 local L3792 (cell -> pixel transform with scroll) — leaf
+ * PROBE stub; reports failure through -1 coords. (L3a1a, the cell
+ * redraw worker, is already lifted earlier in the file.) */
+static void l3792(short y, short x, short b1, short b2,
+                  short *out_py, short *out_px)
+{
+	PROBE("l3792");
+	(void)y; (void)x; (void)b1; (void)b2;
+	*out_py = -1;
+	*out_px = -1;
+}
+
+/* JT[295] (CODE 22+0x3998) — redraw one map cell: L3792 transforms
+ * (y, x) to pixels (negative = off-view, skip), JT[1150] marks the
+ * cell-sized rect dirty, L3a1a repaints, JT[1130] (noop) closes.
+ * Full call sequence over the leaf stubs. */
+static void jt295(short y, short x, short b1, short b2, short b3)
+                                                __attribute__((unused));
+static void jt295(short y, short x, short b1, short b2, short b3)
+{
+	short py = 0, px = 0;
+
+	PROBE("jt295");
+	l3792(y, x, (short)(unsigned char)b1, (short)(unsigned char)b2,
+	      &py, &px);
+	if (py < 0 || px < 0)
+		return;
+	jt1150(py, px, (short)(py + g_a5_word(-12272)),
+	       (short)(px + g_a5_word(-12272)));
+	l3a1a(y, x, py, px, (short)(unsigned char)b3);
+	jt1130();
+}
+
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */
 
 /* JT[157] (CODE 7+0x38e4) — read the -12648 byte (the text-cursor
