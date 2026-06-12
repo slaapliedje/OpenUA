@@ -14717,11 +14717,10 @@ static short l62fa(short *out_part)
  *       g_a5_-894 = 1;
  *   }
  *
- * The Falcon HAL doesn't expose a SetCursor equivalent yet, so
- * the actual cursor shape changes are deferred — the lift only
- * maintains the g_a5_-894 "needs-reset" flag the Mac uses as a
- * one-shot guard. SetCursor will land when the cursor sprite
- * lifecycle wires through the display HAL. */
+ * COMPLETED (band 5): the g_a5_-892 record is a real Mac Cursor
+ * now (jt1123 stages it via L6330) and the shim's SetCursor is the
+ * _SetCursor equivalent; the Mac's -3514 system-arrow record maps
+ * to the shim's GetCursor(0) arrow. */
 static void l6538(short arg) __attribute__((unused));
 static void l6538(short arg)
 {
@@ -14729,18 +14728,16 @@ static void l6538(short arg)
 
 	PROBE("L6538");
 	if (l62fa(&region) != 0 && region == 3) {
-		/* In-window path. Visual SetCursor deferred. */
 		if (g_a5_byte(-893) != 0) {
-			/* grabbed-input mode — would set arrow if arg != 0 */
-			(void)arg;
-		} else {
-			/* normal — would set engine cursor if arg != 0
-			 * or the "needs-reset" flag was sticky. */
-			(void)arg;
+			if (arg != 0)
+				SetCursor(*GetCursor(0));
+		} else if (arg != 0 || g_a5_byte(-894) != 0) {
+			SetCursor((const Cursor *)&g_a5_byte(-892));
 		}
 		g_a5_byte(-894) = 0;
 	} else {
-		/* Out-of-window path. Would arrow-reset on first crossing. */
+		if (g_a5_byte(-893) == 0 && g_a5_byte(-894) == 0)
+			SetCursor(*GetCursor(0));
 		g_a5_byte(-894) = 1;
 	}
 }
@@ -16378,16 +16375,109 @@ static short l31f0(void)
  * function pointer the L2d3e dispatcher invokes with (rec, cmd, ...). */
 typedef short (*dlitem_method_t)(void *rec, short cmd, ...);
 
+/* L112c (CODE 4+0x112c) — convert a 16x16 8-bit pixel block to
+ * bitplanes for the 1-bit cursor. The Mac builds four planes with
+ * an asr/roxr ladder; only PLANE 0 (each pixel's low bit) is
+ * consumed by L6330, so the port extracts just that, MSB-first,
+ * 16 rows x 2 bytes. (Planes 1-3 dropped — note for a future
+ * fidelity pass.) */
+static void l112c(const unsigned char *src, unsigned char *dst,
+                  short stride, short n)
+{
+	short row, col;
+
+	(void)stride; (void)n;
+	for (row = 0; row < 16; row++) {
+		unsigned short bits = 0;
+
+		for (col = 0; col < 16; col++)
+			bits = (unsigned short)
+			       ((bits << 1) | (src[row * 16 + col] & 1));
+		dst[row * 2]     = (unsigned char)(bits >> 8);
+		dst[row * 2 + 1] = (unsigned char)bits;
+	}
+}
+
+/* L11f8 (CODE 4+0x11f8) — the depth-0 variant of the same
+ * conversion (different source pixel packing on the Mac); the port
+ * sources 8-bit pixels either way, so it shares L112c's core. */
+static void l11f8(short n, const unsigned char *src, short stride,
+                  unsigned char *dst)
+{
+	l112c(src, dst, stride, n);
+}
+
+/* L6330 (CODE 4+0x6330) — stage the converted cursor into the
+ * 68-byte Mac Cursor record at `dst` (A5 -892): 32B data from
+ * src+4, 32B mask from src+260, the hotspot bytes src[1]/src[0]
+ * into the words at +66/+64. Returns 1 when anything changed. */
+static unsigned char l6330(const unsigned char *src, unsigned char *dst)
+{
+	unsigned char changed = 0;
+	short         i;
+
+	if ((short)src[1] != *(short *)(dst + 66)
+	    || (short)src[0] != *(short *)(dst + 64))
+		changed = 1;
+	*(short *)(dst + 66) = (short)src[1];
+	*(short *)(dst + 64) = (short)src[0];
+	for (i = 0; i < 32; i++) {
+		if (dst[i] != src[4 + i]) {
+			changed = 1;
+			dst[i] = src[4 + i];
+		}
+		if (dst[32 + i] != src[260 + i]) {
+			changed = 1;
+			dst[32 + i] = src[260 + i];
+		}
+	}
+	return changed;
+}
+
 /* JT[1123] (CODE 4+0x659a) — install the 516-byte cursor record
- * (4-byte dims header + 256B image + 256B mask — a 16x16 8-bit
- * COLOUR cursor; NULL resets). The old "selection-nav" attribution
- * was wrong — this is the hardware-cursor install, the faithful
- * home of task #107's colour cursor. PROBE stub pending the HAL
- * cursor-image path. */
+ * (4-byte header: hotspot x/y + dims; 256B image; 256B mask — the
+ * 16x16 8-bit colour cursor jt1007 builds; NULL = the arrow), full
+ * lift. Depths 0/1 convert both blocks to 1-bit planes (L112c /
+ * L11f8 — plane 0 only in the port) into a local record; depth 3
+ * stages the 8-bit record directly. L6330 stages into the A5 -892
+ * Cursor (change-detected), the -893 arrow flag forces an install
+ * once, and L6538 pushes through the shim's SetCursor. */
 static void jt1123(long rec)
 {
+	unsigned char  local[516];
+	const unsigned char *r = (const unsigned char *)(uintptr_t)rec;
+	signed char    changed;
+	int            depth;
+
 	PROBE("jt1123");
-	(void)rec;
+	if (rec == 0) {
+		changed = (signed char)((g_a5_byte(-893) == 0) ? 1 : 0);
+		g_a5_byte(-893) = 1;
+		l6538((short)changed);
+		return;
+	}
+
+	depth = jt1200();
+	if (depth == 1) {
+		local[0] = r[0]; local[1] = r[1];
+		local[2] = r[2]; local[3] = r[3];
+		l112c(r + 4, local + 4, (short)32, (short)128);
+		l112c(r + 260, local + 260, (short)32, (short)128);
+		changed = (signed char)l6330(local, &g_a5_byte(-892));
+	} else if (depth == 0) {
+		local[0] = r[0]; local[1] = r[1];
+		local[2] = r[2]; local[3] = r[3];
+		l11f8((short)256, r + 4, (short)32, local + 4);
+		l11f8((short)256, r + 260, (short)32, local + 260);
+		changed = (signed char)l6330(local, &g_a5_byte(-892));
+	} else {
+		changed = (signed char)l6330(r, &g_a5_byte(-892));
+	}
+
+	if (g_a5_byte(-893) != 0)
+		changed = 1;
+	g_a5_byte(-893) = 0;
+	l6538((short)changed);
 }
 
 /* JT[1007] (CODE 5+0x330c) — build + install the cursor from GLIB
