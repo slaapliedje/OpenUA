@@ -13,16 +13,16 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
 one-line placeholder (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 571 done (554 lifted, 8 noop, 9 alias), 185 stub, 449 missing.
+**1205 distinct JT entries are called.** Overall: 577 done (559 lifted, 9 noop, 9 alias), 184 stub, 444 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|
 | 1 | 1–100 | **99/100** | 91 | 8 | 1 | 0 |
-| 2 | 101–200 | **91/100** | 84 | 7 | 4 | 5 |
+| 2 | 101–200 | **97/100** | 89 | 8 | 2 | 1 |
 | 3 | 201–300 | **45/100** | 45 | 0 | 16 | 39 |
-| 4 | 301–400 | **36/100** | 35 | 1 | 4 | 60 |
+| 4 | 301–400 | **36/100** | 35 | 1 | 5 | 59 |
 | 5 | 401–500 | **38/100** | 38 | 0 | 14 | 48 |
 | 6 | 501–600 | **29/100** | 28 | 1 | 20 | 51 |
 | 7 | 601–700 | **26/100** | 26 | 0 | 4 | 70 |
@@ -149,7 +149,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 105 | jt393 | 16 | LIFTED |  |
 | 106 | jt451 | 16 | LIFTED |  |
 | 107 | jt508 | 16 | LIFTED |  |
-| 108 | jt595 | 16 | **STUB** |  |
+| 108 | jt595 | 16 | LIFTED |  |
 | 109 | jt1133 | 16 | LIFTED |  |
 | 110 | jt1166 | 16 | LIFTED |  |
 | 111 | jt26 | 15 | LIFTED |  |
@@ -184,7 +184,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 140 | jt201 | 11 | LIFTED |  |
 | 141 | jt213 | 11 | LIFTED |  |
 | 142 | jt312 | 11 | LIFTED |  |
-| 143 | jt492 | 11 | **MISSING** |  |
+| 143 | jt492 | 11 | LIFTED |  |
 | 144 | jt599 | 11 | **STUB** |  |
 | 145 | jt860 | 11 | LIFTED |  |
 | 146 | jt1067 | 11 | LIFTED |  |
@@ -193,13 +193,13 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 149 | jt92 | 10 | LIFTED |  |
 | 150 | jt148 | 10 | LIFTED |  |
 | 151 | jt221 | 10 | LIFTED |  |
-| 152 | jt346 | 10 | **MISSING** |  |
+| 152 | jt346 | 10 | LIFTED |  |
 | 153 | jt412 | 10 | LIFTED |  |
 | 154 | jt448 | 10 | LIFTED |  |
 | 155 | jt494 | 10 | LIFTED |  |
 | 156 | jt638 | 10 | LIFTED |  |
 | 157 | jt699 | 10 | LIFTED |  |
-| 158 | jt1130 | 10 | **STUB** |  |
+| 158 | jt1130 | 10 | NOOP |  |
 | 159 | jt1132 | 10 | LIFTED |  |
 | 160 | jt1199 | 10 | LIFTED |  |
 | 161 | jt13 | 9 | LIFTED |  |
@@ -237,11 +237,11 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 193 | jt408 | 8 | LIFTED |  |
 | 194 | jt409 | 8 | ALIAS | lifted as l3e0c (same address; first-index-of scan) |
 | 195 | jt456 | 8 | ALIAS | lifted as l2d3e (same address; the DLItem event poll, full lift) |
-| 196 | jt500 | 8 | **MISSING** |  |
+| 196 | jt500 | 8 | LIFTED |  |
 | 197 | jt528 | 8 | ALIAS | lifted as l62ec (same address; combat map-cell fetch) |
 | 198 | jt529 | 8 | LIFTED |  |
 | 199 | jt883 | 8 | **MISSING** |  |
-| 200 | jt914 | 8 | **MISSING** |  |
+| 200 | jt914 | 8 | LIFTED |  |
 
 ## The pending queue (top-100 stubs + missing, by call count)
 
