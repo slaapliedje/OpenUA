@@ -9981,8 +9981,17 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 }
 
 /* Direction-step deltas: signed-byte drow/dcol tables indexed by dir. */
-#define JT199_DROW(dir) ((short)(signed char)g_a5_byte(-27862 + (dir)))
-#define JT199_DCOL(dir) ((short)(signed char)g_a5_byte(-27853 + (dir)))
+/* The frustum step deltas are row/col-SWAPPED vs the way jt199 applies them:
+ * an offline replay of the walk on the real map only reproduces the Mac's
+ * 25-slot standing frame ({1:4,2:2,5:1,6:7,9:8,11:3}, docs/mac-blit-trace-
+ * heirs-l5-standing.md) when DROW reads the -27853 table and DCOL reads -27862
+ * (every other assignment misses). The default jt199 wiring read them straight
+ * (DROW=-27862), walking the wrong axis and dropping ~9 slots + emitting bogus
+ * codes 10/13. The raw tables are shared with jt311 movement (which is correct),
+ * so the swap is local to the frustum, not a global table fix. See
+ * [[party-coord-rowcol-convention]]. */
+#define JT199_DROW(dir) ((short)(signed char)g_a5_byte(-27853 + (dir)))
+#define JT199_DCOL(dir) ((short)(signed char)g_a5_byte(-27862 + (dir)))
 
 /* jt199_side — one SIDE-wall pass of the frustum walker (JT[199]'s
  * pass 1 / pass 2). Walk the ray `dir` for depths 0..3 from (r, c):
