@@ -35,17 +35,36 @@ KEY: items are addressed by **numeric name**, not position. `l37aa(base,8)`
 (port shortcut) returns the 8th sub-GLIB; the faithful path returns the item
 *named* 8. They differ -> wrong texture.
 
-## Lifted already (verify end-to-end)
+## CURRENT-STATE AUDIT (2026-06-13, via tools/jt_progress.py --wiring/--standins)
 
-- `l33ac` (jt110) binder — lifted (comment says "skeleton level 2"; re-audit:
-  jt464/jt997/jt1014 are now real, so it may be fuller than the comment says)
-- `jt464` group register + MRU cache (-10026 records / -10074 freemap /
-  -9354 MRU / -9306 count)
-- `jt104` per-file numeric-name callback; `jt987` open+callback driver
-- `jt997`/`jt1014`/`jt972` plain-name CTL/TLB loaders
-- `jt1013` find-by-numeric-name, `jt1011` size, `jt1016` load-into-pool
-- `jt1021/jt1023/jt1024/jt462/jt461/jt465` TLB cache build
-- `jt468` group->pool-base resolver (currently PROBE-marked — verify body)
+The RM is **~90% lifted** — this is completion + routing, not a cold build.
+Status of the FC-group surface (class / asm-calls / port-calls):
+
+| fn | class | asm | port | note |
+|----|-------|----:|----:|------|
+| jt110 (l33ac) | real | 6 | 0 | binder; just got the 8.3 base-fallback fix (2b5efd4) |
+| jt464 | LIFTED | 6 | 5 | group register + MRU cache (-10026/-10074/-9354/-9306) |
+| jt468 | LIFTED | 64 | 39 | group -> pool-base resolver (heavily used) |
+| jt987 | LIFTED | 9 | 6 | open + per-file callback driver |
+| jt997 / jt1014 / jt972 | LIFTED | — | — | plain-name CTL/TLB loaders |
+| jt104 | LIFTED | 2 | 0 | per-file numeric-name cb (port=0 OK: passed as a fn-ptr) |
+| jt1013 / jt1011 / jt1016 | LIFTED | — | — | find-by-name / size / load-into-pool |
+| jt1024 / jt1021 / jt462 / jt461 / jt465 | LIFTED | — | — | TLB cache build |
+| jt111 / jt115 / jt405 | LIFTED | — | — | handle resolution |
+| jt214 / jt124 / jt131 | LIFTED | — | — | bigpic id select / palette commit / mode |
+
+**GAPS (the actual RM work):**
+1. **`l338c` is a STUB** (`PROBE("L338c")` only) — it is the bigpic "select
+   load kind", called by `l579e` before `l33ac`. Stubbed -> the load kind is
+   never set, so the bigpic load fails (the SysBeep alert + blank background
+   seen when wiring jt214/jt44). **Lift this first — it unblocks the bigpic.**
+2. **`jt1023` is a STUB** — a TLB-cache-build leaf. Lift it so .TLB groups
+   (the deep/640 path) build their cache faithfully.
+3. **Routing**: the art loaders still bypass the group system with `l37aa`/
+   static-buffer shortcuts — `cw_load_slot`/`cw_wallfile_load` (walls),
+   `l579e` (bigpic; now base-fallback but not pool-resolved), `port_frame_load`
+   (frame). Re-point them at `jt468(group)` so loading is cached/purgeable and
+   handle resolution is faithful.
 
 ## STEP 2 RESULT (2026-06-13) — numeric-name theory DISPROVEN
 
@@ -72,7 +91,24 @@ The RM (#127) is STILL worth doing — for memory (purgeable on-demand loading,
 the 4MB/ST-port path) and perf (cache-hit per-frame L6148) — but it is NOT
 the wall-texture fix. Reprioritize: RM is a memory/perf effort now.
 
-## Worklist (each = one focused commit)
+## REVISED WORKLIST (2026-06-13, post-audit — each = one focused commit)
+
+0. [x] AUDIT the FC-group surface (above): ~90% lifted; gaps = l338c, jt1023,
+   and the loader routing. 8.3 override fallback already landed (2b5efd4).
+1. [ ] **Lift `l338c`** (the bigpic "select load kind", CODE 6) — the first
+   blocker. Then re-wire `port_draw_play_frame` -> `jt214` + `jt44` and confirm
+   the real bigpic background renders (vs the grey-fill stand-in + SysBeep).
+2. [ ] **Lift `jt1023`** (TLB cache-build leaf) so the .TLB/deep path is whole.
+3. [ ] Add a group-state probe dump (like VIEWDIAG): pool base, the -10026/
+   -9354 records, binder -18468 slots, and `jt468(group)` for the loaded libs,
+   so end-to-end wiring is verified from live state, not inspection.
+4. [ ] Route `cw_load_slot`/`cw_wallfile_load` (walls) + `port_frame_load`
+   (frame) through `jt468(group)` instead of `l37aa`/static buffers.
+5. [ ] Purgeable caching: evict LRU groups under memory pressure (the MRU
+   -9354 list is already maintained) -> the 1-4MB / ST-port footprint.
+6. [ ] Perf: confirm per-frame L6148 is a cache-hit once resident.
+
+## (historical) Worklist (each = one focused commit)
 
 1. [ ] AUDIT: confirm the FC-group data model is fully wired — the pool
    (-3622/-18406), the group records (-10026/-10074/-9354/-9306), the binder
