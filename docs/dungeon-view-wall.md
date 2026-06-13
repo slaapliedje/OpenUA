@@ -64,6 +64,42 @@ that overrode the DATA-image values `175/516/...` is incorrect/incomplete).
    (`docs/mac-blit-trace-heirs-l5-standing.md`). Code-multiset match is NOT
    position match (that error closed #126 prematurely).
 
+## UPDATE 2026-06-13 — table re-derivation is MOOT; need a same-frame Mac trace
+
+The view-layout table was NOT the bug. The DATA image (g_a5_init_bytes, loaded by
+data_pool_replay) already holds 5,4,6,4,2,7,2,0,9,5,4,3,3,3,1,1,1,0,0,4,0,0 at
+-12240..-12198 — IDENTICAL to the "mon snapshot" hardcoded at boot.c ~8008. Those
+ARE the faithful Mac static values (the table is written by no CODE except the
+runtime long-store to -12200 from -21148 in CODE 11). The override is redundant;
+the "175/516 off-screen DATA" comment was simply wrong.
+
+Decisive comparison (tools: parse J200DIFF.TXT vs docs/mac-blit-trace-heirs-l5-
+standing.md): the port emits (code,sub,top,left) BYTE-IDENTICAL to the 25-slot
+trace — all 19 unique slots match the Mac positions EXACTLY at scale 2. Plus the
+decoded runtime map (party 10,8,E) shows the IMMEDIATE view is asymmetric:
+(10,9) near-left N=0 (open) / near-right S=11 (wall); only (10,10) is symmetric.
+So the right-heavy render may be geometrically CORRECT for this cell, and the
+symmetric `data/mac_3d_start_e.png` may be a DIFFERENT (post-move) frame.
+
+=> Two Mac references disagree (symmetric screenshot vs right-heavy trace) and the
+port matches the trace. Cannot resolve host-side. NEED: the Mac's actual jt200
+blit slots captured at the EXACT same frame as the screenshot, mon-confirmed
+party=10,8,2, BEFORE any movement.
+
+### Ground-truth capture spec (for the user's instrumented Mac)
+Same format as the existing 25-slot trace, but with same-frame proof:
+1. Boot HEIRS save A, reach the standing dungeon view. DO NOT MOVE.
+2. Shoot the screenshot AND capture the trace in the SAME session/frame.
+3. mon: CurrentA5 @0x0904 -> read words A5-12288 / A5-12287 / A5-12286; CONFIRM
+   = 0x000A / 0x0008 / 0x0002 (row10,col8,facingE). Record them with the trace.
+4. Log every jt200 (= JT[200] / L59d4) call in order: its 4 stack args
+   top, left, code, sub (the same fields the old trace lists). ~25 calls.
+5. (Optional but ideal) also log each JT[114] blit's idx + (v,h) so far/near idx
+   can be checked.
+Then diff against the port J200DIFF.TXT (same fields). If positions differ, the
+bug is l5b42/anchor; if they MATCH, the port is faithful and the screenshot was a
+different frame (close #129).
+
 ## Reproduce
 
 ```sh
