@@ -8589,6 +8589,7 @@ static short g_cwf_force_deep;
  * command-bar DLItem match — otherwise an arrow is consumed as a command and
  * the play loop exits. Off everywhere else so the menus are unaffected. */
 static short g_walk_input;
+static short g_press_to_continue;       /* l1806 "press a key" modal active (defined below) */
 /* Colour slot (= wall group 0/1/2) of the tile l309c_tile is currently
  * blitting; set by jt200_layer. Selects the clut band (g_cw_base) the tile's
  * 32-based bytes rebase into, so each wall set keeps its own CLUT. */
@@ -17236,6 +17237,20 @@ static short l2d3e(void)
 		if (g_walk_input
 		    && ((kc >= 257 && kc <= 264) || kc == 27 || kc == 13))
 			return (short)0;
+		/* Modal "press a key to continue" (l1806, the event / encounter
+		 * text confirm): the Mac dismisses on ANY key. Stash the pending
+		 * key so l25b6's arg_count==0 path surfaces it, and exit the poll
+		 * with item 0. Scoped to g_press_to_continue — NOT mode 2 alone,
+		 * because the Training Hall roster dialog runs in mode 2 too and a
+		 * spurious key-exit corrupts it. Without this the modal (no
+		 * walk-input, key only, the Return button never mouse-clicked)
+		 * waited forever for a DLItem mouse pick — the stuck "PRESS RETURN"
+		 * event window. */
+		if (g_press_to_continue) {
+			g_a5_byte(-12913) = (unsigned char)(kc & 0xff);
+			g_a5_word(-12914) = kc;
+			return (short)0;
+		}
 	}
 
 	/* Port mouse hit-test: the faithful per-item method(rec,2,y,x) hit-test
@@ -26781,6 +26796,11 @@ static short l25b6(short arg_count, unsigned char *buf,
  * NULL — unlike the roster pickers (jt182 et al.) this prompt has no
  * selection grid. g_a5_-24139 is the cancel byte L25b6 also writes via
  * flag_out. */
+/* g_press_to_continue (forward-declared up by g_walk_input): set only while
+ * the "Press [Return] to continue" event/encounter modal (l1806) is polling,
+ * so l2d3e dismisses it on a keypress WITHOUT affecting the other mode-2
+ * dialogs (the Training Hall roster runs in mode 2 too — keying off the mode
+ * alone corrupts it). */
 static void l1806(short v)
 {
 	short tmp;
@@ -26788,7 +26808,9 @@ static void l1806(short v)
 	PROBE("L1806");
 	l177a();
 	l2858((short)2);
+	g_press_to_continue = 1;
 	tmp = l23b4((short)(signed char)(v & 0xff));
+	g_press_to_continue = 0;
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
 }
 
