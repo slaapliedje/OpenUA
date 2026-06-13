@@ -97,3 +97,31 @@ jt200_layer draws from g_wall_bmp (DUNGCOM) rather than the colour slots
 mismatch. DECISIVE NEXT STEP: capture the port's jt200 slot sequence and
 diff against the 25-slot Mac trace above (hrdb breakpoint on jt200, since
 the GEMDOS file-dump + --conout buffering both failed to land the log).
+
+## PORT vs MAC slot diff (2026-06-13) — jt199 frustum is the divergence
+
+Instrumented the port's jt200 (recorder behind FRUA_SKIP_ENTRY_EVENTS ->
+J200DIFF.TXT) and diffed the HEIRS-start frame against the 25 Mac slots above.
+The port's frustum emits a DIFFERENT slot set entirely:
+
+- Slot count: Mac 25, Port 21.
+- CODE multiset  Mac : {1:4, 2:2, 5:1, 6:7, 9:8, 11:3}
+                 Port: {2:1, 6:6, 9:2, 11:10, 13:2}
+- GROUP multiset Mac : {0:7, 1:15, 2:3}   (0=Wall1 stone,1=Wall2,2=Wall3)
+                 Port: {0:1, 1:8,  2:12}
+- Port emits code 13 (the Mac never does); the Mac's deep Wall1 codes 1 (x4)
+  and 5 (x1) are ABSENT from the port.
+- First 7 slots: Mac reads group 1 (code 9/6); port reads group 2 (code 11) —
+  i.e. the port reads completely different map cells.
+- Coord axis: Mac near band steps `top` (8032->8012) with `left` constant
+  (8028); the port steps `left` (64->104) with `top` constant (56) — the slot
+  emit axis is also transposed.
+
+CONCLUSION: this is NOT the wall set, palette, or Resource Manager. The port's
+**jt199 frustum walker** (L6234) visits the wrong map cells in the wrong order
+(and emits on the wrong axis), so every downstream code/group/idx is off. The
+wood-dominant look follows: the port lands group-2/group-1 tiles where the Mac
+lands group-0 stone faces. FIX = re-lift jt199/L6234 faithfully so its slot
+sequence matches this trace (validate with the J200DIFF recorder). The
+port-side jt199_side/jt199_front/jt199_band helpers are the suspects:
+origin-offset (2-forward), the per-depth r/c stepping, and the l5b42 axis.

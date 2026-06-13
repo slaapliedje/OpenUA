@@ -9801,6 +9801,32 @@ static void jt200_layer(unsigned char *page, short top, short left,
 	jt114(page, top, left, idx, g_a5_long(-27894 + (long)group * 4));
 }
 
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+/* jt200 slot recorder — capture one render frame's wall slots (code/sub/group
+ * + the far/near tile idx + coords) so the port's emissions can be diffed
+ * slot-by-slot against the captured Mac trace (docs/mac-blit-trace-heirs-l5.md)
+ * to find where the port draws the wrong tile/size. Dumped to J200DIFF.TXT. */
+#define J2_MAX 64
+static short g_j2_active;
+static short g_j2_n;
+static short g_j2_code[J2_MAX], g_j2_sub[J2_MAX], g_j2_grp[J2_MAX];
+static short g_j2_top[J2_MAX], g_j2_left[J2_MAX];
+static short g_j2_far[J2_MAX], g_j2_near[J2_MAX];
+static short g_j2_cur;
+
+static short j2_begin(short code, short sub, short top, short left)
+{
+	short i;
+	if (!g_j2_active || g_j2_n >= J2_MAX)
+		return -1;
+	i = g_j2_n++;
+	g_j2_code[i] = code; g_j2_sub[i] = sub;
+	g_j2_top[i] = top;   g_j2_left[i] = left;
+	g_j2_grp[i] = -1; g_j2_far[i] = -1; g_j2_near[i] = -1;
+	return i;
+}
+#endif
+
 /* jt200 (JT[200], CODE 7 + 0x59d4) — draw one dungeon wall slot.
  *
  * Faithful lift. A wall code carries the wall-set group folded in:
@@ -9821,12 +9847,18 @@ static void jt200(unsigned char *page, short top, short left,
 {
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short group = 0;
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+	short rec = j2_begin(code, sub, top, left);
+#endif
 
 	/* recover (group, position) from the folded wall code. */
 	while ((code & 0xff) > 5) {
 		code -= 5;
 		group++;
 	}
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+	if (rec >= 0) g_j2_grp[rec] = group;
+#endif
 	if (ds == NULL || ds[group + 4] == 0)
 		return;                          /* wall set disabled */
 
@@ -9859,9 +9891,15 @@ static void jt200(unsigned char *page, short top, short left,
 	if ((code & 0xff) <= 1) {
 		sub = (short)((code & 0xff) * 10 + sub + 1);
 	} else {
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+		if (rec >= 0) g_j2_far[rec] = (short)(sub + 1);
+#endif
 		jt200_layer(page, top, left, group, (short)(sub + 1)); /* far face */
 		sub = (short)((code & 0xff) * 9 + sub + 2);
 	}
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+	if (rec >= 0) g_j2_near[rec] = sub;
+#endif
 	jt200_layer(page, top, left, group, sub);                      /* near face */
 }
 
@@ -10201,6 +10239,44 @@ static void dbg_dump_view(const unsigned char *ds, short row, short col,
 	}
 	dbg_log("dbg_dump_view: wrote VIEWDIAG.TXT");
 }
+
+/* j200_dump — write the recorded jt200 slots (one per line:
+ * #, top, left, code, sub, group, farIdx, nearIdx) to J200DIFF.TXT for the
+ * slot-by-slot diff against docs/mac-blit-trace-heirs-l5.md. */
+static void j200_dump(void)
+{
+	static char done = 0;
+	char  buf[4096];
+	int   p = 0;
+	short i, ref = 0;
+	long  n;
+
+	if (done)
+		return;
+	done = 1;
+	dv_app(buf, &p, "slots=", (long)g_j2_n);
+	for (i = 0; i < g_j2_n; i++) {
+		/* pack as #*1e10 + fields; emit as labelled lines for readability */
+		dv_app(buf, &p, "#", (long)i);
+		dv_app(buf, &p, " top=", (long)g_j2_top[i]);
+		dv_app(buf, &p, " left=", (long)g_j2_left[i]);
+		dv_app(buf, &p, " code=", (long)g_j2_code[i]);
+		dv_app(buf, &p, " sub=", (long)g_j2_sub[i]);
+		dv_app(buf, &p, " grp=", (long)g_j2_grp[i]);
+		dv_app(buf, &p, " far=", (long)g_j2_far[i]);
+		dv_app(buf, &p, " near=", (long)g_j2_near[i]);
+		if (p > (int)sizeof buf - 128)
+			break;
+	}
+	(void)FSDelete((ConstStr255Param)"\014J200DIFF.TXT", 0);
+	(void)Create((ConstStr255Param)"\014J200DIFF.TXT", 0, 'FRUA', 'TEXT');
+	if (FSOpen((ConstStr255Param)"\014J200DIFF.TXT", 0, &ref) == noErr) {
+		n = p;
+		(void)FSWrite(ref, &n, buf);
+		(void)FSClose(ref);
+	}
+	dbg_log("j200_dump: wrote J200DIFF.TXT");
+}
 #endif /* FRUA_SKIP_ENTRY_EVENTS */
 
 /* render_3d_faithful — the 1:1 Mac slot-assembly view: jt199 walks the
@@ -10294,9 +10370,14 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	g_cwf_force_deep = 1;
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 	dbg_dump_view(ds, (short)g_a5_12287, (short)g_a5_12288, f);
+	g_j2_n = 0; g_j2_active = 1;
 #endif
 	jt199(page, (short)8012, (short)8016,
 	      (short)g_a5_12287, (short)g_a5_12288, f);
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+	g_j2_active = 0;
+	j200_dump();
+#endif
 	g_cwf_force_deep = 0;
 	g_cwf_px = NULL;
 }
