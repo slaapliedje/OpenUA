@@ -197,6 +197,17 @@ gamedata: $(TARGET) frua.rsc
 			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/$$base/"; \
 		done; \
 	done
+	@# Stage the chosen design's SAVE folder (the shipped 1993 saves —
+	@# SAVGAMA.CSV + VAULTA.DAT) at the gamedata root: mac_path_to_c
+	@# strips non-.DSN folder prefixes, so "<dsn>:SAVE:SAVGAMA.CSV"
+	@# resolves to the bare filename there.
+	@if [ -d "$(MAC_JOINED)/$(DSN)/SAVE" ]; then \
+		cp "$(MAC_JOINED)/$(DSN)/SAVE"/* "$(GAMEDATA_DIR)/" \
+			&& echo "  gamedata: staged $(DSN)/SAVE saves"; \
+	fi
+	@# The current-design marker the boot seed reads (stands in for the
+	@# Mac prefs until the jt315/L494e design picker lands).
+	@printf '%s' "$(DSN)" > "$(GAMEDATA_DIR)/CURRENT.TXT"
 	@ln -sf "$(abspath $(TARGET))"  "$(GAMEDATA_DIR)/$(TARGET)"
 	@ln -sf "$(abspath frua.rsc)"   "$(GAMEDATA_DIR)/frua.rsc"
 	@if [ -n "$(DOS_ALWAYS)" ] && [ -f "$(DOS_ALWAYS)" ]; then \
