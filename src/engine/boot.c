@@ -43206,6 +43206,20 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 	digit  -= '0';
 	jt384(namebuf, name);
 	namebuf[len - 1] = 0;
+
+	/* GEMDOS 8.3 fallback: the per-design override file is
+	 * "<base><digit><kind:03d>.ctl" — its base is strlen(base)+4 chars, so for
+	 * any base > 4 it can NEVER exist on a GEMDOS volume (the name clips). That
+	 * is the faithful "no design override present" case, so load the base
+	 * library directly through the plain-name path (jt997 -> "<base>.ctl") and
+	 * skip the override concrete-open + jt104 machinery entirely. (HEIRS ships
+	 * no overrides; without this the bigpic/wall override names clip and the
+	 * load stalls.) */
+	if (jt423(namebuf) > 4) {
+		slot[1] = (short)kindB;
+		jt997(g_a5_18396, namebuf, (short)(i + 2));
+		return;
+	}
 	/* concrete name from the BASE (an earlier cut formatted it from
 	 * `fullname`, yielding "bigpix.ctl0008.ctl" — the GEMDOS 8.3 clip
 	 * then missed the file); `path` is free until the open below. */
