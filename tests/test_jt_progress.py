@@ -71,3 +71,22 @@ def test_alias_lifted():
 
 def test_missing_when_absent():
     assert jp.classify(424242, {}) == "MISSING"
+
+
+def test_standin_number_with_real_body_is_standin():
+    # a flagged stand-in has a real body but is NOT a faithful lift
+    n = next(iter(jp.STANDIN))
+    body = " PROBE(\"x\"); l309c_tile(page, top, left, h, idx); "
+    assert jp.classify(n, {n: body}) == "STANDIN"
+
+
+def test_standin_flag_does_not_mask_a_stub_regression():
+    # if a stand-in decays to a bare stub, it must read as STUB, not STANDIN
+    n = next(iter(jp.STANDIN))
+    assert jp.classify(n, {n: " PROBE(\"x\"); return 0; "}) == "STUB"
+
+
+def test_standin_absent_body_is_not_standin():
+    # no body at all -> MISSING/ALIAS rules win; STANDIN needs a real body
+    n = next(iter(jp.STANDIN))
+    assert jp.classify(n, {}) in ("MISSING", "ALIAS")
