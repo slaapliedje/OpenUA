@@ -12460,6 +12460,8 @@ void port_view_demo(void)
  * saved party x/y, h[133] stair dir, h[134] "view established". */
 static unsigned char g_area_state[1024];
 static int           g_savgame_loaded;   /* a BasiliskII save was resumed */
+static short         g_port_entry_level = 40;  /* Play-entry level (a loaded save overrides) */
+static void          jt431(void *dst, const void *src);  /* path concat (defined below) */
 
 #ifdef FRUA_L6234_VERIFY
 static short l3198(short kind, long p1, long p2);   /* event poll (defined below) */
@@ -14253,70 +14255,143 @@ static int port_load_savgame(void)
 	}
 	dbg_log_num("  read bytes=", n);
 
-	/* Find the first embedded faithful character record: a printable name at
-	 * +96, a class at +88 in range, and a plausible max HP at +82. */
-	for (i = 0; i + 536 <= n; i++) {
-		unsigned char *r = sg + i;
-		short c;
-		unsigned char *dst;
+	/* Scan for the embedded faithful character records: a fully printable
+	 * 2+-char name at +96 (first char A-Z), class +88 in 1..8, plausible
+	 * max HP at +82. The save repeats the party block later in the file
+	 * (the pristine backup copies — both shipped 1993 saves show the
+	 * pattern), so duplicates by name keep only the FIRST occurrence. */
+	{
+		short found = 0;
 
-		if (!(r[96] >= 'A' && r[96] <= 'Z') || r[88] > 16
-		    || r[82] == 0 || r[82] >= 200)
-			continue;
+		i = 0;
+		while (i + 536 <= n && found < 6) {
+			unsigned char *r = sg + i;
+			short c, ln = 0;
+			unsigned char *dst;
 
-		dst = cg_pool[0];
-		memcpy(dst, r, 512);                  /* the faithful record as-is */
-		/* Translate the char-sheet fields to the port CHAR_* layout so the
-		 * roster grid (l02dc) and rest-heal read them; the combat block
-		 * (name@96/AC@385/HP@395) is already at matching offsets. */
-		dst[CHAR_MAXHP] = r[82];               /* faithful max HP @82 */
-		dst[CHAR_CLASS] = 1;                   /* Fighter (label; faithful @88 kept) */
-		dst[CHAR_RACE]  = 0;                   /* Human (label) */
-		dst[CHAR_LEVEL] = 5;
-		for (c = 0; c < 6; c++)                /* abilities: @112 value-pairs */
-			dst[CHAR_STATS + c] = r[112 + c * 2];
-		dst[CHAR_ALIGN]   = 0;
-		dst[CHAR_INPARTY] = 1;
-		/* AC: the faithful record stores 60 - displayed_AC at @385 (parallel to
-		 * THAC0 @384). The port's roster/combat read CHAR_AC as the DISPLAYED
-		 * value (the seeded path stores it that way), so translate: BOB's
-		 * @385 = 61 -> displayed -1. */
-		dst[CHAR_AC] = (unsigned char)(60 - (short)r[385]);
-		cg_pool_count = 1;
+			while (ln < 15 && r[96 + ln] != 0) {
+				if (r[96 + ln] < 32 || r[96 + ln] > 126) {
+					ln = -1;
+					break;
+				}
+				ln++;
+			}
+			if (ln < 2 || !(r[96] >= 'A' && r[96] <= 'Z')
+			    || r[88] < 1 || r[88] > 8
+			    || r[82] == 0 || r[82] >= 200) {
+				i++;
+				continue;
+			}
+			for (c = 0; c < found; c++)
+				if (memcmp(cg_pool[c] + 96, r + 96, 16) == 0)
+					break;
+			if (c < found) {              /* the backup copy */
+				i += 536;
+				continue;
+			}
+
+			dst = cg_pool[found];
+			memcpy(dst, r, 512);          /* the faithful record as-is */
+			/* Translate the char-sheet fields to the port CHAR_* layout
+			 * so the roster grid (l02dc) and rest-heal read them; the
+			 * combat block (name@96/AC@385/HP@395) is already at
+			 * matching offsets. */
+			dst[CHAR_MAXHP] = r[82];      /* faithful max HP @82 */
+			dst[CHAR_CLASS] = 1;          /* Fighter (label; @88 kept) */
+			dst[CHAR_RACE]  = 0;          /* Human (label) */
+			dst[CHAR_LEVEL] = 5;
+			for (c = 0; c < 6; c++)       /* abilities: @112 pairs */
+				dst[CHAR_STATS + c] = r[112 + c * 2];
+			dst[CHAR_ALIGN]   = 0;
+			dst[CHAR_INPARTY] = 1;
+			/* AC: CHAR_AC (385) IS the faithful slot — the record
+			 * stores 60 - displayed_AC there (parallel to THAC0 @384)
+			 * and the readers (Hall column, HUD roster) compute the
+			 * displayed value themselves. The old loader translated
+			 * INTO the slot, double-applying the formula: 60 - 63 = -3
+			 * became 60 - 253 = -193 in the Hall. Keep the memcpy'd
+			 * faithful byte. */
+			dbg_log((char *)dst + 96);
+			dbg_log_num("  maxHP=", (long)r[82]);
+			found++;
+			i += 536;
+		}
+		if (found == 0) {
+			dbg_log("  no character record found in save");
+			return 0;
+		}
+		cg_pool_count = found;
 		cg_party_relink();
+	}
 
-		/* Restore the saved dungeon position/level (header fields pinned by
-		 * the A-vs-B diff). Route the position through the FAITHFUL resume
-		 * path: stand up the area-state record (g_a5_-28006, normally
-		 * allocated by L4cc0) and set the saved party x/y/facing at
-		 * h[67]/h[68]/h[17] plus the "view established" flag h[134]. On entry
-		 * l0bbc sees h[134] != 0 and takes its RESUME branch — restoring the
-		 * saved cell instead of re-placing the party at the level start tile;
-		 * jt948 then takes the "view established" arm (no fresh-entry special).
-		 * The direct g_a5_-12288/-12287/-12286 writes below match what l0bbc
-		 * will restore (belt-and-suspenders for the pre-l0bbc render). */
-		g_a5_18878 = (short)(sg[18] ? sg[18] : 5);   /* level (>=5 dungeon) */
-		g_a5_12288 = (unsigned char)sg[66];          /* party x */
-		g_a5_12287 = (unsigned char)sg[67];          /* party y */
-		if (g_a5_12286 == 0)
-			g_a5_12286 = 1;                      /* facing (default N) */
+	/* Restore the saved dungeon level + position. The shipped 1993 saves
+	 * carry the party cell at header +16/+17 and the level at +18 (both
+	 * TUTORIAL and HEIRS save A read (4,4); the old +66/+67 offsets from
+	 * the BasiliskII A-vs-B diff are zero there — kept as a fallback).
+	 * Level: the live play entry reads g_a5_-18828 (l07dc's case 10 copies
+	 * it into -18878), so the save's level must land in BOTH. */
+	{
+		unsigned char px = sg[16] ? sg[16] : sg[66];
+		unsigned char py = sg[17] ? sg[17] : sg[67];
+		short          lv = (short)(sg[18] ? sg[18] : 5);
 
+		/* Guard: only honor the saved level if its GEO file exists in
+		 * the current design — the shipped TUTORIAL save targets level
+		 * 14, which the final design dropped (only GEO040 ships), and
+		 * jt198 on a missing GEO is a jt69 fatal. Probe via the same
+		 * "<design>:GEO%03d.dat" path jt127 builds. */
+		{
+			char  path[402];
+			char  dpath[202];
+			short refnum;
+
+			jt394(path, "%s%03d.dat", "GEO", (int)lv);
+			dpath[0] = 0;
+			jt431(dpath, &g_a5_31336);
+			jt431(dpath, path);
+			refnum = jt398(dpath, 0);
+			if (refnum >= 0) {
+				(void)jt411(refnum);
+			} else {
+				dbg_log_num("  saved level GEO missing, keeping default; lv=",
+				            (long)lv);
+				lv = g_port_entry_level;
+				px = py = 0;   /* a foreign cell is meaningless too */
+			}
+		}
+
+		g_a5_18878 = lv;
+		g_a5_18828 = lv;
+		g_port_entry_level = lv;       /* survives Play re-entries */
 		memset(g_area_state, 0, sizeof g_area_state);
 		g_a5_28006 = g_area_state;
-		g_area_state[134] = 1;                       /* view established -> resume */
-		g_area_state[67]  = (unsigned char)sg[66];   /* saved party x */
-		g_area_state[68]  = (unsigned char)sg[67];   /* saved party y */
-		g_area_state[17]  = (unsigned char)g_a5_12286; /* saved facing */
-		g_savgame_loaded  = 1;
+		if (g_a5_12286 == 0)
+			g_a5_12286 = 1;                        /* facing (N) */
+
+		if (px != 0 || py != 0) {
+			/* Route the position through the FAITHFUL resume path:
+			 * l0bbc sees h[134] != 0 and restores the saved cell
+			 * instead of re-placing the party at the level start.
+			 * The direct -12288/-12287 writes match what l0bbc will
+			 * restore (belt-and-suspenders for the pre-l0bbc render). */
+			g_a5_12288 = px;                       /* party x */
+			g_a5_12287 = py;                       /* party y */
+			g_area_state[134] = 1;                 /* -> resume */
+			g_area_state[67]  = px;
+			g_area_state[68]  = py;
+			g_area_state[17]  = (unsigned char)g_a5_12286;
+		}
+		/* else: leave h[134] = 0 — l0bbc's FRESH-entry branch loads the
+		 * level (jt198) and reads the start tile from the GEO header. */
+
+		g_savgame_loaded = 1;
 		dbg_log("port_load_savgame: loaded SAVGAMA.CSV");
-		dbg_log_num("  party x@66 = ", (long)sg[66]);
-		dbg_log_num("  party y@67 = ", (long)sg[67]);
-		dbg_log_num("  level @18  = ", (long)sg[18]);
-		dbg_log_num("  HP @395    = ", (long)r[395]);
-		return 1;
+		dbg_log_num("  party x = ", (long)px);
+		dbg_log_num("  party y = ", (long)py);
+		dbg_log_num("  level   = ", (long)lv);
+		dbg_log_num("  members = ", (long)cg_pool_count);
 	}
-	dbg_log("  no character record found in save");
-	return 0;
+	return 1;
 }
 
 static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
@@ -14346,8 +14421,11 @@ void port_test_seed_design(void)
 	 * command bar) and jt948 routes the walk through jt240 (the real
 	 * "Area Cast View Encamp Search Look Inv" bar). Without this it defaults
 	 * to level 1 (overland, mode 3) -> empty GEO001 view + the single-command
-	 * "Encamp" bar. See [[play-hud-work]] / [[coord-model-task108]]. */
-	g_a5_18828 = 40;
+	 * "Encamp" bar. See [[play-hud-work]] / [[coord-model-task108]].
+	 * g_port_entry_level holds the default (40 = the tutorial's map) until
+	 * a loaded save overrides it — re-applied on every Play entry so the
+	 * once-only save load survives menu round-trips. */
+	g_a5_18828 = g_port_entry_level;
 
 	/* Seed a test pool so the Training Hall has real characters. The pool
 	 * (cg_pool) is the master list of saved characters; the active party
@@ -14448,18 +14526,36 @@ void port_test_seed_design(void)
 	g_a5_byte(-14440) = 1;
 
 	/* Seed the current design name so jt127 builds the real
-	 * "<design>:<file>" path. mac_path_to_c strips the design
-	 * prefix, so the exact value only matters for path fidelity /
-	 * future subfolder support — the flat staging resolves the
-	 * bare filename either way. */
+	 * "<design>:<file>" path (the shim resolves it into the staged
+	 * .DSN subdirectory). The name comes from the CURRENT.TXT marker
+	 * `make gamedata DSN=<name>` writes — a stand-in for the Mac
+	 * prefs read until the jt315/L494e design picker lands. Falls
+	 * back to the tutorial when the marker is absent. */
 	{
-		static const char dn[] = "tutorial.dsn";
-		char *dst = (char *)&g_a5_31336;
-		int   i;
+		static char dn_buf[64];
+		const char *dn     = "tutorial.dsn";
+		short       refnum = 0;
+		char       *dst    = (char *)&g_a5_31336;
+		int         i;
 
-		for (i = 0; dn[i] != 0; i++)
+		if (FSOpen((ConstStr255Param)"\013CURRENT.TXT", 0,
+		           &refnum) == noErr) {
+			long n = (long)sizeof dn_buf - 1;
+
+			(void)FSRead(refnum, &n, dn_buf);
+			(void)FSClose(refnum);
+			while (n > 0 && (dn_buf[n - 1] == '\r'
+			                 || dn_buf[n - 1] == '\n'
+			                 || dn_buf[n - 1] == ' '))
+				n--;
+			dn_buf[n] = 0;
+			if (n > 4)              /* "x.DSN" at minimum */
+				dn = dn_buf;
+		}
+		for (i = 0; dn[i] != 0 && i < 63; i++)
 			dst[i] = dn[i];
 		dst[i] = 0;
+		dbg_log(dst);
 	}
 }
 
