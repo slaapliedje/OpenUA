@@ -8495,6 +8495,33 @@ static unsigned char        g_wall_metric[WALL_NTILES][8];
 static const unsigned char *g_wall_bmp[WALL_NTILES];
 static short                g_wall_n;
 
+/* The UI palette (FRAME.CTL + text colours, clut 0..31) — defined far
+ * below in load_menu_ui; forward-declared here so the wall-palette
+ * installs can PRESERVE it. The first-person view only owns the floor/
+ * ceiling fallbacks (clut 4/5) and the wall bands (32+), so the UI band
+ * (0..3, 6..31) must survive every wall-set load — otherwise the roster
+ * panel fill (jt103 -> index 8) and the chrome band (16..31) come out as
+ * whatever the wall palette zeroed them to (the dungeon-HUD black bands). */
+static RGBColor g_menu_pal[256];
+static int      g_menu_state;
+
+/* Seed pal[0..31] with the live UI palette (clut 0..3, 6..31) so a
+ * full-CLUT wall install doesn't wipe the chrome/text band. Indices 4/5
+ * (floor/ceiling) are left for the caller to set. No-op until the UI
+ * palette has loaded (g_menu_state == 1). */
+static void cw_seed_ui_band(RGBColor *pal)
+{
+	short k;
+
+	if (g_menu_state != 1)
+		return;
+	for (k = 0; k < 32; k++) {
+		if (k == 4 || k == 5)           /* floor/ceiling — caller owns */
+			continue;
+		pal[k] = g_menu_pal[k];
+	}
+}
+
 /* Colour wall sets — up to CW_SLOTS loaded at once so the three wall
  * groups a level can use (Wall1-3) are all on screen. Each slot holds a
  * copy of its set's plain-wall piece (item 8, 8bpp chunky, <=56x56) and a
@@ -8812,6 +8839,7 @@ static void cw_finalize(void)
 
 	for (i = 0; i < 256; i++)
 		pal[i].red = pal[i].green = pal[i].blue = 0;
+	cw_seed_ui_band(pal);            /* preserve the UI/chrome band (0..3,6..31) */
 	pal[4].red = 0x1000; pal[4].green = 0x0c00; pal[4].blue = 0x0800; /* ceiling */
 	pal[5].red = 0x7000; pal[5].green = 0x4800; pal[5].blue = 0x2400; /* floor   */
 	for (slot = 0; slot < CW_SLOTS; slot++) {
@@ -10256,25 +10284,17 @@ static int dungeon_view_setup(void)
 		}
 	}
 
-	for (i = 0; i < 16; i++)
-		c4[i].red = c4[i].green = c4[i].blue = 0;
-	c4[1].red  = c4[1].green = c4[1].blue = 0xffff;            /* automap walls */
-	c4[2].red  = 0xffff; c4[2].green = 0xd000; c4[2].blue = 0; /* automap door  */
-	c4[3].red  = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party    */
+	/* Only program clut 4/5 (the floor/ceiling fallbacks the colour
+	 * backdrop fill writes). The UI band (0..3, 6..15) belongs to the
+	 * chrome/text palette and must NOT be zeroed here — that was the
+	 * dungeon-HUD black-band bug (jt103's index-8 roster fill landed on
+	 * a zeroed/ramp slot on the fresh-entry frame). The old automap
+	 * colours (1/2/3) + depth ramp (8..15) were a vestigial flat-shaded
+	 * path; the live first-person view renders via the wall bands (32+),
+	 * so they are dropped. */
 	c4[4].red  = 0x0c00; c4[4].green = 0x0900; c4[4].blue = 0x0600; /* ceiling  */
 	c4[5].red  = 0x7000; c4[5].green = 0x5400; c4[5].blue = 0x3200; /* floor    */
-	{
-		static const unsigned short ramp[8] = {
-			0xe800, 0xc200, 0x9e00, 0x7c00, 0x5c00, 0x4000, 0x2800, 0x1400
-		};
-		for (i = 0; i < 8; i++) {
-			unsigned short b = ramp[i];
-			c4[8 + i].red   = b;
-			c4[8 + i].green = (unsigned short)(((long)b * 184) >> 8);
-			c4[8 + i].blue  = (unsigned short)(((long)b * 108) >> 8);
-		}
-	}
-	qd_set_palette(c4, 0, 16);
+	qd_set_palette(c4 + 4, 4, 2);                  /* clut 4..5 only */
 	/* Initial wall set into slot 0 (cw_finalize also lays the backdrop
 	 * band); jt312 then auto-loads the level's Wall1-3 into the slots. */
 	load_color_wallset(g_cw_set);
