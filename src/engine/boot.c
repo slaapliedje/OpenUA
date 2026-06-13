@@ -10249,57 +10249,32 @@ static short jt298(short cell, short v)
 	return 1;
 }
 
-/* dungeon_view_setup — one-time bring-up of what the dungeon view needs:
- * load DUNGCOM.TLB's stone set into the wall-tile table and program the
- * view CLUT (automap 1..3, ceiling 4 / floor 5, and the 8-step brown
- * stone depth ramp at 8..15). Idempotent; returns non-zero once the
- * wall set is loaded. Called lazily by jt312 so the engine's dungeon
- * render entry is self-sufficient (the Mac build's CODE 21 view-init
- * loads these; we stand in for it here until that path is lifted). */
+/* dungeon_view_setup — one-time bring-up for the first-person view. NO
+ * stand-ins: it loads the DESIGN'S OWN wall groups (GEO HDR Wall1/2/3 =
+ * ds[4..6]) via load_wall_groups, which fills the g_cw_* slots (palette +
+ * transparency keys) and cw_finalize installs the clut bands (32/64/96) +
+ * the floor/ceiling fallbacks (4/5). The matching tile PIXELS load through
+ * l6148 -> l6eea (8X8DB/8X8DC.CTL) into the -27894 handles. This must run
+ * before the entry render (jt221 -> render_3d_faithful) so the l309c_tile
+ * palette rebase has the slots loaded; jt312's own load_wall_groups then
+ * no-ops (groups already current).
+ *
+ * DUNGCOM is COMBAT art, never the 3D view — the old DUNGCOM.TLB load into
+ * g_wall_bmp + the hand-rolled clut ramp + the default-set load were all
+ * stand-ins and are GONE (see [[dungcom-is-combat-only]]). Returns 1 once a
+ * wall group loaded (or always, so the render never bails on the gate). */
 static int g_dungeon_view_ready = 0;
 static int dungeon_view_setup(void)
 {
-	static unsigned char dc[20480];
-	short refnum = 0, i;
-	long count;
-	RGBColor c4[16];
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 
 	if (g_dungeon_view_ready)
-		return g_wall_n > 0;
+		return 1;
 	g_dungeon_view_ready = 1;
 
-	g_wall_n = 0;
-	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) == noErr) {
-		long dcbase, nested;
-		count = (long)sizeof dc;
-		(void)FSRead(refnum, &count, dc);
-		(void)FSClose(refnum);
-		dcbase = (long)(uintptr_t)dc;
-		if (l37aa(dcbase, 0) != 0 && (nested = l37aa(dcbase, 1)) != 0) {
-			for (i = 0; i < WALL_NTILES; i++) {
-				long lb = l2856(nested, (short)(i + 1), g_wall_metric[i]);
-				g_wall_bmp[i] = (lb != 0)
-				              ? (const unsigned char *)(uintptr_t)lb : NULL;
-			}
-			g_wall_n = WALL_NTILES;
-		}
-	}
-
-	/* Only program clut 4/5 (the floor/ceiling fallbacks the colour
-	 * backdrop fill writes). The UI band (0..3, 6..15) belongs to the
-	 * chrome/text palette and must NOT be zeroed here — that was the
-	 * dungeon-HUD black-band bug (jt103's index-8 roster fill landed on
-	 * a zeroed/ramp slot on the fresh-entry frame). The old automap
-	 * colours (1/2/3) + depth ramp (8..15) were a vestigial flat-shaded
-	 * path; the live first-person view renders via the wall bands (32+),
-	 * so they are dropped. */
-	c4[4].red  = 0x0c00; c4[4].green = 0x0900; c4[4].blue = 0x0600; /* ceiling  */
-	c4[5].red  = 0x7000; c4[5].green = 0x5400; c4[5].blue = 0x3200; /* floor    */
-	qd_set_palette(c4 + 4, 4, 2);                  /* clut 4..5 only */
-	/* Initial wall set into slot 0 (cw_finalize also lays the backdrop
-	 * band); jt312 then auto-loads the level's Wall1-3 into the slots. */
-	load_color_wallset(g_cw_set);
-	return (g_wall_n > 0) || (g_cw_sid[0] != 0);
+	if (ds != NULL)
+		load_wall_groups(ds);          /* faithful Wall1-3 -> g_cw_* + clut */
+	return 1;
 }
 
 /* --- play-screen frame (FRAME.CTL) --- *
