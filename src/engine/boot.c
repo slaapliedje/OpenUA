@@ -3133,7 +3133,16 @@ static void jt948(void)
 		if (h != NULL && h[134] == 0) {        /* fresh entry */
 			special = jt201((short)(signed char)g_a5_12288,
 			                (short)(signed char)g_a5_12287);
+#ifndef FRUA_SKIP_ENTRY_EVENTS
 			l709e(special);
+#else
+			/* DEBUG (make CFLAGS+=-DFRUA_SKIP_ENTRY_EVENTS): skip the
+			 * landing-cell event chain so the dungeon VIEW shows on entry
+			 * without the (slow, palette-broken) intro events blocking it.
+			 * For visually verifying the wall render (the stand-in removal /
+			 * #126). Not a shipping path. */
+			(void)special;
+#endif
 			h[134] = 1;
 			if (g_a5_byte(-27982) == 0) {
 				jt938();                /* status / clock line */
