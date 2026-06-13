@@ -9869,21 +9869,18 @@ static void jt200(unsigned char *page, short top, short left,
 			code = 1;
 	}
 	if ((sub & 0xff) < 8) {
-		/* step the VERTICAL anchor (asm fp@10).
-		 * L59d4 5a28-5a52: in deep mode adds 16 to fp@(10) — the 8016-anchored
-		 * coord, which l5b42 emits as jt200's `top` (vertical). The old lift
-		 * stepped `left` (horizontal), transposing the per-layer step and
-		 * inverting the depth stack (far walls rode up to the screen top, near
-		 * walls sat too low — "facing wall too far back, tops don't meet").
-		 * Native 320x200 halves the Mac's 16 -> 8 (see l5b42's halved deep
-		 * transform); top here is already the transformed native coord.
-		 * g_cwf_force_deep keeps the deep step firing while the play screen
-		 * runs at g_a5_2347=1 (so the command bar draws at native scale). */
+		/* step the LEFT (horizontal) anchor — asm L59d4 5a28-5a52 adds 16 to
+		 * fp@(10), which is jt200's 2nd arg and (per L5b42 -> JT[114] top,left)
+		 * the LEFT/8016-anchored coord. This is the per-layer far/near offset:
+		 * the far face sits one step left of the near. Native 320x200 halves
+		 * the Mac's 16 -> 8 (see l5b42's halved deep transform). g_cwf_force_deep
+		 * keeps it firing while the play screen runs at g_a5_2347=1. (The prior
+		 * lift stepped `top`, transposing this offset along with the l5b42 axis.) */
 		if (jt1200() == 3 || g_cwf_force_deep) {
-			if (top < 8000)
-				top = (short)(top + 8);
+			if (left < 8000)
+				left = (short)(left + 8);
 		} else {
-			top = (short)(top + 4);
+			left = (short)(left + 4);
 		}
 	}
 
@@ -9939,53 +9936,43 @@ static short l5e52(short row, short col, short dir)
  * the slot-layout globals), apply the deep-mode (jt1200()==3) 8000-
  * anchor remap, then hand off to jt200 with the wall code + sub/layer.
  * (The Mac writes to the engine page descriptor; we thread the page.) */
-/* AXIS MAPPING (RESOLVED 2026-06-05, from L6234/L5b42 asm):
- * the L6234 deep-mode clip setup (0x628c..0x62c8) builds JT[1173]'s rect
- * from its two coord args: fp@(8) feeds left/right, fp@(10) feeds top/bottom.
- * So fp@(8) is the HORIZONTAL (X) anchor and fp@(10) the VERTICAL (Y) anchor.
- * At each L5b42 call (e.g. 0x63ee..0x6412) the first delta (the -12222/-12240
- * "wide" family, +soff) is added to fp@(8) -> HORIZONTAL, and the second
- * delta (the -12202/-12220 "narrow" family) is added to fp@(10) -> VERTICAL;
- * jt200 is then called (fp@8, fp@10) = (horizontal, vertical).
- *
- * jt199 is called jt199(8012, 8016, ...) so its arg1 (the `y` param here) is
- * the asm's fp@(8) = the HORIZONTAL anchor (8012), and arg2 (`x`) is fp@(10) =
- * the VERTICAL anchor (8016). The helpers pass the wide -12222/-12240 family
- * as `ydelta` (added to fp@(8)) and the narrow -12202/-12220 family as
- * `xdelta` (added to fp@(10)). So `ydelta` (wide) + `y` (8012) form the
- * HORIZONTAL coord and `xdelta` (narrow) + `x` (8016) the VERTICAL — no axis
- * cross; the only fix vs the original lift is the jt200 output order, since
- * jt200(arg1, arg2) = (horizontal, vertical) but our jt200 takes (top, left).
- * The original added each delta to its anchor but emitted jt200(y, x) as
- * (top, left), putting the wide corridor-receding spread on the vertical axis
- * and transposing the view. Deltas are the LOW BYTE, signed (asm: moveb +
- * extw + lslw#2). Deep-mode (jt1200()==3) remap is ((v-8012)<<2)+8 on both;
- * with these anchors that yields horiz = 16*wide + 8, vert = 16*narrow + 24. */
+/* AXIS MAPPING (CORRECTED 2026-06-13 from the L5b42 -> jt200 -> JT[114] path,
+ * not the clip-rect): L5b42 does fp@(8) += arg3<<2 and fp@(10) += arg4<<2, then
+ * jt200(fp@8, fp@10, code, sub). jt200/L59d4 blits JT[114](fp@8, fp@10, ...),
+ * and JT[114] is v-first (top, left) — so:
+ *   - fp@(8) = TOP (vertical, screen Y), fed the WIDE delta (arg3, the
+ *     -12222/-12240 band-receding family that grows with soff);
+ *   - fp@(10) = LEFT (horizontal, screen X), fed the NARROW delta (arg4, the
+ *     -12202/-12220 family); the jt200 far/near +16 step also hits fp@(10).
+ * So the receding side walls step the VERTICAL axis (matches the Mac trace:
+ * near band top 8032->8012, left 8028 constant). The prior lift had the clip
+ * rect's order and put the wide spread on the horizontal axis, transposing the
+ * view (door splayed sideways instead of dead-ahead). jt199 is called
+ * jt199(8012, 8016,...): arg1 (`y` here) = the 8012 TOP anchor, arg2 (`x`) =
+ * the 8016 LEFT anchor. The helpers pass the wide family as `ydelta` (-> top)
+ * and the narrow family as `xdelta` (-> left). Deltas are the signed LOW BYTE
+ * (asm: moveb + extw + lslw#2). Deep-mode remap ((v-8012)<<2)+8 is halved to
+ * <<1 +4 for native 320x200 (the 88x88 pane is not doubled). */
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub) __attribute__((unused));
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub)
 {
-	/* y (8012) + wide ydelta -> horizontal; x (8016) + narrow xdelta -> vertical */
-	short horiz = (short)(y + ((short)(signed char)ydelta << 2));
-	short vert  = (short)(x + ((short)(signed char)xdelta << 2));
+	/* y (8012) + wide ydelta -> TOP (vertical); x (8016) + narrow xdelta -> LEFT */
+	short top  = (short)(y + ((short)(signed char)ydelta << 2));
+	short left = (short)(x + ((short)(signed char)xdelta << 2));
 	if (jt1200() == 3 || g_cwf_force_deep) {
-		/* The Mac deep transform is ((v-8012)<<2)+8 — that is the 640x400
-		 * DOUBLED space. FRUA is natively 320x200 (the 3D pane is 88x88, not
-		 * 176x176), so halve the scale to <<1 (+4) for the native view. This
-		 * also closes the far-row gaps: 8px tiles stepped 16px apart in the
-		 * doubled space land 8px apart native, so they abut. */
-		horiz = (short)(((short)(horiz - 8012) << 1) + 4 + g_cwf_ox);
-		vert  = (short)(((short)(vert  - 8012) << 1) + 4 + g_cwf_oy);
+		top  = (short)(((short)(top  - 8012) << 1) + 4 + g_cwf_oy);
+		left = (short)(((short)(left - 8012) << 1) + 4 + g_cwf_ox);
 	}
 #ifdef FRUA_COORD_TRACE
 	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
 	dbg_log_num("     narrow=", (long)(signed char)xdelta);
-	dbg_log_num("   scr top=", (long)vert);
-	dbg_log_num("  scr left=", (long)horiz);
+	dbg_log_num("   scr top=", (long)top);
+	dbg_log_num("  scr left=", (long)left);
 	dbg_log_num("    cd/sub=", (long)code * 100 + sub);
 #endif
-	jt200(page, vert, horiz, code, sub);   /* jt200(top, left) */
+	jt200(page, top, left, code, sub);   /* jt200(top, left) */
 }
 
 /* Direction-step deltas: signed-byte drow/dcol tables indexed by dir. */
@@ -10336,16 +10323,15 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	const short VL = 24, VT = 24, VR = 112, VB = 112;
 	static short s_off_init = 0;
 	if (!s_off_init) {
-		/* Faithful native placement: the Mac deep-view clip origin is (4,12)
-		 * native; FRAME.CTL set 9's hole is at (24,24), so slide the view by
-		 * (24-4, 24-12) = (20, 12). Measured span (FRUA_COORD_TRACE) confirms
-		 * the geometry's vanishing centre sits ~mid-hole at this offset; the
-		 * near side-walls overhang and clip at the pane edges by design.
-		 * Set once so the FRUA_L6234_VERIFY walk loop can nudge it live. */
+		/* Faithful native placement: after the l5b42 axis correction the deep-view
+		 * natural origin is ~(left 12, top 4) native; FRAME.CTL set 9's hole is at
+		 * (24,24), so slide by ox = 24-12 = 12 (horizontal/left), oy = 24-4 = 20
+		 * (vertical/top). (Pre-correction these were swapped, 20/12, for the
+		 * transposed view.) Re-tune by screenshot if the pane is off-centre. */
 #ifdef FRUA_COORD_TRACE
 		g_cwf_ox = 0; g_cwf_oy = 0;    /* measurement build: log natural span */
 #else
-		g_cwf_ox = 20; g_cwf_oy = 12;
+		g_cwf_ox = 12; g_cwf_oy = 20;
 #endif
 		s_off_init = 1;
 	}
