@@ -47,6 +47,31 @@ KEY: items are addressed by **numeric name**, not position. `l37aa(base,8)`
 - `jt1021/jt1023/jt1024/jt462/jt461/jt465` TLB cache build
 - `jt468` group->pool-base resolver (currently PROBE-marked — verify body)
 
+## STEP 2 RESULT (2026-06-13) — numeric-name theory DISPROVEN
+
+Parsed 8X8DB.CTL's directory (item 0 = [count][id u16, index u16] pairs, the
+table jt1013 scans): it is **IDENTITY** (id N -> index N for 1..9). Sub-GLIBs
+(sets) have NO remap directory (their item 0 is the palette). So
+`jt1013(refnum, 8)` returns index 8 = DB8 — the SAME tile the port's
+positional `l37aa(base, 8)` returns. **Routing l6eea through the FC group
+cache would NOT change wood->stone.** L6148 also passes ds[4/5/6]=5/8/1 raw to
+L6eea (no design-level remap).
+
+Rendered the EXACT trace tiles: set5 idx8 = full flat STONE-BRICK face; set8
+idx2/idx30 (the code-9/6 near tiles) = tiny WOOD edge SLIVERS. So on the Mac
+the prominent flat walls are set5/group0 (stone, codes 2/5/1) and set8 wood
+shows only as thin receding edges. The port renders wood-DOMINANT instead ->
+the bug is in the **render geometry** (l5b42/jt200 coord+scale transform
+sizing/placing the slot tiles wrong) or a per-slot divergence, NOT the wall
+set and NOT the RM. -> The wall fix is the jt200 SLOT-BY-SLOT DIFF vs
+docs/mac-blit-trace-heirs-l5.md (instrument the port's jt200 with #/top/left/
+code/sub/idx, diff all 25 slots, find where the port draws wood big). Moved
+to #126; de-linked from the RM.
+
+The RM (#127) is STILL worth doing — for memory (purgeable on-demand loading,
+the 4MB/ST-port path) and perf (cache-hit per-frame L6148) — but it is NOT
+the wall-texture fix. Reprioritize: RM is a memory/perf effort now.
+
 ## Worklist (each = one focused commit)
 
 1. [ ] AUDIT: confirm the FC-group data model is fully wired — the pool
