@@ -125,3 +125,26 @@ lands group-0 stone faces. FIX = re-lift jt199/L6234 faithfully so its slot
 sequence matches this trace (validate with the J200DIFF recorder). The
 port-side jt199_side/jt199_front/jt199_band helpers are the suspects:
 origin-offset (2-forward), the per-depth r/c stepping, and the l5b42 axis.
+
+## CORRECTION (2026-06-13) — jt199 is FAITHFUL; the trace is a DIFFERENT frame
+
+Re-read the FULL L6234 disassembly (CODE 7 @0x6234) — all 3 bands (case 2 near
+= 4 sub-loops side+side+front+front; case 1 mid = 2 band passes; case 0 far =
+2 band passes), the direction deltas (-27862/-27853), and the L6e4a receding
+(orow/ocol += DROW/DCOL(back) per sel 2->1->0). The port's jt199 +
+jt199_side/jt199_front/jt199_band match it pass-by-pass.
+
+PROOF: simulated the faithful jt199 (translated from L6234) in Python against
+GEO005 at (row8,col10,facing E). Output = 21 slots, codes
+{2:1, 6:6, 9:2, 11:10, 13:2} — IDENTICAL to the port's J200DIFF.TXT. So the
+port faithfully reproduces L6234. The 25-slot Mac trace above
+({1:4,2:2,5:1,6:7,9:8,11:3}) does NOT match the faithful walk at (8,10,E), so
+it was captured at a DIFFERENT cell/facing — the post-merchant frame where the
+party had moved, NOT the standing start.
+
+CONSEQUENCE: jt199 needs NO re-lift. The earlier "jt199 frustum is the bug"
+finding was wrong (diffed against a mismatched reference). To resume the
+wood-vs-stone diff we need a Mac jt200 trace captured at the EXACT standing
+start frame (10,8 facing east, BEFORE any movement). With a matching reference
+the remaining suspect is the l5b42/jt200 coord+scale transform (tile sizes/
+positions), since the cell reads are now proven faithful.
