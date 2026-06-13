@@ -9989,7 +9989,7 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
  * soff steps by `soffstep` per depth (the receding screen offset). */
 static void jt199_side(unsigned char *page, short Y, short X, short r,
                        short c, short dir, short facing, short soffstep,
-                       short yadj)
+                       short yadj, short near_min)
 {
 	short depth, soff = 0, prev = 0, w;
 
@@ -10001,7 +10001,11 @@ static void jt199_side(unsigned char *page, short Y, short X, short r,
 				      (short)(g_a5_word(-12222) + soff + yadj),
 				      g_a5_word(-12202), prev, 9);
 			prev = w;
-			if (depth < 3)
+			/* near face: L6234 draws it at depth {near_min..2}. The LEFT
+			 * sub-loop (L641a) gates only `depth < 3` (near_min 0); the RIGHT
+			 * sub-loop (L65b2) additionally skips depth 0 (`tstb depth; beq`)
+			 * so the shared origin cell isn't drawn twice — near_min 1. */
+			if (depth >= near_min && depth < 3)
 				l5b42(page, Y, X,
 				      (short)(g_a5_word(-12240) + soff),
 				      g_a5_word(-12220), w, 0);
@@ -10106,8 +10110,8 @@ static void jt199(unsigned char *page, short Y, short X, short row,
 
 	for (sel = 2; sel >= 0; sel--) {
 		if (sel == 2) {                                  /* near band */
-			jt199_side(page, Y, X, orow, ocol, left,  facing, -2, +1);
-			jt199_side(page, Y, X, orow, ocol, right, facing, +2, -1);
+			jt199_side(page, Y, X, orow, ocol, left,  facing, -2, +1, 0);
+			jt199_side(page, Y, X, orow, ocol, right, facing, +2, -1, 1);
 			jt199_front(page, Y, X, orow, ocol, left,  -2, -12238, -12218, -1, 1);
 			jt199_front(page, Y, X, orow, ocol, right, +2, -12236, -12216, +1, 2);
 		} else if (sel == 1) {                           /* mid band */
@@ -10158,7 +10162,7 @@ static void dbg_dump_view(const unsigned char *ds, short row, short col,
                           short facing)
 {
 	static char done = 0;
-	char buf[1024];
+	char buf[4096];
 	int  p = 0;
 	short i;
 	short ref = 0;
@@ -10177,9 +10181,24 @@ static void dbg_dump_view(const unsigned char *ds, short row, short col,
 		dv_app(buf, &p, "wall2=", (long)ds[5]);
 		dv_app(buf, &p, "wall3=", (long)ds[6]);
 	}
-	dv_app(buf, &p, "row(12287)=", (long)row);
-	dv_app(buf, &p, "col(12288)=", (long)col);
-	dv_app(buf, &p, "facing(12286)=", (long)facing);
+	dv_app(buf, &p, "row=", (long)row);
+	dv_app(buf, &p, "col=", (long)col);
+	dv_app(buf, &p, "facing=", (long)facing);
+	/* cell-nibble window: the 4 edges of a 3x3 block of map cells around the
+	 * party (col*H+row indexing). Garbage nibbles (>3 outside doors) here flag
+	 * an out-of-map / mis-loaded read rather than a jt199 walk error. */
+	if (ds != NULL) {
+		short dr, dc, e;
+		for (dr = -1; dr <= 1; dr++)
+			for (dc = -1; dc <= 1; dc++)
+				for (e = 0; e < 8; e += 2)
+					dv_app(buf, &p, "cell=",
+					       (long)(((row + dr) & 0xff) * 1000000L
+					            + ((col + dc) & 0xff) * 10000L
+					            + e * 1000L
+					            + l5e52((short)(row + dr),
+					                    (short)(col + dc), e)));
+	}
 	for (i = 0; i < 8; i++)
 		dv_app(buf, &p, "drow=", (long)JT199_DROW(i));
 	for (i = 0; i < 8; i++)
@@ -10241,6 +10260,44 @@ static void j200_dump(void)
 	if (done)
 		return;
 	done = 1;
+	{
+		const unsigned char *ds =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		short row = (short)g_a5_12288, col = (short)g_a5_12287;
+		short fac = (short)(g_a5_12286 & 7);
+		short dr, dc, e;
+		dv_app(buf, &p, "ds=", (long)(uintptr_t)ds);
+		dv_app(buf, &p, "row=", (long)row);
+		dv_app(buf, &p, "col=", (long)col);
+		dv_app(buf, &p, "facing=", (long)fac);
+		if (ds != NULL) {
+			dv_app(buf, &p, "W=", (long)ds[2]);
+			dv_app(buf, &p, "H=", (long)ds[3]);
+			dv_app(buf, &p, "wall1=", (long)ds[4]);
+			dv_app(buf, &p, "wall2=", (long)ds[5]);
+			dv_app(buf, &p, "wall3=", (long)ds[6]);
+			/* radius-4 cell window (covers the whole frustum), one line
+			 * per WALLED cell packed rrcc_NESW = row,col then the 4 edge
+			 * nibbles N/E/S/W. Lets us replay the faithful walk offline and
+			 * see exactly which cells/nibbles feed each jt200 slot. */
+			(void)e;
+			for (dr = -4; dr <= 4; dr++)
+				for (dc = -4; dc <= 4; dc++) {
+					short rr = (short)(row + dr), cc = (short)(col + dc);
+					long nv = l5e52(rr, cc, 0), ev = l5e52(rr, cc, 2);
+					long sv = l5e52(rr, cc, 4), wv = l5e52(rr, cc, 6);
+					if ((nv | ev | sv | wv) == 0)
+						continue;          /* skip fully-open cells */
+					/* bit-pack so nibbles 10-15 survive:
+					 * (rr*100+cc)<<16 | N<<12 | E<<8 | S<<4 | W */
+					dv_app(buf, &p, "w=",
+					    (long)((((long)(rr & 0xff) * 100 + (cc & 0xff)) << 16)
+					         | (nv << 12) | (ev << 8) | (sv << 4) | wv));
+					if (p > (int)sizeof buf - 160)
+						break;
+				}
+		}
+	}
 	dv_app(buf, &p, "slots=", (long)g_j2_n);
 	for (i = 0; i < g_j2_n; i++) {
 		/* pack as #*1e10 + fields; emit as labelled lines for readability */
@@ -10395,7 +10452,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * command bar / HUD while the 88x88 first-person view still renders deep. */
 	g_cwf_force_deep = 1;
 #ifdef FRUA_SKIP_ENTRY_EVENTS
-	dbg_dump_view(ds, (short)g_a5_12287, (short)g_a5_12288, f);
+	dbg_dump_view(ds, (short)g_a5_12288, (short)g_a5_12287, f);
 	rm_audit();
 	g_j2_n = 0; g_j2_active = 1;
 #endif
