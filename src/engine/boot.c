@@ -10463,6 +10463,7 @@ static long port_ui_group_base(short group)
  * 16..31), and blit every FRAME.CTL piece at its bearing. Called on the
  * dungeon view's full-clear frames (the chrome is static; the 88x88
  * viewport is overdrawn by the 3D render and refreshed via present-rect). */
+static void jt1193(void);        /* clip-to-full-screen, defined below */
 static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh)
 {
 	short r;
@@ -10490,26 +10491,20 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	for (r = 0; r < sh; r++)
 		memset(px + (long)r * pitch, 21, (size_t)sw);
 
-	/* The FAITHFUL dungeon frame is jt23 case 4 -> l67ca: jt76 (clear +
-	 * char-cell box + FRAME border 1-4) + l66e6 dividers (item 7 x2) +
-	 * viewport frame (item 9) + compass surround (item 21) + the ONE compass
-	 * face for the party facing (22-25). That's the right PIECE LIST — but
-	 * dropping it in here regressed: most pieces got covered by the grey fill
-	 * and only the last-drawn box survived ("layers out of sync", user). The
-	 * cause is the port's render ordering — TWO port_draw_play_frame sites
-	 * (this one + render_3d_faithful's s_chrome_drawn one), cw_view_clip left
-	 * set on the GrafPort, and the double-buffer present — which l67ca's
-	 * jt76/jt103/jt1001 path trips where the flat ui_glib_blit loop didn't.
-	 * Reverted to the blit-all reconstruction (it shows the chrome) until that
-	 * ordering is untangled; the faithful l67ca swap is the goal once it is. */
-	{
-		const unsigned char *base8 =
-			(const unsigned char *)(uintptr_t)g_frame_base;
-		short count = (short)(((unsigned)base8[8] << 8) | base8[9]);
-		short s;
-		for (s = 1; s < count; s++)
-			ui_glib_blit(g_frame_base, s, (short)0, (short)0, 1, 0);
-	}
+	/* FAITHFUL dungeon chrome: jt23 case 4 -> l67ca — jt76 (FRAME border
+	 * pieces 1-4 + the char-cell panel box) + l66e6 dividers (piece 7 x2) +
+	 * the 88x88 viewport frame (piece 9) + compass surround (piece 21) + the
+	 * one compass face for the party facing (22-25). This is the real Mac
+	 * piece list (vs the old blit-all-29 reconstruction).
+	 *
+	 * The earlier swap regressed because the 3D-view clip (cw_view_clip, set
+	 * by render_3d_faithful) was still active on the shared clip globals, so
+	 * l67ca's jt103/jt1001 draws were clipped to the 88x88 hole and vanished.
+	 * jt1193() resets the clip to the full screen first; l67ca then composes
+	 * over the grey fill, and render_3d_faithful re-sets its viewport clip
+	 * before filling piece 9's hole. */
+	jt1193();                        /* clip = full screen (was the bug) */
+	l67ca();
 }
 
 static signed char jt1160(void);        /* view-mode bit; defined below */
