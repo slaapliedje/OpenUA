@@ -9583,6 +9583,8 @@ static long jt1004_handle(void)
  * remain ahead — opaque 1bpp wall tiles take the mono OR path. Threads
  * an explicit page instead of the Mac page descriptor (g_a5_-2570);
  * distinct from the older l309c() channel stub that jt1001 still uses. */
+/* last tile l309c_tile placed (debug: size + landed origin) */
+static short g_lc_w, g_lc_h, g_lc_x0, g_lc_y0;
 static void l309c_tile(unsigned char *page, short top, short left,
                        long handle, short idx) __attribute__((unused));
 static void l309c_tile(unsigned char *page, short top, short left,
@@ -9609,6 +9611,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		short w = (short)(metric[6] * 8);
 		const unsigned char *body = (const unsigned char *)(uintptr_t)info;
 		short x0 = (short)(sx - xbear), y0 = (short)(sy - ybear);
+		g_lc_w = w; g_lc_h = h; g_lc_x0 = x0; g_lc_y0 = y0;
 		short r, c;
 		/* The tile bytes are 32-based indices into the set's own CLUT; rebase
 		 * them into this group's clut band (g_cw_base[slot] = 32/64/96) so
@@ -9817,7 +9820,9 @@ static short g_j2_n;
 static short g_j2_code[J2_MAX], g_j2_sub[J2_MAX], g_j2_grp[J2_MAX];
 static short g_j2_top[J2_MAX], g_j2_left[J2_MAX];
 static short g_j2_far[J2_MAX], g_j2_near[J2_MAX];
-static short g_j2_cur;
+static short g_j2_tw[J2_MAX], g_j2_th[J2_MAX];   /* near tile w,h */
+static short g_j2_tx[J2_MAX], g_j2_ty[J2_MAX];   /* near tile landed x0,y0 */
+static short g_j2_cur = -1;
 
 static short j2_begin(short code, short sub, short top, short left)
 {
@@ -9903,6 +9908,12 @@ static void jt200(unsigned char *page, short top, short left,
 	if (rec >= 0) g_j2_near[rec] = sub;
 #endif
 	jt200_layer(page, top, left, group, sub);                      /* near face */
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+	if (rec >= 0) {
+		g_j2_tw[rec] = g_lc_w; g_j2_th[rec] = g_lc_h;
+		g_j2_tx[rec] = g_lc_x0; g_j2_ty[rec] = g_lc_y0;
+	}
+#endif
 }
 
 /* l5e52 (CODE 7 + 0x5e52) — read a cell edge's MOVEMENT-TYPE code (the
@@ -10335,6 +10346,10 @@ static void j200_dump(void)
 		dv_app(buf, &p, " grp=", (long)g_j2_grp[i]);
 		dv_app(buf, &p, " far=", (long)g_j2_far[i]);
 		dv_app(buf, &p, " near=", (long)g_j2_near[i]);
+		dv_app(buf, &p, " tw=", (long)g_j2_tw[i]);
+		dv_app(buf, &p, " th=", (long)g_j2_th[i]);
+		dv_app(buf, &p, " tx=", (long)g_j2_tx[i]);
+		dv_app(buf, &p, " ty=", (long)g_j2_ty[i]);
 		if (p > (int)sizeof buf - 128)
 			break;
 	}
