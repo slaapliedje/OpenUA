@@ -14398,6 +14398,39 @@ static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
 
 void port_test_seed_design(void)
 {
+	/* Seed the current design name so jt127 builds the real
+	 * "<design>:<file>" path (the shim resolves it into the staged
+	 * .DSN subdirectory). The name comes from the CURRENT.TXT marker
+	 * `make gamedata DSN=<name>` writes — a stand-in for the Mac
+	 * prefs read until the jt315/L494e design picker lands. Falls
+	 * back to the tutorial when the marker is absent. */
+	{
+		static char dn_buf[64];
+		const char *dn     = "tutorial.dsn";
+		short       refnum = 0;
+		char       *dst    = (char *)&g_a5_31336;
+		int         i;
+
+		if (FSOpen((ConstStr255Param)"\013CURRENT.TXT", 0,
+		           &refnum) == noErr) {
+			long n = (long)sizeof dn_buf - 1;
+
+			(void)FSRead(refnum, &n, dn_buf);
+			(void)FSClose(refnum);
+			while (n > 0 && (dn_buf[n - 1] == '\r'
+			                 || dn_buf[n - 1] == '\n'
+			                 || dn_buf[n - 1] == ' '))
+				n--;
+			dn_buf[n] = 0;
+			if (n > 4)              /* "x.DSN" at minimum */
+				dn = dn_buf;
+		}
+		for (i = 0; dn[i] != 0 && i < 63; i++)
+			dst[i] = dn[i];
+		dst[i] = 0;
+		dbg_log(dst);
+	}
+
 	static unsigned char k_test_record[512];
 	static char          k_test_prompt[] =
 	    "exit Add Modify Delete View";
@@ -14525,38 +14558,6 @@ void port_test_seed_design(void)
 	 * handler l0f1a -> jt574 fires, reaching the char-creation screen. */
 	g_a5_byte(-14440) = 1;
 
-	/* Seed the current design name so jt127 builds the real
-	 * "<design>:<file>" path (the shim resolves it into the staged
-	 * .DSN subdirectory). The name comes from the CURRENT.TXT marker
-	 * `make gamedata DSN=<name>` writes — a stand-in for the Mac
-	 * prefs read until the jt315/L494e design picker lands. Falls
-	 * back to the tutorial when the marker is absent. */
-	{
-		static char dn_buf[64];
-		const char *dn     = "tutorial.dsn";
-		short       refnum = 0;
-		char       *dst    = (char *)&g_a5_31336;
-		int         i;
-
-		if (FSOpen((ConstStr255Param)"\013CURRENT.TXT", 0,
-		           &refnum) == noErr) {
-			long n = (long)sizeof dn_buf - 1;
-
-			(void)FSRead(refnum, &n, dn_buf);
-			(void)FSClose(refnum);
-			while (n > 0 && (dn_buf[n - 1] == '\r'
-			                 || dn_buf[n - 1] == '\n'
-			                 || dn_buf[n - 1] == ' '))
-				n--;
-			dn_buf[n] = 0;
-			if (n > 4)              /* "x.DSN" at minimum */
-				dn = dn_buf;
-		}
-		for (i = 0; dn[i] != 0 && i < 63; i++)
-			dst[i] = dn[i];
-		dst[i] = 0;
-		dbg_log(dst);
-	}
 }
 
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
