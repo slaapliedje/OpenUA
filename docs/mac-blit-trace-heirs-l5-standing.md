@@ -63,10 +63,32 @@ code multiset {1:4, 2:2, 5:1, 6:7, 9:8, 11:3}; group {0:7, 1:15, 2:3}.
 4. far/near idx strides (validates jt200 idx math): code 9 far N -> near N+28
    (2->30, 3->31, 4->32, 5->33); code 5 far5 -> near42 (+37); code 1/6 near only.
 
-## Use
-Re-lift jt199 (L6234) walk, validating the port's J200DIFF against this 25-slot
-frame slot-by-slot. (The axis is restored+committed 40a5b2b; the jt999 "branch"
-was disproven — see finding #3.)
+## RESOLVED 2026-06-13: jt199 is FAITHFUL; the bug is GEO005 map loading
+
+Full lift-verification of L6234 (CODE 7 @0x6234..0x6ea1) done (03167ef): the
+port's jt199 + jt199_side/front/band match the asm for cases 1/0 + the L6e4a
+tail exactly; case 2 had ONE divergence (right-side near-face must skip depth 0,
+asm L65b2 `tstb depth; beq`) now fixed via a near_min param.
+
+PROOF (offline replay): decoded the asm walk in Python and ran it against the
+port's ACTUAL loaded map (dumped at runtime via j200_dump's cell-window) at the
+real inputs row=10 col=8 facing=2(E), 19x19, walls 5/8/1 — it reproduces the
+port's J200DIFF 16 slots EXACTLY (zero OOB reads). So the port's frustum walk is
+a faithful L6234 and emits exactly what the faithful walk should for its map.
+
+Therefore the 16-vs-25 gap is NOT a walk bug. The port's loaded GEO005 cells are
+saturated with high nibbles (code 11 x40, 13 x4 within radius-4) and produce the
+spurious codes 10/13; the Mac's 25-slot frame uses {1,2,5,6,9,11} (11 and 9 ARE
+valid — so high nibbles per se aren't wrong, but 10/12/13 are absent). Since the
+walk is faithful and inputs match, **the port's loaded map differs from the
+Mac's** (or the trace's facing != E). The naive FORM/AMOD file read (ds@off 24,
+cell@+290, (col*H+row)*6) does NOT reproduce the port's cells either — the engine
+loads ds through a transform, so the file can't be compared raw.
+
+NEXT (new task): confirm the port's loaded GEO005 ds cells vs the Mac's. Either
+(a) the user dumps the Mac's loaded ds nibbles at the standing start, or (b)
+confirm the trace's exact row/col/facing. Then fix the GEO load path. jt199 needs
+NO further work.
 
 ## Diagnosis closed (2026-06-13): the bug is jt199's L6234 cell-walk
 
