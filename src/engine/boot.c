@@ -10372,8 +10372,15 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	dbg_dump_view(ds, (short)g_a5_12287, (short)g_a5_12288, f);
 	g_j2_n = 0; g_j2_active = 1;
 #endif
+	/* FAITHFUL row/col: the Mac jt199 caller (CODE 10 @0x2178) passes
+	 * row = g_a5_-12288, col = g_a5_-12287 (verified against L6234, which
+	 * indexes l5e52 as col*H+row). The port had these reversed, so it walked
+	 * the TRANSPOSED cell (HEIRS start rendered the col10/row8 WOOD room
+	 * instead of the faithful col8/row10 STONE room). g_a5_-12288 is ROW(Y),
+	 * g_a5_-12287 is COL(X) — the l0bbc load + jt938 HUD already store/show
+	 * them this way; only the render/movement USAGE was reversed. */
 	jt199(page, (short)8012, (short)8016,
-	      (short)g_a5_12287, (short)g_a5_12288, f);
+	      (short)g_a5_12288, (short)g_a5_12287, f);
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 	g_j2_active = 0;
 	j200_dump();
