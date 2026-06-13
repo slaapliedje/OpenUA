@@ -1,9 +1,15 @@
-# Mac blit trace — HEIRS save A, level 5 STANDING START (10,8), ground truth
+# Mac blit trace — HEIRS save A, level 5 (NOT the standing start — see below)
 
-Captured by the user (2026-06-13) from the instrumented Mac binary at the
-standing start cell (HUD 10,8), BEFORE any movement, WITH per-tile blit
-positions. This is THE reference for the port's render_3d_faithful geometry.
-The frame is 25 jt200 slots and repeats (#0-24, #25-49, ...).
+**MISLABELED (corrected 2026-06-13): this 25-slot frame is NOT the (10,8,E)
+standing start.** Verified via the BasiliskII mon monitor: at the real standing
+start the Mac's A5 globals read row=0x0A(10) col=0x08(8) facing=0x02(E) — and
+the Mac's loaded design state (ds = A5-12300 = 0x01ECE540: ver 0x6A, W=H=0x13,
+walls 05/08/01) cell (10,10) reads bytes `EB 00 EB 0D` = nibbles 11/0/11/13,
+**byte-identical to what the port loads**. The port's faithful jt199 emits 16
+slots at this frame; the Mac (same map, same inputs, same code) therefore also
+emits 16, not 25. So this 25-slot capture was a DIFFERENT frame (post-merchant /
+after a move). Keep it only as a generic format reference, NOT the standing-start
+oracle. The dungeon 3D chain (jt199/l5b42/jt200/l5e52 + GEO load) is FAITHFUL.
 
 ## The 25-slot frame (jt200: top,left,code,sub + each blit's blitter/idx/coords)
 
