@@ -9882,13 +9882,14 @@ static void jt200(unsigned char *page, short top, short left,
 		/* step the LEFT (horizontal) anchor — asm L59d4 5a28-5a52 adds 16 to
 		 * fp@(10), which is jt200's 2nd arg and (per L5b42 -> JT[114] top,left)
 		 * the LEFT/8016-anchored coord. This is the per-layer far/near offset:
-		 * the far face sits one step left of the near. Native 320x200 halves
-		 * the Mac's 16 -> 8 (see l5b42's halved deep transform). g_cwf_force_deep
-		 * keeps it firing while the play screen runs at g_a5_2347=1. (The prior
-		 * lift stepped `top`, transposing this offset along with the l5b42 axis.) */
+		 * the far face sits one step left of the near. The Mac's +4 (8000-space,
+		 * e.g. trace 8028->8032) scales by the view factor: x1 native -> +4
+		 * (was +8 under the old <<1 x2 transform). g_cwf_force_deep keeps it
+		 * firing while the play screen runs at g_a5_2347=1. (The prior lift
+		 * stepped `top`, transposing this offset along with the l5b42 axis.) */
 		if (jt1200() == 3 || g_cwf_force_deep) {
 			if (left < 8000)
-				left = (short)(left + 8);
+				left = (short)(left + 4);
 		} else {
 			left = (short)(left + 4);
 		}
@@ -9978,8 +9979,15 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 	short top  = (short)(y + ((short)(signed char)ydelta << 2));
 	short left = (short)(x + ((short)(signed char)xdelta << 2));
 	if (jt1200() == 3 || g_cwf_force_deep) {
-		top  = (short)(((short)(top  - 8012) << 1) + 4 + g_cwf_oy);
-		left = (short)(((short)(left - 8012) << 1) + 4 + g_cwf_ox);
+		/* Native 320x200 scale. The Mac renders this view DOUBLED: jt1135
+		 * scales the position x2 AND L2d4e scales the tile x2 (lslw JT[1200]),
+		 * filling a 176px pane in 640x400. The port draws the 88px NATIVE pane,
+		 * so positions scale x1 to match the 1:1 tile blit. The earlier <<1
+		 * doubled positions but left tiles 1:1 — so wall pieces were too small
+		 * for their spacing and the view fragmented ("broken mirror"). x1
+		 * positions + 1:1 tiles tessellate into solid walls. (#129) */
+		top  = (short)((short)(top  - 8012) + g_cwf_oy);
+		left = (short)((short)(left - 8012) + g_cwf_ox);
 	}
 #ifdef FRUA_COORD_TRACE
 	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
@@ -10421,15 +10429,15 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	const short VL = 24, VT = 24, VR = 112, VB = 112;
 	static short s_off_init = 0;
 	if (!s_off_init) {
-		/* Faithful native placement: after the l5b42 axis correction the deep-view
-		 * natural origin is ~(left 12, top 4) native; FRAME.CTL set 9's hole is at
-		 * (24,24), so slide by ox = 24-12 = 12 (horizontal/left), oy = 24-4 = 20
-		 * (vertical/top). (Pre-correction these were swapped, 20/12, for the
-		 * transposed view.) Re-tune by screenshot if the pane is off-centre. */
+		/* Faithful native placement at x1 (l5b42 deep transform = (v-8012)+off).
+		 * The min slot anchors sit at native (left 8016->4, top 7992->-20);
+		 * FRAME.CTL set 9's hole is at (24,24), so slide by ox = 24-4 = 20
+		 * (horizontal/left), oy = 24-(-20) = 44 (vertical/top). Re-tune by
+		 * screenshot if the pane is off-centre in the hole. */
 #ifdef FRUA_COORD_TRACE
 		g_cwf_ox = 0; g_cwf_oy = 0;    /* measurement build: log natural span */
 #else
-		g_cwf_ox = 12; g_cwf_oy = 20;
+		g_cwf_ox = 20; g_cwf_oy = 44;
 #endif
 		s_off_init = 1;
 	}
