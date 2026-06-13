@@ -11,27 +11,28 @@ python3 tools/jt_progress.py
 
 Legend: **LIFTED** real body · **NOOP** faithful empty/constant 
 (done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** 
-one-line placeholder (pending) · **MISSING** not in boot.c yet.
+one-line placeholder (pending) · **STANDIN** real body but a non-
+faithful port reimplementation (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 766 done (695 lifted, 19 noop, 52 alias), 156 stub, 283 missing.
+**1205 distinct JT entries are called.** Overall: 764 done (693 lifted, 19 noop, 52 alias), 156 stub, 2 stand-in, 283 missing.
 
 ## Progress by band (100 most-called at a time)
 
-| Band | Rank | done | lifted | noop/alias | stub | missing |
-|------|------|-----:|-------:|-----------:|-----:|--------:|
-| 1 | 1–100 | **100/100** | 92 | 8 | 0 | 0 |
-| 2 | 101–200 | **100/100** | 92 | 8 | 0 | 0 |
-| 3 | 201–300 | **99/100** | 82 | 17 | 0 | 1 |
-| 4 | 301–400 | **99/100** | 76 | 23 | 1 | 0 |
-| 5 | 401–500 | **100/100** | 86 | 14 | 0 | 0 |
-| 6 | 501–600 | **29/100** | 28 | 1 | 23 | 48 |
-| 7 | 601–700 | **29/100** | 29 | 0 | 7 | 64 |
-| 8 | 701–800 | **36/100** | 36 | 0 | 6 | 58 |
-| 9 | 801–900 | **4/100** | 4 | 0 | 90 | 6 |
-| 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 |
-| 11 | 1001–1100 | **60/100** | 60 | 0 | 8 | 32 |
-| 12 | 1101–1200 | **14/100** | 14 | 0 | 16 | 70 |
-| 13 | 1201–1205 | **1/5** | 1 | 0 | 0 | 4 |
+| Band | Rank | done | lifted | noop/alias | stub | standin | missing |
+|------|------|-----:|-------:|-----------:|-----:|--------:|--------:|
+| 1 | 1–100 | **99/100** | 91 | 8 | 0 | 1 | 0 |
+| 2 | 101–200 | **100/100** | 92 | 8 | 0 | 0 | 0 |
+| 3 | 201–300 | **99/100** | 82 | 17 | 0 | 0 | 1 |
+| 4 | 301–400 | **98/100** | 75 | 23 | 1 | 1 | 0 |
+| 5 | 401–500 | **100/100** | 86 | 14 | 0 | 0 | 0 |
+| 6 | 501–600 | **29/100** | 28 | 1 | 23 | 0 | 48 |
+| 7 | 601–700 | **29/100** | 29 | 0 | 7 | 0 | 64 |
+| 8 | 701–800 | **36/100** | 36 | 0 | 6 | 0 | 58 |
+| 9 | 801–900 | **4/100** | 4 | 0 | 90 | 0 | 6 |
+| 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 | 0 |
+| 11 | 1001–1100 | **60/100** | 60 | 0 | 8 | 0 | 32 |
+| 12 | 1101–1200 | **14/100** | 14 | 0 | 16 | 0 | 70 |
+| 13 | 1201–1205 | **1/5** | 1 | 0 | 0 | 0 | 4 |
 
 ## Band 1 detail (rank 1–100)
 
@@ -112,7 +113,7 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 73 | jt57 | 23 | LIFTED |  |
 | 74 | jt182 | 23 | LIFTED |  |
 | 75 | jt1173 | 23 | LIFTED |  |
-| 76 | jt118 | 22 | LIFTED |  |
+| 76 | jt118 | 22 | **STANDIN** | render-path variant that calls l309c_tile, NOT the Mac jt118 (-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via jt108+jt1001. See docs + the jt118-signature-mismatch note. |
 | 77 | jt273 | 22 | LIFTED |  |
 | 78 | jt410 | 22 | LIFTED |  |
 | 79 | jt876 | 22 | LIFTED |  |
@@ -243,14 +244,37 @@ one-line placeholder (pending) · **MISSING** not in boot.c yet.
 | 199 | jt883 | 8 | LIFTED |  |
 | 200 | jt914 | 8 | LIFTED |  |
 
-## The pending queue (top-100 stubs + missing, by call count)
+## Stand-ins (real body, but a port reimplementation — NOT a lift)
+
+These have a body so they look done, but diverge from the Mac. They
+are counted as **pending**, not done, and each names the faithful
+target it still needs. Verified against the disassembly; remove an
+entry from `STANDIN`/`PORT_STANDINS` in the tool once the real lift
+lands.
+
+| JT | calls | faithful target |
+|----|------:|-----------------|
+| jt118 | 22 | render-path variant that calls l309c_tile, NOT the Mac jt118 (-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via jt108+jt1001. See docs + the jt118-signature-mismatch note. |
+| jt114 | 3 | wall-tile blit routes to l309c_tile's per-set CLUT band-rebase (off=v-32, bands 32/64/96) — a port invention. The Mac blits tile bytes as DIRECT indices into the active CLUT via L309c->L2d4e (no rebase) and scales the tile by the display factor (L2d4e: lslw JT[1200]). Faithful fix: drop the rebase, load the dungeon CLUT, match the display-mode tile scale (#129). |
+
+Non-JT port stand-ins (whole-routine reimplementations, kept in sync with `docs/stub-inventory.md`):
+
+- `port_draw_play_frame` — coarse HUD-chrome over-blit (the #114 'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)
+- `l309c_tile` — the dungeon 8bpp wall-tile channel with the per-set band rebase; non-faithful colour model — see jt114 above (#129)
+- `port_run_encounter / port_rest / port_play_message / port_begin_adventure` — play-loop stand-ins over the faithful CODE 15-19 chain (l07dc -> jt918 -> jt948); being replaced piecemeal
+- `port_render_geo_* / port_render_topview` — area-map stand-ins; faithful renderers are jt501/jt521 (now lifted) — rewire the callers
+- `port_show_intro / port_menu_bar / port_hud_text_clut` — title/HUD chrome stand-ins, trace-matched but not lifted from CODE 22/21
+- `port_*_demo (blit/play/sprite/view/wall) + port_l6234_verify` — throwaway harness scaffolding, never on the faithful path
+
+## The pending queue (top-100 stubs + stand-ins + missing, by call count)
 
 Each carries _why_ it is still open, so the next unit of work is
 self-selecting. Categories: **subsystem** (small body, but gated on
 an uncharted multi-function cluster — lift the cluster first);
 **dispatcher** (large multi-case switch, a session on its own);
 **trap-shim** (issues a Mac OS trap the HAL must route); **HAL**
-(needs a display/row-blit backend, not a transcription).
+(needs a display/row-blit backend, not a transcription); **standin**
+(a non-faithful port body — see the stand-ins section).
 
-_None — the top 100 are fully lifted._
+- jt118 (22 calls) — standin — render-path variant that calls l309c_tile, NOT the Mac jt118 (-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via jt108+jt1001. See docs + the jt118-signature-mismatch note.
 

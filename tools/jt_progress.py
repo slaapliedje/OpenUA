@@ -15,6 +15,8 @@ the progress file can never drift from the actual source:
         LIFTED  — a real faithful body
         STUB    — a one-line PROBE/return placeholder, real work pending
         NOOP    — faithful AS a stub (the Mac body is empty / a constant)
+        STANDIN — a real body, but a non-faithful port reimplementation
+                  (in the STANDIN whitelist); counted as pending, not done
         MISSING — no jtN symbol in boot.c yet
   3. Emit docs/jt-lift-progress.md: an overall tally, a per-100-band
      summary (top 100, next 100, ...), and the ranked detail table.
@@ -23,6 +25,7 @@ Usage:
     python3 tools/jt_progress.py                # regenerate the doc
     python3 tools/jt_progress.py --check        # print summary only
     python3 tools/jt_progress.py --band 2       # detail for the 2nd 100
+    python3 tools/jt_progress.py --standins     # list the port stand-ins
 
 The classifier is a heuristic (see classify()); the NOOP whitelist and a
 few known alias lifts are listed explicitly. Treat band tallies as +/-2,
@@ -116,6 +119,48 @@ ALIAS_LIFTED = {
     24: "lifted as l2000 (same address; the STR weight-allowance table)",
     88: "lifted as l5124 (same address; the game-state reset)",
 }
+
+# STAND-INS: JT entries that DO have a body (so classify() would call them
+# LIFTED) but whose body is a port reimplementation, NOT a faithful lift of
+# the Mac routine. They masquerade as done and silently inflate the score —
+# this list pulls them back out into their own bucket (counted as pending,
+# like STUB) with the faithful target each one still needs. Add (n: "note")
+# as a divergence is confirmed against the disassembly; remove once the real
+# lift lands.
+STANDIN = {
+    114: "wall-tile blit routes to l309c_tile's per-set CLUT band-rebase "
+         "(off=v-32, bands 32/64/96) — a port invention. The Mac blits tile "
+         "bytes as DIRECT indices into the active CLUT via L309c->L2d4e (no "
+         "rebase) and scales the tile by the display factor (L2d4e: lslw "
+         "JT[1200]). Faithful fix: drop the rebase, load the dungeon CLUT, "
+         "match the display-mode tile scale (#129).",
+    118: "render-path variant that calls l309c_tile, NOT the Mac jt118 "
+         "(-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via "
+         "jt108+jt1001. See docs + the jt118-signature-mismatch note.",
+}
+
+# Non-JT port stand-ins: whole port_*/lXXXX reimplementations that stand in
+# for a faithful Mac path. Not keyed by a JT number, so they live here as a
+# static list for visibility (kept in sync with docs/stub-inventory.md).
+PORT_STANDINS = [
+    ("port_draw_play_frame",
+     "coarse HUD-chrome over-blit (the #114 'jank'); faithful composer is "
+     "jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)"),
+    ("l309c_tile",
+     "the dungeon 8bpp wall-tile channel with the per-set band rebase; "
+     "non-faithful colour model — see jt114 above (#129)"),
+    ("port_run_encounter / port_rest / port_play_message / port_begin_adventure",
+     "play-loop stand-ins over the faithful CODE 15-19 chain (l07dc -> jt918 "
+     "-> jt948); being replaced piecemeal"),
+    ("port_render_geo_* / port_render_topview",
+     "area-map stand-ins; faithful renderers are jt501/jt521 (now lifted) — "
+     "rewire the callers"),
+    ("port_show_intro / port_menu_bar / port_hud_text_clut",
+     "title/HUD chrome stand-ins, trace-matched but not lifted from CODE 22/21"),
+    ("port_*_demo (blit/play/sprite/view/wall) + port_l6234_verify",
+     "throwaway harness scaffolding, never on the faithful path"),
+]
+
 
 # Why each still-open top-100 entry is open — keeps the pending queue
 # self-documenting so the next unit of work picks itself. Tags: subsystem
@@ -225,6 +270,9 @@ def classify(n, defs):
         return "STUB"
     if len(stmts) == 1 and re.match(r"^return\s*(-?\d+)?$", stmts[0]):
         return "STUB"
+    # A real body, but flagged as a non-faithful port reimplementation.
+    if n in STANDIN:
+        return "STANDIN"
     return "LIFTED"
 
 
@@ -240,17 +288,30 @@ def main():
     status = {n: classify(n, defs) for n, _ in ranked}
 
     def tally(entries):
-        t = {"LIFTED": 0, "STUB": 0, "NOOP": 0, "ALIAS": 0, "MISSING": 0}
+        t = {"LIFTED": 0, "STUB": 0, "NOOP": 0, "ALIAS": 0,
+             "STANDIN": 0, "MISSING": 0}
         for n, _ in entries:
             t[status[n]] += 1
         return t
+
+    if "--standins" in args:
+        print("JT stand-ins (real body, but a non-faithful port "
+              "reimplementation):")
+        for n in sorted(STANDIN):
+            c = freq.get(n, 0)
+            print(f"  jt{n:<5} {c:4} calls  {status.get(n, '?'):8} {STANDIN[n]}")
+        print("\nNon-JT port stand-ins (whole-routine reimplementations):")
+        for name, note in PORT_STANDINS:
+            print(f"  {name}\n      {note}")
+        return
 
     if "--check" in args:
         t = tally(ranked[:100])
         done = t["LIFTED"] + t["NOOP"] + t["ALIAS"]
         print(f"top-100: {done} done "
               f"({t['LIFTED']} lifted + {t['NOOP']} noop + {t['ALIAS']} alias), "
-              f"{t['STUB']} stub, {t['MISSING']} missing")
+              f"{t['STUB']} stub, {t['STANDIN']} stand-in, "
+              f"{t['MISSING']} missing")
         return
 
     if "--band" in args:
@@ -273,19 +334,20 @@ def main():
     A("```sh\npython3 tools/jt_progress.py\n```\n")
     A("Legend: **LIFTED** real body · **NOOP** faithful empty/constant ")
     A("(done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** ")
-    A("one-line placeholder (pending) · **MISSING** not in boot.c yet.\n")
+    A("one-line placeholder (pending) · **STANDIN** real body but a non-")
+    A("faithful port reimplementation (pending) · **MISSING** not in boot.c yet.\n")
 
     ndist = len(ranked)
     done_all = total["LIFTED"] + total["NOOP"] + total["ALIAS"]
     A(f"**{ndist} distinct JT entries are called.** Overall: "
       f"{done_all} done ({total['LIFTED']} lifted, {total['NOOP']} noop, "
       f"{total['ALIAS']} alias), {total['STUB']} stub, "
-      f"{total['MISSING']} missing.\n")
+      f"{total['STANDIN']} stand-in, {total['MISSING']} missing.\n")
 
     # per-100 band summary
     A("## Progress by band (100 most-called at a time)\n")
-    A("| Band | Rank | done | lifted | noop/alias | stub | missing |")
-    A("|------|------|-----:|-------:|-----------:|-----:|--------:|")
+    A("| Band | Rank | done | lifted | noop/alias | stub | standin | missing |")
+    A("|------|------|-----:|-------:|-----------:|-----:|--------:|--------:|")
     for b in range((ndist + 99) // 100):
         seg = ranked[b * 100:(b + 1) * 100]
         if not seg:
@@ -294,7 +356,8 @@ def main():
         done = t["LIFTED"] + t["NOOP"] + t["ALIAS"]
         A(f"| {b + 1} | {b * 100 + 1}–{b * 100 + len(seg)} | "
           f"**{done}/{len(seg)}** | {t['LIFTED']} | "
-          f"{t['NOOP'] + t['ALIAS']} | {t['STUB']} | {t['MISSING']} |")
+          f"{t['NOOP'] + t['ALIAS']} | {t['STUB']} | {t['STANDIN']} | "
+          f"{t['MISSING']} |")
     A("")
 
     # detail tables for the leading bands
@@ -306,26 +369,49 @@ def main():
         A("| rank | JT | calls | status | note |")
         A("|-----:|----|------:|--------|------|")
         for rank, (n, c) in enumerate(seg, start=b * 100 + 1):
-            note = ALIAS_LIFTED.get(n, "")
+            note = ALIAS_LIFTED.get(n, "") or STANDIN.get(n, "")
             tag = status[n]
-            cell = f"**{tag}**" if tag in ("STUB", "MISSING") else tag
+            cell = (f"**{tag}**"
+                    if tag in ("STUB", "STANDIN", "MISSING") else tag)
             A(f"| {rank} | jt{n} | {c} | {cell} | {note} |")
         A("")
 
-    A("## The pending queue (top-100 stubs + missing, by call count)\n")
+    # ---- stand-ins: real bodies that are not faithful lifts ----
+    A("## Stand-ins (real body, but a port reimplementation — NOT a lift)\n")
+    A("These have a body so they look done, but diverge from the Mac. They")
+    A("are counted as **pending**, not done, and each names the faithful")
+    A("target it still needs. Verified against the disassembly; remove an")
+    A("entry from `STANDIN`/`PORT_STANDINS` in the tool once the real lift")
+    A("lands.\n")
+    si = [(n, c) for n, c in ranked if status[n] == "STANDIN"]
+    si += [(n, freq.get(n, 0)) for n in STANDIN if n not in dict(ranked)]
+    if si:
+        A("| JT | calls | faithful target |")
+        A("|----|------:|-----------------|")
+        for n, c in sorted(si, key=lambda kv: (-kv[1], kv[0])):
+            A(f"| jt{n} | {c} | {STANDIN[n]} |")
+        A("")
+    A("Non-JT port stand-ins (whole-routine reimplementations, "
+      "kept in sync with `docs/stub-inventory.md`):\n")
+    for name, note in PORT_STANDINS:
+        A(f"- `{name}` — {note}")
+    A("")
+
+    A("## The pending queue (top-100 stubs + stand-ins + missing, by call count)\n")
     A("Each carries _why_ it is still open, so the next unit of work is")
     A("self-selecting. Categories: **subsystem** (small body, but gated on")
     A("an uncharted multi-function cluster — lift the cluster first);")
     A("**dispatcher** (large multi-case switch, a session on its own);")
     A("**trap-shim** (issues a Mac OS trap the HAL must route); **HAL**")
-    A("(needs a display/row-blit backend, not a transcription).\n")
+    A("(needs a display/row-blit backend, not a transcription); **standin**")
+    A("(a non-faithful port body — see the stand-ins section).\n")
     pend = [(n, c) for n, c in ranked[:100]
-            if status[n] in ("STUB", "MISSING")]
+            if status[n] in ("STUB", "STANDIN", "MISSING")]
     if not pend:
         A("_None — the top 100 are fully lifted._\n")
     else:
         for n, c in pend:
-            note = PENDING_NOTES.get(n, "")
+            note = PENDING_NOTES.get(n, "") or STANDIN.get(n, "")
             extra = f" — {note}" if note else ""
             A(f"- jt{n} ({c} calls) — {status[n].lower()}{extra}")
         A("")
@@ -335,7 +421,8 @@ def main():
     t = tally(ranked[:100])
     done = t["LIFTED"] + t["NOOP"] + t["ALIAS"]
     print(f"wrote {OUT_MD}")
-    print(f"top-100: {done}/100 done, {t['STUB']} stub, {t['MISSING']} missing")
+    print(f"top-100: {done}/100 done, {t['STUB']} stub, "
+          f"{t['STANDIN']} stand-in, {t['MISSING']} missing")
 
 
 if __name__ == "__main__":
