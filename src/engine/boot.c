@@ -15084,20 +15084,24 @@ static short  jt1125(short kind, long p1, long p2)
 	case autoKey: {
 		short ascii = (short)(ev.message & 0xff);
 		short scan  = (short)((ev.message >> 8) & 0xff);
-		/* Arrow keys carry no ASCII (ascii==0); their scancode is in the
-		 * high byte. Map the cursor keys to the engine's movement codes
-		 * (257..264) the play loop (jt297/jt311) expects. */
-		if (ascii == 0) {
+		/* Arrow keys -> the engine movement codes (257..264) the play loop
+		 * (jt297/jt311) expects. The compat shim (kb_to_event) delivers
+		 * arrows as the Mac char codes 28..31 (left/right/up/down) in the
+		 * LOW byte WITH the Atari scancode in the HIGH byte — so the old
+		 * `if (ascii == 0)` gate never fired (ascii is 28..31, not 0) and
+		 * the raw control code leaked through, missing the 257..264 range
+		 * and breaking dungeon movement. Map by the unambiguous arrow
+		 * scancode regardless of the ascii. */
 #ifdef FRUA_ENGINE_PROBE
+		if (ascii == 0 || (ascii >= 28 && ascii <= 31))
 			dbg_log_num("keyDown scan = ", (long)scan);
 #endif
-			switch (scan) {
-			case 0x48: ascii = 264; break;   /* Up    -> N / forward */
-			case 0x50: ascii = 260; break;   /* Down  -> S */
-			case 0x4b: ascii = 262; break;   /* Left  -> W / turn left */
-			case 0x4d: ascii = 258; break;   /* Right -> E / turn right */
-			default: break;
-			}
+		switch (scan) {
+		case 0x48: ascii = 264; break;   /* Up    -> N / forward    */
+		case 0x50: ascii = 260; break;   /* Down  -> S / about-face */
+		case 0x4b: ascii = 262; break;   /* Left  -> turn left      */
+		case 0x4d: ascii = 258; break;   /* Right -> turn right     */
+		default: break;
 		}
 		*out1 = ascii;
 		*out2 = ev.modifiers;

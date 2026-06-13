@@ -84,6 +84,7 @@ start)
 		--tos "$FALCON_TOS" \
 		--conout 2 \
 		--fast-forward yes \
+		--joy0 none --joy1 none \
 		--cmd-fifo "$STATE/cmd.fifo" \
 		-d "$GEMDOS_DIR" \
 		--auto 'C:\frua.prg' \
