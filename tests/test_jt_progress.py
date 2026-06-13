@@ -90,3 +90,12 @@ def test_standin_absent_body_is_not_standin():
     # no body at all -> MISSING/ALIAS rules win; STANDIN needs a real body
     n = next(iter(jp.STANDIN))
     assert jp.classify(n, {}) in ("MISSING", "ALIAS")
+
+
+def test_port_call_frequency_contract():
+    # the wiring audit: a dict of int->int, and a heavily-wired entry (jt1001,
+    # the GLIB tile blit) has at least one named call site in the port.
+    pf = jp.port_call_frequency()
+    assert isinstance(pf, dict) and pf
+    assert all(isinstance(k, int) and isinstance(v, int) for k, v in pf.items())
+    assert pf.get(1001, 0) >= 1

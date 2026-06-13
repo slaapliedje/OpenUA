@@ -26,6 +26,8 @@ Usage:
     python3 tools/jt_progress.py --check        # print summary only
     python3 tools/jt_progress.py --band 2       # detail for the 2nd 100
     python3 tools/jt_progress.py --standins     # list the port stand-ins
+    python3 tools/jt_progress.py --wiring       # asm vs port call-site audit
+    python3 tools/jt_progress.py --wiring 200   # one entry's callers
 
 The classifier is a heuristic (see classify()); the NOOP whitelist and a
 few known alias lifts are listed explicitly. Treat band tallies as +/-2,
@@ -247,6 +249,30 @@ def boot_definitions():
     return defs
 
 
+def port_call_frequency():
+    """
+    Map jtN -> number of CALL sites in boot.c (every `jtN(` minus the
+    definition/forward-decl headers). This is the port-side mirror of
+    call_frequency(): comparing the two tells us whether a lifted entry is
+    actually WIRED IN at roughly the density the Mac calls it, or whether it
+    is defined-but-dangling (a body nothing invokes) or under-wired (the Mac
+    reaches it from many sites, the port from few — a missing call path).
+    Heuristic: calls reached through an lXXXX alias won't show here, so an
+    ALIAS entry reading port=0 is expected, not a gap.
+    """
+    with open(BOOT_C, errors="replace") as fh:
+        src = fh.read()
+    freq = {}
+    for m in re.finditer(r"\bjt(\d+)\s*\(", src):
+        n = int(m.group(1))
+        freq[n] = freq.get(n, 0) + 1
+    # subtract the `static ... jtN(` definition / forward-decl headers
+    for m in re.finditer(r"\bstatic\b[^\n;{]*?\bjt(\d+)\s*\(", src):
+        n = int(m.group(1))
+        freq[n] = freq.get(n, 0) - 1
+    return freq
+
+
 def classify(n, defs):
     if n in NOOP:
         return "NOOP"
@@ -293,6 +319,56 @@ def main():
         for n, _ in entries:
             t[status[n]] += 1
         return t
+
+    if "--wiring" in args:
+        pf = port_call_frequency()
+        wi = args.index("--wiring")
+        arg = args[wi + 1] if wi + 1 < len(args) else None
+
+        if arg and arg.isdigit():
+            # Targeted: one entry's asm-vs-port counts + its actual callers.
+            n = int(arg)
+            with open(BOOT_C, errors="replace") as fh:
+                lines = fh.readlines()
+            callers = []
+            cpat = re.compile(r"\bjt%d\s*\(" % n)
+            hpat = re.compile(r"\bstatic\b.*\bjt%d\s*\(" % n)
+            for i, ln in enumerate(lines, 1):
+                if cpat.search(ln) and not hpat.search(ln):
+                    callers.append((i, ln.strip()[:78]))
+            al = ALIAS_LIFTED.get(n)
+            print(f"jt{n}: class={classify(n, defs)}  asm_calls={freq.get(n,0)}"
+                  f"  port_calls={pf.get(n,0)}")
+            if al:
+                print(f"  ALIAS: {al}  (callers reach it via the lXXXX name)")
+            print(f"  port call sites ({len(callers)}):")
+            for i, txt in callers:
+                print(f"    boot.c:{i}: {txt}")
+            return
+
+        # Global: STUB/STANDIN with asm weight are the REAL gaps; the broad
+        # dangling/under lists are noisy (hook-table fn-pointer calls show as
+        # dangling; hot utils + the JT[1/2/3] switch family are inlined, so
+        # they show as under-wired) — filter those by hand or use `--wiring N`.
+        gaps = sorted(
+            [(n, c) for n, c in ranked if status[n] in ("STUB", "STANDIN")],
+            key=lambda kv: -kv[1])
+        dangling = [(n, c) for n, c in ranked
+                    if status[n] in ("LIFTED", "STANDIN")
+                    and pf.get(n, 0) == 0 and n not in ALIAS_LIFTED]
+        under = [(n, c, pf.get(n, 0)) for n, c in ranked
+                 if status[n] in ("LIFTED", "STANDIN")
+                 and c >= 4 and pf.get(n, 0) * 3 < c]
+        print("WIRING AUDIT (asm call sites vs port call sites).\n")
+        print(f"REAL GAPS — stub/stand-in bodies the Mac calls, by asm weight "
+              f"({len(gaps)}):")
+        for n, c in gaps[:20]:
+            print(f"  jt{n:<5} asm={c:<4} port={pf.get(n,0):<3} {status[n]}")
+        print(f"\nNoisy signals (need human filtering): {len(dangling)} dangling "
+              f"(many are fn-pointer/hook-table calls), {len(under)} under-wired "
+              "(many are inlined hot utils / the JT[1/2/3] switch family).")
+        print("Use `--wiring N` to spot-check one entry's callers.")
+        return
 
     if "--standins" in args:
         print("JT stand-ins (real body, but a non-faithful port "
