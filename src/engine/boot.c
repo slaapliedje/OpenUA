@@ -10277,6 +10277,46 @@ static void j200_dump(void)
 	}
 	dbg_log("j200_dump: wrote J200DIFF.TXT");
 }
+
+/* rm_audit — read-only dump of the FC group-pool state, to gauge whether the
+ * faithful resource path can carry the wall load before routing l6eea onto it.
+ * No loader is invoked (no side effects). Writes RMAUDIT.TXT. */
+static void rm_audit(void)
+{
+	static char done = 0;
+	char  buf[512];
+	int   p = 0;
+	short ref = 0, i;
+	long  n;
+
+	if (done)
+		return;
+	done = 1;
+	dv_app(buf, &p, "fc_groupcount(9306)=", (long)g_a5_9306);
+	dv_app(buf, &p, "fc_initctr(9296)=", (long)g_a5_9296);
+	dv_app(buf, &p, "fc_loadgrp(3622)=", (long)g_a5_3622);
+	dv_app(buf, &p, "pool_cap(9304)=", g_a5_9304);
+	dv_app(buf, &p, "pool_start(10270[0])=", g_a5_10270[0]);
+	dv_app(buf, &p, "pool_usedend(10270[gc])=",
+	       g_a5_10270[(short)g_a5_9306 & 0x3f]);
+	dv_app(buf, &p, "pool_freebytes=",
+	       g_a5_9304 - g_a5_10270[(short)g_a5_9306 & 0x3f]);
+	/* freemap: which groups are bound (0xFF = free) */
+	for (i = 0; i < 8; i++)
+		dv_app(buf, &p, "freemap[i]=", (long)(unsigned char)g_a5_10074[i]);
+	/* the shortcut's resident wall buffer, for size comparison */
+	dv_app(buf, &p, "wallfile_buf=", (long)(uintptr_t)&g_wallfile_buf[0]);
+	dv_app(buf, &p, "FreeMem=", (long)FreeMem());
+
+	(void)FSDelete((ConstStr255Param)"\013RMAUDIT.TXT", 0);
+	(void)Create((ConstStr255Param)"\013RMAUDIT.TXT", 0, 'FRUA', 'TEXT');
+	if (FSOpen((ConstStr255Param)"\013RMAUDIT.TXT", 0, &ref) == noErr) {
+		n = p;
+		(void)FSWrite(ref, &n, buf);
+		(void)FSClose(ref);
+	}
+	dbg_log("rm_audit: wrote RMAUDIT.TXT");
+}
 #endif /* FRUA_SKIP_ENTRY_EVENTS */
 
 /* render_3d_faithful — the 1:1 Mac slot-assembly view: jt199 walks the
@@ -10370,6 +10410,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	g_cwf_force_deep = 1;
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 	dbg_dump_view(ds, (short)g_a5_12287, (short)g_a5_12288, f);
+	rm_audit();
 	g_j2_n = 0; g_j2_active = 1;
 #endif
 	/* FAITHFUL row/col: the Mac jt199 caller (CODE 10 @0x2178) passes
