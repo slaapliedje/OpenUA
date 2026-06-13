@@ -100,6 +100,38 @@ Then diff against the port J200DIFF.TXT (same fields). If positions differ, the
 bug is l5b42/anchor; if they MATCH, the port is faithful and the screenshot was a
 different frame (close #129).
 
+## RESOLVED DIRECTION 2026-06-13 — walk is FAITHFUL; bug is the CLUT model
+
+The user captured the Mac's live jt200 trace at the standing frame: it is
+BYTE-IDENTICAL to the port's J200DIFF (same 25 slots, same code/sub/idx, same
+JT114/JT999 blit coords, repeating each frame). So the frustum walk + slot
+emission + group fold + idx are 100% FAITHFUL. #126 is genuinely done; stop
+touching jt199/l5b42 geometry.
+
+The "broken mirror / texture scramble" is the wall TILE COLOUR path:
+- Wall tiles are DIRECT indices into a shared ~64-colour dungeon CLUT (set5 tile8
+  uses idx 41-60, set8 0-53, set1 0-61 — overlapping, spanning BELOW 32). Rendered
+  each with its own palette they're correct: set5=grey brick, set8=wood, set1=grey
+  cobble (/tmp/tile8_sets.png).
+- The port's per-set band rebase (l309c_tile: off=v-32; if 0<=off<32 -> base+off
+  else pass through; bands 32/64/96) only remaps idx>=32 and PASSES 0-31 THROUGH
+  UNCHANGED. But 0-31 is seeded as the UI/chrome band (cw_seed_ui_band). So set8/
+  set1 tiles (heavy users of idx 0-31) paint big regions in MENU colours = the
+  scramble. set5 (stone) only uses 41-60 so it survives -> stone looks ~ok, wood/
+  cobble garble. CW_BAND=32 is too small; the tiles want a ~64-entry palette.
+- The fix is a CLUT-model change, NOT geometry: treat wall-tile bytes as direct
+  indices into the dungeon CLUT the Mac loads (GLIB palette subsystem / per-level
+  clut), instead of fabricating 32-wide per-set bands from each sub-GLIB's tile-0.
+  See [[glib-palette-subsystem]] and the Resource Manager (#127).
+
+OPEN secondary: the dominant emitted codes 6/9 fold to group1 = ds[5] = set8 =
+wood, yet mac_3d_start_e.png is all-STONE. Either that screenshot is a different
+frame than this trace (the trace geometry is a left/centre band, x~16-32, NOT the
+symmetric edge-to-edge corridor of the screenshot), or the wall-code->set mapping
+needs review. Resolve AFTER the CLUT fix (render the real trace with a correct
+CLUT and compare to the screenshot). Tools: /tmp/render_native.png (slots at
+native scale), /tmp/tile8_sets.png (per-set tile8).
+
 ## Reproduce
 
 ```sh
