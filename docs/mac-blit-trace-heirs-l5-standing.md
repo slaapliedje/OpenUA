@@ -49,13 +49,41 @@ code multiset {1:4, 2:2, 5:1, 6:7, 9:8, 11:3}; group {0:7, 1:15, 2:3}.
    codes 10/13 the Mac never emits. So L6234 was mis-lifted (the helper
    passes/depth limits/draw conditions differ). RE-DERIVE jt199 against THIS
    trace as the validation target.
-3. **Blitter split MISSING**: code 11 (group 2 / Wall3) blits via **JT999**
-   (h-first: left,top), all others via JT114 (v-first: top,left). The port uses
-   jt114 for everything -> code-11 walls are transposed. Add the jt999 path in
-   jt200 for the group-2/sel branch (asm L59d4 5a64: cmpiw #2,fp@(-2) -> JT999).
+3. **Blitter split is NOT a transpose** (CORRECTED 2026-06-13 from the L59d4/
+   L31ac/L309c asm): jt200 dispatches code 11 (group 2) via JT[999]=L309c and
+   all others via JT[114]=CODE6+0x3804. BUT JT[114] is a thin wrapper that calls
+   JT[1001]=L31ac, which calls `L309c(left, top, jt468(*handle), idx)` — and the
+   JT999 arm calls `L309c(left, top, JT[1004](), idx)`. So BOTH arms land the
+   SAME pixels at the SAME (X=left, Y=top); there is no rotation/transpose. The
+   ONLY real difference is the LIBRARY SOURCE: groups 0/1 use the -27894 handle
+   table via jt468; group 2 uses JT[1004] (= g_a5_-4582) directly, bypassing the
+   table. So do NOT add a transposing jt999 branch (that would INTRODUCE a bug).
+   The group-2 fix is minor (3 edge slivers) and tangled with g_a5_-4582's dual
+   use as the GEO read buffer — defer it; it is not the geometry bug.
 4. far/near idx strides (validates jt200 idx math): code 9 far N -> near N+28
    (2->30, 3->31, 4->32, 5->33); code 5 far5 -> near42 (+37); code 1/6 near only.
 
 ## Use
-Re-lift jt199 (L6234) + add the jt999 blitter branch + restore the l5b42 axis
-stash, validating the port's J200DIFF against this 25-slot frame slot-by-slot.
+Re-lift jt199 (L6234) walk, validating the port's J200DIFF against this 25-slot
+frame slot-by-slot. (The axis is restored+committed 40a5b2b; the jt999 "branch"
+was disproven — see finding #3.)
+
+## Diagnosis closed (2026-06-13): the bug is jt199's L6234 cell-walk
+
+Verified faithful (do NOT touch): l5e52 (returns ds[290 + (col*H+row)*6 +
+(dir&6)/2] & 15 = the raw cell-edge nibble 0-15, which IS the folded
+group*5+style wall code); l5b42 (axis: jt200(top=y+wide<<2, left=x+narrow<<2),
+step on left); jt200 (L59d4 code-fold by 5s + far/near idx math + the L309c
+blit). The `code` arg to l5b42 is the raw l5e52 nibble (asm 6400/643e push
+fp@(-22)=w or fp@(-24)=prev), so the codes are entirely determined by WHICH
+CELLS jt199 reads.
+
+Port J200DIFF (16 slots) vs Mac (25): port codes {13:2,9:1,2:2,11:6,10:1,1:1,
+6:2,5:1}; Mac {1:4,2:2,5:1,6:7,9:8,11:3}. Port emits codes 10 & 13 the Mac
+never does, 6x code-11 vs 3, 1x code-9 vs 8. -> jt199's reconstruction
+(jt199_side/jt199_front/jt199_band + the sel 2/1/0 band setup at boot.c ~10093)
+walks the WRONG cells. The fix is a faithful translation of L6234 (CODE 7
+@0x6234, ~0x6234..0x6ea1, ~1086 asm lines): a JT[3] 3-case switch on a
+view-layout selector (seeded moveq #2, iterated 2->1->0 by the L6e4a outer
+loop), each case running depth bands with L5e52 reads + L5b42 emits. Replace
+the guessed helpers with the asm CFG; validate J200DIFF == this 25-slot frame.
