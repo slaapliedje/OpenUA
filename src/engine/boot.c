@@ -2149,8 +2149,42 @@ static int  wallset_for_id(short id, short *file, short *set);  /* wall-set id -
  * so three per-group 327KB buffers blew the heap and starved the last load.
  * Each file is read once; the per-group handle is just a sub-pointer into it. */
 #define CW_FILEBUF_SZ 327680
-static unsigned char *g_wallset_filebuf[2];      /* resident .CTL per file (heap) */
-static long           g_wallset_filebase[2];     /* file GLIB base (0 = unloaded) */
+/* One shared RESIDENT buffer for the colour wall library. Both wall paths
+ * want the same 8X8D{C,B}.CTL in RAM: cw_load_slot loads it here and copies
+ * out the compact facet store, and the faithful jt114 path (l6eea) points its
+ * per-group tile handle STRAIGHT into this buffer. The old l6eea NewPtr'd a
+ * SECOND 320KB copy on the heap — which fails on a 4MB Falcon (only ~206KB
+ * free at dungeon entry, so the wall handles stayed NULL and no walls drew).
+ * A level's three wall groups share one file (HEIRS = all 8X8DB), so a single
+ * buffer serves; a mixed-file level can't hold two 320KB libraries at 4MB
+ * regardless. The buffer must stay resident while jt114 blits from it. */
+static unsigned char g_wallfile_buf[CW_FILEBUF_SZ];
+static short         g_wallfile_which = -1;   /* file index resident in buf (-1 none) */
+
+/* cw_wallfile_load — make 8X8D{C,B}.CTL `file` (0=DC, 1=DB) resident in
+ * g_wallfile_buf and return its GLIB base (0 on open/validate failure). Reused
+ * by cw_load_slot and l6eea so the library is read once and held once. */
+static long cw_wallfile_load(short file)
+{
+	static const char *const ctl[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
+	short refnum = 0;
+	long  count;
+
+	file &= 1;
+	if (g_wallfile_which != file) {
+		g_wallfile_which = -1;                /* invalid until the load completes */
+		if (FSOpen((ConstStr255Param)ctl[file], 0, &refnum) != noErr)
+			return 0;
+		count = (long)sizeof g_wallfile_buf;
+		(void)FSRead(refnum, &count, g_wallfile_buf);
+		(void)FSClose(refnum);
+		if (l37aa((long)(uintptr_t)g_wallfile_buf, 0) == 0)   /* 'GLIB' magic */
+			return 0;
+		g_wallfile_which = file;
+	}
+	return (long)(uintptr_t)g_wallfile_buf;
+}
+
 static void l6eea(short zone, short type)
 {
 	/* The persistent HUD first-person view uses the COLOUR .CTL sets (8bpp,
@@ -2158,34 +2192,17 @@ static void l6eea(short zone, short type)
 	 * picked by wallset_for_id's file. type 0/1/2 = the level's three wall
 	 * groups (ds[4]=Wall1 -> -27894, ds[5]=Wall2 -> -27890, ds[6]=Wall3 ->
 	 * -27886); jt200 folds a wall code's group and indexes -27894 + group*4. */
-	static const char *const ctl[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
-	short file = 0, set = 0, refnum = 0;
-	long  count, base, sub;
+	short file = 0, set = 0;
+	long  base, sub;
 
 	PROBE("L6eea");
 	if ((zone & 0xff) == 255 || type < 0 || type > 2)
 		return;
 	if (!wallset_for_id(zone, &file, &set))
 		return;
-	file &= 1;
-	if (g_wallset_filebase[file] == 0) {     /* load this .CTL once, resident */
-		unsigned char *buf = g_wallset_filebuf[file];
-		if (buf == NULL) {
-			buf = (unsigned char *)NewPtr(CW_FILEBUF_SZ);
-			g_wallset_filebuf[file] = buf;
-		}
-		if (buf == NULL)
-			return;
-		if (FSOpen((ConstStr255Param)ctl[file], 0, &refnum) != noErr)
-			return;
-		count = CW_FILEBUF_SZ;
-		(void)FSRead(refnum, &count, buf);
-		(void)FSClose(refnum);
-		if (l37aa((long)(uintptr_t)buf, 0) == 0)   /* validate 'GLIB' magic */
-			return;
-		g_wallset_filebase[file] = (long)(uintptr_t)buf;
-	}
-	base = g_wallset_filebase[file];
+	base = cw_wallfile_load(file);            /* resident in the shared buffer */
+	if (base == 0)
+		return;
 	sub = l37aa(base, set);                   /* the set's 48-tile sub-GLIB */
 	if (sub != 0)
 		g_a5_long(-27894 + (long)type * 4) = sub;
@@ -8758,21 +8775,17 @@ static int wallset_for_id(short id, short *file, short *set);
  * 1 on success. The big file buffer is shared+reused (we copy out). */
 static int cw_load_slot(short slot, short file, short set)
 {
-	static unsigned char buf[327680];        /* holds 8X8DB.CTL (~296KB) */
-	short refnum = 0, k;
+	const unsigned char *buf;
+	short k;
 	long count, base, sub, p0, p1;
 	unsigned char metric[8];
 	short h, w;
 
 	g_cw_sid[slot] = 0;
-	if (FSOpen((ConstStr255Param)g_cw_files[file & 1], 0, &refnum) != noErr)
+	base = cw_wallfile_load(file);            /* shared resident .CTL buffer */
+	if (base == 0)
 		return 0;
-	count = (long)sizeof buf;
-	(void)FSRead(refnum, &count, buf);
-	(void)FSClose(refnum);
-	base = (long)(uintptr_t)buf;
-	if (l37aa(base, 0) == 0)                  /* validate 'GLIB' magic */
-		return 0;
+	buf = (const unsigned char *)(uintptr_t)base;
 	if (slot == 0) {                          /* track set count for 't' cycling */
 		g_cw_setmax = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;
 		if (g_cw_setmax < 1) g_cw_setmax = 1;
@@ -10092,6 +10105,104 @@ static void jt199(unsigned char *page, short Y, short X, short row,
 	}
 }
 
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+/* dbg_dump_view — one-shot render-time state dump to C:\VIEWDIAG.TXT.
+ * Captures exactly what the frustum walker sees at the first dungeon
+ * render: design-state pointer + header, party cell/facing, the
+ * direction-delta tables, the per-group wall-set handles, and a sample
+ * of l5e52 edge reads around the origin — so the walls-not-drawing
+ * question is answered from live engine state, not a file guess. Writes
+ * via the File Manager shim (Create + FSWrite), which the save path
+ * already proves reliable on the GEMDOS drive. */
+static void dv_app(char *b, int *p, const char *lbl, long v)
+{
+	long u;
+	short i, st;
+	char tmp[12];
+	while (*lbl)
+		b[(*p)++] = *lbl++;
+	if (v < 0) { b[(*p)++] = '-'; u = -v; } else u = v;
+	i = 11; tmp[i--] = 0;
+	do { tmp[i--] = (char)('0' + (short)(u % 10)); u /= 10; } while (u);
+	for (st = (short)(i + 1); tmp[st]; st++)
+		b[(*p)++] = tmp[st];
+	b[(*p)++] = '\r'; b[(*p)++] = '\n';
+}
+
+static void dbg_dump_view(const unsigned char *ds, short row, short col,
+                          short facing)
+{
+	static char done = 0;
+	char buf[1024];
+	int  p = 0;
+	short i;
+	short ref = 0;
+	long  n;
+
+	if (done)
+		return;
+	done = 1;
+
+	dv_app(buf, &p, "ds=", (long)(uintptr_t)ds);
+	if (ds != NULL) {
+		dv_app(buf, &p, "ver=", (long)((ds[0] << 8) | ds[1]));
+		dv_app(buf, &p, "W=", (long)ds[2]);
+		dv_app(buf, &p, "H=", (long)ds[3]);
+		dv_app(buf, &p, "wall1=", (long)ds[4]);
+		dv_app(buf, &p, "wall2=", (long)ds[5]);
+		dv_app(buf, &p, "wall3=", (long)ds[6]);
+	}
+	dv_app(buf, &p, "row(12287)=", (long)row);
+	dv_app(buf, &p, "col(12288)=", (long)col);
+	dv_app(buf, &p, "facing(12286)=", (long)facing);
+	for (i = 0; i < 8; i++)
+		dv_app(buf, &p, "drow=", (long)JT199_DROW(i));
+	for (i = 0; i < 8; i++)
+		dv_app(buf, &p, "dcol=", (long)JT199_DCOL(i));
+	dv_app(buf, &p, "h0(-27894)=", g_a5_long(-27894));
+	dv_app(buf, &p, "h1(-27890)=", g_a5_long(-27890));
+	dv_app(buf, &p, "h2(-27886)=", g_a5_long(-27886));
+	{
+		const unsigned char *areah =
+		    (const unsigned char *)g_a5_28006;
+		short wfile = 0, wset = 0, ok;
+		dv_app(buf, &p, "areah=", (long)(uintptr_t)areah);
+		if (areah != NULL)
+			dv_app(buf, &p, "viewdist h[19]=", (long)areah[19]);
+		ok = wallset_for_id((short)(ds ? ds[4] : 0), &wfile, &wset);
+		dv_app(buf, &p, "wfsId_ok=", (long)ok);
+		dv_app(buf, &p, "wfile=", (long)wfile);
+		dv_app(buf, &p, "wset=", (long)wset);
+		dv_app(buf, &p, "wallfile_which=", (long)g_wallfile_which);
+		dv_app(buf, &p, "FreeMem=", (long)FreeMem());
+	}
+	/* l5e52 at the party cell + the four cardinal edges */
+	dv_app(buf, &p, "edgeN=", (long)l5e52(row, col, 0));
+	dv_app(buf, &p, "edgeE=", (long)l5e52(row, col, 2));
+	dv_app(buf, &p, "edgeS=", (long)l5e52(row, col, 4));
+	dv_app(buf, &p, "edgeW=", (long)l5e52(row, col, 6));
+	/* the origin cell (2 forward) the frustum starts from */
+	{
+		short orow = (short)(row + 2 * JT199_DROW(facing & 7));
+		short ocol = (short)(col + 2 * JT199_DCOL(facing & 7));
+		dv_app(buf, &p, "orow=", (long)orow);
+		dv_app(buf, &p, "ocol=", (long)ocol);
+		dv_app(buf, &p, "oE=", (long)l5e52(orow, ocol, 2));
+		dv_app(buf, &p, "oN=", (long)l5e52(orow, ocol, 0));
+		dv_app(buf, &p, "oS=", (long)l5e52(orow, ocol, 4));
+	}
+
+	(void)FSDelete((ConstStr255Param)"\013VIEWDIAG.TXT", 0);
+	(void)Create((ConstStr255Param)"\013VIEWDIAG.TXT", 0, 'FRUA', 'TEXT');
+	if (FSOpen((ConstStr255Param)"\013VIEWDIAG.TXT", 0, &ref) == noErr) {
+		n = p;
+		(void)FSWrite(ref, &n, buf);
+		(void)FSClose(ref);
+	}
+	dbg_log("dbg_dump_view: wrote VIEWDIAG.TXT");
+}
+#endif /* FRUA_SKIP_ENTRY_EVENTS */
+
 /* render_3d_faithful — the 1:1 Mac slot-assembly view: jt199 walks the
  * frustum and l5b42 places each visible wall slot at the real screen coords
  * (from the captured layout globals); jt200_layer blits the pre-sized
@@ -10181,6 +10292,9 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * so the play screen can stay at g_a5_2347=1 (native scale 2) for the
 	 * command bar / HUD while the 88x88 first-person view still renders deep. */
 	g_cwf_force_deep = 1;
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+	dbg_dump_view(ds, (short)g_a5_12287, (short)g_a5_12288, f);
+#endif
 	jt199(page, (short)8012, (short)8016,
 	      (short)g_a5_12287, (short)g_a5_12288, f);
 	g_cwf_force_deep = 0;
