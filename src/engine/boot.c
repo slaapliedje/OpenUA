@@ -9033,14 +9033,19 @@ static short ua_backdrop_to_back(short ua)
  * party walks between zones. */
 static short cell_backdrop_id(const unsigned char *ds)
 {
-	short x = (short)g_a5_12288, y = (short)g_a5_12287;
+	/* FAITHFUL index: g_a5_-12288 = ROW (Y), g_a5_-12287 = COL (X); the map
+	 * cell index is col*H + row (= l5e52's stride), col bounded by W, row by H.
+	 * The old code used row*h+col (the row/col swap) and read the wrong cell's
+	 * BackdropZone — so a town's sky-ceiling cell resolved to the indoor wood
+	 * backdrop. See [[party-coord-rowcol-convention]]. */
+	short row = (short)g_a5_12288, col = (short)g_a5_12287;
 	short w = (unsigned char)ds[2], h = (unsigned char)ds[3];
 	long  cell;
 	unsigned char zone;
 
-	if (x < 0 || y < 0 || x >= w || y >= h)
+	if (col < 0 || row < 0 || col >= w || row >= h)
 		return g_back_set;
-	cell = (long)x * h + y;
+	cell = (long)col * h + row;
 	zone = ds[290 + cell * 6 + 5];
 	return ua_backdrop_to_back((short)(unsigned char)ds[8 + (zone & 3)]);
 }
@@ -10276,6 +10281,18 @@ static void j200_dump(void)
 			dv_app(buf, &p, "wall1=", (long)ds[4]);
 			dv_app(buf, &p, "wall2=", (long)ds[5]);
 			dv_app(buf, &p, "wall3=", (long)ds[6]);
+			/* backdrop diagnostics: ds[8..11] = the 4 level backdrops, the
+			 * party cell's zone byte, the resolved BACK index + caps. */
+			dv_app(buf, &p, "bd8=", (long)ds[8]);
+			dv_app(buf, &p, "bd9=", (long)ds[9]);
+			dv_app(buf, &p, "bd10=", (long)ds[10]);
+			dv_app(buf, &p, "bd11=", (long)ds[11]);
+			dv_app(buf, &p, "zone=",
+			    (long)ds[290 + ((long)col * (unsigned char)ds[3] + row) * 6 + 5]);
+			dv_app(buf, &p, "cell_back_id=", (long)cell_backdrop_id(ds));
+			dv_app(buf, &p, "g_back_set=", (long)g_back_set);
+			dv_app(buf, &p, "g_back_max=", (long)g_back_max);
+			dv_app(buf, &p, "g_back_auto=", (long)g_back_auto);
 			/* radius-4 cell window (covers the whole frustum), one line
 			 * per WALLED cell packed rrcc_NESW = row,col then the 4 edge
 			 * nibbles N/E/S/W. Lets us replay the faithful walk offline and
@@ -10398,6 +10415,19 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 
 	if (ds == NULL)
 		return;
+
+	/* Pick the floor/ceiling/sky backdrop for the party cell's BackdropZone
+	 * BEFORE any load_backdrop below, so g_back_set is current here regardless
+	 * of whether jt312 ran its own pick (the skip-entry path reaches this
+	 * renderer without jt312). A town's sky cell resolves to a night-sky
+	 * backdrop (ds[10] family) instead of the default indoor wood ceiling. */
+	if (g_back_auto) {
+		short bid = cell_backdrop_id(ds);
+		if (bid != g_back_set) {
+			g_back_set = bid;
+			load_backdrop(bid);
+		}
+	}
 
 	/* Install the level's THREE wall sets' CLUTs (Wall1/2/3 = ds[4..6]) into
 	 * their clut bands (32/64/96) via the existing per-slot loader; l309c_tile
