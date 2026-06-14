@@ -140,6 +140,17 @@
 #define g_a5_4676  g_a5_byte(-4676)    /* JT[989]: handler config byte */
 #define g_a5_4670  g_a5_byte(-4670)    /* JT[989]: handler config byte */
 #define g_a5_2344  g_a5_byte(-2344)    /* JT[1129]: input-source mode */
+/* CODE 4 @0x44b8/0x47b4 colour-mode init cluster (jt1144 startup):
+ *   -1313 — fast-CPU flag (L7d5e >= 544)
+ *   -1314 — "no Color QuickDraw" (1 = mono Mac); 0 on the Falcon
+ *   -1315 — "depth is 1bpp B&W"; 0 on the Falcon
+ *   -1318 — main-device pixmap pixelSize (bit depth); 8 on the Falcon
+ *   -2348 — system-version > 1 flag */
+#define g_a5_1313  g_a5_byte(-1313)
+#define g_a5_1314  g_a5_byte(-1314)
+#define g_a5_1315  g_a5_byte(-1315)
+#define g_a5_1318  g_a5_word(-1318)
+#define g_a5_2348  g_a5_byte(-2348)
 #define g_a5_4680  g_a5_long(-4680)    /* JT[989]: handler pointer */
 #define g_a5_4674  g_a5_long(-4674)    /* JT[989]: handler context */
 #define g_a5_9286  g_a5_long(-9286)    /* JT[447]: DLItem pool base seed */
@@ -525,6 +536,44 @@ static void  jt1129(short a)
 	PROBE("jt1129");
 	if (a == 1)
 		g_a5_2344 = (unsigned char)(a & 0xff);
+}
+
+/* color_mode_init — CODE 4 jt1144 @0x44b8 + @0x47b4, lifted faithfully.
+ *
+ * The Mac startup probes the display before opening any picture so the
+ * GLIB CLUT path (jt993 -> jt1069/jt1066) knows whether to install 256
+ * colours or fall back to a 16-colour quantise.  The two A5 gates it
+ * derives are g_a5_2347 (JT[1200] base) and g_a5_1312 (the 8-bit "deep
+ * CLUT" flag); jt1200() reads both.
+ *
+ * @0x44b8/0x448c the original reads the platform: SysEnvirons(2) for the
+ * hasColorQD byte and GetMainDevice()->gdPMap->pixelSize for the bit
+ * depth.  The Falcon030/TT030 shim screen is *always* 8-bit paletted
+ * colour — quickdraw.c has no other storage mode and platform/ owns the
+ * one VIDEL depth — so those platform inputs are genuine constants here,
+ * not stand-ins: hasColorQD present (g_a5_1314 = 0), pixelSize = 8
+ * (g_a5_1318 = 8), depth != 1 (g_a5_1315 = 0).
+ *
+ * @0x47b4 then derives the gates exactly as the asm does. With an 8-bit
+ * screen this lands g_a5_1312 = 1, so loaded pictures commit their full
+ * 256-entry palette through jt993 (count = jt1200()?16:256) instead of
+ * the 16-colour fallback — the faithful runtime state on colour hardware.
+ * The <8bpp alert + B&W fallback arm (0x47e2) is unreachable on VIDEL. */
+static void color_mode_init(void)
+{
+	g_a5_1314 = 0;          /* Color QuickDraw present (colour VIDEL)   */
+	g_a5_1318 = 8;          /* main-device pixmap pixelSize = 8 bpp      */
+	g_a5_1315 = 0;          /* depth != 1 -> not forced B&W             */
+
+	/* 0x47b4: g_a5_2347 = (g_a5_1315 == 0) ? 1 : 0  (seq/negb/extw) */
+	g_a5_2347 = (g_a5_1315 == 0) ? 1 : 0;
+
+	/* 0x47c2: clrb -1312 ; then the colour-depth arm */
+	g_a5_1312 = 0;
+	if (g_a5_2344 != 0 && g_a5_1314 == 0) {     /* 0x47c6 / 0x47cc */
+		if (g_a5_1318 >= 8)                  /* 0x47d2: cmpiw #8 */
+			g_a5_1312 = 1;              /* 0x47da: 8-bit -> deep CLUT */
+	}
 }
 
 /* JT[1130] / JT[920] / JT[956] (CODE 4 / CODE 12 / CODE 21) —
@@ -1889,6 +1938,7 @@ int ua_main(short arg1, long arg2)
 	if (status >= 0) {
 		jt411(status);
 		jt1129(1);
+		color_mode_init();      /* CODE 4 @0x47b4: derive jt1200 gates */
 		master_init(arg1, arg2, 214, 450);
 	} else {
 		master_init(-5, arg2, 160, 400);
@@ -5982,6 +6032,10 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
  * CODE 5 modal region; forward-declare L024c here for the "%a" handler. */
 static void l024c(short colour);
 
+/* JT[1006] (the -4188 colour remap) is lifted in the CODE 5 region far below;
+ * jt1161's encounter-mode arm needs it. */
+static void jt1006(short idx, void *out);
+
 /* JT[967] — the "%v" conversion: move the pen vertically. jt1135(width, acc,
  * &g_a5_4898, &scratch) parks the field-width value in the first pen slot. */
 static void jt967(short acc, short width) __attribute__((unused));
@@ -6079,12 +6133,30 @@ static void jt1161(short top, short left, short bottom, short right,
 	if (ct >= cb || cl >= cr)
 		return;
 
-	if (g_a5_1312 != 0) {
-		PROBE("jt1161/encounter-fill");
-		return;
+	/* Encounter / colour-mode arm (L1aa0 @0x1b34 -> @0x1b3a..L19be). The Mac
+	 * paints the clipped rect straight into the framebuffer via L053e (pixel
+	 * pointer) + L0888 (pixel run, with odd left/right column handling). Under
+	 * the QuickDraw shim (ADR-0003 / the layer rule: engine code does not
+	 * touch the framebuffer) that direct fill is the same PaintRect the
+	 * default arm (@0x1b8c) uses. The one thing that differs from the default
+	 * arm is the colour: a logical fill index < 16 (high nibble of the low
+	 * byte clear, 0x1b3a) is remapped to its real palette byte through
+	 * jt1006 (the -4188 colour-range table) before the paint.
+	 *
+	 * Without this arm every rect fill is a silent no-op while g_a5_1312 != 0
+	 * (the faithful 8-bit play state), so text boxes never clear (overlapping
+	 * event text) and the "Press RETURN to continue" plate goes unpainted. */
+	if (g_a5_1312 != 0) {                            /* 0x1b34 */
+		if ((fill & 0x00f0) == 0) {              /* 0x1b3a-1b44 */
+			short rm;
+			jt1006((short)(fill & 15), &rm);                  /* 0x1b4c-1b52 */
+			fill = (short)((fill & 0xff00) | (rm & 0x00ff));  /* 0x1b58-1b6a */
+		}
 	}
 
-	/* Default arm — low nibble = palette index for the fill. */
+	/* Default arm (@0x1b8c) and the encounter arm (L19be) converge here under
+	 * the shim: set the fg colour from the (possibly remapped) low byte and
+	 * PaintRect the clipped rect. */
 	GetPort(&port);
 	if (port != NULL)
 		((CGrafPtr)port)->fgColor =
@@ -41242,11 +41314,15 @@ static void jt257(short off)
 		    (unsigned char)(off & 255);
 }
 
-/* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15):
- * colour modes report the -4188 palette byte as one word; the
- * depth-0 B&W mode expands it through the -4572 dither table
- * (colour*4 + row&3, the byte doubled into both halves) into 16
- * row words. Full lift. */
+/* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
+ * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
+ * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
+ * it through the -4572 dither table (colour*4 + row&3, the byte doubled
+ * into both halves) into 16 row words. Full lift of L28ea:
+ *   28fa  jt1163() != 0           -> L2904 (one word)
+ *   2902  jt1200() != 0           -> L2918 (16-word dither)
+ *         else (jt1200()==0)      -> L2904 (one word)
+ * i.e. the one-word path is `jt1163() || jt1200() == 0`. */
 static void jt1006(short idx, void *out) __attribute__((unused));
 static void jt1006(short idx, void *out)
 {
@@ -41254,7 +41330,7 @@ static void jt1006(short idx, void *out)
 
 	PROBE("jt1006");
 	idx &= 15;
-	if (jt1163() != 0 || jt1200() != 0) {
+	if (jt1163() != 0 || jt1200() == 0) {       /* 28fa / 2902 */
 		*o = (short)g_a5_buf(-4188)[idx];
 		return;
 	}
