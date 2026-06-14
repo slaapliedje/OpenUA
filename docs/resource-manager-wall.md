@@ -69,6 +69,14 @@ Status of the FC-group surface (class / asm-calls / port-calls):
    at ds[8] for jt214's purpose (a #128 layout issue — compare port ds bytes
    to the Mac's), or jt214/l579e needs a graceful "id absent -> generic /
    skip" fallback so it doesn't stall. Resolve THIS before re-wiring jt214/jt44.
+   - **EMPIRICAL (2026-06-13):** added the jt214 generic fallback (2d92114) so
+     the id is always a valid base id, then re-wired port_draw_play_frame ->
+     jt214+jt44. It STILL SysBeeps + stalls (frame chrome draws, but no bigpic,
+     no roster, no walls; render never reaches jt199). So the blocker is NOT
+     the id — it is **downstream in the load/blit/palette chain** (jt987 read /
+     l3f3c palette range / l3880 blit / l3eea palette commit). Next: instrument
+     each step (file-based dump — conout stalls in play mode) to find the
+     hang/alert. The bigpic wiring is reverted; grey-fill + l67ca preserved.
 2. **`jt1023` is a STUB** — a TLB-cache-build leaf. Lift it so .TLB groups
    (the deep/640 path) build their cache faithfully.
 3. **Routing**: the art loaders still bypass the group system with `l37aa`/
