@@ -7969,15 +7969,6 @@ void boot_a5_seed_defaults(void)
 	 * init loads the B&W .TLB libraries instead. */
 	g_a5_2347 = 1;
 
-	/* The 320x200 8-bit-colour-active flag (-1312): on the Mac it is set when
-	 * the colour screen is up; jt1200() reads it to return display mode 0 (the
-	 * native colour mode) vs 1. The port is permanently 8-bit colour, but never
-	 * set it -> jt1200() returned 1, so the picture-palette gate in L3f3c/L3eea
-	 * (jt1163() || jt1200()==0) was always FALSE and loaded pictures (merchant
-	 * event-art, bigpic, GLIB pictures) rendered with NO palette = "4 colours".
-	 * Seed it so the picture CLUTs install. (#125/#127) */
-	g_a5_byte(-1312) = 1;
-
 	/* JT[1083] PRNG seed. A non-zero seed is required — with state
 	 * == 0 the LCG locks at state = 1 forever (state * mul + 1
 	 * → 1) and all rolls degenerate to 0. Plant 1 here so each
