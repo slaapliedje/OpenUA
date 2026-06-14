@@ -1,5 +1,37 @@
 # Resource Manager (FC group cache) — worklist
 
+## PALETTE-COMMIT CHAIN (2026-06-13, faithful trace — NOT yet committed)
+
+The "4 colours" picture bug (merchant event-art #125, bigpic, GLIB pictures)
+is the picture-palette commit being gated off. Faithful chain (verified vs asm):
+- A loaded picture's palette commits through `L3eea(handle)` -> `jt468` group
+  lookup -> `jt1017` type check -> **`jt993`** (TNPalette) -> reads the palette
+  GLIB item via `l2856`, copies the RGBs, installs via **`jt1069`/`jt1066`**.
+- `jt993` count = `jt1200() ? 16 : 256`, and BOTH `L3eea` and `L3f3c` gate on
+  `jt1163() || jt1200()==0`. jt1163()=0 (faithful), so it needs **jt1200()==0**.
+- `jt1200()` = `(g_a5_2347==0)?3:((g_a5_1312!=0)?0:1)`. g_a5_1312 (the 320x200
+  8-bit-colour flag) was NEVER set -> jt1200()=1 -> the gate was always false
+  -> pictures installed no palette. **FAITHFUL fix:** the Mac boot init (CODE 4
+  @0x47b4) sets g_a5_-1312 = (-2344 && !-1314 && screen_depth(-1318) >= 8) ?
+  1 : 0 — i.e. 1 for an 8-bit screen, which the Falcon VIDEL always is. So seed
+  g_a5_-1312 = 1 (NOT a shortcut — the lifted value for this hardware).
+
+EVIDENCE (FRUA_PAL_PROBE -> C:\PAL.TXT, harness P->B to the merchant): with
+g_a5_-1312=1, jt993 fired and committed **224 real colours** (start=32, RGBs
+151,167,183 / 87,87,87) — the chain WORKS. But:
+1. The merchant PIC still renders dark/few-colour. Its palette commits to
+   indices 32..255; suspect the **pixel->CLUT band offset** — the PIC's pixels
+   may not be offset into 32..255 (or are mostly low/UI indices), the SAME band
+   issue as the wall jt114 stand-in. Check the l3880/jt1001 picture blit + a Mac
+   pixel compare before declaring the colours right.
+2. g_a5_-1312=1 UNMASKS a text-clear regression (event text overwrites instead
+   of clearing) — a separate port bug the wrong -1312=0 was hiding; lift it
+   faithfully (find the play/event clear path that assumed jt1200()==1).
+So the faithful sequence is: seed -1312 (faithful) + fix the text-clear lift +
+fix the picture pixel-band offset. Reverted for now to keep the build green;
+do all three together. See [[feedback-no-shortcuts]].
+
+
 The faithful "Resource Manager" FRUA uses for its art (.CTL/.TLB GLIB
 libraries) is the **FC group cache**: on-demand, by-numeric-name, cached
 (purgeable) loading of library items into a shared pool. The port's art
