@@ -5923,7 +5923,12 @@ static void l3994(void)
 		g_a5_18395 = 0;
 	}
 
-	if (jt1163() != 0 || jt1200() != 0)
+	/* CODE 6 @0x39ea: jt1066 fires iff jt1163()!=0 OR jt1200()==0 (the
+	 * 0x39f0 bnes jumps straight to the call; the 0x39f8 bnes SKIPS it when
+	 * jt1200()!=0, so the fall-through is the ==0 case). An earlier lift had
+	 * jt1200()!=0, which never committed at the faithful play state
+	 * jt1200()==0 — so loaded pictures' palettes were never pushed. */
+	if (jt1163() != 0 || jt1200() == 0)
 		jt1066();
 
 	g_a5_18393 = 0;
@@ -42262,10 +42267,16 @@ static void jt1069(short start, short count, unsigned char *src,
  * the A5 tables plus the one l6e58 hardware write. Faithful 1:1 lift of L759a,
  * asm offsets in comments. Phase A restores flagged ranges from the -3354
  * backup; phase B walks the -3386 used-slot bitmap (whole-empty byte -> skip 8,
- * whole-full byte -> copy 8 colours, else bit-by-bit), copying each used slot's
- * colour -3394 -> -3390 and tracking the touched span [min,max]; the tail
- * commits -3394[min..max] to the CLUT via l6e58 and raises the -3150 dirty
- * flag. See docs/glib-palette-subsystem.md. */
+ * whole-full byte -> copy 8 colours, else bit-by-bit), promoting each used
+ * slot's staged colour LIVE(-3390) -> WORK(-3394) and tracking the touched span
+ * [min,max]; the tail commits WORK[min..max] to the CLUT via l6e58 and raises
+ * the -3150 dirty flag. (Direction: jt1069 STAGES incoming colours into LIVE;
+ * jt1066 PROMOTES live->work then pushes work to the device. The Mac asm at
+ * 0x7680/0x76de pushes JT[406] args src=fp@8=-3390(live), dst=fp@12=-3394(work)
+ * = BlockMove(live, work); the C jt406 wrapper is memmove-order (dst,src), so
+ * the faithful call is jt406(work, live, n). An earlier lift had these reversed,
+ * committing the all-zero work buffer -> black.) See
+ * docs/glib-palette-subsystem.md. */
 static void jt1066(void) __attribute__((unused));
 static void jt1066(void)
 {
@@ -42296,8 +42307,8 @@ static void jt1066(void)
 		g_a5_byte(-3162 + i) = 0;           /* 75fa */
 	}
 
-	/* Phase B (L7610): walk the 256-slot used-bitmap; sync used slots
-	 * -3394 -> -3390, track [min,max], clear the bitmap. */
+	/* Phase B (L7610): walk the 256-slot used-bitmap; promote used slots
+	 * LIVE(-3390) -> WORK(-3394), track [min,max], clear the bitmap. */
 	i = 0;
 	while (i < 256) {                           /* 772a */
 		if (used[i >> 3] == 0) {            /* 7610 empty byte */
@@ -42309,14 +42320,14 @@ static void jt1066(void)
 				min = i;
 			if ((short)(i + 7) > max)   /* 764a */
 				max = (short)(i + 7);
-			jt406(live + i * 3, work + i * 3, 24);  /* 7680 */
+			jt406(work + i * 3, live + i * 3, 24);  /* 7680: live -> work */
 			used[i >> 3] = 0;           /* 7694 */
 			i += 8;                     /* 7696 */
 			continue;
 		}
 		do {                                /* L769e partial byte */
 			if (used[i >> 3] & (1 << (i & 7))) {     /* 76b6 */
-				jt406(live + i * 3, work + i * 3, 3); /* 76de */
+				jt406(work + i * 3, live + i * 3, 3); /* 76de: live -> work */
 				if (min > i)        /* 76e6 */
 					min = i;
 				if (max < i)        /* 76f6 */
@@ -43607,7 +43618,7 @@ static void l534a(short a, short b, short c, short d)
 		}
 	}
 	l3eea(g_a5_24320);
-	jt117();
+	l3994();                                /* CODE 6 @0x5412: NOT jt117 */
 }
 
 /* L338c (CODE 6 + 0x338c) — select the library load-mode byte (g_a5_-18396)
