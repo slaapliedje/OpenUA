@@ -1,5 +1,55 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-14b — FULL asm read of the blit chain: render pipeline is FAITHFUL
+Read the entire chain in the disasm (CODE_05/07) and cross-checked each stage
+against the port. EVERY primitive is a faithful match — the render CODE is not
+the bug. Ruled out, with asm cites:
+- **Cell read `l5e52`** (CODE_07 0x5e52): the real code reads the edge byte at
+  ds+290+(col*H+row)*6+(dir&6)/2 and returns `& 15` = the LOW nibble. The port's
+  l5e52 returns `*cell & 15` — MATCH. (jt210/l5bfa reads the HIGH nibble for a
+  DIFFERENT purpose; the frustum uses the low nibble. Not a high/low-nibble bug.)
+- **Walk `jt199`/L6234**: map-verified faithful (prior), emits ~25 slots post-#128
+  (matches the Mac count).
+- **Axis `l5b42`**: top<-wide(-12222, soff-varying), left<-narrow(-12202); trace-
+  confirmed (`top` steps 8032->8012, `left` constant). MATCH.
+- **`jt200`/L59d4**: code fold-by-5 -> (group,style); far/near idx math
+  (near = code*9+sub+2 / code*10+sub+1) MATCHES L59d4 5aba/5ad4. The per-layer
+  LEFT step is `+4` NATIVE (the Mac's deep `+16` is the 640x480 2x display path,
+  which our native port correctly does not use). MATCH.
+- **Blit `L309c`->`L2d4e`->`L2970`**: (a) TRANSPARENCY = byte 255 (the L2970
+  masked path pushes #255); port honors `v==255`. MATCH. (b) BEARINGS: L309c does
+  `coord -= metric[2:3]` / `metric[4:5]`; jt1005 (faithful L31fc, L309c's bbox
+  sibling) proves metric[2:3]=ascent(vertical), metric[4:5]=x_bearing(horizontal);
+  the port subtracts ybear=metric[2:3] from the vertical axis and xbear=metric[4:5]
+  from horizontal. MATCH (a swap hypothesis here was tested vs the asm and is
+  WRONG — the stack-order vs physical-axis labeling is the confusion). (c) MODE:
+  wall flags 0xc5 -> low-nibble 5 = raw 8bpp -> L2970 (not composite/PackBits/RLE).
+  Single-body blit MATCH.
+- **Positions are NATIVE**: l5b42 applies `delta<<2` (delta*4) ALWAYS (asm 5b4c,
+  not gated on scale); the deep remap (the extra <<2) is the 2x display path the
+  port omits. So port positions = native delta*4 + hole origin. The tiles are
+  authored at NATIVE (VGA 320x200) size per the user (Mac port is from DOS/VGA;
+  the Mac 2x is just its 640x480 display feature; our Atari is native-fullscreen
+  like DOS), so tiles 1:1 is correct too.
+
+### So the bug is NOT in the render code — it is EMPIRICAL (data or frame)
+With the whole pipeline faithful yet the render = flat stone wall (left ~60%) +
+sky (right) instead of the Mac's symmetric corridor+door, the divergence must be:
+  (1) the loaded GEO005 cells the LATERAL scan reads (col7/col9 neighbours of the
+      10,8 origin) differ from the Mac's, so the frustum assembles an asymmetric
+      view (the render IS faithful to whatever cells it reads); OR
+  (2) the loaded 8X8DB tile PIECES (via the -27894 handles / l6eea) differ from
+      the Mac's for the emitted idx; OR
+  (3) the reference screenshot is a different frame/state than what loads.
+DECISIVE NEXT STEP (host-side, no live capture needed if done offline): diff the
+port's emitted (code,sub,top,left) slots against the Mac standing trace
+(docs/mac-blit-trace-heirs-l5-standing.md, 25 slots). MATCH -> bug is tile DATA
+(2); MISMATCH -> bug is the cells read (1), i.e. the loaded map still differs at
+the scan neighbours. Get the port slots via an offline jt199 replay on the dumped
+map (/tmp mapdump: party 10,8, deltas tbl-27853/-27862, slot-layout -12240..),
+since the live capture is blocked by the looping entry-event script (a #100
+matter, NOT skipped by FRUA_SKIP_ENTRY_EVENTS which only skips l709e(special)).
+
 ## UPDATE 2026-06-14 — colour is FIXED; the gap is now PURELY geometry
 Captured the committed-baseline `render_3d_faithful` output (VIEWPORT.PPM at the
 standing 10,8,E frame, /tmp/prefix_5x.png):
