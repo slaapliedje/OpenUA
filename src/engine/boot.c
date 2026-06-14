@@ -12246,15 +12246,26 @@ static void jt214(void)
 {
 	const unsigned char *ds  = (const unsigned char *)g_a5_12300;
 	const unsigned char *rec = (const unsigned char *)g_a5_28006;
-	short id;
+	short id, gen;
 
 	PROBE("jt214");
+
+	/* the generic background id (rec[19] + 239) */
+	gen = (short)((rec != NULL ? (short)(unsigned char)rec[19] : 0) + 239);
 
 	if (ds != NULL && ds[8] != 0)
 		id = (short)(unsigned char)ds[8];
 	else
-		id = (short)((rec != NULL ? (short)(unsigned char)rec[19] : 0)
-		             + 239);
+		id = gen;
+
+	/* GEMDOS graceful fallback: a design bigpic OVERRIDE (id outside the base
+	 * libraries' 240..252) lives in a long-named per-design file that cannot
+	 * exist on a GEMDOS volume (8.3). When the id is not a base-library id, fall
+	 * back to the generic background instead of looking up a missing item (which
+	 * alerts via l036a and stalls). This is the faithful "no override present"
+	 * result. (HEIRS' ds[8]=8 is the design Backdrop1, not a real bigpic id.) */
+	if (id < 240 || id > 252)
+		id = gen;
 
 	l579e(id);
 }
