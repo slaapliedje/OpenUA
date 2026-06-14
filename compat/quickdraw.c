@@ -1042,6 +1042,18 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 		dsp->set_palette(tmp, first, count);
 }
 
+/* Debug accessor: copy the live shim CLUT out as 256 packed RGB triples.
+ * Used by the engine's render-viewport dump (FRUA_VIEWPORT_DUMP). */
+void qd_dump_palette(unsigned char *out768)
+{
+	int i;
+	for (i = 0; i < 256; i++) {
+		out768[i * 3 + 0] = g_palette[i].r;
+		out768[i * 3 + 1] = g_palette[i].g;
+		out768[i * 3 + 2] = g_palette[i].b;
+	}
+}
+
 /*
  * Find the cached-CLUT index closest to `color` by sum-of-squared
  * differences in 8-bit-per-channel space. The Mac Color Manager's

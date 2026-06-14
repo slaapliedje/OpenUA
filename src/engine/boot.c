@@ -8653,6 +8653,15 @@ static unsigned char g_cw_sb[CW_SLOTS][CW_BAND];
 static unsigned char g_cw_strans[CW_SLOTS][CW_BAND]; /* 1 = magenta key (clear)*/
 static unsigned char g_cw_remap[CW_SLOTS][4][CW_BAND]; /* depth->darker off  */
 static short g_cw_grp[CW_SLOTS] = { -1, -1, -1 };    /* cached Wall1-3 ids   */
+/* Set when an event PICTURE (jt993 -> jt1069/jt1066) commits its own palette
+ * into CLUT[32..255], which overwrites the dungeon's wall bands (32/64/96) and
+ * backdrop band (145). The dungeon render's wall-CLUT install is otherwise gated
+ * on the wall ids changing, so after a merchant/event picture the ids are
+ * unchanged and the merchant's palette would persist on the walls (they blit
+ * with the wrong colours / vanish). render_3d_faithful checks this flag and
+ * forces a full wall/backdrop/chrome CLUT reinstall on the next dungeon frame.
+ * See [[resource-manager-bigpic-pickup]]. */
+static int g_clut_clobbered = 0;
 #define CW_CELL 56            /* wall-cell size the facet bearings sit in  */
 
 /* Full piece store for the FAITHFUL renderer: all 48 pieces of one active
@@ -10542,10 +10551,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * their clut bands (32/64/96) via the existing per-slot loader; l309c_tile
 	 * rebases each group's 32-based tile bytes into its band. Reload only when
 	 * the group ids change (each set's CLUT lives in its .CTL, sub-GLIB 0). */
-	if (ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2]) {
+	if (g_clut_clobbered
+	 || ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2]) {
 		load_wall_groups(ds);                 /* slots 0/1/2 + cw_finalize bands */
 		load_backdrop(g_back_set);            /* re-lay backdrop band (clut 145) */
 		s_chrome_drawn = 0;                   /* clut wiped -> repaint chrome */
+		g_clut_clobbered = 0;                 /* dungeon CLUT reinstated */
 	}
 
 	/* Draw the FRAME.CTL play-screen chrome once (and after a wall-set change).
@@ -10607,6 +10618,110 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 	g_j2_active = 0;
 	j200_dump();
+#endif
+#ifdef FRUA_VIEWPORT_DUMP
+	/* One-shot map-region dump: for each cell in a window around the party,
+	 * read the 4 edge movement-type nibbles DIRECTLY (ds+290+(col*H+row)*6),
+	 * N=byte0 E=byte1 S=byte2 W=byte3 (low nibble). Lets the host identify which
+	 * (row,col) has the Mac's geometry (open N/S, door 1 step E) and pin the
+	 * coordinate convention without guess-and-check. */
+	{
+		static char map_done = 0;
+		if (!map_done) {
+			char buf[4096]; int p = 0; short rr, cc; short ref = 0; long n;
+			short Hh = ds[3], Ww = ds[2];
+			const char *hex = "0123456789abcdef";
+			map_done = 1;
+			for (rr = 4; rr <= 14 && rr < Hh; rr++) {
+				for (cc = 4; cc <= 14 && cc < Ww; cc++) {
+					const unsigned char *cl = ds + 290 + ((long)cc * Hh + rr) * 6;
+					buf[p++]='r'; buf[p++]=hex[(rr>>4)&15]; buf[p++]=hex[rr&15];
+					buf[p++]='c'; buf[p++]=hex[(cc>>4)&15]; buf[p++]=hex[cc&15];
+					buf[p++]=':'; buf[p++]='N'; buf[p++]=hex[cl[0]&15];
+					buf[p++]='E'; buf[p++]=hex[cl[1]&15];
+					buf[p++]='S'; buf[p++]=hex[cl[2]&15];
+					buf[p++]='W'; buf[p++]=hex[cl[3]&15];
+					buf[p++]=' ';
+				}
+				buf[p++]='\n';
+			}
+			{
+				short d; const char *t1 = "tbl-27853:"; const char *t2 = "tbl-27862:";
+				while (*t1) buf[p++] = *t1++;
+				for (d = 0; d < 8; d++) {
+					signed char v = (signed char)g_a5_byte(-27853 + d);
+					if (v < 0) { buf[p++]='-'; v = (signed char)(-v); }
+					if (v >= 10) buf[p++] = (char)('0' + v / 10);
+					buf[p++] = (char)('0' + v % 10); buf[p++] = ',';
+				}
+				buf[p++] = '\n';
+				while (*t2) buf[p++] = *t2++;
+				for (d = 0; d < 8; d++) {
+					signed char v = (signed char)g_a5_byte(-27862 + d);
+					if (v < 0) { buf[p++]='-'; v = (signed char)(-v); }
+					if (v >= 10) buf[p++] = (char)('0' + v / 10);
+					buf[p++] = (char)('0' + v % 10); buf[p++] = ',';
+				}
+				buf[p++] = '\n';
+			}
+			/* slot-layout globals -12240..-12204 (signed words): the per-depth
+			 * screen positions that drive the perspective. */
+			{
+				short off; const char *t3 = "slotlayout(-off=val):";
+				while (*t3) buf[p++] = *t3++;
+				for (off = 12240; off >= 12204; off -= 2) {
+					short v = (short)g_a5_word(-off); long av;
+					/* "off=" */
+					buf[p++]=(char)('0'+(off/10000)%10);
+					buf[p++]=(char)('0'+(off/1000)%10);
+					buf[p++]=(char)('0'+(off/100)%10);
+					buf[p++]=(char)('0'+(off/10)%10);
+					buf[p++]=(char)('0'+off%10);
+					buf[p++]=':';
+					if (v < 0) { buf[p++]='-'; av=-(long)v; } else av=v;
+					if (av>=10000) buf[p++]=(char)('0'+(av/10000)%10);
+					if (av>=1000)  buf[p++]=(char)('0'+(av/1000)%10);
+					if (av>=100)   buf[p++]=(char)('0'+(av/100)%10);
+					if (av>=10)    buf[p++]=(char)('0'+(av/10)%10);
+					buf[p++]=(char)('0'+av%10); buf[p++]=' ';
+				}
+				buf[p++]='\n';
+			}
+			(void)FSDelete((ConstStr255Param)"\013MAPDUMP.TXT", 0);
+			(void)Create((ConstStr255Param)"\013MAPDUMP.TXT", 0, 'FRUA', 'TEXT');
+			if (FSOpen((ConstStr255Param)"\013MAPDUMP.TXT", 0, &ref) == noErr) {
+				n = p; (void)FSWrite(ref, &n, buf); (void)FSClose(ref);
+			}
+		}
+	}
+	/* Dump the native 88x88 viewport (24,24)-(112,112) as a binary PPM via the
+	 * live CLUT, so the host can pixel-diff it against data/mac_3d_start_e.png.
+	 * Overwrites each frame -> the file holds the latest (settled) render. */
+	{
+		static unsigned char pal[768];
+		static unsigned char row[88 * 3];
+		const char hdr[] = "P6\n88 88\n255\n";
+		short vx, vy, ref = 0; long n;
+
+		qd_dump_palette(pal);
+		(void)FSDelete((ConstStr255Param)"\014VIEWPORT.PPM", 0);
+		(void)Create((ConstStr255Param)"\014VIEWPORT.PPM", 0, 'FRUA', 'BINA');
+		if (FSOpen((ConstStr255Param)"\014VIEWPORT.PPM", 0, &ref) == noErr) {
+			n = (long)(sizeof hdr - 1);
+			(void)FSWrite(ref, &n, (void *)hdr);
+			for (vy = 24; vy < 112; vy++) {
+				for (vx = 24; vx < 112; vx++) {
+					unsigned char idx = px[(long)vy * pitch + vx];
+					row[(vx - 24) * 3 + 0] = pal[idx * 3 + 0];
+					row[(vx - 24) * 3 + 1] = pal[idx * 3 + 1];
+					row[(vx - 24) * 3 + 2] = pal[idx * 3 + 2];
+				}
+				n = 88 * 3;
+				(void)FSWrite(ref, &n, row);
+			}
+			(void)FSClose(ref);
+		}
+	}
 #endif
 	g_cwf_force_deep = 0;
 	g_cwf_px = NULL;
@@ -42416,6 +42531,14 @@ static void jt993(long handle, short idx)
 	src += count * 3;                                         /* 2188 */
 	jt406(rembuf, src, (short)(ncopy * 4));                   /* 21a4 */
 	jt1069(start, count, palbuf, ncopy, rembuf);             /* 21c4 */
+
+	/* PORT: an event picture just took over CLUT[start..] (the merchant et al.
+	 * land at 32..255). That overwrites the dungeon's wall (32/64/96) + backdrop
+	 * (145) bands; flag the dungeon renderer to reinstall them on the next frame
+	 * (its wall-CLUT install is otherwise skipped while the wall ids are
+	 * unchanged). */
+	if (start < 145)
+		g_clut_clobbered = 1;
 }
 
 /* JT[1067] (CODE 5 + 0x7772) — GLIB palette colour CYCLING. For each range
