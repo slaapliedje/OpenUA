@@ -416,6 +416,7 @@ void PenPat(const Pattern *pat); /* set the 8x8 pen pattern (copies bytes) */
 void RGBForeColor(const RGBColor *color);
 void RGBBackColor(const RGBColor *color);
 void qd_set_palette(const RGBColor *colors, short first, short count);
+void qd_dump_palette(unsigned char *out768);
 
 /* --- text drawing ---
  *
