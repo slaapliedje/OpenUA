@@ -9965,17 +9965,16 @@ static void jt200(unsigned char *page, short top, short left,
 			code = 1;
 	}
 	if ((sub & 0xff) < 8) {
-		/* step the LEFT (horizontal) anchor — asm L59d4 5a28-5a52 adds 16 to
-		 * fp@(10), which is jt200's 2nd arg and (per L5b42 -> JT[114] top,left)
-		 * the LEFT/8016-anchored coord. This is the per-layer far/near offset:
-		 * the far face sits one step left of the near. The Mac's +4 (8000-space,
-		 * e.g. trace 8028->8032) scales by the view factor: x1 native -> +4
-		 * (was +8 under the old <<1 x2 transform). g_cwf_force_deep keeps it
-		 * firing while the play screen runs at g_a5_2347=1. (The prior lift
-		 * stepped `top`, transposing this offset along with the l5b42 axis.) */
+		/* step the LEFT (horizontal) anchor — asm L59d4 5a28-5a52 adds +4
+		 * (native) / +16 (deep) to fp@(10), the LEFT coord, in the Mac's
+		 * 8000-space BEFORE jt1135 scales it x2. Since l5b42 now pre-applies the
+		 * jt1135 x2 (positions in screen space), this 8000-space +4 must be
+		 * doubled to +8 screen to stay consistent (a +4 here left the stepped
+		 * slots 4px short of the un-stepped ones -> the "Escher" misalignment).
+		 * g_cwf_force_deep keeps it firing while the play screen runs at
+		 * g_a5_2347=1 / jt1200()!=3. */
 		if (jt1200() == 3 || g_cwf_force_deep) {
-			if (left < 8000)
-				left = (short)(left + 4);
+			left = (short)(left + 8);
 		} else {
 			left = (short)(left + 4);
 		}
@@ -10620,7 +10619,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * instead of the faithful col8/row10 STONE room). g_a5_-12288 is ROW(Y),
 	 * g_a5_-12287 is COL(X) — the l0bbc load + jt938 HUD already store/show
 	 * them this way; only the render/movement USAGE was reversed. */
-	jt199(page, (short)8012, (short)8016,
+	jt199(page, (short)8012, (short)8012,
 	      (short)g_a5_12288, (short)g_a5_12287, f);
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 	g_j2_active = 0;
@@ -14279,7 +14278,7 @@ void port_play_demo(void)
 		 * slot's screen coord for this vantage. */
 		dbg_log_num("=== jt199 coord trace (clip x[21,201]) facing=",
 		            (long)(g_a5_12286 & 7));
-		jt199(jpage, (short)8012, (short)8016, (short)g_a5_12288,
+		jt199(jpage, (short)8012, (short)8012, (short)g_a5_12288,
 		      (short)g_a5_12287, (short)(g_a5_12286 & 7));
 #endif
 #ifdef FRUA_PERF_TEST
