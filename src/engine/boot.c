@@ -9871,15 +9871,19 @@ static int load_cw_full(short file, short set)
 }
 
 /* JT[114] (CODE 6 + 0x3804) — blit wall tile `idx` from a wall-set tile-
- * library handle. The Mac forwards to JT[1001] (CODE 5+0x31ac, = JT[468] +
- * L309c, the GLIB tile blit); the port routes to l309c_tile with the handle.
- * `handle` is one of the per-group wall-set GLIBs L6eea loads. */
+ * library handle. FAITHFUL: the Mac forwards JT[114] -> JT[1001] (L31ac) ->
+ * jt468(*handle) + L309c(top,left,glib,idx). The port's L6eea stores the wall
+ * GLIB pointer directly in the -27894 handle slot (usable by l2856), so we skip
+ * the jt468 indirection and call the faithful l309c leaf straight: it does the
+ * jt1135 x2 scale + the metric bearing + l2d4e (clipped to the QD viewport-hole
+ * rect render_3d_faithful set). Replaces the hand-rolled l309c_tile blit. */
 static void jt114(unsigned char *page, short top, short left, short idx,
                   long handle)
 {
 	PROBE("jt114");
+	(void)page;
 	if (handle != 0)
-		l309c_tile(page, top, left, (long)(uintptr_t)handle, idx);
+		l309c(top, left, handle, idx);
 }
 
 /* jt200_layer — draw one wall-tile layer for jt200. FAITHFUL path: blit tile
@@ -9970,16 +9974,13 @@ static void jt200(unsigned char *page, short top, short left,
 			code = 1;
 	}
 	if ((sub & 0xff) < 8) {
-		/* step the LEFT (horizontal) anchor — asm L59d4 5a28-5a52 adds +4
-		 * (native) / +16 (deep) to fp@(10), the LEFT coord, in the Mac's
-		 * 8000-space BEFORE jt1135 scales it x2. Since l5b42 now pre-applies the
-		 * jt1135 x2 (positions in screen space), this 8000-space +4 must be
-		 * doubled to +8 screen to stay consistent (a +4 here left the stepped
-		 * slots 4px short of the un-stepped ones -> the "Escher" misalignment).
-		 * g_cwf_force_deep keeps it firing while the play screen runs at
-		 * g_a5_2347=1 / jt1200()!=3. */
-		if (jt1200() == 3 || g_cwf_force_deep) {
-			left = (short)(left + 8);
+		/* step the LEFT (horizontal) anchor in 8000-space — asm L59d4 5a28-5a52
+		 * adds +4 (native) / +16 (deep, fp@10<8000) to fp@(10). Coords now stay
+		 * in 8000-space through to l309c's jt1135 (which scales x2), so this is
+		 * the faithful +4 (native) / +16 (deep). */
+		if (jt1200() == 3) {
+			if (left < 8000)
+				left = (short)(left + 16);
 		} else {
 			left = (short)(left + 4);
 		}
@@ -10063,29 +10064,15 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub)
 {
-	/* y (8012) + wide ydelta -> TOP (vertical); x (8016) + narrow xdelta -> LEFT */
+	/* FAITHFUL: pass the raw 8000-space coords through (y=8012, x=8012 anchors;
+	 * + the signed-byte slot delta << 2). The real L5b42 (native, jt1200()!=3)
+	 * does NOT remap here -- it hands these 8000-space coords to jt200 -> L309c,
+	 * and L309c's JT[1135] does the (v-8000)*scale (scale 2, g_a5_2347!=0) ->
+	 * 24 + delta*8 screen. So we no longer pre-scale; the faithful l309c blit
+	 * path (jt200_layer -> l309c -> l2d4e) applies jt1135 + bearing + the QD-hole
+	 * clip itself. */
 	short top  = (short)(y + ((short)(signed char)ydelta << 2));
 	short left = (short)(x + ((short)(signed char)xdelta << 2));
-	if (jt1200() == 3 || g_cwf_force_deep) {
-		/* FAITHFUL jt1135 position scale (2026-06-14). The real chain is
-		 * L5b42 (native, jt1200()!=3) -> jt200 -> L309c -> JT[1135], and
-		 * JT[1135] does (v-8000)*scale for v>6000 (scale 2 with g_a5_2347!=0).
-		 * So the faithful NATIVE screen position = (8012+ydelta*4 - 8000)*2 =
-		 * 24 + ydelta*8 (and 32 + xdelta*8 for left, x base 8016). The slot
-		 * deltas (0..9) therefore span ydelta*8 = 0..72px across the 88px pane
-		 * -> a full symmetric corridor. The PORT previously pre-remapped here to
-		 * (v-8012)+oy = ydelta*4 (+44), a value <6000 that made the downstream
-		 * jt1135 no-op -> it DROPPED the x2, packing every slot into ydelta*4
-		 * (~36px, the left ~half) = the flat-wall "tessellate into solid walls"
-		 * bug. Tiles are authored at NATIVE (VGA) size, so they blit 1:1 and
-		 * tessellate at the ydelta*8 spacing exactly as on the Mac's 88x88
-		 * native view (data/mac_3d_start_e.png). The codes/walk/data are already
-		 * byte-identical to the Mac (offline jt199 replay); only this scale was
-		 * wrong. The +24/+32 base lands the view in FRAME.CTL set 9's (24,24)
-		 * viewport hole, so no extra g_cwf_ox/oy offset is needed. */
-		top  = (short)((short)(top  - 8000) * 2);
-		left = (short)((short)(left - 8000) * 2);
-	}
 #ifdef FRUA_COORD_TRACE
 	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
 	dbg_log_num("     narrow=", (long)(signed char)xdelta);
@@ -10604,6 +10591,13 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * (horizontal=8012, vertical=8016, row=partyY, col=partyX, facing). */
 	g_cwf_px = px;
 	cw_view_clip(pitch, sw, sh, VL, VT, VR, VB);
+	/* FAITHFUL blit path: jt200 -> jt114 -> l309c -> l2d4e clips to the
+	 * QuickDraw rect (g_a5_-3054 top / -3050 bottom / -3056 left / -3052 right).
+	 * Point it at FRAME.CTL set 9's 88x88 viewport hole so the wall tiles are
+	 * confined to the view pane; save/restore the play-screen full-rect. */
+	short sav_ct = (short)g_a5_3054, sav_cb = (short)g_a5_3050;
+	short sav_cl = (short)g_a5_3056, sav_cr = (short)g_a5_3052;
+	g_a5_3054 = VT; g_a5_3050 = VB; g_a5_3056 = VL; g_a5_3052 = VR;
 	l6148();
 #ifdef FRUA_ENGINE_PROBE
 	dbg_log_num("faithful: ds[4..6]=", (long)ds[4] * 10000 + ds[5] * 100 + ds[6]);
@@ -10626,6 +10620,8 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * them this way; only the render/movement USAGE was reversed. */
 	jt199(page, (short)8012, (short)8012,
 	      (short)g_a5_12288, (short)g_a5_12287, f);
+	g_a5_3054 = sav_ct; g_a5_3050 = sav_cb;   /* restore play-screen clip rect */
+	g_a5_3056 = sav_cl; g_a5_3052 = sav_cr;
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 	g_j2_active = 0;
 	j200_dump();
