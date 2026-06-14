@@ -1,5 +1,39 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-14c — SCALE + ANCHOR fixed; positions now BYTE-IDENTICAL to Mac
+Three faithful fixes this session (commits 0b1e0a1, 526935d):
+1. **jt1135 x2 position scale restored** (l5b42). The port pre-remapped to native
+   ((v-8012)+oy = delta*4), making the downstream jt1135 no-op and DROPPING its
+   x2; slots packed into delta*4 (~36px, left half) = the flat wall. Restored the
+   real (v-8000)*2 -> delta*8 (~72px), fills the 88px pane. Flat wall -> corridor.
+2. **X anchor 8016 -> 8012** (render_3d_faithful jt199 call). The real L6234 caller
+   (CODE_10 0x20e0) passes 8012 for the LEFT base (fp@10); 8016 put every slot +8px
+   right (uniform across all 25).
+3. **jt200 layer step +4 -> +8**. The asm's +4 is 8000-space, pre-jt1135-x2; in the
+   port's pre-scaled screen space it must be +8.
+RESULT: the port's emitted (top,left) for ALL 25 slots are now BYTE-IDENTICAL to
+the Mac standing trace via (v-8000)*2 (max |dTop|=0, |dLeft|=0). The door / left
+wall / stone floor place correctly (user-confirmed). The slot GRID is solved.
+
+### Tile scale: x1 (native) is correct; x2 OVER-fills
+Tried scaling the 8x8 tile PIXELS x2 in l309c_tile to fill the x2 grid (to match
+L2970's jt1200 lslw). Result: a SOLID wall covering the sky/corridor opening
+(worse). Reverted. Tiles ARE native 1:1 (VGA-authored; the Mac port is from DOS).
+So the remaining per-tile misplacement is NOT a uniform scale.
+
+### REMAINING (the "Escher"): per-tile bearing / far-near + wood-vs-stone
+With positions Mac-identical and tiles 1:1, the residual wrongness (floating wood
+panels upper area, right-side fragments) is:
+  (a) per-piece BEARING and/or the far/near layer pairing (jt200 draws a far face
+      idx + a near face idx; the 8x8 pieces land at pos-bearing -- verify the
+      bearing read + the far/near idx pairing per slot vs the Mac trace's
+      "blits" column, e.g. slot0 "far idx2 + near idx30 (8032,8032)");
+  (b) WOOD vs STONE: emitted codes 6/9 fold to group1=ds[5]=set8=wood (faithful to
+      the Mac trace codes), but data/mac_3d_start_e.png shows stone. OPEN: is that
+      screenshot the SAME frame as the jt200 trace, or post-move? Needs the user's
+      Mac. If same frame, the wall-code->set fold (ds[group+4]) needs review.
+
+
 ## UPDATE 2026-06-14b — FULL asm read of the blit chain: render pipeline is FAITHFUL
 Read the entire chain in the disasm (CODE_05/07) and cross-checked each stage
 against the port. EVERY primitive is a faithful match — the render CODE is not
