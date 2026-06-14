@@ -41964,9 +41964,28 @@ static unsigned char jt460(short refnum, long arg)
 	dest = g_a5_10270[g_a5_9306 - 1] + avail;
 
 	{
-		short got = jt401(refnum, (void *)(uintptr_t)dest, (short)length);
+		/* jt401 takes a 16-bit count (the Mac's PBRead.ioReqCount is a long,
+		 * but the port's File shim caps at a short), so a library larger than
+		 * 32KB must be read in <=32000-byte chunks. The old single
+		 * `(short)length` read truncated to the low 16 bits — BIGPIX.CTL's
+		 * 165330 became (short)165330 == -31278, so only ~34KB was read, the
+		 * group came up short, and the bigpic load crashed the play screen
+		 * (#129). Every library over 32KB (the bigpics, the larger wall/frame
+		 * sets) hit this; the boot UI .ctls are all under 32KB, which is why it
+		 * only surfaced on the bigpic. */
+		long  off = 0, remaining = length;
 
-		return (got == (short)length) ? 1 : 0;
+		while (remaining > 0) {
+			short chunk = (remaining > 32000L) ? (short)32000
+			                                   : (short)remaining;
+			short got = jt401(refnum,
+			                  (void *)(uintptr_t)(dest + off), chunk);
+			if (got != chunk)
+				return 0;
+			off       += got;
+			remaining -= got;
+		}
+		return 1;
 	}
 }
 
