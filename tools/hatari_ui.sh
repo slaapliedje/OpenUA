@@ -125,6 +125,36 @@ shot)
 	[[ -f "$OUT" ]] || die "capture failed"
 	echo "hatari_ui: $OUT ($(stat -c%s "$OUT") bytes)"
 	;;
+shots)
+	# Stable-frame screenshot: the Falcon play screen does a slow full-screen
+	# c2p present, so a plain `shot` often catches a half-drawn frame (the
+	# "garbage"/black-viewport captures that look like crashes but aren't).
+	# Grab repeatedly until two consecutive frames settle (pixel diff below
+	# THRESH), so we only save a fully-rendered frame. Falls back to the last
+	# grab on timeout. Usage: shots <out.png> [thresh=200] [maxtries=30]
+	OUT="${1:-/tmp/frua-shot.png}"
+	THRESH="${2:-200}"
+	TRIES="${3:-30}"
+	WID="$(cat "$STATE/wid" 2>/dev/null)" || WID="$(find_window)"
+	PREV="$STATE/shotprev.png"
+	CUR="$STATE/shotcur.png"
+	magick "x:$WID" "$PREV" 2>/dev/null || true
+	stable=0
+	for _ in $(seq 1 "$TRIES"); do
+		sleep 0.4
+		magick "x:$WID" "$CUR" 2>/dev/null || true
+		[[ -f "$CUR" && "$(stat -c%s "$CUR")" -gt 2000 ]] || continue
+		d="$(magick compare -metric AE "$PREV" "$CUR" null: 2>&1 \
+		     | grep -oE '^[0-9]+' | head -1 || echo 999999)"
+		cp "$CUR" "$PREV"
+		if [[ "${d:-999999}" -lt "$THRESH" ]]; then
+			stable=1
+			break
+		fi
+	done
+	cp "$CUR" "$OUT" 2>/dev/null || cp "$PREV" "$OUT"
+	echo "hatari_ui: $OUT ($(stat -c%s "$OUT") bytes, stable=$stable)"
+	;;
 log)
 	cat "$LOG"
 	;;
@@ -133,6 +163,6 @@ stop)
 	echo "hatari_ui: stopped"
 	;;
 *)
-	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | shot <png> | log | stop"
+	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | shot <png> | shots <png> [thresh] [tries] | log | stop"
 	;;
 esac
