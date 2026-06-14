@@ -9698,7 +9698,6 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		const unsigned char *body = (const unsigned char *)(uintptr_t)info;
 		short x0 = (short)(sx - xbear), y0 = (short)(sy - ybear);
 		g_lc_w = w; g_lc_h = h; g_lc_x0 = x0; g_lc_y0 = y0;
-		short r, c;
 		/* The tile bytes are 32-based indices into the set's own CLUT; rebase
 		 * them into this group's clut band (g_cw_base[slot] = 32/64/96) so
 		 * Wall1/2/3 each keep their palette. Bytes outside the band (shared
@@ -9706,6 +9705,12 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		 * skip unchanged. */
 		short slot = (g_cwf_slot >= 0 && g_cwf_slot < CW_SLOTS) ? g_cwf_slot : 0;
 		short base = g_cw_base[slot];
+		short r, c;
+		/* Tiles blit 1:1 (native VGA-authored 8x8 pieces). A uniform x2 tile
+		 * scale was tried (to match the x2 position grid) and OVER-filled into a
+		 * solid wall, covering the sky/corridor opening — so the remaining
+		 * per-tile misplacement is NOT a uniform scale; it is the per-piece
+		 * bearing / far-near layering (and the wood-vs-stone set). */
 		for (r = 0; r < h; r++) {
 			short dy = (short)(y0 + r);
 			if (dy < g_cwf_clip_t || dy >= g_cwf_clip_b)
