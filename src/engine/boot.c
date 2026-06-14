@@ -10039,23 +10039,21 @@ static short l5e52(short row, short col, short dir)
  * the slot-layout globals), apply the deep-mode (jt1200()==3) 8000-
  * anchor remap, then hand off to jt200 with the wall code + sub/layer.
  * (The Mac writes to the engine page descriptor; we thread the page.) */
-/* AXIS MAPPING (CORRECTED 2026-06-13 from the L5b42 -> jt200 -> JT[114] path,
- * not the clip-rect): L5b42 does fp@(8) += arg3<<2 and fp@(10) += arg4<<2, then
- * jt200(fp@8, fp@10, code, sub). jt200/L59d4 blits JT[114](fp@8, fp@10, ...),
- * and JT[114] is v-first (top, left) — so:
- *   - fp@(8) = TOP (vertical, screen Y), fed the WIDE delta (arg3, the
- *     -12222/-12240 band-receding family that grows with soff);
- *   - fp@(10) = LEFT (horizontal, screen X), fed the NARROW delta (arg4, the
- *     -12202/-12220 family); the jt200 far/near +16 step also hits fp@(10).
- * So the receding side walls step the VERTICAL axis (matches the Mac trace:
- * near band top 8032->8012, left 8028 constant). The prior lift had the clip
- * rect's order and put the wide spread on the horizontal axis, transposing the
- * view (door splayed sideways instead of dead-ahead). jt199 is called
- * jt199(8012, 8016,...): arg1 (`y` here) = the 8012 TOP anchor, arg2 (`x`) =
- * the 8016 LEFT anchor. The helpers pass the wide family as `ydelta` (-> top)
- * and the narrow family as `xdelta` (-> left). Deltas are the signed LOW BYTE
- * (asm: moveb + extw + lslw#2). Deep-mode remap ((v-8012)<<2)+8 is halved to
- * <<1 +4 for native 320x200 (the 88x88 pane is not doubled). */
+/* AXIS MAPPING (verified 2026-06-13 against the live Mac blit trace, NOT just
+ * the asm: docs/mac-blit-trace-heirs-l5-standing.md). The near band steps `top`
+ * 8032->8012 while `left` stays constant (8028); the soff-varying -12222/-12240
+ * family therefore drives TOP, and the -12202/-12220 family drives LEFT. (The
+ * asm's L5b42 adds the X arg to fp@(8) and the slot arg to fp@(10); the L6234
+ * clip-rect call orders them as JT[1173](left=fp@10, top=fp@8, ...), so fp@(8)
+ * is TOP, not LEFT — confirmed by the trace.) The perspective recession lives in
+ * the pre-rendered TILE SHAPE (the code/sub slot + far/near idx selecting
+ * trapezoidal slices), not in a horizontal spread of position; the corridor
+ * left/right walls are vertical strips at constant `left` whose tiles taper.
+ * jt199 is called jt199(8012, 8016,...): `y` = the 8012 TOP anchor, `x` = the
+ * 8016 LEFT anchor. The helpers pass the wide -12222/-12240 family in `ydelta`
+ * (-> top) and the -12202/-12220 family in `xdelta` (-> left). Deltas are the
+ * signed LOW BYTE (asm: moveb + extw + lslw#2). Deep-mode remap is taken to
+ * native 320x200 by offsetting to the 88x88 pane origin. */
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
                   short xdelta, short code, short sub) __attribute__((unused));
 static void l5b42(unsigned char *page, short y, short x, short ydelta,
