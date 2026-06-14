@@ -1,9 +1,57 @@
-# Dungeon 3D-view worklist — the "broken mirror" placement bug
+# Dungeon 3D-view worklist — the wall-tile geometry gap
 
-Status as of 2026-06-13. The first-person view (jt199 frustum -> l5b42 -> jt200 ->
-l309c_tile) renders a *broken mirror*: every wall tile lands in the RIGHT half of
-the 88x88 pane, the left half is empty, and the wooden door is split into two
-fragments. Target = `data/mac_3d_start_e.png` (a clean symmetric stone corridor,
+## UPDATE 2026-06-14 — colour is FIXED; the gap is now PURELY geometry
+Captured the committed-baseline `render_3d_faithful` output (VIEWPORT.PPM at the
+standing 10,8,E frame, /tmp/prefix_5x.png):
+- **Colour is RESOLVED.** The 88x88 render is clean greyscale stone — 22 grey
+  shades, ZERO menu-colour bleed. The "texture/CLUT-band scramble" this doc
+  chased (the l309c_tile 32-band rebase passing idx 0-31 into the UI band) is no
+  longer the active bug; c89d5f2 (g_clut_clobbered reinstall) + #128 (GEO load)
+  fixed it. Do not re-open the CLUT-band line first.
+- **Remaining gap = wall-tile GEOMETRY.** The port renders a FLAT full-brick
+  column shoved to the LEFT ~60% of the pane, sky opening on the right, wood
+  floor below. The Mac (data/mac_3d_start_e.png) is a SYMMETRIC angled corridor:
+  side walls converging from both edges to a centre vanishing point, far wooden
+  door centred, night sky top-centre. The corridor angle comes from the
+  pre-mirrored WEDGE tiles (idx 6 left / idx 7 right); the port is laying
+  full-wall tiles (idx 1/2) instead, with the bands receding leftward (`left`
+  8028->8024->8016 -> screen-left) rather than mirroring L/R.
+- **The X-mirror / l5b42-axis hypothesis is DISPROVEN** (see memory
+  [[dungeon-frustum-xplacement]] + commit 2d4604b): l5b42's axis (top<-wide
+  -12222 stepping by soff, left<-narrow -12202, step on left) is faithful,
+  triple-verified (asm L641a/L65b2 + the Mac blit trace `left constant, top
+  steps` + a live swap that produced a flat wall = worse). Do NOT touch
+  jt199/l5b42 coords.
+
+### THE decisive open question (gates whether the fix is jt199 vs l309c_tile)
+The 2026-06-13 "byte-identical Mac trace" claim (below) PREDATES #128, which
+changed which GEO cells/codes are read -> the port's emitted (top,left,code,sub)
+slots may have changed. So: **do the port's CURRENT post-#128 slots still match
+the Mac at the confirmed 10,8,E standing frame?**
+  - If YES -> slots faithful, bug is in l309c_tile (wedge-tile SELECTION/SIZE/
+    bearing; the port lays full-wall tiles where the Mac lays wedges).
+  - If NO  -> jt199/l5b42 read the wrong cells/codes post-#128; re-derive the
+    walk against the SAME-FRAME trace.
+Get this via a fresh J200DIFF.TXT (FRUA_VIEWPORT_DUMP build) AND the user's
+instrumented-Mac same-frame jt200 trace at mon-confirmed row10/col8/facingE
+(the capture spec is below). The user THIS session confirmed mac_3d_start_e.png
+IS the 10,8,E standing frame (map-verified: r0ac08 all-open, r0bc08 door-E), so
+that screenshot is a valid oracle even without a fresh trace.
+
+### Harness note (2026-06-14)
+The live ENTRY viewport is NOT render_3d_faithful — its VIEWPORT.PPM dump never
+fires on first paint, yet pixels are on screen, so a placeholder/other renderer
+draws the entry frame; render_3d_faithful only runs on a redraw. Also the scripted
+caravan/merchant ARRIVAL events are NOT skipped by FRUA_SKIP_ENTRY_EVENTS — press
+Return ~25-30x through them to reach the HUD, THEN an arrow/Return triggers the
+faithful redraw + the dump.
+
+---
+
+Status as of 2026-06-13 (superseded above re: colour). The first-person view
+(jt199 frustum -> l5b42 -> jt200 -> l309c_tile) rendered a *broken mirror*: every
+wall tile lands in one half of the 88x88 pane, the other half empty, the wooden
+door split. Target = `data/mac_3d_start_e.png` (a clean symmetric stone corridor,
 centred door, sky above), at party row=10 col=8 facing=2/E on HEIRS save A.
 
 ## What is RULED OUT (do not re-investigate)
