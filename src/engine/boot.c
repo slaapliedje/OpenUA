@@ -2475,7 +2475,115 @@ static void l50fe(short y, short x, short facing, short p4, short p5,
 		g_a5_word(-12272) = 16;
 	(void)jt117();
 }
-static void  l57f2(void)              { PROBE("L57f2"); } /* CODE 7-local — dungeon-view prep */
+/* Forward decls for the L57f2 perspective-shell cluster (all defined later). */
+static void  jt116(short a, short b, short c, short d, short e);            /* CODE 6+0x3cde — region fill (cell coords) */
+static void  jt121(short x, short y, short c, short d, long handle);        /* CODE 6+0x379c — blit art handle (cell coords) */
+static void  l3f3c(short lo, short hi);                                     /* CODE 6+0x3f3c = JT[105] — install picture palette range */
+static void  l33ac(const char *name, short kindB, short modeB, short subB,
+                   void **slotpp);                                         /* CODE 6+0x33ac = JT[110] — FC library binder */
+
+/* L5fc0 (CODE 7 + 0x5fc0) — the party cell's BackdropZone selector (0..3):
+ * bounds-test the cell (L5baa), then read the 6-byte cell record's +5 byte
+ * (ds[290 + (col*H + row)*6 + 5]) and mask the low two bits. Out of range -> 0.
+ * Args follow the Mac call order: L5fc0(row = -12288, col = -12287). */
+static short l5fc0(short row, short col)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	long cell;
+
+	if (ds == NULL || l5baa(row, col) == 0)
+		return 0;
+	cell = (long)((short)(unsigned char)ds[3] * col + row);     /* col*H + row */
+	return (short)(ds[290 + cell * 6 + 5] & 3);
+}
+
+/* L6ea2 (CODE 7 + 0x6ea2) — bind the perspective backdrop art for backdrop
+ * `id`: select the backdrop load kind (jt113(50)) and bind "back1"<id> into
+ * the g_a5_-22222 slot through the FC library binder L33ac (kind = id, palette
+ * index = g_a5_-12294). Same FC path the wall sets use; on HEIRS (no per-design
+ * Back1NNN override) it resolves to the shared BACK.CTL library. */
+static void l6ea2(short id)
+{
+	jt113((short)50);
+	l33ac("back1", id, (short)0, (short)(unsigned char)g_a5_byte(-12294),
+	      (void **)&g_a5_22222);
+}
+
+/* Gate for L58c4's perspective-backdrop IMAGE overlay. The faithful path
+ * installs the backdrop's OWN palette into CLUT entries 32..255 (L3f3c) and
+ * indexes the wall tiles + backdrop into that one SHARED dungeon palette. The
+ * port still uses the fabricated per-band CLUT model (wall sets banded at
+ * 32/64/96, plus the HUD/menu palette) — so installing the backdrop palette
+ * clobbers all of it: the region fills go black and the menu palette corrupts.
+ * Until the shared-palette CLUT model lands ([[wall-piece-8x8db-structure]] /
+ * [[glib-palette-subsystem]]), keep the image overlay OFF; the L57f2 region
+ * shell (CLUT-safe solid fills) stays live. Flip to 1 once the dungeon uses
+ * the faithful shared palette. */
+static int g_dungeon_bigpic_overlay = 0;
+
+/* L58c4 (CODE 7 + 0x58c4) — overlay the cell's perspective backdrop image.
+ * Read the BackdropZone (L5fc0) -> the level's backdrop id (ds[8+zone]); apply
+ * the night-variant nudge (id >= 32 and the design header's hour byte hdr[8]
+ * outside [6,20) selects the alternate). id == 0 -> no backdrop. When the id
+ * differs from the cached -12289, install the picture palette (JT[105] =
+ * L3f3c(32,255)) and (re)bind the art (L6ea2). Then blit it (native: JT[121];
+ * the Mac deep arm = JT[118], unreachable while g_a5_2347 != 0 / jt1200() != 3)
+ * and commit the palette (JT[124] = L3eea). */
+static void l58c4(void)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short zone, id;
+
+	if (!g_dungeon_bigpic_overlay)          /* CLUT-model gate (see above) */
+		return;
+	if (ds == NULL)
+		return;
+	zone = l5fc0((short)(signed char)g_a5_byte(-12288),
+	             (short)(signed char)g_a5_byte(-12287));
+	id = (short)(unsigned char)ds[8 + zone];
+	if (id >= 32) {                                 /* 0x590c — night-variant */
+		const unsigned char *hdr =
+			(const unsigned char *)(uintptr_t)g_a5_long(-28006);
+		short hr = hdr ? (short)(unsigned char)hdr[8] : 0;
+		if (hr < 6 || hr >= 20)                 /* outside [6,20) -> alternate */
+			id++;
+	}
+	if (id == 0)                                    /* 0x5936 — no backdrop */
+		return;
+	if (id != (short)(unsigned char)g_a5_byte(-12289)) {     /* 0x593e — reload */
+		g_a5_byte(-12289) = (unsigned char)id;
+		l3f3c((short)32, (short)255);           /* JT[105]: install palette */
+		l6ea2(id);
+	}
+	if (g_a5_22222 != 0) {
+		/* 0x596a: jt1200()==3 -> JT[118](8,8,1,0,handle) deep; else
+		 * JT[121](2,2,1,0,handle) native. Only the native arm runs in the
+		 * port's 8-bit play state (jt1200() == 0); the deep arm maps to the
+		 * port's render-path jt118 variant ([[jt118-signature-mismatch]]),
+		 * which is NOT the Mac jt118, so it is intentionally not wired. */
+		jt121((short)2, (short)2, (short)1, (short)0, g_a5_22222);
+		jt124(g_a5_22222);                      /* JT[124] = L3eea palette commit */
+	}
+}
+
+/* L57f2 (CODE 7 + 0x57f2) — first-person dungeon-view perspective SHELL. The
+ * Mac lays three trapezoid backdrop regions (sky/ceiling -12294, middle -12292,
+ * floor -12291) via JT[116] -> JT[1161], then overlays the cell backdrop image
+ * (L58c4). JT[1161] fills the clipped rect STRAIGHT into the framebuffer
+ * (L053e/L0888 pixel runs), NOT through QuickDraw.
+ *
+ * In the port the REGION fills are done by render_3d_faithful with direct
+ * map_px writes (same pixel-fill semantics, kept inside the dungeon-view
+ * direct-blit pipeline — routing them through the port's QuickDraw PaintRect
+ * does not compose with the wall walk that follows). This function carries the
+ * backdrop-image overlay (L58c4), which is itself gated on the shared-palette
+ * CLUT model. The faithful jt116 region geometry is preserved in
+ * render_3d_faithful's inline fill (cells 2,16,11,44 / 2,60,11,2 / 2,62,11,42).*/
+static void  l57f2(void)
+{
+	PROBE("L57f2");
+	l58c4();
+}
 static void  l5822(void);             /* CODE 6+0x5822 — full backdrop refresh (defined below) */
 static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L5822: reblit the cached bigpic backdrop */
 static void  l2cf4(void)              { PROBE("L2cf4"); }  /* CODE 12-local — redraw tail */
@@ -2505,13 +2613,15 @@ static void jt221(short x, short y, short facing)
 	} else {                                /* L610a — first-person dungeon */
 		unsigned char *page; short pitch, sw, sh;
 		jt108(1);
-		l57f2();
 		/* The faithful first-person view: render_3d_faithful does the full
 		 * frame-integrated draw — load_wall_groups (the three Wall1-3 CLUTs at
-		 * clut 32/64/96), L6148 (the -27894 tile-lib handles), the viewport
-		 * clip + backdrop, and jt199 (= L6234's frustum walk). It reads the
-		 * party from g_a5_-12286/-12287/-12288 (same source as jt221's args).
-		 * (page is the port's drawing surface the Mac draws to the port.) */
+		 * clut 32/64/96), L6148 (the -27894 tile-lib handles), the L57f2
+		 * perspective shell (sky/floor regions + cell backdrop), and jt199
+		 * (= L6234's frustum walk). The Mac calls L57f2 here in jt221 before
+		 * L6234; the port invokes it inside render_3d_faithful so it runs after
+		 * the port's clut/chrome scaffolding and shares the viewport clip. It
+		 * reads the party from g_a5_-12286/-12287/-12288 (same source as jt221's
+		 * args). (page is the port's drawing surface the Mac draws to the port.) */
 		if (qd_screen_pixels(&page, &pitch, &sw, &sh) && page != NULL)
 			render_3d_faithful(page, pitch, sw, sh);
 		(void)jt117();
@@ -10566,24 +10676,21 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		s_chrome_drawn = 1;
 	}
 
-	/* backdrop (floor/ceiling/sky) inside the viewport rect */
-	{
-		short vh = (short)(VB - VT), vw = (short)(VR - VL);
-		for (y = VT; y < VB; y++) {
-			short by = g_back_h ? (short)(((long)(y - VT) * g_back_h) / vh) : 0;
-			for (x = VL; x < VR; x++) {
-				short c;
-				if (g_back_w) {
-					short bx = (short)(((long)(x - VL) * g_back_w) / vw);
-					unsigned char v = g_back_img[(long)by * g_back_w + bx];
-					c = v ? (short)v : 4;
-				} else {
-					c = (y < (short)((VT + VB) / 2)) ? 4 : 5;
-				}
-				map_px(px, pitch, sw, sh, x, y, (unsigned char)c);
-			}
-		}
-	}
+	/* Faithful perspective shell (L57f2): three JT[116] trapezoid region fills
+	 * (sky/ceiling -12294, middle -12292, floor -12291) + the cell's perspective
+	 * backdrop image (L58c4 -> jt121 via the FC binder). This REPLACES the old
+	 * flat g_back_img stand-in fill.
+	 *
+	 * The Mac installs the region fill colours in its CODE 11 level-enter
+	 * (L41a0: jt217(15,0,0,8) -> -12294/-12293/-12292/-12291) before the first
+	 * view. The port has not lifted that level-enter path yet, so seed the same
+	 * faithful defaults here when they are still zero (a town/dungeon that sets
+	 * its own colours overrides this once L41a0 is lifted). */
+	if ((unsigned char)g_a5_byte(-12294) == 0
+	 && (unsigned char)g_a5_byte(-12292) == 0
+	 && (unsigned char)g_a5_byte(-12291) == 0)
+		jt217((short)15, (short)0, (short)0, (short)8);   /* L41a0 defaults */
+	(void)x; (void)y;
 
 	/* faithful walk: l6148 loads Wall1-3 into the -27894/-27890/-27886
 	 * handles; jt199 -> l5b42 -> jt200 -> jt114 -> l309c_tile blits the
@@ -10598,6 +10705,42 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	short sav_ct = (short)g_a5_3054, sav_cb = (short)g_a5_3050;
 	short sav_cl = (short)g_a5_3056, sav_cr = (short)g_a5_3052;
 	g_a5_3054 = VT; g_a5_3050 = VB; g_a5_3056 = VL; g_a5_3052 = VR;
+	/* Faithful perspective shell regions (L57f2 -> JT[116] -> JT[1161]). The Mac
+	 * jt1161 fills the clipped rect STRAIGHT into the framebuffer (L053e/L0888
+	 * pixel runs); do the same via map_px so the fills stay in the dungeon-view
+	 * direct-blit pipeline (routing through the port's QuickDraw PaintRect breaks
+	 * the wall walk below). Three regions sky/ceiling(-12294)/middle(-12292)/
+	 * floor(-12291) — geometry identical to jt116(2,16,11,44)/(2,60,11,2)/
+	 * (2,62,11,42): jt116 maps (a,b,c,d) -> jt1161(top=((b+8)>>1)+8000,
+	 * left=(a<<2)+8004, bottom=((b+d+8)>>1)+8000, right=((a+c)<<2)+8004), then
+	 * jt1135 transforms to screen and the rect is clipped to g_a5_-3054..-3052. */
+	{
+		static const short rgn[3][5] = {
+			{2, 16, 11, 44, -12294},   /* sky / ceiling */
+			{2, 60, 11,  2, -12292},   /* middle band   */
+			{2, 62, 11, 42, -12291},   /* floor         */
+		};
+		short i;
+		for (i = 0; i < 3; i++) {
+			short a = rgn[i][0], b = rgn[i][1], c = rgn[i][2], d = rgn[i][3];
+			short fill = (short)(unsigned char)g_a5_byte(rgn[i][4]);
+			short y1, x1, y2, x2, ct, cl, cb, cr, yy, xx;
+
+			jt1135((short)(((b + 8) >> 1) + 8000), (short)((a << 2) + 8004),
+			       &y1, &x1);
+			jt1135((short)(((b + d + 8) >> 1) + 8000),
+			       (short)(((a + c) << 2) + 8004), &y2, &x2);
+			ct = (y1 > (short)g_a5_3054) ? y1 : (short)g_a5_3054;
+			cl = (x1 > (short)g_a5_3056) ? x1 : (short)g_a5_3056;
+			cb = (y2 < (short)g_a5_3050) ? y2 : (short)g_a5_3050;
+			cr = (x2 < (short)g_a5_3052) ? x2 : (short)g_a5_3052;
+			for (yy = ct; yy < cb; yy++)
+				for (xx = cl; xx < cr; xx++)
+					map_px(px, pitch, sw, sh, xx, yy,
+					       (unsigned char)fill);
+		}
+	}
+	l57f2();                /* gated backdrop-image overlay (l58c4) */
 	l6148();
 #ifdef FRUA_ENGINE_PROBE
 	dbg_log_num("faithful: ds[4..6]=", (long)ds[4] * 10000 + ds[5] * 100 + ds[6]);

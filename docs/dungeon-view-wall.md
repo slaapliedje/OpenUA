@@ -1,5 +1,62 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-14e — SHELL lift VERIFIED on HEIRS; post-event wall loss = FC/CLUT
+Live `make run-game DSN=HEIRS.DSN` (party 4,4 level 5). Results:
+- **Shell lift is SOUND.** Pre-event the view shows the 17-frame Escher walls WITH
+  the L57f2 region fills behind them, and **no freeze**. So L57f2 composes
+  correctly with the wall walk; the QuickDraw-PaintRect freeze (UPDATE 14d, first
+  cut) was fixed by drawing the regions with direct map_px (jt1161's real
+  L053e/L0888 pixel-fill semantics), not PaintRect.
+- **The TUTORIAL "freeze" was a CONFOUND, not the shell.** `make run-game` defaults
+  to `DSN=TUTORIAL.DSN`, which ships ONLY GEO040 (+GAME/STRG); the shipped save
+  targets level 40 -> "saved level GEO missing, keeping default; lv=14" and
+  TUTORIAL has no GEO014 either -> no map -> jt199 walks nothing + the missing-
+  level path stalls. ALWAYS test the dungeon view with `DSN=HEIRS.DSN` (#100).
+- **Post-event regression (the real target).** After the Merchant/Event dialog the
+  re-rendered view shows ONLY the region fills (white sky / grey floor), NO walls.
+  This is the merchant-PIC clobber (#125-era / #129), NOT the L57f2 change: the
+  jt1069 picture-palette install DOES set g_clut_clobbered (boot.c:42690) so the
+  wall CLUT bands reinstall — but the wall ART handles (-27894/-27890/-27886,
+  loaded by l6148/l6eea) get evicted from the shared FC/heap pool by the merchant
+  picture load, and l6148 skips reload when the handle ptr is stale-non-zero. The
+  fix is the shared-palette CLUT + FC-pool eviction model (#127), same blocker as
+  the gated backdrop overlay (g_dungeon_bigpic_overlay).
+
+STATUS: the faithful L57f2/L58c4/L6ea2/L5fc0 lift is a clean, verified unit ready
+to commit. NEXT = the FC-pool/CLUT unification: (a) make l6148 reload when the FC
+pool evicted the wall record (don't trust a stale non-zero handle), and/or (b)
+move the dungeon to the faithful SHARED dungeon palette so the merchant/backdrop
+picture palette and the wall sets stop clobbering each other -> then flip
+g_dungeon_bigpic_overlay = 1.
+
+## UPDATE 2026-06-14d — FAITHFUL perspective SHELL lifted (L57f2/L58c4/L6ea2)
+Lifted the dungeon-view perspective shell from the CODE 7 disasm, replacing the
+flat `g_back_img` stand-in fill in `render_3d_faithful`. The shell is the missing
+piece behind the "left/right not drawn at all" complaint: the Mac draws the
+backdrop regions + perspective image FIRST (L57f2 in jt221, before L6234), then
+the walls on top. The port only had walls + a flat fill.
+
+Lifted faithfully (every arm from CODE_07.s):
+- **L5fc0** (0x5fc0): party-cell BackdropZone selector = `ds[290+(col*H+row)*6+5] & 3`.
+- **L6ea2** (0x6ea2): `jt113(50)` + `l33ac("back1", id, 0, -12294, &-22222)` — the
+  SAME FC binder the wall sets use; resolves to shared BACK.CTL on HEIRS (no
+  per-design Back1NNN override).
+- **L58c4** (0x58c4): zone -> `ds[8+zone]` backdrop id, the night-variant nudge
+  (id>=32 & hdr[8] outside [6,20) -> id++), cache vs -12289, on change
+  `jt105(=L3f3c)(32,255)` + L6ea2; then `jt121(2,2,1,0,-22222)` (native arm;
+  the deep `jt118` arm is unreachable while g_a5_2347!=0) + `jt124` palette commit.
+- **L57f2** (0x57f2): jt1200()==3 -> 3x JT[1161] screen-space fills; else 3x
+  JT[116] cell-space fills (sky -12294 / middle -12292 / floor -12291) + L58c4.
+
+Wiring: `render_3d_faithful` now calls `l57f2()` inside the viewport clip (before
+the l6148/jt199 wall walk). The CODE 11 level-enter (L41a0: `jt217(15,0,0,8)`) that
+populates the fill colours is NOT yet lifted, so render_3d_faithful seeds those
+faithful defaults when -12294/-12292/-12291 are all zero. **Builds clean
+(soft-float). PENDING: live `make run-game` verification** — expect solid
+sky/floor regions in the hole (indoor HEIRS: ds[8+zone] likely 0 -> L58c4 no-ops,
+no perspective image, no CLUT conflict with the wall bands). NEXT if regions are
+black: confirm -12294 seed reaches the regions / lift L41a0 properly.
+
 ## UPDATE 2026-06-14c — SCALE + ANCHOR fixed; positions now BYTE-IDENTICAL to Mac
 Three faithful fixes this session (commits 0b1e0a1, 526935d):
 1. **jt1135 x2 position scale restored** (l5b42). The port pre-remapped to native
