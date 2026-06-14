@@ -2289,7 +2289,15 @@ static void l6148(void)
 	if (lvl == NULL)
 		return;
 
-	if (lvl[6] != 0 && (short)lvl[6] != (short)g_a5_word(-12296)) {
+	/* Wall3 reloads when its id changed OR its handle was zeroed. The merchant/
+	 * event picture path frees -27886 (the "backdrop-bitmap dance" the Mac runs
+	 * on this handle), so after an event the handle is 0 while the id is
+	 * unchanged; without the handle==0 test l6148 would skip the reload and the
+	 * code-11 (group 2) walls would vanish for the rest of the level. Wall1/Wall2
+	 * already reload on handle==0 below — this aligns Wall3 with them and with
+	 * the Mac's dispose-and-reload-every-frame intent. */
+	if (lvl[6] != 0 && ((short)lvl[6] != (short)g_a5_word(-12296)
+	                    || g_a5_long(-27886) == 0)) {
 		l6eea((short)lvl[6], 2);        /* wall set 3 (Wall3) -> handle -27886 */
 		/* TODO: the Mac post-processes -27886 (JT[468]/JT[1004]/JT[459]/
 		 * JT[406]/JT[115]) after the load — deferred; the raw set suffices. */
@@ -10661,6 +10669,16 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * the group ids change (each set's CLUT lives in its .CTL, sub-GLIB 0). */
 	if (g_clut_clobbered
 	 || ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2]) {
+		/* An event/merchant picture load can leave the shared wall .CTL buffer
+		 * (g_wallfile_buf) with a zeroed palette in place — cw_load_slot then
+		 * extracts an all-black band and the walls render invisibly (handles +
+		 * GLIB structure stay valid, only the item-0 palette is wiped). Force a
+		 * fresh re-read of the wall library when the dungeon CLUT was clobbered,
+		 * rebuilding the slot palettes from disk (mirrors the Mac, which
+		 * re-fetches the wall art via the Resource Manager each frame after a
+		 * purge). */
+		if (g_clut_clobbered)
+			g_wallfile_which = -1;
 		load_wall_groups(ds);                 /* slots 0/1/2 + cw_finalize bands */
 		load_backdrop(g_back_set);            /* re-lay backdrop band (clut 145) */
 		s_chrome_drawn = 0;                   /* clut wiped -> repaint chrome */
