@@ -10063,15 +10063,24 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 	short top  = (short)(y + ((short)(signed char)ydelta << 2));
 	short left = (short)(x + ((short)(signed char)xdelta << 2));
 	if (jt1200() == 3 || g_cwf_force_deep) {
-		/* Native 320x200 scale. The Mac renders this view DOUBLED: jt1135
-		 * scales the position x2 AND L2d4e scales the tile x2 (lslw JT[1200]),
-		 * filling a 176px pane in 640x400. The port draws the 88px NATIVE pane,
-		 * so positions scale x1 to match the 1:1 tile blit. The earlier <<1
-		 * doubled positions but left tiles 1:1 — so wall pieces were too small
-		 * for their spacing and the view fragmented ("broken mirror"). x1
-		 * positions + 1:1 tiles tessellate into solid walls. (#129) */
-		top  = (short)((short)(top  - 8012) + g_cwf_oy);
-		left = (short)((short)(left - 8012) + g_cwf_ox);
+		/* FAITHFUL jt1135 position scale (2026-06-14). The real chain is
+		 * L5b42 (native, jt1200()!=3) -> jt200 -> L309c -> JT[1135], and
+		 * JT[1135] does (v-8000)*scale for v>6000 (scale 2 with g_a5_2347!=0).
+		 * So the faithful NATIVE screen position = (8012+ydelta*4 - 8000)*2 =
+		 * 24 + ydelta*8 (and 32 + xdelta*8 for left, x base 8016). The slot
+		 * deltas (0..9) therefore span ydelta*8 = 0..72px across the 88px pane
+		 * -> a full symmetric corridor. The PORT previously pre-remapped here to
+		 * (v-8012)+oy = ydelta*4 (+44), a value <6000 that made the downstream
+		 * jt1135 no-op -> it DROPPED the x2, packing every slot into ydelta*4
+		 * (~36px, the left ~half) = the flat-wall "tessellate into solid walls"
+		 * bug. Tiles are authored at NATIVE (VGA) size, so they blit 1:1 and
+		 * tessellate at the ydelta*8 spacing exactly as on the Mac's 88x88
+		 * native view (data/mac_3d_start_e.png). The codes/walk/data are already
+		 * byte-identical to the Mac (offline jt199 replay); only this scale was
+		 * wrong. The +24/+32 base lands the view in FRAME.CTL set 9's (24,24)
+		 * viewport hole, so no extra g_cwf_ox/oy offset is needed. */
+		top  = (short)((short)(top  - 8000) * 2);
+		left = (short)((short)(left - 8000) * 2);
 	}
 #ifdef FRUA_COORD_TRACE
 	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
