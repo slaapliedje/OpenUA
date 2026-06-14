@@ -54,10 +54,21 @@ Status of the FC-group surface (class / asm-calls / port-calls):
 | jt214 / jt124 / jt131 | LIFTED | — | — | bigpic id select / palette commit / mode |
 
 **GAPS (the actual RM work):**
-1. **`l338c` is a STUB** (`PROBE("L338c")` only) — it is the bigpic "select
-   load kind", called by `l579e` before `l33ac`. Stubbed -> the load kind is
-   never set, so the bigpic load fails (the SysBeep alert + blank background
-   seen when wiring jt214/jt44). **Lift this first — it unblocks the bigpic.**
+1. ~~`l338c` is a STUB~~ — **CORRECTED 2026-06-13: `l338c` is FAITHFUL** (a
+   one-liner `g_a5_-18396 = (jt1200()==3)?mode:52`, verified vs the asm; my
+   audit heuristic false-flagged the one-statement body). The real bigpic
+   blocker is the **id selection**: `jt214` (faithful) computes `id = ds[8]`
+   (=8 for HEIRS) else `rec[19]+239`. But the base libraries index ids
+   **240-247 (BIGPIC) / 248-252 (BIGPIX)** — there is NO id 8, and HEIRS ships
+   NO bigpic override (only base BIGPIC/BIGPIX exist). So `l579e(8)` -> looks
+   up id 8 -> not found -> SysBeep + blank (and the render stalls). `ds[8]` is
+   the design's Backdrop1 (the 3D-view backdrop, used correctly by
+   cell_backdrop_id); `jt214` reads the same byte as the bigpic id, which is
+   only valid when 0 (-> the generic rec[19]+239 path, 240+) or a real
+   override id. ROOT: either the port's design-state load has the wrong value
+   at ds[8] for jt214's purpose (a #128 layout issue — compare port ds bytes
+   to the Mac's), or jt214/l579e needs a graceful "id absent -> generic /
+   skip" fallback so it doesn't stall. Resolve THIS before re-wiring jt214/jt44.
 2. **`jt1023` is a STUB** — a TLB-cache-build leaf. Lift it so .TLB groups
    (the deep/640 path) build their cache faithfully.
 3. **Routing**: the art loaders still bypass the group system with `l37aa`/
