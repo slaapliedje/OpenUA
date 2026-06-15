@@ -43004,22 +43004,34 @@ static long jt1016(short refnum, long arg, short groupid)
 	return 0;
 }
 
-/* The FAR pool's master buffer. The Mac (jt463) negotiates a size from
- * free memory (freemem - 32K) via JT[1026]/JT[1028]; the port reserves a
- * fixed generous block — large enough for the UI .ctl GLIBs and a loaded
- * picture set. Lives in normal RAM (the codecs CPU-read it before the
- * c2p blit; nothing DMAs the pool directly). */
-#define GLIB_POOL_SIZE  (768L * 1024L)
-
 /* JT[463] (CODE 3+0x538) — _LBOpen: stand up the FAR pool. Zero the
  * group count, set the freemap to 0xFF (all free) and the record table
- * to 0, allocate the master buffer, seed slot[0] = base, g_a5_9304 =
- * capacity end, g_a5_9300 = free high-water, and register the built-in
- * 'GLIB' converter. Must run once before any library load. (The Mac's
- * free-memory size negotiation is condensed to a fixed reservation.) */
-static void jt463(void) __attribute__((unused));
-static void jt463(void)
+ * to 0, then size the master buffer from free memory exactly as the Mac
+ * does (no more fixed reservation):
+ *
+ *   minbytes = minkb * 1024              (JT[4]  long multiply, *0x400)
+ *   maxbytes = maxkb * 1024
+ *   want     = min(maxbytes,             (L04f4 = min)
+ *                  max(minbytes,         (L0516 = max)
+ *                      FreeMem() - 32K)) (JT[1026] = _FreeMem)
+ *   base = NewPtr(want)                  (JT[1028] = _NewPtr)
+ *   if base == NULL: want = minbytes; base = NewPtr(want)  (retry at floor)
+ *
+ * Seed slot[0] = base, g_a5_9304 = capacity end, g_a5_9300 = the free
+ * high-water, and alert (JT[1084]) if even the minimum could not be met.
+ * The Mac caller jt1079 passes 214/450 KB on the normal path (ALWAYS.CTL
+ * present) — threaded through master_init's kb_min/kb_max. Sizing the
+ * pool to free memory (rather than a flat 768K) is what makes the
+ * purgeable LRU layer (l11ca / l0a6e / the -9354 MRU) carry its weight:
+ * the pool is Mac-sized and groups evict under pressure. The 'GLIB'
+ * converter is registered by the caller (L35e2) right after on the Mac;
+ * mirrored by glib_lb_init() below. */
+static void jt463(short minkb, short maxkb) __attribute__((unused));
+static void jt463(short minkb, short maxkb)
 {
+	long  minbytes = (long)minkb * 1024L;
+	long  maxbytes = (long)maxkb * 1024L;
+	long  want;
 	char *base;
 
 	PROBE("jt463");
@@ -43027,28 +43039,24 @@ static void jt463(void)
 	jt399(g_a5_10074, 48, -1);
 	jt399(g_a5_10026, (short)G_A5_10026_LEN, 0);
 
-	/* The Mac negotiates the pool size down from free memory
-	 * (JT[1026]/JT[1028], freemem - 32K); mirror that by halving
-	 * from the full reservation until the allocation fits — the
-	 * boot-time .ctl groups need well under 128K, the rest gives
-	 * pictures room. */
-	{
-		Size want = (Size)GLIB_POOL_SIZE;
+	want = (long)FreeMem() - 32768L;          /* JT[1026] -> freemem - 32K */
+	if (want < minbytes)                      /* L0516 = max(minbytes, .) */
+		want = minbytes;
+	if (want > maxbytes)                      /* L04f4 = min(maxbytes, .) */
+		want = maxbytes;
 
-		base = NULL;
-		while (base == NULL && want >= (Size)(128L * 1024L)) {
-			base = (char *)NewPtr(want);
-			if (base == NULL)
-				want /= 2;
-		}
-		if (base == NULL) {
-			dbg_log("glib: Insufficient FAR Memory!");
-			return;
-		}
-		g_a5_10270[0] = (long)(uintptr_t)base;
-		g_a5_9304     = (long)(uintptr_t)base + (long)want;
-		g_a5_9300     = (long)want;
+	base = (char *)NewPtr((Size)want);        /* JT[1028] */
+	if (base == NULL) {                       /* retry at the floor */
+		want = minbytes;
+		base = (char *)NewPtr((Size)want);
 	}
+
+	g_a5_10270[0] = (long)(uintptr_t)base;
+	g_a5_9304     = (long)(uintptr_t)base + want;
+	if (base == NULL || minbytes > want)
+		l036a("Insufficient FAR Memory!");    /* JT[1084] */
+
+	g_a5_9300 = want;
 	g_a5_9292 = 0;
 	g_a5_9294 = 0;
 	g_a5_9296 = 0;
@@ -43056,13 +43064,28 @@ static void jt463(void)
 }
 
 /* Exported wrapper: master_init runs the pool open at the Mac's
- * jt1079 call site (see boot.h).  Idempotent — a second call (e.g.
+ * jt1079 call site, passing the same kb_min/kb_max the Mac forwards to
+ * JT[463] (see boot.h / master_init).  Idempotent — a second call (e.g.
  * the probe self-test) would leak the first buffer, so guard. */
-void glib_pool_open(void)
+void glib_pool_open(short kb_min, short kb_max)
 {
 	if (g_a5_10270[0] != 0)
 		return;
-	jt463();
+	jt463(kb_min, kb_max);
+}
+
+/* JT[466] (CODE 3+0x632) — FCCleanup: tear the pool down. Flush the
+ * record table (jt465(NULL) = the Mac's L0b7a(0) reset) and dispose the
+ * master buffer (JT[1029] = _DisposPtr). Clears slot[0] so a later
+ * glib_pool_open re-stands the pool cleanly. The earlier fc.c::fc_cleanup
+ * disposed a parallel (dead) buffer; this frees the real g_a5_10270[0]. */
+void glib_pool_close(void)
+{
+	jt465(NULL);
+	if (g_a5_10270[0] != 0) {
+		DisposePtr((Ptr)(uintptr_t)g_a5_10270[0]);
+		g_a5_10270[0] = 0;
+	}
 }
 
 /* GLIB FAR-pool self-test (probe-gated). Stand up the pool, then read a
@@ -43080,7 +43103,7 @@ static void glib_pool_selftest(void)
 	short refnum = 0;
 	long  fsize;
 
-	jt463();
+	jt463(214, 450);                         /* Mac normal-path KB bounds */
 	dbg_log_num("GLIB pool: capacity = ", jt459(-2));
 	dbg_log_num("GLIB pool: free     = ", jt459(-1));
 
