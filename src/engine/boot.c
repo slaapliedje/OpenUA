@@ -8204,6 +8204,11 @@ static void glib_pool_selftest(void) __attribute__((unused));
  * whole cache (register/resolve/purge/MRU/compaction) is in scope; the
  * probe block below calls it after the pool self-test. */
 static void fc_cache_audit(void) __attribute__((unused));
+/* Forward — the .cch serializer pair + read-opener (CODE 15, below); the probe
+ * block runs a save/load round-trip self-test over them. */
+static short jt578(short refNum);
+static signed char l00e0(const char *fn, void *cb);
+static signed char l_cch_read(const char *fn, unsigned char *rec);
 /* Forward — jt127 (design-data loader) lifts further down; the
  * probe self-test below calls it. */
 static void jt127(const char *prefix, short num, short *out, void *buffer);
@@ -8389,6 +8394,35 @@ void boot_a5_seed_defaults(void)
 
 	glib_pool_selftest();
 	fc_cache_audit();
+
+	/* .cch save/load round-trip self-test (jt578 write <-> jt577 read,
+	 * sharing L0ce0's little-endian swaps). A scratch record with an empty
+	 * inventory/spell list (rec[8]/rec[4]/rec[193] = 0, so jt577 skips the
+	 * pool-allocating list loops) is written via l00e0+jt578 and read back
+	 * via l_cch_read+jt577; PASS = the name at +96 and the byte-swapped word
+	 * at +82 survive. Needs a writable gamedata dir (where l00e0 saves). */
+	{
+		static unsigned char arec[512], brec[512];
+		short i;
+		int   ok;
+
+		for (i = 0; i < 512; i++) { arec[i] = 0; brec[i] = 0; }
+		arec[96] = 'A'; arec[97] = 'U'; arec[98] = 'D';
+		arec[99] = 'I'; arec[100] = 'T'; arec[101] = 0;
+		*(short *)(arec + 82) = 0x1234;        /* a swap-sensitive field */
+
+		g_a5_long(-6902) = (long)(uintptr_t)arec;
+		l00e0("AUDIT.CCH", (void *)jt578);
+
+		l_cch_read("AUDIT.CCH", brec);
+
+		ok = (brec[96] == 'A' && brec[97] == 'U' && brec[98] == 'D'
+		      && brec[99] == 'I' && brec[100] == 'T'
+		      && *(short *)(brec + 82) == 0x1234);
+		dbg_log(ok ? "cch round-trip self-test: PASS"
+		           : "cch round-trip self-test: FAIL");
+		dbg_log_num("  field@82 = ", (unsigned short)*(short *)(brec + 82));
+	}
 #endif
 }
 
@@ -27033,6 +27067,32 @@ static void jt584(long rec_l, const char *suffix)
  do_save:
 	g_a5_long(-6902) = (long)(uintptr_t)rec;
 	l00e0(fname, (void *)jt578);
+}
+
+/* l_cch_read — the read counterpart of l00e0: open `fn` (the flat gamedata
+ * basename, same location l00e0 writes), point g_a5_-6902 at `rec`, and run the
+ * jt577 deserializer over the open file. Returns 1 on success. This is the
+ * read-opener that makes jt577 reachable; the faithful CODE 15 L0006 opener
+ * builds nested SAVE paths through jt987/l16c6, which would not agree with
+ * l00e0's flat-shim write location for a round-trip, so the port mirrors l00e0
+ * instead (ADR-0003). */
+static signed char l_cch_read(const char *fn, unsigned char *rec)
+    __attribute__((unused));
+static signed char l_cch_read(const char *fn, unsigned char *rec)
+{
+	unsigned char pstr[64];
+	short         ref;
+
+	PROBE("l_cch_read");
+	if (fn == NULL || rec == NULL)
+		return 0;
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	g_a5_long(-6902) = (long)(uintptr_t)rec;
+	jt577(ref);
+	(void)FSClose(ref);
+	return 1;
 }
 
 /* ====================================================================
