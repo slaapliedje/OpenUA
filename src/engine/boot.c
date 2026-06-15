@@ -6729,9 +6729,9 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
  * with the combat/play code. cg_build_record and the test-party seed are
  * the only writers; l02dc reads them for the Name/Race/Class/Level grid.
  * The gap 199..383 sits between the +197/198 status flags and AC@385. */
-#define CHAR_RACE   200
+#define CHAR_RACE   88          /* faithful race index (jt566) */
 #define CHAR_CLASS  201
-#define CHAR_LEVEL  202
+#define CHAR_LEVEL  157         /* faithful per-class level slot 0 */
 /* Ability scores: the FAITHFUL layout — 6 words at rec[112+i*2] (STR INT WIS
  * DEX CON CHA), the permanent score in the even byte. Use CHAR_STAT(rec,i); the
  * old contiguous CHAR_STATS=203 port slot is retired (single-layout switch). */
@@ -6754,8 +6754,11 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 
 /* Short race / class names for the narrow roster columns (the char-gen
  * tables use the long "Magic-User"; the roster abbreviates to "Mage"). */
+/* FAITHFUL race index order (rec[88]): the l3666 RACE list top-to-bottom
+ * (ELF first) = 0..5, confirmed by the L24d2 racial-mod switch (0=Elf +DEX-CON,
+ * 2=Dwarf +CON-CHA, 4=Halfling -STR+DEX). */
 static const char *const k_roster_races[6] = {
-	"Human", "Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling",
+	"Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling", "Human",
 };
 static const char *const k_roster_classes[6] = {
 	"Cleric", "Fighter", "Mage", "Thief", "Paladin", "Ranger",
@@ -15159,9 +15162,11 @@ static int port_load_savgame(void)
 			 * combat block (name@96/AC@385/HP@395) is already at
 			 * matching offsets. */
 			dst[CHAR_MAXHP] = r[82];      /* faithful max HP @82 */
-			dst[CHAR_CLASS] = 1;          /* Fighter (label; @88 kept) */
-			dst[CHAR_RACE]  = 0;          /* Human (label) */
-			dst[CHAR_LEVEL] = 5;
+			dst[CHAR_CLASS] = 1;          /* Fighter (label; @89 kept) */
+			/* race @88 and level @157 are now read from the faithful record
+			 * directly (CHAR_RACE/CHAR_LEVEL point there), so the old
+			 * force-Human / force-L5 stubs are dropped — the memcpy'd values
+			 * stand. */
 			for (c = 0; c < 6; c++)       /* abilities: @112 pairs */
 				CHAR_STAT(dst, c) = r[112 + c * 2];  /* faithful (now identity post-memcpy) */
 			dst[CHAR_ALIGN]   = 0;
@@ -15339,8 +15344,9 @@ void port_test_seed_design(void)
 		/* race / class indices into k_roster_races / k_roster_classes:
 		 * Bramble = Human Fighter L3, Korin = Elf Mage L2,
 		 * Sable = Halfling Thief L3, Bob = the real BasiliskII-saved
-		 * character (BOB.cch) — Human Fighter, HP computed by L29ae. */
-		static const unsigned char k_race[4]  = { 0, 1, 5, 0 };
+		 * character (BOB.cch) — Human Fighter, HP computed by L29ae.
+		 * race in the FAITHFUL index order: Human=5, Elf=0, Halfling=4. */
+		static const unsigned char k_race[4]  = { 5, 0, 4, 5 };
 		static const unsigned char k_class[4] = { 1, 2, 3, 1 };
 		static const unsigned char k_lvl[4]   = { 3, 2, 3, 5 };
 		/* ability scores (STR INT WIS DEX CON CHA) + alignment index.
@@ -21506,7 +21512,8 @@ static int  jt574(long ctx)
 				pr[88] = cg_rec[88]; pr[89] = cg_rec[89];
 				pr[92] = cg_rec[92]; pr[93] = cg_rec[93];
 				for (fi = 112; fi <= 125; fi++) pr[fi] = cg_rec[fi];
-				for (fi = 157; fi <= 163; fi++) pr[fi] = cg_rec[fi];
+				/* rec[157] (per-class level) is set to 1 by cg_build_record
+				 * via CHAR_LEVEL@157; don't overlay cg_rec[157..163] (0). */
 				pr[188] = cg_rec[188];
 				for (fi = 339; fi <= 354; fi++) pr[fi] = cg_rec[fi];
 			}
