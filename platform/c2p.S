@@ -157,3 +157,17 @@ _lutblit_span:
 2:
 	movem.l	(%sp)+,%d2/%a2
 	rts
+
+| --------------------------------------------------------------------------
+| VBL queue trampoline. The OS calls vblqueue routines at every vertical
+| blank in supervisor mode; this saves the scratch registers the C handler
+| may clobber (d0-d2/a0-a2; callee-saved regs the C handler preserves
+| itself), calls vbl_flip_handler, and returns.
+	.text
+	.even
+	.globl	_vbl_trampoline
+_vbl_trampoline:
+	movem.l	%d0-%d2/%a0-%a2,-(%sp)
+	jbsr	_vbl_flip_handler
+	movem.l	(%sp)+,%d0-%d2/%a0-%a2
+	rts
