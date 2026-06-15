@@ -98,14 +98,25 @@ L24d2 is bigger than "roll 6 abilities". The full body:
 - then a **wait/reroll loop `while (!-22731) L6cd2()`** — L6cd2 = 0x6cd2 =
   *entry_jt557* (the train-screen address); why the roll pumps jt557 is unclear.
 
-So a *faithful* L24d2 is ~2000 lines spanning L1672 (non-uniform) + jt885 (CODE
-19) + an unclear jt557 pump, with at least one contradictory field meaning
-(rec[82]). Transcribing it blind, untested, would very likely introduce silent
-stat-corruption — against the lift-real-asm-CORRECTLY principle
-([[feedback-no-shortcuts]]). The right method is **mon-verified incremental**:
-lift, roll a known-seed character on the real Mac, dump rec[112..125], diff,
-fix per ability. That needs the same BasiliskII mon ground-truth the field map
-needs — so the roll and the unification converge on one blocker.
+### LIFTED 2026-06-15 (the asm IS the ground truth)
+
+The "rec[82] contradiction" dissolved on reading the asm: rec[82] is the **age**
+during char-gen (compared to the -30612 age table) and l29ae later reuses the
+same byte for max HP — both are just what the code does, no naming ambiguity
+needed. So the roll was lifted straight from the disassembly, no mon required:
+- **L1672** (l1672, b5b1780) — the per-ability racial/class min-max + aging
+  clamp, all six arms transcribed with their exact -30960/-30612/-30552 offsets.
+- **L24d2** (l24d2) — the roll loop: best of six jt870(3,6)+1 per ability, racial
+  ±1 by rec[88] (race 0 +DEX -CON, race 2 +CON -CHA, race 4 -STR +DEX), L1672
+  clamp, copy current rec[113+i*2] -> permanent rec[112+i*2], STR exceptional %.
+  The Mac tail (jt885 HP, the jt557 reroll-wait pump) is deferred — jt574 already
+  runs L29ae/L3cd4 on the committed record; jt895 (the per-ability display) is a
+  stub.
+
+NOT wired: l24d2 writes the FAITHFUL ability layout (rec[112+i*2] words), which
+the port roster can't render until this very unification. cg_roll_stats stays
+the live roll until step 3 below repoints CHAR_STATS -> 112 and jt574 threads
+cg_rec (now stat-complete) into the pool.
 
 NOTE the abilities are 6 **words** (permanent hi-byte @112+i*2, current @113+i*2,
 both = the roll initially), not 6 contiguous bytes — the migration must store
