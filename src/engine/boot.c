@@ -22871,6 +22871,258 @@ static void jt557(void)
 	rec[197] = (unsigned char)jt33(rec);
 }
 static void   jt560(void)                       { PROBE("jt560"); }
+
+/* ============================================================
+ * CODE 17 char-gen REVIEW screen — the 7x7 body-icon grid.
+ *
+ *   jt573 (L1346) driver  ->  L11ac per-frame builder  ->  the
+ *   shape-5 grid DLItem + Exit/Done buttons, driven by the action
+ *   procs jt562 (mouse) / jt563 (keyboard) / jt564 (Exit) /
+ *   jt565 (Done).  Reached from the create flow's review/modify
+ *   step (not yet wired; jt574 still uses the port finalize).
+ *
+ * Grid model (A5 globals):
+ *   -6986 (w)  current cell index 0..48  (= row*7 + col)
+ *   -6984 (w)  row = index / 7
+ *   -6982 (w)  col = index % 7
+ *   -6985 (b)  cell body-shape value (latched by the grid renderer
+ *              L09dc; copied into rec[188])
+ *   -6998 (b)  saved rec[188] at entry
+ *   -7000 (w)  grid kind (15 in jt1200-mode 3, else 135)
+ *   -7004 (b)  "seed marker from -6998" flag
+ *   -7038 (b)  cancel (Exit) flag
+ *   -6988 (b)  per-frame "done" flag (L11ac return)
+ *   -6996/-6992 (ptr)  record backup buffers (jt573)
+ *   -7002 (w)  saved rec[189];  -7001 (b)  result rec[189]
+ *
+ * TRAP — jt406: the Mac ABI is copy(SRC, dst) but the C shim is
+ * jt406(dst, src, n), so every asm `jt406(a, b, n)` is written
+ * here SWAPPED as jt406(b, a, n).
+ * ============================================================ */
+static void jt150(short v);                     /* CODE 7+0x38ea (defined far below) */
+static void jt55(short id);                     /* CODE 6+0x5b5e (defined far below) */
+
+/* JT[564] (CODE 17 + 0x9ce) — grid "Exit" button proc: cancel. */
+static short jt564(void)
+{
+	PROBE("jt564");
+	g_a5_byte(-7038) = 1;
+	g_a5_byte(-6988) = 1;
+	return 1;
+}
+
+/* JT[565] (CODE 17 + 0x9c6) — grid "Done" button proc: accept. */
+static short jt565(void)
+{
+	PROBE("jt565");
+	g_a5_byte(-6988) = 1;
+	return 1;
+}
+
+/* L079a (CODE 17 + 0x79a) — draw the selection-marker frame (four
+ * jt57 edge glyphs) for cell (row, col).  The row/col come in as
+ * byte slots; the +7 / -1 are byte ops (the asm stores back the
+ * low byte before re-reading). */
+static void l079a(short row, short col)
+{
+	PROBE("L079a");
+	row = (short)(unsigned char)(row + 7);
+	col = (short)(unsigned char)(col - 1);
+	jt57(row,              (short)(col - 1000), 0, 0, 30);
+	jt57((short)(row + 3), (short)(col - 1000), 0, 0, 31);
+	jt57(row,              (short)(col - 1000), 0, 0, 8);
+	jt57((short)(row + 3), (short)(col - 1000), 0, 1, 8);
+	jt117();
+}
+
+/* L09ba (CODE 17 + 0x9ba) — flush a grid redraw (jt593(1)). */
+static void l09ba(void)
+{
+	PROBE("L09ba");
+	jt593(1);
+}
+
+/* L09dc (CODE 17 + 0x9dc) — DEFERRED: paints the 7x7 body-shape
+ * grid (49 cells via jt57, latching the current cell's value into
+ * g_a5_-6985).  ~1.5KB pure-render leaf.  The cluster's control
+ * flow + input is faithful around it; the grid simply draws nothing
+ * until L09dc is lifted.  Not yet reachable (the review screen is
+ * not wired into the create flow), so the blank grid is inert. */
+static void l09dc(void)
+{
+	PROBE("L09dc");
+}
+
+/* JT[562] (CODE 17 + 0x854) — grid mouse-click proc.  Maps the
+ * click to a cell, moves the selection marker, and stamps the
+ * chosen body shape into rec[188].  Invoked by the shape-5 hit
+ * gate as cb(id=-2, y, x). */
+static short jt562(short id, short y, short x)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	short newIdx, oldIdx;
+
+	PROBE("jt562");
+	jt108(1);
+	if (jt1200() == 3) {                    /* pixel grid, 32px cells */
+		g_a5_word(-6984) = (short)((y - 24) / 32);
+		g_a5_word(-6982) = (short)((x - 24) / 32);
+	} else {                                /* logical grid via jt1139 */
+		short or_ = 0, oc_ = 0;
+		jt1139(8004, 8004, y, x, &or_, &oc_);
+		g_a5_word(-6984) = (short)(or_ / 12);
+		g_a5_word(-6982) = (short)(oc_ / 12);
+	}
+	newIdx   = (short)(g_a5_word(-6984) * 7 + g_a5_word(-6982));
+	rec[188] = g_a5_byte(-6985);
+	if (newIdx != g_a5_word(-6986)) {       /* selection changed: redraw */
+		oldIdx = g_a5_word(-6986);
+		jt57((short)(oldIdx % 7), (short)(oldIdx / 7), 0, 0, 30);
+		jt593(1);
+		jt57((short)(oldIdx % 7), (short)(oldIdx / 7), 0, 0, 8);
+		rec[188] = (unsigned char)newIdx;
+		jt57(g_a5_word(-6982), g_a5_word(-6984), 0, 0, 31);
+		jt117();
+		jt593(1);
+		jt57(g_a5_word(-6982), g_a5_word(-6984), 0, 0, 8);
+		jt117();
+	}
+	jt444(id, 20, 0, 0);
+	g_a5_word(-6986) = newIdx;
+	return (short)jt117();
+}
+
+/* JT[563] (CODE 17 + 0xfc8) — grid keyboard proc.  Arrow keys step
+ * the selection (wrapping in the 7x7 grid) and redraw the marker;
+ * returns 1 if it moved.  (Faithful quirk: the left-arrow arm does
+ * not set the moved flag.) */
+static short jt563(short id, short key)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	short newIdx = g_a5_word(-6986);
+	short moved  = 0;
+
+	PROBE("jt563");
+	key = (short)((key & 127) + 128);
+	switch (key) {                          /* JT[3] 130..136 */
+	case 130:                               /* right */
+		if (newIdx % 7 == 6) newIdx -= 6; else newIdx += 1;
+		moved = 1;
+		break;
+	case 132:                               /* down */
+		if (newIdx / 7 == 6) newIdx -= 42; else newIdx += 7;
+		moved = 1;
+		break;
+	case 134:                               /* left (no moved flag) */
+		if (newIdx % 7 == 0) newIdx += 6; else newIdx -= 1;
+		break;
+	case 136:                               /* up */
+		if (newIdx / 7 == 0) newIdx += 42; else newIdx -= 7;
+		moved = 1;
+		break;
+	default:
+		moved = 0;
+		break;
+	}
+	rec[188] = g_a5_byte(-6985);
+	jt57((short)(g_a5_word(-6986) % 7),
+	     (short)(g_a5_word(-6986) / 7), 0, 0, 30);
+	jt593(1);
+	jt57((short)(g_a5_word(-6986) % 7),
+	     (short)(g_a5_word(-6986) / 7), 0, 0, 8);
+	rec[188] = (unsigned char)newIdx;
+	jt57((short)(newIdx % 7), (short)(newIdx / 7), 0, 0, 31);
+	jt593(1);
+	jt57((short)(newIdx % 7), (short)(newIdx / 7), 0, 0, 8);
+	jt444(id, 20, 0, 0);
+	g_a5_word(-6986) = newIdx;
+	jt117();
+	return moved;
+}
+
+/* L11ac (CODE 17 + 0x11ac) — build + run one frame of the review
+ * screen: seed the marker, draw the grid (L09dc) and frame
+ * (L079a), then register the shape-5 grid DLItem (action proc
+ * jt562) plus the Exit/Done buttons (jt564/jt565) and the keyboard
+ * source (jt563) via the jt452 stream builder, run the dialog,
+ * and tear it down.  Returns the per-frame "done" flag (-6988). */
+static signed char l11ac(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+
+	PROBE("L11ac");
+	g_a5_byte(-6998) = rec[188];
+	g_a5_byte(-6988) = 0;
+	g_a5_word(-7000) = (jt1200() == 3) ? 15 : 135;
+
+	jt150(1);
+	l09dc();
+	l09ba();
+	l079a(1, 2);
+
+	if (jt1200() != 3 && g_a5_byte(-7004) != 0) {   /* seed marker */
+		unsigned char v = g_a5_byte(-6998);
+		g_a5_word(-6984) = (short)(v / 7);
+		g_a5_word(-6982) = (short)(v % 7);
+		g_a5_word(-6986) = v;
+	}
+
+	jt174();
+	jt447();
+
+	if (jt1200() == 3)
+		jt452(5, 8008, 8008, 75, 74, 34, (long)(uintptr_t)&jt562, 0);
+	else
+		jt452(5, 8004, 8004, 84, 84, 34, (long)(uintptr_t)&jt562, 0);
+
+	jt452(1, 8094, 8004, (long)(uintptr_t)"Done",
+	      20, 32, 68, 36, 4, 34, (long)(uintptr_t)&jt565, 21,
+	      1, 8094, 8024, (long)(uintptr_t)"Exit",
+	      20, 32, 69, 33, 35, 36, 4, 34, (long)(uintptr_t)&jt564, 21,
+	      7, (long)(uintptr_t)&jt563, 0);
+
+	jt449(1);
+	jt117();
+	jt453((jt453_filter_t)0);
+	jt451();
+	jt150(0);
+	jt55(8);
+	return (signed char)g_a5_byte(-6988);
+}
+
+/* JT[573] (CODE 17 + 0x1346 = L1346) — the REVIEW / MODIFY screen
+ * driver.  Temporarily forces rec[189]=8, backs the record up
+ * twice, loops L11ac until the user picks Done/Exit, restores the
+ * backup on cancel, writes the resulting rec[189], optionally
+ * redraws (jt593) when `doSave` is set, and returns 1 on accept /
+ * 0 on cancel. */
+static short jt573(short doSave) __attribute__((unused));
+static short jt573(short doSave)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	unsigned char  buf1[398];
+	unsigned char  buf2[398];
+
+	PROBE("jt573");
+	g_a5_word(-7002) = rec[189];
+	rec[189] = 8;
+	g_a5_ptr(-6996) = buf1;
+	jt406(buf1, rec, 398);                  /* SWAPPED: copy(rec -> buf1) */
+	g_a5_ptr(-6992) = buf2;
+	jt406(buf2, rec, 398);                  /* SWAPPED: copy(rec -> buf2) */
+	g_a5_byte(-7038) = 0;
+	g_a5_byte(-7004) = 1;
+
+	while (l11ac() == 0)
+		;                               /* run frames until done */
+
+	if (g_a5_byte(-7038) != 0)              /* cancelled: restore */
+		jt406(rec, (unsigned char *)g_a5_ptr(-6996), 398);
+	rec[189] = g_a5_byte(-7001);
+	if ((doSave & 0xff) != 0)
+		jt593(1);
+	return (g_a5_byte(-7038) == 0) ? 1 : 0;
+}
 /* JT[876] (CODE 18 + 0x1666) — append an item node to an entity's list
  * (the inverse of jt878's remove). Reserve a 10-byte node from the
  * inventory bucket (g_a5_21152), link it onto the tail of rec's chain
