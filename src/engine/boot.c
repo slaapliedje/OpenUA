@@ -22566,11 +22566,310 @@ static int    jt41(long handle_long, short find_byte, void *descriptor)
 }
 static int    jt556(long a)                    { PROBE("jt556"); (void)a;
                                                   return 0; }
-/* JT[557] — Create Character (Training Hall case 3, l0f60). Opens the
- * char-gen screen (jt574 shows PICK race/align/gender + the option lists);
- * the fresh-record build + selection state machine is the deferred CODE 17
- * remainder. */
-static void   jt557(void)                       { PROBE("jt557"); (void)jt574(0); }
+/* JT[557] (CODE 17 + 0x6cd2 = L6cd2) — TRAIN the current character
+ * (g_a5_-27932) at a Training Hall. Faithful lift of the Mac body.
+ *
+ *   1. Refuse if not conscious (rec[94] != 0).
+ *   2. Refuse if the party can't afford the cost (rec[76] word <
+ *      g_a5_-18480 platinum) unless a bypass is set (g_a5_-22730, jt180
+ *      preview/test mode, g_a5_-22269).
+ *   3. For each of the 7 class slots rec[157+i] the character holds
+ *      (level > 0): test the AD&D racial level limit (switch on the race
+ *      rec[88], keyed to the prime-requisite ability rec[113]=STR /
+ *      rec[115]=INT) and the hard cap 40; if not capped and the XP for
+ *      level+1 (jt26) is met, mark the class trainable (bit g_a5_-23023[i])
+ *      and track the just-below-next-level XP (xpAfter).
+ *   4. Two "best class" passes (faithful: the Mac runs both — the first with
+ *      the loop-carried level, the second reloading per slot) pick the
+ *      trainable class needing the most XP and re-clamp xpAfter.
+ *   5. Clamp the character's XP (rec[68] long) down to xpAfter.
+ *   6. Guild class-mask gate (g_a5_-28006[48]): "we don't train that class
+ *      here" if the held classes don't overlap it; "Not Enough Experience"
+ *      if no held class is trainable.
+ *   7. Preview the "will become" lines (class names from the live g_a5_-14636
+ *      table) and confirm (jt159). On yes: bump each trainable class level,
+ *      recompute (jt910), grant a weapon proficiency (jt595 picker -> the
+ *      rec[339..] bitmap via the g_a5_-18893 bit table), learn new spells
+ *      (jt29 gate; jt41+jt876 for cleric code 105 / mage code 8), gain HP
+ *      (jt885) and recompute the rec[197] encumbrance flag (jt33).
+ *
+ * NOTE: the caller l0f60 (jt918 case 3) is mislabeled "Create Character" in
+ * the port — case 3 actually dispatches this TRAIN handler. The menu-label
+ * audit is a separate task; the dispatch itself is faithful. */
+static char *jt70(long v);
+static long  jt26(long ctx, short level, short cls);
+static void  jt910(long ent_l);
+static void  jt885(long ent_l, short mask, short ncls, short gain);
+static short jt595(short code, short mode, short *p1, unsigned char *p2);
+static signed char jt33(const unsigned char *rec);
+static signed char jt29(const unsigned char *rec);
+static void  jt876(long a, short b, short c, short d, short e);
+
+static void jt557(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	unsigned char  guildMask, haveMask, trainMask;
+	long           xpAfter, tmpXP, maxXP;
+	short          i, curLvl, atLimit, maxIdx;
+	short          nClasses, savedLvl, lineRow, profSlot;
+	short          jt595_w;
+	unsigned char  jt595_b;
+	void          *iter;
+
+	PROBE("jt557");
+
+	if (rec[94] != 0) {                             /* L6cd2: conscious? */
+		jt101("we only train conscious people", 11, 0);
+		return;
+	}
+
+	/* L6cfa: affordability (rec[76] word vs g_a5_-18480 cost) + bypasses */
+	if ((unsigned long)*(unsigned short *)(rec + 76)
+	        < (unsigned long)g_a5_long(-18480)
+	    && g_a5_22730 == 0
+	    && jt180() == 0
+	    && g_a5_22269 == 0) {
+		jt101(jt488("Training costs %s platinum.",
+		            jt70(g_a5_long(-18480))), 11, 0);
+		return;
+	}
+
+	/* L6d48: scan class slots; compute trainable mask + xpAfter clamp */
+	haveMask  = 0;
+	trainMask = 0;
+	xpAfter   = 0;
+	guildMask = ((unsigned char *)g_a5_28006)[48];
+	curLvl    = 0;
+	maxIdx    = 0;
+
+	for (i = 0; i <= 6; i++) {                      /* L6d6a..L70ec */
+		if (rec[157 + i] == 0)
+			continue;
+		haveMask += g_a5_byte(-23023 + (long)i);
+		atLimit = 0;
+		curLvl  = rec[157 + i];
+
+		switch (rec[88]) {                      /* race: AD&D level limits */
+		case 0:                                 /* L6e28 */
+			if (i == 2) {
+				if (curLvl == 7
+				 || (curLvl == 6 && rec[113] == 17)
+				 || (curLvl == 5 && rec[113] < 17))
+					atLimit = 1;
+			} else if (i == 5) {
+				if (curLvl == 11
+				 || (curLvl == 9  && rec[115] < 17)
+				 || (curLvl == 10 && rec[115] == 17))
+					atLimit = 1;
+			}
+			break;
+		case 1:                                 /* L6f2c */
+			if (i == 0) {
+				if (curLvl == 5)
+					atLimit = 1;
+			}
+			if (i == 2 || i == 4) {
+				if (curLvl == 8
+				 || (curLvl == 7 && rec[113] == 17)
+				 || (curLvl == 6 && rec[113] < 17))
+					atLimit = 1;
+			} else if (i == 5) {
+				if (curLvl == 8
+				 || (curLvl == 7 && rec[115] == 17)
+				 || (curLvl == 6 && rec[115] < 17))
+					atLimit = 1;
+			}
+			break;
+		case 2:                                 /* L6dcc */
+			if (i == 2) {
+				if (curLvl == 9
+				 || (curLvl == 8 && rec[113] == 17)
+				 || (curLvl == 7 && rec[113] < 17))
+					atLimit = 1;
+			}
+			break;
+		case 3:                                 /* L6ed6 */
+			if (i == 2) {
+				if (curLvl == 6
+				 || (curLvl == 5 && rec[113] < 18))
+					atLimit = 1;
+			}
+			if (i == 0) {
+				if (curLvl >= 7)
+					atLimit = 1;
+			}
+			break;
+		case 4:                                 /* L6ffe */
+			if (i == 2) {
+				if (curLvl == 6
+				 || (curLvl == 5 && rec[113] == 17)
+				 || (curLvl == 4 && rec[113] < 17))
+					atLimit = 1;
+			}
+			break;
+		default:
+			break;
+		}
+
+		if (curLvl >= 40)                       /* L7050: hard cap */
+			atLimit = 1;
+
+		/* L7062: trainable unless capped or short on XP — but the
+		 * g_a5_-22730 bypass forces it through regardless. */
+		if (!(atLimit == 0
+		      && jt26((long)(uintptr_t)rec, curLvl + 1, i)
+		             <= *(long *)(rec + 68))
+		    && g_a5_22730 == 0)
+			continue;
+
+		trainMask += g_a5_byte(-23023 + (long)i);  /* L7094 */
+		tmpXP = jt26((long)(uintptr_t)rec, curLvl + 2, i);
+		if (*(long *)(rec + 68) < tmpXP)
+			continue;
+		if (tmpXP <= xpAfter)
+			continue;
+		xpAfter = tmpXP - 1;
+	}
+
+	/* L70f6: first "best class" pass (loop-carried curLvl, faithful) */
+	if (jt180() == 0) {
+		maxXP = 0;
+		for (i = 0; i <= 6; i++) {              /* L7110..L7178 */
+			if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+				continue;
+			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 1, i);
+			if (tmpXP <= maxXP)
+				continue;
+			maxXP  = jt26((long)(uintptr_t)rec, curLvl + 1, i);
+			maxIdx = i;
+		}
+		if (maxXP > 0) {                        /* L7180 */
+			trainMask |= g_a5_byte(-23023 + (long)maxIdx);
+			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 2, maxIdx);
+			if (tmpXP > 0
+			 && *(long *)(rec + 68) >= tmpXP
+			 && tmpXP > xpAfter)
+				xpAfter = tmpXP - 1;
+		}
+	}
+
+	/* L71ec: second "best class" pass (reloads curLvl per slot, faithful) */
+	if (jt180() == 0) {
+		maxXP = 0;
+		for (i = 0; i <= 6; i++) {              /* L7206..L7282 */
+			curLvl = rec[157 + i];
+			if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+				continue;
+			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 1, i);
+			if (tmpXP <= maxXP)
+				continue;
+			maxXP  = jt26((long)(uintptr_t)rec, curLvl + 1, i);
+			maxIdx = i;
+		}
+		if (maxXP > 0) {                        /* L728c */
+			trainMask |= g_a5_byte(-23023 + (long)maxIdx);
+			curLvl = rec[157 + maxIdx];
+			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 2, maxIdx);
+			if (tmpXP > 0 && tmpXP > xpAfter)
+				xpAfter = tmpXP - 1;
+		}
+	}
+
+	/* L72fe: clamp the character's XP down to xpAfter */
+	if (xpAfter > 0 && jt180() == 0 && xpAfter < *(long *)(rec + 68))
+		*(long *)(rec + 68) = xpAfter;
+
+	/* L7324: guild class-mask gate */
+	if (g_a5_22730 == 0) {
+		if ((haveMask & guildMask) == 0 && jt180() == 0) {
+			jt101("we don't train that class here", 11, 0);
+			return;
+		}
+		if ((trainMask & guildMask) == 0) {
+			g_a5_byte(-22731) = 1;
+			rec[197] = (unsigned char)jt33(rec);
+			if (jt180() != 0)
+				return;
+			jt101("Not Enough Experience", 11, 0);
+			return;
+		}
+	}
+
+	/* L73a6: "will become" preview + confirm */
+	if (jt180() == 0) {
+		jt103(1, 1, 38, 22);
+		lineRow = 4;
+		jt25((long)(uintptr_t)rec, 4, lineRow, 0);
+		jt94((short)(jt483((const char *)&rec[96]) + 4),
+		     lineRow, 7, 0, " will become:");
+		for (i = 0; i <= 6; i++) {              /* L741c..L7522 */
+			if (rec[157 + i] == 0)
+				continue;
+			if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+				continue;
+			lineRow++;
+			jt94(6, lineRow, 7, 0,
+			     jt488(lineRow == 5 ? "    a level %s %s"
+			                        : "and a level %s %s",
+			           l60b4(rec[157 + i] + 1),
+			           (const char *)(uintptr_t)
+			               g_a5_long(-14636 + (long)i * 4)));
+		}
+		if (jt159("Do you wish to train? ", 1) == 0)
+			return;
+		jt42("Congratulations...");
+		if (g_a5_22730 == 0 && g_a5_22269 == 0)
+			*(unsigned short *)(rec + 76) -=
+			    (unsigned short)g_a5_long(-18480);
+	}
+
+	/* L7566: bump trained class levels, then recompute */
+	nClasses = 0;
+	savedLvl = rec[162];
+	rec[183] = 0;
+	for (i = 0; i <= 6; i++) {                      /* L7582..L75d0 */
+		if (rec[157 + i] == 0)
+			continue;
+		nClasses++;
+		if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+			continue;
+		rec[157 + i] += 1;
+	}
+	jt910((long)(uintptr_t)rec);                    /* L75d8 */
+
+	if (jt180() == 0) {
+		/* L75ec: grant a weapon proficiency */
+		if (rec[162] > savedLvl || rec[161] > 8) {
+			jt595_w = -1;
+			do {                            /* L7612 */
+				profSlot = jt595(4, 4, &jt595_w, &jt595_b);
+			} while (!(profSlot != 0 || jt595_b == 0));
+			if (profSlot != 0) {            /* L7648 */
+				short bitIdx = (short)((profSlot - 1) >> 3);
+				rec[339 + bitIdx] |= (unsigned char)
+				    g_a5_byte(-18893 + ((profSlot - 1) & 7));
+			}
+		}
+		/* L76a6: learn new spells */
+		if (jt29(rec) != 0) {
+			if (rec[168] > 0) {             /* cleric spells (105) */
+				iter = NULL;
+				if (jt41((long)(uintptr_t)rec, 105, &iter) == 0)
+					jt876((long)(uintptr_t)rec, 105, 0, 255, 0);
+			}
+			if (rec[167] > 0) {             /* mage spells (8) */
+				iter = NULL;
+				if (jt41((long)(uintptr_t)rec, 8, &iter) == 0)
+					jt876((long)(uintptr_t)rec, 8, 0, 255, 0);
+			}
+		}
+	}
+
+	/* L7732: HP gain for new levels + recompute encumbrance flag */
+	if (rec[137] > rec[138])
+		jt885((long)(uintptr_t)rec, trainMask, nClasses, 1);
+	rec[197] = (unsigned char)jt33(rec);
+}
 static void   jt560(void)                       { PROBE("jt560"); }
 /* JT[876] (CODE 18 + 0x1666) — append an item node to an entity's list
  * (the inverse of jt878's remove). Reserve a 10-byte node from the
