@@ -104,6 +104,25 @@ save chain (A) instead of the port stand-in, **and** the Training Hall calls the
 faithful jt557 (B) instead of `cg_train_screen`. Cross-segment leaf `jt584`
 (CODE 15 .CHR save) may remain a tracked stub until the CODE 15 save slice.
 
+## CREATE-flow status (2026-06-15)
+
+The self-contained finalize chain is now faithful and wired into jt574 in the
+Mac order: **L29ae** (HP) -> **L238e** (name, via jt1078) -> **L0006** (body
+icon) -> **L3cd4** (proficiency bitfield). What remains each opens a *different*
+subsystem, so none is a CODE-17 leaf:
+
+| piece | blocker |
+|---|---|
+| L1346/jt573 review screen | shape-5 grid DLItem method (DLItem infrastructure) |
+| L455c equipment grant      | L439c -> jt902 / jt890 (CODE 19 item-equip) |
+| jt584 .CHR save            | CODE 15 file-write (currently a stub) |
+| jt557/556/560 TRAIN screen | level-up logic (likely CODE 19 too); has a live caller |
+
+Recommendation: the highest-value next subsystem is the **save tail** (jt584 +
+the record/inventory persistence) — it makes every finalize above (L0006/L3cd4/
+L455c) actually matter. The TRAIN screen is the runtime-reachable alternative
+(replaces cg_train_screen). Both are their own multi-function efforts.
+
 ## Progress
 - 2026-06-15: mapped the full segment (this file). Lifted jt558 (multi-class
   finder) + whitelisted jt561 (empty).
@@ -116,3 +135,10 @@ faithful jt557 (B) instead of `cg_train_screen`. Cross-segment leaf `jt584`
   un-wired: blocked on jt1078 (the modal line editor stub). NEXT = jt1078 to
   make name entry functional, then wire l238e_c17 live; afterwards the L1346
   review screen + L3cd4/L455c/jt584 save tail; then the TRAIN screen (B).
+- 2026-06-15: lifted jt1078 (modal line editor) + L0334 (text-draw) and WIRED
+  l238e_c17 live into jt574. Name entry now functions end-to-end (needs Hatari
+  visual verify of the box in the char-gen context).
+- 2026-06-15: lifted L3cd4 (l3cd4_c17) the proficiency-bitfield finalize, wired
+  into jt574 after L0006. The CREATE finalize chain (HP/name/icon/proficiency)
+  is now faithful end-to-end. Remaining pieces each open another subsystem
+  (DLItem grid / CODE 19 items / CODE 15 save) — see the status table above.
