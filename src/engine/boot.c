@@ -41195,15 +41195,9 @@ static void jt1022(short group, short item, long newsize)
 	short         i, count;
 
 	PROBE("jt1022");
-	/* PORT GUARD (2026-06-12): jt111's too-small-slot arm calls
-	 * this at boot and the live resize corrupts the pool (SysBeep
-	 * modal before the menu; the 'GLIB' magic check passes, so the
-	 * fault is in the resize arithmetic vs the port's pool layout
-	 * — suspect the l3834 offsets or the jt469 anchor). Bail until
-	 * instrumented against jt111's actual call values; the body
-	 * below is the faithful transcription. */
-	if (1)
-		return;
+	/* GUARD LIFTED (RM step 1, 2026-06-14): the old `if(1) return;` guarded a
+	 * dormant path — jt1022 is only reached from jt111's combat-sprite resize
+	 * (l4d98 -> jt111), not boot-to-menu. Running the faithful LBResize body. */
 	base = jt468(group);
 	if (item < 0 || item >= l3736(base))
 		l036a(ua_strs_at(0x70fe)
@@ -43256,19 +43250,77 @@ static void l31dc(void *pp)
 	*p = NULL;
 }
 
-/* --- TLB-cache save path (cold) — PROBE stubs --------------------------
- * jt104's modes 1/2 build a .tlb cache of converted tiles. The port
- * doesn't write the cache yet (mode 0 — plain load — is the hot path);
- * these record the calls so the CFG is traceable and slot in a real
- * lift later. */
+/* JT[414] (CODE 3+0x3d98) — read `count` bytes from open file `refnum` into
+ * `buf`. The Mac builds an ioParam and calls JT[1043] (GEMDOS read); on noErr
+ * or eofErr (-39, a short final read) it returns ioActCount (bytes actually
+ * read), else -1. Under the File Manager shim this is FSRead, whose count
+ * arg is in/out (request -> bytes read) with the same eofErr-is-ok rule. */
+static long jt414(short refnum, long buf, long count) __attribute__((unused));
+static long jt414(short refnum, long buf, long count)
+{
+	long  n = count;
+	OSErr err;
+
+	PROBE("jt414");
+	err = FSRead(refnum, &n, (void *)(uintptr_t)buf);
+	if (err == noErr || err == eofErr)
+		return n;                       /* bytes actually read */
+	return -1;
+}
+
+/* --- TLB-cache save path (cold) --------------------------------------- */
+/* JT[1023] (CODE 5+0x47d6) — read one library item from `refnum` into the
+ * list-block `group`'s item `flag` and run its registered converter. Full lift:
+ *   1. LBResize item `flag` to make room (the Mac passes newsize = `size` minus
+ *      the item's current size; for a fresh item cursize==0 so it grows to size),
+ *   2. read `size` bytes of the on-disk library into the item (jt414); a short
+ *      read returns 0 (failure),
+ *   3. look up a converter registered (glib_lb_register) for `sig` in the
+ *      -3654[]/-3638[] registry; none -> the raw bytes are the item, return 1,
+ *   4. run the converter over the item (group-relative offset); it returns the
+ *      converted byte count. <0 -> failure; == size -> no resize, done,
+ *   5. otherwise shift every offset-table entry past `flag` by (converted-size)
+ *      so the following items stay contiguous. Returns 1 on success. */
 static unsigned char jt1023(short refnum, long size, short group, short flag,
                             long sig) __attribute__((unused));
 static unsigned char jt1023(short refnum, long size, short group, short flag,
                             long sig)
 {
+	long  base, addr, off, fnres, ent, delta;
+	short i, count;
+	lb_converter fn;
+
 	PROBE("jt1023");
-	(void)refnum; (void)size; (void)group; (void)flag; (void)sig;
-	return 0;
+
+	jt1022(group, flag, size - l3834(jt468(group), flag));     /* 47da-4804 */
+	addr = l37aa(jt468(group), flag);                          /* 4806-481a */
+	if (jt414(refnum, addr, size) != size)                     /* 481c-4832 */
+		return 0;
+
+	for (i = 0; i < (short)g_a5_3656; i++)                     /* 483a-4864 */
+		if (g_a5_3654[i] == sig)
+			break;
+	if (i >= (short)g_a5_3656)                                 /* 4864-486c: no converter */
+		return 1;
+
+	fn  = (lb_converter)(uintptr_t)g_a5_3638[i];               /* 4870-487e */
+	off = l37aa(jt468(group), flag) - jt468(group);            /* 4888-48b6 */
+	fnres = fn(group, off, size);                              /* 48ba */
+	if (fnres < 0)                                             /* 48c4-48ca */
+		return 0;
+	if (fnres == size)                                         /* 48ce-48d6 */
+		return 1;
+
+	delta = fnres - size;                                      /* 491a */
+	base  = jt468(group);
+	count = l3736(base);                                       /* 4948-4958 */
+	for (i = (short)(flag + 1); i <= count; i++) {             /* L4906 loop */
+		long p = base + 16 + (long)i * 4;
+		jt406(&ent, (const void *)(uintptr_t)p, (short)4);
+		ent += delta;
+		jt406((void *)(uintptr_t)p, &ent, (short)4);
+	}
+	return 1;
 }
 
 /* JT[1021] (CODE 5+0x4414) — LBInsert: insert a new item of `size`
@@ -43291,16 +43343,10 @@ static void jt1021(short group, short item, long size)
 	short         i, count;
 
 	PROBE("jt1021");
-	/* PORT GUARD: jt1024 (LBCreate, the list-block group creator)
-	 * is still a PROBE stub, so no group is a real list-block yet —
-	 * the l36e0/jt104 TLB-cache callers reach here with a group id
-	 * that jt468 resolves to a LIVE UI group, and LBInsert then
-	 * corrupts it (the 2026-06-12 boot regression: garbled error
-	 * modal before the menu). Bail until jt1024 is lifted; delete
-	 * this guard in the same commit as that lift. */
-	if (1)
-		return;
-
+	/* GUARD LIFTED (RM step 1, 2026-06-14): the boot-corruption the old
+	 * `if(1) return;` guarded against was a dormant path — jt1021/jt1022 are
+	 * only reached from the combat-sprite init (l4d98 -> l36e0 / jt111), not
+	 * the boot-to-menu sequence. Running the faithful LBInsert body. */
 	base = jt468(group);
 	if (item < 0 || item > l3736(base))
 		l036a(ua_strs_at(0x70aa) /* "LBInsert invalid item (%d)" */,
