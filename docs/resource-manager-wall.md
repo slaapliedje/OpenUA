@@ -238,3 +238,26 @@ REVISED ORDER: (1) instrument jt111 -> jt1021/jt1022 pool corruption, fix it, dr
 both guards. (2) wire jt1023 on top. (3) loader routing (the dungeon-relevant part).
 (4) purgeable. The pool-corruption fix (1) is the keystone + the riskiest — do it
 first, carefully, with a live group-state dump.
+
+## 2026-06-14c — ROUTING: grounded mechanism (the FC pool doesn't load these yet)
+Mapped the shortcut loaders. KEY FINDING: the FC pool does NOT currently load
+ALWAYS.CTL / FRAME.CTL / 8X8DB.CTL — there are NO jt997/jt1014/l33ac calls for
+them. The port loads each RESIDENT into a static buffer (port_always_load ->
+g_always_base, port_frame_load -> g_frame_base, cw_wallfile_load -> g_wallfile_buf)
+and jt468 SHORT-CIRCUITS groups 0/1 to those buffers (port_ui_group_base). So
+removing the jt468 shortcut alone would resolve to an EMPTY pool slot -> break the
+menu. (l579e/bigpic is the ONE loader already routed through l33ac.)
+
+ROUTING per loader = TWO coordinated changes:
+  (1) wire the FC pool LOAD: jt464(name, group) register + l33ac/jt997 read the
+      .CTL into the pool group;
+  (2) switch the resolver: drop the jt468 port_ui_group_base shortcut (UI libs)
+      / point cw_wallfile_load at jt468(group) (walls).
+Verify each renders before the next.
+
+ORDER (low->high risk): ALWAYS.CTL (group 0, 8KB) -> FRAME.CTL (group 1, 40KB) ->
+walls (8X8DB/DC 296KB — ALSO needs purgeable caching, item 3, to fit the FAR pool;
+the static buffer exists precisely because NewPtr(320KB) failed at 4MB,
+[[dungeon-walls-4mb-fix]]). So: do ALWAYS+FRAME routing first (small, safe, proves
+the FC pool load path end-to-end), then purgeable caching, THEN walls.
+Each is one focused commit; verify the menu/chrome/walls render after each.
