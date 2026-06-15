@@ -29,7 +29,14 @@ jt574(existing):                                  STATUS
   if new: L1346 (=jt573) REVIEW/MODIFY screen     TODO  (~1435 lines, linkw-796;
                                                           drives the align grid)
   "Save %s?" jt488 + jt159 confirm                LIFTED deps
-  L3cd4 (=jt575) pre-save record convert          TODO  (~700 lines)
+  L3cd4 (=jt575) proficiency bitfield finalize    LIFTED (l3cd4_c17); wired into
+                                                          jt574 after L0006.
+                                                          Merges the -18886..-18893
+                                                          per-bit class masks into
+                                                          rec[339..354] by class-
+                                                          count tier rec[162], the
+                                                          rec[376..380] flags, and
+                                                          the rec[381] per-slot loop.
   if train: copy rec -> existing                  trivial
   else: L455c + jt584 .CHR save                   TODO  (L455c ~640 lines;
                                                           jt584 = CODE 15 save STUB)
@@ -75,9 +82,21 @@ arrays at paint depth -4886. Also lifted its text-draw helper **L0334** (l0334)
 Mac-word/long packer so the C variadic face streams through the faithful VM.
 
 All deps were already lifted/NOOP (JT[1134]/1133/1125/1118/1141/1148/1153/1130/
-423/161, l0156). jt98's call gained the 4th `xoff` arg (0). NEXT: wire
-l238e_c17 into jt574's live create flow now that name entry functions, and
-Hatari-verify the box renders + collects in the char-gen context.
+423/161, l0156). jt98's call gained the 4th `xoff` arg (0). l238e_c17 is now
+WIRED into jt574's live create flow (needs Hatari verify of the box render).
+
+## L1346/jt573 review screen — the remaining create-flow blocker
+
+The "review & modify" screen after name entry is an interlocked cluster: jt573
+(small backup/restore wrapper) -> L11ac (screen builder) -> the alignment GRID
+(shape-5 DLItem) with action procs jt562 (mouse) / jt563 (keyboard) / jt564
+(exit) / jt565 (done) + L079a (marker draw). The blocker is **the shape-5 grid
+DLItem method** — the port's jt453 fires action procs as `void(*)(void)`, but
+jt562/jt563 need the click cell coordinates. That method (Mac: the shape-5
+handler that converts a click to a grid cell and calls the action proc with
+coords) is not in the port. So the review screen is multi-session DLItem
+infrastructure, not a leaf lift. jt574 currently skips it (port build), which is
+acceptable — it is the optional "tweak before save" screen.
 
 ## Done-criteria for #101
 All 20 JT entries LIFTED/NOOP **and** `jt574` runs the faithful finalize/name/
