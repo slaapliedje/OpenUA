@@ -116,7 +116,7 @@ subsystem, so none is a CODE-17 leaf:
 | L1346/jt573 review screen | shape-5 grid DLItem method (DLItem infrastructure) |
 | L455c equipment grant      | L439c -> jt902 / jt890 (CODE 19 item-equip) |
 | jt584 .cch save            | LIFTED — jt584 (UI/path) + jt578 (serializer) + L0ce0 (record swap); replaces the stub, reachable via the "Save Characters" menu (l1060) |
-| jt577 .cch load (read mirror) | LIFTED — jt577 (deserializer) + jt903 (CODE 19 capacity counter). UNWIRED: needs the CODE 15 read-opener (L0006, mirror of l00e0) + the L08ba/jt576 "Add Character" caller, then a Hatari round-trip vs jt578. |
+| jt577 .cch load (read mirror) | LIFTED + REACHABLE — jt577 (deserializer) + jt903 (capacity counter) + l_cch_read (read-opener, flat-shim mirror of l00e0). A probe-gated boot self-test round-trips jt578->jt577 over a scratch record (PASS = name@96 + swapped word@82 survive). Menu-level load (jt576 enumerate dialog) deferred — see impedance note. |
 | jt557/556/560 TRAIN screen | level-up logic (likely CODE 19 too); has a live caller |
 
 Recommendation: the highest-value next subsystem is the **save tail** (jt584 +
@@ -140,6 +140,22 @@ nested `<design>/SAVE/<name>.cch` path, but l00e0 opens the basename via the Mac
 shim (flat gamedata dir). In the port's flat layout the overwrite prompt may not
 find an existing save, so it can re-save without confirming — the write itself
 is correct. A full fix is the SAVE-subfolder staging (task #106 territory).
+
+## Read-path wiring + the record-layout impedance (2026-06-15)
+
+l_cch_read (the flat-shim read-opener, mirror of l00e0) makes jt577 reachable,
+and a probe-gated boot self-test exercises the full jt578->jt577 round-trip
+(`make ENGINE_PROBE=1`; look for "cch round-trip self-test: PASS" in the log).
+
+A menu-level load (Add Character -> a .cch file -> the roster) is intentionally
+NOT wired, because **jt577/jt578 use the faithful 398-byte record layout while
+the port roster/play reads port-local offsets** (CHAR_RACE=200, CHAR_INPARTY=210,
+CHAR_STATS=203, ... see the CHAR_* macros above l02dc). Loading a faithful .cch
+into a cg_pool slot would put the faithful fields where the roster expects its
+own, and setting CHAR_INPARTY=210 would clobber a faithful field. So a real
+in-game load round-trip is blocked on unifying the two record models (a port-wide
+migration, task #106 territory), not on the serializer — which is byte-faithful
+both directions and self-test-verified.
 
 ## Progress
 - 2026-06-15: mapped the full segment (this file). Lifted jt558 (multi-class
