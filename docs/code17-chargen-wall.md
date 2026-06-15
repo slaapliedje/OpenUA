@@ -18,8 +18,10 @@ jt574(existing):                                  STATUS
     └ jt572 Done (commit, sets -27932=rec)        LIFTED
   L29ae  max-HP finalize                          LIFTED (l29ae)
   L238e  character-NAME entry (jt98 box loop)     TODO  (~35 lines, leaf)
-  L0006  class/combat-field finalize (JT[3] x16)  TODO  (~785 lines; big switch
-                                                          over rec[89] class)
+  L0006  body-icon finalize (rec[188])            LIFTED (l0006_c17); wired into
+                                                          jt574's Done branch.
+                                                          gender×type×class×align
+                                                          → rec[188] body shape.
   if new: L1346 (=jt573) REVIEW/MODIFY screen     TODO  (~1435 lines, linkw-796;
                                                           drives the align grid)
   "Save %s?" jt488 + jt159 confirm                LIFTED deps
@@ -65,5 +67,10 @@ faithful jt557 (B) instead of `cg_train_screen`. Cross-segment leaf `jt584`
 
 ## Progress
 - 2026-06-15: mapped the full segment (this file). Lifted jt558 (multi-class
-  finder) + whitelisted jt561 (empty). The two big screens (A-tail, B) and the
-  align-grid cluster remain — each its own session.
+  finder) + whitelisted jt561 (empty).
+- 2026-06-15: lifted L0006 (l0006_c17) the body-icon finalize — faithful
+  gender × combination-type × class × alignment(%3) → rec[188] dispatch, wired
+  into jt574's Done branch at the Mac call position (after L29ae). 48 distinct
+  body-shape ids. Next: L238e name entry, then the L1346 review screen (drives
+  the align-grid cluster) and L3cd4/L455c/jt584 save tail; then the TRAIN
+  screen (B).
