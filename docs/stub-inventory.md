@@ -1,27 +1,45 @@
-# Stub inventory + campaign audit — 2026-06-12
+# Stub inventory + campaign audit — 2026-06-15 (refresh)
 
-A triage of every PROBE-only stub left in `src/engine/boot.c` after the
-band-2/3/4 campaigns, plus the `port_*` stand-in debt and the trap
-list. Supersedes the 2026-06-10 inventory (86 jtN stubs then; 41 now,
-plus 25 CODE-local leaf stubs). Regenerate with the trivial-body
-classifier (PROBE-only bodies, <= 6 statements).
+A triage of the remaining stubs/missing in `src/engine/boot.c`, plus the
+`port_*` stand-in debt and the trap list. Regenerate the numbers with
+`tools/jt_progress.py` (status classifier over the 1205 JT entries).
 
-## Band coverage (tools/jt_progress.py, 2026-06-12)
+## GLOBAL TOTALS (tools/jt_progress.py, 2026-06-15) — 1205 JT entries
 
-| band (rank) | done | open | note |
-|---|---|---|---|
-| 1 (1-100)    | 99/100 | jt1177 | HAL row-blit, by design |
-| 2 (101-200)  | 100/100 | — | COMPLETE |
-| 3 (201-300)  | 99/100 | jt947 | = l709e, closes via #115 |
-| 4 (301-400)  | 90/100 | 10 | see band4-wall.md |
-| 5 (401-500)  | 40/100 | 60 | next campaign candidate |
-| 6 (501-600)  | 29/100 | 71 | |
-| 7 (601-700)  | 26/100 | 74 | |
-| 8 (701-800)  | 34/100 | 66 | |
-| 9 (801-900)  | 4/100  | 96 | the CODE 18 effect-handler table band |
-| 10 (901-1000)| 95/100 | 5  | mostly Mac trap glue = shim |
-| 11 (1001-1100)| 60/100 | 40 | |
-| 12 (1101-1208)| 14/100 | 86 | tail; many editor-only |
+| status   | count | % |
+|---|---|---|
+| LIFTED   | 695 | 57.7% |
+| NOOP     |  19 | |
+| ALIAS    |  52 | |
+| **implemented (lifted+noop+alias)** | **766** | **63.6%** |
+| STAND-IN |   2 | jt114, jt118 |
+| STUB     | 155 | |
+| MISSING  | 282 | |
+| **remaining (stub+missing+standin)** | **439** | **36.4%** |
+
+## Band coverage (tools/jt_progress.py, 2026-06-15)
+
+| band (rank) | done | stub | missing | note |
+|---|---|---|---|---|
+| 1 (1-100)    | 99/100 | 0 | 0 | jt1177 HAL row-blit (by design) |
+| 2 (101-200)  | 100/100 | 0 | 0 | COMPLETE |
+| 3 (201-300)  | 99/100 | 0 | 1 | jt947 = l709e (closes via #115) |
+| 4 (301-400)  | 98/100 | 1 | 0 | band-4 campaign DONE (#119) |
+| 5 (401-500)  | 100/100 | 0 | 0 | band-5 campaign DONE (#120) |
+| 6 (501-600)  | 31/100 | 22 | 47 | NEXT campaign candidate |
+| 7 (601-700)  | 29/100 | 7 | 64 | |
+| 8 (701-800)  | 36/100 | 6 | 58 | |
+| 9 (801-900)  | 4/100  | 90 | 6 | CODE 18 combat effect-handler band (#115) |
+| 10 (901-1000)| 95/100 | 5 | 0 | mostly Mac trap glue = shim |
+| 11 (1001-1100)| 60/100 | 8 | 32 | |
+| 12 (1101-1205)| 14/105 | 16 | 70 | tail; many editor-only |
+
+DONE this session (not yet folded into a band campaign): RM #127 (FC pool
+sizing/audit/dedup + walls routing via the binder model — l6eea/jt200_layer/
+jt115 are now binder-correct) and the DISPLAY rearchitecture (16bpp LUT backend
++ 030 asm blit + VBL triple-buffer — fixed the input lag). Bands 1-5 + 10 are
+effectively closed; the bulk of the remaining 439 is bands 6/7/8/9/11/12, with
+band 9 (the CODE 18 combat exec tier, 90 stubs) the largest single block.
 
 ## 1. Faithful AS stubs — DO NOT lift
 
