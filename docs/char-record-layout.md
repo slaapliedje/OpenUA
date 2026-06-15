@@ -47,9 +47,12 @@ nail them:
    157 is probably the **per-class level array** (slot 0..n), and jt572's use
    needs a second look. Mon: dump rec[112..117] and rec[157..163] for a known
    level-5 single-class character.
-2. **XP offset** — "Experience:" displays in CODE 19 (STRS 0x5956); the long XP
-   field offset isn't pinned (rec[164]? the per-class field). Mon: find the
-   4-byte field holding a known XP value.
+2. **XP offset** — RESOLVED from the asm (no mon needed): the long XP field is
+   **rec[68]**. The CODE 19 "Experience:" display reads `rec@68 → jt70`; jt557
+   TRAIN compares/awards it (`cmpl/movel a0@(68)`); jt572 (Done) seeds the
+   starting XP there (`movel a5@(-18882),a0@(68)`, the -18882 = jt1199-swapped
+   design starting-XP); L0ce0 byte-swaps it to little-endian on disk. CHAR_XP
+   repointed 212→68.
 3. **maxHP is a WORD @82** but the port `CHAR_MAXHP` is used as a byte — the
    migration must widen the readers, not just repoint.
 
@@ -157,7 +160,7 @@ on every record), each separately Hatari-verifiable. Per-field state:
 | level | rec[157] (per-class, byte) | **DONE** — repointed; cg_build_record sets rec[157]=1; stage-2 overlay no longer copies the 0-valued cg_rec[157..163]; loader force-L5 stub dropped. |
 | alignment | rec[93] (linear 0..8) | **DONE** — cleanest field: l2f74 = (lawchaos-1)*3 + (goodevil-1) is law-major, EXACTLY the existing cg_aligns order, so no reorder + no seed re-encode. Just repointed + dropped the loader force-LG stub. |
 | max HP | rec[82] (WORD) | **DONE** — repointed CHAR_MAXHP 216 -> 83 (the faithful word's big-endian LOW byte; HP is always <=255 in FRUA so rec[82]=0). Byte access at 83 reads the real value and keeps word@82 valid (cg_build_record writes rec[83]=hp over the memset-0 rec[82]). Dropped the loader's dst[CHAR_MAXHP]=r[82] (was reading the high byte = 0 -> a pre-existing maxHP=0 bug) and the now-redundant stage-2 word copy. |
-| XP | TBD | the long XP offset isn't pinned; decode from the CODE 19 "Experience:" display. |
+| XP | rec[68] (LONG) | **DONE** — pinned from the asm (CODE 19 sheet rec@68→jt70 display, jt557 cmpl/movel a0@(68), jt572 seeds via -18882). CHAR_XP repointed 212→68; the 3 sites (award/seed/train-threshold) follow. jt572 "design handle" comment fixed → "starting XP". SAVGAMA-loaded chars keep XP little-endian (not displayed / TRAIN not reached → no swap wired). |
 | **class** | rec[89] (0..16) | the deep one: the port uses a 6-value enum (k_roster_classes); faithful rec[89] is the 0..16 single+multi-class model. A model change (17-entry name table + multi-class), not an offset flip. |
 | in-party | rec[210] | stays — port-only flag, no faithful collision. |
 
@@ -176,8 +179,9 @@ is verifiable only in Hatari, field by field — best done as a dedicated pass.
    CHAR_ALIGN→93, CHAR_STATS→112. Drop the savegame-loader's faithful→port
    translation for these (it becomes a no-op). Verify the roster + a loaded
    HEIRS character still read correctly.
-4. **Pin + repoint CHAR_LEVEL (→157 slot) and CHAR_XP (→?)** once mon confirms.
-   Widen CHAR_MAXHP to the word @82.
+4. **Pin + repoint CHAR_LEVEL (→157 slot) and CHAR_XP (→68 long)** — both
+   resolved from the asm (no mon needed). CHAR_MAXHP repointed to the word@82's
+   low byte (83). Only the class model (field 7) remains.
 5. **Make jt574 thread cg_rec (now complete) into the pool** instead of the
    port-struct cg_build_record; drop cg_build_record. Then char-gen →
    faithful record → roster → jt578 save → jt577 load is one faithful flow.
@@ -188,3 +192,8 @@ is verifiable only in Hatari, field by field — best done as a dedicated pass.
   off the offset repointing pending mon confirmation of the rec[157]/XP/maxHP
   ambiguities — repointing on a guessed map would corrupt the live roster/HUD/
   combat (68 CHAR_* sites). Steps 1–6 above are the staged execution.
+- 2026-06-15: single-layout switch executed field-by-field: abilities → race →
+  level → alignment → maxHP → **XP (CHAR_XP 212→68)**. 6 of 7 fields DONE; only
+  the **class** model change (6-value enum → faithful 0..16 single+multi-class)
+  remains. The XP/level/maxHP "mon-blocked" ambiguities all dissolved on a
+  careful asm read — the disassembly was the ground truth.

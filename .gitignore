@@ -34,6 +34,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Engine test-run output written into the GEMDOS C: mount (the repo dir):
+# character saves from the cg-audit / probe self-tests. Never committed.
+*.CCH
+*.CHR
+*.cch
+*.chr
+
 # Editor / OS noise
 .DS_Store
 *.swp
