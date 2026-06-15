@@ -6738,7 +6738,13 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 #define CHAR_STAT(rec, i)  ((rec)[112 + (i) * 2])
 #define CHAR_ALIGN  93    /* faithful linear align index (l2f74); cg_aligns order */
 #define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
-#define CHAR_XP      212  /* experience points (long; +212..215)              */
+/* Experience points: the FAITHFUL field is the LONG rec[68] — jt572 seeds it
+ * (movel a5@(-18882),a0@(68) = the starting XP, not a "design handle"), jt557
+ * TRAIN reads/writes it (cmpl/movel a0@(68)), the CODE 19 sheet displays it
+ * (rec@68 -> jt70), and L0ce0 byte-swaps it to little-endian in the .cch file.
+ * SAVGAMA-loaded chars carry it little-endian (port_load_savgame memcpy); XP is
+ * not displayed nor is TRAIN reached on that path yet, so no swap is wired. */
+#define CHAR_XP      68   /* faithful experience-point long @rec[68] */
 /* max HP: the faithful field is the WORD rec[82]; in FRUA HP is always <= 255,
  * so the value lives in the big-endian low byte rec[83] (with rec[82]=0). Byte
  * access at 83 reads the real value and keeps the faithful word@82 valid. */
@@ -20735,8 +20741,8 @@ static void jt566(void)
 }
 
 /* JT[572] (CODE 17 + 0x2e6c) — the "Done" button finalize: commit the picked
- * character. L2284 pre-finalize; copy the design handle into rec[68]; mark
- * rec[137] = 1; L13ee derived setup; JT[907] if rec[163] > 0; derive rec[127]
+ * character. L2284 pre-finalize; copy the starting XP into rec[68] (CHAR_XP);
+ * mark rec[137] = 1; L13ee derived setup; JT[907] if rec[163] > 0; derive rec[127]
  * (the max per-ability table[0] over the six scores) and rec[183] (the bonus
  * sum) from g_a5_-23184 (22 bytes/ability, indexed by the score rec[157+i]) and
  * g_a5_-23030; JT[906]; then set the created record current (g_a5_-27932). */
@@ -21426,7 +21432,7 @@ static void cg_build_record(const cg_state *s)
 	save_roster();
 }
 
-static long jt1199(long a);   /* design-handle helper (defined below) */
+static long jt1199(long a);   /* long endian-swap helper (defined below) */
 
 /* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
  * case 0). Shows the char-creation screen (L3666 -> the PICK race/class/
@@ -21467,7 +21473,7 @@ static int  jt574(long ctx)
 		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
 	}
 	/* Set up the faithful working record (g_a5_-7008) the pick action procs
-	 * write into, seed the char-gen defaults, and the design handle jt572
+	 * write into, seed the char-gen defaults, and the starting XP jt572
 	 * (Done) stamps into rec[68]. Then run the faithful pick screen L3666 (the
 	 * jt452 race/gender/class/alignment lists + the jt453 modal poll firing
 	 * jt566..jt572). On a Done commit jt572 sets g_a5_-27932 = rec; Exit/cancel
@@ -21479,7 +21485,7 @@ static int  jt574(long ctx)
 		g_a5_ptr(-7008) = cg_rec;
 		cg_rec[179] = 50; cg_rec[127] = 40; cg_rec[94] = 0;
 		cg_rec[382] = 1;  cg_rec[130] = 1;  cg_rec[189] = 8;
-		g_a5_18882 = jt1199(g_a5_18844);   /* new-character design handle */
+		g_a5_18882 = jt1199(g_a5_18844);   /* new-character starting XP (CHAR_XP) */
 
 		if (l3666() != 0) {
 			/* Done committed: jt572 made cg_rec current (g_a5_-27932), with the
