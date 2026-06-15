@@ -20864,10 +20864,18 @@ static void l238e_c17(unsigned char *rec)
 
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
- * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls
- * ability scores (the L34f0 loop over the race/class tables at g_a5_-30450)
- * and runs the pick state machine — that is the large multi-session
- * remainder of the CODE 17 lift and stays TODO. */
+ * seeds the wizard state (step g_a5_-7018), then builds the option lists and
+ * runs the jt453 pick poll.
+ *
+ * NOTE: L34f0 (the -30450 loop, earlier mislabeled here as the ability roll) is
+ * the pick-VALIDATION state machine — when a race/class/alignment pick changes
+ * it re-derives the valid options. The faithful ability ROLL is a separate,
+ * much larger subsystem: L24d2 (the jt870 3d6/keep-highest loop, racial mods by
+ * rec[88], stores ability words at rec[112+i*2]) -> L1672 (~1.5K-line per-ability
+ * racial-cap applier) + jt895 (CODE 19, ~3K lines). The port rolls stats with
+ * cg_roll_stats for now; lifting the faithful roll is its own multi-session
+ * effort and is orthogonal to the record-layout unification (which only needs
+ * the abilities at the faithful offset). See docs/char-record-layout.md. */
 static int l3666(void)
 {
 	unsigned char *rec = (unsigned char *)g_a5_ptr(-7008);
