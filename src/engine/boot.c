@@ -11010,23 +11010,23 @@ static int dungeon_view_setup(void)
 static long g_frame_base;
 static void ui_glib_blit(long handle, short idx, short top, short left,
                          int transparent, int flip);   /* defined below */
+static unsigned char jt997(short mode, const char *name, short group);  /* FC pool loader */
 
+/* ROUTED (RM #127, 2026-06-14): load FRAME.CTL through the faithful FC pool
+ * group 1 (jt997 -> jt1014 -> jt464 + jt987) instead of the resident fbuf[]
+ * shortcut. g_frame_base is cached to the POOL base (the chrome blit reads it
+ * directly via l37aa(g_frame_base, item)); jt464 makes the load load-once. */
 static void port_frame_load(void)
 {
-	static unsigned char fbuf[40000];
-	short refnum = 0;
-	long  n, base;
+	short id;
 
 	if (g_frame_base)
 		return;
-	if (FSOpen((ConstStr255Param)"\011FRAME.CTL", 0, &refnum) != noErr)
-		return;
-	n = (long)sizeof fbuf;
-	(void)FSRead(refnum, &n, fbuf);
-	(void)FSClose(refnum);
-	base = (long)(uintptr_t)fbuf;
-	if (l37aa(base, 0) != 0)
-		g_frame_base = base;
+	if ((signed char)g_a5_10074[1] < 0)    /* not yet loaded into pool grp 1 */
+		jt997((short)0, "FRAME", (short)1);
+	id = (signed char)g_a5_10074[1];
+	if (id >= 0 && (unsigned short)id < (unsigned short)G_A5_10270_LEN)
+		g_frame_base = g_a5_10270[id];     /* pool base */
 }
 
 /* ALWAYS.CTL = jt468 group 0 — the always-resident UI glyph GLIB (button
