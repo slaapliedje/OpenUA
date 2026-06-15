@@ -21459,7 +21459,19 @@ static int  jt574(long ctx)
 			s.ksel     = 0;                /* first class the race allows */
 			s.naligned = cg_allowed_aligns(s.allowed[s.ksel], s.aligned);
 			s.asel     = 0;
-			cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
+			/* Faithful ability roll: L24d2 rolls into cg_rec (using its
+			 * race/class/gender picks + the -30960/-30612/-30552 racial
+			 * tables), then L1672 caps each ability. Read the permanent
+			 * scores out of the faithful word slots rec[112+i*2] into the
+			 * port struct so cg_build_record + the roster get real
+			 * faithfully-rolled stats. (cg_roll_stats, the port stand-in
+			 * roll, is retired here.) */
+			l24d2(cg_rec);
+			{
+				short si;
+				for (si = 0; si < 6; si++)
+					s.stats[si] = (short)cg_rec[112 + si * 2];
+			}
 			{
 				/* Name from the faithful L238e entry (cg_rec[96]); an
 				 * empty entry keeps the placeholder. */
