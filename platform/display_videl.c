@@ -25,6 +25,7 @@
 #include <mint/linea.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "display.h"
 #include "dbglog.h"
@@ -34,9 +35,19 @@ static dsp_surface_t  g_surface;          /* the 8-bit chunky buffer the game dr
 /* Double-buffered 16bpp screen in ST-RAM. present() always writes the back
  * (off-screen) buffer, then points the VIDEL base at it; the latch happens at
  * the next vblank, so the beam never scans a half-blitted frame. */
-static void          *g_screen_raw[2];    /* the two Mxalloc'd blocks         */
-static unsigned short *g_screen[2];        /* 256-byte-aligned 16bpp screens   */
-static short          g_front;            /* index currently displayed        */
+static void          *g_screen_raw[3];    /* the Mxalloc'd blocks             */
+static unsigned short *g_screen[3];        /* 256-byte-aligned 16bpp screens   */
+static short          g_nbuf;             /* 2 (no VBL) or 3 (VBL triple-buf)  */
+/* Triple-buffer page flip driven by the VBL handler. present() blits its
+ * private g_draw buffer and PUBLISHES it in g_next (a plain aligned-word
+ * write, atomic on the 68k); the VBL handler shows the latest published
+ * frame by latching the VIDEL base, sets g_disp, and clears g_next. Single
+ * producer (present) / single consumer (the VBL) — no locks. */
+static volatile short g_disp;             /* index the VIDEL is showing       */
+static volatile short g_next = -1;        /* published frame, -1 = none new    */
+static short          g_draw = 1;         /* present's private write buffer    */
+static int            g_vbl_installed;
+static long           g_vbl_slot = -1;
 static short          g_scr_words;        /* 16bpp screen rowbytes, in words  */
 static long           g_screen_bytes;     /* size of one 16bpp buffer         */
 static short          g_save_mode;
@@ -53,6 +64,53 @@ static unsigned short g_lut[256];
 extern void lutblit_span(const unsigned char *src, unsigned short *dst,
                          const unsigned short *lut, long count);
 static int g_lut_use_asm = 0;
+
+/* --- VBL-driven page flip --- */
+
+extern void vbl_trampoline(void);          /* c2p.S: saves regs, calls below  */
+
+/* Called from vbl_trampoline at every vertical blank (supervisor). Latch the
+ * VIDEL video base to the latest published frame. The Falcon video base is
+ * three bytes: 0xFFFF8201 (bits 23-16), 0xFFFF8203 (15-8), 0xFFFF820D (7-0);
+ * latched for the next frame, so writing them in the blank is tear-free. */
+void vbl_flip_handler(void)
+{
+	short n = g_next;
+	if (n >= 0) {
+		unsigned long a = (unsigned long)(uintptr_t)g_screen[n];
+		*(volatile unsigned char *)0xFFFF8201UL = (unsigned char)((a >> 16) & 0xff);
+		*(volatile unsigned char *)0xFFFF8203UL = (unsigned char)((a >> 8) & 0xff);
+		*(volatile unsigned char *)0xFFFF820DUL = (unsigned char)(a & 0xff);
+		g_disp = n;
+		g_next = -1;
+	}
+}
+
+/* Supexec'd: add / remove the trampoline in the OS VBL queue (protected low
+ * memory: _vblqueue @ 0x456, _nvbls @ 0x454). */
+static long vbl_install_super(void)
+{
+	long *queue = *(long **)0x456UL;
+	short nvbls = *(short *)0x454UL;
+	short i;
+	for (i = 0; i < nvbls; i++)
+		if (queue[i] == 0) {
+			queue[i] = (long)(uintptr_t)vbl_trampoline;
+			g_vbl_slot = i;
+			return 1;
+		}
+	return 0;
+}
+
+static long vbl_remove_super(void)
+{
+	if (g_vbl_slot >= 0) {
+		long *queue = *(long **)0x456UL;
+		queue[g_vbl_slot] = 0;
+		g_vbl_slot = -1;
+	}
+	return 0;
+}
 
 static int videl_init(short want_w, short want_h)
 {
@@ -103,24 +161,42 @@ static int videl_init(short want_w, short want_h)
 	g_surface.pitch  = w;
 	memset(g_surface.pixels, 0, (size_t)((long)w * h));
 
-	/* Two 16bpp ST-RAM screens (the VIDEL DMAs them, so ST-RAM). */
+	/* 16bpp ST-RAM screens (the VIDEL DMAs them, so ST-RAM). Try for three —
+	 * the VBL-driven triple-buffer needs a spare so present() never blocks —
+	 * but require only two: the third is optional and falls back to the
+	 * direct (no-Vsync) flip if it or the VBL install fails. */
 	g_screen_bytes = bytes;
-	for (b = 0; b < 2; b++) {
+	g_nbuf = 0;
+	for (b = 0; b < 3; b++) {
 		raw = Mxalloc(bytes + 256, 0);           /* 0 = ST-RAM */
 		if (raw <= 0) {
-			dbg_log("  videl_init: Mxalloc FAILED");
-			if (b > 0) Mfree(g_screen_raw[0]);
-			free(g_surface.pixels);
-			g_surface.pixels = NULL;
-			VsetMode(g_save_mode);
-			return -1;
+			if (b < 2) {                     /* need at least two */
+				dbg_log("  videl_init: Mxalloc FAILED");
+				while (b-- > 0) Mfree(g_screen_raw[b]);
+				free(g_surface.pixels);
+				g_surface.pixels = NULL;
+				VsetMode(g_save_mode);
+				return -1;
+			}
+			break;                           /* two is fine; no third */
 		}
 		g_screen_raw[b] = (void *)raw;
 		g_screen[b] = (unsigned short *)((raw + 255) & ~255L);
 		memset(g_screen[b], 0, (size_t)bytes);   /* black, incl. letterbox */
+		g_nbuf++;
 	}
-	g_front = 0;
+	g_disp = 0;
+	g_draw = 1;
+	g_next = -1;
 	VsetScreen(g_screen[0], g_screen[0], -1, -1);
+
+	/* Install the VBL page-flip handler (only worthwhile with the spare
+	 * third buffer). On failure, present() uses the direct no-Vsync flip. */
+	g_vbl_installed = 0;
+	if (g_nbuf >= 3 && Supexec(vbl_install_super) != 0)
+		g_vbl_installed = 1;
+	dbg_log_num("  videl_init: buffers  = ", g_nbuf);
+	dbg_log_num("  videl_init: vbl flip = ", g_vbl_installed);
 
 	/* Black the VIDEL overscan border: even in TrueColor the border colour is
 	 * driven by Falcon palette register 0 (the desktop left it light). The
@@ -170,10 +246,14 @@ static int videl_init(short want_w, short want_h)
 static void videl_shutdown(void)
 {
 	short b;
+	if (g_vbl_installed) {                      /* unhook before freeing pages */
+		Supexec(vbl_remove_super);
+		g_vbl_installed = 0;
+	}
 	VsetMode(g_save_mode);
 	VsetScreen(g_save_log, g_save_phys, -1, -1);
 	VsetRGB(0, 256, g_save_palette);
-	for (b = 0; b < 2; b++)
+	for (b = 0; b < 3; b++)
 		if (g_screen_raw[b] != NULL) {
 			Mfree(g_screen_raw[b]);
 			g_screen_raw[b] = NULL;
@@ -223,29 +303,33 @@ static void videl_flip(unsigned short *back)
 
 static void videl_present(void)
 {
-	short back = (short)(1 - g_front);
-	videl_lut_blit(g_screen[back], 0, g_surface.height, 0, g_surface.width);
-	videl_flip(g_screen[back]);
-	g_front = back;
+	videl_lut_blit(g_screen[g_draw], 0, g_surface.height, 0, g_surface.width);
+
+	if (g_vbl_installed) {
+		/* Publish g_draw for the VBL handler, then take a fresh private
+		 * buffer — the one that is neither displayed nor just-published (with
+		 * three buffers there is exactly one). present() never blocks; the
+		 * handler shows the latest published frame, tear-free. */
+		short d, k;
+		g_next = g_draw;                 /* atomic aligned-word publish */
+		d = g_disp;                      /* snapshot */
+		for (k = 0; k < 3; k++)
+			if (k != d && k != g_draw) { g_draw = k; break; }
+	} else {
+		/* No VBL handler: direct flip (VsetScreen latches at the next vblank,
+		 * no Vsync). Cycle the two buffers. */
+		videl_flip(g_screen[g_draw]);
+		g_disp = g_draw;
+		g_draw = (short)(1 - g_draw);
+	}
 }
 
-/* Present only the dirty rect. The surround is identical in both buffers, so
- * only the rect needs re-blitting. */
+/* The LUT blit is fast, so a partial present buys little and is wrong under
+ * triple-buffering (the three pages diverge); just do a full present. */
 static void videl_present_rect(short x, short y, short w, short h)
 {
-	short back = (short)(1 - g_front);
-	short x1 = (short)(x + w);
-	short y1 = (short)(y + h);
-
-	if (x < 0) x = 0;
-	if (y < 0) y = 0;
-	if (x1 > g_surface.width)  x1 = g_surface.width;
-	if (y1 > g_surface.height) y1 = g_surface.height;
-	if (x1 <= x || y1 <= y)
-		return;
-	videl_lut_blit(g_screen[back], y, y1, x, x1);
-	videl_flip(g_screen[back]);
-	g_front = back;
+	(void)x; (void)y; (void)w; (void)h;
+	videl_present();
 }
 
 /* Rebuild the 8->RGB565 LUT from the engine's palette. The 8-bit RGB
