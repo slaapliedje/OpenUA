@@ -2985,20 +2985,20 @@ static short l694e(short idx, short flag2)
 	case 11: { unsigned char v = rec[ev[2] + 69];
 		   if (v != 0 && v != 128 && v != 255) result = 1; }
 		 break;
-	case 12: { long m = g_a5_long(-27928); unsigned char lf6;   /* any has 19 */
+	case 12: { long m = g_a5_long(-27928); void *lf6;   /* any has 19 */
 		   while (m) { if (jt41(m, 19, &lf6)) result = 1;
 			       m = *(long *)(uintptr_t)m; } }
 		 break;
-	case 13: { long m = g_a5_long(-27928); unsigned char lf6;   /* none has 19 */
+	case 13: { long m = g_a5_long(-27928); void *lf6;   /* none has 19 */
 		   result = 1;
 		   while (m) { if (jt41(m, 19, &lf6)) result = 0;
 			       m = *(long *)(uintptr_t)m; } }
 		 break;
-	case 14: { long m = g_a5_long(-27928); unsigned char lf6;   /* any has 24 */
+	case 14: { long m = g_a5_long(-27928); void *lf6;   /* any has 24 */
 		   while (m) { if (jt41(m, 24, &lf6)) result = 1;
 			       m = *(long *)(uintptr_t)m; } }
 		 break;
-	case 15: { long m = g_a5_long(-27928); unsigned char lf6;   /* none has 24 */
+	case 15: { long m = g_a5_long(-27928); void *lf6;   /* none has 24 */
 		   result = 1;
 		   while (m) { if (jt41(m, 24, &lf6)) result = 0;
 			       m = *(long *)(uintptr_t)m; } }
