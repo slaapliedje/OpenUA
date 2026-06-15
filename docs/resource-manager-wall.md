@@ -309,6 +309,29 @@ faithful release is wired at the event-pic teardown before routing walls, else t
 pool deadlocks ("Out of FAR memory!"). HEIRS 8X8DB directory is IDENTITY -> routing
 won't change the resolved tile (no behaviour change) and does NOT fix garbled walls.
 
+## 2026-06-14g — WALLS ROUTING STAGE 2 DONE + VERIFIED (cw_wallfile_load -> FC pool)
+cw_wallfile_load now loads 8X8D{B,C}.CTL through the faithful l33ac -> FC pool
+path (l338c kind 50 + "8x8d%c1" name -> override-aware group loader), caching the
+bound group per file and re-resolving jt468(group) each call (purge-safe re the
+pointer). l6eea/l6148/the blit are UNCHANGED — they still do l37aa(base, set); only
+`base` moved from the static g_wallfile_buf to the pool. The static buffer is kept
+as a FALLBACK (migration scaffold): if the pool can't hold the 296K library (it
+collides with a resident event bigpic until stage 4 lands), it serves the static
+buffer so walls never regress — worst case = today's behaviour.
+
+VERIFIED (HEIRS, FRUA_SKIP_ENTRY_EVENTS build, VIEWDIAG.TX + RMAUDIT.TXT):
+  pool_start=2935168 pool_usedend=3383800 (450K pool) ; wallfile_buf=1518926
+  h0=3216396 h1=3323444 h2=3087484  -> ALL THREE wall handles INSIDE the pool
+  wallfile_which=-1                 -> static fallback NEVER used
+  pool_freebytes=12168              -> 296K library fit in the pool (12K spare)
+  no "Out of FAR" ; wall1/2/3=5/8/1 row=10 col=8 facing=2 ; J200DIFF 393 lines
+  unchanged -> render byte-identical (still the parked gold-centre garble).
+Commit: <this>. Stage 2 is the faithful LOAD; stages 3 (binder/jt468 purge-safe
+blit, retire the cached sub-pointer) + 4 (dispose-reload so the bigpic can purge
+the walls and drop the fallback) remain. The fallback makes the bigpic-coexistence
+case safe in the meantime (walls fall back to the static buffer while the bigpic
+is resident; no regression).
+
 ## 2026-06-14f — WALLS -> FC POOL ROUTING: full mechanism mapped (the big one)
 Mapped CODE 7 L6eea + CODE 6 l33ac end-to-end. The faithful path is NOT a simple
 load swap; it is a coupled render-path change. Pieces:
