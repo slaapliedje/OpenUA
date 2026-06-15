@@ -190,3 +190,51 @@ the wall-texture fix. Reprioritize: RM is a memory/perf effort now.
 - `docs/mac-blit-trace-heirs-l5.md` — the 25-slot jt200 trace (codes/idx).
   The port's jt200 already emits identical codes/idx; only the *tiles the
   handle points to* are wrong, which this worklist fixes.
+
+## 2026-06-14 — RM-COMPLETION SCOPE (user directive: take #127 to 100%, then FC group)
+User redirected off the 3D view: "go back to tracking through the Resource Manager
+and get that implemented, with all dependencies... to 100% completion. Then the FC
+Group code." (The 3D pipeline is proven faithful slot-for-slot vs the Mac trace —
+docs/dungeon-view-wall 14h/14i — so it's parked, not abandoned.)
+
+PRECISE remaining work (audited 2026-06-14):
+1. **jt1023** (CODE 5+0x47d6) is the LAST PROBE stub in the RM surface — the
+   signature-keyed TLB cache-build dispatcher. It walks the converter registry
+   (-3654 sig[] / -3638 fnptr[] / -3656 count), reads the file via JT[414] into
+   the L37aa item, and on a sig match calls the registered builder, shrinking the
+   group offset table to the built size. DEPS NOT YET LIFTED:
+     - **l46a6** (CODE 5+0x46a6) = LBResize: resize list-block `item` to `size`
+       via L3834 (offset) + L3736 (count) + jt406 shuffles (+ the LBResize-invalid
+       L036a modals). ~130 B.
+     - **jt414** (CODE 3+0x3d98) = file read leaf (linkw -52). NOT lifted.
+   Then DELETE the jt1021 `if(1) return;` port guard (jt1024 LBCreate is already a
+   full body) — same commit.
+2. **Routing** (the texture-resolution angle the user is after): re-point
+   cw_load_slot / cw_wallfile_load (walls), l579e (bigpic), port_frame_load (frame)
+   at jt468(group) + the numeric-name jt104/jt1013 path instead of the positional
+   l37aa / static-buffer shortcuts. NOTE the earlier "STEP 2 numeric-name DISPROVEN"
+   was for 8X8DB (identity directory) — re-verify per-library before assuming.
+3. **Purgeable caching** (#127 memory goal): LRU-evict groups via the -9354 MRU
+   list under pool pressure.
+4. Group-state probe dump (pool base / -10026 / -9354 / binder -18468 / jt468(grp))
+   to verify wiring from live state.
+
+ORDER: leaf deps (jt414, l46a6) -> jt1023 + drop jt1021 guard -> routing -> probe ->
+purgeable. Each = one focused, build-green commit. This is multi-commit, not one turn.
+
+## 2026-06-14b — SCOPE CORRECTION after reading the LB cluster
+- jt414 (file read) LIFTED (FSRead-based, builds green) — the one truly-missing leaf.
+- l46a6 is NOT missing: it IS **jt1022** (LBResize), already a full faithful body.
+- So jt1023's deps all EXIST. The real blocker: **jt1021 (LBInsert) AND jt1022
+  (LBResize) are LIFTED-BUT-GUARDED** (`if(1) return;`) — jt111's boot-time call
+  corrupts the FAR pool (SysBeep modal before the menu; 'GLIB' magic passes, so the
+  fault is in the resize arithmetic vs the PORT's pool layout, not the transcription).
+  jt1024 (LBCreate) has a full body. To finish jt1023 (and faithful pool list-block
+  ops generally) we must UN-GUARD jt1021/jt1022, which requires INSTRUMENTING jt111's
+  actual call values + the pool layout to find why the resize corrupts (vs the Mac).
+- NOTE jt1023/TLB-cache is the COLD .TLB (deep/640) path, NOT the hot .CTL dungeon
+  path — so it is RM-completeness, not the dungeon-texture fix.
+REVISED ORDER: (1) instrument jt111 -> jt1021/jt1022 pool corruption, fix it, drop
+both guards. (2) wire jt1023 on top. (3) loader routing (the dungeon-relevant part).
+(4) purgeable. The pool-corruption fix (1) is the keystone + the riskiest — do it
+first, carefully, with a live group-state dump.
