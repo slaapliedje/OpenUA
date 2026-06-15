@@ -26561,7 +26561,7 @@ static void   jt176(void)
 	jt1193();
 	l2062();
 }
-static void   jt584(long a, const char *str)     { PROBE("jt584"); (void)a; (void)str; }
+static void   jt584(long rec_l, const char *suffix);  /* CODE 15 .cch save (below) */
 /* Forward — jt182 / jt176 / jt394 / jt179 lifted further down. */
 static short jt182(const char *p1, long p2, short arg3, short arg4);
 static void  jt176(void);
@@ -26683,6 +26683,160 @@ static signed char l00e0(const char *fn, void *cb)
 	serialize(ref);
 	(void)FSClose(ref);
 	return 1;
+}
+
+/* L0ce0 (CODE 15 + 0xce0) — byte-swap the multi-byte fields of a character
+ * record between native and the little-endian .cch file layout: the word at 82,
+ * the three words at 76/78/80, the two longs at 68/72 (jt1199), and the words
+ * at 84/86. Involutive (the swaps are their own inverse), so jt578 calls it
+ * before and after the 398-byte record write. */
+static void l0ce0_c15(unsigned char *rec)
+{
+	short i;
+
+	PROBE("L0ce0");
+	*(short *)(rec + 82) = jt1180(*(short *)(rec + 82));
+	for (i = 0; i <= 2; i++)
+		*(short *)(rec + i * 2 + 76) =
+		    jt1180(*(short *)(rec + i * 2 + 76));
+	*(long *)(rec + 68) = jt1199(*(long *)(rec + 68));
+	*(long *)(rec + 72) = jt1199(*(long *)(rec + 72));
+	*(short *)(rec + 84) = jt1180(*(short *)(rec + 84));
+	*(short *)(rec + 86) = jt1180(*(short *)(rec + 86));
+}
+
+/* JT[578] (CODE 15 + 0x934) — serialize the current character record (set in
+ * g_a5_-6902) to the open file `refNum`. Writes the 398-byte record, then each
+ * inventory item (18 bytes from +40, the words at +44/+46 swapped to little-
+ * endian), then for a container item (type byte +40 == 'I'/73) its rec[53]
+ * sub-items (chained at +58), and finally the spell list (10 bytes/node, word
+ * at +2 swapped). Stops on the first short write. Returns 1 on success, 0 on
+ * error. The l00e0 file-open callback. */
+static short jt578(short refNum)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-6902);
+	unsigned char *item, *sub, *node;
+	signed char    err;
+	short          n;
+
+	PROBE("jt578");
+	if (rec == NULL)
+		return 0;
+
+	l0ce0_c15(rec);                          /* native -> little-endian */
+	err = (signed char)(jt410(refNum, rec, 398) != 398 ? 1 : 0);
+	l0ce0_c15(rec);                          /* little-endian -> native */
+
+	/* inventory list: rec[8] = head, each node's +0 = next */
+	item = (unsigned char *)(uintptr_t)*(long *)(rec + 8);
+	while (item != NULL && err == 0) {
+		*(short *)(item + 44) = jt1180(*(short *)(item + 44));
+		*(short *)(item + 46) = jt1180(*(short *)(item + 46));
+		err = (signed char)(jt410(refNum, item + 40, 18) != 18 ? 1 : 0);
+		*(short *)(item + 44) = jt1180(*(short *)(item + 44));
+		*(short *)(item + 46) = jt1180(*(short *)(item + 46));
+
+		if (err == 0 && item[40] == 73) {  /* container: walk +58 chain */
+			sub = item;
+			for (n = 1; n <= item[53]; n++) {
+				if (err != 0)
+					continue;
+				sub = (unsigned char *)(uintptr_t)
+				      *(long *)(sub + 58);
+				*(short *)(sub + 44) =
+				    jt1180(*(short *)(sub + 44));
+				*(short *)(sub + 46) =
+				    jt1180(*(short *)(sub + 46));
+				err = (signed char)(jt410(refNum, sub + 40, 18)
+				                    != 18 ? 1 : 0);
+				*(short *)(sub + 44) =
+				    jt1180(*(short *)(sub + 44));
+				*(short *)(sub + 46) =
+				    jt1180(*(short *)(sub + 46));
+			}
+		}
+		item = (unsigned char *)(uintptr_t)*(long *)item;
+	}
+
+	/* spell list: rec[4] = head, each node's +6 = next */
+	node = (unsigned char *)(uintptr_t)*(long *)(rec + 4);
+	while (node != NULL && err == 0) {
+		*(short *)(node + 2) = jt1180(*(short *)(node + 2));
+		err = (signed char)(jt410(refNum, node, 10) != 10 ? 1 : 0);
+		*(short *)(node + 2) = jt1180(*(short *)(node + 2));
+		node = (unsigned char *)(uintptr_t)*(long *)(node + 6);
+	}
+
+	return (short)(err == 0 ? 1 : 0);
+}
+
+/* JT[584] (CODE 15 + 0xb5a) — save a character record to its .cch file. Builds
+ * the basename from `suffix` (or the character name rec[96] when suffix is
+ * empty) + the "cch" extension, then — for an auto-named character — builds the
+ * SAVE-folder path, checks for an existing file (jt988), and on a collision
+ * offers "Update %s?" (jt159) or prompts for a new name (jt98). Finally stamps
+ * the record into g_a5_-6902 and runs the serializer jt578 through the file
+ * opener l00e0. */
+static short l17e2(short kind, const char *name, short mode, void *cbp);
+static void jt584(long rec_l, const char *suffix)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	const char    *ext = ua_strs_at(0x4c94);   /* "cch" */
+	char           fname[64];
+	char           path[260];
+	char           prompt[80];
+	unsigned char  named;
+
+	PROBE("jt584");
+	if (suffix == NULL || suffix[0] == 0) {    /* auto-name from rec[96] */
+		jt384(fname, (char *)(rec + 96));
+		jt130(fname);
+		jt419(fname, ext, 1);
+		named = 0;
+	} else {
+		jt384(fname, suffix);
+		jt419(fname, ext, 1);
+		named = 1;
+	}
+
+	if (l005a() == 0)                          /* save-folder precondition */
+		return;
+	goto check_named;
+
+ build_path:
+	path[0] = 0;
+	jt431(path, (char *)&g_a5_byte(-31336));   /* design dir */
+	jt431(path, ua_strs_at(0x4c98));           /* "SAVE" */
+	jt431(path, fname);
+	if (l17e2(0, path, 0, NULL) == 0)          /* jt988: file doesn't exist */
+		goto do_save;
+	jt76();
+	jt384(prompt, jt488(ua_strs_at(0x4c9e) /* "Update %s?" */,
+	                    (char *)(rec + 96)));
+	named = (unsigned char)jt159(prompt, 0);
+	if (named != 0)
+		goto check_named;
+	jt176();
+	for (;;) {                                 /* prompt a new file name */
+		char *nm = jt98((long)(uintptr_t)ua_strs_at(0x4caa)
+		                /* "New file name:" */, 0, 0, 15);
+		jt384(fname, nm);
+		jt130(fname);
+		if (fname[0] == 0 && jt91())
+			continue;
+		break;
+	}
+	if (jt91() == 0)                           /* cancelled */
+		return;
+	jt419(fname, ext, 1);
+
+ check_named:
+	if (named == 0)
+		goto build_path;
+
+ do_save:
+	g_a5_long(-6902) = (long)(uintptr_t)rec;
+	l00e0(fname, (void *)jt578);
 }
 
 /* ====================================================================
