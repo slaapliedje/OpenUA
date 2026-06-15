@@ -15364,6 +15364,7 @@ static int port_load_savgame(void)
 static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
 static void l0006_c17(void);             /* CODE 17 body-icon finalize (below) */
 static void l3cd4_c17(unsigned char *rec); /* CODE 17 proficiency finalize (below) */
+static short jt573(short doSave);        /* CODE 17 review screen (below) */
 
 void port_test_seed_design(void)
 {
@@ -21546,6 +21547,18 @@ static int  jt574(long ctx)
 			 * name entry (now functional — jt1078 is lifted), then L0006. */
 			l238e_c17(cg_rec);   /* faithful name prompt -> cg_rec[96] */
 			l0006_c17();         /* body-icon rec[188] */
+
+			/* Faithful Mac jt574 order (L3b5e): the REVIEW screen
+			 * (L1346/jt573) runs right after L0006 for a NEW character
+			 * (the Mac gate is fp@(8)==0; the port create path is
+			 * always new, ctx==0). Exit cancels the whole create — abort
+			 * before building/adding to the roster. jt573 reviews
+			 * g_a5_-27932 (= cg_rec, made current by jt572); body-icon
+			 * select + Done/Exit work, though the grid ICONS await the
+			 * jt110 DUNGCOM1 loader (still a leaf stub). */
+			if (ctx == 0 && jt573(0) == 0)
+				return 0;    /* review cancelled — back to the Hall */
+
 			l3cd4_c17(cg_rec);   /* proficiency bitfield rec[339..354] */
 
 			/* Then add a roster character from the picks. The review screen
@@ -23214,7 +23227,6 @@ static signed char l11ac(void)
  * backup on cancel, writes the resulting rec[189], optionally
  * redraws (jt593) when `doSave` is set, and returns 1 on accept /
  * 0 on cancel. */
-static short jt573(short doSave) __attribute__((unused));
 static short jt573(short doSave)
 {
 	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
