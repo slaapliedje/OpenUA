@@ -22901,6 +22901,8 @@ static void   jt560(void)                       { PROBE("jt560"); }
  * ============================================================ */
 static void jt150(short v);                     /* CODE 7+0x38ea (defined far below) */
 static void jt55(short id);                     /* CODE 6+0x5b5e (defined far below) */
+static void jt77(void);                         /* CODE 6+0x6920 (defined far below) */
+static void jt120(void *arg);                   /* CODE 6+0x3918 (defined far below) */
 
 /* JT[564] (CODE 17 + 0x9ce) — grid "Exit" button proc: cancel. */
 static short jt564(void)
@@ -22942,15 +22944,131 @@ static void l09ba(void)
 	jt593(1);
 }
 
-/* L09dc (CODE 17 + 0x9dc) — DEFERRED: paints the 7x7 body-shape
- * grid (49 cells via jt57, latching the current cell's value into
- * g_a5_-6985).  ~1.5KB pure-render leaf.  The cluster's control
- * flow + input is faithful around it; the grid simply draws nothing
- * until L09dc is lifted.  Not yet reachable (the review screen is
- * not wired into the create flow), so the blank grid is inert. */
+/* JT[110] (CODE 6 + 0x33ac) — GLIB slot loader (linkw -420; walks the
+ * -18468 slot table for a free entry and opens the named GLIB into it).
+ * LEAF STUB: the RM/GLIB art-load path is a separate subsystem (cf task
+ * #127).  Until it is lifted here, the body-icon grid art does not load
+ * (handle stays 0); L09dc's render logic around it is faithful. */
+static void jt110(void *out, short a, short b, short c, const char *name)
+{
+	PROBE("jt110");
+	(void)a; (void)b; (void)c; (void)name;
+	if (out != NULL)
+		*(long *)out = 0;
+}
+
+/* L09dc (CODE 17 + 0x9dc) — paint the review screen: first (when the
+ * -7004 seed flag is set) the 7x7 body-icon grid from DUNGCOM1 — all 49
+ * shapes tiled, the character's current icon marked (jt57 kind 31 vs 30)
+ * — then the info panel: name (+ "(NPC)" when rec[147] bit 7), gender
+ * (g_a5_-14500[rec[92]]), race (g_a5_-14564[rec[88]]) and class
+ * (g_a5_-14636[rec[89]] for a single class; the multi-class arms split
+ * the name across rows 12..14).  Closes with the jt1089 pen move.
+ *
+ * The DUNGCOM1 art is the body-icon set (combat sprites) — the
+ * "DUNGCOM is combat-only" rule is about the 3D dungeon VIEW, not this
+ * picker, so loading it here is faithful.  jt110 (the loader) is a leaf
+ * stub, so the grid icons do not yet draw; everything else is lifted. */
 static void l09dc(void)
 {
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	unsigned char  savedIcon;
+	long           handle;
+	char           namebuf[82];
+
 	PROBE("L09dc");
+	savedIcon = rec[188];
+	g_a5_word(-6986) = savedIcon;
+	rec[188] = 0;
+
+	if (g_a5_byte(-7004) != 0) {            /* seed: draw the icon grid */
+		jt108(0);
+		jt103(1, 1, 38, 22);
+		jt77();
+		jt120(NULL);
+		jt117();
+		jt113(50);
+		handle = 0;
+		jt110(&handle, 0, 0, 1, "DUNGCOM1");
+		jt124(handle);
+		jt115(&handle);
+		g_a5_byte(-22307) = 0;
+		do {                            /* L0a76: 49 cells (0..48) */
+			short cell = (unsigned char)g_a5_byte(-22307);
+			jt57((short)(cell % 7), (short)(cell / 7), 0, 0,
+			     (cell == g_a5_word(-6986)) ? 31 : 30);
+			jt593(1);
+			jt57((short)(cell % 7), (short)(cell / 7), 0, 0, 8);
+			jt117();
+			rec[188] += 1;
+			if (rec[188] > 48)
+				rec[188] = 0;
+			g_a5_byte(-22307) += 1;
+		} while ((signed char)g_a5_byte(-22307) <= 48);
+		g_a5_byte(-7004) = 0;
+	}
+
+	rec[188] = savedIcon;                   /* L0b58: restore + info panel */
+	jt94(23, 8, 7, 8, "%s", (const char *)&rec[96]);
+	if ((rec[147] & 0x80) != 0)             /* NPC flag */
+		jt94((short)(jt423((const char *)&rec[96]) + 3),
+		     23, 7, 8, "(NPC)");
+
+	jt384(namebuf, (const char *)(uintptr_t)
+	      g_a5_long(-14500 + (long)rec[92] * 4));   /* gender */
+	jt94(23, 9, 7, 8, namebuf);
+
+	jt384(namebuf, (const char *)(uintptr_t)
+	      g_a5_long(-14564 + (long)rec[88] * 4));   /* race */
+	jt94(23, 10, 7, 8, namebuf);
+
+	switch (rec[89]) {                      /* class (JT[3] 0..16) */
+	case 0: case 1: case 2: case 3: case 4:
+	case 5: case 6: case 7: case 8:
+		jt384(namebuf, (const char *)(uintptr_t)
+		      g_a5_long(-14636 + (long)rec[89] * 4));
+		jt94(23, 12, 7, 8, namebuf);
+		break;
+	case 9:                                 /* Cleric/Fighter/Magic-User */
+		jt384(namebuf, ua_strs_at(0x47c4)); jt94(23, 12, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x47d4)); jt94(23, 13, 7, 8, namebuf);
+		break;
+	case 10:                                /* Cleric/Ranger */
+		jt384(namebuf, ua_strs_at(0x47e0)); jt94(23, 12, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x47e8)); jt94(23, 13, 7, 8, namebuf);
+		break;
+	case 11:                                /* Cleric/Magic-User */
+		jt384(namebuf, ua_strs_at(0x47f0)); jt94(23, 12, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x47f8)); jt94(23, 13, 7, 8, namebuf);
+		break;
+	case 12:                                /* Cleric/Thief */
+		jt384(namebuf, ua_strs_at(0x4804)); jt94(23, 12, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x480c)); jt94(23, 13, 7, 8, namebuf);
+		break;
+	case 13:                                /* Fighter/Magic-User */
+		jt384(namebuf, ua_strs_at(0x4812)); jt94(23, 12, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x481a)); jt94(23, 13, 7, 8, namebuf);
+		break;
+	case 14:                                /* Fighter/Thief (single string) */
+		jt384(namebuf, (const char *)(uintptr_t)
+		      g_a5_long(-14636 + (long)rec[89] * 4));
+		jt94(23, 12, 7, 8, namebuf);
+		break;
+	case 15:                                /* Fighter/Magic-User/Thief */
+		jt384(namebuf, ua_strs_at(0x4826)); jt94(23, 12, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x482e)); jt94(23, 13, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x483a)); jt94(23, 14, 7, 8, namebuf);
+		break;
+	case 16:                                /* Magic-User/Thief */
+		jt384(namebuf, ua_strs_at(0x4840)); jt94(23, 12, 7, 8, namebuf);
+		jt384(namebuf, ua_strs_at(0x484c)); jt94(23, 13, 7, 8, namebuf);
+		break;
+	default:
+		break;
+	}
+
+	jt1089(8008, 8094, g_a5_word(-7000),
+	       (const char *)(uintptr_t)g_a5_long(-14204));
 }
 
 /* JT[562] (CODE 17 + 0x854) — grid mouse-click proc.  Maps the

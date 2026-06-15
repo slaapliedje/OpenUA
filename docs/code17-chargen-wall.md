@@ -64,10 +64,15 @@ keyboard source).  All LIFTED this session:
 - jt565 (0x09c6)  grid "Done"  — sets -6988=1
 - L079a (0x079a)  marker frame draw;  L09ba (0x09ba)  redraw flush
 
-REMAINING in this sub-cluster: **L09dc (0x09dc, ~1.5KB)** — the pure-render leaf
-that paints the 49 grid cells and latches the current cell value into g_a5_-6985.
-Stubbed (PROBE only); the grid draws nothing until it is lifted, but the cluster
-is not yet reachable so the blank grid is inert.
+L09dc (0x09dc, ~1.5KB) the screen PAINT is now LIFTED: the 49-cell DUNGCOM1
+body-icon grid (current icon marked, jt57 kind 31 vs 30) + the info panel (name /
+"(NPC)" on rec[147] bit 7 / gender g_a5_-14500 / race g_a5_-14564 / class
+g_a5_-14636, multi-class arms splitting the name across rows 12..14) + the jt1089
+pen move.  The DUNGCOM1 load (jt110, CODE 6+0x33ac GLIB slot loader) stays a LEAF
+STUB — the RM/GLIB art-load subsystem (task #127), so the grid ICONS do not draw
+yet; the render logic around it is faithful.  jt384 needs Pascal-string sources,
+so the multi-class component names go through ua_strs_at() (a C literal would be
+misread as length-prefixed).
 
 TRAP recorded: jt406's Mac ABI is copy(SRC,dst) while the C shim is
 jt406(dst,src,n), so every asm `jt406(a,b,n)` was written SWAPPED as
@@ -220,3 +225,10 @@ both directions and self-test-verified.
   jt406(dst,src) shim. DEFERRED: L09dc (~1.5KB) the grid-cell PAINT leaf
   (PROBE stub). jt573 is `unused` until the create-flow tail wires it.
   cg-audit PASS.
+- 2026-06-15: lifted L09dc — the review-screen PAINT (49-cell DUNGCOM1 grid +
+  name/NPC/gender/race/class info panel, multi-class names split across rows
+  12..14). Only jt110 (the DUNGCOM1 GLIB slot loader, CODE 6+0x33ac) stays a
+  leaf stub (RM/GLIB subsystem, #127) so the grid ICONS don't draw yet; all
+  the render logic is faithful. jt384 sources must be Pascal strings → the
+  multi-class component names go through ua_strs_at(). cg-audit PASS. The
+  jt573 review-screen cluster is now fully lifted except the jt110 art leaf.
