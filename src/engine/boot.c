@@ -6732,7 +6732,10 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 #define CHAR_RACE   200
 #define CHAR_CLASS  201
 #define CHAR_LEVEL  202
-#define CHAR_STATS  203   /* 6 bytes: STR INT WIS DEX CON CHA (record order) */
+/* Ability scores: the FAITHFUL layout — 6 words at rec[112+i*2] (STR INT WIS
+ * DEX CON CHA), the permanent score in the even byte. Use CHAR_STAT(rec,i); the
+ * old contiguous CHAR_STATS=203 port slot is retired (single-layout switch). */
+#define CHAR_STAT(rec, i)  ((rec)[112 + (i) * 2])
 #define CHAR_ALIGN  209   /* index into cg_aligns[9]                          */
 #define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
 #define CHAR_XP      212  /* experience points (long; +212..215)              */
@@ -15160,7 +15163,7 @@ static int port_load_savgame(void)
 			dst[CHAR_RACE]  = 0;          /* Human (label) */
 			dst[CHAR_LEVEL] = 5;
 			for (c = 0; c < 6; c++)       /* abilities: @112 pairs */
-				dst[CHAR_STATS + c] = r[112 + c * 2];
+				CHAR_STAT(dst, c) = r[112 + c * 2];  /* faithful (now identity post-memcpy) */
 			dst[CHAR_ALIGN]   = 0;
 			dst[CHAR_INPARTY] = 1;
 			/* AC: CHAR_AC (385) IS the faithful slot — the record
@@ -15385,7 +15388,7 @@ void port_test_seed_design(void)
 					r[CHAR_CLASS] = k_class[p];
 					r[CHAR_LEVEL] = k_lvl[p];
 					for (c = 0; c < 6; c++)
-						r[CHAR_STATS + c] = k_stats[p][c];
+						CHAR_STAT(r, c) = k_stats[p][c];
 					r[CHAR_ALIGN]   = k_align[p];
 					r[CHAR_INPARTY] = 1;
 					*(long *)(r + CHAR_XP) = k_xp[p];
@@ -21364,7 +21367,7 @@ static void cg_build_record(const cg_state *s)
 	rec[CHAR_CLASS] = (unsigned char)klass;
 	rec[CHAR_LEVEL] = 1;
 	for (c = 0; c < 6; c++)
-		rec[CHAR_STATS + c] = (unsigned char)s->stats[c];
+		CHAR_STAT(rec, c) = (unsigned char)s->stats[c];
 	rec[CHAR_ALIGN] = (unsigned char)s->aligned[s->asel];
 	/* Creating a character joins the active party if there's a free slot;
 	 * otherwise it stays benched in the pool (add it later via Add). */
@@ -21604,7 +21607,7 @@ static void cg_train_screen(void)
 			sel = (short)((sel + 1) % nparty);
 		else if ((ascii == 't' || ascii == 'T') && ready) {
 			short klass  = c[CHAR_CLASS]; if (klass >= CG_NCLASSES) klass = 0;
-			short con    = c[CHAR_STATS + 4];
+			short con    = CHAR_STAT(c, 4);
 			short conmod = (con >= 16) ? 2 : (con >= 15) ? 1
 			             : (con <= 6) ? -1 : 0;
 			short gain   = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
@@ -46305,7 +46308,7 @@ static void cg_draw_sheet(const unsigned char *c, const char *footer)
 		short rw  = (short)(9 + (i % 3));
 		jt94(col,              rw,  7, 0, "%s", cg_stat_names[i]);
 		jt94((short)(col + 6), rw, 15, 0, "%d",
-		     (int)c[CHAR_STATS + i]);
+		     (int)CHAR_STAT(c, i));
 	}
 
 	/* Faithful combat-stats block (HP / AC / Encumbrance / THAC0 / Move). */
@@ -46441,7 +46444,7 @@ static void cg_modify_sheet(void)
 			if (klass >= CG_NCLASSES) klass = 0;
 			cg_roll_stats(race, klass, st);
 			for (k = 0; k < 6; k++)
-				c[CHAR_STATS + k] = (unsigned char)st[k];
+				CHAR_STAT(c, k) = (unsigned char)st[k];
 			dex    = st[3];
 			dexmod = (dex >= 15) ? (short)(dex - 14) : 0;
 			if (dexmod > 4) dexmod = 4;
