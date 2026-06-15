@@ -26770,6 +26770,202 @@ static short jt578(short refNum)
 	return (short)(err == 0 ? 1 : 0);
 }
 
+/* JT[903] (CODE 19 + 0x3540) — total container-slot count across the party:
+ * sum item[53] over every container (type byte +40 == 'I'/73) in every party
+ * member's inventory list (g_a5_-27928 head, +0 = next member, +8 = inventory
+ * head, +0 = next item). jt577's load-capacity check keys on it. */
+static short jt903(void)
+{
+	unsigned char *member = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	short          count = 0;
+
+	PROBE("jt903");
+	while (member != NULL) {
+		unsigned char *item =
+		    (unsigned char *)(uintptr_t)*(long *)(member + 8);
+		while (item != NULL) {
+			if (item[40] == 73)
+				count = (short)(count + item[53]);
+			item = (unsigned char *)(uintptr_t)*(long *)item;
+		}
+		member = (unsigned char *)(uintptr_t)*(long *)member;
+	}
+	return count;
+}
+
+/* JT[577] (CODE 15 + 0x3fe) — deserialize a character record (read mirror of
+ * jt578) from the open file `refNum` into g_a5_-6902. Reads the 398-byte record
+ * (then L0ce0 swaps it native), then rebuilds the inventory list: for each of
+ * rec[193] items it reserves a 62-byte node from the -21508 pool (jt477), reads
+ * 18 bytes into +40 (words +44/+46 swapped), and for a container (type +40 ==
+ * 'I'/73) its rec[53] sub-items chained at +58 — UNLESS adding them would push
+ * the party past 120 slots (jt903 + this container + the running count), in
+ * which case the sub-items are read-and-discarded, the container node freed
+ * (jt471), and the "SCROLLS DROPPED!" notice armed. Finally the spell list
+ * (rec[4] head, 10 bytes/node, +2 swapped, on-disk +6 != 0 = "more"). On a read
+ * error the partial lists are freed. Returns 1 on success, 0 on error.
+ *
+ * NOTE: untested breadth lift — reachable once the load path (the CODE 15
+ * read-opener + a "Load/Add Character" caller) is wired; needs a Hatari .cch
+ * round-trip against jt578 to verify. The error-cleanup container bound reads
+ * the Mac's -22216 scratch global; guarded against a NULL port value. */
+static void  jt101(const char *fmt, short a, short b);
+static short jt577(short refNum) __attribute__((unused));
+static short jt577(short refNum)
+{
+	unsigned char *const inv_pool   = (unsigned char *)&g_a5_byte(-21508);
+	unsigned char *const spell_pool = (unsigned char *)&g_a5_byte(-21152);
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-6902);
+	unsigned char *item, *sub, *prev, *node;
+	unsigned char  cont18[18];
+	signed char    err;
+	unsigned char  overflow = 0, capacc = 0;
+	short          remaining, n;
+	long           cont_more;
+
+	PROBE("jt577");
+	if (rec == NULL)
+		return 0;
+
+	err = (signed char)(jt401(refNum, rec, 398) != 398 ? 1 : 0);
+	if (err)
+		return 0;
+
+	/* take over the (old) inventory + clear the head, then swap the record */
+	{
+		long old_inv = *(long *)(rec + 8);
+		*(long *)(rec + 8) = 0;
+		l0ce0_c15(rec);
+		remaining = (short)rec[193];           /* item count */
+		item = NULL;
+		prev = NULL;
+
+		/* inventory read loop (L0464) */
+		while (old_inv != 0 && err == 0) {
+			if (*(long *)(rec + 8) != 0) {
+				jt477(inv_pool, 62, (void *)item);   /* link after */
+				prev = item;
+				item = (unsigned char *)(uintptr_t)*(long *)item;
+			} else {
+				jt477(inv_pool, 62, (void *)(rec + 8));
+				item = (unsigned char *)(uintptr_t)*(long *)(rec + 8);
+				prev = NULL;
+			}
+			jt399(item, 62, 0);
+			err = (signed char)(jt401(refNum, item + 40, 18) != 18 ? 1 : 0);
+			remaining--;
+			old_inv = (remaining > 0) ? (long)(uintptr_t)item : 0;
+			*(short *)(item + 44) = jt1180(*(short *)(item + 44));
+			*(short *)(item + 46) = jt1180(*(short *)(item + 46));
+			*(long *)item = 0;
+			*(long *)(item + 58) = 0;
+
+			if (item[40] != 73)                 /* not a container */
+				continue;
+
+			if (jt903() + item[53] + capacc > 120) {
+				/* over capacity: read+discard the sub-items, drop the
+				 * container node (L0574). */
+				overflow = 1;
+				for (n = 1; n <= item[53]; n++) {
+					if (err == 0)
+						err = (signed char)
+						    (jt401(refNum, cont18, 18)
+						     != 18 ? 1 : 0);
+				}
+				if (prev != NULL) {
+					jt471(*(long *)prev, 62, inv_pool);
+					*(long *)prev = 0;
+				} else {
+					jt471(*(long *)(rec + 8), 62, inv_pool);
+					*(long *)(rec + 8) = 0;
+				}
+				item = prev;
+				continue;
+			}
+
+			/* within capacity: read the sub-items (L060e) */
+			sub = item;
+			for (n = 1; n <= item[53]; n++) {
+				if (err != 0)
+					continue;
+				jt477(inv_pool, 62, (void *)(sub + 58));
+				sub = (unsigned char *)(uintptr_t)*(long *)(sub + 58);
+				jt399(sub, 62, 0);
+				err = (signed char)(jt401(refNum, sub + 40, 18)
+				                    != 18 ? 1 : 0);
+				*(long *)sub = 0;
+				*(long *)(sub + 58) = 0;
+				if (err != 0)
+					item[53] = (unsigned char)(n - 1); /* truncate */
+				else
+					capacc++;
+			}
+		}
+	}
+
+	/* on error, free the partially-read inventory (L06d0) */
+	if (err != 0) {
+		item = (unsigned char *)(uintptr_t)*(long *)(rec + 8);
+		while (item != NULL) {
+			unsigned char *nx = (unsigned char *)(uintptr_t)*(long *)item;
+			if (item[40] == 73) {
+				unsigned char *scr =
+				    (unsigned char *)(uintptr_t)g_a5_long(-22216);
+				short bound = (scr != NULL) ? (short)scr[53] : 0;
+				sub = (unsigned char *)(uintptr_t)*(long *)(item + 58);
+				for (n = 1; sub != NULL && n <= bound; n++) {
+					unsigned char *snx = (unsigned char *)
+					    (uintptr_t)*(long *)(sub + 58);
+					jt471((long)(uintptr_t)sub, 62, inv_pool);
+					sub = snx;
+				}
+			}
+			jt471((long)(uintptr_t)item, 62, inv_pool);
+			item = nx;
+		}
+		*(long *)(rec + 8) = 0;
+	}
+
+	/* spell list (L0774) */
+	if (err == 0) {
+		cont_more = *(long *)(rec + 4);          /* old spell head */
+		*(long *)(rec + 4) = 0;
+		node = NULL;
+		while (cont_more != 0 && err == 0) {
+			if (*(long *)(rec + 4) != 0) {
+				jt477(spell_pool, 10, (void *)(node + 6));
+				node = (unsigned char *)(uintptr_t)*(long *)(node + 6);
+			} else {
+				jt477(spell_pool, 10, (void *)(rec + 4));
+				node = (unsigned char *)(uintptr_t)*(long *)(rec + 4);
+			}
+			err = (signed char)(jt401(refNum, node, 10) != 10 ? 1 : 0);
+			cont_more = *(long *)(node + 6);     /* on-disk "more" */
+			*(long *)(node + 6) = 0;
+			*(short *)(node + 2) = jt1180(*(short *)(node + 2));
+		}
+		/* on error, free the partial spell list (L083c) */
+		if (err != 0) {
+			node = (unsigned char *)(uintptr_t)*(long *)(rec + 4);
+			while (node != NULL) {
+				unsigned char *nx =
+				    (unsigned char *)(uintptr_t)*(long *)(node + 6);
+				jt471((long)(uintptr_t)node, 10, spell_pool);
+				node = nx;
+			}
+			*(long *)(rec + 4) = 0;
+		}
+	}
+
+	*(long *)(rec + 64) = 0;
+	*(long *)rec = 0;
+	if (err == 0 && overflow)
+		jt101(ua_strs_at(0x4c82) /* "SCROLLS DROPPED!" */, 11, 0);
+
+	return (short)(err == 0 ? 1 : 0);
+}
+
 /* JT[584] (CODE 15 + 0xb5a) — save a character record to its .cch file. Builds
  * the basename from `suffix` (or the character name rec[96] when suffix is
  * empty) + the "cch" extension, then — for an auto-named character — builds the

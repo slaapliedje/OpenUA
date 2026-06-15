@@ -116,6 +116,7 @@ subsystem, so none is a CODE-17 leaf:
 | L1346/jt573 review screen | shape-5 grid DLItem method (DLItem infrastructure) |
 | L455c equipment grant      | L439c -> jt902 / jt890 (CODE 19 item-equip) |
 | jt584 .cch save            | LIFTED — jt584 (UI/path) + jt578 (serializer) + L0ce0 (record swap); replaces the stub, reachable via the "Save Characters" menu (l1060) |
+| jt577 .cch load (read mirror) | LIFTED — jt577 (deserializer) + jt903 (CODE 19 capacity counter). UNWIRED: needs the CODE 15 read-opener (L0006, mirror of l00e0) + the L08ba/jt576 "Add Character" caller, then a Hatari round-trip vs jt578. |
 | jt557/556/560 TRAIN screen | level-up logic (likely CODE 19 too); has a live caller |
 
 Recommendation: the highest-value next subsystem is the **save tail** (jt584 +
