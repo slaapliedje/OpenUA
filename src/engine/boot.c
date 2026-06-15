@@ -15219,6 +15219,7 @@ static int port_load_savgame(void)
 }
 
 static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
+static void l0006_c17(void);             /* CODE 17 body-icon finalize (below) */
 
 void port_test_seed_design(void)
 {
@@ -20551,6 +20552,129 @@ static short jt558(unsigned char *rec)
 	return 17;
 }
 
+/* L0006 (CODE 17 + 0x0006) — body-icon finalize. Picks the character's combat
+ * body-shape index rec[188] from gender rec[92] (0 = male / non-0 = female),
+ * combination-type rec[88] (0/1 = single-class, 5 = standard multi-class,
+ * 2/3/4 = the other party-shape variants), class rec[89], and — for the
+ * alignment-sensitive classes (paladin/ranger group) — the law/chaos axis
+ * rec[93] % 3 (0 / 1 / else). A faithful transcription of the Mac's nested
+ * gender × type × class JT[3] dispatch; every arm writes one rec[188] value
+ * (default = leave it). Operates on the current record g_a5_-27932 (the one
+ * jt572's Done commit just made current). */
+static void l0006_c17(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	short cls, a3;
+
+	PROBE("L0006");
+	if (rec == NULL)
+		return;
+	cls = rec[89];
+	a3  = (short)(rec[93] % 3);
+
+	if (rec[92] == 0) {                      /* MALE */
+		if (rec[88] == 0 || rec[88] == 1) {
+			switch (cls) {
+			case 0: case 11:
+				rec[188] = (a3 == 0) ? 23 : (a3 == 1) ? 26 : 45; break;
+			case 1: case 7:                          rec[188] = 0; break;
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 8; break;
+			case 3: case 4: case 10:                 rec[188] = 9; break;
+			case 5:
+				rec[188] = (a3 == 0) ? 27 : (a3 == 1) ? 28 : 29; break;
+			case 6:                                  rec[188] = 19; break;
+			default: break;
+			}
+		} else if (rec[88] == 5) {
+			switch (cls) {
+			case 0: case 11:
+				rec[188] = (a3 == 0) ? 23 : (a3 == 1) ? 26 : 45; break;
+			case 1: case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 0; break;
+			case 3:                                  rec[188] = 3; break;
+			case 4: case 10:                         rec[188] = 16; break;
+			case 5:
+				rec[188] = (a3 == 0) ? 27 : (a3 == 1) ? 28 : 29; break;
+			case 6: case 12: case 16:                rec[188] = 17; break;
+			case 7:                                  rec[188] = 1; break;
+			default: break;
+			}
+		} else if (rec[88] == 2) {
+			switch (cls) {
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 34; break;
+			case 6: case 12: case 16:                rec[188] = 47; break;
+			default: break;
+			}
+		} else if (rec[88] == 3) {
+			switch (cls) {
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 41; break;
+			case 6: case 12: case 16:                rec[188] = 42; break;
+			default: break;
+			}
+		} else if (rec[88] == 4) {
+			switch (cls) {
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 37; break;
+			case 6: case 12: case 16:                rec[188] = 38; break;
+			default: break;
+			}
+		}
+	} else {                                 /* FEMALE */
+		if (rec[88] == 0 || rec[88] == 1) {
+			switch (cls) {
+			case 0: case 11:
+				rec[188] = (a3 == 0) ? 24 : (a3 == 1) ? 25 : 46; break;
+			case 1: case 7:                          rec[188] = 0; break;
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 15; break;
+			case 3: case 4: case 10:                 rec[188] = 14; break;
+			case 5:
+				rec[188] = (a3 == 0) ? 31 : (a3 == 1) ? 32 : 33; break;
+			case 6: case 12: case 16:                rec[188] = 21; break;
+			default: break;
+			}
+		} else if (rec[88] == 5) {
+			switch (cls) {
+			case 0: case 11:
+				rec[188] = (a3 == 0) ? 24 : (a3 == 1) ? 25 : 46; break;
+			case 1: case 3:                          rec[188] = 12; break;
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 10; break;
+			case 4: case 10:                         rec[188] = 36; break;
+			case 5:
+				rec[188] = (a3 == 0) ? 31 : (a3 == 1) ? 32 : 33; break;
+			case 6: case 12: case 16:                rec[188] = 20; break;
+			case 7:                                  rec[188] = 0; break;
+			default: break;
+			}
+		} else if (rec[88] == 2) {
+			switch (cls) {
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 35; break;
+			case 6: case 12: case 16:                rec[188] = 48; break;
+			default: break;
+			}
+		} else if (rec[88] == 3) {
+			switch (cls) {
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 43; break;
+			case 6: case 12: case 16:                rec[188] = 44; break;
+			default: break;
+			}
+		} else if (rec[88] == 4) {
+			switch (cls) {
+			case 2: case 8: case 9:
+			case 13: case 14: case 15:               rec[188] = 39; break;
+			case 6: case 12: case 16:                rec[188] = 40; break;
+			default: break;
+			}
+		}
+	}
+}
+
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
  * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls
@@ -20960,12 +21084,18 @@ static int  jt574(long ctx)
 		g_a5_18882 = jt1199(g_a5_18844);   /* new-character design handle */
 
 		if (l3666() != 0) {
-			/* Done committed: add a roster character from the faithful picks.
-			 * The faithful derived-stat finalize (L238e/L0006) + name-entry +
-			 * .CHR save (jt584) aren't lifted yet, so the picked RACE drives a
-			 * valid class/alignment, the stats are rolled port-side, and the
-			 * name is a placeholder (rename later). cg_build_record threads it
-			 * into the pool/party (g_a5_-27928) and persists it. */
+			/* Done committed: jt572 made cg_rec current (g_a5_-27932), with the
+			 * faithful picks in rec[88/89/92/93]. Stamp the faithful body-icon
+			 * rec[188] exactly where the Mac jt574 does (after L29ae, before the
+			 * name/save tail). */
+			l0006_c17();
+
+			/* Then add a roster character from the picks. The faithful name
+			 * entry (L238e), review screen (L1346) and .CHR save (jt584) aren't
+			 * lifted yet, so the stats are rolled port-side and the name is a
+			 * placeholder (rename later); cg_build_record threads it into the
+			 * pool/party (g_a5_-27928) and persists it. The faithful rec[188]
+			 * flows once L3cd4/jt584 replace this port build. */
 			cg_state s;
 			short k;
 			static const char placeholder[] = "NEW HERO";
