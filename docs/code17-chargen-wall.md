@@ -26,8 +26,9 @@ jt574(existing):                                  STATUS
                                                           jt574's Done branch.
                                                           gender×type×class×align
                                                           → rec[188] body shape.
-  if new: L1346 (=jt573) REVIEW/MODIFY screen     TODO  (~1435 lines, linkw-796;
-                                                          drives the align grid)
+  if new: L1346 (=jt573) REVIEW/MODIFY screen     DONE  (driver + L11ac builder +
+                                                          jt562/563/564/565 procs;
+                                                          grid PAINT L09dc deferred)
   "Save %s?" jt488 + jt159 confirm                LIFTED deps
   L3cd4 (=jt575) proficiency bitfield finalize    LIFTED (l3cd4_c17); wired into
                                                           jt574 after L0006.
@@ -46,13 +47,31 @@ Port `jt574` currently runs the faithful pick screen then a **port-side**
 finalize (`cg_roll_stats` / `cg_build_record`, placeholder name). Replacing that
 tail with the faithful chain above is the bulk of #101.
 
-### Alignment-grid sub-cluster (reached only from L1346/jt573)
-`L11ac` builds a 7×7 alignment grid screen with these action procs — lift them
-together with jt573 (they are untestable until jt573 has a runtime path):
-- jt562 (0x0854) grid mouse-click — maps click→grid index -6986, redraws marker
-- jt563 (0x0fc8) grid keyboard — arrow keys step the -6986 index (JT[3] 130..136)
-- jt564 (0x09ce) grid "Exit"  — sets -7038=1, -6988=1
-- jt565 (0x09c6) grid "Done"  — sets -6988=1
+### Body-icon grid sub-cluster (reached only from L1346/jt573) — DONE
+`L11ac` builds the 7×7 body-icon grid screen each frame and registers it via the
+`jt452` DLItem stream builder (shape-5 grid item + Exit/Done buttons + the
+keyboard source).  All LIFTED this session:
+- jt573 (0x1346)  driver: rec[189]=8, double record backup (jt406), loop L11ac,
+  restore-on-cancel, return accept/cancel.  Marked `__attribute__((unused))`
+  until the create-flow tail wires it (jt574 still uses the port finalize).
+- L11ac (0x11ac)  per-frame builder (the three jt452 streams + dialog run/teardown)
+- jt562 (0x0854)  grid mouse-click — maps click→grid index -6986, redraws marker,
+  stamps rec[188]
+- jt563 (0x0fc8)  grid keyboard — arrow keys step the -6986 index (JT[3] 130..136),
+  wrap in the 7×7 grid; faithful quirk: the left-arrow arm leaves the moved flag
+  unset
+- jt564 (0x09ce)  grid "Exit"  — sets -7038=1, -6988=1
+- jt565 (0x09c6)  grid "Done"  — sets -6988=1
+- L079a (0x079a)  marker frame draw;  L09ba (0x09ba)  redraw flush
+
+REMAINING in this sub-cluster: **L09dc (0x09dc, ~1.5KB)** — the pure-render leaf
+that paints the 49 grid cells and latches the current cell value into g_a5_-6985.
+Stubbed (PROBE only); the grid draws nothing until it is lifted, but the cluster
+is not yet reachable so the blank grid is inert.
+
+TRAP recorded: jt406's Mac ABI is copy(SRC,dst) while the C shim is
+jt406(dst,src,n), so every asm `jt406(a,b,n)` was written SWAPPED as
+`jt406(b,a,n)` (the three jt573 backup/restore calls).
 
 ## B. TRAIN flow (Training Hall, CODE 12 callers)
 
@@ -192,3 +211,12 @@ both directions and self-test-verified.
   mislabeled "Create Character" — case 3 dispatches TRAIN. cg-audit PASS.
   REMAINING CODE 17: jt573 review screen (DLItem grid), L455c equipment,
   jt556/jt560 train-related stubs.
+- 2026-06-15: lifted the jt573/L1346 REVIEW screen cluster — jt573 driver,
+  L11ac per-frame builder (the three jt452 DLItem streams + dialog
+  run/teardown), and the four action procs jt562 (mouse) / jt563 (keyboard) /
+  jt564 (Exit) / jt565 (Done), plus L079a (marker frame) / L09ba (flush). The
+  7×7 body-icon grid index model (-6986 index / -6984 row / -6982 col, ×7) is
+  faithful; jt406's copy(SRC,dst) Mac ABI was written SWAPPED for the C
+  jt406(dst,src) shim. DEFERRED: L09dc (~1.5KB) the grid-cell PAINT leaf
+  (PROBE stub). jt573 is `unused` until the create-flow tail wires it.
+  cg-audit PASS.
