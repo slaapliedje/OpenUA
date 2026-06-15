@@ -21483,6 +21483,30 @@ static int  jt574(long ctx)
 			s.name[k] = 0;
 			s.namelen = k;
 			cg_build_record(&s);
+
+			/* Unification stage 2 — overlay the faithful char-gen fields
+			 * from cg_rec onto the new pool record so the .cch save (jt578)
+			 * captures them at the REAL faithful offsets (race@88, class@89,
+			 * gender@92, align@93, the word-strided abilities + exceptional
+			 * strength @112..125, body icon @188, the proficiency bitfield
+			 * @339..354, max HP word @82), making a port-created character
+			 * faithful on disk. The port display offsets (200..216) and the
+			 * shared combat stats (384..396) cg_build_record wrote are left
+			 * intact — the roster reads those unchanged. The true single-layout
+			 * switch (retire 200..216, reorder the name tables, the 0..16 class
+			 * model) is the larger remaining step. */
+			if (cg_pool_count > 0) {
+				unsigned char *pr = cg_pool[cg_pool_count - 1];
+				short fi;
+
+				*(short *)(pr + 82) = (short)pr[CHAR_MAXHP];
+				pr[88] = cg_rec[88]; pr[89] = cg_rec[89];
+				pr[92] = cg_rec[92]; pr[93] = cg_rec[93];
+				for (fi = 112; fi <= 125; fi++) pr[fi] = cg_rec[fi];
+				for (fi = 157; fi <= 163; fi++) pr[fi] = cg_rec[fi];
+				pr[188] = cg_rec[188];
+				for (fi = 339; fi <= 354; fi++) pr[fi] = cg_rec[fi];
+			}
 		}
 	}
 	return 0;                            /* back to the Training Hall */
