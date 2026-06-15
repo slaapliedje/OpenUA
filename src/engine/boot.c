@@ -20232,6 +20232,67 @@ static void l1672(short i, unsigned char *rec)
 	if (*w < cmn) *w = cmn;
 }
 
+/* JT[895] (CODE 19 + 0x1f00) — per-ability score DISPLAY (jt103/jt94/jt63 draw
+ * the rolled value on the char-gen sheet). PROBE stub: L24d2 produces the roll
+ * DATA correctly without it; the on-screen draw is deferred. */
+static void jt895(short i, short z) { PROBE("jt895"); (void)i; (void)z; }
+
+/* L24d2 (CODE 17 + 0x24d2) — the character ability roll. For each ability
+ * i=0..5: roll jt870(3,6)+1 six times keeping the highest, apply the racial
+ * modifier by rec[88] (race 0: +DEX -CON; race 2: +CON -CHA; race 4: -STR +DEX;
+ * others none), then L1672 clamps to the racial/class min-max (and rolls STR
+ * exceptional %). The working score lives in rec[113+i*2]; it is copied to the
+ * permanent byte rec[112+i*2], and rec[125]=rec[124] carries the STR exceptional
+ * %. First the per-class level slots rec[157..163] are initialised to level 1.
+ *
+ * DEFERRED Mac tail: rec HP/proficiency defaults, jt885 (CODE 19 HP), and the
+ * reroll-wait loop pumping L6cd2 (=jt557's address) — jt574 already runs L29ae
+ * (HP) and L3cd4 (proficiency) on the committed record, and the reroll UI is
+ * separable. This lift is the roll DATA into rec[112..123].
+ *
+ * Not yet wired: like the rest of the faithful char-gen it writes the FAITHFUL
+ * ability layout (rec[112+i*2] words), which the port roster can't render until
+ * the record-layout unification (docs/char-record-layout.md). cg_roll_stats
+ * stays the live roll until then. */
+static void l24d2(unsigned char *rec) __attribute__((unused));
+static void l24d2(unsigned char *rec)
+{
+	short i, j, roll, race;
+
+	PROBE("L24d2");
+	if (rec == NULL)
+		return;
+
+	for (i = 0; i <= 6; i++)                 /* per-class level slots -> 1 */
+		if (rec[157 + i] != 0)
+			rec[157 + i] = 1;
+
+	rec[124] = 0;
+	race = rec[88];
+
+	for (i = 0; i <= 5; i++) {
+		unsigned char *w = &rec[113 + i * 2];
+
+		*w = 0;
+		for (j = 1; j <= 6; j++) {           /* best of six 3d6+1 rolls */
+			roll = (short)(jt870(3, 6) + 1);
+			switch (race) {
+			case 0: if (i == 3) roll++; else if (i == 4) roll--; break;
+			case 2: if (i == 4) roll++; else if (i == 5) roll--; break;
+			case 4: if (i == 0) roll--; else if (i == 3) roll++; break;
+			default: break;
+			}
+			if (*w < (unsigned char)roll)
+				*w = (unsigned char)roll;
+		}
+		l1672(i, rec);                       /* racial/class clamp */
+		rec[112 + i * 2] = rec[113 + i * 2]; /* current -> permanent */
+		if (i == 0)
+			rec[125] = rec[124];         /* STR exceptional % */
+		jt895(i, 0);                         /* per-ability display (stub) */
+	}
+}
+
 /* CODE 17-local list helpers jt568 calls. L30de redraws the option-list
  * highlight; L2f8e / L31d4 are the pass-1-match / pass-2-fallback finalizers.
  * PROBE stubs for now — the grid-scan/highlight bookkeeping (jt568's own body,
