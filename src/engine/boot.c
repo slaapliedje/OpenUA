@@ -15221,6 +15221,7 @@ static int port_load_savgame(void)
 
 static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
 static void l0006_c17(void);             /* CODE 17 body-icon finalize (below) */
+static void l3cd4_c17(unsigned char *rec); /* CODE 17 proficiency finalize (below) */
 
 void port_test_seed_design(void)
 {
@@ -20676,6 +20677,116 @@ static void l0006_c17(void)
 	}
 }
 
+/* L3cd4 (CODE 17 + 0x3cd4) — proficiency / spell-school bitfield finalize
+ * (jt575). Merges the eight per-bit class-proficiency masks g_a5_-18893..-18886
+ * (bit 0..7) into the record's accumulated proficiency bytes rec[339..354],
+ * three ways:
+ *   1. cumulatively by the class-count tier rec[162] (>= 1 .. >= 9) — a multi-
+ *      classed character gains the union of each class's default proficiencies;
+ *   2. by the per-flag bytes rec[376..380] (each non-zero flag ORs another set);
+ *   3. rec[381] non-zero runs the per-slot loop: for proficiency slot i = 1..126,
+ *      if the -16906 definition table (16-byte stride) marks slot i type 2, set
+ *      bit (i-1)&7 of rec[339 + (i-1)/8] from the -18893+bit mask.
+ * Faithful transcription; every arm ORs one mask byte. Operates on `rec`. */
+static void l3cd4_c17(unsigned char *rec)
+{
+	short tier = rec[162];
+	short i;
+
+	PROBE("L3cd4");
+
+	if (tier >= 1) {
+		rec[340] |= g_a5_byte(-18891);
+		rec[341] |= g_a5_byte(-18892);
+		rec[341] |= g_a5_byte(-18891);
+		rec[341] |= g_a5_byte(-18889);
+	}
+	if (tier >= 2) {
+		rec[340] |= g_a5_byte(-18887);
+	}
+	if (tier >= 3) {
+		rec[343] |= g_a5_byte(-18892);
+		rec[340] |= g_a5_byte(-18892);
+	}
+	if (tier >= 4) {
+		rec[342] |= g_a5_byte(-18887);
+	}
+	if (tier >= 5) {
+		rec[344] |= g_a5_byte(-18887);
+	}
+	if (tier >= 6) {
+		rec[340] |= g_a5_byte(-18890);
+		rec[340] |= g_a5_byte(-18887);
+		rec[342] |= g_a5_byte(-18888);
+		rec[342] |= g_a5_byte(-18887);
+		rec[343] |= g_a5_byte(-18892);
+		rec[344] |= g_a5_byte(-18887);
+		rec[345] |= g_a5_byte(-18891);
+		rec[345] |= g_a5_byte(-18888);
+	}
+	if (tier >= 7) {
+		rec[340] |= g_a5_byte(-18888);
+		rec[340] |= g_a5_byte(-18886);
+		rec[342] |= g_a5_byte(-18889);
+		rec[343] |= g_a5_byte(-18891);
+		rec[344] |= g_a5_byte(-18889);
+		rec[344] |= g_a5_byte(-18886);
+		rec[349] |= g_a5_byte(-18893);
+	}
+	if (tier >= 8) {
+		rec[340] |= g_a5_byte(-18892);
+		rec[340] |= g_a5_byte(-18893);
+		rec[342] |= g_a5_byte(-18886);
+		rec[345] |= g_a5_byte(-18887);
+		rec[349] |= g_a5_byte(-18889);
+	}
+	if (tier >= 9) {
+		rec[345] |= g_a5_byte(-18892);
+		rec[345] |= g_a5_byte(-18890);
+		rec[349] |= g_a5_byte(-18892);
+		rec[349] |= g_a5_byte(-18886);
+		rec[350] |= g_a5_byte(-18888);
+	}
+
+	if (rec[376] != 0) {
+		rec[349] |= g_a5_byte(-18892);
+		rec[349] |= g_a5_byte(-18890);
+		rec[349] |= g_a5_byte(-18886);
+		rec[349] |= g_a5_byte(-18893);
+		rec[349] |= g_a5_byte(-18891);
+		rec[349] |= g_a5_byte(-18889);
+		rec[349] |= g_a5_byte(-18887);
+	}
+	if (rec[377] != 0) {
+		rec[350] |= g_a5_byte(-18891);
+		rec[350] |= g_a5_byte(-18890);
+		rec[353] |= g_a5_byte(-18888);
+		rec[353] |= g_a5_byte(-18887);
+	}
+	if (rec[378] != 0) {
+		rec[353] |= g_a5_byte(-18893);
+		rec[353] |= g_a5_byte(-18892);
+		rec[352] |= g_a5_byte(-18886);
+		rec[352] |= g_a5_byte(-18887);
+	}
+	if (rec[379] != 0) {
+		rec[353] |= g_a5_byte(-18891);
+		rec[353] |= g_a5_byte(-18889);
+	}
+	if (rec[380] != 0) {
+		rec[354] |= g_a5_byte(-18893);
+	}
+	if (rec[381] != 0) {
+		for (i = 1; i <= 126; i++) {
+			if (g_a5_byte(-16906 + (long)i * 16) == 2) {
+				short bit = (short)((i - 1) & 7);
+				short idx = (short)((i - 1) >> 3);
+				rec[339 + idx] |= g_a5_byte(-18893 + bit);
+			}
+		}
+	}
+}
+
 /* L238e (CODE 17 + 0x238e) — character-NAME entry. Prompts "Character name:"
  * in a framed input box (jt98, max 15 chars), stores the typed C string in
  * rec[96], then derives the 8-char design save-basename (jt130, from the
@@ -21131,7 +21242,8 @@ static int  jt574(long ctx)
 			 * rec[188]. Run the faithful tail in the Mac jt574 order: L238e
 			 * name entry (now functional — jt1078 is lifted), then L0006. */
 			l238e_c17(cg_rec);   /* faithful name prompt -> cg_rec[96] */
-			l0006_c17();
+			l0006_c17();         /* body-icon rec[188] */
+			l3cd4_c17(cg_rec);   /* proficiency bitfield rec[339..354] */
 
 			/* Then add a roster character from the picks. The review screen
 			 * (L1346) and the faithful .CHR save (jt584) aren't lifted yet, so
