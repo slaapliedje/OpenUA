@@ -14,21 +14,21 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 one-line placeholder (pending) · **STANDIN** real body but a non-
 faithful port reimplementation (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 766 done (695 lifted, 19 noop, 52 alias), 155 stub, 2 stand-in, 282 missing.
+**1205 distinct JT entries are called.** Overall: 786 done (715 lifted, 19 noop, 52 alias), 139 stub, 0 stand-in, 280 missing.
 
 ## Progress by band (100 most-called at a time)
 
 | Band | Rank | done | lifted | noop/alias | stub | standin | missing |
 |------|------|-----:|-------:|-----------:|-----:|--------:|--------:|
-| 1 | 1–100 | **99/100** | 91 | 8 | 0 | 1 | 0 |
+| 1 | 1–100 | **100/100** | 92 | 8 | 0 | 0 | 0 |
 | 2 | 101–200 | **100/100** | 92 | 8 | 0 | 0 | 0 |
 | 3 | 201–300 | **99/100** | 82 | 17 | 0 | 0 | 1 |
-| 4 | 301–400 | **98/100** | 75 | 23 | 1 | 1 | 0 |
+| 4 | 301–400 | **99/100** | 76 | 23 | 1 | 0 | 0 |
 | 5 | 401–500 | **100/100** | 86 | 14 | 0 | 0 | 0 |
-| 6 | 501–600 | **31/100** | 30 | 1 | 22 | 0 | 47 |
+| 6 | 501–600 | **35/100** | 34 | 1 | 20 | 0 | 45 |
 | 7 | 601–700 | **29/100** | 29 | 0 | 7 | 0 | 64 |
 | 8 | 701–800 | **36/100** | 36 | 0 | 6 | 0 | 58 |
-| 9 | 801–900 | **4/100** | 4 | 0 | 90 | 0 | 6 |
+| 9 | 801–900 | **18/100** | 18 | 0 | 76 | 0 | 6 |
 | 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 | 0 |
 | 11 | 1001–1100 | **60/100** | 60 | 0 | 8 | 0 | 32 |
 | 12 | 1101–1200 | **14/100** | 14 | 0 | 16 | 0 | 70 |
@@ -113,7 +113,7 @@ faithful port reimplementation (pending) · **MISSING** not in boot.c yet.
 | 73 | jt57 | 23 | LIFTED |  |
 | 74 | jt182 | 23 | LIFTED |  |
 | 75 | jt1173 | 23 | LIFTED |  |
-| 76 | jt118 | 22 | **STANDIN** | render-path variant that calls l309c_tile, NOT the Mac jt118 (-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via jt108+jt1001. See docs + the jt118-signature-mismatch note. |
+| 76 | jt118 | 22 | LIFTED |  |
 | 77 | jt273 | 22 | LIFTED |  |
 | 78 | jt410 | 22 | LIFTED |  |
 | 79 | jt876 | 22 | LIFTED |  |
@@ -252,11 +252,6 @@ target it still needs. Verified against the disassembly; remove an
 entry from `STANDIN`/`PORT_STANDINS` in the tool once the real lift
 lands.
 
-| JT | calls | faithful target |
-|----|------:|-----------------|
-| jt118 | 22 | render-path variant that calls l309c_tile, NOT the Mac jt118 (-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via jt108+jt1001. See docs + the jt118-signature-mismatch note. |
-| jt114 | 3 | wall-tile blit routes to l309c_tile's per-set CLUT band-rebase (off=v-32, bands 32/64/96) — a port invention. The Mac blits tile bytes as DIRECT indices into the active CLUT via L309c->L2d4e (no rebase) and scales the tile by the display factor (L2d4e: lslw JT[1200]). Faithful fix: drop the rebase, load the dungeon CLUT, match the display-mode tile scale (#129). |
-
 Non-JT port stand-ins (whole-routine reimplementations, kept in sync with `docs/stub-inventory.md`):
 
 - `port_draw_play_frame` — coarse HUD-chrome over-blit (the #114 'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)
@@ -276,5 +271,5 @@ an uncharted multi-function cluster — lift the cluster first);
 (needs a display/row-blit backend, not a transcription); **standin**
 (a non-faithful port body — see the stand-ins section).
 
-- jt118 (22 calls) — standin — render-path variant that calls l309c_tile, NOT the Mac jt118 (-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via jt108+jt1001. See docs + the jt118-signature-mismatch note.
+_None — the top 100 are fully lifted._
 

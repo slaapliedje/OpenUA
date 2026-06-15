@@ -28433,6 +28433,12 @@ static void jt598(short code)
 	fn();
 }
 
+/* l6114 (CODE 16+0x6114) — the combat status-announce helper many of the
+ * effect handlers tail-call; forward-declared here so the handlers above its
+ * definition can use it. */
+static void l6114(short code, short a, short b, short c, short d,
+                  const char *msg);
+
 /* The CODE 16 spell-effect handlers installed into the -24066 table
  * (jt598's void(void) ABI).  All PROBE stubs pending their own lifts —
  * the running worklist is docs/code16-wall.md; effect ids served by
@@ -28553,7 +28559,13 @@ static void jt602(void)
 static void jt603(void) { PROBE("jt603"); }	/* +0x2806; id 84 */
 static void jt604(void) { PROBE("jt604"); }	/* +0x38d6; id 117 */
 static void jt605(void) { PROBE("jt605"); }	/* +0x2352; id 73 */
-static void jt606(void) { PROBE("jt606"); }	/* +0x1fae; id 130 */
+static void jt606(void)	/* +0x1fae; id 130 */
+{
+	PROBE("jt606");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4f84) /* "is paralyzed" */);
+}
 static void l7026(short mod, const char *msg);
 static void l6114(short code, short a, short b, short c, short d,
                   const char *msg);
@@ -28612,7 +28624,13 @@ static void jt607(void)
 	      ua_strs_at(0x4f50));
 }
 static void jt608(void) { PROBE("jt608"); }	/* +0x3c38; id 121 */
-static void jt609(void) { PROBE("jt609"); }	/* +0x1148; id 38 */
+static void jt609(void)	/* +0x1148; id 38 */
+{
+	PROBE("jt609");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4ebc) /* "is blind" */);
+}
 static void jt611(void) { PROBE("jt611"); }	/* +0x2f2e; id 98 */
 static void jt612(void) { PROBE("jt612"); }	/* +0x4338; id 125 */
 static void jt613(void) { PROBE("jt613"); }	/* +0x07f2; id 26 */
@@ -28651,16 +28669,40 @@ static void jt623(void)
 	}
 	l7026((short)mod, ua_strs_at(0x4e0c) /* "is held" */);
 }
-static void jt624(void) { PROBE("jt624"); }	/* +0x01c8; id 8 */
-static void jt625(void) { PROBE("jt625"); }	/* +0x2c00; id 88 */
+static void jt624(void)	/* +0x01c8; id 8 */
+{
+	PROBE("jt624");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4d68) /* "is cold-resistant" */);
+}
+static void jt625(void)	/* +0x2c00; id 88 */
+{
+	PROBE("jt625");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x510e) /* "is protected" */);
+}
 static void jt626(void) { PROBE("jt626"); }	/* +0x2552; id 78 */
 static void jt627(void) { PROBE("jt627"); }	/* +0x20b6; id 66 */
 static void jt628(void) { PROBE("jt628"); }	/* +0x1dfa; id 55 */
 static void jt629(void) { PROBE("jt629"); }	/* +0x155e; id 42 */
 static void jt630(void) { PROBE("jt630"); }	/* +0x3634; id 113 */
-static void jt632(void) { PROBE("jt632"); }	/* +0x09c0; id 31 */
+static void jt632(void)	/* +0x09c0; id 31 */
+{
+	PROBE("jt632");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4e54) /* "Knock-Knock" */);
+}
 static void jt633(void) { PROBE("jt633"); }	/* +0x3a4c; id 118 */
-static void jt634(void) { PROBE("jt634"); }	/* +0x058a; id 19 */
+static void jt634(void)	/* +0x058a; id 19 */
+{
+	PROBE("jt634");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4df0) /* "is shielded" */);
+}
 static void jt635(void) { PROBE("jt635"); }	/* +0x2960; id 85 */
 static void jt636(void) { PROBE("jt636"); }	/* +0x239c; id 74 */
 static void jt637(void) { PROBE("jt637"); }	/* +0x1fce; id 131 */
@@ -28679,14 +28721,38 @@ static void jt650(void) { PROBE("jt650"); }	/* +0x0158; id 4 */
 static void jt651(void) { PROBE("jt651"); }	/* +0x2e28; id 96 */
 static void jt652(void) { PROBE("jt652"); }	/* +0x19aa; id 48 */
 static void jt653(void) { PROBE("jt653"); }	/* +0x37bc; id 114 */
-static void jt654(void) { PROBE("jt654"); }	/* +0x07b2; id 24 */
+static void jt654(void)	/* +0x07b2; id 24 */
+{
+	PROBE("jt654");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4e14) /* "is fire resistant" */);
+}
 static void jt655(void) { PROBE("jt655"); }	/* +0x01e8; id 9,64 */
-static void jt656(void) { PROBE("jt656"); }	/* +0x2c20; id 90 */
+static void jt656(void)	/* +0x2c20; id 90 */
+{
+	PROBE("jt656");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x511c) /* "is toughened" */);
+}
 static void jt657(void) { PROBE("jt657"); }	/* +0x2604; id 79 */
 static void jt658(void) { PROBE("jt658"); }	/* +0x20e8; id 67,107 */
 static void jt659(void) { PROBE("jt659"); }	/* +0x1e1a; id 56 */
-static void jt660(void) { PROBE("jt660"); }	/* +0x169e; id 44 */
-static void jt662(void) { PROBE("jt662"); }	/* +0x3a84; id 119 */
+static void jt660(void)	/* +0x169e; id 44 */
+{
+	PROBE("jt660");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4f12) /* "has been cursed!" */);
+}
+static void jt662(void)	/* +0x3a84; id 119 */
+{
+	PROBE("jt662");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x524e) /* "is protected" */);
+}
 static void jt663(void) { PROBE("jt663"); }	/* +0x09e0; id 32 */
 static void jt664(void) { PROBE("jt664"); }	/* +0x00c6; id 1,62 */
 static void jt665(void) { PROBE("jt665"); }	/* +0x3d02; id 123 */
@@ -28722,7 +28788,13 @@ static void jt681(void) { PROBE("jt681"); }	/* +0x381a; id 116 */
 static void jt682(void) { PROBE("jt682"); }	/* +0x111e; id 37 */
 static void jt683(void) { PROBE("jt683"); }	/* +0x2f0e; id 136 */
 static void jt684(void) { PROBE("jt684"); }	/* +0x3aa4; id 120 */
-static void jt685(void) { PROBE("jt685"); }	/* +0x07d2; id 25,59 */
+static void jt685(void)	/* +0x07d2; id 25,59 */
+{
+	PROBE("jt685");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4e26) /* "is silenced" */);
+}
 static void jt686(void) { PROBE("jt686"); }	/* +0x0236; id 10,63 */
 /* JT[687] (CODE 16+0x15ae; handler ids 43,61,89) — Remove Curse,
  * full lift. If the -23508 target already carries effect type 43
@@ -28771,12 +28843,30 @@ static void jt687(void)
 		      ua_strs_at(0x4efc) /* "has an item un-cursed" */);
 }
 static void jt688(void) { PROBE("jt688"); }	/* +0x2c40; id 92 */
-static void jt689(void) { PROBE("jt689"); }	/* +0x2614; id 80 */
+static void jt689(void)	/* +0x2614; id 80 */
+{
+	PROBE("jt689");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x5068) /* "is invisible" */);
+}
 static void jt690(void) { PROBE("jt690"); }	/* +0x21c8; id 68 */
 static void jt691(void) { PROBE("jt691"); }	/* +0x1eb0; id 127 */
-static void jt692(void) { PROBE("jt692"); }	/* +0x16be; id 45 */
+static void jt692(void)	/* +0x16be; id 45 */
+{
+	PROBE("jt692");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4f24) /* "is blinking" */);
+}
 static void jt693(void) { PROBE("jt693"); }	/* +0x3f8a; id 124 */
-static void jt694(void) { PROBE("jt694"); }	/* +0x0a42; id 33 */
+static void jt694(void)	/* +0x0a42; id 33 */
+{
+	PROBE("jt694");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4e6e) /* "is weakened" */);
+}
 static void jt695(void) { PROBE("jt695"); }	/* +0x00ec; id 2 */
 static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
 static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
@@ -28806,8 +28896,20 @@ static void jt702(void) { PROBE("jt702"); }	/* +0x2084; id 134 */
 static void jt703(void) { PROBE("jt703"); }	/* +0x1da6; id 51 */
 static void jt704(void) { PROBE("jt704"); }	/* +0x1270; id 41,46 */
 static void jt705(void) { PROBE("jt705"); }	/* +0x3336; id 108 */
-static void jt706(void) { PROBE("jt706"); }	/* +0x09a0; id 30,50 */
-static void jt707(void) { PROBE("jt707"); }	/* +0x3614; id 112 */
+static void jt706(void)	/* +0x09a0; id 30,50 */
+{
+	PROBE("jt706");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4e46) /* "is invisible" */);
+}
+static void jt707(void)	/* +0x3614; id 112 */
+{
+	PROBE("jt707");
+	/* CODE 16 status-announce handler: l6114(target,0,0,0,0,msg). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x51d4) /* "is protected" */);
+}
 static void jt708(void) { PROBE("jt708"); }	/* +0x052a; id 15 */
 
 /* CODE 16 local L49e6 — the low half of the -24066 effect-handler fill

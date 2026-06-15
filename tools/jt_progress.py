@@ -229,8 +229,28 @@ def boot_definitions():
         i = m.end()
         depth = 0
         j = i
-        semicolon = src.find(";", i)
-        brace = src.find("{", i)
+        # find the first `{` or `;` after the header, but skip any that sit
+        # inside a comment — an inline `/* +0x1fae; id 130 */` annotation
+        # carries a semicolon that must NOT read as a forward-decl terminator.
+        semicolon = brace = -1
+        k = i
+        while k < len(src):
+            c = src[k]
+            if c == "/" and k + 1 < len(src) and src[k + 1] == "*":
+                end = src.find("*/", k + 2)
+                k = len(src) if end == -1 else end + 2
+                continue
+            if c == "/" and k + 1 < len(src) and src[k + 1] == "/":
+                nl = src.find("\n", k + 2)
+                k = len(src) if nl == -1 else nl + 1
+                continue
+            if c == ";":
+                semicolon = k
+                break
+            if c == "{":
+                brace = k
+                break
+            k += 1
         if brace == -1 or (semicolon != -1 and semicolon < brace):
             continue  # forward decl
         # brace-match the body
