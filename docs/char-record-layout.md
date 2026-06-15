@@ -62,12 +62,32 @@ the port membership flag OUT of the record — either a parallel `port_inparty[1
 array keyed by pool slot, or a pad byte ≥ 398 the faithful 398-byte record never
 touches. (The pool buffers are 512B, so 398..511 is free port scratch.)
 
+## The "ability roll" is NOT a prerequisite (corrected 2026-06-15)
+
+Earlier framing said step 1 = "lift L34f0, the ability roll." Two corrections
+after reading the disasm:
+
+- **L34f0 is the pick-VALIDATION state machine** (re-derives valid options when
+  a race/class pick changes, over the -30450 table) — not the roll.
+- **The faithful ability roll is L24d2** (the jt870 3d6 / keep-highest loop +
+  racial mods by rec[88], storing ability WORDS at rec[112+i*2]) -> **L1672**
+  (~1,500-line per-ability racial-cap applier over -30612) + **jt895** (CODE 19,
+  ~3,000 lines). A multi-thousand-line subsystem, its own multi-session effort.
+
+Crucially it is **orthogonal to the layout unification**: the unification needs
+the abilities at the faithful *offset* (rec[112+i*2], 6 words), not the faithful
+*roll algorithm*. The port's cg_roll_stats can write into that faithful layout;
+swapping in the lifted L24d2 is a later faithfulness improvement. So the
+unification is NOT blocked on the roll — it's blocked on the field-map
+confirmation above.
+
+NOTE the abilities are 6 **words** (permanent hi-byte @112+i*2, current @113+i*2,
+both = the roll initially), not 6 contiguous bytes — the migration must store
+them word-strided, and the savegame-loader translation must de-stride.
+
 ## Migration plan (staged, each step build + Hatari-verified)
 
-1. **(prereq) Lift L34f0** — the faithful ability roll into rec[112] (today
-   cg_roll_stats writes the port struct, so cg_rec lacks abilities). Without it
-   jt574 can't hand a *complete* faithful record to the pool.
-2. **Move CHAR_INPARTY** to a port-side array / pad byte (≥398).
+1. **Move CHAR_INPARTY** to a port-side array / pad byte (≥398).
 3. **Repoint the confirmed, unambiguous fields**: CHAR_RACE→88, CHAR_CLASS→89,
    CHAR_ALIGN→93, CHAR_STATS→112. Drop the savegame-loader's faithful→port
    translation for these (it becomes a no-op). Verify the roster + a loaded
