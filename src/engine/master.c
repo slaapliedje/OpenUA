@@ -5,20 +5,20 @@
  * master_init() is main()'s phase-3 bring-up; master_shutdown() is the
  * matching teardown main() runs on the way out. Both are pure sequencers:
  *
- *   master_init      JT[1079]  Toolbox startup, offscreen-page setup, fc_init
- *   master_shutdown  JT[1081]  Toolbox shutdown, page teardown, fc_cleanup
+ *   master_init      JT[1079]  Toolbox startup, offscreen-page setup, LBOpen
+ *   master_shutdown  JT[1081]  Toolbox shutdown, page teardown, LBCleanup
  *
- * Only fc_init / fc_cleanup are lifted so far; the routines around them are
+ * The FAR pool open/close (JT[463]/JT[466]) are the A5-world lifts in
+ * boot.c (glib_pool_open / glib_pool_close); the routines around them are
  * the no-op stubs below, each tagged with its CODE location (the fc_dump
  * pattern). See docs/decompilation.md for the Display subsystem map.
  */
 
 #include "master.h"
-#include "fc.h"               /* fc_init, fc_cleanup */
 #include "toolbox.h"          /* toolbox_init — the lifted JT[1144] */
 #include "data_pool_replay.h" /* g_a5_byte / g_a5_long / g_a5_word (jt1138) */
 #include "input.h"            /* plat_ticks — jt1155 stamps tick origin */
-#include "boot.h"             /* glib_pool_open — FAR pool (JT[463]) */
+#include "boot.h"             /* glib_pool_open / glib_pool_close — FAR pool */
 
 /* Stub-trace probe; same as boot.c — see docs/engine-bring-up.md. */
 #ifdef FRUA_ENGINE_PROBE
@@ -117,8 +117,7 @@ void master_init(short arg1, long arg2, short kb_min, short kb_max)
 	jt1138();
 	l01a2();
 	l024c(15);
-	fc_init(kb_min, kb_max);       /* file cache — JT[463]'s size half */
-	glib_pool_open();              /* FAR pool — JT[463]/_LBOpen proper */
+	glib_pool_open(kb_min, kb_max);   /* FAR pool — JT[463]/_LBOpen */
 	l35e2();
 	l27a4();
 }
@@ -132,7 +131,7 @@ void master_shutdown(void)
 {
 	l27bc();
 	l35f8();
-	fc_cleanup();                  /* file cache — JT[466] */
+	glib_pool_close();             /* FAR pool — JT[466]/FCCleanup */
 	jt1156();
 	l01ac();
 	jt1119();

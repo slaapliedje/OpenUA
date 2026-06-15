@@ -261,3 +261,50 @@ the static buffer exists precisely because NewPtr(320KB) failed at 4MB,
 [[dungeon-walls-4mb-fix]]). So: do ALWAYS+FRAME routing first (small, safe, proves
 the FC pool load path end-to-end), then purgeable caching, THEN walls.
 Each is one focused commit; verify the menu/chrome/walls render after each.
+
+## 2026-06-14d — PURGEABLE CACHING (item 3): the machinery was already lifted;
+the real gap was the POOL SIZE, plus a DUPLICATE jt463.
+
+FINDING: the LRU/purge machinery is ALL faithfully lifted AND wired already —
+`l103c` (release a group, slide the heap), `l11ca(purge)` (one compaction pass:
+scan ORPHANED groups — those with no freemap g_a5_10074 reference — by sequence
+or by the -9354 MRU companion under jt1083(3)), `l0a6e(need)` (compact until
+`need` free on the tail), and the grow allocators `l0ab8`/`l0e10`/`jt460`/`jt467`
+all route through `l0a6e`. The RNG `jt1083` and MRU search `l3e0c` are real, not
+stubs. So the Mac's purge model (reclaim only orphaned groups; -9354 picks
+eviction ORDER among orphans) was complete. Nothing to lift there.
+
+THE ACTUAL GAP — jt463 (CODE 3+0x538) sizing was a STAND-IN: it reserved a flat
+768K with a halve-to-128K fallback, instead of the Mac's free-memory negotiation.
+And there were TWO lifts of JT[463]: `fc.c::fc_init` (an earlier standalone lift,
+own non-A5 globals g_fc_buffers/g_fc_records — DEAD: nothing in the live load/
+render path reads them) AND `boot.c::jt463`/glib_pool_open (the A5-world one wired
+to the live pool g_a5_10270, jt464/jt467/jt468). master_init called BOTH, so
+fc_init allocated a 214–450K buffer that nothing read AND stole that memory from
+FreeMem() before the real pool was sized. Decoded jt463 fully from the disasm:
+  jt463(minKB, maxKB):                       (jt1079 passes 214/450 on the normal
+    minbytes = minKB*1024  (JT[4] long mul)   path = ALWAYS.CTL present; 160/400
+    maxbytes = maxKB*1024                      on the fallback path)
+    want = min(maxbytes, max(minbytes, FreeMem()-32K))   (L04f4=min, L0516=max,
+    base = NewPtr(want)                                   JT[1026]=_FreeMem)
+    if !base: want=minbytes; base=NewPtr(want)           (JT[1028]=_NewPtr)
+    slot[0]=base; -9304=base+want; err if !base||minbytes>want; -9300=want
+  L35e2 (glib_lb_init) is the caller-side step right after — verified at the
+  CODE5+0x56 call site.
+
+FIX (this commit): boot.c::jt463 carries the real size negotiation, threaded
+minKB/maxKB via glib_pool_open(kb_min,kb_max) <- master_init. Added glib_pool_close
+= the faithful JT[466]/FCCleanup (jt465(NULL) reset + DisposePtr the real
+g_a5_10270[0]). Dropped the redundant fc_init/fc_cleanup calls from master_init/
+master_shutdown (they operated on the dead fc.c parallel pool). The pool is now
+Mac-sized (≤450K, grabbed at boot when memory is free), so the purge layer is
+load-bearing. fc.c is now fully dead duplicate code (only fc_dump, a no-op, is
+still referenced by boot.c) — DELETE-LATER cleanup, kept this commit minimal.
+Build green, 020/soft-float intact.
+
+NOTE for WALLS routing (next): with the Mac-sized pool, 296K walls + a resident
+165K bigpic exceed 450K, so the bigpic group MUST become orphaned (jt461/jt465
+release on leaving the event-picture screen) for l11ca to reclaim it. Confirm the
+faithful release is wired at the event-pic teardown before routing walls, else the
+pool deadlocks ("Out of FAR memory!"). HEIRS 8X8DB directory is IDENTITY -> routing
+won't change the resolved tile (no behaviour change) and does NOT fix garbled walls.
