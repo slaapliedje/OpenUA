@@ -6236,6 +6236,7 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
 /* L024c (set color/style pen) and L0264 (MoveTo) are lifted further down in the
  * CODE 5 modal region; forward-declare L024c here for the "%a" handler. */
 static void l024c(short colour);
+static void l0264(short x, short y);     /* MoveTo, lifted in the CODE 5 region */
 
 /* JT[1006] (the -4188 colour remap) is lifted in the CODE 5 region far below;
  * jt1161's encounter-mode arm needs it. */
@@ -39070,15 +39071,191 @@ static void l3f88(short top, short left, short bottom, short right,
 	jt1161(top, left, bottom, right, fill);
 }
 
-/* JT[1078] (CODE 5+0x440) — the modal line editor: draw `prompt`,
- * collect keystrokes into `buf` (up to `maxlen`), return nonzero on
- * accept (Return) and 0 on cancel. Leaf PROBE stub pending its own
- * lift — jt98's box draws, the input pends. */
-static unsigned char jt1078(long prompt, void *buf, short maxlen)
+/* L0334 (CODE 5 + 0x334) — draw a formatted template at (top, left) in colour
+ * `attr`. Sets the colour pen (L024c), moves the pen (L0264), then runs the
+ * caller's `fmt` + varargs through the faithful jt400 %r VM (l0306). The Mac
+ * packs the varargs as a contiguous word/long stream and recurses via "%r";
+ * here we pack the varargs the way jt400_run reads them (%s/%l -> a 4-byte
+ * pointer/long, every other consuming conversion incl. %* -> a 2-byte word)
+ * then hand the {fmt, args} block to l0306("%r", ...). Identical output. */
+static void l0334(short top, short left, short attr, const char *fmt, ...)
 {
+	va_list       ap;
+	unsigned char vbuf[64];
+	short         vn = 0;
+	const char   *p;
+	void         *block[2];
+
+	l024c(attr);
+	l0264(top, left);
+
+	va_start(ap, fmt);
+	for (p = fmt; *p; p++) {
+		if (*p != '%')
+			continue;
+		p++;
+		while (*p >= '0' && *p <= '9')   /* skip width / pad digits */
+			p++;
+		switch (*p) {
+		case 's': case 'l':              /* 4-byte pointer / long */
+			if (vn + 4 <= (short)sizeof vbuf) {
+				*(void **)(vbuf + vn) = va_arg(ap, void *);
+				vn += 4;
+			}
+			break;
+		case '%': case 0:                /* literal '%' / trailing: no arg */
+			break;
+		default:                         /* %* width, %d/%u/%x/%c/%w: word */
+			if (vn + 2 <= (short)sizeof vbuf) {
+				*(short *)(vbuf + vn) = (short)va_arg(ap, int);
+				vn += 2;
+			}
+			break;
+		}
+		if (*p == 0)
+			break;
+	}
+	va_end(ap);
+
+	block[0] = (void *)(uintptr_t)fmt;
+	block[1] = vbuf;
+	l0306((char *)"%r", block);
+}
+
+/* JT[1078] (CODE 5 + 0x440) — the modal line editor backing jt98's input box.
+ * Full lift. Draws the optional `prompt`, then loops collecting keystrokes into
+ * `buf` (capped at `maxlen`): Return/Enter (13/10) accept a non-empty line,
+ * Esc/backtick (27/96) cancel, Backspace/Del (8/262) delete, printable bytes
+ * 32..126 insert. An initial `buf` whose byte past the NUL is 1 is shown
+ * "selected" (count = -1) and cleared on the first edit. Returns 1 on accept,
+ * 0 on cancel. The window context (origin row / column offset / colour attr)
+ * comes from the -4880 / -4870 / -4860 arrays indexed by the paint depth -4886.
+ *
+ * `xoff` is the literal pen offset the Mac uses only when prompt == 0 (jt98
+ * always passes a prompt, so it is 0 there); fp@(-1)'s bit 5 selects the cursor
+ * block colour and is uninitialised on the Mac — we take 0 (the bg path). */
+static unsigned char jt1078(long prompt, void *buf_v, short maxlen, short xoff)
+{
+	unsigned char *buf = (unsigned char *)buf_v;
+	unsigned char *wp;
+	short  widx, origy, coloff, attr, fg, bg, spacing, curx, tb, tr;
+	short  count, key;
+	short  ms_a = 0, ms_b = 0;
+	long   ev;
+	unsigned char hasinit, result = 0, loop = 1;
+	const unsigned char fp1 = 0;     /* uninit-in-Mac cursor-colour selector */
+
 	PROBE("jt1078");
-	(void)prompt; (void)buf; (void)maxlen;
-	return 0;
+	jt1148();                        /* ObscureCursor */
+
+	if (buf[0] != 0) {               /* "selected" initial text? */
+		short n = jt423((char *)buf);
+		hasinit = (unsigned char)(buf[n + 1] == 1 ? 1 : 0);
+	} else {
+		hasinit = 0;
+	}
+	wp = buf;
+	count = 0;
+	jt1153(1);
+
+	widx   = (short)g_a5_word(-4886);
+	attr   = g_a5_word(-4860 + (long)widx * 2);
+	coloff = g_a5_word(-4870 + (long)widx * 2);
+	origy  = g_a5_word(-4880 + (long)widx * 2);
+	fg      = (short)(attr & 15);
+	bg      = (short)((attr >> 4) & 15);
+	spacing = (short)(((attr >> 8) & 2) ? 2 : 4);
+
+	jt1141(origy, (short)(8160 - coloff), (short)8004, (short)0, &tb, &tr);
+
+	if (prompt != 0) {               /* draw the prompt label */
+		jt1161(origy, (short)(coloff + 8000), tb, tr, bg);
+		l0334(origy, (short)(coloff + 8000), attr, "%s", (char *)(uintptr_t)prompt);
+	}
+
+	/* text/cursor start X = column + one cell, past the prompt */
+	curx = (short)(coloff + spacing + 8000);
+	if (prompt != 0)
+		curx = (short)(curx + jt423((char *)(uintptr_t)prompt) * spacing);
+	else
+		curx = (short)(curx + xoff);
+
+	if (hasinit) {
+		l0334(origy, curx, attr, "%s ", (char *)buf);   /* show selection */
+		count = -1;
+	} else {
+		*wp = 0;
+	}
+
+	while (loop) {
+		ev = jt1134();                          /* next event */
+		if ((ev & 31) == 0) {                   /* cursor-blink: draw block */
+			short x1 = (short)(count * spacing + curx);
+			short x2 = (short)(x1 + spacing);
+			jt1161(origy, x1, tb, x2, (fp1 & 0x20) ? fg : bg);
+		}
+		if (jt1125(7, (long)(uintptr_t)&ms_a, (long)(uintptr_t)&ms_b))
+			l0156();                        /* clicked away: beep */
+		if (!jt1118())                          /* no key ready: re-poll */
+			continue;
+		key = jt1133();
+
+		switch (key) {
+		case 27: case 96:                       /* Esc / `: cancel */
+			jt1130();
+			result = 0;
+			loop = 0;
+			break;
+		case 13: case 10:                       /* Return / Enter: accept */
+			if (hasinit) {
+				count = jt423((char *)buf);
+				hasinit = 0;
+			}
+			if (count > 0) {
+				jt1130();
+				loop = 0;
+				result = 1;
+			} else {
+				l0156();
+			}
+			break;
+		case 8: case 262:                       /* Backspace / Del */
+			if (hasinit) {
+				short n = (short)(jt423((char *)buf) + 1);
+				l0334(origy, (short)(curx - spacing), attr, "%* ", n);
+				*wp = 0;
+				count = 0;
+				hasinit = 0;
+			}
+			if (count > 0) {
+				l0334(origy, (short)(count * spacing + curx),
+				      attr, " ");
+				count--;
+				wp--;
+				*wp = 0;
+			}
+			break;
+		default:                                /* printable insert */
+			if (key < 32 || key > 126 || count >= maxlen) {
+				l0156();
+			} else {
+				if (hasinit) {
+					short n = (short)(jt423((char *)buf) + 1);
+					l0334(origy, (short)(curx - spacing),
+					      attr, "%* ", n);
+					count = 0;
+					hasinit = 0;
+				}
+				*wp++ = (unsigned char)key;
+				*wp = 0;
+				count++;
+			}
+			break;
+		}
+
+		l0334(origy, curx, attr, "%s ", (char *)buf);   /* L08ae repaint */
+	}
+	return result;
 }
 
 /* JT[98] (CODE 6+0x479c) — prompt for a line of text in a framed
@@ -39132,7 +39309,7 @@ static char *jt98(long prompt, short fg, short bg, short maxlen)
 		jt978((short)(((unsigned char)bg << 4)
 		              + (unsigned char)fg));
 
-	if (jt1078(prompt, &g_a5_byte(-17568), maxlen))
+	if (jt1078(prompt, &g_a5_byte(-17568), maxlen, 0))
 		g_a5_byte(-17528) = 1;
 	else
 		g_a5_byte(-17528) = 0;

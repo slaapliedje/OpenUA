@@ -62,16 +62,21 @@ together with jt573 (they are untestable until jt573 has a runtime path):
 - jt561 (0x4d62) empty (`rts`) — faithful no-op.  **NOOP whitelist this session.**
 - jt559 (0x4df0) setter g_a5_-6927 = arg.  LIFTED.
 
-## Blocker: jt1078 (CODE 5 + 0x440) — the modal line editor
+## jt1078 (CODE 5 + 0x440) — the modal line editor — LIFTED 2026-06-15
 
 `jt98` (the framed input box) draws the border + label, then delegates the
-actual keystroke loop to `jt1078`, which is still a PROBE stub ("input pends").
-So **functional name entry needs jt1078 lifted** — it's ~400 lines wired into
-the event/window subsystem (JT[1134] key events, JT[1141]/1148/1153, the
--4886/-4860/-4880/-4870 window-context tables). Until it lands, l238e_c17 stays
-un-wired and jt574 keeps the port-side placeholder name. Lifting jt1078 is the
-single highest-value next step for the CREATE flow (it unblocks L238e wiring and
-any other faithful text-input screen).
+keystroke loop to `jt1078`. Now fully lifted (full ~400-line CFG): Return/Enter
+accept a non-empty line, Esc/backtick cancel, Backspace/Del delete, printable
+32..126 insert; an initial buffer flagged "selected" clears on first edit; the
+window context (origin / col-offset / colour) comes from the -4880/-4870/-4860
+arrays at paint depth -4886. Also lifted its text-draw helper **L0334** (l0334)
+— set colour (l024c) + pen (l0264) + the jt400 %r VM (l0306), with a varargs→
+Mac-word/long packer so the C variadic face streams through the faithful VM.
+
+All deps were already lifted/NOOP (JT[1134]/1133/1125/1118/1141/1148/1153/1130/
+423/161, l0156). jt98's call gained the 4th `xoff` arg (0). NEXT: wire
+l238e_c17 into jt574's live create flow now that name entry functions, and
+Hatari-verify the box renders + collects in the char-gen context.
 
 ## Done-criteria for #101
 All 20 JT entries LIFTED/NOOP **and** `jt574` runs the faithful finalize/name/
