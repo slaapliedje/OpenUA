@@ -1,5 +1,121 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-14i — WHOLE pipeline cleared via J200DIFF; bug is the PIECE PIXELS
+Built -DFRUA_SKIP_ENTRY_EVENTS, captured the port's 25 slots at 10,8,E (J200DIFF.TXT)
+AND the user's Mac jt200 trace (#125-149). Slot-for-slot the port's top/left/code/
+sub/far/near are BYTE-IDENTICAL to the Mac. Added landed-rect recording to the LIVE
+l309c blit path (g_lc_x0/y0/w/h; l309c_tile is retired so the old tw/th=0 were stale):
+the per-piece SCREEN rects are what the Mac's identical data + these pieces produce
+(e.g. idx30 top=8032 -> y0=66 => ybear=-2, MATCHES the decoded spec). So slots,
+idx, jt1135 transform, bearings, l2d4e blit+255-transparency are ALL faithful.
+Yet /tmp/escher2.png at 10,8,E renders scrambled: a TALL GOLD/WOOD column at centre
+(#0-10, all group1=Wall2=set8=wood) where mac_3d_start_e shows grey STONE; right half
+(x>72) empty (no right wall). With identical inputs the only thing left that can
+differ is the PIECE PIXELS: the port's loaded 8X8DB set8/set1 pieces (or l2856's
+sub-GLIB idx->item navigation) don't match the Mac's. The whole geometry pipeline
+(jt199 walk, jt200 fold, l5b42, jt1135, bearings, l2d4e) is CLEARED.
+DIAGNOSTIC LEFT IN WORKING TREE (uncommitted, dump build only): the g_lc_x0/y0/w/h
+recording in l309c + the FRUA_SKIP_ENTRY_EVENTS slot dump. Revert before any commit.
+NEXT (decisive): pixel-compare ONE piece. Dump the Mac's loaded Wall2 handle
+(A5-27890 -> jt468 -> GLIB) item idx30 (and idx6 wedge) bytes via mon, vs the port's
+8X8DB.CTL set8 idx30/idx6 extraction (tools + a direct two-level GLIB decoder). If
+they differ -> the gamedata 8X8DB differs from the Mac's OR l2856 navigation is off;
+if identical -> a rendering step is still missing (re-examine JT1170/L2970 shear,
+which memory calls a no-op).
+
+
+## UPDATE 2026-06-14h — layout[22] mon-VERIFIED correct; full L6234 map (the lift target)
+User mon-dumped -12240..-12198 (A5=01F74AC0, `m 1F71AF0 1F71B1B`):
+  5,4,6,4,2,7,2,0, 9,5,4,3,3,3,1,1, 1,0,0,4,0,0
+= BYTE-IDENTICAL to the port's hardcoded layout[22], INCLUDING the zeros at
+-12226/-12206/-12204/-12200/-12198. So the zeros are REAL on the Mac — the layout
+table is CORRECT. The Escher is NOT a coordinate bug; it is the port's jt199
+RECONSTRUCTION mis-using the (correct) globals.
+
+FULL L6234 STRUCTURE (mon + disasm, the faithful lift target). jt199(Y=fp8, X=fp10,
+row=fp13, col=fp15, facing=fp17). dir aliases: L=(facing+6)&7 fp@-1, R=(facing+2)&7
+fp@-2, B(ack)=(facing+4)&7. drow=-27862[dir], dcol=-27853[dir]. ORIGIN
+fp@-6/-8 = (row,col) + 2*delta[facing], set ONCE (NOT receding!). JT[3] selector
+fp@-21 = 2->1->0 via L6e4a (3 depth bands, FIXED forward origin; depth differs by
+the soff horizontal spacing + sideways spread, NOT a receding forward cell — THIS
+is where the port diverges: port_jt199 RECEDES orow each band).
+  * CASE 2 (L63a2, far, soff step -2, FOUR scans from origin directly):
+    - L63be  left-side : walk L depth0..3; near-face -12240+soff/-12220 style0
+              (depth<3); side -12222+soff+**1**/-12202 style9 (when prev>0).
+    - L6556  right-side: walk R depth0..3; near-face -12240+soff/-12220 style0
+              (depth1..2, skip0); side -12222+soff-**1**/-12202 style9.
+    - L66f2  front-L   : walk L depth0..3; -12238+soff/-12218 style1 (depth0 plain,
+              else -1). soff +2.
+    - L67e2  front-R   : walk R depth0..2; -12236+soff/-12216 style2 (depth0 plain,
+              else +1). soff +2.
+  * CASE 1 (L68be, mid, soff0 -6 step +3, TWO scans, start = origin + 2*delta[L|R]):
+    - scan1: start O+2L, walk R depth0..2; facing -12234+soff/-12214 style3;
+             side(read L) -12232+soff/-12212 style4 (depth>0).
+    - scan2: start O+2R, walk L depth0..2; facing -12234+soff/-12214 style3;
+             side(read R) -12230+soff/-12210 style5 (depth>0).
+  * CASE 0 (L6bc2, near, soff0 -7 step +7, TWO scans, start = origin + 1*delta[L|R]):
+    - scan1: start O+1L, walk R depth0..1; facing -12228+soff/-12208 style6;
+             side(read L) -12226+soff/-12206 style7 (depth>0).
+    - scan2: start O+1R, walk L depth0..1; facing -12228+soff/-12208 style6
+             (depth0 only); side(read R) -12224+soff/-12204 style8 (depth>0).
+Styles 0..8 = the jt200 (code,sub) layer; 9 = the inter-cell side wall.
+NOTE the case-0 side faces (style7/8) DO use the zero globals -12226/-12206 &
+-12224/-12204 — legitimately (those slots are sparse). The big VISIBLE near side
+walls come from case-2's style-9 side scans (-12222/-12202) + case-0 style6/7.
+
+CORRECTION (verified L6e4a): the Mac DOES recede the origin — L6e4a adds
+delta[back] to fp@-6/-8 each band (2fwd -> 1fwd -> party) and decrements the JT[3]
+selector fp@-21. The port's jt199 already recedes the same way. Re-checking every
+arm: the port jt199 + jt199_side/front/band MATCHES L6234 structurally — origin
+recede, case-2 4 scans (2 side depth0..3 + 2 front depth0..2), case-1/0 2 scans,
+the globals (-12240/-12222/-12238/-12236 ; -12234/-12232/-12230 ; -12228/-12226/
+-12224), styles (0/9,1,2 ; 3,4,5 ; 6,7,8), depth gates, soff0/steps (-2 ; -6,+3 ;
+-7,+7), and the L/R near-face skip-0 + the +1/-1 on the style-9 side faces ALL
+line up. So jt199 (the WALK) is NOT the bug.
+
+=> The Escher is DOWNSTREAM of jt199: l5b42 (per-slot 8000-space transform +
+placement) or jt200 (the (code,style)->piece-idx pick + far/near blit), or l5e52
+(edge read) returning wrong values for the near cells. The 8 "missing" near slots
+are emitted by jt199 but l5b42/jt200 drop or mis-place them. layout[22] is correct
+and jt199 is faithful — both now CLEARED.
+NEXT: slot-level diff — build -DFRUA_SKIP_ENTRY_EVENTS (enables the g_j2 record +
+j200_dump -> C:\J200DIFF.TXT: per slot #,top,left,code,sub,group,farIdx,nearIdx)
+at the 10,8,E frame, and diff vs the Mac 25-slot trace. That pinpoints whether the
+divergence is the transform (top/left), the piece pick (idx), or the cell read.
+
+## UPDATE 2026-06-14g — ESCHER ROOT CAUSE: hardcoded layout[22] has ZERO entries
+User reframed the symptom (decisive): the Mac draws **25 slots**; the port draws
+only **17, mis-ordered** (the Escher), and the **8 near left/right side-wall
+slots are NOT drawn at all**. Captured the live port view at 10,8,E
+(/tmp/escher_now.png) vs data/mac_3d_start_e.png: port has a coherent left wall +
+far door but scrambled centre + missing right/near side walls; Mac is a clean
+symmetric corridor.
+
+ROOT CAUSE FOUND: jt199 (boot.c ~10332) is a PARAMETRIZED RECONSTRUCTION of
+L6234 (jt199_side/jt199_front/jt199_band), NOT a faithful lift. It reads the
+per-slot screen deltas from the frustum LAYOUT globals -12240..-12198 (22 words).
+Those are **HARDCODED from a single live mon capture** (boot.c ~8203 `layout[22]`)
+that overwrites the DATA image unconditionally — and SEVERAL ENTRIES ARE 0:
+  -12226=0 (k7), -12206=0 (k17), -12204=0 (k18), -12200=0, -12198=0.
+jt199's nearest band (sel==0, origin = party cell, the BIG near corridor walls)
+reads gyB/gxB = -12226/-12206 (left) and -12224/-12204 (right) for the SIDE
+faces -> X=0/Y=0 -> blit lands outside the 88x88 viewport (24,24,112,112) ->
+clipped -> the 8 near side slots VANISH. The capture missed them (those slots
+weren't active in the captured frame, so mon read stale 0s).
+
+The Mac WRITES -12240..-12198 via an indexed pointer (no literal-displacement
+write in the disasm; the CODE_02 -12194 writes are a SEPARATE text-input buffer).
+The init that computes them is unlocated.
+
+NEXT: (a) user mon-dumps the real -12240..-12198 (22 words) at the standing frame
+-> replace the bad capture / seed the zeros; THEN (b) faithfully LIFT L6234 to
+replace the jt199_side/front/band reconstruction (fixes the 17 mis-ordering too).
+The L6234 arms: JT[3] selector fp@-21 = 2->1->0, origin recedes 1 cell/pass
+(start = party + 2*facing-delta); case2=L63a2 (far, -12240/-12222 side via L5b42
+styles 0/9, +1 left / -1 right on the style-9 face), case1=L68be, case0=L6bc2
+(near). L641a/L65b2 = the left/right side sub-loops.
+
+
 ## UPDATE 2026-06-14e — SHELL lift VERIFIED on HEIRS; post-event wall loss = FC/CLUT
 Live `make run-game DSN=HEIRS.DSN` (party 4,4 level 5). Results:
 - **Shell lift is SOUND.** Pre-event the view shows the 17-frame Escher walls WITH
