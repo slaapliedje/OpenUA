@@ -3809,6 +3809,36 @@ static void jt384(char *dst, const char *src)
 		;
 }
 
+/* JT[402] (CODE 3+0x45d6) — c2pstr: build the Pascal string `dst` from the C
+ * string `src` (length byte at dst[0], chars from dst[1]; the source NUL is
+ * copied through but not counted). Band 6. */
+static void jt402(unsigned char *dst, const char *src) __attribute__((unused));
+static void jt402(unsigned char *dst, const char *src)
+{
+	unsigned char *d = dst + 1;
+	unsigned char  count = 0;
+
+	PROBE("jt402");
+	if (dst == NULL || src == NULL)
+		return;
+	while ((*d++ = (unsigned char)*src++) != 0)
+		count++;
+	dst[0] = count;
+}
+
+/* JT[383] (CODE 3+0x4782) — append one byte to the buffered-output write
+ * cursor the engine keeps in the A5 long at -9168: read the cursor, advance
+ * the stored cursor, store the byte at the old position. Band 6. */
+static void jt383(short ch) __attribute__((unused));
+static void jt383(short ch)
+{
+	unsigned char *p = (unsigned char *)(uintptr_t)g_a5_long(-9168);
+
+	PROBE("jt383");
+	g_a5_long(-9168) = (long)(uintptr_t)(p + 1);
+	*p = (unsigned char)ch;
+}
+
 /* L5700 — slot-1 mode tear-down. CODE 6 + 0x5700. JT[45] route lands here.
  *
  * Disassembly:
