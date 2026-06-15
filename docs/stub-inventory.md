@@ -8,14 +8,23 @@ A triage of the remaining stubs/missing in `src/engine/boot.c`, plus the
 
 | status   | count | % |
 |---|---|---|
-| LIFTED   | 695 | 57.7% |
+| LIFTED   | 699 | 58.0% |
 | NOOP     |  19 | |
 | ALIAS    |  52 | |
-| **implemented (lifted+noop+alias)** | **766** | **63.6%** |
-| STAND-IN |   2 | jt114, jt118 |
+| **implemented (lifted+noop+alias)** | **770** | **63.9%** |
+| STAND-IN |   0 | (jt114 + jt118 RESOLVED 2026-06-15 — were stale tags) |
 | STUB     | 155 | |
-| MISSING  | 282 | |
-| **remaining (stub+missing+standin)** | **439** | **36.4%** |
+| MISSING  | 280 | |
+| **remaining (stub+missing+standin)** | **435** | **36.1%** |
+
+NOTE: the only two JT stand-ins are now retired. jt114 (wall-tile blit) routes
+through l309c -> l2d4e (raw tile byte = direct CLUT index, 255 transparent — the
+faithful Mac model, NO band-rebase; the rebase only ever lived in l309c_tile,
+now used by the item-portrait blits). jt118 = jt108(1)[=L38d0(1)] + jt114[~=the
+Mac jt1001 blit] = the 1:1 Mac jt118. The binder-model walls work + the earlier
+l309c switch already made both faithful; the STANDIN annotations were stale. The
+garbled wall TILES are the separate piece-data puzzle (dungeon-3d-render-state),
+not the blit.
 
 ## Band coverage (tools/jt_progress.py, 2026-06-15)
 

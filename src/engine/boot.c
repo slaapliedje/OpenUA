@@ -10075,13 +10075,15 @@ static int load_cw_full(short file, short set)
 	return 1;
 }
 
-/* JT[114] (CODE 6 + 0x3804) — blit wall tile `idx` from a wall-set tile-
- * library handle. FAITHFUL: the Mac forwards JT[114] -> JT[1001] (L31ac) ->
- * jt468(*handle) + L309c(top,left,glib,idx). The port's L6eea stores the wall
- * GLIB pointer directly in the -27894 handle slot (usable by l2856), so we skip
- * the jt468 indirection and call the faithful l309c leaf straight: it does the
- * jt1135 x2 scale + the metric bearing + l2d4e (clipped to the QD viewport-hole
- * rect render_3d_faithful set). Replaces the hand-rolled l309c_tile blit. */
+/* JT[114] (CODE 6 + 0x3804) — blit wall tile `idx` from a wall-set tile
+ * library. FAITHFUL: the Mac forwards JT[114] -> JT[1001] (L31ac) ->
+ * jt468(*handle) + L309c(top,left,glib,idx). The port's binder-model
+ * jt200_layer already resolves the set sub-GLIB (l37aa(jt468(binder[0]),set)),
+ * so jt114 calls the faithful l309c leaf straight: jt1135 coord scale + the
+ * metric bearing + l2d4e, which writes the RAW tile byte as a DIRECT CLUT index
+ * (255 = transparent) — exactly the Mac L309c->L2d4e model, NO band-rebase.
+ * (The per-set CLUT band-rebase the old stand-in did lives only in l309c_tile,
+ * now used by the item-portrait blits, not the walls.) */
 static void jt114(unsigned char *page, short top, short left, short idx,
                   long handle)
 {
@@ -22171,11 +22173,12 @@ static void jt102(void)
 	jt476((short)(p[18] * 100));
 }
 
-/* JT[118] (CODE 6 + 0x37d6, 22 sites) — cursor-safe wall-tile blit.
- * Byte-identical to JT[114] in the Mac binary except it first runs
- * jt108(1) to hide the cursor / mark the page dirty; THINK C inlined
- * the shared tail rather than sharing it, so delegating to jt114 here
- * is the faithful equivalent. */
+/* JT[118] (CODE 6 + 0x37d6, 22 sites) — wall-tile blit with the marker-layer
+ * arm. FAITHFUL: the Mac jt118 = L38d0(1) + JT[1001](top,left,*handle,idx).
+ * jt108 IS L38d0 (both = CODE 6+0x38d0), and jt114 is the port's resolved-handle
+ * equivalent of the jt1001 L309c blit, so jt108(1) + jt114(...) here is the 1:1
+ * match. (The old "render-path stand-in" tag was stale — there is no l309c_tile
+ * rebase on this path.) */
 static void jt118(unsigned char *page, short top, short left, short idx,
                   long handle) __attribute__((unused));
 static void jt118(unsigned char *page, short top, short left, short idx,
