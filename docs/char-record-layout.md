@@ -153,8 +153,8 @@ on every record), each separately Hatari-verifiable. Per-field state:
 | field | faithful offset | status / complication |
 |---|---|---|
 | **abilities** | rec[112+i*2] words | **DONE (6d79358)** — CHAR_STAT(rec,i) macro; all readers/writers/loader/seed switched. |
-| race | rec[88] (byte) | value-identical at 88 and 200, BUT the savegame loader stubs `dst[CHAR_RACE]=0` (forces Human) — switching makes it clobber the memcpy'd faithful race; must drop that stub first. AND k_roster_races needs the faithful index order (0=Elf,1=Half-Elf,2=Dwarf,3=Gnome,4=Halfling,5=Human — from the racial-mod switch + list positions). |
-| level | rec[157] (per-class, byte) | cg_rec[157] is 0 (l24d2 only normalises non-zero slots); must set rec[157]=1 for a new char before the reader flips. |
+| race | rec[88] (byte) | **DONE** — repointed; k_roster_races reordered to faithful (Elf..Human); seed k_race re-encoded {5,0,4,5}; loader force-Human stub dropped (memcpy'd race stands). Also FIXES the pre-existing created-char race-name bug (was showing Human for Elf). |
+| level | rec[157] (per-class, byte) | **DONE** — repointed; cg_build_record sets rec[157]=1; stage-2 overlay no longer copies the 0-valued cg_rec[157..163]; loader force-L5 stub dropped. |
 | alignment | rec[93] (linear 0..8) | verify s.aligned[s.asel] (port pick) == cg_rec[93] (faithful jt569/570 linear index) — encodings may differ; reorder cg_aligns to faithful order. |
 | max HP | rec[82] (WORD) | the port reads CHAR_MAXHP as a byte; @82 is a big-endian word (byte@82 = high byte = 0 for HP<256). Needs word readers, not a repoint. |
 | XP | TBD | the long XP offset isn't pinned; decode from the CODE 19 "Experience:" display. |
