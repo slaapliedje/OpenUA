@@ -8,14 +8,23 @@ A triage of the remaining stubs/missing in `src/engine/boot.c`, plus the
 
 | status   | count | % |
 |---|---|---|
-| LIFTED   | 699 | 58.0% |
+| LIFTED   | 715 | 59.3% |
 | NOOP     |  19 | |
 | ALIAS    |  52 | |
-| **implemented (lifted+noop+alias)** | **770** | **63.9%** |
+| **implemented (lifted+noop+alias)** | **786** | **65.2%** |
 | STAND-IN |   0 | (jt114 + jt118 RESOLVED 2026-06-15 — were stale tags) |
-| STUB     | 155 | |
+| STUB     | 139 | |
 | MISSING  | 280 | |
-| **remaining (stub+missing+standin)** | **435** | **36.1%** |
+| **remaining (stub+missing+standin)** | **419** | **34.8%** |
+
+UPDATE 2026-06-15: lifted 16 CODE-16 combat status-announce handlers (the
+`l6114(target,0,0,0,0,msg)` family — jt606/609/624/625/632/634/654/656/660/662/
+685/689/692/694/706/707). Also fixed a `tools/jt_progress.py` parser defect: an
+inline `/* +0xNNNN; id NN */` comment carries a `;` that the body/forward-decl
+scanner read as a forward-decl terminator, so those 16 already-lifted handlers
+classified MISSING. Now comment-aware; LIFTED 699→715, band 9 4→18, band 6
+33→35. The combat main loop l076e (~2.2KB) is still STUB, so the handlers are
+not yet runtime-reachable — breadth-first lifts, untested at runtime.
 
 NOTE: the only two JT stand-ins are now retired. jt114 (wall-tile blit) routes
 through l309c -> l2d4e (raw tile byte = direct CLUT index, 255 transparent — the
@@ -35,10 +44,10 @@ not the blit.
 | 3 (201-300)  | 99/100 | 0 | 1 | jt947 = l709e (closes via #115) |
 | 4 (301-400)  | 98/100 | 1 | 0 | band-4 campaign DONE (#119) |
 | 5 (401-500)  | 100/100 | 0 | 0 | band-5 campaign DONE (#120) |
-| 6 (501-600)  | 31/100 | 22 | 47 | NEXT campaign candidate |
+| 6 (501-600)  | 35/100 | 20 | 45 | NEXT campaign candidate |
 | 7 (601-700)  | 29/100 | 7 | 64 | |
 | 8 (701-800)  | 36/100 | 6 | 58 | |
-| 9 (801-900)  | 4/100  | 90 | 6 | CODE 18 combat effect-handler band (#115) |
+| 9 (801-900)  | 18/100 | 76 | 6 | CODE 16/18 combat effect-handler band (#115); 16 status-announce handlers lifted 2026-06-15 |
 | 10 (901-1000)| 95/100 | 5 | 0 | mostly Mac trap glue = shim |
 | 11 (1001-1100)| 60/100 | 8 | 32 | |
 | 12 (1101-1205)| 14/105 | 16 | 70 | tail; many editor-only |
