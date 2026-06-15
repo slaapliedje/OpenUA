@@ -2183,6 +2183,12 @@ static void  port_draw_play_frame(unsigned char *px, short pitch, short sw, shor
  * of its own. */
 static long l37aa(long base_long, short idx);             /* CODE 5+0x37aa — GLIB item lookup */
 static int  wallset_for_id(short id, short *file, short *set);  /* wall-set id -> (file,set) */
+/* FC-pool wall load (the faithful l6eea path): l33ac pulls 8X8D{B,C}.CTL into a
+ * FAR-pool group, jt468 resolves its base, l338c sets the load kind. */
+static void l33ac(const char *name, short kindB, short modeB, short subB,
+                  void **slotpp);
+static long jt468(short tag);
+static void l338c(short mode);
 
 /* L6eea (CODE 7 + 0x6eea) — load a wall set's tile library into a per-group
  * tile-lib handle for the first-person view. In the DEEP view (jt1200()==3)
@@ -2211,16 +2217,53 @@ static int  wallset_for_id(short id, short *file, short *set);  /* wall-set id -
 static unsigned char g_wallfile_buf[CW_FILEBUF_SZ];
 static short         g_wallfile_which = -1;   /* file index resident in buf (-1 none) */
 
-/* cw_wallfile_load — make 8X8D{C,B}.CTL `file` (0=DC, 1=DB) resident in
- * g_wallfile_buf and return its GLIB base (0 on open/validate failure). Reused
- * by cw_load_slot and l6eea so the library is read once and held once. */
+/* The FC-pool wall library: per-file binder slot + the group l33ac bound it to
+ * (0=DC, 1=DB). The faithful l6eea loads 8X8D{B,C}.CTL through l33ac into the
+ * FAR pool (deduped across the 3 wall groups by jt464); jt468 resolves the base.
+ * RM #127 stage 2. */
+static void *g_wallfile_binder[2];
+static short g_wallfile_group[2] = { -1, -1 };
+
+/* cw_wallfile_load — return the GLIB base of 8X8D{C,B}.CTL `file` (0=DC, 1=DB).
+ *
+ * FAITHFUL path (preferred): l33ac pulls the library into a FAR-pool group
+ * (l338c kind 50 + the "8x8d%c1" name -> the override-aware group loader);
+ * jt468(group) is the base, re-resolved each call so a pool compaction can't
+ * leave a stale pointer. l33ac/jt464 dedup the file across the 3 wall groups,
+ * so it is read once.
+ *
+ * FALLBACK (migration scaffold, NOT the end state): if the pool can't hold the
+ * ~296K library — it collides with a resident event bigpic in the 450K pool
+ * until the dispose-reload/purge interplay (stage 4) lands — serve the resident
+ * static buffer so the walls keep rendering. Reused by cw_load_slot and l6eea. */
 static long cw_wallfile_load(short file)
 {
 	static const char *const ctl[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
-	short refnum = 0;
-	long  count;
+	char  name[8];
+	short group, refnum = 0;
+	long  base, count;
 
 	file &= 1;
+
+	/* --- faithful FC-pool load --- */
+	group = g_wallfile_group[file];
+	if (group < 0 || jt468(group) == 0) {         /* not loaded yet, or purged */
+		l338c((short)50);                     /* JT[113] load-kind */
+		name[0] = '8'; name[1] = 'x'; name[2] = '8'; name[3] = 'd';
+		name[4] = (char)(file ? 'b' : 'c');
+		name[5] = '1'; name[6] = '\0';        /* colour path: "8x8d%c1" */
+		l33ac(name, 0, 0, 0, &g_wallfile_binder[file]);   /* -> FAR-pool group */
+		group = (g_wallfile_binder[file] != NULL)
+		      ? *(short *)g_wallfile_binder[file] : -1;
+		g_wallfile_group[file] = group;
+	}
+	if (group >= 0) {
+		base = jt468(group);
+		if (base != 0 && l37aa(base, 0) != 0)         /* 'GLIB' magic */
+			return base;
+	}
+
+	/* --- fallback: the resident static buffer --- */
 	if (g_wallfile_which != file) {
 		g_wallfile_which = -1;                /* invalid until the load completes */
 		if (FSOpen((ConstStr255Param)ctl[file], 0, &refnum) != noErr)
