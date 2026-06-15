@@ -6739,7 +6739,10 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 #define CHAR_ALIGN  93    /* faithful linear align index (l2f74); cg_aligns order */
 #define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
 #define CHAR_XP      212  /* experience points (long; +212..215)              */
-#define CHAR_MAXHP   216  /* full HP, to heal toward on rest                  */
+/* max HP: the faithful field is the WORD rec[82]; in FRUA HP is always <= 255,
+ * so the value lives in the big-endian low byte rec[83] (with rec[82]=0). Byte
+ * access at 83 reads the real value and keeps the faithful word@82 valid. */
+#define CHAR_MAXHP   83   /* low byte of the faithful max-HP word @82 */
 
 /* Faithful in-memory combatant offsets, decoded from the CODE 19 record
  * sheet (jt892) + combat: AC@385 (JT[34], combat reads defender AC here),
@@ -15198,7 +15201,9 @@ static int port_load_savgame(void)
 			 * so the roster grid (l02dc) and rest-heal read them; the
 			 * combat block (name@96/AC@385/HP@395) is already at
 			 * matching offsets. */
-			dst[CHAR_MAXHP] = r[82];      /* faithful max HP @82 */
+			/* max HP @82/@83 stands from the memcpy (CHAR_MAXHP now points
+			 * at the faithful low byte @83); the old dst[..]=r[82] read the
+			 * high byte (0) — a pre-existing maxHP=0 bug, now gone. */
 			dst[CHAR_CLASS] = 1;          /* Fighter (label; @89 kept) */
 			/* race @88 and level @157 are now read from the faithful record
 			 * directly (CHAR_RACE/CHAR_LEVEL point there), so the old
@@ -21546,7 +21551,8 @@ static int  jt574(long ctx)
 				unsigned char *pr = cg_pool[cg_pool_count - 1];
 				short fi;
 
-				*(short *)(pr + 82) = (short)pr[CHAR_MAXHP];
+				/* max HP @82 is set by cg_build_record via CHAR_MAXHP@83
+				 * (the word's low byte; rec[82] is memset 0). */
 				pr[88] = cg_rec[88]; pr[89] = cg_rec[89];
 				pr[92] = cg_rec[92]; pr[93] = cg_rec[93];
 				for (fi = 112; fi <= 125; fi++) pr[fi] = cg_rec[fi];
