@@ -21128,16 +21128,17 @@ static int  jt574(long ctx)
 		if (l3666() != 0) {
 			/* Done committed: jt572 made cg_rec current (g_a5_-27932), with the
 			 * faithful picks in rec[88/89/92/93]. Stamp the faithful body-icon
-			 * rec[188] exactly where the Mac jt574 does (after L29ae, before the
-			 * name/save tail). */
+			 * rec[188]. Run the faithful tail in the Mac jt574 order: L238e
+			 * name entry (now functional — jt1078 is lifted), then L0006. */
+			l238e_c17(cg_rec);   /* faithful name prompt -> cg_rec[96] */
 			l0006_c17();
 
-			/* Then add a roster character from the picks. The faithful name
-			 * entry (L238e), review screen (L1346) and .CHR save (jt584) aren't
-			 * lifted yet, so the stats are rolled port-side and the name is a
-			 * placeholder (rename later); cg_build_record threads it into the
-			 * pool/party (g_a5_-27928) and persists it. The faithful rec[188]
-			 * flows once L3cd4/jt584 replace this port build. */
+			/* Then add a roster character from the picks. The review screen
+			 * (L1346) and the faithful .CHR save (jt584) aren't lifted yet, so
+			 * the stats are rolled port-side; cg_build_record threads it into
+			 * the pool/party (g_a5_-27928) and persists it. The name now comes
+			 * from the faithful L238e entry; the faithful rec[188] flows once
+			 * L3cd4/jt584 replace this port build. */
 			cg_state s;
 			short k;
 			static const char placeholder[] = "NEW HERO";
@@ -21154,8 +21155,14 @@ static int  jt574(long ctx)
 			s.naligned = cg_allowed_aligns(s.allowed[s.ksel], s.aligned);
 			s.asel     = 0;
 			cg_roll_stats(s.race, s.allowed[s.ksel], s.stats);
-			for (k = 0; placeholder[k] && k < 15; k++)
-				s.name[k] = placeholder[k];
+			{
+				/* Name from the faithful L238e entry (cg_rec[96]); an
+				 * empty entry keeps the placeholder. */
+				const char *cgname = (cg_rec[96] != 0)
+				    ? (const char *)(cg_rec + 96) : placeholder;
+				for (k = 0; cgname[k] && k < 15; k++)
+					s.name[k] = cgname[k];
+			}
 			s.name[k] = 0;
 			s.namelen = k;
 			cg_build_record(&s);

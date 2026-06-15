@@ -17,10 +17,11 @@ jt574(existing):                                  STATUS
     ├ jt569/jt570 ALIGNMENT axes  jt571 Exit      LIFTED
     └ jt572 Done (commit, sets -27932=rec)        LIFTED
   L29ae  max-HP finalize                          LIFTED (l29ae)
-  L238e  character-NAME entry (jt98 box loop)     LIFTED (l238e_c17), un-wired —
-                                                          gated on jt1078 (the
-                                                          CODE 5 modal line
-                                                          editor) being lifted
+  L238e  character-NAME entry (jt98 box loop)     LIFTED (l238e_c17), WIRED LIVE
+                                                          into jt574 now jt1078
+                                                          is lifted; typed name
+                                                          threads to the record.
+                                                          NEEDS Hatari verify.
   L0006  body-icon finalize (rec[188])            LIFTED (l0006_c17); wired into
                                                           jt574's Done branch.
                                                           gender×type×class×align
