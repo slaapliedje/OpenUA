@@ -58,6 +58,7 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         329, 920, 736,   # literal `rts` / empty linkw-unlk bodies on the Mac
         252, 260, 234, 271, 326,   # band-4 bare-rts entries (raw bytes checked)
         709,   # band-5 bare-rts (CODE 16+0x0004)
+        561,   # CODE 17+0x4d62: literal `rts` (char-gen no-op hook)
         859}   # band-5 bare-rts (CODE 18+0x77f6: 4e75)
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a

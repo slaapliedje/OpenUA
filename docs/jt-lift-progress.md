@@ -14,7 +14,7 @@ Legend: **LIFTED** real body · **NOOP** faithful empty/constant
 one-line placeholder (pending) · **STANDIN** real body but a non-
 faithful port reimplementation (pending) · **MISSING** not in boot.c yet.
 
-**1205 distinct JT entries are called.** Overall: 786 done (715 lifted, 19 noop, 52 alias), 139 stub, 0 stand-in, 280 missing.
+**1205 distinct JT entries are called.** Overall: 788 done (716 lifted, 20 noop, 52 alias), 139 stub, 0 stand-in, 278 missing.
 
 ## Progress by band (100 most-called at a time)
 
@@ -25,9 +25,9 @@ faithful port reimplementation (pending) · **MISSING** not in boot.c yet.
 | 3 | 201–300 | **99/100** | 82 | 17 | 0 | 0 | 1 |
 | 4 | 301–400 | **99/100** | 76 | 23 | 1 | 0 | 0 |
 | 5 | 401–500 | **100/100** | 86 | 14 | 0 | 0 | 0 |
-| 6 | 501–600 | **35/100** | 34 | 1 | 20 | 0 | 45 |
+| 6 | 501–600 | **36/100** | 35 | 1 | 20 | 0 | 44 |
 | 7 | 601–700 | **29/100** | 29 | 0 | 7 | 0 | 64 |
-| 8 | 701–800 | **36/100** | 36 | 0 | 6 | 0 | 58 |
+| 8 | 701–800 | **37/100** | 36 | 1 | 6 | 0 | 57 |
 | 9 | 801–900 | **18/100** | 18 | 0 | 76 | 0 | 6 |
 | 10 | 901–1000 | **95/100** | 95 | 0 | 5 | 0 | 0 |
 | 11 | 1001–1100 | **60/100** | 60 | 0 | 8 | 0 | 32 |
