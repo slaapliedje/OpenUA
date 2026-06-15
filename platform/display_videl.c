@@ -1,18 +1,23 @@
 /*
- * Falcon VIDEL display backend (ADR-0005).
+ * Falcon VIDEL display backend (ADR-0005) — 16bpp TrueColor LUT path.
  *
- * Implements the display HAL (platform/include/display.h) on the Atari
- * Falcon030's VIDEL video. The engine draws into a chunky 8-bit surface;
- * the Falcon's 256-colour mode is 8 interleaved bitplanes, so present()
- * does a chunky-to-planar conversion onto the screen.
+ * The engine draws into a chunky 8-bit surface (unchanged). Instead of the
+ * old chunky-to-planar (C2P) conversion onto an 8-plane 256-colour screen —
+ * which shuffles bits across 8 interleaved planes and cost a full pass plus a
+ * Vsync per present — this backend runs the VIDEL in 16bpp TrueColor and
+ * present() is a tight 8->16 LUT blit: each chunky byte indexes a 256-entry
+ * RGB565 lookup table, written as one word to the screen. No plane shuffling,
+ * no palette hardware in the hot path (the LUT is rebuilt only on a palette
+ * change), and the flip latches at the next vblank without the per-present
+ * Vsync stall that caused the input lag.
  *
- * init() switches the VIDEL to a native 256-colour 320x200 mode (matching
- * the Mac game's logical screen): mode 0x003 on an RGB/TV monitor, or
- * 0x113 (320x240) on VGA where 320x200 isn't available. It sizes the
- * planar screen from VgetSize().
+ * Double-buffered in ST-RAM; VsetScreen latches physbase at the next vblank,
+ * so present() returns immediately and the beam still only scans a complete
+ * buffer. The 8-bit surface is sized to the VIDEL mode (V_X_MAX x V_Y_MAX);
+ * the game uses its top 320x200, the rest is the letterbox surround.
  *
- * First cut — single-buffered, with a naive (correct but slow) c2p. A fast
- * c2p and double-buffering are follow-ups.
+ * First cut: portable C LUT blit. The 68030 asm inner loop (longword reads,
+ * 4 px/iteration) is a follow-up behind a self-test gate, like the old C2P.
  */
 
 #include <mint/osbind.h>
@@ -24,135 +29,131 @@
 #include "display.h"
 #include "dbglog.h"
 
-static dsp_surface_t  g_surface;
-/* Double-buffered planar screen: c2p always writes the back buffer (never
- * displayed), then we flip physbase to it at vsync — so the beam never sees
- * a half-converted frame (the old single buffer tore on every move). */
-static void          *g_screen_raw[2];  /* the two Mxalloc'd blocks        */
-static unsigned char *g_screen[2];      /* 256-byte-aligned planar screens */
-static short          g_front;          /* index currently displayed       */
-static long           g_screen_bytes;   /* size of one planar buffer       */
+static dsp_surface_t  g_surface;          /* the 8-bit chunky buffer the game draws */
+
+/* Double-buffered 16bpp screen in ST-RAM. present() always writes the back
+ * (off-screen) buffer, then points the VIDEL base at it; the latch happens at
+ * the next vblank, so the beam never scans a half-blitted frame. */
+static void          *g_screen_raw[2];    /* the two Mxalloc'd blocks         */
+static unsigned short *g_screen[2];        /* 256-byte-aligned 16bpp screens   */
+static short          g_front;            /* index currently displayed        */
+static short          g_scr_words;        /* 16bpp screen rowbytes, in words  */
+static long           g_screen_bytes;     /* size of one 16bpp buffer         */
 static short          g_save_mode;
 static void          *g_save_log;
 static void          *g_save_phys;
-static long           g_save_palette[256];   /* desktop palette, restored on exit */
+static long           g_save_palette[256];
 
-/* c2p group converters (defined below) + the self-test gate. */
-extern void c2p_group_asm(const unsigned long *src, unsigned short *dst);
-static void c2p_group_c(const unsigned long *sl, unsigned short *pw);
-static int  g_c2p_use_asm = 0;
+/* 8-bit palette index -> RGB565 word. Rebuilt by videl_set_palette. */
+static unsigned short g_lut[256];
 
 static int videl_init(short want_w, short want_h)
 {
 	short w, h, newmode;
 	long  bytes, raw;
+	short b;
 
 	(void)want_w;
 	(void)want_h;
 
-	/* Save the current mode, screen base, and palette for shutdown. */
 	g_save_mode = VsetMode(-1);
 	g_save_log  = (void *)Logbase();
 	g_save_phys = (void *)Physbase();
 	VgetRGB(0, 256, g_save_palette);
 
-	/* The Mac game renders a 320x200 logical screen, so match it 1:1
-	 * rather than the old 320x400 (VERTFLAG) buffer — that left the whole
-	 * play area in the top half (the engine's jt1135 transform is scaled
-	 * for 320x200) with 200 dead lines below.
-	 *
-	 * The exact 320x200 mode is monitor-dependent: an RGB/TV monitor does
-	 * 320x200 directly (NTSC, no VERTFLAG, mode 0x003); a VGA monitor's
-	 * smallest VIDEL res is 320x240 (VGA + double-line, mode 0x113). Pick
-	 * from the boot mode's VGA bit. Both are 256-colour (BPS8) with
-	 * STMODES (the 16-colour ST-shifter compat flag) cleared. Size the
-	 * surface from VgetSize() after the switch. */
+	/* 16bpp TrueColor, same geometry as the 8bpp path: 320x240 on VGA
+	 * (VGA + double-line), 320x200 on an RGB/TV monitor. BPS16 swaps the
+	 * 256-colour planar mode for a 1-word-per-pixel chunky screen, so no
+	 * c2p. (If a monitor needs COL80 for 320-wide 16bpp, that is the knob
+	 * to flip — the logged width below tells.) */
 	if (g_save_mode & VGA)
-		newmode = (short)(VGA | VERTFLAG | BPS8);   /* 0x113 -> 320x240 */
+		newmode = (short)(VGA | VERTFLAG | BPS16);   /* 320x240 16bpp */
 	else
-		newmode = (short)(BPS8);                    /* 0x003 -> 320x200 */
+		newmode = (short)(BPS16);                    /* 320x200 16bpp */
 	dbg_log_num("  videl_init: old mode = ", g_save_mode);
 	dbg_log_num("  videl_init: new mode = ", newmode);
 
 	VsetMode(newmode);
 	linea0();
 	w = (short)V_X_MAX;
-	bytes = VgetSize(newmode);                   /* 8bpp planar: W*H bytes */
-	h = (short)(bytes / w);
+	bytes = VgetSize(newmode);                   /* 16bpp: W*H*2 bytes */
+	h = (short)(bytes / ((long)w * 2));
+	g_scr_words = (short)(bytes / h / 2);        /* rowbytes / 2 = words/row */
 	dbg_log_num("  videl_init: width    = ", w);
 	dbg_log_num("  videl_init: height   = ", h);
 	dbg_log_num("  videl_init: bytes    = ", bytes);
-	dbg_log_num("  videl_init: V_Y_MAX  = ", V_Y_MAX);
+	dbg_log_num("  videl_init: words/row= ", g_scr_words);
 
-	g_surface.pixels = malloc((size_t)bytes);
+	/* The 8-bit chunky surface the game renders into (unchanged shape). */
+	g_surface.pixels = malloc((size_t)((long)w * h));
 	if (g_surface.pixels == NULL) {
-		dbg_log("  videl_init: malloc FAILED");
+		dbg_log("  videl_init: surface malloc FAILED");
 		VsetMode(g_save_mode);
 		return -1;
 	}
-	memset(g_surface.pixels, 0, (size_t)bytes);   /* clear chunky surface so
-	                                               * uninitialised bytes don't
-	                                               * c2p to boot-time garbage */
 	g_surface.width  = w;
 	g_surface.height = h;
 	g_surface.pitch  = w;
+	memset(g_surface.pixels, 0, (size_t)((long)w * h));
 
-	/* Two planar buffers for double buffering (see present()). */
+	/* Two 16bpp ST-RAM screens (the VIDEL DMAs them, so ST-RAM). */
 	g_screen_bytes = bytes;
-	{
-		short b;
-		for (b = 0; b < 2; b++) {
-			raw = Mxalloc(bytes + 256, 0);       /* 0 = ST-RAM */
-			if (raw <= 0) {
-				dbg_log("  videl_init: Mxalloc FAILED");
-				if (b > 0) Mfree(g_screen_raw[0]);
-				free(g_surface.pixels);
-				g_surface.pixels = NULL;
-				VsetMode(g_save_mode);
-				return -1;
-			}
-			g_screen_raw[b] = (void *)raw;
-			g_screen[b] = (unsigned char *)((raw + 255) & ~255L);
-			memset(g_screen[b], 0, (size_t)bytes);
+	for (b = 0; b < 2; b++) {
+		raw = Mxalloc(bytes + 256, 0);           /* 0 = ST-RAM */
+		if (raw <= 0) {
+			dbg_log("  videl_init: Mxalloc FAILED");
+			if (b > 0) Mfree(g_screen_raw[0]);
+			free(g_surface.pixels);
+			g_surface.pixels = NULL;
+			VsetMode(g_save_mode);
+			return -1;
 		}
+		g_screen_raw[b] = (void *)raw;
+		g_screen[b] = (unsigned short *)((raw + 255) & ~255L);
+		memset(g_screen[b], 0, (size_t)bytes);   /* black, incl. letterbox */
 	}
 	g_front = 0;
-	VsetScreen(g_screen[0], g_screen[0], -1, -1);  /* point the VIDEL at it */
+	VsetScreen(g_screen[0], g_screen[0], -1, -1);
 
-	/* Self-test the hand-asm c2p against the C reference on a fixed
-	 * pattern; only enable it if they agree byte-for-byte (else a bug in
-	 * the asm degrades to the C path instead of corrupting the screen). */
+	/* Black the VIDEL overscan border: even in TrueColor the border colour is
+	 * driven by Falcon palette register 0 (the desktop left it light). The
+	 * engine no longer uses the hardware palette — pixels go through the LUT —
+	 * so index 0 is free to pin black. */
 	{
-		static const unsigned long t_in[4] = {
-			0x12345678UL, 0x9ABCDEF0UL, 0x0F1E2D3CUL, 0x4B5A6978UL
-		};
-		unsigned short a[8], c[8];
-		short i, ok = 1;
-		c2p_group_asm(t_in, a);
-		c2p_group_c(t_in, c);
-		for (i = 0; i < 8; i++)
-			if (a[i] != c[i]) ok = 0;
-		g_c2p_use_asm = ok;
-		dbg_log_num("  videl_init: c2p asm ok = ", ok);
+		long black = 0;
+		VsetRGB(0, 1, &black);
 	}
 
-	dbg_log("  videl_init: done");
+	/* Seed the LUT from the desktop palette so an early present isn't pure
+	 * black; the engine reinstalls its own CLUT (clut 129) on boot. */
+	{
+		short i;
+		for (i = 0; i < 256; i++) {
+			unsigned long e = (unsigned long)g_save_palette[i];
+			unsigned short r = (unsigned short)((e >> 16) & 0xff);
+			unsigned short gg = (unsigned short)((e >> 8) & 0xff);
+			unsigned short bb = (unsigned short)(e & 0xff);
+			g_lut[i] = (unsigned short)(((r & 0xf8) << 8)
+			                          | ((gg & 0xfc) << 3)
+			                          | (bb >> 3));
+		}
+	}
+
+	dbg_log("  videl_init: done (16bpp LUT)");
 	return 0;
 }
 
 static void videl_shutdown(void)
 {
-	VsetMode(g_save_mode);                     /* restore the desktop mode  */
+	short b;
+	VsetMode(g_save_mode);
 	VsetScreen(g_save_log, g_save_phys, -1, -1);
-	VsetRGB(0, 256, g_save_palette);           /* restore the desktop palette */
-	{
-		short b;
-		for (b = 0; b < 2; b++)
-			if (g_screen_raw[b] != NULL) {
-				Mfree(g_screen_raw[b]);
-				g_screen_raw[b] = NULL;
-			}
-	}
+	VsetRGB(0, 256, g_save_palette);
+	for (b = 0; b < 2; b++)
+		if (g_screen_raw[b] != NULL) {
+			Mfree(g_screen_raw[b]);
+			g_screen_raw[b] = NULL;
+		}
 	free(g_surface.pixels);
 	g_surface.pixels = NULL;
 }
@@ -162,134 +163,81 @@ static dsp_surface_t *videl_surface(void)
 	return &g_surface;
 }
 
-/*
- * 8x8 bit-matrix transpose, 32-bit native (Hacker's Delight
- * transpose8rS32), operating in place on the two longs (x = source bytes
- * 0..3, y = bytes 4..7, each byte = one pixel, pixel 0 in the MSB). After
- * it, x/y hold the transposed bytes: byte i gathers bit i of the 8 source
- * pixels — i.e. all eight plane rows at once. The 030 has no 64-bit ALU,
- * so this 32-bit path avoids the emulated long-long the first cut used,
- * and taking longs in/out (vs byte arrays) drops 16 byte loads/stores per
- * 8 px — that I/O, not the math, was the cost.
- */
-#define C2P_TR8(x, y) do {                                            \
-	unsigned long t_;                                                \
-	t_ = ((x) ^ ((x) >> 7))  & 0x00AA00AAUL; (x) ^= t_ ^ (t_ << 7);  \
-	t_ = ((y) ^ ((y) >> 7))  & 0x00AA00AAUL; (y) ^= t_ ^ (t_ << 7);  \
-	t_ = ((x) ^ ((x) >> 14)) & 0x0000CCCCUL; (x) ^= t_ ^ (t_ << 14); \
-	t_ = ((y) ^ ((y) >> 14)) & 0x0000CCCCUL; (y) ^= t_ ^ (t_ << 14); \
-	t_ = ((x) & 0xF0F0F0F0UL) | (((y) >> 4) & 0x0F0F0F0FUL);          \
-	(y) = (((x) << 4) & 0xF0F0F0F0UL) | ((y) & 0x0F0F0F0FUL);         \
-	(x) = t_;                                                        \
-} while (0)
-
-/* One 16-pixel group, chunky (4 longs) -> 8 plane words. The C reference;
- * the hand-asm c2p_group_asm is a faithful translation, self-tested
- * against this at init. */
-static void c2p_group_c(const unsigned long *sl, unsigned short *pw)
+/* 8->16 LUT blit: chunky rows [y0,y1), columns [x0,x1) -> the 16bpp buffer
+ * `dst`. One word per pixel via the RGB565 LUT. The C reference; a 68030 asm
+ * inner loop (longword reads, 4 px/iter) is the follow-up. */
+static void videl_lut_blit(unsigned short *dst, short y0, short y1,
+                           short x0, short x1)
 {
-	unsigned long hx = sl[0], hy = sl[1];   /* pixels 0..7  */
-	unsigned long lx = sl[2], ly = sl[3];   /* pixels 8..15 */
-
-	C2P_TR8(hx, hy);
-	C2P_TR8(lx, ly);
-	pw[0] = (unsigned short)(((hy & 0xff) << 8) | (ly & 0xff));
-	pw[1] = (unsigned short)((((hy >> 8) & 0xff) << 8) | ((ly >> 8) & 0xff));
-	pw[2] = (unsigned short)((((hy >> 16) & 0xff) << 8) | ((ly >> 16) & 0xff));
-	pw[3] = (unsigned short)((((hy >> 24) & 0xff) << 8) | ((ly >> 24) & 0xff));
-	pw[4] = (unsigned short)(((hx & 0xff) << 8) | (lx & 0xff));
-	pw[5] = (unsigned short)((((hx >> 8) & 0xff) << 8) | ((lx >> 8) & 0xff));
-	pw[6] = (unsigned short)((((hx >> 16) & 0xff) << 8) | ((lx >> 16) & 0xff));
-	pw[7] = (unsigned short)((((hx >> 24) & 0xff) << 8) | ((lx >> 24) & 0xff));
-}
-
-/*
- * Chunky 8-bit -> Falcon 8-plane interleaved over the 16-pixel-group
- * columns [g0,g1) of rows [y0,y1). The surface is 4-aligned (malloc base,
- * even pitch, 16-px groups) so the group reads four aligned longs. Uses
- * the asm group converter when the self-test passed, else the C one.
- */
-static void videl_c2p_rows(unsigned char *dst, short y0, short y1,
-                           short g0, short g1)
-{
-	short w = g_surface.width;
-	const unsigned char *src = g_surface.pixels + (long)y0 * g_surface.pitch;
-	unsigned char       *row = dst + (long)y0 * w;
-	short y, g;
+	short y, x, n = (short)(x1 - x0);
+	const unsigned char *src = g_surface.pixels
+	                         + (long)y0 * g_surface.pitch + x0;
+	unsigned short      *row = dst + (long)y0 * g_scr_words + x0;
 
 	for (y = y0; y < y1; y++) {
-		const unsigned long *sl = (const unsigned long *)(src + g0 * 16);
-		unsigned short      *pw = (unsigned short *)(row + g0 * 16);
-
-		if (g_c2p_use_asm)
-			for (g = g0; g < g1; g++, sl += 4, pw += 8)
-				c2p_group_asm(sl, pw);
-		else
-			for (g = g0; g < g1; g++, sl += 4, pw += 8)
-				c2p_group_c(sl, pw);
-
+		for (x = 0; x < n; x++)
+			row[x] = g_lut[src[x]];
 		src += g_surface.pitch;
-		row += w;                        /* 8bpp planar rowbytes == width */
+		row += g_scr_words;
 	}
 }
 
-/* Flip: make the just-converted back buffer visible at the next vblank.
- * VsetScreen latches physbase at vblank; Vsync waits for it, so the beam
- * only ever scans a fully-converted buffer (no mid-frame tear). */
-static void videl_flip(unsigned char *back)
+/* Flip: point the VIDEL base at the just-blitted back buffer. VsetScreen
+ * latches physbase at the next vblank, so this returns immediately (no Vsync
+ * stall) and the beam still only scans a complete buffer. */
+static void videl_flip(unsigned short *back)
 {
 	VsetScreen(back, back, -1, -1);
-	Vsync();
 }
 
 static void videl_present(void)
 {
 	short back = (short)(1 - g_front);
-	videl_c2p_rows(g_screen[back], 0, g_surface.height, 0, g_surface.width / 16);
+	videl_lut_blit(g_screen[back], 0, g_surface.height, 0, g_surface.width);
 	videl_flip(g_screen[back]);
 	g_front = back;
 }
 
-/* Convert only the dirty rect (snapped to 16-pixel groups, clamped) into
- * the hidden back buffer, then flip. The static surround is identical in
- * both buffers (cleared at init, black for the dungeon view), so only the
- * viewport is reconverted each frame yet the whole frame stays consistent. */
+/* Present only the dirty rect. The surround is identical in both buffers, so
+ * only the rect needs re-blitting. */
 static void videl_present_rect(short x, short y, short w, short h)
 {
 	short back = (short)(1 - g_front);
-	short gmax = g_surface.width / 16;
-	short g0 = (short)(x / 16);
-	short g1 = (short)((x + w + 15) / 16);
+	short x1 = (short)(x + w);
 	short y1 = (short)(y + h);
 
+	if (x < 0) x = 0;
 	if (y < 0) y = 0;
+	if (x1 > g_surface.width)  x1 = g_surface.width;
 	if (y1 > g_surface.height) y1 = g_surface.height;
-	if (g0 < 0) g0 = 0;
-	if (g1 > gmax) g1 = gmax;
-	if (y1 <= y || g1 <= g0)
+	if (x1 <= x || y1 <= y)
 		return;
-	videl_c2p_rows(g_screen[back], y, y1, g0, g1);
+	videl_lut_blit(g_screen[back], y, y1, x, x1);
 	videl_flip(g_screen[back]);
 	g_front = back;
 }
 
+/* Rebuild the 8->RGB565 LUT from the engine's palette. The 8-bit RGB
+ * components are truncated to 5/6/5 bits. */
 static void videl_set_palette(const dsp_color_t *colors, short first,
                               short count)
 {
-	long  entry[256];
 	short i;
 
-	if (count > 256)
-		count = 256;
-	for (i = 0; i < count; i++)
-		entry[i] = ((long)colors[i].r << 16)
-		         | ((long)colors[i].g << 8)
-		         |  (long)colors[i].b;
-	VsetRGB(first, count, entry);
+	if (first < 0) first = 0;
+	if (first + count > 256) count = (short)(256 - first);
+	for (i = 0; i < count; i++) {
+		unsigned short r = colors[i].r;
+		unsigned short g = colors[i].g;
+		unsigned short b = colors[i].b;
+		g_lut[first + i] = (unsigned short)(((r & 0xf8) << 8)
+		                                  | ((g & 0xfc) << 3)
+		                                  | (b >> 3));
+	}
 }
 
 static const dsp_backend_t videl_backend = {
-	"VIDEL (Falcon)",
+	"VIDEL (Falcon 16bpp)",
 	videl_init,
 	videl_shutdown,
 	videl_surface,
@@ -301,6 +249,6 @@ static const dsp_backend_t videl_backend = {
 const dsp_backend_t *dsp_detect(void)
 {
 	/* TODO: probe the _VDO cookie to tell Falcon (VIDEL) from TT
-	 * (TT-shifter). Until the TT backend exists, return VIDEL. */
+	 * (TT-shifter) and pick the matching backend. Only VIDEL today. */
 	return &videl_backend;
 }
