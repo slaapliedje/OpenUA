@@ -134,6 +134,28 @@ them word-strided, and the savegame-loader translation must de-stride.
    200..216 (verified: no a0/a1 reads there in the disasm), so the port flag is
    collision-free and round-trips through the .cch save as harmless padding. No
    relocation needed.
+2. **DONE 2026-06-15 — overlay the faithful fields onto the pool record.** After
+   cg_build_record, jt574 copies cg_rec's faithful char-gen fields onto the new
+   pool record (race@88, class@89, gender@92, align@93, abilities+exc-str
+   @112..125, icon@188, proficiency@339..354, maxHP word@82), so a port-created
+   character is faithful ON DISK (jt578 saves the real offsets). The port
+   display offsets (200..216) + shared combat stats (384..396) are untouched, so
+   the roster is unchanged. NOTE this is intentionally a dual-layout step, not
+   the offset repoint: repointing before the pool record IS cg_rec is premature,
+   and CHAR_CLASS is a 6-value port encoding vs the faithful 0..16 — those are a
+   model change, not an offset change.
+
+### The remaining TRUE single-layout switch (its own focused effort)
+
+To retire 200..216 entirely the pool record must BECOME cg_rec (faithful) and
+~68 readers switch atomically (they can't stage — a reader on the old offset
+reads 0 from a faithful record). That switch also needs: the CHAR_STATS readers
+moved from `[CHAR_STATS+i]` to the word-strided `[112+i*2]`; the name tables
+reordered to the faithful index order (race 0=Elf..5=Human from the racial-mod
+switch + list positions; class to the 0..16 model; align order TBD from rec[93]);
+CHAR_MAXHP widened to the word@82; and the HP/AC/THAC0/Move/level gaps in cg_rec
+filled (l29ae HP + level 1 + the AC/THAC0/Move the deferred jt885 tail sets). It
+is verifiable only in Hatari, field by field — best done as a dedicated pass.
 3. **Repoint the confirmed, unambiguous fields**: CHAR_RACE→88, CHAR_CLASS→89,
    CHAR_ALIGN→93, CHAR_STATS→112. Drop the savegame-loader's faithful→port
    translation for these (it becomes a no-op). Verify the roster + a loaded
