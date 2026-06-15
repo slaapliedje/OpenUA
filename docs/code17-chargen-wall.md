@@ -26,9 +26,10 @@ jt574(existing):                                  STATUS
                                                           jt574's Done branch.
                                                           gender×type×class×align
                                                           → rec[188] body shape.
-  if new: L1346 (=jt573) REVIEW/MODIFY screen     DONE  (driver + L11ac builder +
-                                                          jt562/563/564/565 procs;
-                                                          grid PAINT L09dc deferred)
+  if new: L1346 (=jt573) REVIEW/MODIFY screen     DONE + WIRED into jt574 after
+                                                          L0006 (ctx==0 gate; Exit
+                                                          aborts the create). Grid
+                                                          icons await jt110 loader.
   "Save %s?" jt488 + jt159 confirm                LIFTED deps
   L3cd4 (=jt575) proficiency bitfield finalize    LIFTED (l3cd4_c17); wired into
                                                           jt574 after L0006.
@@ -43,9 +44,13 @@ jt574(existing):                                  STATUS
                                                           jt584 = CODE 15 save STUB)
 ```
 
-Port `jt574` currently runs the faithful pick screen then a **port-side**
-finalize (`cg_roll_stats` / `cg_build_record`, placeholder name). Replacing that
-tail with the faithful chain above is the bulk of #101.
+Port `jt574` runs the faithful pick screen (`l3666`) then the faithful finalize
+chain — `l238e_c17` (name) → `l0006_c17` (body icon) → **`jt573(0)` REVIEW screen
+(WIRED)** → `l3cd4_c17` (proficiency) — followed by the port-side
+`cg_build_record` overlay (faithful fields copied onto the new pool record).
+Remaining to fully faithfulize the tail: replace `cg_build_record` with the Mac
+"Save %s?" `jt159` confirm + `L455c` equipment grant + `jt584` `.CHR` save (and
+the port-side roster overlay retired once the single record layout is live).
 
 ### Body-icon grid sub-cluster (reached only from L1346/jt573) — DONE
 `L11ac` builds the 7×7 body-icon grid screen each frame and registers it via the
@@ -232,3 +237,12 @@ both directions and self-test-verified.
   the render logic is faithful. jt384 sources must be Pascal strings → the
   multi-class component names go through ua_strs_at(). cg-audit PASS. The
   jt573 review-screen cluster is now fully lifted except the jt110 art leaf.
+- 2026-06-15: WIRED jt573 into jt574's create flow at the faithful Mac
+  position (L3b5e: after L0006, gated on ctx==0 = new character; Exit aborts
+  the whole create before the roster add). The create finalize chain is now
+  l3666 pick -> l238e name -> l0006 body icon -> jt573 review -> l3cd4
+  proficiency -> port cg_build_record overlay. Safe for cg-audit: the headless
+  probe never completes l3666's modal (no input), so the finalize tail/jt573
+  are unreached there; the boot self-tests print PASS earlier. Interactive
+  Hatari verify still pending (the review screen runs, grid icons blank until
+  the jt110 DUNGCOM1 loader is lifted).
