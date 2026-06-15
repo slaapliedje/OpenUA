@@ -20675,6 +20675,47 @@ static void l0006_c17(void)
 	}
 }
 
+/* L238e (CODE 17 + 0x238e) — character-NAME entry. Prompts "Character name:"
+ * in a framed input box (jt98, max 15 chars), stores the typed C string in
+ * rec[96], then derives the 8-char design save-basename (jt130, from the
+ * -31268 name table, uppercased) into a scratch buffer and validates it:
+ * retry while the basename is empty AND the "accept" flag jt91 (-17528) is set,
+ * or while its first byte is an ASCII digit '0'..'9'. Faithful transcription.
+ *
+ * NOT wired into the live jt574 create flow yet: jt98 delegates keystroke
+ * collection to jt1078 (the CODE 5 modal line editor), still a PROBE stub, so
+ * the box would draw but collect nothing and accept an empty name. l238e_c17
+ * goes live the moment jt1078 is lifted; until then jt574 keeps the port-side
+ * placeholder name. */
+static char         *jt98(long prompt, short fg, short bg, short maxlen);
+static void          jt130(char *buf);
+static unsigned char jt91(void);
+static void l238e_c17(unsigned char *rec) __attribute__((unused));
+static void l238e_c17(unsigned char *rec)
+{
+	char base[16];
+
+	PROBE("L238e");
+	for (;;) {
+		char *name = jt98((long)(uintptr_t)ua_strs_at(0x485e)
+		                  /* "Character name:" */, 0, 0, 15);
+
+		jt384((char *)rec + 96, name);   /* store entered name in rec[96] */
+		jt384(base, (char *)rec + 96);   /* copy to the scratch buffer */
+		jt130(base);                     /* -> 8-char uppercase basename */
+
+		if (base[0] == 0) {
+			if (jt91())              /* empty + accept-flag set: retry */
+				continue;
+			break;                   /* empty, flag clear: accept */
+		}
+		if (base[0] >= '0' && base[0] <= '9')   /* leading digit: retry */
+			continue;
+		break;
+	}
+	(void)jt91();                            /* mirrors the Mac's trailing read */
+}
+
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
  * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls

@@ -17,7 +17,10 @@ jt574(existing):                                  STATUS
     ├ jt569/jt570 ALIGNMENT axes  jt571 Exit      LIFTED
     └ jt572 Done (commit, sets -27932=rec)        LIFTED
   L29ae  max-HP finalize                          LIFTED (l29ae)
-  L238e  character-NAME entry (jt98 box loop)     TODO  (~35 lines, leaf)
+  L238e  character-NAME entry (jt98 box loop)     LIFTED (l238e_c17), un-wired —
+                                                          gated on jt1078 (the
+                                                          CODE 5 modal line
+                                                          editor) being lifted
   L0006  body-icon finalize (rec[188])            LIFTED (l0006_c17); wired into
                                                           jt574's Done branch.
                                                           gender×type×class×align
@@ -59,6 +62,17 @@ together with jt573 (they are untestable until jt573 has a runtime path):
 - jt561 (0x4d62) empty (`rts`) — faithful no-op.  **NOOP whitelist this session.**
 - jt559 (0x4df0) setter g_a5_-6927 = arg.  LIFTED.
 
+## Blocker: jt1078 (CODE 5 + 0x440) — the modal line editor
+
+`jt98` (the framed input box) draws the border + label, then delegates the
+actual keystroke loop to `jt1078`, which is still a PROBE stub ("input pends").
+So **functional name entry needs jt1078 lifted** — it's ~400 lines wired into
+the event/window subsystem (JT[1134] key events, JT[1141]/1148/1153, the
+-4886/-4860/-4880/-4870 window-context tables). Until it lands, l238e_c17 stays
+un-wired and jt574 keeps the port-side placeholder name. Lifting jt1078 is the
+single highest-value next step for the CREATE flow (it unblocks L238e wiring and
+any other faithful text-input screen).
+
 ## Done-criteria for #101
 All 20 JT entries LIFTED/NOOP **and** `jt574` runs the faithful finalize/name/
 save chain (A) instead of the port stand-in, **and** the Training Hall calls the
@@ -71,6 +85,9 @@ faithful jt557 (B) instead of `cg_train_screen`. Cross-segment leaf `jt584`
 - 2026-06-15: lifted L0006 (l0006_c17) the body-icon finalize — faithful
   gender × combination-type × class × alignment(%3) → rec[188] dispatch, wired
   into jt574's Done branch at the Mac call position (after L29ae). 48 distinct
-  body-shape ids. Next: L238e name entry, then the L1346 review screen (drives
-  the align-grid cluster) and L3cd4/L455c/jt584 save tail; then the TRAIN
-  screen (B).
+  body-shape ids.
+- 2026-06-15: lifted L238e (l238e_c17) the character-name entry — faithful
+  jt98 prompt + jt130 basename + empty/leading-digit validation loop. Left
+  un-wired: blocked on jt1078 (the modal line editor stub). NEXT = jt1078 to
+  make name entry functional, then wire l238e_c17 live; afterwards the L1346
+  review screen + L3cd4/L455c/jt584 save tail; then the TRAIN screen (B).
