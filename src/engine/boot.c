@@ -20530,6 +20530,27 @@ static void jt572(void)
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
 }
 
+/* JT[558] (CODE 17 + 0x6bee) — multi-class active-slot finder. For a
+ * combination-type-5 record (rec[88] == 5, i.e. a multi-class character) return
+ * the first class slot 0..5 whose per-class field rec[164+slot] is non-zero;
+ * single-class (or none found) returns 17. The Training Hall (CODE 12) uses this
+ * to pick which class line to advance. */
+static short jt558(unsigned char *rec) __attribute__((unused));
+static short jt558(unsigned char *rec)
+{
+	short slot;
+
+	PROBE("jt558");
+	if (rec[88] != 5)
+		return 17;
+	for (slot = 0; slot < 6; slot++)
+		if (rec[164 + slot] != 0)
+			break;
+	if (slot < 6 && (signed char)rec[164 + slot] > 0)
+		return slot;
+	return 17;
+}
+
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
  * seeds the wizard state (step g_a5_-7018). The FULL Mac body then rolls
