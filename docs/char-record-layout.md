@@ -145,6 +145,22 @@ them word-strided, and the savegame-loader translation must de-stride.
    and CHAR_CLASS is a 6-value port encoding vs the faithful 0..16 — those are a
    model change, not an offset change.
 
+### Single-layout switch — field-by-field status
+
+Stage 2's dual-population means each field flips independently (both offsets live
+on every record), each separately Hatari-verifiable. Per-field state:
+
+| field | faithful offset | status / complication |
+|---|---|---|
+| **abilities** | rec[112+i*2] words | **DONE (6d79358)** — CHAR_STAT(rec,i) macro; all readers/writers/loader/seed switched. |
+| race | rec[88] (byte) | value-identical at 88 and 200, BUT the savegame loader stubs `dst[CHAR_RACE]=0` (forces Human) — switching makes it clobber the memcpy'd faithful race; must drop that stub first. AND k_roster_races needs the faithful index order (0=Elf,1=Half-Elf,2=Dwarf,3=Gnome,4=Halfling,5=Human — from the racial-mod switch + list positions). |
+| level | rec[157] (per-class, byte) | cg_rec[157] is 0 (l24d2 only normalises non-zero slots); must set rec[157]=1 for a new char before the reader flips. |
+| alignment | rec[93] (linear 0..8) | verify s.aligned[s.asel] (port pick) == cg_rec[93] (faithful jt569/570 linear index) — encodings may differ; reorder cg_aligns to faithful order. |
+| max HP | rec[82] (WORD) | the port reads CHAR_MAXHP as a byte; @82 is a big-endian word (byte@82 = high byte = 0 for HP<256). Needs word readers, not a repoint. |
+| XP | TBD | the long XP offset isn't pinned; decode from the CODE 19 "Experience:" display. |
+| **class** | rec[89] (0..16) | the deep one: the port uses a 6-value enum (k_roster_classes); faithful rec[89] is the 0..16 single+multi-class model. A model change (17-entry name table + multi-class), not an offset flip. |
+| in-party | rec[210] | stays — port-only flag, no faithful collision. |
+
 ### The remaining TRUE single-layout switch (its own focused effort)
 
 To retire 200..216 entirely the pool record must BECOME cg_rec (faithful) and
