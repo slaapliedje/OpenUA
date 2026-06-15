@@ -73,23 +73,30 @@ def test_missing_when_absent():
     assert jp.classify(424242, {}) == "MISSING"
 
 
-def test_standin_number_with_real_body_is_standin():
+# A synthetic stand-in number for the mechanism tests, so they don't depend on
+# the live STANDIN dict (which may legitimately be empty once every flagged
+# stand-in has been replaced by a faithful lift — as of 2026-06-15 it is).
+_SYNTH_STANDIN = 99999
+
+
+def test_standin_number_with_real_body_is_standin(monkeypatch):
     # a flagged stand-in has a real body but is NOT a faithful lift
-    n = next(iter(jp.STANDIN))
+    monkeypatch.setattr(jp, "STANDIN", {_SYNTH_STANDIN: "synthetic"})
     body = " PROBE(\"x\"); l309c_tile(page, top, left, h, idx); "
-    assert jp.classify(n, {n: body}) == "STANDIN"
+    assert jp.classify(_SYNTH_STANDIN, {_SYNTH_STANDIN: body}) == "STANDIN"
 
 
-def test_standin_flag_does_not_mask_a_stub_regression():
+def test_standin_flag_does_not_mask_a_stub_regression(monkeypatch):
     # if a stand-in decays to a bare stub, it must read as STUB, not STANDIN
-    n = next(iter(jp.STANDIN))
-    assert jp.classify(n, {n: " PROBE(\"x\"); return 0; "}) == "STUB"
+    monkeypatch.setattr(jp, "STANDIN", {_SYNTH_STANDIN: "synthetic"})
+    assert jp.classify(_SYNTH_STANDIN,
+                       {_SYNTH_STANDIN: " PROBE(\"x\"); return 0; "}) == "STUB"
 
 
-def test_standin_absent_body_is_not_standin():
+def test_standin_absent_body_is_not_standin(monkeypatch):
     # no body at all -> MISSING/ALIAS rules win; STANDIN needs a real body
-    n = next(iter(jp.STANDIN))
-    assert jp.classify(n, {}) in ("MISSING", "ALIAS")
+    monkeypatch.setattr(jp, "STANDIN", {_SYNTH_STANDIN: "synthetic"})
+    assert jp.classify(_SYNTH_STANDIN, {}) in ("MISSING", "ALIAS")
 
 
 def test_port_call_frequency_contract():
