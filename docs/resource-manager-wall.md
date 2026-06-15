@@ -309,6 +309,55 @@ faithful release is wired at the event-pic teardown before routing walls, else t
 pool deadlocks ("Out of FAR memory!"). HEIRS 8X8DB directory is IDENTITY -> routing
 won't change the resolved tile (no behaviour change) and does NOT fix garbled walls.
 
+## 2026-06-14f — WALLS -> FC POOL ROUTING: full mechanism mapped (the big one)
+Mapped CODE 7 L6eea + CODE 6 l33ac end-to-end. The faithful path is NOT a simple
+load swap; it is a coupled render-path change. Pieces:
+
+FAITHFUL L6eea(id, type):
+  1. l338c(50)                                  ; JT[113] load-kind
+  2. letter = (id < 10) ? 'b' : 'c'
+  3. arg    = (jt1163() || jt1200()==0) ? 1 : (type+1)   ; colour path -> 1
+  4. name   = jt394("8x8d%c%d", letter, arg)    ; e.g. "8x8db1"
+  5. l33ac(name, id, 0, 0, &slot[-27894+type*4]) ; LOAD INTO FC POOL GROUP
+        - l33ac claims a -18468 binder slot (slot[0]=group id=i+2, slot[1]=kind),
+          builds the per-design override name "<base><digit><kind:03d>.ctl";
+          base "8x8db" is 5 chars > 4 so on GEMDOS it ALWAYS clips -> faithful
+          "no override" -> jt997("8x8db", group) plain-loads 8X8DB.CTL into the
+          pool. The 3 wall types share one file -> jt464 DEDUPS to one ~296K
+          record bound to 3 groups.
+  6. jt107() validate
+  7. SYNTHESIS LOOP (items 4..47, step 3, +1 special at 10): if the loaded
+     group's item size (jt468(slot[0]) -> JT[1015]=l3834 LBISize) < 16, run
+     JT[111] (CODE 6+0x3b1e, near-tile build) + JT[123] (CODE 6+0x3828). COLOUR
+     .ctl ships near tiles present (size>=16) so this is SKIPPED in the port's
+     path; only the 1bpp .tlb deep path needs it. (Currently a deferred TODO.)
+  8. type 0, colour: fill -266[0..255] = id byte; -234[0..36] = type*37 + i + 32
+     (the per-set 37-entry CLUT band at base 32 — the port does this differently
+     in cw_finalize at 32/64/96).
+BLIT consumption (the part that must change to be purge-safe):
+  - jt200 folds a wall code -> group; jt114(page, top, left, idx, HANDLE) at
+    boot.c:10027 reads -27894+group*4. PORT stores a DIRECT sub-GLIB pointer
+    there; FAITHFUL stores a binder-slot ptr and resolves binder -> jt468 ->
+    l37aa(base, set) each blit. jt115 teardown (boot.c:4373, jt209 over the 3
+    slots) already fits the binder model; the port's raw pointer does NOT.
+
+THE HARD TRUTH (why this can't be a safe partial):
+  296K walls (in the pool) + 165K event bigpic + 48K UI = 509K > the 450K
+  Mac-sized pool. The port keeps walls in a 320K static buffer OUTSIDE the pool
+  precisely to dodge this. Routing them IN regresses the event-picture bigpic
+  ("Out of FAR memory") UNLESS the Mac's dispose-the-wall-groups-every-frame
+  (L6234 prologue -> l31dc orphan) + l6148 reload (jt464 cache-hit or
+  repopulate) is ALSO implemented, so the bigpic can purge the (orphaned) walls
+  and the next frame repopulates them. Stages 2 (l33ac load) + 3 (binder/jt468
+  blit) + 4 (dispose-reload + purge interplay) are COUPLED — none ships safely
+  alone. Verify any attempt with the J200DIFF slot trace (must stay
+  byte-identical) + a merchant-event bigpic-still-loads check; the walls are
+  already garbled ([[dungeon-3d-render-state]]) so "faithful-but-garbled" is
+  hard to tell from "broke it" by eye.
+PAYOFF: per-design 8x8db<grp><id> overrides + true purgeable memory (sub-4MB).
+  Does NOT fix the garble (separate slot-faithful puzzle). For HEIRS (identity
+  dir, no overrides) there is NO visible change — only memory model + risk.
+
 ## 2026-06-14e — FC CACHE CORRECTNESS AUDIT (39/39 PASS)
 Added fc_cache_audit() (boot.c, probe-only, run from boot_a5_seed_defaults after
 the pool self-test). It exercises the REAL lifted FC cache end-to-end on an
