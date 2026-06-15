@@ -115,13 +115,30 @@ subsystem, so none is a CODE-17 leaf:
 |---|---|
 | L1346/jt573 review screen | shape-5 grid DLItem method (DLItem infrastructure) |
 | L455c equipment grant      | L439c -> jt902 / jt890 (CODE 19 item-equip) |
-| jt584 .CHR save            | CODE 15 file-write (currently a stub) |
+| jt584 .cch save            | LIFTED — jt584 (UI/path) + jt578 (serializer) + L0ce0 (record swap); replaces the stub, reachable via the "Save Characters" menu (l1060) |
 | jt557/556/560 TRAIN screen | level-up logic (likely CODE 19 too); has a live caller |
 
 Recommendation: the highest-value next subsystem is the **save tail** (jt584 +
 the record/inventory persistence) — it makes every finalize above (L0006/L3cd4/
 L455c) actually matter. The TRAIN screen is the runtime-reachable alternative
 (replaces cg_train_screen). Both are their own multi-function efforts.
+
+## Save tail — LIFTED 2026-06-15
+
+jt584 (save UI) + jt578 (serializer) + L0ce0 (record byte-swap) replace the
+jt584 stub. jt578 writes the 398-byte record + inventory chain (rec[8], 18B/item
+from +40, container sub-items at +58 when type +40=='I') + spell chain (rec[4],
+10B/node), byte-swapping each multi-byte field to the little-endian .cch format
+(jt1180 words / jt1199 longs). All deps were already lifted (jt410 write, l00e0
+opener, l005a precondition, jt419/jt431/jt488/jt159/jt98/jt91/jt176/l17e2).
+Reachable via the "Save Characters" menu (l1060 -> jt584). The serializer is 1:1
+faithful.
+
+CAVEAT (port file layout): jt584's existence check (jt988/l17e2) tests the
+nested `<design>/SAVE/<name>.cch` path, but l00e0 opens the basename via the Mac
+shim (flat gamedata dir). In the port's flat layout the overwrite prompt may not
+find an existing save, so it can re-save without confirming — the write itself
+is correct. A full fix is the SAVE-subfolder staging (task #106 territory).
 
 ## Progress
 - 2026-06-15: mapped the full segment (this file). Lifted jt558 (multi-class
