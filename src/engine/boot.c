@@ -11032,22 +11032,18 @@ static void port_frame_load(void)
 /* ALWAYS.CTL = jt468 group 0 — the always-resident UI glyph GLIB (button
  * faces, radio markers). Loaded resident like FRAME.CTL. */
 static long g_always_base;
+/* ROUTED (RM #127, 2026-06-14): load ALWAYS.CTL through the faithful FC pool
+ * group 0 (jt997 -> jt1014 -> jt464 register + jt987 read-into-pool) instead of
+ * the old resident static-buffer + l37aa shortcut. jt464's cache makes this
+ * load-once; jt468(0) then resolves to the pool base. The re-entrant jt468(0)
+ * inside jt1014's header check is safe — group 0 is already bound by then, so
+ * port_ui_group_base skips the reload. */
+static unsigned char jt997(short mode, const char *name, short group);
 static void port_always_load(void)
 {
-	static unsigned char abuf[8192];
-	short refnum = 0;
-	long  n, base;
-
-	if (g_always_base)
+	if ((signed char)g_a5_10074[0] >= 0)   /* group 0 already bound/loaded */
 		return;
-	if (FSOpen((ConstStr255Param)"\012ALWAYS.CTL", 0, &refnum) != noErr)
-		return;
-	n = (long)sizeof abuf;
-	(void)FSRead(refnum, &n, abuf);
-	(void)FSClose(refnum);
-	base = (long)(uintptr_t)abuf;
-	if (l37aa(base, 0) != 0)               /* 'GLIB' magic */
-		g_always_base = base;
+	jt997((short)0, "ALWAYS", (short)0);   /* -> FC pool group 0 */
 }
 
 /* MENU.CTL = jt468 group 24 — the menu chrome GLIB. Item 1 is a 320x16
@@ -11146,7 +11142,13 @@ static void port_menu_bar(short top, short left, short width, short idx)
 /* jt468 groups 0/1/24 -> the port's resident UI GLIBs (see [[glib-resource-groups]]). */
 static long port_ui_group_base(short group)
 {
-	if (group == 0)  { port_always_load(); return g_always_base; }
+	if (group == 0)  {                      /* ROUTED: ALWAYS.CTL -> FC pool grp 0 */
+		short id;
+		port_always_load();
+		id = (signed char)g_a5_10074[0];
+		return (id >= 0 && (unsigned short)id < (unsigned short)G_A5_10270_LEN)
+		       ? g_a5_10270[id] : 0;
+	}
 	if (group == 1)  { port_frame_load();  return g_frame_base;  }
 	if (group == 24) { port_menu_load();   return g_menu_base;   }
 	return 0;
