@@ -111,3 +111,49 @@ _c2p_group_asm:
 	move.b	%d2,15(%a1)		| lo[0]
 	movem.l	(%sp)+,%d2-%d5
 	rts
+
+| --------------------------------------------------------------------------
+| Fast 8->16 LUT blit for the 16bpp TrueColor present path, 68030.
+|
+| void lutblit_span(const unsigned char *src, unsigned short *dst,
+|                   const unsigned short *lut, long count);
+|   src:   4-aligned chunky bytes (one palette index per pixel).
+|   dst:   16bpp screen words.
+|   lut:   256-entry RGB565 table (one word per index).
+|   count: pixel count, a multiple of 4.
+|
+| Reads a longword (4 pixels, pixel 0 in the MSB), cycles each byte to the
+| LSB with `rol.l #8`, indexes the LUT with the 030 scaled index
+| (a2,d2.w*2), and writes one word per pixel. videl_init self-tests this
+| against the C reference and only uses it if they agree.
+	.text
+	.even
+	.globl	_lutblit_span
+_lutblit_span:
+	movem.l	%d2/%a2,-(%sp)		| callee-saved
+	move.l	12(%sp),%a0		| src
+	move.l	16(%sp),%a1		| dst
+	move.l	20(%sp),%a2		| lut
+	move.l	24(%sp),%d0		| count (pixels)
+	lsr.l	#2,%d0			| groups of 4 pixels
+	beq.s	2f
+	subq.l	#1,%d0			| dbra bias
+	moveq	#0,%d2			| keep the upper bytes zero
+1:
+	move.l	(%a0)+,%d1		| p0 p1 p2 p3  (p0 = MSB)
+	rol.l	#8,%d1			| .b = p0
+	move.b	%d1,%d2
+	move.w	0(%a2,%d2.w*2),(%a1)+	| lut[p0]
+	rol.l	#8,%d1			| .b = p1
+	move.b	%d1,%d2
+	move.w	0(%a2,%d2.w*2),(%a1)+	| lut[p1]
+	rol.l	#8,%d1			| .b = p2
+	move.b	%d1,%d2
+	move.w	0(%a2,%d2.w*2),(%a1)+	| lut[p2]
+	rol.l	#8,%d1			| .b = p3
+	move.b	%d1,%d2
+	move.w	0(%a2,%d2.w*2),(%a1)+	| lut[p3]
+	dbra	%d0,1b
+2:
+	movem.l	(%sp)+,%d2/%a2
+	rts

@@ -47,6 +47,13 @@ static long           g_save_palette[256];
 /* 8-bit palette index -> RGB565 word. Rebuilt by videl_set_palette. */
 static unsigned short g_lut[256];
 
+/* Hand-asm 8->16 LUT blit (c2p.S) + the self-test gate. count is a multiple
+ * of 4 and src must be 4-aligned; videl_lut_blit only takes the asm path when
+ * both hold, else the portable C loop. */
+extern void lutblit_span(const unsigned char *src, unsigned short *dst,
+                         const unsigned short *lut, long count);
+static int g_lut_use_asm = 0;
+
 static int videl_init(short want_w, short want_h)
 {
 	short w, h, newmode;
@@ -139,6 +146,23 @@ static int videl_init(short want_w, short want_h)
 		}
 	}
 
+	/* Self-test the hand-asm LUT blit against the C reference on a fixed
+	 * pattern (4-aligned, count a multiple of 4); only enable it if they
+	 * agree word-for-word, so a bug in the asm degrades to the C loop
+	 * rather than corrupting the screen. */
+	{
+		static unsigned char  tin[8] = { 0, 1, 2, 255, 128, 64, 32, 16 };
+		unsigned short        ta[8], tc[8];
+		short i, ok = 1;
+		lutblit_span(tin, ta, g_lut, 8);
+		for (i = 0; i < 8; i++)
+			tc[i] = g_lut[tin[i]];
+		for (i = 0; i < 8; i++)
+			if (ta[i] != tc[i]) ok = 0;
+		g_lut_use_asm = ok;
+		dbg_log_num("  videl_init: lutblit asm ok = ", ok);
+	}
+
 	dbg_log("  videl_init: done (16bpp LUT)");
 	return 0;
 }
@@ -173,10 +197,17 @@ static void videl_lut_blit(unsigned short *dst, short y0, short y1,
 	const unsigned char *src = g_surface.pixels
 	                         + (long)y0 * g_surface.pitch + x0;
 	unsigned short      *row = dst + (long)y0 * g_scr_words + x0;
+	/* The asm reads longwords, so it needs a 4-aligned start and a count
+	 * that is a multiple of 4. The surface base is malloc-aligned and the
+	 * pitch is a multiple of 4, so (x0 & 3)==0 makes every row start aligned. */
+	int use_asm = g_lut_use_asm && ((x0 & 3) == 0) && ((n & 3) == 0);
 
 	for (y = y0; y < y1; y++) {
-		for (x = 0; x < n; x++)
-			row[x] = g_lut[src[x]];
+		if (use_asm)
+			lutblit_span(src, row, g_lut, (long)n);
+		else
+			for (x = 0; x < n; x++)
+				row[x] = g_lut[src[x]];
 		src += g_surface.pitch;
 		row += g_scr_words;
 	}
