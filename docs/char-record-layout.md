@@ -81,6 +81,32 @@ swapping in the lifted L24d2 is a later faithfulness improvement. So the
 unification is NOT blocked on the roll — it's blocked on the field-map
 confirmation above.
 
+### L24d2 full scope (read 2026-06-15) — why it needs mon verification
+
+L24d2 is bigger than "roll 6 abilities". The full body:
+- **roll loop** (confidently transcribable): per ability i=0..5, roll
+  `jt870(3,6)+1` (=4..19) six times keeping the highest, apply a per-race ±1
+  (JT[3] on rec[88]), store the current byte at rec[113+i*2], copy to the
+  permanent byte rec[112+i*2]; i==0 also rolls exceptional-strength %
+  (rec[124]=jt485(100)+1) and copies to rec[125];
+- **L1672 racial/class clamp** (the 1.5K-line, NON-uniform part) — and the INT
+  arm reads **rec[82] as an age/HP threshold** against -30612, contradicting the
+  save-loader's "rec[82] = maxHP". That field-semantics conflict alone blocks a
+  confident lift;
+- **proficiency spread** over -16906 into rec[339..354] (like L3cd4);
+- design-handle copies (rec[76]/78/80 via jt1199), jt885 (CODE 19 HP roll),
+- then a **wait/reroll loop `while (!-22731) L6cd2()`** — L6cd2 = 0x6cd2 =
+  *entry_jt557* (the train-screen address); why the roll pumps jt557 is unclear.
+
+So a *faithful* L24d2 is ~2000 lines spanning L1672 (non-uniform) + jt885 (CODE
+19) + an unclear jt557 pump, with at least one contradictory field meaning
+(rec[82]). Transcribing it blind, untested, would very likely introduce silent
+stat-corruption — against the lift-real-asm-CORRECTLY principle
+([[feedback-no-shortcuts]]). The right method is **mon-verified incremental**:
+lift, roll a known-seed character on the real Mac, dump rec[112..125], diff,
+fix per ability. That needs the same BasiliskII mon ground-truth the field map
+needs — so the roll and the unification converge on one blocker.
+
 NOTE the abilities are 6 **words** (permanent hi-byte @112+i*2, current @113+i*2,
 both = the roll initially), not 6 contiguous bytes — the migration must store
 them word-strided, and the savegame-loader translation must de-stride.
