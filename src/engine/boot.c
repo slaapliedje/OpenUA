@@ -2189,6 +2189,14 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
                   void **slotpp);
 static long jt468(short tag);
 static void l338c(short mode);
+static int  jt1163(void);
+/* RM #127 binder model: the three wall handles -27894/-27890/-27886 hold per-type
+ * -18468 BINDER slots (slot[0] = the FC group id, written by l33ac), exactly like
+ * every other loader — so the faithful teardown jt209 -> jt115 stamps the binder
+ * (jt461 unbinds the real group) instead of corrupting the tile data. g_wall_set
+ * is the set sub-GLIB index per type; the blit resolves l37aa(jt468(slot[0]),
+ * g_wall_set[type]) each tile (purge-safe: jt468 follows the live base). */
+static short g_wall_set[3];
 
 /* L6eea (CODE 7 + 0x6eea) — load a wall set's tile library into a per-group
  * tile-lib handle for the first-person view. In the DEEP view (jt1200()==3)
@@ -2285,20 +2293,29 @@ static void l6eea(short zone, short type)
 	 * picked by wallset_for_id's file. type 0/1/2 = the level's three wall
 	 * groups (ds[4]=Wall1 -> -27894, ds[5]=Wall2 -> -27890, ds[6]=Wall3 ->
 	 * -27886); jt200 folds a wall code's group and indexes -27894 + group*4. */
-	short file = 0, set = 0;
-	long  base, sub;
+	short id = (short)(zone & 0xff);
+	short file = 0, set = 0, arg;
+	char  name[8];
 
 	PROBE("L6eea");
-	if ((zone & 0xff) == 255 || type < 0 || type > 2)
+	if (id == 255 || type < 0 || type > 2)
 		return;
 	if (!wallset_for_id(zone, &file, &set))
 		return;
-	base = cw_wallfile_load(file);            /* resident in the shared buffer */
-	if (base == 0)
-		return;
-	sub = l37aa(base, set);                   /* the set's 48-tile sub-GLIB */
-	if (sub != 0)
-		g_a5_long(-27894 + (long)type * 4) = sub;
+
+	/* FAITHFUL (CODE 7 L6eea): build "8x8d%c%d" (letter by id band, %d = 1 in the
+	 * colour path else type+1) and load it through l33ac into a FAR-pool group,
+	 * writing a -18468 BINDER slot into -27894+type*4. l33ac releases the prior
+	 * binding (l31dc) first, so a per-frame call is the Mac dispose-and-reload.
+	 * The 3 wall groups share one file -> jt464 dedups to one record. */
+	g_wall_set[type] = set;
+	l338c((short)50);                                  /* JT[113] load kind */
+	arg = (jt1163() || jt1200() == 0) ? 1 : (short)(type + 1);
+	name[0] = '8'; name[1] = 'x'; name[2] = '8'; name[3] = 'd';
+	name[4] = (char)((id < 10) ? 'b' : 'c');
+	name[5] = (char)('0' + (arg & 0x0f));
+	name[6] = '\0';
+	l33ac(name, id, 0, 0, (void **)&g_a5_long(-27894 + (long)type * 4));
 }
 
 /* L6148 (CODE 7 + 0x6148) — load the current level's 3D art. Gated on the
@@ -10058,8 +10075,22 @@ static void jt200_layer(unsigned char *page, short top, short left,
 	/* The group is also its colour slot (Wall1->slot0, Wall2->slot1,
 	 * Wall3->slot2): l309c_tile rebases the tile's 32-based bytes into that
 	 * slot's clut band (32/64/96) so each set keeps its own CLUT. */
+	const short *binder = (const short *)(uintptr_t)g_a5_long(-27894 + (long)group * 4);
+	long base, sub;
+
 	g_cwf_slot = group;
-	jt114(page, top, left, idx, g_a5_long(-27894 + (long)group * 4));
+	/* Binder model: -27894+group*4 is the -18468 binder slot l6eea's l33ac wrote;
+	 * binder[0] is the FC group. Resolve the set's sub-GLIB FRESH each blit —
+	 * jt468 follows the live pool base (purge-safe), l37aa picks this type's set.
+	 * The Mac's jt114 does the same jt468(*handle) indirection (CODE 6 L3804). */
+	if (binder == NULL)
+		return;
+	base = jt468(binder[0]);
+	if (base == 0)
+		return;
+	sub = l37aa(base, g_wall_set[group]);
+	if (sub != 0)
+		jt114(page, top, left, idx, sub);
 }
 
 #ifdef FRUA_SKIP_ENTRY_EVENTS

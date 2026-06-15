@@ -309,6 +309,35 @@ faithful release is wired at the event-pic teardown before routing walls, else t
 pool deadlocks ("Out of FAR memory!"). HEIRS 8X8DB directory is IDENTITY -> routing
 won't change the resolved tile (no behaviour change) and does NOT fix garbled walls.
 
+## 2026-06-15 — WALLS STAGE 4 DONE + VERIFIED (binder model — walls survive events)
+Implemented the binder-slot model. -27894/-27890/-27886 now hold per-type -18468
+BINDER slots (slot[0] = FC group), written by l6eea via l33ac, exactly like every
+other loader:
+  - l6eea: build "8x8d%c%d" (letter by id band, %d=1 colour / type+1 else) and
+    l33ac(name, id, 0, 0, &(-27894+type*4)) -> binder into the pool; g_wall_set[type]
+    holds the set sub-GLIB index (from wallset_for_id). l33ac's l31dc-of-prior makes
+    the per-frame l6148 call the faithful dispose-and-reload.
+  - jt200_layer (the blit): resolve sub = l37aa(jt468(binder[0]), g_wall_set[group])
+    FRESH each tile -> jt114 -> l309c. jt468 follows the live pool base (purge-safe);
+    matches the Mac jt114 (CODE 6 L3804: pushes *handle -> jt1001 -> jt468(*handle)).
+  - jt209 -> jt115 (the teardown jt131 runs on every event mode change) now stamps
+    the binder (slot[0]=-1) and jt461(slot[0]) UNBINDS THE REAL GROUP (orphan ->
+    purgeable), instead of writing -1 into the tile data. This is the fix.
+  - BONUS: jt124->l3eea (CODE 6 L6234 prologue palette commit) ALSO expects a binder
+    (*p -> jt468); the old sub-pointer fed it garbage. Now correct.
+
+The static fallback is retired from the wall render (l6eea uses l33ac directly, not
+cw_wallfile_load). The full faithful dance now works: event fires -> jt115 orphans
+the walls -> bigpic purges them (l11ca) -> RETURN -> l6148 reloads from the pool.
+
+VERIFIED (HEIRS caravan, user-driven): walls render before AND after the caravan
+(the white/gray empty box is GONE — the jt115 tile corruption is fixed); hatari
+survived the event (no crash); zero FAR errors; the render is the same garble
+before/after (the separate, parked texture-slot puzzle — the binder blit
+resolution matches stage 3's, so the routing is render-equivalent). Commit: <this>.
+RM #127 walls routing COMPLETE (stages 2+3+4). The remaining garble is
+[[dungeon-3d-render-state]], orthogonal to the RM.
+
 ## 2026-06-14i — WALLS STAGE 4: ROOT CAUSE = the -27894 sub-pointer model (binder model REQUIRED)
 Attempted stage 4 (release the lingering event bigpic in render_3d_faithful so the
 pool frees for the walls) — REVERTED, it was the wrong fix. The real blocker:
