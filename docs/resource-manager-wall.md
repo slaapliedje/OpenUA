@@ -308,3 +308,25 @@ release on leaving the event-picture screen) for l11ca to reclaim it. Confirm th
 faithful release is wired at the event-pic teardown before routing walls, else the
 pool deadlocks ("Out of FAR memory!"). HEIRS 8X8DB directory is IDENTITY -> routing
 won't change the resolved tile (no behaviour change) and does NOT fix garbled walls.
+
+## 2026-06-14e — FC CACHE CORRECTNESS AUDIT (39/39 PASS)
+Added fc_cache_audit() (boot.c, probe-only, run from boot_a5_seed_defaults after
+the pool self-test). It exercises the REAL lifted FC cache end-to-end on an
+isolated 4096-byte scratch pool — saving/restoring the entire live FC A5 state
+(9306/10074/10026/10270/9354 + watermarks) around itself, stood up by hand (no
+jt463, so the converter registry + live pool are untouched), using group tags 5..8
+so jt468's UI shortcut (0/1/24 -> resident ALWAYS/FRAME) never fires:
+  T1 fresh-pool invariants (count/cap/free)
+  T2 jt464 register (new=0, count, freemap bind, MRU front, jt468 resolve, jt459=0)
+  T3 jt467 append + jt459 size + free accounting
+  T4 second group + MRU ordering + jt468 base offset + size
+  T5 cache HIT (jt464 returns 1) + MRU promotion + jt468 aliasing
+  T6 jt459 of an unbound group == 0
+  T7 orphan (jt461) + l11ca purge + l103c compaction (survivor size + free intact)
+  T8 jt462 drop-in-progress (count--, freemap unbound)
+  T9 jt465(NULL) full flush (count 0, freemap all free)
+RESULT: "FC AUDIT pass = 39 / fail = 0", boot continues clean immediately after
+(save/restore sound). Also confirms the new pool sizing: "GLIB pool: capacity =
+460800" = 450K. Repeatable via `make fc-audit` (clean probe build -> run -> grep ->
+non-zero exit on any failure). The FC group cache (jt464/jt468/jt467/jt459/l11ca/
+l103c/jt462/jt465 + the -9354 MRU) is now a verified, regression-guarded foundation.
