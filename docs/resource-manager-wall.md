@@ -309,6 +309,30 @@ faithful release is wired at the event-pic teardown before routing walls, else t
 pool deadlocks ("Out of FAR memory!"). HEIRS 8X8DB directory is IDENTITY -> routing
 won't change the resolved tile (no behaviour change) and does NOT fix garbled walls.
 
+## 2026-06-14h — WALLS ROUTING STAGE 3 DONE + VERIFIED (purge-safe per-frame re-resolve)
+l6148 now re-resolves all three wall handles (-27894/-27890/-27886) from the FC
+pool EVERY render via l6eea, instead of only on id-change/handle==0. l6eea ->
+cw_wallfile_load is a cache hit (jt468) when the group is resident, so it is cheap
+and re-reads the 296K library only after an actual purge (jt460 reserves space
+before any I/O, so a contended retry does no read). Re-resolving each render is
+PURGE-SAFE: a pool compaction (an event bigpic load evicting an earlier group)
+slides the wall data, so a cached raw pointer would dangle — jt468(group) always
+returns the group's current base, so l37aa(jt468,set) stays fresh. Dropped the
+s_w1/s_w2/-12296/handle==0 guards (they only existed to dodge a per-frame re-read
+the FC cache now makes free); -12296 stays updated for jt209's teardown sentinel.
+Self-healing: a failed pool load leaves the group unbound (jt461 in jt104's fail
+path), so jt468==0 and the next render retries the pool; falls back to the static
+buffer only while contended.
+
+VERIFIED (HEIRS, skip-events, user walked several steps): hatari survived multiple
+movement frames (no dangling-pointer crash); h0/h1/h2 (3216088/3323136/3087176)
+all inside the pool (pool_start=2934860 .. pool_usedend=3383492); the pool base
+SHIFTED ~308B from the stage-2 run (3216396->3216088) and the handles tracked it
+-> the per-frame re-resolve follows the live base (the purge-safety mechanism
+working); wallfile_which=-1 (fallback never used); wall1/2/3=5/8/1, 10,8,E
+unchanged; no FAR error. Commit: <this>. Stage 4 (event-path wall release so the
+bigpic can purge the walls, then drop the static fallback) remains.
+
 ## 2026-06-14g — WALLS ROUTING STAGE 2 DONE + VERIFIED (cw_wallfile_load -> FC pool)
 cw_wallfile_load now loads 8X8D{B,C}.CTL through the faithful l33ac -> FC pool
 path (l338c kind 50 + "8x8d%c1" name -> override-aware group loader), caching the

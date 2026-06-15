@@ -2322,7 +2322,6 @@ static void l6148(void)
 {
 	const unsigned char *h = (const unsigned char *)g_a5_28006;
 	const unsigned char *lvl;
-	static short s_w1 = -1, s_w2 = -1;      /* last-loaded Wall1/Wall2 ids */
 
 	PROBE("L6148");
 	jt131(0);
@@ -2332,32 +2331,25 @@ static void l6148(void)
 	if (lvl == NULL)
 		return;
 
-	/* Wall3 reloads when its id changed OR its handle was zeroed. The merchant/
-	 * event picture path frees -27886 (the "backdrop-bitmap dance" the Mac runs
-	 * on this handle), so after an event the handle is 0 while the id is
-	 * unchanged; without the handle==0 test l6148 would skip the reload and the
-	 * code-11 (group 2) walls would vanish for the rest of the level. Wall1/Wall2
-	 * already reload on handle==0 below — this aligns Wall3 with them and with
-	 * the Mac's dispose-and-reload-every-frame intent. */
-	if (lvl[6] != 0 && ((short)lvl[6] != (short)g_a5_word(-12296)
-	                    || g_a5_long(-27886) == 0)) {
-		l6eea((short)lvl[6], 2);        /* wall set 3 (Wall3) -> handle -27886 */
-		/* TODO: the Mac post-processes -27886 (JT[468]/JT[1004]/JT[459]/
-		 * JT[406]/JT[115]) after the load — deferred; the raw set suffices. */
+	/* Stage 3 (RM #127): re-resolve all three wall handles from the FC pool
+	 * EVERY render. l6eea -> cw_wallfile_load is a cache hit (jt468) when the
+	 * group is resident, so this is cheap — it re-reads the library only after
+	 * an actual purge. Re-resolving each render is PURGE-SAFE: a pool compaction
+	 * (e.g. an event bigpic load evicting an earlier group) slides the wall data,
+	 * so a cached raw -27894/-27890/-27886 pointer would dangle; jt468(group)
+	 * always returns the group's CURRENT base, so l37aa(jt468, set) stays fresh.
+	 * This is the Mac L6234 dispose-and-reload-every-frame intent — the old
+	 * change-keyed guards (s_w1/s_w2/-12296, handle==0) existed only to dodge a
+	 * 296K per-frame re-read the FC cache now makes free. -12296 stays updated
+	 * for jt209's teardown sentinel. */
+	if (lvl[6] != 0) {
+		l6eea((short)lvl[6], 2);        /* Wall3 -> -27886 */
 		g_a5_word(-12296) = (short)lvl[6];
 	}
-	if ((short)lvl[4] != s_w1) {            /* Wall1 changed -> force reload */
-		g_a5_long(-27894) = 0;
-		s_w1 = (short)lvl[4];
-	}
-	if ((short)lvl[5] != s_w2) {            /* Wall2 changed -> force reload */
-		g_a5_long(-27890) = 0;
-		s_w2 = (short)lvl[5];
-	}
-	if (lvl[4] != 0 && g_a5_long(-27894) == 0)
-		l6eea((short)lvl[4], 0);        /* wall set 1 */
-	if (lvl[5] != 0 && g_a5_long(-27890) == 0)
-		l6eea((short)lvl[5], 1);        /* wall set 2 */
+	if (lvl[4] != 0)
+		l6eea((short)lvl[4], 0);        /* Wall1 -> -27894 */
+	if (lvl[5] != 0)
+		l6eea((short)lvl[5], 1);        /* Wall2 -> -27890 */
 }
 
 /* L52b8 (CODE 7 + 0x52b8) — step the area-map scroll origin. For each axis it
