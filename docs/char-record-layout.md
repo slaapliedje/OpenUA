@@ -124,7 +124,16 @@ them word-strided, and the savegame-loader translation must de-stride.
 
 ## Migration plan (staged, each step build + Hatari-verified)
 
-1. **Move CHAR_INPARTY** to a port-side array / pad byte (≥398).
+0. **DONE 2026-06-15** — wired the faithful roll (l24d2/l1672) into jt574,
+   reading the rolled scores out of rec[112+i*2] into the port stat struct;
+   cg_roll_stats retired from the create path. Char-gen abilities are now
+   faithfully rolled + racially capped. (Verify: create a character, stats are
+   sane 3..18 with racial caps. The -30960/-30612/-30552 tables are confirmed
+   inside the DATA range: G_A5_INIT_BYTES_LEN=31336 > 30960.)
+1. **CHAR_INPARTY stays at 210** — the faithful record never touches offsets
+   200..216 (verified: no a0/a1 reads there in the disasm), so the port flag is
+   collision-free and round-trips through the .cch save as harmless padding. No
+   relocation needed.
 3. **Repoint the confirmed, unambiguous fields**: CHAR_RACE→88, CHAR_CLASS→89,
    CHAR_ALIGN→93, CHAR_STATS→112. Drop the savegame-loader's faithful→port
    translation for these (it becomes a no-op). Verify the roster + a loaded
