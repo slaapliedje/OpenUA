@@ -161,7 +161,7 @@ on every record), each separately Hatari-verifiable. Per-field state:
 | alignment | rec[93] (linear 0..8) | **DONE** — cleanest field: l2f74 = (lawchaos-1)*3 + (goodevil-1) is law-major, EXACTLY the existing cg_aligns order, so no reorder + no seed re-encode. Just repointed + dropped the loader force-LG stub. |
 | max HP | rec[82] (WORD) | **DONE** — repointed CHAR_MAXHP 216 -> 83 (the faithful word's big-endian LOW byte; HP is always <=255 in FRUA so rec[82]=0). Byte access at 83 reads the real value and keeps word@82 valid (cg_build_record writes rec[83]=hp over the memset-0 rec[82]). Dropped the loader's dst[CHAR_MAXHP]=r[82] (was reading the high byte = 0 -> a pre-existing maxHP=0 bug) and the now-redundant stage-2 word copy. |
 | XP | rec[68] (LONG) | **DONE** — pinned from the asm (CODE 19 sheet rec@68→jt70 display, jt557 cmpl/movel a0@(68), jt572 seeds via -18882). CHAR_XP repointed 212→68; the 3 sites (award/seed/train-threshold) follow. jt572 "design handle" comment fixed → "starting XP". SAVGAMA-loaded chars keep XP little-endian (not displayed / TRAIN not reached → no swap wired). |
-| **class** | rec[89] (0..16) | the deep one: the port uses a 6-value enum (k_roster_classes); faithful rec[89] is the 0..16 single+multi-class model. A model change (17-entry name table + multi-class), not an offset flip. |
+| **class** | rec[89] (0..16) | **DONE** — full faithful model. rec[89] = the 0..16 single+multi/dual-class index (jt568 writes it; jt566 gates the per-race list). The 17 names came verbatim from the game's own table g_a5_-14636, resolved from DATA+DREL+STRS (k_class_names[17]): 0 Cleric, 1 Knight, 2 Fighter, 3 Paladin, 4 Ranger, 5 Magic-User, 6 Thief, 7 Monk, 8 Cleric/Fighter, 9 Cleric/Fighter/Magic-User, 10 Cleric/Ranger, 11 Cleric/Magic-User, 12 Cleric/Thief, 13 Fighter/Magic-User, 14 Fighter/Thief, 15 Fighter/Magic-User/Thief, 16 Magic-User/Thief. CHAR_CLASS 201→89; readers use k_class_names; the port stand-in char-gen keeps its 6-enum and translates at the boundary (cg_class_to_faithful / cg_class_to_port); seed + loader force-Fighter stub dropped. The dual-class component-level display (rec[164], gated on race==Human rec[88]==5) is a jt892 record-sheet detail, not the roster column. |
 | in-party | rec[210] | stays — port-only flag, no faithful collision. |
 
 ### The remaining TRUE single-layout switch (its own focused effort)
@@ -193,7 +193,13 @@ is verifiable only in Hatari, field by field — best done as a dedicated pass.
   ambiguities — repointing on a guessed map would corrupt the live roster/HUD/
   combat (68 CHAR_* sites). Steps 1–6 above are the staged execution.
 - 2026-06-15: single-layout switch executed field-by-field: abilities → race →
-  level → alignment → maxHP → **XP (CHAR_XP 212→68)**. 6 of 7 fields DONE; only
-  the **class** model change (6-value enum → faithful 0..16 single+multi-class)
-  remains. The XP/level/maxHP "mon-blocked" ambiguities all dissolved on a
-  careful asm read — the disassembly was the ground truth.
+  level → alignment → maxHP → XP (CHAR_XP 212→68) → **class (CHAR_CLASS 201→89)**.
+  **All 7 fields DONE.** The XP/level/maxHP "mon-blocked" ambiguities all
+  dissolved on a careful asm read — the disassembly was the ground truth. The
+  class model needed the 17-name table; rather than guess it, the faithful names
+  were resolved straight from the game's own DATA+DREL+STRS (g_a5_-14636) with
+  tools/macrsrc.py + tools/datapool.py — a repeatable recipe for any STRS-backed
+  table. Method note: jt566/jt567/jt568 (the pick handlers) are the authoritative
+  field-offset source; an older speculative jt892 sheet comment (class→rec[94],
+  race→rec[92]) was WRONG and nearly misled the switch — always trust the writer
+  over a deferred reader comment.
