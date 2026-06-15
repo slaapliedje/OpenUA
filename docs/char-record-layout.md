@@ -155,7 +155,7 @@ on every record), each separately Hatari-verifiable. Per-field state:
 | **abilities** | rec[112+i*2] words | **DONE (6d79358)** — CHAR_STAT(rec,i) macro; all readers/writers/loader/seed switched. |
 | race | rec[88] (byte) | **DONE** — repointed; k_roster_races reordered to faithful (Elf..Human); seed k_race re-encoded {5,0,4,5}; loader force-Human stub dropped (memcpy'd race stands). Also FIXES the pre-existing created-char race-name bug (was showing Human for Elf). |
 | level | rec[157] (per-class, byte) | **DONE** — repointed; cg_build_record sets rec[157]=1; stage-2 overlay no longer copies the 0-valued cg_rec[157..163]; loader force-L5 stub dropped. |
-| alignment | rec[93] (linear 0..8) | verify s.aligned[s.asel] (port pick) == cg_rec[93] (faithful jt569/570 linear index) — encodings may differ; reorder cg_aligns to faithful order. |
+| alignment | rec[93] (linear 0..8) | **DONE** — cleanest field: l2f74 = (lawchaos-1)*3 + (goodevil-1) is law-major, EXACTLY the existing cg_aligns order, so no reorder + no seed re-encode. Just repointed + dropped the loader force-LG stub. |
 | max HP | rec[82] (WORD) | the port reads CHAR_MAXHP as a byte; @82 is a big-endian word (byte@82 = high byte = 0 for HP<256). Needs word readers, not a repoint. |
 | XP | TBD | the long XP offset isn't pinned; decode from the CODE 19 "Experience:" display. |
 | **class** | rec[89] (0..16) | the deep one: the port uses a 6-value enum (k_roster_classes); faithful rec[89] is the 0..16 single+multi-class model. A model change (17-entry name table + multi-class), not an offset flip. |

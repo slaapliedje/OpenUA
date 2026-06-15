@@ -6736,7 +6736,7 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
  * DEX CON CHA), the permanent score in the even byte. Use CHAR_STAT(rec,i); the
  * old contiguous CHAR_STATS=203 port slot is retired (single-layout switch). */
 #define CHAR_STAT(rec, i)  ((rec)[112 + (i) * 2])
-#define CHAR_ALIGN  209   /* index into cg_aligns[9]                          */
+#define CHAR_ALIGN  93    /* faithful linear align index (l2f74); cg_aligns order */
 #define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
 #define CHAR_XP      212  /* experience points (long; +212..215)              */
 #define CHAR_MAXHP   216  /* full HP, to heal toward on rest                  */
@@ -15169,7 +15169,8 @@ static int port_load_savgame(void)
 			 * stand. */
 			for (c = 0; c < 6; c++)       /* abilities: @112 pairs */
 				CHAR_STAT(dst, c) = r[112 + c * 2];  /* faithful (now identity post-memcpy) */
-			dst[CHAR_ALIGN]   = 0;
+			/* alignment @93 read from the faithful record (l2f74 linear
+			 * index, same order as cg_aligns); the force-LG stub is dropped. */
 			dst[CHAR_INPARTY] = 1;
 			/* AC: CHAR_AC (385) IS the faithful slot — the record
 			 * stores 60 - displayed_AC there (parallel to THAC0 @384)
