@@ -6730,7 +6730,12 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
  * the only writers; l02dc reads them for the Name/Race/Class/Level grid.
  * The gap 199..383 sits between the +197/198 status flags and AC@385. */
 #define CHAR_RACE   88          /* faithful race index (jt566) */
-#define CHAR_CLASS  201
+/* Class: the FAITHFUL field rec[89] (jt568 writes class-1; jt566 gates the
+ * class list per race). 0..16 = the single+multi/dual-class encoding (see
+ * k_class_names). The port's char-gen helpers (cg_class_*) keep a 6-value enum
+ * internally and translate to/from the faithful index at the boundary
+ * (cg_class_to_faithful / cg_class_to_port). */
+#define CHAR_CLASS  89
 #define CHAR_LEVEL  157         /* faithful per-class level slot 0 */
 /* Ability scores: the FAITHFUL layout — 6 words at rec[112+i*2] (STR INT WIS
  * DEX CON CHA), the permanent score in the even byte. Use CHAR_STAT(rec,i); the
@@ -6769,8 +6774,55 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 static const char *const k_roster_races[6] = {
 	"Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling", "Human",
 };
-static const char *const k_roster_classes[6] = {
-	"Cleric", "Fighter", "Mage", "Thief", "Paladin", "Ranger",
+/* FAITHFUL class names, indexed by rec[89] (CHAR_CLASS) 0..16. Verbatim from
+ * the game's own class-name table g_a5_-14636 (resolved from DATA+DREL+STRS):
+ * indices 0..7 single classes, 8..16 the multi/dual-class combinations. This
+ * is the table the CODE 17/19 class-name display reads (single classes via
+ * g_a5_-14636[rec[89]]; the multi-class indices print the same combined name). */
+static const char *const k_class_names[17] = {
+	"Cleric", "Knight", "Fighter", "Paladin", "Ranger",
+	"Magic-User", "Thief", "Monk",
+	"Cleric/Fighter", "Cleric/Fighter/Magic-User", "Cleric/Ranger",
+	"Cleric/Magic-User", "Cleric/Thief", "Fighter/Magic-User",
+	"Fighter/Thief", "Fighter/Magic-User/Thief", "Magic-User/Thief",
+};
+
+/* Port char-gen 6-value enum <-> faithful rec[89] index. The port's stand-in
+ * char-gen (cg_classes = Cleric/Fighter/Magic-User/Thief/Paladin/Ranger) and
+ * its keyed tables (cg_class_min/aligns/hd) predate the faithful 0..16 model;
+ * these two maps translate at the record boundary so rec[89] always holds the
+ * faithful index while the port helpers keep their compact enum. The faithful
+ * char-gen (l3666/jt568) writes rec[89] directly and bypasses this. */
+static const unsigned char cg_class_to_faithful[6] = {
+	0,  /* Cleric     -> 0  Cleric     */
+	2,  /* Fighter    -> 2  Fighter    */
+	5,  /* Magic-User -> 5  Magic-User */
+	6,  /* Thief      -> 6  Thief      */
+	3,  /* Paladin    -> 3  Paladin    */
+	4,  /* Ranger     -> 4  Ranger     */
+};
+/* Faithful 0..16 -> port enum 0..5 for the port stand-in lookups (hit dice,
+ * re-roll min/max). Single classes map directly; multi/dual-class falls back to
+ * the primary (first listed) component's port class. Replaced wholesale once
+ * jt557 TRAIN / jt885 HP are lifted. */
+static const unsigned char cg_class_to_port[17] = {
+	0,  /* 0  Cleric                    -> Cleric  */
+	1,  /* 1  Knight                    -> Fighter */
+	1,  /* 2  Fighter                   -> Fighter */
+	4,  /* 3  Paladin                   -> Paladin */
+	5,  /* 4  Ranger                    -> Ranger  */
+	2,  /* 5  Magic-User                -> Mage    */
+	3,  /* 6  Thief                     -> Thief   */
+	3,  /* 7  Monk                      -> Thief   */
+	0,  /* 8  Cleric/Fighter            -> Cleric  */
+	0,  /* 9  Cleric/Fighter/Magic-User -> Cleric  */
+	0,  /* 10 Cleric/Ranger             -> Cleric  */
+	0,  /* 11 Cleric/Magic-User         -> Cleric  */
+	0,  /* 12 Cleric/Thief              -> Cleric  */
+	1,  /* 13 Fighter/Magic-User        -> Fighter */
+	1,  /* 14 Fighter/Thief             -> Fighter */
+	1,  /* 15 Fighter/Magic-User/Thief  -> Fighter */
+	2,  /* 16 Magic-User/Thief          -> Mage    */
 };
 
 static void l02dc(long highlight)
@@ -15210,11 +15262,10 @@ static int port_load_savgame(void)
 			/* max HP @82/@83 stands from the memcpy (CHAR_MAXHP now points
 			 * at the faithful low byte @83); the old dst[..]=r[82] read the
 			 * high byte (0) — a pre-existing maxHP=0 bug, now gone. */
-			dst[CHAR_CLASS] = 1;          /* Fighter (label; @89 kept) */
-			/* race @88 and level @157 are now read from the faithful record
-			 * directly (CHAR_RACE/CHAR_LEVEL point there), so the old
-			 * force-Human / force-L5 stubs are dropped — the memcpy'd values
-			 * stand. */
+			/* race @88, class @89 and level @157 are now read from the
+			 * faithful record directly (CHAR_RACE/CHAR_CLASS/CHAR_LEVEL point
+			 * there), so the old force-Human / force-Fighter / force-L5 stubs
+			 * are dropped — the memcpy'd faithful values stand. */
 			for (c = 0; c < 6; c++)       /* abilities: @112 pairs */
 				CHAR_STAT(dst, c) = r[112 + c * 2];  /* faithful (now identity post-memcpy) */
 			/* alignment @93 read from the faithful record (l2f74 linear
@@ -15390,13 +15441,14 @@ void port_test_seed_design(void)
 		    { "Bramble", "Korin Vale", "Sable", "Bob" };
 		static const unsigned char k_hp[4]    = { 18, 24, 11, 0 };
 		static const unsigned char k_ac[4]    = {  5,  7,  4, 5 };
-		/* race / class indices into k_roster_races / k_roster_classes:
-		 * Bramble = Human Fighter L3, Korin = Elf Mage L2,
-		 * Sable = Halfling Thief L3, Bob = the real BasiliskII-saved
+		/* race / class indices in the FAITHFUL order (k_roster_races /
+		 * k_class_names): Bramble = Human Fighter L3, Korin = Elf Magic-User
+		 * L2, Sable = Halfling Thief L3, Bob = the real BasiliskII-saved
 		 * character (BOB.cch) — Human Fighter, HP computed by L29ae.
-		 * race in the FAITHFUL index order: Human=5, Elf=0, Halfling=4. */
+		 * race faithful: Human=5, Elf=0, Halfling=4.
+		 * class faithful (rec[89]): Fighter=2, Magic-User=5, Thief=6. */
 		static const unsigned char k_race[4]  = { 5, 0, 4, 5 };
-		static const unsigned char k_class[4] = { 1, 2, 3, 1 };
+		static const unsigned char k_class[4] = { 2, 5, 6, 2 };
 		static const unsigned char k_lvl[4]   = { 3, 2, 3, 5 };
 		/* ability scores (STR INT WIS DEX CON CHA) + alignment index.
 		 * Bob's are BOB.cch's real rolled stats (record @112). */
@@ -21419,7 +21471,7 @@ static void cg_build_record(const cg_state *s)
 	rec[CHAR_THAC0] = 40;                /* level 1 -> THAC0 20 */
 	rec[CHAR_MOVE]  = 12;
 	rec[CHAR_RACE]  = (unsigned char)s->race;
-	rec[CHAR_CLASS] = (unsigned char)klass;
+	rec[CHAR_CLASS] = cg_class_to_faithful[klass < 6 ? klass : 1];
 	rec[CHAR_LEVEL] = 1;
 	for (c = 0; c < 6; c++)
 		CHAR_STAT(rec, c) = (unsigned char)s->stats[c];
@@ -21663,7 +21715,9 @@ static void cg_train_screen(void)
 		else if (scan == 0x50)
 			sel = (short)((sel + 1) % nparty);
 		else if ((ascii == 't' || ascii == 'T') && ready) {
-			short klass  = c[CHAR_CLASS]; if (klass >= CG_NCLASSES) klass = 0;
+			short klass  = c[CHAR_CLASS];           /* faithful 0..16 */
+			if (klass >= 17) klass = 0;
+			klass = cg_class_to_port[klass];        /* -> port hit-die enum */
 			short con    = CHAR_STAT(c, 4);
 			short conmod = (con >= 16) ? 2 : (con >= 15) ? 1
 			             : (con <= 6) ? -1 : 0;
@@ -46349,7 +46403,7 @@ static void cg_draw_sheet(const unsigned char *c, const char *footer)
 	     (race  < 6) ? k_roster_races[race]    : "?");
 	jt94((short)24, (short)4,  7, 0, "Class:");
 	jt94((short)31, (short)4, 15, 0, "%s",
-	     (klass < 6) ? k_roster_classes[klass] : "?");
+	     (klass < 17) ? k_class_names[klass] : "?");
 
 	jt94((short)3,  (short)5,  7, 0, "Level:");
 	jt94((short)10, (short)5, 15, 0, "%d", (int)lvl);
@@ -46498,7 +46552,8 @@ static void cg_modify_sheet(void)
 			short dex, dexmod, k;
 
 			if (race  >= CG_NRACES)   race  = 0;
-			if (klass >= CG_NCLASSES) klass = 0;
+			if (klass >= 17) klass = 0;             /* faithful 0..16 */
+			klass = cg_class_to_port[klass];        /* -> port min/max enum */
 			cg_roll_stats(race, klass, st);
 			for (k = 0; k < 6; k++)
 				CHAR_STAT(c, k) = (unsigned char)st[k];
@@ -46708,7 +46763,7 @@ static void cg_party_setforth_screen(void)
 		jt94((short)3,  row, 15, 0, "%s",
 		     (const char *)&party[i][96]);
 		jt94((short)17, row, 7, 0, "%s",
-		     (klass < 6) ? k_roster_classes[klass] : "?");
+		     (klass < 17) ? k_class_names[klass] : "?");
 		jt94((short)28, row, 7, 0, "%d", (int)party[i][CHAR_HP]);
 	}
 	jt94((short)3, (short)16, 7, 0, "Press any key to descend.");
