@@ -130,15 +130,17 @@ ALIAS_LIFTED = {
 # as a divergence is confirmed against the disassembly; remove once the real
 # lift lands.
 STANDIN = {
-    114: "wall-tile blit routes to l309c_tile's per-set CLUT band-rebase "
-         "(off=v-32, bands 32/64/96) — a port invention. The Mac blits tile "
-         "bytes as DIRECT indices into the active CLUT via L309c->L2d4e (no "
-         "rebase) and scales the tile by the display factor (L2d4e: lslw "
-         "JT[1200]). Faithful fix: drop the rebase, load the dungeon CLUT, "
-         "match the display-mode tile scale (#129).",
-    118: "render-path variant that calls l309c_tile, NOT the Mac jt118 "
-         "(-> jt1001). Latent/risky to reconcile; jt57 sidesteps it via "
-         "jt108+jt1001. See docs + the jt118-signature-mismatch note.",
+    # RESOLVED 2026-06-15 — both were stale annotations, not current behaviour:
+    #   jt114: the CLUT band-rebase lived in l309c_tile; jt114 now routes through
+    #     l309c -> l2d4e (raw tile byte = direct CLUT index, 255=transparent — the
+    #     faithful Mac model). The set/handle resolution moved upstream to the
+    #     binder-model jt200_layer (l37aa(jt468(group), set)). l309c_tile is now
+    #     used only by the two item-portrait blits, not the walls.
+    #   jt118: jt108 IS L38d0 (both = CODE 6+0x38d0). So jt118 = jt108(1)[=L38d0(1)]
+    #     + jt114[blit ~= the Mac jt1001's L309c blit], matching the Mac jt118 =
+    #     L38d0(1) + jt1001. Faithful.
+    # (The garbled wall TILES are the separate piece-data puzzle in
+    #  docs/dungeon-3d-render-state, NOT the blit.)
 }
 
 # Non-JT port stand-ins: whole port_*/lXXXX reimplementations that stand in
