@@ -57,8 +57,11 @@ together with jt573 (they are untestable until jt573 has a runtime path):
 ## B. TRAIN flow (Training Hall, CODE 12 callers)
 
 - jt557 (0x6cd2) **Train Character** — "we only train conscious people",
-  "Training costs %s platinum", level-up/cost logic. ~600 lines. Port stand-in =
-  `cg_train_screen`.  TODO
+  "Training costs %s platinum", level-up/cost logic. ~2.7KB. **DONE** (faithful
+  full lift). Replaces the old wrong stub (was `(void)jt574(0)`; the comment
+  mislabeled it "Create Character"). All deps already lifted (jt26 XP table,
+  jt910/jt885/jt33/jt29/jt595/jt41/jt876 + the draw helpers); the live
+  g_a5_-14636 class-name table is read for the "will become" preview.
 - jt556 (0x66ee) train-related screen (CODE 10/12 caller).  TODO  (STUB)
 - jt560 (0x618c) train-related screen (CODE 12 caller).      TODO  (STUB)
 
@@ -117,7 +120,7 @@ subsystem, so none is a CODE-17 leaf:
 | L455c equipment grant      | L439c -> jt902 / jt890 (CODE 19 item-equip) |
 | jt584 .cch save            | LIFTED — jt584 (UI/path) + jt578 (serializer) + L0ce0 (record swap); replaces the stub, reachable via the "Save Characters" menu (l1060) |
 | jt577 .cch load (read mirror) | LIFTED + REACHABLE — jt577 (deserializer) + jt903 (capacity counter) + l_cch_read (read-opener, flat-shim mirror of l00e0). A probe-gated boot self-test round-trips jt578->jt577 over a scratch record (PASS = name@96 + swapped word@82 survive). Menu-level load (jt576 enumerate dialog) deferred — see impedance note. |
-| jt557/556/560 TRAIN screen | level-up logic (likely CODE 19 too); has a live caller |
+| jt557 TRAIN screen         | DONE (faithful); jt556/jt560 still STUB |
 
 Recommendation: the highest-value next subsystem is the **save tail** (jt584 +
 the record/inventory persistence) — it makes every finalize above (L0006/L3cd4/
@@ -176,3 +179,16 @@ both directions and self-test-verified.
   into jt574 after L0006. The CREATE finalize chain (HP/name/icon/proficiency)
   is now faithful end-to-end. Remaining pieces each open another subsystem
   (DLItem grid / CODE 19 items / CODE 15 save) — see the status table above.
+- 2026-06-15: lifted jt557 (TRAIN) — faithful full lift (~2.7KB asm). Money
+  gate (rec[76] word vs g_a5_-18480), the per-race AD&D level-limit switch
+  (rec[88] cases 0-4 keyed to STR rec[113] / INT rec[115]), the two faithful
+  "best class" passes (one loop-carried-level, one per-slot-reload — replicated
+  verbatim), XP clamp to rec[68], guild-mask gate (g_a5_-28006[48]), the
+  "will become" preview over the live g_a5_-14636 class-name table + jt159
+  confirm, then level bump / jt910 recompute / jt595 proficiency grant
+  (rec[339..] via g_a5_-18893) / jt29-gated spell learning (jt41+jt876) /
+  jt885 HP gain / jt33 rec[197]. The old stub was wrong (called jt574 char-gen
+  + "Create Character" comment); its caller l0f60 (jt918 case 3) is likewise
+  mislabeled "Create Character" — case 3 dispatches TRAIN. cg-audit PASS.
+  REMAINING CODE 17: jt573 review screen (DLItem grid), L455c equipment,
+  jt556/jt560 train-related stubs.
