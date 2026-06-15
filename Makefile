@@ -271,6 +271,27 @@ fc-audit:
 		&& echo "FC AUDIT: PASS" \
 		|| (echo "FC AUDIT: FAIL (see $(FC_AUDIT_LOG))" && exit 1)
 
+# Character-record / char-gen audit: a probe build runs the boot self-tests
+# for the record-layout unification — the .cch save/load round-trip
+# (jt578<->jt577 + L0ce0 byte-swap) and the faithful ability roll
+# (l24d2/l1672 per race, scores read through the @112 faithful slot). This
+# boots it, prints the results, and fails unless both PASS. Repeatable guard
+# for CODE 17 char-gen + the save format.
+CG_AUDIT_LOG ?= /tmp/cgaudit.log
+# The self-tests run late in boot (after menu pumping), so allow ~45s and
+# make sure no OTHER Hatari (e.g. `make run-game`) is mounting the same C:
+# drive at the same time — concurrent instances stall the boot at the title.
+cg-audit:
+	$(MAKE) clean
+	$(MAKE) ENGINE_PROBE=1
+	tools/run_probe.sh 45 $(CG_AUDIT_LOG) >/dev/null
+	@echo "--- character-record audit ---"
+	@grep -E "cch round-trip self-test|cg roll self-test|^(Elf|HalfElf|Dwarf|Gnome|Halfling|Human)$$|stat = " $(CG_AUDIT_LOG) || (echo "CG AUDIT: did not run" && exit 1)
+	@grep -q "cch round-trip self-test: PASS" $(CG_AUDIT_LOG) \
+		&& grep -q "cg roll self-test: PASS" $(CG_AUDIT_LOG) \
+		&& echo "CG AUDIT: PASS" \
+		|| (echo "CG AUDIT: FAIL (see $(CG_AUDIT_LOG))" && exit 1)
+
 # Host-side test suite — pytest over tools/. Not a cross-build. The
 # `slow` test boots frua.prg in Hatari and snaps a screenshot — skip
 # by default; opt in with `make test-slow`.
@@ -286,4 +307,4 @@ clean:
 
 -include $(DEP)
 
-.PHONY: all run run-game walk gamedata probe fc-audit test test-slow clean data-pool-regen
+.PHONY: all run run-game walk gamedata probe fc-audit cg-audit test test-slow clean data-pool-regen

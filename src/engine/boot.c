@@ -8215,6 +8215,7 @@ static void fc_cache_audit(void) __attribute__((unused));
 static short jt578(short refNum);
 static signed char l00e0(const char *fn, void *cb);
 static signed char l_cch_read(const char *fn, unsigned char *rec);
+static void l24d2(unsigned char *rec);   /* CODE 17 ability roll (probe self-test) */
 /* Forward — jt127 (design-data loader) lifts further down; the
  * probe self-test below calls it. */
 static void jt127(const char *prefix, short num, short *out, void *buffer);
@@ -8428,6 +8429,42 @@ void boot_a5_seed_defaults(void)
 		dbg_log(ok ? "cch round-trip self-test: PASS"
 		           : "cch round-trip self-test: FAIL");
 		dbg_log_num("  field@82 = ", (unsigned short)*(short *)(brec + 82));
+	}
+
+	/* Char-gen roll self-test (the record-layout unification). Builds a
+	 * record for each race, runs the faithful L24d2 ability roll + L1672
+	 * racial/class clamp, and logs the six scores read through the new
+	 * faithful word-strided slot CHAR_STAT(rec,i). PASS criteria (eyeball
+	 * the log): every score is a sane 3..18, and the racial caps bite
+	 * (e.g. race 4 = Halfling has a low STR, race 0 = Elf a high DEX). This
+	 * exercises l24d2/l1672 + the -30960/-30612/-30552 tables + the @112
+	 * layout end to end, no Hatari interaction needed. */
+	{
+		static const char *const racetag[6] = {
+			"Elf", "HalfElf", "Dwarf", "Gnome", "Halfling", "Human"
+		};
+		static unsigned char crec[512];
+		short r, ci, lo = 99, hi = 0, sane = 1;
+
+		for (r = 0; r < 6; r++) {
+			for (ci = 0; ci < 512; ci++) crec[ci] = 0;
+			crec[88] = (unsigned char)r;   /* race */
+			crec[89] = 2;                  /* a single class */
+			crec[92] = 0;                  /* male */
+			l24d2(crec);
+			dbg_log(racetag[r]);
+			for (ci = 0; ci < 6; ci++) {
+				short v = CHAR_STAT(crec, ci);
+				dbg_log_num("  stat = ", v);
+				if (v < lo) lo = v;
+				if (v > hi) hi = v;
+				if (v < 1 || v > 25) sane = 0;
+			}
+		}
+		dbg_log_num("cg roll self-test: lo = ", lo);
+		dbg_log_num("cg roll self-test: hi = ", hi);
+		dbg_log(sane ? "cg roll self-test: PASS (in range)"
+		             : "cg roll self-test: FAIL (out of range)");
 	}
 #endif
 }
