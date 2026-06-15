@@ -309,6 +309,38 @@ faithful release is wired at the event-pic teardown before routing walls, else t
 pool deadlocks ("Out of FAR memory!"). HEIRS 8X8DB directory is IDENTITY -> routing
 won't change the resolved tile (no behaviour change) and does NOT fix garbled walls.
 
+## 2026-06-14i — WALLS STAGE 4: ROOT CAUSE = the -27894 sub-pointer model (binder model REQUIRED)
+Attempted stage 4 (release the lingering event bigpic in render_3d_faithful so the
+pool frees for the walls) — REVERTED, it was the wrong fix. The real blocker:
+
+When an event picture loads, l579e calls jt131(3); transitioning OUT of mode 0
+runs jt209(0) -> jt115(&g_a5_27894[i]) on all THREE wall slots. jt115 is:
+  if (*block >= 0) jt461(*block);  *block = -1;  *slot = NULL;
+The port stores a DIRECT SUB-GLIB POINTER in -27894 (stages 2/3), so:
+  - jt461(*block) reads the tile's first word (a HEIGHT like 8/16/56) as a group
+    tag -> harmless no-op (heights exceed the ~7-group count), BUT
+  - *block = -1 WRITES -1 INTO THE WALL TILE HEADER (the pool tile data),
+    corrupting it; the stage-3 reload returns the same cached (corrupted) base
+    (jt468(group)!=0 -> no re-read) -> walls render broken/gone after ANY event.
+This is PRE-EXISTING (the pre-stage-2 static buffer had the identical corruption;
+the walls-after-event path just wasn't exercised). User-confirmed: HEIRS caravan
+renders, then the 3D view is white/gray (no walls); also the post-dialog give-item
+(100pp + Ring) is SKIPPED (a SEPARATE l709e event-chain gap, not walls).
+
+FAITHFUL FIX = the binder-slot model: -27894/-27890/-27886 must hold a -18468
+BINDER SLOT (slot[0]=group id), like l33ac writes for every other loader, so:
+  - jt115 stamps -1 on the descriptor (releasing the binder) NOT the tile data;
+  - jt461(slot[0]) unbinds the REAL wall group (orphan -> purgeable);
+  - the blit (jt114 @ boot.c:10027) resolves binder->jt468(group)->l37aa(base,set)
+    each blit instead of a cached raw pointer.
+That is the deep render-path rewrite flagged from the start — effectively redoing
+the l6eea store + the jt114 blit on the binder model + the jt111/jt123 near-tile
+synthesis + the per-set CLUT band. It is the real stage 4, a dedicated multi-
+session effort. Stages 2+3 (walls in the pool, purge-safe re-resolve, verified for
+the NO-EVENT path) STAND and are not a regression; the event teardown
+incompatibility is the pre-existing -27894 model, orthogonal to where the bytes
+live. Mechanism fully mapped in 2026-06-14f above.
+
 ## 2026-06-14h — WALLS ROUTING STAGE 3 DONE + VERIFIED (purge-safe per-frame re-resolve)
 l6148 now re-resolves all three wall handles (-27894/-27890/-27886) from the FC
 pool EVERY render via l6eea, instead of only on id-change/handle==0. l6eea ->
