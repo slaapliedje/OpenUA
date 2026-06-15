@@ -253,6 +253,24 @@ probe:
 	$(MAKE) ENGINE_PROBE=1
 	tools/run_probe.sh $(PROBE_DURATION) $(PROBE_LOG)
 
+# FC group-cache correctness audit: a probe build runs fc_cache_audit()
+# in boot_a5_seed_defaults (register/resolve/append/size/MRU/purge/
+# compaction/drop/flush over an isolated scratch pool), logging
+# "FC AUDIT pass=N fail=M". This target boots it, extracts those lines,
+# and fails if any check failed (or the audit never ran). Repeatable
+# regression guard for the Resource Manager / FC layer.
+FC_AUDIT_LOG ?= /tmp/fcaudit.log
+fc-audit:
+	$(MAKE) clean
+	$(MAKE) ENGINE_PROBE=1
+	@mkdir -p $(GAMEDATA_DIR)
+	GEMDOS_DIR=$(GAMEDATA_DIR) tools/run_probe.sh 25 $(FC_AUDIT_LOG) >/dev/null
+	@echo "--- FC cache audit ---"
+	@grep -E "FC AUDIT|FC\.t" $(FC_AUDIT_LOG) || (echo "FC AUDIT: did not run" && exit 1)
+	@grep -q "FC AUDIT fail = 0" $(FC_AUDIT_LOG) \
+		&& echo "FC AUDIT: PASS" \
+		|| (echo "FC AUDIT: FAIL (see $(FC_AUDIT_LOG))" && exit 1)
+
 # Host-side test suite — pytest over tools/. Not a cross-build. The
 # `slow` test boots frua.prg in Hatari and snaps a screenshot — skip
 # by default; opt in with `make test-slow`.
@@ -268,4 +286,4 @@ clean:
 
 -include $(DEP)
 
-.PHONY: all run run-game walk gamedata probe test test-slow clean data-pool-regen
+.PHONY: all run run-game walk gamedata probe fc-audit test test-slow clean data-pool-regen

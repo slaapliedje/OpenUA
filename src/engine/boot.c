@@ -8117,6 +8117,10 @@ void port_test_seed_design(void);
 /* GLIB FAR-pool self-test — defined down by jt463 where the pool layer
  * is in scope; the probe block below calls it. */
 static void glib_pool_selftest(void) __attribute__((unused));
+/* FC group-cache correctness audit — defined down by jt464 where the
+ * whole cache (register/resolve/purge/MRU/compaction) is in scope; the
+ * probe block below calls it after the pool self-test. */
+static void fc_cache_audit(void) __attribute__((unused));
 /* Forward — jt127 (design-data loader) lifts further down; the
  * probe self-test below calls it. */
 static void jt127(const char *prefix, short num, short *out, void *buffer);
@@ -8301,6 +8305,7 @@ void boot_a5_seed_defaults(void)
 	}
 
 	glib_pool_selftest();
+	fc_cache_audit();
 #endif
 }
 
@@ -43572,6 +43577,140 @@ static unsigned char jt464(const char *name, short group)
 	}
 	return 0;
 }
+
+/* =====================================================================
+ * FC group-cache correctness audit (probe-only).
+ *
+ * Exercises the REAL lifted FC cache end-to-end on an isolated scratch
+ * pool — register (jt464) / resolve (jt468) / append (jt467) / size
+ * (jt459) / MRU promotion / orphan purge (l11ca -> l103c) / drop (jt462)
+ * / flush (jt465) — asserting the documented invariants after each step.
+ * Runs at boot (conout live) under FRUA_ENGINE_PROBE, after the pool
+ * self-test. Uses group tags 5..8 so jt468's UI shortcut (groups 0/1/24
+ * -> resident ALWAYS/FRAME) never fires; all reads go through the
+ * scratch pool. Saves and restores the entire live FC A5 state around
+ * itself, and stands the scratch pool up by hand (no jt463) so the
+ * converter registry and the live pool are left untouched. A non-zero
+ * "FC AUDIT fail" count in the boot log flags a regression in the cache.
+ * ===================================================================== */
+#ifdef FRUA_ENGINE_PROBE
+static short g_fca_pass, g_fca_fail;
+static void fca_check(const char *name, long got, long want)
+{
+	if (got == want) {
+		g_fca_pass++;
+	} else {
+		g_fca_fail++;
+		dbg_log_num(name, got);
+		dbg_log_num("   FC AUDIT expected", want);
+	}
+}
+static void fc_cache_audit(void)
+{
+	static unsigned char sv_recs[48 * 14];
+	static long          sv_slots[50];
+	short         sv_count = g_a5_9306, sv_9296 = g_a5_9296;
+	short         sv_9294 = g_a5_9294, sv_9292 = g_a5_9292;
+	long          sv_cap = g_a5_9304, sv_hi = g_a5_9300;
+	unsigned char sv_freemap[48], sv_mru[48];
+	unsigned char tmp[40];
+	char         *scratch;
+	short         i;
+
+	for (i = 0; i < 48; i++) { sv_freemap[i] = g_a5_10074[i];
+	                           sv_mru[i]     = g_a5_9354[i]; }
+	for (i = 0; i < 50; i++)        sv_slots[i] = g_a5_10270[i];
+	for (i = 0; i < 48 * 14; i++)   sv_recs[i]  = g_a5_10026[i];
+	for (i = 0; i < 40; i++)        tmp[i]      = (unsigned char)i;
+
+	scratch = (char *)NewPtr((Size)4096);
+	if (scratch == NULL) { dbg_log("FC AUDIT: no scratch RAM"); return; }
+	g_fca_pass = 0; g_fca_fail = 0;
+
+	/* isolated 4096-byte pool, stood up by hand (no jt463) */
+	g_a5_9306 = 0;
+	jt399(g_a5_10074, 48, -1);
+	jt399(g_a5_10026, (short)G_A5_10026_LEN, 0);
+	g_a5_10270[0] = (long)(uintptr_t)scratch;
+	g_a5_9304     = (long)(uintptr_t)scratch + 4096;
+	g_a5_9300 = 4096; g_a5_9296 = 0; g_a5_9294 = 0; g_a5_9292 = 0;
+
+	/* T1 fresh-pool invariants */
+	fca_check("FC.t1 count",   g_a5_9306, 0);
+	fca_check("FC.t1 cap",     jt459(-2), 4096);
+	fca_check("FC.t1 free",    jt459(-1), 4096);
+
+	/* T2 register group 5 (ALPHA -> record 0) */
+	fca_check("FC.t2 new=0",   jt464("ALPHA", 5), 0);
+	fca_check("FC.t2 count",   g_a5_9306, 1);
+	fca_check("FC.t2 g5->r0",  (signed char)g_a5_10074[5], 0);
+	fca_check("FC.t2 mru0",    g_a5_9354[0], 0);
+	fca_check("FC.t2 resolve", jt468(5), g_a5_10270[0]);
+	fca_check("FC.t2 empty",   jt459(5), 0);
+
+	/* T3 append 16 bytes to ALPHA (the in-progress group) */
+	fca_check("FC.t3 append",  jt467((long)(uintptr_t)tmp, 16), 1);
+	fca_check("FC.t3 size",    jt459(5), 16);
+	fca_check("FC.t3 free",    jt459(-1), 4096 - 16);
+
+	/* T4 register group 6 (BETA -> record 1) + append 32 bytes */
+	fca_check("FC.t4 new=0",   jt464("BETA", 6), 0);
+	fca_check("FC.t4 count",   g_a5_9306, 2);
+	fca_check("FC.t4 g6->r1",  (signed char)g_a5_10074[6], 1);
+	fca_check("FC.t4 mru0",    g_a5_9354[0], 1);
+	fca_check("FC.t4 mru1",    g_a5_9354[1], 0);
+	fca_check("FC.t4 resolve", jt468(6), g_a5_10270[0] + 16);
+	jt467((long)(uintptr_t)tmp, 32);
+	fca_check("FC.t4 size",    jt459(6), 32);
+
+	/* T5 cache hit + MRU promotion: re-register ALPHA under group 7 */
+	fca_check("FC.t5 cached=1", jt464("ALPHA", 7), 1);
+	fca_check("FC.t5 count",    g_a5_9306, 2);            /* no new record */
+	fca_check("FC.t5 g7->r0",   (signed char)g_a5_10074[7], 0);
+	fca_check("FC.t5 promote",  g_a5_9354[0], 0);         /* ALPHA to front */
+	fca_check("FC.t5 mru1",     g_a5_9354[1], 1);
+	fca_check("FC.t5 alias",    jt468(7), jt468(5));
+
+	/* T6 size of an unbound group */
+	fca_check("FC.t6 unbound",  jt459(9), 0);
+
+	/* T7 orphan BETA (record 1; only group 6 referenced it) and purge it */
+	jt461(6);                                             /* unbind group 6 */
+	fca_check("FC.t7 orphaned", (l3e0c(g_a5_10074, 48, 1) >= 48), 1);
+	fca_check("FC.t7 free-pre", jt459(-1), 4096 - 16);    /* only ALPHA counts */
+	fca_check("FC.t7 purge",    l11ca(0), 1);             /* reclaim the orphan */
+	fca_check("FC.t7 count",    g_a5_9306, 1);
+	fca_check("FC.t7 keepalpha",(signed char)g_a5_10074[5], 0);
+	fca_check("FC.t7 size",     jt459(5), 16);            /* compaction intact */
+	fca_check("FC.t7 free-post",jt459(-1), 4096 - 16);
+
+	/* T8 drop the in-progress group (jt462) */
+	fca_check("FC.t8 new=0",    jt464("GAMMA", 8), 0);
+	fca_check("FC.t8 count2",   g_a5_9306, 2);
+	jt462();
+	fca_check("FC.t8 dropped",  g_a5_9306, 1);
+	fca_check("FC.t8 g8-free",  (signed char)g_a5_10074[8], -1);
+
+	/* T9 full flush (jt465 NULL) */
+	jt465(NULL);
+	fca_check("FC.t9 count0",   g_a5_9306, 0);
+	fca_check("FC.t9 g5-free",  (signed char)g_a5_10074[5], -1);
+
+	dbg_log_num("FC AUDIT pass = ", g_fca_pass);
+	dbg_log_num("FC AUDIT fail = ", g_fca_fail);
+
+	/* restore the live FC A5 state */
+	g_a5_9306 = sv_count; g_a5_9304 = sv_cap; g_a5_9300 = sv_hi;
+	g_a5_9296 = sv_9296; g_a5_9294 = sv_9294; g_a5_9292 = sv_9292;
+	for (i = 0; i < 48; i++) { g_a5_10074[i] = sv_freemap[i];
+	                           g_a5_9354[i]  = sv_mru[i]; }
+	for (i = 0; i < 50; i++)      g_a5_10270[i] = sv_slots[i];
+	for (i = 0; i < 48 * 14; i++) g_a5_10026[i] = sv_recs[i];
+	DisposePtr((Ptr)scratch);
+}
+#else
+static void fc_cache_audit(void) { }
+#endif
 
 /* JT[403] (CODE 3+0x38ea) — query a file's length without moving its
  * mark (Mac PBGetEOF via JT[1047]). The port routes through jt412:
