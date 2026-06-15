@@ -20142,6 +20142,96 @@ static void l29ae(unsigned char *rec)
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
 }
 
+/* L1672 (CODE 17 + 0x1672) — per-ability racial/class min-max + aging finalize,
+ * called by the L24d2 stat roll once per ability i (0=STR..5=CHA). Operates on
+ * the working ability byte rec[113+i*2]:
+ *   1. aging — as rec[82] (the age, during char-gen; l29ae later reuses the byte
+ *      for max HP) passes the per-race age thresholds (-30612, 5 words/race at
+ *      byte offsets 2/4/6/8), shift the score: STR +1/-1/-2/-1, INT +1@4/+1@8,
+ *      WIS -1@2/+1@4/+1@6/+1@8, DEX -2@6/-1@8, CON -1@4/-1@6/-1@8, CHA none;
+ *   2. clamp to the race's [min,max] from -30960 (16 bytes/race): STR's
+ *      min/max/exc% are GENDER-interleaved at [0..5] keyed by rec[92], the other
+ *      five at fixed byte pairs INT[6/7] WIS[8/9] DEX[10/11] CON[12/13] CHA[14/15];
+ *   3. clamp UP to the class min from -30552 (6 bytes/class, byte i);
+ *   4. STR only — an 18 for a fighter-type (any of rec[158..161]) rolls
+ *      exceptional-strength % into rec[124] (d100, capped by the race/gender +4
+ *      slot). All comparisons unsigned, exactly as the asm. */
+static short jt485(short n);
+static void l1672(short i, unsigned char *rec) __attribute__((unused));
+static void l1672(short i, unsigned char *rec)
+{
+	unsigned char *w      = &rec[113 + i * 2];
+	short          race   = rec[88];
+	short          cls    = rec[89];
+	short          gender = rec[92];
+	unsigned short age    = (unsigned short)*(short *)(rec + 82);
+	long           abase  = -30612 + (long)race * 10;   /* age table (words) */
+	long           rbase  = -30960 + (long)race * 16;   /* racial min/max     */
+	long           cbase  = -30552 + (long)cls  * 6;    /* class min          */
+	unsigned char  rmn, rmx, cmn;
+	short          rmin_off, rmax_off;
+
+#define AGE_GT(off) (*w != 0 && age > (unsigned short)g_a5_word(abase + (off)))
+
+	if (i == 0) {                                       /* STR */
+		if (AGE_GT(2)) (*w)++;
+		if (AGE_GT(4)) (*w)--;
+		if (AGE_GT(6)) *w = (unsigned char)(*w - 2);
+		if (AGE_GT(8)) (*w)--;
+		rmn = (unsigned char)g_a5_byte(rbase + gender + 0);
+		rmx = (unsigned char)g_a5_byte(rbase + gender + 2);
+		if (*w < rmn) *w = rmn;
+		if (*w > rmx) *w = rmx;
+		cmn = (unsigned char)g_a5_byte(cbase + 0);
+		if (*w < cmn) *w = cmn;
+		if (*w == 18 && (rec[158] || rec[159] || rec[160] || rec[161])) {
+			unsigned char cap = (unsigned char)g_a5_byte(rbase + gender + 4);
+			rec[124] = (unsigned char)(jt485(100) + 1);
+			if (rec[124] > cap)
+				rec[124] = cap;
+		}
+		return;
+	}
+
+	switch (i) {
+	case 1:                                             /* INT */
+		if (AGE_GT(4)) (*w)++;
+		if (AGE_GT(8)) (*w)++;
+		rmin_off = 6; rmax_off = 7;
+		break;
+	case 2:                                             /* WIS */
+		if (AGE_GT(2)) (*w)--;
+		if (AGE_GT(4)) (*w)++;
+		if (AGE_GT(6)) (*w)++;
+		if (AGE_GT(8)) (*w)++;
+		rmin_off = 8; rmax_off = 9;
+		break;
+	case 3:                                             /* DEX */
+		if (AGE_GT(6)) *w = (unsigned char)(*w - 2);
+		if (AGE_GT(8)) (*w)--;
+		rmin_off = 10; rmax_off = 11;
+		break;
+	case 4:                                             /* CON */
+		if (AGE_GT(4)) (*w)--;
+		if (AGE_GT(6)) (*w)--;
+		if (AGE_GT(8)) (*w)--;
+		rmin_off = 12; rmax_off = 13;
+		break;
+	default:                                            /* CHA — no aging */
+		rmin_off = 14; rmax_off = 15;
+		break;
+	}
+
+#undef AGE_GT
+
+	rmn = (unsigned char)g_a5_byte(rbase + rmin_off);
+	rmx = (unsigned char)g_a5_byte(rbase + rmax_off);
+	if (*w < rmn) *w = rmn;
+	if (*w > rmx) *w = rmx;
+	cmn = (unsigned char)g_a5_byte(cbase + i);
+	if (*w < cmn) *w = cmn;
+}
+
 /* CODE 17-local list helpers jt568 calls. L30de redraws the option-list
  * highlight; L2f8e / L31d4 are the pass-1-match / pass-2-fallback finalizers.
  * PROBE stubs for now — the grid-scan/highlight bookkeeping (jt568's own body,
