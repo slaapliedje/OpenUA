@@ -15,7 +15,7 @@
  * use; L3144 is the lone exception (it only aliases an existing table).
  *
  * Four routines core_init() calls live in segments not lifted yet; they are
- * the no-op stubs below, marked TODO (the fc_dump pattern from fc.c). See
+ * the no-op stubs below, marked TODO (the fc_dump no-op-stub pattern). See
  * docs/decompilation.md for the application main() map.
  */
 
@@ -93,7 +93,7 @@ void *ua_arena_alloc(short n)
 /* --- not-yet-lifted cross-segment routines core_init() calls --- */
 /*
  * Stubbed as no-ops so core_init() reads in its true shape; each is replaced
- * when its segment is lifted (the fc_dump pattern from fc.c).
+ * when its segment is lifted (the fc_dump no-op-stub pattern).
  */
 static void jt442(short n) { (void)n; }   /* TODO: lift CODE 3 + 0x28d0 */
 static void jt231(void)    { }            /* TODO: lift CODE 7 + 0x0004 */

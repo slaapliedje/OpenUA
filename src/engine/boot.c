@@ -41,7 +41,6 @@
 #include "macmemory.h"        /* BlockMove, Size */
 #include "data_pool_replay.h" /* g_a5_byte */
 #include "str.h"              /* ua_strcmp, ua_get_string */
-#include "fc.h"               /* fc_dump */
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
@@ -875,6 +874,7 @@ static void  jt1081(void)        { PROBE("jt1081"); }
  * ExitToShell. A failed GEO parse lands here. */
 static void  jt461(short tag);
 static void  l5ac0(void);
+static void  fc_dump(long need);     /* JT[458]/L0846 — defined in the FC cluster */
 static void  jt69(void)
 {
 	dbg_log("jt69: FATAL content-load error");
@@ -42101,6 +42101,18 @@ static unsigned char l11ca(unsigned char purge)
 		}
 	}
 	return 0;
+}
+
+/* JT[458] (CODE 3+0x846) — FCDump: the Mac dumps the file-group table to
+ * the screen when FAR memory is exhausted (via JT[1089] formatted print +
+ * JT[1153] page select). Those aren't wired into the play path yet, so
+ * this stays a no-op — l0a6e already reports the condition via dbg_log.
+ * (Relocated here from the now-deleted duplicate fc.c; the live FC cache
+ * is the A5-world lift in this cluster.) */
+static void fc_dump(long need)
+{
+	PROBE("fc_dump");
+	(void)need;
 }
 
 /* L0a6e (CODE 3+0xa6e) — guarantee `need` free bytes on the pool tail,
