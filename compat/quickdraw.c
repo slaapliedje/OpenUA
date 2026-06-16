@@ -276,6 +276,7 @@ void qd_set_present(qd_present_fn fn)
  * then restore the pixels underneath so the engine's buffer is untouched. */
 static void cursor_composite(void);
 static void cursor_restore(void);
+static void qd_rebake_color_pointer(void);   /* re-resolve cursor to live CLUT */
 
 void qd_present(void)
 {
@@ -1040,6 +1041,7 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	dsp = dsp_detect();
 	if (dsp != NULL && dsp->set_palette != NULL)
 		dsp->set_palette(tmp, first, count);
+	qd_rebake_color_pointer();      /* keep the colour cursor true to the CLUT */
 }
 
 /* Debug accessor: copy the live shim CLUT out as 256 packed RGB triples.
@@ -1180,33 +1182,53 @@ CursHandle GetCursor(short cursorID)
 static struct {
 	int           loaded;
 	short         hotx, hoty;
-	unsigned char img[16 * 16];
+	unsigned char raw[16 * 16];      /* source palette indices (0xFF = transp) */
+	unsigned char pal[16 * 3];       /* the cursor's own 16-colour RGB palette */
+	unsigned char img[16 * 16];      /* raw[] re-mapped to live CLUT indices    */
 } g_color_cursor;
+
+/* (Re)resolve the cursor's RGB palette to the LIVE CLUT and translate the raw
+ * source indices into screen indices. The cursor palette is fixed but the CLUT
+ * changes per screen (boot wall palette -> UI palette -> dungeon ...), so this
+ * must re-run on every qd_set_palette or the baked colours drift (e.g. the grey
+ * sword blade renders purple against the wall palette it was first baked on). */
+static void qd_rebake_color_pointer(void)
+{
+	unsigned char map[16];
+	short          i;
+
+	if (!g_color_cursor.loaded)
+		return;
+	for (i = 0; i < 16; i++) {
+		RGBColor c;
+		c.red   = (unsigned short)(g_color_cursor.pal[i * 3 + 0] * 257);
+		c.green = (unsigned short)(g_color_cursor.pal[i * 3 + 1] * 257);
+		c.blue  = (unsigned short)(g_color_cursor.pal[i * 3 + 2] * 257);
+		map[i]  = qd_nearest_color(&c);
+	}
+	for (i = 0; i < 16 * 16; i++) {
+		unsigned char v = g_color_cursor.raw[i];
+		g_color_cursor.img[i] = (v == 0xFF) ? 0xFF : map[v & 0x0F];
+	}
+}
 
 void qd_install_color_pointer(short w, short h, short hotx, short hoty,
                               const unsigned char *idx,
                               const unsigned char *pal_rgb)
 {
-	unsigned char map[16];
-	short          i, n;
+	short i, n;
 
 	if (w != 16 || h != 16 || idx == NULL || pal_rgb == NULL)
 		return;                         /* 16x16 only for now */
-	for (i = 0; i < 16; i++) {
-		RGBColor c;
-		c.red   = (unsigned short)(pal_rgb[i * 3 + 0] * 257);
-		c.green = (unsigned short)(pal_rgb[i * 3 + 1] * 257);
-		c.blue  = (unsigned short)(pal_rgb[i * 3 + 2] * 257);
-		map[i]  = qd_nearest_color(&c);
-	}
 	n = (short)(w * h);
-	for (i = 0; i < n; i++) {
-		unsigned char v = idx[i];
-		g_color_cursor.img[i] = (v == 0xFF) ? 0xFF : map[v & 0x0F];
-	}
+	for (i = 0; i < n; i++)
+		g_color_cursor.raw[i] = idx[i];
+	for (i = 0; i < 16 * 3; i++)
+		g_color_cursor.pal[i] = pal_rgb[i];
 	g_color_cursor.hotx   = hotx;
 	g_color_cursor.hoty   = hoty;
 	g_color_cursor.loaded = 1;
+	qd_rebake_color_pointer();          /* bake against the current CLUT */
 }
 
 static void cursor_composite(void)
