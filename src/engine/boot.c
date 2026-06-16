@@ -1906,6 +1906,7 @@ void port_l6234_verify(void);           /* faithful 3D-render geometry verificat
 static short jt953(void);                /* exploration command dispatcher */
 #ifdef FRUA_CHARGEN
 static int   jt574(long ctx);            /* CODE 17 char-gen entry (harness) */
+static void  jt151(void);                /* installs jt137 beveled shape-1 handler */
 #endif
 
 /*
@@ -1969,6 +1970,12 @@ int ua_main(short arg1, long arg2)
 	 * (run-game mounts data/work/gamedata as C: where the .CTL files live).
 	 * Once the l4d98 hang is fixed this can move to its normal spot after
 	 * Phase 5. */
+	/* Install the faithful beveled shape-1 button handler (jt137). On the
+	 * normal boot l4d98() runs jt151() to override the boot-seeded jt382
+	 * (single-glyph) default with jt137 (the FRAME.CTL bevel-strip painter);
+	 * the harness skips l4d98 (its hang), so run jt151 here or DONE/EXIT draw
+	 * as bare labels instead of beveled command buttons. */
+	jt151();
 	(void)jt574(0);
 	for (;;)
 		jt920();
@@ -21243,20 +21250,18 @@ static int l3666(void)
 	      0L);
 
 	/* Done (jt572, hotkey 'D') + Exit (jt571, hotkey 'E') buttons [shape 1].
-	 * Faithful to L3666 (CODE 17+0x3ac6) the Mac coord is y=8094, DONE x=8004 /
-	 * EXIT x=8024, drawn as bare shape-1 items (jt382 paints the label; their
-	 * backdrop is the FRAME.CTL bottom command bar jt76 blits — no separate
-	 * plate). 320x200-PATH COMPENSATION: the Mac authored 8094 for its own
-	 * QuickDraw font metrics; the port collapses the L148a paint to a bare
-	 * DrawString whose baseline sits ~4px higher, so the labels read 4px too
-	 * high. We can't shift jt382 globally (it also paints the approved main
-	 * menu, task #105), so the +2-build-unit (=+4px at scale 2) baseline
-	 * compensation is applied here at the coord: 8094 -> 8096. The hitbox moves
-	 * with the label, so EXIT-clicks stay on EXIT. The stream is otherwise
-	 * byte-identical to the disasm. */
-	jt452(1L, 8096L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
+	 * Faithful to L3666 (CODE 17+0x3ac6): y=8094, DONE x=8004 / EXIT x=8024,
+	 * shape-1 items. These are painted by the real beveled button handler
+	 * jt137 (installed in shape slot 0 by jt151 -> JT[450]; the boot default
+	 * jt382 is the single-glyph fallback). jt137 draws the FRAME.CTL bevel
+	 * strip (items 10/11/12 via jt448, rec[24]=count middle tiles) + the label
+	 * (jt1089), and carries its own baseline handling, so the faithful 8094
+	 * lands correctly — no per-coord compensation needed (an earlier 8096 nudge
+	 * was compensating for the wrong jt382 painter; reverted). Stream byte-
+	 * identical to the disasm: cmd 36 sets rec[24]=4 (the bevel width). */
+	jt452(1L, 8094L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt572, 21L,
-	      1L, 8096L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
+	      1L, 8094L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt571, 21L,
 	      0L);
 
