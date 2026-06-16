@@ -1906,7 +1906,6 @@ void port_l6234_verify(void);           /* faithful 3D-render geometry verificat
 static short jt953(void);                /* exploration command dispatcher */
 #ifdef FRUA_CHARGEN
 static int   jt574(long ctx);            /* CODE 17 char-gen entry (harness) */
-static void  jt151(void);                /* installs jt137 beveled shape-1 handler */
 #endif
 
 /*
@@ -1960,31 +1959,24 @@ int ua_main(short arg1, long arg2)
 	 * stows them in the A5-world globals ua_get_string reads from. */
 	jt480(arg1, (void *)arg2);
 	jt989(jt10_handler, 1, "Pod", 83);
-#ifdef FRUA_CHARGEN
-	/* Char-gen harness entry. Jump straight to jt574 here — BEFORE the
-	 * Phase-4 design-load chain (l4cc0/l4d98/jt361), which currently hangs
-	 * loading the tutorial design (a separate bug). Creating a new character
-	 * needs only the string tables (jt480, above), the display (set up in
-	 * main() before ua_main) and the UI .CTL files jt574's load_menu_ui
-	 * opens — so run this with `make EXTRA_CFLAGS=-DFRUA_CHARGEN run-game`
-	 * (run-game mounts data/work/gamedata as C: where the .CTL files live).
-	 * Once the l4d98 hang is fixed this can move to its normal spot after
-	 * Phase 5. */
-	/* Install the faithful beveled shape-1 button handler (jt137). On the
-	 * normal boot l4d98() runs jt151() to override the boot-seeded jt382
-	 * (single-glyph) default with jt137 (the FRAME.CTL bevel-strip painter);
-	 * the harness skips l4d98 (its hang), so run jt151 here or DONE/EXIT draw
-	 * as bare labels instead of beveled command buttons. */
-	jt151();
-	(void)jt574(0);
-	for (;;)
-		jt920();
-#endif
 	l4cc0();        /* design buffers — the Mac's jt12 runs L4cc0 before
 	                 * L4d98 (ITEMS.DAT/item.dat read into its allocs) */
 	l4d98();
 	l0444();
 	jt361(1);
+#ifdef FRUA_CHARGEN
+	/* Char-gen harness entry. Runs AFTER the full design-load + session init
+	 * (l4cc0/l4d98/jt361): there is no l4d98 "hang" — the earlier symptom was a
+	 * bare `make run` with no gamedata mounted, so the tutorial design load had
+	 * nowhere to go. Run with `make EXTRA_CFLAGS=-DFRUA_CHARGEN run-game`
+	 * (run-game mounts data/work/gamedata as C:). Because l4d98 has run, the
+	 * faithful beveled button handler (jt137) is already installed via jt151 —
+	 * no manual install needed. Jumps straight to char-gen so it doesn't need
+	 * menu navigation; never returns. */
+	(void)jt574(0);
+	for (;;)
+		jt920();
+#endif
 #ifdef FRUA_3D_DEMO
 	/* Interactive dungeon-walk demo. jt361(1) has run l4cc0 (design
 	 * buffers) and l7222, so the play-loop core can load DEMO_LEVEL,
