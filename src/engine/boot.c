@@ -18398,6 +18398,16 @@ static short jt453(jt453_filter_t filterProc)
 		g_a5_9247 = 1;
 	}
 
+	/* Publish the modal's freshly-drawn screen. The 3-buffer model only
+	 * shows g_draw after a present (videl_present LUT-blits + flips), and
+	 * a blocking modal otherwise draws once and never presents — so its
+	 * screen stays invisible behind the last game frame. Present here, once
+	 * per jt453 entry, AFTER the caller's draw (l3666 headers / l11ac grid)
+	 * and l30ba's DLItems. Redraw-per-pick modals (the review screen, which
+	 * re-enters via l11ac on every grid move) thus update each move; a
+	 * single-entry modal (the pick screen) at least becomes visible. */
+	qd_present();
+
 	/* Mac: spin on l2d3e until an item is selected (>= 0). The
 	 * inner l2d3e call pumps the event queue every iteration via
 	 * jt1118 / L731e / L725c so a host keystroke or click does
