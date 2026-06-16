@@ -1907,6 +1907,9 @@ static short jt953(void);                /* exploration command dispatcher */
 #ifdef FRUA_CHARGEN
 static int   jt574(long ctx);            /* CODE 17 char-gen entry (harness) */
 #endif
+#ifdef FRUA_SHEET
+static int   cg_char_sheet(unsigned char *rec);  /* char-sheet review loop (harness) */
+#endif
 
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
@@ -1974,6 +1977,36 @@ int ua_main(short arg1, long arg2)
 	 * no manual install needed. Jumps straight to char-gen so it doesn't need
 	 * menu navigation; never returns. */
 	(void)jt574(0);
+	for (;;)
+		jt920();
+#endif
+#ifdef FRUA_SHEET
+	/* Isolated char-SHEET harness: seed a minimal Human Fighter record and
+	 * jump straight to the faithful character sheet (L1276=jt886 + L23fa
+	 * action bar) so the render can be inspected without driving the whole
+	 * pick/name/body flow. `make EXTRA_CFLAGS=-DFRUA_SHEET run-game`. */
+	{
+		static unsigned char sheet_rec[398];
+		const char *nm = "TESTHERO";
+		short j;
+
+		memset(sheet_rec, 0, sizeof sheet_rec);
+		sheet_rec[88] = 0;   /* race  (table -14564[0]) */
+		sheet_rec[89] = 0;   /* class (table -14636[0]) */
+		sheet_rec[92] = 0;   /* gender(table -14500[0]) */
+		sheet_rec[93] = 0;   /* align (table -14536[0]) */
+		sheet_rec[94] = 0;   /* status(table -14480[0] = OKAY) */
+		sheet_rec[82] = 0; sheet_rec[83] = 27;          /* age word = 27 */
+		sheet_rec[68] = 0; sheet_rec[69] = 0;
+		sheet_rec[70] = 0xC3; sheet_rec[71] = 0x50;     /* XP long = 50000 */
+		sheet_rec[129] = 58; sheet_rec[395] = 58;        /* max / cur HP */
+		sheet_rec[384] = 44; sheet_rec[385] = 52;        /* THAC0 / AC raw */
+		sheet_rec[396] = 12;                             /* movement */
+		sheet_rec[157] = 6;                              /* class level */
+		for (j = 0; nm[j] && j < 15; j++)
+			sheet_rec[96 + j] = (unsigned char)nm[j];
+		(void)cg_char_sheet(sheet_rec);
+	}
 	for (;;)
 		jt920();
 #endif
@@ -2125,6 +2158,7 @@ static void          jt941(void)
 }
 static int           jt918(short a);                                             /* CODE 12 + 0x0d90 — lifted below */
 static int           jt574(long ctx);                                            /* CODE 17 + 0x3b5e — char-gen entry, lifted below */
+static int           cg_char_sheet(unsigned char *rec);                          /* L29ae/L2da6 char-sheet review loop (defined below) */
 /* Port character-management screens (defined further down, used by the
  * jt918 case handlers above their definitions). */
 static void          cg_view_sheet(void);
@@ -20363,10 +20397,49 @@ static void l1672(short i, unsigned char *rec)
 	if (*w < cmn) *w = cmn;
 }
 
-/* JT[895] (CODE 19 + 0x1f00) — per-ability score DISPLAY (jt103/jt94/jt63 draw
- * the rolled value on the char-gen sheet). PROBE stub: L24d2 produces the roll
- * DATA correctly without it; the on-screen draw is deferred. */
-static void jt895(short i, short z) { PROBE("jt895"); (void)i; (void)z; }
+/* JT[895] (CODE 19 + 0x1f00) — per-ability score DISPLAY for ability i (row
+ * i+9 on the char-gen sheet).  Draws the score (right-justified, col 5/6) with
+ * a frame box, the exceptional-strength percentile "(NN)" for an 18 STR, and a
+ * "*" change-marker (col 12) when the current score differs from its base.
+ * The scores live as words at rec[112+i*2] (high byte = base, low = current).
+ * `flag` highlights the row red (11) instead of white (7). */
+static void jt895(short i, short flag)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	short colour = flag ? (short)11 : (short)7;
+	short col = 5;
+	char  buf[48];
+
+	PROBE("jt895");
+	if (rec == NULL)
+		return;
+
+	jt103(col, (short)(i + 9), (short)11, (short)(i + 9));   /* frame box */
+	if (rec[113 + i * 2] < 10)
+		col += 1;                                /* right-justify a 1-digit score */
+	jt94(col, (short)(i + 9), colour, (short)0, "%s",
+	     l60b4(rec[113 + i * 2]));
+
+	/* exceptional strength: STR (i==0) of 18 with a percentile rec[124] */
+	if (i == 0 && rec[113] == 18 && rec[124] > 0) {
+		jt384(buf, l60b4(rec[124]));
+		if (rec[124] < 10)
+			jt384(buf, jt488("0%s", buf));   /* "05" */
+		if (rec[124] == 100)
+			jt384(buf, "00");                /* 18/00 — the max */
+		jt94((short)7, (short)9, colour, (short)0, "%s",
+		     jt488("(%s)", buf));
+	}
+
+	/* "*" when the current score != its base (modified by spell/item/aging) */
+	if (rec[113 + i * 2] != rec[112 + i * 2] ||
+	    (i == 0 && rec[125] != rec[124])) {
+		jt94((short)12, (short)(i + 9), colour, (short)0, "*");
+	} else {
+		short c = (jt1200() == 3) ? (short)7 : colour;
+		jt94((short)12, (short)(i + 9), c, (short)0, " ");
+	}
+}
 
 /* L24d2 (CODE 17 + 0x24d2) — the character ability roll. For each ability
  * i=0..5: roll jt870(3,6)+1 six times keeping the highest, apply the racial
@@ -21557,15 +21630,15 @@ static int  jt574(long ctx)
 			l238e_c17(cg_rec);   /* faithful name prompt -> cg_rec[96] */
 			l0006_c17();         /* body-icon rec[188] */
 
-			/* Faithful Mac jt574 order (L3b5e): the REVIEW screen
-			 * (L1346/jt573) runs right after L0006 for a NEW character
-			 * (the Mac gate is fp@(8)==0; the port create path is
-			 * always new, ctx==0). Exit cancels the whole create — abort
-			 * before building/adding to the roster. jt573 reviews
-			 * g_a5_-27932 (= cg_rec, made current by jt572); body-icon
-			 * select + Done/Exit work, though the grid ICONS await the
-			 * jt110 DUNGCOM1 loader (still a leaf stub). */
-			if (ctx == 0 && jt573(0) == 0)
+			/* Faithful Mac jt574 order (L3b5e -> L29ae): the character
+			 * SHEET review runs right after L0006 for a NEW character.
+			 * cg_char_sheet rolls the abilities (L24d2) and paints the
+			 * 6-panel record sheet (L1276=jt886) with the Reroll Stats /
+			 * Modify / Done / Exit action bar (L23fa). Exit (return 0)
+			 * cancels the whole create — abort before building the roster.
+			 * On Done it commits each ability's base = the rolled current
+			 * value into cg_rec[112+i*2], which the build below reads. */
+			if (ctx == 0 && cg_char_sheet(cg_rec) == 0)
 				return 0;    /* review cancelled — back to the Hall */
 
 			l3cd4_c17(cg_rec);   /* proficiency bitfield rec[339..354] */
@@ -21591,14 +21664,11 @@ static int  jt574(long ctx)
 			s.ksel     = 0;                /* first class the race allows */
 			s.naligned = cg_allowed_aligns(s.allowed[s.ksel], s.aligned);
 			s.asel     = 0;
-			/* Faithful ability roll: L24d2 rolls into cg_rec (using its
-			 * race/class/gender picks + the -30960/-30612/-30552 racial
-			 * tables), then L1672 caps each ability. Read the permanent
-			 * scores out of the faithful word slots rec[112+i*2] into the
-			 * port struct so cg_build_record + the roster get real
-			 * faithfully-rolled stats. (cg_roll_stats, the port stand-in
-			 * roll, is retired here.) */
-			l24d2(cg_rec);
+			/* The abilities were rolled and committed by cg_char_sheet
+			 * above (L24d2 + the Done base=current commit). Read the
+			 * permanent scores out of the faithful word slots
+			 * cg_rec[112+i*2] into the port struct so cg_build_record +
+			 * the roster get the real faithfully-rolled stats. */
 			{
 				short si;
 				for (si = 0; si < 6; si++)
@@ -29151,22 +29221,241 @@ static void   jt82(void)
  *
  * Called by jt904 once on entry and again from its dispatch loop
  * after cases 0/1/2 (re-paint after state change). */
+static unsigned char jt35(const unsigned char *rec);   /* CODE 6+0x2f74 (below) */
+static void          l19ac(void);                      /* JT[898] CODE 19+0x19ac (below) */
+static void          jt892(const unsigned char *rec);  /* JT[892] CODE 19+0x1abe (below) */
 static void l1276(void)
 {
+	unsigned char *rec;
+	char  buf[84];
+	short lc, i, multi, sep;
+	static const char *const k_ability[6] =
+	    { "STR ", "INT ", "WIS ", "DEX ", "CON ", "CHA " };
+
 	PROBE("L1276");
 	g_a5_long(-5806) = g_a5_long(-27932);
 	jt82();
-	jt25(g_a5_long(-5806), (short)1, (short)1, (short)0);
+	jt25(g_a5_long(-5806), (short)1, (short)1, (short)0);   /* name header */
 
-	if (g_a5_long(-5806) == 0)
+	rec = (unsigned char *)(uintptr_t)g_a5_long(-5806);
+	if (rec == NULL)
 		return;                /* no character record -> no field paints */
 
-	/* Field paint loop deferred — see comment block above. */
+	/* Label colour: 7 (white) in colour-QD (JT[1200]==3) else 11 (mono). */
+	lc = (jt1200() == 3) ? (short)7 : (short)11;
+
+	/* "Status:" (20,1) + status name g_a5_-14480[rec[94]] (27,1) */
+	jt94((short)20, (short)1, lc, (short)0, "Status:");
+	jt94((short)27, (short)1, lc, (short)0, "%s",
+	     (const char *)(uintptr_t)g_a5_long(-14480 + (long)rec[94] * 4));
+
+	/* gender g_a5_-14500[rec[92]] (1,3) + age "%d years" (rec word @82) (8,3) */
+	jt94((short)1, (short)3, lc, (short)0, "%s",
+	     (const char *)(uintptr_t)g_a5_long(-14500 + (long)rec[92] * 4));
+	jt94((short)8, (short)3, lc, (short)0, "%d years",
+	     (int)(short)(((unsigned)rec[82] << 8) | rec[83]));
+
+	/* alignment g_a5_-14536[rec[93]] (1,4) */
+	jt94((short)1, (short)4, lc, (short)0, "%s",
+	     (const char *)(uintptr_t)g_a5_long(-14536 + (long)rec[93] * 4));
+
+	/* profession g_a5_-14564[rec[88]] (20,4) */
+	jt94((short)20, (short)4, lc, (short)0, "%s",
+	     (const char *)(uintptr_t)g_a5_long(-14564 + (long)rec[88] * 4));
+
+	/* class name g_a5_-14636[rec[89]] -> buf; multi-class (rec[88]==5)
+	 * appends "/<class>"; painted at (1,5). */
+	multi = 0;
+	jt384(buf, (const char *)(uintptr_t)g_a5_long(-14636 + (long)rec[89] * 4));
+	if (rec[88] == 5) {
+		for (i = 0; i <= 6; i++) {
+			if ((short)rec[164 + i] <= 0)
+				continue;
+			multi = 1;
+			if ((unsigned char)jt35(rec) <= rec[164 + i])
+				continue;
+			jt384(buf, jt488("%s/%s", buf,
+			      (const char *)(uintptr_t)g_a5_long(-14636 + (long)i * 4)));
+			break;
+		}
+	}
+	jt94((short)1, (short)5, lc, (short)0, "%s", buf);
+
+	/* "Level" label (1,7).  The Mac body composes the level value into the
+	 * shared scratch (buf) here but never paints it — the Experience string
+	 * below overwrites buf.  Transcribed faithfully (the digit is supplied by
+	 * the surrounding screen, not L1276). */
+	jt94((short)1, (short)7, lc, (short)0, "Level");
+	jt384(buf, "");
+	if (multi) {
+		for (i = 0; i <= 6; i++) {
+			if ((short)rec[157 + i] <= 0)
+				continue;
+			jt384(buf, jt488("%s%d", buf, (int)rec[157 + i]));
+			break;
+		}
+		for (i = 0; i <= 6; i++) {
+			if ((unsigned char)jt35(rec) <= rec[164 + i])
+				continue;
+			if ((short)rec[164 + i] <= 0)
+				continue;
+			jt384(buf, jt488("%s/%s", buf, l60b4(rec[164 + i])));
+			break;
+		}
+	} else {
+		sep = 0;
+		for (i = 0; i <= 6; i++) {
+			if ((short)rec[157 + i] <= 0)
+				continue;
+			if (sep)
+				jt384(buf, jt488("%s/", buf));
+			jt384(buf, jt488("%s%s", buf,
+			      l60b4((short)(rec[157 + i] + rec[164 + i]))));
+			sep = 1;
+		}
+	}
+
+	/* "Experience:" (24,6) + XP value (long @rec[68]) centred near (20,7) */
+	jt94((short)24, (short)6, lc, (short)0, "Experience:");
+	jt384(buf, jt70((long)(((unsigned long)rec[68] << 24) |
+	                       ((unsigned long)rec[69] << 16) |
+	                       ((unsigned long)rec[70] << 8) | rec[71])));
+	{
+		short w = jt483(buf);
+		jt94((short)(20 + (20 - w) / 2), (short)7, lc, (short)0, "%s", buf);
+	}
+
+	/* STR..CHA labels (1,9..14) + the six ability scores (jt895) */
+	for (i = 0; i <= 5; i++) {
+		jt94((short)1, (short)(i + 9), (short)7, (short)0, "%s",
+		     k_ability[i]);
+		jt895(i, (short)0);
+	}
+
+	l19ac();        /* jt898 — per-class experience rows */
+	jt892(rec);     /* HP / AC / THAC0 / Encumbrance / Movement panel */
+
+	/* memorised-spell and effect lists (item slots 21 / 22) */
+	if ((((unsigned long)rec[12] << 24) | ((unsigned long)rec[13] << 16) |
+	     ((unsigned long)rec[14] << 8) | rec[15]) != 0)
+		jt28((long)(uintptr_t)rec,
+		     (long)(((unsigned long)rec[12] << 24) | ((unsigned long)rec[13] << 16) |
+		            ((unsigned long)rec[14] << 8) | rec[15]),
+		     (short)1, (short)21, (short)0, (short)1);
+	if ((((unsigned long)rec[20] << 24) | ((unsigned long)rec[21] << 16) |
+	     ((unsigned long)rec[22] << 8) | rec[23]) != 0)
+		jt28((long)(uintptr_t)rec,
+		     (long)(((unsigned long)rec[20] << 24) | ((unsigned long)rec[21] << 16) |
+		            ((unsigned long)rec[22] << 8) | rec[23]),
+		     (short)1, (short)22, (short)0, (short)1);
 }
 static signed char l25ce(unsigned char *p)           { PROBE("L25ce"); if (p) *p = 1; return 0; }
 static void   l4334(void)                            { PROBE("L4334"); }
 static void   l46e0(short a)                         { PROBE("L46e0"); (void)a; }
-static void   l19ac(void)                            { PROBE("L19ac"); }
+static char  *jt59(short value);   /* CODE 6+0x60d4 (defined far below) */
+/* JT[898] (CODE 19 + 0x19ac) — the per-class experience rows at the bottom of
+ * the char-gen sheet.  For each of up to three class slots i=0..2 whose XP word
+ * (rec[76+i*2]) is non-zero, draw the class name (g_a5_-14492[i], col 20) and
+ * its experience (right-justified at col 38) on successive rows from row 9.
+ * jt70 formats slot 0's XP (large, comma-grouped); jt59 the others. */
+static void   l19ac(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	char  buf[44];
+	short row = 9, i, w;
+
+	PROBE("L19ac");
+	jt103((short)20, (short)9, (short)38, (short)15);   /* surrounding box */
+	if (rec == NULL)
+		return;
+	for (i = 0; i <= 2; i++) {
+		short xp = (short)(((unsigned)rec[76 + i * 2] << 8) | rec[77 + i * 2]);
+		if (xp <= 0)
+			continue;
+		jt384(buf, (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4));
+		jt94((short)20, row, (short)7, (short)0, "%s", buf);
+		if (i == 0)
+			jt384(buf, jt70((long)xp));
+		else
+			jt384(buf, jt59(xp));
+		w = jt483(buf);
+		jt94((short)(38 - w), row, (short)7, (short)0, "%s", buf);
+		row++;
+	}
+}
+
+/* JT[66] (CODE 6 + 0x6048 -> L604e) — post-action input pump: drain a pending
+ * key (via the L5f84 reader when JT[1118] reports one) and refresh the IKBD /
+ * cursor with JT[1125](7).  The driver calls it after a Reroll. */
+static void jt66(void)
+{
+	short a = 0, b = 0;
+
+	PROBE("jt66");
+	if (jt1118())
+		(void)l5f84();
+	jt1125((short)7, (long)(uintptr_t)&b, (long)(uintptr_t)&a);
+}
+
+/* L23fa (CODE 17 + 0x23fa) — the char-sheet action bar: four shape-1 buttons
+ * Done / Reroll Stats / Modify / Exit (install order = jt453 index 0..3),
+ * installed via JT[452] and run modally by JT[453].  Returns the index of the
+ * clicked button in g_a5_-7036 (0 Done, 1 Reroll, 2 Modify, 3 Exit). */
+static short cg_sheet_modal(void)
+{
+	jt174();
+	jt447();
+	jt452(1L, 8094L, 8084L, (long)(uintptr_t)ua_strs_at(0x486e) /* "Done" */,
+	          20L, 32L, 68L, 36L, 4L, 21L,
+	      1L, 8094L, 8004L, (long)(uintptr_t)ua_strs_at(0x4874) /* "Reroll Stats" */,
+	          20L, 32L, 82L, 36L, 12L, 21L,
+	      1L, 8094L, 8056L, (long)(uintptr_t)ua_strs_at(0x4882) /* "Modify" */,
+	          20L, 32L, 77L, 36L, 6L, 21L,
+	      1L, 8094L, 8104L, (long)(uintptr_t)ua_strs_at(0x488a) /* "Exit" */,
+	          20L, 32L, 69L, 36L, 4L, 21L,
+	      0L);
+	g_a5_word(-7036) = jt453((jt453_filter_t)0);
+	jt451();
+	return (short)g_a5_word(-7036);
+}
+
+/* L29ae tail / L2da6 review loop — the faithful character-sheet driver: paint
+ * the sheet (L1276=jt886), roll the abilities (L24d2), then loop on the action
+ * bar.  Reroll re-rolls; Modify opens the (not-yet-lifted) L618c stat editor;
+ * Exit cancels (returns 0); Done commits each ability's base = current
+ * (rec[112+i*2] = rec[113+i*2]; rec[125]=rec[124]) and returns 1. */
+static int cg_char_sheet(unsigned char *rec)
+{
+	short action, i;
+
+	g_a5_long(-27932) = (long)(uintptr_t)rec;
+	l1276();                 /* jt886 — paint the sheet */
+	l24d2(rec);              /* roll the six abilities */
+
+	for (;;) {
+		action = cg_sheet_modal();
+		if (action == 2) {               /* Modify */
+			jt150((short)1);
+			/* L618c stat editor not lifted yet — repaint only. */
+			jt150((short)0);
+			l1276();
+		}
+		if (action == 1) {               /* Reroll Stats */
+			l24d2(rec);
+			jt66();
+		}
+		if (action == 3 || action == 0)
+			break;
+	}
+	if (action == 3)
+		return 0;                        /* Exit — cancel the create */
+
+	l1276();                             /* Done — final repaint, then commit */
+	for (i = 0; i <= 5; i++)
+		rec[112 + i * 2] = rec[113 + i * 2];
+	rec[125] = rec[124];
+	return 1;
+}
 static void   l4f2c(long ptr)                        { PROBE("L4f2c"); (void)ptr; }
 static void   l4ff6(long ptr)                        { PROBE("L4ff6"); (void)ptr; }
 /* JT[35] (CODE 6 + 0x2f74) — the multi-class lead stat byte.
