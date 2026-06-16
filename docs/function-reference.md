@@ -91,10 +91,13 @@ JT[380].
   via `jt1089`. `pal = (rec[28]&9)?3:0` selects the highlighted variant.
 - **jt151 = CODE 7+0x1572** — registers the beveled button: calls
   `JT[450](1, jt137)` (→ shape slot 0 = jt137) and stores the previous handler
-  in `g_a5_-12918` for chaining. **On the normal boot this runs inside `l4d98`**
-  (the game-session init); any path that bypasses `l4d98` (e.g. the
-  `FRUA_CHARGEN` harness) must call `jt151()` itself or buttons fall back to the
-  plain `jt382`. *This was the whole "DONE/EXIT have no bevel" bug.*
+  in `g_a5_-12918` for chaining. **This runs inside `l4d98`** (the game-session
+  init), so any path that bypasses `l4d98` loses the bevels (buttons fall back to
+  plain `jt382`). *This was the whole "DONE/EXIT have no bevel" bug* — the
+  `FRUA_CHARGEN` harness jumped in before `l4d98`; it now runs after it. NB:
+  there is **no `l4d98` hang** — the earlier symptom was a bare `make run` with
+  no gamedata mounted (design load had nowhere to go); `run-game` reaches the
+  menu cleanly.
 - **jt380 = JT[380] = CODE 3+0x224c → l14d0** — shape-3 (list-row / radio item)
   painter. Draws the marker glyph via `l148a(rec16,rec18,0,16+hl)`
   (ALWAYS.CTL items 16..20 = the radio discs) then the row label via
