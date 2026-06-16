@@ -9,7 +9,15 @@ cursors on a magenta (transparent) background with dark gutters, in ALWAYS order
 (#0 sword pointer, shield, disc, directional arrows, turns, crosshair, square,
 hourglass...).
 
-    python3 tools/cursors_from_image.py data/mouse_cursors.jpeg -o frua.cur
+Two input modes:
+  * a grid image (the original sheet):
+        python3 tools/cursors_from_image.py data/mouse_cursors.jpeg -o frua.cur
+  * a directory of individual transparent PNGs (the shipping form), packed in
+    filename order, where the leading number is the cursor index (00 = the
+    pointer). Drop in a new `NN-foo.png` to replace one cursor:
+        python3 tools/cursors_from_image.py assets/cursors -o frua.cur
+
+Use --dump-pngs DIR with a grid image to seed the per-cursor PNG set.
 
 FCUR format (big-endian, matches tools/hlib_extract.py emit_cursor_pack):
     0  4   'FCUR'
@@ -20,10 +28,24 @@ FCUR format (big-endian, matches tools/hlib_extract.py emit_cursor_pack):
                 indices (0xFF = transparent).
 """
 import argparse
+import os
+import re
 import struct
 import sys
 
 from PIL import Image
+
+# Best-effort names for the ALWAYS-order cursor set, used when dumping per-cursor
+# PNGs. cursor 0 is the mouse pointer; the rest are context cursors (unused for
+# now). Rename freely — packing orders by the leading NN, not the label.
+NAMES = {
+    0: "sword", 1: "shield", 2: "disc", 3: "arrow-ne", 4: "arrow-e",
+    5: "arrow-se", 6: "arrow-s", 7: "arrow-sw", 8: "arrow-w", 9: "arrow-nw",
+    10: "arrow-n", 11: "arrow-n-sm", 12: "arrow-up", 13: "arrow-dn-grey",
+    14: "arrow-dn", 15: "disc-ring", 16: "disc-red", 17: "disc-white",
+    18: "disc-white2", 19: "disc-red2", 20: "turn-right", 21: "turn-left",
+    22: "u-turn", 23: "crosshair", 24: "square", 25: "hourglass",
+}
 
 # 16-colour cursor palette (index 0..15). Covers the sword (greys + gold),
 # shield (blue), the red selection dot, and the white/grey/black arrows.
@@ -168,19 +190,83 @@ def extract(im, cols, rows):
             idx += 1
 
 
+def grid_to_rgba(grid):
+    """A 16x16 palette-index grid -> an RGBA PNG image (0xFF = transparent)."""
+    img = Image.new("RGBA", (CURSOR_SIZE, CURSOR_SIZE), (0, 0, 0, 0))
+    p = img.load()
+    for y in range(CURSOR_SIZE):
+        for x in range(CURSOR_SIZE):
+            v = grid[y][x]
+            if v != 0xFF:
+                r, g, b = PALETTE[v]
+                p[x, y] = (r, g, b, 255)
+    return img
+
+
+def load_png_cursor(path):
+    """Load an individual cursor PNG -> (16x16 grid, opaque_count). Honours the
+    alpha channel for transparency; falls back to magenta keying if opaque."""
+    img = Image.open(path).convert("RGBA")
+    if img.size != (CURSOR_SIZE, CURSOR_SIZE):
+        img = img.resize((CURSOR_SIZE, CURSOR_SIZE), Image.LANCZOS)
+    p = img.load()
+    grid, op = [], 0
+    for y in range(CURSOR_SIZE):
+        row = []
+        for x in range(CURSOR_SIZE):
+            r, g, b, a = p[x, y]
+            if a < 128 or is_magenta((r, g, b)):
+                row.append(0xFF)
+            else:
+                row.append(nearest((r, g, b)))
+                op += 1
+        grid.append(row)
+    return grid, op
+
+
+def dir_cursors(path):
+    """Pack a directory of PNGs, ordered by the leading number in the filename
+    (00 = the pointer). Returns [(index, grid), ...]."""
+    files = [f for f in os.listdir(path) if f.lower().endswith(".png")]
+
+    def key(f):
+        m = re.match(r"(\d+)", f)
+        return (int(m.group(1)) if m else 9999, f)
+
+    files.sort(key=key)
+    out = []
+    for i, f in enumerate(files):
+        grid, _ = load_png_cursor(os.path.join(path, f))
+        out.append((i, grid))
+    return out
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("image")
+    ap.add_argument("image", help="grid image OR a directory of per-cursor PNGs")
     ap.add_argument("-o", "--out", default="frua.cur")
     ap.add_argument("--cols", type=int, default=6)
     ap.add_argument("--rows", type=int, default=5)
     ap.add_argument("--sheet", help="write a PNG contact sheet for verification")
+    ap.add_argument("--dump-pngs", metavar="DIR",
+                    help="with a grid image: write each cursor as DIR/NN-name.png")
     args = ap.parse_args(argv[1:])
 
-    im = Image.open(args.image).convert("RGB")
-    cursors = [(i, g) for (i, g, op) in extract(im, args.cols, args.rows)
-               if op > 4]   # drop empty (all-transparent) trailing cells
+    if os.path.isdir(args.image):
+        cursors = dir_cursors(args.image)
+    else:
+        im = Image.open(args.image).convert("RGB")
+        cursors = [(i, g) for (i, g, op) in extract(im, args.cols, args.rows)
+                   if op > 4]   # drop empty (all-transparent) trailing cells
+
+    if args.dump_pngs:
+        os.makedirs(args.dump_pngs, exist_ok=True)
+        for (i, grid) in cursors:
+            name = NAMES.get(i, "cursor")
+            grid_to_rgba(grid).save(
+                os.path.join(args.dump_pngs, "%02d-%s.png" % (i, name)))
+        print("wrote %d PNGs to %s" % (len(cursors), args.dump_pngs))
 
     out = bytearray(b"FCUR")
     out += struct.pack(">HH", 1, len(cursors))

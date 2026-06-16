@@ -165,12 +165,16 @@ DESIGNS_DIR  ?= data/designs
 # Which design directory to flatten in alongside the shared libs.
 # Override to test other modules, e.g. `make gamedata DSN=HEIRS.DSN`.
 DSN ?= TUTORIAL.DSN
-# Optional: path to the DOS release's ALWAYS.TLB. If set, its 8bpp colour
-# cursors are converted to a flat frua.cur pack and staged, so the engine
-# shows the colour mouse pointer (the one asset the DOS release has over the
-# Mac's mono cursors). Unset -> the engine keeps the mono cursor.
-#   make run-game DOS_ALWAYS="/path/to/DOS/DATA/DISK1/ALWAYS.TLB"
+# Colour mouse pointer. The engine reads a flat 'frua.cur' FCUR pack and shows
+# its cursor 0 in colour. Two sources, in priority order:
+#   1. DOS_ALWAYS — path to the DOS release's ALWAYS.TLB (its 8bpp cursors are
+#      the original art; loaded from your own data, not committed):
+#        make run-game DOS_ALWAYS="/path/to/DOS/DATA/DISK1/ALWAYS.TLB"
+#   2. assets/cursors/ — the bundled free (redrawn) cursor PNGs, packed by
+#      tools/cursors_from_image.py. Used when DOS_ALWAYS is unset.
+# Neither available -> the engine keeps the mono cursor.
 DOS_ALWAYS ?=
+CURSORS_DIR ?= assets/cursors
 gamedata: $(TARGET) frua.rsc
 	@if [ ! -d "$(MAC_JOINED)" ]; then \
 		echo "  gamedata: $(MAC_JOINED) not found — unpack the Mac release first (docs/mac-release.md)"; \
@@ -213,6 +217,9 @@ gamedata: $(TARGET) frua.rsc
 	@if [ -n "$(DOS_ALWAYS)" ] && [ -f "$(DOS_ALWAYS)" ]; then \
 		python3 tools/hlib_extract.py "$(DOS_ALWAYS)" --emit "$(GAMEDATA_DIR)/frua.cur" >/dev/null \
 			&& echo "  gamedata: staged colour cursors from $(DOS_ALWAYS)"; \
+	elif ls "$(CURSORS_DIR)"/*.png >/dev/null 2>&1; then \
+		python3 tools/cursors_from_image.py "$(CURSORS_DIR)" -o "$(GAMEDATA_DIR)/frua.cur" >/dev/null \
+			&& echo "  gamedata: staged free colour cursors from $(CURSORS_DIR)"; \
 	fi
 	@echo "  gamedata: staged $$(ls "$(GAMEDATA_DIR)" | grep -ivc frua) files + $(DSN) into $(GAMEDATA_DIR)"
 
