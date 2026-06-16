@@ -1991,8 +1991,8 @@ int ua_main(short arg1, long arg2)
 		short j;
 
 		memset(sheet_rec, 0, sizeof sheet_rec);
-		sheet_rec[88] = 0;   /* race  (table -14564[0]) */
-		sheet_rec[89] = 0;   /* class (table -14636[0]) */
+		sheet_rec[88] = 5;   /* race  = Human (pick-list index 5) */
+		sheet_rec[89] = 1;   /* class = Fighter (pick-list index 1) */
 		sheet_rec[92] = 0;   /* gender(table -14500[0]) */
 		sheet_rec[93] = 0;   /* align (table -14536[0]) */
 		sheet_rec[94] = 0;   /* status(table -14480[0] = OKAY) */
@@ -21624,22 +21624,21 @@ static int  jt574(long ctx)
 
 		if (l3666() != 0) {
 			/* Done committed: jt572 made cg_rec current (g_a5_-27932), with the
-			 * faithful picks in rec[88/89/92/93]. Stamp the faithful body-icon
-			 * rec[188]. Run the faithful tail in the Mac jt574 order: L238e
-			 * name entry (now functional — jt1078 is lifted), then L0006. */
-			l238e_c17(cg_rec);   /* faithful name prompt -> cg_rec[96] */
-			l0006_c17();         /* body-icon rec[188] */
-
-			/* Faithful Mac jt574 order (L3b5e -> L29ae): the character
-			 * SHEET review runs right after L0006 for a NEW character.
-			 * cg_char_sheet rolls the abilities (L24d2) and paints the
-			 * 6-panel record sheet (L1276=jt886) with the Reroll Stats /
-			 * Modify / Done / Exit action bar (L23fa). Exit (return 0)
-			 * cancels the whole create — abort before building the roster.
-			 * On Done it commits each ability's base = the rolled current
-			 * value into cg_rec[112+i*2], which the build below reads. */
+			 * faithful picks in rec[88/89/92/93].
+			 *
+			 * Faithful Mac jt574 order (L3b5e):  pick (L3666)  ->  the stat
+			 * SHEET (L29ae)  ->  name entry (L238e)  ->  body icon (L0006).
+			 * The sheet comes FIRST: cg_char_sheet rolls the starting age +
+			 * the six abilities (L24d2) and paints the 6-panel record sheet
+			 * (L1276=jt886) with the Reroll Stats / Modify / Done / Exit bar
+			 * (L23fa). Its Done is what advances to the name prompt — so the
+			 * name box opens AFTER the sheet, not before it. Exit at the
+			 * sheet (return 0) cancels the whole create -> back to the Hall. */
 			if (ctx == 0 && cg_char_sheet(cg_rec) == 0)
-				return 0;    /* review cancelled — back to the Hall */
+				return 0;    /* sheet Exit -> cancel */
+
+			l238e_c17(cg_rec);   /* faithful name prompt (sheet Done) -> cg_rec[96] */
+			l0006_c17();         /* body-icon rec[188] */
 
 			l3cd4_c17(cg_rec);   /* proficiency bitfield rec[339..354] */
 
@@ -29424,13 +29423,47 @@ static short cg_sheet_modal(void)
  * bar.  Reroll re-rolls; Modify opens the (not-yet-lifted) L618c stat editor;
  * Exit cancels (returns 0); Done commits each ability's base = current
  * (rec[112+i*2] = rec[113+i*2]; rec[125]=rec[124]) and returns 1. */
+/* L29ae head (CODE 17+0x29ae prologue) — roll/compute the starting AGE into
+ * the rec[82] word from the racial age table at g_a5_-30780 (28-byte race
+ * entries; each holds per-class 4-byte quads {base_word, dice, sides}).
+ *   single class (rec[89] <= 6):  jt870(quad.dice, quad.sides) + quad.base + 10
+ *   multi-class  (rec[89] 8..16): race[off+3]*race[off+2] + race_word[off],
+ *     a fixed (non-rolled) value; the component-class quad offset by class:
+ *     8..12 -> 0, 13 -> 20, 14 -> 8, 15..16 -> 20.
+ *   class 7 / out of range:        no age set (rec[82] left as-is). */
+static void cg_roll_age(unsigned char *rec)
+{
+	unsigned char *race = (unsigned char *)g_a5_buf(-30780) + (long)rec[88] * 28;
+	short age;
+
+	if (rec[89] <= 6) {
+		unsigned char *q = race + (long)rec[89] * 4;
+		age = (short)(jt870((short)q[2], (short)q[3])
+		      + (short)(((unsigned)q[0] << 8) | q[1]) + 10);
+	} else if (rec[89] >= 8 && rec[89] <= 16) {
+		short off;
+		switch (rec[89]) {
+		case 13: case 15: case 16: off = 20; break;
+		case 14:                   off = 8;  break;
+		default:                   off = 0;  break;   /* 8,9,10,11,12 */
+		}
+		age = (short)((short)race[off + 3] * (short)race[off + 2]
+		      + (short)(((unsigned)race[off] << 8) | race[off + 1]));
+	} else {
+		return;                                        /* class 7 — no age */
+	}
+	rec[82] = (unsigned char)((unsigned short)age >> 8);
+	rec[83] = (unsigned char)age;
+}
+
 static int cg_char_sheet(unsigned char *rec)
 {
 	short action, i;
 
+	cg_roll_age(rec);        /* L29ae head: roll the starting age -> rec[82] */
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
-	l1276();                 /* jt886 — paint the sheet */
-	l24d2(rec);              /* roll the six abilities */
+	l1276();                 /* jt886 — paint the sheet frame + fields */
+	l24d2(rec);              /* roll + paint (jt895) the six abilities */
 
 	for (;;) {
 		action = cg_sheet_modal();
