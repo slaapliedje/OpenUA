@@ -107,6 +107,30 @@ def cell_spans(im, axis, n_cells):
     return spans
 
 
+def trim_dark_frame(cell):
+    """Crop the cell to the bounding box of its magenta field. Each cursor sits
+    on a magenta (transparent) field; the dark gutter frame is OUTSIDE that
+    field. Cropping to the magenta bounds drops the gutter entirely, so the
+    downscale can't bleed gutter pixels into the cursor edge (which otherwise
+    quantise to grey instead of transparent -> a grey bottom/right line).
+    A small magenta margin is kept so the cursor never touches the edge."""
+    px = cell.load()
+    w, h = cell.size
+    xs0, ys0, xs1, ys1 = w, h, 0, 0
+    found = False
+    for y in range(h):
+        for x in range(w):
+            if is_magenta(px[x, y]):
+                found = True
+                if x < xs0: xs0 = x
+                if y < ys0: ys0 = y
+                if x > xs1: xs1 = x
+                if y > ys1: ys1 = y
+    if not found:
+        return cell
+    return cell.crop((xs0, ys0, xs1 + 1, ys1 + 1))
+
+
 def extract(im, cols, rows):
     """Yield (index, 16x16 list-of-rows of palette indices/0xFF)."""
     cspans = cell_spans(im, 0, cols)
@@ -125,6 +149,7 @@ def extract(im, cols, rows):
             mx = max(2, (x1 - x0) // 24)
             my = max(2, (y1 - y0) // 24)
             cell = im.crop((x0 + mx, y0 + my, x1 - mx, y1 - my))
+            cell = trim_dark_frame(cell)
             small = cell.resize((CURSOR_SIZE, CURSOR_SIZE), Image.LANCZOS)
             sp = small.load()
             grid = []
