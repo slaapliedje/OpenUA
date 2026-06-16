@@ -1957,6 +1957,20 @@ int ua_main(short arg1, long arg2)
 	 * stows them in the A5-world globals ua_get_string reads from. */
 	jt480(arg1, (void *)arg2);
 	jt989(jt10_handler, 1, "Pod", 83);
+#ifdef FRUA_CHARGEN
+	/* Char-gen harness entry. Jump straight to jt574 here — BEFORE the
+	 * Phase-4 design-load chain (l4cc0/l4d98/jt361), which currently hangs
+	 * loading the tutorial design (a separate bug). Creating a new character
+	 * needs only the string tables (jt480, above), the display (set up in
+	 * main() before ua_main) and the UI .CTL files jt574's load_menu_ui
+	 * opens — so run this with `make EXTRA_CFLAGS=-DFRUA_CHARGEN run-game`
+	 * (run-game mounts data/work/gamedata as C: where the .CTL files live).
+	 * Once the l4d98 hang is fixed this can move to its normal spot after
+	 * Phase 5. */
+	(void)jt574(0);
+	for (;;)
+		jt920();
+#endif
 	l4cc0();        /* design buffers — the Mac's jt12 runs L4cc0 before
 	                 * L4d98 (ITEMS.DAT/item.dat read into its allocs) */
 	l4d98();
@@ -2001,14 +2015,6 @@ int ua_main(short arg1, long arg2)
 	 */
 #ifdef FRUA_L6234_VERIFY
 	port_l6234_verify();    /* never returns — geometry check for L6234 */
-#endif
-#ifdef FRUA_CHARGEN
-	/* Jump straight to character generation (jt574) to verify the GLIB
-	 * glyph blit (markers/buttons/frame via L148a/jt76 -> L309c -> L2d4e).
-	 * Opt in with `make EXTRA_CFLAGS=-DFRUA_CHARGEN`. Never returns. */
-	(void)jt574(0);
-	for (;;)
-		jt920();
 #endif
 	while (jt315()) {
 		jt949();
@@ -7739,11 +7745,12 @@ static void l14d0(unsigned char *rec, short arg)
 	jt1141(*(short *)(rec + 16), *(short *)(rec + 18),
 	       0, 8006, &v, &h);
 	/* jt1089 takes the faithful Point (v, h) order.
-	 * v+6: the radio marker glyph is drawn with its TOP at the row pen
+	 * v+2: the radio marker glyph is drawn with its TOP at the row pen
 	 * (jt1135(rec16)), but DrawString puts the label BASELINE there, so the
-	 * 8px text rode ~6px high above the 7px marker. +6 drops the baseline to
-	 * vertically centre the label on the marker (race/align/gender/class). */
-	jt1089((short)(v + 6), h, col, "%s", *(const char **)(rec + 12));
+	 * 8px text rode high above the 7px marker. A small baseline drop centres
+	 * the label on the marker (race/align/gender/class). Measured in the
+	 * 320x200 path: +6 seated the text 4px too low, +2 lands it centred. */
+	jt1089((short)(v + 2), h, col, "%s", *(const char **)(rec + 12));
 }
 
 /* jt380 — shape 3 method dispatcher. cmd=2 has a primary text-
@@ -21233,17 +21240,20 @@ static int l3666(void)
 	      0L);
 
 	/* Done (jt572, hotkey 'D') + Exit (jt571, hotkey 'E') buttons [shape 1].
-	 * FAITHFUL to L3666 (CODE 17+0x3ac6): y=8094, DONE x=8004 / EXIT x=8024.
-	 * The Mac draws these as bare shape-1 items (jt382 paints label + the
-	 * item-14 glyph); their backdrop is the FRAME.CTL bottom command bar that
-	 * jt76 already blits — there is NO separate plate draw. The earlier port
-	 * deviation (y=8098 + hand-drawn port_menu_bar plates 5px left of the
-	 * hitboxes) is reverted: it both seated the labels low and offset the
-	 * visible plate from the clickable region (so EXIT-clicks landed on
-	 * DONE). The button stream is otherwise byte-identical to the disasm. */
-	jt452(1L, 8094L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
+	 * Faithful to L3666 (CODE 17+0x3ac6) the Mac coord is y=8094, DONE x=8004 /
+	 * EXIT x=8024, drawn as bare shape-1 items (jt382 paints the label; their
+	 * backdrop is the FRAME.CTL bottom command bar jt76 blits — no separate
+	 * plate). 320x200-PATH COMPENSATION: the Mac authored 8094 for its own
+	 * QuickDraw font metrics; the port collapses the L148a paint to a bare
+	 * DrawString whose baseline sits ~4px higher, so the labels read 4px too
+	 * high. We can't shift jt382 globally (it also paints the approved main
+	 * menu, task #105), so the +2-build-unit (=+4px at scale 2) baseline
+	 * compensation is applied here at the coord: 8094 -> 8096. The hitbox moves
+	 * with the label, so EXIT-clicks stay on EXIT. The stream is otherwise
+	 * byte-identical to the disasm. */
+	jt452(1L, 8096L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt572, 21L,
-	      1L, 8094L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
+	      1L, 8096L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt571, 21L,
 	      0L);
 
