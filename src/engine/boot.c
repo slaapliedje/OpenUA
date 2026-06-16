@@ -46863,7 +46863,19 @@ static int l0f60(short a)
 	PROBE("jt918/case3 L0f60");
 	if (g_a5_14437 == 0)
 		return 0;
-	jt557();
+	/* "Create Character" -> the char-gen pick screen (jt574 -> l3666).
+	 *
+	 * The literal disasm dispatches case 0 ("Train Character") to JT[574]
+	 * (create) and case 3 ("Create Character") to JT[557] (train) — i.e. the
+	 * two are swapped relative to their STRS labels, which only works out on
+	 * the Mac because its jt453/L2d3e hit-test returns a value the port's
+	 * "clicked build-index == JT[3] case" model doesn't reproduce (the #133
+	 * jt453-return detail). The port already resolves this by label on case 0
+	 * (l0f1a runs the train screen, not JT[574]); we do the same here so the
+	 * button named "Create Character" actually creates. JT[557] (train) stays
+	 * the case-0 path's job. Verified: this opens PICK RACE/CLASS from the
+	 * Training Hall. */
+	jt574(0);
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -47823,8 +47835,11 @@ static int jt918(short a)
 				int dirty = (h != NULL && (signed char)h[48] >= 0)
 				         || (g_a5_22730 != 0);
 
-				g_a5_14437 = (unsigned char)(dirty ? 1 : 0);
-				g_a5_14436 = g_a5_14437;
+				/* Create Character: enabled whenever a design is
+				 * loaded (you can always roll a new one); Remove
+				 * tracks `dirty` (only meaningful with a roster). */
+				g_a5_14437 = 1;
+				g_a5_14436 = (unsigned char)(dirty ? 1 : 0);
 			}
 			g_a5_14435 = 1;
 			g_a5_14434 = 1;
@@ -47854,7 +47869,7 @@ static int jt918(short a)
 			 */
 			g_a5_14439 = 1;
 			g_a5_14438 = 1;            /* port enable: Delete   */
-			g_a5_14437 = 0;
+			g_a5_14437 = 1;            /* enable Create Character */
 			g_a5_14436 = 1;            /* port enable: Remove   */
 			g_a5_14435 = 1;            /* port enable for trace */
 			g_a5_14434 = 1;
