@@ -7920,7 +7920,8 @@ static short jt381(void *rec_v, short cmd, ...)
  * dungeon-safe HUD palette (253/254), instead of the menu's clut 7/15 (wall
  * colours in the dungeon). Off everywhere else. */
 static short g_hud_paint;
-static void  port_menu_bar(short top, short left, short width, short idx); /* MENU.CTL plate */
+static void  port_menu_bar(short top, short left, short width, short idx)
+                            __attribute__((unused)); /* MENU.CTL plate (port stand-in; l3666 now uses the faithful FRAME bar) */
 static void  port_hud_text_clut(void);  /* install UI text colours into the dungeon clut */
 static short jt382(void *rec_v, short cmd, ...) __attribute__((unused));
 static short jt382(void *rec_v, short cmd, ...)
@@ -21232,31 +21233,19 @@ static int l3666(void)
 	      0L);
 
 	/* Done (jt572, hotkey 'D') + Exit (jt571, hotkey 'E') buttons [shape 1].
-	 * y=8098 (vs the Mac's 8094) seats the label + item-14 glyph on the
-	 * FRAME.CTL bottom command bar (item 4, drawn by jt76) — verified. */
-	jt452(1L, 8098L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
+	 * FAITHFUL to L3666 (CODE 17+0x3ac6): y=8094, DONE x=8004 / EXIT x=8024.
+	 * The Mac draws these as bare shape-1 items (jt382 paints label + the
+	 * item-14 glyph); their backdrop is the FRAME.CTL bottom command bar that
+	 * jt76 already blits — there is NO separate plate draw. The earlier port
+	 * deviation (y=8098 + hand-drawn port_menu_bar plates 5px left of the
+	 * hitboxes) is reverted: it both seated the labels low and offset the
+	 * visible plate from the clickable region (so EXIT-clicks landed on
+	 * DONE). The button stream is otherwise byte-identical to the disasm. */
+	jt452(1L, 8094L, 8004L, (long)(uintptr_t)ua_strs_at(0x4a00), 20L, 32L, 68L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt572, 21L,
-	      1L, 8098L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
+	      1L, 8094L, 8024L, (long)(uintptr_t)ua_strs_at(0x4a06), 20L, 32L, 69L, 33L, 35L, 36L, 4L,
 	      34L, (long)(uintptr_t)&jt571, 21L,
 	      0L);
-
-	/* DONE / EXIT each get the real MENU.CTL command-bar plate (item 1),
-	 * the same plate the main-menu command buttons get — jt382 (shape 1)
-	 * only paints the label + item-14 glyph, so the plate is drawn here
-	 * (before the paint walk, so the labels land on top). Each is ~one
-	 * button wide; DONE at x 8004, EXIT at x 8024 (the build coords). */
-	{
-		short py = 0, pxx = 0;
-		/* Two abutting plates (DONE x 8004, EXIT x 8024 = 40px apart). Like
-		 * menu_draw_plates, the plate starts 5px LEFT of the button origin
-		 * so the left-justified label (drawn at the origin by jt382) sits in
-		 * from the plate's left bevel instead of on it. The shared edge
-		 * reads as the Mac's DONE|EXIT divider. */
-		jt1135((short)8098, (short)8004, &py, &pxx);
-		port_menu_bar((short)(py - 9), (short)(pxx - 5), (short)40, (short)1);
-		jt1135((short)8098, (short)8024, &py, &pxx);
-		port_menu_bar((short)(py - 9), (short)(pxx - 5), (short)40, (short)1);
-	}
 
 	jt449(1);
 	jt453((jt453_filter_t)0);            /* the modal pick poll */
