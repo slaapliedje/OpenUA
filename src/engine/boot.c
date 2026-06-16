@@ -1947,8 +1947,10 @@ int ua_main(short arg1, long arg2)
 	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
 	 * Adventures / credits screens (TITLE.CTL art) shown before the menu.
 	 * No-ops when the design data isn't mounted (e.g. a plain `make run`).
-	 * Skipped in the 3D-walk demo build so it lands straight in the view. */
-#ifndef FRUA_MAP_DEMO
+	 * Skipped in the 3D-walk demo build so it lands straight in the view, and
+	 * in the char-gen harness so it lands straight on the pick screen (the
+	 * intro blocks on click-through otherwise). */
+#if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN)
 	port_show_intro();
 #endif
 
@@ -7749,8 +7751,9 @@ static void l14d0(unsigned char *rec, short arg)
 	 * (jt1135(rec16)), but DrawString puts the label BASELINE there, so the
 	 * 8px text rode high above the 7px marker. A small baseline drop centres
 	 * the label on the marker (race/align/gender/class). Measured in the
-	 * 320x200 path: +6 seated the text 4px too low, +2 lands it centred. */
-	jt1089((short)(v + 2), h, col, "%s", *(const char **)(rec + 12));
+	 * 320x200 path: +6 seated the text 4px too low, +2 still ~2px low, v lands
+	 * it centred on the marker. */
+	jt1089(v, h, col, "%s", *(const char **)(rec + 12));
 }
 
 /* jt380 — shape 3 method dispatcher. cmd=2 has a primary text-
