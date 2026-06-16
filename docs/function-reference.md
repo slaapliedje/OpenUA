@@ -191,7 +191,8 @@ trust the engine reading, not the tool's `WxH`.)*
 ## Character generation (CODE 17)
 
 - **jt574(ctx)** (CODE 17) — char-gen entry. Drives `l3666` pick → name → body
-  icon → `jt573` review → proficiency → finalize.
+  icon → **`cg_char_sheet`** (stat sheet + Reroll/Modify/Done/Exit) → proficiency
+  → finalize. (Was `jt573`; the faithful sheet replaced the body-icon review.)
 - **l3666** (CODE 17+0x3666) — the PICK screen: `l35f8` (chrome+headers), then
   `jt452` builds (race/class/alignment/gender radio rows + DONE/EXIT buttons),
   `jt449`, `jt453` modal. DONE button: action `jt572`; EXIT: `jt571`. Buttons are
@@ -203,6 +204,36 @@ trust the engine reading, not the tool's `WxH`.)*
 - **jt557** (CODE 17+0x6cd2) — TRAIN screen (not "create"; the jt918 case-3
   label is misleading).
 - **jt573 / L1346** (CODE 17) — body-icon 7×7 review grid.
+
+### Character SHEET (the post-pick stat review)
+
+- **L1276 = jt886** (CODE 19+0x1276) — the 6-panel record sheet paint. Copies
+  `g_a5_-27932 → g_a5_-5806` (working rec), then `jt82` (chrome) + `jt25`
+  (=**L2456**, the NAME header — NOT the port's roster-name stand-in) + a long
+  run of `jt94` field paints: Status (`-14480[rec94]`), gender (`-14500[rec92]`),
+  age word `rec[82]`, alignment (`-14536[rec93]`), profession (`-14564[rec88]`),
+  class name (`-14636[rec89]`, multi-class appends when `rec[88]==5`), Level
+  label, Experience (`jt70(rec@68)`), STR–CHA via **jt895**, then **jt898** +
+  **jt892**. Label colour = `(jt1200()==3)?7:11`.
+  *Known faithful quirk:* jt886 composes the Level **value** into its scratch buf
+  then overwrites it with the XP string without painting — the level digit is
+  supplied by another path (the sheet shows "Level" with no number from jt886
+  alone). Abilities live as words at `rec[112+i*2]` (high byte=base, low=current).
+- **L1f00 = jt895(i,flag)** (CODE 19+0x1f00) — one ability row (i+9): frame box +
+  score (`l60b4(rec[113+i*2])`, right-justified) + STR-18 percentile `(NN)`
+  (`rec[124]`, 100→"00") + a `*` change-marker (col 12) when current≠base.
+- **L19ac = jt898** (CODE 19+0x19ac) — per-class experience rows from row 9:
+  class name (`-14492[i]`, col 20) + XP (`jt70` slot 0 / `jt59`) right-aligned
+  col 38, for each non-zero `rec[76+i*2]`.
+- **L23fa modal** (CODE 17+0x23fa) — the sheet action bar: 4 shape-1 buttons
+  Done/Reroll Stats/Modify/Exit via `jt452`, run by `jt453`; the clicked index
+  (0..3) lands in `g_a5_-7036`. STRS: Done=0x486e, Reroll=0x4874, Modify=0x4882,
+  Exit=0x488a.
+- **Driver** (L29ae tail / L2da6, port `cg_char_sheet`): set `g_a5_-27932=rec`,
+  `jt886` paint → `L24d2` roll → loop the modal. Reroll re-rolls + `jt66`;
+  Modify→`L618c` (stat editor, not yet lifted); Exit returns 0 (cancel); Done
+  commits `rec[112+i*2]=rec[113+i*2]` + `rec[125]=rec[124]`, returns 1. Wired into
+  `jt574` in place of the old `jt573` body-icon review.
 
 ---
 
