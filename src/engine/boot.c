@@ -47714,7 +47714,17 @@ static void jt892(const unsigned char *rec)
 static void cg_draw_sheet(const unsigned char *c, const char *footer)
 {
 	unsigned char *px; short pitch, sw, sh, yy, i;
-	short race  = c[CHAR_RACE], klass = c[CHAR_CLASS];
+	short race, klass;
+
+#ifdef FRUA_CGTRACE
+	dbg_log_num("cg_draw_sheet c = ", (long)(uintptr_t)c);
+	if (c != NULL) {
+		dbg_log_num("  race = ", (long)c[CHAR_RACE]);
+		dbg_log_num("  class = ", (long)c[CHAR_CLASS]);
+	}
+#endif
+	race  = c[CHAR_RACE];
+	klass = c[CHAR_CLASS];
 	short lvl   = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
 	short align = c[CHAR_ALIGN];
 
@@ -48525,6 +48535,9 @@ static int jt918(short a)
 		{
 			int rc = 0;
 
+#ifdef FRUA_CGTRACE
+			dbg_log_num("jt918 dispatch local = ", (long)local);
+#endif
 			switch (local) {
 			case 0:  rc = l0f1a(a); break;
 			case 1:  rc = l0f2e(a); break;
