@@ -48534,6 +48534,7 @@ static int l120c(short a)
  * Returns count clamped to the engine's "lots of designs?" threshold
  * (>5). Until the design-list lift lands, the skeleton returns 0 so
  * the saved-game arm takes the "few designs" branch (clearing c79e). */
+static short jt918_count_visible_designs(void) __attribute__((unused));
 static short jt918_count_visible_designs(void)
 {
 	return 0;
@@ -48631,57 +48632,69 @@ static int jt918(short a)
 		 * safe. */
 		if (g_a5_27932 != 0) {
 			l02dc(g_a5_27932);
-			g_a5_14439 = 1;
-			g_a5_14438 = 1;
+			g_a5_14439 = 1;               /* Modify Character */
+			g_a5_14438 = 1;               /* Delete Character */
 			{
-				/* g_a5_28006[+48] >= 0 OR g_a5_22730 != 0 → 1, else 0 */
+				/* L0e14 — Create + Remove availability: enabled
+				 * when the game record carries a roster
+				 * (handle[48] > 0, UNSIGNED) OR the roster is dirty
+				 * (-22730 set since the last save). Remove copies
+				 * Create's value (the Mac moveb -14437 -> -14436).
+				 * (Was: Create force-1; Remove used a SIGNED >= 0
+				 * test that is true for almost any byte — wrong.) */
 				const unsigned char *h =
 				    (const unsigned char *)g_a5_28006;
-				int dirty = (h != NULL && (signed char)h[48] >= 0)
-				         || (g_a5_22730 != 0);
+				unsigned char avail =
+				    (unsigned char)(((h != NULL && h[48] > 0)
+				                     || g_a5_22730 != 0) ? 1 : 0);
 
-				/* Create Character: enabled whenever a design is
-				 * loaded (you can always roll a new one); Remove
-				 * tracks `dirty` (only meaningful with a roster). */
-				g_a5_14437 = 1;
-				g_a5_14436 = (unsigned char)(dirty ? 1 : 0);
+				g_a5_14437 = avail;          /* Create Character */
+				g_a5_14436 = avail;          /* Remove Character */
 			}
-			g_a5_14435 = 1;
-			g_a5_14434 = 1;
+			g_a5_14435 = 1;              /* Add Character  */
+			g_a5_14434 = 1;             /* View Character */
 			{
-				short n = jt918_count_visible_designs();
+				/* L0e44 — disable View when more than 5 party
+				 * members have rec[147] bit 7 clear (the active,
+				 * non-flagged members). Faithful to the Mac walk of
+				 * the -27928 list; the port had this counting
+				 * DESIGNS (jt918_count_visible_designs, a 0-stub) by
+				 * mistake. */
+				short cnt = 0;
+				const unsigned char *node =
+				    (const unsigned char *)(uintptr_t)
+				    g_a5_long(-27928);
 
-				if (n > 5)
+				while (node != NULL && cg_node_in_pool(node)) {
+					if (!(node[147] & 0x80))
+						cnt++;
+					node = *(const unsigned char * const *)node;
+				}
+				if (cnt > 5)
 					g_a5_14434 = 0;
 			}
-			g_a5_14433 = 1;
-			g_a5_14432 = 1;
-			g_a5_14431 = 1;
-			g_a5_14430 = 1;
+			g_a5_14433 = 1;             /* Human Change Class */
+			g_a5_14432 = 1;             /* Exit From Play     */
+			g_a5_14431 = 1;             /* Save Current Game  */
+			g_a5_14430 = 1;             /* Begin Adventuring  */
 		} else {
-			/* L0e98: fresh-init defaults.
-			 *
-			 * Port deviation: g_a5_14435 (Add Character) forced to
-			 * 1. The Mac default is 0 because a fresh-start has no
-			 * design loaded — Add only enables once g_a5_27932 (the
-			 * design-pointer) is non-zero, which the saved-game arm
-			 * (L0df6) handles. Until the design-load path lifts,
-			 * the Mac-faithful default leaves the dispatch chain
-			 * unobservable; setting it lets pressing 'A' exercise
-			 * the cmd=5 match -> jt918/case5 L1036 -> jt904
-			 * dispatch end-to-end in the trace. Revert when the
-			 * design-load gating becomes meaningful.
-			 */
-			g_a5_14439 = 1;
-			g_a5_14438 = 1;            /* port enable: Delete   */
-			g_a5_14437 = 1;            /* enable Create Character */
-			g_a5_14436 = 1;            /* port enable: Remove   */
-			g_a5_14435 = 1;            /* port enable for trace */
-			g_a5_14434 = 1;
-			g_a5_14433 = 0;
-			g_a5_14432 = 1;
-			g_a5_14431 = 0;
-			g_a5_14430 = 0;
+			/* L0e98 — fresh start (no design / save loaded,
+			 * g_a5_-27932 == 0). Faithful to the Mac: only Modify,
+			 * View and Exit are live; Delete / Create / Remove / Add
+			 * / Change-Class / Save / Begin all require a loaded
+			 * design and stay disabled (drawn black). The earlier
+			 * port force-enabled most of these "for trace"; with the
+			 * design-load path live that's no longer needed. */
+			g_a5_14439 = 1;            /* Modify Character    */
+			g_a5_14438 = 0;            /* Delete Character    */
+			g_a5_14437 = 0;            /* Create Character    */
+			g_a5_14436 = 0;            /* Remove Character    */
+			g_a5_14435 = 0;            /* Add Character       */
+			g_a5_14434 = 1;            /* View Character      */
+			g_a5_14433 = 0;            /* Human Change Class  */
+			g_a5_14432 = 1;            /* Exit From Play      */
+			g_a5_14431 = 0;            /* Save Current Game   */
+			g_a5_14430 = 0;            /* Begin Adventuring   */
 		}
 
 		/* L0ec6: poll input. */
