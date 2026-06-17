@@ -21643,6 +21643,13 @@ static int  jt574(long ctx)
 			l238e_c17(cg_rec);   /* faithful name prompt (sheet Done) -> cg_rec[96] */
 			l0006_c17();         /* body-icon rec[188] */
 
+			/* Faithful jt574 order (L3b5e @0x3c22): the body-icon REVIEW
+			 * grid jt573(L1346) runs after L0006 for a new character. Its
+			 * finalize stamps the starting money (rec[76]/78/80) into the
+			 * record; a cancel (return 0) aborts the whole create. */
+			if (jt573(0) == 0)
+				return 0;    /* body-icon review cancelled -> back to the Hall */
+
 			l3cd4_c17(cg_rec);   /* proficiency bitfield rec[339..354] */
 
 			/* Then add a roster character from the picks. The review screen
@@ -21707,6 +21714,10 @@ static int  jt574(long ctx)
 				 * (the word's low byte; rec[82] is memset 0). */
 				pr[88] = cg_rec[88]; pr[89] = cg_rec[89];
 				pr[92] = cg_rec[92]; pr[93] = cg_rec[93];
+				/* XP long @68 (jt572 stamped it) + the money words
+				 * @76/78/80 (jt573 finalize) -> the pool record. */
+				for (fi = 68; fi <= 71; fi++) pr[fi] = cg_rec[fi];
+				for (fi = 76; fi <= 81; fi++) pr[fi] = cg_rec[fi];
 				for (fi = 112; fi <= 125; fi++) pr[fi] = cg_rec[fi];
 				/* rec[157] (per-class level) is set to 1 by cg_build_record
 				 * via CHAR_LEVEL@157; don't overlay cg_rec[157..163] (0). */
@@ -23323,6 +23334,21 @@ static short jt573(short doSave)
 	jt406(buf2, rec, 398);                  /* SWAPPED: copy(rec -> buf2) */
 	g_a5_byte(-7038) = 0;
 	g_a5_byte(-7004) = 1;
+
+	/* L1346 finalize (CODE 17+0x27cc): stamp the design's starting money —
+	 * platinum / jewelry / gems — into the record word slots rec[76]/78/80
+	 * from the design globals g_a5_-18840 / -18836 / -18832 (each via jt1199,
+	 * the endian swap; the low word is the amount).  Set after the backup
+	 * copies so a cancel (buf1 restore below) reverts them, an accept keeps
+	 * them.  These are the slots the jt898 money panel reads. */
+	{
+		short plat = (short)jt1199(g_a5_long(-18840));
+		short jewl = (short)jt1199(g_a5_long(-18836));
+		short gems = (short)jt1199(g_a5_long(-18832));
+		rec[76] = (unsigned char)(plat >> 8); rec[77] = (unsigned char)plat;
+		rec[78] = (unsigned char)(jewl >> 8); rec[79] = (unsigned char)jewl;
+		rec[80] = (unsigned char)(gems >> 8); rec[81] = (unsigned char)gems;
+	}
 
 	while (l11ac() == 0)
 		;                               /* run frames until done */
