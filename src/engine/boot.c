@@ -47415,8 +47415,7 @@ static void jt892(const unsigned char *rec)
 	else if (ac <= 50)          shade = 16;
 	else if (ac <= 60)          shade = 17;
 	else                        shade = 16;
-	jt34(e, shade, (short)17, 0);
-	jt94((short)17, (short)17, 7, 0, "%d", (int)ac);
+	jt34(e, shade, (short)17, 0);   /* faithful AC value = |rec[385]-60| (jt34) */
 
 	/* Encumbrance (word @ +86) */
 	jt94((short)20, (short)17, lc, 0, "Encumbrance");
