@@ -18309,11 +18309,47 @@ static short l2d3e(void)
 			 && hm(hr, (short)2, cy, cx) != 0) {
 				/* Press feedback: recessed + blue/cyan while held, fire
 				 * on release-over-button (faithful l1676 cmd=3 track). */
-				if (menu_button_track(hr)) {
-					hr[28] |= 0x10;
-					return i;
+				if (!menu_button_track(hr))
+					return (short)-1;     /* released off: no pick */
+
+				/* Radio list row vs commit button.  A char-gen pick row
+				 * (RACE/CLASS/GENDER/ALIGNMENT) belongs to a shape-2 radio
+				 * container — the only DLItem with a value-output ptr at
+				 * rec[8] and a child count at rec[22].  Selecting a row must
+				 * fire the CONTAINER's cmd-4 (writes the value global + runs
+				 * the action proc jt566/jt567/jt568/jt569/jt570) and KEEP the
+				 * modal open; only a standalone button (Training Hall menu,
+				 * Done/Exit) commits and leaves.  The old code force-committed
+				 * EVERY click, so clicking a race exited the pick with nothing
+				 * selected -> the "click Elf -> instant human fighter" bug
+				 * (and class/gender/alignment were never pickable by mouse). */
+				{
+					unsigned char *cont  = hr;
+					short          local = 0;
+					int            is_row = 0;
+
+					while (cont > (unsigned char *)(uintptr_t)g_a5_9254) {
+						cont  -= DLITEM_BYTES;
+						local += 1;
+						if (*(long *)(void *)(cont + 8) != 0) {
+							/* nearest container: a child iff in its range */
+							if (local <= *(short *)(void *)(cont + 22))
+								is_row = 1;
+							break;
+						}
+					}
+					if (is_row) {
+						dlitem_method_t cm =
+						    *(dlitem_method_t *)cont;
+						if (cm != NULL)
+							cm(cont, (short)4, (int)local);
+						qd_present();         /* show the new selection */
+						return (short)-1;     /* stay in the pick */
+					}
 				}
-				return (short)-1;     /* released off the button: no pick */
+
+				hr[28] |= 0x10;
+				return i;                     /* commit button */
 			}
 			hr += DLITEM_BYTES;
 		}
