@@ -7,18 +7,32 @@
   DrawChar reads. jt1089 does this bridge inline; l024c didn't. Added it to
   l024c -> ALL faithful-island label text now paints. User-confirmed: name
   prompt + echo work.
-- **"Done" Bus Error (read \$0)** (d37cfae): a wild-pointer deref walking the
-  port roster list g_a5_-27928. FRUA_CGTRACE drive showed: Create (dispatch
-  local=3) ran, then Remove (case 4 -> cg_remove_from_party ->
+- **"Done" Bus Error (read \$0)** (d37cfae + 15a79fa): a wild-pointer deref
+  walking the port roster list g_a5_-27928. FRUA_CGTRACE drive: Create
+  (dispatch local=3) ran, then Remove (case 4 -> cg_remove_from_party ->
   cg_collect_party) faulted following a node's .next, before any
-  cg_draw_sheet. The list only ever threads cg_pool 512-byte slots; added
-  cg_node_in_pool() and bounded both walkers (cg_collect_party + l02dc) to
-  stop at the first non-pool node. Crash stopped; gated log captures the
-  stray pointer's value for the upstream root-cause (which writer leaves a
-  non-pool link in the list — not yet pinned; cg_party_relink itself is
-  correct, so suspect a stale g_a5_-27932=cg_rec transient or a cg_pool_count
-  overrun). REMAINING menu issues the user flagged: "not available" items not
-  shown black, half-elf create routing through the cg_build_record stand-in.
+  cg_draw_sheet. Fix part 1 (d37cfae): the list only ever threads cg_pool
+  512-byte slots, so added cg_node_in_pool() and bounded both walkers
+  (cg_collect_party + l02dc) to break at the first non-pool node BEFORE the
+  deref — provably crash-safe.
+  Fix part 2 (15a79fa): the deterministic harness **FRUA_CGCRASH** (loads the
+  real save state + does a deterministic cg_build_record + re-walks) proved
+  the DATA path is clean — savegame list 3 nodes, after-create 4 nodes, all
+  512-aligned cg_pool slots, cg_collect_party returns 3 then 4. So the
+  corruption is NOT cg_build_record/cg_party_relink; it is in the
+  **interactive** char-gen flow. Real correctness bug the harness surfaced:
+  jt574 left g_a5_-27932 ("current char") = the transient cg_rec (g_a5_-7008,
+  not a cg_pool slot, not in the list) — the Mac tail (jt477/jt165/jt587)
+  makes the new roster NODE current. Now point -27932 at the real pool slot.
+  Build the harness: `make EXTRA_CFLAGS="-DFRUA_CGCRASH -DFRUA_CGTRACE" run-game`.
+  OPEN: the exact interactive writer that injects a non-pool node into
+  -27928 (only cg_party_relink + jt19 write it; relink is clean, jt19 only
+  hits -27928 when removing the head). The guard makes this moot for crash
+  safety; the gated FRUA_CGTRACE "bad node = <ptr>" log will name it on the
+  next live Create->Remove drive (host input injection wasn't reaching Hatari
+  this session, so the live drive is still pending). REMAINING menu issues
+  the user flagged: "not available" items not shown black, half-elf create
+  routing through the cg_build_record stand-in.
 
 ## STATUS 2026-06-17: char sheet substantially DONE
 `cg_level_from_xp` + `cg_finalize_stats` + `jt21` in `cg_char_sheet`.
