@@ -29497,11 +29497,18 @@ static void l1276(void)
 	PROBE("L1276");
 	g_a5_long(-5806) = g_a5_long(-27932);
 	jt82();
-	jt25(g_a5_long(-5806), (short)1, (short)1, (short)0);   /* name header */
 
 	rec = (unsigned char *)(uintptr_t)g_a5_long(-5806);
 	if (rec == NULL)
 		return;                /* no character record -> no field paints */
+
+	/* Name header (1,1) in colour 7 (grey) — the Mac draws it via the real
+	 * JT[25] (L2456) at col 7, matching the status/XP/HP values.  The port's
+	 * jt25 is the ROSTER name painter (col 11/blue) and is shared with l02dc,
+	 * so the sheet draws its name directly here instead of through jt25 (the
+	 * trace shows #185 name = 135 = (8<<4)|7). */
+	jt94((short)1, (short)1, (short)7, (short)0, "%s",
+	     (const char *)&rec[96]);
 
 	/* Label colour: 7 (white) in colour-QD (JT[1200]==3) else 11 (mono). */
 	lc = (jt1200() == 3) ? (short)7 : (short)11;
