@@ -30,23 +30,38 @@ loop → `jt906`.
 | `jt573` money | 17+0x27cc | platinum/jewelry/gems → rec[76]/78/80 (design g_a5_-18840/-18836/-18832) | **DONE** |
 | `jt906` | 19+0x687e | saving throws → rec[131..135] (jt40 + tables -28818) | **DONE** (lifted) |
 | `jt885` | 19+0x55a2 | max HP → rec[129]/rec[82], cur HP rec[395] | **DONE** (lifted; called in jt573 — verify path) |
-| **`l13ee`** | 17+0x13ee | **LEVEL from XP** → rec[157]/159/161/162 + rec[128]/160 (via jt876 level-from-XP, jt7) | **STUB → lift** |
-| **`l2284`** | 17+0x2284 | multi-class level setup (jt876 ×≤9 over the class JT[3] switch) | **STUB → lift** |
+| **`l2284`/`l13ee`** | 17+0x2284/+0x13ee | **starting ITEMS per race/class** (jt876 = item/list-node builder → rec[4] list); l13ee also sets level slot rec[157+i]=1 (marker) + multi-class XP split (jt7) | **STUB → lift (items)** |
 | **`jt907`** | 19+0x668e | spell slots / class abilities from level (tables -22836/-22980/-22788, jt40, jt388) | **STUB → lift** |
-| **`jt21`** | 6+? | derived stats: **AC rec[385], THAC0 rec[384]**, dmg rec[389/391/393], move rec[396], enc | **LIFTED but NOT CALLED in create → wire** |
+| `jt21` | 6 | AC rec[385]=f(base rec[179], DEX/armor); THAC0 rec[384]=rec[127](+l1e58, conditional, NOT auto-STR); dmg rec[389..]=f(weapon rec[173..], +STR l1f3e); move rec[396]=rec[136] | **LIFTED, not called in create → wire AFTER bases** |
 
-Helpers (all lifted): `jt876` (level from XP, 18+0x1666), `jt7` (1+0x1ec),
-`jt40` (class level), `jt1199` (endian swap), `jt388` (abs).
+### CORRECTIONS (earlier rows were wrong)
+- **jt876 is NOT level-from-XP** — it's an item/list-node builder (adds starting
+  equipment to rec[4]). So l2284/l13ee build the starting INVENTORY → base AC
+  (rec[179] from armor) + weapon damage (rec[173..]).
+- **THAC0 display is correct as base, no auto-STR** (confirmed: a L4 fighter is
+  17; STR/DEX to-hit is applied per-weapon at attack time). jt21's l1e58 add is
+  conditional — so wiring jt21 reproduces the Mac's 17 once rec[127] is right.
+- **Level source UNRESOLVED.** rec[157+i] is set to 1 (a "class present" marker)
+  by l13ee + l24d2; jt40 just returns that stored value (max with rec[164]).
+  Ruled OUT as the level-4 source: l13ee, l24d2, l2284, jt40. jt572's per-class
+  loop reads rec[157] to set base THAC0 rec[127] from table -23184[class*22 +
+  level] — so it needs the real stored level. Where 10001 XP → stored 4 is not
+  located. Candidates left: jt907, a design starting-char template, or an
+  unfound XP-table lookup.
+- **"LEVEL n" digit is painted outside jt886** (build-and-discard quirk) — the
+  display path is also unresolved.
 
-## Order of attack
+## The real shape
 
-1. **`l13ee`** — gives LEVEL (the visible "LEVEL n"); unblocks level-gated stats.
-2. **`jt21` wired into the create finalize** — gives AC/THAC0/damage/move (the
-   numbers the user flagged as "not real D&D"). It's already lifted; just call
-   it after the levels/abilities are set.
-3. **`jt907`** — spell slots (mage/cleric); lower priority than AC/THAC0.
-4. **`l2284`** — multi-class level distribution; needed for multi-class chars.
-5. Verify `jt885` HP runs on the create path (jt573) → HP 42/42.
+`AC/THAC0/damage = jt21(bases)`; bases = **level** (→ rec[127] THAC0) +
+**starting items** (→ rec[179] AC, rec[173..] dmg) + **stats** (STR/DEX inside
+jt21). So jt21 can't be correct until BOTH level and items are set — a connected
+subsystem, not a one-function slice.
 
-Once 1–2 land, a port-created Tutorial fighter should read level 4 / AC 10 /
-THAC0 17 / DAMAGE 1d2+x like the Mac.
+## Fastest unblock: a BasiliskII `mon` dump
+
+A dump of a freshly-created Tutorial fighter's record settles it in one shot —
+read: rec[68] (XP), rec[157..163] (levels), rec[127] (base THAC0), rec[179]
+(base AC), rec[384]/rec[385] (final THAC0/AC), rec[173..177] (weapon dmg),
+rec[4] (item-list head). That pins the level source + field semantics far faster
+than tracing. Recipe in [[basiliskii-mon-3d-globals]].
