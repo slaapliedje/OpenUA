@@ -1,13 +1,21 @@
 # Char-gen finalize chain — worklist
 
-## STATUS 2026-06-17 (8d4bc2f): level/THAC0/AC/damage/move DONE
-`cg_level_from_xp` + `cg_finalize_stats` + `jt21` wired into `cg_char_sheet`.
-Hatari-verified Human Fighter 10001 XP → LEVEL 4 / THAC0 17 / AC 8 (DEX) / DMG
-1D2+2 (STR) / MOVE 12, matching the BasiliskII record. The "level source" was
-NOT a stored design field — it IS computed from XP via the per-class jt26
-thresholds (capped by -28048), the same machinery jt33 uses. RESOLVED.
-REMAINING: jt907 spell slots (mage/cleric); real starting equipment
-(l2284/l13ee items) vs the fist/AC-10/move-12 defaults; jt885 HP on the sheet.
+## STATUS 2026-06-17: char sheet substantially DONE
+`cg_level_from_xp` + `cg_finalize_stats` + `jt21` in `cg_char_sheet`.
+Hatari-verified Human Fighter 10001 XP → LEVEL 4 / HP 27/27 / THAC0 17 / AC 8
+(DEX) / DMG 1D2+2 (STR) / MOVE 12, matching the BasiliskII record.
+
+- **Level** (8d4bc2f): XP-computed via per-class jt26 thresholds capped by
+  -28048 (NOT a stored field — same machinery jt33 uses). RESOLVED.
+- **HP** (2fe9a9d): jt885(gain=1) per level 1..N accumulates the hit dice + CON.
+- **Race/class grants** (f9dc805): l2284 (racial abilities) + l13ee (class
+  grants: Ranger ability 8, Magic-User spellbook 105; multi-class slot + XP
+  split). Human Fighter gets none — matches the dump's gear-less fighter.
+
+REMAINING: jt907 spell SLOTS (per-day counts for casters); multi-class
+level/HP in cg_finalize_stats (single-class only now); HP rolls each reroll
+(vs Mac once-after-Done). The real starting equipment for a fighter IS nothing
+(buy with the 100 platinum) — the fist/AC-10/move-12 defaults are correct.
 
 ---
 
