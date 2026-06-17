@@ -1,5 +1,17 @@
 # Char-gen finalize chain — worklist
 
+## STATUS 2026-06-17 (8d4bc2f): level/THAC0/AC/damage/move DONE
+`cg_level_from_xp` + `cg_finalize_stats` + `jt21` wired into `cg_char_sheet`.
+Hatari-verified Human Fighter 10001 XP → LEVEL 4 / THAC0 17 / AC 8 (DEX) / DMG
+1D2+2 (STR) / MOVE 12, matching the BasiliskII record. The "level source" was
+NOT a stored design field — it IS computed from XP via the per-class jt26
+thresholds (capped by -28048), the same machinery jt33 uses. RESOLVED.
+REMAINING: jt907 spell slots (mage/cleric); real starting equipment
+(l2284/l13ee items) vs the fist/AC-10/move-12 defaults; jt885 HP on the sheet.
+
+---
+
+
 What actually computes a created character's data (vs. just rendering it). The
 sheet panels (jt886/jt892/jt895/jt898) are DONE; this is the data feeding them.
 The Mac applies the design's starting values + derived stats during char-gen;
