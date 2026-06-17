@@ -29506,9 +29506,14 @@ static void l1276(void)
 	/* Label colour: 7 (white) in colour-QD (JT[1200]==3) else 11 (mono). */
 	lc = (jt1200() == 3) ? (short)7 : (short)11;
 
-	/* "Status:" (20,1) + status name g_a5_-14480[rec[94]] (27,1) */
+	/* "Status:" label (20,1) in the label colour lc; the status VALUE (27,1)
+	 * is colour 7 (grey), NOT lc.  The Mac draws the name / status value / XP
+	 * value at col 7 while the labels + gender/age/class/level values use
+	 * col 11 (the trace shows status value = 135 = (8<<4)|7).  The port had
+	 * used lc for the value, which is 11 (blue) in char-gen's shallow mode —
+	 * so OKAY rendered blue instead of grey. */
 	jt94((short)20, (short)1, lc, (short)0, "Status:");
-	jt94((short)27, (short)1, lc, (short)0, "%s",
+	jt94((short)27, (short)1, (short)7, (short)0, "%s",
 	     (const char *)(uintptr_t)g_a5_long(-14480 + (long)rec[94] * 4));
 
 	/* gender g_a5_-14500[rec[92]] (1,3) + age "%d years" (rec word @82) (8,3) */
@@ -29587,7 +29592,9 @@ static void l1276(void)
 	                       ((unsigned long)rec[70] << 8) | rec[71])));
 	{
 		short w = jt483(buf);
-		jt94((short)(20 + (20 - w) / 2), (short)7, lc, (short)0, "%s", buf);
+		/* XP value in grey (col 7), like the status value — not lc. */
+		jt94((short)(20 + (20 - w) / 2), (short)7, (short)7, (short)0,
+		     "%s", buf);
 	}
 
 	/* STR..CHA labels (1,9..14) + the six ability scores (jt895) */
