@@ -1910,6 +1910,9 @@ static int   jt574(long ctx);            /* CODE 17 char-gen entry (harness) */
 #ifdef FRUA_SHEET
 static int   cg_char_sheet(unsigned char *rec);  /* char-sheet review loop (harness) */
 #endif
+#ifdef FRUA_CGCRASH
+static void  cg_crash_repro(void);       /* headless roster-walk repro (harness) */
+#endif
 
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
@@ -1953,7 +1956,8 @@ int ua_main(short arg1, long arg2)
 	 * Skipped in the 3D-walk demo build so it lands straight in the view, and
 	 * in the char-gen harness so it lands straight on the pick screen (the
 	 * intro blocks on click-through otherwise). */
-#if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET)
+#if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
+    && !defined(FRUA_CGCRASH)
 	port_show_intro();
 #endif
 
@@ -1967,6 +1971,15 @@ int ua_main(short arg1, long arg2)
 	l4d98();
 	l0444();
 	jt361(1);
+#ifdef FRUA_CGCRASH
+	/* Headless repro of the char-gen "Done -> Remove" Bus Error: load the real
+	 * save state (3 party chars + cg_party_relink), dump the roster list, then
+	 * walk it the way cg_remove_from_party does (cg_collect_party). Pin whether
+	 * the LOADED list is already corrupt, and whether a deterministic create
+	 * (cg_build_record) injects a stray node. Build with
+	 * `make EXTRA_CFLAGS="-DFRUA_CGCRASH -DFRUA_CGTRACE" run-game`. Never returns. */
+	cg_crash_repro();
+#endif
 #ifdef FRUA_CHARGEN
 	/* Char-gen harness entry. Runs AFTER the full design-load + session init
 	 * (l4cc0/l4d98/jt361): there is no l4d98 "hang" — the earlier symptom was a
@@ -21875,6 +21888,16 @@ static int  jt574(long ctx)
 				 * via CHAR_LEVEL@157; don't overlay cg_rec[157..163] (0). */
 				pr[188] = cg_rec[188];
 				for (fi = 339; fi <= 354; fi++) pr[fi] = cg_rec[fi];
+
+				/* Make the NEW pool record the current character. The Mac
+				 * tail (jt477/jt165/jt587) copies the working record into a
+				 * roster node and makes THAT node current (-27932). The port
+				 * left -27932 pointing at the transient cg_rec (g_a5_-7008),
+				 * a 398-byte static that is NOT a cg_pool slot and NOT in the
+				 * roster list — so every later faithful op keyed off -27932
+				 * (jt19 / jt556 / jt584 / the l02dc highlight) saw a dangling
+				 * record. Point it at the real pool slot. */
+				g_a5_long(-27932) = (long)(uintptr_t)pr;
 			}
 		}
 	}
@@ -47646,6 +47669,71 @@ static short cg_collect_pool(unsigned char **out, short max)
 		out[n++] = cg_pool[i];
 	return n;
 }
+
+#ifdef FRUA_CGCRASH
+/* Headless repro of the char-gen "Done -> Remove" Bus Error. Loads the real
+ * save state (3 party chars + cg_party_relink), dumps the roster list, then
+ * walks it the way cg_remove_from_party does (cg_collect_party) — to see
+ * whether the LOADED list is already corrupt. Then does a deterministic create
+ * (cg_build_record) and re-walks, to see whether the create injects a stray
+ * non-pool node. Every node pointer is logged so a wild link is obvious.
+ * Build: make EXTRA_CFLAGS="-DFRUA_CGCRASH -DFRUA_CGTRACE" run-game. */
+static void cg_crash_repro(void)
+{
+	unsigned char *party[16];
+	short np, k;
+
+	dbg_log("=== CGCRASH: loading savegame ===");
+	(void)port_load_savgame();
+	dbg_log_num("cg_pool_count = ", (long)cg_pool_count);
+	dbg_log_num("head g_a5_-27928 = ", g_a5_long(-27928));
+	dbg_log_num("cg_pool[0] base  = ", (long)(uintptr_t)cg_pool[0]);
+	dbg_log_num("cg_pool end      = ", (long)(uintptr_t)cg_pool[0] + 16 * 512);
+	for (k = 0; k < cg_pool_count && k < 16; k++) {
+		dbg_log_num("  cg_pool[k]   = ", (long)(uintptr_t)cg_pool[k]);
+		dbg_log_num("    .next@0    = ", *(long *)(void *)cg_pool[k]);
+		dbg_log_num("    INPARTY    = ", (long)cg_pool[k][CHAR_INPARTY]);
+	}
+	np = cg_collect_party(party, 16);
+	dbg_log_num("collect_party(savegame) n = ", (long)np);
+	for (k = 0; k < np; k++)
+		dbg_log_num("  party[k] = ", (long)(uintptr_t)party[k]);
+
+	/* Deterministic create: build one Human Fighter into cg_pool the way the
+	 * char-gen finalize tail does, then re-walk the roster list. */
+	dbg_log("=== CGCRASH: deterministic create ===");
+	{
+		cg_state s;
+		memset(&s, 0, sizeof s);
+		s.race     = 5;                 /* Human */
+		s.gender   = 0;
+		s.nallowed = cg_allowed_classes(s.race, s.allowed);
+		s.ksel     = 0;
+		s.naligned = cg_allowed_aligns(s.allowed[s.ksel], s.aligned);
+		s.asel     = 0;
+		for (k = 0; k < 6; k++)
+			s.stats[k] = 12;
+		s.name[0] = 'N'; s.name[1] = 'E'; s.name[2] = 'W';
+		s.name[3] = 0;  s.namelen = 3;
+		cg_build_record(&s);
+	}
+	dbg_log_num("cg_pool_count after create = ", (long)cg_pool_count);
+	dbg_log_num("head g_a5_-27928 = ", g_a5_long(-27928));
+	for (k = 0; k < cg_pool_count && k < 16; k++) {
+		dbg_log_num("  cg_pool[k]   = ", (long)(uintptr_t)cg_pool[k]);
+		dbg_log_num("    .next@0    = ", *(long *)(void *)cg_pool[k]);
+		dbg_log_num("    INPARTY    = ", (long)cg_pool[k][CHAR_INPARTY]);
+	}
+	np = cg_collect_party(party, 16);
+	dbg_log_num("collect_party(after create) n = ", (long)np);
+	for (k = 0; k < np; k++)
+		dbg_log_num("  party[k] = ", (long)(uintptr_t)party[k]);
+
+	dbg_log("=== CGCRASH done; idling ===");
+	for (;;)
+		jt920();
+}
+#endif
 
 /* Collect benched pool characters (CHAR_INPARTY == 0) into `out` — the
  * Add picker's candidates. */
