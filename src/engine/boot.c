@@ -20944,7 +20944,45 @@ static void jt906(unsigned char *rec)
 		}
 	}
 }
-static void jt907(unsigned char *rec) { PROBE("jt907"); (void)rec; }
+/* JT[907] (CODE 19 + 0x668e) — build the caster's per-spell-level slot counts
+ * rec[139..146] (spell levels 1..8) from the priest/mage class level (jt40 slot
+ * 6, capped at 18).  Per spell level: the base count is the class progression
+ * g_a5_-22980[(level-1)*8 + sl-1] plus the race/class gate g_a5_-22836[rec[88]*8
+ * + sl-1] (a signed adjust; when negative and its magnitude reaches the
+ * progression the slot is zeroed — not yet available); spell levels 1..5 add
+ * the wisdom bonus g_a5_-22788[(rec[119]-9)*5 + sl-1]. */
+static void jt907(unsigned char *rec)
+{
+	short level, sl;
+
+	PROBE("jt907");
+	level = (short)jt40((void *)rec, (short)6);
+	if (level > 18)
+		level = 18;
+	if (level < 1)
+		return;
+
+	for (sl = 1; sl <= 8; sl++) {
+		signed char gate =
+		    (signed char)g_a5_byte(-22836 + (long)rec[88] * 8 + (sl - 1));
+		short prog = (unsigned char)
+		    g_a5_byte(-22980 + (long)(level - 1) * 8 + (sl - 1));
+
+		if (gate < 0 && (short)jt388((short)gate) >= prog) {
+			rec[139 + (sl - 1)] = 0;
+			continue;
+		}
+		rec[139 + (sl - 1)] = (unsigned char)(prog + (short)gate);
+
+		if (sl < 6 && (short)(unsigned char)rec[119] >= 9) {
+			unsigned char b = (unsigned char)g_a5_byte(
+			    -22788 + (long)((short)(unsigned char)rec[119] - 9) * 5
+			    + (sl - 1));
+			rec[139 + (sl - 1)] =
+			    (unsigned char)(rec[139 + (sl - 1)] + b);
+		}
+	}
+}
 
 /* JT[566] (CODE 17 + 0x3222) — the RACE list action proc. Stores the picked
  * race (g_a5_-7026, 1-based) in rec[88], then for every class index 0..16 scans
@@ -29616,12 +29654,21 @@ static short cg_level_from_xp(const unsigned char *rec, short slot)
  * every L24d2 (which clamps the level slots back to 1). */
 static void cg_finalize_stats(unsigned char *rec)
 {
-	short cls = rec[89];
 	short i;
 
-	rec[157 + cls] = (unsigned char)cg_level_from_xp(rec, cls);
+	/* Level from XP into the class slot(s) rec[157+class].  Single class
+	 * (rec[89] <= 6): the one slot.  Multi-class (8..16): each component slot
+	 * l13ee marked (its per-class XP share is already in rec[68]). */
+	if (rec[89] <= 6) {
+		rec[157 + rec[89]] = (unsigned char)cg_level_from_xp(rec, rec[89]);
+	} else {
+		for (i = 0; i <= 6; i++)
+			if (rec[157 + i] != 0)
+				rec[157 + i] =
+				    (unsigned char)cg_level_from_xp(rec, i);
+	}
 
-	rec[127] = 0;                              /* base THAC0 from level */
+	rec[127] = 0;                              /* base THAC0 = best over classes */
 	for (i = 0; i <= 6; i++) {
 		short lvl = rec[157 + i];
 		unsigned char t;
@@ -29643,19 +29690,33 @@ static void cg_finalize_stats(unsigned char *rec)
 
 	jt21((long)(uintptr_t)rec);                /* -> rec[384/385/389/391/393/396] */
 
-	/* HP: jt885 (gain=1) adds ONE level's hit dice + CON to rec[129], so a
-	 * multi-level character's HP is built by calling it per level 1..N.  Clear
-	 * HP, then accumulate (single-class here; rec[157+cls] is the level slot).
+	/* HP: jt885 (gain=1) adds ONE level's hit dice + CON to rec[129] and
+	 * divides by ncls (multi-class average), so build full HP by stepping
+	 * level 1..max, exposing only the slots still leveling at each step.
 	 * Re-rolls on each stat reroll so HP tracks the current CON. */
-	if (cls <= 6) {
-		short finallevel = rec[157 + cls];
-		short lv;
-		rec[129] = 0; rec[184] = 0; rec[395] = 0;
-		for (lv = 1; lv <= finallevel; lv++) {
-			rec[157 + cls] = (unsigned char)lv;
-			jt885((long)(uintptr_t)rec, (short)255, (short)1, (short)1);
+	{
+		unsigned char finallv[7];
+		short maxlv = 0, ncls = 0, step;
+
+		for (i = 0; i <= 6; i++) {
+			finallv[i] = rec[157 + i];
+			if (finallv[i] != 0) {
+				ncls++;
+				if (finallv[i] > maxlv)
+					maxlv = finallv[i];
+			}
 		}
-		rec[157 + cls] = (unsigned char)finallevel;   /* restore real level */
+		if (ncls < 1)
+			ncls = 1;
+		rec[129] = 0; rec[184] = 0; rec[395] = 0;
+		for (step = 1; step <= maxlv; step++) {
+			for (i = 0; i <= 6; i++)
+				rec[157 + i] = (step <= finallv[i])
+				    ? (unsigned char)step : 0;
+			jt885((long)(uintptr_t)rec, (short)255, ncls, (short)1);
+		}
+		for (i = 0; i <= 6; i++)              /* restore the real levels */
+			rec[157 + i] = finallv[i];
 	}
 }
 
