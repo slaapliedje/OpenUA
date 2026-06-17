@@ -58,6 +58,42 @@ loop → `jt906`.
 jt21). So jt21 can't be correct until BOTH level and items are set — a connected
 subsystem, not a one-function slice.
 
+## CONFIRMED field map (BasiliskII mon, 2026-06-17)
+
+Dump of a freshly-created Tutorial Human Fighter at the sheet (record @
+0x1f6ce82, reached via long@0x904=CurrentA5 → A5-0x6D1C → ptr):
+
+| Field | Off | Val | Notes |
+|-------|-----|-----|-------|
+| XP | 68 (long) | 10001 | design starting XP |
+| platinum | 76 (word) | 100 | jt573 money |
+| age | 82 (word) | 29 | cg_roll_age |
+| encumbrance | 86 (word) | 100 | |
+| race / class | 88 / 89 | 5 / **2** | Human / **Fighter = internal class 2** |
+| base THAC0 | 127 | 42 | jt572 loop from -23184[class*22+level] |
+| max HP | 129 | 42 | jt885 |
+| saves | 131..135 | 13,14,15,16,16 | jt906 |
+| base move | 136 | 12 | |
+| **LEVEL** | **157+class = 159** | **4** | level is per-class-slot, NOT rec[157] |
+| weapon dmg | 173/175/177 | 1 / 2 / 0 | base 1d2 (fist) |
+| base AC | 179 | 50 | unarmored (→10) |
+| THAC0 final | 384 | 43 | 60-43 = **17** (jt21; +1 over base = l1e58) |
+| AC final | 385 | 50 | \|50-60\| = **10** (jt21) |
+| dmg final | 389/391/393 | 1 / 2 / 1 | 1d2**+1** (jt21 adds STR dmg l1f3e) |
+| cur HP | 395 | 42 | |
+| move final | 396 | 12 | jt21 |
+
+**KEY:** level lives at **rec[157 + class_index]** (rec[159] for class-2
+Fighter). jt40/jt572-loop already key off the class index — they just need a
+non-1 level. Everything downstream (jt572 loop → base THAC0; jt21 → final
+AC/THAC0/dmg/move) already works once rec[157+class] holds the real level.
+
+**REMAINING UNKNOWN:** what sets rec[157+class]=4. l13ee sets it to 1; l24d2
+clamps to 1 at roll start. The level-4 write isn't found by grep on
+rec[157/159/161] in the create path → either a design starting-level field, or
+a post-roll level-from-XP recompute not yet located. (XP 10001 == fighter L4
+band 8000-15999, so it IS XP-derivable.)
+
 ## Fastest unblock: a BasiliskII `mon` dump
 
 A dump of a freshly-created Tutorial fighter's record settles it in one shot —
