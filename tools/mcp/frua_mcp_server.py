@@ -37,6 +37,7 @@ import glob
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))          # tools/mcp -> repo root
 REF_TOOLBOX = os.path.join(HERE, "reference", "toolbox")
+REF_TRACES = os.path.join(HERE, "reference", "traces")
 DATA = os.path.join(REPO, "data", "work")
 DISASM = os.path.join(DATA, "disasm")
 RFORK = os.path.join(DATA, "UnlimitedAdventures.rfork")
@@ -90,10 +91,10 @@ def _hexdump(data, base=0, limit=512):
 _SECTION_RE = re.compile(r"^(#{1,3})\s+(.*)$")
 
 
-def _corpus_files():
-    if not os.path.isdir(REF_TOOLBOX):
+def _corpus_files(refdir=REF_TOOLBOX):
+    if not os.path.isdir(refdir):
         return []
-    return sorted(glob.glob(os.path.join(REF_TOOLBOX, "*.md")))
+    return sorted(glob.glob(os.path.join(refdir, "*.md")))
 
 
 def _split_sections(path):
@@ -117,48 +118,47 @@ def _split_sections(path):
         yield (cur_anchor, cur_head, "\n".join(buf).strip())
 
 
-def tool_toolbox_list(_args):
-    files = _corpus_files()
+# Generic reference-corpus ops, shared by toolbox.* (Mac docs) and trace.*
+# (captured real-Mac runtime traces). Each is a dir of `##`-sectioned markdown.
+def _ref_list(refdir, title, get_name, search_name):
+    files = _corpus_files(refdir)
     if not files:
-        return f"[no reference corpus] expected markdown under {REF_TOOLBOX}"
-    out = ["Mac Toolbox / FRUA reference topics:\n"]
+        return f"[no corpus] expected markdown under {refdir}"
+    out = [title + "\n"]
     for path in files:
         stem = os.path.splitext(os.path.basename(path))[0]
         heads = [h for _, h, _ in _split_sections(path)]
-        # first heading is the file title; show it then the subsections
-        title = heads[0] if heads else stem
-        subs = [h for h in heads[1:] if h]
-        out.append(f"- {stem}: {title}")
-        for s in subs:
+        out.append(f"- {stem}: {heads[0] if heads else stem}")
+        for s in [h for h in heads[1:] if h]:
             out.append(f"    · {s}")
-    out.append("\nUse toolbox_get(topic=<stem>) for full text, "
-               "toolbox_search(query=...) to search.")
+    out.append(f"\nUse {get_name}(topic=<stem>) for full text, "
+               f"{search_name}(query=...) to search.")
     return "\n".join(out)
 
 
-def tool_toolbox_get(args):
+def _ref_get(refdir, args):
     topic = (args.get("topic") or "").strip()
     if not topic:
-        return "error: `topic` required (a corpus stem, e.g. resource-manager)"
+        return "error: `topic` required (a corpus stem)"
     stem = re.sub(r"\.md$", "", os.path.basename(topic))
-    path = os.path.join(REF_TOOLBOX, stem + ".md")
+    path = os.path.join(refdir, stem + ".md")
     if not os.path.isfile(path):
         avail = ", ".join(os.path.splitext(os.path.basename(p))[0]
-                          for p in _corpus_files())
+                          for p in _corpus_files(refdir))
         return f"error: no topic '{stem}'. Available: {avail}"
     return _read(path)
 
 
-def tool_toolbox_search(args):
+def _ref_search(refdir, args, default_max=6):
     query = (args.get("query") or "").strip()
     if not query:
         return "error: `query` required"
-    maxn = int(args.get("max", 6))
+    maxn = int(args.get("max", default_max))
     terms = [t for t in re.split(r"\W+", query.lower()) if t]
     if not terms:
         return "error: no searchable terms in query"
     hits = []
-    for path in _corpus_files():
+    for path in _corpus_files(refdir):
         for anchor, head, body in _split_sections(path):
             hay = (head + "\n" + body).lower()
             score = 0
@@ -171,13 +171,40 @@ def tool_toolbox_search(args):
             if score:
                 hits.append((score, anchor, head, body))
     if not hits:
-        return f"no matches for '{query}' in the toolbox corpus."
+        return f"no matches for '{query}'."
     hits.sort(key=lambda h: -h[0])
     out = [f"Top {min(maxn, len(hits))} matches for '{query}':\n"]
     for score, anchor, head, body in hits[:maxn]:
         snippet = body if len(body) <= 800 else body[:800] + "\n  ...(truncated)"
         out.append(f"### {anchor}  (score {score})\n{snippet}\n")
     return "\n".join(out)
+
+
+def tool_toolbox_list(_args):
+    return _ref_list(REF_TOOLBOX, "Mac Toolbox / FRUA reference topics:",
+                     "toolbox_get", "toolbox_search")
+
+
+def tool_toolbox_get(args):
+    return _ref_get(REF_TOOLBOX, args)
+
+
+def tool_toolbox_search(args):
+    return _ref_search(REF_TOOLBOX, args)
+
+
+def tool_trace_list(_args):
+    return _ref_list(REF_TRACES,
+                     "Captured real-Mac (BasiliskII) runtime traces:",
+                     "trace_get", "trace_search")
+
+
+def tool_trace_get(args):
+    return _ref_get(REF_TRACES, args)
+
+
+def tool_trace_search(args):
+    return _ref_search(REF_TRACES, args)
 
 
 # --------------------------------------------------------------------------- #
@@ -434,6 +461,20 @@ TOOLS = [
         "code": {"type": "string"},
         "max": {"type": "integer"}},
        ["pattern"]),
+    _t("trace_list",
+       "List the captured real-Mac (BasiliskII) runtime traces — ground truth "
+       "for validating the port's render/behaviour (e.g. the char-gen JT[1089] "
+       "draw sequence: coords, colours, label order).", {}),
+    _t("trace_get",
+       "Return the full text of one captured trace.",
+       {"topic": {"type": "string",
+                  "description": "trace stem, e.g. chargen-render-jt1089"}},
+       ["topic"]),
+    _t("trace_search",
+       "Full-text search the captured Mac traces; returns ranked sections.",
+       {"query": {"type": "string"},
+        "max": {"type": "integer", "description": "max sections (default 6)"}},
+       ["query"]),
 ]
 
 DISPATCH = {
@@ -446,6 +487,9 @@ DISPATCH = {
     "jt_lookup": tool_jt_lookup,
     "sym_search": tool_sym_search,
     "disasm_grep": tool_disasm_grep,
+    "trace_list": tool_trace_list,
+    "trace_get": tool_trace_get,
+    "trace_search": tool_trace_search,
 }
 
 
