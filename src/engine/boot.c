@@ -6733,10 +6733,18 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 {
 	long  handle = g_a5_long(-27866);
-	short group  = *(short *)(uintptr_t)handle;
+	short group;
 	short idx    = (short)((unsigned char)rec_hi * 38 + (unsigned char)rec_lo);
 
 	PROBE("jt57");
+	/* PORT-SAFETY: jt110 (the GLIB art loader) is still a stub, so the
+	 * body-icon art handle (-27866) can be 0 — DUNGCOM1 never loaded. A blit
+	 * from a null handle dereferences $0 (movew (a0)) -> Bus Error: this is
+	 * the char-gen body-review ("two-pane") crash. Skip the blit when no art
+	 * is loaded; the icon grid just stays empty until jt110 is lifted. */
+	if (handle == 0)
+		return;
+	group = *(short *)(uintptr_t)handle;
 	if (jt1200() == 3 && y >= -900) {
 		x = (short)((x << 5) + 24);
 		y = (short)((y << 5) + 24);
@@ -21840,9 +21848,21 @@ static int  jt574(long ctx)
 			 * sheet (return 0) cancels the whole create -> back to the Hall. */
 			if (ctx == 0 && cg_char_sheet(cg_rec) == 0)
 				return 0;    /* sheet Exit -> cancel */
+#ifdef FRUA_CGTRACE
+			dbg_log("jt574: sheet done");
+#endif
 
 			l238e_c17(cg_rec);   /* faithful name prompt (sheet Done) -> cg_rec[96] */
+#ifdef FRUA_CGTRACE
+			dbg_log("jt574: name done");
+			dbg_log_num("  cg_rec[96] = ", (long)cg_rec[96]);
+			dbg_log_num("  g_a5_-27932 = ", g_a5_long(-27932));
+			dbg_log_num("  cg_pool_count = ", (long)cg_pool_count);
+#endif
 			l0006_c17();         /* body-icon rec[188] */
+#ifdef FRUA_CGTRACE
+			dbg_log("jt574: body done");
+#endif
 
 			/* Faithful jt574 order (L3b5e @0x3c22): the body-icon REVIEW
 			 * grid jt573(L1346) runs after L0006 for a new character. Its
@@ -21850,6 +21870,9 @@ static int  jt574(long ctx)
 			 * record; a cancel (return 0) aborts the whole create. */
 			if (jt573(0) == 0)
 				return 0;    /* body-icon review cancelled -> back to the Hall */
+#ifdef FRUA_CGTRACE
+			dbg_log("jt574: review done");
+#endif
 
 			l3cd4_c17(cg_rec);   /* proficiency bitfield rec[339..354] */
 
