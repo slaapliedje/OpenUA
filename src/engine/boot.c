@@ -46673,13 +46673,27 @@ static void l0156(void)
 		;
 }
 
-/* L024c (CODE 5+0x24c) — set the GLIB pen colour (low word + high byte). */
+/* L024c (CODE 5+0x24c) — set the GLIB pen colour (low word + high byte).
+ *
+ * The Mac's glyph writer (JT[1136]) reads this pen colour out of the A5
+ * cluster per char; our DrawChar shim instead reads the GrafPort fgColor.
+ * Bridge the low nibble into the port here so the faithful text island
+ * (L0334 -> L0306 -> jt966/DrawChar, and the "%a" mid-string attr change
+ * via jt969) actually paints in the pen colour — mirrors jt1089, which
+ * does the same bridge inline. Without it, prompt/label text drew in a
+ * stale fgColor (e.g. the name-entry prompt was invisible). */
 static void l024c(short colour) __attribute__((unused));
 static void l024c(short colour)
 {
+	GrafPtr port;
+
 	PROBE("L024c");
 	g_a5_4894 = colour;
 	g_a5_4892 = (unsigned char)(colour >> 8);
+
+	GetPort(&port);
+	if (port != NULL)
+		((CGrafPtr)port)->fgColor = (unsigned char)(colour & 0x0f);
 }
 
 /* L0264 (CODE 5+0x264) — set the GLIB pen position (8000-space -> screen). */
