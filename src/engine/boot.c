@@ -1953,7 +1953,7 @@ int ua_main(short arg1, long arg2)
 	 * Skipped in the 3D-walk demo build so it lands straight in the view, and
 	 * in the char-gen harness so it lands straight on the pick screen (the
 	 * intro blocks on click-through otherwise). */
-#if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN)
+#if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET)
 	port_show_intro();
 #endif
 
@@ -1992,20 +1992,20 @@ int ua_main(short arg1, long arg2)
 
 		memset(sheet_rec, 0, sizeof sheet_rec);
 		sheet_rec[88] = 5;   /* race  = Human (pick-list index 5) */
-		sheet_rec[89] = 1;   /* class = Fighter (pick-list index 1) */
+		sheet_rec[89] = 2;   /* class = Fighter (internal class index 2) */
 		sheet_rec[92] = 0;   /* gender(table -14500[0]) */
 		sheet_rec[93] = 0;   /* align (table -14536[0]) */
 		sheet_rec[94] = 0;   /* status(table -14480[0] = OKAY) */
 		sheet_rec[82] = 0; sheet_rec[83] = 27;          /* age word = 27 */
 		sheet_rec[68] = 0; sheet_rec[69] = 0;
-		sheet_rec[70] = 0xC3; sheet_rec[71] = 0x50;     /* XP long = 50000 */
+		sheet_rec[70] = 0x27; sheet_rec[71] = 0x11;     /* XP long = 10001 (-> L4 fighter) */
 		sheet_rec[129] = 58; sheet_rec[395] = 58;        /* max / cur HP */
 		sheet_rec[384] = 44; sheet_rec[385] = 52;        /* THAC0 / AC raw */
 		sheet_rec[396] = 12;                             /* movement */
 		sheet_rec[389] = 1; sheet_rec[391] = 8;          /* damage 1d8 */
 		sheet_rec[393] = 2;                              /* damage +2 bonus */
 		sheet_rec[76] = 0; sheet_rec[77] = 100;          /* 100 platinum (word @76) */
-		sheet_rec[157] = 6;                              /* class level */
+		/* level is computed from XP by cg_finalize_stats — do not seed it */
 		for (j = 0; nm[j] && j < 15; j++)
 			sheet_rec[96 + j] = (unsigned char)nm[j];
 		(void)cg_char_sheet(sheet_rec);
@@ -29309,10 +29309,12 @@ static void l1276(void)
 	}
 	jt94((short)1, (short)5, lc, (short)0, "%s", buf);
 
-	/* "Level" label (1,7).  The Mac body composes the level value into the
-	 * shared scratch (buf) here but never paints it — the Experience string
-	 * below overwrites buf.  Transcribed faithfully (the digit is supplied by
-	 * the surrounding screen, not L1276). */
+	/* "Level" label (1,7) + the composed level value at (7,7).  The Mac body
+	 * builds this string then lets the Experience copy overwrite buf without a
+	 * paint (its level digit comes from elsewhere we haven't located); the port
+	 * paints it here so a created character shows "Level N" — the value
+	 * (rec[157+i] per-class levels) is correct now that cg_finalize_stats sets
+	 * the level from XP. */
 	jt94((short)1, (short)7, lc, (short)0, "Level");
 	jt384(buf, "");
 	if (multi) {
@@ -29342,6 +29344,7 @@ static void l1276(void)
 			sep = 1;
 		}
 	}
+	jt94((short)7, (short)7, lc, (short)0, "%s", buf);   /* level value */
 
 	/* "Experience:" (24,6) + XP value (long @rec[68]) centred near (20,7) */
 	jt94((short)24, (short)6, lc, (short)0, "Experience:");
@@ -29487,14 +29490,71 @@ static void cg_roll_age(unsigned char *rec)
 	rec[83] = (unsigned char)age;
 }
 
+/* Level from XP — highest level L whose per-class XP threshold jt26(rec,L,slot)
+ * is met by the character's XP (rec[68] long), capped by the race/class cap at
+ * g_a5_-28048[rec[88]*7 + slot].  Mirrors jt33's advance test.  (10001 XP +
+ * fighter slot 2 -> 4: clears 2000/4000/8000, stops at 16000.) */
+static short cg_level_from_xp(const unsigned char *rec, short slot)
+{
+	long  xp    = *(const long *)(rec + 68);
+	short cap   = (short)((const unsigned char *)g_a5_buf(-28048))
+	                     [(long)rec[88] * 7 + slot];
+	short level = 1;
+
+	while (level < cap && level < 39) {
+		long need = jt26((long)(uintptr_t)rec, (short)(level + 1), slot);
+		if (need <= 0 || xp < need)
+			break;
+		level++;
+	}
+	return level;
+}
+
+/* Char-gen derived-stat finalize.  Set the per-class level from XP, recompute
+ * the base THAC0 rec[127] from the level (jt572's loop over -23184[class*22 +
+ * level]), seed the unarmed/unarmored bases (fist 1d2 / AC 10) when nothing
+ * equipped them, then run jt21 to derive AC rec[385] / THAC0 rec[384] / damage
+ * rec[389..] / move rec[396] from those bases + the rolled stats.  Called after
+ * every L24d2 (which clamps the level slots back to 1). */
+static void cg_finalize_stats(unsigned char *rec)
+{
+	short cls = rec[89];
+	short i;
+
+	rec[157 + cls] = (unsigned char)cg_level_from_xp(rec, cls);
+
+	rec[127] = 0;                              /* base THAC0 from level */
+	for (i = 0; i <= 6; i++) {
+		short lvl = rec[157 + i];
+		unsigned char t;
+		if (lvl == 0)
+			continue;
+		t = ((const unsigned char *)g_a5_buf(-23184))
+		    [(long)i * 22 + lvl];
+		if (t > rec[127])
+			rec[127] = t;
+	}
+
+	if (rec[173] == 0 && rec[175] == 0) {      /* fist 1d2 */
+		rec[173] = 1; rec[175] = 2; rec[177] = 0;
+	}
+	if (rec[179] == 0)                         /* unarmored AC 10 */
+		rec[179] = 50;
+	if (rec[136] == 0)                         /* base move (human default 12) */
+		rec[136] = 12;
+
+	jt21((long)(uintptr_t)rec);                /* -> rec[384/385/389/391/393/396] */
+}
+
 static int cg_char_sheet(unsigned char *rec)
 {
 	short action, i;
 
 	cg_roll_age(rec);        /* L29ae head: roll the starting age -> rec[82] */
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
-	l1276();                 /* jt886 — paint the sheet frame + fields */
-	l24d2(rec);              /* roll + paint (jt895) the six abilities */
+	l24d2(rec);              /* roll the six abilities */
+	cg_finalize_stats(rec);  /* level + THAC0/AC/damage/move from the roll */
+	l1276();                 /* jt886 — paint the full sheet with real stats */
 
 	for (;;) {
 		action = cg_sheet_modal();
@@ -29506,6 +29566,8 @@ static int cg_char_sheet(unsigned char *rec)
 		}
 		if (action == 1) {               /* Reroll Stats */
 			l24d2(rec);
+			cg_finalize_stats(rec);  /* re-derive from the new roll */
+			l1276();                 /* repaint THAC0/AC/damage too */
 			jt66();
 		}
 		if (action == 3 || action == 0)
