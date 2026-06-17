@@ -12,10 +12,17 @@ Hatari-verified Human Fighter 10001 XP → LEVEL 4 / HP 27/27 / THAC0 17 / AC 8
   grants: Ranger ability 8, Magic-User spellbook 105; multi-class slot + XP
   split). Human Fighter gets none — matches the dump's gear-less fighter.
 
-REMAINING: jt907 spell SLOTS (per-day counts for casters); multi-class
-level/HP in cg_finalize_stats (single-class only now); HP rolls each reroll
-(vs Mac once-after-Done). The real starting equipment for a fighter IS nothing
-(buy with the 100 platinum) — the fist/AC-10/move-12 defaults are correct.
+- **Spell slots** (70a7bdd): jt907 builds rec[139..146] per-spell-level counts
+  (progression -22980 + race gate -22836 + WIS bonus -22788). Called by jt572
+  when rec[163] (priest slot) is set.
+- **Multi-class** (70a7bdd): cg_finalize_stats computes each component class's
+  level from its XP share and steps HP per level so jt885's /ncls average builds
+  the full multi-class HP.
+
+REMAINING (minor): HP rolls each reroll (vs Mac once-after-Done — lets you
+reroll HP); caster/multi-class field map not yet mon-verified (the spell slots
+aren't on the main sheet). The fighter's "starting equipment" IS nothing (buy
+with the 100 platinum) — the fist/AC-10/move-12 defaults are correct.
 
 ---
 
