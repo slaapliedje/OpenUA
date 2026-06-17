@@ -29726,6 +29726,18 @@ static void cg_finalize_stats(unsigned char *rec)
 static int cg_char_sheet(unsigned char *rec)
 {
 	short action, i;
+	unsigned char *px; short pitch, sw, sh;
+
+	/* Re-establish the menu render state before painting.  The pick screen
+	 * (l3666) leaves a different CLUT + a narrowed clip; the sheet chrome
+	 * (jt82) draws its FRAME pieces without resetting the palette, so without
+	 * this they blit against the pick-screen CLUT (garbled colour noise) and
+	 * any jt1161 fill clips away.  Mirrors jt574's preamble. */
+	g_a5_2347 = 1;
+	load_menu_ui();
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
+	}
 
 	cg_roll_age(rec);        /* L29ae head: roll the starting age -> rec[82] */
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
