@@ -20777,8 +20777,106 @@ static void jt571(void)
  * when rec[163] > 0) / JT[906]. PROBE stubs — char-gen commits the picked
  * fields without them; the derived combat stats they compute land when CODE
  * 17/19 finalize is fully lifted. */
-static void l2284(unsigned char *rec) { PROBE("L2284"); (void)rec; }
-static void l13ee(unsigned char *rec) { PROBE("L13ee"); (void)rec; }
+static void  jt876(long a, short b, short c, short d, short e);  /* CODE 18+0x1666 (below) */
+
+/* L2284 (CODE 17+0x2284) — racial starting grants.  A JT[3] switch on rec[88]
+ * (race) adding the race's innate abilities to the character's list via jt876
+ * (the item/list-node builder).  Human (race 5) and out-of-range get nothing —
+ * matching the mon dump's gear-less Human Fighter. */
+static void l2284(unsigned char *rec)
+{
+	long rl = (long)(uintptr_t)rec;
+
+	PROBE("L2284");
+	switch (rec[88]) {
+	case 0:                                        /* Elf */
+		jt876(rl, 95, 0, 255, 0);
+		break;
+	case 1:                                        /* Half-Elf */
+		jt876(rl, 18, 0, 255, 0);
+		break;
+	case 2:                                        /* Dwarf */
+		jt876(rl, 47, 0, 255, 0);
+		jt876(rl, 26, 0, 255, 0);
+		jt876(rl, 97, 0, 255, 0);
+		break;
+	case 3:                                        /* Gnome */
+		jt876(rl, 48, 0, 255, 0);
+		jt876(rl,  7, 0, 255, 0);
+		jt876(rl, 97, 0, 255, 0);
+		break;
+	case 4:                                        /* Halfling */
+		jt876(rl, 97, 0, 255, 0);
+		break;
+	default:                                       /* Human (5) — none */
+		break;
+	}
+}
+
+/* L13ee (CODE 17+0x13ee) — per-class setup.  A JT[3] switch on rec[89] (class):
+ * mark the class's level slot(s) rec[157+i] = 1, add class grants via jt876
+ * (Ranger gets ability 8, Magic-User the spell-book item 105), and for multi-
+ * class combos (8..16) split the starting XP across the component classes
+ * (rec[68] = jt7(g_a5_-18882, nclasses)).  cg_finalize_stats then overwrites
+ * the single-class level slot with the level computed from XP. */
+static void l13ee(unsigned char *rec)
+{
+	long rl = (long)(uintptr_t)rec;
+
+	PROBE("L13ee");
+	switch (rec[89]) {
+	case 0: case 2: case 5: case 6:                /* single class */
+		rec[157 + rec[89]] = 1;
+		break;
+	case 3:                                        /* Ranger */
+		rec[128] = 1; rec[160] = 1;
+		jt876(rl, 8, 0, 255, 0);
+		break;
+	case 4:                                        /* Magic-User */
+		rec[161] = 1;
+		jt876(rl, 105, 0, 255, 0);
+		break;
+	case 8:                                        /* dual-class combos */
+		rec[157] = 1; rec[159] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
+		break;
+	case 9:
+		rec[157] = 1; rec[159] = 1; rec[162] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 3);
+		break;
+	case 10:
+		rec[157] = 1; rec[161] = 1;
+		jt876(rl, 105, 0, 255, 0);
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
+		break;
+	case 11:
+		rec[157] = 1; rec[162] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
+		break;
+	case 12:
+		rec[157] = 1; rec[163] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
+		break;
+	case 13:
+		rec[159] = 1; rec[162] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
+		break;
+	case 14:
+		rec[159] = 1; rec[163] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
+		break;
+	case 15:
+		rec[159] = 1; rec[162] = 1; rec[163] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 3);
+		break;
+	case 16:
+		rec[162] = 1; rec[163] = 1;
+		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
+		break;
+	default:                                       /* 1, 7, out of range */
+		break;
+	}
+}
 /* JT[906] (CODE 19+0x687e) — recompute the five saving throws,
  * full lift. A readied flag-bit-7 item whose low flags are 6 (the
  * protection-ring type) arms the bonus. Each save slot 0..4 starts
