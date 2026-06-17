@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "frua-reference": {
+      "command": "python3",
+      "args": ["tools/mcp/frua_mcp_server.py"],
+      "env": {}
+    }
+  }
+}
