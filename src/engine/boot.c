@@ -6825,7 +6825,7 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 
 /* Faithful in-memory combatant offsets, decoded from the CODE 19 record
  * sheet (jt892) + combat: AC@385 (JT[34], combat reads defender AC here),
- * HP@395 (JT[32]), THAC0 = 60 - CHAR_THAC0 (the sheet's "THAC0." line),
+ * HP@395 (JT[32]), THAC0 = 60 - CHAR_THAC0 (the sheet's "THAC0" line),
  * Movement@396 (JT[63]). The port now stores records at these offsets. */
 #define CHAR_AC      385
 #define CHAR_HP      395
@@ -47872,7 +47872,13 @@ static void jt892(const unsigned char *rec)
 	jt94((short)33, (short)17, 7, 0, "%d", (int)enc);
 
 	/* THAC0 = 60 - rec[384] */
-	jt94((short)1, (short)18, lc, 0, "THAC0.");
+	/* "THAC0" — the Mac STRS string is "THAC0\t " (THAC0 + TAB + space); the
+	 * TAB is an invisible separator (the value is drawn separately at col 16),
+	 * so the visible label is just "THAC0". The earlier "THAC0." was a lift
+	 * artifact: dis68k.py renders the 0x09 TAB byte as '.' in its STRS
+	 * annotation, and the literal got copied with a period. Verified against
+	 * the rfork bytes + a BasiliskII screenshot (no period on the Mac). */
+	jt94((short)1, (short)18, lc, 0, "THAC0");
 	jt94((short)16, (short)18, 7, 0, "%d", (int)(60 - rec[CHAR_THAC0]));
 
 	/* Movement */
