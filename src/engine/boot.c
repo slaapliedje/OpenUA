@@ -6872,6 +6872,12 @@ static const unsigned char cg_class_to_port[17] = {
 	2,  /* 16 Magic-User/Thief          -> Mage    */
 };
 
+/* cg_pool / cg_node_in_pool are defined further down (with the char-gen pool);
+ * forward-declare them so l02dc's roster walk can reject a stray non-pool link
+ * the same way cg_collect_party does. */
+static unsigned char cg_pool[16][512];
+static int cg_node_in_pool(const unsigned char *p);
+
 static void l02dc(long highlight)
 {
 	const unsigned char *handle = (const unsigned char *)g_a5_28006;
@@ -6904,6 +6910,13 @@ static void l02dc(long highlight)
 	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
 	while (entry != NULL) {
 		short v, colour;
+
+		if (!cg_node_in_pool(entry)) {
+#ifdef FRUA_CGTRACE
+			dbg_log_num("l02dc: bad node = ", (long)(uintptr_t)entry);
+#endif
+			break;
+		}
 
 		g_a5_24128 += 1;
 		jt103(page, row, 38, row);
@@ -47586,6 +47599,22 @@ static int l1036(short a)
  * cg_build_record + the test-party seed write (see the CHAR_* macros
  * above l02dc). */
 
+/* The port roster list (g_a5_-27928) threads through cg_pool slots only —
+ * cg_party_relink builds it from &cg_pool[i][0], NUL-terminated. A node is
+ * valid iff it lands exactly on a 512-byte cg_pool slot boundary. The walks
+ * below honour this so a stray link (e.g. a transient working record left in
+ * a .next field by the faithful char-gen path) terminates the walk instead
+ * of dereferencing a wild pointer. */
+static int cg_node_in_pool(const unsigned char *p)
+{
+	const unsigned char *base = cg_pool[0];
+	const unsigned char *end  = base + (long)16 * 512;
+
+	if (p < base || p >= end)
+		return 0;
+	return (long)(p - base) % 512 == 0;
+}
+
 /* Collect the active party (linked list, .next at +0) into `out`; the cap
  * is `max`. Returns the entry count. */
 static short cg_collect_party(unsigned char **out, short max)
@@ -47595,8 +47624,17 @@ static short cg_collect_party(unsigned char **out, short max)
 
 	for (e = (unsigned char *)(uintptr_t)g_a5_long(-27928);
 	     e != NULL && n < max;
-	     e = *(unsigned char **)e)
+	     e = *(unsigned char **)e) {
+		if (!cg_node_in_pool(e)) {
+#ifdef FRUA_CGTRACE
+			dbg_log_num("cg_collect_party: bad node = ",
+			            (long)(uintptr_t)e);
+			dbg_log_num("  after n = ", (long)n);
+#endif
+			break;
+		}
 		out[n++] = e;
+	}
 	return n;
 }
 
