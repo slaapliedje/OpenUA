@@ -47880,10 +47880,21 @@ static void cg_draw_sheet(const unsigned char *c, const char *footer)
 
 #ifdef FRUA_CGTRACE
 	dbg_log_num("cg_draw_sheet c = ", (long)(uintptr_t)c);
-	if (c != NULL) {
-		dbg_log_num("  race = ", (long)c[CHAR_RACE]);
-		dbg_log_num("  class = ", (long)c[CHAR_CLASS]);
+#endif
+	/* PORT-SAFETY: every caller passes a cg_pool slot (party[sel] / pool[sel]
+	 * from the cg_collect_* walks). If `c` is NOT a valid pool node, a stray
+	 * roster link slipped through — log it and skip rather than dereference a
+	 * wild pointer (this is where the post-create "two-pane" Bus Error lands). */
+	if (c == NULL || !cg_node_in_pool(c)) {
+#ifdef FRUA_CGTRACE
+		dbg_log_num("  cg_draw_sheet: c is NOT a cg_pool node — skip = ",
+		            (long)(uintptr_t)c);
+#endif
+		return;
 	}
+#ifdef FRUA_CGTRACE
+	dbg_log_num("  race = ", (long)c[CHAR_RACE]);
+	dbg_log_num("  class = ", (long)c[CHAR_CLASS]);
 #endif
 	race  = c[CHAR_RACE];
 	klass = c[CHAR_CLASS];
