@@ -104,6 +104,25 @@ def test_unknown_tool_is_error_content():
     assert "unknown tool" in res["result"]["content"][0]["text"]
 
 
+def test_trace_tools_registered():
+    res = call("tools/list")
+    names = {t["name"] for t in res["result"]["tools"]}
+    assert {"trace_list", "trace_get", "trace_search"} <= names
+
+
+def test_trace_list_includes_chargen_capture():
+    txt = tool("trace_list")
+    assert "chargen-render-jt1089" in txt
+
+
+def test_trace_get_and_search_chargen():
+    full = tool("trace_get", {"topic": "chargen-render-jt1089"})
+    assert "PICK RACE" in full and "ready    action" in full
+    # the colour-128 disabled-text ground truth is searchable
+    hits = tool("trace_search", {"query": "colour 128 disabled", "max": 2})
+    assert "chargen-render-jt1089" in hits
+
+
 @pytest.mark.skipif(not os.path.isfile(srv.RFORK),
                     reason="game data (rfork) not present")
 def test_rfork_list_reads_code_segments():
