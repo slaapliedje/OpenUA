@@ -48635,21 +48635,21 @@ static int jt918(short a)
 			g_a5_14439 = 1;               /* Modify Character */
 			g_a5_14438 = 1;               /* Delete Character */
 			{
-				/* L0e14 — Create + Remove availability: enabled
-				 * when the game record carries a roster
-				 * (handle[48] > 0, UNSIGNED) OR the roster is dirty
-				 * (-22730 set since the last save). Remove copies
-				 * Create's value (the Mac moveb -14437 -> -14436).
-				 * (Was: Create force-1; Remove used a SIGNED >= 0
-				 * test that is true for almost any byte — wrong.) */
-				const unsigned char *h =
-				    (const unsigned char *)g_a5_28006;
-				unsigned char avail =
-				    (unsigned char)(((h != NULL && h[48] > 0)
-				                     || g_a5_22730 != 0) ? 1 : 0);
-
-				g_a5_14437 = avail;          /* Create Character */
-				g_a5_14436 = avail;          /* Remove Character */
+				/* L0e14 — Create + Remove availability.  FAITHFUL
+				 * gate (Mac): both = (handle[48] > 0, UNSIGNED) OR
+				 * the roster is dirty (-22730); Remove copies Create
+				 * (moveb -14437 -> -14436).  INTERIM: the port's game
+				 * record (g_a5_-28006 = g_area_state) is a memset stub
+				 * that never sets [48], and -22730 is never raised, so
+				 * the faithful gate would wrongly grey out BOTH on a
+				 * loaded save.  Until handle[48] is lifted, key off
+				 * what the port tracks: a loaded design always allows
+				 * Create; Remove needs a roster (g_a5_-27928).  TODO:
+				 * restore `(h[48] > 0 || dirty)` once the game record
+				 * populates [48]. */
+				g_a5_14437 = 1;              /* Create (design loaded) */
+				g_a5_14436 = (unsigned char)
+				    (g_a5_long(-27928) != 0 ? 1 : 0);  /* Remove */
 			}
 			g_a5_14435 = 1;              /* Add Character  */
 			g_a5_14434 = 1;             /* View Character */
