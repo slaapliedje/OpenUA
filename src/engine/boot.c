@@ -2002,6 +2002,9 @@ int ua_main(short arg1, long arg2)
 		sheet_rec[129] = 58; sheet_rec[395] = 58;        /* max / cur HP */
 		sheet_rec[384] = 44; sheet_rec[385] = 52;        /* THAC0 / AC raw */
 		sheet_rec[396] = 12;                             /* movement */
+		sheet_rec[389] = 1; sheet_rec[391] = 8;          /* damage 1d8 */
+		sheet_rec[393] = 2;                              /* damage +2 bonus */
+		sheet_rec[76] = 0; sheet_rec[77] = 100;          /* 100 platinum (word @76) */
 		sheet_rec[157] = 6;                              /* class level */
 		for (j = 0; nm[j] && j < 15; j++)
 			sheet_rec[96 + j] = (unsigned char)nm[j];
@@ -29352,11 +29355,13 @@ static signed char l25ce(unsigned char *p)           { PROBE("L25ce"); if (p) *p
 static void   l4334(void)                            { PROBE("L4334"); }
 static void   l46e0(short a)                         { PROBE("L46e0"); (void)a; }
 static char  *jt59(short value);   /* CODE 6+0x60d4 (defined far below) */
-/* JT[898] (CODE 19 + 0x19ac) — the per-class experience rows at the bottom of
- * the char-gen sheet.  For each of up to three class slots i=0..2 whose XP word
- * (rec[76+i*2]) is non-zero, draw the class name (g_a5_-14492[i], col 20) and
- * its experience (right-justified at col 38) on successive rows from row 9.
- * jt70 formats slot 0's XP (large, comma-grouped); jt59 the others. */
+/* JT[898] (CODE 19 + 0x19ac) — the MONEY panel on the char sheet.  For each of
+ * up to three money slots i=0..2 whose amount word (rec[76+i*2]) is non-zero,
+ * draw the money-type name (g_a5_-14492[i] = "Platinum"/"Gems"/"Jewelry", col
+ * 20) and the amount (right-justified at col 38) on successive rows from row 9.
+ * jt70 formats slot 0 (platinum, large/comma-grouped); jt59 the others.  Shows
+ * nothing when a slot is zero — so a freshly-rolled char needs its starting
+ * money (rec[76] platinum) set for "Platinum N" to appear. */
 static void   l19ac(void)
 {
 	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
@@ -47398,6 +47403,22 @@ static void jt892(const unsigned char *rec)
 	/* Movement */
 	jt94((short)20, (short)18, lc, 0, "Movement");
 	jt94((short)33, (short)18, 7, 0, "%d", (int)rec[CHAR_MOVE]);
+
+	/* Damage (L1abe tail): "<dice>d<sides>" (rec[389] d rec[391]) plus the
+	 * signed bonus rec[393] ("+N" / "-N"), right-padded to width 7 (jt95). */
+	{
+		char dbuf[48];
+		signed char bonus = (signed char)rec[393];
+
+		jt384(dbuf, jt488("%dd%s", (int)rec[389], l60b4(rec[391])));
+		if (bonus > 0)
+			jt384(dbuf, jt488("%s+%s", dbuf, l60b4(bonus)));
+		else if (bonus < 0)
+			jt384(dbuf, jt488("%s-%s", dbuf, l60b4((short)-bonus)));
+		jt94((short)1, (short)19, lc, 0, "Damage");
+		jt95(dbuf, (short)7);
+		jt94((short)11, (short)19, 7, 0, "%s", dbuf);
+	}
 }
 
 static void cg_draw_sheet(const unsigned char *c, const char *footer)
