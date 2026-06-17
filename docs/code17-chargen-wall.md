@@ -246,3 +246,27 @@ both directions and self-test-verified.
   are unreached there; the boot self-tests print PASS earlier. Interactive
   Hatari verify still pending (the review screen runs, grid icons blank until
   the jt110 DUNGCOM1 loader is lifted).
+- 2026-06-17: BODY-ICON GRID RENDERS — lifted l3b1e (CODE 6+0x3b1e), the GLIB
+  tile compositor (af913ab). The earlier "jt110 leaf stub blocks the grid"
+  diagnosis was WRONG twice over: (1) JT[110] IS l33ac (same CODE 6+0x33ac
+  address — the binder was never a stub; jt110 just forwards to it); (2) the
+  art the grid blits is NOT a directly-bound group. The real chain: l4d98
+  stands up -27866 as a writable 'TILE' "activ" GLIB list block via
+  l36e0(&-27866, 81); the grid loop calls jt593 -> jt56("CBODYS", rec[188],
+  rec[189]) which COMPOSES each CBODY body shape INTO -27866 (item rec[189]=8)
+  through l3b1e, and jt57 blits the registry tiles (frame items 30/31, body
+  item 8) per cell via jt1001(*-27866, item). l3b1e was a complete PROBE stub,
+  so nothing landed in -27866 -> empty panes. Faithful l3b1e: a==0 clears the
+  dst item (jt1022 size 0); else src item = (flag) ? jt1020(src,b) : b, size =
+  jt1015(src,item), grow the dst item (jt1022; always id<76 else only when
+  smaller), then jt406-copy the piece. Deps jt468/jt1012/jt1015/jt1020/jt1022/
+  jt406 were all already lifted. A mid-investigation wrong turn (binding
+  DUNGCOM into -27866 to "publish the handle") clobbered the l36e0 registry
+  with a read-only FC-pool group, making jt1022's resize pop an l036a modal
+  (SysBeep+hang) — backed out; -27866 stays the registry, DUNGCOM1 binds into
+  a temp slot only for its palette (jt124) then frees (jt115). Verified in the
+  new FRUA_BODY harness (cg_body_repro): all 49 sprites tile the left pane,
+  READY/ACTION poses render. The combat art-overlay tier (jt55/l3b1e) is now
+  unblocked for #115 too. FOLLOW-UP: grid-cell background is the combat-sprite
+  palette (purple) vs the grey menu CLUT — the frame/sprite CLUT-sync the user
+  flagged (shared-palette model, [[glib-palette-subsystem]]).
