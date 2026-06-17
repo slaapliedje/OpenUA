@@ -19,10 +19,19 @@ Hatari-verified Human Fighter 10001 XP → LEVEL 4 / HP 27/27 / THAC0 17 / AC 8
   level from its XP share and steps HP per level so jt885's /ncls average builds
   the full multi-class HP.
 
+MON-VERIFIED (2026-06-17), 3 classes:
+- **Fighter** (Human, 10001 XP): L4 / THAC0 17 / AC 8 / HP 27 / 1D2+2.
+- **Cleric** (Human class 0, 10001 XP): L4 / THAC0 18 / AC / HP — THAC0 vs
+  fighter differs only by rolled STR (jt21's l1e58 adds STR to-hit only when
+  UNARMED rec[12]==0). Spell slots rec[139..146] = 0 at creation on both
+  (rec[163]=0 → jt907 not called in char-gen).
+- **Half-Elf Fighter/Magic-User** (combo 13, slots 2+5, 5000 XP split): LEVEL
+  **3/2** EXACT, FIGHTER/MAGIC-USER name, HP 12 in the (3d10+2d4)/2+CON band,
+  THAC0 18 — matched the Mac. Multi-class level + HP /ncls split confirmed.
+
 REMAINING (minor): HP rolls each reroll (vs Mac once-after-Done — lets you
-reroll HP); caster/multi-class field map not yet mon-verified (the spell slots
-aren't on the main sheet). The fighter's "starting equipment" IS nothing (buy
-with the 100 platinum) — the fist/AC-10/move-12 defaults are correct.
+reroll HP). The fighter's "starting equipment" IS nothing (buy with the 100
+platinum) — the fist/AC-10/move-12 defaults are correct.
 
 ---
 
