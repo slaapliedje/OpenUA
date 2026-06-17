@@ -1,5 +1,25 @@
 # Char-gen finalize chain — worklist
 
+## STATUS 2026-06-17 (pm): two create-flow UI bugs fixed
+- **Name prompt blank** (35adbeb): the faithful text island
+  (L0334->L0306->jt966/DrawChar, + jt969 "%a") set the GLIB pen colour in
+  g_a5_-4894 but never pushed it to the QuickDraw GrafPort fgColor that
+  DrawChar reads. jt1089 does this bridge inline; l024c didn't. Added it to
+  l024c -> ALL faithful-island label text now paints. User-confirmed: name
+  prompt + echo work.
+- **"Done" Bus Error (read \$0)** (d37cfae): a wild-pointer deref walking the
+  port roster list g_a5_-27928. FRUA_CGTRACE drive showed: Create (dispatch
+  local=3) ran, then Remove (case 4 -> cg_remove_from_party ->
+  cg_collect_party) faulted following a node's .next, before any
+  cg_draw_sheet. The list only ever threads cg_pool 512-byte slots; added
+  cg_node_in_pool() and bounded both walkers (cg_collect_party + l02dc) to
+  stop at the first non-pool node. Crash stopped; gated log captures the
+  stray pointer's value for the upstream root-cause (which writer leaves a
+  non-pool link in the list — not yet pinned; cg_party_relink itself is
+  correct, so suspect a stale g_a5_-27932=cg_rec transient or a cg_pool_count
+  overrun). REMAINING menu issues the user flagged: "not available" items not
+  shown black, half-elf create routing through the cg_build_record stand-in.
+
 ## STATUS 2026-06-17: char sheet substantially DONE
 `cg_level_from_xp` + `cg_finalize_stats` + `jt21` in `cg_char_sheet`.
 Hatari-verified Human Fighter 10001 XP → LEVEL 4 / HP 27/27 / THAC0 17 / AC 8
