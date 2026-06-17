@@ -1999,7 +1999,7 @@ int ua_main(short arg1, long arg2)
 		sheet_rec[82] = 0; sheet_rec[83] = 27;          /* age word = 27 */
 		sheet_rec[68] = 0; sheet_rec[69] = 0;
 		sheet_rec[70] = 0x27; sheet_rec[71] = 0x11;     /* XP long = 10001 (-> L4 fighter) */
-		sheet_rec[129] = 58; sheet_rec[395] = 58;        /* max / cur HP */
+		/* HP is rolled by cg_finalize_stats (jt885) — do not seed it */
 		sheet_rec[384] = 44; sheet_rec[385] = 52;        /* THAC0 / AC raw */
 		sheet_rec[396] = 12;                             /* movement */
 		sheet_rec[389] = 1; sheet_rec[391] = 8;          /* damage 1d8 */
@@ -29544,6 +29544,21 @@ static void cg_finalize_stats(unsigned char *rec)
 		rec[136] = 12;
 
 	jt21((long)(uintptr_t)rec);                /* -> rec[384/385/389/391/393/396] */
+
+	/* HP: jt885 (gain=1) adds ONE level's hit dice + CON to rec[129], so a
+	 * multi-level character's HP is built by calling it per level 1..N.  Clear
+	 * HP, then accumulate (single-class here; rec[157+cls] is the level slot).
+	 * Re-rolls on each stat reroll so HP tracks the current CON. */
+	if (cls <= 6) {
+		short finallevel = rec[157 + cls];
+		short lv;
+		rec[129] = 0; rec[184] = 0; rec[395] = 0;
+		for (lv = 1; lv <= finallevel; lv++) {
+			rec[157 + cls] = (unsigned char)lv;
+			jt885((long)(uintptr_t)rec, (short)255, (short)1, (short)1);
+		}
+		rec[157 + cls] = (unsigned char)finallevel;   /* restore real level */
+	}
 }
 
 static int cg_char_sheet(unsigned char *rec)
