@@ -1999,6 +1999,9 @@ int ua_main(short arg1, long arg2)
 		sheet_rec[82] = 0; sheet_rec[83] = 27;          /* age word = 27 */
 		sheet_rec[68] = 0; sheet_rec[69] = 0;
 		sheet_rec[70] = 0x27; sheet_rec[71] = 0x11;     /* XP long = 10001 (-> L4 fighter) */
+		/* Multi-class verified separately (Half-Elf F/M, combo 13: seed
+		 * rec[88]=1 rec[89]=13 rec[159]=1 rec[162]=1 XP=5000 -> L3/2, HP 12,
+		 * THAC0 18 — matched the BasiliskII record). */
 		/* HP is rolled by cg_finalize_stats (jt885) — do not seed it */
 		sheet_rec[384] = 44; sheet_rec[385] = 52;        /* THAC0 / AC raw */
 		sheet_rec[396] = 12;                             /* movement */
