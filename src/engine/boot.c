@@ -1913,6 +1913,9 @@ static int   cg_char_sheet(unsigned char *rec);  /* char-sheet review loop (harn
 #ifdef FRUA_CGCRASH
 static void  cg_crash_repro(void);       /* headless roster-walk repro (harness) */
 #endif
+#ifdef FRUA_BODY
+static void  cg_body_repro(void);        /* body-review harness (defined below) */
+#endif
 
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
@@ -1957,7 +1960,7 @@ int ua_main(short arg1, long arg2)
 	 * in the char-gen harness so it lands straight on the pick screen (the
 	 * intro blocks on click-through otherwise). */
 #if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
-    && !defined(FRUA_CGCRASH)
+    && !defined(FRUA_CGCRASH) && !defined(FRUA_BODY)
 	port_show_intro();
 #endif
 
@@ -2028,6 +2031,12 @@ int ua_main(short arg1, long arg2)
 	}
 	for (;;)
 		jt920();
+#endif
+#ifdef FRUA_BODY
+	/* Body-review harness — defined below (needs load_menu_ui in scope). Runs
+	 * jt573 (-> l11ac -> l09dc -> the DUNGCOM1 body-icon grid) on a seeded
+	 * record. `make EXTRA_CFLAGS=-DFRUA_BODY run-game`. */
+	cg_body_repro();
 #endif
 #ifdef FRUA_3D_DEMO
 	/* Interactive dungeon-walk demo. jt361(1) has run l4cc0 (design
@@ -23283,17 +23292,21 @@ static void l09ba(void)
 	jt593(1);
 }
 
-/* JT[110] (CODE 6 + 0x33ac) — GLIB slot loader (linkw -420; walks the
- * -18468 slot table for a free entry and opens the named GLIB into it).
- * LEAF STUB: the RM/GLIB art-load path is a separate subsystem (cf task
- * #127).  Until it is lifted here, the body-icon grid art does not load
- * (handle stays 0); L09dc's render logic around it is faithful. */
+/* JT[110] (CODE 6 + 0x33ac) — the GLIB library binder: the JT export IS
+ * l33ac (same address).  Bind the named GLIB into the caller's binder slot.
+ * The Mac call order is jt110(slotpp, subB, modeB, kindB, name); l33ac takes
+ * (name, kindB, modeB, subB, slotpp), so the kind/mode/sub args reverse.
+ * l09dc calls jt110(&handle, 0, 0, 1, "DUNGCOM1") -> l33ac("DUNGCOM1", 1, 0,
+ * 0, &handle). */
+static void l33ac(const char *name, short kindB, short modeB, short subB,
+                  void **slotpp);     /* the real CODE 6+0x33ac binder, below */
+
 static void jt110(void *out, short a, short b, short c, const char *name)
 {
 	PROBE("jt110");
-	(void)a; (void)b; (void)c; (void)name;
-	if (out != NULL)
-		*(long *)out = 0;
+	if (out == NULL)
+		return;
+	l33ac(name, c, b, a, (void **)out);
 }
 
 /* L09dc (CODE 17 + 0x9dc) — paint the review screen: first (when the
@@ -23327,10 +23340,15 @@ static void l09dc(void)
 		jt120(NULL);
 		jt117();
 		jt113(50);
+		/* Bind DUNGCOM1 into a temp slot for its palette (jt124), then free
+		 * it (jt115).  The -27866 the grid blits from is NOT this slot: it is
+		 * the persistent 'TILE' "activ" registry l4d98 stands up via l36e0 —
+		 * a writable GLIB bank.  jt593 -> jt56 composes the CBODY body shapes
+		 * into that registry (l3b1e), and jt57 blits its tiles. */
 		handle = 0;
 		jt110(&handle, 0, 0, 1, "DUNGCOM1");
-		jt124(handle);
-		jt115(&handle);
+		jt124(handle);                          /* commit the DUNGCOM palette */
+		jt115(&handle);                         /* free the temp DUNGCOM slot */
 		g_a5_byte(-22307) = 0;
 		do {                            /* L0a76: 49 cells (0..48) */
 			short cell = (unsigned char)g_a5_byte(-22307);
@@ -32671,10 +32689,59 @@ static unsigned char jt67(void) { PROBE("jt67"); return (unsigned char)g_a5_byte
 /* L3b1e (CODE 6+0x3b1e) — release one piece of the -27866 combat
  * overlay GLIB (args: 0L, 0, 0, group handle, piece id). Leaf PROBE
  * stub pending its own lift. */
+/* L3b1e (CODE 6+0x3b1e) — GLIB tile COMPOSE: copy item `b` of the source
+ * library `a` into item `id` of the destination library `grp`.  This is the
+ * compositor behind the body-icon grid and the combat art overlay: jt56
+ * composes a CBODY body shape into the -27866 working bank, jt55 frees the
+ * overlay tiles.  Both libraries are addressed by a binder slot (the long
+ * holds the slot pointer; slot word0 = the FC group), resolved to its FAR-pool
+ * entry through jt468.
+ *
+ *   a == 0      -> clear the dst item (jt1022 resize to 0).
+ *   else        -> src item index = (flag c != 0) ? jt1020(src,b) : b;
+ *                  size = jt1015(src, item);
+ *                  grow dst item to `size` (always when id < 76; for the
+ *                  id >= 76 scratch slots only when the dst item is smaller),
+ *                  then jt406-copy the src piece bytes over the dst item.
+ *
+ * (Port-safety: bail when the dst slot is unbound — the Mac always has the
+ * -27866 bank live before these run.) */
 static void l3b1e(long a, short b, short c, long grp, short id)
 {
+	short src_group, dst_group, src_item;
+	long  src_size, src_ptr, dst_ptr;
+
 	PROBE("l3b1e");
-	(void)a; (void)b; (void)c; (void)grp; (void)id;
+	if (grp == 0)                                   /* unbound dst bank */
+		return;
+	dst_group = *(short *)(uintptr_t)grp;
+
+	if (a == 0) {                                   /* 3b22: clear dst item */
+		jt1022(dst_group, (short)(unsigned char)id, 0L);
+		return;
+	}
+	src_group = *(short *)(uintptr_t)a;
+
+	if ((unsigned char)c != 0)                      /* 3b42: resolve src idx */
+		src_item = jt1020(jt468(src_group),
+		                  (short)(unsigned char)b);
+	else
+		src_item = (short)(unsigned char)b;
+
+	src_size = jt1015((void *)(uintptr_t)jt468(src_group), src_item);
+
+	/* 3b90: grow the dst item.  id < 76 always resizes; the id >= 76 scratch
+	 * slots resize only when the existing item is too small for the piece. */
+	if ((unsigned char)id < 76 ||
+	    jt1015((void *)(uintptr_t)jt468(dst_group),
+	           (short)(unsigned char)id) < src_size)
+		jt1022(dst_group, (short)(unsigned char)id, src_size);
+
+	/* 3bd6: copy the source piece bytes into the dst item. */
+	src_ptr = jt1012(jt468(src_group), src_item);
+	dst_ptr = jt1012(jt468(dst_group), (short)(unsigned char)id);
+	jt406((void *)(uintptr_t)dst_ptr, (const void *)(uintptr_t)src_ptr,
+	      (short)src_size);
 }
 
 /* JT[55] (CODE 6+0x5b5e) — release one combat resource slot, full
@@ -47803,6 +47870,41 @@ static void cg_crash_repro(void)
 		dbg_log_num("  party[k] = ", (long)(uintptr_t)party[k]);
 
 	dbg_log("=== CGCRASH done; idling ===");
+	for (;;)
+		jt920();
+}
+#endif
+
+#ifdef FRUA_BODY
+/* Body-review harness: seed a Human Fighter, set up the menu screen the way
+ * cg_char_sheet does, then run jt573 -> l11ac -> l09dc -> the DUNGCOM1 body-
+ * icon grid, so the grid render can be screenshotted without driving the whole
+ * create flow. jt573 spins in its modal; the grid stays painted. */
+static void cg_body_repro(void)
+{
+	static unsigned char body_rec[398];
+	const char    *nm = "BODYTEST";
+	short          j;
+	unsigned char *px; short pitch, sw, sh;
+
+	memset(body_rec, 0, sizeof body_rec);
+	body_rec[88]  = 5;   /* Human   */
+	body_rec[89]  = 2;   /* Fighter */
+	body_rec[92]  = 0;   /* Male    */
+	body_rec[93]  = 0;
+	body_rec[188] = 8;   /* current body icon */
+	for (j = 0; nm[j] && j < 15; j++)
+		body_rec[96 + j] = (unsigned char)nm[j];
+	g_a5_long(-27932) = (long)(uintptr_t)body_rec;
+
+	/* menu screen + full-screen clip, like cg_char_sheet / jt574 */
+	g_a5_2347 = 1;
+	load_menu_ui();
+	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
+	}
+
+	(void)jt573(0);
 	for (;;)
 		jt920();
 }
