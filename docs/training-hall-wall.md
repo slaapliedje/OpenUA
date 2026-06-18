@@ -136,10 +136,23 @@ they should:
     level rec[164+cls] vs current rec[138]). CON Add re-floors HP at l4e04, CON
     Sub re-caps at jt899; the HP field edits rec[129] directly within those
     bounds. All six ability handlers + the HP field are now faithful.
-  - REMAINING for a working Modify: (a) the **name editor L5c1e** (~374-line text
-    input); (b) **wire** the Modify button → l618c on the SELECTED char + fix
-    jt178 to its real 4-arg ABI (prompt, options, word=1, word=0) + untangle
-    Modify/Delete.
+  - **WIRED + live-verified (this slice)** — the "Modify Character" button
+    (l0f2e) now runs l618c on the selected char (seeding -18882 = jt1199(design
+    -18844) for the eligibility guard, mirroring the Mac's L0f3e). jt178 fixed to
+    its real 4-arg ABI (prompt, options, w1→L206e layout, w0→L23b4 modal). The
+    crossed Modify/Delete handlers are resolved by-label (as l0f60 already does
+    for Train/Create): case 1 = Modify → l618c, case 2 = Delete → cg_delete.
+    Hatari-verified via the new **FRUA_MODIFY** harness (`make
+    EXTRA_CFLAGS=-DFRUA_MODIFY run-game`): the sheet + "MODIFY: Next Previous Add
+    Sub Keep Exit" bar render; Add clamps STR at the Human max 18 (with the *
+    marker), Sub drops WIS 13→11, Next walks STR→INT→WIS, Exit reverts the edits
+    and l618c returns cleanly (no hang). The l4e04/jt899 HP math is exercised on
+    CON/HP but not yet spot-checked against a Mac capture.
+  - REMAINING: (a) the **name editor L5c1e** (~374-line text input, needs jt60)
+    — until then field 6 (name) is a no-op in the cursor ring; (b) the jt178
+    beveled-button bar already renders, but the shape-5 jt452 mouse-button install
+    (the g_a5_12911 block) is still deferred — keyboard drives the bar today; (c)
+    spot-check CON→HP recompute (l4e04/jt899) against a BasiliskII capture.
 - **Body-grid mouse click (A)** — jt1139 grid hit-test now lifted (6d45271), so
   the mechanism is correct, but a **real-mouse click on a body cell is not yet
   user-confirmed** (couldn't verify headlessly). First live check in the

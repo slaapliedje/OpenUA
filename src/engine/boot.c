@@ -1916,6 +1916,9 @@ static void  cg_crash_repro(void);       /* headless roster-walk repro (harness)
 #ifdef FRUA_BODY
 static void  cg_body_repro(void);        /* body-review harness (defined below) */
 #endif
+#ifdef FRUA_MODIFY
+static void  l618c(void);                /* Modify stat editor (defined below) */
+#endif
 
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
@@ -1960,7 +1963,7 @@ int ua_main(short arg1, long arg2)
 	 * in the char-gen harness so it lands straight on the pick screen (the
 	 * intro blocks on click-through otherwise). */
 #if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
-    && !defined(FRUA_CGCRASH) && !defined(FRUA_BODY)
+    && !defined(FRUA_CGCRASH) && !defined(FRUA_BODY) && !defined(FRUA_MODIFY)
 	port_show_intro();
 #endif
 
@@ -2037,6 +2040,41 @@ int ua_main(short arg1, long arg2)
 	 * jt573 (-> l11ac -> l09dc -> the DUNGCOM1 body-icon grid) on a seeded
 	 * record. `make EXTRA_CFLAGS=-DFRUA_BODY run-game`. */
 	cg_body_repro();
+#endif
+#ifdef FRUA_MODIFY
+	/* Isolated Modify-editor harness: seed a FRESH Human Fighter (XP == the
+	 * design start so the eligibility guard passes), point -27932 at it, and
+	 * jump straight to l618c so the stat/HP edit loop + jt178 bar can be driven
+	 * without navigating Training Hall -> Create -> Modify. The six ability
+	 * handlers + HP field are exercised live here.
+	 * `make EXTRA_CFLAGS=-DFRUA_MODIFY run-game`. */
+	{
+		static unsigned char mod_rec[398];
+		const char *nm = "TESTHERO";
+		short j;
+
+		memset(mod_rec, 0, sizeof mod_rec);
+		mod_rec[88] = 5;     /* race  = Human  */
+		mod_rec[89] = 2;     /* class = Fighter */
+		mod_rec[92] = 0;     /* gender */
+		mod_rec[112] = mod_rec[113] = 15;       /* STR base/current */
+		mod_rec[114] = mod_rec[115] = 12;       /* INT */
+		mod_rec[116] = mod_rec[117] = 13;       /* WIS */
+		mod_rec[118] = mod_rec[119] = 14;       /* DEX */
+		mod_rec[120] = mod_rec[121] = 16;       /* CON */
+		mod_rec[122] = mod_rec[123] = 10;       /* CHA */
+		mod_rec[129] = 9;                        /* HP   */
+		mod_rec[157] = 1;                        /* level 1 in class slot 0 */
+		mod_rec[70] = 0x27; mod_rec[71] = 0x11;  /* XP long = 10001 */
+		for (j = 0; nm[j] && j < 15; j++)
+			mod_rec[96 + j] = (unsigned char)nm[j];
+		g_a5_long(-27932) = (long)(uintptr_t)mod_rec;
+		g_a5_long(-18882) = *(long *)(mod_rec + 68);  /* guard reference */
+		l618c();
+		dbg_log("FRUA_MODIFY: l618c returned\n");
+	}
+	for (;;)
+		jt920();
 #endif
 #ifdef FRUA_3D_DEMO
 	/* Interactive dungeon-walk demo. jt361(1) has run l4cc0 (design
@@ -2190,7 +2228,7 @@ static int           cg_char_sheet(unsigned char *rec);                         
 /* Port character-management screens (defined further down, used by the
  * jt918 case handlers above their definitions). */
 static void          cg_view_sheet(void);
-static void          cg_modify_sheet(void);
+static void          cg_modify_sheet(void) __attribute__((unused)); /* superseded by l618c */
 static void          cg_add_character(void);
 static void          cg_remove_from_party(void);
 static void          cg_delete_character(void);
@@ -22836,6 +22874,7 @@ static int l1266(const char *name)
  * Toolbox file calls aren't ready and the entry-unlink walk is the
  * tricky part. The lift below captures the call sequence faithfully
  * enough that the engine probe reports the dialog flow. */
+static void l15e2(void) __attribute__((unused)); /* faithful Delete browser, not yet wired */
 static void l15e2(void)
 {
 	long  head = 0;
@@ -23288,6 +23327,7 @@ static void jt557(void)
 		jt885((long)(uintptr_t)rec, trainMask, nClasses, 1);
 	rec[197] = (unsigned char)jt33(rec);
 }
+static void   jt560(void) __attribute__((unused)); /* now reached via l618c, not this stub */
 static void   jt560(void)                       { PROBE("jt560"); }
 
 /* ============================================================
@@ -40057,19 +40097,24 @@ static short jt182(const char *p1, long p2, short arg3, short arg4)
  * second ("Next ..."); L206e takes (options_long, buf, prompt, &flag). The
  * caller (L618c) passes flag = 1. First dependency of the L618c Modify stat
  * editor (#138). */
-static short jt178(const char *prompt, const char *options, short flag)
-                                                __attribute__((unused));
-static short jt178(const char *prompt, const char *options, short flag)
+/* jt178 (= JT[178] = CODE 7 + 0x2866) — the modal action bar: lay out the
+ * prompt + space-separated options (L206e, w1 steers the layout), optionally
+ * install the beveled GLIB option buttons (when g_a5_12911), run the modal
+ * (L23b4, w0 = the modal flag), and map the picked button to its index
+ * (L25b6). The button-bevel install is deferred — L206e draws the option
+ * labels and L23b4 dispatches the keyboard equivalents, which drives the
+ * edit loop; the shape-5 jt452 button bar (for mouse clicks) is a TODO. */
+static short jt178(const char *prompt, const char *options, short w1, short w0)
 {
-	unsigned char buf[80];
-	unsigned char flag_lo = (unsigned char)(flag & 0xff);
+	unsigned char buf[82];
+	unsigned char w1_lo = (unsigned char)(w1 & 0xff);
 	short n, tmp;
 
 	PROBE("jt178");
-	n = l206e((long)(uintptr_t)options, buf, prompt, &flag_lo);
+	n = l206e((long)(uintptr_t)options, buf, prompt, &w1_lo);
 	l2170(n);
 	l2858(10);                              /* bar layout mode (L2858) */
-	tmp = l23b4(flag);                      /* run the modal */
+	tmp = l23b4(w0);                        /* run the modal (w0 = modal flag) */
 	return l25b6(tmp, buf, &g_a5_24139);    /* map the result to an index */
 }
 
@@ -48304,10 +48349,13 @@ static void l6084(short act)                                  /* HP (field 7) */
 	l642c(0, 7);
 }
 
-/* L618c (= JT[560]) — the Modify Character stat editor. Faithful skeleton:
- * eligibility guard, save-and-paint setup, the edit loop (bar -> per-stat
- * dispatch); the per-stat handlers above are stubs in this increment. */
-static void l618c(void) __attribute__((unused));
+/* L618c (= JT[560]) — the Modify Character stat editor. Eligibility guard
+ * (only a freshly-created character — rec[68] XP == the design start -18882,
+ * or one on a level boundary — is editable), save-and-paint setup, then the
+ * edit loop (the jt178 bar -> per-stat dispatch). Wired to the Training Hall
+ * "Modify Character" button via l0f2e. The six ability handlers + the HP
+ * field are faithful; the name editor (l5c1e) is still a PROBE stub. */
+static void l618c(void);
 static void l618c(void)
 {
 	unsigned char *rec;
@@ -48370,7 +48418,7 @@ static void l618c(void)
 			l4df0(0);
 			jt179(5);
 			act = jt178("Modify:",
-			            "Next Previous Add Sub Keep Exit", 1);
+			            "Next Previous Add Sub Keep Exit", 1, 0);
 			if (l4dfe() != 0) {
 				l642c(0, (short)(unsigned char)g_a5_byte(-6926));
 				l4d64(act);
@@ -48410,9 +48458,15 @@ static int l0f2e(short a)
 {
 	(void)a;
 	PROBE("jt918/case1 L0f2e");
+	/* The port dispatches by visual LABEL (see l0f60): build-index 1 is the
+	 * "Modify Character" button, so it runs the faithful stat editor L618c.
+	 * The Mac reaches L618c through its case-2 arm (L0f3e) after seeding the
+	 * starting-XP reference -18882 = jt1199(design -18844); the editor's
+	 * eligibility guard compares the character's rec[68] XP against it. */
 	if (g_a5_14439 != 0) {
-		l15e2();                     /* faithful skeleton (trace) */
-		cg_modify_sheet();           /* port: rename / re-roll    */
+		g_a5_18882 = jt1199(g_a5_18844);
+		l618c();                     /* faithful Modify stat editor */
+		g_a5_27946 = 0;
 	}
 	return 0;
 }
@@ -48430,10 +48484,12 @@ static int l0f3e(short a)
 {
 	(void)a;
 	PROBE("jt918/case2 L0f3e");
+	/* Build-index 2 is the "Delete Character" button (the stat editor moved to
+	 * l0f2e with the rest of the by-label dispatch). The faithful delete is the
+	 * L15e2 saved-character browser ("Delete %s forever?"); the port uses the
+	 * cg_delete_character stand-in for now. */
 	if (g_a5_14438 == 0)
 		return 0;
-	g_a5_18882 = jt1199(g_a5_18844);
-	jt560();                             /* faithful skeleton (trace) */
 	cg_delete_character();               /* port: erase from the pool */
 	g_a5_27946 = 0;
 	return 0;
