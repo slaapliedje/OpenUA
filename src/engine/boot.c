@@ -48324,7 +48324,9 @@ static void cg_modify_sheet(void)
 			dex    = st[3];
 			dexmod = (dex >= 15) ? (short)(dex - 14) : 0;
 			if (dexmod > 4) dexmod = 4;
-			c[CHAR_AC] = (unsigned char)(10 - dexmod);   /* AC */
+			/* CHAR_AC(385) is the faithful "60 - displayed" slot
+			 * (jt34 draws |rec[385]-60|); store 60 - (10 - dexmod). */
+			c[CHAR_AC] = (unsigned char)(60 - (10 - dexmod));
 			save_roster();
 		}
 	}
