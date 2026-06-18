@@ -15303,6 +15303,53 @@ static int load_roster(void)
 	return 1;
 }
 
+/* Merge persisted CHAR*.CHR character files into the pool that aren't already
+ * present (dedup by the 16-byte name at +96), appending up to the 16-slot cap.
+ *
+ * A created character persists as its own .CHR file (the faithful jt574 tail /
+ * jt584 write -> save_roster). But the boot seed loads the savegame FIRST
+ * (port_load_savgame), and that restores only the adventuring PARTY, not the
+ * full design roster — so a character created last session was written to disk
+ * yet never read back: the savegame shadowed it. Running this after whichever
+ * source populated the pool re-surfaces those characters without disturbing the
+ * savegame's party / dungeon position. */
+static void cg_roster_merge_files(void)
+{
+	char  cname[16];
+	int   found;
+	static unsigned char rec[512];
+
+	for (found = files_find_first("CHAR*.CHR", cname, (int)sizeof cname);
+	     found && cg_pool_count < 16;
+	     found = files_find_next(cname, (int)sizeof cname)) {
+		char  pfn[18];
+		short len = 0, refnum, c;
+		long  n;
+
+		while (cname[len] != 0 && len < 16) {
+			pfn[len + 1] = cname[len];
+			len++;
+		}
+		pfn[0] = (char)len;
+		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) != noErr)
+			continue;
+		n = 512;
+		if (FSRead(refnum, &n, rec) != noErr || n != 512) {
+			(void)FSClose(refnum);
+			continue;
+		}
+		(void)FSClose(refnum);
+
+		for (c = 0; c < cg_pool_count; c++)        /* already loaded? */
+			if (memcmp(cg_pool[c] + 96, rec + 96, 16) == 0)
+				break;
+		if (c < cg_pool_count)
+			continue;
+		memcpy(cg_pool[cg_pool_count++], rec, 512);
+	}
+	cg_party_relink();
+}
+
 /* port_load_savgame — load a real BasiliskII-saved game (SAVE/SavGam<X>.csv,
  * 10284 bytes) into the port party. The save embeds the FAITHFUL character
  * record(s) (the same 536-byte layout as BOB.cch: name@96, class@88, kind@89,
@@ -15642,6 +15689,10 @@ void port_test_seed_design(void)
 				                      * the saved-character roster
 				                      * (jt589 / L01be) can enumerate it */
 			}
+			/* Surface characters created in a previous session — their
+			 * CHAR*.CHR files would otherwise be shadowed by the savegame
+			 * load above. Dedup by name; appends to the pool. */
+			cg_roster_merge_files();
 		}
 		cg_party_relink();           /* rebuild the party list each Play */
 	}
