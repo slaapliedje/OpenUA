@@ -40045,6 +40045,34 @@ static short jt182(const char *p1, long p2, short arg3, short arg4)
 	}
 }
 
+/* JT[178] (CODE 7 + 0x2866) — the horizontal action-bar picker. Lays out a
+ * prompt + a space-separated option list ("Modify:" + "Next Previous Add Sub
+ * Keep Exit") via L206e, runs the modal (L23b4), and returns the picked option
+ * index (0..N-1) via L25b6. Same L206e/L2170/L2858/L23b4/L25b6 spine as jt182,
+ * with the L2170 token-count hook and L2858(10) bar mode. The per-option
+ * shape-5 button install (the g_a5_-12911 arm) is deferred like l1f3e's roster
+ * row — keyboard selection through L25b6 resolves the pick without it.
+ *
+ * Faithful arg order: prompt = jt178's first arg ("Modify:"), options = the
+ * second ("Next ..."); L206e takes (options_long, buf, prompt, &flag). The
+ * caller (L618c) passes flag = 1. First dependency of the L618c Modify stat
+ * editor (#138). */
+static short jt178(const char *prompt, const char *options, short flag)
+                                                __attribute__((unused));
+static short jt178(const char *prompt, const char *options, short flag)
+{
+	unsigned char buf[80];
+	unsigned char flag_lo = (unsigned char)(flag & 0xff);
+	short n, tmp;
+
+	PROBE("jt178");
+	n = l206e((long)(uintptr_t)options, buf, prompt, &flag_lo);
+	l2170(n);
+	l2858(10);                              /* bar layout mode (L2858) */
+	tmp = l23b4(flag);                      /* run the modal */
+	return l25b6(tmp, buf, &g_a5_24139);    /* map the result to an index */
+}
+
 /* L2858 (CODE 7 + 0x2858) — stash the picker "mode" word that the bar's
  * party-row layout (L1f3e) branches on. jt164 sets mode 1. */
 static void l2858(short mode)
