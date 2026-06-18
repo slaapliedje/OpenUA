@@ -129,11 +129,17 @@ they should:
     loop, promote working→base) + **L64ec** (proficiency-bit clear). Tables:
     racial min/max at -30960+race*16 (STR min/max/exc% gender-interleaved by
     rec[92]), class min at -30552+class*6 — matching the l1672 roll clamp.
-  - REMAINING for a working Modify: (a) **CON (L58ca)** + **HP field (L6084)**
-    handlers + the HP-bound recompute subtree they call (**L4e04** min, **jt899**
-    max — CODE 19+0x5274); (b) the **name editor L5c1e** (~374-line text input);
-    (c) **wire** the Modify button → l618c on the SELECTED char + fix jt178 to its
-    real 4-arg ABI (prompt, options, word=1, word=0) + untangle Modify/Delete.
+  - **CON + HP + the HP-recompute pair (this slice)** — DONE: **L58ca (CON)** and
+    **L6084 (HP field 7)** lifted; they re-clamp rec[129] through the **L4e04**
+    (min) / **jt899** (max, CODE 19+0x5274) HP recompute over the character's
+    classes (jt881/jt22 hit dice, name-level cap -23007, CON bonus -22993, prior
+    level rec[164+cls] vs current rec[138]). CON Add re-floors HP at l4e04, CON
+    Sub re-caps at jt899; the HP field edits rec[129] directly within those
+    bounds. All six ability handlers + the HP field are now faithful.
+  - REMAINING for a working Modify: (a) the **name editor L5c1e** (~374-line text
+    input); (b) **wire** the Modify button → l618c on the SELECTED char + fix
+    jt178 to its real 4-arg ABI (prompt, options, word=1, word=0) + untangle
+    Modify/Delete.
 - **Body-grid mouse click (A)** — jt1139 grid hit-test now lifted (6d45271), so
   the mechanism is correct, but a **real-mouse click on a body cell is not yet
   user-confirmed** (couldn't verify headlessly). First live check in the
