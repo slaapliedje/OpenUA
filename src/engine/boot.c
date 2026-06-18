@@ -23300,7 +23300,6 @@ static void l09ba(void)
  * 0, &handle). */
 static void l33ac(const char *name, short kindB, short modeB, short subB,
                   void **slotpp);     /* the real CODE 6+0x33ac binder, below */
-static void  jt993(long handle, short idx);   /* GLIB palette commit (below) */
 
 static void jt110(void *out, short a, short b, short c, const char *name)
 {
@@ -23341,31 +23340,24 @@ static void l09dc(void)
 		jt120(NULL);
 		jt117();
 		jt113(50);
-		/* Bind DUNGCOM1 into a temp slot and install the icon-grid palette.
-		 * Two commits:
-		 *   jt124(handle): the faithful DUNGCOM palette commit; on the port it
-		 *     also keeps the screen backdrop coloured (dropping it leaves the
-		 *     surround black).
-		 *   jt993(set1, 0): the COMBAT colours the cells + sprites need — the
-		 *     silver cell ground at clut index 87, the skin/armour tones.  The
-		 *     Mac's FC group for "DUNGCOM1" IS the nested set-1 GLIB whose item 0
-		 *     is that palette, so the Mac's jt124 reaches it directly; the port's
-		 *     GEMDOS loader resolves "DUNGCOM1" to the whole OUTER DUNGCOM.CTL
-		 *     (6 items, item 0 not a palette), so navigate to set 1 (outer item
-		 *     1) and commit ITS item-0 palette — jt993 installs at the header's
-		 *     start=32 over clut 32..255, leaving the menu chrome (0..31) intact.
-		 * The grid blits from the -27866 'TILE' registry l4d98 stands up via
-		 * l36e0; jt593 -> jt56 composes the CBODY body shapes into it (l3b1e)
-		 * and jt57 blits its tiles against this palette. */
+		/* Bind DUNGCOM1 into a temp slot for its palette (jt124), then free it
+		 * (jt115).  The -27866 the grid blits from is NOT this slot: it is the
+		 * persistent 'TILE' "activ" registry l4d98 stands up via l36e0 — a
+		 * writable GLIB bank.  jt593 -> jt56 composes the CBODY body shapes into
+		 * that registry (l3b1e), and jt57 blits its tiles.
+		 *
+		 * PALETTE (TODO, #137): the sprite/cell colours live in DUNGCOM's nested
+		 * set-1 GLIB (item 1 -> its item 0), a 224-entry palette that the Mac
+		 * SWAPS in for the icon grid the way the dungeon 3D view swaps a wall
+		 * set's palette.  A literal jt993(set1, 0) commit at the header start=32
+		 * paints the cells silver but STOMPS the menu/stone backdrop colours
+		 * that share clut 32..255 — the frame goes psychedelic.  The faithful
+		 * path remaps the sprite palette into free CLUT slots (the GLIB colour-
+		 * range allocator, jt1069) so the menu stone frame survives; until that
+		 * shared-palette model lands the cells stay on the menu palette. */
 		handle = 0;
 		jt110(&handle, 0, 0, 1, "DUNGCOM1");
-		jt124(handle);                          /* backdrop palette */
-		{
-			long set1 = handle
-			    ? l37aa(jt468(*(short *)(uintptr_t)handle), 1) : 0;
-			if (set1 != 0)
-				jt993(set1, (short)0);          /* combat palette -> clut 32+ */
-		}
+		jt124(handle);                          /* commit the DUNGCOM palette */
 		jt115(&handle);                         /* free the temp DUNGCOM slot */
 		g_a5_byte(-22307) = 0;
 		do {                            /* L0a76: 49 cells (0..48) */
