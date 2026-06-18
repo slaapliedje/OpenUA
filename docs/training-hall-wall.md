@@ -116,6 +116,24 @@ they should:
   NAME. So L618c = a per-ability edit loop (rec[112..] words) + a name edit, with
   jt886 repainting the sheet and the derived stats (jt21/cg_finalize_stats)
   recomputed on each change.
+  PROGRESS (lifting L618c incrementally, l618c stays `unused`/dead-stripped — no
+  runtime risk until wired):
+  - jt178 action bar — DONE (125e719).
+  - display helpers (l4ddc/l4df0/l4dfe/l4d64/l642c) + l618c dispatcher skeleton
+    — DONE (2bb241f). Verified against the real L618c disasm: the -6979 ability
+    saves, the JT[3] case 0..7 → eight handlers, and the edit loop all match.
+  - **stat-edit dispatch (this slice)** — DONE: the 5 self-contained ability
+    handlers **L5234 STR / L547c INT / L55da WIS / L576a DEX / L5aa8 CHA** + the
+    shared **L4fc6 Exit** (revert from -6979/-6973/-6972/-6971 + jt21) + **L5044
+    Keep** (re-grant spells/profs, average-HP recompute over the jt22 hit-die
+    loop, promote working→base) + **L64ec** (proficiency-bit clear). Tables:
+    racial min/max at -30960+race*16 (STR min/max/exc% gender-interleaved by
+    rec[92]), class min at -30552+class*6 — matching the l1672 roll clamp.
+  - REMAINING for a working Modify: (a) **CON (L58ca)** + **HP field (L6084)**
+    handlers + the HP-bound recompute subtree they call (**L4e04** min, **jt899**
+    max — CODE 19+0x5274); (b) the **name editor L5c1e** (~374-line text input);
+    (c) **wire** the Modify button → l618c on the SELECTED char + fix jt178 to its
+    real 4-arg ABI (prompt, options, word=1, word=0) + untangle Modify/Delete.
 - **Body-grid mouse click (A)** — jt1139 grid hit-test now lifted (6d45271), so
   the mechanism is correct, but a **real-mouse click on a body cell is not yet
   user-confirmed** (couldn't verify headlessly). First live check in the
