@@ -48878,45 +48878,45 @@ static int jt918(short a)
 		else
 			jt81();
 
-		/* L0df6: cluster setup. The Mac calls one arm per outer
-		 * entry, not per iteration — but the writes are idempotent
-		 * (each byte is set unconditionally), so re-running is
-		 * safe. */
-		if (g_a5_27932 != 0) {
-			l02dc(g_a5_27932);
-			g_a5_14439 = 1;               /* Modify Character */
-			g_a5_14438 = 1;               /* Delete Character */
-			{
-				/* L0e14 — Create + Remove availability.  FAITHFUL
-				 * gate (Mac): both = (handle[48] > 0, UNSIGNED) OR
-				 * the roster is dirty (-22730); Remove copies Create
-				 * (moveb -14437 -> -14436).  INTERIM: the port's game
-				 * record (g_a5_-28006 = g_area_state) is a memset stub
-				 * that never sets [48], and -22730 is never raised, so
-				 * the faithful gate would wrongly grey out BOTH on a
-				 * loaded save.  Until handle[48] is lifted, key off
-				 * what the port tracks: a loaded design always allows
-				 * Create; Remove needs a roster (g_a5_-27928).  TODO:
-				 * restore `(h[48] > 0 || dirty)` once the game record
-				 * populates [48]. */
-				g_a5_14437 = 1;              /* Create (design loaded) */
-				g_a5_14436 = (unsigned char)
-				    (g_a5_long(-27928) != 0 ? 1 : 0);  /* Remove */
-			}
-			g_a5_14435 = 1;              /* Add Character  */
-			g_a5_14434 = 1;             /* View Character */
-			{
-				/* L0e44 — disable View when more than 5 party
-				 * members have rec[147] bit 7 clear (the active,
-				 * non-flagged members). Faithful to the Mac walk of
-				 * the -27928 list; the port had this counting
-				 * DESIGNS (jt918_count_visible_designs, a 0-stub) by
-				 * mistake. */
+		/* Training Hall menu enable flags — Mac-verified (BasiliskII,
+		 * 2026-06-18, user). The discriminant is whether the roster
+		 * (the active party) holds a character:
+		 *   ALWAYS (a design is loaded):  Add, Create, Delete, Load, Exit
+		 *   roster non-empty:           + Modify, Remove, View, Save, Begin
+		 *   disabled (no eligibility gate lifted yet): Train, Change-Class
+		 * The Mac keys this off the current character pointer (-27932);
+		 * the port keys off the active-party list head (-27928), which
+		 * cg_party_relink clears to 0 on an empty roster — the same
+		 * discriminant and robust to a stale -27932. This supersedes the
+		 * L0df6/L0e98 reading + the gameRecord[48] interim: the faithful
+		 * Create/Remove [48] gate is unliftable until the design header
+		 * populates [48], and for a loaded design its result is "enabled"
+		 * either way, so it does not affect the observable behavior. */
+		{
+			short party = (g_a5_long(-27928) != 0) ? 1 : 0;
+
+			if (g_a5_27932 != 0)
+				l02dc(g_a5_27932);   /* repaint the roster grid */
+
+			g_a5_14440 = 0;                    /* Train Character    (disabled) */
+			g_a5_14439 = (unsigned char)party; /* Modify Character   */
+			g_a5_14438 = 1;                    /* Delete Character   */
+			g_a5_14437 = 1;                    /* Create Character   */
+			g_a5_14436 = (unsigned char)party; /* Remove Character   */
+			g_a5_14435 = 1;                    /* Add Character      */
+			g_a5_14434 = (unsigned char)party; /* View Character     */
+			g_a5_14433 = 0;                    /* Human Change Class (disabled) */
+			g_a5_14432 = 1;                    /* Exit From Play     */
+			g_a5_14431 = (unsigned char)party; /* Save Current Game  */
+			g_a5_14430 = (unsigned char)party; /* Begin Adventuring  */
+			g_a5_14429 = 1;                    /* Load Saved Game    */
+
+			/* View also greys when >5 active members (Mac L0e44). */
+			if (party) {
 				short cnt = 0;
 				const unsigned char *node =
 				    (const unsigned char *)(uintptr_t)
 				    g_a5_long(-27928);
-
 				while (node != NULL && cg_node_in_pool(node)) {
 					if (!(node[147] & 0x80))
 						cnt++;
@@ -48925,28 +48925,6 @@ static int jt918(short a)
 				if (cnt > 5)
 					g_a5_14434 = 0;
 			}
-			g_a5_14433 = 1;             /* Human Change Class */
-			g_a5_14432 = 1;             /* Exit From Play     */
-			g_a5_14431 = 1;             /* Save Current Game  */
-			g_a5_14430 = 1;             /* Begin Adventuring  */
-		} else {
-			/* L0e98 — fresh start (no design / save loaded,
-			 * g_a5_-27932 == 0). Faithful to the Mac: only Modify,
-			 * View and Exit are live; Delete / Create / Remove / Add
-			 * / Change-Class / Save / Begin all require a loaded
-			 * design and stay disabled (drawn black). The earlier
-			 * port force-enabled most of these "for trace"; with the
-			 * design-load path live that's no longer needed. */
-			g_a5_14439 = 1;            /* Modify Character    */
-			g_a5_14438 = 0;            /* Delete Character    */
-			g_a5_14437 = 0;            /* Create Character    */
-			g_a5_14436 = 0;            /* Remove Character    */
-			g_a5_14435 = 0;            /* Add Character       */
-			g_a5_14434 = 1;            /* View Character      */
-			g_a5_14433 = 0;            /* Human Change Class  */
-			g_a5_14432 = 1;            /* Exit From Play      */
-			g_a5_14431 = 0;            /* Save Current Game   */
-			g_a5_14430 = 0;            /* Begin Adventuring   */
 		}
 
 		/* L0ec6: poll input. */
