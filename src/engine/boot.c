@@ -47796,17 +47796,304 @@ static void l4d64(short idx)
 	g_a5_byte(-6926) = (unsigned char)idx;
 }
 
+/* L64ec (CODE 17 + 0x64ec) — clear the granted-proficiency bits for every
+ * type-2 entry in the -16906 proficiency table (1..126): for each entry whose
+ * byte0 == 2, knock its bit out of the rec[339..] bitfield. Called by Keep
+ * before l3cd4 re-finalizes proficiencies. */
+static void l64ec(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	short i;
+	PROBE("L64ec");
+	for (i = 1; i <= 126; i++) {
+		if ((unsigned char)g_a5_byte(-16906 + (long)i * 16) != 2)
+			continue;
+		{
+			short          bit = (short)(i >> 3);
+			unsigned char  m   = (unsigned char)g_a5_byte(-18893 + (i & 7));
+			rec[339 + bit] = (unsigned char)(rec[339 + bit] & (unsigned char)~m);
+		}
+	}
+}
+
+/* L4fc6 (= JT[558]) — Exit the editor: REVERT every edited field to the value
+ * stashed by l618c (abilities from -6979, exc% -6973, HP -6972, name -6971),
+ * recompute the derived stats (jt21), and raise the loop-exit flag -6980. */
+static void l4fc6(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	short i;
+	PROBE("L4fc6");
+	for (i = 0; i <= 5; i++)
+		rec[113 + i * 2] = (unsigned char)g_a5_byte(-6979 + i);
+	rec[124] = (unsigned char)g_a5_byte(-6973);
+	rec[129] = (unsigned char)g_a5_byte(-6972);
+	rec[CHAR_HP] = rec[129];
+	jt384((char *)&rec[96], (const char *)&g_a5_byte(-6971));
+	jt21((long)(uintptr_t)rec);
+	g_a5_byte(-6980) = 1;
+}
+
+/* L5044 (= JT[557_edit] Keep) — commit the edited character: re-grant spells
+ * (jt908) + proficiencies (l64ec/l3cd4 when rec[162] is set), recompute the
+ * average max HP over the character's classes (the jt22 hit-die loop, name-
+ * level aware), stash the HP roll-above-average into rec[184], promote the
+ * working abilities (rec[113+i*2]) and exc% into the base slots, then raise
+ * the loop-exit flag -6980. */
+static void l5044(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	short          cls;
+	short          i;
+	PROBE("L5044");
+	jt908((long)(uintptr_t)rec);
+	if ((unsigned char)rec[162] != 0) {
+		l64ec();
+		l3cd4_c17(rec);
+	}
+	g_a5_byte(-6972)  = 0;                   /* HP accumulator   */
+	g_a5_byte(-22307) = 0;                   /* class count      */
+	for (cls = 0; cls <= 6; cls++) {
+		unsigned char lvl = rec[157 + cls];
+		unsigned char nameLvl;
+		short         hd;
+		if (lvl == 0)
+			continue;                       /* empty class slot */
+		nameLvl = (unsigned char)g_a5_byte(-23007 + cls);
+		hd = jt22((long)(uintptr_t)rec, cls);
+		if (lvl < nameLvl) {                    /* still gaining hit dice */
+			if (cls == 4)
+				g_a5_byte(-6972) += (unsigned char)(hd * (lvl + 1));
+			else
+				g_a5_byte(-6972) += (unsigned char)(hd * lvl);
+		} else {                                /* at/past name level */
+			if (cls == 4)
+				g_a5_byte(-6972) += (unsigned char)(hd * nameLvl);
+			else
+				g_a5_byte(-6972) += (unsigned char)(hd * (nameLvl - 1));
+		}
+		g_a5_byte(-22307)++;
+	}
+	{
+		unsigned char cnt = (unsigned char)g_a5_byte(-22307);
+		if (cnt != 0)
+			g_a5_byte(-6972) =
+			    (unsigned char)((unsigned char)g_a5_byte(-6972) / cnt);
+	}
+	rec[184] = (unsigned char)(rec[129] - (unsigned char)g_a5_byte(-6972));
+	for (i = 0; i <= 5; i++)
+		rec[112 + i * 2] = rec[113 + i * 2];
+	rec[125] = rec[124];
+	g_a5_byte(-6980) = 1;
+}
+
 /* Per-ability action handlers (L5234 STR .. L5aa8 CHA, L5c1e name, L6084) —
- * each applies the picked action (Next/Previous/Add/Sub/Keep/Exit) to its
- * field with the racial caps + redraw. PROBE stubs in this increment. */
-static void l5234(short act) { PROBE("L5234"); (void)act; }   /* STR */
-static void l547c(short act) { PROBE("L547c"); (void)act; }   /* INT */
-static void l55da(short act) { PROBE("L55da"); (void)act; }   /* WIS */
-static void l576a(short act) { PROBE("L576a"); (void)act; }   /* DEX */
-static void l58ca(short act) { PROBE("L58ca"); (void)act; }   /* CON */
-static void l5aa8(short act) { PROBE("L5aa8"); (void)act; }   /* CHA */
+ * each applies the picked action to its field with the racial/class caps + a
+ * row redraw. The action `act` is the jt178 bar selection (0 Next, 1 Prev,
+ * 2 Add, 3 Sub, 4 Keep, 5 Exit; the 130/132..136 aliases are the key
+ * equivalents). Tables: racial min/max at -30960+race*16 (STR's min/max/exc%
+ * are gender-interleaved by rec[92]), class min at -30552+class*6; matching
+ * the l1672 roll clamp. CON (l58ca), name (l5c1e) and HP (l6084) stay PROBE
+ * stubs in this increment (they pull in the HP-recompute subtree / text edit). */
+static void l5234(short act)                                  /* STR */
+{
+	unsigned char *rec    = (unsigned char *)g_a5_ptr(-27932);
+	long           rbase  = -30960 + (long)rec[88] * 16;
+	long           cbase  = -30552 + (long)rec[89] * 6;
+	short          gender = rec[92];
+	PROBE("L5234");
+	switch (act) {
+	case 0: case 132: case 133:                     /* Next */
+		l4d64(1);
+		break;
+	case 1: case 135: case 136:                     /* Previous */
+		l4d64(7);
+		break;
+	case 2: case 130: {                             /* Add */
+		unsigned char rmax = (unsigned char)g_a5_byte(rbase + gender + 2);
+		rec[113]++;
+		if (rec[113] <= rmax)
+			break;                          /* within the race max */
+		if (rec[113] > 18                       /* over 18: warrior gets exc% */
+		 && (rec[158] || rec[159] || rec[160] || rec[161])) {
+			unsigned char cap =
+			    (unsigned char)g_a5_byte(rbase + gender + 4);
+			if (rec[124] < cap)
+				rec[124]++;
+		}
+		rec[113] = rmax;                        /* clamp score to race max */
+		break;
+	}
+	case 3: case 134: {                             /* Sub */
+		rec[113]--;
+		if ((unsigned char)rec[124] != 0) {     /* drop exc% before the score */
+			rec[124]--;
+			rec[113]++;
+		} else {
+			unsigned char rmin =
+			    (unsigned char)g_a5_byte(rbase + gender + 0);
+			if (rec[113] < rmin)
+				rec[113] = rmin;
+		}
+		{
+			unsigned char cmin = (unsigned char)g_a5_byte(cbase + 0);
+			if (rec[113] < cmin)
+				rec[113] = cmin;
+		}
+		break;
+	}
+	case 4: l5044(); break;                         /* Keep */
+	case 5: l4fc6(); break;                         /* Exit */
+	default: break;
+	}
+	l642c(0, 0);
+}
+
+static void l547c(short act)                                  /* INT */
+{
+	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
+	long           rbase = -30960 + (long)rec[88] * 16;
+	long           cbase = -30552 + (long)rec[89] * 6;
+	PROBE("L547c");
+	switch (act) {
+	case 0: case 132: case 133: l4d64(2); break;    /* Next */
+	case 1: case 135: case 136: l4d64(0); break;    /* Previous */
+	case 2: case 130: {                             /* Add */
+		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 7);
+		rec[115]++;
+		if (rec[115] > rmax)
+			rec[115] = rmax;
+		break;
+	}
+	case 3: case 134: {                             /* Sub */
+		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 6);
+		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 1);
+		rec[115]--;
+		if (rec[115] < rmin)
+			rec[115] = rmin;
+		if (rec[115] < cmin)
+			rec[115] = cmin;
+		break;
+	}
+	case 4: l5044(); break;                         /* Keep */
+	case 5: l4fc6(); break;                         /* Exit */
+	default: break;
+	}
+	l642c(0, 1);
+}
+
+static void l55da(short act)                                  /* WIS */
+{
+	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
+	long           rbase = -30960 + (long)rec[88] * 16;
+	long           cbase = -30552 + (long)rec[89] * 6;
+	PROBE("L55da");
+	switch (act) {
+	case 0: case 132: case 133: l4d64(3); break;    /* Next */
+	case 1: case 135: case 136: l4d64(1); break;    /* Previous */
+	case 2: case 130: {                             /* Add */
+		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 9);
+		rec[117]++;
+		if (rec[117] > rmax)
+			rec[117] = rmax;
+		if ((unsigned char)rec[355] != 0)       /* WIS-changed flag */
+			rec[355] = 1;
+		break;
+	}
+	case 3: case 134: {                             /* Sub */
+		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 8);
+		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 2);
+		rec[117]--;
+		if (rec[117] < rmin)
+			rec[117] = rmin;
+		if (rec[117] < cmin)
+			rec[117] = cmin;
+		if ((unsigned char)rec[355] != 0)
+			rec[355] = 1;
+		break;
+	}
+	case 4: l5044(); break;                         /* Keep */
+	case 5: l4fc6(); break;                         /* Exit */
+	default: break;
+	}
+	l642c(0, 2);
+}
+
+static void l576a(short act)                                  /* DEX */
+{
+	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
+	long           rbase = -30960 + (long)rec[88] * 16;
+	long           cbase = -30552 + (long)rec[89] * 6;
+	PROBE("L576a");
+	switch (act) {
+	case 0: case 132: case 133: l4d64(4); break;    /* Next */
+	case 1: case 135: case 136: l4d64(2); break;    /* Previous */
+	case 2: case 130: {                             /* Add */
+		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 11);
+		rec[119]++;
+		if (rec[119] > rmax)
+			rec[119] = rmax;
+		break;
+	}
+	case 3: case 134: {                             /* Sub */
+		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 10);
+		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 3);
+		rec[119]--;
+		if (rec[119] < rmin)
+			rec[119] = rmin;
+		if (rec[119] < cmin)
+			rec[119] = cmin;
+		break;
+	}
+	case 4: l5044(); break;                         /* Keep */
+	case 5: l4fc6(); break;                         /* Exit */
+	default: break;
+	}
+	l642c(0, 3);
+}
+
+static void l58ca(short act) { PROBE("L58ca"); (void)act; }   /* CON — HP subtree */
+
+static void l5aa8(short act)                                  /* CHA */
+{
+	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
+	long           rbase = -30960 + (long)rec[88] * 16;
+	long           cbase = -30552 + (long)rec[89] * 6;
+	PROBE("L5aa8");
+	switch (act) {
+	case 0: case 132: case 133:                     /* Next */
+		if (jt180() != 0)
+			l4d64(7);
+		else
+			l4d64(6);
+		break;
+	case 1: case 135: case 136: l4d64(4); break;    /* Previous */
+	case 2: case 130: {                             /* Add */
+		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 15);
+		rec[123]++;
+		if (rec[123] > rmax)
+			rec[123] = rmax;
+		break;
+	}
+	case 3: case 134: {                             /* Sub */
+		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 14);
+		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 5);
+		rec[123]--;
+		if (rec[123] < rmin)
+			rec[123] = rmin;
+		if (rec[123] < cmin)
+			rec[123] = cmin;
+		break;
+	}
+	case 4: l5044(); break;                         /* Keep */
+	case 5: l4fc6(); break;                         /* Exit */
+	default: break;
+	}
+	l642c(0, 5);
+}
+
 static void l5c1e(void)      { PROBE("L5c1e"); }              /* name edit */
-static void l6084(short act) { PROBE("L6084"); (void)act; }
+static void l6084(short act) { PROBE("L6084"); (void)act; }   /* HP — HP subtree */
 
 /* L618c (= JT[560]) — the Modify Character stat editor. Faithful skeleton:
  * eligibility guard, save-and-paint setup, the edit loop (bar -> per-stat
