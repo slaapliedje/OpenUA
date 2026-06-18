@@ -47796,6 +47796,133 @@ static void l4d64(short idx)
 	g_a5_byte(-6926) = (unsigned char)idx;
 }
 
+/* L4e04 (CODE 17 + 0x4e04) — recompute the MINIMUM total HP over the
+ * character's classes at the current ability/level. For each populated class
+ * the hit dice up to the name level are summed (jt881 * level), past name
+ * level a fixed per-class increment (the JT[3] arm) is accrued into the average
+ * pool; the result is the pool (+total when positive) divided by the
+ * contributing class count. Mirror of jt899 (the max). Returns a byte; called
+ * by the CON / HP editors to re-floor rec[129] as CON drops the score. */
+static unsigned char l4e04(unsigned char *rec)
+{
+	short          total = 0;               /* fp@(-4) */
+	unsigned char  count = 0;               /* fp@(-1) */
+	short          acc   = 0;               /* fp@(-6) */
+	short          cls;                     /* fp@(-10) */
+	for (cls = 0; cls <= 6; cls++) {
+		unsigned char lvl     = rec[157 + cls];
+		unsigned char nameLvl;
+		short         hd;
+		if (lvl == 0)
+			continue;
+		nameLvl = (unsigned char)g_a5_byte(-23007 + cls);
+		hd      = jt881((long)(uintptr_t)rec, cls);
+		if (lvl < nameLvl) {                    /* still gaining hit dice */
+			acc += lvl;
+			count++;
+			if (cls == 4)
+				acc += 1;
+			total += (short)(hd * lvl);
+		} else {                                /* at/past name level */
+			short extra = (short)(unsigned char)(lvl - nameLvl + 1);
+			count++;
+			switch (cls) {
+			case 0:         acc += (short)(2 * extra + 9);  break;
+			case 2: case 3: acc += (short)(3 * extra + 9);  break;
+			case 4:         acc += (short)(2 * extra + 11); break;
+			case 5:         acc += (short)(extra + 11);     break;
+			default:        acc += (short)(2 * extra + 10); break; /* 1, 6 */
+			}
+			total += (short)(hd * (nameLvl - 1));
+		}
+	}
+	if (count != 0) {
+		if (total > 0)
+			acc = (short)((unsigned short)(acc + total) / count);
+		else
+			acc = (short)((unsigned short)acc / count);
+	}
+	return (unsigned char)acc;
+}
+
+/* jt899 (= JT[899] = CODE 19 + 0x5274) — recompute the MAXIMUM total HP over
+ * the character's classes, accounting for the prior level rec[164+cls], the
+ * current level rec[138], the per-class CON HP bonus (-22993) and the name-level
+ * cap (-23007). Mirror of l4e04 (the min). Returns a byte; called by the CON /
+ * HP editors to re-cap rec[129] as CON raises the score. */
+static unsigned char jt899(unsigned char *rec)
+{
+	unsigned char  count = 0;               /* fp@(-1) */
+	short          total = 0;               /* fp@(-4) */
+	short          cls;                     /* fp@(-6) */
+	PROBE("jt899");
+	for (cls = 0; cls <= 6; cls++) {
+		unsigned char lvl    = rec[157 + cls];
+		unsigned char nameLvl = (unsigned char)g_a5_byte(-23007 + cls);
+		short         conB    = (unsigned char)g_a5_byte(-22993 + cls);
+		unsigned char hdSize;
+		short         f8, f7, f10, flag;
+
+		/* skip a class unless its new level outranks the current one or it
+		 * carries a prior level rec[164+cls] */
+		if (lvl <= (unsigned char)rec[138] && (unsigned char)rec[164 + cls] == 0)
+			continue;
+
+		hdSize = (unsigned char)jt22((long)(uintptr_t)rec, cls);
+		if ((unsigned char)rec[164 + cls] != 0) {
+			f8   = (unsigned char)rec[164 + cls];
+			flag = 1;
+		} else {
+			count++;
+			f8   = lvl;
+			flag = (rec[138] == 0) ? 1 : 0;
+		}
+
+		if (f8 < nameLvl) {                     /* below name level */
+			if (flag == 0 && f8 > (unsigned char)rec[138]) {
+				f8   = (short)(f8 - rec[138]);
+				flag = 1;
+			}
+			if (cls == 4)
+				f8 += 1;
+			if (flag != 0)
+				total += (short)((conB + hdSize) * f8);
+			continue;
+		}
+
+		/* at/past name level */
+		if (flag == 0 && f8 > (unsigned char)rec[138]) {
+			short nm1 = (short)(nameLvl - 1);
+			flag = 1;
+			if ((unsigned char)rec[138] >= nm1) {
+				f7  = (short)(f8 - rec[138]);
+				f10 = 0;
+			} else {
+				f10 = (short)((nameLvl - rec[138] - 1) * (conB + hdSize));
+				f7  = (short)(f8 - nameLvl + 1);
+			}
+		} else {
+			f7  = (short)(f8 - nameLvl + 1);
+			f10 = (short)((nameLvl - 1) * (conB + hdSize));
+		}
+		if (cls == 4)
+			f10 += (short)(conB + hdSize);
+		if (flag != 0) {
+			switch (cls) {
+			case 0: case 4: case 6: total += (short)(2 * f7 + f10); break;
+			case 2: case 3:         total += (short)(3 * f7 + f10); break;
+			case 5:                 total += (short)(f7 + f10);     break;
+			default: break;                 /* 1, >6: contribute nothing */
+			}
+		}
+	}
+	if (count != 0)
+		total = (short)((unsigned short)total / count);
+	else if (rec[138] == 0)
+		total = 0;
+	return (unsigned char)total;
+}
+
 /* L64ec (CODE 17 + 0x64ec) — clear the granted-proficiency bits for every
  * type-2 entry in the -16906 proficiency table (1..126): for each entry whose
  * byte0 == 2, knock its bit out of the rec[339..] bitfield. Called by Keep
@@ -47893,8 +48020,9 @@ static void l5044(void)
  * 2 Add, 3 Sub, 4 Keep, 5 Exit; the 130/132..136 aliases are the key
  * equivalents). Tables: racial min/max at -30960+race*16 (STR's min/max/exc%
  * are gender-interleaved by rec[92]), class min at -30552+class*6; matching
- * the l1672 roll clamp. CON (l58ca), name (l5c1e) and HP (l6084) stay PROBE
- * stubs in this increment (they pull in the HP-recompute subtree / text edit). */
+ * the l1672 roll clamp. CON (l58ca) and the HP field (l6084) additionally re-
+ * clamp rec[129] through the l4e04/jt899 HP-recompute pair. Only the name
+ * editor (l5c1e) remains a PROBE stub (a ~374-line text input, next slice). */
 static void l5234(short act)                                  /* STR */
 {
 	unsigned char *rec    = (unsigned char *)g_a5_ptr(-27932);
@@ -48052,7 +48180,50 @@ static void l576a(short act)                                  /* DEX */
 	l642c(0, 3);
 }
 
-static void l58ca(short act) { PROBE("L58ca"); (void)act; }   /* CON — HP subtree */
+static void l58ca(short act)                                  /* CON */
+{
+	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
+	long           rbase = -30960 + (long)rec[88] * 16;
+	long           cbase = -30552 + (long)rec[89] * 6;
+	PROBE("L58ca");
+	switch (act) {
+	case 0: case 132: case 133: l4d64(5); break;    /* Next */
+	case 1: case 135: case 136: l4d64(3); break;    /* Previous */
+	case 2: case 130: {                             /* Add */
+		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 13);
+		unsigned char hp;
+		rec[121]++;
+		if (rec[121] > rmax)
+			rec[121] = rmax;
+		hp = l4e04(rec);                        /* re-floor HP at the new min */
+		if (hp > rec[129])
+			rec[129] = hp;
+		rec[CHAR_HP] = rec[129];
+		l642c(0, 4);
+		break;
+	}
+	case 3: case 134: {                             /* Sub */
+		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 12);
+		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 4);
+		unsigned char hp;
+		rec[121]--;
+		if (rec[121] < rmin)
+			rec[121] = rmin;
+		if (rec[121] < cmin)
+			rec[121] = cmin;
+		hp = jt899(rec);                        /* re-cap HP at the new max */
+		if (hp < rec[129])
+			rec[129] = hp;
+		rec[CHAR_HP] = rec[129];
+		l642c(0, 7);
+		break;
+	}
+	case 4: l5044(); break;                         /* Keep */
+	case 5: l4fc6(); break;                         /* Exit */
+	default: break;
+	}
+	l642c(0, 4);
+}
 
 static void l5aa8(short act)                                  /* CHA */
 {
@@ -48093,7 +48264,45 @@ static void l5aa8(short act)                                  /* CHA */
 }
 
 static void l5c1e(void)      { PROBE("L5c1e"); }              /* name edit */
-static void l6084(short act) { PROBE("L6084"); (void)act; }   /* HP — HP subtree */
+
+static void l6084(short act)                                  /* HP (field 7) */
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	PROBE("L6084");
+	switch (act) {
+	case 0: case 132: case 133:                     /* Next → wrap to STR */
+		l4d64(0);
+		break;
+	case 1: case 135: case 136:                     /* Previous → name or CHA */
+		if (jt180() == 0)
+			l4d64(6);
+		else
+			l4d64(5);
+		break;
+	case 2: case 130: {                             /* Add — cap at jt899 max */
+		unsigned char hp;
+		rec[129]++;
+		hp = jt899(rec);
+		if (hp < rec[129])
+			rec[129] = hp;
+		rec[CHAR_HP] = rec[129];
+		break;
+	}
+	case 3: case 134: {                             /* Sub — floor at l4e04 min */
+		unsigned char hp;
+		rec[129]--;
+		hp = l4e04(rec);
+		if (hp > rec[129])
+			rec[129] = hp;
+		rec[CHAR_HP] = rec[129];
+		break;
+	}
+	case 4: l5044(); break;                         /* Keep */
+	case 5: l4fc6(); break;                         /* Exit */
+	default: break;
+	}
+	l642c(0, 7);
+}
 
 /* L618c (= JT[560]) — the Modify Character stat editor. Faithful skeleton:
  * eligibility guard, save-and-paint setup, the edit loop (bar -> per-stat
