@@ -180,8 +180,13 @@ gamedata: $(TARGET) frua.rsc
 		echo "  gamedata: $(MAC_JOINED) not found — unpack the Mac release first (docs/mac-release.md)"; \
 		exit 1; \
 	fi
-	@rm -rf "$(GAMEDATA_DIR)"
+	@# Re-stage the design assets but PRESERVE runtime-created characters:
+	@# CHAR*.CHR is the saved-character roster the Training Hall writes
+	@# (save_roster). A plain `rm -rf` here would delete every character you
+	@# created last session, so a created character never survived a re-run.
 	@mkdir -p "$(GAMEDATA_DIR)"
+	@find "$(GAMEDATA_DIR)" -mindepth 1 -maxdepth 1 ! -name 'CHAR*.CHR' \
+		-exec rm -rf {} +
 	@for d in Disk1 Disk2 Disk3 Disk4; do \
 		for f in "$(MAC_JOINED)/$$d"/*; do \
 			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/"; \
