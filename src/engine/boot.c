@@ -6099,14 +6099,25 @@ static void jt1005(short x, short y, short style, short size,
 	}
 }
 
-/* JT[1139] (CODE 4 + 0x785c) — grid-coord hit-test. Given an item
- * origin (rec[16], rec[18]) and a click (mouse_y, mouse_x),
- * returns (row, col) into the two out-shorts. jt378 cmd=2 uses
- * this to map a screen click into a grid cell; callers then
- * bounds-check the row against rec[22] and col against rec[24].
- * PROBE stub returns row=col=0 so jt378's hit-test cleanly
- * accepts (0,0) as a valid cell — fine until real grid rendering
- * arrives. */
+/* JT[1139] (CODE 4 + 0x785c) — grid-coord hit-test. Full lift.
+ *
+ * Transform the item origin (origin_y, origin_x) from 8000-space to screen
+ * pixels via JT[1135] (=L77fe), then return the click offset from that origin
+ * in 8000-space units (screen px / scale) through out_row / out_col:
+ *
+ *   scale = (g_a5_-2347 == 0) ? 3 : 2          ; jt1135's doubling factor
+ *   jt1135(origin_y, origin_x) -> (sy, sx)     ; origin in screen px
+ *   d = click - origin_screen
+ *   if (d < 0) d -= scale - 1                   ; floor the signed divide
+ *   *out = d / scale
+ *
+ * jt378 (shape-5 hit-test, cmd 2) bounds-checks the result against rec[22]
+ * (rows) / rec[24] (cols) — so a click OUTSIDE the grid yields a negative or
+ * over-range row/col and is rejected; jt562 then divides the in-range result
+ * by 12 (the per-cell size in 8000-units) to get the cell. The old PROBE stub
+ * returned (0,0), so every click — even outside the grid — mapped to cell 0
+ * and the hit-test never rejected anything (char-gen body grid: Done always
+ * committed body 0, and a stray mouse event stamped rec[188]=0). */
 static void jt1139(short origin_y, short origin_x,
                    short click_y, short click_x,
                    short *out_row, short *out_col)
@@ -6115,11 +6126,18 @@ static void jt1139(short origin_y, short origin_x,
                    short click_y, short click_x,
                    short *out_row, short *out_col)
 {
+	short scale = (g_a5_2347 == 0) ? 3 : 2;
+	short sy = 0, sx = 0;
+	short dy, dx;
+
 	PROBE("jt1139");
-	(void)origin_y; (void)origin_x;
-	(void)click_y;  (void)click_x;
-	if (out_row != NULL) *out_row = 0;
-	if (out_col != NULL) *out_col = 0;
+	jt1135(origin_y, origin_x, &sy, &sx);   /* origin 8000-space -> screen px */
+	dy = (short)(click_y - sy);
+	if (dy < 0) dy -= (short)(scale - 1);
+	if (out_row != NULL) *out_row = (short)(dy / scale);
+	dx = (short)(click_x - sx);
+	if (dx < 0) dx -= (short)(scale - 1);
+	if (out_col != NULL) *out_col = (short)(dx / scale);
 }
 
 /* JT[1141] (CODE 4 + 0x78e8) — rect-from-corner-plus-extent. Given
