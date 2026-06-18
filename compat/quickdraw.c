@@ -1126,6 +1126,7 @@ static const Cursor k_sword_cursor = {
 
 static Cursor        g_cursor = k_arrow_cursor;
 static short         g_cursor_level;            /* 0 visible, <0 hidden */
+static int           g_cursor_obscured;         /* ObscureCursor: 1 = hidden until next mouse move */
 static int           g_cursor_init;
 static unsigned char g_cursor_save[16 * 16];    /* pixels under the cursor */
 static short         g_cursor_save_x, g_cursor_save_y;
@@ -1159,8 +1160,13 @@ void ShowCursor(void)
 
 void ObscureCursor(void)
 {
-	/* Mac hides until the next mouse move; the shim just hides one frame. */
-	g_cursor_level--;
+	/* Mac: the cursor goes invisible until the next mouse movement, then is
+	 * auto-restored — it does NOT touch the HideCursor/ShowCursor nesting
+	 * level. qd_cursor_refresh clears this flag on the first move. (The old
+	 * shim decremented g_cursor_level, which never came back: the line editor
+	 * jt1078 obscured the cursor for name entry and it stayed gone through the
+	 * sprite screen and roster.) */
+	g_cursor_obscured = 1;
 }
 
 const Cursor *qd_sword_cursor(void)
@@ -1243,7 +1249,7 @@ static void cursor_composite(void)
 	RGBColor       wh = { 0xFFFF, 0xFFFF, 0xFFFF };
 
 	g_cursor_saved = 0;
-	if (!g_cursor_init || g_cursor_level < 0)
+	if (!g_cursor_init || g_cursor_level < 0 || g_cursor_obscured)
 		return;
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
@@ -1330,6 +1336,7 @@ void qd_cursor_refresh(void)
 		return;                          /* unmoved — nothing to do */
 	last_x = mx;
 	last_y = my;
+	g_cursor_obscured = 0;                   /* ObscureCursor restores on the first move */
 	qd_present();                            /* composites at the live pos */
 }
 
