@@ -23340,24 +23340,45 @@ static void l09dc(void)
 		jt120(NULL);
 		jt117();
 		jt113(50);
-		/* Bind DUNGCOM1 into a temp slot for its palette (jt124), then free it
-		 * (jt115).  The -27866 the grid blits from is NOT this slot: it is the
-		 * persistent 'TILE' "activ" registry l4d98 stands up via l36e0 — a
-		 * writable GLIB bank.  jt593 -> jt56 composes the CBODY body shapes into
-		 * that registry (l3b1e), and jt57 blits its tiles.
-		 *
-		 * PALETTE (TODO, #137): the sprite/cell colours live in DUNGCOM's nested
-		 * set-1 GLIB (item 1 -> its item 0), a 224-entry palette that the Mac
-		 * SWAPS in for the icon grid the way the dungeon 3D view swaps a wall
-		 * set's palette.  A literal jt993(set1, 0) commit at the header start=32
-		 * paints the cells silver but STOMPS the menu/stone backdrop colours
-		 * that share clut 32..255 — the frame goes psychedelic.  The faithful
-		 * path remaps the sprite palette into free CLUT slots (the GLIB colour-
-		 * range allocator, jt1069) so the menu stone frame survives; until that
-		 * shared-palette model lands the cells stay on the menu palette. */
+		/* Bind DUNGCOM1 and install the icon-grid palette as a TWO-RANGE CLUT:
+		 * clut 0..31 stay the menu / FRAME.CTL UI colours (the stone frame, the
+		 * buttons, the text); clut 32.. get DUNGCOM's combat-sprite palette (the
+		 * silver cell ground, skin/armour tones).  That palette is set 1's item 0
+		 * — DUNGCOM.CTL is a GLIB-of-GLIBs, so navigate outer item 1 (the set)
+		 * -> its item 0 (the colour table, header start=32) and install it
+		 * literally at 32+, leaving 0..31 untouched.  (jt124/l3eea is NOT used
+		 * here: the port's FC group for "DUNGCOM1" is the OUTER DUNGCOM.CTL, so
+		 * jt124 mis-reads outer item 1 — a nested GLIB whose stub header says
+		 * start=0/count=256 — and splatters garbage across 0..255, wrecking the
+		 * frame.)  The grid blits from the -27866 'TILE' registry (l36e0) that
+		 * jt593 -> jt56 composes the CBODY body shapes into (l3b1e). */
 		handle = 0;
 		jt110(&handle, 0, 0, 1, "DUNGCOM1");
-		jt124(handle);                          /* commit the DUNGCOM palette */
+		{
+			long set1 = handle
+			    ? l37aa(jt468(*(short *)(uintptr_t)handle), 1) : 0;
+			long pal0 = set1 ? l37aa(set1, 0) : 0;
+			if (pal0 != 0) {
+				const unsigned char *ph =
+				    (const unsigned char *)(uintptr_t)pal0;
+				if ((ph[7] & 15) == 8) {        /* a real colour table */
+					short start = (short)(((unsigned)ph[2] << 8) | ph[3]);
+					short count = (short)(((unsigned)ph[4] << 8) | ph[5]);
+					const unsigned char *rgb = ph + 8;
+					static RGBColor cpal[256];
+					short k;
+					if (start < 32) start = 32;     /* never touch the UI range */
+					if (count > 256 - start) count = (short)(256 - start);
+					for (k = 0; k < count; k++) {
+						cpal[k].red   = (unsigned short)((rgb[k*3+0]<<8)|rgb[k*3+0]);
+						cpal[k].green = (unsigned short)((rgb[k*3+1]<<8)|rgb[k*3+1]);
+						cpal[k].blue  = (unsigned short)((rgb[k*3+2]<<8)|rgb[k*3+2]);
+					}
+					if (count > 0)
+						qd_set_palette(cpal, start, count);
+				}
+			}
+		}
 		jt115(&handle);                         /* free the temp DUNGCOM slot */
 		g_a5_byte(-22307) = 0;
 		do {                            /* L0a76: 49 cells (0..48) */
