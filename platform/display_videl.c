@@ -29,6 +29,7 @@
 
 #include "display.h"
 #include "dbglog.h"
+#include "input.h"              /* plat_mouse_pos — the VBL cursor reads it */
 
 static dsp_surface_t  g_surface;          /* the 8-bit chunky buffer the game draws */
 
@@ -69,6 +70,23 @@ static int g_lut_use_asm = 0;
 
 extern void vbl_trampoline(void);          /* c2p.S: saves regs, calls below  */
 
+/* VBL mouse cursor (a platform service: drawn on the displayed buffer every
+ * vblank, so a live pointer appears on every screen regardless of its input
+ * loop). The sprite is a 16x16 RGB565 image + a 1-bit-per-pixel mask pushed by
+ * the shim; the erase re-blits the cursor rect from the authoritative chunky
+ * surface through the LUT, which composes correctly with the full-frame page
+ * flip (each displayed buffer is a fresh repaint of that same surface). */
+static unsigned short g_cur_rgb[16 * 16];
+static unsigned short g_cur_mask[16];        /* row r, bit 15 = column 0       */
+static short          g_cur_hotx, g_cur_hoty;
+static volatile short g_cur_have;            /* a valid sprite was pushed      */
+static volatile short g_cur_show = 1;        /* HideCursor/ShowCursor result   */
+static volatile short g_cur_obscured;        /* hide until the next mouse move  */
+static short          g_cur_px = -1, g_cur_py;   /* top-left of the drawn cell  */
+static short          g_cur_drawn;           /* cursor currently on the buffer  */
+static short          g_cur_omx = -32000, g_cur_omy = -32000;  /* obscure ref   */
+static void vbl_cursor_update(short flipped);
+
 /* Called from vbl_trampoline at every vertical blank (supervisor). Latch the
  * VIDEL video base to the latest published frame. The Falcon video base is
  * three bytes: 0xFFFF8201 (bits 23-16), 0xFFFF8203 (15-8), 0xFFFF820D (7-0);
@@ -76,6 +94,7 @@ extern void vbl_trampoline(void);          /* c2p.S: saves regs, calls below  */
 void vbl_flip_handler(void)
 {
 	short n = g_next;
+	short flipped = 0;
 	if (n >= 0) {
 		unsigned long a = (unsigned long)(uintptr_t)g_screen[n];
 		*(volatile unsigned char *)0xFFFF8201UL = (unsigned char)((a >> 16) & 0xff);
@@ -83,7 +102,9 @@ void vbl_flip_handler(void)
 		*(volatile unsigned char *)0xFFFF820DUL = (unsigned char)(a & 0xff);
 		g_disp = n;
 		g_next = -1;
+		flipped = 1;
 	}
+	vbl_cursor_update(flipped);
 }
 
 /* Supexec'd: add / remove the trampoline in the OS VBL queue (protected low
@@ -291,6 +312,111 @@ static void videl_lut_blit(unsigned short *dst, short y0, short y1,
 		src += g_surface.pitch;
 		row += g_scr_words;
 	}
+}
+
+/* --- VBL cursor draw / erase (defined here so videl_lut_blit is in scope) --- */
+
+/* Erase: re-blit the cursor's 16x16 cell from the chunky surface through the
+ * LUT, clipped to the screen. The chunky surface is the authoritative frame, so
+ * this restores the exact background under where the cursor was. */
+static void cur_erase(unsigned short *scr, short px, short py)
+{
+	short x0 = px, y0 = py, x1 = (short)(px + 16), y1 = (short)(py + 16);
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > g_surface.width)  x1 = g_surface.width;
+	if (y1 > g_surface.height) y1 = g_surface.height;
+	if (x0 < x1 && y0 < y1)
+		videl_lut_blit(scr, y0, y1, x0, x1);
+}
+
+/* Draw the 16x16 RGB565 sprite at (px,py), masked + clipped. */
+static void cur_draw(unsigned short *scr, short px, short py)
+{
+	short r, c;
+	for (r = 0; r < 16; r++) {
+		short          dy  = (short)(py + r);
+		unsigned short m   = g_cur_mask[r];
+		unsigned short    *row;
+		const unsigned short *src;
+		if (dy < 0 || dy >= g_surface.height || m == 0)
+			continue;
+		row = scr + (long)dy * g_scr_words;
+		src = &g_cur_rgb[r * 16];
+		for (c = 0; c < 16; c++) {
+			short dx = (short)(px + c);
+			if (!(m & (unsigned short)(0x8000u >> c)))
+				continue;
+			if (dx < 0 || dx >= g_surface.width)
+				continue;
+			row[dx] = src[c];
+		}
+	}
+}
+
+/* Called from vbl_flip_handler every vblank (interrupt / supervisor). `flipped`
+ * means a fresh frame was just latched onto g_disp: that buffer is a full
+ * repaint with no cursor, so just draw — the previous buffer's stale cursor is
+ * wiped by its next present(). When not flipped the same buffer stays shown, so
+ * erase-then-draw as the pointer moves. Keep it short: a couple of 16x16 spans. */
+static void vbl_cursor_update(short flipped)
+{
+	unsigned short *scr = g_screen[g_disp];
+	short mx, my, px, py, vis;
+
+	plat_mouse_pos(&mx, &my);
+	if (g_cur_obscured && (mx != g_cur_omx || my != g_cur_omy))
+		g_cur_obscured = 0;            /* ObscureCursor restores on first move */
+	vis = g_cur_have && g_cur_show && !g_cur_obscured;
+	px  = (short)(mx - g_cur_hotx);
+	py  = (short)(my - g_cur_hoty);
+
+	if (flipped) {
+		if (vis) { cur_draw(scr, px, py); g_cur_px = px; g_cur_py = py; g_cur_drawn = 1; }
+		else     { g_cur_drawn = 0; }
+		return;
+	}
+	if (g_cur_drawn && (!vis || px != g_cur_px || py != g_cur_py)) {
+		cur_erase(scr, g_cur_px, g_cur_py);
+		g_cur_drawn = 0;
+	}
+	if (vis && !g_cur_drawn) {
+		cur_draw(scr, px, py);
+		g_cur_px = px; g_cur_py = py; g_cur_drawn = 1;
+	}
+}
+
+int plat_cursor_active(void)
+{
+	return g_vbl_installed;            /* the VBL flip handler draws the cursor */
+}
+
+void plat_cursor_set_sprite(const unsigned short *rgb565,
+                            const unsigned short *mask,
+                            short hotx, short hoty)
+{
+	short i;
+	if (rgb565 == NULL || mask == NULL)
+		return;
+	g_cur_have = 0;                    /* disable draw while the sprite updates */
+	for (i = 0; i < 16 * 16; i++)
+		g_cur_rgb[i] = rgb565[i];
+	for (i = 0; i < 16; i++)
+		g_cur_mask[i] = mask[i];
+	g_cur_hotx = hotx;
+	g_cur_hoty = hoty;
+	g_cur_have = 1;
+}
+
+void plat_cursor_show(int visible)
+{
+	g_cur_show = (short)(visible ? 1 : 0);
+}
+
+void plat_cursor_obscure(void)
+{
+	plat_mouse_pos(&g_cur_omx, &g_cur_omy);   /* arm: clear on the next move */
+	g_cur_obscured = 1;
 }
 
 /* Flip: point the VIDEL base at the just-blitted back buffer. VsetScreen

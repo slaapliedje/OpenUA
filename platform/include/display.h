@@ -56,4 +56,29 @@ typedef struct dsp_backend {
 /* Probe the host machine and return the best available backend, or NULL. */
 const dsp_backend_t *dsp_detect(void);
 
+/* --- VBL mouse-cursor service ------------------------------------------------
+ *
+ * When plat_cursor_active() is non-zero the backend draws the mouse pointer on
+ * every vertical blank, on the displayed buffer, from a sprite pushed by the
+ * Toolbox shim — independent of whatever input loop a screen is sitting in, the
+ * way the Mac OS draws its pointer. The shim then skips its own software cursor.
+ * Backends that can't do this (no VBL flip installed) return 0 and the shim
+ * composites the cursor into the chunky surface as before. */
+int  plat_cursor_active(void);
+
+/* Push a 16x16 cursor sprite: `rgb565` is 16*16 RGB565 words (row-major),
+ * `mask` is 16 rows with bit 15 = column 0 (a set bit = opaque pixel). The
+ * hotspot is the pointer's active pixel within the 16x16 cell. */
+void plat_cursor_set_sprite(const unsigned short *rgb565,
+                            const unsigned short *mask,
+                            short hotx, short hoty);
+
+/* Show/hide nesting result (1 = visible). */
+void plat_cursor_show(int visible);
+
+/* Hide the cursor until the next mouse movement, then auto-restore — the
+ * faithful ObscureCursor semantics, handled in the VBL so it works on every
+ * screen (the line editor obscures the pointer during name entry). */
+void plat_cursor_obscure(void);
+
 #endif /* PLATFORM_DISPLAY_H */

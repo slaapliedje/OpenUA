@@ -276,11 +276,13 @@ void qd_set_present(qd_present_fn fn)
  * then restore the pixels underneath so the engine's buffer is untouched. */
 static void cursor_composite(void);
 static void cursor_restore(void);
+static void qd_cursor_tick(void);            /* lazily push the VBL cursor sprite */
 static void qd_rebake_color_pointer(void);   /* re-resolve cursor to live CLUT */
 
 void qd_present(void)
 {
-	cursor_composite();
+	qd_cursor_tick();                /* (re)push the VBL cursor sprite if dirty */
+	cursor_composite();              /* no-op when the VBL cursor is active     */
 	if (g_present_hook != NULL)
 		g_present_hook();
 	cursor_restore();
@@ -1132,11 +1134,21 @@ static unsigned char g_cursor_save[16 * 16];    /* pixels under the cursor */
 static short         g_cursor_save_x, g_cursor_save_y;
 static int           g_cursor_saved;
 
+/* The VBL cursor (platform service) needs the cursor shape baked to a 16x16
+ * RGB565 sprite and re-pushed whenever it changes; g_cursor_dirty defers that
+ * to the next qd_cursor_tick (so it survives any boot-order question — the VBL
+ * may install after InitCursor). Visibility changes push immediately. */
+static int  g_cursor_dirty = 1;
+static void qd_cursor_sync(void);     /* defined below g_color_cursor */
+
 void InitCursor(void)
 {
 	g_cursor       = k_arrow_cursor;
 	g_cursor_level = 0;
 	g_cursor_init  = 1;
+	g_cursor_dirty = 1;
+	if (plat_cursor_active())
+		plat_cursor_show(1);
 }
 
 void SetCursor(const Cursor *c)
@@ -1144,29 +1156,38 @@ void SetCursor(const Cursor *c)
 	if (c != NULL) {
 		g_cursor      = *c;
 		g_cursor_init = 1;
+		g_cursor_dirty = 1;
 	}
 }
 
 void HideCursor(void)
 {
 	g_cursor_level--;
+	if (plat_cursor_active())
+		plat_cursor_show(g_cursor_level >= 0);
 }
 
 void ShowCursor(void)
 {
 	if (g_cursor_level < 0)
 		g_cursor_level++;
+	if (plat_cursor_active())
+		plat_cursor_show(g_cursor_level >= 0);
 }
 
 void ObscureCursor(void)
 {
 	/* Mac: the cursor goes invisible until the next mouse movement, then is
 	 * auto-restored — it does NOT touch the HideCursor/ShowCursor nesting
-	 * level. qd_cursor_refresh clears this flag on the first move. (The old
-	 * shim decremented g_cursor_level, which never came back: the line editor
-	 * jt1078 obscured the cursor for name entry and it stayed gone through the
-	 * sprite screen and roster.) */
-	g_cursor_obscured = 1;
+	 * level. With the VBL cursor the platform owns the until-move state (so it
+	 * restores on any screen); otherwise qd_cursor_refresh clears the flag on
+	 * the first move. (The old shim decremented g_cursor_level, which never
+	 * came back: the line editor jt1078 obscured the cursor for name entry and
+	 * it stayed gone through the sprite screen and roster.) */
+	if (plat_cursor_active())
+		plat_cursor_obscure();
+	else
+		g_cursor_obscured = 1;
 }
 
 const Cursor *qd_sword_cursor(void)
@@ -1235,6 +1256,74 @@ void qd_install_color_pointer(short w, short h, short hotx, short hoty,
 	g_color_cursor.hoty   = hoty;
 	g_color_cursor.loaded = 1;
 	qd_rebake_color_pointer();          /* bake against the current CLUT */
+	g_cursor_dirty = 1;                 /* re-push the 16bpp VBL sprite */
+}
+
+/* RGB565 pack (8-bit channels -> one screen word), matching the VIDEL LUT. */
+static unsigned short qd_rgb565(unsigned char r, unsigned char g, unsigned char b)
+{
+	return (unsigned short)(((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3));
+}
+
+/* Bake the active cursor (the colour pointer if loaded, else the mono cursor)
+ * into a 16x16 RGB565 sprite + 1-bit mask and push it to the VBL cursor, then
+ * sync visibility. The colour sprite uses the pointer's own RGB (not the live
+ * CLUT), so unlike the 8-bit composite it never needs re-baking on a palette
+ * change. No-op when the platform cursor isn't active. */
+static void qd_cursor_sync(void)
+{
+	unsigned short rgb[16 * 16];
+	unsigned short mask[16];
+	short r, c;
+
+	if (!plat_cursor_active())
+		return;
+
+	if (g_color_cursor.loaded) {
+		for (r = 0; r < 16; r++) {
+			unsigned short m = 0;
+			for (c = 0; c < 16; c++) {
+				unsigned char v = g_color_cursor.raw[r * 16 + c];
+				if (v == 0xFF) {              /* transparent */
+					rgb[r * 16 + c] = 0;
+					continue;
+				}
+				v &= 0x0F;
+				rgb[r * 16 + c] = qd_rgb565(g_color_cursor.pal[v * 3 + 0],
+				                            g_color_cursor.pal[v * 3 + 1],
+				                            g_color_cursor.pal[v * 3 + 2]);
+				m |= (unsigned short)(0x8000u >> c);
+			}
+			mask[r] = m;
+		}
+		plat_cursor_set_sprite(rgb, mask,
+		                       g_color_cursor.hotx, g_color_cursor.hoty);
+	} else {
+		for (r = 0; r < 16; r++) {
+			unsigned short d = g_cursor.data[r];
+			unsigned short m = g_cursor.mask[r];
+			for (c = 0; c < 16; c++) {
+				unsigned short bit = (unsigned short)(0x8000u >> c);
+				rgb[r * 16 + c] = (m & bit)
+				    ? ((d & bit) ? 0x0000 : 0xFFFF)   /* black / white */
+				    : 0;
+			}
+			mask[r] = m;
+		}
+		plat_cursor_set_sprite(rgb, mask,
+		                       g_cursor.hotSpot.h, g_cursor.hotSpot.v);
+	}
+	plat_cursor_show(g_cursor_init && g_cursor_level >= 0);
+}
+
+/* Push the sprite lazily: the first present after any shape change (or after
+ * the VBL installs). Cheap when not dirty. Called from qd_present. */
+static void qd_cursor_tick(void)
+{
+	if (g_cursor_dirty && plat_cursor_active()) {
+		qd_cursor_sync();
+		g_cursor_dirty = 0;
+	}
 }
 
 static void cursor_composite(void)
@@ -1249,6 +1338,8 @@ static void cursor_composite(void)
 	RGBColor       wh = { 0xFFFF, 0xFFFF, 0xFFFF };
 
 	g_cursor_saved = 0;
+	if (plat_cursor_active())                /* the VBL draws the cursor */
+		return;
 	if (!g_cursor_init || g_cursor_level < 0 || g_cursor_obscured)
 		return;
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
@@ -1329,6 +1420,8 @@ void qd_cursor_refresh(void)
 	static short last_x = -1, last_y = -1;
 	short        mx, my;
 
+	if (plat_cursor_active())                /* the VBL tracks the cursor */
+		return;
 	if (!g_cursor_init || g_cursor_level < 0)
 		return;
 	plat_mouse_pos(&mx, &my);
