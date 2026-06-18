@@ -97,10 +97,25 @@ they should:
 
 ## P2 — char-gen remaining (after P1)
 
-- **Modify Character (case 1, l0f2e)** — "does nothing but refresh the page."
-  The Modify stat editor **L618c is unlifted**; case 1 currently re-paints the
-  roster (l02dc) and returns. Lift L618c (the per-stat +/- editor) — see
-  `docs/code17-chargen-wall.md`.
+- **Modify Character** — DIAGNOSED 2026-06-18 (user: Modify opens the char sheet
+  showing name/stats/THAC0 and lets you EDIT the statistics). The real editor is
+  **L618c = JT[560] = CODE 17 + 0x618c (~670B, 0x618c..0x642a)**: it calls
+  JT[886] (the 6-panel sheet) + edits the ability words rec[112..] / HP, via
+  subs L4ddc / L4d64 / L642c. The port has the two handlers CROSSED: the "Modify
+  Character" button (case 1 / l0f2e) runs **L15e2**, which the disasm shows is a
+  saved-character DELETE manager ("Delete %s forever?" → unlink; no edit logic —
+  its L1838 branch just loops/exits), so a Modify pick only refreshes; and the
+  real stat editor L618c is the target of case 2 (port-labeled "Delete",
+  l0f3e → cg_delete_character stub). FIX (next, focused): lift L618c + wire the
+  "Modify Character" button to it (a sheet view of the SELECTED existing
+  character, NOT re-rolling). The AC-convention bug in the cg_modify_sheet
+  reroll stand-in is fixed (bc48b0d). The old "L618c = Modify editor" audit note
+  was right about L618c being the editor but wrong about the case wiring.
+  USER SPEC (2026-06-18): Modify shows the sheet, cycles through the six stats
+  with a 'next' button (editing each), and AFTER the stats lets you edit the
+  NAME. So L618c = a per-ability edit loop (rec[112..] words) + a name edit, with
+  jt886 repainting the sheet and the derived stats (jt21/cg_finalize_stats)
+  recomputed on each change.
 - **Body-grid mouse click (A)** — jt1139 grid hit-test now lifted (6d45271), so
   the mechanism is correct, but a **real-mouse click on a body cell is not yet
   user-confirmed** (couldn't verify headlessly). First live check in the
