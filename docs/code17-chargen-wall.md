@@ -287,3 +287,13 @@ both directions and self-test-verified.
   the nested set. Other open items (in #137): body shapes 24/27/34/36/39 render
   shape-but-no-colour; the selected-cell index-8 marker lands on a random
   left-pane cell; the 49-cell compose draws slowly.
+- 2026-06-17: ICON-GRID PALETTE SOLVED (4c4c4ce) — TWO-RANGE CLUT. clut 0..31 =
+  menu/FRAME.CTL UI (stone frame, buttons, text); clut 32.. = DUNGCOM combat
+  palette (set-1 item 0, header start=32) installed LITERALLY via qd_set_palette,
+  clamped off 0..31. The psychedelic frame was jt124/l3eea reading the OUTER
+  DUNGCOM.CTL's nested item 1 as a colour table (stub header start=0/count=256)
+  and garbaging 0..255 — dropped jt124 here. Stone frame + correct sprites now
+  render together (matches the Mac; verified vs a BasiliskII capture). The
+  user's model held: 0..31 reserved for UI, each tileset's item 0 = its palette.
+  REMAINING in #137: body shapes 24/27/34/36/39 silhouette (CBODY shape-vs-colour
+  compose gap, NOT palette); selected-cell marker on the wrong cell; slow compose.
