@@ -21620,6 +21620,7 @@ static const unsigned char cg_race_classes[CG_NRACES] = {
 };
 
 /* Build the allowed-class index list for `race`; returns the count. */
+static short cg_allowed_classes(short race, short *out) __attribute__((unused));
 static short cg_allowed_classes(short race, short *out)
 {
 	short i, n = 0;
@@ -21703,6 +21704,7 @@ static const unsigned short cg_class_aligns[CG_NCLASSES] = {
 	0x049,   /* Ranger:     any Good     */
 };
 
+static short cg_allowed_aligns(short klass, short *out) __attribute__((unused));
 static short cg_allowed_aligns(short klass, short *out)
 {
 	short i, n = 0;
@@ -21775,6 +21777,7 @@ static const unsigned char cg_class_hd[CG_NCLASSES] = { 8, 10, 4, 6, 10, 8 };
  * class hit die + CON bonus and AC from 10 - DEX bonus (AD&D-1e style).
  * The full play-record (stats/class/saves at their faithful offsets) is
  * the next slice; this makes the created character appear in the party. */
+static void cg_build_record(const cg_state *s) __attribute__((unused));
 static void cg_build_record(const cg_state *s)
 {
 	unsigned char *rec;
@@ -21816,6 +21819,10 @@ static void cg_build_record(const cg_state *s)
 }
 
 static long jt1199(long a);   /* long endian-swap helper (defined below) */
+
+/* Forward — jt159 (yes/no confirm modal) lands further down; jt574's
+ * faithful commit tail calls it for the "Save NAME?" prompt. */
+static int  jt159(const char *prompt, short b);
 
 /* JT[574] (CODE 17 + 0x3b5e) — the character create/train entry (l0f1a /
  * case 0). Shows the char-creation screen (L3666 -> the PICK race/class/
@@ -21910,88 +21917,50 @@ static int  jt574(long ctx)
 			dbg_log("jt574: review done");
 #endif
 
-			l3cd4_c17(cg_rec);   /* proficiency bitfield rec[339..354] */
+			/* Faithful jt574 commit tail (CODE 17 L3c36..L3cc6). cg_rec is
+			 * now the fully finalized 398-byte record: the picks
+			 * (rec[88/89/92/93]), the rolled abilities + the jt21/jt885
+			 * derived HP/AC/THAC0/damage/move (rec[82/129/179/384/385/389/
+			 * 391/393/395/396]), the L238e name (rec[96]) and the L0006 body
+			 * icon (rec[188]). The Mac stamps two record bytes, confirms
+			 * "Save NAME?" (JT[488]+JT[159]), runs L3cd4 (proficiency), L455c
+			 * (equip) and JT[584] (write the .CHR file), then restores
+			 * g_a5_-27932. This replaces the old cg_build_record stand-in that
+			 * re-rolled HP and wrote AC in the wrong (displayed, not 60-x)
+			 * convention — the roster's jt34 read |rec[385]-60| then showed
+			 * AC 50 for a default AC-10 character. */
+			cg_rec[191] = 2;
+			cg_rec[192] = 2;
 
-			/* Then add a roster character from the picks. The review screen
-			 * (L1346) and the faithful .CHR save (jt584) aren't lifted yet, so
-			 * the stats are rolled port-side; cg_build_record threads it into
-			 * the pool/party (g_a5_-27928) and persists it. The name now comes
-			 * from the faithful L238e entry; the faithful rec[188] flows once
-			 * L3cd4/jt584 replace this port build. */
-			cg_state s;
-			short k;
-			static const char placeholder[] = "NEW HERO";
-
-			memset(&s, 0, sizeof s);
-			s.race = (short)(unsigned char)g_a5_byte(-7026) - 1;
-			if (s.race < 0 || s.race >= CG_NRACES)
-				s.race = 0;
-			s.gender = (short)(unsigned char)g_a5_byte(-7020) - 1;
-			if (s.gender < 0 || s.gender >= CG_NGENDERS)
-				s.gender = 0;
-			s.nallowed = cg_allowed_classes(s.race, s.allowed);
-			s.ksel     = 0;                /* first class the race allows */
-			s.naligned = cg_allowed_aligns(s.allowed[s.ksel], s.aligned);
-			s.asel     = 0;
-			/* The abilities were rolled and committed by cg_char_sheet
-			 * above (L24d2 + the Done base=current commit). Read the
-			 * permanent scores out of the faithful word slots
-			 * cg_rec[112+i*2] into the port struct so cg_build_record +
-			 * the roster get the real faithfully-rolled stats. */
 			{
-				short si;
-				for (si = 0; si < 6; si++)
-					s.stats[si] = (short)cg_rec[112 + si * 2];
+				char prompt[64];
+				sprintf(prompt, "Save %s?",
+				        (const char *)&cg_rec[96]);
+				if (jt159(prompt, 0) == 0)
+					return 0;    /* declined -> abandon the create */
 			}
-			{
-				/* Name from the faithful L238e entry (cg_rec[96]); an
-				 * empty entry keeps the placeholder. */
-				const char *cgname = (cg_rec[96] != 0)
-				    ? (const char *)(cg_rec + 96) : placeholder;
-				for (k = 0; cgname[k] && k < 15; k++)
-					s.name[k] = cgname[k];
-			}
-			s.name[k] = 0;
-			s.namelen = k;
-			cg_build_record(&s);
 
-			/* Unification stage 2 — overlay the faithful char-gen fields
-			 * from cg_rec onto the new pool record so the .cch save (jt578)
-			 * captures them at the REAL faithful offsets (race@88, class@89,
-			 * gender@92, align@93, the word-strided abilities + exceptional
-			 * strength @112..125, body icon @188, the proficiency bitfield
-			 * @339..354, max HP word @82), making a port-created character
-			 * faithful on disk. The port display offsets (200..216) and the
-			 * shared combat stats (384..396) cg_build_record wrote are left
-			 * intact — the roster reads those unchanged. The true single-layout
-			 * switch (retire 200..216, reorder the name tables, the 0..16 class
-			 * model) is the larger remaining step. */
-			if (cg_pool_count > 0) {
-				unsigned char *pr = cg_pool[cg_pool_count - 1];
-				short fi;
+			l3cd4_c17(cg_rec);   /* L3cd4 — proficiency bitfield rec[339..354] */
+			/* L455c equip / starting inventory is not lifted yet; a new
+			 * character's unarmored AC and empty pack are already what
+			 * cg_finalize_stats produced, so nothing to overlay here. */
 
-				/* max HP @82 is set by cg_build_record via CHAR_MAXHP@83
-				 * (the word's low byte; rec[82] is memset 0). */
-				pr[88] = cg_rec[88]; pr[89] = cg_rec[89];
-				pr[92] = cg_rec[92]; pr[93] = cg_rec[93];
-				/* XP long @68 (jt572 stamped it) + the money words
-				 * @76/78/80 (jt573 finalize) -> the pool record. */
-				for (fi = 68; fi <= 71; fi++) pr[fi] = cg_rec[fi];
-				for (fi = 76; fi <= 81; fi++) pr[fi] = cg_rec[fi];
-				for (fi = 112; fi <= 125; fi++) pr[fi] = cg_rec[fi];
-				/* rec[157] (per-class level) is set to 1 by cg_build_record
-				 * via CHAR_LEVEL@157; don't overlay cg_rec[157..163] (0). */
-				pr[188] = cg_rec[188];
-				for (fi = 339; fi <= 354; fi++) pr[fi] = cg_rec[fi];
-
-				/* Make the NEW pool record the current character. The Mac
-				 * tail (jt477/jt165/jt587) copies the working record into a
-				 * roster node and makes THAT node current (-27932). The port
-				 * left -27932 pointing at the transient cg_rec (g_a5_-7008),
-				 * a 398-byte static that is NOT a cg_pool slot and NOT in the
-				 * roster list — so every later faithful op keyed off -27932
-				 * (jt19 / jt556 / jt584 / the l02dc highlight) saw a dangling
-				 * record. Point it at the real pool slot. */
+			/* Persist + surface in the roster. The Mac writes a .CHR file
+			 * (JT[584]) the Training Hall re-reads; the port mirrors that by
+			 * copying the finalized record into a pool slot — the faithful
+			 * Train path (L3c92: a 99-long + 1-word = 398-byte copy of cg_rec
+			 * into the target record) is exactly this — flagging party
+			 * membership, saving the roster (save_roster == the .CHR writes),
+			 * and making the new slot current. CHAR_INPARTY (210) is a port
+			 * party-model flag set after the copy. */
+			if (cg_pool_count < 16) {
+				unsigned char *pr = cg_pool[cg_pool_count++];
+				memset(pr, 0, 512);
+				memcpy(pr, cg_rec, 398);
+				pr[CHAR_INPARTY] =
+				    (cg_party_size() < CG_PARTY_MAX) ? 1 : 0;
+				cg_party_relink();
+				save_roster();
 				g_a5_long(-27932) = (long)(uintptr_t)pr;
 			}
 		}
