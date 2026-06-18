@@ -4749,7 +4749,34 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		return;
 	}
 
-	if (flags & 0x40) {
+	if (mode == 1) {
+		/* Two-plane 8bpp colour piece (Mac L2970 case 1 -> JT[1172]/JT[1176]):
+		 * plane 1 (src) is the shape/shadow mask, plane 2 (src + height*pix_w)
+		 * is the colour body.  Composite: where the mask plane is opaque
+		 * (!= 255) draw the colour-plane pixel; the colour plane carries its own
+		 * 255 transparency too.  Used by the larger CBODY monster icons — the
+		 * single-plane path drew only the mask, i.e. a silhouette. */
+		long plane = (long)height * pix_w;
+		for (r = 0; r < height; r++) {
+			short dy = (short)(y + r);
+			const unsigned char *m = src + (long)r * pix_w;
+			const unsigned char *col = src + plane + (long)r * pix_w;
+
+			if (dy < top || dy >= bottom)
+				continue;
+			for (c = 0; c < pix_w; c++) {
+				unsigned char v = col[c];
+				short dx;
+
+				if (m[c] == 255 || v == 255)
+					continue;
+				dx = (short)(x + c);
+				if (dx < left || dx >= right)
+					continue;
+				px[(long)dy * pitch + dx] = v;
+			}
+		}
+	} else if (flags & 0x40) {
 		/* 8bpp colour glyph: stride = pix_w bytes, 255 = transparent. */
 		for (r = 0; r < height; r++) {
 			short dy = (short)(y + r);
