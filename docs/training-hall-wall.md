@@ -22,10 +22,22 @@ JT-level coverage lives in `docs/stub-inventory.md`; char-gen internals in
   4 Remove(l0f74) · 5 Add(l1036) · 6 View(l104c) · 7 ChangeClass(l1060) ·
   8 Exit(l10ca) · 9 Save(l1142) · 10 Begin(l115a) · 11 Load(l120c).
 
-## P1 — Training Hall dynamic menu — INVESTIGATED 2026-06-18: already faithful
+## P1 — Training Hall dynamic menu — DONE 2026-06-18 (e84b4bd)
 
-UPDATE after a live trace (logged the 12 flags + -27932 at l0aae): the menu is
-**already faithfully dynamic**. On the loaded HEIRS design the flags come out
+FINAL: the user's BasiliskII ground truth corrected the disasm-only read below.
+Mac behavior: EMPTY roster = Add/Create/Delete/Load/Exit only; with a character
+= + Modify/Remove/View/Save/Begin; Train + Human-Change-Class always disabled.
+jt918 now sets the c79x flags keyed on the active party (g_a5_-27928 != 0); the
+port's l0aae is self-consistent (button k_jt918_menu_items[i] gated by -14440-i)
+so each flag is set by its label. Hatari-verified. Also (4211bdb): dropped the
+bad-stat HEIRS savegame party (port_load_savgame skipped) + fixed the seed AC
+(60-x slot). The gameRecord[48] gate below is moot (invisible for a loaded
+design).
+
+----- (superseded) investigation note -----
+A live trace (logged the 12 flags + -27932 at l0aae) read all-enabled and I
+wrongly concluded "already faithful" — the disasm L0df6/L0e98 mapping didn't
+match the Mac; the port over-enabled. On the loaded HEIRS design the flags come out
 `4095` = all 12 enabled, and that is the CORRECT faithful result — the Mac's
 "current character" branch (L0df6) enables everything except the Create/Remove
 game-record gate and View>5, neither of which trips for a 4-member loaded party.
