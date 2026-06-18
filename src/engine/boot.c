@@ -15379,6 +15379,7 @@ static void cg_roster_merge_files(void)
  * success. The combat block (name@96/AC@385/HP@395) is at the same offsets in
  * the faithful and port records, so the HUD roster reads it directly; the
  * char-sheet fields (class/stats/maxHP) are translated to the port CHAR_*. */
+static int port_load_savgame(void) __attribute__((unused));
 static int port_load_savgame(void)
 {
 	static unsigned char sg[12288];
@@ -15660,11 +15661,13 @@ void port_test_seed_design(void)
 		if (!seeded) {
 			seeded = 1;
 			node_pool_init();            /* roster / design node pool */
-			/* Prefer a real BasiliskII saved game (SAVGAMA.CSV) if present,
-			 * else the persisted port roster, else the synthetic seed. */
-			if (port_load_savgame()) {
-				/* real save loaded — party + saved dungeon position */
-			} else if (!load_roster()) {        /* no disk save -> seed pool */
+			/* Roster source: the persisted .CHR files, else the synthetic
+			 * seed. The shipped HEIRS SAVGAMA.CSV party is SKIPPED (user
+			 * 2026-06-18): the savegame format isn't fully lifted, so it
+			 * parses to bad, non-AD&D stats (BALTHAZAR -13 AC / 219 HP).
+			 * Restore the port_load_savgame() path once the SAVGAMA parse is
+			 * faithful — task #123. */
+			if (!load_roster()) {               /* no disk save -> seed pool */
 				int p, c;
 				for (p = 0; p < k_count; p++) {
 					unsigned char *r = cg_pool[p];
@@ -15674,7 +15677,9 @@ void port_test_seed_design(void)
 					r[96 + c] = 0;
 					r[CHAR_HP] = k_hp[p];
 					r[CHAR_MAXHP] = k_hp[p];
-					r[CHAR_AC] = k_ac[p];
+					/* CHAR_AC (385) is the faithful "60 - displayed" slot
+					 * (jt34 draws |rec[385]-60|); k_ac is the displayed AC. */
+					r[CHAR_AC] = (unsigned char)(60 - k_ac[p]);
 					r[CHAR_THAC0] = (unsigned char)(39 + k_lvl[p]);
 					r[CHAR_MOVE]  = 12;
 					r[CHAR_RACE]  = k_race[p];
