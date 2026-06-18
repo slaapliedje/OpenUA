@@ -270,3 +270,20 @@ both directions and self-test-verified.
   unblocked for #115 too. FOLLOW-UP: grid-cell background is the combat-sprite
   palette (purple) vs the grey menu CLUT — the frame/sprite CLUT-sync the user
   flagged (shared-palette model, [[glib-palette-subsystem]]).
+- 2026-06-17: ICON-GRID PALETTE — analysed, literal fix REVERTED, deferred to
+  task #137 (shared-palette colour-range remap). The cell ground + body sprites
+  should use the COMBAT palette; the frame must keep the menu/stone CLUT.
+  GROUND TRUTH (BasiliskII mon at the body screen): CLUT[87] = (151,167,179)
+  silver. That palette is DUNGCOM's NESTED set-1 GLIB (outer item 1 -> its item
+  0), 224 entries, header start=32; entry 55 -> CLUT[87]. The Mac SWAPS that
+  set's palette in like the dungeon 3D view swaps a wall set's. A literal
+  jt993(set1, 0) commit (start=32 over clut 32..255) paints the cells silver but
+  STOMPS the menu stone backdrop (shared 32..255) -> psychedelic frame in
+  `make run-game` (committed 49f04ff, reverted acf85ca). Faithful path = the
+  GLIB colour-range allocator (jt1069) REMAP into free slots, not a literal
+  commit. jt124(handle) must stay (dropping it blacks the backdrop). The port's
+  l33ac("DUNGCOM1") loads the OUTER DUNGCOM.CTL (item 0 type 2, not a palette),
+  so jt124 can't reach the nested palette; the Mac's FC group for "DUNGCOM1" IS
+  the nested set. Other open items (in #137): body shapes 24/27/34/36/39 render
+  shape-but-no-colour; the selected-cell index-8 marker lands on a random
+  left-pane cell; the 49-cell compose draws slowly.
