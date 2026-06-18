@@ -47733,6 +47733,176 @@ static void jt904(unsigned char *out_done)
 static void   jt942_caseN(short a) __attribute__((unused));
 static void   jt942_caseN(short a)               { jt942(a); }
 
+/* ===================================================================== *
+ * L618c — the Modify Character stat editor (task #138, CODE 17 + 0x618c =
+ * JT[560]). Shows the char sheet (l1276 = jt886) for the current character
+ * and lets the user walk the six ability scores (cursor g_a5_-6926) editing
+ * each with the "Modify: Next Previous Add Sub Keep Exit" bar (jt178), then
+ * the name. Only a freshly-created character (XP == the starting value, or
+ * one at a level boundary) is editable. THIS INCREMENT lifts the display
+ * helpers + the dispatcher skeleton; the per-stat action handlers
+ * L5234..L6084 are PROBE stubs (editing is the next slice). l618c is not
+ * wired to the Modify button yet.
+ * ===================================================================== */
+
+/* L4ddc / L4df0 / L4dfe — editor state flags (deep-mode / move-pending). */
+static void  l4ddc(short v) { PROBE("L4ddc"); g_a5_byte(-6925) = (unsigned char)v; }
+static void  l4df0(short v) { PROBE("L4df0"); g_a5_byte(-6927) = (unsigned char)v; }
+static short l4dfe(void)    { PROBE("L4dfe"); return (short)(unsigned char)g_a5_byte(-6927); }
+
+/* L642c (CODE 17 + 0x642c) — redraw the editor field at `index` (highlighted
+ * when `hl`): 0..5 the ability rows (jt895), 6 the name field, 7 the HP. */
+static void l642c(short hl, short index)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	PROBE("L642c");
+	switch (index) {
+	case 0: case 1: case 2: case 3: case 4: case 5:
+		jt895(index, index);            /* redraw the ability row */
+		break;
+	case 6:                                 /* the name field */
+		if (hl) {
+			jt93(1, 1, 8, 16);
+			jt94(1, 1, 11, 8, "%s", (const char *)&rec[96]);
+		} else {
+			jt94(1, 1, 7, 8, "%s", (const char *)&rec[96]);
+		}
+		break;
+	case 7:                                 /* HP value */
+		jt32((long)(uintptr_t)rec, 31, 3, 0, 0);
+		break;
+	default:
+		break;
+	}
+}
+
+/* L4d64 (CODE 17 + 0x4d64) — move the edit cursor to `idx` (0..5 abilities,
+ * 6 = name). Entering the name field shows the "Edit Name:" prompt + obscures
+ * the cursor; leaving it commits via jt66/jt1130. Updates the cursor -6926. */
+static void l4d64(short idx)
+{
+	short cur = (short)(unsigned char)g_a5_byte(-6926);
+	PROBE("L4d64");
+	if (idx == 6 && cur != 6) {
+		jt1148();                       /* ObscureCursor */
+		jt176();
+		jt94(24, 15, 8, 0, "%s",
+		     ua_strs_at(0x4a18)); /* "Edit Name: Press return when done." */
+		l642c(0, 6);
+	} else if (cur == 6 && idx != 6) {
+		jt66();
+		jt1130();
+	}
+	g_a5_byte(-6926) = (unsigned char)idx;
+}
+
+/* Per-ability action handlers (L5234 STR .. L5aa8 CHA, L5c1e name, L6084) —
+ * each applies the picked action (Next/Previous/Add/Sub/Keep/Exit) to its
+ * field with the racial caps + redraw. PROBE stubs in this increment. */
+static void l5234(short act) { PROBE("L5234"); (void)act; }   /* STR */
+static void l547c(short act) { PROBE("L547c"); (void)act; }   /* INT */
+static void l55da(short act) { PROBE("L55da"); (void)act; }   /* WIS */
+static void l576a(short act) { PROBE("L576a"); (void)act; }   /* DEX */
+static void l58ca(short act) { PROBE("L58ca"); (void)act; }   /* CON */
+static void l5aa8(short act) { PROBE("L5aa8"); (void)act; }   /* CHA */
+static void l5c1e(void)      { PROBE("L5c1e"); }              /* name edit */
+static void l6084(short act) { PROBE("L6084"); (void)act; }
+
+/* L618c (= JT[560]) — the Modify Character stat editor. Faithful skeleton:
+ * eligibility guard, save-and-paint setup, the edit loop (bar -> per-stat
+ * dispatch); the per-stat handlers above are stubs in this increment. */
+static void l618c(void) __attribute__((unused));
+static void l618c(void)
+{
+	unsigned char *rec;
+	short i;
+
+	PROBE("L618c");
+	if (jt1200() == 3)
+		l4ddc(1);
+	rec = (unsigned char *)g_a5_ptr(-27932);
+	if (rec == NULL)
+		return;
+
+	/* Eligibility: only a freshly-created character (XP == the starting
+	 * value g_a5_-18882, or one sitting exactly on a level boundary) is
+	 * editable; else show a "can't modify" message and bail. */
+	if (*(long *)(rec + 68) != g_a5_long(-18882)
+	 && *(long *)(rec + 68) != jt7(g_a5_long(-18882), 2)
+	 && *(long *)(rec + 68) != jt7(g_a5_long(-18882), 3)) {
+		jt101(jt488("%s%s", (const char *)&rec[96],
+		            (const char *)(uintptr_t)g_a5_long(-14224)),
+		      11, 0);
+		return;
+	}
+
+	/* Per-item setup (JT[882]) over the inventory list (.next @ +0). */
+	{
+		unsigned char *item = *(unsigned char **)(rec + 8);
+		while (item != NULL) {
+			if (item[50] != 0)
+				jt882((long)(uintptr_t)item);
+			item = *(unsigned char **)item;
+		}
+	}
+
+	l1276();                                /* paint the 6-panel sheet (jt886) */
+
+	/* Save the six abilities (base->current sync + originals at -6979) and
+	 * the percentile / HP / name for revert. */
+	for (i = 0; i <= 5; i++) {
+		rec[113 + i * 2] = rec[112 + i * 2];
+		g_a5_byte(-6979 + i) = rec[112 + i * 2];
+	}
+	g_a5_byte(-6973) = rec[124];
+	g_a5_byte(-6972) = rec[129];
+	jt384((char *)&g_a5_byte(-6971), (const char *)&rec[96]);
+	g_a5_byte(-6929) = 0;
+
+	if (jt180() == 0)
+		l642c(0, 6);
+	l4d64(0);                               /* cursor to the first ability */
+	l642c(1, (short)(unsigned char)g_a5_byte(-6926));
+	g_a5_byte(-6928) = 1;
+	g_a5_byte(-6980) = 0;
+
+	/* Edit loop: pick an action on the current stat, dispatch to its
+	 * handler, repaint. A handler sets -6980 to end it. */
+	do {
+		short act = 0;
+		if ((short)(unsigned char)g_a5_byte(-6926) != 6) {
+			l4df0(0);
+			jt179(5);
+			act = jt178("Modify:",
+			            "Next Previous Add Sub Keep Exit", 1);
+			if (l4dfe() != 0) {
+				l642c(0, (short)(unsigned char)g_a5_byte(-6926));
+				l4d64(act);
+			}
+		}
+		if (l4dfe() == 0) {
+			switch ((short)(unsigned char)g_a5_byte(-6926)) {
+			case 0: l5234(act); break;
+			case 1: l547c(act); break;
+			case 2: l55da(act); break;
+			case 3: l576a(act); break;
+			case 4: l58ca(act); break;
+			case 5: l5aa8(act); break;
+			case 6: l5c1e();    break;
+			case 7: l6084(act); break;
+			default: break;
+			}
+		} else {
+			l4df0(0);
+		}
+		jt892((const unsigned char *)rec);
+		l642c(1, (short)(unsigned char)g_a5_byte(-6926));
+	} while (g_a5_byte(-6980) == 0);
+
+	if (jt1200() != 3)
+		l4ddc(0);
+}
+
 /* L0f2e — case 1 (Modify Character). CODE 12 + 0x0f2e.
  *
  *   tstb a5@(-14439)
