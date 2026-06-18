@@ -22,7 +22,36 @@ JT-level coverage lives in `docs/stub-inventory.md`; char-gen internals in
   4 Remove(l0f74) · 5 Add(l1036) · 6 View(l104c) · 7 ChangeClass(l1060) ·
   8 Exit(l10ca) · 9 Save(l1142) · 10 Begin(l115a) · 11 Load(l120c).
 
-## P1 — Training Hall dynamic menu (the keystone the user flagged)
+## P1 — Training Hall dynamic menu — INVESTIGATED 2026-06-18: already faithful
+
+UPDATE after a live trace (logged the 12 flags + -27932 at l0aae): the menu is
+**already faithfully dynamic**. On the loaded HEIRS design the flags come out
+`4095` = all 12 enabled, and that is the CORRECT faithful result — the Mac's
+"current character" branch (L0df6) enables everything except the Create/Remove
+game-record gate and View>5, neither of which trips for a 4-member loaded party.
+The port matches jt918's L0df6/L0e98 logic. **There is no visible bug to fix in
+the common case** — "all buttons enabled with a loaded design+party" is faithful.
+
+The remaining stand-in is invisible + a real lift, not wiring:
+- **Create/Remove gate** reads `gameRecord[48]` (g_a5_-28006, a design-header
+  byte; 0xFF = enabled — a boolean flag, NOT a count: Add/Remove never touch it,
+  and the only set I found is a TEMPORARY save/restore guard during the char
+  sheet at CODE 17 ~0x2836). The **persistent** setter lives in the design
+  load/save machinery (CODE 22 reads it at 0xeae/0x108a/0x1228) and the port's
+  design header is a memset stub — so restoring the gate naively would DISABLE
+  Create/Remove (the exact reason the interim exists). Real design-state lift.
+- It would NOT change the visible behavior anyway: with a design loaded, [48]
+  is 0xFF ⇒ Create/Remove enabled = same as the port's interim.
+
+To actually SEE dynamic disabling (if desired): the **fresh / no-design** state
+(L0e98: only Modify/View/Exit) — the port never reaches it because
+port_test_seed_design always seeds a party, so -27932 is always set. Showing it
+means a "no design loaded" entry path, not a menu fix. The View>5 gate already
+works. So P1 is effectively CLOSED; was the menu's appearance compared against a
+Mac capture? If buttons should grey on the loaded design, get a BasiliskII
+Training-Hall screenshot to pin which item + which state.
+
+(Original framing kept below for reference.)
 
 The menu **does** enable/disable by context already (jt918 ~48885), but on
 **stand-in gates**, not the faithful ones — so buttons don't grey out the way
