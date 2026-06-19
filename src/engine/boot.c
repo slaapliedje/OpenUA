@@ -15433,6 +15433,23 @@ static int load_roster(void)
 	if (n2 == 0)
 		return 0;
 	cg_pool_count = n2;
+	/* The faithful party membership lives in the savegame (not yet lifted),
+	 * NOT in the .CHR files — those are the saved-character pool. A persisted
+	 * roster whose records all carry CHAR_INPARTY==0 (an older save, or a
+	 * roster that was fully benched in a prior session) would otherwise leave
+	 * the Training Hall spuriously EMPTY. Fall back to "the saved characters
+	 * ARE the party" (capped at CG_PARTY_MAX) so the party is deterministic
+	 * and non-empty; the in-session Add/Remove edits manage -27928 directly.
+	 * (docs/party-model-migration.md — interim until the savegame party is
+	 * faithful.) */
+	{
+		short i, anyparty = 0;
+		for (i = 0; i < n2; i++)
+			if (cg_pool[i][CHAR_INPARTY]) { anyparty = 1; break; }
+		if (!anyparty)
+			for (i = 0; i < n2 && i < CG_PARTY_MAX; i++)
+				cg_pool[i][CHAR_INPARTY] = 1;
+	}
 	cg_party_relink();
 	return 1;
 }
@@ -49448,9 +49465,13 @@ static void cg_add_character(void)
 			break;
 		if ((ascii == 13 || ascii == 3)      /* Return -> add */
 		    && cg_party_size() < CG_PARTY_MAX) {
-			cand[sel][CHAR_INPARTY] = 1;
-			cg_party_relink();
+			cand[sel][CHAR_INPARTY] = 1;  /* persistence flag */
+			*(long *)cand[sel] = 0;       /* fresh node for jt590 */
+			jt590(cand[sel]);             /* faithful append to -27928 */
 			save_roster();
+			while (plat_kb_poll(&scan, &ascii))   /* debounce: one
+			                                       * press, one add */
+				;
 		} else if (scan == 0x48)
 			sel = (short)((sel + n - 1) % n);
 		else if (scan == 0x50)
@@ -49490,9 +49511,12 @@ static void cg_remove_from_party(void)
 		if (ascii == 27)                     /* Esc -> back */
 			break;
 		if (ascii == 13 || ascii == 3) {     /* Return -> bench */
-			party[sel][CHAR_INPARTY] = 0;
-			cg_party_relink();
+			cg_party_unlink(party[sel]);  /* faithful unlink from -27928 */
+			party[sel][CHAR_INPARTY] = 0; /* persistence flag */
 			save_roster();
+			while (plat_kb_poll(&scan, &ascii))   /* debounce: one
+			                                       * press, one remove */
+				;
 		} else if (scan == 0x48)
 			sel = (short)((sel + nparty - 1) % nparty);
 		else if (scan == 0x50)
