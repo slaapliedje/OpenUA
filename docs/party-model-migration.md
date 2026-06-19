@@ -48,6 +48,23 @@ right next to the `cg_pool`/`CHAR_INPARTY` stand-in path it uses otherwise. So
 the migration is an untangle-and-finish, not a from-scratch build. (jt590 was a
 stub until 2026-06-19; lifting it activated only that empty-roster branch.)
 
+## Progress log
+
+- **2026-06-19 (bd206a2):** runtime **Add/Remove** now manage `-27928`
+  DIRECTLY — Add appends the picked benched node via `jt590` (slot assign +
+  count), Remove unlinks via `cg_party_unlink`. `cg_party_relink` is no longer
+  in the Add/Remove paths; `CHAR_INPARTY` is kept ONLY as the `.CHR`
+  persistence flag. Two correctness fixes shipped with it:
+  - `load_roster` no longer leaves the Hall spuriously EMPTY when a persisted
+    roster carries `CHAR_INPARTY==0` on every record (a fully-benched prior
+    save). Falls back to "the saved characters are the party" (cap
+    `CG_PARTY_MAX`). The faithful party lives in the SAVEGAME, not the `.CHR`
+    pool — interim until that's lifted.
+  - Both modals **debounce** the mutating Return (drain pending keys after the
+    action) — a single physical press was firing twice and double-removing a
+    second party member. Hatari-verified: Remove KORIN -> BRAMBLE/SABLE/BOB;
+    Add KORIN back -> BRAMBLE/SABLE/BOB/KORIN, no loss.
+
 ## Phases (each must keep the build + FRUA_HALL working)
 
 0. **jt590 lifted** (DONE 2026-06-19) — the append primitive (above).
@@ -76,9 +93,18 @@ stub until 2026-06-19; lifting it activated only that empty-roster branch.)
 4. **Faithful Add (L12a0).** Browse `CHAR*.CHR` (jt589) → jt169 list pick →
    load the file into a `cg_node_alloc` slot → `jt590` append, with the
    composition checks ("too many rangers in party"). Replaces cg_add_character.
-5. **Faithful Remove + Delete.** Remove = unlink the selected `-27928` member +
-   free its slot. Delete (L15e2) = jt589 list → "Delete %s forever?" → unlink
-   the `.CHR` file. Replaces cg_remove_from_party / cg_delete_character.
+5. **Faithful Remove + Delete.** Remove (cg_remove_from_party) is now
+   `cg_party_unlink`-direct (DONE bd206a2); the faithful upgrade is the L0f74
+   screen chrome. Delete (L15e2) = jt589 list → "Delete %s forever?" → unlink
+   the `.CHR` file. **Delete is the relink keystone:** the port's
+   cg_delete_character SHIFTS the cg_pool array (`memcpy(cg_pool[k],
+   cg_pool[k+1])`), which moves record CONTENTS down while the slot ADDRESSES
+   stay put — so every `-27928` node (a slot address) would point at the wrong
+   record AFTER a shift. It is safe ONLY because it calls `cg_party_relink()`
+   immediately after (the shifted CHAR_INPARTY flags rebuild the list). So
+   **relink cannot be dropped until Delete stops shifting the pool** — the
+   faithful Delete unlinks a `.CHR` FILE and never touches the in-memory
+   array, which is the fix. Convert Delete + drop relink together.
 6. **Faithful View (jt904).** The sheet + jt182 action bar; replaces
    cg_view_sheet. (Read-only wrt the party — lowest risk, can slot in anytime.)
 7. **Remove the stand-ins.** Delete CHAR_INPARTY, cg_collect_party,
