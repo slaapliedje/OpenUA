@@ -1947,13 +1947,21 @@ int ua_main(short arg1, long arg2)
 	 * buffer size in KB (kb_min, kb_max).
 	 */
 	status = jt398(":DISK4:ALWAYS.CTL", 0);
+	/* FC FAR-pool size (kb_min, kb_max). The Mac's normal-path cap was 450KB
+	 * (it had 1MB total); the dungeon needs the ~296KB wall library AND a
+	 * ~165KB event/backdrop bigpic RESIDENT AT ONCE (~461KB), which overflows
+	 * 450KB and aborts with "Out of FAR memory" before the dispose-reload
+	 * orchestration ("stage 4") lands. The Falcon/TT have 4MB, so raise the cap
+	 * (jt463 negotiates down to free RAM, so this is safe) — pragmatic, in line
+	 * with port-memory-vs-mac-1mb (true 1MB needs the purgeable dance instead).
+	 * #124/#129. */
 	if (status >= 0) {
 		jt411(status);
 		jt1129(1);
 		color_mode_init();      /* CODE 4 @0x47b4: derive jt1200 gates */
-		master_init(arg1, arg2, 214, 450);
+		master_init(arg1, arg2, 214, 768);
 	} else {
-		master_init(-5, arg2, 160, 400);
+		master_init(-5, arg2, 160, 640);
 	}
 
 	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
