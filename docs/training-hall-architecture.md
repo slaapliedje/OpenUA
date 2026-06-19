@@ -126,8 +126,15 @@ the port's wiring is:
    the new char to the party (CHAR_INPARTY=1); FIXED (26fd85b) — Create now
    benches it, so Create -> Add Character -> party is the faithful flow. The
    faithful jt904/L12a0/CODE-21 screens are a fidelity upgrade, deferred.
-3. **Remove (jt556)** + **Delete (L15e2)** — the party-teardown / file-delete
-   screens (port stubs today).
+3. **Remove** — FUNCTIONAL via cg_remove_from_party (browse the party, Up/Dn,
+   Return benches the member back to the pool). Verified live (dee4d44).
+   CORRECTION 2026-06-19: jt556 ("only conscious humans may change") is the
+   Change-Class check, so the Mac's case-4 body (L0f74) is actually
+   Change-Class — Remove/Change-Class are mirrored vs their labels (case 4
+   "Remove" -> Change-Class body; case 7 "Change Class" -> L1060). The port's
+   l0f74 had carried that change-class code as no-op stubs; stripped. l0f74 now
+   just removes + re-points the selection. **Delete (L15e2)** — still the
+   cg_delete_character stand-in.
 4. The port currently **seeds a demo party** (port_test_seed_design) directly
    into `-27928`, bypassing the real Create→.CHR→Add→party flow. Once Add/Remove
    are faithful, this seed can be retired in favour of a real saved-character
