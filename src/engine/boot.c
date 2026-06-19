@@ -23091,6 +23091,10 @@ static int    jt41(long handle_long, short find_byte, void *descriptor)
 	}
 	return found;
 }
+/* JT[556] (CODE 17+0x66ee) = the Human-Change-Class eligibility check ("only
+ * conscious humans may change") — NOT Remove. Stub; kept for when the faithful
+ * Change-Class handler is lifted. */
+static int    jt556(long a) __attribute__((unused));
 static int    jt556(long a)                    { PROBE("jt556"); (void)a;
                                                   return 0; }
 /* JT[557] (CODE 17 + 0x6cd2 = L6cd2) — TRAIN the current character
@@ -48776,37 +48780,21 @@ static int l0f60(short a)
  */
 static int l0f74(short a)
 {
-	short  local;
-	long   probe_buf = 0;
-
 	(void)a;
 	PROBE("jt918/case4 L0f74");
 	if (g_a5_14436 == 0)
 		return 0;
-
-	cg_remove_from_party();              /* port: bench (back to pool) */
-
-	local = (short)(signed char)jt556(g_a5_27932);
-	if (local == 17) {
-		g_a5_27946 = 0;
-		return 0;
-	}
-
-	if (jt41(g_a5_27932, 8, &probe_buf) != 0)
-		jt878(g_a5_27932, 8, 0);
-	if (jt41(g_a5_27932, 105, &probe_buf) != 0)
-		jt878(g_a5_27932, 105, 0);
-
-	switch (local) {
-	case 3:
-		jt876(g_a5_27932, 8,   0, 255, 0);
-		break;
-	case 4:
-		jt876(g_a5_27932, 105, 0, 255, 0);
-		break;
-	default:
-		break;
-	}
+	/* "Remove Character" (build-index 4). The Mac's case-4 body (L0f74) is
+	 * actually the Change-Class handler — jt556 ("only conscious humans may
+	 * change") + the jt41/jt878/jt876 item moves — because Remove/Change-Class
+	 * are mirrored against their labels like Train/Create and Add/View. The
+	 * port dispatches by LABEL, so case 4 = REMOVE: cg_remove_from_party
+	 * browses the party and benches the picked member (CHAR_INPARTY=0 -> back
+	 * to the addable pool). The old change-class calls here were stubs anyway. */
+	cg_remove_from_party();
+	/* The removed member may have been the selection; re-point -27932 at a
+	 * valid party member (or 0 if the party is now empty). */
+	g_a5_long(-27932) = g_a5_long(-27928);
 	g_a5_27946 = 0;
 	return 0;
 }
