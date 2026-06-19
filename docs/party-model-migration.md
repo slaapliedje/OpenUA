@@ -55,9 +55,22 @@ stub until 2026-06-19; lifting it activated only that empty-roster branch.)
 1. **Primitives.** Lift `jt590` (append + slot assign + count), a party
    **unlink** primitive, and `cg_node_alloc` (free-slot finder that walks
    `-27928`). Leaf functions; not yet wired. (jt590 mapped: CODE 15+0x1b74.)
-2. **Switch the seed.** `port_test_seed_design` builds `-27928` by loading the
-   seed `.CHR` files into pool slots and `jt590`-appending them — instead of
-   setting `CHAR_INPARTY` + `cg_party_relink`. Retire `cg_party_relink`.
+1b. **Primitives DONE** (53c9391): cg_node_alloc (free cg_pool slot not in
+   -27928) + cg_party_unlink (remove from -27928). With jt590 the append/
+   remove/alloc set is complete.
+
+2. **The atomic flip (Phase 2) — all-or-nothing, deeper than first scoped.**
+   `port_test_seed_design` builds `-27928` by `jt590`-appending the party
+   records; `cg_party_relink` is retired (no-op'd, then deleted). BUT every
+   `cg_party_relink` (12) and `CHAR_INPARTY` (24) site flips together, AND the
+   benched-character concept moves OUT of `cg_pool` and INTO `CHAR*.CHR` files:
+   - `cg_collect_addable` must read the `CHAR*.CHR` files NOT currently in
+     `-27928` (today it scans `cg_pool[CHAR_INPARTY==0]`).
+   - `cg_pool` then holds ONLY party members; benched/saved = files only.
+   - This is irreversible-ish and FRUA_HALL does NOT exercise save/load, so a
+     subtle break could slip past the harness into the real game. Execute with
+     fresh attention; pin the .CHR read + the 12 relink/24 flag sites in one
+     careful pass, then FRUA_HALL + a save/load round-trip.
 3. **Create.** `jt574` already benches (saves the `.CHR`, no party change) —
    just stop touching `cg_pool`/`CHAR_INPARTY`; the saved file is the record.
 4. **Faithful Add (L12a0).** Browse `CHAR*.CHR` (jt589) → jt169 list pick →
