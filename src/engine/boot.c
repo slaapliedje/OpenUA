@@ -15265,25 +15265,28 @@ static void cg_char_fn(short slot, char *fn)
 	fn[9]  = '.'; fn[10] = 'C'; fn[11] = 'H'; fn[12] = 'R';
 }
 
-/* Rebuild the active-party list (g_a5_-27928) from the in-party pool
- * records, in pool order — the roster grid (l02dc) and the party screens
- * walk this list. */
+static void jt590(void *entry_v);        /* CODE 15+0x1b74 party-append (below) */
+/* Build the party list -27928 from the in-party cg_pool slots, via the faithful
+ * jt590 append (so each member gets its party slot rec[189] and the count
+ * -28006[32] is maintained — the metadata the faithful screens read). Used
+ * after cg_pool changes (load / seed / delete). The selection -27932 is
+ * preserved (jt590 moves it as it appends). Migration step 1 toward the fully
+ * primary -27928 (docs/party-model-migration.md). */
 static void cg_party_relink(void)
 {
-	unsigned char *prev = NULL;
-	short          i;
+	long  sel = g_a5_long(-27932);
+	short i;
 
 	g_a5_long(-27928) = 0;
-	for (i = 0; i < cg_pool_count; i++) {
-		if (cg_pool[i][CHAR_INPARTY] == 0)
-			continue;
-		if (prev == NULL)
-			g_a5_long(-27928) = (long)(uintptr_t)cg_pool[i];
-		else
-			*(long *)prev = (long)(uintptr_t)cg_pool[i];
-		prev = cg_pool[i];
-		*(long *)prev = 0;
-	}
+	if (g_a5_long(-28006) != 0)
+		((unsigned char *)g_a5_ptr(-28006))[32] = 0;
+	for (i = 0; i < cg_pool_count; i++)
+		if (cg_pool[i][CHAR_INPARTY]) {
+			*(long *)cg_pool[i] = 0;   /* clear stale .next — jt590
+			                            * appends assuming a fresh node */
+			jt590(cg_pool[i]);
+		}
+	g_a5_long(-27932) = sel;
 }
 
 static short cg_party_size(void)
@@ -22909,7 +22912,8 @@ static void jt590(void *entry_v)
 			sel[189]++;
 	}
 
-	((unsigned char *)g_a5_ptr(-28006))[32]++;    /* party-size count */
+	if (g_a5_long(-28006) != 0)                   /* party-size count */
+		((unsigned char *)g_a5_ptr(-28006))[32]++;
 
 	if ((entry[147] & 0x80) != 0)
 		jt910((long)(uintptr_t)entry);
