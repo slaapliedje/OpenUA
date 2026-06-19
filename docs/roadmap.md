@@ -76,6 +76,15 @@ Until the walk + event dispatch run interactively, combat, shops, rest, spells,
 and event pictures are all **breadth-first, untestable** lifts. The single
 highest-leverage unlock is the play loop, not any one feature.
 
+**REFINED (charted 2026-06-19, `docs/play-loop-wall.md`):** the play loop is
+~80% wired — `l709e` (the 39-case event dispatcher) is LIFTED, the walk moves
+the party, the event table loads. The keystone is NARROWER than "the play loop":
+it's **Gap 1 — the walk doesn't fire `l709e` on the new cell after a move** (only
+on area entry). That one wiring fix lights up combat (already lifted) + every
+event type. THEN the work is the event-handler vocabulary (~35 stubs: shop,
+text, vault, question, give-items…), each independently liftable AND testable
+once Gap 1 lands.
+
 ## 6. What to work on next (priority order)
 
 1. **Make the dungeon interactively playable** — finish the walk loop (#124,
