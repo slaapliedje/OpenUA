@@ -8462,7 +8462,9 @@ static void fc_cache_audit(void) __attribute__((unused));
 /* Forward — the .cch serializer pair + read-opener (CODE 15, below); the probe
  * block runs a save/load round-trip self-test over them. */
 static short jt578(short refNum);
+static short jt577(short refNum);
 static signed char l00e0(const char *fn, void *cb);
+static signed char l00e0_load(const char *fn, void *cb);
 static signed char l_cch_read(const char *fn, unsigned char *rec);
 static void l24d2(unsigned char *rec);   /* CODE 17 ability roll (probe self-test) */
 /* Forward — jt127 (design-data loader) lifts further down; the
@@ -28365,27 +28367,96 @@ static void str_c2p(unsigned char *p, const char *s)
 static short jt580(short refNum)
 {
 	unsigned char *player = (unsigned char *)g_a5_28006;
+	unsigned char *node;
+	short          count, i, swapped, zero = 0;
+	unsigned char  pad = 0;
 	int            err = 0;
 
 	PROBE("jt580");
 	if (player != NULL)
 		err |= (jt410(refNum, player + 1, (short)1024) != 1024);
-	/* TODO: -12288 position block, -27989/-27990 state, party roster
-	 * (L0934), design block (g_a5_-27920). */
+
+	/* Position block (row/col/facing + 2) and the play-state bytes. The Mac
+	 * follows each state byte with a 1-byte pad and writes two reserved
+	 * shorts (uninitialised stack locals — written as 0 here); jt579 reads
+	 * the same shape back symmetrically. */
+	err |= (jt410(refNum, &g_a5_byte(-12288), (short)5) != 5);
+	err |= (jt410(refNum, &g_a5_byte(-27989), (short)1) != 1);
+	err |= (jt410(refNum, &pad, (short)1) != 1);
+	err |= (jt410(refNum, &g_a5_byte(-27990), (short)1) != 1);
+	err |= (jt410(refNum, &pad, (short)1) != 1);
+	err |= (jt410(refNum, &zero, (short)2) != 2);
+	err |= (jt410(refNum, &zero, (short)2) != 2);
+
+	/* Party count (<= 8), little-endian (jt1180). */
+	count = 0;
+	for (node = (unsigned char *)g_a5_ptr(-27928);
+	     node != NULL && count < 8; node = *(unsigned char **)node)
+		count++;
+	swapped = jt1180(count);
+	err |= (jt410(refNum, &swapped, (short)2) != 2);
+
+	/* Each member's full .cch record (+ inventory/spell lists) via jt578
+	 * (= L0934 @ CODE 15+0x934). jt578 returns 1 on success. */
+	i = 0;
+	for (node = (unsigned char *)g_a5_ptr(-27928);
+	     node != NULL && i < 8; node = *(unsigned char **)node, i++) {
+		g_a5_long(-6902) = (long)(uintptr_t)node;
+		err |= (jt578(refNum) == 0);
+	}
+
+	/* TODO (faithful tail): the ~10KB design-state block (g_a5_-27920). */
 	return (short)(err ? -1 : 0);
 }
 
 /* jt579 (CODE 15 + 0x124c) — the LOAD serializer, mirror of jt580: read the
- * game state back via jt401 (FSRead). FIRST SLICE — the player record,
- * symmetric with jt580. Same DEFERRED field tail. */
+ * game state back via jt401 (FSRead) in the exact field order jt580 wrote it,
+ * then rebuild the party list -27928 from the saved member records (a port
+ * consolidation of jt582's restore tail). The loaded party REPLACES the pool
+ * — the faithful savegame stores the adventuring party, and Load restores it.
+ * DEFERRED tail (matches jt580): the ~10KB design-state block. */
 static short jt579(short refNum)
 {
 	unsigned char *player = (unsigned char *)g_a5_28006;
+	short          count, i, swapped = 0, zero;
+	unsigned char  pad;
 	int            err = 0;
 
 	PROBE("jt579");
 	if (player != NULL)
 		err |= (jt401(refNum, player + 1, (short)1024) != 1024);
+
+	err |= (jt401(refNum, &g_a5_byte(-12288), (short)5) != 5);
+	err |= (jt401(refNum, &g_a5_byte(-27989), (short)1) != 1);
+	err |= (jt401(refNum, &pad, (short)1) != 1);
+	err |= (jt401(refNum, &g_a5_byte(-27990), (short)1) != 1);
+	err |= (jt401(refNum, &pad, (short)1) != 1);
+	err |= (jt401(refNum, &zero, (short)2) != 2);
+	err |= (jt401(refNum, &zero, (short)2) != 2);
+
+	err |= (jt401(refNum, &swapped, (short)2) != 2);
+	count = jt1180(swapped);
+	if (err != 0 || count < 0 || count > 8)
+		return -1;                       /* short read or corrupt header */
+
+	/* Read each member into a cg_pool slot, then jt590-append it to a fresh
+	 * -27928. cg_pool_count tracks the loaded party as the new pool. */
+	g_a5_long(-27928) = 0;
+	g_a5_long(-27932) = 0;
+	if (g_a5_long(-28006) != 0)
+		((unsigned char *)g_a5_ptr(-28006))[32] = 0;
+	for (i = 0; i < count; i++) {
+		memset(cg_pool[i], 0, 512);
+		g_a5_long(-6902) = (long)(uintptr_t)cg_pool[i];
+		if (jt577(refNum) == 0) { err |= 1; break; }
+	}
+	cg_pool_count = i;
+	for (i = 0; i < cg_pool_count; i++) {
+		cg_pool[i][CHAR_INPARTY] = 1;
+		*(long *)cg_pool[i] = 0;
+		jt590(cg_pool[i]);
+	}
+	save_roster();
 	return (short)(err ? -1 : 0);
 }
 
@@ -28414,6 +28485,51 @@ static signed char l00e0(const char *fn, void *cb)
 	serialize(ref);
 	(void)FSClose(ref);
 	return 1;
+}
+
+/* l00e0_load — the read counterpart of L00e0: open an existing slot file and
+ * run the deserializer (jt579) over it. (The faithful Mac load opener is
+ * jt582's L143e; the port opens the staged file directly through the File
+ * Manager shim, same as L00e0.) */
+static signed char l00e0_load(const char *fn, void *cb)
+{
+	unsigned char pstr[64];
+	short         ref;
+	short       (*deserialize)(short) = (short (*)(short))cb;
+
+	PROBE("L00e0_load");
+	if (fn == NULL || cb == NULL)
+		return 0;
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	deserialize(ref);
+	(void)FSClose(ref);
+	return 1;
+}
+
+/* port_save_game / port_load_game — drive the faithful jt580/jt579 serializers
+ * over a fixed save slot ("SavGamA.csv"). INTERIM driver: the faithful jt585 /
+ * jt582 slot pickers (jt182 over the SAVE-dir scan + l005a "insert disk") are
+ * an incomplete level-2 lift, so the Save/Load buttons use slot A directly
+ * until that picker UI is finished. The on-disk format is the real one
+ * (jt580 = player + position + state + party count + per-member jt578 .cch
+ * records), so it upgrades cleanly when the picker lands. (#141) */
+static signed char port_save_game(void)
+{
+	char fn[44];
+
+	jt394(fn, "%s%c", "SavGam", 'A');
+	jt419(fn, "csv", (short)1);
+	return l00e0(fn, (void *)jt580);
+}
+static signed char port_load_game(void)
+{
+	char fn[44];
+
+	jt394(fn, "%s%c", "SavGam", 'A');
+	jt419(fn, "csv", (short)1);
+	return l00e0_load(fn, (void *)jt579);
 }
 
 /* L0ce0 (CODE 15 + 0xce0) — byte-swap the multi-byte fields of a character
@@ -49735,7 +49851,14 @@ static int l1142(short a)
 		return 0;
 	if (g_a5_27928 == 0)            /* no party to save */
 		return 0;
-	jt585();                        /* the "Save Which Game" A-J save dialog */
+	/* Faithful jt580 serialize to slot A. (jt585's A-J slot picker is an
+	 * incomplete level-2 lift — see port_save_game.) */
+	if (port_save_game() == 0)
+		cg_message("Could not save the game.",
+		           "Any key to continue.");
+	else
+		cg_message("Game saved.", "Any key to continue.");
+	g_a5_27946 = 0;
 	return 0;                       /* L1242 — save returns 0 (stay in menu) */
 }
 
@@ -49821,9 +49944,17 @@ static int l120c(short a)
 		return -1;
 	if (g_a5_27946 != 0)
 		return -1;
-	if (jt159((const char *)g_a5_14284, 0) != 0)
-		return -1;
-	jt585();
+	/* TODO (faithful): the "abandon current game?" jt159 confirm (prompt
+	 * g_a5_-14284). The port's design-load chain doesn't populate -14284
+	 * with the right Load prompt yet, and the Mac's gate sense aborts on a
+	 * YES, so the confirm is skipped until the design-state globals are
+	 * faithful. The load itself is the real work. */
+	/* Faithful jt579 deserialize from slot A (replaces jt585's load arm,
+	 * whose A-J picker is an incomplete level-2 lift). */
+	if (port_load_game() == 0)
+		cg_message("No saved game in slot A.",
+		           "Use Save Current Game first.");
+	g_a5_27946 = 0;
 	return 0;
 }
 
