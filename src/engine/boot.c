@@ -1916,9 +1916,9 @@ static void  cg_crash_repro(void);       /* headless roster-walk repro (harness)
 #ifdef FRUA_BODY
 static void  cg_body_repro(void);        /* body-review harness (defined below) */
 #endif
-#ifdef FRUA_MODIFY
-static void  l618c(void);                /* Modify stat editor (defined below) */
-#endif
+static void  l618c(void);                /* Modify stat editor (= JT[560], defined below);
+                                          * called from l0f2e (Training Hall) AND the
+                                          * char-creation sheet's Modify button */
 
 /*
  * ua_main — CODE 6 + 0x58a (jump-table entry 12).
@@ -2030,6 +2030,7 @@ int ua_main(short arg1, long arg2)
 		/* level is computed from XP by cg_finalize_stats — do not seed it */
 		for (j = 0; nm[j] && j < 15; j++)
 			sheet_rec[96 + j] = (unsigned char)nm[j];
+		g_a5_long(-18882) = *(long *)(sheet_rec + 68);  /* sheet Modify guard ref */
 		(void)cg_char_sheet(sheet_rec);
 	}
 	for (;;)
@@ -30017,11 +30018,13 @@ static int cg_char_sheet(unsigned char *rec)
 
 	for (;;) {
 		action = cg_sheet_modal();
-		if (action == 2) {               /* Modify */
-			jt150((short)1);
-			/* L618c stat editor not lifted yet — repaint only. */
-			jt150((short)0);
-			l1276();
+		if (action == 2) {               /* Modify -> the faithful L618c editor */
+			/* During creation rec[68] (XP) == g_a5_-18882 (both jt1199(
+			 * design -18844), set in jt574 + by jt572), so l618c's freshness
+			 * guard passes. Same backend as the Training Hall Modify (l0f2e). */
+			l618c();
+			cg_finalize_stats(rec);  /* re-derive level/THAC0/AC/damage */
+			l1276();                 /* repaint the sheet with the edits */
 		}
 		if (action == 1) {               /* Reroll Stats */
 			l24d2(rec);
