@@ -108,11 +108,15 @@ the port's wiring is:
 
 ## Port gaps, prioritized
 
-1. **Selection (L0848)** — NOT lifted. Without it, arrow keys don't move the
-   roster highlight, so no character can be selected → Modify/Remove/View all
-   operate only on the seeded `-27932`. **Highest priority** — it's the spine.
-   Also confirm whether a roster mouse-click should set `-27932` (check for a
-   click handler alongside L0848; the Gold Box UI is keyboard-first).
+1. **Selection (L0848)** — DONE (2026-06-19). Lifted L0848 + wired Up/Down into
+   the Training Hall menu modal: l0aae sets `g_hall_roster_nav` around its
+   jt453, and l2d3e routes the Up(264)/Down(260) arrow keys to `l0848(135/133)`
+   then returns the sentinel 12 so jt918's loop re-renders the roster with the
+   new highlight (repainting *inside* the modal draws against the wrong
+   CLUT/clip and garbles the roster). Hatari-verified via FRUA_HALL: Down/Up
+   toggle the THORIN/ELF highlight. STILL OPEN: roster MOUSE-click selection
+   (the Gold Box UI is keyboard-first, but a click-to-select would be nice;
+   no L0848-adjacent mouse handler found yet).
 2. **Add (jt904)** — the screen that pulls a saved character into the party.
    Until this is faithful, created characters are stranded (saved, un-addable).
 3. **Remove (jt556)** + **Delete (L15e2)** — the party-teardown / file-delete

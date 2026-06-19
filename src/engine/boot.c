@@ -1963,7 +1963,8 @@ int ua_main(short arg1, long arg2)
 	 * in the char-gen harness so it lands straight on the pick screen (the
 	 * intro blocks on click-through otherwise). */
 #if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
-    && !defined(FRUA_CGCRASH) && !defined(FRUA_BODY) && !defined(FRUA_MODIFY)
+    && !defined(FRUA_CGCRASH) && !defined(FRUA_BODY) && !defined(FRUA_MODIFY) \
+    && !defined(FRUA_HALL)
 	port_show_intro();
 #endif
 
@@ -2076,6 +2077,15 @@ int ua_main(short arg1, long arg2)
 		l618c();
 		dbg_log("FRUA_MODIFY: l618c returned\n");
 	}
+	for (;;)
+		jt920();
+#endif
+#ifdef FRUA_HALL
+	/* Training Hall harness: jump straight to l07dc (seeds the demo party +
+	 * runs jt918, the Hall menu) so the roster, arrow-key selection (l0848)
+	 * and the per-character buttons can be exercised without navigating the
+	 * main menu. `make EXTRA_CFLAGS=-DFRUA_HALL run-game`. */
+	l07dc();
 	for (;;)
 		jt920();
 #endif
@@ -11936,6 +11946,11 @@ static void jt280(void *rec_v, short x, short y, short mode)
 }
 static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1)*o1=0; if(o2)*o2=0; }        /* CODE 4+0x6204 */
 static short       l2d3e(void);                         /* JT[456] event poll, CODE 3+0x2d3e (full lift, defined below) */
+static void        l0848(short key);                    /* Training Hall roster selection (CODE 12+0x848, below) */
+static void        l02dc(long highlight);               /* Training Hall roster paint (below) */
+/* Set while the Training Hall menu modal (l0aae->jt453) is up: routes arrow
+ * keys to the roster selection (l0848) inside l2d3e instead of DLItem nav. */
+static unsigned char g_hall_roster_nav;
 static short       jt152(short sel);                    /* CODE 7+0x3370 classifier (defined below) */
 /* forward decls for jt297 (the movers + helpers are defined just below). */
 static signed char jt1160(void);
@@ -18426,6 +18441,16 @@ static short l2d3e(void)
 			dbg_log_num("walk key = ", (long)kc);
 #endif
 		g_a5_word(-10372) = kc;
+		/* Training Hall menu: Up/Down move the roster selection (l0848)
+		 * rather than the DLItem button nav. Exit the modal with an
+		 * out-of-range sentinel (12) so l0aae returns it and jt918's loop
+		 * (default case) re-renders the chrome + roster with the new
+		 * highlight — repainting inside the modal draws against the wrong
+		 * CLUT/clip and garbles the roster. */
+		if (g_hall_roster_nav && (kc == 264 || kc == 260)) {
+			l0848(kc == 264 ? (short)135 : (short)133);
+			return (short)12;
+		}
 		/* In the walk loop, route movement/control keys to the keyboard
 		 * source (return 0) before the command-bar DLItem match, so they
 		 * reach l63c0's switch(0) -> jt297 rather than exiting the loop. */
@@ -20371,6 +20396,42 @@ static const struct {
  * 0 in the stub — combined with jt918's iter_guard the engine loop
  * still terminates cleanly.
  */
+
+/* L0848 (CODE 12 + 0x848) — move the roster selection `-27932` along the party
+ * list `-27928` for an arrow key. Down (132/133) -> next member (wrap
+ * last->head); Up (135/136) -> previous member (wrap head->last). The old
+ * selection is backed up to `-27940`. `.next` is at list-node offset +0. */
+static void l0848(short key)
+{
+	unsigned char *head = (unsigned char *)g_a5_ptr(-27928);
+	unsigned char *sel  = (unsigned char *)g_a5_ptr(-27932);
+	unsigned char *node = head;
+
+	PROBE("L0848");
+	g_a5_long(-27940) = g_a5_long(-27932);          /* backup the selection */
+	if (head == NULL || sel == NULL)
+		return;
+	if (key != 132 && key != 133 && key != 135 && key != 136)
+		return;
+
+	if (key == 135 || key == 136) {                 /* UP: previous member */
+		if (head == sel) {                      /* head selected -> wrap to last */
+			while (*(unsigned char **)node != NULL)
+				node = *(unsigned char **)node;
+		} else {                                /* find the predecessor of sel */
+			node = head;
+			while (node != NULL
+			    && *(unsigned char **)node != sel)
+				node = *(unsigned char **)node;
+		}
+	} else {                                        /* DOWN: next member */
+		node = (*(unsigned char **)sel != NULL)
+		       ? *(unsigned char **)sel         /* sel->next */
+		       : head;                          /* sel was last -> wrap to head */
+	}
+	g_a5_long(-27932) = (long)(uintptr_t)node;
+}
+
 static int l0aae(void)
 {
 	short i;
@@ -20439,7 +20500,9 @@ static int l0aae(void)
 	(void)jt117();
 	qd_present();                        /* c2p the QD port to VIDEL + flip */
 
+	g_hall_roster_nav = 1;           /* arrow keys -> roster selection (l0848) */
 	selection = jt453(NULL);
+	g_hall_roster_nav = 0;
 	if (jt146() != 0) {
 		selection = 5;
 		jt161(0);
