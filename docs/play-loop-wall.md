@@ -6,6 +6,26 @@ is ~80% wired — `l709e` (the 39-case event dispatcher) is fully LIFTED and the
 walk moves the party. The gaps are narrower and clearer than "the play loop is
 missing."** Update status columns in the same commit as each lift.
 
+## ⚠ VERIFICATION FINDING (2026-06-19) — the walk doesn't run yet in this build
+
+Gap 1 (the per-step event trigger) is now WIRED in `jt297` (faithful to jt953
+L41b2 — after a first-person move to a new cell: `jt201` → `l709e`). But trying
+to verify it live exposed two UPSTREAM blockers the "the walk moves the party"
+claim below glossed over:
+
+1. **The dungeon LEVEL doesn't load** — `Begin Adventuring` from the seeded
+   Training Hall logs **`glib: Out of FAR memory!`**, so the wall/level art
+   fails, the 3D view is black, and `g_a5_-12300` (the level ptr) stays NULL.
+2. **So `jt297` is never reached** — it early-returns on `lvl == NULL`, and the
+   walk loop (`jt240`/`l63c0`) doesn't dispatch any move. (No `jt297` PROBE
+   fired across a 3-step walk attempt.)
+
+So the REAL ordering is: **(0) the dungeon must LOAD** (the FAR-memory / level
+load — `port-memory-vs-mac-1mb`, partly #129) → **(then) the walk must dispatch
+to `jt297`** (#124) → **(then) Gap 1's per-step trigger fires** (done, waiting).
+Gap 1 is correct + committed, but un-verifiable until (0) and the walk-dispatch
+land. The keystone moved one box upstream: **make the dungeon load + walk.**
+
 ## The chain (what runs, in order)
 
 ```
