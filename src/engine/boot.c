@@ -2244,7 +2244,6 @@ static void          cg_view_sheet(void);
 static void          cg_modify_sheet(void) __attribute__((unused)); /* superseded by l618c */
 static void          cg_add_character(void);
 static void          cg_remove_from_party(void);
-static void          cg_delete_character(void);
 static short         cg_collect_party(unsigned char **out, short max);
 static void          cg_message(const char *l1, const char *l2);
 static void          save_roster(void);
@@ -15386,7 +15385,12 @@ static void save_roster(void)
 
 	for (i = 0; i < 16; i++) {
 		cg_char_fn(i, fn);
-		if (i < cg_pool_count) {
+		/* A slot with an empty name (rec[96]==0) is a hole — either a
+		 * never-used slot (>= cg_pool_count) or one blanked by Delete (the
+		 * faithful Delete frees a slot WITHOUT shifting the array, to keep
+		 * the live -27928 node addresses valid; see l15e2). Holes get no
+		 * .CHR file, so the on-disk pool stays a clean set. */
+		if (i < cg_pool_count && cg_pool[i][96] != 0) {
 			(void)Create((ConstStr255Param)fn, 0,
 			             0x46525541L /* 'FRUA' */,
 			             0x53415645L /* 'SAVE' */);
@@ -15397,7 +15401,7 @@ static void save_roster(void)
 				(void)FSClose(refnum);
 			}
 		} else {
-			(void)FSDelete((ConstStr255Param)fn, 0);  /* clear stale slot */
+			(void)FSDelete((ConstStr255Param)fn, 0);  /* hole -> no file */
 		}
 	}
 }
@@ -23068,7 +23072,7 @@ static int l1266(const char *name)
  * Toolbox file calls aren't ready and the entry-unlink walk is the
  * tricky part. The lift below captures the call sequence faithfully
  * enough that the engine probe reports the dialog flow. */
-static void l15e2(void) __attribute__((unused)); /* faithful Delete browser, not yet wired */
+static void l15e2(void);                /* faithful Delete browser (wired to l0f3e) */
 static void l15e2(void)
 {
 	long  head = 0;
@@ -23125,28 +23129,33 @@ static void l15e2(void)
 				goto skip_delete;
 				/* "Are you sure? " */
 
-			/* Port: delete the saved character.  The Mac looks
-			 * the entry up (jt165), builds its SAVE path and
-			 * unlinks the file (jt988).  The port keeps characters
-			 * as CHAR*.CHR mirroring cg_pool, so drop the matching
-			 * pool slot and let save_roster rewrite the files (it
-			 * deletes the now-stale top slot), then relink. */
+			/* Delete the saved character.  The Mac looks the entry
+			 * up (jt165), builds its SAVE path and unlinks the file
+			 * (jt988).  The port keeps characters as CHAR*.CHR
+			 * mirroring cg_pool: find the matching slot by name and
+			 * delete it FAITHFULLY (party data-model migration #141):
+			 *   - if it's in the active party, cg_party_unlink it
+			 *     from -27928 first (keeps the list valid with NO
+			 *     relink — relink derives from CHAR_INPARTY, the
+			 *     thing we're eliminating);
+			 *   - BLANK the slot in place (no array shift), so every
+			 *     OTHER -27928 node address — the party member slots
+			 *     — stays valid.  Shifting would move record contents
+			 *     under live pointers (the old hazard).
+			 * save_roster then drops the blanked slot's .CHR file. */
 			{
 				const char *nm = (const char *)&e[5 + marker];
-				short si, sj;
+				short si;
 				for (si = 0; si < cg_pool_count; si++)
-					if (jt396((const char *)&cg_pool[si][96],
+					if (cg_pool[si][96] != 0 &&
+					    jt396((const char *)&cg_pool[si][96],
 					          nm) != 0) {
-						for (sj = si;
-						     sj < cg_pool_count - 1; sj++)
-							memcpy(cg_pool[sj],
-							       cg_pool[sj + 1],
-							       512);
-						cg_pool_count--;
+						if (cg_pool[si][CHAR_INPARTY])
+							cg_party_unlink(cg_pool[si]);
+						memset(cg_pool[si], 0, 512);
 						break;
 					}
 				save_roster();
-				cg_party_relink();
 			}
 
 			/* Unlink the picked node from the list so the
@@ -48843,11 +48852,13 @@ static int l0f3e(short a)
 	PROBE("jt918/case2 L0f3e");
 	/* Build-index 2 is the "Delete Character" button (the stat editor moved to
 	 * l0f2e with the rest of the by-label dispatch). The faithful delete is the
-	 * L15e2 saved-character browser ("Delete %s forever?"); the port uses the
-	 * cg_delete_character stand-in for now. */
+	 * L15e2 saved-character browser ("Delete %s forever?" / "Are you sure?")
+	 * over jt589's .CHR enumeration — now wired (party data-model migration
+	 * #141); its deletion unlinks any party member from -27928 + blanks the
+	 * pool slot in place (no shift, no relink). */
 	if (g_a5_14438 == 0)
 		return 0;
-	cg_delete_character();               /* port: erase from the pool */
+	l15e2();                             /* faithful saved-character delete */
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -48993,15 +49004,6 @@ static short cg_collect_party(unsigned char **out, short max)
 	return n;
 }
 
-/* Collect every pool character into `out` (Delete picker). */
-static short cg_collect_pool(unsigned char **out, short max)
-{
-	short i, n = 0;
-	for (i = 0; i < cg_pool_count && n < max; i++)
-		out[n++] = cg_pool[i];
-	return n;
-}
-
 #ifdef FRUA_CGCRASH
 /* Headless repro of the char-gen "Done -> Remove" Bus Error. Loads the real
  * save state (3 party chars + cg_party_relink), dumps the roster list, then
@@ -49108,7 +49110,8 @@ static short cg_collect_addable(unsigned char **out, short max)
 {
 	short i, n = 0;
 	for (i = 0; i < cg_pool_count && n < max; i++)
-		if (cg_pool[i][CHAR_INPARTY] == 0)
+		if (cg_pool[i][96] != 0 &&          /* skip Delete holes */
+		    cg_pool[i][CHAR_INPARTY] == 0)
 			out[n++] = cg_pool[i];
 	return n;
 }
@@ -49524,71 +49527,10 @@ static void cg_remove_from_party(void)
 	}
 }
 
-/* Delete Character — page the whole pool with Up/Down; Return picks the
- * highlighted character and asks Y/N, then erases it from the pool (and so
- * the party) permanently and persists. */
-static void cg_delete_character(void)
-{
-	unsigned char *pool[16];
-	short          n, sel = 0;
-	unsigned char  scan = 0, ascii = 0;
-	int            confirming = 0;
-
-	if (cg_collect_pool(pool, 16) == 0)
-		return;
-
-	g_a5_2347 = 1;
-	load_menu_ui();
-	while (plat_kb_poll(&scan, &ascii))
-		;
-
-	for (;;) {
-		char foot[64];
-
-		n = cg_collect_pool(pool, 16);
-		if (n == 0)
-			break;
-		if (sel >= n)
-			sel = (short)(n - 1);
-
-		if (confirming)
-			sprintf(foot, "Delete %s?   Y / N",
-			        (const char *)&pool[sel][96]);
-		else
-			sprintf(foot, "Up/Dn char   Return delete   Esc back");
-		cg_draw_sheet(pool[sel], foot);
-
-		while (!plat_kb_poll(&scan, &ascii))
-			;
-
-		if (confirming) {
-			if (ascii == 'y' || ascii == 'Y') {
-				/* Find pool[sel]'s index, shift the array down. */
-				short k, idx = -1;
-				for (k = 0; k < cg_pool_count; k++)
-					if (cg_pool[k] == pool[sel]) { idx = k; break; }
-				if (idx >= 0) {
-					for (k = idx; k < cg_pool_count - 1; k++)
-						memcpy(cg_pool[k], cg_pool[k + 1], 512);
-					cg_pool_count--;
-				}
-				cg_party_relink();
-				save_roster();
-			}
-			confirming = 0;
-			continue;
-		}
-
-		if (ascii == 27)                            /* Esc -> back */
-			break;
-		if (ascii == 13 || ascii == 3)              /* Return -> confirm */
-			confirming = 1;
-		else if (scan == 0x48)
-			sel = (short)((sel + n - 1) % n);
-		else if (scan == 0x50)
-			sel = (short)((sel + 1) % n);
-	}
-}
+/* Delete Character is the faithful l15e2 browser (jt589 .CHR enumeration +
+ * jt169 list + "Delete %s forever?"/"Are you sure?" jt159 confirms), wired to
+ * l0f3e — see above. The old cg_delete_character pool-paging stand-in (whole-
+ * pool browse + array shift + relink) was removed 2026-06-19 (#141). */
 
 /* "The party sets forth" — list the assembled party on the shared chrome
  * before descending, so it's clear which characters are adventuring. (An
