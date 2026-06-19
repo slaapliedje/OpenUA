@@ -12634,6 +12634,19 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		 * re-render arms L64f2..L666c are deferred). Repaint the view +
 		 * automap (cb1 = jt237) at the new party position and flush. */
 		if ((unsigned char)a_deep) {
+			/* The deep mover (jt297 -> l1908) advances the party cell but
+			 * jt297 RESTORES the view cell -12288.. to its pre-move value
+			 * (faithfully — the Mac's deferred smooth-scroll animation
+			 * L4900/L423e/L3998 is what walks the view cell up to the party
+			 * cell). That animation isn't lifted yet, so the party's new
+			 * position survives only in the rec+46 mirror and the view cell
+			 * stays pinned at the entry cell — the dungeon never appeared to
+			 * move. Snap the view cell to the party mirror here (a hard jump
+			 * standing in for the scroll) so the re-render shows the step.
+			 * #124. */
+			short k2;
+			for (k2 = 0; k2 < 6; k2++)
+				g_a5_byte(-12288 + k2) = rec[46 + k2];
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 			jt312(ctx);
 		} else {
