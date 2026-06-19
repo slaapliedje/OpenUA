@@ -50,6 +50,19 @@ stub until 2026-06-19; lifting it activated only that empty-roster branch.)
 
 ## Progress log
 
+- **2026-06-19 (b17c76e):** **savegame party persistence** — the party now
+  round-trips to disk. The deferred party-roster block in the faithful save/load
+  serializers is finished: `jt580` (save) writes player + position + state + a
+  2-byte party count + each `-27928` member via `jt578` (= `L0934`, the proven
+  `.cch` serializer); `jt579` (load) mirrors it and rebuilds `-27928` from the
+  saved records (cg_pool slot + `jt590`). Save/Load Game buttons (`l1142`/`l120c`)
+  drive these to slot A (`SavGamA.csv`) via `L00e0` / new `l00e0_load`, bypassing
+  the incomplete `jt585`/`jt582` A-J pickers. Hatari-verified: Save 4 -> Remove
+  KORIN -> Load -> 4 restored with correct byte-swapped stats. **This is the
+  faithful party-persistence mechanism** the migration needs — the party lives in
+  the savegame, not the `.CHR` pool flag, so it's the path toward dropping
+  CHAR_INPARTY. Deferred: the ~10KB design-state block, the slot pickers, and the
+  `jt159` load-confirm (needs the design-load chain for g_a5_-14284).
 - **2026-06-19 (48520fe):** **Delete** is now the faithful `l15e2` browser
   (wired to l0f3e), replacing the `cg_delete_character` stand-in. jt589
   enumerates the saved `.CHR` files, jt169 lists them with `* ` party markers,
