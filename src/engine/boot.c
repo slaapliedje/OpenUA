@@ -2069,7 +2069,9 @@ int ua_main(short arg1, long arg2)
 		for (j = 0; nm[j] && j < 15; j++)
 			mod_rec[96 + j] = (unsigned char)nm[j];
 		g_a5_long(-27932) = (long)(uintptr_t)mod_rec;
+		g_a5_long(-27928) = (long)(uintptr_t)mod_rec;  /* party head (next@+0 = 0) */
 		g_a5_long(-18882) = *(long *)(mod_rec + 68);  /* guard reference */
+		g_a5_byte(-12647) = 0;   /* jt180()==0 -> name field in the cursor ring */
 		l618c();
 		dbg_log("FRUA_MODIFY: l618c returned\n");
 	}
@@ -48066,8 +48068,8 @@ static void l5044(void)
  * equivalents). Tables: racial min/max at -30960+race*16 (STR's min/max/exc%
  * are gender-interleaved by rec[92]), class min at -30552+class*6; matching
  * the l1672 roll clamp. CON (l58ca) and the HP field (l6084) additionally re-
- * clamp rec[129] through the l4e04/jt899 HP-recompute pair. Only the name
- * editor (l5c1e) remains a PROBE stub (a ~374-line text input, next slice). */
+ * clamp rec[129] through the l4e04/jt899 HP-recompute pair. The name editor
+ * (l5c1e, below) is the in-sheet text-input field (cursor field 6). */
 static void l5234(short act)                                  /* STR */
 {
 	unsigned char *rec    = (unsigned char *)g_a5_ptr(-27932);
@@ -48308,7 +48310,164 @@ static void l5aa8(short act)                                  /* CHA */
 	l642c(0, 5);
 }
 
-static void l5c1e(void)      { PROBE("L5c1e"); }              /* name edit */
+/* Party name-uniqueness: 1 if another (non-self) party member already carries
+ * this name (case-insensitive, jt396). The name editor blocks leaving the
+ * field on a duplicate with "Already a %s in party!". The party list head is
+ * g_a5_-27928; .next is at offset +0. */
+static short l5c1e_namedup(unsigned char *rec)
+{
+	unsigned char *o = (unsigned char *)g_a5_ptr(-27928);
+	while (o != NULL) {
+		if (jt396((const char *)&o[96], (const char *)&rec[96]) != 0
+		 && o != rec)
+			return 1;
+		o = *(unsigned char **)o;
+	}
+	return 0;
+}
+
+/* L5c1e (CODE 17 + 0x5c1e) — the in-sheet name-field editor (cursor field 6).
+ * Polls one key (blinking the text caret), then edits the C-string name at
+ * rec[96] (max 15 chars, 0-based caret -6929): printable insert, Backspace
+ * (8) / forward-Delete (138), Left (134) / Right (130) with wrap, and Up
+ * (135/136) / Down|Return (13/132/133) leave the field (to CHA 5 / HP 7) after
+ * a party name-uniqueness check. One keystroke per call; l618c calls it
+ * repeatedly while the cursor sits on field 6. Key codes via l5f84 (= JT[60]),
+ * >=128 = the nav band tested by btst #7 (-> g_a5_-6930). */
+static void l5c1e(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
+	short          key, disp, len, cur;
+
+	PROBE("L5c1e");
+	g_a5_byte(-6930) = 0;
+	g_a5_byte(-6928) = 1;
+
+	/* wait for a key. The Mac polls jt1134() (a tick timer) for the caret
+	 * blink + jt486() for the key, but in the port jt1134 pumps l725c (eating
+	 * the keyDown) and jt486 doesn't drive the WaitNextEvent queue. Use the
+	 * proven jt1078 pump instead: jt1125(7) pulls an event, jt1118() reports a
+	 * pending key. Draw the caret once up front. */
+	{
+		long  ms_a = 0, ms_b = 0;
+		short cx = (short)(unsigned char)g_a5_byte(-6929);
+		jt1161(8004, (short)(8004 + cx * 4), 8008,
+		       (short)(8008 + cx * 4), 271);
+		for (;;) {
+			qd_present();          /* push the name-field repaint to VIDEL
+			                        * (the Mac's jt1134 poll did this; the
+			                        * jt1125 pump alone leaves it back-buffered) */
+			jt1125((short)7, (long)(uintptr_t)&ms_a,
+			       (long)(uintptr_t)&ms_b);
+			if (jt1118())
+				break;
+		}
+	}
+
+	key = (short)(l5f84() & 0xff);          /* JT[60] get char */
+	g_a5_byte(-6930) = (unsigned char)((key & 0x80) ? 1 : 0);
+	if (key == 96)
+		key = 27;                       /* backtick -> Esc */
+	l642c(1, (short)(unsigned char)g_a5_byte(-6926));
+
+	disp = key;
+	if (key >= 32 && key <= 122)
+		disp = -1;                      /* printable -> the insert arm */
+
+	cur = (short)(unsigned char)g_a5_byte(-6929);
+
+	switch (disp) {
+	case -1:                                /* insert printable at the caret */
+		len = jt483((const char *)&rec[96]);
+		if (len >= 15)
+			break;
+		{
+			short idx = (short)(len + 1);
+			while (idx > cur) {
+				rec[96 + idx] = rec[95 + idx];
+				idx--;
+			}
+		}
+		rec[96 + cur] = (unsigned char)key;
+		rec[111] = 0;                   /* keep the 16th byte a terminator */
+		cur++;
+		if (cur > 15)
+			cur = 15;
+		g_a5_byte(-6929) = (unsigned char)cur;
+		break;
+
+	case 8:                                 /* Backspace: delete before caret */
+		if (cur == 0)
+			break;
+		cur--;
+		g_a5_byte(-6929) = (unsigned char)cur;
+		len = jt483((const char *)&rec[96]);
+		if (cur < len - 1) {            /* shift the tail left over the caret */
+			short idx = (short)(cur + 1);
+			while (idx <= jt483((const char *)&rec[96])) {
+				rec[95 + idx] = rec[96 + idx];
+				idx++;
+			}
+		} else if (cur == len - 1) {
+			rec[96 + cur] = 0;
+		}
+		break;
+
+	case 138:                               /* Del: forward-delete at the caret */
+		len = jt483((const char *)&rec[96]);
+		if (len <= 0 || cur > len - 1)
+			break;
+		if (cur == len - 1) {
+			rec[96 + cur] = 0;
+		} else {
+			short idx = (short)(cur + 1);
+			while (idx <= jt483((const char *)&rec[96])) {
+				rec[95 + idx] = rec[96 + idx];
+				idx++;
+			}
+		}
+		break;
+
+	case 134:                               /* Left arrow (wrap to end) */
+		if (cur == 0)
+			g_a5_byte(-6929) =
+			    (unsigned char)jt483((const char *)&rec[96]);
+		else
+			g_a5_byte(-6929) = (unsigned char)(cur - 1);
+		break;
+
+	case 130:                               /* Right arrow (wrap to start) */
+		len = jt483((const char *)&rec[96]);
+		if (cur < len)
+			g_a5_byte(-6929) = (unsigned char)(cur + 1);
+		else
+			g_a5_byte(-6929) = 0;
+		break;
+
+	case 13: case 132: case 133:            /* Return / Down: leave -> HP (7) */
+		if (l5c1e_namedup(rec)) {
+			jt101(jt488("Already a %s in party!",
+			            (const char *)&rec[96]), 11, 0);
+			break;
+		}
+		l642c(0, (short)(unsigned char)g_a5_byte(-6926));
+		l4d64(7);
+		break;
+
+	case 135: case 136:                     /* Up: leave -> CHA (5) */
+		if (l5c1e_namedup(rec)) {
+			jt101(jt488("Already a %s in party!",
+			            (const char *)&rec[96]), 11, 0);
+			break;
+		}
+		l642c(0, (short)(unsigned char)g_a5_byte(-6926));
+		l4d64(5);
+		break;
+
+	default:                                /* Esc and everything else: ignore */
+		break;
+	}
+}
 
 static void l6084(short act)                                  /* HP (field 7) */
 {
@@ -48353,8 +48512,8 @@ static void l6084(short act)                                  /* HP (field 7) */
  * (only a freshly-created character — rec[68] XP == the design start -18882,
  * or one on a level boundary — is editable), save-and-paint setup, then the
  * edit loop (the jt178 bar -> per-stat dispatch). Wired to the Training Hall
- * "Modify Character" button via l0f2e. The six ability handlers + the HP
- * field are faithful; the name editor (l5c1e) is still a PROBE stub. */
+ * "Modify Character" button via l0f2e. The six ability handlers, the HP
+ * field, and the name editor (l5c1e) are all faithful. */
 static void l618c(void);
 static void l618c(void)
 {

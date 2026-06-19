@@ -148,11 +148,25 @@ they should:
     marker), Sub drops WIS 13→11, Next walks STR→INT→WIS, Exit reverts the edits
     and l618c returns cleanly (no hang). The l4e04/jt899 HP math is exercised on
     CON/HP but not yet spot-checked against a Mac capture.
-  - REMAINING: (a) the **name editor L5c1e** (~374-line text input, needs jt60)
-    — until then field 6 (name) is a no-op in the cursor ring; (b) the jt178
-    beveled-button bar already renders, but the shape-5 jt452 mouse-button install
-    (the g_a5_12911 block) is still deferred — keyboard drives the bar today; (c)
-    spot-check CON→HP recompute (l4e04/jt899) against a BasiliskII capture.
+  - **name editor L5c1e — DONE + Hatari-verified.** jt60 was already lifted
+    (=l5f84); L5c1e is the in-sheet name-field editor (cursor field 6) over the
+    C-string at rec[96] (max 15, caret -6929): printable insert, Backspace(8)/
+    Del(138), Left(134)/Right(130) wrap, Up(135/136) and Down|Return(13/132/133)
+    leave the field (to CHA 5 / HP 7) after a party name-uniqueness check (jt396,
+    "Already a %s in party!"). Field 6 is in the ring when jt180()==0 (-12647).
+    PORT CONCESSIONS in the key poll: the Mac uses jt1134(tick)/jt486 but in the
+    port jt1134 *consumes* the keyDown (it pumps l725c) and jt486 doesn't drive
+    WaitNextEvent — so the poll uses the proven jt1078 pump (jt1125(7)+jt1118) AND
+    calls qd_present() each spin (the Mac's jt1134 blitted; without it the name-
+    field repaints stay back-buffered and never show). Verified: typed FRODO
+    inserts + renders, Return leaves to HP, Keep commits + l618c returns. Harness:
+    FRUA_MODIFY (seeds -12647=0 + the party head -27928).
+  - REMAINING: (a) the jt178 beveled-button bar renders, but the shape-5 jt452
+    mouse-button install (the g_a5_12911 block) is still deferred — keyboard
+    drives the bar today; (b) spot-check CON->HP recompute (l4e04/jt899) against a
+    BasiliskII capture; (c) l5c1e's arrow/Del codes are faithful to the Mac's
+    130-138 but the port jt1133 mapping for those wasn't live-confirmed (printable
+    + Backspace + Return are).
 - **Body-grid mouse click (A)** — jt1139 grid hit-test now lifted (6d45271), so
   the mechanism is correct, but a **real-mouse click on a body cell is not yet
   user-confirmed** (couldn't verify headlessly). First live check in the
