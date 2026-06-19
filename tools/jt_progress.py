@@ -56,8 +56,12 @@ CHUNK = 50
 SEGMENT_SUBSYS = {
     1:  "boot / A5 init / entry",
     3:  "Mac Toolbox shim (QuickDraw / Dialog / Event / Menu)",
-    4:  "low-level helpers + byte-swap (JT[1180]/JT[1199]) + trap glue",
-    5:  "string/number format + error dialog (JT[1084]) + Toolbox helpers",
+    4:  "display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord "
+        "scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap "
+        "(jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL",
+    5:  "the CORE runtime library — called by EVERY segment: string/number "
+        "format, the error dialog (jt1084), low-level helpers (CODE 4's "
+        "main consumer)",
     6:  "file-group cache + GLIB art + resource manager",
     7:  "list dialog (JT[169]) + text widgets",
     12: "Training Hall menu + roster (jt918 / l0aae / l02dc)",
