@@ -6914,7 +6914,8 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
  * old contiguous CHAR_STATS=203 port slot is retired (single-layout switch). */
 #define CHAR_STAT(rec, i)  ((rec)[112 + (i) * 2])
 #define CHAR_ALIGN  93    /* faithful linear align index (l2f74); cg_aligns order */
-#define CHAR_INPARTY 210  /* 1 = in the active adventuring party, 0 = benched */
+/* (CHAR_INPARTY/rec[210] retired #141 — party membership IS the -27928 list;
+ * cg_in_party() answers it. No flag, no cg_party_relink.) */
 /* Experience points: the FAITHFUL field is the LONG rec[68] — jt572 seeds it
  * (movel a5@(-18882),a0@(68) = the starting XP, not a "design handle"), jt557
  * TRAIN reads/writes it (cmpl/movel a0@(68)), the CODE 19 sheet displays it
@@ -15267,35 +15268,49 @@ static void cg_char_fn(short slot, char *fn)
 }
 
 static void jt590(void *entry_v);        /* CODE 15+0x1b74 party-append (below) */
-/* Build the party list -27928 from the in-party cg_pool slots, via the faithful
- * jt590 append (so each member gets its party slot rec[189] and the count
- * -28006[32] is maintained — the metadata the faithful screens read). Used
- * after cg_pool changes (load / seed / delete). The selection -27932 is
- * preserved (jt590 moves it as it appends). Migration step 1 toward the fully
- * primary -27928 (docs/party-model-migration.md). */
-static void cg_party_relink(void)
+
+/* Party membership IS the -27928 list now (the faithful primary model —
+ * #141 complete). A cg_pool slot is "in the party" iff it is linked into
+ * -27928; cg_in_party answers that and cg_party_size counts the list. The old
+ * CHAR_INPARTY-derived rebuild (cg_party_relink) is retired — every builder
+ * (seed / loaders / Create / Add / Delete) manages -27928 directly via
+ * jt590 / cg_party_unlink. (docs/party-model-migration.md) */
+static int cg_in_party(const unsigned char *slot)
 {
-	long  sel = g_a5_long(-27932);
+	const unsigned char *node;
+	for (node = (const unsigned char *)g_a5_ptr(-27928); node != NULL;
+	     node = *(const unsigned char * const *)node)
+		if (node == slot)
+			return 1;
+	return 0;
+}
+
+/* Build -27928 fresh from the first `n` cg_pool slots (cap CG_PARTY_MAX) — the
+ * demo/boot party seed that replaces cg_party_relink. The faithful party home
+ * is the savegame (jt580/jt579); until a boot-time save-load exists, the
+ * loaded/seeded pool head IS the demo party. */
+static void cg_party_build_from_pool(short n)
+{
 	short i;
 
 	g_a5_long(-27928) = 0;
+	g_a5_long(-27932) = 0;
 	if (g_a5_long(-28006) != 0)
 		((unsigned char *)g_a5_ptr(-28006))[32] = 0;
-	for (i = 0; i < cg_pool_count; i++)
-		if (cg_pool[i][CHAR_INPARTY]) {
-			*(long *)cg_pool[i] = 0;   /* clear stale .next — jt590
-			                            * appends assuming a fresh node */
-			jt590(cg_pool[i]);
-		}
-	g_a5_long(-27932) = sel;
+	for (i = 0; i < n && i < cg_pool_count && i < CG_PARTY_MAX; i++) {
+		*(long *)cg_pool[i] = 0;       /* fresh .next for jt590 */
+		jt590(cg_pool[i]);
+	}
+	g_a5_long(-27932) = g_a5_long(-27928);
 }
 
 static short cg_party_size(void)
 {
-	short i, n = 0;
-	for (i = 0; i < cg_pool_count; i++)
-		if (cg_pool[i][CHAR_INPARTY])
-			n++;
+	const unsigned char *node;
+	short n = 0;
+	for (node = (const unsigned char *)g_a5_ptr(-27928); node != NULL;
+	     node = *(const unsigned char * const *)node)
+		n++;
 	return n;
 }
 
@@ -15439,24 +15454,9 @@ static int load_roster(void)
 	if (n2 == 0)
 		return 0;
 	cg_pool_count = n2;
-	/* The faithful party membership lives in the savegame (not yet lifted),
-	 * NOT in the .CHR files — those are the saved-character pool. A persisted
-	 * roster whose records all carry CHAR_INPARTY==0 (an older save, or a
-	 * roster that was fully benched in a prior session) would otherwise leave
-	 * the Training Hall spuriously EMPTY. Fall back to "the saved characters
-	 * ARE the party" (capped at CG_PARTY_MAX) so the party is deterministic
-	 * and non-empty; the in-session Add/Remove edits manage -27928 directly.
-	 * (docs/party-model-migration.md — interim until the savegame party is
-	 * faithful.) */
-	{
-		short i, anyparty = 0;
-		for (i = 0; i < n2; i++)
-			if (cg_pool[i][CHAR_INPARTY]) { anyparty = 1; break; }
-		if (!anyparty)
-			for (i = 0; i < n2 && i < CG_PARTY_MAX; i++)
-				cg_pool[i][CHAR_INPARTY] = 1;
-	}
-	cg_party_relink();
+	/* The loaded .CHR are the saved-character pool; the boot party is built
+	 * from them by the seed's guarded cg_party_build_from_pool (the faithful
+	 * party home is the savegame, not yet boot-loaded). (#141) */
 	return 1;
 }
 
@@ -15504,7 +15504,8 @@ static void cg_roster_merge_files(void)
 			continue;
 		memcpy(cg_pool[cg_pool_count++], rec, 512);
 	}
-	cg_party_relink();
+	/* Merged characters land in the pool BENCHED (not linked into -27928);
+	 * the player brings one into the party with Add Character. */
 }
 
 /* port_load_savgame — load a real BasiliskII-saved game (SAVE/SavGam<X>.csv,
@@ -15595,7 +15596,6 @@ static int port_load_savgame(void)
 				CHAR_STAT(dst, c) = r[112 + c * 2];  /* faithful (now identity post-memcpy) */
 			/* alignment @93 read from the faithful record (l2f74 linear
 			 * index, same order as cg_aligns); the force-LG stub is dropped. */
-			dst[CHAR_INPARTY] = 1;
 			/* AC: CHAR_AC (385) IS the faithful slot — the record
 			 * stores 60 - displayed_AC there (parallel to THAC0 @384)
 			 * and the readers (Hall column, HUD roster) compute the
@@ -15613,7 +15613,7 @@ static int port_load_savgame(void)
 			return 0;
 		}
 		cg_pool_count = found;
-		cg_party_relink();
+		cg_party_build_from_pool(found);
 	}
 
 	/* Restore the saved dungeon level + position. The shipped 1993 saves
@@ -15827,7 +15827,6 @@ void port_test_seed_design(void)
 					for (c = 0; c < 6; c++)
 						CHAR_STAT(r, c) = k_stats[p][c];
 					r[CHAR_ALIGN]   = k_align[p];
-					r[CHAR_INPARTY] = 1;
 					*(long *)(r + CHAR_XP) = k_xp[p];
 
 					/* Real-data path: when a faithful class/kind is set,
@@ -15853,16 +15852,23 @@ void port_test_seed_design(void)
 			}
 			/* Surface characters created in a previous session — their
 			 * CHAR*.CHR files would otherwise be shadowed by the savegame
-			 * load above. Dedup by name; appends to the pool. */
+			 * load above. Dedup by name; appends to the pool (BENCHED). */
 			cg_roster_merge_files();
 		}
-		cg_party_relink();           /* rebuild the party list each Play */
+		/* Build the demo party from the pool ONLY when -27928 is empty. This
+		 * fires at boot (l5124 / game-init zeroes -27928 between the play-entry's
+		 * two seed passes) and would fire again if a later teardown cleared it,
+		 * but NOT on a normal Hall round-trip — so in-session Add/Remove/Delete
+		 * edits (which keep -27928 non-empty) are preserved. Replaces the old
+		 * CHAR_INPARTY-derived per-Play cg_party_relink (#141); the faithful
+		 * repopulation after l5124 is the savegame load, not yet boot-wired. */
+		if (g_a5_long(-27928) == 0 && cg_pool_count > 0)
+			cg_party_build_from_pool(cg_pool_count);
 	}
 
 	/* Enable the case-0 Training Hall action (Train Character) so its
 	 * handler l0f1a -> jt574 fires, reaching the char-creation screen. */
 	g_a5_byte(-14440) = 1;
-
 }
 
 /* JT[452] (CODE 3 + 0x29a0) — DLItem stream installer.
@@ -22071,11 +22077,12 @@ static void cg_build_record(const cg_state *s)
 	for (c = 0; c < 6; c++)
 		CHAR_STAT(rec, c) = (unsigned char)s->stats[c];
 	rec[CHAR_ALIGN] = (unsigned char)s->aligned[s->asel];
-	/* Creating a character joins the active party if there's a free slot;
-	 * otherwise it stays benched in the pool (add it later via Add). */
-	rec[CHAR_INPARTY] = (cg_party_size() < CG_PARTY_MAX) ? 1 : 0;
-
-	cg_party_relink();
+	/* (harness deterministic create) join the active party if there's a free
+	 * slot, else leave it benched in the pool — manage -27928 directly. */
+	if (cg_party_size() < CG_PARTY_MAX) {
+		*(long *)rec = 0;
+		jt590(rec);
+	}
 	save_roster();
 }
 
@@ -22210,21 +22217,17 @@ static int  jt574(long ctx)
 			 * (JT[584]) the Training Hall re-reads; the port mirrors that by
 			 * copying the finalized record into a pool slot — the faithful
 			 * Train path (L3c92: a 99-long + 1-word = 398-byte copy of cg_rec
-			 * into the target record) is exactly this — flagging party
-			 * membership, saving the roster (save_roster == the .CHR writes),
-			 * and making the new slot current. CHAR_INPARTY (210) is a port
-			 * party-model flag set after the copy. */
+			 * into the target record) is exactly this — copying the finalized
+			 * record into a pool slot and saving the roster (== the .CHR
+			 * writes). */
 			if (cg_pool_count < 16) {
 				unsigned char *pr = cg_pool[cg_pool_count++];
 				memset(pr, 0, 512);
 				memcpy(pr, cg_rec, 398);
-				/* Faithful: the Mac saves a created character to its .CHR
-				 * file BENCHED — it does NOT auto-join the party. The
-				 * player brings it in with Add Character (cg_collect_addable
-				 * finds CHAR_INPARTY==0 pool slots). So leave it benched and
-				 * keep the roster selection on an existing party member. */
-				pr[CHAR_INPARTY] = 0;
-				cg_party_relink();
+				/* Faithful: a created character is saved BENCHED — it lives in
+				 * the pool (its .CHR) but is NOT linked into -27928; the player
+				 * brings it in with Add Character. Selection stays on the party
+				 * head. (#141) */
 				save_roster();
 				g_a5_long(-27932) = g_a5_long(-27928);
 			}
@@ -23152,7 +23155,7 @@ static void l15e2(void)
 					if (cg_pool[si][96] != 0 &&
 					    jt396((const char *)&cg_pool[si][96],
 					          nm) != 0) {
-						if (cg_pool[si][CHAR_INPARTY])
+						if (cg_in_party(cg_pool[si]))
 							cg_party_unlink(cg_pool[si]);
 						memset(cg_pool[si], 0, 512);
 						break;
@@ -27379,11 +27382,17 @@ static void l12a0(void)
 				for (pi = 0; pi < cg_pool_count; pi++)
 					if (jt396((const char *)&cg_pool[pi][96],
 					          (const char *)&e[5]) != 0) {
-						cg_pool[pi][CHAR_INPARTY] = 1;
+						/* Splice the picked saved character into the
+						 * party list -27928 directly (jt590), if it is
+						 * not already a member and there is room. (#141) */
+						if (!cg_in_party(cg_pool[pi])
+						    && cg_party_size() < CG_PARTY_MAX) {
+							*(long *)cg_pool[pi] = 0;
+							jt590(cg_pool[pi]);
+							save_roster();
+						}
 						break;
 					}
-				cg_party_relink();
-				save_roster();
 			}
 
 			jt477(&g_a5_22212, 398, fresh_slot);
@@ -28452,7 +28461,6 @@ static short jt579(short refNum)
 	}
 	cg_pool_count = i;
 	for (i = 0; i < cg_pool_count; i++) {
-		cg_pool[i][CHAR_INPARTY] = 1;
 		*(long *)cg_pool[i] = 0;
 		jt590(cg_pool[i]);
 	}
@@ -49142,7 +49150,7 @@ static void cg_crash_repro(void)
 	for (k = 0; k < cg_pool_count && k < 16; k++) {
 		dbg_log_num("  cg_pool[k]   = ", (long)(uintptr_t)cg_pool[k]);
 		dbg_log_num("    .next@0    = ", *(long *)(void *)cg_pool[k]);
-		dbg_log_num("    INPARTY    = ", (long)cg_pool[k][CHAR_INPARTY]);
+		dbg_log_num("    INPARTY    = ", (long)cg_in_party(cg_pool[k]));
 	}
 	np = cg_collect_party(party, 16);
 	dbg_log_num("collect_party(savegame) n = ", (long)np);
@@ -49172,7 +49180,7 @@ static void cg_crash_repro(void)
 	for (k = 0; k < cg_pool_count && k < 16; k++) {
 		dbg_log_num("  cg_pool[k]   = ", (long)(uintptr_t)cg_pool[k]);
 		dbg_log_num("    .next@0    = ", *(long *)(void *)cg_pool[k]);
-		dbg_log_num("    INPARTY    = ", (long)cg_pool[k][CHAR_INPARTY]);
+		dbg_log_num("    INPARTY    = ", (long)cg_in_party(cg_pool[k]));
 	}
 	np = cg_collect_party(party, 16);
 	dbg_log_num("collect_party(after create) n = ", (long)np);
@@ -49226,8 +49234,8 @@ static short cg_collect_addable(unsigned char **out, short max)
 {
 	short i, n = 0;
 	for (i = 0; i < cg_pool_count && n < max; i++)
-		if (cg_pool[i][96] != 0 &&          /* skip Delete holes */
-		    cg_pool[i][CHAR_INPARTY] == 0)
+		if (cg_pool[i][96] != 0 &&          /* non-blank slot, and */
+		    !cg_in_party(cg_pool[i]))        /* benched (not in -27928) */
 			out[n++] = cg_pool[i];
 	return n;
 }
@@ -49584,7 +49592,6 @@ static void cg_add_character(void)
 			break;
 		if ((ascii == 13 || ascii == 3)      /* Return -> add */
 		    && cg_party_size() < CG_PARTY_MAX) {
-			cand[sel][CHAR_INPARTY] = 1;  /* persistence flag */
 			*(long *)cand[sel] = 0;       /* fresh node for jt590 */
 			jt590(cand[sel]);             /* faithful append to -27928 */
 			save_roster();
@@ -49631,7 +49638,6 @@ static void cg_remove_from_party(void)
 			break;
 		if (ascii == 13 || ascii == 3) {     /* Return -> bench */
 			cg_party_unlink(party[sel]);  /* faithful unlink from -27928 */
-			party[sel][CHAR_INPARTY] = 0; /* persistence flag */
 			save_roster();
 			while (plat_kb_poll(&scan, &ascii))   /* debounce: one
 			                                       * press, one remove */
