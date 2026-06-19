@@ -229,6 +229,18 @@ ALIAS_LIFTED = {
     670: "lifted as l48f4 (same address; the cast-announce, full)",
     24: "lifted as l2000 (same address; the STR weight-allowance table)",
     88: "lifted as l5124 (same address; the game-state reset)",
+    # Address-matched lifts whose header lacks the "CODE seg + 0xOFF" comment
+    # the auto-detector keys on, so they need an explicit entry. SAFE to list:
+    # each is a SUBSTANTIAL body (>700B) at an offset unique to its segment —
+    # not the tiny-stub collision class (l25ce/l46e0) that the auto-detector
+    # deliberately refuses. Verified 2026-06-19.
+    947: "lifted as l709e (same address; the 39-case dungeon event dispatcher, 4.7KB)",
+    999: "lifted as l309c (same address; the GLIB glyph blitter, #104)",
+    1003: "lifted as l2856 (same address; the GLIB glyph-blit entry, #104, 3.7KB)",
+    945: "lifted as l694e (same address; CODE 20 encounter handler, 3.5KB)",
+    902: "lifted as l2f6e (same address; CODE 19 char-sheet helper, ~1KB)",
+    917: "lifted as l185e (same address; CODE 12 Training Hall helper, ~0.9KB)",
+    1035: "lifted as l50fe (same address; CODE 5 helper, ~1.5KB)",
 }
 
 # STAND-INS: JT entries that DO have a body (so classify() would call them
@@ -499,8 +511,15 @@ def confirmed_alias(seg, off, cands, unique_off=None):
     MISSING entry is never silently marked done."""
     if seg < 0 or off < 0 or off not in cands:
         return None
-    if unique_off is not None and off in unique_off:
-        return cands[off][0][0]
+    # ONLY trust an alias when the local's comment NAMES its CODE segment AND
+    # the 0xOFF — the standard lift-header form ("L494e (CODE 22 + 0x494e)").
+    # Pure address-matching is NOT safe: boot.c lXXXX names carry no segment,
+    # so a coincidental same-offset leaf in another segment (the char-sheet
+    # action stub `l25ce` vs jt893's CODE 19 shop, `l46e0` vs jt894) looks like
+    # a match and its trivial body even reads as "lifted". A wrong ALIAS hides
+    # a real gap, so we require the explicit segment proof. Lifts with a looser
+    # comment stay MISSING until their header is tidied or they're listed in
+    # ALIAS_LIFTED (verified).  (unique_off kept for the --aliases diagnostic.)
     seg_re = re.compile(r"CODE[\s_]*0*%d\b" % seg)
     off_re = re.compile(r"0x0*%x\b" % off)
     for status, ctx in cands.get(off, []):
