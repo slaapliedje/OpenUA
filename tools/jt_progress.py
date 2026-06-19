@@ -416,33 +416,97 @@ def port_call_frequency():
     return freq
 
 
-def classify(n, defs):
-    if n in NOOP:
-        return "NOOP"
-    if n not in defs:
-        return "ALIAS" if n in ALIAS_LIFTED else "MISSING"
-    body = defs[n]
-    # strip comments, then the bookkeeping calls (PROBE / (void) / dbg_log)
-    # wherever they sit — including when they share a line with the body.
+def _body_status(body):
+    """LIFTED vs STUB for a raw C function body (PROBE/(void)/dbg_log + a
+    bare `return const;` = STUB; anything else = a real lift)."""
     body = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
     body = re.sub(r"//.*", "", body)
     body = re.sub(r"PROBE\s*\([^;]*\)\s*;", "", body)
     body = re.sub(r"\(void\)[^;]*;", "", body)
     body = re.sub(r"dbg_log(_num)?\s*\([^;]*\)\s*;", "", body)
-    # remaining statements
     stmts = [s.strip() for s in re.split(r"[\n;]", body) if s.strip()]
-    # A true stub returns a *constant* and ignores its inputs
-    # (`return 0;`, `return -1;`, or nothing). A one-liner that returns
-    # an *expression* (delegates, computes from args, reads a global) is
-    # a real lift — abs, min/max, a getter, etc.
     if not stmts:
         return "STUB"
     if len(stmts) == 1 and re.match(r"^return\s*(-?\d+)?$", stmts[0]):
         return "STUB"
-    # A real body, but flagged as a non-faithful port reimplementation.
-    if n in STANDIN:
-        return "STANDIN"
     return "LIFTED"
+
+
+def classify(n, defs):
+    if n in NOOP:
+        return "NOOP"
+    if n not in defs:
+        return "ALIAS" if n in ALIAS_LIFTED else "MISSING"
+    st = _body_status(defs[n])
+    # A real body, but flagged as a non-faithful port reimplementation.
+    if st == "LIFTED" and n in STANDIN:
+        return "STANDIN"
+    return st
+
+
+def jt_offsets():
+    """JT number -> CODE offset (int) from jumptable.txt."""
+    off = {}
+    pat = re.compile(r"JT\[\s*(\d+)\]\s+\S+\s+CODE\s+\d+\+0x([0-9a-f]+)")
+    if os.path.exists(JUMPTBL):
+        for line in open(JUMPTBL, errors="replace"):
+            m = pat.search(line)
+            if m:
+                off[int(m.group(1))] = int(m.group(2), 16)
+    return off
+
+
+def local_alias_candidates():
+    """off (int) -> list of (status, context) for every boot.c `lXXXX` def.
+
+    A JT lifted under its CODE-local name `lOFF` is an ALIAS, not MISSING (e.g.
+    jt314 == l494e). We index every lXXXX body so an address-matched JT can be
+    confirmed — but ONLY together with a segment check (confirmed_alias), since
+    low offsets like 0x0004 exist in every segment and would otherwise collide."""
+    with open(BOOT_C, errors="replace") as fh:
+        src = fh.read()
+    out = {}
+    hdr = re.compile(r"\bstatic\b[^\n;{]*?\bl([0-9a-f]{3,5})\s*\(", re.M)
+    for m in hdr.finditer(src):
+        off = int(m.group(1), 16)
+        b = src.find("{", m.end())
+        s = src.find(";", m.end())
+        if b < 0 or (s != -1 and s < b):
+            continue                      # forward decl
+        depth, j = 0, b
+        while j < len(src):
+            if src[j] == "{":
+                depth += 1
+            elif src[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        body = src[b + 1:j]
+        ctx = src[max(0, m.start() - 600):m.end() + 5]   # the comment block + hdr
+        out.setdefault(off, []).append((_body_status(body), ctx))
+    return out
+
+
+def confirmed_alias(seg, off, cands, unique_off=None):
+    """Return 'LIFTED'/'STUB' if a boot.c `lOFF` is the alias for this JT, by
+    EITHER of two collision-safe signals — else None:
+      (a) its comment names CODE `seg` AND the 0xOFF (handles colliding
+          offsets like 0x0004 that exist in every segment), or
+      (b) `off` is unique to a single CODE segment across the whole jump
+          table (`unique_off`), so an `lOFF` def cannot belong to anyone else.
+    Never resolves an ambiguous offset without one of these, so a genuinely
+    MISSING entry is never silently marked done."""
+    if seg < 0 or off < 0 or off not in cands:
+        return None
+    if unique_off is not None and off in unique_off:
+        return cands[off][0][0]
+    seg_re = re.compile(r"CODE[\s_]*0*%d\b" % seg)
+    off_re = re.compile(r"0x0*%x\b" % off)
+    for status, ctx in cands.get(off, []):
+        if seg_re.search(ctx) and off_re.search(ctx):
+            return status
+    return None
 
 
 BANDS_DETAIL = 2  # emit the per-entry table for this many leading bands
@@ -454,7 +518,39 @@ def main():
     defs = boot_definitions()
     ranked = sorted(freq.items(), key=lambda kv: (-kv[1], kv[0]))
 
-    status = {n: classify(n, defs) for n, _ in ranked}
+    # Auto-resolve aliases: a JT at CODE seg+0xOFF lifted under its CODE-local
+    # name `lOFF` (segment-confirmed) is ALIAS/STUB, not MISSING. This keeps the
+    # audit honest without hand-maintaining ALIAS_LIFTED for every same-address
+    # alias (jt314 == l494e was a false "MISSING" before this).
+    offs = jt_offsets()
+    cands = local_alias_candidates()
+    segmap_for_alias = parse_jumptable()
+    # offsets that exist in exactly one CODE segment (collision-free).
+    _by_off = {}
+    for n, s in segmap_for_alias.items():
+        _by_off.setdefault(offs.get(n), set()).add(s)
+    unique_off = {o for o, ss in _by_off.items() if len(ss) == 1}
+    auto_alias = {}     # n -> 'ALIAS'/'STUB' resolved via lOFF
+    status = {}
+    for n, _ in ranked:
+        st = classify(n, defs)
+        if st == "MISSING":
+            c = confirmed_alias(segmap_for_alias.get(n, -1),
+                                offs.get(n, -1), cands, unique_off)
+            if c == "LIFTED":
+                st = "ALIAS"
+                auto_alias[n] = "ALIAS"
+            elif c == "STUB":
+                st = "STUB"
+                auto_alias[n] = "STUB"
+        status[n] = st
+
+    if "--aliases" in args:
+        print(f"auto-resolved address-matched aliases ({len(auto_alias)}):")
+        for n in sorted(auto_alias):
+            print(f"  jt{n} (CODE {segmap_for_alias.get(n)}+0x{offs.get(n,0):04x})"
+                  f" -> l{offs.get(n,0):04x}  [{auto_alias[n]}]")
+        return
 
     def tally(entries):
         t = {"LIFTED": 0, "STUB": 0, "NOOP": 0, "ALIAS": 0,
@@ -557,6 +653,12 @@ def main():
     A("(done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** ")
     A("one-line placeholder (pending) · **STANDIN** real body but a non-")
     A("faithful port reimplementation (pending) · **MISSING** not in boot.c yet.\n")
+    A("ALIAS is now **auto-detected**: a JT at CODE seg+0xOFF lifted under its")
+    A("CODE-local name `lOFF` is recognised automatically (segment-verified, so")
+    A("cross-segment offset collisions like `l0004` never mis-resolve), so the")
+    A("MISSING count no longer over-reports alias-lifted entries. List them with")
+    A("`python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only")
+    A("needs the *non*-address aliases (trap-glue→shim, renamed thunks).\n")
 
     ndist = len(ranked)
     done_all = total["LIFTED"] + total["NOOP"] + total["ALIAS"]
