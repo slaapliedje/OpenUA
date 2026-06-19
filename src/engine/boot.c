@@ -22810,7 +22810,53 @@ static void jt589(short flag, long *tail, long *head)
 		jt42(flag ? ua_strs_at(0x4c48)         /* "No ... to delete."  */
 		          : ua_strs_at(0x4c62));       /* "No ... to load."    */
 }
-static void jt590(void *entry)              { PROBE("jt590"); (void)entry; }
+/* JT[590] (CODE 15+0x1b74) — append a character record to the party list
+ * -27928 (faithful, primary-list model): link it onto the tail (.next @ +0),
+ * make it the selection (-27932), assign it the first free party slot
+ * (rec[189], 0..6), bump the party-size count (game record -28006[32]), and run
+ * the JT[910] per-member setup when rec[147] bit 7 is set. Part of the party
+ * data-model migration (docs/party-model-migration.md). */
+static void  jt910(long ent_l);          /* CODE 19+0x631c (defined below) */
+static void jt590(void *entry_v)
+{
+	unsigned char *entry = (unsigned char *)entry_v;
+	unsigned char *node;
+	unsigned char  slot_used[8];
+	short          i;
+
+	PROBE("jt590");
+	if (entry == NULL)
+		return;
+	entry[189] = 0xFF;                            /* slot: unassigned */
+
+	if (g_a5_long(-27928) == 0) {                 /* empty party -> head */
+		g_a5_long(-27928) = (long)(uintptr_t)entry;
+	} else {                                      /* else append to the tail */
+		node = (unsigned char *)g_a5_ptr(-27928);
+		while (*(unsigned char **)node != NULL)
+			node = *(unsigned char **)node;
+		*(unsigned char **)node = entry;
+	}
+	g_a5_long(-27932) = (long)(uintptr_t)entry;   /* select the new member */
+
+	for (i = 0; i < 8; i++)                        /* assign first free slot */
+		slot_used[i] = 0;
+	for (node = (unsigned char *)g_a5_ptr(-27928); node != NULL;
+	     node = *(unsigned char **)node)
+		if (node[189] < 7)
+			slot_used[node[189]] = 1;
+	{
+		unsigned char *sel = (unsigned char *)g_a5_ptr(-27932);
+		sel[189] = 0;
+		while (sel[189] < 8 && slot_used[sel[189]] != 0)
+			sel[189]++;
+	}
+
+	((unsigned char *)g_a5_ptr(-28006))[32]++;    /* party-size count */
+
+	if ((entry[147] & 0x80) != 0)
+		jt910((long)(uintptr_t)entry);
+}
 /* jt56 deps defined later in the file. */
 static const char *jt482(const char *src, short offset, short count);
 static void        l3b1e(long a, short b, short c, long grp, short id);
