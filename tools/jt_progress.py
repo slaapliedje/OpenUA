@@ -42,6 +42,95 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DISASM = os.path.join(ROOT, "data", "work", "disasm")
 BOOT_C = os.path.join(ROOT, "src", "engine", "boot.c")
 OUT_MD = os.path.join(ROOT, "docs", "jt-lift-progress.md")
+JUMPTBL = os.path.join(DISASM, "jumptable.txt")
+
+# Chunk size for the progress summary. The campaign historically used 100
+# ("bands"); 2026-06-19 (user-directed) it dropped to 50-entry chunks so each
+# unit of work is smaller + easier to target. Rank ranges are absolute, so the
+# old band-N references still map (band 6 == chunks 11–12 == rank 501–600).
+CHUNK = 50
+
+# CODE-segment -> subsystem label, for the "what's used where" rollup. The
+# segment of every JT[N] comes from jumptable.txt; this names the ones we've
+# charted. Unlabelled segments print "—" (objective counts still apply).
+SEGMENT_SUBSYS = {
+    1:  "boot / A5 init / entry",
+    3:  "Mac Toolbox shim (QuickDraw / Dialog / Event / Menu)",
+    4:  "low-level helpers + byte-swap (JT[1180]/JT[1199]) + trap glue",
+    5:  "string/number format + error dialog (JT[1084]) + Toolbox helpers",
+    6:  "file-group cache + GLIB art + resource manager",
+    7:  "list dialog (JT[169]) + text widgets",
+    12: "Training Hall menu + roster (jt918 / l0aae / l02dc)",
+    13: "area-map line/region renderer (jt501)",
+    14: "area-map render tree (jt521)",
+    15: "play-entry + save/load + party list (jt574..590 / l07dc)",
+    16: "combat HANDLER tier — spell-effect/per-actor handlers registered "
+        "into CODE 18 (code16-wall)",
+    17: "character generation (jt574 / jt557 / l618c)",
+    18: "combat engine (jt610 / jt856 / l4d98 / l709e)",
+    19: "character sheet + party container (jt886 / jt904 / jt910)",
+    20: "encounter prompt + event dispatch",
+    21: "play command bar / in-dungeon UI",
+    22: "main menu + design select + editor tools (jt315 / jt290 / jt327)",
+}
+
+
+def parse_jumptable():
+    """Map JT number -> CODE segment number from jumptable.txt
+    (`JT[ 10]  A5+0x0070  CODE  6+0x0538`)."""
+    seg = {}
+    if not os.path.exists(JUMPTBL):
+        return seg
+    pat = re.compile(r"JT\[\s*(\d+)\]\s+A5\+\S+\s+CODE\s+(\d+)\+")
+    with open(JUMPTBL, errors="replace") as fh:
+        for line in fh:
+            m = pat.search(line)
+            if m:
+                seg[int(m.group(1))] = int(m.group(2))
+    return seg
+
+
+def local_stub_scan():
+    """Find CODE-local lXXXX helpers that are PROBE-only placeholders in
+    boot.c (`static <ret> lXXXX(...) { PROBE("lXXXX"); ... }` with no real
+    body) — the non-JT leaf stubs the JT scoreboard doesn't see."""
+    with open(BOOT_C, errors="replace") as fh:
+        src = fh.read()
+    stubs = []
+    hdr = re.compile(r"\bstatic\b[^\n;{]*?\b(l[0-9a-f]{3,4})\s*\(", re.MULTILINE)
+    for m in hdr.finditer(src):
+        name = m.group(1)
+        brace = src.find("{", m.end())
+        semi = src.find(";", m.end())
+        if brace < 0 or (semi != -1 and semi < brace):
+            continue  # forward decl
+        depth, j = 0, brace
+        while j < len(src):
+            if src[j] == "{":
+                depth += 1
+            elif src[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        body = src[brace + 1:j]
+        body = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
+        body = re.sub(r"//.*", "", body)
+        body = re.sub(r'PROBE\s*\([^;]*\)\s*;', "", body)
+        body = re.sub(r"\(void\)[^;]*;", "", body)
+        body = re.sub(r"dbg_log(_num)?\s*\([^;]*\)\s*;", "", body)
+        stmts = [s.strip() for s in re.split(r"[\n;]", body) if s.strip()]
+        is_stub = (not stmts) or (
+            len(stmts) == 1 and re.match(r"^return\s*(-?\d+)?$", stmts[0]))
+        if is_stub and 'PROBE' in src[brace:j + 1]:
+            stubs.append(name)
+    # dedup, keep first occurrence order
+    seen, out = set(), []
+    for n in stubs:
+        if n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
 
 # Faithful-as-a-stub: the Mac body really is empty or a bare constant.
 # Verified against the disassembly; these are DONE, not pending.
@@ -148,6 +237,18 @@ STANDIN = {
 # for a faithful Mac path. Not keyed by a JT number, so they live here as a
 # static list for visibility (kept in sync with docs/stub-inventory.md).
 PORT_STANDINS = [
+    ("cg_add_character / cg_remove_from_party / cg_draw_sheet / cg_view_sheet",
+     "Training Hall Add/Remove/View screen CHROME (port paging UI). They now "
+     "drive -27928 correctly via jt590/cg_party_unlink (#141 data-model is "
+     "faithful), but the chrome is a stand-in for L12a0 / jt904 (jt589 list + "
+     "jt169 dialog). Also a cosmetic cg_draw_sheet body-icon repaint artifact."),
+    ("port_save_game / port_load_game (slot A driver)",
+     "fixed-slot save/load driver wrapping the faithful jt580/jt579 "
+     "serializers; bypasses the incomplete jt585/jt582 A-J slot pickers "
+     "(jt182/l005a stubs). On-disk format is the real one (#141)."),
+    ("port_load_savgame",
+     "obsolete heuristic SAVGAMA.CSV scanner; superseded by the faithful "
+     "jt579/jt577 reader — only the FRUA_CGCRASH harness still calls it."),
     ("port_draw_play_frame",
      "coarse HUD-chrome over-blit (the #114 'jank'); faithful composer is "
      "jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)"),
@@ -428,8 +529,10 @@ def main():
     A("# JT-lift scoreboard\n")
     A("Auto-generated by `tools/jt_progress.py` — **do not hand-edit the")
     A("tables**; rerun the tool. Strategy: lift the most-CALLED jump-table")
-    A("entries first (the foundation), in 100-entry bands, until all are")
-    A("lifted — then glue the structures together. Regenerate:\n")
+    A(f"entries first (the foundation), in {CHUNK}-entry chunks, until all are")
+    A("lifted — then glue the structures together. The chunk table targets")
+    A("the work; the **Coverage by CODE segment** table shows _what portion is")
+    A("used where_ (which subsystem each pending block belongs to). Regenerate:\n")
     A("```sh\npython3 tools/jt_progress.py\n```\n")
     A("Legend: **LIFTED** real body · **NOOP** faithful empty/constant ")
     A("(done) · **ALIAS** lifted under an lXXXX name (done) · **STUB** ")
@@ -443,20 +546,62 @@ def main():
       f"{total['ALIAS']} alias), {total['STUB']} stub, "
       f"{total['STANDIN']} stand-in, {total['MISSING']} missing.\n")
 
-    # per-100 band summary
-    A("## Progress by band (100 most-called at a time)\n")
-    A("| Band | Rank | done | lifted | noop/alias | stub | standin | missing |")
-    A("|------|------|-----:|-------:|-----------:|-----:|--------:|--------:|")
-    for b in range((ndist + 99) // 100):
-        seg = ranked[b * 100:(b + 1) * 100]
+    # per-CHUNK summary (50-entry chunks, user-directed 2026-06-19)
+    A(f"## Progress by chunk ({CHUNK} most-called at a time)\n")
+    A("Smaller than the old 100-entry bands so each chunk is a targetable")
+    A("unit. Rank ranges are absolute (legacy band N == rank "
+      "(N-1)*100+1 .. N*100).\n")
+    A("| Chunk | Rank | done | lifted | noop/alias | stub | standin | missing |")
+    A("|------:|------|-----:|-------:|-----------:|-----:|--------:|--------:|")
+    for b in range((ndist + CHUNK - 1) // CHUNK):
+        seg = ranked[b * CHUNK:(b + 1) * CHUNK]
         if not seg:
             continue
         t = tally(seg)
         done = t["LIFTED"] + t["NOOP"] + t["ALIAS"]
-        A(f"| {b + 1} | {b * 100 + 1}–{b * 100 + len(seg)} | "
+        A(f"| {b + 1} | {b * CHUNK + 1}–{b * CHUNK + len(seg)} | "
           f"**{done}/{len(seg)}** | {t['LIFTED']} | "
           f"{t['NOOP'] + t['ALIAS']} | {t['STUB']} | {t['STANDIN']} | "
           f"{t['MISSING']} |")
+    A("")
+
+    # ---- coverage by CODE segment ("what portion is used where") ----
+    segmap = parse_jumptable()
+    A("## Coverage by CODE segment (what's used where)\n")
+    A("Every called JT entry mapped to its Mac CODE segment (from")
+    A("`jumptable.txt`). `pending` = stub + standin + missing. The segments")
+    A("with the most pending entries are the subsystems with the most work")
+    A("left; cross-reference the chunk table to see how load-bearing they are.\n")
+    A("| CODE | entries | done | stub | standin | missing | pending | subsystem |")
+    A("|-----:|--------:|-----:|-----:|--------:|--------:|--------:|-----------|")
+    by_seg = {}
+    for n, _ in ranked:
+        s = segmap.get(n, -1)
+        by_seg.setdefault(s, []).append(n)
+    for s in sorted(by_seg, key=lambda s: (s if s >= 0 else 999)):
+        ns = by_seg[s]
+        t = {"LIFTED": 0, "STUB": 0, "NOOP": 0, "ALIAS": 0,
+             "STANDIN": 0, "MISSING": 0}
+        for n in ns:
+            t[status[n]] += 1
+        done = t["LIFTED"] + t["NOOP"] + t["ALIAS"]
+        pend = t["STUB"] + t["STANDIN"] + t["MISSING"]
+        label = SEGMENT_SUBSYS.get(s, "—") if s >= 0 else "(no jumptable entry)"
+        seg_id = f"CODE {s}" if s >= 0 else "?"
+        A(f"| {seg_id} | {len(ns)} | {done} | {t['STUB']} | {t['STANDIN']} | "
+          f"{t['MISSING']} | **{pend}** | {label} |")
+    A("")
+
+    # ---- non-JT local lXXXX PROBE-stubs ----
+    lstubs = local_stub_scan()
+    A("## Local lXXXX leaf stubs (non-JT PROBE-only helpers)\n")
+    A(f"CODE-local helpers still PROBE-only in boot.c ({len(lstubs)} found). "
+      "These don't appear in the JT scoreboard above but gate the entries "
+      "that call them.\n")
+    if lstubs:
+        A("> " + "  ".join(f"`{n}`" for n in lstubs))
+    else:
+        A("_None._")
     A("")
 
     # detail tables for the leading bands
@@ -496,23 +641,25 @@ def main():
         A(f"- `{name}` — {note}")
     A("")
 
-    A("## The pending queue (top-100 stubs + stand-ins + missing, by call count)\n")
-    A("Each carries _why_ it is still open, so the next unit of work is")
-    A("self-selecting. Categories: **subsystem** (small body, but gated on")
-    A("an uncharted multi-function cluster — lift the cluster first);")
-    A("**dispatcher** (large multi-case switch, a session on its own);")
-    A("**trap-shim** (issues a Mac OS trap the HAL must route); **HAL**")
-    A("(needs a display/row-blit backend, not a transcription); **standin**")
-    A("(a non-faithful port body — see the stand-ins section).\n")
-    pend = [(n, c) for n, c in ranked[:100]
+    A("## The pending queue (most-called stubs + stand-ins + missing)\n")
+    A("The top-100 are fully lifted, so this lists the highest-frequency")
+    A("PENDING entries across ALL ranks — the most load-bearing work left,")
+    A("each tagged with its CODE segment (cross-ref the segment table). A note")
+    A("from `PENDING_NOTES` explains _why_ it is still open where known.\n")
+    PEND_LIMIT = 50
+    pend = [(n, c) for n, c in ranked
             if status[n] in ("STUB", "STANDIN", "MISSING")]
     if not pend:
-        A("_None — the top 100 are fully lifted._\n")
+        A("_None — every called entry is lifted._\n")
     else:
-        for n, c in pend:
+        A(f"Top {min(PEND_LIMIT, len(pend))} of {len(pend)} pending "
+          f"(stub+standin+missing), by call count:\n")
+        for n, c in pend[:PEND_LIMIT]:
+            seg = segmap.get(n, -1)
+            seg_s = f"CODE {seg}" if seg >= 0 else "?"
             note = PENDING_NOTES.get(n, "") or STANDIN.get(n, "")
             extra = f" — {note}" if note else ""
-            A(f"- jt{n} ({c} calls) — {status[n].lower()}{extra}")
+            A(f"- jt{n} ({c} calls, {seg_s}) — {status[n].lower()}{extra}")
         A("")
 
     with open(OUT_MD, "w") as fh:
