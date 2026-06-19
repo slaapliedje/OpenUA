@@ -22135,11 +22135,15 @@ static int  jt574(long ctx)
 				unsigned char *pr = cg_pool[cg_pool_count++];
 				memset(pr, 0, 512);
 				memcpy(pr, cg_rec, 398);
-				pr[CHAR_INPARTY] =
-				    (cg_party_size() < CG_PARTY_MAX) ? 1 : 0;
+				/* Faithful: the Mac saves a created character to its .CHR
+				 * file BENCHED — it does NOT auto-join the party. The
+				 * player brings it in with Add Character (cg_collect_addable
+				 * finds CHAR_INPARTY==0 pool slots). So leave it benched and
+				 * keep the roster selection on an existing party member. */
+				pr[CHAR_INPARTY] = 0;
 				cg_party_relink();
 				save_roster();
-				g_a5_long(-27932) = (long)(uintptr_t)pr;
+				g_a5_long(-27932) = g_a5_long(-27928);
 			}
 		}
 	}
