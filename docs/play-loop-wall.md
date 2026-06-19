@@ -6,25 +6,38 @@ is ~80% wired — `l709e` (the 39-case event dispatcher) is fully LIFTED and the
 walk moves the party. The gaps are narrower and clearer than "the play loop is
 missing."** Update status columns in the same commit as each lift.
 
-## ⚠ VERIFICATION FINDING (2026-06-19) — the walk doesn't run yet in this build
+## ✅ THE WALK RUNS (2026-06-19) — dungeon loads + party moves + turns
 
-Gap 1 (the per-step event trigger) is now WIRED in `jt297` (faithful to jt953
-L41b2 — after a first-person move to a new cell: `jt201` → `l709e`). But trying
-to verify it live exposed two UPSTREAM blockers the "the walk moves the party"
-claim below glossed over:
+Both upstream blockers are cleared; the dungeon is interactively walkable in
+**HEIRS.DSN** (stage it — `make gamedata DSN=HEIRS.DSN`; TUTORIAL has only
+open 1-cell rooms with nowhere to walk). The fix was two commits:
 
-1. **The dungeon LEVEL doesn't load** — `Begin Adventuring` from the seeded
-   Training Hall logs **`glib: Out of FAR memory!`**, so the wall/level art
-   fails, the 3D view is black, and `g_a5_-12300` (the level ptr) stays NULL.
-2. **So `jt297` is never reached** — it early-returns on `lvl == NULL`, and the
-   walk loop (`jt240`/`l63c0`) doesn't dispatch any move. (No `jt297` PROBE
-   fired across a 3-step walk attempt.)
+1. **(0) The dungeon LOADS** — `Begin Adventuring` aborted with `glib: Out of
+   FAR memory!` because the ~296KB wall lib + ~165KB event bigpic need ~461KB
+   resident at once, over the Mac's 450KB FAR cap. Raised the cap to 768KB
+   (`master_init(...,214,768)` at `ua_main`; jt463 negotiates down to free RAM,
+   safe on 4MB). `cf1ecfd`. HEIRS now renders the full dungeon HUD — 3D corridor,
+   roster, compass, command bar.
+2. **The walk DISPATCHES + ADVANCES** — `jt297` was reachable once the dungeon
+   loaded (`l63c0` runs, arrow keys route through `l2d3e`→case 0→`jt297` with
+   the right 257..264 codes). The move logic was already correct (verified live:
+   forward col 0→1, right-turn facing 2→4, mirrored into rec+46). The view just
+   didn't follow: `jt297` faithfully RESTORES the view globals `-12288..` to the
+   pre-move cell (the Mac's deferred smooth-scroll `L4900/L423e/L3998` is what
+   walks the view up to the party cell). That animation isn't lifted, so the new
+   position lived only in rec+46 and the pinned view never moved. Fix: snap the
+   view cell to the rec+46 mirror in `l63c0`'s re-render (hard jump for the
+   missing scroll). `afc6b98`. Verified: forward steps walk down the corridor
+   past doors, turns rotate the first-person view.
 
-So the REAL ordering is: **(0) the dungeon must LOAD** (the FAR-memory / level
-load — `port-memory-vs-mac-1mb`, partly #129) → **(then) the walk must dispatch
-to `jt297`** (#124) → **(then) Gap 1's per-step trigger fires** (done, waiting).
-Gap 1 is correct + committed, but un-verifiable until (0) and the walk-dispatch
-land. The keystone moved one box upstream: **make the dungeon load + walk.**
+**Gap 1 (per-step `l709e`) is now REACHABLE** — `jt297` runs the trigger on each
+new cell. Still un-verified that a designed interior event cell *fires* (most
+handlers are stubs; needs a known HEIRS event-cell coordinate to step onto).
+
+Known-still-broken (separate from the walk, NOT regressed): the **3D wall-piece
+decode** (`dungeon-3d-render-state` — the "Escher" geometry; HEIRS renders a
+coherent-enough corridor to navigate) and the **compass face** (doesn't rotate
+with facing). The **position HUD reads 0,0** (`jt938` bug, `band4-campaign`).
 
 ## The chain (what runs, in order)
 
