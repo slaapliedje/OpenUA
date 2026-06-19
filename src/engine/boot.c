@@ -15295,6 +15295,63 @@ static short cg_party_size(void)
 	return n;
 }
 
+/* ---- Faithful party-model primitives (docs/party-model-migration.md) ----
+ * The party list -27928 is the PRIMARY representation (the Mac model); jt590
+ * appends, cg_party_unlink removes, cg_node_alloc hands out a backing slot.
+ * cg_pool[16] is repurposed as the node storage. These replace the
+ * cg_party_relink + CHAR_INPARTY derivation in the (atomic) Phase-2 flip. */
+
+/* Allocate a party-member node: the first cg_pool slot NOT currently linked
+ * into -27928. Zeroes + returns it, or NULL if all 16 are in use. */
+static unsigned char *cg_node_alloc(void) __attribute__((unused));
+static unsigned char *cg_node_alloc(void)
+{
+	unsigned char  used[16];
+	unsigned char *node;
+	short          i;
+
+	for (i = 0; i < 16; i++)
+		used[i] = 0;
+	for (node = (unsigned char *)g_a5_ptr(-27928); node != NULL;
+	     node = *(unsigned char **)node)
+		for (i = 0; i < 16; i++)
+			if (node == cg_pool[i]) { used[i] = 1; break; }
+	for (i = 0; i < 16; i++)
+		if (!used[i]) {
+			memset(cg_pool[i], 0, 512);
+			return cg_pool[i];
+		}
+	return NULL;
+}
+
+/* Remove a member from the party list -27928 (unlink, .next @ +0); decrement
+ * the party-size count and move the selection off it if it was selected. The
+ * freed cg_pool slot is reusable (no longer linked). Symmetric to jt590. */
+static void cg_party_unlink(unsigned char *member) __attribute__((unused));
+static void cg_party_unlink(unsigned char *member)
+{
+	unsigned char *head = (unsigned char *)g_a5_ptr(-27928);
+	unsigned char *gr;
+
+	if (member == NULL || head == NULL)
+		return;
+	if (head == member) {
+		g_a5_long(-27928) = (long)(uintptr_t)*(unsigned char **)member;
+	} else {
+		unsigned char *node = head;
+		while (node != NULL && *(unsigned char **)node != member)
+			node = *(unsigned char **)node;
+		if (node != NULL)
+			*(unsigned char **)node = *(unsigned char **)member;
+	}
+	*(unsigned char **)member = NULL;
+	gr = (unsigned char *)g_a5_ptr(-28006);
+	if (gr != NULL && gr[32] > 0)
+		gr[32]--;
+	if (g_a5_long(-27932) == (long)(uintptr_t)member)
+		g_a5_long(-27932) = g_a5_long(-27928);
+}
+
 /* Port-local node pool for the 40-byte roster / design-list nodes the engine
  * allocates from g_a5_-21156 (JT[477] reserve / JT[471] free).  The bucket
  * layout matches what jt477 reads: max_count@0, record_size@2, base_ptr@4,
