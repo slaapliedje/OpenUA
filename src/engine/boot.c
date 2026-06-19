@@ -12044,6 +12044,7 @@ static void jt297(void *rec_v, short key, long cb)
 	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short cell, fp3, fp4, facing, k;
 	unsigned char snap[6];
+	unsigned char pre_col = 0, pre_row = 0;       /* party cell before the move */
 	int snapped = 0;
 
 	PROBE("jt297");
@@ -12060,6 +12061,8 @@ static void jt297(void *rec_v, short key, long cb)
 		for (k = 0; k < 6; k++) snap[k] = g_a5_byte(-12288 + k);
 		for (k = 0; k < 6; k++) g_a5_byte(-12288 + k) = rec[46 + k];
 		snapped = 1;
+		pre_col = g_a5_byte(-12288);   /* party cell BEFORE the move */
+		pre_row = g_a5_byte(-12287);
 	}
 	fp4    = (rec[4] == 0 && rec[9] != 0) ? 1 : 0;
 	facing = (short)g_a5_byte(-12286);
@@ -12134,6 +12137,23 @@ static void jt297(void *rec_v, short key, long cb)
 	#undef JT297_FWD_ROW
 	#undef JT297_FWD_COL
 
+	/* GAP 1 — the per-STEP event trigger (faithful jt953 L41b2 @ CODE 21+0x41b2,
+	 * which the overland command dispatcher already runs). After a first-person
+	 * DUNGEON move that LANDED ON A NEW CELL, read the cell's special (jt201)
+	 * and dispatch its event (l709e) — exactly what the entry arm does on area
+	 * entry. -12288.. still holds the NEW party cell here (the view-cell restore
+	 * is below), so jt201 reads the right cell; turns / blocked steps don't
+	 * change the cell, so they don't fire. l709e is a no-op when there's no
+	 * event table or special==0. (docs/play-loop-wall.md) */
+#ifndef FRUA_SKIP_ENTRY_EVENTS
+	if (snapped && (g_a5_byte(-12288) != pre_col
+	             || g_a5_byte(-12287) != pre_row)) {
+		short special = jt201((short)(signed char)g_a5_byte(-12288),
+		                      (short)(signed char)g_a5_byte(-12287));
+		g_a5_byte(-18483) = (unsigned char)special;
+		l709e(special);
+	}
+#endif
 	if (snapped)
 		for (k = 0; k < 6; k++) g_a5_byte(-12288 + k) = snap[k];
 }
