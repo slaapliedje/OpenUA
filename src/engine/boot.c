@@ -15851,16 +15851,44 @@ void port_test_seed_design(void)
 	g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
 	g_a5_long(-13804) = (long)(uintptr_t)k_test_prompt;
 
-	/* Entry level (stand-in for the GAME-header start-level parse, which the
-	 * port's design loader doesn't do yet). TUTORIAL.DSN's only map is
-	 * GEO040, a dungeon (>= 5): l0bbc -> l0ba2 sets in-play mode 4 (the
-	 * command bar) and jt948 routes the walk through jt240 (the real
-	 * "Area Cast View Encamp Search Look Inv" bar). Without this it defaults
-	 * to level 1 (overland, mode 3) -> empty GEO001 view + the single-command
-	 * "Encamp" bar. See [[play-hud-work]] / [[coord-model-task108]].
-	 * g_port_entry_level holds the default (40 = the tutorial's map) until
-	 * a loaded save overrides it — re-applied on every Play entry so the
-	 * once-only save load survives menu round-trips. */
+	/* Entry level + start entry from the design's GAME header. GAME001.DAT
+	 * byte 48 = the start LEVEL (HEIRS = 5, TUTORIAL = 1), byte 49 = the
+	 * start ENTRY index (1-based; l0bbc reads the level map's entry table at
+	 * (g_a5_-18827 - 1) * 4 for the party x/y/facing). The design name was
+	 * set above, so jt127 resolves "<design>:GAME001.DAT". This replaces the
+	 * old hardcoded level 40 stand-in: with the right level, jt198 loads the
+	 * design's real start GEO and l0bbc reads the authored start tile (HEIRS
+	 * = 10,8 facing E). Falls back to g_port_entry_level if the header is
+	 * absent or its level byte is 0. A loaded save still overrides via
+	 * g_port_entry_level. See [[play-hud-work]] / [[band4-campaign]]. */
+	if (!g_savgame_loaded) {
+		short ghn = 0;
+		jt132((short)51);
+		jt127("GAME", (short)1, &ghn, g_a5_buf(-18876));
+		if (ghn >= 50) {
+			unsigned char *gh  = g_a5_buf(-18876);
+			short          hlv = (short)gh[48];
+			/* Only honour the header start level if its GEO ships in this
+			 * design: TUTORIAL's header says level 1 but only GEO040 ships,
+			 * and jt198 on a missing GEO is a jt69 fatal. Probe the same
+			 * "<design>:GEO%03d.dat" path the savegame guard uses. */
+			if (hlv > 0) {
+				char  path[402], dpath[202];
+				short refnum;
+
+				jt394(path, "%s%03d.dat", "GEO", (int)hlv);
+				dpath[0] = 0;
+				jt431(dpath, &g_a5_31336);
+				jt431(dpath, path);
+				refnum = jt398(dpath, 0);
+				if (refnum >= 0) {
+					(void)jt411(refnum);
+					g_port_entry_level = hlv;       /* start level   */
+					g_a5_18827 = gh[49];            /* start entry +1 */
+				}
+			}
+		}
+	}
 	g_a5_18828 = g_port_entry_level;
 
 	/* Seed a test pool so the Training Hall has real characters. The pool
