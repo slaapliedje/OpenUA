@@ -117,8 +117,15 @@ the port's wiring is:
    toggle the THORIN/ELF highlight. STILL OPEN: roster MOUSE-click selection
    (the Gold Box UI is keyboard-first, but a click-to-select would be nice;
    no L0848-adjacent mouse handler found yet).
-2. **Add (jt904)** — the screen that pulls a saved character into the party.
-   Until this is faithful, created characters are stranded (saved, un-addable).
+2. **Add** — FUNCTIONAL via the port's cg_add_character stand-in (browse the
+   cg_pool CHAR_INPARTY==0 slots, Up/Dn, Return adds to the party). CORRECTION
+   2026-06-19: **jt904 is the VIEW screen, NOT Add** — it paints a sheet + a
+   dynamic jt182 action bar. Add/View are crossed like Train/Create (case 5/Add
+   label -> jt904/View; case 6/View label -> L12a0); the real party splice
+   (-27928 writes) is in CODE 21. The actual bug was jt574 (Create) auto-joining
+   the new char to the party (CHAR_INPARTY=1); FIXED (26fd85b) — Create now
+   benches it, so Create -> Add Character -> party is the faithful flow. The
+   faithful jt904/L12a0/CODE-21 screens are a fidelity upgrade, deferred.
 3. **Remove (jt556)** + **Delete (L15e2)** — the party-teardown / file-delete
    screens (port stubs today).
 4. The port currently **seeds a demo party** (port_test_seed_design) directly
