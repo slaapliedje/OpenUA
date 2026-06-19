@@ -63,8 +63,8 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 1 | 9 | 8 | 0 | 0 | 1 | **1** | boot / A5 init / entry |
 | CODE 2 | 14 | 5 | 0 | 0 | 9 | **9** | — |
 | CODE 3 | 116 | 90 | 2 | 0 | 24 | **26** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
-| CODE 4 | 117 | 54 | 13 | 0 | 50 | **63** | low-level helpers + byte-swap (JT[1180]/JT[1199]) + trap glue |
-| CODE 5 | 129 | 74 | 10 | 0 | 45 | **55** | string/number format + error dialog (JT[1084]) + Toolbox helpers |
+| CODE 4 | 117 | 54 | 13 | 0 | 50 | **63** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
+| CODE 5 | 129 | 74 | 10 | 0 | 45 | **55** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 116 | 1 | 0 | 8 | **9** | file-group cache + GLIB art + resource manager |
 | CODE 7 | 97 | 68 | 6 | 0 | 23 | **29** | list dialog (JT[169]) + text widgets |
 | CODE 8 | 46 | 28 | 1 | 0 | 17 | **18** | — |
