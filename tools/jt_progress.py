@@ -55,6 +55,17 @@ CHUNK = 50
 # charted. Unlabelled segments print "—" (objective counts still apply).
 SEGMENT_SUBSYS = {
     1:  "boot / A5 init / entry",
+    2:  "design EDITOR — event/zone/map-step editing (Step Event, Rest in "
+        "Zone, Chain, col/row cursor) — AUTHORING, not the play path",
+    8:  "foundational UI/file library — numeric-input fields (Valid numbers "
+        "%ld-%ld), menu manager (Too many menus), file-group prefixes "
+        "(DSN/GAME/SAVE/STR/STRG)",
+    9:  "INVENTORY + spellbook viewer — item/spell list UI w/ pictures "
+        "(Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel)",
+    10: "PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images "
+        "(jt1004 art primitive); overlaps the event-picture path (#125)",
+    11: "design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to "
+        "write geo') — AUTHORING, not the play path",
     3:  "Mac Toolbox shim (QuickDraw / Dialog / Event / Menu)",
     4:  "display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord "
         "scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap "
@@ -73,8 +84,12 @@ SEGMENT_SUBSYS = {
     17: "character generation (jt574 / jt557 / l618c)",
     18: "combat engine (jt610 / jt856 / l4d98 / l709e)",
     19: "character sheet + party container (jt886 / jt904 / jt910)",
-    20: "encounter prompt + event dispatch",
-    21: "play command bar / in-dungeon UI",
+    20: "ENCOUNTER / combat narration + event text — 'A battle begins', "
+        "'is hit FOR N points of Damage', 'dies', wish/genie events; the "
+        "l709e event dispatch (in-game, combat path #115)",
+    21: "SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen "
+        "(memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows "
+        "that spell') — NOT the command bar (was mislabeled)",
     22: "main menu + design select + editor tools (jt315 / jt290 / jt327)",
 }
 

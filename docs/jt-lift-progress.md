@@ -61,16 +61,16 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE | entries | done | stub | standin | missing | pending | subsystem |
 |-----:|--------:|-----:|-----:|--------:|--------:|--------:|-----------|
 | CODE 1 | 9 | 8 | 0 | 0 | 1 | **1** | boot / A5 init / entry |
-| CODE 2 | 14 | 5 | 0 | 0 | 9 | **9** | — |
+| CODE 2 | 14 | 5 | 0 | 0 | 9 | **9** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
 | CODE 3 | 116 | 90 | 2 | 0 | 24 | **26** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
 | CODE 4 | 117 | 54 | 13 | 0 | 50 | **63** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
 | CODE 5 | 129 | 74 | 10 | 0 | 45 | **55** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 116 | 1 | 0 | 8 | **9** | file-group cache + GLIB art + resource manager |
 | CODE 7 | 97 | 68 | 6 | 0 | 23 | **29** | list dialog (JT[169]) + text widgets |
-| CODE 8 | 46 | 28 | 1 | 0 | 17 | **18** | — |
-| CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | — |
-| CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | — |
-| CODE 11 | 12 | 6 | 0 | 0 | 6 | **6** | — |
+| CODE 8 | 46 | 28 | 1 | 0 | 17 | **18** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
+| CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
+| CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
+| CODE 11 | 12 | 6 | 0 | 0 | 6 | **6** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
 | CODE 12 | 23 | 10 | 2 | 0 | 11 | **13** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 20 | 0 | 0 | 2 | **2** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 23 | 5 | 0 | 16 | **21** | area-map render tree (jt521) |
@@ -79,8 +79,8 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 17 | 20 | 17 | 2 | 0 | 1 | **3** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 165 | 6 | 0 | 0 | **6** | combat engine (jt610 / jt856 / l4d98 / l709e) |
 | CODE 19 | 35 | 22 | 1 | 0 | 12 | **13** | character sheet + party container (jt886 / jt904 / jt910) |
-| CODE 20 | 14 | 6 | 0 | 0 | 8 | **8** | encounter prompt + event dispatch |
-| CODE 21 | 9 | 1 | 3 | 0 | 5 | **8** | play command bar / in-dungeon UI |
+| CODE 20 | 14 | 6 | 0 | 0 | 8 | **8** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
+| CODE 21 | 9 | 1 | 3 | 0 | 5 | **8** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 40 | 0 | 0 | 11 | **11** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
