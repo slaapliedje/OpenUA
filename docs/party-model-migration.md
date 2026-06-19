@@ -1,5 +1,13 @@
 # Party data-model migration: cg_pool stand-in → faithful -27928 list
 
+**STATUS: COMPLETE 2026-06-19 (3fb86e1).** `CHAR_INPARTY` and `cg_party_relink`
+are gone; `-27928` is the sole party truth (`cg_in_party()` answers membership).
+Add/Remove/Delete/Create/Save/Load all manage the list directly. See the
+progress log below for the four commits. Remaining work is UI fidelity
+(faithful Add/Remove chrome — the `cg_*` screens still drive `-27928`
+correctly, just with port chrome) and the boot savegame-party auto-load, both
+tracked separately.
+
 Goal (user-directed 2026-06-19): eliminate the port's character-management
 stand-ins so the Training Hall runs the faithful Mac code. The blocker is the
 **party data model** — the two models are incompatible and must be switched
@@ -50,6 +58,18 @@ stub until 2026-06-19; lifting it activated only that empty-roster branch.)
 
 ## Progress log
 
+- **2026-06-19 (3fb86e1):** **CHAR_INPARTY + cg_party_relink retired — migration
+  COMPLETE.** Membership IS the `-27928` list (`cg_in_party()` reads it; the flag
+  byte rec[210] is gone). Every read (cg_party_size, cg_collect_addable, l15e2)
+  and write (Add/Remove/Create/l12a0/jt579) now uses the list directly. The boot
+  party is built by `cg_party_build_from_pool` (jt590-append). KEY FINDING: the
+  per-Play relink was NOT redundant — **l5124 (game-init) zeroes `-27928` between
+  the play-entry's two seed passes**, and the relink rebuilt it from the
+  surviving CHAR_INPARTY flags. Replaced with a GUARDED rebuild (only when
+  `-27928` is empty), so it repopulates after l5124 at boot yet preserves
+  in-session edits (which keep the list non-empty) on a Hall round-trip. The
+  faithful post-l5124 repopulation is the savegame load (not yet boot-wired).
+  Hatari-verified: boot 4 / Remove 3 / Add 4 / Save+Remove+Load -> 4 restored.
 - **2026-06-19 (b17c76e):** **savegame party persistence** — the party now
   round-trips to disk. The deferred party-roster block in the faithful save/load
   serializers is finished: `jt580` (save) writes player + position + state + a
