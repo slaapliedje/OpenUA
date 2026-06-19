@@ -4736,10 +4736,16 @@ static void jt1135(short v1, short v2, short *out1, short *out2);
  * 5 -> JT[1190]); mode 0 (opaque frame edges) shares it harmlessly.
  * Mode 2 (Mac L2bfc) is PackBits-compressed 8bpp colour, decoded per row
  * via jt1171 (_UnpackBits) — the FRAME.CTL top/bottom bars and the play
- * command bar. The remaining arms — 7 = RLE transparency (L2b9a/
- * JT[1195]), 3 = composite, 10 = wrap — stay deferred. A 1bpp source
+ * command bar. Mode 7 (Mac L2b9a / JT[1195]) is transparency RLE — the
+ * FRAME compass faces, the title-screen logos — decoded via decode_glib_t7
+ * into the shared chunky scratch (index 0 = transparent), then blit. The
+ * remaining arms — 3 = composite, 10 = wrap — stay deferred. A 1bpp source
  * (flags 0x40 clear) falls back to the mono OR leaf in the current QD
  * foreground colour. */
+static const unsigned char *decode_glib_t7(const unsigned char *src,
+                                           unsigned char *dst,
+                                           short w, short h);
+static unsigned char g_glib_dec[320 * 200];     /* defined below; shared scratch */
 static void l2d4e(const unsigned char *src, short bpp_w, short height,
                   short y, short x, short flags)
 {
@@ -4762,8 +4768,8 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	if (x >= right || x + pix_w <= left)
 		return;
 
-	if (mode == 3 || mode == 7 || mode == 10) {
-		PROBE("l2d4e-mode");          /* deferred composite/RLE/wrap arms */
+	if (mode == 3 || mode == 10) {
+		PROBE("l2d4e-mode");          /* deferred composite/wrap arms */
 		return;
 	}
 
@@ -4773,6 +4779,37 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	if (left < 0)    left = 0;
 	if (bottom > sh) bottom = sh;
 	if (right > sw)  right = sw;
+
+	if (mode == 7) {
+		/* transparency RLE (Mac L2b9a / JT[1195]): decode the whole piece
+		 * into the chunky scratch (index 0 = transparent), then blit the
+		 * non-zero pixels — the FRAME compass faces (pieces 22..25) live
+		 * here; the deferred return left the compass with no needle. */
+		long cap = (long)pix_w * height;
+		const unsigned char *s;
+
+		if (cap > (long)sizeof g_glib_dec)
+			return;
+		memset(g_glib_dec, 0, (size_t)cap);
+		(void)decode_glib_t7(src, g_glib_dec, pix_w, height);
+		for (r = 0; r < height; r++) {
+			short dy = (short)(y + r);
+			s = g_glib_dec + (long)r * pix_w;
+			if (dy < top || dy >= bottom)
+				continue;
+			for (c = 0; c < pix_w; c++) {
+				unsigned char v = s[c];
+				short dx;
+				if (v == 0)           /* index 0 = transparent */
+					continue;
+				dx = (short)(x + c);
+				if (dx < left || dx >= right)
+					continue;
+				px[(long)dy * pitch + dx] = v;
+			}
+		}
+		return;
+	}
 
 	if (mode == 2) {
 		/* PackBits-compressed 8bpp colour rows (Mac L2bfc): each row is
@@ -12495,6 +12532,34 @@ static short jt236(void)
 	return jt276(cell) == 0 ? 1 : 0;
 }
 
+/* Redraw the compass surround + the facing-indexed face — FRAME pieces 21 then
+ * 22..25 by the direction letter at g_a5_27980[facing*3] ('E'/'N'/'S'/'W' ->
+ * 25/22/23/24), exactly as l67ca/jt78 do at entry and after an event. The walk
+ * re-render (jt312 + jt304) doesn't touch the chrome, so the compass face stayed
+ * frozen on a turn; call this after the per-step view render to track facing.
+ * Reset the clip to full screen first (render_3d_faithful leaves the 88x88
+ * viewport clip active, which would clip the compass out). #124. */
+static void port_draw_compass(void)
+{
+	short letter;
+
+	jt1193();                                /* clip = full screen */
+	jt1001((short)8000, (short)8000, (short)1, (short)21);  /* surround */
+	/* The -27980 direction table is 8 entries (the 8 compass points,
+	 * first byte = 'N'/'E'/'S'/'W' for the cardinals). Facing is [1,8];
+	 * North is facing 8, which would over-read entry 8 (past the table) —
+	 * the Mac gets 'N' there by data-layout luck, but the principled index
+	 * is mod-8 so North (8) maps to entry 0 = 'N'. */
+	letter = (short)(signed char)g_a5_27980[(g_a5_byte(-12286) & 7) * 3];
+	switch (letter) {
+	case 'E': jt1001((short)8000, (short)8000, (short)1, (short)25); break;
+	case 'N': jt1001((short)8000, (short)8000, (short)1, (short)22); break;
+	case 'S': jt1001((short)8000, (short)8000, (short)1, (short)23); break;
+	case 'W': jt1001((short)8000, (short)8000, (short)1, (short)24); break;
+	default:                                                         break;
+	}
+}
+
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
                          short a_deep, long cb1, long cb2)
 {
@@ -12653,6 +12718,8 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			jt280(rec, (short)8024, (short)8092, (short)0);
 		}
 		((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
+		if ((unsigned char)a_deep)
+			port_draw_compass();    /* track the party facing */
 		qd_present();
 	}
 
