@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 826 done (734 lifted, 20 noop, 72 alias), 149 stub, 0 stand-in, 230 missing.
+**1205 distinct JT entries are called.** Overall: 821 done (734 lifted, 20 noop, 67 alias), 138 stub, 0 stand-in, 246 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -42,20 +42,20 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 8 | 351–400 | **49/50** | 36 | 13 | 1 | 0 | 0 |
 | 9 | 401–450 | **50/50** | 39 | 11 | 0 | 0 | 0 |
 | 10 | 451–500 | **50/50** | 47 | 3 | 0 | 0 | 0 |
-| 11 | 501–550 | **22/50** | 21 | 1 | 12 | 0 | 16 |
-| 12 | 551–600 | **26/50** | 21 | 5 | 8 | 0 | 16 |
-| 13 | 601–650 | **19/50** | 18 | 1 | 11 | 0 | 20 |
-| 14 | 651–700 | **15/50** | 12 | 3 | 3 | 0 | 32 |
+| 11 | 501–550 | **22/50** | 21 | 1 | 11 | 0 | 17 |
+| 12 | 551–600 | **25/50** | 21 | 4 | 7 | 0 | 18 |
+| 13 | 601–650 | **19/50** | 18 | 1 | 8 | 0 | 23 |
+| 14 | 651–700 | **13/50** | 12 | 1 | 1 | 0 | 36 |
 | 15 | 701–750 | **19/50** | 16 | 3 | 1 | 0 | 30 |
 | 16 | 751–800 | **28/50** | 26 | 2 | 5 | 0 | 17 |
-| 17 | 801–850 | **7/50** | 7 | 0 | 38 | 0 | 5 |
+| 17 | 801–850 | **7/50** | 7 | 0 | 37 | 0 | 6 |
 | 18 | 851–900 | **11/50** | 11 | 0 | 39 | 0 | 0 |
 | 19 | 901–950 | **48/50** | 48 | 0 | 2 | 0 | 0 |
 | 20 | 951–1000 | **47/50** | 47 | 0 | 3 | 0 | 0 |
-| 21 | 1001–1050 | **43/50** | 42 | 1 | 2 | 0 | 5 |
-| 22 | 1051–1100 | **23/50** | 18 | 5 | 8 | 0 | 19 |
+| 21 | 1001–1050 | **43/50** | 42 | 1 | 1 | 0 | 6 |
+| 22 | 1051–1100 | **22/50** | 18 | 4 | 7 | 0 | 21 |
 | 23 | 1101–1150 | **12/50** | 10 | 2 | 2 | 0 | 36 |
-| 24 | 1151–1200 | **6/50** | 5 | 1 | 14 | 0 | 30 |
+| 24 | 1151–1200 | **5/50** | 5 | 0 | 13 | 0 | 32 |
 | 25 | 1201–1205 | **1/5** | 1 | 0 | 0 | 0 | 4 |
 
 ## Coverage by CODE segment (what's used where)
@@ -70,25 +70,25 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 1 | 9 | 8 | 0 | 0 | 1 | **1** | boot / A5 init / entry |
 | CODE 2 | 14 | 5 | 0 | 0 | 9 | **9** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
 | CODE 3 | 116 | 90 | 2 | 0 | 24 | **26** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
-| CODE 4 | 117 | 55 | 15 | 0 | 47 | **62** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
-| CODE 5 | 129 | 79 | 11 | 0 | 39 | **50** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
-| CODE 6 | 125 | 116 | 2 | 0 | 7 | **9** | file-group cache + GLIB art + resource manager |
-| CODE 7 | 97 | 71 | 9 | 0 | 17 | **26** | list dialog (JT[169]) + text widgets |
+| CODE 4 | 117 | 54 | 13 | 0 | 50 | **63** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
+| CODE 5 | 129 | 78 | 10 | 0 | 41 | **51** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
+| CODE 6 | 125 | 116 | 1 | 0 | 8 | **9** | file-group cache + GLIB art + resource manager |
+| CODE 7 | 97 | 69 | 8 | 0 | 20 | **28** | list dialog (JT[169]) + text widgets |
 | CODE 8 | 46 | 29 | 1 | 0 | 16 | **17** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
 | CODE 11 | 12 | 6 | 0 | 0 | 6 | **6** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
-| CODE 12 | 23 | 11 | 3 | 0 | 9 | **12** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
+| CODE 12 | 23 | 11 | 2 | 0 | 10 | **12** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 20 | 0 | 0 | 2 | **2** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 25 | 6 | 0 | 13 | **19** | area-map render tree (jt521) |
-| CODE 15 | 19 | 11 | 2 | 0 | 6 | **8** | play-entry + save/load + party list (jt574..590 / l07dc) |
-| CODE 16 | 115 | 33 | 82 | 0 | 0 | **82** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
+| CODE 15 | 19 | 11 | 1 | 0 | 7 | **8** | play-entry + save/load + party list (jt574..590 / l07dc) |
+| CODE 16 | 115 | 33 | 81 | 0 | 1 | **82** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 17 | 2 | 0 | 1 | **3** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 165 | 6 | 0 | 0 | **6** | combat engine (jt610 / jt856 / l4d98 / l709e) |
-| CODE 19 | 35 | 25 | 3 | 0 | 7 | **10** | character sheet + party container (jt886 / jt904 / jt910) |
+| CODE 19 | 35 | 24 | 2 | 0 | 9 | **11** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 10 | 0 | 0 | 4 | **4** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
 | CODE 21 | 9 | 1 | 3 | 0 | 5 | **8** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
-| CODE 22 | 51 | 43 | 2 | 0 | 6 | **8** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
+| CODE 22 | 51 | 43 | 0 | 0 | 8 | **8** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
@@ -333,7 +333,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 379 pending (stub+standin+missing), by call count:
+Top 50 of 384 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt360 (2 calls, CODE 8) — missing
@@ -357,7 +357,7 @@ Top 50 of 379 pending (stub+standin+missing), by call count:
 - jt553 (2 calls, CODE 14) — missing
 - jt554 (2 calls, CODE 14) — stub
 - jt556 (2 calls, CODE 17) — stub
-- jt597 (2 calls, CODE 16) — stub
+- jt597 (2 calls, CODE 16) — missing
 - jt640 (2 calls, CODE 16) — stub
 - jt655 (2 calls, CODE 16) — stub
 - jt658 (2 calls, CODE 16) — stub
@@ -366,6 +366,7 @@ Top 50 of 379 pending (stub+standin+missing), by call count:
 - jt704 (2 calls, CODE 16) — stub
 - jt744 (2 calls, CODE 18) — stub
 - jt890 (2 calls, CODE 19) — stub
+- jt893 (2 calls, CODE 19) — missing
 - jt901 (2 calls, CODE 19) — missing
 - jt921 (2 calls, CODE 12) — missing
 - jt924 (2 calls, CODE 12) — missing
@@ -383,6 +384,5 @@ Top 50 of 379 pending (stub+standin+missing), by call count:
 - jt1049 (2 calls, CODE 5) — missing
 - jt1051 (2 calls, CODE 5) — missing
 - jt1057 (2 calls, CODE 5) — missing
-- jt1073 (2 calls, CODE 5) — stub
-- jt1079 (2 calls, CODE 5) — missing
+- jt1073 (2 calls, CODE 5) — missing
 
