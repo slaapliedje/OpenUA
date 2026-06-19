@@ -1,5 +1,13 @@
 # Stub inventory + campaign audit — 2026-06-15 (refresh)
 
+> **The canonical, always-current audit is the auto-generated
+> [`docs/jt-lift-progress.md`](jt-lift-progress.md)** (run `tools/jt_progress.py`).
+> As of 2026-06-19 it carries: a **50-entry chunk** progress table, a **Coverage
+> by CODE segment** table (_what's used where_ — which subsystem each pending
+> block belongs to), the **local lXXXX leaf-stub** list, and the **stand-in**
+> register. This file keeps the hand-written triage / trap-list narrative below;
+> trust the tool for counts.
+
 A triage of the remaining stubs/missing in `src/engine/boot.c`, plus the
 `port_*` stand-in debt and the trap list. Regenerate the numbers with
 `tools/jt_progress.py` (status classifier over the 1205 JT entries).
