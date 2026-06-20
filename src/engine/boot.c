@@ -4746,6 +4746,9 @@ static const unsigned char *decode_glib_t7(const unsigned char *src,
                                            unsigned char *dst,
                                            short w, short h);
 static unsigned char g_glib_dec[320 * 200];     /* defined below; shared scratch */
+/* last GLIB blit's landed rect (debug: piece w/h + final screen origin), set by
+ * l309c / l309c_tile and snapshotted per slot by the J200DIFF dump. */
+static short g_lc_w, g_lc_h, g_lc_x0, g_lc_y0;
 static void l2d4e(const unsigned char *src, short bpp_w, short height,
                   short y, short x, short flags)
 {
@@ -4955,6 +4958,12 @@ static void l309c(short a, short b, long handle, short size)
 
 	height = (short)(((unsigned short)metric[0] << 8) | metric[1]);
 	bpp_w  = (short)metric[6];
+	/* record the landed rect so the J200DIFF dump can report each wall slot's
+	 * actual on-screen piece (final x0/y0 after jt1135+bearing, w=bpp_w*8, h) —
+	 * the wall path is l309c (not l309c_tile), so this is the only place that
+	 * sees where the near/far faces really land. */
+	g_lc_x0 = sx; g_lc_y0 = sy;
+	g_lc_w  = (short)(bpp_w * 8); g_lc_h = height;
 	l2d4e((const unsigned char *)(uintptr_t)info, bpp_w, height,
 	      sy, sx, mode);
 }
@@ -10249,8 +10258,7 @@ static long jt1004_handle(void)
  * remain ahead — opaque 1bpp wall tiles take the mono OR path. Threads
  * an explicit page instead of the Mac page descriptor (g_a5_-2570);
  * distinct from the older l309c() channel stub that jt1001 still uses. */
-/* last tile l309c_tile placed (debug: size + landed origin) */
-static short g_lc_w, g_lc_h, g_lc_x0, g_lc_y0;
+/* g_lc_w/h/x0/y0 (the last-blit landed rect) are defined up by l2d4e. */
 static void l309c_tile(unsigned char *page, short top, short left,
                        long handle, short idx) __attribute__((unused));
 static void l309c_tile(unsigned char *page, short top, short left,
