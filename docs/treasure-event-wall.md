@@ -199,13 +199,24 @@ not the multi-session item first feared.
   + take) — the visible "take 100 Platinum + a ring".
 
 ### B4 follow-ups (the deferred action handlers)
-| sym | addr | size | role |
-|-----|------|-----:|------|
-| `jt929` | CODE12+0x3b4a | ~468B | "Take: Money/Items/Exit" driver (jt185 case 1) |
-| `jt894` | CODE19+0x46e0 | ~902B | pool / sell the active char's money |
-| `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (merchant/inventory) |
-| `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) |
-| `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) |
+| sym | addr | size | role | status |
+|-----|------|-----:|------|--------|
+| `jt929` | CODE12+0x3b4a | ~468B | "Take: Money/Items/Exit" driver (jt185 case 1) | ✅ DONE |
+| `jt894` | CODE19+0x46e0 | ~902B | deposit/drop the active char's money (jt185 case 3) | ✅ DONE (+l465c) |
+| `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (jt185 case 4) | ⛔ NEXT — see below |
+| `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) | ⛔ |
+| `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) | ⛔ |
+
+### jt893 scope (item-management screen, jt185 case 4) — recon 2026-06-20
+The full per-character inventory/item screen. ~1962B (CODE19 0x25ce..0x2d78).
+GOOD NEWS: its external deps are ALL LIFTED — a call survey of the whole body
+shows only `jt155` (=L11a8 row builder), `jt96` (button/text), `jt488` (sprintf),
+`jt30`, `jt28`; everything else (the ~40 L2xxx) is internal control flow. So it's
+a big but SELF-CONTAINED lift, no missing sub-tree. It conditionally builds the
+action menu (jt155 rows gated on item flags: View/Ready/Trade/Drop/Give/... per
+rec[193] item count, rec[382] readied, rec[147] class, -27990 mode) then runs its
+own dispatch. Deserves its own focused session (intricate inventory state; a bug
+= item dup/loss). jt583/jt586 (vault file I/O) are the only other B4 follow-ups.
 
 ### jt929 "take treasure" cluster — bottom-up lift (in progress 2026-06-20)
 
