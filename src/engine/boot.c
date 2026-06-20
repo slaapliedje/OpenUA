@@ -53081,9 +53081,186 @@ static void jt921(void)
 	}
 }
 
-/* ---- jt183 merchant-screen arm 5 handler (not yet lifted) ----------------- */
-static void jt922(unsigned char *out)                       /* CODE12+0x2554 — gems/jewelry op (arm 5) */
-	{ PROBE("jt922"); if (out) *out = 0; }
+/* L1c1c (CODE 12 + 0x1c1c) — credit an appraised gem/jewelry `value` (in
+ * platinum) to the active char's coin word (rec[76]); if the coin weight would
+ * overload (l1baa), warn ("Overloaded. Money will be put in Pool."), give only
+ * what fits, and spill the remainder into the shared pool (-25314). Books the
+ * coin weight via jt883. The "sell" path of the appraisal screen. */
+static void l1c1c(long value)
+{
+	unsigned char *chr = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	long           slack;
+
+	PROBE("L1c1c");
+	if (l1baa((long)(uintptr_t)chr, value, &slack)) {
+		jt42(ua_strs_at(0x609e));        /* "Overloaded. Money will be put in Pool." */
+		*(unsigned short *)(chr + 76) =
+		    (unsigned short)(*(unsigned short *)(chr + 76) + slack);
+		jt883(chr, (short)slack);
+		g_a5_long(-25314) += (value - slack);
+	} else {
+		*(unsigned short *)(chr + 76) =
+		    (unsigned short)(*(unsigned short *)(chr + 76) + value);
+		jt883(chr, (short)value);
+	}
+}
+
+/* jt922 settle tail (shared by the gem and jewelry arms, L2842 / L2b56). Paint
+ * "<value> platinum.", then offer to keep the appraised stone as a kind-47 item
+ * (icon 122 gem / 123 jewelry, worth value*2) when it fits and the pack has room
+ * (l1baa + rec[193] < 16); otherwise — or on decline — sell it for platinum
+ * (l1c1c). `label` is the worth-message A5 string (gem -14372 / jewelry -14368).
+ * The "%s%s%s"/" platinum." literals are byte-identical duplicates across the
+ * two arms, so the gem copies (0x610c/0x6114) serve both. */
+static void jt922_settle(unsigned char *chr, short value, long label,
+                         unsigned char icon)
+{
+	char          buf[42];
+	long          slack, cur, node;
+	unsigned char cantkeep, sel;
+
+	jt478(value, buf);
+	jt384(buf, jt488(ua_strs_at(0x610c),             /* "%s%s%s" */
+	      (const char *)(uintptr_t)label, buf, ua_strs_at(0x6114)));  /* " platinum." */
+	jt94(1, 12, 11, 0, buf);
+	jt399(&g_a5_byte(-24126), 40, 255);
+	g_a5_byte(-24126) = 0;
+	if (l1baa((long)(uintptr_t)chr, 1, &slack) == 0 &&
+	    (unsigned char)chr[193] < 16) {
+		g_a5_byte(-24124) = 1;
+		cantkeep = 0;
+	} else {
+		cantkeep = 1;
+	}
+	sel = (unsigned char)jt182((const char *)(uintptr_t)g_a5_long(-13952),
+	                           g_a5_long(-13812), 0, 0);
+	jt176();
+	if (sel == 1 && cantkeep == 0) {
+		unsigned char *n;
+		node = jt61();
+		jt399((void *)(uintptr_t)node, 62, 0);
+		n = (unsigned char *)(uintptr_t)node;
+		*(long *)n = 0;                          /* next */
+		n[50] = 0;
+		n[43] = icon;                            /* 122 gem / 123 jewelry */
+		n[42] = 0;
+		n[41] = 0;
+		n[40] = 47;                              /* item kind */
+		*(short *)(n + 46) = (short)(value * 2); /* value */
+		*(short *)(n + 44) = 1;                  /* quantity */
+		n[51] = 0;
+		cur = *(long *)(chr + 8);
+		if (cur == 0) {
+			*(long *)(chr + 8) = node;
+		} else {
+			while (*(long *)(uintptr_t)cur != 0)
+				cur = *(long *)(uintptr_t)cur;
+			*(long *)(uintptr_t)cur = node;
+		}
+	} else {
+		l1c1c((long)value);
+	}
+}
+
+/* JT[922] (CODE 12 + 0x2554) — APPRAISE gems / jewelry (jt183 arm 5). Faithful
+ * lift of the appraisal screen: while the active char holds gems (rec[78]) or
+ * jewelry (rec[80]), paint the counts (jt478/jt488/jt94) + an Appraise-Gems /
+ * Appraise-Jewelry / Exit menu (l11a8), run the dialog (jt182), and on a pick
+ * consume one stone, roll d100 (jt870), and price it:
+ *   gems    -> fixed value tier 5 / 25 / 50 / 250 / 500 / 2500 platinum;
+ *   jewelry -> jt485(range)+base (50..5999 platinum, richer tiers).
+ * The settle tail (jt922_settle) then offers keep-as-item vs sell. *out is the
+ * arm's transfer flag (cleared when there is nothing to appraise). */
+static void jt922(unsigned char *out)
+{
+	unsigned char *chr;
+	unsigned char  done;
+
+	PROBE("jt922");
+	*out = 1;
+	chr = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (*(short *)(chr + 78) == 0 && *(short *)(chr + 80) == 0) {
+		jt42(ua_strs_at(0x60ec));        /* "No Gems or Jewelry" */
+		*out = 0;
+		return;
+	}
+
+	do {
+		char          gembuf[42];
+		char          jewbuf[42];
+		unsigned char rowcount, sel, roll;
+		short         value;
+
+		chr = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		if (*(short *)(chr + 78) == 0 && *(short *)(chr + 80) == 0) {
+			done = 1;
+			break;
+		}
+		done = 0;
+
+		/* L25a8 — paint the gem / jewelry counts + the menu. */
+		jt478(*(short *)(chr + 78), gembuf);
+		jt478(*(short *)(chr + 80), jewbuf);
+		jt384(gembuf, jt488(ua_strs_at(0x6100),          /* "%s%s" */
+		      (const char *)(uintptr_t)g_a5_long(-14384), gembuf));
+		jt384(jewbuf, jt488(ua_strs_at(0x6106),          /* "%s%s" */
+		      (const char *)(uintptr_t)g_a5_long(-14380), jewbuf));
+		jt76();
+		jt25((long)(uintptr_t)chr, 1, 1, 0);
+		jt94(1, 7, 11, 0, (const char *)(uintptr_t)g_a5_long(-14376));
+		jt94(1, 9, 11, 0, gembuf);
+		jt94(1, 10, 11, 0, jewbuf);
+		jt399(&g_a5_byte(-24126), 40, 255);
+		rowcount = 0;
+		if (*(short *)(chr + 78) != 0)
+			l11a8(0, &rowcount);
+		if (*(short *)(chr + 80) != 0)
+			l11a8(1, &rowcount);
+		l11a8(2, &rowcount);
+
+		sel = (unsigned char)jt182((const char *)(uintptr_t)g_a5_long(-13932),
+		                           g_a5_long(-13816), 1, 0);
+		if (g_a5_byte(-24139) && sel == 27)
+			sel = 2;
+
+		switch (sel) {                                   /* JT[3] 0..2 */
+		case 0:                                          /* appraise a gem */
+			if (*(short *)(chr + 78) == 0)
+				break;
+			*(short *)(chr + 78) -= 1;
+			roll = (unsigned char)jt870(1, 100);
+			if (roll <= 25)      value = 5;
+			else if (roll <= 50) value = 25;
+			else if (roll <= 70) value = 50;
+			else if (roll <= 90) value = 250;
+			else if (roll <= 99) value = 500;
+			else                 value = 2500;
+			jt922_settle(chr, value, -14372, (unsigned char)122);
+			break;
+		case 1:                                          /* appraise jewelry */
+			if (*(short *)(chr + 80) == 0)
+				break;
+			*(short *)(chr + 80) -= 1;
+			roll = (unsigned char)jt870(1, 100);
+			if (roll <= 10)      value = (short)(jt485(450) + 50);
+			else if (roll <= 20) value = (short)(jt485(500) + 100);
+			else if (roll <= 40) value = (short)(jt485(750) + 150);
+			else if (roll <= 50) value = (short)(jt485(1500) + 250);
+			else if (roll <= 70) value = (short)(jt485(2500) + 500);
+			else if (roll <= 90) value = (short)(jt485(3000) + 1000);
+			else                 value = (short)(jt485(5000) + 1000);
+			jt922_settle(chr, value, -14368, (unsigned char)123);
+			break;
+		case 2:                                          /* exit */
+			done = 1;
+			break;
+		default:
+			break;
+		}
+
+		jt21((long)(uintptr_t)chr);                      /* L2cda */
+	} while (done == 0);                                 /* L2ce4 */
+}
 static void l17f8(void) { PROBE("l17f8"); }                 /* CODE7+0x17f8 — exit-prompt text helper */
 
 /* JT[183] (CODE 7 + 0x3e68) — the merchant / shop treasure screen, sibling of

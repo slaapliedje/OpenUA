@@ -346,10 +346,22 @@ event: "The party enters a local shop." / "May I help you?"). Lifted both:
   poll -> l11a8 menu (arms 0..6, hide money arms 2/4 when no coin) -> l2ebc dialog
   -> JT[3]: 1 View(jt904) 2 Take-money(jt924) 3 Pool-coin(jt925) 4 jt921 5 jt922
   6 Exit(warn if coin remains) -> JT[3] repaint}. Arrow keys = char-switch
-  (jt936/jt934), Esc = exit. STUBS: jt921 (arm 4 money-pool op), jt922 (arm 5
-  gems/jewelry), l17f8 (exit-prompt text helper).
+  (jt936/jt934), Esc = exit.
 - `l5586` — the shop/merchant event: l442e picture + greeting + jt188 stock build
   (4x 3-byte slots ev[8/11/14/17]) -> jt183. Wired live into l709e case 8.
+
+#### jt183 arms 4 + 5 DONE 2026-06-20 (9a306e4 + this commit)
+- **jt921 (CODE12+0x1d90)** — SHARE: divide the -25314/-25310/-25306 pool equally
+  among eligible members (l1d42 count; jt5/jt6 div/mod; l1baa encumbrance gate
+  spilling to a remainder pass; jt901/rec[86] carry slack; leftover back to the
+  pool). l1d42 lifted with it. (9a306e4)
+- **jt922 (CODE12+0x2554)** — APPRAISE gems (rec[78]) / jewelry (rec[80]): per
+  stone roll d100 (jt870) -> gem fixed tiers 5/25/50/250/500/2500 pt, jewelry
+  jt485(range)+base; settle = keep as a kind-47 item (icon 122 gem / 123 jewelry,
+  worth value*2) or sell for platinum (l1c1c, overflow to the pool). l1c1c + the
+  shared jt922_settle tail lifted with it.
+Only **l17f8** (the arm-6 exit-prompt text helper) is still stubbed in jt183 —
+cosmetic. The merchant/vault treasure screen is now functionally complete.
 
 CAVEAT for the caravan reward: this works IF the caravan/merchant cell is a
 case-8 SHOP event (likely — it shows a merchant picture). If instead it's a
