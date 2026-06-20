@@ -159,11 +159,16 @@ A). l216a is the largest single piece.
 
 | sym | addr | size | role | status |
 |-----|------|-----:|------|--------|
-| `l11a8` | 0x11a8 | 70B | append a display row to the -24126 array | ✅ LIFTED (this session) |
-| `L2ebc` | 0x2ebc | ~232B (frame -82) | the picker DIALOG runner (draw + input loop) | ⛔ lift — central |
-| `L16ea` | 0x16ea | ? | (take-confirm helper) | ⛔ |
-| `L17f8` | 0x17f8 | ? | (money-row draw helper) | ⛔ |
-| `L2858` | 0x2858 | ? | (dialog setup helper) | ⛔ |
+| `l11a8` | 0x11a8 | 70B | append a display row to the -24126 array | ✅ LIFTED (B1) |
+| `l2ebc` | 0x2ebc | ~232B (frame -82) | the picker DIALOG runner (draw + input loop) | ✅ LIFTED (B2) |
+| `L16ea` | 0x16ea | ? | (take-confirm helper, jt183) | ⛔ |
+| `L17f8` | 0x17f8 | ? | (money-row draw helper, jt183) | ⛔ |
+| `L2858` | 0x2858 | — | pen-mode setup | ✅ already lifted (l2858) |
+
+`l2ebc`'s helper cluster (`l206e`/`l25b6`/`l23b4`/`l2170`/`l1f3e`/`l177a`/
+`l2858`/`jt396`) was ALL already lifted — its sibling dialog runner `jt163`
+(CODE7+0x2e30) uses the identical cluster — so B2 was a clean structural lift,
+not the multi-session item first feared.
 
 ### Dependency lift-status (port)
 
@@ -176,8 +181,9 @@ A). l216a is the largest single piece.
 ### Proposed Slice-B sub-order (each its own commit/session)
 
 - **B1** ✅ `l11a8` row-builder leaf (done).
-- **B2** the `L2ebc` dialog runner + `L16ea`/`L17f8`/`L2858` draw helpers (the
-  shared UI core both drivers need).
+- **B2** ✅ `l2ebc` dialog runner (done — its helper cluster was already lifted;
+  `l2858` is the only one of the original "draw helper" guesses, also already
+  lifted). Remaining shared draw helpers are `L16ea`/`L17f8`, used by jt183.
 - **B3** the missing CODE-12 button helpers `jt921`/`jt922`/`jt924`/`jt583`.
 - **B4** `jt185` (per-char screen) + `l3a32` (Vault trigger) — the smaller
   driver first; verifiable via a Vault event.

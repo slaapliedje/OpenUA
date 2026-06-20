@@ -30881,6 +30881,58 @@ static short jt163(unsigned char *str, long bar, short flag1, short flag2)
 	return l25b6(tmp, buf, &g_a5_24139);
 }
 
+/* L2ebc (CODE 7 + 0x2ebc) — the treasure/exchange picker DIALOG runner, and
+ * the shared dialog core both treasure pickers drive (jt183 party-distribution,
+ * jt185 per-character). Arms the dialog-bar rect (-19172/-19174 = 8016/8068),
+ * then takes one of two paths:
+ *   - FAST (jt396 finds `bar`'s string already matches the cached prompt at
+ *     -14644): no content rebuild — re-stamp the bar (l2170(1)/l2858(2)/l177a/
+ *     l1f3e), re-arm the modal loop (l23b4 -> l25b6 with no buffer), clear the
+ *     cancel byte -24139, and return 13 (a refresh result).
+ *   - NORMAL: unless the play mode -13018 is 12/13, arm pen mode 2 (l2858);
+ *     lay the prompt/option cluster into a local buffer (l206e, suffix = `str`,
+ *     trailing flag = `c`), stamp its width (l2170), size the bar (l1f3e), then
+ *     run the modal keystroke loop (l23b4 on `d`'s low byte -> l25b6 into the
+ *     cancel byte -24139) and return the selected option.
+ * Sibling of jt163; all deps already lifted. Slice B core (see
+ * docs/treasure-event-wall.md). Marked unused until jt183/jt185 land. */
+static unsigned char l2ebc(long str, long bar, short c, short d)
+                                                  __attribute__((unused));
+static unsigned char l2ebc(long str, long bar, short c, short d)
+{
+	unsigned char buf[80];
+	unsigned char cbyte = (unsigned char)c;
+	unsigned char result;
+	short         tmp;
+
+	PROBE("L2ebc");
+	g_a5_19172 = 8016;
+	g_a5_19174 = 8068;
+
+	if (jt396((const char *)(uintptr_t)bar,
+	          (const char *)g_a5_buf(-14644)) != 0) {
+		/* L2ede — fast path: the same prompt is already on screen. */
+		l2170((short)1);
+		l2858((short)2);
+		l177a();
+		l1f3e((short)g_a5_19172, (short)g_a5_19174);
+		tmp = l23b4((short)(signed char)(d & 0xff));
+		(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
+		g_a5_byte(-24139) = 0;
+		result = 13;
+	} else {
+		/* L2f30 — rebuild the dialog content and run the modal loop. */
+		if (g_a5_word(-13018) != 12 && g_a5_word(-13018) != 13)
+			l2858((short)2);
+		tmp = l206e(bar, buf, (const char *)(uintptr_t)str, &cbyte);
+		l2170(tmp);
+		l1f3e((short)g_a5_19172, (short)g_a5_19174);
+		tmp = l23b4((short)(signed char)(d & 0xff));
+		result = (unsigned char)l25b6(tmp, buf, &g_a5_24139);
+	}
+	return result;
+}
+
 /* JT[888] (CODE 19 + 0x596a) — the interactive target picker ("Cast
  * Spell on whom").  Highlights the current pick (jt153/-13014), then
  * loops: roster repaint (jt937), prompt + keystroke (jt163 over the
