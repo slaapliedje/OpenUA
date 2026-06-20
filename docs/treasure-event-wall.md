@@ -203,7 +203,7 @@ not the multi-session item first feared.
 |-----|------|-----:|------|--------|
 | `jt929` | CODE12+0x3b4a | ~468B | "Take: Money/Items/Exit" driver (jt185 case 1) | ✅ DONE |
 | `jt894` | CODE19+0x46e0 | ~902B | deposit/drop the active char's money (jt185 case 3) | ✅ DONE (+l465c) |
-| `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (jt185 case 4) | ⛔ NEXT — see below |
+| `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (jt185 case 4) | ✅ DONE 2026-06-20 — dispatcher + 2 inline arms faithful; 7 sub-arms stubbed |
 | `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) | ✅ DONE |
 | `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) | ✅ DONE |
 
@@ -242,6 +242,33 @@ action menu (jt155 rows gated on item flags: View/Ready/Trade/Drop/Give/... per
 rec[193] item count, rec[382] readied, rec[147] class, -27990 mode) then runs its
 own dispatch. Deserves its own focused session (intricate inventory state; a bug
 = item dup/loss). jt583/jt586 (vault file I/O) are the only other B4 follow-ups.
+
+#### jt893 DONE 2026-06-20 — dispatcher + the 2 inline arms (Level-2 lift)
+Lifted faithfully as a dialog-loop dispatcher (the Level-2 exemplar): init ->
+menu-row build loop (l11a8, arm values 0..9 gated on -27990 mode / rec[382]
+readied / rec[147] class / rec[94] status / the -28006 design header) ->
+item-row render (jt28) -> conditional sheet repaint (jt79/jt25/jt94) -> list
+dialog (jt169) -> Esc=Exit(9) -> JT[3] dispatch -> jt21. The loop exits on
+Exit, on *out (a transfer flag the ready arm sets), or when the char runs out
+of items. Binary +16KB (the body + its strings became reachable). Lifted with
+it:
+- `l23d2_c19` (CODE19 L23d2, ~500B) — the shared "may this item be parted
+  with?" gate (cases 2/3/4/7). Readied -> "Must be unreadied"; scroll/bundle
+  with a pending-scribe charge bit -> "Okay to lose it?" confirm. NAMED to
+  dodge the render-helper `l23d2` collision (lXXXX-collision trap). Reproduces
+  one faithful quirk: the bundle-walk loop re-tests the bundle HEAD's charge
+  bits, not the running cursor, while the cursor advances to the chain end.
+- INLINE arm 3 (drop / into-vault): when -27990==10 appends a 62-byte node
+  copy to the -25302 vault list (jt477 from the -21508 bucket, jt71/jt72
+  count fixup, bundle [58] chain detach), else "gone forever" + "Drop It?"
+  confirm. arm 4 (trade/give): "%s%s%s" prompt + jt159 + jt30. Both use the
+  already-lifted jt28/jt96/jt488/jt30/jt103/jt159 and were the high-value
+  arms (they touch the vault I/O just built).
+STUBBED (each its own follow-up sub-function): `l30bc` examine, `l3b6e`
+ready/unready, `l3228` use, `l32c4` halve/split, `jt889` join-bundle (already
+stubbed), `jt189` sell, `jt190` identify. NOT yet Hatari-tested (reach it via
+jt185 case 4 "manage items" inside a Vault event). This closes the LAST jt185
+arm — all six cases now route faithfully.
 
 ### jt929 "take treasure" cluster — bottom-up lift (in progress 2026-06-20)
 

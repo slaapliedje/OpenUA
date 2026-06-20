@@ -52572,10 +52572,366 @@ static void jt894(short flag)
 	} while (exit_flag == 0);
 }
 
-/* JT[893] (CODE 19 + 0x25ce, ~1962B) — the item-management dispatcher
- * (the shop/merchant + character-inventory exchange screen). Leaf stub
- * pending its own lift (the largest remaining picker arm). */
-static void jt893(unsigned char *out) { PROBE("jt893"); if (out) *out = 0; }
+/* ---- jt893 per-arm handlers (CODE 19 locals) ------------------------------
+ * The item-management screen dispatches a picked item + chosen action through
+ * a JT[3] switch.  Seven of the nine arms are self-contained sub-functions of
+ * their own (examine, ready/unready, use, halve, join, sell, identify); they
+ * are lifted in their own sessions and stay PROBE stubs here.  The two INLINE
+ * arms (drop-into-vault, trade/give) live in jt893's body below, and the
+ * shared "may this item be parted with?" gate (CODE 19 L23d2) is lifted as
+ * l23d2_c19 (NOT the port's render-helper l23d2 — same label, different code).
+ */
+static void l30bc(long item) { PROBE("l30bc"); (void)item; }            /* L30bc — examine item   */
+static void l3228(long item) { PROBE("l3228"); (void)item; }            /* L3228 — use item       */
+static void l3b6e(long item, unsigned char *out)                        /* L3b6e — ready/unready  */
+	{ PROBE("l3b6e"); (void)item; if (out) *out = 0; }
+static void l32c4(long item) { PROBE("l32c4"); (void)item; }            /* L32c4 — halve / split  */
+static void jt189(long chr_l, long item)                                /* JT[189] CODE7+0x43a4 — sell */
+	{ PROBE("jt189"); (void)chr_l; (void)item; }
+static void jt190(long chr_l, long item, unsigned char *redraw)         /* JT[190] CODE7+0x4644 — identify */
+	{ PROBE("jt190"); (void)chr_l; (void)item; (void)redraw; }
+
+/* L23d2 (CODE 19 + 0x23d2, ~500B) — "may this item be parted with?" gate
+ * used by the drop / trade / sell arms.  Returns 0 (no) when the item is
+ * readied (must unready first), or when a scroll / scroll-bundle with a
+ * pending scribe still has a charge bit (54/55/56 bit 7) and the player
+ * declines.  jt638 (CODE 16) classifies the item as ordinary (-> always 1)
+ * vs special.  Named l23d2_c19 to dodge the render-helper l23d2 collision. */
+static unsigned char l23d2_c19(long item)
+{
+	unsigned char *itp = (unsigned char *)(uintptr_t)item;
+	unsigned char *chr;
+	unsigned char  ret = 0;
+	long           cur;
+
+	PROBE("l23d2_c19");
+
+	if (itp[50] != 0) {                              /* readied */
+		jt42(ua_strs_at(0x5a36));                /* "Must be unreadied" */
+		goto done;
+	}
+	if (jt638(item) == 0) { ret = 1; goto done; }    /* ordinary item */
+
+	/* special: scroll with a charge bit -> warn before losing it */
+	if ((itp[54] & 0x80) || (itp[55] & 0x80) || (itp[56] & 0x80)) {
+		chr = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		jt25(g_a5_long(-27932), 1, 21, 0);
+		g_a5_byte(-27912) = (unsigned char)(jt483((const char *)(chr + 96)) + 2);
+		g_a5_byte(-27911) = 21;
+		jt96(1, 21, 38, 22, 11, 0, 0,
+		     (long)(uintptr_t)ua_strs_at(0x5a48), 0);   /* " was going to scribe from that scroll" */
+		if (jt159(ua_strs_at(0x5a6e), 0) == 0)          /* "is it Okay to lose it? " */
+			goto done;
+		ret = 1;
+		goto done;
+	}
+	if (itp[40] != 73) { ret = 1; goto done; }       /* not a scroll bundle */
+
+	/* scroll bundle: walk the [58] chain; if the head still has a charge
+	 * bit set, warn (faithful: the loop body re-tests the bundle head, not
+	 * the running cursor, while the cursor advances to the chain end). */
+	cur = item;
+	ret = 0;
+	while (*(long *)(uintptr_t)(cur + 58) != 0) {
+		if ((itp[54] & 0x80) || (itp[55] & 0x80) || (itp[56] & 0x80)) {
+			chr = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+			jt25(g_a5_long(-27932), 1, 21, 0);
+			g_a5_byte(-27912) = (unsigned char)(jt483((const char *)(chr + 96)) + 2);
+			g_a5_byte(-27911) = 21;
+			jt96(1, 21, 38, 22, 11, 0, 0,
+			     (long)(uintptr_t)ua_strs_at(0x5a86), 0);  /* " was going to scribe from that bundle" */
+			if (jt159(ua_strs_at(0x5aac), 0) != 0)         /* "is it Okay to lose it? " */
+				ret = 0;
+			jt103(1, 21, 38, 22);
+			return ret;
+		}
+		cur = *(long *)(uintptr_t)(cur + 58);
+	}
+	ret = 1;
+
+done:
+	jt103(1, 21, 38, 22);
+	return ret;
+}
+
+/* JT[893] (CODE 19 + 0x25ce, ~1962B) — the item-management dispatcher: the
+ * per-character inventory screen reached from the vault (jt185 case 4), the
+ * local shop, and trade.  Faithful lift of the dialog loop:
+ *
+ *   while not exited, while the char still has items:
+ *     - (re)build the action menu into the -24126 row array (l11a8) with arm
+ *       values 0..9, gated by play mode (-27990: vault=10, shop=1), the
+ *       readied slot (rec[382]), class (rec[147]), status (rec[94]) and the
+ *       design header (-28006);
+ *     - render each item row (jt28) and, when dirty, repaint the sheet
+ *       (jt79/jt25/jt94);
+ *     - run the list dialog (jt169) -> picked item + arm; Esc -> Exit (9);
+ *     - dispatch the arm (JT[3]):
+ *         0 examine (l30bc)   1 ready (l3b6e)   2 use (l3228)
+ *         3 drop/vault (inline)   4 trade/give (inline)   5 halve (l32c4)
+ *         6 join bundle (jt889=L35a0)   7 sell (jt189)   8 identify (jt190)
+ *       cases 2/3/4/7 first pass the shared l23d2_c19 gate.
+ *     - recompute derived stats (jt21).
+ *
+ * *out is the caller's transfer flag: when an arm sets it (ready->equip), the
+ * loop exits so the caller can leave the screen.  The inline arms are lifted
+ * faithfully (they touch money/inventory); the seven sub-function arms are
+ * PROBE stubs above, each its own follow-up. NOT yet Hatari-tested. */
+static void jt893(unsigned char *out)
+{
+	unsigned char *chr    = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	long           item   = *(long *)(chr + 8);
+	short          sel    = 0;             /* fp@(-16): dialog row index   */
+	unsigned char  redraw = 1;             /* fp@(-4):  list dirty flag    */
+	unsigned char  f3     = 1;             /* fp@(-3):  sheet-redraw flag  */
+	unsigned char  choice = (unsigned char)-1; /* fp@(-2): picked arm      */
+	unsigned char  f22    = 1;             /* fp@(-22) <-> -24140          */
+
+	PROBE("jt893");
+
+	/* L2d50 — loop while not exited (choice!=9), no transfer (*out==0),
+	 * and the char still holds items (rec[193]). */
+	while (choice != 9 && *out == 0 && (unsigned char)chr[193] != 0) {
+		unsigned char  savedCount = chr[193];        /* fp@(-21) */
+		unsigned char  rowcount;                     /* fp@(-1)  */
+		unsigned char *hdr;
+		long           it, tmp;
+		int            reach;
+
+		if (*(long *)(chr + 8) == 0)
+			goto botcheck;
+
+		/* L2602 — rebuild the action menu. */
+		jt399(&g_a5_byte(-24126), 40, 255);
+		rowcount = 0;
+		l11a8(0, &rowcount);                         /* arm 0: examine */
+
+		/* arm 1: ready, when a weapon is held + the design permits */
+		if (chr[382] != 0) {
+			hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			if (hdr[2] == 0) {
+				int m  = (unsigned char)g_a5_byte(-27990);
+				int ok = (m == 2 || m == 3 || m == 4 || m == 5);
+				if (!ok) {
+					unsigned char *p =
+					    (unsigned char *)(uintptr_t)*(long *)(chr + 64);
+					if (p[2] != 0) ok = 1;
+				}
+				if (ok) l11a8(1, &rowcount);
+			}
+		}
+
+		/* arm 2: use (not while a held weapon belongs to a fighter
+		 * mid-action, and never in mode 5) */
+		reach = !((unsigned char)chr[147] >= 128 &&
+		          chr[382] != 0 && chr[94] != 1);
+		if (reach && (unsigned char)g_a5_byte(-27990) != 5)
+			l11a8(2, &rowcount);
+
+		/* arms 3/4: vault (mode 10) drop vs ordinary give */
+		if ((unsigned char)g_a5_byte(-27990) == 10) {
+			reach = !((unsigned char)chr[147] >= 128 &&
+			          chr[382] != 0 && chr[94] != 1);
+			if (reach) l11a8(3, &rowcount);
+		} else {
+			l11a8(4, &rowcount);
+		}
+
+		/* arm 5: halve, when fewer than 16 items held */
+		if ((unsigned char)chr[193] < 16)
+			l11a8(5, &rowcount);
+
+		l11a8(6, &rowcount);                         /* arm 6: join (always) */
+
+		/* arms 7/8: sell + identify, only in the local shop (mode 1)
+		 * when the design's shop flag (hdr[20]) is clear */
+		reach = !((unsigned char)chr[147] >= 128 &&
+		          chr[382] != 0 && chr[94] != 1);
+		if (reach) {
+			hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			if ((unsigned char)g_a5_byte(-27990) == 1 && hdr[20] != 1)
+				l11a8(7, &rowcount);
+		}
+		hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		if ((unsigned char)g_a5_byte(-27990) == 1 && hdr[20] != 1)
+			l11a8(8, &rowcount);
+
+		l11a8(9, &rowcount);                         /* arm 9: Exit (always) */
+
+		/* L27ce — render each item row. */
+		for (it = *(long *)(chr + 8); it != 0; it = *(long *)(uintptr_t)it)
+			jt28((long)(uintptr_t)chr, it, 0, 0, 1, 0);
+
+		/* L2802 — repaint the character sheet when dirty. */
+		if (f3 != 0 || g_a5_byte(-25256) != 0) {
+			short w;
+			jt79();
+			jt25((long)(uintptr_t)chr, 1, 1, 1);
+			w = jt483((const char *)(chr + 96));
+			jt94((short)(w + 4), 1, 7, 0,
+			     (const char *)(uintptr_t)g_a5_long(-14344));
+			jt94(1, 3, 11, 0,
+			     (const char *)(uintptr_t)g_a5_long(-14340));
+			redraw = 1;
+			f3 = 0;
+			g_a5_byte(-25256) = 0;
+		}
+
+		/* L287a — run the list dialog. */
+		g_a5_byte(-24140) = f22;
+		tmp = item;
+		choice = (unsigned char)jt169(g_a5_long(-13952), g_a5_long(-13800),
+		                              1, 5, 38, 22, *(long *)(chr + 8),
+		                              1, 8, &redraw, &sel, &tmp);
+		item = tmp;
+		f22  = g_a5_byte(-24140);
+		if (g_a5_byte(-24139) && choice == 27)        /* Esc -> Exit */
+			choice = 9;
+
+		/* L28ea — dispatch the picked arm. */
+		if (item != 0) {
+			unsigned char *itp = (unsigned char *)(uintptr_t)item;
+
+			switch (choice) {                     /* JT[3] 0..8 */
+			case 0:                               /* L2914 — examine */
+				l30bc(item);
+				break;
+			case 1: {                             /* L2922 — ready */
+				if (itp[50] != 0) {
+					jt42((const char *)(uintptr_t)g_a5_long(-14328));
+					choice = (unsigned char)-1;
+					break;
+				}
+				if (jt638(item) == 0) {
+					if ((unsigned short)itp[55] == 0) break;
+					if ((unsigned char)itp[56] >= 128) break;
+				}
+				l3b6e(item, out);
+				if ((unsigned char)g_a5_byte(-27990) != 5)
+					*out = 0;
+				if (*out != 0) break;
+				f3 = 1;
+				break;
+			}
+			case 2:                               /* L29a0 — use */
+				if (l23d2_c19(item))
+					l3228(item);
+				else
+					choice = (unsigned char)-1;
+				f3 = 1;
+				break;
+			case 3: {                             /* L29ca — drop / vault */
+				short need;
+				if (!l23d2_c19(item)) {
+					choice = (unsigned char)-1;
+					break;
+				}
+				need = (itp[40] == 73) ? (short)(itp[53] + 1) : (short)1;
+				if (jt72() + need > 200 &&
+				    (unsigned char)g_a5_byte(-27990) == 10) {
+					/* L2ba4 — vault full */
+					if (itp[40] == 73)
+						jt96(1, 21, 38, 22, 11, 0, 1,
+						     (long)(uintptr_t)ua_strs_at(0x5b0c), 0);
+					else
+						jt96(1, 21, 38, 22, 11, 0, 1,
+						     (long)(uintptr_t)ua_strs_at(0x5b30), 0);
+					break;
+				}
+				/* L2a1a — walk -22216 to the list tail */
+				g_a5_long(-22216) = g_a5_long(-25302);
+				while (g_a5_long(-22216) != 0 &&
+				       *(long *)(uintptr_t)g_a5_long(-22216) != 0)
+					g_a5_long(-22216) =
+					    *(long *)(uintptr_t)g_a5_long(-22216);
+				jt28((long)(uintptr_t)chr, item, 0, 0, 0, 0);
+				if ((unsigned char)g_a5_byte(-27990) == 10) {
+					/* leave the item in the vault list */
+					unsigned char *node;
+					jt96(1, 21, 38, 22, 11, 0, 1,
+					     (long)(uintptr_t)jt488(ua_strs_at(0x5ac4),
+					                            itp + 5), 0);
+					jt71((short)(jt72() + need));
+					jt102();
+					if (g_a5_long(-25302) == 0) {
+						jt477((void *)&g_a5_byte(-21508), 62,
+						      (void *)&g_a5_long(-25302));
+						g_a5_long(-22216) = g_a5_long(-25302);
+					} else {
+						jt477((void *)&g_a5_byte(-21508), 62,
+						      (void *)(uintptr_t)g_a5_long(-22216));
+						g_a5_long(-22216) =
+						    *(long *)(uintptr_t)g_a5_long(-22216);
+					}
+					node = (unsigned char *)(uintptr_t)g_a5_long(-22216);
+					memcpy(node, itp, 62);
+					*(long *)node = 0;
+					if (itp[40] == 73)
+						*(long *)(itp + 58) = 0;
+					jt30((long)(uintptr_t)chr, item);
+					redraw = 1;
+				} else {
+					/* not a vault: the item is gone forever */
+					jt96(1, 21, 38, 22, 11, 0, 1,
+					     (long)(uintptr_t)jt488(ua_strs_at(0x5ae6),
+					                            itp + 5), 0);
+					if (jt159(ua_strs_at(0x5b02), 1)) {
+						jt30((long)(uintptr_t)chr, item);
+						redraw = 1;
+					}
+				}
+				jt103(1, 21, 38, 22);
+				break;
+			}
+			case 4: {                             /* L2c20 — trade / give */
+				unsigned char saved;
+				if (!l23d2_c19(item)) {
+					choice = (unsigned char)-1;
+					break;
+				}
+				jt28((long)(uintptr_t)chr, item, 0, 0, 0, 0);
+				jt96(1, 21, 38, 22, 11, 0, 1,
+				     (long)(uintptr_t)jt488(ua_strs_at(0x5b40),
+				          (const char *)(uintptr_t)g_a5_long(-14336),
+				          (const char *)(itp + 5),
+				          (const char *)(uintptr_t)g_a5_long(-14332)), 0);
+				saved = g_a5_byte(-22281);
+				g_a5_byte(-22281) = 0;
+				if (jt159((const char *)(uintptr_t)g_a5_long(-14428), 0)) {
+					jt30((long)(uintptr_t)chr, item);
+					redraw = 1;
+				}
+				g_a5_byte(-22281) = saved;
+				jt103(1, 21, 38, 22);
+				break;
+			}
+			case 5:                               /* L2ce0 — halve / split */
+				l32c4(item);
+				break;
+			case 6:                               /* L2cec = L35a0 — join bundle */
+				jt889(item);
+				break;
+			case 7:                               /* L2cf8 — sell */
+				if (l23d2_c19(item))
+					jt189((long)(uintptr_t)chr, item);
+				else
+					choice = (unsigned char)-1;
+				break;
+			case 8:                               /* L2d1e — identify */
+				jt190((long)(uintptr_t)chr, item, &redraw);
+				break;
+			default:
+				break;
+			}
+		}
+
+		jt21((long)(uintptr_t)chr);                   /* L2d32 */
+
+botcheck:                                             /* L2d3c */
+		if ((unsigned char)chr[193] != savedCount)
+			redraw = 1;
+	}
+}
 
 /* JT[583] (CODE 15 + 0x1c92) — load the per-level vault file (Vault<c>.DAT,
  * c = -22218) into the pending-treasure list on jt185's entry. Frees the
