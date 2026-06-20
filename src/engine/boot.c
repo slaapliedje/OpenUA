@@ -52577,12 +52577,25 @@ static void jt894(short flag)
  * pending its own lift (the largest remaining picker arm). */
 static void jt893(unsigned char *out) { PROBE("jt893"); if (out) *out = 0; }
 
-/* JT[583] (CODE 15 + 0x1c92, 64B) — load the per-level vault file
- * (Vault<c>.DAT, c = -22218) into the pending-treasure list. Leaf stub:
- * the vault opens empty until vault file I/O is lifted (separate slice).
- * The shared treasure pool (money/items from give/combat events) is
- * unaffected — it lives in -25314/-25302, not the vault file. */
-static void jt583(void) { PROBE("jt583"); }
+/* JT[583] (CODE 15 + 0x1c92) — load the per-level vault file (Vault<c>.DAT,
+ * c = -22218) into the pending-treasure list on jt185's entry. Frees the
+ * current list (jt73), and unless the vault id is 'Z' (90 = no vault) builds
+ * "Vault<c>.DAT" (jt394) and runs the read driver (l00e0_load, the port's File
+ * Manager shim — same approach as jt586's l00e0) with the jt74 record-reader
+ * callback. The Mac uses the CODE15 L0006 path-building driver (jt431/jt987);
+ * the port opens the staged file directly, matching the lifted l00e0 writer. */
+static void jt583(void)
+{
+	unsigned char fn[42];                            /* fp@(-42) */
+
+	PROBE("jt583");
+	jt73();
+	if (g_a5_byte(-22218) == 90)                     /* 'Z' = no vault */
+		return;
+	jt394((char *)fn, ua_strs_at(0x4d28),            /* "Vault%c.DAT" */
+	      (int)(unsigned char)g_a5_byte(-22218));
+	l00e0_load((const char *)fn, (void *)jt74);
+}
 
 /* JT[586] (CODE 15 + 0x1cd2) — save the pending-treasure list to the per-level
  * vault file on exit. Skips when the vault id (-22218) is 'Z' (90 = no vault);

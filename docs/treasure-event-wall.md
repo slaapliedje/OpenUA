@@ -204,8 +204,16 @@ not the multi-session item first feared.
 | `jt929` | CODE12+0x3b4a | ~468B | "Take: Money/Items/Exit" driver (jt185 case 1) | ✅ DONE |
 | `jt894` | CODE19+0x46e0 | ~902B | deposit/drop the active char's money (jt185 case 3) | ✅ DONE (+l465c) |
 | `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (jt185 case 4) | ⛔ NEXT — see below |
-| `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) | ⛔ (see below) |
-| `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) | ⛔ (see below) |
+| `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) | ✅ DONE |
+| `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) | ✅ DONE |
+
+VAULT I/O COMPLETE 2026-06-20 — round-trips: jt185 entry -> jt583 -> l00e0_load
++ jt74 (read Vault<c>.DAT); jt185 exit -> jt586 -> l00e0 + jt75 (write it). The
+record format (jt74/jt75) is the LE-swapped money block + 4-byte header + 18-byte
+templates (bundles via the +58 chain, padded to 200). The port reuses its File
+Manager shim drivers l00e0/l00e0_load instead of the faithful CODE15 L0006 path
+builder (jt431/jt987) — same choice the existing l00e0 lift made. jt74's only
+unique dep l61c6 (= store count -> -13048) lifted too. NOTE: not Hatari-tested.
 
 ### jt583/jt586 scope (vault file persistence) — recon 2026-06-20
 TRAP: jt583/jt586 are trivial 64B/54B wrappers (build "Vault<c>.DAT" via jt394,
