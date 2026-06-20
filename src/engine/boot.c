@@ -11226,15 +11226,13 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * backdrop image (L58c4 -> jt121 via the FC binder). This REPLACES the old
 	 * flat g_back_img stand-in fill.
 	 *
-	 * The Mac installs the region fill colours in its CODE 11 level-enter
-	 * (L41a0: jt217(15,0,0,8) -> -12294/-12293/-12292/-12291) before the first
-	 * view. The port has not lifted that level-enter path yet, so seed the same
-	 * faithful defaults here when they are still zero (a town/dungeon that sets
-	 * its own colours overrides this once L41a0 is lifted). */
-	if ((unsigned char)g_a5_byte(-12294) == 0
-	 && (unsigned char)g_a5_byte(-12292) == 0
-	 && (unsigned char)g_a5_byte(-12291) == 0)
-		jt217((short)15, (short)0, (short)0, (short)8);   /* L41a0 defaults */
+	 * MON-CONFIRMED (BasiliskII, HEIRS 10,8,E, 2026-06-19): on the Mac these
+	 * fill colours read -12294/-12292/-12291 = 0/0/0 — the dungeon view fills its
+	 * ceiling/middle/floor regions with index 0 (black). The old jt217(15,0,0,8)
+	 * "default seed" OVERRODE that with white/grey, so the wedge pieces' transparent
+	 * cutouts glared on a light background (the "scattered tiles" look) instead of
+	 * reading as a dark corridor. Leave the fills at their faithful 0; a town/
+	 * outdoor cell that sets its own non-zero colours still overrides. */
 	(void)x; (void)y;
 
 	/* faithful walk: l6148 loads Wall1-3 into the -27894/-27890/-27886
