@@ -111,16 +111,19 @@ l28b0 only **stages** the loot (money → `-25314/-25310/-25306`, items → the
   44606, "+76 into the -25314 pool longs") are the take/pool consumers — both
   ✅ lifted.
 
-## Lift order (proposed)
+## Lift order
 
-1. **Slice A — give-treasure staging** (this subsystem's foundation):
-   `L427c`, `L4256`, `L483e`, `jt187` (after the jt477 ABI Q), then `l28b0`
-   with `jt930` as a documented leaf PROBE stub. Result: the give-treasure
-   event faithfully builds the treasure pile in the engine's real globals.
-   Verify via probes (loot staged), not yet visible.
-2. **Slice B — the picker UI**: locate + lift the treasure-distribution dialog,
-   wire its `jt926`-gated trigger into the play/event flow. This is the visible
-   "take 100 Platinum + a ring" screen.
+1. **Slice A — give-treasure staging** ✅ DONE 2026-06-20 (652c85c):
+   `l427c`, `l4256`, `l483e`, `jt187`, `l28b0` lifted faithfully (jt477 ABI
+   resolved); `jt930` left as a documented leaf PROBE stub. The give-treasure
+   event (l709e cases 3/25) now builds the loot into `-25314/-25310/-25306`
+   (money) + the `-25302` item list. Clean build. NOT yet live-verified — it's
+   event-gated (runs only when a give-treasure event fires) and has no visible
+   output until Slice B; verify via a PROBE trace or once the picker exists.
+2. **Slice B — the picker UI** ⛔ NEXT: locate + lift the treasure-distribution
+   dialog, wire its `jt926`-gated trigger into the play/event flow. This is the
+   visible "take 100 Platinum + a ring" screen. CODE 6 (≈0x656a..0x65a2) /
+   CODE 9 (≈0x34d2) reference `-25302` — likely the dialog.
 3. **Slice C — jt930** (leave-area / party cleanup) full lift, closing the
    case-3 refresh path and the death-message tail.
 
