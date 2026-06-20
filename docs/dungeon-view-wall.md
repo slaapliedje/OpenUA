@@ -1,5 +1,31 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-19c — faithful L6234 lifted; walk is NOT the bug, PLACEMENT is
+Replaced the parametrized jt199 reconstruction (jt199_side/front/band + the
+bogus "empirical" axis swap DROW<-(-27853) bolted on at 996e126) with a
+line-by-line transcription of L6234 (CODE 7 @0x6234..0x6ea1): the 3-band JT[3]
+switch (sel 2/1/0), both side scans per band, exact soff signs/±1, depth gates,
+the prev/carry side-face logic, and the L6e4a `back`-recede outer loop. Coord A
+(l5e52 arg1, row/Y) steps by -27862; coord B (col/X) by -27853 — the swap is
+GONE. Builds clean; emits 17 slots at 10,8,E, ~matching the asm-replay validated
+at 03167ef (16 slots, codes {13,11,9,6,5,2,1} incl. 10/13 which ARE in the Mac's
+own map data — cell (10,10) nibble 0x0D, mon-confirmed byte-identical).
+
+DECISIVE re-read of mac-blit-trace-heirs-l5-standing.md (the CORRECTED top): at
+10,8,E the **Mac itself emits ~16 slots, NOT 25** (the 25-slot frame is a
+DIFFERENT position). So the prior "25 expected -> walk drops to 16/occlusion
+overrun" framing (UPDATE 19b below) was chasing a phantom: 16-17 IS right, and
+the walk + map are faithful. The visual scramble is one layer DOWN — the
+slot->screen PLACEMENT/blit. Evidence: my 17 slots land at screen X={32,48,56}
+(all left half) — which is what the Mac does too; on the Mac the pieces FILL
+RIGHTWARD from their left anchor by their width. On the port they don't (white
+gap right). Several slots map to Y=8/16 (ABOVE the 88x88 hole top at Y=24) =
+vertical scatter. => chase per-piece Y-BEARING application in l2d4e/l309c (the
+blit anchor), NOT the walk and NOT the CLUT (user-confirmed colours are CORRECT
+2026-06-19 — do NOT touch the palette, it regressed badly last time). Also open:
+a stray YELLOW SQUARE in the view's upper-left corner (possible unfaithful frame
+draw). jt199 lift is DONE; superseded UPDATE 19b's "walk is the bug".
+
 ## UPDATE 2026-06-19b — J200DIFF re-analysed: the WALK is the bug (occlusion + L/R)
 Captured a fresh J200DIFF.TXT at the natural 10,8,E start (HEIRS, GEO005) and
 tabulated all 25 slots' SCREEN positions ((left-8000)*2, (top-8000)*2) + decoded
