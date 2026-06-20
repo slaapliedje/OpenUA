@@ -51998,6 +51998,78 @@ static unsigned char jt60(void)
 	return (unsigned char)key;
 }
 
+/* JT[891] (CODE 19 + 0x3fd2) — the "how much?" numeric-entry widget. Draws the
+ * `prompt` at row 24 (jt94), then runs a keystroke loop (jt60 + the JT[1] key
+ * table @0x403a): digits 0-9 append to the input (capped at 6 chars, jt1080
+ * beeps past that) and re-clamp to `maxval` (typing over the cap snaps the
+ * field to maxval's string); backspace (8) drops the last char (jt482 + jt384);
+ * Enter (13) commits, Esc/backtick (27/96) cancel to 0; any other key is run
+ * through the shifted-digit remap ")!@#$%^&*(" (jt409). Returns the entered
+ * amount (0 on cancel). Deps all lifted. The amount step under jt924 (money). */
+static long jt891(long maxval, const char *prompt, short width) __attribute__((unused));
+static long jt891(long maxval, const char *prompt, short width)
+{
+	char          input[16];         /* fp@(-22): typed digits      */
+	char          capstr[16];        /* fp@(-14): "%ld" of maxval   */
+	long          val = 0;           /* fp@(-28)/(-34)              */
+	short         endidx;            /* fp@(-30)                    */
+	short         promptlen, cur;    /* fp@(-6) / fp@(-5)          */
+	unsigned char key;               /* fp@(-23)                    */
+
+	PROBE("jt891");
+	jt176();
+	jt94((short)0, (short)24, width, (short)0, prompt);
+	promptlen = jt423(prompt);
+	cur = promptlen;
+	jt394(capstr, ua_strs_at(0x5cbe), maxval);       /* "%ld" of the cap */
+	input[0] = 0;
+	jt117();
+
+	for (;;) {
+		key = jt60();
+		if (key == 13 || key == 27 || key == 96)         /* Enter / Esc / cancel */
+			break;
+		if (key == 8) {                                  /* backspace */
+			short len = jt423(input);
+			if (len > 0) {
+				jt384(input, jt482(input, (short)1,
+				                   (short)(len - 1)));
+				cur = (short)(cur - 1);
+				jt93(cur, (short)24, (short)0, (short)1);
+			}
+			continue;
+		}
+		if (!(key >= 48 && key <= 57)) {                 /* remap a shifted symbol */
+			short idx = jt409(ua_strs_at(0x5cc2),    /* ")!@#$%^&*(" */
+			                  (short)10, (short)key);
+			key = (unsigned char)(idx + 48);
+		}
+		if (jt389((short)key)) {                         /* L40aa — digit */
+			if (jt423(input) >= 6) {
+				jt1080();                        /* beep: too long */
+			} else {
+				jt394(input, ua_strs_at(0x5cce),  /* "%s%c" */
+				      input, (int)key);
+				jt487(input, &val, &endidx);
+				if (val > maxval) {              /* clamp to the cap */
+					jt384(input, capstr);
+					cur = (short)(promptlen + jt423(capstr));
+				} else {
+					cur = (short)(cur + 1);
+				}
+			}
+			jt94(promptlen, (short)24, (short)11, (short)0, input);
+		}
+	}
+
+	jt176();
+	if (key == 27 || key == 96)
+		val = 0;                                         /* cancel */
+	else
+		jt487(input, &val, &endidx);
+	return val;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
