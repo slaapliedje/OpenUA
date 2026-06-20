@@ -80,7 +80,7 @@ once Gap 1 lands** (step on a designed event cell → handler fires).
 | 5, 11, 34 | `l5676` | **LIFTED** (3.4KB) | stairs / transfer-module / teleport |
 | 10, 21 | `l3b0e`/`l673e` | **LIFTED** (#115) | combat / special encounter |
 | 36 | `l3118` (+branch) | stub | **Question** (Yes/No → ev[8]/ev[9] branch) |
-| 8 | `l5586` | stub | **Shop** ("The party enters a local shop") |
+| 8 | `l5586` | **LIFTED** 2026-06-20 | **Shop / merchant** ("local shop" / "May I help you?") -> jt183 |
 | 13, 32 | `l380a` / `l38bc` | stub | **Inn / Vault** ("enters a local Inn" / "the vault") |
 | 17 | `l3ac6` | stub | **Secret door** ("discovered a secret door") |
 | 1, 33 | `l159a` | stub | text/message variant |

@@ -3227,7 +3227,7 @@ static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
 static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
 static void  l2d32(void *ev, short a)      { PROBE("L2d32"); (void)ev; (void)a; }
 static short l4f9a(void *ev)               { PROBE("L4f9a"); (void)ev; return 0; }
-static void  l5586(void *ev)               { PROBE("L5586"); (void)ev; }
+static void  l5586(void *ev);              /* shop/merchant event — lifted near jt183 */
 static short l216a(void *ev)               { PROBE("L216a"); (void)ev; return 0; }
 static short l3b0e(void *ev);              /* encounter prompt — defined after its deps */
 static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch — defined after its deps */
@@ -52967,6 +52967,205 @@ static void jt586(void)
 	jt394((char *)fn, ua_strs_at(0x4d34),            /* "Vault%c.DAT" */
 	      (int)(unsigned char)g_a5_byte(-22218));
 	l00e0((const char *)fn, (void *)jt75);
+}
+
+/* ---- jt183 merchant-screen arm handlers (not yet lifted) ------------------ */
+static void jt921(void) { PROBE("jt921"); }                 /* CODE12+0x1d90 — money-pool op (arm 4) */
+static void jt922(unsigned char *out)                       /* CODE12+0x2554 — gems/jewelry op (arm 5) */
+	{ PROBE("jt922"); if (out) *out = 0; }
+static void l17f8(void) { PROBE("l17f8"); }                 /* CODE7+0x17f8 — exit-prompt text helper */
+
+/* JT[183] (CODE 7 + 0x3e68) — the merchant / shop treasure screen, sibling of
+ * the vault screen jt185. Faithful structural lift of the dialog loop:
+ *  - enter mode 1, redraw (jt23), draw the active-char HUD (jt937), ZERO the
+ *    12-byte money pool (-25314..-25306 via jt65) as transaction scratch;
+ *  - render the staged item list (-25302) rows (jt28);
+ *  - loop: poll the pool (jt926 -> money/items flags), rebuild the action menu
+ *    into the -24126 row array (l11a8, arm values 0..6) hiding the money arms
+ *    (2 Take-money, 4 pool-op) when the pool holds no coin and row 0 when
+ *    -25302 is empty; run the dialog (l2ebc); arrow keys switch the active
+ *    character (jt936/jt934), Esc -> arm 6 (exit);
+ *  - dispatch (JT[3]): 1 View char (jt904), 2 Take money (jt924), 3 Pool coin
+ *    (jt925), 4 jt921, 5 jt922 gems/jewelry, 6 exit (warns if coin remains);
+ *  - a second JT[3] decides whether to repaint (jt23) after the arm.
+ *  Loop until exit, then restore the prior mode (-27989).
+ *  Reached from the shop/merchant event l5586 (l709e case 8). The arm-4/5
+ *  handlers (jt921/jt922) and l17f8 are leaf stubs pending their own lifts. */
+static void jt183(void)
+{
+	unsigned char done     = 0;   /* fp@(-2)  */
+	unsigned char hasMoney = 0;   /* fp@(-3)  */
+	unsigned char hasItems = 0;   /* fp@(-4)  */
+	unsigned char choice   = 0;   /* fp@(-5)  */
+	unsigned char hilite   = 1;   /* fp@(-8) <-> -24140        */
+	unsigned char flag9    = 0;   /* fp@(-9): jt922 out + redraw gate */
+	unsigned char out1     = 0;   /* fp@(-1): jt904 out        */
+	unsigned char rowcount;       /* fp@(-6)  */
+	long          it;             /* fp@(-14) */
+	short         i;              /* fp@(-7)  */
+
+	PROBE("jt183");
+	g_a5_byte(-27989) = g_a5_byte(-27990);            /* save prior mode */
+	g_a5_byte(-27990) = 1;
+	g_a5_byte(-22292) = 0;
+	jt23();
+	g_a5_byte(-22292) = 1;
+	jt937(g_a5_long(-27932));
+	jt65((long)(uintptr_t)&g_a5_byte(-25314), 12);    /* zero the money pool */
+	g_a5_byte(-23229) = 0;
+
+	/* L3eae — render the staged item rows. */
+	for (it = g_a5_long(-25302); it != 0; it = *(long *)(uintptr_t)it)
+		jt28(0, it, 0, 0, 0, 0);
+
+	do {
+		/* L3ed8 — poll the pool + (re)build the menu. */
+		jt926(&hasMoney, &hasItems);
+		rowcount = 0;
+		if (hasMoney) {
+			for (i = 0; i <= 6; i++) {
+				if (i == 0 && g_a5_long(-25302) == 0)
+					continue;
+				l11a8(i, &rowcount);
+			}
+		} else {
+			for (i = 0; i <= 6; i++) {
+				if (i == 2 || i == 4)
+					continue;         /* money-only arms */
+				if (i == 0 && g_a5_long(-25302) == 0)
+					continue;
+				l11a8(i, &rowcount);
+			}
+		}
+
+		/* L3f80 — run the dialog. */
+		g_a5_byte(-24140) = hilite;
+		choice = l2ebc(g_a5_long(-13952), g_a5_long(-13736),
+		               (short)1, (short)0);
+		hilite = g_a5_byte(-24140);
+
+		if (g_a5_byte(-24139)) {
+			switch (choice) {                  /* JT[1] */
+			case 132: case 135: case 133: case 136:
+				jt936(g_a5_long(-27932), 0);
+				jt934((short)choice);
+				jt936(g_a5_long(-27932), 1);
+				choice = (unsigned char)-1;
+				break;
+			case 27:
+				choice = 6;
+				break;
+			default:
+				break;
+			}
+		}
+
+		/* L4006 — dispatch the picked arm. */
+		switch (choice) {                          /* JT[3] 0..6 */
+		case 1:
+			jt904(&out1);
+			break;
+		case 2:
+			jt924();
+			break;
+		case 3:
+			jt925();
+			break;
+		case 4:
+			jt921();
+			break;
+		case 5:
+			jt922(&flag9);
+			break;
+		case 6:
+			jt926(&hasMoney, &hasItems);
+			if (hasMoney) {
+				jt20();
+				jt96(1, 17, 38, 22, 7, 0, 1,
+				     g_a5_long(-14060), 0);
+				jt96(1, 18, 38, 22, 3, 0, 0,
+				     g_a5_long(-14056), 0);
+				l17f8();
+				jt96(1, 17, 38, 22, 7, 0, 1,
+				     g_a5_long(-14052), 0);
+				if (jt159((const char *)(uintptr_t)g_a5_long(-13952), 1))
+					jt103(1, 17, 38, 22);
+				else
+					done = 1;
+			} else {
+				done = 1;
+			}
+			break;
+		default:
+			break;
+		}
+
+		/* L4126 — repaint after certain arms. */
+		switch (choice) {                          /* JT[3] 0..5 */
+		case 0: case 2: case 5:
+			jt23();
+			break;
+		case 3:
+			if (flag9)
+				jt23();
+			break;
+		default:
+			break;
+		}
+	} while (done == 0);
+
+	/* L4152 — restore the prior mode. */
+	g_a5_byte(-27990) = g_a5_byte(-27989);
+	if (g_a5_byte(-27990) == 4 && g_a5_byte(-27987) != 0) {
+		g_a5_byte(-27987) = 0;
+		jt23();
+	}
+}
+
+/* L5586 (CODE 20 + 0x5586) — the SHOP / MERCHANT event handler (l709e case 8).
+ * First visit seeds the event picture id (ev[6]=210) + flag bit7; paints the
+ * picture (l442e) + screen stand-up (jt20); prints "The party enters a local
+ * shop." (event subtype 22) or the merchant's "May I help you?" greeting
+ * (l0b20); frees the pending list (jt73); fires up to four 3-byte shop-stock
+ * slots (ev[8],11,14,17 via jt188) into the -25302 list, clearing it if none
+ * stocked; stores the shop kind (ev[5] -> rec[40]); runs the merchant treasure
+ * screen (jt183); frees the list again; and on ev[7] bit2 arms the deferred
+ * re-eval (-4946). This is what makes the caravan/merchant event interactive. */
+static void l5586(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  keep;
+	short          i;
+
+	PROBE("L5586");
+	if (ev[6] == 0) {                              /* first visit */
+		ev[6] = (unsigned char)210;            /* picture id 0xd2 */
+		ev[7] = (unsigned char)(ev[7] | 0x80);
+	}
+	l442e(ev);
+	jt20();
+	if (ev[0] == 22) {
+		if (rec) rec[57] = 0;
+		l0b20((void *)(uintptr_t)ua_strs_at(0x6a30));  /* "The party enters a local shop." */
+	} else {
+		if (rec) rec[57] = 1;
+		l0b20((void *)(uintptr_t)ua_strs_at(0x6a50));  /* "\"May I help you?\"" */
+	}
+	jt73();
+	keep = 1;
+	for (i = 3; i >= 0; i--)                       /* ev[8],11,14,17 stock slots */
+		if (jt188(ev + 8 + i * 3))
+			keep = 0;
+	if (keep == 1)
+		g_a5_long(-25302) = 0;
+	if (rec)
+		rec[40] = ev[5];
+	jt183();
+	jt73();
+	if (ev[7] & 0x04)
+		g_a5_byte(-4946) = 1;
+	jt20();
 }
 
 /* JT[185] (CODE 7 + 0x417a) — the per-character treasure / VAULT take
