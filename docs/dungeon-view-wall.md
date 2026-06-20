@@ -1,5 +1,32 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-19 — PIECE DECODE PROVEN CORRECT; bug is render geometry + CLUT
+The port now starts NATURALLY at HEIRS 10,8,E (GAME-header start level 5 + GEO005
+load via #128, 0ba5e51) — same frame as `data/mac_3d_start_e.png`, no mon-placed
+party. Direct compare (/tmp/compare3d.png): the Mac is a clean stone corridor with
+a centred WOOD door; the port has the door MISPLACED/sheared, fragmented stone, and
+a WHITE GAP on the right (the 8 side-wall slots not landing — the 17+8 the user
+describes).
+
+DECISIVE: built `tools/wall_extract.py` (two-level GLIB decoder) and rendered the
+real 8X8DB pieces at the natural frame (/tmp/wall_gray.png). The decode + the
+two-level set/item navigation are **PERFECT**: idx1=8x8 solid, idx6/7=16x56
+stone-brick WEDGES (clean transparent cutout = the receding corridor shape),
+idx8=56x56 wall, idx42=door — all blen == w*h, sensible shapes. Set 1 & 5 = STONE
+(indices 41..60), set 8 = WOOD (0..53); pieces index a SHARED dungeon palette, not
+each set's 37-entry item-0. **So UPDATE 14i's "the bug is the PIECE PIXELS / 8X8DB
+differs / l2856 navigation off" is REFUTED — the data and decode are correct.**
+
+=> The remaining bug is purely the RENDER: (1) the 8 side-wall wedge slots
+(idx6/7) don't land in the 88x88 hole — the jt199 reconstruction mis-places/clips
+them (the doc's own recommended fix: faithfully LIFT L6234, structure mapped in
+UPDATE 14h); and (2) the shared-CLUT model (each set's pieces are direct indices
+into one ~0..65 dungeon palette that overlaps across sets — set5 stone 41..60 vs
+set8 wood 0..53 — so the per-set 32-band rebase can't serve them; needs the Mac's
+real per-level dungeon CLUT). NEXT: lift L6234 for the side slots; mon-dump the
+Mac's loaded dungeon CLUT (clut 32+) for the palette. Inspect pieces with
+`tools/wall_extract.py 8X8DB.CTL --sets 1,5,8 --gray --png out.png`.
+
 ## UPDATE 2026-06-14i — WHOLE pipeline cleared via J200DIFF; bug is the PIECE PIXELS
 Built -DFRUA_SKIP_ENTRY_EVENTS, captured the port's 25 slots at 10,8,E (J200DIFF.TXT)
 AND the user's Mac jt200 trace (#125-149). Slot-for-slot the port's top/left/code/
