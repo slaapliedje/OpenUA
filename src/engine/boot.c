@@ -52268,6 +52268,109 @@ fail:
 	return 0;
 }
 
+/* L61c6 (CODE 6 + 0x61c6) — store the loaded vault item count into -13048.
+ * jt74's success tail. */
+static void l61c6(short v) __attribute__((unused));
+static void l61c6(short v)
+{
+	PROBE("L61c6");
+	g_a5_word(-13048) = v;
+}
+
+/* JT[74] (CODE 6 + 0x6476) — read the pending treasure (money + items) from an
+ * open vault file `refnum`. The inverse of jt75: free the current list (jt73);
+ * read the 12-byte money block then swap LE->BE (jt1199); read the 4-byte header
+ * and swap the count (jt1180); then read each 18-byte item template into a
+ * 62-byte node buffer (word fields +44/+46 swapped), reserve a real node from
+ * the -21508 bucket (jt477, appended at the tail), and copy the buffer in
+ * (jt406, dst,src order). Kind-73 bundles read their members into the +58 chain.
+ * On a short read it frees the list (jt73) and returns 0; otherwise stores the
+ * total item count (l61c6) and returns 1. The vault-load record callback (driven
+ * by the CODE15 L0006 reader-driver under jt583). Deps all lifted. */
+static short jt74(short refnum) __attribute__((unused));
+static short jt74(short refnum)
+{
+	unsigned char nodebuf[62];
+	unsigned char hdr[4];
+	long          tail = 0, btail;
+	short         count, itemcount = 0, w, i;
+	unsigned char error = 0;
+
+	PROBE("jt74");
+	jt73();
+	if (jt401(refnum, &g_a5_byte(-25314), (short)12) != 12)
+		return 0;
+	g_a5_byte(-18884) = 0;
+	if (jt401(refnum, hdr, (short)4) != 4)
+		return 0;
+	for (i = 0; i <= 2; i++)
+		g_a5_long(-25314 + (long)i * 4) =
+		    jt1199(g_a5_long(-25314 + (long)i * 4));
+	count = jt1180(*(short *)(hdr + 2));             /* hdr[0..1] sentinel, [2..3] count */
+
+	while (count > 0 && !error) {
+		jt399(nodebuf, (short)62, (short)0);
+		w = jt401(refnum, nodebuf + 40, (short)18);
+		if (w != 18)
+			error = 1;
+		*(short *)(nodebuf + 44) = jt1180(*(short *)(nodebuf + 44));
+		*(short *)(nodebuf + 46) = jt1180(*(short *)(nodebuf + 46));
+		if (!error) {
+			if (g_a5_long(-25302) == 0) {
+				jt477((void *)&g_a5_byte(-21508), (short)62,
+				      &g_a5_long(-25302));
+				tail = g_a5_long(-25302);
+			} else {
+				jt477((void *)&g_a5_byte(-21508), (short)62,
+				      (void *)(uintptr_t)tail);
+				tail = *(long *)(uintptr_t)tail;
+			}
+			jt406((void *)(uintptr_t)tail, nodebuf, (short)62);
+			g_a5_byte(-18884) = 1;
+			itemcount++;
+
+			if (nodebuf[40] == 73) {                 /* bundle members */
+				btail = tail;
+				g_a5_byte(-22307) = 1;
+				while ((unsigned char)g_a5_byte(-22307) <=
+				       ((unsigned char *)(uintptr_t)tail)[53]) {
+					jt399(nodebuf, (short)62, (short)0);
+					w = jt401(refnum, nodebuf + 40, (short)18);
+					if (w != 18)
+						error = 1;
+					*(short *)(nodebuf + 44) =
+					    jt1180(*(short *)(nodebuf + 44));
+					*(short *)(nodebuf + 46) =
+					    jt1180(*(short *)(nodebuf + 46));
+					if (!error) {
+						jt477((void *)&g_a5_byte(-21508),
+						      (short)62,
+						      (void *)(uintptr_t)(btail + 58));
+						btail = *(long *)(uintptr_t)(btail + 58);
+						jt406((void *)(uintptr_t)btail,
+						      nodebuf, (short)62);
+					} else {
+						((unsigned char *)(uintptr_t)tail)[53] =
+						    (unsigned char)(g_a5_byte(-22307) - 1);
+					}
+					g_a5_byte(-22307) =
+					    (unsigned char)(g_a5_byte(-22307) + 1);
+				}
+				itemcount = (short)(itemcount +
+				    ((unsigned char *)(uintptr_t)tail)[53]);
+			}
+		}
+		count--;
+	}
+
+	if (error) {
+		jt73();
+		return 0;
+	}
+	l61c6(itemcount);
+	return 1;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
