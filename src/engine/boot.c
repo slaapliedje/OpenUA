@@ -52182,6 +52182,92 @@ static void l465c(long member_l, long amount, short type)
 		g_a5_long(-25314 + (long)type * 4) += amount;
 }
 
+/* JT[75] (CODE 6 + 0x61da) — write the pending treasure (money + items) to an
+ * open vault file `refnum` in the on-disk LITTLE-ENDIAN format. Byte-swaps the
+ * 3 money longs (-25314..) in place and writes them (12 B); writes a 4-byte
+ * header (0xFFFF sentinel + swapped top-level item count); then each -25302
+ * item's 18-byte template at +40 (with the word fields +44/+46 swapped around
+ * the write and restored), expanding kind-73 bundles via the +58 chain; finally
+ * pads the file out to 200 item records from the -27920 template table. On
+ * success frees the list (jt73) and returns 1; on a short write swaps the money
+ * back and returns 0. The vault-save record callback (driven by l00e0 under
+ * jt586). Deps jt1199/jt1180/jt410/jt73 lifted; jt1180/jt1199 are real swaps. */
+static short jt75(short refnum) __attribute__((unused));
+static short jt75(short refnum)
+{
+	long  node, bundle;
+	short count, written, i, w, hdrbuf[2];
+
+	PROBE("jt75");
+
+	/* money: swap BE->LE in place, then write the 12-byte block */
+	for (i = 0; i <= 2; i++)
+		g_a5_long(-25314 + (long)i * 4) =
+		    jt1199(g_a5_long(-25314 + (long)i * 4));
+	if (jt410(refnum, &g_a5_byte(-25314), (short)12) != 12)
+		goto fail;
+
+	/* header: 0xFFFF sentinel + swapped top-level item count */
+	count = 0;
+	for (node = g_a5_long(-25302); node != 0;
+	     node = *(long *)(uintptr_t)node)
+		count++;
+	hdrbuf[0] = -1;
+	hdrbuf[1] = jt1180(count);
+	if (jt410(refnum, hdrbuf, (short)4) != 4)
+		goto fail;
+
+	/* each item's 18-byte template (+ bundle members) */
+	written = 0;
+	for (node = g_a5_long(-25302); node != 0;
+	     node = *(long *)(uintptr_t)node) {
+		unsigned char *n = (unsigned char *)(uintptr_t)node;
+
+		*(short *)(n + 44) = jt1180(*(short *)(n + 44));
+		*(short *)(n + 46) = jt1180(*(short *)(n + 46));
+		w = jt410(refnum, n + 40, (short)18);
+		*(short *)(n + 44) = jt1180(*(short *)(n + 44));
+		*(short *)(n + 46) = jt1180(*(short *)(n + 46));
+		if (w != 18)
+			return 0;
+		written++;
+		if (n[40] == 73) {                       /* bundle: write each member */
+			bundle = node;
+			g_a5_byte(-22307) = 1;
+			while ((unsigned char)g_a5_byte(-22307) <= (unsigned char)n[53]) {
+				unsigned char *bn;
+
+				bundle = *(long *)(uintptr_t)(bundle + 58);
+				bn = (unsigned char *)(uintptr_t)bundle;
+				*(short *)(bn + 44) = jt1180(*(short *)(bn + 44));
+				*(short *)(bn + 46) = jt1180(*(short *)(bn + 46));
+				w = jt410(refnum, bn + 40, (short)18);
+				*(short *)(bn + 44) = jt1180(*(short *)(bn + 44));
+				*(short *)(bn + 46) = jt1180(*(short *)(bn + 46));
+				if (w != 18)
+					return 0;
+				written++;
+				g_a5_byte(-22307) = (unsigned char)(g_a5_byte(-22307) + 1);
+			}
+		}
+	}
+
+	/* pad to 200 records from the -27920 item-template table */
+	if (written < 200) {
+		short pad = (short)((200 - written) * 18);
+		if (jt410(refnum, (void *)(uintptr_t)g_a5_long(-27920), pad) != pad)
+			return 0;
+	}
+	jt73();                                          /* l6114: free the list */
+	return 1;
+
+fail:
+	for (i = 0; i <= 2; i++)
+		g_a5_long(-25314 + (long)i * 4) =
+		    jt1199(g_a5_long(-25314 + (long)i * 4));
+	return 0;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
