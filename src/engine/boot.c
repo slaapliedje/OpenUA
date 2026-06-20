@@ -3027,7 +3027,24 @@ static void  l0006_20(void)           { PROBE("L0006_20"); } /* CODE 20+0x6 — 
  * whole dispatch — while it returns 0 the skeleton runs but stays inert. */
 static short jt485(short n);                                  /* random, defined below */
 static int   jt41(long handle_long, short find_byte, void *descriptor);  /* defined below */
-static short l42c2(short idx)              { PROBE("L42c2"); (void)idx; return 0; } /* once-only event tracker (TODO) */
+/* L42c2 (CODE 20 + 0x42c2) — TEST the "fired" bit for event `idx` in the live
+ * record's per-level once-only bitmap; returns 1 if the event has already
+ * triggered. The bit index is level(-18878)*100 + (idx-1); the byte lives at
+ * rec[525 + bit/8]. l694e's gate C uses this to suppress once-only re-fires;
+ * l4336 sets the bit, l43ac clears it. Pure record bit-twiddle, no deps. */
+static short l42c2(short idx)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          bitpos, byteoff, mask;
+
+	PROBE("L42c2");
+	if (rec == NULL)
+		return 0;
+	bitpos  = (short)(g_a5_word(-18878) * 100 + (idx - 1));
+	byteoff = (short)(bitpos / 8);
+	mask    = (short)(unsigned char)(1 << (bitpos % 8));
+	return (rec[525 + byteoff] & mask) ? 1 : 0;
+}
 
 /* l694e class-group match (case 16 inner switch on ev[2]): does class byte
  * `cls` belong to the requested FRUA class group `which` (0..6)? */
@@ -3158,7 +3175,25 @@ done:
 	}
 	return result;
 }
-static void  l4336(short idx)              { PROBE("L4336"); (void)idx; }
+/* L4336 (CODE 20 + 0x4336) — SET the "fired" bit for event `idx` in the live
+ * record's per-level once-only bitmap, marking it triggered. l709e calls this
+ * each time an event passes l694e and dispatches; on the next visit l42c2 then
+ * reports it fired, so l694e's gate C (ev[1] bit0 = once-only) suppresses the
+ * re-fire. The bit index is level(-18878)*100 + (idx-1); the byte lives at
+ * rec[525 + bit/8]. The SET counterpart to l43ac's clear / l42c2's test. */
+static void  l4336(short idx)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          bitpos, byteoff, mask;
+
+	PROBE("L4336");
+	if (rec == NULL)
+		return;
+	bitpos  = (short)(g_a5_word(-18878) * 100 + (idx - 1));
+	byteoff = (short)(bitpos / 8);
+	mask    = (short)(unsigned char)(1 << (bitpos % 8));
+	rec[525 + byteoff] = (unsigned char)(rec[525 + byteoff] | mask);
+}
 static void  l4144(void)                   { PROBE("L4144"); }
 static short jt202(short x, short y, short facing);  /* CODE 7+0x5e52, defined later */
 /* L085e (CODE 20 + 0x085e) — refresh the per-cell view caches and reset the
