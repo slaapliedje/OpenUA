@@ -51736,6 +51736,80 @@ static void jt186(long item_l, unsigned char *err_out)
 	jt21(g_a5_long(-27932));
 }
 
+/* JT[62] (CODE 6 + 0x6096) — free a 62-byte item node back to the -21508 item
+ * bucket (jt471). `pnode` points at the node pointer. Leaf; jt471 lifted. */
+static void jt62(long *pnode) __attribute__((unused));
+static void jt62(long *pnode)
+{
+	PROBE("jt62");
+	jt471(*pnode, (short)62, (void *)&g_a5_byte(-21508));
+}
+
+/* L3a3c (CODE 12 + 0x3a3c) — take ITEMS from the pending-treasure list (-25302)
+ * into the active character. Loops: pick an item from the list picker (l39ac);
+ * Escape (sel != 0) ends the loop. Give the chosen node to the character
+ * (jt186) — on an overload/error it stays in the list and the loop re-picks.
+ * In vault mode (-27990 == 10) decrement the vault item count (jt71/jt72,
+ * less the bundle size for kind-73 items). Unlink the taken node from -25302
+ * and free it (jt62); when the list empties, end. Redraw on exit (jt23). The
+ * item half of jt929 "take treasure". All deps lifted. */
+static void l3a3c(void) __attribute__((unused));
+static void l3a3c(void)
+{
+	long          node = 0;          /* fp@(-4): chosen item node     */
+	long          head_copy;         /* fp@(-14): l39ac node scratch   */
+	short         idx_scratch = 0;   /* fp@(-16): l39ac row scratch    */
+	long          pred;              /* fp@(-8): unlink walker         */
+	unsigned char sel;               /* fp@(-9): picker result         */
+	unsigned char exit_flag = 0;     /* fp@(-10)                       */
+	unsigned char err;               /* fp@(-17): jt186 error          */
+
+	PROBE("L3a3c");
+	head_copy = g_a5_long(-25302);
+	jt76();
+	g_a5_byte(-24140) = 1;
+
+	for (;;) {
+		unsigned char *it;
+
+		l39ac(&sel, &node, &head_copy, &idx_scratch);
+		if (sel != 0) {                          /* Escape / cancel */
+			exit_flag = 1;
+			break;
+		}
+		err = 0;
+		jt186(node, &err);
+		if (err != 0)                            /* overload -> re-pick */
+			continue;
+
+		it   = (unsigned char *)(uintptr_t)node;
+		pred = g_a5_long(-25302);
+		if (g_a5_byte(-27990) == 10) {           /* vault: drop the count */
+			short c = jt72();
+			if (it[40] == 73)
+				jt71((short)(c - it[53] - 1));
+			else
+				jt71((short)(c - 1));
+		}
+		/* unlink `node` from the -25302 pending list */
+		if (pred == node) {
+			g_a5_long(-25302) = *(long *)(uintptr_t)node;
+		} else {
+			while (*(long *)(uintptr_t)pred != node)
+				pred = *(long *)(uintptr_t)pred;
+			*(long *)(uintptr_t)pred = *(long *)(uintptr_t)node;
+		}
+		*(long *)(uintptr_t)node = 0;
+		if (node != 0)
+			jt62(&node);
+		if (g_a5_long(-25302) == 0)
+			exit_flag = 1;
+		if (exit_flag)
+			break;
+	}
+	jt23();
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
