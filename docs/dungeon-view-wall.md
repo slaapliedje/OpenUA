@@ -1,5 +1,37 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-19b — J200DIFF re-analysed: the WALK is the bug (occlusion + L/R)
+Captured a fresh J200DIFF.TXT at the natural 10,8,E start (HEIRS, GEO005) and
+tabulated all 25 slots' SCREEN positions ((left-8000)*2, (top-8000)*2) + decoded
+the radius-4 map cells. Two decisive, NEW findings:
+
+1. **All 25 slots land LEFT of centre** — screen x ∈ {32, 48, 56} only (the 88px
+   hole spans 24..112, centre 68). NOTHING is placed at x>56 → the right wall is
+   absent (the white gap). Cause: the left- AND right-side scans use the SAME
+   `left` globals (-12202/-12220 etc., all 0..4 → left 8012..8028), and EVERY
+   piece's x-bearing is **0** (verified via tools/wall_extract.py: idx1/2/6/7/8/42
+   all xbear=0). So there is NOTHING to separate left from right — the recession
+   is entirely in `top`+soff (vertical), none in `left`. The corridor collapses to
+   stacked left columns.
+2. **Wrong wall SET (the user: "corridor is all stone = set5").** Most slots are
+   grp=1 (wall2=set8=WOOD); the all-stone corridor should be grp=0 (wall1=set5).
+   Decoding the cells: the cell directly ahead **(X11,Y8) is all STONE** (N=1,S=1
+   side walls, E=5 far wall → all fold grp0). And E=5 is a WALL, so the visible
+   corridor is ONE cell deep. But the port's walk origin is **2 cells forward
+   (12,8)** and it reads PAST that blocking wall into (12,8)/(13,8) which ARE wood
+   (E=9,S=9 → grp1) → it emits wood slots for OCCLUDED cells. => the walk lacks the
+   occlusion STOP at a blocking wall (or the 2-forward origin + depth walk overruns
+   it). [[party-coord-rowcol-convention]] row/col + the DROW/DCOL swap are suspects.
+
+=> Both symptoms are in jt199/L6234 (the WALK), not the pieces (proven correct),
+the transform (clean jt1135 (v-8000)*2; g_cwf_ox/oy are DEAD/unused), or the
+bearings (all 0). NEXT: faithful L6234 lift focusing on (a) the per-cell occlusion
+that stops a ray at a wall, and (b) where the Mac encodes left/right screen
+separation (NOT the bearings, NOT the same-for-L/R globals — re-read L641a vs
+L65b2 and the l5b42 axis for a per-side `left` term the reconstruction drops).
+J200DIFF capture: `make EXTRA_CFLAGS="-DFRUA_HALL -DFRUA_SKIP_ENTRY_EVENTS"`,
+boot+`b`+Up; C:\J200DIFF.TXT has the cells (w=) + slots.
+
 ## UPDATE 2026-06-19 — PIECE DECODE PROVEN CORRECT; bug is render geometry + CLUT
 The port now starts NATURALLY at HEIRS 10,8,E (GAME-header start level 5 + GEO005
 load via #128, 0ba5e51) — same frame as `data/mac_3d_start_e.png`, no mon-placed
