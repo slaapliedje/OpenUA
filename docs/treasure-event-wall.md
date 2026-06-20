@@ -204,8 +204,25 @@ not the multi-session item first feared.
 | `jt929` | CODE12+0x3b4a | ~468B | "Take: Money/Items/Exit" driver (jt185 case 1) | ✅ DONE |
 | `jt894` | CODE19+0x46e0 | ~902B | deposit/drop the active char's money (jt185 case 3) | ✅ DONE (+l465c) |
 | `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (jt185 case 4) | ⛔ NEXT — see below |
-| `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) | ⛔ |
-| `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) | ⛔ |
+| `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) | ⛔ (see below) |
+| `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) | ⛔ (see below) |
+
+### jt583/jt586 scope (vault file persistence) — recon 2026-06-20
+TRAP: jt583/jt586 are trivial 64B/54B wrappers (build "Vault<c>.DAT" via jt394,
+call a file driver with a per-record callback), but the real work is the vault
+FILE FORMAT, a ~1.5KB byte-swapping I/O subsystem:
+- `jt75` (CODE6+0x61da, ~670B) — the record WRITER: money longs (-25314..) then
+  byte-swap (jt1180/jt1199) + write (jt410) each -25302 item + its 18-byte
+  template, bundles (item[40]==73), padded to 200. MISSING.
+- `jt74` (CODE6+0x6476, ~600B) — the record READER: inverse, builds the -25302
+  list (jt477 from -21508). MISSING.
+- `l61c6` (CODE6) — MISSING (jt74/jt75 helper).
+- the CODE15 `L0006` reader-driver — NOT lifted (the port's `l0006` is a
+  cross-segment NAME COLLISION = CODE13 combat teardown; lift the real one under
+  a distinct name). The WRITER driver `l00e0(fn,cb)` IS lifted (matches).
+- deps already lifted: jt401/jt410/jt1180/jt1199/l6114/jt394/jt73/l00e0.
+Its own focused session (a save format; a bug = corrupted vault files). Lifting
+the jt583/jt586 wrappers with jt74/jt75 stubbed would be a no-op (don't).
 
 ### jt893 scope (item-management screen, jt185 case 4) — recon 2026-06-20
 The full per-character inventory/item screen. ~1962B (CODE19 0x25ce..0x2d78).
