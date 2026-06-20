@@ -52481,10 +52481,21 @@ static void jt893(unsigned char *out) { PROBE("jt893"); if (out) *out = 0; }
  * unaffected — it lives in -25314/-25302, not the vault file. */
 static void jt583(void) { PROBE("jt583"); }
 
-/* JT[586] (CODE 15 + 0x1cd2, 54B) — save the pending-treasure list back
- * to the per-level vault file on exit. Leaf stub (no vault persistence
- * until the file I/O slice). */
-static void jt586(void) { PROBE("jt586"); }
+/* JT[586] (CODE 15 + 0x1cd2) — save the pending-treasure list to the per-level
+ * vault file on exit. Skips when the vault id (-22218) is 'Z' (90 = no vault);
+ * otherwise builds "Vault<c>.DAT" (jt394) and runs the write driver (l00e0)
+ * with the jt75 record-writer callback. Called from jt185's exit. */
+static void jt586(void)
+{
+	unsigned char fn[42];                            /* fp@(-42) */
+
+	PROBE("jt586");
+	if (g_a5_byte(-22218) == 90)                     /* 'Z' = no vault */
+		return;
+	jt394((char *)fn, ua_strs_at(0x4d34),            /* "Vault%c.DAT" */
+	      (int)(unsigned char)g_a5_byte(-22218));
+	l00e0((const char *)fn, (void *)jt75);
+}
 
 /* JT[185] (CODE 7 + 0x417a) — the per-character treasure / VAULT take
  * screen. Faithful structural skeleton. Sets play mode 10, draws the
