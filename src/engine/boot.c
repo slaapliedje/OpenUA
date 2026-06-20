@@ -51810,6 +51810,95 @@ static void l3a3c(void)
 	jt23();
 }
 
+/* JT[901] (CODE 19 + 0x422a) — the member's max carriable weight = jt24's
+ * Strength capacity + 1500. Part of the jt929 money path (l1baa dep). */
+static short jt901(long member_l) __attribute__((unused));
+static short jt901(long member_l)
+{
+	PROBE("jt901");
+	return (short)(jt24(member_l) + 1500);
+}
+
+/* L1baa (CODE12+0x1baa) — would adding `amount` weight overload `member`?
+ * Returns 1 if current weight (rec[86]) + amount exceeds jt901's capacity, and
+ * sets *out_slack to the remaining capacity (0 if already over). The weight
+ * gate under l21d6 (take money). */
+static unsigned char l1baa(long member_l, long amount, long *out_slack) __attribute__((unused));
+static unsigned char l1baa(long member_l, long amount, long *out_slack)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)member_l;
+	unsigned short cw = *(const unsigned short *)(m + 86);   /* current weight */
+	unsigned short mw = (unsigned short)jt901(member_l);     /* max weight     */
+	long           total = (long)cw + amount;
+
+	PROBE("L1baa");
+	if (total > (long)mw) {
+		*out_slack = (cw <= mw) ? (long)(unsigned short)(mw - cw) : 0;
+		return 1;
+	}
+	*out_slack = 0;
+	return 0;
+}
+
+/* L21d6 (CODE12+0x21d6) — add `amount` of money type `type` (0 platinum /
+ * 1 gems / 2 jewelry) to `member`, drawing it from the shared pool
+ * (-25314 + type*4). Bails with "Overloaded" (jt42 + jt102 + jt66) if the
+ * coin weight would overload (l1baa). Otherwise clamps the amount to the pool,
+ * subtracts it from the pool, adds it to the member's money word (rec[76 +
+ * type*2]), and books the coin weight (jt883, the low word of `amount`). The
+ * money transfer under jt924. */
+static void l21d6(long member_l, long amount, short type) __attribute__((unused));
+static void l21d6(long member_l, long amount, short type)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)member_l;
+	long           slack;
+	long          *pool;
+
+	PROBE("L21d6");
+	if (l1baa(member_l, amount, &slack)) {
+		jt42(ua_strs_at(0x60c6));        /* "Overloaded" */
+		jt102();
+		jt66();
+		return;
+	}
+	pool = (long *)(void *)&g_a5_byte(-25314 + (long)type * 4);
+	if (amount > *pool)
+		amount = *pool;
+	*pool -= amount;
+	*(unsigned short *)(m + 76 + (long)type * 2) =
+	    (unsigned short)(*(unsigned short *)(m + 76 + (long)type * 2) + amount);
+	jt883(m, (short)amount);             /* fp@(14) = low word of amount = coin weight */
+}
+
+/* JT[884] (CODE 19 + 0x3f16) — map a money row's label (`row`, e.g. "Platinum",
+ * "Gems", "Jewelry") to its pool index (Platinum 0 / Gems 1 / Jewelry 2) and
+ * copy the canonical name into *out_name. JT[1] switch on the first non-space
+ * letter. Part of the jt929 money path (jt924 dep). */
+static unsigned char jt884(const char *row, char *out_name) __attribute__((unused));
+static unsigned char jt884(const char *row, char *out_name)
+{
+	short          i = 1;            /* fp@(-2) */
+	unsigned char  result = 0;       /* fp@(-1) */
+	unsigned char  c;
+
+	PROBE("jt884");
+	while ((unsigned char)row[i - 1] == ' ')
+		i++;
+	c = (unsigned char)row[i - 1];
+	switch (c) {                                 /* JT[1] @ 0x3f5c */
+	case 71:  /* 'G' */ result = 1;
+		jt384(out_name, ua_strs_at(0x5c9a)); break;   /* "Gems "     */
+	case 80:  /* 'P' */ jt384(out_name, ua_strs_at(0x5ca0)); /* "Platinum " */
+		result = 0; break;
+	case 83:  /* 'S' */ jt384(out_name, ua_strs_at(0x5caa)); /* "Platinum " */
+		result = 0; break;
+	case 74:  /* 'J' */ jt384(out_name, ua_strs_at(0x5cb4)); /* "Jewelry "  */
+		result = 2; break;
+	default: break;
+	}
+	return result;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
