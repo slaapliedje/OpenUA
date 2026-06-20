@@ -248,15 +248,23 @@ MONEY PATH:
   jt394/jt488/jt384 labels), run jt169, then jt884/jt891/l21d6. Deps jt147 ✓.
   Takes NO args (callers push nothing); the per-letter row mapper is jt884.
 
-DRIVER (⛔ TODO, last):
-- `jt929` (CODE12+0x3b4a, 468B) — money-only -> jt924; items-only -> l3a3c;
-  both -> a "Take: Money/Items/Exit" l2ebc sub-dialog. Decode its JT[3] arms
-  with tools/jt3_extract.py (the L3c9c "Money" arm needs the table verified, not
-  eyeballed). Replaces the jt929 leaf stub; jt185 case 1 then works.
+DRIVER (✅ DONE):
+- ✅ `jt929` (CODE12+0x3b4a) — money-only -> jt924; items-only -> l3a3c; both ->
+  a "Take: Money/Items/Exit" l2ebc sub-dialog (Money=jt924, Items=l3a3c, Exit,
+  arrow keys = char-switch jt936/jt934); single-type menu once one runs out.
+  The two JT[3] arms were VERIFIED against the raw bytes: the .s "asrb #3" at
+  0x3c9e was a table-boundary misalignment — case 0 is `jsr L229e` = jt924.
+  Replaces the leaf stub; jt185 case 1 now calls it.
 
-PROGRESS 2026-06-20: items path COMPLETE; money TRANSFER mechanics done. The
-remaining money work is the jt891 amount-entry widget (+ its leaves jt409/jt487/
-L3e3c/jt60/L5ac2/L5ad8) and the jt924/jt929 drivers.
+## CLUSTER COMPLETE 2026-06-20 — "take treasure" works end to end
+jt185 case 1 -> jt929 -> jt924 (money) / l3a3c (items) -> the full leaf tree.
+Wiring jt929 into jt185 made the whole cluster LIVE (binary +39KB, no longer
+dead-stripped). Order delivered: l39ac, jt24/jt887, jt186/jt889-stub, jt62/
+l3a3c (items); jt884/jt901/l1baa/l21d6 (money mechanics); l3e3c/jt409/jt487/
+jt60 (input leaves); jt891 (amount widget); jt924 (money driver); jt929
+(top driver, wired). jt889 (bundle-join, item[53]>0 only) stays a documented
+stub. NOT yet live-tested in Hatari (reach it via the Vault event or a give-
+treasure reward); the lifts are faithful + build clean.
 
 OPEN QUESTION carried into B: confirm l216a (case 9) is the intro reward's path
 (vs case 3 l28b0 + a play-loop jt926 poll). The CODE20 jt926 callers at 0x234a /

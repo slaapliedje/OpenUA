@@ -52178,11 +52178,86 @@ static void jt924(void)
  * deferred. See docs/treasure-event-wall.md (Slice B4).
  * =================================================================== */
 
-/* JT[929] (CODE 12 + 0x3b4a, ~468B) — move the pending shared treasure
- * (money flag *a, items flag *b from jt926) into the active character.
- * Leaf stub pending its own lift. */
+/* JT[929] (CODE 12 + 0x3b4a) — move the pending shared treasure (money flag *a,
+ * items flag *b, both from jt926) into the active character. No money -> take
+ * items (l3a3c); no items -> take money (jt924); both present -> loop a "Take:
+ * Money/Items/Exit" dialog (l2ebc) — Money runs jt924, Items runs l3a3c, Exit
+ * ends; arrow keys switch the active character (jt936/jt934); a single-type
+ * menu (Money Exit / Items Exit) shows once one runs out, with the option
+ * indices remapped to the full-menu values. Re-polls (jt926) + redraws (jt937)
+ * each pass; ends when items are gone or Exit is chosen. Verified the two JT[3]
+ * arms against the raw bytes (the .s "asrb #3" was a table-boundary
+ * misalignment; case 0 is `jsr L229e` = jt924). Wired into jt185 case 1. */
 static void jt929(unsigned char *a, unsigned char *b)
-{ PROBE("jt929"); (void)a; (void)b; }
+{
+	unsigned char exit_flag = 0;     /* fp@(-2) */
+	unsigned char sel;               /* fp@(-1) */
+
+	PROBE("jt929");
+	g_a5_byte(-24140) = 1;
+
+	if (*a == 0) {                   /* no money -> items only */
+		l3a3c();
+		return;
+	}
+	if (*b == 0) {                   /* no items -> money only */
+		jt924();
+		jt23();
+		return;
+	}
+
+	do {                             /* both present: the Take menu loop */
+		if (*a != 0 && *b != 0) {                 /* full menu */
+			jt179((short)2);
+			sel = (unsigned char)l2ebc(
+			    (long)(uintptr_t)ua_strs_at(0x6152),  /* "Take:"            */
+			    (long)(uintptr_t)ua_strs_at(0x6158),  /* "Money Items Exit" */
+			    (short)1, (short)1);
+		} else if (*a != 0) {                     /* money only */
+			jt179((short)1);
+			sel = (unsigned char)l2ebc(
+			    (long)(uintptr_t)ua_strs_at(0x616a),  /* "Take:"      */
+			    (long)(uintptr_t)ua_strs_at(0x6170),  /* "Money Exit" */
+			    (short)1, (short)1);
+			if (g_a5_byte(-24139) == 0 && sel == 1)
+				sel = 2;                          /* Exit -> 2 */
+		} else {                                  /* items only */
+			jt179((short)1);
+			sel = (unsigned char)l2ebc(
+			    (long)(uintptr_t)ua_strs_at(0x617c),  /* "Take:"      */
+			    (long)(uintptr_t)ua_strs_at(0x6182),  /* "Items Exit" */
+			    (short)1, (short)1);
+			if (g_a5_byte(-24139) == 0 && sel < 2)
+				sel = (unsigned char)(sel + 1);   /* Items->1 / Exit->2 */
+		}
+
+		if (g_a5_byte(-24139) != 0) {             /* cancel / nav key */
+			if (sel == 27) {
+				exit_flag = 1;
+			} else {
+				jt936(g_a5_long(-27932), (short)0);
+				jt934((short)sel);
+				jt936(g_a5_long(-27932), (short)1);
+			}
+		} else {
+			switch (sel) {                    /* JT[3] 0..2 (raw-verified) */
+			case 0: jt924(); jt23(); break;   /* Money */
+			case 1: l3a3c(); break;           /* Items */
+			case 2: exit_flag = 1; break;     /* Exit  */
+			default:
+				jt936(g_a5_long(-27932), (short)0);
+				jt934((short)sel);
+				jt936(g_a5_long(-27932), (short)1);
+				break;
+			}
+		}
+
+		jt926(a, b);                              /* re-poll pending */
+		if (*b == 0)
+			exit_flag = 1;                    /* items gone -> end */
+		jt937(g_a5_long(-27932));
+	} while (exit_flag == 0);
+}
 
 /* JT[894] (CODE 19 + 0x46e0, ~902B) — pool / sell the active character's
  * money. Leaf stub pending its own lift. */
