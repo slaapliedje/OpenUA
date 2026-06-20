@@ -51602,6 +51602,83 @@ static void l39ac(unsigned char *out_sel, long *out_node,
 	*out_node = *next_scratch;
 }
 
+/* JT[24] (CODE 6 + 0x2000) — the AD&D Strength -> base carry-capacity table.
+ * Reads the member's effective Strength (l1d54), returns the encumbrance base
+ * weight (negative for very weak characters; the exceptional/percentile bands
+ * use the linear formulas). jt887 adds 1500 to this for its overload threshold.
+ * Part of the jt929 take-treasure cluster (jt887 dep). */
+static short jt24(long member_l) __attribute__((unused));
+static short jt24(long member_l)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)member_l;
+	short str;
+
+	PROBE("jt24");
+	str = l1d54(m);
+	if (str <= 0)  return 0;
+	if (str <= 3)  return -350;
+	if (str <= 5)  return -250;
+	if (str <= 7)  return -150;
+	if (str <= 11) return 0;
+	if (str <= 13) return 100;
+	if (str <= 15) return 200;
+	if (str <= 16) return 350;
+	if (str <= 21) return (short)(500 + (str - 17) * 250);
+	if (str <= 26) return (short)(2000 + (str - 22) * 1000);
+	if (str <= 27) return 7500;
+	if (str <= 30) return (short)(9000 + (str - 28) * 3000);
+	return 0;
+}
+
+/* JT[887] (CODE 19 + 0x4c9a) — would giving `item` to `member` overload them?
+ * Returns 1 if the add would exceed capacity. Recomputes derived stats (jt21),
+ * and for a bundled item (item[53] > 0) with `flag` set, scans the member's
+ * item list (rec[8]) for a stackable match (identical item fields, charges
+ * < 2). Then the two overload tests: > 15 distinct items with no stack match,
+ * or current weight (rec[86]) + the item's weight (rec[44], * its bundle count)
+ * exceeding jt24's Strength capacity + 1500. Part of the jt929 cluster (jt186
+ * dep). */
+static unsigned char jt887(long member_l, short flag, long item_l) __attribute__((unused));
+static unsigned char jt887(long member_l, short flag, long item_l)
+{
+	unsigned char *member = (unsigned char *)(uintptr_t)member_l;
+	unsigned char *item   = (unsigned char *)(uintptr_t)item_l;
+	unsigned char *node;
+	unsigned char  result = 0;
+	unsigned char  match  = 0;
+	short          weight, total;
+
+	PROBE("jt887");
+	jt21(member_l);
+	node = (unsigned char *)(uintptr_t)*(long *)(member + 8);
+
+	if (item[53] > 0 && (flag & 0xff)) {
+		while (match == 0 && node != NULL) {
+			if (node[41] == item[41] && node[42] == item[42] &&
+			    node[43] == item[43] && node[40] == item[40] &&
+			    node[48] == item[48] && node[49] == item[49] &&
+			    node[52] == item[52] &&
+			    *(unsigned short *)(node + 44) ==
+			        *(unsigned short *)(item + 44) &&
+			    node[54] == item[54] && node[54] < 2 &&
+			    node[55] == item[55] && node[56] == item[56])
+				match = 1;
+			node = (unsigned char *)(uintptr_t)*(long *)node;
+		}
+	}
+
+	/* L4dd8 — the two overload tests. */
+	if (member[193] > 15 && match == 0)
+		result = 1;
+	weight = *(short *)(item + 44);
+	if (item[53] > 0)
+		weight = (short)(item[53] * weight);
+	total = (short)(*(short *)(member + 86) + weight);
+	if ((unsigned short)(jt24(member_l) + 1500) < (unsigned short)total)
+		result = 1;
+	return result;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
