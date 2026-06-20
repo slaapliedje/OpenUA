@@ -32727,6 +32727,24 @@ static void l28b0(void *ev_v, short f)
  * treasure slice; full lift is Slice C (see docs/treasure-event-wall.md). */
 static void jt930(void) { PROBE("jt930"); }
 
+/* L11a8 (CODE 7 + 0x11a8) — append one display row to the treasure-picker's
+ * 40-byte row array at -24126. `*pcount` is the running row count: on the first
+ * row (count 0) the array is filled with 0xff (empty marker) via jt399, then
+ * `value` is stored at slot `*pcount` (2-byte stride) and the count bumped.
+ * The shared row-builder both treasure pickers (jt183 party-distribution,
+ * jt185 per-character) call to lay out their Money / Gems / Jewelry / Items
+ * rows. Self-contained leaf (only dep jt399). First lifted piece of the
+ * treasure-picker UI (Slice B); marked unused until jt183/jt185 land. */
+static void l11a8(short value, unsigned char *pcount) __attribute__((unused));
+static void l11a8(short value, unsigned char *pcount)
+{
+	PROBE("L11a8");
+	if (*pcount == 0)
+		jt399(&g_a5_byte(-24126), 40, 255);          /* fill 0xff */
+	g_a5_byte(-24126 + (long)*pcount * 2) = (unsigned char)value;
+	(*pcount)++;
+}
+
 /* L43ac (CODE 20 + 0x43ac) — clear the "available" bit for encounter `idx` in
  * the live record's per-level once-only bitmap. The bit index is
  * level(-18878)*100 + (idx-1); the byte lives at rec[525 + bit/8]. Pure record

@@ -120,12 +120,73 @@ l28b0 only **stages** the loot (money → `-25314/-25310/-25306`, items → the
    (money) + the `-25302` item list. Clean build. NOT yet live-verified — it's
    event-gated (runs only when a give-treasure event fires) and has no visible
    output until Slice B; verify via a PROBE trace or once the picker exists.
-2. **Slice B — the picker UI** ⛔ NEXT: locate + lift the treasure-distribution
-   dialog, wire its `jt926`-gated trigger into the play/event flow. This is the
-   visible "take 100 Platinum + a ring" screen. CODE 6 (≈0x656a..0x65a2) /
-   CODE 9 (≈0x34d2) reference `-25302` — likely the dialog.
+2. **Slice B — the picker UI** ⛔ IN PROGRESS (recon done 2026-06-20; see
+   "Slice B map" below). The picker is the SHARED FRUA treasure/exchange UI, a
+   multi-function subsystem behind three stubbed event handlers — NOT a single
+   dialog. Foundation leaf `l11a8` lifted; the rest is a multi-session lift.
 3. **Slice C — jt930** (leave-area / party cleanup) full lift, closing the
    case-3 refresh path and the death-message tail.
+
+---
+
+## Slice B map — the treasure-picker UI subsystem (recon 2026-06-20)
+
+The "picker" is the shared FRUA treasure/exchange interface, reached from three
+l709e event handlers (all currently STUBS in the port):
+
+| l709e case | handler (CODE 20) | event | picker driver |
+|-----------:|-------------------|-------|---------------|
+| 8  | `l5586` (0x5586, ~240B) | **Shop** ("The party enters a local shop") | `jt183` |
+| 9  | `l216a` (0x216a, ~1.8KB, frame -60) | **give-treasure + take** (polls jt926 ×2) | `jt183` (likely) |
+| 24 | `l3a32` (0x3a32, ~150B) | **Vault** ("The party enters the vault.") | `jt185` |
+
+The "take 100 Platinum + a ring" intro reward is most likely **case 9 (l216a)** —
+the give-treasure-with-take handler — not the silent give (case 3, l28b0, Slice
+A). l216a is the largest single piece.
+
+### The two picker drivers (CODE 7)
+
+- **`jt183`** (JT[183] = CODE7+0x3e68, ~790B) — the **party treasure-distribution
+  dialog** (mode -27990=1). Builds Money/Gems/Jewelry/Items rows (l11a8), runs
+  the dialog loop (L2ebc), and dispatches a 7-way button switch:
+  `jt904`(view) / `jt924` / `jt925` / `jt921` / `jt922` / `jt926`+take. Loops
+  until exit. Called by l5586 (Shop) + l216a (give-treasure).
+- **`jt185`** (JT[185] = CODE7+0x417a, ~700B) — the **per-character take screen**
+  (mode -27990=10). Builds the rows for one character (jt73 free + jt583), runs
+  L2ebc, dispatches its own button switch. Called by l3a32 (Vault).
+
+### Shared helpers (CODE 7 locals)
+
+| sym | addr | size | role | status |
+|-----|------|-----:|------|--------|
+| `l11a8` | 0x11a8 | 70B | append a display row to the -24126 array | ✅ LIFTED (this session) |
+| `L2ebc` | 0x2ebc | ~232B (frame -82) | the picker DIALOG runner (draw + input loop) | ⛔ lift — central |
+| `L16ea` | 0x16ea | ? | (take-confirm helper) | ⛔ |
+| `L17f8` | 0x17f8 | ? | (money-row draw helper) | ⛔ |
+| `L2858` | 0x2858 | ? | (dialog setup helper) | ⛔ |
+
+### Dependency lift-status (port)
+
+- ✅ already lifted: `jt96` (button/text), `jt20`, `jt103`, `jt181`, `jt188`,
+  `jt925`, `jt934`, `jt936`, `jt73`, `jt65`(l5f4e), `jt399`, `jt23`, `jt937`,
+  `l442e` (event-picture painter), `l0b20`? (text print — VERIFY).
+- ⛔ MISSING: `jt183`, `jt185`, `jt921`, `jt922`, `jt924`, `jt583`, `L2ebc`,
+  `L16ea`, `L17f8`, `L2858`, the three trigger handlers `l5586`/`l216a`/`l3a32`.
+
+### Proposed Slice-B sub-order (each its own commit/session)
+
+- **B1** ✅ `l11a8` row-builder leaf (done).
+- **B2** the `L2ebc` dialog runner + `L16ea`/`L17f8`/`L2858` draw helpers (the
+  shared UI core both drivers need).
+- **B3** the missing CODE-12 button helpers `jt921`/`jt922`/`jt924`/`jt583`.
+- **B4** `jt185` (per-char screen) + `l3a32` (Vault trigger) — the smaller
+  driver first; verifiable via a Vault event.
+- **B5** `jt183` (distribution dialog) + `l5586` (Shop) + `l216a` (give-treasure
+  + take) — the visible "take 100 Platinum + a ring".
+
+OPEN QUESTION carried into B: confirm l216a (case 9) is the intro reward's path
+(vs case 3 l28b0 + a play-loop jt926 poll). The CODE20 jt926 callers at 0x234a /
+0x24ca are both inside l216a, supporting case 9.
 
 Related: [[bigpic-composer-129]] (event subsystem), [[combat-encounter-gateway]]
 (l709e cases 10/21), docs/play-loop-wall.md (event-type table).
