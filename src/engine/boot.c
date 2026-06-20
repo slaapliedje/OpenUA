@@ -3221,7 +3221,7 @@ static void  l085e(void)
 }
 static void  l159a(void *ev, short f)      { PROBE("L159a"); (void)ev; (void)f; }
 static void  l4d26(void *ev);              /* message/text event — defined after its deps */
-static void  l28b0(void *ev, short f)      { PROBE("L28b0"); (void)ev; (void)f; }
+static void  l28b0(void *ev, short f);     /* give/take treasure — defined after its deps */
 static void  l40b4(void)                   { PROBE("L40b4"); }
 static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
 static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
@@ -32574,6 +32574,158 @@ static void l3ef8(void)
  * marks it triggered through the l43ac once-only bitmap), and returns the next
  * event index that drives the chain. These three are the bottom of the gateway;
  * the prompt (l3b0e) and the downstream combat exec (CODE 13-19) follow. */
+
+/* =========================================================================
+ * Treasure / give-reward event staging (l709e cases 3/25 -> l28b0).
+ * Slice A of the reward-picker subsystem: faithfully BUILD the loot into the
+ * engine's real globals (money longs -25314/-25310/-25306 + the -25302 item
+ * list). The visible Take/Pool/Exit picker is Slice B; jt930 (the case-3 post-
+ * give redraw / leave-area cleanup) is a documented leaf stub (Slice C).
+ * See docs/treasure-event-wall.md.
+ * ========================================================================= */
+
+/* L427c (CODE 20 + 0x427c) — read a little-endian u32 from ptr[0..3]. FRUA
+ * design data keeps DOS byte order even in the Mac build. */
+static long l427c(const unsigned char *ptr)
+{
+	PROBE("L427c");
+	return (long)((unsigned long)ptr[0]
+	            | ((unsigned long)ptr[1] << 8)
+	            | ((unsigned long)ptr[2] << 16)
+	            | ((unsigned long)ptr[3] << 24));
+}
+
+/* L4256 (CODE 20 + 0x4256) — read a little-endian u16 from ptr[0..1]. */
+static short l4256(const unsigned char *ptr)
+{
+	PROBE("L4256");
+	return (short)(ptr[0] | (ptr[1] << 8));
+}
+
+/* L483e (CODE 7 + 0x483e) — fill the 18-byte item-template image `ptr` with
+ * the "money/gems" pseudo-item: zero 18 bytes (jt65/l5f4e), set the fixed
+ * template fields, then pick 3 random "type-2" entries from the -16906
+ * definition table (16-byte stride) into ptr[14..16]. jt187 uses this for
+ * treasure id 255. -22307 is the Mac's loop scratch (1..4). */
+static void l483e(unsigned char *ptr)
+{
+	PROBE("L483e");
+	l5f4e(ptr, 18);                  /* jt65: zero 18 bytes */
+	ptr[0]  = 39;
+	ptr[2]  = 39;
+	ptr[1]  = 102;
+	ptr[8]  = 1;
+	*(short *)(ptr + 4) = 1;          /* word */
+	*(short *)(ptr + 6) = 3000;       /* word */
+	ptr[12] = 0;
+	ptr[3]  = 40;
+	ptr[11] = 4;
+	g_a5_byte(-22307) = 1;
+	do {
+		short idx;
+		do {
+			idx = jt870(1, 126);              /* random 1..126 */
+		} while (g_a5_byte(-16906 + (long)idx * 16) != 2);
+		ptr[13 + (unsigned char)g_a5_byte(-22307)] = (unsigned char)idx;
+		g_a5_byte(-22307) = (unsigned char)(g_a5_byte(-22307) + 1);
+	} while ((unsigned char)g_a5_byte(-22307) <= 3);
+}
+
+/* JT[187] (CODE 7 + 0x4910) — build one treasure item from id and prepend it
+ * to the pending-treasure list at -25302. id 0 = nothing; id 255 = the money
+ * pseudo-item (l483e); else copy the 18-byte template -27920[id*18]. A
+ * template whose first byte is 255 ("empty") is skipped. `flag` (the event's
+ * ev[7] bit7) clears the low 3 bits of template byte 11. A 62-byte node is
+ * reserved from the -21508 item bucket (jt477) and linked at the list head.
+ * PORT NOTE: the Mac leaves node[5..39] (the instance fields between the
+ * header and the 18-byte template at offset 40) as stack garbage; we zero the
+ * whole node first so a fresh treasure item has deterministic instance state
+ * (the Mac's explicit clears of node[0..4]/58..61 are a subset of this). */
+static void jt187(short id, short flag)
+{
+	unsigned char  node[62];                 /* the Mac's fp@(-62) node image */
+	const unsigned char *tmpl;
+	long           old_head, nn;
+
+	PROBE("jt187");
+	if ((id & 0xffff) == 0)
+		return;
+	memset(node, 0, sizeof node);
+	if ((id & 0xffff) == 255) {
+		l483e(node + 40);                /* money pseudo-item */
+	} else {
+		tmpl = (const unsigned char *)(uintptr_t)
+		       (g_a5_long(-27920) + (long)(id & 0xffff) * 18);
+		memmove(node + 40, tmpl, 18);    /* jt479(tmpl, &node[40], 18) */
+	}
+	if (node[40] == 255)                     /* template[0]==255 -> empty */
+		return;
+	if (flag & 0xff)
+		node[51] &= (unsigned char)~7;   /* fp@(-11) &= ~7 -> node[51] */
+
+	old_head = g_a5_long(-25302);
+	jt477((void *)&g_a5_byte(-21508), 62, (void *)&g_a5_long(-25302));
+	nn = g_a5_long(-25302);
+	if (nn == 0) {                           /* PORT-SAFETY: bucket full */
+		g_a5_long(-25302) = old_head;
+		return;
+	}
+	memmove((void *)(uintptr_t)nn, node, 62);
+	*(long *)(uintptr_t)nn = old_head;       /* node->next = old head (prepend) */
+}
+
+static void jt930(void);    /* leave-area cleanup leaf stub — defined just below */
+
+/* L28b0 (CODE 20 + 0x28b0) — the give/take-treasure event handler (l709e
+ * cases 3 = l28b0(ev,1) "give + refresh", 25 = l28b0(ev,0) "give, no refresh").
+ * Stages the loot: money long ev[4..7] (LE, high bit cleared) -> -25314, words
+ * ev[8..9]/ev[10..11] -> -25310/-25306, and 8 item ids ev[12..19] -> the -25302
+ * list via jt187. On the flag path it refreshes the play screen (jt930 cleanup
+ * then jt23 stand-up). jt930 is a leaf stub for now (Slice C). */
+static void l28b0(void *ev_v, short f)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          i;
+
+	PROBE("L28b0");
+	if (ev == NULL)
+		return;
+	if (rec)
+		rec[30] = 0;
+
+	g_a5_long(-25314) = l427c(ev + 4) & 0x7fffffffL;   /* LE u32, clear bit 31 */
+	g_a5_long(-25310) = (long)(unsigned short)l4256(ev + 8);
+	g_a5_long(-25306) = (long)(unsigned short)l4256(ev + 10);
+
+	for (i = 8; i >= 1; i--)                            /* 8 item slots ev[12..19] */
+		if (ev[i + 11] != 0)
+			jt187((short)ev[i + 11], (short)(ev[7] & 0x80));
+
+	if (f & 0xff) {                                    /* case 3: refresh screen */
+		unsigned char saved = g_a5_byte(-22268);
+		g_a5_byte(-27987) = 0;
+		g_a5_byte(-22268) = 0;
+		jt930();
+		if (rec && rec[34] == 0 && rec[36] == 1)
+			g_a5_byte(-27990) = 3;
+		else
+			g_a5_byte(-27990) = 4;
+		if (rec)
+			rec[25] = (unsigned char)(rec[25] & 1);
+		jt399(&g_a5_byte(-22302), 2, 0);
+		g_a5_byte(-22281) = 0;
+		jt23();
+		g_a5_byte(-22268) = saved;
+		g_a5_byte(-4918) = 0;
+	}
+}
+
+/* JT[930] (CODE 12 + 0x4110) — leave-area / party-cleanup + treasure-list free
+ * + party-death message. A large function with its own subtree (L33d8/L4046/
+ * L4268/L3806/L3d1e + jt62/jt73/jt76/jt21). Leaf PROBE stub for the give-
+ * treasure slice; full lift is Slice C (see docs/treasure-event-wall.md). */
+static void jt930(void) { PROBE("jt930"); }
 
 /* L43ac (CODE 20 + 0x43ac) — clear the "available" bit for encounter `idx` in
  * the live record's per-level once-only bitmap. The bit index is
