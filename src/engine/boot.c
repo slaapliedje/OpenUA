@@ -52969,8 +52969,119 @@ static void jt586(void)
 	l00e0((const char *)fn, (void *)jt75);
 }
 
-/* ---- jt183 merchant-screen arm handlers (not yet lifted) ------------------ */
-static void jt921(void) { PROBE("jt921"); }                 /* CODE12+0x1d90 — money-pool op (arm 4) */
+/* L1d42 (CODE 12 + 0x1d42) — count the party members eligible for a money
+ * share: live members (status rec[147] == 0) plus the 179 charm placeholder.
+ * Walks the -27928 party list (next at +0). */
+static unsigned char l1d42(void)
+{
+	unsigned char *m     = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	unsigned char  count = 0;
+
+	PROBE("L1d42");
+	while (m != 0) {
+		if (m[147] == 0 || m[147] == 179)
+			count++;
+		m = (unsigned char *)(uintptr_t)*(long *)m;
+	}
+	return count;
+}
+
+/* JT[921] (CODE 12 + 0x1d90) — SHARE: divide the pooled money (-25314 platinum
+ * / -25310 gems / -25306 jewelry) equally among the eligible party members
+ * (jt183 arm 4). Faithful lift:
+ *   - per money type, share = pool / count (jt5), remainder = pool % count (jt6);
+ *   - give each member its share, +1 of the remainder when it still fits, with
+ *     the encumbrance gate l1baa spilling the unfittable part back into the
+ *     remainder; each credit books coin weight via jt883;
+ *   - redistribute leftover remainders to anyone with carry slack
+ *     (jt901 capacity - rec[86] current weight);
+ *   - any undistributable remainder is written back to the pool, and -23229 is
+ *     raised if coin remains. Member money words live at rec[76 + type*2]. */
+static void jt921(void)
+{
+	long           share[3];          /* fp@(-22,-18,-14) */
+	long           rem[3];            /* fp@(-34,-30,-26) */
+	long           slack;             /* fp@(-10) */
+	unsigned char  count;             /* fp@(-5)  */
+	unsigned char *chr;               /* fp@(-4)  */
+	short          i;                 /* fp@(-35) */
+
+	PROBE("jt921");
+	count    = l1d42();
+	share[0] = 0;
+	rem[0]   = 0;
+
+	/* Phase 1 — equal share + remainder per money type. */
+	for (i = 0; i <= 2; i++) {
+		long pool = *(long *)(void *)&g_a5_byte(-25314 + (long)i * 4);
+		if (pool > 0) {
+			share[i] = (long)jt5((unsigned long)pool, (unsigned long)count);
+			rem[i]   = (long)jt6((unsigned long)pool, (unsigned long)count);
+		} else {
+			share[i] = 0;
+			rem[i]   = 0;
+		}
+	}
+
+	/* Phase 2 — hand each eligible member its share (+1 of the remainder
+	 * if it fits); over-encumbered members keep only what fits. */
+	for (chr = (unsigned char *)(uintptr_t)g_a5_long(-27928); chr != 0;
+	     chr = (unsigned char *)(uintptr_t)*(long *)chr) {
+		if ((unsigned char)chr[147] >= 128)
+			continue;
+		for (i = 2; i >= 0; i--) {
+			unsigned short *w = (unsigned short *)(chr + 76 + i * 2);
+			if (l1baa((long)(uintptr_t)chr, share[i], &slack) == 0) {
+				*w = (unsigned short)(*w + share[i]);
+				jt883(chr, (short)share[i]);
+				if (rem[i] > 0 &&
+				    l1baa((long)(uintptr_t)chr, 1, &slack) == 0) {
+					*w = (unsigned short)(*w + 1);
+					jt883(chr, 1);
+					rem[i] -= 1;
+				}
+			} else {
+				*w = (unsigned short)(*w + slack);
+				rem[i] = rem[i] + share[i] - slack;
+				jt883(chr, (short)slack);
+			}
+		}
+	}
+
+	/* Phase 3 — spread any leftover remainder to members with carry slack. */
+	for (i = 2; i >= 0; i--) {
+		if (rem[i] <= 0)
+			continue;
+		for (chr = (unsigned char *)(uintptr_t)g_a5_long(-27928); chr != 0;
+		     chr = (unsigned char *)(uintptr_t)*(long *)chr) {
+			unsigned short *w = (unsigned short *)(chr + 76 + i * 2);
+			long avail = (long)(unsigned short)
+			    ((unsigned short)jt901((long)(uintptr_t)chr) -
+			     *(unsigned short *)(chr + 86));
+			if (avail <= 0)
+				continue;
+			if (avail >= rem[i]) {
+				*w = (unsigned short)(*w + rem[i]);
+				jt883(chr, (short)rem[i]);
+				rem[i] = 0;
+			} else {
+				*w = (unsigned short)(*w + avail);
+				jt883(chr, (short)avail);
+				rem[i] -= avail;
+			}
+		}
+	}
+
+	/* Phase 4 — undistributable remainder returns to the pool. */
+	g_a5_byte(-23229) = 0;
+	for (i = 0; i <= 2; i++) {
+		*(long *)(void *)&g_a5_byte(-25314 + (long)i * 4) = rem[i];
+		if (*(long *)(void *)&g_a5_byte(-25314 + (long)i * 4) != 0)
+			g_a5_byte(-23229) = 1;
+	}
+}
+
+/* ---- jt183 merchant-screen arm 5 handler (not yet lifted) ----------------- */
 static void jt922(unsigned char *out)                       /* CODE12+0x2554 — gems/jewelry op (arm 5) */
 	{ PROBE("jt922"); if (out) *out = 0; }
 static void l17f8(void) { PROBE("l17f8"); }                 /* CODE7+0x17f8 — exit-prompt text helper */
