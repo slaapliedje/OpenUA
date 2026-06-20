@@ -106,11 +106,20 @@ wait)
 	;;
 key)
 	[[ $# -ge 1 ]] || die "key needs at least one keysym"
-	WID="$(cat "$STATE/wid" 2>/dev/null)" || WID="$(find_window)"
-	xdotool windowactivate --sync "$WID"
+	WID="$(cat "$STATE/wid" 2>/dev/null)"; [[ -n "$WID" ]] || WID="$(find_window)"
+	# SDL (Hatari) only reacts to keys delivered via XTEST to the FOCUSED
+	# window; `xdotool key --window` sends SYNTHETIC events that SDL ignores
+	# (this is what silently broke key injection). Focus the window — activate
+	# via the WM, or raise+focus+warp the pointer when there is no WM — then
+	# send each key with plain `xdotool key` (XTEST to the active window).
+	xdotool windowactivate --sync "$WID" 2>/dev/null \
+		|| { xdotool windowraise "$WID" 2>/dev/null; xdotool windowfocus "$WID" 2>/dev/null; }
+	eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)"
+	[[ -n "${WIDTH:-}" ]] && xdotool mousemove --window "$WID" \
+		"$((WIDTH/2))" "$((HEIGHT/2))" 2>/dev/null || true
 	for k in "$@"; do
-		xdotool key --window "$WID" "$k"
-		sleep 0.2
+		xdotool key "$k"
+		sleep 0.3
 	done
 	;;
 shot)
