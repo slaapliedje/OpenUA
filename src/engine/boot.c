@@ -3242,7 +3242,7 @@ static short l3cd6(void *ev, short v)      { PROBE("L3cd6"); (void)ev; (void)v; 
 static short l364e(void *ev)               { PROBE("L364e"); (void)ev; return 0; }
 static short l29cc(void *ev)               { PROBE("L29cc"); (void)ev; return 0; }
 static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
-static void  l3a32(void *ev)               { PROBE("L3a32"); (void)ev; }
+static void  l3a32(void *ev);              /* Vault event (case 24) — defined after jt185 (treasure block) */
 static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
 static void  l5fcc(void *ev)               { PROBE("L5fcc"); (void)ev; }
 static void  l398a(void *ev, short v)      { PROBE("L398a"); (void)ev; (void)v; }
@@ -51570,6 +51570,177 @@ static void jt73(void)
 		jt471(t, (short)62, (void *)&g_a5_byte(-21508));
 	}
 	g_a5_long(-25302) = 0;
+}
+
+/* ===================================================================
+ * Treasure-picker Slice B4 — the per-character take screen (jt185) and
+ * the Vault event trigger (l3a32, l709e case 24).
+ *
+ * jt185 is lifted as a faithful structural skeleton (level 2): the menu
+ * build, the l2ebc dialog, the JT[3] action dispatch, the cancel/arrow-
+ * key character navigation, and the exit cleanup are all faithful. The
+ * three big action handlers it dispatches into — jt929 (take the shared
+ * treasure pool into the active char), jt894 (pool/sell money), jt893
+ * (the CODE-19 item-management dispatcher, ~2KB) — plus the vault file
+ * load/save pair jt583/jt586 are documented leaf PROBE stubs, each its
+ * own lift. So the Vault screen DISPLAYS faithfully and View / Exit /
+ * char-switch work; Take / Pool / Items and vault persistence are
+ * deferred. See docs/treasure-event-wall.md (Slice B4).
+ * =================================================================== */
+
+/* JT[929] (CODE 12 + 0x3b4a, ~468B) — move the pending shared treasure
+ * (money flag *a, items flag *b from jt926) into the active character.
+ * Leaf stub pending its own lift. */
+static void jt929(unsigned char *a, unsigned char *b)
+{ PROBE("jt929"); (void)a; (void)b; }
+
+/* JT[894] (CODE 19 + 0x46e0, ~902B) — pool / sell the active character's
+ * money. Leaf stub pending its own lift. */
+static void jt894(short arg) { PROBE("jt894"); (void)arg; }
+
+/* JT[893] (CODE 19 + 0x25ce, ~1962B) — the item-management dispatcher
+ * (the shop/merchant + character-inventory exchange screen). Leaf stub
+ * pending its own lift (the largest remaining picker arm). */
+static void jt893(unsigned char *out) { PROBE("jt893"); if (out) *out = 0; }
+
+/* JT[583] (CODE 15 + 0x1c92, 64B) — load the per-level vault file
+ * (Vault<c>.DAT, c = -22218) into the pending-treasure list. Leaf stub:
+ * the vault opens empty until vault file I/O is lifted (separate slice).
+ * The shared treasure pool (money/items from give/combat events) is
+ * unaffected — it lives in -25314/-25302, not the vault file. */
+static void jt583(void) { PROBE("jt583"); }
+
+/* JT[586] (CODE 15 + 0x1cd2, 54B) — save the pending-treasure list back
+ * to the per-level vault file on exit. Leaf stub (no vault persistence
+ * until the file I/O slice). */
+static void jt586(void) { PROBE("jt586"); }
+
+/* JT[185] (CODE 7 + 0x417a) — the per-character treasure / VAULT take
+ * screen. Faithful structural skeleton. Sets play mode 10, draws the
+ * active char's HUD (jt937), frees the prior pending list (jt73), loads
+ * the vault (jt583), then loops: rebuild the option menu into the -24126
+ * row array (l11a8) — Money/Items (if pending, jt926), View (always),
+ * Pool money (if the char has coin at rec[76/78/80]), Items (if the char
+ * has an item list at rec[8]), Exit (always) — run the dialog (l2ebc),
+ * and dispatch the choice. Esc maps to Exit; arrow keys (132/133/135/136)
+ * switch the active character (jt936/jt934). On exit, stamp the vault id
+ * (-22218) and save (jt586) + free the list (jt73). */
+static void jt185(void) __attribute__((unused));
+static void jt185(void)
+{
+	unsigned char  count;          /* fp@(-4): menu row count        */
+	unsigned char  sel;            /* fp@(-5): dialog result / key   */
+	unsigned char  exit_flag = 0;  /* fp@(-2)                        */
+	unsigned char  hilite = 1;     /* fp@(-3) <-> -24140 across loop */
+	unsigned char  out6;           /* fp@(-6): View/Items out byte   */
+
+	PROBE("jt185");
+	g_a5_byte(-27990) = 10;                          /* play mode */
+	g_a5_byte(-22292) = 1;
+	jt937(g_a5_long(-27932));
+	jt73();
+	jt583();
+	g_a5_byte(-23229) = 0;
+
+	for (;;) {
+		unsigned char *ch;
+
+		/* L41aa — (re)build the option menu. */
+		jt65((long)(uintptr_t)&g_a5_byte(-24126), (short)40);
+		count = 0;
+		l11a8((short)0, &count);                 /* View (value 0) */
+		jt926(&g_a5_byte(-18885), &g_a5_byte(-18884));
+		if (g_a5_byte(-18885) || g_a5_byte(-18884))
+			l11a8((short)1, &count);         /* take shared treasure */
+		l11a8((short)2, &count);                 /* value 2 (jt925) */
+		ch = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		if (ch && (*(unsigned short *)(ch + 76) ||
+		           *(unsigned short *)(ch + 78) ||
+		           *(unsigned short *)(ch + 80)))
+			l11a8((short)3, &count);         /* pool money */
+		if (ch && *(long *)(ch + 8) != 0)
+			l11a8((short)4, &count);         /* manage items */
+		l11a8((short)5, &count);                 /* Exit */
+
+		/* L4250 — run the dialog. */
+		g_a5_byte(-24140) = hilite;
+		l2858((short)2);
+		sel = l2ebc((long)(uintptr_t)ua_strs_at(0x2834),
+		            g_a5_long(-13672), (short)1, (short)0);
+		hilite = g_a5_byte(-24140);
+
+		/* L427c — Esc -> Exit. */
+		if (g_a5_byte(-24139) && sel == 27) {
+			g_a5_byte(-24139) = 0;
+			sel = 5;
+		}
+		out6 = 0;
+
+		if (g_a5_byte(-24139)) {
+			/* L432c — arrow keys switch the active character. */
+			if (sel == 132 || sel == 136 ||
+			    sel == 135 || sel == 133) {
+				jt936(g_a5_long(-27932), (short)0);
+				jt934((short)sel);
+				jt936(g_a5_long(-27932), (short)1);
+			}
+		} else {
+			switch (sel) {                   /* JT[3] 0..5 */
+			case 0: jt904(&out6); break;     /* View Character */
+			case 1: jt929(&g_a5_byte(-18885),
+				       &g_a5_byte(-18884)); break;
+			case 2: jt925(); break;
+			case 3: jt894((short)0);
+				jt103((short)1, (short)17, (short)38, (short)22);
+				break;
+			case 4: jt893(&out6); jt23(); break;
+			case 5: exit_flag = 1; break;
+			default: break;
+			}
+		}
+
+		/* L438a */
+		if (exit_flag)
+			break;
+	}
+
+	g_a5_byte(-22218) = 84;          /* vault id 'T' */
+	jt586();
+	jt73();
+}
+
+/* L3a32 (CODE 20 + 0x3a32) — the VAULT event handler (l709e case 24).
+ * First visit seeds the event's picture id (ev[6]=193) + flag bit7; paints
+ * the event picture (l442e); unless l3f22 suppresses it, prints "The party
+ * enters the vault." (l0b20, with jt181 when -4947 is armed); runs the vault
+ * take screen (jt185); and on ev[7] bit2 arms the deferred re-eval (-4946). */
+static void l3a32(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L3a32");
+	if (ev == NULL)
+		return;
+	if (ev[6] == 0) {
+		ev[6] = (unsigned char)193;      /* 0xC1 vault picture id */
+		ev[7] = (unsigned char)(ev[7] | 0x80);
+	}
+	l442e(ev);
+	if (l3f22(ev) == 0) {
+		jt20();
+		if (rec)
+			rec[57] = 0;
+		l0b20((void *)(uintptr_t)ua_strs_at(0x68a0));   /* "The party enters the vault." */
+		if (g_a5_byte(-4947) != 0) {
+			jt181((short)1);
+			g_a5_byte(-4947) = 0;
+		}
+	}
+	jt185();
+	if (ev[7] & 0x04)
+		g_a5_byte(-4946) = 1;
+	jt20();
 }
 
 /* JT[454] (CODE 3+0x3108) — DLItem QUERY by (item, cmd): cmds 16..22
