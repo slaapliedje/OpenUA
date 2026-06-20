@@ -52070,6 +52070,98 @@ static long jt891(long maxval, const char *prompt, short width)
 	return val;
 }
 
+/* JT[924] (CODE 12 + 0x229e) — the TAKE MONEY driver. Builds one row per
+ * non-empty money pool slot (-25314 platinum / -25310 gems / -25306 jewelry):
+ * reserves a 40-byte node from the -21156 bucket (jt477), labels it "<amount>
+ * <type>" (jt394 "%ld" + jt488 "%s %s") and prepends it. Runs the row list
+ * dialog (jt179 + jt169); on a real pick, maps the row to a type (jt884), builds
+ * the "how much?" prompt from the -14396/-14388 + -14392 fragments (jt488
+ * "%s%s%s"), reads the amount (jt891), and transfers it into the active char
+ * (l21d6). Repeats while money remains; ends on cancel/Esc. Takes no args. The
+ * money arm of jt929. */
+static void jt924(void) __attribute__((unused));
+static void jt924(void)
+{
+	char           buf[80];          /* fp@(-66) */
+	long           head, chosen, headcopy;
+	short          idx_scratch;      /* fp@(-16) */
+	unsigned char  flag;             /* fp@(-72): jt169 in/out */
+	unsigned char  done;             /* fp@(-71)              */
+	unsigned char  sel;              /* fp@(-73)              */
+	short          type, i;
+
+	PROBE("jt924");
+	jt76();
+
+	do {
+		flag = 1;
+		head = 0;
+
+		/* one row per non-empty pool slot, prepended */
+		for (i = 0; i <= 2; i++) {
+			long           money = g_a5_long(-25314 + (long)i * 4);
+			long           oldhead = head;
+			unsigned char *node;
+			const char    *name;
+
+			if (money <= 0)
+				continue;
+			jt477((void *)&g_a5_byte(-21156), (short)40, &head);
+			node = (unsigned char *)(uintptr_t)head;
+			if (node == NULL) {              /* PORT-SAFETY: bucket full */
+				head = oldhead;
+				continue;
+			}
+			*(long *)node = oldhead;         /* new->next = old head */
+			jt394(buf, ua_strs_at(0x60d2), money);          /* "%ld"   */
+			name = (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4);
+			jt384((char *)(node + 5),
+			      jt488(ua_strs_at(0x60d6), name, buf));    /* "%s %s" */
+			node[4] = 0;
+		}
+
+		chosen      = head;              /* jt169 writes the pick here */
+		headcopy    = head;
+		idx_scratch = 0;
+		jt179((short)1);
+		sel = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
+		                           (short)2, (short)2, (short)18, (short)8,
+		                           head, (short)1, (short)0,
+		                           &flag, &idx_scratch, &chosen);
+
+		if (chosen == 0 || sel == 1 ||
+		    (g_a5_byte(-24139) != 0 && sel == 27)) {
+			done = 1;                                       /* cancel */
+		} else {
+			long amount;
+
+			done = 1;
+			type = (short)jt884((const char *)(uintptr_t)(chosen + 5), buf);
+			if (type == 1)
+				jt384(buf, jt488(ua_strs_at(0x60dc),    /* "%s%s%s" */
+				      (const char *)(uintptr_t)g_a5_long(-14396),
+				      buf,
+				      (const char *)(uintptr_t)g_a5_long(-14392)));
+			else
+				jt384(buf, jt488(ua_strs_at(0x60e4),    /* "%s%s%s" */
+				      (const char *)(uintptr_t)g_a5_long(-14388),
+				      buf,
+				      (const char *)(uintptr_t)g_a5_long(-14392)));
+			amount = jt891(g_a5_long(-25314 + (long)type * 4),
+			               buf, (short)7);
+			l21d6(g_a5_long(-27932), amount, type);
+			jt147(&headcopy);
+			g_a5_byte(-23229) = 0;
+			for (i = 0; i <= 2; i++) {
+				if (g_a5_long(-25314 + (long)i * 4) > 0) {
+					g_a5_byte(-23229) = 1;
+					done = 0;            /* money remains -> loop */
+				}
+			}
+		}
+	} while (!done);
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
