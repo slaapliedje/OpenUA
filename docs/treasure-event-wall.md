@@ -201,11 +201,37 @@ not the multi-session item first feared.
 ### B4 follow-ups (the deferred action handlers)
 | sym | addr | size | role |
 |-----|------|-----:|------|
-| `jt929` | CODE12+0x3b4a | ~468B | move the shared treasure pool into the active char |
+| `jt929` | CODE12+0x3b4a | ~468B | "Take: Money/Items/Exit" driver (jt185 case 1) |
 | `jt894` | CODE19+0x46e0 | ~902B | pool / sell the active char's money |
 | `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (merchant/inventory) |
 | `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) |
 | `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) |
+
+### jt929 "take treasure" cluster — bottom-up lift (in progress 2026-06-20)
+
+jt929 (jt185 case 1) is the root of a transfer tree. Order + status:
+
+ITEMS PATH (✅ COMPLETE):
+- ✅ `l39ac` (CODE12+0x39ac) — item-list picker (jt28/jt179/jt169).
+- ✅ `jt24` + `jt887` — Strength carry-capacity table + overload check.
+- ✅ `jt186` (CODE7+0x3aba) — give a copy of an item to the active char
+  (`jt889` CODE19+0x35a0 bundle-join is a leaf stub; only hit for already-
+  bundled items).
+- ✅ `jt62` + `l3a3c` (CODE12+0x3a3c) — take-items loop (pick -> give -> unlink
+  -> free; vault count fixup via jt71/jt72).
+
+MONEY PATH (⛔ TODO):
+- `jt884` (CODE19+0x3f16, 188B) — map the picked money row -> type index.
+- `jt891` (CODE19+0x3fd2, 572B) — "how much?" amount prompt.
+- `l21d6` (CODE12+0x21d6, 200B) — add the taken amount to the char + drop pool.
+- `jt924` (CODE12+0x229e, 614B) — build the money rows (jt477/-21156 nodes,
+  jt394/jt488/jt384 labels), run jt169, then jt884/jt891/l21d6. Deps jt147 ✓.
+
+DRIVER (⛔ TODO, last):
+- `jt929` (CODE12+0x3b4a, 468B) — money-only -> jt924; items-only -> l3a3c;
+  both -> a "Take: Money/Items/Exit" l2ebc sub-dialog. Decode its JT[3] arms
+  with tools/jt3_extract.py (the L3c9c "Money" arm needs the table verified, not
+  eyeballed). Replaces the jt929 leaf stub; jt185 case 1 then works.
 
 OPEN QUESTION carried into B: confirm l216a (case 9) is the intro reward's path
 (vs case 3 l28b0 + a play-loop jt926 poll). The CODE20 jt926 callers at 0x234a /
