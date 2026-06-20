@@ -220,18 +220,32 @@ ITEMS PATH (✅ COMPLETE):
 - ✅ `jt62` + `l3a3c` (CODE12+0x3a3c) — take-items loop (pick -> give -> unlink
   -> free; vault count fixup via jt71/jt72).
 
-MONEY PATH (⛔ TODO):
-- `jt884` (CODE19+0x3f16, 188B) — map the picked money row -> type index.
-- `jt891` (CODE19+0x3fd2, 572B) — "how much?" amount prompt.
-- `l21d6` (CODE12+0x21d6, 200B) — add the taken amount to the char + drop pool.
-- `jt924` (CODE12+0x229e, 614B) — build the money rows (jt477/-21156 nodes,
+MONEY PATH:
+- ✅ `jt884` (CODE19+0x3f16) — map the picked money row -> type index (JT[1]).
+- ✅ `jt901`/`l1baa`/`l21d6` — capacity + overload + the actual add-to-char /
+  drop-from-pool transfer (commit 6b0cd2c).
+- ⛔ `jt891` (CODE19+0x3fd2, 572B) — the "how much?" interactive numeric-entry
+  widget (keyboard loop + JT[1] key dispatch). Its missing leaves, all bottoming
+  out in lifted code, lift FIRST:
+    - `jt409` (CODE3+0x3e0c, ~22B) — index-of-char scan. CLEAN leaf, no deps.
+    - `jt487` (CODE3+0xa2, ~66B) — parse trailing decimal (atol). Needs `L3e3c`
+      (CODE3+0x3e3c, end-of-string ptr — MISSING, small) + jt389/jt4/jt423 ✓.
+    - `jt60` (CODE6+0x5f84, ~194B) — get-key/event. Needs `L5ac2`/`L5ad8`
+      (CODE6 locals — verify) + jt1118/jt1133/l5f3a ✓.
+  then `jt891` itself (jt176/jt94/jt117/jt93/jt482/jt1080/jt394/jt384 ✓).
+- ⛔ `jt924` (CODE12+0x229e, 614B) — build the money rows (jt477/-21156 nodes,
   jt394/jt488/jt384 labels), run jt169, then jt884/jt891/l21d6. Deps jt147 ✓.
+  Takes NO args (callers push nothing); the per-letter row mapper is jt884.
 
 DRIVER (⛔ TODO, last):
 - `jt929` (CODE12+0x3b4a, 468B) — money-only -> jt924; items-only -> l3a3c;
   both -> a "Take: Money/Items/Exit" l2ebc sub-dialog. Decode its JT[3] arms
   with tools/jt3_extract.py (the L3c9c "Money" arm needs the table verified, not
   eyeballed). Replaces the jt929 leaf stub; jt185 case 1 then works.
+
+PROGRESS 2026-06-20: items path COMPLETE; money TRANSFER mechanics done. The
+remaining money work is the jt891 amount-entry widget (+ its leaves jt409/jt487/
+L3e3c/jt60/L5ac2/L5ad8) and the jt924/jt929 drivers.
 
 OPEN QUESTION carried into B: confirm l216a (case 9) is the intro reward's path
 (vs case 3 l28b0 + a play-loop jt926 poll). The CODE20 jt926 callers at 0x234a /
