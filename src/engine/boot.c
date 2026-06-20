@@ -10486,8 +10486,19 @@ static void jt114(unsigned char *page, short top, short left, short idx,
 {
 	PROBE("jt114");
 	(void)page;
+	/* FAITHFUL (CODE 6 L3804): jt114 pushes its two position args to JT[1001]
+	 * in SWAPPED order -- the stack layout puts fp@(10) first, so the call is
+	 * jt1001(left, top, *handle, idx). jt1001 (CODE 5 L31ac) forwards straight
+	 * to L309c(left, top, ...), whose arg1 (-= ybear) is the screen Y and arg2
+	 * (-= xbear) the screen X. So `left` drives Y and `top` drives X.
+	 *
+	 * The 3D-view caller (jt200) depends on this swap: jt200's fp@8 ("top") is
+	 * the WIDE frustum anchor that must land on screen X, and fp@10 ("left") the
+	 * narrow one on Y. Calling l309c(top,left) un-swapped put the narrow anchor
+	 * on X, collapsing every wall slot into the left half of the 88px hole.
+	 * (jt118 takes the NON-swapped jt1001 path -- see there.) */
 	if (handle != 0)
-		l309c(top, left, handle, idx);
+		l309c(left, top, handle, idx);
 }
 
 /* jt200_layer — draw one wall-tile layer for jt200. FAITHFUL path: blit tile
@@ -24458,8 +24469,14 @@ static void jt118(unsigned char *page, short top, short left, short idx,
                   long handle)
 {
 	PROBE("jt118");
+	(void)page;
 	jt108(1);
-	jt114(page, top, left, idx, handle);
+	/* Mac jt118 = L38d0(1) + jt1001(top,left,*handle,idx). jt1001 does NOT swap,
+	 * so this marker-layer path blits at (top,left) UN-swapped -- unlike jt114,
+	 * which swaps. Call l309c directly (the resolved-handle jt1001) rather than
+	 * routing through jt114, whose swap would transpose this path. */
+	if (handle != 0)
+		l309c(top, left, handle, idx);
 }
 
 /* JT[305] (CODE 22 + 0x07be, 18 sites) — set a list-row's value byte and
