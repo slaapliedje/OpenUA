@@ -224,15 +224,26 @@ MONEY PATH:
 - ✅ `jt884` (CODE19+0x3f16) — map the picked money row -> type index (JT[1]).
 - ✅ `jt901`/`l1baa`/`l21d6` — capacity + overload + the actual add-to-char /
   drop-from-pool transfer (commit 6b0cd2c).
-- ⛔ `jt891` (CODE19+0x3fd2, 572B) — the "how much?" interactive numeric-entry
-  widget (keyboard loop + JT[1] key dispatch). Its missing leaves, all bottoming
-  out in lifted code, lift FIRST:
-    - `jt409` (CODE3+0x3e0c, ~22B) — index-of-char scan. CLEAN leaf, no deps.
-    - `jt487` (CODE3+0xa2, ~66B) — parse trailing decimal (atol). Needs `L3e3c`
-      (CODE3+0x3e3c, end-of-string ptr — MISSING, small) + jt389/jt4/jt423 ✓.
-    - `jt60` (CODE6+0x5f84, ~194B) — get-key/event. Needs `L5ac2`/`L5ad8`
-      (CODE6 locals — verify) + jt1118/jt1133/l5f3a ✓.
-  then `jt891` itself (jt176/jt94/jt117/jt93/jt482/jt1080/jt394/jt384 ✓).
+- ✅ `jt891` LEAVES (commit 801bc24): `l3e3c` (strchr->ptr), `jt409` (index-of-
+  char), `jt487` (atol of trailing decimal), `jt60` (get-key, drains the event
+  queue). jt891's whole dep tree is now satisfied.
+- ⛔ `jt891` (CODE19+0x3fd2, 572B) — the "how much?" numeric-entry widget. Deps
+  ALL lifted (jt176/jt94/jt117/jt93/jt482/jt1080/jt394/jt384/jt423/jt389/jt409/
+  jt487/jt60). DECODE (verified via jt1_extract @ 0x4036):
+    sig: `long jt891(long maxval, char *prompt, short width)` -> amount entered.
+    jt176(); jt94(0,24,width,0,prompt); len=jt423(prompt); cur(fp-5)=len;
+    jt394(fp-14,"%ld",maxval) [the cap string]; input buf fp-22 = ""; jt117();
+    loop { key=jt60(); JT[1]:
+      48..57 (digit) -> L40aa: if strlen(fp-22)>=6 jt1080() beep; else append
+        (jt394 "%s%c"), parse (jt487 -> fp-28); if val>maxval strcpy the cap
+        string (jt384 fp-22<-fp-14) + cur=promptlen+strlen(cap) else cur++;
+        redraw jt94(promptlen? ,24,11,0,fp-22).
+      8 (bksp) -> L4148: if len>0 substring drop-last (jt482 + jt384), cur--,
+        redraw jt93(cur,24,0,1,...).
+      13/27/96 -> L419a (exit). default -> L4076: jt409(")!@#$%^&*(",10,key)+48
+        remaps a shifted symbol to its digit, then the isdigit/append path. }
+    L41ca: jt176(); if key==27||96 result=0 (cancel) else jt487(fp-22)->result.
+    VERIFY jt94/jt93/jt482 arg order before writing (the only soft spots).
 - ⛔ `jt924` (CODE12+0x229e, 614B) — build the money rows (jt477/-21156 nodes,
   jt394/jt488/jt384 labels), run jt169, then jt884/jt891/l21d6. Deps jt147 ✓.
   Takes NO args (callers push nothing); the per-letter row mapper is jt884.
