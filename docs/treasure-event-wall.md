@@ -333,5 +333,29 @@ OPEN QUESTION carried into B: confirm l216a (case 9) is the intro reward's path
 (vs case 3 l28b0 + a play-loop jt926 poll). The CODE20 jt926 callers at 0x234a /
 0x24ca are both inside l216a, supporting case 9.
 
+## jt183 + l5586 SHOP/MERCHANT screen DONE 2026-06-20
+RESOLVED the open question above: **l216a (case 9) is NOT a reward picker** — it's
+a text/temple-message event that even CLEARS the money pool (jt65 on -25314). So
+the only treasure-presenting screens are jt185 (vault, case 24) and jt183.
+
+**jt183 (CODE7+0x3e68) is the MERCHANT/SHOP treasure screen, NOT a give-treasure
+distribution screen.** Its sole caller is **l5586** (l709e **case 8**, the shop
+event: "The party enters a local shop." / "May I help you?"). Lifted both:
+- `jt183` — faithful dialog-loop sibling of jt185: enter mode 1, zero the 12-byte
+  money pool (jt65), render the staged -25302 item rows (jt28), then loop {jt926
+  poll -> l11a8 menu (arms 0..6, hide money arms 2/4 when no coin) -> l2ebc dialog
+  -> JT[3]: 1 View(jt904) 2 Take-money(jt924) 3 Pool-coin(jt925) 4 jt921 5 jt922
+  6 Exit(warn if coin remains) -> JT[3] repaint}. Arrow keys = char-switch
+  (jt936/jt934), Esc = exit. STUBS: jt921 (arm 4 money-pool op), jt922 (arm 5
+  gems/jewelry), l17f8 (exit-prompt text helper).
+- `l5586` — the shop/merchant event: l442e picture + greeting + jt188 stock build
+  (4x 3-byte slots ev[8/11/14/17]) -> jt183. Wired live into l709e case 8.
+
+CAVEAT for the caravan reward: this works IF the caravan/merchant cell is a
+case-8 SHOP event (likely — it shows a merchant picture). If instead it's a
+give-treasure event (l28b0, case 3/25), that path STAGES the pool but still has
+no presenter (l28b0 verified faithful = stage-only; no jt183/jt185 call). Confirm
+the HEIRS caravan cell's event type. NOT yet Hatari-tested.
+
 Related: [[bigpic-composer-129]] (event subsystem), [[combat-encounter-gateway]]
 (l709e cases 10/21), docs/play-loop-wall.md (event-type table).
