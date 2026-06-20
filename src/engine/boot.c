@@ -9332,7 +9332,7 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * (opaque) wall trapezoids. 'b' cycles backdrops in the walk demo. */
 #define BACK_W 88
 #define BACK_H 88
-#define BACK_PAL_BASE 145
+#define BACK_PAL_BASE 144
 static unsigned char g_back_img[BACK_W * BACK_H];
 static short g_back_w = 0, g_back_h = 0;   /* loaded dims (0 = none)       */
 static short g_back_set = 1;               /* 1-based backdrop index       */
@@ -9722,7 +9722,21 @@ static short cell_backdrop_id(const unsigned char *ds)
 		return g_back_set;
 	cell = (long)col * h + row;
 	zone = ds[290 + cell * 6 + 5];
-	return ua_backdrop_to_back((short)(unsigned char)ds[8 + (zone & 3)]);
+	{
+		short raw = (short)(unsigned char)ds[8 + (zone & 3)];
+		/* Time-based night variant (l58c4 0x590c): a night-capable backdrop
+		 * (raw id >= 32) shows its alternate image (raw+1) when the game clock
+		 * is outside daylight [6,20). HEIRS starts at 12:00 AM -> the night sky
+		 * (stars). The hour byte is the design/play-state header hdr[8]. */
+		if (raw >= 32) {
+			const unsigned char *hdr =
+			    (const unsigned char *)(uintptr_t)g_a5_long(-28006);
+			short hr = hdr ? (short)(unsigned char)hdr[8] : 0;
+			if (hr < 6 || hr >= 20)
+				raw++;
+		}
+		return ua_backdrop_to_back(raw);
+	}
 }
 
 /* wallset_for_id — map a FRUA wall-set id (level header Wall1-3, ds[4..6])
@@ -11281,6 +11295,34 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				for (xx = cl; xx < cr; xx++)
 					map_px(px, pitch, sw, sh, xx, yy,
 					       (unsigned char)fill);
+		}
+	}
+	/* Blit the cell's backdrop image (g_back_img — BACK.CTL's 88x88 perspective
+	 * sky/ceiling + floor) into the view hole over the flat fills, the way the
+	 * Mac does (the starfield night sky + receding stone floor; cf.
+	 * data/mac_3d_start_e.png). This was gated off (l58c4's
+	 * g_dungeon_bigpic_overlay) because l58c4's FAITHFUL path installs the
+	 * backdrop palette across CLUT 32..255 and clobbers the port's per-band wall/
+	 * menu model. Instead blit the already-loaded image directly: its bytes are
+	 * DIRECT clut indices (the night skies use 144..175), and load_backdrop lays
+	 * the 32-entry palette at exactly that band (BACK_PAL_BASE), so nothing else
+	 * in the CLUT is touched. Drawn before jt199 so the wall tiles overlay it. */
+	if (g_back_w > 0 && g_back_h > 0) {
+		short bvl = (short)g_a5_3056, bvt = (short)g_a5_3054;
+		short bvr = (short)g_a5_3052, bvb = (short)g_a5_3050;
+		short bw = (short)(bvr - bvl), bh = (short)(bvb - bvt);
+		short yy, xx;
+		for (yy = 0; yy < bh; yy++) {
+			short by = (short)(((long)yy * g_back_h) / bh);
+			for (xx = 0; xx < bw; xx++) {
+				short bx = (short)(((long)xx * g_back_w) / bw);
+				unsigned char v = g_back_img[(long)by * g_back_w + bx];
+				/* backdrop image bytes are DIRECT clut indices (the night
+				 * skies use 144..175 = the band load_backdrop lays the
+				 * palette into); do NOT re-offset them. */
+				map_px(px, pitch, sw, sh, (short)(bvl + xx),
+				       (short)(bvt + yy), v);
+			}
 		}
 	}
 	l57f2();                /* gated backdrop-image overlay (l58c4) */
