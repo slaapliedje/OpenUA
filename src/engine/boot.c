@@ -51679,6 +51679,63 @@ static unsigned char jt887(long member_l, short flag, long item_l)
 	return result;
 }
 
+/* JT[889] (CODE 19 + 0x35a0, ~1480B) — join `item` with similar items in the
+ * active character's pack into a bundle/stack (the "combine scrolls" feature).
+ * Leaf PROBE stub: jt186 only calls it for an item that is ALREADY bundled
+ * (item[53] > 0), so non-bundled gives (coins, a single ring) never reach it.
+ * Its own lift (the largest leaf of the take cluster). */
+static void jt889(long item_l) { PROBE("jt889"); (void)item_l; }
+
+/* JT[186] (CODE 7 + 0x3aba) — give a copy of `item` to the active character
+ * (-27932). Bundle-count overflow guard (kind 73 + jt903 > 120 -> "Too many
+ * Bundles!"), then the overload guard (jt887 -> "OverLoaded"); on either,
+ * *err_out = 1 and bail. Otherwise allocate a 62-byte node (jt61), copy the
+ * item in, append it to the character's item list (rec[8]), join it into a
+ * bundle if it was bundled (jt889), and recompute derived stats (jt21).
+ * The item-transfer step under l3a3c (take items). PORT NOTE: the Mac tracks
+ * the new node in two frame slots (fp@-4 head case / fp@-8 append case) and
+ * passes fp@-8 to jt889 even in the head case (a latent uninitialised read for
+ * a bundled item given to an empty pack); the port keeps one new_node, which
+ * matches observable behaviour and is what a future jt889 lift wants. */
+static void jt186(long item_l, unsigned char *err_out) __attribute__((unused));
+static void jt186(long item_l, unsigned char *err_out)
+{
+	unsigned char *item   = (unsigned char *)(uintptr_t)item_l;
+	unsigned char *member = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	long           node, new_node;
+
+	PROBE("jt186");
+	if (item[40] == 73) {                              /* bundle kind */
+		if (jt903() + item[53] > 120) {
+			jt42(ua_strs_at(0x27b6));          /* "Too many Bundles!" */
+			*err_out = 1;
+			return;
+		}
+	}
+	if (jt887(g_a5_long(-27932), (short)1, item_l)) {
+		jt42(ua_strs_at(0x27c8));                  /* "OverLoaded" */
+		*err_out = 1;
+		return;
+	}
+	*err_out = 0;
+
+	node     = *(long *)(member + 8);
+	new_node = jt61();
+	memmove((void *)(uintptr_t)new_node, item, 62);
+	*(long *)(uintptr_t)new_node = 0;                  /* new->next = 0 */
+	if (node == 0) {
+		*(long *)(member + 8) = new_node;          /* list head = new */
+	} else {
+		while (*(long *)(uintptr_t)node != 0)
+			node = *(long *)(uintptr_t)node;
+		*(long *)(uintptr_t)node = new_node;       /* tail->next = new */
+	}
+
+	if (item[53] > 0)
+		jt889(new_node);
+	jt21(g_a5_long(-27932));
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
