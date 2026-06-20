@@ -10570,16 +10570,18 @@ static void jt200(unsigned char *page, short top, short left,
 			code = 1;
 	}
 	if ((sub & 0xff) < 8) {
-		/* step the LEFT (horizontal) anchor in 8000-space — asm L59d4 5a28-5a52
-		 * adds +4 (native) / +16 (deep, fp@10<8000) to fp@(10). Coords now stay
-		 * in 8000-space through to l309c's jt1135 (which scales x2), so this is
-		 * the faithful +4 (native) / +16 (deep). */
-		if (jt1200() == 3) {
-			if (left < 8000)
-				left = (short)(left + 16);
-		} else {
+		/* step the LEFT (horizontal) anchor — asm L59d4 5a28-5a52:
+		 *   sub<8 -> if (deep && left<8000) left+=16  else  left+=4
+		 * The old port code dropped the `else left+=4` fallback, so in deep
+		 * mode (jt1200()==3) a slot whose `left` is still 8000-space (>=8000,
+		 * the port's deferred-remap model never pre-scales it below 8000) got
+		 * NO horizontal step at all — every slot collapsed onto its base X and
+		 * the corridor bunched into a narrow central column. The +16 branch is
+		 * unreachable here (left>=8000); the faithful step is the +4 fallback. */
+		if (jt1200() == 3 && left < 8000)
+			left = (short)(left + 16);
+		else
 			left = (short)(left + 4);
-		}
 	}
 
 	code--;

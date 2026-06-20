@@ -1,5 +1,36 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-19d — the real render is NON-DEEP; deep-mode transform is DEAD
+Chased the "puzzle pieces" scatter into the transform layer and found the
+years-long confusion: **the live dungeon view renders with jt1200() != 3**, so
+the entire deep-mode (jt1200()==3) code path is DEAD during play.
+
+- jt1200() returns 3 ONLY when g_a5_2347 == 0 (boot.c ~6766). But g_a5_2347 is
+  forced to **1** on every screen ("colour mode permanently", ~8561). The ONLY
+  place g_a5_2347=0 is the FRUA_L6234_VERIFY harness (~13735/13799) — so that
+  geometry harness tests a DIFFERENT mode than the real game. g_cwf_force_deep
+  is set in render_3d_faithful but **never read** for logic (dead flag).
+- => the active transform is: l5b42 passes 8000-space coords through (NO remap),
+  jt200 adds its `else` step (left += 4 for sub<8), and jt1135 does (v-8000)*2
+  (scale 2 since g_a5_2347=1). The deep `(v-8012)*4+8` l5b42 remap and jt200's
+  +16 step NEVER run. So the *2-vs-*4 debate is moot for play — it's *2.
+- The g_cwf_ox/oy (20/44) "slide into the hole" in render_3d_faithful only feeds
+  cw_blit_piece, which is a DROPPED stand-in (jt200_layer now uses jt114->l309c).
+  So that slide is dead too — the live pieces land at raw jt1135 (v-8000)*2.
+
+NET PICTURE of the scatter: the slot X-anchors are 8016..8028 -> jt1135 -> screen
+X 32..56 (+4 for sub<8 -> up to 64), i.e. the LEFT third of the 88px hole
+(24..112). The Mac has the SAME small layout X-globals (mon-verified) yet fills
+the whole hole — so the corridor width MUST come from the PIECE WIDTHS extending
+out from those central anchors. The port's view collapses to a narrow central
+column => the wide near-wall pieces (idx 6/7 16x56 wedges, idx 8 56x56) are
+either not selected (wrong far/near idx) or not spanning. NEXT: verify the live
+jt114->l309c->l2d4e blit actually draws the WIDE pieces at the near slots (sub
+5/6, idx 7/8) and where their left edges land — vs the Mac. The deep-mode lift
+work (l5b42 remap, jt200 +16) is a DEAD-CODE red herring; ignore it for play.
+Confirmed this session: my l5b42 *4 + jt200 deep edits had ZERO visual effect
+(because jt1200()!=3), proving the deep path is inactive.
+
 ## UPDATE 2026-06-19c — faithful L6234 lifted; walk is NOT the bug, PLACEMENT is
 Replaced the parametrized jt199 reconstruction (jt199_side/front/band + the
 bogus "empirical" axis swap DROW<-(-27853) bolted on at 996e126) with a
