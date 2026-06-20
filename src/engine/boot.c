@@ -1171,6 +1171,17 @@ static void  l311c(short count)
 	g_a5_long(-21504) = jt387((short)(count * 62));
 }
 
+/* L3144 (CODE 6 + 0x3144) — point the money-row pool pointer -21156 at the
+ * -21508 item-node bucket descriptor. jt477 ignores the caller's size and uses
+ * the descriptor's own record_size (62), so the take-money rows (jt167/jt924/
+ * jt894) draw 62-byte nodes from the same bucket as items. Must run after
+ * l311c. The Mac arg is ignored. Un-deferred from l4cc0 with l311c. */
+static void  l3144(void)
+{
+	PROBE("L3144");
+	g_a5_long(-21156) = (long)(uintptr_t)&g_a5_byte(-21508);
+}
+
 /* L4cc0 (CODE 6 + 0x4cc0) — design subsystem bring-up: allocate
  * every per-design buffer at design open.  Lifted as a STRUCTURAL
  * SKELETON — the GEO content path's buffers are allocated for real
@@ -1199,7 +1210,7 @@ static void  l4cc0(void)
 	g_a5_long(-27920) = jt387((short)4590);     /* item-record table (jt87) */
 	l30cc((short)8);                            /* record staging buffer -> -22208 */
 	l311c((short)640);                          /* item-node bucket -> -21508 (treasure/inventory) */
-	/* L3144(200) — DEFERRED (port -21156 money-row bucket uses a different layout) */
+	l3144();                                    /* money-row pool ptr -21156 -> -21508 */
 	l3154((short)400);                          /* STRG scratch buffer -> -21148 */
 	jt211();                                    /* design-state buffer -> -12300 */
 	/* L59ca(); L531e(2738)->-22306; L531e(1260)->-25318;
@@ -52122,7 +52133,7 @@ static void jt924(void)
 
 			if (money <= 0)
 				continue;
-			jt477((void *)&g_a5_byte(-21156), (short)40, &head);
+			jt477((void *)(uintptr_t)g_a5_21156, (short)40, &head);
 			node = (unsigned char *)(uintptr_t)head;
 			if (node == NULL) {              /* PORT-SAFETY: bucket full */
 				head = oldhead;
@@ -52523,7 +52534,7 @@ static void jt894(short flag)
 
 			if (money == 0)
 				continue;
-			jt477((void *)&g_a5_byte(-21156), (short)40, &head);
+			jt477((void *)(uintptr_t)g_a5_21156, (short)40, &head);
 			node = (unsigned char *)(uintptr_t)head;
 			if (node == NULL) { head = oldhead; continue; }
 			*(long *)node = oldhead;
