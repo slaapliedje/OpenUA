@@ -1156,6 +1156,21 @@ static void  l3154(short arg)
 	g_a5_long(-21148) = jt387((short)(arg * 10));
 }
 
+/* L311c (CODE 6 + 0x311c) — initialise the 62-byte item-node bucket at -21508:
+ * max_count = count, record_size = 62, base = NewPtr(count*62). jt477 hands out
+ * item nodes from this bucket — the per-character inventory ([8]-chain), the
+ * pending-treasure list (-25302), and the vault all allocate from it. The
+ * free-bit bitmap sits at -21508+8 and starts clear from the A5 zero-fill.
+ * (count*62 = 39680 wraps a signed short, but jt387 re-casts to unsigned, so
+ * the allocation is the full 39680 bytes — matches the Mac's mulsw/movew.) */
+static void  l311c(short count)
+{
+	PROBE("L311c");
+	g_a5_word(-21508) = count;
+	g_a5_word(-21506) = 62;
+	g_a5_long(-21504) = jt387((short)(count * 62));
+}
+
 /* L4cc0 (CODE 6 + 0x4cc0) — design subsystem bring-up: allocate
  * every per-design buffer at design open.  Lifted as a STRUCTURAL
  * SKELETON — the GEO content path's buffers are allocated for real
@@ -1183,7 +1198,8 @@ static void  l4cc0(void)
 	g_a5_long(-27944) = jt387((short)2064);     /* item-template table (jt86) */
 	g_a5_long(-27920) = jt387((short)4590);     /* item-record table (jt87) */
 	l30cc((short)8);                            /* record staging buffer -> -22208 */
-	/* L311c(640); L3144(200) — DEFERRED */
+	l311c((short)640);                          /* item-node bucket -> -21508 (treasure/inventory) */
+	/* L3144(200) — DEFERRED (port -21156 money-row bucket uses a different layout) */
 	l3154((short)400);                          /* STRG scratch buffer -> -21148 */
 	jt211();                                    /* design-state buffer -> -12300 */
 	/* L59ca(); L531e(2738)->-22306; L531e(1260)->-25318;
