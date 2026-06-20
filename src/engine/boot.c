@@ -52162,6 +52162,26 @@ static void jt924(void)
 	} while (!done);
 }
 
+/* L465c (CODE 19 + 0x465c) — deposit/drop transfer: take `amount` of money type
+ * `type` OUT of the active member's money word (rec[76 + type*2]) and reduce
+ * their weight (jt897, low word of amount). In deposit/vault modes (-27990 in
+ * {1,6,10}) the amount is added to the shared pool (-25314 + type*4); a plain
+ * drop just discards it. The transfer under jt894 (pool/drop money). */
+static void l465c(long member_l, long amount, short type) __attribute__((unused));
+static void l465c(long member_l, long amount, short type)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)member_l;
+	unsigned char  mode;
+
+	PROBE("L465c");
+	*(unsigned short *)(m + 76 + (long)type * 2) =
+	    (unsigned short)(*(unsigned short *)(m + 76 + (long)type * 2) - amount);
+	jt897(member_l, (short)amount);                  /* rec[86] -= coin weight */
+	mode = g_a5_byte(-27990);
+	if (mode == 6 || mode == 1 || mode == 10)
+		g_a5_long(-25314 + (long)type * 4) += amount;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
@@ -52259,9 +52279,109 @@ static void jt929(unsigned char *a, unsigned char *b)
 	} while (exit_flag == 0);
 }
 
-/* JT[894] (CODE 19 + 0x46e0, ~902B) — pool / sell the active character's
- * money. Leaf stub pending its own lift. */
-static void jt894(short arg) { PROBE("jt894"); (void)arg; }
+/* JT[894] (CODE 19 + 0x46e0) — deposit / drop the active character's money.
+ * Builds a right-justified row per non-zero money type (jt59 value + jt483
+ * padding + the -14492 type name, into a -21156 node), runs the row dialog
+ * (jt179 + jt169; rect differs for drop vs deposit), then on a pick maps the
+ * row -> type (jt884), prompts "How much/many ... deposit/drop?" (jt488), reads
+ * the amount (jt891), and moves it out of the character into the pool/void
+ * (l465c). Loops while the character still has coin. `flag` selects the drop
+ * layout (and an l19ac pre-step). jt185 case 3 calls jt894(0). */
+static void jt894(short flag)
+{
+	char           buf40[40];        /* fp@(-40): money value string  */
+	char           buf58[40];        /* fp@(-58): padding             */
+	char           prompt[80];       /* fp@(-100)                     */
+	long           head, chosen, headcopy;
+	short          idx_scratch;      /* fp@(-8)  */
+	unsigned char  exit_flag;        /* fp@(-21) */
+	unsigned char   flagb;           /* fp@(-22): jt169 in/out        */
+	unsigned char  sel;              /* fp@(-101) */
+	short          type, i;
+	short          r_top, r_left, r_right, r_bottom;
+
+	PROBE("jt894");
+
+	do {
+		if (flag & 0xff)
+			l19ac();
+		head = 0;
+
+		/* one right-justified row per non-zero money type (2 -> 0) */
+		for (i = 2; i >= 0; i--) {
+			unsigned char *ch = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+			short          money = *(short *)(ch + 76 + (long)i * 2);
+			long           oldhead = head;
+			unsigned char *node;
+			const char    *name;
+			short          pad, j;
+
+			if (money == 0)
+				continue;
+			jt477((void *)&g_a5_byte(-21156), (short)40, &head);
+			node = (unsigned char *)(uintptr_t)head;
+			if (node == NULL) { head = oldhead; continue; }
+			*(long *)node = oldhead;
+			jt384(buf40, jt59(money));
+			name = (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4);
+			pad = (short)(18 - jt483(name));
+			pad = (short)(pad - jt483(buf40));
+			jt384(buf58, ua_strs_at(0x5cf8));            /* "" */
+			for (j = 1; j <= pad; j++)
+				jt384(buf58, jt488(ua_strs_at(0x5cfa), buf58)); /* "%s " */
+			jt384((char *)(node + 5),
+			      jt488(ua_strs_at(0x5cfe), name, buf58, buf40)); /* "%s%s%s" */
+			node[4] = 0;
+		}
+
+		chosen      = head;
+		headcopy    = head;
+		idx_scratch = 0;
+		flagb       = 1;
+		jt179((short)1);
+		if (flag & 0xff) { r_top=20; r_left=9;  r_right=38; r_bottom=15; }
+		else             { r_top=1;  r_left=17; r_right=38; r_bottom=22; }
+		sel = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
+		                           r_top, r_left, r_right, r_bottom,
+		                           head, (short)1, (short)1,
+		                           &flagb, &idx_scratch, &chosen);
+
+		if (chosen == 0 || sel == 1 ||
+		    (g_a5_byte(-24139) != 0 && sel == 27)) {
+			exit_flag = 1;
+		} else {
+			unsigned char *ch;
+			long           amount;
+			short          money;
+
+			prompt[0] = 0;
+			type = (short)jt884((const char *)(uintptr_t)(chosen + 5), prompt);
+			if (g_a5_byte(-27990) == 10) {           /* vault: deposit */
+				if (jt483(prompt) > 7)
+					jt384(prompt, jt488(ua_strs_at(0x5d06), prompt));
+				else if (type == 1)
+					jt384(prompt, jt488(ua_strs_at(0x5d22), prompt));
+				else
+					jt384(prompt, jt488(ua_strs_at(0x5d40), prompt));
+			} else {                                  /* drop */
+				jt384(prompt, jt488(ua_strs_at(0x5d5e), prompt));
+			}
+			ch     = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+			money  = *(short *)(ch + 76 + (long)type * 2);
+			amount = jt891(money, prompt, (short)7);
+			l465c(g_a5_long(-27932), amount, type);
+			exit_flag = 1;
+			for (i = 0; i <= 2; i++) {
+				ch = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+				if (*(short *)(ch + 76 + (long)i * 2) > 0)
+					exit_flag = 0;
+			}
+		}
+
+		if (headcopy != 0)
+			jt147(&headcopy);
+	} while (exit_flag == 0);
+}
 
 /* JT[893] (CODE 19 + 0x25ce, ~1962B) — the item-management dispatcher
  * (the shop/merchant + character-inventory exchange screen). Leaf stub
