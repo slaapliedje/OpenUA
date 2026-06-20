@@ -10679,171 +10679,210 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 	jt200(page, top, left, code, sub);   /* jt200(top, left) */
 }
 
-/* Direction-step deltas: signed-byte drow/dcol tables indexed by dir. */
-/* The frustum step deltas are row/col-SWAPPED vs the way jt199 applies them:
- * an offline replay of the walk on the real map only reproduces the Mac's
- * 25-slot standing frame ({1:4,2:2,5:1,6:7,9:8,11:3}, docs/mac-blit-trace-
- * heirs-l5-standing.md) when DROW reads the -27853 table and DCOL reads -27862
- * (every other assignment misses). The default jt199 wiring read them straight
- * (DROW=-27862), walking the wrong axis and dropping ~9 slots + emitting bogus
- * codes 10/13. The raw tables are shared with jt311 movement (which is correct),
- * so the swap is local to the frustum, not a global table fix. See
- * [[party-coord-rowcol-convention]]. */
-#define JT199_DROW(dir) ((short)(signed char)g_a5_byte(-27853 + (dir)))
-#define JT199_DCOL(dir) ((short)(signed char)g_a5_byte(-27862 + (dir)))
+/* Direction-step tables (CODE 7 @0x6234, verified line-by-line against L6234).
+ * L6234 walks two map coords: coord A — the FIRST l5e52 arg (`row`, the minor/Y
+ * axis) — steps by the -27862 table; coord B — the SECOND arg (`col`, the
+ * major/X axis, stride H in l5e52) — steps by the -27853 table. EVERY step in
+ * L6234 does fp@(-14)+=g_a5(-27862+dir), fp@(-16)+=g_a5(-27853+dir); the origin
+ * seed (orA=row+2*STEP_A(facing)) and the outer recede use the same pairing.
+ * (The prior reconstruction read these swapped — STEP_A from -27853 — which
+ * walked the transposed axis and dropped slots.) The raw tables are shared with
+ * jt311 movement. See [[party-coord-rowcol-convention]]. */
+#define JT199_STEP_A(dir) ((short)(signed char)g_a5_byte(-27862 + (dir)))
+#define JT199_STEP_B(dir) ((short)(signed char)g_a5_byte(-27853 + (dir)))
+/* dbg_dump_view aliases (informational state dumps only). */
+#define JT199_DROW(dir) JT199_STEP_A(dir)
+#define JT199_DCOL(dir) JT199_STEP_B(dir)
 
-/* jt199_side — one SIDE-wall pass of the frustum walker (JT[199]'s
- * pass 1 / pass 2). Walk the ray `dir` for depths 0..3 from (r, c):
- * read the cell's front face (looking `facing`); a wall there draws the
- * previous slot's wall as a receding side face (g_a5_-12222 + soff +
- * yadj / g_a5_-12202) and, for depths < 3, the current wall as a front
- * face (g_a5_-12240 + soff / g_a5_-12220); an open cell instead probes
- * the side neighbour and, if walled, draws the carried-over side face.
- * soff steps by `soffstep` per depth (the receding screen offset). */
-static void jt199_side(unsigned char *page, short Y, short X, short r,
-                       short c, short dir, short facing, short soffstep,
-                       short yadj, short near_min)
-{
-	short depth, soff = 0, prev = 0, w;
-
-	for (depth = 0; depth < 4; depth++) {
-		w = l5e52(r, c, facing);
-		if (w != 0) {
-			if (prev > 0)
-				l5b42(page, Y, X,
-				      (short)(g_a5_word(-12222) + soff + yadj),
-				      g_a5_word(-12202), prev, 9);
-			prev = w;
-			/* near face: L6234 draws it at depth {near_min..2}. The LEFT
-			 * sub-loop (L641a) gates only `depth < 3` (near_min 0); the RIGHT
-			 * sub-loop (L65b2) additionally skips depth 0 (`tstb depth; beq`)
-			 * so the shared origin cell isn't drawn twice — near_min 1. */
-			if (depth >= near_min && depth < 3)
-				l5b42(page, Y, X,
-				      (short)(g_a5_word(-12240) + soff),
-				      g_a5_word(-12220), w, 0);
-		} else {
-			if (prev > 0) {
-				short sr = (short)(r - JT199_DROW(dir));
-				short sc = (short)(c - JT199_DCOL(dir));
-				if (l5e52(sr, sc, dir) & 0xff)
-					l5b42(page, Y, X,
-					      (short)(g_a5_word(-12222) + soff + yadj),
-					      g_a5_word(-12202), prev, 9);
-			}
-			prev = 0;
-		}
-		soff = (short)(soff + soffstep);
-		r = (short)(r + JT199_DROW(dir));
-		c = (short)(c + JT199_DCOL(dir));
-	}
-}
-
-/* jt199_front — one FRONT-wall pass (JT[199]'s pass 3 / pass 4). Walk
- * `dir` for depths 0..2: a walled cell (read along `dir`) draws a front
- * face at (gy + soff [+ yadj for depth>0] / gx) with layer `sub`. */
-static void jt199_front(unsigned char *page, short Y, short X, short r,
-                        short c, short dir, short soffstep, short gy,
-                        short gx, short yadj, short sub)
-{
-	short depth, soff = 0, w;
-
-	for (depth = 0; depth < 3; depth++) {
-		w = l5e52(r, c, dir);
-		if (w != 0)
-			l5b42(page, Y, X,
-			      (short)(g_a5_word(gy) + soff + (depth ? yadj : 0)),
-			      g_a5_word(gx), w, sub);
-		soff = (short)(soff + soffstep);
-		r = (short)(r + JT199_DROW(dir));
-		c = (short)(c + JT199_DCOL(dir));
-	}
-}
-
-/* jt199_band — a mid/far-band scan (JT[3] cases 1 and 0). Walk `advdir`
- * for `ndepth` depths from (r, c): each step draws a FACING-face tile
- * (gyA + soff / gxA, layer subA) when the facing wall is set and
- * depth < aMaxDepth, and a SIDE-face tile (gyB + soff / gxB, layer subB)
- * read along `bdir` when depth > 0 and that wall is set. soff steps by
- * `soffstep` per depth. (Cases 1/0 of jt199's selector loop; the near
- * band — case 2 — uses jt199_side/jt199_front instead.) */
-static void jt199_band(unsigned char *page, short Y, short X, short r,
-                       short c, short facing, short bdir, short advdir,
-                       short soff0, short soffstep, short ndepth,
-                       short gyA, short gxA, short subA, short aMaxDepth,
-                       short gyB, short gxB, short subB)
-{
-	short depth, soff = soff0, w, w2;
-
-	for (depth = 0; depth < ndepth; depth++) {
-		w = l5e52(r, c, facing);
-		if (w != 0 && depth < aMaxDepth)
-			l5b42(page, Y, X, (short)(g_a5_word(gyA) + soff),
-			      g_a5_word(gxA), w, subA);
-		w2 = l5e52(r, c, bdir);
-		if (depth > 0 && w2 != 0)
-			l5b42(page, Y, X, (short)(g_a5_word(gyB) + soff),
-			      g_a5_word(gxB), w2, subB);
-		soff = (short)(soff + soffstep);
-		r = (short)(r + JT199_DROW(advdir));
-		c = (short)(c + JT199_DCOL(advdir));
-	}
-}
-
-/* jt199 (JT[199], CODE 7 + 0x6234) — the dungeon first-person frustum
- * walker. Its JT[3] view-layout selector is NOT constant: a `moveq #2`
- * seeds it, then an outer loop (L6e4a) iterates it 2 -> 1 -> 0, running
- * three depth BANDS as the view origin recedes one cell per pass (start
- * 2 cells forward, then 1, then the party cell). Each band reads walls
- * (l5e52) and draws their pre-rendered slot tiles (l5b42 -> jt200) with a
- * band-specific `sub` (depth) layer: case 2 = sub 0/9 side + 1/2 front;
- * case 1 = sub 3/4/5; case 0 = sub 6/7/8. Verified against a live capture
- * (docs/TODO.md): jt200's idx math + this sub ramp reproduce the real
- * (code,sub)->idx slots. The screen positions come from the runtime
- * layout globals g_a5_-12204..-12240.
+/* jt199 (JT[199], CODE 7 @0x6234, L6234) — the dungeon first-person frustum
+ * walker, transcribed line-by-line from the asm (replacing the earlier
+ * parametrized reconstruction). The outer loop (L638c..L6e4a) runs three view
+ * bands chosen by a JT[3] switch on `sel` = 2,1,0; after each band the view
+ * origin (orA,orB) recedes one cell toward the party by the `back` direction.
+ * Each band sweeps a left and a right sub-ray, reading wall edges with l5e52 and
+ * drawing their pre-rendered slot tiles with l5b42 -> jt200 under a per-arm
+ * `sub` (depth) layer. Occlusion is the painter's order (far band first, near
+ * last) plus the `prev`/carry side-face logic — there is NO explicit per-ray
+ * stop in the Mac.
  *
- * The cosmetic setup the Mac does first — L6148 (per-frame wall-handle
- * cache), JT[124] (dispose), JT[993] (view-background fill), JT[1173]
- * (clip rect) — is omitted here; this lift is the geometry + tile
- * selection that turns a loaded map into a first-person view. Threads
- * an explicit page (the port's drawing surface). */
+ * Coords: A = l5e52 arg1 (row/Y, minor axis), B = arg2 (col/X, major, stride H).
+ * The Mac seeds orA = row + 2*STEP_A(facing), orB = col + 2*STEP_B(facing) — the
+ * origin 2 cells ahead. The near band sweeps OUTWARD from the origin; the mid
+ * and far bands seed offset to the side and sweep back toward centre. The
+ * cosmetic setup the Mac does first (L6148 wall cache, JT[124] dispose, JT[993]
+ * fill, JT[1173] clip) and the JT[1193] flush after are handled around the call;
+ * this lift is the geometry + tile selection. Threads an explicit page. */
 static void jt199(unsigned char *page, short Y, short X, short row,
                   short col, short facing) __attribute__((unused));
 static void jt199(unsigned char *page, short Y, short X, short row,
                   short col, short facing)
 {
-	short left  = (short)((facing + 6) & 7);
-	short right = (short)((facing + 2) & 7);
-	short back  = (short)((facing + 4) & 7);
-	short Lr = JT199_DROW(left),  Lc = JT199_DCOL(left);
-	short Rr = JT199_DROW(right), Rc = JT199_DCOL(right);
-	short orow = (short)(row + 2 * JT199_DROW(facing));  /* origin: 2 fwd */
-	short ocol = (short)(col + 2 * JT199_DCOL(facing));
-	short sel;
+	const short left  = (short)((facing + 6) & 7);   /* fp@(-1) */
+	const short right = (short)((facing + 2) & 7);   /* fp@(-2) */
+	const short back  = (short)((facing + 4) & 7);   /* fp@(-3) */
+	short orA = (short)(row + 2 * JT199_STEP_A(facing));  /* fp@(-6) */
+	short orB = (short)(col + 2 * JT199_STEP_B(facing));  /* fp@(-8) */
+	short sel;                                            /* fp@(-21) */
 
 	for (sel = 2; sel >= 0; sel--) {
-		if (sel == 2) {                                  /* near band */
-			jt199_side(page, Y, X, orow, ocol, left,  facing, -2, +1, 0);
-			jt199_side(page, Y, X, orow, ocol, right, facing, +2, -1, 1);
-			jt199_front(page, Y, X, orow, ocol, left,  -2, -12238, -12218, -1, 1);
-			jt199_front(page, Y, X, orow, ocol, right, +2, -12236, -12216, +1, 2);
-		} else if (sel == 1) {                           /* mid band */
-			jt199_band(page, Y, X, (short)(orow + 2 * Lr), (short)(ocol + 2 * Lc),
-			           facing, left,  right, -6, +3, 3,
-			           -12234, -12214, 3, 99, -12232, -12212, 4);
-			jt199_band(page, Y, X, (short)(orow + 2 * Rr), (short)(ocol + 2 * Rc),
-			           facing, right, left,   6, -3, 3,
-			           -12234, -12214, 3,  2, -12230, -12210, 5);
-		} else {                                         /* far band */
-			jt199_band(page, Y, X, (short)(orow + Lr), (short)(ocol + Lc),
-			           facing, left,  right, -7, +7, 2,
-			           -12228, -12208, 6, 99, -12226, -12206, 7);
-			jt199_band(page, Y, X, (short)(orow + Rr), (short)(ocol + Rc),
-			           facing, right, left,   7, -7, 2,
-			           -12228, -12208, 6,  1, -12224, -12204, 8);
+		short wa, wb;       /* fp@(-14),(-16): working cell A,B */
+		short depth;        /* fp@(-17) */
+		short soff;         /* fp@(-20) */
+		short prev;         /* fp@(-24): carried side-wall code */
+		short w;            /* fp@(-22)/(-23) */
+
+		if (sel == 2) {                                  /* L63a2: near band */
+			/* LEFT side sub-loop (L63be): from origin, sweep `left` */
+			wa = orA; wb = orB; soff = 0; prev = 0;
+			for (depth = 0; depth < 4; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (w != 0) {
+					if (prev != 0)
+						l5b42(page, Y, X,
+						      (short)(g_a5_word(-12222) + soff + 1),
+						      g_a5_word(-12202), prev, 9);
+					prev = w;                            /* L641a */
+					if (depth < 3)
+						l5b42(page, Y, X,
+						      (short)(g_a5_word(-12240) + soff),
+						      g_a5_word(-12220), w, 0);
+				} else {                                 /* L645a */
+					if (prev != 0 &&
+					    (l5e52((short)(wa - JT199_STEP_A(left)),
+					           (short)(wb - JT199_STEP_B(left)), left) & 0xff))
+						l5b42(page, Y, X,
+						      (short)(g_a5_word(-12222) + soff + 1),
+						      g_a5_word(-12202), prev, 9);
+					prev = 0;
+				}
+				soff = (short)(soff - 2);
+				wa = (short)(wa + JT199_STEP_A(left));
+				wb = (short)(wb + JT199_STEP_B(left));
+			}
+			/* RIGHT side sub-loop (L6556): sweep `right`; skip depth-0 front */
+			wa = orA; wb = orB; soff = 0; prev = 0;
+			for (depth = 0; depth < 4; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (w != 0) {
+					if (prev != 0)
+						l5b42(page, Y, X,
+						      (short)(g_a5_word(-12222) + soff - 1),
+						      g_a5_word(-12202), prev, 9);
+					prev = w;                            /* L65b2 */
+					if (depth != 0 && depth < 3)
+						l5b42(page, Y, X,
+						      (short)(g_a5_word(-12240) + soff),
+						      g_a5_word(-12220), w, 0);
+				} else {                                 /* L65fa */
+					if (prev != 0 &&
+					    (l5e52((short)(wa - JT199_STEP_A(right)),
+					           (short)(wb - JT199_STEP_B(right)), right) & 0xff))
+						l5b42(page, Y, X,
+						      (short)(g_a5_word(-12222) + soff - 1),
+						      g_a5_word(-12202), prev, 9);
+					prev = 0;
+				}
+				soff = (short)(soff + 2);
+				wa = (short)(wa + JT199_STEP_A(right));
+				wb = (short)(wb + JT199_STEP_B(right));
+			}
+			/* LEFT front sub-loop (L66f2): sweep `left`, depth 0..2 */
+			wa = orA; wb = orB; soff = 0;
+			for (depth = 0; depth < 3; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (w != 0)
+					l5b42(page, Y, X,
+					      (short)(g_a5_word(-12238) + soff - (depth ? 1 : 0)),
+					      g_a5_word(-12218), w, 1);
+				soff = (short)(soff - 2);
+				wa = (short)(wa + JT199_STEP_A(left));
+				wb = (short)(wb + JT199_STEP_B(left));
+			}
+			/* RIGHT front sub-loop (L67e2): sweep `right`, depth 0..2 */
+			wa = orA; wb = orB; soff = 0;
+			for (depth = 0; depth < 3; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (w != 0)
+					l5b42(page, Y, X,
+					      (short)(g_a5_word(-12236) + soff + (depth ? 1 : 0)),
+					      g_a5_word(-12216), w, 2);
+				soff = (short)(soff + 2);
+				wa = (short)(wa + JT199_STEP_A(right));
+				wb = (short)(wb + JT199_STEP_B(right));
+			}
+		} else if (sel == 1) {                           /* L68be: mid band */
+			/* LEFT mid (L6944): from origin+2*left, sweep `right` */
+			wa = (short)(orA + 2 * JT199_STEP_A(left));
+			wb = (short)(orB + 2 * JT199_STEP_B(left));
+			soff = -6;
+			for (depth = 0; depth < 3; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12234) + soff),
+					      g_a5_word(-12214), w, 3);
+				w = l5e52(wa, wb, left);
+				if (depth != 0 && w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12232) + soff),
+					      g_a5_word(-12212), w, 4);
+				soff = (short)(soff + 3);
+				wa = (short)(wa + JT199_STEP_A(right));
+				wb = (short)(wb + JT199_STEP_B(right));
+			}
+			/* RIGHT mid (L6abe): from origin+2*right, sweep `left` */
+			wa = (short)(orA + 2 * JT199_STEP_A(right));
+			wb = (short)(orB + 2 * JT199_STEP_B(right));
+			soff = 6;
+			for (depth = 0; depth < 3; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (depth < 2 && w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12234) + soff),
+					      g_a5_word(-12214), w, 3);
+				w = l5e52(wa, wb, right);
+				if (depth != 0 && w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12230) + soff),
+					      g_a5_word(-12210), w, 5);
+				soff = (short)(soff - 3);
+				wa = (short)(wa + JT199_STEP_A(left));
+				wb = (short)(wb + JT199_STEP_B(left));
+			}
+		} else {                                         /* L6bc2: far band */
+			/* LEFT far (L6c0c): from origin+1*left, sweep `right`, depth 0..1 */
+			wa = (short)(orA + JT199_STEP_A(left));
+			wb = (short)(orB + JT199_STEP_B(left));
+			soff = -7;
+			for (depth = 0; depth < 2; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12228) + soff),
+					      g_a5_word(-12208), w, 6);
+				w = l5e52(wa, wb, left);
+				if (depth != 0 && w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12226) + soff),
+					      g_a5_word(-12206), w, 7);
+				soff = (short)(soff + 7);
+				wa = (short)(wa + JT199_STEP_A(right));
+				wb = (short)(wb + JT199_STEP_B(right));
+			}
+			/* RIGHT far (L6d4a): from origin+1*right, sweep `left`, depth 0..1 */
+			wa = (short)(orA + JT199_STEP_A(right));
+			wb = (short)(orB + JT199_STEP_B(right));
+			soff = 7;
+			for (depth = 0; depth < 2; depth++) {
+				w = l5e52(wa, wb, facing);
+				if (depth < 1 && w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12228) + soff),
+					      g_a5_word(-12208), w, 6);
+				w = l5e52(wa, wb, right);
+				if (depth != 0 && w != 0)
+					l5b42(page, Y, X, (short)(g_a5_word(-12224) + soff),
+					      g_a5_word(-12204), w, 8);
+				soff = (short)(soff - 7);
+				wa = (short)(wa + JT199_STEP_A(left));
+				wb = (short)(wb + JT199_STEP_B(left));
+			}
 		}
-		orow = (short)(orow + JT199_DROW(back));         /* recede one cell */
-		ocol = (short)(ocol + JT199_DCOL(back));
+		orA = (short)(orA + JT199_STEP_A(back));   /* L6e4a: recede one cell */
+		orB = (short)(orB + JT199_STEP_B(back));
 	}
 }
 
