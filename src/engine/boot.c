@@ -51572,6 +51572,36 @@ static void jt73(void)
 	g_a5_long(-25302) = 0;
 }
 
+/* L39ac (CODE 12 + 0x39ac) — present the pending-treasure ITEM list (-25302)
+ * in the scrollable list picker and return the chosen item. Measures each list
+ * item into the picker rows (jt28), arms the row count (jt179), runs the list
+ * dialog (jt169) over the -13868/-13696 layout at rect (1,1,38,22), and hands
+ * back the selected row in *out_sel and the chosen node in *out_node. The
+ * shared item-pick step under l3a3c (take items). First piece of the jt929
+ * take-treasure cluster (Slice B4 follow-up); all deps already lifted. */
+static void l39ac(unsigned char *out_sel, long *out_node,
+                  long *next_scratch, short *idx_scratch) __attribute__((unused));
+static void l39ac(unsigned char *out_sel, long *out_node,
+                  long *next_scratch, short *idx_scratch)
+{
+	unsigned char flag = 1;          /* fp@(-5): picker flag */
+	long          node, head;
+	int           sel;
+
+	PROBE("L39ac");
+	for (node = g_a5_long(-25302); node != 0;
+	     node = *(long *)(uintptr_t)node)
+		jt28((long)0, node, (short)0, (short)0, (short)0, (short)0);
+	head = g_a5_long(-25302);
+	jt179((short)1);
+	sel = jt169(g_a5_long(-13868), g_a5_long(-13696),
+	            (short)1, (short)1, (short)38, (short)22,
+	            head, (short)1, (short)0,
+	            &flag, idx_scratch, next_scratch);
+	*out_sel  = (unsigned char)sel;
+	*out_node = *next_scratch;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
