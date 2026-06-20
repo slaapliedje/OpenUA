@@ -51899,6 +51899,105 @@ static unsigned char jt884(const char *row, char *out_name)
 	return result;
 }
 
+/* ----- jt891 (money amount-entry widget) input leaves ---------------- */
+
+/* L3e3c (CODE 3 + 0x3e3c) — strchr that returns a POINTER: advance through `s`
+ * until the byte equals `ch` or the NUL terminator, return that address.
+ * jt487 calls it with ch=0 to get the end-of-string pointer. */
+static long l3e3c(long s_l, short ch) __attribute__((unused));
+static long l3e3c(long s_l, short ch)
+{
+	unsigned char *s = (unsigned char *)(uintptr_t)s_l;
+
+	PROBE("L3e3c");
+	while (*s != 0 && *s != (unsigned char)ch)
+		s++;
+	return (long)(uintptr_t)s;
+}
+
+/* JT[409] (CODE 3 + 0x3e0c) — index of the first byte equal to `ch` in the
+ * first `len` bytes of `s`; returns `len` if not found. jt891 uses it to map a
+ * shifted-digit symbol ")!@#$%^&*(" back to its 0..9 position. */
+static short jt409(const char *s, short len, short ch) __attribute__((unused));
+static short jt409(const char *s, short len, short ch)
+{
+	short i = 0;
+
+	PROBE("jt409");
+	while (i < len && (unsigned char)s[i] != (unsigned char)ch)
+		i++;
+	return i;
+}
+
+/* JT[487] (CODE 3 + 0xa2) — parse the trailing decimal number of `s` (atol of
+ * the digit suffix). Scans right-to-left from the end (l3e3c gives the NUL),
+ * accumulating each digit * 10^position into *out_val; on the first non-digit
+ * it stops and sets *out_endidx to where the number starts (strlen - count -
+ * 1), or 0 if the whole string was digits. jt4 is the long multiply, jt389
+ * isdigit, jt423 strlen. */
+static void jt487(const char *s, long *out_val, short *out_endidx) __attribute__((unused));
+static void jt487(const char *s, long *out_val, short *out_endidx)
+{
+	const unsigned char *p;
+	short firstdigit = 0;
+	long  contrib;
+
+	PROBE("jt487");
+	*out_val = 0;
+	p = (const unsigned char *)(uintptr_t)l3e3c((long)(uintptr_t)s, 0);
+	p -= 1;
+	while ((uintptr_t)p >= (uintptr_t)s) {
+		if (jt389((short)*p)) {
+			short n = firstdigit;
+			contrib = (long)(*p - '0');
+			while (n-- > 0)
+				contrib = jt4(contrib, 10);
+			*out_val += contrib;
+		} else {
+			*out_endidx = (short)(jt423(s) - firstdigit - 1);
+			return;
+		}
+		firstdigit++;
+		p--;
+	}
+	*out_endidx = 0;
+}
+
+/* JT[60] (CODE 6 + 0x5f84) — get one keystroke, draining the event queue so the
+ * latest key wins. In macro/replay mode (-27988) the key comes through the
+ * jt1118/jt1133 gate with Esc/backtick (27/96) routed to l5f3a; otherwise
+ * straight jt1133. Special keys 338/339 fire l5ac2/l5ad8. Codes >= 256 are
+ * folded down by 128. Returns the low byte. The jt891 widget's input source. */
+static unsigned char jt60(void) __attribute__((unused));
+static unsigned char jt60(void)
+{
+	short key;                       /* fp@(-2) */
+
+	PROBE("jt60");
+	if (g_a5_byte(-27988) != 0) {
+		key = jt1118() ? jt1133() : 0;
+		if (key == 27 || key == 96)
+			l5f3a((short)1);
+	} else {
+		key = jt1133();
+	}
+	if (key == 338) l5ac2();
+	if (key == 339) l5ad8();
+
+	if (key != 0) {
+		while (jt1118()) {           /* L602a -> L5fea: drain pending keys */
+			key = jt1133();
+			if (key == 338) l5ac2();
+			if (key == 339) l5ad8();
+			if (g_a5_byte(-27988) != 0 && (key == 27 || key == 96))
+				l5f3a((short)1);
+		}
+	}
+	if (key >= 256)
+		key = (short)(key - 128);
+	return (unsigned char)key;
+}
+
 /* ===================================================================
  * Treasure-picker Slice B4 — the per-character take screen (jt185) and
  * the Vault event trigger (l3a32, l709e case 24).
