@@ -184,11 +184,28 @@ not the multi-session item first feared.
 - **B2** ✅ `l2ebc` dialog runner (done — its helper cluster was already lifted;
   `l2858` is the only one of the original "draw helper" guesses, also already
   lifted). Remaining shared draw helpers are `L16ea`/`L17f8`, used by jt183.
-- **B3** the missing CODE-12 button helpers `jt921`/`jt922`/`jt924`/`jt583`.
-- **B4** `jt185` (per-char screen) + `l3a32` (Vault trigger) — the smaller
-  driver first; verifiable via a Vault event.
+- **B3** the missing CODE-12 button helpers `jt921`/`jt922`/`jt924`.
+- **B4** ✅ `jt185` (per-char/vault screen) + `l3a32` (Vault trigger, l709e
+  case 24) lifted as a faithful structural skeleton. The Vault event now paints
+  its picture, prints "The party enters the vault.", and runs the take screen:
+  the menu build, l2ebc dialog, JT[3] dispatch, Esc->Exit, and arrow-key
+  character switch are all faithful. DEFERRED as documented leaf stubs (each its
+  own lift): the action handlers `jt929` (take shared treasure, ~468B), `jt894`
+  (pool/sell money, ~902B), `jt893` (the CODE-19 item-management dispatcher,
+  ~1962B), and the vault file I/O `jt583`/`jt586` (Vault<c>.DAT load/save). So
+  View / Exit / char-switch work; Take / Pool / Items + vault persistence are
+  the remaining B4 follow-ups.
 - **B5** `jt183` (distribution dialog) + `l5586` (Shop) + `l216a` (give-treasure
   + take) — the visible "take 100 Platinum + a ring".
+
+### B4 follow-ups (the deferred action handlers)
+| sym | addr | size | role |
+|-----|------|-----:|------|
+| `jt929` | CODE12+0x3b4a | ~468B | move the shared treasure pool into the active char |
+| `jt894` | CODE19+0x46e0 | ~902B | pool / sell the active char's money |
+| `jt893` | CODE19+0x25ce | ~1962B | item-management dispatcher (merchant/inventory) |
+| `jt583` | CODE15+0x1c92 | 64B | load Vault<c>.DAT into the pending list (file I/O) |
+| `jt586` | CODE15+0x1cd2 | 54B | save the pending list to Vault<c>.DAT (file I/O) |
 
 OPEN QUESTION carried into B: confirm l216a (case 9) is the intro reward's path
 (vs case 3 l28b0 + a play-loop jt926 poll). The CODE20 jt926 callers at 0x234a /
