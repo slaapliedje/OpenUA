@@ -35,6 +35,17 @@ STATE=/tmp/frua-ui
 LOG="$STATE/conout.log"
 FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/TOSv4.04.img}"
 GEMDOS_DIR="${GEMDOS_DIR:-$REPO/data/work/gamedata}"
+# Which Hatari binary. Default = system. Set HATARI_BIN=hrdb (or a path) to use
+# the tattlemuss debugger fork, which auto-loads frua.prg's symbol table so the
+# `dbg` action can reference engine symbols (_l309c, _g_a5_below, ...) by name.
+HRDB_HATARI="$HOME/src/tattlemuss-hatari/build/src/hatari"
+HATARI_BIN="${HATARI_BIN:-hatari}"
+[[ "$HATARI_BIN" == hrdb ]] && HATARI_BIN="$HRDB_HATARI"
+# Readiness marker `start` waits for before dropping fast-forward. Override for
+# non-menu boots (e.g. the FRUA_HALL/dungeon path emits "j200_dump: wrote", the
+# merchant path emits nothing — set READY_MARKER=- to skip the wait entirely).
+READY_MARKER="${READY_MARKER:-menu: modal up}"
+READY_TIMEOUT="${READY_TIMEOUT:-180}"
 
 die() { echo "hatari_ui: $*" >&2; exit 1; }
 
@@ -78,7 +89,8 @@ start)
 	[[ -f "$REPO/frua.prg" ]] || die "frua.prg not built"
 	: > "$LOG"
 	rm -f "$STATE/cmd.fifo"      # Hatari creates the fifo itself
-	SDL_VIDEODRIVER=x11 hatari \
+	[[ -x "$HATARI_BIN" || "$(command -v "$HATARI_BIN")" ]] || die "hatari binary not found: $HATARI_BIN"
+	SDL_VIDEODRIVER=x11 "$HATARI_BIN" \
 		--machine falcon \
 		--dsp emu \
 		--tos "$FALCON_TOS" \
@@ -92,13 +104,25 @@ start)
 		> "$LOG" 2>&1 &
 	echo $! > "$STATE/pid"
 	disown
-	# menu_run logs this when the menu enters its event loop.
-	wait_for 'menu: modal up' 1 180
+	# Wait for the readiness marker (menu_run logs "menu: modal up" when a
+	# menu enters its loop). READY_MARKER=- skips the wait for boots that emit
+	# no marker (the merchant event); a fixed grace period replaces it so the
+	# emulator still drops out of fast-forward.
+	if [[ "$READY_MARKER" == "-" ]]; then
+		sleep 6
+	else
+		wait_for "$READY_MARKER" 1 "$READY_TIMEOUT" || true
+	fi
 	# Drop back to real speed for interaction. The explicit option
 	# form is idempotent (the fastforward shortcut TOGGLES — racy).
 	echo "hatari-option --fast-forward no" > "$STATE/cmd.fifo" || true
+	# On the debugger fork, auto-load the running program's symbol table so
+	# `dbg` can reference engine names (_l309c, _g_lc_x0, _g_a5_below, ...).
+	if [[ "$HATARI_BIN" == "$HRDB_HATARI" ]]; then
+		echo "hatari-debug symbols prg" > "$STATE/cmd.fifo" || true
+	fi
 	find_window > /dev/null
-	echo "hatari_ui: menu up, window $(cat "$STATE/wid")"
+	echo "hatari_ui: ready ($HATARI_BIN), window $(cat "$STATE/wid" 2>/dev/null)"
 	;;
 wait)
 	[[ -n "${1:-}" ]] || die "wait needs a regex"
@@ -121,6 +145,21 @@ key)
 		xdotool key "$k"
 		sleep 0.3
 	done
+	;;
+dbg)
+	# Drive the Hatari debugger headlessly over the command FIFO (needs the
+	# tattlemuss fork: HATARI_BIN=hrdb). Sends `hatari-debug <cmd>` and prints
+	# the debugger's reply, captured from the conout log. frua.prg symbols are
+	# auto-loaded, so reference engine names directly, e.g.:
+	#   tools/hatari_ui.sh dbg 'm _g_lc_x0 _g_lc_y0'   # last wall-blit origin
+	#   tools/hatari_ui.sh dbg 'b _l309c'              # break on the wall blit
+	#   tools/hatari_ui.sh dbg 'm _g_a5_below+12288'   # A5 globals (party cell)
+	[[ $# -ge 1 ]] || die "dbg needs a debugger command (e.g. 'm _g_lc_x0')"
+	[[ -e "$STATE/cmd.fifo" ]] || die "no cmd.fifo — run 'start' with HATARI_BIN=hrdb first"
+	dbg_before=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+	echo "hatari-debug $*" > "$STATE/cmd.fifo"
+	sleep 0.6
+	tail -n "+$((dbg_before + 1))" "$LOG" 2>/dev/null
 	;;
 shot)
 	OUT="${1:-/tmp/frua-shot.png}"
@@ -172,6 +211,7 @@ stop)
 	echo "hatari_ui: stopped"
 	;;
 *)
-	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | shot <png> | shots <png> [thresh] [tries] | log | stop"
+	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | dbg <debugger-cmd> | shot <png> | shots <png> [thresh] [tries] | log | stop
+  env: HATARI_BIN=hrdb (tattlemuss debugger fork)  READY_MARKER=<regex>|-  READY_TIMEOUT=<s>"
 	;;
 esac
