@@ -42,7 +42,7 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | **Character generation** (create/modify/reroll/finalize) | 17 | ✅ | `code17-chargen-wall.md`, `chargen-finalize-wall.md`, `char-record-layout.md` |
 | **Training Hall** + roster + party model | 12 | ✅ | `training-hall-wall.md`, `party-model-migration.md` |
 | Character **sheet** view (jt904/jt886) | 19 | ✅ | `char-sheet-jt886` (mem) |
-| **Save / Load** | 15 | 🟡 | **NEEDS WALL** — party round-trip done (#141); pending: ~10KB design-state block, A–J slot pickers, jt159 load-confirm, boot auto-load. Notes in `next-session-saveload` (mem) |
+| **Save / Load** | 15 | 🟡 | `save-load-wall.md` — party round-trip done (#141); pending: ~10KB design-state block (jt580 TODO, the `-27920` pad), A–J slot pickers, jt159 load-confirm, boot auto-load |
 
 ## 3. In-game — dungeon traversal  🟡
 
@@ -64,7 +64,7 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | **Rest / camp** (menu, REST action, clock/heal) | 21 | 🟡 | `code21-camp-wall.md` — menu + REST + MAGIC-menu lifted; spell screens stub |
 | **Spell memorization** (4 magic screens) | 21 | 🔴 | `code21-camp-wall.md` — `l06d6`/`l0bc6`/`l0df2`/`l1374` + `l1e44` + Alter `l2d7e` stub |
 | **Inventory / item-list / equip** (sheet items, ITEMS/TRADE/DROP) | 9 + 19 | 🔴 | `inventory-subsystem-wall.md` ← **NEXT FOCUSED TASK**. NB: `jt893` (ITEMS dispatcher) now has a structural body |
-| **Shop / merchant** (buy/sell/value) | 19/7 | 🟡 | **NEEDS WALL** — `jt893` ITEMS-side lifted (structural); buy/sell `jt189`/`jt190`, add-money `jt923` still stub. `shop-subsystem-scope` (mem) is partly STALE (it predates the jt893 body) |
+| **Shop / merchant** (sell/identify/value) | 20/19/7 | 🟡 | `shop-merchant-wall.md` — event + shop screen (`l5586`/`jt183`) LIFTED; only `jt189` SELL + `jt190` IDENTIFY stub (Mac bodies in CODE_07.s). No "buy" verb. `jt923` is NOT missing (= lifted overload gate). Untested live (HEIRS shop cell unconfirmed) |
 | **Conditional / quest-flag events** (stat-check, set-flag, rumors, pass-time) | 18 | ✅ | `treasure-event-wall.md` (cases 15/27/37/38) |
 
 ## 5. In-game — combat  🔴 (the big frontier)
@@ -81,8 +81,8 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
-| **Event pictures / portraits** (PIC/SPRIT/CPIC/bigpic) | 10 | 🟡 | **NEEDS WALL** — bigpic composer works (`l442e`); intro caravan black-frame + palette-clobber open. `bigpic-composer-129`, `resource-manager-bigpic-pickup` (mem) |
-| **Audio / music / sound** (.slb engine) | — | 🔴 | **NEEDS WALL** — `jt52` dispatcher lifted but leaves (`jt965`/`jt974`/`jt985`) stubbed; sound is MUTED by design. Whole subsystem is its own session |
+| **Event pictures / portraits** (PIC/SPRIT/CPIC/bigpic) | 20/6/5 | 🟡 | `event-pictures-wall.md` — runtime pipeline (`l442e`→…→`l6e58`) FAITHFUL + works; 2 open bugs are composition-ordering + buffer-sharing, NOT palette math. CODE 10 = the picture EDITOR (deferred), not the runtime path |
+| **Audio / music / sound** (.slb engine) | 5/6 | 🔴 | `audio-wall.md` — dispatch + bank-load lifted, every output leaf stubbed → MUTED. FRUA uses the Device Manager (`_Write`), NOT the Sound Manager. Falcon DMA HAL already exists; needs the engine→HAL glue. Multi-part |
 
 ## 7. Editor / authoring tools  ⏸ deferred (ADR-0008: runtime first)
 
@@ -94,17 +94,21 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 
 ---
 
-## Queue gaps — subsystems that still need a scoped wall doc
+## Wall-doc coverage — every active subsystem now has a scope doc
 
-These are tracked only in memories / scattered notes today. Chart one when it
-becomes the active target (the `inventory-subsystem-wall.md` is the model):
+The four former queue gaps were charted 2026-06-21 (each grounded in a code
+trace; `inventory-subsystem-wall.md` was the model):
 
-1. **Save / Load** (§2) — 🟡 active-ish; design-state block + slot pickers.
-2. **Shop / merchant** (§4) — 🟡 partly lifted; needs a wall to consolidate
-   `jt893` (done structural) + `jt189`/`jt190`/`jt923` (stub) and retire the
-   stale `shop-subsystem-scope` memory.
-3. **Event pictures / portraits** (§6) — 🟡 only in memories.
-4. **Audio / sound** (§6) — 🔴 whole subsystem, no scope doc yet.
+1. **Save / Load** → `save-load-wall.md` ✅ charted.
+2. **Shop / merchant** → `shop-merchant-wall.md` ✅ charted (corrected: shop
+   screen lifted, only sell/identify stub; `jt923` not missing).
+3. **Event pictures / portraits** → `event-pictures-wall.md` ✅ charted
+   (corrected: CODE 10 = editor, runtime pipeline is faithful).
+4. **Audio / sound** → `audio-wall.md` ✅ charted (corrected: Device Manager,
+   not Sound Manager; HAL already exists).
+
+The only subsystems without a wall are the ⏸ **editor** segments (CODE 2/11/22),
+deferred by ADR-0008 — chart them when the authoring-tools track opens.
 
 ## Targeting priority (highest leverage first)
 
