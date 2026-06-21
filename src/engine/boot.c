@@ -2324,6 +2324,7 @@ static void  jt199(unsigned char *page, short Y, short X, short row,
                    short col, short facing);                /* JT[199]=CODE 7+0x6234 frustum walker */
 static void  render_3d_faithful(unsigned char *px, short pitch, short sw, short sh);
 static void  port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh);
+static void  port_reinstall_frame_band(void);
 /* Extra pixel y added to jt1089 text while composing the dungeon HUD. The
  * QuickDraw shim is baseline-anchored (glyph body ABOVE y) while the Mac's
  * jt94/rec[16] coords are text-TOP; the dungeon HUD text lands ~7px high vs
@@ -11804,6 +11805,29 @@ static long port_ui_group_base(short group)
  * dungeon view's full-clear frames (the chrome is static; the 88x88
  * viewport is overdrawn by the 3D render and refreshed via present-rect). */
 static void jt1193(void);        /* clip-to-full-screen, defined below */
+
+/* port_reinstall_frame_band — re-push the FRAME.CTL set-0 palette into CLUT
+ * 16..31. An event picture's GLIB palette commit blacks out these entries; the
+ * frame chrome (bevel/compass) renders through them, so reinstalling restores it
+ * without redrawing pixels or touching the picture's 32..255 range. */
+static void port_reinstall_frame_band(void)
+{
+	const unsigned char *pp;
+	RGBColor fp[16];
+	short k;
+
+	port_frame_load();
+	if (!g_frame_base)
+		return;
+	pp = (const unsigned char *)(uintptr_t)(l37aa(g_frame_base, 0) + 8);
+	for (k = 0; k < 16; k++) {
+		fp[k].red   = (unsigned short)((pp[k*3+0] << 8) | pp[k*3+0]);
+		fp[k].green = (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
+		fp[k].blue  = (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
+	}
+	qd_set_palette(fp, (short)16, (short)16);
+}
+
 static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh)
 {
 	short r;
@@ -32558,6 +32582,13 @@ static void l442e(void *ev_v)
 	g_a5_byte(-18473) = 0;                           /* L470c */
 
 tail:
+	/* PORT: an event picture's palette commit (l3f3c/jt1069/jt1066 + jt993) blacks
+	 * out the FRAME.CTL band's upper entries (CLUT 16..31) even though the picture
+	 * lands at 32..255 — measured: the viewport bevel + compass pixels (values
+	 * 30/31) stay on the surface but their CLUT entries go black. Reinstall the
+	 * frame band so the stone bevel + compass render. Dungeon mode only. */
+	if ((unsigned char)g_a5_byte(-27990) == 4)
+		port_reinstall_frame_band();
 	if ((unsigned char)g_a5_byte(-22312) != 255)
 		g_a5_byte(-4947) = 1;
 	g_a5_byte(-18471) = 0;
