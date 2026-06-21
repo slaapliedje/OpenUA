@@ -54449,7 +54449,8 @@ static void l66cc(void *ev_v)
  * lifted, so the menu is navigable and Save/Load/Exit work today. */
 static void l038a(void)                    { PROBE("L038a"); }
 static void l1850(void *out)               { PROBE("L1850"); (void)out; }
-static void l09ea(void *out)               { PROBE("L09ea"); (void)out; }
+static void l09ea(void *out);              /* REST action — defined after jt957 (slice 2) */
+static short l0006_c21(void *member);      /* per-member rest-minutes (CODE-21 L0006) */
 static void l1e44(void)                    { PROBE("L1e44"); }
 static void l2d7e(void *out)               { PROBE("L2d7e"); (void)out; }
 
@@ -54635,6 +54636,114 @@ static void l473e(short a)
 	g_a5_byte(-23188) = 1;
 	jt935();
 	g_a5_byte(-27946) = 0;
+}
+
+/* --- CODE-21 REST action (camp menu case 2) — slice 2 ----------------------
+ * l0006_c21 + l09ea compute the rest duration and run the (already-lifted)
+ * rest engine jt915. This makes "Rest" in the camp menu actually advance the
+ * clock and heal/memorize. */
+
+/* L0006 (CODE 21 + 0x0006) — minutes one party member needs to rest =
+ * type*60 + (total pending spell levels)*15, where type is 6 if any pending
+ * spell is level 3+, else 4 if any spell is pending, else 0. Scans the member's
+ * own memorize slots (member[198 + i], i=0..140, gated by member[382]) and the
+ * spell sub-list at member[8] (effect nodes accepted by jt638; type-73 nodes
+ * chain through [+58], 3 slots each at [54..56]); spell levels come from the
+ * -16906 table (16-byte entries, level at +1). Stores the type in member[126].
+ * Named _c21 to avoid the lXXXX collision with the existing l0006. Faithful. */
+static short l0006_c21(void *member_v)
+{
+	unsigned char *member = (unsigned char *)member_v;
+	unsigned char  maxlvl_a = 0;     /* fp@(-3) */
+	unsigned char  maxlvl_b = 0;     /* fp@(-4) */
+	unsigned short sum_a = 0;        /* fp@(-6) */
+	unsigned short sum_b = 0;        /* fp@(-8) */
+	unsigned char  lvl;              /* fp@(-18) */
+	short          i;                /* fp@(-17) */
+	unsigned char *node16;           /* fp@(-16) */
+	unsigned char *ptr12;            /* fp@(-12) */
+	unsigned char  type;             /* fp@(-19) */
+
+	PROBE("L0006_c21");
+
+	/* part 1 — the member's own memorize slots */
+	for (i = 0; i <= 140; i++) {
+		unsigned char slot = member[198 + i];
+		if ((slot & 0x80) && member[382] != 0) {
+			lvl = g_a5_byte(-16906 + ((slot & 0x7f) << 4) + 1);
+			if (lvl > maxlvl_a) maxlvl_a = lvl;
+			sum_a = (unsigned short)(sum_a + lvl);
+		}
+	}
+
+	/* part 2 — the spell/effect sub-list at member[8] */
+	node16 = *(unsigned char **)(member + 8);
+	while (node16 != NULL) {
+		if (jt638((long)(uintptr_t)node16) != 0) {
+			if (node16[40] == 73)
+				ptr12 = *(unsigned char **)(node16 + 58);
+			else
+				ptr12 = node16;
+			do {
+				for (i = 1; i <= 3; i++) {
+					unsigned char s = ptr12[(i - 1) + 54];
+					if (s & 0x80) {
+						lvl = g_a5_byte(-16906 + ((s & 0x7f) << 4) + 1);
+						if (lvl > maxlvl_b) maxlvl_b = lvl;
+						sum_b = (unsigned short)(sum_b + lvl);
+					}
+				}
+				ptr12 = *(unsigned char **)(ptr12 + 58);
+			} while (node16[40] == 73 && ptr12 != NULL);
+		}
+		node16 = *(unsigned char **)node16;
+	}
+
+	/* part 3 — rest type + minutes */
+	type = 0;
+	if (sum_a > 0 || sum_b > 0)
+		type = 4;
+	if (maxlvl_a > 2 || maxlvl_b > 2)
+		type = 6;
+	member[126] = type;
+	return (short)(type * 60 + sum_a * 15 + sum_b * 15);
+}
+
+/* L09ea (CODE 21 + 0x09ea) — the REST action. Finds the longest per-member
+ * rest time (l0006_c21, minutes) across the party, decomposes it into the
+ * days/hours/ten-min/min display fields (-23206/-23208/-23210/-23212), then
+ * runs the rest engine jt915(1) — which advances the clock and heals/memorizes,
+ * interruptibly. *out receives jt915's result (a non-zero result restores the
+ * prev mode). Faithful lift. */
+static void l09ea(void *out_v)
+{
+	unsigned char *out = (unsigned char *)out_v;
+	unsigned char *node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	unsigned short maxmin = 0;       /* fp@(-6) */
+
+	PROBE("L09ea");
+
+	while (node != NULL) {
+		unsigned short need = (unsigned short)l0006_c21(node);
+		if (maxmin < need)
+			maxmin = need;
+		node = *(unsigned char **)node;
+	}
+
+	g_a5_word(-23206) = (short)(maxmin / 1440);   /* days */
+	maxmin = (unsigned short)(maxmin % 1440);
+	g_a5_word(-23208) = (short)(maxmin / 60);     /* hours */
+	maxmin = (unsigned short)(maxmin % 60);
+	g_a5_word(-23210) = (short)(maxmin / 10);     /* ten-minutes */
+	g_a5_word(-23212) = (short)(maxmin % 10);     /* minutes */
+	g_a5_word(-27984) = 0;
+
+	*out = jt915(1);
+	if (*out != 0)
+		g_a5_byte(-27990) = g_a5_byte(-27989);
+
+	jt399((void *)&g_a5_byte(-23214), 14, 0);
+	jt938();
 }
 
 /* JT[346] (CODE 8+0x6f9e) — decode an item-position flags byte into a
