@@ -7042,7 +7042,12 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 /* max HP: the faithful field is the WORD rec[82]; in FRUA HP is always <= 255,
  * so the value lives in the big-endian low byte rec[83] (with rec[82]=0). Byte
  * access at 83 reads the real value and keeps the faithful word@82 valid. */
-#define CHAR_MAXHP   83   /* low byte of the faithful max-HP word @82 */
+#define CHAR_MAXHP   129  /* max HP — the slot the sheet (jt32 p[129]) and the
+                           * CON/level-up code (rec[129]) already use. The old
+                           * @82/@83 guess was wrong: @82 is a different field
+                           * (e.g. BARBARUS @82=29 while real maxHP @129=78), so
+                           * @83 read 0 -> char-gen'd chars showed "HP X/0" and
+                           * rest capped healing at 0. */
 
 /* Faithful in-memory combatant offsets, decoded from the CODE 19 record
  * sheet (jt892) + combat: AC@385 (JT[34], combat reads defender AC here),
@@ -15902,7 +15907,7 @@ static int port_load_savgame(void)
 			 * became 60 - 253 = -193 in the Hall. Keep the memcpy'd
 			 * faithful byte. */
 			dbg_log((char *)dst + 96);
-			dbg_log_num("  maxHP=", (long)r[82]);
+			dbg_log_num("  maxHP=", (long)r[129]);   /* real max HP slot */
 			found++;
 			i += 256;
 		}
