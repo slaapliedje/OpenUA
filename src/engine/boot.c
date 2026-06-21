@@ -5873,6 +5873,8 @@ static void jt1089(short x, short y, short color,
  *
  * The post-jt1200 col==11 remap models the asm's redundant double
  * cmpiw #11 — the second compare is dead code in C. */
+static short g_jt94_ybias = 0;          /* PORT: per-call y nudge (see jt94) */
+static short g_jt94_force_color = -1;   /* PORT: per-call colour override (see jt94) */
 static void jt94(short page, short row, short col, short style,
                  const char *fmt, ...)
 {
@@ -5924,8 +5926,22 @@ static void jt94(short page, short row, short col, short style,
 		col   = 0;
 		style = 15;
 	}
-	y     = (short)((row  << 2) + 8000);
+	/* PORT: g_jt94_ybias is a per-call vertical nudge (8000-space units, ~1px
+	 * each) that defaults to 0 — so this is a no-op for every caller except the
+	 * "Press [Return] to continue" prompt (l177a), where it compensates for the
+	 * baseline shift the Mac's jt94 applies via jt1135 (refs 8094/8098) but the
+	 * port's simplified jt94 omits. */
+	y     = (short)((row  << 2) + 8000 + g_jt94_ybias);
 	color = (short)((style << 4) | (unsigned char)col);
+	/* PORT: g_jt94_force_color (default -1 = off) overrides the computed colour
+	 * for one call. The style-remap above is inverted vs the Mac (the Mac remaps
+	 * style->8 only when style==0, per CODE_06.s 0x3ffe `tstw;bnes`; the port
+	 * does it when style!=0), so the "Press [Return] to continue" prompt
+	 * (style 7) comes out 128/cyan instead of the Mac's 112/black. Correcting the
+	 * global condition is risky (other text is tuned around it), so l177a forces
+	 * the Mac's 112 for the prompt only. */
+	if (g_jt94_force_color >= 0)
+		color = g_jt94_force_color;
 	jt1089(y, x, color, ua_strs_at(0x6c0) /* "%s" */, local_buf);
 }
 
@@ -19318,8 +19334,18 @@ static void l177a(void)
 	l6048();                                /* JT[66] */
 	(void)jt108((short)1);
 	l162e();
-	jt94((short)7, (short)24, (short)0, (short)7, "%s",
+	/* PORT: the faithful args are (page 7, row 24); the Mac jt94 runs them
+	 * through jt1135 (a baseline/scale transform, refs 8094/8098) before
+	 * jt1089, which the port's simplified jt94 skips — leaving the prompt ~4px
+	 * left + ~2px low of the Return button (which is placed in screen space by
+	 * jt452 and is correct). Nudge page 7->8 (x 8028->8032, the Mac's post-jt1135
+	 * h) to align horizontally; the row stays faithful (vertical handled below). */
+	g_jt94_ybias = -2;                      /* up ~2px: the Mac's jt1135 baseline */
+	g_jt94_force_color = 112;               /* black on the bar (Mac colour 112) */
+	jt94((short)8, (short)24, (short)0, (short)7, "%s",
 	     ua_strs_at(0x275c) /* "Press        to continue." */);
+	g_jt94_force_color = -1;
+	g_jt94_ybias = 0;
 	l2062();
 	jt447();
 	jt452((long)1, (long)8094, (long)8056,
