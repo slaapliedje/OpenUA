@@ -15717,8 +15717,20 @@ static int load_roster(void)
 		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) != noErr)
 			continue;
 		n = 512;
-		if (FSRead(refnum, &n, cg_pool[n2]) == noErr && n == 512)
+		if (FSRead(refnum, &n, cg_pool[n2]) == noErr && n == 512) {
+			int a;
+			/* The .CHR stores only the BASE ability scores (even bytes
+			 * @112,114,…); the working/current scores (odd bytes
+			 * @113,115,…) are 0 in the file. A character at rest has
+			 * current == base (no temporary spell/item/aging modifier),
+			 * so seed them — jt895 (the sheet) and combat read the
+			 * current score rec[113 + i*2], which otherwise shows 0. */
+			for (a = 0; a < 6; a++)
+				if (cg_pool[n2][113 + a * 2] == 0)
+					cg_pool[n2][113 + a * 2] =
+					    cg_pool[n2][112 + a * 2];
 			n2++;
+		}
 		(void)FSClose(refnum);
 	}
 	if (n2 == 0)
