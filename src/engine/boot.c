@@ -3261,7 +3261,7 @@ static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch
 static void  l2e42(void *ev)               { PROBE("L2e42"); (void)ev; }
 static void  l380a(void *ev)               { PROBE("L380a"); (void)ev; }
 static short l3fba(short v)                { PROBE("L3fba"); (void)v; return 0; }
-static short l1ad8(void *ev)               { PROBE("L1ad8"); (void)ev; return 0; }
+static short l1ad8(void *ev);              /* type-15 conditional event — defined after its deps */
 static void  l6020(void *ev)               { PROBE("L6020"); (void)ev; }
 static void  l3ac6(void *ev)               { PROBE("L3ac6"); (void)ev; }
 static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
@@ -38735,6 +38735,166 @@ static unsigned char jt37(long rec_l)
 	if (jt41(rec_l, 178, &out))
 		g_a5_byte(-25263) = 0;
 	return (unsigned char)g_a5_byte(-25263);
+}
+
+/* L1528 (CODE 20 + 0x1528) — scan the active party (the -27928 list, next-ptr
+ * at node+0) and return through *out_max / *out_min the maximum and minimum of
+ * each member's halved derived stat, ((jt37(rec) & 0xff) >> 1). jt37 recomputes
+ * rec[396] from rec[136] plus item/effect modifiers as a side effect; both
+ * accumulators are seeded from the head node's current rec[396] (the party is
+ * never empty inside a dungeon event, matching the Mac's unconditional seed).
+ * Used by the type-15 conditional event to test the party vs a threshold.
+ * Faithful lift. */
+static void l1528(unsigned char *out_max, unsigned char *out_min)
+{
+	unsigned char *node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+
+	*out_max = node[396];
+	*out_min = node[396];
+	while (node != NULL) {
+		unsigned char v =
+		    (unsigned char)((jt37((long)(uintptr_t)node) & 0xff) >> 1);
+		if (v > *out_max) *out_max = v;
+		if (v < *out_min) *out_min = v;
+		node = *(unsigned char **)node;
+	}
+}
+
+/* L1ad8 (CODE 20 + 0x1ad8) — the type-15 CONDITIONAL ("special / stat-check")
+ * event (l709e case 15). A designer branch gadget: it offers the party up to
+ * five menu options and, from the choice (optionally tested against the party
+ * minimum stat vs threshold ev[8]), sets a result flag (-5238) and a chained-
+ * event id. ev[7]&3 + 1 attempts are allowed; when they run out the timeout
+ * action ev[14]&15 fires.
+ *
+ *   l1528 -> party MAX (unused by the arms) / MIN of the halved derived stat.
+ *   intro: paint the picture (l442e) or the default screen (jt935); print the
+ *          ev[4..5] message (jt1180 index -> jt232 format -> l0b20) if present.
+ *   menu rows (jt155), gated by bit3 of ev[9..13] — rows 0/2/4 are additionally
+ *          suppressed near the last attempt when bit4 is set; prompt via jt182
+ *          (params -13952 / -13632).
+ *   first switch (choice 0..4): submenu = ev[9+choice] & 7  (default: keep last;
+ *          out-of-attempts timeout sets submenu = ev[14] & 15).
+ *   second switch (submenu 0..6):
+ *     0 retry  : counter--, repaint picture, loop (re-prompt).
+ *     1 done   : if party_min <  ev[8] -> flag=1; result = ev[17].
+ *     2 done   : if party_min >= ev[8] -> flag=2; result = ev[17].
+ *     3 done   : flag=3;                          result = ev[17].
+ *     4 done   :                                  result = ev[18].
+ *     5 done   : result = (party_min >= ev[8]) ? ev[19] : ev[17].
+ *     6/def    : no-op.
+ * Returns the chained-event id; resets the attempt counter (-5237) to -1.
+ * Faithful lift. */
+static short l1ad8(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  pmax;              /* fp@(-5) — party max (unused by arms) */
+	unsigned char  pmin;             /* fp@(-6) — party min */
+	unsigned char  choice;           /* fp@(-1) */
+	unsigned char  menucnt;          /* fp@(-2) */
+	unsigned char  submenu = 0;      /* fp@(-3) — persists across iterations */
+	unsigned char  result = 0;       /* fp@(-4) */
+	unsigned char  done;             /* fp@(-7) */
+
+	PROBE("L1ad8");
+
+	l1528(&pmax, &pmin);
+	g_a5_byte(-5238) = (unsigned char)-1;
+	g_a5_byte(-5237) = (unsigned char)((ev[7] & 3) + 1);   /* attempts left */
+
+	if (ev[6]) l442e(ev); else jt935();
+	jt20();
+
+	if (*(short *)(ev + 4) != 0) {
+		short num = jt1180(*(short *)(ev + 4));
+		jt232((void *)(uintptr_t)g_a5_long(-13034), num,
+		      (char *)&g_a5_byte(-5213));
+		if (rec) rec[57] = 0;
+		l0b20((void *)&g_a5_byte(-5213));
+	}
+
+	done = 0;
+	for (;;) {
+		if (g_a5_byte(-5237) == 0) {
+			/* L1d0c — out of attempts: take the timeout action */
+			submenu = (unsigned char)(ev[14] & 15);
+		} else {
+			unsigned char cnt = g_a5_byte(-5237);
+
+			jt399((void *)&g_a5_byte(-24126), 40, 255);
+			menucnt = 0;
+			if (ev[9] & 0x08) {                    /* row 0 */
+				if (cnt > 1 || !(ev[9] & 0x10))
+					jt155(0, &menucnt);
+			}
+			if (ev[10] & 0x08)                     /* row 1 */
+				jt155(1, &menucnt);
+			if (ev[11] & 0x08) {                   /* row 2 */
+				if (cnt < 2 || !(ev[11] & 0x10))
+					jt155(2, &menucnt);
+			}
+			if (ev[12] & 0x08)                     /* row 3 */
+				jt155(3, &menucnt);
+			if (ev[13] & 0x08) {                   /* row 4 */
+				if (cnt < 2 || !(ev[13] & 0x10))
+					jt155(4, &menucnt);
+			}
+
+			choice = (unsigned char)jt182(
+			    (const char *)(uintptr_t)g_a5_long(-13952),
+			    g_a5_long(-13632), 1, 1);
+			switch (choice) {
+			case 0: submenu = (unsigned char)(ev[9]  & 7); break;
+			case 1: submenu = (unsigned char)(ev[10] & 7); break;
+			case 2: submenu = (unsigned char)(ev[11] & 7); break;
+			case 3: submenu = (unsigned char)(ev[12] & 7); break;
+			case 4: submenu = (unsigned char)(ev[13] & 7); break;
+			default: break;   /* keep the previous submenu (faithful) */
+			}
+		}
+
+		switch (submenu) {
+		case 0:                                    /* retry (L1d3c) */
+			g_a5_byte(-5237) = (unsigned char)(g_a5_byte(-5237) - 1);
+			if (g_a5_byte(-5237) != 0 && ev[6])
+				l442e(ev);
+			break;
+		case 1:                                    /* fail if below (L1d74) */
+			done = 1;
+			if (pmin < ev[8]) g_a5_byte(-5238) = 1;
+			result = ev[17];
+			break;
+		case 2:                                    /* pass if at/above (L1d9c) */
+			done = 1;
+			if (pmin >= ev[8]) g_a5_byte(-5238) = 2;
+			result = ev[17];
+			break;
+		case 3:                                    /* unconditional (L1dc2) */
+			done = 1;
+			g_a5_byte(-5238) = 3;
+			result = ev[17];
+			break;
+		case 4:                                    /* result ev[18] (L1dda) */
+			done = 1;
+			result = ev[18];
+			break;
+		case 5:                                    /* conditional (L1dec) */
+			done = 1;
+			result = (pmin >= ev[8]) ? ev[19] : ev[17];
+			break;
+		default:                                   /* 6 / out of range */
+			break;
+		}
+
+		if (done)
+			break;
+	}
+
+	jt20();
+	g_a5_byte(-5237) = (unsigned char)-1;
+	(void)pmax;
+	return (short)result;
 }
 
 /* CODE 14 locals for jt555 — leaf PROBE stubs pending their own
