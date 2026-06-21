@@ -120,10 +120,13 @@ l28b0 only **stages** the loot (money → `-25314/-25310/-25306`, items → the
    (money) + the `-25302` item list. Clean build. NOT yet live-verified — it's
    event-gated (runs only when a give-treasure event fires) and has no visible
    output until Slice B; verify via a PROBE trace or once the picker exists.
-2. **Slice B — the picker UI** ⛔ IN PROGRESS (recon done 2026-06-20; see
-   "Slice B map" below). The picker is the SHARED FRUA treasure/exchange UI, a
-   multi-function subsystem behind three stubbed event handlers — NOT a single
-   dialog. Foundation leaf `l11a8` lifted; the rest is a multi-session lift.
+2. **Slice B — the picker UI** ✅ COMPLETE 2026-06-20. The shared FRUA
+   treasure/exchange UI: B1 l11a8, B2 l2ebc, B3 jt921/jt922/jt924, B4 jt185 +
+   l3a32 + the action handlers (jt929/jt894/jt893) + vault I/O, B5 jt183 +
+   l5586 (Shop, case 8) + l216a (give-treasure/temple, case 9). All three event
+   triggers (cases 8/9/24) now open their picker. Remaining leaf stubs are
+   documented per-arm (jt889 bundle-join, jt189/jt190 shop sell/identify, l4218/
+   jt933 temple commit) — each its own follow-up.
 3. **Slice C — jt930** (leave-area / party cleanup) full lift, closing the
    case-3 refresh path and the death-message tail.
 
@@ -195,8 +198,16 @@ not the multi-session item first feared.
   ~1962B), and the vault file I/O `jt583`/`jt586` (Vault<c>.DAT load/save). So
   View / Exit / char-switch work; Take / Pool / Items + vault persistence are
   the remaining B4 follow-ups.
-- **B5** `jt183` (distribution dialog) + `l5586` (Shop) + `l216a` (give-treasure
-  + take) — the visible "take 100 Platinum + a ring".
+- **B5** ✅ DONE 2026-06-20 — `jt183` (distribution dialog, ff71681) + `l5586`
+  (Shop event, l709e case 8, ff71681) + `l216a` (give-treasure/TEMPLE take, l709e
+  case 9, this commit). l216a is a faithful structural lift: intro text (jt232/
+  l0b20, "Welcome to our temple."/"What is your wish?"), the take loop (l11a8
+  menu gated by ev[7] bit3 + jt926, jt160 dialog, arrow-key char-switch, 7-arm
+  JT[3] -> View/Pool/Take/Share/Exit), temple donation-on-exit, mode-restore +
+  chain (return -> ev[12]). STUBS: `l4218` (donation money write) + `jt933`
+  (CODE12+0x5720 take-commit). NOTE: l216a is case 9 — NOT the HEIRS caravan
+  (that's case 3 / l28b0, lifted in Slice A); not on the HEIRS walk path, so not
+  Hatari-tested. **Slice B COMPLETE.**
 
 ### B4 follow-ups (the deferred action handlers)
 | sym | addr | size | role | status |

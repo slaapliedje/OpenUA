@@ -3255,7 +3255,7 @@ static void  l5676(void *ev, short t);     /* stairs / level change — defined 
 static void  l2d32(void *ev, short a)      { PROBE("L2d32"); (void)ev; (void)a; }
 static short l4f9a(void *ev)               { PROBE("L4f9a"); (void)ev; return 0; }
 static void  l5586(void *ev);              /* shop/merchant event — lifted near jt183 */
-static short l216a(void *ev)               { PROBE("L216a"); (void)ev; return 0; }
+static short l216a(void *ev);              /* give-treasure/temple take event — lifted near jt160 */
 static short l3b0e(void *ev);              /* encounter prompt — defined after its deps */
 static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch — defined after its deps */
 static void  l2e42(void *ev)               { PROBE("L2e42"); (void)ev; }
@@ -53675,6 +53675,200 @@ static short jt160(long title, long block, short c, short e)
 		          (void *)&g_a5_byte(-24139));
 	}
 	return r;
+}
+
+/* ---- l216a temple-event sub-helpers (not yet lifted) ----------------------
+ * (l026e_c20 — the CODE20 Yes/No prompt — is already lifted above.) */
+static void l4218(long amount, void *slot)
+	{ PROBE("l4218"); (void)amount; (void)slot; }                        /* money write to rec[63] */
+static unsigned char jt933(long ev, short exit_arm, long item_head, short v)
+	{ PROBE("jt933"); (void)ev; (void)exit_arm; (void)item_head; (void)v; return 0; } /* CODE12+0x5720 take-commit */
+
+/* L216a (CODE 20 + 0x216a, ~1862B) — the give-treasure / TEMPLE event with an
+ * interactive TAKE picker (l709e case 9). Faithful structural lift:
+ *  - first visit seeds the event picture id (ev[6]=220) + flag bit7; paints it
+ *    (l442e), shows up to two event-text blocks (jt232 format + l0b20, ev[13/14]
+ *    and ev[15/16]) or the "Welcome to our temple."/"What is your wish?" lines;
+ *  - zeroes the money pool (jt65) and enters mode 1;
+ *  - LOOP: build the take menu into -24126 (l11a8 arms 0..6, gated by ev[7] bit3
+ *    + the jt926 pool poll), run the dialog (jt160), arrow keys switch the active
+ *    char (jt936/jt934), then JT[3] dispatch: 0 items (commit) / 1 exit-flag /
+ *    2 View (jt904) / 3 Pool (jt925) / 4 Take money (jt924) / 5 Share (jt921) /
+ *    6 Exit (+ the temple "you left money — donate?" sub-flow); commit via jt933;
+ *    loop until the Exit arm sets did_exit;
+ *  - restore the prior mode (3/4 by rec[34]/rec[36]) and chain (return result;
+ *    the l709e case-9 caller jumps to ev[12] when non-zero).
+ * STUBS (their own follow-ups): l026e_c20 (Yes/No), l4218 (donation write),
+ * jt933 (the take-commit). NOT Hatari-tested (case 9 is not on the HEIRS path —
+ * that caravan is case 3 / l28b0). Closes Slice B (docs/treasure-event-wall.md). */
+static short l216a(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  result = 0;         /* fp@(-1)  return / chain flag      */
+	unsigned char  wish_flag = 0;      /* fp@(-2)                           */
+	unsigned char  exit_arm = 0;       /* fp@(-3)  arm-1 flag -> jt933       */
+	unsigned char  rowcount;           /* fp@(-4)                           */
+	unsigned char  choice;             /* fp@(-5)  dialog result            */
+	unsigned char  has_money = 0, has_items = 0;  /* fp@(-49), fp@(-50)     */
+	unsigned char  did_exit, acted, esc_closed = 0;  /* -51, -52, -53       */
+	char           yesno[34];          /* fp@(-48): "~Yes ~No" prompt scratch */
+
+	PROBE("L216a");
+
+	if (ev[6] == 0) {                              /* first visit */
+		ev[6] = (unsigned char)220;            /* picture id 0xdc */
+		ev[7] = (unsigned char)(ev[7] | 0x80);
+	}
+	l442e(ev);
+	jt20();
+
+	/* L21ae — first event-text block (ev[13/14]); ev[0]==22 -> temple. */
+	if ((ev[13] != 0 || ev[14] != 0) && ev[0] != 22) {
+		jt232((void *)(uintptr_t)g_a5_long(-13034),
+		      (short)((ev[14] << 8) | ev[13]), (char *)&g_a5_byte(-5213));
+		if (rec) rec[57] = 0;
+		l0b20((void *)&g_a5_byte(-5213));
+		jt181(1);
+		if (g_a5_byte(-4947)) g_a5_byte(-4947) = 0;
+	}
+	if (ev[0] == 22) {                             /* L2230 — temple greeting */
+		if (rec) rec[57] = 1;
+		l0b20((void *)(uintptr_t)ua_strs_at(0x6722));  /* "Welcome to our temple." */
+		jt181(1);
+	}
+
+	/* L225e — enter take mode, zero the pool. */
+	jt20();
+	g_a5_byte(-27990) = 1;
+	g_a5_byte(-27987) = 0;
+	wish_flag = 1;
+	g_a5_byte(-22292) = 0;
+	jt23();
+	g_a5_byte(-22292) = 1;
+	jt65((long)(uintptr_t)&g_a5_byte(-25314), 12);
+	result = 0;
+	g_a5_byte(-23229) = 0;
+	jt20();
+
+	/* L229a — second text block or "What is your wish?". */
+	if (ev[15] != 0 || ev[16] != 0) {
+		jt232((void *)(uintptr_t)g_a5_long(-13034),
+		      (short)((ev[16] << 8) | ev[15]), (char *)&g_a5_byte(-5213));
+		if (rec) rec[57] = 0;
+		l0b20((void *)&g_a5_byte(-5213));
+	} else {
+		jt96(1, 17, 38, 22, 7, 0, 1,
+		     (long)(uintptr_t)ua_strs_at(0x673c), 0);   /* "What is your wish?" */
+	}
+
+	/* L2314 — the take loop. */
+	do {
+		rowcount = 0;
+		l11a8(0, &rowcount);
+		if (ev[7] & 0x08)
+			l11a8(1, &rowcount);
+		jt926(&has_money, &has_items);
+		l11a8(2, &rowcount);
+		l11a8(3, &rowcount);
+		if (has_money || has_items) {
+			l11a8(4, &rowcount);
+			l11a8(5, &rowcount);
+		}
+		l11a8(6, &rowcount);
+
+		choice = (unsigned char)jt160(g_a5_long(-13860), g_a5_long(-13680),
+		                              1, 0);
+		if (g_a5_byte(-24139) == 0 || choice == 27) {
+			jt20();
+			esc_closed = 1;
+		}
+		did_exit = 0;
+		acted = 0;
+		if (g_a5_byte(-24139)) {
+			acted = 1;
+			if (choice == 27) {
+				choice = 3;
+			} else {
+				jt936(g_a5_long(-27932), 0);
+				jt934((short)choice);
+				jt936(g_a5_long(-27932), 1);
+				choice = (unsigned char)-1;
+			}
+		}
+
+		switch (choice) {                      /* JT[3] 0..6 */
+		case 0:                                /* items -> commit only */
+			break;
+		case 1:                                /* L2454 */
+			exit_arm = 1;
+			break;
+		case 2:                                /* L245e — View character */
+			jt904(&g_a5_byte(-24139));
+			acted = 1;
+			if (ev[6])
+				l442e(ev);
+			break;
+		case 3:                                /* L2488 — Pool */
+			if (!g_a5_byte(-24139))
+				jt925();
+			acted = 1;
+			break;
+		case 4:                                /* L249c — Take money */
+			jt924();
+			jt23();
+			acted = 1;
+			break;
+		case 5:                                /* L24ae — Share */
+			jt921();
+			acted = 1;
+			break;
+		case 6:                                /* L24bc — Exit (+ temple donation) */
+			did_exit = 1;
+			jt926(&has_money, &has_items);
+			if (has_money || has_items) {
+				/* L24e6 — "a priest says you left money — donate?" The
+				 * Yes/No (l026e_c20) + donation transfer (l4218) are leaf
+				 * stubs; the faithful effect (priest collects the leftover
+				 * pool on exit) is deferred. */
+				jt384(yesno, (char *)(uintptr_t)ua_strs_at(0x6750)); /* "~Yes ~No" */
+				if (l026e_c20(ua_strs_at(0x67ba), yesno,
+				              (short)0, (short)0) == 1) {
+					long don = l427c(rec + 63) + g_a5_long(-25314);
+					l4218(don, rec + 63);
+				}
+			}
+			break;
+		default:
+			break;
+		}
+
+		/* L26cc — commit the take. jt933 (the actual transfer) is a stub. */
+		if (did_exit || acted) {
+			jt176();
+			if (jt933((long)(uintptr_t)ev, (short)exit_arm,
+			          *(long *)(ev + 8), 0))
+				result = 1;
+		}
+	} while (!did_exit);                            /* L2818 */
+
+	/* L2820 — restore mode + chain. */
+	rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	if (rec) {
+		if (rec[34] == 0)
+			wish_flag = 0;
+		g_a5_byte(-27990) = (unsigned char)
+		    ((rec[34] == 0 && rec[36] == 1) ? 3 : 4);
+		rec[25] = (unsigned char)(rec[25] & 1);
+	}
+	jt399(&g_a5_byte(-22302), 2, 0);
+	if (rec)
+		rec[20] = 0;
+	g_a5_byte(-22292) = 1;
+	if (ev[7] & 0x04)
+		g_a5_byte(-4946) = 1;
+	(void)wish_flag;
+	return result;
 }
 
 /* JT[492] (CODE 13+0x2484) — build the SAME-GROUP neighbour list for
