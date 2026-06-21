@@ -54448,7 +54448,7 @@ static void l66cc(void *ev_v)
  * jt904 (View, case 0), jt585/jt942 (Save/Load), and the chrome are already
  * lifted, so the menu is navigable and Save/Load/Exit work today. */
 static void l038a(void)                    { PROBE("L038a"); }
-static void l1850(void *out)               { PROBE("L1850"); (void)out; }
+static void l1850(void *out);              /* MAGIC camp action — defined after l09ea (slice 3) */
 static void l09ea(void *out);              /* REST action — defined after jt957 (slice 2) */
 static short l0006_c21(void *member);      /* per-member rest-minutes (CODE-21 L0006) */
 static void l1e44(void)                    { PROBE("L1e44"); }
@@ -54744,6 +54744,76 @@ static void l09ea(void *out_v)
 
 	jt399((void *)&g_a5_byte(-23214), 14, 0);
 	jt938();
+}
+
+/* --- CODE-21 MAGIC camp action (camp menu case 1) — slice 3 ----------------
+ * l1850 is the Magic menu dispatcher. Its four spell-management screens are
+ * large deep screens (L06d6, L0bc6 ~190 ln, L0df2 ~458 ln, L1374 ~366 ln) and
+ * are deferred as PROBE stubs for further slices; Rest (case 4 -> l09ea) and
+ * Exit (row 5) work today, so the Magic menu is navigable. */
+static void l06d6(void)                    { PROBE("L06d6"); }
+static void l0bc6(void)                    { PROBE("L0bc6"); }
+static void l0df2(void)                    { PROBE("L0df2"); }
+static void l1374(void)                    { PROBE("L1374"); }
+
+/* L1850 (CODE 21 + 0x1850) — the MAGIC camp action. A second menu (jt160) over
+ * six rows; row 4 (Rest) is dropped once the party is fully rested
+ * (rec[44] >= 100). JT[3] dispatch 0..4: 0 l06d6, 1 l0bc6, 2 l0df2, 3 l1374
+ * (the four spell screens, stubbed) and 4 Rest (l09ea). Row 5 exits. Under
+ * quick-keys (-24139) a pick highlights the member (jt934/jt936) and re-loops.
+ * *out reports a sub-action's exit request. Faithful structural lift. */
+static void l1850(void *out_v)
+{
+	unsigned char *out = (unsigned char *)out_v;
+	unsigned char  choice = 0xff;          /* fp@(-3) */
+	unsigned char  flag = 1;               /* fp@(-4) */
+	unsigned char  menucnt;                /* fp@(-2) */
+	short          row;                    /* fp@(-1) */
+	unsigned char *rec;
+
+	PROBE("L1850");
+	goto loop_check;                            /* L1864 entered via L1956 */
+
+build_menu:                                     /* L1864 */
+	jt399((void *)&g_a5_byte(-24126), 40, 255);
+	menucnt = 0;
+	for (row = 0; row <= 5; row++) {
+		if (row == 4) {
+			rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			if (rec[44] >= 100)
+				continue;              /* Rest already done */
+		}
+		jt155(row, &menucnt);
+	}
+
+	g_a5_byte(-24140) = flag;
+	choice = (unsigned char)jt160((long)(uintptr_t)ua_strs_at(0x6c28),
+	                              g_a5_long(-13656), 1, 1);
+	flag = g_a5_byte(-24140);
+
+	if (g_a5_byte(-24139) != 0) {               /* quick-keys auto-select */
+		jt936(g_a5_long(-27932), 0);
+		jt934((short)choice);
+		jt936(g_a5_long(-27932), 1);
+		goto loop_check;
+	}
+
+	switch (choice) {                           /* L191a */
+	case 0: l06d6(); break;
+	case 1: l0bc6(); break;
+	case 2: l0df2(); break;
+	case 3: l1374(); break;
+	case 4: l09ea(out); break;                  /* Rest */
+	default: break;
+	}
+
+loop_check:                                     /* L1956 */
+	if (*out != 0)
+		return;
+	if (choice == 5)
+		return;
+	if (!(g_a5_byte(-24139) != 0 && choice == 27))
+		goto build_menu;
 }
 
 /* JT[346] (CODE 8+0x6f9e) — decode an item-position flags byte into a
