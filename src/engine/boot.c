@@ -15901,12 +15901,17 @@ static int port_load_savgame(void)
 			 * the 68k engine (and the char-gen path) read them big-endian, so
 			 * the sheet showed age 7424 (29 LE), XP 1.35e9 (50000 LE), platinum
 			 * 25600 (100 LE) and encumbrance 28675 (880 LE). Byte-swap them at
-			 * load (parity with the .cch path's L0ce0 swap). */
+			 * load (parity with the .cch path's L0ce0 swap). The money panel
+			 * (JT[898]) reads three word slots — platinum@76, gems@78,
+			 * jewelry@80 — so swap all three (HEIRS gems/jewelry are 0, but
+			 * other saves carry them). */
 			{
 				unsigned char t;
 				t = dst[68]; dst[68] = dst[71]; dst[71] = t;  /* XP long @68 */
 				t = dst[69]; dst[69] = dst[70]; dst[70] = t;
 				t = dst[76]; dst[76] = dst[77]; dst[77] = t;  /* platinum word @76 */
+				t = dst[78]; dst[78] = dst[79]; dst[79] = t;  /* gems word @78 */
+				t = dst[80]; dst[80] = dst[81]; dst[81] = t;  /* jewelry word @80 */
 				t = dst[82]; dst[82] = dst[83]; dst[83] = t;  /* age word @82 */
 				t = dst[86]; dst[86] = dst[87]; dst[87] = t;  /* encumbrance word @86 */
 			}
