@@ -62,7 +62,25 @@ over-blit replacing the faithful `jt304`/`L3fd8` — separate from the picture p
 
 ## The two known bugs
 
-### Bug A — viewport bevel + compass BLACK at a landing-cell event (e.g. merchant)
+### Bug A — viewport bevel + compass BLACK at a landing-cell event — FIXED (fe9a42d)
+**RESOLVED 2026-06-21.** Root cause (measured): the event picture's GLIB palette
+commit blacks out **CLUT 16..31** (the FRAME.CTL chrome band) even though `jt993`
+reports the picture's declared range as start=32 — the `jt1069`/`jt1066`
+allocator/commit reaches below 32. Proof via surface probe: the bevel/compass
+*pixels* stay on `g_surface` (sampled values 30/31, in the frame band) while
+their CLUT entries go black; the panels (value 8) are fine. So it was a palette
+clobber of the upper frame band — NOT buffer coherency or draw order (both
+disproven). The VBL triple-buffer is innocent: `present()` blits the full
+`g_surface` every frame.
+
+**Fix:** `port_reinstall_frame_band()` re-pushes the FRAME.CTL set-0 palette into
+CLUT 16..31 at `l442e`'s tail (dungeon mode only) — the same band reinstall
+`port_draw_play_frame` already does every normal frame, now applied after the
+event picture. Touches no pixels, not the picture's 32..255, not text (112..143).
+Hatari-verified: the HEIRS merchant event shows the full stone frame + compass
+around the portrait. The detail below is kept as the investigation record.
+
+#### (original investigation — superseded by the fix above)
 Symptom (HEIRS opening caravan = the case-8 SHOP event, `l5586`→`l442e`): the
 merchant portrait, HUD roster, position/clock, content-window text + Return all
 render correctly, but the **88×88 viewport bevel (FRAME.CTL piece 9) + compass
