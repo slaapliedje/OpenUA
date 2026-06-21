@@ -3271,15 +3271,15 @@ static short l29cc(void *ev)               { PROBE("L29cc"); (void)ev; return 0;
 static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
 static void  l3a32(void *ev);              /* Vault event (case 24) — defined after jt185 (treasure block) */
 static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
-static void  l5fcc(void *ev)               { PROBE("L5fcc"); (void)ev; }
+static void  l5fcc(void *ev);              /* pass-time event — defined after jt914 */
 static void  l398a(void *ev, short v)      { PROBE("L398a"); (void)ev; (void)v; }
 static void  l38bc(void *ev)               { PROBE("L38bc"); (void)ev; }
 static short l6436(void *ev)               { PROBE("L6436"); (void)ev; return 0; }
 static short l3118(void *ev);              /* Yes/No QUESTION event — lifted near jt181 */
 static void  l43ac(short idx);             /* once-triggered bitmap clear — defined after its deps */
 static void  l3bee(short v);               /* encounter-queue insert — defined after its deps */
-static void  l66cc(void *ev)               { PROBE("L66cc"); (void)ev; }
-static void  l661c(void *ev)               { PROBE("L661c"); (void)ev; }
+static void  l66cc(void *ev);              /* set quest-flag event — defined after jt914 */
+static void  l661c(void *ev);              /* set standard rumors event — defined after jt914 */
 
 /* L709e (CODE 20 + 0x709e) — the dungeon EVENT DISPATCHER. Level-2 structural
  * skeleton (faithful CFG; the 37 per-type handler arms above are level-1 stubs).
@@ -54390,6 +54390,52 @@ static void jt914(short count, short idx)
 	for (i = 0; i <= 6; i++)
 		h[i + 5] = (unsigned char)days[i];
 	l006c(count, idx);
+}
+
+/* L5fcc (CODE 20 + 0x5fcc) — the PASS-TIME event (l709e case 27). Advances the
+ * calendar by three independent amounts via jt914: ev[8] units of type 4,
+ * ev[9] of type 3, ev[10] of type 1. l3f22 runs first for its screen side
+ * effect (return ignored). Faithful lift. */
+static void l5fcc(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+
+	PROBE("L5fcc");
+	(void)l3f22(ev);
+	jt914(ev[8], 4);
+	jt914(ev[9], 3);
+	jt914(ev[10], 1);
+}
+
+/* L661c (CODE 20 + 0x661c) — the SET-RUMORS event (l709e case 37). Stores six
+ * string-IDs from ev[8..19] into the contiguous standard-rumor globals
+ * g_a5_word(-4930 .. -4920) — the exact slots the tavern (l4f9a) and inn read
+ * as their built-in rumor list. Pure data, no side effects. Faithful lift. */
+static void l661c(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	short i;
+
+	PROBE("L661c");
+	for (i = 0; i < 6; i++)
+		g_a5_word(-4930 + i * 2) =
+		    (short)((ev[9 + 2 * i] << 8) | ev[8 + 2 * i]);
+}
+
+/* L66cc (CODE 20 + 0x66cc) — the SET-FLAG event (l709e case 38). Paints the
+ * picture (l442e) or default screen (jt935), runs l3f22, then writes a quest
+ * flag byte into the current event record: rec[ev[8] + 69] = (ev[7] & 4) ? 0
+ * : 1. A designer's set/clear-flag gadget. Faithful lift. */
+static void l66cc(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char *p;
+
+	PROBE("L66cc");
+	if (ev[6]) l442e(ev); else jt935();
+	(void)l3f22(ev);
+	p = (unsigned char *)(uintptr_t)g_a5_long(-28006) + ev[8] + 69;
+	*p = (ev[7] & 4) ? 0 : 1;
 }
 
 /* JT[346] (CODE 8+0x6f9e) — decode an item-position flags byte into a
