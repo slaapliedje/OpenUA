@@ -562,3 +562,40 @@ make gamedata DSN=HEIRS.DSN          # stages HEIRS save A + symlinks the prg
 # VIEWDIAG.TXT land on the GEMDOS drive. The skip-entry build auto-reaches the
 # dungeon render.
 ```
+
+## #129 — the play-screen FRAME is "nuked" by the encounter picture load (2026-06-20)
+
+LIVE-DIAGNOSED in HEIRS (walk to the intro caravan). User question: "how is the
+frame drawn after the caravan but not before?" Answer + confirmed mechanism:
+
+- The play-screen chrome (the ornate viewport FRAME + compass) is laid by
+  **`jt23` -> `l67ca`** (mode 4 = unconditional `l67ca`; mode 1/10 only when
+  `g_a5_22292` is set). At area entry `jt948` runs `jt23` (mode 4) BEFORE the
+  entry event chain, so the frame is composed first.
+- The caravan chain is **type 2 (l4d26 text) -> type 3 (l28b0 give) -> type 2**.
+  Each text event paints its picture via **`l442e`** (a bigpic via `l579e`).
+  **The bigpic load STOMPS the shared GLIB FAR pool that the FRAME.CTL chrome is
+  drawn from** -> the already-composed frame goes black. It only "comes back"
+  because `l28b0`'s case-3 refresh calls `jt23` again a couple events later.
+
+FAILED FIX (reverted) that pinned it: adding `l67ca()` after `l442e` in l4d26
+turned the screen MOSTLY BLACK, proving two things:
+  1. `l67ca`'s first piece (`jt1001` item 9 = the viewport frame) CLEARS the
+     88x88 viewport hole, so re-laying it after the portrait erases the portrait.
+     => the frame must be laid BEFORE the picture, not after.
+  2. `l67ca` drew the frame ITSELF black => the FRAME.CTL chrome data/palette is
+     ALREADY stomped by the time l4d26 runs. It is NOT a "draw it again" bug; the
+     source GLIB data is gone.
+
+So this is the core #129 contention: the event bigpic and the play chrome share
+one FAR pool, and the bigpic load overwrites the chrome. REAL FIXES (each its own
+careful effort in the FAR-pool / display layer):
+  - give the event bigpic its OWN buffer (never touch the chrome's pool) — the
+    proper #129 path (the `l579e` filename/load work this doc tracks); OR
+  - in the event handler, RELOAD the FRAME chrome group + re-install its palette,
+    then re-lay `l67ca` BEFORE `l442e` (heavier, order-sensitive, re-reads the
+    chrome every event).
+Do NOT patch this in the event handler with a bare `l67ca()` — it clears the
+viewport and reads stomped data (verified). Related: [[bigpic-composer-129]],
+the wall-pool stomp (cell event re-fire corrupts the 3D view), docs/jt94-color-
+model.md (the separate prompt-colour half of the "black caravan" report).
