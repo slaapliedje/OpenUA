@@ -3439,7 +3439,7 @@ static void  l709e(short a)
 		g_a5_byte(-4942) = 0;
 	}
 }
-static void  l473e(short a)           { PROBE("L473e"); (void)a; }  /* CODE 20-local */
+static void  l473e(short a);          /* CODE 20-local — rest trigger, defined after jt957 */
 static void  l47f2(void)              { PROBE("L47f2"); }   /* CODE 20-local */
 static signed char l4738(void)        { PROBE("L4738"); return 0; }  /* CODE 20-local */
 static short jt240(short cmd, long *flagsp, unsigned char *rec);     /* deep walk loop (CODE 11+0x4ffe), defined below */
@@ -54436,6 +54436,205 @@ static void l66cc(void *ev_v)
 	(void)l3f22(ev);
 	p = (unsigned char *)(uintptr_t)g_a5_long(-28006) + ev[8] + 69;
 	*p = (ev[7] & 4) ? 0 : 1;
+}
+
+/* --- CODE-21 ENCAMPMENT (camp/rest) subsystem — slice 1 --------------------
+ * jt957 is the camp-menu dispatcher (reached from the Encamp command via
+ * l473e). The five gameplay actions are deep sub-menus of their own and are
+ * deferred as PROBE stubs for follow-up slices (see docs/code21-camp-wall.md):
+ *   l038a  — per-member recompute (walks -27928 calling L026e_c21 -> jt638)
+ *   l1850  — camp action 1 (~115 ln)        l09ea — camp action 2 (~65 ln)
+ *   l1e44  — camp action 3, a 5-option menu  l2d7e — camp action 4 (~146 ln)
+ * jt904 (View, case 0), jt585/jt942 (Save/Load), and the chrome are already
+ * lifted, so the menu is navigable and Save/Load/Exit work today. */
+static void l038a(void)                    { PROBE("L038a"); }
+static void l1850(void *out)               { PROBE("L1850"); (void)out; }
+static void l09ea(void *out)               { PROBE("L09ea"); (void)out; }
+static void l1e44(void)                    { PROBE("L1e44"); }
+static void l2d7e(void *out)               { PROBE("L2d7e"); (void)out; }
+
+/* JT[957] (CODE 21 + 0x2f9a) — the ENCAMPMENT menu dispatcher. Enters camp
+ * mode (mode 2, prev mode saved in -27989), draws the camp frame+title when
+ * not already in an overlay (-18486), then loops a 9-row command menu:
+ *   rows 0..8 via jt155, gated so that rows 2/4 drop when rec[44] >= 100, and
+ *   rows 5/6 (Save/Load) drop unless -18485 set, else row 7 drops.
+ *   jt160 returns the pick; under quick-keys (-24139) it highlights the member
+ *   (jt934/jt936) and re-loops instead of dispatching (Esc -> exit).
+ *   dispatch (JT[3] 0..7): 0 View (jt904), 1..4 the deep camp actions
+ *   (l1850/l09ea/l1e44/l2d7e), 5 Load (jt942, with the unsaved-game confirm),
+ *   6 Save (jt585 + jt159 confirm), 7 Exit. Save/Load/Exit set choice=8 / the
+ *   exit flags; Load returns immediately (state is replaced).
+ * On exit restores the prev mode and repaints (jt84/jt23 for overland mode 3,
+ * else jt78/jt937/jt938). *out reports a sub-action's exit request.
+ * Faithful structural lift; the five deep actions are PROBE stubs for now. */
+static void jt957(unsigned char *out)
+{
+	unsigned char  choice = 0xff;          /* fp@(-1) */
+	unsigned char  view_done;              /* fp@(-2) — jt904 out scratch */
+	unsigned char  flag = 1;               /* fp@(-3) */
+	unsigned char  menucnt;                /* fp@(-4) */
+	unsigned char *rec;
+	short          row;
+
+	PROBE("jt957");
+
+	g_a5_byte(-27987) = 0;
+	g_a5_byte(-27989) = g_a5_byte(-27990);     /* save prev mode */
+	g_a5_byte(-27990) = 2;                      /* enter camp mode */
+
+	jt399((void *)&g_a5_byte(-22727), 4, 1);
+	g_a5_word(-23192) = 0;
+	jt399((void *)&g_a5_byte(-23214), 14, 0);
+	g_a5_word(-27984) = 0;
+	jt384((char *)&g_a5_byte(-24283), (const char *)&g_a5_byte(-24304));
+	g_a5_byte(-24261) = g_a5_byte(-24262);
+
+	if (g_a5_byte(-18486) == 0) {
+		jt23();
+		jt937(g_a5_long(-27932));
+		jt103(1, 17, 38, 22);
+		jt94(1, 18, 7, 0, (const char *)(uintptr_t)g_a5_long(-14104));
+	}
+
+	l038a();
+	*out = 0;
+	choice = 0xff;
+	flag = 1;
+	goto exit_check;                            /* L304a is entered via L320c */
+
+build_menu:                                     /* L304a */
+	jt399((void *)&g_a5_byte(-24126), 40, 255);
+	menucnt = 0;
+	for (row = 0; row <= 8; row++) {            /* L3068 .. L30be */
+		if (row == 2 || row == 4) {
+			rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			if (rec[44] >= 100)
+				continue;                  /* drop healed-camp rows */
+		}
+		if (g_a5_byte(-18485) != 0) {
+			if (row == 5 || row == 6)
+				continue;
+		} else {
+			if (row == 7)
+				continue;
+		}
+		jt155(row, &menucnt);
+	}
+
+	g_a5_byte(-24140) = flag;
+	choice = (unsigned char)jt160(g_a5_long(-13952), g_a5_long(-13660), 1, 1);
+	flag = g_a5_byte(-24140);
+
+	if (g_a5_byte(-24139) != 0) {               /* quick-keys / auto-select */
+		if (choice == 27) {
+			choice = 8;
+			goto exit_check;
+		}
+		jt936(g_a5_long(-27932), 0);
+		jt934((short)choice);
+		jt936(g_a5_long(-27932), 1);
+		goto exit_check;
+	}
+
+	switch (choice) {                           /* L3136 */
+	case 0:                                      /* View */
+		jt904(&view_done);
+		break;
+	case 1: l1850(out); break;                  /* camp action 1 */
+	case 2: l09ea(out); break;                  /* camp action 2 */
+	case 3: l1e44();    break;                  /* camp action 3 */
+	case 4: l2d7e(out); break;                  /* camp action 4 */
+	case 5: {                                    /* Load */
+		short proceed;
+		if (g_a5_long(-27932) != 0 && g_a5_byte(-27946) == 0)
+			proceed = (short)jt159(
+			    (const char *)(uintptr_t)ua_strs_at(0x6cbe), 0);
+		else
+			proceed = 1;
+		if (proceed) {
+			jt942(1);
+			g_a5_byte(-27982) = 1;
+			return;                        /* L3266 — bypass cleanup */
+		}
+		break;
+	}
+	case 6:                                      /* Save */
+		jt585();
+		if (jt159((const char *)(uintptr_t)g_a5_long(-14288), 0)) {
+			g_a5_byte(-18472) = 1;
+			g_a5_byte(-27982) = 1;
+			choice = 8;
+		}
+		break;
+	case 7:                                      /* Exit camp */
+		g_a5_byte(-27982) = 1;
+		choice = 8;
+		break;
+	default:
+		break;
+	}
+
+	if (choice != 8)                            /* L31fc */
+		jt176();
+
+exit_check:                                     /* L320c */
+	if (!(*out != 0 && g_a5_byte(-18486) == 0)) {   /* -> L321a */
+		if (choice != 8)
+			goto build_menu;
+	}
+
+	/* L3228 — cleanup */
+	l038a();
+	g_a5_byte(-27990) = g_a5_byte(-27989);      /* restore prev mode */
+	if (g_a5_byte(-27990) == 3) {
+		jt84();
+		jt23();
+	} else {
+		g_a5_byte(-27987) = 0;
+		jt78();
+		jt937(g_a5_long(-27932));
+		jt938();
+	}
+	jt938();
+	jt20();
+	jt176();
+}
+
+/* L473e (CODE 20 + 0x473e) — the REST/Encamp trigger. Resolves the party's
+ * cell (jt197 from rec[37/38] in overland mode -27989==3, else from the dungeon
+ * position -12288/-12287); when invoked with a!=0 it primes rec[44]=100 (full
+ * heal allowed) if the cell's node[49] bit7 is set, else 0. Opens the camp
+ * menu (jt957); on a successful camp recomposes the screen (jt23). Reached from
+ * the Encamp command (res==4) and the inn event. Faithful lift. */
+static void l473e(short a)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  cell;
+	unsigned char  ok = 0;
+
+	PROBE("L473e");
+	if (g_a5_byte(-27989) == 3)
+		cell = (unsigned char)jt197((unsigned char)rec[37],
+		                            (unsigned char)rec[38]);
+	else
+		cell = (unsigned char)jt197((signed char)g_a5_byte(-12288),
+		                            (signed char)g_a5_byte(-12287));
+
+	if (a != 0) {
+		unsigned char *node = (unsigned char *)(uintptr_t)g_a5_long(-12300)
+		                      + (unsigned)cell * 4;
+		rec[44] = (node[49] & 0x80) ? 100 : 0;
+	} else {
+		rec[44] = 0;
+	}
+
+	ok = 0;
+	jt957(&ok);
+	if (ok != 0 && g_a5_byte(-18486) == 0)
+		jt23();
+	g_a5_byte(-23188) = 1;
+	jt935();
+	g_a5_byte(-27946) = 0;
 }
 
 /* JT[346] (CODE 8+0x6f9e) — decode an item-position flags byte into a
