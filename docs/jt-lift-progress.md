@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 843 done (757 lifted, 20 noop, 66 alias), 142 stub, 0 stand-in, 220 missing.
+**1205 distinct JT entries are called.** Overall: 844 done (758 lifted, 20 noop, 66 alias), 142 stub, 0 stand-in, 219 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -53,7 +53,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 19 | 901–950 | **48/50** | 48 | 0 | 2 | 0 | 0 |
 | 20 | 951–1000 | **47/50** | 47 | 0 | 3 | 0 | 0 |
 | 21 | 1001–1050 | **47/50** | 46 | 1 | 2 | 0 | 1 |
-| 22 | 1051–1100 | **26/50** | 20 | 6 | 8 | 0 | 16 |
+| 22 | 1051–1100 | **27/50** | 21 | 6 | 8 | 0 | 15 |
 | 23 | 1101–1150 | **12/50** | 10 | 2 | 2 | 0 | 36 |
 | 24 | 1151–1200 | **5/50** | 5 | 0 | 13 | 0 | 32 |
 | 25 | 1201–1205 | **1/5** | 1 | 0 | 0 | 0 | 4 |
@@ -87,14 +87,14 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 18 | 171 | 165 | 6 | 0 | 0 | **6** | combat engine (jt610 / jt856 / l4d98 / l709e) |
 | CODE 19 | 35 | 30 | 3 | 0 | 2 | **5** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 12 | 0 | 0 | 2 | **2** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
-| CODE 21 | 9 | 1 | 3 | 0 | 5 | **8** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
+| CODE 21 | 9 | 2 | 3 | 0 | 4 | **7** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 43 | 0 | 0 | 8 | **8** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
 CODE-local helpers still PROBE-only in boot.c (120 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l0444`  `l3918`  `l5888`  `l5ac0`  `l5f66`  `l6ada`  `l2cb0`  `l2cf4`  `l4144`  `l159a`  `l40b4`  `l1f76`  `l2d32`  `l4f9a`  `l2e42`  `l380a`  `l3fba`  `l1ad8`  `l6020`  `l3ac6`  `l3328`  `l3cd6`  `l364e`  `l29cc`  `l5bde`  `l2b2a`  `l5fcc`  `l398a`  `l38bc`  `l6436`  `l3118`  `l66cc`  `l661c`  `l473e`  `l47f2`  `l4738`  `l4226`  `l4268`  `l2788`  `l1798`  `l67e4`  `l429c`  `l4810`  `l6804`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l035e`  `l4bac`  `l2062`  `l005a`  `l1c92`  `l1cd2`  `l3fd6`  `l4334`  `l46e0`  `l4f2c`  `l4ff6`  `l1dd6`  `l4dee`  `l6114`  `l4f22`  `l0434`  `l076e`  `l102a`  `l0116`  `l2d78`  `l7894`  `l14bc`  `l2b24`  `l10c4`  `l1888`  `l15bc`  `l59c2`  `l4faa`  `l341a`  `l157c`  `l7a24`  `l7a0e`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l475e`  `l07be`  `l423e`  `l3998`  `l23ee`  `l2180`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0694`  `l0418`  `l035c`  `l07e6`  `l0cb8`  `l0d86`  `l0e3e`  `l15ae`  `l1090`  `l6432`  `l7026`  `l4910`  `l501e`  `l0062`  `l30bc`  `l3228`  `l32c4`  `l17f8`  `l4218`  `l006c`
+> `l32e2`  `l62e0`  `l0444`  `l3918`  `l5888`  `l5ac0`  `l5f66`  `l6ada`  `l2cb0`  `l2cf4`  `l4144`  `l159a`  `l40b4`  `l1f76`  `l2d32`  `l2e42`  `l380a`  `l3fba`  `l6020`  `l3ac6`  `l3328`  `l3cd6`  `l364e`  `l29cc`  `l5bde`  `l2b2a`  `l398a`  `l38bc`  `l6436`  `l47f2`  `l4738`  `l4226`  `l4268`  `l2788`  `l1798`  `l67e4`  `l429c`  `l4810`  `l6804`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l035e`  `l4bac`  `l2062`  `l005a`  `l1c92`  `l1cd2`  `l3fd6`  `l4334`  `l46e0`  `l4f2c`  `l4ff6`  `l1dd6`  `l4dee`  `l6114`  `l4f22`  `l0434`  `l076e`  `l102a`  `l0116`  `l2d78`  `l7894`  `l14bc`  `l2b24`  `l10c4`  `l1888`  `l15bc`  `l59c2`  `l4faa`  `l341a`  `l157c`  `l7a24`  `l7a0e`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l475e`  `l07be`  `l423e`  `l3998`  `l23ee`  `l2180`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0694`  `l0418`  `l035c`  `l07e6`  `l0cb8`  `l0d86`  `l0e3e`  `l15ae`  `l1090`  `l6432`  `l7026`  `l4910`  `l501e`  `l0062`  `l30bc`  `l3228`  `l32c4`  `l17f8`  `l4218`  `l006c`  `l038a`  `l1e44`  `l2d7e`  `l06d6`  `l0bc6`  `l0df2`  `l1374`
 
 ## Band 1 detail (rank 1–100)
 
@@ -333,7 +333,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 362 pending (stub+standin+missing), by call count:
+Top 50 of 361 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt360 (2 calls, CODE 8) — missing
