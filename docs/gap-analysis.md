@@ -16,7 +16,7 @@ Legend: ✅ works end-to-end · 🟡 partial / buggy · 🔴 gated/missing · �
 | C | **Save / Load** | 🟡 | Party round-trip done (#141). Pending: ~10KB design-state block, A–J slot pickers, boot auto-load. |
 | D | **Dungeon entry + walk** | ✅ | Walks + turns with arrows (HEIRS); per-step `l709e` fires on the new cell (Gap-1 closed). |
 | E | **Dungeon 3D render** | 🟡 | Navigable corridor renders, but TWO known bugs: (1) **wall-piece placement clips the left ~2/3 columns** (render-X off-screen — the unfinished mirror of the b945821 right-side fix, `jt199`/`jt200`/`l5b42`→`l309c`); (2) **#129 frame "nuked"** by the event-picture FAR-pool stomp. |
-| F | **Dungeon EVENTS** (`l709e`, 39 arms) | 🟡 | **10 handlers lifted** (text `l4d26` 2/14, give-treasure `l28b0` 3/25, stairs `l5676` 5/11/34, shop `l5586` 8, temple `l216a` 9, vault `l3a32` 24, combat-prompt `l3b0e`/`l673e` 10/21, **Yes/No question `l3118` 36 ✅ NEW**). **~22 still STUB.** |
+| F | **Dungeon EVENTS** (`l709e`, 39 arms) | 🟡 | **12 handlers lifted** (text `l4d26` 2/14, give-treasure `l28b0` 3/25, stairs `l5676` 5/11/34, **tavern `l4f9a` 7 ✅ NEW**, shop `l5586` 8, temple `l216a` 9, vault `l3a32` 24, combat-prompt `l3b0e`/`l673e` 10/21, Yes/No question `l3118` 36). **~21 still STUB.** |
 | G | **Treasure / shops / vault** | ✅ | **Slice B complete** this session: the picker UI (`jt183`/`jt185`/`jt929`/`jt921`/`jt922`/`jt924`/`l2ebc`) + the 3 triggers (shop/temple/vault) + vault file I/O + the bucket-init fixes that make the caravan reward (100pp + ring) actually land. |
 | H | **Combat** | 🔴 | Effects engine (CODE 18) **96% done** — but the SPINE is stubbed (`l076e` per-actor turn + `l4f22`/`l0434`/`l102a`/`l0116`); `jt511` loop is lifted but has **no live caller**; field render (CODE 14) + 81 CODE-16 handlers gated on the spine. Multi-session. |
 | I | **Rest / camp** (CODE 19), **spell memorize** (CODE 21), **inventory** (CODE 9) | 🔴 | Mostly stubs — the dungeon "survival" loop. |
@@ -40,7 +40,7 @@ play-loop-wall.md / earlier-agent labels are STALE/WRONG):**
 
 | case | handler | ACTUAL event type | size | status / note |
 |-----:|---------|-------------------|------|----------------|
-| 7    | `l4f9a` | **TAVERN** ("The party enters a tavern.") + 10-arm JT[3] menu | ~543 ln | STUB — the next focused CIVIC event (sibling of shop/temple/vault). Highest visible value. |
+| 7    | `l4f9a` | **TAVERN** ("The party enters a tavern.") + drink/listen/fight/leave menu | ~543 ln | ✅ DONE 2026-06-21 — `l4f9a` + `l4eea` drink sub-prompt. Rumor list = ev[8..15] + globals -4930..-4920; drink strength 6/10/15/30, ≥60 chains ev[19]; fight chains ev[18]. |
 | 15   | `l1ad8` | text + interactive MENU event (l11a8 rows) | ~287 ln | STUB — own focused lift |
 | 13   | `l380a` | %-based STAT modify (NOT "inn"); gates on `l3fba` (STUB) + `jt592` | ~59 ln | STUB — needs l3fba first |
 | 17   | `l3ac6` | **PLAY SOUNDS** (NOT "secret door"): loop ev[4..13] → `jt52` | ~26 ln | STUB but MUTED — jt52's audio leaves + l40b4 stubbed; defer with the audio subsystem |

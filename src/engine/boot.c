@@ -3253,7 +3253,7 @@ static void  l40b4(void)                   { PROBE("L40b4"); }
 static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
 static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
 static void  l2d32(void *ev, short a)      { PROBE("L2d32"); (void)ev; (void)a; }
-static short l4f9a(void *ev)               { PROBE("L4f9a"); (void)ev; return 0; }
+static short l4f9a(void *ev);              /* TAVERN event — defined after its deps */
 static void  l5586(void *ev);              /* shop/merchant event — lifted near jt183 */
 static short l216a(void *ev);              /* give-treasure/temple take event — lifted near jt160 */
 static short l3b0e(void *ev);              /* encounter prompt — defined after its deps */
@@ -33340,6 +33340,186 @@ static short l026e_c20(const char *str, void *buf, short flag2, short flag3)
 		/* otherwise re-prompt */
 	}
 	return (key == 27) ? 0 : (short)key;
+}
+
+/* L4eea (CODE 20 + 0x4eea) — TAVERN "order a drink" sub-prompt. Prints
+ * "what's your pleasure?", formats the design's drink menu (ev[16..17] = the
+ * count of drink choices) into the work buffer via jt193 (l4fbe), runs the
+ * l026e_c20 menu over it, and maps the chosen drink 1..4 to its alcohol
+ * strength 6 / 10 / 15 / 30 (0 = none / cancelled). Faithful lift. */
+static unsigned char l4eea(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  strength = 0;             /* fp@(-1) */
+	unsigned char  pick;                     /* fp@(-2) */
+	short          ndrinks;
+
+	PROBE("L4eea");
+	jt20();
+	if (rec) rec[57] = 1;
+	l0b20((void *)(uintptr_t)ua_strs_at(0x6992)); /* "\"what's your pleasure?\"" */
+
+	ndrinks = (short)(((ev[17] << 8) | ev[16]) - 1);
+	l4fbe((void *)(uintptr_t)g_a5_long(-13034), ndrinks,
+	      (char *)&g_a5_byte(-5213));
+	pick = (unsigned char)l026e_c20((const char *)ua_strs_at(0x69aa),
+	                                (void *)&g_a5_byte(-5213), 0, 1);
+	switch (pick) {
+	case 1:  strength = 6;  break;
+	case 2:  strength = 10; break;
+	case 3:  strength = 15; break;
+	case 4:  strength = 30; break;
+	default: break;
+	}
+	return strength;
+}
+
+/* L4f9a (CODE 20 + 0x4f9a) — the TAVERN event (l709e case 7). Sibling of the
+ * shop (l5586) / temple (l216a) / vault civic events. Paints the encounter
+ * picture (l442e) when ev[6] is set, prints "The party enters a tavern."
+ * (unless l3f22 suppresses it and this isn't a type-22 event), then builds the
+ * rumor list and runs the tavern menu until the party leaves or is sent off to
+ * a chained event:
+ *   opt[]  = up to 10 string-IDs — ev[8..15] (4 design rumors) followed by the
+ *            contiguous standard-rumor globals g_a5_word(-4930 .. -4920) (6);
+ *            non-zero ids are packed, nopt counts them.
+ *   menu rows (jt155): ev[7] bit5 -> "drink" (0); nopt>0 -> "listen" (1);
+ *            ev[7] bit4 -> "fight" (2); always -> "leave" (3).
+ *   choice (jt182, prompt 0x69c8):
+ *     0 drink  : if a drink is defined (ev[16|17]) and this isn't type-22 and
+ *                ev[7] bit5 is set, run l4eea and accrue its strength; once the
+ *                running total reaches 60 with ev[19] set, chain to ev[19].
+ *                Otherwise the generic "orders a local drink." / "has a drink."
+ *     1 listen : choose a rumor (random when ev[7] bit3, else round-robin via
+ *                the cursor), format it through jt232 and print; advance cursor.
+ *     2 fight  : chain to ev[18], or "Everyone runs away..." if none.
+ *     3 leave  : end the tavern.
+ * Returns the chained-event id (0 if none); sets the -4946 redraw flag when
+ * ev[7] bit2 is set. Faithful lift. */
+static short l4f9a(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          opt[10];                  /* fp@(-26) */
+	unsigned char  drink_total = 0;          /* fp@(-6) */
+	unsigned char  nopt = 0;                 /* fp@(-5) */
+	unsigned char  cursor;                   /* fp@(-3) */
+	unsigned char  menucnt;                  /* fp@(-4) */
+	unsigned char  result = 0;               /* fp@(-2) */
+	unsigned char  choice;                   /* fp@(-1) */
+	short          k;
+
+	PROBE("L4f9a");
+
+	if (ev[6]) l442e(ev);
+
+	if (((unsigned char)l3f22(ev)) == 0 || ev[0] == 22) {
+		jt20();
+		if (rec) rec[57] = 0;
+		l0b20((void *)(uintptr_t)ua_strs_at(0x69ac)); /* "The party enters a tavern." */
+		if (g_a5_byte(-4947)) {
+			jt181(1);
+			g_a5_byte(-4947) = 0;
+		}
+		jt20();
+	}
+
+	/* collect the rumor/option list: 4 design strings + 6 standard strings */
+	for (k = 0; k <= 9; k++) {
+		short w;
+		if (k < 4)
+			w = (short)((ev[9 + 2 * k] << 8) | ev[8 + 2 * k]);
+		else
+			w = g_a5_word(-4930 + (k - 4) * 2);
+		opt[nopt] = w;
+		if (w != 0)
+			nopt++;
+	}
+	g_a5_byte(-22308) = 0;                   /* tavern-done flag */
+	cursor = 0;                              /* rumor round-robin cursor */
+
+	while (g_a5_byte(-22308) == 0) {
+		menucnt = 0;
+		if (ev[7] & 0x20) jt155(0, &menucnt);    /* drink  */
+		if (nopt)         jt155(1, &menucnt);    /* listen */
+		if (ev[7] & 0x10) jt155(2, &menucnt);    /* fight  */
+		jt155(3, &menucnt);                      /* leave  */
+
+		choice = (unsigned char)jt182((const char *)ua_strs_at(0x69c8),
+		                              g_a5_long(-13668), 1, 1);
+
+		/* quick-keys / auto-select path (same idiom as l026e_c20) */
+		if (g_a5_byte(-24139) != 0 && choice != 27) {
+			if ((unsigned char)g_a5_byte(-27990) == 3) {
+				choice = 0xff;
+			} else if (rec && rec[34] == 1) {
+				jt936(g_a5_long(-27932), 0);
+				jt934((short)choice);
+				jt936(g_a5_long(-27932), 1);
+				choice = 0xff;
+			} else {
+				choice = 0xff;
+			}
+		}
+		if (choice >= 4) {
+			if (!(choice == 27 && g_a5_byte(-24139) != 0))
+				continue;                /* re-prompt */
+		}
+
+		jt20();
+		switch (choice) {
+		case 0: {                                /* order a drink (L5406) */
+			short have = ev[16] + ev[17];
+			if (have != 0 && ev[0] != 22 && (ev[7] & 0x20)) {
+				drink_total += l4eea(ev);
+				if (drink_total >= 60 && ev[19] != 0) {
+					result = ev[19];         /* too-drunk chain */
+					if (result != 0)
+						g_a5_byte(-22308) = 1;
+				} else {
+					jt20();
+					if (rec) rec[57] = 0;
+					l0b20((void *)(uintptr_t)ua_strs_at(0x69ea)); /* "The party has a drink." */
+				}
+			} else {
+				if (rec) rec[57] = 0;
+				l0b20((void *)(uintptr_t)ua_strs_at(0x69ca)); /* "The party orders a local drink." */
+			}
+			break;
+		}
+		case 1:                                  /* listen to a rumor (L54b6) */
+			if (ev[7] & 0x08)
+				cursor = (unsigned char)jt485((short)nopt);
+			if (cursor >= nopt)
+				cursor = 0;
+			jt232((void *)(uintptr_t)g_a5_long(-13034), opt[cursor],
+			      (char *)&g_a5_byte(-5213));
+			if (rec) rec[57] = 0;
+			l0b20((void *)&g_a5_byte(-5213));
+			cursor++;
+			break;
+		case 2:                                  /* fight (L5524) */
+			result = ev[18];
+			if (result != 0) {
+				g_a5_byte(-22308) = 1;
+			} else {
+				jt20();
+				if (rec) rec[57] = 0;
+				l0b20((void *)(uintptr_t)ua_strs_at(0x6a02)); /* "Everyone runs away. There's no one to fight!" */
+			}
+			break;
+		case 3:                                  /* leave (L555a) */
+			g_a5_byte(-22308) = 1;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (ev[7] & 0x04)
+		g_a5_byte(-4946) = 1;
+	return (short)result;
 }
 
 /* L0380 (CODE 20 + 0x0380) — present the type-21 encounter list dialog. Builds
