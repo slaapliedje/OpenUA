@@ -63,6 +63,12 @@ over-blit replacing the faithful `jt304`/`L3fd8` — separate from the picture p
 ## The two known bugs
 
 ### Bug A — intro caravan = BLACK frame/text at dungeon entry
+GROUND TRUTH (Mac trace, [[mac-blit-trace-heirs-entry]]): the HEIRS opening
+"caravan" is the **case-8 SHOP/MERCHANT event** (`l5586`→`l442e`), not a
+standalone intro bigpic. So the picture here is the **merchant illustration**;
+the bug is its present/palette ordering at entry. (The picture's own blit was
+truncated from the capture; pin it from the port side — reproduce + observe.)
+
 Two compounding causes:
 1. **Play screen not composed yet at entry.** The bigpic DRAW is **not wired into
    `jt23`'s case-4 backdrop arm** (boot.c:48935) — only `l5822` (full refresh)

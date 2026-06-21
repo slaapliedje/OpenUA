@@ -114,11 +114,13 @@ fully lifted and touch the pool**: arm 3 (drop/vault) walks `-22216`, allocs a
 
 **Not a standalone screen** — the shop is an in-game dungeon event (`l709e`
 case 8 → `l5586`), reached only by walking onto a shop-event cell. No harness
-opens jt183 directly. **HEIRS shop cell is UNCONFIRMED** (treasure-event-wall.md
-flags this): the HEIRS merchant cell shows a merchant picture but might be a
-give-treasure event (case 3/25, presenter-less) rather than a case-8 SHOP event.
-The l5586/jt183 lift is **not yet Hatari-tested**. Confirming this gates whether
-the shop is reachable live at all.
+opens jt183 directly. **HEIRS shop cell CONFIRMED (2026-06-21):** a Mac blit
+trace ([[mac-blit-trace-heirs-entry]]) shows the HEIRS **opening "caravan" event
+IS the case-8 SHOP** — the merchant screen paints `View/Take/Pool/Share/Exit` +
+`Money/Items/Exit` + `Select/Exit` and pays the 100pp + ring. So the shop is the
+very first event on dungeon entry — reachable live with HEIRS, no special cell
+hunting needed. (The l5586/jt183 path is still not yet Hatari-verified on the
+PORT — that's the test target.)
 
 ## Plan (smallest-first)
 
