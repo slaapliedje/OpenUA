@@ -62,29 +62,52 @@ over-blit replacing the faithful `jt304`/`L3fd8` — separate from the picture p
 
 ## The two known bugs
 
-### Bug A — intro caravan = BLACK frame/text at dungeon entry
-GROUND TRUTH (Mac trace, [[mac-blit-trace-heirs-entry]]): the HEIRS opening
-"caravan" is the **case-8 SHOP/MERCHANT event** (`l5586`→`l442e`), not a
-standalone intro bigpic. So the picture here is the **merchant illustration**;
-the bug is its present/palette ordering at entry. (The picture's own blit was
-truncated from the capture; pin it from the port side — reproduce + observe.)
+### Bug A — viewport bevel + compass BLACK at a landing-cell event (e.g. merchant)
+Symptom (HEIRS opening caravan = the case-8 SHOP event, `l5586`→`l442e`): the
+merchant portrait, HUD roster, position/clock, content-window text + Return all
+render correctly, but the **88×88 viewport bevel (FRAME.CTL piece 9) + compass
+ring (piece 21)** read BLACK — only the compass *face* marks survive, "floating."
+Long-standing (since the event launcher).
 
-Two compounding causes:
-1. **Play screen not composed yet at entry.** The bigpic DRAW is **not wired into
-   `jt23`'s case-4 backdrop arm** (boot.c:48935) — only `l5822` (full refresh)
-   draws a bigpic, gated at 48897. At fresh entry the picture paints into an
-   uncomposed frame.
-2. **Palette clobber of 0..16.** A picture with `hdr[1]&1` clear in a non-deep
-   mode installs `start=0,count=16` (47068) — overwriting the UI band the
-   frame/text colours use → black. The reinstall driven by `g_clut_clobbered`
-   happens the **next** frame (11289), too late for the entry frame.
+**MEASURED 2026-06-21 (instrumented `jt993`/compose-order probes, Hatari):**
+- **NOT a palette clobber.** The merchant picture installs its palette at
+  **CLUT 32..255** (`DBGjt993 start=32 count=224`) — the wall/backdrop bands, NOT
+  the frame band (0..31). Every earlier "0..16 clobber" / `g_clut_clobbered`
+  theory above is **dead**. Do not chase the palette.
+- **The chrome IS composed at entry.** Entry compose order (probed):
+  `jt23(mode4)` → `jt935` takes the **L003e** branch (NOT first-entry) → `jt221`
+  → `render_3d_faithful` → `port_draw_play_frame` (**`DBGpdpf` fires** — bevel +
+  compass + grey drawn) → 2 more `jt935`/`render_3d_faithful` (3D walls) →
+  **`l442e`** (the event picture) LAST.
+- So the bevel/compass ARE drawn (by `pdpf`), THEN the event paints. Yet the
+  presented frame lacks them while it DOES keep the event's own panels (HUD box,
+  content window) — i.e. **part** of the chrome is missing and part isn't.
 
-The reverted jt23-case-4 early-UI-band install failed because the picture's
-palette commit (`l3eea`→`jt993`→`jt1066`→`l6e58`) is the **last** writer in the
-frame, re-clobbering the band. **Faithful fix touches:** wire the bigpic DRAW into
-jt23 case-4, then order the UI-band reinstall *after* `jt1066`'s commit — compose
-the play screen before the picture, let `g_clut_clobbered` drive the wall/chrome
-reinstall **same** frame, not next.
+**Leading hypothesis: VBL triple-buffer incoherency.** `port_draw_play_frame`
+(bevel/compass) runs in `render_3d_faithful` on one work buffer; the event's
+draws (`l442e` portrait via `l534a`, `jt937` HUD, `jt938`, the text box) land on
+the buffer that ends up displayed — which never received the viewport bevel +
+compass. The panels survive because the EVENT draws them; the bevel/compass don't
+because only `pdpf` (earlier, other buffer) did.
+
+**Approaches TRIED + REVERTED this session (all clean now, none shipped):**
+1. Compose chrome in `jt935` first-entry branch — **dead code**: jt935 takes the
+   L003e branch at entry, never first-entry (probed).
+2. Re-lay frame pieces over the picture (`l67ca`-style after `l08ce`) — **covered
+   the portrait**: FRAME piece 9 has a SOLID interior (drawn first, then the view
+   fills the hole), so drawing it after the picture blacks the portrait.
+3. Clip the event picture to the 88×88 hole via the QD clip globals
+   (`g_a5_3056/3054/3052/3050`, which `l2d4e` honours) — set before `l08ce` (reset
+   by `l541a`) AND inside `l534a` after `jt108` — **no visible effect**, which
+   itself argues the portrait is NOT overrunning and the bug is buffer coherency,
+   not a clip.
+
+**NEXT (focused task): make the event present buffer-coherent.** Compose the full
+play frame (chrome: bevel + compass) on the SAME work buffer the event paints,
+at the START of the event present (before the portrait), so the displayed frame
+has chrome + picture + panels together. Needs care with the triple-buffer present
+semantics ([[vbl-cursor-service]] / display HAL). Confirm with the same
+`DBGpdpf`/buffer probes. Do NOT touch the picture palette (proven irrelevant).
 
 ### Bug B — walk-back re-fire corrupts the 3D view
 The once-only mechanism **is** present: `l694e` gate C (3122) suppresses re-fire
