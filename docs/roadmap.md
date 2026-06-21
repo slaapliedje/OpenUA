@@ -1,9 +1,14 @@
 # Port roadmap — the whole architecture + what's next
 
+> For a per-**subsystem** implemented-vs-not dashboard (status + which scoped
+> `*-wall.md` doc covers each), see **`docs/subsystem-status.md`** — the
+> targeting register. This file is the by-CODE-segment / architectural-layer view.
+
 Synthesised from the corrected `tools/jt_progress.py` audit (alias-safe, 2026-06-19)
-and the per-segment wall docs (`code07/13/14/16/22-wall.md`). Overall: **821 done
-/ 138 stub / 246 missing** of 1205 called JT entries — but raw counts mislead, so
-this groups every segment by ARCHITECTURAL LAYER and says what it means.
+and the per-segment wall docs (`code07/13/14/16/22-wall.md`). Overall: **844 done
+/ 142 stub / 219 missing** of 1205 called JT entries (rerun `tools/jt_progress.py`
+for fresh numbers) — but raw counts mislead, so this groups every segment by
+ARCHITECTURAL LAYER and says what it means.
 
 ## 1. FOUNDATION — the libraries everything sits on  ✅ in place
 
