@@ -15997,8 +15997,6 @@ void port_test_seed_design(void)
 	}
 
 	static unsigned char k_test_record[512];
-	static char          k_test_prompt[] =
-	    "exit Add Modify Delete View";
 	long handle_placeholder = 0xDEADBEEFL;
 
 	memset(k_test_record, 0, sizeof k_test_record);
@@ -16010,8 +16008,17 @@ void port_test_seed_design(void)
 	k_test_record[147] = 0;          /* skip special-check arm */
 	k_test_record[198] = 1;
 
-	g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
-	g_a5_long(-13804) = (long)(uintptr_t)k_test_prompt;
+	/* Point the active-character slot at the REAL party head once a party is
+	 * loaded (dungeon / camp / Begin-Adventuring) so jt904's character sheet
+	 * shows real stats from the design instead of the synthesized zero-stat
+	 * record; fall back to the synthesized record only during early bring-up
+	 * before any party exists. -13804 (the jt182 roster-menu block) is left at
+	 * its real data-pool DREL value (data_pool.c:2419) — the Mac never writes
+	 * it, and the old `k_test_prompt` clobber fed jt904 a placeholder menu. */
+	if (g_a5_long(-27928) != 0)
+		g_a5_long(-27932) = g_a5_long(-27928);
+	else
+		g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
 
 	/* Entry level + start entry from the design's GAME header. GAME001.DAT
 	 * byte 48 = the start LEVEL (HEIRS = 5, TUTORIAL = 1), byte 49 = the
@@ -48904,7 +48911,6 @@ static void jt904(unsigned char *out_done)
 	unsigned char  exit_flag;
 	short          last_key;
 	short          sel_key;
-	short          iter_guard;
 	unsigned char *base;
 
 	PROBE("jt904");
@@ -48943,10 +48949,11 @@ static void jt904(unsigned char *out_done)
 	jt399(g_a5_buf(-24126), (short)40, (short)0xFF);
 	exit_flag = 1;
 
-	/* iter_guard bounds the dispatch while JT[182] is a stub
-	 * returning 7 ("exit"); once JT[182] paints the real roster
-	 * and returns a user selection, this is the Mac do/while. */
-	for (iter_guard = 0; iter_guard < 2; iter_guard++) {
+	/* Mac do/while: loop until the user picks Exit (last_key 7) or a
+	 * sub-action sets *out_done. JT[182] is lifted now (it was a stub
+	 * returning 7 when the old iter_guard<2 cap was added), so the cap
+	 * is gone — otherwise VIEW flashed the sheet and exited after 2 spins. */
+	for (;;) {
 		status1 = 0;
 		cond1   = 0;
 		cond2   = 0;
@@ -48997,8 +49004,13 @@ static void jt904(unsigned char *out_done)
 		/* Clear the roster-menu backdrop + prime present (the jt182 popup
 		 * paints its items via l2d3e but the engine clear path is stubbed,
 		 * so the items would otherwise sit on a black page — same fix as
-		 * jt315 / l0aae). */
-		{
+		 * jt315 / l0aae).  The Mac jt904 does NOT clear here; this is a
+		 * bring-up stand-in for the Training Hall (boot-menu pixels bleed
+		 * through otherwise).  SKIP it in camp mode (-27990 == 2, set by
+		 * jt957): there the caller already composed the screen and l1276
+		 * painted the character sheet, so greying it just wipes the sheet
+		 * (the 'camp VIEW is blank' bug). */
+		if (g_a5_27990 != 2) {
 			unsigned char *px; short pitch, sw, sh, yy;
 			if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 				for (yy = 0; yy < sh; yy++)
