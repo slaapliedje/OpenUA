@@ -15897,6 +15897,19 @@ static int port_load_savgame(void)
 				if (dst[113 + c * 2] == 0)   /* current == base at rest */
 					dst[113 + c * 2] = dst[112 + c * 2];
 			}
+			/* SAVGAMA stores the multi-byte numeric fields LITTLE-endian, but
+			 * the 68k engine (and the char-gen path) read them big-endian, so
+			 * the sheet showed age 7424 (29 LE), XP 1.35e9 (50000 LE), platinum
+			 * 25600 (100 LE) and encumbrance 28675 (880 LE). Byte-swap them at
+			 * load (parity with the .cch path's L0ce0 swap). */
+			{
+				unsigned char t;
+				t = dst[68]; dst[68] = dst[71]; dst[71] = t;  /* XP long @68 */
+				t = dst[69]; dst[69] = dst[70]; dst[70] = t;
+				t = dst[76]; dst[76] = dst[77]; dst[77] = t;  /* platinum word @76 */
+				t = dst[82]; dst[82] = dst[83]; dst[83] = t;  /* age word @82 */
+				t = dst[86]; dst[86] = dst[87]; dst[87] = t;  /* encumbrance word @86 */
+			}
 			/* alignment @93 read from the faithful record (l2f74 linear
 			 * index, same order as cg_aligns); the force-LG stub is dropped. */
 			/* AC: CHAR_AC (385) IS the faithful slot — the record
