@@ -73,3 +73,36 @@ So the port has **two contradictory jt1089 colour conventions**:
 
 Status: reverted to the known-good 16-colour path (no regression shipped). This
 doc records the analysis so the coordinated fix can be done deliberately.
+
+## REFINED MODEL (2026-06-20, after reading the Mac glyph path + live palette)
+
+The Mac colour path is `jt1089` (L0334) -> `L024c` (stores color word -4894 +
+its high byte -4892) -> `jt966`/`JT[1136]` glyph blitter. **JT[1136] draws the
+glyph with the colour word as the PIXEL VALUE** — i.e. `color = (style<<4)|col`
+is a direct CLUT index (function-reference.md: "mode 0 = 1bpp mono, OR fgColor").
+The port replaced JT[1136] with QuickDraw DrawString + `fgColor = color & 0x0f`.
+
+Key consequence — the truncation is NOT broadly wrong:
+- **Style 8 (128..143) appears to MIRROR the base 16 colours** (clut[128+c] ~
+  clut[c]). The port's `& 0x0f` yields clut[c] = the same result, so style-8
+  text (almost all UI text — menus, sheets, jt137 buttons via 131/135/139/143)
+  is already correct. That's why the menu looks right today.
+- **Style 7 (112..127) is a NON-mirror ramp** — clut[112] != clut[0]. The
+  prompt (jt94 ... ,7) is the one casualty: truncation -> clut[0] = black.
+
+So a global `& 0xff` is the WRONG fix: it would send the style-8 callers to
+clut[131/135/139/143] = MENU.CTL *image* colours (magenta/red/green, verified
+live) instead of the mirrored base. The menu regression confirmed this.
+
+### BLOCKER — need Mac ground truth
+
+The port loads MENU.CTL item 0 (a 256-entry IMAGE palette) into clut[0..255].
+Its upper bands are image colours, NOT the Mac's UI-text ramps. To fix style-7
+text (the prompt) faithfully we need the Mac's real `clut[112..127]` (and to
+confirm 128..143 mirrors 0..15). Best obtained from **BasiliskII mon** (read the
+live Mac CLUT) — the project's strongest ground truth. Alternatively, lift the
+jt94 row-24 bottom arm fully to see whether the prompt's colour even comes from
+`(style<<4)|col` or from the DLItem path.
+
+Until then: leave the 16-colour truncation (correct for the dominant style-8
+case). Do NOT flip jt1089 globally. The prompt-black is cosmetic and isolated.
