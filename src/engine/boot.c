@@ -41312,7 +41312,13 @@ static short l25b6(short arg_count, unsigned char *buf,
 
 	if (result == 0x60)                  /* '`' -> ESC */
 		result = 27;
-	if (result <= 20)
+	/* Mac (CODE7 L25b6 @0x283e): `cmpi #20; bls L284a` skips the write for
+	 * result <= 20 and sets the special-key flag ONLY when result > 20. The
+	 * earlier port lift inverted the branch (`<= 20`), which set -24139 for
+	 * every normal menu index 0..20 — so callers that gate their dispatch on
+	 * -24139 == 0 (jt957 camp menu, l026e_c20, l216a …) never dispatched a
+	 * mouse pick. Faithful: only the high/special key codes set it. */
+	if (result > 20)
 		g_a5_24139 = 1;
 
 exit:
