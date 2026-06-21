@@ -27,15 +27,21 @@ Legend: ✅ works end-to-end · 🟡 partial / buggy · 🔴 gated/missing · �
 ### F — Event-handler vocabulary (the cheapest high-value work)
 Now that the walk fires `l709e` per-cell, each handler is **independently
 liftable AND live-testable**. Highest value STUBs (ranked):
-1. **`l159a`** (cases 1 & 33) — plain text/message events. The single most common
-   event type in any module; lifts the bulk of designed signage/narration. Small.
-2. **`l3118`** (case 36) — Yes/No **QUESTION** event (branch on ev[8]/ev[9]).
-   `l3bee` insert already lifted; this is the predicate/dialog. Gates non-linear design.
-3. **`l3ac6`** (case 17) — **SECRET DOOR** (pairs with the Search command).
-4. **`l380a`** (case 13) — **INN** (rest/heal civic event).
-5. **Chain handlers** `l4f9a`/`l1ad8`/`l3cd6`+`l3328`/`l364e`/`l29cc` (7,15,18–20),
+- ~~`l159a` (cases 1 & 33)~~ — CORRECTION: NOT plain text. It prints "A battle
+  begins..." and calls `jt511`/`jt510`/`jt512` — it's the **Monster/Combat
+  event**, gated on the combat spine (§H). The real plain-text event is `l4d26`
+  (case 2), already lifted. (The stale doc table mislabelled this.)
+- ✅ **`l3118`** (case 36) — Yes/No **QUESTION** event — **DONE 2026-06-20**.
+  Paint picture/3D → question text → Yes/No modal → yes/no response text; returns
+  the answer (l709e case 36's ev[8]/ev[9] branch + `l3bee` were already wired).
+  Gates non-linear design.
+1. **`l3ac6`** (case 17) — **SECRET DOOR** (pairs with the Search command). ~26 ln.
+2. **`l380a`** (case 13) — **INN** (rest/heal civic event). ~59 ln.
+3. **Chain handlers** `l4f9a`/`l1ad8`/`l3cd6`+`l3328`/`l364e`/`l29cc` (7,15,18–20),
    `l6436` (35) — compute a next-event index; until lifted, scripted multi-step
    events dead-end after their first arm.
+4. The smaller unknowns `l2d32`/`l2e42`/`l6020`/`l5bde`/`l2b2a`/`l5fcc`/`l398a`/
+   `l661c`/`l66cc` (cases 6,12,16,22,26,27,29,37,38) — classify + lift as found.
 DOC CORRECTIONS (carry forward): case 32 `l38bc` = **party-member selection**
 (NOT vault); case 9 `l216a` = **temple/take text** (NOT a reward picker).
 `docs/play-loop-wall.md` Gap-2 table (lines 77-106) is now stale.
