@@ -3275,7 +3275,7 @@ static void  l5fcc(void *ev)               { PROBE("L5fcc"); (void)ev; }
 static void  l398a(void *ev, short v)      { PROBE("L398a"); (void)ev; (void)v; }
 static void  l38bc(void *ev)               { PROBE("L38bc"); (void)ev; }
 static short l6436(void *ev)               { PROBE("L6436"); (void)ev; return 0; }
-static short l3118(void *ev)               { PROBE("L3118"); (void)ev; return 0; }
+static short l3118(void *ev);              /* Yes/No QUESTION event — lifted near jt181 */
 static void  l43ac(short idx);             /* once-triggered bitmap clear — defined after its deps */
 static void  l3bee(short v);               /* encounter-queue insert — defined after its deps */
 static void  l66cc(void *ev)               { PROBE("L66cc"); (void)ev; }
@@ -32543,6 +32543,63 @@ static void jt181(short n)
 	l2858((short)2);
 	tmp = l23b4((short)(signed char)(n & 0xff));
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
+}
+
+/* L3118 (CODE 20 + 0x3118) — the Yes/No QUESTION event (l709e case 36).
+ * Faithful lift: paint the event picture (l442e) or redraw the 3D view (jt935),
+ * open the text window (jt20), show the question text (ev[4], a STRG phrase id
+ * byte-swapped by jt1180 -> jt232 format -> l0b20 print), then run the Yes/No
+ * modal (jt159). On YES show the yes-response text (ev[10/11]); on NO the
+ * no-response text (ev[12/13]); each gated on its low byte being non-zero, with
+ * a page-pause (jt181). Returns the answer; l709e case 36 branches to ev[8]
+ * (yes) / ev[9] (no) and fires l3bee. (-13034 = the STRG phrase table,
+ * -5213 = the format scratch, rec[57] = the just-spoke flag.) */
+static short l3118(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  ans;                              /* fp@(-1) */
+
+	PROBE("L3118");
+	if (ev[6])
+		l442e(ev);
+	else
+		jt935();
+	jt20();
+
+	/* the QUESTION text — ev[4] is a 16-bit STRG phrase id. */
+	if (*(short *)(ev + 4) != 0) {
+		short num = jt1180(*(short *)(ev + 4));
+		jt232((void *)(uintptr_t)g_a5_long(-13034), num,
+		      (char *)&g_a5_byte(-5213));
+		if (rec) rec[57] = 0;
+		l0b20((void *)&g_a5_byte(-5213));
+	}
+
+	ans = (unsigned char)jt159(ua_strs_at(0x6828), (short)0);  /* Yes/No modal */
+	if (ans) {
+		jt20();
+		if (ev[10] != 0) {                       /* yes-response text */
+			short num = (short)((ev[11] << 8) | ev[10]);
+			jt232((void *)(uintptr_t)g_a5_long(-13034), num,
+			      (char *)&g_a5_byte(-5213));
+			if (rec) rec[57] = 0;
+			l0b20((void *)&g_a5_byte(-5213));
+			jt181(1);
+		}
+	} else {
+		jt20();
+		if (ev[12] != 0) {                       /* no-response text */
+			short num = (short)((ev[13] << 8) | ev[12]);
+			jt232((void *)(uintptr_t)g_a5_long(-13034), num,
+			      (char *)&g_a5_byte(-5213));
+			if (rec) rec[57] = 0;
+			l0b20((void *)&g_a5_byte(-5213));
+			jt181(1);
+		}
+	}
+	jt20();
+	return (short)ans;
 }
 
 /* L4108 (CODE 20 + 0x4108) — stash the current map position into the live
