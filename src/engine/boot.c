@@ -15847,17 +15847,30 @@ static int port_load_savgame(void)
 				}
 				ln++;
 			}
-			if (ln < 2 || !(r[96] >= 'A' && r[96] <= 'Z')
-			    || r[88] < 1 || r[88] > 8
-			    || r[82] == 0 || r[82] >= 200) {
-				i++;
-				continue;
+			/* Record signature: a printable 2+ char name@96 starting A-Z,
+			 * the six BASE ability scores @112 (even bytes) all plausible
+			 * (3..19), and a non-zero maxHP@82 < 200. The ability run is a
+			 * strong, layout-independent signature; the old `class@88 in
+			 * 1..8` test wrongly dropped the design's class-0 multi-class
+			 * members (e.g. HEIRS' NIVLOC / STRANILLA). */
+			{
+				short ab_ok = 1, k;
+				for (k = 0; k < 6; k++)
+					if (r[112 + k * 2] < 3 || r[112 + k * 2] > 19) {
+						ab_ok = 0;
+						break;
+					}
+				if (ln < 2 || !(r[96] >= 'A' && r[96] <= 'Z')
+				    || !ab_ok || r[82] == 0 || r[82] >= 200) {
+					i++;
+					continue;
+				}
 			}
 			for (c = 0; c < found; c++)
 				if (memcmp(cg_pool[c] + 96, r + 96, 16) == 0)
 					break;
 			if (c < found) {              /* the backup copy */
-				i += 536;
+				i += 256;             /* < min record stride; dedup catches re-finds */
 				continue;
 			}
 
@@ -15874,8 +15887,11 @@ static int port_load_savgame(void)
 			 * faithful record directly (CHAR_RACE/CHAR_CLASS/CHAR_LEVEL point
 			 * there), so the old force-Human / force-Fighter / force-L5 stubs
 			 * are dropped — the memcpy'd faithful values stand. */
-			for (c = 0; c < 6; c++)       /* abilities: @112 pairs */
-				CHAR_STAT(dst, c) = r[112 + c * 2];  /* faithful (now identity post-memcpy) */
+			for (c = 0; c < 6; c++) {     /* abilities: base @112, current @113 */
+				CHAR_STAT(dst, c) = r[112 + c * 2];
+				if (dst[113 + c * 2] == 0)   /* current == base at rest */
+					dst[113 + c * 2] = dst[112 + c * 2];
+			}
 			/* alignment @93 read from the faithful record (l2f74 linear
 			 * index, same order as cg_aligns); the force-LG stub is dropped. */
 			/* AC: CHAR_AC (385) IS the faithful slot — the record
@@ -15888,7 +15904,7 @@ static int port_load_savgame(void)
 			dbg_log((char *)dst + 96);
 			dbg_log_num("  maxHP=", (long)r[82]);
 			found++;
-			i += 536;
+			i += 256;
 		}
 		if (found == 0) {
 			dbg_log("  no character record found in save");
@@ -16117,13 +16133,17 @@ void port_test_seed_design(void)
 		if (!seeded) {
 			seeded = 1;
 			node_pool_init();            /* roster / design node pool */
-			/* Roster source: the persisted .CHR files, else the synthetic
-			 * seed. The shipped HEIRS SAVGAMA.CSV party is SKIPPED (user
-			 * 2026-06-18): the savegame format isn't fully lifted, so it
-			 * parses to bad, non-AD&D stats (BALTHAZAR -13 AC / 219 HP).
-			 * Restore the port_load_savgame() path once the SAVGAMA parse is
-			 * faithful — task #123. */
-			if (!load_roster()) {               /* no disk save -> seed pool */
+			/* Roster source, by preference: the shipped design's SAVGAMA.CSV
+			 * save (the REAL party — BARBARUS / LADY ILLIS / MALTIER / NIVLOC /
+			 * CLARANA / STRANILLA for HEIRS), else the persisted .CHR roster,
+			 * else the synthetic seed. The SAVGAMA scan is faithful now
+			 * (ability-signature record match + non-overshooting skip), so it
+			 * loads all 6 real members incl. the class-0 multi-class ones; it
+			 * was disabled 2026-06-18 when the old scan mis-parsed (task #123). */
+			if (port_load_savgame()) {
+				/* seeded cg_pool + built the party + restored the save's
+				 * level/position. */
+			} else if (!load_roster()) {        /* no disk save -> seed pool */
 				int p, c;
 				for (p = 0; p < k_count; p++) {
 					unsigned char *r = cg_pool[p];
