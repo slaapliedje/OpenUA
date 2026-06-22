@@ -184,12 +184,30 @@ boot.c:28837):
    lifted (jt579 + jt56/l03d2 portraits + jt198(h[19]) GEO reload + jt952 dungeon
    mode + jt85 palette), plus the 4 deps jt951/jt952/l03d2/jt85. Training-Hall
    Save A → Load A runs it with no crash; Begin Adventuring resumes the dungeon
-   at the saved cell **10,8** with the member portrait painted. **NEXT: route the
-   boot auto-load through `l143e("SavGamA.csv")` to retire port_load_savgame** —
-   the foundation is now in place; the remaining work is the seed-point timing
-   (l143e fires jt198/jt952 at port_test_seed_design vs the existing jt127 GAME
-   header + g_savgame_loaded gating). Original recipe (now implemented) kept below
-   for reference.
+   at the saved cell **10,8** with the member portrait painted.
+
+   **BOOT AUTO-LOAD via L143e — ATTEMPTED + REVERTED 2026-06-22 (does NOT work at
+   the seed point).** Routed `port_test_seed_design`'s roster seed through a
+   `boot_autoload_savegame()` = GEO-guard + `l143e("SavGamA.csv")`. Two findings
+   from Hatari: (1) the roster seed fires at the FIRST (boot-time)
+   port_test_seed_design, BEFORE l4cc0 — so -28006 / the -21508/-21152 pools are
+   null (fixed by calling idempotent l4cc0() first). (2) **The real blocker:**
+   with l4cc0 up, l143e ran but **corrupted the display to garbage + a SysBeep** —
+   l143e is an IN-GAME-context function (jt198 GEO load + jt952 dungeon-mode + jt56
+   portrait composites + jt85 wall palette) that needs the play environment, which
+   isn't set up at the boot/menu seed point. DEEPER COUPLING: the boot path renders
+   off the **synthetic `g_area_state` design header** that port_load_savgame
+   maintains (it loads party + position-overlay only, never the real header);
+   loading the REAL save header (via l143e OR jt579) at boot replaces it, and the
+   port's render can't yet handle the real header. So **retiring port_load_savgame
+   at boot is blocked on the real-design-load / port_test_seed_design retirement
+   (task #100)** — NOT just the L143e lift. Reverted to protect the working HEIRS
+   demo; port_load_savgame stays as the boot roster source. The faithful in-game
+   Load (l10ca → jt582 → L143e) is the real, working use of L143e. NEXT REAL STEP
+   for boot retirement: make the play-entry render off the loaded real header
+   (part of #100), then a deferred-to-play-entry l143e (not boot-seed) auto-load.
+
+   Original recipe (now implemented) kept below for reference.
 
    The "design-reload" the boot auto-load needs is the
    **post-load dungeon restore inside the Mac `L143e`** (CODE15 0x143e), which the
