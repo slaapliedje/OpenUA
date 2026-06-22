@@ -8697,24 +8697,22 @@ void boot_a5_seed_defaults(void)
 	g_a5_4902 = 1;
 
 	/* Dungeon-view direction-step tables (the -27862 view-state struct:
-	 * drow at -27862+dir, dcol at -27853+dir, dir 0..7). These read zero
-	 * in our build — they fall in the BSS region below the 12694-byte
-	 * DATA image (-12694..-1; CODE 0's below-A5 size is 31336, so -27862
-	 * is genuinely BSS), below the lowest DREL reloc, and no CODE segment
-	 * ever writes them, so the frustum walker (jt199 / jt210 / l5e52)
-	 * can't step without them. Seed the cardinal/ordinal steps over the
-	 * column-major map (cell = col*height + row): drow == dir_dy and
-	 * dcol == dir_dx — the same movement deltas render_3d_view walks the
-	 * map with, so these are validated, not guessed. */
-	{
-		static const signed char drow[8] = { -1, -1,  0,  1,  1,  1,  0, -1 };
-		static const signed char dcol[8] = {  0,  1,  1,  1,  0, -1, -1, -1 };
-		short k;
-		for (k = 0; k < 8; k++) {
-			g_a5_byte(-27862 + k) = (unsigned char)drow[k];
-			g_a5_byte(-27853 + k) = (unsigned char)dcol[k];
-		}
-	}
+	 * drow at -27862+dir, dcol at -27853+dir, dir 0..7). These are NOT BSS —
+	 * the earlier "genuinely BSS / reads zero" claim was WRONG: -27862 sits
+	 * INSIDE the 31336-byte A5-below image, and data_pool_replay() loads the
+	 * real Mac values from the DATA resource:
+	 *     drow(-27862) = { 0, 1, 1, 1, 0,-1,-1,-1 }
+	 *     dcol(-27853) = {-1,-1, 0, 1, 1, 1, 0,-1 }
+	 * The old hand-seed here installed those two tables SWAPPED (drow got the
+	 * dcol values and vice-versa), and boot_a5_seed_defaults() runs AFTER
+	 * data_pool_replay(), so it CLOBBERED the correct data with the swap. The
+	 * frustum walker (jt199/jt210/l5e52/L6234) reads these every frame, so the
+	 * rendered first-person view stepped the wrong axis per facing while the
+	 * forward-move (which uses the *correct* DATA tables -11693/-11684) stepped
+	 * right — the two desynced (wrong view at the start cell, "walk through
+	 * walls", the view going funky after a step). Verified against the real
+	 * DATA image (tools/datapool.py over UnlimitedAdventures.rfork). Remove the
+	 * seed entirely: the faithful values already live in -27862/-27853. */
 
 	/* Dungeon-view slot-layout globals g_a5_-12240..-12198 (22 words), the
 	 * per-slot screen deltas jt199/l5b42 read. CAPTURED LIVE from real FRUA
