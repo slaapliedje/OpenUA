@@ -8849,6 +8849,50 @@ void boot_a5_seed_defaults(void)
 		dbg_log_num("  field@82 = ", (unsigned short)*(short *)(brec + 82));
 	}
 
+	/* .cch round-trip WITH one inventory item — exercises jt577's
+	 * pool-allocating inventory loop (L0464) + the item +44/+46 byte-swap that
+	 * the empty-record test above skips (it sets rec[8]/rec[193]=0). The write
+	 * record carries a single non-container item (type@40 != 'I'/73) with a
+	 * swap-sensitive value@46; PASS = jt577 rebuilds one inventory node whose
+	 * type + swapped value survive. Needs the -21508 item-node pool (l311c),
+	 * allocated before this self-test in the boot init. */
+	{
+		static unsigned char crec[512], drec[512], witem[62];
+		unsigned char *ritem;
+		short j;
+		int   ok2;
+
+		/* jt577's inventory loop allocates nodes from the -21508 item pool,
+		 * which l4cc0 sets up on design-load — after this boot self-test. Init
+		 * it here (only if still zero-filled) so jt477 has free nodes. */
+		if (g_a5_word(-21508) == 0)
+			l311c((short)640);
+
+		for (j = 0; j < 512; j++) { crec[j] = 0; drec[j] = 0; }
+		for (j = 0; j < 62; j++) witem[j] = 0;
+		crec[96] = 'I'; crec[97] = 'T'; crec[98] = 'M';   /* name "ITM" */
+		crec[193] = 1;                                    /* one inventory item */
+		witem[40] = 5;                       /* item type (not container 'I'/73) */
+		*(short *)(witem + 46) = 0x2468;     /* swap-sensitive value@46 */
+		*(long *)(crec + 8) = (long)(uintptr_t)witem;     /* inventory head */
+
+		g_a5_long(-6902) = (long)(uintptr_t)crec;
+		l00e0("AUDIT2.CCH", (void *)jt578);
+		l_cch_read("AUDIT2.CCH", drec);      /* sets -6902 = drec, runs jt577 */
+
+		ritem = (unsigned char *)(uintptr_t)*(long *)(drec + 8);
+		ok2 = (drec[96] == 'I' && drec[193] == 1 && ritem != NULL
+		       && ritem[40] == 5
+		       && *(short *)(ritem + 46) == 0x2468);
+		dbg_log(ok2 ? "cch inventory round-trip: PASS"
+		            : "cch inventory round-trip: FAIL");
+		if (ritem != NULL) {
+			dbg_log_num("  item type@40 = ", ritem[40]);
+			dbg_log_num("  item val@46  = ",
+			            (unsigned short)*(short *)(ritem + 46));
+		}
+	}
+
 	/* Char-gen roll self-test (the record-layout unification). Builds a
 	 * record for each race, runs the faithful L24d2 ability roll + L1672
 	 * racial/class clamp, and logs the six scores read through the new

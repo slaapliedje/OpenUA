@@ -27,7 +27,7 @@ Two live entry points converge on the same CODE-15 core:
 | `jt580` | CODE15+0x182c | **LIFTED** (party block + design-state pad, asm L19ca) | 28806 | Write player rec + position/state + count + per-member + pad-to-10284 |
 | `jt579` | CODE15+0x124c | **LIFTED** | 28793 | Read mirror of jt580; rebuilds party `-27928` |
 | `jt578` | CODE15+0x0934 | **LIFTED** | 28936 | Write one 398-byte record + inventory items + container sub-items + spells |
-| `jt577` | CODE15+0x03fe | **LIFTED** (untested) | 29035 | Read mirror of jt578; container capacity guard (jt903, 120-slot cap) |
+| `jt577` | CODE15+0x03fe | **LIFTED** (record + inventory round-trip self-test PASS) | 29118 | Read mirror of jt578; container capacity guard (jt903, 120-slot cap) |
 | `jt584` | CODE15 (chargen) | **LIFTED** | 29198 | Save one character to a named `.cch` ("Update %s?" via jt159) |
 | `l00e0` | CODE15+0x00e0 | **LIFTED** (port-adapted) | 28845 | Write opener: FSDelete+Create('FRUA','SAVE')+FSOpen → serializer cb |
 | `l143e` | CODE15+0x143e | **LIFTED** (port-adapted) | 30044 | Read opener: FSOpen → jt579 |
@@ -107,8 +107,13 @@ boot.c:28837):
    Hatari-verified). `-27920` over-allocated to 10284 so the pad read stays
    in-bounds (Mac over-reads into adjacent design-state heap; port's heap isn't
    laid out the same — pad content is non-meaningful, the load path ignores it).
-2. **jt577 round-trip test** — exercise jt578→jt577 on one `.cch` (pure file I/O,
-   no UI). Validates the 398 B record + inventory/spell serialization.
+2. ~~**jt577 round-trip test**~~ — **DONE** (boot self-test, `#ifdef
+   FRUA_ENGINE_PROBE`): the empty-record test plus a new one-inventory-item
+   round-trip (jt578→jt577) — exercises jt577's pool-allocating inventory loop +
+   the +44/+46 swap (the empty test skipped both). PASS Hatari-verified. (Spell
+   list still un-exercised — a trivial follow-up: rec+4 head, 10 B/node.)
+   GOTCHA captured: the `-21508` item pool is null until l4cc0 (design-load), so
+   the boot self-test inits it first.
 3. **jt579 design-state read** — trace + wire the read side (the `-27982`
    design-reload). Closes the design-state round-trip.
 4. **jt581/jt587** — lift the two CODE-15 stubs so the port can use the Mac's
