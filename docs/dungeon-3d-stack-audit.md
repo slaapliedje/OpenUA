@@ -18,7 +18,29 @@ card 1). Map LOAD is byte-perfect (docs/dungeon-view-wall.md 06-22b).
 
 ## The stand-ins / stubs / missing (THE CARD DECK, ranked)
 
-### Card 1 — CLUT: retire the fabricated band model, run the faithful shared palette
+### Card 1 — CLUT: shared palette — STARTED 2026-06-22 (grounding experiment)
+Un-gated `l58c4` (`g_dungeon_bigpic_overlay=1`) and captured the standing frame.
+TWO findings:
+1. The HUD ROSTER PANEL went grey/blank — confirming the entanglement is the
+   dungeon's 32..255 shared palette vs the HUD **text** colours (also in
+   32..255, the port_hud_text_clut band), NOT the menu's 0..31 (l3f3c only
+   writes 32..255). So the real Card-1 work is: make the dungeon shared palette
+   and the HUD text colours coexist (the Mac repaints the HUD after, or uses
+   distinct ranges) — a HUD-palette untangle, not just a gate flip.
+2. **The 3D view's door/wood was UNCHANGED** by installing the faithful palette.
+   So Card 1 is NOT the visible wall bug — the door-as-wood-at-edge is a
+   PLACEMENT/PIECE thing, not colour (matches the user's "it's not colour").
+   Combined with: walk faithful, map byte-perfect, layout faithful (card 2),
+   see-through faithful — the door/wood may even BE faithful (the cell is
+   genuinely group 1, the placement is the verified layout), and
+   data/mac_3d_start_e.png may be a different frame than the true 10,8,E
+   standing view. The ONLY way to settle faithful-vs-bug now is the Mac's exact
+   10,8,E standing frame (trace or fresh screenshot at a confirmed position).
+Reverted the gate (experiment only). Card 1 remains a real faithfulness lift
+(the fabricated band CLUT is still a stand-in) but is DE-PRIORITISED for fixing
+the visible bug.
+
+### Card 1 (detail) — retire the fabricated band model, run the faithful shared palette
 - `cw_finalize` (boot.c:9696) — **PORT STAND-IN**: builds a fabricated 256-entry
   CLUT from per-set 32-bands (`g_cw_base`, `g_cw_remap`, hardcoded ceiling/floor
   pal[4]/pal[5]). NOT the Mac's single shared dungeon palette.
