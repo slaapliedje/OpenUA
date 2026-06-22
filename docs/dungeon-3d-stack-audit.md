@@ -44,8 +44,13 @@ reached without inspecting the actual wall art. Reading 8X8DB.CTL directly settl
   keyed by `g_cwf_slot` = the wall group). Start frame unchanged (slot-0 identity).
   PROVEN on the real HEIRS bytes: OLD byte41->black, byte40->bright-brown (set5's
   band, incoherent); NEW byte41->(143,115,59), byte40->(127,99,39) = set8's own
-  coherent WOOD ramp. (host sim in the commit log; live Hatari visual pending —
-  the load->dungeon path is blocked by the harness's relative-mouse drift.)
+  coherent WOOD ramp.
+  VISUALLY CONFIRMED 2026-06-22 (Hatari, HEIRS save A): start cell 10,8 = coherent
+  STONE walls (Wall1/set5); two cells east at 12,8 = a WOOD-paneled room + wooden
+  DOOR (Wall2/set8) in correct wood-brown — matches the user's "gold feature is a
+  door" and "move east -> the view becomes whole". HARNESS NOTE: Hatari's emulated
+  mouse drifts (absolute xdotool mousemove unreliable); drive the menus by KEYBOARD
+  hotkey instead ('p' Play, 'b' Begin Adventuring, 'l' Load) — 100% reliable.
 
 ### Card 1 (OLD, SUPERSEDED) — CLUT: shared palette — grounding experiment 2026-06-22
 Un-gated `l58c4` (`g_dungeon_bigpic_overlay=1`) and captured the standing frame.
