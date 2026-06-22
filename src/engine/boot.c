@@ -1207,7 +1207,14 @@ static void  l4cc0(void)
 		g_a5_long(-28006) -= 1;             /* THINK C 1-based: store ptr-1 */
 	jt231();                                    /* NCR + string-table buffers */
 	g_a5_long(-27944) = jt387((short)2064);     /* item-template table (jt86) */
-	g_a5_long(-27920) = jt387((short)4590);     /* item-record table (jt87) */
+	/* item-record table (jt87): 255 x 18 = 4590 B used by the table accessors,
+	 * but jt580/the camp save pad the 10284-byte save slot by writing
+	 * (10284 - pos) bytes straight from here (asm L19ca over-reads past the
+	 * table into the Mac's adjacent design-state heap). The port's heap isn't
+	 * laid out the same, so over-allocate to the full slot length to keep that
+	 * pad read in-bounds (the tail is non-meaningful; the load path ignores the
+	 * pad content). */
+	g_a5_long(-27920) = jt387((short)10284);
 	l30cc((short)8);                            /* record staging buffer -> -22208 */
 	l311c((short)640);                          /* item-node bucket -> -21508 (treasure/inventory) */
 	l3144();                                    /* money-row pool ptr -21156 -> -21508 */
@@ -28791,18 +28798,19 @@ static void str_c2p(unsigned char *p, const char *s)
 	p[0] = (unsigned char)i;
 }
 
+static long jt412(short refnum, long pos, short mode);   /* GetFPos/tell — defined below */
 /* jt580 (CODE 15 + 0x182c) — the SAVE serializer callback: stream the game
  * state into the open slot file via jt410 (FSWrite). FIRST SLICE — the
  * player record (1024 bytes from offset 1, which carries the dungeon
  * position at [67]/[68]/[17]/[19]); symmetric with jt579 so the file
  * round-trips and jt582's tail restores placement on reload.
  *
- * DEFERRED (the faithful field tail, see CODE_15.s 0x182c..0x1a20): the
- * -12288 position block (5B), the -27989/-27990 state bytes, the party
- * count + per-character roster (L0934 — fixed record + inventory-list walk
- * + little-endian byte-swap via JT[1180]), and the ~10KB design-state block
- * (g_a5_-27920, padded to 10284). Returns 0 on success (the Mac accumulates
- * a per-field error flag with the same sense). */
+ * Full field tail now lifted (CODE_15.s 0x182c..0x1a20): the -12288 position
+ * block (5B), the -27989/-27990 state bytes, the party count + per-character
+ * roster (L0934 — fixed record + inventory-list walk + little-endian byte-swap
+ * via JT[1180]), and the design-state pad (g_a5_-27920, padded to 10284 via
+ * L19ca). Returns 0 on success (the Mac accumulates a per-field error flag with
+ * the same sense). */
 static short jt580(short refNum)
 {
 	unsigned char *player = (unsigned char *)g_a5_28006;
@@ -28844,7 +28852,18 @@ static short jt580(short refNum)
 		err |= (jt578(refNum) == 0);
 	}
 
-	/* TODO (faithful tail): the ~10KB design-state block (g_a5_-27920). */
+	/* Design-state pad (asm L19ca @0x19ca): tell the current file position and,
+	 * if short of the fixed 10284-byte save length, write the shortfall from the
+	 * item-record template table (g_a5_-27920) so the file is byte-length
+	 * faithful (jt582/jt579 read a fixed-layout 10284-byte slot). */
+	{
+		long pos = jt412(refNum, (long)0, (short)1);    /* GetFPos (fsFromMark,0) */
+		if (pos > 0 && pos < 10284) {
+			short n = (short)(10284 - pos);
+			err |= (jt410(refNum,
+			               (void *)(uintptr_t)g_a5_long(-27920), n) != n);
+		}
+	}
 	return (short)(err ? -1 : 0);
 }
 
