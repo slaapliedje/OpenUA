@@ -1981,21 +1981,23 @@ int ua_main(short arg1, long arg2)
 	 * buffer size in KB (kb_min, kb_max).
 	 */
 	status = jt398(":DISK4:ALWAYS.CTL", 0);
-	/* FC FAR-pool size (kb_min, kb_max). The Mac's normal-path cap was 450KB
-	 * (it had 1MB total); the dungeon needs the ~296KB wall library AND a
-	 * ~165KB event/backdrop bigpic RESIDENT AT ONCE (~461KB), which overflows
-	 * 450KB and aborts with "Out of FAR memory" before the dispose-reload
-	 * orchestration ("stage 4") lands. The Falcon/TT have 4MB, so raise the cap
-	 * (jt463 negotiates down to free RAM, so this is safe) — pragmatic, in line
-	 * with port-memory-vs-mac-1mb (true 1MB needs the purgeable dance instead).
-	 * #124/#129. */
+	/* FC FAR-pool size (kb_min, kb_max) = the Mac's normal-path cap. The
+	 * dungeon's ~296KB wall library and a ~165KB event/backdrop bigpic don't
+	 * both fit 450KB (~461KB), but they're never needed AT ONCE: the
+	 * dispose-reload orchestration ("stage 4") frees the walls when the play
+	 * mode leaves the dungeon view (jt131 case 0 -> jt209 unbinds the -27894
+	 * wall binders -> l11ca reclaims) so the bigpic loads, and reloads them on
+	 * return (cw_wallfile_load when jt468(group)==0). Verified at 450KB / 4MB:
+	 * the HEIRS dungeon->event->dungeon cycle disposes + reloads with no "Out
+	 * of FAR memory". The cap was raised to 768KB before stage 4 landed; now
+	 * restored. docs/far-pool-stage4-wall.md, #124/#129. */
 	if (status >= 0) {
 		jt411(status);
 		jt1129(1);
 		color_mode_init();      /* CODE 4 @0x47b4: derive jt1200 gates */
-		master_init(arg1, arg2, 214, 768);
+		master_init(arg1, arg2, 214, 450);   /* stage4: Mac-sized pool */
 	} else {
-		master_init(-5, arg2, 160, 640);
+		master_init(-5, arg2, 160, 450);     /* stage4: Mac-sized pool */
 	}
 
 	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
