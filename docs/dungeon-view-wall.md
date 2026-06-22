@@ -1,5 +1,33 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-22b — MAP LOAD VERIFIED CORRECT (rules out the "wrong sector" class)
+Decoded data/work/gamedata/HEIRS.DSN/GEO005.DAT directly (FORM/AMOD/HDR/MAP):
+HDR W=19 H=19; the MAP chunk is 3456 B but stores the cells **stride 19,
+column-major** (`(col*H+row)*6`). At stride 19 cell(10,10)=(11,0,11,13) =
+matches the Mac + the port; at stride 24 it's (6,0,0,0) garbage. So l5e52's
+`(col*ds[3]+row)*6` read is faithful — the map is NOT loaded with a wrong
+stride / half-sector / transpose (col-major vs row-major give different maps;
+the port + asm both use col-major). Do NOT re-chase the map LOAD; the remaining
+3D bug is purely RENDER (the far/mid-band 2-cell-deep door: edge-placed, group-1
+wood where it should be centered group-0 stone). Near band up-close renders the
+same door correctly (after a step) — consistent with the user's "move East and
+it becomes whole".
+
+STRONGEST PROOF: dumped the port's IN-MEMORY cells (l5e52, from J200DIFF's
+radius-4 window) and diffed every one against the file decode (col-major
+stride 19): **0 mismatches / 74 walled cells**. The loaded map is byte-identical
+to the file everywhere, not just at (10,10). Map LOAD is closed.
+
+Far-band note for the next session: door slot #10 (J200DIFF) reads a cell whose
+edge nibble = 10 → folds to group 1 (wood), near idx 42 (a door-shaped piece);
+slot #15 reads edge 5 → group 0 (stone), near 45. Both are sub-band facing
+reads. The corridor boundary (10,9).E=1 vs (10,10).W=13 differs per side (the
+'1' = an archway/see-through type, the door is on (10,10).W). Whether the
+wood-door-at-edge is a faithful Mac slot or a residual far-band bug can't be
+told from the port alone (the walk matches the asm, the map matches the file) —
+needs the Mac's standing-frame far-band trace, OR a check of whether nibble-1
+('archway') should be treated as see-through in the occlusion/draw.
+
 ## UPDATE 2026-06-22 — near-band FRONT sub-loops read the WRONG edge (FIXED)
 Line-by-line diff of L6234 (CODE_07.s) vs the port jt199 found two real diffs,
 both the same class: the near-band front sub-loops read the FACING edge where
