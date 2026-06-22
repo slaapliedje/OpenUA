@@ -92,12 +92,15 @@ pool is small enough that they can't coexist — i.e. at the Mac's ~450K.
 
 1. ~~Find the Mac dispose site~~ — DONE (jt131/jt209/jt461, all lifted +
    faithful; faithful wall-pool load confirmed at 4MB).
-2. **Shrink the pool** toward the Mac's 450K (`master_init(...,214,450)`) so
-   walls + bigpic can't coexist and the dispose actually fires. Verify with
-   HEIRS: enter dungeon (walls in pool), trigger the intro event (bigpic loads
-   → `jt209` disposed the walls → `l11ca` reclaimed), walk back to the 3D view
-   (`cw_wallfile_load` reloads the walls). Watch the `"glib: Out of FAR
-   memory!"` log — it must NOT fire.
+2. ~~Shrink the pool to the Mac's 450K~~ — DONE 2026-06-22. `master_init`
+   768/640 → 214/450 (both branches). Verified at 4MB with HEIRS: the dispose
+   FIRES (`jt131` mode 0→3 on the event → `jt209` WALL DISPOSE, traced), the
+   bigpic loads, the walls `(re)load` on return — and `"glib: Out of FAR
+   memory!"` never fires (count 0) across dungeon→event→dismiss→walk. The
+   intro event picture + the dungeon HUD render with no regression (the black
+   3D viewport is the pre-existing wall-decode issue #129, identical at 620K).
+   The `jt131` old-mode (`-31234`) bookkeeping is faithful (the caveat is
+   resolved). Pool comment at boot.c:1984 updated.
 3. **Retire `g_wallfile_buf`** (boot.c:2387, 327680 B) once #2 proves the
    faithful reload never falls back across HEIRS levels.
 4. **Shrink the `jt463` reserve** from 256K toward the Mac's 32K (re-measure;
