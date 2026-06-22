@@ -5873,8 +5873,7 @@ static void jt1089(short x, short y, short color,
  *
  * The post-jt1200 col==11 remap models the asm's redundant double
  * cmpiw #11 — the second compare is dead code in C. */
-static short g_jt94_ybias = 0;          /* PORT: per-call y nudge (see jt94) */
-static short g_jt94_force_color = -1;   /* PORT: per-call colour override (see jt94) */
+static void l3f88(short top, short left, short bottom, short right, short fill);
 static void jt94(short page, short row, short col, short style,
                  const char *fmt, ...)
 {
@@ -5899,19 +5898,55 @@ static void jt94(short page, short row, short col, short style,
 	/* 2. snapshot GrafPort. */
 	l3994();
 
-	/* 3. style remap. */
+	/* row == 24 — the bottom message / command-bar row. The Mac (L3fd6 @0x4042)
+	 * paints a filled rect + three bevel edges BEHIND the text, via L3f88 /
+	 * JT[1161] (the light "plate" the prompt/message sits on), THEN draws the
+	 * glyphs. The port had stubbed this (mis-gated on style==24 — the Mac gates
+	 * on row==24). Lifted here inline, mirroring 0x4050..0x4196 + the 0x4266
+	 * text tail, with the Mac's faithful style remap (0x3ffe: only when
+	 * style==0) so the port's global (inverted) remap below is left untouched
+	 * for every other caller. */
+	if (row == 24) {
+		short s  = style, c = col;
+		short pg = page;
+		short v2, v4, v6, v8, v10, v12, v14;
+
+		if (s == 0) {                           /* 0x3ffe: remap iff style==0 */
+			if (c == 7 || c == 8)           /* row(24) >= 23 arm (0x4028) */
+				c = 15;
+			s = 8;
+		}
+		jt1135((short)8094, (short)8000, &v2, &v4);     /* 0x4050 */
+		v2 = (short)(v2 + 1);                           /* 0x4068 */
+		pg = (short)(pg + 1);                           /* 0x406c page++ */
+		jt1135(v2, (short)0, &v4, &v6);                 /* 0x4070 */
+		jt1135((short)8098, (short)((pg << 2) + 8000),
+		       &v12, &v8);                              /* 0x4086 */
+		v12 = (short)(v12 + 1);                         /* 0x40a8 */
+		v6  = jt423(local_buf);                         /* 0x40ac strlen */
+		jt1135((short)0, (short)(((pg + v6) << 2) + 8000),
+		       &v14, &v10);                             /* 0x40ba */
+		l3f88((short)(v4 - 1), v8, v4, v10, s);                       /* 0x4124 fill  */
+		jt1161((short)(v4 - 1), (short)(v8 - 1), v12, v8, (short)0);  /* 0x4146 left  */
+		jt1161((short)(v4 - 1), v10, v12, (short)(v10 + 1), (short)0);/* 0x4168 right */
+		jt1161(v12, (short)(v8 - 1), (short)(v12 + 1),
+		       (short)(v10 + 1), (short)0);                           /* 0x418e bottom */
+		jt1089(v2, (short)((pg << 2) + 8000),                         /* 0x4266 text  */
+		       (short)((s << 4) | (unsigned char)c),
+		       ua_strs_at(0x6c0), local_buf);
+		(void)v14;
+		return;
+	}
+
+	/* 3. style remap (PORT: kept inverted vs the Mac — the engine's non-prompt
+	 * text is tuned around it; the faithful condition lives in the row==24
+	 * branch above). */
 	if (style != 0) {
 		if (page < 23) {
 			if (col == 7 || col == 8)
 				col = 15;
 		}
 		style = 8;
-	}
-
-	/* 4a. style == 24 erase-and-box (rect-fill cluster). */
-	if (style == 24) {
-		PROBE("jt94/style24-rect-frame");
-		return;
 	}
 
 	/* 4b. mode-5 bottom-row paint. */
@@ -5926,22 +5961,8 @@ static void jt94(short page, short row, short col, short style,
 		col   = 0;
 		style = 15;
 	}
-	/* PORT: g_jt94_ybias is a per-call vertical nudge (8000-space units, ~1px
-	 * each) that defaults to 0 — so this is a no-op for every caller except the
-	 * "Press [Return] to continue" prompt (l177a), where it compensates for the
-	 * baseline shift the Mac's jt94 applies via jt1135 (refs 8094/8098) but the
-	 * port's simplified jt94 omits. */
-	y     = (short)((row  << 2) + 8000 + g_jt94_ybias);
+	y     = (short)((row << 2) + 8000);
 	color = (short)((style << 4) | (unsigned char)col);
-	/* PORT: g_jt94_force_color (default -1 = off) overrides the computed colour
-	 * for one call. The style-remap above is inverted vs the Mac (the Mac remaps
-	 * style->8 only when style==0, per CODE_06.s 0x3ffe `tstw;bnes`; the port
-	 * does it when style!=0), so the "Press [Return] to continue" prompt
-	 * (style 7) comes out 128/cyan instead of the Mac's 112/black. Correcting the
-	 * global condition is risky (other text is tuned around it), so l177a forces
-	 * the Mac's 112 for the prompt only. */
-	if (g_jt94_force_color >= 0)
-		color = g_jt94_force_color;
 	jt1089(y, x, color, ua_strs_at(0x6c0) /* "%s" */, local_buf);
 }
 
@@ -19334,18 +19355,11 @@ static void l177a(void)
 	l6048();                                /* JT[66] */
 	(void)jt108((short)1);
 	l162e();
-	/* PORT: the faithful args are (page 7, row 24); the Mac jt94 runs them
-	 * through jt1135 (a baseline/scale transform, refs 8094/8098) before
-	 * jt1089, which the port's simplified jt94 skips — leaving the prompt ~4px
-	 * left + ~2px low of the Return button (which is placed in screen space by
-	 * jt452 and is correct). Nudge page 7->8 (x 8028->8032, the Mac's post-jt1135
-	 * h) to align horizontally; the row stays faithful (vertical handled below). */
-	g_jt94_ybias = -2;                      /* up ~2px: the Mac's jt1135 baseline */
-	g_jt94_force_color = 112;               /* black on the bar (Mac colour 112) */
-	jt94((short)8, (short)24, (short)0, (short)7, "%s",
+	/* Faithful CODE_07.s 0x178c: jt94(page 7, row 24, col 0, style 7). The
+	 * row==24 branch in jt94 now draws the plate behind the text and the glyphs
+	 * (Mac baseline + colour 112) — no port-side nudge/force-colour needed. */
+	jt94((short)7, (short)24, (short)0, (short)7, "%s",
 	     ua_strs_at(0x275c) /* "Press        to continue." */);
-	g_jt94_force_color = -1;
-	g_jt94_ybias = 0;
 	l2062();
 	jt447();
 	jt452((long)1, (long)8094, (long)8056,
