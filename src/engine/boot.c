@@ -15993,6 +15993,15 @@ static int port_load_savgame(void)
 
 			dst = cg_pool[found];
 			memcpy(dst, r, 512);          /* the faithful record as-is */
+			/* The record's in-memory list-head pointer fields (spell @4,
+			 * inventory @8) hold stale Mac heap pointers on disk — this
+			 * bring-up loader copies the record but does NOT reconstruct
+			 * the item/spell node lists (jt577's job), so null the heads.
+			 * Otherwise jt578 (and jt903 / the inventory screens) follow
+			 * the garbage pointer and bus-error. Empty lists are the honest
+			 * representation of what the stand-in actually loaded. */
+			*(long *)(dst + 4) = 0;       /* spell list head */
+			*(long *)(dst + 8) = 0;       /* inventory list head */
 			/* Translate the char-sheet fields to the port CHAR_* layout
 			 * so the roster grid (l02dc) and rest-heal read them; the
 			 * combat block (name@96/AC@385/HP@395) is already at
@@ -29015,7 +29024,12 @@ static signed char l00e0_load(const char *fn, void *cb)
  * an incomplete level-2 lift, so the Save/Load buttons use slot A directly
  * until that picker UI is finished. The on-disk format is the real one
  * (jt580 = player + position + state + party count + per-member jt578 .cch
- * records), so it upgrades cleanly when the picker lands. (#141) */
+ * records), so it upgrades cleanly when the picker lands. (#141)
+ *
+ * The Training-Hall Save (l1142) now drives the faithful jt585 A-J picker; this
+ * slot-A driver is retained for the Load side's symmetry (port_load_game) and as
+ * a non-interactive save path. */
+static signed char port_save_game(void) __attribute__((unused));
 static signed char port_save_game(void)
 {
 	char fn[44];
@@ -30101,7 +30115,6 @@ static void   jt585(void)
 	char           fn[44];
 	unsigned char  slot_idx;
 	unsigned char  slot_char;
-	short          iter_guard;
 	unsigned char *player;
 
 	PROBE("jt585");
@@ -30117,7 +30130,7 @@ static void   jt585(void)
 	}
 
 	slot_idx = 0xFF;
-	for (iter_guard = 0; iter_guard < 8; iter_guard++) {
+	for (;;) {
 		short mode;
 		short pick;
 
@@ -30127,15 +30140,19 @@ static void   jt585(void)
 		             g_a5_13776, (short)0, mode);
 		slot_idx = (unsigned char)pick;
 
-		/* Loop exit: slot_idx >= 10 OR (special-flag AND ESC). */
-		if (slot_idx >= 10)
+		/* Faithful loop exit (CODE15 0x1a94 `cmpiw #10; bcss`): a
+		 * valid slot pick (slot < 10) commits the save; ESC cancels
+		 * when the special-key flag is set. Anything else (a non-slot
+		 * key, or -1 no-match) re-runs the modal. jt182/L23b4 block on
+		 * each pass, so this mirrors the Mac's unbounded loop. */
+		if (slot_idx < 10)
 			break;
 		if (g_a5_24139 != 0 && slot_idx == 27)
 			break;
 	}
 
 	if (slot_idx > 9)
-		return;                       /* cancelled */
+		return;                       /* cancelled (ESC) */
 
 	slot_char = (unsigned char)('A' + slot_idx);
 
@@ -51013,14 +51030,7 @@ static int l1142(short a)
 		return 0;
 	if (g_a5_27928 == 0)            /* no party to save */
 		return 0;
-	/* Faithful jt580 serialize to slot A. (jt585's A-J slot picker is an
-	 * incomplete level-2 lift — see port_save_game.) */
-	if (port_save_game() == 0)
-		cg_message("Could not save the game.",
-		           "Any key to continue.");
-	else
-		cg_message("Game saved.", "Any key to continue.");
-	g_a5_27946 = 0;
+	jt585();                        /* the "Save Which Game" A-J slot picker */
 	return 0;                       /* L1242 — save returns 0 (stay in menu) */
 }
 
