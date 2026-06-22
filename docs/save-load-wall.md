@@ -114,8 +114,16 @@ boot.c:28837):
    list still un-exercised — a trivial follow-up: rec+4 head, 10 B/node.)
    GOTCHA captured: the `-21508` item pool is null until l4cc0 (design-load), so
    the boot self-test inits it first.
-3. **jt579 design-state read** — trace + wire the read side (the `-27982`
-   design-reload). Closes the design-state round-trip.
+3. ~~**jt579 design-state read**~~ — **INVESTIGATED → no pad read exists.** asm
+   jt579 (L124c, lines 1486–1727) reads player+position+count+members then does
+   post-load setup (jt56 portraits, jt214/jt951/jt952 play-mode dispatch) — it
+   does **not** read the 10284-byte design-state pad, and jt582→l143e→jt579 so
+   the picker doesn't either. The pad is **write-only** (fixed slot length). The
+   design-state *progress* restores via the `-27982` level/design **reload from
+   the `.DSN` files**, a separate subsystem — NOT the save-slot pad. So the
+   party+position round-trip is already complete; there is no pad read-side to
+   wire. (Design-progress persistence = a separate, larger future card: trace the
+   Mac `-27982` reload + whether play mutates the `.DSN`/GEO files.)
 4. **jt581/jt587** — lift the two CODE-15 stubs so the port can use the Mac's
    member-splice instead of the cg_pool rebuild.
 5. **A–J slot picker wiring** — replace port_save_game/load_game's hardcoded
