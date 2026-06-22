@@ -29409,6 +29409,23 @@ static signed char l_cch_read(const char *fn, unsigned char *rec)
 	return 1;
 }
 
+/* L08ba (CODE 15 + 0x08ba) — load the character .cch named by `name` into the
+ * 398-byte record at `rec`. The Mac copies the name into a local (jt384), points
+ * g_a5_-6902 at the record, then opens via L0006 + deserializes with jt577; the
+ * port collapses the open+read into l_cch_read, which sets -6902, opens the
+ * flat-shim file, and runs jt577 — the same ADR-0003 .cch-read adaptation used
+ * elsewhere (l_cch_read replaces the Mac's nested-SAVE-path L0006 opener).
+ * Called by jt587's JT[3] case-1 arm (g_a5_-22733 == 1). */
+static void l08ba_c15(const char *name, unsigned char *rec) __attribute__((unused));
+static void l08ba_c15(const char *name, unsigned char *rec)
+{
+	char buf[42];
+
+	PROBE("L08ba");
+	jt384(buf, name);
+	l_cch_read(buf, rec);
+}
+
 /* ====================================================================
  * jt21 derived-stat math primitives (CODE 6). These pure-logic helpers
  * compute the AD&D Strength index, weight allowance, encumbrance-driven
