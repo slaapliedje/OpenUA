@@ -96,13 +96,42 @@ offset. So the faithful save load MUST run at play-entry.
   menu (`jt918` case 8 → `l143e`, already works). Most faithful, but drops the
   one-key HEIRS demo auto-resume and needs the empty-roster boot to be solid.
 
-## Cards
+## Card 1 attempt (faithful roster load) — BLOCKED on the inventory subsystem
 
-1. **[NEXT]** (A) Faithful play-entry resume via `l143e` — install the real
-   header at play-entry so Begin Adventuring resumes at the saved cell.
-2. Faithful roster load (`jt579`/`jt577` or the menu Load path) replacing the
-   heuristic scan.
-3. Faithful design-load separation (`jt356`/`jt361`, post-`l4cc0`).
+User chose "faithful roster load first". Attempt: call the faithful `jt579`
+deserialiser at play-entry (post-`l4cc0`, `-28006` live), header+position
+snapshot/restored so it's roster-only, heuristic scan as fallback.
+
+Result (2026-06-22, HEIRS save A): **bus error reading $2c (NULL+44) at
+`jt577:29275`** — `*(short *)(item + 44)` with `item == NULL` because
+`jt477` returned NULL (the -21508 item-node pool exhausted/unready) while
+rebuilding a member's `rec[8]` inventory list. The in-game Load path
+(`l10ca` → `jt582` → `l143e` → `jt579`) did NOT bus-error on the same save
+(timing-dependent), but its actual parse couldn't be confirmed.
+
+This is the **documented inventory-deserialiser blocker**
+(docs/inventory-subsystem-wall.md): the shipped 1993 save's records carry
+**stale Mac heap pointers** at `rec[8/12/16/20]`; `jt577` rebuilds only
+`rec[8]`/`rec[4]` and is pool-timing- + stale-ptr-fragile. The heuristic scan
+in `port_load_savgame` exists *precisely* to sidestep this — it nulls every
+list head. So a faithful `jt579`/`jt577` roster load **cannot replace the
+scan until the inventory subsystem is solid** (jt477 pool-timing for the
+`rec[8]` rebuild + the `rec[12]/16/20` re-equip pass).
+
+REVERTED. The common dependency for ALL faithful save-load work (header via
+card A, roster via card 2, the in-game `l143e`) is a robust `jt577`. That is
+the real unblocker.
+
+## Cards (re-ordered after the card-1 finding)
+
+0. **[UNBLOCKER]** Make `jt577` robust on the shipped Mac save — fix the
+   `jt477` pool-timing NULL-deref in the `rec[8]` inventory rebuild and the
+   `rec[12]/16/20` stale-ptr handling (the inventory subsystem,
+   docs/inventory-subsystem-wall.md). Gate for everything below.
+1. (A) Faithful play-entry resume via `l143e` (needs card 0).
+2. Faithful roster load via `jt579`/`jt577` replacing the scan (needs card 0).
+3. Faithful design-load separation (`jt356`/`jt361`, post-`l4cc0`) — the one
+   card NOT gated on `jt577`.
 4. Save-load as a menu action; retire the boot auto-load (direction B).
 5. Retire the synthetic roster seed.
 
