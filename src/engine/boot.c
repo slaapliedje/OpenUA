@@ -30207,24 +30207,130 @@ static int jt407(const char *name, const char *prefix)
 	return 1;
 }
 
-/* L143e (CODE 15 + 0x143e) — open the picked slot file for READ and run the
- * load serializer (jt579) over it, the mirror of jt585's L00e0/jt580 writer.
- * Port-adapted like L00e0: opens directly through the File Manager shim
- * instead of the FC group cache (L0006 -> JT[987] -> l17e2). jt579 reads the
- * player record back, then jt582's tail copies the position out of it. */
+/* jt951 (CODE 20 + 0xb88) — set OVERLAND play mode on the design header: clear
+ * the dungeon flag h[34], set the overland flag h[36], play-mode -27990 = 3. */
+static void jt951(void)
+{
+	unsigned char *h = (unsigned char *)g_a5_28006;
+
+	PROBE("jt951");
+	if (h != NULL) {
+		h[34] = 0;
+		h[36] = 1;
+	}
+	g_a5_27990 = 3;
+}
+
+/* jt952 (CODE 20 + 0xba2) — set DUNGEON play mode on the design header: set the
+ * dungeon flag h[34], clear h[36], play-mode -27990 = 4. */
+static void jt952(void)
+{
+	unsigned char *h = (unsigned char *)g_a5_28006;
+
+	PROBE("jt952");
+	if (h != NULL) {
+		h[34] = 1;
+		h[36] = 0;
+	}
+	g_a5_27990 = 4;
+}
+
+/* l03d2 (CODE 15 + 0x3d2) — reload the active member's DUNGEON body sprite
+ * (CBODYS) by composite index (-27932)[188]/[189]; the dungeon-side counterpart
+ * of jt56("CPIC", ...) (the overland portrait). The arg is ignored (Mac fp@8). */
+static void l03d2(short arg)
+{
+	unsigned char *m = (unsigned char *)g_a5_ptr(-27932);
+
+	PROBE("L03d2");
+	(void)arg;
+	if (m != NULL)
+		jt56("CBODYS", (short)m[188], (short)m[189]);
+}
+
+static void jt993(long handle, short idx);      /* CODE 5+0x20d0 — defined below */
+
+/* jt85 (CODE 6 + 0x6ada) — wall-group / palette manager. Caches the live group
+ * id in -13040; on a change it (re)loads the "frame" GLIB group into FC pool 1
+ * (jt997) and refreshes its palette (jt993(jt468(1))). L143e calls it after a
+ * load when the design's group byte h[58] differs from the pre-load value. The
+ * group name uses the port's working "FRAME" literal (Mac STRS+0x2732 "frame" —
+ * the FC lookup resolves the same FRAME.CTL); 0x2732 isn't in the port's curated
+ * STRS index, so the literal stands in. */
+static void jt85(short group)
+{
+	PROBE("jt85");
+	if (group == (short)g_a5_word(-13040) && group != 0)
+		return;
+	if ((short)g_a5_word(-13040) < 0)
+		jt997((short)(jt1200() == 3 ? 51 : 52), "FRAME", (short)1);
+	if (jt1163() != 0 || jt1200() == 0)
+		jt993(jt468((short)1), (short)0);
+	g_a5_word(-13040) = group;
+}
+
+/* L143e (CODE 15 + 0x143e) — open the picked slot for READ, run the load
+ * serializer (jt579), then the FAITHFUL post-load DUNGEON RESTORE: reload each
+ * member's portrait/body sprite, reload the GEO for the saved level (design
+ * header byte 19), set the play mode (dungeon jt952 / overland jt951 + jt214),
+ * and refresh the wall group/palette (jt85). This is the "reload the design/
+ * level from the save" chain that resumes a saved game. Port-adapted: opens the
+ * file directly through the File Manager shim instead of the Mac L0006/FC-cache
+ * opener. (Lifted from CODE15 0x143e..0x153c.) */
 static void l143e(const char *fn)
 {
-	unsigned char pstr[64];
-	short         ref;
+	unsigned char *h = (unsigned char *)g_a5_28006;
+	unsigned char  pstr[64];
+	short          ref;
+	short          saved_lv;
 
 	PROBE("L143e");
-	if (fn == NULL)
+	if (fn == NULL || h == NULL)
 		return;
+
+	g_a5_byte(-6924) = h[58];                  /* pre-load group/palette id  */
+	g_a5_byte(-22218) = g_a5_byte(-6923);      /* commit the picked slot      */
+	saved_lv = (short)h[19];                   /* pre-load level (Mac fp@-1)  */
+
 	str_c2p(pstr, fn);
 	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
 		return;
-	jt579(ref);                          /* read the slot file into the record */
+	jt579(ref);                                /* header -> -28006, pos, party */
 	(void)FSClose(ref);
+
+	/* Reload each member's portrait/body sprite. The Mac jt579 leaves -27932 at
+	 * the party head; the port's jt590 build leaves it at the LAST member, so
+	 * reset it here. m[147] < 128 = a normal member -> dungeon body (CBODYS);
+	 * else the overland portrait (CPIC). */
+	g_a5_long(-27932) = g_a5_long(-27928);
+	while (g_a5_long(-27932) != 0) {
+		unsigned char *m = (unsigned char *)g_a5_ptr(-27932);
+		if (m[147] < 128)
+			l03d2((short)1);                /* reads -27932 = m -> CBODYS */
+		else
+			jt56("CPIC", (short)m[181], (short)m[189]);
+		g_a5_long(-27932) = *(long *)(uintptr_t)m;   /* advance to .next */
+	}
+	g_a5_long(-27932) = g_a5_long(-27928);     /* Mac L14c2 — back to the head */
+
+	h = (unsigned char *)g_a5_28006;           /* jt579 rewrote the header */
+	if (g_a5_18485 != 0) {                      /* OVERLAND */
+		h[19]  = (unsigned char)saved_lv;
+		h[49]  = 0;
+		h[133] = 0;
+	} else {                                    /* DUNGEON: reload the level GEO */
+		jt198((short)h[19]);
+	}
+
+	if ((short)h[19] <= 4) {                     /* overland play setup */
+		jt951();
+		jt214();
+	} else {                                     /* dungeon play setup */
+		jt952();
+	}
+
+	if (g_a5_byte(-6924) != h[58])              /* group changed -> repaint walls */
+		jt85((short)h[58]);
 }
 
 /* jt582 (CODE 15 + 0x153e) — LOAD a saved game. Counterpart of jt585 (save).
