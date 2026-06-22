@@ -127,8 +127,18 @@ boot.c:28837):
    Mac `-27982` reload + whether play mutates the `.DSN`/GEO files.)
 4. **jt581/jt587** — lift the two CODE-15 stubs so the port can use the Mac's
    member-splice instead of the cg_pool rebuild.
-5. **A–J slot picker wiring** — replace port_save_game/load_game's hardcoded
-   slot A with the live jt585/jt582 pickers (needs `g_a5_-28006` populated).
+5. **A–J slot picker wiring** — PARTLY DONE / blocked on dialog input. Wiring the
+   Training-Hall Save (l1142) → `jt585` makes the faithful **"SAVE WHICH GAME
+   A B C D E F G H I J"** picker **render correctly** (jt585 + jt182 + the
+   command-bar DLItem slots all work, Hatari-verified). BUT no keypress completes
+   a pick — A–J / Return / arrows don't select a slot, no file is written, the
+   dialog stays up. So the structural picker is done; the gap is the **dialog
+   input/selection loop** (`l23b4` poll → `jt1085`/`l0088` event → `l25b6`
+   select): keypresses aren't routed into a slot pick. Reverted to slot-A
+   port_save_game until that's traced (don't ship a non-completing Save). jt585's
+   loop also has a test-scaffold `iter_guard` (8) + uses jt182's return as the
+   slot — likely both wrong vs the real DLItem-selection-in-a-global model.
+   NEXT SLICE: trace l23b4/l25b6's keypress→selection path.
 6. **jt159 Load-confirm + boot auto-load + design-select-on-load** — the camp
    Load "abandon game?" gate (boot.c:50949) + a boot path that auto-loads slot A,
    retiring `port_load_savgame`.
