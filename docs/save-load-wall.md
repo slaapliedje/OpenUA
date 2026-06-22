@@ -179,10 +179,21 @@ boot.c:28837):
    GOTCHA: L10ca clears the party *before* jt582 (faithful), so a Load with **no
    slot present** leaves an empty roster — only press Load when a save exists.
 
-7. **Faithful design-reload (lift the full L143e) → then retire port_load_savgame.**
-   INVESTIGATED 2026-06-22. The "design-reload" the boot auto-load needs is the
+7. ~~**Faithful design-reload (lift the full L143e)**~~ — **DONE 2026-06-22
+   (e160820), Hatari-verified.** The full Mac L143e post-load dungeon restore is
+   lifted (jt579 + jt56/l03d2 portraits + jt198(h[19]) GEO reload + jt952 dungeon
+   mode + jt85 palette), plus the 4 deps jt951/jt952/l03d2/jt85. Training-Hall
+   Save A → Load A runs it with no crash; Begin Adventuring resumes the dungeon
+   at the saved cell **10,8** with the member portrait painted. **NEXT: route the
+   boot auto-load through `l143e("SavGamA.csv")` to retire port_load_savgame** —
+   the foundation is now in place; the remaining work is the seed-point timing
+   (l143e fires jt198/jt952 at port_test_seed_design vs the existing jt127 GAME
+   header + g_savgame_loaded gating). Original recipe (now implemented) kept below
+   for reference.
+
+   The "design-reload" the boot auto-load needs is the
    **post-load dungeon restore inside the Mac `L143e`** (CODE15 0x143e), which the
-   port has as a bare `FSOpen+jt579` STUB (boot.c:30215). The faithful Mac L143e
+   port had as a bare `FSOpen+jt579` STUB. The faithful Mac L143e
    (disasm 0x143e–0x153c) does:
    ```
    -6924 = h[58]; -22218 = -6923; saved_lv = h[19];   // h = g_a5_-28006
