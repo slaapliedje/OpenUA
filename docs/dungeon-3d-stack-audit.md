@@ -18,7 +18,36 @@ card 1). Map LOAD is byte-perfect (docs/dungeon-view-wall.md 06-22b).
 
 ## The stand-ins / stubs / missing (THE CARD DECK, ranked)
 
-### Card 1 — CLUT: shared palette — STARTED 2026-06-22 (grounding experiment)
+### Card 1 — SOLVED 2026-06-22: the lost per-group palette REBASE (wood-vs-stone root)
+The "palette is an entanglement, not the bug" conclusion below was WRONG — it was
+reached without inspecting the actual wall art. Reading 8X8DB.CTL directly settled it:
+
+- Every wall set's item-0 palette declares **start=32, count=37** (`hdr[1]&1`,
+  `hdr[2..3]=32`). Tile bytes are DIRECT CLUT indices into a base-32 palette
+  (solid-wall pieces use bytes 34..61 — BEYOND the 37-entry palette, confirming
+  they index the installed CLUT, not the raw palette array).
+- HEIRS Wall1=set5 (STONE: pal is a grey ramp at 14..29), Wall2=set8 (WOOD: brown
+  ramp at 2..12), Wall3=set1 (=set5, stone). All three want CLUT 32..68 yet differ
+  over the SAME byte range — a flat palette physically cannot render both.
+- The Mac resolves this with the GLIB colour-range allocator (jt1069): stone sets
+  (ncopy=0) keep 32..68; wood sets (set8/set2 carry **ncopy=1** remap entries) are
+  RELOCATED to a free band and their pixels remapped. cw_finalize REPRODUCES that
+  relocation by banding the three slots at 32/64/96 (`g_cw_base`) — it is NOT a
+  fabrication. The missing half was the per-group pixel **rebase at blit time**.
+- BUG: `jt114` routed the wall blit through `l309c` (DIRECT, no rebase) instead of
+  the rebasing `l309c_tile`. So Wall2's wood tiles (bytes 34..41) hit CLUT 34..41 =
+  Wall1's band -> wood walls read Wall1's palette (an incoherent stone/brown mix).
+  Invisible at the start cell (mostly Wall1 = slot 0, base 32, where the rebase is
+  the identity) — it only shows when you move and Wall2/Wall3 faces appear. Matches
+  the user's "once you move east the view becomes whole".
+- FIX: route `jt114` -> `l309c_tile` (rebase `pixel = g_cw_base[slot] + (byte-32)`,
+  keyed by `g_cwf_slot` = the wall group). Start frame unchanged (slot-0 identity).
+  PROVEN on the real HEIRS bytes: OLD byte41->black, byte40->bright-brown (set5's
+  band, incoherent); NEW byte41->(143,115,59), byte40->(127,99,39) = set8's own
+  coherent WOOD ramp. (host sim in the commit log; live Hatari visual pending —
+  the load->dungeon path is blocked by the harness's relative-mouse drift.)
+
+### Card 1 (OLD, SUPERSEDED) — CLUT: shared palette — grounding experiment 2026-06-22
 Un-gated `l58c4` (`g_dungeon_bigpic_overlay=1`) and captured the standing frame.
 TWO findings:
 1. The HUD ROSTER PANEL went grey/blank — confirming the entanglement is the
