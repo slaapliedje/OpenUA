@@ -23,7 +23,7 @@ Two live entry points converge on the same CODE-15 core:
 | Fn | jumptable | Status | boot.c / asm | Role |
 |----|-----------|--------|--------------|------|
 | `jt585` | CODE15+0x1a24 | **LIFTED + Hatari-verified** (A–J pick → 10284B save) | 29955 | "Save Which Game" A–J picker; stamps position into player rec; `l00e0(fn,jt580)` |
-| `jt582` | CODE15+0x153e | **LIFTED** (L2) | 30091 | "Load Which Game" picker; dir-scan (jt990/jt991) → `l143e`→jt579 → restore position |
+| `jt582` | CODE15+0x153e | **LIFTED + Hatari-verified** (A–J pick → party restore) | 30091 | "Load Which Game" picker; flat-dir glob (jt990/jt991) → `l143e`→jt579 → restore position |
 | `jt580` | CODE15+0x182c | **LIFTED** (party block + design-state pad, asm L19ca) | 28806 | Write player rec + position/state + count + per-member + pad-to-10284 |
 | `jt579` | CODE15+0x124c | **LIFTED** | 28793 | Read mirror of jt580; rebuilds party `-27928` |
 | `jt578` | CODE15+0x0934 | **LIFTED** | 28936 | Write one 398-byte record + inventory items + container sub-items + spells |
@@ -161,9 +161,29 @@ boot.c:28837):
    the same root cause as the [[inventory-subsystem-next]] "rec[12] stale-ptr bus
    error"). The faithful jt579/jt577 load path already zeroes the slot, so it was
    never affected.
-6. **jt159 Load-confirm + boot auto-load + design-select-on-load** — the camp
-   Load "abandon game?" gate (boot.c:50949) + a boot path that auto-loads slot A,
-   retiring `port_load_savgame`.
+6. ~~**jt582 LOAD picker + jt159 load-confirm**~~ — **DONE 2026-06-22,
+   Hatari-verified.** Training-Hall **Load Saved Game** now runs the faithful
+   chain: jt159 **"Game not saved. Load anyway?"** confirm (when an unsaved game
+   exists) → clear party → **jt582 "LOAD WHICH GAME A…J" picker** → pick A →
+   l143e→jt579 reads the 10284B slot → the 6 HEIRS members restore. Three fixes:
+   (a) **menu-case routing** — the JT[3] table (CODE12 0xefc, decoded) maps case
+   8 = L10ca (the LOAD handler: jt159 + jt582) and case 11 = L120c (Exit); the
+   port's `k_jt918_menu_items` had "Load"/"Exit" at the wrong slots (8↔11), so
+   "Load Saved Game" reached L120c's slot-A stand-in. Swapped the two rows (the
+   `phrase` y-id travels with each label, so positions stay) — mirror of the
+   earlier 9/10 Save/Begin swap. (b) **flat-dir enumeration** — jt582 built the
+   Mac `<design>:SAVE` HFS path; the port stages saves flat, so it now globs
+   `SavGam*.csv` via case-insensitive Fsfirst (jt407 made case-insensitive,
+   slot-letter upper-cased). (c) **L120c made faithful** (Mac 0x120c: gated
+   jt159(-14284) + jt585) instead of the port_load_game load stand-in.
+   GOTCHA: L10ca clears the party *before* jt582 (faithful), so a Load with **no
+   slot present** leaves an empty roster — only press Load when a save exists.
+
+7. **boot auto-load + design-select-on-load** — a boot path that auto-loads
+   slot A (retiring `port_load_savgame`) + the camp Load "abandon game?" gate
+   (boot.c:50949) + design-select-on-load. The case-sensitivity of the *shipped*
+   `SAVGAMA.CSV` vs the port's `SavGamA.csv` is now handled in the picker, but a
+   cross-design save namespace (the shim flattens `<design>/SAVE/`) is still open.
 
 Related: [[inventory-subsystem-wall]] (the 398 B record's item serialization is
 the same format), [[party-model-migration]] (the `-27928` party list jt579

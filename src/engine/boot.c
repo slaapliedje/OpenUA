@@ -20933,18 +20933,21 @@ static const struct {
 	{ 0x5f50, 'A', 8004, 8059 },   /* 5  "Add Character"      */
 	{ 0x5f40, 'V', 8004, 8094 },   /* 6  "View Character"     */
 	{ 0x5f2c, 'H', 8004, 8087 },   /* 7  "Human Change Class" */
-	{ 0x5fa4, 'E', 8084, 8094 },   /* 8  "Exit From Play"     */
-	/* The install index IS the JT[3] dispatch case (jt453 returns it).
-	 * Save before Begin here so the index->case bodies line up with the
-	 * labels: case 9 (l1142) = disk save, case 10 (l115a) = play-entry.
-	 * Verified on the real Mac (BasiliskII, 2026-06-09): clicking "Save
-	 * Current Game" pops the A-J slot dialog (case 9 save); "Begin
-	 * Adventuring" enters the dungeon with no save (case 10 play). The
-	 * y-coords (phrase 8080 above 8087) keep Save drawn above Begin
-	 * on screen, matching the Mac. */
+	{ 0x5f70, 'L', 8084, 8073 },   /* 8  "Load Saved Game"  -> case 8  (l10ca jt582 load) */
+	/* The install index IS the JT[3] dispatch case (jt453 returns it), so the
+	 * label at array slot N must be the item case N's body handles. Two slots
+	 * are swapped vs. raw build order so the labels line up with their JT[3]
+	 * bodies (JT[3] table @ CODE12 0xefc, decoded): case 8 = L10ca = the LOAD
+	 * picker (JT[582] + the "Game not saved. Load anyway?" jt159), case 9 =
+	 * L1142 = disk save (JT[585]), case 10 = L115a = play-entry, case 11 =
+	 * L120c = Exit From Play. Verified on the real Mac (BasiliskII,
+	 * 2026-06-09) for Save/Begin; the Load<->Exit (8<->11) swap is the mirror
+	 * fix (2026-06-21) — clicking "Load Saved Game" now reaches L10ca's faithful
+	 * jt582 picker, not L120c's slot-A stand-in. Each entry carries its own
+	 * `phrase` y-id, so swapping the rows keeps every label drawn in place. */
 	{ 0x5f80, 'S', 8084, 8080 },   /* 9  "Save Current Game" -> case 9  (l1142 save) */
 	{ 0x5f92, 'B', 8084, 8087 },   /* 10 "Begin Adventuring" -> case 10 (l115a play) */
-	{ 0x5f70, 'L', 8084, 8073 },   /* 11 "Load Saved Game"    */
+	{ 0x5fa4, 'E', 8084, 8094 },   /* 11 "Exit From Play"    -> case 11 (l120c) */
 };
 
 /* L0aae — build the design-menu, walk the c79x flag cluster to
@@ -29038,6 +29041,7 @@ static signed char port_save_game(void)
 	jt419(fn, "csv", (short)1);
 	return l00e0(fn, (void *)jt580);
 }
+static signed char port_load_game(void) __attribute__((unused));
 static signed char port_load_game(void)
 {
 	char fn[44];
@@ -30184,14 +30188,20 @@ static void   jt585(void)
 /* jt407 (CODE 3 + 0x3c34) — filename prefix test used by the load picker:
  * non-zero when `name` begins with `prefix` (the "SavGam" save slots). The
  * exact Mac File-Manager string op is deferred; prefix-match is its
- * observable effect at this call site (JT[407](dirEntry, "SavGam")). */
+ * observable effect at this call site (JT[407](dirEntry, "SavGam")). Compared
+ * case-INSENSITIVELY: GEMDOS (and the staged shipped saves) may report the slot
+ * filename upper- or mixed-case, so a case-sensitive match would miss them. */
 static int jt407(const char *name, const char *prefix)
 {
 	PROBE("jt407");
 	if (name == NULL || prefix == NULL)
 		return 0;
 	while (*prefix != 0) {
-		if (*name++ != *prefix++)
+		unsigned char a = (unsigned char)*name++;
+		unsigned char b = (unsigned char)*prefix++;
+		if (a >= 'a' && a <= 'z') a = (unsigned char)(a - 32);
+		if (b >= 'a' && b <= 'z') b = (unsigned char)(b - 32);
+		if (a != b)
 			return 0;
 	}
 	return 1;
@@ -30276,10 +30286,14 @@ static void jt582(void)
 	if (l005a() == 0)
 		return;                          /* save disk missing */
 
-	path[0] = 0;
-	jt431(path, &g_a5_byte(-31336));
-	jt431(path, "SAVE");
-	jt990((short)0, path, ext, (short)1, (short)0);
+	/* Port: l00e0 collapses the Mac's <design>:SAVE HFS path so the slots are
+	 * staged FLAT in the gamedata root. Enumerate them with a GEMDOS glob
+	 * ("SavGam*.csv") instead of the Mac folder walk; Fsfirst matching is
+	 * case-insensitive, so this finds both the port's SavGam<X>.csv and a
+	 * shipped SAVGAM<X>.CSV. (The faithful Mac built path = -31336:SAVE here.) */
+	jt394(path, "%s*", "SavGam");
+	jt419(path, ext, (short)1);                  /* "SavGam*.csv" */
+	jt990((short)0, path, NULL, (short)1, (short)0);
 
 	for (entry = (void *)(uintptr_t)jt991(&is_dir); entry != NULL;
 	     entry = (void *)(uintptr_t)jt991(&is_dir)) {
@@ -30289,6 +30303,8 @@ static void jt582(void)
 		if (jt407(nm, "SavGam") == 0)
 			continue;
 		ch = (unsigned char)nm[6];
+		if (ch >= 'a' && ch <= 'z')              /* GEMDOS may upper/lower-case */
+			ch = (unsigned char)(ch - 32);
 		if (ch < 'A' || ch > 'J')
 			continue;
 		present[ch - 'A'] = 1;
@@ -50954,14 +50970,17 @@ static int l1060(short a)
 	return 0;
 }
 
-/* L10ca — case 8 (Exit From Play / proceed-to-adventure). CODE 12 + 0x10ca.
+/* L10ca — case 8 (Load Saved Game). CODE 12 + 0x10ca.
  *
- * "Exit From Play" with the design's quit/teardown. Its L112c path (taken when
- * arg a==0) is a return-1 begin-primitive (JT[942](1) then return 1), but l07dc
- * calls jt918(1) so a!=0 here -> the unload/JT[582] path -> return 0; this arm
- * does NOT begin in normal play. The faithful play-entry is case 10 (l115a),
- * which "Begin Adventuring" reaches; case 9 (l1142) is Save Game — JT[585].
- * (Runtime-verified on BasiliskII, 2026-06-09; see l1142's comment.)
+ * The faithful LOAD handler (the JT[3] table @ CODE12 0xefc maps case 8 here).
+ * When the menu arg a!=0 (l07dc calls jt918(1)) it runs the load path: an
+ * optional "Game not saved. Load anyway?" jt159 confirm (only when a current
+ * unsaved game exists: -27932 set, -27946 clear), then clears the live party
+ * (jt19 loop) and runs the JT[582] A-J slot picker + read; on a clean load
+ * (-27932 back to 0) it re-inits via L5124 and rolls the play-state bytes. The
+ * a==0 L112c path is the return-1 begin-primitive (JT[942](1)); l07dc passes
+ * a=1 so the load path is taken. Earlier mislabeled "Exit From Play" — the
+ * menu table now routes "Load Saved Game" to this case (see k_jt918_menu_items).
  *
  *   tstb a5@(-14432); beqw L1242
  *   tstl a5@(-27932); beqs L10f4
@@ -51113,20 +51132,17 @@ static int l120c(short a)
 	if (g_a5_14429 == 0)
 		return 0;
 	if (g_a5_27928 == 0)
-		return -1;
+		return -1;             /* L123e — no party: exit the hall */
 	if (g_a5_27946 != 0)
+		return -1;             /* L123e — already saved: exit the hall */
+	/* "Game not saved" gate (Mac 0x1224): jt159(-14284) confirm, abort the
+	 * exit (L123a) when it returns non-zero. -14284 is a design-state prompt
+	 * the port doesn't seed yet, so skip the modal when it's null (treat as
+	 * confirmed) and offer the save rather than aborting. */
+	if (g_a5_14284 != 0
+	    && jt159((const char *)(uintptr_t)g_a5_14284, (short)0) != 0)
 		return -1;
-	/* TODO (faithful): the "abandon current game?" jt159 confirm (prompt
-	 * g_a5_-14284). The port's design-load chain doesn't populate -14284
-	 * with the right Load prompt yet, and the Mac's gate sense aborts on a
-	 * YES, so the confirm is skipped until the design-state globals are
-	 * faithful. The load itself is the real work. */
-	/* Faithful jt579 deserialize from slot A (replaces jt585's load arm,
-	 * whose A-J picker is an incomplete level-2 lift). */
-	if (port_load_game() == 0)
-		cg_message("No saved game in slot A.",
-		           "Use Save Current Game first.");
-	g_a5_27946 = 0;
+	jt585();                       /* faithful: save before leaving play */
 	return 0;
 }
 
