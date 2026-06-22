@@ -51,11 +51,19 @@ but reverted because of the two blockers below.
 
 ## Blockers (must solve before wiring)
 
-1. **Pool timing.** The `-21508` node pool (`-21504` base ptr) is allocated by
-   `l311c` inside `l4cc0` — but `l4cc0` at boot (ua_main:~2011) leaves `-21504 = 0`
-   (verified). It's only allocated later, on the design-load path. So the rebuild
-   must be **deferred/lazy** (e.g. a done-flag guard, run once the pool exists —
-   first in-game sheet paint, or the play-entry).
+1. **Pool timing — ROOT CAUSE FOUND + FIXED (2026-06-22).** `l311c` inside
+   `l4cc0` *does* try to allocate the `-21508` pool (`NewPtr(640*62 = 39680)`),
+   but at 4MB it returns **0**: only ~28KB is free by then because `jt463`
+   (the FAR pool, `glib_pool_open` in `master_init`, BEFORE `l4cc0`) grabbed
+   `FreeMem() - 32K` = its full 768KB cap, leaving nothing for `l4cc0`'s
+   non-purgeable design buffers. The Mac got away with a 32K reserve because
+   ITS design buffers were purgeable Handles. **Fix:** `jt463` now reserves
+   256K (not 32K) so the post-pool design buffers fit; at 4MB the pool drops
+   to 620KB (still > the ~461KB dungeon peak) and `NewPtr(39680)` succeeds.
+   Verified: pool base non-zero, `jt579`/`jt577` deserialize the full 6-member
+   HEIRS party, dungeon + event picture render, no bus error. The lazy/deferred
+   rebuild is no longer needed — the pool is up by `l4cc0`. See
+   docs/play-entry-wall.md.
 2. **rec[12] routing.** `jt577` only builds rec[8] (inventory) + rec[4] (spells).
    The sheet reads rec[12] (equipped) + rec[20] (effects). Need to find how the
    Mac populates rec[12]/16/20 — likely a re-equip/categorise pass over rec[8] by

@@ -122,16 +122,30 @@ REVERTED. The common dependency for ALL faithful save-load work (header via
 card A, roster via card 2, the in-game `l143e`) is a robust `jt577`. That is
 the real unblocker.
 
-## Cards (re-ordered after the card-1 finding)
+## Card 0 (the jt577 unblocker) — DONE 2026-06-22
 
-0. **[UNBLOCKER]** Make `jt577` robust on the shipped Mac save — fix the
-   `jt477` pool-timing NULL-deref in the `rec[8]` inventory rebuild and the
-   `rec[12]/16/20` stale-ptr handling (the inventory subsystem,
-   docs/inventory-subsystem-wall.md). Gate for everything below.
-1. (A) Faithful play-entry resume via `l143e` (needs card 0).
-2. Faithful roster load via `jt579`/`jt577` replacing the scan (needs card 0).
-3. Faithful design-load separation (`jt356`/`jt361`, post-`l4cc0`) — the one
-   card NOT gated on `jt577`.
+The `jt577` bus error was NOT a deserialiser bug — it was the `-21508`
+item-node pool failing to allocate at 4MB. Root cause: `jt463` (the FAR pool,
+`glib_pool_open` in `master_init`, runs BEFORE `l4cc0`) sized itself as
+`FreeMem() - 32K` = its full 768KB cap, leaving only ~28KB for `l4cc0`'s
+non-purgeable design buffers, so `NewPtr(39680)` for the item pool returned 0
+and `jt477` handed `jt577` a NULL node. The Mac's 32K reserve worked because
+its design buffers were purgeable Handles. **Fix:** `jt463` reserves 256K
+(not 32K). Measured at 4MB: pool drops to 620KB (> the ~461KB dungeon peak),
+251KB free, item pool allocates, `jt579`/`jt577` deserialize all 6 HEIRS
+members, dungeon + event picture render, no crash. PROVEN that the faithful
+`jt579` roster load works once the pool exists (tested at play-entry with a
+header/position snapshot — reverted; it's card 2 below, which still needs the
+`rec[12]/16/20` work to avoid the sheet-paint crash).
+
+## Cards (re-ordered)
+
+1. (A) Faithful play-entry resume via `l143e` (now unblocked — needs the
+   header-timing care from the model finding, + the `rec[12]/16/20` work).
+2. Faithful roster load via `jt579`/`jt577` replacing the scan — works now,
+   but gate on the `rec[12]/16/20` re-equip pass (inventory wall blocker #2)
+   so the char sheet (`jt28(rec[12])`) doesn't bus-error on the stale ptr.
+3. Faithful design-load separation (`jt356`/`jt361`, post-`l4cc0`).
 4. Save-load as a menu action; retire the boot auto-load (direction B).
 5. Retire the synthetic roster seed.
 
