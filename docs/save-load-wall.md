@@ -138,7 +138,20 @@ boot.c:28837):
    port_save_game until that's traced (don't ship a non-completing Save). jt585's
    loop also has a test-scaffold `iter_guard` (8) + uses jt182's return as the
    slot — likely both wrong vs the real DLItem-selection-in-a-global model.
-   NEXT SLICE: trace l23b4/l25b6's keypress→selection path.
+   INPUT TRACE DONE (instrumented l2d3e): keys reach l2d3e CORRECTLY (s=115,
+   a=97, Return=13 — the earlier stray 73 was the IKBD-init glitch), and l2d3e
+   Phase 5 **matches the key to the slot DLItem** via `method(rec,5,key)` —
+   `'a'(97) → picker item 1` (slot A), `'s'(115) → Training-Hall item 9. So the
+   keyboard→accelerator MATCH works. The gap is the **selection-completion
+   model**: the match flows l2d3e (commit bit rec[28]&0x10 → return i) → l23b4 →
+   `l25b6`, and l25b6 maps the matched item to a **control CODE by dialog mode**
+   (g_a5_-13018: arms 1..8 → 0x81..0x88, +9 → space, mode-5 → ESC, mode-7/13 →
+   'S', …) — NOT a slot index. So jt585 using `jt182`'s raw return as `slot_idx`
+   + its `while slot < 10` loop is the model error (it never completes a pick).
+   NEXT SLICE (sharp): rewrite jt585's loop to the real model — drive jt182 until
+   l25b6 yields a confirmed slot (read the picked slot from the DLItem selection,
+   not jt182's coded return), drop the scaffold iter_guard, then l00e0(fn,jt580).
+   The picker structure + render + keyboard match are all proven working.
 6. **jt159 Load-confirm + boot auto-load + design-select-on-load** — the camp
    Load "abandon game?" gate (boot.c:50949) + a boot path that auto-loads slot A,
    retiring `port_load_savgame`.
