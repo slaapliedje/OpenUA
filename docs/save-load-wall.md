@@ -22,7 +22,7 @@ Two live entry points converge on the same CODE-15 core:
 
 | Fn | jumptable | Status | boot.c / asm | Role |
 |----|-----------|--------|--------------|------|
-| `jt585` | CODE15+0x1a24 | **LIFTED** (L2, picker live but boot-gated) | 29955 | "Save Which Game" A–J picker; stamps position into player rec; `l00e0(fn,jt580)` |
+| `jt585` | CODE15+0x1a24 | **LIFTED + Hatari-verified** (A–J pick → 10284B save) | 29955 | "Save Which Game" A–J picker; stamps position into player rec; `l00e0(fn,jt580)` |
 | `jt582` | CODE15+0x153e | **LIFTED** (L2) | 30091 | "Load Which Game" picker; dir-scan (jt990/jt991) → `l143e`→jt579 → restore position |
 | `jt580` | CODE15+0x182c | **LIFTED** (party block + design-state pad, asm L19ca) | 28806 | Write player rec + position/state + count + per-member + pad-to-10284 |
 | `jt579` | CODE15+0x124c | **LIFTED** | 28793 | Read mirror of jt580; rebuilds party `-27928` |
@@ -127,31 +127,40 @@ boot.c:28837):
    Mac `-27982` reload + whether play mutates the `.DSN`/GEO files.)
 4. **jt581/jt587** — lift the two CODE-15 stubs so the port can use the Mac's
    member-splice instead of the cg_pool rebuild.
-5. **A–J slot picker wiring** — PARTLY DONE / blocked on dialog input. Wiring the
-   Training-Hall Save (l1142) → `jt585` makes the faithful **"SAVE WHICH GAME
-   A B C D E F G H I J"** picker **render correctly** (jt585 + jt182 + the
-   command-bar DLItem slots all work, Hatari-verified). BUT no keypress completes
-   a pick — A–J / Return / arrows don't select a slot, no file is written, the
-   dialog stays up. So the structural picker is done; the gap is the **dialog
-   input/selection loop** (`l23b4` poll → `jt1085`/`l0088` event → `l25b6`
-   select): keypresses aren't routed into a slot pick. Reverted to slot-A
-   port_save_game until that's traced (don't ship a non-completing Save). jt585's
-   loop also has a test-scaffold `iter_guard` (8) + uses jt182's return as the
-   slot — likely both wrong vs the real DLItem-selection-in-a-global model.
-   INPUT TRACE DONE (instrumented l2d3e): keys reach l2d3e CORRECTLY (s=115,
-   a=97, Return=13 — the earlier stray 73 was the IKBD-init glitch), and l2d3e
-   Phase 5 **matches the key to the slot DLItem** via `method(rec,5,key)` —
-   `'a'(97) → picker item 1` (slot A), `'s'(115) → Training-Hall item 9. So the
-   keyboard→accelerator MATCH works. The gap is the **selection-completion
-   model**: the match flows l2d3e (commit bit rec[28]&0x10 → return i) → l23b4 →
-   `l25b6`, and l25b6 maps the matched item to a **control CODE by dialog mode**
-   (g_a5_-13018: arms 1..8 → 0x81..0x88, +9 → space, mode-5 → ESC, mode-7/13 →
-   'S', …) — NOT a slot index. So jt585 using `jt182`'s raw return as `slot_idx`
-   + its `while slot < 10` loop is the model error (it never completes a pick).
-   NEXT SLICE (sharp): rewrite jt585's loop to the real model — drive jt182 until
-   l25b6 yields a confirmed slot (read the picked slot from the DLItem selection,
-   not jt182's coded return), drop the scaffold iter_guard, then l00e0(fn,jt580).
-   The picker structure + render + keyboard match are all proven working.
+5. ~~**A–J slot picker wiring**~~ — **DONE 2026-06-21, Hatari-verified
+   end-to-end.** The Training-Hall Save (l1142) drives the faithful `jt585`
+   **"SAVE WHICH GAME A B C D E F G H I J"** picker; pressing **A** saves a
+   byte-faithful **10284-byte SavGamA.csv** (6 HEIRS members, all names present,
+   count word `0600`) and returns to the Hall.
+
+   ROOT CAUSE (corrects the prior "rewrite jt585's loop to the DLItem-selection
+   model" hypothesis — that was **wrong**). The Mac jt585 (CODE15 0x1a82–0x1ace)
+   uses `jt182()`'s return **directly** as the 0-based slot index, and the port's
+   jt585 already matched it — EXCEPT the loop-break test was **inverted**. Mac
+   `0x1a94 cmpiw #10; bcss` exits the loop on a *valid* pick `slot < 10`; the port
+   wrote `if (slot_idx >= 10) break;`, so a valid pick (0–9) never broke — the
+   modal just re-armed and waited for more input. Fix: `if (slot_idx < 10) break;`
+   + drop the scaffold `iter_guard` (the Mac loops unbounded; jt182/l23b4 block
+   each pass). The whole resolution chain was already correct and is proven by a
+   live trace: `jt179(9)` seeds `-24126[i*2]=i`; `l2184("A B …J")` fills the
+   accelerator codes (`-24126` = {0:'A'…9:'J'}); l23b4 blocks, returns the matched
+   item; **l25b6 mode = 9 → the fallback** reads the matched label char ('A'=65)
+   and returns slot **0**. (The earlier "l25b6 maps to a control code by mode" was
+   a *static inference* about modes 1/4/…; the save picker runs in mode 9 → the
+   accelerator fallback, which returns the slot index.) The picker prompt slots
+   `g_a5_-13776`="A B C D E F G H I J" / `-13904`="save which game: " are
+   DATA-pool-seeded and correct at boot.
+
+   SECONDARY FIX (newly exposed by the now-working save path): `port_load_savgame`
+   (the bring-up HEIRS loader) `memcpy`s each 398-byte record raw but does **not**
+   reconstruct the inventory/spell node lists, leaving stale Mac heap pointers in
+   the list-head fields (spell @4, inventory @8). jt578's faithful list walk
+   followed member 2's garbage head → bus error mid-save. Fixed by nulling
+   `dst+4`/`dst+8` after the memcpy (empty lists = the honest representation of
+   what the stand-in loads; also protects jt903 / the inventory screens — likely
+   the same root cause as the [[inventory-subsystem-next]] "rec[12] stale-ptr bus
+   error"). The faithful jt579/jt577 load path already zeroes the slot, so it was
+   never affected.
 6. **jt159 Load-confirm + boot auto-load + design-select-on-load** — the camp
    Load "abandon game?" gate (boot.c:50949) + a boot path that auto-loads slot A,
    retiring `port_load_savgame`.
