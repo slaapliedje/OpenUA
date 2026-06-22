@@ -121,7 +121,24 @@ pool is small enough that they can't coexist — i.e. at the Mac's ~450K.
    small for the port's NON-purgeable design buffers. Verified: 0 crash/OOM,
    item pool + dungeon + event all healthy at 4MB. (The real footprint reclaim
    is card 3 — the resident g_wallfile_buf BSS.)
-5. **Re-verify #129** + measure the footprint toward 1MB.
+5. ~~Re-verify #129 + soak~~ — DONE 2026-06-22, and the result is bigger than
+   a cross-check: **stage 4 RESOLVED #129's black 3D viewport.** Walking the
+   HEIRS dungeon past the intro event, the 3D view renders correctly — stone
+   walls in perspective, a wooden door ahead, the night sky + tiled floor,
+   the caravan scene sprite — and movement/rotation update it. Cell re-entry
+   (the old "event re-fire stomps the wall pool" hazard) no longer corrupts the
+   view. 0 OOM/crash across walk/turn/about-face/re-entry. This is exactly what
+   [[dungeon-3d-render-state]] predicted: the START frame was corrupted by
+   FAR-pool contention with the intro bigpic; the dispose/reload fixed it.
+   Measured footprint: FreeMem at boot 896KB → 1225KB (+329KB), pool 768K →
+   450K. The lazy g_wallfile_buf is LEFT in place (best-effort net) — deleting
+   it outright adds risk for no memory gain (already reclaimed).
+
+## STATUS: stage 4 substantially COMPLETE
+Cards 1-5 done. The purgeable dispose/reload is live and verified, the pool is
+Mac-sized, ~329KB reclaimed, and the dungeon 3D view renders. A future, broader
+multi-level/combat soak could justify deleting the lazy fallback entirely, but
+the core goal is met.
 
 CAVEAT to confirm in card 2: that `jt131`'s OLD-mode tracking (`-31234`) is
 faithfully maintained so `jt131(3)` from the dungeon sees old==0 and fires
