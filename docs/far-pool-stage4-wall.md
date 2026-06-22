@@ -103,8 +103,17 @@ pool is small enough that they can't coexist — i.e. at the Mac's ~450K.
    resolved). Pool comment at boot.c:1984 updated.
 3. **Retire `g_wallfile_buf`** (boot.c:2387, 327680 B) once #2 proves the
    faithful reload never falls back across HEIRS levels.
-4. **Shrink the `jt463` reserve** from 256K toward the Mac's 32K (re-measure;
-   a 450K pool frees ~170K vs the current 620K).
+4. ~~Shrink the `jt463` reserve~~ — DONE 2026-06-22: 256K → 160K, sized to the
+   MEASURED post-pool footprint (FreeMem 430KB→316KB across L4cc0+L4d98 = ~112KB,
+   ~128KB with the intro). NOTE — this does NOT reclaim 4MB memory: with the
+   450K cap (card 2) the CAP binds at 4MB (FreeMem−160K = 736K > 450K), so the
+   pool is 450K and ~446K is already free for the design buffers regardless of
+   the reserve. The reserve now only governs the LOW-memory floor; a tighter
+   value keeps the pool nearer 450K when FreeMem is low so the faithful wall
+   load still fits the pool (not the resident fallback). The Mac's 32K is too
+   small for the port's NON-purgeable design buffers. Verified: 0 crash/OOM,
+   item pool + dungeon + event all healthy at 4MB. (The real footprint reclaim
+   is card 3 — the resident g_wallfile_buf BSS.)
 5. **Re-verify #129** + measure the footprint toward 1MB.
 
 CAVEAT to confirm in card 2: that `jt131`'s OLD-mode tracking (`-31234`) is

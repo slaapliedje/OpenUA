@@ -47736,19 +47736,20 @@ static void jt463(short minkb, short maxkb)
 	/* Reserve before grabbing the FAR pool. The Mac left only 32K here
 	 * because the design buffers L4cc0/L4d98 allocate AFTER this (GEO 37888,
 	 * the 39680-byte item-node pool -21508, the -27920 save slot 10284,
-	 * ITEMS.DAT, ...) as PURGEABLE Handles — the Memory Manager carved them
-	 * out of the pool's space and purged under pressure. The port allocates
-	 * them as non-purgeable NewPtr (malloc), so the pool MUST leave real
-	 * headroom or NewPtr(39680) for the item pool fails (only ~28KB free) and
-	 * jt577 bus-errors on the first inventory node — jt477 returns NULL
-	 * (verified 2026-06-22; docs/play-entry-wall.md,
-	 * docs/inventory-subsystem-wall.md). At 4MB the post-pool design buffers
-	 * total ~110KB+; reserve 256K so they (and l4d98) fit while the pool
-	 * stays above the ~461KB dungeon peak (296KB walls + 165KB bigpic) —
-	 * measured at 4MB: 620KB pool, 251KB free, item pool + faithful jt577
-	 * roster load both succeed, dungeon + event picture render. At higher RAM
-	 * the reserve is negligible (want hits the maxbytes cap). */
-	want = (long)FreeMem() - (256L * 1024L);  /* JT[1026] freemem - design reserve */
+	 * ITEMS.DAT, ...) as PURGEABLE Handles the Memory Manager could carve out
+	 * of the pool and purge under pressure. The port allocates them as
+	 * non-purgeable NewPtr, so the pool must leave headroom for them or
+	 * NewPtr(39680) for the item pool fails and jt577 bus-errors on the first
+	 * inventory node (docs/play-entry-wall.md, docs/inventory-subsystem-wall.md).
+	 * Sized to the MEASURED post-pool footprint: FreeMem dropped from 430KB to
+	 * 316KB across L4cc0+L4d98 = ~112KB, ~128KB counting the intro before it;
+	 * reserve 160KB covers it with margin. Since the maxbytes cap is now the
+	 * Mac's 450K (stage 4 — the dungeon/event working set fits via the
+	 * dispose/reload), at 4MB the CAP binds (FreeMem-160K = 736K > 450K) and
+	 * this reserve only governs the low-memory floor; a tighter reserve keeps
+	 * the pool nearer 450K when FreeMem is low so the faithful wall load still
+	 * fits the pool instead of the resident fallback. */
+	want = (long)FreeMem() - (160L * 1024L);  /* JT[1026] freemem - design reserve */
 	if (want < minbytes)                      /* L0516 = max(minbytes, .) */
 		want = minbytes;
 	if (want > maxbytes)                      /* L04f4 = min(maxbytes, .) */
