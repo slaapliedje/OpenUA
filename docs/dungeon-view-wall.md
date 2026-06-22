@@ -1,5 +1,32 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## UPDATE 2026-06-22 — near-band FRONT sub-loops read the WRONG edge (FIXED)
+Line-by-line diff of L6234 (CODE_07.s) vs the port jt199 found two real diffs,
+both the same class: the near-band front sub-loops read the FACING edge where
+the asm reads the SIDE edge.
+- boot.c:10991 (front-left, L66f2 @ asm 0x66f4): asm pushes fp@(-1)=`left` as
+  the l5e52 dir; the C read `facing`. FIXED → `l5e52(wa,wb,left)`.
+- boot.c:11003 (front-right, L67e2 @ asm 0x67e4): asm pushes fp@(-2)=`right`;
+  the C read `facing`. FIXED → `l5e52(wa,wb,right)`.
+These loops sweep out to the viewport edges; reading the FACING edge picked up
+the far-center door's wall code and emitted it at the edge screen-X (door
+duplicated to X≈8/96 + a spurious slot). RESULT: slot count 17 → 16 (matches
+the Mac's standing-frame count), the spurious front slot gone. Verified via the
+FRUA_SKIP_ENTRY_EVENTS J200DIFF dump at row=10,col=8,facing=2. Every other
+sub-loop, all -122xx layout offsets, seeds, soff, gates, prev/carry, and the
+recede are faithful (agent-verified against the asm).
+
+REMAINING (separate bug): the far-center door (J200DIFF slot #10) still lands at
+top=8004 (X=8) with code=10 → group 1 (wood set8), where the Mac's door is
+code=5 → group 0 (stone set5) and centered. The mid/far bands match the asm, so
+this is upstream: either a wrong cell read one group too high (the "corridor
+should be all stone = set5" symptom) or the wood-vs-stone set/CLUT mapping —
+NOT the walk structure. Cell (10,10) itself matches the Mac (11/0/11/13), so the
+core map load is right. Next: trace which cell the mid-left depth-0 read hits
+and why its nibble folds to group 1.
+
+
+
 ## UPDATE 2026-06-19d — the real render is NON-DEEP; deep-mode transform is DEAD
 Chased the "puzzle pieces" scatter into the transform layer and found the
 years-long confusion: **the live dungeon view renders with jt1200() != 3**, so

@@ -10985,10 +10985,16 @@ static void jt199(unsigned char *page, short Y, short X, short row,
 				wa = (short)(wa + JT199_STEP_A(right));
 				wb = (short)(wb + JT199_STEP_B(right));
 			}
-			/* LEFT front sub-loop (L66f2): sweep `left`, depth 0..2 */
+			/* LEFT front sub-loop (L66f2): sweep `left`, depth 0..2.
+			 * Reads the cell's LEFT edge (asm L66f4 pushes fp@(-1)=left as
+			 * the l5e52 dir), NOT the facing edge — these are the angled
+			 * side-face tiles, normally open along a straight corridor. The
+			 * earlier `facing` read picked up the far-center door's wall code
+			 * and emitted it at this loop's edge screen-X (door duplicated to
+			 * the viewport edges + a spurious slot). */
 			wa = orA; wb = orB; soff = 0;
 			for (depth = 0; depth < 3; depth++) {
-				w = l5e52(wa, wb, facing);
+				w = l5e52(wa, wb, left);
 				if (w != 0)
 					l5b42(page, Y, X,
 					      (short)(g_a5_word(-12238) + soff - (depth ? 1 : 0)),
@@ -10997,10 +11003,13 @@ static void jt199(unsigned char *page, short Y, short X, short row,
 				wa = (short)(wa + JT199_STEP_A(left));
 				wb = (short)(wb + JT199_STEP_B(left));
 			}
-			/* RIGHT front sub-loop (L67e2): sweep `right`, depth 0..2 */
+			/* RIGHT front sub-loop (L67e2): sweep `right`, depth 0..2.
+			 * Reads the cell's RIGHT edge (asm L67e4 pushes fp@(-2)=right as
+			 * the l5e52 dir), NOT the facing edge — same fix as the left
+			 * front loop above (L66f2). */
 			wa = orA; wb = orB; soff = 0;
 			for (depth = 0; depth < 3; depth++) {
-				w = l5e52(wa, wb, facing);
+				w = l5e52(wa, wb, right);
 				if (w != 0)
 					l5b42(page, Y, X,
 					      (short)(g_a5_word(-12236) + soff + (depth ? 1 : 0)),
