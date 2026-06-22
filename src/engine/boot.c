@@ -8725,13 +8725,16 @@ void boot_a5_seed_defaults(void)
 	 * side xdelta -12202=4 -> ((8016+4*4)-8012)<<2+8 = x 88). This is what
 	 * unblocks the faithful jt199 pixel render. */
 	{
-		static const short layout[22] = {
-			5, 4, 6, 4, 2, 7, 2, 0,  9, 5, 4, 3, 3, 3, 1, 1,
-			1, 0, 0, 4, 0, 0
-		};
-		short k;
-		for (k = 0; k < 22; k++)
-			g_a5_word(-12240 + k * 2) = layout[k];
+		/* #129 card 2 (stack audit): the dungeon-view slot-layout deltas
+		 * -12240..-12198 that jt199/l5b42 read are loaded FAITHFULLY by
+		 * data_pool_replay from the DATA segment — verified 2026-06-22 to be
+		 * 5,4,6,4,2,7,2,0,9,5,4,3,3,3,1,1,1,0,0,4,0,0, byte-identical to the
+		 * old hardcoded override that masked them. (The earlier "DATA held
+		 * off-screen 175/516" claim was wrong; no launch-time writer touches
+		 * these, the disasm has no movew to -12240..-12202.) The redundant
+		 * override is retired — the layout is a faithful DATA load, NOT a
+		 * stand-in, so it is ruled OUT as the 3D-view bug (the door's edge
+		 * `top` is the faithful placement). See docs/dungeon-3d-stack-audit.md. */
 	}
 
 	/* DLItem pool base. jt447 (dialog reset) copies g_a5_9286 →
