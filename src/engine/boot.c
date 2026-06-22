@@ -10640,32 +10640,38 @@ static int load_cw_full(short file, short set)
 }
 
 /* JT[114] (CODE 6 + 0x3804) — blit wall tile `idx` from a wall-set tile
- * library. FAITHFUL: the Mac forwards JT[114] -> JT[1001] (L31ac) ->
- * jt468(*handle) + L309c(top,left,glib,idx). The port's binder-model
- * jt200_layer already resolves the set sub-GLIB (l37aa(jt468(binder[0]),set)),
- * so jt114 calls the faithful l309c leaf straight: jt1135 coord scale + the
- * metric bearing + l2d4e, which writes the RAW tile byte as a DIRECT CLUT index
- * (255 = transparent) — exactly the Mac L309c->L2d4e model, NO band-rebase.
- * (The per-set CLUT band-rebase the old stand-in did lives only in l309c_tile,
- * now used by the item-portrait blits, not the walls.) */
+ * library. The Mac forwards JT[114] -> JT[1001] (L31ac) -> jt468(*handle) +
+ * L309c(top,left,glib,idx); L309c->L2d4e writes the tile byte as a CLUT index.
+ *
+ * WALL-COLOUR REMAP (the wood-vs-stone root, #129). The tile bytes are NOT
+ * indices into a flat shared palette — they are authored against each set's own
+ * 37-entry palette installed at CLUT base 32 (verified from 8X8DB.CTL: every
+ * set's item-0 header declares start=32,count=37; solid-wall pieces use bytes
+ * 34..61, i.e. direct CLUT indices into a base-32 palette). A level mixes three
+ * sets (HEIRS Wall1=set5 stone, Wall2=set8 WOOD, Wall3=set1 stone) whose
+ * palettes ALL want 32..68 yet differ over the SAME byte range. The Mac resolves
+ * this with the GLIB colour-range allocator (jt1069): the stone sets (ncopy=0)
+ * keep 32..68, the wood sets (ncopy=1 remap entry) are RELOCATED to a free band
+ * and their pixels remapped to it. cw_finalize reproduces that relocation by
+ * banding the three sets at 32/64/96; the missing half was the per-group pixel
+ * remap at blit time, so the wood set was reading the stone band -> wood walls
+ * rendered as stone. l309c_tile applies that remap (off = byte-32; pixel =
+ * g_cw_base[slot] + off), keyed by g_cwf_slot (= the wall group, set by
+ * jt200_layer). Route the wall blit through it. For slot 0 (base 32) the remap
+ * is the identity (32+off == byte), so the Mac-trace-validated near band is
+ * unchanged; only Wall2/Wall3 move to their own bands. */
 static void jt114(unsigned char *page, short top, short left, short idx,
                   long handle)
 {
 	PROBE("jt114");
-	(void)page;
-	/* FAITHFUL (CODE 6 L3804): jt114 pushes its two position args to JT[1001]
-	 * in SWAPPED order -- the stack layout puts fp@(10) first, so the call is
-	 * jt1001(left, top, *handle, idx). jt1001 (CODE 5 L31ac) forwards straight
-	 * to L309c(left, top, ...), whose arg1 (-= ybear) is the screen Y and arg2
-	 * (-= xbear) the screen X. So `left` drives Y and `top` drives X.
-	 *
-	 * The 3D-view caller (jt200) depends on this swap: jt200's fp@8 ("top") is
-	 * the WIDE frustum anchor that must land on screen X, and fp@10 ("left") the
-	 * narrow one on Y. Calling l309c(top,left) un-swapped put the narrow anchor
-	 * on X, collapsing every wall slot into the left half of the 88px hole.
-	 * (jt118 takes the NON-swapped jt1001 path -- see there.) */
+	/* COORD SWAP (CODE 6 L3804): jt114 pushes its two position args to JT[1001]
+	 * in SWAPPED order -- fp@(10) first -- so the leaf sees (left, top): `left`
+	 * drives screen Y and `top` drives screen X. jt200's fp@8 ("top") is the WIDE
+	 * frustum anchor that must land on X, fp@10 ("left") the narrow one on Y.
+	 * l309c_tile(page, a, b) does jt1135(a,b) -> sy from a, sx from b, so passing
+	 * (left, top) keeps the same swap as the old l309c(left, top). */
 	if (handle != 0)
-		l309c(left, top, handle, idx);
+		l309c_tile(page, left, top, handle, idx);
 }
 
 /* jt200_layer — draw one wall-tile layer for jt200. FAITHFUL path: blit tile
