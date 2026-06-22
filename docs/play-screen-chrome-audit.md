@@ -62,8 +62,58 @@ Not yet located. Two candidates to chase next:
 - `jt77` is a faithful lift but **unused**; wiring it in draws the viewport+HUD
   panels (redundant with `jt76`), NOT the command bar — so it doesn't fix this.
 
+## RESOLVED (the runtime trace): the bar IS FRAME piece 4, drawn faithfully
+
+Instrumented `l2d4e` (probe build, then a quiet build with unconditional logs)
+and drove HEIRS → Begin Adventuring → the caravan event in Hatari. Findings,
+all from the live engine + an independent offline PackBits decode that **agrees
+byte-for-byte**:
+
+- The command-bar background **is FRAME piece 4** (`jt1001(8000,8000,1,4)`).
+  hlib_extract mis-prints it as "16×1154"; the **game header split** is
+  `height=16, ybear=-184, xbear=0, bpp_w=0x28=40 (=320px), mode=0xc2` (raw bytes
+  `0010 ff48 0000 28c2`). So it's a **320-wide × 16-tall PackBits piece** landing
+  at **y=184** (`0 - ybear`). Confirmed by `DBGbar`: `h=16 y=184 mode=2`, **no
+  clip-reject**, drawn ~6×/frame (jt76 unclipped + l162e clipped 8093→y186).
+- Piece 4 is a **beveled molding, NOT a flat plate** — per-row centre pixel
+  (CLUT index): row0=17, row1=18, rows2–15 = 24/29/30/31. i.e. **2px light
+  highlight (9f9b9b/939393) on top, 14px dark stone (473f3b…1b1b27) below**.
+  The prompt text sits at **y189 = row 5 = dark stone**.
+- The whole prompt path was traced and **nothing fills a mid-stone bar** over
+  piece 4: `l6048 → jt108(1) → l162e(→ piece 4 only) → jt94(text) → l2062(just
+  sets dirty flags -12911/-12912) → jt447 → jt452(Return button) → jt449(paints
+  DLItems only) → jt117`. `jt76`/`jt77`/`jt78` likewise only draw piece 4 + the
+  panel boxes. So the port is **faithful to the Mac draw sequence**.
+
+## So why is the Mac bar lighter? → CLUT state, not a missing draw
+
+Reference crops, sampled:
+- **Mac** `press_return_to_continue.png`: bar = mottled **mid stone** (RGB
+  ~105–143; FRAME indices ~18–26).
+- **Port** `port_press_return_to_continue.png`: bar = **dark stone** (RGB
+  ~24–107; FRAME indices ~24–31) — i.e. piece 4's dark body under the standard
+  FRAME palette that `port_draw_play_frame` reinstalls into CLUT 16..31.
+
+Same piece-4 data (it's the Mac's own FRAME.CTL), faithfully decoded — so the
+only variable is **what CLUT 16..31 holds when piece 4 is drawn**. The port
+forces the standard (dark-tailed) FRAME palette there (the [[resource-manager-bigpic-pickup]]
+Bug-A reinstall). The Mac evidently has lighter/warmer values at 24..31 during
+the merchant event (likely the event-picture palette tinting the frame band,
+which is exactly the CLUT 16..31 contention from event-pictures Bug A).
+
+**Decision (per the project CLUT rule — don't touch the CLUT without
+confirming):** need the Mac's actual **CLUT 16..31** (and ideally the list of
+draws touching y184..199) **at the "Press Return to continue" prompt**. That
+pins whether the Mac frame band is lighter there (event-picture tint) or whether
+the port's content-window light-grey (RGB 189, *above* the FRAME range) is the
+real artifact. A BasiliskII `m`/CLUT dump at the prompt settles it.
+
+Debug instrumentation used (then reverted): `l2d4e` `DBGbar`/`DBGseq`/`DBGrow`
+logs gated on `bpp_w==40` / `height==16`; build quiet (no `ENGINE_PROBE`) so the
+stub firehose doesn't drown the log or stall the boot.
+
 ## Status
-The prompt **text** (position + colour) is fixed + committed (4c70719). The grey
-command-bar **plate** is unresolved — it's a play-screen-chrome stand-in gap
-(`port_draw_play_frame`), and the plate's faithful source is one of the two
-candidates above. This wants a focused trace, not more guessing.
+Prompt **text** (position + colour) fixed + committed (4c70719). Command-bar
+**background**: root-caused to piece 4's faithful dark-body molding under the
+standard FRAME CLUT 16..31 — **not** a missing plate or a chrome stand-in gap.
+Final fix is a CLUT-state reconciliation pending the Mac capture above.
