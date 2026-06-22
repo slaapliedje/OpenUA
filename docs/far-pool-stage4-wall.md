@@ -55,7 +55,61 @@ caller-driven `jt465(key)` (remove+compact a named group); the port never makes
 that call when transitioning dungeon→event or event→dungeon. The three
 stand-ins above exist *instead* of that call.
 
-## The faithful mechanism
+## CARD 1 RESULT (2026-06-22) — the dispose is ALREADY lifted; stage 4 is mostly verification
+
+Traced the Mac and the port. The "missing dispose orchestration" was a wrong
+premise — it is already present and wired:
+
+- **Dispose primitive:** `jt461(tag)` = `g_a5_10074[tag] = 0xFF` (clear the
+  freemap entry → unbind → the group becomes the ORPHAN `l11ca` reclaims).
+  boot.c:4519-ish. LIFTED.
+- **Release a binder:** `jt115(slot)` → `jt461(*slot's group)` + clear slot.
+  boot.c:4583. LIFTED.
+- **Release the 3 wall binders** `-27894[0..2]`: `jt209`. LIFTED.
+- **The orchestration:** `jt131` (= `l035e` = JT[131], the mode-transition
+  setter, boot.c:4711) switches on the OLD mode being left: **case 0 (leaving
+  the dungeon 3D view) → `jt209(0)` + `jt204()`**; entering mode 4 → `jt209`.
+  Verified against Mac CODE_06.s `l035e` @0x035e (case 0 → JT[209]@0x0390 +
+  JT[204]@0x0396; mode-4 entry → JT[209]@0x03b8). The port's jt131 is faithful.
+- **The trigger:** `l579e` (bigpic loader) calls `jt131(3)` at entry — so
+  loading an event bigpic from the dungeon view (old mode 0) fires `jt209` and
+  releases the walls before the bigpic loads.
+- **Reload-on-demand:** `cw_wallfile_load` (boot.c:2409) reloads via `l33ac`
+  when `jt468(group)==0` (purged). WIRED.
+
+**And the faithful wall→pool load now WORKS at 4MB** (post the 11fdbdf reserve
+fix): instrumented `cw_wallfile_load` and it logs `FAITHFUL pool load`
+(group base non-zero), NOT the resident `g_wallfile_buf` fallback. The reserve
+fix didn't just fix the item pool — it freed enough memory that the walls load
+into the FC pool. So the whole load→dispose→reload chain is live.
+
+**Why the dispose isn't EXERCISED yet:** at the current 620KB pool (4MB, after
+the reserve fix), walls (~296K) + bigpic (~165K) = ~461K both fit (< 620K), so
+`l11ca` never needs to reclaim. The dispose machinery only *bites* once the
+pool is small enough that they can't coexist — i.e. at the Mac's ~450K.
+
+### Re-scoped cards (the work is verification + shrinking, not new lifts)
+
+1. ~~Find the Mac dispose site~~ — DONE (jt131/jt209/jt461, all lifted +
+   faithful; faithful wall-pool load confirmed at 4MB).
+2. **Shrink the pool** toward the Mac's 450K (`master_init(...,214,450)`) so
+   walls + bigpic can't coexist and the dispose actually fires. Verify with
+   HEIRS: enter dungeon (walls in pool), trigger the intro event (bigpic loads
+   → `jt209` disposed the walls → `l11ca` reclaimed), walk back to the 3D view
+   (`cw_wallfile_load` reloads the walls). Watch the `"glib: Out of FAR
+   memory!"` log — it must NOT fire.
+3. **Retire `g_wallfile_buf`** (boot.c:2387, 327680 B) once #2 proves the
+   faithful reload never falls back across HEIRS levels.
+4. **Shrink the `jt463` reserve** from 256K toward the Mac's 32K (re-measure;
+   a 450K pool frees ~170K vs the current 620K).
+5. **Re-verify #129** + measure the footprint toward 1MB.
+
+CAVEAT to confirm in card 2: that `jt131`'s OLD-mode tracking (`-31234`) is
+faithfully maintained so `jt131(3)` from the dungeon sees old==0 and fires
+`jt209`. If the port's mode bookkeeping is off, the dispose won't trigger even
+though it's wired.
+
+## The faithful mechanism (original scoping — superseded by the card-1 result above)
 
 1. Entering an event that shows a bigpic, the dungeon view is fully covered, so
    the wall groups are not blitted. The Mac DISPOSES them (`jt465` on the wall
