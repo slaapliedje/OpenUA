@@ -32,7 +32,17 @@ card 1). Map LOAD is byte-perfect (docs/dungeon-view-wall.md 06-22b).
   the GLIB allocator), retire cw_finalize's bands, un-gate `l58c4`. This is the
   wood-vs-stone / wrong-colour root.
 
-### Card 2 — Layout globals: lift the faithful writer (the MISSING function)
+### Card 2 — Layout globals — DONE 2026-06-22: it was already FAITHFUL
+RESOLVED: there is NO faithful "writer" — the disasm has zero `movew` to
+-12240..-12202; the globals are DATA-segment initialized. Dumped what
+data_pool_replay loads pre-override: `5,4,6,4,2,7,2,0,9,5,4,3,3,3,1,1,1,0,0,4,0,0`
+— byte-identical to the hardcoded override. So the layout was loaded faithfully
+all along; the override was a REDUNDANT stand-in (and the "DATA held off-screen
+175/516" claim was wrong). Retired the override (boot.c:8728). **Layout is ruled
+OUT as the 3D bug — the door's edge `top` is the faithful placement.** This
+narrows the bug to Card 1 (CLUT) / Card 3 (orchestrator) / Card 4 (3-pass).
+
+### Card 2 (original) — Layout globals: lift the faithful writer (the MISSING function)
 - `-12240..-12198` (22 words) seeded at **boot.c:8728** from a HARDCODED
   `static const short layout[22]` pasted from a live mon capture. The faithful
   launch-time writer that the Mac runs to populate these is **NOT LIFTED**
