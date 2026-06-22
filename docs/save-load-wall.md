@@ -37,7 +37,7 @@ Two live entry points converge on the same CODE-15 core:
 | `l005a` | CODE15+0x005a | **LIFTED** (always true) | ~28685 | Mac "insert save disk" — HD always present |
 | `jt412` | CODE3+0x3888 | **LIFTED** | 42265 | GetFPos/tell — used by the design-state pad math (asm only today) |
 | `jt581` | CODE15+0x1c76 | **LIFTED** | 23174 | `jt147(&head);jt147(&tail)` list-splice (Mac jt579 uses it) |
-| `jt587` | CODE15+0x08e8 | **STUB** (deps now lifted; pending caller-arg review) | 23176 | jt399(rec,398,0) + JT[3] on -22733 (case 1 → `l08ba_c15`) + jt21 + jt910. All deps lifted. Open: a caller passes a record where L08ba wants a filename — confirm `-22733`'s value at that caller before lifting |
+| `jt587` | CODE15+0x08e8 | **STUB — keep (port reimplemented)** | 23176 | Mac: jt399(dest,398,0) + (if -22733==1) `l08ba_c15(name,dest)` + jt21 + jt910 — a file-based "reset+reload a party slot from its .cch". The port replaced this with the in-memory jt590/cg_pool party splice (boot.c:27872), so the lone caller's `jt587(fresh_slot, matched)` is **vestigial** — faithfully lifting it would zero `matched` + open a record as a filename. Do NOT lift; the jt477/jt165/jt587 trio is dead next to jt590 |
 | `l08ba_c15` | CODE15+0x08ba | **LIFTED** | 29412 | Load a `.cch` named `name` into `rec` (jt384 + l_cch_read; replaces Mac L0006). jt587's case-1 loader |
 | `port_save_game`/`port_load_game` | — | **STAND-IN driver** | 28892/28900 | Bypass picker; drive jt580/jt579 over fixed slot A |
 | `port_load_savgame` | — | **STAND-IN** | 15810 | Non-faithful BasiliskII `SAVGAMA.CSV` party scanner (bring-up roster) |
