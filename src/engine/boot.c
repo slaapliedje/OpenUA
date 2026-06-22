@@ -31093,10 +31093,10 @@ static unsigned char l2ebc(long str, long bar, short c, short d)
  * JT[3] dense table; the inline format is
  *     .short n, default_off, (value, offset)*n
  * (each offset PC-relative to its own slot; jt3_extract mis-decodes
- * these).  Pairs here: ESC(27) -> cancel-key, CR(13)/0x84 -> cycle
- * forward through the -27928 party list (wrap to head), 0x85/0x88 ->
- * cycle backward (predecessor scan; wrap to tail), 0x87 -> keep,
- * default -> clear the pick when `f1` is set.  Loop exits when the
+ * these).  Pairs here (jt1_extract @0x5a94): ESC(27) -> exit (clear pick
+ * if f1), CR(13) -> confirm/exit, 0x84/0x85 -> cycle forward through the
+ * -27928 party list (wrap to head), 0x88/0x87 -> cycle backward
+ * (predecessor scan; wrap to tail), default -> no change.  Loop exits when the
  * jt163 key class is < 2 or == 27.  The chosen record lands back in
  * *target.  -22226/-22268 are saved/restored around the loop;
  * -24148/-24146 stage the active combatant for the backward arm
@@ -31142,18 +31142,28 @@ static void jt888(long str_l, short f1, short f2, long *target)
 		                           (short)1, (short)ctr);
 		cur = jt162();
 		if (g_a5_byte(-24139) != 0) {
-			switch (key) {          /* JT[1] sparse table @0x5a94 */
-			case 27:                /* ESC -> cancel-key */
-				key = 0;
+			/* JT[1] sparse table @0x5a94 (re-decoded with
+			 * tools/jt1_extract.py: 27->L5ab0, 13->L5ac0,
+			 * {0x84,0x85}->L5ac8 next, {0x88,0x87}->L5ae2 prev,
+			 * default->L5b56. The prior hand decode shifted the arms one
+			 * pair over — arrow keys cycled the wrong way and CR cycled
+			 * instead of confirming). */
+			switch (key) {
+			case 27:                /* L5ab0: ESC — loop exits (key==27) */
+				if ((unsigned char)f1 != 0)
+					cur = 0;
 				break;
-			case 13:                /* CR / 0x84 -> next member */
-			case 0x84:
+			case 13:                /* L5ac0: CR — confirm (clear key -> exit) */
+				key = 0;        /* fp@(-3): the loop-exit flag (== key) */
+				break;
+			case 0x84:              /* L5ac8: next member (wrap to head) */
+			case 0x85:
 				cur = *(long *)(uintptr_t)cur;
 				if (cur == 0)
 					cur = g_a5_long(-27928);
 				break;
-			case 0x85:              /* 0x85 / 0x88 -> previous */
-			case 0x88:
+			case 0x88:              /* L5ae2: previous member (wrap to tail) */
+			case 0x87:
 				if (g_a5_byte(-22225) != 0) {
 					cur = (g_a5_byte(-24148) != 0)
 					    ? g_a5_long(-24146)
@@ -31171,11 +31181,7 @@ static void jt888(long str_l, short f1, short f2, long *target)
 					}
 				}
 				break;
-			case 0x87:              /* keep the pick */
-				break;
-			default:                /* anything else */
-				if ((unsigned char)f1 != 0)
-					cur = 0;
+			default:                /* L5b56: no change */
 				break;
 			}
 		} else {
@@ -34743,30 +34749,33 @@ static void jt732(long rec_l, long node, short flag)
 	if (nd[4] == 0)
 		goto out;
 	dmg = (short)rec[129];
-	buf[0] = '\0';		/* type 96: Mac leaves the name garbage */
-	switch (nd[0]) {	/* JT[1] sparse table at 0x3a70 */
-	case 83:		/* cold */
+	buf[0] = '\0';		/* default: the no-element arm leaves the name empty */
+	/* JT[1] sparse table at 0x3a70 (re-decoded with tools/jt1_extract.py — the
+	 * prior hand decode rotated the arms: 83/84->L3a84 fire, 85->L3acc cold,
+	 * 96->L3af0 acid, default->L3b12 none). */
+	switch (nd[0]) {
+	case 83:		/* L3a84: fire — 83 additionally rolls extra dmg */
+	case 84:		/* L3a84: fire */
+		g_a5_word(-25266) = 33;
+		mode = 3;
+		range = 9;
+		jt384(buf, ua_strs_at(0x560e) /* "Fire" */);
+		if (nd[0] == 83)	/* L3aa6: 83 -> dmg = jt873(24,10)+12 */
+			dmg = (short)(jt873(24, 10) + 12);
+		break;
+	case 85:		/* L3acc: cold */
 		g_a5_word(-25266) = 34;
 		mode = 3;
 		range = 7;
 		jt384(buf, ua_strs_at(0x5614) /* "cold" */);
 		break;
-	case 85:		/* acid */
+	case 96:		/* L3af0: acid */
 		g_a5_word(-25266) = 32;
 		mode = 1;
 		range = 6;
 		jt384(buf, ua_strs_at(0x561a) /* "acid" */);
 		break;
-	case 96:		/* no element setup (quirk above) */
-		break;
-	case 84:
-	default:		/* fire */
-		g_a5_word(-25266) = 33;
-		mode = 3;
-		range = 9;
-		jt384(buf, ua_strs_at(0x560e) /* "Fire" */);
-		if (nd[0] == 83)	/* dead: 83 goes to the cold arm */
-			dmg = (short)(jt873(24, 10) + 12);
+	default:		/* L3b12: no element setup */
 		break;
 	}
 	bx = jt525(rec_l);
