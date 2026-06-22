@@ -101,8 +101,15 @@ pool is small enough that they can't coexist — i.e. at the Mac's ~450K.
    3D viewport is the pre-existing wall-decode issue #129, identical at 620K).
    The `jt131` old-mode (`-31234`) bookkeeping is faithful (the caveat is
    resolved). Pool comment at boot.c:1984 updated.
-3. **Retire `g_wallfile_buf`** (boot.c:2387, 327680 B) once #2 proves the
-   faithful reload never falls back across HEIRS levels.
+3. ~~Retire `g_wallfile_buf`~~ — DONE 2026-06-22. Converted the 327680-byte
+   resident fallback from a static BSS array to a LAZILY-NewPtr'd pointer:
+   nothing is allocated unless the faithful FC-pool load ever fails (it doesn't
+   at 450K/4MB — card 2 confirmed "FAITHFUL pool load"), and if it ever does
+   and NewPtr fails, cw_wallfile_load returns 0 and cw_load_slot bails cleanly
+   (no crash). Kept as a best-effort net rather than deleting it, since #129
+   (black 3D viewport) blocks visual multi-level verification. MEASURED reclaim:
+   FreeMem at master_init jumped 896KB → 1225KB (+329KB ≈ the BSS array); BSS
+   dropped ~1276KB → 948KB. Boot + dungeon + event healthy, 0 crash/OOM.
 4. ~~Shrink the `jt463` reserve~~ — DONE 2026-06-22: 256K → 160K, sized to the
    MEASURED post-pool footprint (FreeMem 430KB→316KB across L4cc0+L4d98 = ~112KB,
    ~128KB with the intro). NOTE — this does NOT reclaim 4MB memory: with the

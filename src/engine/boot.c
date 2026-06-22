@@ -2377,16 +2377,17 @@ static short g_wall_set[3];
  * so three per-group 327KB buffers blew the heap and starved the last load.
  * Each file is read once; the per-group handle is just a sub-pointer into it. */
 #define CW_FILEBUF_SZ 327680
-/* One shared RESIDENT buffer for the colour wall library. Both wall paths
- * want the same 8X8D{C,B}.CTL in RAM: cw_load_slot loads it here and copies
- * out the compact facet store, and the faithful jt114 path (l6eea) points its
- * per-group tile handle STRAIGHT into this buffer. The old l6eea NewPtr'd a
- * SECOND 320KB copy on the heap — which fails on a 4MB Falcon (only ~206KB
- * free at dungeon entry, so the wall handles stayed NULL and no walls drew).
- * A level's three wall groups share one file (HEIRS = all 8X8DB), so a single
- * buffer serves; a mixed-file level can't hold two 320KB libraries at 4MB
- * regardless. The buffer must stay resident while jt114 blits from it. */
-static unsigned char g_wallfile_buf[CW_FILEBUF_SZ];
+/* Best-effort RESIDENT fallback for the colour wall library, used ONLY when
+ * the faithful FC-pool load (l33ac -> the -27894 binder) can't fit the library
+ * in the pool. With stage 4 (the 450K Mac-sized pool + the jt131/jt209
+ * dispose-reload, #142) the faithful path carries the dungeon at 4MB — verified
+ * "FAITHFUL pool load", the fallback isn't hit — so this 320KB buffer is
+ * LAZILY allocated: it costs nothing (a NULL pointer) until/unless the faithful
+ * path ever fails, reclaiming 320KB of BSS. If it is ever needed and NewPtr
+ * fails under pressure, cw_wallfile_load returns 0 and cw_load_slot bails
+ * cleanly (no crash). g_wallfile_which is resident-path bookkeeping, moot on
+ * the faithful path (it stays -1). */
+static unsigned char *g_wallfile_buf;          /* lazily NewPtr'd, was [CW_FILEBUF_SZ] */
 static short         g_wallfile_which = -1;   /* file index resident in buf (-1 none) */
 
 /* The FC-pool wall library: per-file binder slot + the group l33ac bound it to
@@ -2435,12 +2436,17 @@ static long cw_wallfile_load(short file)
 			return base;
 	}
 
-	/* --- fallback: the resident static buffer --- */
+	/* --- fallback: the lazily-allocated resident buffer (best effort) --- */
+	if (g_wallfile_buf == NULL) {                 /* allocate only if ever needed */
+		g_wallfile_buf = (unsigned char *)NewPtr((Size)CW_FILEBUF_SZ);
+		if (g_wallfile_buf == NULL)
+			return 0;                     /* no fallback memory -> caller bails */
+	}
 	if (g_wallfile_which != file) {
 		g_wallfile_which = -1;                /* invalid until the load completes */
 		if (FSOpen((ConstStr255Param)ctl[file], 0, &refnum) != noErr)
 			return 0;
-		count = (long)sizeof g_wallfile_buf;
+		count = (long)CW_FILEBUF_SZ;
 		(void)FSRead(refnum, &count, g_wallfile_buf);
 		(void)FSClose(refnum);
 		if (l37aa((long)(uintptr_t)g_wallfile_buf, 0) == 0)   /* 'GLIB' magic */
@@ -11310,7 +11316,7 @@ static void rm_audit(void)
 	for (i = 0; i < 8; i++)
 		dv_app(buf, &p, "freemap[i]=", (long)(unsigned char)g_a5_10074[i]);
 	/* the shortcut's resident wall buffer, for size comparison */
-	dv_app(buf, &p, "wallfile_buf=", (long)(uintptr_t)&g_wallfile_buf[0]);
+	dv_app(buf, &p, "wallfile_buf=", (long)(uintptr_t)g_wallfile_buf);
 	dv_app(buf, &p, "FreeMem=", (long)FreeMem());
 
 	(void)FSDelete((ConstStr255Param)"\013RMAUDIT.TXT", 0);
