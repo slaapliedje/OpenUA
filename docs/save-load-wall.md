@@ -179,7 +179,57 @@ boot.c:28837):
    GOTCHA: L10ca clears the party *before* jt582 (faithful), so a Load with **no
    slot present** leaves an empty roster — only press Load when a save exists.
 
-7. **boot auto-load + design-select-on-load** — a boot path that auto-loads
+7. **Faithful design-reload (lift the full L143e) → then retire port_load_savgame.**
+   INVESTIGATED 2026-06-22. The "design-reload" the boot auto-load needs is the
+   **post-load dungeon restore inside the Mac `L143e`** (CODE15 0x143e), which the
+   port has as a bare `FSOpen+jt579` STUB (boot.c:30215). The faithful Mac L143e
+   (disasm 0x143e–0x153c) does:
+   ```
+   -6924 = h[58]; -22218 = -6923; saved_lv = h[19];   // h = g_a5_-28006
+   L0006 -> jt579(file)                                 // header->-28006, pos, party
+   for (m = -27932; m; m = m->next)                     // reload portraits
+       if (m[147] < 128) l03d2(1);                      //   jt56("CBODYS", m[188], m[189])
+       else jt56("CPIC", m[181], m[189]);
+   -27932 = -27928;
+   h = -28006;
+   if (-18485) { h[19]=saved_lv; h[49]=0; h[133]=0; }   // overland
+   else        jt198(h[19]);                            // DUNGEON: reload the GEO for the saved level!
+   if (h[19] <= 4) { jt951(); jt214(); }                // overland play setup
+   else            jt952();                             // dungeon play setup
+   if (-6924 != h[58]) jt85(h[58]);                     // wall group / palette refresh
+   ```
+   **The level is design-header byte 19** (`h[19]`); `jt198(h[19])` reloads the
+   GEO; `jt952` sets dungeon mode. This is the whole "reload the design/level from
+   the save" chain — it replaces port_load_savgame's hand-rolled level/GEO/resume
+   tail (boot.c:16061) entirely.
+
+   **4 missing deps — all small, sub-deps all present:**
+   - `jt951` (CODE20 0xb88, 26B): `h[34]=0; h[36]=1; -27990=3` (overland mode).
+   - `jt952` (CODE20 0xba2, 26B): `h[34]=1; h[36]=0; -27990=4` (dungeon mode).
+   - `l03d2` (CODE15 0x3d2, 44B): `jt56("CBODYS", (-27932)[188], (-27932)[189])`.
+   - `jt85`  (CODE6  0x6ada, 108B): wall group/palette manager — cache in `-13040`;
+     on change loads "frame" group (jt997/jt468/jt993, all lifted). Deps jt1200/
+     jt1163/jt468/jt993/jt997 all exist.
+   Use `g_a5_byte(-6924/-6923/-27986)` / `g_a5_word(-13040)` directly (no macros).
+
+   **Integration is faithful (verified by reading l10ca):** the Training-Hall Load
+   (l10ca → jt582 → L143e) stashes the loaded play-mode (`-27989 = -27990; -27990
+   = 0`) for the subsequent Begin-Adventuring, so L143e SHOULD do the full
+   jt198/jt952 dungeon setup mid-load. TEST HARNESS: the now-working Training-Hall
+   Load — after the lift, Load slot A should reload the GEO + set dungeon mode;
+   verify Begin Adventuring resumes at the saved level/cell, and the Save→Load
+   round-trip still works. RISK: jt198 (GEO load) fires mid-Training-Hall; the Mac
+   does it unguarded — HEIRS save targets level 5 (GEO005 ships) so it's safe, but
+   a foreign save level would jt69-fatal (port_load_savgame guards this; decide
+   whether to keep a GEO-exists guard in the port L143e).
+
+   **THEN retire port_load_savgame:** with L143e doing the faithful resume, the
+   boot auto-load becomes `l143e("SavGamA.csv")` (loads party + reloads the
+   dungeon). port_load_savgame's heuristic scan + manual resume tail both go.
+   COUPLING NOTE: jt952/jt951 are also the faithful play-mode setup the port's
+   l07dc/l63c0 entry reimplements — full convergence is part of task #100.
+
+8. **boot auto-load + design-select-on-load** — a boot path that auto-loads
    slot A (retiring `port_load_savgame`) + the camp Load "abandon game?" gate
    (boot.c:50949) + design-select-on-load. The case-sensitivity of the *shipped*
    `SAVGAMA.CSV` vs the port's `SavGamA.csv` is now handled in the picker, but a
