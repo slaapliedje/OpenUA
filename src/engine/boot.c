@@ -3269,6 +3269,7 @@ static void  l159a(void *ev, short f);     /* COMBAT event (cases 1/33) — defi
 static void  jt45(void)                    { PROBE("jt45"); }
 static void  jt510(void)                   { PROBE("jt510"); }
 static void  jt512(void)                   { PROBE("jt512"); }
+static void  jt954(void)                   { PROBE("jt954"); }  /* CODE 21+0x38f4 — l2e42 move-code 3 */
 static void  l10a0(void *ev)               { PROBE("L10a0"); (void)ev; }
 static void  l1176(void)                   { PROBE("L1176"); }
 static void  jt511(void);                   /* CODE 13 combat tail — lifted below */
@@ -3284,7 +3285,7 @@ static void  l5586(void *ev);              /* shop/merchant event — lifted nea
 static short l216a(void *ev);              /* give-treasure/temple take event — lifted near jt160 */
 static short l3b0e(void *ev);              /* encounter prompt — defined after its deps */
 static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch — defined after its deps */
-static void  l2e42(void *ev)               { PROBE("L2e42"); (void)ev; }
+static void  l2e42(void *ev);              /* scripted-movement event — defined after its deps */
 static void  l380a(void *ev)               { PROBE("L380a"); (void)ev; }
 /* L3fba (CODE 20 + 0x3fba) — case-14 gate for l4d26. Scans the party list
  * (-27928, link@0) and returns 1 if a member qualifies: status rec[94] in
@@ -33834,6 +33835,96 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L2e42 (CODE 20 + 0x2e42) — the scripted-movement / "passage" event (l709e
+ * case 12). Faithful full lift. Skips entirely in mode 3. Optionally re-anchors
+ * the start cell/facing (ev[7] bit4 -> -4940/-4939 + L4184 + facing from
+ * ev[7]&0x0c), then steps through ev[6] frames: at frame ev[14]/ev[15] it
+ * prints text #1/#2 (16-bit string id ev[16..17]/ev[18..19] via jt232+L0b20,
+ * paged by jt181); each non-final frame applies the packed 2-bit move code
+ * (ev[8 + frame/4] >> (frame&3)*2): 1 = turn left (+6 mod 8), 2 = turn right
+ * (+2 mod 8) — both re-render via jt202/jt221 — 3 = jt954, 0 = hold. Every
+ * frame refreshes (jt476 delay + L4108 + jt20 + L085e + jt938). jt954 (CODE
+ * 21) is a new PROBE stub; L40b4 the shared setup stub. */
+static void l2e42(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          step;
+
+	PROBE("L2e42");
+	if (ev == NULL || rec == NULL)
+		return;
+	if ((unsigned char)g_a5_byte(-27990) == 3)
+		return;                                   /* mode 3: do nothing */
+
+	l40b4();
+	g_a5_byte(-4943) = (unsigned char)(ev[7] & 0x20);
+	l4108();
+	if (ev[7] & 0x10) {                               /* re-anchor start cell/facing */
+		g_a5_byte(-4940) = ev[5];
+		g_a5_byte(-4939) = ev[4];
+		l4184();
+		g_a5_byte(-12286) = (unsigned char)((ev[7] & 0x0c) >> 1);
+		l085e();
+		jt938();
+	}
+
+	jt476(600);
+	for (step = 0; (unsigned char)step <= ev[6]; step++) {
+		short i;
+
+		/* text markers: #1 at frame ev[14], #2 at frame ev[15] */
+		for (i = 0; i < 2; i++) {
+			unsigned char at  = i ? ev[15] : ev[14];
+			unsigned char lo  = i ? ev[18] : ev[16];
+			unsigned char hi  = i ? ev[19] : ev[17];
+			if ((unsigned char)step != at || (lo + hi) == 0)
+				continue;
+			jt20();
+			jt232((void *)(uintptr_t)g_a5_long(-13034),
+			      (short)(lo | (hi << 8)),
+			      (char *)&g_a5_byte(-5213));
+			rec[57] = 0;
+			l0b20(&g_a5_byte(-5213));
+			if (g_a5_byte(-4947) != 0) {              /* asm: both arms page */
+				jt181(1);
+				g_a5_byte(-4947) = 0;
+			} else {
+				jt181(1);
+			}
+			jt78();
+			l3ef8();
+		}
+
+		/* per-frame forced move (packed 2 bits/frame in ev[8..]) */
+		if ((unsigned char)step != ev[6]) {
+			unsigned char code = (unsigned char)
+			    ((ev[8 + (step >> 2)] >> ((step & 3) * 2)) & 3);
+			if (code == 1 || code == 2) {            /* turn (left +6 / right +2) + re-render */
+				g_a5_byte(-12286) = (unsigned char)
+				    ((g_a5_byte(-12286) + (code == 1 ? 6 : 2)) & 7);
+				g_a5_byte(-12285) = (unsigned char)jt202(
+				    (short)(unsigned char)g_a5_byte(-12288),
+				    (short)(unsigned char)g_a5_byte(-12287),
+				    (short)(unsigned char)g_a5_byte(-12286));
+				jt221((short)(unsigned char)g_a5_byte(-12288),
+				      (short)(unsigned char)g_a5_byte(-12287),
+				      (short)(unsigned char)g_a5_byte(-12286));
+			} else if (code == 3) {
+				jt954();
+			}
+			l085e();
+			jt938();
+		}
+
+		jt476(600);                               /* L30e6: per-frame refresh */
+		l4108();
+		jt20();
+		l085e();
+		jt938();
+	}
+}
 
 /* L3ac6 (CODE 20 + 0x3ac6) — the play-sounds event (l709e case 17). Faithful
  * full lift: walks the 10 sound-id bytes at ev[4..13] and plays each nonzero
