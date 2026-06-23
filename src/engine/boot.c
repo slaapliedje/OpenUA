@@ -3372,7 +3372,7 @@ static void l6020(void *ev_v)
 	if (ev[4] & 16)                             /* request a play-screen reload */
 		g_a5_byte(-27982) = 1;
 }
-static void  l3ac6(void *ev)               { PROBE("L3ac6"); (void)ev; }
+static void  l3ac6(void *ev);              /* play-sounds event — defined after jt52 */
 static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
 static short l3cd6(void *ev, short v)      { PROBE("L3cd6"); (void)ev; (void)v; return 0; }
 static short l364e(void *ev)               { PROBE("L364e"); (void)ev; return 0; }
@@ -33834,6 +33834,28 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L3ac6 (CODE 20 + 0x3ac6) — the play-sounds event (l709e case 17). Faithful
+ * full lift: walks the 10 sound-id bytes at ev[4..13] and plays each nonzero
+ * one via jt52. L40b4 is the shared (stubbed) setup leaf. */
+static void l3ac6(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char *p;
+	short          i;
+
+	PROBE("L3ac6");
+	if (ev == NULL)
+		return;
+
+	l40b4();
+	p = ev + 4;
+	for (i = 0; i < 10; i++) {
+		if (*p != 0)
+			jt52(*p);
+		p++;
+	}
+}
 
 /* L2d32 (CODE 20 + 0x2d32) — the in-dungeon Training Hall event (l709e case 6).
  *
