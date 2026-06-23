@@ -3379,7 +3379,7 @@ static void l6020(void *ev_v)
 static void  l3ac6(void *ev);              /* play-sounds event — defined after jt52 */
 static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
 static short l3cd6(void *ev, short v);     /* question outcome/branch — defined after its deps */
-static short l364e(void *ev)               { PROBE("L364e"); (void)ev; return 0; }
+static short l364e(void *ev);              /* pay-resource selector (case 19) — defined after its deps */
 static short l29cc(void *ev);              /* keyword-question selector (case 20) — defined after its deps */
 static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
 static void  l3a32(void *ev);              /* Vault event (case 24) — defined after jt185 (treasure block) */
@@ -33838,6 +33838,88 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L364e (CODE 20 + 0x364e) — the pay-resource selector for l709e case 19
+ * (feeds its result to L3cd6). Faithful full lift. The cost is the 16-bit
+ * ev[8..9]; the resource is chosen by ev[7] bits 2-3 (1 = gold @+78, 2 = gems
+ * @+80, 3 = jewels @+76, 16-bit unsigned slots on the char record). Each pass:
+ * show the picture (L442e) / refresh (jt935) + question (ev[4]), pick a paying
+ * member (jt888 dialog), resolve the active record (jt162), and if that member
+ * has enough deduct it and return 1; otherwise print "<name> doesn't have
+ * enough." (jt488 + L0b20) and re-prompt. Cancelling the picker (member == 0)
+ * returns 0. All deps lifted. */
+static short l364e(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  saved22268, result = 0;
+	unsigned short amount;
+	long           member;
+
+	PROBE("L364e");
+	if (ev == NULL || rec == NULL)
+		return 0;
+
+	l40b4();
+	saved22268 = (unsigned char)g_a5_byte(-22268);     /* asm save/clear/restore */
+	g_a5_byte(-22268) = 0;
+	g_a5_byte(-22271) = 0;
+	g_a5_byte(-22268) = saved22268;
+	member = g_a5_long(-27932);
+	amount = (unsigned short)(ev[8] | (ev[9] << 8));
+
+	do {
+		unsigned char *m;
+		short          off;
+
+		result = 0;
+		if (ev[6])
+			l442e(ev);
+		else
+			jt935();
+		jt20();
+		if (*(short *)(ev + 4) != 0) {             /* the question text */
+			jt232((void *)(uintptr_t)g_a5_long(-13034),
+			      jt1180(*(short *)(ev + 4)),
+			      (char *)&g_a5_byte(-5213));
+			jt20();
+			rec[57] = 0;
+			l0b20(&g_a5_byte(-5213));
+		}
+
+		jt888((long)(uintptr_t)"", 1, 0, &member); /* pick the paying member */
+		if (member == 0) {                         /* cancelled */
+			result = 0;
+			break;
+		}
+		g_a5_long(-27932) = member;
+		member = jt162();                          /* resolve the active record */
+		if (member == 0)
+			break;
+
+		m = (unsigned char *)(uintptr_t)member;
+		switch ((ev[7] & 0x0c) >> 2) {
+		case 1:  off = 78; break;                  /* gold */
+		case 2:  off = 80; break;                  /* gems */
+		case 3:  off = 76; break;                  /* jewels */
+		default: off = 0;  break;
+		}
+		if (off != 0 && *(unsigned short *)(m + off) >= amount) {
+			*(unsigned short *)(m + off) -= amount;
+			result = 1;
+		}
+
+		if (result == 0) {                         /* not enough -> message + retry */
+			jt20();
+			rec[57] = 0;
+			l0b20((void *)(uintptr_t)jt488("%s doesn't have enough.",
+			                               (const char *)&m[96]));
+			jt181(1);
+		}
+	} while (result == 0 && member != 0);
+
+	return (short)result;
+}
 
 /* L29cc (CODE 20 + 0x29cc) — the keyword-question selector for l709e case 20
  * (feeds its answer to L3cd6). Faithful full lift. Shows the picture (L442e)
