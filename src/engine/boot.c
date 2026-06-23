@@ -3385,7 +3385,7 @@ static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
 static void  l3a32(void *ev);              /* Vault event (case 24) — defined after jt185 (treasure block) */
 static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
 static void  l5fcc(void *ev);              /* pass-time event — defined after jt914 */
-static void  l398a(void *ev, short v)      { PROBE("L398a"); (void)ev; (void)v; }
+static void  l398a(void *ev, short v);     /* Inn event (case 29) — defined after l473e (rest block) */
 static void  l38bc(void *ev)               { PROBE("L38bc"); (void)ev; }
 static short l6436(void *ev)               { PROBE("L6436"); (void)ev; return 0; }
 static short l3118(void *ev);              /* Yes/No QUESTION event — lifted near jt181 */
@@ -55590,6 +55590,49 @@ static void l3a32(void *ev_v)
 	if (ev[7] & 0x04)
 		g_a5_byte(-4946) = 1;
 	jt20();
+}
+
+/* L398a (CODE 20 + 0x398a) — the Inn event (l709e case 29; also L5bde menu
+ * option 3). Faithful full lift. Shows the picture (L442e) / refresh (jt935)
+ * and event text (L3f22); when the text is empty or this came from the menu
+ * meta-event (ev[0] == 22) it prints "The party enters a local Inn." instead.
+ * Then marks in-inn (-18486), records the event idx (rec[49] = v), runs the
+ * rest/inn services (L473e), and clears the in-inn state. v is the event
+ * index l709e passes. */
+static void l398a(void *ev_v, short v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          t;
+
+	PROBE("L398a");
+	if (ev == NULL || rec == NULL)
+		return;
+
+	if (ev[6])
+		l442e(ev);
+	else
+		jt935();
+
+	t = l3f22(ev);
+	if (t == 0 || ev[0] == 22) {                   /* "enters a local Inn" message */
+		jt20();
+		rec[57] = 0;
+		l0b20((void *)(uintptr_t)ua_strs_at(0x6882));
+		if (g_a5_byte(-4947) != 0) {
+			jt181(1);
+			g_a5_byte(-4947) = 0;
+		}
+		jt20();
+	}
+
+	g_a5_byte(-18486) = 1;
+	rec[49] = (unsigned char)v;
+	l473e(0);                                       /* the rest / inn services */
+	g_a5_byte(-18486) = 0;
+	rec[49] = 0;
+	if (ev[7] & 0x04)
+		g_a5_byte(-4946) = 1;
 }
 
 /* JT[454] (CODE 3+0x3108) — DLItem QUERY by (item, cmd): cmds 16..22
