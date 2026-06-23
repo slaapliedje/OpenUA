@@ -3285,7 +3285,31 @@ static short l3b0e(void *ev);              /* encounter prompt — defined after
 static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch — defined after its deps */
 static void  l2e42(void *ev)               { PROBE("L2e42"); (void)ev; }
 static void  l380a(void *ev)               { PROBE("L380a"); (void)ev; }
-static short l3fba(short v)                { PROBE("L3fba"); (void)v; return 0; }
+/* L3fba (CODE 20 + 0x3fba) — case-14 gate for l4d26. Scans the party list
+ * (-27928, link@0) and returns 1 if a member qualifies: status rec[94] in
+ * {0,1,3,5} (conscious) and rec[397] either == v, or — when v==0 — in the
+ * [112,128) class band. Faithful leaf; no toolbox/engine deps. */
+static short l3fba(short v)
+{
+	long          m = g_a5_long(-27928);
+	unsigned char result = 0;
+
+	PROBE("L3fba");
+	while (m != 0 && result == 0) {
+		unsigned char *mr = (unsigned char *)(uintptr_t)m;
+		unsigned char  st = mr[94];
+		int            ok = (st == 0 || st == 1 || st == 3 || st == 5);
+
+		if ((v & 0xff) == 0) {
+			if (mr[397] >= 112 && mr[397] < 128 && ok)
+				result = 1;
+		} else if (mr[397] == (unsigned char)v && ok) {
+			result = 1;
+		}
+		m = *(long *)(uintptr_t)m;
+	}
+	return result;
+}
 static short l1ad8(void *ev);              /* type-15 conditional event — defined after its deps */
 static void  l6020(void *ev)               { PROBE("L6020"); (void)ev; }
 static void  l3ac6(void *ev)               { PROBE("L3ac6"); (void)ev; }
