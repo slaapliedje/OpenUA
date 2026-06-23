@@ -3277,7 +3277,8 @@ static void  l28b0(void *ev, short f);     /* give/take treasure — defined aft
 static void  l40b4(void)                   { PROBE("L40b4"); }
 static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
 static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
-static void  l2d32(void *ev, short a)      { PROBE("L2d32"); (void)ev; (void)a; }
+static void  l2d32(void *ev, short a);     /* in-dungeon Training Hall event — defined after its deps */
+static long  jt932(long base, short kind, short mult);  /* CODE 12+0x45ca — lifted below */
 static short l4f9a(void *ev);              /* TAVERN event — defined after its deps */
 static void  l5586(void *ev);              /* shop/merchant event — lifted near jt183 */
 static short l216a(void *ev);              /* give-treasure/temple take event — lifted near jt160 */
@@ -33774,6 +33775,60 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L2d32 (CODE 20 + 0x2d32) — the in-dungeon Training Hall event (l709e case 6).
+ *
+ * Faithful full lift. Opens the record window (jt20), shows the event picture
+ * (L442e) or refreshes the view (jt935), prints the event's text line when it
+ * has one (jt1180 string id -> jt232 -> L0b20) provided rec[133] is clear,
+ * then asks "Does the party want to train?" via the jt159 yes/no modal. On
+ * yes: stash the hall id (rec[48]=ev[8]), price the session (jt932(1000,
+ * ev[9],1) -> -18480), mark in-hall (-18486=1, rec[49]=event idx), enter the
+ * Training Hall (jt918(1); failure sets the -27982 reload flag), then clear
+ * the in-hall state. Finally propagate ev[7] bit2 to -4946 and re-open the
+ * window. `a` is the event index l709e passes (low byte -> rec[49]). */
+static void l2d32(void *ev_v, short a)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L2d32");
+	if (ev == NULL || rec == NULL)
+		return;
+
+	jt20();
+	if (ev[6])
+		l442e(ev);                            /* event picture */
+	else
+		jt935();                              /* else just refresh the view */
+
+	if (jt1180(*(short *)(ev + 4)) != 0 && rec[133] == 0) {
+		jt20();
+		jt232((void *)(uintptr_t)g_a5_long(-13034),
+		      jt1180(*(short *)(ev + 4)),
+		      (char *)&g_a5_byte(-5213));
+		rec[57] = 0;
+		l0b20(&g_a5_byte(-5213));              /* paint the text line */
+	}
+
+	if (jt159("Does the party want to train?", 1) != 0) {
+		jt176();
+		rec[48] = ev[8];
+		g_a5_long(-18480) = jt932(1000, (short)ev[9], 1);
+		g_a5_byte(-18486) = 1;
+		rec[49] = (unsigned char)a;
+		if (jt918(1) == 0)
+			g_a5_byte(-27982) = 1;            /* hall declined -> reload */
+		g_a5_byte(-18486) = 0;
+		rec[49] = 0;
+		g_a5_byte(-4918) = 0;
+	}
+
+	if (ev[7] & 0x04)
+		g_a5_byte(-4946) = 1;
+
+	jt20();
+}
 
 /* L159a (CODE 20 + 0x159a) — the COMBAT event handler (l709e cases 1/33).
  *
