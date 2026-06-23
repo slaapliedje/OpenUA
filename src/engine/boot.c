@@ -3312,7 +3312,66 @@ static short l3fba(short v)
 	return result;
 }
 static short l1ad8(void *ev);              /* type-15 conditional event — defined after its deps */
-static void  l6020(void *ev)               { PROBE("L6020"); (void)ev; }
+/* L6020 (CODE 20 + 0x6020) — the design-variable manipulation event (l709e
+ * case 16). Faithful full lift; pure record arithmetic on the game-variable
+ * array at rec[ev[N]+69] (rec = -28006), no toolbox/engine deps. ev[4] selects
+ * the ops: bits 0-1 = set / saturating-add / subtract on var ev[5] by ev[6];
+ * bit2 = AND-reduce (store "all six vars ev[7..12] nonzero" into var ev[13]);
+ * bit3 = OR-reduce (store "any of six nonzero" into var ev[13]); bit4 =
+ * request a play-screen reload (-27982). */
+static void l6020(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L6020");
+	if (ev == NULL || rec == NULL)
+		return;
+
+	switch (ev[4] & 3) {                        /* op on var ev[5] by ev[6] */
+	case 1:                                     /* set */
+		rec[ev[5] + 69] = ev[6];
+		break;
+	case 2:                                     /* add, saturating at 255 */
+		if (rec[ev[5] + 69] + ev[6] <= 255)
+			rec[ev[5] + 69] += ev[6];
+		else
+			rec[ev[5] + 69] = 255;
+		break;
+	case 3:                                     /* subtract */
+		/* Mac binary quirk: the asm is subw;tstw;bcc, and the tstw clears
+		 * the carry subw set, so the floor-at-0 arm (clrb) is dead code —
+		 * the shipped game does an unconditional wrapping byte subtract.
+		 * Reproduced 1:1. */
+		rec[ev[5] + 69] -= ev[6];
+		break;
+	default:
+		break;
+	}
+
+	if (ev[4] & 4) {                            /* AND: all six vars nonzero? */
+		unsigned char any_zero = 0;
+		for (g_a5_byte(-22307) = 0;
+		     (unsigned char)g_a5_byte(-22307) <= 5;
+		     g_a5_byte(-22307)++)
+			if (rec[ev[7 + (unsigned char)g_a5_byte(-22307)] + 69] == 0)
+				any_zero = 1;
+		rec[ev[13] + 69] = (unsigned char)(any_zero == 0 ? 1 : 0);
+	}
+
+	if (ev[4] & 8) {                            /* OR: any of six vars nonzero? */
+		unsigned char any_nonzero = 0;
+		for (g_a5_byte(-22307) = 0;
+		     (unsigned char)g_a5_byte(-22307) <= 5;
+		     g_a5_byte(-22307)++)
+			if (rec[ev[7 + (unsigned char)g_a5_byte(-22307)] + 69] != 0)
+				any_nonzero = 1;
+		rec[ev[13] + 69] = any_nonzero;
+	}
+
+	if (ev[4] & 16)                             /* request a play-screen reload */
+		g_a5_byte(-27982) = 1;
+}
 static void  l3ac6(void *ev)               { PROBE("L3ac6"); (void)ev; }
 static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
 static short l3cd6(void *ev, short v)      { PROBE("L3cd6"); (void)ev; (void)v; return 0; }
