@@ -3377,7 +3377,7 @@ static void l6020(void *ev_v)
 		g_a5_byte(-27982) = 1;
 }
 static void  l3ac6(void *ev);              /* play-sounds event — defined after jt52 */
-static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
+static short l3328(void *ev);              /* attribute-check selector (case 18) — defined after its deps */
 static short l3cd6(void *ev, short v);     /* question outcome/branch — defined after its deps */
 static short l364e(void *ev);              /* pay-resource selector (case 19) — defined after its deps */
 static short l29cc(void *ev);              /* keyword-question selector (case 20) — defined after its deps */
@@ -33838,6 +33838,131 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L324e (CODE 20 + 0x324e) — the attribute-check evaluator used by L3328.
+ * Faithful full lift. ev[7] bit6 picks compare-vs-roll. Compare mode: result =
+ * (value >= ev[8]), with the AD&D 18/xx exceptional-strength special (check
+ * index 2 with value 18 and ev[8] 18 compares the active char's STR% at +124
+ * instead). Roll mode: a d20 (jt485(20)) check for indices 0-7 or a percentile
+ * (jt485(100)) check for 8-15, succeeding when the roll <= value. */
+static short l324e(void *ev_v, short value)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char  result = 0;
+	short          mode;
+
+	PROBE("L324e");
+	if (ev == NULL)
+		return 0;
+
+	mode = (ev[7] & 0x3c) >> 2;
+	if (ev[7] & 0x40) {                                /* compare mode */
+		if (mode == 2 && (value & 0xff) == 18 && ev[8] == 18) {
+			unsigned char *ac =
+			    (unsigned char *)(uintptr_t)g_a5_long(-27932);
+			result = (ac != NULL && ac[124] >= ev[8]) ? 1 : 0;
+		} else {
+			result = ((value & 0xff) >= ev[8]) ? 1 : 0;
+		}
+	} else {                                           /* roll mode */
+		short roll = (mode <= 7) ? jt485(20) : jt485(100);
+		result = (roll <= (value & 0xff)) ? 1 : 0;
+	}
+	return (short)result;
+}
+
+/* L3328 (CODE 20 + 0x3328) — the attribute-check selector for l709e case 18
+ * (feeds its result to L3cd6). Faithful full lift. Each pass shows the picture
+ * (L442e) / refresh (jt935) + question (ev[4]), picks the attempting member
+ * (jt888), resolves the active record (jt162), and — if that member is able
+ * (status +382 == 1) — runs the check chosen by ev[7] bits 2-5 (16-way: 0 =
+ * always pass, 1 = always fail, 2-15 = L324e over the member attribute at
+ * +113/115/117/119/121/123 then +139..146). Success returns 1; a failure with
+ * tries left prints "that attempt did not succeed." and re-prompts. An
+ * incapacitated pick prints "<name> is in no condition to try." and does not
+ * consume a try (ev[9] is the try cap). All deps lifted. */
+static short l3328(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  saved22268, result = 0, try_n = 0;
+
+	PROBE("L3328");
+	if (ev == NULL || rec == NULL)
+		return 0;
+
+	l40b4();
+
+	do {
+		unsigned char *m;
+		long           sel;
+
+		try_n++;
+		if (ev[6])
+			l442e(ev);
+		else
+			jt935();
+		jt20();
+		if (*(short *)(ev + 4) != 0) {             /* the question text */
+			jt232((void *)(uintptr_t)g_a5_long(-13034),
+			      jt1180(*(short *)(ev + 4)),
+			      (char *)&g_a5_byte(-5213));
+			jt20();
+			rec[57] = 0;
+			l0b20(&g_a5_byte(-5213));
+		}
+
+		sel = g_a5_long(-27932);                   /* pick the attempting member */
+		jt888((long)(uintptr_t)"", 0, 0, &sel);
+		g_a5_long(-27932) = sel;
+		saved22268 = (unsigned char)g_a5_byte(-22268);   /* asm save/clear/restore */
+		g_a5_byte(-22268) = 0;
+		g_a5_byte(-22271) = 0;
+		g_a5_byte(-22268) = saved22268;
+		g_a5_long(-27932) = jt162();               /* resolve the active record */
+
+		m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		if (m == NULL)
+			break;
+
+		if (m[382] == 1) {                         /* member able to try */
+			switch ((ev[7] & 0x3c) >> 2) {
+			case 0:  result = 1; break;
+			case 1:  result = 0; break;
+			case 2:  result = (unsigned char)l324e(ev, m[113]); break;
+			case 3:  result = (unsigned char)l324e(ev, m[115]); break;
+			case 4:  result = (unsigned char)l324e(ev, m[117]); break;
+			case 5:  result = (unsigned char)l324e(ev, m[119]); break;
+			case 6:  result = (unsigned char)l324e(ev, m[121]); break;
+			case 7:  result = (unsigned char)l324e(ev, m[123]); break;
+			case 8:  result = (unsigned char)l324e(ev, m[139]); break;
+			case 9:  result = (unsigned char)l324e(ev, m[140]); break;
+			case 10: result = (unsigned char)l324e(ev, m[141]); break;
+			case 11: result = (unsigned char)l324e(ev, m[142]); break;
+			case 12: result = (unsigned char)l324e(ev, m[143]); break;
+			case 13: result = (unsigned char)l324e(ev, m[144]); break;
+			case 14: result = (unsigned char)l324e(ev, m[145]); break;
+			case 15: result = (unsigned char)l324e(ev, m[146]); break;
+			default: break;
+			}
+			if (result == 0 && try_n < ev[9]) {        /* failed, tries left */
+				jt20();
+				rec[57] = 0;
+				l0b20((void *)(uintptr_t)"that attempt did not succeed.");
+				jt181(1);
+			}
+		} else {                                   /* not in condition */
+			jt20();
+			rec[57] = 0;
+			l0b20((void *)(uintptr_t)jt488("%s is in no condition to try.",
+			                               (const char *)&m[96]));
+			jt181(1);
+			try_n--;                           /* this pick does not count */
+		}
+	} while (result == 0 && try_n < ev[9]);
+
+	return (short)result;
+}
 
 /* L364e (CODE 20 + 0x364e) — the pay-resource selector for l709e case 19
  * (feeds its result to L3cd6). Faithful full lift. The cost is the 16-bit
