@@ -3381,7 +3381,8 @@ static short l3328(void *ev);              /* attribute-check selector (case 18)
 static short l3cd6(void *ev, short v);     /* question outcome/branch — defined after its deps */
 static short l364e(void *ev);              /* pay-resource selector (case 19) — defined after its deps */
 static short l29cc(void *ev);              /* keyword-question selector (case 20) — defined after its deps */
-static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
+static void  l5bde(void *ev);              /* menu meta-event (case 22) — defined after its deps */
+static short jt160(long title, long block, short c, short e);  /* CODE 7+0x2ebc list dialog — lifted below */
 static void  l3a32(void *ev);              /* Vault event (case 24) — defined after jt185 (treasure block) */
 static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
 static void  l5fcc(void *ev);              /* pass-time event — defined after jt914 */
@@ -33838,6 +33839,149 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L5bde (CODE 20 + 0x5bde) — the multi-service menu meta-event (l709e case 22:
+ * a "town" / vault-complex cell that offers several services). Faithful full
+ * lift. Each pass redraws the event screen (picture + text + roster) unless a
+ * roster-navigation re-entry is pending (-24139), builds the option menu from
+ * ev[7] bits 0-5 (jt155 appends each enabled option plus the always-present
+ * Exit = option 6), and presents it via the jt160 list dialog. If jt160
+ * signals roster navigation (-24139) it moves the active-character cursor
+ * (jt936/jt934) — or treats ESC (27) as Exit — and re-loops; otherwise it
+ * dispatches the chosen option to a sub-event handler by building a synthetic
+ * 20-byte event record (subrec, type 22, per-service picture byte at [6] and
+ * flag at [7]) and calling l216a (0=give treasure), l2d32 (1=training),
+ * l5586 (2=shop), l398a (3=inn), l4f9a (4=tavern) or l3a32 (5=vault). The loop
+ * exits on Exit (6), L4738, or -18472. jt406's Mac arg order is (src,dst) so
+ * the port call swaps to (dst,src). All sub-handlers are now lifted. */
+static void l5bde(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  result = 0xff;            /* fp@(-22) */
+	unsigned char  count;                    /* fp@(-21) */
+	unsigned char  subrec[20];               /* fp@(-20)..fp@(-1) */
+
+	PROBE("L5bde");
+	if (ev == NULL || rec == NULL)
+		return;
+
+	g_a5_byte(-24139) = 0;
+	g_a5_byte(-18472) = 0;
+
+	do {
+		/* redraw, unless re-entering after a roster-cursor move */
+		if (g_a5_byte(-24139) != 0) {
+			g_a5_byte(-24139) = 0;
+		} else {
+			g_a5_byte(-18474) = 1;
+			if (ev[6])
+				l442e(ev);
+			else
+				jt935();
+			if (*(short *)(ev + 4) != 0) {
+				jt232((void *)(uintptr_t)g_a5_long(-13034),
+				      jt1180(*(short *)(ev + 4)),
+				      (char *)&g_a5_byte(-5213));
+				jt20();
+				rec[57] = 0;
+				l0b20(&g_a5_byte(-5213));
+			}
+			jt937(g_a5_long(-27932));
+			g_a5_byte(-18474) = 0;
+		}
+
+		/* build the option menu from ev[7] bits 0-5 (+ Exit = 6) */
+		jt399(&g_a5_byte(-24126), 40, 255);
+		count = 0;
+		if (ev[7] & 0x01) jt155(0, &count);
+		if (ev[7] & 0x02) jt155(1, &count);
+		if (ev[7] & 0x04) jt155(2, &count);
+		if (ev[7] & 0x08) jt155(3, &count);
+		if (ev[7] & 0x10) jt155(4, &count);
+		if (ev[7] & 0x20) jt155(5, &count);
+		jt155(6, &count);
+
+		result = (unsigned char)jt160(g_a5_long(-13952),
+		                              g_a5_long(-13636), 1, 1);
+
+		if (g_a5_byte(-24139) != 0) {            /* roster-navigation pick */
+			if (result == 27) {              /* ESC -> Exit */
+				result = 6;
+				continue;
+			}
+			if (g_a5_byte(-27987) != 0)
+				continue;
+			jt936(g_a5_long(-27932), 0);
+			jt934(result);
+			jt936(g_a5_long(-27932), 1);
+			continue;
+		}
+
+		/* dispatch the chosen service via a synthetic sub-event record */
+		memset(subrec, 0, sizeof subrec);
+		subrec[0] = 22;
+		switch (result) {
+		case 0:                                  /* give treasure -> L216a */
+			subrec[4] = (unsigned char)((ev[9] & 0xe0) >> 5);
+			subrec[5] = (unsigned char)(ev[12] & 0x1f);
+			subrec[6] = 0xdc;
+			subrec[7] = 0x80;
+			l216a(subrec);
+			break;
+		case 1:                                  /* training -> L2d32 */
+			jt406(subrec, ev, 20);           /* copy ev -> subrec (Mac src,dst) */
+			subrec[4] = 0;
+			subrec[5] = 0;
+			subrec[0] = 22;
+			subrec[11] = (unsigned char)(ev[12] & 0x1f);
+			subrec[6] = 0xe2;
+			subrec[7] = 0x80;
+			l2d32(subrec, 0);
+			break;
+		case 2:                                  /* shop -> L5586 */
+			subrec[5] = (unsigned char)(ev[9] & 0x1f);
+			subrec[6] = 0xd2;
+			subrec[7] = 0x80;
+			subrec[14] = ev[14];
+			subrec[15] = ev[15];
+			subrec[16] = ev[16];
+			subrec[17] = ev[17];
+			subrec[18] = ev[18];
+			subrec[19] = ev[19];
+			l5586(subrec);
+			break;
+		case 3:                                  /* inn -> L398a */
+			g_a5_byte(-27989) = g_a5_byte(-27990);
+			subrec[6] = 0xe7;
+			subrec[7] = 0x80;
+			l398a(subrec, 0);
+			g_a5_byte(-27990) = g_a5_byte(-27989);
+			break;
+		case 4:                                  /* tavern -> L4f9a */
+			subrec[6] = 0x86;
+			subrec[7] = 0xa0;
+			subrec[8] = ev[10];
+			subrec[9] = ev[11];
+			l4f9a(subrec);
+			break;
+		case 5:                                  /* vault -> L3a32 */
+			g_a5_byte(-27989) = g_a5_byte(-27990);
+			subrec[6] = 0xc1;
+			subrec[7] = 0x80;
+			l3a32(subrec);
+			g_a5_byte(-27990) = g_a5_byte(-27989);
+			break;
+		default:
+			break;
+		}
+
+		if (result != 7)
+			jt176();
+	} while (result != 6 && l4738() == 0 && (unsigned char)g_a5_byte(-18472) == 0);
+
+	jt20();
+}
 
 /* L324e (CODE 20 + 0x324e) — the attribute-check evaluator used by L3328.
  * Faithful full lift. ev[7] bit6 picks compare-vs-roll. Compare mode: result =
