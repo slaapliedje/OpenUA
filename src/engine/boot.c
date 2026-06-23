@@ -47205,19 +47205,40 @@ static void l6e58(short start, short count, short mode,
 static void jt1068(void) __attribute__((unused));
 static void jt1068(void)
 {
+	/* INIT-ONCE (Card B.0). On the Mac, DNPInit runs ONCE at startup and its
+	 * two NewPtr buffers persist for the whole session. The port calls it
+	 * lazily (jt993's `if -3390==0`), and the original body re-allocated +
+	 * re-cleared the -3258 cycle table on EVERY call — so whenever the port
+	 * re-zeroed the A5 world on a level/transition (dropping the -3390/-3394
+	 * pointer slots to 0 and re-triggering the lazy call), it WIPED the colour
+	 * cycle ranges (the fireplace; Card-A trace caught e0 reset to the 0x7fffffff
+	 * sentinel + the -3394 pointer changing). Keep the faithful single init, and
+	 * on any later call just RE-POINT the A5 slots at the persistent buffers
+	 * without touching -3258 / the work contents. */
+	static long  s_work, s_live;
+	static short s_inited;
 	short i;
 
 	PROBE("jt1068");
 	if (g_a5_byte(-2347) == 0)                  /* 70d6 mode gate */
 		return;
-	g_a5_long(-3394) = (long)(uintptr_t)jt387(768);     /* 70e8 NewPtr */
-	if (g_a5_long(-3394) == 0)                  /* 70ee */
+
+	if (s_inited) {
+		g_a5_long(-3394) = s_work;          /* restore work ptr  */
+		g_a5_long(-3390) = s_live;          /* restore live ptr  */
+		return;
+	}
+
+	s_work = (long)(uintptr_t)jt387(768);       /* 70e8 NewPtr work  */
+	if (s_work == 0)                            /* 70ee */
 		l036a("Insufficient memory in DNPInit");
-	g_a5_long(-3390) = (long)(uintptr_t)jt387(768);     /* 7106 NewPtr */
-	if (g_a5_long(-3390) == 0)                  /* 710c */
+	s_live = (long)(uintptr_t)jt387(768);       /* 7106 NewPtr live  */
+	if (s_live == 0)                            /* 710c */
 		l036a("Insufficient memory in DNPInit");
-	jt399((void *)(uintptr_t)g_a5_long(-3394), 768, 0); /* 7124 zero work */
-	jt399((void *)(uintptr_t)g_a5_long(-3390), 768, 0); /* 7134 zero live */
+	g_a5_long(-3394) = s_work;
+	g_a5_long(-3390) = s_live;
+	jt399((void *)(uintptr_t)s_work, 768, 0);   /* 7124 zero work */
+	jt399((void *)(uintptr_t)s_live, 768, 0);   /* 7134 zero live */
 	jt399(&g_a5_byte(-3386), 32, 255);          /* 7146 bitmap all-used */
 	jt399(&g_a5_byte(-3354), 96, 0);            /* 7156 backup zero */
 	for (i = 0; i < 12; i++)                    /* 7162 backup empties */
@@ -47225,6 +47246,7 @@ static void jt1068(void)
 	jt406(&g_a5_byte(-3258), &g_a5_byte(-3354), 96);    /* 718e -3354->-3258 */
 	jt399(&g_a5_byte(-3162), 12, 0);            /* 71a0 flags zero */
 	g_a5_byte(-3150) = 1;                       /* 71a8 dirty */
+	s_inited = 1;
 }
 
 /* JT[1069] (CODE 5 + 0x71b0) — GLIB colour-range ALLOCATE. Pure data over the
