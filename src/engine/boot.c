@@ -47361,11 +47361,23 @@ static void jt1069(short start, short count, unsigned char *src,
 		e   = rng + j * 8;
 		val = (long)jt1083(8) + jt1134();           /* 7522 l01ae+tick */
 		if (destp != NULL)
-			val += ((long)destp[1] << 16);      /* 753a */
+			val += (long)destp[1];              /* 753a += period (the Mac
+			                                     * swap/clrw/swap at 7544-7548
+			                                     * zero-extends the period byte
+			                                     * — a no-op after moveq #0; it
+			                                     * is NOT a <<16 shift). entry[0]
+			                                     * = next-due tick = jt1083+now
+			                                     * +period-3. */
 		val -= 3;                                   /* 754c */
 		*(long *)e = val;                           /* 7552 */
 		if (destp != NULL)
-			jt406(destp, e + 4, 4);             /* 756e */
+			jt406(e + 4, destp, 4);             /* 756e BlockMove(destp,
+			                                     * entry+4): set the cycle entry's
+			                                     * [flags,period,base,count] FROM
+			                                     * destp. port jt406 is dst-first,
+			                                     * so dst=entry+4, src=destp (the
+			                                     * lift had these reversed -> the
+			                                     * range stayed base/count 0). */
 		g_a5_byte(-3162 + j) = 1;                   /* 7576 flag */
 		if (destp != NULL)
 			destp += 4;                         /* 7586 */
