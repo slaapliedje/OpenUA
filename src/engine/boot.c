@@ -3262,7 +3262,16 @@ static void  l085e(void)
 	                                         (short)(signed char)g_a5_byte(-12287),
 	                                         (short)(unsigned char)g_a5_byte(-12286));
 }
-static void  l159a(void *ev, short f)      { PROBE("L159a"); (void)ev; (void)f; }
+static void  l159a(void *ev, short f);     /* COMBAT event (cases 1/33) — defined after its deps */
+/* l159a's combat-entry deps. jt510/jt512 are the CODE 13/14 combat engine
+ * (task #115, still PROBE stubs); jt45 is a CODE 6 setup leaf; l10a0/l1176
+ * are CODE 20 encounter-setup locals — all PROBE-deferred for the skeleton. */
+static void  jt45(void)                    { PROBE("jt45"); }
+static void  jt510(void)                   { PROBE("jt510"); }
+static void  jt512(void)                   { PROBE("jt512"); }
+static void  l10a0(void *ev)               { PROBE("L10a0"); (void)ev; }
+static void  l1176(void)                   { PROBE("L1176"); }
+static void  jt511(void);                   /* CODE 13 combat tail — lifted below */
 static void  l4d26(void *ev);              /* message/text event — defined after its deps */
 static void  l28b0(void *ev, short f);     /* give/take treasure — defined after its deps */
 static void  l40b4(void)                   { PROBE("L40b4"); }
@@ -33741,6 +33750,163 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L159a (CODE 20 + 0x159a) — the COMBAT event handler (l709e cases 1/33).
+ *
+ * Faithful structural skeleton (CLAUDE.md lift level 2): everything around
+ * the fight is lifted 1:1; the combat engine itself (jt510/jt512, CODE
+ * 13/14) stays the task-#115 PROBE stub.
+ *
+ *   1. pick the encounter picture base by ev[18] bits 6-7 (JT[3] switch:
+ *      {0,2,10,41}); rec[15] = ds[263] + base; rec[2] = ev[14] & 0x80.
+ *   2. -18475 (the "question" flag) from ev[8] bit5 when rec[34] set.
+ *   3. fold the -5238 paging/continue state into rec[46], then reset -5238.
+ *   4. L442e(ev) draws the picture; L40b4() when ev[6]==0; L3f22(ev) the text.
+ *   5. collect the event's exit choices into the -4917 (target) / -4911 (id)
+ *      option arrays indexed off -22311: f!=0 gathers the valid slots and
+ *      jt485-picks one; f==0 copies every slot (capped at 14, padding with 0).
+ *   6. "A battle begins..." banner, then the combat entry: jt45 / L1476 view
+ *      bearing into rec[55]/[56], jt510+jt512+jt511 (fight), jt920, jt930
+ *      rewards, and the rec[34]/[36] mode resolve (-27990 = 3 or 4) so the
+ *      dungeon walk loop regains control.
+ *
+ * f selects the option-collection path (1 from case 33's jt485 picker). The
+ * -22307 loop counter and the -4917/-4911/-22311/-22634 option globals are
+ * A5-world state shared with the encounter UI. */
+static void l159a(void *ev_v, short f)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char *ds  = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char  saved22268, picbase = 0, sel[6];
+	short          nsel;
+
+	PROBE("L159a");
+	if (ev == NULL || rec == NULL || ds == NULL)
+		return;
+
+	jt399(sel, 6, 0);                          /* zero the local choice list */
+	g_a5_byte(-27987) = 0;
+	saved22268 = (unsigned char)g_a5_byte(-22268);
+	g_a5_byte(-22268) = 0;
+
+	switch ((ev[18] & 0xc0) >> 6) {            /* picture base id (JT[3]) */
+	case 0:  picbase = 0;  break;
+	case 1:  picbase = 2;  break;
+	case 2:  picbase = 10; break;
+	case 3:  picbase = 41; break;
+	}
+	rec[15] = (unsigned char)(ds[263] + picbase);
+	rec[2]  = (unsigned char)(ev[14] & 0x80);
+
+	g_a5_byte(-18475) = 0;
+	if (rec[34] != 0)
+		g_a5_byte(-18475) = (unsigned char)((ev[8] & 0x20) ? 1 : 0);
+
+	if ((unsigned char)g_a5_byte(-5238) == 255) {
+		rec[46] = (unsigned char)((ev[8] & 0xc0) >> 6);
+	} else {
+		if      ((unsigned char)g_a5_byte(-5238) == 1) rec[46] = 1;
+		else if ((unsigned char)g_a5_byte(-5238) == 2) rec[46] = 2;
+		else if ((unsigned char)g_a5_byte(-5238) == 3) rec[46] = 0;
+		g_a5_byte(-5238) = (unsigned char)0xff;
+	}
+
+	l442e(ev);                                 /* display the picture */
+	if (ev[6] == 0)
+		l40b4();
+	l3f22(ev);                                 /* display the descriptive text */
+
+	/* ---- collect the event's exit/branch choices ---- */
+	nsel = 0;
+	if (f != 0) {                              /* interactive: gather + jt485-pick */
+		for (g_a5_byte(-22307) = 0;
+		     (unsigned char)g_a5_byte(-22307) <= 5;
+		     g_a5_byte(-22307)++) {
+			unsigned char *e = ev + (unsigned char)g_a5_byte(-22307) * 2;
+			if ((e[8] & 31) != 0 && e[9] != 0)
+				sel[nsel++] = (unsigned char)g_a5_byte(-22307);
+		}
+		if (nsel != 0) {
+			unsigned char  chosen = sel[jt485(nsel)];
+			unsigned char *e = ev + chosen * 2;
+			unsigned short k = (unsigned short)
+			        ((unsigned char)g_a5_byte(-22311) - 8);
+			(&g_a5_byte(-4917))[k] = e[9];
+			(&g_a5_byte(-4911))[k] = (unsigned char)(e[8] & 31);
+			g_a5_byte(-22275) = 1;
+			g_a5_byte(-22311)++;
+		}
+	} else {                                   /* auto: copy every valid slot (cap 14) */
+		for (g_a5_byte(-22307) = 0;
+		     (unsigned char)g_a5_byte(-22307) <= 5;
+		     g_a5_byte(-22307)++) {
+			unsigned char *e;
+			unsigned short k;
+			if ((unsigned char)g_a5_byte(-22311) >= 14)
+				continue;
+			e = ev + (unsigned char)g_a5_byte(-22307) * 2;
+			k = (unsigned short)((unsigned char)g_a5_byte(-22311) - 8);
+			if ((e[8] & 31) != 0 && e[9] != 0) {
+				(&g_a5_byte(-4917))[k] = e[9];
+				(&g_a5_byte(-4911))[k] = (unsigned char)(e[8] & 31);
+				g_a5_byte(-22275) = 1;
+			} else {
+				(&g_a5_byte(-4917))[k] = 0;
+				(&g_a5_byte(-4911))[k] = 0;
+			}
+			g_a5_byte(-22311)++;
+		}
+	}
+
+	/* ---- L18e2: combat entry ---- */
+	jt45();
+	rec[56] = (unsigned char)((ev[14] & 0x60) >> 5);
+	rec[55] = (unsigned char)l1476((short)(signed char)g_a5_byte(-12288),
+	                               (short)(signed char)g_a5_byte(-12287),
+	                               (short)(unsigned char)g_a5_byte(-12286));
+	if (rec[56] < rec[55])                     /* clamp the bearing to the wall depth */
+		rec[55] = rec[56];
+
+	jt131(4);
+	jt176();
+	jt94(0, 24, 7, 0, "A battle begins...");
+	l10a0(ev);
+	l1176();
+	rec[29] = (unsigned char)((ev[12] & 0x40) ? 1 : 0);
+	g_a5_byte(-22634) = (unsigned char)(((ev[18] & 0x20) >> 2)
+	                                  | ((ev[16] & 0xe0) >> 5));
+	rec[27] = (unsigned char)(ev[7] & 0x7f);
+
+	jt510();                                   /* CODE 13 combat — task #115 */
+	jt512();                                   /* CODE 14 combat — task #115 */
+	jt511();
+	jt920();
+
+	rec[30] = (unsigned char)((ev[12] & 0x80) ? 1 : 0);
+	jt930();                                   /* rewards / leave-area cleanup */
+
+	if (g_a5_byte(-18475) != 0) {
+		rec[34] = 1;
+		rec[36] = 0;
+		g_a5_byte(-18475) = 0;
+	}
+	if (rec[34] == 0 && rec[36] == 1)
+		jt214();
+	if (rec[34] == 0 && rec[36] == 1)
+		g_a5_byte(-27990) = 3;
+	else
+		g_a5_byte(-27990) = 4;
+
+	rec[25] = (unsigned char)(rec[25] & 1);
+	jt399(&g_a5_byte(-22302), 2, 0);
+	rec[2] = 0;
+	g_a5_byte(-22281) = 0;
+	g_a5_byte(-4918) = 0;
+	jt23();                                    /* go-flag is set unconditionally */
+
+	g_a5_byte(-22268) = saved22268;
+}
 
 /* L4d26 (CODE 20 + 0x4d26) — the MESSAGE / event-text handler (l709e cases
  * 2/14). Faithful lift: set up the text box (rows 17..38), play the event sound
