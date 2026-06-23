@@ -3271,13 +3271,15 @@ static void  jt510(void)                   { PROBE("jt510"); }
 static void  jt512(void)                   { PROBE("jt512"); }
 static void  jt954(void)                   { PROBE("jt954"); }  /* CODE 21+0x38f4 — l2e42 move-code 3 */
 static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE 15+0x1188 — l380a effect apply */
+static void  jt99(short a, short b, long c) { PROBE("jt99"); (void)a; (void)b; (void)c; }  /* CODE 6+0x4b84 — l1f76 alert */
+static void  l1e30(void *ev_v, long target);  /* per-member effect apply — lifted below */
 static void  l10a0(void *ev)               { PROBE("L10a0"); (void)ev; }
 static void  l1176(void)                   { PROBE("L1176"); }
 static void  jt511(void);                   /* CODE 13 combat tail — lifted below */
 static void  l4d26(void *ev);              /* message/text event — defined after its deps */
 static void  l28b0(void *ev, short f);     /* give/take treasure — defined after its deps */
 static void  l40b4(void)                   { PROBE("L40b4"); }
-static void  l1f76(void *ev)               { PROBE("L1f76"); (void)ev; }
+static void  l1f76(void *ev);              /* affect-party effect event — defined after its deps */
 static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
 static void  l2d32(void *ev, short a);     /* in-dungeon Training Hall event — defined after its deps */
 static long  jt932(long base, short kind, short mult);  /* CODE 12+0x45ca — lifted below */
@@ -33836,6 +33838,95 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L1f76 (CODE 20 + 0x1f76) — the affect-party effect/damage event (l709e case
+ * 4). Faithful full lift. Shows the picture (L442e) + text (L3f22), opens the
+ * text box (jt103), then loops ev[8] times applying the per-member effect
+ * L1e30 by targeting mode (ev[7] bits 2-3): 0 = every member, 1 = the active
+ * member, 2 = one jt485-random member, 3 = each member at ev[16]% chance. The
+ * loop also stops early once -27982 (party-wiped / reload) trips, firing
+ * jt99(11,0,-14644) each pass it is set. On exit, a set -27982 paints "The
+ * entire party is killed!" (jt76 + jt96 + jt476 pause); otherwise jt175 closes
+ * the box unless it is still the default 17/1 state. jt99 (CODE 6) is a new
+ * PROBE stub.
+ *
+ * Faithfulness note: targeting mode 2 deliberately reuses the -22307 outer
+ * loop counter as its inner member index (the Mac aliases them), so the outer
+ * loop sees -22307 == member_count after a mode-2 pass — reproduced 1:1. */
+static void l1f76(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+
+	PROBE("L1f76");
+	if (ev == NULL)
+		return;
+
+	g_a5_byte(-27911) = 17;
+	if (ev[6])
+		l442e(ev);
+	l3f22(ev);
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+	jt103(1, 17, 38, 22);
+
+	for (g_a5_byte(-22307) = 0;
+	     (unsigned char)g_a5_byte(-22307) < ev[8]
+	         && (unsigned char)g_a5_byte(-27982) == 0;
+	     g_a5_byte(-22307)++) {
+		switch ((ev[7] & 0x0c) >> 2) {
+		case 0: {                                  /* every member */
+			long m = g_a5_long(-27928);
+			while (m) {
+				l1e30(ev, m);
+				m = *(long *)(uintptr_t)m;
+			}
+			break;
+		}
+		case 1:                                    /* the active member */
+			l1e30(ev, g_a5_long(-27932));
+			break;
+		case 2: {                                  /* one random member */
+			long  m;
+			short n = 0, pick;
+			for (m = g_a5_long(-27928); m; m = *(long *)(uintptr_t)m)
+				n++;
+			pick = jt485(n);
+			/* aliases the outer counter — faithful (see note above) */
+			g_a5_byte(-22307) = 0;
+			for (m = g_a5_long(-27928); m; m = *(long *)(uintptr_t)m) {
+				if ((short)(unsigned char)g_a5_byte(-22307) == pick)
+					l1e30(ev, m);
+				g_a5_byte(-22307)++;
+			}
+			break;
+		}
+		case 3: {                                  /* each member at ev[16]% */
+			long m;
+			for (m = g_a5_long(-27928); m; m = *(long *)(uintptr_t)m)
+				if (jt485(100) <= ev[16])
+					l1e30(ev, m);
+			break;
+		}
+		default:
+			break;
+		}
+
+		if ((unsigned char)g_a5_byte(-27982) != 0)
+			jt99(11, 0, g_a5_long(-14644));
+	}
+
+	if ((unsigned char)g_a5_byte(-27982) != 0) {       /* total party kill */
+		jt76();
+		g_a5_byte(-27912) = 2;
+		g_a5_byte(-27911) = 2;
+		jt96(1, 1, 38, 22, 7, 0, 1,
+		     (long)(uintptr_t)"The entire party is killed!", 1);
+		jt476(3000);
+	} else if (!((unsigned char)g_a5_byte(-27912) == 1
+	          && (unsigned char)g_a5_byte(-27911) == 17)) {
+		jt175();
+	}
+}
 
 /* L380a (CODE 20 + 0x380a) — the HP-percentage event (l709e case 13). Faithful
  * full lift. Gated by L3fba(ev[8]): fires only when NO party member matches
