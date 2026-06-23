@@ -3380,7 +3380,7 @@ static void  l3ac6(void *ev);              /* play-sounds event — defined afte
 static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
 static short l3cd6(void *ev, short v);     /* question outcome/branch — defined after its deps */
 static short l364e(void *ev)               { PROBE("L364e"); (void)ev; return 0; }
-static short l29cc(void *ev)               { PROBE("L29cc"); (void)ev; return 0; }
+static short l29cc(void *ev);              /* keyword-question selector (case 20) — defined after its deps */
 static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
 static void  l3a32(void *ev);              /* Vault event (case 24) — defined after jt185 (treasure block) */
 static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
@@ -33838,6 +33838,70 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L29cc (CODE 20 + 0x29cc) — the keyword-question selector for l709e case 20
+ * (feeds its answer to L3cd6). Faithful full lift. Shows the picture (L442e)
+ * or refreshes (jt935), prints the question (ev[4] string id), then loops up
+ * to ev[19] tries: load the expected-answer keyword (ev[8..9] string id) into
+ * -5213, prompt for typed input (jt98), and compare (jt396). A match returns 1
+ * (-> L3cd6 "yes"); after a wrong guess with tries left it prints "wrong, try
+ * agin." and re-shows the question. Returns 1 if answered correctly, else 0.
+ * All deps lifted. */
+static short l29cc(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  result = 0;
+	short          try_n;
+
+	PROBE("L29cc");
+	if (ev == NULL || rec == NULL)
+		return 0;
+
+	if (ev[6])
+		l442e(ev);
+	else
+		jt935();
+	jt20();
+	if (*(short *)(ev + 4) != 0) {                  /* the question text */
+		jt232((void *)(uintptr_t)g_a5_long(-13034),
+		      jt1180(*(short *)(ev + 4)),
+		      (char *)&g_a5_byte(-5213));
+		rec[57] = 0;
+		l0b20(&g_a5_byte(-5213));
+	}
+
+	for (try_n = 1;
+	     (unsigned char)try_n <= ev[19] && result == 0;
+	     try_n++) {
+		char *typed;
+
+		/* load the expected-answer keyword (ev[8..9]) into -5213 */
+		jt232((void *)(uintptr_t)g_a5_long(-13034),
+		      (short)(ev[8] | (ev[9] << 8)),
+		      (char *)&g_a5_byte(-5213));
+		jt176();
+		typed = jt98((long)(uintptr_t)"", 7, 8, 25);
+		result = (unsigned char)jt396(typed, (const char *)&g_a5_byte(-5213));
+
+		if (result == 0 && (unsigned char)try_n < ev[19]) {
+			jt20();                         /* wrong, tries remain */
+			rec[57] = 0;
+			l0b20((void *)(uintptr_t)"wrong, try agin.");
+			jt181(1);
+			jt20();
+			if (*(short *)(ev + 4) != 0) {  /* re-show the question */
+				jt232((void *)(uintptr_t)g_a5_long(-13034),
+				      jt1180(*(short *)(ev + 4)),
+				      (char *)&g_a5_byte(-5213));
+				rec[57] = 0;
+				l0b20(&g_a5_byte(-5213));
+			}
+		}
+	}
+
+	return (short)result;
+}
 
 /* L3cd6 (CODE 20 + 0x3cd6) — the question outcome / branch handler shared by
  * l709e cases 18/19/20 (it receives the player's answer v from the case's
