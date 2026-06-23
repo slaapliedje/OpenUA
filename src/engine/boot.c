@@ -9488,6 +9488,13 @@ static short g_cw_setmax = 7;        /* valid sets in the current file   */
 static short g_cw_auto = 1;          /* 1 = pick the set from the level's
                                       * Wall1; 't'/'y' set 0 to browse */
 static short g_view_force_full = 0;  /* set on a live switch -> full clear+present next frame */
+/* Set by the event "Press [Return] to continue" modal (l1806) while it polls,
+ * so the per-step event-exit (jt297 GAP-1) knows the modal overdrew the play
+ * screen's content + command-bar row and must recompose the play frame. The
+ * Mac re-establishes the play window after a landing-cell event the same way
+ * (jt948 entry arm L4b56: jt23 + jt935 + jt938 follow l709e); the per-step walk
+ * is a port reconstruction, so it has to drive that recompose explicitly. */
+static short g_event_modal_shown = 0;
 
 /* Backdrop (BACK.CTL) — the floor/ceiling/sky drawn behind the walls.
  * 20 backdrops, each an 88x88 8bpp image whose indices live at clut
@@ -12499,6 +12506,11 @@ static void jt297(void *rec_v, short key, long cb)
 		short special = jt201((short)(signed char)g_a5_byte(-12288),
 		                      (short)(signed char)g_a5_byte(-12287));
 		g_a5_byte(-18483) = (unsigned char)special;
+		/* Reset-before so only a modal opened by THIS event counts; l1806
+		 * sets g_event_modal_shown when it shows a "Press [Return]" modal.
+		 * l63c0's per-step re-render reads it to rebuild the play screen
+		 * (play_screen_relayout) the event's shared-pool reset wiped. */
+		g_event_modal_shown = 0;
 		l709e(special);
 	}
 #endif
@@ -12863,6 +12875,51 @@ static void port_draw_compass(void)
 	}
 }
 
+/* Re-establish the play-screen DLItems after an event modal. An event's
+ * "Press [Return]" modal (l1806) opens through the shared DLItem pool, which
+ * resets it (jt447: pool base <- seeded, count 0) and fills it with the modal's
+ * own RETURN button — wiping the dungeon command bar + walk input sources that
+ * jt240 registered once at loop entry. On the Mac the play screen is a separate
+ * dialog from the modal, so its item list survives; the port shares one pool,
+ * so the command bar has to be rebuilt on event-exit. This mirrors jt240's
+ * setup exactly: reset the pool, re-register the walk input sources (l6256),
+ * re-seed the 7 command slots (jt155 -> g_a5_-24126), lay the "Move Area Cast
+ * View Encamp Search Look Inv" string into command DLItems (l206e) + cache it
+ * for jt152 (g_a5_-13000), size the bar to the party (l1f3e), and install the 4
+ * shape-5 bevel frames (jt452). The repaint is jt312's full-recompose block
+ * (l2c60), driven right after this. Caller: l63c0's per-step re-render. */
+static void play_screen_relayout(unsigned char *rec)
+{
+	static unsigned char cbar_buf[80];
+	unsigned char defitem = 0;
+	unsigned char cnt = 0;
+	short ci;
+
+	if (rec == NULL)
+		return;
+	jt447();                        /* wipe the modal's pool items */
+	l6256(rec[4], 0);               /* re-register the dungeon walk sources */
+	for (ci = 1; ci <= 7; ci++)
+		jt155(ci, &cnt);        /* command slots 1..7 (Area..Inv) */
+	g_a5_19172 = 8016;
+	g_a5_19174 = 8068;
+	l2858((short)1);
+	l206e(g_a5_long(-13764), cbar_buf,
+	      (const char *)(uintptr_t)g_a5_long(-13952), &defitem);
+	l1f3e((short)g_a5_19172, (short)g_a5_19174);
+	if (g_a5_12911 != 0) {
+		jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
+		      (long)41, (long)22, (long)20,
+		      (long)5, (long)8000, (long)8020, (long)50, (long)28,
+		      (long)41, (long)11, (long)20,
+		      (long)5, (long)8000, (long)8048, (long)50, (long)20,
+		      (long)41, (long)21, (long)20,
+		      (long)5, (long)8050, (long)8000, (long)30, (long)68,
+		      (long)41, (long)23, (long)20,
+		      (long)0);
+	}
+}
+
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
                          short a_deep, long cb1, long cb2)
 {
@@ -13015,6 +13072,19 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			short k2;
 			for (k2 = 0; k2 < 6; k2++)
 				g_a5_byte(-12288 + k2) = rec[46 + k2];
+			/* If the step triggered an event whose "Press [Return]" modal
+			 * (l1806) reset the shared DLItem pool, the command bar + walk
+			 * input sources are gone (replaced by the modal's RETURN button).
+			 * Re-establish them the way jt240 did, then force jt312's full
+			 * recompose (g_view_force_full) so l2c60 repaints the rebuilt bar,
+			 * chrome, and HUD instead of just the 88x88 viewport. The Mac
+			 * rebuilds the play dialog each jt948/jt953 cycle; the port's
+			 * continuous walk loop drives it here. #124. */
+			if (g_event_modal_shown) {
+				g_event_modal_shown = 0;
+				play_screen_relayout(rec);
+				g_view_force_full = 1;
+			}
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 			jt312(ctx);
 		} else {
@@ -31221,6 +31291,9 @@ static void l1806(short v)
 	l177a();
 	l2858((short)2);
 	g_press_to_continue = 1;
+	g_event_modal_shown = 1;        /* this modal overdraws the play-screen
+	                                 * content + command bar; the event-exit
+	                                 * recompose (jt297 GAP-1) reads this. */
 	tmp = l23b4((short)(signed char)(v & 0xff));
 	g_press_to_continue = 0;
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
