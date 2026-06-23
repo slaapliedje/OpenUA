@@ -1,4 +1,52 @@
-# Stub inventory + campaign audit — 2026-06-15 (refresh)
+# Stub inventory + campaign audit — 2026-06-23 (refresh)
+
+## Snapshot 2026-06-23 (regen `tools/jt_progress.py`)
+
+1205 JT entries: **845 done** (761 lifted, 20 noop, 64 alias), **142 stub**,
+**218 missing**, 0 stand-in → **360 pending (29.9%)**. Top-100 fully lifted.
+Live chunk / per-CODE-segment / leaf-stub tables are in
+[`docs/jt-lift-progress.md`] (the tool output — trust it for counts).
+
+Biggest pending blocks by subsystem (per-CODE table):
+- **CODE 16 combat handler tier — 82** (81 stub): spell-effect / per-actor
+  handlers; the deepest block, but NOT play-reachable until the combat exec
+  loop (`l076e`, still stub) lands. Not the next target.
+- **CODE 4 display — 63** (mostly SUPERSEDED by the VIDEL HAL — most need no
+  lift), **CODE 5 core runtime — 51**, **CODE 3 Toolbox — 25**, **CODE 7
+  list/text widgets — 24**, **CODE 14 area-map — 19**, **CODE 8 UI/file — 17**.
+- **CODE 2 / 11 design editor — 9 / 6**: AUTHORING, not the play path (defer).
+
+## Play-path priorities (what actually blocks PLAYING)
+
+1. **EVENT SUBSYSTEM (l709e per-type arms) — the top play-path gap, and the
+   root of "events fire but don't load the PIC / don't display".** The l709e
+   dispatcher is lifted but ~18 of its event-type arms are still PROBE-only
+   stubs: `l159a`(1 text), `l4d26`(2), `l1f76`(4), `l2d32`(6), `l4f9a`(7),
+   `l2e42`(12), `l380a`(13), `l1ad8`(15), `l6020`(16), `l3ac6`(17),
+   `l3cd6`(18/19/20), `l5bde`(22), `l2b2a`(26), `l398a`(29), `l38bc`(32),
+   `l6436`(35) + `l3328`/`l3fba`/`l364e`/`l29cc` helpers. Already LIFTED:
+   `l28b0`(3 treasure), `l5676`(5/11 stairs), `l216a`(9), `l5586`(8 shop),
+   `l3b0e`/`l673e`(10/21 combat-entry). Pairs with CODE 10 (PIC/SPRIT/CPIC
+   display, 8 pending) for the event pictures. THIS would also make the test
+   harness's in-game navigation reliable (events currently no-op + mis-redraw).
+2. **INVENTORY (CODE 9, 3 pending + the UI)** — the deferred inventory task:
+   equipped-item display + ITEMS/TRADE/DROP (docs/inventory-subsystem-wall.md).
+3. **port_* play-loop stand-ins** -> the faithful CODE 15-19 chain
+   (port_run_encounter / port_rest / port_play_message / port_begin_adventure).
+
+## Open render threads (harness-blocked, parked 2026-06-23)
+
+- Fireplace colour cycle: subsystem works end-to-end (B.0 6e43c86 / B.1a dfdc2c3
+  / B.1b+B.2 2863b8a — installs, stays stable, jt1067 rotates, no regression),
+  but the on-screen fire does NOT animate — the facet-4 fireplace likely draws
+  via `cw_shade` (boot.c:9539) not `l309c_tile`, so the cycle band 97..102 never
+  reaches it. NEXT: instrument cw_shade for fire bytes 60..65. See
+  dungeon-3d-stack-audit.
+- Coord off-by-one (#124): Mac 14,7,N == port 14,8,N (port 2nd coord / row +1).
+
+---
+
+# Stub inventory + campaign audit — 2026-06-15 (earlier)
 
 > **The canonical, always-current audit is the auto-generated
 > [`docs/jt-lift-progress.md`](jt-lift-progress.md)** (run `tools/jt_progress.py`).
