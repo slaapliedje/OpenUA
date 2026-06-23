@@ -3384,7 +3384,7 @@ static short l29cc(void *ev);              /* keyword-question selector (case 20
 static void  l5bde(void *ev);              /* menu meta-event (case 22) — defined after its deps */
 static short jt160(long title, long block, short c, short e);  /* CODE 7+0x2ebc list dialog — lifted below */
 static void  l3a32(void *ev);              /* Vault event (case 24) — defined after jt185 (treasure block) */
-static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
+static void  l2b2a(void *ev);              /* award-experience event (case 26) — defined after its deps */
 static void  l5fcc(void *ev);              /* pass-time event — defined after jt914 */
 static void  l398a(void *ev, short v);     /* Inn event (case 29) — defined after l473e (rest block) */
 static void  l38bc(void *ev);              /* select-member-by-class event (case 32) — defined after its deps */
@@ -33839,6 +33839,81 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L2b2a (CODE 20 + 0x2b2a) — the award-experience event (l709e case 26).
+ * Faithful full lift. Shows the picture (L442e) / setup (L40b4) + event text
+ * (jt1180/jt232/L0b20) + sound (jt52 over ev[12]), pausing for Return (jt181)
+ * when there is a picture or text. Parses the XP amount from ev[8..] (L427c),
+ * then awards it: ev[7] bit2 set targets only the active member, else the whole
+ * party. For each able member (status +382 != 0) it splits the XP across the
+ * member's active classes (count of nonzero +157..+163) via jt5, adds the share
+ * to the XP total (+68, long), and recomputes the level/title (jt33 -> +197).
+ * The whole-party path repaints the roster (jt937). All deps lifted. */
+static void l2b2a(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	long           xp;
+	unsigned char  whole_party;
+
+	PROBE("L2b2a");
+	if (ev == NULL || rec == NULL)
+		return;
+
+	if (ev[6])
+		l442e(ev);
+	else
+		l40b4();
+	jt20();
+	if (jt1180(*(short *)(ev + 4)) != 0) {            /* event text */
+		jt232((void *)(uintptr_t)g_a5_long(-13034),
+		      jt1180(*(short *)(ev + 4)),
+		      (char *)&g_a5_byte(-5213));
+		rec[57] = 0;
+		l0b20(&g_a5_byte(-5213));
+	}
+	if (ev[12] != 0)
+		jt52(ev[12]);                             /* sound */
+	if (ev[6] != 0 || *(short *)(ev + 4) != 0)
+		jt181(1);                                 /* pause for Return */
+
+	xp = l427c(&ev[8]);                                /* parse the XP amount */
+	whole_party = (ev[7] & 0x04) ? 0 : 1;             /* bit2 set -> active only */
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+
+	if (whole_party) {
+		long member;
+		jt102();
+		for (member = g_a5_long(-27928); member != 0;
+		     member = *(long *)(uintptr_t)member) {
+			unsigned char *m = (unsigned char *)(uintptr_t)member;
+			short          i, classes = 0;
+			if (m[382] == 0)
+				continue;                 /* not able */
+			for (i = 0; i <= 6; i++)
+				if (m[157 + i] != 0)
+					classes++;
+			*(long *)(m + 68) += (long)jt5((unsigned long)xp,
+			                               (unsigned long)classes);
+			m[197] = (unsigned char)jt33(m);
+		}
+		jt937(g_a5_long(-27932));
+	} else {
+		long           member = g_a5_long(-27932);
+		unsigned char *m = (unsigned char *)(uintptr_t)member;
+		short          i, classes = 0;
+		if (m == NULL || m[382] == 0)
+			return;
+		jt102();
+		for (i = 0; i <= 6; i++)
+			if (m[157 + i] != 0)
+				classes++;
+		*(long *)(m + 68) += (long)jt5((unsigned long)xp,
+		                               (unsigned long)classes);
+		m[197] = (unsigned char)jt33(m);
+	}
+}
 
 /* L38bc (CODE 20 + 0x38bc) — the select-member-by-class event (l709e case 32).
  * Faithful full lift. Scans the party (-27928, link@0) for the first member
