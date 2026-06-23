@@ -3378,7 +3378,7 @@ static void l6020(void *ev_v)
 }
 static void  l3ac6(void *ev);              /* play-sounds event — defined after jt52 */
 static short l3328(void *ev)               { PROBE("L3328"); (void)ev; return 0; }
-static short l3cd6(void *ev, short v)      { PROBE("L3cd6"); (void)ev; (void)v; return 0; }
+static short l3cd6(void *ev, short v);     /* question outcome/branch — defined after its deps */
 static short l364e(void *ev)               { PROBE("L364e"); (void)ev; return 0; }
 static short l29cc(void *ev)               { PROBE("L29cc"); (void)ev; return 0; }
 static void  l5bde(void *ev)               { PROBE("L5bde"); (void)ev; }
@@ -33838,6 +33838,89 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L3cd6 (CODE 20 + 0x3cd6) — the question outcome / branch handler shared by
+ * l709e cases 18/19/20 (it receives the player's answer v from the case's
+ * selector: l3328 / l364e / l29cc). Faithful full lift. On a true answer
+ * (v != 0) it shows the "yes" text (ev[13..14] string id) then runs the yes
+ * action coded in (ev[10] bits 2-3); on a false answer it shows the "no" text
+ * (ev[11..12]) then runs the no action in (ev[10] bits 0-1). Each action set:
+ * 1 = branch to the next event (ev[16] yes / ev[15] no — the return value),
+ * 2 = teleport (clamp ev[17]/ev[18] to the map via jt413, facing from
+ * ev[10]&0x30, apply via L4184), 3 = set the -4946 flag. Returns the next-event
+ * index. All deps lifted (L40b4 is the shared setup stub). */
+static short l3cd6(void *ev_v, short v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char *ds  = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char  result = 0;
+
+	PROBE("L3cd6");
+	if (ev == NULL || rec == NULL || ds == NULL)
+		return 0;
+
+	if (v & 0xff) {                                    /* true / "yes" answer */
+		jt20();
+		if (ev[13] != 0) {
+			jt232((void *)(uintptr_t)g_a5_long(-13034),
+			      (short)(ev[13] | (ev[14] << 8)),
+			      (char *)&g_a5_byte(-5213));
+			rec[57] = 0;
+			l0b20(&g_a5_byte(-5213));
+			jt181(1);
+		}
+		switch ((ev[10] & 0x0c) >> 2) {
+		case 1:
+			result = ev[16];
+			break;
+		case 2:                                    /* teleport */
+			g_a5_byte(-4940) = (unsigned char)jt413(ev[17], (short)(ds[3] - 1));
+			g_a5_byte(-4939) = (unsigned char)jt413(ev[18], (short)(ds[2] - 1));
+			g_a5_byte(-12286) = (unsigned char)((ev[10] & 0x30) >> 3);
+			l4184();
+			l40b4();
+			g_a5_byte(-4942) = 1;
+			break;
+		case 3:
+			g_a5_byte(-4946) = 1;
+			break;
+		default:
+			break;
+		}
+	} else {                                           /* false / "no" answer */
+		jt20();
+		if (ev[11] != 0) {
+			jt232((void *)(uintptr_t)g_a5_long(-13034),
+			      (short)(ev[11] | (ev[12] << 8)),
+			      (char *)&g_a5_byte(-5213));
+			rec[57] = 0;
+			l0b20(&g_a5_byte(-5213));
+			jt181(1);
+		}
+		switch (ev[10] & 3) {
+		case 1:
+			result = ev[15];
+			break;
+		case 2:                                    /* teleport */
+			g_a5_byte(-4940) = (unsigned char)jt413(ev[17], (short)(ds[3] - 1));
+			g_a5_byte(-4939) = (unsigned char)jt413(ev[18], (short)(ds[2] - 1));
+			g_a5_byte(-12286) = (unsigned char)((ev[10] & 0x30) >> 3);
+			l4184();
+			l40b4();
+			g_a5_byte(-4942) = 1;
+			break;
+		case 3:
+			g_a5_byte(-4946) = 1;
+			break;
+		default:
+			break;
+		}
+	}
+
+	g_a5_byte(-4943) = (unsigned char)(ev[10] & 0x20);
+	return (short)result;
+}
 
 /* L1f76 (CODE 20 + 0x1f76) — the affect-party effect/damage event (l709e case
  * 4). Faithful full lift. Shows the picture (L442e) + text (L3f22), opens the
