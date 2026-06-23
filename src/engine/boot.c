@@ -9390,13 +9390,18 @@ static void cw_seed_ui_band(RGBColor *pal)
 #define CW_NPIECE 48          /* pieces per set                            */
 #define CW_SLOTS 3            /* one per wall group (Wall1-3)              */
 #define CW_FACETS 5           /* facets per group: wall/window/door/...    */
-#define CW_BAND  32           /* clut entries per wall band                */
+#define CW_BAND  37           /* clut entries per wall band — the 8X8DB item-0
+                               * palette is count=37 (art 32..68). The old 32
+                               * truncated art 64..68 (incl. set8's fire-cycle
+                               * band 60..65) + spilled it across bands. 37-wide
+                               * bands at {32,69,106} hold the whole palette
+                               * (slot 2 = 106..142, < backdrop BACK_PAL_BASE 144). */
 /* Facet (position-in-group, 0-4) -> near-face piece, from jt200's tile
  * arithmetic. Facet 0 = plain wall; 1 = window, 2 = door, 3 = brazier,
  * 4 = fireplace — the last four are decoration overlays (their magenta
  * key is transparent, showing the wall behind). */
 static const short g_cw_facet_piece[CW_FACETS] = { 8, 18, 27, 36, 45 };
-static const short g_cw_base[CW_SLOTS] = { 32, 64, 96 };  /* clut band bases */
+static const short g_cw_base[CW_SLOTS] = { 32, 69, 106 }; /* clut band bases (CW_BAND apart) */
 static unsigned char g_cw_sbody[CW_SLOTS][CW_FACETS][56 * 56]; /* facet pixels */
 static short g_cw_fh[CW_SLOTS][CW_FACETS], g_cw_fw[CW_SLOTS][CW_FACETS];
 static short g_cw_fxo[CW_SLOTS][CW_FACETS], g_cw_fyo[CW_SLOTS][CW_FACETS]; /* -bear */
@@ -9407,6 +9412,15 @@ static unsigned char g_cw_sb[CW_SLOTS][CW_BAND];
 static unsigned char g_cw_strans[CW_SLOTS][CW_BAND]; /* 1 = magenta key (clear)*/
 static unsigned char g_cw_remap[CW_SLOTS][4][CW_BAND]; /* depth->darker off  */
 static short g_cw_grp[CW_SLOTS] = { -1, -1, -1 };    /* cached Wall1-3 ids   */
+/* Per-slot palette colour-cycle records, read from the 8X8DB item-0 palette
+ * (the 4-byte recs [flags,period,base,count] after the RGB block — the same
+ * table jt1067 rotates). HEIRS set8 (wood/Wall2) carries one: base=60 cnt=6
+ * per=7 = the fireplace fire. cw_finalize feeds them to jt1069 (rebased into
+ * the slot's CLUT band) so the allocator installs + OWNS the cycle. */
+#define CW_CYC_MAX 2
+static struct cw_cycle { unsigned char flags, period, base, count; }
+	g_cw_cyc[CW_SLOTS][CW_CYC_MAX];
+static short g_cw_cyc_n[CW_SLOTS];
 /* Set when an event PICTURE (jt993 -> jt1069/jt1066) commits its own palette
  * into CLUT[32..255], which overwrites the dungeon's wall bands (32/64/96) and
  * backdrop band (145). The dungeon render's wall-CLUT install is otherwise gated
@@ -9692,11 +9706,38 @@ static int cw_load_slot(short slot, short file, short set)
 			g_cw_strans[slot][k] =
 				(r == 255 && g == 103 && b == 255) ? 1 : 0;
 		}
+		/* Colour-cycle records follow the RGB block: header n@4..5 = colour
+		 * count, ncyc@6 = range count, then ncyc * 4 bytes
+		 * [flags,period,base,count]. Stash them for cw_finalize. */
+		g_cw_cyc_n[slot] = 0;
+		if (pp != NULL) {
+			const unsigned char *hp = (const unsigned char *)(uintptr_t)p0;
+			short npal = (short)(((unsigned)hp[4] << 8) | hp[5]);
+			short ncyc = (short)hp[6];
+			const unsigned char *cr =
+				(const unsigned char *)(uintptr_t)(p0 + 8 + (long)npal * 3);
+			short c;
+			if (ncyc > CW_CYC_MAX)
+				ncyc = CW_CYC_MAX;
+			if (npal > 0 && ncyc > 0
+			    && p0 + 8 + (long)npal * 3 + (long)ncyc * 4 <= p1) {
+				for (c = 0; c < ncyc; c++) {
+					g_cw_cyc[slot][c].flags  = cr[c * 4 + 0];
+					g_cw_cyc[slot][c].period = cr[c * 4 + 1];
+					g_cw_cyc[slot][c].base   = cr[c * 4 + 2];
+					g_cw_cyc[slot][c].count  = cr[c * 4 + 3];
+				}
+				g_cw_cyc_n[slot] = ncyc;
+			}
+		}
 	}
 	g_cw_sid[slot] = (short)(set ? set : 1);
 	return 1;
 }
 
+static void jt1068(void);                                          /* GLIB DNPInit */
+static void jt1069(short start, short count, unsigned char *src,
+                   short ncopy, unsigned char *destp);             /* GLIB range alloc */
 /* cw_finalize — after the slots are loaded, push every loaded slot's band
  * into the clut, set the ceiling/floor fallback colours, build the per-slot
  * per-depth darken remap (nearest darker colour within the slot's own
@@ -9744,6 +9785,70 @@ static void cw_finalize(void)
 				}
 				g_cw_remap[slot][d][k] = (unsigned char)best;
 			}
+
+	/* Card B.2 (targeted): keep each set's colour-cycle band UNFADED. Fire /
+	 * torch colours are full-brightness at every depth, and — critically — the
+	 * depth remap must leave them on the live cycle band (g_cw_base[slot]+off)
+	 * so jt1067's CLUT rotation actually reaches the rendered pixels. Without
+	 * this the nearest-darker remap scatters the fire colours off the band and
+	 * the animation is invisible. */
+	for (slot = 0; slot < CW_SLOTS; slot++) {
+		short c;
+		if (g_cw_sid[slot] == 0)
+			continue;
+		for (c = 0; c < g_cw_cyc_n[slot]; c++) {
+			short off0 = (short)(g_cw_cyc[slot][c].base - 32);
+			short cn   = g_cw_cyc[slot][c].count;
+			short o, dd;
+			for (o = off0; o < off0 + cn && o < CW_BAND; o++)
+				if (o >= 0)
+					for (dd = 0; dd < 4; dd++)
+						g_cw_remap[slot][dd][o] = (unsigned char)o;
+		}
+	}
+
+	/* Card B.1b: install each wall set's colour-cycle ranges through the
+	 * faithful GLIB allocator (jt1069 — now correct after B.1a, owned + stable
+	 * after B.0), and seed the -3394 work buffer jt1067 rotates from the
+	 * palette we just built. The cycle base is rebased into the slot's CLUT
+	 * band (g_cw_base[slot] + (art_base-32)) to match l309c_tile's fixed-band
+	 * blit. The walls still render via the fabricated qd_set_palette above; the
+	 * full jt1066 commit + moving the blit onto jt1069's allocated slots is
+	 * B.2. (jt1069 only stages -3390 / installs -3258 here; we don't call
+	 * jt1066, whose all-used commit would re-write the UI band black until the
+	 * whole dungeon palette is staged.) */
+	if (g_a5_long(-3394) == 0)
+		jt1068();                       /* ensure the cycle buffers exist */
+	if ((void *)(uintptr_t)g_a5_long(-3394) != NULL) {
+		unsigned char *work = (unsigned char *)(uintptr_t)g_a5_long(-3394);
+		unsigned char  src[CW_BAND * 3];
+		unsigned char  rem[CW_CYC_MAX * 4];
+		short c;
+
+		for (i = 0; i < 256; i++) {      /* seed work buf from the live palette */
+			work[i * 3 + 0] = (unsigned char)(pal[i].red   >> 8);
+			work[i * 3 + 1] = (unsigned char)(pal[i].green >> 8);
+			work[i * 3 + 2] = (unsigned char)(pal[i].blue  >> 8);
+		}
+		for (slot = 0; slot < CW_SLOTS; slot++) {
+			if (g_cw_sid[slot] == 0 || g_cw_cyc_n[slot] == 0)
+				continue;
+			for (k = 0; k < CW_BAND; k++) {
+				src[k * 3 + 0] = g_cw_sr[slot][k];
+				src[k * 3 + 1] = g_cw_sg[slot][k];
+				src[k * 3 + 2] = g_cw_sb[slot][k];
+			}
+			for (c = 0; c < g_cw_cyc_n[slot]; c++) {
+				rem[c * 4 + 0] = g_cw_cyc[slot][c].flags;
+				rem[c * 4 + 1] = g_cw_cyc[slot][c].period;
+				rem[c * 4 + 2] = (unsigned char)(g_cw_base[slot]
+				                 + (g_cw_cyc[slot][c].base - 32));
+				rem[c * 4 + 3] = g_cw_cyc[slot][c].count;
+			}
+			jt1069(g_cw_base[slot], (short)CW_BAND, src,
+			       g_cw_cyc_n[slot], rem);
+		}
+	}
 
 	load_backdrop(g_back_set);
 }
@@ -12920,6 +13025,60 @@ static void play_screen_relayout(unsigned char *rec)
 	}
 }
 
+/* dungeon_cycle_ensure (Card B.1b) — re-establish the wall colour-cycle ranges
+ * in -3258 if they were freed. An event PICTURE commits its palette over
+ * CLUT[32..255] via jt993 -> jt1069, whose Phase 3a frees every range
+ * overlapping the request — including the dungeon's fire cycle — and the
+ * dirty-gated re-commit does not reinstall it. Rather than chase every clobber,
+ * re-install (faithful entry layout: next-due = now + period - 3, then
+ * [flags,period,base,count]) whenever a slot's cycle is missing from -3258. The
+ * -3394 work buffer keeps its colours across the clobber, so jt1067's rotation
+ * simply resumes. Called from l63c0 right before jt1067. */
+static void dungeon_cycle_ensure(void)
+{
+	unsigned char *rng = (unsigned char *)&g_a5_byte(-3258);
+	short slot, c, i;
+
+	if (g_a5_byte(-3150) == 0 || (void *)(uintptr_t)g_a5_long(-3394) == NULL)
+		return;
+	for (slot = 0; slot < CW_SLOTS; slot++) {
+		if (g_cw_sid[slot] == 0)
+			continue;
+		for (c = 0; c < g_cw_cyc_n[slot]; c++) {
+			short rbase = (short)(g_cw_base[slot]
+			              + (g_cw_cyc[slot][c].base - 32));
+			short cnt    = g_cw_cyc[slot][c].count;
+			short free_i = -1;
+			short present = 0;
+
+			if (cnt <= 0 || rbase < 0 || rbase + cnt > 256)
+				continue;
+			for (i = 0; i < 12; i++) {
+				if (*(long *)(rng + i * 8) == 0x7fffffffL) {
+					if (free_i < 0)
+						free_i = i;
+				} else if (rng[i * 8 + 6] == (unsigned char)rbase
+				        && rng[i * 8 + 7] == (unsigned char)cnt) {
+					present = 1;
+					break;
+				}
+			}
+			if (present || free_i < 0)
+				continue;
+			{
+				unsigned char *e = rng + free_i * 8;
+				long now = (TickCount() - g_a5_long(-130)) * 6 / 5;
+				*(long *)e = now + g_cw_cyc[slot][c].period - 3;
+				e[4] = g_cw_cyc[slot][c].flags;
+				e[5] = g_cw_cyc[slot][c].period;
+				e[6] = (unsigned char)rbase;
+				e[7] = (unsigned char)cnt;
+				g_a5_byte(-3162 + free_i) = 1;
+			}
+		}
+	}
+}
+
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
                          short a_deep, long cb1, long cb2)
 {
@@ -12977,8 +13136,19 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 
 	/* --- the input / movement loop (L64ae .. L67ae) --- */
 	for (;;) {
-		if (jt1163() == 0 && jt1200() != 0)
+		/* Palette colour-cycle tick (fireplace / torches). The Mac gates on
+		 * jt1200()!=0 (its doubled dungeon mode 3); the port runs the dungeon
+		 * native (g_a5_2347=1 -> jt1200()==0) for the HUD, which would gate
+		 * cycling off — so also tick in the deep view (a_deep). jt1067
+		 * self-gates on -3150 + -2347, so other screens stay unaffected.
+		 * NB: the idle loop only spins on input today, so the fire advances per
+		 * step/turn; continuous standing animation is B.3. */
+		if (jt1163() == 0 && (jt1200() != 0 || (unsigned char)a_deep)) {
+			if ((unsigned char)a_deep)
+				dungeon_cycle_ensure();  /* re-arm the fire cycle if a
+				                          * picture's jt1069 freed it */
 			jt1067();
+		}
 		if ((unsigned char)a_deep)
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 		jt1113(&o10, &o12);
