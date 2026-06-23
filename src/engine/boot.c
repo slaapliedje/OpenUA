@@ -3270,6 +3270,7 @@ static void  jt45(void)                    { PROBE("jt45"); }
 static void  jt510(void)                   { PROBE("jt510"); }
 static void  jt512(void)                   { PROBE("jt512"); }
 static void  jt954(void)                   { PROBE("jt954"); }  /* CODE 21+0x38f4 — l2e42 move-code 3 */
+static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE 15+0x1188 — l380a effect apply */
 static void  l10a0(void *ev)               { PROBE("L10a0"); (void)ev; }
 static void  l1176(void)                   { PROBE("L1176"); }
 static void  jt511(void);                   /* CODE 13 combat tail — lifted below */
@@ -3286,7 +3287,7 @@ static short l216a(void *ev);              /* give-treasure/temple take event �
 static short l3b0e(void *ev);              /* encounter prompt — defined after its deps */
 static short l673e(void *ev, short a, short *pn);  /* encounter outcome dispatch — defined after its deps */
 static void  l2e42(void *ev);              /* scripted-movement event — defined after its deps */
-static void  l380a(void *ev)               { PROBE("L380a"); (void)ev; }
+static void  l380a(void *ev);              /* HP-percentage event — defined after its deps */
 /* L3fba (CODE 20 + 0x3fba) — case-14 gate for l4d26. Scans the party list
  * (-27928, link@0) and returns 1 if a member qualifies: status rec[94] in
  * {0,1,3,5} (conscious) and rec[397] either == v, or — when v==0 — in the
@@ -33835,6 +33836,45 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L380a (CODE 20 + 0x380a) — the HP-percentage event (l709e case 13). Faithful
+ * full lift. Gated by L3fba(ev[8]): fires only when NO party member matches
+ * ev[8]. Shows the picture (L442e) or refreshes (jt935), prints the text
+ * (L3f22), applies jt592(ev[8]), then sets the active character's current HP
+ * (char[395]) to (maxHP char[129] * ev[9]) / 100, clamped to [1,250], and
+ * recomputes derived stats (jt21) + repaints the roster row (jt937). jt592
+ * (CODE 15) is a new PROBE stub. */
+static void l380a(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char *ac;
+	short          val;
+
+	PROBE("L380a");
+	if (ev == NULL)
+		return;
+	if (l3fba(ev[8]) != 0)                    /* fire only when party LACKS ev[8] */
+		return;
+
+	if (ev[6])
+		l442e(ev);
+	else
+		jt935();
+	l3f22(ev);
+	jt592(ev[8]);
+
+	ac = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (ac == NULL)                           /* no active char -> nothing to set */
+		return;
+	val = (short)(((unsigned short)(ac[129] * ev[9])) / 100);
+	if (val == 0)
+		val = 1;
+	if (val > 250)
+		val = 250;
+	ac[395] = (unsigned char)val;             /* current HP = pct of max */
+	jt21(g_a5_long(-27932));
+	jt937(g_a5_long(-27932));
+}
 
 /* L2e42 (CODE 20 + 0x2e42) — the scripted-movement / "passage" event (l709e
  * case 12). Faithful full lift. Skips entirely in mode 3. Optionally re-anchors
