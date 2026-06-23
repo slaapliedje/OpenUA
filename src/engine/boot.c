@@ -3387,7 +3387,7 @@ static void  l3a32(void *ev);              /* Vault event (case 24) — defined 
 static void  l2b2a(void *ev)               { PROBE("L2b2a"); (void)ev; }
 static void  l5fcc(void *ev);              /* pass-time event — defined after jt914 */
 static void  l398a(void *ev, short v);     /* Inn event (case 29) — defined after l473e (rest block) */
-static void  l38bc(void *ev)               { PROBE("L38bc"); (void)ev; }
+static void  l38bc(void *ev);              /* select-member-by-class event (case 32) — defined after its deps */
 static short l6436(void *ev)               { PROBE("L6436"); (void)ev; return 0; }
 static short l3118(void *ev);              /* Yes/No QUESTION event — lifted near jt181 */
 static void  l43ac(short idx);             /* once-triggered bitmap clear — defined after its deps */
@@ -33839,6 +33839,57 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L38bc (CODE 20 + 0x38bc) — the select-member-by-class event (l709e case 32).
+ * Faithful full lift. Scans the party (-27928, link@0) for the first member
+ * whose class field (+397) matches the criterion: when ev[8] != 0, an exact
+ * class == ev[8]; when ev[8] == 0, any member in the class band [112,127].
+ * On the first match it makes that member active (-27932) and selects/
+ * highlights it (jt19), then stops. If a member was found it shows the event
+ * picture (L442e) / refresh (jt935) + text (L3f22) and repaints the roster
+ * row (jt937); otherwise the event is silent. */
+static void l38bc(void *ev_v)
+{
+	unsigned char *ev     = (unsigned char *)ev_v;
+	long           member;
+	unsigned char  found  = 0;
+	short          any;
+
+	PROBE("L38bc");
+	if (ev == NULL)
+		return;
+
+	any = (ev[8] == 0) ? 1 : 0;             /* ev[8]==0 -> any class-band member */
+
+	for (member = g_a5_long(-27928);
+	     member != 0 && found == 0;
+	     member = *(long *)(uintptr_t)member) {
+		unsigned char *m = (unsigned char *)(uintptr_t)member;
+		int            match;
+
+		if (m[397] == ev[8] && any == 0)
+			match = 1;
+		else if (m[397] >= 112 && m[397] <= 127 && any != 0)
+			match = 1;
+		else
+			match = 0;
+
+		if (match) {
+			found = 1;
+			g_a5_long(-27932) = member;
+			jt19(0, 1);
+		}
+	}
+
+	if (found) {
+		if (ev[6])
+			l442e(ev);
+		else
+			jt935();
+		l3f22(ev);
+		jt937(g_a5_long(-27932));
+	}
+}
 
 /* L5bde (CODE 20 + 0x5bde) — the multi-service menu meta-event (l709e case 22:
  * a "town" / vault-complex cell that offers several services). Faithful full
