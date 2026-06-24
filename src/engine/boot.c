@@ -32724,7 +32724,15 @@ static void jt646(void) { PROBE("jt646"); }	/* +0x22e8; id 71 */
 static void jt647(void) { PROBE("jt647"); }	/* +0x1f1a; id 128 */
 static void jt648(void) { PROBE("jt648"); }	/* +0x3424; id 110 */
 static void jt649(void) { PROBE("jt649"); }	/* +0x0ff6; id 36 */
-static void jt650(void) { PROBE("jt650"); }	/* +0x0158; id 4 */
+static void jt650(void)	/* +0x0158; id 4 */
+{
+	PROBE("jt650");
+	/* CODE 16 effect handler: roll 1d8 (jt873 = roll + stash count in -25261)
+	 * and apply it as the l6114 value arg (c), with d=8 staged into -25266
+	 * and an empty announce string. */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)jt873(1, 8), (short)8, ua_strs_at(0x4d4c) /* "" */);
+}
 static void jt651(void) { PROBE("jt651"); }	/* +0x2e28; id 96 */
 static void jt652(void) { PROBE("jt652"); }	/* +0x19aa; id 48 */
 static void jt653(void) { PROBE("jt653"); }	/* +0x37bc; id 114 */
