@@ -32798,7 +32798,41 @@ static void jt635(void) { PROBE("jt635"); }	/* +0x2960; id 85 */
 static void jt636(void) { PROBE("jt636"); }	/* +0x239c; id 74 */
 static void jt637(void) { PROBE("jt637"); }	/* +0x1fce; id 131 */
 static void jt639(void) { PROBE("jt639"); }	/* +0x4458; id 126 */
-static void jt640(void) { PROBE("jt640"); }	/* +0x1168; id 39,106 */
+/* CODE 16+0x0f52 (local) — the "cure" PREDICATE on the -23508 caster: probes
+ * three status types via jt872 and returns 1 if any is present.  Type 43 also
+ * strips related effects (jt878 ids 44/31 + jt875 0); type 215 strips id 172;
+ * type 34 is only flagged, not stripped.  Shared by jt640 and jt649. */
+static unsigned char l0f52(void)
+{
+	long c = g_a5_long(-23508);
+	unsigned char result = 0;				/* 0f56 */
+
+	g_a5_byte(-25258) = 1;					/* 0f5c */
+	if ((unsigned char)jt872(c, 34) != 0)			/* 0f68 */
+		result = 1;					/* 0f74 */
+	if ((unsigned char)jt872(c, 43) != 0) {			/* 0f80 */
+		result = 1;					/* 0f8c */
+		jt878(c, 44, 0L);				/* 0f9a */
+		jt878(c, 31, 0L);				/* 0fac */
+		jt875(c, 0);					/* 0fba */
+	}
+	if ((unsigned char)jt872(c, 215) != 0) {		/* 0fc8 */
+		jt878(c, 172, 0L);				/* 0fdc */
+		result = 1;					/* 0fe6 */
+	}
+	g_a5_byte(-25258) = 0;					/* 0fea */
+	return result;
+}
+static void jt640(void)	/* +0x1168; id 39,106 */
+{
+	PROBE("jt640");
+	/* CODE 16 effect handler: if l0f52 cures something on the -23508 caster,
+	 * log "is cured" via jt18. */
+	if (l0f52() != 0)					/* 1168 / 116c */
+		jt18((void *)(uintptr_t)g_a5_long(-23508),
+		     (long)(uintptr_t)ua_strs_at(0x4ec6) /* "is cured" */,
+		     (short)10, (short)0);			/* 1180 */
+}
 static void jt641(void) { PROBE("jt641"); }	/* +0x2f64; id 137 */
 static void jt642(void) { PROBE("jt642"); }	/* +0x089a; id 27 */
 static void jt643(void) { PROBE("jt643"); }	/* +0x0468; id 13 */
