@@ -21,9 +21,11 @@ CODE 13 holds two things:
    (the loop reaches them via `jsr %pc@`), so they don't show in the JT
    scoreboard — `seg_audit.py 13` is the truth here.
 
-**Snapshot (`seg_audit.py 13`):** 75 functions, 28 lifted (37%), 47 remaining.
-Only **2 pending JT** entries (jt496, jt510 — leaf MISSING); the rest is the
-45-local combat tree below.
+**Snapshot (`seg_audit.py 13`):** 75 functions, 70 lifted (93%), 5 remaining
+(`l52ee` DONE). The entire `l4f22` combat-SETUP tree is now stub-free end to
+end. Remaining 5 are small disconnected leaves: `jt510` (JT leaf), `l6ac4`/
+`l6b2c`/`l6c96` (range/fill helpers, 0 incoming calls), and `l2d30` (which is
+**already lifted** as `l2d30_c13` — the audit just doesn't see the `_c13` suffix).
 
 ### Why this is the highest-leverage combat target
 
