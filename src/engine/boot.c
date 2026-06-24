@@ -35992,17 +35992,129 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
- * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 are lifted below; l375a/l3936/
- * l3b36 (l3ef6's passes) and l32ba (l3540's 2nd JT[3] pass) are PROBE stubs for
- * their own cards. */
+ * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 + l32ba are lifted below;
+ * l375a/l3936/l3b36 (l3ef6's passes) are PROBE stubs for their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
 static void l375a(void)  { PROBE("L375a"); }
 static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
-static void l32ba(unsigned char *a, unsigned char *b) { PROBE("L32ba"); (void)a; (void)b; }
 static void l2ca6(short a, short b, short c);   /* the field-cell paint primitive, lifted below */
+
+/* CODE 13+0x32ba — the per-cell EAST-quadrant wall-tile computer (l3540's second
+ * JT[3] pass; sibling of l3016). Faithful full lift of the nested THINK-C inline
+ * switches. For cell (row=*prow, col=*pcol) it first queries two neighbour edges
+ * — e7 = l2df8_c13(row,col-1,2), e8 = l2df8_c13(row+1,col,0) — and a diagonal
+ * flag (both open). A 4-iteration switch then computes the four right-hand 2x2
+ * tiles from the north edge code -7933, the dir-2 edge code -7931, e7, e8 and the
+ * diagonal flag (all edge codes in {0,1,3}). It paints them via l2ca6:
+ * TL->(5,0), TR->(6,0), BL->(5,1), BR->(6,1). Deps l2df8_c13/l2ca6 lifted.
+ * This is l3540's last per-cell pass. */
+static void l32ba(unsigned char *prow, unsigned char *pcol)
+{
+	unsigned char e7;               /* fp@(-7) */
+	unsigned char e8;               /* fp@(-8) */
+	unsigned char diag;             /* fp@(-6) */
+	unsigned char t_tl = 0;         /* fp@(-2) -> (5,0) */
+	unsigned char t_tr = 0;         /* fp@(-4) -> (6,0) */
+	unsigned char t_bl = 0;         /* fp@(-3) -> (5,1) */
+	unsigned char t_br = 0;         /* fp@(-5) -> (6,1) */
+	short row = (signed char)*prow;
+	short col = (signed char)*pcol;
+	short i;
+
+	PROBE("L32ba");
+
+	e7 = (unsigned char)l2df8_c13(row, (short)(col - 1), 2);
+	e8 = (unsigned char)l2df8_c13((short)(row + 1), col, 0);
+	diag = (unsigned char)((e7 == 0 && e8 == 0) ? 1 : 0);
+
+	for (i = 1; i <= 4; i++) {                       /* JT[3] @0x3330 min1 max4 */
+		switch (i) {
+		case 1:                                  /* L333e -> (5,0) */
+			switch ((unsigned char)g_a5_byte(-7933)) {     /* @0x3348 */
+			case 0: t_tl = (unsigned char)((e7 == 1) ? 4 : 22); break; /* L3356 */
+			case 1: t_tl = 5;  break;        /* L337c */
+			case 3: t_tl = 15; break;        /* L3372 */
+			default: break;
+			}
+			break;
+
+		case 2:                                  /* L3386 -> (6,0) */
+			if (g_a5_byte(-7933) == 0) {
+				switch (e7) {            /* @0x3398 */
+				case 0: t_tr = 22; break;        /* L33a6 */
+				case 3:                          /* L33b0 */
+					if (g_a5_byte(-7931) == 0 && e8 != 0)
+						t_tr = 24;
+					else if (g_a5_byte(-7931) != 0)
+						t_tr = 1;
+					else
+						t_tr = 7;
+					break;
+				case 1:                          /* L33e0 */
+					if (g_a5_byte(-7931) != 0)
+						t_tr = 3;
+					else if (e8 != 0)
+						t_tr = 11;
+					else
+						t_tr = 7;
+					break;
+				default: break;
+				}
+			} else {                         /* L340a */
+				if (g_a5_byte(-7931) != 0)
+					t_tr = 9;
+				else if (e8 != 0)
+					t_tr = 5;
+				else if (diag != 0)
+					t_tr = 17;
+				else
+					t_tr = 19;
+			}
+			break;
+
+		case 3:                                  /* L3444 -> (5,1) */
+			switch ((unsigned char)g_a5_byte(-7933)) {     /* @0x344e */
+			case 0: t_bl = 22; break;        /* L345c */
+			case 1: t_bl = 10; break;        /* L3470 */
+			case 3: t_bl = 16; break;        /* L3466 */
+			default: break;
+			}
+			break;
+
+		case 4:                                  /* L347a -> (6,1) */
+			if (g_a5_byte(-7933) == 0) {
+				if (e7 == 0) {
+					t_br = 22;
+				} else {                 /* L3490 */
+					if (g_a5_byte(-7931) != 0)
+						t_br = 4;
+					else if (e8 == 0)
+						t_br = 8;
+					else
+						t_br = 12;
+				}
+			} else {                         /* L34b4 */
+				if (g_a5_byte(-7931) != 0)
+					t_br = 14;
+				else if (e8 == 0)
+					t_br = 23;
+				else
+					t_br = 10;
+			}
+			break;
+
+		default: break;
+		}
+	}
+
+	l2ca6(5, 0, (short)t_tl);
+	l2ca6(6, 0, (short)t_tr);
+	l2ca6(5, 1, (short)t_bl);
+	l2ca6(6, 1, (short)t_br);
+}
 
 /* CODE 13+0x3016 — the per-cell WALL-TILE corner computer (l3540's first JT[3]
  * pass). Faithful full lift of the 8 nested THINK-C inline switches. For a cell
