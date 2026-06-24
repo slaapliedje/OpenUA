@@ -32865,7 +32865,15 @@ static void jt674(void)
 	      ua_strs_at(0x4d4e) /* "is affected" */);
 }
 static void jt675(void) { PROBE("jt675"); }	/* +0x096a; id 28 */
-static void jt676(void) { PROBE("jt676"); }	/* +0x04ec; id 14 */
+static void jt676(void)	/* +0x04ec; id 14 */
+{
+	PROBE("jt676");
+	/* CODE 16 effect handler: announce "is friendly" with a 2d4 value in the
+	 * l6114 source arg (a) and b=1, then resolve via jt875(current char, 5). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)jt870(2, 4),
+	      (short)1, (short)0, (short)0, ua_strs_at(0x4de2) /* "is friendly" */);
+	jt875(g_a5_long(-27932), (short)5);
+}
 static void jt677(void) { PROBE("jt677"); }	/* +0x355e; id 111 */
 static void jt678(void) { PROBE("jt678"); }	/* +0x2776; id 83 */
 static void jt679(void) { PROBE("jt679"); }	/* +0x2320; id 72 */
