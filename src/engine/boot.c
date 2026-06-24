@@ -32797,7 +32797,50 @@ static void jt662(void)	/* +0x3a84; id 119 */
 	      (short)0, (short)0, ua_strs_at(0x524e) /* "is protected" */);
 }
 static void jt663(void) { PROBE("jt663"); }	/* +0x09e0; id 32 */
-static void jt664(void) { PROBE("jt664"); }	/* +0x00c6; id 1,62 */
+static unsigned char jt492(long rec_l, short b, short c);  /* CODE 13, below */
+/* CODE 16+0x0008 (local) — the summoned-creature list FILTER + announce, shared
+ * by jt664/jt695.  Walks the -23512 area-target list (1..g_23510) and nulls every
+ * slot whose record[95] != `type`; a matching record is ALSO nulled when the live
+ * effect is id 1, the play state is combat-view (-27990==5) and jt492(rec,1,0)
+ * reports it (it leaves the field).  Then announces the surviving set via
+ * l6114(effect, 0,0,0,0, msg).  `type` is taken signed (extw), record[95]
+ * unsigned, exactly as the asm; the dense list is read without a NULL guard,
+ * matching the original. */
+static void l0008(short type, const char *msg)
+{
+	int i;
+
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {	/* 009a */
+		long *slot = &g_a5_longs(-23512)[i];			/* 001c */
+		unsigned char *rec = (unsigned char *)(uintptr_t)*slot;	/* 0030 */
+		int clear;
+
+		if ((short)(unsigned char)rec[95] != (short)(signed char)type) {
+			clear = 1;					/* 0040 -> L0080 */
+		} else if ((unsigned char)g_a5_byte(-25262) == 1	/* 0048 */
+		        && (unsigned char)g_a5_byte(-27990) == 5	/* 004e */
+		        && (unsigned char)jt492(*slot, 1, 0) != 0) {	/* 0072 / 007e */
+			clear = 1;					/* -> L0080 */
+		} else {
+			clear = 0;					/* L0096 keep */
+		}
+		if (clear)
+			*slot = 0;					/* 0094 clrl */
+	}
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, msg);					/* 00a6 */
+}
+static void jt664(void)	/* +0x00c6; id 1,62 */
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+
+	PROBE("jt664");
+	/* filter the summon list by THIS character's record[95] and announce
+	 * "is <name>" (jt488 formats the -20092 name pointer). */
+	l0008((short)(unsigned char)rec[95],
+	      jt488(ua_strs_at(0x4d40) /* "is %s" */,
+	            (const char *)(uintptr_t)g_a5_long(-20092)));
+}
 static void jt665(void) { PROBE("jt665"); }	/* +0x3d02; id 123 */
 static void jt666(void) { PROBE("jt666"); }	/* +0x05aa; id 20 */
 static void jt667(void) { PROBE("jt667"); }	/* +0x2ab8; id 86 */
@@ -32910,7 +32953,19 @@ static void jt694(void)	/* +0x0a42; id 33 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4e6e) /* "is weakened" */);
 }
-static void jt695(void) { PROBE("jt695"); }	/* +0x00ec; id 2 */
+static void jt695(void)	/* +0x00ec; id 2 */
+{
+	short type;
+	const char *msg;
+
+	PROBE("jt695");
+	/* like jt664 but the summon type comes from jt493(current char) and the
+	 * name from -20088; jt493 runs before the jt488 format (asm order). */
+	type = jt493(g_a5_long(-27932));				/* 00f4 */
+	msg = jt488(ua_strs_at(0x4d46) /* "is %s" */,
+	            (const char *)(uintptr_t)g_a5_long(-20088));	/* 0108 */
+	l0008(type, msg);						/* 0118 */
+}
 static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
 static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
 static void jt698(void) { PROBE("jt698"); }	/* +0x05fc; id 21 */
