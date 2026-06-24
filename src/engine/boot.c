@@ -36020,7 +36020,11 @@ static void l08b4(long member);   /* player action dispatcher — lifted after l
 /* l08b4's command-handler deps — PROBE stubs pending their own cards
  * (docs/code13-wall.md Clusters 2/3). */
 static void        l609a(long flag)                  { PROBE("L609a"); (void)flag; }              /* magic toggle */
-static void        l0d16(long actor, unsigned char *cmd) { PROBE("L0d16"); (void)actor; if (cmd) *cmd = 12; }  /* command menu/status (default Done) */
+static void        l0d16(long actor, unsigned char *cmd);   /* command menu + input — lifted after l08b4 */
+static signed char l279c(long actor)                 { PROBE("L279c"); (void)actor; return 0; }   /* flee predicate */
+static signed char l27e6(long actor)                 { PROBE("L27e6"); (void)actor; return 0; }   /* flee predicate */
+static void        jt154(void)                       { PROBE("jt154"); }                           /* CODE 7+0x169e — close dialog */
+static short       jt173(long prompt, long cmdstring, short a3, short a4, short cx, short cy);  /* CODE 7+0x29da input dialog */
 static signed char l26ea(long actor)                 { PROBE("L26ea"); (void)actor; return 1; }   /* auto-resolve action -> done */
 static void        l1162(long actor, short cmd, unsigned char *done) { PROBE("L1162"); (void)actor; (void)cmd; (void)done; }  /* Move/Attack menu */
 static signed char l272a(long actor)                 { PROBE("L272a"); (void)actor; return 1; }    /* GUARD */
@@ -36468,6 +36472,99 @@ static void l08b4(long member)
 			jt38(member);
 		}
 	}
+}
+
+/* CODE 13+0x0d16 — the combat COMMAND MENU + input reader (drives l08b4's
+ * loop). Faithful full lift. Builds the available-command list by appending
+ * each command (jt155 value N) only when the actor can do it: 1 always; 2 when
+ * it has spell slots (+193 > 0); 3 (Cast) when it has a memorized spell
+ * (+198.. scan, mc[1] caster flag, rec[2] not silenced); 4 (Turn Undead) by
+ * the jt40 capability + the mc[19] vs -22267 gate; 5 (Flee) unless the
+ * l279c/l27e6 predicates forbid it; 6/7 always; 8 (Bandage) when l283e(0) finds
+ * a dying ally; 9/10/11 always; 12 when -18485. Then reads the keystroke in a
+ * validate-loop: jt166 sets the cursor tint, jt173 runs the dialog at the
+ * actor's field cell (jt531/jt525 minus the -25318 origin) and returns the key
+ * into *cmd; a roster-nav key (-24139) is accepted only if it is one of the
+ * special keys (else *cmd = 0xff), and any *cmd <= 12 is accepted. Re-reads
+ * until valid, then closes (jt154). */
+static void l0d16(long actor_l, unsigned char *cmd_out)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	unsigned char *mc;
+	unsigned char  count = 0;
+	short          i;
+
+	PROBE("L0d16");
+	if (actor == NULL || cmd_out == NULL)
+		return;
+
+	jt155(1, &count);
+	if (actor[193] > 0)
+		jt155(2, &count);
+
+	{                                               /* has a memorized spell? */
+		unsigned char spell = 0;
+		for (i = 0; i <= 140; i++)
+			if ((actor[i + 198] & 0x7f) > 0)
+				spell = 1;
+		if (spell) {
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			if (mc[1] != 0) {
+				unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+				if (rec[2] == 0)
+					jt155(3, &count);
+			}
+		}
+	}
+
+	if (!((jt40(actor, 0) & 0xff) == 0 && (jt40(actor, 3) & 0xff) <= 2)) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		if (mc[19] < (unsigned char)g_a5_byte(-22267))
+			jt155(4, &count);
+	}
+
+	{                                               /* Flee available? */
+		unsigned char p1 = (unsigned char)l279c(actor_l);
+		if (p1 == 0 || l27e6(actor_l) != 0)
+			jt155(5, &count);
+	}
+
+	jt155(6, &count);
+	jt155(7, &count);
+	if (l283e(0) != 0)
+		jt155(8, &count);
+	for (i = 9; i <= 11; i++)
+		jt155((short)i, &count);
+	if (g_a5_byte(-18485) != 0)
+		jt155(12, &count);
+
+	/* read + validate the command keystroke */
+	g_a5_byte(-22308) = 0;
+	do {
+		unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		signed char    cx = (signed char)(jt531(actor_l) - *(short *)(fld + 4));
+		signed char    cy = (signed char)(jt525(actor_l) - *(short *)(fld + 2));
+
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		jt166(mc[8] > 0 ? 4 : 11);
+
+		*cmd_out = (unsigned char)jt173((long)(uintptr_t)ua_strs_at(0x4460),
+		               g_a5_long(-13756), 1, 0, cx, cy);
+
+		if (g_a5_byte(-24139) != 0) {           /* roster-nav: only special keys ok */
+			unsigned char k = *cmd_out;
+			if (k == 192 || k == 208 || k == 204 || k == 215 || k == 18
+			    || k == 136 || k == 132 || k == 134 || k == 130 || k == 131
+			    || k == 129 || k == 135 || k == 133)
+				g_a5_byte(-22308) = 1;
+			else
+				*cmd_out = 0xff;
+		}
+		if (*cmd_out <= 12)
+			g_a5_byte(-22308) = 1;
+	} while (g_a5_byte(-22308) == 0);
+
+	jt154();
 }
 
 /* CODE 13+0x0006 — combat teardown.  Frees the -23234 list into the

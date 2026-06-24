@@ -60,7 +60,7 @@ drives the turn through.
 | `l1162` | 0x1162 | 411ln | the COMBAT COMMAND MENU (`"Move/Attack, Move Le…"`) — jt525/531/519/532/526 draw, jt521 map | — |
 | `l56d8` | 0x56d8 | 382ln | command handler / move-attack resolve (`"Move/Attack…"`, jt870 dice, jt529/535/546) | — |
 | `l1714` | 0x1714 | 86ln | in-combat target picker (jt182 list, `"( )"` brackets, jt488/jt399) | — |
-| `ld16`  | 0x0d16 | 253ln | combat STATUS / HP panel (jt155 text, jt166, jt173/154, jt525/531) | — |
+| `l0d16` | 0x0d16 | 253ln | combat COMMAND MENU + input reader (jt155 build, jt166, jt173/154, jt525/531) | **LIFTED** (full; conditional cmd list 1-12 + jt173 keystroke validate-loop; spawned stubs l279c/l27e6/jt154) |
 | `l609a` | 0x609a | 66ln | magic toggle (`"Magic On / Magic Off"`, jt486/jt60/jt545) | — |
 
 ## Cluster 3 — ACTION handlers (what each command does)
