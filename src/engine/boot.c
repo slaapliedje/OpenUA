@@ -37677,7 +37677,74 @@ static unsigned char jt554(long m, long target, short f)
 	}
 	return (unsigned char)(g_a5_byte(-25259) == 0 ? 1 : 0);
 }
-static unsigned char jt549(long m, long target)  { PROBE("jt549"); (void)m; (void)target; return 0; }  /* CODE 14+0x5a22 — weapon-reach reject */
+/* Forward decl — jt550 (the companion strike helper) is defined just below. */
+static void          jt550(long m, long target);
+/* CODE 14 reach-target counter, still to be lifted (a 0 count keeps jt549 from
+ * sweeping until it lands). */
+static unsigned char l5c32(long m, short f) { PROBE("L5c32"); (void)m; (void)f; return 0; }
+
+/* CODE 14+0x5a22 — the SWEEP attack (jt549), tried in l56d8's strike path. A
+ * monster/weapon that can cleave hits every adjacent valid target in one turn.
+ * Faithful full lift. Gates out (return 0, fall back to a single attack) unless
+ * the actor still has attacks left (rec[387] < mc[7]), the named target is alive
+ * (rec[137] == 0) and adjacent (l25f4 == 1). It then counts the live targets in
+ * reach (l5c32 -> the -22720/-25676 slot lists), bails if that count doesn't
+ * exceed the attacks already made, clamps it to mc[7], announces "sweeps"
+ * (jt18), rotates the primary slot (-22719 via l6bbe), and applies jt550 + the
+ * jt555 strike (with the -22647 out-cell) to each live target, marking rec[387].
+ * Returns 1 when it swept. l5c32/jt550 are PROBE stubs for now, so the sweep is
+ * inert (returns 0) until they land. */
+static unsigned char jt549(long m, long target)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	unsigned char  count, valid, i, tgtidx = 0;
+
+	PROBE("jt549");
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (actor[387] >= mc[7])
+		return 0;
+	if (((unsigned char *)(uintptr_t)target)[137] != 0)
+		return 0;
+	if ((l25f4(m, target) & 0xff) != 1)
+		return 0;
+
+	count = l5c32(m, 1);
+	valid = 0;
+	for (i = 1; i <= count; i++) {
+		long pc = g_a5_longs(-25676)[(unsigned char)g_a5_byte(-22720 + i)];
+		if (pc == target)
+			tgtidx = i;
+		if (((unsigned char *)(uintptr_t)pc)[137] == 0)
+			valid++;
+	}
+	if (valid <= actor[387])
+		return 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (valid > mc[7])
+		valid = mc[7];
+
+	jt18((void *)(uintptr_t)m, (long)(uintptr_t)ua_strs_at(0x47a8), 10, 1);  /* "sweeps" */
+
+	if (g_a5_longs(-25676)[(unsigned char)g_a5_byte(-22719)] != target) {
+		g_a5_byte(-22720 + tgtidx) = (unsigned char)g_a5_byte(-22719);
+		g_a5_byte(-22719) = (unsigned char)l6bbe(target);
+	}
+
+	for (i = 1; i <= count; i++) {
+		long pc;
+		if (valid == 0)
+			continue;
+		pc = g_a5_longs(-25676)[(unsigned char)g_a5_byte(-22720 + i)];
+		if (((unsigned char *)(uintptr_t)pc)[137] != 0)
+			continue;
+		jt550(m, pc);
+		actor[387] = 1;
+		jt555(m, pc, 0, 0, &g_a5_byte(-22647));
+		valid--;
+	}
+	return 1;
+}
 static void          jt550(long m, long target)  { PROBE("jt550"); (void)m; (void)target; }            /* CODE 14+0x1956 */
 
 /* CODE 13+0x5b9a — the monster ATTACK executor (reached via l5008). Faithful
