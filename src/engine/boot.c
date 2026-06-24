@@ -35992,14 +35992,88 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l3f24/l404e (CODE 13) two of the combat-setup helpers
- * (l4af4, the third, is lifted just below); l276c (CODE 13) post-present init;
- * l490c (CODE 13) the field draw-composite l4af4 calls (own card pending). */
+ * (l4af4 + l490c are lifted just below); l276c (CODE 13) post-present init. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l3f24(void)  { PROBE("L3f24"); }
 static void l404e(void)  { PROBE("L404e"); }
-static void l490c(void)  { PROBE("L490c"); }
 static void l276c(void)  { PROBE("L276c"); }
+
+/* CODE 13+0x490c — the AoE-TEMPLATE BUILDER (NOT a "draw composite" — it has no
+ * Toolbox/jsr calls at all). Faithful full lift. Run from l4af4 whenever the
+ * party facing (-12286) changes — guarded by the -7920 cache so it only rebuilds
+ * on a turn. It regenerates the -8471 template grid that l4306/l41b2 consume.
+ * First it derives the facing-relative direction indices (-7937 = facing>>1,
+ * -7936 = ((facing+4)&7)>>1) and the cone-origin deltas (-7942/-7940 = the
+ * -27862/-27853 step for `facing`, scaled by the -28006[55] mult, plus the
+ * -7943/-7941 bases). Then for each (shape 0..1, dir 0..3, row 0..5, col 0..10)
+ * it sets -8471[shape*264 + dir*66 + row*11 + col] = 1 iff the column lies within
+ * that row's [lo,hi] span from the per-direction bounds table -8531 (12 bytes per
+ * direction class, 2 per row), else 0. Dir 1 uses bounds class 4; the other dirs
+ * use class -7937[shape]. The mult is -28006[55] when that byte is set or the
+ * facing is unchanged from -7921, else 1. Leaf — no new deps. */
+static void l490c(void)
+{
+	unsigned char  mid;         /* fp@(-1) dir 0..3 */
+	unsigned char  mult;        /* fp@(-2) cone-delta scale */
+	unsigned char  outer;       /* fp@(-3) shape 0..1 */
+	unsigned char *gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          facing;
+
+	PROBE("L490c");
+
+	if (gs[55] != 0
+	    || (unsigned char)g_a5_byte(-12286) == (unsigned char)g_a5_byte(-7921))
+		mult = gs[55];
+	else
+		mult = 1;
+
+	facing = (unsigned char)g_a5_byte(-12286);
+	if (facing == (unsigned char)g_a5_byte(-7920))
+		return;                                   /* facing unchanged -> grid still valid */
+	g_a5_byte(-7920) = (unsigned char)facing;
+
+	g_a5_byte(-7937) = (unsigned char)(facing >> 1);
+	g_a5_byte(-7942) = (unsigned char)
+	    ((short)(signed char)g_a5_byte(-27862 + facing) * (short)mult
+	    + (short)(signed char)g_a5_byte(-7943));
+	g_a5_byte(-7940) = (unsigned char)
+	    ((short)(signed char)g_a5_byte(-27853 + facing) * (short)mult
+	    + (short)(signed char)g_a5_byte(-7941));
+	g_a5_byte(-7936) = (unsigned char)(((facing + 4) & 7) >> 1);
+
+	for (outer = 0; outer <= 1; outer++) {
+		for (mid = 0; mid <= 3; mid++) {
+			if (mid == 1)
+				g_a5_byte(-7919) = 4;
+			else
+				g_a5_byte(-7919) = g_a5_byte(-7937 + outer);
+
+			for (g_a5_byte(-7915) = 0;
+			     (signed char)g_a5_byte(-7915) <= 5;
+			     g_a5_byte(-7915)++) {
+				for (g_a5_byte(-7916) = 0;
+				     (signed char)g_a5_byte(-7916) <= 10;
+				     g_a5_byte(-7916)++) {
+					unsigned char *bnd = g_a5_buf(-8531)
+					    + (long)(unsigned char)g_a5_byte(-7919) * 12
+					    + (long)(signed char)g_a5_byte(-7915) * 2;
+					unsigned char *cellp = g_a5_buf(-8471)
+					    + (long)(signed char)outer * 264
+					    + (long)(unsigned char)mid * 66
+					    + (long)(signed char)g_a5_byte(-7915) * 11
+					    + (signed char)g_a5_byte(-7916);
+
+					if ((signed char)g_a5_byte(-7916) >= (signed char)bnd[0]
+					    && (signed char)g_a5_byte(-7916) <= (signed char)bnd[1])
+						cellp[0] = 1;
+					else
+						cellp[0] = 0;
+				}
+			}
+		}
+	}
+}
 
 /* CODE 13+0x4af4 — the combat FIELD-PLACEMENT loop (combat UI/setup). Faithful
  * full lift (~345 lines). Run once from l4f22 after the field size is known.

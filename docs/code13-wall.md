@@ -98,7 +98,7 @@ drives the turn through.
 | `l3016` `l32ba` | 0x3016 / 0x32ba | 181/191ln | jt3 inline-switch sub-dispatchers | — |
 | `l2d30` | 0x2d30 | 71ln | area-map bridge (jt206/jt202) | — |
 | `l41b2` `l4188` | 0x41b2/0x4188 | 120/18ln | l4306 AoE geometry helpers — cell placement+validate (jt515) / both-axes OOB clip | **LIFTED** (no new stubs; unused until l4306) |
-| `l490c` | — | 158ln | draw composite (jt525/531) | `stub` (PROBE; spawned by l4af4, its own card pending) |
+| `l490c` | 0x490c | 158ln | AoE-TEMPLATE BUILDER (NOT "draw composite" — no Toolbox calls): rebuilds the -8471 grid l4306/l41b2 consume on each facing change; cone deltas -7942/-7940 + per-(shape,dir,row,col) in/out marking vs the -8531 bounds table | **LIFTED** (full; leaf, no deps; guarded by the -7920 facing cache) |
 | `l5b9a` | 0x5b9a | 371ln | the monster ATTACK executor (per-attack loop; jt868/l283e gate, monster-def attack count, target re-acquire jt546/-25676, range l713c, resolve l56d8/jt555, jt521 redraw) | **LIFTED** (full CFG; reached via l5008; l56d8/l2484/l713c/l25f4/l2bde + jt554/jt549/jt550/l5c32 all LIFTED — attack tree fully STUB-FREE) |
 | `l6042` `l6c96` `l6ac4` `l6b2c` `l1842` `l2ca6` `l2e92` `l3540` `l364c` `l3b36` `l4188` `l52ee` `l8b4`… | — | small | leaf helpers (range jt552, fills jt399, etc.) | — |
 | `jt496` / `jt510` | CODE 13 | leaf | the 2 pending JT leaves (MISSING) | — |
