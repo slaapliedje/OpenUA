@@ -37745,7 +37745,30 @@ static unsigned char jt549(long m, long target)
 	}
 	return 1;
 }
-static void          jt550(long m, long target)  { PROBE("jt550"); (void)m; (void)target; }            /* CODE 14+0x1956 */
+/* CODE 14+0x1956 — records an incoming strike's bearing on the target, called
+ * from l56d8 and jt549's sweep. Faithful full lift. Bumps the target's hit
+ * counter (mc[17]), takes the absolute direction from the target to the
+ * attacker (jt529), folds it relative to the target's facing (mc[11]) into the
+ * 0..4 half-circle, and accumulates it into the target's attacked-from tally
+ * (mc[20], mod 8). Only callee is jt529. */
+static void jt550(long m, long target)
+{
+	unsigned char *tgt = (unsigned char *)(uintptr_t)target;
+	unsigned char *mc;
+	unsigned char  dir, rel;
+
+	PROBE("jt550");
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(tgt + 64));
+	mc[17] = (unsigned char)(mc[17] + 1);
+	dir = (unsigned char)jt529(target, m);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(tgt + 64));
+	rel = (unsigned char)((dir - mc[11] + 8) & 7);
+	if (rel > 4)
+		rel = (unsigned char)(8 - rel);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(tgt + 64));
+	mc[20] = (unsigned char)((mc[20] + rel) & 7);
+}
 
 /* CODE 13+0x5b9a — the monster ATTACK executor (reached via l5008). Faithful
  * full lift mirroring the asm CFG. Refreshes the actor (jt868), bails the
