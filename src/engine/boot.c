@@ -36019,7 +36019,49 @@ static void l08b4(long member);   /* player action dispatcher — lifted after l
 
 /* l08b4's command-handler deps — PROBE stubs pending their own cards
  * (docs/code13-wall.md Clusters 2/3). */
-static void        l609a(long flag)                  { PROBE("L609a"); (void)flag; }              /* magic toggle */
+static short         jt486(void);            /* CODE 3+0x39a — can-toggle-magic gate */
+static unsigned char jt60(void);             /* CODE 6+0x5f84 — read the toggle key */
+static unsigned char jt545(short flag);      /* CODE 14+0x43be */
+/* CODE 13+0x609a — the in-combat MAGIC toggle. Faithful full lift. Gated by
+ * jt486; reads the toggle key (jt60) and dispatches (JT[1]): 204 flips the
+ * Magic On/Off flag (-22648) + announces it; 32 clears the is-monster flag
+ * (+383) on weak/dead foes (+147 < 128 && +94 != 1) and, for a non-null actor,
+ * sets its actions-remaining (mc[4]) to 20; 215 is jt545(0). The return value
+ * (the actor-acted flag) is discarded by all callers (which pass actor 0). */
+static void l609a(long actor_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+
+	PROBE("L609a");
+	if (jt486() == 0)
+		return;
+	switch (jt60()) {
+	case 204:                                   /* Magic On / Off */
+		g_a5_byte(-22648) = (g_a5_byte(-22648) == 0) ? 1 : 0;
+		jt42((const char *)(uintptr_t)ua_strs_at(
+		     g_a5_byte(-22648) ? 0x453a : 0x4544));
+		break;
+	case 32: {                                  /* clear is-monster on weak/dead foes */
+		long m;
+		for (m = g_a5_long(-27928); m; m = *(long *)(uintptr_t)m) {
+			unsigned char *im = (unsigned char *)(uintptr_t)m;
+			if (im[147] < 128 && im[94] != 1)
+				im[383] = 0;
+		}
+		if (actor != NULL && actor[383] == 0) {
+			unsigned char *mc = (unsigned char *)(uintptr_t)
+			    (*(long *)(uintptr_t)(actor + 64));
+			*(short *)(mc + 4) = 20;
+		}
+		break;
+	}
+	case 215:
+		(void)jt545(0);
+		break;
+	default:
+		break;
+	}
+}
 static void        l0d16(long actor, unsigned char *cmd);   /* command menu + input — lifted after l08b4 */
 /* CODE 13+0x279c / +0x27e6 — the FLEE-availability predicates (gate command 5
  * in l0d16's menu). Faithful full lifts. l279c: the actor must carry a monster
