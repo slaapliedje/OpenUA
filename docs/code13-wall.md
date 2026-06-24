@@ -94,7 +94,7 @@ drives the turn through.
 | local | addr | size | what (disasm) | status |
 |---|---|---:|---|---|
 | `l3f24` | 0x3f24 | 93ln | combat ART load (`"WildCom1 / DungCom1"` libraries, jt54/jt197) | — |
-| `l404e` | 0x404e | 93ln | per-actor build (jt21 stats, jt477 alloc, jt399) | — |
+| `l404e` | 0x404e | 100ln | per-actor COMBATANT sub-record build — roster walk: jt21 stats, jt477 alloc the 26-byte mc into +64 + jt399 zero-fill, mc[21] extra-flag vs party count -28006[32], facing mc[11]=-8551[facing>>1], default class band | **LIFTED** (full; deps jt21/jt477/jt399 lifted; jt477 arg order is the swapped lifted sig (bucket,tag,out)) |
 | `l3016` `l32ba` | 0x3016 / 0x32ba | 181/191ln | jt3 inline-switch sub-dispatchers | — |
 | `l2d30` | 0x2d30 | 71ln | area-map bridge (jt206/jt202) | — |
 | `l41b2` `l4188` | 0x41b2/0x4188 | 120/18ln | l4306 AoE geometry helpers — cell placement+validate (jt515) / both-axes OOB clip | **LIFTED** (no new stubs; unused until l4306) |
