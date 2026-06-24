@@ -37448,8 +37448,60 @@ L5b52:
  * re-acquire / move-fallback paths rather than asserting a hit). */
 static unsigned char l713c(short a, short b, void *p1, void *p2, void *p3)               /* CODE 13 — range/adjacency check */
 { PROBE("L713c"); (void)a; (void)b; (void)p1; (void)p2; (void)p3; return 0; }
-static unsigned char l2484(long m, short a, short b)                                     /* CODE 13 — attack-count resolve */
-{ PROBE("L2484"); (void)m; (void)a; (void)b; return 0; }
+/* CODE 13+0x2406 — returns 1 when the actor is NOT a summoned creature
+ * (rec[95] == 0), else 0. l2484's per-cell summon filter when its arg b is 0. */
+static unsigned char l2406(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	PROBE("L2406");
+	if (actor == NULL)
+		return 1;
+	return (unsigned char)(actor[95] == 0 ? 1 : 0);
+}
+
+/* CODE 13+0x2484 — the ATTACK-COUNT / target-zone resolver (jt492), called by
+ * l5b9a, l56d8, jt535 and jt553. Faithful full lift. Builds the -19170 reach
+ * list around the actor's screen cell (jt508 over jt525/jt531, the arg-a feature
+ * id, range 255, jt513 reach), then filters it by a summon class — actor[95]
+ * when arg b is set, else l2406 (keep non-summoned) — compacting the survivors
+ * with jt479 and caching the count in -18894. Finally copies the surviving slot
+ * ids into the 1-based -22720 array (the one l5b9a/jt553 index) and returns the
+ * count. (L76da is jt508's entry; both name CODE 13+0x76da.) */
+static unsigned char l2484(long m, short a, short b)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char  sx, sy, filt, count, kept = 0;
+	short          i;
+
+	PROBE("L2484");
+	if (actor == NULL)
+		return 0;
+
+	sx = jt525(m);
+	sy = jt531(m);
+	jt508((short)sx, (short)sy, (short)(a & 0xff), 255,
+	      (short)(jt513(m) & 0xff));
+	count = (unsigned char)g_a5_byte(-18894);
+	filt  = (b != 0) ? actor[95] : l2406(m);
+
+	if (count != 0) {
+		for (i = 1; i <= count; i++) {
+			unsigned char sidx = g_a5_buf(-19170)[i * 4];
+			long p = g_a5_longs(-25676)[sidx];
+			if (((unsigned char *)(uintptr_t)p)[95] == filt) {
+				kept++;
+				jt479(g_a5_buf(-19170) + i * 4,
+				      g_a5_buf(-19170) + kept * 4, 4);
+			}
+		}
+		count = kept;
+		g_a5_byte(-18894) = kept;
+	}
+
+	for (i = 1; i <= count; i++)
+		g_a5_byte(-22720 + i) = g_a5_buf(-19170)[i * 4];
+	return count;
+}
 static unsigned char l25f4(long m, long target)  { PROBE("L25f4"); (void)m; (void)target; return 0; }  /* CODE 13 */
 static unsigned char l2bde(long m, void *out)    { PROBE("L2bde"); (void)m; if (out) *(long *)out = 0; return 0; }  /* CODE 13 */
 static unsigned char jt554(long m, long target, short f)                                 /* CODE 14+0x10c4 — target valid? */
