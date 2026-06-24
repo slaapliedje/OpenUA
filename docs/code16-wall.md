@@ -41,7 +41,7 @@ dispatch need before they fire for real:
 | L0006 | CODE 13 (+0x010e site) | combat teardown; reinstalls jt601 | **LIFTED** (l0006) |
 | L076e | CODE 13 local (~2.2KB) | execute one actor's combat turn (the heart of the loop) | **LIFTED** (l076e) — spine now wired l159a→jt511→l076e→l08b4/l5008 |
 | L602c | CODE 16+0x602c (~220B) | effect DURATION/magnitude in rounds (JT[1] switch over spell id; default = base + jt17·per-level from -16906) | **LIFTED** (l602c) — first CODE-16 card |
-| L6114 | CODE 16+0x6114 (~660B) | the effect-APPLICATION core: walk the -23512 target list, per target apply effect `code` w/ magic-resist (jt866) + saves (jt864/jt867/jt871) + announce | stub — **NEXT card** (deps all lifted incl. l602c) |
+| L6114 | CODE 16+0x6114 (~660B) | the effect-APPLICATION core: walk the -23512 target list, per target apply effect `code` w/ magic-resist (jt866) + saves (jt864/jt867/jt871) + announce | **LIFTED** (l6114) — lights up the whole announce family |
 | L0434 | CODE 13 local | per-round init: builds the -22624 initiative slots | stub (l0434) |
 | L102a | CODE 13 local | end-of-round bookkeeping; may end the fight | stub (l102a) |
 | L4f22 | CODE 13 local | combat entry staging | stub (l4f22) |
@@ -244,10 +244,13 @@ have real per-effect bodies (dice rolls, target tables, jt521 burst render).
   jt702 jt703 jt704 jt705 jt708
 
 The combat spine is now LIFTED (l076e + jt511 + l08b4/l5008, 2026-06-24), so the
-handler table is reachable in principle — but the handlers remain **breadth-first,
-runtime-untested**, and most funnel through **l6114** (the effect-application
-core), which is still a stub. Lifting l6114 (next card; its leaf l602c is now
-done) is what makes the announce family actually produce output.
+handler table is reachable in principle.  The effect-application core **l6114**
+(+ its leaf **l602c**) is now lifted too (2026-06-24), so the announce family
+(jt674/jt699/jt706/… — every handler that funnels through l6114) now applies
+magic-resist + saves and produces output.  The handlers remain **breadth-first,
+runtime-untested** until a live combat round drives them.  Next leverage: the
+per-effect bodies that DON'T just announce (dice/target-table handlers), and the
+jt871 announce/render leaf l6114 calls.
 
 ## 3. Worklist discipline
 
