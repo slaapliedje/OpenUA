@@ -37319,6 +37319,195 @@ static unsigned char l41b2(short a1, short a2, short a3, short a4, short a5, sho
 	return 1;
 }
 
+/* CODE 13+0x4306 — the BIG AoE-template ACTION sweep (the single largest combat
+ * local, 577 lines). Faithful full lift. For the current spell/breath shape
+ * (g_a5_-7929) it walks the template's cells outward from the caster, one "mode"
+ * step at a time (JT[3] selector `mode` over the geometry tables -8567/-8551/
+ * -8547/-8539/-8583 and the -27862/-27853 dir-deltas), and at each generated
+ * cell (cx,cy):
+ *   - clips it to the 11x6 template grid ([0,10]x[0,5]) -> `clip`;
+ *   - for shapes that bend (mode>1) runs the wall/edge tests — l4188 (both-axes
+ *     OOB corner) and l2df8_c13 (live-map cell-edge query) — to decide whether
+ *     the beam/cone is blocked, advancing i15/j20 and toggling f2/f3;
+ *   - and finally places the cell into the caster's -27472 record via l41b2.
+ * Loops (do-while from L4342) until a cell is successfully placed (r_place) or
+ * the shape is declared blocked (f3); returns 0 when blocked, else 1. The whole
+ * AoE dep surface (l4188/l41b2/l2df8_c13/l2d30_c13/jt206/l5e2e/jt472) is lifted.
+ * The cross-cutting mid-section uses goto with the disasm labels to stay 1:1
+ * with the asm CFG. Marked unused until its caller (CODE 13+0x4d10) lands. */
+static unsigned char l4306(short slot) __attribute__((unused));
+static unsigned char l4306(short slot)
+{
+	unsigned char ret = 0;     /* fp@(-6)  return value */
+	unsigned char r_place = 0; /* fp@(-1)  l41b2 placement result */
+	unsigned char f2 = 1;      /* fp@(-2)  "still inside the template" flag */
+	unsigned char f3 = 0;      /* fp@(-3)  "shape blocked" flag */
+	unsigned char clip = 0;    /* fp@(-4)  cell is off the 11x6 grid */
+	unsigned char f5 = 0;      /* fp@(-5) */
+	unsigned char mode = 1;    /* fp@(-7)  JT[3] selector */
+	unsigned char t8 = 0;      /* fp@(-8)  template direction byte */
+	unsigned char e9 = 0;      /* fp@(-9) */
+	short         k;           /* fp@(-10) */
+	signed char   drow = 0;    /* fp@(-11) */
+	signed char   dcol = 0;    /* fp@(-12) */
+	unsigned char row13 = 0;   /* fp@(-13) */
+	unsigned char col14 = 0;   /* fp@(-14) */
+	unsigned char i15 = 0;     /* fp@(-15) */
+	unsigned char mul16 = 0;   /* fp@(-16) */
+	unsigned char o17, o18;    /* fp@(-17) / fp@(-18)  l41b2 base offsets */
+	unsigned char o19 = 0;     /* fp@(-19) */
+	unsigned char j20 = 0;     /* fp@(-20) outer template index */
+	signed char   o21 = 0;     /* fp@(-21) base cx */
+	signed char   o22 = 0;     /* fp@(-22) base cy */
+	signed char   cx = 0;      /* fp@(-23) */
+	signed char   cy = 0;      /* fp@(-24) */
+	short         shape = (signed char)g_a5_byte(-7929);
+	short         pshape, sel, dir, cond;
+
+	PROBE("L4306");
+	o17 = (unsigned char)g_a5_byte(-7943 + shape);
+	o18 = (unsigned char)g_a5_byte(-7941 + shape);
+
+l4342:
+	shape  = (signed char)g_a5_byte(-7929);
+	pshape = (signed char)g_a5_byte(-7937 + shape);
+	e9 = (unsigned char)((unsigned char)g_a5_byte(-8567 + pshape * 4 + j20) >> 1);
+
+	switch (mode) {                  /* JT[3] @0x437e  min=1 max=3 default=L45b8 */
+	case 1:                          /* L438a */
+		dir  = (unsigned char)g_a5_byte(-8551 + (((unsigned)e9 + 2) & 3));
+		drow = (signed char)g_a5_byte(-27862 + dir);
+		dcol = (signed char)g_a5_byte(-27853 + dir);
+		sel  = (j20 != 0) ? 1 : 0;
+		o21 = (signed char)((short)(signed char)g_a5_byte(-8547 + sel * 4 + e9)
+		    + (short)drow * (short)i15);
+		o22 = (signed char)((short)(signed char)g_a5_byte(-8539 + sel * 4 + e9)
+		    + (short)dcol * (short)i15);
+		cx = o21;
+		cy = o22;
+		mul16 = 1;
+		mode = 2;
+		o19 = 1;
+		break;
+	case 2:                          /* L4484 */
+		dir  = (unsigned char)g_a5_byte(-8551 + (((unsigned)e9 + 1) & 3));
+		drow = (signed char)g_a5_byte(-27862 + dir);
+		dcol = (signed char)g_a5_byte(-27853 + dir);
+		cx = (signed char)((short)o21 + (short)drow * (short)mul16);
+		cy = (signed char)((short)o22 + (short)dcol * (short)mul16);
+		mode = 3;
+		o19++;
+		break;
+	case 3:                          /* L451e */
+		dir  = (unsigned char)g_a5_byte(-8551 + (((unsigned)e9 + 3) & 3));
+		drow = (signed char)g_a5_byte(-27862 + dir);
+		dcol = (signed char)g_a5_byte(-27853 + dir);
+		cx = (signed char)((short)o21 + (short)drow * (short)mul16);
+		cy = (signed char)((short)o22 + (short)dcol * (short)mul16);
+		mode = 2;
+		mul16++;
+		o19++;
+		break;
+	default:                         /* L45b8 */
+		break;
+	}
+
+	/* L45b8 — clip the cell to the 11x6 template grid */
+	clip = ((signed char)cx < 0 || (signed char)cy < 0
+	    || (signed char)cx > 10 || (signed char)cy > 5) ? 1 : 0;
+
+	if (mode <= 1)                   /* L45e0: straight shapes skip the wall tests */
+		goto l4746;
+	if (clip == 0)
+		goto l460e;
+	if (l4188(cx, cy) == 0)          /* clipped but in the OOB corner -> advance */
+		goto l4644;
+	/* fall through to L460e */
+l460e:
+	if (f2 == 0)
+		goto l462e;
+	if ((unsigned char)o19 >= (unsigned char)g_a5_byte(-7939 + shape))
+		goto l4644;
+l462e:
+	if (f2 != 0)
+		goto l4746;
+	if ((unsigned char)o19 <= 11)
+		goto l4746;
+l4644:
+	i15++;
+	if ((unsigned char)g_a5_byte(-7929) != 0)
+		goto l473c;
+	if (jt472((short)(unsigned char)g_a5_byte(-7937)) == 0)
+		goto l473c;
+	if (j20 != 0)
+		goto l473c;
+	if (i15 != 1)
+		goto l473c;
+	row13 = (unsigned char)((short)(signed char)g_a5_byte(-7943 + shape)
+	    + (short)(signed char)g_a5_byte(-12288));
+	col14 = (unsigned char)((short)(signed char)g_a5_byte(-7941 + shape)
+	    + (short)(signed char)g_a5_byte(-12287));
+	f5 = 0;
+	for (k = 1; k <= 3; k++) {                       /* L4726 */
+		t8 = (unsigned char)g_a5_byte(-8583
+		    + (signed char)g_a5_byte(-7937 + shape) * 4 + k);
+		if ((unsigned char)g_a5_byte(-27990) == 3
+		    || l2df8_c13(row13, col14, t8) != 1)
+			f5 = 1;
+	}
+	if (f5 != 0)
+		i15++;
+l473c:
+	mode = 1;
+	f2 = 0;
+l4746:
+	if (clip == 0)
+		goto l4898;
+	if (l4188(cx, cy) == 0)
+		goto l4898;
+	r_place = 0;
+	mode = 0;
+	for (;;) {                                       /* L486c */
+		if (j20 < 3 && mode != 1) {              /* -> L4776 */
+			j20++;
+			row13 = (unsigned char)
+			    ((short)(signed char)g_a5_byte(-7943 + shape)
+			    + (short)(signed char)g_a5_byte(-12288));
+			col14 = (unsigned char)
+			    ((short)(signed char)g_a5_byte(-7941 + shape)
+			    + (short)(signed char)g_a5_byte(-12287));
+			t8 = (unsigned char)g_a5_byte(-8583
+			    + (signed char)g_a5_byte(-7937 + shape) * 4 + j20);
+			if ((unsigned char)g_a5_byte(-27990) != 3
+			    && l2df8_c13(row13, col14, t8) == 1)
+				continue;                /* -> L486c */
+			/* L480a */
+			o17 = (unsigned char)
+			    ((short)(signed char)g_a5_byte(-7943 + shape)
+			    + (short)(signed char)g_a5_byte(-27862 + t8));
+			o18 = (unsigned char)
+			    ((short)(signed char)g_a5_byte(-7941 + shape)
+			    + (short)(signed char)g_a5_byte(-27853 + t8));
+			i15 = 0;
+			mode = 1;
+			continue;                        /* -> L486c */
+		}
+		break;                                   /* -> L4886 */
+	}
+	if (mode != 1)                                   /* L4886 */
+		f3 = 1;
+l4898:
+	if (clip != 0)
+		goto l48da;
+	r_place = l41b2((short)(unsigned char)slot, cx, cy, o17, o18, j20);
+l48da:
+	cond = (r_place != 0 || f3 != 0) ? 1 : 0;
+	if (cond == 0)
+		goto l4342;
+	ret = (f3 != 0) ? 0 : 1;
+	return ret;
+}
+
 /* The 16-byte monster-def record for a combatant: rec[40] indexes the -27944
  * table (16 bytes/entry). Used throughout l6454's target sweep. */
 static unsigned char *combat_mondef(long rec)
