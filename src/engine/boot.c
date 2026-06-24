@@ -35992,8 +35992,8 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
- * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 are lifted below; l375a/l3936/l3b36
- * (l3ef6's passes) and l3016/l32ba (l3540's JT[3] passes) are PROBE stubs for
+ * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 are lifted below; l375a/l3936/
+ * l3b36 (l3ef6's passes) and l32ba (l3540's 2nd JT[3] pass) are PROBE stubs for
  * their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
@@ -36001,8 +36001,117 @@ static void l276c(void)  { PROBE("L276c"); }
 static void l375a(void)  { PROBE("L375a"); }
 static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
-static void l3016(unsigned char *a, unsigned char *b) { PROBE("L3016"); (void)a; (void)b; }
 static void l32ba(unsigned char *a, unsigned char *b) { PROBE("L32ba"); (void)a; (void)b; }
+static void l2ca6(short a, short b, short c);   /* the field-cell paint primitive, lifted below */
+
+/* CODE 13+0x3016 — the per-cell WALL-TILE corner computer (l3540's first JT[3]
+ * pass). Faithful full lift of the 8 nested THINK-C inline switches. For a cell
+ * (row=*prow, col=*pcol) it first sets a diagonal-open flag (both the W edge of
+ * the cell to the left and the N edge of the cell above are open, via
+ * l2df8_c13), then a 4-iteration switch computes the four 2x2 corner tiles from
+ * the cell's west edge code (-7932) and north edge code (-7933), each in {0,1,3}
+ * (open/wall/door — l2df8_c13 never yields 2, so the case-2 arms are dead):
+ *   TL (i=1) keyed on -7933 then -7932; TR (i=2) on -7933; BL (i=3) on -7932
+ *   then -7933; BR (i=4) on -7932 then -7933.
+ * It paints the four tiles into the field 2x2 centre via l2ca6: TL->(1,0),
+ * TR->(2,0), BL->(1,1), BR->(2,1). Deps l2df8_c13/l2ca6 lifted. */
+static void l3016(unsigned char *prow, unsigned char *pcol)
+{
+	unsigned char diag;             /* fp@(-6) */
+	unsigned char t_tl = 0;         /* fp@(-2) top-left */
+	unsigned char t_tr = 0;         /* fp@(-4) top-right */
+	unsigned char t_bl = 0;         /* fp@(-3) bottom-left */
+	unsigned char t_br = 0;         /* fp@(-5) bottom-right */
+	short row = (signed char)*prow;
+	short col = (signed char)*pcol;
+	short i;
+
+	PROBE("L3016");
+
+	if (l2df8_c13(row, (short)(col - 1), 6) == 0
+	    && l2df8_c13((short)(row - 1), col, 0) == 0)
+		diag = 1;
+	else
+		diag = 0;
+
+	for (i = 1; i <= 4; i++) {                       /* JT[3] @0x3084 min1 max4 */
+		switch (i) {
+		case 1:                                  /* L3092 -> top-left (-2) */
+			switch ((unsigned char)g_a5_byte(-7933)) {     /* @0x309c */
+			case 0:                          /* L30aa */
+				switch ((unsigned char)g_a5_byte(-7932)) { /* @0x30b4 */
+				case 0: t_tl = 22; break;              /* L30c2 */
+				case 1: t_tl = (unsigned char)(diag ? 0 : 13); break; /* L30d6 */
+				case 3: t_tl = 13; break;              /* L30cc */
+				default: break;
+				}
+				break;
+			case 1:                          /* L30ee */
+			case 3:
+				if (g_a5_byte(-7932) == 0)
+					t_tl = (unsigned char)(diag ? 15 : 5);
+				else
+					t_tl = (unsigned char)(diag ? 18 : 2);
+				break;
+			default: break;
+			}
+			break;
+
+		case 2:                                  /* L3128 -> top-right (-4) */
+			switch ((unsigned char)g_a5_byte(-7933)) {     /* @0x3132 */
+			case 0: t_tr = 22; break;                /* L3140 */
+			case 1: t_tr = 5;  break;                /* L3154 */
+			case 3: t_tr = 17; break;                /* L314a */
+			default: break;
+			}
+			break;
+
+		case 3:                                  /* L315e -> bottom-left (-3) */
+			switch ((unsigned char)g_a5_byte(-7932)) {     /* @0x3168 */
+			case 0:                          /* L3176 */
+				if (g_a5_byte(-7933) == 0)
+					t_bl = 22;
+				else                     /* L3186 */
+					t_bl = (unsigned char)(diag ? 16 : 10);
+				break;
+			case 1: t_bl = (unsigned char)(diag ? 1 : 3);  break; /* L31ba */
+			case 3: t_bl = (unsigned char)(diag ? 20 : 7); break; /* L31a0 */
+			default: break;
+			}
+			break;
+
+		case 4:                                  /* L31d4 -> bottom-right (-5) */
+			switch ((unsigned char)g_a5_byte(-7932)) {     /* @0x31de */
+			case 0:                          /* L31ec */
+			case 3:
+				switch ((unsigned char)g_a5_byte(-7933)) { /* @0x31f6 */
+				case 0: t_br = 22; break;              /* L3204 */
+				case 1: t_br = 10; break;              /* L3218 */
+				case 3: t_br = 23; break;              /* L320e */
+				default: break;
+				}
+				break;
+			case 1:                          /* L3222 */
+				switch ((unsigned char)g_a5_byte(-7933)) { /* @0x322c */
+				case 0: t_br = 13; break;              /* L323a */
+				case 1: t_br = 6;  break;              /* L324a */
+				case 3: t_br = 21; break;              /* L3242 */
+				default: break;
+				}
+				break;
+			default: break;
+			}
+			break;
+
+		default: break;
+		}
+	}
+
+	l2ca6(1, 0, (short)t_tl);
+	l2ca6(2, 0, (short)t_tr);
+	l2ca6(1, 1, (short)t_bl);
+	l2ca6(2, 1, (short)t_br);
+}
 /* CODE 13+0x2ca6 — the combat field-cell PAINT primitive. Faithful full lift.
  * Maps a local cell (a, b) plus the l3540 scan-window position (-7935 row offset,
  * -7934 col offset) into a field pixel: x = -7935*6 + -7934*5 + a + 21,
