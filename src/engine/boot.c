@@ -36211,7 +36211,7 @@ static void l1714(void)
 		}
 	} while (sel != 2);
 }
-static void        jt547(unsigned char *out, short b, short c) { PROBE("jt547"); (void)b; (void)c; if (out) *out = 0; }  /* CODE 14+0x2744 */
+static void        jt547(short a, short b, unsigned char *out) { PROBE("jt547"); (void)a; (void)b; if (out) *out = 0; }  /* CODE 14+0x2744 cast spell */
 static void        jt534(long actor)                 { PROBE("jt534"); (void)actor; }              /* CODE 14+0x1184 field action */
 
 /* CODE 13+0x076e — execute one actor's combat turn (THE KEYSTONE). Faithful
@@ -36580,7 +36580,7 @@ static void l08b4(long member)
 				l276c();
 			break;
 		case 3:                                         /* magic sub (jt547) */
-			jt547(&done, 0, 0);
+			jt547(0, 0, &done);
 			break;
 		case 4:                                         /* Turn Undead */
 			if ((jt40(actor, 0) & 0xff) == 0
@@ -36859,7 +36859,49 @@ static signed char l525c(long m)
 	}
 	return result;
 }
-static signed char l52fe(long m) { PROBE("L52fe"); (void)m; return 0; }
+static unsigned char l6c96(long actor, void *target)  /* CODE 13 — pick a monster spell */
+{ PROBE("L6c96"); (void)actor; if (target) *(unsigned char *)target = 0; return 0; }
+
+/* CODE 13+0x52fe — the monster SPELL-cast decision (reached via l5008).
+ * Faithful full lift. Declines when fleeing (mc[22]), silenced (rec[2]), not a
+ * caster (mc[1] == 0), or unable to cast now (actor[147] < 127 and magic off
+ * -22648 == 0). Otherwise picks a spell (l6c96), builds a cast-likelihood
+ * threshold = sum of jt40 levels (slots 2/3/4/1) * 4, and — if a spell was
+ * picked and a 1d100 beats the threshold and a 1d5 is within the spell's
+ * cast-chance (the -16906 spell table [+13]) — casts it (jt547). l6c96 lands as
+ * a PROBE stub (no spell), so the decision currently declines. */
+static signed char l52fe(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	unsigned char  result = 0, spell, target = 0, lvlsum, threshold;
+
+	PROBE("L52fe");
+	if (actor == NULL)
+		return 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[22] != 0)
+		return 0;
+	if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[2] != 0)   /* silenced */
+		return 0;
+	if (mc[1] == 0)                                 /* not a caster */
+		return 0;
+	if (actor[147] < 127 && g_a5_byte(-22648) == 0) /* can't cast now */
+		return 0;
+
+	spell  = l6c96(m, &target);
+	lvlsum = (unsigned char)((jt40(actor, 2) & 0xff) + (jt40(actor, 3) & 0xff)
+	       + (jt40(actor, 4) & 0xff) + (jt40(actor, 1) & 0xff));
+	threshold = (unsigned char)(lvlsum * 4);
+
+	if (spell != 0 && jt870(1, 100) > threshold) {
+		unsigned char *entry = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-16906) + (long)spell * 16);
+		if (jt870(1, 5) <= entry[13])
+			jt547((short)spell, 1, &result);
+	}
+	return (signed char)result;
+}
 static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)target; }
 static signed char l5b9a(long m) { PROBE("L5b9a"); (void)m; return 1; }
 /* CODE 13+0x6042 — the monster MOVE executor (reached via l5008). Faithful
