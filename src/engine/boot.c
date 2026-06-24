@@ -32666,7 +32666,32 @@ static void jt611(void)	/* +0x2f2e; id 98 */
 	}
 }
 static void jt612(void) { PROBE("jt612"); }	/* +0x4338; id 125 */
-static void jt613(void) { PROBE("jt613"); }	/* +0x07f2; id 26 */
+static void jt613(void)	/* +0x07f2; id 26 */
+{
+	long caster = g_a5_long(-23508);			/* 07f6 */
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	long out;
+
+	PROBE("jt613");
+	/* CODE 16 effect id 26: if the target is in death-state [94]==1, drop it
+	 * from the cast (-23508=0).  Otherwise, when it carries descriptor 55 (jt41),
+	 * ensure >=1 HP [395], revive ([94]=0, [382]=1), announce "is affected", and
+	 * run jt876(caster, 15, 10, 255, 1). */
+	if (cas[94] == 1) {					/* 0806 */
+		g_a5_long(-23508) = 0;				/* 080c */
+		return;
+	}
+	if ((unsigned char)jt41(caster, 55, &out) != 0) {	/* 0820 / 0828 */
+		if ((unsigned char)cas[395] == 0)		/* 0834 */
+			cas[395] = 1;				/* 0842 */
+		cas[94] = 0;					/* 084a */
+		cas[382] = 1;					/* 0854 */
+		l6114((short)(unsigned char)g_a5_byte(-25262), (short)255,
+		      (short)1, (short)0, (short)0,
+		      ua_strs_at(0x4e32) /* "is affected" */);	/* 0872 */
+		jt876(caster, 15, 10, 255, 1);			/* 088e */
+	}
+}
 static void jt614(void) { PROBE("jt614"); }	/* +0x030e; id 12 */
 static void jt615(void) { PROBE("jt615"); }	/* +0x2634; id 81 */
 static void jt616(void) { PROBE("jt616"); }	/* +0x2242; id 70 */
