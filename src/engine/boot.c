@@ -32897,7 +32897,42 @@ static void jt640(void)	/* +0x1168; id 39,106 */
 		     (short)10, (short)0);			/* 1180 */
 }
 static void jt641(void) { PROBE("jt641"); }	/* +0x2f64; id 137 */
-static void jt642(void) { PROBE("jt642"); }	/* +0x089a; id 27 */
+static void jt642(void)	/* +0x089a; id 27 */
+{
+	unsigned char *cur = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	long node, out;
+
+	PROBE("jt642");
+	/* CODE 16 effect id 27: build the -23512 target list from the party
+	 * (-27928 list) — members with flag [191]&16, controllable [382], lacking
+	 * descriptor 51 (jt41==0), whose HP [395] fits a running budget seeded from
+	 * the caster's HP (-6866); subtract each taken member's HP from the budget.
+	 * Then announce "is <name>" (jt488 over -20052) via l6114. */
+	g_a5_byte(-6866) = cur[395];				/* 08a2 */
+	g_a5_byte(-23510) = 0;					/* 08a8 */
+	node = g_a5_long(-27928);				/* 08ac */
+	while (node != 0) {					/* 0934 */
+		unsigned char *m = (unsigned char *)(uintptr_t)node;
+
+		if ((m[191] & 16) != 0				/* 08bc */
+		    && m[382] != 0				/* 08ce */
+		    && (unsigned char)jt41(node, 51, &out) == 0	/* 08e0 / 08e8 */
+		    && (unsigned char)g_a5_byte(-6866)
+		       >= (unsigned char)m[395]) {		/* 08f4 */
+			g_a5_byte(-6866) = (unsigned char)
+			    ((unsigned char)g_a5_byte(-6866)
+			     - (unsigned char)m[395]);		/* 090a */
+			g_a5_byte(-23510)++;			/* 0910 */
+			g_a5_longs(-23512)[(unsigned char)g_a5_byte(-23510)]
+			    = node;				/* 0928 */
+		}
+		node = *(long *)(uintptr_t)node;		/* 0930 */
+	}
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0,
+	      jt488(ua_strs_at(0x4e3e) /* "is %s" */,
+	            (const char *)(uintptr_t)g_a5_long(-20052)));	/* 095e */
+}
 static void jt643(void)	/* +0x0468; id 13 */
 {
 	long caster = g_a5_long(-23508);			/* 046c */
