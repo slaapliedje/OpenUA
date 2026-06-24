@@ -36011,10 +36011,70 @@ static void l0434(void)
 	}
 }
 
-/* CODE 13+0x076e — execute one actor's combat turn (the big one:
- * status gates at sub +17/+20/+9, jt868(7), jt516 visibility, jt530
- * pose, jt21 recompute, then the action state machine). */
-static void l076e(long member) { PROBE("L076e"); (void)member; }
+/* l076e's action-dispatch deps — PROBE stubs pending their own cards.
+ * l5008 (CODE 13) the monster-AI turn; l08b4 (CODE 13) the player action
+ * dispatcher ("can I do that?" -> the combat command menu). */
+static void l5008(long member) { PROBE("L5008"); (void)member; }
+static void l08b4(long member) { PROBE("L08b4"); (void)member; }
+
+/* CODE 13+0x076e — execute one actor's combat turn (THE KEYSTONE). Faithful
+ * level-2 lift: the turn structure is faithful; the action dispatch (l5008
+ * monster AI / l08b4 player command) lands as PROBE stubs for their own cards.
+ * Clears the actor's per-turn combatant flags (sub +17/+20/+9), erases the
+ * sprite (jt868 sel 7); bails if the actor is out of actions (sub +4 <= 0),
+ * clamping 20 -> 19. Makes the actor active (-27932), sets the -22626 visibility
+ * flag (sub +95 / jt516), poses + highlights (jt530), recomputes derived stats
+ * (jt21), paints the combat info panel (jt38), draws the sprite (jt868 sel 15,
+ * + sel 21 when sub +0 == 0), then dispatches the action (monster vs player by
+ * actor[383]) and redraws the actor's field cell (jt518 over jt525/jt531). */
+static void l076e(long member)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)member;
+	unsigned char *mc;
+
+	PROBE("L076e");
+	if (actor == NULL)
+		return;
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	mc[17] = 0;
+	mc[20] = 0;
+	mc[9] = 0;
+	jt868(7, &member);
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) <= 0)
+		return;                                /* no actions left this round */
+	if (*(short *)(mc + 4) == 20)
+		*(short *)(mc + 4) = 19;
+
+	g_a5_long(-27932) = member;                    /* the acting character */
+
+	if (actor[95] == 0)
+		g_a5_byte(-22626) = 1;
+	else
+		g_a5_byte(-22626) = (l6554(member, 0) != 0) ? 1 : 0;
+
+	jt530(member, 2, 1);                            /* pose + highlight */
+	jt21(member);                                  /* recompute derived stats */
+	g_a5_byte(-22627) = 1;
+	jt38(member);                                  /* combat info panel */
+	jt868(15, &member);
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[0] == 0)
+		jt868(21, &member);
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) > 0) {
+		if (actor[383] != 0)
+			l5008(member);                 /* monster AI turn */
+		else
+			l08b4(member);                 /* player action dispatch */
+	}
+
+	l6090((short)jt525(member), (short)jt531(member));
+}
 
 /* CODE 13+0x102a — end-of-round bookkeeping; may set *done. */
 static void l102a(unsigned char *done) { PROBE("L102a"); (void)done; }
