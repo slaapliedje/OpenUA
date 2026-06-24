@@ -32756,7 +32756,22 @@ static void jt654(void)	/* +0x07b2; id 24 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4e14) /* "is fire resistant" */);
 }
-static void jt655(void) { PROBE("jt655"); }	/* +0x01e8; id 9,64 */
+static void jt655(void)	/* +0x01e8; id 9,64 */
+{
+	unsigned char *as = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("jt655");
+	/* CODE 16 effect handler: blocked underwater (-28006[60]); otherwise apply
+	 * through l6114 with magnitude = jt17(effect,0)&255 in the value arg (c) and
+	 * d=9 staged into -25266 (empty announce string). */
+	if (as[60] != 0) {					/* 01ec underwater */
+		jt42(ua_strs_at(0x4d7a) /* "That has no effect underwater!" */);
+		return;
+	}
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)(jt17((short)(unsigned char)g_a5_byte(-25262), 0) & 255),
+	      (short)9, ua_strs_at(0x4d9a) /* "" */);
+}
 static void jt656(void)	/* +0x2c20; id 90 */
 {
 	PROBE("jt656");
