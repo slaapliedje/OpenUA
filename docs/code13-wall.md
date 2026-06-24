@@ -69,7 +69,7 @@ drives the turn through.
 |---|---|---:|---|---|
 | `l08b4` | 0x08b4 | 325ln | action dispatcher / "can I do that?" (`"That doesn't work"`, jt530/543/545/476) | **LIFTED** (level-2 skeleton; JT[3] 13-cmd + JT[1] roster-nav; spawned stubs l609a/l0d16/l26ea/l1162/l272a/l1842/l1714/jt547/jt534) |
 | `l4306` | 0x4306 | 541ln | the BIG action switch (jt3 inline dispatch + jt472) | — |
-| `l6454` | 0x6454 | 515ln | combat setup / monster-AI target pick (jt41 special-attack flags, target scan, jt882/jt21/jt543 refresh) | — (its scoring helper **CODE 13 l62ec=`l62ec_c13` LIFTED**; all other deps lifted — ready for the full lift) |
+| `l6454` | 0x6454 | 515ln | combat setup / monster-AI target pick (jt41 special-attack flags, target scan, jt882/jt21/jt543 refresh) | **LIFTED** (full 6-phase lift; scores via l62ec_c13, picks primary/secondary/third target, refresh tree; helper combat_mondef; all deps lifted) |
 | `l4af4` | 0x4af4 | 324ln | combat UI/setup (jt68, jt522/524 field, jt19 name) | — |
 | `l544e` | 0x544e | 198ln | per-step move/contact resolve (jt515 terrain probe, -27848 cost, JT[3] 27/28/29 door/barrier gate via jt41) — l56d8's step loop | **LIFTED** (full; all deps jt41/jt515/jt472 already lifted, no new stubs) |
 | `l525c` | 0x525c | 44ln | field action bridge (jt540/jt534 — into the CODE 14 field tier) | — |
