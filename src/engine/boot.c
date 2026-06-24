@@ -36993,7 +36993,81 @@ L56ca:
 
 /* Leaf deps of l56d8 still to be lifted — PROBE stubs (CODE 14). */
 static void          jt553(long m, short v)      { PROBE("jt553"); (void)m; (void)v; }    /* CODE 14+0x9b2 */
-static void          jt551(long m, short v)      { PROBE("jt551"); (void)m; (void)v; }    /* CODE 14+0x74c */
+static void          l61ae(void)                 { PROBE("L61ae"); }                     /* CODE 14 — field commit */
+static void          l0660(long m)               { PROBE("L0660"); (void)m; }             /* CODE 14 — post-move update */
+
+/* CODE 14+0x74c — the MOVE COMMIT (jt551), run from l56d8 after a step is
+ * accepted. Faithful full lift. Reads the actor's current cell out of the
+ * -27472 record (6 bytes/entry, keyed by orientation l6bbe), derives the
+ * destination via the -27862 drow / -27853 dcol delta tables for direction
+ * `v`, and pays the terrain move cost (-27848[cell[9]*4], *3 on a diagonal
+ * per jt472 else *2) out of the actor's budget mc[8] (clamped at 0). Monsters
+ * (actor[383]) that step off-window (l6520) scroll the old cell into view
+ * (jt521) when -22626 is live; it repaints the trail (l635e), writes the new
+ * (row,col) back into the -27472 record, commits the field (l61ae), repaints
+ * the destination (jt521), clears mc[17]/mc[20], plays the step sound (jt52
+ * id 11) and runs the post-move update (l0660). Non-controllable or jt13-
+ * flagged actors then spend their whole budget (mc[8] = 0). l61ae/l0660 are
+ * PROBE stubs for now. */
+static void jt551(long m, short v)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc, *base27472 = g_a5_buf(-27472);
+	unsigned char  dir = (unsigned char)v;
+	unsigned char  cost, orient, trow, tcol, basex, basey;
+	long           idx;
+
+	PROBE("jt551");
+	if (actor == NULL)
+		return;
+
+	orient = (unsigned char)l6bbe(m);
+	idx    = (long)orient * 6;
+	basex  = base27472[idx + 1];
+	basey  = base27472[idx + 3];
+	trow   = (unsigned char)(basex + (signed char)g_a5_byte(-27862 + dir));
+	tcol   = (unsigned char)(basey + (signed char)g_a5_byte(-27853 + dir));
+
+	{
+		unsigned char *cell = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-25318) + (long)tcol * 50 + trow);
+		unsigned char tc = (unsigned char)g_a5_byte(-27848 + cell[9] * 4);
+		cost = (unsigned char)(jt472((short)dir) != 0 ? tc * 3 : tc * 2);
+	}
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (cost <= mc[8])
+		mc[8] = (unsigned char)(mc[8] - cost);
+	else
+		mc[8] = 0;
+
+	cost = 1;                               /* fp@(-1) is reused as the redraw step */
+	if (actor[383] != 0) {                  /* is-monster */
+		unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		short vx = (short)(trow - *(short *)(fld + 2));
+		short vy = (short)(tcol - *(short *)(fld + 4));
+		cost = 3;
+		if (l6520(vx, vy) == 0 && g_a5_byte(-22626) != 0)
+			jt521((short)basex, (short)basey, 2, 8);
+	}
+	if (g_a5_byte(-22626) != 0)
+		l635e(0, 0, (short)orient);
+	*(short *)(base27472 + idx + 0) = (short)trow;
+	*(short *)(base27472 + idx + 2) = (short)tcol;
+	l61ae();
+	if (g_a5_byte(-22626) != 0)
+		jt521((short)trow, (short)tcol, (short)cost, 8);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	mc[17] = 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	mc[20] = 0;
+	jt52(11);
+	l0660(m);
+	if (actor[382] == 0 || jt13(m) != 0) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		mc[8] = 0;
+	}
+}
 
 /* Forward decl — l2484 is defined later (an l5b9a dep stub). */
 static unsigned char l2484(long m, short a, short b);
