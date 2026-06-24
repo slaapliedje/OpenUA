@@ -232,14 +232,14 @@ nothing else. jt699 ("is protected") was the template; 16 more lifted 2026-06-15
 (jt606/609/624/625/632/634/654/656/660/662/685/689/692/694/706/707). The rest
 have real per-effect bodies (dice rolls, target tables, jt521 burst render).
 
-- LIFTED (46): jt602 jt606 jt607 jt609 jt610 jt611 jt617 jt618 jt620 jt621
-  jt623 jt624 jt625 jt628 jt632 jt634 jt638 jt640 jt646 jt649 jt650 jt652 jt654
-  jt655 jt656 jt657 jt660 jt661 jt662 jt663 jt664 jt666 jt674 jt675 jt676 jt685
-  jt686 jt687 jt689 jt692 jt694 jt695 jt699 jt706 jt707 jt708  (+ locals l602c,
-  l6114, l0008, l1840, l0f52)
-- STUB (60): jt603 jt604 jt605 jt608 jt612 jt613 jt614 jt615 jt616
-  jt619 jt622 jt626 jt627 jt629 jt630 jt631 jt633 jt635
-  jt636 jt637 jt639 jt641 jt642 jt643 jt644 jt645 jt647 jt648
+- LIFTED (49): jt602 jt605 jt606 jt607 jt609 jt610 jt611 jt617 jt618 jt620
+  jt621 jt623 jt624 jt625 jt628 jt632 jt633 jt634 jt636 jt638 jt640 jt646 jt649
+  jt650 jt652 jt654 jt655 jt656 jt657 jt660 jt661 jt662 jt663 jt664 jt666 jt674
+  jt675 jt676 jt685 jt686 jt687 jt689 jt692 jt694 jt695 jt699 jt706 jt707 jt708
+  (+ locals l602c, l6114, l0008, l1840, l0f52)
+- STUB (57): jt603 jt604 jt608 jt612 jt613 jt614 jt615 jt616
+  jt619 jt622 jt626 jt627 jt629 jt630 jt631 jt635
+  jt637 jt639 jt641 jt642 jt643 jt644 jt645 jt647 jt648
   jt651 jt653 jt658 jt659 jt665 jt667
   jt668 jt669 jt671 jt672 jt673 jt675 jt676 jt677 jt678 jt679 jt680 jt681 jt682
   jt683 jt684 jt686 jt688 jt690 jt691 jt693 jt695 jt696 jt697 jt698 jt700 jt701

@@ -32565,7 +32565,21 @@ static void jt602(void)
 }
 static void jt603(void) { PROBE("jt603"); }	/* +0x2806; id 84 */
 static void jt604(void) { PROBE("jt604"); }	/* +0x38d6; id 117 */
-static void jt605(void) { PROBE("jt605"); }	/* +0x2352; id 73 */
+static short l602c(short code);   /* CODE 16, defined below */
+static void jt605(void)	/* +0x2352; id 73 */
+{
+	short dur;
+
+	PROBE("jt605");
+	/* CODE 16 effect id 73: stage a duration effect on the current char via
+	 * jt871 (code 4, duration from l602c(73)), then announce "is affected". */
+	dur = l602c(73);					/* 2356 */
+	jt871(g_a5_long(-27932), (short)4, dur, (short)0, (short)0,
+	      (short)0, (short)0,
+	      (long)(uintptr_t)ua_strs_at(0x4ff8) /* "" */);	/* 2374 */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4ffa) /* "is affected" */);  /* 2392 */
+}
 static void jt606(void)	/* +0x1fae; id 130 */
 {
 	PROBE("jt606");
@@ -32808,7 +32822,20 @@ static void jt632(void)	/* +0x09c0; id 31 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4e54) /* "Knock-Knock" */);
 }
-static void jt633(void) { PROBE("jt633"); }	/* +0x3a4c; id 118 */
+static void jt633(void)	/* +0x3a4c; id 118 */
+{
+	unsigned char *as = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("jt633");
+	/* CODE 16 effect id 118: blocked underwater; else announce "is covered in
+	 * flame" via l6114. */
+	if (as[60] != 0)					/* 3a50 */
+		jt42(ua_strs_at(0x521a) /* "That has no effect underwater!" */);
+	else
+		l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+		      (short)0, (short)0,
+		      ua_strs_at(0x523a) /* "is covered in flame" */);
+}
 static void jt634(void)	/* +0x058a; id 19 */
 {
 	PROBE("jt634");
@@ -32817,7 +32844,21 @@ static void jt634(void)	/* +0x058a; id 19 */
 	      (short)0, (short)0, ua_strs_at(0x4df0) /* "is shielded" */);
 }
 static void jt635(void) { PROBE("jt635"); }	/* +0x2960; id 85 */
-static void jt636(void) { PROBE("jt636"); }	/* +0x239c; id 74 */
+static void jt636(void)	/* +0x239c; id 74 */
+{
+	unsigned char *as = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("jt636");
+	/* CODE 16 effect id 74: blocked underwater; else apply a 6d8 value through
+	 * l6114 (value arg c, d=9, empty announce). */
+	if (as[60] != 0) {					/* 23a0 */
+		jt42(ua_strs_at(0x5006) /* "That has no effect underwater!" */);
+		return;
+	}
+	g_a5_byte(-25257) = 1;					/* 23b6 */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)jt873(6, 8), (short)9, ua_strs_at(0x5026) /* "" */);  /* 23e0 */
+}
 static void jt637(void) { PROBE("jt637"); }	/* +0x1fce; id 131 */
 static void jt639(void) { PROBE("jt639"); }	/* +0x4458; id 126 */
 /* CODE 16+0x0f52 (local) — the "cure" PREDICATE on the -23508 caster: probes
