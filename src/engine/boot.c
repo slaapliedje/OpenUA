@@ -36755,6 +36755,8 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode, short e
  * bridge, l52fe spell-in-combat, l6454 combat setup, l5b9a attack composite,
  * l6042 move. The attack/move stubs return 1 (turn-ending) so the loop ends. */
 static unsigned char jt544(long m) { PROBE("jt544"); (void)m; return 0; }  /* CODE 14+0x2d48 morale value (stub) */
+static unsigned char jt37(long rec_l);            /* CODE 6+0x1554 — lifted below */
+static void          jt877(long entity, short status, long msg);  /* CODE 18+0x16fc — lifted below */
 
 /* CODE 13+0x6176 — the MORALE resolution (reached via l5008). Faithful full
  * lift. Clears the flee flag (mc[22]); if already fleeing (mc[18]) it forces a
