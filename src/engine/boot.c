@@ -3271,7 +3271,8 @@ static void  jt510(void)                   { PROBE("jt510"); }
 static void  jt512(void)                   { PROBE("jt512"); }
 static void  jt954(void)                   { PROBE("jt954"); }  /* CODE 21+0x38f4 — l2e42 move-code 3 */
 static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE 15+0x1188 — l380a effect apply */
-static void  jt99(short a, short b, long c) { PROBE("jt99"); (void)a; (void)b; (void)c; }  /* CODE 6+0x4b84 — l1f76 alert */
+/* JT[99] == l4b84 (CODE 6+0x4b84) — jt99(11,0,-14644) just calls jt175() (the
+ * page-pause); args are discarded, so callers use the lifted l4b84() directly. */
 static void  l1e30(void *ev_v, long target);  /* per-member effect apply — lifted below */
 static void  l10a0(void *ev)               { PROBE("L10a0"); (void)ev; }
 static void  l1176(void)                   { PROBE("L1176"); }
@@ -34551,11 +34552,10 @@ static short l3cd6(void *ev_v, short v)
  * text box (jt103), then loops ev[8] times applying the per-member effect
  * L1e30 by targeting mode (ev[7] bits 2-3): 0 = every member, 1 = the active
  * member, 2 = one jt485-random member, 3 = each member at ev[16]% chance. The
- * loop also stops early once -27982 (party-wiped / reload) trips, firing
- * jt99(11,0,-14644) each pass it is set. On exit, a set -27982 paints "The
- * entire party is killed!" (jt76 + jt96 + jt476 pause); otherwise jt175 closes
- * the box unless it is still the default 17/1 state. jt99 (CODE 6) is a new
- * PROBE stub.
+ * loop also stops early once -27982 (party-wiped / reload) trips, firing the
+ * JT[99] page-pause (l4b84 -> jt175) each pass it is set. On exit, a set -27982
+ * paints "The entire party is killed!" (jt76 + jt96 + jt476 pause); otherwise
+ * jt175 closes the box unless it is still the default 17/1 state.
  *
  * Faithfulness note: targeting mode 2 deliberately reuses the -22307 outer
  * loop counter as its inner member index (the Mac aliases them), so the outer
@@ -34619,7 +34619,7 @@ static void l1f76(void *ev_v)
 		}
 
 		if ((unsigned char)g_a5_byte(-27982) != 0)
-			jt99(11, 0, g_a5_long(-14644));
+			l4b84();                       /* JT[99] -> jt175 page-pause (args ignored) */
 	}
 
 	if ((unsigned char)g_a5_byte(-27982) != 0) {       /* total party kill */
@@ -36165,9 +36165,111 @@ static void l102a(unsigned char *done)
 		*done = 0;
 }
 
-/* CODE 13+0x0116 — post-combat treasure/aftermath sequence (only when
- * -27916 is set). */
-static void l0116(void) { PROBE("L0116"); }
+static void jt860(long rec_l, short status, long msg);   /* CODE 18+0x6 — combat hit-line, lifted below */
+
+/* CODE 13+0x0116 — the combat STATUS / message painter (the last spine card).
+ * Faithful full lift. For each party member that is not destroyed (status +94
+ * < 6) and not already handled (combatant +21 != 1): compares current HP (+82)
+ * to the per-class threshold table at -8776[+88]; when at/under it flags
+ * "near death" (and shows the -13124 message via jt18). When ABOVE the
+ * threshold it paints the member's three status lines into the row-14 box —
+ * name (-13120 + name + ".."), HP/condition (-13112 or -13108 by +92, +
+ * -13116), and jt860's -13104 hit-line — pausing (l4b84 = JT[99] page-pause)
+ * between, then a monster-count summary (-13100 none / -13096 one /
+ * -13092..-13088 many, by the live-monster scan: +382==1 && +94==0 && +95!=1).
+ * The -131xx message templates are DATA-resident A5 string pointers (loaded +
+ * DREL-relocated by data_pool_replay). */
+static void l0116(void)
+{
+	long          member;
+	unsigned char near_death = 0;          /* fp@(-14): persists across members */
+
+	PROBE("L0116");
+	for (member = g_a5_long(-27928); member != 0;
+	     member = *(long *)(uintptr_t)member) {
+		unsigned char *m  = (unsigned char *)(uintptr_t)member;
+		unsigned char *mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(m + 64));
+		short         *hptab;
+		unsigned short hp, thr;
+		unsigned char  hp_ok;
+		short          row = 14, nmon = 0;
+		long           inner, lastmon = 0;
+		char           buf22[64], buf64[64];
+
+		if (m[94] >= 6 || mc[21] == 1)
+			continue;
+
+		hptab = (short *)(void *)&g_a5_byte(-8776);
+		hp    = (unsigned short)*(short *)(m + 82);
+		thr   = (unsigned short)hptab[m[88]];
+		hp_ok = (hp > thr) ? 1 : 0;
+		if (!hp_ok)
+			near_death = ((unsigned short)(thr - 10) < hp) ? 1 : 0;
+		if (near_death)
+			jt18(m, g_a5_long(-13124), 10, 1);
+		if (!hp_ok)
+			continue;
+
+		/* name line */
+		jt103(23, row, 38, 21);
+		jt96(23, row, 38, 21, 11, 0, 1,
+		     (long)(uintptr_t)jt488("%s%s%s",
+		         (const char *)(uintptr_t)g_a5_long(-13120),
+		         (const char *)&m[96],
+		         (const char *)(uintptr_t)ua_strs_at(0x4436)),
+		     row);
+		l4b84();
+
+		/* HP / condition line */
+		jt103(23, row, 38, 21);
+		memset(buf22, 0, sizeof buf22);
+		jt384(buf22, (*(short *)(m + 92) == 0)
+		             ? (const char *)(uintptr_t)g_a5_long(-13112)
+		             : (const char *)(uintptr_t)g_a5_long(-13108));
+		jt96(23, row, 38, 21, 11, 0, 1,
+		     (long)(uintptr_t)jt488("%s%s", buf22,
+		         (const char *)(uintptr_t)g_a5_long(-13116)),
+		     row);
+		l4b84();
+
+		jt103(23, row, 38, 21);
+		jt860(member, 8, g_a5_long(-13104));
+
+		/* live-monster scan */
+		for (inner = g_a5_long(-27928); inner != 0;
+		     inner = *(long *)(uintptr_t)inner) {
+			unsigned char *im = (unsigned char *)(uintptr_t)inner;
+			if (im[382] == 1 && im[94] == 0 && im[95] != 1) {
+				nmon++;
+				lastmon = inner;
+			}
+		}
+
+		/* monster-count summary */
+		memset(buf64, 0, sizeof buf64);
+		switch (nmon) {
+		case 0:
+			jt384(buf64, (const char *)(uintptr_t)g_a5_long(-13100));
+			break;
+		case 1:
+			jt384(buf64, jt488("%s%s",
+			    (const char *)&((unsigned char *)(uintptr_t)lastmon)[96],
+			    (const char *)(uintptr_t)g_a5_long(-13096)));
+			break;
+		default:
+			jt384(buf64, jt488("%s%s%s",
+			    (const char *)(uintptr_t)g_a5_long(-13092),
+			    (const char *)&((unsigned char *)(uintptr_t)lastmon)[96],
+			    (const char *)(uintptr_t)g_a5_long(-13088)));
+			break;
+		}
+
+		jt103(23, row, 38, 21);
+		jt96(23, row, 38, 21, 11, 0, 1, (long)(uintptr_t)buf64, row);
+		l4b84();
+	}
+	g_a5_byte(-27916) = 0;
+}
 
 /* CODE 13+0x0006 — combat teardown.  Frees the -23234 list into the
  * -20800 bucket (jt471 size 34), then per party member: strip item
