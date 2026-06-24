@@ -36025,7 +36025,25 @@ static signed char l279c(long actor)                 { PROBE("L279c"); (void)act
 static signed char l27e6(long actor)                 { PROBE("L27e6"); (void)actor; return 0; }   /* flee predicate */
 static void        jt154(void)                       { PROBE("jt154"); }                           /* CODE 7+0x169e — close dialog */
 static short       jt173(long prompt, long cmdstring, short a3, short a4, short cx, short cy);  /* CODE 7+0x29da input dialog */
-static signed char l26ea(long actor)                 { PROBE("L26ea"); (void)actor; return 1; }   /* auto-resolve action -> done */
+/* CODE 13+0x26ea — end-of-turn resolver (the shared action commit that Guard /
+ * Bandage / auto-resolve etc. call). Faithful full lift: clears the actor's
+ * combatant turn-state — actions-remaining (mc[4], word), forced action (mc[0]),
+ * guard flag (mc[9]) and mc[8] — and returns 1 (action done). */
+static signed char l26ea(long actor_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	unsigned char *mc;
+
+	PROBE("L26ea");
+	if (actor == NULL)
+		return 1;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	*(short *)(mc + 4) = 0;
+	mc[0] = 0;
+	mc[9] = 0;
+	mc[8] = 0;
+	return 1;
+}
 static void        l1162(long actor, short cmd, unsigned char *done) { PROBE("L1162"); (void)actor; (void)cmd; (void)done; }  /* Move/Attack menu */
 /* CODE 13+0x272a — the GUARD command. Faithful full lift: resolve the action
  * (l26ea), and unless the combatant is already flagged (mc[18] != 0) set the
