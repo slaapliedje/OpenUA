@@ -36908,9 +36908,90 @@ static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)t
 static signed char l6042(long m);
 static void        jt555(long rec_l, long ent_l, short a, long b, void *out);
 
-/* Leaf deps of l56d8 (the move/attack resolve) still to be lifted. */
-static unsigned char l544e(long m, short step, short dir, void *p)   /* CODE 13 — per-step move/contact */
-{ PROBE("L544e"); (void)m; (void)step; (void)dir; (void)p; return 0; }
+/* CODE 13+0x544e — the per-step move/contact resolver, called once per cell of
+ * l56d8's step loop. Faithful full lift. Derives the step's facing off the -7882
+ * table ((table[mc[23]*6 + step] + dir) & 7), asks the field which feature lies
+ * that way (jt515 -> outA blocker / outB terrain / outC terrain-class). With no
+ * terrain (outB == 0) it flags *p = 1 (open cell) and yields; an impassable
+ * terrain (-27848[outB*4] == 255) returns 0. Otherwise it costs the step
+ * (terrain * 3 if jt472(dir), else * 2) and, when affordable (< mc[8]) and
+ * unblocked (outA == 0), runs the terrain-class gate (JT[3] 27/28/29): doors
+ * and barriers (jt41 feature probes 30/143/63/57, the -fleeing mc[18] and
+ * actor[192] state bits) bump the cost to mc[8]+1 to block, plain terrain keeps
+ * the move cost. Returns 1 when the actor can still afford the move (mc[8] >=
+ * cost), else 0 — l56d8 keeps stepping while this is 0. */
+static unsigned char l544e(long m, short step, short dir, void *p)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	unsigned char  result = 0, tdir, table;
+	unsigned char  outA = 0, outB = 0, outC = 0, descA = 0, cost = 0;
+
+	PROBE("L544e");
+	if (actor == NULL)
+		return 0;
+
+	*(unsigned char *)p = 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	table = g_a5_byte(-7882 + mc[23] * 6 + step);
+	tdir  = (unsigned char)((table + dir) & 7);
+	jt515(m, (short)tdir, &outA, &outB, &outC);
+	if (outB == 0) {                        /* open cell */
+		*(unsigned char *)p = 1;
+		goto L56ca;
+	}
+	if ((unsigned char)g_a5_byte(-27848 + outB * 4) == 255)
+		return 0;                       /* impassable */
+	if (jt472((short)tdir) != 0)
+		cost = (unsigned char)((unsigned char)g_a5_byte(-27848 + outB * 4) * 3);
+	else
+		cost = (unsigned char)((unsigned char)g_a5_byte(-27848 + outB * 4) * 2);
+	/* L554e */
+	if (outA != 0)
+		goto L56ca;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (cost >= mc[8])
+		goto L56ca;
+	switch (outC) {                         /* JT[3] @ 0x5578 (terrain class) */
+	case 29:
+		if ((jt41(m, 30, &descA) & 0xff) != 0) break;
+		if ((jt41(m, 143, &descA) & 0xff) != 0) break;
+		if ((jt41(m, 63, &descA) & 0xff) != 0) break;
+		if ((jt41(m, 57, &descA) & 0xff) != 0) break;
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		if (mc[18] != 0) break;
+		if ((actor[192] & 24) != 0) break;
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		cost = (unsigned char)(mc[8] + 1);
+		break;
+	case 28:
+		if ((jt41(m, 57, &descA) & 0xff) != 0) break;
+		if ((jt41(m, 143, &descA) & 0xff) != 0) break;
+		if ((actor[192] & 16) != 0) break;
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		if (mc[18] != 0) break;
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		cost = (unsigned char)(mc[8] + 1);
+		break;
+	case 27:
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		if (mc[18] != 0) break;
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		cost = (unsigned char)(mc[8] + 1);
+		break;
+	default:
+		break;
+	}
+	/* L56b2 */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[8] < cost)
+		goto L56ca;
+	result = 1;
+L56ca:
+	return result;
+}
+
+/* Leaf deps of l56d8 still to be lifted — PROBE stubs (CODE 14 leaves). */
 static unsigned char jt535(long m)               { PROBE("jt535"); (void)m; return 0; }  /* CODE 14+0xea0 */
 static void          jt553(long m, short v)      { PROBE("jt553"); (void)m; (void)v; }    /* CODE 14+0x9b2 */
 static void          jt551(long m, short v)      { PROBE("jt551"); (void)m; (void)v; }    /* CODE 14+0x74c */
