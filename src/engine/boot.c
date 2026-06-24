@@ -36902,6 +36902,10 @@ static signed char l52fe(long m)
 	}
 	return (signed char)result;
 }
+/* Forward decls — l6454 deps defined later in this file. */
+static unsigned char l2484(long m, short a, short b);
+static void          jt882(long item_l);
+
 /* CODE 13+0x62ec — the monster-AI target-PRIORITY score for one candidate,
  * used by l6454's target sweep. Faithful full lift. (NOTE: distinct from the
  * CODE 14 l62ec map-cell fetch — a same-offset cross-segment name collision.)
@@ -36959,7 +36963,174 @@ static unsigned char l62ec_c13(long actor_l, long cand_l)
 	}
 	return score;
 }
-static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)target; }
+/* The 16-byte monster-def record for a combatant: rec[40] indexes the -27944
+ * table (16 bytes/entry). Used throughout l6454's target sweep. */
+static unsigned char *combat_mondef(long rec)
+{
+	unsigned char *r = (unsigned char *)(uintptr_t)rec;
+	return (unsigned char *)(uintptr_t)
+	    (g_a5_long(-27944) + ((long)r[40] << 4));
+}
+
+/* CODE 13+0x6454 — combat setup / monster-AI TARGET PICK, run per turn from
+ * l5008 and l5b9a. Faithful full lift of the six-phase asm. (A) Reads the
+ * passed target's special-attack flags (jt41 features 125/60/80/81/103/41/66/67)
+ * into the -7834..-7837 combat-behaviour globals. (B) Subtracts the actor's two
+ * summoned-creature AC bonuses (actor[12]/[16] monster-def[1]) from its AC
+ * (actor[194]). (C) Walks the combatant list (head actor[8], chained at +0),
+ * scoring each reachable candidate (l62ec_c13 weighted by reach mask
+ * def[13]&actor[183]) into three running bests: primary (-4, special def[14]
+ * bits 3/4), secondary (-8), and a level-ranked third (-12). (D) Mirrors l2bde
+ * over the best primary to resolve its secondary target and the def[14] class
+ * flags. (E) Picks the primary when it dominates (score > half the secondary's,
+ * a resolved secondary, and either a special def or l2484==0), else the
+ * secondary, into mc... actually the chosen node. (F) Commits: refreshes the old
+ * and new targets (jt882), recomputes derived stats (jt21), rebuilds the combat
+ * field (jt543), re-applies AC bonuses, and on a changed line-up flags the jt38
+ * repaint. All callees lifted (jt41/jt882/jt21/jt543/jt38/l2484/l62ec_c13). */
+static void l6454(long m, long target)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	void          *desc  = (void *)g_a5_buf(-7832);
+	long           c_best1 = 0, c_best2 = 0, c_best3 = 0, node, sec_target = 0;
+	unsigned char  max1, max2, max3, score, pflags = 0;
+	unsigned char  refresh, did38 = 0, special, have_sec;
+
+	PROBE("L6454");
+
+	/* Phase A — the target's special-attack flags. */
+	g_a5_byte(-7834) = 0;
+	if (target != 0) {
+		if (jt41(target, 125, desc) & 0xff) g_a5_byte(-7834) = 2;
+		if (jt41(target, 60, desc) & 0xff)  g_a5_byte(-7834) = 3;
+		if ((jt41(target, 80, desc) & 0xff) || (jt41(target, 81, desc) & 0xff)
+		    || (jt41(target, 103, desc) & 0xff))
+			g_a5_byte(-7834) = 1;
+		g_a5_byte(-7835) = g_a5_byte(-7834);
+		if (g_a5_byte(-7835) == 0 && (jt41(target, 41, desc) & 0xff))
+			g_a5_byte(-7835) = 1;
+		g_a5_byte(-7837) = (unsigned char)jt41(target, 66, desc);
+		g_a5_byte(-7836) = (unsigned char)jt41(target, 67, desc);
+	} else {
+		g_a5_byte(-7835) = 0;
+		g_a5_byte(-7836) = 0;
+		g_a5_byte(-7837) = 0;
+	}
+
+	/* Phase B — strip the summoned-creature AC bonuses. */
+	if (*(long *)(uintptr_t)(actor + 12) != 0)
+		actor[194] = (unsigned char)(actor[194]
+		    - combat_mondef(*(long *)(uintptr_t)(actor + 12))[1]);
+	if (*(long *)(uintptr_t)(actor + 16) != 0)
+		actor[194] = (unsigned char)(actor[194]
+		    - combat_mondef(*(long *)(uintptr_t)(actor + 16))[1]);
+
+	/* Phase C — score the combatant list into three running bests. */
+	max1 = 1;
+	max2 = (unsigned char)(actor[175] * actor[173]);
+	if ((signed char)actor[177] > 0)
+		max2 = (unsigned char)(max2 + actor[177] * 2);
+	max3 = 0;
+	node = *(long *)(uintptr_t)(actor + 8);
+	while (node != 0) {
+		unsigned char *nd = (unsigned char *)(uintptr_t)node;
+		unsigned char *md = combat_mondef(node);
+		if (md[0] == 0 && (md[13] & actor[183]) != 0) {
+			score = l62ec_c13(m, node);
+			if ((md[14] & 8) || (md[14] & 16)) {
+				if (score > max1) { c_best1 = node; max1 = score; }
+			}
+			if ((md[14] & 8) == 0) {
+				if (score > max2) { c_best2 = node; max2 = score; }
+			}
+		}
+		md = combat_mondef(node);
+		if (md[0] == 1 && (md[13] & actor[183]) != 0) {
+			if ((signed char)nd[48] >= 0)
+				score = (unsigned char)(nd[48] + 1);
+			else
+				score = 0;
+			if (score > max3) { c_best3 = node; max3 = score; }
+		}
+		node = *(long *)(uintptr_t)nd;          /* next, chained at +0 */
+	}
+
+	/* Phase D — resolve the best primary's class + secondary target. */
+	special = 0;
+	if (c_best1 != 0) {
+		unsigned char *md = combat_mondef(c_best1);
+		if (md[12] > 1 && (md[14] & 20) == 20)
+			special = 1;
+	}
+	have_sec = 0;
+	if (c_best1 != 0) {
+		unsigned char *md = combat_mondef(c_best1);
+		pflags = md[14];
+		if (pflags & 16)
+			sec_target = c_best1;
+		if (pflags & 8) {
+			if (pflags & 1)
+				sec_target = *(long *)(uintptr_t)(actor + 56);
+			if (pflags & 128)
+				sec_target = *(long *)(uintptr_t)(actor + 60);
+		}
+	}
+	if (sec_target != 0 || pflags == 10)
+		have_sec = 1;
+
+	/* Phase E — primary when it dominates, else secondary. */
+	if (c_best1 != 0 && max1 > (unsigned char)(max2 >> 1) && have_sec != 0
+	    && (special != 0 || (l2484(m, 1, 0) & 0xff) == 0))
+		node = c_best1;
+	else
+		node = c_best2;
+
+	/* Phase F — commit + refresh. */
+	refresh = 1;
+	if (*(long *)(uintptr_t)(actor + 12) != 0) {
+		long t12 = *(long *)(uintptr_t)(actor + 12);
+		if (t12 == node || ((unsigned char *)(uintptr_t)t12)[52] != 0)
+			refresh = 0;
+	}
+	if (refresh != 0) {
+		if (*(long *)(uintptr_t)(actor + 12) != 0)
+			jt882(*(long *)(uintptr_t)(actor + 12));
+		jt21(m);
+		if (*(long *)(uintptr_t)(actor + 16) != 0
+		    && ((unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 16)))[52] == 0)
+			actor[194] = (unsigned char)(actor[194]
+			    - combat_mondef(*(long *)(uintptr_t)(actor + 16))[1]);
+		if (node != 0)
+			jt882(node);
+		did38 = 1;
+	}
+	jt21(m);
+	jt543(m);
+	refresh = 1;
+	if (*(long *)(uintptr_t)(actor + 16) != 0) {
+		long t16 = *(long *)(uintptr_t)(actor + 16);
+		if (t16 == c_best3 || ((unsigned char *)(uintptr_t)t16)[52] != 0)
+			refresh = 0;
+	}
+	if ((unsigned char)actor[194] > 2) {
+		long t16 = *(long *)(uintptr_t)(actor + 16);
+		if (t16 == 0 || ((unsigned char *)(uintptr_t)t16)[52] != 0)
+			jt882(node);
+		else
+			jt882(t16);
+		did38 = 1;
+	} else if ((unsigned char)actor[194] < 2 && refresh != 0) {
+		if (*(long *)(uintptr_t)(actor + 16) != 0)
+			jt882(*(long *)(uintptr_t)(actor + 16));
+		jt21(m);
+		if (c_best3 != 0)
+			jt882(c_best3);
+		did38 = 1;
+	}
+	jt21(m);
+	if (did38 != 0)
+		jt38(m);
+}
 
 /* Forward decls — deps of l5b9a that are defined later in this file. */
 static signed char l6042(long m);
