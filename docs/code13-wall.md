@@ -57,7 +57,7 @@ drives the turn through.
 
 | local | addr | size | what (disasm) | status |
 |---|---|---:|---|---|
-| `l1162` | 0x1162 | 411ln | the COMBAT COMMAND MENU (`"Move/Attack, Move Le…"`) — jt525/531/519/532/526 draw, jt521 map | — |
+| `l1162` | 0x1162 | 411ln | the player MOVE/ATTACK picker (`"Move/Attack, Move Le…"`) — jt173 input loop, JT[1] dir dispatch, jt515 probe -> l167e attack / terrain move | **LIFTED** (full input-loop lift; l167e attack + jt553/551/879/13/l26ea tail; jt532 highlight = stub) |
 | `l56d8` | 0x56d8 | 382ln | command handler / move-attack resolve (`"Move/Attack…"`, jt870 dice, jt529/535/546) | **LIFTED** (full CFG; "Move/Attack" prompt, 6-cell step loop over -7882, caster fizzle, -7839/-7840 resolve; l544e/jt535/jt551/jt553 all LIFTED, reuses l6554=jt516 — NO stubs left in the l56d8 tree) |
 | `l1714` | 0x1714 | 86ln | in-combat target picker (jt182 list, `"( )"` brackets, jt488/jt399) | **LIFTED** (full; paged jt182 dialog, JT[1] ESC + JT[3] page rec[18]; jt63 stub) |
 | `l0d16` | 0x0d16 | 253ln | combat COMMAND MENU + input reader (jt155 build, jt166, jt173/154, jt525/531) | **LIFTED** (full; conditional cmd list 1-12 + jt173 keystroke validate-loop; spawned stubs l279c/l27e6/jt154) |

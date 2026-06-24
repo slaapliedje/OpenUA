@@ -36120,7 +36120,157 @@ static signed char l26ea(long actor_l)
 	mc[8] = 0;
 	return 1;
 }
-static void        l1162(long actor, short cmd, unsigned char *done) { PROBE("L1162"); (void)actor; (void)cmd; (void)done; }  /* Move/Attack menu */
+/* CODE 14+0x635e field-highlight render, still to be lifted (~156 ln) — a
+ * stub leaves l1162's loop driving without the per-cell highlight repaint. */
+static void          jt532(short a, short b, short c) { PROBE("jt532"); (void)a; (void)b; (void)c; }
+/* Forward decls — l1162 deps defined later in this file. */
+static void          l167e(long m, long target, void *out);
+static unsigned char jt535(long m);
+static void          jt553(long m, short v);
+static void          jt551(long m, short v);
+
+/* CODE 13+0x1162 — the player MOVE/ATTACK command picker, the human counterpart
+ * to the l5008 monster turn (driven from l08b4). Faithful full lift of the asm
+ * input loop. Saves the command/facing (mc[8]/mc[11]) and screen cell, then
+ * loops: when a key is needed it paints the "Move/Attack, Move Left = NN" prompt
+ * (jt394) and reads a keystroke at the cell (jt166/jt179/jt173). In input mode
+ * (-24139) a JT[1] table maps ESC -> cancel (restore + jt526 acceptance + jt521
+ * redraw) and the eight movement keys 129..136 -> a direction 0..7 (else 8 =
+ * none). It then resolves the direction (jt523 pose, jt515 cell probe): an
+ * occupant -> the l167e attack; an open cell -> a flee confirm (jt159 -> jt535);
+ * a terrain cell -> pay the move cost (-27848, x3 on a jt472 diagonal) if
+ * affordable (else jt42 "can't"), commit via jt553/jt551, and run the
+ * jt879/jt13/l26ea turn-end tail. Loops until *done is set or the key is a
+ * terminator (0/1/13); a leftover budget < 2 is zeroed on exit. jt532 is a PROBE
+ * stub (highlight render); all other callees are lifted. */
+static void l1162(long actor_l, short cmd, unsigned char *done)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	long           m = actor_l;
+	unsigned char *mc;
+	unsigned char  saved_cmd, saved_facing, sx, sy, dir, occ = 0, feat = 0;
+	unsigned char  key, cost, sx2, outc = 0;
+	char           buf[40];
+	short          var54, var52;
+
+	PROBE("L1162");
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	saved_cmd = mc[8];
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	saved_facing = mc[11];
+	sx = jt525(m);
+	sy = jt531(m);
+	key = (unsigned char)cmd;
+	*done = 0;
+	dir = 8;
+	goto l1632;
+
+loop_top:
+	if (key == 255) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		jt394(buf, "%s%2d", "Move/Attack, Move Left = ", (int)(mc[8] >> 1));
+		var54 = (short)(jt531(m)
+		    - *(short *)((unsigned char *)(uintptr_t)g_a5_long(-25318) + 4));
+		var52 = (short)(jt525(m)
+		    - *(short *)((unsigned char *)(uintptr_t)g_a5_long(-25318) + 2));
+		jt166(4);
+		jt179(1);
+		key = (unsigned char)jt173((long)(uintptr_t)buf, g_a5_long(-13752),
+		                           1, 0, var54, var52);
+	}
+
+	dir = 8;
+	if (g_a5_byte(-24139) != 0) {
+		switch (key) {
+		case 27:                                /* ESC — cancel the command */
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			mc[8] = saved_cmd;
+			jt532(0, 0, (short)(jt519(m) & 0xff));
+			*done = (unsigned char)((jt526(m, (short)sx, (short)sy, 0) == 0) ? 1 : 0);
+			sx2 = jt525(m);
+			jt521((short)sx2, (short)jt531(m), 0, 8);
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			mc[11] = saved_facing;
+			dir = 8;
+			key = 0;
+			g_a5_byte(-24139) = 0;
+			break;
+		case 136: dir = 0; break;
+		case 129: dir = 1; break;
+		case 130: dir = 2; break;
+		case 131: dir = 3; break;
+		case 132: dir = 4; break;
+		case 133: dir = 5; break;
+		case 134: dir = 6; break;
+		case 135: dir = 7; break;
+		default:  dir = 8; break;
+		}
+	} else if (key == 0) {                           /* non-input mode, empty key */
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		mc[8] = saved_cmd;
+		jt532(0, 0, (short)(jt519(m) & 0xff));
+		*done = (unsigned char)((jt526(m, (short)sx, (short)sy, 0) == 0) ? 1 : 0);
+		sx2 = jt525(m);
+		jt521((short)sx2, (short)jt531(m), 0, 8);
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		mc[11] = saved_facing;
+		dir = 8;
+	}
+
+	/* L1432 — resolve the chosen direction. */
+	if (dir >= 8)
+		goto l1626;
+	jt523(m, (short)dir, 0, 0);
+	jt515(m, (short)dir, &occ, &feat, &outc);
+	if ((signed char)occ > 0) {                      /* occupied cell -> attack */
+		l167e(m, g_a5_longs(-25676)[occ], done);
+		goto l1626;
+	}
+	if (feat == 0) {                                 /* open cell -> flee attempt */
+		if (jt159((const char *)g_a5_ptr(-14080), 0) != 0)
+			*done = (unsigned char)jt535(m);
+		else {
+			*done = 0;
+			key = 255;
+		}
+		goto l1626;
+	}
+	/* L14ea — move into a terrain cell. */
+	if (jt472((short)dir) != 0)
+		cost = (unsigned char)((unsigned char)g_a5_byte(-27848 + feat * 4) * 3);
+	else
+		cost = (unsigned char)((unsigned char)g_a5_byte(-27848 + feat * 4) * 2);
+	if ((unsigned char)g_a5_byte(-27848 + feat * 4) == 255)
+		cost = 255;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (cost > mc[8]) {
+		jt42((const char *)g_a5_ptr(-14076));        /* not enough movement */
+		goto l1626;
+	}
+	jt553(m, (short)dir);
+	if (actor[382] == 0) {
+		*done = (unsigned char)l26ea(m);
+		goto l1626;
+	}
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[8] != 0)
+		jt551(m, (short)dir);
+	if (actor[382] == 0)
+		*done = (unsigned char)l26ea(m);
+	jt879(m, 1, 0);
+	if (jt13(m) != 0 || actor[382] == 0)
+		*done = (unsigned char)l26ea(m);
+	/* fall through */
+l1626:
+	if (g_a5_byte(-24139) != 0)
+		key = 255;
+l1632:
+	if (*done == 0 && key != 0 && key != 1 && key != 13)
+		goto loop_top;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[8] < 2)
+		mc[8] = 0;
+}
 /* CODE 13+0x272a — the GUARD command. Faithful full lift: resolve the action
  * (l26ea), and unless the combatant is already flagged (mc[18] != 0) set the
  * guarding flag (mc[9] = 1) and announce "Guarding" (jt42). Returns l26ea's
