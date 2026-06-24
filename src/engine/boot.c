@@ -33270,7 +33270,37 @@ static void jt677(void) { PROBE("jt677"); }	/* +0x355e; id 111 */
 static void jt678(void) { PROBE("jt678"); }	/* +0x2776; id 83 */
 static void jt679(void) { PROBE("jt679"); }	/* +0x2320; id 72 */
 static void jt680(void) { PROBE("jt680"); }	/* +0x1f96; id 129 */
-static void jt681(void) { PROBE("jt681"); }	/* +0x381a; id 116 */
+static void jt681(void)	/* +0x381a; id 116 */
+{
+	unsigned char *src = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	int i;
+
+	PROBE("jt681");
+	/* CODE 16 effect id 116: summon-list filter (l0008-style, but keyed on the
+	 * current char's type [95] by BYTE equality) over -23512, then announce
+	 * "is <name>" (jt488 over -19996) via l6114. */
+	g_a5_byte(-25257) = 1;					/* 3820 */
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 389e */
+		long *slot = &g_a5_longs(-23512)[i];
+		unsigned char *rec = (unsigned char *)(uintptr_t)*slot;	/* 3846 */
+		int clear;
+
+		if ((unsigned char)rec[95] != (unsigned char)src[95]) {	/* 384c byte cmp */
+			clear = 1;				/* 3850 -> L3884 */
+		} else if ((unsigned char)g_a5_byte(-27990) == 5	/* 3852 */
+		        && (unsigned char)jt492(*slot, 1, 0) != 0) {	/* 3876 / 3882 */
+			clear = 1;
+		} else {
+			clear = 0;				/* L389a keep */
+		}
+		if (clear)
+			*slot = 0;				/* 3898 */
+	}
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0,
+	      jt488(ua_strs_at(0x520e) /* "is %s" */,
+	            (const char *)(uintptr_t)g_a5_long(-19996)));	/* 38b2 / 38ca */
+}
 static void jt682(void) { PROBE("jt682"); }	/* +0x111e; id 37 */
 static void jt683(void) { PROBE("jt683"); }	/* +0x2f0e; id 136 */
 static void jt684(void) { PROBE("jt684"); }	/* +0x3aa4; id 120 */
