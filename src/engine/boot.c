@@ -33034,6 +33034,55 @@ static short jt202(short x, short y, short facing)
 	return (short)(lvl[290 + idx * 6 + dir] & 15);
 }
 
+/* CODE 7+0x5e2e — the wall-byte nibble predicate jt206 reduces to. Faithful
+ * full lift: returns 1 unless the low nibble is set AND the high nibble is >= 14
+ * (the special wall classes 14/15), else 1 — i.e. (low == 0 || high < 14).
+ * Marked unused until jt206/l2d30 are wired in. */
+static short l5e2e(short hi, short lo) __attribute__((unused));
+static short l5e2e(short hi, short lo)
+{
+	PROBE("L5e2e");
+	return (short)((lo == 0 || hi < 14) ? 1 : 0);
+}
+
+/* CODE 7+0x5d1c (JT[206]) — the design-map WALL-BIT query, companion to jt202
+ * (the door/low-nibble reader). Faithful full lift, mirroring jt202's cell math.
+ * Returns 0 early when the cell is off the placed map (l5baa == 0) and the
+ * -22285 mode is 0 or 80; otherwise clamps (x,y) into the map (lvl=-12300,
+ * w=lvl[3]/h=lvl[2]), folds the facing to 0..3, reads the wall byte at
+ * 290 + (y*w + x)*6 + dir, and reduces its two nibbles through l5e2e. Deps
+ * l5baa/l5e2e lifted; marked unused until l2d30 lands. */
+static short jt206(short x, short y, short facing) __attribute__((unused));
+static short jt206(short x, short y, short facing)
+{
+	unsigned char *lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short w, h, dir;
+	long  idx;
+	unsigned char wall;
+
+	PROBE("jt206");
+	if (l5baa(x, y) == 0
+	    && ((unsigned char)g_a5_byte(-22285) == 0
+	        || (unsigned char)g_a5_byte(-22285) == 80))
+		return 0;
+	if (lvl == NULL)
+		return 0;
+	w = (short)lvl[3];
+	h = (short)lvl[2];
+	if ((unsigned short)(short)(signed char)x > (unsigned short)(w - 1))
+		x = 0;
+	else if ((signed char)x < 0)
+		x = (short)(w - 1);
+	if ((unsigned short)(short)(signed char)y > (unsigned short)(h - 1))
+		y = 0;
+	else if ((signed char)y < 0)
+		y = (short)(h - 1);
+	dir = (short)(((unsigned char)facing & 6) >> 1);
+	idx = (long)((short)(signed char)y * w + (short)(signed char)x);
+	wall = lvl[290 + idx * 6 + dir];
+	return l5e2e((short)((wall >> 4) & 15), (short)(wall & 15));
+}
+
 /* L1476 (CODE 20 + 0x1476) — marker depth probe. Walks forward from (x,y) in
  * the facing direction, counting open cells (jt202 == 0) up to 2, and returns
  * that depth — how far back the event sprite/PIC should be drawn for the
