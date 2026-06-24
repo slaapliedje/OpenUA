@@ -38038,6 +38038,64 @@ static void jt550(long m, long target)
 	mc[20] = (unsigned char)((mc[20] + rel) & 7);
 }
 
+/* CODE 14+0x2dbc — the weapon/target validity + friendly-fire confirm (jt533),
+ * used by l167e (the player attack). Faithful full lift. Valid outright when the
+ * attacker and target are the same summon class (rec[95] vs l2406) or the
+ * attacker is a monster (rec[383]); otherwise it pops the friendly-fire confirm
+ * dialog (jt159 over the -14096 prompt) — on YES it commits (sets -22722, marks
+ * the area-state rec[54], repaints via jt490) and returns valid, on NO returns
+ * invalid. Saves/restores the -24139 auto-input flag around the prompt. */
+static unsigned char jt533(long m, long target)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char  saved = (unsigned char)g_a5_byte(-24139);
+	unsigned char  ret;
+
+	PROBE("jt533");
+	if (actor[95] == l2406(target) || actor[383] != 0) {
+		ret = 1;
+	} else if (jt159((const char *)g_a5_ptr(-14096), 0) != 0) {
+		ret = 1;
+		g_a5_byte(-22722) = 1;
+		((unsigned char *)(uintptr_t)g_a5_long(-28006))[54] = 1;
+		jt490();
+	} else {
+		ret = 0;
+	}
+	g_a5_byte(-24139) = saved;
+	return ret;
+}
+
+/* CODE 13+0x167e — the player single-attack resolve against a chosen cell,
+ * called from l1162. Faithful full lift (mirrors l56d8's strike block). Rejects
+ * with "Not with that weapon" when the actor can't reach (l279c set, l27e6
+ * clear); else checks weapon/target validity (jt533, may confirm friendly fire),
+ * bonds the target into mc[12], and either sweeps (jt549 -> *out = 1) or lands
+ * the single strike (jt550 bearing + jt555 with the *out result cell). Marked
+ * unused until l1162 (its sole caller) is lifted next. */
+static void l167e(long m, long target, void *out) __attribute__((unused));
+static void l167e(long m, long target, void *out)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+
+	PROBE("L167e");
+	if (l279c(m) != 0 && l27e6(m) == 0) {
+		jt42(ua_strs_at(0x4496));               /* "Not with that weapon" */
+		return;
+	}
+	if (jt533(m, target) == 0)
+		return;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	*(long *)(uintptr_t)(mc + 12) = target;
+	if (jt549(m, target) != 0) {
+		*(unsigned char *)out = 1;
+		return;
+	}
+	jt550(m, target);
+	jt555(m, target, 0, 0, out);
+}
+
 /* CODE 13+0x5b9a — the monster ATTACK executor (reached via l5008). Faithful
  * full lift mirroring the asm CFG. Refreshes the actor (jt868), bails the
  * action when a dying ally is found while un-summoned (l283e). Then loops (cap

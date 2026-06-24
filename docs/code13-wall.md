@@ -87,7 +87,7 @@ drives the turn through.
 | `l3d56` | 0x3d56 | 150ln | attack-roll resolution (jt870/jt399) | — |
 | `l5008` | 0x5008 | 177ln | MONSTER-AI turn (`"flees in panic"`, morale jt870, jt546 acquire, jt599; dispatch attack/move) | **LIFTED** (level-2 skeleton; spawned stubs l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) |
 | `l6176` | 0x6176 | 114ln | MORALE (`"is forced to flee / Surrenders"`, jt544/jt877) | — |
-| `l167e` | 0x167e | 47ln | attack-validity (`"Not with that weapon"`, jt533/549/550) | — |
+| `l167e` | 0x167e | 47ln | player attack-validity (`"Not with that weapon"`, jt533/549/550) | **LIFTED** (mirrors l56d8 strike block; jt533 weapon/friendly-fire gate LIFTED too; unused until l1162) |
 
 ## Cluster 5 — combat SETUP / art / sub-dispatch (lower priority leaves)
 
