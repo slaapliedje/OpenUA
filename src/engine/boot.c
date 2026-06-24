@@ -32841,7 +32841,46 @@ static void jt645(void) { PROBE("jt645"); }	/* +0x26b2; id 82 */
 static void jt646(void) { PROBE("jt646"); }	/* +0x22e8; id 71 */
 static void jt647(void) { PROBE("jt647"); }	/* +0x1f1a; id 128 */
 static void jt648(void) { PROBE("jt648"); }	/* +0x3424; id 110 */
-static void jt649(void) { PROBE("jt649"); }	/* +0x0ff6; id 36 */
+static void jt649(void)	/* +0x0ff6; id 36 */
+{
+	long caster = g_a5_long(-23508);			/* 0ffa */
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+
+	PROBE("jt649");
+	/* CODE 16 cure-all on the -23508 caster: l0f52 (+"is cured"), then per-status
+	 * announcements (blind id 33, feeblemind id 68 + jt875 1/2), then a partial
+	 * 1d4 heal via jt869 that tops up toward maxHP. */
+	if (l0f52() != 0)					/* 1000 */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4e7a) /* "is cured" */,
+		     (short)10, (short)0);			/* 1018 */
+	if (jt872(caster, 33) != 0)				/* 1028 */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4e84) /* "is no longer blind" */,
+		     (short)10, (short)0);			/* 1042 */
+	if (jt872(caster, 68) != 0) {				/* 1052 */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4e98) /* "regains intellect" */,
+		     (short)10, (short)0);			/* 106c */
+		jt875(caster, (short)1);			/* 107c */
+		jt875(caster, (short)2);			/* 108a */
+	}
+	{
+		short roll = jt870(1, 4);			/* 1098 */
+		short eff;
+
+		if ((short)((unsigned char)cas[395] + roll)
+		    <= (unsigned char)cas[129])			/* 10be */
+			eff = (short)((unsigned char)cas[129]
+			      - (unsigned char)cas[395] - roll); /* 10c8 */
+		else
+			eff = 0;				/* 10c2 */
+		if (jt869(caster, eff, 0) != 0)			/* 10f8 */
+			jt18((void *)(uintptr_t)caster,
+			     (long)(uintptr_t)ua_strs_at(0x4eaa) /* "is Healed" */,
+			     (short)10, (short)0);		/* 1112 */
+	}
+}
 static void jt650(void)	/* +0x0158; id 4 */
 {
 	PROBE("jt650");
