@@ -37557,7 +37557,43 @@ static unsigned char l2484(long m, short a, short b)
 		g_a5_byte(-22720 + i) = g_a5_buf(-19170)[i * 4];
 	return count;
 }
-static unsigned char l25f4(long m, long target)  { PROBE("L25f4"); (void)m; (void)target; return 0; }  /* CODE 13 */
+/* CODE 13+0x25f4 — the path-distance-to-a-specific-target query (jt494's
+ * sibling), called from l5b9a and l56d8. Faithful full lift. Saves the first
+ * -19170 record, rebuilds the reach list around the actor's cell (jt508 over
+ * jt525/jt531, feature 255, range 255, jt513 reach), then walks the list for
+ * the entity matching `target` (falling back to the last record if absent) and
+ * returns its path-cost field (-19170[i*4 + 1]) halved — l5b9a/l56d8 treat a
+ * result of 1 as "adjacent". Restores the saved record before returning. */
+static unsigned char l25f4(long m, long target)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char  scratch[4];
+	unsigned char  sx, sy, ret;
+	short          i, count;
+
+	PROBE("L25f4");
+	if (actor == NULL)
+		return 0;
+
+	jt479(g_a5_buf(-19170), scratch, 4);                    /* save record 0 */
+	((unsigned char *)(uintptr_t)g_a5_long(-25318))[8] = 1;
+	sx = jt525(m);
+	sy = jt531(m);
+	jt508((short)sx, (short)sy, 255, 255, (short)(jt513(m) & 0xff));
+	((unsigned char *)(uintptr_t)g_a5_long(-25318))[8] = 0;
+
+	count = (unsigned char)g_a5_byte(-18894);
+	for (i = 1; ; i++) {
+		unsigned char sidx = g_a5_buf(-19170)[i * 4];
+		if (g_a5_longs(-25676)[sidx] == target)
+			break;
+		if (i >= count)
+			break;
+	}
+	ret = (unsigned char)(g_a5_buf(-19170)[i * 4 + 1] >> 1);
+	jt479(scratch, g_a5_buf(-19170), 4);                    /* restore record 0 */
+	return ret;
+}
 static unsigned char l2bde(long m, void *out)    { PROBE("L2bde"); (void)m; if (out) *(long *)out = 0; return 0; }  /* CODE 13 */
 static unsigned char jt554(long m, long target, short f)                                 /* CODE 14+0x10c4 — target valid? */
 { PROBE("jt554"); (void)m; (void)target; (void)f; return 0; }
