@@ -36005,7 +36005,22 @@ static void jt58(void)
  * feature placer) are PROBE stubs for their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
-static void l276c(void)  { PROBE("L276c"); }
+static void jt527(void);   /* CODE 14 field repaint, stub below */
+/* CODE 13+0x276c — the spell-cast POST-PRESENT init (l276c), run from jt547 on
+ * the first cast pass. Faithful full lift: yields/refreshes (jt77), repaints the
+ * combat field (jt527), then draws the targeting cursor at the field scroll
+ * origin via jt521 (= the l6836 sprite blit): jt521(-25318[2]+3, -25318[4]+3,
+ * 255, 8). Deps jt77/jt521 lifted; jt527 (field repaint) is still a PROBE stub. */
+static void l276c(void)
+{
+	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+
+	PROBE("L276c");
+	jt77();
+	jt527();
+	jt521((short)(*(short *)(fld + 2) + 3),
+	      (short)(*(short *)(fld + 4) + 3), 255, 8);
+}
 static short l364c(void);   /* the field-feature RNG, defined below */
 /* CODE 13+0x3d56 — l3b36's BIOME feature placer. Faithful full lift. Rolls
  * jt870(1,100) and walks a cascade of cumulative weight thresholds (the biome
