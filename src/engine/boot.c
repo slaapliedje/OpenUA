@@ -35955,8 +35955,61 @@ static void l4f22(void)
 }
 
 /* CODE 13+0x0434 — per-round init: builds the -22624 initiative slot
- * array (slot i at -22624 + 4i, first actor in -22620). */
-static void l0434(void) { PROBE("L0434"); }
+ * array (slot i at -22624 + 4i, first actor in -22620). Faithful full lift.
+ * Clears the 73-slot array, then insertion-sorts every party member into it
+ * by initiative (the signed byte at member[64]->[5], higher acts first); ties
+ * are broken by a jt870(1,2) coin flip, and the displaced member chain is
+ * shifted down one slot. Slots are 1-based (0 unused). */
+static void l0434(void)
+{
+	long *slots = (long *)(void *)&g_a5_byte(-22624);
+	long  member;
+
+	PROBE("L0434");
+	jt399(&g_a5_byte(-22624), 292, 0);             /* 73 slots * 4 bytes */
+
+	for (member = g_a5_long(-27928); member != 0;
+	     member = *(long *)(uintptr_t)member) {
+		unsigned char *mc = (unsigned char *)(uintptr_t)
+		    (*(long *)(uintptr_t)((char *)(uintptr_t)member + 64));
+		signed char    my_init = (signed char)mc[5];
+		short          i = 1, scanning = 1;
+		long           displaced;
+
+		/* find the insertion slot */
+		while (i < 65 && scanning) {
+			signed char slot_init;
+			if (slots[i] == 0) {
+				slot_init = -1;
+			} else {
+				unsigned char *sc = (unsigned char *)(uintptr_t)
+				    (*(long *)(uintptr_t)((char *)(uintptr_t)slots[i] + 64));
+				slot_init = (signed char)sc[5];
+			}
+			if (my_init > slot_init)
+				scanning = 0;                  /* insert above this slot */
+			else if (my_init == slot_init && jt870(1, 2) == 1)
+				scanning = 0;                  /* tie -> won the toss */
+			else
+				i++;
+		}
+
+		/* insert here, shifting the displaced chain down */
+		displaced = slots[i];
+		slots[i] = member;
+		if (displaced != 0) {
+			short j = i, more = 1;
+			while (j < 72 && more) {
+				long next = slots[j + 1];
+				slots[j + 1] = displaced;
+				displaced = next;
+				if (next == 0)
+					more = 0;
+				j++;
+			}
+		}
+	}
+}
 
 /* CODE 13+0x076e — execute one actor's combat turn (the big one:
  * status gates at sub +17/+20/+9, jt868(7), jt516 visibility, jt530
