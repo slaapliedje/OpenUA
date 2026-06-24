@@ -85,7 +85,7 @@ drives the turn through.
 | `l375a` | 0x375a | 153ln | attack-roll resolution (jt870) | — |
 | `l3936` | 0x3936 | 160ln | attack-roll resolution (jt870) | — |
 | `l3d56` | 0x3d56 | 150ln | attack-roll resolution (jt870/jt399) | — |
-| `l5008` | 0x5008 | 177ln | FLEE / panic (`"flees in panic"`, jt870, jt546, jt599 effect) | — |
+| `l5008` | 0x5008 | 177ln | MONSTER-AI turn (`"flees in panic"`, morale jt870, jt546 acquire, jt599; dispatch attack/move) | **LIFTED** (level-2 skeleton; spawned stubs l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) |
 | `l6176` | 0x6176 | 114ln | MORALE (`"is forced to flee / Surrenders"`, jt544/jt877) | — |
 | `l167e` | 0x167e | 47ln | attack-validity (`"Not with that weapon"`, jt533/549/550) | — |
 
