@@ -32842,7 +32842,20 @@ static void jt664(void)	/* +0x00c6; id 1,62 */
 	            (const char *)(uintptr_t)g_a5_long(-20092)));
 }
 static void jt665(void) { PROBE("jt665"); }	/* +0x3d02; id 123 */
-static void jt666(void) { PROBE("jt666"); }	/* +0x05aa; id 20 */
+static void jt666(void)	/* +0x05aa; id 20 */
+{
+	short roll, val;
+
+	PROBE("jt666");
+	/* CODE 16 effect handler: apply a (caster-level magnitude + 1d8) value
+	 * through l6114 (value arg c), with d=12 staged into -25266 and an empty
+	 * announce string.  jt873 rolls before jt17, per the asm order. */
+	roll = jt873(1, 8);						/* 05b6 */
+	val = (short)((jt17((short)(unsigned char)g_a5_byte(-25262), 0) & 255)
+	      + roll);							/* 05ca / 05d4 */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      val, (short)12, ua_strs_at(0x4dfc) /* "" */);
+}
 static void jt667(void) { PROBE("jt667"); }	/* +0x2ab8; id 86 */
 static void jt668(void) { PROBE("jt668"); }	/* +0x23ea; id 75 */
 static void jt669(void) { PROBE("jt669"); }	/* +0x2008; id 132 */
