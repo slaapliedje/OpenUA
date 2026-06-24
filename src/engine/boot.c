@@ -35993,14 +35993,40 @@ static void jt58(void)
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
  * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 + l32ba + l375a are lifted below;
- * l3936/l3b36 (l3ef6's remaining passes) and l3678 (l375a's river branch-
- * extender) are PROBE stubs for their own cards. */
+ * l3936/l3b36 (l3ef6's remaining passes) are PROBE stubs for their own
+ * cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
 static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
-static void l3678(short a, short b, unsigned char *c) { PROBE("L3678"); (void)a; (void)b; (void)c; }
+
+/* CODE 13+0x3678 — l375a's straight-channel painter (the river "branch
+ * extender"; NOT attack-roll resolution). Faithful full lift. Stamps a narrow
+ * channel segment at field cell (row,col) of the -25318 map: offset +9 = 58
+ * (channel), and when on-field (col<49) +10 = jt870(1,2)+58, +11 = jt870(1,2)+58
+ * (when col+1<49), +12 = 61 (when col+2<49) — i.e. cols col..col+3. Finally it
+ * resets the caller's running river width (*width = 1) so the channel narrows
+ * again. Dep jt870 lifted; leaf. */
+static void l3678(short col, short row, unsigned char *width)
+{
+	short c = (signed char)col;
+	short r = (signed char)row;
+	unsigned char *fld;
+
+	PROBE("L3678");
+	fld = (unsigned char *)(uintptr_t)
+	    (g_a5_long(-25318) + (long)(r * 50) + (long)c);
+	fld[9] = 58;
+	if (c < 49) {
+		fld[10] = (unsigned char)(jt870(1, 2) + 58);
+		if (c + 1 < 49)
+			fld[11] = (unsigned char)(jt870(1, 2) + 58);
+		if (c + 2 < 49)
+			fld[12] = 61;
+	}
+	*width = 1;
+}
 
 /* CODE 13+0x375a — combat-field TERRAIN generator: scatters a meandering
  * river/chasm down the field (NOT "attack-roll resolution" — the wall-doc label
