@@ -37681,7 +37681,47 @@ static unsigned char jt554(long m, long target, short f)
 static void          jt550(long m, long target);
 /* CODE 14 reach-target counter, still to be lifted (a 0 count keeps jt549 from
  * sweeping until it lands). */
-static unsigned char l5c32(long m, short f) { PROBE("L5c32"); (void)m; (void)f; return 0; }
+/* CODE 14+0x5c32 — the reach-target counter that drives jt549's sweep loop.
+ * Faithful full lift (a near-twin of l2484). Builds the -19170 reach list around
+ * the actor's screen cell (jt508 over jt525/jt531, the arg-f feature id, range
+ * 255, jt513 reach), filters it to the actor's own side via l2406 (same summon
+ * class as "not summoned"), compacting survivors with jt479 and caching the
+ * count in -18894, then copies the surviving slot ids into the 1-based -22720
+ * array and returns the count. All deps already lifted. */
+static unsigned char l5c32(long m, short f)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char  sx, sy, count, kept = 0;
+	short          i;
+
+	PROBE("L5c32");
+	if (actor == NULL)
+		return 0;
+
+	sx = jt525(m);
+	sy = jt531(m);
+	jt508((short)sx, (short)sy, (short)(f & 0xff), 255,
+	      (short)(jt513(m) & 0xff));
+	count = (unsigned char)g_a5_byte(-18894);
+
+	if (count != 0) {
+		for (i = 1; i <= count; i++) {
+			unsigned char sidx = g_a5_buf(-19170)[i * 4];
+			long p = g_a5_longs(-25676)[sidx];
+			if (((unsigned char *)(uintptr_t)p)[95] == l2406(m)) {
+				kept++;
+				jt479(g_a5_buf(-19170) + i * 4,
+				      g_a5_buf(-19170) + kept * 4, 4);
+			}
+		}
+		count = kept;
+		g_a5_byte(-18894) = kept;
+	}
+
+	for (i = 1; i <= count; i++)
+		g_a5_byte(-22720 + i) = g_a5_buf(-19170)[i * 4];
+	return count;
+}
 
 /* CODE 14+0x5a22 — the SWEEP attack (jt549), tried in l56d8's strike path. A
  * monster/weapon that can cleave hits every adjacent valid target in one turn.
