@@ -32796,7 +32796,21 @@ static void jt662(void)	/* +0x3a84; id 119 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x524e) /* "is protected" */);
 }
-static void jt663(void) { PROBE("jt663"); }	/* +0x09e0; id 32 */
+static void jt663(void)	/* +0x09e0; id 32 */
+{
+	short roll;
+	unsigned char packed;
+
+	PROBE("jt663");
+	/* CODE 16 effect handler ("is duplicated"): pack a 1d4 roll into the high
+	 * bits (<<5) OR'd with the caster level (jt17(effect,1)&255) and pass it as
+	 * the l6114 source byte (a).  jt870 rolls before jt17, per asm order. */
+	roll = jt870(1, 4);						/* 09ec */
+	packed = (unsigned char)((roll << 5)
+	         | (jt17((short)(unsigned char)g_a5_byte(-25262), 1) & 255));
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)packed, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4e60) /* "is duplicated" */);
+}
 static unsigned char jt492(long rec_l, short b, short c);  /* CODE 13, below */
 /* CODE 16+0x0008 (local) — the summoned-creature list FILTER + announce, shared
  * by jt664/jt695.  Walks the -23512 area-target list (1..g_23510) and nulls every
