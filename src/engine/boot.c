@@ -37527,9 +37527,82 @@ static void l1714(void)
 static void        jt547(short a, short b, unsigned char *out) { PROBE("jt547"); (void)a; (void)b; if (out) *out = 0; }  /* CODE 14+0x2744 cast spell */
 static unsigned char jt540(long actor, void *target, void *param);   /* CODE 14 target iterator, stub below */
 static void jt877(long entity, short status, long msg);              /* CODE 18+0x16fc, lifted below */
-static short l6b40(long m) { PROBE("L6b40"); (void)m; return 0; }  /* CODE 14 sprite X (stub) */
-static short l6b6a(long m) { PROBE("L6b6a"); (void)m; return 0; }  /* CODE 14 sprite Y (stub) */
-static void  l6836(short a, short b, short c, short d) { PROBE("L6836"); (void)a; (void)b; (void)c; (void)d; }  /* CODE 14 sprite draw (stub) */
+/* CODE 14+0x6b40 / +0x6b6a — the combatant's on-field sprite X / Y (jt530/jt531).
+ * Faithful: the cell record -27472[l6bbe(m)] holds the placed screen position
+ * (byte +1 = x, +3 = y, written by l41b2). */
+static short l6b40(long m)
+{
+	unsigned char *cell;
+	PROBE("L6b40");
+	cell = g_a5_buf(-27472) + (long)((unsigned char)l6bbe(m)) * 6;
+	return (short)(unsigned char)cell[1];
+}
+static short l6b6a(long m)
+{
+	unsigned char *cell;
+	PROBE("L6b6a");
+	cell = g_a5_buf(-27472) + (long)((unsigned char)l6bbe(m)) * 6;
+	return (short)(unsigned char)cell[3];
+}
+/* CODE 14+0x6836 — the combat-field SPRITE/EFFECT blit (jt535-adjacent), used by
+ * l73cc/l6de8 and the dissolve. Faithful full lift (~174 lines). Obscures the
+ * cursor (jt108), offsets the target cell by the dir-delta tables (-27862/-27853)
+ * to (sx,sy), then if the cell is on-screen (l6652) it re-draws every other
+ * placed combatant sitting there (so the blit doesn't erase them): for each live
+ * -25676 slot that is controllable (rec[382]), occupies a cell (-27472[i]+5) and
+ * passes l6554, it jt57-blits the sprite at (-27059[i], -26991[i]) with facing
+ * mc[11] and sprite rec[189]. Restores the clip (l744e/jt1193). Finally maps
+ * (sx,sy) to screen, clamps it to the 50x25 field when off-view (l6520), and
+ * draws the effect (l5e9a) before presenting (jt117). All deps lifted. */
+static void l6836(short x, short y, short kind, short dir)
+{
+	short sx, sy;                   /* fp@(-6) / fp@(-7) */
+	short i;                        /* fp@(-5) */
+
+	PROBE("L6836");
+	jt108(1);
+	sx = (short)((signed char)x + (signed char)g_a5_byte(-27862 + dir));
+	sy = (short)((signed char)y + (signed char)g_a5_byte(-27853 + dir));
+
+	if (l6652(sx, sy, kind) != 0) {
+		l744e();
+		for (i = 1; i <= (unsigned char)g_a5_byte(-27468); i++) {
+			long           c = g_a5_longs(-25676)[i];
+			unsigned char *cb, *mc, *cell;
+
+			if (c == 0)
+				continue;
+			cb = (unsigned char *)(uintptr_t)c;
+			if (cb[382] == 0)
+				continue;
+			cell = g_a5_buf(-27472) + (long)i * 6;
+			if (cell[5] == 0)
+				continue;
+			if (l6554(c, 0) == 0)
+				continue;
+			mc = (unsigned char *)(uintptr_t)(*(long *)(cb + 64));
+			jt57((short)(signed char)g_a5_byte(-27059 + i),
+			     (short)(signed char)g_a5_byte(-26991 + i),
+			     (short)mc[11], 0, (short)cb[189]);
+		}
+		jt1193();
+	}
+
+	l6090(x, y);
+	{
+		unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		short scr_x = (short)(sx - *(short *)(fld + 2));
+		short scr_y = (short)(sy - *(short *)(fld + 4));
+		if (l6520(scr_x, scr_y) == 0) {
+			if (sx > 49) sx = 49;
+			if (sx < 0)  sx = 0;
+			if (sy > 24) sy = 24;
+			if (sy < 0)  sy = 0;
+		}
+	}
+	l5e9a(sx, sy);
+	jt117();
+}
 
 /* CODE 14+0x73cc — the TURNED-undead visual update (l73cc), called from jt534.
  * Faithful full lift. Stages the field header (-25318) for the draw: byte +6 =
