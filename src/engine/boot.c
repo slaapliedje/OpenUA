@@ -32898,7 +32898,30 @@ static void jt640(void)	/* +0x1168; id 39,106 */
 }
 static void jt641(void) { PROBE("jt641"); }	/* +0x2f64; id 137 */
 static void jt642(void) { PROBE("jt642"); }	/* +0x089a; id 27 */
-static void jt643(void) { PROBE("jt643"); }	/* +0x0468; id 13 */
+static void jt643(void)	/* +0x0468; id 13 */
+{
+	long caster = g_a5_long(-23508);			/* 046c */
+	long out = 0;
+
+	PROBE("jt643");
+	/* CODE 16 effect id 13 (stat/level reduction): needs a live caster and a
+	 * non-empty target list; bails if magic resistance (jt866 idx 4) holds.  If
+	 * the target carries descriptor 12 (jt41), strip it (jt878 12) + jt875 0 and
+	 * announce "has been reduced". */
+	if (caster == 0)					/* 0476 */
+		return;
+	if ((unsigned char)g_a5_byte(-23510) == 0)		/* 0480 */
+		return;
+	if ((unsigned char)jt866(caster, 4, 0) != 0)		/* 048e / 0494 */
+		return;
+	if ((unsigned char)jt41(caster, 12, &out) != 0) {	/* 04a4 / 04ac */
+		jt878(caster, 12, 0L);				/* 04ba */
+		jt875(caster, 0);				/* 04c8 */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4dd0) /* "has been reduced" */,
+		     (short)10, (short)1);			/* 04e0 */
+	}
+}
 static void jt644(void) { PROBE("jt644"); }	/* +0x323c; id 104 */
 static void jt645(void) { PROBE("jt645"); }	/* +0x26b2; id 82 */
 static void jt646(void)	/* +0x22e8; id 71 */
