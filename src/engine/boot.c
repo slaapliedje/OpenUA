@@ -37157,6 +37157,66 @@ static unsigned char l62ec_c13(long actor_l, long cand_l)
 	}
 	return score;
 }
+
+/* CODE 13+0x4188 — l4306's AoE corner-clip test: returns 1 only when the point
+ * is off the combat field on BOTH axes (x outside [0,11) AND y outside [0,6)),
+ * else 0. Faithful full lift; marked unused until l4306 (its caller) lands. */
+static unsigned char l4188(short x, short y) __attribute__((unused));
+static unsigned char l4188(short x, short y)
+{
+	signed char xb = (signed char)x;
+	signed char yb = (signed char)y;
+	PROBE("L4188");
+	return (unsigned char)(((xb < 0 || xb >= 11) && (yb < 0 || yb >= 6)) ? 1 : 0);
+}
+
+/* CODE 13+0x41b2 — l4306's AoE CELL PLACEMENT + validation. Faithful full lift.
+ * Bounds-checks the template cell (a2 in [0,10], a3 in [0,5]); requires the AoE
+ * template byte to be set (-8471[shape*264 + a6*66 + a3*11 + a2]); writes the
+ * combatant's screen position into its -27472 record (x = a4*6 + a2 + a5*5 + 22,
+ * y = a5*5 + a3 + 10); then probes the live map cell (jt515 feature 8) and keeps
+ * it only when unblocked (outA == 0), on a real terrain feature (outB != 0) that
+ * is passable (-27848[outB*4] != 255). On success it clears the template byte
+ * (marks the cell consumed) and returns 1, else 0. Dep jt515 already lifted;
+ * marked unused until l4306 lands. */
+static unsigned char l41b2(short a1, short a2, short a3, short a4, short a5, short a6) __attribute__((unused));
+static unsigned char l41b2(short a1, short a2, short a3, short a4, short a5, short a6)
+{
+	unsigned char *rec, *tmpl;
+	unsigned char  outA = 0, outB = 0, outC = 0;
+	long           idx;
+
+	PROBE("L41b2");
+	if ((signed char)a2 < 0 || (signed char)a3 < 0
+	    || (signed char)a2 > 10 || (signed char)a3 > 5)
+		return 0;
+
+	idx = (long)(unsigned char)g_a5_byte(-7929) * 264
+	    + (long)(unsigned char)a6 * 66 + (long)(unsigned char)a3 * 11
+	    + (unsigned char)a2;
+	tmpl = g_a5_buf(-8471) + idx;
+	if (tmpl[0] == 0)
+		return 0;
+
+	rec = g_a5_buf(-27472) + (long)(unsigned char)a1 * 6;
+	*(short *)(rec + 0) = (short)((signed char)a2 + (signed char)a4 * 6
+	    + (signed char)a5 * 5 + 22);
+	rec = g_a5_buf(-27472) + (long)(unsigned char)a1 * 6;
+	*(short *)(rec + 2) = (short)((signed char)a5 * 5 + (signed char)a3 + 10);
+
+	jt515(g_a5_longs(-25676)[(unsigned char)a1], 8, &outA, &outB, &outC);
+	if (outA != 0)
+		return 0;
+	if (outB == 0)
+		return 0;
+	if ((unsigned char)g_a5_byte(-27848 + outB * 4) == 255)
+		return 0;
+
+	tmpl = g_a5_buf(-8471) + idx;
+	tmpl[0] = 0;
+	return 1;
+}
+
 /* The 16-byte monster-def record for a combatant: rec[40] indexes the -27944
  * table (16 bytes/entry). Used throughout l6454's target sweep. */
 static unsigned char *combat_mondef(long rec)
