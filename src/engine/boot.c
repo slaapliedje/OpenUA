@@ -36991,8 +36991,161 @@ L56ca:
 	return result;
 }
 
-/* Leaf deps of l56d8 still to be lifted — PROBE stubs (CODE 14). */
-static void          jt553(long m, short v)      { PROBE("jt553"); (void)m; (void)v; }    /* CODE 14+0x9b2 */
+/* Forward decls — jt553 calls these, defined later in this file. */
+static unsigned char l2484(long m, short a, short b);
+static unsigned char jt554(long m, long target, short f);
+
+/* CODE 14+0x9b2 — the ATTACK-OF-OPPORTUNITY resolver (jt553), run from l56d8
+ * when a combatant steps through threatened squares. Faithful full lift of the
+ * three-phase asm. Phase 1 collects, into a 12-slot local list, every combatant
+ * adjacent to the actor's cell (the -22720 -> -25676 slot tables) that is alive
+ * (jt13), not fleeing (mc[18]) and actually threatening (jt41 feature 27).
+ * Phase 1.5 shifts the actor's cell one step forward (the -27472 record via the
+ * -27862/-27853 deltas), re-runs the adjacency count, and restores the cell;
+ * phase 2 drops every candidate that is STILL adjacent after the move (no free
+ * swing if you never left its reach). Phase 3 then lets each remaining
+ * threatener take one opportunity attack on the mover: validated by jt554 and a
+ * l279c/l27e6 flee gate, ranged-checked over its attack window (mc[11]+6..+10
+ * via jt505 on the screen coords jt525/jt531), it picks a body slot (rec[387]),
+ * resolves the strike (jt555 with the -22647 out-cell), and — for a player-
+ * controlled mover — repaints the attacker (jt38). All deps already lifted. */
+static void jt553(long m, short v)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char  cand[12];
+	unsigned char  dir = (unsigned char)v;
+	unsigned char  orient, cnt, cnt2, descbuf = 0;
+	short          oi, ii;
+
+	PROBE("jt553");
+	if (actor == NULL)
+		return;
+
+	orient = (unsigned char)l6bbe(m);
+	cnt = l2484(m, 1, 0);
+	if (cnt == 0)
+		return;
+	jt65((long)(uintptr_t)cand, 12);
+
+	/* Phase 1 — collect adjacent, non-fleeing, threatening combatants. */
+	{
+		short outc = 1, slot;
+		for (slot = 1; slot <= cnt; slot++) {
+			unsigned char sidx = (unsigned char)g_a5_byte(-22720 + slot);
+			long p = g_a5_longs(-25676)[sidx];
+			unsigned char *pmc;
+			if (jt13(p) != 0)
+				continue;
+			pmc = (unsigned char *)(uintptr_t)
+			    (*(long *)(uintptr_t)((unsigned char *)(uintptr_t)p + 64));
+			if (pmc[18] != 0)
+				continue;
+			if ((jt41(p, 27, &descbuf) & 0xff) != 0)
+				continue;
+			cand[outc - 1] = sidx;
+			outc++;
+		}
+		cnt = (unsigned char)(outc - 1);
+	}
+
+	/* Phase 1.5 — shift the actor's cell forward, recount adjacency. */
+	{
+		unsigned char *rec = g_a5_buf(-27472) + (long)orient * 6;
+		short dr = (signed char)g_a5_byte(-27862 + dir);
+		short dc = (signed char)g_a5_byte(-27853 + dir);
+		*(short *)(rec + 0) = (short)(*(short *)(rec + 0) + dr);
+		*(short *)(rec + 2) = (short)(*(short *)(rec + 2) + dc);
+		cnt2 = l2484(m, 1, 0);
+		*(short *)(rec + 0) = (short)(*(short *)(rec + 0) - dr);
+		*(short *)(rec + 2) = (short)(*(short *)(rec + 2) - dc);
+	}
+
+	/* Phase 2 — drop candidates that stay adjacent to the destination. */
+	for (oi = 1; oi <= cnt; oi++) {
+		unsigned char dup = 0;
+		for (ii = 1; ii <= cnt2; ii++) {
+			if ((unsigned char)g_a5_byte(-22720 + ii) == cand[oi - 1])
+				dup = 1;
+		}
+		if (dup)
+			cand[oi - 1] = 0;
+	}
+
+	/* Phase 3 — each remaining threatener takes a free swing at the mover. */
+	for (oi = 1; oi <= cnt; oi++) {
+		unsigned char slotv = cand[oi - 1];
+		long p;
+		unsigned char *pp, *pmc;
+		unsigned char didatk = 0;
+		short inner;
+
+		if (slotv == 0)
+			continue;
+		if (actor[382] == 0)
+			continue;
+		g_a5_byte(-22627) = 1;
+		g_a5_byte(-22626) = 1;
+		p  = g_a5_longs(-25676)[slotv];
+		pp = (unsigned char *)(uintptr_t)p;
+		if (jt554(p, m, 0) == 0)
+			continue;
+		if (l279c(p) != 0 && l27e6(p) == 0)
+			continue;                       /* fleeing-blocked attacker */
+
+		pmc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(pp + 64));
+		for (inner = (short)(pmc[11] + 6); ; inner++) {
+			unsigned char doatk = 0;
+			pmc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(pp + 64));
+			if (inner > (short)(pmc[11] + 10))
+				break;
+			if (didatk != 0)
+				continue;
+			pmc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(pp + 64));
+			if (*(short *)(pmc + 4) > 0) {
+				doatk = 1;
+			} else {
+				pmc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(pp + 64));
+				if (pmc[17] == 0) {
+					doatk = 1;
+				} else {
+					unsigned char a0c = jt525(p), b0c = jt531(p);
+					unsigned char c0c = jt525(m), d0c = jt531(m);
+					if (jt505((short)a0c, (short)b0c, (short)c0c,
+					          (short)d0c, (short)(inner & 7)) != 0)
+						doatk = 1;
+				}
+			}
+			if (!doatk)
+				continue;
+
+			/* L0d78 — pick the body slot and resolve the strike. */
+			{
+				unsigned char sel = 1, k;
+				long saved;
+				if (pp[171] == 0)
+					sel = 2;
+				for (k = 1; k <= 2; k++)
+					if (((unsigned char *)(uintptr_t)(p + (k - 1)))[387] != 0)
+						sel = k;
+				if (((unsigned char *)(uintptr_t)(p + (sel - 1)))[387] == 0)
+					((unsigned char *)(uintptr_t)(p + (sel - 1)))[387] = 1;
+				pmc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(pp + 64));
+				pmc[6] = sel;
+				saved = *(long *)(uintptr_t)(pmc + 12);
+				jt555(p, m, 1, 0, &g_a5_byte(-22647));
+				didatk = 1;
+				pmc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(pp + 64));
+				*(long *)(uintptr_t)(pmc + 12) = saved;
+			}
+			if (actor[382] != 0) {
+				g_a5_byte(-22627) = 1;
+				jt38(m);
+			}
+		}
+	}
+}
+
+/* Other CODE-14 leaves of l56d8 still to be lifted — PROBE stubs. */
 static void          l61ae(void)                 { PROBE("L61ae"); }                     /* CODE 14 — field commit */
 static void          l0660(long m)               { PROBE("L0660"); (void)m; }             /* CODE 14 — post-move update */
 
