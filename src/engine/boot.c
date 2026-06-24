@@ -36754,7 +36754,74 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode, short e
  * (wall Clusters 3/4/5). l6176 morale, l52ee spell decision, l525c field-action
  * bridge, l52fe spell-in-combat, l6454 combat setup, l5b9a attack composite,
  * l6042 move. The attack/move stubs return 1 (turn-ending) so the loop ends. */
-static signed char l6176(long m) { PROBE("L6176"); (void)m; return 0; }
+static unsigned char jt544(long m) { PROBE("jt544"); (void)m; return 0; }  /* CODE 14+0x2d48 morale value (stub) */
+
+/* CODE 13+0x6176 — the MORALE resolution (reached via l5008). Faithful full
+ * lift. Clears the flee flag (mc[22]); if already fleeing (mc[18]) it forces a
+ * flee + "is forced to flee" and returns. Otherwise, only fear-capable
+ * creatures (actor[147] bit7) check morale: the fear threshold = (actor[147]&
+ * 0x7f)*2, weighed against the HP-damage% taken (100 - 100*HP[395]/maxHP[129])
+ * and the party's scariness (100 - rec[27], summoned +95 creatures excepted);
+ * if it must check, it rolls jt37/2 vs the morale value (jt544) — fail -> flee
+ * (mc[22]=1); pass + Int (actor[115]) > 5 -> "Surrenders" (jt877) + resolve
+ * (l26ea). jt544 lands as a PROBE stub (returns 0). */
+static signed char l6176(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	signed char    result = 0;
+	unsigned short hp_pct, dmg_pct;
+
+	PROBE("L6176");
+	if (actor == NULL)
+		return 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	mc[22] = 0;
+	if (mc[18] != 0) {                              /* already fleeing -> forced */
+		mc[22] = 1;
+		jt18(actor, (long)(uintptr_t)ua_strs_at(0x454e), 10, 1);  /* "is forced to flee" */
+		return 0;
+	}
+	if ((actor[147] & 0x80) == 0)                   /* not fear-capable */
+		return 0;
+
+	g_a5_byte(-25252) = (unsigned char)((actor[147] & 0x7f) * 2);
+	jt868(17, &m);
+
+	hp_pct  = (actor[129] != 0)
+	        ? (unsigned short)((actor[395] * 100) / actor[129]) : 0;
+	dmg_pct = (unsigned short)(100 - hp_pct);
+	if (!((unsigned char)g_a5_byte(-25252) < dmg_pct)) {
+		if ((unsigned char)g_a5_byte(-25252) != 0)
+			return 0;                       /* not hurt enough -> fight on */
+	}
+
+	g_a5_byte(-25252) = g_a5_byte(-22649);          /* reset to base morale */
+	jt868(17, &m);
+	{
+		unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		unsigned short scary = (unsigned short)(100 - rec[27]);
+		if (!((unsigned char)g_a5_byte(-25252) < scary)) {
+			if ((unsigned char)g_a5_byte(-25252) != 0 && actor[95] != 0)
+				return 0;               /* summoned -> won't flee */
+		}
+	}
+
+	{                                               /* the morale roll */
+		unsigned char morale = jt544(m);
+		unsigned char roll   = (unsigned char)((jt37(m) & 0xff) >> 1);
+		if (roll < morale) {                    /* passed */
+			if (actor[115] > 5) {           /* smart enough to surrender */
+				jt877(m, 4, (long)(uintptr_t)ua_strs_at(0x4560));  /* "Surrenders" */
+				result = (signed char)l26ea(m);
+			}
+		} else {                                /* failed -> flee */
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			mc[22] = 1;
+		}
+	}
+	return result;
+}
 /* CODE 13+0x52ee — monster spell-decision predicate. Faithful: constant 0
  * (this build's monster AI never elects to cast). */
 static signed char l52ee(long m) { PROBE("L52ee"); (void)m; return 0; }
