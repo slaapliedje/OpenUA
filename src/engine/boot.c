@@ -33017,7 +33017,22 @@ static void jt652(void)	/* +0x19aa; id 48 */
 	l1840((short)42, (short)(unsigned char)rec[95],
 	      ua_strs_at(0x4f52) /* "is Hasted" */);
 }
-static void jt653(void) { PROBE("jt653"); }	/* +0x37bc; id 114 */
+static void jt653(void)	/* +0x37bc; id 114 — petrify */
+{
+	long entity = g_a5_long(-23508);			/* 37c6 */
+
+	PROBE("jt653");
+	/* CODE 16 petrify (id 114): stage value 64 + save flag 255, run the save
+	 * (jt868 sel 9); if the save failed (-25242 nonzero) and magic resistance
+	 * (jt866 idx 4) doesn't hold, turn to stone via jt860 "is turned to stone". */
+	g_a5_word(-25266) = 64;					/* 37c2 */
+	g_a5_word(-25242) = 255;				/* 37cc */
+	jt868(9, &entity);					/* 37da */
+	if (g_a5_word(-25242) != 0				/* 37e0 */
+	    && (unsigned char)jt866(entity, 4, 0) == 0)		/* 37f0 / 37fa */
+		jt860(entity, 7,
+		      (long)(uintptr_t)ua_strs_at(0x51fa) /* "is turned to stone" */);  /* 380e */
+}
 static void jt654(void)	/* +0x07b2; id 24 */
 {
 	PROBE("jt654");
