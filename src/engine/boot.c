@@ -35992,16 +35992,64 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
- * + l3ef6 are lifted below; l3540 (l3f24's outdoor field-init tail) and
- * l375a/l3936/l3b36 (l3ef6's field-setup passes) are PROBE stubs for their own
- * cards. */
+ * + l3ef6 + l3540 are lifted below; l375a/l3936/l3b36 (l3ef6's passes) and
+ * l2e92/l2f82/l3016/l32ba (l3540's per-cell passes) are PROBE stubs for their
+ * own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
-static void l3540(void)  { PROBE("L3540"); }
 static void l375a(void)  { PROBE("L375a"); }
 static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
+static void l2e92(void)  { PROBE("L2e92"); }
+static void l2f82(void)  { PROBE("L2f82"); }
+static void l3016(unsigned char *a, unsigned char *b) { PROBE("L3016"); (void)a; (void)b; }
+static void l32ba(unsigned char *a, unsigned char *b) { PROBE("L32ba"); (void)a; (void)b; }
+
+/* CODE 13+0x3540 — l3f24's outdoor-normal field-init tail. Faithful full lift.
+ * Fills the live field map (-25318 + 9) with terrain code 22 for 1250 bytes
+ * (jt399), then scans a 13(row)x5(col) window centred on the party (-12288 row,
+ * -12287 col): the outer counter -7934 sweeps the col offset (-2..2), the inner
+ * -7935 the row offset (-6..6). For each cell (row,col) it records the four
+ * cardinal edge passabilities via l2df8_c13 (dir 6/0/2/4 -> -7932/-7933/-7931/
+ * -7930), then runs the per-cell passes l2e92, l2f82 and the two JT[3]
+ * sub-dispatchers l3016/l32ba (each handed &row,&col). Deps jt399/l2df8_c13
+ * lifted; l2e92/l2f82/l3016/l32ba are PROBE stubs for their own cards. */
+static void l3540(void)
+{
+	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	unsigned char  row, col;        /* fp@(-1) / fp@(-2) */
+
+	PROBE("L3540");
+	jt399((void *)(uintptr_t)(fld + 9), 1250, 22);
+
+	for (g_a5_byte(-7934) = (unsigned char)-2;
+	     (signed char)g_a5_byte(-7934) <= 2;
+	     g_a5_byte(-7934)++) {
+		for (g_a5_byte(-7935) = (unsigned char)-6;
+		     (signed char)g_a5_byte(-7935) <= 6;
+		     g_a5_byte(-7935)++) {
+			short r, c;
+
+			row = (unsigned char)((short)(signed char)g_a5_byte(-12288)
+			    + (short)(signed char)g_a5_byte(-7935));
+			col = (unsigned char)((short)(signed char)g_a5_byte(-12287)
+			    + (short)(signed char)g_a5_byte(-7934));
+			r = (short)(signed char)row;
+			c = (short)(signed char)col;
+
+			g_a5_byte(-7932) = (unsigned char)l2df8_c13(r, c, 6);
+			g_a5_byte(-7933) = (unsigned char)l2df8_c13(r, c, 0);
+			g_a5_byte(-7931) = (unsigned char)l2df8_c13(r, c, 2);
+			g_a5_byte(-7930) = (unsigned char)l2df8_c13(r, c, 4);
+
+			l2e92();
+			l2f82();
+			l3016(&row, &col);
+			l32ba(&row, &col);
+		}
+	}
+}
 
 /* CODE 13+0x3ef6 — l3f24's indoor / outdoor-special field-init tail. Faithful
  * full lift (frameless). Fills the live field map (-25318 + 9) with terrain
