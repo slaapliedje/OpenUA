@@ -35887,8 +35887,72 @@ static void jt58(void)
 
 /* CODE 13 locals of the combat loop, PROBE stubs pending lifts: */
 
-/* CODE 13+0x4f22 — combat entry staging (run once after jt542). */
-static void l4f22(void) { PROBE("L4f22"); }
+/* l4f22's next-layer deps — PROBE stubs pending their own cards.
+ * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
+ * combat-field draw; l3f24/l404e/l4af4 (CODE 13) the three combat-setup
+ * helpers; l276c (CODE 13) post-present init. */
+static void jt68(void)   { PROBE("jt68"); }
+static void jt536(void)  { PROBE("jt536"); }
+static void l3f24(void)  { PROBE("L3f24"); }
+static void l404e(void)  { PROBE("L404e"); }
+static void l4af4(void)  { PROBE("L4af4"); }
+static void l276c(void)  { PROBE("L276c"); }
+
+/* CODE 13+0x4f22 — combat entry staging (run once after jt542). Faithful
+ * level-2 lift: the combat-state A5 init is faithful; the three setup helpers
+ * (l3f24/l404e/l4af4) + field draw (jt536) + jt68 pump + l276c are PROBE stubs
+ * for their own cards. Inits the per-fight state, computes the field size into
+ * the -25318 layout record from jt525/jt531 (party span - 3), erases each
+ * party member's combat sprite (jt868 sel 8) and clears their combatant flag
+ * at (member[64])[19], draws the field (jt536), and sets mode 5 (combat). */
+static void l4f22(void)
+{
+	long m;
+
+	PROBE("L4f22");
+
+	g_a5_byte(-27981) = 0;
+	g_a5_byte(-24256) = 0xff;
+	g_a5_byte(-22648) = 0;
+	g_a5_byte(-22721) = 0;
+	g_a5_byte(-22720) = 15;
+	g_a5_byte(-25255) = 0;
+	g_a5_byte(-25320) = 0;
+	g_a5_long(-23234) = 0;
+	g_a5_long(-27924) = 0;
+	jt65((long)(uintptr_t)&g_a5_byte(-25400), 80);
+	((unsigned char *)(uintptr_t)g_a5_long(-28006))[54] = 0;
+
+	l3f24();
+	jt68();
+	l404e();
+	jt68();
+	l4af4();
+	jt68();
+
+	{
+		unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		*(short *)(fld + 2) = (short)(jt525(g_a5_long(-27928)) - 3);
+		*(short *)(fld + 4) = (short)(jt531(g_a5_long(-27928)) - 3);
+	}
+	jt77();
+	jt117();
+	l276c();
+
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+		long c = *(long *)(uintptr_t)((char *)(uintptr_t)m + 64);
+		if (c)
+			((unsigned char *)(uintptr_t)c)[19] = 0;
+		jt868(8, &m);
+	}
+
+	jt536();
+	g_a5_byte(-22633) = 0;
+	g_a5_byte(-22635) = 0;
+	g_a5_byte(-27990) = 5;                  /* mode 5 = combat */
+	g_a5_byte(-22268) = 0;
+	g_a5_byte(-25262) = 0;
+}
 
 /* CODE 13+0x0434 — per-round init: builds the -22624 initiative slot
  * array (slot i at -22624 + 4i, first actor in -22620). */
