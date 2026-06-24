@@ -38250,8 +38250,50 @@ static signed char l52ee(long m)
 	(void)m;
 	return decision;
 }
-static unsigned char jt540(long actor, void *target, void *param)  /* CODE 14+0x13e6 field-target find */
-{ PROBE("jt540"); (void)actor; (void)target; (void)param; return 0; }
+/* CODE 14+0x13e6 — the combat field-target ITERATOR (jt540), used by jt534's
+ * Turn Undead sweep. Faithful full lift. Clears *target, then walks the live
+ * combatant slots (count = l2484(actor,255,0); slot index in -22720, combatant
+ * ptr in -25676) and keeps the single combatant with the HIGHEST undead type
+ * (rec[90]) that is not fleeing (mc[18]==0), has type>0, and lies at or below the
+ * caller's threshold *param. Writes that combatant into *target and its type back
+ * into *param, returning 1 when one was found, else 0. Dep l2484 lifted. */
+static unsigned char l2484(long m, short a, short b);   /* CODE 13 combatant count, lifted below */
+static unsigned char jt540(long actor_l, void *out_v, void *param_v)
+{
+	long          *out   = (long *)out_v;            /* fp@(12) */
+	unsigned char *param = (unsigned char *)param_v; /* fp@(16) */
+	unsigned char  best = 0;        /* fp@(-4) */
+	unsigned char  count;           /* fp@(-2) */
+	unsigned char  found = 0;       /* fp@(-1) */
+	short          i;               /* fp@(-3) */
+
+	PROBE("jt540");
+	*out = 0;
+	count = l2484(actor_l, 255, 0);
+
+	for (i = 1; i <= (short)count; i++) {
+		unsigned char  slot = (unsigned char)g_a5_byte(-22720 + i);
+		long           c = g_a5_longs(-25676)[slot];
+		unsigned char *cb = (unsigned char *)(uintptr_t)c;
+		unsigned char *mc = (unsigned char *)(uintptr_t)(*(long *)(cb + 64));
+
+		if (mc[18] != 0)
+			continue;                       /* fleeing */
+		if (cb[90] == 0)
+			continue;                       /* not undead */
+		if ((unsigned char)cb[90] <= best)
+			continue;                       /* not better than the best so far */
+		if ((unsigned short)(unsigned char)cb[90]
+		    > (unsigned short)(short)(signed char)*param)
+			continue;                       /* above the threshold */
+		best = cb[90];
+		*out = c;
+		found = 1;
+	}
+
+	*param = best;
+	return found;
+}
 
 /* CODE 13+0x525c — the field-action bridge (the monster's field Turn-Undead,
  * reached via l5008). Faithful full lift. Bails when the actor is fleeing
