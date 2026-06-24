@@ -35992,9 +35992,9 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
- * + l3ef6 + l3540 + l2e92/l2f82 are lifted below; l375a/l3936/l3b36 (l3ef6's
- * passes), l3016/l32ba (l3540's JT[3] passes) and l2ca6 (the field-cell paint
- * primitive) are PROBE stubs for their own cards. */
+ * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 are lifted below; l375a/l3936/l3b36
+ * (l3ef6's passes) and l3016/l32ba (l3540's JT[3] passes) are PROBE stubs for
+ * their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
@@ -36003,7 +36003,30 @@ static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
 static void l3016(unsigned char *a, unsigned char *b) { PROBE("L3016"); (void)a; (void)b; }
 static void l32ba(unsigned char *a, unsigned char *b) { PROBE("L32ba"); (void)a; (void)b; }
-static void l2ca6(short a, short b, short c) { PROBE("L2ca6"); (void)a; (void)b; (void)c; }
+/* CODE 13+0x2ca6 — the combat field-cell PAINT primitive. Faithful full lift.
+ * Maps a local cell (a, b) plus the l3540 scan-window position (-7935 row offset,
+ * -7934 col offset) into a field pixel: x = -7935*6 + -7934*5 + a + 21,
+ * y = -7934*5 + b + 10 (the sheared combat-field layout). When the pixel lies in
+ * the 50x25 field ([0,49] x [0,24]) it writes c+1 into the field map at
+ * (-25318) + y*50 + x, offset +9. Leaf — no deps. */
+static void l2ca6(short a, short b, short c)
+{
+	signed char x, y;               /* fp@(-1) / fp@(-2) */
+
+	PROBE("L2ca6");
+	x = (signed char)((short)(signed char)g_a5_byte(-7935) * 6
+	    + (short)(signed char)g_a5_byte(-7934) * 5
+	    + (unsigned char)a + 21);
+	y = (signed char)((short)(signed char)g_a5_byte(-7934) * 5
+	    + (unsigned char)b + 10);
+	if (x < 0 || x > 49 || y < 0 || y > 24)
+		return;
+	{
+		unsigned char *fld = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-25318) + (long)((short)y * 50) + (long)(short)x);
+		fld[9] = (unsigned char)((unsigned char)c + 1);
+	}
+}
 
 /* CODE 13+0x2e92 — l3540 per-cell field pass: the WEST-edge (-7932) decoration.
  * Faithful full lift. First stamps the 5x3 block (col 0..5, row 2..4) of the
