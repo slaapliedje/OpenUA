@@ -36015,7 +36015,19 @@ static void l0434(void)
  * l5008 (CODE 13) the monster-AI turn; l08b4 (CODE 13) the player action
  * dispatcher ("can I do that?" -> the combat command menu). */
 static void l5008(long member) { PROBE("L5008"); (void)member; }
-static void l08b4(long member) { PROBE("L08b4"); (void)member; }
+static void l08b4(long member);   /* player action dispatcher — lifted after l0116 */
+
+/* l08b4's command-handler deps — PROBE stubs pending their own cards
+ * (docs/code13-wall.md Clusters 2/3). */
+static void        l609a(long flag)                  { PROBE("L609a"); (void)flag; }              /* magic toggle */
+static void        l0d16(long actor, unsigned char *cmd) { PROBE("L0d16"); (void)actor; if (cmd) *cmd = 12; }  /* command menu/status (default Done) */
+static signed char l26ea(long actor)                 { PROBE("L26ea"); (void)actor; return 1; }   /* auto-resolve action -> done */
+static void        l1162(long actor, short cmd, unsigned char *done) { PROBE("L1162"); (void)actor; (void)cmd; (void)done; }  /* Move/Attack menu */
+static signed char l272a(long actor)                 { PROBE("L272a"); (void)actor; return 1; }    /* GUARD */
+static void        l1842(long actor)                 { PROBE("L1842"); (void)actor; }              /* flee helper */
+static void        l1714(void)                       { PROBE("L1714"); }                           /* target picker */
+static void        jt547(unsigned char *out, short b, short c) { PROBE("jt547"); (void)b; (void)c; if (out) *out = 0; }  /* CODE 14+0x2744 */
+static void        jt534(long actor)                 { PROBE("jt534"); (void)actor; }              /* CODE 14+0x1184 field action */
 
 /* CODE 13+0x076e — execute one actor's combat turn (THE KEYSTONE). Faithful
  * level-2 lift: the turn structure is faithful; the action dispatch (l5008
@@ -36269,6 +36281,193 @@ static void l0116(void)
 		l4b84();
 	}
 	g_a5_byte(-27916) = 0;
+}
+
+/* l08b4 deps defined later in boot.c */
+static void          jt599(short effect, short b, short c, unsigned char *out);
+static void          jt893(unsigned char *out);
+static void          jt543(long rec_l);
+static unsigned char jt545(short flag);
+
+/* CODE 13+0x08b4 — the player action dispatcher / combat command loop (the
+ * action-tier keystone). Faithful structural skeleton (CLAUDE.md level 2): the
+ * outer gate + the command loop + the 13-arm JT[3] command dispatch + the
+ * JT[1] roster-nav/special-key path are faithful; the command handlers (l1162
+ * Move/Attack, l0d16 menu, l272a Guard, l1842/l5008 flee, l1714 target, l26ea
+ * auto-resolve, l609a magic, jt547/jt534) land as PROBE stubs for their own
+ * cards (wall Clusters 2/3).
+ *
+ * If the actor is not player-controllable (sub +382 == 0) it auto-resolves via
+ * l26ea. Otherwise: magic off, run any FORCED action queued at mc[0] (jt599 +
+ * l26ea) and return; else loop — l0d16 shows the menu and reads the command;
+ * a roster-nav key (-24139) routes to the JT[1] handler, else the JT[3] switch
+ * dispatches the command; after each pass an unfinished action re-poses the
+ * actor (jt530/jt38). Loops until `done`. The mc[0]-forced and Done(12) paths
+ * set done; the stub menu defaults to Done so the skeleton terminates. */
+static void l08b4(long member)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)member;
+	long          *slots = (long *)(void *)&g_a5_byte(-22624);
+	unsigned char  cmd = 0, done = 0;
+	unsigned char *mc;
+
+	PROBE("L08b4");
+	if (actor == NULL)
+		return;
+
+	if (actor[382] == 0) {                          /* not controllable -> auto */
+		done = (unsigned char)l26ea(member);
+		return;
+	}
+
+	l609a(0);                                       /* magic off */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 0) > 0) {                    /* a forced action is queued */
+		unsigned char forced = mc[0];
+		mc[0] = 0;
+		jt599(forced, 0, 1, &done);
+		done = (unsigned char)l26ea(member);
+		return;
+	}
+
+	done = 0;
+	while (!done) {
+		g_a5_byte(-24140) = 1;
+		l0d16(member, &cmd);
+
+		if (g_a5_byte(-24139) != 0) {           /* roster-nav / special key (JT[1]) */
+			switch (cmd) {
+			case 129: case 130: case 131: case 132:
+			case 133: case 134: case 135: case 136:
+				l1162(member, cmd, &done);      /* re-show menu */
+				break;
+			case 32: {                              /* clear is-monster on weak foes */
+				long m;
+				for (m = g_a5_long(-27928); m; m = *(long *)(uintptr_t)m) {
+					unsigned char *im = (unsigned char *)(uintptr_t)m;
+					if (im[147] < 128)
+						im[383] = 0;
+				}
+				break;
+			}
+			case 204:                               /* toggle the -22648 flag + alert */
+				g_a5_byte(-22648) = (g_a5_byte(-22648) == 0) ? 1 : 0;
+				jt42((const char *)(uintptr_t)g_a5_long(
+				     g_a5_byte(-22648) ? -14088 : -14084));
+				break;
+			case 192: case 208: {                   /* delay-all / regroup */
+				long m;
+				g_a5_byte(-22332)--;
+				mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+				*(short *)(mc + 4) = 20;
+				for (m = g_a5_long(-27928); m; m = *(long *)(uintptr_t)m)
+					l1842(m);
+				jt176();
+				jt476(200);
+				done = 1;
+				break;
+			}
+			case 215:                               /* redraw or "That doesn't work" */
+				if (jt545(0)) {
+					jt530(member, 3, 0);
+					done = 1;
+				} else {
+					jt42((const char *)(uintptr_t)ua_strs_at(0x444e));
+				}
+				break;
+			default:
+				break;
+			}
+		} else switch (cmd) {                           /* the 13-arm command dispatch (JT[3]) */
+		case 0:                                         /* Move / Attack */
+			l1162(member, cmd, &done);
+			break;
+		case 1: {                                       /* targeted action (jt539) */
+			struct ua_pick10 pickbuf;
+			jt539(member, 255, 1, 0, 1, &done, &pickbuf);
+			break;
+		}
+		case 2:                                         /* Cast */
+			g_a5_byte(-24140) = 2;
+			jt893(&done);
+			jt543(member);
+			if (done == 0)
+				l276c();
+			break;
+		case 3:                                         /* magic sub (jt547) */
+			jt547(&done, 0, 0);
+			break;
+		case 4:                                         /* Turn Undead */
+			if ((jt40(actor, 0) & 0xff) == 0
+			    && (jt40(actor, 3) & 0xff) <= 2)
+				break;
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			if (mc[19] < (unsigned char)g_a5_byte(-22267)) {
+				jt534(member);
+				done = (unsigned char)l26ea(member);
+			}
+			break;
+		case 5:                                         /* Guard */
+			done = (unsigned char)l272a(member);
+			break;
+		case 6:                                         /* Flee */
+			l1842(member);
+			jt176();
+			l609a(0);
+			jt476(200);
+			done = 1;
+			l5008(member);
+			break;
+		case 7: {                                       /* Delay (re-queue at end) */
+			short i;
+			long  slot;
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			*(short *)(mc + 4) = 1;
+			g_a5_byte(-22307) = g_a5_byte(-22332);
+			i = (unsigned char)g_a5_byte(-22307);
+			slot = slots[i + 1];
+			while (slot != 0 && i < 72) {
+				slots[i] = slot;
+				i++;
+				slot = slots[i + 1];
+			}
+			slots[i] = member;
+			g_a5_byte(-22307) = (unsigned char)i;
+			g_a5_byte(-22332)--;
+			done = 1;
+			break;
+		}
+		case 8:                                         /* Bandage */
+			done = (unsigned char)l283e(1);
+			done = (unsigned char)l26ea(member);
+			break;
+		case 9:                                         /* View character */
+			jt904(&done);
+			jt543(member);
+			if (done == 0)
+				l276c();
+			break;
+		case 10:                                        /* target picker */
+			l1714();
+			break;
+		case 11:                                        /* auto-resolve */
+			done = (unsigned char)l26ea(member);
+			break;
+		case 12:                                        /* Done */
+			jt545(1);
+			jt530(member, 3, 0);
+			done = 1;
+			break;
+		default:
+			break;
+		}
+
+		if (done == 0) {                                /* re-pose for the next pass */
+			jt530(member, 2, 1);
+			g_a5_byte(-22627) = 1;
+			jt38(member);
+		}
+	}
 }
 
 /* CODE 13+0x0006 — combat teardown.  Frees the -23234 list into the
