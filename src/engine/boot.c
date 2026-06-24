@@ -36014,7 +36014,7 @@ static void l0434(void)
 /* l076e's action-dispatch deps — PROBE stubs pending their own cards.
  * l5008 (CODE 13) the monster-AI turn; l08b4 (CODE 13) the player action
  * dispatcher ("can I do that?" -> the combat command menu). */
-static void l5008(long member) { PROBE("L5008"); (void)member; }
+static void l5008(long member);   /* monster-AI turn — lifted after its deps */
 static void l08b4(long member);   /* player action dispatcher — lifted after l0116 */
 
 /* l08b4's command-handler deps — PROBE stubs pending their own cards
@@ -36028,13 +36028,14 @@ static unsigned char jt545(short flag);      /* CODE 14+0x43be */
  * (+383) on weak/dead foes (+147 < 128 && +94 != 1) and, for a non-null actor,
  * sets its actions-remaining (mc[4]) to 20; 215 is jt545(0). The return value
  * (the actor-acted flag) is discarded by all callers (which pass actor 0). */
-static void l609a(long actor_l)
+static signed char l609a(long actor_l)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	signed char    result = 0;
 
 	PROBE("L609a");
 	if (jt486() == 0)
-		return;
+		return 0;
 	switch (jt60()) {
 	case 204:                                   /* Magic On / Off */
 		g_a5_byte(-22648) = (g_a5_byte(-22648) == 0) ? 1 : 0;
@@ -36052,6 +36053,7 @@ static void l609a(long actor_l)
 			unsigned char *mc = (unsigned char *)(uintptr_t)
 			    (*(long *)(uintptr_t)(actor + 64));
 			*(short *)(mc + 4) = 20;
+			result = 1;
 		}
 		break;
 	}
@@ -36061,6 +36063,7 @@ static void l609a(long actor_l)
 	default:
 		break;
 	}
+	return result;
 }
 static void        l0d16(long actor, unsigned char *cmd);   /* command menu + input — lifted after l08b4 */
 /* CODE 13+0x279c / +0x27e6 — the FLEE-availability predicates (gate command 5
@@ -36743,6 +36746,110 @@ static void l0d16(long actor_l, unsigned char *cmd_out)
 	} while (g_a5_byte(-22308) == 0);
 
 	jt154();
+}
+
+static unsigned char jt546(long rec_l, short limit, short a, short mode, short e);  /* CODE 14+0x4186 target acquire — lifted below */
+
+/* l5008's monster-action executors — PROBE stubs pending their own cards
+ * (wall Clusters 3/4/5). l6176 morale, l52ee spell decision, l525c field-action
+ * bridge, l52fe spell-in-combat, l6454 combat setup, l5b9a attack composite,
+ * l6042 move. The attack/move stubs return 1 (turn-ending) so the loop ends. */
+static signed char l6176(long m) { PROBE("L6176"); (void)m; return 0; }
+static signed char l52ee(long m) { PROBE("L52ee"); (void)m; return 0; }
+static signed char l525c(long m) { PROBE("L525c"); (void)m; return 0; }
+static signed char l52fe(long m) { PROBE("L52fe"); (void)m; return 0; }
+static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)target; }
+static signed char l5b9a(long m) { PROBE("L5b9a"); (void)m; return 1; }
+static signed char l6042(long m) { PROBE("L6042"); (void)m; return 1; }
+
+/* CODE 13+0x5008 — the MONSTER-AI turn (the l076e monster-path keystone).
+ * Faithful structural skeleton (CLAUDE.md level 2): the AI flow is faithful;
+ * the action executors (l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) land as PROBE
+ * stubs. Acquires a target (jt546) when it has none; magic check (l609a); when
+ * not controllable, auto-resolves (l26ea); rolls morale/fear into mc[23]
+ * (keep a current 1..3 fear unless a 1d4 says re-roll; re-roll = 1d8, an 8
+ * giving 1d2+4 else 1d4) and runs the morale check (l6176), announcing "flees
+ * in panic" when mc[22] set and mc[18] clear. Then it picks its action: cast
+ * (l52ee), forced (mc[0] -> jt599), field (l525c), spell-in-combat (l52fe), or
+ * the move/attack loop — l6454 sets up, then while not done: if it can act
+ * (jt546) with actions left (mc[4] > 0) and is controllable it attacks (l5b9a)
+ * else moves (l6042). */
+static void l5008(long member)
+{
+	unsigned char *monster = (unsigned char *)(uintptr_t)member;
+	unsigned char *mc;
+	signed char    done;
+	unsigned char  fear;
+	int            reroll;
+
+	PROBE("L5008");
+	if (monster == NULL)
+		return;
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
+	if (*(long *)(uintptr_t)(mc + 12) == 0)         /* no target -> acquire */
+		jt546(member, 255, 1, 0, 0);
+
+	done = l609a(member);
+	jt176();
+	jt20();
+	if (monster[382] == 0)
+		done = l26ea(member);
+
+	/* morale / fear roll into mc[23] */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
+	fear = mc[23];
+	if (fear == 0 || fear >= 4)
+		reroll = 1;
+	else
+		reroll = (jt870(1, 4) == 1);
+	if (reroll) {
+		fear = (unsigned char)jt870(1, 8);
+		fear = (fear == 8) ? (unsigned char)(jt870(1, 2) + 4)
+		                   : (unsigned char)jt870(1, 4);
+	}
+	mc[23] = fear;
+	if (done == 0)
+		done = l6176(member);
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
+	if (mc[22] != 0 && mc[18] == 0)
+		jt18(monster, (long)(uintptr_t)ua_strs_at(0x44f0), 10, 1);  /* "flees in panic" */
+
+	if (done != 0)
+		return;
+
+	if (l52ee(member) != 0) {                        /* cast a spell */
+		done = l26ea(member);
+		return;
+	}
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
+	if (*(short *)(mc + 0) > 0) {                    /* forced action */
+		jt599(mc[0], 1, 1, (unsigned char *)&done);
+		done = l26ea(member);
+		return;
+	}
+	if (l525c(member) != 0) {                        /* field action */
+		g_a5_byte(-22308) = (unsigned char)l26ea(member);
+		return;
+	}
+	if (l52fe(member) != 0)                          /* spell-in-combat */
+		return;
+
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
+	l6454(member, *(long *)(uintptr_t)(mc + 12));
+	done = l609a(member);
+	do {
+		if (jt546(member, 255, 1, 0, 0) != 0) {
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
+			if (*(short *)(mc + 4) > 0 && monster[382] != 0)
+				done = l5b9a(member);   /* attack */
+			else
+				done = l6042(member);   /* move */
+		} else {
+			done = l6042(member);           /* move */
+		}
+	} while (done == 0);
 }
 
 /* CODE 13+0x0006 — combat teardown.  Frees the -23234 list into the
