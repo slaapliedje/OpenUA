@@ -33491,7 +33491,54 @@ static void jt695(void)	/* +0x00ec; id 2 */
 }
 static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
 static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
-static void jt698(void) { PROBE("jt698"); }	/* +0x05fc; id 21 */
+static void jt698(void)	/* +0x05fc; id 21 — sleep */
+{
+	int i;
+
+	PROBE("jt698");
+	/* CODE 16 Sleep (id 21): a 4d4 hit-dice budget (-6866) is spent across the
+	 * -23512 targets in order.  Each target's HD cost (-6865) comes from its HD
+	 * class [137] via a JT[3] switch (0/1->1, 2->2, 3->4, 4->6, 5->10 if class
+	 * [88]==6 else 20, default 20).  A target is dropped when already dead
+	 * ([94]==1), holding descriptor 53 (jt41), or its cost exceeds the remaining
+	 * budget; otherwise its cost is spent and it stays.  Then "falls asleep". */
+	g_a5_byte(-25257) = 1;					/* 0602 */
+	g_a5_byte(-6866) = (unsigned char)jt870(4, 4);		/* 060e */
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 0728 */
+		long *slot = &g_a5_longs(-23512)[i];
+		unsigned char *rec = (unsigned char *)(uintptr_t)*slot;
+		long out;
+		int keep;
+
+		switch (rec[137]) {				/* 063e — JT[3] @0x642 */
+		case 0:
+		case 1:  g_a5_byte(-6865) = 1; break;		/* L0654 */
+		case 2:  g_a5_byte(-6865) = 2; break;		/* L065e */
+		case 3:  g_a5_byte(-6865) = 4; break;		/* L0666 */
+		case 4:  g_a5_byte(-6865) = 6; break;		/* L066e */
+		case 5:						/* L0676 */
+			g_a5_byte(-6865) = (rec[88] == 6) ? 10 : 20;
+			break;
+		default: g_a5_byte(-6865) = 20; break;		/* L06a8 */
+		}
+
+		keep = 0;
+		if (rec[94] != 1					/* 06ca */
+		    && (unsigned char)jt41(*slot, 53, &out) == 0	/* 06ee / 06f6 */
+		    && (unsigned char)g_a5_byte(-6866)
+		       >= (unsigned char)g_a5_byte(-6865)) {	/* 06fe */
+			g_a5_byte(-6866) = (unsigned char)
+			    ((unsigned char)g_a5_byte(-6866)
+			     - (unsigned char)g_a5_byte(-6865));	/* 0708 */
+			keep = 1;				/* L0724 */
+		}
+		if (!keep)
+			*slot = 0;				/* 0722 */
+	}
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0,
+	      ua_strs_at(0x4dfe) /* "falls asleep" */);		/* 074a */
+}
 /* l6114's saving-throw deps, defined far below in the combat-math tier. */
 static short jt864(long entity, long member, short threshold);
 static void  jt867(long entity, short amount, short saveCat, short saveFlag);
