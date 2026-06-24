@@ -36120,9 +36120,53 @@ static signed char l26ea(long actor_l)
 	mc[8] = 0;
 	return 1;
 }
-/* CODE 14+0x635e field-highlight render, still to be lifted (~156 ln) — a
- * stub leaves l1162's loop driving without the per-cell highlight repaint. */
-static void          jt532(short a, short b, short c) { PROBE("jt532"); (void)a; (void)b; (void)c; }
+/* CODE 14+0x635e — the combatant HIGHLIGHT-OUTLINE renderer (jt532), used by
+ * l1162's redraw to outline the cell under the cursor. Faithful full lift. With
+ * c == 0 it resolves the occupant of cell (a,b) via l62ec (writing the occupant
+ * id back into c); then with no occupant it strokes the single field cell
+ * (l78fa, gated by l6520 visibility), and with an occupant it walks that
+ * creature's footprint shape (-27472[c*6+5]) through the 6-step edge table
+ * (l5d92), drawing each visible edge from the footprint-base offset
+ * (-27059/-26991) to the field-anchored point. All deps lifted; no new stubs. */
+static void jt532(short a, short b, short c)
+{
+	unsigned char  ca = (unsigned char)a;
+	unsigned char  cb = (unsigned char)b;
+	unsigned char  cc = (unsigned char)c;
+	unsigned char  px = 0, py = 0, shape, out6 = 0;
+	short          field2, field4, step;
+
+	PROBE("jt532");
+	field2 = *(short *)((unsigned char *)(uintptr_t)g_a5_long(-25318) + 2);
+	field4 = *(short *)((unsigned char *)(uintptr_t)g_a5_long(-25318) + 4);
+
+	if (cc == 0) {
+		px = (unsigned char)(ca + field2);
+		py = (unsigned char)(cb + field4);
+		l62ec((short)px, (short)py, &cc, &out6);   /* occupant id -> cc */
+	}
+	if (cc == 0) {                                     /* empty cell: one stroke */
+		if (l6520((short)ca, (short)cb) != 0)
+			l78fa((short)ca, (short)cb, (short)px, (short)py);
+		return;
+	}
+
+	/* outline the occupant's footprint */
+	ca = (unsigned char)g_a5_byte(-27059 + cc);
+	cb = (unsigned char)g_a5_byte(-26991 + cc);
+	px = (unsigned char)(ca + field2);
+	py = (unsigned char)(cb + field4);
+	shape = (unsigned char)g_a5_byte(-27472 + cc * 6 + 5);
+	for (step = 0; step <= 5; step++) {
+		unsigned char dx3 = 0, dy4 = 0;
+		if (l5d92((short)shape, step, &dx3, &dy4) != 0) {
+			short x1 = (short)(dx3 + ca);
+			short y1 = (short)(dy4 + cb);
+			if (l6520(x1, y1) != 0)
+				l78fa(x1, y1, (short)(dx3 + px), (short)(dy4 + py));
+		}
+	}
+}
 /* Forward decls — l1162 deps defined later in this file. */
 static void          l167e(long m, long target, void *out);
 static unsigned char jt535(long m);
