@@ -35991,12 +35991,83 @@ static void jt58(void)
 
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
- * combat-field draw; l3f24 (CODE 13) the combat ART load (l404e + l4af4 + l490c
- * are lifted just below); l276c (CODE 13) post-present init. */
+ * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
+ * are lifted below; l3540/l3ef6 (l3f24's field-init tails) are PROBE stubs for
+ * their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
-static void l3f24(void)  { PROBE("L3f24"); }
 static void l276c(void)  { PROBE("L276c"); }
+static void l3540(void)  { PROBE("L3540"); }
+static void l3ef6(void)  { PROBE("L3ef6"); }
+
+/* CODE 13+0x3f24 — the combat ART LOAD. Faithful full lift. Picks and loads the
+ * combat sprite library (jt54 -> the GLIB loader) for the fight, keyed on the
+ * area-state byte -28006[34] (outdoor combat when set):
+ *   - Outdoor (-28006[34] != 0): the library id comes from the ds map header
+ *     (-12300) at offset (signed)-18475 + 12, defaulting to 1. On a special
+ *     terrain cell (-18475 != 0) it clears the outdoor flag, sets -28006[36]=1,
+ *     and loads "WildCom1"; otherwise it loads "DungCom1".
+ *   - Indoor (-28006[34] == 0): jt197 classifies the cell at (-28006[37],
+ *     -28006[38]); the library id is ds[(class & 255) + 264], default 1, and it
+ *     loads "WildCom1".
+ * Then it resets the field header -25318 (+6=0, +7=1, +8=0) and runs the
+ * field-init tail: l3540 when -28006[34] is still set (outdoor-normal), else
+ * l3ef6. Art names referenced via ua_strs_at at the exact STRS relocs (0x44d2
+ * "WildCom1", 0x44dc "DungCom1", 0x44e6 "WildCom1"). Deps jt54/jt197 lifted;
+ * l3540/l3ef6 are PROBE stubs. NOTE the call site pushes a 4th value (39/25)
+ * that the real jt54 (3 used params) ignores, so it is dropped here. */
+static void jt54(const char *name, short b, short c);
+static short jt197(short a, short b);
+static void l3f24(void)
+{
+	unsigned char *gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  lib_id = 1;          /* fp@(-1) */
+
+	PROBE("L3f24");
+
+	if (gs[34] != 0) {                                 /* outdoor combat */
+		unsigned char *ds = (unsigned char *)(uintptr_t)
+		    ((long)(signed char)g_a5_byte(-18475) + g_a5_long(-12300));
+		lib_id = ds[12];
+		if (lib_id == 0)
+			lib_id = 1;
+
+		if (g_a5_byte(-18475) != 0) {              /* special terrain */
+			gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			gs[34] = 0;
+			gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			gs[36] = 1;
+			jt54(ua_strs_at(0x44d2) /* "WildCom1" */,
+			     (short)(unsigned char)lib_id, 0);
+		} else {
+			jt54(ua_strs_at(0x44dc) /* "DungCom1" */,
+			     (short)(unsigned char)lib_id, 0);
+		}
+	} else {                                           /* indoor combat */
+		short v = jt197((short)(unsigned char)gs[37],
+		                (short)(unsigned char)gs[38]);
+		unsigned char *ds = (unsigned char *)(uintptr_t)
+		    ((long)(v & 255) + g_a5_long(-12300));
+		lib_id = ds[264];
+		if (lib_id == 0)
+			lib_id = 1;
+		jt54(ua_strs_at(0x44e6) /* "WildCom1" */,
+		     (short)(unsigned char)lib_id, 0);
+	}
+
+	{
+		unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		fld[6] = 0;
+		fld[7] = 1;
+		fld[8] = 0;
+	}
+
+	gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	if (gs[34] != 0)
+		l3540();
+	else
+		l3ef6();
+}
 
 /* CODE 13+0x404e — the per-actor COMBATANT sub-record build. Faithful full lift.
  * Walks the roster (-27928 linked list, chained at +0). For each member it:
