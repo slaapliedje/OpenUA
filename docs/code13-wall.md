@@ -71,7 +71,7 @@ drives the turn through.
 | `l4306` | 0x4306 | 541ln | the BIG action switch (jt3 inline dispatch + jt472) | — |
 | `l6454` | 0x6454 | 515ln | combat setup/build (jt41/jt882/jt21 derived-stats/jt543) | — |
 | `l4af4` | 0x4af4 | 324ln | combat UI/setup (jt68, jt522/524 field, jt19 name) | — |
-| `l544e` | 0x544e | 198ln | sub-dispatch (jt41/jt515/jt472/jt3) | — |
+| `l544e` | 0x544e | 198ln | per-step move/contact resolve (jt515 terrain probe, -27848 cost, JT[3] 27/28/29 door/barrier gate via jt41) — l56d8's step loop | **LIFTED** (full; all deps jt41/jt515/jt472 already lifted, no new stubs) |
 | `l525c` | 0x525c | 44ln | field action bridge (jt540/jt534 — into the CODE 14 field tier) | — |
 | `l52fe` | 0x52fe | 103ln | spell-in-combat (jt547 camp-gate, jt870) | — |
 | `l272a` | 0x272a | 34ln | GUARD action (`"Guarding"`, l26ea + jt42) | **LIFTED** (full; mc[9] guard flag + "Guarding"; l26ea resolve still stub) |
