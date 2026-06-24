@@ -36076,8 +36076,94 @@ static void l076e(long member)
 	l6090((short)jt525(member), (short)jt531(member));
 }
 
-/* CODE 13+0x102a — end-of-round bookkeeping; may set *done. */
-static void l102a(unsigned char *done) { PROBE("L102a"); (void)done; }
+static void jt914(short count, short idx);   /* CODE 19+0x35c — combat regen, lifted below */
+static void jt861(short flag);               /* CODE 18+0x267e — combat upkeep, lifted below */
+
+/* CODE 13+0x283e — the dying-member scan / BANDAGE action. Faithful full lift.
+ * Walks the party for a dying member (status +94 == 5, not already-handled
+ * combatant +21, not a summoned creature +95) and returns whether any was
+ * found. When `flag` is set it also bandages the FIRST such member (status ->
+ * 4 stabilized, reset the death timer at sub +16, "is bandaged" via jt18) and
+ * clears the flag so only one is treated per call. l102a calls it with flag 0
+ * (check only); the in-combat Bandage command calls it with flag 1. */
+static signed char l283e(short flag)
+{
+	long          member;
+	unsigned char found = 0;
+
+	PROBE("L283e");
+	for (member = g_a5_long(-27928); member != 0;
+	     member = *(long *)(uintptr_t)member) {
+		unsigned char *m  = (unsigned char *)(uintptr_t)member;
+		unsigned char *mc = (unsigned char *)(uintptr_t)
+		    (*(long *)(uintptr_t)(m + 64));
+		if (mc[21] != 0 || m[95] != 0 || m[94] != 5)
+			continue;
+		found = 1;
+		if (flag != 0) {
+			m[94] = 4;                     /* stabilized */
+			mc[16] = 0;                    /* reset death timer */
+			jt18(m, (long)(uintptr_t)ua_strs_at(0x44c6), 10, 1);
+			flag = 0;                      /* only one per call */
+		}
+	}
+	return (signed char)found;
+}
+
+/* CODE 13+0x102a — end-of-round bookkeeping; may set *done. Faithful full lift.
+ * Runs regen/upkeep (jt914 / jt861), bumps the round counter (-22721), redraws
+ * the field (jt536), then for each party member draws its end-of-round sprite
+ * (jt868 sel 19), runs per-member upkeep (jt879), and ages a dying member's
+ * death timer (status +94 == 5: sub +16++ -> status 6 dead past 9). Shows "A
+ * Comrade is Dying" (jt42) when l283e(0) reports one, redraws the field (jt490)
+ * + map (jt521 at the field dims +3). Ends the fight (*done = 1) unless enemies
+ * (-25298) and party (-25297) both remain and the round (-22721) is under the
+ * cap (-22720); a separate enemies-remain / party-down auto-continue prompt
+ * (jt159 over -13876) can clear *done. */
+static void l102a(unsigned char *done)
+{
+	long           member;
+	unsigned char *fld;
+
+	PROBE("L102a");
+	jt914(1, 1);
+	jt861(0);
+	g_a5_byte(-22721)++;
+	jt536();
+
+	for (member = g_a5_long(-27928); member != 0;
+	     member = *(long *)(uintptr_t)member) {
+		unsigned char *m = (unsigned char *)(uintptr_t)member;
+		jt868(19, &member);
+		jt879(member, 0, 1);
+		if (m[94] == 5) {
+			unsigned char *mc = (unsigned char *)(uintptr_t)
+			    (*(long *)(uintptr_t)(m + 64));
+			mc[16]++;
+			if (mc[16] > 9)
+				m[94] = 6;             /* dead */
+		}
+	}
+
+	if (l283e(0) != 0)
+		jt42((const char *)ua_strs_at(0x4462));   /* "A Comrade is Dying" */
+
+	jt490();
+	fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	jt521((short)(*(short *)(fld + 2) + 3),
+	      (short)(*(short *)(fld + 4) + 3), 255, 8);
+
+	if (!((unsigned char)g_a5_byte(-25298) != 0
+	      && (unsigned char)g_a5_byte(-25297) != 0
+	      && (unsigned char)g_a5_byte(-22721) < (unsigned char)g_a5_byte(-22720)))
+		*done = 1;
+
+	if ((unsigned char)g_a5_byte(-25298) != 0
+	    && (unsigned char)g_a5_byte(-25297) == 0
+	    && g_a5_byte(-27988) == 0
+	    && jt159((const char *)(uintptr_t)g_a5_long(-13876), 0) != 0)
+		*done = 0;
+}
 
 /* CODE 13+0x0116 — post-combat treasure/aftermath sequence (only when
  * -27916 is set). */
