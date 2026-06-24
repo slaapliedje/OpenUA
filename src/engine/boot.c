@@ -37560,7 +37560,118 @@ static void l73cc(long a, short b, short c)
 	fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
 	fld[7] = 1;
 }
-static void l6de8(long a) { PROBE("L6de8"); (void)a; }                                     /* CODE 14 remove-undead */
+/* CODE 14+0x6de8 — REMOVE UNDEAD (the death dissolve + corpse registration),
+ * called from jt534 when an undead is destroyed. Faithful full lift (~330 lines).
+ * Out of the combat view (-27990 != 5) it just refreshes (jt52/jt102). In combat,
+ * if the creature is already in the -25410 on-field display list it bails;
+ * otherwise it plays the dissolve animation over its footprint (l5d92 step table
+ * -> l6520 visible test -> jt57 blit, 9 frames x 6 sub-cells, with jt117 present
+ * + jt476 inter-frame delay), then registers the corpse: a fresh -25410 slot
+ * (-25320++) holding the terrain tile (l7488), the ptr and (col,row); and stamps
+ * the corpse tile into the field map (-25318 + row*50 + col, +9 = 30 for a [94]==7
+ * creature else 31, unless the cell already holds 28/29). Finally clears the
+ * cell-occupied flag, commits the field (jt524), draws the resting sprite and
+ * clears the combatant mc[4]/[8]/[9]. All deps lifted (l6b40/l6b6a/l6836 are the
+ * sprite-coord/draw stubs from l73cc, so the visuals are inert until they land). */
+static void l6de8(long undead_l)
+{
+	unsigned char *undead = (unsigned char *)(uintptr_t)undead_l;
+	unsigned char *mc, *cell, *fld, *rec;
+	short          slot;            /* fp@(-1) */
+	short          idx;             /* fp@(-2) */
+	short          frame;           /* fp@(-3) */
+	unsigned char  oc, od;          /* fp@(-4) / fp@(-5) */
+	short          x, y;            /* fp@(-6) / fp@(-7) */
+	short          j;
+
+	PROBE("L6de8");
+	if ((unsigned char)g_a5_byte(-27990) != 5) {        /* not the combat view */
+		jt52(6);
+		jt102();
+		return;
+	}
+
+	for (idx = 1; idx < 9; idx++)                       /* already on the field list? */
+		if (*(long *)(g_a5_buf(-25410) + (long)idx * 10) == undead_l)
+			break;
+	if (idx < 9)
+		return;
+
+	slot = (unsigned char)l6bbe(undead_l);
+	x = (unsigned char)l6b40(undead_l);                 /* fp@(-6) col */
+	y = (unsigned char)l6b6a(undead_l);                 /* fp@(-7) row */
+
+	if (l6554(undead_l, 1) == 0)
+		l6836(x, y, 3, 8);
+
+	l635e(0, 0, slot);
+	jt52(6);
+	l744e();
+
+	for (frame = 0; frame <= 8; frame++) {              /* the dissolve */
+		for (j = 0; j <= 5; j++) {
+			short d1, d2;
+
+			cell = g_a5_buf(-27472) + (long)slot * 6;
+			if (l5d92((short)cell[5], j, &oc, &od) == 0)
+				continue;
+			d1 = (short)((signed char)g_a5_byte(-27059 + slot)
+			    + (signed char)oc);
+			d2 = (short)((signed char)g_a5_byte(-26991 + slot)
+			    + (signed char)od);
+			if (l6520(d1, d2) == 0)
+				continue;
+			d1 = (short)((signed char)g_a5_byte(-27059 + slot)
+			    + (signed char)oc);
+			d2 = (short)((signed char)g_a5_byte(-26991 + slot)
+			    + (signed char)od);
+			jt57(d1, d2, 3, (short)(frame & 1), 24);
+		}
+		jt117();
+		jt476(10);
+	}
+
+	/* register the corpse */
+	jt1193();
+	mc = (unsigned char *)(uintptr_t)(*(long *)(undead + 64));
+	if (mc[21] == 0 && undead[94] != 8) {
+		short tile = l7488(x, y);
+
+		g_a5_byte(-25320)++;
+		rec = g_a5_buf(-25410) + (long)(unsigned char)g_a5_byte(-25320) * 10;
+		rec[8] = (unsigned char)tile;
+
+		fld = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-25318) + (long)((short)y * 50) + (long)x);
+		if (fld[9] != 29 && fld[9] != 28) {
+			fld = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-25318) + (long)((short)y * 50) + (long)x);
+			fld[9] = (undead[94] == 7) ? 30 : 31;
+		}
+
+		rec = g_a5_buf(-25410) + (long)(unsigned char)g_a5_byte(-25320) * 10;
+		*(long *)(rec + 0) = undead_l;
+		rec = g_a5_buf(-25410) + (long)(unsigned char)g_a5_byte(-25320) * 10;
+		*(short *)(rec + 4) = x;
+		rec = g_a5_buf(-25410) + (long)(unsigned char)g_a5_byte(-25320) * 10;
+		*(short *)(rec + 6) = y;
+	}
+
+	/* L7126 — final cleanup + resting sprite */
+	jt102();
+	l635e(0, 0, slot);
+	cell = g_a5_buf(-27472) + (long)((unsigned char)l6bbe(undead_l)) * 6;
+	cell[5] = 0;
+	jt524();                                            /* = l61ae field commit */
+	fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	l6836((short)(*(short *)(fld + 2) + 3), (short)(*(short *)(fld + 4) + 3), 3, 8);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(undead + 64));
+	*(short *)(mc + 4) = 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(undead + 64));
+	mc[8] = 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(undead + 64));
+	mc[9] = 0;
+}
 
 /* CODE 14+0x1184 — the TURN UNDEAD action (jt534). Faithful full lift. Announces
  * "turns undead..." (jt18), computes the effective turning level (best of class-0
