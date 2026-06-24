@@ -110,7 +110,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 18 | -23994 | jt674 | CODE 16+0x0188 | LIFTED |
 | 19 | -23990 | jt634 | CODE 16+0x058a | LIFTED |
 | 20 | -23986 | jt666 | CODE 16+0x05aa | LIFTED |
-| 21 | -23982 | jt698 | CODE 16+0x05fc | stub |
+| 21 | -23982 | jt698 | CODE 16+0x05fc | LIFTED |
 | 22 | -23978 | jt674 | CODE 16+0x0188 | LIFTED |
 | 23 | -23974 | jt623 | CODE 16+0x0756 | LIFTED |
 | 24 | -23970 | jt654 | CODE 16+0x07b2 | LIFTED |
@@ -232,18 +232,18 @@ nothing else. jt699 ("is protected") was the template; 16 more lifted 2026-06-15
 (jt606/609/624/625/632/634/654/656/660/662/685/689/692/694/706/707). The rest
 have real per-effect bodies (dice rolls, target tables, jt521 burst render).
 
-- LIFTED (59):
+- LIFTED (60):
   jt602 jt605 jt606 jt607 jt609 jt610 jt611 jt613 jt617 jt618 jt620 jt621
   jt623 jt624 jt625 jt628 jt631 jt632 jt633 jt634 jt636 jt638 jt640 jt642
   jt643 jt644 jt646 jt649 jt650 jt652 jt653 jt654 jt655 jt656 jt657 jt659
   jt660 jt661 jt662 jt663 jt664 jt666 jt668 jt673 jt674 jt675 jt676 jt681
-  jt685 jt686 jt687 jt689 jt692 jt694 jt695 jt699 jt706 jt707 jt708  (+ locals l602c, l6114,
+  jt685 jt686 jt687 jt689 jt692 jt694 jt695 jt698 jt699 jt706 jt707 jt708  (+ locals l602c, l6114,
   l0008, l1840, l0f52)
-- STUB (47):
+- STUB (46):
   jt603 jt604 jt608 jt612 jt614 jt615 jt616 jt619 jt622 jt626 jt627 jt629
   jt630 jt635 jt637 jt639 jt641 jt645 jt647 jt648 jt651 jt658 jt665 jt667
   jt669 jt671 jt672 jt677 jt678 jt679 jt680 jt682 jt683 jt684 jt688 jt690
-  jt691 jt693 jt696 jt697 jt698 jt700 jt701 jt702 jt703 jt704 jt705
+  jt691 jt693 jt696 jt697 jt700 jt701 jt702 jt703 jt704 jt705
 
 The combat spine is now LIFTED (l076e + jt511 + l08b4/l5008, 2026-06-24), so the
 handler table is reachable in principle.  The effect-application core **l6114**
