@@ -35999,8 +35999,47 @@ static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
 static short l364c(void);   /* the field-feature RNG, defined below */
-static void l3d56(short a1, short a2, short a3, short a4, short a5, short a6, short a7)
-{ PROBE("L3d56"); (void)a1; (void)a2; (void)a3; (void)a4; (void)a5; (void)a6; (void)a7; }
+/* CODE 13+0x3d56 — l3b36's BIOME feature placer. Faithful full lift. Rolls
+ * jt870(1,100) and walks a cascade of cumulative weight thresholds (the biome
+ * params col,row,a3..a7) to choose one terrain tile for field cell (row,col) of
+ * the -25318 map (offset +9):
+ *   roll <= a3                  -> jt870(1,2)+49  (50/51, water/shore)
+ *   roll <= a3+a4+1             -> 44             (rock)
+ *   [dead arm: a Mac branch re-tests a3+a4+1 -> jt870(1,5)+44, unreachable]
+ *   roll <= a3+a4+a5+a6         -> 68
+ *   roll <= a3+a4+a5+a6+a7      -> jt870(1,6)+61  (62..67)
+ *   else                          no placement.
+ * The dead arm is preserved 1:1 with the asm. Dep jt870 lifted; leaf. */
+static void l3d56(short col, short row, short a3, short a4, short a5, short a6, short a7)
+{
+	short          roll;
+	unsigned char *cell;
+
+	PROBE("L3d56");
+	roll = jt870(1, 100);
+	cell = (unsigned char *)(uintptr_t)
+	    (g_a5_long(-25318) + (long)((short)(signed char)row * 50)
+	    + (long)(signed char)col);
+
+	if (roll <= a3) {
+		cell[9] = (unsigned char)(jt870(1, 2) + 49);
+		return;
+	}
+	if (roll <= a3 + a4 + 1) {
+		cell[9] = 44;
+		return;
+	}
+	if (roll <= a3 + a4 + 1) {            /* L3dee — same threshold, dead (faithful) */
+		cell[9] = (unsigned char)(jt870(1, 5) + 44);
+		return;
+	}
+	if (roll <= a3 + a4 + a5 + a6) {
+		cell[9] = 68;
+		return;
+	}
+	if (roll <= a3 + a4 + a5 + a6 + a7)
+		cell[9] = (unsigned char)(jt870(1, 6) + 61);
+}
 
 /* CODE 13+0x3b36 — combat-field BIOME feature placer (l3ef6's 3rd/last pass;
  * NOT attack-roll resolution — the wall-doc label was wrong). Faithful full
