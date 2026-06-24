@@ -38129,9 +38129,19 @@ static signed char l6176(long m)
 	}
 	return result;
 }
-/* CODE 13+0x52ee — monster spell-decision predicate. Faithful: constant 0
- * (this build's monster AI never elects to cast). */
-static signed char l52ee(long m) { PROBE("L52ee"); (void)m; return 0; }
+/* CODE 13+0x52ee — the monster "cast a spell this turn?" predicate, called from
+ * l5008. Faithful full lift: in the shipped Mac binary this is a DISABLED no-op
+ * — it clears a one-byte local and returns it (the linkw #-2 / clrb fp@(-1) /
+ * moveb fp@(-1),d0 / rts sequence), i.e. always 0, with the member arg ignored.
+ * So the monster AI never takes the spell branch through here. */
+static signed char l52ee(long m)
+{
+	signed char decision = 0;       /* fp@(-1) */
+
+	PROBE("L52ee");
+	(void)m;
+	return decision;
+}
 static unsigned char jt540(long actor, void *target, void *param)  /* CODE 14+0x13e6 field-target find */
 { PROBE("jt540"); (void)actor; (void)target; (void)param; return 0; }
 
