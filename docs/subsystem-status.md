@@ -4,14 +4,17 @@
 scoped "wall" doc lives** (or that it still needs one). Use this to pick the
 next target. It is the index over the queue of `docs/*-wall.md` scope docs.
 
-- Companion views: `docs/roadmap.md` (by CODE segment / layer),
-  `docs/gap-analysis.md` (by play-flow the player experiences),
-  `docs/jt-lift-progress.md` (auto-generated JT counts — the source of truth
-  for numbers; rerun `python3 tools/jt_progress.py`).
-- Counts as of 2026-06-21: **844 done / 142 stub / 219 missing** of 1205 called
-  JT entries (758 lifted + 20 noop + 66 alias = done). Raw counts mislead —
-  most "missing" is demand-driven display/runtime paths the working code never
-  calls. Status below is by *player-facing subsystem*, not by count.
+- Companion views: `docs/milestone.md` (high-level accomplished/remaining
+  burn-down — START HERE for the big picture), `docs/roadmap.md` (by CODE
+  segment / layer), `docs/gap-analysis.md` (by play-flow the player
+  experiences), `docs/jt-lift-progress.md` (auto-generated JT counts — the
+  source of truth for numbers; rerun `python3 tools/jt_progress.py`).
+- Counts as of 2026-06-24 (HEAD e892f8e): **826 lifted / 109 stub / 273
+  no-jtN-def** of 1208 JT entries (~68% by JT-name; true coverage higher — much
+  of "missing" is lifted under its CODE-local `lXXXX` alias). Raw counts mislead
+  — most remaining "missing" is demand-driven display/runtime paths the working
+  code never calls. The one real block is **CODE 16 (80 stub effect handlers)**.
+  Status below is by *player-facing subsystem*, not by count.
 
 Status legend: ✅ done (works end-to-end) · 🟡 partial (lifted but
 incomplete/buggy) · 🔴 not started (stub/missing) · ⏸ deferred (ADR-0008,
@@ -67,15 +70,20 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | **Shop / merchant** (sell/identify/value) | 20/19/7 | 🟡 | `shop-merchant-wall.md` — event + shop screen (`l5586`/`jt183`) LIFTED; only `jt189` SELL + `jt190` IDENTIFY stub (Mac bodies in CODE_07.s). No "buy" verb. `jt923` is NOT missing (= lifted overload gate). Untested live (HEIRS shop cell unconfirmed) |
 | **Conditional / quest-flag events** (stat-check, set-flag, rumors, pass-time) | 18 | ✅ | `treasure-event-wall.md` (cases 15/27/37/38) |
 
-## 5. In-game — combat  🔴 (the big frontier)
+## 5. In-game — combat  🟢 spine lifted (runtime-untested) / 🔴 effect handlers
+
+Major advance since 2026-06-21: the combat **spine is wired top-to-bottom** and
+both turn-dispatch sides are lifted. The remaining real block is CODE 16's 80
+effect handlers (what abilities *do*). See `docs/milestone.md` §2 for the chain.
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
-| Combat **effects engine** (poison/cure/damage payloads) | 18 | ✅ | (band 9) — ~96% done, the hard payloads are lifted |
-| Combat **main loop / spine** (`l076e` per-actor turn) | 13 | 🔴 | `code13-wall.md` ← **THE KEYSTONE**; `jt511` loop lifted but has no live caller |
-| Combat **field render** (actor sprites, HP, targeting) | 14 | 🔴 | `code14-wall.md` — gated on the spine |
-| Combat **effect handlers** (~81 announce/apply) | 16 | 🔴 | `code16-wall.md` — gated on the spine |
-| Encounter **narration** ("A battle begins…") | 20 | 🟡 | `l159a` cases 1/33 — gated on the spine |
+| Combat **effects engine** (poison/cure/damage payloads) | 18 | ✅ | (band 9) — ~98% done, the hard payloads are lifted |
+| Combat **main loop / spine** (`jt511`→`l076e` per-actor turn) | 13 | 🟢 | `code13-wall.md` — spine + per-turn tree lifted; live caller is `l159a`→`jt511`. 90% by JT. **Runtime-untested** |
+| Combat **turn dispatch** (`l08b4` player, `l5008` monster-AI) | 13 | 🟢 | both sides + all 7 `l5008` executors lifted, stub-free. Turn Undead + Cast Spell are complete vertical slices |
+| Combat **field render** (actor sprites, HP, targeting) | 14 | 🟡 | `code14-wall.md` — 81%; field-draw leaves `jt512`/`jt517`/`jt514`/`jt516`/`jt518`/`jt528`/`jt536`/`jt542` remain |
+| Combat **effect handlers** (80 announce/apply) | 16 | 🔴 | `code16-wall.md` ← **THE FRONTIER**; `jt595`/`jt599` entry points lifted, 80 payloads stub |
+| Encounter **narration** ("A battle begins…") | 20 | 🟢 | `l159a` cases 1/33 — lifted, drives `jt511` |
 
 ## 6. Cross-cutting media  🟡 / 🔴
 
@@ -118,11 +126,13 @@ deferred by ADR-0008 — chart them when the authoring-tools track opens.
    live-testable on a HEIRS cell; makes designed dungeons actually play.
 3. **3D-render placement bug** (`dungeon-view-wall.md`) — isolated; the
    unfinished mirror of the b945821 right-side fix.
-4. **Combat spine** (`code13-wall.md`, `l076e`) — the big multi-session unlock;
-   effects engine (CODE 18) is already done, so it's orchestration + field
-   render, not payloads. Ungates CODE 14 + the 81 CODE-16 handlers.
-5. **Rest/camp completion + spell memorize** (`code21-camp-wall.md`).
-6. **Polish:** save/load slot pickers, #129 frame-stomp, audio, editor (last).
+4. **CODE-16 effect handlers** (`code16-wall.md`) — the 80 announce/apply
+   payloads. The combat spine is now lifted, so this is what makes abilities
+   *do* something. The single biggest remaining block.
+5. **Combat runtime bring-up** — drive a live round; fix what the breadth-first
+   spine/field lifts got wrong. The integration pass once a few handlers land.
+6. **Rest/camp completion + spell memorize** (`code21-camp-wall.md`).
+7. **Polish:** save/load slot pickers, #129 frame-stomp, audio, editor (last).
 
 ## Bottom line
 
