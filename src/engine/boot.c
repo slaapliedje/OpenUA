@@ -36021,8 +36021,39 @@ static void l08b4(long member);   /* player action dispatcher — lifted after l
  * (docs/code13-wall.md Clusters 2/3). */
 static void        l609a(long flag)                  { PROBE("L609a"); (void)flag; }              /* magic toggle */
 static void        l0d16(long actor, unsigned char *cmd);   /* command menu + input — lifted after l08b4 */
-static signed char l279c(long actor)                 { PROBE("L279c"); (void)actor; return 0; }   /* flee predicate */
-static signed char l27e6(long actor)                 { PROBE("L27e6"); (void)actor; return 0; }   /* flee predicate */
+/* CODE 13+0x279c / +0x27e6 — the FLEE-availability predicates (gate command 5
+ * in l0d16's menu). Faithful full lifts. l279c: the actor must carry a monster
+ * def (actor+12); its type entry in the -27944 table (16 bytes/entry, indexed
+ * by def[40]) must have a move value > 1 at +12. l27e6: l279c AND the entry's
+ * flags at +14 have both bits of 0x14 set. */
+static signed char l279c(long actor_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	long           def;
+	unsigned char *entry;
+
+	PROBE("L279c");
+	def = *(long *)(uintptr_t)(actor + 12);
+	if (def == 0)
+		return 0;
+	entry = (unsigned char *)(uintptr_t)(g_a5_long(-27944)
+	        + (long)((unsigned char *)(uintptr_t)def)[40] * 16);
+	return (entry[12] > 1) ? 1 : 0;
+}
+static signed char l27e6(long actor_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	long           def;
+	unsigned char *entry;
+
+	PROBE("L27e6");
+	if (l279c(actor_l) == 0)
+		return 0;
+	def = *(long *)(uintptr_t)(actor + 12);
+	entry = (unsigned char *)(uintptr_t)(g_a5_long(-27944)
+	        + (long)((unsigned char *)(uintptr_t)def)[40] * 16);
+	return ((entry[14] & 0x14) == 0x14) ? 1 : 0;
+}
 static void        jt154(void)                       { PROBE("jt154"); }                           /* CODE 7+0x169e — close dialog */
 static short       jt173(long prompt, long cmdstring, short a3, short a4, short cx, short cy);  /* CODE 7+0x29da input dialog */
 /* CODE 13+0x26ea — end-of-turn resolver (the shared action commit that Guard /
