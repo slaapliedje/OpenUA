@@ -39,7 +39,9 @@ dispatch need before they fire for real:
 | L59d6/L31cc/L3cb2/L36e0/L3fb2/L5304 | CODE 6 locals | audio bring-up / name copy / binder reset+claim / audio tail / item.dat | **LIFTED** |
 | jt50/jt51/jt64 | CODE 6 | = the ALREADY-LIFTED l5ac2/l5ad8/l5f3a (dual-name trap caught in audit); JT names route there | **LIFTED** |
 | L0006 | CODE 13 (+0x010e site) | combat teardown; reinstalls jt601 | **LIFTED** (l0006) |
-| L076e | CODE 13 local (~2.2KB) | execute one actor's combat turn (the heart of the loop) | stub (l076e) |
+| L076e | CODE 13 local (~2.2KB) | execute one actor's combat turn (the heart of the loop) | **LIFTED** (l076e) — spine now wired l159a→jt511→l076e→l08b4/l5008 |
+| L602c | CODE 16+0x602c (~220B) | effect DURATION/magnitude in rounds (JT[1] switch over spell id; default = base + jt17·per-level from -16906) | **LIFTED** (l602c) — first CODE-16 card |
+| L6114 | CODE 16+0x6114 (~660B) | the effect-APPLICATION core: walk the -23512 target list, per target apply effect `code` w/ magic-resist (jt866) + saves (jt864/jt867/jt871) + announce | stub — **NEXT card** (deps all lifted incl. l602c) |
 | L0434 | CODE 13 local | per-round init: builds the -22624 initiative slots | stub (l0434) |
 | L102a | CODE 13 local | end-of-round bookkeeping; may end the fight | stub (l102a) |
 | L4f22 | CODE 13 local | combat entry staging | stub (l4f22) |
@@ -67,7 +69,7 @@ dispatch need before they fire for real:
 - l4cc0 (design buffers) now runs at the Mac's spot (before L4d98) and
   is idempotent; its -27944/-27920 item-table allocs are un-deferred
   (jt86/jt87 are their consumers).
-| jt599 | CODE 16+0x64a8 | cast/apply one effect by id (~1.25KB; the beholder self-casts through it) | stub |
+| jt599 | CODE 16+0x64a8 | cast/apply one effect by id (~1.25KB; the beholder self-casts through it) | **LIFTED** |
 | jt546 | CODE 14+0x4186 | combat target picker (~570B; jt537 inert until lifted) | stub |
 
 jt610's flag side-effects at entry: clear -25258 and -23230, set
@@ -241,8 +243,11 @@ have real per-effect bodies (dice rolls, target tables, jt521 burst render).
   jt683 jt684 jt686 jt688 jt690 jt691 jt693 jt695 jt696 jt697 jt698 jt700 jt701
   jt702 jt703 jt704 jt705 jt708
 
-The combat main loop **l076e (~2.2KB) is still STUB**, so none of these handlers
-are reached at runtime yet — they are breadth-first, untested lifts.
+The combat spine is now LIFTED (l076e + jt511 + l08b4/l5008, 2026-06-24), so the
+handler table is reachable in principle — but the handlers remain **breadth-first,
+runtime-untested**, and most funnel through **l6114** (the effect-application
+core), which is still a stub. Lifting l6114 (next card; its leaf l602c is now
+done) is what makes the announce family actually produce output.
 
 ## 3. Worklist discipline
 

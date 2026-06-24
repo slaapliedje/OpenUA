@@ -32878,6 +32878,44 @@ static void jt695(void) { PROBE("jt695"); }	/* +0x00ec; id 2 */
 static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
 static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
 static void jt698(void) { PROBE("jt698"); }	/* +0x05fc; id 21 */
+/* CODE 16+0x602c (local, ~220B) — effect DURATION/MAGNITUDE in rounds for
+ * effect id `code`.  A faithful lift of the THINK-C JT[1] switch over the spell
+ * id (table @0x603a, 6 cases): six effects have bespoke durations, every other
+ * id uses base + factor*per-level read from the -16906 spell-def row (+4 base,
+ * +5 per-level; jt17 supplies the caster factor).  Returns the round count.
+ * Sole caller is l6114 (next card); marked unused until then. */
+static short l602c(short code) __attribute__((unused));
+static short l602c(short code)
+{
+	const unsigned char *def;
+	short dur;
+
+	switch ((unsigned char)code) {		/* JT[1] @0x603a (6 cases) */
+	case 26:				/* 0x6056 */
+		dur = 3780;
+		break;
+	case 127:				/* 0x6060 */
+	case 130:
+		dur = jt870(5, 4);		/* 5d4 */
+		break;
+	case 128:				/* 0x6076 */
+		dur = (short)(jt870(1, 4) * 10 + 40);
+		break;
+	case 122:				/* 0x6094 */
+		dur = 1440;
+		break;
+	case 121:				/* 0x609e */
+		dur = (short)(jt870(1, 4) + 1);
+		break;
+	default:				/* 0x60b4 */
+		def = g_a5_buf(-16906) + (long)(unsigned char)code * 16;
+		dur = (short)(def[4]
+		      + (unsigned char)jt17((short)(unsigned char)code, 0) * def[5]);
+		break;
+	}
+	return dur;
+}
+
 /* CODE 16+0x6114 (local, ~660B) — the per-target effect-message
  * applier loop (sets the -25266 damage word, walks the -23512 target
  * slots applying the effect + message).  PROBE stub pending its own
