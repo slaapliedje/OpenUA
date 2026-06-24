@@ -37446,8 +37446,63 @@ L5b52:
 /* Leaf deps of l5b9a still to be lifted — PROBE stubs with faithful-default
  * returns (0 = "no"/"not in range"/"not valid", which sends l5b9a down the
  * re-acquire / move-fallback paths rather than asserting a hit). */
-static unsigned char l713c(short a, short b, void *p1, void *p2, void *p3)               /* CODE 13 — range/adjacency check */
-{ PROBE("L713c"); (void)a; (void)b; (void)p1; (void)p2; (void)p3; return 0; }
+/* CODE 13+0x713c — the line-of-attack / range check l5b9a runs before a swing.
+ * Faithful full lift. Bresenham-walks (jt509 init / jt507 step) from the
+ * attacker cell (a,b) toward the target (*p1,*p2), carrying a parallel walker
+ * that interpolates the terrain cost, and at each cell tests the live field
+ * (-25318): when field[8] is clear it stops if the cell's terrain block value
+ * (-27848[cell[9]*4 + 2]) exceeds the interpolated budget, and it always stops
+ * once the step count passes the range cap (*p3 * 2 + 1). On a block / out-of-
+ * range it writes the last reachable cell back into *p1/*p2 and the step count
+ * into *p3 and returns 0; if the walk reaches the target it writes the step
+ * count into *p3 and returns 1 (clear line). */
+static unsigned char l713c(short a, short b, void *p1, void *p2, void *p3)
+{
+	unsigned char *px = (unsigned char *)p1;
+	unsigned char *py = (unsigned char *)p2;
+	short         *pn = (short *)p3;
+	struct combat_walk w, c;
+	short          maxrange;
+	unsigned char *cell;
+
+	PROBE("L713c");
+
+	maxrange = (short)(*pn * 2 + 1);
+	w.x0 = a;
+	w.y0 = b;
+	w.x1 = *px;
+	w.y1 = *py;
+	jt509(&w);
+
+	cell = (unsigned char *)(uintptr_t)
+	    (g_a5_long(-25318) + (long)(unsigned char)b * 50 + (unsigned char)a);
+	c.x0 = 0;
+	c.y0 = c.y1 = (unsigned char)g_a5_byte(-27848 + cell[9] * 4 + 1);
+	c.x1 = (w.adx > w.ady) ? w.adx : w.ady;
+	jt509(&c);
+
+	for (;;) {
+		unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		short blocked = 0;
+		if (fld[8] == 0) {
+			unsigned char *wc = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-25318) + (long)w.cy * 50 + w.cx);
+			if ((unsigned char)g_a5_byte(-27848 + wc[9] * 4 + 2) > c.cy)
+				blocked = 1;
+		}
+		if (!blocked && (unsigned char)w.steps <= maxrange) {
+			jt507(&c);
+			if (jt507(&w) != 0)
+				continue;               /* still walking */
+			*pn = (short)w.steps;           /* reached the target */
+			return 1;
+		}
+		*px = (unsigned char)w.cx;              /* blocked / out of range */
+		*py = (unsigned char)w.cy;
+		*pn = (short)w.steps;
+		return 0;
+	}
+}
 /* CODE 13+0x2406 — returns 1 when the actor is NOT a summoned creature
  * (rec[95] == 0), else 0. l2484's per-cell summon filter when its arg b is 0. */
 static unsigned char l2406(long m)
