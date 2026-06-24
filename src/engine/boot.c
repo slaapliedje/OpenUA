@@ -32645,7 +32645,17 @@ static void jt614(void) { PROBE("jt614"); }	/* +0x030e; id 12 */
 static void jt615(void) { PROBE("jt615"); }	/* +0x2634; id 81 */
 static void jt616(void) { PROBE("jt616"); }	/* +0x2242; id 70 */
 static void jt617(void) { PROBE("jt617"); }	/* +0x1ee2; id 58 */
-static void jt618(void) { PROBE("jt618"); }	/* +0x3218; id 103 */
+static void jt618(void)	/* +0x3218; id 103 */
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	unsigned char *mc  = *(unsigned char **)(uintptr_t)(rec + 64);
+
+	PROBE("jt618");
+	/* CODE 16 effect handler: stash the -23508 caster into the current char's
+	 * order block (mc[12]) and run the type-101 special-attack hook (l77a0). */
+	*(long *)(uintptr_t)(mc + 12) = g_a5_long(-23508);
+	l77a0((short)101, (void *)(uintptr_t)g_a5_long(-27932), (void *)0, (short)0);
+}
 static void jt619(void) { PROBE("jt619"); }	/* +0x0da4; id 35 */
 static unsigned char jt869(long rec_l, short amount, short flag);  /* combat-math tier, below */
 static void jt14(long rec_l);                                      /* CODE 6, below */
@@ -32661,7 +32671,13 @@ static void jt620(void)	/* +0x0122; id 3 */
 			jt14(g_a5_long(-23508));		/* 0150 */
 	}
 }
-static void jt621(void) { PROBE("jt621"); }	/* +0x2e08; id 135 */
+static void jt621(void)	/* +0x2e08; id 135 */
+{
+	PROBE("jt621");
+	/* CODE 16 status-announce handler: l6114(effect,0,0,0,0, empty string). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x512e) /* "" */);
+}
 static void jt622(void) { PROBE("jt622"); }	/* +0x3384; id 109 */
 /* JT[623] (CODE 16+0x0756; the Hold handler) — the saving-throw
  * modifier scales with the target count (-23510): 1 target = -3
@@ -32779,7 +32795,12 @@ static void jt656(void)	/* +0x2c20; id 90 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x511c) /* "is toughened" */);
 }
-static void jt657(void) { PROBE("jt657"); }	/* +0x2604; id 79 */
+static void jt657(void)	/* +0x2604; id 79 */
+{
+	PROBE("jt657");
+	/* CODE 16 effect handler: announce "is highlighted" via l7026(mod=0, msg). */
+	l7026((short)0, ua_strs_at(0x5058) /* "is highlighted" */);
+}
 static void jt658(void) { PROBE("jt658"); }	/* +0x20e8; id 67,107 */
 static void jt659(void) { PROBE("jt659"); }	/* +0x1e1a; id 56 */
 static void jt660(void)	/* +0x169e; id 44 */
