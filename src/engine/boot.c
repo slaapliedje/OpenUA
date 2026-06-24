@@ -33082,7 +33082,40 @@ static void jt685(void)	/* +0x07d2; id 25,59 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4e26) /* "is silenced" */);
 }
-static void jt686(void) { PROBE("jt686"); }	/* +0x0236; id 10,63 */
+static void jt686(void)	/* +0x0236; id 10,63 — the gaze/charm effect */
+{
+	long caster = g_a5_long(-23508);			/* 023a */
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+
+	PROBE("jt686");
+	if (caster == 0)					/* 0244 */
+		return;
+
+	/* immunity gate (0248-0278): class-6 ([88]==6) without flag bit [191]&2,
+	 * or hit-dice [130] > 1, makes the target "is unaffected". */
+	if ((cas[88] == 6 && (cas[191] & 2) == 0)
+	    || (unsigned char)cas[130] > 1) {			/* 0252-0278 */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4d9c) /* "is unaffected" */,
+		     (short)10, (short)1);			/* 027a */
+		return;
+	}
+
+	{	/* L0298: apply charm; the l6114 value packs jt17 level (low byte) with
+		 * the -27932 source's type [95] shifted into the high bits. */
+		unsigned char *src = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		short val = (short)((jt17((short)(unsigned char)g_a5_byte(-25262), 1)
+		            & 255) + (src[95] << 7));		/* 02a4-02ba */
+		long out = 0;
+
+		l6114((short)(unsigned char)g_a5_byte(-25262), val, (short)1,
+		      (short)0, (short)0, ua_strs_at(0x4daa) /* "is charmed" */); /* 02d4 */
+
+		if (jt41(caster, 11, &out) != 0)		/* 02e8 / 02f0 */
+			l77a0((short)11, (void *)(uintptr_t)caster,
+			      (void *)(uintptr_t)out, (short)0);	/* 0302 */
+	}
+}
 /* JT[687] (CODE 16+0x15ae; handler ids 43,61,89) — Remove Curse,
  * full lift. If the -23508 target already carries effect type 43
  * (jt872), it just announces "is un-cursed" (jt503). Otherwise walk
