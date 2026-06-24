@@ -82,8 +82,8 @@ drives the turn through.
 | local | addr | size | what (disasm) | status |
 |---|---|---:|---|---|
 | `l3678` | 0x3678 | 72ln | attack-roll resolution (jt870) | — |
-| `l375a` | 0x375a | 153ln | attack-roll resolution (jt870) | — |
-| `l3936` | 0x3936 | 160ln | attack-roll resolution (jt870) | — |
+| `l375a` | 0x375a | 153ln | field-setup pass (called from l3ef6 — the "attack-roll" guess is UNVERIFIED) | `stub` (PROBE; spawned by l3ef6) |
+| `l3936` | 0x3936 | 160ln | field-setup pass (called from l3ef6 — the "attack-roll" guess is UNVERIFIED) | `stub` (PROBE; spawned by l3ef6) |
 | `l3d56` | 0x3d56 | 150ln | attack-roll resolution (jt870/jt399) | — |
 | `l5008` | 0x5008 | 177ln | MONSTER-AI turn (`"flees in panic"`, morale jt870, jt546 acquire, jt599; dispatch attack/move) | **LIFTED** (level-2 skeleton; spawned stubs l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) |
 | `l6176` | 0x6176 | 114ln | MORALE (`"is forced to flee / Surrenders"`, jt544/jt877) | — |
@@ -95,6 +95,8 @@ drives the turn through.
 |---|---|---:|---|---|
 | `l3f24` | 0x3f24 | 93ln | combat ART load — picks the sprite GLIB (jt54) by -28006[34] outdoor flag: outdoor special "WildCom1" / outdoor normal "DungCom1" / indoor (jt197 cell class) "WildCom1"; resets field header -25318; field-init tail l3540/l3ef6 | **LIFTED** (full; deps jt54/jt197 lifted, art names via ua_strs_at @ 0x44d2/0x44dc/0x44e6; spawned PROBE stubs l3540 + l3ef6 — the jt54 4th push 39/25 is dead, dropped) |
 | `l404e` | 0x404e | 100ln | per-actor COMBATANT sub-record build — roster walk: jt21 stats, jt477 alloc the 26-byte mc into +64 + jt399 zero-fill, mc[21] extra-flag vs party count -28006[32], facing mc[11]=-8551[facing>>1], default class band | **LIFTED** (full; deps jt21/jt477/jt399 lifted; jt477 arg order is the swapped lifted sig (bucket,tag,out)) |
+| `l3ef6` | 0x3ef6 | 14ln | l3f24's indoor/outdoor-special field-init tail (frameless): jt399-fills field map -25318+9 with terrain 69 (1250B), -7928 = monster cap -28006[418], runs passes l375a/l3936/l3b36 | **LIFTED** (full; dep jt399 lifted; spawned PROBE stubs l375a/l3936/l3b36) |
+| `l3540` | 0x3540 | 88ln | l3f24's outdoor-normal field-init tail | `stub` (PROBE; spawned by l3f24) |
 | `l3016` `l32ba` | 0x3016 / 0x32ba | 181/191ln | jt3 inline-switch sub-dispatchers | — |
 | `l2d30` | 0x2d30 | 71ln | area-map bridge (jt206/jt202) | — |
 | `l41b2` `l4188` | 0x41b2/0x4188 | 120/18ln | l4306 AoE geometry helpers — cell placement+validate (jt515) / both-axes OOB clip | **LIFTED** (no new stubs; unused until l4306) |
