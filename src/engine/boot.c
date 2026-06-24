@@ -32647,7 +32647,20 @@ static void jt616(void) { PROBE("jt616"); }	/* +0x2242; id 70 */
 static void jt617(void) { PROBE("jt617"); }	/* +0x1ee2; id 58 */
 static void jt618(void) { PROBE("jt618"); }	/* +0x3218; id 103 */
 static void jt619(void) { PROBE("jt619"); }	/* +0x0da4; id 35 */
-static void jt620(void) { PROBE("jt620"); }	/* +0x0122; id 3 */
+static unsigned char jt869(long rec_l, short amount, short flag);  /* combat-math tier, below */
+static void jt14(long rec_l);                                      /* CODE 6, below */
+static void jt620(void)	/* +0x0122; id 3 */
+{
+	PROBE("jt620");
+	/* CODE 16 effect handler: when the -23510 target list is non-empty, roll
+	 * 1d8 and feed it to jt869 on the -23508 caster record; if jt869 reports a
+	 * change (low byte != 0), refresh the caster via jt14. */
+	if ((unsigned char)g_a5_byte(-23510) != 0) {		/* 0124 */
+		short roll = jt870(1, 8);			/* 0134 */
+		if (jt869(g_a5_long(-23508), roll, 0) != 0)	/* 0142 / 0148 */
+			jt14(g_a5_long(-23508));		/* 0150 */
+	}
+}
 static void jt621(void) { PROBE("jt621"); }	/* +0x2e08; id 135 */
 static void jt622(void) { PROBE("jt622"); }	/* +0x3384; id 109 */
 /* JT[623] (CODE 16+0x0756; the Hold handler) — the saving-throw
