@@ -5816,7 +5816,15 @@ static void jt478(short value, char *buf)
 }
 
 /* JT[388] (CODE 3+0x3b70) — abs() of a short. */
-static short jt388(short v) { PROBE("jt388"); return (v < 0) ? (short)-v : v; }
+/* CODE 3+0x3b70 — integer ABSOLUTE VALUE (jt388). Faithful lift, verified vs the
+ * asm (tstw v; v<0 -> negw -> -v, else v). Used by jt534's Turn Undead as the
+ * d20 threshold for a turn-matrix cell (negative cell = destroy, magnitude = the
+ * roll needed). */
+static short jt388(short v)
+{
+	PROBE("jt388");
+	return (v < 0) ? (short)-v : v;
+}
 
 /* L60b4 (CODE 6+0x60b4) — decimal string of a byte into the shared
  * -13083 scratch buffer; returns its address. */
