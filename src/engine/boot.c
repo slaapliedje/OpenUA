@@ -37524,7 +37524,101 @@ static void l1714(void)
 		}
 	} while (sel != 2);
 }
-static void        jt547(short a, short b, unsigned char *out) { PROBE("jt547"); (void)a; (void)b; if (out) *out = 0; }  /* CODE 14+0x2744 cast spell */
+static void l73cc(long a, short b, short c);                            /* CODE 14, lifted below */
+static void jt599(short effect, short b, short c, unsigned char *out);  /* CODE 16, lifted below */
+
+/* CODE 14+0x2744 — the player SPELL-CAST command (jt547), l08b4's last dispatch
+ * stub. Faithful full lift (~233 lines). Picks a spell (jt595 selection menu when
+ * none is passed), rejects camp-only spells (def[11]==0 -> "Camp Only Spell") and
+ * the underwater-blocked set (-28006[60] + spell in {74,9,47,118,115,124} ->
+ * "...no effect underwater!"). On the first pass (b==0) it shows the cast feedback
+ * (l276c + l73cc + jt38, -22626/-22627). Then: an instant spell (def[12]/3 == 0)
+ * is resolved immediately via the CODE-16 effect handler jt599, with *out =
+ * jt498(caster); a slower spell announces "Begins Casting", stores the spell in
+ * the caster's mc[0], reduces its initiative mc[4] by the casting time (floored at
+ * 1), and re-inserts the caster into the -22624 initiative queue at the matching
+ * slot (jt870 tie-break on equal initiative). Deps jt595/jt599 (CODE 16) lifted;
+ * only l276c (post-present init) is still a PROBE stub. */
+static void jt547(short a, short b, unsigned char *out)
+{
+	long           caster = g_a5_long(-27932);   /* fp@(-12) */
+	short          spell;                         /* fp@(-1) */
+	short          sel_w = -1;                    /* fp@(-6) */
+	unsigned char  sel_b = 1;                     /* fp@(-7) */
+	unsigned char *gs, *cmc;
+	short          cast_time, idx;
+	long           node;
+
+	PROBE("jt547");
+	*out = 0;
+	spell = (short)(unsigned char)a;
+	if (spell == 0)
+		spell = (short)(unsigned char)jt595(0, 1, &sel_w, &sel_b);
+
+	if (spell > 0 && g_a5_byte(-16906 + spell * 16 + 11) == 0) {
+		jt42(ua_strs_at(0x46c4) /* "Camp Only Spell" */);
+		spell = 0;
+	}
+
+	gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	if (gs[60] != 0
+	    && (spell == 74 || spell == 9 || spell == 47
+	        || spell == 118 || spell == 115 || spell == 124)) {
+		jt42(ua_strs_at(0x46d4) /* "That has no effect underwater!" */);
+		spell = 0;
+	}
+
+	if (b == 0) {                                 /* cast-start feedback */
+		l276c();
+		g_a5_byte(-22626) = 1;
+		g_a5_byte(-22627) = 1;
+		l73cc(caster, 3, 1);
+		jt38(caster);
+	}
+
+	if (spell <= 0)
+		return;
+
+	cast_time = (short)((unsigned char)g_a5_byte(-16906 + spell * 16 + 12) / 3);
+	if (cast_time == 0) {                         /* instant cast */
+		jt599(spell, b, 1, out);
+		*out = jt498(caster);
+		return;
+	}
+
+	/* delayed cast — announce + enqueue by adjusted initiative */
+	*out = 1;
+	jt18((void *)(uintptr_t)caster,
+	     (long)(uintptr_t)ua_strs_at(0x46f4) /* "Begins Casting" */, 10, 1);
+	cmc = (unsigned char *)(uintptr_t)
+	    (*(long *)((unsigned char *)(uintptr_t)caster + 64));
+	cmc[0] = (unsigned char)spell;
+	if ((unsigned short)cast_time >= (unsigned short)*(short *)(cmc + 4))
+		*(short *)(cmc + 4) = 1;
+	else
+		*(short *)(cmc + 4) = (short)(*(short *)(cmc + 4) - (cast_time & 0xff));
+
+	idx = (short)(unsigned char)g_a5_byte(-22332);
+	node = g_a5_longs(-22624)[idx + 1];
+	while (node != 0) {
+		short ni = *(short *)((unsigned char *)(uintptr_t)
+		    (*(long *)((unsigned char *)(uintptr_t)node + 64)) + 4);
+		short ci = *(short *)(cmc + 4);
+
+		if (ni <= ci) {
+			if (ni != ci)
+				break;
+			if (jt870(1, 2) != 1)
+				break;
+		}
+		g_a5_longs(-22624)[idx] = node;
+		idx++;
+		node = g_a5_longs(-22624)[idx + 1];
+	}
+	g_a5_longs(-22624)[idx] = caster;
+	g_a5_byte(-22332)--;
+	*out = 1;
+}
 static unsigned char jt540(long actor, void *target, void *param);   /* CODE 14 target iterator, stub below */
 static void jt877(long entity, short status, long msg);              /* CODE 18+0x16fc, lifted below */
 /* CODE 14+0x6b40 / +0x6b6a — the combatant's on-field sprite X / Y (jt530/jt531).
