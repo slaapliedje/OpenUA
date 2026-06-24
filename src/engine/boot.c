@@ -35993,12 +35993,67 @@ static void jt58(void)
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
  * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 + l32ba + l375a are lifted below;
- * l3b36 (l3ef6's last pass) and l364c (l3936's feature RNG) are PROBE stubs for
- * their own cards. */
+ * l364c (the feature RNG, shared by l3936/l3b36) and l3d56 (l3b36's biome
+ * feature placer) are PROBE stubs for their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
-static void l3b36(void)  { PROBE("L3b36"); }
+static short l364c(void);   /* the field-feature RNG, defined below */
+static void l3d56(short a1, short a2, short a3, short a4, short a5, short a6, short a7)
+{ PROBE("L3d56"); (void)a1; (void)a2; (void)a3; (void)a4; (void)a5; (void)a6; (void)a7; }
+
+/* CODE 13+0x3b36 — combat-field BIOME feature placer (l3ef6's 3rd/last pass;
+ * NOT attack-roll resolution — the wall-doc label was wrong). Faithful full
+ * lift. Rolls a "climate" value (base 50; +10 on the l364c bit 0x10, +30 on
+ * 0x20, +20 on 0x40, -10 on 0x04, -20 on the -8584 mask, -50 on 0x80 — six
+ * separate l364c rolls), then for every "type 37" grass cell (the -27848 cost
+ * table's +3 byte) of the -25318 field it dispatches the biome feature placer
+ * l3d56(col,row,...) with a parameter set chosen by the climate band:
+ *   [-30,9]->(0,0,0,30,15)  [10,29]->(0,1,5,20,10)  [30,69]->(0,2,5,10,5)
+ *   [70,89]->(10,2,10,10,1) [90,110]->(15,5,15,10,1).
+ * Deps l364c/l3d56 are PROBE stubs. This is l3ef6's last pass. */
+static void l3b36(void)
+{
+	short         climate;      /* fp@(-4) */
+	unsigned char col;          /* fp@(-1) */
+	unsigned char row;          /* fp@(-2) */
+
+	PROBE("L3b36");
+	climate = 50;
+	if ((l364c() & 0xff) & 16)
+		climate += 10;
+	if ((l364c() & 0xff) & 32)
+		climate += 30;
+	if ((l364c() & 0xff) & 64)
+		climate += 20;
+	if ((l364c() & 0xff) & 4)
+		climate -= 10;
+	if ((l364c() & 0xff) & (unsigned char)g_a5_byte(-8584))
+		climate -= 20;
+	if ((l364c() & 0xff) & 128)
+		climate -= 50;
+
+	for (col = 0; col <= 49; col++) {
+		for (row = 0; row <= 24; row++) {
+			unsigned char *cell = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-25318) + (long)((short)row * 50) + (long)col);
+
+			if ((unsigned char)g_a5_byte(-27848 + cell[9] * 4 + 3) != 37)
+				continue;
+
+			if (climate >= -30 && climate <= 9)
+				l3d56((short)col, (short)row, 0, 0, 0, 30, 15);
+			if (climate >= 10 && climate <= 29)
+				l3d56((short)col, (short)row, 0, 1, 5, 20, 10);
+			if (climate >= 30 && climate <= 69)
+				l3d56((short)col, (short)row, 0, 2, 5, 10, 5);
+			if (climate >= 70 && climate <= 89)
+				l3d56((short)col, (short)row, 10, 2, 10, 10, 1);
+			if (climate >= 90 && climate <= 110)
+				l3d56((short)col, (short)row, 15, 5, 15, 10, 1);
+		}
+	}
+}
 static short l364c(void) { PROBE("L364c"); return 0; }   /* l3936's field-feature RNG (stub) */
 
 /* CODE 13+0x3936 — combat-field FOREST/OBSTACLE scatterer (l3ef6's 2nd pass;
