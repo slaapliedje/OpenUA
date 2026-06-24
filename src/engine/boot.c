@@ -36902,6 +36902,63 @@ static signed char l52fe(long m)
 	}
 	return (signed char)result;
 }
+/* CODE 13+0x62ec — the monster-AI target-PRIORITY score for one candidate,
+ * used by l6454's target sweep. Faithful full lift. (NOTE: distinct from the
+ * CODE 14 l62ec map-cell fetch — a same-offset cross-segment name collision.)
+ * Copies the candidate's 16-byte monster def (-27944[cand[40]<<4]) and builds a
+ * desirability byte: base = def[9]*def[10] (attacks x dice), + level bonus
+ * (cand[48]*8), + def[11]*2, + (def[5]-1)*2 when def[14] bit3 is set, + 3 for a
+ * 0/1-class def[1]; zeroed when the actor's AC+def[1] >= 3, when the candidate
+ * is flagged out (cand[52]), or when its level is under the -7834/-7835 floor
+ * (per def[14] bits 3/4); halved for a slow/special def[7] gated by the -7836/
+ * -7837 combat flags. Pure arithmetic — no callees. Marked unused until l6454
+ * (its sole caller) is lifted. */
+static unsigned char l62ec_c13(long actor_l, long cand_l) __attribute__((unused));
+static unsigned char l62ec_c13(long actor_l, long cand_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	unsigned char *cand  = (unsigned char *)(uintptr_t)cand_l;
+	unsigned char *src   = (unsigned char *)(uintptr_t)
+	    (g_a5_long(-27944) + ((long)cand[40] << 4));
+	unsigned char  def[16];
+	unsigned char  score;
+	int            i, halve = 0;
+
+	PROBE("L62ec_c13");
+	for (i = 0; i < 16; i++)
+		def[i] = src[i];
+
+	score = (unsigned char)(def[9] * def[10]);
+	if ((signed char)cand[48] > 0)
+		score = (unsigned char)(score + (signed char)cand[48] * 8);
+	if ((signed char)def[11] > 0)
+		score = (unsigned char)(score + def[11] * 2);
+	if (def[14] & 8)
+		score = (unsigned char)(score + (short)(def[5] - 1) * 2);
+	if (def[1] <= 1)
+		score = (unsigned char)(score + 3);
+	if (((unsigned char)actor[194] + def[1]) >= 3)
+		score = 0;
+	if (cand[52] != 0)
+		score = 0;
+
+	if (def[7] <= 1 && g_a5_byte(-7837) != 0)
+		halve = 1;
+	else if ((def[7] & 0x80) && g_a5_byte(-7836) != 0)
+		halve = 1;
+	if (halve)
+		score = (unsigned char)(score >> 1);
+
+	{
+		short dl = (short)(signed char)cand[48];
+		unsigned short thr = (def[14] & (8 | 16))
+		    ? (unsigned char)g_a5_byte(-7835)
+		    : (unsigned char)g_a5_byte(-7834);
+		if ((unsigned short)dl < thr)
+			score = 0;
+	}
+	return score;
+}
 static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)target; }
 
 /* Forward decls — deps of l5b9a that are defined later in this file. */
