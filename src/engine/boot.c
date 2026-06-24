@@ -32878,6 +32878,10 @@ static void jt695(void) { PROBE("jt695"); }	/* +0x00ec; id 2 */
 static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
 static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
 static void jt698(void) { PROBE("jt698"); }	/* +0x05fc; id 21 */
+/* l6114's saving-throw deps, defined far below in the combat-math tier. */
+static short jt864(long entity, long member, short threshold);
+static void  jt867(long entity, short amount, short saveCat, short saveFlag);
+
 /* CODE 16+0x602c (local, ~220B) — effect DURATION/MAGNITUDE in rounds for
  * effect id `code`.  A faithful lift of the THINK-C JT[1] switch over the spell
  * id (table @0x603a, 6 cases): six effects have bespoke durations, every other
@@ -32916,15 +32920,89 @@ static short l602c(short code)
 	return dur;
 }
 
-/* CODE 16+0x6114 (local, ~660B) — the per-target effect-message
- * applier loop (sets the -25266 damage word, walks the -23512 target
- * slots applying the effect + message).  PROBE stub pending its own
- * lift; jt699 and several other handlers funnel through it. */
+/* CODE 16+0x6114 (local, ~660B) — the effect-APPLICATION core.  Faithful full
+ * lift.  Sets the -25266 value word from arg `d` (when arg `c` is set), then
+ * walks the -23512 area-target list (1..g_23510) and, per live target:
+ *   - magic resistance:  rflag = def[8] ? jt866(target, def[9], 0) : 0
+ *   - saving throw (only when the live effect's def2[2]==255): jt21 recompute +
+ *     jt868(11, slot); if the save (jt864 vs target[385]) fails, force the
+ *     payload (clear `c`, rflag=1)
+ *   - jt867(target, c, def[8], rflag)        when c != 0   (apply payload)
+ *   - jt871(target, def[10], l602c(code), src, b, def[8], rflag, msg)
+ *                                            when def[10] != 0  (announce/render)
+ * `def`  = -16906 spell-def row for `code` (the passed effect id);
+ * `def2` = -16906 row for the live effect id -25262; `src` = caster (arg `a`,
+ * or jt17(code,1) when a==0).  Byte args keep the asm's exact extension:
+ * extw = signed, moveq#0+moveb = unsigned. jt864/jt866 results are taken as the
+ * low byte (moveb/tstb).  jt699 and the whole announce family funnel here. */
 static void l6114(short code, short a, short b, short c, short d,
                   const char *msg)
 {
+	unsigned char src;	/* fp@(-1): caster/source id */
+	unsigned char rflag;	/* fp@(-3): per-target resist/save flag */
+	unsigned char cc;	/* arg c, mutated by a failed save (fp@15) */
+	int i;
+
 	PROBE("L6114");
-	(void)code; (void)a; (void)b; (void)c; (void)d; (void)msg;
+
+	cc = (unsigned char)c;				/* 611a */
+	g_a5_word(-25266) = (cc == 0) ? 0 : d;		/* 6122 / 6128 */
+
+	if ((unsigned char)g_a5_byte(-23510) == 0)	/* 6130 */
+		return;
+
+	if ((unsigned char)a == 0)			/* 613c */
+		src = (unsigned char)jt17((short)(unsigned char)code, 1); /* 6150 */
+	else
+		src = (unsigned char)a;			/* 615c */
+
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 6162 / 639a */
+		long *slot = &g_a5_longs(-23512)[i];	/* 616c */
+		long target = *slot;			/* 6180 */
+		unsigned char *def, *def2, *trec;
+
+		if (target == 0)			/* 6182 -> next */
+			continue;
+
+		def = g_a5_buf(-16906) + (long)(unsigned char)code * 16; /* 6194 */
+		if (def[8] == 0)			/* 619a */
+			rflag = 0;			/* 61a0 */
+		else
+			rflag = (unsigned char)jt866(target,
+			        (short)(signed char)def[9], 0);	/* 61da */
+
+		def2 = g_a5_buf(-16906)
+		     + (long)(unsigned char)g_a5_byte(-25262) * 16;	/* 61e4 */
+		if ((unsigned char)def2[2] == 255) {	/* 61fe */
+			jt21(target);			/* 621c */
+			jt868(11, slot);		/* 623c */
+			trec = (unsigned char *)(uintptr_t)target;
+			if ((unsigned char)jt864(g_a5_long(-27932), target,
+			    (short)(unsigned char)trec[385]) == 0) {	/* 627a */
+				cc = 0;			/* 6286 */
+				rflag = 1;		/* 628c */
+			}
+		}
+
+		if (cc != 0)				/* 6290 */
+			jt867(target, (short)(unsigned char)cc,
+			      (short)(signed char)def[8],
+			      (short)(signed char)rflag);	/* 62dc */
+
+		if (def[10] != 0) {			/* 62f8 */
+			short dur = l602c(code);	/* 633c (rolls before announce) */
+			jt871(target,
+			      (short)(unsigned char)def[10],	/* 6382 */
+			      dur,				/* 637a */
+			      (short)(unsigned char)src,	/* 6372 */
+			      (short)(signed char)b,		/* 636a */
+			      (short)(signed char)def[8],	/* 6362 */
+			      (short)(signed char)rflag,	/* 635a */
+			      (long)(uintptr_t)msg);		/* 6356 */
+		}
+	}						/* 6396 i++ */
+
+	g_a5_word(-25266) = 0;				/* 63a6 */
 }
 
 /* +0x01a8; ids 6,7,16,17,52,53,54,57,69,122 — the shared "is
