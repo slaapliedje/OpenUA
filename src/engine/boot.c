@@ -33101,7 +33101,31 @@ static void jt666(void)	/* +0x05aa; id 20 */
 	      val, (short)12, ua_strs_at(0x4dfc) /* "" */);
 }
 static void jt667(void) { PROBE("jt667"); }	/* +0x2ab8; id 86 */
-static void jt668(void) { PROBE("jt668"); }	/* +0x23ea; id 75 */
+static void jt668(void)	/* +0x23ea; id 75 — raise dead */
+{
+	unsigned char *cas = (unsigned char *)(uintptr_t)g_a5_long(-23508);
+
+	PROBE("jt668");
+	/* CODE 16 raise-dead: only when the target is in state 6 or 1, has a
+	 * remaining charge [120] > 0 and a non-zero class [88].  Strips status 55,
+	 * revives (state[94]=0, controllable[382]=1, spend a [120] charge, jt875 4),
+	 * sets 1 HP [395] and announces "is raised". */
+	if ((cas[94] == 6 || cas[94] == 1)			/* 23fe / 240e */
+	    && cas[120] != 0					/* 2420 */
+	    && cas[88] != 0) {					/* 2430 */
+		g_a5_byte(-25258) = 1;				/* 2436 */
+		jt878((long)(uintptr_t)cas, 55, 0L);		/* 2444 */
+		g_a5_byte(-25258) = 0;				/* 244c */
+		cas[94] = 0;					/* 2454 */
+		cas[382] = 1;					/* 245e */
+		cas[120]--;					/* 2466 */
+		jt875((long)(uintptr_t)cas, 4);			/* 2472 */
+		cas[395] = 1;					/* 247e */
+		jt18((void *)cas,
+		     (long)(uintptr_t)ua_strs_at(0x5028) /* "is raised" */,
+		     (short)10, (short)1);			/* 2494 */
+	}
+}
 static void jt669(void) { PROBE("jt669"); }	/* +0x2008; id 132 */
 static void jt671(void) { PROBE("jt671"); }	/* +0x2f9e; id 100 */
 static void jt672(void) { PROBE("jt672"); }	/* +0x118a; id 40 */
