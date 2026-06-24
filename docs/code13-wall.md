@@ -81,8 +81,8 @@ drives the turn through.
 
 | local | addr | size | what (disasm) | status |
 |---|---|---:|---|---|
-| `l3678` | 0x3678 | 72ln | attack-roll resolution (jt870) | — |
-| `l375a` | 0x375a | 153ln | field-setup pass (called from l3ef6 — the "attack-roll" guess is UNVERIFIED) | `stub` (PROBE; spawned by l3ef6) |
+| `l3678` | 0x3678 | 72ln | l375a's straight-channel river branch-extender (takes col,row,&width — "attack-roll" guess was WRONG) | `stub` (PROBE; spawned by l375a) |
+| `l375a` | 0x375a | 165ln | combat-field TERRAIN generator (NOT attack-roll): draws a meandering river/chasm down the field via jt870 dice + l3678, stamping terrain 52/55 banks into the -25318 field map | **LIFTED** (full; dep jt870 lifted; spawned PROBE stub l3678) |
 | `l3936` | 0x3936 | 160ln | field-setup pass (called from l3ef6 — the "attack-roll" guess is UNVERIFIED) | `stub` (PROBE; spawned by l3ef6) |
 | `l3d56` | 0x3d56 | 150ln | attack-roll resolution (jt870/jt399) | — |
 | `l5008` | 0x5008 | 177ln | MONSTER-AI turn (`"flees in panic"`, morale jt870, jt546 acquire, jt599; dispatch attack/move) | **LIFTED** (level-2 skeleton; spawned stubs l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) |
