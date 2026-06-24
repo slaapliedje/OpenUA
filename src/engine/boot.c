@@ -36054,7 +36054,21 @@ static void l3b36(void)
 		}
 	}
 }
-static short l364c(void) { PROBE("L364c"); return 0; }   /* l3936's field-feature RNG (stub) */
+/* CODE 13+0x364c — the field-feature value source for l3936/l3b36. Faithful
+ * full lift. The Mac copies the 32-byte -7914 table into a throwaway 8-long
+ * stack local (a THINK-C struct-by-value artifact) and returns the byte at index
+ * -7928 (the encounter's monster cap, always < 32) — i.e. just -7914[-7928].
+ * Callers mask the result with 0xff, so only the low byte matters. Leaf. */
+static short l364c(void)
+{
+	unsigned char buf[32];
+	unsigned char i;
+
+	PROBE("L364c");
+	memcpy(buf, &g_a5_byte(-7914), sizeof buf);
+	i = (unsigned char)g_a5_byte(-7928);
+	return (short)buf[i];
+}
 
 /* CODE 13+0x3936 — combat-field FOREST/OBSTACLE scatterer (l3ef6's 2nd pass;
  * NOT attack-roll resolution — the wall-doc label was wrong). Faithful full
