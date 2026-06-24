@@ -32638,13 +32638,35 @@ static void jt609(void)	/* +0x1148; id 38 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4ebc) /* "is blind" */);
 }
-static void jt611(void) { PROBE("jt611"); }	/* +0x2f2e; id 98 */
+static unsigned char jt869(long rec_l, short amount, short flag);  /* combat-math tier, below */
+static void jt14(long rec_l);                                      /* CODE 6, below */
+static void jt611(void)	/* +0x2f2e; id 98 */
+{
+	PROBE("jt611");
+	/* CODE 16 caster applier (jt620 family): roll 1d8, feed to jt869 on the
+	 * -23508 caster; on change, refresh via jt14. */
+	if ((unsigned char)g_a5_byte(-23510) != 0) {		/* 2f30 */
+		short roll = jt870(1, 8);			/* 2f40 */
+		if (jt869(g_a5_long(-23508), roll, 0) != 0)	/* 2f4e */
+			jt14(g_a5_long(-23508));		/* 2f5c */
+	}
+}
 static void jt612(void) { PROBE("jt612"); }	/* +0x4338; id 125 */
 static void jt613(void) { PROBE("jt613"); }	/* +0x07f2; id 26 */
 static void jt614(void) { PROBE("jt614"); }	/* +0x030e; id 12 */
 static void jt615(void) { PROBE("jt615"); }	/* +0x2634; id 81 */
 static void jt616(void) { PROBE("jt616"); }	/* +0x2242; id 70 */
-static void jt617(void) { PROBE("jt617"); }	/* +0x1ee2; id 58 */
+static void jt617(void)	/* +0x1ee2; id 58 */
+{
+	PROBE("jt617");
+	/* CODE 16 caster applier (jt620 family): 2d8+1 into jt869 on the -23508
+	 * caster; on change, refresh via jt14. */
+	if ((unsigned char)g_a5_byte(-23510) != 0) {		/* 1ee4 */
+		short roll = jt870(2, 8);			/* 1ef4 */
+		if (jt869(g_a5_long(-23508), (short)(roll + 1), 0) != 0)  /* 1efc/1f04 */
+			jt14(g_a5_long(-23508));		/* 1f12 */
+	}
+}
 static void jt618(void)	/* +0x3218; id 103 */
 {
 	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
@@ -32838,7 +32860,17 @@ static void jt642(void) { PROBE("jt642"); }	/* +0x089a; id 27 */
 static void jt643(void) { PROBE("jt643"); }	/* +0x0468; id 13 */
 static void jt644(void) { PROBE("jt644"); }	/* +0x323c; id 104 */
 static void jt645(void) { PROBE("jt645"); }	/* +0x26b2; id 82 */
-static void jt646(void) { PROBE("jt646"); }	/* +0x22e8; id 71 */
+static void jt646(void)	/* +0x22e8; id 71 */
+{
+	PROBE("jt646");
+	/* CODE 16 caster applier (jt620 family): 3d8+3 into jt869 on the -23508
+	 * caster; on change, refresh via jt14. */
+	if ((unsigned char)g_a5_byte(-23510) != 0) {		/* 22ea */
+		short roll = jt870(3, 8);			/* 22fa */
+		if (jt869(g_a5_long(-23508), (short)(roll + 3), 0) != 0)  /* 2302/230a */
+			jt14(g_a5_long(-23508));		/* 2318 */
+	}
+}
 static void jt647(void) { PROBE("jt647"); }	/* +0x1f1a; id 128 */
 static void jt648(void) { PROBE("jt648"); }	/* +0x3424; id 110 */
 static void jt649(void)	/* +0x0ff6; id 36 */
