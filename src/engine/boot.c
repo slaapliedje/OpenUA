@@ -3267,7 +3267,7 @@ static void  l159a(void *ev, short f);     /* COMBAT event (cases 1/33) — defi
  * (task #115, still PROBE stubs); jt45 is a CODE 6 setup leaf; l10a0/l1176
  * are CODE 20 encounter-setup locals — all PROBE-deferred for the skeleton. */
 static void  jt45(void)                    { PROBE("jt45"); }
-static void  jt510(void)                   { PROBE("jt510"); }
+static void  jt510(void)                   { PROBE("jt510"); }  /* CODE 13+0x6d1a is a bare rts — faithfully empty */
 static void  jt512(void)                   { PROBE("jt512"); }
 static void  jt954(void)                   { PROBE("jt954"); }  /* CODE 21+0x38f4 — l2e42 move-code 3 */
 static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE 15+0x1188 — l380a effect apply */
@@ -38174,8 +38174,111 @@ static signed char l525c(long m)
 	}
 	return result;
 }
-static unsigned char l6c96(long actor, void *target)  /* CODE 13 — pick a monster spell */
-{ PROBE("L6c96"); (void)actor; if (target) *(unsigned char *)target = 0; return 0; }
+/* JT[552] (CODE 14+0x4c90) — "can this monster cast spell N right now?" range/
+ * availability check; returns >0 when castable. PROBE stub (CODE 14, lifted on
+ * its own card); l6c96 treats any positive result as castable. */
+static short jt552(long actor, short spell) { PROBE("jt552"); (void)actor; (void)spell; return 0; }
+
+/* CODE 13+0x6ac4 — the monster spell-list ITERATOR (used by l6c96). Faithful
+ * full lift. Advances the -7546 cursor through the sorted spell-id list at -7828
+ * (word entries) and sets -7544 to the next DISTINCT spell id (the low byte of
+ * the next entry that differs from the current -7544), skipping runs of equal
+ * ids. At the 0 terminator it sets -7544 = 0 and stops. Leaf. */
+static void l6ac4(void)
+{
+	unsigned char done = 0;                 /* fp@(-1) */
+
+	PROBE("L6ac4");
+	do {
+		short *entry = g_a5_shorts(-7828) + (short)g_a5_word(-7546);
+
+		if (*entry == 0) {
+			g_a5_byte(-7544) = 0;
+			done = 1;
+		} else if ((unsigned short)*entry == (unsigned char)g_a5_byte(-7544)) {
+			g_a5_word(-7546)++;
+		} else {
+			g_a5_byte(-7544) = ((unsigned char *)entry)[1];
+			done = 1;
+		}
+	} while (!done);
+}
+
+/* CODE 13+0x6b2c — builds the monster's spell-id list, INSERTION-SORTED by spell
+ * priority (used by l6c96). Faithful full lift. Scans the source record's
+ * 141-byte spell-type array (src + 198): each valid type (1..127 whose def at
+ * -16906[type*16+11] is set) is inserted into the `out` word-array in descending
+ * order of its -16906[type*16+13] priority, cascade-shifting lower-priority ids
+ * down until it hits the 0 terminator or index 140. Leaf. */
+static void l6b2c(void *out_v, void *src_v)
+{
+	short         *out = (short *)out_v;              /* fp@(8)  */
+	unsigned char *src = (unsigned char *)src_v;     /* fp@(12) */
+	short          i;                                /* fp@(-3) */
+
+	PROBE("L6b2c");
+	for (i = 0; i <= 140; i++) {
+		unsigned char val = src[i + 198];        /* fp@(-1) */
+		short j;                                 /* fp@(-4) */
+
+		if (val == 0 || val >= 128)
+			continue;
+		if (g_a5_byte(-16906 + (int)val * 16 + 11) == 0)
+			continue;
+
+		for (j = 0; ; ) {
+			unsigned char occ;
+
+			if (out[j] == 0) {               /* empty slot -> place */
+				out[j] = val;
+				break;
+			}
+			occ = (unsigned char)out[j];
+			if ((unsigned char)g_a5_byte(-16906 + (int)occ * 16 + 13)
+			    > (unsigned char)g_a5_byte(-16906 + (int)val * 16 + 13)) {
+				j++;                     /* occupant outranks val -> keep scanning */
+				continue;
+			}
+			/* insert here, cascade the displaced ids down */
+			for (;;) {
+				unsigned char displaced = (unsigned char)out[j];
+				out[j] = val;
+				val = displaced;
+				j++;
+				if (val == 0 || j > 140)
+					break;
+			}
+			break;
+		}
+	}
+}
+
+/* CODE 13+0x6c96 — the monster SPELL PICKER (called from l52fe). Faithful full
+ * lift. Clears the -7828 spell-list scratch (jt65, 282 bytes), builds the
+ * priority-sorted spell list from the monster record (l6b2c), then walks it
+ * (l6ac4 -> -7544 = next distinct spell) and returns the FIRST spell the monster
+ * can actually cast right now (jt552 > 0), or 0 if none. The Mac ignores the
+ * caller's second arg (it only returns the spell), so `unused` is untouched. */
+static unsigned char l6c96(long record, void *unused)
+{
+	unsigned char castable = 0;             /* fp@(-2) */
+
+	PROBE("L6c96");
+	(void)unused;
+	jt65((long)(uintptr_t)&g_a5_byte(-7828), 282);
+	l6b2c(&g_a5_byte(-7828), (void *)(uintptr_t)record);
+
+	g_a5_byte(-7544) = 0;
+	g_a5_word(-7546) = 0;
+	do {
+		l6ac4();
+		if ((unsigned char)g_a5_byte(-7544) != 0)
+			castable = (unsigned char)(jt552(record,
+			    (short)(unsigned char)g_a5_byte(-7544)) > 0 ? 1 : 0);
+	} while (castable == 0 && (unsigned char)g_a5_byte(-7544) != 0);
+
+	return (unsigned char)g_a5_byte(-7544);
+}
 
 /* CODE 13+0x52fe — the monster SPELL-cast decision (reached via l5008).
  * Faithful full lift. Declines when fleeing (mc[22]), silenced (rec[2]), not a
@@ -38210,8 +38313,7 @@ static signed char l52fe(long m)
 	threshold = (unsigned char)(lvlsum * 4);
 
 	if (spell != 0 && jt870(1, 100) > threshold) {
-		unsigned char *entry = (unsigned char *)(uintptr_t)
-		    (g_a5_long(-16906) + (long)spell * 16);
+		unsigned char *entry = g_a5_buf(-16906) + (long)spell * 16;
 		if (jt870(1, 5) <= entry[13])
 			jt547((short)spell, 1, &result);
 	}

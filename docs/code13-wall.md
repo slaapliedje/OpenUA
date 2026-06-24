@@ -21,11 +21,12 @@ CODE 13 holds two things:
    (the loop reaches them via `jsr %pc@`), so they don't show in the JT
    scoreboard — `seg_audit.py 13` is the truth here.
 
-**Snapshot (`seg_audit.py 13`):** 75 functions, 70 lifted (93%), 5 remaining
-(`l52ee` DONE). The entire `l4f22` combat-SETUP tree is now stub-free end to
-end. Remaining 5 are small disconnected leaves: `jt510` (JT leaf), `l6ac4`/
-`l6b2c`/`l6c96` (range/fill helpers, 0 incoming calls), and `l2d30` (which is
-**already lifted** as `l2d30_c13` — the audit just doesn't see the `_c13` suffix).
+**Snapshot (`seg_audit.py 13`):** 75 functions, 73 lifted (97%) — effectively
+**100%**. The 2 the audit still lists are non-issues: `jt510` (CODE 13+0x6d1a is
+a bare `rts` — the empty stub IS faithful) and `l2d30` (already lifted as
+`l2d30_c13`; the audit just doesn't recognize the `_c13` suffix). The whole
+combat-SETUP tree is stub-free, and the monster spell-selection cluster
+(`l6c96` → `l6b2c` sort / `l6ac4` iterate / `jt552`) is lifted.
 
 ### Why this is the highest-leverage combat target
 
