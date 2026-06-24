@@ -789,7 +789,7 @@ Totals: jt 868, l 494, other 435, port 48, shim 37, **1882 total**.
 | `jt524` | JT[524] | jt | JT[524] / L61ae (CODE 14 + 0x61ae) — rebuild the 50x25 combat occupancy grid (g_a5_26922): clear it (jt65), then for every active actor record (g_a5_27472, 6 bytes: x word @0, y word @2, facing @5) st | boot.c:25255 |
 | `jt525` | JT[525] | jt | JT[525] (CODE 14 + 0x6b40, 52 sites) — field 1 of the record matching key | boot.c:19997 |
 | `jt526` | — | jt | — | boot.c:25323 |
-| `jt527` | — | jt | — | boot.c:39907 |
+| `jt527` | JT[527] | jt | JT[527] (CODE 14+0x5e8e) — combat-field repaint; the whole Mac body is `jt120(-27870)` (the active view record → viewport reskin). Called by l276c spell-cast post-present init. | boot.c:48362 |
 | `jt529` | JT[529] | jt | JT[529] (CODE 14 + 0x7894) — facing octant from combatant a toward combatant b: placement coords (jt525/jt531, sign-extended) through the l7638 compass | boot.c:25667 |
 | `jt53` | — | jt | — | boot.c:41748 |
 | `jt530` | JT[530] | jt | JT[530] / L73cc (CODE 14 + 0x73cc) — stage a combat-status redraw of `entity` in the live-map header (g_a5_25318): byte 6 = `c`, byte 7 = the actor's facing; when scroll-into-view (g_a5_22626) is on, | boot.c:25290 |

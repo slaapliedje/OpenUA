@@ -36005,12 +36005,12 @@ static void jt58(void)
  * feature placer) are PROBE stubs for their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
-static void jt527(void);   /* CODE 14 field repaint, stub below */
+static void jt527(void);   /* CODE 14+0x5e8e field repaint; full lift defined below */
 /* CODE 13+0x276c — the spell-cast POST-PRESENT init (l276c), run from jt547 on
  * the first cast pass. Faithful full lift: yields/refreshes (jt77), repaints the
  * combat field (jt527), then draws the targeting cursor at the field scroll
  * origin via jt521 (= the l6836 sprite blit): jt521(-25318[2]+3, -25318[4]+3,
- * 255, 8). Deps jt77/jt521 lifted; jt527 (field repaint) is still a PROBE stub. */
+ * 255, 8). All deps (jt77/jt521/jt527) lifted. */
 static void l276c(void)
 {
 	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
@@ -48356,7 +48356,10 @@ static short  jt595(short code, short mode, short *p1, unsigned char *p2)
 	     jt488(ua_strs_at(0x539a) /* "Spells %s" */, ctx));
 	return l4faa(mode, p1);
 }
-static void   jt527(void)                            { PROBE("jt527"); jt120((void *)(uintptr_t)g_a5_long(-27870)); }   /* CODE 14+0x5e8e -> jt120 */
+/* JT[527] (CODE 14+0x5e8e) — combat-field repaint. Faithful full lift: the whole
+ * Mac body is `jt120(-27870)` (movel -27870 / jsr JT[120] / addql #4,sp / rts).
+ * -27870 holds the active view record; jt120 reskins the 3D/field viewport. */
+static void   jt527(void)                            { PROBE("jt527"); jt120((void *)(uintptr_t)g_a5_long(-27870)); }
 /* ---------------------------------------------------------------------------
  * JT[23] — the play-frame redraw dispatcher (CODE 6 + 0x2890), and its
  * stand-up spine. jt23 gates on the live record's slot, then switches on the
