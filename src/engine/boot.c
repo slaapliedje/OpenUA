@@ -35992,19 +35992,65 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
- * + l3ef6 + l3540 are lifted below; l375a/l3936/l3b36 (l3ef6's passes) and
- * l2e92/l2f82/l3016/l32ba (l3540's per-cell passes) are PROBE stubs for their
- * own cards. */
+ * + l3ef6 + l3540 + l2e92/l2f82 are lifted below; l375a/l3936/l3b36 (l3ef6's
+ * passes), l3016/l32ba (l3540's JT[3] passes) and l2ca6 (the field-cell paint
+ * primitive) are PROBE stubs for their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
 static void l375a(void)  { PROBE("L375a"); }
 static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
-static void l2e92(void)  { PROBE("L2e92"); }
-static void l2f82(void)  { PROBE("L2f82"); }
 static void l3016(unsigned char *a, unsigned char *b) { PROBE("L3016"); (void)a; (void)b; }
 static void l32ba(unsigned char *a, unsigned char *b) { PROBE("L32ba"); (void)a; (void)b; }
+static void l2ca6(short a, short b, short c) { PROBE("L2ca6"); (void)a; (void)b; (void)c; }
+
+/* CODE 13+0x2e92 — l3540 per-cell field pass: the WEST-edge (-7932) decoration.
+ * Faithful full lift. First stamps the 5x3 block (col 0..5, row 2..4) of the
+ * field with value 22 via the cell-paint primitive l2ca6(col,row,val). Then, per
+ * the west edge code -7932: code 1 (open) draws a diagonal passage (rows 2..4:
+ * l2ca6(row-1,row,4) / (row,row,3) / (row+1,row,13)); code 3 (door) stamps the
+ * two door cells l2ca6(1,2,8) and l2ca6(5,4,0). Dep l2ca6 is a PROBE stub. */
+static void l2e92(void)
+{
+	unsigned char i, j;             /* fp@(-1) inner col / fp@(-2) outer row */
+
+	PROBE("L2e92");
+	for (j = 2; j <= 4; j++)
+		for (i = 0; i <= 5; i++)
+			l2ca6((short)i, (short)j, 22);
+
+	if (g_a5_byte(-7932) == 1) {
+		for (j = 2; j <= 4; j++) {
+			l2ca6((short)(j - 1), (short)j, 4);
+			l2ca6((short)j,       (short)j, 3);
+			l2ca6((short)(j + 1), (short)j, 13);
+		}
+	} else if (g_a5_byte(-7932) == 3) {
+		l2ca6(1, 2, 8);
+		l2ca6(5, 4, 0);
+	}
+}
+
+/* CODE 13+0x2f82 — l3540 per-cell field pass: the NORTH-edge (-7933) decoration
+ * (frameless). Faithful full lift. Per the north edge code -7933: code 1 (open)
+ * stamps the passage cells l2ca6(3,0,5)/(4,0,5)/(3,1,10)/(4,1,10); otherwise it
+ * fills those four cells with 22 (wall). Dep l2ca6 is a PROBE stub. */
+static void l2f82(void)
+{
+	PROBE("L2f82");
+	if (g_a5_byte(-7933) == 1) {
+		l2ca6(3, 0, 5);
+		l2ca6(4, 0, 5);
+		l2ca6(3, 1, 10);
+		l2ca6(4, 1, 10);
+	} else {
+		l2ca6(3, 0, 22);
+		l2ca6(4, 0, 22);
+		l2ca6(3, 1, 22);
+		l2ca6(4, 1, 22);
+	}
+}
 
 /* CODE 13+0x3540 — l3f24's outdoor-normal field-init tail. Faithful full lift.
  * Fills the live field map (-25318 + 9) with terrain code 22 for 1250 bytes
