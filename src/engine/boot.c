@@ -37517,7 +37517,115 @@ static void l1714(void)
 	} while (sel != 2);
 }
 static void        jt547(short a, short b, unsigned char *out) { PROBE("jt547"); (void)a; (void)b; if (out) *out = 0; }  /* CODE 14+0x2744 cast spell */
-static void        jt534(long actor)                 { PROBE("jt534"); (void)actor; }              /* CODE 14+0x1184 field action */
+static unsigned char jt540(long actor, void *target, void *param);   /* CODE 14 target iterator, stub below */
+static void jt877(long entity, short status, long msg);              /* CODE 18+0x16fc, lifted below */
+static void l73cc(long a, short b, short c) { PROBE("L73cc"); (void)a; (void)b; (void)c; }  /* CODE 14 mark-turned */
+static void l6de8(long a) { PROBE("L6de8"); (void)a; }                                     /* CODE 14 remove-undead */
+
+/* CODE 14+0x1184 — the TURN UNDEAD action (jt534). Faithful full lift. Announces
+ * "turns undead..." (jt18), computes the effective turning level (best of class-0
+ * level and class-3 level-2, clamped to <=10 via the 9/10 step, then minus the
+ * design difficulty -28006[15], floored at 0), rolls a d20 (jt870), and sweeps
+ * the undead in range (jt540 -> target) against the turn matrix -7182[(type[90]
+ * -1)*11 + level]: when the d20 meets the jt388 threshold for that matrix cell the
+ * undead is turned (l73cc mark + "is turned" jt877) or, for a negative cell,
+ * destroyed ("Is destroyed" jt18 + l6de8 remove + [94]=8). The affected count is
+ * rolled once (1d12, or 1d6+6 for a destroy cell); "Nothing Happens..." (jt42)
+ * when none turn. Closes with area-map redraw (jt490) + resolve (jt498) +
+ * present (jt20). NOTE jt540 (target iterator) and jt388 (turn threshold) are
+ * still PROBE stubs, so this is faithful but inert until they land; l73cc/l6de8
+ * spawned as PROBE stubs. */
+static void jt534(long actor_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	unsigned char *mc;
+	unsigned char roll;             /* fp@(-1) */
+	unsigned char count;            /* fp@(-2) */
+	short         turns_rem;        /* fp@(-3) */
+	signed char   tbl = 0;          /* fp@(-4) */
+	unsigned char any_turned;       /* fp@(-5) */
+	long          target = 0;       /* fp@(-10) */
+	short         level;            /* fp@(-11) */
+	unsigned char tries;            /* fp@(-12) */
+	short         t;
+
+	PROBE("jt534");
+	jt18((void *)(uintptr_t)actor_l,
+	     (long)(uintptr_t)ua_strs_at(0x4644) /* "turns undead..." */, 10, 0);
+	jt176();
+	jt102();
+	any_turned = 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(actor + 64));
+	mc[19]++;
+	tries = 13;
+	turns_rem = 6;
+	roll = jt870(1, 20);
+
+	level = (short)(jt40(actor, 0) & 0xff);
+	t = (short)((jt40(actor, 3) & 0xff) - 2);
+	if (t > level)
+		level = (short)((jt40(actor, 3) & 0xff) - 2);
+
+	if (level > 8)
+		level = (level >= 14) ? 10 : 9;
+	{
+		unsigned char *gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		level = ((unsigned char)gs[15] <= level)
+		      ? (short)(level - (unsigned char)gs[15]) : 0;
+	}
+
+	count = 0xff;                   /* sentinel: roll the affected-count on the 1st undead */
+	for (;;) {
+		unsigned char *u;
+
+		if (jt540(actor_l, &target, &tries) == 0)   /* L1396 — next undead in range */
+			break;
+		if (count == 0)
+			break;
+
+		/* L126e — process this undead */
+		u = (unsigned char *)(uintptr_t)target;
+		tbl = (signed char)g_a5_byte(-7182
+		    + ((short)(unsigned char)u[90] - 1) * 11 + level);
+
+		if (count == 0xff)
+			count = (tbl >= 0) ? (unsigned char)jt870(1, 12)
+			                   : (unsigned char)(jt870(1, 6) + 6);
+
+		if ((unsigned short)roll < (unsigned short)jt388((short)tbl)) {
+			tries--;                            /* L1392 — failed this type */
+			continue;
+		}
+
+		any_turned = 1;
+		l73cc(target, 3, 0);
+		g_a5_byte(-22627) = 1;
+		jt38(target);
+		if (tbl > 0) {
+			jt877(target, 3,
+			    (long)(uintptr_t)ua_strs_at(0x4654) /* "is turned" */);
+		} else {
+			jt18(u, (long)(uintptr_t)ua_strs_at(0x465e) /* "Is destroyed" */,
+			     10, 0);
+			l6de8(target);
+			u[94] = 8;
+			u[382] = 0;
+		}
+
+		if (turns_rem > 0)
+			turns_rem--;
+		count--;
+		if (count == 0 && turns_rem > 0 && tbl < 0)
+			count++;
+		jt20();
+	}
+
+	if (any_turned == 0)
+		jt42(ua_strs_at(0x466c) /* "Nothing Happens..." */);
+	jt490();
+	g_a5_byte(-22647) = jt498(actor_l);
+	jt20();
+}
 
 /* CODE 13+0x076e — execute one actor's combat turn (THE KEYSTONE). Faithful
  * level-2 lift: the turn structure is faithful; the action dispatch (l5008
