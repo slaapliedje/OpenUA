@@ -3388,7 +3388,7 @@ static void  l2b2a(void *ev);              /* award-experience event (case 26) �
 static void  l5fcc(void *ev);              /* pass-time event — defined after jt914 */
 static void  l398a(void *ev, short v);     /* Inn event (case 29) — defined after l473e (rest block) */
 static void  l38bc(void *ev);              /* select-member-by-class event (case 32) — defined after its deps */
-static short l6436(void *ev)               { PROBE("L6436"); (void)ev; return 0; }
+static short l6436(void *ev);              /* conditional-variable branch event (case 35) — defined after its deps */
 static short l3118(void *ev);              /* Yes/No QUESTION event — lifted near jt181 */
 static void  l43ac(short idx);             /* once-triggered bitmap clear — defined after its deps */
 static void  l3bee(short v);               /* encounter-queue insert — defined after its deps */
@@ -33839,6 +33839,89 @@ invalid:
 }
 
 static void jt23(void);   /* CODE 6+0x2890 play-frame redraw, defined below */
+
+/* L6436 (CODE 20 + 0x6436) — the conditional-variable + branch question event
+ * (l709e case 35). Faithful full lift. Shows the picture (L442e) / refresh
+ * (jt935) and event text (jt1180/jt232/L0b20), then presents one of six prompt
+ * variants by ev[7] bits 3-5: 0 = ask, force No; 1 = ask, answer = result; 2 =
+ * ask, answer = inverted result; 3 = ask, force Yes; 4 = no-ask force No; 5 =
+ * no-ask force Yes (4/5 pause via jt181 when there is text, else jt102). On Yes
+ * it sets the game variable rec[ev[8]+69] to 255 (ev[7] bit6) or increments it,
+ * and returns the next-event index ev[10]; on No it sets the variable to 128
+ * (ev[7] bit2) and returns ev[11]. The jt159 prompt strings are empty (the
+ * question text was already painted). */
+static short l6436(void *ev_v)
+{
+	unsigned char *ev  = (unsigned char *)ev_v;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  answer = 0, result;
+
+	PROBE("L6436");
+	if (ev == NULL || rec == NULL)
+		return 0;
+
+	if (ev[6])
+		l442e(ev);
+	else
+		jt935();
+
+	jt232((void *)(uintptr_t)g_a5_long(-13034),
+	      jt1180(*(short *)(ev + 4)),
+	      (char *)&g_a5_byte(-5213));
+	rec[57] = 0;
+	l0b20(&g_a5_byte(-5213));
+
+	switch ((ev[7] & 0x38) >> 3) {                  /* prompt variant */
+	case 0:
+		jt159((const char *)ua_strs_at(0x6a9a), 0);
+		jt20();
+		answer = 0;
+		break;
+	case 1:
+		answer = (unsigned char)jt159((const char *)ua_strs_at(0x6a9c), 0);
+		jt20();
+		break;
+	case 2:
+		answer = (jt159((const char *)ua_strs_at(0x6a9e), 0) == 0) ? 1 : 0;
+		jt20();
+		break;
+	case 3:
+		jt159((const char *)ua_strs_at(0x6aa0), 0);
+		jt20();
+		answer = 1;
+		break;
+	case 4:
+		answer = 0;
+		if (*(short *)(ev + 4) != 0)
+			jt181(1);
+		else if (ev[6] != 0)
+			jt102();
+		break;
+	case 5:
+		answer = 1;
+		if (*(short *)(ev + 4) != 0)
+			jt181(1);
+		else if (ev[6] != 0)
+			jt102();
+		break;
+	default:
+		break;
+	}
+
+	if (answer != 0) {                              /* Yes branch */
+		if (ev[7] & 0x40)
+			rec[ev[8] + 69] = 0xff;
+		else
+			rec[ev[8] + 69]++;
+		result = ev[10];
+	} else {                                        /* No branch */
+		if (ev[7] & 0x04)
+			rec[ev[8] + 69] = 0x80;
+		result = ev[11];
+	}
+
+	return (short)result;
+}
 
 /* L2b2a (CODE 20 + 0x2b2a) — the award-experience event (l709e case 26).
  * Faithful full lift. Shows the picture (L442e) / setup (L40b4) + event text
