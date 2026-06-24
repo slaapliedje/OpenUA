@@ -32721,7 +32721,62 @@ static void jt625(void)	/* +0x2c00; id 88 */
 }
 static void jt626(void) { PROBE("jt626"); }	/* +0x2552; id 78 */
 static void jt627(void) { PROBE("jt627"); }	/* +0x20b6; id 66 */
-static void jt628(void) { PROBE("jt628"); }	/* +0x1dfa; id 55 */
+static unsigned char jt872(long rec, short type);  /* CODE 18, below */
+/* CODE 16+0x1840 (local) — the duration-counter STATUS applier, shared by jt652
+ * (Haste) / jt628 (Slow).  Two passes over the -23512 area-target list:
+ *  pass 1 — for each target whose record[95] == `type` while the caster-level
+ *           counter jt17(effect,0) holds: stage status id `a` into -25268 and
+ *           -25266=8, run jt868(9,slot); if jt868 left -25268==a, spend a level
+ *           and, when jt872(target,a) confirms, null the slot.  Non-matching
+ *           targets (or once the counter is spent) are nulled.
+ *  announce — l6114(effect,0,0,0,0,msg) over the survivors.
+ *  pass 2 — jt868(18,slot) on every surviving (non-null) slot.
+ * `type` is taken signed (extw), record[95] unsigned, exactly as the asm. */
+static void l1840(short a, short b, const char *msg)
+{
+	int lvl, i;
+
+	g_a5_byte(-25257) = 1;					/* 1846 */
+	lvl = (unsigned char)jt17((short)(unsigned char)g_a5_byte(-25262), 0); /* 1854 */
+
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 1930 */
+		long *slot = &g_a5_longs(-23512)[i];
+		unsigned char *rec = (unsigned char *)(uintptr_t)*slot;	/* 187c */
+		int clear = 1;
+
+		if ((short)(unsigned char)rec[95] == (short)(signed char)b  /* 188a */
+		    && lvl != 0) {					/* 1896 */
+			g_a5_byte(-25268) = (unsigned char)a;		/* 189c */
+			g_a5_word(-25266) = 8;				/* 18a4 */
+			jt868(9, slot);					/* 18c2 */
+			clear = 0;					/* default keep */
+			if ((unsigned char)g_a5_byte(-25268) == (unsigned char)a) { /* 18cc */
+				lvl--;					/* 18d2 */
+				if ((unsigned char)jt872(*slot,
+				    (short)(unsigned char)a) != 0)	/* 18f4 / 18fa */
+					clear = 1;			/* 1912 */
+			}
+		}
+		if (clear)
+			*slot = 0;					/* 192a / 1912 */
+	}
+
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, msg);				/* 193c */
+
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 199c */
+		long *slot = &g_a5_longs(-23512)[i];
+		if (*slot != 0)						/* 1974 */
+			jt868(18, slot);				/* 198e */
+	}
+}
+static void jt628(void)	/* +0x1dfa; id 55 */
+{
+	PROBE("jt628");
+	/* CODE 16 status handler "is Slowed": l1840(39, jt493(current char), msg). */
+	l1840((short)39, jt493(g_a5_long(-27932)),
+	      ua_strs_at(0x4f5c) /* "is Slowed" */);
+}
 static void jt629(void) { PROBE("jt629"); }	/* +0x155e; id 42 */
 static void jt630(void) { PROBE("jt630"); }	/* +0x3634; id 113 */
 static void jt632(void)	/* +0x09c0; id 31 */
@@ -32763,7 +32818,15 @@ static void jt650(void)	/* +0x0158; id 4 */
 	      (short)jt873(1, 8), (short)8, ua_strs_at(0x4d4c) /* "" */);
 }
 static void jt651(void) { PROBE("jt651"); }	/* +0x2e28; id 96 */
-static void jt652(void) { PROBE("jt652"); }	/* +0x19aa; id 48 */
+static void jt652(void)	/* +0x19aa; id 48 */
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+
+	PROBE("jt652");
+	/* CODE 16 status handler "is Hasted": l1840(42, current char record[95], msg). */
+	l1840((short)42, (short)(unsigned char)rec[95],
+	      ua_strs_at(0x4f52) /* "is Hasted" */);
+}
 static void jt653(void) { PROBE("jt653"); }	/* +0x37bc; id 114 */
 static void jt654(void)	/* +0x07b2; id 24 */
 {
