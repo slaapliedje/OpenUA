@@ -74,7 +74,7 @@ drives the turn through.
 | `l544e` | 0x544e | 198ln | sub-dispatch (jt41/jt515/jt472/jt3) | — |
 | `l525c` | 0x525c | 44ln | field action bridge (jt540/jt534 — into the CODE 14 field tier) | — |
 | `l52fe` | 0x52fe | 103ln | spell-in-combat (jt547 camp-gate, jt870) | — |
-| `l272a` | 0x272a | 34ln | GUARD action (`"Guarding"`, jt527/jt521) | — |
+| `l272a` | 0x272a | 34ln | GUARD action (`"Guarding"`, l26ea + jt42) | **LIFTED** (full; mc[9] guard flag + "Guarding"; l26ea resolve still stub) |
 | `l283e` | 0x283e | 43ln | BANDAGE / first-aid (`"is bandaged"`, jt18) | **LIFTED** (dying-scan + bandage; l102a calls flag 0, Bandage cmd flag 1) |
 
 ## Cluster 4 — attack & MORALE resolution (dice)
