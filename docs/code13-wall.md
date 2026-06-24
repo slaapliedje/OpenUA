@@ -97,7 +97,8 @@ drives the turn through.
 | `l404e` | 0x404e | 93ln | per-actor build (jt21 stats, jt477 alloc, jt399) | — |
 | `l3016` `l32ba` | 0x3016 / 0x32ba | 181/191ln | jt3 inline-switch sub-dispatchers | — |
 | `l2d30` | 0x2d30 | 71ln | area-map bridge (jt206/jt202) | — |
-| `l41b2` `l490c` `l5b9a` | — | 116/158/371ln | draw/attack composites (jt515 / jt525/531/546/870) | — |
+| `l41b2` `l490c` | — | 116/158ln | draw composites (jt515 / jt525/531) | — |
+| `l5b9a` | 0x5b9a | 371ln | the monster ATTACK executor (per-attack loop; jt868/l283e gate, monster-def attack count, target re-acquire jt546/-25676, range l713c, resolve l56d8/jt555, jt521 redraw) | **LIFTED** (full CFG; reached via l5008; spawned stubs l56d8/l713c/l2484/l25f4/l2bde + jt554/549/550) |
 | `l6042` `l6c96` `l6ac4` `l6b2c` `l1842` `l2ca6` `l2e92` `l3540` `l364c` `l3b36` `l4188` `l52ee` `l8b4`… | — | small | leaf helpers (range jt552, fills jt399, etc.) | — |
 | `jt496` / `jt510` | CODE 13 | leaf | the 2 pending JT leaves (MISSING) | — |
 

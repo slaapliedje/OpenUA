@@ -36903,7 +36903,220 @@ static signed char l52fe(long m)
 	return (signed char)result;
 }
 static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)target; }
-static signed char l5b9a(long m) { PROBE("L5b9a"); (void)m; return 1; }
+
+/* Forward decls — deps of l5b9a that are defined later in this file. */
+static signed char l6042(long m);
+static void        jt555(long rec_l, long ent_l, short a, long b, void *out);
+
+/* Leaf deps of l5b9a still to be lifted — PROBE stubs with faithful-default
+ * returns (0 = "no"/"not in range"/"not valid", which sends l5b9a down the
+ * re-acquire / move-fallback paths rather than asserting a hit). */
+static void          l56d8(long m)               { PROBE("L56d8"); (void)m; }            /* CODE 13 — move/attack resolve */
+static unsigned char l713c(short a, short b, void *p1, void *p2, void *p3)               /* CODE 13 — range/adjacency check */
+{ PROBE("L713c"); (void)a; (void)b; (void)p1; (void)p2; (void)p3; return 0; }
+static unsigned char l2484(long m, short a, short b)                                     /* CODE 13 — attack-count resolve */
+{ PROBE("L2484"); (void)m; (void)a; (void)b; return 0; }
+static unsigned char l25f4(long m, long target)  { PROBE("L25f4"); (void)m; (void)target; return 0; }  /* CODE 13 */
+static unsigned char l2bde(long m, void *out)    { PROBE("L2bde"); (void)m; if (out) *(long *)out = 0; return 0; }  /* CODE 13 */
+static unsigned char jt554(long m, long target, short f)                                 /* CODE 14+0x10c4 — target valid? */
+{ PROBE("jt554"); (void)m; (void)target; (void)f; return 0; }
+static unsigned char jt549(long m, long target)  { PROBE("jt549"); (void)m; (void)target; return 0; }  /* CODE 14+0x5a22 — weapon-reach reject */
+static void          jt550(long m, long target)  { PROBE("jt550"); (void)m; (void)target; }            /* CODE 14+0x1956 */
+
+/* CODE 13+0x5b9a — the monster ATTACK executor (reached via l5008). Faithful
+ * full lift mirroring the asm CFG. Refreshes the actor (jt868), bails the
+ * action when a dying ally is found while un-summoned (l283e). Then loops (cap
+ * 20 iterations): per pass it re-checks the actor's action budget (mc[4]/mc[8]),
+ * derives the attack count from the monster def (-27944[def[40]<<4][12], clamped
+ * to 1), validates/re-acquires a target (current mc[12] kept only if a summoned
+ * controllable; else jt546 melee acquire or the -25676 slot picked by a 1d(n)
+ * roll into -22720), range-checks (l713c), and resolves the swing (l56d8 melee /
+ * jt555 ranged, with l549/l550 reach gates and the -22628 hit flag driving the
+ * jt521 map redraw). l6042 is the move fallback; l26ea ends the turn. Returns 1
+ * (turn done) once the continue flag clears, 0 to keep going — l5008 loops on it.
+ * Heavy resolvers (l56d8, l713c, l2484, l25f4, l2bde, jt554/549/550) are PROBE
+ * stubs for now, so a swing currently re-acquires/moves rather than landing. */
+static signed char l5b9a(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	unsigned char  done = 0, cont = 1, natt = 0, nmulti = 0, roll = 0;
+	unsigned char  t_sx = 0, t_sy = 0, a_sx = 0, a_sy = 0, iter = 0;
+	short          nattw = 0;
+	long           target = 0, arg12 = 0;
+
+	PROBE("L5b9a");
+	if (actor == NULL)
+		return 1;
+
+	g_a5_byte(-7840) = 8;
+	g_a5_byte(-7839) = 0;
+	g_a5_byte(-7838) = 0;
+
+	jt868(14, &m);                          /* refresh the actor record */
+	actor = (unsigned char *)(uintptr_t)m;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (actor[95] == 0 && l283e(1) != 0)    /* un-summoned + dying ally: stop acting */
+		*(short *)(mc + 4) = 0;
+
+	/* L5bf0 — no actions left means don't continue; either way drop to the tail. */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) == 0)
+		cont = 0;
+	goto tail;
+
+loop_top:                                       /* L5c08 */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[22] != 0)
+		goto l5c22;
+	goto l5c52;
+
+l5c18:
+	l56d8(m);
+	/* fall through */
+l5c22:
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[8] == 0)
+		goto l5c52;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) <= 0)
+		goto l5c52;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) < 20)
+		goto l5c18;
+	/* fall through */
+l5c52:
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) == 0)
+		goto l5c70;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) != 20)
+		goto l5c76;
+	/* mc[4] == 20 falls to l5c70 */
+l5c70:
+	cont = 0;
+	goto l5c7a;
+l5c76:
+	done = 0;
+	/* fall through */
+l5c7a:
+	if (done != 0)
+		goto tail;
+	if (cont == 0)
+		goto tail;
+	if (++iter >= 20) {                     /* runaway guard: bail via a move */
+		done = 1;
+		cont = (l6042(m) == 0) ? 1 : 0;
+	}
+
+	/* L5cb6 — derive this pass's attack count from the monster def. */
+	g_a5_byte(-22628) = 0;
+	natt = 1;
+	if (*(long *)(uintptr_t)(actor + 12) != 0) {
+		unsigned char *p = (unsigned char *)(uintptr_t)
+		    (*(long *)(uintptr_t)(actor + 12));
+		unsigned char *mdef = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-27944) + ((long)p[40] << 4));
+		natt = mdef[12];
+	}
+	if (natt == 0 || natt == 255)
+		natt = 1;
+
+	/* L5d08 — keep the current target only if it's a summoned controllable. */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	target = *(long *)(uintptr_t)(mc + 12);
+	{
+		unsigned char *t = (unsigned char *)(uintptr_t)target;
+		if (!(t[382] != 0 && t[95] != 0))
+			target = 0;
+	}
+	if (target == 0)
+		goto l5dd2;
+	if (jt554(m, target, 0) == 0)
+		goto l5dd2;
+	t_sx = jt525(target);
+	t_sy = jt531(target);
+	nattw = (short)natt;
+	((unsigned char *)(uintptr_t)g_a5_long(-25318))[8] = 0;
+	a_sx = jt525(m);
+	{
+		unsigned char ay = jt531(m);
+		if (l713c((short)a_sx, (short)ay, &t_sx, &t_sy, &nattw) != 0) {
+			if ((unsigned short)(((unsigned short)nattw) >> 1) <= (unsigned short)natt)
+				g_a5_byte(-22628) = 1;
+		}
+	}
+	/* fall through */
+l5dd2:
+	if (g_a5_byte(-22628) == 0)
+		goto l5f10;
+	nmulti = l2484(m, (short)natt, 0);
+	if (nmulti != 0)
+		goto l5e4c;
+	/* melee swing */
+	if (jt546(m, 255, 0, 0, 0) != 0) {
+		l56d8(m);
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		if (mc[0] != 0)
+			cont = 0;
+		goto l5f10;
+	}
+	done = l6042(m);                        /* couldn't reach: move */
+	goto l5f10;
+l5e4c:
+	/* ranged/multi swing: pick a slot via a 1d(nmulti) roll into -22720. */
+	roll = (unsigned char)jt870(1, (short)nmulti);
+	target = g_a5_longs(-25676)[(unsigned char)g_a5_byte(-22720 + roll)];
+	if (l279c(m) != 0 && l27e6(m) == 0 && (l2484(m, 1, 0) & 0xff) != 0) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		l6454(m, *(long *)(uintptr_t)(mc + 12));
+		done = 1;
+		goto l5f10;
+	}
+	/* L5edc */
+	if ((l25f4(m, target) & 0xff) != 1 && jt554(m, target, 0) == 0)
+		goto l5f10;
+	g_a5_byte(-22628) = 1;
+	/* fall through */
+l5f10:
+	if (g_a5_byte(-22628) != 0) {
+		a_sx = jt525(m);
+		a_sy = jt531(m);
+		jt521((short)a_sx, (short)a_sy, 2,
+		      (short)(jt529(m, target) & 0xff));
+	}
+	/* L5f60 */
+	if (g_a5_byte(-22628) == 0)
+		goto tail;
+	if (jt549(m, target) != 0) {            /* "Not with that weapon" */
+		done = l26ea(m);
+		goto tail;
+	}
+	/* L5f8c */
+	jt550(m, target);
+	arg12 = 0;
+	if (l279c(m) != 0) {
+		g_a5_byte(-22628) = l2bde(m, &arg12);
+		if (l27e6(m) != 0) {
+			if ((l25f4(m, target) & 0xff) == 1)
+				arg12 = 0;
+		}
+	}
+	/* L5fe8 — resolve the hit (jt555 may set `done`). */
+	jt555(m, target, 0, arg12, &done);
+	if (done != 0) {
+		cont = 0;
+		goto tail;
+	}
+	/* L600e */
+	if (((unsigned char *)(uintptr_t)target)[382] == 0)
+		done = 1;
+	/* fall through */
+tail:                                           /* L601e */
+	if (done == 0 && cont != 0)
+		goto loop_top;
+	return (signed char)(cont == 0 ? 1 : 0);
+}
 /* CODE 13+0x6042 — the monster MOVE executor (reached via l5008). Faithful
  * full lift: refresh (jt20), then end the turn (l26ea) when the actor can't
  * usefully move — jt13 set, can flee (l279c), or out of actions (mc[4] == 0) —
