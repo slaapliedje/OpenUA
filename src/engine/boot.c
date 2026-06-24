@@ -37527,7 +37527,39 @@ static void l1714(void)
 static void        jt547(short a, short b, unsigned char *out) { PROBE("jt547"); (void)a; (void)b; if (out) *out = 0; }  /* CODE 14+0x2744 cast spell */
 static unsigned char jt540(long actor, void *target, void *param);   /* CODE 14 target iterator, stub below */
 static void jt877(long entity, short status, long msg);              /* CODE 18+0x16fc, lifted below */
-static void l73cc(long a, short b, short c) { PROBE("L73cc"); (void)a; (void)b; (void)c; }  /* CODE 14 mark-turned */
+static short l6b40(long m) { PROBE("L6b40"); (void)m; return 0; }  /* CODE 14 sprite X (stub) */
+static short l6b6a(long m) { PROBE("L6b6a"); (void)m; return 0; }  /* CODE 14 sprite Y (stub) */
+static void  l6836(short a, short b, short c, short d) { PROBE("L6836"); (void)a; (void)b; (void)c; (void)d; }  /* CODE 14 sprite draw (stub) */
+
+/* CODE 14+0x73cc — the TURNED-undead visual update (l73cc), called from jt534.
+ * Faithful full lift. Stages the field header (-25318) for the draw: byte +6 =
+ * the caller's c arg, byte +7 = the combatant's body-slot facing (cell record
+ * -27472[l6bbe(a)]+5). When the show-effect flag -22626 is set it blits the turn
+ * marker via l6836(x=l6b40(a), y=l6b6a(a), frame=b, size=8). Finally it restores
+ * the field header (+6=0, +7=1). Dep l6bbe lifted; the sprite-coord/draw trio
+ * l6b40/l6b6a/l6836 spawned as PROBE stubs. */
+static void l73cc(long a, short b, short c)
+{
+	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	unsigned char *cell;
+	short          x;               /* fp@(-1) */
+
+	PROBE("L73cc");
+	fld[6] = (unsigned char)c;
+	cell = g_a5_buf(-27472) + (long)((unsigned char)l6bbe(a)) * 6;
+	fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	fld[7] = cell[5];
+
+	if (g_a5_byte(-22626) != 0) {
+		x = l6b40(a);
+		l6836(x, l6b6a(a), b, 8);
+	}
+
+	fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	fld[6] = 0;
+	fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	fld[7] = 1;
+}
 static void l6de8(long a) { PROBE("L6de8"); (void)a; }                                     /* CODE 14 remove-undead */
 
 /* CODE 14+0x1184 — the TURN UNDEAD action (jt534). Faithful full lift. Announces
