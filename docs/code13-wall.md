@@ -47,7 +47,7 @@ The loop skeleton. Lift left-to-right; each is small-to-medium and gates the res
 | `l4f22` | 0x4f22 | 64ln | combat ENTRY staging — jt68 setup, jt65, jt525/531 draw, jt77, jt117 present | **LIFTED** (level-2; spawned stubs jt68/jt536/l3f24/l404e/l4af4/l276c) |
 | `l0434` | 0x0434 | 120ln | per-ROUND init — fills the `-22624` initiative slots (jt399) + initiative rolls (jt870) | **LIFTED** (insertion-sort party by init member[64][5], jt870 tie-break; deps lifted) |
 | `l076e` | 0x076e | 99ln | **per-ACTOR turn (THE KEYSTONE)** — jt868 erase, jt516 creature predicate, jt21 derived-stats, jt525/530/531 draw; dispatches the actor's action | **LIFTED** (level-2; dispatch -> l5008 monster-AI / l08b4 player-cmd stubs) |
-| `l102a` | 0x102a | 100ln | END-of-round — death check (`"A Comrade is Dying"`), jt914/jt861/jt879, jt536 field + jt521 map redraw; may end the fight | stub |
+| `l102a` | 0x102a | 100ln | END-of-round — death check (`"A Comrade is Dying"`), jt914/jt861/jt879, jt536 field + jt521 map redraw; may end the fight | **LIFTED** (full; death-timer aging + fight-over decision; deps lifted) |
 | `l0116` | 0x0116 | 232ln | the combat LOG-LINE painter (`"%s%s%s"` via jt384/jt488/jt96/jt99/jt18/jt860) — every combat message routes here | stub |
 
 ## Cluster 2 — the in-combat COMMAND UI
@@ -75,7 +75,7 @@ drives the turn through.
 | `l525c` | 0x525c | 44ln | field action bridge (jt540/jt534 — into the CODE 14 field tier) | — |
 | `l52fe` | 0x52fe | 103ln | spell-in-combat (jt547 camp-gate, jt870) | — |
 | `l272a` | 0x272a | 34ln | GUARD action (`"Guarding"`, jt527/jt521) | — |
-| `l283e` | 0x283e | 43ln | BANDAGE / first-aid (`"is bandaged"`, jt18) | — |
+| `l283e` | 0x283e | 43ln | BANDAGE / first-aid (`"is bandaged"`, jt18) | **LIFTED** (dying-scan + bandage; l102a calls flag 0, Bandage cmd flag 1) |
 
 ## Cluster 4 — attack & MORALE resolution (dice)
 
