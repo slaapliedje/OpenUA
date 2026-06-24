@@ -67,7 +67,7 @@ drives the turn through.
 
 | local | addr | size | what (disasm) | status |
 |---|---|---:|---|---|
-| `l8b4`  | 0x08b4 | 325ln | action dispatcher / "can I do that?" (`"That doesn't work"`, jt530/543/545/476) | — |
+| `l08b4` | 0x08b4 | 325ln | action dispatcher / "can I do that?" (`"That doesn't work"`, jt530/543/545/476) | **LIFTED** (level-2 skeleton; JT[3] 13-cmd + JT[1] roster-nav; spawned stubs l609a/l0d16/l26ea/l1162/l272a/l1842/l1714/jt547/jt534) |
 | `l4306` | 0x4306 | 541ln | the BIG action switch (jt3 inline dispatch + jt472) | — |
 | `l6454` | 0x6454 | 515ln | combat setup/build (jt41/jt882/jt21 derived-stats/jt543) | — |
 | `l4af4` | 0x4af4 | 324ln | combat UI/setup (jt68, jt522/524 field, jt19 name) | — |
