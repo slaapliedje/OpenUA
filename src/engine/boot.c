@@ -36139,8 +36139,75 @@ static signed char l272a(long actor_l)
 	}
 	return result;
 }
-static void        l1842(long actor)                 { PROBE("L1842"); (void)actor; }              /* flee helper */
-static void        l1714(void)                       { PROBE("L1714"); }                           /* target picker */
+/* CODE 13+0x1842 — the FLEE helper. Faithful full lift: mark the actor fled
+ * (sets the is-monster flag +383 = 1 so it leaves player control), and if its
+ * combatant target pointer (mc[12]) refers to a record with the same +95 as
+ * the actor, clear it. Pure leaf. */
+static void l1842(long actor_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	unsigned char *mc;
+	long           p;
+
+	PROBE("L1842");
+	if (actor == NULL)
+		return;
+	actor[383] = 1;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	p = *(long *)(uintptr_t)(mc + 12);
+	if (p != 0 && ((unsigned char *)(uintptr_t)p)[95] == actor[95])
+		*(long *)(uintptr_t)(mc + 12) = 0;
+}
+static const char *jt63(short n) { PROBE("jt63"); (void)n; return ""; }  /* CODE 6+0x60b4 count -> string (stub) */
+static short        jt182(const char *p1, long p2, short a3, short a4);  /* CODE 7+0x34f0 list dialog */
+/* CODE 13+0x1714 — the in-combat TARGET PICKER. Faithful full lift. Loops a
+ * paged list dialog: build the "(N) " title (jt63 over rec[18] + the -13888
+ * prefix via jt488/jt384), clear the menu buffer (jt399), append the page
+ * controls (jt155: 0 prev when rec[18] > 0, 1 next when rec[18] < 9, 2 select),
+ * run jt182 -> selection. A roster-nav key (-24139) maps via JT[1] (ESC 27 ->
+ * select; the 264/260 arms are dead — the selector is byte-truncated). Then a
+ * JT[3] pages the target index rec[18] (0 = --, 1 = ++); loops until select (2). */
+static void l1714(void)
+{
+	short sel = -1;
+	char  buf[48];                                  /* fp@(-42).. title buffer */
+
+	PROBE("L1714");
+	do {
+		unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		unsigned char  count;
+
+		jt384(buf, jt488("%s%s%s%s",
+		      (const char *)(uintptr_t)g_a5_long(-13888),
+		      (const char *)(uintptr_t)ua_strs_at(0x44b6),   /* "(" */
+		      jt63(rec[18]),
+		      (const char *)(uintptr_t)ua_strs_at(0x44b8))); /* ") " */
+		jt399(&g_a5_byte(-24126), 40, 255);
+		count = 0;
+		if (rec[18] > 0)
+			jt155(0, &count);
+		if (rec[18] < 9)
+			jt155(1, &count);
+		jt155(2, &count);
+
+		sel = (short)(unsigned char)jt182(buf, g_a5_long(-13768), 0, 0);
+
+		if (g_a5_byte(-24139) != 0) {           /* roster-nav key remap (JT[1]) */
+			switch (sel) {
+			case 27:  sel = 2; break;       /* ESC -> select/exit */
+			case 264: sel = 1; break;       /* dead (byte-truncated) */
+			case 260: sel = 0; break;       /* dead (byte-truncated) */
+			default:  break;
+			}
+		}
+
+		switch (sel) {                          /* page the target index (JT[3]) */
+		case 0: rec[18]--; break;
+		case 1: rec[18]++; break;
+		default: break;
+		}
+	} while (sel != 2);
+}
 static void        jt547(unsigned char *out, short b, short c) { PROBE("jt547"); (void)b; (void)c; if (out) *out = 0; }  /* CODE 14+0x2744 */
 static void        jt534(long actor)                 { PROBE("jt534"); (void)actor; }              /* CODE 14+0x1184 field action */
 
