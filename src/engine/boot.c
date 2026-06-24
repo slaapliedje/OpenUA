@@ -33034,7 +33034,30 @@ static void jt657(void)	/* +0x2604; id 79 */
 	l7026((short)0, ua_strs_at(0x5058) /* "is highlighted" */);
 }
 static void jt658(void) { PROBE("jt658"); }	/* +0x20e8; id 67,107 */
-static void jt659(void) { PROBE("jt659"); }	/* +0x1e1a; id 56 */
+static void jt867(long entity, short amount, short saveCat, short saveFlag);  /* CODE 18, below */
+static void jt659(void)	/* +0x1e1a; id 56 */
+{
+	long caster = g_a5_long(-23508);			/* 1e1e */
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	const char *msg;
+
+	PROBE("jt659");
+	/* CODE 16 effect id 56: stage value 8 into -25266, apply status 34 via
+	 * jt871, announce "is <name>" (jt488 over -19960), then if HP[395] > 4 deal
+	 * 1d4 (jt867 sets HP-roll). */
+	g_a5_word(-25266) = 8;					/* 1e26 */
+	jt871(caster, (short)34, (short)0, (short)0, (short)0, (short)0, (short)0,
+	      (long)(uintptr_t)ua_strs_at(0x4f66) /* "" */);	/* 1e42 */
+	msg = jt488(ua_strs_at(0x4f68) /* "is %s" */,
+	            (const char *)(uintptr_t)g_a5_long(-19960));	/* 1e54 */
+	jt18((void *)(uintptr_t)caster, (long)(uintptr_t)msg,
+	     (short)10, (short)1);				/* 1e68 */
+	if ((unsigned char)cas[395] > 4) {			/* 1e7a */
+		short roll = jt870(1, 4);			/* 1e88 */
+		jt867(caster, (short)((unsigned char)cas[395] - roll),
+		      (short)0, (short)0);			/* 1ea4 */
+	}
+}
 static void jt660(void)	/* +0x169e; id 44 */
 {
 	PROBE("jt660");
