@@ -33083,6 +33083,37 @@ static short jt206(short x, short y, short facing)
 	return l5e2e((short)((wall >> 4) & 15), (short)(wall & 15));
 }
 
+/* CODE 13+0x2d30 — the map PASSABILITY bridge (a CODE-13 local; the _c13 suffix
+ * tags the l4306 AoE cluster), called from l2df8_c13 and l4306. Faithful full
+ * lift. For an in-bounds cell (row a1 in [0,ds[3]), col a2 in [0,ds[2]),
+ * ds=-12300) it returns 1 (wall) when jt206 reports no opening, else 0 (open)
+ * when jt202 also reports none, else 3 (door). Off the map it returns 1 (wall),
+ * except at the party's own column (-12287) facing 2 or 6, which returns 0 (the
+ * open board edge). Deps jt206/jt202 lifted; marked unused until l2df8_c13. */
+static short l2d30_c13(short a1, short a2, short a3) __attribute__((unused));
+static short l2d30_c13(short a1, short a2, short a3)
+{
+	unsigned char *ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short ds3 = ds ? (short)ds[3] : 0;
+	short ds2 = ds ? (short)ds[2] : 0;
+
+	PROBE("L2d30c13");
+	if ((signed char)a1 < 0
+	    || (unsigned short)(short)(signed char)a1 > (unsigned short)(ds3 - 1)
+	    || (signed char)a2 < 0
+	    || (unsigned short)(short)(signed char)a2 > (unsigned short)(ds2 - 1)) {
+		if ((unsigned char)a2 == (unsigned char)g_a5_byte(-12287)
+		    && (a3 == 2 || a3 == 6))
+			return 0;
+		return 1;
+	}
+	if ((jt206(a1, a2, a3) & 0xff) == 0)
+		return 1;
+	if ((jt202(a1, a2, a3) & 0xff) == 0)
+		return 0;
+	return 3;
+}
+
 /* L1476 (CODE 20 + 0x1476) — marker depth probe. Walks forward from (x,y) in
  * the facing direction, counting open cells (jt202 == 0) up to 2, and returns
  * that depth — how far back the event sprite/PIC should be drawn for the
