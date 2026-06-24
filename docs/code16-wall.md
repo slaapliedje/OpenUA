@@ -189,8 +189,8 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 101 | -23662 | jt602 | CODE 16+0x0a62 | LIFTED |
 | 102 | -23658 | jt697 | CODE 16+0x2fbe | stub |
 | 103 | -23654 | jt618 | CODE 16+0x3218 | LIFTED |
-| 104 | -23650 | jt644 | CODE 16+0x323c | stub |
-| 105 | -23646 | jt673 | CODE 16+0x32ae | stub |
+| 104 | -23650 | jt644 | CODE 16+0x323c | LIFTED |
+| 105 | -23646 | jt673 | CODE 16+0x32ae | LIFTED |
 | 106 | -23642 | jt640 | CODE 16+0x1168 | LIFTED |
 | 107 | -23638 | jt658 | CODE 16+0x20e8 | stub |
 | 108 | -23634 | jt705 | CODE 16+0x3336 | stub |
@@ -232,18 +232,19 @@ nothing else. jt699 ("is protected") was the template; 16 more lifted 2026-06-15
 (jt606/609/624/625/632/634/654/656/660/662/685/689/692/694/706/707). The rest
 have real per-effect bodies (dice rolls, target tables, jt521 burst render).
 
-- LIFTED (49): jt602 jt605 jt606 jt607 jt609 jt610 jt611 jt617 jt618 jt620
-  jt621 jt623 jt624 jt625 jt628 jt632 jt633 jt634 jt636 jt638 jt640 jt643 jt646 jt649
-  jt650 jt652 jt654 jt655 jt656 jt657 jt659 jt660 jt661 jt662 jt663 jt664 jt666 jt674
-  jt668 jt675 jt676 jt685 jt686 jt687 jt689 jt692 jt694 jt695 jt699 jt706 jt707
-  jt708  (+ locals l602c, l6114, l0008, l1840, l0f52)
-- STUB (55): jt603 jt604 jt608 jt612 jt613 jt614 jt615 jt616
-  jt619 jt622 jt626 jt627 jt629 jt630 jt631 jt635
-  jt637 jt639 jt641 jt642 jt644 jt645 jt647 jt648
-  jt651 jt653 jt658 jt665 jt667
-  jt668 jt669 jt671 jt672 jt673 jt675 jt676 jt677 jt678 jt679 jt680 jt681 jt682
-  jt683 jt684 jt686 jt688 jt690 jt691 jt693 jt695 jt696 jt697 jt698 jt700 jt701
-  jt702 jt703 jt704 jt705 jt708
+- LIFTED (55):
+  jt602 jt605 jt606 jt607 jt609 jt610 jt611 jt617 jt618 jt620 jt621 jt623
+  jt624 jt625 jt628 jt631 jt632 jt633 jt634 jt636 jt638 jt640 jt643 jt644
+  jt646 jt649 jt650 jt652 jt654 jt655 jt656 jt657 jt659 jt660 jt661 jt662
+  jt663 jt664 jt666 jt668 jt673 jt674 jt675 jt676 jt685 jt686 jt687 jt689
+  jt692 jt694 jt695 jt699 jt706 jt707 jt708  (+ locals l602c, l6114,
+  l0008, l1840, l0f52)
+- STUB (51):
+  jt603 jt604 jt608 jt612 jt613 jt614 jt615 jt616 jt619 jt622 jt626 jt627
+  jt629 jt630 jt635 jt637 jt639 jt641 jt642 jt645 jt647 jt648 jt651 jt653
+  jt658 jt665 jt667 jt669 jt671 jt672 jt677 jt678 jt679 jt680 jt681 jt682
+  jt683 jt684 jt688 jt690 jt691 jt693 jt696 jt697 jt698 jt700 jt701 jt702
+  jt703 jt704 jt705
 
 The combat spine is now LIFTED (l076e + jt511 + l08b4/l5008, 2026-06-24), so the
 handler table is reachable in principle.  The effect-application core **l6114**

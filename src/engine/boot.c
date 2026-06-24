@@ -32922,7 +32922,28 @@ static void jt643(void)	/* +0x0468; id 13 */
 		     (short)10, (short)1);			/* 04e0 */
 	}
 }
-static void jt644(void) { PROBE("jt644"); }	/* +0x323c; id 104 */
+static void jt860(long rec_l, short status, long msg);  /* CODE 18, below */
+static void jt644(void)	/* +0x323c; id 104 */
+{
+	long entity = g_a5_long(-23508);			/* 3240 */
+	unsigned char *cas;
+
+	PROBE("jt644");
+	/* CODE 16 destruction (id 104): stage value 72 + save flag 255, run the save
+	 * (jt868 sel 9); unless the target is immune ([192]&8) or made the save
+	 * (-25242 cleared), destroy it via jt860; else "is unaffected". */
+	g_a5_word(-25266) = 72;					/* 3248 */
+	g_a5_word(-25242) = 255;				/* 324c */
+	jt868(9, &entity);					/* 325a */
+	cas = (unsigned char *)(uintptr_t)entity;		/* 3260 re-read */
+	if ((cas[192] & 8) == 0 && g_a5_word(-25242) != 0)	/* 326a / 3272 */
+		jt860(entity, 8,
+		      (long)(uintptr_t)ua_strs_at(0x514e) /* "is destroyed" */);  /* 3286 */
+	else
+		jt18((void *)(uintptr_t)entity,
+		     (long)(uintptr_t)ua_strs_at(0x515c) /* "is unaffected" */,
+		     (short)10, (short)1);			/* 32a2 */
+}
 static void jt645(void) { PROBE("jt645"); }	/* +0x26b2; id 82 */
 static void jt646(void)	/* +0x22e8; id 71 */
 {
@@ -33175,7 +33196,27 @@ static void jt668(void)	/* +0x23ea; id 75 — raise dead */
 static void jt669(void) { PROBE("jt669"); }	/* +0x2008; id 132 */
 static void jt671(void) { PROBE("jt671"); }	/* +0x2f9e; id 100 */
 static void jt672(void) { PROBE("jt672"); }	/* +0x118a; id 40 */
-static void jt673(void) { PROBE("jt673"); }	/* +0x32ae; id 105 */
+static void jt673(void)	/* +0x32ae; id 105 — resurrect */
+{
+	unsigned char *cas = (unsigned char *)(uintptr_t)g_a5_long(-23508);
+
+	PROBE("jt673");
+	/* CODE 16 resurrect (id 105): when the target is in death-state 6 with a
+	 * remaining charge [120] != 0 and a class [88] != 0, strip status 55, revive
+	 * (state[94]=0, controllable[382]=1), restore FULL HP ([395]=[129]) and
+	 * announce "is resurrected". */
+	if (cas[94] == 6					/* 32be */
+	    && cas[120] != 0					/* 32d0 */
+	    && cas[88] != 0) {					/* 32de */
+		jt878((long)(uintptr_t)cas, 55, 0L);		/* 32f0 */
+		cas[94] = 0;					/* 32fc */
+		cas[382] = 1;					/* 3306 */
+		cas[395] = cas[129];				/* 3312 */
+		jt18((void *)cas,
+		     (long)(uintptr_t)ua_strs_at(0x516a) /* "is resurrected" */,
+		     (short)10, (short)1);			/* 332a */
+	}
+}
 /* Defined later in the file. */
 static void          l6114(short code, short a, short b, short c, short d,
                            const char *msg);
