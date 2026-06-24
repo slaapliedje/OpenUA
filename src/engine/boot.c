@@ -35993,13 +35993,81 @@ static void jt58(void)
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
  * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 + l32ba + l375a are lifted below;
- * l3936/l3b36 (l3ef6's remaining passes) are PROBE stubs for their own
- * cards. */
+ * l3b36 (l3ef6's last pass) and l364c (l3936's feature RNG) are PROBE stubs for
+ * their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
-static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
+static short l364c(void) { PROBE("L364c"); return 0; }   /* l3936's field-feature RNG (stub) */
+
+/* CODE 13+0x3936 — combat-field FOREST/OBSTACLE scatterer (l3ef6's 2nd pass;
+ * NOT attack-roll resolution — the wall-doc label was wrong). Faithful full
+ * lift. Bails when l364c's bit 7 is set (no feature this field). Otherwise it
+ * derives a placement density from four more l364c rolls (base 5; -3 on the
+ * -8584 mask bits, -3 on bit 0x04, +2 on bit 0x40, +5 on bit 0x08; clamped to
+ * >=1), then for each grass cell (row 1..24, col 0..49) whose terrain AND the
+ * cell above are both "type 37" (the -27848 cost table's +3 byte) it rolls
+ * jt870(1,100): if <= density a feature is placed — a second jt870(1,100) <=
+ * density gives a single bush (terrain jt870(1,2)+41 at the cell), else a 2-tall
+ * tree (jt870(1,5)+31 above, jt870(1,5)+36 at the cell). Dep jt870 lifted; l364c
+ * is a PROBE stub. */
+static void l3936(void)
+{
+	signed char   density;      /* fp@(-3) */
+	unsigned char col;          /* fp@(-1) */
+	unsigned char row;          /* fp@(-2) */
+
+	PROBE("L3936");
+	if ((l364c() & 0xff) & 0x80)
+		return;
+
+	density = 5;
+	if ((l364c() & 0xff) & (unsigned char)g_a5_byte(-8584))
+		density -= 3;
+	if ((l364c() & 0xff) & 4)
+		density -= 3;
+	if ((l364c() & 0xff) & 64)
+		density += 2;
+	if ((l364c() & 0xff) & 8)
+		density += 5;
+	if (density < 0)
+		density = 1;
+
+	for (col = 0; col <= 49; col++) {
+		for (row = 1; row <= 24; row++) {
+			unsigned char *cell, *above;
+			short r2;
+
+			cell = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-25318) + (long)((short)row * 50) + (long)col);
+			if ((unsigned char)g_a5_byte(-27848 + cell[9] * 4 + 3) != 37)
+				continue;
+			above = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-25318) + (long)(((short)row - 1) * 50) + (long)col);
+			if ((unsigned char)g_a5_byte(-27848 + above[9] * 4 + 3) != 37)
+				continue;
+
+			if (jt870(1, 100) > (short)density)
+				continue;
+			r2 = jt870(1, 100);
+			if (r2 > (short)density) {
+				/* L3aa8 — a 2-tall tree */
+				above = (unsigned char *)(uintptr_t)
+				    (g_a5_long(-25318) + (long)(((short)row - 1) * 50) + (long)col);
+				above[9] = (unsigned char)(jt870(1, 5) + 31);
+				cell = (unsigned char *)(uintptr_t)
+				    (g_a5_long(-25318) + (long)((short)row * 50) + (long)col);
+				cell[9] = (unsigned char)(jt870(1, 5) + 36);
+			} else {
+				/* a single bush */
+				cell = (unsigned char *)(uintptr_t)
+				    (g_a5_long(-25318) + (long)((short)row * 50) + (long)col);
+				cell[9] = (unsigned char)(jt870(1, 2) + 41);
+			}
+		}
+	}
+}
 
 /* CODE 13+0x3678 — l375a's straight-channel painter (the river "branch
  * extender"; NOT attack-roll resolution). Faithful full lift. Stamps a narrow
