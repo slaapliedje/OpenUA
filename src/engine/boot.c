@@ -36755,12 +36755,31 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode, short e
  * bridge, l52fe spell-in-combat, l6454 combat setup, l5b9a attack composite,
  * l6042 move. The attack/move stubs return 1 (turn-ending) so the loop ends. */
 static signed char l6176(long m) { PROBE("L6176"); (void)m; return 0; }
+/* CODE 13+0x52ee — monster spell-decision predicate. Faithful: constant 0
+ * (this build's monster AI never elects to cast). */
 static signed char l52ee(long m) { PROBE("L52ee"); (void)m; return 0; }
 static signed char l525c(long m) { PROBE("L525c"); (void)m; return 0; }
 static signed char l52fe(long m) { PROBE("L52fe"); (void)m; return 0; }
 static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)target; }
 static signed char l5b9a(long m) { PROBE("L5b9a"); (void)m; return 1; }
-static signed char l6042(long m) { PROBE("L6042"); (void)m; return 1; }
+/* CODE 13+0x6042 — the monster MOVE executor (reached via l5008). Faithful
+ * full lift: refresh (jt20), then end the turn (l26ea) when the actor can't
+ * usefully move — jt13 set, can flee (l279c), or out of actions (mc[4] == 0) —
+ * otherwise Guard (l272a). Returns the action-done result. */
+static signed char l6042(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+
+	PROBE("L6042");
+	if (actor == NULL)
+		return 1;
+	jt20();
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (jt13(m) != 0 || l279c(m) != 0 || *(short *)(mc + 4) == 0)
+		return l26ea(m);
+	return l272a(m);
+}
 
 /* CODE 13+0x5008 — the MONSTER-AI turn (the l076e monster-path keystone).
  * Faithful structural skeleton (CLAUDE.md level 2): the AI flow is faithful;
