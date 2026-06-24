@@ -32877,7 +32877,16 @@ static void jt674(void)
 	      (short)0, (short)0, (short)0, (short)0,
 	      ua_strs_at(0x4d4e) /* "is affected" */);
 }
-static void jt675(void) { PROBE("jt675"); }	/* +0x096a; id 28 */
+static void jt675(void)	/* +0x096a; id 28 */
+{
+	PROBE("jt675");
+	/* CODE 16 effect handler: announce via l6114 (b=1, empty string at 0x4e44),
+	 * then run the type-23 special-attack hook on the -23508 caster record
+	 * (jt857 = l77a0). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)1,
+	      (short)0, (short)0, ua_strs_at(0x4e44) /* "" */);
+	l77a0((short)23, (void *)(uintptr_t)g_a5_long(-23508), (void *)0, (short)0);
+}
 static void jt676(void)	/* +0x04ec; id 14 */
 {
 	PROBE("jt676");
