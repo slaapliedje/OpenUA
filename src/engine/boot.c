@@ -36991,10 +36991,46 @@ L56ca:
 	return result;
 }
 
-/* Leaf deps of l56d8 still to be lifted — PROBE stubs (CODE 14 leaves). */
-static unsigned char jt535(long m)               { PROBE("jt535"); (void)m; return 0; }  /* CODE 14+0xea0 */
+/* Leaf deps of l56d8 still to be lifted — PROBE stubs (CODE 14). */
 static void          jt553(long m, short v)      { PROBE("jt553"); (void)m; (void)v; }    /* CODE 14+0x9b2 */
 static void          jt551(long m, short v)      { PROBE("jt551"); (void)m; (void)v; }    /* CODE 14+0x74c */
+
+/* Forward decl — l2484 is defined later (an l5b9a dep stub). */
+static unsigned char l2484(long m, short a, short b);
+static unsigned char l2d48(long m)               { PROBE("L2d48"); (void)m; return 0; }  /* CODE 14 — flee-threat count */
+
+/* CODE 14+0xea0 — the FLEE resolution (jt535), called from l56d8's panicked
+ * contact branch. Faithful full lift. Escapes outright when nothing blocks the
+ * retreat (l2484 == 0); otherwise compares a flee-threat count (l2d48) against
+ * half the actor's move value (jt37 >> 1) — under it escapes, equal it's a 1d2
+ * coin flip, over it is blocked. Announces "Got Away" (jt877 status 3) or
+ * "Escape is blocked" (jt42), then ends the turn (l26ea) and returns its
+ * result. l2484/l2d48 are PROBE stubs, so the flee currently always succeeds. */
+static unsigned char jt535(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char  done = 0, thresh, val;
+
+	PROBE("jt535");
+	if (actor == NULL)
+		return 0;
+
+	if ((l2484(m, 255, 0) & 0xff) == 0) {
+		done = 1;                       /* unblocked retreat */
+	} else {
+		thresh = (unsigned char)((jt37(m) & 0xff) >> 1);
+		val = l2d48(m);
+		if (val < thresh)
+			done = 1;
+		else if (val == thresh && jt870(1, 2) == 1)
+			done = 1;
+	}
+	if (done)
+		jt877(m, 3, (long)(uintptr_t)ua_strs_at(0x4628));  /* "Got Away" */
+	else
+		jt42(ua_strs_at(0x4632));                          /* "Escape is blocked" */
+	return (unsigned char)l26ea(m);
+}
 
 /* CODE 13+0x56d8 — the MOVE/ATTACK resolve (reached from l5b9a, l08b4, l5008).
  * Faithful full lift of the asm CFG. Paints the "Move/Attack, Move Left = %s"
