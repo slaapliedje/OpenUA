@@ -33114,6 +33114,28 @@ static short l2d30_c13(short a1, short a2, short a3)
 	return 3;
 }
 
+/* CODE 13+0x2df8 — the bidirectional cell-EDGE query (a CODE-13 local; distinct
+ * from the lifted line-editor l2df8). Faithful full lift: ORs the passability of
+ * the edge as seen from cell (a1,a2) facing a3 with the same edge seen from the
+ * neighbour one step along a3 (the -27862 drow / -27853 dcol deltas) facing back
+ * ((a3+4)&7). Returns the combined wall/door code (0 open / nonzero blocked).
+ * Dep l2d30_c13 lifted; marked unused until l4306/l3016/l32ba land. */
+static short l2df8_c13(short a1, short a2, short a3) __attribute__((unused));
+static short l2df8_c13(short a1, short a2, short a3)
+{
+	short back = (short)(((unsigned char)a3 + 4) & 7);
+	short r1, r2, d1, d2;
+
+	PROBE("L2df8c13");
+	r1 = l2d30_c13(a1, a2, a3);
+	d1 = (short)((short)(signed char)a1
+	    + (signed char)g_a5_byte(-27862 + (unsigned char)a3));
+	d2 = (short)((short)(signed char)a2
+	    + (signed char)g_a5_byte(-27853 + (unsigned char)a3));
+	r2 = l2d30_c13(d1, d2, back);
+	return (short)((short)(signed char)r1 | (short)(signed char)r2);
+}
+
 /* L1476 (CODE 20 + 0x1476) — marker depth probe. Walks forward from (x,y) in
  * the facing direction, counting open cells (jt202 == 0) up to 2, and returns
  * that depth — how far back the event sprite/PIC should be drawn for the
