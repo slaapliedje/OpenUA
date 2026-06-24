@@ -35991,13 +35991,79 @@ static void jt58(void)
 
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
- * combat-field draw; l3f24/l404e (CODE 13) two of the combat-setup helpers
- * (l4af4 + l490c are lifted just below); l276c (CODE 13) post-present init. */
+ * combat-field draw; l3f24 (CODE 13) the combat ART load (l404e + l4af4 + l490c
+ * are lifted just below); l276c (CODE 13) post-present init. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l3f24(void)  { PROBE("L3f24"); }
-static void l404e(void)  { PROBE("L404e"); }
 static void l276c(void)  { PROBE("L276c"); }
+
+/* CODE 13+0x404e — the per-actor COMBATANT sub-record build. Faithful full lift.
+ * Walks the roster (-27928 linked list, chained at +0). For each member it:
+ *   - recomputes derived stats (jt21);
+ *   - allocates a 26-byte combatant sub-record (mc) from the -20448 pool (jt477)
+ *     into the member's +64 slot and zero-fills it (jt399);
+ *   - flags it as an "extra" beyond the party count (mc[21]=1) when its 1-based
+ *     index exceeds -28006[32] (the party member count);
+ *   - seeds the facing glyph mc[11] = -8551[facing>>1], rotated +4 for summoned
+ *     members (member[95]==1);
+ *   - for a non-summoned (member[95]==0) extra (mc[21]==1) whose class band
+ *     ((member[147]&127)*2) is 0 or >102, rewrites member[147] = party_count*4
+ *     + 128 (a default monster class band);
+ *   - marks the sub-record active (mc[24]=1).
+ * Run from l4f22. Deps jt21/jt477/jt399 lifted. NOTE jt477's lifted signature is
+ * (bucket, tag, out) — param order swapped from the Mac's (out, tag, bucket) —
+ * so the pool -20448 is arg1 and the +64 destination is arg3. */
+static void l404e(void)
+{
+	long          cur;          /* fp@(-4) */
+	unsigned char idx;          /* fp@(-5) 1-based actor index */
+	unsigned char band;         /* fp@(-6) class band */
+
+	PROBE("L404e");
+
+	cur = g_a5_long(-27928);
+	idx = 0;
+	while (cur != 0) {                                /* L417c / L4060 */
+		unsigned char *p = (unsigned char *)(uintptr_t)cur;
+		unsigned char *gs, *mc;
+
+		jt21(cur);
+		idx++;
+		jt477(&g_a5_byte(-20448), 26, (void *)(uintptr_t)(cur + 64));
+		jt399((void *)(uintptr_t)(*(long *)(p + 64)), 26, 0);
+
+		gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		if ((unsigned char)idx > (unsigned char)gs[32]) {
+			mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+			mc[21] = 1;
+		}
+
+		mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+		mc[11] = (unsigned char)g_a5_byte(-8551
+		    + ((unsigned char)g_a5_byte(-12286) >> 1));
+		if (p[95] == 1) {
+			mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+			mc[11] = (unsigned char)((mc[11] + 4) & 7);
+		}
+
+		band = (unsigned char)((p[147] & 127) * 2);
+		if (p[95] == 0) {
+			mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+			if (mc[21] == 1) {
+				if (band == 0 || (unsigned char)band > 102) {
+					gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+					p[147] = (unsigned char)
+					    (((unsigned char)gs[32] << 2) + 128);
+				}
+			}
+		}
+
+		mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+		mc[24] = 1;
+		cur = *(long *)(uintptr_t)cur;            /* next node */
+	}
+}
 
 /* CODE 13+0x490c — the AoE-TEMPLATE BUILDER (NOT a "draw composite" — it has no
  * Toolbox/jsr calls at all). Faithful full lift. Run from l4af4 whenever the
