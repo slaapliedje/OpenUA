@@ -33145,7 +33145,23 @@ static void jt707(void)	/* +0x3614; id 112 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x51d4) /* "is protected" */);
 }
-static void jt708(void) { PROBE("jt708"); }	/* +0x052a; id 15 */
+static void jt708(void)	/* +0x052a; id 15 */
+{
+	unsigned char lvl;
+	short half, roll, val;
+
+	PROBE("jt708");
+	/* CODE 16 effect handler: value = (lvl/2)d4 + lvl/2, where
+	 * lvl = (jt17(effect,0)&255)+1; staged through l6114 (value arg c, d=8) with
+	 * an empty announce string.  jt17 runs before jt873, per the asm order. */
+	lvl = (unsigned char)((jt17((short)(unsigned char)g_a5_byte(-25262), 0)
+	                       & 255) + 1);				/* 053e / 0542 */
+	half = (short)(lvl >> 1);					/* 054e */
+	roll = jt873(half, 4);						/* 0556 */
+	val = (short)(roll + half);					/* 0564 */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      val, (short)8, ua_strs_at(0x4dee) /* "" */);
+}
 
 /* CODE 16 local L49e6 — the low half of the -24066 effect-handler fill
  * (ids 1..44), tail-called by jt610; a true local, no JT export. */
