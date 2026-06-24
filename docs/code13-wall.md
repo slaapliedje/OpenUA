@@ -83,7 +83,7 @@ drives the turn through.
 |---|---|---:|---|---|
 | `l3678` | 0x3678 | 72ln | l375a's straight-channel river painter (col,row,&width): stamps a narrow channel (terrain 58/jt870+58/61) at field -25318 cols col..col+3, resets *width=1 — "attack-roll" guess was WRONG | **LIFTED** (full; dep jt870 lifted; leaf — l375a subtree stub-free) |
 | `l375a` | 0x375a | 165ln | combat-field TERRAIN generator (NOT attack-roll): draws a meandering river/chasm down the field via jt870 dice + l3678, stamping terrain 52/55 banks into the -25318 field map | **LIFTED** (full; dep jt870 lifted; spawned PROBE stub l3678) |
-| `l3936` | 0x3936 | 160ln | field-setup pass (called from l3ef6 — the "attack-roll" guess is UNVERIFIED) | `stub` (PROBE; spawned by l3ef6) |
+| `l3936` | 0x3936 | 173ln | combat-field FOREST/OBSTACLE scatterer (l3ef6's 2nd pass; NOT attack-roll): l364c-gated, density-driven jt870 placement of bushes (41/42) + 2-tall trees (31-35/36-40) on "type-37" grass cells of the -25318 field | **LIFTED** (full; dep jt870 lifted; spawned PROBE stub l364c — the feature RNG) |
 | `l3d56` | 0x3d56 | 150ln | attack-roll resolution (jt870/jt399) | — |
 | `l5008` | 0x5008 | 177ln | MONSTER-AI turn (`"flees in panic"`, morale jt870, jt546 acquire, jt599; dispatch attack/move) | **LIFTED** (level-2 skeleton; spawned stubs l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) |
 | `l6176` | 0x6176 | 114ln | MORALE (`"is forced to flee / Surrenders"`, jt544/jt877) | — |
