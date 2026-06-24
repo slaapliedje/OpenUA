@@ -35992,14 +35992,78 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
- * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 + l32ba are lifted below;
- * l375a/l3936/l3b36 (l3ef6's passes) are PROBE stubs for their own cards. */
+ * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 + l32ba + l375a are lifted below;
+ * l3936/l3b36 (l3ef6's remaining passes) and l3678 (l375a's river branch-
+ * extender) are PROBE stubs for their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
-static void l375a(void)  { PROBE("L375a"); }
 static void l3936(void)  { PROBE("L3936"); }
 static void l3b36(void)  { PROBE("L3b36"); }
+static void l3678(short a, short b, unsigned char *c) { PROBE("L3678"); (void)a; (void)b; (void)c; }
+
+/* CODE 13+0x375a — combat-field TERRAIN generator: scatters a meandering
+ * river/chasm down the field (NOT "attack-roll resolution" — the wall-doc label
+ * was wrong; it just uses jt870 dice for the meander). Faithful full lift. Only
+ * runs when the design flags a field feature (-28006[51] != 0). Picks a start
+ * column 34 - jt870(5,4) and slides it down to the nearest (col+2)%7==0, then
+ * for each row 0..24 stamps the river cell (terrain 52) at field (-25318)+row*50
+ * +col offset +9, and either continues the channel straight (l3678, when a
+ * jt870(1,20) roll <= the running width) or widens it — laying a 6-wide bank
+ * (offsets +9..+14 = cols col..col+5: 52 / jt870(1,2)+52 / 55 / 55 / jt870(1,2)
+ * +55 / 52, each clipped to col+n < 49) and bumping the width. Advances col by 1
+ * each row. Dep jt870 lifted; l3678 (the straight-channel extender) is a PROBE
+ * stub. */
+static void l375a(void)
+{
+	unsigned char *gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	signed char   col;          /* fp@(-2) */
+	unsigned char width;        /* fp@(-1) */
+	unsigned char row;          /* fp@(-3) */
+
+	PROBE("L375a");
+	if (gs[51] == 0)
+		return;
+
+	col = (signed char)(34 - jt870(5, 4));
+	while (((col + 2) % 7) > 0)                       /* L3786 slide to a 7-grid */
+		col--;
+	width = 1;
+
+	for (row = 0; row <= 24; row++) {                /* L3928 / L37ac */
+		unsigned char *fld;
+
+		if ((signed char)col > 49)                /* off the field -> next row */
+			continue;
+		fld = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-25318) + (long)((short)row * 50) + (long)(short)col);
+		fld[9] = 52;
+		if ((signed char)col >= 49)
+			goto cell14;
+
+		if (jt870(1, 20) <= (short)width) {       /* keep the channel straight */
+			l3678((short)(col + 1), (short)row, &width);
+			goto cell14;
+		}
+
+		/* L3818 — widen the channel into a bank */
+		width++;
+		fld[10] = (unsigned char)(jt870(1, 2) + 52);
+		if ((short)col + 1 < 49)
+			fld[11] = 55;
+		if ((short)col + 2 < 49)
+			fld[12] = 55;
+		if ((short)col + 3 < 49)
+			fld[13] = (unsigned char)(jt870(1, 2) + 55);
+	cell14:
+		if ((short)col + 4 < 49) {
+			fld = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-25318) + (long)((short)row * 50) + (long)(short)col);
+			fld[14] = 52;
+		}
+		col++;
+	}
+}
 static void l2ca6(short a, short b, short c);   /* the field-cell paint primitive, lifted below */
 
 /* CODE 13+0x32ba — the per-cell EAST-quadrant wall-tile computer (l3540's second
