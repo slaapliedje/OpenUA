@@ -35992,13 +35992,35 @@ static void jt58(void)
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
  * combat-field draw; l276c (CODE 13) post-present init. l404e/l4af4/l490c/l3f24
- * are lifted below; l3540/l3ef6 (l3f24's field-init tails) are PROBE stubs for
- * their own cards. */
+ * + l3ef6 are lifted below; l3540 (l3f24's outdoor field-init tail) and
+ * l375a/l3936/l3b36 (l3ef6's field-setup passes) are PROBE stubs for their own
+ * cards. */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l276c(void)  { PROBE("L276c"); }
 static void l3540(void)  { PROBE("L3540"); }
-static void l3ef6(void)  { PROBE("L3ef6"); }
+static void l375a(void)  { PROBE("L375a"); }
+static void l3936(void)  { PROBE("L3936"); }
+static void l3b36(void)  { PROBE("L3b36"); }
+
+/* CODE 13+0x3ef6 — l3f24's indoor / outdoor-special field-init tail. Faithful
+ * full lift (frameless). Fills the live field map (-25318 + 9) with terrain
+ * code 69 for 1250 bytes (jt399), copies the encounter's monster cap -28006[418]
+ * into -7928, then runs the three field-setup passes l375a / l3936 / l3b36.
+ * Dep jt399 lifted; l375a/l3936/l3b36 are PROBE stubs for their own cards. */
+static void l3ef6(void)
+{
+	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	unsigned char *gs;
+
+	PROBE("L3ef6");
+	jt399((void *)(uintptr_t)(fld + 9), 1250, 69);
+	gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	g_a5_byte(-7928) = gs[418];
+	l375a();
+	l3936();
+	l3b36();
+}
 
 /* CODE 13+0x3f24 — the combat ART LOAD. Faithful full lift. Picks and loads the
  * combat sprite library (jt54 -> the GLIB loader) for the fight, keyed on the
