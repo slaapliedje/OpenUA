@@ -36908,10 +36908,200 @@ static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)t
 static signed char l6042(long m);
 static void        jt555(long rec_l, long ent_l, short a, long b, void *out);
 
+/* Leaf deps of l56d8 (the move/attack resolve) still to be lifted. */
+static unsigned char l544e(long m, short step, short dir, void *p)   /* CODE 13 — per-step move/contact */
+{ PROBE("L544e"); (void)m; (void)step; (void)dir; (void)p; return 0; }
+static unsigned char jt535(long m)               { PROBE("jt535"); (void)m; return 0; }  /* CODE 14+0xea0 */
+static void          jt553(long m, short v)      { PROBE("jt553"); (void)m; (void)v; }    /* CODE 14+0x9b2 */
+static void          jt551(long m, short v)      { PROBE("jt551"); (void)m; (void)v; }    /* CODE 14+0x74c */
+
+/* CODE 13+0x56d8 — the MOVE/ATTACK resolve (reached from l5b9a, l08b4, l5008).
+ * Faithful full lift of the asm CFG. Paints the "Move/Attack, Move Left = %s"
+ * command prompt (jt63 key + jt488/jt94), then: l609a magic-toggle short-circuit;
+ * gates on the command (mc[8]>>1) and remaining actions (mc[4]); a caster-fizzle
+ * roll (jt870 1d100 + -25252 vs -22649); a class-5 / non-panic gate. It acquires
+ * a step direction — jt529 toward mc[12], or (fleeing, mc[22]) a random 1d2
+ * facing (mc[23]) plus the party-facing math — then steps up to 6 cells (l544e
+ * per step, jt535 on a panicked contact) accumulating a direction off the -7882
+ * table. It resolves with the -7839 attack counter / -7840 last-direction, a
+ * jt546 re-acquire or l6042 move, the -22626 scroll-into-view flag (l6554), and
+ * the strike draw (jt523 pose, jt553/jt551 bars, jt879). l26ea ends the turn;
+ * l52fe casts when the command is empty. l544e/jt535/jt553/jt551 are PROBE stubs
+ * for now, so the step loop runs to its cap and the strike resolves without the
+ * per-cell move/contact art. */
+static void l56d8(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	unsigned char  done = 0, f1 = 0, dir3 = 0, dir4 = 0, step = 1;
+
+	PROBE("L56d8");
+	if (actor == NULL)
+		return;
+
+	/* Paint the "Move/Attack, Move Left = <key>" command prompt. */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if ((mc[8] >> 1) >= 10)
+		jt94(0, 24, 7, 0, jt488("Move/Attack, Move Left = %s",
+		                        jt63((short)(mc[8] >> 1))));
+	else
+		jt94(0, 24, 7, 0, jt488("Move/Attack, Move Left = %s ",
+		                        jt63((short)(mc[8] >> 1))));
+
+	/* L5770 */
+	if (l609a(m) != 0)                      /* magic toggle consumed the turn */
+		return;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if ((mc[8] >> 1) == 0)
+		goto L5b52;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (*(short *)(mc + 4) <= 0)
+		goto L5b52;
+	/* Caster-fizzle gate (asm re-tests bit 7 redundantly; always true here). */
+	if ((actor[147] & 0x80)
+	    && (jt870(1, 100) + (unsigned char)g_a5_byte(-25252)
+	        < (unsigned char)g_a5_byte(-22649))
+	    && actor[95] != 1)
+		goto L5b52;
+	/* L57f8 */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[22] == 0 && actor[89] == 5)
+		goto L5b52;
+	/* L5818 — acquire the step direction. */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[22] != 0)
+		goto L5844;
+	dir3 = jt529(m, *(long *)(uintptr_t)(mc + 12));
+	goto L58a8;
+L5844:
+	/* Fleeing: random facing (mc[23]) + a direction off party facing. */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	mc[23] = (unsigned char)jt870(1, 2);
+	{
+		short facing = (unsigned char)g_a5_byte(-12286);
+		short tmp = (short)(((facing + 2) & 3) >> 1);
+		dir3 = (unsigned char)(facing - tmp + 1);
+	}
+	if (actor[95] == 0)
+		dir3 = (unsigned char)(dir3 + 4);
+	dir3 = (unsigned char)(dir3 & 7);
+L58a8:
+	f1 = 0;
+	done = 0;
+	step = 1;
+	goto L58e0;
+L58b8:
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[22] != 0 && f1 != 0) {
+		done = jt535(m);                /* panicked contact */
+		goto L58e0;
+	}
+	step = (unsigned char)(step + 1);
+	/* fall through */
+L58e0:
+	if (step >= 6)
+		goto L5916;
+	if (done != 0)
+		goto L5916;
+	if (l544e(m, (short)step, (short)dir3, &f1) == 0)
+		goto L58b8;
+	/* fall through */
+L5916:
+	if (done != 0) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		mc[8] = 0;
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		mc[22] = 0;
+		done = l26ea(m);
+		goto L5a6c;
+	}
+	/* L5946 — accumulate the attack direction off the -7882 table. */
+	if (step < 6) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		if (mc[23] < 7) {
+			unsigned char t = g_a5_byte(-7882 + mc[23] * 6 + step);
+			dir4 = (unsigned char)((t + dir3) & 7);
+		}
+	}
+	/* L59a0 */
+	if (step == 6)
+		goto L59c4;
+	if ((unsigned char)g_a5_byte(-7840) != (unsigned char)((dir4 + 4) & 7))
+		goto L5a52;
+	/* fall through */
+L59c4:
+	g_a5_byte(-7839) = (unsigned char)(g_a5_byte(-7839) + 1);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	mc[23] = (unsigned char)((mc[23] % 6) + 1);
+	if ((unsigned char)g_a5_byte(-7839) <= 1)
+		goto L5a52;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	*(long *)(uintptr_t)(mc + 12) = 0;
+	if ((unsigned char)g_a5_byte(-7839) <= 2)
+		goto L5a28;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	mc[8] = 0;
+	done = 1;
+	goto L5a52;
+L5a28:
+	if (jt546(m, 255, 1, 0, 0) != 0)
+		goto L5a52;
+	done = l6042(m);                        /* couldn't acquire: move */
+	/* fall through */
+L5a52:
+	if (step < 6) {
+		g_a5_byte(-7840) = dir4;
+		goto L5a6c;
+	}
+	done = 1;
+	/* fall through */
+L5a6c:
+	if (done != 0)
+		return;
+	/* Scroll-into-view flag: 1 unless un-hit, off-window, and summoned. */
+	if (g_a5_byte(-22628) != 0)
+		g_a5_byte(-22626) = 1;
+	else if (l6554(m, 0) != 0)
+		g_a5_byte(-22626) = 1;
+	else if (actor[95] != 0)
+		g_a5_byte(-22626) = 0;
+	else
+		g_a5_byte(-22626) = 1;
+	/* Draw the strike + facing. */
+	jt523(m, (short)dir4, 0, 0);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	jt553(m, (short)mc[11]);
+	if (actor[382] == 0) {
+		done = l26ea(m);
+		return;
+	}
+	/* L5af0 */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[8] != 0) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		jt551(m, (short)mc[11]);
+	}
+	/* L5b1c */
+	if (actor[382] == 0 || jt13(m) != 0)
+		done = l26ea(m);
+	jt879(m, 0, 0);
+	return;
+L5b52:
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if ((mc[8] >> 1) == 0) {
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+		if (mc[22] == 0)
+			done = l52fe(m);        /* empty command: cast in combat */
+	}
+	/* L5b82 */
+	if (done != 0)
+		return;
+	done = l6042(m);                        /* fall back to a move */
+}
+
 /* Leaf deps of l5b9a still to be lifted — PROBE stubs with faithful-default
  * returns (0 = "no"/"not in range"/"not valid", which sends l5b9a down the
  * re-acquire / move-fallback paths rather than asserting a hit). */
-static void          l56d8(long m)               { PROBE("L56d8"); (void)m; }            /* CODE 13 — move/attack resolve */
 static unsigned char l713c(short a, short b, void *p1, void *p2, void *p3)               /* CODE 13 — range/adjacency check */
 { PROBE("L713c"); (void)a; (void)b; (void)p1; (void)p2; (void)p3; return 0; }
 static unsigned char l2484(long m, short a, short b)                                     /* CODE 13 — attack-count resolve */
