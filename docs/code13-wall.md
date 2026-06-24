@@ -44,7 +44,7 @@ The loop skeleton. Lift left-to-right; each is small-to-medium and gates the res
 
 | local | addr | size | what (disasm) | status |
 |---|---|---:|---|---|
-| `l4f22` | 0x4f22 | 64ln | combat ENTRY staging — jt68 setup, jt65, jt525/531 draw, jt77, jt117 present | stub |
+| `l4f22` | 0x4f22 | 64ln | combat ENTRY staging — jt68 setup, jt65, jt525/531 draw, jt77, jt117 present | **LIFTED** (level-2; spawned stubs jt68/jt536/l3f24/l404e/l4af4/l276c) |
 | `l0434` | 0x0434 | 120ln | per-ROUND init — fills the `-22624` initiative slots (jt399) + initiative rolls (jt870) | stub |
 | `l076e` | 0x076e | 99ln | **per-ACTOR turn (THE KEYSTONE)** — jt868 erase, jt516 creature predicate, jt21 derived-stats, jt525/530/531 draw; dispatches the actor's action | stub |
 | `l102a` | 0x102a | 100ln | END-of-round — death check (`"A Comrade is Dying"`), jt914/jt861/jt879, jt536 field + jt521 map redraw; may end the fight | stub |
