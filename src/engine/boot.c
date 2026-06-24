@@ -36027,7 +36027,27 @@ static void        jt154(void)                       { PROBE("jt154"); }        
 static short       jt173(long prompt, long cmdstring, short a3, short a4, short cx, short cy);  /* CODE 7+0x29da input dialog */
 static signed char l26ea(long actor)                 { PROBE("L26ea"); (void)actor; return 1; }   /* auto-resolve action -> done */
 static void        l1162(long actor, short cmd, unsigned char *done) { PROBE("L1162"); (void)actor; (void)cmd; (void)done; }  /* Move/Attack menu */
-static signed char l272a(long actor)                 { PROBE("L272a"); (void)actor; return 1; }    /* GUARD */
+/* CODE 13+0x272a — the GUARD command. Faithful full lift: resolve the action
+ * (l26ea), and unless the combatant is already flagged (mc[18] != 0) set the
+ * guarding flag (mc[9] = 1) and announce "Guarding" (jt42). Returns l26ea's
+ * action-done result. */
+static signed char l272a(long actor_l)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	unsigned char *mc;
+	signed char    result;
+
+	PROBE("L272a");
+	if (actor == NULL)
+		return 0;
+	result = l26ea(actor_l);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[18] == 0) {
+		mc[9] = 1;
+		jt42((const char *)(uintptr_t)ua_strs_at(0x44bc));   /* "Guarding" */
+	}
+	return result;
+}
 static void        l1842(long actor)                 { PROBE("L1842"); (void)actor; }              /* flee helper */
 static void        l1714(void)                       { PROBE("L1714"); }                           /* target picker */
 static void        jt547(unsigned char *out, short b, short c) { PROBE("jt547"); (void)b; (void)c; if (out) *out = 0; }  /* CODE 14+0x2744 */
