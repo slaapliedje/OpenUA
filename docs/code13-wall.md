@@ -75,8 +75,8 @@ drives the turn through.
 | `l6454` | 0x6454 | 515ln | combat setup / monster-AI target pick (jt41 special-attack flags, target scan, jt882/jt21/jt543 refresh) | **LIFTED** (full 6-phase lift; scores via l62ec_c13, picks primary/secondary/third target, refresh tree; helper combat_mondef; all deps lifted) |
 | `l4af4` | 0x4af4 | 345ln | combat FIELD-PLACEMENT loop — clears 68 cell records, derives spawn spread (-7938/-7939), walks the -27928 roster placing each via l4306, builds the -25410 on-field creature records (jt522 terrain, 30/31 tile marker), drops failed reach-1 summons (jt19) | **LIFTED** (full; l4306 call at 0x4d10 now live — links l4306 in; deps jt490/jt68/jt399/jt19/jt522/jt524 lifted, only l490c draw-composite is a PROBE stub) |
 | `l544e` | 0x544e | 198ln | per-step move/contact resolve (jt515 terrain probe, -27848 cost, JT[3] 27/28/29 door/barrier gate via jt41) — l56d8's step loop | **LIFTED** (full; all deps jt41/jt515/jt472 already lifted, no new stubs) |
-| `l525c` | 0x525c | 44ln | field action bridge (jt540/jt534 — into the CODE 14 field tier) | — |
-| `l52fe` | 0x52fe | 103ln | spell-in-combat (jt547 camp-gate, jt870) | — |
+| `l525c` | 0x525c | 44ln | field action bridge (jt540/jt534 — into the CODE 14 field tier) | **LIFTED** (full) |
+| `l52fe` | 0x52fe | 103ln | spell-in-combat (jt547 camp-gate, jt870) — monster spell-cast decision; calls the l6c96 picker | **LIFTED** (full; -16906 base-vs-pointer bug fixed) |
 | `l272a` | 0x272a | 34ln | GUARD action (`"Guarding"`, l26ea + jt42) | **LIFTED** (full; mc[9] guard flag + "Guarding"; l26ea resolve still stub) |
 | `l283e` | 0x283e | 43ln | BANDAGE / first-aid (`"is bandaged"`, jt18) | **LIFTED** (dying-scan + bandage; l102a calls flag 0, Bandage cmd flag 1) |
 
@@ -90,8 +90,8 @@ drives the turn through.
 | `l3b36` | 0x3b36 | 175ln | combat-field BIOME placer (l3ef6's 3rd/last pass; NOT attack-roll): rolls a climate value from 6 l364c bits, then dispatches l3d56(col,row,...) with a biome param-set per climate band ([-30,9]..[90,110]) over "type-37" grass cells | **LIFTED** (full; dep l364c LIFTED; spawned PROBE stub l3d56 — the biome feature placer) |
 | `l364c` | 0x364c | 18ln | the field-feature value source for l3936/l3b36: returns the -7914 table byte at index -7928 (monster cap) — the Mac copies the 32-byte table to a throwaway local first | **LIFTED** (full; leaf, no deps) |
 | `l3d56` | 0x3d56 | 157ln | l3b36's biome FEATURE placer (NOT attack-roll): jt870(1,100) roll walked through cumulative weight thresholds (a3 / a3+a4+1 / +a5+a6 / +a7) -> one terrain tile (50/51 water, 44 rock, 68, 62-67) at the cell; includes a faithful dead arm | **LIFTED** (full; dep jt870 lifted; leaf — l4f22 combat-setup tree now 100% stub-free) |
-| `l5008` | 0x5008 | 177ln | MONSTER-AI turn (`"flees in panic"`, morale jt870, jt546 acquire, jt599; dispatch attack/move) | **LIFTED** (level-2 skeleton; spawned stubs l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) |
-| `l6176` | 0x6176 | 114ln | MORALE (`"is forced to flee / Surrenders"`, jt544/jt877) | — |
+| `l5008` | 0x5008 | 177ln | MONSTER-AI turn (`"flees in panic"`, morale jt870, jt546 acquire, jt599; dispatch attack/move) | **LIFTED** + **DISPATCH NOW STUB-FREE** — every executor it called (l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) is lifted; the monster-AI turn runs end to end |
+| `l6176` | 0x6176 | 114ln | MORALE (`"is forced to flee / Surrenders"`, jt544/jt877) — HP-damage% + party-scariness gates, jt37/2-vs-jt544 roll → flee (mc[22]) or surrender (jt877 + l26ea) | **LIFTED** (full; only jt544 morale-value is a CODE-14 PROBE stub) |
 | `l167e` | 0x167e | 47ln | player attack-validity (`"Not with that weapon"`, jt533/549/550) | **LIFTED** (mirrors l56d8 strike block; jt533 weapon/friendly-fire gate LIFTED too; unused until l1162) |
 
 ## Cluster 5 — combat SETUP / art / sub-dispatch (lower priority leaves)
