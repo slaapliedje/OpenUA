@@ -37631,8 +37631,52 @@ static unsigned char l2bde(long m, void *out)
 	}
 	return (unsigned char)((*po != 0 || flags == 10 || flags == 12) ? 1 : 0);
 }
-static unsigned char jt554(long m, long target, short f)                                 /* CODE 14+0x10c4 — target valid? */
-{ PROBE("jt554"); (void)m; (void)target; (void)f; return 0; }
+/* CODE 14+0x10c4 — the target-validity gate (jt554), called from l5b9a and
+ * jt553. Faithful full lift. A null target is invalid (0); the actor itself is
+ * always valid (1). Otherwise it runs the validation pass: clear the -25259
+ * auto-fail flag, make the actor the active char (-27932), jt868(1) the target
+ * (whose check tree may raise -25259), and restore the active char. If the flag
+ * came back clear and the pair isn't same-summon-class-without-the-force-flag,
+ * it bonds the target into the actor's mc[12] and refreshes (jt868(0)) around a
+ * saved/restored mc[12] (-7234); otherwise it raises -25259. Returns 1 when
+ * -25259 ended clear (valid), else 0. */
+static unsigned char jt554(long m, long target, short f)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	long           saved;
+
+	PROBE("jt554");
+	if (target == 0)
+		return 0;
+	if (m == target)
+		return 1;
+
+	g_a5_byte(-25259) = 0;
+	saved = g_a5_long(-27932);
+	g_a5_long(-27932) = m;
+	jt868(1, &target);                      /* validate; may raise -25259 */
+	g_a5_long(-27932) = saved;
+
+	if (g_a5_byte(-25259) == 0) {
+		unsigned char *t = (unsigned char *)(uintptr_t)target;
+		if (t[95] == actor[95] && (f & 0xff) == 0) {
+			g_a5_byte(-25259) = 1;          /* same summon class, not forced */
+		} else {
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			g_a5_long(-7234) = *(long *)(uintptr_t)(mc + 12);
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			*(long *)(uintptr_t)(mc + 12) = target;
+			jt868(0, &m);
+			actor = (unsigned char *)(uintptr_t)m;  /* jt868 may update m */
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+			*(long *)(uintptr_t)(mc + 12) = g_a5_long(-7234);
+		}
+	} else {
+		g_a5_byte(-25259) = 1;
+	}
+	return (unsigned char)(g_a5_byte(-25259) == 0 ? 1 : 0);
+}
 static unsigned char jt549(long m, long target)  { PROBE("jt549"); (void)m; (void)target; return 0; }  /* CODE 14+0x5a22 — weapon-reach reject */
 static void          jt550(long m, long target)  { PROBE("jt550"); (void)m; (void)target; }            /* CODE 14+0x1956 */
 
