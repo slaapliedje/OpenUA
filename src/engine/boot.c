@@ -37594,7 +37594,43 @@ static unsigned char l25f4(long m, long target)
 	jt479(scratch, g_a5_buf(-19170), 4);                    /* restore record 0 */
 	return ret;
 }
-static unsigned char l2bde(long m, void *out)    { PROBE("L2bde"); (void)m; if (out) *(long *)out = 0; return 0; }  /* CODE 13 */
+/* CODE 13+0x2bde — resolves the secondary target of a special attack from the
+ * monster-definition flags, for l5b9a/l56d8's ranged path. Faithful full lift.
+ * Reads the actor's monster-def flag byte (-27944[actor[12]->[40] << 4][14]) and
+ * writes the matching entity pointer into *out: bit 4 -> the monster instance
+ * (actor[12]); bit 3 gates bit 0 -> actor[56] and bit 7 -> actor[60]. Returns 1
+ * when *out was set, or when the raw flag byte is 10 or 12 (the "use the primary
+ * target" classes), else 0. Pure record arithmetic — no callees. */
+static unsigned char l2bde(long m, void *out)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	long          *po = (long *)out;
+	long           inst;
+	unsigned char  flags = 0;
+
+	PROBE("L2bde");
+	if (po)
+		*po = 0;
+	if (actor == NULL)
+		return 0;
+
+	inst = *(long *)(uintptr_t)(actor + 12);
+	if (inst != 0) {
+		unsigned char *p = (unsigned char *)(uintptr_t)inst;
+		unsigned char *mdef = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-27944) + ((long)p[40] << 4));
+		flags = mdef[14];
+		if (flags & 16)
+			*po = inst;
+		if (flags & 8) {
+			if (flags & 1)
+				*po = *(long *)(uintptr_t)(actor + 56);
+			if (flags & 128)
+				*po = *(long *)(uintptr_t)(actor + 60);
+		}
+	}
+	return (unsigned char)((*po != 0 || flags == 10 || flags == 12) ? 1 : 0);
+}
 static unsigned char jt554(long m, long target, short f)                                 /* CODE 14+0x10c4 — target valid? */
 { PROBE("jt554"); (void)m; (void)target; (void)f; return 0; }
 static unsigned char jt549(long m, long target)  { PROBE("jt549"); (void)m; (void)target; return 0; }  /* CODE 14+0x5a22 — weapon-reach reject */
