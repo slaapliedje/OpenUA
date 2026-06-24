@@ -36758,7 +36758,38 @@ static signed char l6176(long m) { PROBE("L6176"); (void)m; return 0; }
 /* CODE 13+0x52ee — monster spell-decision predicate. Faithful: constant 0
  * (this build's monster AI never elects to cast). */
 static signed char l52ee(long m) { PROBE("L52ee"); (void)m; return 0; }
-static signed char l525c(long m) { PROBE("L525c"); (void)m; return 0; }
+static unsigned char jt540(long actor, void *target, void *param)  /* CODE 14+0x13e6 field-target find */
+{ PROBE("jt540"); (void)actor; (void)target; (void)param; return 0; }
+
+/* CODE 13+0x525c — the field-action bridge (the monster's field Turn-Undead,
+ * reached via l5008). Faithful full lift. Bails when the actor is fleeing
+ * (mc[22] != 0) or out of range (mc[19] >= -22267). When it can turn undead
+ * (jt40 capability), it asks jt540 for a field target (param 13); on success
+ * it marks the action taken and executes it via jt534. jt540 lands as a PROBE
+ * stub (its own card), so the field action is currently declined. */
+static signed char l525c(long m)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)m;
+	unsigned char *mc;
+	signed char    result = 0;
+
+	PROBE("L525c");
+	if (actor == NULL)
+		return 0;
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	if (mc[22] != 0)
+		return 0;
+	if (mc[19] >= (unsigned char)g_a5_byte(-22267))
+		return 0;
+	if (!((jt40(actor, 0) & 0xff) == 0 && (jt40(actor, 3) & 0xff) <= 2)) {
+		unsigned char target = 0, param = 13;
+		if (jt540(m, &target, &param) != 0) {
+			result = 1;
+			jt534(m);
+		}
+	}
+	return result;
+}
 static signed char l52fe(long m) { PROBE("L52fe"); (void)m; return 0; }
 static void        l6454(long m, long target) { PROBE("L6454"); (void)m; (void)target; }
 static signed char l5b9a(long m) { PROBE("L5b9a"); (void)m; return 1; }
