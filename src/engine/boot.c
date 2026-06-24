@@ -35991,14 +35991,186 @@ static void jt58(void)
 
 /* l4f22's next-layer deps — PROBE stubs pending their own cards.
  * jt68 (CODE 6+0x604e) yield/pump between setup steps; jt536 (CODE 14+0x2cb2)
- * combat-field draw; l3f24/l404e/l4af4 (CODE 13) the three combat-setup
- * helpers; l276c (CODE 13) post-present init. */
+ * combat-field draw; l3f24/l404e (CODE 13) two of the combat-setup helpers
+ * (l4af4, the third, is lifted just below); l276c (CODE 13) post-present init;
+ * l490c (CODE 13) the field draw-composite l4af4 calls (own card pending). */
 static void jt68(void)   { PROBE("jt68"); }
 static void jt536(void)  { PROBE("jt536"); }
 static void l3f24(void)  { PROBE("L3f24"); }
 static void l404e(void)  { PROBE("L404e"); }
-static void l4af4(void)  { PROBE("L4af4"); }
+static void l490c(void)  { PROBE("L490c"); }
 static void l276c(void)  { PROBE("L276c"); }
+
+/* CODE 13+0x4af4 — the combat FIELD-PLACEMENT loop (combat UI/setup). Faithful
+ * full lift (~345 lines). Run once from l4f22 after the field size is known.
+ * (A) Saves the party facing (-7921 <- -12286), resets the rotating spawn-edge
+ *     cursor (-7918) and a sentinel (-7920), and clears the area-map overlay via
+ *     jt490 (L242c).
+ * (B) Clears the "occupied" flag (offset 5) of all 68 combatant cell records
+ *     (-27472, 6 bytes each) and zero-fills the 1250-byte -26922 scratch (jt399).
+ * (C) Derives the spawn spread: -7939 = (rows+1)/2, -7938 = ceil(cols / (2*
+ *     popcount(entry-edge nibble -22634))). Paints the empty field (l490c).
+ * (D) Walks the roster (-27928 linked list, chained at +0). For each member it
+ *     records the ptr into the -25676 slot table, seeds the combatant cell
+ *     record (slot at +4, body-slot facing at +5), picks a facing (the rotating
+ *     -7918 edge, +4 for summoned types) into the member's mc[11], then runs
+ *     l4306 to place its footprint into the field. On success it builds the
+ *     on-field creature record at -25410 (slot*10): terrain class (jt522) at +8,
+ *     the live-map tile marker (30/31) at field offset +9, and the member ptr +
+ *     (col,row) at +0/+4/+6; advances the slot. On failure for a reach-1
+ *     (just-summoned, mc[21]==1) member it removes it (-25676 slot cleared,
+ *     jt19(1,0) disband) and backs the list cursor up to the previous node.
+ * (E) Terminates the surviving list and restores the party facing.
+ * Deps jt490/jt68/jt399/jt19/jt522/jt524/l4306 lifted; l490c is a PROBE stub
+ * pending its own card. */
+static unsigned char l4306(short slot);     /* defined below (after combat_mondef) */
+static void l4af4(void)
+{
+	long          prev, cur;        /* fp@(-4) / fp@(-8) */
+	unsigned char placed = 0;       /* fp@(-9) */
+	unsigned char removed = 0;      /* fp@(-10) */
+	short         nbits;            /* fp@(-11) */
+	short         facing;           /* fp@(-12) */
+	unsigned char ok;               /* fp@(-13) */
+	short         slot;
+
+	PROBE("L4af4");
+
+	g_a5_byte(-7921) = g_a5_byte(-12286);
+	g_a5_byte(-7920) = 0xff;
+	g_a5_byte(-7918) = 0;
+	jt490();                                          /* L242c */
+
+	for (g_a5_byte(-7917) = 1;
+	     (unsigned char)g_a5_byte(-7917) <= 68;
+	     g_a5_byte(-7917)++)
+		(g_a5_buf(-27472)
+		    + (long)(unsigned char)g_a5_byte(-7917) * 6)[5] = 0;
+
+	jt399(g_a5_buf(-26922), 1250, 0);
+	g_a5_byte(-7943) = 0;
+	g_a5_byte(-7941) = 0;
+	g_a5_byte(-7939) =
+	    (unsigned char)(((unsigned char)g_a5_byte(-25298) + 1) >> 1);
+
+	nbits = 0;                                        /* L4b66 popcount(-22634 & 15) */
+	if ((g_a5_byte(-22634) & 15) == 0) {
+		nbits = 1;
+	} else {
+		if (g_a5_byte(-22634) & 1) nbits++;
+		if (g_a5_byte(-22634) & 2) nbits++;
+		if (g_a5_byte(-22634) & 4) nbits++;
+		if (g_a5_byte(-22634) & 8) nbits++;
+	}
+	nbits = (short)(nbits * 2);
+	g_a5_byte(-7938) = (unsigned char)
+	    (((unsigned)(unsigned char)g_a5_byte(-25297) + (unsigned)nbits - 1)
+	    / (unsigned)nbits);
+	l490c();
+
+	g_a5_byte(-7917) = 1;
+	g_a5_byte(-27468) = 1;
+	prev = g_a5_long(-27928);
+	cur  = g_a5_long(-27928);
+
+	while (cur != 0) {                                /* L4f0a / L4c0c */
+		unsigned char *p = (unsigned char *)(uintptr_t)cur;
+		unsigned char *cell, *mc;
+
+		jt68();
+		slot = (unsigned char)g_a5_byte(-7917);
+		g_a5_longs(-25676)[slot] = cur;
+		g_a5_byte(-7929) = p[95];
+		cell = g_a5_buf(-27472) + (long)slot * 6;
+		cell[4] = (unsigned char)slot;
+		cell[5] = (unsigned char)(p[130] & 7);
+
+		if ((g_a5_byte(-22634) & 15) != 0) {      /* L4c76 */
+			if (p[95] == 0) {
+				g_a5_byte(-12286) = g_a5_byte(-7921);
+			} else {
+				do {                      /* L4c8e: rotate to a live edge */
+					g_a5_byte(-7918) = (unsigned char)
+					    ((g_a5_byte(-7918) + 1) & 3);
+				} while (((1 << (unsigned char)g_a5_byte(-7918))
+				    & (unsigned char)g_a5_byte(-22634)) == 0);
+				g_a5_byte(-12286) =
+				    (unsigned char)(g_a5_byte(-7918) * 2);
+			}
+			l490c();
+		}
+
+		facing = (unsigned char)g_a5_byte(-12286);        /* L4cc2 */
+		if (p[95] == 1)
+			facing = (short)((facing + 4) & 7);
+		mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+		mc[11] = (unsigned char)g_a5_byte(-8551 + (facing >> 1));
+
+		ok = l4306((short)(unsigned char)g_a5_byte(-7917));   /* 0x4d10 */
+		if (ok != 0) {
+			prev = cur;
+			if (p[382] == 0) {
+				cell[5] = 0;
+				mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+				if (mc[21] == 0 && p[94] != 8) {
+					unsigned char *crec;
+					long           fv;
+
+					g_a5_byte(-7916) = cell[1];
+					g_a5_byte(-7915) = cell[3];
+					g_a5_byte(-25320)++;
+					crec = g_a5_buf(-25410)
+					    + (long)(unsigned char)g_a5_byte(-25320) * 10;
+					crec[8] = jt522(
+					    (short)(signed char)g_a5_byte(-7916),
+					    (short)(signed char)g_a5_byte(-7915));
+					fv = g_a5_long(-25318)
+					    + (long)(signed char)g_a5_byte(-7915) * 50
+					    + (signed char)g_a5_byte(-7916);
+					((unsigned char *)(uintptr_t)fv)[9] =
+					    (unsigned char)((p[94] == 7) ? 30 : 31);
+					crec = g_a5_buf(-25410)
+					    + (long)(unsigned char)g_a5_byte(-25320) * 10;
+					*(long *)(crec + 0) = cur;
+					*(short *)(crec + 4) =
+					    (short)(signed char)g_a5_byte(-7916);
+					*(short *)(crec + 6) =
+					    (short)(signed char)g_a5_byte(-7915);
+				}
+			}
+			/* L4e5c */
+			if (p[94] == 9) {
+				p[382] = 0;
+				cell[5] = 0;
+			}
+			jt524();
+			g_a5_byte(-7917)++;
+			g_a5_byte(-27468)++;
+			placed++;
+		} else {                                  /* L4e9c: placement failed */
+			cell[5] = 0;
+			mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
+			if (mc[21] == 1) {                /* a just-summoned creature -> drop */
+				removed++;
+				g_a5_longs(-25676)[slot] = 0;
+				g_a5_long(-27932) = cur;
+				jt19(1, 0);
+				cur = prev;
+			} else {                          /* L4ef4 */
+				prev = cur;
+				g_a5_byte(-7917)++;
+				g_a5_byte(-27468)++;
+			}
+		}
+
+		cur = *(long *)(uintptr_t)cur;            /* L4f02: next node */
+	}
+
+	*(long *)(uintptr_t)prev = 0;                     /* terminate the list */
+	g_a5_byte(-12286) = g_a5_byte(-7921);             /* restore party facing */
+	(void)placed;
+	(void)removed;
+}
 
 /* CODE 13+0x4f22 — combat entry staging (run once after jt542). Faithful
  * level-2 lift: the combat-state A5 init is faithful; the three setup helpers

@@ -70,7 +70,7 @@ drives the turn through.
 | `l08b4` | 0x08b4 | 325ln | action dispatcher / "can I do that?" (`"That doesn't work"`, jt530/543/545/476) | **LIFTED** (level-2 skeleton; JT[3] 13-cmd + JT[1] roster-nav; spawned stubs l609a/l0d16/l26ea/l1162/l272a/l1842/l1714/jt547/jt534) |
 | `l4306` | 0x4306 | 577ln | the BIG AoE-template action switch (JT[3] shape 1/2/3; -8567/-8551/-8547/-8539/-8583 geometry; l2df8_c13 edge query, l41b2 cell place) | **LIFTED** (full 1:1 CFG; do-while cell sweep + per-cell clip/l4188/l2df8_c13 wall tests + l41b2 placement; whole dep surface l4188/l41b2/l2df8_c13/l2d30_c13/jt206/l5e2e/jt472 LIFTED — STUB-FREE; unused until caller CODE 13+0x4d10) |
 | `l6454` | 0x6454 | 515ln | combat setup / monster-AI target pick (jt41 special-attack flags, target scan, jt882/jt21/jt543 refresh) | **LIFTED** (full 6-phase lift; scores via l62ec_c13, picks primary/secondary/third target, refresh tree; helper combat_mondef; all deps lifted) |
-| `l4af4` | 0x4af4 | 324ln | combat UI/setup (jt68, jt522/524 field, jt19 name) | — |
+| `l4af4` | 0x4af4 | 345ln | combat FIELD-PLACEMENT loop — clears 68 cell records, derives spawn spread (-7938/-7939), walks the -27928 roster placing each via l4306, builds the -25410 on-field creature records (jt522 terrain, 30/31 tile marker), drops failed reach-1 summons (jt19) | **LIFTED** (full; l4306 call at 0x4d10 now live — links l4306 in; deps jt490/jt68/jt399/jt19/jt522/jt524 lifted, only l490c draw-composite is a PROBE stub) |
 | `l544e` | 0x544e | 198ln | per-step move/contact resolve (jt515 terrain probe, -27848 cost, JT[3] 27/28/29 door/barrier gate via jt41) — l56d8's step loop | **LIFTED** (full; all deps jt41/jt515/jt472 already lifted, no new stubs) |
 | `l525c` | 0x525c | 44ln | field action bridge (jt540/jt534 — into the CODE 14 field tier) | — |
 | `l52fe` | 0x52fe | 103ln | spell-in-combat (jt547 camp-gate, jt870) | — |
@@ -98,7 +98,7 @@ drives the turn through.
 | `l3016` `l32ba` | 0x3016 / 0x32ba | 181/191ln | jt3 inline-switch sub-dispatchers | — |
 | `l2d30` | 0x2d30 | 71ln | area-map bridge (jt206/jt202) | — |
 | `l41b2` `l4188` | 0x41b2/0x4188 | 120/18ln | l4306 AoE geometry helpers — cell placement+validate (jt515) / both-axes OOB clip | **LIFTED** (no new stubs; unused until l4306) |
-| `l490c` | — | 158ln | draw composite (jt525/531) | — |
+| `l490c` | — | 158ln | draw composite (jt525/531) | `stub` (PROBE; spawned by l4af4, its own card pending) |
 | `l5b9a` | 0x5b9a | 371ln | the monster ATTACK executor (per-attack loop; jt868/l283e gate, monster-def attack count, target re-acquire jt546/-25676, range l713c, resolve l56d8/jt555, jt521 redraw) | **LIFTED** (full CFG; reached via l5008; l56d8/l2484/l713c/l25f4/l2bde + jt554/jt549/jt550/l5c32 all LIFTED — attack tree fully STUB-FREE) |
 | `l6042` `l6c96` `l6ac4` `l6b2c` `l1842` `l2ca6` `l2e92` `l3540` `l364c` `l3b36` `l4188` `l52ee` `l8b4`… | — | small | leaf helpers (range jt552, fills jt399, etc.) | — |
 | `jt496` / `jt510` | CODE 13 | leaf | the 2 pending JT leaves (MISSING) | — |
