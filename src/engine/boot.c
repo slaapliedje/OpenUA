@@ -38407,7 +38407,63 @@ static void jt880(long rec_l)
  * Leaf JT entries it drives, PROBE stubs pending their own lifts: */
 
 /* JT[542] (CODE 14+0x5434) — combat-field setup run once at entry. */
-static void jt542(void) { PROBE("jt542"); }
+/* L5392 (CODE 14 + 0x5392) — the monster-control "break" save for combatant
+ * `member`: a percentage check whose threshold is base + level bonus.  base
+ * comes from JT[40](member, 3) via a JT[3] table (value 0->0, 1->20, 2->40,
+ * else 80); the bonus is (HD-13)*5 for HD (rec[123]) > 13, else 0.  Rolls 1d100
+ * (JT[870]) and returns 1 when the roll is UNDER the threshold (success). */
+static unsigned char l5392(long member)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)member;
+	short base, bonus, roll;
+
+	PROBE("L5392");
+	switch ((short)jt40((void *)(uintptr_t)member, (short)3)) {   /* JT[3] @0x53ac */
+	case 1:  base = 20; break;
+	case 2:  base = 40; break;
+	case 0:  base = 0;  break;
+	default: base = 80; break;
+	}
+	bonus = (m[123] > 13) ? (short)((m[123] - 13) * 5) : (short)0;
+	roll  = jt870((short)1, (short)100);
+	return (unsigned char)(roll < (short)(base + bonus) ? 1 : 0);
+}
+
+/* jt542 (CODE 14 + 0x5434) — combatant active-flag setup + monster-control break
+ * pass.  PASS 1: set each -27928 combatant's active flag rec[383] — a side-N
+ * member (rec[95] != 0) is always active (1); a side-0 member is active only when
+ * rec[147] bit 7 (0x80) is set.  PASS 2: for every side-0, bit7-clear, class-0
+ * (rec[94]==0) controller `m` with a positive JT[40](m,3) score, walk the ACTIVE
+ * bit7 class-0 HD>3 (rec[115]>3) monsters and, on a successful l5392(m) control
+ * save, deactivate them (clear rec[383]).  Faithful 1:1 lift of L5434. */
+static void jt542(void)
+{
+	unsigned char *node, *m;
+
+	PROBE("jt542");
+	for (node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     node != NULL; node = *(unsigned char **)node) {
+		if (node[95] != 0)
+			node[383] = 1;
+		else
+			node[383] = (unsigned char)(node[147] & 0x80);
+	}
+
+	for (m = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	     m != NULL; m = *(unsigned char **)m) {
+		if (m[95] != 0 || (m[147] & 0x80)
+		 || jt40((void *)(uintptr_t)m, (short)3) == 0 || m[94] != 0)
+			continue;
+		for (node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+		     node != NULL; node = *(unsigned char **)node) {
+			if (node[95] != 0 || !(node[147] & 0x80)
+			 || node[383] == 0 || node[94] != 0 || node[115] <= 3)
+				continue;
+			if (l5392((long)(uintptr_t)m) != 0)
+				node[383] = 0;
+		}
+	}
+}
 
 /* JT[541] (CODE 14+0x0006) — per-member per-round prep. */
 static void jt541(long member) { PROBE("jt541"); (void)member; }

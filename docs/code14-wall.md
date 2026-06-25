@@ -100,7 +100,7 @@ with the CODE 13 caller that needs it.
 |----|------|------:|--------|--------------------|
 | jt534 | 0x1184 | 2 | — | **TURN UNDEAD** (`"turns undead..."`, jt870 dice, jt18 format, jt176 paint, rec+19/+64 actor mod) |
 | jt535 | 0x0ea0 | 2 | — | **FLEE / escape** resolution (`"Got Away"`, jt492 visibility, jt870 dice, jt877) |
-| jt542 | 0x5434 | 1 | stub | **disintegrate-ray** special attack (`"fires a disintegrate ray"`, jt599 apply-effect, jt860/jt866); walks `-27928` to set per-member flag rec[383] |
+| jt542 | 0x5434 | 1 | ✅ LIFTED | combatant active-flag setup (rec[383] from [95]/[147] bit7) + monster-control break pass over the controlled HD>3 monsters via the l5392 d100 save (NOT a disintegrate ray — that earlier label was wrong) |
 | jt549 | 0x5a22 | 2 | — | **sweep / AoE** attack (`"sweeps"`, jt494, jt508 area, jt493 line, jt479) |
 
 ### C. Targeting — pick, range, validity, per-round prep
@@ -143,7 +143,7 @@ Called by the JT entries above; lift alongside their parent. From
 
 > stubs: `l1090` `l1dd6` `l4dee`  (`l14bc`/`l2b24` now lifted — physical-damage tier COMPLETE)
 > missing: `l2e30` `l302c` `l315e` `l37d6`
-> `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c` now lifted)
+> `l3a4e` `l44b2` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392` now lifted)
 
 `l1dd6` (repeat pick from the built area list) and `l4dee` (repeat pick with
 per-target area re-aim, jt508) are the combat target-repeat locals already
