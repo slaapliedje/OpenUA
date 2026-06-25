@@ -34039,7 +34039,17 @@ static void jt679(void)	/* +0x2320; id 72 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)(jt873(3, 8) + 3), (short)8, ua_strs_at(0x4ff6) /* "" */);
 }
-static void jt680(void) { PROBE("jt680"); }	/* +0x1f96; id 129 */
+static void jt631(short range, short damage, short wallDouble);  /* CODE 16, below */
+
+/* JT[680] (CODE 16 + 0x1f96; id 129) — a short fixed-damage bolt: set the
+ * damage type (-25266 = 12) and fire the bouncing-bolt applier jt631 with
+ * range 3, 20 points, no wall-doubling. */
+static void jt680(void)	/* +0x1f96; id 129 */
+{
+	PROBE("jt680");
+	g_a5_word(-25266) = 12;
+	jt631(3, 20, 0);
+}
 static void jt681(void)	/* +0x381a; id 116 */
 {
 	unsigned char *src = (unsigned char *)(uintptr_t)g_a5_long(-27932);
@@ -34524,7 +34534,25 @@ static void jt702(void)	/* +0x2084; id 134 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)(jt873(2, 4) + 2), (short)8, ua_strs_at(0x4fc0) /* "" */);
 }
-static void jt703(void) { PROBE("jt703"); }	/* +0x1da6; id 51 */
+/* JT[703] (CODE 16 + 0x1da6; id 51) — the lightning bolt. Underwater (ds[60])
+ * it diverts to the jt607 variant; otherwise it sets damage type -25266 = 12,
+ * rolls (caster level)d6 — caster level from jt17 over the effect id (-25262),
+ * dice from jt873 — and fires the bouncing-bolt applier jt631 (range 7, that
+ * damage, wall-doubling on). */
+static void jt703(void)	/* +0x1da6; id 51 */
+{
+	short lvl, dmg;
+
+	PROBE("jt703");
+	if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[60]) {
+		jt607();				/* underwater variant */
+		return;
+	}
+	g_a5_word(-25266) = 12;
+	lvl = jt17((short)(unsigned char)g_a5_byte(-25262), 0);
+	dmg = jt873((short)(lvl & 0xff), 6);
+	jt631(7, dmg, 1);
+}
 static void jt704(void) { PROBE("jt704"); }	/* +0x1270; id 41,46 */
 /* JT[705] (CODE 16 + 0x3336; id 108) — the "is held" mass effect. A JT[3]
  * table over the target count (-23510) picks a saving-throw modifier that
