@@ -34062,7 +34062,44 @@ static void jt695(void)	/* +0x00ec; id 2 */
 	            (const char *)(uintptr_t)g_a5_long(-20088));	/* 0108 */
 	l0008(type, msg);						/* 0118 */
 }
-static void jt696(void) { PROBE("jt696"); }	/* +0x2d18; id 93 */
+/* JT[696] (CODE 16 + 0x2d18; id 93) — a cleanse/dispel effect on the caster
+ * (-23508). It first bumps the caster record byte [135] by a class-scaled
+ * amount for the effect window (JT[1] over the class byte [89]: class 0 -> -1,
+ * class 5 -> +4, anything else -> +2), announces through l6114 (an empty STRS
+ * 0x512c message — the visible text comes from the targets), and if the caster
+ * carries an item of type 68 (jt41) clears every byte in the [198..338] status
+ * span whose 0x80 bit is set, then runs the item-type-68 hook jt857 (=l77a0).
+ * [135] is restored on exit, so the temporary bump nets to zero. -25262 holds
+ * the effect id. */
+static void jt696(void)	/* +0x2d18; id 93 */
+{
+	long caster = g_a5_long(-23508);
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	unsigned char saved135 = cas[135];
+	void *desc;
+	short i;
+
+	PROBE("jt696");
+	switch ((short)(unsigned char)cas[89]) {	/* JT[1] over the class byte */
+	case 0:
+		cas[135] = (unsigned char)(cas[135] - 1);	/* arm 0x2d46 */
+		break;
+	case 5:
+		cas[135] = (unsigned char)(cas[135] + 4);	/* arm 0x2d50 */
+		break;
+	default:
+		cas[135] = (unsigned char)(cas[135] + 2);	/* arm 0x2d5a */
+		break;
+	}
+	l6114((unsigned char)g_a5_byte(-25262), 0, 0, 0, 0, ua_strs_at(0x512c));
+	if (jt41(caster, 68, &desc)) {
+		for (i = 0; i <= 140; i++)
+			if (cas[i + 198] & 0x80)
+				cas[i + 198] = 0;
+		l77a0(68, (void *)(uintptr_t)caster, (void *)0, 0);
+	}
+	cas[135] = saved135;
+}
 static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
 static void jt698(void)	/* +0x05fc; id 21 — sleep */
 {
