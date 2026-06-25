@@ -34344,7 +34344,32 @@ static void jt702(void)	/* +0x2084; id 134 */
 }
 static void jt703(void) { PROBE("jt703"); }	/* +0x1da6; id 51 */
 static void jt704(void) { PROBE("jt704"); }	/* +0x1270; id 41,46 */
-static void jt705(void) { PROBE("jt705"); }	/* +0x3336; id 108 */
+/* JT[705] (CODE 16 + 0x3336; id 108) — the "is held" mass effect. A JT[3]
+ * table over the target count (-23510) picks a saving-throw modifier that
+ * scales with how few targets are caught — 1 -> -4, 2 -> -2, 3 -> -1, 4+ (or 0)
+ * -> 0 — then hands it to the save-modified announce/apply core l7026 with the
+ * "is held" line (STRS 0x517a). */
+static void jt705(void)	/* +0x3336; id 108 */
+{
+	short mod;
+
+	PROBE("jt705");
+	switch ((short)(unsigned char)g_a5_byte(-23510)) {	/* target count */
+	case 1:
+		mod = -4;	/* L3350 */
+		break;
+	case 2:
+		mod = -2;	/* L3358 */
+		break;
+	case 3:
+		mod = -1;	/* L3360 */
+		break;
+	default:
+		mod = 0;	/* L3368 */
+		break;
+	}
+	l7026(mod, ua_strs_at(0x517a) /* "is held" */);
+}
 static void jt706(void)	/* +0x09a0; id 30,50 */
 {
 	PROBE("jt706");
