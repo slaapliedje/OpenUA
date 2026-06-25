@@ -72,9 +72,13 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 
 ## 5. In-game — combat  🟢 spine lifted (runtime-untested) / 🔴 effect handlers
 
-Major advance since 2026-06-21: the combat **spine is wired top-to-bottom** and
-both turn-dispatch sides are lifted. The remaining real block is CODE 16's 80
-effect handlers (what abilities *do*). See `docs/milestone.md` §2 for the chain.
+Major advance: the combat **spine is wired top-to-bottom**, both turn-dispatch
+sides are lifted, and **CODE 16's effect handlers are now ALL lifted (106/106,
+2026-06-24)** — a spell round applies real damage/saves through
+`jt598`→`jt599`→`l6114`. The remaining real block is the **physical-damage
+round `l14bc`** (+ missile `l2b24`): a weapon swing resolves its plumbing but
+deals no HP damage (PROBE no-op). See `docs/milestone.md` §2 for the chain.
+Trigger a fight via a type-1/33 event cell → `l159a`, or call `l159a(ev,1)`.
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
@@ -82,7 +86,8 @@ effect handlers (what abilities *do*). See `docs/milestone.md` §2 for the chain
 | Combat **main loop / spine** (`jt511`→`l076e` per-actor turn) | 13 | 🟢 | `code13-wall.md` — spine + per-turn tree lifted; live caller is `l159a`→`jt511`. 90% by JT. **Runtime-untested** |
 | Combat **turn dispatch** (`l08b4` player, `l5008` monster-AI) | 13 | 🟢 | both sides + all 7 `l5008` executors lifted, stub-free. Turn Undead + Cast Spell are complete vertical slices |
 | Combat **field render** (actor sprites, HP, targeting) | 14 | 🟡 | `code14-wall.md` — 81%; field-draw leaves `jt512`/`jt517`/`jt514`/`jt516`/`jt518`/`jt528`/`jt536`/`jt542` remain |
-| Combat **effect handlers** (80 announce/apply) | 16 | 🔴 | `code16-wall.md` ← **THE FRONTIER**; `jt595`/`jt599` entry points lifted, 80 payloads stub |
+| Combat **effect handlers** (106 announce/apply) | 16 | ✅ | `code16-wall.md` — **COMPLETE 2026-06-24, all 106 lifted** (112/115 CODE-16 JT exports by name, 0 stub). Breadth-first / runtime-untested |
+| Combat **physical-damage round** (`l14bc` melee, `l2b24` missile) | 14 | 🔴 | THE new keystone — weapon swings deal no damage (PROBE no-op); `code14-wall.md` |
 | Encounter **narration** ("A battle begins…") | 20 | 🟢 | `l159a` cases 1/33 — lifted, drives `jt511` |
 
 ## 6. Cross-cutting media  🟡 / 🔴
