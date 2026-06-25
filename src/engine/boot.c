@@ -32738,7 +32738,23 @@ static void jt614(void)	/* +0x030e; id 12 — "is stronger" buff */
 		     (short)10, (short)1);			/* 045c */
 	}
 }
-static void jt615(void) { PROBE("jt615"); }	/* +0x2634; id 81 */
+static void jt615(void)	/* +0x2634; id 81 */
+{
+	int i;
+
+	PROBE("jt615");
+	/* CODE 16 effect id 81 ("is charmed"): announce via l7026, then for each
+	 * -23512 target carrying descriptor 11 (jt41), run the type-11 hook l77a0. */
+	l7026((short)0, ua_strs_at(0x5076) /* "is charmed" */);	/* 2640 */
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 26a4 */
+		long *slot = &g_a5_longs(-23512)[i];
+		long out;
+
+		if ((unsigned char)jt41(*slot, 11, &out) != 0)	/* 266c / 2674 */
+			l77a0(11, (void *)(uintptr_t)*slot,
+			      (void *)(uintptr_t)out, 0);	/* 2698 */
+	}
+}
 static void jt616(void)	/* +0x2242; id 70 */
 {
 	long caster = g_a5_long(-23508);			/* 2246 */
@@ -33148,7 +33164,35 @@ static void jt644(void)	/* +0x323c; id 104 */
 		     (long)(uintptr_t)ua_strs_at(0x515c) /* "is unaffected" */,
 		     (short)10, (short)1);			/* 32a2 */
 }
-static void jt645(void) { PROBE("jt645"); }	/* +0x26b2; id 82 */
+static void jt645(void)	/* +0x26b2; id 82 */
+{
+	short roll;
+	int i;
+
+	PROBE("jt645");
+	/* CODE 16 effect id 82 ("is confused"): a 2d8 budget caps the -23510 target
+	 * count; each live target takes a timed confusion (jt871 descriptor 35,
+	 * duration l602c(82)) carrying its magic-resist result (jt866). */
+	g_a5_byte(-25257) = 1;					/* 26b8 */
+	roll = (short)(unsigned char)jt870(2, 8);		/* 26c4 */
+	if ((unsigned char)g_a5_byte(-23510) > roll)		/* 26d2 */
+		g_a5_byte(-23510) = (unsigned char)roll;	/* 26d8 */
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 2762 */
+		long *slot = &g_a5_longs(-23512)[i];
+		long target = *slot;
+		unsigned char rflag;
+		short dur;
+
+		if (target == 0)				/* 26fc */
+			continue;
+		rflag = (unsigned char)jt866(target, 4, 0);	/* 2722 */
+		dur = l602c(82);				/* 2730 */
+		jt871(target, 35, dur, 0, 0, 1,
+		      (short)(signed char)rflag,
+		      (long)(uintptr_t)ua_strs_at(0x5082) /* "is confused" */);  /* 2756 */
+	}
+	g_a5_byte(-25257) = 0;					/* 276e */
+}
 static void jt646(void)	/* +0x22e8; id 71 */
 {
 	PROBE("jt646");
