@@ -16409,6 +16409,16 @@ static int port_load_savgame(void)
 			 * representation of what the stand-in actually loaded. */
 			*(long *)(dst + 4) = 0;       /* spell list head */
 			*(long *)(dst + 8) = 0;       /* inventory list head */
+			/* The equip-by-kind slots rec[12]/16/20 (equipped + effects, read
+			 * by the sheet's jt28) are likewise stale Mac pointers on disk.
+			 * This stand-in never reconstructs the inventory, so there's
+			 * nothing to file into them — null them so the sheet doesn't
+			 * bus-error walking the garbage. (The faithful menu LOAD path,
+			 * jt579 -> jt577 -> jt21, rebuilds rec[8] and files the worn items
+			 * into these slots for real.) */
+			*(long *)(dst + 12) = 0;      /* equipped-items list head */
+			*(long *)(dst + 16) = 0;      /* (kind-1) list head       */
+			*(long *)(dst + 20) = 0;      /* effects list head        */
 			/* Translate the char-sheet fields to the port CHAR_* layout
 			 * so the roster grid (l02dc) and rest-heal read them; the
 			 * combat block (name@96/AC@385/HP@395) is already at
@@ -29336,6 +29346,7 @@ static short jt580(short refNum)
  * consolidation of jt582's restore tail). The loaded party REPLACES the pool
  * — the faithful savegame stores the adventuring party, and Load restores it.
  * DEFERRED tail (matches jt580): the ~10KB design-state block. */
+static void jt21(long mp);   /* CODE 6+0x16aa derived-stat + equip-slot recompute (below) */
 static short jt579(short refNum)
 {
 	unsigned char *player = (unsigned char *)g_a5_28006;
@@ -29370,6 +29381,14 @@ static short jt579(short refNum)
 		memset(cg_pool[i], 0, 512);
 		g_a5_long(-6902) = (long)(uintptr_t)cg_pool[i];
 		if (jt577(refNum) == 0) { err |= 1; break; }
+		/* Mac jt579 (CODE_15.s 0x1406) calls JT[21] per member right after the
+		 * jt577 record+inventory read.  jt21 clears the equip-by-kind slots
+		 * rec[12..60] (overwriting the stale on-disk Mac pointers that were left
+		 * in rec[12]/16/20 — the bus-error trap when the sheet's jt28(rec[12])
+		 * walks them), then files each worn inventory item (item[50] != 0) from
+		 * rec[8] into its slot by the -27944 type table.  This both makes the
+		 * sheet safe and shows equipped gear (LONG SWORD +1 / PLATE MAIL +1). */
+		jt21((long)(uintptr_t)cg_pool[i]);
 	}
 	cg_pool_count = i;
 	for (i = 0; i < cg_pool_count; i++) {
