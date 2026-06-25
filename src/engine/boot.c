@@ -33799,7 +33799,25 @@ static void jt677(void)	/* +0x355e; id 111 — disintegrate */
 			jt30(caster, *(long *)(uintptr_t)(cas + 8));  /* 35c8 */
 	}
 }
-static void jt678(void) { PROBE("jt678"); }	/* +0x2776; id 83 */
+static void jt678(void)	/* +0x2776; id 83 — teleport */
+{
+	long cur = g_a5_long(-27932);
+	short x, y;
+
+	PROBE("jt678");
+	/* CODE 16 effect id 83 ("teleports"): jt519 picks the new cell, jt532
+	 * (=l635e) clears the old sprite, jt526 re-seats the actor, jt525/jt531 give
+	 * the new screen cell which jt521 blits; announce "teleports". */
+	l635e((short)(l6bbe(cur) & 255), 0, 0);			/* 2784 / 2794 */
+	jt526(cur, (short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), 0);	/* 27b0 */
+	x = (short)(signed char)jt525(cur);			/* 27bc */
+	y = (short)(signed char)jt531(cur);			/* 27ca */
+	jt521(x, y, 0, 8);					/* 27e2 */
+	jt18((void *)(uintptr_t)cur,
+	     (long)(uintptr_t)ua_strs_at(0x508e) /* "teleports" */,
+	     (short)10, (short)1);				/* 27fa */
+}
 static void jt679(void)	/* +0x2320; id 72 */
 {
 	PROBE("jt679");
