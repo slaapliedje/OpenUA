@@ -56,6 +56,26 @@ units with their combat callers.
 
 ## REMAINING — the combat-field tier (21 JT entries)
 
+> **CORRECTION (2026-06-24): the rows below were substantially mislabeled.**
+> The combat field's actual TILE + ACTOR draw is **jt521 / jt523 / jt57 —
+> already LIFTED** (it reuses the overland 50×25 render). The functions this
+> section called "actor draw" are NOT the visible draw:
+> - **jt512** (0x5d8e) is **faithfully EMPTY** on the Mac (two `rts`) — its
+>   PROBE stub is already correct; nothing to lift.
+> - **jt517** (0x5d92) is a small **−27540 combat-slot accessor** (reads the
+>   2-byte grid entry into two out-params; returns reached?1:0), not a renderer.
+> - **jt536** (0x2cb2) is the **party HP-bar ratio** metric (-22649) — **LIFTED
+>   2026-06-24**, not a "targeting helper".
+> - **jt542** (0x5434) is combatant-state **setup** (sets the [383] active flag
+>   from [95]/[147], then a pairing pass via the still-unlifted `l5392`).
+> - **jt541** (0x0006) is **per-member per-round prep** (clears [198] status via
+>   jt515=l6c22) — ~177 lines.
+> - **jt520** (0x6de8) is **per-actor combat teardown** (~331 lines).
+>
+> So the field already RENDERS; the genuine remaining stubs are combat-state
+> setup/teardown + the HP gauge, not the core draw. Verify a row against the
+> disasm before trusting the descriptions below.
+
 Grouped by role. `calls` = static Mac callsites. Lift each as a paired unit
 with the CODE 13 caller that needs it.
 
