@@ -33309,7 +33309,32 @@ static void jt666(void)	/* +0x05aa; id 20 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      val, (short)12, ua_strs_at(0x4dfc) /* "" */);
 }
-static void jt667(void) { PROBE("jt667"); }	/* +0x2ab8; id 86 */
+static void jt667(void)	/* +0x2ab8; id 86 */
+{
+	long caster = g_a5_long(-23508);			/* 2abc */
+	long out;
+	short dur;
+
+	PROBE("jt667");
+	/* CODE 16 effect id 86: magic-resist branch (jt866 idx 4).  Not resisted ->
+	 * dexterity drain "is clumsy" (descriptor 27); resisted -> "is slowed"
+	 * (descriptor 42).  Each stages a timed effect (jt871, duration l602c(86))
+	 * and, if jt41 confirms the descriptor, runs the special-attack hook l77a0. */
+	g_a5_word(-25266) = 64;					/* 2ac4 */
+	if ((unsigned char)jt866(caster, 4, 0) == 0) {		/* 2ad2 / 2ad8 */
+		dur = l602c(86);				/* 2ae0 */
+		jt871(caster, 27, dur, 0, 0, 0, 0,
+		      (long)(uintptr_t)ua_strs_at(0x50f6) /* "is clumsy" */);  /* 2afe */
+		if ((unsigned char)jt41(caster, 27, &out) != 0)	/* 2b12 / 2b1a */
+			l77a0(27, (void *)(uintptr_t)caster, (void *)0, 0);  /* 2b2c */
+	} else {						/* L2b36 */
+		dur = l602c(86);				/* 2b3a */
+		jt871(caster, 42, dur, 0, 0, 0, 0,
+		      (long)(uintptr_t)ua_strs_at(0x5100) /* "is slowed" */);  /* 2b58 */
+		if ((unsigned char)jt41(caster, 42, &out) != 0)	/* 2b6c / 2b74 */
+			l77a0(42, (void *)(uintptr_t)caster, (void *)0, 0);  /* 2b84 */
+	}
+}
 static void jt668(void)	/* +0x23ea; id 75 — raise dead */
 {
 	unsigned char *cas = (unsigned char *)(uintptr_t)g_a5_long(-23508);
