@@ -32866,7 +32866,28 @@ static void jt621(void)	/* +0x2e08; id 135 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x512e) /* "" */);
 }
-static void jt622(void) { PROBE("jt622"); }	/* +0x3384; id 109 */
+static void jt622(void)	/* +0x3384; id 109 */
+{
+	long caster = g_a5_long(-23508);
+
+	PROBE("jt622");
+	/* CODE 16 effect id 109 ("is Protected"): when jt40(caster,4) (level) != 0,
+	 * apply a fixed protection (jt871 code 119, value jt17(109,0)&255); otherwise
+	 * a timed one (jt871 code 20, duration l602c(109), value jt40(caster,4)&255). */
+	if (caster == 0)					/* 338e */
+		return;
+	if ((jt40((void *)(uintptr_t)caster, 4) & 255) != 0) {	/* 339e / 33aa */
+		jt871(caster, 119, 0,
+		      (short)(jt17(109, 0) & 255), 0, 0, 0,
+		      (long)(uintptr_t)ua_strs_at(0x5182) /* "is Protected" */);  /* 33d4 */
+	} else {						/* L33de */
+		short dur = l602c(109);				/* 33e2 */
+
+		jt871(caster, 20, dur,
+		      (short)(jt40((void *)(uintptr_t)caster, 4) & 255), 0, 0, 0,
+		      (long)(uintptr_t)ua_strs_at(0x5190) /* "is Protected" */);  /* 3418 */
+	}
+}
 /* JT[623] (CODE 16+0x0756; the Hold handler) — the saving-throw
  * modifier scales with the target count (-23510): 1 target = -3
  * (-2 for effect 23), 2 = -1, 3/4 = 0 (the Mac's default arm reads
