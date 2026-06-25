@@ -34359,7 +34359,166 @@ static void jt692(void)	/* +0x16be; id 45 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4f24) /* "is blinking" */);
 }
-static void jt693(void) { PROBE("jt693"); }	/* +0x3f8a; id 124 */
+static void jt500(short rings, short glyph, short period);	/* CODE 5, below */
+static void jt502(short dir, short kind);			/* CODE 14, below */
+
+/* L3e54 (CODE 16 + 0x3e54) — jt693's reachable-cone-cell picker. Given an inner
+ * pattern index (1..4) and an octant `outer`, derive a candidate cell from the
+ * pick (tx,ty) plus the -6882/-6874 octant offset tables, bounds-check it
+ * (0..49 x 0..24), and if in range Bresenham-walk from the caster (jt506)
+ * leaving the stop cell in the pOut9 / pOut10 slots and the path cost (halved)
+ * in pOut16.  Returns whether the cell was reached. */
+static short l3e54(short inner, short outer,
+                   unsigned char *pCasterY, unsigned char *pCasterX,
+                   unsigned char *pTy, unsigned char *pOut10,
+                   unsigned char *pTx, unsigned char *pOut9,
+                   unsigned short *pOut16) __attribute__((unused));
+static short l3e54(short inner, short outer,
+                   unsigned char *pCasterY, unsigned char *pCasterX,
+                   unsigned char *pTy, unsigned char *pOut10,
+                   unsigned char *pTx, unsigned char *pOut9,
+                   unsigned short *pOut16)
+{
+	unsigned char blocked = 0;
+	unsigned char result = 0;
+
+	PROBE("L3e54");
+	*pOut16 = 255;
+	switch ((short)(unsigned char)inner) {		/* JT[3] min 1 max 4 */
+	case 1:
+		*pOut9  = (unsigned char)((short)(signed char)*pTx
+		    + g_a5_shorts(-6882)[outer - 1]);
+		*pOut10 = (unsigned char)((short)(signed char)*pTy
+		    + g_a5_shorts(-6874)[outer - 1]);
+		break;
+	case 2:
+		*pOut9 = *pTx;
+		break;
+	case 3:
+		*pOut9  = (unsigned char)((short)(signed char)*pTx
+		    + g_a5_shorts(-6882)[outer - 1]);
+		*pOut10 = *pTy;
+		break;
+	case 4:
+		*pOut9 = *pTx;
+		break;
+	default:
+		break;
+	}
+	if ((signed char)*pOut9 < 0 || (signed char)*pOut9 > 49
+	 || (signed char)*pOut10 < 0 || (signed char)*pOut10 > 24)
+		blocked = 1;
+	if (blocked)
+		result = 0;
+	else
+		result = (unsigned char)jt506(
+		    (short)(signed char)*pCasterX, (short)(signed char)*pCasterY,
+		    pOut9, pOut10, pOut16);
+	*pOut16 = (unsigned short)(*pOut16 >> 1);
+	return result;
+}
+
+/* JT[693] (CODE 16 + 0x3f8a; id 124) — a four-bolt cone barrage (Meteor
+ * Swarm-style). Underwater (ds[60]) it has no effect (jt42). Otherwise, for
+ * each of four bolts: find a reachable cone-spread cell (the L3e54 inner loop
+ * over the four spread patterns), aim the firing direction (jt505 over the
+ * eight octants), animate the bolt (jt523 pose, jt502 trajectory, jt501
+ * projectile, jt500 burst rings), build a line target list to the impact cell
+ * (l6af8/jt596 mode 1) plus the jt508 radius burst (appended from -19170 via
+ * -25676), then deal 10d4: full damage to the line targets (jt867 save cat 0)
+ * and save-for-half to the burst targets (jt866 + jt867 cat 2). Finally the
+ * caster sprite is restored (jt516 + jt523). Damage type -25266 = 9. */
+static void jt693(void)	/* +0x3f8a; id 124 */
+{
+	long caster;
+	unsigned char casterX, casterY, tx, ty, out9 = 0, out10 = 0;
+	unsigned char outer, inner, reached, dir, preCount, i;
+	unsigned short out16 = 0;
+	short roll;
+
+	PROBE("jt693");
+	if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[60]) {
+		jt42(ua_strs_at(0x529a) /* "That has no effect underwater!" */);
+		return;
+	}
+	g_a5_byte(-25257) = 1;
+	g_a5_word(-25266) = 9;
+	caster = g_a5_long(-27932);
+	casterX = jt525(caster);
+	casterY = jt531(caster);
+	tx = g_a5_byte(-23236);
+	ty = g_a5_byte(-23235);
+
+	for (outer = 1; (unsigned char)outer <= 4; outer++) {	/* L4326 */
+		jt65((long)(uintptr_t)g_a5_longs(-23512), 4);
+
+		/* L4000: find a reachable cone-spread cell */
+		inner = 1;
+		do {
+			reached = (unsigned char)l3e54(inner, outer,
+			    &casterY, &casterX, &ty, &out10, &tx, &out9, &out16);
+			inner++;
+		} while ((unsigned char)inner <= 4 && reached == 0);
+
+		/* L4062: aim — find the octant whose cone holds the cell */
+		dir = 0;
+		while (jt505((short)(signed char)casterX, (short)(signed char)casterY,
+		             (short)(signed char)out9, (short)(signed char)out10,
+		             (short)dir) == 0)
+			dir++;
+
+		g_a5_byte(-22626) = 1;
+		jt523(caster, (short)dir, 1, 0);
+		jt497(32);
+		jt502((short)dir, 32);
+		jt501((short)(signed char)casterX, (short)(signed char)casterY,
+		      (short)(signed char)out9, (short)(signed char)out10, 1, 30);
+		g_a5_byte(-23236) = out9;
+		g_a5_byte(-23235) = out10;
+		jt500(1, 25, 12);
+		jt596((short)(signed char)casterX, (short)(signed char)casterY,
+		      (short)(signed char)out9, (short)(signed char)out10,
+		      1, (short)out16);
+		preCount = g_a5_byte(-23510);
+		jt508((short)(signed char)out9, (short)(signed char)out10, 1, 255, 1);
+
+		/* L4182: append the radius-burst targets (-19170 -> -25676) */
+		for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-18894); i++) {
+			g_a5_byte(-23510)++;
+			g_a5_longs(-23512)[(unsigned char)g_a5_byte(-23510)] =
+			    g_a5_longs(-25676)[g_a5_buf(-19170)[i]];
+		}
+
+		/* L41da: per-target damage */
+		for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510); i++) {
+			long target = g_a5_longs(-23512)[i];
+
+			if (target == 0)
+				continue;
+			if (((unsigned char *)(uintptr_t)target)[382] == 0)
+				continue;
+			if ((unsigned char)i > (unsigned char)preCount) {
+				short resist;
+
+				roll = jt873(10, 4);		/* burst: save-for-half */
+				resist = jt866(g_a5_longs(-23512)[i], 4, 0);
+				jt867(g_a5_longs(-23512)[i], roll, 2, resist);
+			} else {
+				roll = jt873(10, 4);		/* line: full damage */
+				jt867(g_a5_longs(-23512)[i], roll, 0, 0);
+			}
+		}
+
+		/* L42ce: restore the caster sprite */
+		if (l6554(caster, 0)) {
+			unsigned char *sub = *(unsigned char **)(void *)
+			    ((unsigned char *)(uintptr_t)caster + 64);
+
+			jt523(caster, (short)sub[11], 1, 1);
+			jt523(caster, (short)sub[11], 0, 0);
+		}
+	}
+}
 static void jt694(void)	/* +0x0a42; id 33 */
 {
 	PROBE("jt694");
