@@ -33788,7 +33788,24 @@ static void jt699(void)
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4d5a) /* "is protected" */);
 }
-static void jt700(void) { PROBE("jt700"); }	/* +0x2b90; id 87 */
+static void jt700(void)	/* +0x2b90; id 87 */
+{
+	unsigned char *as = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("jt700");
+	/* CODE 16 effect id 87: a value effect scaled by environment — underwater
+	 * (-28006[60]) applies 1d10, otherwise 3d10, staged through l6114 (value arg
+	 * c, d=8, empty announce). */
+	g_a5_byte(-25257) = 1;					/* 2b92 */
+	if (as[60] != 0)					/* 2b9a */
+		l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+		      (short)jt873(1, 10), (short)8,
+		      ua_strs_at(0x510a) /* "" */);		/* 2bc6 */
+	else
+		l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+		      (short)jt873(3, 10), (short)8,
+		      ua_strs_at(0x510c) /* "" */);		/* 2bf6 */
+}
 static void jt701(void) { PROBE("jt701"); }	/* +0x24a0; id 76 */
 static void jt702(void) { PROBE("jt702"); }	/* +0x2084; id 134 */
 static void jt703(void) { PROBE("jt703"); }	/* +0x1da6; id 51 */
