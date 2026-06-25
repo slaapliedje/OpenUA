@@ -33197,7 +33197,64 @@ static void jt634(void)	/* +0x058a; id 19 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x4df0) /* "is shielded" */);
 }
-static void jt635(void) { PROBE("jt635"); }	/* +0x2960; id 85 */
+/* JT[635] (CODE 16 + 0x2960; id 85) — the "Protection" effect chooser. Loops
+ * picking a protection variant until one is applied: while the beholder gaze
+ * mode is active (-27990 == 5) and the caster's [383] flag is set the variant
+ * is rolled (jt870 1d2 - 1 -> 0/1); otherwise it is chosen from an interactive
+ * list dialog (jt179 seeds it, jt182 over the -13936/-13820 menu returns the
+ * pick). Variant 0 applies protection codes 50 + 112 ("is Protected" + the
+ * follow-up), guarded by the underwater check (ds[60]; jt42 bails); variant 1
+ * applies codes 54 + 112; any other pick runs the jt159 confirm over -14404 and
+ * loops unless it commits. Each protection is announced via jt871 with its
+ * l602c (id 85) duration. */
+static void jt635(void)	/* +0x2960; id 85 */
+{
+	unsigned char done = 0;
+	unsigned char sel;
+	short dur;
+
+	PROBE("jt635");
+	do {
+		if (g_a5_byte(-27990) == 5
+		 && ((unsigned char *)(uintptr_t)g_a5_long(-27932))[383] != 0) {
+			sel = (unsigned char)(jt870(1, 2) - 1);
+		} else {
+			jt179(1);
+			sel = (unsigned char)jt182(
+			    (const char *)(uintptr_t)g_a5_long(-13936),
+			    g_a5_long(-13820), 0, 0);
+		}
+		switch ((short)sel) {		/* JT[3] min 0 max 1 */
+		case 0:
+			if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[60]) {
+				jt42(ua_strs_at(0x50b6)
+				     /* "That has no effect underwater!" */);
+				return;
+			}
+			dur = l602c(85);
+			jt871(g_a5_long(-27932), 50, dur, 0, 0, 0, 0,
+			      (long)(uintptr_t)ua_strs_at(0x50d6) /* "is Protected" */);
+			dur = l602c(85);
+			jt871(g_a5_long(-27932), 112, dur, 0, 0, 0, 0,
+			      (long)(uintptr_t)ua_strs_at(0x50e4) /* "" */);
+			done = 1;
+			break;
+		case 1:
+			dur = l602c(85);
+			jt871(g_a5_long(-27932), 54, dur, 0, 0, 0, 0,
+			      (long)(uintptr_t)ua_strs_at(0x50e6) /* "is Protected" */);
+			dur = l602c(85);
+			jt871(g_a5_long(-27932), 112, dur, 0, 0, 0, 0,
+			      (long)(uintptr_t)ua_strs_at(0x50f4) /* "" */);
+			done = 1;
+			break;
+		default:
+			done = (unsigned char)jt159(
+			    (const char *)(uintptr_t)g_a5_long(-14404), 1);
+			break;
+		}
+	} while (done == 0);
+}
 static void jt636(void)	/* +0x239c; id 74 */
 {
 	unsigned char *as = (unsigned char *)(uintptr_t)g_a5_long(-28006);
