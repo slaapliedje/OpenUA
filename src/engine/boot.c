@@ -34381,18 +34381,159 @@ static void jt610(void)
 	l49e6();
 }
 
-/* JT[631] (CODE 16 + 0x19c8) — the bolt damage applier: a bouncing ray
- * from the caster through the pick, damaging occupants along the
- * reflected path (jt509/jt507 walks + l62ec occupant checks + the L1d2a
- * reflection helper). ~870B; PROBE stub until the CODE 16 spell-exec
- * tier is lifted. Caller: jt722 (breathes lightning). */
-static void jt631(short mult, short dmg, short flag) __attribute__((unused));
-static void jt631(short mult, short dmg, short flag)
+/* L1d2a (CODE 16 + 0x1d2a) — jt631's per-cell damage applier. Resolve the
+ * occupant of cell (x,y) through l62ec; if a creature is there, roll its
+ * magic resistance (jt866 category 4) and apply `flag` points of damage via
+ * jt867 (save category 2, the resist as the save modifier), then a 20-tick
+ * beat (jt497). Empty cells are skipped. */
+static void l1d2a(short x, short y, short flag) __attribute__((unused));
+static void l1d2a(short x, short y, short flag)
 {
+	unsigned char occ, feat;
+	long entity;
+	short resist;
+
+	PROBE("L1d2a");
+	l62ec((short)(signed char)x, (short)(signed char)y, &occ, &feat);
+	if (occ == 0)				/* empty / out of bounds */
+		return;
+	entity = g_a5_longs(-25676)[occ];
+	resist = jt866(entity, 4, 0);
+	jt867(entity, flag, 2, resist);
+	jt497(20);
+}
+
+/* JT[631] (CODE 16 + 0x19c8) — the bolt damage applier: a bouncing ray from
+ * the caster cell through the pick (-23236/-23235), damaging occupants along
+ * a reflected line. The ray runs from the pick cell outward in the
+ * caster->pick direction; a combat_walk (jt509/jt507) Bresenham-walks it cell
+ * by cell, l62ec gating each cell on occupant/feature passability. On a wall
+ * hit (feature code > 1, indoor ds[34]==1) the ray reflects back toward the
+ * caster (a second walk seeds the new direction), losing energy each segment
+ * (`budget`, seeded range*2, drained by the marginal step cost, min 2). The
+ * optional `wallDouble` flag doubles the step count on a short (<8) reflected
+ * bounce. Each occupant transition fires l1d2a; jt501 animates the bolt
+ * segment. -25257 marks the bolt in progress. Caller: jt722 (lightning). */
+static void jt631(short range, short damage, short wallDouble) __attribute__((unused));
+static void jt631(short range, short damage, short wallDouble)
+{
+	struct combat_walk w, w2;
+	short cx, cy, ox, oy;			/* caster cell / ray origin   */
+	short budget;				/* fp@(8) energy, reused      */
+	signed char dir = 1;			/* fp@(-5) ray direction sign */
+	unsigned char occTarget, occCur = 0, feat = 0;
+	unsigned char prevSteps = 0;		/* fp@(-1) cumulative cost    */
+	unsigned char hitWall = 0;		/* fp@(-70)                   */
+	unsigned char curX = 0, curY = 0;	/* fp@(-6/-7) segment origin  */
+	short savedCx = 0, savedCy = 0;		/* fp@(-10/-12) last in-bounds*/
+	short ret;
+	unsigned char marginal, blocked;
+
 	PROBE("jt631");
-	(void)mult;
-	(void)dmg;
-	(void)flag;
+	jt497(20);
+	cx = (short)(signed char)jt525(g_a5_long(-27932));
+	cy = (short)(signed char)jt531(g_a5_long(-27932));
+	ox = (short)(signed char)g_a5_byte(-23236);
+	oy = (short)(signed char)g_a5_byte(-23235);
+	l1d2a(ox, oy, damage);				/* damage the pick cell first */
+	l62ec(ox, oy, &occTarget, &feat);
+	budget = (short)(range * 2);
+	g_a5_byte(-25257) = 1;
+	goto l1d1a;
+
+ l1a52:
+	hitWall = 0;
+	jt65((long)(uintptr_t)&w, 24);
+	w.x0 = ox;
+	w.y0 = oy;
+	w.x1 = (short)(ox + (short)((short)(ox - cx) * dir) * budget);
+	w.y1 = (short)(oy + (short)((short)(oy - cy) * dir) * budget);
+	jt509(&w);
+
+ l1ab2:
+	curX = (unsigned char)w.cx;
+	curY = (unsigned char)w.cy;
+	if (w.x0 == w.x1 && w.y0 == w.y1)
+		goto l1b60;
+
+ l1ad4:
+	savedCx = w.cx;
+	savedCy = w.cy;
+	ret = jt507(&w);
+	l62ec(w.cx, w.cy, &occCur, &feat);
+	if (ret == 0)
+		blocked = 1;
+	else if (occCur != 0 && occCur != occTarget)
+		blocked = 1;
+	else if (feat == 0)
+		blocked = 1;
+	else if ((unsigned char)g_a5_buf(-27848)[feat * 4] > 1)
+		blocked = 1;
+	else if ((unsigned short)w.steps >= (unsigned short)budget)
+		blocked = 1;
+	else
+		blocked = 0;
+	if (blocked == 0)
+		goto l1ad4;
+
+ l1b60:
+	if (feat == 0)
+		budget = 0;
+	if (w.cx < 0 || w.cx > 49 || w.cy < 0 || w.cy > 24) {
+		hitWall = 1;				/* stepped off the map = wall */
+		w.cx = savedCx;
+		w.cy = savedCy;
+	}
+	jt501((short)(signed char)curX, (short)(signed char)curY,
+	      w.cx, w.cy, 4, 50);
+	if (occTarget != occCur)
+		l1d2a(w.cx, w.cy, damage);
+	occTarget = occCur;
+	if ((unsigned char)g_a5_buf(-27848)[feat * 4] <= 1)
+		goto l1c92;				/* passable cell, no reflect  */
+	if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[34] != 1)
+		goto l1c92;
+	if (hitWall)
+		goto l1c92;
+	/* reflect: seed a return ray from the wall cell back to the caster */
+	ox = w.cx;
+	oy = w.cy;
+	dir = -1;
+	jt65((long)(uintptr_t)&w2, 24);
+	w2.x0 = ox;
+	w2.y0 = oy;
+	w2.x1 = cx;
+	w2.y1 = cy;
+	jt509(&w2);
+	while (jt507(&w2) != 0)
+		;
+	if (wallDouble) {
+		if ((unsigned char)w2.steps < 8)
+			w.steps = (unsigned char)(w.steps * 2);
+	}
+	wallDouble = 0;
+
+ l1c92:
+	marginal = (unsigned char)((unsigned char)w.steps - prevSteps);
+	if (marginal < 2)
+		marginal = 2;
+	if ((unsigned short)marginal >= (unsigned short)budget)
+		budget = 0;
+	else
+		budget = (short)(budget - (marginal & 0xff));
+	prevSteps = w.steps;
+	if (budget == 0)
+		goto l1d1a;
+	if ((unsigned char)g_a5_buf(-27848)[feat * 4] <= 1)
+		goto l1ab2;				/* keep stepping this ray     */
+	if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[34] == 1)
+		goto l1d1a;				/* wall: re-seed next bounce  */
+	goto l1ab2;
+
+ l1d1a:
+	if (budget != 0)
+		goto l1a52;
+	g_a5_byte(-25257) = 0;
 }
 
 /* l5676 peripheral sub-handlers (CODE 20 locals): l442e = event-backdrop

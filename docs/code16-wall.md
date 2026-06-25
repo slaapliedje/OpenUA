@@ -241,10 +241,17 @@ have real per-effect bodies (dice rolls, target tables, jt521 burst render).
   jt672 jt673 jt674 jt675 jt676 jt677 jt678 jt679 jt681 jt682 jt683 jt685
   jt686 jt687 jt689 jt690 jt691 jt692 jt694 jt695 jt698 jt699 jt700 jt701
   jt702 jt706 jt707 jt708  (+ locals l602c, l6114,
-  l0008, l1840, l0f52)
+  l0008, l1840, l0f52, l1d2a)
 - STUB (18):
   jt603 jt604 jt608 jt612 jt635 jt639 jt647 jt651 jt665 jt680 jt684 jt688
   jt693 jt696 jt697 jt703 jt704 jt705
+
+**jt631** (CODE 16+0x19c8, the bouncing-bolt damage applier) is now a real body
+(2026-06-24): a reflective Bresenham ray from the pick cell, draining a `range*2`
+energy budget per segment, with the per-cell damage in the local **l1d2a**
+(l62ec occupant → jt866 resist → jt867 save-damage). Called by jt722
+("breathes lightning"). Lifting it **unblocks jt680 + jt703** (both just call
+l19c8; jt703 also wraps the already-lifted jt607=l16de).
 
 The combat spine is now LIFTED (l076e + jt511 + l08b4/l5008, 2026-06-24), so the
 handler table is reachable in principle.  The effect-application core **l6114**
