@@ -33965,7 +33965,56 @@ static void jt664(void)	/* +0x00c6; id 1,62 */
 	      jt488(ua_strs_at(0x4d40) /* "is %s" */,
 	            (const char *)(uintptr_t)g_a5_long(-20092)));
 }
-static void jt665(void) { PROBE("jt665"); }	/* +0x3d02; id 123 */
+/* JT[665] (CODE 16 + 0x3d02; id 123) — "is blinded" (mass blindness with a
+ * 100-hit-dice budget). Pass 1 totals the hit dice ([129]) of the eligible
+ * targets (each <= 100 HD, accumulating until the budget would be exceeded) and
+ * rolls a magnitude (1d4+1, x10 when fewer than 51 HD total) that the Mac
+ * computes but never uses. Pass 2 re-walks the same -23512 targets within the
+ * budget and applies blindness via jt871 (code 33, l602c duration, "is
+ * blinded"). -25257 marks the effect in flight. */
+static void jt665(void)	/* +0x3d02; id 123 */
+{
+	short i;
+	unsigned char hdSpent = 0;
+	short roll;
+
+	PROBE("jt665");
+	g_a5_byte(-25257) = 1;
+
+	/* pass 1: total the affected hit dice (cap 100) */
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510)
+	         && (unsigned char)hdSpent <= 100; i++) {
+		unsigned char *tg = (unsigned char *)(uintptr_t)g_a5_longs(-23512)[i];
+
+		if (tg[129] > 100)
+			continue;
+		if ((unsigned short)(hdSpent + tg[129]) > 100)
+			continue;
+		hdSpent = (unsigned char)(hdSpent + tg[129]);
+	}
+	roll = (short)(jt870(1, 4) + 1);
+	if (hdSpent < 51)
+		roll = (short)(roll * 10);
+	(void)roll;			/* the Mac computes it here but never uses it */
+
+	/* pass 2: apply blindness within the same budget */
+	hdSpent = 0;
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510)
+	         && (unsigned char)hdSpent <= 100; i++) {
+		long target = g_a5_longs(-23512)[i];
+		unsigned char *tg = (unsigned char *)(uintptr_t)target;
+		short dur;
+
+		if (tg[129] > 100)
+			continue;
+		if ((unsigned short)(hdSpent + tg[129]) > 100)
+			continue;
+		hdSpent = (unsigned char)(hdSpent + tg[129]);
+		dur = l602c((short)(unsigned char)g_a5_byte(-25262));
+		jt871(target, 33, dur, 0, 0, 0, 0,
+		      (long)(uintptr_t)ua_strs_at(0x528e) /* "is blinded" */);
+	}
+}
 static void jt666(void)	/* +0x05aa; id 20 */
 {
 	short roll, val;
@@ -35001,7 +35050,134 @@ static void jt703(void)	/* +0x1da6; id 51 */
 	dmg = jt873((short)(lvl & 0xff), 6);
 	jt631(7, dmg, 1);
 }
-static void jt704(void) { PROBE("jt704"); }	/* +0x1270; id 41,46 */
+static void jt861(short flag);				/* CODE 18, below */
+
+/* L11ec (CODE 16 + 0x11ec) — jt704's dispel-chance roll for the wall pass.
+ * Compute a percent chance (-6866) from the caster level (*pCasterLevel) vs the
+ * `spellLevel`: caster higher -> 50 + 5*(diff); equal -> 50; caster lower ->
+ * 50 - 2*(the -6865 scratch level - caster). Returns whether a 1d100 roll lands
+ * at or under that chance. */
+static unsigned char l11ec(short spellLevel, unsigned char *pCasterLevel)
+                                                        __attribute__((unused));
+static unsigned char l11ec(short spellLevel, unsigned char *pCasterLevel)
+{
+	unsigned char cl = *pCasterLevel;
+	unsigned char sl = (unsigned char)spellLevel;
+	short roll;
+
+	PROBE("L11ec");
+	if (cl > sl)
+		g_a5_byte(-6866) = (unsigned char)((cl - sl) * 5 + 50);
+	else if (cl < sl)
+		g_a5_byte(-6866) = (unsigned char)(50
+		    - ((unsigned char)g_a5_byte(-6865) - cl) * 2);
+	else
+		g_a5_byte(-6866) = 50;
+	roll = jt870(1, 100);
+	return (unsigned char)((unsigned short)roll
+	    <= (unsigned char)g_a5_byte(-6866) ? 1 : 0);
+}
+
+/* JT[704] (CODE 16 + 0x1270; ids 41/46) — Dispel Magic + wall destruction. Part
+ * 1: for each -23512 target, walk its spell-effect node list (head [4], next
+ * [6]); each non-permanent node ([4] < 255) gets a dispel roll whose chance
+ * scales the caster level (jt17) against the node's spell level ([4] & 31), and
+ * on success the node is removed (jt878); a target that lost any node is "is
+ * affected" (jt503). Part 2 (gaze mode -27990 == 5): for the eight directions
+ * around the pick (-23236/-23235 + the -27862/-27853 deltas), a wall/door cell
+ * (feature 28/29 via l62ec) is matched against the -23234 wall list (the
+ * -24085 sub-offsets), and matching segments are marked for removal ([30] = -1)
+ * when l11ec's roll lands; jt521 re-renders the cell. jt861 commits the round. */
+static void jt704(void)	/* +0x1270; ids 41/46 */
+{
+	unsigned char casterLevel;
+	short i;
+
+	PROBE("jt704");
+	g_a5_byte(-25257) = 1;
+	casterLevel = (unsigned char)jt17((short)(unsigned char)g_a5_byte(-25262), 0);
+
+	/* Part 1 — Dispel Magic over the target list */
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510); i++) {
+		long target = g_a5_longs(-23512)[i];
+		long node = *(long *)(void *)((unsigned char *)(uintptr_t)target + 4);
+		unsigned char affected = 0;
+
+		while (node != 0) {
+			unsigned char *nd = (unsigned char *)(uintptr_t)node;
+			long nextNode = *(long *)(void *)(nd + 6);
+
+			if (nd[4] < 255) {
+				unsigned char sl = (unsigned char)(nd[4] & 31);
+				short roll;
+
+				g_a5_byte(-6865) = sl;
+				if (casterLevel > sl)
+					g_a5_byte(-6866) =
+					    (unsigned char)((casterLevel - sl) * 5 + 50);
+				else if (casterLevel < sl)
+					g_a5_byte(-6866) =
+					    (unsigned char)(50 - (sl - casterLevel) * 2);
+				else
+					g_a5_byte(-6866) = 50;
+				roll = jt870(1, 100);
+				if ((unsigned short)roll
+				  <= (unsigned char)g_a5_byte(-6866)) {
+					jt878(target, (short)nd[0], node);
+					affected = 1;
+				}
+			}
+			node = nextNode;
+		}
+		if (affected)
+			jt503(target, 1,
+			      (long)(uintptr_t)ua_strs_at(0x4ed6) /* "is affected" */);
+	}
+
+	/* Part 2 — wall destruction (gaze mode only) */
+	if (g_a5_byte(-27990) != 5)
+		return;
+	for (g_a5_byte(-22307) = 0; (signed char)g_a5_byte(-22307) <= 8;
+	     g_a5_byte(-22307)++) {
+		unsigned char dir = (unsigned char)g_a5_byte(-22307);
+		unsigned char cellX = (unsigned char)((signed char)g_a5_byte(-23236)
+		    + (signed char)g_a5_buf(-27862)[dir]);
+		unsigned char cellY = (unsigned char)((signed char)g_a5_byte(-23235)
+		    + (signed char)g_a5_buf(-27853)[dir]);
+		unsigned char terrain, feat, wallCount;
+		long wallStruct;
+
+		l62ec((short)(signed char)cellX, (short)(signed char)cellY,
+		      &terrain, &feat);
+		if (feat != 29 && feat != 28)
+			continue;
+		wallStruct = g_a5_long(-23234);
+		wallCount = (feat == 29) ? 4 : 9;
+		while (wallStruct != 0) {
+			unsigned char *ws = (unsigned char *)(uintptr_t)wallStruct;
+			short j;
+
+			for (j = 1; (unsigned char)j <= wallCount; j++) {
+				unsigned char d = g_a5_buf(-24085)[j];
+
+				if ((short)(signed char)cellX
+				    != (short)(signed char)ws[28]
+				       + (short)(signed char)g_a5_buf(-27862)[d])
+					continue;
+				if ((short)(signed char)cellY
+				    != (short)(signed char)ws[29]
+				       + (short)(signed char)g_a5_buf(-27853)[d])
+					continue;
+				if (l11ec((short)(signed char)ws[31], &casterLevel))
+					ws[30] = 0xff;		/* mark for removal */
+			}
+			wallStruct = *(long *)(void *)(ws + 4);
+		}
+		jt521((short)(signed char)g_a5_byte(-23236),
+		      (short)(signed char)g_a5_byte(-23235), 3, 8);
+	}
+	jt861(1);
+}
 /* JT[705] (CODE 16 + 0x3336; id 108) — the "is held" mass effect. A JT[3]
  * table over the target count (-23510) picks a saving-throw modifier that
  * scales with how few targets are caught — 1 -> -4, 2 -> -2, 3 -> -1, 4+ (or 0)
