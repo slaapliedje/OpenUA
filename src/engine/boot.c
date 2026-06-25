@@ -33409,7 +33409,13 @@ static void jt669(void)	/* +0x2008; id 132 — youth */
 		     (short)10, (short)1);			/* 205c */
 	}
 }
-static void jt671(void) { PROBE("jt671"); }	/* +0x2f9e; id 100 */
+static void jt671(void)	/* +0x2f9e; id 100 */
+{
+	PROBE("jt671");
+	/* CODE 16 status-announce handler: l6114(effect,0,0,0,0, empty 0x514c). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x514c) /* "" */);
+}
 static void jt672(void) { PROBE("jt672"); }	/* +0x118a; id 40 */
 static void jt673(void)	/* +0x32ae; id 105 — resurrect */
 {
