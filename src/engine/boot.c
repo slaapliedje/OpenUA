@@ -38462,7 +38462,31 @@ static void jt58(void)
  * l364c (the feature RNG, shared by l3936/l3b36) and l3d56 (l3b36's biome
  * feature placer) are PROBE stubs for their own cards. */
 static void jt68(void)   { PROBE("jt68"); }
-static void jt536(void)  { PROBE("jt536"); }
+/* JT[536] (CODE 14 + 0x2cb2) — the party health-ratio for the combat HP gauge
+ * (-22649). Walk the -27928 combatant list: sum the max-HP byte [129] of every
+ * active member ([95]==1, type [94]!=9) into hpSum, and the current-HP byte
+ * [395] of the conscious ones ([382]!=0) into hpCur. When hpSum > 0,
+ * -22649 = (hpCur*20 / hpSum) * 5 — a 0..100-ish fill percent. */
+static void jt536(void)
+{
+	short hpSum = 0, hpCur = 0;
+	long mem = g_a5_long(-27928);
+
+	PROBE("jt536");
+	while (mem != 0) {
+		unsigned char *m = (unsigned char *)(uintptr_t)mem;
+
+		if (m[95] == 1 && m[94] != 9) {
+			if (m[382] != 0)
+				hpCur = (short)(hpCur + m[395]);
+			hpSum = (short)(hpSum + m[129]);
+		}
+		mem = *(long *)(uintptr_t)mem;
+	}
+	if (hpSum > 0)
+		g_a5_byte(-22649) = (unsigned char)
+		    (((unsigned short)(hpCur * 20) / (unsigned short)hpSum) * 5);
+}
 static void jt527(void);   /* CODE 14+0x5e8e field repaint; full lift defined below */
 /* CODE 13+0x276c — the spell-cast POST-PRESENT init (l276c), run from jt547 on
  * the first cast pass. Faithful full lift: yields/refreshes (jt77), repaints the
