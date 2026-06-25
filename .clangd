@@ -1,0 +1,6 @@
+CompileFlags:
+  Add:
+    - "--target=m68k-atari-mintelf"   # or your actual triple
+    - "-I/home/jfergus/dev/m68k-atari-mint-gcc/include"
+  # Remove host-only flags clangd's default config might inject
+
