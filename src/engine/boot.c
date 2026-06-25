@@ -40306,6 +40306,22 @@ static void l6836(short x, short y, short kind, short dir)
 	jt117();
 }
 
+/* L44b2 (CODE 14 + 0x44b2) — one step of a missile/ray sprite trail: blit a
+ * kind-3 sprite (l6836) at the current trail cursor (-7230 = x, -7228 = y), then
+ * advance the cursor by direction `dir`'s cell delta from the -27862 (row) /
+ * -27853 (col) delta tables.  Faithful 1:1 lift of L44b2; called by the (not yet
+ * lifted) l3a4e / jt548 ray walkers, so parked unused for now. */
+static void l44b2(short dir) __attribute__((unused));
+static void l44b2(short dir)
+{
+	PROBE("L44b2");
+	l6836((short)g_a5_word(-7230), (short)g_a5_word(-7228), (short)3, dir);
+	g_a5_word(-7230) = (short)(g_a5_word(-7230)
+	    + (signed char)g_a5_byte(-27862 + dir));
+	g_a5_word(-7228) = (short)(g_a5_word(-7228)
+	    + (signed char)g_a5_byte(-27853 + dir));
+}
+
 /* CODE 14+0x73cc — the TURNED-undead visual update (l73cc), called from jt534.
  * Faithful full lift. Stages the field header (-25318) for the draw: byte +6 =
  * the caller's c arg, byte +7 = the combatant's body-slot facing (cell record
@@ -55354,11 +55370,18 @@ static void jt156(short item, short y, short x)
 
 /* L1090 (CODE 14+0x1090) — attacks-per-round from the -25264 kind.
  * Leaf PROBE stub pending its own lift (returns 1 attack). */
+/* L1090 (CODE 14 + 0x1090) — map an attack-count `kind` to a per-round count:
+ * take the kind's low byte, +1 when JT[472] is set for the -22721 state byte
+ * (the extra-attack / haste gate), then halve it (logical >>1).  Faithful 1:1
+ * lift of L1090; jt543 feeds the result into rec[387]. */
 static unsigned char l1090(short kind)
 {
+	unsigned char tmp = (unsigned char)kind;
+
 	PROBE("l1090");
-	(void)kind;
-	return 1;
+	if (jt472((short)(unsigned char)g_a5_byte(-22721)) != 0)
+		tmp++;
+	return (unsigned char)((unsigned short)tmp >> 1);
 }
 
 /* JT[543] (CODE 14+0x0f60) — resolve the actor's attacks-per-round
