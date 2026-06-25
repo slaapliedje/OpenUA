@@ -105,7 +105,7 @@ never lifted (NOT just `l14bc`). Lift bottom-up:
 |----|------|-------:|--------|
 | `l29fc` | backstab eligibility (thief class + behind-target) | 94 | ✅ LIFTED |
 | `l022c` | **damage roll** → -25242 (jt873 weapon dice + [393] bonus, ×backstab mult) | 80 | ✅ LIFTED |
-| `l030a` | report ("Hitting for X" / "Misses") + **jt39 HP-apply** + death/XP (jt865/l6de8) | 275 | stub (next) |
+| `l030a` | report + **jt39 HP-apply** + death/XP (jt865/l6de8) | 275 | ✅ LIFTED |
 | `l1d0c` | per-attack count / weapon-slot setup | 76 | missing |
 | `l14bc` | the multi-attack **melee round** loop (jt864 to-hit → l022c → l030a) | 400 | PROBE no-op |
 | `l2b24` | the missile/thrown strike counterpart | 128 | PROBE no-op |
@@ -113,8 +113,8 @@ never lifted (NOT just `l14bc`). Lift bottom-up:
 Damage flow: `l14bc` loops the attacker's swings; per swing `jt864` rolls to-hit,
 `l022c` rolls the damage into `-25242`, `l030a` announces it + applies via `jt39`
 + handles "goes down"/"is killed"/XP. All external deps (jt39/jt864/jt494/jt40/
-jt873/jt868/jt865) are lifted. **Next: `l030a` (the apply+death core), then
-`l1d0c`, then wire `l14bc`/`l2b24`.**
+jt873/jt868/jt865) are lifted. **Damage now COMPUTES (l022c) + APPLIES + resolves death (l030a). Next:
+`l1d0c` (attack count), then wire `l14bc`/`l2b24` to call jt864->l022c->l030a.**
 
 ## REMAINING — the other lXXXX render leaves (non-JT, 0 callsites in jumptable)
 
