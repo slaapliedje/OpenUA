@@ -48107,10 +48107,149 @@ static void l1d0c(long atk, long def, void *out)
 	}
 }
 
+/* L14bc (CODE 14 + 0x14bc) — the melee attack ROUND: run all of the attacker's
+ * swings against one defender, resolving each through the now-lifted tier.
+ * Setup: clear the per-round accumulators (-25254/-25253/-22651/-22650/-25242),
+ * transfer the wielded weapon's dice into the attacker damage fields [389]/[391]
+ * /[393] (from the -27944 template), recompute the defender (jt21) + cat-11 save
+ * (jt868), and pick the to-hit threshold — backstab AC ([386]-4 via l29fc) or
+ * the [385]/[386] AC adjusted for a flank, then the l1d0c reach penalty. Per
+ * swing: jt864 rolls to-hit vs the threshold; on a hit (or a helpless target)
+ * l022c rolls the damage into -25242 and l030a announces + applies it (jt39) +
+ * resolves death; a downed defender ends the round. A helpless/down target
+ * (jt13) instead takes a single "slays helpless" finishing strike. `out`
+ * receives the round-continues flag (jt498). */
 static void l14bc(long atk, long def, short a, void *out, long ammo)
 {
+	unsigned char *atkr = (unsigned char *)(uintptr_t)atk;
+	unsigned char *defr = (unsigned char *)(uintptr_t)def;
+	unsigned char *as = (unsigned char *)(uintptr_t)
+	    *(long *)(void *)(atkr + 64);
+	unsigned char *outp = (unsigned char *)out;
+	unsigned char flank = (unsigned char)a;
+	unsigned char f17 = 0, f18 = 0, tmp24 = 0;
+	unsigned char slot, count, mode030a, threshold = 0;
+	unsigned char templ[16];
+
 	PROBE("l14bc");
-	(void)atk; (void)def; (void)a; (void)out; (void)ammo;
+	outp[0] = 0;
+	g_a5_byte(-25254) = 0;
+	g_a5_byte(-25253) = 0;
+	g_a5_byte(-22651) = 0;
+	g_a5_byte(-22650) = 0;
+	g_a5_word(-25242) = 0;
+	as[10] = 1;
+	if (jt13(def) != 0) {				/* helpless / down target */
+		jt52(8);
+		while (((unsigned char *)(uintptr_t)(atk + (as[6] - 1)))[387] == 0)
+			as[6] = (unsigned char)(as[6] - 1);
+		g_a5_byte(-22652 + as[6])++;
+		l030a(atk, def, 3, (short)(defr[395] + 5), 1, 1);
+		jt880(atk);
+		atkr[387] = 0;
+		atkr[388] = 0;
+		f17 = 1;
+		outp[0] = 1;
+		goto l1928;
+	}
+
+	/* L15b6: transfer the wielded weapon's damage dice into the attacker */
+	if (*(long *)(void *)(atkr + 12) != 0
+	 && (defr[130] > 128 || (defr[130] & 7) > 1)) {
+		unsigned char *item = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)(atkr + 12);
+		unsigned char *tmpl = (unsigned char *)(uintptr_t)
+		    g_a5_long(-27944) + (item[40] << 4);
+		int k;
+
+		for (k = 0; k < 16; k++)
+			templ[k] = tmpl[k];
+		atkr[389] = templ[2];
+		atkr[391] = templ[3];
+		atkr[393] = (unsigned char)((signed char)atkr[393]
+		    - (signed char)templ[11] + (signed char)templ[4]);
+	}
+
+	/* L1644: pick the to-hit threshold */
+	jt21(def);
+	jt868(11, &def);				/* may rewrite def */
+	defr = (unsigned char *)(uintptr_t)def;
+	if (l29fc(atk, def)) {
+		threshold = (unsigned char)(defr[386] - 4);
+	} else {
+		unsigned char *dsub = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)(defr + 64);
+
+		if (dsub[17] > 1 && l7894(atk, def) == dsub[11] && dsub[20] > 4)
+			flank = 1;
+		if (flank)
+			tmp24 = 1;
+		threshold = defr[385 + tmp24];
+	}
+
+	/* L16f0: reach penalty + the l030a verb mode */
+	l1d0c(atk, def, &threshold);
+	mode030a = 0;
+	if (flank)
+		mode030a = 1;
+	if (l29fc(atk, def))
+		mode030a = 2;
+
+	/* L172c: the swing loop (slot = attack count down to 1) */
+	count = as[6];
+	slot = count;
+	goto l1898;
+
+ l1744:
+	((unsigned char *)(uintptr_t)(atk + (slot - 1)))[387] =
+	    (unsigned char)(((unsigned char *)(uintptr_t)(atk + (slot - 1)))[387] - 1);
+	as[6] = slot;
+	g_a5_byte(-22652 + slot)++;
+	if (jt864(atk, def, (short)threshold) != 0 || jt13(def) != 0) {
+		g_a5_byte(-25255 + slot)++;
+		jt52(8);
+		f17 = 1;
+		l022c(atk, def, (short)slot);		/* roll damage -> -25242 */
+		if (defr[382] != 0)
+			l030a(atk, def, (short)mode030a,
+			      g_a5_word(-25242), g_a5_word(-25242), 1);
+		if (defr[382] != 0 && (short)g_a5_word(-25242) > 0) {
+			jt868((short)(slot + 1), &atk);	/* may rewrite atk */
+			atkr = (unsigned char *)(uintptr_t)atk;
+			as = (unsigned char *)(uintptr_t)*(long *)(void *)(atkr + 64);
+		}
+		if (defr[382] == 0) {
+			f18 = 1;
+			count = 0;
+			((unsigned char *)(uintptr_t)(atk + (slot - 1)))[387] = 0;
+		}
+	}
+ l186e:
+	if (((unsigned char *)(uintptr_t)(atk + (slot - 1)))[387] > 0 && f18 == 0)
+		goto l1744;
+	slot = (unsigned char)(slot - 1);
+ l1898:
+	if ((unsigned char)slot >= 1)
+		goto l186e;
+
+	/* L18a4: nothing landed -> miss line */
+	if (f17 == 0) {
+		if (ammo == 0)
+			jt52(10);
+		l030a(atk, def, (short)mode030a, 0, 0, 0);
+	}
+	/* L18d8: round-continues flag from any remaining swings */
+	outp[0] = 1;
+	for (slot = 1; slot <= 2; slot++)
+		if (((unsigned char *)(uintptr_t)(atk + (slot - 1)))[387] > 0)
+			outp[0] = 0;
+	as[7] = 0;
+
+ l1928:
+	if (((unsigned char *)(uintptr_t)atk)[382] == 0)
+		outp[0] = 1;
+	if (outp[0] != 0)
+		outp[0] = (unsigned char)jt498(atk);
 }
 static void l2b24(long atk, long def, long item)
 {
