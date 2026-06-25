@@ -74,11 +74,13 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 
 Major advance: the combat **spine is wired top-to-bottom**, both turn-dispatch
 sides are lifted, and **CODE 16's effect handlers are now ALL lifted (106/106,
-2026-06-24)** — a spell round applies real damage/saves through
-`jt598`→`jt599`→`l6114`. The remaining real block is the **physical-damage
-round `l14bc`** (+ missile `l2b24`): a weapon swing resolves its plumbing but
-deals no HP damage (PROBE no-op). See `docs/milestone.md` §2 for the chain.
-Trigger a fight via a type-1/33 event cell → `l159a`, or call `l159a(ev,1)`.
+2026-06-24)**, and the **physical-damage tier is now COMPLETE** (l29fc/l022c/
+l030a/l1d0c/l14bc/l2b24): a weapon swing — melee and missile — computes damage,
+deducts HP (jt39) and resolves death/XP. So a round now resolves **both** spell
+and physical attacks for real. All still **breadth-first / runtime-untested**:
+the next step is the Hatari bring-up. Trigger a fight via a type-1/33 event
+cell → `l159a`, or call `l159a(ev,1)`. See `docs/milestone.md` §2 +
+`docs/code14-wall.md` (physical-damage tier).
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
@@ -87,7 +89,7 @@ Trigger a fight via a type-1/33 event cell → `l159a`, or call `l159a(ev,1)`.
 | Combat **turn dispatch** (`l08b4` player, `l5008` monster-AI) | 13 | 🟢 | both sides + all 7 `l5008` executors lifted, stub-free. Turn Undead + Cast Spell are complete vertical slices |
 | Combat **field render** (actor sprites, HP, targeting) | 14 | 🟡 | `code14-wall.md` — 81%; field-draw leaves `jt512`/`jt517`/`jt514`/`jt516`/`jt518`/`jt528`/`jt536`/`jt542` remain |
 | Combat **effect handlers** (106 announce/apply) | 16 | ✅ | `code16-wall.md` — **COMPLETE 2026-06-24, all 106 lifted** (112/115 CODE-16 JT exports by name, 0 stub). Breadth-first / runtime-untested |
-| Combat **physical-damage round** (`l14bc` melee, `l2b24` missile) | 14 | 🔴 | THE new keystone — weapon swings deal no damage (PROBE no-op); `code14-wall.md` |
+| Combat **physical-damage tier** (l29fc/l022c/l030a/l1d0c/l14bc/l2b24) | 14 | ✅ | COMPLETE 2026-06-24 — melee + missile swings deal damage, deduct HP (jt39), resolve death/XP; `code14-wall.md`. Runtime-untested |
 | Encounter **narration** ("A battle begins…") | 20 | 🟢 | `l159a` cases 1/33 — lifted, drives `jt511` |
 
 ## 6. Cross-cutting media  🟡 / 🔴

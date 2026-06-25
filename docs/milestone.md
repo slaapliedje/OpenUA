@@ -140,7 +140,7 @@ complete, runtime-pending; spell effects land, weapon damage is the next gap."
 
 | # | Work | CODE | Scope doc | Size |
 |--:|------|:----:|-----------|------|
-| 1 | **Physical-damage round `l14bc`** (+ missile `l2b24`) — THE blocker: a weapon swing currently deals no damage (PROBE no-op). Spell effects already land via the now-complete `l6114`. | 14 | `code14-wall.md` | medium, highest leverage |
+| ✅ | ~~Physical-damage tier (l14bc/l030a/l022c/l1d0c/l29fc/l2b24)~~ — **DONE 2026-06-24**: melee + missile swings deal damage end-to-end | 14 | `code14-wall.md` | complete |
 | 2 | **Combat runtime bring-up** — drive a live round in Hatari (trigger: a type-1/33 event cell → `l159a`, or call `l159a(ev,1)` directly); fix what the breadth-first spine/handler lifts got wrong | 13/14/16 | `code13-wall.md` | integration pass |
 | 3 | **Combat field-render leaves** — `jt512`/`jt517` actor draw, `jt514`/`jt516`/`jt518`, `jt536`/`jt542`/`jt541` (the field is blank without these) | 14 | `code14-wall.md` | medium (~5 missing + 3 stub) |
 | ✅ | ~~Combat effect handlers (CODE 16)~~ — **DONE**, all 106 lifted | 16 | `code16-wall.md` | complete |
