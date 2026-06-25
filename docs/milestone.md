@@ -1,9 +1,13 @@
 # MILESTONE — FRUA Falcon030/TT030 port
 
 > Living tracker of what is **accomplished** and what is **left to do**.
-> Snapshot: **2026-06-24**, HEAD `e892f8e`, 1317 commits, `src/engine/boot.c`
-> = 61,538 lines. Build green (`make`, soft-float `-m68020-60`), host test
+> Snapshot: **2026-06-24** (CODE-16 sweep), HEAD `a1d2ff3`, `src/engine/boot.c`
+> ~62k lines. Build green (`make`, soft-float `-m68020-60`), host test
 > suite green (129 passed / 1 skipped).
+> **NEW: CODE 16 (combat effect handlers) is COMPLETE — all 106 `-24066`
+> dispatch handlers lifted (112/115 CODE-16 JT exports by name, 0 stub; the 3
+> "nodef" are aliased).** The old single-biggest-block is closed; the combat
+> frontier is now the runtime bring-up + the physical-damage round `l14bc`.
 >
 > Companion docs: `docs/subsystem-status.md` (player-facing register +
 > targeting priority), the per-subsystem `docs/*-wall.md` scope docs, and
@@ -21,10 +25,10 @@ no `jtN`-named definition):
 | Metric | Count | Note |
 |--------|------:|------|
 | JT entries total | 1208 | the whole Mac jump table |
-| Lifted (real body, by `jtN` name) | 826 | **68%** |
-| PROBE-only stubs | 109 | of which **80 are CODE-16 effect handlers** |
+| Lifted (real body, by `jtN` name) | ~906 | **~75%** (was 826 before the CODE-16 sweep) |
+| PROBE-only stubs | ~29 | CODE-16 (80) now all lifted; rerun `tools/jt_progress.py` for the exact figure |
 | No `jtN`-named def ("missing") | 273 | **over-counts** — see caveat |
-| PROBE-only stubs in `boot.c` total | 140 | 109 JT + ~31 CODE-local `lXXXX` |
+| PROBE-only stubs in `boot.c` total | ~60 | ~29 JT + ~31 CODE-local `lXXXX` |
 
 **Caveat on "missing":** many JT entries are lifted under their CODE-local
 `lXXXX` alias, not a `jtN` name (JT-export ≡ CODE-local; e.g. `jt496` reports
@@ -51,7 +55,7 @@ one real block — CODE 16."**
 | 13 | **combat main loop + per-turn tree** | 22 | 20 | 1 | 1 | 90% |
 | 14 | **combat field render / actions** | 44 | 36 | 3 | 5 | 81% |
 | 15 | play-entry / dungeon walk loop | 19 | 15 | 0 | 4 | 78% |
-| 16 | **combat EFFECT HANDLERS (the frontier)** | 115 | 32 | 80 | 3 | 27% |
+| 16 | combat effect handlers ✅ **COMPLETE** | 115 | 112 | 0 | 3 | ~100% |
 | 17 | character generation | 20 | 17 | 1 | 2 | 85% |
 | 18 | dice / combat math / effects engine | 171 | 168 | 2 | 1 | 98% |
 | 19 | char record / HP / level / sheet | 35 | 29 | 0 | 6 | 82% |
@@ -124,9 +128,11 @@ l709e case 21 → l3b0e (encounter prompt) → l159a ("A battle begins…")
 - **Effects engine** (CODE 18) is ~98% — the hard damage/save payloads are done.
 
 ⚠️ Combat lifts are **breadth-first / not yet runtime-tested**: the spine is
-wired but no live playthrough has confirmed a full round renders and resolves,
-and the **effect handlers that make abilities *do* something are still stubbed**
-(see below). Treat combat as "structurally complete, behaviourally pending."
+wired and the **effect handlers are now all lifted** (CODE 16 complete), so a
+*spell* round resolves with real damage/saves — but no live playthrough has
+confirmed a full round renders and resolves, and a **physical** swing still
+deals no damage (`l14bc`/`l2b24` PROBE no-ops). Treat combat as "structurally
+complete, runtime-pending; spell effects land, weapon damage is the next gap."
 
 ---
 
@@ -134,9 +140,10 @@ and the **effect handlers that make abilities *do* something are still stubbed**
 
 | # | Work | CODE | Scope doc | Size |
 |--:|------|:----:|-----------|------|
-| 1 | **Combat effect handlers** — the 80 announce/apply payloads abilities call | 16 | `code16-wall.md` | large (multi-session; `jt595`/`jt599` are the lifted entry points) |
-| 2 | **Combat field-render leaves** — `jt512`/`jt517` actor draw, `jt514`/`jt516`/`jt518`/`jt528`, `jt536`/`jt542` | 14 | `code14-wall.md` | medium (~5 missing + 3 stub) |
-| 3 | **Combat runtime bring-up** — drive a live round; fix what the breadth-first lifts got wrong | 13/14/16 | `code13-wall.md` | the integration pass once 1–2 land |
+| 1 | **Physical-damage round `l14bc`** (+ missile `l2b24`) — THE blocker: a weapon swing currently deals no damage (PROBE no-op). Spell effects already land via the now-complete `l6114`. | 14 | `code14-wall.md` | medium, highest leverage |
+| 2 | **Combat runtime bring-up** — drive a live round in Hatari (trigger: a type-1/33 event cell → `l159a`, or call `l159a(ev,1)` directly); fix what the breadth-first spine/handler lifts got wrong | 13/14/16 | `code13-wall.md` | integration pass |
+| 3 | **Combat field-render leaves** — `jt512`/`jt517` actor draw, `jt514`/`jt516`/`jt518`, `jt536`/`jt542`/`jt541` (the field is blank without these) | 14 | `code14-wall.md` | medium (~5 missing + 3 stub) |
+| ✅ | ~~Combat effect handlers (CODE 16)~~ — **DONE**, all 106 lifted | 16 | `code16-wall.md` | complete |
 | 4 | **Inventory / equip** — char-sheet items truthful + ITEMS/TRADE/DROP | 9 + 19 | `inventory-subsystem-wall.md` | small, testable now |
 | 5 | **Event-handler vocabulary** — remaining `l709e` arms (reward picker, one-shot cell flags) | 18/20 | `play-loop-wall.md` | each cheap, live-testable on a HEIRS cell |
 | 6 | **3D-render placement bug** — left-column clip (the unfinished mirror of b945821) | — | `dungeon-view-wall.md` | isolated |
@@ -147,8 +154,10 @@ and the **effect handlers that make abilities *do* something are still stubbed**
 | 11 | **#129 event-bigpic frame-stomp** — composition-ordering / buffer-sharing | 20/6/5 | `event-pictures-wall.md` | isolated |
 | 12 | **Audio** — every output leaf stubbed (MUTED); needs engine→Falcon-DMA HAL glue (Device Manager `_Write`, not Sound Manager) | 5/6 | `audio-wall.md` | multi-part |
 
-**Single biggest block:** CODE 16 (#1). It is what spells/abilities actually
-*do*; until it lands, combat dispatches turns but applies no effects.
+**Single biggest block is now closed** — CODE 16's 106 effect handlers are all
+lifted, so spells/abilities apply for real through `jt598`→`jt599`→`l6114`. The
+new keystone is `l14bc` (#1): physical attacks resolve their plumbing but deal
+**no damage** until that PROBE no-op is lifted. Spell damage already lands.
 
 ---
 
