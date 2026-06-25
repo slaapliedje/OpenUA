@@ -106,7 +106,7 @@ never lifted (NOT just `l14bc`). Lift bottom-up:
 | `l29fc` | backstab eligibility (thief class + behind-target) | 94 | ✅ LIFTED |
 | `l022c` | **damage roll** → -25242 (jt873 weapon dice + [393] bonus, ×backstab mult) | 80 | ✅ LIFTED |
 | `l030a` | report + **jt39 HP-apply** + death/XP (jt865/l6de8) | 275 | ✅ LIFTED |
-| `l1d0c` | per-attack count / weapon-slot setup | 76 | missing |
+| `l1d0c` | reach/out-of-range attack-timing penalty | 76 | ✅ LIFTED |
 | `l14bc` | the multi-attack **melee round** loop (jt864 to-hit → l022c → l030a) | 400 | PROBE no-op |
 | `l2b24` | the missile/thrown strike counterpart | 128 | PROBE no-op |
 
@@ -122,8 +122,8 @@ Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: `l1090` `l14bc` `l1dd6` `l2b24` `l4dee`
-> missing: `l1d0c` `l2e30` `l302c` `l315e` `l37d6`
-> `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a` now lifted)
+> missing: `l2e30` `l302c` `l315e` `l37d6`
+> `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c` now lifted)
 
 `l1dd6` (repeat pick from the built area list) and `l4dee` (repeat pick with
 per-target area re-aim, jt508) are the combat target-repeat locals already

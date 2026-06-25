@@ -48071,6 +48071,42 @@ static void l030a(long atk, long def, short mode, short damage, short e, short f
 	jt20();
 }
 
+static signed char jt499(const unsigned char *rec);	/* CODE 13, below */
+
+/* L1d0c (CODE 14 + 0x1d0c) — accumulate the out-of-reach attack-timing penalty
+ * into *out. dist = the jt494 path distance atk->def; reach = (when jt499 says
+ * the weapon has reach) (item-template [12] - 1)/3 from the -27944 item table,
+ * else dist itself. While dist still exceeds reach, subtract reach and bump the
+ * byte at *out by 2, then a second time by 3 — *out is the AC/initiative seed
+ * the caller (l14bc) passes by address. */
+static void l1d0c(long atk, long def, void *out) __attribute__((unused));
+static void l1d0c(long atk, long def, void *out)
+{
+	unsigned char *o = (unsigned char *)out;
+	unsigned char dist, reach;
+
+	PROBE("L1d0c");
+	dist = (unsigned char)jt494(atk, def);
+	if (jt499((const unsigned char *)(uintptr_t)atk)) {
+		unsigned char *item = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)((unsigned char *)(uintptr_t)atk + 12);
+		unsigned char *tmpl = (unsigned char *)(uintptr_t)g_a5_long(-27944)
+		    + (item[40] << 4);
+
+		reach = (unsigned char)((unsigned short)(tmpl[12] - 1) / 3);
+	} else {
+		reach = dist;
+	}
+	if ((short)(signed char)dist - (short)(signed char)reach > 0) {
+		dist = (unsigned char)((signed char)dist - (signed char)reach);
+		o[0] = (unsigned char)(o[0] + 2);
+	}
+	if ((short)(signed char)dist - (short)(signed char)reach > 0) {
+		dist = (unsigned char)((signed char)dist - (signed char)reach);
+		o[0] = (unsigned char)(o[0] + 3);
+	}
+}
+
 static void l14bc(long atk, long def, short a, void *out, long ammo)
 {
 	PROBE("l14bc");
