@@ -107,7 +107,7 @@ never lifted (NOT just `l14bc`). Lift bottom-up:
 | `l022c` | **damage roll** → -25242 (jt873 weapon dice + [393] bonus, ×backstab mult) | 80 | ✅ LIFTED |
 | `l030a` | report + **jt39 HP-apply** + death/XP (jt865/l6de8) | 275 | ✅ LIFTED |
 | `l1d0c` | reach/out-of-range attack-timing penalty | 76 | ✅ LIFTED |
-| `l14bc` | the multi-attack **melee round** loop (jt864 to-hit → l022c → l030a) | 400 | PROBE no-op |
+| `l14bc` | the multi-attack **melee round** loop (jt864 to-hit → l022c → l030a) | 400 | ✅ LIFTED |
 | `l2b24` | the missile/thrown strike counterpart | 128 | PROBE no-op |
 
 Damage flow: `l14bc` loops the attacker's swings; per swing `jt864` rolls to-hit,
@@ -121,7 +121,7 @@ jt873/jt868/jt865) are lifted. **Damage now COMPUTES (l022c) + APPLIES + resolve
 Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
-> stubs: `l1090` `l14bc` `l1dd6` `l2b24` `l4dee`
+> stubs: `l1090` `l1dd6` `l2b24` `l4dee`  (`l14bc` now lifted)
 > missing: `l2e30` `l302c` `l315e` `l37d6`
 > `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c` now lifted)
 
