@@ -33324,7 +33324,29 @@ static void jt668(void)	/* +0x23ea; id 75 — raise dead */
 		     (short)10, (short)1);			/* 2494 */
 	}
 }
-static void jt669(void) { PROBE("jt669"); }	/* +0x2008; id 132 */
+static void jt669(void)	/* +0x2008; id 132 — youth */
+{
+	unsigned char *cur = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	short roll;
+
+	PROBE("jt669");
+	/* CODE 16 effect id 132: reduce the current char's age word [82] by 1d4+1;
+	 * if it falls below 18 (unsigned), clamp to 18 and say "is now 18 years old",
+	 * otherwise "becomes younger". */
+	roll = jt870(1, 4);					/* 201a */
+	*(short *)(uintptr_t)(cur + 82) =
+	    (short)(*(short *)(uintptr_t)(cur + 82) - roll - 1);  /* 2024-2030 */
+	if ((unsigned short)*(short *)(uintptr_t)(cur + 82) >= 18) {  /* 2038 / 203e */
+		jt18((void *)cur,
+		     (long)(uintptr_t)ua_strs_at(0x4fb0) /* "becomes younger" */,
+		     (short)10, (short)1);			/* 2078 */
+	} else {
+		*(short *)(uintptr_t)(cur + 82) = 18;		/* 2046 */
+		jt18((void *)cur,
+		     (long)(uintptr_t)ua_strs_at(0x4f9c) /* "is now 18 years old" */,
+		     (short)10, (short)1);			/* 205c */
+	}
+}
 static void jt671(void) { PROBE("jt671"); }	/* +0x2f9e; id 100 */
 static void jt672(void) { PROBE("jt672"); }	/* +0x118a; id 40 */
 static void jt673(void)	/* +0x32ae; id 105 — resurrect */
