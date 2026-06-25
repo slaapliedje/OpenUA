@@ -34185,7 +34185,34 @@ static void jt687(void)
 		      (long)(uintptr_t)
 		      ua_strs_at(0x4efc) /* "has an item un-cursed" */);
 }
-static void jt688(void) { PROBE("jt688"); }	/* +0x2c40; id 92 */
+/* JT[688] (CODE 16 + 0x2c40; id 92) — a gaze-cone damage effect. The caster
+ * level (jt17 over the effect id -25262) seeds both the magnitude and a reach
+ * of max(1, ceil(level/2)); l6af8/jt596 (mode 2) builds the cone target list
+ * from the caster cell (-27932, jt525/jt531) toward the pick (-23236/-23235),
+ * and l6114 applies (level)d4 + level damage to it (announce value c = damage,
+ * d = 10, empty STRS 0x512a message). -25257 marks the effect in flight. */
+static void jt688(void)	/* +0x2c40; id 92 */
+{
+	long caster = g_a5_long(-27932);
+	unsigned char val1, range, cx, cy;
+	short damage;
+
+	PROBE("jt688");
+	g_a5_byte(-25257) = 1;
+	val1 = (unsigned char)jt17((short)(unsigned char)g_a5_byte(-25262), 0);
+	range = (unsigned char)((((unsigned char)jt17(
+	            (short)(unsigned char)g_a5_byte(-25262), 0)) + 1) >> 1);
+	if (range == 0)
+		range = 1;
+	cx = jt525(caster);
+	cy = jt531(caster);
+	jt596((short)(signed char)cx, (short)(signed char)cy,
+	      (short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), 2, (short)range);
+	damage = (short)((unsigned char)jt873((short)val1, 4) + val1);
+	l6114((short)(unsigned char)g_a5_byte(-25262), 0, 0, damage, 10,
+	      ua_strs_at(0x512a));
+}
 static void jt689(void)	/* +0x2614; id 80 */
 {
 	PROBE("jt689");
