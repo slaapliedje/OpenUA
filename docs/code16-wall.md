@@ -42,6 +42,7 @@ dispatch need before they fire for real:
 | L076e | CODE 13 local (~2.2KB) | execute one actor's combat turn (the heart of the loop) | **LIFTED** (l076e) — spine now wired l159a→jt511→l076e→l08b4/l5008 |
 | L602c | CODE 16+0x602c (~220B) | effect DURATION/magnitude in rounds (JT[1] switch over spell id; default = base + jt17·per-level from -16906) | **LIFTED** (l602c) — first CODE-16 card |
 | L6114 | CODE 16+0x6114 (~660B) | the effect-APPLICATION core: walk the -23512 target list, per target apply effect `code` w/ magic-resist (jt866) + saves (jt864/jt867/jt871) + announce | **LIFTED** (l6114) — lights up the whole announce family |
+| jt596 | CODE 16+0x6af8 (=l6af8, ~690B) | the AREA TARGET-LIST builder that fills -23512/-23510 for l6114/L7026: walk the ray pattern, extend/replay via the -27862/-27853 deltas, clamp+jt506, collect occupants, cone arms (-5946/-5938/-5930/-5922 octant tables), mode-255 jt508 burst, resolve to entities (caster -27932 excluded). Helpers l698a/l69d2/l6a1e. | **LIFTED** (jt596) — audited vs disasm 2026-06-24, faithful (Mac dedup-not-recleared quirk kept). Used by jt603/jt688/jt599 etc. |
 | L0434 | CODE 13 local | per-round init: builds the -22624 initiative slots | stub (l0434) |
 | L102a | CODE 13 local | end-of-round bookkeeping; may end the fight | stub (l102a) |
 | L4f22 | CODE 13 local | combat entry staging | stub (l4f22) |
