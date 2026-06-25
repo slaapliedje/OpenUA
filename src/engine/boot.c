@@ -32867,7 +32867,33 @@ static void jt625(void)	/* +0x2c00; id 88 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x510e) /* "is protected" */);
 }
-static void jt626(void) { PROBE("jt626"); }	/* +0x2552; id 78 */
+static void jt626(void)	/* +0x2552; id 78 */
+{
+	int i;
+
+	PROBE("jt626");
+	/* CODE 16 effect id 78 ("is entangled"): only when the area is not outdoors
+	 * (-28006[34]==0); each live -23512 target takes a timed entangle (jt871
+	 * descriptor 27, duration l602c(78)) carrying its jt866 resist result. */
+	g_a5_byte(-25257) = 1;					/* 2558 */
+	if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[34] == 0) {	/* 2562 / 2566 */
+		for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 25f0 */
+			long *slot = &g_a5_longs(-23512)[i];
+			long target = *slot;
+			unsigned char rflag;
+			short dur;
+
+			if (target == 0)			/* 258a */
+				continue;
+			rflag = (unsigned char)jt866(target, 4, 0);	/* 25b0 */
+			dur = l602c(78);			/* 25be */
+			jt871(target, 27, dur, 0, 0, 1,
+			      (short)(signed char)rflag,
+			      (long)(uintptr_t)ua_strs_at(0x504a) /* "is entangled" */);  /* 25e4 */
+		}
+	}
+	g_a5_byte(-25257) = 0;					/* 25fc */
+}
 static void jt627(void)	/* +0x20b6; id 66 */
 {
 	PROBE("jt627");
@@ -34037,7 +34063,38 @@ static void jt700(void)	/* +0x2b90; id 87 */
 		      (short)jt873(3, 10), (short)8,
 		      ua_strs_at(0x510c) /* "" */);		/* 2bf6 */
 }
-static void jt701(void) { PROBE("jt701"); }	/* +0x24a0; id 76 */
+static void jt701(void)	/* +0x24a0; id 76 — slay */
+{
+	long caster = g_a5_long(-23508);			/* 24a4 */
+
+	PROBE("jt701");
+	/* CODE 16 Slay (id 76): stage value 64 + save flag 67, run the save (jt868).
+	 * Saved (-25242 cleared) -> "is unaffected".  Otherwise, if neither
+	 * magic-resisted (jt866) nor immune ([192]&8), jt860 "is slain"; if resisted
+	 * or immune, take 2d8+1 damage instead (g_25266=8, jt867). */
+	g_a5_word(-25266) = 64;					/* 24ac */
+	g_a5_word(-25242) = 67;					/* 24b2 */
+	jt868(9, &caster);					/* 24be */
+	if (g_a5_word(-25242) == 0) {				/* 24c4 */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x503c) /* "is unaffected" */,
+		     (short)10, (short)1);			/* 2546 */
+	} else {
+		unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+
+		if ((unsigned char)jt866(caster, 4, 0) == 0	/* 24d6 / 24dc */
+		    && (cas[192] & 8) == 0) {			/* 24e6 / 24ee */
+			jt860(caster, 6,
+			      (long)(uintptr_t)ua_strs_at(0x5032) /* "is slain" */);  /* 2500 */
+		} else {					/* L250a resisted/immune */
+			short roll;
+
+			g_a5_word(-25266) = 8;			/* 250c */
+			roll = jt873(2, 8);			/* 2518 */
+			jt867(caster, (short)(roll + 1), 0, 0);	/* 252a */
+		}
+	}
+}
 static void jt702(void)	/* +0x2084; id 134 */
 {
 	PROBE("jt702");
