@@ -47965,6 +47965,112 @@ static void l022c(long atk, long def, short slot)
 	g_a5_word(-25266) = 0;
 }
 
+/* L030a (CODE 14 + 0x030a) — report one resolved attack and apply its outcome.
+ * Builds the announce line ("<atk> -Backstabs-/slays helpless/Attacks <def>
+ * [(from behind)] Hitting for N point(s) of damage" / "...and Misses"), flashes
+ * it on the combat field (jt18/jt25/jt96/jt94), then on a HIT deducts `damage`
+ * from the defender's HP via jt39, drops a memorized spell from a conscious
+ * caster (jt102/jt31/jt498), and resolves a downed defender: "goes down" /
+ * "and is Dying" / "is killed", jt865 death processing, jt868, and the l6de8
+ * XP award (skipped for class 10). `mode`: 2 backstab, 3 helpless-slay/cruel-
+ * blow, 1 from-behind, else plain attack; `f` is the hit flag; `damage` is the
+ * rolled value (-25242). The damage NUMBER prints blank (jt63 is still a stub)
+ * but the HP loss is real. The buffer is rebuilt per line — jt384 is strcpy,
+ * the running prefix is carried by jt488's leading "%s". */
+static void l030a(long atk, long def, short mode, short damage, short e, short f)
+                                                        __attribute__((unused));
+static void l030a(long atk, long def, short mode, short damage, short e, short f)
+{
+	unsigned char *d = (unsigned char *)(uintptr_t)def;
+	char buf[84];
+	unsigned char counter;
+
+	PROBE("L030a");
+	switch ((short)(unsigned char)mode) {		/* JT[3] min 2 max 3 */
+	case 2:
+		jt384(buf, ua_strs_at(0x456c) /* "-Backstabs-" */);
+		break;
+	case 3:
+		jt384(buf, ua_strs_at(0x4578) /* "slays helpless" */);
+		break;
+	default:
+		jt384(buf, ua_strs_at(0x4588) /* "Attacks" */);
+		break;
+	}
+	jt18((void *)(uintptr_t)atk, (long)(uintptr_t)buf, 10, 0);
+	counter = 12;
+	jt25(def, 23, (short)counter, 0);
+	counter++;					/* 13 */
+	if (mode == 1)
+		jt384(buf, ua_strs_at(0x4590) /* "(from behind) " */);
+	else
+		jt384(buf, ua_strs_at(0x45a0) /* "" — reset the line */);
+	if (f & 0xff) {					/* HIT */
+		if (mode == 3) {
+			jt384(buf, ua_strs_at(0x45a2) /* "with one cruel blow" */);
+		} else {
+			jt384(buf, jt488(ua_strs_at(0x45b6) /* "%sHitting for %s" */,
+			                 buf, jt63(e)));
+			if (e == 1)
+				jt384(buf, jt488(ua_strs_at(0x45c8)
+				                 /* "%s point " */, buf));
+			else
+				jt384(buf, jt488(ua_strs_at(0x45d2)
+				                 /* "%s points " */, buf));
+			jt384(buf, jt488(ua_strs_at(0x45de) /* "%sof damage" */, buf));
+		}
+		jt39((void *)(uintptr_t)def, damage);	/* APPLY HP DAMAGE */
+	} else {					/* MISS */
+		jt384(buf, jt488(ua_strs_at(0x45ea) /* "%sand Misses" */, buf));
+	}
+	if (d[94] != 8)
+		jt96(23, (short)counter, 38, (short)(counter + 3), 7, 0, 1,
+		     (long)(uintptr_t)buf, 0);
+	counter = (unsigned char)(g_a5_byte(-27911) + 1);
+	if (damage > 0) {
+		unsigned char *dsub = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)(d + 64);
+
+		dsub[1] = 0;
+		if (dsub[0] > 0) {			/* a memorized spell is lost */
+			jt102();
+			jt18((void *)(uintptr_t)def,
+			     (long)(uintptr_t)ua_strs_at(0x45f8) /* "lost a spell" */,
+			     12, 1);
+			jt31(def, (short)dsub[0]);
+			jt498(def);
+		} else {
+			jt102();
+		}
+	} else {
+		jt102();
+	}
+	if (d[382] == 0) {				/* defender is DOWN */
+		jt18((void *)(uintptr_t)def,
+		     (long)(uintptr_t)ua_strs_at(0x4606) /* "goes down" */,
+		     (short)counter, 0);
+		if (!(d[192] & 8)) {
+			counter = (unsigned char)(counter + 2);
+			if (d[94] == 5)
+				jt94(23, (short)counter, 7, 0,
+				     ua_strs_at(0x4610) /* "and is Dying" */);
+			else if (d[94] == 6 || d[94] == 8 || d[94] == 7)
+				jt18((void *)(uintptr_t)def,
+				     (long)(uintptr_t)ua_strs_at(0x461e)
+				     /* "is killed" */, (short)counter, 0);
+			counter = (unsigned char)(counter + 2);
+		}
+		jt865(def);
+		jt868(13, &def);			/* may rewrite def */
+		d = (unsigned char *)(uintptr_t)def;
+		if (d[382] == 0 && d[94] != 10)
+			l6de8(def);
+		else
+			jt102();
+	}
+	jt20();
+}
+
 static void l14bc(long atk, long def, short a, void *out, long ammo)
 {
 	PROBE("l14bc");
