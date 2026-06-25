@@ -32910,7 +32910,58 @@ static void jt628(void)	/* +0x1dfa; id 55 */
 	      ua_strs_at(0x4f5c) /* "is Slowed" */);
 }
 static void jt629(void) { PROBE("jt629"); }	/* +0x155e; id 42 */
-static void jt630(void) { PROBE("jt630"); }	/* +0x3634; id 113 */
+static void jt630(void)	/* +0x3634; id 113 — stone to flesh */
+{
+	long caster = g_a5_long(-23508);			/* 3638 */
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+
+	PROBE("jt630");
+	/* CODE 16 Stone to Flesh (id 113): revive a petrified target (state [94]==7),
+	 * remove its statue entry from the -25410 on-field display list (un-stamp the
+	 * field cell + compact the list) and re-render via the CODE-14 sprite calls;
+	 * always announce via l6114 at the end. */
+	if (cas[94] == 7) {					/* 3648 */
+		cas[94] = 0;					/* 3654 */
+		cas[382] = 1;					/* 365e */
+		cas[395] = 1;					/* 3668 */
+		jt18((void *)caster,
+		     (long)(uintptr_t)ua_strs_at(0x51e2) /* "is no longer a statue" */,
+		     (short)10, (short)0);			/* 367c */
+		if ((unsigned char)g_a5_byte(-27990) == 5) {	/* 3684 combat view */
+			unsigned char *disp = g_a5_buf(-25410);	/* 10-byte records */
+			unsigned char *rec, *cell;
+			int i, j, n;
+
+			for (i = 1;
+			     *(long *)(uintptr_t)(disp + i * 10) != caster;
+			     i++)
+				;				/* 369a-36b0 find caster */
+			rec = disp + i * 10;
+			cell = (unsigned char *)(uintptr_t)
+			    ((long)*(short *)(uintptr_t)(rec + 6) * 50	/* row*50 */
+			     + g_a5_long(-25318)			/* + field header */
+			     + (long)*(short *)(uintptr_t)(rec + 4));	/* + col */
+			cell[9] = rec[8];			/* 36f6 restore tile */
+
+			n = (unsigned char)g_a5_byte(-25320);
+			for (j = i; j <= n - 1; j++)		/* 3704-3740 compact */
+				memcpy(disp + j * 10, disp + (j + 1) * 10, 10);
+			g_a5_byte(-25320)--;			/* 3742 */
+
+			{
+				short x = (short)(signed char)jt525(caster);  /* 374a */
+				short y = (short)(signed char)jt531(caster);  /* 3758 */
+
+				if ((unsigned char)jt526(caster, x, y, 1) != 0)	/* 3772 */
+					jt521((short)(signed char)g_a5_byte(-23236),
+					      (short)(signed char)g_a5_byte(-23235),
+					      (short)0, (short)8);	/* 3794 */
+			}
+		}
+	}
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x51f8) /* "" */);	/* 37b0 */
+}
 static void jt632(void)	/* +0x09c0; id 31 */
 {
 	PROBE("jt632");
