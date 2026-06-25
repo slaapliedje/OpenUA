@@ -41275,7 +41275,183 @@ static signed char l525c(long m)
 /* JT[552] (CODE 14+0x4c90) — "can this monster cast spell N right now?" range/
  * availability check; returns >0 when castable. PROBE stub (CODE 14, lifted on
  * its own card); l6c96 treats any positive result as castable. */
-static short jt552(long actor, short spell) { PROBE("jt552"); (void)actor; (void)spell; return 0; }
+/* L6b94 (CODE 14 + 0x6b94) — read field 5 of combatant `m`'s combat-grid slot
+ * (-27472, 6-byte stride, indexed by l6bbe(m)).  Sibling of l6b40 (field 1) /
+ * l6b6a (field 3); jt552 uses it as the burst's range/radius coord. */
+static short l6b94(long m)
+{
+	unsigned char *cell = g_a5_buf(-27472) + (long)((unsigned char)l6bbe(m)) * 6;
+	PROBE("L6b94");
+	return (short)(unsigned char)cell[5];
+}
+
+/* l476e_c14 (CODE 14 + 0x476e; named _c14 to avoid the lXXXX collision
+ * with the unrelated 2-arg l476e at another segment) — per-target spell-validity + save-band check.  For
+ * candidate `actor` on combat `side` against `spell`, returns:
+ *   -40  wrong side (rec[95] != side);
+ *     0  not a valid target (already affected / immune / saved / N/A);
+ *     4  full effect; 3/2/1 graded down by the target's save value rec[196]
+ *        (>40..70 -> 3, >70..100 -> 2, >100..130 -> 1, >130 -> 0).
+ * The JT[1] switch (0x47b4, 29 cases) is the per-spell-type applicability test —
+ * each arm flags result=4 when the spell CAN affect the target (status spells
+ * need the status ABSENT via jt41==0, cure spells need it PRESENT via jt41!=0,
+ * immunity tests read rec[191]/192 bitmasks, heals test maxHP[129] > curHP[395]).
+ * The epilogue then drops the flag on two kind-gated status checks (jt41 57/63)
+ * and applies the rec[196] save band.  jt41 codes are engine status ids; the
+ * -16906 spell-spec table is 16-byte stride (spec[1]=kind, spec[10]=default
+ * status code).  Faithful 1:1 lift of L476e. */
+static signed char l476e_c14(long actor_l, short spell, short side)
+{
+	unsigned char *a    = (unsigned char *)(uintptr_t)actor_l;
+	const unsigned char *spec =
+	    g_a5_buf(-16906) + (long)(unsigned char)spell * 16;
+	void       *d6;                         /* fp@(-6): jt41 descriptor out */
+	short       kind;
+	signed char result = 0;                 /* fp@(-1) */
+
+	PROBE("L476e");
+	if ((short)(unsigned char)a[95] != side)
+		return (signed char)-40;
+
+	switch ((unsigned char)spell) {                 /* JT[1] @0x47b4 */
+	case 1:
+		if (jt41(actor_l, 1, &d6) == 0 && jt492(actor_l, 1, 0) == 0)
+			result = 4;
+		break;
+	case 42:
+		if (jt41(g_a5_long(-27932), 49, &d6) == 0)
+			result = 4;
+		break;
+	case 36:
+	case 3: case 58: case 71:
+		if (a[129] > a[395])
+			result = 4;
+		break;
+	case 96:
+		if (a[88] < 6 || (a[191] & 2))
+			result = 4;
+		break;
+	case 10:
+		if ((a[192] & 2) && a[130] == 1)
+			result = 4;
+		break;
+	case 134: case 15:
+		if (jt41(actor_l, 17, &d6) == 0)
+			result = 4;
+		break;
+	case 21:
+		if (a[137] < 5 && jt41(actor_l, 141, &d6) == 0
+		 && jt41(actor_l, 53, &d6) == 0)
+			result = 4;
+		break;
+	case 49: case 23:
+		if (a[88] < 6 && (a[192] & 2) && jt41(actor_l, 52, &d6) == 0)
+			result = 4;
+		break;
+	case 37:
+		if (jt41(actor_l, 33, &d6) != 0)
+			result = 4;
+		break;
+	case 43:
+		if (jt41(actor_l, 36, &d6) != 0)
+			result = 4;
+		break;
+	case 47: case 133: case 74: case 115:
+		if (jt41(actor_l, 93, &d6) == 0)
+			result = 4;
+		break;
+	case 51:
+		if (jt41(actor_l, 6, &d6) == 0)
+			result = 4;
+		break;
+	case 76: case 110:
+		if (!(a[192] & 8))
+			result = 4;
+		break;
+	case 130:
+		result = 4;
+		break;
+	case 68:
+		if (!(a[192] & 16) && jt41(actor_l, 143, &d6) == 0)
+			result = 4;
+		break;
+	case 94:
+	case 120: case 81:
+		if (a[192] & 2)
+			result = 4;
+		break;
+	case 84:
+		if (jt41(actor_l, 92, &d6) == 0)
+			result = 4;
+		break;
+	case 91:
+		if (a[137] < 6)
+			result = 4;
+		break;
+	default:
+		if (spec[10] == 0 || jt41(actor_l, (short)spec[10], &d6) == 0)
+			result = 4;
+		break;
+	}
+
+	/* Epilogue (L4bba): refine a flagged result by spell kind + the save band. */
+	kind = (short)spec[1];
+	if (result <= 0)
+		return result;
+	if (kind < 5 && jt41(actor_l, 57, &d6) != 0)
+		result = 0;
+	if (kind < 4 && jt41(actor_l, 63, &d6) != 0)
+		result = 0;
+	if (a[196] <= 40)
+		return result;
+	if (a[196] > 130)       result = 0;
+	else if (a[196] > 100)  result = 1;
+	else if (a[196] > 70)   result = 2;
+	else                    result = 3;     /* 40 < rec[196] <= 70 */
+	return result;
+}
+
+/* jt552 (CODE 14 + 0x4c90) — spell range / line-of-sight target resolver.  The
+ * target side is the caster's own (rec[95]) unless spec[14] flags an enemy spell
+ * (then jt493(actor)).  A single-target spell (spec[6]==0) just validates the
+ * caster's cell via l476e; an area spell seeds the burst from the caster's
+ * combat-grid coords (l6b40/l6b6a range l6b94) through jt508, then walks the
+ * resolved entities (-19170 index list -> -25676 entity table, count -18894)
+ * returning the first valid (>0) l476e result.  Faithful 1:1 lift of L4c90. */
+static short jt552(long actor, short spell)
+{
+	unsigned char *a = (unsigned char *)(uintptr_t)actor;
+	const unsigned char *spec =
+	    g_a5_buf(-16906) + (long)(unsigned char)spell * 16;
+	short side;
+
+	PROBE("jt552");
+	side = spec[14] ? (short)(unsigned char)jt493(actor)
+	                : (short)(unsigned char)a[95];
+
+	if (spec[6] == 0)
+		return (short)l476e_c14(actor, spell, side);
+
+	jt508(l6b40(actor), l6b6a(actor),
+	      jt600((short)(unsigned char)spell), (short)255,
+	      (short)(l6b94(actor) & 0xff));
+	{
+		short count = (short)(unsigned char)g_a5_byte(-18894);
+		signed char result = 0;
+		short i;
+
+		for (i = 1; i <= count; i++) {
+			unsigned char idx =
+			    ((unsigned char *)g_a5_buf(-19170))[i * 4];
+			long entity =
+			    *(long *)(g_a5_buf(-25676) + (long)idx * 4);
+			result = l476e_c14(entity, spell, side);
+			if (result > 0)
+				break;
+		}
+		return (short)result;
+	}
+}
 
 /* CODE 13+0x6ac4 — the monster spell-list ITERATOR (used by l6c96). Faithful
  * full lift. Advances the -7546 cursor through the sorted spell-id list at -7828
