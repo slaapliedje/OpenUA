@@ -141,9 +141,10 @@ jt873/jt868/jt865) are lifted. **Damage now COMPUTES (l022c) + APPLIES + resolve
 Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
-> stubs: `l1090` `l1dd6` `l4dee`  (`l14bc`/`l2b24` now lifted — physical-damage tier COMPLETE)
+> stubs: `l1dd6` `l4dee`  (`l1090` now lifted: kind->attacks-per-round halve)
 > missing: `l2e30` `l302c` `l315e` `l37d6`
-> `l3a4e` `l44b2` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392` now lifted)
+> `l3a4e` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2` now lifted;
+> `l44b2` = missile-trail sprite step, parked unused until l3a4e/jt548)
 
 `l1dd6` (repeat pick from the built area list) and `l4dee` (repeat pick with
 per-target area re-aim, jt508) are the combat target-repeat locals already
