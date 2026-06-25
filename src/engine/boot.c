@@ -41037,8 +41037,30 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode, short e
  * (wall Clusters 3/4/5). l6176 morale, l52ee spell decision, l525c field-action
  * bridge, l52fe spell-in-combat, l6454 combat setup, l5b9a attack composite,
  * l6042 move. The attack/move stubs return 1 (turn-ending) so the loop ends. */
-static unsigned char jt544(long m) { PROBE("jt544"); (void)m; return 0; }  /* CODE 14+0x2d48 morale value (stub) */
 static unsigned char jt37(long rec_l);            /* CODE 6+0x1554 — lifted below */
+/* jt544 (CODE 14 + 0x2d48) — the side's "morale" / best-defender value: walk the
+ * -27928 combatant list and return the maximum of (jt37(member) >> 1) over the
+ * LIVING members (rec[382] != 0) whose side byte rec[95] matches jt493(m).  jt37
+ * is the member's AC/defence value; it is halved and max-reduced across the side.
+ * Faithful 1:1 lift of L2d48. */
+static unsigned char jt544(long m)
+{
+	unsigned char *node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	short          side = jt493(m);
+	unsigned char  result = 0;
+
+	PROBE("jt544");
+	while (node != NULL) {
+		if ((short)(unsigned char)node[95] == side && node[382] != 0) {
+			unsigned char v =
+			    (unsigned char)((jt37((long)(uintptr_t)node) & 0xff) >> 1);
+			if (v > result)
+				result = v;
+		}
+		node = *(unsigned char **)node;
+	}
+	return result;
+}
 static void          jt877(long entity, short status, long msg);  /* CODE 18+0x16fc — lifted below */
 
 /* CODE 13+0x6176 — the MORALE resolution (reached via l5008). Faithful full

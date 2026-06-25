@@ -89,7 +89,7 @@ with the CODE 13 caller that needs it.
 | jt520 | 0x6de8 | 2 | stub | combat-field cleanup leaf (jt118 blit, jt52, jt1200 colour-mode) — also in code16-wall |
 | jt533 | 0x2dbc | 1 | — | HP/number overlay (`"%s%d "`, jt155 text, jt399 fill, jt491/499/504) |
 | jt540 | 0x13e6 | 1 | — | actor move + redraw (jt868 erase, jt492 line, jt880, jt13) |
-| jt544 | 0x2d48 | 1 | — | render leaf (jt493 line + jt37 cell-classify) |
+| jt544 | 0x2d48 | 1 | ✅ LIFTED | side morale/best-defender = max(jt37(member)>>1) over LIVING members (rec[382]) on side jt493(m); NOT a render leaf |
 | jt551 | 0x074c | 2 | — | field render leaf (jt472, jt52, jt13) |
 | jt553 | 0x09b2 | 2 | — | field render leaf (jt492 line, jt65, jt499) |
 | jt554 | 0x10c4 | 2 | stub | small field helper (jt868 only) |
