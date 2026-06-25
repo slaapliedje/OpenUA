@@ -33442,7 +33442,14 @@ static void jt676(void)	/* +0x04ec; id 14 */
 }
 static void jt677(void) { PROBE("jt677"); }	/* +0x355e; id 111 */
 static void jt678(void) { PROBE("jt678"); }	/* +0x2776; id 83 */
-static void jt679(void) { PROBE("jt679"); }	/* +0x2320; id 72 */
+static void jt679(void)	/* +0x2320; id 72 */
+{
+	PROBE("jt679");
+	/* CODE 16 effect id 72: apply a 3d8+3 value through l6114 (value arg c, d=8,
+	 * empty announce). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)(jt873(3, 8) + 3), (short)8, ua_strs_at(0x4ff6) /* "" */);
+}
 static void jt680(void) { PROBE("jt680"); }	/* +0x1f96; id 129 */
 static void jt681(void)	/* +0x381a; id 116 */
 {
@@ -33807,7 +33814,14 @@ static void jt700(void)	/* +0x2b90; id 87 */
 		      ua_strs_at(0x510c) /* "" */);		/* 2bf6 */
 }
 static void jt701(void) { PROBE("jt701"); }	/* +0x24a0; id 76 */
-static void jt702(void) { PROBE("jt702"); }	/* +0x2084; id 134 */
+static void jt702(void)	/* +0x2084; id 134 */
+{
+	PROBE("jt702");
+	/* CODE 16 effect id 134: apply a 2d4+2 value through l6114 (value arg c, d=8,
+	 * empty announce). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)(jt873(2, 4) + 2), (short)8, ua_strs_at(0x4fc0) /* "" */);
+}
 static void jt703(void) { PROBE("jt703"); }	/* +0x1da6; id 51 */
 static void jt704(void) { PROBE("jt704"); }	/* +0x1270; id 41,46 */
 static void jt705(void) { PROBE("jt705"); }	/* +0x3336; id 108 */
