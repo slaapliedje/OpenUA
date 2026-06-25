@@ -33310,7 +33310,58 @@ static void jt646(void)	/* +0x22e8; id 71 */
 	}
 }
 static void jt647(void) { PROBE("jt647"); }	/* +0x1f1a; id 128 */
-static void jt648(void) { PROBE("jt648"); }	/* +0x3424; id 110 */
+static void jt648(void)	/* +0x3424; id 110 — death spell */
+{
+	int i;
+
+	PROBE("jt648");
+	/* CODE 16 mass-death (id 110, "drops dead"): a (4d20)*2 hit-dice budget
+	 * (-6866) is spent across the -23512 targets; each target's HD cost (-6865)
+	 * comes from its HD class [137] via a JT[3] switch (0->1, 1->2, 2/3->8,
+	 * 4/5->16, 6->16 or 20 by maxHP[129], 7/8->20, default 162).  A target dies
+	 * (jt860) when not immune ([192]&8), its cost fits the budget, and it fails
+	 * the save (-25242 != 0 after jt868); otherwise it is dropped from the list. */
+	g_a5_byte(-25257) = 1;					/* 342a */
+	g_a5_word(-25266) = 64;					/* 3430 */
+	g_a5_byte(-6866) = (unsigned char)(jt870(4, 20) * 2);	/* 343c / 3442 */
+	for (i = 1; i <= (unsigned char)g_a5_byte(-23510); i++) {  /* 354e */
+		long *slot = &g_a5_longs(-23512)[i];
+		long target = *slot;				/* 3466 */
+		unsigned char *rec = (unsigned char *)(uintptr_t)target;
+		int die;
+
+		switch (rec[137]) {				/* 3474 — JT[3] @0x3478 */
+		case 0:  g_a5_byte(-6865) = 1;  break;		/* L3490 */
+		case 1:  g_a5_byte(-6865) = 2;  break;		/* L3498 */
+		case 2:
+		case 3:  g_a5_byte(-6865) = 8;  break;		/* L34a0 */
+		case 4:
+		case 5:  g_a5_byte(-6865) = 16; break;		/* L34a8 */
+		case 6:						/* L34b0 */
+			g_a5_byte(-6865) = ((unsigned char)rec[129] > 51) ? 20 : 16;
+			break;
+		case 7:
+		case 8:  g_a5_byte(-6865) = 20; break;		/* L34d0 */
+		default: g_a5_byte(-6865) = 162; break;		/* L34d8 (-94 -> 0xa2) */
+		}
+		g_a5_word(-25242) = 100;			/* 34e0 */
+		jt868(9, &target);				/* 34ec */
+		rec = (unsigned char *)(uintptr_t)target;	/* 34f2 re-read */
+		die = ((rec[192] & 8) == 0			/* 34f8 / 3502 */
+		       && (unsigned char)g_a5_byte(-6866)
+		          >= (unsigned char)g_a5_byte(-6865)	/* 3504 / 350c */
+		       && g_a5_word(-25242) != 0);		/* 350e / 3512 */
+		if (die) {
+			g_a5_byte(-6866) = (unsigned char)
+			    ((unsigned char)g_a5_byte(-6866)
+			     - (unsigned char)g_a5_byte(-6865));	/* 3518 */
+			jt860(target, 6,
+			      (long)(uintptr_t)ua_strs_at(0x519e) /* "drops dead" */);  /* 352a */
+		} else {
+			*slot = 0;				/* 3548 */
+		}
+	}
+}
 static void jt649(void)	/* +0x0ff6; id 36 */
 {
 	long caster = g_a5_long(-23508);			/* 0ffa */
