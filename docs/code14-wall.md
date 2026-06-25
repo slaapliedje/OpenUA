@@ -109,7 +109,7 @@ with the CODE 13 caller that needs it.
 |----|------|------:|--------|--------------------|
 | jt547 | 0x2744 | 2 | — | spell-validity gate (`"Camp Only Spell"`, jt595/jt496 spell tables, jt52) |
 | jt550 | 0x1956 | 2 | — | target dedup (`"Already been targeted"`, jt600 range, jt508 area, jt30) |
-| jt552 | 0x4c90 | 1 | — | range / line-of-sight (jt600 spell range, jt493 line, jt508, jt65) |
+| jt552 | 0x4c90 | 1 | ✅ LIFTED | spell range/target resolver: single-target (spec[6]==0) -> l476e_c14(caster); else seed the burst (l6b40/l6b6a range l6b94 -> jt508) and walk the -19170/-25676 entity list for the first valid l476e_c14 target. Lifted with its deps l476e_c14 (the 396-instr 29-case JT[1] per-spell validity+save-band matrix, named _c14 vs the unrelated l476e) + l6b94 |
 | jt548 | 0x44f0 | 1 | stub | list-dialog targeting helper (jt41/jt3/jt1 + jt492) — called from CODE 7 "cast on whom" |
 | jt541 | 0x0006 | 1 | stub | per-member per-round prep (code16-wall §1) |
 | jt536 | 0x2cb2 | 2 | — | small targeting helper (leaf) |
