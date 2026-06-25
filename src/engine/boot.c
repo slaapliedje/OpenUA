@@ -33580,7 +33580,30 @@ static void jt689(void)	/* +0x2614; id 80 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x5068) /* "is invisible" */);
 }
-static void jt690(void) { PROBE("jt690"); }	/* +0x21c8; id 68 */
+static void jt690(void)	/* +0x21c8; id 68 */
+{
+	unsigned char *cur = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	long slot, out;
+
+	PROBE("jt690");
+	/* CODE 16 effect id 68: only when the current char has an order block [64].
+	 * Announce via l6114 (d=8, empty), run a save (jt868 sel 9) seeded with the
+	 * order block's [12]; if it leaves -25268==64, fire the type-64 hook l77a0. */
+	if (*(long *)(uintptr_t)(cur + 64) == 0)		/* 21d0 */
+		return;
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)8, ua_strs_at(0x4fe0) /* "" */);	/* 21ee */
+	{
+		unsigned char *mc = *(unsigned char **)(uintptr_t)(cur + 64);
+		slot = *(long *)(uintptr_t)(mc + 12);		/* 21fe */
+	}
+	g_a5_byte(-25268) = 64;					/* 2206 */
+	jt868(9, &slot);					/* 2212 */
+	out = 0;						/* 2218 */
+	if ((unsigned char)g_a5_byte(-25268) == 64)		/* 2222 */
+		l77a0(64, (void *)(uintptr_t)g_a5_long(-27932),
+		      (void *)(uintptr_t)out, 0);		/* 2236 */
+}
 static void jt691(void) { PROBE("jt691"); }	/* +0x1eb0; id 127 */
 static void jt692(void)	/* +0x16be; id 45 */
 {
