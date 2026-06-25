@@ -6656,6 +6656,40 @@ static void jt1089(short v, short h, short color,
 	pstr[0] = (unsigned char)len;
 	for (i = 0; i < len; i++)
 		pstr[i + 1] = (unsigned char)buf[i];
+
+	/* Faithful GLIB 2-colour text (JT[1136] / L4e12): the colour word is a
+	 * (bg<<4)|fg PAIR, not a lone fg.  The Mac glyph writer fills the glyph
+	 * cells with `bg` when the pair is "opaque" — `bg==15 || fg==0` (its first
+	 * test); the `bg==0 || fg==15` cases stay transparent, and the remaining
+	 * pairs are -3016-table driven (defaulted transparent here, which keeps the
+	 * common style-8 text — bg 8 — transparent as before).  The port's
+	 * DrawString shim only carried `fg`, so opaque-background prompts (the
+	 * "Press [Return] to continue." / "Load which game" plates draw colour
+	 * 0x70 = bg 7 light-grey / fg 0 black) lost their light-grey box and the
+	 * black text fell onto the bare FRAME stone bar.  Paint the cell background
+	 * here, then OR the (transparent) glyphs on top. */
+	if (port != NULL && len > 0) {
+		short bg = (short)((color >> 4) & 0x0f);
+		short fg = (short)(color & 0x0f);
+		/* L4f0a opaque arm = _EraseRect (fills the GrafPort BACKGROUND colour
+		 * = the `bg` index).  bg 8 is the Mac's standard window-grey backdrop,
+		 * which already covers its dialogs — so an Erase to 8 is a visual no-op
+		 * there (all the menu/HUD text uses bg 8 = "no box").  The port has no
+		 * 8-coloured backdrop, so painting it would draw a spurious box behind
+		 * every fg==0 label (the disabled "Delete the Design"/"Unlock Editor"
+		 * items).  Treat bg 8 as the transparent default; only a distinct bg
+		 * (the prompts' bg 7 light-grey, or 15) actually paints a box. */
+		if ((bg == 15 || fg == 0) && bg != 8) {  /* L4e84..L4e92 opaque, minus the window-grey default */
+			short top = (short)g_a5_4898;   /* pen top (py is baseline) */
+			short w   = StringWidth(pstr);
+			unsigned char savefg = ((CGrafPtr)port)->fgColor;
+			Rect bgr;
+			SetRect(&bgr, px, top, (short)(px + w), (short)(top + 9));
+			((CGrafPtr)port)->fgColor = (unsigned char)bg;
+			PaintRect(&bgr);
+			((CGrafPtr)port)->fgColor = savefg;
+		}
+	}
 	DrawString(pstr);
 }
 
