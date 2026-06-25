@@ -32804,7 +32804,47 @@ static void jt618(void)	/* +0x3218; id 103 */
 	*(long *)(uintptr_t)(mc + 12) = g_a5_long(-23508);
 	l77a0((short)101, (void *)(uintptr_t)g_a5_long(-27932), (void *)0, (short)0);
 }
-static void jt619(void) { PROBE("jt619"); }	/* +0x0da4; id 35 */
+static void jt619(void)	/* +0x0da4; id 35 */
+{
+	long caster = g_a5_long(-23508);			/* 0dac */
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	short roll = 0;		/* fp@-6 (asm leaves uninit when no field set) */
+	short sum, extra = 0;	/* fp@-7, fp@-5 */
+	long out;		/* fp@-8 */
+
+	PROBE("jt619");
+	/* CODE 16 effect id 35 (ability/HP restoration): the restore die scales with
+	 * the highest set ability-loss field — [162]->1d4, [157]/[163]->1d6,
+	 * [159]/[160]/[158]/[161]->1d8.  sum = [113]+roll capped at 18; overflow above
+	 * 18 (when the 1d8 abilities are set) becomes a [124]-based bonus capped at
+	 * 100.  If jt863 passes, apply jt876 (descriptor 38, duration l602c) with
+	 * roll+100 + jt875. */
+	if (cas[162] != 0)					/* 0db8 */
+		roll = jt870(1, 4);				/* 0dc8 */
+	if (cas[157] != 0 || cas[163] != 0)			/* 0dd8 / 0de6 */
+		roll = jt870(1, 6);				/* 0df6 */
+	if (cas[159] != 0 || cas[160] != 0
+	    || cas[158] != 0 || cas[161] != 0)			/* 0e06-0e34 */
+		roll = jt870(1, 8);				/* 0e40 */
+	sum = (short)((unsigned char)cas[113] + roll);		/* 0e4a-0e5c */
+	if (sum > 18) {						/* 0e66 */
+		if (cas[159] != 0 || cas[160] != 0
+		    || cas[158] != 0 || cas[161] != 0) {	/* 0e74-0ea4 */
+			extra = (short)((sum - 18) * 10
+			                + (unsigned char)cas[124]);  /* 0ea6-0ec0 */
+			if (extra > 100)			/* 0eca */
+				extra = 100;			/* 0ed0 */
+		}
+		sum = 18;					/* 0ed6 / 0ede */
+	}
+	if ((unsigned char)jt863(caster, sum, extra, &out) != 0) {  /* 0efc / 0f04 */
+		short v2 = (short)(roll + 100);			/* 0f0e */
+		short dur = l602c((short)(unsigned char)g_a5_byte(-25262)); /* 0f1e */
+
+		jt876(caster, 38, dur, v2, 1);			/* 0f3a */
+		jt875(caster, 0);				/* 0f48 */
+	}
+}
 static unsigned char jt869(long rec_l, short amount, short flag);  /* combat-math tier, below */
 static void jt14(long rec_l);                                      /* CODE 6, below */
 static void jt620(void)	/* +0x0122; id 3 */
