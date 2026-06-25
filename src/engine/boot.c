@@ -32563,7 +32563,62 @@ static void jt602(void)
 			          + (long)codes[dir - 1] * 4),
 			      (short)1, (short)0);
 }
-static void jt603(void) { PROBE("jt603"); }	/* +0x2806; id 84 */
+static short l602c(short code);		/* CODE 16, defined below */
+
+/* JT[603] (CODE 16 + 0x2806; id 84) — the beholder "flees in terror" cone. It
+ * only fires while -27990 == 5 (the beholder's gaze mode). It builds the area
+ * target list (l6af8/jt596, mode 3 / range 6) from the caster cell (-27932,
+ * jt525/jt531) toward the pick (-23236/-23235), then walks the -23512 list
+ * (count -23510): each target rolls magic resistance (jt866 cat 4); a resister
+ * gets an "is unaffected" line (jt18), the rest get a fear duration (l602c id
+ * 84) announced through jt871 ("flees in terror", code 111). If the fleeing
+ * target carries an item of type 111 (jt41) the flee status is stamped into its
+ * record — substruct [64]->[18]=1, [383]=1, the [147] morale byte forced to
+ * 0xb3 unless its 0x80 bit is already set, and substruct [64]->[12] cleared.
+ * -25257 marks the effect in flight. */
+static void jt603(void)	/* +0x2806; id 84 */
+{
+	long caster, target;
+	unsigned char cx, cy;
+	short i, dur;
+	unsigned char resist;
+	void *desc;
+
+	PROBE("jt603");
+	g_a5_byte(-25257) = 1;
+	if (g_a5_byte(-27990) != 5)		/* only in gaze mode 5 */
+		return;
+	caster = g_a5_long(-27932);
+	cx = jt525(caster);
+	cy = jt531(caster);
+	jt596((short)(signed char)cx, (short)(signed char)cy,
+	      (short)(signed char)g_a5_byte(-23236),
+	      (short)(signed char)g_a5_byte(-23235), 3, 6);
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510); i++) {
+		target = g_a5_longs(-23512)[i];
+		resist = (unsigned char)jt866(target, 4, 0);
+		if (resist != 0) {
+			jt18((void *)(uintptr_t)target,
+			     (long)(uintptr_t)ua_strs_at(0x50a8) /* "is unaffected" */,
+			     10, 1);
+			continue;
+		}
+		dur = l602c(84);
+		jt871(target, 111, dur, 0, 1, 1, (short)(signed char)resist,
+		      (long)(uintptr_t)ua_strs_at(0x5098) /* "flees in terror" */);
+		if (jt41(target, 111, &desc)) {
+			unsigned char *tg = (unsigned char *)(uintptr_t)target;
+			unsigned char *sub = *(unsigned char **)(void *)(tg + 64);
+
+			sub[18] = 1;
+			tg[383] = 1;
+			if (!(tg[147] & 0x80))
+				tg[147] = 0xb3;			/* moveq #-77 */
+			*(long *)(void *)(sub + 12) = 0;
+		}
+	}
+	g_a5_byte(-25257) = 0;
+}
 /* JT[604] (CODE 16 + 0x38d6; id 117) — the petrification/level-band damage
  * roll. Switch on the caster (-23508) record byte [395]: a JT[3] table maps the
  * three contiguous bands 1..30 / 31..60 / 61..90 to the dice roll jt870(4,4) /
