@@ -32730,7 +32730,35 @@ static void jt607(void)
 	      (short)0, (short)0, dmg, (short)9,
 	      ua_strs_at(0x4f50));
 }
-static void jt608(void) { PROBE("jt608"); }	/* +0x3c38; id 121 */
+static short jt864(long entity, long member, short threshold);  /* CODE 18, below */
+
+/* JT[608] (CODE 16 + 0x3c38; id 121) — "begins to dance wildly" (Otto's
+ * Irresistible Dance) on the caster (-23508). Recompute its derived stats
+ * (jt21), run a save (jt868 cat 11 — which may rewrite the record pointer, so
+ * the slot is re-read), then test whether the dance lands (jt864 of the current
+ * actor -27932 against the caster's AC slot [385]). If it does, two effects are
+ * announced through jt871: code 27 (the -13952 dynamic message) and code 118
+ * ("begins to dance wildly"), each carrying its own fresh l602c (id 121)
+ * duration and jt17 caster level. */
+static void jt608(void)	/* +0x3c38; id 121 */
+{
+	long caster = g_a5_long(-23508);
+	short dur, lvl;
+
+	PROBE("jt608");
+	jt21(caster);
+	jt868(11, &caster);			/* may rewrite caster */
+	if (jt864(g_a5_long(-27932), caster,
+	          (short)((unsigned char *)(uintptr_t)caster)[385]) == 0)
+		return;
+	dur = l602c(121);
+	lvl = jt17(121, 1);
+	jt871(caster, 27, dur, (short)(lvl & 0xff), 0, 0, 0, g_a5_long(-13952));
+	dur = l602c(121);
+	lvl = jt17(121, 1);
+	jt871(caster, 118, dur, (short)(lvl & 0xff), 0, 0, 0,
+	      (long)(uintptr_t)ua_strs_at(0x5276) /* "begins to dance wildly" */);
+}
 static void jt609(void)	/* +0x1148; id 38 */
 {
 	PROBE("jt609");
@@ -32751,7 +32779,49 @@ static void jt611(void)	/* +0x2f2e; id 98 */
 			jt14(g_a5_long(-23508));		/* 2f5c */
 	}
 }
-static void jt612(void) { PROBE("jt612"); }	/* +0x4338; id 125 */
+static void jt860(long rec_l, short status, long msg);  /* CODE 18, below */
+
+/* JT[612] (CODE 16 + 0x4338; id 125) — "is slain" (Slay Living / Finger of
+ * Death). With at least one target queued (-23510): if the caster (-23508) is
+ * present and its hit-dice byte [129] is in the (10,60) band the slay resolves
+ * on the caster itself — arm -25242, run the cat-9 death save (jt868 on the A5
+ * slot so a rewrite sticks), and if it fails (-25242 != 0) announce "is slain"
+ * (jt860 status 6), then return. Otherwise every -23512 target whose [129] is
+ * <= 10 gets the same save-or-die. -25257 marks the effect in flight. */
+static void jt612(void)	/* +0x4338; id 125 */
+{
+	short i;
+
+	PROBE("jt612");
+	g_a5_byte(-25257) = 1;
+	if ((unsigned char)g_a5_byte(-23510) == 0)
+		return;
+	if (g_a5_long(-23508) != 0) {
+		unsigned char hd =
+		    ((unsigned char *)(uintptr_t)g_a5_long(-23508))[129];
+
+		if (hd > 10 && hd < 60) {
+			g_a5_word(-25242) = 255;
+			jt868(9, g_a5_longs(-23508));	/* the A5 slot, may rewrite */
+			if (g_a5_word(-25242) != 0)
+				jt860(g_a5_long(-23508), 6,
+				      (long)(uintptr_t)ua_strs_at(0x52ba)
+				      /* "is slain" */);
+			return;
+		}
+	}
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510); i++) {
+		if (g_a5_longs(-23512)[i] == 0)
+			continue;
+		if (((unsigned char *)(uintptr_t)g_a5_longs(-23512)[i])[129] > 10)
+			continue;
+		g_a5_word(-25242) = 255;
+		jt868(9, &g_a5_longs(-23512)[i]);
+		if (g_a5_word(-25242) != 0)
+			jt860(g_a5_longs(-23512)[i], 6,
+			      (long)(uintptr_t)ua_strs_at(0x52c4) /* "is slain" */);
+	}
+}
 static void jt613(void)	/* +0x07f2; id 26 */
 {
 	long caster = g_a5_long(-23508);			/* 07f6 */
