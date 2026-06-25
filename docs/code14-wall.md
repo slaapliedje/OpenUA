@@ -95,14 +95,35 @@ with the CODE 13 caller that needs it.
 | jt536 | 0x2cb2 | 2 | — | small targeting helper (leaf) |
 | jt522 | 0x7488 | 2 | stub | targeting/field leaf |
 
-## REMAINING — the lXXXX render leaves (non-JT, 0 callsites in jumptable)
+## THE PHYSICAL-DAMAGE TIER (the combat-runtime keystone, 2026-06-24)
+
+A weapon swing currently deals **no damage** — `jt555` → `l14bc`/`l2b24` are
+PROBE no-ops, and the real logic lives in a small CODE-14 local tier that was
+never lifted (NOT just `l14bc`). Lift bottom-up:
+
+| fn | role | ~lines | status |
+|----|------|-------:|--------|
+| `l29fc` | backstab eligibility (thief class + behind-target) | 94 | ✅ LIFTED |
+| `l022c` | **damage roll** → -25242 (jt873 weapon dice + [393] bonus, ×backstab mult) | 80 | ✅ LIFTED |
+| `l030a` | report ("Hitting for X" / "Misses") + **jt39 HP-apply** + death/XP (jt865/l6de8) | 275 | stub (next) |
+| `l1d0c` | per-attack count / weapon-slot setup | 76 | missing |
+| `l14bc` | the multi-attack **melee round** loop (jt864 to-hit → l022c → l030a) | 400 | PROBE no-op |
+| `l2b24` | the missile/thrown strike counterpart | 128 | PROBE no-op |
+
+Damage flow: `l14bc` loops the attacker's swings; per swing `jt864` rolls to-hit,
+`l022c` rolls the damage into `-25242`, `l030a` announces it + applies via `jt39`
++ handles "goes down"/"is killed"/XP. All external deps (jt39/jt864/jt494/jt40/
+jt873/jt868/jt865) are lifted. **Next: `l030a` (the apply+death core), then
+`l1d0c`, then wire `l14bc`/`l2b24`.**
+
+## REMAINING — the other lXXXX render leaves (non-JT, 0 callsites in jumptable)
 
 Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: `l1090` `l14bc` `l1dd6` `l2b24` `l4dee`
-> missing: `l1d0c` `l22c` `l29fc` `l2e30` `l302c` `l30a` `l315e` `l37d6`
-> `l3a4e` `l44b2` `l5392` `l5c32` `l660`
+> missing: `l1d0c` `l2e30` `l302c` `l030a` `l315e` `l37d6`
+> `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc` now lifted)
 
 `l1dd6` (repeat pick from the built area list) and `l4dee` (repeat pick with
 per-target area re-aim, jt508) are the combat target-repeat locals already

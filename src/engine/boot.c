@@ -47890,6 +47890,81 @@ static unsigned char l7894(long from, long to)
 	(void)from; (void)to;
 	return 0;
 }
+
+/* L29fc (CODE 14 + 0x29fc) — backstab eligibility. True when the attacker is a
+ * backstab-capable class (jt40 slot 6 non-zero) wielding a backstab weapon kind
+ * (item [40] in {3,4,13,17,18,19,63,67}, or unarmed), AND the defender is a
+ * valid behind-target: has >1 attack ([64]->[17] > 1), is adjacent
+ * (jt494 < 2), is not already engaged ([130]&127 <= 1), and its facing
+ * ([64]->[11]) matches the attacker's bearing (l7894 — currently a stub
+ * returning 0, so the behind-check rarely fires until l7894 lands). */
+static unsigned char l29fc(long atk, long def) __attribute__((unused));
+static unsigned char l29fc(long atk, long def)
+{
+	unsigned char *a = (unsigned char *)(uintptr_t)atk;
+	long item;
+	unsigned char itemKind = 0, eligible = 0;
+	unsigned char *dsub;
+
+	PROBE("L29fc");
+	item = *(long *)(void *)(a + 12);
+	if (item != 0)
+		itemKind = ((unsigned char *)(uintptr_t)item)[40];
+	if ((unsigned char)jt40((void *)(uintptr_t)atk, 6) != 0) {
+		if (item == 0
+		 || itemKind == 3 || itemKind == 4 || itemKind == 17
+		 || itemKind == 13 || itemKind == 18 || itemKind == 19
+		 || itemKind == 63 || itemKind == 67)
+			eligible = 1;
+	}
+	if (!eligible)
+		return 0;
+	dsub = (unsigned char *)(uintptr_t)
+	    *(long *)(void *)((unsigned char *)(uintptr_t)def + 64);
+	if (dsub[17] <= 1)
+		return 0;
+	if ((unsigned char)jt494(atk, def) >= 2)
+		return 0;
+	if ((((unsigned char *)(uintptr_t)def)[130] & 127) > 1)
+		return 0;
+	if (dsub[11] != l7894(atk, def))
+		return 0;
+	return 1;
+}
+
+/* L022c (CODE 14 + 0x022c) — roll one attack's damage into -25242. Roll the
+ * weapon dice jt873(count [389], sides [391]) at the per-attack offset
+ * atk+(slot-1), add the signed [393] bonus, clamp >= 0. jt868 applies the
+ * category-4 (attacker) and category-5 (defender) damage modifiers — passed the
+ * A5-local slot ADDRESS so a rewrite sticks. On a backstab (l29fc) multiply by
+ * a class multiplier ((jt40 level - 1)/4 + 2, capped at 5). Clears the damage
+ * type -25266. */
+static void l022c(long atk, long def, short slot) __attribute__((unused));
+static void l022c(long atk, long def, short slot)
+{
+	unsigned char *base = (unsigned char *)(uintptr_t)(atk + (slot - 1));
+	short dmg;
+
+	PROBE("L022c");
+	dmg = (short)((unsigned char)jt873((short)base[389], (short)base[391])
+	    + (short)(signed char)base[393]);
+	g_a5_word(-25242) = dmg;
+	if ((short)g_a5_word(-25242) < 0)
+		g_a5_word(-25242) = 0;
+	jt868(4, &atk);					/* may rewrite atk */
+	jt868(5, &def);					/* may rewrite def */
+	if (l29fc(atk, def)) {
+		unsigned char mult = (unsigned char)((((unsigned char)
+		    jt40((void *)(uintptr_t)atk, 6) - 1) >> 2) + 2);
+
+		if (mult > 5)
+			mult = 5;
+		g_a5_word(-25242) =
+		    (short)(mult * (short)g_a5_word(-25242));
+	}
+	g_a5_word(-25266) = 0;
+}
+
 static void l14bc(long atk, long def, short a, void *out, long ammo)
 {
 	PROBE("l14bc");
