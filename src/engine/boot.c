@@ -32977,7 +32977,18 @@ static void jt640(void)	/* +0x1168; id 39,106 */
 		     (long)(uintptr_t)ua_strs_at(0x4ec6) /* "is cured" */,
 		     (short)10, (short)0);			/* 1180 */
 }
-static void jt641(void) { PROBE("jt641"); }	/* +0x2f64; id 137 */
+static void jt641(void)	/* +0x2f64; id 137 */
+{
+	short roll;
+
+	PROBE("jt641");
+	/* CODE 16 effect id 137 (heal, jt637 twin): if jt869 applies a 2d4+2 heal to
+	 * the -23508 caster, announce "is Healed" via jt503. */
+	roll = jt870(2, 4);					/* 2f6c */
+	if (jt869(g_a5_long(-23508), (short)(roll + 2), 0) != 0)	/* 2f7c / 2f82 */
+		jt503(g_a5_long(-23508), 1,
+		      (long)(uintptr_t)ua_strs_at(0x5142) /* "is Healed" */);  /* 2f94 */
+}
 static void jt642(void)	/* +0x089a; id 27 */
 {
 	unsigned char *cur = (unsigned char *)(uintptr_t)g_a5_long(-27932);
