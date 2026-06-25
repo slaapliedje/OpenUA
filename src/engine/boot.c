@@ -33473,7 +33473,40 @@ static void jt657(void)	/* +0x2604; id 79 */
 	/* CODE 16 effect handler: announce "is highlighted" via l7026(mod=0, msg). */
 	l7026((short)0, ua_strs_at(0x5058) /* "is highlighted" */);
 }
-static void jt658(void) { PROBE("jt658"); }	/* +0x20e8; id 67,107 */
+static void jt658(void)	/* +0x20e8; id 67,107 */
+{
+	long caster = g_a5_long(-23508);
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	long out;
+
+	PROBE("jt658");
+	/* CODE 16 effect id 67 ("is unpoisoned"): if the target is death-state
+	 * [94]==1, drop it (-23508=0).  Otherwise, when it carries descriptor 55
+	 * (jt41), ensure >=1 HP, strip statuses 55/22/15 (jt878), announce, and revive
+	 * ([382]=1, [94]=0); else "is unaffected". */
+	if (cas[94] == 1) {					/* 20f8 */
+		g_a5_long(-23508) = 0;				/* 2102 */
+		return;
+	}
+	if ((unsigned char)jt41(caster, 55, &out) != 0) {	/* 2116 / 211e */
+		if ((unsigned char)cas[395] == 0)		/* 212a */
+			cas[395] = 1;				/* 2138 */
+		g_a5_byte(-25258) = 1;				/* 213e */
+		jt878(caster, 55, 0L);				/* 214c */
+		jt878(caster, 22, 0L);				/* 215e */
+		jt878(caster, 15, 0L);				/* 2170 */
+		g_a5_byte(-25258) = 0;				/* 2178 */
+		jt18((void *)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4fc4) /* "is unpoisoned" */,
+		     (short)10, (short)1);			/* 218e */
+		cas[382] = 1;					/* 219c */
+		cas[94] = 0;					/* 21a4 */
+	} else {
+		jt18((void *)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4fd2) /* "is unaffected" */,
+		     (short)10, (short)1);			/* 21bc */
+	}
+}
 static void jt867(long entity, short amount, short saveCat, short saveFlag);  /* CODE 18, below */
 static void jt659(void)	/* +0x1e1a; id 56 */
 {
@@ -33807,7 +33840,15 @@ static void jt681(void)	/* +0x381a; id 116 */
 	      jt488(ua_strs_at(0x520e) /* "is %s" */,
 	            (const char *)(uintptr_t)g_a5_long(-19996)));	/* 38b2 / 38ca */
 }
-static void jt682(void) { PROBE("jt682"); }	/* +0x111e; id 37 */
+static void jt682(void)	/* +0x111e; id 37 */
+{
+	PROBE("jt682");
+	/* CODE 16 effect id 37 ("can see"): when the -23508 target has status 33
+	 * (jt872), announce "can see" via jt503. */
+	if ((unsigned char)jt872(g_a5_long(-23508), 33) != 0)	/* 1126 / 112c */
+		jt503(g_a5_long(-23508), 1,
+		      (long)(uintptr_t)ua_strs_at(0x4eb4) /* "can see" */);  /* 113e */
+}
 static void jt683(void)	/* +0x2f0e; id 136 */
 {
 	PROBE("jt683");
