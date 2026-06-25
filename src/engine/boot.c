@@ -32739,7 +32739,33 @@ static void jt614(void)	/* +0x030e; id 12 — "is stronger" buff */
 	}
 }
 static void jt615(void) { PROBE("jt615"); }	/* +0x2634; id 81 */
-static void jt616(void) { PROBE("jt616"); }	/* +0x2242; id 70 */
+static void jt616(void)	/* +0x2242; id 70 */
+{
+	long caster = g_a5_long(-23508);			/* 2246 */
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	long out;
+
+	PROBE("jt616");
+	/* CODE 16 effect id 70: HD class [137] branches.  Big creatures (>=6):
+	 * "smashes them flat" (jt18) when jt13 reports 0.  Smaller: apply a
+	 * caster-level value (jt17(effect,1)&255) via l6114, then the type-3 hook
+	 * l77a0 if jt41 confirms descriptor 3. */
+	if ((unsigned char)cas[137] >= 6) {			/* 2250 / 2254 */
+		if ((unsigned char)jt13(caster) == 0)		/* 22c0 / 22c6 */
+			jt18((void *)(uintptr_t)caster,
+			     (long)(uintptr_t)ua_strs_at(0x4fe4) /* "smashes them flat" */,
+			     (short)10, (short)1);		/* 22dc */
+	} else {
+		short v = (short)(jt17((short)(unsigned char)g_a5_byte(-25262), 1)
+		                  & 255);			/* 2262 / 2276 */
+
+		l6114((short)(unsigned char)g_a5_byte(-25262), v, (short)0,
+		      (short)0, (short)8, ua_strs_at(0x4fe2) /* "" */);  /* 2284 */
+		if ((unsigned char)jt41(caster, 3, &out) != 0)	/* 2298 / 22a0 */
+			l77a0(3, (void *)(uintptr_t)caster,
+			      (void *)(uintptr_t)out, 0);	/* 22b2 */
+	}
+}
 static void jt617(void)	/* +0x1ee2; id 58 */
 {
 	PROBE("jt617");
