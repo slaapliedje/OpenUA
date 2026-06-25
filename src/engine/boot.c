@@ -32692,7 +32692,52 @@ static void jt613(void)	/* +0x07f2; id 26 */
 		jt876(caster, 15, 10, 255, 1);			/* 088e */
 	}
 }
-static void jt614(void) { PROBE("jt614"); }	/* +0x030e; id 12 */
+static unsigned char jt863(long rec_l, short newidx, short newval, void *out);  /* CODE 18, below */
+static void jt614(void)	/* +0x030e; id 12 — "is stronger" buff */
+{
+	long caster = g_a5_long(-23508);			/* 0312 */
+	unsigned char outb = 0;					/* fp@-1 */
+	long out2;						/* fp@-10 */
+
+	PROBE("jt614");
+	/* CODE 16 effect id 12: seed the jt863 save params (-6866=18, -6865=0), then
+	 * adjust by the caster level (jt17&255) via a JT[3] switch.  Run jt863; on
+	 * success, unless the target already carries descriptor 57 or 63 (jt41),
+	 * announce "is stronger", apply the timed effect (jt876 code 12, duration
+	 * l602c) + jt875(caster,0).  Otherwise "is unaffected". */
+	g_a5_byte(-6866) = 18;					/* 031a */
+	g_a5_byte(-6865) = 0;					/* 031e */
+	switch (jt17((short)(unsigned char)g_a5_byte(-25262), 0) & 255) {  /* JT[3] @0x33a */
+	case 1:  g_a5_byte(-6865) = 0;   break;			/* L0352 */
+	case 2:  g_a5_byte(-6865) = 1;   break;			/* L035a */
+	case 3:  g_a5_byte(-6865) = 51;  break;			/* L0362 */
+	case 4:  g_a5_byte(-6865) = 76;  break;			/* L036a */
+	case 5:  g_a5_byte(-6865) = 91;  break;			/* L0372 */
+	case 6:  g_a5_byte(-6865) = 100; break;			/* L037a */
+	case 7:  g_a5_byte(-6866) = 19;  break;			/* L0382 */
+	case 8:  g_a5_byte(-6866) = 20;  break;			/* L038a */
+	case 9:  g_a5_byte(-6866) = 21;  break;			/* L0392 */
+	default: g_a5_byte(-6866) = 22;  break;			/* L039a */
+	}
+
+	if (jt863(caster, (short)(unsigned char)g_a5_byte(-6866),
+	          (short)(unsigned char)g_a5_byte(-6865), &outb) != 0  /* 03b8 / 03c0 */
+	    && (unsigned char)jt41(caster, 57, &out2) == 0	/* 03d2 / 03da */
+	    && (unsigned char)jt41(caster, 63, &out2) == 0) {	/* 03ea / 03f2 */
+		short dur;
+
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4db6) /* "is stronger" */,
+		     (short)10, (short)1);			/* 0408 */
+		dur = l602c((short)(unsigned char)g_a5_byte(-25262));	/* 0418 */
+		jt876(caster, 12, dur, (short)(unsigned char)outb, 1);	/* 0434 */
+		jt875(caster, 0);				/* 0442 */
+	} else {
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4dc2) /* "is unaffected" */,
+		     (short)10, (short)1);			/* 045c */
+	}
+}
 static void jt615(void) { PROBE("jt615"); }	/* +0x2634; id 81 */
 static void jt616(void) { PROBE("jt616"); }	/* +0x2242; id 70 */
 static void jt617(void)	/* +0x1ee2; id 58 */
