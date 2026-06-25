@@ -5,13 +5,15 @@ where they live, and the traps. **The point of this file: stop re-deriving the
 same thing every session.** When you trace a function and understand it, add a
 line here. When you find a function you need, look here first.
 
-> **Two companion docs:** this file holds the *curated* deep-dives (subsystems,
-> ABIs, traps). For a *complete, auto-generated* list of every function in the
-> engine + shim with its origin (`CODE N+0xXXXX`/`JT[N]`) and one-line purpose,
-> see **`docs/function-index.md`** (regenerate: `python3 tools/function_index.py`).
-> **Grep the index before writing any new function** — it's the fastest way to
-> avoid re-implementing something already lifted (the recurring trap: a faithful
-> `jtN`/`lXXXX` already exists but a port stand-in was written instead).
+> **Companion docs** (start at **`docs/functions.md`** for the index of all of
+> them): this file holds the *curated* deep-dives (subsystems, ABIs, traps). For
+> a *complete, auto-generated* list of every function with its origin
+> (`CODE N+0xXXXX`/`JT[N]`) and one-line purpose, see **`docs/function-index.md`**
+> (`python3 tools/function_index.py`). For the **jt ↔ `lXXXX` alias map** — which
+> local name a JT export maps to, and the line it's defined under (the
+> forward-decl oracle) — see **`docs/jt-aliases.md`** (`python3 tools/jt_aliases.py`).
+> **Grep these before writing any new function** — the recurring trap is a
+> faithful `jtN`/`lXXXX` already exists but a port stand-in was written instead.
 
 Conventions:
 - `jtNNN` = a JT (jump-table) entry. **JT slot address = `a5@(34 + 8·N)`** — e.g.
