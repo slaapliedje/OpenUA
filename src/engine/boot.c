@@ -32929,7 +32929,18 @@ static void jt636(void)	/* +0x239c; id 74 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)jt873(6, 8), (short)9, ua_strs_at(0x5026) /* "" */);  /* 23e0 */
 }
-static void jt637(void) { PROBE("jt637"); }	/* +0x1fce; id 131 */
+static void jt637(void)	/* +0x1fce; id 131 */
+{
+	short roll;
+
+	PROBE("jt637");
+	/* CODE 16 effect id 131 (heal): if jt869 applies a 2d4+2 heal to the -23508
+	 * caster, announce "is Healed" via jt503. */
+	roll = jt870(2, 4);					/* 1fd6 */
+	if (jt869(g_a5_long(-23508), (short)(roll + 2), 0) != 0)	/* 1fe6 / 1fec */
+		jt503(g_a5_long(-23508), 1,
+		      (long)(uintptr_t)ua_strs_at(0x4f92) /* "is Healed" */);  /* 1ffe */
+}
 static void jt639(void) { PROBE("jt639"); }	/* +0x4458; id 126 */
 /* CODE 16+0x0f52 (local) — the "cure" PREDICATE on the -23508 caster: probes
  * three status types via jt872 and returns 1 if any is present.  Type 43 also
