@@ -32931,7 +32931,19 @@ static void jt628(void)	/* +0x1dfa; id 55 */
 	l1840((short)39, jt493(g_a5_long(-27932)),
 	      ua_strs_at(0x4f5c) /* "is Slowed" */);
 }
-static void jt629(void) { PROBE("jt629"); }	/* +0x155e; id 42 */
+static void jt629(void)	/* +0x155e; id 42 */
+{
+	unsigned char *src = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	short v;
+
+	PROBE("jt629");
+	/* CODE 16 effect id 42 ("is praying"): the l6114 value packs the caster level
+	 * (jt17(effect,1)&255, low) with the -27932 source type [95]<<7 (high). */
+	v = (short)((src[95] << 7)
+	            + (jt17((short)(unsigned char)g_a5_byte(-25262), 1) & 255));
+	l6114((short)(unsigned char)g_a5_byte(-25262), v, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x4ee2) /* "is praying" */);
+}
 static void jt630(void)	/* +0x3634; id 113 — stone to flesh */
 {
 	long caster = g_a5_long(-23508);			/* 3638 */
@@ -33587,7 +33599,35 @@ static void jt676(void)	/* +0x04ec; id 14 */
 	      (short)1, (short)0, (short)0, ua_strs_at(0x4de2) /* "is friendly" */);
 	jt875(g_a5_long(-27932), (short)5);
 }
-static void jt677(void) { PROBE("jt677"); }	/* +0x355e; id 111 */
+static void jt677(void)	/* +0x355e; id 111 — disintegrate */
+{
+	long caster = g_a5_long(-23508);			/* 3568 */
+
+	PROBE("jt677");
+	/* CODE 16 Disintegrate (id 111): stage value 72 + save flag 255, run the save
+	 * (jt868 sel 9).  Saved (-25242 cleared) or magic-resisted (jt866) -> "is
+	 * unaffected".  Otherwise jt860 "disintegrates" and destroy every item in the
+	 * target's [8] inventory list via jt30. */
+	g_a5_word(-25266) = 72;					/* 3564 */
+	g_a5_word(-25242) = 255;				/* 356e */
+	jt868(9, &caster);					/* 357c */
+	if (g_a5_word(-25242) == 0) {				/* 3582 */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x51c6) /* "is unaffected" */,
+		     (short)10, (short)1);			/* 3608 */
+	} else if ((unsigned char)jt866(caster, 4, 0) != 0) {	/* 3594 / 359e */
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x51b8) /* "is unaffected" */,
+		     (short)10, (short)1);			/* 35ec */
+	} else {
+		unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+
+		jt860(caster, 6,
+		      (long)(uintptr_t)ua_strs_at(0x51aa) /* "disintegrates" */);  /* 35b2 */
+		while (*(long *)(uintptr_t)(cas + 8) != 0)	/* 35ce / 35d2 */
+			jt30(caster, *(long *)(uintptr_t)(cas + 8));  /* 35c8 */
+	}
+}
 static void jt678(void) { PROBE("jt678"); }	/* +0x2776; id 83 */
 static void jt679(void)	/* +0x2320; id 72 */
 {
