@@ -129,7 +129,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 37 | -23918 | jt682 | CODE 16+0x111e | stub |
 | 38 | -23914 | jt609 | CODE 16+0x1148 | LIFTED |
 | 39 | -23910 | jt640 | CODE 16+0x1168 | LIFTED |
-| 40 | -23906 | jt672 | CODE 16+0x118a | stub |
+| 40 | -23906 | jt672 | CODE 16+0x118a | LIFTED |
 | 41 | -23902 | jt704 | CODE 16+0x1270 | stub |
 | 42 | -23898 | jt629 | CODE 16+0x155e | stub |
 | 43 | -23894 | jt687 | CODE 16+0x15ae | LIFTED |
@@ -154,7 +154,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 62 | -23818 | jt664 | CODE 16+0x00c6 | LIFTED |
 | 63 | -23814 | jt686 | CODE 16+0x0236 | LIFTED |
 | 64 | -23810 | jt655 | CODE 16+0x01e8 | LIFTED |
-| 66 | -23802 | jt627 | CODE 16+0x20b6 | stub |
+| 66 | -23802 | jt627 | CODE 16+0x20b6 | LIFTED |
 | 67 | -23798 | jt658 | CODE 16+0x20e8 | stub |
 | 68 | -23794 | jt690 | CODE 16+0x21c8 | LIFTED |
 | 69 | -23790 | jt699 | CODE 16+0x01a8 | LIFTED |
@@ -212,7 +212,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 124 | -23570 | jt693 | CODE 16+0x3f8a | stub |
 | 125 | -23566 | jt612 | CODE 16+0x4338 | stub |
 | 126 | -23562 | jt639 | CODE 16+0x4458 | stub |
-| 127 | -23558 | jt691 | CODE 16+0x1eb0 | stub |
+| 127 | -23558 | jt691 | CODE 16+0x1eb0 | LIFTED |
 | 128 | -23554 | jt647 | CODE 16+0x1f1a | stub |
 | 129 | -23550 | jt680 | CODE 16+0x1f96 | stub |
 | 130 | -23546 | jt606 | CODE 16+0x1fae | LIFTED |
@@ -221,7 +221,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 133 | -23534 | jt607 | CODE 16+0x16de | LIFTED |
 | 134 | -23530 | jt702 | CODE 16+0x2084 | LIFTED |
 | 135 | -23526 | jt621 | CODE 16+0x2e08 | LIFTED |
-| 136 | -23522 | jt683 | CODE 16+0x2f0e | stub |
+| 136 | -23522 | jt683 | CODE 16+0x2f0e | LIFTED |
 | 137 | -23518 | jt641 | CODE 16+0x2f64 | LIFTED |
 
 ### Unique handlers — table LIVE-shaped; each is its own lift
@@ -232,19 +232,19 @@ nothing else. jt699 ("is protected") was the template; 16 more lifted 2026-06-15
 (jt606/609/624/625/632/634/654/656/660/662/685/689/692/694/706/707). The rest
 have real per-effect bodies (dice rolls, target tables, jt521 burst render).
 
-- LIFTED (74):
+- LIFTED (78):
   jt602 jt605 jt606 jt607 jt609 jt610 jt611 jt613 jt614 jt615 jt616 jt617
-  jt618 jt620 jt621 jt623 jt624 jt625 jt628 jt630 jt631 jt632 jt633 jt634
-  jt636 jt637 jt638 jt640 jt641 jt642 jt643 jt644 jt645 jt646 jt649 jt650
-  jt652 jt653 jt654 jt655 jt656 jt657 jt659 jt660 jt661 jt662 jt663 jt664
-  jt666 jt667 jt668 jt669 jt671 jt673 jt674 jt675 jt676 jt679 jt681 jt685
-  jt686 jt687 jt689 jt690 jt692 jt694 jt695 jt698 jt699 jt700 jt702 jt706
-  jt707 jt708  (+ locals l602c, l6114,
+  jt618 jt620 jt621 jt623 jt624 jt625 jt627 jt628 jt630 jt631 jt632 jt633
+  jt634 jt636 jt637 jt638 jt640 jt641 jt642 jt643 jt644 jt645 jt646 jt649
+  jt650 jt652 jt653 jt654 jt655 jt656 jt657 jt659 jt660 jt661 jt662 jt663
+  jt664 jt666 jt667 jt668 jt669 jt671 jt672 jt673 jt674 jt675 jt676 jt679
+  jt681 jt683 jt685 jt686 jt687 jt689 jt690 jt691 jt692 jt694 jt695 jt698
+  jt699 jt700 jt702 jt706 jt707 jt708  (+ locals l602c, l6114,
   l0008, l1840, l0f52)
-- STUB (32):
-  jt603 jt604 jt608 jt612 jt619 jt622 jt626 jt627 jt629 jt635 jt639 jt647
-  jt648 jt651 jt658 jt665 jt672 jt677 jt678 jt680 jt682 jt683 jt684 jt688
-  jt691 jt693 jt696 jt697 jt701 jt703 jt704 jt705
+- STUB (28):
+  jt603 jt604 jt608 jt612 jt619 jt622 jt626 jt629 jt635 jt639 jt647 jt648
+  jt651 jt658 jt665 jt677 jt678 jt680 jt682 jt684 jt688 jt693 jt696 jt697
+  jt701 jt703 jt704 jt705
 
 The combat spine is now LIFTED (l076e + jt511 + l08b4/l5008, 2026-06-24), so the
 handler table is reachable in principle.  The effect-application core **l6114**
