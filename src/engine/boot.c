@@ -34245,7 +34245,57 @@ static void jt683(void)	/* +0x2f0e; id 136 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x5140) /* "" */);
 }
-static void jt684(void) { PROBE("jt684"); }	/* +0x3aa4; id 120 */
+/* JT[684] (CODE 16 + 0x3aa4; id 120) — "is charmed" (Mass Charm). Charm the
+ * -23512 targets in order, spending a hit-dice budget of 2x the caster level
+ * (jt17) until it is exhausted. A target is eligible only if it is charmable
+ * ([192] bit 2) AND on a different side than the caster ([95] != caster [95]);
+ * otherwise it is "is unaffected" (jt18). An eligible target whose [137] HD
+ * fits the remaining budget is charmed via jt871 (code 11, l602c duration,
+ * jt866 cat-4 resist with a -2 modifier); the [95]-flagged caster level packs
+ * into the value byte. The item-type-11 hook (jt41 -> l77a0) follows. */
+static void jt684(void)	/* +0x3aa4; id 120 */
+{
+	unsigned char doneFlag = 0, hdSpent = 0, hdBudget;
+	short i;
+	short level = jt17((short)(unsigned char)g_a5_byte(-25262), 0);
+
+	PROBE("jt684");
+	g_a5_byte(-25257) = 1;
+	hdBudget = (unsigned char)((level & 0xff) * 2);
+	for (i = 1; (unsigned char)i <= (unsigned char)g_a5_byte(-23510)
+	         && doneFlag == 0; i++) {
+		long target = g_a5_longs(-23512)[i];
+		unsigned char *tg;
+		unsigned char hd;
+		short dur, level2, packed, resist;
+		void *desc;
+
+		if (target == 0)
+			continue;
+		tg = (unsigned char *)(uintptr_t)target;
+		if (!(tg[192] & 2)
+		 || tg[95] == ((unsigned char *)(uintptr_t)g_a5_long(-27932))[95]) {
+			jt18((void *)(uintptr_t)target,
+			     (long)(uintptr_t)ua_strs_at(0x525c) /* "is unaffected" */,
+			     10, 1);
+			continue;
+		}
+		hd = tg[137];
+		if ((unsigned short)(hdSpent + hd) > (unsigned short)hdBudget)
+			continue;
+		hdSpent = (unsigned char)(hdSpent + hd);
+		doneFlag = (hdSpent == hdBudget) ? 1 : 0;
+		dur = l602c((short)(unsigned char)g_a5_byte(-25262));
+		level2 = jt17((short)(unsigned char)g_a5_byte(-25262), 1);
+		packed = (short)((level2 & 0xff)
+		    + (((unsigned char *)(uintptr_t)g_a5_long(-27932))[95] << 7));
+		resist = jt866(target, 4, -2);
+		jt871(target, 11, dur, packed, 1, 1, resist,
+		      (long)(uintptr_t)ua_strs_at(0x526a) /* "is charmed" */);
+		if (jt41(target, 11, &desc))
+			l77a0(11, (void *)(uintptr_t)target, desc, 0);
+	}
+}
 static void jt685(void)	/* +0x07d2; id 25,59 */
 {
 	PROBE("jt685");
@@ -34626,7 +34676,71 @@ static void jt696(void)	/* +0x2d18; id 93 */
 	}
 	cas[135] = saved135;
 }
-static void jt697(void) { PROBE("jt697"); }	/* +0x2fbe; id 102 */
+static short jt22(long ent_l, short cls);		/* CODE 6, below */
+
+/* JT[697] (CODE 16 + 0x2fbe; id 102) — Restoration: restore a drained level to
+ * the caster (-23508). Count the trained classes ([150+c] != 0), then pick the
+ * non-maxed class ([157+c] < [150+c]) that needs the fewest XP to its next
+ * level (jt26), summing the levels-to-regain. If a class is found and the
+ * caster is below max hit dice ([129] < [182]), spread the missing HP per
+ * regained level into the AC slot [395], the bonus-HP slot [184] (less the
+ * jt22 per-class share) and the current HD [129]. Then bump that class level,
+ * recompute (jt910), fix the XP-to-next ([68] from the best XP or the [72]
+ * cap), and refresh the save byte [197] (jt33). */
+static void jt697(void)	/* +0x2fbe; id 102 */
+{
+	long caster = g_a5_long(-23508);
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	unsigned char sumDiff = 0, classCount = 0, bestClass = 17;
+	long bestXP = 2147483647L;
+	short i;
+
+	PROBE("jt697");
+	for (i = 0; i <= 6; i++)			/* L3004 */
+		if (cas[i + 150] != 0)
+			classCount++;
+	for (i = 0; i <= 6; i++) {			/* L30da */
+		long xp;
+
+		if (cas[i + 157] >= cas[i + 150])
+			continue;
+		sumDiff = (unsigned char)(sumDiff + (cas[i + 150] - cas[i + 157]));
+		xp = jt26(caster, (short)(cas[i + 157] + 1), i);
+		if (xp <= bestXP) {
+			bestXP = jt26(caster, (short)(cas[i + 157] + 1), i);
+			bestClass = (unsigned char)i;
+		}
+	}
+	if (bestClass != 17) {
+		if (cas[129] < cas[182]) {
+			unsigned char hpPerLevel = (unsigned char)(
+			    (unsigned short)(cas[182] - cas[129])
+			    / (unsigned short)sumDiff);
+			unsigned char hpGain;
+
+			if ((unsigned short)(cas[bestClass + 157] + 1)
+			  < (unsigned short)g_a5_buf(-23007)[bestClass]) {
+				unsigned short share = (unsigned short)(short)
+				    (signed char)jt22(caster, (short)bestClass);
+
+				hpGain = (unsigned char)(share / (unsigned short)classCount);
+			} else {
+				hpGain = 0;
+			}
+			cas[395] = (unsigned char)(cas[395] + hpPerLevel);
+			cas[184] = (unsigned char)(cas[184] + (hpPerLevel - hpGain));
+			cas[129] = (unsigned char)(cas[129] + hpPerLevel);
+		}
+		cas[bestClass + 157]++;
+		jt910(caster);
+		if (sumDiff == 1
+		 && *(long *)(void *)(cas + 68) < *(long *)(void *)(cas + 72))
+			*(long *)(void *)(cas + 68) = *(long *)(void *)(cas + 72);
+		else
+			*(long *)(void *)(cas + 68) = bestXP;
+	}
+	cas[197] = (unsigned char)jt33(cas);
+}
 static void jt698(void)	/* +0x05fc; id 21 — sleep */
 {
 	int i;

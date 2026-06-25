@@ -188,7 +188,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 98 | -23674 | jt611 | CODE 16+0x2f2e | LIFTED |
 | 100 | -23666 | jt671 | CODE 16+0x2f9e | LIFTED |
 | 101 | -23662 | jt602 | CODE 16+0x0a62 | LIFTED |
-| 102 | -23658 | jt697 | CODE 16+0x2fbe | stub |
+| 102 | -23658 | jt697 | CODE 16+0x2fbe | LIFTED |
 | 103 | -23654 | jt618 | CODE 16+0x3218 | LIFTED |
 | 104 | -23650 | jt644 | CODE 16+0x323c | LIFTED |
 | 105 | -23646 | jt673 | CODE 16+0x32ae | LIFTED |
@@ -206,7 +206,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 117 | -23598 | jt604 | CODE 16+0x38d6 | LIFTED |
 | 118 | -23594 | jt633 | CODE 16+0x3a4c | LIFTED |
 | 119 | -23590 | jt662 | CODE 16+0x3a84 | LIFTED |
-| 120 | -23586 | jt684 | CODE 16+0x3aa4 | stub |
+| 120 | -23586 | jt684 | CODE 16+0x3aa4 | LIFTED |
 | 121 | -23582 | jt608 | CODE 16+0x3c38 | LIFTED |
 | 122 | -23578 | jt699 | CODE 16+0x01a8 | LIFTED |
 | 123 | -23574 | jt665 | CODE 16+0x3d02 | stub |
@@ -233,7 +233,7 @@ nothing else. jt699 ("is protected") was the template; 16 more lifted 2026-06-15
 (jt606/609/624/625/632/634/654/656/660/662/685/689/692/694/706/707). The rest
 have real per-effect bodies (dice rolls, target tables, jt521 burst render).
 
-- LIFTED (102):
+- LIFTED (104):
   jt602 jt603 jt604 jt605 jt606 jt607 jt608 jt609 jt610 jt611 jt612 jt613 jt614 jt615 jt616 jt617
   jt618 jt619 jt620 jt621 jt622 jt623 jt624 jt625 jt626 jt627 jt628 jt629
   jt630 jt631 jt632 jt633 jt634 jt635 jt636 jt637 jt638 jt639 jt640 jt641 jt642 jt643
@@ -243,8 +243,8 @@ have real per-effect bodies (dice rolls, target tables, jt521 burst render).
   jt686 jt687 jt688 jt689 jt690 jt691 jt692 jt693 jt694 jt695 jt696 jt698 jt699 jt700 jt701
   jt702 jt703 jt705 jt706 jt707 jt708  (+ locals l602c, l6114,
   l0008, l1840, l0f52, l1d2a, l3e54)
-- STUB (4):
-  jt665 jt684 jt697 jt704
+- STUB (2):
+  jt665 jt704
 
 **jt631** (CODE 16+0x19c8, the bouncing-bolt damage applier) is now a real body
 (2026-06-24): a reflective Bresenham ray from the pick cell, draining a `range*2`
