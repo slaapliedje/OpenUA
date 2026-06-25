@@ -33352,7 +33352,106 @@ static void jt637(void)	/* +0x1fce; id 131 */
 		jt503(g_a5_long(-23508), 1,
 		      (long)(uintptr_t)ua_strs_at(0x4f92) /* "is Healed" */);  /* 1ffe */
 }
-static void jt639(void) { PROBE("jt639"); }	/* +0x4458; id 126 */
+/* JT[639] (CODE 16 + 0x4458; id 126) — "gates in" (Monster Summoning). Walk the
+ * -27928 list for summoner nodes ([94]==9) and, for each placer, scan the eight
+ * compass directions (the -27862/-27853 delta tables) around the placer's cell
+ * (jt525/jt531) for an empty cell whose feature class matches the arena type
+ * (ds[34] ? 23 : 69). A match registers the gated monster into the g_a5_27472
+ * combat grid (slot from l6bbe: facing [130]&7 at +5, cell X/Y words at +0/+2)
+ * and runs jt874 ("gates in"). Up to two monsters are gated; if none answer,
+ * jt18 prints "summons is not answered". Mac quirk kept faithfully: an
+ * out-of-bounds candidate direction re-tests WITHOUT advancing the direction
+ * counter (relies on placers staying off the grid edge). */
+static void jt639(void)	/* +0x4458; id 126 */
+{
+	long mon = g_a5_long(-27928);
+	long placer = g_a5_long(-27928);
+	unsigned char done = 0, dir = 0, gated = 0, matchClass;
+	unsigned char px = 0, py = 0, placed = 0, occ, feat, slot;
+	unsigned char cx, cy;
+
+	PROBE("jt639");
+	if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[34])
+		matchClass = 23;
+	else
+		matchClass = 69;
+
+	/* L4496: find the first summoner node ([94]==9) */
+	while (mon != 0 && ((unsigned char *)(uintptr_t)mon)[94] != 9)
+		mon = *(long *)(uintptr_t)mon;
+
+ l44ac:
+	if ((signed char)dir <= 7)
+		goto l44ec;
+	/* directions exhausted — advance to the next placer */
+	if (placer != 0
+	 && *(long *)(uintptr_t)placer != 0
+	 && ((unsigned char *)(uintptr_t)placer)[94] == 9) {
+		placer = *(long *)(uintptr_t)placer;		/* L44e0 */
+	} else {
+		placer = g_a5_long(-27932);			/* L44d2 */
+		done = 1;
+	}
+	dir = 0;
+
+ l44ec:
+	if (mon == 0 || gated == 2) {				/* L44fe */
+		done = 1;
+		goto l469a;
+	}
+	/* L4508: placement setup for this placer */
+	((unsigned char *)(uintptr_t)mon)[95] =
+	    ((unsigned char *)(uintptr_t)g_a5_long(-27932))[95];
+	px = jt525(placer);
+	py = jt531(placer);
+	placed = 0;
+
+ l4536:
+	cx = (unsigned char)((signed char)px
+	    + (signed char)g_a5_buf(-27862)[dir]);
+	cy = (unsigned char)((signed char)py
+	    + (signed char)g_a5_buf(-27853)[dir]);
+	if ((signed char)cx > 49 || (signed char)cx < 0
+	 || (signed char)cy > 24 || (signed char)cy < 0)
+		goto l4680;				/* OOB — no dir++ (Mac) */
+	l62ec((short)(signed char)cx, (short)(signed char)cy, &occ, &feat);
+	if (occ != 0)					/* cell occupied */
+		goto l467c;
+	if (feat != matchClass)				/* wrong terrain class */
+		goto l467c;
+	/* empty matching cell — place the gated monster here */
+	slot = (unsigned char)l6bbe(mon);
+	g_a5_27472[slot * 6 + 5] =
+	    (unsigned char)(((unsigned char *)(uintptr_t)mon)[130] & 7);
+	g_a5_27472[slot * 6 + 0] = 0;			/* X word, high byte */
+	g_a5_27472[slot * 6 + 1] = cx;			/* X word, low byte  */
+	g_a5_27472[slot * 6 + 2] = 0;			/* Y word, high byte */
+	g_a5_27472[slot * 6 + 3] = cy;			/* Y word, low byte  */
+	placed = jt874(mon,
+	    (short)((unsigned char *)(uintptr_t)mon)[129],
+	    (long)(uintptr_t)ua_strs_at(0x52ce) /* "gates in" */);
+	if (placed == 0)
+		goto l467c;
+	gated++;
+	mon = *(long *)(uintptr_t)mon;			/* next monster to gate */
+	if (mon == 0 || ((unsigned char *)(uintptr_t)mon)[94] != 9)
+		done = 1;
+
+ l467c:
+	dir++;
+
+ l4680:
+	if (placed == 0 && (signed char)dir <= 7)
+		goto l4536;
+
+ l469a:
+	if (done == 0)
+		goto l44ac;
+	if (gated == 0)
+		jt18((void *)(uintptr_t)g_a5_long(-27932),
+		     (long)(uintptr_t)ua_strs_at(0x52d8)
+		     /* "summons is not answered" */, 10, 1);
+}
 /* CODE 16+0x0f52 (local) — the "cure" PREDICATE on the -23508 caster: probes
  * three status types via jt872 and returns 1 if any is present.  Type 43 also
  * strips related effects (jt878 ids 44/31 + jt875 0); type 215 strips id 172;

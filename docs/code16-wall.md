@@ -212,7 +212,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 123 | -23574 | jt665 | CODE 16+0x3d02 | stub |
 | 124 | -23570 | jt693 | CODE 16+0x3f8a | stub |
 | 125 | -23566 | jt612 | CODE 16+0x4338 | LIFTED |
-| 126 | -23562 | jt639 | CODE 16+0x4458 | stub |
+| 126 | -23562 | jt639 | CODE 16+0x4458 | LIFTED |
 | 127 | -23558 | jt691 | CODE 16+0x1eb0 | LIFTED |
 | 128 | -23554 | jt647 | CODE 16+0x1f1a | stub |
 | 129 | -23550 | jt680 | CODE 16+0x1f96 | LIFTED |
@@ -233,18 +233,18 @@ nothing else. jt699 ("is protected") was the template; 16 more lifted 2026-06-15
 (jt606/609/624/625/632/634/654/656/660/662/685/689/692/694/706/707). The rest
 have real per-effect bodies (dice rolls, target tables, jt521 burst render).
 
-- LIFTED (98):
+- LIFTED (99):
   jt602 jt603 jt604 jt605 jt606 jt607 jt608 jt609 jt610 jt611 jt612 jt613 jt614 jt615 jt616 jt617
   jt618 jt619 jt620 jt621 jt622 jt623 jt624 jt625 jt626 jt627 jt628 jt629
-  jt630 jt631 jt632 jt633 jt634 jt635 jt636 jt637 jt638 jt640 jt641 jt642 jt643
+  jt630 jt631 jt632 jt633 jt634 jt635 jt636 jt637 jt638 jt639 jt640 jt641 jt642 jt643
   jt644 jt645 jt646 jt648 jt649 jt650 jt652 jt653 jt654 jt655 jt656 jt657
   jt658 jt659 jt660 jt661 jt662 jt663 jt664 jt666 jt667 jt668 jt669 jt671
   jt672 jt673 jt674 jt675 jt676 jt677 jt678 jt679 jt680 jt681 jt682 jt683 jt685
   jt686 jt687 jt688 jt689 jt690 jt691 jt692 jt694 jt695 jt696 jt698 jt699 jt700 jt701
   jt702 jt703 jt705 jt706 jt707 jt708  (+ locals l602c, l6114,
   l0008, l1840, l0f52, l1d2a)
-- STUB (8):
-  jt639 jt647 jt651 jt665 jt684
+- STUB (7):
+  jt647 jt651 jt665 jt684
   jt693 jt697 jt704
 
 **jt631** (CODE 16+0x19c8, the bouncing-bolt damage applier) is now a real body
