@@ -6021,13 +6021,13 @@ static void jt94(short page, short row, short col, short style,
 	l3994();
 
 	/* row == 24 — the bottom message / command-bar row. The Mac (L3fd6 @0x4042)
-	 * paints a filled rect + three bevel edges BEHIND the text, via L3f88 /
-	 * JT[1161] (the light "plate" the prompt/message sits on), THEN draws the
-	 * glyphs. The port had stubbed this (mis-gated on style==24 — the Mac gates
-	 * on row==24). Lifted here inline, mirroring 0x4050..0x4196 + the 0x4266
-	 * text tail, with the Mac's faithful style remap (0x3ffe: only when
-	 * style==0) so the port's global (inverted) remap below is left untouched
-	 * for every other caller. */
+	 * paints a filled rect + FOUR black edges (a full box outline) BEHIND the
+	 * text, via L3f88 / JT[1161] (the light "plate" the prompt/message sits on),
+	 * THEN draws the glyphs. The port had stubbed this (mis-gated on style==24 —
+	 * the Mac gates on row==24). Lifted here inline, mirroring 0x4050..0x4196 +
+	 * the 0x4266 text tail, with the Mac's faithful style remap (0x3ffe: only
+	 * when style==0) so the port's global (inverted) remap below is left
+	 * untouched for every other caller. */
 	if (row == 24) {
 		short s  = style, c = col;
 		short pg = page;
@@ -6048,6 +6048,8 @@ static void jt94(short page, short row, short col, short style,
 		v6  = jt423(local_buf);                         /* 0x40ac strlen */
 		jt1135((short)0, (short)(((pg + v6) << 2) + 8000),
 		       &v14, &v10);                             /* 0x40ba */
+		jt1161((short)(v4 - 2), (short)(v8 - 1), (short)(v4 - 1),
+		       (short)(v10 + 1), (short)0);                          /* 0x4100 top   */
 		l3f88((short)(v4 - 1), v8, v4, v10, s);                       /* 0x4124 fill  */
 		jt1161((short)(v4 - 1), (short)(v8 - 1), v12, v8, (short)0);  /* 0x4146 left  */
 		jt1161((short)(v4 - 1), v10, v12, (short)(v10 + 1), (short)0);/* 0x4168 right */
