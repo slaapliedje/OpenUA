@@ -32564,7 +32564,38 @@ static void jt602(void)
 			      (short)1, (short)0);
 }
 static void jt603(void) { PROBE("jt603"); }	/* +0x2806; id 84 */
-static void jt604(void) { PROBE("jt604"); }	/* +0x38d6; id 117 */
+/* JT[604] (CODE 16 + 0x38d6; id 117) — the petrification/level-band damage
+ * roll. Switch on the caster (-23508) record byte [395]: a JT[3] table maps the
+ * three contiguous bands 1..30 / 31..60 / 61..90 to the dice roll jt870(4,4) /
+ * (2,4) / (1,4); anything else rolls 0 and the handler bails. On a non-zero
+ * roll the effect is announced through jt871 (effect code -15024, the roll as
+ * the value, the caster's spell-117 level from jt17, the -15026 save byte, and
+ * an "is %s" line over the -19672 name). -25257 marks the effect in flight. */
+static void jt604(void)	/* +0x38d6; id 117 */
+{
+	long caster = g_a5_long(-23508);
+	unsigned char *cas = (unsigned char *)(uintptr_t)caster;
+	unsigned char sel, roll, level;
+
+	PROBE("jt604");
+	g_a5_byte(-25257) = 1;
+	sel = cas[395];
+	if (sel >= 1 && sel <= 30)			/* JT[3] band -> L39ae */
+		roll = (unsigned char)jt870(4, 4);
+	else if (sel >= 31 && sel <= 60)		/* -> L39c2 */
+		roll = (unsigned char)jt870(2, 4);
+	else if (sel >= 61 && sel <= 90)		/* -> L39d6 */
+		roll = (unsigned char)jt870(1, 4);
+	else						/* default -> L39ea */
+		roll = 0;
+	if (roll == 0)
+		return;
+	level = (unsigned char)jt17(117, 1);
+	jt871(caster, (short)(unsigned char)g_a5_byte(-15024),
+	      (short)roll, (short)level, 0,
+	      (short)(signed char)g_a5_byte(-15026), 0,
+	      (long)(uintptr_t)jt488("is %s", g_a5_long(-19672)));
+}
 static short l602c(short code);   /* CODE 16, defined below */
 static void jt605(void)	/* +0x2352; id 73 */
 {
