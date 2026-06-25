@@ -193,7 +193,7 @@ Known anchors: id 10 = jt686 is the gaze effect (jt727 calls
 | 104 | -23650 | jt644 | CODE 16+0x323c | LIFTED |
 | 105 | -23646 | jt673 | CODE 16+0x32ae | LIFTED |
 | 106 | -23642 | jt640 | CODE 16+0x1168 | LIFTED |
-| 107 | -23638 | jt658 | CODE 16+0x20e8 | stub |
+| 107 | -23638 | jt658 | CODE 16+0x20e8 | LIFTED |
 | 108 | -23634 | jt705 | CODE 16+0x3336 | LIFTED |
 | 109 | -23630 | jt622 | CODE 16+0x3384 | LIFTED |
 | 110 | -23626 | jt648 | CODE 16+0x3424 | LIFTED |
