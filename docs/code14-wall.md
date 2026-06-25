@@ -122,8 +122,8 @@ Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: `l1090` `l14bc` `l1dd6` `l2b24` `l4dee`
-> missing: `l1d0c` `l2e30` `l302c` `l030a` `l315e` `l37d6`
-> `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc` now lifted)
+> missing: `l1d0c` `l2e30` `l302c` `l315e` `l37d6`
+> `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a` now lifted)
 
 `l1dd6` (repeat pick from the built area list) and `l4dee` (repeat pick with
 per-target area re-aim, jt508) are the combat target-repeat locals already
