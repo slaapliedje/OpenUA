@@ -48251,10 +48251,54 @@ static void l14bc(long atk, long def, short a, void *out, long ammo)
 	if (outp[0] != 0)
 		outp[0] = (unsigned char)jt498(atk);
 }
+/* L2b24 (CODE 14 + 0x2b24) — the missile/thrown projectile ANIMATION (the
+ * damage itself flows through l14bc's ammo path). A JT[1] switch on the missile
+ * type (item [40]) picks the launch sprite, sound and trajectory timing:
+ * arrows/most (5/7/12/30/66/74/4) spin via jt502; thrown (2/3/6) flash jt497
+ * with a slow arc; type 28/29/67 and the default use the jt495 two-frame
+ * launch. Then jt501 flies the projectile from the attacker cell (jt525/jt531)
+ * to the defender cell. */
 static void l2b24(long atk, long def, long item)
 {
+	unsigned char *it = (unsigned char *)(uintptr_t)item;
+	unsigned char facing = l7894(atk, def);
+	unsigned char animMax = 1, delay = 10;
+	unsigned char atkX, atkY, defX, defY;
+
 	PROBE("l2b24");
-	(void)atk; (void)def; (void)item;
+	switch ((short)(unsigned char)it[40]) {		/* JT[1] over missile type */
+	case 5: case 7: case 12: case 30: case 66: case 74: case 4:
+		jt502((short)facing, 15);
+		jt52(13);
+		break;
+	case 2: case 3: case 6:
+		jt497(18);
+		animMax = 4;
+		delay = 50;
+		jt52(10);
+		break;
+	case 28: case 29: case 67:
+		jt495(22, 0, 0, 0);
+		jt495(22, 1, 1, 0);
+		animMax = 2;
+		delay = 10;
+		jt52(7);
+		break;
+	default:
+		jt495(21, 0, 0, 0);
+		jt495(21, 1, 1, 0);
+		animMax = 2;
+		delay = 20;
+		jt52(10);
+		break;
+	}
+	atkX = jt525(atk);
+	atkY = jt531(atk);
+	defX = jt525(def);
+	defY = jt531(def);
+	jt501((short)(signed char)atkX, (short)(signed char)atkY,
+	      (short)(signed char)defX, (short)(signed char)defY,
+	      (short)animMax, (short)delay);
 }
 
 /* JT[555] (CODE 14+0x19dc) — execute one melee/missile attack, full

@@ -95,7 +95,7 @@ with the CODE 13 caller that needs it.
 | jt536 | 0x2cb2 | 2 | — | small targeting helper (leaf) |
 | jt522 | 0x7488 | 2 | stub | targeting/field leaf |
 
-## THE PHYSICAL-DAMAGE TIER (the combat-runtime keystone, 2026-06-24)
+## THE PHYSICAL-DAMAGE TIER — ✅ COMPLETE 2026-06-24 (all 6 lifted)
 
 A weapon swing currently deals **no damage** — `jt555` → `l14bc`/`l2b24` are
 PROBE no-ops, and the real logic lives in a small CODE-14 local tier that was
@@ -108,7 +108,7 @@ never lifted (NOT just `l14bc`). Lift bottom-up:
 | `l030a` | report + **jt39 HP-apply** + death/XP (jt865/l6de8) | 275 | ✅ LIFTED |
 | `l1d0c` | reach/out-of-range attack-timing penalty | 76 | ✅ LIFTED |
 | `l14bc` | the multi-attack **melee round** loop (jt864 to-hit → l022c → l030a) | 400 | ✅ LIFTED |
-| `l2b24` | the missile/thrown strike counterpart | 128 | PROBE no-op |
+| `l2b24` | the missile/thrown projectile animation | 128 | ✅ LIFTED |
 
 Damage flow: `l14bc` loops the attacker's swings; per swing `jt864` rolls to-hit,
 `l022c` rolls the damage into `-25242`, `l030a` announces it + applies via `jt39`
@@ -121,7 +121,7 @@ jt873/jt868/jt865) are lifted. **Damage now COMPUTES (l022c) + APPLIES + resolve
 Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
-> stubs: `l1090` `l1dd6` `l2b24` `l4dee`  (`l14bc` now lifted)
+> stubs: `l1090` `l1dd6` `l4dee`  (`l14bc`/`l2b24` now lifted — physical-damage tier COMPLETE)
 > missing: `l2e30` `l302c` `l315e` `l37d6`
 > `l3a4e` `l44b2` `l5392` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c` now lifted)
 
