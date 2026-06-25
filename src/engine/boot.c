@@ -32868,7 +32868,13 @@ static void jt625(void)	/* +0x2c00; id 88 */
 	      (short)0, (short)0, ua_strs_at(0x510e) /* "is protected" */);
 }
 static void jt626(void) { PROBE("jt626"); }	/* +0x2552; id 78 */
-static void jt627(void) { PROBE("jt627"); }	/* +0x20b6; id 66 */
+static void jt627(void)	/* +0x20b6; id 66 */
+{
+	PROBE("jt627");
+	/* CODE 16 effect id 66: apply a 2d8+1 value through l6114 (value arg c, d=8). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)(jt873(2, 8) + 1), (short)8, ua_strs_at(0x4fc2) /* "" */);
+}
 static unsigned char jt872(long rec, short type);  /* CODE 18, below */
 /* CODE 16+0x1840 (local) — the duration-counter STATUS applier, shared by jt652
  * (Haste) / jt628 (Slow).  Two passes over the -23512 area-target list:
@@ -33511,7 +33517,21 @@ static void jt671(void)	/* +0x2f9e; id 100 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)0, (short)0, ua_strs_at(0x514c) /* "" */);
 }
-static void jt672(void) { PROBE("jt672"); }	/* +0x118a; id 40 */
+static void jt672(void)	/* +0x118a; id 40 */
+{
+	long out;
+
+	PROBE("jt672");
+	/* CODE 16 effect id 40: announce "is <name>" (jt488 over -19960) via l6114
+	 * (b=1), then the type-34 hook l77a0 if jt41 confirms descriptor 34. */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)1,
+	      (short)0, (short)0,
+	      jt488(ua_strs_at(0x4ed0) /* "is %s" */,
+	            (const char *)(uintptr_t)g_a5_long(-19960)));	/* 11b2 */
+	if ((unsigned char)jt41(g_a5_long(-23508), 34, &out) != 0)	/* 11c6 / 11ce */
+		l77a0(34, (void *)(uintptr_t)g_a5_long(-23508),
+		      (void *)(uintptr_t)out, 0);			/* 11e0 */
+}
 static void jt673(void)	/* +0x32ae; id 105 — resurrect */
 {
 	unsigned char *cas = (unsigned char *)(uintptr_t)g_a5_long(-23508);
@@ -33610,7 +33630,13 @@ static void jt681(void)	/* +0x381a; id 116 */
 	            (const char *)(uintptr_t)g_a5_long(-19996)));	/* 38b2 / 38ca */
 }
 static void jt682(void) { PROBE("jt682"); }	/* +0x111e; id 37 */
-static void jt683(void) { PROBE("jt683"); }	/* +0x2f0e; id 136 */
+static void jt683(void)	/* +0x2f0e; id 136 */
+{
+	PROBE("jt683");
+	/* CODE 16 status-announce handler: l6114(effect,0,0,0,0, empty 0x5140). */
+	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+	      (short)0, (short)0, ua_strs_at(0x5140) /* "" */);
+}
 static void jt684(void) { PROBE("jt684"); }	/* +0x3aa4; id 120 */
 static void jt685(void)	/* +0x07d2; id 25,59 */
 {
@@ -33731,7 +33757,15 @@ static void jt690(void)	/* +0x21c8; id 68 */
 		l77a0(64, (void *)(uintptr_t)g_a5_long(-27932),
 		      (void *)(uintptr_t)out, 0);		/* 2236 */
 }
-static void jt691(void) { PROBE("jt691"); }	/* +0x1eb0; id 127 */
+static void jt691(void)	/* +0x1eb0; id 127 */
+{
+	PROBE("jt691");
+	/* CODE 16 effect id 127: when the -23508 target lacks status 42 (jt872==0),
+	 * announce "is Speedy" via l6114. */
+	if ((unsigned char)jt872(g_a5_long(-23508), 42) == 0)	/* 1eb8 / 1ebe */
+		l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
+		      (short)0, (short)0, ua_strs_at(0x4f6e) /* "is Speedy" */);
+}
 static void jt692(void)	/* +0x16be; id 45 */
 {
 	PROBE("jt692");
