@@ -33621,7 +33621,25 @@ static void jt646(void)	/* +0x22e8; id 71 */
 			jt14(g_a5_long(-23508));		/* 2318 */
 	}
 }
-static void jt647(void) { PROBE("jt647"); }	/* +0x1f1a; id 128 */
+/* JT[647] (CODE 16 + 0x1f1a; id 128) — "is stronger" (the Strength buff). Set
+ * ability slot 21 on the caster (-23508) via jt863 (the old value comes back in
+ * `out`); if it changed, announce "is stronger" (jt18). Roll a 1d4*10+40
+ * percentile strength and stamp it through jt876 (code 113, carrying `out`),
+ * then recompute derived stats (jt875). */
+static void jt647(void)	/* +0x1f1a; id 128 */
+{
+	long caster = g_a5_long(-23508);
+	unsigned char out;
+	short roll;
+
+	PROBE("jt647");
+	if (jt863(caster, 21, 0, &out))
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)ua_strs_at(0x4f78) /* "is stronger" */, 10, 1);
+	roll = (short)(jt870(1, 4) * 10 + 40);
+	jt876(caster, 113, roll, (short)out, 1);
+	jt875(caster, 0);
+}
 static void jt648(void)	/* +0x3424; id 110 — death spell */
 {
 	int i;
@@ -33723,7 +33741,38 @@ static void jt650(void)	/* +0x0158; id 4 */
 	l6114((short)(unsigned char)g_a5_byte(-25262), (short)0, (short)0,
 	      (short)jt873(1, 8), (short)8, ua_strs_at(0x4d4c) /* "" */);
 }
-static void jt651(void) { PROBE("jt651"); }	/* +0x2e28; id 96 */
+/* JT[651] (CODE 16 + 0x2e28; id 96) — a named status buff (the status text is
+ * the -20052 string formatted into "is %s"). It is refused on a high-HD
+ * construct ([88] >= 6) that lacks the [191] bit-2 vulnerability: that case
+ * prints "is not %s" (jt18). Otherwise it applies through l6114 (packing the
+ * jt17 caster level with the [95] flag in bit 7) and, if the caster carries an
+ * item of type 11 (jt41), runs the l77a0 item hook. */
+static void jt651(void)	/* +0x2e28; id 96 */
+{
+	long caster = g_a5_long(-23508);
+	unsigned char *cas;
+	void *desc;
+
+	PROBE("jt651");
+	if (caster == 0)
+		return;
+	cas = (unsigned char *)(uintptr_t)caster;
+	if (cas[88] < 6 || (cas[191] & 2)) {
+		short level = jt17((short)(unsigned char)g_a5_byte(-25262), 1);
+		short packed = (short)((level & 0xff)
+		    + (((unsigned char *)(uintptr_t)g_a5_long(-27932))[95] << 7));
+
+		l6114((short)(unsigned char)g_a5_byte(-25262), packed, 1, 0, 0,
+		      jt488(ua_strs_at(0x5130) /* "is %s" */, g_a5_long(-20052)));
+		if (jt41(caster, 11, &desc))
+			l77a0(11, (void *)(uintptr_t)caster, desc, 0);
+	} else {
+		jt18((void *)(uintptr_t)caster,
+		     (long)(uintptr_t)jt488(ua_strs_at(0x5136) /* "is not %s" */,
+		                            g_a5_long(-20052)),
+		     10, 1);
+	}
+}
 static void jt652(void)	/* +0x19aa; id 48 */
 {
 	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
