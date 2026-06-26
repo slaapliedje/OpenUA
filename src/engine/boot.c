@@ -49973,15 +49973,9 @@ static void jt820(long rec_l, long item, short flag)
 		jt876(rec_l, (short)(unsigned char)it[55], 0, 255, 1);
 }
 
-/* L10c4 (CODE 14+0x10c4) — line-of-sight / validity check between
- * an actor and a candidate target. Leaf PROBE stub (allows) pending
- * its own lift. */
-static unsigned char l10c4(long rec, long target, short mode)
-{
-	PROBE("l10c4");
-	(void)rec; (void)target; (void)mode;
-	return 1;
-}
+/* (CODE 14+0x10c4 — the line-of-sight / target-validity check — is lifted as
+ * jt554; the former l10c4 PROBE stub for the same address was removed and its
+ * jt546 callers redirected to jt554.) */
 
 /* JT[546] (CODE 14+0x4186) — pick the next combat target into the
  * actor's sub-record slot +12, full lift over the L10c4 LOS leaf
@@ -50015,7 +50009,7 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode,
 		unsigned char *t = (unsigned char *)(uintptr_t)target;
 
 		if (t[95] == rec[95] || t[382] == 0
-		    || l10c4(rec_l, target, (short)(signed char)b) == 0)
+		    || jt554(rec_l, target, (short)(signed char)b) == 0)
 			*(long *)(sub + 12) = 0;
 	} else {
 		*(long *)(sub + 12) = 0;
@@ -50045,7 +50039,7 @@ static unsigned char jt546(long rec_l, short limit, short a, short mode,
 				if (((a & 0xff) != 0
 				     && ((unsigned char *)(uintptr_t)
 				         g_a5_long(-25318))[8] != 0)
-				    || l10c4(rec_l, target,
+				    || jt554(rec_l, target,
 				             (short)(signed char)b) != 0) {
 					found = 1;
 					*(long *)(sub + 12) = target;

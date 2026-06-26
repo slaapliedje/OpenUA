@@ -153,7 +153,13 @@ Called by the JT entries above; lift alongside their parent. From
 > tiny jt15 percent-roll (CODE 6+0x2f24) as a paired leaf;
 > `jt548` now lifted: the targeting-cursor mover (l6836 cardinal marches +
 > l44b2 diagonal walk) — this is l44b2's sole caller, so l44b2 is no longer
-> parked. CODE 14 is now stub-free; only `l315e` (521 instr) remains missing;
+> parked. CODE 14 is now stub-free; only `l315e` (~570 instr) remains missing;
+> COLLISION FIXED: the `l10c4` PROBE stub was a redundant duplicate of CODE
+> 14+0x10c4, which is faithfully lifted as `jt554` (LOS/target-validity). The
+> stub (always-true) was deleted and jt546's two visibility checks redirected
+> to jt554 — they had been silently passing every LOS test. l315e also calls
+> 0x10c4, so it will use jt554 too. l315e's only still-missing dep is jt172
+> (CODE 7+0x2cf6, ~86 instr).
 > (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660`/`l2e30`/`l37d6`/`l3a4e` now lifted;
 > `l37d6` (CODE 14+0x37d6) = the target-stepping line walker (steps slot cursor
 > -7260, skips unoccupied cells, draws jt501 line origin->stepped);
