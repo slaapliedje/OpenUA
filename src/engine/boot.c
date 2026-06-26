@@ -19433,9 +19433,19 @@ static short l2d3e(void)
 		 * out-of-range sentinel (12) so l0aae returns it and jt918's loop
 		 * (default case) re-renders the chrome + roster with the new
 		 * highlight — repainting inside the modal draws against the wrong
-		 * CLUT/clip and garbles the roster. */
+		 * CLUT/clip and garbles the roster.
+		 *
+		 * CRITICAL: acknowledge the key (clear the -820 pending-key flag
+		 * jt1125 set when it read this arrow) before the short-circuit.
+		 * Normally l2d3e's Phase 5 (l31f0 -> jt1133) consumes a key and
+		 * clears -820; this early return skips Phase 5, so without the
+		 * clear -820 stays set and the NEXT idle poll spuriously runs
+		 * Phase 5 (the Return/accelerator DLItem walk) against the rebuilt
+		 * list with a stale key -> bus error. (Was the "select a character
+		 * then crash" hang/crash in the loaded-party Hall.) */
 		if (g_hall_roster_nav && (kc == 264 || kc == 260)) {
 			l0848(kc == 264 ? (short)135 : (short)133);
+			g_a5_byte(-820) = 0;            /* ack the consumed key */
 			return (short)12;
 		}
 		/* In the walk loop, route movement/control keys to the keyboard
