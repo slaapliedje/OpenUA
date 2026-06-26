@@ -158,8 +158,11 @@ Called by the JT entries above; lift alongside their parent. From
 > 14+0x10c4, which is faithfully lifted as `jt554` (LOS/target-validity). The
 > stub (always-true) was deleted and jt546's two visibility checks redirected
 > to jt554 — they had been silently passing every LOS test. l315e also calls
-> 0x10c4, so it will use jt554 too. l315e's only still-missing dep is jt172
-> (CODE 7+0x2cf6, ~86 instr).
+> 0x10c4, so it will use jt554 too.
+> `jt172` (CODE 7+0x2cf6) now LIFTED toward l315e: the action-bar picker that
+> also installs the shape-5 option buttons (the jt452 DLItem-stream arm jt178/
+> jt182 deferred), replicated as the faithful (long)-vararg stream + jt142 click
+> proc. l315e is now fully unblocked (l2170 was already lifted).
 > (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660`/`l2e30`/`l37d6`/`l3a4e` now lifted;
 > `l37d6` (CODE 14+0x37d6) = the target-stepping line walker (steps slot cursor
 > -7260, skips unoccupied cells, draws jt501 line origin->stepped);
