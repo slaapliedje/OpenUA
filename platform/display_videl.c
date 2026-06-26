@@ -85,6 +85,8 @@ static volatile short g_cur_obscured;        /* hide until the next mouse move  
 static short          g_cur_px = -1, g_cur_py;   /* top-left of the drawn cell  */
 static short          g_cur_drawn;           /* cursor currently on the buffer  */
 static short          g_cur_omx = -32000, g_cur_omy = -32000;  /* obscure ref   */
+static unsigned short g_cur_save[16 * 16];   /* save-under: the displayed-page
+                                              * pixels beneath the cursor cell  */
 static void vbl_cursor_update(short flipped);
 
 /* Called from vbl_trampoline at every vertical blank (supervisor). Latch the
@@ -316,24 +318,58 @@ static void videl_lut_blit(unsigned short *dst, short y0, short y1,
 
 /* --- VBL cursor draw / erase (defined here so videl_lut_blit is in scope) --- */
 
-/* Erase: re-blit the cursor's 16x16 cell from the chunky surface through the
- * LUT, clipped to the screen. The chunky surface is the authoritative frame, so
- * this restores the exact background under where the cursor was. */
-static void cur_erase(unsigned short *scr, short px, short py)
+/* Save-under: stash the displayed-page pixels the cursor cell is about to
+ * cover, so cur_erase can restore the exact background WITHOUT re-reading the
+ * live chunky surface. The chunky surface is mutated by the engine mid-compose
+ * and async to present(), so erasing from it dragged half-drawn frames into the
+ * cursor's wake (the mouse-move "smear"); the displayed page is stable between
+ * flips (present writes a back page, never g_disp), so the saved cell is the
+ * authoritative background. Clipped exactly like cur_draw and keyed off the same
+ * (px,py), so the saved and restored cells line up. */
+static void cur_save(const unsigned short *scr, short px, short py)
 {
-	short x0 = px, y0 = py, x1 = (short)(px + 16), y1 = (short)(py + 16);
-	if (x0 < 0) x0 = 0;
-	if (y0 < 0) y0 = 0;
-	if (x1 > g_surface.width)  x1 = g_surface.width;
-	if (y1 > g_surface.height) y1 = g_surface.height;
-	if (x0 < x1 && y0 < y1)
-		videl_lut_blit(scr, y0, y1, x0, x1);
+	short r, c;
+	for (r = 0; r < 16; r++) {
+		short dy = (short)(py + r);
+		const unsigned short *row;
+		if (dy < 0 || dy >= g_surface.height)
+			continue;
+		row = scr + (long)dy * g_scr_words;
+		for (c = 0; c < 16; c++) {
+			short dx = (short)(px + c);
+			if (dx < 0 || dx >= g_surface.width)
+				continue;
+			g_cur_save[r * 16 + c] = row[dx];
+		}
+	}
 }
 
-/* Draw the 16x16 RGB565 sprite at (px,py), masked + clipped. */
+/* Erase: restore the saved-under cell (see cur_save). */
+static void cur_erase(unsigned short *scr, short px, short py)
+{
+	short r, c;
+	for (r = 0; r < 16; r++) {
+		short dy = (short)(py + r);
+		unsigned short *row;
+		if (dy < 0 || dy >= g_surface.height)
+			continue;
+		row = scr + (long)dy * g_scr_words;
+		for (c = 0; c < 16; c++) {
+			short dx = (short)(px + c);
+			if (dx < 0 || dx >= g_surface.width)
+				continue;
+			row[dx] = g_cur_save[r * 16 + c];
+		}
+	}
+}
+
+/* Draw the 16x16 RGB565 sprite at (px,py), masked + clipped — saving the cell
+ * under it first so cur_erase restores cleanly. */
 static void cur_draw(unsigned short *scr, short px, short py)
 {
 	short r, c;
+
+	cur_save(scr, px, py);
 	for (r = 0; r < 16; r++) {
 		short          dy  = (short)(py + r);
 		unsigned short m   = g_cur_mask[r];
