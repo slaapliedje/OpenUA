@@ -60754,11 +60754,14 @@ static int l1036(short a)
 	PROBE("jt918/case5 L1036");
 	if (g_a5_14435 == 0)
 		return 0;
-	/* Faithful Add is jt904 -> the jt182 Add/Modify/Delete popup (a
-	 * blocking l2d3e pump, only partially lifted); the port screen stands
-	 * in for it, so jt904 isn't called here. It stays the deferred
-	 * remainder. */
-	cg_add_character();                  /* port: pool -> active party */
+	/* Add Character: the faithful saved-pool -> party picker (l12a0 — jt589
+	 * list + the "* %s" markers on members already in the party + the "too
+	 * many rangers"/party-full cap). This was previously (wrongly) wired to the
+	 * View handler; the Mac decouples the menu display order from the case
+	 * dispatch. (#100 menu-dispatch fix. cg_add_character was the old port
+	 * stand-in and is left for fallback.) */
+	l12a0();
+	g_a5_27946 = 0;
 	return 0;
 }
 
@@ -61234,7 +61237,11 @@ static void cg_modify_sheet(void)
 
 /* Add Character — page the benched pool characters with Up/Down; Return
  * brings the highlighted one into the active party (sets CHAR_INPARTY), up
- * to CG_PARTY_MAX slots. Esc backs out. */
+ * to CG_PARTY_MAX slots. Esc backs out.
+ *
+ * Fallback only as of the #100 menu-dispatch fix: l1036 (Add Character) now
+ * calls the faithful l12a0 instead. Kept, marked unused. */
+static void cg_add_character(void) __attribute__((unused));
 static void cg_add_character(void)
 {
 	unsigned char *cand[16];
@@ -61414,8 +61421,12 @@ static int l104c(short a)
 	PROBE("jt918/case6 L104c");
 	if (g_a5_14434 == 0)
 		return 0;
-	l12a0();
-	cg_view_sheet();                     /* port: the read-only sheet */
+	/* View Character: the read-only sheet ONLY. The faithful add (l12a0) used
+	 * to be (wrongly) called here too — the Mac decouples the menu display order
+	 * from the case dispatch, so the "Add Character" work (l12a0) had landed on
+	 * the "View Character" handler. l12a0 now lives in l1036 (Add) where it
+	 * belongs; this handler is pure view. (#100 menu-dispatch fix.) */
+	cg_view_sheet();
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -61770,7 +61781,13 @@ static int jt918(short a)
 			g_a5_14430 = (unsigned char)party; /* Begin Adventuring  */
 			g_a5_14429 = 1;                    /* Load Saved Game    */
 
-			/* View also greys when >5 active members (Mac L0e44). */
+			/* Add Character greys when the party is full (>5 active
+			 * members) — Mac L0e44. This is the "too many rangers / can't
+			 * add a 7th" gate, so it belongs on the displayed "Add
+			 * Character" item (-14435), NOT View. The port had it on
+			 * -14434 (View) because the Mac decouples the menu display
+			 * order from the case dispatch; corrected with the l1036/l104c
+			 * handler routing above. (#100 menu-dispatch fix.) */
 			if (party) {
 				short cnt = 0;
 				const unsigned char *node =
@@ -61782,7 +61799,7 @@ static int jt918(short a)
 					node = *(const unsigned char * const *)node;
 				}
 				if (cnt > 5)
-					g_a5_14434 = 0;
+					g_a5_14435 = 0;
 			}
 		}
 
