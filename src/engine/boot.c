@@ -48874,6 +48874,90 @@ static void l660(long m)
 	}
 }
 
+/* CODE 14+0x2e30 — the per-target combat action picker. Faithful full lift.
+ * Walks the movement allowance from m's cell (jt506, with the field header's +8
+ * temporarily forced to 1) to get the reach cost, halves it into `cost`, and
+ * (when `mode` is set) paints the range readout at row 23 col 7 (jt488 "%s%d "
+ * -> jt94). It then rebuilds the -24126 option list (jt399 clear, jt155 appends
+ * arms 0..5): arms != 3 are always offered; arm 3 (the attack/cast arm) is
+ * offered only when the target is in range (r >= cost), the f6 gate is set, and
+ * the per-mode validity holds — for mode==0 the b/f4/f5 melee-vs-ranged
+ * combination, for mode!=0 the jt499/jt491/jt492/jt504 spell-target chain. If b
+ * is a real target it is marked (l73cc turn marker + -22627 + jt38 refresh).
+ * Finally it runs the jt182 picker over -13884/-13748 and returns the chosen
+ * option index. jt506 writes its reached-tile out-params into the two scratch
+ * byte slots a8/a9 (faithful: the caller passes them by value and never reads
+ * them back). Sole caller L3cac (still unlifted), so marked unused. */
+static short l2e30(long m, long b, short r, short mode, short f4, short f5,
+                   short f6, short a8, short a9) __attribute__((unused));
+static short l2e30(long m, long b, short r, short mode, short f4, short f5,
+                   short f6, short a8, short a9)
+{
+	unsigned char *hdr   = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	unsigned char  saved = hdr[8];
+	unsigned short cost  = 255;
+	unsigned char  tx, ty;            /* jt506 reached-tile out, discarded */
+	unsigned char  count = 0;
+	short          i;
+
+	PROBE("L2e30");
+	(void)a8; (void)a9;
+
+	hdr[8] = 1;
+	jt506((short)(signed char)l6b40(m), (short)(signed char)l6b6a(m),
+	      &tx, &ty, &cost);
+	hdr[8] = saved;
+	cost = (unsigned short)(cost >> 1);
+
+	if ((unsigned char)mode != 0) {
+		const char *s = jt488("%s%d ",
+		                      (const char *)(uintptr_t)g_a5_long(-14092),
+		                      (int)cost);
+		jt94((short)0, (short)23, (short)7, (short)0, s);
+	}
+
+	jt399(g_a5_24126, (short)40, (short)0xFF);
+
+	for (i = 0; i <= 5; i++) {
+		if (i != 3) {
+			jt155(i, &count);
+			continue;
+		}
+		/* arm 3 — the attack / cast arm */
+		if ((unsigned short)(unsigned char)r < cost)
+			continue;
+		if ((unsigned char)f6 == 0)
+			continue;
+		if ((unsigned char)mode == 0) {
+			if (((unsigned char)f5 != 0 && b != 0)
+			    || ((unsigned char)f4 != 0 && b == 0))
+				jt155((short)3, &count);
+		} else {
+			void *outptr;
+			if (m == b)
+				continue;
+			if (jt499((const unsigned char *)(uintptr_t)m) == 0) {
+				jt155((short)3, &count);
+				continue;
+			}
+			if (jt491((void *)(uintptr_t)m, &outptr) == 0)
+				continue;
+			if ((jt492(m, (short)1, (short)0) & 0xff) == 0
+			    || jt504((const unsigned char *)(uintptr_t)m) != 0)
+				jt155((short)3, &count);
+		}
+	}
+
+	if (b != 0) {
+		l73cc(b, (short)3, (short)1);
+		g_a5_byte(-22627) = 1;
+		jt38(b);
+	}
+
+	return jt182((const char *)(uintptr_t)g_a5_long(-13884),
+	             g_a5_long(-13748), (short)1, (short)0);
+}
+
 /* JT[825] (CODE 18 + 0x62c2) — both passes: attack-roll stage -2. */
 static void jt825(long rec_l, long node, short flag) __attribute__((unused));
 static void jt825(long rec_l, long node, short flag)

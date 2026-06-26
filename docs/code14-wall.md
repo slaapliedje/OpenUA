@@ -142,8 +142,11 @@ Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: `l1dd6` `l4dee`  (`l1090` now lifted: kind->attacks-per-round halve)
-> missing: `l2e30` `l315e` `l37d6` `l3a4e`
-> (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660` now lifted;
+> missing: `l315e` `l37d6` `l3a4e`
+> (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660`/`l2e30` now lifted;
+> `l2e30` (CODE 14+0x2e30) = the per-target combat action picker — reach cost
+> (jt506) -> -24126 option list (jt155 arms 0..5, arm 3 conditional) -> jt182
+> picker; 9 args, sole caller L3cac still unlifted;
 > `l660` (CODE 14+0x0660, not 0x660) = the attacks-of-opportunity free-swing
 > pass over m's reach list (jt492 -> -22720) firing jt550+jt555 per pending
 > reactor, parked unused until its sole caller L0984 lifts;
