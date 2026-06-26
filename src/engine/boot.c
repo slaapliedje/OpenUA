@@ -16596,29 +16596,19 @@ void port_test_seed_design(void)
 		dbg_log(dst);
 	}
 
-	static unsigned char k_test_record[512];
-	long handle_placeholder = 0xDEADBEEFL;
-
-	memset(k_test_record, 0, sizeof k_test_record);
-	*(long  *)(k_test_record +   8) = handle_placeholder;
-	*(short *)(k_test_record +  76) = (short)1;
-	k_test_record[ 89] = 3;
-	k_test_record[ 94] = 0;
-	k_test_record[128] = 1;
-	k_test_record[147] = 0;          /* skip special-check arm */
-	k_test_record[198] = 1;
-
-	/* Point the active-character slot at the REAL party head once a party is
-	 * loaded (dungeon / camp / Begin-Adventuring) so jt904's character sheet
-	 * shows real stats from the design instead of the synthesized zero-stat
-	 * record; fall back to the synthesized record only during early bring-up
-	 * before any party exists. -13804 (the jt182 roster-menu block) is left at
-	 * its real data-pool DREL value (data_pool.c:2419) — the Mac never writes
-	 * it, and the old `k_test_prompt` clobber fed jt904 a placeholder menu. */
-	if (g_a5_long(-27928) != 0)
-		g_a5_long(-27932) = g_a5_long(-27928);
-	else
-		g_a5_long(-27932) = (long)(uintptr_t)k_test_record;
+	/* Point the active-character slot at the party head, or leave it NULL when
+	 * there is no party — the faithful Mac value (l5124 zeroes -27932 when no
+	 * game is loaded). Both cases collapse to `-27932 = -27928`.
+	 *
+	 * FAITHFUL play-entry (#100): the old code fell back to a synthesized
+	 * k_test_record (non-NULL) so jt904's sheet had something to show during
+	 * bring-up. But a NON-NULL -27932 with no real party trips the "Game not
+	 * saved. Load anyway?" confirm in jt918 case 8 (l10ca gates it on -27932 !=
+	 * 0), so "Load Saved Game" pops the wrong dialog instead of going straight
+	 * to the A-J slot picker (jt582). With the empty-party boot the selection
+	 * must be NULL until a save loads; cg_view_sheet (via cg_collect_party) and
+	 * the faithful Hall handlers all NULL-guard it. */
+	g_a5_long(-27932) = g_a5_long(-27928);
 
 	/* Entry level + start entry from the design's GAME header. GAME001.DAT
 	 * byte 48 = the start LEVEL (HEIRS = 5, TUTORIAL = 1), byte 49 = the
