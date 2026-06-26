@@ -5804,9 +5804,28 @@ static void jt94(short page, short row, short col, short style,
 static void jt25(long entry, short page, short row, short style)
 {
 	const unsigned char *e = (const unsigned char *)(uintptr_t)entry;
+	short colour;
+
 	PROBE("jt25");
-	if (e != NULL)
-		jt94(page, row, (short)11, style, "%s", (const char *)&e[96]);
+	if (e == NULL)
+		return;
+
+	/* Faithful colour pick (Mac L2456): the name is normally light GREY (7);
+	 * dead members go colour 0 (or 7 in render mode 3), a summoned creature in
+	 * combat (rec[95]==1 && play-state -27990==5) goes 2, and a mid-operation
+	 * status (rec[197]!=0) goes 13. The port had hardcoded 11 (the light-blue
+	 * the l02dc roster uses for the *selected* row), so EVERY roster name drew
+	 * blue and the selection was invisible. */
+	if (e[382] == 0)
+		colour = (jt1200() == 3) ? (short)7 : (short)0;
+	else if (e[95] == 1 && (unsigned char)g_a5_27990 == 5)
+		colour = 2;
+	else if (e[197] != 0)
+		colour = 13;
+	else
+		colour = 7;
+
+	jt94(page, row, colour, style, "%s", (const char *)&e[96]);
 }
 /* JT[478] (CODE 3+0x6) — sprintf("%d") of a word into the caller buffer. */
 static void jt478(short value, char *buf)
