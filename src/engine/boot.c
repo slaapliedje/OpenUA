@@ -48780,6 +48780,60 @@ static void jt555(long rec_l, long ent_l, short a, long b, void *out)
 	}
 }
 
+/* CODE 14+0x302c — single-target attack/effect setup + dispatch. Faithful full
+ * lift. *out_flag starts set; when mode==1 the weapon/target validity gate
+ * (jt533, may pop the friendly-fire confirm) can clear it. If cleared, jt399
+ * wipes the 10-byte target spec and we bail. Otherwise the spec is seeded —
+ * target node @0, the l6b40/l6b6a range bands @4/@6 — and the targeting cursor
+ * is drawn on the combat-map header (g_a5_-25318) via l6836. For mode==1 it then
+ * records the strike bearing (jt550) and resolves the projectile cell through
+ * the jt499/jt491/jt504/jt494 chain (jt491 fills the cell, forced empty only
+ * when every gate passes), then runs the strike via jt555. Called from the
+ * CODE-14 targeting dispatchers (0x3e54/0x3f0e/0x40b8), still unlifted. */
+static void l302c(long m, long target, short mode, unsigned char *out_flag,
+                  void *out_spec) __attribute__((unused));
+static void l302c(long m, long target, short mode, unsigned char *out_flag,
+                  void *out_spec)
+{
+	void *result = NULL;
+
+	PROBE("l302c");
+
+	*out_flag = 1;
+	if ((unsigned char)mode == 1 && jt533(m, target) == 0)
+		*out_flag = 0;
+
+	if (*out_flag == 0) {
+		jt399(out_spec, (short)10, (short)0);
+		return;
+	}
+
+	{
+		unsigned char *spec = (unsigned char *)out_spec;
+		unsigned char *gd   = (unsigned char *)(uintptr_t)
+		                      g_a5_long(-25318);
+
+		*(long *)spec        = target;
+		*(short *)(spec + 4) = l6b40(target);
+		*(short *)(spec + 6) = l6b6a(target);
+
+		gd[6] = 0;
+		l6836((short)(*(short *)(gd + 2) + 3),
+		      (short)(*(short *)(gd + 4) + 3),
+		      (short)3, (short)8);
+	}
+
+	if ((unsigned char)mode == 1) {
+		jt550(m, target);
+		if (jt499((const unsigned char *)(uintptr_t)m) != 0
+		    && jt491((void *)(uintptr_t)m, &result) != 0
+		    && jt504((const unsigned char *)(uintptr_t)m) != 0
+		    && (jt494(m, target) & 0xff) == 1)
+			result = NULL;
+		jt555(m, target, (short)0, (long)(uintptr_t)result, out_flag);
+	}
+}
+
 /* JT[825] (CODE 18 + 0x62c2) — both passes: attack-roll stage -2. */
 static void jt825(long rec_l, long node, short flag) __attribute__((unused));
 static void jt825(long rec_l, long node, short flag)
