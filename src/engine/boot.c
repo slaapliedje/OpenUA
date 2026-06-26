@@ -51433,7 +51433,103 @@ static short l217e(void)                             { PROBE("L217e");
 static void  l2170(short arg)                        { PROBE("L2170");
                                                        g_a5_13016 = arg; }
 static signed char l15bc(void)                       { PROBE("L15bc"); return 0; }
-static void  jt548(short d, short a, short b)        { PROBE("jt548"); (void)d; (void)a; (void)b; }
+/* JT[548] (CODE 14+0x44f0) — the combat targeting-cursor mover, called from
+ * the CODE-7 "cast on whom" list dialog (mode-5 paginated cancel). Faithful
+ * full lift. The cursor (-7230/-7228 = screen X/Y) tracks a logical position
+ * (relx/rely) relative to the -25318 field header's scroll offset. A JT[3]
+ * switch on `d` selects the move: cases 1-4 march the cursor that many cells in
+ * a fixed cardinal direction (6/0/2/4), drawing the marker each step (l6836);
+ * case 5 walks one cell at a time toward (a,b), choosing an 8-way step each
+ * iteration and drawing the trail via l44b2 until it arrives. An early exit
+ * (d==5 already on target) just sets -7225. The cursor is finally clamped to the
+ * 50x25 map and -7226 is flagged. */
+static void jt548(short d, short a, short b)
+{
+	unsigned char *hdr  = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short          rely = (short)(g_a5_word(-7228) - *(short *)(hdr + 4));
+	short          relx = (short)(g_a5_word(-7230) - *(short *)(hdr + 2));
+	short          i;
+
+	PROBE("jt548");
+
+	if (d == 5 && a == rely && b == relx) {
+		g_a5_byte(-7225) = 1;
+		return;
+	}
+
+	switch (d) {
+	case 1:
+		for (i = relx; i >= 0; i--) {
+			l6836((short)g_a5_word(-7230), (short)g_a5_word(-7228),
+			      (short)3, (short)6);
+			g_a5_word(-7230) = (short)(g_a5_word(-7230)
+			    + (signed char)g_a5_byte(-27856));
+			g_a5_word(-7228) = (short)(g_a5_word(-7228)
+			    + (signed char)g_a5_byte(-27847));
+		}
+		break;
+	case 2:
+		for (i = rely; i >= 0; i--) {
+			l6836((short)g_a5_word(-7230), (short)g_a5_word(-7228),
+			      (short)3, (short)0);
+			g_a5_word(-7230) = (short)(g_a5_word(-7230)
+			    + (signed char)g_a5_byte(-27862));
+			g_a5_word(-7228) = (short)(g_a5_word(-7228)
+			    + (signed char)g_a5_byte(-27853));
+		}
+		break;
+	case 3:
+		for (i = relx; i <= b; i++) {
+			l6836((short)g_a5_word(-7230), (short)g_a5_word(-7228),
+			      (short)3, (short)2);
+			g_a5_word(-7230) = (short)(g_a5_word(-7230)
+			    + (signed char)g_a5_byte(-27860));
+			g_a5_word(-7228) = (short)(g_a5_word(-7228)
+			    + (signed char)g_a5_byte(-27851));
+		}
+		break;
+	case 4:
+		for (i = rely; i <= a; i++) {
+			l6836((short)g_a5_word(-7230), (short)g_a5_word(-7228),
+			      (short)3, (short)4);
+			g_a5_word(-7230) = (short)(g_a5_word(-7230)
+			    + (signed char)g_a5_byte(-27858));
+			g_a5_word(-7228) = (short)(g_a5_word(-7228)
+			    + (signed char)g_a5_byte(-27849));
+		}
+		break;
+	case 5:
+		while (!(a == rely && b == relx)) {
+			short dir;
+
+			if (relx < b) {
+				relx++;
+				if (rely < a)      { rely++; dir = 3; }
+				else if (rely > a) { rely--; dir = 1; }
+				else               { dir = 2; }
+			} else if (relx > b) {
+				relx--;
+				if (rely < a)      { rely++; dir = 5; }
+				else if (rely > a) { rely--; dir = 7; }
+				else               { dir = 6; }
+			} else {                       /* relx == b */
+				if (rely < a)      { rely++; dir = 4; }
+				else if (rely > a) { rely--; dir = 0; }
+				else               { dir = 0; }
+			}
+			l44b2(dir);
+		}
+		break;
+	default:
+		break;
+	}
+
+	if (g_a5_word(-7230) < 0)  g_a5_word(-7230) = 0;
+	if (g_a5_word(-7228) < 0)  g_a5_word(-7228) = 0;
+	if (g_a5_word(-7230) > 49) g_a5_word(-7230) = 49;
+	if (g_a5_word(-7228) > 24) g_a5_word(-7228) = 24;
+	g_a5_byte(-7226) = 1;
+}
 static void  jt559(short a)                          { PROBE("jt559"); g_a5_byte(-6927) = (unsigned char)a; }   /* CODE 17+0x4df0 */
 
 #define g_a5_13006 g_a5_byte(-13006)   /* "use cached result" flag (L25b6 early-out) */

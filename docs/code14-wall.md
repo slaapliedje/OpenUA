@@ -110,7 +110,7 @@ with the CODE 13 caller that needs it.
 | jt547 | 0x2744 | 2 | — | spell-validity gate (`"Camp Only Spell"`, jt595/jt496 spell tables, jt52) |
 | jt550 | 0x1956 | 2 | — | target dedup (`"Already been targeted"`, jt600 range, jt508 area, jt30) |
 | jt552 | 0x4c90 | 1 | ✅ LIFTED | spell range/target resolver: single-target (spec[6]==0) -> l476e_c14(caster); else seed the burst (l6b40/l6b6a range l6b94 -> jt508) and walk the -19170/-25676 entity list for the first valid l476e_c14 target. Lifted with its deps l476e_c14 (the 396-instr 29-case JT[1] per-spell validity+save-band matrix, named _c14 vs the unrelated l476e) + l6b94 |
-| jt548 | 0x44f0 | 1 | stub | list-dialog targeting helper (jt41/jt3/jt1 + jt492) — called from CODE 7 "cast on whom" |
+| jt548 | 0x44f0 | 1 | ✅ LIFTED | combat targeting-cursor mover (JT[3] switch d: cases 1-4 march cardinal via l6836, case 5 walks toward (a,b) via l44b2); the marker tracks relx/rely vs the -25318 scroll, clamps to 50x25. This is l44b2's caller |
 | jt541 | 0x0006 | 1 | stub | per-member per-round prep (code16-wall §1) |
 | jt536 | 0x2cb2 | 2 | — | small targeting helper (leaf) |
 | jt522 | 0x7488 | 2 | stub | targeting/field leaf |
@@ -151,6 +151,9 @@ Called by the JT entries above; lift alongside their parent. From
 > (paint l476e_c14 weights over the -7224 wedge footprint per affected member,
 > then pick the best jt506-reachable cell with a jt15 tie-break); pulled in the
 > tiny jt15 percent-roll (CODE 6+0x2f24) as a paired leaf;
+> `jt548` now lifted: the targeting-cursor mover (l6836 cardinal marches +
+> l44b2 diagonal walk) — this is l44b2's sole caller, so l44b2 is no longer
+> parked. CODE 14 is now stub-free; only `l315e` (521 instr) remains missing;
 > (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660`/`l2e30`/`l37d6`/`l3a4e` now lifted;
 > `l37d6` (CODE 14+0x37d6) = the target-stepping line walker (steps slot cursor
 > -7260, skips unoccupied cells, draws jt501 line origin->stepped);
