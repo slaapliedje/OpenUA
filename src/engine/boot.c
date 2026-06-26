@@ -2284,7 +2284,6 @@ static int           jt574(long ctx);                                           
 static int           cg_char_sheet(unsigned char *rec);                          /* L29ae/L2da6 char-sheet review loop (defined below) */
 /* Port character-management screens (defined further down, used by the
  * jt918 case handlers above their definitions). */
-static void          cg_view_sheet(void);
 static void          cg_modify_sheet(void) __attribute__((unused)); /* superseded by l618c */
 static void          cg_add_character(void);
 static void          cg_remove_from_party(void);
@@ -16625,8 +16624,8 @@ void port_test_seed_design(void)
 	 * saved. Load anyway?" confirm in jt918 case 8 (l10ca gates it on -27932 !=
 	 * 0), so "Load Saved Game" pops the wrong dialog instead of going straight
 	 * to the A-J slot picker (jt582). With the empty-party boot the selection
-	 * must be NULL until a save loads; cg_view_sheet (via cg_collect_party) and
-	 * the faithful Hall handlers all NULL-guard it. */
+	 * must be NULL until a save loads; jt904 (View) and the faithful Hall
+	 * handlers all NULL-guard it. */
 	g_a5_long(-27932) = g_a5_long(-27928);
 
 	/* Entry level + start entry from the design's GAME header. GAME001.DAT
@@ -61117,42 +61116,8 @@ static void cg_draw_sheet(const unsigned char *c, const char *footer)
 	qd_present();
 }
 
-/* View Character — read-only sheet; Up/Down page the party, Esc/Return
- * back out to the Training Hall. */
-static void cg_view_sheet(void)
-{
-	unsigned char *party[16];
-	short          nparty, sel = 0;
-	unsigned char  scan = 0, ascii = 0;
-
-	nparty = cg_collect_party(party, 16);
-	if (nparty == 0)
-		return;
-
-	g_a5_2347 = 1;                       /* ×2 scale, matching the roster */
-	load_menu_ui();
-	while (plat_kb_poll(&scan, &ascii))  /* drain the triggering key */
-		;
-
-	for (;;) {
-		char foot[64];
-		if (nparty > 1)
-			sprintf(foot, "%d of %d   Up/Down: next   Esc: back",
-			        (int)(sel + 1), (int)nparty);
-		else
-			sprintf(foot, "Esc: back");
-		cg_draw_sheet(party[sel], foot);
-
-		while (!plat_kb_poll(&scan, &ascii))
-			;
-		if (ascii == 27 || ascii == 13 || ascii == 3)
-			break;                       /* Esc / Return -> back */
-		if (scan == 0x48)                    /* Up   */
-			sel = (short)((sel + nparty - 1) % nparty);
-		else if (scan == 0x50)               /* Down */
-			sel = (short)((sel + 1) % nparty);
-	}
-}
+/* (View Character now runs the faithful jt904 record-sheet viewer from the
+ * Hall's case-6 handler l104c — the old cg_view_sheet stand-in was removed.) */
 
 /* Inline name editor for Modify — types into the record's name (+96)
  * live (the gold sheet name updates as you go); Return commits + persists,
@@ -61429,23 +61394,25 @@ void port_begin_adventure(void)
 
 /* L104c — case 6 (View Character). CODE 12 + 0x104c.
  *
- *   tstb a5@(-14434); beqw L1242
- *   jsr  L12a0
- *   clrb a5@(-27946)
- *   braw L1242
- */
+ * The port dispatches the Hall menu by VISUAL LABEL: build-index 6 is the
+ * "View Character" button. On the Mac the menu's View item carries the
+ * selector that lands on case 5 (L1036 -> JT[904]); the Mac's own case-6
+ * body (L12a0) is the *Add* screen. The port keeps Add in l1036 (case 5)
+ * and View here, so the faithful View action is JT[904] — the read-only
+ * record-sheet viewer that opens on the SELECTED member (-27932) and lets
+ * you page through the party. The old cg_view_sheet() stand-in ignored the
+ * selection (always showed the party head) and drew a mock screen; replaced
+ * with the lifted jt904 driver (the same one jt948 runs for the in-dungeon
+ * "V" command). (#100 menu-dispatch fix.) */
 static int l104c(short a)
 {
+	unsigned char done = 0;
+
 	(void)a;
 	PROBE("jt918/case6 L104c");
 	if (g_a5_14434 == 0)
 		return 0;
-	/* View Character: the read-only sheet ONLY. The faithful add (l12a0) used
-	 * to be (wrongly) called here too — the Mac decouples the menu display order
-	 * from the case dispatch, so the "Add Character" work (l12a0) had landed on
-	 * the "View Character" handler. l12a0 now lives in l1036 (Add) where it
-	 * belongs; this handler is pure view. (#100 menu-dispatch fix.) */
-	cg_view_sheet();
+	jt904(&done);
 	g_a5_27946 = 0;
 	return 0;
 }
