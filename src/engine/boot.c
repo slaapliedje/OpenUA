@@ -31968,19 +31968,62 @@ static void jt539(long actor_l, short range, short zero, short areaflag,
 	*res = 0;
 }
 
-/* CODE 14 + 0x1dd6 (local, ~292 B) — pick the next target from the
- * already-built area list (repeat picks, cnt != 0, no area re-aim).
- * PROBE stub pending its own lift; returns 0 = no pick. */
-static unsigned char l1dd6(struct ua_pick10 *buf, short *a, short *b,
-                           char *code_p, unsigned char *c)
+/* Forward decls — l1dd6's combat helpers are all defined later in the file. */
+static unsigned char jt546(long rec_l, short limit, short a, short mode,
+                           short b);
+static signed char   l476e_c14(long actor_l, short spell, short side);
+static unsigned char l2406(long m);
+static short         l6b40(long m);
+static short         l6b6a(long m);
+
+/* CODE 14 + 0x1dd6 (local, ~292 B) — the repeat-pick from the already-built
+ * target list (cnt != 0, no area re-aim). Faithful full lift. jt546 advances
+ * -27932 to the next reachable target at the spell's jt600 range; on a hit it
+ * reads that actor's bound target (mc[12]) into *target, derives the side byte
+ * (*side = the actor's own group [95] when the spell's -16906 row field 14 is
+ * 0, else l2406's resolved group), validates the spell against the target via
+ * l476e_c14 (>0 = valid) into *valid, and on success fills the pick struct
+ * (buf->rec + l6b40/l6b6a cell coords) and returns 1. Any gate failing returns
+ * 0 with the descriptor left for the caller to zero. */
+static unsigned char l1dd6(struct ua_pick10 *buf, unsigned char *side,
+                           long *target, char *code_p, unsigned char *valid)
 {
+	unsigned char *actor, *mc;
+	unsigned char  result = 0;
+	unsigned char  flag;
+
 	PROBE("L1dd6");
-	(void)buf;
-	(void)a;
-	(void)b;
-	(void)code_p;
-	(void)c;
-	return 0;
+
+	*valid = 1;
+	flag = (g_a5_buf(-16906)[(long)(unsigned char)*code_p * 16 + 14] == 0)
+	       ? 1 : 0;
+
+	if (jt546(g_a5_long(-27932),
+	          (short)(jt600((short)(unsigned char)*code_p) & 0xff),
+	          (short)0, (short)1, (short)flag) == 0)
+		return result;
+
+	actor = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	*target = *(long *)(uintptr_t)(mc + 12);
+
+	if (flag != 0)
+		*side = actor[95];
+	else
+		*side = (unsigned char)l2406(g_a5_long(-27932));
+
+	*valid = (l476e_c14(*target, (short)(unsigned char)*code_p,
+	                    (short)(signed char)*side) > 0) ? 1 : 0;
+	if (*valid == 0)
+		return result;
+
+	actor = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	buf->rec = *(long *)(uintptr_t)(mc + 12);
+	buf->x = l6b40(buf->rec);
+	buf->y = l6b6a(buf->rec);
+	result = 1;
+	return result;
 }
 
 /* CODE 14 + 0x4dee (local) — repeat-pick for the area modes that
@@ -32023,8 +32066,8 @@ static unsigned char l1efa(short code, short cnt, short areaflag,
 	} else if ((unsigned char)areaflag == 0
 	           || g_a5_buf(-16906)[(long)(unsigned char)code * 16 + 6]
 	              == 8) {
-		short s1, s2;
-		unsigned char c1;
+		unsigned char s1, c1;
+		long s2;
 		char codeb = (char)code;
 
 		res = l1dd6(buf, &s1, &s2, &codeb, &c1);

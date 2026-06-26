@@ -141,8 +141,12 @@ jt873/jt868/jt865) are lifted. **Damage now COMPUTES (l022c) + APPLIES + resolve
 Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
-> stubs: `l1dd6` `l4dee`  (`l1090` now lifted: kind->attacks-per-round halve)
+> stubs: `l4dee`  (`l1090` now lifted: kind->attacks-per-round halve)
 > missing: `l315e`
+> (`l1dd6` now lifted: the repeat-pick from the built target list — jt546 next
+> target -> l476e_c14 validity -> fill the pick struct; its caller l1efa's
+> scratch locals were retyped (side=uchar, target=long) to match the real
+> out-param widths the stub had been hiding;
 > (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660`/`l2e30`/`l37d6`/`l3a4e` now lifted;
 > `l37d6` (CODE 14+0x37d6) = the target-stepping line walker (steps slot cursor
 > -7260, skips unoccupied cells, draws jt501 line origin->stepped);
