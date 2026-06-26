@@ -51427,6 +51427,57 @@ static short l217e(void)                             { PROBE("L217e");
 static void  l2170(short arg)                        { PROBE("L2170");
                                                        g_a5_13016 = arg; }
 static signed char l15bc(void)                       { PROBE("L15bc"); return 0; }
+
+/* Forward decl — jt142 (the option-button click proc) is defined later. */
+static void jt142(short y, short x);
+
+/* JT[172] (CODE 7+0x2cf6) — the action-bar picker variant that also installs
+ * the on-screen option buttons. Faithful full lift. Like jt182/jt178 it lays
+ * out the prompt + space-separated option list (l206e) and records the option
+ * count (l2170 -> -13016) for the pager, then runs the modal (l23b4) and returns
+ * the picked index (l25b6). The extra arm jt178/jt182 deferred: when the
+ * shape-button flag -12911 is set, install the beveled shape-5 option buttons
+ * via jt452's DLItem command stream (four buttons, then a fifth), each wired to
+ * the jt142 click proc. Replicated as the faithful (long)-vararg stream in the
+ * Mac's read order. Called from l315e's combat list dialog. */
+static short jt172(const char *p1, long p2, short arg3, short arg4)
+                                                __attribute__((unused));
+static short jt172(const char *p1, long p2, short arg3, short arg4)
+{
+	unsigned char buf[80];
+	unsigned char arg3_lo = (unsigned char)(arg3 & 0xff);
+
+	PROBE("jt172");
+
+	l2170(l206e(p2, buf, p1, &arg3_lo));
+
+	if (g_a5_byte(-12911) != 0) {
+		jt452((long)5, (long)8004, (long)8000, (long)84, (long)4,
+		          (long)41, (long)9,  (long)20, (long)34,
+		          (long)(uintptr_t)&jt142,
+		      (long)5, (long)8000, (long)8004, (long)4, (long)84,
+		          (long)41, (long)11, (long)20, (long)34,
+		          (long)(uintptr_t)&jt142,
+		      (long)5, (long)8004, (long)8088, (long)84, (long)8,
+		          (long)41, (long)5,  (long)20, (long)34,
+		          (long)(uintptr_t)&jt142,
+		      (long)5, (long)8088, (long)8004, (long)12, (long)84,
+		          (long)41, (long)7,  (long)20, (long)34,
+		          (long)(uintptr_t)&jt142,
+		      (long)0);
+	}
+	if (g_a5_byte(-12911) != 0) {
+		jt452((long)5, (long)8004, (long)8004, (long)84, (long)84,
+		          (long)41, (long)24, (long)20, (long)34,
+		          (long)(uintptr_t)&jt142,
+		      (long)0);
+	}
+
+	{
+		short ret = l23b4((short)(signed char)(arg4 & 0xff));
+		return l25b6(ret, buf, &g_a5_24139);
+	}
+}
 /* JT[548] (CODE 14+0x44f0) — the combat targeting-cursor mover, called from
  * the CODE-7 "cast on whom" list dialog (mode-5 paginated cancel). Faithful
  * full lift. The cursor (-7230/-7228 = screen X/Y) tracks a logical position
