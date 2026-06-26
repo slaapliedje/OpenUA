@@ -32031,12 +32031,190 @@ static unsigned char l1dd6(struct ua_pick10 *buf, unsigned char *side,
  * jt508 area scan around the spell's special-case rules (codes 87 / 51
  * / 115 / 47 vs the -28006 flags, like jt538's cases 8-14).  PROBE
  * stub pending its own lift; returns 0 = no pick. */
+/* JT[15] (CODE 6+0x2f24) — a percent-chance roll: true when a fresh 0..99
+ * random (jt485) lands below `pct`. */
+static unsigned char jt15(short pct)
+{
+	PROBE("jt15");
+	return (unsigned char)((jt485((short)100)
+	                        < (short)(unsigned char)pct) ? 1 : 0);
+}
+
+/* CODE 14 + 0x4dee (local, ~1.9 KB) — the area-spell repeat-pick (cnt != 0,
+ * areaflag set, targeting-mode byte6 != 8). Faithful full lift. Two phases over
+ * the -22306 heatmap grid (37x37 words, 74-byte rows, centered +18 on the spell
+ * origin):
+ *   Phase 1 — for every party (-27928) member inside the spell's bounding box,
+ *     paint that member's l476e_c14 weight into each grid cell of the member's
+ *     footprint. The footprint per row comes from the -7224 wedge table (radius
+ *     `pre`); codes 34/101 (lines/rays) use a half-footprint, others a full disc.
+ *   Phase 2 — scan the grid around the spell origin for the best-scoring cell
+ *     (ties broken by a jt15(25) coin-flip), keeping only on-map cells (jt506
+ *     reachable). The winning cell is returned in buf (x/y), or 0 = no pick.
+ * `pre`/range derive from jt600 + the -16906 row, with the 87/51/47/115 special
+ * cases against the -28006 design flags (mirrors jt538). Sole caller l1efa. */
 static unsigned char l4dee(short code, struct ua_pick10 *buf)
 {
+	unsigned char *gridbase;
+	long           member;
+	short          pre, rangeHi, rangeLo, originX, originY;
+	short          bestDx = 0, bestDy = 0, best;
+	short          casterX, casterY, mx, my;
+	short          rowStart, rowEnd, colStart, colEnd, row, col, dx, dy;
+	short          weight, range2;
+	signed char    side;
+	signed char    boxXmin, boxYmin, boxXmax, boxYmax;  /* outer box */
+	signed char    inXmin, inYmin, inXmax, inYmax;      /* inner box */
+	unsigned char  result = 0;
+	unsigned char  isLine;
+
 	PROBE("L4dee");
-	(void)code;
-	(void)buf;
-	return 0;
+
+	gridbase = (unsigned char *)(uintptr_t)g_a5_long(-22306);
+	isLine = ((unsigned char)code == 34 || (unsigned char)code == 101)
+	         ? 1 : 0;
+
+	/* side = the caster's group */
+	if (g_a5_buf(-16906)[(long)(unsigned char)code * 16 + 14] == 0)
+		side = (signed char)((unsigned char *)(uintptr_t)
+		            g_a5_long(-27932))[95];
+	else
+		side = (signed char)l2406(g_a5_long(-27932));
+
+	/* pre — the special-case range offset (mirrors jt538 cases 8..14) */
+	if ((unsigned char)code == 87
+	    && ((unsigned char *)(uintptr_t)g_a5_long(-28006))[60] != 0)
+		pre = 3;
+	else if ((unsigned char)code == 51
+	         && ((unsigned char *)(uintptr_t)g_a5_long(-28006))[60] != 0)
+		pre = 2;
+	else
+		pre = (short)g_a5_buf(-16906)[(long)(unsigned char)code * 16 + 6]
+		      - 8;
+	if (((unsigned char)code == 47 || (unsigned char)code == 115)
+	    && ((unsigned char *)(uintptr_t)g_a5_long(-28006))[34] == 0)
+		pre = (short)(pre - 1);
+
+	member = 0;
+	rangeHi = (short)((jt600(code) & 0xff) + pre);
+	if (rangeHi > 18) {
+		rangeHi = 18;
+		member = *(long *)(uintptr_t)
+		         (*(unsigned char **)(void *)
+		          ((unsigned char *)(uintptr_t)g_a5_long(-27932) + 64)
+		          + 12);
+	}
+	rangeLo = (short)(rangeHi - pre);
+	if (member == 0)
+		member = g_a5_long(-27932);
+
+	/* ---------- Phase 1: paint the spell weight into the grid ---------- */
+	originX = l6b40(member);
+	originY = l6b6a(member);
+
+	boxXmin = (signed char)(originX - (isLine ? rangeLo : rangeHi));
+	boxYmin = (signed char)(originY - (isLine ? rangeLo : rangeHi));
+	inXmin  = (signed char)(originX - rangeLo);
+	inYmin  = (signed char)(originY - rangeLo);
+	boxXmax = (signed char)(originX + rangeHi);
+	boxYmax = (signed char)(originY + rangeHi);
+	inXmax  = (signed char)(originX + rangeLo);
+	inYmax  = (signed char)(originY + rangeLo);
+
+	jt65(g_a5_long(-22306), (short)2738);
+
+	for (member = g_a5_long(-27928); member != 0;
+	     member = *(long *)(uintptr_t)member) {
+		mx = (unsigned char)l6b40(member);
+		my = (unsigned char)l6b6a(member);
+		if (((unsigned char *)(uintptr_t)member)[382] == 0)
+			continue;
+		if ((signed char)mx < boxXmin || (signed char)mx > boxXmax)
+			continue;
+		if ((signed char)my < boxYmin || (signed char)my > boxYmax)
+			continue;
+
+		weight = l476e_c14(member, code, (short)side);
+
+		rowStart = (short)-pre;
+		rowEnd   = isLine ? (short)0 : pre;
+		if ((short)((signed char)my + rowStart) < (short)inYmin)
+			rowStart = (short)(inYmin - (signed char)my);
+		if ((short)((signed char)my + rowEnd) > (short)inYmax)
+			rowEnd = (short)(inYmax - (signed char)my);
+
+		for (row = rowStart; row <= rowEnd; row++) {
+			short wedge = *(short *)(g_a5_buf(-7224)
+			              + ((row + 3) * 6) + ((pre - 1) * 2));
+
+			colStart = (short)((signed char)mx - wedge);
+			colEnd   = isLine ? (short)(signed char)mx
+			                  : (short)((signed char)mx + wedge);
+			if ((short)inXmin > colStart)
+				colStart = (short)inXmin;
+			if ((short)inXmax < colEnd)
+				colEnd = (short)inXmax;
+
+			for (col = colStart; col <= colEnd; col++) {
+				short *cell = (short *)(gridbase
+				    + (long)(col - originX + 18) * 74
+				    + (long)((signed char)my + row
+				             - originY + 18) * 2);
+				*cell = (short)(*cell + weight);
+			}
+		}
+	}
+
+	/* ---------- Phase 2: pick the best-scoring reachable cell ---------- */
+	casterX = l6b40(g_a5_long(-27932));
+	casterY = l6b6a(g_a5_long(-27932));
+	best = 0;
+
+	for (dx = (short)-rangeLo; dx <= rangeLo; dx++) {
+		for (dy = (short)-rangeLo; dy <= rangeLo; dy++) {
+			short *cell = (short *)(gridbase
+			    + (long)(dx + 18) * 74 + (long)(dy + 18) * 2);
+
+			weight = *cell;
+			if (weight > best
+			    || (weight == best && weight > 0
+			        && jt15((short)25) != 0)) {
+				if (originX + dx < 0 || originX + dx > 49)
+					continue;
+				if (originY + dy < 0 || originY + dy >= 24)
+					continue;
+
+				mx = (unsigned char)casterX;
+				my = (unsigned char)casterY;
+				range2 = (short)(jt600(code) & 0xff);
+				{
+					unsigned char  tx = (unsigned char)mx;
+					unsigned char  ty = (unsigned char)my;
+					unsigned short cost =
+					    (unsigned short)range2;
+
+					if (jt506((short)(originX + dx),
+					          (short)(originY + dy),
+					          &tx, &ty, &cost) != 0) {
+						bestDx = dx;
+						bestDy = dy;
+						best = weight;
+					}
+				}
+			}
+		}
+	}
+
+	buf->rec = 0;
+	if (best > 0) {
+		result = 1;
+		buf->x = (short)(bestDx + originX);
+		buf->y = (short)(bestDy + originY);
+	} else {
+		result = 0;
+		buf->rec = 0;
+	}
+	return result;
 }
 
 /* CODE 14 + 0x1efa (local) — one target pick for jt538.  First pick
