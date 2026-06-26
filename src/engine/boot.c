@@ -42863,12 +42863,11 @@ static unsigned char jt554(long m, long target, short f)
 }
 /* Forward decl — jt550 (the companion strike helper) is defined just below. */
 static void          jt550(long m, long target);
-/* CODE 14 reach-target counter, still to be lifted (a 0 count keeps jt549 from
- * sweeping until it lands). */
 /* CODE 14+0x5c32 — the reach-target counter that drives jt549's sweep loop.
  * Faithful full lift (a near-twin of l2484). Builds the -19170 reach list around
- * the actor's screen cell (jt508 over jt525/jt531, the arg-f feature id, range
- * 255, jt513 reach), filters it to the actor's own side via l2406 (same summon
+ * the actor's screen cell (jt508 over jt525/jt531 — the jt5xx aliases of the
+ * 0x6b40/0x6b6a cell helpers l6b40/l6b6a — the arg-f feature id, range 255,
+ * jt513 reach = l6b94), filters it to the actor's own side via l2406 (same summon
  * class as "not summoned"), compacting survivors with jt479 and caching the
  * count in -18894, then copies the surviving slot ids into the 1-based -22720
  * array and returns the count. All deps already lifted. */
@@ -42916,8 +42915,8 @@ static unsigned char l5c32(long m, short f)
  * exceed the attacks already made, clamps it to mc[7], announces "sweeps"
  * (jt18), rotates the primary slot (-22719 via l6bbe), and applies jt550 + the
  * jt555 strike (with the -22647 out-cell) to each live target, marking rec[387].
- * Returns 1 when it swept. l5c32/jt550 are PROBE stubs for now, so the sweep is
- * inert (returns 0) until they land. */
+ * Returns 1 when it swept. l5c32 + jt550 are both fully lifted now, so the
+ * sweep is live (no longer inert). */
 static unsigned char jt549(long m, long target)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
