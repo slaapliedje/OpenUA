@@ -25,6 +25,7 @@ umbrella campaigns or polish, not blockers.
 
 | # | Task |
 |--:|------|
+| 101 | Character generation (CODE 17) — create / modify / reroll / finalize / sheet (icon-grid polish tracked separately as #137) |
 | 102 | Command-bar / DLItem render (stripes) |
 | 103 | Dungeon→menu round-trip black redraw |
 | 104 | GLIB glyph blitter (L309c + L2d4e) |
@@ -63,11 +64,10 @@ umbrella campaigns or polish, not blockers.
 | # | Task | Reality |
 |--:|------|---------|
 | 100 | Play-entry chain (CODE 15/19) | Front-of-game flow works (design → Hall → Load → walk; empty-boot party + faithful View done this session). Remaining = save/load completion + full CODE 15/19. |
-| 101 | Char-generation (CODE 17) | Works end-to-end; only `#137` icon-grid polish remains. |
 | 106 | DOS `.DSN` compatibility | Enhancement, late (ADR-0001 is Mac-first). |
-| 115 | Combat / encounter subsystem | Spine + CODE-16 handlers lifted; **runtime-untested**, physical damage pending. |
-| 129 | 3D-view bigpic composer | 3D view renders; down to the event-bigpic frame-stomp + left-column clip. |
-| 132 | Band 6 (ranks 501–600) JT campaign | Partial; tail of demand-driven entries. |
+| 115 | Combat / encounter subsystem | Spine + CODE-16 handlers lifted; **runtime-untested**, physical damage + field-render leaves pending. |
+| 129 | 3D-view: event-bigpic frame-stomp + left-column clip | 3D view *renders* (l579e blocker resolved); down to two isolated render bugs. |
+| 132 | Band 6 (ranks 501–600) JT campaign | Partial (~69/100); demand-driven tail, not load-bearing. |
 | 137 | Char-gen icon grid (silhouettes / speed) | Renders; interactivity + draw-speed polish. |
 
 ### ⬜ Pending (3)
