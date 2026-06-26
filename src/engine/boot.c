@@ -59776,6 +59776,15 @@ static void jt904(unsigned char *out_done)
 					memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 				qd_present();
 			}
+			/* The grey backdrop above wipes the character sheet l1276
+			 * painted (at entry + after each action), so View showed only
+			 * the jt182 command bar on grey (the Training Hall View path,
+			 * -27990 == 0, hit this; camp's == 2 already skips the grey).
+			 * Repaint the sheet over the fresh backdrop so it stays
+			 * visible beneath the popup — the Mac composes sheet+popup on
+			 * one page; until the jt1146/jt1153 page-flip lands this is the
+			 * stand-in. */
+			l1276();
 		}
 
 		g_a5_24140 = exit_flag;
