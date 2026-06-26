@@ -48833,6 +48833,47 @@ static void l302c(long m, long target, short mode, unsigned char *out_flag,
 	}
 }
 
+/* CODE 14+0x0660 — the attacks-of-opportunity / free-swing pass against the
+ * actor m. Faithful full lift. jt492 builds the reach list of cells around m
+ * into the 1-based -22720 slot array (returning the count); for each live slot
+ * whose entity p has a pending reaction (its combatant mc[9] != 0) and isn't
+ * filtered out by jt13, it draws the strike cursor on m's cell (l6836, kind 2),
+ * clears the pending flag (mc[9]=0), and runs p's free strike on m via the
+ * jt550 bearing + the jt555 executor (no projectile, throwaway out-cell). The
+ * m[382] re-check each pass bails the loop if m is dropped by a counter-swing.
+ * Only caller is L0984 (still unlifted), so marked unused. */
+static void l660(long m) __attribute__((unused));
+static void l660(long m)
+{
+	unsigned char *atk = (unsigned char *)(uintptr_t)m;
+	unsigned char  count;
+	short          i;
+
+	PROBE("L0660");
+
+	count = jt492(m, (short)1, (short)0);
+	for (i = 1; i <= count; i++) {
+		long           p;
+		unsigned char *mc;
+		unsigned char  out = 0;
+
+		if (atk[382] == 0)
+			continue;
+		p = g_a5_longs(-25676)[(unsigned char)g_a5_byte(-22720 + i)];
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(p + 64));
+		if (mc[9] == 0)
+			continue;
+		if (jt13(p) != 0)
+			continue;
+
+		l6836(l6b40(m), l6b6a(m), (short)2, (short)8);
+		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(p + 64));
+		mc[9] = 0;
+		jt550(p, m);
+		jt555(p, m, (short)0, 0, &out);
+	}
+}
+
 /* JT[825] (CODE 18 + 0x62c2) — both passes: attack-roll stage -2. */
 static void jt825(long rec_l, long node, short flag) __attribute__((unused));
 static void jt825(long rec_l, long node, short flag)

@@ -142,8 +142,11 @@ Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: `l1dd6` `l4dee`  (`l1090` now lifted: kind->attacks-per-round halve)
-> missing: `l2e30` `l315e` `l37d6` `l3a4e` `l660`
-> (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32` now lifted;
+> missing: `l2e30` `l315e` `l37d6` `l3a4e`
+> (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660` now lifted;
+> `l660` (CODE 14+0x0660, not 0x660) = the attacks-of-opportunity free-swing
+> pass over m's reach list (jt492 -> -22720) firing jt550+jt555 per pending
+> reactor, parked unused until its sole caller L0984 lifts;
 > `l44b2` = missile-trail sprite step, parked unused until l3a4e/jt548;
 > `l302c` = single-target attack setup + jt555 dispatch, parked unused until the
 > 0x3e54/0x3f0e/0x40b8 targeting dispatchers lift;
