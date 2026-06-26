@@ -142,12 +142,13 @@ Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: `l1dd6` `l4dee`  (`l1090` now lifted: kind->attacks-per-round halve)
-> missing: `l315e` `l3a4e`
-> (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660`/`l2e30`/`l37d6` now lifted;
+> missing: `l315e`
+> (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32`/`l660`/`l2e30`/`l37d6`/`l3a4e` now lifted;
 > `l37d6` (CODE 14+0x37d6) = the target-stepping line walker (steps slot cursor
-> -7260, skips unoccupied cells, draws jt501 line origin->stepped) — now lifted,
-> which unblocks `l3a4e` (its last missing dep; l3a4e still calls the jt554 PROBE
-> stub but that is callable, not missing);
+> -7260, skips unoccupied cells, draws jt501 line origin->stepped);
+> `l3a4e` (CODE 14+0x3a4e) = "begin targeting" — builds the -7538 valid-target
+> list from the -19170 reach list (jt554 filter) then l37d6(0,m) selects/draws
+> the initial target (NOTE: jt554 is a real lift, not a stub as earlier noted);
 > `l2e30` (CODE 14+0x2e30) = the per-target combat action picker — reach cost
 > (jt506) -> -24126 option list (jt155 arms 0..5, arm 3 conditional) -> jt182
 > picker; 9 args, sole caller L3cac still unlifted;
