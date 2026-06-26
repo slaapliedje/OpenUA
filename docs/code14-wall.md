@@ -142,11 +142,13 @@ Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: `l1dd6` `l4dee`  (`l1090` now lifted: kind->attacks-per-round halve)
-> missing: `l2e30` `l315e` `l37d6`
-> `l3a4e` `l5c32` `l660`  (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c` now lifted;
+> missing: `l2e30` `l315e` `l37d6` `l3a4e` `l660`
+> (`l022c`/`l29fc`/`l030a`/`l1d0c`/`l5392`/`l44b2`/`l302c`/`l5c32` now lifted;
 > `l44b2` = missile-trail sprite step, parked unused until l3a4e/jt548;
 > `l302c` = single-target attack setup + jt555 dispatch, parked unused until the
-> 0x3e54/0x3f0e/0x40b8 targeting dispatchers lift)
+> 0x3e54/0x3f0e/0x40b8 targeting dispatchers lift;
+> `l5c32` = jt549's reach-target counter, already lifted — verified faithful
+> 2026-06-25; note jt525≡l6b40, jt531≡l6b6a, jt513≡l6b94 jt5xx/lXXXX aliases)
 
 `l1dd6` (repeat pick from the built area list) and `l4dee` (repeat pick with
 per-target area re-aim, jt508) are the combat target-repeat locals already
