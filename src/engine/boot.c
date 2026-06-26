@@ -48958,6 +48958,105 @@ static short l2e30(long m, long b, short r, short mode, short f4, short f5,
 	             g_a5_long(-13748), (short)1, (short)0);
 }
 
+/* CODE 14+0x37d6 — the combat target-stepping line walker. Faithful full lift.
+ * Steps the slot cursor -7260 by `step` (wrapping 1..count -7261), threading
+ * through the -7538 slot->entity map and the -25676 entity table. The starting
+ * cell's x/y (from the -27472 6-byte slot record, offsets 1/3) is saved as the
+ * line origin (-7258/-7257); after one step it optionally skips unoccupied
+ * cells (entity[95]==0) up to `count` times until it lands on an occupied one;
+ * then if the stepped cell is on-map (entity != 0, both signed coords >= 0) it
+ * draws the connecting line (jt501) from origin to the stepped cell, advances
+ * the origin, and returns the stepped entity. Off-map falls back to the stashed
+ * -7234 entity (default `dflt` when the cursor's own slot was empty). jt69 is
+ * called once when the slot count is zero. Callers L3b4e/L3d18/L3d50/L412a +
+ * CODE 6 (all unlifted), so marked unused. */
+static long l37d6(short step, long dflt) __attribute__((unused));
+static long l37d6(short step, long dflt)
+{
+	long          cur, stepped;
+	unsigned char found, eidx;
+
+	PROBE("L37d6");
+
+	/* current slot's entity -> -7234 (fall back to dflt when empty) */
+	eidx = (unsigned char)g_a5_buf(-7538)[(unsigned char)g_a5_byte(-7260) * 4];
+	g_a5_long(-7234) = g_a5_longs(-25676)[eidx];
+	if (g_a5_long(-7234) == 0)
+		g_a5_long(-7234) = dflt;
+
+	if ((unsigned char)g_a5_byte(-7261) == 0)
+		jt69();
+
+	/* the current cell's x/y becomes the line origin */
+	eidx = (unsigned char)g_a5_buf(-7538)[(unsigned char)g_a5_byte(-7260) * 4];
+	g_a5_byte(-7258) = g_a5_buf(-27472)[eidx * 6 + 1];
+	g_a5_byte(-7257) = g_a5_buf(-27472)[eidx * 6 + 3];
+
+	/* step the cursor, wrapping into 1..count */
+	g_a5_byte(-7260) = (unsigned char)((unsigned char)g_a5_byte(-7260)
+	                                   + (unsigned char)step);
+	if ((unsigned char)g_a5_byte(-7260) == 0)
+		g_a5_byte(-7260) = g_a5_byte(-7261);
+	if ((unsigned char)g_a5_byte(-7260) > (unsigned char)g_a5_byte(-7261))
+		g_a5_byte(-7260) = 1;
+
+	eidx = (unsigned char)g_a5_buf(-7538)[(unsigned char)g_a5_byte(-7260) * 4];
+	cur = g_a5_longs(-25676)[eidx];
+
+	/* skip unoccupied cells in the step direction */
+	if ((unsigned char)step != 0
+	    && ((unsigned char *)(uintptr_t)cur)[95] != 1) {
+		found = 0;
+		g_a5_byte(-22307) = 0;
+		while ((unsigned char)g_a5_byte(-22307)
+		           < (unsigned char)g_a5_byte(-7261)
+		       && found == 0) {
+			if (((unsigned char *)(uintptr_t)cur)[95] != 0) {
+				found = 1;
+			} else {
+				g_a5_byte(-7260) = (unsigned char)(
+				    (unsigned char)g_a5_byte(-7260)
+				    + (unsigned char)step);
+				if ((unsigned char)g_a5_byte(-7260) == 0)
+					g_a5_byte(-7260) = g_a5_byte(-7261);
+				if ((unsigned char)g_a5_byte(-7260)
+				        > (unsigned char)g_a5_byte(-7261))
+					g_a5_byte(-7260) = 1;
+				eidx = (unsigned char)g_a5_buf(-7538)[
+				    (unsigned char)g_a5_byte(-7260) * 4];
+				cur = g_a5_longs(-25676)[eidx];
+			}
+			g_a5_byte(-22307) =
+			    (unsigned char)(g_a5_byte(-22307) + 1);
+		}
+	}
+
+	/* the stepped cell's x/y becomes the line end */
+	eidx = (unsigned char)g_a5_buf(-7538)[(unsigned char)g_a5_byte(-7260) * 4];
+	stepped = g_a5_longs(-25676)[eidx];
+	g_a5_byte(-7256) = g_a5_buf(-27472)[eidx * 6 + 1];
+	g_a5_byte(-7255) = g_a5_buf(-27472)[eidx * 6 + 3];
+
+	if (stepped != 0
+	    && (signed char)g_a5_byte(-7256) >= 0
+	    && (signed char)g_a5_byte(-7255) >= 0) {
+		cur = stepped;
+		jt501((short)(signed char)g_a5_byte(-7258),
+		      (short)(signed char)g_a5_byte(-7257),
+		      (short)(signed char)g_a5_byte(-7256),
+		      (short)(signed char)g_a5_byte(-7255),
+		      (short)1, (short)0);
+		g_a5_byte(-7258) = g_a5_byte(-7256);
+		g_a5_byte(-7257) = g_a5_byte(-7255);
+	} else {
+		cur = g_a5_long(-7234);
+		g_a5_byte(-7256) = g_a5_byte(-7258);
+		g_a5_byte(-7255) = g_a5_byte(-7257);
+	}
+
+	return cur;
+}
+
 /* JT[825] (CODE 18 + 0x62c2) — both passes: attack-roll stage -2. */
 static void jt825(long rec_l, long node, short flag) __attribute__((unused));
 static void jt825(long rec_l, long node, short flag)
