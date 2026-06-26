@@ -49057,6 +49057,51 @@ static long l37d6(short step, long dflt)
 	return cur;
 }
 
+/* CODE 14+0x3a4e — "begin targeting": build the valid-target list and select
+ * the initial target. Faithful full lift. Seeds the reach list (-19170) around
+ * m's cell (jt508, feature 255 / range 255 / l6b94 reach), then walks it: each
+ * entity the jt554 validity gate accepts is appended (4-byte slot entry) to the
+ * -7538 target list, the count tracked in -7261, and the cursor -7260 is parked
+ * on whichever list slot matches m's current target (mc[12]). Finally l37d6(0,m)
+ * resolves + draws the initial target into -7254; if that target isn't m itself
+ * (a real target was found) it raises the targeting-mode flag -24140 = 4. Sole
+ * caller L3c38 (still unlifted), so marked unused. */
+static void l3a4e(long m) __attribute__((unused));
+static void l3a4e(long m)
+{
+	short i;
+
+	PROBE("L3a4e");
+
+	g_a5_byte(-7260) = 1;
+	jt508((short)(unsigned char)l6b40(m), (short)(unsigned char)l6b6a(m),
+	      (short)255, (short)255, (short)(l6b94(m) & 0xff));
+	g_a5_byte(-7261) = 0;
+
+	for (i = 1; i <= (unsigned char)g_a5_byte(-18894); i++) {
+		long p = g_a5_longs(-25676)[
+		             (unsigned char)g_a5_buf(-19170)[i * 4]];
+
+		if (jt554(m, p, (short)0) != 0) {
+			unsigned char *mc;
+
+			g_a5_byte(-7261) =
+			    (unsigned char)(g_a5_byte(-7261) + 1);
+			*(long *)(g_a5_buf(-7538)
+			          + (unsigned char)g_a5_byte(-7261) * 4) =
+			    *(long *)(g_a5_buf(-19170) + i * 4);
+			mc = (unsigned char *)(uintptr_t)
+			     (*(long *)(uintptr_t)(m + 64));
+			if (p == *(long *)(uintptr_t)(mc + 12))
+				g_a5_byte(-7260) = g_a5_byte(-7261);
+		}
+	}
+
+	g_a5_long(-7254) = l37d6((short)0, m);
+	if (g_a5_long(-7254) != m)
+		g_a5_byte(-24140) = 4;
+}
+
 /* JT[825] (CODE 18 + 0x62c2) — both passes: attack-roll stage -2. */
 static void jt825(long rec_l, long node, short flag) __attribute__((unused));
 static void jt825(long rec_l, long node, short flag)
