@@ -16082,7 +16082,12 @@ static int cg_in_party(const unsigned char *slot)
 /* Build -27928 fresh from the first `n` cg_pool slots (cap CG_PARTY_MAX) — the
  * demo/boot party seed that replaces cg_party_relink. The faithful party home
  * is the savegame (jt580/jt579); until a boot-time save-load exists, the
- * loaded/seeded pool head IS the demo party. */
+ * loaded/seeded pool head IS the demo party.
+ *
+ * NO LONGER CALLED as of the faithful play-entry change (#100): the boot no
+ * longer auto-builds the party (empty -27928 until the Hall's Load Saved Game).
+ * Kept, marked unused, in case a future direction re-wires a boot party. */
+static void cg_party_build_from_pool(short n) __attribute__((unused));
 static void cg_party_build_from_pool(short n)
 {
 	short i;
@@ -16472,7 +16477,13 @@ static int port_load_savgame(void)
 			return 0;
 		}
 		cg_pool_count = found;
-		cg_party_build_from_pool(found);
+		/* FAITHFUL play-entry (#100): do NOT auto-build the active party
+		 * here. The Mac boots with an EMPTY party — "Play the Game" lands in
+		 * the Training Hall, where the player explicitly runs "Load Saved
+		 * Game" (jt918 case 8 -> jt582 -> l143e -> jt579, the now-unblocked
+		 * faithful load with the jt21 re-equip pass) to build -27928 from the
+		 * save. This seeds only cg_pool (the roster); the party stays empty
+		 * until that menu load. (Was: cg_party_build_from_pool(found).) */
 	}
 
 	/* Restore the saved dungeon level + position. The shipped 1993 saves
@@ -16753,15 +16764,14 @@ void port_test_seed_design(void)
 			 * load above. Dedup by name; appends to the pool (BENCHED). */
 			cg_roster_merge_files();
 		}
-		/* Build the demo party from the pool ONLY when -27928 is empty. This
-		 * fires at boot (l5124 / game-init zeroes -27928 between the play-entry's
-		 * two seed passes) and would fire again if a later teardown cleared it,
-		 * but NOT on a normal Hall round-trip — so in-session Add/Remove/Delete
-		 * edits (which keep -27928 non-empty) are preserved. Replaces the old
-		 * CHAR_INPARTY-derived per-Play cg_party_relink (#141); the faithful
-		 * repopulation after l5124 is the savegame load, not yet boot-wired. */
-		if (g_a5_long(-27928) == 0 && cg_pool_count > 0)
-			cg_party_build_from_pool(cg_pool_count);
+		/* FAITHFUL play-entry (#100): the active party is no longer auto-built
+		 * from the pool. The Mac boots / re-enters the Training Hall with an
+		 * EMPTY -27928 party (l5124 zeroes it); the player builds it via the
+		 * Hall's "Load Saved Game" (jt582 -> jt579) or "Add Character" (jt904).
+		 * The guard kept this from firing on a normal Hall round-trip (the
+		 * party is non-empty there), so in-session Add/Remove/Delete edits were
+		 * already preserved — removing it only leaves the BOOT party empty, the
+		 * faithful behaviour. (Was: cg_party_build_from_pool(cg_pool_count).) */
 	}
 
 	/* Enable the case-0 Training Hall action (Train Character) so its

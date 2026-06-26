@@ -1,5 +1,21 @@
 # Play-entry chain (task #100) — worklist
 
+## STATUS 2026-06-26 — direction (B) implemented (retire the boot party auto-load)
+
+The boot no longer auto-builds the active party. Both `cg_party_build_from_pool`
+calls were removed: the one inside `port_load_savgame` (it still seeds `cg_pool`
++ the entry level, just no party) and the seed-block one at boot.c:~16763. So
+`-27928` is EMPTY at boot — "Play the Game" lands in the Training Hall with no
+party, and the player builds it the Mac way via the Hall's **Load Saved Game**
+(jt918 case 8 → jt582 → l143e → jt579, now unblocked by the jt21 re-equip pass
+in jt579, commit 3ad4d59) or **Add Character** (jt904). In-session edits are
+unaffected (the removed builds were guarded on `-27928 == 0`). NEEDS HATARI
+TEST: (1) Play the Game → empty Hall; (2) Load Saved Game → party appears;
+(3) View Character / Begin Adventuring on the loaded party. Revert = restore the
+two `cg_party_build_from_pool` calls if the empty-Hall / jt582 load misbehaves.
+
+
+
 Lift the faithful CODE 15/19 play-entry chain and retire the synthetic
 scaffold (`port_test_seed_design` + `port_load_savgame`). The chain functions
 are already lifted and LIVE; this card-deck is about replacing the *seed*
