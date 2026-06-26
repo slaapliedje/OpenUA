@@ -51478,6 +51478,268 @@ static short jt172(const char *p1, long p2, short arg3, short arg4)
 		return l25b6(ret, buf, &g_a5_24139);
 	}
 }
+
+/* CODE 14+0x315e — the interactive combat target-picker loop. Faithful full
+ * lift (570 instr). Runs the modal where the player steers a cursor (-7230/
+ * -7228) around the combat field to choose a target cell. Each pass:
+ *   - step the cursor by `dir` (the -27862/-27853 8-way delta tables) and clamp
+ *     to the 50x25 map, or restore a stored cursor when -7226 is set;
+ *   - resolve the cell (l62ec) and test reachability from the actor (jt506);
+ *     when reachable, set *out_hit and, in spell mode, paint the range readout
+ *     (jt488 "%s%d." -> jt94, else jt145);
+ *   - find the entity under the cursor (the -25676 slot or the -25410 anchor
+ *     table) and draw the target marker (jt38) or the empty box (jt103);
+ *   - apply the range/LOS/spell-target validity gates (jt554 LOS + the mode==1
+ *     jt499/jt491/jt492/jt504 chain) to *out_hit;
+ *   - rebuild the -24126 option list (jt179/jt155 + jt166) and run the action
+ *     bar (jt172, or the -7236 hotkey shortcut) to read the next input;
+ *   - dispatch it: when -24139 (raw key) the JT[1] arrow keys 128..136 set the
+ *     direction (or center/cancel), ESC cancels; otherwise the JT[3] arms 0/1/2
+ *     confirm (write the cell + entity into out_spec, *out_result=1), redraw, or
+ *     cancel. Loops until a confirm (result 0) or cancel (result 2) with no
+ *     pending -7226 cursor. Sole callers L3dbe/L4022 (the combat dialogs). */
+static void l315e(long actor, long target, short range, short mode, short a5,
+                  short a6, unsigned char *out_hit, unsigned char *out_result,
+                  void *out_spec, short curX, short curY) __attribute__((unused));
+static void l315e(long actor, long target, short range, short mode, short a5,
+                  short a6, unsigned char *out_hit, unsigned char *out_result,
+                  void *out_spec, short curX, short curY)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+	short          cxX, cyY;
+	unsigned char  result = 0xff;
+	unsigned char  dir = 8;
+	unsigned char  cellIdx = 0, cellTer = 0;
+	short          cost;
+	unsigned char  c9, c10;
+	unsigned char  optcnt;
+	long           ammo;
+	unsigned char  actorX;
+	long           sel;
+
+	PROBE("L315e");
+	(void)curX; (void)curY;
+
+	jt399(out_spec, (short)10, (short)0);
+	cxX = (unsigned char)l6b40(target);
+	cyY = (unsigned char)l6b6a(target);
+	g_a5_word(-7230) = (short)(signed char)cxX;
+	g_a5_word(-7228) = (short)(signed char)cyY;
+	*out_result = 0;
+	hdr[6] = 1;
+	hdr[7] = 1;
+	g_a5_byte(-7226) = 0;
+
+	do {
+		/* step / restore the cursor */
+		if (g_a5_byte(-7226) == 0) {
+			l6836((short)(signed char)cxX, (short)(signed char)cyY,
+			      (short)3, (short)dir);
+			cxX = (unsigned char)(cxX
+			    + (signed char)g_a5_byte(-27862 + dir));
+			cyY = (unsigned char)(cyY
+			    + (signed char)g_a5_byte(-27853 + dir));
+			if ((signed char)cxX < 0)  cxX = 0;
+			if ((signed char)cyY < 0)  cyY = 0;
+			if ((signed char)cxX > 49) cxX = 49;
+			if ((signed char)cyY > 24) cyY = 24;
+		} else {
+			cxX = (unsigned char)g_a5_byte(-7229);
+			cyY = (unsigned char)g_a5_byte(-7227);
+		}
+
+		/* resolve cell + reachability */
+		l62ec((short)(signed char)cxX, (short)(signed char)cyY,
+		      &cellIdx, &cellTer);
+		cost = 255;
+		*out_hit = 0;
+		c9  = (unsigned char)cxX;
+		c10 = (unsigned char)cyY;
+		g_a5_word(-7230) = (short)(signed char)cxX;
+		g_a5_word(-7228) = (short)(signed char)cyY;
+		actorX = (unsigned char)l6b40(actor);
+		{
+			unsigned char  actorY = (unsigned char)l6b6a(actor);
+			unsigned short ucost  = (unsigned short)cost;
+			int reached = (jt506((short)(signed char)actorX,
+			                     (short)(signed char)actorY,
+			                     &c9, &c10, &ucost) != 0);
+			cost = (short)ucost;
+			if (reached) {
+				*out_hit = 1;
+				if ((unsigned char)mode != 0) {
+					const char *s = jt488("%s%d.",
+					    (const char *)(uintptr_t)
+					    g_a5_long(-14092),
+					    (int)(unsigned short)(cost >> 1));
+					jt94((short)0, (short)23, (short)7,
+					     (short)0, s);
+				}
+			} else if ((unsigned char)mode != 0) {
+				jt145();
+			}
+		}
+		cost = (short)((unsigned short)cost >> 1);
+
+		/* find the entity under the cursor */
+		sel = 0;
+		if (*out_hit != 0) {
+			if (cellIdx != 0) {
+				sel = g_a5_longs(-25676)[cellIdx];
+			} else if (cellTer == 31 || cellTer == 30) {
+				short li;
+				for (li = 1;
+				     li <= (unsigned char)g_a5_byte(-25320);
+				     li++) {
+					unsigned char *e =
+					    g_a5_buf(-25410) + li * 10;
+					if (*(short *)(e + 4)
+					        == (short)(signed char)cxX
+					    && *(short *)(e + 6)
+					        == (short)(signed char)cyY)
+						sel = *(long *)e;
+				}
+			}
+		}
+
+		/* draw the target marker */
+		if (sel != 0) {
+			g_a5_byte(-22627) = 1;
+			jt38(sel);
+		} else {
+			jt103((short)23, (short)1, (short)38, (short)21);
+		}
+
+		/* range / LOS / spell-target validity */
+		if ((unsigned short)(unsigned char)range < (unsigned short)cost
+		    || (unsigned char)g_a5_buf(-27848)[cellTer * 4] == 255)
+			*out_hit = 0;
+
+		if (sel != 0) {
+			if (jt554(actor, sel, (short)1) == 0
+			    || (unsigned char)a6 == 0)
+				*out_hit = 0;
+
+			if ((unsigned char)mode == 1) {
+				if (actor == sel
+				    || (cellIdx == 0 && cellTer == 31)) {
+					*out_hit = 0;
+				} else if (jt499((const unsigned char *)
+				                 (uintptr_t)actor) != 0) {
+					int keep = (cost == 1
+					    && jt504((const unsigned char *)
+					             (uintptr_t)actor) != 0);
+					if (!keep) {
+						if (jt491((void *)(uintptr_t)
+						          actor,
+						          (void **)&ammo) == 0)
+							*out_hit = 0;
+						else if ((jt492(actor, (short)1,
+						               (short)0) & 0xff)
+						             != 0
+						         && jt504(
+						             (const unsigned char *)
+						             (uintptr_t)actor)
+						             == 0)
+							*out_hit = 0;
+					}
+				}
+			}
+		} else if ((unsigned char)a5 == 0) {
+			*out_hit = 0;
+		}
+
+		/* rebuild the option list + run the action bar */
+		jt399(g_a5_24126, (short)40, (short)255);
+		optcnt = 0;
+		if (*out_hit != 0) {
+			jt179((short)2);
+		} else {
+			jt155((short)1, &optcnt);
+			jt155((short)2, &optcnt);
+		}
+		jt166((short)5);
+		g_a5_byte(-7226) = 0;
+		g_a5_byte(-7225) = 0;
+		if (g_a5_word(-7236) != 0) {
+			result = (unsigned char)g_a5_byte(-7235);
+			g_a5_word(-7236) = 0;
+		} else {
+			result = (unsigned char)jt172(
+			    (const char *)(uintptr_t)g_a5_long(-13884),
+			    g_a5_long(-13744), (short)1, (short)0);
+		}
+
+		/* act on the input (only when no pending -7226 cursor) */
+		if (g_a5_byte(-7226) == 0) {
+			if (g_a5_byte(-7225) != 0
+			    || (g_a5_byte(-24139) != 0 && result == 13)) {
+				g_a5_byte(-24139) = 0;
+				result = 0;
+				g_a5_byte(-7225) = 0;
+			}
+			if (g_a5_byte(-24139) != 0) {
+				/* JT[1] — arrow-key cursor dispatch */
+				switch (result) {
+				case 136: dir = 0; break;
+				case 129: dir = 1; break;
+				case 130: dir = 2; break;
+				case 131: dir = 3; break;
+				case 132: dir = 4; break;
+				case 133: dir = 5; break;
+				case 134: dir = 6; break;
+				case 135: dir = 7; break;
+				case 128:
+					l6836((short)(signed char)cxX,
+					      (short)(signed char)cyY,
+					      (short)0, (short)8);
+					dir = 8;
+					break;
+				case 27:
+					l6090((short)(signed char)cxX,
+					      (short)(signed char)cyY);
+					jt399(out_spec, (short)10, (short)0);
+					*out_result = 0;
+					result = 2;
+					break;
+				default: dir = 8; break;
+				}
+			} else {
+				/* JT[3] — confirm / redraw / cancel */
+				switch (result) {
+				case 0:
+					*out_result = 1;
+					*(short *)((char *)out_spec + 4) =
+					    (short)(signed char)cxX;
+					*(short *)((char *)out_spec + 6) =
+					    (short)(signed char)cyY;
+					*(long *)out_spec =
+					    (sel != 0) ? sel : 0;
+					hdr[6] = 0;
+					l6090((short)(signed char)cxX,
+					      (short)(signed char)cyY);
+					g_a5_byte(-22308) = 0;
+					break;
+				case 1:
+					l6836((short)(signed char)cxX,
+					      (short)(signed char)cyY,
+					      (short)0, (short)8);
+					dir = 8;
+					break;
+				case 2:
+					l6090((short)(signed char)cxX,
+					      (short)(signed char)cyY);
+					jt399(out_spec, (short)10, (short)0);
+					*out_result = 0;
+					break;
+				default: dir = 8; break;
+				}
+			}
+		}
+	} while (!((result == 0 || result == 2)
+	           && g_a5_byte(-7226) == 0));
+}
+
 /* JT[548] (CODE 14+0x44f0) — the combat targeting-cursor mover, called from
  * the CODE-7 "cast on whom" list dialog (mode-5 paginated cancel). Faithful
  * full lift. The cursor (-7230/-7228 = screen X/Y) tracks a logical position
