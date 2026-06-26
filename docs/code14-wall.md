@@ -21,8 +21,10 @@ CODE 14 is the **area-map renderer**, and it serves two callers:
    This is the remaining 21 JT entries (+ ~18 lXXXX render leaves), and it is
    **the bulk of CODE 14's pending work**.
 
-**Snapshot (`seg_audit.py 14`):** 71 functions, 36 lifted (50%), 35 remaining
-— of the 44 *called* JT entries, 23 done / 21 pending (5 stub, 16 missing).
+**Snapshot (`seg_audit.py 14`):** 71 functions, **70 lifted (98%)** — the only
+non-lifted entry is `jt512` (0x5d8e), which is **faithfully EMPTY** on the Mac
+(two `rts`), so its PROBE stub is already correct. CODE 14 is effectively
+**complete** (combat-field tier finished 2026-06-26 with l315e).
 
 ### The dependency that gates ALL of it
 
@@ -142,7 +144,9 @@ Called by the JT entries above; lift alongside their parent. From
 `seg_audit.py 14`:
 
 > stubs: (none)  (`l1090` now lifted: kind->attacks-per-round halve)
-> missing: `l315e`
+> missing: (none — `l315e` now lifted: the interactive combat target-picker loop,
+>   570 instr, JT[1] arrow-key dispatch + JT[3] confirm/cancel, the jt506
+>   reach + jt554 LOS + mode-1 spell-target validity gates, jt172 action bar)
 > (`l1dd6` now lifted: the repeat-pick from the built target list — jt546 next
 > target -> l476e_c14 validity -> fill the pick struct; its caller l1efa's
 > scratch locals were retyped (side=uchar, target=long) to match the real
