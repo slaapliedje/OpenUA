@@ -1,18 +1,85 @@
 # MILESTONE — FRUA Falcon030/TT030 port
 
 > Living tracker of what is **accomplished** and what is **left to do**.
-> Snapshot: **2026-06-24** (CODE-16 sweep), HEAD `a1d2ff3`, `src/engine/boot.c`
-> ~62k lines. Build green (`make`, soft-float `-m68020-60`), host test
-> suite green (129 passed / 1 skipped).
-> **NEW: CODE 16 (combat effect handlers) is COMPLETE — all 106 `-24066`
-> dispatch handlers lifted (112/115 CODE-16 JT exports by name, 0 stub; the 3
-> "nodef" are aliased).** The old single-biggest-block is closed; the combat
-> frontier is now the runtime bring-up + the physical-damage round `l14bc`.
+> Snapshot: **2026-06-26** (Training Hall / View-character / display polish),
+> HEAD `9c6efb5`, `src/engine/boot.c` ~65.7k lines. Build green (`make`,
+> soft-float `-m68020-60`), host test suite green (129 passed / 1 skipped).
+> JT coverage (`tools/jt_progress.py`): **943 / 1205 done** (862 lifted +
+> 20 noop + 61 alias), 65 stub, 197 "missing" (over-counts — see §1 caveat).
 >
 > Companion docs: `docs/subsystem-status.md` (player-facing register +
-> targeting priority), the per-subsystem `docs/*-wall.md` scope docs, and
-> `docs/function-index.md` (function catalog). This file is the high-level
+> targeting priority), the per-subsystem `docs/*-wall.md` scope docs,
+> `docs/function-index.md` (function catalog), `docs/jt-lift-progress.md`
+> (auto-generated JT counts — source of truth). This file is the high-level
 > burn-down; detail lives in those.
+
+---
+
+## 0. Task burn-down (`#100`–`#144`)
+
+The numbered `#NNN` tasks reconciled against reality (2026-06-26). **45 tasks:
+36 done, 6 in-progress, 3 pending** — most "in-progress" are long-running
+umbrella campaigns or polish, not blockers.
+
+### ✅ Completed (36)
+
+| # | Task |
+|--:|------|
+| 102 | Command-bar / DLItem render (stripes) |
+| 103 | Dungeon→menu round-trip black redraw |
+| 104 | GLIB glyph blitter (L309c + L2d4e) |
+| 105 | Faithful GLIB menu + command-bar buttons |
+| 107 | Colour mouse cursor |
+| 108 | Char-gen / menu UI alignment (320×200, no 640×400) |
+| 109 | jt21 derived-stats recompute + helper tree |
+| 110 | jt875 spell-effect / magic-resistance |
+| 111 | jt521 area-map render tree (CODE 14) |
+| 112 | jt501 area-map line/region renderer (CODE 13) |
+| 113 | Play HUD: text shift + command bar |
+| 114 | Dungeon HUD frame chrome + layout |
+| 116 | (v,h) coordinate migration |
+| 117–120 | Bands 2–5 (ranks 101–500) JT lift campaigns |
+| 121 | jt290 editor click tool + jt327 record-edit dispatcher |
+| 123 | HEIRS.DSN save-A dungeon demo (staging + multi-char loader) |
+| 124 | Dungeon movement in jt240/l63c0 walk loop |
+| 125 | Event-picture CLUT (merchant colours) |
+| 126 | jt199/L6234 walk re-derived vs the 25-slot Mac trace |
+| 127 | Resource Manager (FC group cache) + art-loader routing |
+| 128 | GEO005 (FORM/AMOD) map cell-data loading |
+| 130 | Display perf: 16bpp LUT + asm blit + VBL triple-buffer |
+| 133 | Training Hall → Create Character → char-gen wiring |
+| 134 | Char-gen character sheet (jt886 6-panel + reroll) |
+| 135 | Char-gen finalize chain (level / AC / THAC0 / spells) |
+| 136 | FRUA reference MCP server |
+| 138 | L618c Modify Character stat editor |
+| 139 | L0848 Training Hall roster selection (arrow-key nav) |
+| 140 | Add Character screen (jt904 family) — saved pool → party |
+| 141 | Party data-model migration (cg_pool → faithful −27928 list) |
+| 142 | FAR-pool stage 4: purgeable dispose/reload |
+| 143 | Screen-refresh "smear" — cursor save-under |
+
+### 🟡 In progress (6) — umbrella campaigns / polish
+
+| # | Task | Reality |
+|--:|------|---------|
+| 100 | Play-entry chain (CODE 15/19) | Front-of-game flow works (design → Hall → Load → walk; empty-boot party + faithful View done this session). Remaining = save/load completion + full CODE 15/19. |
+| 101 | Char-generation (CODE 17) | Works end-to-end; only `#137` icon-grid polish remains. |
+| 106 | DOS `.DSN` compatibility | Enhancement, late (ADR-0001 is Mac-first). |
+| 115 | Combat / encounter subsystem | Spine + CODE-16 handlers lifted; **runtime-untested**, physical damage pending. |
+| 129 | 3D-view bigpic composer | 3D view renders; down to the event-bigpic frame-stomp + left-column clip. |
+| 132 | Band 6 (ranks 501–600) JT campaign | Partial; tail of demand-driven entries. |
+| 137 | Char-gen icon grid (silhouettes / speed) | Renders; interactivity + draw-speed polish. |
+
+### ⬜ Pending (3)
+
+| # | Task |
+|--:|------|
+| 122 | Audit hand-decoded JT[1]/JT[2] switches for the off-by-one arm shift |
+| 131 | Display: sample input after vsync for 1-frame latency |
+| 144 | Off-screen compose: present once per logical screen (faithful jt1146/jt1153 double-buffer) |
+
+> Note: the old `#1`–`#99` IDs predate this tracker; their work is folded into
+> the subsystem tables below and the `docs/*-wall.md` scope docs.
 
 ---
 
@@ -24,11 +91,12 @@ no `jtN`-named definition):
 
 | Metric | Count | Note |
 |--------|------:|------|
-| JT entries total | 1208 | the whole Mac jump table |
-| Lifted (real body, by `jtN` name) | ~906 | **~75%** (was 826 before the CODE-16 sweep) |
-| PROBE-only stubs | ~29 | CODE-16 (80) now all lifted; rerun `tools/jt_progress.py` for the exact figure |
-| No `jtN`-named def ("missing") | 273 | **over-counts** — see caveat |
-| PROBE-only stubs in `boot.c` total | ~60 | ~29 JT + ~31 CODE-local `lXXXX` |
+| JT entries called | 1205 | distinct entries the code reaches |
+| Done | **943** | **~78%** — 862 lifted + 20 noop + 61 alias |
+| PROBE-only stubs | 65 | mostly CODE-13/14 combat-field-render leaves |
+| No-def ("missing") | 197 | **over-counts** — see caveat (demand-driven + editor) |
+
+(Numbers from `tools/jt_progress.py`, refreshed 2026-06-26 / HEAD `9c6efb5`.)
 
 **Caveat on "missing":** many JT entries are lifted under their CODE-local
 `lXXXX` alias, not a `jtN` name (JT-export ≡ CODE-local; e.g. `jt496` reports
@@ -94,9 +162,16 @@ dungeon** — the full front-of-game journey is real, faithful, and Hatari-verif
   (level, AC, THAC0, spells), character **sheet** (jt886 6-panel + reroll bar),
   body-icon grid, `.CHR` serializer.
 - **Training Hall**: roster nav, Add / Remove / Create / Delete, faithful
-  `-27928` party-list model, savegame persist.
+  `-27928` party-list model, savegame persist. **View Character** opens the
+  faithful `jt904` record sheet on the *selected* member (2026-06-26); the
+  two-column menu's label↔JT[3]-case remap is decoded (Add↔View were crossed),
+  roster names state-coloured (grey / blue-selected) via the faithful `jt25`.
+- **Play-entry flow** (2026-06-26): boot lands in an **empty** Hall (Mac-faithful);
+  the player builds the party via Load Saved Game / Add — no more boot auto-load.
 - **Save / Load**: party round-trip done; ⏸ pending ~10KB design-state block,
   A–J slot pickers polish, boot auto-load.
+- **Display polish** (2026-06-26): cursor **save-under** ends the mouse-move
+  "smear" (the VBL pointer no longer erases from the live compose buffer).
 
 ### In-game traversal (✅ / 🟡)
 - **Dungeon walk**: arrow-key move + turn through the HEIRS first-person
@@ -176,16 +251,22 @@ Not gaps — deliberately last. Charted when the authoring-tools track opens.
 
 ## 5. Bottom line
 
-Foundation, front door, and dungeon traversal are **done and play**. The recent
-campaigns pushed **combat from "not started" to "spine fully lifted"** — both
-player and monster turn dispatch, plus Turn Undead and Cast Spell, are faithful
-and stub-free. The remaining frontier is concentrated and nameable:
+Foundation, front door, and dungeon traversal are **done and play**, and the
+front-of-game loop is now solid end-to-end: boot → design-select → empty Hall →
+build/load party → View/Modify/Create → walk the dungeon. Combat went from "not
+started" to **spine fully lifted** (both turn-dispatch sides, Turn Undead, Cast
+Spell, all CODE-16 effect handlers) — stub-free but **runtime-untested**. The
+remaining frontier is concentrated and nameable:
 
-1. **CODE 16 effect handlers** (80) — make combat *do* something.
-2. **Combat runtime bring-up** — prove a live round.
-3. **Inventory** — small, makes the sheet truthful.
+1. **Combat runtime bring-up** (`#115`) — drive a live round in Hatari, fix what
+   the breadth-first spine got wrong; physical-damage plumbing resolves but the
+   field-render leaves (`jt512`/`jt517`…) are still stubs so the field is blank.
+2. **Inventory / equip** — small, makes the char sheet truthful (View Character's
+   bottom panel is empty until this lands).
+3. **Off-screen compose** (`#144`) — present once per screen (kills the residual
+   grey-flash; faithful `jt1146`/`jt1153` double-buffer).
 
-Everything else is bounded polish (event vocab, render bugs, camp, shop, save,
-audio) and the deliberately-deferred editor. The port's center of gravity has
-moved from "can it boot and walk" (yes) to "can it fight" (spine yes, payloads
-next).
+Everything else is bounded polish (event vocab, 3D render bugs `#129`, camp,
+shop, save-completion, audio) and the deliberately-deferred editor. Center of
+gravity has moved from "can it boot and walk" (yes) to "can it fight" (spine
+yes, runtime + field-render next).
