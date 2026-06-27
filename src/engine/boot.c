@@ -64401,8 +64401,69 @@ static void l32c4(long item)
 }
 static void jt189(long chr_l, long item)                                /* JT[189] CODE7+0x43a4 — sell */
 	{ PROBE("jt189"); (void)chr_l; (void)item; }
-static void jt190(long chr_l, long item, unsigned char *redraw)         /* JT[190] CODE7+0x4644 — identify */
-	{ PROBE("jt190"); (void)chr_l; (void)item; (void)redraw; }
+/* JT[190] (CODE 7 + 0x4644) — the shop IDENTIFY arm.  Refuses a bundle ("Fool!
+ * You must remove them from the bundle first").  Otherwise offers to identify
+ * the item for 20 platinum: charges the active char's platinum (rec[76]) first,
+ * topping up from the party pool (-25314); "Not Enough Money" if neither covers
+ * it.  When paid, if the item has no hidden bits (item[51]&7==0) it says nothing
+ * new; else it clears those bits (reveals the type), redraws the row (jt28),
+ * reports "It looks like some sort of %s" and sets *redraw.  jt893 case 8. */
+static void jt190(long chr_l, long item, unsigned char *redraw)
+{
+	unsigned char *it  = (unsigned char *)(uintptr_t)item;
+	unsigned char *act = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	unsigned char  paid = 0;                  /* fp@(-9) */
+	long           poolPlat, charPlat;        /* fp@(-8), fp@(-4) */
+
+	PROBE("jt190");
+
+	if (it[40] == 73) {                       /* bundle */
+		jt96(1, 21, 38, 22, 11, 0, 1,
+		     (long)(uintptr_t)ua_strs_at(0x2966), 0);
+		return;
+	}
+
+	jt28(chr_l, item, 0, 0, 0, 0);
+	jt96(1, 21, 38, 22, 11, 0, 1,
+	     (long)(uintptr_t)jt488(ua_strs_at(0x2998),       /* "For 20 platinum pieces I'll identify your %s" */
+	          (const char *)(it + 5)), 0);
+
+	if (jt159(ua_strs_at(0x29c6), 1)) {                   /* "Is It a Deal? " */
+		poolPlat = g_a5_long(-25314);
+		charPlat = (long)*(unsigned short *)(act + 76);
+		if (charPlat >= 20) {
+			paid = 1;
+			*(unsigned short *)(act + 76) =
+			    (unsigned short)(*(unsigned short *)(act + 76) - 20);
+		} else if (poolPlat + charPlat >= 20) {
+			paid = 1;
+			*(unsigned short *)(act + 76) = 0;
+			g_a5_long(-25314) -= (20 - charPlat);
+		} else {
+			jt42(ua_strs_at(0x29d6));             /* "Not Enough Money" */
+			jt102();
+		}
+	}
+
+	if (paid) {
+		if ((it[51] & 7) == 0) {
+			jt96(1, 21, 38, 22, 11, 0, 1,
+			     (long)(uintptr_t)jt488(ua_strs_at(0x29e8),  /* "I can't tell anything new about your %s" */
+			          (const char *)(it + 5)), 0);
+		} else {
+			it[51] = (unsigned char)(it[51] & 0xf8);
+			jt28(chr_l, item, 0, 0, 0, 0);
+			jt96(1, 21, 38, 22, 11, 0, 1,
+			     (long)(uintptr_t)jt488(ua_strs_at(0x2a10),  /* "It looks like some sort of %s" */
+			          (const char *)(it + 5)), 0);
+			*redraw = 1;
+		}
+	}
+
+	if (paid)
+		jt102();
+	jt103(1, 21, 38, 22);
+}
 
 /* L23d2 (CODE 19 + 0x23d2, ~500B) — "may this item be parted with?" gate
  * used by the drop / trade / sell arms.  Returns 0 (no) when the item is
