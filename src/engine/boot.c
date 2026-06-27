@@ -63317,12 +63317,164 @@ static unsigned char jt887(long member_l, short flag, long item_l)
 	return result;
 }
 
-/* JT[889] (CODE 19 + 0x35a0, ~1480B) — join `item` with similar items in the
- * active character's pack into a bundle/stack (the "combine scrolls" feature).
- * Leaf PROBE stub: jt186 only calls it for an item that is ALREADY bundled
- * (item[53] > 0), so non-bundled gives (coins, a single ring) never reach it.
- * Its own lift (the largest leaf of the take cluster). */
-static void jt889(long item_l) { PROBE("jt889"); (void)item_l; }
+/* L3540 (CODE 19 + 0x3540) — count the scrolls held in bundles across the whole
+ * party: walks the -27928 member list, sums rec[53] (bundle count) of every
+ * kind-73 inventory node.  Named _c19 to dodge the CODE-13 l3540 wall-tile
+ * collision. */
+static short l3540_c19(void)
+{
+	long  member, node;
+	short total = 0;
+
+	for (member = g_a5_long(-27928); member != 0;
+	     member = *(long *)(uintptr_t)member) {
+		for (node = *(long *)(uintptr_t)(member + 8); node != 0;
+		     node = *(long *)(uintptr_t)node) {
+			const unsigned char *n = (const unsigned char *)(uintptr_t)node;
+			if (n[40] == 73)
+				total = (short)(total + n[53]);
+		}
+	}
+	return total;
+}
+
+/* JT[889] (CODE 19 + 0x35a0, ~1480B) — JOIN `item` with similar items in the
+ * active character's pack (the "combine" feature).  Two paths:
+ *  - scroll/bundle (item kind 39/40/73): cap at 10 per bundle, refuse if the
+ *    party already holds >120 bundled scrolls ("Too many Bundles!") or there's
+ *    nothing to join with; convert a lone scroll into a bundle (clone its node
+ *    to a sub-item, reflag the header kind 73), then splice every similar pack
+ *    node's sub-items onto the bundle tail (jt406 clones, weight rec[46] and
+ *    count rec[53] re-tallied), removing each merged node (jt30).
+ *  - generic stack (other kinds): merge every pack node with identical type-key
+ *    fields (40-44/48/49/51/52/54-56, [54]<2) by adding counts into rec[53],
+ *    capping at 255 and spilling the overflow back into the donor (which then
+ *    becomes the running accumulator).  Helper l3540_c19 + JT[28/30/42/477/406/
+ *    488] all lifted. */
+static void jt889(long item_l)
+{
+	unsigned char *it = (unsigned char *)(uintptr_t)item_l;
+	long           cur_item = item_l;        /* fp@(-16) */
+	long           node, next, tail = 0;     /* fp@(-8), fp@(-12), fp@(-4) */
+	unsigned char  cnt17, cnt18, cnt19;      /* fp@(-17/-18/-19) */
+
+	PROBE("jt889");
+
+	if (it[40] == 39 || it[40] == 40 || it[40] == 73) {
+		/* ===== scroll / bundle join (L35dc) ===== */
+		if (it[53] >= 10) {
+			jt42(jt488(ua_strs_at(0x5bf8), 10));   /* "Bundles are limited to %d scrolls." */
+			return;
+		}
+		cnt17 = 0;                                     /* joinable count */
+		for (node = *(long *)(uintptr_t)(g_a5_long(-27932) + 8);
+		     node != 0; node = *(long *)(uintptr_t)node) {
+			const unsigned char *n = (const unsigned char *)(uintptr_t)node;
+			if ((n[40] == 73 && n[53] < 10) || n[40] == 39 || n[40] == 40)
+				cnt17++;
+		}
+		cnt18 = 0;                                     /* single-scroll count */
+		for (node = *(long *)(uintptr_t)(g_a5_long(-27932) + 8);
+		     node != 0; node = *(long *)(uintptr_t)node) {
+			const unsigned char *n = (const unsigned char *)(uintptr_t)node;
+			if (n[40] == 39 || n[40] == 40)
+				cnt18++;
+		}
+		if (l3540_c19() + cnt18 > 120) {
+			jt42(ua_strs_at(0x5c1c));              /* "Too many Bundles!" */
+			return;
+		}
+		if (cnt17 < 2) {
+			jt42(ua_strs_at(0x5c2e));              /* "There are no similar items to join with." */
+			return;
+		}
+
+		if (it[40] != 73) {                            /* convert to a bundle */
+			jt477((void *)&g_a5_byte(-21508), 62, (void *)(it + 58));
+			tail = *(long *)(it + 58);
+			jt406((void *)(uintptr_t)tail, it, 62);   /* item -> sub-node */
+			*(long *)(uintptr_t)(tail + 58) = 0;
+			it[50] = 0; it[43] = 77; it[42] = 1; it[41] = 39;
+			it[54] = 0; it[55] = 0; it[56] = 0;
+			it[53] = 1; it[40] = 73; it[51] = 0;
+		} else {                                       /* walk to the bundle tail */
+			tail = item_l;
+			for (cnt19 = 1; cnt19 <= it[53]; cnt19++)
+				tail = *(long *)(uintptr_t)(tail + 58);
+			*(long *)(uintptr_t)(tail + 58) = 0;
+		}
+
+		node = *(long *)(uintptr_t)(g_a5_long(-27932) + 8);
+		while (node != 0 && it[53] < 10) {
+			unsigned char *n = (unsigned char *)(uintptr_t)node;
+			next = *(long *)(uintptr_t)node;
+			if (node != item_l
+			    && ((n[40] == 73 && n[53] < 10 && (it[53] + n[53]) <= 10)
+			        || n[40] == 39 || n[40] == 40)) {
+				jt477((void *)&g_a5_byte(-21508), 62,
+				      (void *)(uintptr_t)(tail + 58));
+				tail = *(long *)(uintptr_t)(tail + 58);
+				if (n[40] == 73) {                 /* splice a bundle's sub-items */
+					jt406((void *)(uintptr_t)tail,
+					      (const void *)(uintptr_t)*(long *)(uintptr_t)(node + 58), 62);
+					*(unsigned short *)(it + 46) = (unsigned short)
+					    (*(unsigned short *)(it + 46) + *(unsigned short *)(n + 46));
+					it[53] = (unsigned char)(it[53] + n[53]);
+					for (cnt19 = 1; cnt19 <= (unsigned char)(n[53] - 1); cnt19++)
+						tail = *(long *)(uintptr_t)(tail + 58);
+				} else {                           /* a single scroll */
+					jt406((void *)(uintptr_t)tail,
+					      (const void *)(uintptr_t)node, 62);
+					it[53] = (unsigned char)(it[53] + 1);
+					*(unsigned short *)(it + 46) = (unsigned short)
+					    (*(unsigned short *)(it + 46)
+					     + *(unsigned short *)(uintptr_t)(tail + 46));
+					*(long *)(uintptr_t)(tail + 58) = 0;
+				}
+				it[42] = it[53];
+				*(unsigned short *)(it + 44) = it[53];
+				*(long *)(uintptr_t)(node + 58) = 0;
+				jt30(g_a5_long(-27932), node);
+			}
+			node = next;
+		}
+		return;
+	}
+
+	/* ===== generic stack join (L3970) ===== */
+	if (it[53] == 0) {
+		jt42(ua_strs_at(0x5c58));                      /* "That cannot be joined with other items." */
+		return;
+	}
+	cnt17 = it[53];                                        /* running count */
+	for (node = *(long *)(uintptr_t)(g_a5_long(-27932) + 8);
+	     node != 0; node = next) {
+		unsigned char *acc = (unsigned char *)(uintptr_t)cur_item;
+		unsigned char *n   = (unsigned char *)(uintptr_t)node;
+		next = *(long *)(uintptr_t)node;
+		if (node == cur_item || n[53] == 0)
+			continue;
+		if (n[41] != acc[41] || n[42] != acc[42] || n[43] != acc[43]
+		    || n[51] != acc[51] || n[40] != acc[40] || n[48] != acc[48]
+		    || n[49] != acc[49] || n[52] != acc[52]
+		    || *(unsigned short *)(n + 44) != *(unsigned short *)(acc + 44)
+		    || n[54] != acc[54] || n[54] >= 2
+		    || n[55] != acc[55] || n[56] != acc[56])
+			continue;
+		if ((cnt17 + n[53]) <= 255) {
+			cnt17 = (unsigned char)(cnt17 + n[53]);
+			jt30(g_a5_long(-27932), node);
+		} else {                                       /* overflow: cap + spill */
+			short give = (short)(255 - cnt17);
+			acc[53] = 0xFF;
+			n[53] = (unsigned char)(n[53] - give);
+			cnt17 = n[53];
+			cur_item = node;
+			jt28(g_a5_long(-27932), node, 0, 0, 0, 0);
+		}
+	}
+	((unsigned char *)(uintptr_t)cur_item)[53] = cnt17;
+}
 
 /* JT[186] (CODE 7 + 0x3aba) — give a copy of `item` to the active character
  * (-27932). Bundle-count overflow guard (kind 73 + jt903 > 120 -> "Too many
@@ -64344,7 +64496,9 @@ static void l32c4(long item)
 	memcpy(nn, it, 62);                                  /* L332a inline clone */
 
 	if (half == 1) {                                    /* L333c */
-		jt406((void *)(uintptr_t)*(long *)(nn + 58), nn, (short)62);
+		/* collapse the lone sub-item up over the clone header
+		 * (Mac copies *(nn+58) -> nn; port jt406 is dst,src) */
+		jt406(nn, (const void *)(uintptr_t)*(long *)(nn + 58), (short)62);
 	} else {                                            /* L335a */
 		nn[53] = half;
 		*(unsigned short *)(nn + 44) = half;
@@ -64366,15 +64520,17 @@ static void l32c4(long item)
 	*(long *)nn = *(long *)it;                           /* clone->next = item->next */
 
 	if (rem == 1) {                                     /* L33dc — original collapses */
+		/* collapse the original bundle back to its lone sub-item
+		 * (Mac copies the sub-node -> it; port jt406 is dst,src) */
 		if (half == 1)                              /* L33e8 */
-			jt406((void *)(uintptr_t)*(long *)(uintptr_t)
+			jt406(it, (const void *)(uintptr_t)*(long *)(uintptr_t)
 			          (*(long *)(uintptr_t)(it + 58) + 58),
-			      it, (short)62);
+			      (short)62);
 		else                                        /* L3408 */
-			jt406((void *)(uintptr_t)*(long *)(uintptr_t)
+			jt406(it, (const void *)(uintptr_t)*(long *)(uintptr_t)
 			          (*(long *)(uintptr_t)
 			              (*(long *)(uintptr_t)(it + 58) + 58) + 58),
-			      it, (short)62);
+			      (short)62);
 		*(long *)(it + 58) = 0;                      /* L3428 */
 	} else {                                            /* L3434 */
 		it[53] = rem;
