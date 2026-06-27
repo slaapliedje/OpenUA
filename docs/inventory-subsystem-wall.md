@@ -141,11 +141,20 @@ arg1->arg2 per the L57f8 core; port jt406(dst,src) is arg-swapped, so Mac
 jt406(A,B) -> port jt406(B,A)). JT406 DIRECTION LESSON: always map Mac
 jt406(last-pushed, 2nd-to-last) -> port jt406(dst=2nd-to-last, src=last).
 
-REMAINING 1 ARM (its own focused session):
-  - l3b6e "Use" (case 1, CODE 19+0x3b6e, ~305 insns) — COMBAT-COUPLED + its own
-    JT[1] sparse dispatch @ 0x3dae (decode with tools/jt1_extract --jsr-at 0x3dae).
-    Deps lifted: jt599/jt40/jt870/jt18/jt595. MISSING DEP: jt496 (CODE 13+0x276c)
-    — must lift jt496 first. A combat sub-campaign, not a plain inventory arm.
+ARM 7 (Use, case 1): l3b6e ✓ LIFTED 2026-06-27 (8ec4367) + its lone missing dep
+jt496 (CODE 13+0x276c, the in-combat map refresh: jt77/jt527/jt521). l3b6e's JT[1]
+@ 0x3dae effect-index remap (57->0x7f, 59-65->0x80-0x86, 95/97/99->0x87-0x89)
+decoded with tools/jt1_extract. Special-item usability roll matches the asm
+exactly (fumble when jt40(6)<=9 OR 1d100>75; jt40(6) always evaluated, jt870
+short-circuited).
+
+*** ALL 7 jt893 ITEM ARMS COMPLETE (2026-06-27) ***
+  Ready/examine = jt882 (wired) | Use = l3b6e | Trade = l3228 (+l4c9a) |
+  Halve = l32c4 | Join = jt889/l35a0 (+l3540_c19) | Sell = jt189 | Identify = jt190.
+The full Items browser (jt893 dispatcher + all arms + both inline drop/give arms
++ l23d2_c19 gate) is now lifted. It runs IN-GAME (camp jt185 / combat); the
+Training-Hall View-Character route stays a no-op pending the rec[64] transient-
+pointer clear-on-load (see CONTEXT TRAP above) — the only remaining inventory item.
 ALSO PENDING: clear rec[64] (and sibling transient ptrs) on char load to safely
 re-wire jt904 case 0 -> jt893 for the Hall (see CONTEXT TRAP above).
 
