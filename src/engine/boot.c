@@ -31255,7 +31255,181 @@ static short l3f16(const char *s, char *out)
 }
 
 static signed char l25ce(unsigned char *p)           { PROBE("L25ce"); if (p) *p = 1; return 0; }
-static void   l4334(void)                            { PROBE("L4334"); }
+static char  *jt59(short value);                              /* CODE 6+0x60d4 (below) */
+static long   jt891(long maxval, const char *prompt, short width);   /* CODE 19+0x3fd2 (= L3fd2, below) */
+static short  jt901(long member_l);                          /* CODE 19+0x422a (= L422a, below) */
+static void   jt897(long rec, short amount);                 /* CODE 19+0x420e (= L420e, below) */
+static void   jt883(unsigned char *rec, short delta);        /* CODE 19+0x4248 (= L4248, below) */
+static void   jt66(void);                                    /* CODE 6+0x6048 (below) */
+static void   l596a(const char *prompt, short flag1, short flag2, long *member_io);  /* CODE 19+0x596a (below) */
+
+/* L4264 (CODE 19 + 0x4264) — move `amount` coins of type `coinType` from the
+ * source character *src_pp to the dest character *dst_pp (both args point at the
+ * A5 slot holding the record pointer).  Guards the dest's carry capacity first:
+ * if the dest's max load (jt901, low word) is below its current encumbrance
+ * rec[86] + amount it shows the "Overloaded" modal (jt42/jt102/jt66) and aborts.
+ * Otherwise deducts the coins from the source slot rec[76+coinType*2] and its
+ * weight (jt897), then credits the dest slot and weight (jt883).  Helper for the
+ * Trade handler (l4334). */
+static void l4264(long *src_pp, long *dst_pp, long amount, short coinType)
+{
+	unsigned char *dst = (unsigned char *)(uintptr_t)*dst_pp;   /* recipient */
+	unsigned char *src;
+	long           new_weight;
+
+	PROBE("L4264");
+
+	new_weight = (long)*(unsigned short *)(dst + 86) + amount;
+	if ((long)(unsigned short)jt901(*dst_pp) < new_weight) {
+		jt42(ua_strs_at(0x5cd4));                  /* "Overloaded" */
+		jt102();
+		jt66();
+		return;
+	}
+
+	src = (unsigned char *)(uintptr_t)*src_pp;
+	*(unsigned short *)(src + 76 + (long)coinType * 2) =
+	    (unsigned short)(*(unsigned short *)(src + 76 + (long)coinType * 2) - amount);
+	jt897(*src_pp, (short)amount);
+
+	*(unsigned short *)(dst + 76 + (long)coinType * 2) =
+	    (unsigned short)(*(unsigned short *)(dst + 76 + (long)coinType * 2) + amount);
+	jt883(dst, (short)amount);
+}
+
+/* L4334 (CODE 19 + 0x4334) — the TRADE handler off the View-character popup
+ * (jt904 case 2).  Outer loop: pick a recipient party member (l596a, prompt
+ * g_a5_-14360); cancel exits.  Inner loop: build the active character's coin
+ * rows (same "name<pad>amount" list as l46e0 — jt477 node from -21156, jt59
+ * number, an 18-column pad loop via jt423 widths, jt488 "%s%s%s") and run the
+ * jt179/jt169 list dialog (trade geometry 20/9/38/15).  On a pick, re-derive the
+ * coin type (l3f16) and compose "<g_a5_-14388><type ><g_a5_-14356>" (jt488
+ * "%s%s%s"), read the capped amount (jt891) and transfer it to the recipient
+ * (l4264).  Repeats the coin list while money remains; a coin-list cancel backs
+ * out to the partner pick.  Sets g_a5_-27936 to the chosen partner so the sheet
+ * paints (jt23/l1276/l19ac).  Sibling structure of l46e0. */
+static void l4334(void)
+{
+	signed char    i;                /* fp@(-5)  coin-slot / recheck index */
+	unsigned char  coinType;         /* fp@(-6)  l3f16 result              */
+	unsigned char  j;                /* fp@(-7)  space-pad counter         */
+	unsigned char  numSpaces;        /* fp@(-8)  18 - namelen - amtlen     */
+	long           partner;          /* fp@(-4)  trade-partner record ptr  */
+	long           head, prev, freelist, sel_node;   /* fp@(-12/-16/-20)  */
+	short          nmoney;           /* fp@(-22) rows built (vestigial)    */
+	short          selidx;           /* fp@(-24) jt169 initial/picked idx  */
+	unsigned char  key;              /* fp@(-115) jt169 return key         */
+	short          amount_in;        /* fp@(-118) jt891 result             */
+	unsigned char  outer_done;       /* fp@(-119) partner loop             */
+	unsigned char  inner_done;       /* fp@(-120) coin-list loop           */
+	unsigned char  flag;             /* fp@(-121) jt169 in/out             */
+	char           money[24];        /* fp@(-48)  amount as text           */
+	char           spaces[24];       /* fp@(-72)  pad run                  */
+	char           prompt[64];       /* fp@(-114) coin prefix then prompt  */
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+
+	PROBE("L4334");
+
+	/* The Mac leaves fp@(-119) uninitialised; the loop structure intends 0 so
+	 * a coin-list cancel backs out to the partner pick rather than exiting. */
+	outer_done = 0;
+
+	do {                                            /* L4338: pick partner */
+		partner = g_a5_long(-27936);
+		jt23();
+		l596a((const char *)(uintptr_t)g_a5_long(-14360),
+		      (short)1, (short)1, &partner);
+		if (partner == 0) {                         /* cancel → exit */
+			outer_done = 1;
+			break;
+		}
+
+		l1276();                                    /* repaint the sheet */
+
+		do {                                        /* L436e: show coin list */
+			l19ac();
+			g_a5_long(-27936) = partner;
+
+			head = 0; prev = 0; freelist = 0; nmoney = 0;
+			for (i = 2; i >= 0; i--) {              /* coin slots 2..0 */
+				short amt = *(short *)(rec + 76 + (long)i * 2);
+				const char *name;
+				short namelen, amtlen;
+
+				if (amt == 0)
+					continue;
+				nmoney++;
+
+				prev = head;
+				jt477((void *)(uintptr_t)g_a5_21156, (short)40, &head);
+				if (head == 0) {                /* PORT-SAFETY: bucket full */
+					head = prev;
+					continue;
+				}
+				*(long *)(uintptr_t)head = prev;
+
+				jt384(money, jt59(amt));
+				name    = (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4);
+				namelen = jt423(name);
+				amtlen  = jt423(money);
+				numSpaces = (unsigned char)(18 - namelen - amtlen);
+				jt384(spaces, ua_strs_at(0x5ce0));          /* "" */
+				for (j = 1; j <= numSpaces; j++)
+					jt384(spaces, jt488(ua_strs_at(0x5ce2), spaces));  /* "%s " */
+				jt384((char *)(uintptr_t)(head + 5),
+				      jt488(ua_strs_at(0x5ce6), name, spaces, money));  /* "%s%s%s" */
+				*(unsigned char *)(uintptr_t)(head + 4) = 0;
+			}
+
+			freelist = head;
+			selidx   = 0;
+			flag     = 1;
+			jt179((short)1);
+
+			sel_node = head;                /* jt169 overwrites with the pick */
+			key = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
+			                           (short)20, (short)9, (short)38, (short)15,
+			                           head, (short)1, (short)1,
+			                           &flag, &selidx, &sel_node);
+			if (key == 1 || (g_a5_byte(-24139) != 0 && key == 27))
+				sel_node = 0;
+
+			if (sel_node == 0) {
+				inner_done = 1;             /* cancel → back to partner pick */
+			} else {
+				short avail;
+
+				jt384(prompt, ua_strs_at(0x5cee));          /* "" */
+				coinType = (unsigned char)l3f16(
+				    (const char *)(uintptr_t)(sel_node + 5), prompt);
+				jt384(prompt, jt488(ua_strs_at(0x5cf0),     /* "%s%s%s" */
+				      (const char *)(uintptr_t)g_a5_long(-14388),
+				      prompt,
+				      (const char *)(uintptr_t)g_a5_long(-14356)));
+
+				avail = *(short *)(rec + 76 + (long)coinType * 2);
+				amount_in = (short)jt891((long)(unsigned short)avail,
+				                         prompt, (short)7);
+				l4264(&g_a5_long(-27932), &partner,
+				      (long)(unsigned short)amount_in, (short)coinType);
+
+				/* keep looping while the active char still holds money */
+				inner_done = 1;
+				outer_done = 1;
+				for (i = 0; i <= 2; i++)
+					if (*(short *)(rec + 76 + (long)i * 2) != 0) {
+						inner_done = 0;
+						outer_done = 0;
+					}
+			}
+
+			if (freelist)
+				jt147(&freelist);
+		} while (!inner_done);
+	} while (!outer_done);
+
+	(void)nmoney; (void)selidx;
+}
 static char  *jt59(short value);                     /* CODE 6+0x60d4 (defined far below) */
 static long   jt891(long maxval, const char *prompt, short width);  /* CODE 19+0x3fd2 (= L3fd2, below) */
 static void   l465c(long member_l, long amount, short type);        /* CODE 19+0x465c (below) */

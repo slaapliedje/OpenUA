@@ -95,7 +95,15 @@ of the party-pool jt924 (works -25314 instead of rec[76+]). WIRING was already
 faithful: jt904 JT[3]@0x2326 sends BOTH case 3 (Deposit) and case 4 (Drop) to
 L236a = l46e0(1); l19ac() — l46e0 picks deposit-vs-drop text internally, so the
 existing `case 3: case 4: l46e0((short)1); l19ac();` matches the asm verbatim.
-NEXT handlers: l4334 Trade (+l596a✓ +l4264 MISSING) -> l25ce Items (+l35a0 MISSING).
+l4334 (Trade) + l4264 ✓ LIFTED 2026-06-26 (boot.c ~31259). l4264(src_pp,dst_pp,
+amount,coinType): capacity-guards the recipient (jt901 low word vs rec[86]+amt ->
+"Overloaded" jt42/jt102/jt66), then deducts src rec[76+type*2]+weight (jt897) and
+credits dst+weight (jt883). l4334 outer-loops a partner pick (l596a, prompt
+-14360), inner-loops the active char's coin list (same build as l46e0 but jt423
+widths + -14388/-14356 prompt fragments + l4264 transfer to &partner). Coin-list
+cancel backs out to partner pick (fp@-119 outer / fp@-120 inner done flags; Mac
+left -119 uninit, loop intends 0). jt904 case 2 already dispatches l4334().
+NEXT handler: l25ce Items browser (558 insns + sub-menu JT[3]@0x28f8; +l35a0 ~1.5KB MISSING).
 
 LIFT ORDER (cheapest-first per the map): l596a -> l4f2c Lay -> l4ff6 Cure ->
 l46e0 Drop/Deposit (+l3f16/l3fd2) -> l4334 Trade (+l4264) -> l25ce Items (+l35a0).
