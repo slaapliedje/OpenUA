@@ -23564,6 +23564,87 @@ static short l0264_c7(short a, short b, short mode_w, long ldesc_l)
 	return retval;
 }
 
+/* L0e92 (CODE 7 + 0x0e92) — paint/select one cell of a jt169 list.  Clamps
+ * `row` to [0, total-1]; if it falls outside the visible window, defers to the
+ * scroll engine (l0264_c7).  Otherwise it un-highlights the previously selected
+ * cell (colour 7), highlights `row` (colour 11), records it as the new
+ * selection (desc[12]) and fires the optional highlight callback (desc[24]).
+ * Returns -1 if the cell's getter flagged a stop, 1 if `row` is/becomes the
+ * selection, 0 otherwise (or the scroll engine's result).  `flag_w`'s low byte
+ * forces the redraw even when `row` is already the selection.  The scroll paths
+ * and the redraw path run the highlight-callback tail (asm braw L1098); the
+ * stop-flag and already-selected paths bypass it (asm braw L10c0).
+ * Groundwork for the faithful jt169 List Manager lift (#146); unused until
+ * jt169 is replaced. */
+static short l0e92(short row, short flag_w, long ldesc_l) __attribute__((unused));
+static short l0e92(short row, short flag_w, long ldesc_l)
+{
+	unsigned char *d = (unsigned char *)(uintptr_t)ldesc_l;
+	char *(*cb)(short, unsigned char *) =
+	    *(char *(**)(short, unsigned char *))(d + 16);
+	void (*hl)(short);
+	short cur_sel = *(short *)(uintptr_t)(d + 12);
+	short top_row = *(short *)(uintptr_t)(d + 10);
+	short field4  = *(short *)(uintptr_t)(d + 4);
+	short xbase   = (short)(*(short *)(uintptr_t)(d + 0) + 8000);
+	short ybase   = (short)(*(short *)(uintptr_t)(d + 2) + 8000);
+	short total   = l021a(ldesc_l);
+	short ret = 0, cellX, yc, xc;
+	unsigned char cbflag = 0;
+	char *text;
+
+	PROBE("L0e92");
+
+	row = jt397(0, jt413((short)(total - 1), row));
+
+	if (row < top_row) {                          /* above the window */
+		ret = l0264_c7(row, row, 0, ldesc_l);
+		goto tail;
+	}
+	if ((short)(top_row + field4) <= row) {       /* below the window */
+		ret = l0264_c7((short)(row - field4 + 1), row, 0, ldesc_l);
+		goto tail;
+	}
+
+	/* row is on-screen */
+	text = cb(row, &cbflag);
+	if (cbflag)
+		return -1;
+
+	ret = (row == cur_sel) ? 1 : 0;
+	if ((flag_w & 0xff) == 0 && ret != 0) {
+		/* already selected and not forced: re-assert highlight only */
+		hl = *(void (**)(short))(d + 24);
+		if (hl)
+			hl(*(short *)(uintptr_t)(d + 12));
+		return 1;
+	}
+
+	/* un-highlight the previously selected cell if it is on-screen */
+	if (cur_sel >= top_row && (short)(cur_sel - top_row) < field4 &&
+	    cur_sel < total) {
+		cellX = (short)(xbase + (cur_sel - top_row) * 4);
+		yc = (short)((ybase - 8000) >> 2);
+		xc = (short)((cellX - 8000) >> 2);
+		jt94(yc, xc, 7, 8, "%s", cb(cur_sel, &cbflag));
+	}
+
+	/* highlight the new row and record the selection */
+	cellX = (short)(xbase + (row - top_row) * 4);
+	yc = (short)((ybase - 8000) >> 2);
+	xc = (short)((cellX - 8000) >> 2);
+	jt94(yc, xc, 11, 8, "%s", text);
+	*(short *)(uintptr_t)(d + 12) = row;
+
+tail:
+	if (ret >= 0) {
+		hl = *(void (**)(short))(d + 24);
+		if (hl)
+			hl(*(short *)(uintptr_t)(d + 12));
+	}
+	return ret;
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
