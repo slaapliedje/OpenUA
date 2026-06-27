@@ -16796,7 +16796,7 @@ void port_test_seed_design(void)
  *   0           end of stream
  *   1..7        allocate a new DLItem; method from g_a5_9282[shape-1];
  *               each shape consumes type-specific arg shape:
- *                 1,3,4,6,8 → 2 shorts (rec[16], rec[18]) + 1 long (rec[12])
+ *                 1,3,4,6   → 2 shorts (rec[16], rec[18]) + 1 long (rec[12])
  *                 2         → 1 short (rec[22])
  *                 5         → 4 shorts (rec[16], [18], [22], [24])
  *                 7         → 1 long (rec[4])
@@ -16867,10 +16867,16 @@ static void jt452(long shape0, ...)
 			g_a5_9250++;
 
 			/* Method ptr: shape 8 = caller-supplied raw long;
-			 * shapes 1..7 = g_a5_-9282 handler table. */
+			 * shapes 1..7 = g_a5_-9282 handler table.  Shape 8
+			 * consumes ONLY the method long — the Mac JT[452]
+			 * (L2a72) jumps straight back to the stream loop after
+			 * storing it, so it does NOT read rec[16]/[18]/[12].
+			 * Shapes 1..7 fall through to the field consumption. */
 			if (cmd == 8) {
 				*(long *)rec = va_arg(ap, long);
-			} else {
+				break;
+			}
+			{
 				short idx = (short)(cmd - 1);
 
 				if (idx < 0 || idx >= 7)
