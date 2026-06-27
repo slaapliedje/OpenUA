@@ -24082,6 +24082,87 @@ static short l5c26(long slot_l, short p12, short p14, short p16, short p18)
 	return tracking;
 }
 
+/* L5ea0 (CODE 3 + 0x5ea0) — the scroll-bar thumb-drag handler.  Builds the drag
+ * bounding box and the track-pixel range with jt1135 (different geometry for a
+ * horizontal vs vertical bar), then loops polling the mouse (l31b8): while the
+ * cursor stays in the box the thumb follows it (clamped to the track via
+ * jt413/jt397, redrawn with l59e4); outside the box it snaps back to the start.
+ * On release, if the thumb moved it converts the final pixel to a value
+ *   round((range-1)*(pix-lo) / (hi-lo))                  [jt4/jt7]
+ * stores it through slot[8], fires the action callback slot[4], snaps the thumb
+ * to the rounded value and returns 1; returns 0 if nothing moved.  Last leaf of
+ * the jt424 scroll-bar sub-tree; unused until jt424/jt169 land. */
+static short l5ea0(long slot_l, short p12) __attribute__((unused));
+static short l5ea0(long slot_l, short p12)
+{
+	unsigned char *s = (unsigned char *)(uintptr_t)slot_l;
+	short Ay = 0, Ax = 0, By = 0, Bx = 0;     /* drag box corners */
+	short track_lo = 0, track_hi = 0, scratch = 0;
+	short pix = 0, old_pix, saved_pix;
+	short my = 0, mx = 0;
+	signed char held;
+	short *valp;
+	short s16 = *(short *)(uintptr_t)(s + 16);
+	short s18 = *(short *)(uintptr_t)(s + 18);
+	short s22 = *(short *)(uintptr_t)(s + 22);
+
+	PROBE("L5ea0");
+
+	if (s[28] & 0x40) {                        /* horizontal */
+		jt1135((short)(s16 - 8), (short)(s18 - 20), &Ay, &Ax);
+		jt1135((short)(s16 + 14), (short)(s18 + s22 + 20), &By, &Bx);
+		jt1135(0, s18, &scratch, &track_lo);
+		jt1135(0, (short)(s18 + s22), &scratch, &track_hi);
+		jt1135(s16, 0, &scratch, &pix);
+	} else {                                   /* vertical */
+		jt1135((short)(s16 - 20), (short)(s18 - 6), &Ay, &Ax);
+		jt1135((short)(s16 + s22 + 20), (short)(s18 + 10), &By, &Bx);
+		jt1135(s16, 0, &track_lo, &scratch);
+		jt1135((short)(s16 + s22), 0, &track_hi, &scratch);
+	}
+
+	valp = *(short **)(uintptr_t)(s + 8);
+	old_pix = saved_pix = l58fc(slot_l, *valp);
+
+	do {
+		held = (signed char)l31b8(&my, &mx);
+		if (my < Ay || my >= By || mx < Ax || mx >= Bx) {
+			pix = saved_pix;                  /* outside: snap back */
+		} else {
+			short m = (s[28] & 0x40) ? mx : my;
+			pix = jt397(track_lo,
+			            jt413(track_hi, (short)(m + p12)));
+		}
+		if (pix != old_pix) {
+			l59e4(slot_l, old_pix, pix);
+			old_pix = pix;
+		}
+	} while (held == 0);
+
+	if (pix == saved_pix)
+		return 0;
+
+	{
+		short tlen = (short)(track_hi - track_lo);
+		long  t = jt4((long)(*(short *)(uintptr_t)(s + 24) - 1),
+		              (long)(short)(pix - track_lo));
+		t += (long)(short)(tlen >> 1);
+		t = jt7(t, (long)tlen);
+		*valp = (short)t;
+		if (*(long *)(uintptr_t)(s + 4) != 0) {
+			short itemIndex =
+			    (short)(((long)slot_l - g_a5_9254) >> 5);
+			void (*action)(short, short) =
+			    *(void (**)(short, short))(uintptr_t)(s + 4);
+			action(itemIndex, 0);
+		}
+		old_pix = l58fc(slot_l, *valp);
+		if (old_pix != pix)
+			l59e4(slot_l, pix, old_pix);
+	}
+	return 1;
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
