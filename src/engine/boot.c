@@ -23679,6 +23679,83 @@ static short l10c4_c7(short delta, long ldesc_l)
 	return (short)(saved_sel == *(short *)(uintptr_t)(d + 12) ? 1 : 0);
 }
 
+/* JT[222] (CODE 7 + 0x09ea) — the jt169 list's keyboard handler, installed as a
+ * DLItem method by L0c82 (via jt452).  First it drains any queued auto-repeat
+ * scroll events (338/339 -> jt50/jt51, fetched with jt1133 while jt1118 reports
+ * more pending), then dispatches the final key against the current list
+ * descriptor (-13022) by moving the selection with l10c4_c7:
+ *   338 -> jt50, 339 -> jt51                (scroll-arrow repeat; return 0)
+ *   263/264 -> line up   (wrap to last row when already at the top)
+ *   260/261 -> line down (wrap to row 0 when already at the bottom)
+ *   257     -> page up   (to top of page, then a full page)
+ *   259     -> page down (to bottom of page, then a full page)
+ * Returns 1 if it handled the key, 0 otherwise.  The DLItem dispatch ABI is
+ * (itemNo, key); jt222 uses only the key.  Part of the faithful jt169 List
+ * Manager lift (#146); unused until jt169 is replaced. */
+static int jt222(short item, short key) __attribute__((unused));
+static int jt222(short item, short key)
+{
+	long  ld = g_a5_long(-13022);
+	unsigned char *d = (unsigned char *)(uintptr_t)ld;
+	short total, n;
+
+	PROBE("jt222");
+	(void)item;
+
+	/* drain queued auto-repeat scroll events, then take the final key */
+	while (jt1118()) {
+		if (key == 338)
+			jt50();
+		else if (key == 339)
+			jt51();
+		key = jt1133();
+	}
+
+	switch (key) {
+	case 338:
+		jt50();
+		return 0;
+	case 339:
+		jt51();
+		return 0;
+	case 263:
+	case 264:                                  /* line up (wrap at top) */
+		n = *(short *)(uintptr_t)(d + 10);     /* top_row, saved first */
+		if (l10c4_c7(-1, ld) != 0 && n == 0) {
+			total = l021a(ld);
+			l10c4_c7((short)(total - 1), ld);
+		}
+		return 1;
+	case 260:
+	case 261:                                  /* line down (wrap at bottom) */
+		if (l10c4_c7(1, ld) != 0)
+			l10c4_c7((short)(-*(short *)(uintptr_t)(d + 12)), ld);
+		return 1;
+	case 257:                                  /* page up */
+		if (*(short *)(uintptr_t)(d + 12) ==
+		    *(short *)(uintptr_t)(d + 10))
+			n = (short)(*(short *)(uintptr_t)(d + 4) - 1);
+		else
+			n = (short)(*(short *)(uintptr_t)(d + 12) -
+			            *(short *)(uintptr_t)(d + 10));
+		l10c4_c7((short)(-n), ld);
+		return 1;
+	case 259:                                  /* page down */
+		if ((short)(*(short *)(uintptr_t)(d + 10) +
+		            *(short *)(uintptr_t)(d + 4) - 1) ==
+		    *(short *)(uintptr_t)(d + 12))
+			n = (short)(*(short *)(uintptr_t)(d + 4) - 1);
+		else
+			n = (short)(*(short *)(uintptr_t)(d + 10) +
+			            *(short *)(uintptr_t)(d + 4) - 1 -
+			            *(short *)(uintptr_t)(d + 12));
+		l10c4_c7(n, ld);
+		return 1;
+	default:
+		return 0;
+	}
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
