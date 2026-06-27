@@ -18145,7 +18145,15 @@ static void l6cba(EventRecord *ev)
 	PROBE("L6cba");
 	if (ev == NULL)
 		return;
-	if ((long)(uintptr_t)FrontWindow() != g_a5_long(-2578))
+	/* The Mac guards "is this mouseUp in our window?" against -2578, the
+	 * engine's single window (set when it NewCWindow's the play screen,
+	 * CODE 4 +0x48da).  The port renders the play screen directly and never
+	 * records -2578, so when it is unset accept the event — otherwise this
+	 * drops EVERY mouseUp and the DLItem track loops (jt223/l1676 -> l31b8)
+	 * never see the release and spin forever.  When -2578 IS set the
+	 * faithful guard still applies. */
+	if (g_a5_long(-2578) != 0
+	 && (long)(uintptr_t)FrontWindow() != g_a5_long(-2578))
 		return;
 
 	v = ev->where.v;
@@ -66210,17 +66218,14 @@ static void jt893(unsigned char *out)
 			g_a5_byte(-25256) = 0;
 		}
 
-		/* L287a — run the list dialog.  REVERTED to the reimplementation
-		 * (#146): the faithful jt169 drives the item list + nav fine, but
-		 * the inventory also needs its bottom command strip (RDY/USE/...),
-		 * which is built by l206e->l1bfe whose renderer L1aea + row
-		 * callbacks jt138/jt139 are still PROBE stubs — so the command
-		 * verbs never register their keys in -24126 and clicking a command
-		 * drops into an un-terminated mouse-track (jt223/l31b8) freeze.
-		 * Re-route here once the command-row subsystem is lifted. */
+		/* L287a — run the list dialog (faithful jt169).  Re-enabled after
+		 * the DLItem click-input fix (l6cba -2578 guard): the mouse-track
+		 * loops now see the release so clicking no longer freezes.  The
+		 * command strip (l1aea) is already faithful; verb dispatch via the
+		 * -24126 table remains to be confirmed live (#146). */
 		g_a5_byte(-24140) = f22;
 		tmp = item;
-		choice = (unsigned char)jt169(g_a5_long(-13952), g_a5_long(-13800),
+		choice = (unsigned char)jt169_faithful(g_a5_long(-13952), g_a5_long(-13800),
 		                              1, 5, 38, 22, *(long *)(chr + 8),
 		                              1, 8, &redraw, &sel, &tmp);
 		item = tmp;
