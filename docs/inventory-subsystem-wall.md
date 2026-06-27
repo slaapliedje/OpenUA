@@ -106,13 +106,23 @@ left -119 uninit, loop intends 0). jt904 case 2 already dispatches l4334().
 l25ce / JT[893] Items browser — DISPATCHER ALREADY LIFTED (prior session, boot.c
 jt893 ~64308): the full 558-insn browse/menu(l11a8)/jt169-dialog/JT[3]@0x28f8
 loop + BOTH inline arms (case 3 drop-into-vault, case 4 trade/give) + the
-l23d2_c19 "may this item be parted with?" gate. WIRED 2026-06-26: jt904 case 0
-now calls jt893 (was the dead l25ce stub, removed); jt185 vault + the other path
-already called it. So Items now DISPLAYS the inventory + verb menu, and Drop +
-Trade-give work. REMAINING = the 7 per-arm sub-helpers, each its own commit (all
-PROBE stubs today): l30bc examine, l3b6e ready/unready, l3228 use (+l4c9a MISSING),
+l23d2_c19 "may this item be parted with?" gate. The 7 per-arm sub-helpers are
+PROBE stubs: l30bc examine, l3b6e ready/unready, l3228 use (+l4c9a MISSING),
 l32c4 halve/split (~634B), jt889=L35a0 join bundle (~1.5KB), jt189 sell (CODE7),
-jt190 identify (CODE7). NEXT: lift these arms cheapest-first.
+jt190 identify (CODE7).
+
+CONTEXT TRAP (2026-06-26): jt893 is IN-GAME ONLY. Its two real callers are camp
+(jt185 case 4) and combat (case 2) — contexts with an active area. Wiring it to
+the Training-Hall View-Character popup (jt904 case 0) BUS-ERRORED: the menu-build
+"Ready" arm does `p = *(long*)(rec+64); if (p[2])` and rec[64] is a TRANSIENT
+in-combat pointer that's stale (garbage, non-NULL) for a Hall char freshly loaded
+from a save — reached because BARBARUS has a readied weapon (rec[382]!=0) and the
+mode (-27990) is 0 in the Hall. (-28006 is NOT the culprit; it's a boot-allocated
+1024B header.) REVERTED jt904 case 0 to the safe l25ce no-op stub. To offer Items
+faithfully from the Hall, the char load must CLEAR the transient record pointers
+(rec[64] and friends — same class as the rec[12]/16/20 stale-ptr fix), OR confirm
+the Mac's Hall popup omits Items. The in-game Items browser (camp/combat) is fine.
+NEXT: lift the 7 arms cheapest-first AND clear rec[64] on load to re-enable Hall Items.
 
 LIFT ORDER (cheapest-first per the map): l596a -> l4f2c Lay -> l4ff6 Cure ->
 l46e0 Drop/Deposit (+l3f16/l3fd2) -> l4334 Trade (+l4264) -> l25ce Items (+l35a0).
