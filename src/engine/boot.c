@@ -23964,6 +23964,39 @@ static void l59e4(long slot_l, short p12, short p14)
 	}
 }
 
+/* L5b92 (CODE 3 + 0x5b92) — move a scroll-bar control to `target`.  Reads the
+ * control's live value through its value pointer slot[8], clamps it to
+ * [0, range-1] (range = slot[24]) writing the clamp back, and if it differs
+ * from `target` redraws the thumb from the current pixel to the target pixel
+ * (l58fc maps value->pixel, l59e4 repaints; target < 0 means "no new thumb").
+ * Part of the faithful jt169 scroll-bar lift (#146); unused until jt424/jt169
+ * land. */
+static void l5b92(long slot_l, short target) __attribute__((unused));
+static void l5b92(long slot_l, short target)
+{
+	unsigned char *s = (unsigned char *)(uintptr_t)slot_l;
+	short *valp = *(short **)(uintptr_t)(s + 8);
+	short cur = *valp;
+	short new_pix, cur_pix;
+
+	PROBE("L5b92");
+
+	if (cur >= *(short *)(uintptr_t)(s + 24)) {
+		cur = (short)(*(short *)(uintptr_t)(s + 24) - 1);
+		*valp = cur;
+	}
+	if (cur < 0) {
+		cur = 0;
+		*valp = 0;
+	}
+	if (cur == target)
+		return;
+
+	new_pix = (target >= 0) ? l58fc(slot_l, target) : -1;
+	cur_pix = l58fc(slot_l, cur);
+	l59e4(slot_l, new_pix, cur_pix);
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
