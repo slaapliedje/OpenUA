@@ -76,10 +76,14 @@ CORRECTIONS to the agent map (verified 2026-06-26):
   (boot.c, before the l25ce stub block; marked unused until l46e0/l4334 call it).
   JT[1] @ 0x3f58 decoded with tools/jt1_extract.
 
-SHARED-HELPERS lift status: l3fd2=jt891 ✓ (was already done), l3f16 ✓.
-NEXT shared helper = l596a (the picker) — has a JT[1] nav table @ 0x5a90 +
-deps jt153/jt162 (verify lifted vs stub) + jt937/jt179/jt163 (lifted). Then
-the handlers (l46e0 Drop, l4334 Trade, l25ce Items).
+SHARED-HELPERS lift status: l3fd2=jt891 ✓ (already done), l3f16 ✓, l596a ✓
+(2026-06-26). jt153/jt162 turned out REAL one-liners (set/get -13014), not
+stubs — the agent mislabeled them. l596a sig = l596a(prompt, flag1 cancellable,
+flag2->-24148, long *member_io); nav left/up=next(wrap head), down/right=prev
+(wrap tail), Return confirm, ESC cancel; loop key UNSIGNED (init 0xFF).
+Still MISSING: l4264 (Trade), l35a0 (~1.5KB Items-Join).
+NEXT = the handlers (now user-testable): l46e0 Drop/Deposit (deps l3f16✓/
+jt891✓ ready) -> l4334 Trade (+l596a✓ +l4264) -> l25ce Items (+l35a0).
 
 LIFT ORDER (cheapest-first per the map): l596a -> l4f2c Lay -> l4ff6 Cure ->
 l46e0 Drop/Deposit (+l3f16/l3fd2) -> l4334 Trade (+l4264) -> l25ce Items (+l35a0).
