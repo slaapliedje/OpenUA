@@ -31254,8 +31254,17 @@ static short l3f16(const char *s, char *out)
 	return ret;
 }
 
-/* L25ce / JT[893] (the Items browser) is lifted faithfully far below as jt893;
- * jt904 case 0 and jt185 dispatch to it directly. */
+/* L25ce / JT[893] (the Items browser) is lifted faithfully far below as jt893.
+ * It is an IN-GAME function: its menu-build dereferences transient record
+ * pointers (e.g. rec[64], the in-combat target) and in-game state (-25302
+ * vault list, etc.) that are only valid once a dungeon/area is active.  The
+ * in-game paths (camp jt185 case 4, combat case 2) dispatch to jt893 directly.
+ * The Training-Hall View-Character popup (jt904 case 0) must NOT route here yet
+ * — a Hall character is freshly loaded from a save with a stale rec[64], so the
+ * "Ready" arm's `*(rec+64)` deref bus-errors.  Until the transient fields are
+ * cleared on load (same class as the rec[12]/16/20 stale-pointer fix), case 0
+ * stays the safe no-op stub below. */
+static signed char l25ce(unsigned char *p) { PROBE("L25ce"); if (p) *p = 1; return 0; }
 static char  *jt59(short value);                              /* CODE 6+0x60d4 (below) */
 static long   jt891(long maxval, const char *prompt, short width);   /* CODE 19+0x3fd2 (= L3fd2, below) */
 static short  jt901(long member_l);                          /* CODE 19+0x422a (= L422a, below) */
@@ -60237,7 +60246,7 @@ static void jt904(unsigned char *out_done)
 		sel_key    = -1;
 
 		switch (last_key) {
-		case 0: jt893(out_done); break;          /* Items -> JT[893] / L25ce */
+		case 0: l25ce(out_done); break;          /* Items: in-game-only jt893; Hall = safe no-op (stale rec[64]) */
 		case 1: jt595((short)0, (short)0, &sel_key, &cond1); break;
 		case 2: l4334(); break;
 		case 3:
