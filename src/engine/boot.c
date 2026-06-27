@@ -23339,6 +23339,29 @@ static void jt169_pick(long head, short sel, short *idx, long *next)
 	}
 }
 
+/* L021a (CODE 7 + 0x021a) — count the rows in a jt169 list descriptor by driving
+ * its cell-getter callback (desc[16], e.g. jt143): call it with index 0 to seek
+ * the head, then index -1 to advance, counting until it returns NULL.  Groundwork
+ * for the faithful jt169 List Manager lift (#146); unused until l0c82/jt169 land. */
+static short l021a(long desc_l) __attribute__((unused));
+static short l021a(long desc_l)
+{
+	unsigned char *desc = (unsigned char *)(uintptr_t)desc_l;
+	char *(*cb)(short, unsigned char *);
+	void  *result;
+	unsigned char b;
+	short  count = 0;
+
+	PROBE("L021a");
+	cb = *(char *(**)(short, unsigned char *))(desc + 16);
+	result = cb(0, &b);
+	while (result != 0) {
+		result = cb(-1, &b);
+		count++;
+	}
+	return count;
+}
+
 /* JT[143] (CODE 7 + 0x3564) — the list-dialog cell-getter callback the real
  * jt169 (CODE 7+0x3600) installs.  Walks the -12660 list cursor (head -12664):
  * index>=0 reseeks from the head `index` nodes; index<0 advances one from the
