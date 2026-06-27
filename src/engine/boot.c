@@ -64450,8 +64450,135 @@ static void l3228(long item)
 	jt30(g_a5_long(-27932), item);                    /* remove from active char */
 	jt21(partner);
 }
-static void l3b6e(long item, unsigned char *out)                        /* L3b6e — ready/unready  */
-	{ PROBE("l3b6e"); (void)item; if (out) *out = 0; }
+/* JT[496] (CODE 13 + 0x276c) — refresh the area-map view after an in-combat
+ * item use: snapshot the port (jt77), repaint the field (jt527), then redraw the
+ * map window around the active cell (jt521 at -25318[2]+3, -25318[4]+3). */
+static void jt496(void)
+{
+	const unsigned char *p = (const unsigned char *)(uintptr_t)g_a5_long(-25318);
+
+	PROBE("jt496");
+	jt77();
+	jt527();
+	jt521((short)(*(const short *)(p + 2) + 3),
+	      (short)(*(const short *)(p + 4) + 3), (short)255, (short)8);
+}
+
+/* L3b6e (CODE 19 + 0x3b6e) — the USE-item arm (jt893 case 1).  Resolves the
+ * effect index for the item: a "special" item (jt638) picks from its scroll
+ * bundle (jt595 code 7) or its effect list (jt595 code 2); an ordinary charged
+ * item takes effect = item[55] & 0x7f when item[55]>0 and item[56]<128.  Index 0
+ * -> nothing (*out=0).  In combat (-27990==5) refreshes the map (jt496) when the
+ * char isn't already acting (chr[383]==0).  When using the item directly
+ * (-23230 path) it announces "uses an item" (jt18) and shows the item (jt28).
+ * Then applies the effect: a special item rolls usability (jt40 slots 5/0/6 + a
+ * 1d100<=75 fumble check -> "oops!"), an ordinary one remaps its effect index
+ * through the JT[1] table (57->0x7f, 59..65->0x80..0x86, 95/97/99->0x87..0x89)
+ * before jt599.  Marks combat-spent effects via jt498 (-16906[idx*16][11]), and
+ * on success consumes a charge: special -> jt661; ordinary -> decrement the
+ * stack (item[53]) or a charge (item[54]), removing the item (jt30) when spent. */
+static void l3b6e(long item, unsigned char *out)
+{
+	unsigned char *it     = (unsigned char *)(uintptr_t)item;
+	unsigned char *chr    = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	short          dummy  = -1;             /* fp@(-4) jt595 p1 */
+	unsigned char  p2     = 0;              /* fp@(-5) jt595 p2 */
+	unsigned char  eff;                     /* fp@(-1) effect index */
+
+	PROBE("l3b6e");
+	g_a5_byte(-23230) = 0;
+	eff = 0;
+
+	if (jt638(item) != 0) {                 /* special item */
+		g_a5_long(-24074) = item;
+		if (it[40] == 73)
+			eff = (unsigned char)jt595((short)7, (short)1, &dummy, &p2);
+		else
+			eff = (unsigned char)jt595((short)2, (short)1, &dummy, &p2);
+	} else if (it[55] != 0 && it[56] < 128) {   /* ordinary charged item */
+		g_a5_byte(-23230) = 1;
+		eff = (unsigned char)(it[55] & 0x7f);
+	}
+
+	if (eff == 0) {                         /* nothing to use */
+		*out = 0;
+		goto consume;
+	}
+
+	if (g_a5_byte(-27990) == 5 && chr[383] == 0)
+		jt496();
+
+	if (g_a5_byte(-23230) != 0) {           /* direct-use announcement */
+		jt18((void *)(uintptr_t)g_a5_long(-27932),
+		     (long)(uintptr_t)ua_strs_at(0x5c80),
+		     (short)10, (short)0);          /* "uses an item" */
+		if (g_a5_byte(-27990) == 5) {
+			jt94((short)0, (short)23, (short)7, (short)0,
+			     "%s", ua_strs_at(0x5c8e));   /* "Item:" */
+			jt28(g_a5_long(-27932), item, 5, 23, 0, 1);
+		} else {
+			jt28(g_a5_long(-27932), item, 1, 22, 0, 1);
+		}
+		jt102();
+		jt20();
+	}
+
+	g_a5_byte(-23230) = 1;
+	if (jt638(item) != 0) {                 /* special: usability roll */
+		jt20();
+		if ((jt40(chr, (short)5) & 0xff) != 0
+		    || (jt40(chr, (short)0) & 0xff) != 0) {
+			jt599(eff, chr[383], 0, it);                 /* L3d0c */
+		} else if ((jt40(chr, (short)6) & 0xff) <= 9
+		           || jt870((short)1, (short)100) > 75) {
+			/* fumble (L3d84): proficiency<=9, or a 1d100 roll >75 */
+			jt18((void *)(uintptr_t)g_a5_long(-27932),
+			     (long)(uintptr_t)ua_strs_at(0x5c94),  /* "oops!" */
+			     (short)(g_a5_byte(-27911) + 1), (short)1);
+		} else {
+			jt599(eff, chr[383], 0, it);                 /* L3d5e */
+		}
+	} else {                                /* ordinary: JT[1] effect remap */
+		switch (eff) {
+		case 57: eff = 0x7f; break;
+		case 59: eff = 0x80; break;
+		case 60: eff = 0x81; break;
+		case 61: eff = 0x82; break;
+		case 62: eff = 0x83; break;
+		case 63: eff = 0x84; break;
+		case 64: eff = 0x85; break;
+		case 65: eff = 0x86; break;
+		case 95: eff = 0x87; break;
+		case 97: eff = 0x88; break;
+		case 99: eff = 0x89; break;
+		default: break;
+		}
+		jt599(eff, chr[383], 0, it);
+	}
+
+	g_a5_byte(-23230) = 0;
+	if (g_a5_byte(-27990) == 5) {           /* mark combat-spent effects */
+		const unsigned char *fx =
+		    (const unsigned char *)&g_a5_byte(-16906 + (long)eff * 16);
+		if (fx[11] != 0)
+			*out = jt498(g_a5_long(-27932));
+	}
+
+consume:
+	if (*out != 0) {
+		if (jt638(item) != 0) {
+			jt661(g_a5_long(-27932), item, (short)eff);
+		} else if (it[54] != 0) {
+			if (it[53] > 1) {
+				it[53] = (unsigned char)(it[53] - 1);
+			} else {
+				it[54] = (unsigned char)(it[54] - 1);
+				if (it[54] == 0)
+					jt30(g_a5_long(-27932), item);
+			}
+		}
+	}
+}
 /* L32c4 (CODE 19 + 0x32c4) — HALVE / split a stacked item or scroll bundle into
  * two.  half = count[53] >> 1; if 0 -> "Can't halve that".  Non-container
  * (it[40]!=73): clone the node (jt479), give the clone `half` and the original
