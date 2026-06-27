@@ -23902,6 +23902,68 @@ static short l58fc(long slot_l, short value)
 	return sy;
 }
 
+/* L59e4 (CODE 3 + 0x59e4) — erase the scroll-bar thumb at one pixel position and
+ * redraw it at another.  When p12 >= 0 it first erases at p12: horizontal bars
+ * snap p12 to the screen-width grid (jt1179: &~3 at 640, -(p12%3) at 480, &~1
+ * otherwise), clamp it (jt1141) and paint a 44-unit box (jt995); vertical bars
+ * clip to the old thumb band (jt1141/jt1173), erase the thumb sprite (jt1001,
+ * group/item packed in slot[26]) and release the clip (jt1193).  Then it draws
+ * the new thumb at p14 (jt995 size 35 horizontal, jt1001 vertical).  No-op when
+ * p14 == p12.  Part of the faithful jt169 scroll-bar lift (#146); unused until
+ * jt424/jt169 land. */
+static void l59e4(long slot_l, short p12, short p14) __attribute__((unused));
+static void l59e4(long slot_l, short p12, short p14)
+{
+	unsigned char *s = (unsigned char *)(uintptr_t)slot_l;
+
+	PROBE("L59e4");
+
+	if (p14 == p12)
+		return;
+
+	if (p12 >= 0) {
+		if (s[28] & 0x40) {                  /* horizontal: erase old */
+			short top_v = *(short *)(uintptr_t)(s + 16);
+			short arg   = p12;
+			short w     = jt1179();
+			short oy = 0, ox = 0;
+
+			if (w >= 640)
+				arg &= ~3;
+			else if (w >= 480)
+				arg -= (short)(arg % 3);
+			else
+				arg &= ~1;
+
+			jt1135(0, (short)(*(short *)(uintptr_t)(s + 18) +
+			                  *(short *)(uintptr_t)(s + 22)),
+			       &oy, &ox);
+			if (arg >= ox)
+				jt1141(top_v, arg, 0, 7999, &top_v, &arg);
+			jt995(top_v, arg, 0, 44, 2);
+		} else {                             /* vertical: erase old */
+			short ob = p12, orr = 0;
+
+			jt1141(p12, 8000, 8004, 0, &ob, &orr);
+			jt1173(p12, 8000, ob, 8160);
+			jt1001(*(short *)(uintptr_t)(s + 16),
+			       *(short *)(uintptr_t)(s + 18),
+			       (short)(*(short *)(uintptr_t)(s + 26) >> 10),
+			       (short)(*(short *)(uintptr_t)(s + 26) & 1023));
+			jt1193();
+		}
+	}
+
+	/* draw the new thumb at p14 */
+	if (s[28] & 0x40) {
+		jt995(*(short *)(uintptr_t)(s + 16), p14, 0, 35, 2);
+	} else {
+		short c = (*(short *)(uintptr_t)(s + 26) != 0)
+		        ? (short)(*(short *)(uintptr_t)(s + 26) >> 10) : 0;
+		jt1001(p14, *(short *)(uintptr_t)(s + 18), c, 16);
+	}
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
