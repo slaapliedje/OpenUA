@@ -64218,8 +64218,9 @@ static void jt894(short flag)
  * arms (drop-into-vault, trade/give) live in jt893's body below, and the
  * shared "may this item be parted with?" gate (CODE 19 L23d2) is lifted as
  * l23d2_c19 (NOT the port's render-helper l23d2 — same label, different code).
+ * The "examine/ready" arm (case 0) is L30bc = JT[882], already lifted as jt882
+ * (with its slot validator L2f6e = l2f6e); jt893 calls jt882 directly.
  */
-static void l30bc(long item) { PROBE("l30bc"); (void)item; }            /* L30bc — examine item   */
 /* L4c9a (CODE 19 + 0x4c9a) — would giving `item` to recipient `rec_l` overload
  * them?  Recomputes the recipient's stats (jt21), then (when `flag` and the item
  * stacks, item[53]!=0) scans the recipient inventory for a node whose type-key
@@ -64741,8 +64742,8 @@ static void jt893(unsigned char *out)
 			unsigned char *itp = (unsigned char *)(uintptr_t)item;
 
 			switch (choice) {                     /* JT[3] 0..8 */
-			case 0:                               /* L2914 — examine */
-				l30bc(item);
+			case 0:                               /* L2914 — ready/unready */
+				jt882(item);          /* = L30bc, lifted */
 				break;
 			case 1: {                             /* L2922 — ready */
 				if (itp[50] != 0) {
