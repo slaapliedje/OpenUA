@@ -31254,7 +31254,8 @@ static short l3f16(const char *s, char *out)
 	return ret;
 }
 
-static signed char l25ce(unsigned char *p)           { PROBE("L25ce"); if (p) *p = 1; return 0; }
+/* L25ce / JT[893] (the Items browser) is lifted faithfully far below as jt893;
+ * jt904 case 0 and jt185 dispatch to it directly. */
 static char  *jt59(short value);                              /* CODE 6+0x60d4 (below) */
 static long   jt891(long maxval, const char *prompt, short width);   /* CODE 19+0x3fd2 (= L3fd2, below) */
 static short  jt901(long member_l);                          /* CODE 19+0x422a (= L422a, below) */
@@ -60236,7 +60237,7 @@ static void jt904(unsigned char *out_done)
 		sel_key    = -1;
 
 		switch (last_key) {
-		case 0: l25ce(out_done); break;
+		case 0: jt893(out_done); break;          /* Items -> JT[893] / L25ce */
 		case 1: jt595((short)0, (short)0, &sel_key, &cond1); break;
 		case 2: l4334(); break;
 		case 3:
