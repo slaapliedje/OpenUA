@@ -110,6 +110,14 @@ function's importance.
 - `lXXXX` — a CODE-local helper at hex address `0xXXXX` (e.g., `l02dc`).
   Lower-case to match `jtNNN`. Always reach across the prefix when
   cross-segment.
+  - **Before lifting any `lXXXX`, check `docs/lxxxx-jt-aliases.md`.** If the
+    label is also a `JT[N]` export it is the SAME function and is very likely
+    already lifted as `jtN` — alias/repoint to it instead of re-lifting (the
+    `l30bc`=`jt882`, `l25ce`=`jt893`, `l2f6e` duplicate traps). The same hex
+    offset recurs across CODE segments (`l3540`/`l2f6e`/`l23d2` exist in
+    several) — these are DIFFERENT functions; match on `(CODE, offset)` and, on
+    a name clash with an already-lifted other-segment helper, suffix `_cNN`.
+    Regenerate the map with `tools/gen_jt_aliases.sh > docs/lxxxx-jt-aliases.md`.
 - `g_a5_N` — an A5-world global at offset `-N`. Read as a macro over
   `g_a5_below[]` (see below).
 
