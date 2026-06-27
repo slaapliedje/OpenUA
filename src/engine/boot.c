@@ -23867,6 +23867,41 @@ static void jt225(short itemNo, short action)
 	}
 }
 
+/* L58fc (CODE 3 + 0x58fc) — scroll-bar thumb pixel position.  Maps a scroll
+ * `value` to a pixel coordinate along the bar track of control record `slot`:
+ * derives the track endpoints via jt1135/jt1141 (horizontal when flag bit 6 of
+ * slot[28] is set, else vertical) and returns
+ *   near + (far - near) * value / (range - 1)        [range = slot[24]]
+ * or just `near` when range <= 1.  Part of the faithful jt169 List Manager
+ * scroll-bar lift (#146); unused until jt424/jt169 land. */
+static short l58fc(long slot_l, short value) __attribute__((unused));
+static short l58fc(long slot_l, short value)
+{
+	unsigned char *s = (unsigned char *)(uintptr_t)slot_l;
+	short sy = 0, sx = 0, b1 = 0, b2 = 0;
+	long  t;
+
+	PROBE("L58fc");
+	jt1135(*(short *)(uintptr_t)(s + 16), *(short *)(uintptr_t)(s + 18),
+	       &sy, &sx);
+	if (s[28] & 0x40) {                          /* horizontal bar */
+		jt1141(sy, sx, 0,
+		       (short)(*(short *)(uintptr_t)(s + 22) + 8000),
+		       &b1, &b2);
+		sy = sx;
+	} else {                                     /* vertical bar */
+		jt1141(sy, sx,
+		       (short)(*(short *)(uintptr_t)(s + 22) + 8000), 0,
+		       &b2, &b1);
+	}
+	if (*(short *)(uintptr_t)(s + 24) > 1) {
+		t = jt4((long)(short)(b2 - sy), (long)value);
+		t = jt7(t, (long)(*(short *)(uintptr_t)(s + 24) - 1));
+		return (short)(t + sy);
+	}
+	return sy;
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
