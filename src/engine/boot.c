@@ -66210,10 +66210,13 @@ static void jt893(unsigned char *out)
 			g_a5_byte(-25256) = 0;
 		}
 
-		/* L287a — run the list dialog. */
+		/* L287a — run the list dialog.  Faithful jt169 (verb-return):
+		 * this caller already dispatches switch(choice) on the verb, so
+		 * the faithful body fixes the reimpl's always-case-0 bug.  First
+		 * incremental cutover screen (#146). */
 		g_a5_byte(-24140) = f22;
 		tmp = item;
-		choice = (unsigned char)jt169(g_a5_long(-13952), g_a5_long(-13800),
+		choice = (unsigned char)jt169_faithful(g_a5_long(-13952), g_a5_long(-13800),
 		                              1, 5, 38, 22, *(long *)(chr + 8),
 		                              1, 8, &redraw, &sel, &tmp);
 		item = tmp;
