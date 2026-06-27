@@ -31228,6 +31228,32 @@ static void l1276(void)
 		            ((unsigned long)rec[22] << 8) | rec[23]),
 		     (short)1, (short)22, (short)0, (short)1);
 }
+/* L3f16 (CODE 19 + 0x3f16) — classify a treasure/coin type by the first
+ * non-space character of its name and write the display prefix into `out`,
+ * returning a category code: 1 = Gems, 0 = Platinum/Silver coin, 2 = Jewelry.
+ * Shared keystone for the Drop/Deposit (l46e0) and Trade (l4334) coin handlers
+ * (the "How much Gems / Platinum / Jewelry…" prompts). JT[1] @ 0x3f58 decoded
+ * (tools/jt1_extract): cases 'G'(71)/'P'(80)/'S'(83)/'J'(74), default unreached
+ * (coin names always start G/P/S/J on the Mac). Deps jt384/ua_strs_at lifted. */
+static short l3f16(const char *s, char *out) __attribute__((unused));
+static short l3f16(const char *s, char *out)
+{
+	short       i   = 1;            /* fp@(-2), 1-based scan index */
+	short       ret = 0;            /* fp@(-1) category code */
+
+	PROBE("L3f16");
+	while (s[i - 1] == ' ')         /* skip leading spaces */
+		i++;
+	switch ((unsigned char)s[i - 1]) {
+	case 'G': jt384(out, ua_strs_at(0x5c9a)); ret = 1; break;   /* "Gems "     */
+	case 'P': jt384(out, ua_strs_at(0x5ca0)); ret = 0; break;   /* "Platinum " */
+	case 'S': jt384(out, ua_strs_at(0x5caa)); ret = 0; break;   /* "Platinum " */
+	case 'J': jt384(out, ua_strs_at(0x5cb4)); ret = 2; break;   /* "Jewelry "  */
+	default:  break;
+	}
+	return ret;
+}
+
 static signed char l25ce(unsigned char *p)           { PROBE("L25ce"); if (p) *p = 1; return 0; }
 static void   l4334(void)                            { PROBE("L4334"); }
 static void   l46e0(short a)                         { PROBE("L46e0"); (void)a; }
