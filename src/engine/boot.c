@@ -24389,6 +24389,152 @@ static int jt144(void)
 	return 1;
 }
 
+/* Helpers defined further down (CODE 7 / dialog-runtime cluster) that the
+ * faithful jt169 body calls; forward-declared here. */
+static short l206e(long p1, unsigned char *buf, const char *suffix,
+                   unsigned char *byte_ptr);
+static void  l1bfe(short width, void *buf, const char *suffix,
+                   short trail, short flag);
+static void  l162e(void);
+static short l23b4(short arg);
+static long  jt100(void);
+
+/* JT[169] (CODE 7 + 0x3600) — the faithful List Manager / verb picker.  This is
+ * the real Mac body, the intended replacement for the jt169 reimplementation
+ * below.  It builds a list descriptor on the stack, primes the row buffer
+ * (l206e/l1bfe), installs the cell + scroll-bar DLItems (l0c82), runs the modal
+ * dialog (l23b4), then maps the picked row's key byte to a verb through the
+ * -24126 (verb,key) table and returns it (27 = escape, -24134 = external
+ * abort).  Writes the selection index through `idx` and the chosen node (the
+ * -12660 cursor) through `next`.
+ *
+ * NOT yet the live entry: cutover needs the 8 jt169 callers reconciled to this
+ * verb-return contract (the reimplementation returns 0=select / 27=cancel) plus
+ * Hatari regression of every list screen, and is staged as the #146 finale.
+ * Kept unused until then. */
+static int jt169_faithful(long h1, long h2, short top, short left,
+                          short right, short bottom, long head,
+                          short a, short b,
+                          unsigned char *flag, short *idx, long *next)
+    __attribute__((unused));
+static int jt169_faithful(long h1, long h2, short top, short left,
+                          short right, short bottom, long head,
+                          short a, short b,
+                          unsigned char *flag, short *idx, long *next)
+{
+	long          descbuf[7];                /* 28-byte list descriptor, aligned */
+	unsigned char *desc = (unsigned char *)descbuf;
+	long          buf116[32];                /* l206e row-pointer table (fp-116) */
+	unsigned char buf121 = 0, out_flag = 0;
+	short         count206e, node_count, picked, saved_top, vi;
+	signed char   rc, verb;
+	long          node;
+	short         tb_top  = (short)(unsigned char)top;     /* fp@17 */
+	short         tb_left = (short)(unsigned char)left;    /* fp@19 */
+	short         tb_p20  = (short)(unsigned char)right;   /* fp@21 */
+	short         tb_p22  = (short)(unsigned char)bottom;  /* fp@23 */
+
+	PROBE("jt169_faithful");
+	(void)a; (void)b;
+
+	if (head == 0) {                          /* empty list -> escape */
+		if (idx)  *idx  = 0;
+		if (next) *next = 0;
+		return 27;
+	}
+
+	count206e = l206e(h2, (unsigned char *)buf116,
+	                  (const char *)(uintptr_t)h1, &buf121);
+
+	if (*idx < (short)g_a5_word(-12656)) {
+		g_a5_word(-12656) = *idx;
+		if (flag) *flag = 1;
+	}
+	saved_top = (short)g_a5_word(-12656);
+	g_a5_long(-12664) = head;
+
+	/* skip un-selectable (flagged) rows under the current selection */
+	node = head;
+	node_count = 0;
+	while (node != 0) {
+		if (node_count == *idx &&
+		    *(unsigned char *)(uintptr_t)(node + 4) != 0)
+			(*idx)++;
+		node = *(long *)(uintptr_t)node;
+		node_count++;
+	}
+
+	/* build the list descriptor */
+	memset(desc, 0, sizeof descbuf);
+	*(short *)(desc + 0)  = (short)(tb_left * 4);
+	*(short *)(desc + 2)  = (short)(tb_top * 4);
+	*(short *)(desc + 4)  = (short)(tb_p22 - tb_left);
+	*(short *)(desc + 6)  = (short)(tb_p20 - tb_top);
+	*(short *)(desc + 8)  = (short)(((tb_p22 - tb_top) < node_count) ? 2 : 0);
+	*(short *)(desc + 12) = *idx;
+	*(short *)(desc + 14) = (short)(count206e + 1);
+	*(long  *)(desc + 16) = (long)(uintptr_t)&jt143;
+	*(long  *)(desc + 20) = g_a5_long(-12654);
+	*(long  *)(desc + 24) = (g_a5_byte(-12649) != 0)
+	                        ? (long)(uintptr_t)&jt144 : 0L;
+	g_a5_long(-12654) = 0;
+
+	if (*(short *)(desc + 8) != 0) {
+		if (tb_p20 == 38) (*(short *)(desc + 6))--;
+	} else {
+		if (tb_p20 != 38) (*(short *)(desc + 6))++;
+	}
+
+	/* open + render the dialog, then run its modal loop */
+	l2062();
+	jt447();
+	jt108(1);
+	jt112(1);
+	l162e();
+	l1bfe(count206e, buf116, (const char *)(uintptr_t)h1, 0, 1);
+	jt449(1);
+	jt112(0);
+	jt117();
+	l0c82((long)(uintptr_t)desc, (short)(flag ? *flag : 0));
+	if (flag) *flag = 0;
+	if (g_a5_byte(-12649) != 0)
+		jt444(1, 33, 64, 0);
+	g_a5_byte(-12649) = 1;
+
+	picked = l23b4((short)(signed char)g_a5_byte(-12650));
+	g_a5_byte(-12650) = 0;
+
+	if (g_a5_byte(-13006) != 0)               /* external abort */
+		return (signed char)g_a5_byte(-24134);
+
+	jt451();
+	if (picked == 0) {                        /* escape / empty */
+		rc = 27;
+		g_a5_byte(-24139) = 1;
+	} else if (picked > count206e) {
+		rc = *(signed char *)(uintptr_t)buf116[0];
+	} else {
+		rc = *(signed char *)(uintptr_t)buf116[picked - 1];
+	}
+
+	/* map the picked key to a verb via the -24126 (verb,key) table */
+	for (vi = 0; vi < 20; vi++)
+		if ((signed char)g_a5_byte(-24126 + vi * 2 + 1) == rc)
+			break;
+	if (vi < 20)
+		verb = (signed char)g_a5_byte(-24126 + vi * 2);
+	else if (rc == 27)
+		verb = 27;
+	else
+		verb = -1;
+
+	*idx = *(short *)(desc + 12);
+	jt143(*idx, &out_flag);
+	if (next) *next = g_a5_long(-12660);
+	g_a5_word(-12656) = saved_top;
+	return verb;
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
