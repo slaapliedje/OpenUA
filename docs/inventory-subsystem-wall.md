@@ -133,16 +133,19 @@ jt893 case 0 from the dead l30bc stub to jt882 (no new lift). LESSON: l30bc/l2f6
 were duplicate-trapped — check for the JT-export name (jtNNN) before lifting an
 lXXXX arm; same as l25ce=jt893.
 
-REMAINING 2 ARMS (each its own focused session — NOT rushed):
+ARM 6 (Join, case 6): jt889/L35a0 ✓ LIFTED 2026-06-27 (4302108) + helper
+l3540_c19 (party scroll counter, named to dodge the CODE-13 l3540 collision).
+Two paths: scroll/bundle convert+splice and generic 255-cap stack-merge. Same
+commit FIXED l32c4's reversed jt406 src/dst (Mac JT[406]=BlockMove(src,dst) copies
+arg1->arg2 per the L57f8 core; port jt406(dst,src) is arg-swapped, so Mac
+jt406(A,B) -> port jt406(B,A)). JT406 DIRECTION LESSON: always map Mac
+jt406(last-pushed, 2nd-to-last) -> port jt406(dst=2nd-to-last, src=last).
+
+REMAINING 1 ARM (its own focused session):
   - l3b6e "Use" (case 1, CODE 19+0x3b6e, ~305 insns) — COMBAT-COUPLED + its own
     JT[1] sparse dispatch @ 0x3dae (decode with tools/jt1_extract --jsr-at 0x3dae).
     Deps lifted: jt599/jt40/jt870/jt18/jt595. MISSING DEP: jt496 (CODE 13+0x276c)
-    — must lift jt496 first. This is a combat sub-campaign, not a plain inventory
-    arm.
-  - jt889 / L35a0 "Join bundle" (case 6, CODE 19+0x35a0, ~1.5KB / ~400 insns) —
-    SELF-CONTAINED: all external deps (JT[28/30/42/477/488]) already lifted; it's
-    mechanical bundle node-surgery (like a much bigger l32c4). Big but tractable
-    with no new deps. Good next target.
+    — must lift jt496 first. A combat sub-campaign, not a plain inventory arm.
 ALSO PENDING: clear rec[64] (and sibling transient ptrs) on char load to safely
 re-wire jt904 case 0 -> jt893 for the Hall (see CONTEXT TRAP above).
 
