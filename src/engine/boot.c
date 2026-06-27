@@ -25247,7 +25247,11 @@ static void l15e2(void)
 		if (g_a5_24139 != 0 && input == 27)
 			input = 1;
 
-		if (input == 0) {
+		/* select = anything that is not cancel (1) or escape (27).  The
+		 * reimplementation returns 0 on select; the faithful jt169
+		 * returns the picked row's verb (-1 for a plain name list with
+		 * no verb table) — both satisfy this test. */
+		if (input != 1 && input != 27) {
 			const unsigned char *e =
 				(const unsigned char *)(uintptr_t)entry;
 			short marker = (e[5] == '*') ? 2 : 0;
@@ -29498,7 +29502,9 @@ static void l12a0(void)
 		if (g_a5_24139 != 0 && input == 27)
 			input = 1;
 
-		if (input == 0) {
+		/* select = not cancel (1) / escape (27): reimpl returns 0, the
+		 * faithful jt169 returns the row verb (-1 for a plain list). */
+		if (input != 1 && input != 27) {
 			const unsigned char *e =
 				(const unsigned char *)(uintptr_t)entry;
 
