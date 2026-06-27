@@ -82,8 +82,20 @@ stubs — the agent mislabeled them. l596a sig = l596a(prompt, flag1 cancellable
 flag2->-24148, long *member_io); nav left/up=next(wrap head), down/right=prev
 (wrap tail), Return confirm, ESC cancel; loop key UNSIGNED (init 0xFF).
 Still MISSING: l4264 (Trade), l35a0 (~1.5KB Items-Join).
-NEXT = the handlers (now user-testable): l46e0 Drop/Deposit (deps l3f16✓/
-jt891✓ ready) -> l4334 Trade (+l596a✓ +l4264) -> l25ce Items (+l35a0).
+
+HANDLER lift status: l46e0 (Drop/Deposit) ✓ LIFTED 2026-06-26 (boot.c ~31279).
+Full lift of CODE 19+0x46e0: builds a "name<pad>amount" row per non-empty coin
+slot rec[76+i*2] (jt477 node from -21156, jt59 number, 18-col space-pad loop,
+jt488 "%s%s%s"), runs jt179+jt169 list dialog, re-derives the coin type from the
+row (l3f16) for the prompt (-27990==10 vault: len>7 "%sdo you deposit?" / Gems
+"How many %swill..." / else "How much %swill..."; else "How much %swill you
+drop?"), reads the amount (jt891, capped) and transfers (l465c). Loops until the
+wallet is empty or cancelled (jt169 node 0 / key 1 / key 27 with -24139). Sibling
+of the party-pool jt924 (works -25314 instead of rec[76+]). WIRING was already
+faithful: jt904 JT[3]@0x2326 sends BOTH case 3 (Deposit) and case 4 (Drop) to
+L236a = l46e0(1); l19ac() — l46e0 picks deposit-vs-drop text internally, so the
+existing `case 3: case 4: l46e0((short)1); l19ac();` matches the asm verbatim.
+NEXT handlers: l4334 Trade (+l596a✓ +l4264 MISSING) -> l25ce Items (+l35a0 MISSING).
 
 LIFT ORDER (cheapest-first per the map): l596a -> l4f2c Lay -> l4ff6 Cure ->
 l46e0 Drop/Deposit (+l3f16/l3fd2) -> l4334 Trade (+l4264) -> l25ce Items (+l35a0).
