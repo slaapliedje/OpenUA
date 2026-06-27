@@ -24163,6 +24163,145 @@ static short l5ea0(long slot_l, short p12)
 	return 1;
 }
 
+/* JT[424] (CODE 3 + 0x61a2) — the scroll-bar control's DLItem method.  Dispatches
+ * the standard DLItem command (arg `cmd`) for a scroll-bar (record fields:
+ * value-ptr [8], origin [16/18], length [22], range [24], packed gutter sprite
+ * [26], flags [28] bit 6 = horizontal):
+ *   0  validate/clamp the value to [0, range]
+ *   1  draw the gutter + the two arrow buttons, then seat the thumb (l5b92)
+ *   2  hit-test the point (a,b) against the bar -> 1/0
+ *   3  press: arrows auto-repeat (l5c26); a gutter click pages (l5c26); the
+ *      thumb drags (l5ea0)
+ *   4,5 no-op
+ *   32 set the value and re-seat the thumb (l5b92)
+ *   35 swap the value pointer (a:b form a 32-bit pointer) and re-seat
+ *   36 set the range, clamp the value, redraw the thumb (l59e4)
+ *   default delegate to the base DLItem handler l1676
+ * Part of the faithful jt169 List Manager lift (#146); unused until jt169/l0c82
+ * land. */
+static short jt424(long slot_l, short cmd, short a, short b)
+    __attribute__((unused));
+static short jt424(long slot_l, short cmd, short a, short b)
+{
+	unsigned char *s = (unsigned char *)(uintptr_t)slot_l;
+	short *valp = *(short **)(uintptr_t)(s + 8);
+	int   horiz = (s[28] & 0x40) != 0;
+	short s16 = *(short *)(uintptr_t)(s + 16);
+	short s18 = *(short *)(uintptr_t)(s + 18);
+	short s22 = *(short *)(uintptr_t)(s + 22);
+	short s26 = *(short *)(uintptr_t)(s + 26);
+	short out_row = 0, out_col = 0;
+
+	PROBE("jt424");
+
+	switch (cmd) {
+	case 0:                                   /* validate / clamp */
+		if (*valp < 0)
+			*valp = 0;
+		else if (*valp >= *(short *)(uintptr_t)(s + 24))
+			*valp = *(short *)(uintptr_t)(s + 24);
+		return 0;
+
+	case 1:                                   /* draw the bar */
+		s[28] |= 0x80;
+		jt1001(s16, s18, (short)(s26 >> 10), (short)(s26 & 1023));
+		if (horiz) {
+			jt1001(s16, (short)(s18 - 6), 0, 23);
+			jt1001(s16, (short)(s18 + s22 + 2), 0, 21);
+		} else {
+			jt1001((short)(s16 - 5), s18, 0, 12);
+			jt1001((short)(s16 + s22 + 5), s18, 0, 14);
+		}
+		l5b92(slot_l, -1);
+		return 0;
+
+	case 2:                                   /* hit-test (a,b) */
+		jt1139(s16, s18, a, b, &out_row, &out_col);
+		if (horiz)
+			return (out_row >= 0 && out_row < 4 &&
+			        out_col >= -6 &&
+			        out_col < (short)(s22 + 10)) ? 1 : 0;
+		return (out_row >= -6 && out_row < (short)(s22 + 10) &&
+		        out_col >= 0 && out_col < 4) ? 1 : 0;
+
+	case 3: {                                 /* press / track */
+		short pix, far = 0, dummy = 0, cross, click;
+
+		jt1139(s16, s18, a, b, &out_row, &out_col);
+		if (horiz) {
+			if (out_col < 0)
+				return l5c26(slot_l, s16,
+				             (short)(s18 - 6), 23, -1);
+			if ((short)(s22 + 4) < out_col)
+				return l5c26(slot_l, s16,
+				             (short)(s18 + s22 + 2), 21, 1);
+			pix = l58fc(slot_l, *valp);
+			jt1141(0, pix, 0, 8004, &dummy, &far);
+			cross = s18;
+			click = b;                /* horizontal bar uses X */
+		} else {
+			if (out_row < 0)
+				return l5c26(slot_l, (short)(s16 - 5),
+				             s18, 12, -1);
+			if ((short)(s22 + 4) < out_row)
+				return l5c26(slot_l, (short)(s16 + s22 + 5),
+				             s18, 14, 1);
+			pix = l58fc(slot_l, *valp);
+			jt1141(pix, 0, 8004, 0, &far, &dummy);
+			cross = s16;
+			click = a;                /* vertical bar uses Y */
+		}
+		/* gutter click relative to the thumb: page up / down / drag */
+		if (click < pix)
+			return l5c26(slot_l, cross, pix, -1, -2);
+		if (click >= far)
+			return l5c26(slot_l, far,
+			             (short)(cross + s22 + 4), -1, 2);
+		return l5ea0(slot_l, (short)(pix - click));
+	}
+
+	case 4:
+	case 5:
+		return 0;
+
+	case 32:                                  /* set value */
+		if (a != *valp) {
+			short cur = *valp;
+			*valp = a;
+			l5b92(slot_l, cur);
+		}
+		return 0;
+
+	case 35: {                                /* swap value pointer */
+		short cur = *valp;
+		long  newptr = ((long)(unsigned short)a << 16) |
+		               (unsigned short)b;
+		*(long *)(uintptr_t)(s + 8) = newptr;
+		valp = (short *)(uintptr_t)newptr;
+		if (cur != *valp)
+			l5b92(slot_l, cur);
+		return 0;
+	}
+
+	case 36:                                  /* set range */
+		if (a < 0)
+			a = 0;
+		if (*(short *)(uintptr_t)(s + 24) != a) {
+			short old_pix = l58fc(slot_l, *valp);
+			short new_pix;
+			*(short *)(uintptr_t)(s + 24) = a;
+			if (*valp >= a)
+				*valp = (short)(a - 1);
+			new_pix = l58fc(slot_l, *valp);
+			l59e4(slot_l, old_pix, new_pix);
+		}
+		return 0;
+
+	default:
+		return l1676(s, cmd, a, b);
+	}
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
