@@ -148,13 +148,21 @@ decoded with tools/jt1_extract. Special-item usability roll matches the asm
 exactly (fumble when jt40(6)<=9 OR 1d100>75; jt40(6) always evaluated, jt870
 short-circuited).
 
-*** ALL 7 jt893 ITEM ARMS COMPLETE (2026-06-27) ***
-  Ready/examine = jt882 (wired) | Use = l3b6e | Trade = l3228 (+l4c9a) |
+*** ITEMS BROWSER COMPLETE + LIVE EVERYWHERE (2026-06-27) ***
+  Ready/examine = jt882 (wired) | Use = l3b6e (+jt496) | Trade = l3228 (+l4c9a) |
   Halve = l32c4 | Join = jt889/l35a0 (+l3540_c19) | Sell = jt189 | Identify = jt190.
-The full Items browser (jt893 dispatcher + all arms + both inline drop/give arms
-+ l23d2_c19 gate) is now lifted. It runs IN-GAME (camp jt185 / combat); the
-Training-Hall View-Character route stays a no-op pending the rec[64] transient-
-pointer clear-on-load (see CONTEXT TRAP above) — the only remaining inventory item.
+The full Items browser (jt893 dispatcher + all 7 arms + both inline drop/give
+arms + l23d2_c19 gate) is lifted and wired into jt904 case 0 (View-Character
+"Items"), camp (jt185 case 4) and combat (case 2).
+
+CONTEXT-TRAP RESOLVED (2b88fc7): the earlier Hall bus error was NOT stale rec[64]
+— it was a menu-build LIFT BUG. L25ce's "Ready" arm (0x263a) dereferences rec[64]
+(a live combat pointer) ONLY when -27990==5: modes 2/3/4 add the arm
+unconditionally, mode 5 adds it iff rec[64]->[2], all else skip. The prior C lift
+inverted it (deref when mode NOT in {2,3,4,5}), so the Hall (mode 0) faulted.
+Fixed to match the asm; rec[64] is now never dereferenced outside combat, so NO
+clear-on-load is needed and jt904 case 0 routes to jt893 in every context.
+The whole inventory subsystem is now done.
 ALSO PENDING: clear rec[64] (and sibling transient ptrs) on char load to safely
 re-wire jt904 case 0 -> jt893 for the Hall (see CONTEXT TRAP above).
 
