@@ -30386,9 +30386,16 @@ static short jt472(short v) { PROBE("jt472"); return (short)(v & 1); }
  * properties renderer (over JT[394]/JT[1135]/JT[1161]/JT[423]/L3994) that
  * appends an item's detailed stat line. jt28 calls it only in its verbose
  * branch (the f22 arg); deferred to its own lift. */
-static void l3fd6(short a, short b, short c, short d, char *out) __attribute__((unused));
+/* L3fd6 IS JT[94] — both are CODE 6 + 0x3fd6, the engine's text painter. The
+ * Mac jt28 ends with a same-segment `jsr L3fd6` to draw the item name; the port
+ * had jt94 fully lifted (155 call sites) but ALSO left this address as a bogus
+ * duplicate PROBE stub, so jt28's name draw silently did nothing — equipped
+ * gear was deserialized (jt577), categorised (jt21) and named correctly (jt28)
+ * but never painted on the View-character sheet. Forward to jt94, the real
+ * lift. The item name is plain data already built into the record buffer, so
+ * pass it through "%s" rather than as a raw %r format. */
 static void l3fd6(short a, short b, short c, short d, char *out)
-                  { PROBE("L3fd6"); (void)a; (void)b; (void)c; (void)d; (void)out; }
+                  { jt94(a, b, c, d, "%s", out); }
 
 /* JT[28] (CODE 6 + 0x0dc6, 18 sites) — build an item's display name into the
  * item record's own buffer (item+5). The AD&D item-naming grammar:

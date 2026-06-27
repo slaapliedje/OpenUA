@@ -5,6 +5,22 @@ BARBARUS shows **LONG SWORD +1** / **PLATE MAIL +1** below DAMAGE), then make
 the sheet's **ITEMS / TRADE / DROP** buttons functional. All of it reads the
 same reconstructed item lists.
 
+## EQUIPPED-ITEM DISPLAY — FIXED 2026-06-26 (held pending Hatari test)
+
+The whole load+name chain was already faithful and WORKING — a runtime
+diagnostic (INVTRACE) proved every member's `rec[8]/12/16/20` populate after
+the menu Load (jt579 -> jt577 deserialize + jt21 categorise), and `jt28` built
+the correct names ("Long Sword" + "+1", "Plate" + "Mail" + "+1") from the
+`-13628` name-part table. The ONLY break: `jt28` paints via `l3fd6`, and the
+port had `l3fd6` as a **bogus duplicate PROBE stub**. `l3fd6` IS `JT[94]` (both
+= CODE 6 + 0x3fd6, the engine text painter) — already fully lifted as `jt94`
+(155 call sites). The Mac jt28 ends with a same-segment `jsr L3fd6`; the port
+called the stub, so names were computed but never drawn. **Fix:** `l3fd6` now
+forwards to `jt94` (`jt94(a,b,c,d,"%s",out)`). LESSON: when a CODE-local
+`lXXXX` shares an address with a `JT[N]` export, it's the SAME function — don't
+stub it; alias to the lifted `jtN`. (Same class as the jt-aliases trap.)
+Remaining below = the ITEMS/TRADE/DROP handlers; the display is done.
+
 ## What renders the equipment (traced, confirmed)
 
 The char-sheet painter `l1276` (= jt886, CODE 19+0x1276) ends with:
