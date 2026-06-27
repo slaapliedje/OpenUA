@@ -64223,7 +64223,106 @@ static void l30bc(long item) { PROBE("l30bc"); (void)item; }            /* L30bc
 static void l3228(long item) { PROBE("l3228"); (void)item; }            /* L3228 — use item       */
 static void l3b6e(long item, unsigned char *out)                        /* L3b6e — ready/unready  */
 	{ PROBE("l3b6e"); (void)item; if (out) *out = 0; }
-static void l32c4(long item) { PROBE("l32c4"); (void)item; }            /* L32c4 — halve / split  */
+/* L32c4 (CODE 19 + 0x32c4) — HALVE / split a stacked item or scroll bundle into
+ * two.  half = count[53] >> 1; if 0 -> "Can't halve that".  Non-container
+ * (it[40]!=73): clone the node (jt479), give the clone `half` and the original
+ * the remainder, and link the clone in after the original.  Container/bundle
+ * (it[40]==73): clone the header, move the first `half` sub-items (via the [58]
+ * chain) to the clone with their weight (it[46]) re-tallied, leave the rest on
+ * the original, and collapse a bundle that drops to a single member back to a
+ * plain item (jt406 over-copies the lone sub-item's node).  Node pool -21508,
+ * 62-byte nodes; -22307 is the walk counter. */
+static void l32c4(long item)
+{
+	unsigned char *it = (unsigned char *)(uintptr_t)item;
+	unsigned char  half = (unsigned char)(it[53] >> 1);  /* fp@(-9) */
+	unsigned char  rem;                                  /* fp@(-10) */
+	long           newl = 0, cur = 0;                    /* fp@(-4), fp@(-8) */
+	unsigned char *nn;
+
+	PROBE("l32c4");
+
+	if (half == 0) {                                     /* L3530 */
+		jt42(ua_strs_at(0x5be6));                   /* "Can't halve that" */
+		return;
+	}
+
+	if (it[40] != 73) {                                 /* L34c2 — plain stack */
+		rem = (unsigned char)(it[53] - half);
+		jt477((void *)&g_a5_byte(-21508), (short)62, &newl);
+		jt479(it, (void *)(uintptr_t)newl, (short)62); /* clone the node */
+		nn = (unsigned char *)(uintptr_t)newl;
+		nn[53] = half;
+		nn[50] = 0;
+		*(long *)nn = *(long *)it;                   /* clone->next = item->next */
+		it[53] = rem;
+		*(long *)it = newl;                          /* item->next = clone */
+		return;
+	}
+
+	/* --- bundle (it[40]==73) --- */
+	rem = (unsigned char)(it[53] - half);
+	jt477((void *)&g_a5_byte(-21508), (short)62, &newl);
+	nn = (unsigned char *)(uintptr_t)newl;
+	memcpy(nn, it, 62);                                  /* L332a inline clone */
+
+	if (half == 1) {                                    /* L333c */
+		jt406((void *)(uintptr_t)*(long *)(nn + 58), nn, (short)62);
+	} else {                                            /* L335a */
+		nn[53] = half;
+		*(unsigned short *)(nn + 44) = half;
+		nn[42] = half;
+		cur = newl;
+		*(unsigned short *)(nn + 46) = 0;
+		for (g_a5_byte(-22307) = 1;
+		     (unsigned char)g_a5_byte(-22307) <= half;
+		     g_a5_byte(-22307) = (unsigned char)(g_a5_byte(-22307) + 1)) {
+			cur = *(long *)(uintptr_t)(cur + 58);
+			*(unsigned short *)(nn + 46) = (unsigned short)
+			    (*(unsigned short *)(nn + 46)
+			     + *(unsigned short *)(uintptr_t)(cur + 46));
+		}
+	}
+
+	/* L33c0 */
+	nn[50] = 0;
+	*(long *)nn = *(long *)it;                           /* clone->next = item->next */
+
+	if (rem == 1) {                                     /* L33dc — original collapses */
+		if (half == 1)                              /* L33e8 */
+			jt406((void *)(uintptr_t)*(long *)(uintptr_t)
+			          (*(long *)(uintptr_t)(it + 58) + 58),
+			      it, (short)62);
+		else                                        /* L3408 */
+			jt406((void *)(uintptr_t)*(long *)(uintptr_t)
+			          (*(long *)(uintptr_t)
+			              (*(long *)(uintptr_t)(it + 58) + 58) + 58),
+			      it, (short)62);
+		*(long *)(it + 58) = 0;                      /* L3428 */
+	} else {                                            /* L3434 */
+		it[53] = rem;
+		*(unsigned short *)(it + 44) = rem;
+		it[42] = rem;
+		for (g_a5_byte(-22307) = 1;
+		     (unsigned char)g_a5_byte(-22307) <= half;
+		     g_a5_byte(-22307) = (unsigned char)(g_a5_byte(-22307) + 1)) {
+			*(unsigned short *)(it + 46) = (unsigned short)
+			    (*(unsigned short *)(it + 46)
+			     - *(unsigned short *)(uintptr_t)
+			          (*(long *)(uintptr_t)(it + 58) + 46));
+			*(long *)(it + 58) =
+			    *(long *)(uintptr_t)(*(long *)(uintptr_t)(it + 58) + 58);
+		}
+	}
+
+	/* L3498 — terminate the clone's sub-list */
+	if (half == 1)
+		*(long *)(nn + 58) = 0;
+	else
+		*(long *)(uintptr_t)(cur + 58) = 0;
+
+	*(long *)it = newl;                                 /* L34b6: item->next = clone */
+}
 static void jt189(long chr_l, long item)                                /* JT[189] CODE7+0x43a4 — sell */
 	{ PROBE("jt189"); (void)chr_l; (void)item; }
 static void jt190(long chr_l, long item, unsigned char *redraw)         /* JT[190] CODE7+0x4644 — identify */
