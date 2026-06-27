@@ -31254,17 +31254,10 @@ static short l3f16(const char *s, char *out)
 	return ret;
 }
 
-/* L25ce / JT[893] (the Items browser) is lifted faithfully far below as jt893.
- * It is an IN-GAME function: its menu-build dereferences transient record
- * pointers (e.g. rec[64], the in-combat target) and in-game state (-25302
- * vault list, etc.) that are only valid once a dungeon/area is active.  The
- * in-game paths (camp jt185 case 4, combat case 2) dispatch to jt893 directly.
- * The Training-Hall View-Character popup (jt904 case 0) must NOT route here yet
- * — a Hall character is freshly loaded from a save with a stale rec[64], so the
- * "Ready" arm's `*(rec+64)` deref bus-errors.  Until the transient fields are
- * cleared on load (same class as the rec[12]/16/20 stale-pointer fix), case 0
- * stays the safe no-op stub below. */
-static signed char l25ce(unsigned char *p) { PROBE("L25ce"); if (p) *p = 1; return 0; }
+/* L25ce / JT[893] (the Items browser) is lifted faithfully far below as jt893;
+ * jt904 case 0, the camp (jt185 case 4) and combat (case 2) all dispatch to it.
+ * (The earlier Hall bus-error was a menu-build lift bug — the "Ready" arm
+ * dereferenced rec[64] outside combat — now fixed in jt893, not a context gate.) */
 static char  *jt59(short value);                              /* CODE 6+0x60d4 (below) */
 static long   jt891(long maxval, const char *prompt, short width);   /* CODE 19+0x3fd2 (= L3fd2, below) */
 static short  jt901(long member_l);                          /* CODE 19+0x422a (= L422a, below) */
@@ -60246,7 +60239,7 @@ static void jt904(unsigned char *out_done)
 		sel_key    = -1;
 
 		switch (last_key) {
-		case 0: l25ce(out_done); break;          /* Items: in-game-only jt893; Hall = safe no-op (stale rec[64]) */
+		case 0: jt893(out_done); break;          /* Items -> JT[893] / L25ce */
 		case 1: jt595((short)0, (short)0, &sel_key, &cond1); break;
 		case 2: l4334(); break;
 		case 3:
@@ -64938,18 +64931,24 @@ static void jt893(unsigned char *out)
 		rowcount = 0;
 		l11a8(0, &rowcount);                         /* arm 0: examine */
 
-		/* arm 1: ready, when a weapon is held + the design permits */
+		/* arm 1: ready, when a weapon is held + the design permits.
+		 * Modes 2/3/4 add it unconditionally; mode 5 (combat) adds it only
+		 * when the in-combat context rec[64]->[2] is set — and rec[64] is
+		 * dereferenced ONLY in that mode-5 case (it's a live combat pointer,
+		 * NULL/stale outside combat, e.g. in the Training Hall).  [Earlier
+		 * lift inverted this and dereferenced rec[64] when mode was NOT in
+		 * {2,3,4,5}, bus-erroring from the Hall — see L25ce 0x266a.] */
 		if (chr[382] != 0) {
 			hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
 			if (hdr[2] == 0) {
-				int m  = (unsigned char)g_a5_byte(-27990);
-				int ok = (m == 2 || m == 3 || m == 4 || m == 5);
-				if (!ok) {
+				int m   = (unsigned char)g_a5_byte(-27990);
+				int add = (m == 2 || m == 3 || m == 4);
+				if (!add && m == 5) {
 					unsigned char *p =
 					    (unsigned char *)(uintptr_t)*(long *)(chr + 64);
-					if (p[2] != 0) ok = 1;
+					if (p[2] != 0) add = 1;
 				}
-				if (ok) l11a8(1, &rowcount);
+				if (add) l11a8(1, &rowcount);
 			}
 		}
 
