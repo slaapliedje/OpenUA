@@ -31743,6 +31743,109 @@ static short jt163(unsigned char *str, long bar, short flag1, short flag2)
 	return l25b6(tmp, buf, &g_a5_24139);
 }
 
+/* L596a (CODE 19 + 0x596a) — the "...whom?" party-member target picker. Shows
+ * `prompt` + a modal keystroke wait (jt163), highlighting the current member in
+ * the HUD (jt937); the arrows walk the -27928 party list — left/up = next member
+ * (wrapping to the head), down/right = previous (wrapping head->tail) — until
+ * Return (13) confirms or ESC (27) cancels. The chosen member is returned through
+ * *member_io (NULL'd on cancel/key-1 when `flag1` is set). Shared by Trade
+ * (l4334), Lay-on-Hands (l4f2c) and Cure-Disease (l4ff6).
+ *   flag1 = cancellable; flag2 -> -24148 (vault/restore mode).
+ * JT[1] @ 0x5a90 decoded (tools/jt1_extract): 27 ESC, 13 Return, 132/133 next,
+ * 136/135 prev. Loop key is treated UNSIGNED (init 0xFF != terminal -> first
+ * pass runs); terminal = key<2 (confirm) or key==27 (ESC). Deps jt153/jt162/
+ * jt163/jt937/jt179/jt384/jt488 all lifted. Not called until the handlers land. */
+static void l596a(const char *prompt, short flag1, short flag2,
+                  long *member_io) __attribute__((unused));
+static void l596a(const char *prompt, short flag1, short flag2,
+                  long *member_io)
+{
+	char           buf[52];
+	unsigned char  saved_22226, saved_22268;
+	unsigned char  last_key = 0xFF;       /* fp@(-3), UNSIGNED for the test */
+	unsigned char  modeflag;              /* fp@(-4) */
+	long           cur;                   /* fp@(-8) */
+
+	PROBE("L596a");
+	jt153(*member_io);
+	saved_22226 = (unsigned char)g_a5_byte(-22226);
+	g_a5_byte(-24148) = (unsigned char)flag2;
+	g_a5_long(-24146) = g_a5_long(-27932);
+	saved_22268 = (unsigned char)g_a5_byte(-22268);
+	g_a5_byte(-22268) = 0;
+
+	/* L5b6a loop condition: keep going until last_key is terminal (confirm
+	 * 0/1, or ESC 27). last_key starts 0xFF (== 255 unsigned) so it loops. */
+	while (!(last_key < 2 || last_key == 27)) {
+		jt937(*member_io);
+		modeflag = (g_a5_byte(-27990) == 2 || g_a5_byte(-27990) == 6)
+		         ? 1 : 0;
+		if (g_a5_byte(-27990) == 0)
+			g_a5_byte(-22226) = 1;      /* faithfully dead: overwritten next */
+		g_a5_byte(-22226) = saved_22226;
+		cur = *member_io;
+		jt153(*member_io);
+		jt179(flag1 ? (short)1 : (short)0);
+
+		if (prompt[0] != 0)
+			jt384(buf, jt488("%s%s", prompt, ua_strs_at(0x5e54)));
+		else
+			jt384(buf, jt488("%s", prompt));
+
+		last_key = (unsigned char)jt163((unsigned char *)buf,
+		                                g_a5_long(-13844),
+		                                (short)1, (short)modeflag);
+		cur = jt162();                  /* jt163 may have moved the pick */
+
+		if (g_a5_byte(-24139)) {        /* a special key was pressed */
+			switch (last_key) {
+			case 27:                    /* ESC -> cancel */
+				if (flag1)
+					cur = 0;
+				break;
+			case 13:                    /* Return -> confirm */
+				last_key = 0;
+				break;
+			case 132: case 133:         /* left/up -> next member */
+				cur = *(long *)(uintptr_t)cur;
+				if (cur == 0)
+					cur = g_a5_long(-27928);
+				break;
+			case 136: case 135:         /* down/right -> prev member */
+				if (g_a5_byte(-22225)) {
+					cur = g_a5_byte(-24148)
+					    ? g_a5_long(-24146)
+					    : g_a5_long(-27932);
+				} else {
+					long head = g_a5_long(-27928);
+					cur = head;
+					if (*member_io == head) {
+						/* wrap: walk to the last member */
+						while (*(long *)(uintptr_t)cur != 0)
+							cur = *(long *)(uintptr_t)cur;
+					} else {
+						/* the member whose ->next is current */
+						while (*(long *)(uintptr_t)cur != *member_io)
+							cur = *(long *)(uintptr_t)cur;
+					}
+				}
+				break;
+			default:
+				break;
+			}
+		} else {                        /* L5b40 — a normal char */
+			if (flag1 && last_key == 1)
+				cur = 0;
+		}
+
+		*member_io = cur;
+		jt153(*member_io);
+	}
+
+	g_a5_byte(-22268) = saved_22268;
+	g_a5_byte(-24148) = 0;
+}
+
 /* L2ebc (CODE 7 + 0x2ebc) — the treasure/exchange picker DIALOG runner, and
  * the shared dialog core both treasure pickers drive (jt183 party-distribution,
  * jt185 per-character). Arms the dialog-bar rect (-19172/-19174 = 8016/8068),
