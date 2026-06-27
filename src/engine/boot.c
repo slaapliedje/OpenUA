@@ -64399,8 +64399,82 @@ static void l32c4(long item)
 
 	*(long *)it = newl;                                 /* L34b6: item->next = clone */
 }
-static void jt189(long chr_l, long item)                                /* JT[189] CODE7+0x43a4 — sell */
-	{ PROBE("jt189"); (void)chr_l; (void)item; }
+/* JT[189] (CODE 7 + 0x43a4) — the shop SELL arm.  Prices the item at half its
+ * appraised value (jt932 over item[46]/design-kind hdr[40]/count item[53]),
+ * zeroed unless it has value (item[46]!=0) and isn't special (item[52]==0).
+ * With a price it offers "I'll give you %ld platinum... Will you sell it/them?";
+ * worthless, it offers to dispose of it.  On confirm it announces the result,
+ * removes the item (jt30) and pays the active char's platinum (rec[76]),
+ * spilling the part that won't fit (l1baa = JT[923] gate) into the party pool
+ * (-25314) with an "Overloaded" notice.  jt893 case 7. */
+static void jt189(long chr_l, long item)
+{
+	unsigned char *act = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	unsigned char *it  = (unsigned char *)(uintptr_t)item;
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	long           price;                  /* fp@(-4) */
+	long           slack;                  /* fp@(-10) */
+	char           buf[64];                /* fp@(-52) prompt */
+
+	PROBE("jt189");
+
+	jt28(chr_l, item, 0, 0, 0, 0);
+
+	price = jt932((long)*(unsigned short *)(it + 46), hdr[40], it[53]);
+	if (price > 1)
+		price >>= 1;                                  /* shop pays half */
+	if (!(*(unsigned short *)(it + 46) != 0 && it[52] == 0))
+		price = 0;
+
+	if (price > 0) {                                       /* L441a */
+		jt96(1, 21, 38, 22, 11, 0, 1,
+		     (long)(uintptr_t)jt488(ua_strs_at(0x2836),  /* "I'll give you %ld platinum pieces for your %s" */
+		          price, (const char *)(it + 5)), 0);
+		jt384(buf, ua_strs_at(0x2864));               /* "Will you sell " */
+		if (it[53] < 2 || it[40] == 73)
+			jt384(buf, jt488(ua_strs_at(0x2874), buf));  /* "%sit? " */
+		else
+			jt384(buf, jt488(ua_strs_at(0x287c), buf));  /* "%sthem? " */
+	} else {                                              /* L44d0 — worthless */
+		if (it[53] < 2) {
+			jt96(1, 21, 38, 22, 11, 0, 1,
+			     (long)(uintptr_t)jt488(ua_strs_at(0x2886),  /* "Your %sis worthless to me." */
+			          (const char *)(it + 5)), 0);
+			jt384(buf, ua_strs_at(0x28a2));       /* "Shall I dispose of it for you? " */
+		} else {
+			jt96(1, 21, 38, 22, 11, 0, 1,
+			     (long)(uintptr_t)jt488(ua_strs_at(0x28c2),  /* "Your %sare worthless." */
+			          (const char *)(it + 5)), 0);
+			jt384(buf, ua_strs_at(0x28d8));       /* "Would you like to discard them? " */
+		}
+	}
+
+	if (jt159(buf, 1)) {                                  /* L4572 confirm */
+		if (price > 0) {
+			jt42(ua_strs_at(0x28fa));             /* "Sold!" */
+		} else if (it[53] < 2) {
+			jt42(ua_strs_at(0x2900));             /* "I will give it to one of my sons." */
+		} else {
+			jt42(ua_strs_at(0x2922));             /* "Very well..I'll take them." */
+		}
+
+		jt30(g_a5_long(-27932), item);                /* remove from char */
+
+		if (l1baa(g_a5_long(-27932),
+		          (long)(unsigned short)(short)price, &slack)) {
+			jt42(ua_strs_at(0x293e));             /* "Overloaded..Money will be put in pool." */
+			*(unsigned short *)(act + 76) =
+			    (unsigned short)(*(unsigned short *)(act + 76) + slack);
+			price -= slack;
+			g_a5_long(-25314) += price;
+		} else {
+			*(unsigned short *)(act + 76) =
+			    (unsigned short)(*(unsigned short *)(act + 76) + price);
+		}
+	}
+
+	jt103(1, 21, 38, 22);
+}
 /* JT[190] (CODE 7 + 0x4644) — the shop IDENTIFY arm.  Refuses a bundle ("Fool!
  * You must remove them from the bundle first").  Otherwise offers to identify
  * the item for 20 platinum: charges the active char's platinum (rec[76]) first,
