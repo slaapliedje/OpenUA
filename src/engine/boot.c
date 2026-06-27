@@ -23756,6 +23756,117 @@ static int jt222(short item, short key)
 	}
 }
 
+/* JT[223] (CODE 7 + 0x08e6) — the jt169 list's mouse click+drag handler,
+ * installed as a DLItem method by L0c82.  Hit-tests the click (jt1139) into a
+ * row, selects it (l0e92, flag 1).  If the row was selectable and the list's
+ * confirm callback desc[20] approves, it fires the item's action (jt444 cmd 20)
+ * and returns; otherwise it tracks the drag (jt1132) and re-selects the row
+ * under the cursor (l0e92, flag 0) until a click is buffered.  ABI: (itemNo,
+ * mouse_y, mouse_x).  Part of the faithful jt169 List Manager lift (#146);
+ * unused until jt169 is replaced. */
+static void jt223(short itemNo, short y, short x) __attribute__((unused));
+static void jt223(short itemNo, short y, short x)
+{
+	long ld = g_a5_long(-13022);
+	unsigned char *d = (unsigned char *)(uintptr_t)ld;
+	short out_row = 0, out_col = 0;
+	short clicked_row;
+
+	PROBE("jt223");
+
+	jt1139((short)(*(short *)(uintptr_t)(d + 0) + 8000),
+	       (short)(*(short *)(uintptr_t)(d + 2) + 8000),
+	       y, x, &out_row, &out_col);
+	clicked_row = (short)((out_row >> 2) + *(short *)(uintptr_t)(d + 10));
+
+	if (l0e92(clicked_row, 1, ld) == 1 &&
+	    *(long *)(uintptr_t)(d + 20) != 0) {
+		unsigned char (*confirm)(void) =
+		    *(unsigned char (**)(void))(d + 20);
+		if (confirm())
+			jt444(itemNo, 20, 0, 0);   /* Mac passes 2 args; the
+			                              method ignores the rest */
+		return;
+	}
+
+	/* drag: re-select the row under the cursor until a click is buffered */
+	while (jt1132(&y, &x) == 0) {
+		jt1139((short)(*(short *)(uintptr_t)(d + 0) + 8000),
+		       (short)(*(short *)(uintptr_t)(d + 2) + 8000),
+		       y, x, &out_row, &out_col);
+		clicked_row = (short)((out_row >> 2) +
+		                      *(short *)(uintptr_t)(d + 10));
+		l0e92(clicked_row, 0, ld);
+	}
+}
+
+/* JT[224] (CODE 7 + 0x0866) — the jt169 list's scroll-bar arrow handler,
+ * installed as a DLItem method by L0c82.  Selects the bar part from
+ * (itemNo - desc[14]) and pages the window by ±(page-1) rows, selection
+ * unchanged.  Named jt224_c7 to avoid the unrelated jt224(short key) elsewhere
+ * in boot.c (the cross-segment / same-JT-number trap).  Part of the faithful
+ * jt169 List Manager lift (#146); unused until jt169 is replaced. */
+static void jt224_c7(short itemNo) __attribute__((unused));
+static void jt224_c7(short itemNo)
+{
+	long ld = g_a5_long(-13022);
+	unsigned char *d = (unsigned char *)(uintptr_t)ld;
+	short page1 = (short)(*(short *)(uintptr_t)(d + 4) - 1);
+	short top   = *(short *)(uintptr_t)(d + 10);
+	short sel   = *(short *)(uintptr_t)(d + 12);
+
+	PROBE("jt224_c7");
+
+	switch (itemNo - *(short *)(uintptr_t)(d + 14)) {
+	case 2:                                   /* up arrow: page up */
+		l0264_c7((short)(top - page1), sel, 0, ld);
+		break;
+	case 3:                                   /* down arrow: page down */
+		l0264_c7((short)(top + page1), sel, 0, ld);
+		break;
+	default:
+		break;
+	}
+}
+
+/* JT[225] (CODE 7 + 0x0b8e) — the jt169 list's scroll handler, installed as a
+ * DLItem method by L0c82.  Scrolls the visible window (top row) by the payload
+ * action code without moving the selection (mode 1 = forced repaint):
+ *   -2 page up, -1 line up, 0/default re-home, 1 line down, 2 page down.
+ * Part of the faithful jt169 List Manager lift (#146); unused until jt169 is
+ * replaced. */
+static void jt225(short itemNo, short action) __attribute__((unused));
+static void jt225(short itemNo, short action)
+{
+	long ld = g_a5_long(-13022);
+	unsigned char *d = (unsigned char *)(uintptr_t)ld;
+	short page1 = (short)(*(short *)(uintptr_t)(d + 4) - 1);
+	short top   = *(short *)(uintptr_t)(d + 10);
+	short sel   = *(short *)(uintptr_t)(d + 12);
+
+	PROBE("jt225");
+	(void)itemNo;
+
+	switch (action) {
+	case -2:
+		l0264_c7((short)(top - page1), sel, 1, ld);
+		break;
+	case -1:
+		l0264_c7((short)(top - 1), sel, 1, ld);
+		break;
+	case 1:
+		l0264_c7((short)(top + 1), sel, 1, ld);
+		break;
+	case 2:
+		l0264_c7((short)(top + page1), sel, 1, ld);
+		break;
+	case 0:
+	default:
+		l0264_c7(top, sel, 1, ld);
+		break;
+	}
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
