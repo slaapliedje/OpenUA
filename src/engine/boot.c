@@ -23997,6 +23997,91 @@ static void l5b92(long slot_l, short target)
 	l59e4(slot_l, new_pix, cur_pix);
 }
 
+/* L5c26 (CODE 3 + 0x5c26) — the scroll-bar press/auto-repeat tracking loop.
+ * Builds the active hit rect (jt1005 for an arrow button when p16>=0, else the
+ * thumb/track geometry via jt1135), then loops polling the mouse (l31b8) until
+ * release: it toggles the button highlight (jt1001) as the cursor enters/leaves
+ * the rect, and while inside fires the control's action callback (slot[4]) and
+ * steps the value (l5b92) on a ~7-tick auto-repeat cadence (jt1134), recomputing
+ * the thumb rect each step (l58fc/jt1141).  Returns the final inside flag.
+ *   p12,p14 = cell row/col   p16 = arrow sub-item (<0 = thumb)   p18 = direction
+ * Part of the faithful jt169 scroll-bar lift (#146); unused until jt424/jt169
+ * land. */
+static short l5c26(long slot_l, short p12, short p14, short p16, short p18)
+    __attribute__((unused));
+static short l5c26(long slot_l, short p12, short p14, short p16, short p18)
+{
+	unsigned char *s = (unsigned char *)(uintptr_t)slot_l;
+	short rt = 0, rl = 0, rb = 0, rr = 0;     /* hit rect top/left/bottom/right */
+	short cur_y = 0, cur_x = 0;                /* live mouse position */
+	long  next_tick;
+	signed char tracking = 1;
+	signed char inside;
+	short cur_val;
+
+	PROBE("L5c26");
+
+	if (p16 >= 0) {                            /* arrow button */
+		jt1001(p12, p14, 0, (short)(p16 + 1));
+		jt1005(p12, p14, 0, p16, &rt, &rl, &rb, &rr);
+	} else if (s[28] & 0x40) {                 /* horizontal thumb track */
+		jt1135(*(short *)(uintptr_t)(s + 16), p12, &rt, &rl);
+		jt1135((short)(*(short *)(uintptr_t)(s + 16) + 6), p14, &rb, &rr);
+	} else {                                    /* vertical thumb track */
+		jt1135(p12, *(short *)(uintptr_t)(s + 18), &rt, &rl);
+		jt1135(p14, (short)(*(short *)(uintptr_t)(s + 18) + 6), &rb, &rr);
+	}
+
+	next_tick = jt1134();
+	cur_y = rt;
+	cur_x = rl;
+
+	do {
+		inside = (rt <= cur_y && cur_y < rb &&
+		          rl <= cur_x && cur_x < rr) ? 1 : 0;
+		if (tracking != inside) {
+			tracking = inside;
+			if (p16 >= 0)
+				jt1001(p12, p14, 0,
+				       (short)(p16 + (inside ? 1 : 0)));
+		}
+		if (tracking && jt1134() >= next_tick) {
+			short *valp = *(short **)(uintptr_t)(s + 8);
+
+			next_tick = jt1134() + 7;
+			cur_val = *valp;
+			if (*(long *)(uintptr_t)(s + 4) != 0) {
+				short itemIndex =
+				    (short)(((long)slot_l - g_a5_9254) >> 5);
+				void (*action)(short, short) =
+				    *(void (**)(short, short))(uintptr_t)(s + 4);
+				action(itemIndex, p18);
+			}
+			l5b92(slot_l, cur_val);
+			if (p16 < 0) {
+				short v6 = l58fc(slot_l, *valp);
+				if (s[28] & 0x40) {        /* horizontal */
+					if (p18 < 0)
+						rr = v6;
+					else
+						jt1141(0, v6, 0, 8004,
+						       &v6, &rl);
+				} else {                   /* vertical */
+					if (p18 < 0)
+						rb = v6;
+					else
+						jt1141(v6, 0, 8004, 0,
+						       &rt, &v6);
+				}
+			}
+		}
+	} while (l31b8(&cur_y, &cur_x) == 0);
+
+	if (tracking && p16 >= 0)
+		jt1001(p12, p14, 0, p16);
+	return tracking;
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
