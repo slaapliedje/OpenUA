@@ -30121,13 +30121,21 @@ static void jt127(const char *prefix, short num, short *out, void *buffer)
  * so jt42's lift can call it. */
 static void jt176(void);
 
-/* L4bac (CODE 6 + 0x4bac) — message-area scroll advance. Reads
- * g_a5_28006->byte[18] as an index into a short table at
- * g_a5_17518, passes that short to JT[476] (consume), with a
- * preceding JT[1134] call (advance?). Stays PROBE — the index walk
- * is small but adds two JT stubs and an A5-array macro; lifted in
- * a follow-up. */
-static void l4bac(void)        { PROBE("l4bac"); }
+/* L4bac (CODE 6 + 0x4bac) — transient-message dwell.  Flushes the pending
+ * paint (jt1134, so the just-drawn message becomes visible) then delays
+ * (jt476) by the design's text-speed value: the design header (-28006) byte
+ * [18] indexes the per-speed short table at -17518.  This is the dwell jt42
+ * sits in after painting a message and before it erases it — with this stubbed
+ * to a no-op, every jt42 message (e.g. "already using %s") flashed invisibly. */
+static void l4bac(void)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("l4bac");
+	jt1134();
+	if (hdr != NULL)
+		jt476(g_a5_word(-17518 + (long)hdr[18] * 2));
+}
 
 /* JT[92] (CODE 6 + 0x4bac, 22 sites) — public alias for L4bac
  * (scroll-advance helper jt42 reaches in its message chain). */
