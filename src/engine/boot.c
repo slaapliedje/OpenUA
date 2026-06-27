@@ -64220,7 +64220,83 @@ static void jt894(short flag)
  * l23d2_c19 (NOT the port's render-helper l23d2 — same label, different code).
  */
 static void l30bc(long item) { PROBE("l30bc"); (void)item; }            /* L30bc — examine item   */
-static void l3228(long item) { PROBE("l3228"); (void)item; }            /* L3228 — use item       */
+/* L4c9a (CODE 19 + 0x4c9a) — would giving `item` to recipient `rec_l` overload
+ * them?  Recomputes the recipient's stats (jt21), then (when `flag` and the item
+ * stacks, item[53]!=0) scans the recipient inventory for a node whose type-key
+ * fields (40-44,48,49,52,54-56, with [54]<2) all match — a merge target.
+ * Returns 1 (overloaded) if the recipient already holds >15 distinct items with
+ * no merge match, or if current weight rec[86] + the item's weight (item[44],
+ * times item[53] for a stack) exceeds the carry max (jt24)+1500; else 0. */
+static unsigned char l4c9a(long rec_l, short flag, long item_l)
+{
+	unsigned char *rec  = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *item = (unsigned char *)(uintptr_t)item_l;
+	unsigned char  over = 0;            /* fp@(-2) */
+	unsigned char  matched = 0;         /* fp@(-9) */
+	long           node;                /* fp@(-8) */
+	short          wt, total;           /* fp@(-4), fp@(-12) */
+
+	PROBE("l4c9a");
+	jt21(rec_l);
+	node = *(long *)(rec + 8);
+
+	if (item[53] != 0 && (flag & 0xff) != 0) {
+		for (; node != 0; node = *(long *)(uintptr_t)node) {
+			const unsigned char *n =
+			    (const unsigned char *)(uintptr_t)node;
+			matched = (n[41] == item[41] && n[42] == item[42]
+			    && n[43] == item[43] && n[40] == item[40]
+			    && n[48] == item[48] && n[49] == item[49]
+			    && n[52] == item[52]
+			    && *(const unsigned short *)(n + 44)
+			       == *(const unsigned short *)(item + 44)
+			    && n[54] == item[54] && n[54] < 2
+			    && n[55] == item[55] && n[56] == item[56]) ? 1 : 0;
+			if (matched)
+				break;
+		}
+	}
+
+	if ((unsigned char)rec[193] > 15 && matched == 0)
+		over = 1;
+
+	wt = *(short *)(item + 44);
+	if (item[53] > 0)
+		wt = (short)(item[53] * wt);
+	total = (short)(*(short *)(rec + 86) + wt);
+	if ((unsigned short)(jt24(rec_l) + 1500) < (unsigned short)total)
+		over = 1;
+
+	return over;
+}
+
+/* L3228 (CODE 19 + 0x3228) — TRADE/give the picked item to another party member.
+ * Picks the recipient (l596a "Trade with whom?"); refuses with "Overloaded"
+ * (jt42) when l4c9a says it won't fit; otherwise moves the item node to the
+ * recipient (jt36), clears a bundle's sub-list pointer, removes it from the
+ * active char (jt30) and recomputes the recipient (jt21).  The jt893 "Trade"
+ * arm (case 2). */
+static void l3228(long item)
+{
+	unsigned char *it = (unsigned char *)(uintptr_t)item;
+	long           partner = g_a5_long(-27936);   /* fp@(-4) */
+
+	PROBE("l3228");
+	jt23();
+	l596a(ua_strs_at(0x5bc8), (short)1, (short)1, &partner);  /* "Trade with whom?" */
+	if (partner == 0)
+		return;
+	g_a5_long(-27936) = partner;
+	if (l4c9a(partner, (short)0, item) != 0) {
+		jt42(ua_strs_at(0x5bda));                 /* "Overloaded" */
+		return;
+	}
+	jt36(partner, item);                              /* move node to recipient */
+	if (it[40] == 73)
+		*(long *)(it + 58) = 0;
+	jt30(g_a5_long(-27932), item);                    /* remove from active char */
+	jt21(partner);
+}
 static void l3b6e(long item, unsigned char *out)                        /* L3b6e — ready/unready  */
 	{ PROBE("l3b6e"); (void)item; if (out) *out = 0; }
 /* L32c4 (CODE 19 + 0x32c4) — HALVE / split a stacked item or scroll bundle into
