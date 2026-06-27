@@ -23645,6 +23645,40 @@ tail:
 	return ret;
 }
 
+/* L10c4 (CODE 7 + 0x10c4) — move a jt169 list's selection by `delta`, skipping
+ * up to one un-selectable (getter-flagged) cell.  Clamps the target to
+ * [0, total-1], asks l0e92 to select it; if that cell is flagged (l0e92 < 0) it
+ * retries one cell further in the same direction, then one cell back the other
+ * way.  Returns 1 if the selection did not actually move, 0 if it did.
+ * Groundwork for the faithful jt169 List Manager lift (#146); unused until
+ * jt169 is replaced. */
+static short l10c4_c7(short delta, long ldesc_l) __attribute__((unused));
+static short l10c4_c7(short delta, long ldesc_l)
+{
+	unsigned char *d = (unsigned char *)(uintptr_t)ldesc_l;
+	short saved_sel = *(short *)(uintptr_t)(d + 12);
+
+	PROBE("L10c4_c7");
+
+	/* clamp target, then re-derive the achievable delta */
+	delta = (short)(jt397(0, jt413((short)(l021a(ldesc_l) - 1),
+	                  (short)(*(short *)(uintptr_t)(d + 12) + delta)))
+	                - *(short *)(uintptr_t)(d + 12));
+
+	if (l0e92((short)(*(short *)(uintptr_t)(d + 12) + delta), 0,
+	          ldesc_l) < 0) {
+		delta = (short)(delta + (delta > 0 ? 1 : -1));
+		if (l0e92((short)(*(short *)(uintptr_t)(d + 12) + delta), 0,
+		          ldesc_l) < 0) {
+			delta = (short)(delta + (delta > 0 ? -2 : 2));
+			l0e92((short)(*(short *)(uintptr_t)(d + 12) + delta), 0,
+			      ldesc_l);
+		}
+	}
+
+	return (short)(saved_sel == *(short *)(uintptr_t)(d + 12) ? 1 : 0);
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
