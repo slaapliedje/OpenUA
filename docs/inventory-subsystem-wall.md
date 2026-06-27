@@ -127,12 +127,22 @@ ARM LIFTS (2026-06-26/27): 4 of 7 done —
   - l3228 Trade-item + l4c9a fit-check ✓ (92907ab)
   - jt190 shop Identify ✓ (4de112d)
   - jt189 shop Sell ✓ (af44157)
-REMAINING 3 (the hard CODE-19 ones, each its own commit):
-  - l30bc Examine/Ready (CODE 19+0x30bc) — has its OWN JT[3] submenu (7 arms)
-    + calls L2f6e (unlifted helper) + jt890 (L2d78). Bigger.
-  - l3b6e Ready/unready (CODE 19+0x3b6e) — COMBAT-AWARE: calls jt595 (CODE16
-    spell), jt496 (CODE13), jt18/jt20/jt40 combat hooks. ~250 insns.
-  - jt889 / L35a0 Join bundle (CODE 19+0x35a0, ~1.5KB) — the big one.
+ARM 5 (Ready/examine, case 0): L30bc = JT[882] was ALREADY LIFTED as jt882 (+ its
+slot validator L2f6e = the lifted l2f6e). DONE 2026-06-27 (995017a) by repointing
+jt893 case 0 from the dead l30bc stub to jt882 (no new lift). LESSON: l30bc/l2f6e
+were duplicate-trapped — check for the JT-export name (jtNNN) before lifting an
+lXXXX arm; same as l25ce=jt893.
+
+REMAINING 2 ARMS (each its own focused session — NOT rushed):
+  - l3b6e "Use" (case 1, CODE 19+0x3b6e, ~305 insns) — COMBAT-COUPLED + its own
+    JT[1] sparse dispatch @ 0x3dae (decode with tools/jt1_extract --jsr-at 0x3dae).
+    Deps lifted: jt599/jt40/jt870/jt18/jt595. MISSING DEP: jt496 (CODE 13+0x276c)
+    — must lift jt496 first. This is a combat sub-campaign, not a plain inventory
+    arm.
+  - jt889 / L35a0 "Join bundle" (case 6, CODE 19+0x35a0, ~1.5KB / ~400 insns) —
+    SELF-CONTAINED: all external deps (JT[28/30/42/477/488]) already lifted; it's
+    mechanical bundle node-surgery (like a much bigger l32c4). Big but tractable
+    with no new deps. Good next target.
 ALSO PENDING: clear rec[64] (and sibling transient ptrs) on char load to safely
 re-wire jt904 case 0 -> jt893 for the Hall (see CONTEXT TRAP above).
 
