@@ -24308,6 +24308,76 @@ static short jt424(long slot_l, short cmd, short a, short b)
 	}
 }
 
+/* L0c82 (CODE 7 + 0x0c82) — build the jt169 list's DLItems.  Records the
+ * descriptor as the current list (-13022), then installs via the jt452 stream:
+ * the clickable list cell area (shape 5, click handler jt223) + an invisible
+ * keyboard item (shape 7, handler jt222).  Per the bar mode ldesc[8] it then
+ * adds either two arrow buttons (jt224_c7) or a scroll-bar (shape-8 method
+ * jt424 + scroll handler jt225, whose value pointer is bound to ldesc[10] = the
+ * top row and range = total-page+1, sprite/height chosen by page size).
+ * Finally it homes the view (l0264_c7) and paints/selects the current row
+ * (l0e92).  `flag` is the l0264_c7 mode byte (0 => l0e92 forces the highlight).
+ * Part of the faithful jt169 List Manager lift (#146); unused until jt169 is
+ * replaced. */
+static void l0c82(long ldesc_l, short flag) __attribute__((unused));
+static void l0c82(long ldesc_l, short flag)
+{
+	unsigned char *d = (unsigned char *)(uintptr_t)ldesc_l;
+	signed char fb = (signed char)flag;
+	short xbase   = (short)(*(short *)(uintptr_t)(d + 0) + 8000);
+	short ybase   = (short)(*(short *)(uintptr_t)(d + 2) + 8000);
+	short field4  = *(short *)(uintptr_t)(d + 4);
+	short visible = *(short *)(uintptr_t)(d + 6);
+	short top_row = *(short *)(uintptr_t)(d + 10);
+	short cur_sel = *(short *)(uintptr_t)(d + 12);
+	short total   = l021a(ldesc_l);
+
+	PROBE("L0c82");
+
+	g_a5_long(-13022) = ldesc_l;
+
+	/* clickable list cell area (shape 5) + invisible keyboard item (shape 7) */
+	jt452(5L, (long)xbase, (long)ybase,
+	      (long)(field4 * 4), (long)(visible * 4),
+	      34L, (long)(uintptr_t)&jt223,
+	      7L, (long)(uintptr_t)&jt222, 0L);
+
+	ybase = (short)(ybase + visible * 4);
+	if (jt1200() == 3 && ybase == 8148)
+		ybase = 448;
+
+	switch (*(short *)(uintptr_t)(d + 8)) {
+	case 1:                                   /* up / down arrow buttons */
+		jt452(1L, (long)(xbase + 1), (long)ybase, 0L,
+		      34L, (long)(uintptr_t)&jt224_c7, 37L, 12L, 18L,
+		      1L, (long)(xbase + field4 * 4 - 4), (long)ybase, 0L,
+		      34L, (long)(uintptr_t)&jt224_c7, 37L, 14L, 18L, 0L);
+		break;
+	case 2: {                                 /* scroll-bar */
+		short sprite, height;
+
+		if (field4 < 7)       { sprite = 20; height = 10; }
+		else if (field4 < 9)  { sprite = 19; height = 16; }
+		else if (field4 < 13) { sprite = 18; height = 26; }
+		else                  { sprite = 17; height = 55; }
+
+		jt452(8L, (long)(uintptr_t)&jt424,
+		      40L, (long)(xbase + 5), (long)ybase,
+		      42L, (long)height,
+		      36L, (long)(total - field4 + 1),
+		      35L, (long)(uintptr_t)(d + 10),
+		      37L, (long)(sprite + 1024),
+		      34L, (long)(uintptr_t)&jt225, 0L);
+		break;
+	}
+	default:
+		break;
+	}
+
+	l0264_c7(top_row, cur_sel, (short)fb, ldesc_l);
+	l0e92(cur_sel, (short)((fb == 0) ? 1 : 0), ldesc_l);
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
