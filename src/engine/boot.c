@@ -23397,6 +23397,173 @@ static char *jt143(short index, unsigned char *out_flag)
 	return (char *)(uintptr_t)(cur + 5);
 }
 
+/* jt1126 (the rect bit-scroll/copy primitive) is defined far below in the
+ * GLIB cluster; l0264_c7 needs it for the partial-scroll path. */
+static void jt1126(short v1, short h1, short v2, short h2,
+                   short dv, short dh, short fill);
+
+/* L0264 (CODE 7 + 0x0264) — the jt169 list scroll/redraw engine.  This is the
+ * CODE 7 L0264, NOT the CODE 5 MoveTo l0264 (same hex offset, different segment
+ * — the cross-segment collision the alias map warns about).  Re-homes the
+ * list's visible window to top row `a` with selection `b`: when the move is
+ * small (< page) and not forced, it bit-scrolls the on-screen cells with
+ * jt1126 and repaints only the newly exposed rows; otherwise it repaints the
+ * whole page.  Each cell's text comes from the descriptor's cell-getter
+ * callback (desc[16], e.g. jt143); jt94 paints the text (colour 11 = selected,
+ * 7 = normal, 12 = flagged) and jt103 draws the per-cell caret rule.  Returns
+ * 0 if nothing changed, 1 on a normal move, -1 if the new selection's cell
+ * flagged a stop (cb out-flag set).
+ *   a      = target top row (scroll-to, clamped to [0, total-page])
+ *   b      = target selection row (clamped to [0, total-1])
+ *   mode_w = force-full-repaint flag (only its low byte, fp@(13), is read)
+ * Groundwork for the faithful jt169 List Manager lift (#146); unused until
+ * jt169 is replaced. */
+static short l0264_c7(short a, short b, short mode_w, long ldesc_l)
+    __attribute__((unused));
+static short l0264_c7(short a, short b, short mode_w, long ldesc_l)
+{
+	unsigned char *d = (unsigned char *)(uintptr_t)ldesc_l;
+	char *(*cb)(short, unsigned char *) =
+	    *(char *(**)(short, unsigned char *))(d + 16);
+	char  mode = (char)(mode_w & 0xff);            /* fp@(13) */
+	short total, field4, old_top, old_sel;
+	short xbase, ybase, visible, delta = 0, retval;
+	short col4, loop_row, mode89 = 23;
+	short t0, t1, t2, t3;
+	unsigned char cbflag = 0;
+	char *text_a, *text_b, *cell_text;
+
+	PROBE("L0264_c7");
+
+	total  = l021a(ldesc_l);
+	field4 = *(short *)(uintptr_t)(d + 4);
+
+	/* clamp the scroll-to row and the selection row */
+	a = jt397(0, jt413((short)(jt397(total, field4) - field4), a));
+	b = jt397(0, jt413((short)(total - 1), b));
+
+	old_top = *(short *)(uintptr_t)(d + 10);
+	old_sel = *(short *)(uintptr_t)(d + 12);
+
+	text_a = cb(old_sel, &cbflag);
+	text_b = cb(b, &cbflag);
+	if (cbflag) {                  /* new selection vetoed: revert it */
+		b      = old_sel;
+		text_b = text_a;
+		retval = -1;
+	} else {
+		retval = 1;
+	}
+
+	if (mode == 0 && old_top == a && old_sel == b)
+		return 0;                  /* nothing moved */
+
+	xbase   = (short)(*(short *)(uintptr_t)(d + 0) + 8000);
+	ybase   = (short)(*(short *)(uintptr_t)(d + 2) + 8000);
+	visible = *(short *)(uintptr_t)(d + 6);
+
+	if (a != old_top && jt388((short)(a - old_top)) < field4 && mode == 0) {
+		/* small move: bit-scroll the on-screen cells (jt1126) */
+		mode89 = (!jt1163() && jt1200()) ? 8 : 23;
+		if (a > old_top) {
+			/* ---- scroll down ---- */
+			delta = (short)(a - old_top);
+			if (old_sel != b &&
+			    (short)(old_top + delta) <= old_sel &&
+			    (short)(old_top + field4) > old_sel) {
+				t0 = (short)((ybase - 8000) >> 2);
+				t1 = (short)(((xbase - 8000) >> 2) +
+				             (old_sel - old_top));
+				jt94(t0, t1, 7, 8, "%s", text_a);
+			}
+			jt1126(xbase, ybase,
+			       (short)(field4 * 4 + xbase),
+			       (short)(visible * 4 + ybase),
+			       (short)(delta * 4 + 8000), 8000, mode89);
+			if (old_sel != b && b >= a &&
+			    (short)(a + field4 - delta) > b) {
+				t0 = (short)((ybase - 8000) >> 2);
+				t1 = (short)(((xbase - 8000) >> 2) + (b - a));
+				jt94(t0, t1, 11, 8, "%s", text_b);
+			}
+			col4     = (short)((field4 - delta) * 4);
+			loop_row = (short)(old_top + field4);
+		} else {
+			/* ---- scroll up ---- */
+			delta = (short)(old_top - a);
+			if (old_sel != b && old_sel >= old_top &&
+			    (short)(old_top + field4 - delta) > old_sel) {
+				t0 = (short)((ybase - 8000) >> 2);
+				t1 = (short)(((xbase - 8000) >> 2) +
+				             (old_sel - old_top));
+				jt94(t0, t1, 7, 8, "%s", text_a);
+			}
+			jt1126(xbase, ybase,
+			       (short)(field4 * 4 + xbase),
+			       (short)(visible * 4 + ybase),
+			       (short)(8000 - delta * 4), 8000, mode89);
+			if (old_sel != b && b >= (short)(a + delta) &&
+			    (short)(a + field4) > b) {
+				t0 = (short)((ybase - 8000) >> 2);
+				t1 = (short)(((xbase - 8000) >> 2) + (b - a));
+				jt94(t0, t1, 11, 8, "%s", text_b);
+			}
+			col4     = 0;
+			loop_row = a;
+			field4   = delta;   /* loop draws only the exposed rows */
+		}
+	} else {
+		/* ---- full repaint ---- */
+		col4     = 0;
+		loop_row = a;
+	}
+
+	/* paint the affected cell range, advancing the cell-getter as we go */
+	cell_text = cb(loop_row, &cbflag);
+	for (;;) {
+		t0 = (short)((ybase - 8000) >> 2);
+		t1 = (short)((xbase + col4 - 8000) >> 2);
+		t2 = (short)(((ybase - 8000) >> 2) + visible);
+		t3 = (short)((xbase + col4 - 8000) >> 2);
+		if (jt1200() == 3 && *(short *)(uintptr_t)(d + 8) == 0)
+			jt103(t0, t1, t2, t3);            /* full-height caret */
+		else
+			jt103(t0, t1, (short)(t2 - 1), t3);
+
+		t0 = (short)((ybase - 8000) >> 2);
+		t1 = (short)((xbase + col4 - 8000) >> 2);
+		if (b == loop_row)
+			jt94(t0, t1, 11, 8, "%s", cell_text);
+		else
+			jt94(t0, t1, cbflag ? 12 : 7, 8, "%s", cell_text);
+
+		col4     = (short)(col4 + 4);
+		loop_row = (short)(loop_row + 1);
+		if ((short)(a + field4) <= loop_row)
+			break;
+		cell_text = cb(-1, &cbflag);
+		if (cell_text == 0)
+			break;
+	}
+
+	/* bottom border rule (note: t3 uses xbase, not xbase+col4) */
+	t0 = (short)((ybase - 8000) >> 2);
+	t1 = (short)((xbase + col4 - 8000) >> 2);
+	t2 = (short)(((ybase - 8000) >> 2) + visible);
+	t3 = (short)(((xbase - 8000) >> 2) + field4 - 1);
+	jt103(t0, t1, (short)(t2 - 1), t3);
+
+	*(short *)(uintptr_t)(d + 12) = b;
+	if (*(short *)(uintptr_t)(d + 8) == 2)
+		/* scroll-thumb mode: nudge the DLItem (Mac passes 3 args, the
+		 * method ignores the 4th — we pass 0) */
+		jt444((short)(*(short *)(uintptr_t)(d + 14) + 2), 32, a, 0);
+	else
+		*(short *)(uintptr_t)(d + 10) = a;
+
+	return retval;
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
