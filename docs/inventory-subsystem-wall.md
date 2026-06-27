@@ -122,7 +122,19 @@ mode (-27990) is 0 in the Hall. (-28006 is NOT the culprit; it's a boot-allocate
 faithfully from the Hall, the char load must CLEAR the transient record pointers
 (rec[64] and friends — same class as the rec[12]/16/20 stale-ptr fix), OR confirm
 the Mac's Hall popup omits Items. The in-game Items browser (camp/combat) is fine.
-NEXT: lift the 7 arms cheapest-first AND clear rec[64] on load to re-enable Hall Items.
+ARM LIFTS (2026-06-26/27): 4 of 7 done —
+  - l32c4 Halve/split ✓ (d0dfb8a)
+  - l3228 Trade-item + l4c9a fit-check ✓ (92907ab)
+  - jt190 shop Identify ✓ (4de112d)
+  - jt189 shop Sell ✓ (af44157)
+REMAINING 3 (the hard CODE-19 ones, each its own commit):
+  - l30bc Examine/Ready (CODE 19+0x30bc) — has its OWN JT[3] submenu (7 arms)
+    + calls L2f6e (unlifted helper) + jt890 (L2d78). Bigger.
+  - l3b6e Ready/unready (CODE 19+0x3b6e) — COMBAT-AWARE: calls jt595 (CODE16
+    spell), jt496 (CODE13), jt18/jt20/jt40 combat hooks. ~250 insns.
+  - jt889 / L35a0 Join bundle (CODE 19+0x35a0, ~1.5KB) — the big one.
+ALSO PENDING: clear rec[64] (and sibling transient ptrs) on char load to safely
+re-wire jt904 case 0 -> jt893 for the Hall (see CONTEXT TRAP above).
 
 LIFT ORDER (cheapest-first per the map): l596a -> l4f2c Lay -> l4ff6 Cure ->
 l46e0 Drop/Deposit (+l3f16/l3fd2) -> l4334 Trade (+l4264) -> l25ce Items (+l35a0).
