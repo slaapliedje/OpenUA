@@ -16,6 +16,8 @@ emit_pairs() {
 		awk -v seg="$seg" '
 			/^entry_jt[0-9]+:/ { match($0,/jt[0-9]+/); jt=substr($0,RSTART,RLENGTH); next }
 			/^L[0-9a-f]+:/ && jt!="" { match($0,/^L[0-9a-f]+/); print seg"\t"tolower(substr($0,RSTART,RLENGTH))"\t"jt; jt=""; next }
+			# JT-lea-only export: no LXXXX: label, the body starts at a raw "  addr:" line
+			/^  [0-9a-f]+:/ && jt!="" { match($0,/[0-9a-f]+/); print seg"\tl"substr($0,RSTART,RLENGTH)"\t"jt; jt=""; next }
 			{ if ($0 !~ /^;/ && $0 !~ /^$/) jt="" }
 		' "$f"
 	done | sort -t"$(printf '\t')" -k1,1n -k2,2
