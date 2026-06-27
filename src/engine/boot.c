@@ -23339,6 +23339,41 @@ static void jt169_pick(long head, short sel, short *idx, long *next)
 	}
 }
 
+/* JT[143] (CODE 7 + 0x3564) — the list-dialog cell-getter callback the real
+ * jt169 (CODE 7+0x3600) installs.  Walks the -12660 list cursor (head -12664):
+ * index>=0 reseeks from the head `index` nodes; index<0 advances one from the
+ * current cursor.  Returns the cell text (node+5) and writes node[4] (the cell
+ * flag/colour) into *out_flag; returns NULL past the end.  Groundwork for the
+ * faithful jt169 List Manager lift (#146); unused until jt169 is replaced. */
+static char *jt143(short index, unsigned char *out_flag) __attribute__((unused));
+static char *jt143(short index, unsigned char *out_flag)
+{
+	long  cur;
+	short i;
+
+	PROBE("jt143");
+	if (index < 0) {                                  /* advance from cursor */
+		cur = g_a5_long(-12660);
+		if (*(long *)(uintptr_t)cur == 0)
+			return 0;
+		g_a5_long(-12660) = *(long *)(uintptr_t)cur;
+	} else {                                          /* reseek from head */
+		g_a5_long(-12660) = g_a5_long(-12664);
+		for (i = 0; i < index; i++) {
+			if (g_a5_long(-12660) == 0)
+				return 0;
+			g_a5_long(-12660) =
+			    *(long *)(uintptr_t)g_a5_long(-12660);
+		}
+	}
+	cur = g_a5_long(-12660);
+	if (cur == 0)
+		return 0;
+	if (out_flag)
+		*out_flag = *(unsigned char *)(uintptr_t)(cur + 4);
+	return (char *)(uintptr_t)(cur + 5);
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
