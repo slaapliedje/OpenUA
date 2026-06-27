@@ -24378,6 +24378,17 @@ static void l0c82(long ldesc_l, short flag)
 	l0e92(cur_sel, (short)((fb == 0) ? 1 : 0), ldesc_l);
 }
 
+/* JT[144] (CODE 7 + 0x35d4) — the jt169 list dialog's per-frame callback: fires
+ * DLItem #1's method with cmd 4 (jt444) and returns 1 (keep running).  Part of
+ * the faithful jt169 List Manager lift (#146); unused until jt169 is replaced. */
+static int jt144(void) __attribute__((unused));
+static int jt144(void)
+{
+	PROBE("jt144");
+	jt444(1, 4, 0, 0);
+	return 1;
+}
+
 static int  jt169(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
