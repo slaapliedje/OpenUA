@@ -32608,7 +32608,7 @@ static void l4334(void)
 			jt179((short)1);
 
 			sel_node = head;                /* jt169 overwrites with the pick */
-			key = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
+			key = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
 			                           (short)20, (short)9, (short)38, (short)15,
 			                           head, (short)1, (short)1,
 			                           &flag, &selidx, &sel_node);
@@ -32739,7 +32739,7 @@ static void l46e0(short a)
 		else   { top = 1;  left = 17; right = 38; bottom = 22; }   /* drop    */
 
 		sel_node = head;                 /* jt169 overwrites with the pick */
-		key = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
+		key = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
 		                           top, left, right, bottom,
 		                           head, (short)1, (short)1,
 		                           &flag, &selidx, &sel_node);
@@ -65125,7 +65125,7 @@ static void jt924(void)
 		headcopy    = head;
 		idx_scratch = 0;
 		jt179((short)1);
-		sel = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
+		sel = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
 		                           (short)2, (short)2, (short)18, (short)8,
 		                           head, (short)1, (short)0,
 		                           &flag, &idx_scratch, &chosen);
@@ -65531,7 +65531,7 @@ static void jt894(short flag)
 		jt179((short)1);
 		if (flag & 0xff) { r_top=20; r_left=9;  r_right=38; r_bottom=15; }
 		else             { r_top=1;  r_left=17; r_right=38; r_bottom=22; }
-		sel = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
+		sel = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
 		                           r_top, r_left, r_right, r_bottom,
 		                           head, (short)1, (short)1,
 		                           &flagb, &idx_scratch, &chosen);
