@@ -25249,7 +25249,7 @@ static void l15e2(void)
 
 		loop_flag = 1;
 		jt179(1);
-		input = (short)jt169(g_a5_14216, g_a5_13792, 1, 2, 38, 22,
+		input = (short)jt169_faithful(g_a5_14216, g_a5_13792, 1, 2, 38, 22,
 		                     head, 1, 0,
 		                     &loop_flag, &idx, &entry);
 		if (g_a5_24139 != 0 && input == 27)
@@ -29504,7 +29504,7 @@ static void l12a0(void)
 
 		loop_flag = 1;
 		jt179(1);
-		input = (short)jt169(g_a5_13792, g_a5_14216, 1, 2, 38, 22,
+		input = (short)jt169_faithful(g_a5_13792, g_a5_14216, 1, 2, 38, 22,
 		                     head, 1, 0,
 		                     &loop_flag, &idx, &entry);
 		if (g_a5_24139 != 0 && input == 27)
