@@ -9,47 +9,57 @@ Three observed symptoms, each traced to one root:
 
 | Symptom (user) | Root cause | Class | Fix owner |
 |---|---|---|---|
-| text on **stone** instead of light-grey box (prompts, "Already using…", Trade prompt) | UI palette band not installed in-game | **CLUT** (not a stub) | #147 |
+| text on **stone** instead of grey box (Trade prompt, "Already using…") | message-bar **plate** (FRAME item 4) not covering the row-24 prompt — **NOT the CLUT** (palette verified correct in-game) | **render/compose** | #147 (re-scoped) |
 | can't **type a number** in Trade (jt891); roster keys do nothing | event-pump, runtime | **runtime** (not a stub) | new |
-| arrowing the party list does a **huge redraw/recolour**; can't mouse-highlight | CLUT re-install + present-once + missing keystroke filter | **mixed** | #147 + #144 + jt138/jt139 |
+| arrowing the party list does a **huge redraw/recolour**; can't mouse-highlight | present-once + missing keystroke filter | **mixed** | #144 + jt138/jt139 |
 
 ---
 
-## 1. CLUT — the #1 visual bug (NOT a missing leaf; a deferred commit)
+## 1. The "stone box" is a PLATE-compose bug, NOT a CLUT bug (VERIFIED 2026-06-27)
 
-The prompt-plate renderer itself is already correct: `jt1089` PaintRects the
-text cell in the bg index when `(bg==15||fg==0)&&bg!=8` (commit 06cd0b5, the
-`(bg<<4)|fg` colour-pair decode). The box *is* being drawn — in the **wrong
-colour**, because the light-grey box index (7) isn't installed when in-game
-dialogs paint.
+The original CLUT-clobber theory in this audit was **disproven by a live runtime
+diagnostic.** A one-shot log of the hardware CLUT inside `jt891` (the money
+amount-entry widget), captured the moment the Trade "how much platinum" prompt
+shows in-game, returned:
 
-Two places gate the UI palette band on `g_menu_state == 1`:
+```
+menu_state = 1
+clut7 = (187,187,187)   ← light grey, correct
+clut8 = (103,103,103)   ← neutral dark grey (r=g=b), correct, NOT clobbered
+```
 
-- `port_hud_text_clut` (boot.c:20164) — `if (g_menu_state != 1) return;` then
-  installs `g_menu_pal` slots **1 and 6..15** (1 name / 7 grey-box / 11 cyan /
-  12 red / 15 white). In the dungeon / inventory / trade / shop contexts
-  `g_menu_state != 1`, so this is a no-op and indices 1/6..15 keep whatever
-  **clut 129** (the 256-entry wall palette) left there → stone.
-- `L4d98` (boot.c:64190) — the faithful resident-palette commit is
-  `(void)0;` PORT-DEFERRED. The Mac runs `jt1068 + jt993(jt468(0),0) +
-  jt1066 + jt1000(-17482)` (colour modes) / `jt996(0,0,0)` (B&W). **All four
-  callees are lifted and ready** (jt1068 b59128, jt993, jt1066, jt1000 b63912);
-  the *call* is deferred because running it globally recolours the ranges the
-  port renderers own (corrupted Hall backdrop, dungeon frame breakage).
+So the in-game palette is **correct and unclobbered**. (The earlier claim that
+`g_menu_state != 1` in the dungeon was wrong: `g_menu_state` goes `0 → -1 → 1`
+once at first menu load and is **never reset** — boot.c:20066/20147 — so the UI
+band restores do run in-game.) Picture/portrait palettes also can't touch the
+reserved band: `l6e58` clamps `start ≥ 16` (boot.c:59108), matching the Mac's
+0..15 reservation.
 
-**Code-level fix (#147), two options:**
-- (faithful) Re-enable the L4d98 resident commit, but scope it so the GLIB
-  colour-range subsystem owns the 0..31 UI band and never overwrites the wall
-  bands (32+) — i.e. `jt1000(-17482)` seeds the `-4188` text-palette template
-  and `jt1006` remaps fills through it (`g_a5_1312` gate). This is the real
-  pipeline and also fixes `jt1161` fill remap.
-- (targeted bridge) Install the UI band (`g_menu_pal` slots 1, 6..15) at every
-  in-game dialog entry, not only when `g_menu_state==1`. Cheapest path to a
-  light-grey box now; superseded by the faithful version later.
+The render path is also faithful, verified against the Mac disasm:
+- `jt891 → jt94(0, 24, width=7, 0, prompt)` — the Mac caller (CODE 12 `0x2486`)
+  pushes the **same** `width=7`.
+- `jt94` row==24 (boot.c:6049) faithfully does `c==7→15` (white text, Mac
+  `0x4034: moveq #15`) and `bg=8` (Mac `0x403c: moveq #8`). So **white text on
+  an index-8 box is exactly what the Mac does** — making it black-on-light-grey
+  would be a deliberate DOS-style divergence, not a faithful fix.
+- `jt94` does **not** fill its own box: `bg=8` is the transparent case (`jt1089`
+  only PaintRects when `(bg==15||fg==0)&&bg!=8`), and `l3f88` paints only thin
+  edges. The grey backing comes from the **message-bar plate = FRAME.CTL item 4**,
+  painted by **`jt176`** (boot.c:30455 — `jt1173` erase + `jt1001(8000,8000,1,4)`
+  + `jt1193` + `l2062`), which is faithfully lifted and matches the Mac (L162e).
 
-Keystone leaf: **`jt1000` (boot.c:63912)** `jt406(&-4188, src, 16)` — sets the
-text-palette template; **currently never called**. `jt1006` (b58311) already
-reads `-4188`. Wiring `jt1000(-17482)` is the smallest faithful step.
+**Therefore "white on stone" = the FRAME item-4 plate is not covering the
+row-24 prompt** in the inventory/trade context (the dialog is opened over the
+character sheet, not the dungeon HUD, so the plate jt176 paints lands elsewhere
+or is the wrong piece). The white text falls on the bare backdrop. This is a
+**chrome/compose geometry** problem, not a palette one.
+
+**Re-scoped fix (#147):** make `jt176`'s message-bar plate actually back the
+row-24 prompt in every context it is invoked (inventory / trade / shop), so the
+prompt sits on the grey plate as on the Mac. Needs a screenshot of the live
+trade prompt to pin whether FRAME item 4 is mispositioned, the wrong sub-piece,
+or absent. NOT a palette change — `jt1000`/`jt1006`/`l6e58`/the L4d98 resident
+commit are all fine as-is.
 
 ---
 
@@ -80,7 +90,18 @@ lift.** The dungeon reads keys on a *separate* direct path (port_play_demo
 | **jt138** | 52524 | 0x86 (C7) | list-item keystroke filter: loop `jt1118`/`jt1133`, arrows 338/339→`jt50`/`jt51` scroll, translate via JT[1133] | installed as DLItem method (b52712); scroll targets `l5ac2`/`l5ad8` are real |
 | **jt139** | 52525 | 0x6e (C7) | same, plus stores the chosen key in `-12914` (ESC/`` ` ``) | the "Enter returns selection" variant |
 | **jt140** | 21122 | 0xe4 (C7) | list column/row measure: divides text width by 4, walks the `-27928` party list via `jt1139` | list-layout helper |
-| **l2062** | 30440 | 0x10 (C7=JT[174]) | sets dirty flags `-12911`/`-12912`=1 (commit-deferred-paint) | trivial 4-instr lift |
+| **l2062** | 30440 | 0x10 (C7=JT[174]) | sets dirty flags `-12911`/`-12912`=1 (commit-deferred-paint) | **ALIAS TRAP** — see below |
+
+**`l2062` alias trap (real bug, confident fix):** `l2062` (the PROBE stub at
+b30440) and **`jt174`** (b5784) are the **same Mac function** — both are CODE 7
++ 0x2062 (the alias map confirms it). `jt174` is the faithful lift
+(`g_a5_-12911 = g_a5_-12912 = 1`); `l2062` is a leftover duplicate stub. `jt176`
+(and other sites) call `l2062()`, so the dirty-flag set is currently a **no-op**.
+Per the CLAUDE.md `lXXXX`=`jtN` rule, the fix is to **forward** `l2062` to
+`jt174` (`static void l2062(void) { jt174(); }`), not re-lift. This gates the
+jt138/jt139 prompt-row content re-render (`l1bfe`) and the shape-5 button
+installs, so it matters once those paths are live — but it is *not* the jt891
+"stone box" (that's the plate, §1).
 
 `jt50`/`jt51` (the page-scroll the filters call) are already real
 (`l5ac2`/`l5ad8`, b19782/19786). So lifting jt138/jt139 closes keyboard nav for
@@ -114,10 +135,13 @@ empty/return-0 stubs.
 
 ## Recommended order
 
-1. **#147 CLUT** — wire `jt1000(-17482)` + the targeted UI-band install, fixes
-   every "stone box" at once (prompts, messages, Trade, roster recolour). Biggest
-   visible win, no new reverse-engineering (all callees lifted).
-2. **jt138/jt139 + l2062** — small, self-contained list-dialog keystroke
-   filters + the dirty-flag leaf; restores keyboard nav in list dialogs.
+1. **#147 message-bar plate** (re-scoped — see §1) — make `jt176`'s FRAME item-4
+   plate back the row-24 prompt in the inventory/trade/shop contexts. Needs a
+   screenshot of the live trade prompt to pin the plate geometry. NOT a palette
+   change (the CLUT is verified correct in-game).
+2. **jt138/jt139** — small, self-contained list-dialog keystroke filters;
+   restores keyboard nav in list dialogs. (`l2062` is NOT a stub — it is
+   faithfully lifted at boot.c:5785, setting the `-12911`/`-12912` dirty flags
+   the jt138/jt139 path reads.)
 3. **jt891 keyboard** — runtime instrumentation pass (separate from lifting).
 4. **#144 present-once** — stops the full-screen redraw on every list arrow.
