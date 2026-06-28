@@ -6068,7 +6068,14 @@ static void jt94(short page, short row, short col, short style,
 		       &v14, &v10);                             /* 0x40ba */
 		jt1161((short)(v4 - 2), (short)(v8 - 1), (short)(v4 - 1),
 		       (short)(v10 + 1), (short)0);                          /* 0x4100 top   */
-		l3f88((short)(v4 - 1), v8, v4, v10, s);                       /* 0x4124 fill  */
+		/* PORT: the Mac's l3f88 fills only the 1px top strip (v4-1..v4); the
+		 * box interior then shows the dialog-window grey backdrop.  The Falcon
+		 * port has no such window, so a standalone row-24 prompt (jt891's "how
+		 * much…") shows FRAME item-4's stone texture (jt176's bar) through the
+		 * interior instead of grey.  Fill the FULL box (v4-1..v12) with the
+		 * prompt bg `s` so it matches the Mac's clean grey plate.  (The 1px
+		 * faithful form used v4 as the bottom arg.) */
+		l3f88((short)(v4 - 1), v8, v12, v10, s);                      /* 0x4124 fill  */
 		jt1161((short)(v4 - 1), (short)(v8 - 1), v12, v8, (short)0);  /* 0x4146 left  */
 		jt1161((short)(v4 - 1), v10, v12, (short)(v10 + 1), (short)0);/* 0x4168 right */
 		jt1161(v12, (short)(v8 - 1), (short)(v12 + 1),
