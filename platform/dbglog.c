@@ -35,3 +35,55 @@ void dbg_log_num(const char *label, long value)
 	Cconws(&buf[i + 1]);
 	Cconws("\r\n");
 }
+
+static short g_dbg_fh_started = 0;
+
+static short num_to_str(char *buf12, long value)
+{
+	short         i = 11;
+	short         neg = (value < 0);
+	unsigned long u = neg ? (unsigned long)-value : (unsigned long)value;
+
+	buf12[i--] = '\0';
+	do {
+		buf12[i--] = (char)('0' + (short)(u % 10));
+		u /= 10;
+	} while (u != 0);
+	if (neg)
+		buf12[i--] = '-';
+	return (short)(i + 1);
+}
+
+static short str_len(const char *s)
+{
+	short n = 0;
+	while (s[n] != '\0')
+		n++;
+	return n;
+}
+
+void dbg_file_num(const char *label, long value)
+{
+	char  buf[12];
+	short off;
+	long  fh;
+
+	/* Fresh file the first call of the run, then append. Open/seek/close per
+	 * call so every line is flushed (a hard pkill -9 can't lose buffered data). */
+	if (!g_dbg_fh_started) {
+		fh = Fcreate("DBG.LOG", 0);
+		g_dbg_fh_started = 1;
+	} else {
+		fh = Fopen("DBG.LOG", 1);
+		if (fh >= 0)
+			Fseek(0L, (short)fh, 2);   /* SEEK_END */
+	}
+	if (fh < 0)
+		return;
+
+	off = num_to_str(buf, value);
+	Fwrite((short)fh, (long)str_len(label), label);
+	Fwrite((short)fh, (long)str_len(&buf[off]), &buf[off]);
+	Fwrite((short)fh, 2L, "\r\n");
+	Fclose((short)fh);
+}
