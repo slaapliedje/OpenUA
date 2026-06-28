@@ -24,6 +24,14 @@ unsigned long plat_ticks(void);
 int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii);
 
 /*
+ * Non-destructive "is a key pending?" — the BIOS/GEMDOS status check
+ * (Bconstat/Cconis) WITHOUT consuming. Lets EventAvail report a pending
+ * keyDown so the Toolbox event pump knows to run GetNextEvent (which then
+ * consumes the key via plat_kb_poll). Returns non-zero when a key waits.
+ */
+int plat_kb_avail(void);
+
+/*
  * Current keyboard modifier state — the raw Atari Kbshift bitmap
  * (bit 0 LSHIFT, 1 RSHIFT, 2 CTRL, 3 ALT, 4 CAPSLOCK). The Event
  * Manager translates to Mac modifier flags.

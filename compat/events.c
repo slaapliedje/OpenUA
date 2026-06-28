@@ -263,13 +263,26 @@ Boolean EventAvail(short eventMask, EventRecord *theEvent)
 		return 0;
 	if (queue_peek(eventMask, theEvent))
 		return 1;
-	/* Non-destructive peeks only: BIOS Bconin would consume a key, so
-	 * we skip the keyboard pump; the mouse-edge check passes ack=0 so
-	 * the next GetNextEvent still sees the same transition. */
+	/* Non-destructive peeks only. The mouse-edge check passes ack=0 so the
+	 * next GetNextEvent still sees the same transition. */
 	if ((event_matches(eventMask, mouseDown)
 	  || event_matches(eventMask, mouseUp))
 	 && mouse_edge_to_event(theEvent, 0))
 		return 1;
+	/* Keyboard: plat_kb_avail() (Bconstat/Cconis) reports a pending key
+	 * WITHOUT consuming it (Bconin would). Report it as a keyDown so the
+	 * Toolbox event pump (l731e -> l725c) runs GetNextEvent, which then
+	 * consumes the key via kb_to_event. message is left 0 here — this is a
+	 * peek; GetNextEvent fills the real scan/ASCII. Without this, standalone
+	 * modals that block on jt1133's `while(jt1118()==0)` (jt891 amount entry,
+	 * the roster/recipient pickers) never pump for keyboard-only input and
+	 * hang. */
+	if (event_matches(eventMask, keyDown) && plat_kb_avail()) {
+		theEvent->what    = keyDown;
+		theEvent->message = 0;
+		fill_common(theEvent);
+		return 1;
+	}
 	if (event_matches(eventMask, updateEvt) && update_to_event(theEvent))
 		return 1;
 	make_null(theEvent);
