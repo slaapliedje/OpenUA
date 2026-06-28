@@ -65031,6 +65031,12 @@ static long jt891(long maxval, const char *prompt, short width)
 	jt117();
 
 	for (;;) {
+		/* Port: the Mac drew the prompt + typed digits straight to the
+		 * screen via QuickDraw; the Falcon Display HAL double-buffers
+		 * (ADR-0003), so flush the pending paint to VIDEL before blocking
+		 * for the next key — otherwise the "how much?" prompt and the
+		 * digits the user types are never presented (look dead). */
+		jt1134();
 		key = jt60();
 		if (key == 13 || key == 27 || key == 96)         /* Enter / Esc / cancel */
 			break;
