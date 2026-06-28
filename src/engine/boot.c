@@ -21512,10 +21512,19 @@ static int l0aae(void)
 		                                 * menu_draw_plates draws. */
 		      20L, 21L, 0L);
 	}
-	/* The extra "page switch" item the Mac appends past the 12.
-	 * Shape 7 = callback DLItem; arg is the callback pointer
-	 * (passed as 20 here just as a non-NULL marker). End with 0. */
-	jt452(7L, 20L, 0L);
+	/* The extra "page switch" item the Mac appends past the 12. Shape 7 =
+	 * callback DLItem; rec[4] = the page-flip callback proc. The Mac passes a
+	 * real proc (roster page-flip, only relevant with >1 page of members); the
+	 * port has not lifted it, so pass NULL.
+	 *
+	 * CRITICAL: this MUST be 0, not a non-NULL marker. jt376's cmd==5
+	 * (accelerator) path does `proc = rec[4]; if (proc != 0) ((fn)proc)(...)`,
+	 * so the old "20 as a non-NULL marker" was a callable-but-invalid pointer:
+	 * Phase 5's accelerator walk reached this item and did a wild `jsr 0x14`,
+	 * crashing the program. That unclean crash left RGB-static screen residue
+	 * over the roster — the intermittent "garbage above Barbarus" (#144).
+	 * With 0, jt376 falls through to l1676 (the faithful no-proc default). */
+	jt452(7L, 0L, 0L);
 
 	g_a5_19174 = 8004;
 	g_a5_19172 = 8016;
@@ -21540,7 +21549,13 @@ static int l0aae(void)
 	l2c60(1);                            /* real DLItem paint walker (jt449 is a stub) */
 	(void)jt112(0);
 	(void)jt117();
-	qd_present();                        /* c2p the QD port to VIDEL + flip */
+	/* PORT present-once (#144): do NOT present here. jt453 (called next) is the
+	 * faithful commit — it presents the freshly-drawn modal screen exactly once
+	 * per entry. Presenting here too flipped the Hall TWICE per loop iteration
+	 * (this present + jt453's same-chunky present), the redundant back-to-back
+	 * flip correlated with the roster arrow-nav garbage band. Compose the menu
+	 * here; let jt453 do the single present. (l0aae is Hall-only — sole caller
+	 * jt918 — and always reaches jt453 below, so nothing goes unpresented.) */
 
 	g_hall_roster_nav = 1;           /* arrow keys -> roster selection (l0848) */
 	selection = jt453(NULL);
