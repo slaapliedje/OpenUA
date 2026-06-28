@@ -83,7 +83,33 @@ lift.** The dungeon reads keys on a *separate* direct path (port_play_demo
 
 ---
 
-## 2b. Roster arrow-nav garbage = DISPLAY-BUFFER artifact, engine render is CLEAN (2026-06-28)
+## 2b. Roster arrow-nav garbage = SOLVED: an unclean crash (shape-7 wild jsr) (2026-06-28)
+
+**ROOT CAUSE FOUND + FIXED.** The garbage was screen residue from an
+**intermittent unclean crash**, not a display-compose bug (the user's tip —
+"the garbage is usually caused by an unclean crash to the desktop" — was the
+key). Hatari `--trace cpu_exception` caught it: `cpu exception 11 ... currpc 14
+... op 4e90` — a wild `jsr (a0)` to address **0x14**.
+
+Chain: l0aae appends the Hall "page-switch" DLItem with `jt452(7L, 20L, 0L)` —
+shape 7 stores `rec[4] = 20 (= 0x14)` as a *"non-NULL marker"* for the page-flip
+callback. But `jt376` (the shape-7 handler) on `cmd==5` (Phase 5's accelerator
+walk) does `proc = rec[4]; if (proc != 0) ((fn)proc)(idx,a)` — so it **calls**
+0x14 → wild jsr → crash. Intermittent because Phase 5 only reaches that item
+(index 12) when no earlier item is hit and an accelerator/Return key is live.
+
+**Fix (boot.c l0aae):** pass `jt452(7L, 0L, 0L)` — NULL, not 20. `jt376` is
+built to fall through to `l1676` (the faithful no-proc default) when
+`rec[4]==0`. Verified: 3× heavy-nav stress runs (9 keys each) → 0 wild-jsr
+exceptions, clean roster, nav works (highlight moves). The real Mac passes an
+actual page-flip proc here; lifting it is a separate enhancement (multi-page
+rosters) — NULL is correct for the port's single-page roster.
+
+Below is the earlier (display-layer) investigation, retained because it PROVED
+the engine render is clean (which is why the crash, not a compose bug, was the
+answer):
+
+### Earlier: ruled out the display/compose layer
 
 The Training Hall roster "wrong colours above Barbarus / below Stranilla" (a
 band of ~4 cyan-bordered boxes of RGB static over the top rows) appears **only

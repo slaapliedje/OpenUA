@@ -1,8 +1,27 @@
 # #144 — Present once per logical screen (off-screen compose) — SCOPE
 
-Status: scoped 2026-06-28, not started. Owner: display HAL + engine present sites.
+Status: scoped 2026-06-28. **Premise CORRECTED same day** — see the box below.
+Owner: display HAL + engine present sites.
 Companion: [docs/dialog-render-input-audit.md](dialog-render-input-audit.md) §2b/§5
 (the roster arrow-nav garbage that motivated this), and #143 (cursor smear).
+
+> **CORRECTION (2026-06-28, after starting Phase 1).** Two findings changed the
+> scope:
+> 1. **The present MODEL is already correct.** `videl_present_rect` collapses to
+>    `videl_present()` (a *full* chunky blit), and the triple-buffer rotation is
+>    provably tear-free + VBL-coalesced (the displayed buffer is always the
+>    latest complete frame). So buffers do NOT diverge — the "HAL copy-commit"
+>    (old Option A) solves a non-problem. The dungeon's 2× present is vestigial.
+> 2. **The roster garbage was NOT a present bug at all — it was an unclean
+>    crash** (shape-7 page-switch item calling an invalid callback; see
+>    audit §2b). Fixed directly.
+>
+> So #144's *real* remaining value is modest **present-once cleanup**, not a HAL
+> rework: (a) DONE — removed l0aae's redundant present (jt453 is the faithful
+> single commit); (b) TODO — remove the vestigial dungeon double-present
+> (boot.c:14941) once confirmed harmless; (c) OPTIONAL — engine
+> re-faithfulization via jt1153/jt1146 (Option B) for structural fidelity. The
+> HAL copy-commit (Option A) is **shelved** — the model is sound as-is.
 
 ## 1. Symptom inventory (what "present-too-often" looks like)
 
