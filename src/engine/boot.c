@@ -63409,7 +63409,12 @@ static int jt918(short a)
 					for (yy = 0; yy < sh; yy++)
 						memset(px + (long)yy * pitch, 0x08, (size_t)sw);
 				}
-				qd_present();
+				/* PORT: do NOT present here — this is only the backdrop half of
+				 * the frame. l02dc (roster grid) and l0aae (menu) paint next,
+				 * and l0aae presents the full compose. Presenting the bare
+				 * backdrop here flashed the darker-grey/stone window before the
+				 * roster layered on top — visible on every Hall/roster redraw
+				 * (selection change). Compose-once: let l0aae's present show it. */
 			}
 		}
 
@@ -63436,6 +63441,14 @@ static int jt918(short a)
 		 * either way, so it does not affect the observable behavior. */
 		{
 			short party = (g_a5_long(-27928) != 0) ? 1 : 0;
+
+			/* PORT: default the selection to the party head when unset, so the
+			 * roster grid (l02dc) paints on EVERY frame. Without this the first
+			 * Hall frame after a load (selection -27932 still 0) skipped l02dc
+			 * and l0aae presented the bare stone backdrop with no roster — the
+			 * dark-grey flash before the roster appears. */
+			if (g_a5_27932 == 0)
+				g_a5_27932 = g_a5_long(-27928);
 
 			if (g_a5_27932 != 0)
 				l02dc(g_a5_27932);   /* repaint the roster grid */
