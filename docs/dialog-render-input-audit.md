@@ -83,6 +83,40 @@ lift.** The dungeon reads keys on a *separate* direct path (port_play_demo
 
 ---
 
+## 2b. Roster arrow-nav garbage = DISPLAY-BUFFER artifact, engine render is CLEAN (2026-06-28)
+
+The Training Hall roster "wrong colours above Barbarus / below Stranilla" (a
+band of ~4 cyan-bordered boxes of RGB static over the top rows) appears **only
+when an arrow key actually moves the selection** (`l0848` → jt918 re-render).
+The initial roster and any frame where the arrow does *not* navigate are clean.
+
+Traced end-to-end with the harness (see §5 for how to drive arrows headless):
+- **The chunky surface is 100 % clean.** A full vertical scan of
+  `qd_screen_pixels()` at both l0aae's present and jt453's present on the
+  post-nav frame returns index 8 (the grey plate) for y=8..72; only y=0..4 hold
+  the normal FRAME chrome. So `l02dc`/`l0aae`/`jt76` paint **no** garbage — the
+  engine lift is faithful.
+- **The 16bpp display buffers are clean at present time.** Scanning all three
+  `g_screen[0..2]` at jt453's present found only FRAME-chrome / plate-border
+  pixels (no static). `Physbase` == `g_screen[g_disp]`, and a red-marker written
+  into `g_screen[g_disp]` from the VBL handler shows up exactly where painted —
+  so the addressing is right and g_disp **is** what VIDEL scans.
+- **The garbage enters g_disp AFTER jt453's present**, during the l2d3e input
+  spin, and persists (nothing re-covers that band). The only post-present writer
+  is the VBL cursor handler, but the cursor sits at screen-centre (the harness
+  warps the pointer to window-centre), not the top — so the exact write was not
+  pinned. Smells like a triple-buffer / rapid-VsetScreen race on the nav's
+  back-to-back presents (l0aae **and** jt453 both present per loop iteration).
+
+**Conclusion:** this is a **port display-compositor bug, not an engine-lift
+bug** — squarely #144 (present-once / off-screen compose). The fix direction is
+to compose the whole logical roster frame off-screen and present it **once** per
+jt918 iteration (drop the redundant jt453 present for the non-modal Hall menu),
+so a freshly-blitted buffer is always what gets latched. NOT a CLUT or chunky
+fix. The two jt918 fixes already landed this session (remove the bare-backdrop
+present in the loop; default `-27932` to the party head) cured the *first*
+dark-grey flash; the arrow-nav band remains for #144.
+
 ## 3. True leaf stubs ON the dialog/list path (these DO need lifting)
 
 | fn | boot.c | Mac sz | role | note |
@@ -144,4 +178,31 @@ empty/return-0 stubs.
    faithfully lifted at boot.c:5785, setting the `-12911`/`-12912` dirty flags
    the jt138/jt139 path reads.)
 3. **jt891 keyboard** — runtime instrumentation pass (separate from lifting).
-4. **#144 present-once** — stops the full-screen redraw on every list arrow.
+4. **#144 present-once** — stops the full-screen redraw on every list arrow AND
+   the roster arrow-nav garbage band (§2b).
+
+---
+
+## 5. Headless harness: driving cursor ARROWS + capturing logs (2026-06-28)
+
+Two gotchas that blocked reproducing the arrow-driven bugs headless, now solved:
+
+- **`--conout 2` swallows the cursor arrows.** That redirect (how `dbg_log`
+  reaches the host terminal) routes BIOS device 2 to the host, so the engine
+  falls back to GEMDOS `Cconis`/`Crawcin`, which only surface keys *with an
+  ASCII code*. Letters + Return arrive; the arrows (ascii==0, scancode only) do
+  **not** — `plat_kb_poll` never sees them. Verified: a low-level dump of the
+  raw key code fired for p/l/a/Return but never for Down.
+- **Fix / workaround:** `FRUA_NO_CONOUT=1 tools/hatari_ui.sh start` drops
+  `--conout 2`, so the engine reads keys via `Bconin(2)` and injected arrows
+  reach `l2d3e`/`jt1125` (Down→scan 0x50→260→`l0848`). The screen stays clean
+  (`dbg_log`'s `Cconws` lands on Logbase, not the displayed triple-buffer). It
+  implies `READY_MARKER=-` (no engine markers in the log) and a longer warm-up
+  (`READY_GRACE`, default 18s) so the whole boot finishes under fast-forward.
+- **Logging WITHOUT `--conout 2`:** use `dbg_file_num(label, val)` (platform/
+  dbglog.c) — it appends to `C:\DBG.LOG` (= `data/work/gamedata/DBG.LOG` on the
+  host), truncated on the first call per run. The only debug-trace channel that
+  survives no-conout. (`dbg_log_num` still works *with* `--conout 2`.)
+- Mouse-button clicks still do NOT inject (only keyboard via XTEST). The driver
+  warps the host pointer to window-centre before each key, so the in-game cursor
+  sits at screen-centre during headless runs.

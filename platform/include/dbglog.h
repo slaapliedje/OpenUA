@@ -12,4 +12,14 @@
 void dbg_log(const char *msg);
 void dbg_log_num(const char *label, long value);
 
+/*
+ * File-based variant — appends "label value\r\n" to C:\DBG.LOG (the GEMDOS
+ * mount, i.e. data/work/gamedata/DBG.LOG on the host). Unlike dbg_log_num
+ * (VT-52 console, needs Hatari --conout 2 which swallows the cursor arrows),
+ * this works WITHOUT --conout 2 — so debug traces survive the no-conout mode
+ * the harness uses for arrow-key input. Truncates on the first call per run.
+ * A bring-up aid; not for shipping code.
+ */
+void dbg_file_num(const char *label, long value);
+
 #endif /* PLATFORM_DBGLOG_H */

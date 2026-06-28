@@ -47,6 +47,21 @@ HATARI_BIN="${HATARI_BIN:-hatari}"
 READY_MARKER="${READY_MARKER:-menu: modal up}"
 READY_TIMEOUT="${READY_TIMEOUT:-180}"
 
+# FRUA_NO_CONOUT=1 drops Hatari's `--conout 2` console redirect. The redirect
+# is how dbg_log reaches the host terminal, but it routes BIOS device 2 to the
+# host so the engine reads keys via GEMDOS Cconis/Crawcin — which DON'T surface
+# non-ASCII keys (the cursor arrows). Without the redirect the engine reads via
+# Bconin(2), so injected arrow keys actually reach the roster / dungeon nav.
+# Trade-off: no terminal log (dbg_log's Cconws lands on Logbase, not the
+# displayed triple-buffer, so the screen stays clean — screenshots still work).
+# Implies READY_MARKER=- (the log has no engine markers to wait on).
+if [[ -n "${FRUA_NO_CONOUT:-}" ]]; then
+	CONOUT_ARG=""
+	READY_MARKER="-"
+else
+	CONOUT_ARG="--conout 2"
+fi
+
 die() { echo "hatari_ui: $*" >&2; exit 1; }
 
 find_window() {
@@ -94,7 +109,7 @@ start)
 		--machine falcon \
 		--dsp emu \
 		--tos "$FALCON_TOS" \
-		--conout 2 \
+		$CONOUT_ARG \
 		--fast-forward yes \
 		--joy0 none --joy1 none \
 		--cmd-fifo "$STATE/cmd.fifo" \
@@ -109,7 +124,12 @@ start)
 	# no marker (the merchant event); a fixed grace period replaces it so the
 	# emulator still drops out of fast-forward.
 	if [[ "$READY_MARKER" == "-" ]]; then
-		sleep 6
+		# Fixed grace period with fast-forward still ON, so the whole boot
+		# (TOS + auto-run frua.prg + design load) completes fast before we
+		# drop to real speed. The no-conout path has no engine marker to wait
+		# on, so it needs a longer window than the merchant event. Override
+		# with READY_GRACE.
+		sleep "${READY_GRACE:-${FRUA_NO_CONOUT:+18}}" 2>/dev/null || sleep 6
 	else
 		wait_for "$READY_MARKER" 1 "$READY_TIMEOUT" || true
 	fi
