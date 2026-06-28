@@ -30437,7 +30437,12 @@ static void jt1193(void)
 	g_a5_3050 = l04cc();     /* bottom = screen height */
 	g_a5_3052 = l04de();     /* right  = screen width  */
 }
-static void l2062(void)                           { PROBE("l2062"); }
+/* l2062 = CODE 7 + 0x2062 = JT[174] (same address) — the dialog paint-commit
+ * dirty-flag set (g_a5_-12911 = g_a5_-12912 = 1).  The lXXXX=jtN alias trap:
+ * this was a leftover PROBE stub duplicating the faithful jt174 lift, so the 6
+ * l2062() sites (jt176 et al.) silently dropped the dirty flag.  Forward to
+ * jt174 instead of re-lifting. */
+static void l2062(void)                           { jt174(); }
 
 /* JT[176] (CODE 7 + 0x162e, 36 sites) — window paint init / commit.
  *
