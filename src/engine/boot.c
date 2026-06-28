@@ -24478,7 +24478,11 @@ static int jt169_faithful(long h1, long h2, short top, short left,
 	*(short *)(desc + 2)  = (short)(tb_top * 4);
 	*(short *)(desc + 4)  = (short)(tb_p22 - tb_left);
 	*(short *)(desc + 6)  = (short)(tb_p20 - tb_top);
-	*(short *)(desc + 8)  = (short)(((tb_p22 - tb_top) < node_count) ? 2 : 0);
+	/* bar mode: the Mac (L3600 0x36d2) tests (fp@23 - fp@19) = arg4 - left =
+	 * the field-4 width against the row count — NOT (arg4 - top).  Using top
+	 * here went negative for non-inventory rects (e.g. trade 20/9/38/15 ->
+	 * -5 < count) and drew a spurious scroll-bar. */
+	*(short *)(desc + 8)  = (short)(((tb_p22 - tb_left) < node_count) ? 2 : 0);
 	*(short *)(desc + 12) = *idx;
 	*(short *)(desc + 14) = (short)(count206e + 1);
 	*(long  *)(desc + 16) = (long)(uintptr_t)&jt143;
