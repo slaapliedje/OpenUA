@@ -67,6 +67,19 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 	return 1;
 }
 
+/* Non-destructive "is a key pending?" — the status half of plat_kb_poll
+ * (Bconstat/Cconis) WITHOUT consuming the key.  EventAvail uses it so the
+ * Toolbox event pump (l731e -> l725c) knows a keyDown is available and runs
+ * GetNextEvent, which then consumes it via plat_kb_poll.  Without this,
+ * EventAvail can never report a pending key, and l731e (gated on
+ * `l6804()==0 || EventAvail(...)`, with the port's l6804 returning 1) never
+ * pumps for keyboard-only input — so jt1133's `while(jt1118()==0)` spins
+ * forever in every standalone modal (jt891 amount entry, the roster picker). */
+int plat_kb_avail(void)
+{
+	return (Bconstat(2) != 0 || Cconis() != 0);
+}
+
 unsigned char plat_kb_shift(void)
 {
 	return (unsigned char)Kbshift(-1);
