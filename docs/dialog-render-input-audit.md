@@ -143,6 +143,31 @@ fix. The two jt918 fixes already landed this session (remove the bare-backdrop
 present in the loop; default `-27932` to the party head) cured the *first*
 dark-grey flash; the arrow-nav band remains for #144.
 
+## 2c. Fake-marker / indirect-dispatch crash sweep — CLEAN (2026-06-28)
+
+After the shape-7 crash (§2b), swept the whole `boot.c` indirect-call surface for
+the same class of bug — a non-pointer "marker" used where a function pointer gets
+**called**. Result: **no remaining fake markers**; the surface is clean.
+
+- **DLItem callbacks** `jt452(7,…)` / `jt452(8,…)`: every site passes a real fn
+  pointer (`&jt287`, `proc` [NULL-guarded], `&jt424`, `cb`, `jt141`, `jt245`,
+  `jt137` via jt450) or NULL (the fixed page-switch). The `20` in
+  `jt452(7, cb, 20, 0)` is a *stream command* (cmd 20 = enable), NOT the callback.
+  The same `rec[4]=20` bug had ALSO bitten CODE 7+0x1ce4 (b52714) and was already
+  fixed there — this pattern is error-prone; always pass a real proc or 0.
+- **Every shape-7 `rec[4]` dispatch is NULL-guarded** — jt376 cmd==5 (b8101,
+  `if (proc != 0)`) and the action-proc path (b8403, `if (*(long*)(rec+4) != 0)`)
+  — so `rec[4]=0` is safe everywhere.
+- **Global fn-pointer dispatches**: `g_a5_-4774` (l0faa) ← `jt974`; `g_a5_-24070`
+  (`ua_target_cb`, ~9 combat-targeting sites) ← `jt601`/`jt538`. Real sources;
+  the -24070 sites are in `__attribute__((unused))` combat-tier fns (not
+  play-reachable yet) and are set before use in the combat flow.
+- Marker grep `(uintptr_t)<small-int>` / `(_method_t)<int>` (excluding NULL/0):
+  **empty**.
+
+Conclusion: the only live fake-marker was the page-switch one (fixed aaaa1d7).
+No further lifts needed for this class.
+
 ## 3. True leaf stubs ON the dialog/list path (these DO need lifting)
 
 | fn | boot.c | Mac sz | role | note |
