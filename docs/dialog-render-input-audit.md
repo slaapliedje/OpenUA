@@ -189,8 +189,17 @@ installs, so it matters once those paths are live — but it is *not* the jt891
 "stone box" (that's the plate, §1).
 
 `jt50`/`jt51` (the page-scroll the filters call) are already real
-(`l5ac2`/`l5ad8`, b19782/19786). So lifting jt138/jt139 closes keyboard nav for
-list dialogs (roster, picker) without further deps.
+(`l5ac2`/`l5ad8`, b19782/19786).
+
+**DONE (2026-06-28): jt138 (L1914) + jt139 (L199c) lifted faithfully.** Both are
+the list-prompt action proc stored in `rec[4]` (jt376 cmd==5 calls them as
+`proc(idx,key)` — signature is `(short idx, short key)` to match that cast).
+Each drains pending input (`while jt1118()` → scroll 338/339 via `jt50`/`jt51`,
+read next key via `jt1133`), then jt138 ACCEPTS 256..264 / 27 / 96 / 320..345
+(stash key in `-12914`, return 1) and jt139 accepts only 27 / 96. Install site
+(l1bfe) cast changed to a raw-address cast (no incompatible-fn-ptr warning).
+Build clean, host tests pass, Load picker→roster no regression. Deps all real;
+only `jt169` (the list-dialog core, #146) remains for the full faithful list UI.
 
 ---
 
