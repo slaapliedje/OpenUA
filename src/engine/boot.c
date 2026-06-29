@@ -8139,6 +8139,37 @@ static short jt378(void *rec_v, short cmd, ...)
 	PROBE("jt378");
 	SHAPE_CMD_PROBE("jt378");
 
+	if (cmd == 3) {
+		/* L2668 — press track. The list/grid cells the Hall roster (jt156)
+		 * and jt169 (jt223) install leave bit 6 of rec[28] clear, so the Mac
+		 * returns 1 immediately (the press is a hit; no drag-highlight loop —
+		 * the per-row drag is handled inside the rec[4] handler instead). */
+		return 1;
+	}
+	if (cmd == 4) {
+		/* L2778 — commit. Hand the click to the cell's rec[4] handler as
+		 * proc(item_index, y, x): jt156 (Hall roster) / jt223 (jt169 list)
+		 * map (y,x) to a ROW via jt1139 and either move the selection or, on
+		 * the already-active row, commit it (jt444 cmd 20 -> rec[28] bit 4).
+		 * This is the path l2d3e's mouse hit-test must drive so list/roster
+		 * ROWS are mouse-selectable; the generic l1676 cmd-4 passes only a
+		 * pool index and never reaches rec[4]. */
+		short cy, cx;
+		long  proc = *(long *)(void *)(rec + 4);
+
+		va_start(ap, cmd);
+		cy = (short)va_arg(ap, int);
+		cx = (short)va_arg(ap, int);
+		va_end(ap);
+		if (proc != 0) {
+			short item = (short)(((unsigned char *)rec
+			            - (unsigned char *)(uintptr_t)g_a5_9254)
+			            / DLITEM_BYTES);
+			((void (*)(short, short, short))(uintptr_t)proc)
+			    (item, cy, cx);
+		}
+		return 0;
+	}
 	if (cmd != 2) {
 		short la, lb;
 		va_start(ap, cmd);
@@ -19494,6 +19525,24 @@ static short l2d3e(void)
 			 * rec[28] bits 0/1 — reject themselves). */
 			if (iy >= 8000 && hm != NULL
 			 && hm(hr, (short)2, cy, cx) != 0) {
+				/* Shape-5 list/grid cell — the Hall roster AND every jt169
+				 * List Manager dialog (coin trade, Load Saved Game, Select a
+				 * Design) are ONE shape-5 cell whose rec[4] handler (jt156 /
+				 * jt223) maps a click to a ROW. The faithful commit is jt378
+				 * cmd 4 -> rec[4](item, y, x); it moves the selection, or, when
+				 * the already-active row is re-clicked, commits it (jt444 cmd
+				 * 20 -> rec[28] bit 4). The generic button path below would
+				 * instead return the cell's DLItem INDEX without ever calling
+				 * rec[4], so list/roster rows were not mouse-selectable. Drive
+				 * cmd 4 with the SAME (cy,cx) the hit-test used, then honour the
+				 * commit bit. */
+				if (hm == (dlitem_method_t)jt378) {
+					hm(hr, (short)4, cy, cx);
+					if ((hr[28] & 0x10) != 0)
+						return i;     /* committed -> leave the modal */
+					qd_present();     /* selection moved -> repaint, stay */
+					return (short)-1;
+				}
 				/* Press feedback: recessed + blue/cyan while held, fire
 				 * on release-over-button (faithful l1676 cmd=3 track). */
 				if (!menu_button_track(hr))
@@ -21505,7 +21554,15 @@ static int l0aae(void)
 	g_a5_19174 = 8004;
 	g_a5_19172 = 8016;
 	jt166(9);
-	jt158(g_a5_19174, g_a5_19172);
+	/* Faithful arg order (CODE 12 l0aae: pushes -19174 then -19172, so
+	 * arg1 = -19172 = 8016, arg2 = -19174 = 8004). jt158 stores arg1 ->
+	 * rec[16], arg2 -> rec[18] of the shape-5 roster hit-test cell; jt156
+	 * (the rec[4] click handler) maps a click with jt1139(-19172, -19174,
+	 * ...) — i.e. origin (8016, 8004). The call had the args SWAPPED, so the
+	 * cell's hit-test origin (rec[16]/rec[18]) disagreed with jt156's mapping
+	 * origin and a roster click landed on the wrong row. The cell is invisible
+	 * (no cmd-1 paint), so this only ever affected mouse hit-testing. */
+	jt158(g_a5_19172, g_a5_19174);
 
 	{
 		unsigned char *flags[12] = {
