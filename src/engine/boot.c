@@ -63457,7 +63457,19 @@ static int jt918(short a)
 		/* L0dd4: per-iteration prologue. */
 		(void)jt112(1);
 		if (local > 11)
-			(void)jt108(1);
+			/* PORT present-once (#144): jt108(0), NOT jt108(1). jt108(a)
+			 * does `if (a) jt1146()` and jt1146 == qd_present. On the
+			 * re-render path (local==12, the roster arrow-nav sentinel)
+			 * the port has ALREADY painted its stone+plate backdrop stand-in
+			 * just above (the faithful Mac paints it AFTER jt108's commit),
+			 * so jt108(1)'s jt1146 would PRESENT that half-painted frame —
+			 * the bare backdrop with no roster/menu yet — the "dark-gray
+			 * lines above and below the roster on redraw" flash. jt108(0)
+			 * does the same dirty/prep (jt1153 + -18395) WITHOUT that
+			 * premature commit; the complete frame is committed once by
+			 * l0aae/jt453. (Same class as the backdrop-block present removal
+			 * above; the jt81 first-entry path keeps its own paint+commit.) */
+			(void)jt108(0);
 		else
 			jt81();
 
