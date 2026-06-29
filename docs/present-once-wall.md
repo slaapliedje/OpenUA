@@ -18,10 +18,14 @@ Companion: [docs/dialog-render-input-audit.md](dialog-render-input-audit.md) §2
 >
 > So #144's *real* remaining value is modest **present-once cleanup**, not a HAL
 > rework: (a) DONE — removed l0aae's redundant present (jt453 is the faithful
-> single commit); (b) TODO — remove the vestigial dungeon double-present
-> (boot.c:14941) once confirmed harmless; (c) OPTIONAL — engine
-> re-faithfulization via jt1153/jt1146 (Option B) for structural fidelity. The
-> HAL copy-commit (Option A) is **shelved** — the model is sound as-is.
+> single commit); (b) DONE — the "vestigial dungeon double-present
+> (boot.c:14941)" lived in `draw_party_panel`, which was DEAD CODE (no callers;
+> superseded by the faithful HUD jt937/jt938, #113) — deleted the whole function.
+> (Its `for(;;) qd_present()` siblings in `port_l6234_verify` are `#ifdef`-gated
+> debug holds, not production.) (c) OPTIONAL — engine re-faithfulization via
+> jt1153/jt1146 (Option B) for structural fidelity. The HAL copy-commit (Option
+> A) is **shelved** — the model is sound as-is. With (a)+(b) done, #144's
+> actionable scope is effectively closed; only the optional (c) pass remains.
 
 ## 1. Symptom inventory (what "present-too-often" looks like)
 

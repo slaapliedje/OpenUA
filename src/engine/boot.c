@@ -14901,45 +14901,12 @@ static void hud_text(unsigned char *px, short pitch, short sw, short sh,
 #define HUD_CLUT_WHITE 254
 #define HUD_CLUT_GOLD  255
 
-/* Draw the active-party status panel down the right of the dungeon view
- * (the ~220px viewport leaves x>=226 free): a gold header, then each
- * member's name (white) and HP/AC. Drawn straight to the chunky surface
- * after jt312's viewport render. Two full presents push it into both flip
- * buffers (jt312's rect-present only refreshes the viewport). */
-static void draw_party_panel(void)
-{
-	unsigned char *px; short pitch, sw, sh, y;
-	unsigned char *party[16];
-	short          n, i;
-	const short    X = 226;
-	RGBColor       hud[2];
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0 || sw <= X)
-		return;
-
-	hud[0].red = hud[0].green = hud[0].blue = 0xffff;           /* white */
-	hud[1].red = 0xffff; hud[1].green = 0xd000; hud[1].blue = 0; /* gold */
-	qd_set_palette(hud, HUD_CLUT_WHITE, 2);
-
-	/* clear the panel column (clut 0 = black) so no stale pixels show */
-	for (y = 0; y < sh; y++)
-		memset(px + (long)y * pitch + X, 0, (size_t)(sw - X));
-
-	n = cg_collect_party(party, 16);
-	hud_text(px, pitch, sw, sh, X, (short)4, HUD_CLUT_GOLD, "PARTY");
-	for (i = 0; i < n; i++) {
-		char  hp[20];
-		short ty = (short)(16 + i * 18);
-		hud_text(px, pitch, sw, sh, X, ty, HUD_CLUT_WHITE,
-		         (const char *)&party[i][96]);
-		sprintf(hp, "HP%d AC%d", (int)party[i][CHAR_HP],
-		        (int)party[i][CHAR_AC]);
-		hud_text(px, pitch, sw, sh, X, (short)(ty + 9), HUD_CLUT_WHITE,
-		         hp);
-	}
-	qd_present();
-	qd_present();   /* both flip buffers (jt312 rect-presents the viewport) */
-}
+/* (Removed: draw_party_panel — a dead port stand-in for the dungeon party
+ * panel, superseded by the faithful HUD roster jt937 + clock/position jt938
+ * (#113). It had no callers and carried the vestigial "two full presents to
+ * fill both flip buffers" hack from when qd_present_rect was a real partial
+ * present; the present model is full-present + VBL-coalesced now (#144). The
+ * HUD_CLUT_WHITE/GOLD slots above are still used by the encounter text below.) */
 
 /* ---- Encounters (play-engine, first slice) -------------------------
  *
