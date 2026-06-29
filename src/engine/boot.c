@@ -24409,15 +24409,12 @@ static long  jt100(void);
  * verb-return contract (the reimplementation returns 0=select / 27=cancel) plus
  * Hatari regression of every list screen, and is staged as the #146 finale.
  * Kept unused until then. */
-static int jt169_faithful(long h1, long h2, short top, short left,
-                          short right, short bottom, long head,
-                          short a, short b,
-                          unsigned char *flag, short *idx, long *next)
-    __attribute__((unused));
-static int jt169_faithful(long h1, long h2, short top, short left,
-                          short right, short bottom, long head,
-                          short a, short b,
-                          unsigned char *flag, short *idx, long *next)
+/* Promoted to the live jt169 (the reimplementation below is now jt169_reimpl,
+ * kept as an unused fallback). #146 cutover 2026-06-28. */
+static int jt169(long h1, long h2, short top, short left,
+                 short right, short bottom, long head,
+                 short a, short b,
+                 unsigned char *flag, short *idx, long *next)
 {
 	long          descbuf[7];                /* 28-byte list descriptor, aligned */
 	unsigned char *desc = (unsigned char *)descbuf;
@@ -24431,7 +24428,7 @@ static int jt169_faithful(long h1, long h2, short top, short left,
 	short         tb_p20  = (short)(unsigned char)right;   /* fp@21 */
 	short         tb_p22  = (short)(unsigned char)bottom;  /* fp@23 */
 
-	PROBE("jt169_faithful");
+	PROBE("jt169");
 	(void)a; (void)b;
 
 	if (head == 0) {                          /* empty list -> escape */
@@ -24536,7 +24533,8 @@ static int jt169_faithful(long h1, long h2, short top, short left,
 	return verb;
 }
 
-static int  jt169(long h1, long h2, short top, short left,
+static int  __attribute__((unused))
+jt169_reimpl(long h1, long h2, short top, short left,
                   short right, short bottom, long head,
                   short a, short b,
                   unsigned char *flag, short *idx, long *next)
@@ -25242,7 +25240,7 @@ static void l15e2(void)
 
 		loop_flag = 1;
 		jt179(1);
-		input = (short)jt169_faithful(g_a5_14216, g_a5_13792, 1, 2, 38, 22,
+		input = (short)jt169(g_a5_14216, g_a5_13792, 1, 2, 38, 22,
 		                     head, 1, 0,
 		                     &loop_flag, &idx, &entry);
 		if (g_a5_24139 != 0 && input == 27)
@@ -29497,7 +29495,7 @@ static void l12a0(void)
 
 		loop_flag = 1;
 		jt179(1);
-		input = (short)jt169_faithful(g_a5_13792, g_a5_14216, 1, 2, 38, 22,
+		input = (short)jt169(g_a5_13792, g_a5_14216, 1, 2, 38, 22,
 		                     head, 1, 0,
 		                     &loop_flag, &idx, &entry);
 		if (g_a5_24139 != 0 && input == 27)
@@ -32606,7 +32604,7 @@ static void l4334(void)
 			jt179((short)1);
 
 			sel_node = head;                /* jt169 overwrites with the pick */
-			key = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
+			key = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
 			                           (short)20, (short)9, (short)38, (short)15,
 			                           head, (short)1, (short)1,
 			                           &flag, &selidx, &sel_node);
@@ -32737,7 +32735,7 @@ static void l46e0(short a)
 		else   { top = 1;  left = 17; right = 38; bottom = 22; }   /* drop    */
 
 		sel_node = head;                 /* jt169 overwrites with the pick */
-		key = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
+		key = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
 		                           top, left, right, bottom,
 		                           head, (short)1, (short)1,
 		                           &flag, &selidx, &sel_node);
@@ -65198,7 +65196,7 @@ static void jt924(void)
 		headcopy    = head;
 		idx_scratch = 0;
 		jt179((short)1);
-		sel = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
+		sel = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
 		                           (short)2, (short)2, (short)18, (short)8,
 		                           head, (short)1, (short)0,
 		                           &flag, &idx_scratch, &chosen);
@@ -65604,7 +65602,7 @@ static void jt894(short flag)
 		jt179((short)1);
 		if (flag & 0xff) { r_top=20; r_left=9;  r_right=38; r_bottom=15; }
 		else             { r_top=1;  r_left=17; r_right=38; r_bottom=22; }
-		sel = (unsigned char)jt169_faithful(g_a5_long(-14364), g_a5_long(-13844),
+		sel = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
 		                           r_top, r_left, r_right, r_bottom,
 		                           head, (short)1, (short)1,
 		                           &flagb, &idx_scratch, &chosen);
@@ -66306,7 +66304,7 @@ static void jt893(unsigned char *out)
 		 * -24126 table remains to be confirmed live (#146). */
 		g_a5_byte(-24140) = f22;
 		tmp = item;
-		choice = (unsigned char)jt169_faithful(g_a5_long(-13952), g_a5_long(-13800),
+		choice = (unsigned char)jt169(g_a5_long(-13952), g_a5_long(-13800),
 		                              1, 5, 38, 22, *(long *)(chr + 8),
 		                              1, 8, &redraw, &sel, &tmp);
 		item = tmp;

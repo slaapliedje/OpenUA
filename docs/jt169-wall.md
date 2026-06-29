@@ -1,9 +1,25 @@
 # jt169 — lift the real List Manager (replace the reimplementation) — #146
 
-Status: SCOPED 2026-06-28 (full asm read + deps verified). Lift not started.
-The current `jt169` (boot.c:24539, ~160 lines) is a port REIMPLEMENTATION that
-works (Load/Save/design pickers function). This replaces it with the faithful
-lift of JT[169] = CODE 7 + 0x3600 (~726 bytes).
+Status: **CUTOVER DONE 2026-06-28.** The faithful body already existed
+(`jt169_faithful`) and was ALREADY live for **7 of 10 callers** (the
+`__attribute__((unused))` was just suppressing warnings during a partial
+migration). Promoted `jt169_faithful` → `jt169`; the old reimplementation is
+demoted to `jt169_reimpl` (unused fallback). All 10 callers now route to the
+faithful List Manager. Load picker verified headless (renders via l162e/l1bfe +
+l23b4 modal, selecting 'A' loads → roster).
+
+REMAINING USER VERIFICATION (switched callers I can't reach headless):
+- **Design picker** (l494e, caller 54590): now faithful → the port-added
+  Select/Cancel mouse command bar is GONE (the Mac selects by row-click/keyboard;
+  keycode==0=select, ESC=cancel still work). Verify the Select-a-Design flow.
+- **Encounter prompt** (l0380, caller 39951): return is discarded so the contract
+  can't break; verify the type-21 prompt list still renders.
+Fallback: `jt169_reimpl` is intact in git if any picker regresses.
+
+(Original scope below — the asm read + deps map that confirmed the cutover.)
+
+The old `jt169` (boot.c, ~160 lines) was a port REIMPLEMENTATION; this is the
+faithful lift of JT[169] = CODE 7 + 0x3600 (~726 bytes).
 
 ## Why staged + verified (not a one-shot rewrite)
 
