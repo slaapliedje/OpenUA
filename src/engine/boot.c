@@ -20123,8 +20123,17 @@ static void load_menu_ui(void)
 			}
 		}
 	}
-	if (g_menu_state == 1)               /* install the UI palette */
+	if (g_menu_state == 1) {             /* install the UI palette */
 		qd_set_palette(g_menu_pal, (short)0, g_menu_pe);
+		/* The roster/window box (jt103, fill=8) maps logical colour 8 through
+		 * the -4188 colour-range table (jt1006). The faithful menu colour-range
+		 * sends logical 8 to the warm-brown plate (clut 23 = MENU_PLATE_FILL);
+		 * but the port never loads a menu colour-range (jt1000 is parked), so
+		 * -4188[8] stays identity -> clut 8 (light gray), and l02dc's per-row
+		 * jt103 boxes paint gray over the brown plate (the roster brown/gray
+		 * split). Map logical 8 -> 23 so the rows match the plate. */
+		g_a5_buf(-4188)[8] = 23;            /* clut 23 = warm-brown (MENU_PLATE_FILL) */
+	}
 }
 
 /* port_hud_text_clut — re-install the UI text colours into the live (dungeon)
