@@ -52515,8 +52515,59 @@ static short l1a0c(const char *prompt, void *buf)
 	return count;
 }
 /* New PROBE-stub helpers L1bfe references. */
-static short jt138(void *rec, short cmd, ...)        { PROBE("jt138"); (void)rec; (void)cmd; return 0; }
-static short jt139(void *rec, short cmd, ...)        { PROBE("jt139"); (void)rec; (void)cmd; return 0; }
+/* JT[138] (CODE 7+0x1914) — list-item keystroke FILTER. The action proc a
+ * list-prompt DLItem stores in rec[4]; jt376's cmd==5 (accelerator) path calls
+ * it as proc(idx, key). It first DRAINS pending input (loop while jt1118()!=0),
+ * scrolling the list on 338/339 (page up/down -> jt50/jt51) and reading the next
+ * key via jt1133. Then it classifies the settled key: ACCEPT the movement codes
+ * 256..264, ESC (27), '`' (96), or the 320..345 keypad/function band — stash it
+ * in g_a5_-12914 and return 1 (a selection was made); REJECT everything else
+ * (return 0). The `trail != 0` variant (broad accept set). Faithful to L1914.
+ * Signature is (idx,key) to match jt376's (short(*)(short,short)) call cast. */
+static short jt138(short idx, short key)
+{
+	short k = key;
+
+	PROBE("jt138");
+	(void)idx;
+	while (jt1118() != 0) {                  /* drain while input still pends */
+		if (k == 338)      jt50();       /* page up   */
+		else if (k == 339) jt51();       /* page down */
+		k = jt1133();                    /* read the next key */
+	}
+	if ((k >= 256 && k <= 264) || k == 27 || k == 96
+	 || (k >= 320 && k <= 345)) {
+		if (k == 338)      jt50();
+		else if (k == 339) jt51();
+		g_a5_word(-12914) = k;
+		return 1;
+	}
+	return 0;
+}
+
+/* JT[139] (CODE 7+0x199c) — the sibling filter (`trail == 0` variant). Same
+ * scroll-drain loop, but only ESC (27) / '`' (96) count as a selection (stash
+ * in -12914, return 1); a settled 338/339 just scrolls and returns 0; anything
+ * else returns 0. Faithful to L199c. */
+static short jt139(short idx, short key)
+{
+	short k = key;
+
+	PROBE("jt139");
+	(void)idx;
+	while (jt1118() != 0) {
+		if (k == 338)      jt50();
+		else if (k == 339) jt51();
+		k = jt1133();
+	}
+	if (k == 27 || k == 96) {
+		g_a5_word(-12914) = k;
+		return 1;
+	}
+	if (k == 338)      jt50();
+	else if (k == 339) jt51();
+	return 0;
+}
 #define g_a5_13002 g_a5_byte(-13002)   /* "selection highlight active" flag */
 #define g_a5_13001 g_a5_byte(-13001)   /* currently-selected item index */
 
@@ -52702,16 +52753,21 @@ static void l1bfe(short width, void *buf, const char *suffix,
 	}
 
 	if (flag != 0) {
-		dlitem_method_t cb = (trail != 0)
-		                   ? (dlitem_method_t)jt138
-		                   : (dlitem_method_t)jt139;
+		/* The action proc stored in rec[4]. jt138/jt139 are the (idx,key)
+		 * keystroke filters; rec[4] holds a raw address (jt376 cmd==5 re-casts
+		 * it to short(*)(short,short)), so cast straight to the address rather
+		 * than through dlitem_method_t (which would be an incompatible
+		 * function-pointer cast). */
+		long cb = (trail != 0)
+		        ? (long)(uintptr_t)jt138
+		        : (long)(uintptr_t)jt139;
 
 		/* Faithful arg order (CODE 7 + 0x1ce4): jt452(7, cb, 20, 0) — cmd 7
 		 * stores the action proc in rec[4], THEN cmd 20 sets rec[28] bit 4.
 		 * The lift had (7, 20, cb, 0): rec[4]=20 and cb mis-parsed as a
 		 * command -> a malformed type-7 DLItem at (0,0) that rendered as the
 		 * top stripes over the roster. */
-		jt452((long)7, (long)(uintptr_t)cb, (long)20, (long)0);
+		jt452((long)7, cb, (long)20, (long)0);
 
 		/* Mac: a0 = *(void **)buf; if (*(byte*)a0 != 0)
 		 *   L1aea(item_arg, width, buf); */
