@@ -58,6 +58,9 @@ static long           g_save_palette[256];
 
 /* 8-bit palette index -> RGB565 word. Rebuilt by videl_set_palette. */
 static unsigned short g_lut[256];
+/* Set when the LUT changes: the next present re-bakes ALL triple-buffer pages so
+ * none keeps a frame baked with the old palette (#144 roster clut-23 tear). */
+static int g_pal_dirty;
 
 /* Hand-asm 8->16 LUT blit (c2p.S) + the self-test gate. count is a multiple
  * of 4 and src must be 4-aligned; videl_lut_blit only takes the asm path when
@@ -466,6 +469,18 @@ static void videl_flip(unsigned short *back)
 static void videl_present(void)
 {
 	videl_lut_blit(g_screen[g_draw], 0, g_surface.height, 0, g_surface.width);
+	/* PORT #144: on a palette change the OTHER triple-buffer pages still hold
+	 * frames baked with the old LUT, so flipping to one shows stale colours
+	 * (the roster plate clut 23 tearing brown/gray after a save-load clobbers
+	 * it via the picture palette). Re-bake every page from the current chunky
+	 * so no page retains a stale palette. Only on a palette change (rare). */
+	if (g_pal_dirty) {
+		short b;
+		for (b = 0; b < g_nbuf; b++)
+			if (b != g_draw)
+				videl_lut_blit(g_screen[b], 0, g_surface.height, 0, g_surface.width);
+		g_pal_dirty = 0;
+	}
 
 	if (g_vbl_installed) {
 		/* Publish g_draw for the VBL handler, then take a fresh private
@@ -511,6 +526,7 @@ static void videl_set_palette(const dsp_color_t *colors, short first,
 		                                  | ((g & 0xfc) << 3)
 		                                  | (b >> 3));
 	}
+	g_pal_dirty = 1;
 }
 
 static const dsp_backend_t videl_backend = {
