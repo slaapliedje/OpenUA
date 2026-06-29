@@ -63479,8 +63479,17 @@ static int jt918(short a)
 			 * l0aae/jt453. (Same class as the backdrop-block present removal
 			 * above; the jt81 first-entry path keeps its own paint+commit.) */
 			(void)jt108(0);
-		else
-			jt81();
+		/* PORT: lay the FAITHFUL gen backdrop+chrome (jt81) on EVERY frame.
+		 * The port re-composes each frame (no Mac off-page page model), so the
+		 * re-render path (local==12, the arrow-nav sentinel) must repaint the
+		 * backdrop too. It previously ran ONLY jt108(0) (which paints nothing),
+		 * so the misaligned fill_backdrop stand-in painted above stayed visible
+		 * — and since the first-entry path runs jt81 OVER that stand-in, the
+		 * whole stone background visibly shifted out of alignment vs the first
+		 * frame on every selection change (the "background shifts on arrow nav"
+		 * bug). Running jt81 unconditionally (first entry already did, via the
+		 * old else arm) makes the re-render backdrop identical to first entry. */
+		jt81();
 
 		/* Training Hall menu enable flags — Mac-verified (BasiliskII,
 		 * 2026-06-18, user). The discriminant is whether the roster
