@@ -1242,8 +1242,24 @@ static void  l4cc0(void)
 	l3144();                                    /* money-row pool ptr -21156 -> -21508 */
 	l3154((short)400);                          /* STRG scratch buffer -> -21148 */
 	jt211();                                    /* design-state buffer -> -12300 */
-	/* L59ca(); L531e(2738)->-22306; L531e(1260)->-25318;
-	 * L30f4(60); L317c(70); L31a4(68) — DEFERRED */
+	/* L531e scratch blocks + the three combat allocator buckets
+	 * (Mac L4cc0 0x4d3e..0x4d76). L30f4 is the MONSTER-RECORD bucket
+	 * (-21860: 60 x 398B) jt477 hands combat spawns (l0cc6/l0d2a) out
+	 * of — deferred before, so every spawn alloc returned NULL and
+	 * combats began empty. L317c (-20800: 70 x 34B) and L31a4
+	 * (-20448: 68 x 26B) are its sibling pools. */
+	g_a5_long(-22306) = jt387((short)2738);
+	g_a5_long(-25318) = jt387((short)1260);
+	g_a5_word(-21860) = 60;                     /* L30f4(60) */
+	g_a5_word(-21858) = 398;
+	g_a5_long(-21856) = jt387((short)(60 * 398));
+	g_a5_word(-20800) = 70;                     /* L317c(70) */
+	g_a5_word(-20798) = 34;
+	g_a5_long(-20796) = jt387((short)(70 * 34));
+	g_a5_word(-20448) = 68;                     /* L31a4(68) */
+	g_a5_word(-20446) = 26;
+	g_a5_long(-20444) = jt387((short)(68 * 26));
+	/* L59ca() — still deferred */
 }
 
 /* JT[363] (CODE 8 + 0x5f04) — load STRGnnn.DAT (a phrase table) for
@@ -3060,7 +3076,7 @@ static void jt936(long member, short highlight)
 }
 static void  jt955(void) __attribute__((unused));
 static void  jt955(void)              { PROBE("jt955"); }   /* CODE 21+0x453c — used by a deferred jt948 arm */
-static void  l0006_20(void)           { PROBE("L0006_20"); } /* CODE 20+0x6 — post-load init */
+static void  l0006_20(void);          /* CODE 20+0x6 — play-entry combat/event init (lifted below) */
 /* ---- l709e event-handler arms (CODE 20 locals) — level-1 stubs, the deferred
  * per-event-type dispatch of the l709e skeleton below. Each is one dungeon
  * special-event type (message / give / combat / stairs / teleport / ...), to be
@@ -7683,19 +7699,19 @@ static short l31b8(short *out_y, short *out_x)
  *
  * Body:
  *   if (shortcut == 0)   return 0;                        // no shortcut
- *   if (shortcut < 32)   return key == (shortcut+256) ?   // function key
- *                        -1 : 0;
- *   // ASCII (shortcut >= 32):
- *   d0 = shortcut;  JT[1]-dispatch d0:                    // (deferred)
- *     few special chars            → return 0;
- *     few special chars            → return 1;
- *     Return (13) / LF (10) match  → return 1;
- *     default → return tolower(shortcut) == tolower(key) ? -1 : 0;
+ *   if (shortcut < 32)   return key == (shortcut+256);    // cursor/function band
+ *   // ASCII (shortcut >= 32) — JT[1] @0x141e (tools/jt1_extract.py):
+ *   case 42 ('*') → 1 (any key)
+ *   case 35 ('#') → key == 13 || key == 27  (Return / Escape)
+ *   case 64 ('@') → key == 13 || key == 10  (Return / LF — the
+ *                   "Press Return to continue" button's code, seeded
+ *                   by jt452 cmd 32 in L177a)
+ *   default → L46b2(shortcut) == L46b2(key) (case-insensitive ASCII)
  *
- * The JT[1] inline dispatch handles a handful of Mac-specific
- * shortcut codes (Cmd-Q etc.). Deferred. The default ASCII compare
- * is lifted faithfully and matches case-insensitive — covers the
- * common printable-key path used by the editor / dialogs. */
+ * Full lift. (The earlier cut deferred the JT[1] arms, so the
+ * page-pause prompt's '@' shortcut never matched Return and every
+ * jt175/jt453 "PRESS RETURN" modal was mouse-only — the stuck
+ * combat-event page.) */
 static int l13e8(short shortcut, short key) __attribute__((unused));
 static int l13e8(short shortcut, short key)
 {
@@ -7704,7 +7720,16 @@ static int l13e8(short shortcut, short key)
 		return 0;
 	if (shortcut < 32)
 		return (key == (short)(shortcut + 256)) ? -1 : 0;
-	return (l46b2(shortcut) == l46b2(key)) ? -1 : 0;
+	switch (shortcut) {
+	case 42:
+		return 1;
+	case 35:
+		return (key == 13 || key == 27) ? 1 : 0;
+	case 64:
+		return (key == 13 || key == 10) ? 1 : 0;
+	default:
+		return (l46b2(shortcut) == l46b2(key)) ? -1 : 0;
+	}
 }
 
 /* L1676 (CODE 3 + 0x1676) — base DLItem method handler. Every
@@ -36070,6 +36095,47 @@ static short l3b0e(void *ev_v)
  * file under their own segments). */
 static void jt53(short col, short row, short *px, short *py);
 static void jt588(short id, unsigned char *rec);
+
+/* L41fa (CODE 20 + 0x41fa) — store word `w` at `p` LITTLE-endian
+ * (p[0] = low byte, p[1] = high). The game record's word fields are
+ * LE on disk (shared with the DOS release); this is the writer. */
+static void l41fa(short w, unsigned char *p)
+{
+	p[0] = (unsigned char)(w & 0xff);
+	p[1] = (unsigned char)((unsigned short)w >> 8);
+}
+
+/* L0006 (CODE 20 + 0x0006) — play-entry combat/event state init: clear
+ * the battle flags (-22281/-22308/-22302/-22322), arm -22277, seed the
+ * monster-slot HIGH-WATER -22311 = 8 (the l159a group parse and the
+ * l10a0 spawn loop are based at slot 8 — without this seed the spawn
+ * loop never iterates and combats begin empty), reset rec[44], set
+ * rec[26] from the level's ds[7] bit 0, and zero the 8 LE word fields
+ * at rec[509..524] (l41fa). Full lift. */
+static void l0006_20(void)
+{
+	unsigned char       *h  = (unsigned char *)g_a5_28006;
+	const unsigned char *ds =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short i;
+
+	PROBE("L0006_20");
+	g_a5_byte(-22281) = 0;
+	g_a5_byte(-22277) = 1;
+	jt399(&g_a5_byte(-22302), (short)2, (short)0);
+	g_a5_byte(-22311) = 8;
+	g_a5_byte(-22308) = 0;
+	jt399(&g_a5_byte(-22322), (short)4, (short)0);
+	if (h == NULL)
+		return;
+	h[44] = 0;
+	if (ds != NULL && (ds[7] & 1))
+		h[26] = 0;
+	else
+		h[26] = 1;
+	for (i = 0; i <= 7; i++)
+		l41fa((short)0, h + 509 + (long)i * 2);
+}
 
 /* L0cc6 (CODE 20 + 0x0cc6) — allocate one 398-byte monster record from
  * the -21860 bucket (jt477) and fill it from design monster id `id`
