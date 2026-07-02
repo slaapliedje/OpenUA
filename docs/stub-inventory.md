@@ -18,11 +18,12 @@ bodies (the event campaign), **CODE 16 handler tier 114/115**, and the
 Everything below has real behaviour on a reachable path but is a port
 reimplementation, ordered by how much it distorts the faithful game:
 
-1. **`port_load_savgame` boot auto-load** (`ua_main` seed block,
-   boot.c ~16728) — the party auto-loads at boot instead of the Mac's
-   explicit Play → Hall → Load Saved Game (jt918 → jt579). THE #100
-   play-entry gap (docs/play-entry-wall.md); also blocks seeing the
-   jt21 equipped-items path.
+1. ~~`port_load_savgame` boot auto-load~~ — **RETIRED 2026-07-01**: the
+   heuristic SAVGAMA scan is deleted; the boot pool comes from .CHR
+   files and the party is built in-game via the Hall's Load Saved Game
+   (jt918 → jt582 → l143e → jt579), Hatari-verified end-to-end
+   (docs/play-entry-wall.md). Remaining #100: the CURRENT.TXT
+   design-name seed + the synthetic roster seed.
 2. **`fill_backdrop`** — "tuned interior tile" GEN.CTL fill, not the
    faithful piece-placed gen backdrop. Live under `menu_run`, `jt574`
    (char-gen entry), `cg_train_screen`, `cg_draw_sheet` (`cg_message`

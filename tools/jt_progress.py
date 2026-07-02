@@ -268,11 +268,9 @@ STANDIN = {
 # for a faithful Mac path. Not keyed by a JT number, so they live here as a
 # static list for visibility (kept in sync with docs/stub-inventory.md).
 PORT_STANDINS = [
-    ("port_load_savgame (BOOT AUTO-LOAD)",
-     "heuristic SAVGAMA.CSV scanner, still the LIVE boot party auto-load "
-     "(ua_main seed block) — the Mac only loads a party via the explicit "
-     "Play -> Hall -> Load Saved Game flow (jt918 -> jt579). Dropping it "
-     "is the #100 play-entry gap (docs/play-entry-wall.md)."),
+    # port_load_savgame RETIRED 2026-07-01: the heuristic SAVGAMA scan is
+    # deleted; the party loads in-game via the faithful Hall Load path
+    # (jt918 case 8 -> jt582 -> l143e -> jt579), Hatari-verified.
     ("fill_backdrop",
      "'tuned interior tile' GEN.CTL fill standing in for the faithful "
      "piece-placed gen backdrop. Live under menu_run, jt574, "

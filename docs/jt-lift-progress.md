@@ -316,7 +316,6 @@ lands.
 
 Non-JT port stand-ins (whole-routine reimplementations, kept in sync with `docs/stub-inventory.md`):
 
-- `port_load_savgame (BOOT AUTO-LOAD)` — heuristic SAVGAMA.CSV scanner, still the LIVE boot party auto-load (ua_main seed block) — the Mac only loads a party via the explicit Play -> Hall -> Load Saved Game flow (jt918 -> jt579). Dropping it is the #100 play-entry gap (docs/play-entry-wall.md).
 - `fill_backdrop` — 'tuned interior tile' GEN.CTL fill standing in for the faithful piece-placed gen backdrop. Live under menu_run, jt574, cg_train_screen, cg_draw_sheet; the Hall paints jt81() over it every frame (ab8a567). RE the gen piece placement, delete.
 - `port_draw_play_frame / port_hud_text_clut / port_draw_compass` — coarse dungeon-HUD chrome over-blit + text CLUT + compass (the #114 'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)
 - `port_run_encounter / port_play_message` — play-loop stand-ins over the faithful CODE 15-20 encounter chain (#115: l3b0e + CODE-20 L026e + l03f6).

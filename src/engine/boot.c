@@ -1928,9 +1928,6 @@ static int   jt574(long ctx);            /* CODE 17 char-gen entry (harness) */
 #ifdef FRUA_SHEET
 static int   cg_char_sheet(unsigned char *rec);  /* char-sheet review loop (harness) */
 #endif
-#ifdef FRUA_CGCRASH
-static void  cg_crash_repro(void);       /* headless roster-walk repro (harness) */
-#endif
 #ifdef FRUA_BODY
 static void  cg_body_repro(void);        /* body-review harness (defined below) */
 #endif
@@ -1990,7 +1987,7 @@ int ua_main(short arg1, long arg2)
 	 * Skipped in the char-gen harness so it lands straight on the pick
 	 * screen (the intro blocks on click-through otherwise). */
 #if !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
-    && !defined(FRUA_CGCRASH) && !defined(FRUA_BODY) && !defined(FRUA_MODIFY) \
+    && !defined(FRUA_BODY) && !defined(FRUA_MODIFY) \
     && !defined(FRUA_HALL)
 	port_show_intro();
 #endif
@@ -2005,15 +2002,6 @@ int ua_main(short arg1, long arg2)
 	l4d98();
 	l0444();
 	jt361(1);
-#ifdef FRUA_CGCRASH
-	/* Headless repro of the char-gen "Done -> Remove" Bus Error: load the real
-	 * save state (3 party chars + cg_party_relink), dump the roster list, then
-	 * walk it the way cg_remove_from_party does (cg_collect_party). Pin whether
-	 * the LOADED list is already corrupt, and whether a deterministic create
-	 * (cg_build_record) injects a stray node. Build with
-	 * `make EXTRA_CFLAGS="-DFRUA_CGCRASH -DFRUA_CGTRACE" run-game`. Never returns. */
-	cg_crash_repro();
-#endif
 #ifdef FRUA_CHARGEN
 	/* Char-gen harness entry. Runs AFTER the full design-load + session init
 	 * (l4cc0/l4d98/jt361): there is no l4d98 "hang" — the earlier symptom was a
@@ -7225,8 +7213,7 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
  * (movel a5@(-18882),a0@(68) = the starting XP, not a "design handle"), jt557
  * TRAIN reads/writes it (cmpl/movel a0@(68)), the CODE 19 sheet displays it
  * (rec@68 -> jt70), and L0ce0 byte-swaps it to little-endian in the .cch file.
- * SAVGAMA-loaded chars carry it little-endian (port_load_savgame memcpy); XP is
- * not displayed nor is TRAIN reached on that path yet, so no swap is wired. */
+ * SAVGAMA records carry it little-endian on disk (the L0ce0 convention). */
 #define CHAR_XP      68   /* faithful experience-point long @rec[68] */
 /* max HP: the faithful field is the WORD rec[82]; in FRUA HP is always <= 255,
  * so the value lives in the big-endian low byte rec[83] (with rec[82]=0). Byte
@@ -13938,15 +13925,11 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 	return cmd;                                     /* L5122 */
 }
 
-/* The play/area-state record the engine reaches through g_a5_-28006. The Mac
- * stands it up in L4cc0 (CODE 6 + 0x4cc0) as JT[387](1024) stored base-1 so
- * the asm's field offsets are 1-based; every reader here is lifted C using the
- * same p[N] offsets, so a plain buffer is equivalent (no faithful asm writes
- * it). l0bbc / jt948 read h[17] facing, h[34]/h[36] mode flags, h[67]/h[68]
- * saved party x/y, h[133] stair dir, h[134] "view established". */
-static unsigned char g_area_state[1024];
-static int           g_savgame_loaded;   /* a BasiliskII save was resumed */
-static short         g_port_entry_level = 40;  /* Play-entry level (a loaded save overrides) */
+/* (The synthetic g_area_state[1024] is gone: ua_main's l4cc0 repoints
+ * g_a5_-28006 at a fresh jt387(1024) buffer, so the boot-seed copy was
+ * orphaned — proven in docs/play-entry-wall.md — and the retired
+ * port_load_savgame scan was its last writer.) */
+static short         g_port_entry_level = 40;  /* Play-entry level (GAME hdr overrides) */
 static void          jt431(void *dst, const void *src);  /* path concat (defined below) */
 
 static short l3198(short kind, long p1, long p2);   /* event poll (defined below) */
@@ -14785,9 +14768,8 @@ static int load_roster(void)
 	if (n2 == 0)
 		return 0;
 	cg_pool_count = n2;
-	/* The loaded .CHR are the saved-character pool; the boot party is built
-	 * from them by the seed's guarded cg_party_build_from_pool (the faithful
-	 * party home is the savegame, not yet boot-loaded). (#141) */
+	/* The loaded .CHR are the saved-character pool, BENCHED — the party is
+	 * built in the Hall via Add Character / Load Saved Game. (#141/#100) */
 	return 1;
 }
 
@@ -14795,12 +14777,9 @@ static int load_roster(void)
  * present (dedup by the 16-byte name at +96), appending up to the 16-slot cap.
  *
  * A created character persists as its own .CHR file (the faithful jt574 tail /
- * jt584 write -> save_roster). But the boot seed loads the savegame FIRST
- * (port_load_savgame), and that restores only the adventuring PARTY, not the
- * full design roster — so a character created last session was written to disk
- * yet never read back: the savegame shadowed it. Running this after whichever
- * source populated the pool re-surfaces those characters without disturbing the
- * savegame's party / dungeon position. */
+ * jt584 write -> save_roster). Running this after whichever source populated
+ * the pool (load_roster or the synthetic seed) re-surfaces characters from
+ * earlier sessions the primary source didn't cover. */
 static void cg_roster_merge_files(void)
 {
 	char  cname[16];
@@ -14837,243 +14816,6 @@ static void cg_roster_merge_files(void)
 	}
 	/* Merged characters land in the pool BENCHED (not linked into -27928);
 	 * the player brings one into the party with Add Character. */
-}
-
-/* port_load_savgame — load a real BasiliskII-saved game (SAVE/SavGam<X>.csv,
- * 10284 bytes) into the port party. The save embeds the FAITHFUL character
- * record(s) (the same 536-byte layout as BOB.cch: name@96, class@88, kind@89,
- * abilities@112, maxHP@82, HP@395) plus a header carrying the saved dungeon
- * state. Diffing SAVGAMA vs SavGamB pinned the volatile play-state bytes:
- * party x @66 (also @1024), party y @67, level @18. This is a PORT loader
- * (the faithful jt582 + the l0bbc saved-game resume are the follow-up); it
- * proves the save reads + parses + populates real play state. Returns 1 on
- * success. The combat block (name@96/AC@385/HP@395) is at the same offsets in
- * the faithful and port records, so the HUD roster reads it directly; the
- * char-sheet fields (class/stats/maxHP) are translated to the port CHAR_*. */
-static int port_load_savgame(void) __attribute__((unused));
-static int port_load_savgame(void)
-{
-	static unsigned char sg[12288];
-	short refnum = 0;
-	long  n;
-	long  i;
-
-	dbg_log("port_load_savgame: trying SAVGAMA.CSV");
-	if (FSOpen((ConstStr255Param)"\013SAVGAMA.CSV", 0, &refnum) != noErr) {
-		dbg_log("  FSOpen failed");
-		return 0;
-	}
-	n = (long)sizeof sg;
-	/* FSRead returns eofErr (not noErr) when the file is smaller than the
-	 * requested count — that's a FULL read, not a failure; trust the byte
-	 * count it writes back into n. */
-	(void)FSRead(refnum, &n, sg);
-	(void)FSClose(refnum);
-	if (n < 1600) {
-		dbg_log_num("  FSRead short, n=", n);
-		return 0;
-	}
-	dbg_log_num("  read bytes=", n);
-
-	/* Scan for the embedded faithful character records: a fully printable
-	 * 2+-char name at +96 (first char A-Z), class +88 in 1..8, plausible
-	 * max HP at +82. The save repeats the party block later in the file
-	 * (the pristine backup copies — both shipped 1993 saves show the
-	 * pattern), so duplicates by name keep only the FIRST occurrence. */
-	{
-		short found = 0;
-
-		i = 0;
-		while (i + 536 <= n && found < 6) {
-			unsigned char *r = sg + i;
-			short c, ln = 0;
-			unsigned char *dst;
-
-			while (ln < 15 && r[96 + ln] != 0) {
-				if (r[96 + ln] < 32 || r[96 + ln] > 126) {
-					ln = -1;
-					break;
-				}
-				ln++;
-			}
-			/* Record signature: a printable 2+ char name@96 starting A-Z,
-			 * the six BASE ability scores @112 (even bytes) all plausible
-			 * (3..19), and a non-zero maxHP@82 < 200. The ability run is a
-			 * strong, layout-independent signature; the old `class@88 in
-			 * 1..8` test wrongly dropped the design's class-0 multi-class
-			 * members (e.g. HEIRS' NIVLOC / STRANILLA). */
-			{
-				short ab_ok = 1, k;
-				for (k = 0; k < 6; k++)
-					if (r[112 + k * 2] < 3 || r[112 + k * 2] > 19) {
-						ab_ok = 0;
-						break;
-					}
-				if (ln < 2 || !(r[96] >= 'A' && r[96] <= 'Z')
-				    || !ab_ok || r[82] == 0 || r[82] >= 200) {
-					i++;
-					continue;
-				}
-			}
-			for (c = 0; c < found; c++)
-				if (memcmp(cg_pool[c] + 96, r + 96, 16) == 0)
-					break;
-			if (c < found) {              /* the backup copy */
-				i += 256;             /* < min record stride; dedup catches re-finds */
-				continue;
-			}
-
-			dst = cg_pool[found];
-			memcpy(dst, r, 512);          /* the faithful record as-is */
-			/* The record's in-memory list-head pointer fields (spell @4,
-			 * inventory @8) hold stale Mac heap pointers on disk — this
-			 * bring-up loader copies the record but does NOT reconstruct
-			 * the item/spell node lists (jt577's job), so null the heads.
-			 * Otherwise jt578 (and jt903 / the inventory screens) follow
-			 * the garbage pointer and bus-error. Empty lists are the honest
-			 * representation of what the stand-in actually loaded. */
-			*(long *)(dst + 4) = 0;       /* spell list head */
-			*(long *)(dst + 8) = 0;       /* inventory list head */
-			/* The equip-by-kind slots rec[12]/16/20 (equipped + effects, read
-			 * by the sheet's jt28) are likewise stale Mac pointers on disk.
-			 * This stand-in never reconstructs the inventory, so there's
-			 * nothing to file into them — null them so the sheet doesn't
-			 * bus-error walking the garbage. (The faithful menu LOAD path,
-			 * jt579 -> jt577 -> jt21, rebuilds rec[8] and files the worn items
-			 * into these slots for real.) */
-			*(long *)(dst + 12) = 0;      /* equipped-items list head */
-			*(long *)(dst + 16) = 0;      /* (kind-1) list head       */
-			*(long *)(dst + 20) = 0;      /* effects list head        */
-			/* Translate the char-sheet fields to the port CHAR_* layout
-			 * so the roster grid (l02dc) and rest-heal read them; the
-			 * combat block (name@96/AC@385/HP@395) is already at
-			 * matching offsets. */
-			/* max HP @82/@83 stands from the memcpy (CHAR_MAXHP now points
-			 * at the faithful low byte @83); the old dst[..]=r[82] read the
-			 * high byte (0) — a pre-existing maxHP=0 bug, now gone. */
-			/* race @88, class @89 and level @157 are now read from the
-			 * faithful record directly (CHAR_RACE/CHAR_CLASS/CHAR_LEVEL point
-			 * there), so the old force-Human / force-Fighter / force-L5 stubs
-			 * are dropped — the memcpy'd faithful values stand. */
-			for (c = 0; c < 6; c++) {     /* abilities: base @112, current @113 */
-				CHAR_STAT(dst, c) = r[112 + c * 2];
-				if (dst[113 + c * 2] == 0)   /* current == base at rest */
-					dst[113 + c * 2] = dst[112 + c * 2];
-			}
-			/* SAVGAMA stores the multi-byte numeric fields LITTLE-endian, but
-			 * the 68k engine (and the char-gen path) read them big-endian, so
-			 * the sheet showed age 7424 (29 LE), XP 1.35e9 (50000 LE), platinum
-			 * 25600 (100 LE) and encumbrance 28675 (880 LE). Byte-swap them at
-			 * load (parity with the .cch path's L0ce0 swap). The money panel
-			 * (JT[898]) reads three word slots — platinum@76, gems@78,
-			 * jewelry@80 — so swap all three (HEIRS gems/jewelry are 0, but
-			 * other saves carry them). */
-			{
-				unsigned char t;
-				t = dst[68]; dst[68] = dst[71]; dst[71] = t;  /* XP long @68 */
-				t = dst[69]; dst[69] = dst[70]; dst[70] = t;
-				t = dst[76]; dst[76] = dst[77]; dst[77] = t;  /* platinum word @76 */
-				t = dst[78]; dst[78] = dst[79]; dst[79] = t;  /* gems word @78 */
-				t = dst[80]; dst[80] = dst[81]; dst[81] = t;  /* jewelry word @80 */
-				t = dst[82]; dst[82] = dst[83]; dst[83] = t;  /* age word @82 */
-				t = dst[86]; dst[86] = dst[87]; dst[87] = t;  /* encumbrance word @86 */
-			}
-			/* alignment @93 read from the faithful record (l2f74 linear
-			 * index, same order as cg_aligns); the force-LG stub is dropped. */
-			/* AC: CHAR_AC (385) IS the faithful slot — the record
-			 * stores 60 - displayed_AC there (parallel to THAC0 @384)
-			 * and the readers (Hall column, HUD roster) compute the
-			 * displayed value themselves. The old loader translated
-			 * INTO the slot, double-applying the formula: 60 - 63 = -3
-			 * became 60 - 253 = -193 in the Hall. Keep the memcpy'd
-			 * faithful byte. */
-			dbg_log((char *)dst + 96);
-			dbg_log_num("  maxHP=", (long)r[129]);   /* real max HP slot */
-			found++;
-			i += 256;
-		}
-		if (found == 0) {
-			dbg_log("  no character record found in save");
-			return 0;
-		}
-		cg_pool_count = found;
-		/* FAITHFUL play-entry (#100): do NOT auto-build the active party
-		 * here. The Mac boots with an EMPTY party — "Play the Game" lands in
-		 * the Training Hall, where the player explicitly runs "Load Saved
-		 * Game" (jt918 case 8 -> jt582 -> l143e -> jt579, the now-unblocked
-		 * faithful load with the jt21 re-equip pass) to build -27928 from the
-		 * save. This seeds only cg_pool (the roster); the party stays empty
-		 * until that menu load. (Was: cg_party_build_from_pool(found).) */
-	}
-
-	/* Restore the saved dungeon level + position. The shipped 1993 saves
-	 * carry the party cell at header +16/+17 and the level at +18 (both
-	 * TUTORIAL and HEIRS save A read (4,4); the old +66/+67 offsets from
-	 * the BasiliskII A-vs-B diff are zero there — kept as a fallback).
-	 * Level: the live play entry reads g_a5_-18828 (l07dc's case 10 copies
-	 * it into -18878), so the save's level must land in BOTH. */
-	{
-		unsigned char px = sg[16] ? sg[16] : sg[66];
-		unsigned char py = sg[17] ? sg[17] : sg[67];
-		short          lv = (short)(sg[18] ? sg[18] : 5);
-
-		/* Guard: only honor the saved level if its GEO file exists in
-		 * the current design — the shipped TUTORIAL save targets level
-		 * 14, which the final design dropped (only GEO040 ships), and
-		 * jt198 on a missing GEO is a jt69 fatal. Probe via the same
-		 * "<design>:GEO%03d.dat" path jt127 builds. */
-		{
-			char  path[402];
-			char  dpath[202];
-			short refnum;
-
-			jt394(path, "%s%03d.dat", "GEO", (int)lv);
-			dpath[0] = 0;
-			jt431(dpath, &g_a5_31336);
-			jt431(dpath, path);
-			refnum = jt398(dpath, 0);
-			if (refnum >= 0) {
-				(void)jt411(refnum);
-			} else {
-				dbg_log_num("  saved level GEO missing, keeping default; lv=",
-				            (long)lv);
-				lv = g_port_entry_level;
-				px = py = 0;   /* a foreign cell is meaningless too */
-			}
-		}
-
-		g_a5_18878 = lv;
-		g_a5_18828 = lv;
-		g_port_entry_level = lv;       /* survives Play re-entries */
-		memset(g_area_state, 0, sizeof g_area_state);
-		g_a5_28006 = g_area_state;
-		if (g_a5_12286 == 0)
-			g_a5_12286 = 1;                        /* facing (N) */
-
-		if (px != 0 || py != 0) {
-			/* Route the position through the FAITHFUL resume path:
-			 * l0bbc sees h[134] != 0 and restores the saved cell
-			 * instead of re-placing the party at the level start.
-			 * The direct -12288/-12287 writes match what l0bbc will
-			 * restore (belt-and-suspenders for the pre-l0bbc render). */
-			g_a5_12288 = px;                       /* party x */
-			g_a5_12287 = py;                       /* party y */
-			g_area_state[134] = 1;                 /* -> resume */
-			g_area_state[67]  = px;
-			g_area_state[68]  = py;
-			g_area_state[17]  = (unsigned char)g_a5_12286;
-		}
-		/* else: leave h[134] = 0 — l0bbc's FRESH-entry branch loads the
-		 * level (jt198) and reads the start tile from the GEO header. */
-
-		g_savgame_loaded = 1;
-		dbg_log("port_load_savgame: loaded SAVGAMA.CSV");
-		dbg_log_num("  party x = ", (long)px);
-		dbg_log_num("  party y = ", (long)py);
-		dbg_log_num("  level   = ", (long)lv);
-		dbg_log_num("  members = ", (long)cg_pool_count);
-	}
-	return 1;
 }
 
 static void l29ae(unsigned char *rec);   /* CODE 17 max-HP finalize (below) */
@@ -15138,9 +14880,10 @@ void port_test_seed_design(void)
 	 * old hardcoded level 40 stand-in: with the right level, jt198 loads the
 	 * design's real start GEO and l0bbc reads the authored start tile (HEIRS
 	 * = 10,8 facing E). Falls back to g_port_entry_level if the header is
-	 * absent or its level byte is 0. A loaded save still overrides via
-	 * g_port_entry_level. See [[play-hud-work]] / [[band4-campaign]]. */
-	if (!g_savgame_loaded) {
+	 * absent or its level byte is 0. (A savegame's level is applied by the
+	 * Hall's Load path — l143e -> jt198(h[19]) — at load time, not here.)
+	 * See [[play-hud-work]] / [[band4-campaign]]. */
+	{
 		short ghn = 0;
 		jt132((short)51);
 		jt127("GAME", (short)1, &ghn, g_a5_buf(-18876));
@@ -15215,17 +14958,15 @@ void port_test_seed_design(void)
 		if (!seeded) {
 			seeded = 1;
 			node_pool_init();            /* roster / design node pool */
-			/* Roster source, by preference: the shipped design's SAVGAMA.CSV
-			 * save (the REAL party — BARBARUS / LADY ILLIS / MALTIER / NIVLOC /
-			 * CLARANA / STRANILLA for HEIRS), else the persisted .CHR roster,
-			 * else the synthetic seed. The SAVGAMA scan is faithful now
-			 * (ability-signature record match + non-overshooting skip), so it
-			 * loads all 6 real members incl. the class-0 multi-class ones; it
-			 * was disabled 2026-06-18 when the old scan mis-parsed (task #123). */
-			if (port_load_savgame()) {
-				/* seeded cg_pool + built the party + restored the save's
-				 * level/position. */
-			} else if (!load_roster()) {        /* no disk save -> seed pool */
+			/* Roster source: the persisted .CHR characters (the jt589 pool
+			 * source), else the synthetic seed. The savegame is NOT read at
+			 * boot any more — the Mac loads a party only through the Hall's
+			 * Load Saved Game (jt918 case 8 -> jt582 -> l143e -> jt579), and
+			 * that faithful path is live (Hatari-verified 2026-07-01: empty
+			 * Hall -> Load A -> all 6 HEIRS members -> View sheet w/ equipped
+			 * items -> Begin Adventuring -> caravan intro). The heuristic
+			 * port_load_savgame SAVGAMA scan is retired (git has it). */
+			if (!load_roster()) {               /* no .CHR files -> seed pool */
 				int p, c;
 				for (p = 0; p < k_count; p++) {
 					unsigned char *r = cg_pool[p];
@@ -60810,71 +60551,6 @@ static short cg_collect_party(unsigned char **out, short max)
 	}
 	return n;
 }
-
-#ifdef FRUA_CGCRASH
-/* Headless repro of the char-gen "Done -> Remove" Bus Error. Loads the real
- * save state (3 party chars + cg_party_relink), dumps the roster list, then
- * walks it the way cg_remove_from_party does (cg_collect_party) — to see
- * whether the LOADED list is already corrupt. Then does a deterministic create
- * (cg_build_record) and re-walks, to see whether the create injects a stray
- * non-pool node. Every node pointer is logged so a wild link is obvious.
- * Build: make EXTRA_CFLAGS="-DFRUA_CGCRASH -DFRUA_CGTRACE" run-game. */
-static void cg_crash_repro(void)
-{
-	unsigned char *party[16];
-	short np, k;
-
-	dbg_log("=== CGCRASH: loading savegame ===");
-	(void)port_load_savgame();
-	dbg_log_num("cg_pool_count = ", (long)cg_pool_count);
-	dbg_log_num("head g_a5_-27928 = ", g_a5_long(-27928));
-	dbg_log_num("cg_pool[0] base  = ", (long)(uintptr_t)cg_pool[0]);
-	dbg_log_num("cg_pool end      = ", (long)(uintptr_t)cg_pool[0] + 16 * 512);
-	for (k = 0; k < cg_pool_count && k < 16; k++) {
-		dbg_log_num("  cg_pool[k]   = ", (long)(uintptr_t)cg_pool[k]);
-		dbg_log_num("    .next@0    = ", *(long *)(void *)cg_pool[k]);
-		dbg_log_num("    INPARTY    = ", (long)cg_in_party(cg_pool[k]));
-	}
-	np = cg_collect_party(party, 16);
-	dbg_log_num("collect_party(savegame) n = ", (long)np);
-	for (k = 0; k < np; k++)
-		dbg_log_num("  party[k] = ", (long)(uintptr_t)party[k]);
-
-	/* Deterministic create: build one Human Fighter into cg_pool the way the
-	 * char-gen finalize tail does, then re-walk the roster list. */
-	dbg_log("=== CGCRASH: deterministic create ===");
-	{
-		cg_state s;
-		memset(&s, 0, sizeof s);
-		s.race     = 5;                 /* Human */
-		s.gender   = 0;
-		s.nallowed = cg_allowed_classes(s.race, s.allowed);
-		s.ksel     = 0;
-		s.naligned = cg_allowed_aligns(s.allowed[s.ksel], s.aligned);
-		s.asel     = 0;
-		for (k = 0; k < 6; k++)
-			s.stats[k] = 12;
-		s.name[0] = 'N'; s.name[1] = 'E'; s.name[2] = 'W';
-		s.name[3] = 0;  s.namelen = 3;
-		cg_build_record(&s);
-	}
-	dbg_log_num("cg_pool_count after create = ", (long)cg_pool_count);
-	dbg_log_num("head g_a5_-27928 = ", g_a5_long(-27928));
-	for (k = 0; k < cg_pool_count && k < 16; k++) {
-		dbg_log_num("  cg_pool[k]   = ", (long)(uintptr_t)cg_pool[k]);
-		dbg_log_num("    .next@0    = ", *(long *)(void *)cg_pool[k]);
-		dbg_log_num("    INPARTY    = ", (long)cg_in_party(cg_pool[k]));
-	}
-	np = cg_collect_party(party, 16);
-	dbg_log_num("collect_party(after create) n = ", (long)np);
-	for (k = 0; k < np; k++)
-		dbg_log_num("  party[k] = ", (long)(uintptr_t)party[k]);
-
-	dbg_log("=== CGCRASH done; idling ===");
-	for (;;)
-		jt920();
-}
-#endif
 
 #ifdef FRUA_BODY
 /* Body-review harness: seed a Human Fighter, set up the menu screen the way

@@ -1,5 +1,26 @@
 # Play-entry chain (task #100) — worklist
 
+## STATUS 2026-07-01 — port_load_savgame RETIRED; direction (B) COMPLETE + Hatari-verified
+
+The three 06-26 tests all PASS (screenshot-verified headless): (1) Play the
+Game → EMPTY Hall roster; (2) Load Saved Game → straight to the "LOAD WHICH
+GAME: A" picker (no spurious confirm) → all 6 HEIRS members with correct
+AC/HP; (3) View Character shows BARBARUS's full sheet incl. the jt21-equipped
+LONG SWORD +1 / PLATE MAIL +1, and Begin Adventuring fires the caravan intro
+with the colour portrait at 10,8. With the faithful path proven, the
+`port_load_savgame` heuristic SAVGAMA scan was DELETED (~240 lines) along
+with its `g_savgame_loaded` flag (the GAME-header entry-level read is now
+unconditional), the orphaned synthetic `g_area_state[1024]`, and the obsolete
+`FRUA_CGCRASH` harness (a repro for the #141-retired cg_party_relink model
+that called the scan). Boot roster pool now comes from `load_roster()` (.CHR
+files) → synthetic seed fallback only; the party is ALWAYS built in-game.
+Re-verified after the deletion: same three screenshots, byte-identical
+caravan frame.
+
+Remaining #100 cards: the design-select stand-in (CURRENT.TXT seed in
+`port_test_seed_design` → the jt315/l494e picker) and the synthetic roster
+seed (card 5).
+
 ## STATUS 2026-06-26 — direction (B) implemented (retire the boot party auto-load)
 
 The boot no longer auto-builds the active party. Both `cg_party_build_from_pool`
@@ -9,10 +30,7 @@ calls were removed: the one inside `port_load_savgame` (it still seeds `cg_pool`
 party, and the player builds it the Mac way via the Hall's **Load Saved Game**
 (jt918 case 8 → jt582 → l143e → jt579, now unblocked by the jt21 re-equip pass
 in jt579, commit 3ad4d59) or **Add Character** (jt904). In-session edits are
-unaffected (the removed builds were guarded on `-27928 == 0`). NEEDS HATARI
-TEST: (1) Play the Game → empty Hall; (2) Load Saved Game → party appears;
-(3) View Character / Begin Adventuring on the loaded party. Revert = restore the
-two `cg_party_build_from_pool` calls if the empty-Hall / jt582 load misbehaves.
+unaffected (the removed builds were guarded on `-27928 == 0`).
 
 
 
