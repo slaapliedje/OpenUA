@@ -1124,13 +1124,6 @@ static void  l0bbc(void)
 		if (g_a5_18485 == 0) {
 			unsigned char *ds;
 
-#ifdef FRUA_ENTRY_LEVEL
-			/* Combat/event test harness: force the entry level so a
-			 * combat cell is reachable without the full quest walk.
-			 * `make EXTRA_CFLAGS=-DFRUA_ENTRY_LEVEL=1 ...`; off by
-			 * default (the faithful level rides in via -18878). */
-			g_a5_18878 = FRUA_ENTRY_LEVEL;
-#endif
 			jt198((short)g_a5_18878);          /* load the level map */
 			ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
 			if (ds != NULL) {
@@ -1140,14 +1133,6 @@ static void  l0bbc(void)
 				g_a5_12287 = st[14];               /* party Y      */
 				g_a5_12286 = (unsigned char)(st[16] & 7); /* facing */
 			}
-#ifdef FRUA_ENTRY_COL
-			/* Harness (with FRUA_ENTRY_LEVEL): force the landing cell
-			 * so a specific event/combat cell is testable directly.
-			 * -12287 = col, -12288 = row (party-coord convention). */
-			g_a5_12287 = FRUA_ENTRY_COL;
-			g_a5_12288 = FRUA_ENTRY_ROW;
-			g_a5_12286 = FRUA_ENTRY_FACING;
-#endif
 		}
 		if (g_a5_18878 <= 4 && p != NULL) {
 			p[37] = g_a5_12288; p[38] = g_a5_12287;
@@ -1155,6 +1140,26 @@ static void  l0bbc(void)
 			p[23] = g_a5_12288; p[24] = g_a5_12287;
 		}
 	}
+
+#if defined(FRUA_ENTRY_LEVEL) && defined(FRUA_ENTRY_COL)
+	/* Harness override, hoisted PAST both branches so it applies on the
+	 * resume path too (a loaded save sets p[134] and skips the fresh
+	 * branch): force the level + landing cell deterministically. Gated
+	 * on a live party so the BOOT-time jt361(1) -> l0bbc pass (empty
+	 * party, menu state) stays untouched — only the in-game play entry
+	 * (post-Load) is redirected. */
+	if (g_a5_long(-27928) != 0) {
+		if (g_a5_18878 != FRUA_ENTRY_LEVEL) {
+			g_a5_18878 = FRUA_ENTRY_LEVEL;
+			jt198((short)FRUA_ENTRY_LEVEL);
+		}
+		g_a5_12287 = FRUA_ENTRY_COL;
+		g_a5_12288 = FRUA_ENTRY_ROW;
+		g_a5_12286 = FRUA_ENTRY_FACING;
+		if (p != NULL)
+			p[134] = 0;            /* re-enter fresh */
+	}
+#endif
 
 	if (g_a5_18878 <= 4)
 		l0b88();
@@ -2392,6 +2397,18 @@ static long cw_wallfile_load(short file)
 	/* --- faithful FC-pool load --- */
 	group = g_wallfile_group[file];
 	if (group < 0 || jt468(group) == 0) {         /* not loaded yet, or purged */
+		/* Stage-4 caller-driven dispose: cw_load_slot copies each SET's
+		 * pieces OUT of the file buffer, so the FC group is transient —
+		 * and two wall files (~296K each) cannot coexist in the
+		 * Mac-sized 450K pool (HEIRS level 10 mixes 8X8DB sets 1/2 with
+		 * 8X8DC set 10 and OOM'd exactly here). Release the sibling
+		 * file's group first so l11ca can reclaim it for this load. */
+		short other = g_wallfile_group[file ^ 1];
+		if (other >= 0 && jt468(other) != 0) {
+			jt461(other);
+			g_wallfile_group[file ^ 1]  = -1;
+			g_wallfile_binder[file ^ 1] = NULL;
+		}
 		l338c((short)50);                     /* JT[113] load-kind */
 		name[0] = '8'; name[1] = 'x'; name[2] = '8'; name[3] = 'd';
 		name[4] = (char)(file ? 'b' : 'c');
@@ -3245,7 +3262,7 @@ static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE
 /* JT[99] == l4b84 (CODE 6+0x4b84) — jt99(11,0,-14644) just calls jt175() (the
  * page-pause); args are discarded, so callers use the lifted l4b84() directly. */
 static void  l1e30(void *ev_v, long target);  /* per-member effect apply — lifted below */
-static void  l10a0(void *ev)               { PROBE("L10a0"); (void)ev; }
+static void  l10a0(void *ev);              /* combat monster-group spawn loop (lifted below) */
 static void  l1176(void)                   { PROBE("L1176"); }
 static void  jt511(void);                   /* CODE 13 combat tail — lifted below */
 static void  l4d26(void *ev);              /* message/text event — defined after its deps */
@@ -36022,7 +36039,10 @@ static short l3b0e(void *ev_v)
 			rec[57] = 0;
 		l0b20(&g_a5_byte(-5213));
 	}
-	id = (short)(*(short *)(ev + 8) - 1);
+	/* the prompt id is a LITTLE-ENDIAN word (the Mac reads it byte-wise:
+	 * (ev[9] << 8) + ev[8] — asm 0x3b70..0x3b86); a native big-endian
+	 * *(short *) read turned id 39 into 10239 and hung l4fbe. */
+	id = (short)(((short)((short)ev[9] << 8) | ev[8]) - 1);
 	l4fbe((void *)(uintptr_t)g_a5_long(-13034), id, (char *)&g_a5_byte(-5213));
 	if (g_a5_byte(-5213) != 0) {
 		if (ev[0] == 21)
@@ -36033,6 +36053,219 @@ static short l3b0e(void *ev_v)
 	}
 	jt20();
 	return result;
+}
+
+/* Forward decls for the combat spawn chain below (defined later in the
+ * file under their own segments). */
+static void jt53(short col, short row, short *px, short *py);
+static void jt588(short id, unsigned char *rec);
+
+/* L0cc6 (CODE 20 + 0x0cc6) — allocate one 398-byte monster record from
+ * the -21860 bucket (jt477) and fill it from design monster id `id`
+ * (jt588); returns the node through *nodep and copies its item/effect
+ * list heads (rec[8]/rec[4]) through *itemsp / *effp — L0d2a deep-copies
+ * the chains from these when cloning. `flag` clears rec[95] (the
+ * "scale-me" byte the difficulty pass reads). Full lift. */
+static void l0cc6_c20(short id, long *nodep, long *itemsp, long *effp,
+                      short flag)
+{
+	unsigned char *m;
+
+	PROBE("L0cc6");
+	*nodep = 0;
+	jt477((void *)&g_a5_byte(-21860), (short)398, (void *)nodep);
+	m = (unsigned char *)(uintptr_t)*nodep;
+	if (m == NULL) {                 /* PORT-SAFETY: bucket exhausted */
+		*itemsp = 0;
+		*effp   = 0;
+		return;
+	}
+	jt588(id, m);
+	*itemsp = *(long *)(void *)(m + 8);
+	*effp   = *(long *)(void *)(m + 4);
+	if (flag & 0xff)
+		m[95] = 0;
+}
+
+/* L0d2a (CODE 20 + 0x0d2a) — spawn ONE monster group into the combat:
+ * build the template record (l0cc6 from `type`), difficulty-scale its
+ * HP/morale bytes rec[395]/rec[129] by (gameRec[39]+1)/4 when rec[95]==1
+ * and 0 < [39] < 6 (floored at 1/1), count rec[90] specials in -22267,
+ * bind the CPIC portrait (jt56 "CPIC" `type2` into slot `slot`; jt53's
+ * cell metrics give rec[130] = w*2+h-2 keeping bit 7; rec[189] = slot),
+ * append the template to the party list -27928, then clone it while the
+ * spawned count <= `count` (each clone jt477-allocs a 398-byte record,
+ * copies the template, and DEEP-COPIES the item (-21508, 62B, next@0,
+ * PREPENDED) and effect (-21152, 10B, next@+6, PREPENDED) chains from
+ * the template heads). The global -22266 caps the battle at 50 records.
+ * -27932 is saved/restored around the whole build. Full lift of CODE 20
+ * 0xd2a..0x109c. */
+static void l0d2a_c20(short type, short count, short type2, short slot,
+                      short flag)
+{
+	long           save   = g_a5_long(-27932);   /* fp-22 */
+	unsigned char  n      = 1;                   /* fp-5  */
+	long           items0 = 0, effects0 = 0;     /* fp-34 / fp-46 (saved) */
+	long           isrc, esrc;                   /* fp-26 / fp-38 (walk)  */
+	long           tail, node;                   /* fp-10 / fp-14         */
+	unsigned char *first  = NULL;                /* fp-18                 */
+	short          w = 0, h = 0;                 /* fp-4 / fp-2           */
+	unsigned char *grec =
+	    (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  cnt = (unsigned char)count;
+
+	PROBE("L0d2a");
+	if ((unsigned char)g_a5_byte(-22266) >= 50)
+		goto out;
+
+	l0cc6_c20(type, (long *)(void *)&first, &isrc, &esrc, flag);
+	if (first == NULL)               /* PORT-SAFETY (Mac trusts the pool) */
+		goto out;
+
+	if (first[95] == 1 && grec != NULL
+	    && grec[39] > 0 && grec[39] < 6) {
+		first[395] = (unsigned char)
+		    (((short)first[395] * (grec[39] + 1)) >> 2);
+		first[129] = (unsigned char)
+		    (((short)first[129] * (grec[39] + 1)) >> 2);
+		if (first[395] == 0 || first[129] == 0) {
+			first[395] = 1;
+			first[129] = 1;
+		}
+	}
+	if (first[90] != 0)
+		g_a5_byte(-22267)++;
+	items0   = isrc;
+	effects0 = esrc;
+	if (cnt == 0)
+		cnt = 1;
+
+	tail = g_a5_long(-27928);
+	jt56(ua_strs_at(0x66e6) /* "CPIC" */, (short)(unsigned char)type2,
+	     (short)(unsigned char)slot);
+	jt53((short)(unsigned char)slot, (short)0, &h, &w);
+	first[130] = (unsigned char)
+	    (((w * 2 + h) - 2) | (first[130] & 0x80));
+	first[189] = (unsigned char)slot;
+
+	/* append the template at the party-list tail */
+	while (*(long *)(uintptr_t)tail != 0)
+		tail = *(long *)(uintptr_t)tail;
+	*(long *)(uintptr_t)tail = (long)(uintptr_t)first;
+	tail = *(long *)(uintptr_t)tail;
+	*(long *)(uintptr_t)tail = 0;
+	g_a5_byte(-22266)++;
+	n++;
+	goto check;
+
+clone:
+	jt477((void *)&g_a5_byte(-21860), (short)398, (void *)&node);
+	if (node == 0)                   /* PORT-SAFETY */
+		goto out_restore;
+	*(long *)(uintptr_t)tail = node;
+	tail = node;
+	jt406((void *)(uintptr_t)node, first, (short)398);
+	*(long *)(uintptr_t)node = 0;
+	*(long *)(uintptr_t)(node + 4) = 0;
+	*(long *)(uintptr_t)(node + 8) = 0;
+	n++;
+	g_a5_byte(-22266)++;
+
+	/* deep-copy the item chain (62-byte nodes, next at +0) */
+	for (isrc = items0; isrc != 0;
+	     isrc = *(long *)(uintptr_t)isrc) {
+		long dst = *(long *)(uintptr_t)(node + 8);
+		long prev;
+		if (dst == 0) {
+			jt477((void *)&g_a5_byte(-21508), (short)62,
+			      (void *)(uintptr_t)(node + 8));
+			dst = *(long *)(uintptr_t)(node + 8);
+			if (dst == 0)
+				break;
+			/* the Mac's first-node copy is 60 bytes (15 longs)
+			 * then next=0 — transcribed exactly */
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)isrc, (short)60);
+			*(long *)(uintptr_t)dst = 0;
+		} else {
+			prev = dst;
+			jt477((void *)&g_a5_byte(-21508), (short)62,
+			      (void *)(uintptr_t)(node + 8));
+			dst = *(long *)(uintptr_t)(node + 8);
+			if (dst == 0)
+				break;
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)isrc, (short)62);
+			*(long *)(uintptr_t)dst = prev;
+		}
+	}
+
+	/* deep-copy the effect chain (10-byte nodes, next at +6) */
+	for (esrc = effects0; esrc != 0;
+	     esrc = *(long *)(uintptr_t)(esrc + 6)) {
+		long dst = *(long *)(uintptr_t)(node + 4);
+		long prev;
+		if (dst == 0) {
+			jt477((void *)&g_a5_byte(-21152), (short)10,
+			      (void *)(uintptr_t)(node + 4));
+			dst = *(long *)(uintptr_t)(node + 4);
+			if (dst == 0)
+				break;
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)esrc, (short)10);
+			*(long *)(uintptr_t)(dst + 6) = 0;
+		} else {
+			prev = dst;
+			jt477((void *)&g_a5_byte(-21152), (short)10,
+			      (void *)(uintptr_t)(node + 4));
+			dst = *(long *)(uintptr_t)(node + 4);
+			if (dst == 0)
+				break;
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)esrc, (short)10);
+			*(long *)(uintptr_t)(dst + 6) = prev;
+		}
+	}
+
+check:
+	if (n <= cnt && (unsigned char)g_a5_byte(-22266) < 50)
+		goto clone;
+out_restore:
+	g_a5_long(-27932) = save;
+	return;
+out:
+	g_a5_long(-27932) = save;
+}
+
+/* L10a0 (CODE 20 + 0x10a0) — the combat monster-group spawn loop: for
+ * each populated slot i of the -4917/-4911 (type/count) tables the
+ * l159a combat arm filled from the event (slots 0..(-22311 - 8 - 1)),
+ * spawn the group (l0d2a) into portrait slot i+8; slots 3/4/5 carry a
+ * per-group flag from the event's ev[10] bits 5/6/7 (the "don't scale"
+ * markers l0cc6 applies to rec[95]). Full lift of CODE 20
+ * 0x10a0..0x1174. */
+static void l10a0(void *ev_v)
+{
+	unsigned char *ev = (unsigned char *)ev_v;
+	unsigned char  flag;
+	short          i;
+
+	PROBE("L10a0");
+	for (i = 0; (short)(i + 8) < (short)(unsigned char)g_a5_byte(-22311);
+	     i++) {
+		if (g_a5_byte(-4917 + i) == 0)
+			continue;
+		switch (i) {                 /* JT[3] @0x10cc min3 max5 */
+		case 3: flag = (unsigned char)(ev[10] & 0x20); break;
+		case 4: flag = (unsigned char)(ev[10] & 0x40); break;
+		case 5: flag = (unsigned char)(ev[10] & 0x80); break;
+		default: flag = 0; break;
+		}
+		l0d2a_c20((short)(unsigned char)g_a5_byte(-4917 + i),
+		          (short)(unsigned char)g_a5_byte(-4911 + i),
+		          (short)(unsigned char)g_a5_byte(-4917 + i),
+		          (short)(i + 8), (short)(signed char)flag);
+	}
 }
 
 /* L5676 (CODE 20 + 0x5676) — the STAIRS / teleport / level-transition event
@@ -55351,6 +55584,144 @@ static void jt184(long rec_l)
 		           + (long)r * 16) != 2);
 		rec[(signed char)g_a5_byte(-22307) + 13] = r;
 	}
+}
+
+/* JT[588] (CODE 15 + 0xd9c) — build a live MONSTER record from design
+ * monster id `id`: load the "MONST" record (jt127, file-group 50); short
+ * reads (< 450 bytes) are COMPRESSED — a big-endian length word then the
+ * packed payload, expanded by jt1171 into the 440-byte layout (the
+ * 398-byte record + 16 item ids + 16 charge bytes + 10 effect ids).
+ * Install the 398 record bytes (clear the four list-head longs +
+ * rec[12..63], l0ce0 byte-swap, rec[397] = id), then rebuild the runtime
+ * state the file can't carry:
+ *   - the rec[8] ITEM chain: one jt61 node per non-zero item id; 255 =
+ *     the name filler jt184(&node[40]), else an 18-byte copy from the
+ *     item table -27920; the paired charge byte (tail[16+i]) remaps
+ *     node[53] (or node[54] for the chargeable 54/55 pair) through the
+ *     -6898 table; count in rec[193].
+ *   - the rec[4] EFFECT chain: one -21152-bucket node per non-zero
+ *     effect id (jt477, prepended with next at +6): {id, 0, 0, -1, 0}.
+ *   - rec[183] = sum of the -23030 per-class contributions for the
+ *     classes with rec[157+k] non-zero (k = 0..6).
+ *   - the EQUIP pass: for each item node l2f6e (= JT[902]) classifies,
+ *     mark it readied (node[50] = 1), point the slot long
+ *     rec[12 + slot*4] at it, and for bit-7 items run the readied
+ *     side-effects l2d78 (= JT[890], still a leaf stub) with -27932
+ *     temporarily pointed at the record.
+ *   - jt21 (derived stats) + jt906 (finalize).
+ * Full lift of CODE 15 0xd9c..0x1186. */
+static void jt588(short id, unsigned char *rec)
+{
+	unsigned char  buf[518];         /* fp-518: record + item/effect tail */
+	short          size = 0;         /* fp-12 */
+	short          reclen;           /* fp-18 */
+	unsigned char *tail;             /* fp-10 */
+	unsigned char *chain = NULL;     /* fp-24 */
+	long           save, prev;       /* fp-4 / fp-28 */
+	signed char    slot = 0;         /* fp-5 */
+	short          i, j, k;
+
+	PROBE("jt588");
+	jt132((short)50);
+	jt127("MONST", id, &size, buf);
+	if (size < 450) {                /* compressed MONST record */
+		unsigned char packed[518];   /* the Mac stages it at fp-size-28 */
+		reclen = (short)(((short)buf[0] << 8) | buf[1]);
+		jt406(packed, buf + 2, size);
+		jt1171(packed, buf, reclen);
+		(void)reclen;
+	}
+	jt406(rec, buf, (short)398);
+	*(long *)(void *)(rec + 8)  = 0;
+	*(long *)(void *)(rec + 4)  = 0;
+	*(long *)(void *)(rec + 0)  = 0;
+	*(long *)(void *)(rec + 64) = 0;
+	jt399(rec + 12, (short)52, 0);
+	l0ce0_c15(rec);
+	rec[397] = (unsigned char)id;
+
+	tail = buf + 398;
+	rec[193] = 0;
+	for (i = 0; i < 16; i++) {
+		unsigned char *node;
+		if (tail[i] == 0)
+			continue;
+		if (chain != NULL) {
+			*(long *)(void *)chain = jt61();
+			chain = (unsigned char *)(uintptr_t)
+			        *(long *)(void *)chain;
+		} else {
+			*(long *)(void *)(rec + 8) = jt61();
+			chain = (unsigned char *)(uintptr_t)
+			        *(long *)(void *)(rec + 8);
+		}
+		node = chain;
+		if (node == NULL)
+			break;                   /* PORT-SAFETY: node pool dry */
+		node[5] = 0;
+		node[4] = 0;
+		*(long *)(void *)node = 0;
+		if (tail[i] == 255)
+			jt184((long)(uintptr_t)(node + 40));
+		else
+			jt479((const void *)(uintptr_t)
+			          (g_a5_long(-27920) + (long)tail[i] * 18),
+			      node + 40, (short)18);
+		if (tail[16 + i] != 0) {
+			if (node[53] != 0)
+				node[53] = (&g_a5_byte(-6898))[tail[16 + i]];
+			else if (node[56] < 128 && node[55] != 0
+			         && node[54] != 0)
+				node[54] = (&g_a5_byte(-6898))[tail[16 + i]];
+		}
+		*(long *)(void *)(node + 58) = 0;
+		rec[193]++;
+	}
+
+	for (j = 0; j < 10; j++) {
+		unsigned char *e;
+		if (tail[32 + j] == 0)
+			continue;
+		prev = *(long *)(void *)(rec + 4);
+		jt477((void *)&g_a5_byte(-21152), (short)10,
+		      (void *)(rec + 4));
+		e = (unsigned char *)(uintptr_t)*(long *)(void *)(rec + 4);
+		if (e == NULL) {             /* PORT-SAFETY: bucket full */
+			*(long *)(void *)(rec + 4) = prev;
+			continue;
+		}
+		*(long *)(void *)(e + 6) = prev;
+		e[0] = tail[32 + j];
+		*(short *)(void *)(e + 2) = 0;
+		e[4] = 0xff;
+		e[5] = 0;
+	}
+
+	rec[183] = 0;
+	for (k = 0; k <= 6; k++)
+		if (rec[157 + k] != 0)
+			rec[183] = (unsigned char)(rec[183]
+			         + (&g_a5_byte(-23030))[k]);
+
+	for (chain = (unsigned char *)(uintptr_t)*(long *)(void *)(rec + 8);
+	     chain != NULL;
+	     chain = (unsigned char *)(uintptr_t)*(long *)(void *)chain) {
+		if (l2f6e((long)(uintptr_t)rec, (long)(uintptr_t)chain,
+		          &slot) != 0)
+			continue;
+		chain[50] = 1;
+		*(long *)(void *)(rec + (long)(unsigned char)slot * 4 + 12) =
+		    (long)(uintptr_t)chain;
+		if (chain[56] & 0x80) {
+			save = g_a5_long(-27932);
+			g_a5_long(-27932) = (long)(uintptr_t)rec;
+			l2d78((long)(uintptr_t)chain, (short)1);
+			g_a5_long(-27932) = save;
+		}
+	}
+
+	jt21((long)(uintptr_t)rec);
+	jt906(rec);
 }
 
 /* JT[196] (CODE 7+0x4aee) — pack a C-string name into the 6-bit
