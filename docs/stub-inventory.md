@@ -47,10 +47,15 @@ reimplementation, ordered by how much it distorts the faithful game:
    colour-band rebase (32/64/96) reproducing the GLIB colour-range
    allocator's relocate+remap (jt1069 ncopy) at blit time instead of
    load time. Faithful = remap pixels at load, blit raw l309c/l2d4e.
-8. **Hall Remove/View chrome**: `cg_remove_from_party` (l0f74 case 4)
-   + `cg_draw_sheet` — data model is faithful (#141); the chrome
-   stands in for L12a0 / jt904 (jt589 list + jt169 dialog). UNBLOCKED
-   now the faithful jt169 is live.
+8. ~~Hall Remove/View chrome~~ — **RETIRED 2026-07-02**: the label-crossed
+   dispatch was straightened (case 4 Remove → the already-lifted L1060
+   body: jt584 .cch save + jt19 unlink; case 7 Change-Class → the
+   faithful L0f74 skeleton), and the whole cg_draw_sheet / cg_rename /
+   cg_modify_sheet / cg_remove_from_party cluster deleted (~290 lines
+   incl. its orphaned tables). Every Training Hall screen is now
+   faithful code. OPEN NIT: one blank frame after Remove until the next
+   input (suspect jt55 → l3b1e → jt1022 on -27866, or the l036a
+   invalid-item modal — see docs/training-hall-wall.md).
 9. **`menu_run` + CODE 22 menu chrome** — mirrors the faithful
    jt315/jt313 build; per faithful-main-menu notes no traceable Mac
    path draws per-command bars, so this is low-distortion.

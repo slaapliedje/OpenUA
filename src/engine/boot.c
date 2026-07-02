@@ -2246,8 +2246,6 @@ static int           jt574(long ctx);                                           
 static int           cg_char_sheet(unsigned char *rec);                          /* L29ae/L2da6 char-sheet review loop (defined below) */
 /* Port character-management screens (defined further down, used by the
  * jt918 case handlers above their definitions). */
-static void          cg_modify_sheet(void) __attribute__((unused)); /* superseded by l618c */
-static void          cg_remove_from_party(void);
 static short         cg_collect_party(unsigned char **out, short max);
 static void          save_roster(void);
 extern short         ua_rand(short n);   /* rand.h — CODE 5 / JT[1083] LCG */
@@ -7238,27 +7236,6 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 #define CHAR_MOVE    396
 
 #define CG_PARTY_MAX 6    /* active-party slot count                          */
-
-/* Short race / class names for the narrow roster columns (the char-gen
- * tables use the long "Magic-User"; the roster abbreviates to "Mage"). */
-/* FAITHFUL race index order (rec[88]): the l3666 RACE list top-to-bottom
- * (ELF first) = 0..5, confirmed by the L24d2 racial-mod switch (0=Elf +DEX-CON,
- * 2=Dwarf +CON-CHA, 4=Halfling -STR+DEX). */
-static const char *const k_roster_races[6] = {
-	"Elf", "Half-Elf", "Dwarf", "Gnome", "Halfling", "Human",
-};
-/* FAITHFUL class names, indexed by rec[89] (CHAR_CLASS) 0..16. Verbatim from
- * the game's own class-name table g_a5_-14636 (resolved from DATA+DREL+STRS):
- * indices 0..7 single classes, 8..16 the multi/dual-class combinations. This
- * is the table the CODE 17/19 class-name display reads (single classes via
- * g_a5_-14636[rec[89]]; the multi-class indices print the same combined name). */
-static const char *const k_class_names[17] = {
-	"Cleric", "Knight", "Fighter", "Paladin", "Ranger",
-	"Magic-User", "Thief", "Monk",
-	"Cleric/Fighter", "Cleric/Fighter/Magic-User", "Cleric/Ranger",
-	"Cleric/Magic-User", "Cleric/Thief", "Fighter/Magic-User",
-	"Fighter/Thief", "Fighter/Magic-User/Thief", "Magic-User/Thief",
-};
 
 /* Port char-gen 6-value enum <-> faithful rec[89] index. The port's stand-in
  * char-gen (cg_classes = Cleric/Fighter/Magic-User/Thief/Paladin/Ranger) and
@@ -21033,55 +21010,7 @@ static const char *const cg_stat_names[6] = {
 	"STR", "INT", "WIS", "DEX", "CON", "CHA",
 };
 
-/* Per-race ability adjustments (the AD&D-1e mods FRUA applies; the game's
- * own values live in the table at g_a5_-30450). */
-static const signed char cg_race_adj[CG_NRACES][6] = {
-	/* STR INT WIS DEX CON CHA */
-	{   0,  0,  0,  0,  0,  0 },   /* Human    */
-	{   0,  0,  0, +1, -1,  0 },   /* Elf      */
-	{   0,  0,  0,  0,  0,  0 },   /* Half-Elf */
-	{   0,  0,  0,  0, +1, -1 },   /* Dwarf    */
-	{   0,  0,  0,  0,  0,  0 },   /* Gnome    */
-	{  -1,  0,  0, +1,  0,  0 },   /* Halfling */
-};
-
 extern short ua_rand(short n);   /* CODE 5 / JT[1083] LCG, 0..n-1 */
-
-/* Per-class ability minimums (AD&D-1e prime-requisite / restriction
- * thresholds; 0 = no minimum). Stat order STR INT WIS DEX CON CHA;
- * class order Cleric Fighter Mage Thief Paladin Ranger. */
-static const unsigned char cg_class_min[CG_NCLASSES][6] = {
-	{  0,  0,  9,  0,  0,  0 },   /* Cleric:  WIS 9                       */
-	{  9,  0,  0,  0,  0,  0 },   /* Fighter: STR 9                       */
-	{  0,  9,  0,  0,  0,  0 },   /* Magic-User: INT 9                    */
-	{  0,  0,  0,  9,  0,  0 },   /* Thief:   DEX 9                       */
-	{ 12,  9, 13,  0,  9, 17 },   /* Paladin: STR12 INT9 WIS13 CON9 CHA17 */
-	{ 13, 13, 14,  0, 14,  0 },   /* Ranger:  STR13 INT13 WIS14 CON14     */
-};
-
-/* Roll the six ability scores: 3d6 each (the FRUA LCG) + the race
- * adjustment, clamped 3..18, and re-rolled per stat until the chosen
- * class's minimum is met (so the character is class-legal — the game
- * guarantees a usable roll for the picked class). */
-static void cg_roll_stats(short race, short klass, short *stats)
-{
-	short i, t;
-	for (i = 0; i < 6; i++) {
-		short mn = (short)cg_class_min[klass][i];
-		short v  = 3;
-		for (t = 0; t < 2000; t++) {
-			v = (short)((ua_rand(6) + 1) + (ua_rand(6) + 1)
-			          + (ua_rand(6) + 1) + cg_race_adj[race][i]);
-			if (v < 3)  v = 3;
-			if (v > 18) v = 18;
-			if (v >= mn)
-				break;
-		}
-		if (v < mn)            /* fallback (shouldn't happen, mn <= 18) */
-			v = mn;
-		stats[i] = v;
-	}
-}
 
 #define CG_NALIGNS 9
 static const char *const cg_aligns[CG_NALIGNS] = {
@@ -23374,7 +23303,10 @@ static int    jt41(long handle_long, short find_byte, void *descriptor)
  * Change-Class handler is lifted. */
 static int    jt556(long a) __attribute__((unused));
 static int    jt556(long a)                    { PROBE("jt556"); (void)a;
-                                                  return 0; }
+                                                  /* stub: 17 = "pick aborted",
+                                                   * so l0f74 never mutates the
+                                                   * record on a fake pick */
+                                                  return 17; }
 /* JT[557] (CODE 17 + 0x6cd2 = L6cd2) — TRAIN the current character
  * (g_a5_-27932) at a Training Hall. Faithful lift of the Mac body.
  *
@@ -60347,21 +60279,40 @@ static int l0f60(short a)
  */
 static int l0f74(short a)
 {
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	long           h;                /* fp@(-16) — jt41 out-node */
+	short          rc;               /* fp@(-11) — jt556 result  */
+
 	(void)a;
-	PROBE("jt918/case4 L0f74");
-	if (g_a5_14436 == 0)
+	PROBE("jt918/case7 L0f74");
+	/* Remove/Change-Class are label-crossed (like Train/Create, Add/View):
+	 * this Mac body is the HUMAN CHANGE CLASS handler, so the port's
+	 * by-label dispatch runs it from case 7 and it reads that label's slot
+	 * gate (-14433, seeded 0 — the item is disabled, faithful to the Hall
+	 * build). The Mac asm reads -14436 because ITS selector remap parks
+	 * this body under the Remove slot. Faithful body: jt556 validates and
+	 * runs the class pick (17 = aborted), then the readied weapon (type 8)
+	 * and armor (type 105) are un-readied (jt41 find -> jt878 remove) and
+	 * the picked-class arm re-adds the matching one (jt876). */
+	if (g_a5_14433 == 0)
 		return 0;
-	/* "Remove Character" (build-index 4). The Mac's case-4 body (L0f74) is
-	 * actually the Change-Class handler — jt556 ("only conscious humans may
-	 * change") + the jt41/jt878/jt876 item moves — because Remove/Change-Class
-	 * are mirrored against their labels like Train/Create and Add/View. The
-	 * port dispatches by LABEL, so case 4 = REMOVE: cg_remove_from_party
-	 * browses the party and benches the picked member (CHAR_INPARTY=0 -> back
-	 * to the addable pool). The old change-class calls here were stubs anyway. */
-	cg_remove_from_party();
-	/* The removed member may have been the selection; re-point -27932 at a
-	 * valid party member (or 0 if the party is now empty). */
-	g_a5_long(-27932) = g_a5_long(-27928);
+	rc = (short)jt556((long)(uintptr_t)rec);
+	if (rc != 17) {
+		if (jt41((long)(uintptr_t)rec, (short)8, (void *)&h) != 0)
+			jt878((long)(uintptr_t)rec, (short)8, 0L);
+		if (jt41((long)(uintptr_t)rec, (short)105, (void *)&h) != 0)
+			jt878((long)(uintptr_t)rec, (short)105, 0L);
+		switch (rc) {                        /* JT[3] @0x0ff2 min3 max4 */
+		case 3:
+			jt876((long)(uintptr_t)rec, (short)8, 0, 255, 0);
+			break;
+		case 4:
+			jt876((long)(uintptr_t)rec, (short)105, 0, 255, 0);
+			break;
+		default:
+			break;
+		}
+	}
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -60545,229 +60496,6 @@ static void jt892(const unsigned char *rec)
 	}
 }
 
-static void cg_draw_sheet(const unsigned char *c, const char *footer)
-{
-	unsigned char *px; short pitch, sw, sh, yy, i;
-	short race, klass;
-
-#ifdef FRUA_CGTRACE
-	dbg_log_num("cg_draw_sheet c = ", (long)(uintptr_t)c);
-#endif
-	/* PORT-SAFETY: every caller passes a cg_pool slot (party[sel] / pool[sel]
-	 * from the cg_collect_* walks). If `c` is NOT a valid pool node, a stray
-	 * roster link slipped through — log it and skip rather than dereference a
-	 * wild pointer (this is where the post-create "two-pane" Bus Error lands). */
-	if (c == NULL || !cg_node_in_pool(c)) {
-#ifdef FRUA_CGTRACE
-		dbg_log_num("  cg_draw_sheet: c is NOT a cg_pool node — skip = ",
-		            (long)(uintptr_t)c);
-#endif
-		return;
-	}
-#ifdef FRUA_CGTRACE
-	dbg_log_num("  race = ", (long)c[CHAR_RACE]);
-	dbg_log_num("  class = ", (long)c[CHAR_CLASS]);
-#endif
-	race  = c[CHAR_RACE];
-	klass = c[CHAR_CLASS];
-	short lvl   = c[CHAR_LEVEL] ? c[CHAR_LEVEL] : 1;
-	short align = c[CHAR_ALIGN];
-
-	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-		if (g_menu_state == 1) {
-			fill_backdrop(px, pitch, 0, 0,
-			              (short)(sw - 1), (short)(sh - 1));
-			draw_plate(px, pitch, sw, sh, 6, 8, 313, 160, 1);
-		} else {
-			for (yy = 0; yy < sh; yy++)
-				memset(px + (long)yy * pitch, 0x08,
-				       (size_t)sw);
-		}
-	}
-
-	jt94((short)3,  (short)2, 14, 0, "%s",
-	     (const char *)&c[96]);              /* name, gold */
-
-	jt94((short)3,  (short)4,  7, 0, "Race:");
-	jt94((short)10, (short)4, 15, 0, "%s",
-	     (race  < 6) ? k_roster_races[race]    : "?");
-	jt94((short)24, (short)4,  7, 0, "Class:");
-	jt94((short)31, (short)4, 15, 0, "%s",
-	     (klass < 17) ? k_class_names[klass] : "?");
-
-	jt94((short)3,  (short)5,  7, 0, "Level:");
-	jt94((short)10, (short)5, 15, 0, "%d", (int)lvl);
-	/* Alignment gets its own full-width row — "Lawful Good" etc is too
-	 * long to share row 5 without running off the plate. */
-	jt94((short)3,  (short)6,  7, 0, "Align:");
-	jt94((short)10, (short)6, 15, 0, "%s",
-	     (align < CG_NALIGNS) ? cg_aligns[align] : "?");
-
-	jt94((short)3,  (short)8, 11, 0, "Ability Scores");
-	for (i = 0; i < 6; i++) {
-		short col = (i < 3) ? (short)3 : (short)20;
-		short rw  = (short)(9 + (i % 3));
-		jt94(col,              rw,  7, 0, "%s", cg_stat_names[i]);
-		jt94((short)(col + 6), rw, 15, 0, "%d",
-		     (int)CHAR_STAT(c, i));
-	}
-
-	/* Faithful combat-stats block (HP / AC / Encumbrance / THAC0 / Move). */
-	jt892(c);
-
-	if (footer)
-		jt94((short)3, (short)14, 7, 0, "%s", footer);
-
-	qd_present();
-}
-
-/* (View Character now runs the faithful jt904 record-sheet viewer from the
- * Hall's case-6 handler l104c — the old cg_view_sheet stand-in was removed.) */
-
-/* Inline name editor for Modify — types into the record's name (+96)
- * live (the gold sheet name updates as you go); Return commits + persists,
- * Esc restores the original. */
-static void cg_rename(unsigned char *c)
-{
-	unsigned char orig[16];
-	short         len, k;
-	unsigned char scan = 0, ascii = 0;
-
-	for (k = 0; k < 16; k++)
-		orig[k] = c[96 + k];
-	for (len = 0; len < 15 && c[96 + len] != 0; len++)
-		;
-	while (plat_kb_poll(&scan, &ascii))
-		;
-
-	for (;;) {
-		char foot[40];
-		sprintf(foot, "Name: %s_", (const char *)&c[96]);
-		cg_draw_sheet(c, foot);
-
-		while (!plat_kb_poll(&scan, &ascii))
-			;
-		if (ascii == 13 || ascii == 3) {            /* Return -> commit */
-			if (len > 0)
-				save_roster();
-			else                                /* empty -> restore */
-				for (k = 0; k < 16; k++)
-					c[96 + k] = orig[k];
-			return;
-		}
-		if (ascii == 27) {                          /* Esc -> cancel */
-			for (k = 0; k < 16; k++)
-				c[96 + k] = orig[k];
-			return;
-		}
-		if ((ascii == 8 || ascii == 127) && len > 0) {
-			c[96 + --len] = 0;
-		} else if (ascii >= 32 && ascii < 127 && len < 15) {
-			c[96 + len++] = (unsigned char)ascii;
-			c[96 + len]   = 0;
-		}
-	}
-}
-
-/* Modify Character — page the party (Up/Down); N renames, R re-rolls the
- * ability scores (race/class-legal, re-deriving AC from the new DEX — HP
- * is earned over levels, so it's left intact). Esc/Return done. */
-static void cg_modify_sheet(void)
-{
-	unsigned char *party[16];
-	short          nparty, sel = 0;
-	unsigned char  scan = 0, ascii = 0;
-
-	nparty = cg_collect_party(party, 16);
-	if (nparty == 0)
-		return;
-
-	g_a5_2347 = 1;
-	load_menu_ui();
-	while (plat_kb_poll(&scan, &ascii))
-		;
-
-	for (;;) {
-		unsigned char *c = party[sel];
-		cg_draw_sheet(c,
-		    "N rename  R reroll  Up/Dn  Esc done");
-
-		while (!plat_kb_poll(&scan, &ascii))
-			;
-		if (ascii == 27 || ascii == 13 || ascii == 3)
-			break;
-		else if (scan == 0x48)
-			sel = (short)((sel + nparty - 1) % nparty);
-		else if (scan == 0x50)
-			sel = (short)((sel + 1) % nparty);
-		else if (ascii == 'n' || ascii == 'N')
-			cg_rename(c);
-		else if (ascii == 'r' || ascii == 'R') {
-			short st[6];
-			short race  = c[CHAR_RACE], klass = c[CHAR_CLASS];
-			short dex, dexmod, k;
-
-			if (race  >= CG_NRACES)   race  = 0;
-			if (klass >= 17) klass = 0;             /* faithful 0..16 */
-			klass = cg_class_to_port[klass];        /* -> port min/max enum */
-			cg_roll_stats(race, klass, st);
-			for (k = 0; k < 6; k++)
-				CHAR_STAT(c, k) = (unsigned char)st[k];
-			dex    = st[3];
-			dexmod = (dex >= 15) ? (short)(dex - 14) : 0;
-			if (dexmod > 4) dexmod = 4;
-			/* CHAR_AC(385) is the faithful "60 - displayed" slot
-			 * (jt34 draws |rec[385]-60|); store 60 - (10 - dexmod). */
-			c[CHAR_AC] = (unsigned char)(60 - (10 - dexmod));
-			save_roster();
-		}
-	}
-}
-
-/* Remove Character — page the active party with Up/Down; Return benches the
- * highlighted member (clears CHAR_INPARTY — it stays in the pool, addable
- * again later). Esc backs out. Non-destructive, so no confirm. */
-static void cg_remove_from_party(void)
-{
-	unsigned char *party[16];
-	short          nparty, sel = 0;
-	unsigned char  scan = 0, ascii = 0;
-
-	if (cg_collect_party(party, 16) == 0)
-		return;
-
-	g_a5_2347 = 1;
-	load_menu_ui();
-	while (plat_kb_poll(&scan, &ascii))
-		;
-
-	for (;;) {
-		nparty = cg_collect_party(party, 16);
-		if (nparty == 0)
-			break;
-		if (sel >= nparty)
-			sel = (short)(nparty - 1);
-
-		cg_draw_sheet(party[sel],
-		    "Up/Dn char   Return remove   Esc back");
-
-		while (!plat_kb_poll(&scan, &ascii))
-			;
-		if (ascii == 27)                     /* Esc -> back */
-			break;
-		if (ascii == 13 || ascii == 3) {     /* Return -> bench */
-			cg_party_unlink(party[sel]);  /* faithful unlink from -27928 */
-			save_roster();
-			while (plat_kb_poll(&scan, &ascii))   /* debounce: one
-			                                       * press, one remove */
-				;
-		} else if (scan == 0x48)
-			sel = (short)((sel + nparty - 1) % nparty);
-		else if (scan == 0x50)
-			sel = (short)((sel + 1) % nparty);
-	}
-}
-
 /* Delete Character is the faithful l15e2 browser (jt589 .CHR enumeration +
  * jt169 list + "Delete %s forever?"/"Are you sure?" jt159 confirms), wired to
  * l0f3e — see above. The old cg_delete_character pool-paging stand-in (whole-
@@ -60818,8 +60546,15 @@ static int l1060(short a)
 {
 	const unsigned char *block;
 
-	PROBE("jt918/case7 L1060");
-	if (g_a5_14433 == 0 || g_a5_27932 == 0)
+	PROBE("jt918/case4 L1060");
+	/* The label-crossed REMOVE CHARACTER body (see l0f74): the port's
+	 * by-label dispatch runs this from case 4 (the Remove button), so it
+	 * reads the Remove slot's gate -14436; the Mac asm reads -14433
+	 * because its selector remap parks this body under the Change-Class
+	 * slot. Save the highlighted member to a .CHR (jt584) then unlink +
+	 * destroy it (jt19); NPCs (rec[147] bit 7) take the jt76/l185e
+	 * message path instead. */
+	if (g_a5_14436 == 0 || g_a5_27932 == 0)
 		return 0;
 	block = (const unsigned char *)g_a5_27932;
 	if ((block[147] & 0x80) == 0) {
@@ -61225,10 +60960,10 @@ static int jt918(short a)
 			case 1:  rc = l0f2e(a); break;
 			case 2:  rc = l0f3e(a); break;
 			case 3:  rc = l0f60(a); break;
-			case 4:  rc = l0f74(a); break;
+			case 4:  rc = l1060(a); break;  /* REMOVE label -> the L1060 remove body   */
 			case 5:  rc = l1036(a); break;
 			case 6:  rc = l104c(a); break;
-			case 7:  rc = l1060(a); break;
+			case 7:  rc = l0f74(a); break;  /* CHANGE CLASS label -> the L0f74 body    */
 			case 8:  rc = l10ca(a); break;
 			case 9:  rc = l1142(a); break;
 			case 10: rc = l115a(a); break;

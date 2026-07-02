@@ -1,9 +1,37 @@
 # Training Hall + char-gen worklist (audit 2026-06-18)
 
-Audit of the stubs / stand-ins / missing pieces in the **Training Hall menu**
-and the **character-creation** flow, written as the morning worklist. Broader
-JT-level coverage lives in `docs/stub-inventory.md`; char-gen internals in
-`docs/code17-chargen-wall.md`. Priority order is top-down.
+## STATUS 2026-07-02 — Hall chrome COMPLETE: every screen is faithful code
+
+The last port-side Hall screens are gone. The **label-crossed Remove /
+Change-Class dispatch** (the P3 trap below) is straightened: case 4 (the
+REMOVE button) now runs the already-lifted **L1060** body — jt584 saves the
+highlighted member to `<NAME>.cch`, jt19 unlinks + destroys the record, NPCs
+(rec[147] bit 7) take the jt76/l185e path — gated on the Remove slot's
+-14436 (the Mac reads -14433 because ITS selector remap parks this body
+under the Change-Class slot). Case 7 (HUMAN CHANGE CLASS, gate -14433 =
+always disabled) carries the faithful **L0f74** change-class body (jt556
+pick → un-ready item types 8/105 via jt41/jt878 → jt876 re-add per the
+picked class; the jt556 stub returns 17 = aborted so it can never mutate on
+a fake pick). The `cg_draw_sheet` / `cg_rename` / `cg_modify_sheet` /
+`cg_remove_from_party` cluster and its orphaned tables (`k_roster_races`,
+`k_class_names`, `cg_class_min`, `cg_race_adj`, `cg_roll_stats`) are
+DELETED (~290 lines).
+
+Hatari-verified: Load save A → arrow to a member → R removes them (roster
+drops to 5, `NIVLOC.cch` written — the faithful save-on-remove, so the
+member reappears in the Add/Delete browsers via jt589). The P3 list below
+is now HISTORICAL — Modify/Delete/Add/View/Create/Load were made faithful
+in earlier sessions; Save/Begin remain on the #100/#115 walls.
+
+OPEN NIT: ONE BLANK FRAME after Remove until the next input repaints the
+Hall. Isolated to the remove path (Add/Load repaint immediately). Suspects,
+in order: jt55 → l3b1e(0,…,-27866,rec[189]) → jt1022 LBResize on the Hall's
+-27866 registry (an out-of-range item id would pop the l036a "LBResize
+invalid item" modal — which paints on a cleared page and waits for a key,
+matching the symptom exactly); or a stray present of an uncomposed
+triple-buffer page in the release path. Functionally harmless; #144
+present-once territory. Check DBG/probe or on-machine whether error text
+flashes.
 
 ## Architecture (so the worklist makes sense)
 

@@ -293,10 +293,10 @@ PORT_STANDINS = [
      "(32/64/96) reproducing the GLIB colour-range allocator's "
      "relocate+remap (jt1069 ncopy) at blit time instead of load time; "
      "faithful = remap pixels at load, blit raw l309c/l2d4e."),
-    ("cg_remove_from_party / cg_draw_sheet",
-     "Training Hall Remove/View CHROME over the faithful -27928 data "
-     "model (#141); faithful chrome = L12a0 / jt904 (jt589 list + jt169 "
-     "dialog) — UNBLOCKED now the faithful jt169 is live (#146)."),
+    # Hall Remove/View chrome RETIRED 2026-07-02: case 4 -> the faithful
+    # L1060 remove body (jt584 + jt19), case 7 -> the L0f74 change-class
+    # skeleton; the cg_draw_sheet/cg_rename/cg_modify_sheet/
+    # cg_remove_from_party cluster deleted.
     ("menu_run (+ CODE 22 menu chrome)",
      "main-menu driver mirrors the faithful jt315/jt313 build+chrome; "
      "low-distortion (no traceable Mac path draws per-command bars)."),
