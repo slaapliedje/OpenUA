@@ -1,3 +1,85 @@
+# Stand-in / stub audit — 2026-07-01 (refresh)
+
+## Snapshot 2026-07-01 (regen `tools/jt_progress.py`)
+
+1205 JT entries: **955 done** (875 lifted, 20 noop, 60 alias), **59 stub**,
+**191 missing**, 0 JT stand-in → **250 pending (20.7%)**. Since 06-23:
++110 done, stubs 142→59. The top-500 ranks are closed except 3 stubs
+(jt45, jt68, jt1081 — jt1081 is a faithful-by-design teardown stub).
+Counts/tables: [`docs/jt-lift-progress.md`](jt-lift-progress.md).
+
+Closed since the last audit: **all 16 l709e event-type arms** have real
+bodies (the event campaign), **CODE 16 handler tier 114/115**, and the
+**faithful jt169 List Manager went LIVE 2026-06-28** (#146 cutover;
+`jt169_reimpl` is a dead fallback).
+
+## LIVE stand-ins (the actual replace-with-disassembly debt)
+
+Everything below has real behaviour on a reachable path but is a port
+reimplementation, ordered by how much it distorts the faithful game:
+
+1. **`port_load_savgame` boot auto-load** (`ua_main` seed block,
+   boot.c ~16728) — the party auto-loads at boot instead of the Mac's
+   explicit Play → Hall → Load Saved Game (jt918 → jt579). THE #100
+   play-entry gap (docs/play-entry-wall.md); also blocks seeing the
+   jt21 equipped-items path.
+2. **`fill_backdrop`** — "tuned interior tile" GEN.CTL fill, not the
+   faithful piece-placed gen backdrop. Live under `menu_run`, `jt574`
+   (char-gen entry), `cg_train_screen`, `cg_message`, `cg_draw_sheet`;
+   the Hall now paints `jt81()` over it every frame (ab8a567). RE the
+   gen piece placement, then delete.
+3. **Dungeon HUD chrome**: `port_draw_play_frame` (2 sites) +
+   `port_hud_text_clut` + `port_draw_compass` — the #114 coarse
+   over-blit; faithful composer = jt304 → L3fd8 (a few jt1001 FRAME
+   pieces + jt216/L4430 panels).
+4. **Play-loop**: `port_run_encounter` (2 sites) + `port_play_message`
+   (3 sites) — over the faithful CODE 15-20 encounter chain (#115:
+   l3b0e + CODE-20 L026e + l03f6).
+5. **`port_show_intro`** — title/credits, trace-matched, not lifted
+   from CODE 22.
+6. **GLIB bootstrap wiring**: `port_frame_load` / `port_always_load` /
+   `port_menu_load` / `port_ui_group_base` — faithful = jt464 +
+   jt997/jt1014 plain-name loader → flip the live loader to the FAR
+   pool (groundwork lifted, b96a694).
+7. **`l309c_tile`** — the register note "off the wall path" is STALE:
+   jt114 routes the wall blit through it again as the blit-time
+   colour-band rebase (32/64/96) reproducing the GLIB colour-range
+   allocator's relocate+remap (jt1069 ncopy) at blit time instead of
+   load time. Faithful = remap pixels at load, blit raw l309c/l2d4e.
+8. **Hall Remove/View chrome**: `cg_remove_from_party` (l0f74 case 4)
+   + `cg_draw_sheet` — data model is faithful (#141); the chrome
+   stands in for L12a0 / jt904 (jt589 list + jt169 dialog). UNBLOCKED
+   now the faithful jt169 is live.
+9. **`menu_run` + CODE 22 menu chrome** — mirrors the faithful
+   jt315/jt313 build; per faithful-main-menu notes no traceable Mac
+   path draws per-command bars, so this is low-distortion.
+10. **l0aae shape-7 DLItem passes NULL where the Mac passes jt916**
+    (keyboard-accel handler) — small input divergence.
+
+## DEAD stand-ins — delete candidates (no live callers, 2026-07-01)
+
+`port_menu_bar`, `menu_draw_plates`, `port_rest`,
+`port_begin_adventure`, `port_save_game` / `port_load_game`,
+`cg_add_character`, `jt169_reimpl` (post-bake), `port_render_geo_map` /
+`port_render_geo_tiles` / `port_render_geo_contact` /
+`port_render_topview` (callers rewired to jt501/jt521),
+`port_blit_demo` / `port_sprite_demo` / `port_view_demo` /
+`port_wall_demo` / `port_l6234_verify` (definition-only demos).
+`port_play_demo` lives only under `FRUA_MAP_DEMO`/`FRUA_3D_DEMO`
+ifdefs (off by default); `port_test_seed_design` is live harness
+seeding, not play-path.
+
+## Stub queue (PROBE-only, pending lifts)
+
+- **59 jtN stubs + 191 missing** — per-chunk and per-CODE tables in
+  jt-lift-progress.md. Largest pending blocks: CODE 4 display (63,
+  mostly superseded by the HAL), CODE 5 core runtime (51), CODE 3
+  Toolbox (24), CODE 8 UI/file (17), CODE 2/11 editor (15, authoring).
+- **88 local lXXXX leaf stubs** (list in jt-lift-progress.md).
+- **21 `TODO` markers** in boot.c (deferred structural-skeleton arms).
+
+---
+
 # Stub inventory + campaign audit — 2026-06-23 (refresh)
 
 ## Snapshot 2026-06-23 (regen `tools/jt_progress.py`)
