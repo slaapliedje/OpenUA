@@ -38670,8 +38670,110 @@ static void jt542(void)
 	}
 }
 
-/* JT[541] (CODE 14+0x0006) — per-member per-round prep. */
-static void jt541(long member) { PROBE("jt541"); (void)member; }
+/* JT[27] (CODE 6+0x1c92) — the Dexterity (rec[119]) action-point
+ * modifier band: <=2 -> -4, 3..5 -> dex-6 (-3..-1), 6..15 -> 0,
+ * 16..18 -> dex-15 (+1..+3), 19..20 -> +3, 21..23 -> +4, 24..25 -> +5,
+ * out-of-range (>25) -> 0. Faithful full lift; jt541 adds it to the
+ * 1d6 action roll each round. */
+static signed char jt27(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char  dex = rec[119];
+	signed char    r;
+
+	PROBE("jt27");
+	if (dex > 25)
+		r = 0;
+	else if (dex <= 2)
+		r = -4;
+	else if (dex <= 5)
+		r = (signed char)(dex - 6);
+	else if (dex <= 15)
+		r = 0;
+	else if (dex <= 18)
+		r = (signed char)(dex - 15);
+	else if (dex <= 20)
+		r = 3;
+	else if (dex <= 23)
+		r = 4;
+	else
+		r = 5;
+	return r;
+}
+
+/* Forward decls — jt541's deps lift further down in this file. */
+static void          jt543(long rec_l);
+static unsigned char l1090(short kind);
+static unsigned char jt37(long rec_l);
+
+/* JT[541] (CODE 14+0x0006) — per-member per-ROUND prep. Faithful full
+ * lift (the old PROBE stub left every actor's action count at 0, so
+ * l076e skipped every turn = the no-op rounds). mc = member[64]:
+ *   mc[0] = 0; jt515(member, 8, &feat, &feat, &door) adjacency probe
+ *   (outA/outB share the slot — only the door out matters here);
+ *   mc[1] = "can cast": any memorized-spell byte rec[198..338] in
+ *   1..127, AND no adjacent door (door == 0); mc[2] = (door == 0);
+ *   mc[10] = 0; mc[6] = 2; jt543 (attacks-per-round -> rec[387]);
+ *   -25264 = rec[172]; -25244 = 0; jt868 sel 18 (the effect hub);
+ *   rec[388] = l1090(-25264); mc[7] = rec[148];
+ *   in combat (rec[382]): mc[4] (word) = 1d6 (jt870) + jt27(member),
+ *   floor 1; -6 when the design header's slow-side gate (hdr[46] &
+ *   (rec[95]+1)); zeroed when out of 0..20. Out of combat: mc[4] = 0.
+ *   mc[8] = jt37(member). */
+static void jt541(long member)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)member;
+	unsigned char *mc;
+	unsigned char  feat = 0, door = 0;    /* fp@-2 / fp@-3 */
+	short          roll;                  /* fp@-10 */
+	short          i;
+
+	PROBE("jt541");
+	mc = (unsigned char *)(uintptr_t)*(long *)(void *)(rec + 64);
+	mc[0] = 0;
+	jt515(member, 8, &feat, &feat, &door);
+	mc[1] = 0;
+	for (i = 0; i <= 140; i++) {          /* the 141 spell slots */
+		unsigned char s = rec[198 + i];
+		if (s == 0)
+			continue;
+		if (s < 128)
+			mc[1] = 1;
+	}
+	if (mc[1] != 0)
+		mc[1] = (door == 0) ? 1 : 0;
+	mc[2] = (door == 0) ? 1 : 0;
+	mc[10] = 0;
+	mc[6] = 2;
+	jt543(member);                        /* the pc-local L0f60 = JT[543] */
+	g_a5_byte(-25264) = rec[172];
+	g_a5_byte(-25244) = 0;
+	jt868((short)18, &member);
+	rec = (unsigned char *)(uintptr_t)member;   /* the hub may retarget */
+	rec[388] = l1090((short)(unsigned char)g_a5_byte(-25264));
+	mc = (unsigned char *)(uintptr_t)*(long *)(void *)(rec + 64);
+	mc[7] = rec[148];
+	if (rec[382] != 0) {                  /* in combat */
+		roll = jt870(1, 6);
+		*(short *)(void *)(mc + 4) =
+		    (short)(roll + (short)jt27(member));
+		if (*(short *)(void *)(mc + 4) < 1)
+			*(short *)(void *)(mc + 4) = 1;
+		{
+			unsigned char *hdr = (unsigned char *)(uintptr_t)
+			    g_a5_long(-28006);
+			if (hdr[46] & (unsigned char)(rec[95] + 1))
+				*(short *)(void *)(mc + 4) =
+				    (short)(*(short *)(void *)(mc + 4) - 6);
+		}
+		if (*(short *)(void *)(mc + 4) < 0
+		    || *(short *)(void *)(mc + 4) > 20)
+			*(short *)(void *)(mc + 4) = 0;
+	} else {
+		*(short *)(void *)(mc + 4) = 0;
+	}
+	mc[8] = jt37(member);
+}
 
 /* JT[50] (CODE 6+0x5ac2) / JT[51] (CODE 6+0x5ad8) / JT[64] (CODE
  * 6+0x5f3a) — the pause/page-key handlers (combat-loop keys 338/339
