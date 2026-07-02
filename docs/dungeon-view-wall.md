@@ -1,5 +1,31 @@
 # Dungeon 3D-view worklist — the wall-tile geometry gap
 
+## CLOSED 2026-07-02 — #129 verified resolved end-to-end (headless soak)
+
+Full flow re-driven at HEAD (Load save A → Begin Adventuring → intro caravan
+bigpic, 5 text pages → dungeon):
+- **Frame-stomp: FIXED** (stage 4's dispose/reload, confirmed live). The 3D
+  view renders correctly after the intro bigpic, after walking (11,8 sign
+  event "THE WEARY WANDERER" fires), after an about-face (compass rotates,
+  the caravan-wagon sprite renders and SCALES with distance), and after
+  stepping back onto the entry cell. No corruption anywhere; the event did
+  not even re-fire on re-entry.
+- **"Left-column wall clip": NOT REPRODUCIBLE** — left wall columns render
+  correctly in every orientation tested. The historical placement bugs
+  (the b945821 collapse, the eaa6fd1 far-band door) are fixed; nothing of
+  this class remains visible.
+- The only artifact observed (a ~4x6px bright-yellow fleck at native (4,21),
+  ON the frame chrome outside the viewport) is **non-deterministic
+  stale-buffer residue through a frame-chrome gap**: present in one run,
+  absent at the same coordinates in a fresh run; not jt94 text (probed —
+  zero top-left paints), not the wagon sprite (different gold), absent
+  during event frames. It is the #114 "gray-not-black frame gaps" / #144
+  present-once class — the play chrome leaves uncovered gutter pixels that
+  show whatever the buffer last held. Folds into #144.
+
+Remaining knowledge-gaps below are HISTORICAL context; the two #129 title
+items are closed.
+
 ## UPDATE 2026-06-22b — MAP LOAD VERIFIED CORRECT (rules out the "wrong sector" class)
 Decoded data/work/gamedata/HEIRS.DSN/GEO005.DAT directly (FORM/AMOD/HDR/MAP):
 HDR W=19 H=19; the MAP chunk is 3456 B but stores the cells **stride 19,
