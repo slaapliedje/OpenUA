@@ -32,18 +32,37 @@ clobbers a picked design). Hatari-verified: the menu shows the staged design;
 Escape from the picker returns cleanly with the design unchanged.
 
 The in-menu picker (jt315 case 1 → l494e) ENUMERATES all four staged designs
-(HEIRS / TUTORIAL / GIANTS / BEOWOLF), renders the "PLEASE SELECT A GAME
-DESIGN" list, and NAVIGATES with the arrows — all faithful and working. But
-SELECTING a design (Return / double-click) does NOT commit: l494e calls jt169
-directly and never seeds the list cell's shortcut bytes (rec[29]/rec[30]), so
-l2d3e Phase 5's cmd-5 accelerator match (l1676 → l13e8) finds nothing and the
-modal stays open. This is the SAME jt169 navigable-list commit gap as the
-trade recipient picker's double-click (docs headless can't test mouse) — a
-#146 List Manager item, NOT specific to the design picker. The accelerator-
-keyed lists (Load Saved Game A-J) commit fine because their rows carry letter
-shortcuts; a NAVIGABLE list needs Return→commit-current-row wired into the
-jt169/l23b4 modal. Removed the dead `g_picker_cmdbar` flag (the live jt169
-never read it — a leftover from the jt169_reimpl era).
+(HEIRS / TUTORIAL / GIANTS / BEOWOLF), renders the list, and NAVIGATES with
+the arrows. Removed the dead `g_picker_cmdbar` flag (the live jt169 never
+read it — a jt169_reimpl-era leftover).
+
+## STATUS 2026-07-02 — design-select COMMIT fixed: the verb phrase + the l3386 refnum
+
+Two root causes, both faithful lifts (commit after 33daffa):
+
+1. **The commit verbs were never on screen.** jt169 lists commit through the
+   BOTTOM-BAR word DLItems: l206e/l1bfe split the h2 prompt into words, each
+   word gets a letter accelerator, and jt169 maps the picked word's FIRST
+   CHAR through the jt179-seeded -24126 verb table (verb 0 = select). The
+   Mac l494e passes h2 = "%s %s" (STRS 0x311a) of -10704/-10692 — the
+   localized "Select Cancel" pair (CODE 22 0x4b0c) — but the port passed the
+   literal "Designs": one un-mapped word, so NO key committed (Return is not
+   a jt169 commit key even on the Mac; the verbs are). Fix = build the
+   faithful verb phrase (+ the 4-word jt488 title, CODE 22 0x4ac6). The bar
+   now shows SELECT | CANCEL and **S commits, C/Esc cancels**.
+2. **jt128's start.dat persist wrote to a bogus handle.** The Mac L3386
+   (CODE 3+0x3386) is open-truncate-or-create-open returning an OPEN REFNUM
+   (L328e perm-2 open → _SetEOF(0), fnf → _Create → re-open); the port had
+   mapped it to a bare shim Create() returning the OSErr, so jt392 handed
+   jt128 error-code-as-refnum and start.dat stayed 0 bytes. Full lift.
+
+Hatari-verified end-to-end: Select a Design → SELECT/CANCEL bar → Down×3 →
+S → menu banner switches to GIANTS.DSN / AGAINST THE GIANTS V-BETA →
+start.dat = "GIANTS.DSN"+flag → REBOOT resumes GIANTS. The complete faithful
+cycle (l0444 read → l494e pick → jt133/jt356/jt361 switch → jt128 persist)
+is live. Residual nits: the jt488 4-word title paints under the l206e panel
+redraw (invisible — pre-existing); the trade recipient DOUBLE-CLICK commit is
+separate mode-7 (jt163/l596a) work, untestable headless.
 
 ## STATUS 2026-06-26 — direction (B) implemented (retire the boot party auto-load)
 
