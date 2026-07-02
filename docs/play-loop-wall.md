@@ -1,5 +1,31 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02d — COMBAT RUNS END-TO-END (473059c); next tier = jt511/jt512 internals
+
+The stuck modal was three missing lifts deep, all landed:
+1. **l13e8 FULL** — the DLItem shortcut matcher's JT[1] arms (42 '*' any,
+   35 '#' CR/ESC, 64 '@' CR/LF). The prompt button's code-64 shortcut now
+   matches Return; every jt175/jt453 "PRESS RETURN" modal is key-dismissable
+   (they never were — mouse-only until now).
+2. **l0006_20 FULL** (was PROBE) — the play-entry combat init; seeds the
+   monster-slot high-water -22311 = 8. Includes l41fa (LE word store —
+   the game record's word fields are little-endian on disk).
+3. **l4cc0 buckets** — L30f4(60) 398B monster records / L317c(70) /
+   L31a4(68) + two L531e scratch blocks (were deferred; spawns got NULL).
+
+PROVEN in Hatari: web prompt → CUT WEB → spider page → Return → "A battle
+begins..." → 4 monsters spawn (jt588/l0d2a, deep-copied chains) →
+jt510/jt512/jt511 → jt920/jt930 → back in the walk loop, playable.
+
+**NEXT #115 TIER — make the fight real:** jt511's CODE 13 main-loop
+internals (the combat screen, initiative, per-monster turns) and jt512's
+CODE 14 map prep are pass-throughs. Also queue: l1176 (NPC-join, CODE 20
+0x1176, still PROBE — GEO010 hdr[262]=11 so it's on this path), jt45/jt49
+(CODE 6 0x5700/0x5730 CPIC binder reset — tiny, disasm read), jt930
+rewards. NITS seen post-combat: roster panel overdrawn by the level-title
+text (recompose); the post-combat message shows the chained MARK/text
+event oddly.
+
 ## STATUS 2026-07-02c — per-set wall loads LANDED (b4fa8f7); one modal from combat
 
 The binder stall is FIXED, faithfully: l33ac's >4-char early-out removed (the
