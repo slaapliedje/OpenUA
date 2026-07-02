@@ -1,5 +1,22 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02e — L1176 NPC-ally spawn lifted (7f75a9c); entry-walls OOM flake
+
+l1176 is a FULL lift (ally template rec[94]=9/rec[147]|=50, group of 10,
+cap 60, portrait at the bumped -22311 — see the commit). NEW FLAKE to fix
+FIRST next session: the level-10 ENTRY intermittently paints backdrop-only
+(starfield, no walls) + "glib: Out of FAR memory!" — 2 of 3 post-l4cc0-
+bucket runs. The 450K pool's entry set (3 per-set walls ~111K + BACK.CTL
+backdrop + event bigpic ~165K + level-5-load residue from the save) sits
+at the edge; the ~32K of new bucket HEAP may also have killed the 320K cw
+fallback buffer's headroom (lazily NewPtr'd only when the pool path fails
+— both failing = no walls at all). Diagnose with the conout OOM log +
+a pool-contents dump (l11ca's record walk); candidate fixes: release the
+LOAD-time level-5 binder groups at the jt198 level switch, or accept a
+larger-than-Mac pool on 4MB (the 1MB-floor goal is stage-5 work anyway).
+The combat chain verified end-to-end in 473059c's build; l1176 only runs
+inside the combat entry and is orthogonal to the flake.
+
 ## STATUS 2026-07-02d — COMBAT RUNS END-TO-END (473059c); next tier = jt511/jt512 internals
 
 The stuck modal was three missing lifts deep, all landed:
