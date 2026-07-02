@@ -130,6 +130,11 @@ data-pool-regen: $(DATAPOOL_FILES)
 # arg is an Atari path, not a host path — the GEMDOS-mounted build dir
 # becomes C: inside the emulator, so frua.prg sits at C:\frua.prg.
 FALCON_TOS ?= /usr/share/hatari/TOSv4.04.img
+# Emulated ST-RAM in MB. Falcon-valid sizes: 1, 4, 14. Development default
+# is 14 so memory-pressure flakes don't mask logic bugs; the shipping
+# targets are 4 (the pragmatic floor today) and eventually 1 (the Mac's
+# footprint) — test those with `make run HATARI_MEM=4` / `HATARI_MEM=1`.
+HATARI_MEM ?= 14
 # Patch TOS to skip the memory test / slow boot path — shaves ~25s off every
 # `make run`. Override (HATARI_FASTBOOT=) to boot a stock TOS.
 HATARI_FASTBOOT ?= --fast-boot on
@@ -137,7 +142,7 @@ ifeq ($(FPU),1)
 HATARI_FPU := --fpu 68881
 endif
 run: $(TARGET)
-	$(HATARI) --machine falcon $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
+	$(HATARI) --machine falcon --memsize $(HATARI_MEM) $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
 	          --conout 2 -d . --auto 'C:\$(TARGET)'
 
 # Staged game-data folder for module-load testing. The engine opens
@@ -225,7 +230,7 @@ gamedata: $(TARGET) frua.rsc
 	@echo "  gamedata: staged $$(ls "$(GAMEDATA_DIR)" | grep -ivc frua) files + $(DSN) into $(GAMEDATA_DIR)"
 
 run-game: gamedata
-	$(HATARI) --machine falcon $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
+	$(HATARI) --machine falcon --memsize $(HATARI_MEM) $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
 	          --conout 2 -d "$(GAMEDATA_DIR)" --auto 'C:\$(TARGET)'
 
 # Bring-up probe: boot a probe-instrumented build in Hatari, fast-
