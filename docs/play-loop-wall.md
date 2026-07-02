@@ -19,8 +19,28 @@ off by default). Findings:
    builder from the event], l1176() [PROBE stub], jt510 (faithful rts),
    jt512() [PROBE stub — CODE 14 combat prep], then jt511 (the CODE 13
    main loop, level-2) spins with nothing set up. "A battle begins..."
-   never paints. **NEXT LIFTS, in order: l10a0 → l1176 → jt512 → then
-   jt511's stubbed heavy locals → jt930 (rewards).**
+   never paints. **NEXT LIFTS — the spawn chain, scoped bottom-up
+   (2026-07-02b, disasm read):**
+   1. **jt588** (CODE 15+0xd9c) — MISSING: the monster-record fill (the
+      thing that turns a design monster id into a live 398-byte record).
+   2. **L0cc6** (CODE 20 0xcc6..0xd2a, ~100B) — record alloc: jt477 node
+      from the party bucket + jt588 fill; returns the node + copies its
+      [8]/[4] list heads to the caller's outs; flag clears rec[95].
+   3. **L0d2a** (CODE 20 0xd2a..0x109c, ~275 asm lines) — the per-group
+      SPAWNER: guards the 50-monster cap (-22266), loops `count` times
+      calling L0cc6, difficulty-scales HP/thac0-ish bytes rec[395]/
+      rec[129] by the game record's -28006[39] (only when rec[95]==1 and
+      0 < [39] < 6), bumps -22267 for rec[90] specials, per-slot flags.
+   4. **L10a0** (decoded, trivial) — the 6-slot group loop: for each
+      non-empty -4917[i] slot, flag = ev[10] & {0x20,0x40,0x80} for
+      slots 3/4/5, call L0d2a(type, count(-4911[i]), type, i+8, flag).
+   5. **L1176** (CODE 20 0x1176..0x1472, ~760B) — the NPC-join: gated on
+      ds[262] != 0 (HEIRS level 10 = 11, so it IS on the repro path);
+      L0cc6-spawns the NPC record (rec[94]=9, rec[147]|=50) and splices
+      it into the party list.
+   6. **jt512** (CODE 14) — combat map prep.
+   7. Then jt511's stubbed heavy locals + jt930 (rewards) as they
+      surface.
 3. **Event-pic CLUT clobber, worst case found:** the level-1 keep bigpic's
    palette floods the whole UI band GREEN (panels, backdrop) — far worse
    than the caravan's subtle case. The known "pic palette clobbers UI clut
