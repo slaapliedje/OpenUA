@@ -3283,6 +3283,8 @@ static void  l159a(void *ev, short f);     /* COMBAT event (cases 1/33) — defi
  * are CODE 20 encounter-setup locals — all PROBE-deferred for the skeleton. */
 static void  jt45(void)                    { PROBE("jt45"); }
 static void  jt510(void)                   { PROBE("jt510"); }  /* CODE 13+0x6d1a is a bare rts — faithfully empty */
+/* JT[512] (CODE 14 + 0x5d8e) — the Mac body is a bare `rts` (verified
+ * disasm). Genuinely a no-op hook; this stub IS the faithful lift. */
 static void  jt512(void)                   { PROBE("jt512"); }
 static void  jt954(void)                   { PROBE("jt954"); }  /* CODE 21+0x38f4 — l2e42 move-code 3 */
 static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE 15+0x1188 — l380a effect apply */
