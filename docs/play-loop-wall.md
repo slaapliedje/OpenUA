@@ -1,5 +1,28 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02i — COMBAT TURNS LIVE (98d2d59): jt541 + jt27
+
+The "l5008/l08b4 interiors" pass found the whole action tier ALREADY
+LIFTED (l1162/l5b9a/l6454/l6c96 + the CODE 13 spine — see
+docs/code13-wall.md, 97% done). The no-op rounds were ONE leaf:
+**jt541 (CODE 14+0x0006, per-round prep) was a PROBE stub** — every
+actor's action count mc[4] stayed 0, l076e skipped every turn. Lifted
+jt541 (full: spell-scan -> mc[1], door predicate, jt543/jt868-18/l1090
+chain, mc[4] = 1d6 + jt27 dex mod, the hdr[46] slow-side -6 gate) +
+jt27 (CODE 6+0x1c92, the dex band -4..+5).
+
+**Hatari-verified**: verb bar (DELAY/VIEW/SPEED/END + AIM/USE/GUARD/
+QUICK), active-actor highlight + info card, MOVE/ATTACK with live
+movement points + camera scroll, ATTACK ALLY? confirm, and REAL DAMAGE
+(77->70 HP, wounded-cyan repaint) from the spider counterattack.
+
+**FOLLOW-UPS**: (1) the active-cell highlight paints OVER the actor
+sprite (blank gray box — the pose/erase order in jt530/jt868 sel-7?);
+(2) 'g' inside move mode routed into the attack-ally confirm (key-map
+audit of l1162's JT[1] table); (3) jt930 post-fight rewards; (4) jt63
+count->string stub (combat log lines); (5) the l4af4 double placement
+pass. Combat is now PLAYABLE end-to-end for the first time.
+
 ## STATUS 2026-07-02h — EMPTY BATTLE SOLVED (60c7e63): jt127 .glb fallback + jt125 + l3c24
 
 The 2026-07-02g instrumentation plan ran and found the real roots — NOT
