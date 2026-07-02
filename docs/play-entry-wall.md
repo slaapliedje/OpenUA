@@ -17,9 +17,33 @@ files) → synthetic seed fallback only; the party is ALWAYS built in-game.
 Re-verified after the deletion: same three screenshots, byte-identical
 caravan frame.
 
-Remaining #100 cards: the design-select stand-in (CURRENT.TXT seed in
-`port_test_seed_design` → the jt315/l494e picker) and the synthetic roster
-seed (card 5).
+Remaining #100 cards: the synthetic roster seed (card 5), and the jt169
+navigable-list COMMIT (below).
+
+## STATUS 2026-07-01 — design-select boot seed FAITHFUL; picker commit = jt169 gap
+
+The CURRENT.TXT boot stand-in is RETIRED. `l0444` (CODE 6 + 0x0444) is lifted
+— jt128's read-side twin: it reads the design name (34 bytes) + resume flag
+from `start.dat` at boot, defaulting to "heirs.dsn" (the shipped literal) on a
+missing/short read. `make gamedata` now stages the faithful `start.dat`
+(34-byte NUL-padded name + 1 flag byte) instead of CURRENT.TXT, and
+`port_test_seed_design` re-seeds only when -31336 is still unset (never
+clobbers a picked design). Hatari-verified: the menu shows the staged design;
+Escape from the picker returns cleanly with the design unchanged.
+
+The in-menu picker (jt315 case 1 → l494e) ENUMERATES all four staged designs
+(HEIRS / TUTORIAL / GIANTS / BEOWOLF), renders the "PLEASE SELECT A GAME
+DESIGN" list, and NAVIGATES with the arrows — all faithful and working. But
+SELECTING a design (Return / double-click) does NOT commit: l494e calls jt169
+directly and never seeds the list cell's shortcut bytes (rec[29]/rec[30]), so
+l2d3e Phase 5's cmd-5 accelerator match (l1676 → l13e8) finds nothing and the
+modal stays open. This is the SAME jt169 navigable-list commit gap as the
+trade recipient picker's double-click (docs headless can't test mouse) — a
+#146 List Manager item, NOT specific to the design picker. The accelerator-
+keyed lists (Load Saved Game A-J) commit fine because their rows carry letter
+shortcuts; a NAVIGABLE list needs Return→commit-current-row wired into the
+jt169/l23b4 modal. Removed the dead `g_picker_cmdbar` flag (the live jt169
+never read it — a leftover from the jt169_reimpl era).
 
 ## STATUS 2026-06-26 — direction (B) implemented (retire the boot party auto-load)
 
