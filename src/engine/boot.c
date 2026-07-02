@@ -47,7 +47,7 @@
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
 #include "menus.h"            /* MenuKey (L6dd0 keyDown arm)         */
-#include "input.h"            /* plat_kb_poll (port_play_demo)        */
+#include "input.h"            /* plat_kb_poll                         */
 #include "resources.h"        /* GetResource (clut 129 for colour art) */
 #include "sound.h"            /* SysBeep (jt1147 error-dialog beep)     */
 #include "mac_font.h"         /* mac_font_pixel (the in-dungeon party HUD) */
@@ -1882,18 +1882,6 @@ static void  jt361(short a)
 				tsrc[i] = (unsigned char)(i & 0xff);
 			jt325((short)0, &res, tcb, (short)57,
 			      tsrc, (short)2, (short)450);
-#ifdef FRUA_MAP_DEMO
-			/* Visualize the last-loaded GEO map (geo 40 above) as
-			 * a colored tile grid and hold it on screen for a
-			 * screenshot. Blocks here, before the menu paint. */
-			/* 3D view + wall-loader byte-depth log. */
-			port_play_demo();
-			/* hold the snapshot: re-present forever so the
-			 * engine's menu paint can't overwrite it (Crawcin
-			 * doesn't block under --fast-forward). */
-			for (;;)
-				qd_present();
-#endif
 			stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
 			if (stg) {
 				/* src[i]=i&0xff was copied over the tag, so
@@ -1933,10 +1921,6 @@ static void  l07dc(void);                              /* defined below */
 static void  jt10_handler(void) { }     /* CODE 6 + 0x0538 (jump-table entry 10) */
 static void  jt11_handler(void) { }     /* CODE 6 + 0x04c0 (jump-table entry 11) */
 
-void port_play_demo(void);              /* interactive 3D-view demo (FRUA_3D_DEMO) */
-#ifdef FRUA_L6234_VERIFY
-void port_l6234_verify(void);           /* faithful 3D-render geometry verification */
-#endif
 static short jt953(void);                /* exploration command dispatcher */
 #ifdef FRUA_CHARGEN
 static int   jt574(long ctx);            /* CODE 17 char-gen entry (harness) */
@@ -2003,10 +1987,9 @@ int ua_main(short arg1, long arg2)
 	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
 	 * Adventures / credits screens (TITLE.CTL art) shown before the menu.
 	 * No-ops when the design data isn't mounted (e.g. a plain `make run`).
-	 * Skipped in the 3D-walk demo build so it lands straight in the view, and
-	 * in the char-gen harness so it lands straight on the pick screen (the
-	 * intro blocks on click-through otherwise). */
-#if !defined(FRUA_MAP_DEMO) && !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
+	 * Skipped in the char-gen harness so it lands straight on the pick
+	 * screen (the intro blocks on click-through otherwise). */
+#if !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
     && !defined(FRUA_CGCRASH) && !defined(FRUA_BODY) && !defined(FRUA_MODIFY) \
     && !defined(FRUA_HALL)
 	port_show_intro();
@@ -2133,15 +2116,6 @@ int ua_main(short arg1, long arg2)
 	for (;;)
 		jt920();
 #endif
-#ifdef FRUA_3D_DEMO
-	/* Interactive dungeon-walk demo. jt361(1) has run l4cc0 (design
-	 * buffers) and l7222, so the play-loop core can load DEMO_LEVEL,
-	 * place the party at a corridor vantage, and render the first-person
-	 * 3D view (jt312 -> the active renderer). WASD/turn keys walk; never
-	 * returns. Opt in with `make EXTRA_CFLAGS=-DFRUA_3D_DEMO ...`; off by
-	 * default so the normal boot lands on the engine UI. */
-	port_play_demo();
-#endif
 	jt920();
 	jt1009(8096, 0);
 
@@ -2170,9 +2144,6 @@ int ua_main(short arg1, long arg2)
 	 * / _UnLoadSeg paging it is just this: run JT[949], JT[956], JT[920]
 	 * and the per-iteration body L07dc while JT[315] stays true.
 	 */
-#ifdef FRUA_L6234_VERIFY
-	port_l6234_verify();    /* never returns — geometry check for L6234 */
-#endif
 	while (jt315()) {
 		jt949();
 		jt956();
@@ -2285,13 +2256,10 @@ static int           cg_char_sheet(unsigned char *rec);                         
 /* Port character-management screens (defined further down, used by the
  * jt918 case handlers above their definitions). */
 static void          cg_modify_sheet(void) __attribute__((unused)); /* superseded by l618c */
-static void          cg_add_character(void);
 static void          cg_remove_from_party(void);
 static short         cg_collect_party(unsigned char **out, short max);
-static void          cg_message(const char *l1, const char *l2);
 static void          save_roster(void);
 extern short         ua_rand(short n);   /* rand.h — CODE 5 / JT[1083] LCG */
-void                 port_begin_adventure(void);
 /* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
  * (Modify Character roster grid, lifted further down). */
 static void          l02dc(long highlight);
@@ -8481,8 +8449,6 @@ static short jt381(void *rec_v, short cmd, ...)
  * dungeon-safe HUD palette (253/254), instead of the menu's clut 7/15 (wall
  * colours in the dungeon). Off everywhere else. */
 static short g_hud_paint;
-static void  port_menu_bar(short top, short left, short width, short idx)
-                            __attribute__((unused)); /* MENU.CTL plate (port stand-in; l3666 now uses the faithful FRAME bar) */
 static void  port_hud_text_clut(void);  /* install UI text colours into the dungeon clut */
 static short jt382(void *rec_v, short cmd, ...) __attribute__((unused));
 static short jt382(void *rec_v, short cmd, ...)
@@ -8599,9 +8565,7 @@ static short jt382(void *rec_v, short cmd, ...)
 				 * button's beveled BAR is real screen chrome from the GLIB blit —
 				 * for char-gen that's FRAME.CTL item 4 (the full-width bottom
 				 * command bar) via l35f8 -> jt76 -> jt1001(FRAME) -> L309c ->
-				 * L2d4e (mode-2). The draw_bevel stopgap is retired. (The main
-				 * MENU still uses the port menu_draw_plates stand-in until the
-				 * faithful CODE-15/19 menu is lifted — task #105.) */
+				 * L2d4e (mode-2). The draw_bevel stopgap is retired. */
 				if (len > 0) {
 					/* HUD command bar: NO per-word plate. The faithful
 					 * bar background is FRAME.CTL item 4 (the full-width
@@ -9139,13 +9103,6 @@ void boot_a5_seed_defaults(void)
 #endif
 }
 
-/* port_render_geo_map — visualize the loaded GEO map (design-state
- * g_a5_-12300) as a grid of 8-bit cells. The 'MAP ' chunk at ds+290
- * is 6 bytes per tile on a 24x24 max grid; ds[2]/ds[3] are the used
- * width/height. Each cell is painted straight into the display back
- * buffer (open tile vs wall tile), with a 1px black gap forming a
- * grid, then presented. A bring-up aid, not the real tile renderer
- * (that needs the deferred GLIB blit). */
 /* paint one pixel with clipping against the surface */
 static void map_px(unsigned char *base, short pitch, short sw, short sh,
                    short x, short y, unsigned char c)
@@ -9153,307 +9110,6 @@ static void map_px(unsigned char *base, short pitch, short sw, short sh,
 	if (x >= 0 && x < sw && y >= 0 && y < sh)
 		base[(long)y * pitch + x] = c;
 }
-
-/* Decode a tile edge byte to a CLUT index. The edge codes split on
- * bit 7: a set bit 7 (0xe0..0xff cluster) is a SOLID WALL — shaded
- * as a grey ramp by the texture low-nibble (224..239); a clear bit 7
- * (0x01..0x5a cluster) is a DOOR / passage — a bright colour by type
- * (240..243). 0 is no edge. */
-static unsigned char edge_color(unsigned char code)
-{
-	if (code == 0)
-		return 0;
-	if (code & 0x80)
-		return (unsigned char)(224 + (code & 0x0f));
-	return (unsigned char)(240 + (code & 3));
-}
-
-/* install the map demo CLUT: 224..239 wall grey ramp, 240..243 door
- * colours, 248..251 floor shades, 255 black. Shared by both views. */
-static void map_demo_palette(void)
-{
-	RGBColor c[32];
-	short i;
-
-	for (i = 0; i < 32; i++)
-		c[i].red = c[i].green = c[i].blue = 0;
-	for (i = 0; i < 16; i++) {          /* 224..239 wall grey ramp */
-		unsigned short v = (unsigned short)(0x4000 + i * 0xC00);
-		c[i].red = c[i].green = c[i].blue = v;
-	}
-	c[16].red = 0x1000; c[16].green = 0xffff; c[16].blue = 0x2000; /* 240 green */
-	c[17].red = 0xffff; c[17].green = 0xe000; c[17].blue = 0x1000; /* 241 yellow */
-	c[18].red = 0x1000; c[18].green = 0xe000; c[18].blue = 0xffff; /* 242 cyan */
-	c[19].red = 0xffff; c[19].green = 0x6000; c[19].blue = 0x1000; /* 243 orange */
-	c[24].red = 0x1000; c[24].green = 0x1000; c[24].blue = 0x2800; /* 248 floor */
-	c[25].red = 0x2000; c[25].green = 0x2000; c[25].blue = 0x4000; /* 249 */
-	c[26].red = 0x3000; c[26].green = 0x3000; c[26].blue = 0x5800; /* 250 */
-	c[27].red = 0x4000; c[27].green = 0x4000; c[27].blue = 0x7000; /* 251 */
-	/* 255 (c[31]) stays black */
-	qd_set_palette(c, 224, 32);
-}
-
-void port_render_geo_map(void)
-{
-	unsigned char *px;
-	short pitch, sw, sh;
-	const unsigned char *ds, *map;
-	short w, h, x, y, sx, sy;
-	const short cell = 10, ox = 6, oy = 6;
-
-	/* tile layout (6 bytes): [0]=N wall, [1]=S, [2]=E, [3]=W,
-	 * [4]=0 (reserved), [5]=floor flag (0..3). Each edge byte is
-	 * decoded (edge_color) into a wall-texture grey or a door
-	 * colour. */
-	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-	if (ds == 0)
-		return;
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-
-	w = (unsigned char)ds[2];
-	h = (unsigned char)ds[3];
-	map = ds + 290;
-#ifdef FRUA_ENGINE_PROBE
-	dbg_log_num("geo map: w = ", w);
-	dbg_log_num("geo map: h = ", h);
-#endif
-
-	map_demo_palette();
-
-	for (y = 0; y < sh; y++)
-		memset(px + (long)y * pitch, 255, (size_t)sw);
-
-	if (w <= 0 || h <= 0 || (long)w * h > 576)
-		return;
-
-	for (y = 0; y < h; y++) {
-		for (x = 0; x < w; x++) {
-			/* row-major, packed at the map's own width (w*h<=576
-			 * tiles, 6 bytes each, fit the 3456-byte MAP chunk) */
-			const unsigned char *t = map + ((long)y * w + x) * 6;
-			unsigned char floor = (unsigned char)(248 + (t[5] & 3));
-			unsigned char eN = edge_color(t[0]);
-			unsigned char eS = edge_color(t[1]);
-			unsigned char eE = edge_color(t[2]);
-			unsigned char eW = edge_color(t[3]);
-			short bx = (short)(ox + x * cell);
-			short by = (short)(oy + y * cell);
-
-			/* floor interior */
-			for (sy = 1; sy < cell; sy++)
-				for (sx = 1; sx < cell; sx++)
-					map_px(px, pitch, sw, sh,
-					       bx + sx, by + sy, floor);
-			/* decoded edges */
-			for (sx = 0; sx <= cell; sx++) {
-				if (eN) map_px(px, pitch, sw, sh,
-				               bx + sx, by, eN);
-				if (eS) map_px(px, pitch, sw, sh,
-				               bx + sx, by + cell, eS);
-			}
-			for (sy = 0; sy <= cell; sy++) {
-				if (eW) map_px(px, pitch, sw, sh,
-				               bx, by + sy, eW);
-				if (eE) map_px(px, pitch, sw, sh,
-				               bx + cell, by + sy, eE);
-			}
-		}
-	}
-	qd_present();
-}
-
-/* blit_glyph_1bpp — from-scratch GLIB glyph rasterizer (the option-B
- * blit from docs/decompilation.md). Reads a 1-bit-per-pixel glyph —
- * `metric[0..1]` = height (rows), `metric[6]` = bpp_w (bytes per
- * row), MSB-first within each byte — and paints set bits as `pen`
- * straight into the 8-bit back buffer at (x0,y0). This diverges from
- * the faithful jt995 path (which composites into a bit-packed page);
- * it draws chunky pixels at the shim's depth instead. */
-static void blit_glyph_1bpp(unsigned char *px, short pitch, short sw, short sh,
-                            const unsigned char *metric, const unsigned char *bmp,
-                            short x0, short y0, unsigned char pen, short scale,
-                            short plane)
-{
-	short height = (short)(((unsigned short)metric[0] << 8) | metric[1]);
-	short bpp_w  = metric[6];
-	short row, byte, bit, sx, sy;
-	const unsigned char *src = bmp + (long)plane * height * bpp_w;
-
-	if (scale < 1)
-		scale = 1;
-	for (row = 0; row < height; row++) {
-		for (byte = 0; byte < bpp_w; byte++) {
-			unsigned char bits = src[row * bpp_w + byte];
-			for (bit = 0; bit < 8; bit++) {
-				short col = (short)(byte * 8 + bit);
-				if (!(bits & (0x80 >> bit)))
-					continue;
-				for (sy = 0; sy < scale; sy++)
-					for (sx = 0; sx < scale; sx++)
-						map_px(px, pitch, sw, sh,
-						       (short)(x0 + col * scale + sx),
-						       (short)(y0 + row * scale + sy),
-						       pen);
-			}
-		}
-	}
-}
-
-/* port_render_topview — load the real TOPVIEW.TLB tile library
- * (Disk1, a GLIB of 16x16 1bpp top-down map tiles) and rasterize
- * every glyph into a grid via blit_glyph_1bpp + the validated
- * L37aa/L2856 extraction. Confirms the GLIB blit path renders real
- * game tile art onto the Falcon. */
-void port_render_topview(void)
-{
-	static unsigned char buf[2048];
-	unsigned char metric[8];
-	unsigned char *px;
-	short pitch, sw, sh, i, slot = 0;
-	long base, count;
-	short refnum = 0;
-	RGBColor c[2];
-
-	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
-		return;
-	count = (long)sizeof buf;
-	(void)FSRead(refnum, &count, buf);    /* reads to EOF (eofErr ok) */
-	(void)FSClose(refnum);
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-	base = (long)(uintptr_t)buf;
-	if (l37aa(base, 0) == 0)              /* validate 'GLIB' magic */
-		return;
-
-	c[0].red = c[0].green = c[0].blue = 0;          /* 0 black   */
-	c[1].red = c[1].green = c[1].blue = 0xffff;     /* 1 white   */
-	qd_set_palette(c, 0, 2);
-	for (i = 0; i < sh; i++)
-		memset(px + (long)i * pitch, 0, (size_t)sw);
-
-	/* item 0 is the directory; glyphs are items 1.. */
-	for (i = 1; ; i++) {
-		long bmp = l2856(base, i, metric);
-		short ox, oy;
-
-		if (bmp == 0)
-			break;                       /* past the last item */
-		ox = (short)((slot % 8) * 38 + 8);
-		oy = (short)((slot / 8) * 38 + 8);
-		blit_glyph_1bpp(px, pitch, sw, sh, metric,
-		                (const unsigned char *)(uintptr_t)bmp,
-		                ox, oy, 1, 2, 0);       /* 2x scale, plane 0 */
-		slot++;
-	}
-#ifdef FRUA_ENGINE_PROBE
-	dbg_log_num("topview tiles drawn = ", slot);
-#endif
-	qd_present();
-}
-
-/* port_render_geo_tiles — draw the loaded GEO map with REAL tiles.
- * Each TOPVIEW.TLB glyph 1..16 is the automap cell for one wall
- * combination: tile (1 + mask), where mask = N|E<<1|S<<2|W<<3 over
- * the cell's four edge bytes (a wall present on that side). So for
- * each map cell we compute its wall mask and rasterize the matching
- * 16x16 tile — the GEO map rendered as the game's own top-down
- * automap, not coloured cells. (Tile semantics confirmed straight
- * from the glyph bitmaps: tile 2 = N bar, 3 = E bar, ... 16 = all
- * four.) The screen is a 20x15-cell viewport; larger maps clip. */
-void port_render_geo_tiles(void)
-{
-	static unsigned char tv[2048];
-	unsigned char metric[8];
-	unsigned char *px;
-	short pitch, sw, sh, w, h, x, y, refnum = 0;
-	const unsigned char *ds, *map;
-	long tvbase, count;
-	RGBColor c3[3];
-
-	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
-		return;
-	count = (long)sizeof tv;
-	(void)FSRead(refnum, &count, tv);
-	(void)FSClose(refnum);
-	tvbase = (long)(uintptr_t)tv;
-	if (l37aa(tvbase, 0) == 0)
-		return;
-
-	jt198((short)40);                          /* load a real map */
-	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-	if (ds == 0)
-		return;
-	w = (unsigned char)ds[2];
-	h = (unsigned char)ds[3];
-	map = ds + 290;
-	if (w <= 0 || h <= 0 || (long)w * h > 576)
-		return;
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-	c3[0].red = c3[0].green = c3[0].blue = 0;          /* 0 black  */
-	c3[1].red = c3[1].green = c3[1].blue = 0xffff;     /* 1 white walls */
-	c3[2].red = 0xffff; c3[2].green = 0xd000; c3[2].blue = 0; /* 2 door amber */
-	qd_set_palette(c3, 0, 3);
-	for (y = 0; y < sh; y++)
-		memset(px + (long)y * pitch, 0, (size_t)sw);
-
-	/* Layout per JT[202] (the runtime wall query, CODE 7 + 0x5e52):
-	 * the map is COLUMN-MAJOR with stride = height (ds[3]) — tile
-	 * (col,row) = MAP + (col*h + row)*6 — and the edge byte's high
-	 * nibble selects the wall art: 0xe_ = a standard wall texture,
-	 * 0x0_/0x3_ = a special edge from GEO.GLB's 43-entry table
-	 * (doors / archways / secret etc.). We draw standard walls
-	 * (bit 7 set) as the wall-combination tile and overlay each
-	 * special edge with the directional TOPVIEW door tile (N=17,
-	 * S=19, E=20, W=18 — plane 1 = the arrow).
-	 *
-	 * (JT[202] returns the edge's LOW nibble; against the editor's
-	 * movement-type list — Free/Blocked/Open/Open-secret/Locked.. —
-	 * that nibble is the per-edge movement attribute the runtime
-	 * uses for collision. The automap's exact door-glyph rule is
-	 * the editor's, unlifted; the high-nibble art split is the
-	 * visual heuristic here.) */
-	for (y = 0; y < h; y++) {            /* y = row */
-		for (x = 0; x < w; x++) {        /* x = column */
-			const unsigned char *t = map + ((long)x * h + y) * 6;
-			short px0 = (short)(x * 16), py0 = (short)(y * 16);
-			short mask = (short)(((t[0] & 0x80) ? 1 : 0)
-			                   | ((t[1] & 0x80) ? 2 : 0)
-			                   | ((t[2] & 0x80) ? 4 : 0)
-			                   | ((t[3] & 0x80) ? 8 : 0));
-			long bmp = l2856(tvbase, (short)(1 + mask), metric);
-			short e, door_tile[4];
-
-			if (bmp != 0)
-				blit_glyph_1bpp(px, pitch, sw, sh, metric,
-				                (const unsigned char *)(uintptr_t)bmp,
-				                px0, py0, 1, 1, 0);
-
-			/* edge order [N,E,S,W] = t[0..3] per JT[202] */
-			door_tile[0] = 17;  /* N */
-			door_tile[1] = 20;  /* E */
-			door_tile[2] = 19;  /* S */
-			door_tile[3] = 18;  /* W */
-			for (e = 0; e < 4; e++) {
-				long db;
-				if (t[e] == 0 || (t[e] & 0x80))
-					continue;          /* no edge, or standard wall */
-				db = l2856(tvbase, door_tile[e], metric);
-				if (db == 0)
-					continue;
-				blit_glyph_1bpp(px, pitch, sw, sh, metric,
-				                (const unsigned char *)(uintptr_t)db,
-				                px0, py0, 2, 1, 1);  /* door colour, plane 1 */
-			}
-		}
-	}
-	qd_present();
-}
-
-/* --- the play loop core: walk the party around the loaded map --- */
 
 /* 8-direction deltas (facing 0=N, 2=E, 4=S, 6=W; odd = diagonal). */
 static const signed char dir_dx[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
@@ -9510,22 +9166,6 @@ static void party_step(short cmd)
 	}
 }
 
-/* draw_party — a marker at the party cell with a nub pointing in the
- * facing direction (CLUT index 3). */
-static void draw_party(unsigned char *px, short pitch, short sw, short sh,
-                       short x, short y, short f)
-{
-	short cx = (short)(x * 16 + 8), cy = (short)(y * 16 + 8), i, j;
-
-	for (j = -3; j <= 3; j++)
-		for (i = -3; i <= 3; i++)
-			map_px(px, pitch, sw, sh, (short)(cx + i), (short)(cy + j), 3);
-	for (i = 1; i <= 6; i++)
-		map_px(px, pitch, sw, sh,
-		       (short)(cx + dir_dx[f & 7] * i),
-		       (short)(cy + dir_dy[f & 7] * i), 3);
-}
-
 /* cell_edge — the edge byte of cell (x,y) in direction `f` (0 if open;
  * off-map returns a standard wall code so boundaries are textured). The
  * dungeon view reads this to decide where walls appear. */
@@ -9543,13 +9183,6 @@ static unsigned char cell_edge(short x, short y, short f)
 		return 0xe1;
 	return ds[290 + ((long)x * h + y) * 6 + ((f & 6) >> 1)];
 }
-
-/* DUNGCOM 1bpp wall-tile table — still loaded by the demo/setup (the
- * byte-depth probe + level loader); the colour 3D view no longer reads it. */
-#define WALL_NTILES 27
-static unsigned char        g_wall_metric[WALL_NTILES][8];
-static const unsigned char *g_wall_bmp[WALL_NTILES];
-static short                g_wall_n;
 
 /* The UI palette (FRAME.CTL + text colours, clut 0..31) — defined far
  * below in load_menu_ui; forward-declared here so the wall-palette
@@ -10487,56 +10120,6 @@ static void render_3d_raycast(unsigned char *px, short pitch, short sw, short sh
 	}
 }
 
-/* draw_map_tiles — render the currently-loaded design-state map as
- * TOPVIEW automap tiles (shared with port_render_geo_tiles, edge
- * order [N,E,S,W] per JT[202]). `tvbase` is a loaded TOPVIEW GLIB. */
-static void draw_map_tiles(long tvbase, unsigned char *px,
-                           short pitch, short sw, short sh)
-{
-	unsigned char metric[8];
-	const unsigned char *ds =
-		(const unsigned char *)(uintptr_t)g_a5_long(-12300);
-	const unsigned char *map;
-	short w, h, x, y;
-	static const short door_tile[4] = { 17, 20, 19, 18 };  /* N,E,S,W */
-
-	if (ds == NULL)
-		return;
-	w = (unsigned char)ds[2];
-	h = (unsigned char)ds[3];
-	map = ds + 290;
-	if (w <= 0 || h <= 0 || (long)w * h > 576)
-		return;
-
-	for (y = 0; y < h; y++) {
-		for (x = 0; x < w; x++) {
-			const unsigned char *t = map + ((long)x * h + y) * 6;
-			short px0 = (short)(x * 16), py0 = (short)(y * 16);
-			short mask = (short)(((t[0] & 0x80) ? 1 : 0)
-			                   | ((t[1] & 0x80) ? 2 : 0)
-			                   | ((t[2] & 0x80) ? 4 : 0)
-			                   | ((t[3] & 0x80) ? 8 : 0));
-			long bmp = l2856(tvbase, (short)(1 + mask), metric);
-			short e;
-
-			if (bmp != 0)
-				blit_glyph_1bpp(px, pitch, sw, sh, metric,
-				                (const unsigned char *)(uintptr_t)bmp,
-				                px0, py0, 1, 1, 0);
-			for (e = 0; e < 4; e++) {
-				long db;
-				if (t[e] == 0 || (t[e] & 0x80))
-					continue;
-				db = l2856(tvbase, door_tile[e], metric);
-				if (db != 0)
-					blit_glyph_1bpp(px, pitch, sw, sh, metric,
-					                (const unsigned char *)(uintptr_t)db,
-					                px0, py0, 2, 1, 1);
-			}
-		}
-	}
-}
-
 /* ===== jt995 option A — the bit-packed-page blit foundation =====
  *
  * FRUA's faithful bitmap path (jt995 -> the JT[1181] family) composites
@@ -10637,7 +10220,12 @@ static void bp_blit_andnot(unsigned char *page, short dx, short dy,
 }
 
 /* bp_present — expand the 1bpp bit-packed page to the 8-bit shim
- * buffer: each set bit -> fg, clear -> bg. */
+ * buffer: each set bit -> fg, clear -> bg. Parked (jt995 family) until
+ * the bit-packed path is wired under the 3D view. */
+static void bp_present(const unsigned char *page, unsigned char *px,
+                       short pitch, short sw, short sh,
+                       unsigned char fg, unsigned char bg)
+                       __attribute__((unused));
 static void bp_present(const unsigned char *page, unsigned char *px,
                        short pitch, short sw, short sh,
                        unsigned char fg, unsigned char bg)
@@ -12118,8 +11706,7 @@ static void port_always_load(void)
 /* MENU.CTL = jt468 group 24 — the menu chrome GLIB. Item 1 is a 320x16
  * mode-0 8bpp command-BAR glyph (plate-face grey indices in the FRAME band
  * 16..31, with a stone/bevel top edge); item 2 is the recessed variant. The
- * faithful main menu (jt315/CODE 22) draws a bar per command from this; the
- * port blits it per button via port_menu_bar (clipped to the button width).
+ * faithful main menu (jt315/CODE 22) draws a bar per command from this.
  * See [[faithful-main-menu-code22]]. */
 static long g_menu_base;
 static void port_menu_load(void)
@@ -12159,54 +11746,6 @@ static void port_menu_load(void)
  * is installed by load_menu_ui before this. */
 #define MENU_BAR_FACE_COL 50    /* a clean face column (full vertical bevel) */
 #define MENU_BAR_ROWS     14    /* draw 14 of the 16 rows -> exact 14px tiling */
-static void port_menu_bar(short top, short left, short width, short idx)
-{
-	unsigned char metric[8];
-	long  info;
-	const unsigned char *src;
-	unsigned char *px;
-	short pitch, sw, sh, r, c, h, w, nrows;
-
-	port_menu_load();
-	if (!g_menu_base)
-		return;
-	info = l2856(g_menu_base, idx, metric);
-	if (info == 0)
-		return;
-	h = (short)(((unsigned short)metric[0] << 8) | metric[1]);   /* 16 */
-	w = (short)(metric[6] * 8);                                   /* 320 */
-	if (h <= 0 || w <= 0)
-		return;
-	src = (const unsigned char *)(uintptr_t)info;                /* raw 8bpp */
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
-		return;
-	nrows = (h < MENU_BAR_ROWS) ? h : MENU_BAR_ROWS;
-	for (r = 0; r < nrows; r++) {
-		short dy = (short)(top + r);
-		const unsigned char *s = src + (long)r * w;
-
-		if (dy < 0 || dy >= sh)
-			continue;
-		for (c = 0; c < width; c++) {
-			short dx = (short)(left + c);
-			short srcc;
-			unsigned char v;
-
-			if (dx < 0 || dx >= sw)
-				continue;
-			if (c < 4)
-				srcc = c;                       /* real left cap */
-			else if (c >= width - 4)
-				srcc = (short)(3 - (c - (width - 4)));  /* mirror = right cap */
-			else
-				srcc = MENU_BAR_FACE_COL;       /* tiled face column */
-			v = s[srcc];
-			if (v == 255)
-				continue;
-			px[(long)dy * pitch + dx] = v;
-		}
-	}
-}
 
 /* jt468 groups 0/1/24 -> the port's resident UI GLIBs (see [[glib-resource-groups]]). */
 static long port_ui_group_base(short group)
@@ -12460,8 +11999,7 @@ static void jt312(unsigned char *page)
  * + every JT call are faithful; the leaf action routines below are PROBE
  * stubs until lifted, so the loop's shape is real but the per-arm movement /
  * cell-change work is deferred. Unwired for now (the faithful caller is the
- * JT[233/234] play-screen entry, milestone 3); replaces port_play_demo's
- * loop once wired. */
+ * JT[233/234] play-screen entry, milestone 3). */
 /* L63c0 deps defined later in the file — forward decls. */
 static void jt1173(short top, short left, short bottom, short right);
 static void jt1193(void);
@@ -13001,7 +12539,9 @@ static void l476e(short active, short layout)
  * deep dungeon-view mode (jt1200()==3), 8 in the normal 2D area-map mode.
  * The play-screen entry runs this before L476e (which multiplies it into
  * the view-rect dimensions) and before the cell mapping; with it 0 the whole
- * map collapses to a point. */
+ * map collapses to a point. Unwired since the demo walk loop retired;
+ * the faithful play-screen entry (jt948 chain) re-adopts it. */
+static void jt215(void) __attribute__((unused));
 static void jt215(void)
 {
 	PROBE("jt215");
@@ -14398,69 +13938,6 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 	return cmd;                                     /* L5122 */
 }
 
-/* port_view_demo — drive jt199, the first-person frustum walker, over
- * the real loaded design's GEO map. Seeds the DUNGCOM wall-set handle,
- * logs the runtime view state (the slot-layout DATA globals, the map
- * dims, the display mode) so the geometry can be confirmed, then renders
- * the view from the map centre. */
-void port_view_demo(void)
-{
-	static unsigned char dc[20480];
-	static unsigned char page[BP_STRIDE * BP_ROWS];
-	const unsigned char *ds;
-	unsigned char *px;
-	short pitch, sw, sh, refnum = 0, i;
-	long count, dcbase, nested;
-	RGBColor c2[2];
-
-	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) != noErr)
-		return;
-	count = (long)sizeof dc;
-	(void)FSRead(refnum, &count, dc);
-	(void)FSClose(refnum);
-	dcbase = (long)(uintptr_t)dc;
-	if (l37aa(dcbase, 0) == 0 || (nested = l37aa(dcbase, 1)) == 0)
-		return;
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-	g_a5_long(-4582) = (long)(uintptr_t)nested;
-
-	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-
-	/* Engage the deep display mode the dungeon view uses (g_a5_2347 = 0
-	 * -> jt1200()==3) and place the party near the column-0 wall run
-	 * (row 5, col 3, facing 6 = west). boot_a5_seed_defaults() seeds the
-	 * direction-step tables, but the -27862 BSS region gets cleared by a
-	 * later boot allocation, so re-seed them here right before the view
-	 * render. The live slot-layout globals come from DATA. */
-	g_a5_2347 = 0;
-	{
-		static const signed char drow[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
-		static const signed char dcol[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
-		short k;
-		for (k = 0; k < 8; k++) {
-			g_a5_byte(-27862 + k) = (unsigned char)drow[k];
-			g_a5_byte(-27853 + k) = (unsigned char)dcol[k];
-		}
-	}
-	g_a5_byte(-12288) = 5;          /* party row */
-	g_a5_byte(-12287) = 3;          /* party col */
-	g_a5_byte(-12286) = 6;          /* facing west */
-
-	for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
-		page[i] = 0;
-	if (ds)
-		jt312(page);
-
-	c2[0].red = c2[0].green = c2[0].blue = 0;
-	c2[1].red = c2[1].green = c2[1].blue = 0xffff;
-	qd_set_palette(c2, 0, 2);
-	bp_present(page, px, pitch, sw, sh, 1, 0);
-	qd_present();
-	for (;;)
-		qd_present();
-}
-
 /* The play/area-state record the engine reaches through g_a5_-28006. The Mac
  * stands it up in L4cc0 (CODE 6 + 0x4cc0) as JT[387](1024) stored base-1 so
  * the asm's field offsets are 1-based; every reader here is lifted C using the
@@ -14472,421 +13949,8 @@ static int           g_savgame_loaded;   /* a BasiliskII save was resumed */
 static short         g_port_entry_level = 40;  /* Play-entry level (a loaded save overrides) */
 static void          jt431(void *dst, const void *src);  /* path concat (defined below) */
 
-#ifdef FRUA_L6234_VERIFY
 static short l3198(short kind, long p1, long p2);   /* event poll (defined below) */
-/* port_l6234_verify — geometry-verification harness for the faithful
- * first-person render (jt221 -> L6234). Loads a real level so L5e52 has map
- * data, engages deep mode (g_a5_2347=0 -> jt1200()==3 -> the L6234 branch),
- * drops the party at a known dungeon spot, loads the colour wall pieces, then
- * renders via jt221 (which logs the slot-layout globals + dispatches to L6234)
- * and holds the frame for a screenshot. Lets us confirm L6234 walks the map
- * and assembles slots correctly (geometry) before L6eea (textures) lands. */
-void port_l6234_verify(void)
-{
-	unsigned char *pl, *px;
-	short pitch, sw, sh;
-	short k;
-	static const signed char drow[8] = { -1, -1, 0, 1, 1, 1, 0, -1 };
-	static const signed char dcol[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
-
-	pl = (unsigned char *)g_a5_28006;
-	if (pl != NULL)
-		pl[134] = 0;
-	g_a5_18485 = 0;
-	g_a5_18878 = 5;                         /* a DUNGEON level (<=4 = overland, no wall sets) */
-	g_a5_18488 = 0;
-	l0bbc();                                /* load the dungeon level + place party */
-
-	g_a5_2347 = 0;                          /* deep dungeon-view mode */
-	g_a5_byte(-12290) = 0;                  /* dungeon (not automap) branch */
-	for (k = 0; k < 8; k++) {
-		g_a5_byte(-27862 + k) = (unsigned char)drow[k];
-		g_a5_byte(-27853 + k) = (unsigned char)dcol[k];
-	}
-	/* Diagnostic: dump the loaded map's cell records to see whether wall
-	 * data is present and which nibble it lives in (L5e52 reads the low
-	 * nibble; jt212 the high). cell records start at ds+290, 6 bytes each. */
-	{
-		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-		short mw = ds ? ds[2] : 0, mh = ds ? ds[3] : 0;
-		const unsigned char *base = ds ? ds + 290 : NULL;
-		long total = (long)mw * mh * 6, i, nnz = 0, nlo = 0, nhi = 0, k = 0;
-		dbg_log_num("map mw = ", mw);
-		dbg_log_num("map mh = ", mh);
-		for (i = 0; base && i < total; i++) {
-			unsigned char bb = base[i];
-			if (bb != 0) nnz++;
-			if (bb & 0x0f) nlo++;
-			if (bb & 0xf0) nhi++;
-		}
-		dbg_log_num("cell bytes nonzero = ", nnz);
-		dbg_log_num("  low-nibble set   = ", nlo);
-		dbg_log_num("  high-nibble set  = ", nhi);
-		for (i = 0; base && i < total && k < 10; i++)
-			if (base[i] != 0) {
-				dbg_log_num("  nz cell off = ", i);
-				dbg_log_num("       val   = ", (long)base[i]);
-				k++;
-			}
-	}
-
-	/* Use l0bbc's REAL party placement (it loads the design and seeds the
-	 * party cell + facing at -12288/-12287/-12286) rather than a synthetic
-	 * corner scan — a real in-map vantage is what gives jt199 walls to walk.
-	 * The earlier scan overwrote the loaded spot with the map's first wall
-	 * cell, which sat at the (0,0) corner and saw almost nothing. */
-	dbg_log_num("verify party x=", (long)(signed char)g_a5_byte(-12288));
-	dbg_log_num("  party y=", (long)(signed char)g_a5_byte(-12287));
-	dbg_log_num("  facing =", (long)(signed char)g_a5_byte(-12286));
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
-		return;
-
-	/* Faithful COLOUR render: L6148 loads the wall set's .CTL (8bpp colour)
-	 * into the -27894 handles; jt199 walks the frustum and jt200 -> jt114 ->
-	 * l309c_tile's 8bpp arm blits the clut-129 colour tiles straight into the
-	 * 8bpp framebuffer (g_cwf_px). The game palette (clut 129) is installed at
-	 * boot, so present directly. (No cw_* stand-in, no DUNGCOM.) */
-	{
-		short row = (short)(signed char)g_a5_byte(-12287);
-		short col = (short)(signed char)g_a5_byte(-12288);
-		short f   = (short)(g_a5_byte(-12286) & 7);
-		long i;
-
-		/* Install the wall set's RGB band (sub-GLIB item 0) at clut 32 so the
-		 * tile bytes (32..) index real colours, and clear the screen. MUST use
-		 * the SAME library file as L6eea loads the tiles from: wallset_for_id
-		 * maps ds[4] to (file,set); load_color_wallset reads its band from the
-		 * global g_cw_file, so set it first — otherwise the band comes from the
-		 * other .CTL (8X8DC vs 8X8DB) and every wall is mis-tinted (blue). */
-		{
-			const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-			if (ds)
-				load_wall_groups(ds);   /* Wall1/2/3 CLUTs -> clut bands 32/64/96 */
-		}
-		(void)i;
-		/* render_3d_faithful (via jt935 -> jt221) now draws the FRAME.CTL
-		 * chrome itself, once, after the wall load, then the view into the
-		 * 88x88 hole — so no explicit chrome draw here. */
-		l6148();                                /* load the .CTL wall sets (for dump) */
-		/* Dump the perspective layout table (-12240..-12196, word each) and
-		 * the level's three wall-set ids (ds[4..6]) — if the table is zero the
-		 * slot coords collapse to the top-left and only soff separates them. */
-		{
-			const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-			short off;
-			dbg_log_num("jt1200 = ", (long)jt1200());
-			dbg_log_num("ds[4] wall1 = ", ds ? (long)ds[4] : -1);
-			dbg_log_num("ds[5] wall2 = ", ds ? (long)ds[5] : -1);
-			dbg_log_num("ds[6] wall3 = ", ds ? (long)ds[6] : -1);
-			dbg_log_num("band slot0 sid = ", (long)g_cw_sid[0]);
-			dbg_log_num("  band[0] r = ", (long)g_cw_sr[0][0]);
-			dbg_log_num("  band[0] g = ", (long)g_cw_sg[0][0]);
-			dbg_log_num("  band[0] b = ", (long)g_cw_sb[0][0]);
-			dbg_log_num("  band[8] r = ", (long)g_cw_sr[0][8]);
-			dbg_log_num("  band[8] g = ", (long)g_cw_sg[0][8]);
-			dbg_log_num("  band[8] b = ", (long)g_cw_sb[0][8]);
-			dbg_log_num("hdl grp0 = ", g_a5_long(-27894));
-			dbg_log_num("hdl grp1 = ", g_a5_long(-27890));
-			dbg_log_num("hdl grp2 = ", g_a5_long(-27886));
-			for (off = 12240; off >= 12196; off -= 2)
-				dbg_log_num((off == 12240 ? "layout[-12240..] = " : "  ... = "),
-				            (long)g_a5_word(-off));
-		}
-		(void)row; (void)col; (void)f;
-
-		/* Begin-Adventuring reachability proof: seed the design + party the
-		 * way l07dc does, then confirm jt918's case-10 gate inputs are live
-		 * (g_a5_27932 = design -> enables g_a5_14430; g_a5_27928 = party).
-		 * With both set, l115a (case 10) returns 1 and l07dc proceeds to
-		 * jt948 -> jt935 -> jt221 -> the faithful dungeon render. */
-		{
-			extern void port_test_seed_design(void);
-			port_test_seed_design();
-			dbg_log("=== Begin-Adventuring gate ===");
-			dbg_log_num("  design g_a5_27932 = ", g_a5_long(-27932));
-			dbg_log_num("  party  g_a5_27928 = ", g_a5_long(-27928));
-		}
-
-		/* Render through the REAL play-refresh entry (jt935 -> jt221 ->
-		 * render_3d_faithful), not jt199 directly, so the path Begin
-		 * Adventuring reaches is what we exercise. g_a5_27990=4 = the
-		 * command-bar render mode; -27982=0 = not mid-transition; -12290=0 =
-		 * dungeon (not automap). */
-		g_cwf_px = NULL;                         /* jt221 sets its own */
-		g_a5_27990 = 4;
-		g_a5_byte(-27982) = 0;
-		g_a5_byte(-12290) = 0;
-		{
-			unsigned char *hh = (unsigned char *)g_a5_28006;
-			if (hh != NULL) hh[36] = 0;     /* avoid jt935's first-entry redraw arm */
-		}
-		dbg_log("=== FRUA_L6234_VERIFY: jt935 -> jt221 (play path) ===");
-		jt935();
-		dbg_log("=== jt935 returned ===");
-#ifdef FRUA_HOLD_JT935
-		/* Gap-A diagnostic: freeze on jt935 -> jt221 -> render_3d_faithful's
-		 * output (the play-path view, BEFORE jt948/jt953/jt164 touch it). */
-		qd_present();
-		dbg_log("=== HOLD: jt935/jt221 render ===");
-		for (;;)
-			qd_present();
-#endif
-
-		/* Movement test: drive jt297 (the keyboard mover) first-person and
-		 * confirm the party turns + steps. A minimal ctx (rec[4]=1 first-
-		 * person, rec[5]=1 so l1908 skips the jt312 redraw here, rec[9]=0),
-		 * deep mode (jt1160 false via -2592 bit1 clear). 258=turn right,
-		 * 264=forward. */
-		{
-			static unsigned char trec[128];
-			static unsigned char *tctx;
-			tctx = trec;
-			/* rec[4]=0 = the normal first-person walk (no view/party
-			 * snapshot decoupling), rec[5]=1 so l1908 skips jt312 here. */
-			trec[4] = 0; trec[5] = 1; trec[9] = 0;
-			{ int kk; for (kk = 0; kk < 6; kk++) trec[46 + kk] = g_a5_byte(-12288 + kk); }
-			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
-			dbg_log("=== jt297 movement test ===");
-			dbg_log_num("  facing before = ", (long)g_a5_byte(-12286));
-			dbg_log_num("  x before = ", (long)(signed char)g_a5_byte(-12288));
-			dbg_log_num("  y before = ", (long)(signed char)g_a5_byte(-12287));
-			jt297(&tctx, 258, 0);                  /* turn right */
-			dbg_log_num("  facing after turn = ", (long)g_a5_byte(-12286));
-			jt297(&tctx, 264, 0);                  /* step forward */
-			dbg_log_num("  x after fwd = ", (long)(signed char)g_a5_byte(-12288));
-			dbg_log_num("  y after fwd = ", (long)(signed char)g_a5_byte(-12287));
-			dbg_log_num("  facing after fwd = ", (long)g_a5_byte(-12286));
-		}
-
-#ifdef FRUA_PLAY_JT948
-		/* Deterministic repro of the live "Begin Adventuring -> dungeon"
-		 * crash: drive the real adventure loop. The probe trace's last line
-		 * before the run_probe SIGKILL pinpoints where it dies/hangs. */
-		/* The FRUA_L6234_VERIFY geometry pass above zeroed h[134] (line ~10034)
-		 * for its FRESH placement test; the real l07dc->jt918->jt948 flow never
-		 * runs that pass, so re-assert the resume state a loaded save set up,
-		 * exercising l0bbc's RESUME branch here the way the real flow does. */
-		if (g_savgame_loaded) {
-			g_a5_28006 = g_area_state;
-			g_area_state[134] = 1;
-		}
-		dbg_log("=== FRUA: jt948 (adventure loop) ===");
-		jt948();
-		dbg_log("=== jt948 returned ===");
-#endif
-
-		/* Interactive first-person dungeon walk on the faithful 88x88 render.
-		 * Deep mode (jt1160 false) so jt297 takes the first-person arms ->
-		 * L1908: Up = forward (264), Left/Right = turn (262/258), Down =
-		 * about-face (260). Poll keys via l3198 (jt1125 maps arrows to
-		 * 257..264), move, re-render. Esc holds the last frame. */
-		{
-			static unsigned char wrec[128];
-			static unsigned char *wctx;
-			short ky, kx, ev, kc;
-			int kk;
-
-			wctx = wrec;
-			wrec[4] = 0; wrec[5] = 1; wrec[9] = 0;
-			g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) & ~0x02);
-			(void)px; (void)pitch; (void)sw; (void)sh;
-			/* Switch to the NATIVE display mode (g_a5_-2347 = 1 -> jt1135
-			 * scale 2, jt1200() != 3) the real play screen uses — the verify
-			 * pass above ran deep (g_a5_-2347 = 0). This proves jt312 now
-			 * renders under the live-play condition: the view stays deep via
-			 * g_cwf_force_deep and the gate keys off jt1160() (first-person),
-			 * not the old jt1200()==3 that native scale never satisfies. */
-			g_a5_2347 = 1;
-			/* Route the walk through the LIVE jt312 render so the harness
-			 * exercises the production path (#103): jt312 fetches its own back
-			 * page, draws the FRAME.CTL chrome on the first/forced frame and
-			 * DOUBLE-presents (both flip pages get the chrome), then on every
-			 * subsequent frame rect-presents just the 88x88 viewport. Forcing
-			 * the wall ids to 0xFF makes jt312 reload + set g_view_force_full
-			 * for the first frame. */
-			g_cw_grp[0] = g_cw_grp[1] = g_cw_grp[2] = 0xff;
-			jt312(NULL);
-			dbg_log("=== dungeon walk: arrows move, []/,. nudge view, Esc holds ===");
-			for (;;) {
-				ky = 0; kx = 0;
-				ev = l3198((short)7, (long)&ky, (long)&kx);
-				if (ev == 1 || ev == 2) {            /* keyDown */
-					kc = ky;                     /* arrows -> 257..264 */
-					if (kc == 27)
-						break;
-					/* live view-offset tuning: [ / ] shift X, , / . shift Y.
-					 * Force a full present so both pages pick up the shift. */
-					if (kc == '[' || kc == ']' || kc == ',' || kc == '.') {
-						if (kc == '[') g_cwf_ox--;
-						else if (kc == ']') g_cwf_ox++;
-						else if (kc == ',') g_cwf_oy--;
-						else g_cwf_oy++;
-						dbg_log_num("view ox=", (long)g_cwf_ox);
-						dbg_log_num("     oy=", (long)g_cwf_oy);
-						g_view_force_full = 1;
-						jt312(NULL);
-					} else if (kc >= 257 && kc <= 264) {
-						for (kk = 0; kk < 6; kk++)
-							wrec[46 + kk] = g_a5_byte(-12288 + kk);
-						jt297(&wctx, kc, 0);
-						/* movement: jt312 rect-presents the viewport only —
-						 * the case the double-buffer fix must keep framed. */
-						jt312(NULL);
-					}
-				}
-			}
-		}
-
-		qd_present();
-		for (;;)
-			qd_present();
-	}
-}
-#endif
-
-/* port_blit_demo — exercise the bit-packed blit foundation: load a real
- * 32x32 1bpp DUNGCOM tile, OR-blit it into the page at a run of sub-word
- * x offsets (shift 0..15) via bp_blit_or, then convert the page to the
- * 8-bit screen. Proves the shift-blit composites correctly at every
- * sub-pixel offset. */
-void port_blit_demo(void)
-{
-	static unsigned char dc[20480];
-	static unsigned char page[BP_STRIDE * BP_ROWS];
-	unsigned char metric[8];
-	const unsigned char *src;
-	unsigned char *px;
-	short pitch, sw, sh, refnum = 0, i;
-	long count, dcbase, nested, lb;
-	RGBColor c2[2];
-
-	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) != noErr)
-		return;
-	count = (long)sizeof dc;
-	(void)FSRead(refnum, &count, dc);
-	(void)FSClose(refnum);
-	dcbase = (long)(uintptr_t)dc;
-	if (l37aa(dcbase, 0) == 0 || (nested = l37aa(dcbase, 1)) == 0)
-		return;
-	lb = l2856(nested, 1, metric);           /* leaf 1: 32x32 1bpp tile */
-	if (lb == 0)
-		return;
-	src = (const unsigned char *)(uintptr_t)lb;
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-
-	{
-		short y;
-
-		for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
-			page[i] = 0;
-
-		/* row of full tiles (mode 0 = OR) at sub-word x offsets. */
-		for (i = 0; i < 8; i++)
-			bp_blit(page, (short)(64 + i * 34), (short)40, metric, src, 0);
-
-		/* edge clips: a tile clipped above the top (y = -12), one
-		 * clipped past the left edge (x = -20, only its right 12 px
-		 * show), and a corner-clipped tile (x = -16, y = -16). All
-		 * must render only their visible part with no wrap / overflow. */
-		bp_blit(page, (short)20,  (short)-12, metric, src, 0);
-		bp_blit(page, (short)-20, (short)40,  metric, src, 0);
-		bp_blit(page, (short)-16, (short)-16, metric, src, 0);
-
-		/* bottom: a solid white band, then bp_blit mode 1 (AND-NOT)
-		 * carves the tile pattern out of it — including one carve
-		 * clipped past the left edge to exercise the mask path. */
-		for (y = 130; y < 130 + 32; y++)
-			for (i = 0; i < BP_STRIDE; i++)
-				page[(long)y * BP_STRIDE + i] = 0xff;
-		bp_blit(page, (short)-20, (short)130, metric, src, 1);
-		for (i = 0; i < 8; i++)
-			bp_blit(page, (short)(64 + i * 34), (short)130, metric, src, 1);
-
-		/* l309c (JT[999]) end-to-end: fetch tile 1 from the nested
-		 * handle and draw it via the faithful remap+bearing+leaf path
-		 * (proves the dungeon blit entry, not just the raw leaf). */
-		l309c_tile(page, (short)210, (short)140, nested, (short)1);
-		l309c_tile(page, (short)210, (short)180, nested, (short)1);
-	}
-
-	c2[0].red = c2[0].green = c2[0].blue = 0;          /* bg black */
-	c2[1].red = c2[1].green = c2[1].blue = 0xffff;     /* fg white */
-	qd_set_palette(c2, 0, 2);
-	bp_present(page, px, pitch, sw, sh, 1, 0);
-	qd_present();
-	for (;;)
-		qd_present();
-}
-
-/* port_wall_demo — drive jt200 (JT[200]), the per-slot wall-tile
- * selector, against the real DUNGCOM wall set. Seeds the engine state
- * jt200 reads (the DUNGCOM handle g_a5_-4582, a design state with the
- * wall-set groups enabled, a non-deep display mode so coords stay
- * plain), then calls jt200 for rows of slots with different wall codes
- * — proving the faithful (code -> group/position -> tile-index -> 1:1
- * blit) selection draws real pre-rendered wall art. The L5bfa raycaster
- * that feeds jt200 real map cells is the next piece. */
-void port_wall_demo(void)
-{
-	static unsigned char dc[20480];
-	static unsigned char page[BP_STRIDE * BP_ROWS];
-	static unsigned char ds[16];
-	unsigned char *px;
-	short pitch, sw, sh, refnum = 0, i;
-	long count, dcbase, nested;
-	RGBColor c2[2];
-
-	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) != noErr)
-		return;
-	count = (long)sizeof dc;
-	(void)FSRead(refnum, &count, dc);
-	(void)FSClose(refnum);
-	dcbase = (long)(uintptr_t)dc;
-	if (l37aa(dcbase, 0) == 0 || (nested = l37aa(dcbase, 1)) == 0)
-		return;
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-
-	/* seed what jt200 reads: the DUNGCOM wall-set handle, a design
-	 * state with every wall-set group enabled, and a non-deep display
-	 * mode so coords stay plain (jt1200() -> 0/1, no 8000 anchor). */
-	g_a5_long(-4582) = (long)(uintptr_t)nested;
-	for (i = 0; i < (short)sizeof ds; i++)
-		ds[i] = 1;
-	g_a5_long(-12300) = (long)(uintptr_t)ds;
-	g_a5_2347 = 1;
-
-	for (i = 0; i < (BP_STRIDE * BP_ROWS); i++)
-		page[i] = 0;
-
-	/* two rows of single-layer group-2 slots; stepping `sub` walks
-	 * consecutive pre-rendered tiles. code 11 -> group 2 position 1
-	 * (tile range ~2..8), code 12 -> group 2 position 2 (~12..18). */
-	for (i = 0; i < 7; i++)
-		jt200(page, (short)40,  (short)(20 + i * 40), (short)11, (short)i);
-	for (i = 0; i < 7; i++)
-		jt200(page, (short)150, (short)(20 + i * 40), (short)12, (short)i);
-
-	c2[0].red = c2[0].green = c2[0].blue = 0;
-	c2[1].red = c2[1].green = c2[1].blue = 0xffff;
-	qd_set_palette(c2, 0, 2);
-	bp_present(page, px, pitch, sw, sh, 1, 0);
-	qd_present();
-	for (;;)
-		qd_present();
-}
-
-/* Real-play flag: set by port_begin_adventure (Begin Adventuring) so the
- * shared dungeon loop shows the party HUD and drops the wall-set browse
- * keys; clear for the regression browse demo. */
-static int g_adventure_mode;
-
-/* The QuickDraw shim's embedded 8x8 fallback font (compat/font_8x8.c),
- * one byte per row, MSB-first. */
-extern const unsigned char qd_font_8x8[256][8];
+extern const unsigned char qd_font_8x8[256][8];     /* compat fallback font */
 
 /* hud_text — blit a string straight to the chunky screen buffer at (x,y)
  * in `color` (a clut index), clipped to the screen. Bypasses jt94 / the
@@ -15254,52 +14318,6 @@ static int encounter_check(void)
 	return 1;
 }
 
-/* port_rest — camp to recover. Heals every living member to full
- * (CHAR_MAXHP), with a ~1-in-4 chance the rest is interrupted by a
- * wandering encounter (no healing then). The dead (HP 0) need a raise,
- * not rest, so they stay down. */
-static void port_rest(void)
-{
-	unsigned char *party[16];
-	short          nparty = cg_collect_party(party, 16), i;
-	unsigned char  scan = 0, ascii = 0;
-
-	if (nparty == 0)
-		return;
-	while (plat_kb_poll(&scan, &ascii))
-		;
-
-	if (ua_rand(4) == 0) {                  /* wandering monsters! */
-		const unsigned char *ds =
-			(const unsigned char *)(uintptr_t)g_a5_long(-12300);
-		short zone = 1;
-		if (ds != NULL) {
-			short x = (short)g_a5_12288, y = (short)g_a5_12287;
-			short w = (unsigned char)ds[2], h = (unsigned char)ds[3];
-			if (x >= 0 && y >= 0 && x < w && y < h) {
-				long cell = (long)x * h + y;
-				zone = (short)(ds[290 + cell * 6 + 5] >> 2);
-				if (zone == 0) zone = 1;
-			}
-		}
-		port_play_message("Your rest is interrupted!", "Press any key.");
-		port_run_encounter(zone);
-		return;
-	}
-
-	for (i = 0; i < nparty; i++) {
-		short mx;
-		if (party[i][CHAR_HP] == 0)         /* the dead need a raise, not rest */
-			continue;
-		mx = party[i][CHAR_MAXHP];
-		if (mx < party[i][CHAR_HP]) mx = party[i][CHAR_HP];   /* legacy clamp */
-		party[i][CHAR_MAXHP] = (unsigned char)mx;
-		party[i][CHAR_HP] = (unsigned char)mx;
-	}
-	save_roster();
-	port_play_message("The party makes camp and recovers.", "Press any key.");
-}
-
 /* L0096 (CODE 22 + 0x96) — the master mode loop. The whole play side is a
  * state machine over a 342-byte context struct (set up by L0004, CODE 22+0x4):
  *   ctx[0]  byte  stop flag — the loop runs while it is 0
@@ -15462,8 +14480,8 @@ static short l0096(unsigned char *ctx)
  * (JT[248], CODE 2+0x2a86 returns 14) -> mode 14. Those CODE 2/10 mode
  * handlers are the deferred next step (see jt315's selection dispatch); until
  * they land an unhandled start mode stops L0096 cleanly, so this entry is
- * lifted but not yet wired into the live menu (port_play_demo still seeds
- * mode 14 directly). Called locally from jt315 (CODE 22+0x5180/0x5266).
+ * lifted but not yet wired into the live menu. Called locally from jt315
+ * (CODE 22+0x5180/0x5266).
  *
  * Field offsets in the 342-byte ctx (= L0096's struct):
  *   ctx[0] byte stop  ctx[2] word command  ctx[4] word mode
@@ -15503,527 +14521,6 @@ static short l0004_22(short arg)
 	if (ctx[0] == 0)
 		(void)l0096(ctx);
 	return 0;
-}
-
-/* port_play_demo — the play loop core as an interactive dungeon walk
- * on the automap. Loads the TOPVIEW tiles, enters level 1 (L0bbc
- * loads the map + places the party), then cycles: draw the map +
- * party marker, read a key, move. Keys: w forward / s back / a turn
- * left / d turn right / m toggle automap / t next wall set / y toggle
- * wall library (8X8DC<->8X8DB) / b browse backdrops / q quit. Normally
- * the wall set is auto-picked from the level's Wall1 and the floor/ceiling
- * backdrop per map cell (its zone selects one of the level's four); t/y
- * pin a manual wall set and b a manual backdrop, for browsing. They
- * live-swap the 3D art — a quick visual regression check over every
- * environment without a rebuild. This is the runtime's render-input-
- * move-render loop. */
-void port_play_demo(void)
-{
-	static unsigned char tv[2048];
-	static unsigned char dc[20480];
-	unsigned char *px;
-	short pitch, sw, sh, refnum = 0, i;
-	long tvbase, count;
-	unsigned char *pl;
-	RGBColor c4[16];
-
-	if (FSOpen((ConstStr255Param)"\013TOPVIEW.TLB", 0, &refnum) != noErr)
-		return;
-	count = (long)sizeof tv;
-	(void)FSRead(refnum, &count, tv);
-	(void)FSClose(refnum);
-	tvbase = (long)(uintptr_t)tv;
-	if (l37aa(tvbase, 0) == 0)
-		return;
-
-	/* Load the dungeon wall set (DUNGCOM.TLB) into the wall-tile
-	 * table: it is a GLIB-of-GLIBs, item 1 a nested 'TILE' library of
-	 * 32x32 1bpp wall tiles. Grab the first WALL_NTILES so the view
-	 * can pick a texture per wall edge. */
-	g_wall_n = 0;
-	refnum = 0;
-	if (FSOpen((ConstStr255Param)"\013DUNGCOM.TLB", 0, &refnum) == noErr) {
-		long dcbase, nested;
-		count = (long)sizeof dc;
-		(void)FSRead(refnum, &count, dc);
-		(void)FSClose(refnum);
-		dcbase = (long)(uintptr_t)dc;
-		if (l37aa(dcbase, 0) != 0 && (nested = l37aa(dcbase, 1)) != 0) {
-			for (i = 0; i < WALL_NTILES; i++) {
-				/* leaf 0 is the directory; tiles start at leaf 1 */
-				long lb = l2856(nested, (short)(i + 1), g_wall_metric[i]);
-				g_wall_bmp[i] = (lb != 0)
-				              ? (const unsigned char *)(uintptr_t)lb : NULL;
-#ifdef FRUA_ENGINE_PROBE
-				/* Bit-depth check (per the bytes-read-vs-expected test):
-				 * the item body the loader gets vs the 1bpp/8bpp sizes
-				 * implied by the metric (h x bpp_w). Body == 1bpp size
-				 * means the file stores 1bpp; it is not a truncated 8bpp
-				 * texture. */
-				if (i < 4 && lb != 0) {
-					long  a1 = l37aa(nested, (short)(i + 1));
-					long  a2 = l37aa(nested, (short)(i + 2));
-					short hh = (short)(((unsigned short)g_wall_metric[i][0] << 8)
-					                 | g_wall_metric[i][1]);
-					short bw = (short)g_wall_metric[i][6];
-					dbg_log_num("wall tile h = ", (long)hh);
-					dbg_log_num("  bpp_w     = ", (long)bw);
-					dbg_log_num("  body read = ", (a2 > a1) ? (a2 - a1 - 8) : -1);
-					dbg_log_num("  1bpp want = ", (long)hh * bw);
-					dbg_log_num("  8bpp want = ", (long)hh * bw * 8);
-				}
-#endif
-			}
-			g_wall_n = WALL_NTILES;
-		}
-	}
-	/* NOTE: do NOT pre-mark g_dungeon_view_ready here — jt312's
-	 * dungeon_view_setup must run on first call so it also loads the
-	 * colour wall set (8X8DC) into the piece store + clut 16..19. */
-
-	pl = (unsigned char *)g_a5_28006;
-	if (pl != NULL)
-		pl[134] = 0;
-	g_a5_18485 = 0;
-#ifndef DEMO_LEVEL
-#define DEMO_LEVEL 1
-#endif
-	g_a5_18878 = DEMO_LEVEL;          /* GEOnnn to load (1=overland start) */
-	g_a5_18488 = 0;
-	l0bbc();                          /* load the level + place the party */
-	/* the level's HDR start (g_a5_-18488 unknown) lands in open space;
-	 * for the demo drop the party into a known E-W corridor facing E
-	 * so the 3D view shows side walls receding in perspective. */
-	g_a5_12288 = 2;                   /* x */
-	g_a5_12287 = 13;                  /* y */
-	g_a5_12286 = 2;                   /* facing E */
-	/* Auto-pick the best vantage: the (cell, facing) whose view ray
-	 * stays open ahead the longest while flanked by side walls — i.e.
-	 * looking down a corridor, so render_3d_view shows the side-wall
-	 * trapezoids receding in perspective rather than a wall in the face. */
-	{
-		const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-		if (ds != NULL) {
-			short mw = ds[2], mh = ds[3];
-			short sx, sy, sf, bx = 2, by = 13, bf = 2, bscore = -1;
-			for (sf = 0; sf < 8; sf += 2) {
-				short lf = (short)((sf + 6) & 7), rf = (short)((sf + 2) & 7);
-				for (sy = 0; sy < mh; sy++)
-					for (sx = 0; sx < mw; sx++) {
-						short cx = sx, cy = sy, score = 0, d;
-						/* count consecutive depths that are a true
-						 * corridor: walls on BOTH sides AND open ahead
-						 * (so it recedes). A straight tunnel like the
-						 * Mac reference scores high; a single wall in
-						 * the face or an open plaza scores 0. Search as
-						 * deep as the view draws so the deepest run wins. */
-						for (d = 0; d < 8; d++) {
-							if (!cell_edge(cx, cy, lf) || !cell_edge(cx, cy, rf))
-								break;        /* not flanked -> not a corridor */
-							if (cell_edge(cx, cy, sf))
-								break;        /* blocked ahead -> stop */
-							score++;
-							cx = (short)(cx + dir_dx[sf]);
-							cy = (short)(cy + dir_dy[sf]);
-						}
-						if (score > bscore) {
-							bscore = score; bx = sx; by = sy; bf = sf;
-						}
-					}
-			}
-			g_a5_12288 = bx;
-			g_a5_12287 = by;
-			g_a5_12286 = bf;
-#if defined(DEMO_X) && defined(DEMO_Y) && defined(DEMO_F)
-			g_a5_12288 = DEMO_X;   /* fixed start, to face a known cell */
-			g_a5_12287 = DEMO_Y;
-			g_a5_12286 = DEMO_F;
-#endif
-#ifdef FRUA_ENGINE_PROBE
-			dbg_log_num("vantage x=", (long)bx);
-			dbg_log_num("vantage y=", (long)by);
-			dbg_log_num("vantage f=", (long)bf);
-			dbg_log_num("vantage score=", (long)bscore);
-#endif
-		}
-	}
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-	/* shared CLUT: 0..3 automap, 4 ceiling, 5 floor, 8..11 side-wall
-	 * shades (near->far), 12..15 front-wall shades. */
-	for (i = 0; i < 16; i++)
-		c4[i].red = c4[i].green = c4[i].blue = 0;
-	c4[1].red  = c4[1].green = c4[1].blue = 0xffff;            /* automap walls */
-	c4[2].red  = 0xffff; c4[2].green = 0xd000; c4[2].blue = 0; /* automap door  */
-	c4[3].red  = 0xffff; c4[3].green = 0x2000; c4[3].blue = 0xffff; /* party    */
-	c4[4].red  = 0x0c00; c4[4].green = 0x0900; c4[4].blue = 0x0600; /* ceiling (dark warm) */
-	c4[5].red  = 0x7000; c4[5].green = 0x5400; c4[5].blue = 0x3200; /* floor (cobble brown) */
-	/* Brown stone depth ramp at clut 8..15: eight warm-stone shades from
-	 * bright near (8) falling geometrically to near-black far (15), so
-	 * the corridor recedes into darkness at the vanishing point. The
-	 * slot compositor indexes this by depth (stone face 8+d, mortar two
-	 * steps darker). RGB ~ (1.0, 0.72, 0.42) of brightness for warm tone. */
-	{
-		static const unsigned short ramp[8] = {
-			0xe800, 0xc200, 0x9e00, 0x7c00, 0x5c00, 0x4000, 0x2800, 0x1400
-		};
-		for (i = 0; i < 8; i++) {
-			unsigned short b = ramp[i];
-			c4[8 + i].red   = b;
-			c4[8 + i].green = (unsigned short)(((long)b * 184) >> 8);
-			c4[8 + i].blue  = (unsigned short)(((long)b * 108) >> 8);
-		}
-	}
-	qd_set_palette(c4, 0, 16);
-	/* The faithful play entry (jt241 -> l63c0 with a_deep=0) draws the
-	 * TOP-DOWN area map, not the first-person 3D view, so it must run in the
-	 * normal 2D display mode: jt1135 uses scale 2 when g_a5_-2347 != 0, scale
-	 * 3 (the deep dungeon-view layout) when 0. Under scale 3 the map's jt1089
-	 * text lands at vertical ~276 — off the bottom of the screen — which is
-	 * why the frame was invisible; scale 2 keeps it on-screen. */
-	g_a5_2347 = 1;
-
-#if defined(FRUA_COORD_TRACE) || defined(FRUA_PERF_TEST)
-	{
-		extern long TickCount(void);
-		static unsigned char jpage[BP_STRIDE * BP_ROWS];
-		long t0, t1; short k;
-		(void)jpage; (void)t0; (void)t1; (void)k;
-		dungeon_view_setup();           /* load walls + clut before timing */
-		dbg_log_num("cw slot0 id=", (long)g_cw_sid[0]);
-#ifdef FRUA_COORD_TRACE
-		/* Drive the faithful frustum walker once so l5b42 logs every
-		 * slot's screen coord for this vantage. */
-		dbg_log_num("=== jt199 coord trace (clip x[21,201]) facing=",
-		            (long)(g_a5_12286 & 7));
-		jt199(jpage, (short)8012, (short)8012, (short)g_a5_12288,
-		      (short)g_a5_12287, (short)(g_a5_12286 & 7));
-#endif
-#ifdef FRUA_PERF_TEST
-		/* Frame-time benchmark: how many 60Hz ticks for 60 render
-		 * frames, render-only vs render+present. */
-		t0 = TickCount();
-		for (k = 0; k < 10; k++)
-			render_3d_view(px, pitch, sw, sh);
-		t1 = TickCount();
-		dbg_log_num("PERF render-only x10 ticks=", t1 - t0);
-		t0 = TickCount();
-		for (k = 0; k < 10; k++)
-			qd_present();
-		t1 = TickCount();
-		dbg_log_num("PERF present-FULL x10 ticks=", t1 - t0);
-		t0 = TickCount();
-		for (k = 0; k < 10; k++)
-			qd_present_rect((short)8, (short)9, (short)221, (short)149);
-		t1 = TickCount();
-		dbg_log_num("PERF present-RECT x10 ticks=", t1 - t0);
-#endif
-	}
-#endif
-
-	/* --- the faithful play loop ---
-	 * Drive CODE 22's master mode machine (L0096) seeded at mode 14 (the
-	 * play/dungeon action, JT[241]). l0bbc above loaded the level and placed
-	 * the party; jt241 sets up the view layers, the title, the command bar
-	 * (JT[179]+JT[148]) and the area-list header (L53a6), then runs the walk
-	 * loop (L63c0) with the automap / cell-block callbacks (JT[237]/JT[236]).
-	 *
-	 * The ctx struct mirrors L0004's: ctx[4]=mode, ctx[2]=command,
-	 * ctx[8]=status flags, ctx[16]=play record. We enter directly at the
-	 * play mode (the menu-mode entry path L0004 walks — modes 6..9 -> ... ->
-	 * 14 — needs its CODE 2/8/10 handlers lifted first).
-	 *
-	 * L6256 (via the rec[4]=1 seed) registers the walk input-source DLItems,
-	 * and l63c0 polls them through the real event loop (l2d3e). The top-down
-	 * area map (bg fill, status header jt303, coords jt280, automap jt237 ->
-	 * l52f2 cells) renders via jt1089 in the scale-2 mode set above. This
-	 * replaces the old port-side WASD demo walk. */
-	/* Reproduce the play-screen entry setup the port shortcuts past: L476e
-	 * lays the full area-map view-interior rect (g_a5_-11674.. / -11670..)
-	 * that L63c0's jt1161 background fill and the cell mapping need, and the
-	 * engine clip is opened to the full screen (the real entry path narrows
-	 * it via jt1173; full-screen is a safe superset for the demo). Without
-	 * these the view rect and clip are 0, so every fill/text clips to nothing. */
-	jt215();                  /* set the automap cell size (2D map -> 8px) */
-	l476e((short)1, (short)1);
-	g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
-
-	{
-		static unsigned char ctx[342];     /* L0004's master state struct */
-		memset(ctx, 0, sizeof ctx);
-		*(short *)(ctx + 4) = 14;          /* mode 14 = play/dungeon action */
-		*(short *)(ctx + 2) = 11;          /* first-entry command           */
-		/* rec = &ctx[16]; rec[4] = area kind (1 = dungeon). The menu-driven
-		 * level-entry path the port shortcuts past would set this; seed it so
-		 * L6256 registers the walk input sources (it no-ops for kind 0). */
-		ctx[16 + 4] = 1;
-		g_a5_long(-11714) = (long)(uintptr_t)(ctx + 6);  /* JT[316..321] hook */
-		(void)px; (void)pitch; (void)tvbase;
-		(void)l0096(ctx);
-	}
-}
-
-/* port_render_geo_contact — load every GEOnnn (1..40) in turn and
- * draw each as a small thumbnail in a grid, to confirm the 24x24 /
- * 6-byte tile layout holds across a whole design. A map is "present"
- * if, after jt198, the design-state header word lands in 100..106
- * (jt198 leaves design state untouched on a missing file, so the
- * sentinel we write first stays). Each thumbnail paints the map's
- * ds[2]xds[3] cells at 2px each: white where the tile has any wall
- * edge, floor-flag shade otherwise. */
-static short geo_hdr_word(const unsigned char *ds)
-{
-	return (short)(((unsigned short)ds[0] << 8) | ds[1]);
-}
-
-/* ctile_blit — decode and blit one of FRUA's COLOUR tiles (the mode-1
- * "C"-file art: CBODY paperdolls, COMSPR combat sprites, CPIC creatures)
- * straight to the 8-bit screen.
- *
- * Geometry recovered from L2d4e's parameter math: the glyph metric's
- * bpp_w byte is the 1bpp byte-width, so the pixel width is bpp_w*8 and
- * the row stride is 2*bpp_w bytes — i.e. (2*bpp_w*8)/(bpp_w*8) = 2 bits
- * per pixel. So these are 2bpp (4-colour) tiles: each source byte packs
- * four pixels (2 bits each, MSB-first), value 0..3. CBODY/COMSPR are
- * 32x32, CPIC 64-wide.
- *
- * The four 2bpp levels are a stencil (0 = body, 1 = highlight, 2 =
- * accent, 3 = background): the actual colours are a per-sprite SUB-
- * PALETTE. FRUA stores a default in each C-file's item-1 header and
- * recolours levels per character from the character record (CODE 15
- * reads colour fields @188/@189). `subpal[4]` maps each level to a clut
- * 129 index; a level whose entry is 0xff is transparent. */
-static void ctile_blit(unsigned char *px, short pitch, short sw, short sh,
-                       short x, short y, const unsigned char *metric,
-                       const unsigned char *body, short scale,
-                       const unsigned char *subpal)
-{
-	short h      = (short)(((unsigned short)metric[0] << 8) | metric[1]);
-	short bppw   = (short)metric[6];
-	short stride = (short)(2 * bppw);        /* bytes per row */
-	short w      = (short)(8 * bppw);        /* pixels per row (2bpp) */
-	short row, col, dx, dy;
-
-	if (h <= 0 || bppw <= 0)
-		return;
-	for (row = 0; row < h; row++) {
-		const unsigned char *r = body + (long)row * stride;
-		for (col = 0; col < w; col++) {
-			unsigned char v     = r[col >> 2];
-			unsigned char level = (unsigned char)((v >> (2 * (3 - (col & 3)))) & 3);
-			unsigned char idx   = subpal[level];
-
-			if (idx == 0xff)                 /* transparent level */
-				continue;
-			for (dy = 0; dy < scale; dy++)
-				for (dx = 0; dx < scale; dx++) {
-					short sx = (short)(x + col * scale + dx);
-					short sy = (short)(y + row * scale + dy);
-					if (sx >= 0 && sx < sw && sy >= 0 && sy < sh)
-						px[(long)sy * pitch + sx] = idx;
-				}
-		}
-	}
-}
-
-/* clut_nearest — index of the clut-129 entry closest to an 8-bit RGB. */
-static unsigned char clut_nearest(const RGBColor *pal, short r, short g, short b)
-{
-	long best = 0x7fffffffL;
-	unsigned char bi = 0;
-	short i;
-
-	for (i = 0; i < 256; i++) {
-		short dr = (short)((pal[i].red   >> 8) - r);
-		short dg = (short)((pal[i].green >> 8) - g);
-		short db = (short)((pal[i].blue  >> 8) - b);
-		long  d  = (long)dr * dr + (long)dg * dg + (long)db * db;
-		if (d < best) { best = d; bi = (unsigned char)i; }
-	}
-	return bi;
-}
-
-/* sprite_row — load a colour "C"-file tile library and blit a run of its
- * tiles across one screen row, using the file's OWN sub-palette (item 1,
- * four RGB triples) matched to clut 129. `start` is the GLIB tile index
- * of the appearance to draw (FRUA picks it per character from the record
- * field @189); `buf`/`pal` are caller-owned. Returns the tile width. */
-static short sprite_row(unsigned char *buf, long buflen,
-                        const char *pname, short start, short n,
-                        unsigned char *px, short pitch, short sw, short sh,
-                        short ytop, short scale, const RGBColor *pal)
-{
-	unsigned char metric[8], subpal[4];
-	short refnum = 0, i, xx = 4, tilew = 0;
-	long count, base, lb, pl;
-
-	if (FSOpen((ConstStr255Param)pname, 0, &refnum) != noErr)
-		return 0;
-	count = buflen;
-	(void)FSRead(refnum, &count, buf);
-	(void)FSClose(refnum);
-	base = (long)(uintptr_t)buf;
-	if (l37aa(base, 0) == 0)
-		return 0;
-
-	/* item 1 is the file's default sub-palette: four RGB triples for the
-	 * 2bpp levels (the rest filled with the magenta "unused" marker).
-	 * Match each to a clut-129 index; level 3 is the transparent bg. */
-	subpal[0] = 0; subpal[1] = 15; subpal[2] = 2; subpal[3] = 0xff;
-	pl = l2856(base, 1, metric);
-	if (pl != 0) {
-		const unsigned char *p = (const unsigned char *)(uintptr_t)pl;
-		for (i = 0; i < 3; i++)
-			subpal[i] = clut_nearest(pal, p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
-		subpal[3] = 0xff;
-	}
-	for (i = 0; i < n; i++) {
-		short h, bppw, w;
-
-		lb = l2856(base, (short)(start + i), metric);
-		if (lb == 0)
-			continue;
-		h    = (short)(((unsigned short)metric[0] << 8) | metric[1]);
-		bppw = (short)metric[6];
-		if (h <= 0 || bppw <= 0 || (metric[7] & 0x0f) != 1)
-			continue;                    /* not a mode-1 colour tile */
-		w = (short)(8 * bppw);           /* 2bpp pixel width */
-		if (xx + w * scale > sw)
-			break;
-		ctile_blit(px, pitch, sw, sh, xx, ytop, metric,
-		           (const unsigned char *)(uintptr_t)lb, scale, subpal);
-		xx = (short)(xx + w * scale + 2);
-		tilew = w;
-	}
-	return tilew;
-}
-
-/* port_sprite_demo — render FRUA's COLOUR art (mode-1 4bpp/8bpp tiles
- * from the "C" files) through clut 129: rows of character paperdolls
- * (CBODY), combat sprites (COMSPR), and creature pictures (CPIC). Proves
- * the colour-sprite path the B&W dungeon walls don't exercise. */
-void port_sprite_demo(void)
-{
-	static unsigned char buf[120000];
-	unsigned char *px;
-	short pitch, sw, sh, y, i;
-	RGBColor pal[256];
-	Handle ch;
-
-	static unsigned char rec[256];           /* synthetic character record */
-	const unsigned char *cr;
-	short app;
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-
-	/* install clut 129 (the 256-colour game palette) as the screen CLUT */
-	ch = GetResource(0x636C7574L /* 'clut' */, 129);
-	if (ch != NULL && *ch != NULL) {
-		const unsigned char *cd = (const unsigned char *)*ch;
-		for (i = 0; i < 256; i++) {
-			pal[i].red   = (unsigned short)((cd[8 + i * 8 + 2] << 8) | cd[8 + i * 8 + 3]);
-			pal[i].green = (unsigned short)((cd[8 + i * 8 + 4] << 8) | cd[8 + i * 8 + 5]);
-			pal[i].blue  = (unsigned short)((cd[8 + i * 8 + 6] << 8) | cd[8 + i * 8 + 7]);
-		}
-	}
-	/* reserve index 254 as a neutral panel background (clut greys vary) */
-	pal[254].red = pal[254].green = pal[254].blue = 0x5800;
-	qd_set_palette(pal, 0, 256);
-
-	/* Seed a synthetic character record and point the engine's current-
-	 * character pointer (g_a5_-27932) at it, so we read the appearance the
-	 * way the game does — record field @189 (the icon FRUA's character
-	 * creation stores; CODE 15's CBODYS load feeds it to the tile pick).
-	 * The COLOURS come from each C-file's own item-1 sub-palette (derived
-	 * in sprite_row), matched to clut 129 — i.e. FRUA's real art colours,
-	 * not hand-picked. */
-	for (i = 0; i < 256; i++)
-		rec[i] = 0;
-	rec[189] = 6;                            /* an appearance/icon index */
-	g_a5_long(-27932) = (long)(uintptr_t)rec;
-	cr  = (const unsigned char *)(uintptr_t)g_a5_long(-27932);
-	app = (short)cr[189];                    /* read it back as the engine does */
-
-	for (y = 0; y < sh; y++)
-		memset(px + (long)y * pitch, 254, (size_t)sw);   /* panel bg */
-
-	/* Each C-file rendered with ITS OWN item-1 sub-palette (FRUA's real
-	 * colours). CBODY starts at the record's appearance index. */
-	(void)sprite_row(buf, (long)sizeof buf, "\011CBODY.TLB",  (short)(2 + app), 10,
-	                 px, pitch, sw, sh, (short)8,   (short)2, pal);
-	(void)sprite_row(buf, (long)sizeof buf, "\012COMSPR.TLB", 2, 10,
-	                 px, pitch, sw, sh, (short)78,  (short)2, pal);
-	(void)sprite_row(buf, (long)sizeof buf, "\010CPIC.TLB",   2, 10,
-	                 px, pitch, sw, sh, (short)148, (short)2, pal);
-
-	qd_present();
-	for (;;)
-		qd_present();
-}
-
-void port_render_geo_contact(void)
-{
-	unsigned char *px;
-	short pitch, sw, sh;
-	unsigned char *ds;
-	short n, slot = 0;
-	const short cols = 10, tw = 31, th = 42;   /* 1px/tile thumbnails */
-	RGBColor demo[8];
-
-	ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
-	if (ds == 0)
-		return;
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
-		return;
-
-	demo[0].red = 0x1000; demo[0].green = 0x1000; demo[0].blue = 0x2800;
-	demo[1].red = 0x2000; demo[1].green = 0x2000; demo[1].blue = 0x4000;
-	demo[2].red = 0x3000; demo[2].green = 0x3000; demo[2].blue = 0x5800;
-	demo[3].red = 0x4000; demo[3].green = 0x4000; demo[3].blue = 0x7000;
-	demo[4].red = demo[4].green = demo[4].blue = 0;
-	demo[5].red = demo[5].green = demo[5].blue = 0xffff;   /* 253 wall */
-	demo[6].red = demo[6].green = demo[6].blue = 0;
-	demo[7].red = demo[7].green = demo[7].blue = 0;
-	qd_set_palette(demo, 248, 8);
-
-	for (n = 0; n < sh; n++)
-		memset(px + (long)n * pitch, 255, (size_t)sw);
-
-	for (n = 1; n <= 40; n++) {
-		const unsigned char *map;
-		short hdr, w, h, x, y, ox, oy;
-
-		ds[0] = 0; ds[1] = 0;          /* sentinel — overwritten only on load */
-		jt198(n);
-		hdr = geo_hdr_word(ds);
-		if (hdr < 100 || hdr > 106)
-			continue;                  /* GEOnnn not present */
-		w = (unsigned char)ds[2];
-		h = (unsigned char)ds[3];
-		if (w <= 0 || h <= 0 || (long)w * h > 576)
-			continue;
-		map = ds + 290;
-		ox = (short)((slot % cols) * tw + 2);
-		oy = (short)((slot / cols) * th + 2);
-
-		for (y = 0; y < h; y++) {
-			for (x = 0; x < w; x++) {
-				/* row-major, packed at the map's own width */
-				const unsigned char *t = map + ((long)y * w + x) * 6;
-				unsigned char c = (t[0] | t[1] | t[2] | t[3])
-				                  ? (unsigned char)253
-				                  : (unsigned char)(248 + (t[5] & 3));
-				map_px(px, pitch, sw, sh, ox + x, oy + y, c);
-			}
-		}
-		slot++;
-	}
-#ifdef FRUA_ENGINE_PROBE
-	dbg_log_num("geo contact: maps rendered = ", slot);
-#endif
-	qd_present();
 }
 
 /* ===== TEST SCAFFOLD — REVERT WHEN JT[557] / JT[585] LAND =====
@@ -19306,15 +17803,15 @@ static void jt1080(void)
  * must first register its input-source DLItems (keyboard, the four
  * directional pads, select) via JT[447]/JT[452] — the next step.
  */
-/* menu_button_bevel is defined later (near menu_draw_plates); forward-declare
- * it for the press-tracking helpers below. */
+/* menu_button_bevel is defined later; forward-declare it for the
+ * press-tracking helpers below. */
 static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh,
                               short x0, short y0, short x1, short y1, int recessed);
 
 /* The full-plate rect of a positioned DLItem button. rec[16] is the label
  * row (nudged +4 = +8px below the plate top by menu_run / l0aae), so the
- * plate top is jt1135(rec[16]) - 8; the rect matches menu_draw_plates
- * (x0=pxx-4..x1=pxx+147, 11px tall). Returns 1 if (h,v) is inside. */
+ * plate top is jt1135(rec[16]) - 8; the plate rect is x0=pxx-4..
+ * x1=pxx+147, 11px tall. Returns 1 if (h,v) is inside. */
 static int menu_button_hit(unsigned char *rec, short h, short v)
                                                 __attribute__((unused));
 static int menu_button_hit(unsigned char *rec, short h, short v)
@@ -19512,8 +18009,8 @@ static short l2d3e(void)
 	 * pointers are NULL), so a click never lands. When jt1125 reported a
 	 * mouseDown (mouse_y = where.h = x, mouse_x = where.v = y), walk the
 	 * positioned DLItems (rec[16]=y, rec[18]=x in 8000-space) and reproduce
-	 * the plate rect (menu_draw_plates: jt1135 -> [pxx-5,pxx+145) x
-	 * [py-7,py+3)); commit + return the item under the click. */
+	 * the plate rect (jt1135 -> [pxx-5,pxx+145) x [py-7,py+3));
+	 * commit + return the item under the click. */
 	if (key != 0 && g_event_was_click) {
 		short cx = mouse_y, cy = mouse_x;
 		unsigned char *hr = (unsigned char *)g_a5_9254;
@@ -20732,108 +19229,6 @@ static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh
  * (L15e2 / L12a0) leave it 0 and stay keyboard-only, unchanged. */
 static int g_picker_cmdbar;
 
-/* A dialog command button (Select / Cancel): a menu_button_bevel with a
- * CENTRED label — the same chrome as the menu buttons. pressed=0 = raised +
- * normal label (body clut 7 / accelerator clut 15); pressed=1 = the button-
- * down look (recessed bevel + blue body clut 152 / cyan accelerator clut 11),
- * matching the menu/roster press feedback. The cell WIDTH is the faithful
- * command-bar advance from l1aea: each word advances (item_len+1)*4 engine
- * units = (len+1)*8 px at scale 2. Returns the hit rect through
- * rect[4] = {x0, y0, x1, y1} (half-open) for the caller's mouse test. */
-static void picker_cmd_button(unsigned char *px, short pitch, short sw, short sh,
-                              short x0, short y0,
-                              const char *label, char hot, int pressed,
-                              short rect[4])
-{
-	short len = 0, w, y1, x1, lx, hi = -1, k;
-	unsigned char body = (unsigned char)(pressed ? 152 : 7);
-	unsigned char hotc = (unsigned char)(pressed ? 11  : 15);
-	unsigned char pbuf[40];
-	CGrafPtr cport;
-	GrafPtr  bport;
-
-	while (label[len] != 0 && len < 39)
-		len++;
-	w  = (short)((len + 1) * 8);                    /* l1aea cell advance */
-	y1 = (short)(y0 + 10);
-	x1 = (short)(x0 + w - 1);
-
-	menu_button_bevel(px, pitch, sw, sh, x0, y0, x1, y1, pressed);
-	if (rect != NULL) {
-		rect[0] = x0; rect[1] = y0;
-		rect[2] = (short)(x1 + 1); rect[3] = (short)(y1 + 1);
-	}
-
-	lx = (short)(x0 + (w - len * 8) / 2);          /* centre the label */
-	if (hot != 0) {
-		unsigned char hu = (unsigned char)
-		    ((hot >= 'a' && hot <= 'z') ? hot - 32 : hot);
-		for (k = 0; k < len; k++) {
-			unsigned char c = (unsigned char)label[k];
-			if (c >= 'a' && c <= 'z') c -= 32;
-			if (c == hu) { hi = k; break; }
-		}
-	}
-	GetPort(&bport);
-	cport = (CGrafPtr)bport;
-	MoveTo(lx, (short)(y0 + 8));
-	if (hi < 0) {
-		if (cport) cport->fgColor = body;
-		pbuf[0] = (unsigned char)len;
-		memcpy(pbuf + 1, label, (size_t)len);
-		DrawString(pbuf);
-	} else {
-		if (hi > 0) {
-			if (cport) cport->fgColor = body;
-			pbuf[0] = (unsigned char)hi;
-			memcpy(pbuf + 1, label, (size_t)hi);
-			DrawString(pbuf);
-		}
-		if (cport) cport->fgColor = hotc;
-		pbuf[0] = 1;
-		pbuf[1] = (unsigned char)label[hi];
-		DrawString(pbuf);
-		if (hi + 1 < len) {
-			short n = (short)(len - hi - 1);
-			if (cport) cport->fgColor = body;
-			pbuf[0] = (unsigned char)n;
-			memcpy(pbuf + 1, label + hi + 1, (size_t)n);
-			DrawString(pbuf);
-		}
-	}
-}
-
-/* Track a press on a picker command button until the mouse releases — the
- * same on/off-drag behaviour as menu_button_track, returning 1 on release
- * over the button. rect = the button's pixel rect; (x0,y0) its origin. */
-static int picker_button_track(short rect[4], short x0, short y0,
-                               const char *label, char hot)
-{
-	Point mp;
-	int over = 1;
-	unsigned char *px; short pitch, sw, sh;
-
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
-		return 1;
-	picker_cmd_button(px, pitch, sw, sh, x0, y0, label, hot, 1, NULL);
-	qd_present();
-	while (Button()) {
-		int now;
-		GetMouse(&mp);
-		now = (mp.h >= rect[0] && mp.h < rect[2]
-		    && mp.v >= rect[1] && mp.v < rect[3]);
-		if (now != over) {
-			picker_cmd_button(px, pitch, sw, sh, x0, y0, label, hot,
-			                  now, NULL);
-			qd_present();
-			over = now;
-		}
-	}
-	picker_cmd_button(px, pitch, sw, sh, x0, y0, label, hot, 0, NULL);
-	qd_present();
-	return over;
-}
-
 /* The recessed TITLE panel — a deeper sunken box than the 1px button bevel.
  * Sampled from frua_mac_main_menu.png: a clut-23 face with a 1px BLACK inner
  * edge on top + left, and a 2px LIGHT bevel (clut 17 outer, clut 19 inner) on
@@ -20866,59 +19261,6 @@ static void draw_title_panel(unsigned char *px, short pitch, short sw, short sh,
 		px[(long)y * pitch + x1]       = 17;
 		px[(long)y * pitch + (x1 - 1)] = 19;
 		px[(long)y * pitch + x0]       = 0;
-	}
-}
-
-static void menu_draw_plates(const menu_item_t *items, short n) __attribute__((unused));
-static void menu_draw_plates(const menu_item_t *items, short n)
-{
-	unsigned char *px;
-	short pitch, sw, sh, i, py = 0, pxx = 0;
-
-	/* One clean raised bevel per LABELLED command, drawn from the real
-	 * FRAME palette (clut 23 face, clut 19 top/left highlight, black
-	 * bottom/right shadow) — the exact structure sampled from the Mac
-	 * main menu (frua_mac_main_menu.png). This replaces the earlier
-	 * port_menu_bar reconstruction, which sampled MENU.CTL's HUD command-
-	 * bar glyph (darker shades + heavy dark side caps), giving the "boxed,
-	 * too-dark, gapped" look. The exhaustive CODE 22 trace
-	 * (jt315->jt449/l2c60->jt382->l148a) shows the real button paint emits
-	 * only an 8x16 icon + the centred label on the GEN stone backdrop — the
-	 * wide bevel is NOT in the engine's button paint, so it is reconstructed
-	 * here to match the reference pixel-for-pixel.
-	 *
-	 * Two columns, full-width buttons butted into a vertical block: left
-	 * col x 4..155, right col x 156..307 (the Mac column split). Each plate
-	 * is the row pitch tall (14px at scale 2) so consecutive buttons share
-	 * their highlight/shadow edge. Label-less spacer rows draw an EMPTY
-	 * raised bevel too — the Mac shows a blank beveled button between the
-	 * main block and the Unlock/Quit row (not bare stone). */
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
-		return;
-	for (i = 0; i < n; i++) {
-		short x0, x1, y0, y1;
-
-		jt1135(items[i].y, items[i].x, &py, &pxx);
-		/* Button rect from the label's pixel origin (pxx = rec[18] mapped):
-		 * the Mac plate starts 4px LEFT of the label and is 152px wide
-		 * (measured: left col x4..155 for label x8; right col x164..315 for
-		 * label x168 — each 152px, an 8px stone gap between columns). */
-		x0 = (short)(pxx - 4);
-		x1 = (short)(pxx + 147);
-		/* Plate top highlight sits AT the spec's rec[16] (py) — the Mac's
-		 * button-top row — and the plate is 11px tall (face below), so the
-		 * label (drawn at py+2 by the build) lands centred in the face and
-		 * ~3px of GEN stone shows between this plate and the next (the row
-		 * pitch is 14px). The Mac's plate-to-plate separation is stone
-		 * texture, not a dark line. */
-		y0 = py;
-		y1 = (short)(py + 10);
-		/* Recessed spec entries draw a sunken bevel — both the disabled
-		 * commands (Delete the Design / Unlock Editor) AND the empty spacer
-		 * rows above Unlock/Quit, all of which the Mac shows pushed in.
-		 * Active commands (recessed == 0) draw raised. */
-		menu_button_bevel(px, pitch, sw, sh, x0, y0, x1, y1,
-		                  items[i].recessed);
 	}
 }
 
@@ -21604,8 +19946,8 @@ static int l0aae(void)
 		      32L, (long)k_jt918_menu_items[i].selector,
 		      36L, 18L,                 /* rec[24]=18: faithful to the original
 		                                 * l0aae (CODE 12+0xaae) + the main menu;
-		                                 * (18+1)*8 = 152px, the full-column width
-		                                 * menu_draw_plates draws. */
+		                                 * (18+1)*8 = 152px, the full-column
+		                                 * plate width. */
 		      20L, 21L, 0L);
 	}
 	/* The extra "page switch" item the Mac appends past the 12. Shape 7 =
@@ -23455,29 +21797,6 @@ static int  jt165(short id, long ctx)
 	}
 	return (int)((i == id) ? ctx : 0);
 }
-/* jt169 (CODE 7 + 0x3600) — the scrollable saved-character list picker the
- * roster dialogs (L15e2 / L12a0) open: it renders the node list (names at +5,
- * .next at 0) inside the dialog window and lets the user move a selection and
- * pick one.  The Mac body is a ~225-instruction interactive loop with its own
- * render/scroll/input sub-helpers; this is a functional reimplementation over
- * the port's primitives — jt94 for the rows, WaitNextEvent for the keys —
- * preserving the faithful contract: return 0 + *next = chosen node on select,
- * 27 on Escape (or empty list), and *idx = the current row.  Up/Down move the
- * selection; Return/Enter select; Escape cancels. */
-/* Fill *idx + *next (the chosen node) from the selected row index. */
-static void jt169_pick(long head, short sel, short *idx, long *next)
-{
-	long  e;
-	short i;
-
-	if (idx != NULL) *idx = sel;
-	if (next != NULL) {
-		e = head;
-		for (i = 0; i < sel && e != 0; i++)
-			e = *(const long *)(uintptr_t)e;
-		*next = e;
-	}
-}
 
 /* L021a (CODE 7 + 0x021a) — count the rows in a jt169 list descriptor by driving
  * its cell-getter callback (desc[16], e.g. jt143): call it with index 0 to seek
@@ -24546,8 +22865,8 @@ static long  jt100(void);
  * verb-return contract (the reimplementation returns 0=select / 27=cancel) plus
  * Hatari regression of every list screen, and is staged as the #146 finale.
  * Kept unused until then. */
-/* Promoted to the live jt169 (the reimplementation below is now jt169_reimpl,
- * kept as an unused fallback). #146 cutover 2026-06-28. */
+/* Promoted to the live jt169 (#146 cutover 2026-06-28). The jt169_reimpl
+ * fallback was deleted in the 2026-07-01 dead-code sweep (git has it). */
 static int jt169(long h1, long h2, short top, short left,
                  short right, short bottom, long head,
                  short a, short b,
@@ -24668,169 +22987,6 @@ static int jt169(long h1, long h2, short top, short left,
 	if (next) *next = g_a5_long(-12660);
 	g_a5_word(-12656) = saved_top;
 	return verb;
-}
-
-static int  __attribute__((unused))
-jt169_reimpl(long h1, long h2, short top, short left,
-                  short right, short bottom, long head,
-                  short a, short b,
-                  unsigned char *flag, short *idx, long *next)
-{
-	EventRecord ev;
-	long        e;
-	short       count = 0, sel, visible, scroll, i;
-	int         dirty = 1;
-	int         has_bar = g_picker_cmdbar;         /* design picker only */
-	short       sel_rect[4] = {0,0,0,0};
-	short       cancel_rect[4] = {0,0,0,0};
-	short       last_who = -1;
-	long        last_tick = 0;
-
-	PROBE("jt169");
-	(void)h1; (void)h2; (void)right; (void)a; (void)b;
-
-	for (e = head; e != 0; e = *(const long *)(uintptr_t)e)
-		count++;
-	if (count == 0) {
-		if (idx  != NULL) *idx  = 0;
-		if (next != NULL) *next = 0;
-		return 27;
-	}
-
-	sel = (idx != NULL) ? *idx : 0;
-	if (sel < 0)        sel = 0;
-	if (sel >= count)   sel = (short)(count - 1);
-	visible = (short)(bottom - top);
-	if (visible < 1)    visible = 1;
-
-	for (;;) {
-		if (dirty) {
-			scroll = (short)((sel >= visible) ? sel - visible + 1 : 0);
-			e = head;
-			for (i = 0; i < scroll && e != 0; i++)
-				e = *(const long *)(uintptr_t)e;
-			for (i = 0; i < visible && e != 0; i++) {
-				const unsigned char *n =
-					(const unsigned char *)(uintptr_t)e;
-				short row = (short)(top + i);
-				short who = (short)(scroll + i);
-				/* Mac highlights the selection by colour, not a
-				 * '>' marker: clut 11 (55,ff,ff) — the same
-				 * bright blue the menu headers use — for the
-				 * selected row, white (15) for the rest. */
-				jt94(left, row, (short)(who == sel ? 11 : 15), 0,
-				     "%s", (const char *)&n[5]);
-				e = *(const long *)(uintptr_t)e;
-			}
-			/* Faithful Select / Cancel command bar — the design picker
-			 * only. Coordinates from l1aea (the command-bar word
-			 * painter l1bfe calls): each command DLItem is built with
-			 * rec[16] = shape = 8094 (the y) and rec[18] = item_arg (the
-			 * x). jt1135(8094) = (8094-8000)*2 = 188 is the plate-top
-			 * reference (same convention as the menu's items[i].y), and
-			 * item_arg with no prompt prefix is 8003 -> jt1135 -> x6 (~4,
-			 * the screen edge). The two plates butt (no gap). */
-			if (has_bar) {
-				unsigned char *px; short pitch, sw, sh;
-				if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-					picker_cmd_button(px, pitch, sw, sh,
-					    (short)4, (short)187,
-					    "Select", 'S', 0, sel_rect);
-					/* Cancel butts Select's right edge (sel_rect[2]). */
-					picker_cmd_button(px, pitch, sw, sh,
-					    sel_rect[2], (short)187,
-					    "Cancel", 'C', 0, cancel_rect);
-				}
-			}
-			if (flag != NULL) *flag = 1;
-			qd_present();           /* flush the rows to VIDEL */
-			dirty = 0;
-		}
-
-		if (!WaitNextEvent(everyEvent, &ev, 1, NULL))
-			continue;
-
-		if (ev.what == mouseDown && has_bar) {
-			short h = ev.where.h, v = ev.where.v, nr, ii, who2;
-
-			if (h >= sel_rect[0] && h < sel_rect[2]
-			 && v >= sel_rect[1] && v < sel_rect[3]) {
-				/* Press feedback (recessed + blue/cyan) while held,
-				 * fire on release over the button. */
-				if (picker_button_track(sel_rect, (short)4,
-				                        (short)187, "Select", 'S')) {
-					jt169_pick(head, sel, idx, next);
-					return 0;
-				}
-				continue;
-			}
-			if (h >= cancel_rect[0] && h < cancel_rect[2]
-			 && v >= cancel_rect[1] && v < cancel_rect[3]) {
-				if (picker_button_track(cancel_rect, cancel_rect[0],
-				                        (short)187, "Cancel", 'C')) {
-					if (idx != NULL) *idx = sel;
-					if (next != NULL) *next = 0;
-					return 27;
-				}
-				continue;
-			}
-			/* List row: nearest baseline (rows are 8px apart). A
-			 * second click on the same row within ~0.5s confirms. */
-			nr   = (short)((v + 4) / 8);
-			ii   = (short)(nr - top);
-			who2 = (short)(scroll + ii);
-			if (ii >= 0 && ii < visible && who2 >= 0 && who2 < count) {
-				if (who2 == last_who
-				 && (TickCount() - last_tick) < 30) {
-					jt169_pick(head, who2, idx, next);
-					return 0;
-				}
-				sel = who2;
-				last_who  = who2;
-				last_tick = TickCount();
-				dirty = 1;
-			}
-			continue;
-		}
-
-		if (ev.what != keyDown && ev.what != autoKey)
-			continue;
-
-		switch ((short)(ev.message & 0xff)) {
-		case 30:                                   /* up arrow      */
-			sel = (short)((sel > 0) ? sel - 1 : count - 1);
-			dirty = 1;
-			break;
-		case 31:                                   /* down arrow    */
-			sel = (short)((sel < count - 1) ? sel + 1 : 0);
-			dirty = 1;
-			break;
-		case 13: case 3:                           /* Return / Enter */
-			jt169_pick(head, sel, idx, next);
-			return 0;
-		case 27:                                   /* Escape        */
-			if (idx  != NULL) *idx  = sel;
-			if (next != NULL) *next = 0;
-			return 27;
-		default:
-			/* Select / Cancel accelerators — picker only, so the
-			 * roster dialogs (which share jt169) keep S/C as plain
-			 * keys. */
-			if (has_bar) {
-				short key = (short)(ev.message & 0xff);
-				if (key == 'S' || key == 's') {
-					jt169_pick(head, sel, idx, next);
-					return 0;
-				}
-				if (key == 'C' || key == 'c') {
-					if (idx  != NULL) *idx  = sel;
-					if (next != NULL) *next = 0;
-					return 27;
-				}
-			}
-			break;
-		}
-	}
 }
 /* JT[396] (CODE 3 + 0x3bda) — public entry for the case-insensitive
  * string-equal lifted as l3bda earlier in this file. The jump-table
@@ -30824,36 +28980,6 @@ static signed char l00e0_load(const char *fn, void *cb)
 	deserialize(ref);
 	(void)FSClose(ref);
 	return 1;
-}
-
-/* port_save_game / port_load_game — drive the faithful jt580/jt579 serializers
- * over a fixed save slot ("SavGamA.csv"). INTERIM driver: the faithful jt585 /
- * jt582 slot pickers (jt182 over the SAVE-dir scan + l005a "insert disk") are
- * an incomplete level-2 lift, so the Save/Load buttons use slot A directly
- * until that picker UI is finished. The on-disk format is the real one
- * (jt580 = player + position + state + party count + per-member jt578 .cch
- * records), so it upgrades cleanly when the picker lands. (#141)
- *
- * The Training-Hall Save (l1142) now drives the faithful jt585 A-J picker; this
- * slot-A driver is retained for the Load side's symmetry (port_load_game) and as
- * a non-interactive save path. */
-static signed char port_save_game(void) __attribute__((unused));
-static signed char port_save_game(void)
-{
-	char fn[44];
-
-	jt394(fn, "%s%c", "SavGam", 'A');
-	jt419(fn, "csv", (short)1);
-	return l00e0(fn, (void *)jt580);
-}
-static signed char port_load_game(void) __attribute__((unused));
-static signed char port_load_game(void)
-{
-	char fn[44];
-
-	jt394(fn, "%s%c", "SavGam", 'A');
-	jt419(fn, "csv", (short)1);
-	return l00e0_load(fn, (void *)jt579);
 }
 
 /* L0ce0 (CODE 15 + 0xce0) — byte-swap the multi-byte fields of a character
@@ -62785,44 +60911,6 @@ static void cg_body_repro(void)
 }
 #endif
 
-/* Collect benched pool characters (CHAR_INPARTY == 0) into `out` — the
- * Add picker's candidates. */
-static short cg_collect_addable(unsigned char **out, short max)
-{
-	short i, n = 0;
-	for (i = 0; i < cg_pool_count && n < max; i++)
-		if (cg_pool[i][96] != 0 &&          /* non-blank slot, and */
-		    !cg_in_party(cg_pool[i]))        /* benched (not in -27928) */
-			out[n++] = cg_pool[i];
-	return n;
-}
-
-/* A one/two-line notice on the shared chrome; waits for any key. */
-static void cg_message(const char *l1, const char *l2)
-{
-	unsigned char *px; short pitch, sw, sh, yy;
-	unsigned char  scan = 0, ascii = 0;
-
-	while (plat_kb_poll(&scan, &ascii))
-		;
-	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-		if (g_menu_state == 1) {
-			fill_backdrop(px, pitch, 0, 0,
-			              (short)(sw - 1), (short)(sh - 1));
-			draw_plate(px, pitch, sw, sh, 6, 60, 313, 130, 1);
-		} else {
-			for (yy = 0; yy < sh; yy++)
-				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
-		}
-	}
-	jt94((short)6, (short)9,  15, 0, "%s", l1);
-	if (l2)
-		jt94((short)6, (short)11, 7, 0, "%s", l2);
-	qd_present();
-	while (!plat_kb_poll(&scan, &ascii))
-		;
-}
-
 /* Draw one character's full sheet (name, race/class/level, alignment, the
  * six ability scores, HP, AC) on the shared stone chrome with `footer` as
  * the bottom hint line, then present. */
@@ -63073,65 +61161,6 @@ static void cg_modify_sheet(void)
 	}
 }
 
-/* Add Character — page the benched pool characters with Up/Down; Return
- * brings the highlighted one into the active party (sets CHAR_INPARTY), up
- * to CG_PARTY_MAX slots. Esc backs out.
- *
- * Fallback only as of the #100 menu-dispatch fix: l1036 (Add Character) now
- * calls the faithful l12a0 instead. Kept, marked unused. */
-static void cg_add_character(void) __attribute__((unused));
-static void cg_add_character(void)
-{
-	unsigned char *cand[16];
-	short          n, sel = 0;
-	unsigned char  scan = 0, ascii = 0;
-
-	if (cg_collect_addable(cand, 16) == 0) {
-		cg_message("No characters to add.",
-		           "Create one first.  Any key to go back.");
-		return;
-	}
-
-	g_a5_2347 = 1;
-	load_menu_ui();
-	while (plat_kb_poll(&scan, &ascii))
-		;
-
-	for (;;) {
-		char foot[64];
-
-		n = cg_collect_addable(cand, 16);
-		if (n == 0)                          /* added the last one */
-			break;
-		if (sel >= n)
-			sel = (short)(n - 1);
-
-		if (cg_party_size() >= CG_PARTY_MAX)
-			sprintf(foot, "Party full (%d)   Esc back",
-			        (int)CG_PARTY_MAX);
-		else
-			sprintf(foot, "Up/Dn char   Return add   Esc back");
-		cg_draw_sheet(cand[sel], foot);
-
-		while (!plat_kb_poll(&scan, &ascii))
-			;
-		if (ascii == 27)                     /* Esc -> back */
-			break;
-		if ((ascii == 13 || ascii == 3)      /* Return -> add */
-		    && cg_party_size() < CG_PARTY_MAX) {
-			*(long *)cand[sel] = 0;       /* fresh node for jt590 */
-			jt590(cand[sel]);             /* faithful append to -27928 */
-			save_roster();
-			while (plat_kb_poll(&scan, &ascii))   /* debounce: one
-			                                       * press, one add */
-				;
-		} else if (scan == 0x48)
-			sel = (short)((sel + n - 1) % n);
-		else if (scan == 0x50)
-			sel = (short)((sel + 1) % n);
-	}
-}
-
 /* Remove Character — page the active party with Up/Down; Return benches the
  * highlighted member (clears CHAR_INPARTY — it stays in the pool, addable
  * again later). Esc backs out. Non-destructive, so no confirm. */
@@ -63180,71 +61209,6 @@ static void cg_remove_from_party(void)
  * jt169 list + "Delete %s forever?"/"Are you sure?" jt159 confirms), wired to
  * l0f3e — see above. The old cg_delete_character pool-paging stand-in (whole-
  * pool browse + array shift + relink) was removed 2026-06-19 (#141). */
-
-/* "The party sets forth" — list the assembled party on the shared chrome
- * before descending, so it's clear which characters are adventuring. (An
- * in-dungeon status HUD wants jt94's deep-mode text path sorted out — a
- * follow-up; this confirms the party on the chrome, where text is solid.) */
-static void cg_party_setforth_screen(void)
-{
-	unsigned char *party[16];
-	short          n, i;
-	unsigned char *px; short pitch, sw, sh, yy;
-	unsigned char  scan = 0, ascii = 0;
-
-	n = cg_collect_party(party, 16);
-	g_a5_2347 = 1;
-	load_menu_ui();
-	while (plat_kb_poll(&scan, &ascii))
-		;
-	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
-		if (g_menu_state == 1) {
-			fill_backdrop(px, pitch, 0, 0,
-			              (short)(sw - 1), (short)(sh - 1));
-			draw_plate(px, pitch, sw, sh, 6, 8, 313, 150, 1);
-		} else {
-			for (yy = 0; yy < sh; yy++)
-				memset(px + (long)yy * pitch, 0x08, (size_t)sw);
-		}
-	}
-
-	jt94((short)3,  (short)2, 14, 0, "The party sets forth!");
-	jt94((short)3,  (short)4, 12, 0, "Name");
-	jt94((short)17, (short)4, 12, 0, "Class");
-	jt94((short)28, (short)4, 12, 0, "HP");
-	for (i = 0; i < n; i++) {
-		short row   = (short)(6 + i);
-		short klass = party[i][CHAR_CLASS];
-		jt94((short)3,  row, 15, 0, "%s",
-		     (const char *)&party[i][96]);
-		jt94((short)17, row, 7, 0, "%s",
-		     (klass < 17) ? k_class_names[klass] : "?");
-		jt94((short)28, row, 7, 0, "%d", (int)party[i][CHAR_HP]);
-	}
-	jt94((short)3, (short)16, 7, 0, "Press any key to descend.");
-	qd_present();
-
-	while (!plat_kb_poll(&scan, &ascii))
-		;
-}
-
-/* port_begin_adventure — the real "Begin Adventuring" entry (Training Hall
- * case 9 / l1142). Gated on a non-empty active party (the faithful CODE
- * 15-19 play setup is the deferred remainder): show who is adventuring,
- * then drop the party into the dungeon via the shared play loop with the
- * wall-set browse keys off. */
-void port_begin_adventure(void)
-{
-	if (g_a5_long(-27928) == 0) {        /* no one in the party */
-		cg_message("You have no party!",
-		           "Add or create a character first.");
-		return;
-	}
-	cg_party_setforth_screen();          /* show who is adventuring */
-	g_adventure_mode = 1;
-	port_play_demo();                    /* movement: WASD, M map, Q quit */
-	g_adventure_mode = 0;
-}
 
 /* L104c — case 6 (View Character). CODE 12 + 0x104c.
  *
@@ -63552,9 +61516,9 @@ static int jt918(short a)
 	 * jt453 spinning on l2d3e and the IKBD chain live, the loop now
 	 * blocks on real input. */
 	for (;;) {
-		/* Restore the menu display state after a dungeon visit (Begin
-		 * Adventuring -> port_play_demo leaves clut 0..15 + deep mode
-		 * changed) — same fix as jt315. */
+		/* Restore the menu display state after a dungeon visit (the
+		 * dungeon leaves clut 0..15 + deep mode changed) — same fix
+		 * as jt315. */
 		g_a5_2347 = 1;
 		load_menu_ui();                  /* shared UI palette (was clut 129) */
 

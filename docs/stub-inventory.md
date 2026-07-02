@@ -25,9 +25,9 @@ reimplementation, ordered by how much it distorts the faithful game:
    jt21 equipped-items path.
 2. **`fill_backdrop`** — "tuned interior tile" GEN.CTL fill, not the
    faithful piece-placed gen backdrop. Live under `menu_run`, `jt574`
-   (char-gen entry), `cg_train_screen`, `cg_message`, `cg_draw_sheet`;
-   the Hall now paints `jt81()` over it every frame (ab8a567). RE the
-   gen piece placement, then delete.
+   (char-gen entry), `cg_train_screen`, `cg_draw_sheet` (`cg_message`
+   was deleted in the sweep); the Hall now paints `jt81()` over it
+   every frame (ab8a567). RE the gen piece placement, then delete.
 3. **Dungeon HUD chrome**: `port_draw_play_frame` (2 sites) +
    `port_hud_text_clut` + `port_draw_compass` — the #114 coarse
    over-blit; faithful composer = jt304 → L3fd8 (a few jt1001 FRAME
@@ -56,18 +56,25 @@ reimplementation, ordered by how much it distorts the faithful game:
 10. **l0aae shape-7 DLItem passes NULL where the Mac passes jt916**
     (keyboard-accel handler) — small input divergence.
 
-## DEAD stand-ins — delete candidates (no live callers, 2026-07-01)
+## DEAD stand-ins — DELETED 2026-07-01 (the sweep; git history has them)
 
+Removed (~2,100 lines, boot verified unchanged in Hatari):
 `port_menu_bar`, `menu_draw_plates`, `port_rest`,
-`port_begin_adventure`, `port_save_game` / `port_load_game`,
-`cg_add_character`, `jt169_reimpl` (post-bake), `port_render_geo_map` /
-`port_render_geo_tiles` / `port_render_geo_contact` /
-`port_render_topview` (callers rewired to jt501/jt521),
-`port_blit_demo` / `port_sprite_demo` / `port_view_demo` /
-`port_wall_demo` / `port_l6234_verify` (definition-only demos).
-`port_play_demo` lives only under `FRUA_MAP_DEMO`/`FRUA_3D_DEMO`
-ifdefs (off by default); `port_test_seed_design` is live harness
-seeding, not play-path.
+`port_begin_adventure` (+ `g_adventure_mode`), `port_save_game` /
+`port_load_game`, `cg_add_character`, `jt169_reimpl` (+ its
+`jt169_pick` / `picker_button_track` / `picker_cmd_button` helpers),
+`port_render_geo_map` / `port_render_geo_tiles` /
+`port_render_geo_contact` / `port_render_topview`, `port_blit_demo` /
+`port_sprite_demo` / `port_view_demo` / `port_wall_demo` /
+`port_l6234_verify` / `port_play_demo` (+ the `FRUA_MAP_DEMO` /
+`FRUA_3D_DEMO` / `FRUA_L6234_VERIFY` ifdef blocks and the `make walk`
+target), orphaned helpers `cg_message` / `cg_collect_addable` /
+`cg_party_setforth_screen` / `draw_map_tiles` / `blit_glyph_1bpp` /
+`draw_party` / `edge_color` / `map_demo_palette` / `geo_hdr_word` /
+`ctile_blit` / `clut_nearest` / `sprite_row` / `g_wall_*`, and the
+demo decls in boot.h. Parked faithful lifts kept with
+`__attribute__((unused))`: `bp_present`, `jt215`.
+`port_test_seed_design` stays (live harness seeding, not play-path).
 
 ## Stub queue (PROBE-only, pending lifts)
 

@@ -276,8 +276,8 @@ PORT_STANDINS = [
     ("fill_backdrop",
      "'tuned interior tile' GEN.CTL fill standing in for the faithful "
      "piece-placed gen backdrop. Live under menu_run, jt574, "
-     "cg_train_screen, cg_message, cg_draw_sheet; the Hall paints jt81() "
-     "over it every frame (ab8a567). RE the gen piece placement, delete."),
+     "cg_train_screen, cg_draw_sheet; the Hall paints jt81() over it "
+     "every frame (ab8a567). RE the gen piece placement, delete."),
     ("port_draw_play_frame / port_hud_text_clut / port_draw_compass",
      "coarse dungeon-HUD chrome over-blit + text CLUT + compass (the #114 "
      "'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME "
@@ -302,13 +302,13 @@ PORT_STANDINS = [
     ("menu_run (+ CODE 22 menu chrome)",
      "main-menu driver mirrors the faithful jt315/jt313 build+chrome; "
      "low-distortion (no traceable Mac path draws per-command bars)."),
-    ("DEAD (delete): port_menu_bar, menu_draw_plates, port_rest, "
-     "port_begin_adventure, port_save_game, port_load_game, "
-     "cg_add_character, jt169_reimpl, port_render_geo_*, "
-     "port_render_topview, port_*_demo, port_l6234_verify",
-     "no live callers as of 2026-07-01 (port_play_demo only under "
-     "FRUA_MAP_DEMO/FRUA_3D_DEMO ifdefs; port_test_seed_design is live "
-     "harness seeding, not play-path)."),
+    # The dead-stand-in sweep (2026-07-01) deleted the caller-less set:
+    # port_menu_bar, menu_draw_plates, port_rest, port_begin_adventure,
+    # port_save_game/port_load_game, cg_add_character, jt169_reimpl (+
+    # jt169_pick/picker_button_track/picker_cmd_button), port_render_geo_*,
+    # port_render_topview, port_*_demo, port_l6234_verify + the
+    # FRUA_MAP_DEMO/FRUA_3D_DEMO/FRUA_L6234_VERIFY blocks and `make walk`.
+    # git history has the bodies; docs/stub-inventory.md has the full list.
 ]
 
 

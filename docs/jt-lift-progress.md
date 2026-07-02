@@ -317,7 +317,7 @@ lands.
 Non-JT port stand-ins (whole-routine reimplementations, kept in sync with `docs/stub-inventory.md`):
 
 - `port_load_savgame (BOOT AUTO-LOAD)` — heuristic SAVGAMA.CSV scanner, still the LIVE boot party auto-load (ua_main seed block) — the Mac only loads a party via the explicit Play -> Hall -> Load Saved Game flow (jt918 -> jt579). Dropping it is the #100 play-entry gap (docs/play-entry-wall.md).
-- `fill_backdrop` — 'tuned interior tile' GEN.CTL fill standing in for the faithful piece-placed gen backdrop. Live under menu_run, jt574, cg_train_screen, cg_message, cg_draw_sheet; the Hall paints jt81() over it every frame (ab8a567). RE the gen piece placement, delete.
+- `fill_backdrop` — 'tuned interior tile' GEN.CTL fill standing in for the faithful piece-placed gen backdrop. Live under menu_run, jt574, cg_train_screen, cg_draw_sheet; the Hall paints jt81() over it every frame (ab8a567). RE the gen piece placement, delete.
 - `port_draw_play_frame / port_hud_text_clut / port_draw_compass` — coarse dungeon-HUD chrome over-blit + text CLUT + compass (the #114 'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)
 - `port_run_encounter / port_play_message` — play-loop stand-ins over the faithful CODE 15-20 encounter chain (#115: l3b0e + CODE-20 L026e + l03f6).
 - `port_show_intro` — title/credits sequence, trace-matched but not lifted from CODE 22
@@ -325,7 +325,6 @@ Non-JT port stand-ins (whole-routine reimplementations, kept in sync with `docs/
 - `l309c_tile` — BACK ON THE WALL PATH (jt114): blit-time colour-band rebase (32/64/96) reproducing the GLIB colour-range allocator's relocate+remap (jt1069 ncopy) at blit time instead of load time; faithful = remap pixels at load, blit raw l309c/l2d4e.
 - `cg_remove_from_party / cg_draw_sheet` — Training Hall Remove/View CHROME over the faithful -27928 data model (#141); faithful chrome = L12a0 / jt904 (jt589 list + jt169 dialog) — UNBLOCKED now the faithful jt169 is live (#146).
 - `menu_run (+ CODE 22 menu chrome)` — main-menu driver mirrors the faithful jt315/jt313 build+chrome; low-distortion (no traceable Mac path draws per-command bars).
-- `DEAD (delete): port_menu_bar, menu_draw_plates, port_rest, port_begin_adventure, port_save_game, port_load_game, cg_add_character, jt169_reimpl, port_render_geo_*, port_render_topview, port_*_demo, port_l6234_verify` — no live callers as of 2026-07-01 (port_play_demo only under FRUA_MAP_DEMO/FRUA_3D_DEMO ifdefs; port_test_seed_design is live harness seeding, not play-path).
 
 ## The pending queue (most-called stubs + stand-ins + missing)
 
