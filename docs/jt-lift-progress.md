@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (88 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (87 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l0444`  `l3918`  `l5888`  `l5ac0`  `l5f66`  `l6ada`  `l2cb0`  `l2cf4`  `l4144`  `l10a0`  `l1176`  `l40b4`  `l47f2`  `l4738`  `l4226`  `l4268`  `l2788`  `l1798`  `l67e4`  `l429c`  `l4810`  `l6804`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l035e`  `l005a`  `l1c92`  `l1cd2`  `l4f2c`  `l4ff6`  `l61ae`  `l0660`  `l2d48`  `l2d78`  `l7894`  `l1888`  `l15bc`  `l59c2`  `l4faa`  `l341a`  `l157c`  `l7a24`  `l7a0e`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l475e`  `l07be`  `l423e`  `l3998`  `l23ee`  `l2180`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0694`  `l0418`  `l035c`  `l07e6`  `l0cb8`  `l0d86`  `l0e3e`  `l15ae`  `l6432`  `l7026`  `l4910`  `l501e`  `l0062`  `l17f8`  `l4218`  `l006c`  `l038a`  `l1e44`  `l2d7e`  `l06d6`  `l0bc6`  `l0df2`  `l1374`
+> `l32e2`  `l62e0`  `l3918`  `l5888`  `l5ac0`  `l5f66`  `l6ada`  `l2cb0`  `l2cf4`  `l4144`  `l10a0`  `l1176`  `l40b4`  `l47f2`  `l4738`  `l4226`  `l4268`  `l2788`  `l1798`  `l67e4`  `l429c`  `l4810`  `l6804`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l035e`  `l005a`  `l1c92`  `l1cd2`  `l4f2c`  `l4ff6`  `l61ae`  `l0660`  `l2d48`  `l2d78`  `l7894`  `l1888`  `l15bc`  `l59c2`  `l4faa`  `l341a`  `l157c`  `l7a24`  `l7a0e`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l475e`  `l07be`  `l423e`  `l3998`  `l23ee`  `l2180`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0694`  `l0418`  `l035c`  `l07e6`  `l0cb8`  `l0d86`  `l0e3e`  `l15ae`  `l6432`  `l7026`  `l4910`  `l501e`  `l0062`  `l17f8`  `l4218`  `l006c`  `l038a`  `l1e44`  `l2d7e`  `l06d6`  `l0bc6`  `l0df2`  `l1374`
 
 ## Band 1 detail (rank 1–100)
 
@@ -322,7 +322,6 @@ Non-JT port stand-ins (whole-routine reimplementations, kept in sync with `docs/
 - `port_show_intro` — title/credits sequence, trace-matched but not lifted from CODE 22
 - `port_frame_load / port_always_load / port_menu_load / port_ui_group_base` — GLIB bootstrap wiring; faithful = jt464 + jt997/jt1014 plain-name loader -> flip the live loader to the FAR pool (groundwork b96a694)
 - `l309c_tile` — BACK ON THE WALL PATH (jt114): blit-time colour-band rebase (32/64/96) reproducing the GLIB colour-range allocator's relocate+remap (jt1069 ncopy) at blit time instead of load time; faithful = remap pixels at load, blit raw l309c/l2d4e.
-- `cg_remove_from_party / cg_draw_sheet` — Training Hall Remove/View CHROME over the faithful -27928 data model (#141); faithful chrome = L12a0 / jt904 (jt589 list + jt169 dialog) — UNBLOCKED now the faithful jt169 is live (#146).
 - `menu_run (+ CODE 22 menu chrome)` — main-menu driver mirrors the faithful jt315/jt313 build+chrome; low-distortion (no traceable Mac path draws per-command bars).
 
 ## The pending queue (most-called stubs + stand-ins + missing)
