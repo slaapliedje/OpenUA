@@ -2410,9 +2410,15 @@ static long cw_wallfile_load(short file)
 			g_wallfile_binder[file ^ 1] = NULL;
 		}
 		l338c((short)50);                     /* JT[113] load-kind */
+		/* PLAIN name (no trailing digit) so l33ac takes the jt997
+		 * whole-file path — the cw slot loader l37aa's every set out
+		 * of the one base and copies the pieces, so it wants the full
+		 * library resident (transiently; the sibling dispose above
+		 * frees it when the other file is needed). The numbered
+		 * "8x8d%c%d" names are the BINDER path's per-set loads. */
 		name[0] = '8'; name[1] = 'x'; name[2] = '8'; name[3] = 'd';
 		name[4] = (char)(file ? 'b' : 'c');
-		name[5] = '1'; name[6] = '\0';        /* colour path: "8x8d%c1" */
+		name[5] = '\0';
 		l33ac(name, 0, 0, 0, &g_wallfile_binder[file]);   /* -> FAR-pool group */
 		group = (g_wallfile_binder[file] != NULL)
 		      ? *(short *)g_wallfile_binder[file] : -1;
@@ -2468,7 +2474,12 @@ static void l6eea(short zone, short type)
 	 * The 3 wall groups share one file -> jt464 dedups to one record. */
 	g_wall_set[type] = set;
 	l338c((short)50);                                  /* JT[113] load kind */
-	arg = (jt1163() || jt1200() == 0) ? 1 : (short)(type + 1);
+	/* Mac CODE 7 0x6f1c..0x6f3e: the digit is type+1 when jt1163() OR
+	 * jt1200()==0 (the colour/8-bit modes — one PER-GROUP name each, so
+	 * each wall group binds its own per-set sub-GLIB), and 1 only in the
+	 * deep 1bpp mode. The port had the two branches INVERTED, collapsing
+	 * all three groups onto one name. */
+	arg = (jt1163() || jt1200() == 0) ? (short)(type + 1) : 1;
 	name[0] = '8'; name[1] = 'x'; name[2] = '8'; name[3] = 'd';
 	name[4] = (char)((id < 10) ? 'b' : 'c');
 	name[5] = (char)('0' + (arg & 0x0f));
@@ -58835,19 +58846,15 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 	jt384(namebuf, name);
 	namebuf[len - 1] = 0;
 
-	/* GEMDOS 8.3 fallback: the per-design override file is
-	 * "<base><digit><kind:03d>.ctl" — its base is strlen(base)+4 chars, so for
-	 * any base > 4 it can NEVER exist on a GEMDOS volume (the name clips). That
-	 * is the faithful "no design override present" case, so load the base
-	 * library directly through the plain-name path (jt997 -> "<base>.ctl") and
-	 * skip the override concrete-open + jt104 machinery entirely. (HEIRS ships
-	 * no overrides; without this the bigpic/wall override names clip and the
-	 * load stalls.) */
-	if (jt423(namebuf) > 4) {
-		slot[1] = (short)kindB;
-		jt997(g_a5_18396, namebuf, (short)(i + 2));
-		return;
-	}
+	/* (An earlier port cut short-circuited bases > 4 chars straight to the
+	 * whole-file jt997 load, reasoning the 8.3-clipped override could never
+	 * exist. That bypassed the jt987+jt104 fallback below — which extracts
+	 * ONLY the requested per-set sub-GLIB (~37K) from the base library into
+	 * the pool, the Mac model — and instead put the whole 296K file in the
+	 * pool PER GROUP: two-wall-file levels (HEIRS 10/12/15/17) then
+	 * ping-pong-reloaded 296K per blit and froze. The failed concrete open
+	 * below IS the faithful "no override" case; jt987/jt104 are lifted now,
+	 * so the early-out is gone.) */
 	/* concrete name from the BASE (an earlier cut formatted it from
 	 * `fullname`, yielding "bigpix.ctl0008.ctl" — the GEMDOS 8.3 clip
 	 * then missed the file); `path` is free until the open below. */
