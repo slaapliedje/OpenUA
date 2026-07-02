@@ -268,9 +268,11 @@
 #define g_a5_18882 g_a5_long(-18882)
 
 /* L12a0 / L15e2 dialog-loop longs — JT[169] reads them as handles
- * into the prompt cluster (g_a5_13792 / g_a5_14216 for View, the
- * adjacent +4 slots for Delete). g_a5_21156 is the "live designs"
- * pointer JT[471] tears down. */
+ * into the prompt cluster: L12a0 (Add) passes h1=-14216 / h2=-13792,
+ * L15e2 (the Delete browser) the adjacent h1=-14212 / h2=-13788
+ * (CODE 12 0x13b2/0x16ac). h2 is the verb phrase whose words become
+ * the commit accelerators. g_a5_21156 is the "live designs" pointer
+ * JT[471] tears down. */
 #define g_a5_13788 g_a5_long(-13788)
 #define g_a5_13792 g_a5_long(-13792)
 #define g_a5_14212 g_a5_long(-14212)
@@ -23247,7 +23249,7 @@ static void l15e2(void)
 
 		loop_flag = 1;
 		jt179(1);
-		input = (short)jt169(g_a5_14216, g_a5_13792, 1, 2, 38, 22,
+		input = (short)jt169(g_a5_14212, g_a5_13788, 1, 2, 38, 22,
 		                     head, 1, 0,
 		                     &loop_flag, &idx, &entry);
 		if (g_a5_24139 != 0 && input == 27)
@@ -27502,7 +27504,7 @@ static void l12a0(void)
 
 		loop_flag = 1;
 		jt179(1);
-		input = (short)jt169(g_a5_13792, g_a5_14216, 1, 2, 38, 22,
+		input = (short)jt169(g_a5_14216, g_a5_13792, 1, 2, 38, 22,
 		                     head, 1, 0,
 		                     &loop_flag, &idx, &entry);
 		if (g_a5_24139 != 0 && input == 27)
@@ -30419,31 +30421,6 @@ static void l1276(void)
 		            ((unsigned long)rec[22] << 8) | rec[23]),
 		     (short)1, (short)22, (short)0, (short)1);
 }
-/* L3f16 (CODE 19 + 0x3f16) — classify a treasure/coin type by the first
- * non-space character of its name and write the display prefix into `out`,
- * returning a category code: 1 = Gems, 0 = Platinum/Silver coin, 2 = Jewelry.
- * Shared keystone for the Drop/Deposit (l46e0) and Trade (l4334) coin handlers
- * (the "How much Gems / Platinum / Jewelry…" prompts). JT[1] @ 0x3f58 decoded
- * (tools/jt1_extract): cases 'G'(71)/'P'(80)/'S'(83)/'J'(74), default unreached
- * (coin names always start G/P/S/J on the Mac). Deps jt384/ua_strs_at lifted. */
-static short l3f16(const char *s, char *out) __attribute__((unused));
-static short l3f16(const char *s, char *out)
-{
-	short       i   = 1;            /* fp@(-2), 1-based scan index */
-	short       ret = 0;            /* fp@(-1) category code */
-
-	PROBE("L3f16");
-	while (s[i - 1] == ' ')         /* skip leading spaces */
-		i++;
-	switch ((unsigned char)s[i - 1]) {
-	case 'G': jt384(out, ua_strs_at(0x5c9a)); ret = 1; break;   /* "Gems "     */
-	case 'P': jt384(out, ua_strs_at(0x5ca0)); ret = 0; break;   /* "Platinum " */
-	case 'S': jt384(out, ua_strs_at(0x5caa)); ret = 0; break;   /* "Platinum " */
-	case 'J': jt384(out, ua_strs_at(0x5cb4)); ret = 2; break;   /* "Jewelry "  */
-	default:  break;
-	}
-	return ret;
-}
 
 /* L25ce / JT[893] (the Items browser) is lifted faithfully far below as jt893;
  * jt904 case 0, the camp (jt185 case 4) and combat (case 2) all dispatch to it.
@@ -30454,6 +30431,8 @@ static long   jt891(long maxval, const char *prompt, short width);   /* CODE 19+
 static short  jt901(long member_l);                          /* CODE 19+0x422a (= L422a, below) */
 static void   jt897(long rec, short amount);                 /* CODE 19+0x420e (= L420e, below) */
 static void   jt883(unsigned char *rec, short delta);        /* CODE 19+0x4248 (= L4248, below) */
+static unsigned char jt884(const char *row, char *out_name); /* CODE 19+0x3f16 (= L3f16, below) */
+static void   jt894(short flag);                             /* CODE 19+0x46e0 (= L46e0, below) */
 static void   jt66(void);                                    /* CODE 6+0x6048 (below) */
 static void   l596a(const char *prompt, short flag1, short flag2, long *member_io);  /* CODE 19+0x596a (below) */
 
@@ -30494,18 +30473,18 @@ static void l4264(long *src_pp, long *dst_pp, long amount, short coinType)
 /* L4334 (CODE 19 + 0x4334) — the TRADE handler off the View-character popup
  * (jt904 case 2).  Outer loop: pick a recipient party member (l596a, prompt
  * g_a5_-14360); cancel exits.  Inner loop: build the active character's coin
- * rows (same "name<pad>amount" list as l46e0 — jt477 node from -21156, jt59
+ * rows (same "name<pad>amount" list as jt894 — jt477 node from -21156, jt59
  * number, an 18-column pad loop via jt423 widths, jt488 "%s%s%s") and run the
  * jt179/jt169 list dialog (trade geometry 20/9/38/15).  On a pick, re-derive the
- * coin type (l3f16) and compose "<g_a5_-14388><type ><g_a5_-14356>" (jt488
+ * coin type (jt884) and compose "<g_a5_-14388><type ><g_a5_-14356>" (jt488
  * "%s%s%s"), read the capped amount (jt891) and transfer it to the recipient
  * (l4264).  Repeats the coin list while money remains; a coin-list cancel backs
  * out to the partner pick.  Sets g_a5_-27936 to the chosen partner so the sheet
- * paints (jt23/l1276/l19ac).  Sibling structure of l46e0. */
+ * paints (jt23/l1276/l19ac).  Sibling structure of jt894. */
 static void l4334(void)
 {
 	signed char    i;                /* fp@(-5)  coin-slot / recheck index */
-	unsigned char  coinType;         /* fp@(-6)  l3f16 result              */
+	unsigned char  coinType;         /* fp@(-6)  jt884 result              */
 	unsigned char  j;                /* fp@(-7)  space-pad counter         */
 	unsigned char  numSpaces;        /* fp@(-8)  18 - namelen - amtlen     */
 	long           partner;          /* fp@(-4)  trade-partner record ptr  */
@@ -30594,7 +30573,7 @@ static void l4334(void)
 				short avail;
 
 				jt384(prompt, ua_strs_at(0x5cee));          /* "" */
-				coinType = (unsigned char)l3f16(
+				coinType = jt884(
 				    (const char *)(uintptr_t)(sel_node + 5), prompt);
 				jt384(prompt, jt488(ua_strs_at(0x5cf0),     /* "%s%s%s" */
 				      (const char *)(uintptr_t)g_a5_long(-14388),
@@ -30627,135 +30606,6 @@ static void l4334(void)
 static char  *jt59(short value);                     /* CODE 6+0x60d4 (defined far below) */
 static long   jt891(long maxval, const char *prompt, short width);  /* CODE 19+0x3fd2 (= L3fd2, below) */
 static void   l465c(long member_l, long amount, short type);        /* CODE 19+0x465c (below) */
-
-/* L46e0 (CODE 19 + 0x46e0) — the coin DEPOSIT / DROP handler for the active
- * character.  `a` (the only arg) gates the per-loop money-panel refresh
- * (jt898/l19ac).  For each of the three coin slots i=0..2 whose amount word
- * rec[76+i*2] is non-zero it allocates a 40-byte list node from the -21156
- * bucket (jt477), prepends it, and writes a right-padded "name<spaces>amount"
- * row (jt59 number + an 18-column space loop + jt488 "%s%s%s") into node+5.
- * Runs the list dialog (jt179 + jt169) — deposit geometry (top 20,left 9,
- * right 38,bottom 15) vs drop (1/17/38/22).  On a real pick it re-derives the
- * coin type from the row text (l3f16, which also writes the "Gems/Platinum/
- * Jewelry " prefix), composes the prompt — when -27990==10 (vault/temple):
- * len>7 -> "%sdo you deposit?", Gems -> "How many %swill...", else "How much
- * %swill..."; otherwise "How much %swill you drop?" — reads the amount (jt891,
- * capped at the held amount) and transfers it (l465c).  Loops until the wallet
- * is empty or the user cancels (jt169 returns node 0 / key 1, or key 27 when
- * -24139 is set).  Frees the row list each pass (jt147).  Sibling of the party-
- * pool jt924 (which works the -25314 vault array instead of rec[76+]). */
-static void l46e0(short a)
-{
-	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
-	signed char    i;                /* fp@(-1)  coin-slot / recheck index */
-	unsigned char  coinType;         /* fp@(-2)  l3f16 result            */
-	unsigned char  numSpaces;        /* fp@(-3)  18 - namelen - amtlen    */
-	unsigned char  j;                /* fp@(-4)  space-pad counter        */
-	short          nmoney;           /* fp@(-6)  rows built (vestigial)   */
-	short          selidx;           /* fp@(-8)  jt169 initial/picked idx */
-	long           head, prev, freelist, sel_node;  /* fp@(-12/-16/-20) */
-	unsigned char  done;             /* fp@(-21)                          */
-	unsigned char  flag;             /* fp@(-22) jt169 in/out             */
-	unsigned char  key;              /* fp@(-101) jt169 return key        */
-	short          amount_in;        /* fp@(-104) jt891 result            */
-	short          top, left, right, bottom;        /* fp@(-105..-108)   */
-	char           money[24];        /* fp@(-40)  amount as text          */
-	char           spaces[24];       /* fp@(-58)  pad run                 */
-	char           prompt[64];       /* fp@(-100) prefix then prompt      */
-
-	PROBE("L46e0");
-
-	do {
-		if (a)
-			l19ac();                 /* refresh the money panel */
-
-		head = 0; prev = 0; freelist = 0; nmoney = 0;
-
-		/* one row per non-empty coin slot, prepended (i = 2..0) */
-		for (i = 2; i >= 0; i--) {
-			short money_amt = *(short *)(rec + 76 + (long)i * 2);
-			const char *name;
-			short namelen, amtlen;
-
-			if (money_amt == 0)
-				continue;
-			nmoney++;
-
-			prev = head;
-			jt477((void *)(uintptr_t)g_a5_21156, (short)40, &head);
-			if (head == 0) {             /* PORT-SAFETY: bucket full */
-				head = prev;
-				continue;
-			}
-			*(long *)(uintptr_t)head = prev;   /* new->next = old head */
-
-			/* "name" + (18 - namelen - amtlen) spaces + "amount" */
-			jt384(money, jt59(money_amt));
-			name    = (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4);
-			namelen = jt483(name);
-			amtlen  = jt483(money);
-			numSpaces = (unsigned char)(18 - namelen - amtlen);
-			jt384(spaces, ua_strs_at(0x5cf8));          /* "" */
-			for (j = 1; j <= numSpaces; j++)
-				jt384(spaces, jt488(ua_strs_at(0x5cfa), spaces));  /* "%s " */
-			jt384((char *)(uintptr_t)(head + 5),
-			      jt488(ua_strs_at(0x5cfe), name, spaces, money));  /* "%s%s%s" */
-			*(unsigned char *)(uintptr_t)(head + 4) = 0;
-		}
-
-		freelist = head;
-		selidx   = 0;
-		flag     = 1;
-		jt179((short)1);
-
-		if (a) { top = 20; left = 9;  right = 38; bottom = 15; }   /* deposit */
-		else   { top = 1;  left = 17; right = 38; bottom = 22; }   /* drop    */
-
-		sel_node = head;                 /* jt169 overwrites with the pick */
-		key = (unsigned char)jt169(g_a5_long(-14364), g_a5_long(-13844),
-		                           top, left, right, bottom,
-		                           head, (short)1, (short)1,
-		                           &flag, &selidx, &sel_node);
-
-		if (sel_node == 0 || key == 1 ||
-		    (g_a5_byte(-24139) != 0 && key == 27)) {
-			done = 1;                    /* cancel / Esc */
-		} else {
-			short avail;
-
-			prompt[0] = '\0';
-			coinType = (unsigned char)l3f16(
-			    (const char *)(uintptr_t)(sel_node + 5), prompt);
-
-			if (g_a5_byte(-27990) == 10) {           /* vault/temple deposit */
-				if (jt483(prompt) > 7)
-					jt384(prompt, jt488(ua_strs_at(0x5d06), prompt));  /* "How much %sdo you deposit? "  */
-				else if (coinType == 1)
-					jt384(prompt, jt488(ua_strs_at(0x5d22), prompt));  /* "How many %swill you deposit? " */
-				else
-					jt384(prompt, jt488(ua_strs_at(0x5d40), prompt));  /* "How much %swill you deposit? " */
-			} else {
-				jt384(prompt, jt488(ua_strs_at(0x5d5e), prompt));      /* "How much %swill you drop? "    */
-			}
-
-			avail = *(short *)(rec + 76 + (long)coinType * 2);
-			amount_in = (short)jt891((long)(unsigned short)avail, prompt, (short)7);
-			l465c(g_a5_long(-27932), (long)(unsigned short)amount_in,
-			      (short)coinType);
-
-			/* keep looping while any coin slot still holds money */
-			done = 1;
-			for (i = 0; i <= 2; i++)
-				if (*(short *)(rec + 76 + (long)i * 2) != 0)
-					done = 0;
-		}
-
-		if (freelist)
-			jt147(&freelist);
-	} while (!done);
-
-	(void)nmoney; (void)selidx;
-}
 /* JT[898] (CODE 19 + 0x19ac) — the MONEY panel on the char sheet.  For each of
  * up to three money slots i=0..2 whose amount word (rec[76+i*2]) is non-zero,
  * draw the money-type name (g_a5_-14492[i] = "Platinum"/"Gems"/"Jewelry", col
@@ -59549,7 +59399,7 @@ static void jt904(unsigned char *out_done)
 		case 1: jt595((short)0, (short)0, &sel_key, &cond1); break;
 		case 2: l4334(); break;
 		case 3:
-		case 4: l46e0((short)1); l19ac(); break;
+		case 4: jt894((short)1); l19ac(); break;
 		case 5: l4f2c(g_a5_27932); break;
 		case 6: l4ff6(g_a5_27932); break;
 		default: break;
