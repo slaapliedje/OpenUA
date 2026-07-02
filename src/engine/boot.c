@@ -1907,7 +1907,8 @@ static void  jt949(void)                           { PROBE("jt949"); }          
 static int   jt315(void);
 
 /* Intra-CODE-6 helpers, still to lift. */
-static void  l0444(void)        { PROBE("l0444"); }     /* CODE 6 + 0x0444 */
+static void  l0444(void);       /* CODE 6 + 0x0444 — start.dat design-name
+                                 * reader (lifted next to its jt128 writer) */
 static void  l3918(long a)      { PROBE("l3918"); }     /* CODE 6 + 0x3918 */
 static void  l4d98(void);       /* CODE 6 + 0x4d98 — lifted near EOF (the
                                  * game-session init; needs the GLIB tier) */
@@ -14825,38 +14826,15 @@ static short jt573(short doSave);        /* CODE 17 review screen (below) */
 
 void port_test_seed_design(void)
 {
-	/* Seed the current design name so jt127 builds the real
-	 * "<design>:<file>" path (the shim resolves it into the staged
-	 * .DSN subdirectory). The name comes from the CURRENT.TXT marker
-	 * `make gamedata DSN=<name>` writes — a stand-in for the Mac
-	 * prefs read until the jt315/L494e design picker lands. Falls
-	 * back to the tutorial when the marker is absent. */
-	{
-		static char dn_buf[64];
-		const char *dn     = "tutorial.dsn";
-		short       refnum = 0;
-		char       *dst    = (char *)&g_a5_31336;
-		int         i;
-
-		if (FSOpen((ConstStr255Param)"\013CURRENT.TXT", 0,
-		           &refnum) == noErr) {
-			long n = (long)sizeof dn_buf - 1;
-
-			(void)FSRead(refnum, &n, dn_buf);
-			(void)FSClose(refnum);
-			while (n > 0 && (dn_buf[n - 1] == '\r'
-			                 || dn_buf[n - 1] == '\n'
-			                 || dn_buf[n - 1] == ' '))
-				n--;
-			dn_buf[n] = 0;
-			if (n > 4)              /* "x.DSN" at minimum */
-				dn = dn_buf;
-		}
-		for (i = 0; dn[i] != 0 && i < 63; i++)
-			dst[i] = dn[i];
-		dst[i] = 0;
-		dbg_log(dst);
-	}
+	/* Current design name (g_a5_-31336): owned by the faithful pair —
+	 * l0444 reads "start.dat" at boot (ua_main, before jt361(1)) and the
+	 * jt315/l494e Select-a-Design picker sets it via jt133 (persisted by
+	 * jt128). Re-seed through l0444 only when still unset (the probe
+	 * harness paths that run before ua_main's own l0444 call); never
+	 * clobber a picked design. The CURRENT.TXT marker read is retired —
+	 * `make gamedata` stages the faithful start.dat instead. */
+	if (g_a5_byte(-31336) == 0)
+		l0444();
 
 	/* Point the active-character slot at the party head, or leave it NULL when
 	 * there is no party — the faithful Mac value (l5124 zeroes -27932 when no
@@ -18964,11 +18942,6 @@ static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh
 		px[(long)y * pitch + x1] = br;
 	}
 }
-
-/* Set by l494e (the design picker) around its jt169 call so jt169 draws a
- * Select/Cancel command bar + accepts mouse clicks. The roster dialogs
- * (L15e2 / L12a0) leave it 0 and stay keyboard-only, unchanged. */
-static int g_picker_cmdbar;
 
 /* The recessed TITLE panel — a deeper sunken box than the 1px button bevel.
  * Sampled from frua_mac_main_menu.png: a clut-23 face with a 1px BLACK inner
@@ -52468,7 +52441,7 @@ static void jt135(void)
 
 /* JT[128] (CODE 6 + 0x3f6) — persist the current design (g_a5_-31336, 34
  * bytes) + the g_a5_-18476 flag to "start.dat" so the next boot resumes it.
- * Faithful; no-ops until jt392 (file create) is lifted past its stub. */
+ * Faithful; the jt392 -> l3386 -> Create chain is fully lifted. */
 static void jt128(void)
 {
 	short ref;
@@ -52480,6 +52453,31 @@ static void jt128(void)
 		jt410(ref, &g_a5_byte(-18476), (short)1);
 		jt411(ref);
 	}
+}
+
+/* L0444 (CODE 6 + 0x0444) — jt128's read-side counterpart: restore the
+ * persisted design name from "start.dat" at boot — 34 bytes into the
+ * current-design name g_a5_-31336 + the 1-byte resume flag g_a5_-18476,
+ * each cleared on a short read. When no usable name results (no file /
+ * bad read), default to the bundled design — the shipped binary's
+ * literal is "heirs.dsn" (STRS+0x38). ua_main runs this before jt361(1)
+ * loads the design. Full lift of CODE 6 0x0444..0x04be. */
+static void l0444(void)
+{
+	short refnum;
+
+	PROBE("l0444");
+	g_a5_byte(-31336) = 0;
+	refnum = jt398("start.dat", (short)0);
+	if (refnum >= 0) {
+		if (jt401(refnum, &g_a5_byte(-31336), (short)34) != 34)
+			g_a5_byte(-31336) = 0;
+		if (jt401(refnum, &g_a5_byte(-18476), (short)1) != 1)
+			g_a5_byte(-18476) = 0;
+		jt411(refnum);
+	}
+	if (g_a5_byte(-31336) == 0)
+		jt384((char *)&g_a5_byte(-31336), "heirs.dsn");
 }
 
 /* L494e (CODE 22 + 0x494e) — the "Select a Design" picker. Enumerates the
@@ -52583,13 +52581,11 @@ static int l494e(void)
 		while (GetNextEvent((short)everyEvent, &tmp) && ++guard < 64)
 			;
 	}
-	g_picker_cmdbar = 1;            /* draw Select/Cancel + accept mouse */
 	keycode = (short)(jt169((long)(uintptr_t)g_a5_long(-13952),
 	                        (long)(uintptr_t)"Designs",
 	                        (short)6, (short)1, (short)38, (short)22,
 	                        headA, (short)1, (short)0,
 	                        &flag, &idx, &picked) & 0xFF);
-	g_picker_cmdbar = 0;
 	if (g_a5_24139 != 0 && keycode == 27)
 		keycode = 1;                    /* ESC -> cancel */
 	if (keycode == 0) {

@@ -206,9 +206,13 @@ gamedata: $(TARGET) frua.rsc
 		cp "$(MAC_JOINED)/$(DSN)/SAVE"/* "$(GAMEDATA_DIR)/" \
 			&& echo "  gamedata: staged $(DSN)/SAVE saves"; \
 	fi
-	@# The current-design marker the boot seed reads (stands in for the
-	@# Mac prefs until the jt315/L494e design picker lands).
-	@printf '%s' "$(DSN)" > "$(GAMEDATA_DIR)/CURRENT.TXT"
+	@# The faithful boot design marker "start.dat" (l0444 reads it at
+	@# boot; jt128 rewrites it when a design is picked in-game): a
+	@# 34-byte NUL-padded design name + the 1-byte resume flag.
+	@printf '%s' "$(DSN)" | head -c 34 > "$(GAMEDATA_DIR)/start.dat"
+	@truncate -s 34 "$(GAMEDATA_DIR)/start.dat"
+	@printf '\001' >> "$(GAMEDATA_DIR)/start.dat"
+	@rm -f "$(GAMEDATA_DIR)/CURRENT.TXT"
 	@ln -sf "$(abspath $(TARGET))"  "$(GAMEDATA_DIR)/$(TARGET)"
 	@ln -sf "$(abspath frua.rsc)"   "$(GAMEDATA_DIR)/frua.rsc"
 	@if [ -n "$(DOS_ALWAYS)" ] && [ -f "$(DOS_ALWAYS)" ]; then \
