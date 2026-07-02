@@ -21,6 +21,8 @@
 # Environment:
 #   FALCON_TOS   Falcon TOS ROM (default /usr/share/hatari/TOSv4.04.img)
 #   GEMDOS_DIR   GEMDOS C: mount (default data/work/gamedata)
+#   FRUA_MEM     emulated ST-RAM in MB: 1, 4 or 14 (default 14 for
+#                development; drop to 4/1 for the memory-fit passes)
 #   HATARI_ARGS  extra Hatari args
 #
 # Readiness marker: menu_run logs "menu: modal up" when a menu screen
@@ -35,6 +37,7 @@ STATE=/tmp/frua-ui
 LOG="$STATE/conout.log"
 FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/TOSv4.04.img}"
 GEMDOS_DIR="${GEMDOS_DIR:-$REPO/data/work/gamedata}"
+FRUA_MEM="${FRUA_MEM:-14}"
 # Which Hatari binary. Default = system. Set HATARI_BIN=hrdb (or a path) to use
 # the tattlemuss debugger fork, which auto-loads frua.prg's symbol table so the
 # `dbg` action can reference engine symbols (_l309c, _g_a5_below, ...) by name.
@@ -107,6 +110,7 @@ start)
 	[[ -x "$HATARI_BIN" || "$(command -v "$HATARI_BIN")" ]] || die "hatari binary not found: $HATARI_BIN"
 	SDL_VIDEODRIVER=x11 "$HATARI_BIN" \
 		--machine falcon \
+		--memsize "$FRUA_MEM" \
 		--dsp emu \
 		--tos "$FALCON_TOS" \
 		$CONOUT_ARG \

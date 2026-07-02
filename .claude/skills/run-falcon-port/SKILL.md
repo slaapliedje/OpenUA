@@ -75,7 +75,8 @@ D=.claude/skills/run-falcon-port/driver.sh
 Then view the PNG with the Read tool. A correct boot looks like the main menu:
 title "UNLIMITED ADVENTURES", "CURRENT GAME DESIGN: HEIRS.DSN", and a 2-column
 button grid (PLAY THE GAME … QUIT FROM GAME), over a Hatari status bar reading
-"4MB Falcon, TOS 4.04".
+"14MB Falcon, TOS 4.04" (the dev default; `FRUA_MEM=4` or `1` selects the
+memory-fit configurations — the shipping floor is 4MB today, 1MB the goal).
 
 - Use **`shots`** (not `shot`) for the dungeon/play screen — it does a slow
   full-screen present and a single grab often catches a half-drawn frame.

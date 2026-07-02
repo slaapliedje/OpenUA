@@ -58261,6 +58261,17 @@ static void jt463(short minkb, short maxkb)
 	 * this reserve only governs the low-memory floor; a tighter reserve keeps
 	 * the pool nearer 450K when FreeMem is low so the faithful wall load still
 	 * fits the pool instead of the resident fallback. */
+	/* Dev-phase headroom: on a machine with RAM to spare (the 14MB dev
+	 * config — see HATARI_MEM/FRUA_MEM in the harness), grow the pool
+	 * past the Mac-sized cap so pool-edge eviction lotteries (which
+	 * groups get purged first varies with load order) don't mask logic
+	 * bugs during bring-up. At the 4MB and 1MB memory-fit configs
+	 * FreeMem sits below the gate and the faithful `maxkb` cap binds
+	 * unchanged, so the fit passes still exercise stage 4's
+	 * dispose/reload orchestration. */
+	if ((long)FreeMem() > 8L * 1024L * 1024L)
+		maxbytes = 2048L * 1024L;
+
 	want = (long)FreeMem() - (160L * 1024L);  /* JT[1026] freemem - design reserve */
 	if (want < minbytes)                      /* L0516 = max(minbytes, .) */
 		want = minbytes;
