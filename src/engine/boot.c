@@ -52331,14 +52331,38 @@ static short l341a(const char *prompt, const char *dflt,
 	return 0;
 }
 
-/* L3386 (CODE 3+0x3386) — create the file with a Mac type/creator
- * stamp. TOS has no type/creator metadata, so this maps to the
- * shim's Create (which takes and ignores them) — the clean GEMDOS
- * equivalent. */
+/* L3386 (CODE 3+0x3386) — open the file read/write TRUNCATED, creating
+ * it (with the Mac type/creator stamp) when absent, and return the OPEN
+ * refNum — the callers write through it (jt392 -> jt128's start.dat
+ * persist). -2 = open failed non-fnf, -3 = create/truncate/re-open
+ * failed. Faithful to the Mac body: L328e open (perm 2) -> JT[1048]
+ * _SetEOF(0) truncate + return refnum; on fnf -> JT[1053] _Create ->
+ * L328e re-open. (The old port body returned Create()'s OSErr, NOT an
+ * open refnum, so jt128 wrote its 35 bytes to a bogus handle and
+ * start.dat stayed empty.) TOS mapping: FSOpen/SetEOF/Create shim
+ * calls; type/creator are ignored on GEMDOS, and the shim's SetEOF(0)
+ * is a seek — harmless for the fixed-size records the callers write. */
 static short l3386(const char *pname, short vref, long ftype,
                    long creator)
 {
-	return Create((ConstStr255Param)pname, vref, creator, ftype);
+	short refnum = 0;
+	OSErr err;
+
+	err = FSOpen((ConstStr255Param)pname, vref, &refnum);
+	if (err == noErr) {
+		if (SetEOF(refnum, 0L) != noErr) {
+			FSClose(refnum);
+			return -3;
+		}
+		return refnum;
+	}
+	if (err != fnfErr)
+		return -2;
+	if (Create((ConstStr255Param)pname, vref, creator, ftype) != noErr)
+		return -3;
+	if (FSOpen((ConstStr255Param)pname, vref, &refnum) != noErr)
+		return -3;
+	return refnum;
 }
 
 /* JT[392] (CODE 3+0x351c) — create a save file from `spec`, full
@@ -52497,6 +52521,7 @@ static int l494e(void)
 {
 	unsigned char hdr_backup[388];
 	char          ext[64];
+	char          verbbuf[64];            /* "<Select> <Exit>" (the Mac fp-444) */
 	long          headA = 0, headB = 0;   /* display-name / folder-name lists */
 	long          saveA, saveB, newA, newB, entry, picked = 0;
 	signed char   is_dir = 0;
@@ -52563,12 +52588,28 @@ static int l494e(void)
 	g_a5_3052 = l04de();
 
 	jt76();
-	/* Title centred over the panel (col 5 ~ (38-28)/2), list left-justified
-	 * a couple of rows below so the two don't overlap. jt94's first arg is
-	 * the char column (x = (col<<2)+8000), not a page; the third is colour. */
+	/* Faithful title: the four localized vocabulary words spliced through
+	 * "%s %s %s %s:" (STRS 0x310c) exactly as CODE 22 0x4ac6..0x4af4 —
+	 * jt488 sprintfs into its -10362 scratch and jt94 paints it. The port
+	 * keeps its row-3 placement (the Mac uses row 2) so the title clears
+	 * the port panel chrome. */
 	(void)jt94((short)5, (short)3, (short)15, (short)0, "%s",
-	           "PLEASE SELECT A GAME DESIGN:");
+	           jt488(ua_strs_at(0x310c),
+	                 (const char *)(uintptr_t)g_a5_long(-10728),
+	                 (const char *)(uintptr_t)g_a5_long(-10704),
+	                 (const char *)(uintptr_t)g_a5_long(-10792),
+	                 (const char *)(uintptr_t)g_a5_long(-10940)));
 	jt179((short)1);
+	/* The list prompt is the two-verb phrase "<Select> <Exit>" ("%s %s" of
+	 * -10704/-10692, STRS 0x311a — CODE 22 0x4b0c..0x4b1e), NOT a title:
+	 * l206e/l1bfe split it into the bottom-bar word DLItems whose first
+	 * letters are the commit accelerators, and jt169 maps the picked
+	 * word's first char through the jt179-seeded -24126 verb table
+	 * (S -> verb 0 = select, E -> verb 1 = exit). The old "Designs"
+	 * literal produced a single un-mapped word, so no key committed. */
+	jt394(verbbuf, ua_strs_at(0x311a),
+	      (const char *)(uintptr_t)g_a5_long(-10704),
+	      (const char *)(uintptr_t)g_a5_long(-10692));
 	/* Drain the Return/'S' that opened this picker so jt169's first poll
 	 * doesn't read it as an immediate confirm (which would auto-pick the
 	 * first design and close instantly). FlushEvents clears the software
@@ -52582,7 +52623,7 @@ static int l494e(void)
 			;
 	}
 	keycode = (short)(jt169((long)(uintptr_t)g_a5_long(-13952),
-	                        (long)(uintptr_t)"Designs",
+	                        (long)(uintptr_t)verbbuf,
 	                        (short)6, (short)1, (short)38, (short)22,
 	                        headA, (short)1, (short)0,
 	                        &flag, &idx, &picked) & 0xFF);
