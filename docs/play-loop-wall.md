@@ -1,5 +1,43 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02 — #115 frontier LOCATED: the combat entry hangs at its setup stubs
+
+Drove a real type-10 combat headless via the NEW test harness (build
+`make EXTRA_CFLAGS="-DFRUA_ENTRY_LEVEL=10 -DFRUA_ENTRY_COL=4 -DFRUA_ENTRY_ROW=12
+-DFRUA_ENTRY_FACING=2"` → Load save A → Begin Adventuring lands ON HEIRS
+level 10's combat cell (4,12), event #33; the override hooks sit in l0bbc,
+off by default). Findings:
+
+1. **The encounter-prompt slice is DONE and user-visible.** l3b0e + BOTH
+   choice renderers (l026e_c20 / l03f6) are fully lifted (the l3b0e header
+   comment claiming "still stubs" was stale — fixed). Verified: HEIRS
+   level 1's entry event renders the keep bigpic + "DOES THE PARTY ENTER
+   THE TOWN?" with a working YES/NO choice bar.
+2. **The combat ENTRY reaches the exec tier and HANGS on its setup stubs.**
+   Landing on the combat cell paints the play chrome then freezes: the
+   l159a combat arm runs l10a0(ev) [PROBE stub — the monster-group/roster
+   builder from the event], l1176() [PROBE stub], jt510 (faithful rts),
+   jt512() [PROBE stub — CODE 14 combat prep], then jt511 (the CODE 13
+   main loop, level-2) spins with nothing set up. "A battle begins..."
+   never paints. **NEXT LIFTS, in order: l10a0 → l1176 → jt512 → then
+   jt511's stubbed heavy locals → jt930 (rewards).**
+3. **Event-pic CLUT clobber, worst case found:** the level-1 keep bigpic's
+   palette floods the whole UI band GREEN (panels, backdrop) — far worse
+   than the caravan's subtle case. The known "pic palette clobbers UI clut
+   0..31" bug (bigpic-composer notes) now has a stark repro:
+   FRUA_ENTRY_LEVEL=1, Begin Adventuring.
+4. **Wilderness/area levels (HEIRS 1-4, HDR wall-slots 0xff) are not
+   walkable**: after the town prompt, the area screen shows empty green
+   panels with an ENCAMP bar, and arrows fall through to the main menu.
+   The area-mode movement/render (jt953 mode-4 arm, jt501/jt521 composer
+   wiring) is its own gap.
+
+GEO event decode recipe (offline): FORM+16 chunk walk → ENCR = 100 × 20-byte
+events (ev[0]=type; combat=10/21), MAP cell = (col*H+row)*6, bytes 4/5 =
+event id / zone; HDR bytes 4..9 = wall-set slots (0xff = area level),
+entries at HDR+12. Combat events in HEIRS: L1 ev#11 @(13,9) [area], L10
+ev#33 @(4,12), L12 ev#23/#31, L15 ev#17, L17 ev#45 [all 3D].
+
 The keystone subsystem (from the roadmap): what stands between a loaded design
 and an interactively-playable dungeon. **Corrected finding 2026-06-19: the loop
 is ~80% wired — `l709e` (the 39-case event dispatcher) is fully LIFTED and the

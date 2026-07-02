@@ -1124,6 +1124,13 @@ static void  l0bbc(void)
 		if (g_a5_18485 == 0) {
 			unsigned char *ds;
 
+#ifdef FRUA_ENTRY_LEVEL
+			/* Combat/event test harness: force the entry level so a
+			 * combat cell is reachable without the full quest walk.
+			 * `make EXTRA_CFLAGS=-DFRUA_ENTRY_LEVEL=1 ...`; off by
+			 * default (the faithful level rides in via -18878). */
+			g_a5_18878 = FRUA_ENTRY_LEVEL;
+#endif
 			jt198((short)g_a5_18878);          /* load the level map */
 			ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
 			if (ds != NULL) {
@@ -1133,6 +1140,14 @@ static void  l0bbc(void)
 				g_a5_12287 = st[14];               /* party Y      */
 				g_a5_12286 = (unsigned char)(st[16] & 7); /* facing */
 			}
+#ifdef FRUA_ENTRY_COL
+			/* Harness (with FRUA_ENTRY_LEVEL): force the landing cell
+			 * so a specific event/combat cell is testable directly.
+			 * -12287 = col, -12288 = row (party-coord convention). */
+			g_a5_12287 = FRUA_ENTRY_COL;
+			g_a5_12288 = FRUA_ENTRY_ROW;
+			g_a5_12286 = FRUA_ENTRY_FACING;
+#endif
 		}
 		if (g_a5_18878 <= 4 && p != NULL) {
 			p[37] = g_a5_12288; p[38] = g_a5_12287;
@@ -35981,9 +35996,10 @@ static short l03f6(void *buf);  /* type-21 list-menu renderer — defined after 
  * the CODE-20 l026e_c20 menu over the "STRS"@0x68bc template. Returns the
  * player's choice (0..4), which l673e turns into the next-event branch.
  *
- * LEVEL-2 lift: the display + prompt-text + string-lookup path is faithful and
- * live; the two choice renderers (l026e_c20 / l03f6) are still stubs, so the
- * returned outcome is 0 until they are lifted. */
+ * FULL lift: the display + prompt-text + string-lookup path AND both choice
+ * renderers (l026e_c20 / l03f6) are lifted and live — Hatari-verified
+ * 2026-07-02 (the HEIRS level-1 "Does the party enter the town?" YES/NO
+ * prompt renders and dispatches). */
 static short l3b0e(void *ev_v)
 {
 	unsigned char *ev = (unsigned char *)ev_v;
