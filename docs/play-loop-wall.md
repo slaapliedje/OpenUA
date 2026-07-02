@@ -1,5 +1,28 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02g — jt512 = faithful rts; jt511 RECON complete (lift-ready)
+
+**jt512 (CODE 14+0x5d8e) is a bare `rts` on the Mac** — the port stub is
+the faithful lift (marked). The whole combat-prep tier therefore reduces
+to jt511 itself.
+
+**jt511 (CODE 13 0x5a6..0x1886, ~4.8KB) — the combat main loop, mapped:**
+- Head: -27990 = 5 (combat mode), -24070 = &JT[538] (method install).
+- JT[3] @0x94c min0 max12 — the 13-arm per-turn COMMAND dispatcher
+  (the combat verb menu). Case offsets 0x96c/988/9ae/9d8/9ea/a48/a5a/
+  a8e/b18/b38/b5c/b64/b76, default 0xcd2.
+- JT[1] @0xba4 — 13 keys, cursor codes 129..136 ALL -> one shared arm
+  0xbdc (the movement funnel; engine arrow codes minus 128).
+- JT[1] @0x126a — 9 keys: 27(ESC) + 129..136 (the aim/target mode).
+- JT[1] @0x17e6 — 27/264/260 (ESC + Up/Down; a list scroll).
+- JT[3] @0x1814 min0 max1 — a small binary arm near the tail.
+- Callee inventory (per-port grep): jt155 (x13 — the hot one), jt531,
+  jt525, jt42, jt868, jt530, jt40, jt521✓, jt166, jt879, jt545, jt543,
+  jt532, jt526, jt519, jt476, jt38, jt176✓, jt173(missing), jt67
+  (missing) + locals L26ea (x8), L283e, L242c. All but two exist.
+Level-2 structural skeleton is the right scope: mirror the CFG, call
+the JTs in order, defer the 13 command arms' interiors to follow-ups.
+
 ## STATUS 2026-07-02e — L1176 NPC-ally spawn lifted (7f75a9c); entry-walls OOM flake
 
 l1176 is a FULL lift (ally template rec[94]=9/rec[147]|=50, group of 10,
