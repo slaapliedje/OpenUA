@@ -28058,6 +28058,57 @@ static short jt410(short refNum, void *buffer, short count)
 	return (short)n;
 }
 
+/* Forward decls for jt127's .glb fallback — the FC group cache +
+ * container-index helpers lift further down in this file. */
+static long          jt459(short id);
+static void          jt462(void);
+static unsigned char jt464(const char *name, short group);
+static unsigned char jt467(long src, short n);
+static short         jt987(short kind, const char *name, short mode,
+                           void *cb);
+static long          jt1011(short refnum, short item);
+static short         jt1013(short refnum, short id);
+static short         jt423(const char *s);
+
+/* JT[125] (CODE 6 + 0xa0) — the .glb item-extract callback jt127 hands
+ * to jt987. Parameters come through the A5 block jt127 fills first:
+ * -31250 = item number, -31248 = section (x100 retry), -31244 = the
+ * destination buffer. Find the item in the open container's index
+ * (jt1013; a miss retries at -31248*100 + -31250); a still-absent item
+ * SUCCEEDS with size 0. Otherwise seek+size (jt1011) and read the item
+ * bytes into the buffer (jt401). The byte count lands in -31246.
+ * Full lift of CODE 6 0xa0..0x136. */
+static unsigned char jt125(short refnum, void *spec) __attribute__((unused));
+static unsigned char jt125(short refnum, void *spec)
+{
+	short item;                   /* fp@-6 */
+	long  size;                   /* fp@-4 (count word = its low half) */
+
+	PROBE("jt125");
+	(void)spec;
+	item = jt1013(refnum, g_a5_word(-31250));
+	if (item < 0)
+		return 0;
+	if (item == 0) {
+		item = jt1013(refnum, (short)(g_a5_word(-31248) * 100
+		                              + g_a5_word(-31250)));
+		if (item < 0)
+			return 0;
+	}
+	if (item == 0) {                       /* absent -> an EMPTY item */
+		g_a5_word(-31246) = 0;
+		return 1;
+	}
+	size = jt1011(refnum, item);
+	if (size < 0)
+		return 0;
+	if (jt401(refnum, (void *)(uintptr_t)g_a5_long(-31244),
+	          (short)size) != (short)size)
+		return 0;
+	g_a5_word(-31246) = (short)size;
+	return 1;
+}
+
 /* JT[127] (CODE 6 + 0x0146) — load a design data file, with
  * shared-library fallback.
  *
@@ -28065,6 +28116,7 @@ static short jt410(short refNum, void *buffer, short count)
  *   designpath = "";
  *   JT[431](designpath, g_a5_-31336);             // current design name
  *   JT[431](designpath, path);                     // "<design>:GEO040.dat"
+ *   JT[384](path, prefix);                         // path = bare prefix
  *   refnum = JT[398](designpath, 0);               // open per-design file
  *   if (refnum >= 0) {
  *       *out = JT[401](refnum, buffer, 32766);     // read
@@ -28077,17 +28129,22 @@ static short jt410(short refNum, void *buffer, short count)
  * The per-design open uses the <design>:<file> HFS path; the compat
  * FSOpen strips it to the bare filename, which resolves in the flat
  * staged gamedata folder. A design overrides individual maps /
- * sprites by shipping its own GEOnnn.DAT etc.; an absent per-design
- * file falls through to the shared GLIB library.
+ * sprites by shipping its own GEOnnn.DAT etc. (HEIRS ships MONST101/
+ * 102/108/109); an absent per-design file falls through to the shared
+ * GLIB library (MONST.GLB holds the stock monster records).
+ *
+ * Fallback (the Mac tail, CODE 6 0x1d6..0x2ce): dpath becomes
+ * "<prefix>.glb" and path (truncated to 5 chars, decimal num appended)
+ * becomes the FC cache key ("MONST11"). A cached key (jt464 group 19)
+ * copies straight out of the FAR pool; otherwise jt987 opens the
+ * container and JT[125] extracts item `num` into `buffer` via the
+ * -31250 parameter block. With the -31235 cache flag set (jt134) the
+ * loaded bytes are committed to the just-registered group (jt467),
+ * else the registration is rolled back (jt462). Either way the byte
+ * count lands in -31246 and is returned through *out.
  *
  * Signature: (prefix, num, *out, buffer). *out receives the byte
- * count read; the engine's load routines read it back.
- *
- * The .glb fallback is DEFERRED — it needs the FC group-load path
- * (JT[987] group register + JT[467] fc_read + JT[468] cached handle
- * + GLIB item extract). Until then a non-overridden file reads
- * nothing (the TUTORIAL.DSN tutorial ships GEO040.DAT, GAME001.DAT,
- * STRG003.DAT, so its core files take the per-design path). */
+ * count read; the engine's load routines read it back. */
 static void jt127(const char *prefix, short num, short *out, void *buffer)
                                                 __attribute__((unused));
 static void jt127(const char *prefix, short num, short *out, void *buffer)
@@ -28103,6 +28160,7 @@ static void jt127(const char *prefix, short num, short *out, void *buffer)
 	dpath[0] = 0;
 	jt431(dpath, &g_a5_31336);     /* prepend the current design name */
 	jt431(dpath, path);            /* "<design>:<prefix><num>.dat"     */
+	jt384(path, prefix);           /* path = bare prefix (0x188)       */
 
 	refnum = jt398(dpath, 0);
 	if (refnum >= 0) {
@@ -28113,10 +28171,34 @@ static void jt127(const char *prefix, short num, short *out, void *buffer)
 		return;
 	}
 
-	/* .glb shared-library fallback — deferred (see header). */
-	PROBE("jt127:glb-fallback-deferred");
+	/* L01d6 — the .glb shared-library fallback. */
+	jt394(dpath, "%s.glb", path);            /* "MONST.glb"            */
+	path[5] = 0;                             /* 8.3-key truncation     */
+	jt394(path + jt423(path), "%d",
+	      (int)(unsigned char)num);          /* the FC key "MONST11"   */
+
+	if (jt464(path, (short)19)) {            /* already in the FC pool */
+		g_a5_word(-31246) = (short)jt459((short)19);
+		jt406(buffer, (const void *)(uintptr_t)jt468((short)19),
+		      g_a5_word(-31246));            /* Mac arg order swapped */
+		jt461((short)19);
+	} else {                                 /* L0264 — cold load      */
+		g_a5_word(-31250) = (short)(unsigned char)num;
+		g_a5_word(-31248) = 0;
+		g_a5_long(-31244) = (long)(uintptr_t)buffer;
+		g_a5_long(-31240) = (long)(uintptr_t)dpath;
+		jt987((short)(signed char)g_a5_byte(-31236), dpath, 0,
+		      (void *)jt125);
+		if (g_a5_byte(-31235) != 0) {        /* FC caching enabled     */
+			jt467((long)(uintptr_t)buffer,
+			      (short)((g_a5_word(-31246) + 1) & ~1));
+			jt461((short)19);
+		} else {
+			jt462();                     /* roll the group back    */
+		}
+	}
 	if (out != NULL)
-		*out = 0;
+		*out = g_a5_word(-31246);
 }
 
 /* jt176 lands further down (window-paint init/commit). Forward
@@ -39597,8 +39679,7 @@ static void l490c(void)
  *     (just-summoned, mc[21]==1) member it removes it (-25676 slot cleared,
  *     jt19(1,0) disband) and backs the list cursor up to the previous node.
  * (E) Terminates the surviving list and restores the party facing.
- * Deps jt490/jt68/jt399/jt19/jt522/jt524/l4306 lifted; l490c is a PROBE stub
- * pending its own card. */
+ * Deps jt490/jt68/jt399/jt19/jt522/jt524/l4306/l490c all lifted. */
 static unsigned char l4306(short slot);     /* defined below (after combat_mondef) */
 static void l4af4(void)
 {
@@ -39749,9 +39830,8 @@ static void l4af4(void)
 }
 
 /* CODE 13+0x4f22 — combat entry staging (run once after jt542). Faithful
- * level-2 lift: the combat-state A5 init is faithful; the three setup helpers
- * (l3f24/l404e/l4af4) + field draw (jt536) + jt68 pump + l276c are PROBE stubs
- * for their own cards. Inits the per-fight state, computes the field size into
+ * lift; the setup helpers l3f24/l404e/l4af4 (field init + placement) are
+ * themselves lifted. Inits the per-fight state, computes the field size into
  * the -25318 layout record from jt525/jt531 (party span - 3), erases each
  * party member's combat sprite (jt868 sel 8) and clears their combatant flag
  * at (member[64])[19], draws the field (jt536), and sets mode 5 (combat). */
@@ -54353,14 +54433,32 @@ static void jt295(short y, short x, short b1, short b2, short b3)
 
 /* --- band-4 CODE 6 cluster ------------------------------------------- */
 
-/* L3c24 (CODE 6+0x3c24) — message-grid cell (idx) -> pixel pen for
- * the -27866 glyph group. Leaf PROBE stub pending its own lift. */
+/* L3c24 (CODE 6+0x3c24) — measure glyph/tile cell `idx` of the binder
+ * slot at `handle` (slot word 0 = the FC group): jt1005 at pen
+ * (8000,8000) yields the rendered extent rect (top/left/bottom/right,
+ * screen px); two jt1139 hits convert both corners back to 8000-space
+ * units; the deltas (height, width) return through *px/*py. Faithful
+ * full lift of CODE 6 0x3c24..0x3cb0. (The old 0/0 stub fed jt53 ->
+ * l0d2a a 0x0 portrait, so rec[130] = (0*2+0-2)&0xff = 254 -> body
+ * class 254&7 = 6 — past the 6-row -27540 footprint table — and every
+ * spawned monster mis-stepped off the map and failed placement.)
+ * (Port-safety: bail when the slot is unbound, as l3b1e does — the
+ * Mac always has the bank live before this runs.) */
 static void l3c24(long handle, short idx, short *px, short *py)
 {
+	short top = 0, left = 0, bottom = 0, right = 0;  /* fp-2/-4/-6/-8 */
+
 	PROBE("l3c24");
-	(void)handle; (void)idx;
-	if (px) *px = 0;
-	if (py) *py = 0;
+	if (handle != 0) {
+		jt1005((short)8000, (short)8000,
+		       *(short *)(uintptr_t)handle, idx,
+		       &top, &left, &bottom, &right);
+		jt1139((short)8000, (short)8000, top, left, &top, &left);
+		jt1139((short)8000, (short)8000, bottom, right,
+		       &bottom, &right);
+	}
+	if (px) *px = (short)(bottom - top);
+	if (py) *py = (short)(right - left);
 }
 
 /* JT[53] (CODE 6+0x5ec6) — text cell (col, row) -> character
