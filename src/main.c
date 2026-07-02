@@ -264,8 +264,8 @@ static void load_frua_rsrc(void)
  * port must already be attached (qd_attach_screen) before this runs.
  */
 /* Non-static: the engine (jt315) re-installs this on menu redraw, since the
- * dungeon play loop (port_play_demo) overwrites clut 0..15 and doesn't
- * restore them — the menu would otherwise paint with the dungeon palette. */
+ * dungeon play loop overwrites clut 0..15 and doesn't restore them — the
+ * menu would otherwise paint with the dungeon palette. */
 void load_frua_palette(void)
 {
 	static RGBColor      pal[256];

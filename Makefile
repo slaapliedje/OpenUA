@@ -44,14 +44,6 @@ ifeq ($(FRUA_SPLASH_ALERT),1)
 CFLAGS += -DFRUA_SPLASH_ALERT
 endif
 
-# GEO map visualizer demo: after the probe boot loads a GEO map into
-# design state, paint it as a colored tile grid and hold it on screen
-# for inspection. Implies ENGINE_PROBE (the loader test runs there).
-# Opt in with `make ENGINE_PROBE=1 FRUA_MAP_DEMO=1` then run-game.
-ifeq ($(FRUA_MAP_DEMO),1)
-CFLAGS += -DFRUA_MAP_DEMO
-endif
-
 # Faithful frustum-walker coordinate trace: drive jt199 once and log every
 # slot's screen coord (via l5b42) so the 8000-space->screen transform can
 # be re-derived against the clip viewport. Opt in with FRUA_COORD_TRACE=1.
@@ -232,26 +224,6 @@ run-game: gamedata
 	$(HATARI) --machine falcon $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
 	          --conout 2 -d "$(GAMEDATA_DIR)" --auto 'C:\$(TARGET)'
 
-# Interactive 3D walk demo. Builds the FRUA_MAP_DEMO variant (which boots
-# straight into port_play_demo) and runs it in Hatari with a live
-# keyboard: w / s move forward / back, a / d turn left / right, m toggles
-# the automap, q quits. The party is dropped into the loaded module's
-# best corridor vantage so the textured perspective view shows side
-# walls receding. A clean rebuild is forced because the build flags
-# differ from a plain `make`.
-# Default to HEIRS.DSN ("Heirs to Skull Crag", the bundled sample
-# module): its level 1 has real multi-cell dungeon corridors, so the
-# vantage scan can drop the party into a deep receding tunnel. TUTORIAL
-# is mostly open rooms (deepest corridor is 1 cell). Override with
-# `make walk DSN=TUTORIAL.DSN`.
-walk: DSN := HEIRS.DSN
-walk:
-	$(MAKE) clean
-	$(MAKE) ENGINE_PROBE=1 FRUA_MAP_DEMO=1
-	$(MAKE) gamedata DSN=$(DSN)
-	$(HATARI) --machine falcon $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
-	          -d "$(GAMEDATA_DIR)" --auto 'C:\$(TARGET)'
-
 # Bring-up probe: boot a probe-instrumented build in Hatari, fast-
 # forward 15 seconds, capture the dbg_log output, and force-kill
 # Hatari cleanly (avoids the "Really quit?" dialog that catches
@@ -319,4 +291,4 @@ clean:
 
 -include $(DEP)
 
-.PHONY: all run run-game walk gamedata probe fc-audit cg-audit test test-slow clean data-pool-regen
+.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean data-pool-regen
