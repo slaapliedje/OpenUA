@@ -21151,7 +21151,77 @@ static int   jt315(void)
  * Menu Manager calls them per item. The proper Mac path is to expose
  * them as ProcPtr; until the menu rendering reaches them, they stay
  * PROBE stubs. */
-static void    jt140(void)                          { PROBE("jt140"); }
+/* jt153 (set the list cursor -13014) / jt162 (read it) are defined further
+ * down; jt140 — the mode-7 roster click handler — drives them. */
+static void jt153(long rec_l);
+static long jt162(void);
+
+/* JT[140] (CODE 7 + 0x1e58) — the roster CLICK handler for the mode-7 list
+ * pickers (l596a "Trade to whom?", and the other jt163 party prompts). Twin of
+ * jt156, but it drives the LIST-selection cursor -13014 (via jt153/jt162)
+ * rather than the Training-Hall pointer -27932: it maps the click to a party
+ * row (jt1139 / 4), and if that row is already the selection (a re-click /
+ * double-click) and the mode is 7 or 13 it commits the DLItem (jt444 cmd 20 ->
+ * rec[28] bit 4, which l2d3e reads to leave the modal); otherwise it walks
+ * -13014 one member at a time toward the clicked row (a single click just moves
+ * the highlight). Ends by repainting the roster with the new selection
+ * highlighted (jt937). Installed as the shape-5 cell's rec[4] proc by jt158
+ * case 7. Faithful 1:1 lift of CODE 7 + 0x1e58. */
+static void jt140(short itemNo, short y, short x)
+{
+	short out_row = 0, out_col = 0, row, idx = 0;
+	signed char found = 0;
+	long node;
+
+	PROBE("jt140");
+	jt1139(g_a5_word(-19172), g_a5_word(-19174), y, x, &out_row, &out_col);
+	row = (short)(out_row / 4);
+
+	/* PORT-SAFETY: the Mac assumes -13014 is always a live party member; the
+	 * port's recipient cursor can be null (uninitialised) or a savegame backup
+	 * node outside the counted party. Anchor a null cursor at the head so the
+	 * walk/navigate below never dereferences $0 (the bus error). */
+	if (jt162() == 0 && g_a5_long(-27928) != 0)
+		jt153(g_a5_long(-27928));
+
+	/* idx = the party index of the current selection (jt162 == -13014). */
+	node = g_a5_long(-27928);
+	while (found != 1) {
+		if (node == jt162()) {
+			found = 1;
+		} else {
+			if (node == 0)
+				break;                 /* safety: sel not in list */
+			node = *(long *)(uintptr_t)node;
+			idx++;
+		}
+	}
+
+	if (idx == row) {
+		/* re-click on the already-selected member -> commit (double-click/S) */
+		if (g_a5_word(-13018) == 13 || g_a5_word(-13018) == 7) {
+			jt444(itemNo, (short)20, 0, 0);
+			g_a5_byte(-13004) = 1;
+		}
+	}
+
+	/* single click on a different member -> advance -13014 up to that row */
+	while (idx != row) {
+		long cur = jt162();
+		if (cur == 0 || g_a5_word(-19176) <= 0)
+			break;                             /* PORT-SAFETY: null / empty */
+		jt153(*(long *)(uintptr_t)cur);            /* -13014 = cur->next */
+		if (jt162() == 0)
+			jt153(g_a5_long(-27928));          /* wrap to the head */
+		idx = (short)((idx + 1) % g_a5_word(-19176));
+	}
+
+	{
+		long sel = jt162();
+		if (sel != 0)
+			jt937(sel);   /* repaint the roster, highlighting -13014 */
+	}
+}
 static void    jt156(short item, short y, short x); /* full lift below */
 
 /* JT[158] globals.
@@ -21388,7 +21458,8 @@ static void jt158(short arg1, short arg2)
 	switch (g_a5_13018) {
 	case 7:
 		jt452((short)5, (long)arg1, (long)arg2, d0, d2,
-		      34L, (long)(void *)jt140, 0L);
+		      34L, (long)(uintptr_t)(void (*)(short, short, short))jt140,
+		      0L);
 		break;
 	case 9:
 	case 12:
@@ -53883,19 +53954,14 @@ static void l2858(short mode)
  * picker's refresh bookkeeping stays correct. */
 static void l1f3e(short a8, short a10)
 {
-	long  node = g_a5_long(-27928);
-	short n    = 0;
-
+	/* L1f3e IS jt158 (both are CODE 7 + 0x1f3e — the duplicate-lift alias
+	 * trap). The earlier lift here only counted the party and deferred the
+	 * DLItem install as "cosmetic"; but that shape-5 cell is the CLICKABLE
+	 * roster (rec[4] = jt140 in mode 7 / jt156 in mode 9/12) that makes the
+	 * "Trade to whom?" and other jt163 party pickers mouse-selectable. Route
+	 * to the complete twin so the cell is actually built. */
 	PROBE("L1f3e");
-	(void)a8; (void)a10;
-	while (node != 0 && n < 9) {
-		node = *(long *)(uintptr_t)node;       /* follow .next (offset 0) */
-		n++;
-	}
-	g_a5_19176 = n;
-	/* TODO: install the roster-row DLItem (jt452 shape 5 + JT[156]/JT[140])
-	 * / JT[444] refresh, per CODE 7 + 0x1f6e..0x2054. */
-	g_a5_12910 = g_a5_19176;
+	jt158(a8, a10);
 }
 
 /* jt171 (CODE 7 + 0x30aa) — the direction-bar picker. The play "Move"
