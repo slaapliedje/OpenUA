@@ -3290,7 +3290,7 @@ static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE
  * page-pause); args are discarded, so callers use the lifted l4b84() directly. */
 static void  l1e30(void *ev_v, long target);  /* per-member effect apply — lifted below */
 static void  l10a0(void *ev);              /* combat monster-group spawn loop (lifted below) */
-static void  l1176(void)                   { PROBE("L1176"); }
+static void  l1176(void);                  /* combat NPC-ally spawn (lifted below) */
 static void  jt511(void);                   /* CODE 13 combat tail — lifted below */
 static void  l4d26(void *ev);              /* message/text event — defined after its deps */
 static void  l28b0(void *ev, short f);     /* give/take treasure — defined after its deps */
@@ -36310,6 +36310,136 @@ check:
 out_restore:
 	g_a5_long(-27932) = save;
 	return;
+out:
+	g_a5_long(-27932) = save;
+}
+
+/* L1176 (CODE 20 + 0x1176) — spawn the level's NPC ALLY group into the
+ * combat. Gated on the GEO header's NPC id ds[262] (0 = none). Builds
+ * the template record via l0cc6, marks it an ally (rec[94] = 9,
+ * rec[147] |= 50, rec[95] = (gameRec[58] == 5)), binds its CPIC
+ * portrait into the NEXT slot -22311 (rec[130] from jt53's cell
+ * metrics, rec[189] = slot), appends it to the party list, then clones
+ * it (fixed group size 10, capped at -22266 < 60 — note: a LOOSER cap
+ * than l0d2a's 50) with deep-copied item (-21508, 62B, next@0,
+ * PREPENDED) and effect (-21152, 10B, next@+6, PREPENDED) chains.
+ * Finishes by bumping -22311 past the ally slot and restoring -27932.
+ * Full lift of CODE 20 0x1176..0x1474. */
+static void l1176(void)
+{
+	const unsigned char *ds =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char *h    = (unsigned char *)g_a5_28006;
+	long           save = g_a5_long(-27932);     /* fp-24 */
+	unsigned char  n    = 1;                     /* fp-8  */
+	unsigned char  npc;                          /* fp-5  */
+	long           items0, effects0;             /* fp-36 / fp-48 */
+	long           isrc, esrc;                   /* fp-28 / fp-40 */
+	long           tail, node;                   /* fp-12 / fp-16 */
+	unsigned char *first = NULL;                 /* fp-20 */
+	short          w = 0, hh = 0;                /* fp-4 / fp-2   */
+
+	PROBE("L1176");
+	if (ds == NULL || ds[262] == 0)
+		return;
+	npc = ds[262];
+
+	l0cc6_c20((short)npc, (long *)(void *)&first, &isrc, &esrc,
+	          (short)0);
+	if (first == NULL)               /* PORT-SAFETY (Mac trusts the pool) */
+		goto out;
+	first[94] = 9;
+	first[147] |= 50;
+	first[95] = (unsigned char)((h != NULL && h[58] == 5) ? 1 : 0);
+	items0   = isrc;
+	effects0 = esrc;
+
+	tail = g_a5_long(-27928);
+	jt56(ua_strs_at(0x66e6) /* "CPIC" */, (short)npc,
+	     (short)(unsigned char)g_a5_byte(-22311));
+	jt53((short)(unsigned char)g_a5_byte(-22311), (short)0, &hh, &w);
+	first[130] = (unsigned char)
+	    (((w * 2 + hh) - 2) | (first[130] & 0x80));
+	first[189] = (unsigned char)g_a5_byte(-22311);
+
+	while (*(long *)(uintptr_t)tail != 0)
+		tail = *(long *)(uintptr_t)tail;
+	*(long *)(uintptr_t)tail = (long)(uintptr_t)first;
+	tail = *(long *)(uintptr_t)tail;
+	*(long *)(uintptr_t)tail = 0;
+	g_a5_byte(-22266)++;
+	n++;
+	goto check;
+
+clone:
+	jt477((void *)&g_a5_byte(-21860), (short)398, (void *)&node);
+	if (node == 0)                   /* PORT-SAFETY */
+		goto out;
+	*(long *)(uintptr_t)tail = node;
+	tail = node;
+	jt406((void *)(uintptr_t)node, first, (short)398);
+	*(long *)(uintptr_t)node = 0;
+	*(long *)(uintptr_t)(node + 4) = 0;
+	*(long *)(uintptr_t)(node + 8) = 0;
+	n++;
+	g_a5_byte(-22266)++;
+
+	for (; isrc != 0; isrc = *(long *)(uintptr_t)isrc) {
+		long dst = *(long *)(uintptr_t)(node + 8);
+		long prev;
+		if (dst == 0) {
+			jt477((void *)&g_a5_byte(-21508), (short)62,
+			      (void *)(uintptr_t)(node + 8));
+			dst = *(long *)(uintptr_t)(node + 8);
+			if (dst == 0)
+				break;
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)isrc, (short)62);
+			*(long *)(uintptr_t)dst = 0;
+		} else {
+			prev = dst;
+			jt477((void *)&g_a5_byte(-21508), (short)62,
+			      (void *)(uintptr_t)(node + 8));
+			dst = *(long *)(uintptr_t)(node + 8);
+			if (dst == 0)
+				break;
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)isrc, (short)62);
+			*(long *)(uintptr_t)dst = prev;
+		}
+	}
+	isrc = items0;
+
+	for (; esrc != 0; esrc = *(long *)(uintptr_t)(esrc + 6)) {
+		long dst = *(long *)(uintptr_t)(node + 4);
+		long prev;
+		if (dst == 0) {
+			jt477((void *)&g_a5_byte(-21152), (short)10,
+			      (void *)(uintptr_t)(node + 4));
+			dst = *(long *)(uintptr_t)(node + 4);
+			if (dst == 0)
+				break;
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)esrc, (short)10);
+			*(long *)(uintptr_t)(dst + 6) = 0;
+		} else {
+			prev = dst;
+			jt477((void *)&g_a5_byte(-21152), (short)10,
+			      (void *)(uintptr_t)(node + 4));
+			dst = *(long *)(uintptr_t)(node + 4);
+			if (dst == 0)
+				break;
+			jt406((void *)(uintptr_t)dst,
+			      (const void *)(uintptr_t)esrc, (short)10);
+			*(long *)(uintptr_t)(dst + 6) = prev;
+		}
+	}
+	esrc = effects0;
+
+check:
+	if (n <= 10 && (unsigned char)g_a5_byte(-22266) < 60)
+		goto clone;
+	g_a5_byte(-22311)++;
 out:
 	g_a5_long(-27932) = save;
 }
