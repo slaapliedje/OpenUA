@@ -6,6 +6,19 @@
 the faithful lift (marked). The whole combat-prep tier therefore reduces
 to jt511 itself.
 
+**CORRECTION (same day): jt511 IS ALREADY FULLY LIFTED** (boot.c ~43540,
+the CODE-16-campaign era) and matches the disasm decode exactly — round
+loop, jt490(=L242c) flush, jt541 prep, l0434 initiative build, the
+-22624[idx] walk with l076e per actor, side-count/morale end conditions,
+key polls, l102a/l0116/l0006 teardown. Its local family (l4f22, l0434,
+l076e + l08b4 action dispatch, l102a, l0116) is lifted too. The
+"pass-through fight" therefore means the loop EXITS IMMEDIATELY at
+runtime: with monsters now spawning (473059c), instrument after l4f22 +
+l0434 — are the SIDE COUNTS -25298/-25297 populated, and does -22620/
+-22624 hold the initiative list? Whichever is empty names the next lift
+(suspects: jt542 CODE 14+0x5434 setup, l4f22's counting pass, l0434's
+sort — check each body's depth). The map below stands as reference:
+
 **jt511 (CODE 13 0x5a6..0x1886, ~4.8KB) — the combat main loop, mapped:**
 - Head: -27990 = 5 (combat mode), -24070 = &JT[538] (method install).
 - JT[3] @0x94c min0 max12 — the 13-arm per-turn COMMAND dispatcher
