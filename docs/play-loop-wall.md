@@ -1,5 +1,21 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02c — per-set wall loads LANDED (b4fa8f7); one modal from combat
+
+The binder stall is FIXED, faithfully: l33ac's >4-char early-out removed (the
+jt987+jt104 fallback extracts ONLY the requested ~37K per-set sub-GLIB — the
+Mac model, confirmed by the disasm + BEOWOLF's 8x8d1NNN.TLB overrides);
+l6eea's digit arm un-inverted (colour modes = PER-GROUP names, Mac CODE 7
+0x6f1c); cw_wallfile_load keeps whole-file semantics via a plain name. HEIRS
+level 10 now runs the WHOLE encounter chain: spider-web prompt (all 5
+choices) → CUT WEB → l673e branch → the giant-spider combat page, in colour,
+no OOM. LAST BLOCKER: that page's "PRESS RETURN TO CONTINUE" modal never
+consumes the key (either input mode) — the continue-poll between l159a's
+text page and the L18e2 combat entry. Find WHICH modal paints it (l1806? a
+jt182 wait? or l159a's own poll) and why its key path differs from the
+caravan pages (which dismiss fine). The lifted spawn chain (jt588 et al)
+waits right behind it. Repro: harness build → P L A B → c → Return.
+
 ## STATUS 2026-07-02b — spawn chain LIFTED (62ebaaa); the level-10 stall is the BINDER wall path
 
 The four spawn-chain lifts landed (jt588 / l0cc6_c20 / l0d2a_c20 / l10a0 —
