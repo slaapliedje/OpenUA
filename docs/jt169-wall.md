@@ -1,6 +1,47 @@
 # jt169 — lift the real List Manager (replace the reimplementation) — #146
 
-Status: **CUTOVER DONE 2026-06-28.** The faithful body already existed
+Status: **COMPLETE 2026-07-02** (caller audit + commit-model fixes; the
+reimplementation fallback was deleted in the 2026-07-01 dead-code sweep).
+
+## 2026-07-02 — the caller audit (the post-cutover regression class)
+
+**THE COMMIT MODEL (keystone):** jt169 lists commit through the BOTTOM-BAR
+VERB WORDS, not Return. l206e/l1bfe split the h2 arg into word DLItems, each
+with a first-letter accelerator; jt169 maps the picked word's first char
+through the jt179-seeded -24126 verb table (verb 0 = select). The old
+reimplementation committed on Return, so the cutover silently broke every
+caller whose h2 wasn't the faithful verb phrase. All NINE callers audited
+against the Mac disasm:
+
+| caller | Mac site | h1 / h2 | state |
+|---|---|---|---|
+| l494e design picker | C22 0x4b5e | -13952 / "%s %s"(-10704,-10692) | FIXED 038180b (was "Designs" literal) |
+| L12a0 Add Character | C12 0x13ba | -14216 / -13792 | FIXED 5b00b8b (was h1/h2 SWAPPED) |
+| L15e2 Delete browser | C12 0x16b4 | -14212 / -13788 | FIXED 5b00b8b (used L12a0's pair) |
+| jt924 take money | C12 0x23cc | -14364 / -13844 | ok |
+| l39ac treasure list | C12 0x3a20 | -13868 / -13696 | ok |
+| jt893 items browser | C19 0x28ba | -13952 / -13800 | ok |
+| l4334 TRADE money | C19 0x4526 | -14364 / -13844 | ok |
+| jt894 deposit/drop | C19 0x48e2 | -14364 / -13844 | ok |
+| l0380 encounter list | C20 0x03ea | fp@8 / -13848 | ok |
+
+Also deduplicated two same-address aliases lifted TWICE (the
+lxxxx-jt-aliases trap): **l46e0 ≡ jt894** and **l3f16 ≡ jt884** — kept the
+jtN bodies, repointed the l46e0/l3f16 callers (~180 lines gone).
+
+Hatari-verified: design picker (SELECT/CANCEL, S commits, persists), Add
+("ADD A CHARACTER: ADD | EXIT", A commits → party + the unsaved-quit gate +
+the A-J save picker downstream), Delete ("DELETE A CHARACTER: DELETE |
+EXIT", the "* NAME" in-party marker), Load (A commits). Args-verified only
+(deep flows): jt893/jt924/l39ac/l4334/jt894/l0380.
+
+REMAINING (small): l13e8's deferred ASCII/function-key shortcut dispatch
+(letters work; special codes unhandled); mouse DOUBLE-CLICK commit on the
+mode-7 jt163/l596a pickers (not jt169 — needs on-machine mouse testing).
+
+## Original status (2026-06-28 cutover)
+
+**CUTOVER DONE 2026-06-28.** The faithful body already existed
 (`jt169_faithful`) and was ALREADY live for **7 of 10 callers** (the
 `__attribute__((unused))` was just suppressing warnings during a partial
 migration). Promoted `jt169_faithful` → `jt169`; the old reimplementation is
