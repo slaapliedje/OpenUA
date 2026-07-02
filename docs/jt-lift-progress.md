@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 943 done (862 lifted, 20 noop, 61 alias), 65 stub, 0 stand-in, 197 missing.
+**1205 distinct JT entries are called.** Overall: 955 done (875 lifted, 20 noop, 60 alias), 59 stub, 0 stand-in, 191 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -42,17 +42,17 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 8 | 351–400 | **49/50** | 36 | 13 | 1 | 0 | 0 |
 | 9 | 401–450 | **50/50** | 39 | 11 | 0 | 0 | 0 |
 | 10 | 451–500 | **50/50** | 48 | 2 | 0 | 0 | 0 |
-| 11 | 501–550 | **39/50** | 37 | 2 | 6 | 0 | 5 |
+| 11 | 501–550 | **39/50** | 38 | 1 | 6 | 0 | 5 |
 | 12 | 551–600 | **30/50** | 25 | 5 | 8 | 0 | 12 |
-| 13 | 601–650 | **29/50** | 28 | 1 | 10 | 0 | 11 |
-| 14 | 651–700 | **13/50** | 12 | 1 | 1 | 0 | 36 |
-| 15 | 701–750 | **19/50** | 16 | 3 | 1 | 0 | 30 |
+| 13 | 601–650 | **36/50** | 35 | 1 | 5 | 0 | 9 |
+| 14 | 651–700 | **16/50** | 15 | 1 | 1 | 0 | 33 |
+| 15 | 701–750 | **20/50** | 17 | 3 | 1 | 0 | 29 |
 | 16 | 751–800 | **34/50** | 32 | 2 | 3 | 0 | 13 |
 | 17 | 801–850 | **45/50** | 45 | 0 | 2 | 0 | 3 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **48/50** | 48 | 0 | 2 | 0 | 0 |
 | 20 | 951–1000 | **47/50** | 47 | 0 | 3 | 0 | 0 |
-| 21 | 1001–1050 | **47/50** | 46 | 1 | 2 | 0 | 1 |
+| 21 | 1001–1050 | **48/50** | 47 | 1 | 1 | 0 | 1 |
 | 22 | 1051–1100 | **27/50** | 23 | 4 | 9 | 0 | 14 |
 | 23 | 1101–1150 | **12/50** | 10 | 2 | 2 | 0 | 36 |
 | 24 | 1151–1200 | **5/50** | 5 | 0 | 13 | 0 | 32 |
@@ -69,11 +69,11 @@ left; cross-reference the chunk table to see how load-bearing they are.
 |-----:|--------:|-----:|-----:|--------:|--------:|--------:|-----------|
 | CODE 1 | 9 | 8 | 0 | 0 | 1 | **1** | boot / A5 init / entry |
 | CODE 2 | 14 | 5 | 0 | 0 | 9 | **9** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
-| CODE 3 | 116 | 91 | 2 | 0 | 23 | **25** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
+| CODE 3 | 116 | 92 | 2 | 0 | 22 | **24** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
 | CODE 4 | 117 | 54 | 13 | 0 | 50 | **63** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
 | CODE 5 | 129 | 78 | 10 | 0 | 41 | **51** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 118 | 3 | 0 | 4 | **7** | file-group cache + GLIB art + resource manager |
-| CODE 7 | 97 | 75 | 10 | 0 | 12 | **22** | list dialog (JT[169]) + text widgets |
+| CODE 7 | 97 | 85 | 5 | 0 | 7 | **12** | list dialog (JT[169]) + text widgets |
 | CODE 8 | 46 | 29 | 1 | 0 | 16 | **17** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
@@ -85,16 +85,16 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 16 | 115 | 114 | 0 | 0 | 1 | **1** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 17 | 2 | 0 | 1 | **3** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 165 | 6 | 0 | 0 | **6** | combat engine (jt610 / jt856 / l4d98 / l709e) |
-| CODE 19 | 35 | 30 | 3 | 0 | 2 | **5** | character sheet + party container (jt886 / jt904 / jt910) |
+| CODE 19 | 35 | 31 | 2 | 0 | 2 | **4** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 12 | 0 | 0 | 2 | **2** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
 | CODE 21 | 9 | 2 | 4 | 0 | 3 | **7** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 43 | 0 | 0 | 8 | **8** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (96 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (88 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l0444`  `l3918`  `l5888`  `l5ac0`  `l5f66`  `l6ada`  `l2cb0`  `l2cf4`  `l4144`  `l10a0`  `l1176`  `l40b4`  `l47f2`  `l4738`  `l4226`  `l4268`  `l2788`  `l1798`  `l67e4`  `l429c`  `l4810`  `l6804`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l035e`  `l4bac`  `l2062`  `l005a`  `l1c92`  `l1cd2`  `l3fd6`  `l4334`  `l46e0`  `l4f2c`  `l4ff6`  `l61ae`  `l0660`  `l2d48`  `l2d78`  `l7894`  `l1888`  `l15bc`  `l59c2`  `l4faa`  `l341a`  `l157c`  `l7a24`  `l7a0e`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l475e`  `l07be`  `l423e`  `l3998`  `l23ee`  `l2180`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0694`  `l0418`  `l035c`  `l07e6`  `l0cb8`  `l0d86`  `l0e3e`  `l15ae`  `l6432`  `l7026`  `l4910`  `l501e`  `l0062`  `l30bc`  `l3228`  `l32c4`  `l17f8`  `l4218`  `l006c`  `l038a`  `l1e44`  `l2d7e`  `l06d6`  `l0bc6`  `l0df2`  `l1374`
+> `l32e2`  `l62e0`  `l0444`  `l3918`  `l5888`  `l5ac0`  `l5f66`  `l6ada`  `l2cb0`  `l2cf4`  `l4144`  `l10a0`  `l1176`  `l40b4`  `l47f2`  `l4738`  `l4226`  `l4268`  `l2788`  `l1798`  `l67e4`  `l429c`  `l4810`  `l6804`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l035e`  `l005a`  `l1c92`  `l1cd2`  `l4f2c`  `l4ff6`  `l61ae`  `l0660`  `l2d48`  `l2d78`  `l7894`  `l1888`  `l15bc`  `l59c2`  `l4faa`  `l341a`  `l157c`  `l7a24`  `l7a0e`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l475e`  `l07be`  `l423e`  `l3998`  `l23ee`  `l2180`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0694`  `l0418`  `l035c`  `l07e6`  `l0cb8`  `l0d86`  `l0e3e`  `l15ae`  `l6432`  `l7026`  `l4910`  `l501e`  `l0062`  `l17f8`  `l4218`  `l006c`  `l038a`  `l1e44`  `l2d7e`  `l06d6`  `l0bc6`  `l0df2`  `l1374`
 
 ## Band 1 detail (rank 1–100)
 
@@ -316,15 +316,16 @@ lands.
 
 Non-JT port stand-ins (whole-routine reimplementations, kept in sync with `docs/stub-inventory.md`):
 
-- `cg_add_character / cg_remove_from_party / cg_draw_sheet / cg_view_sheet` — Training Hall Add/Remove/View screen CHROME (port paging UI). They now drive -27928 correctly via jt590/cg_party_unlink (#141 data-model is faithful), but the chrome is a stand-in for L12a0 / jt904 (jt589 list + jt169 dialog). Also a cosmetic cg_draw_sheet body-icon repaint artifact.
-- `port_save_game / port_load_game (slot A driver)` — fixed-slot save/load driver wrapping the faithful jt580/jt579 serializers; bypasses the incomplete jt585/jt582 A-J slot pickers (jt182/l005a stubs). On-disk format is the real one (#141).
-- `port_load_savgame` — obsolete heuristic SAVGAMA.CSV scanner; superseded by the faithful jt579/jt577 reader — only the FRUA_CGCRASH harness still calls it.
-- `port_draw_play_frame` — coarse HUD-chrome over-blit (the #114 'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)
-- `l309c_tile` — the dungeon 8bpp wall-tile channel with the per-set band rebase; non-faithful colour model — see jt114 above (#129)
-- `port_run_encounter / port_rest / port_play_message / port_begin_adventure` — play-loop stand-ins over the faithful CODE 15-19 chain (l07dc -> jt918 -> jt948); being replaced piecemeal
-- `port_render_geo_* / port_render_topview` — area-map stand-ins; faithful renderers are jt501/jt521 (now lifted) — rewire the callers
-- `port_show_intro / port_menu_bar / port_hud_text_clut` — title/HUD chrome stand-ins, trace-matched but not lifted from CODE 22/21
-- `port_*_demo (blit/play/sprite/view/wall) + port_l6234_verify` — throwaway harness scaffolding, never on the faithful path
+- `port_load_savgame (BOOT AUTO-LOAD)` — heuristic SAVGAMA.CSV scanner, still the LIVE boot party auto-load (ua_main seed block) — the Mac only loads a party via the explicit Play -> Hall -> Load Saved Game flow (jt918 -> jt579). Dropping it is the #100 play-entry gap (docs/play-entry-wall.md).
+- `fill_backdrop` — 'tuned interior tile' GEN.CTL fill standing in for the faithful piece-placed gen backdrop. Live under menu_run, jt574, cg_train_screen, cg_message, cg_draw_sheet; the Hall paints jt81() over it every frame (ab8a567). RE the gen piece placement, delete.
+- `port_draw_play_frame / port_hud_text_clut / port_draw_compass` — coarse dungeon-HUD chrome over-blit + text CLUT + compass (the #114 'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)
+- `port_run_encounter / port_play_message` — play-loop stand-ins over the faithful CODE 15-20 encounter chain (#115: l3b0e + CODE-20 L026e + l03f6).
+- `port_show_intro` — title/credits sequence, trace-matched but not lifted from CODE 22
+- `port_frame_load / port_always_load / port_menu_load / port_ui_group_base` — GLIB bootstrap wiring; faithful = jt464 + jt997/jt1014 plain-name loader -> flip the live loader to the FAR pool (groundwork b96a694)
+- `l309c_tile` — BACK ON THE WALL PATH (jt114): blit-time colour-band rebase (32/64/96) reproducing the GLIB colour-range allocator's relocate+remap (jt1069 ncopy) at blit time instead of load time; faithful = remap pixels at load, blit raw l309c/l2d4e.
+- `cg_remove_from_party / cg_draw_sheet` — Training Hall Remove/View CHROME over the faithful -27928 data model (#141); faithful chrome = L12a0 / jt904 (jt589 list + jt169 dialog) — UNBLOCKED now the faithful jt169 is live (#146).
+- `menu_run (+ CODE 22 menu chrome)` — main-menu driver mirrors the faithful jt315/jt313 build+chrome; low-distortion (no traceable Mac path draws per-command bars).
+- `DEAD (delete): port_menu_bar, menu_draw_plates, port_rest, port_begin_adventure, port_save_game, port_load_game, cg_add_character, jt169_reimpl, port_render_geo_*, port_render_topview, port_*_demo, port_l6234_verify` — no live callers as of 2026-07-01 (port_play_demo only under FRUA_MAP_DEMO/FRUA_3D_DEMO ifdefs; port_test_seed_design is live harness seeding, not play-path).
 
 ## The pending queue (most-called stubs + stand-ins + missing)
 
@@ -333,7 +334,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 262 pending (stub+standin+missing), by call count:
+Top 50 of 250 pending (stub+standin+missing), by call count:
 
 - jt45 (6 calls, CODE 6) — stub
 - jt68 (4 calls, CODE 6) — stub
@@ -378,11 +379,11 @@ Top 50 of 262 pending (stub+standin+missing), by call count:
 - jt125 (1 calls, CODE 6) — missing
 - jt126 (1 calls, CODE 6) — stub
 - jt136 (1 calls, CODE 7) — missing
-- jt138 (1 calls, CODE 7) — stub
-- jt139 (1 calls, CODE 7) — stub
-- jt140 (1 calls, CODE 7) — stub
-- jt143 (1 calls, CODE 7) — missing
-- jt144 (1 calls, CODE 7) — missing
 - jt146 (1 calls, CODE 7) — stub
 - jt154 (1 calls, CODE 7) — stub
+- jt170 (1 calls, CODE 7) — stub
+- jt177 (1 calls, CODE 7) — missing
+- jt203 (1 calls, CODE 7) — stub
+- jt208 (1 calls, CODE 7) — missing
+- jt219 (1 calls, CODE 7) — missing
 

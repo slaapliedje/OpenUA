@@ -268,34 +268,47 @@ STANDIN = {
 # for a faithful Mac path. Not keyed by a JT number, so they live here as a
 # static list for visibility (kept in sync with docs/stub-inventory.md).
 PORT_STANDINS = [
-    ("cg_add_character / cg_remove_from_party / cg_draw_sheet / cg_view_sheet",
-     "Training Hall Add/Remove/View screen CHROME (port paging UI). They now "
-     "drive -27928 correctly via jt590/cg_party_unlink (#141 data-model is "
-     "faithful), but the chrome is a stand-in for L12a0 / jt904 (jt589 list + "
-     "jt169 dialog). Also a cosmetic cg_draw_sheet body-icon repaint artifact."),
-    ("port_save_game / port_load_game (slot A driver)",
-     "fixed-slot save/load driver wrapping the faithful jt580/jt579 "
-     "serializers; bypasses the incomplete jt585/jt582 A-J slot pickers "
-     "(jt182/l005a stubs). On-disk format is the real one (#141)."),
-    ("port_load_savgame",
-     "obsolete heuristic SAVGAMA.CSV scanner; superseded by the faithful "
-     "jt579/jt577 reader — only the FRUA_CGCRASH harness still calls it."),
-    ("port_draw_play_frame",
-     "coarse HUD-chrome over-blit (the #114 'jank'); faithful composer is "
-     "jt304 -> L3fd8 (a few jt1001 FRAME pieces + jt216/L4430 panels)"),
+    ("port_load_savgame (BOOT AUTO-LOAD)",
+     "heuristic SAVGAMA.CSV scanner, still the LIVE boot party auto-load "
+     "(ua_main seed block) — the Mac only loads a party via the explicit "
+     "Play -> Hall -> Load Saved Game flow (jt918 -> jt579). Dropping it "
+     "is the #100 play-entry gap (docs/play-entry-wall.md)."),
+    ("fill_backdrop",
+     "'tuned interior tile' GEN.CTL fill standing in for the faithful "
+     "piece-placed gen backdrop. Live under menu_run, jt574, "
+     "cg_train_screen, cg_message, cg_draw_sheet; the Hall paints jt81() "
+     "over it every frame (ab8a567). RE the gen piece placement, delete."),
+    ("port_draw_play_frame / port_hud_text_clut / port_draw_compass",
+     "coarse dungeon-HUD chrome over-blit + text CLUT + compass (the #114 "
+     "'jank'); faithful composer is jt304 -> L3fd8 (a few jt1001 FRAME "
+     "pieces + jt216/L4430 panels)"),
+    ("port_run_encounter / port_play_message",
+     "play-loop stand-ins over the faithful CODE 15-20 encounter chain "
+     "(#115: l3b0e + CODE-20 L026e + l03f6)."),
+    ("port_show_intro",
+     "title/credits sequence, trace-matched but not lifted from CODE 22"),
+    ("port_frame_load / port_always_load / port_menu_load / port_ui_group_base",
+     "GLIB bootstrap wiring; faithful = jt464 + jt997/jt1014 plain-name "
+     "loader -> flip the live loader to the FAR pool (groundwork b96a694)"),
     ("l309c_tile",
-     "the dungeon 8bpp wall-tile channel with the per-set band rebase; "
-     "non-faithful colour model — see jt114 above (#129)"),
-    ("port_run_encounter / port_rest / port_play_message / port_begin_adventure",
-     "play-loop stand-ins over the faithful CODE 15-19 chain (l07dc -> jt918 "
-     "-> jt948); being replaced piecemeal"),
-    ("port_render_geo_* / port_render_topview",
-     "area-map stand-ins; faithful renderers are jt501/jt521 (now lifted) — "
-     "rewire the callers"),
-    ("port_show_intro / port_menu_bar / port_hud_text_clut",
-     "title/HUD chrome stand-ins, trace-matched but not lifted from CODE 22/21"),
-    ("port_*_demo (blit/play/sprite/view/wall) + port_l6234_verify",
-     "throwaway harness scaffolding, never on the faithful path"),
+     "BACK ON THE WALL PATH (jt114): blit-time colour-band rebase "
+     "(32/64/96) reproducing the GLIB colour-range allocator's "
+     "relocate+remap (jt1069 ncopy) at blit time instead of load time; "
+     "faithful = remap pixels at load, blit raw l309c/l2d4e."),
+    ("cg_remove_from_party / cg_draw_sheet",
+     "Training Hall Remove/View CHROME over the faithful -27928 data "
+     "model (#141); faithful chrome = L12a0 / jt904 (jt589 list + jt169 "
+     "dialog) — UNBLOCKED now the faithful jt169 is live (#146)."),
+    ("menu_run (+ CODE 22 menu chrome)",
+     "main-menu driver mirrors the faithful jt315/jt313 build+chrome; "
+     "low-distortion (no traceable Mac path draws per-command bars)."),
+    ("DEAD (delete): port_menu_bar, menu_draw_plates, port_rest, "
+     "port_begin_adventure, port_save_game, port_load_game, "
+     "cg_add_character, jt169_reimpl, port_render_geo_*, "
+     "port_render_topview, port_*_demo, port_l6234_verify",
+     "no live callers as of 2026-07-01 (port_play_demo only under "
+     "FRUA_MAP_DEMO/FRUA_3D_DEMO ifdefs; port_test_seed_design is live "
+     "harness seeding, not play-path)."),
 ]
 
 
