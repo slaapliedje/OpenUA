@@ -1,5 +1,49 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02h — EMPTY BATTLE SOLVED (60c7e63): jt127 .glb fallback + jt125 + l3c24
+
+The 2026-07-02g instrumentation plan ran and found the real roots — NOT
+jt542/l4f22/l0434 (all lifted + correct). Two stubs upstream:
+
+1. **jt127's .glb fallback was the deferred stub** (`*out = 0`, buffer
+   untouched). Stock monsters live in MONST.GLB (HEIRS.DSN only ships
+   custom MONST101/102/108/109), so the spawn's jt588 -> jt127("MONST",
+   11) parsed UNINITIALIZED STACK as a compressed record: garbage
+   side/status bytes -> jt490 counted 0 -> jt511 exited instantly (the
+   "empty battle" + the garbled portrait strip), or — memory-layout
+   depending — jt1171 ran wild -> bus error -> TOS bombs -> Pterm(-1)
+   (the "stuck PRESS RETURN modal" = a DEAD APP under a stale Videl
+   frame; diagnosed via `--trace gemdos` showing the Fopen MONST011.dat
+   double-fail then Pterm at ROM PC). Lifted the faithful Mac tail
+   (CODE 6 0x1d6..0x2ce) + **JT[125]** (CODE 6 0xa0, the item-extract
+   callback, full lift): "<prefix>.glb" via jt987, item num through
+   jt1013/jt1011/jt401 and the -31250/-31248/-31244/-31246 A5 block;
+   jt464 group-19 FC cache hit path; -31235 gates jt467 commit vs
+   jt462 rollback.
+
+2. **l3c24 (jt53's measure leaf) was a 0/0 stub** -> l0d2a rec[130] =
+   (0*2+0-2)&0xff = 254 -> body class 254&7 = **6**, past the 6-row
+   -27540 footprint table (rows 0..5 only — offset 72 IS -27468, the
+   id-table count; verified vs the expanded DATA image via
+   tools/datapool.py) -> l5d92 garbage steps -> jt515 probed off-map
+   (y=39!) -> feat==0 latch -> l41b2 rejected every cell -> ALL spawned
+   monsters dropped at l4af4's just-summoned arm. Full lift over
+   jt1005/jt1139 (both already lifted).
+
+**Hatari-verified**: spiders (types 17+64) spawn, PLACE on the combat
+field opposite the party in real DUNGCOM art, the round loop runs 15
+rounds at side counts 6/4, "CONTINUE BATTLE? YES/NO" + NO -> clean
+teardown -> walk loop (clock ticks 12:00->12:15 AM). Corrected stale
+"PROBE stub" claims: l490c/l3f24/l404e/l4af4 are all LIFTED.
+
+**NEXT (#115)**: the rounds are no-ops — the per-actor turn handlers
+are the last tier: **l5008 (CODE 13, monster AI turn)** and **l08b4
+(CODE 13, player action dispatch)** + the 13-command JT[3] dispatcher
+interiors. Also follow-ups: the l4af4 placement runs TWICE per battle
+(investigate the second pass), and the combat-entry harness keys need
+the FIFO (`hatari-event keypress <ascii>` / `keydown 28`+`keyup 28`
+for Return — XTEST Return does NOT reach SDL on a real :0 display).
+
 ## STATUS 2026-07-02g — jt512 = faithful rts; jt511 RECON complete (lift-ready)
 
 **jt512 (CODE 14+0x5d8e) is a bare `rts` on the Mac** — the port stub is
