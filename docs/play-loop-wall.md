@@ -1,6 +1,30 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
-## STATUS 2026-07-02 — #115 frontier LOCATED: the combat entry hangs at its setup stubs
+## STATUS 2026-07-02b — spawn chain LIFTED (62ebaaa); the level-10 stall is the BINDER wall path
+
+The four spawn-chain lifts landed (jt588 / l0cc6_c20 / l0d2a_c20 / l10a0 —
+see the commit for the per-function notes), plus two real bug fixes found
+by driving the combat cell:
+1. **l3b0e read the prompt id big-endian** — the Mac assembles it byte-wise
+   LITTLE-endian ((ev[9]<<8)+ev[8], asm 0x3b70); id 39 became 10239.
+2. **cw_wallfile_load OOM'd on two-wall-file levels** — level 10 mixes
+   8X8DB (sets 1/2) + 8X8DC (set 10), the sibling group stayed bound so
+   the orphans-only l11ca couldn't reclaim it; fixed with the stage-4
+   sibling dispose. Level 10's 3D view now RENDERS.
+
+**REMAINING STALL (the next lift): the -27894 BINDER wall path.** After
+the first compose, the flow stalls before l709e/l63c0 (probed): the
+faithful jt114 blit chain (l6eea binders → jt468/l37aa re-resolve per
+blit) has the SAME two-file contention — with a 450K pool, re-binding
+8X8DB evicts 8X8DC and vice-versa PER BLIT (a quasi-infinite compose,
+frame pixel-frozen, no exception, one "Out of FAR memory!" logged).
+Options: (a) caller-driven dispose at the binder level with per-SET
+sub-loads (the Mac's l33ac spec "8x8d%c1" + the per-set 8x8dNN files
+seen in BEOWOLF.DSN suggest the Mac loads per-set SUB-libraries, not the
+whole 296K file — investigate first); (b) pool-size the two files.
+NOTE: the spawn chain is runtime-unverified until this lands — the
+harness repro is one command (see above), and DBG probes at l63c0/l709e/
+the combat entry pinpoint progress instantly.
 
 Drove a real type-10 combat headless via the NEW test harness (build
 `make EXTRA_CFLAGS="-DFRUA_ENTRY_LEVEL=10 -DFRUA_ENTRY_COL=4 -DFRUA_ENTRY_ROW=12
