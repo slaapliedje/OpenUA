@@ -1937,7 +1937,8 @@ static int   jt315(void);
 /* Intra-CODE-6 helpers, still to lift. */
 static void  l0444(void);       /* CODE 6 + 0x0444 — start.dat design-name
                                  * reader (lifted next to its jt128 writer) */
-static void  l3918(long a)      { PROBE("l3918"); }     /* CODE 6 + 0x3918 */
+/* l3918 = JT[120] (the viewport reskin, CODE 6+0x3918) — full lift far below; repointed. */
+static void  jt120(void *arg);
 static void  l4d98(void);       /* CODE 6 + 0x4d98 — lifted near EOF (the
                                  * game-session init; needs the GLIB tier) */
 static void  l5888(short a)     { PROBE("l5888"); }     /* CODE 6 + 0x5888 */
@@ -2141,7 +2142,7 @@ int ua_main(short arg1, long arg2)
 		jt919();
 	l6ada(0);
 	jt977();
-	l3918(0L);
+	jt120((void *)0);
 	jt989(jt11_handler, 1, "Pod", 83);
 	jt1130();
 	g_24138 = 0;
@@ -4009,7 +4010,7 @@ static void  l338c(short mode);
 static void  l33ac(const char *name, short kindB, short modeB, short subB,
                    void **slotpp);
 static void  l38d0(short flag);
-static void  l3918(long a);
+
 static void  jt174(void);
 static void  l31dc(void *pp);
 static void  jt103(short top, short left, short right, short bottom);
@@ -4063,7 +4064,7 @@ static void jt81(void)
 		jt1001((short)8000, (short)8000, (short)1, (short)4);
 	l384c((short)0, (short)0,
 	      (short *)(uintptr_t)g_a5_long(-13044));
-	l3918(0L);
+	jt120((void *)0);
 	jt174();
 	l31dc((void *)&g_a5_long(-13044));
 }
@@ -43700,9 +43701,12 @@ static void jt553(long m, short v)
 	}
 }
 
-/* Other CODE-14 leaves of l56d8 still to be lifted — PROBE stubs. */
+/* Other CODE-14 leaves of l56d8 still to be lifted — PROBE stubs.
+ * (L0660 and L2d48 turned out to be twins of full lifts: l660 = the
+ * attacks-of-opportunity pass, jt544 = the side-morale value —
+ * repointed per docs/stub-alias-audit.md.) */
 static void          l61ae(void)                 { PROBE("L61ae"); }                     /* CODE 14 — field commit */
-static void          l0660(long m)               { PROBE("L0660"); (void)m; }             /* CODE 14 — post-move update */
+static void          l660(long m);               /* CODE 14+0x0660 — attacks of opportunity (defined below) */
 
 /* CODE 14+0x74c — the MOVE COMMIT (jt551), run from l56d8 after a step is
  * accepted. Faithful full lift. Reads the actor's current cell out of the
@@ -43770,7 +43774,7 @@ static void jt551(long m, short v)
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
 	mc[20] = 0;
 	jt52(11);
-	l0660(m);
+	l660(m);
 	if (actor[382] == 0 || jt13(m) != 0) {
 		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
 		mc[8] = 0;
@@ -43779,7 +43783,7 @@ static void jt551(long m, short v)
 
 /* Forward decl — l2484 is defined later (an l5b9a dep stub). */
 static unsigned char l2484(long m, short a, short b);
-static unsigned char l2d48(long m)               { PROBE("L2d48"); (void)m; return 0; }  /* CODE 14 — flee-threat count */
+/* l2d48 = JT[544] (the side-morale/best-defender value) — full lift above; repointed. */
 
 /* CODE 14+0xea0 — the FLEE resolution (jt535), called from l56d8's panicked
  * contact branch. Faithful full lift. Escapes outright when nothing blocks the
@@ -43801,7 +43805,7 @@ static unsigned char jt535(long m)
 		done = 1;                       /* unblocked retreat */
 	} else {
 		thresh = (unsigned char)((jt37(m) & 0xff) >> 1);
-		val = l2d48(m);
+		val = jt544(m);
 		if (val < thresh)
 			done = 1;
 		else if (val == thresh && jt870(1, 2) == 1)
@@ -49624,24 +49628,19 @@ static short l1ad8(void *ev_v)
 	return (short)result;
 }
 
-/* CODE 14 locals for jt555 — leaf PROBE stubs pending their own
- * lifts: L7894 = the facing direction from one combatant to
- * another (0..7), L14bc = the melee attack round (the big strike
- * resolver), L2b24 = the missile/thrown strike. */
-static unsigned char l7894(long from, long to)
-{
-	PROBE("l7894");
-	(void)from; (void)to;
-	return 0;
-}
+/* L7894 (CODE 14+0x7894) = JT[529], the combatant-to-combatant facing
+ * bearing (0..7 via l7638) — already lifted as jt529 (the alias-trap
+ * class, docs/stub-alias-audit.md). The old stub returned 0: defenders
+ * never turned to face attackers, missile sprites always bound
+ * direction 0, and the l29fc backstab behind-check never fired.
+ * Callers repointed. */
 
 /* L29fc (CODE 14 + 0x29fc) — backstab eligibility. True when the attacker is a
  * backstab-capable class (jt40 slot 6 non-zero) wielding a backstab weapon kind
  * (item [40] in {3,4,13,17,18,19,63,67}, or unarmed), AND the defender is a
  * valid behind-target: has >1 attack ([64]->[17] > 1), is adjacent
  * (jt494 < 2), is not already engaged ([130]&127 <= 1), and its facing
- * ([64]->[11]) matches the attacker's bearing (l7894 — currently a stub
- * returning 0, so the behind-check rarely fires until l7894 lands). */
+ * ([64]->[11]) matches the attacker's bearing (jt529). */
 static unsigned char l29fc(long atk, long def) __attribute__((unused));
 static unsigned char l29fc(long atk, long def)
 {
@@ -49671,7 +49670,7 @@ static unsigned char l29fc(long atk, long def)
 		return 0;
 	if ((((unsigned char *)(uintptr_t)def)[130] & 127) > 1)
 		return 0;
-	if (dsub[11] != l7894(atk, def))
+	if (dsub[11] != jt529(atk, def))
 		return 0;
 	return 1;
 }
@@ -49924,7 +49923,7 @@ static void l14bc(long atk, long def, short a, void *out, long ammo)
 		unsigned char *dsub = (unsigned char *)(uintptr_t)
 		    *(long *)(void *)(defr + 64);
 
-		if (dsub[17] > 1 && l7894(atk, def) == dsub[11] && dsub[20] > 4)
+		if (dsub[17] > 1 && jt529(atk, def) == dsub[11] && dsub[20] > 4)
 			flank = 1;
 		if (flank)
 			tmp24 = 1;
@@ -50005,7 +50004,7 @@ static void l14bc(long atk, long def, short a, void *out, long ammo)
 static void l2b24(long atk, long def, long item)
 {
 	unsigned char *it = (unsigned char *)(uintptr_t)item;
-	unsigned char facing = l7894(atk, def);
+	unsigned char facing = jt529(atk, def);
 	unsigned char animMax = 1, delay = 10;
 	unsigned char atkX, atkY, defX, defY;
 
@@ -50082,7 +50081,7 @@ static void jt555(long rec_l, long ent_l, short a, long b, void *out)
 	    (unsigned char)(g_a5_byte(-22721) + 15);
 
 	if (dsub[17] < 2 && (a & 0xff) == 0) {
-		dir = l7894(ent_l, rec_l);
+		dir = jt529(ent_l, rec_l);
 		dsub[11] = (unsigned char)((dir + 4) & 7);
 	} else if (l6554(ent_l, (short)0)) {
 		dir = dsub[11];
@@ -50092,7 +50091,7 @@ static void jt555(long rec_l, long ent_l, short a, long b, void *out)
 	if (l6554(ent_l, (short)0))
 		jt523(ent_l, (short)dir, (short)0, (short)0);
 
-	dir = l7894(rec_l, ent_l);
+	dir = jt529(rec_l, ent_l);
 	jt38(rec_l);
 	jt523(rec_l, (short)dir, (short)1, (short)0);
 	*(long *)(asub + 12) = ent_l;
@@ -53680,13 +53679,13 @@ static short jt953(void)
 /* JT[79] (CODE 6+0x69f8) — the non-combat record-window repaint
  * (jt595's else arm).  PROBE stub pending its own lift. */
 /* JT[79] (CODE 6+0x69f8) — close the play screen's paint pass:
- * L670c, L66e6(2), L3918(0). Full lift (l3918 is a leaf stub). */
+ * L670c, L66e6(2), JT[120](0). Full lift. */
 static void jt79(void)
 {
 	PROBE("jt79");
 	l670c();
 	l66e6((short)2);
-	l3918(0L);
+	jt120((void *)0);
 }
 
 /* The CODE 16 spell-list dialog cluster. Data model (all A5 slots):
@@ -58057,7 +58056,7 @@ static void jt1022(short group, short item, long newsize)
 }
 
 /* JT[83] (CODE 6+0x6908) — jt79's sibling paint-pass close with
- * count 16: l670c, l66e6(16), l3918(0). Full lift (the 466-byte
+ * count 16: l670c, l66e6(16), jt120(0). Full lift (the 466-byte
  * size estimate measured the previous function). */
 static void jt83(void) __attribute__((unused));
 static void jt83(void)
@@ -58065,7 +58064,7 @@ static void jt83(void)
 	PROBE("jt83");
 	l670c();
 	l66e6((short)16);
-	l3918(0L);
+	jt120((void *)0);
 }
 
 /* JT[960] (CODE 21+0x1a34) — the roster-cycle sound/feedback tick.
@@ -61276,7 +61275,7 @@ static void jt49(short frame)
 		l3804((short)8, (short)8, frame, (short)0, ptr);
 	else
 		l3880((short)3, (short)3, frame, ptr);
-	l3918((long)(uintptr_t)ptr);
+	jt120(ptr);
 	l3eea(ptr);
 	l3994();
 }
