@@ -1,5 +1,21 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03p — jt539 TARGET COMMIT verified: the melee strike lands
+
+Follow-up to the 03o lift. Reproduced a MELEE-range test (DELAY x8 so
+the spiders close): on LADY ILLIS's turn with a spider ADJACENT, AIM ->
+NEXT (the info panel shows ENORMOUS SPIDER's card, and the TARGET verb
+now APPEARS — r >= cost) -> TARGET. The turn advances Illis -> CLARANA,
+which only happens when l302c runs jt555 and the strike ends the turn
+(l26ea). So the whole jt539 commit path — pick -> l302c mode-1 strike
+setup -> jt555 executor -> turn end — is LIVE for melee. The faithful
+range gate re-confirmed twice: TARGET is absent for Illis's LONG SWORD
+and Clarana's MACE against NON-adjacent spiders, present only when
+adjacent. The CAST first-pick rides the identical jt539 path; verified
+the picker's click HIT-TEST (first double-click moved the highlight
+BLESS->SILENCE) but the commit->announce needs a reliable click (harness
+mouse flaky) or a slow-spell QUICK path (already green from the AI side).
+
 ## STATUS 2026-07-03o — jt539 LIFTED: interactive targeting LIVE (AIM verb bar + crosshair)
 
 The 03n card is executed. jt539 (CODE 14+0x3b6c) is a faithful full
