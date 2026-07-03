@@ -44492,6 +44492,22 @@ static void jt511(void)
 	g_a5_long(-24070) = (long)(uintptr_t)jt538;
 	jt542();
 	l4f22();
+#ifdef FRUA_AUTOWIN
+	/* Test harness (off by default): kill the monster side at entry so
+	 * the fight resolves instantly and the post-combat chain (jt930 ->
+	 * l33d8 -> l2fd4/l31e0 -> l3806_c12 -> l3d1e) can be exercised
+	 * headless. Matches jt39's death teardown (status 5, out of
+	 * combat, 0 HP) and recounts the sides. */
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+		unsigned char *r = (unsigned char *)(uintptr_t)m;
+		if (r[95] == 1) {
+			r[94]  = 5;
+			r[382] = 0;
+			r[395] = 0;
+		}
+	}
+	jt490();
+#endif
 	if (g_a5_byte(-25298) == 0 || g_a5_byte(-25297) == 0)
 		done = 1;
 	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
@@ -52913,7 +52929,16 @@ static short jt182(const char *p1, long p2, short arg3, short arg4)
 
 	PROBE("jt182");
 
-	if (jt396((const char *)(uintptr_t)p2, (const char *)g_a5_14644) != 0) {
+	/* Mac L34f0 0x34f4 loads the LONG at -14644 (the cached prompt-string
+	 * POINTER), not the slot address — a caller passing g_a5_long(-14644)
+	 * as p2 therefore compares the string to itself and takes the fast
+	 * "Press Return" path (l1806, button shortcut 64). The old lift used
+	 * the g_a5_14644 macro (= the slot ADDRESS), so the compare never
+	 * matched and every such alert (e.g. l3806_c12's XP page) fell to the
+	 * l206e modal with a non-Return 'P' shortcut nothing could dismiss.
+	 * Match jt148's faithful spelling. */
+	if (jt396((const char *)(uintptr_t)p2,
+	          (const char *)(uintptr_t)g_a5_long(-14644)) != 0) {
 		l1806((short)(signed char)(arg4 & 0xff));
 		g_a5_24139 = 0;
 		return (short)13;
