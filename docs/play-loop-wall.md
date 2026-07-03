@@ -1,5 +1,20 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02l — the mid-fight stall NAMED: the AI spell-cast payload (CODE 16)
+
+Post-jt182-fix retest: QUICK turns now flow end to end — l0d16 pick ->
+l1842 AI-flip -> l5008 -> l6454 setup -> l5b9a ATTACK with its jt476
+animation beats (100/20x15/400) -> next actor. The remaining natural-end
+blocker is ONE reproducible state: when the AI mage (STRANILLA) takes a
+forced CAST turn, the card paints "CASTS A SPELL", jt476(1000) dwells,
+then the flow disappears into jt599's spell PAYLOAD (CODE 16) and never
+returns — no key consumption (Enter/ESC dead), no probed function hit.
+The CODE 16 handlers are breadth-first lifted and runtime-untested
+(docs/code16-wall.md); this is their first live exercise failing.
+NEXT CARD: probe jt599's dispatch (which effect id) + the handler's
+interior; suspects = the target/aim loop or the l6114 shared core.
+Until then FRUA_AUTOWIN covers fight-end testing.
+
 ## STATUS 2026-07-02k — full combat loop CLOSES (e53cd1c): XP/treasure + jt182 fix
 
 The XP/treasure chain (0ab0d8d: l33d8+l2fd4+l31e0+l3806_c12+l3d1e+l2504)
