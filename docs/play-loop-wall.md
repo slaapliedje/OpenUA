@@ -1,5 +1,23 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03 — the ranged-turn wait NARROWED to the attack-resolution chain
+
+Two probe rounds after the mc[0] fix. The trail: l5b9a loops ~19 passes
+with -22628=0 (no attack line established -> the iter-guard bails to
+l6042/l6454), then a pass reaches the hit: run A hung INSIDE jt555
+(entered, never returned — before the jt476(100) beat); run B passed
+straight through jt555 (in/A/B/l14bc/C all fired, via the l302c
+single-target dispatch, NOT l5b9a's L5fe8 site) and hung AFTER it in
+the unprobed caller tail. So the hang MOVES with the dice but lives in
+the attack-resolution chain: jt555's prelude / l14bc's swing loop /
+l302c's tail. NEXT SESSION: probe l14bc's interior (the per-swing
+loop) + l302c after-jt555 + jt523/l6836's animation waits; also note
+l5b9a spends most passes with NO attack line (-22628 stays 0 — jt554
+LOS failing? the l713c reach test?) which is why fights crawl.
+
+The visible state at the wait: bow-actor card + the garbled CPIC
+target strip, keys dead, pump alive (dwell-style).
+
 ## STATUS 2026-07-02m — the CAST hang SOLVED (aa97fbd): mc[0] byte-vs-word gates
 
 The jt599(0) probe run pinned it: BOTH forced-action gates (l08b4 +
