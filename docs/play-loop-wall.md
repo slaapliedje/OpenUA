@@ -1,5 +1,42 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03i — jt501 arrow crash SOLVED: jt502's "l1888" stub WAS jt495
+
+The 03h crash is fixed and Hatari-verified end-to-end. Root cause: the
+classic lxxxx/JT-alias trap (docs/lxxxx-jt-aliases.md line: `l1888 =
+jt495`). jt502 (JT[502], CODE 13+0x2b2c — the missile-glyph binder run
+by l2b24's type-30 arrow arm) was lifted against a fresh PROBE stub
+`l1888`, but L1888 IS the already-lifted jt495 (the boot.c jt495 header
+even says "= L1888"). So the arrow sprite was never copied into TILE-
+registry slot 77, and jt501's first l19a0 blit read the EMPTY slot ->
+bus error -> GEM desktop. Fix = delete the stub, repoint jt502's three
+calls to jt495 (arg-for-arg identical; the seq/negb commit flag is 1).
+
+Suspect #1 from 03h (the -27866 source) was DISPROVEN by the Mac asm:
+jt501 itself pushes a5@(-27866) at 0x1d5c/0x2174, and l4d98 composes
+that registry at boot (l36e0(81) + 2x23 COMSPR jt111 loads, slots
+15..37/53..75); combat binds 76..80 per-shot via jt495/jt497/jt502.
+The port jt501/l19a0/jt111/jt119/jt122 bodies all check out faithful
+against CODE 13 0x1a24-0x21ea (read end-to-end this session).
+
+VERIFIED (FRUA_ENTRY level-10 harness, FIFO drive, probe trail then a
+clean build): arrows fly the full Bresenham walk ("J501 final/out",
+5+ complete l2b24 flights), rounds advance through the whole party,
+spiders close + attack lines resolve ("STRANILLA ATTACKS GIANT SPIDER
+AND MISSES"), the party WINS -> "CONTINUE BATTLE?" -> 658 XP + "THE
+PARTY HAS FOUND TREASURE!" -> the full treasure screen (illustration,
+roster, VIEW/TAKE/POOL/EXIT) — the previously-untested Slice-B renders.
+
+Leftovers spotted (small, separate cards):
+- Intermittent: one probe run stalled after step-0's jt476 return
+  (trail ended "waited 0"; the identical rerun sailed through). Keys
+  pressed DURING a flight get eaten by jt476's jt1067 idle pump —
+  likely the same class as the old "QUICK stall". Watch for it.
+- The verb bar can paint "QUICK" twice (highlight ghost at the bar's
+  right edge) during auto-rounds.
+- The XP/treasure page shows a leftover projectile sprite mid-page
+  (the jt122 restore skipped when the fight ends mid-walk residue).
+
 ## STATUS 2026-07-03h — the QUICK "round-freeze" = a CRASH in jt501 (archer's arrow)
 
 USER INSIGHT cracked it: the garbled boxes at the top of the frozen frames

@@ -51007,18 +51007,12 @@ static void l48f4(long member, long str, short effect)
 	}
 }
 
-/* L1888 (CODE 13+0x1888) — select the projectile sprite frame.
- * Leaf PROBE stub pending its own lift. */
-static void l1888(short frame, short bank, short z, short mirror)
-{
-	PROBE("l1888");
-	(void)frame; (void)bank; (void)z; (void)mirror;
-}
-
-/* JT[502] (CODE 13+0x2b2c) — set the projectile-sprite trail for
- * direction `dir`, full lift over the L1888 leaf stub: diagonal
- * directions (jt472) pick bank 1/0 with the mirror flag for 5/7;
- * cardinals decompose dir into frame (low 2 bits + kind) and bank
+/* JT[502] (CODE 13+0x2b2c) — bind the projectile sprite for direction
+ * `dir` into registry glyph 77 via jt495 (L1888 IS JT[495], see
+ * docs/lxxxx-jt-aliases.md — an earlier lift stubbed it as "l1888",
+ * leaving slot 77 empty and bus-erroring jt501's first blit): diagonal
+ * directions (jt472) pick registry row 1/0 with the commit flag for
+ * 5/7; cardinals decompose dir into actor (low 2 bits + kind) and row
  * (dir >> 2). */
 static short jt472(short v);
 static void jt502(short dir, short kind)
@@ -51028,13 +51022,13 @@ static void jt502(short dir, short kind)
 	PROBE("jt502");
 	if (jt472((short)d)) {
 		if (d == 3 || d == 5)
-			l1888((short)((unsigned char)kind + 1), (short)1,
-			      (short)0, (short)((d == 5) ? -1 : 0));
+			jt495((short)((unsigned char)kind + 1), (short)1,
+			      (short)0, (short)((d == 5) ? 1 : 0));
 		else
-			l1888((short)((unsigned char)kind + 1), (short)0,
-			      (short)0, (short)((d == 7) ? -1 : 0));
+			jt495((short)((unsigned char)kind + 1), (short)0,
+			      (short)0, (short)((d == 7) ? 1 : 0));
 	} else {
-		l1888((short)((d & 3) + (unsigned char)kind),
+		jt495((short)((d & 3) + (unsigned char)kind),
 		      (short)(d >> 2), (short)0, (short)0);
 	}
 }
