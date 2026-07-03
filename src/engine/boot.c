@@ -57855,20 +57855,24 @@ static void l0572_c19(short a)
 	char  buf[58];
 	short i, col;
 
+	short colour[7];
+
 	PROBE("l0572");
-	(void)a;
+	for (i = 0; i <= 6; i++)
+		colour[i] = 7;
+	colour[(unsigned char)a] = 11;          /* highlight the edited field */
 	jt94((short)1, (short)17, (short)7, (short)0, "%s",
 	     ua_strs_at(0x5888) /* "Rest Time:" */);
 	col = 11;
 	for (i = 4; i >= 3; i--) {
 		jt913((short)g_a5_word(-23214 + i * 2), buf);
-		jt94((short)(col + 1), (short)17, (short)7, (short)0, "%s", buf);
+		jt94((short)(col + 1), (short)17, colour[i], (short)0, "%s", buf);
 		jt94((short)(col + 3), (short)17, (short)7, (short)0, "%s",
 		     ua_strs_at(0x5894) /* ":" */);
 		col += 3;
 	}
 	jt913((short)(g_a5_word(-23210) * 10 + g_a5_word(-23212)), buf);
-	jt94((short)(col + 1), (short)17, (short)7, (short)0, "%s", buf);
+	jt94((short)(col + 1), (short)17, colour[2], (short)0, "%s", buf);
 }
 
 /* L07e6 (CODE 19+0x07e6) — the per-tick healing pass: every 288 ticks (a
@@ -57901,9 +57905,114 @@ static void l07e6(short interactive)
 
 /* l035c = JT[914] (advance world time) — full lift below; jt915 repointed. */
 static void          jt914(short count, short idx);
-static void          l0cb8(void)               { PROBE("l0cb8"); }
-static unsigned char l0694(void)               { PROBE("l0694"); return 1; }
-static unsigned char l0e3e(short zone)         { PROBE("l0e3e"); (void)zone; return 0; }
+static void          l0cb8(void);              /* defined after l0876/l0980 below */
+
+/* L0694 (CODE 19+0x0694) — the interactive "Rest Time:" editor jt915 runs
+ * before an interactive rest: the jt182 verb bar (prompt -13952, verbs
+ * -13808) over the clock line, arrow keys 132/136 map to Subtract/Add,
+ * verbs select the edited field (1 Days / 2 Hours / 3 Minutes) or adjust
+ * it (4 Add: minutes +5 or field +1; 5 Subtract via l0418), 0 = Done.
+ * Any unmapped key / Esc exits with 0 (cancel the rest). Faithful lift. */
+static unsigned char l0694(void)
+{
+	unsigned char result = 0;      /* fp@(-1) */
+	unsigned char unit = 2;        /* fp@(-4): 2 min / 3 hr / 4 day */
+	unsigned char sel;             /* fp@(-2) */
+
+	PROBE("l0694");
+	g_a5_byte(-24140) = 1;
+	do {
+		l0572_c19((short)unit);
+		jt179((short)6);
+		sel = (unsigned char)jt182(
+		    (const char *)(uintptr_t)g_a5_long(-13952),
+		    g_a5_long(-13808), (short)1, (short)0);
+
+		if (g_a5_byte(-24139) != 0) {
+			switch (sel) {          /* JT[3] @0x06f2 min130 max136 */
+			case 136: sel = 4; break;       /* right = Add */
+			case 132: sel = 5; break;       /* left = Subtract */
+			case 130: case 134:
+				sel = 0xff; break;      /* ignored */
+			default:  sel = 6; break;       /* exit-cancel */
+			}
+		}
+
+		switch (sel) {                  /* JT[3] @0x072e 0..5 */
+		case 0: result = 1; break;      /* Done */
+		case 1: unit = 4; break;        /* Days */
+		case 2: unit = 3; break;        /* Hours */
+		case 3: unit = 2; break;        /* Minutes */
+		case 4:                         /* Add */
+			if (unit == 2)
+				g_a5_word(-23212) += 5;
+			else
+				g_a5_word(-23214 + (long)unit * 2) += 1;
+			l032c();
+			break;
+		case 5:                         /* Subtract */
+			if (unit == 2)
+				l0418((short)5, (short)1);
+			else
+				l0418((short)1, (short)unit);
+			l032c();
+			break;
+		default: break;
+		}
+	} while (sel != 0 && sel != 6);
+	return result;
+}
+
+/* L0e3e (CODE 19+0x0e3e) — the random-encounter roll for rest `zone`.
+ * Accumulates 5 minutes into -27984 per call; binds the zone's event
+ * record (-13030 = -13038 + (event-1)*20, ctx saved/restored via
+ * -13026). z[49] >= 128 forces an immediate l694e validity check; else
+ * for each full jt1180(z[46]) period accumulated, roll jt870(1,100)
+ * against the z[49] chance and l694e-check on success. Returns 1 when
+ * an encounter fires (jt915 then launches the event). Faithful lift. */
+static unsigned char l0e3e(short zone)
+{
+	const unsigned char *z =
+	    (const unsigned char *)(uintptr_t)(g_a5_long(-12300)
+	                                       + (long)zone * 4);
+	unsigned char hit = 0;
+	long          saved;
+	short         n;
+
+	PROBE("l0e3e");
+	g_a5_word(-27984) += 5;
+	saved = g_a5_long(-13030);
+	g_a5_long(-13026) = saved;
+	g_a5_long(-13030) = g_a5_long(-13038)
+	    + ((long)z[48] - 1) * 20;
+
+	if (z[49] >= 128) {
+		if (l694e((short)z[48], (short)1) != 0) {
+			hit = 1;
+			goto out;
+		}
+	}
+	if (z[49] == 0 || z[48] == 0)
+		goto out;
+
+	n = (short)((unsigned short)g_a5_word(-27984)
+	            / (unsigned short)jt1180(
+	                  *(const short *)(const void *)(z + 46)));
+	while (n > 0 && hit == 0) {
+		short roll = jt870((short)1, (short)100);
+
+		if (roll <= (short)z[49]) {
+			if (l694e((short)z[48], (short)1) != 0)
+				hit = 1;
+		}
+		n--;
+		g_a5_word(-27984) = (short)(g_a5_word(-27984)
+		    - jt1180(*(const short *)(const void *)(z + 46)));
+	}
+out:
+	g_a5_long(-13030) = g_a5_long(-13026);
+	return hit;
+}
 
 /* L0980 (CODE 19+0x0980) — scroll-learn worker (memorize from a readied
  * scroll during rest). Leaf PROBE stub returning 0 (nothing scribed),
@@ -57990,6 +58099,37 @@ static void l0d86(void *tickptr)
 		lvl = l0980(m, &out);         /* scroll path first */
 		if (lvl == 0)                 /* Mac gates on L0980's RETURN */
 			lvl = l0876(m, &out); /* else the slot-commit path */
+		g_a5_buf(-23201)[idx] = (unsigned char)(lvl * 3);
+	}
+}
+
+/* L0cb8 (CODE 19+0x0cb8) — the per-spell memorize PACING tick. Each rest
+ * tick counts the per-member -23201 flag down; when it reaches 0 and the
+ * member's rec[126] initial delay has elapsed, PEEK the next pending
+ * spell's level (l0980 scroll path first, else l0876 in report mode —
+ * *out stays 0 so nothing commits) and re-arm the flag to level*3 ticks.
+ * Spells thus memorize one at a time, deeper levels slower. Faithful. */
+static void l0cb8(void)
+{
+	long  m;
+	short idx = 1;
+
+	PROBE("l0cb8");
+	for (m = g_a5_long(-27928); m != 0;
+	     m = *(long *)(uintptr_t)m, idx++) {
+		unsigned char out, lvl;
+
+		if (g_a5_buf(-23201)[idx] > 0)
+			g_a5_buf(-23201)[idx]--;
+		if (g_a5_buf(-23201)[idx] != 0)
+			continue;
+		if (((unsigned char *)(uintptr_t)m)[126] != 0)
+			continue;
+
+		out = 0;
+		lvl = l0980(m, &out);
+		if (lvl == 0)
+			lvl = l0876(m, &out);
 		g_a5_buf(-23201)[idx] = (unsigned char)(lvl * 3);
 	}
 }
@@ -58259,9 +58399,33 @@ static void jt83(void)
 
 /* JT[960] (CODE 21+0x1a34) — the roster-cycle sound/feedback tick.
  * Leaf PROBE stub pending its own lift. */
+/* JT[960] (CODE 21+0x1a34) — move the CURRENT member one slot LATER in
+ * the -27928 marching order (swap with its successor); the LAST member
+ * wraps to the head. The ORDER screen's other arrow direction, and the
+ * jt156 roster-click cycle helper. Faithful full lift. */
 static void jt960(void)
 {
+	long cur = g_a5_long(-27932);
+	long p, nxt;
+
 	PROBE("jt960");
+	p = g_a5_long(-27928);
+	if (p != cur)
+		while (*(long *)(uintptr_t)p != cur)
+			p = *(long *)(uintptr_t)p;
+	nxt = *(long *)(uintptr_t)cur;
+	if (nxt == 0) {                              /* last -> becomes head */
+		*(long *)(uintptr_t)cur = g_a5_long(-27928);
+		g_a5_long(-27928) = cur;
+		*(long *)(uintptr_t)p = 0;
+	} else {
+		*(long *)(uintptr_t)cur = *(long *)(uintptr_t)nxt;
+		if (g_a5_long(-27928) == cur)
+			g_a5_long(-27928) = nxt;
+		if (p != cur)
+			*(long *)(uintptr_t)p = nxt;
+		*(long *)(uintptr_t)nxt = cur;
+	}
 }
 
 /* L15ae (CODE 7+0x15ae) — mode-12 post-pick hook. Leaf PROBE stub
@@ -67371,14 +67535,83 @@ static void l032c(void)
 	}
 }
 
-/* CODE 19+0x006c (local, ~700B) — the post-advance side effects
- * (timed-effect expiry over the party).  PROBE stub pending its own
- * lift. */
+/* L006c (CODE 19+0x006c) — the post-advance TIMED-EFFECT expiry. Convert
+ * (count, idx) into minutes via the -23228 radixes, then in <=10-minute
+ * steps walk each flagged member (-5876[i]) and their effect list at
+ * rec+4 (node: +0 effect id, +2 duration word, +6 next): tick durations
+ * down, expiring through jt878 when a duration runs out; duration 0 =
+ * permanent, skipped. Outside camp mode all 69 member flags set first;
+ * in camp mode it returns early unless some member is flagged (the
+ * rest loop re-flags members whose effects are still live). Faithful. */
 static void l006c(short count, short idx)
 {
+	unsigned char *hdr = (unsigned char *)g_a5_28006;
+	unsigned short mins;
+	short          u;
+
 	PROBE("L006c");
-	(void)count;
-	(void)idx;
+	if (g_a5_byte(-27990) != 2) {
+		jt399((void *)&g_a5_byte(-5876), (short)69, (short)1);
+	} else {
+		short i = 1;
+
+		for (;;) {
+			i++;
+			if (g_a5_buf(-5876)[i] != 0)
+				break;
+			if (hdr == NULL || (unsigned char)i > hdr[32])
+				break;
+		}
+		if (g_a5_buf(-5876)[i] == 0)
+			return;
+	}
+
+	mins = (unsigned char)count;
+	for (u = (short)(unsigned char)idx; u > 1; u--)
+		mins = (unsigned short)(mins
+		    * (unsigned short)g_a5_word(-23228 + (long)(u - 1) * 2));
+
+	while (mins > 0) {
+		unsigned char step =
+		    (mins > 10) ? 10 : (unsigned char)mins;
+		short mi = 1;
+		long  m;
+
+		for (m = g_a5_long(-27928); m != 0;
+		     m = *(long *)(uintptr_t)m, mi++) {
+			long e;
+
+			if (g_a5_buf(-5876)[mi] == 0)
+				continue;
+			g_a5_buf(-5876)[mi] = 0;
+
+			e = *(long *)(uintptr_t)(m + 4);
+			while (e != 0) {
+				unsigned char *en =
+				    (unsigned char *)(uintptr_t)e;
+				unsigned short dur =
+				    *(unsigned short *)(void *)(en + 2);
+
+				if (dur == 0) {          /* permanent */
+					e = *(long *)(void *)(en + 6);
+					continue;
+				}
+				if ((unsigned short)step < dur) {
+					*(unsigned short *)(void *)(en + 2) =
+					    (unsigned short)(dur - step);
+					g_a5_buf(-5876)[mi] = 1;
+					e = *(long *)(void *)(en + 6);
+				} else {
+					long nxt = *(long *)(void *)(en + 6);
+
+					jt878(m, (short)en[0], e);
+					g_a5_buf(-5876)[mi] = 1;
+					e = nxt;
+				}
+			}
+		}
+		mins = (unsigned short)((mins > 10) ? mins - 10 : 0);
+	}
 }
 
 /* JT[914] (CODE 19+0x035c) — ADVANCE GAME TIME: copy the game
@@ -67453,21 +67686,338 @@ static void l66cc(void *ev_v)
 	*p = (ev[7] & 4) ? 0 : 1;
 }
 
-/* --- CODE-21 ENCAMPMENT (camp/rest) subsystem — slice 1 --------------------
+/* --- CODE-21 ENCAMPMENT (camp/rest) subsystem — slices 1..7 ----------------
  * jt957 is the camp-menu dispatcher (reached from the Encamp command via
- * l473e). The five gameplay actions are deep sub-menus of their own and are
- * deferred as PROBE stubs for follow-up slices (see docs/code21-camp-wall.md):
- *   l038a  — per-member recompute (walks -27928 calling L026e_c21 -> jt638)
- *   l1850  — camp action 1 (~115 ln)        l09ea — camp action 2 (~65 ln)
- *   l1e44  — camp action 3, a 5-option menu  l2d7e — camp action 4 (~146 ln)
- * jt904 (View, case 0), jt585/jt942 (Save/Load), and the chrome are already
- * lifted, so the menu is navigable and Save/Load/Exit work today. */
-static void l038a(void)                    { PROBE("L038a"); }
+ * l473e). Slice 7 (2026-07-03) lifts the ALT menu tree and the per-member
+ * recompute; FIX (l2d7e, ~3.5KB with 8 locals) is the remaining action. */
 static void l1850(void *out);              /* MAGIC camp action — defined after l09ea (slice 3) */
 static void l09ea(void *out);              /* REST action — defined after jt957 (slice 2) */
 static short l0006_c21(void *member);      /* per-member rest-minutes (CODE-21 L0006) */
-static void l1e44(void)                    { PROBE("L1e44"); }
 static void l2d7e(void *out)               { PROBE("L2d7e"); (void)out; }
+
+/* L026e (CODE 21+0x026e) — clear the pending-scribe marks on one member's
+ * SCROLL items: walk the item chain at rec[8]; for a bundle item
+ * (item[40] == 73) walk its sub-chain at item[58], item[53]-deep, clearing
+ * bit7 on the four spell bytes [54..57] of each node; for a plain scroll
+ * (jt638) clear bit7 on its own [54..57]. Faithful full lift. */
+static void l026e_c21(long member_l)
+{
+	long item = *(long *)(uintptr_t)(member_l + 8);
+
+	PROBE("L026e");
+	while (item != 0) {
+		unsigned char *it = (unsigned char *)(uintptr_t)item;
+		short          k;
+
+		if (jt638(item) != 0) {
+			if (it[40] == 73) {             /* bundle */
+				long          sub = *(long *)(void *)(it + 58);
+				unsigned char depth = 1;
+
+				while (depth <= it[53] && sub != 0) {
+					unsigned char *sn =
+					    (unsigned char *)(uintptr_t)sub;
+
+					for (k = 1; k <= 4; k++)
+						sn[53 + k] =
+						    (unsigned char)(sn[53 + k] & 0x7f);
+					sub = *(long *)(void *)(sn + 58);
+					depth++;
+				}
+			} else {
+				for (k = 1; k <= 4; k++)
+					it[53 + k] =
+					    (unsigned char)(it[53 + k] & 0x7f);
+			}
+		}
+		item = *(long *)(uintptr_t)item;
+	}
+}
+
+/* L038a (CODE 21+0x038a) — camp entry: clear every member's pending-scribe
+ * scroll marks (l026e over the -27928 list). Faithful full lift. */
+static void l038a(void)
+{
+	long m;
+
+	PROBE("L038a");
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		l026e_c21(m);
+}
+
+/* L198c (CODE 21+0x198c, unlabeled local) — move the CURRENT member one
+ * slot EARLIER in the -27928 marching order (unlink, relink before its
+ * predecessor); the head wraps to the END of the list. Faithful lift. */
+static void l198c(void)
+{
+	long cur = g_a5_long(-27932);
+	long p = g_a5_long(-27928);
+	long gp = 0, nxt;
+
+	PROBE("L198c");
+	if (p == cur) {
+		while (*(long *)(uintptr_t)p != 0)   /* walk to the LAST node */
+			p = *(long *)(uintptr_t)p;
+	} else {
+		while (*(long *)(uintptr_t)p != cur) {
+			gp = p;
+			p = *(long *)(uintptr_t)p;
+		}
+	}
+	nxt = *(long *)(uintptr_t)cur;
+	if (g_a5_long(-27928) == cur) {              /* head wraps to the end */
+		if (nxt != 0)
+			g_a5_long(-27928) = nxt;
+		*(long *)(uintptr_t)p = cur;         /* p = the last node */
+		*(long *)(uintptr_t)cur = 0;
+	} else {
+		*(long *)(uintptr_t)p = nxt;         /* unlink cur */
+		*(long *)(uintptr_t)cur = p;         /* relink before pred */
+		if (p == g_a5_long(-27928) || gp == 0)
+			g_a5_long(-27928) = cur;
+		else
+			*(long *)(uintptr_t)gp = cur;
+	}
+}
+
+/* L1abc (CODE 21+0x1abc) — the ORDER screen: jt149 toggles the pick-up
+ * latch (jt157 reads it), the -24126 menu holds the Pick up/Put down verb
+ * (row 0 = the latch state) + Exit (2); jt160 runs the bar. Raw arrow keys
+ * move the picked member up (jt960, 132/133) or down (l198c, 135/136) in
+ * the marching order and repaint the roster (jt937); without the latch
+ * they just cycle the active member (jt934/jt936). Verbs 0/1 (or Esc)
+ * toggle the latch — picking up prompts via jt18 (-14112), putting down
+ * pumps jt20. Exit = verb 2. Faithful full lift. */
+static void l1abc(void)
+{
+	unsigned char sel = 0xff;      /* fp@(-1) */
+	unsigned char flag = 1;        /* fp@(-2) */
+
+	PROBE("L1abc");
+	jt149((short)0);
+	for (;;) {
+		jt399((void *)&g_a5_byte(-24126), (short)40, (short)255);
+		g_a5_byte(-24126) = (unsigned char)(jt157() ? 1 : 0);
+		g_a5_byte(-24124) = 2;
+		g_a5_byte(-24140) = flag;
+		sel = (unsigned char)jt160(g_a5_long(-13892),
+		                           g_a5_long(-13772), 1, 1);
+		flag = g_a5_byte(-24140);
+
+		if (g_a5_byte(-24139) != 0) {
+			if (jt157() == 0) {
+				jt936(g_a5_long(-27932), 0);
+				jt934((short)sel);
+				jt936(g_a5_long(-27932), 1);
+			} else {
+				switch (sel) {  /* JT[3] @0x1b72 132..136 */
+				case 132: case 133: jt960(); break;
+				case 135: case 136: l198c(); break;
+				default: break;
+				}
+				jt937(g_a5_long(-27932));
+			}
+		} else if (sel < 2
+		           || (g_a5_byte(-24139) != 0 && sel == 27)) {
+			jt149((short)((jt157() == 0) ? 1 : 0));
+			if (jt157() != 0)
+				jt18((unsigned char *)(uintptr_t)
+				         g_a5_long(-27932),
+				     g_a5_long(-14112), (short)10, (short)0);
+			else
+				jt20();
+		}
+
+		if (sel == 2)
+			break;
+		if (g_a5_byte(-24139) != 0 && sel == 27)
+			break;
+	}
+	jt149((short)0);
+	g_a5_byte(-24148) = 0;
+}
+
+/* L1c2a (CODE 21+0x1c2a) — the LEVEL (difficulty) picker: hdr[39] = 1..5 from
+ * the jt182 bar (-13952 prompt / -13648 verbs, highlight = the current
+ * value); quick-keys switch the active member instead. Faithful lift. */
+static void l1c2a(void)
+{
+	unsigned char *hdr = (unsigned char *)g_a5_28006;
+	unsigned char  val = hdr[39];
+	unsigned char  sel;
+
+	PROBE("L1c2a");
+	g_a5_byte(-24140) = val;
+	jt179((short)4);
+	sel = (unsigned char)jt182((const char *)(uintptr_t)g_a5_long(-13952),
+	                           g_a5_long(-13648), (short)0, (short)1);
+	if (g_a5_byte(-24139) != 0) {
+		jt936(g_a5_long(-27932), 0);
+		jt934((short)sel);
+		jt936(g_a5_long(-27932), 1);
+	} else if (sel < 5) {
+		val = (unsigned char)(sel + 1);
+	}
+	hdr[39] = val;
+}
+
+/* L1cb8 (CODE 21+0x1cb8) — the GAME SPEED editor (0=fastest 9=slowest):
+ * "%s%s" (-14108 label + jt63(hdr[18]) level name) on row 18, builds the
+ * -24126 menu (row 0 gated hdr[18] > 0, row 1 gated < 9, row 2 = Exit),
+ * runs the jt182 bar (-13888 prompt / -13768 verbs). Verb 0 / key 132
+ * decrements, verb 1 / key 136 increments, Esc/verb 2 exits (JT[1] table
+ * @0x1d96 decoded via tools/jt1_extract.py). Faithful full lift. */
+static void l1cb8(void)
+{
+	unsigned char *hdr = (unsigned char *)g_a5_28006;
+	unsigned char  flag = 1;       /* fp@(-3) */
+	unsigned char  sel;            /* fp@(-2) */
+
+	PROBE("L1cb8");
+	do {
+		unsigned char cnt = 0;
+
+		jt94((short)1, (short)18, (short)7, (short)0, "%s",
+		     jt488((const char *)(uintptr_t)ua_strs_at(0x6c2a)
+		           /* "%s%s" */,
+		           (const char *)(uintptr_t)g_a5_long(-14108),
+		           jt63((short)hdr[18])));
+		jt399((void *)&g_a5_byte(-24126), (short)40, (short)255);
+		if (hdr[18] > 0)
+			jt155((short)0, &cnt);
+		if (hdr[18] < 9)
+			jt155((short)1, &cnt);
+		jt155((short)2, &cnt);
+
+		g_a5_byte(-24140) = flag;
+		sel = (unsigned char)jt182(
+		    (const char *)(uintptr_t)g_a5_long(-13888),
+		    g_a5_long(-13768), (short)1, (short)1);
+		flag = g_a5_byte(-24140);
+
+		if (g_a5_byte(-24139) != 0) {
+			switch (sel) {          /* JT[1] @0x1d96 */
+			case 132:
+				if (hdr[18] > 0) hdr[18]--;
+				break;
+			case 136:
+				if (hdr[18] < 9) hdr[18]++;
+				break;
+			case 27:
+				sel = 2;
+				break;
+			default: break;
+			}
+		} else {
+			switch (sel) {          /* JT[3] @0x1df4 0..1 */
+			case 0: if (hdr[18] > 0) hdr[18]--; break;
+			case 1: if (hdr[18] < 9) hdr[18]++; break;
+			default: break;
+			}
+		}
+	} while (sel != 2);
+	jt20();
+}
+
+/* JT[917] (CODE 12+0x185e) — DROP the current member from the party:
+ * "Drop %s forever?" + "Are you sure?" (jt159); on yes, the farewell
+ * message (jt42; "You dump %s out back." for an inactive body) and
+ * jt19(0,1) removes the record. Declining = "%s breathes a sigh of
+ * relief."; l02dc repaints the roster either way. Faithful full lift. */
+static void jt917(void)
+{
+	unsigned char *cur = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	char           buf[42];
+
+	PROBE("jt917");
+	if (cur != NULL) {
+		jt384(buf, jt488((const char *)(uintptr_t)ua_strs_at(0x602a)
+		                 /* "Drop %s forever? " */, cur + 96));
+		if (jt159(buf, (short)0)) {
+			if (jt159((const char *)(uintptr_t)ua_strs_at(0x603c)
+			          /* "Are you sure? " */, (short)0)) {
+				if (cur[382] == 0)
+					jt42(jt488((const char *)(uintptr_t)
+					     ua_strs_at(0x604c)
+					     /* "You dump %s out back." */,
+					     cur + 96));
+				else
+					jt42(jt488((const char *)(uintptr_t)
+					     ua_strs_at(0x6062)
+					     /* "%s bids you farewell." */,
+					     cur + 96));
+				jt19(0, 1);
+			} else {
+				goto relief;
+			}
+		} else {
+relief:
+			jt42(jt488((const char *)(uintptr_t)ua_strs_at(0x6078)
+			     /* "%s breathes a sigh of relief." */,
+			     cur + 96));
+		}
+	}
+	l02dc(g_a5_long(-27932));
+}
+
+/* L1e44 (CODE 21+0x1e44, camp case 3) — the ALT menu: verbs via jt160
+ * (STRS 0x6c30 prompt, -13652 verb list): 0 ORDER (l1abc), 1 DROP
+ * (jt917, party size > 1), 2 SPEED (l1cb8, hdr[18]), 3 ICON (jt573(1),
+ * gated on rec[147] bit7 clear — NPCs can't re-icon; then jt45 + jt23),
+ * 4 LEVEL (l1c2a, hdr[39]), 5/Esc Exit. Hatari-verified: ORDER pick/
+ * move, GAME SPEED faster/slower. Quick-keys switch the member. */
+static void l1e44(void)
+{
+	unsigned char sel = 0xff;      /* fp@(-1) */
+	unsigned char flag = 1;        /* fp@(-2) */
+
+	PROBE("L1e44");
+	g_a5_byte(-24140) = 1;
+	while (sel != 5) {
+		jt179((short)5);
+		sel = (unsigned char)jt160(
+		    (long)(uintptr_t)ua_strs_at(0x6c30),
+		    g_a5_long(-13652), 1, 1);
+		flag = g_a5_byte(-24140);
+
+		if (g_a5_byte(-24139) != 0) {
+			if (sel == 27) {
+				sel = 5;
+				continue;
+			}
+			jt936(g_a5_long(-27932), 0);
+			jt934((short)sel);
+			jt936(g_a5_long(-27932), 1);
+			continue;
+		}
+
+		switch (sel) {                  /* JT[3] @0x1ede 0..4 */
+		case 0: l1abc(); break;
+		case 1: {
+			unsigned char *hdr = (unsigned char *)g_a5_28006;
+
+			if (hdr != NULL && hdr[32] > 1)
+				jt917();
+			break;
+		}
+		case 2: l1cb8(); break;
+		case 3: {
+			unsigned char *cur = (unsigned char *)(uintptr_t)
+			                     g_a5_long(-27932);
+
+			if (cur != NULL && (cur[147] & 0x80) == 0) {
+				jt573((short)1);
+				jt45();
+				jt23();
+			}
+			break;
+		}
+		case 4: l1c2a(); break;
+		default: break;
+		}
+		g_a5_byte(-24140) = flag;
+	}
+}
 
 /* JT[957] (CODE 21 + 0x2f9a) — the ENCAMPMENT menu dispatcher. Enters camp
  * mode (mode 2, prev mode saved in -27989), draws the camp frame+title when
