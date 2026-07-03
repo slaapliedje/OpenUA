@@ -5947,12 +5947,9 @@ static void jt20(void);
  *     if p:  jt25(p, 1, base_y+1, 0);
  *     jt96(1, base_y+2, 38, 22, 7, 0, 1, val, base_y);
  *
- *   == 5 (design-edit):
+ *   == 5 (combat):
  *     jt103(23, s1, 38, 21);
- *     if jt1200() == 3:
- *        if p:  jt25(val, 23, s1, 0);
- *     else:
- *        if p:  jt25(val, 23, s1, 0);
+ *     if p:  jt25(p, 23, s1, 0);      (both JT[1200] arms identical)
  *     jt96(23, s1+1, 38, 21, 7, 0, 1, val, s1);
  *
  * Both JT[1200] arms in the design-edit path do the same thing
@@ -5968,8 +5965,13 @@ static void jt18(void *p, long val, short s1, short byte_flag)
 	if (g_a5_27990 == 5) {
 		jt103(23, s1, 38, 21);
 		(void)jt1200();
+		/* Mac 0x2332/0x2354: both JT[1200] arms push fp@(8) = p (the
+		 * RECORD) to L2456/JT[25]. The old lift passed `val` (the
+		 * caller's STRING), so jt25 read the "name" from the string
+		 * constant's +96 bytes — the garbled glyphs at the top of the
+		 * combat info panel. */
 		if (p != NULL)
-			jt25(val, 23, s1, 0);
+			jt25((long)(uintptr_t)p, 23, s1, 0);
 		jt96(23, (short)(s1 + 1), 38, 21, 7, 0, 1, val, s1);
 	} else {
 		base_y = (g_a5_23190 != 0) ? (short)18 : (short)17;
