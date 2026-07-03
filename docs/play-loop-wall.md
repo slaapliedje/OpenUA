@@ -1,5 +1,23 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02m — the CAST hang SOLVED (aa97fbd): mc[0] byte-vs-word gates
+
+The jt599(0) probe run pinned it: BOTH forced-action gates (l08b4 +
+l5008) read *(short *)(mc+0) where the Mac reads the zero-extended BYTE
+mc[0] (L08b4 0x8d6 / L5008 0x5168 `moveb a0@`). The word read also saw
+mc[1] — the can-cast flag jt541 now seeds — so every caster with no
+queued spell fired the arm as jt599(0), whose bogus effect-0 announce
+hung. jt541's lift exposed the latent width bug. Byte gates fixed; the
+delayed-cast model now runs: jt547 stores the spell in mc[0] ("Begins
+Casting" + initiative re-queue) and the next round's forced arm casts
+it — the FIRST live CODE 16 payload run (a real spell fired; the
+known-garbled CPIC target strip painted).
+
+NEXT WAIT STATE (the new natural-end blocker): the AI archer's RANGED
+target pick — bow card + target strip up, no key consumption (Return/
+ESC dead). Suspects: l5b9a's missile arm target loop or the l1714/aim
+path reached with an AI actor. Probe l5b9a's ranged branch next.
+
 ## STATUS 2026-07-02l — the mid-fight stall NAMED: the AI spell-cast payload (CODE 16)
 
 Post-jt182-fix retest: QUICK turns now flow end to end — l0d16 pick ->
