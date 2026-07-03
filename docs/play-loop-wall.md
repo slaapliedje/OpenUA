@@ -1,5 +1,31 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03q — the AIM-prompt corruption SOLVED: jt154 was a PROBE stub
+
+The user's report ("the ask for the range input is corrupting the
+screen"): the AIM prompt row painted OVER the stale AIM/USE/GUARD/
+QUICK plates. Probes proved the l206e dirty path fired and jt176 ran —
+but jt176's FRAME-piece-4 stamp is CLIPPED to the 8093..8100 band
+(native y 186..200, the LOWER bar row only; faithful — the Mac clips
+identically). The UPPER row's eraser is **JT[154]** (CODE 7+0x169e),
+the command-menu CLOSER l0d16 runs on exit: the clipped piece-4 stamp
++ jt1193 clip reset + an UNCLIPPED FRAME piece-6 stamp (the combat
+message/upper-bar plate) + l2062. The port's jt154 was an empty PROBE
+stub — every combat menu close left the old bar pixels behind. Lifted
+(six straight calls). VERIFIED: the AIM prompt now paints "AIM:
+RANGE = 0" on clean stone, staying clean across NEXT cycling; the
+"QUICK ghost" nit was the same residue and should be gone with it.
+
+Dead-end recorded: jt94's row-23 l3f88 band erase is faithfully DEAD
+CODE — it passes an already-projected Y into jt1161, which projects
+again (negative -> degenerate clip -> no-op) on the Mac exactly as in
+the port. Don't "fix" it. RIDER (platform/dbglog.c): dbg_file_num now
+recreates DBG.LOG when the append-open fails — a mid-run host-side
+delete used to silently kill all later probe output (cost this session
+two blind probe rounds). OPEN NIT: the readout showed "RANGE = 0"
+after cycling to a distant target — verify l2e30's cost readout value
+against the Mac when convenient.
+
 ## STATUS 2026-07-03p — jt539 TARGET COMMIT verified: the melee strike lands
 
 Follow-up to the 03o lift. Reproduced a MELEE-range test (DELAY x8 so
