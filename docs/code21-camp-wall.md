@@ -103,13 +103,20 @@ DEFERRED (both filed):
   the non-interactive rest loop — it draws a jt103 panel + jt92 (l4bac
   present) mid-loop. Suppressed; the spell still memorizes. Fix when l4bac's
   present is safe outside the event pump.
-- **The WORLD CLOCK (jt938's "12:00 AM", = hdr[6]/hdr[7]/hdr[8]) does NOT
-  advance during rest.** None of the CODE 19 rest leaves write hdr[6..8]; the
-  setter is L0004 (CODE 19+0x0004, takes explicit hh:mm) and it has NO caller
-  within CODE 19. The rest-to-world-clock commit is a separate hook (the
-  l09ea caller's tail, or a shared elapsed-time->hdr sync) still to trace.
-  L035c (effect expiry -> the ~700B L006c), L0cb8 (a second -23201-keyed
-  memorize path), L0e3e (encounter roll), L0694 (memorize setup) also stubbed.
+- ~~The WORLD CLOCK does not advance during rest~~ **RESOLVED (slice 6b)**:
+  the clock advancer was hiding in plain sight — **L035c = JT[914]**, ALREADY
+  LIFTED in the port (jt914: copy hdr[5..11] into a 7-word array, bump unit
+  `idx` count times with the l025a mixed-radix carry, write back, run L006c).
+  jt915 was calling a fresh `l035c` PROBE stub instead — the stub-shadowed-
+  twin class from docs/stub-alias-audit.md, AGAIN (and my own `l0528` from
+  slice 6 duplicated the lifted jt913 the same way — both repointed).
+  Hatari-verified: a level-1 pending rest (type 4 = 255 min) advances the
+  HUD clock 12:00 AM -> 4:15 AM, to the minute. The -23228 radix words
+  (10/6/... carries) are runtime-seeded from the save/design state — BSS
+  in DATA, probe-confirmed live values.
+  Still stubbed: L006c (post-advance timed-effect expiry, ~490B — jt914
+  calls it, so expiry is the remaining gap), L0cb8 (a second -23201-keyed
+  memorize path), L0e3e (encounter roll), L0694 (memorize setup).
 
 ## Remaining (slices 4..N) — still PROBE-stubbed
 
