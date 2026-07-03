@@ -1,5 +1,38 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03o — jt539 LIFTED: interactive targeting LIVE (AIM verb bar + crosshair)
+
+The 03n card is executed. jt539 (CODE 14+0x3b6c) is a faithful full
+lift: crosshair sprite bind (jt495 actor 30 -> glyph 77), weapon-range
+resolve (-7262; 255 = readied item-def[12] from -27944, empty hand 1),
+view centre (l6090), target ring build (l3a4e -> -7254), then the
+l2e30 action-bar loop with the JT[3] arms: 0/1 NEXT/PREV ring step
+(l37d6 +-1), 2 the l315e manual cursor walk, 3 commit (buf + l302c
+strike in mode 1), 4 map redraw, 5 cancel; the raw arrow band 129..136
+stashes the -7236 hotkey and commits at the cursor; the loop tail
+re-centres and re-resolves the ring. `zero` != 0 closes with jt145.
+Every helper (l2e30/l315e/l302c/l37d6/l3a4e/l6090) was already a
+faithful full lift staged for this entry — jt539 was the last hole.
+
+RIDER FIX (l2e30): the Mac passes the a8/a9 CURSOR-CELL args by
+address (pea fp@27/fp@29) as jt506's walk destination — the lift had
+read them as write-only scratch and passed uninitialized locals, so
+`cost` was garbage and the arm-3 TARGET verb never appended.
+
+HATARI-VERIFIED (keyboard, the AIM command): 'a' on the archer's turn
+opens the AIM bar (NEXT|PREV|MANUAL|CENTER|EXIT + the range readout);
+NEXT cycles to the GIANT SPIDER — the view scrolls to it and the info
+panel shows its card (green name, HP, AC); the TARGET verb correctly
+STAYS HIDDEN for the readied LONG SWORD vs a distant target (r=1 <
+cost — the faithful range gate); MANUAL switches the bar to
+CENTER|EXIT and the arrows walk the white crosshair box with the view
+scrolling to follow. UNTESTED (needs a bow-readied turn or a human
+mouse): the TARGET commit -> l302c -> jt555 strike, and the CAST
+first-pick through the same UI. NITS: the AIM range readout paints
+over the old command-bar row (present-once #144 family); white 12x12
+marker residue blocks on the field (the same jt119/jt122 save/restore
+family as the arrow-flight residue).
+
 ## STATUS 2026-07-03n — NEXT LIFT: jt539, the interactive targeting crosshair
 
 The user's click test after the +20/+24 swap: the spell COMMITS (picker
