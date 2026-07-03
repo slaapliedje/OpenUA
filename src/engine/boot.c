@@ -31576,23 +31576,243 @@ static unsigned char jt600(short code)
 	return range;
 }
 
-/* JT[539] (CODE 14 + 0x3b6c) — the in-combat interactive crosshair
- * pick: arms the -24140 pick mode, runs the cursor UI over the combat
- * map out to `range` cells from `actor`, and fills `buf` (rec + cell)
- * with the choice, *res = picked.  PROBE stub pending its own lift:
- * fail the pick the way the real entry starts out (zeroed buf, *res 0)
- * so L1efa degrades to its no-target path. */
+/* jt539's CODE 14 helpers, all defined further down (faithful full
+ * lifts staged for this entry). */
+static short l2e30(long m, long b, short r, short mode, short f4, short f5,
+                   short f6, short a8, short a9);
+static void  l315e(long actor, long target, short range, short mode,
+                   short a5, short a6, unsigned char *out_hit,
+                   unsigned char *out_result, void *out_spec,
+                   short curX, short curY);
+static void  l302c(long m, long target, short mode, unsigned char *out_flag,
+                   void *out_spec);
+static long  l37d6(short step, long dflt);
+static void  l3a4e(long m);
+static void  l6836(short x, short y, short kind, short dir);
+static short l6b40(long m);
+static short l6b6a(long m);
+static void  jt145(void);
+
+/* JT[539] (CODE 14 + 0x3b6c) — the in-combat interactive TARGET PICK.
+ * Faithful full lift. Binds the crosshair sprite (jt495 actor 30 ->
+ * glyph 77), resolves the working range -7262 (`range` 255 = the
+ * readied weapon's item-def[12] range from the -27944 table, empty
+ * hand = 1; 0/255 clamp to 1), centres the view on the actor (l6090),
+ * builds the target slot ring (l3a4e -> the -7254 current target),
+ * then loops the l2e30 action bar:
+ *   raw special keys: ESC -> arm 5 (cancel), 128 -> arm 4 (recentre);
+ *     the arrow band 129..136 stashes the key in the -7236 hotkey
+ *     shortcut and runs the l315e cursor walk (identical commit to
+ *     arm 2, but no jt38 re-mark on a failed pick);
+ *   0 / 1: NEXT / PREV target around the ring (l37d6 step +-1,
+ *     falling back to the actor);
+ *   2: the l315e manual cursor walk; a hit re-targets, a validated
+ *     hit commits: *buf.rec = the target, *res = 1, mode 1 runs the
+ *     l302c strike setup, and a cleared *res re-scrolls the map
+ *     (l6836 0/8) at the cell; a miss re-marks the actor (jt38);
+ *   3: commit the current target directly (cell into buf +4/+6);
+ *   4: force a full map redraw (header bytes 6/7 + l6836) and clear
+ *     the -7259 step;
+ *   5: cancel (*res stays 0).
+ * The loop tail re-centres on the current target (l6090) and
+ * re-resolves the ring slot (l37d6 with the -7259 step); arms 0/1/3
+ * refresh the cursor cell from the target. `zero` != 0 (the AIM
+ * command) closes with the jt145 repaint. */
 static void jt539(long actor_l, short range, short zero, short areaflag,
                   short flag, unsigned char *res, struct ua_pick10 *buf)
 {
+	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
+	unsigned char  f6 = 1;                          /* fp@(-1) */
+	unsigned char  hit = 0;                         /* fp@(-2) */
+	signed char    curX, curY;                      /* fp@(-3)/(-4) */
+	signed char    aX, aY;                          /* fp@(-5)/(-6) */
+	unsigned char  done = 0;                        /* fp@(-7) */
+	signed char    tX;                              /* fp@(-8) */
+
 	PROBE("jt539");
-	(void)actor_l;
-	(void)range;
-	(void)zero;
-	(void)areaflag;
-	(void)flag;
+	g_a5_byte(-24140) = 1;
+	g_a5_word(-7236)  = 0;
+	jt495((short)30, (short)0, (short)0, (short)0);
 	jt399(buf, (short)10, (short)0);
 	*res = 0;
+
+	g_a5_byte(-7262) = (unsigned char)range;
+	if ((unsigned char)range == 255) {              /* weapon range */
+		if (*(long *)(void *)(actor + 12) != 0) {
+			unsigned char *it = (unsigned char *)(uintptr_t)
+			    *(long *)(void *)(actor + 12);
+			g_a5_byte(-7262) = ((const unsigned char *)(uintptr_t)
+			    (g_a5_long(-27944) + (long)it[40] * 16))[12];
+		} else {
+			g_a5_byte(-7262) = 1;
+		}
+	}
+	if (g_a5_byte(-7262) == 0 || g_a5_byte(-7262) == 255)
+		g_a5_byte(-7262) = 1;
+
+	aX = (signed char)l6b40(actor_l);
+	aY = (signed char)l6b6a(actor_l);
+	l6090((short)aX, (short)aY);
+	l3a4e(actor_l);
+	curX = (signed char)l6b40(g_a5_long(-7254));
+	curY = (signed char)l6b6a(g_a5_long(-7254));
+	f6 = 1;
+	g_a5_byte(-7259) = 0;
+	done = 0;
+
+	while (!done) {
+		g_a5_word(-7250) = (unsigned short)
+		    (l2e30(actor_l, g_a5_long(-7254),
+		           (short)(unsigned char)g_a5_byte(-7262), zero,
+		           areaflag, flag, (short)f6,
+		           (short)curX, (short)curY) & 0xff);
+
+		if (g_a5_byte(-24139) != 0) {
+			if ((short)g_a5_word(-7250) == 27) {
+				g_a5_word(-7250)  = 5;
+				g_a5_byte(-24139) = 0;
+			} else if ((short)g_a5_word(-7250) == 128) {
+				g_a5_word(-7250)  = 4;
+				g_a5_byte(-24139) = 0;
+			}
+		}
+
+		if (g_a5_byte(-24139) != 0) {
+			/* L3f96 — the raw arrow band commits at the cursor. */
+			short k = (short)g_a5_word(-7250);
+
+			if (k == 136 || k == 132 || k == 130 || k == 134
+			 || k == 135 || k == 133 || k == 129 || k == 131) {
+				g_a5_word(-7236) = g_a5_word(-7250);
+				l315e(actor_l, g_a5_long(-7254),
+				      (short)(unsigned char)g_a5_byte(-7262),
+				      zero, areaflag, flag, &f6, &hit, buf,
+				      (short)curX, (short)curY);
+				if (hit != 0) {
+					g_a5_long(-7254) =
+					    *(long *)(void *)buf;
+					curX = (signed char)buf->x;
+					curY = (signed char)buf->y;
+				} else {
+					f6 = 1;
+				}
+				if (f6 != 0 && hit != 0) {
+					g_a5_word(-7250) = 3;
+					done = 1;
+					g_a5_byte(-24140) = 4;
+					buf->rec = g_a5_long(-7254);
+					*res = 1;
+					if ((unsigned char)zero == 1)
+						l302c(actor_l,
+						      g_a5_long(-7254), zero,
+						      res, buf);
+					if (*res == 0) {
+						((unsigned char *)(uintptr_t)
+						 g_a5_long(-25318))[6] = 0;
+						l6836((short)curX, (short)curY,
+						      (short)0, (short)8);
+					}
+				} else {
+					g_a5_byte(-24140) = 3;
+				}
+			}
+		} else switch ((short)g_a5_word(-7250)) {  /* JT[3] @0x3cf8 */
+		case 0:                                 /* NEXT target */
+			g_a5_long(-7254) = l37d6((short)1, actor_l);
+			curX = (signed char)l6b40(g_a5_long(-7254));
+			curY = (signed char)l6b6a(g_a5_long(-7254));
+			break;
+		case 1:                                 /* PREV target */
+			f6 = 1;
+			g_a5_long(-7254) = l37d6((short)-1, actor_l);
+			curX = (signed char)l6b40(g_a5_long(-7254));
+			curY = (signed char)l6b6a(g_a5_long(-7254));
+			break;
+		case 2:                                 /* manual cursor walk */
+			l315e(actor_l, g_a5_long(-7254),
+			      (short)(unsigned char)g_a5_byte(-7262), zero,
+			      areaflag, flag, &f6, &hit, buf,
+			      (short)curX, (short)curY);
+			if (hit != 0) {
+				g_a5_long(-7254) = *(long *)(void *)buf;
+				curX = (signed char)buf->x;
+				curY = (signed char)buf->y;
+			} else {
+				f6 = 1;
+			}
+			if (f6 != 0 && hit != 0) {
+				g_a5_word(-7250) = 3;
+				done = 1;
+				g_a5_byte(-24140) = 4;
+				buf->rec = g_a5_long(-7254);
+				*res = 1;
+				if ((unsigned char)zero == 1)
+					l302c(actor_l, g_a5_long(-7254), zero,
+					      res, buf);
+				if (*res == 0) {
+					((unsigned char *)(uintptr_t)
+					 g_a5_long(-25318))[6] = 0;
+					l6836((short)curX, (short)curY,
+					      (short)0, (short)8);
+				}
+			} else if (actor_l != 0 && hit == 0) {
+				g_a5_byte(-22627) = 1;
+				jt38(actor_l);
+			}
+			g_a5_byte(-24140) = 3;
+			break;
+		case 3:                                 /* commit direct */
+			buf->x = (short)curX;
+			buf->y = (short)curY;
+			buf->rec = g_a5_long(-7254);
+			*res = 1;
+			if ((unsigned char)zero == 1)
+				l302c(actor_l, g_a5_long(-7254), zero, res,
+				      buf);
+			if (*res == 0) {
+				((unsigned char *)(uintptr_t)
+				 g_a5_long(-25318))[6] = 0;
+				l6836((short)curX, (short)curY,
+				      (short)0, (short)8);
+			}
+			done = 1;
+			break;
+		case 4: {                               /* full map redraw */
+			unsigned char *hdr = (unsigned char *)(uintptr_t)
+			    g_a5_long(-25318);
+
+			hdr[6] = 1;
+			hdr[7] = 1;
+			l6836((short)curX, (short)curY, (short)0, (short)8);
+			hdr[6] = 0;
+			g_a5_byte(-7259) = 0;
+			break;
+		}
+		case 5:                                 /* cancel */
+			done = 1;
+			break;
+		default:
+			break;
+		}
+
+		/* L40f4 — re-centre on the current target, re-resolve the
+		 * ring slot, and refresh the cursor cell on 0/1/3. */
+		tX = (signed char)l6b40(g_a5_long(-7254));
+		l6090((short)tX, (short)(signed char)l6b6a(g_a5_long(-7254)));
+		g_a5_long(-7254) =
+		    l37d6((short)(signed char)g_a5_byte(-7259), actor_l);
+		if (g_a5_long(-7254) != 0) {
+			short k = (short)g_a5_word(-7250);
+
+			if (k == 0 || k == 1 || k == 3) {
+				curX = (signed char)l6b40(g_a5_long(-7254));
+				curY = (signed char)l6b6a(g_a5_long(-7254));
+			}
+		}
+	}
+
+	if ((unsigned char)zero != 0)
+		jt145();
 }
 
 /* Forward decls — l1dd6's combat helpers are all defined later in the file. */
@@ -50044,9 +50264,11 @@ static void l660(long m)
  * combination, for mode!=0 the jt499/jt491/jt492/jt504 spell-target chain. If b
  * is a real target it is marked (l73cc turn marker + -22627 + jt38 refresh).
  * Finally it runs the jt182 picker over -13884/-13748 and returns the chosen
- * option index. jt506 writes its reached-tile out-params into the two scratch
- * byte slots a8/a9 (faithful: the caller passes them by value and never reads
- * them back). Sole caller L3cac (still unlifted), so marked unused. */
+ * option index. jt506's destination is the CURSOR CELL — the Mac passes the
+ * a8/a9 stack args by address (pea fp@27 / fp@29), so the walk measures
+ * actor -> cursor and `cost` = half the path length. (An earlier reading
+ * called a8/a9 write-only scratch and passed uninitialized locals — cost
+ * came back garbage and the arm-3 TARGET verb never appended.) */
 static short l2e30(long m, long b, short r, short mode, short f4, short f5,
                    short f6, short a8, short a9) __attribute__((unused));
 static short l2e30(long m, long b, short r, short mode, short f4, short f5,
@@ -50055,12 +50277,12 @@ static short l2e30(long m, long b, short r, short mode, short f4, short f5,
 	unsigned char *hdr   = (unsigned char *)(uintptr_t)g_a5_long(-25318);
 	unsigned char  saved = hdr[8];
 	unsigned short cost  = 255;
-	unsigned char  tx, ty;            /* jt506 reached-tile out, discarded */
+	unsigned char  tx    = (unsigned char)a8;   /* walk dest = the cursor */
+	unsigned char  ty    = (unsigned char)a9;
 	unsigned char  count = 0;
 	short          i;
 
 	PROBE("L2e30");
-	(void)a8; (void)a9;
 
 	hdr[8] = 1;
 	jt506((short)(signed char)l6b40(m), (short)(signed char)l6b6a(m),
