@@ -69,7 +69,10 @@ void dbg_file_num(const char *label, long value)
 	long  fh;
 
 	/* Fresh file the first call of the run, then append. Open/seek/close per
-	 * call so every line is flushed (a hard pkill -9 can't lose buffered data). */
+	 * call so every line is flushed (a hard pkill -9 can't lose buffered data).
+	 * Recreate when the append-open fails — the host file may have been
+	 * deleted mid-run (a probing session truncating between reads); without
+	 * this every later line is silently dropped. */
 	if (!g_dbg_fh_started) {
 		fh = Fcreate("DBG.LOG", 0);
 		g_dbg_fh_started = 1;
@@ -77,6 +80,8 @@ void dbg_file_num(const char *label, long value)
 		fh = Fopen("DBG.LOG", 1);
 		if (fh >= 0)
 			Fseek(0L, (short)fh, 2);   /* SEEK_END */
+		else
+			fh = Fcreate("DBG.LOG", 0);
 	}
 	if (fh < 0)
 		return;

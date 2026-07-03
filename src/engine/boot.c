@@ -41167,7 +41167,24 @@ static signed char l27e6(long actor_l)
 	        + (long)((unsigned char *)(uintptr_t)def)[40] * 16);
 	return ((entry[14] & 0x14) == 0x14) ? 1 : 0;
 }
-static void        jt154(void)                       { PROBE("jt154"); }                           /* CODE 7+0x169e — close dialog */
+/* JT[154] (CODE 7+0x169e) — close the command/action bar: stamp the
+ * bar band (FRAME piece 4, clipped to the 8093..8100 strip), reset
+ * the clip (jt1193), stamp FRAME piece 6 unclipped (the combat
+ * message/upper-bar plate), and raise the dialog dirty flag (l2062).
+ * Faithful full lift — the Mac body is six straight calls. The old
+ * PROBE stub left the previous bar's pixels behind on every combat
+ * menu close: the AIM "Range" prompt painted over the stale
+ * AIM/USE/GUARD/QUICK plates (the reported corruption), and the
+ * turn-flash "QUICK" ghost at the bar edge was the same residue. */
+static void        jt154(void)
+{
+	PROBE("jt154");
+	jt1173((short)8093, (short)8000, (short)8100, (short)8160);
+	jt1001((short)8000, (short)8000, (short)1, (short)4);
+	jt1193();
+	jt1001((short)8000, (short)8000, (short)1, (short)6);
+	l2062();
+}
 static short       jt173(long prompt, long cmdstring, short a3, short a4, short cx, short cy);  /* CODE 7+0x29da input dialog */
 /* CODE 13+0x26ea — end-of-turn resolver (the shared action commit that Guard /
  * Bandage / auto-resolve etc. call). Faithful full lift: clears the actor's
