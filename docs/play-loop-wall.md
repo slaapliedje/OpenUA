@@ -1,5 +1,23 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02j — jt1125 EVENT-MASK fix (2c0e1f9): phantom input SOLVED
+
+The "QUICK hang", "'g' -> ATTACK ALLY?" and spurious strip commits were ONE
+bug: jt1125 ignored its Toolbox event MASK. Engine sites pass kind = 7
+(null+mouseDown+mouseUp) — the Mac's jt1125 never returns KEYS there (keys
+go via the L725c/jt1133 pending stamp); the port returned them as events
+and L2d3e fed (ascii, modifiers) into its (mouse_y, mouse_x) HOVER
+hit-test -> every keypress committed the movement strip under the parked
+pointer (l25b6 mode-4, argc 16 -> key 133 -> l1162 move -> ally confirm).
+Fix: honour the mask (keys need bits 8|32; mouseDown bit 2); the -818
+pending stamp stays. VERIFIED: 'g' Guards via the phase-5 DLItem shortcut,
+turns advance, the spider AI closes distance, and the mage's "CASTS A
+SPELL" announcement paints. FAITHFULNESS NOTE: QUICK (arm 11) is a
+ONE-SHOT l26ea on the Mac; the persistent-AI toggle is arm 6 (l1842 sets
++383) — the old "Flee" label on that arm is wrong, the code is right.
+Remaining #115 cards: l33d8/l3806_c12/l3d1e (XP + treasure), the l4af4
+double placement pass, jt930's full-lift follow-ups.
+
 ## STATUS 2026-07-02i — COMBAT TURNS LIVE (98d2d59): jt541 + jt27
 
 The "l5008/l08b4 interiors" pass found the whole action tier ALREADY
