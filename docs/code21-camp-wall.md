@@ -118,14 +118,48 @@ DEFERRED (both filed):
   calls it, so expiry is the remaining gap), L0cb8 (a second -23201-keyed
   memorize path), L0e3e (encounter roll), L0694 (memorize setup).
 
+## Done (slices 6c + 7, 2026-07-03) — rest engine COMPLETE + the ALT tree
+
+**Rest engine (CODE 19) — every jt915 leaf now lifted:**
+- `l0694` — the interactive "REST TIME: DD:HH:MM" editor (jt182 bar: REST/
+  DAYS/HOURS/MINS/ADD/SUBTRACT/EXIT; arrows 132/136 = subtract/add; the
+  l0572 highlight paints the edited field colour 11). Hatari-verified:
+  +15 min +1 hr rests exactly 1:15 and the world clock lands on 1:15 AM.
+- `l006c` — post-advance timed-effect expiry: (count,unit) -> minutes via
+  the radixes, <=10-min steps over each flagged member's effect list at
+  rec+4 (+0 id / +2 duration / +6 next; 0 = permanent), expiring via jt878.
+- `l0cb8` — the per-spell memorize pacing tick (-23201 countdown; re-arms
+  level*3 via the l0876 REPORT mode).
+- `l0e3e` — the random-encounter roll (zone chance/period from the design
+  entry; l694e validity; jt870 rolls; -13030 ctx save/restore).
+- `l0572_c19` upgraded: per-field colour array + the highlight arg.
+
+**ALT camp action (CODE 21) — the whole tree:**
+- `l1e44` dispatcher: ORDER | DROP | SPEED | ICON | LEVEL | EXIT.
+- `l1abc` ORDER — pick-up/place latch (jt149/jt157), arrows move the
+  member up/down the -27928 order. **jt960 was ANOTHER stub-shadowed
+  export** (the jt156 roster-click helper): real body = move-later-with-
+  head-wrap; `l198c` (unlabeled Mac local) = move-earlier. Verified:
+  SELECT + Down x2 moved Barbarus slot 1 -> 3.
+- `jt917` DROP — "Drop %s forever?"/"Are you sure?" confirms, farewell
+  strings, jt19 removal, l02dc repaint.
+- `l1cb8` SPEED — "GAME SPEED (0=FASTEST 9=SLOWEST)" hdr[18] editor
+  (verified FASTER 4 -> 3); JT[1] table decoded via tools/jt1_extract.py.
+- `l1c2a` LEVEL — hdr[39] difficulty picker (1..5).
+- ICON = jt573(1) (already lifted; NPC-gated on rec[147] bit7).
+- `l038a`/`l026e_c21` — camp-entry clear of pending-scribe scroll marks.
+
+NIT (cosmetic, known family): the rest-editor / speed digits overprint on
+repaint (jt94 transparent-bg over old text — the prompt-plate bg rule).
+
 ## Remaining (slices 4..N) — still PROBE-stubbed
 
-| case | fn | size | what it is (to confirm by reading) |
-|-----:|----|------|-------------------------------------|
-| 3 (camp) | `l1e44` | ~92 ln  | a 5-option sub-menu (L1abc, jt917, L1cb8, view jt573, L1c2a) |
-| 4 (camp) | `l2d7e` | ~146 ln | Alter/party order? — big locals, jt406, calls L23dc/L2310/L2106/L1fcc/… |
-| 0..3 (magic) | `l06d6`/`l0bc6`/`l0df2`/`l1374` | 190/458/366 ln | the spell-management screens (memorize/view/cast/scribe) |
-| — | `l038a` | ~14 ln  | per-member recompute: walks -27928 calling `L026e_c21` → `jt638` |
+| case | fn | size | what it is |
+|-----:|----|------|------------|
+| 4 (camp) | `l2d7e` | ~3.5KB total | FIX auto-heal: L23dc gate, L2106/L2422 cure planning, two SILENT jt915 rests (-23189), L288c cast pass, L1fcc/L25dc/L2310/L27ec re-memorize bookkeeping |
+| 2 (magic) | `l0df2` | ~458 ln | SCRIBE (+ L0980 scroll-learn + l5726 scanner) |
+| 3 (magic) | `l1374` | ~366 ln | DISPLAY (the spellbook viewer) |
+| — | `l48f4` announce | — | deferred: bus-errors the non-interactive rest (jt92 present mid-loop) |
 
 The Magic spell screens (`l0df2` ~458 ln etc.) are the largest remaining piece;
 `l038a` is the cheapest but pulls in `L026e_c21` (CODE 21 0x026e → `jt638`).
