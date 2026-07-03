@@ -1,5 +1,27 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03b — DIAGNOSIS CORRECTED: no hang — combat is fully functional
+
+The precision markers (jt555 P1..P5 / l14bc / T2..T4 + l302c post) show
+COMPLETE attack cycles resolving repeatedly, and a liveness screenshot
+caught the "stall" red-handed: an active MOVE/ATTACK mode ("MOVE LEFT =
+10") for a badly wounded actor (8 HP, cyan) with the camera scrolled to
+his corridor. The perceived hangs were INPUT WAITS: move mode consumes
+only arrows/UNDO/DONE and silently repolls everything else, and with
+the camera scrolled away from the party the state reads as frozen. The
+earlier "bow-card wait" was the same class. Real damage flows both
+ways; attacks, saves, ammo, poses, XP and the win path all execute.
+
+WHAT REMAINS ON #115 (all normal cards, no mystery):
+- Natural fight-end needs DIRECTED play (walk fighters into spiders) —
+  blind q-grinding mostly ends in move-mode waits. FRUA_AUTOWIN covers
+  automated end-to-end testing.
+- l5b9a's no-attack-line passes (-22628 stays 0 for ~19 iterations —
+  jt554 LOS / l713c reach worth a look; makes AI turns slow).
+- The garbled CPIC portrait strip (art decode).
+- Treasure Slice-B interiors (need a loot-dropping design to test).
+- The l4af4 double placement pass.
+
 ## STATUS 2026-07-03 — the ranged-turn wait NARROWED to the attack-resolution chain
 
 Two probe rounds after the mc[0] fix. The trail: l5b9a loops ~19 passes
