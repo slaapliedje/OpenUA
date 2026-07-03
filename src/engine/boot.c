@@ -67572,13 +67572,346 @@ static void l09ea(void *out_v)
 	jt938();
 }
 
-/* --- CODE-21 MAGIC camp action (camp menu case 1) — slice 3 ----------------
- * l1850 is the Magic menu dispatcher. Its four spell-management screens are
- * large deep screens (L06d6, L0bc6 ~190 ln, L0df2 ~458 ln, L1374 ~366 ln) and
- * are deferred as PROBE stubs for further slices; Rest (case 4 -> l09ea) and
- * Exit (row 5) work today, so the Magic menu is navigable. */
-static void l06d6(void)                    { PROBE("L06d6"); }
-static void l0bc6(void)                    { PROBE("L0bc6"); }
+/* --- CODE-21 MAGIC camp action (camp menu case 1) — slices 3..5 ------------
+ * l1850 is the Magic menu dispatcher (CAST | MEMORIZE | SCRIBE | DISPLAY |
+ * REST | EXIT). CAST (l06d6, case 0) and MEMORIZE (l0bc6, case 1) are lifted
+ * below (slice 5); SCRIBE (l0df2) and DISPLAY (l1374) remain PROBE stubs.
+ *
+ * Character-record magic fields (the 398-byte -27932 member):
+ *   +94  status (1 = incapacitated for magic), +382 = active/present flag
+ *   +115 Int, +117 Wis (the mage/cleric bonus-slot caps)
+ *   +198..+338  the 141 spell slots (value = spell id; bit7 = pending-
+ *               memorize), +355 + class*9 + (level-1) = per-class-per-level
+ *               memorize CAPACITY, +355/+364/+373 = the class-0/1/2 base
+ *   -16906 + id*16 = the spell def (def[0] = class, def[1] = level)
+ *   classes: 0 cleric, 1 druid, 2 magic-user. */
+
+/* L05c4 (CODE 21+0x05c4) — the "can do magic (mode)" precondition, mode 1
+ * cast / 2 memorize / 3 scribe. Builds a rejection message into a local
+ * (area no-cast, the member's incapacitation, or "Cannot do magic" when the
+ * member has no class capacity at all); an empty message returns 1 (allowed),
+ * else jt18 shows it and returns 0. Faithful full lift. */
+static unsigned char l05c4(short mode)
+{
+	unsigned char *st  = (unsigned char *)g_a5_28006;
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	char           msg[42];
+
+	PROBE("L05c4");
+	msg[0] = 0;
+
+	if ((unsigned char)mode == 1 && st != NULL && st[2] > 0) {
+		jt384(msg, ua_strs_at(0x6aa2) /* "cannot cast spells in this area" */);
+	} else if (rec[94] == 1 || rec[382] == 0) {
+		jt384(msg, ua_strs_at(0x6ac2) /* "is in no condition to " */);
+		switch ((unsigned char)mode) {          /* JT[3] @0x0630 min1 max3 */
+		case 1: jt404(msg, ua_strs_at(0x6ada)); break; /* "cast any spells" */
+		case 2: jt404(msg, ua_strs_at(0x6aea)); break; /* "memorize spells" */
+		case 3: jt404(msg, ua_strs_at(0x6afa)); break; /* "scribe any scrolls" */
+		default: break;
+		}
+	}
+	if (msg[0] == 0 && rec[355] == 0 && rec[364] == 0 && rec[373] == 0)
+		jt384(msg, ua_strs_at(0x6b0e) /* "Cannot do magic" */);
+
+	if (msg[0] == 0)
+		return 1;
+	jt18(rec, (long)(uintptr_t)msg, (short)10, (short)1);
+	return 0;
+}
+
+/* L0214 (CODE 21+0x0214) — clear every pending-memorize flag (bit7 of the
+ * member's 141 spell slots) and the +126 dirty byte. The Mac clears the
+ * WHOLE slot byte when bit7 is set (a pending slot with no committed spell);
+ * a committed spell (bit7 clear) is left. Faithful full lift. */
+static void l0214(long member_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)member_l;
+	short i;
+
+	PROBE("L0214");
+	for (i = 0; i <= 140; i++)
+		if (rec[198 + i] & 0x80)
+			rec[198 + i] = 0;
+	rec[126] = 0;
+}
+
+/* L03b2 (CODE 21+0x03b2) — for spell (class, level): count the member's
+ * already-memorized slots of that class+level into *out, then return the
+ * REMAINING capacity = the +355 grid cell minus that count, reduced by the
+ * class's ability caps (mage Int rec[115] gates levels 6/7/8/9; cleric Wis
+ * rec[117] gates 6/7). Faithful full lift. */
+static short l03b2(short level, short class_, unsigned char *out)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	const unsigned char *defs = &g_a5_byte(-16906);
+	unsigned char  count = 0;
+	unsigned char  cap;
+	short          i;
+	signed char    remaining;
+
+	PROBE("L03b2");
+	for (i = 0; i <= 140; i++) {
+		unsigned char s = rec[198 + i];
+		if (s == 0)
+			continue;
+		if (defs[(long)(s & 0x7f) * 16 + 1] != (unsigned char)level)
+			continue;
+		if (defs[(long)(s & 0x7f) * 16 + 0] != (unsigned char)class_)
+			continue;
+		count++;
+	}
+	if (out != NULL)
+		*out = count;
+
+	cap = rec[355 + (long)class_ * 9 + (level - 1)];
+	if (count > cap)              /* clamp count to the cell capacity */
+		count = cap;
+	remaining = (signed char)(cap - count);
+
+	if ((unsigned char)class_ == 2) {            /* magic-user Int gates */
+		if (rec[115] < 12 && level > 6) remaining = 0;
+		if (rec[115] < 14 && level > 7) remaining = 0;
+		if (rec[115] < 16 && level > 8) remaining = 0;
+		if (rec[115] < 18 && level > 9) remaining = 0;
+	} else if ((unsigned char)class_ == 0) {     /* cleric Wis gates */
+		if (rec[117] < 17 && level > 6) remaining = 0;
+		if (rec[117] < 18 && level > 7) remaining = 0;
+	}
+	return (short)(unsigned char)remaining;
+}
+
+/* JT[959] (= L0aba, CODE 21+0x0aba) — sort the member's 141 spell slots
+ * ascending by masked spell id (bit7 ignored), zeros sinking to the end.
+ * Selection sort over the full slot array. Faithful full lift. */
+static void jt959(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	short i, j;
+
+	PROBE("jt959");
+	for (i = 0; i <= 139; i++) {
+		for (j = (short)(i + 1); j <= 140; j++) {
+			unsigned char swap = 0;
+			if (rec[198 + i] == 0) {
+				swap = 1;
+			} else if ((rec[198 + i] & 0x7f) <= (rec[198 + j] & 0x7f)) {
+				swap = 0;
+			} else if (rec[198 + j] == 0) {
+				swap = 0;
+			} else {
+				swap = 1;
+			}
+			if (swap) {
+				unsigned char t = rec[198 + i];
+				rec[198 + i] = rec[198 + j];
+				rec[198 + j] = t;
+			}
+		}
+	}
+}
+
+/* JT[961] (= L0798, CODE 21+0x0798) — the memorize-capacity grid. For each
+ * class 0..2 x level 1..9 it computes the remaining capacity (l03b2) into a
+ * grid; a class column is "active" when it has any capacity cell. If ANY cell
+ * is free it draws the "Cleric/Druid/Magic-User :" rows (jt94) with the
+ * per-level counts and returns 1; if nothing is free it returns 0 (the
+ * memorize loop stops). Faithful full lift. */
+static unsigned char jt961(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	signed char    grid[3][9];             /* [class][level-1] remaining */
+	unsigned char  colactive[3] = {0,0,0};
+	unsigned char  anyfree = 0;
+	short          cls, lvl, row;
+	char           buf[42];
+
+	PROBE("jt961");
+	g_a5_byte(-22727) = 0;
+
+	for (cls = 0; cls <= 2; cls++) {
+		for (lvl = 1; lvl <= 9; lvl++) {
+			unsigned char cnt;
+			signed char   rem =
+			    (signed char)l03b2(lvl, cls, &cnt);
+
+			if (rec[355 + (long)cls * 9 + (lvl - 1)] == 0) {
+				grid[cls][lvl - 1] = -1;
+			} else {
+				colactive[cls] = 1;
+				grid[cls][lvl - 1] = rem;
+				if (rem != 0)
+					anyfree = 1;
+			}
+		}
+	}
+
+	if (anyfree == 0)
+		return 0;
+
+	jt103((short)1, (short)17, (short)38, (short)22);
+	row = 1;
+	for (cls = 0; cls <= 2; cls++) {
+		if (colactive[cls] == 0)
+			continue;
+		switch (cls) {                          /* JT[3] @0x08f2 */
+		case 0: jt384(buf, ua_strs_at(0x6b36)); break; /* "    Cleric :"  */
+		case 1: jt384(buf, ua_strs_at(0x6b44)); break; /* "     Druid :"  */
+		case 2: jt384(buf, ua_strs_at(0x6b52)); break; /* "Magic-User :"  */
+		default: break;
+		}
+		jt94((short)1, (short)(row + 17), (short)7, (short)0, "%s", buf);
+		{
+			short col = 13;
+			for (lvl = 1; lvl <= 9; lvl++) {
+				signed char v = grid[cls][lvl - 1];
+				if (v >= 0)
+					jt94((short)(col + 1), (short)(row + 17),
+					     (short)7, (short)0, "%d",
+					     (int)(unsigned char)v);
+				col += 3;
+			}
+		}
+		row++;
+	}
+	return anyfree;
+}
+
+/* L06d6 (CODE 21+0x06d6, magic case 0) — camp CAST. The precondition
+ * (l05c4 mode 1), then loop the jt595(1,0) in-Memory picker: a picked spell
+ * runs the jt599 effect (with the jt103 panel) — an event-flagged spell
+ * (result 22) ends the loop; an empty pick ("has no spells memorized" jt18)
+ * ends it. jt23 repaints on exit. Faithful full lift. */
+static void l06d6(void)
+{
+	unsigned char repaint = 0;
+	short          sel = -1;
+	unsigned char  picked;
+
+	PROBE("L06d6");
+	g_a5_byte(-24140) = 1;
+	if (l05c4((short)1) == 0)
+		return;
+
+	do {
+		unsigned char spec = 0;
+		picked = (unsigned char)jt595((short)0, (short)1, &sel, &spec);
+		if (picked != 0) {
+			unsigned char out = 0;
+			repaint = 1;
+			jt103((short)1, (short)17, (short)38, (short)22);
+			jt599((short)picked, (short)0, (short)1, &out);
+		} else if (spec != 0) {
+			repaint = 1;
+		} else {
+			jt18((unsigned char *)(uintptr_t)g_a5_long(-27932),
+			     (long)(uintptr_t)ua_strs_at(0x6b1e) /* "has no spells memorized" */,
+			     (short)10, (short)1);
+		}
+	} while (picked != 0);
+
+	if (repaint)
+		jt23();
+}
+
+/* L0bc6 (CODE 21+0x0bc6, magic case 1) — camp MEMORIZE. The core encamp/
+ * memorize loop. Faithful full lift.
+ *   1. l05c4(2) precondition.
+ *   2. jt597(5) builds the "to Memorize" pending list; if non-empty, the
+ *      jt595(5,8) confirm shows it (result 0 = user cleared it -> l0214),
+ *      else jt595(5,5) just displays it.
+ *   3. jt83 repaints, then loop:
+ *      - jt961 draws the per-class/level capacity grid; if nothing free,
+ *        "cannot memorize any more spells" (jt18) and stop.
+ *      - jt595(1,2) picks a grimoire spell; 0 = done.
+ *      - l03b2 checks that (class,level) still has capacity (mage classes
+ *        get a -22727 scribe bypass); when free, stamp the first empty slot
+ *        rec[198+k] = id|0x80 (pending) and re-sort (jt959).
+ *   4. On exit, refresh the pending list; jt23 repaints. */
+static void l0bc6(void)
+{
+	const unsigned char *defs = &g_a5_byte(-16906);
+	unsigned char *rec;
+	unsigned char  done = 0;      /* fp@(-1): "stop" flag */
+	unsigned char  listed;        /* fp@(-2): pending-list count */
+	unsigned char  picked;        /* fp@(-4): jt595 pick */
+	unsigned char  repaint = 0;   /* fp@(-3) */
+	short          sel = -1;      /* fp@(-8) */
+
+	PROBE("L0bc6");
+	if (l05c4((short)2) == 0)
+		return;
+
+	g_a5_byte(-24140) = 1;
+	listed = (unsigned char)jt597((short)5);
+	if (listed != 0) {
+		picked = (unsigned char)jt595((short)5, (short)8, &sel, &listed);
+		if (picked == 0)
+			l0214(g_a5_long(-27932));
+		else
+			done = 1;
+	} else {
+		(void)jt595((short)5, (short)5, &sel, &listed);
+		repaint = 1;
+	}
+	sel = -1;
+	repaint = 1;
+	jt83();
+
+	for (;;) {
+		if (done == 0) {
+			/* jt961 returns nonzero when a slot is free. */
+			done = (unsigned char)((jt961() == 0) ? 1 : 0);
+			if (done != 0) {
+				jt18((unsigned char *)(uintptr_t)g_a5_long(-27932),
+				     (long)(uintptr_t)ua_strs_at(0x6b64)
+				     /* "cannot memorize any more spells" */,
+				     (short)10, (short)1);
+			} else {
+				unsigned char cnt = 0;
+				picked = (unsigned char)jt595((short)1, (short)2,
+				                              &sel, &listed);
+				repaint = 1;
+				if (picked == 0) {
+					done = 1;
+				} else {
+					short class_ = defs[(long)picked * 16 + 0];
+					short level  = defs[(long)picked * 16 + 1];
+					short remain = l03b2(level, class_, &cnt);
+
+					if ((remain & 0xff) != 0
+					    || (class_ == 2 && g_a5_byte(-22727) != 0)) {
+						short k;
+						g_a5_byte(-22729) = 0;
+						rec = (unsigned char *)(uintptr_t)
+						      g_a5_long(-27932);
+						for (k = 0; rec[198 + k] != 0; k++)
+							;
+						rec[198 + k] =
+						    (unsigned char)(picked + 128);
+						jt959();
+					}
+				}
+			}
+		}
+
+		if (done == 0)
+			continue;
+
+		/* L0d98 tail — refresh the pending list once. */
+		if (sel != -1) {
+			sel = -1;
+			picked = (unsigned char)jt595((short)5, (short)8,
+			                              &sel, &listed);
+			if (listed != 0 && picked == 0)
+				l0214(g_a5_long(-27932));
+		}
+		break;
+	}
+
+	if (repaint)
+		jt23();
+}
 static void l0df2(void)                    { PROBE("L0df2"); }
 static void l1374(void)                    { PROBE("L1374"); }
 

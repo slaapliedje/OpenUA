@@ -42,6 +42,38 @@ camp menu. Chain: **Encamp/inn → `l473e` → `jt957`** (the camp-menu dispatch
   `l06d6` (0), `l0bc6` (1, ~190 ln), `l0df2` (2, ~458 ln), `l1374` (3, ~366 ln)
   — memorize / view / cast / scribe. Each is a large screen of its own.
 
+## Done (slice 5, 2026-07-03) — the MEMORIZE + CAST magic screens
+
+The encamp/memorize loop is LIVE end to end. Both magic-menu spell screens
+lifted (CODE 21), sharing five helpers:
+- **`l06d6`** (magic case 0, CAST) — camp cast: `l05c4(1)` precondition, then
+  the `jt595(0,1)` in-Memory picker loop → `jt599` effect. An offensive spell
+  in camp hits the faithful "<spell> CAN'T BE CAST HERE... LOSE IT? YES/NO"
+  discard (frees the memorized slot).
+- **`l0bc6`** (magic case 1, MEMORIZE) — the core loop: `l05c4(2)` precondition,
+  `jt597(5)` builds the "to Memorize" pending list, `jt595(5,8)` confirm
+  ("SPELLS OK? KEEP/EXIT", the `*` marks a pending slot), then loops the
+  `jt961` capacity grid + `jt595(1,2)` grimoire picker, stamping
+  `rec[198+k] = id|0x80` per pick (`jt959` re-sort).
+- shared: **`l05c4`** (can-do-magic precondition + rejection message),
+  **`l0214`** (clear pending memorize flags), **`l03b2`** (per-(class,level)
+  remaining capacity, with the mage-Int / cleric-Wis high-level gates),
+  **`jt961`** (=L0798, the "Cleric/Druid/Magic-User :" capacity grid + any-free
+  return), **`jt959`** (=L0aba, the slot sort). Leaf deps all pre-lifted
+  (jt595/jt597/jt599/jt83/jt18/jt103/jt94/jt384/jt404/jt23).
+
+Hatari-verified: Encamp → Magic → CAST discards Lightning Bolt (LOSE IT? Yes),
+→ MEMORIZE shows "SPELLS TO MEMORIZE / *LIGHTNING BOLT / SPELLS OK? KEEP",
+KEEP stages the pending flag. Barbarian correctly hits "Cannot do magic".
+
+REMAINING for the loop to fully close: the memorize COMPLETION happens during
+REST, in the CODE 19 rest-engine leaves that are still PROBE stubs — `l0d86`
+(memorize-completion poll), `l07e6` (healing), `l0572_c19` (clock repaint),
+`l0418`/`l035c`/`l0cb8`/`l0e3e` (time/expiry/upkeep/encounter). jt915 (the
+rest driver) is lifted; these leaves are the next slice — then REST advances
+the clock and converts the `*` pending flags to memorized spells. SCRIBE
+(`l0df2`) and DISPLAY (`l1374`) magic screens also still stubbed.
+
 ## Remaining (slices 4..N) — still PROBE-stubbed
 
 | case | fn | size | what it is (to confirm by reading) |
