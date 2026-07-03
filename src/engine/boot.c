@@ -36044,19 +36044,608 @@ static void l28b0(void *ev_v, short f)
  * + party-death message. A large function with its own subtree (L33d8/L4046/
  * L4268/L3806/L3d1e + jt62/jt73/jt76/jt21). Leaf PROBE stub for the give-
  * treasure slice; full lift is Slice C (see docs/treasure-event-wall.md). */
-/* jt930's CODE 12 locals. l33d8 (~1070B, the pre-exit XP-award sweep),
- * l3806_c12 (~1300B, the XP distribution over the -22290 total) and
- * l3d1e (~800B, the treasure hand-out UI) are PROBE stubs pending
- * their own cards; l4046 + l4268_c12 are full lifts below. The _c12
- * suffixes dodge the CODE 11 l4268 and the CODE 8 l3806 collisions
- * (match on (CODE, offset) — the lxxxx rule). */
-static void l33d8(void)      { PROBE("L33d8"); }
-static void l3806_c12(long total) { PROBE("L3806_c12"); (void)total; }
-static void l3d1e(void)      { PROBE("L3d1e"); }
+/* jt930's CODE 12 subtree — l33d8 / l2fd4 / l31e0 / l3806_c12 / l3d1e
+ * are full lifts below (the _c12 suffixes dodge the CODE 11 l4268 and
+ * the CODE 8 l3806 collisions; match on (CODE, offset) — the lxxxx
+ * rule). */
 
-/* Forward decls — these lift near the end of the file. */
-static void jt62(long *pnode);
-static void jt73(void);
+/* Forward decls — these lift further down the file. */
+static void          jt62(long *pnode);
+static void          jt73(void);
+static short         jt182(const char *p1, long p2, short arg3, short arg4);
+static void          jt599(short effect, short b, short c, unsigned char *out);
+static signed char   l15bc(void);          /* CODE 7+0x15bc = JT[177] */
+static long          jt7(long a, long b);
+static unsigned long jt5(unsigned long a, unsigned long b);
+
+/* JT[170] (CODE 7+0x15ae) — set the dialog-abort byte g_a5_-13005. */
+static void jt170(short b) __attribute__((unused));
+static void jt170(short b)
+{
+	PROBE("jt170");
+	g_a5_byte(-13005) = (unsigned char)(b & 0xff);
+}
+
+/* l3d1e's remaining CODE 12 locals — PROBE stubs pending their own
+ * cards (the treasure "Slice B"): l3b4a = the TAKE screen (item/money
+ * Take/Pool/Exit picker, 0x3b4a); l1c8a / l1d90 = the verb-2/3 arms
+ * (pool/share money, 0x1c8a/0x1d90); l0082 = the roster-card
+ * highlight paint pair used with l0848's member cycling (0x0082);
+ * l2dde = the stackable-loot merge (0x2dde, called while splicing a
+ * monster's item chain into the staged list). */
+static void l3b4a(void *item_flag, void *money_flag)
+{
+	PROBE("L3b4a");
+	(void)item_flag; (void)money_flag;
+}
+static void l1c8a(void) { PROBE("L1c8a"); }
+static void l1d90(void) { PROBE("L1d90"); }
+static void l0082(long member, short flag)
+{
+	PROBE("L0082");
+	(void)member; (void)flag;
+}
+static void l2dde(long head) { PROBE("L2dde"); (void)head; }
+
+/* L2504 (CODE 12+0x2504) — the staged-loot presence probe: *money = any
+ * of the three -25314 money longs nonzero, *items = the -25302 staged
+ * item list nonempty. Faithful full lift. */
+static void l2504(unsigned char *money, unsigned char *items)
+{
+	short i;
+
+	PROBE("L2504");
+	*money = 0;
+	*items = 0;
+	for (i = 0; i <= 2; i++)
+		if (g_a5_long(-25314 + i * 4) != 0)
+			*money = 1;
+	if (g_a5_long(-25302) != 0)
+		*items = 1;
+}
+
+/* L2fd4 (CODE 12+0x2fd4) — the post-fight XP/loot TALLY. Walks the
+ * -27928 list for defeated SPAWNED monsters (side rec[95]==1, status
+ * not 0/3/9, mc[21]==1): sums their XP value (rec[84] word), stages
+ * their three money words (rec[76..81]) into the -25314 longs (unless
+ * the design's hdr[30] "no monster loot" flag), and SPLICES their item
+ * chain onto the head of the -25302 staged list (skipped when the
+ * first item's byte 40 == 105; each node is un-readied ([50]=0) and
+ * stackables are merged via l2dde when head[53] > 0 and node[51]).
+ * Then money -> XP (gold x2, -25310 x250, -25306 x2200), +400 per
+ * staged item level byte ([48] > 0, up to the -27924 old-tail
+ * sentinel), the survivor-count clamp against hdr[32], and *out =
+ * total / (hdr[32] - -22291) via JT[5]. Faithful full lift. */
+static void l2fd4(long *out)
+{
+	long          total = 0;             /* fp@-10 */
+	long          cur;                   /* fp@-4  */
+	long          items;                 /* fp@-18 */
+	long          savedhead;             /* fp@-14 */
+	unsigned char nitems = 0;            /* fp@-19 */
+	short         i;                     /* fp@-5  */
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L2fd4");
+	for (cur = g_a5_long(-27928); cur != 0;
+	     cur = *(long *)(uintptr_t)cur) {
+		unsigned char *p  = (unsigned char *)(uintptr_t)cur;
+		unsigned char *mc = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)(p + 64);
+
+		items = *(long *)(void *)(p + 8);
+		if (p[95] != 1)
+			continue;
+		if (p[94] == 0 || p[94] == 3 || p[94] == 9)
+			continue;
+		g_a5_byte(-5792) = 1;
+		if (mc[21] != 1)
+			continue;
+		total += (long)(unsigned short)*(short *)(void *)(p + 84);
+		if (hdr[30] != 0)
+			continue;
+		for (i = 0; i <= 2; i++)
+			g_a5_long(-25314 + i * 4) +=
+			    (long)(unsigned short)
+			    *(short *)(void *)(p + 76 + i * 2);
+		if (items == 0)
+			continue;
+		if (((unsigned char *)(uintptr_t)items)[40] == 105)
+			continue;
+		savedhead = g_a5_long(-25302);
+		g_a5_long(-25302) = items;
+		{
+			long node = items;
+
+			for (;;) {
+				unsigned char *n = (unsigned char *)
+				    (uintptr_t)node;
+				nitems++;
+				n[50] = 0;
+				if (*(long *)(void *)n == 0)
+					break;
+				if ((signed char)((unsigned char *)(uintptr_t)
+				        g_a5_long(-25302))[53] > 0
+				    && n[51] != 0)
+					l2dde(g_a5_long(-25302));
+				node = *(long *)(void *)n;
+			}
+			*(long *)(uintptr_t)node = savedhead;
+		}
+		*(long *)(void *)(p + 8) = 0;
+	}
+	(void)nitems;
+
+	total += 2 * g_a5_long(-25314);
+	total += jt4(g_a5_long(-25310), 250);
+	total += jt4(g_a5_long(-25306), 2200);
+	{
+		long node;
+
+		for (node = g_a5_long(-25302);
+		     node != 0 && node != g_a5_long(-27924);
+		     node = *(long *)(uintptr_t)node) {
+			signed char lvl = (signed char)
+			    ((unsigned char *)(uintptr_t)node)[48];
+			if (lvl > 0)
+				total += (long)((short)lvl * 400);
+		}
+	}
+	if ((unsigned char)g_a5_byte(-22291) >= hdr[32])
+		g_a5_byte(-22291)--;
+	*out = (long)jt5((unsigned long)total,
+	    (unsigned long)(unsigned short)
+	    (short)((short)hdr[32]
+	            - (short)(unsigned char)g_a5_byte(-22291)));
+}
+
+/* L31e0 (CODE 12+0x31e0) — the per-member XP AWARD. Skipped entirely
+ * under the design's hdr[31] "no XP" flag. For each in-combat member
+ * (rec[382], status != 1): the share is `xp`, +10% for a prime
+ * requisite over the class threshold (class 0 STR rec[117] > 14;
+ * 2 INT rec[113] > 15; 3 both; 4 rec[113]/[115]/[117] all > 15;
+ * 5 WIS rec[115] > 15; 6 DEX rec[119] > 15), halved for the
+ * dual-class ids {8,10,11,12,13,14,16}, a third for the triple-class
+ * {9,15}. Adds into the XP long at rec[68] and refreshes the
+ * can-train flag rec[197] = jt33. Faithful full lift. */
+static void l31e0(long xp)
+{
+	long           cur, share;
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L31e0");
+	if (hdr[31] != 0)
+		return;
+	for (cur = g_a5_long(-27928); cur != 0;
+	     cur = *(long *)(uintptr_t)cur) {
+		unsigned char *p = (unsigned char *)(uintptr_t)cur;
+
+		if (p[382] == 0)
+			continue;
+		if (p[94] == 1)
+			continue;
+		share = xp;
+		switch (p[89]) {         /* JT[3] @0x3230 min0 max16 */
+		case 0:
+			if (p[117] > 14)
+				share = xp + jt7(xp, 10);
+			break;
+		case 2:
+			if (p[113] > 15)
+				share = xp + jt7(xp, 10);
+			break;
+		case 3:
+			if (p[113] > 15 && p[117] > 15)
+				share = xp + jt7(xp, 10);
+			break;
+		case 4:
+			if (p[113] > 15 && p[115] > 15 && p[117] > 15)
+				share = xp + jt7(xp, 10);
+			break;
+		case 5:
+			if (p[115] > 15)
+				share = xp + jt7(xp, 10);
+			break;
+		case 6:
+			if (p[119] > 15)
+				share = xp + jt7(xp, 10);
+			break;
+		case 8: case 10: case 11: case 12: case 13:
+		case 14: case 16:
+			share = jt7(xp, 2);
+			break;
+		case 9: case 15:
+			share = jt7(xp, 3);
+			break;
+		default:                 /* 1, 7, out-of-range */
+			break;
+		}
+		*(long *)(void *)(p + 68) += share;
+		p[197] = (unsigned char)jt33(p);
+	}
+}
+
+/* L33d8 (CODE 12+0x33d8) — the post-fight party-OUTCOME resolver.
+ * Faithful full lift.
+ *  - -22291 = 0 (the survivor count), -27982 = 1 (assume destroyed),
+ *    -5791 = 0 ("someone fled").
+ *  - Pass 1 (real members, stop at the first summoned mc[21]==1):
+ *    status 3 (fled) sets -5791.
+ *  - Pass 2 (all, until the first hit): any member with rec[382] or
+ *    status 4/3/5 + the design's hdr[29] no-permadeath flag clears
+ *    the destroyed flag.
+ *  - Main pass (demo off; real members): a live real PC (status
+ *    0/1/3, side 0, not a monster rec[147] bit 7) clears destroyed;
+ *    status 0/1 sets -22286 (the "won" latch) and clears -5791;
+ *    (rec[382]==0 || status 1) bumps the survivor count; every member
+ *    gets the 17 post-combat effect types (the -25286 table) stripped
+ *    via jt878. Demo on instead: per live fighting member tally+award
+ *    (l2fd4/l31e0), then statuses normalize (0/1 -> back in combat,
+ *    5 -> 4) and return.
+ *  - The tally+award runs once when -22286 latched.
+ *  - Post-outcome: survived + nobody fled -> statuses resolve (3 ->
+ *    rejoin; 5 -> hdr[29] ? revive at 1 HP : status 4; 4 -> HP left ?
+ *    rejoin : hdr[29] revive); someone fled -> status-3 members
+ *    rejoin, everyone else is DISBANDED (jt19(0,1)); destroyed ->
+ *    every real member disbanded and hdr[32] cleared. */
+static void l33d8(void)
+{
+	long           cur;                  /* fp@-4 */
+	unsigned char  found;                /* fp@-7 / fp@-5 */
+	short          i;                    /* fp@-6 */
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L33d8");
+	g_a5_byte(-22291) = 0;
+	g_a5_byte(-27982) = 1;
+	g_a5_byte(-5791)  = 0;
+
+	for (cur = g_a5_long(-27928); cur != 0;
+	     cur = *(long *)(uintptr_t)cur) {
+		unsigned char *p  = (unsigned char *)(uintptr_t)cur;
+		unsigned char *mc = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)(p + 64);
+
+		if (mc[21] == 1)
+			break;
+		if (p[94] == 3)
+			g_a5_byte(-5791) = 1;
+	}
+
+	found = 0;
+	for (cur = g_a5_long(-27928); cur != 0 && !found;
+	     cur = *(long *)(uintptr_t)cur) {
+		unsigned char *p = (unsigned char *)(uintptr_t)cur;
+
+		if (p[382] != 0 || p[94] == 4 || p[94] == 3 || p[94] == 5)
+			found = 1;
+	}
+	if (hdr[29] != 0 && found)
+		g_a5_byte(-27982) = 0;
+
+	g_a5_byte(-22286) = 0;
+	if (g_a5_byte(-27988) == 0) {
+		/* the main pass over real members */
+		for (cur = g_a5_long(-27928); cur != 0;
+		     cur = *(long *)(uintptr_t)cur) {
+			unsigned char *p  = (unsigned char *)(uintptr_t)cur;
+			unsigned char *mc = (unsigned char *)(uintptr_t)
+			    *(long *)(void *)(p + 64);
+
+			if (mc[21] == 1)
+				break;
+			if (p[94] == 3 || p[94] == 1 || p[94] == 0) {
+				if (p[95] == 0 && !(p[147] & 0x80))
+					g_a5_byte(-27982) = 0;
+			}
+			if (p[94] == 1 || p[94] == 0) {
+				g_a5_byte(-22286) = 1;
+				g_a5_byte(-5791)  = 0;
+			}
+			if (p[382] == 0 || p[94] == 1)
+				g_a5_byte(-22291)++;
+			for (i = 0; i < 17; i++)
+				jt878(cur,
+				    (short)(unsigned char)g_a5_buf(-25286)[i],
+				    0L);
+		}
+	} else {
+		/* the demo arm */
+		for (cur = g_a5_long(-27928); cur != 0;
+		     cur = *(long *)(uintptr_t)cur) {
+			unsigned char *p = (unsigned char *)(uintptr_t)cur;
+
+			if (p[382] != 0 && p[94] == 0 && p[95] != 1) {
+				g_a5_byte(-22286) = 1;
+				l2fd4(&g_a5_long(-22290));
+				l31e0(g_a5_long(-22290));
+			}
+		}
+		for (cur = g_a5_long(-27928); cur != 0;
+		     cur = *(long *)(uintptr_t)cur) {
+			unsigned char *p = (unsigned char *)(uintptr_t)cur;
+
+			if (p[94] == 0 || p[94] == 1)
+				p[382] = 1;
+			if (p[94] == 5)
+				p[94] = 4;
+		}
+		return;
+	}
+
+	if (g_a5_byte(-22286) != 0) {
+		l2fd4(&g_a5_long(-22290));
+		l31e0(g_a5_long(-22290));
+	}
+
+	if (g_a5_byte(-27982) == 0) {              /* the party survived */
+		cur = g_a5_long(-27928);
+		while (cur != 0) {
+			unsigned char *p  = (unsigned char *)(uintptr_t)cur;
+			unsigned char *mc = (unsigned char *)(uintptr_t)
+			    *(long *)(void *)(p + 64);
+
+			if (mc[21] == 1)
+				break;
+			if (g_a5_byte(-5791) != 0) {   /* someone fled */
+				if (p[94] == 3) {
+					p[94]  = 0;
+					p[382] = 1;
+					cur = *(long *)(uintptr_t)cur;
+				} else {
+					g_a5_long(-27932) = cur;
+					cur = *(long *)(uintptr_t)cur;
+					jt19(0, 1);
+				}
+				continue;
+			}
+			switch (p[94]) {   /* JT[3] @0x35e8 min3 max5 */
+			case 3:
+				p[94]  = 0;
+				p[382] = 1;
+				break;
+			case 5:
+				if (hdr[29] != 0) {
+					p[94]  = 0;
+					p[382] = 1;
+					p[395] = 1;
+				} else {
+					p[94] = 4;
+				}
+				break;
+			case 4:
+				if (p[395] > 0) {
+					p[94]  = 0;
+					p[382] = 1;
+				} else if (hdr[29] != 0) {
+					p[94]  = 0;
+					p[382] = 1;
+					p[395] = 1;
+				}
+				break;
+			default:
+				break;
+			}
+			cur = *(long *)(uintptr_t)cur;
+		}
+	} else {                                   /* destroyed */
+		found = 0;
+		cur = g_a5_long(-27928);
+		while (cur != 0 && !found) {
+			unsigned char *p  = (unsigned char *)(uintptr_t)cur;
+			unsigned char *mc = (unsigned char *)(uintptr_t)
+			    *(long *)(void *)(p + 64);
+
+			if (mc[21] != 1) {
+				g_a5_long(-27932) = cur;
+				jt19(0, 1);
+			} else {
+				found = 1;
+			}
+			cur = *(long *)(uintptr_t)cur;
+			(void)p;
+		}
+		hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		hdr[32] = 0;
+	}
+}
+
+/* L3806 (CODE 12+0x3806) — the battle-OUTCOME + XP announcement page.
+ * Faithful full lift (_c12: the CODE 8 l3806 is a different function).
+ * jt76 clears the page; when monsters were engaged (-5792): a fled
+ * party gets the ran-away banner + the staged loot forfeited (jt62
+ * frees the -25302 nodes, jt65 zeroes the money longs, xp = 0); a
+ * no-survivor outcome under hdr[29] gets the defeat banner + xp = 0;
+ * else "The party has won." Then, unless hdr[31] disables XP, the
+ * "each member receives N"-style line ("%s%ld" over the -14020
+ * template) + the -14016 line paint; the loot-presence probe picks
+ * the -14028 "treasure" or -14024 "no treasure" line; jt182 runs the
+ * press-Return alert. */
+static void l3806_c12(long xp)
+{
+	char           buf12[80];            /* fp@-12 "%l" staging */
+	char           buf94[82];            /* fp@-94 the XP line  */
+	long           node, next;           /* fp@-98 / fp@-102 */
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L3806_c12");
+	jt76();
+	if (g_a5_byte(-5792) != 0) {
+		if (g_a5_byte(-5791) != 0) {
+			jt94(1, 3, 7, 0,
+			     (const char *)(uintptr_t)g_a5_long(-14048));
+			xp = 0;
+			node = g_a5_long(-25302);
+			while (node != 0) {
+				next = *(long *)(uintptr_t)node;
+				jt62(&node);
+				node = next;
+			}
+			jt65((long)(uintptr_t)&g_a5_byte(-25314), 12);
+		} else if (g_a5_byte(-22286) == 0 && hdr[29] != 0) {
+			jt94(1, 3, 7, 0,
+			     (const char *)(uintptr_t)g_a5_long(-14044));
+			xp = 0;
+		} else {
+			jt94(1, 3, 7, 0,
+			     (const char *)ua_strs_at(0x6134));
+			                     /* "The party has won." */
+		}
+	}
+	jt394(buf12, "%l", xp);
+	jt384(buf94, jt488("%s%ld",
+	    (const char *)(uintptr_t)g_a5_long(-14020), xp));
+	if (hdr[31] == 0) {
+		jt94(1, 5, 7, 0, buf94);
+		jt94(1, 7, 7, 0,
+		     (const char *)(uintptr_t)g_a5_long(-14016));
+	}
+	g_a5_byte(-18885) = 0;
+	g_a5_byte(-5790)  = 0;
+	l2504(&g_a5_byte(-18885), &g_a5_byte(-5790));
+	if (g_a5_byte(-18885) != 0 || g_a5_byte(-5790) != 0)
+		jt94(1, 10, 7, 0,
+		     (const char *)(uintptr_t)g_a5_long(-14028));
+	else
+		jt94(1, 10, 7, 0,
+		     (const char *)(uintptr_t)g_a5_long(-14024));
+	jt182((const char *)(uintptr_t)g_a5_long(-13952),
+	      g_a5_long(-14644), 1, 0);
+	(void)buf12;
+}
+
+/* L3d1e (CODE 12+0x3d1e) — the post-fight TREASURE screen loop.
+ * Faithful CFG lift; the verb-arm interiors l3b4a (Take), l1c8a /
+ * l1d90 and the l0082 roster-card paint are PROBE stubs pending the
+ * Slice-B cards. Per pass: reset the verb table (jt399 0xff), probe
+ * the loot flags (l2504), scan the ACTIVE member's 141 spell slots
+ * for a cure (5/11/77, member in combat) -> the HEAL verb; build the
+ * verb list (0/2/5 always; 1 Take when loot; 3 when money; 4 Heal
+ * when a cure is up); run the picker (jt166 mode 12 + jt160). The
+ * special keys: ESC -> Exit; 136/132 cycle the roster through l0082 +
+ * l0848. jt177(=l15bc) aborts via jt170(0). Verbs: 0 View (jt904),
+ * 1 Take (l3b4a), 2/3 (l1c8a/l1d90), 4 cast the cure (jt599), 5 Exit
+ * — with loot still staged, the two jt96 "leave treasure?" lines +
+ * the jt159 confirm (No keeps looting, jt103 wipes the prompt box).
+ * Exit runs jt52(255). */
+static void l3d1e(void)
+{
+	unsigned char done = 0;              /* fp@-4 */
+	unsigned char saved;                 /* fp@-8 */
+	unsigned char have_heal;             /* fp@-7 */
+	unsigned char heal_spell = 0;        /* fp@-6 */
+	unsigned char out5 = 0;              /* fp@-5 */
+	unsigned char count;                 /* fp@-2 */
+	short         pick;                  /* fp@-3 */
+	short         i;                     /* fp@-1 */
+
+	PROBE("L3d1e");
+	jt23();
+	saved = 1;
+	do {
+		jt399(g_a5_24126, (short)G_A5_24126_LEN, 0xFF);
+		l2504(&g_a5_byte(-18885), &g_a5_byte(-5790));
+		have_heal = 0;
+		if (g_a5_byte(-5790) != 0) {
+			unsigned char *act = (unsigned char *)(uintptr_t)
+			    g_a5_long(-27932);
+
+			for (i = 0; i <= 140 && !have_heal; i++) {
+				unsigned char s = act[198 + i];
+
+				if ((s == 5 || s == 11 || s == 77)
+				    && act[382] != 0) {
+					have_heal  = 1;
+					heal_spell = s;
+				}
+			}
+		}
+		count = 0;
+		for (i = 0; i <= 5; i++) {
+			switch (i) {   /* JT[3] @0x3e14 min1 max4 */
+			case 1:
+				if (g_a5_byte(-18885) != 0
+				    || g_a5_byte(-5790) != 0)
+					jt155(1, &count);
+				break;
+			case 3:
+				if (g_a5_byte(-18885) != 0)
+					jt155(3, &count);
+				break;
+			case 4:
+				if (have_heal != 0)
+					jt155(4, &count);
+				break;
+			default:       /* 0, 2, 5 */
+				jt155((short)i, &count);
+				break;
+			}
+		}
+		g_a5_byte(-24140) = saved;
+		jt166(12);
+		pick = (short)(unsigned char)jt160(g_a5_long(-13952),
+		    g_a5_long(-13688), 1, 1);
+		saved = (unsigned char)g_a5_byte(-24140);
+		if (g_a5_byte(-24139) != 0) {
+			switch (pick) {   /* JT[1] @0x3ed2 */
+			case 27:
+				pick = 5;
+				break;
+			case 136:
+			case 132:
+				l0082(g_a5_long(-27932), 0);
+				l0848((short)pick);
+				l0082(g_a5_long(-27932), 1);
+				pick = 0xff;
+				break;
+			default:
+				break;
+			}
+		}
+		if (l15bc() != 0) {          /* JT[177]: external abort */
+			jt170(0);
+			continue;
+		}
+		switch (pick) {              /* JT[3] @0x3f2c min0 max5 */
+		case 0:
+			jt904(&out5);
+			break;
+		case 1:
+			l3b4a(&g_a5_byte(-18885), &g_a5_byte(-5790));
+			break;
+		case 2:
+			l1c8a();
+			break;
+		case 3:
+			l1d90();
+			break;
+		case 4:
+			jt599((short)(unsigned char)heal_spell, 0, 0,
+			      &out5);
+			break;
+		case 5:
+			l2504(&g_a5_byte(-18885), &g_a5_byte(-5790));
+			if (g_a5_byte(-18885) != 0
+			    || g_a5_byte(-5790) != 0) {
+				jt96(1, 17, 38, 22, 7, 0, 1,
+				     g_a5_long(-14012), 0);
+				jt96(1, 17, 38, 22, 11, 0, 0,
+				     g_a5_long(-14008), 0);
+				if (jt159((const char *)(uintptr_t)
+				          g_a5_long(-13952), 0) == 0)
+					done = 1;
+				else
+					jt103(1, 17, 38, 22);
+			} else {
+				done = 1;
+			}
+			break;
+		default:
+			break;
+		}
+	} while (!done);
+	jt52(255);
+}
 
 /* L4046 (CODE 12+0x4046) — the post-combat party-list sweep. Faithful
  * full lift. hdr[21] counts the fallen; every summoned (mc[21]==1) or
