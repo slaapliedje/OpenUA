@@ -41929,7 +41929,11 @@ static void l08b4(long member)
 
 	l609a(0);                                       /* magic off */
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
-	if (*(short *)(mc + 0) > 0) {                    /* a forced action is queued */
+	/* Mac 0x8d6 reads mc[0] as a zero-extended BYTE (moveb a0@). The old
+	 * word read also captured mc[1] — the can-cast flag jt541 seeds — so
+	 * every caster with NO queued spell fired this arm as jt599(0), the
+	 * bogus effect-0 cast that hung the AI mage's turn. */
+	if (mc[0] != 0) {                                /* a forced action is queued */
 		unsigned char forced = mc[0];
 		mc[0] = 0;
 		jt599(forced, 0, 1, &done);
@@ -44393,7 +44397,9 @@ static void l5008(long member)
 		return;
 	}
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
-	if (*(short *)(mc + 0) > 0) {                    /* forced action */
+	/* Mac 0x5168: moveb a0@ — the mc[0] BYTE, same fix as l08b4's gate
+	 * (the word read also saw the mc[1] can-cast flag -> jt599(0)). */
+	if (mc[0] != 0) {                                /* forced action */
 		jt599(mc[0], 1, 1, (unsigned char *)&done);
 		done = l26ea(member);
 		return;
