@@ -36086,26 +36086,77 @@ static void jt170(short b)
 	g_a5_byte(-13005) = (unsigned char)(b & 0xff);
 }
 
-/* l3d1e's remaining CODE 12 locals — PROBE stubs pending their own
- * cards (the treasure "Slice B"): l3b4a = the TAKE screen (item/money
- * Take/Pool/Exit picker, 0x3b4a); l1c8a / l1d90 = the verb-2/3 arms
- * (pool/share money, 0x1c8a/0x1d90); l0082 = the roster-card
- * highlight paint pair used with l0848's member cycling (0x0082);
- * l2dde = the stackable-loot merge (0x2dde, called while splicing a
- * monster's item chain into the staged list). */
-static void l3b4a(void *item_flag, void *money_flag)
+/* l3d1e's treasure-verb locals are JT exports ALREADY LIFTED elsewhere
+ * (docs/lxxxx-jt-aliases.md, CODE 12 row): L3b4a = JT[929] (the Take
+ * screen), L1c8a = JT[925] (Pool), L1d90 = JT[921] (Share), L0082 =
+ * JT[936] (roster-card paint, defined above). The earlier slice
+ * stubbed them under their local names — the same alias trap as the
+ * jt502/l1888 arrow crash. Forward decls; bodies in their jtN homes. */
+static void jt929(unsigned char *a, unsigned char *b);
+static void jt925(void);
+static void jt921(void);
+
+/* L2dde (CODE 12+0x2dde) — merge stackable staged loot into the item
+ * node `target_l`: walk the -25302 staged list; every OTHER node with
+ * a nonzero stack count [53] and matching identity bytes ([41][42][43]
+ * [40][48][49][52] and the +44 word) merges its count in. When the
+ * combined count fits 255 the node is unlinked from the staged list
+ * and freed (jt62); on overflow the target's count pegs at 255, the
+ * node keeps the leftover and BECOMES the target for further merges.
+ * The final count writes back to target[53] on exit. (Mac 0x2ec0/
+ * 0x2eee/0x2f02 compare the node's [54]/[55]/[56] against THEMSELVES —
+ * both address regs load the same slot, a compiled source bug — so
+ * only the [54] < 2 gate below has any effect. Kept faithful.) */
+static void l2dde(long target_l)
 {
-	PROBE("L3b4a");
-	(void)item_flag; (void)money_flag;
+	unsigned char *target = (unsigned char *)(uintptr_t)target_l;
+	unsigned char  tcount = target[53];              /* fp@-17 */
+	long           cur, next, scan;
+
+	PROBE("L2dde");
+	for (cur = g_a5_long(-25302); cur != 0; cur = next) {
+		unsigned char *c = (unsigned char *)(uintptr_t)cur;
+
+		next = *(long *)(void *)c;
+		if (cur == (long)(uintptr_t)target)
+			continue;
+		if (c[53] == 0)
+			continue;
+		if (c[41] != target[41] || c[42] != target[42]
+		    || c[43] != target[43] || c[40] != target[40]
+		    || c[48] != target[48] || c[49] != target[49]
+		    || c[52] != target[52])
+			continue;
+		if (*(short *)(void *)(c + 44)
+		    != *(short *)(void *)(target + 44))
+			continue;
+		if (c[54] >= 2)
+			continue;
+		if ((short)((short)c[53] + (short)tcount) > 255) {
+			/* L2f7e — overflow: peg the target, keep the
+			 * leftover on this node and retarget to it. */
+			short room = (short)(255 - (short)tcount);
+
+			target[53] = 0xFF;
+			c[53]      = (unsigned char)((short)c[53] - room);
+			tcount     = c[53];
+			target     = c;
+		} else {
+			/* L2f28 — fits: absorb, unlink from -25302, free. */
+			tcount = (unsigned char)(tcount + c[53]);
+			scan   = g_a5_long(-25302);
+			if (cur == scan)
+				g_a5_long(-25302) = *(long *)(void *)c;
+			else
+				while (scan != 0
+				    && *(long *)(uintptr_t)scan != cur)
+					scan = *(long *)(uintptr_t)scan;
+			*(long *)(uintptr_t)scan = *(long *)(void *)c;
+			jt62(&cur);
+		}
+	}
+	target[53] = tcount;
 }
-static void l1c8a(void) { PROBE("L1c8a"); }
-static void l1d90(void) { PROBE("L1d90"); }
-static void l0082(long member, short flag)
-{
-	PROBE("L0082");
-	(void)member; (void)flag;
-}
-static void l2dde(long head) { PROBE("L2dde"); (void)head; }
 
 /* L2504 (CODE 12+0x2504) — the staged-loot presence probe: *money = any
  * of the three -25314 money longs nonzero, *items = the -25302 staged
@@ -36613,9 +36664,9 @@ static void l3d1e(void)
 				break;
 			case 136:
 			case 132:
-				l0082(g_a5_long(-27932), 0);
+				jt936(g_a5_long(-27932), 0);
 				l0848((short)pick);
-				l0082(g_a5_long(-27932), 1);
+				jt936(g_a5_long(-27932), 1);
 				pick = 0xff;
 				break;
 			default:
@@ -36631,13 +36682,13 @@ static void l3d1e(void)
 			jt904(&out5);
 			break;
 		case 1:
-			l3b4a(&g_a5_byte(-18885), &g_a5_byte(-5790));
+			jt929(&g_a5_byte(-18885), &g_a5_byte(-5790));
 			break;
 		case 2:
-			l1c8a();
+			jt925();
 			break;
 		case 3:
-			l1d90();
+			jt921();
 			break;
 		case 4:
 			jt599((short)(unsigned char)heal_spell, 0, 0,
