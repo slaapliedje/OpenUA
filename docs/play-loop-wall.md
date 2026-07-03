@@ -1,5 +1,32 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03j — treasure Slice-B LIVE: four stubs were alias twins + l2dde lifted
+
+The 03i arrow-fix pattern generalized immediately: l3d1e's four treasure
+"Slice-B stubs" were ALL alias-trap duplicates of already-lifted JT
+exports (docs/lxxxx-jt-aliases.md CODE 12 row): l3b4a = jt929 (the Take
+screen, wired into jt185 long ago), l1c8a = jt925 (Pool), l1d90 = jt921
+(Share), l0082 = jt936 (roster-card paint). Deleted the stubs, repointed
+l3d1e. The only REAL gap was l2dde (CODE 12+0x2dde), now lifted
+faithfully: the stackable-loot merge over the -25302 staged list —
+identity match on [40..44w,48,49,52], counts absorb into [53], fitting
+nodes unlink + free (jt62), overflow pegs 255 and RETARGETS to the
+leftover node. (Mac self-compares [54]/[55]/[56] against themselves — a
+compiled THINK C source bug; only [54]<2 gates. Kept faithful.)
+
+Hatari-verified end-to-end: fight -> win -> 658 XP + treasure -> T
+opens the Take screen ("DAGGER +1" + the loot sprite + ITEMS/TAKE/EXIT)
+-> T takes it -> the treasure screen REBUILDS its verbs (VIEW/POOL/EXIT
+— Take gone, staged list empty) -> E exits to the first-person dungeon
+HUD. The full play loop closes. (The 03i "leftover projectile sprite on
+the XP page" was actually the LOOT ART — un-filed as a bug.)
+
+Follow-up dedup cards (both sides are FULL lifts — compare + merge, low
+urgency): l2504 vs jt926 (staged-loot probe) and l0848 vs jt934 (roster
+selection; l0848 is the Hall-verified one). l2dde's merge path needs
+STACKABLE loot (arrows/gems) to runtime-exercise — HEIRS spiders drop a
+single dagger.
+
 ## STATUS 2026-07-03i — jt501 arrow crash SOLVED: jt502's "l1888" stub WAS jt495
 
 The 03h crash is fixed and Hatari-verified end-to-end. Root cause: the
