@@ -57803,15 +57803,7 @@ static void jt925(void)
  * memorize timer rec[126] (every 12 ticks) and commits pending slots
  * when it hits 0. */
 
-/* L0528 (CODE 19+0x0528) — format a 0..99 clock field into `dst`, zero-
- * padded to two digits (jt394 "0%d" when < 10, else "%d"). */
-static void l0528(short v, char *dst)
-{
-	if ((unsigned char)v < 10)
-		jt394(dst, "0%d", (int)(unsigned char)v);
-	else
-		jt394(dst, "%d", (int)(unsigned char)v);
-}
+/* L0528 = JT[913] (the two-digit formatter) — already lifted as jt913. */
 
 /* L025a (clock carry) / L032c (clock spill) are already lifted further
  * down the file — forward-declare them for L0418. */
@@ -57857,7 +57849,7 @@ static void l0418(short n, short u)
 
 /* L0572 (CODE 19+0x0572) — repaint the camp "Rest Time:" line (row 17):
  * the label, then the days/hours (clk[4]/clk[5]) and the combined
- * ten-min+min field as colon-separated two-digit numbers (l0528). */
+ * ten-min+min field as colon-separated two-digit numbers (jt913). */
 static void l0572_c19(short a)
 {
 	char  buf[58];
@@ -57869,13 +57861,13 @@ static void l0572_c19(short a)
 	     ua_strs_at(0x5888) /* "Rest Time:" */);
 	col = 11;
 	for (i = 4; i >= 3; i--) {
-		l0528((short)g_a5_word(-23214 + i * 2), buf);
+		jt913((short)g_a5_word(-23214 + i * 2), buf);
 		jt94((short)(col + 1), (short)17, (short)7, (short)0, "%s", buf);
 		jt94((short)(col + 3), (short)17, (short)7, (short)0, "%s",
 		     ua_strs_at(0x5894) /* ":" */);
 		col += 3;
 	}
-	l0528((short)(g_a5_word(-23210) * 10 + g_a5_word(-23212)), buf);
+	jt913((short)(g_a5_word(-23210) * 10 + g_a5_word(-23212)), buf);
 	jt94((short)(col + 1), (short)17, (short)7, (short)0, "%s", buf);
 }
 
@@ -57907,7 +57899,8 @@ static void l07e6(short interactive)
 	g_a5_word(-23192) = 0;
 }
 
-static void          l035c(short n, short u)   { PROBE("l035c"); (void)n; (void)u; }
+/* l035c = JT[914] (advance world time) — full lift below; jt915 repointed. */
+static void          jt914(short count, short idx);
 static void          l0cb8(void)               { PROBE("l0cb8"); }
 static unsigned char l0694(void)               { PROBE("l0694"); return 1; }
 static unsigned char l0e3e(short zone)         { PROBE("l0e3e"); (void)zone; return 0; }
@@ -58075,7 +58068,7 @@ static unsigned char jt915(short interactive)
 			l0572_c19((short)0);
 			ticks = 0;
 		}
-		l035c((short)5, (short)1);
+		jt914((short)5, (short)1);         /* world clock +5 min */
 		l07e6((short)(unsigned char)interactive);
 		l0cb8();
 		l0d86(&t9);
