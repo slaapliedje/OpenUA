@@ -30,6 +30,36 @@ then hand-verified against the stub's own header comment.
 |---|---|---|---|
 | l23ee(long ctx, short a) | 22+0x23ee | jt312(unsigned char *page) | the port jt312 is the play-screen present with an ADAPTED signature; read the CODE 22 asm at 0x23ee and reconcile — the Mac caller (jt290) pushes (ctx, 0) |
 
+## l5f04 / jt363 — RESOLVED 2026-07-03 (was the "signature clash" card)
+
+jt363 (the STRG kind-classed table loader, CODE 8+0x5f04) is the
+AUTHORITATIVE lift: it matches the Mac asm instruction-for-instruction
+(holder-clear prologue, "STR@n" cache key at -10370, jt394 name build,
+jt132(51) + jt127("STRG") load into the -21148 scratch buffer,
+(count+1)*14 size validation), and its jt361 TEST block validated it
+against real STRG.GLB data (STRG003=574, STRG001=3668). The -21148
+buffer is 4000 bytes (the Mac's L3154 multiplies its 400 arg by 10) —
+STRG001 fits. l5f04 was a PARTIAL stub (prologue + hardwired return 0)
+that dead-ended the whole spell-table subsystem: jt349/jt347/jt352
+(spell list/pick/count), jt355 (school lookup), jt350 (monster
+records), jt366 (monster art). Deleted; all six callers repointed.
+
+Verification notes: the six paths are NOT reachable in today's flows
+(probe-verified: zero jt363 calls across boot, menu, load, dungeon
+entry, combat entry, DELAY turns) — the repoint is behaviorally inert
+until they light up. Two blockers for exercising them, filed:
+- the manual CAST combat command isn't key-routed (the bar shows CAST
+  on a caster's turn — Hatari-verified — but 'c' does nothing; the
+  earlier session's casting was the QUICK AI path);
+- ENCAMP's memorize flow (jt352's consumer) untested.
+
+While verifying, an INTERMITTENT crash-to-desktop on the QUICKed
+archer's first turn reproduced ~1/3 of runs — INCLUDING at bd7e0c8
+with this change absent (and with jt363 probes proving these paths
+never ran). It is a pre-existing bug in the arrow-turn path (same
+family as the earlier one-off "waited 0" freeze), now the top open
+combat card — see docs/play-loop-wall.md.
+
 ## Duplicate FULL lifts — dedup/compare cards (both sides have real bodies)
 
 Not bugs per se (both bodies exist), but two independent lifts of the
@@ -46,7 +76,7 @@ same asm can drift; compare against the disasm, keep one, repoint.
 | l68ae | 6+0x68ae | jt80 | armed-path gate |
 | l5f84 | 6+0x5f84 | jt60 | key read; return width differs (short vs unsigned char) |
 | l6bbe | 14+0x6bbe | jt519 | zone lookup; return width differs |
-| l5f04 | 8+0x5f04 | jt363 | SIGNATURES DISAGREE (holder-clear vs (long *out, short num)) — one of the two lifts is wrong; check CODE 8+0x5f04 |
+| ~~l5f04~~ | 8+0x5f04 | jt363 | RESOLVED — see the l5f04/jt363 section above (jt363 authoritative; the "full lift" was actually a partial stub) |
 
 ## Rule going forward
 

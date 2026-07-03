@@ -1448,22 +1448,12 @@ static short l6520_c8(short kind)
 	return 0;
 }
 
-/* L5f04 (CODE 8+0x5f04) — release/retarget the current "STR@n"
- * monster-art resource (the -10370 slot; jt488 "%3s@%1d" name
- * build + jt393 compare). Fills *holder with the resolved data
- * pointer and returns nonzero on success. Leaf PROBE stub pending
- * its own lift: clears *holder (the asm's prologue does the same
- * for foreign holders) and reports failure, so jt349 returns an
- * empty list rather than walking garbage. */
-static short l5f04(long holder, short which)
-{
-	PROBE("l5f04");
-	(void)which;
-	if (holder != 0
-	    && holder != (long)(uintptr_t)&g_a5_long(-10370))
-		*(long *)(uintptr_t)holder = 0;
-	return 0;
-}
+/* L5f04 (CODE 8+0x5f04) = JT[363], the STRG kind-classed table loader —
+ * fully lifted as jt363 near the top of the file (the alias-trap
+ * class, docs/stub-alias-audit.md). An old partial stub here cleared
+ * *holder and hardwired "load failed", dead-ending the whole spell-
+ * table subsystem (jt349/jt347/jt352/jt355/jt350/jt366); callers now
+ * call jt363. */
 
 /* L62e0 (CODE 8+0x62e0) — bind/load one monster-art entry into the
  * -10370 slot (re-runs JT[370] for the kind flags; 255 id wildcard
@@ -1482,7 +1472,7 @@ static void jt366(short id, short kind, long out) __attribute__((unused));
 static void jt366(short id, short kind, long out)
 {
 	PROBE("jt366");
-	l5f04(0L, l6520_c8((short)(unsigned char)kind));
+	jt363((long *)0, l6520_c8((short)(unsigned char)kind));
 	l62e0(g_a5_long(-10370), (short)(unsigned char)id,
 	      (short)(unsigned char)kind, out, 0L);
 }
@@ -54867,7 +54857,7 @@ static short jt349(long node_l, short kind, short mask, short minlvl,
 	is3  = (signed char)((((unsigned char)kind) == 3) ? -1 : 0);
 	mask = (short)((unsigned char)mask & 127);
 
-	if (l5f04((long)(uintptr_t)&table, l6520_c8(kind)) == 0)
+	if (jt363(&table, l6520_c8(kind)) == 0)
 		return 0;
 
 	entry = (const unsigned char *)(uintptr_t)table + 14;
@@ -55570,7 +55560,7 @@ static short jt347(short n, short kind, short mask, short flag,
 	short                idx, i = 0, total;
 
 	PROBE("jt347");
-	if (l5f04((long)(uintptr_t)&table, l6520_c8(kind)) == 0) {
+	if (jt363(&table, l6520_c8(kind)) == 0) {
 		if (out != 0)
 			*(long *)(uintptr_t)out = 0;
 		return 0;
@@ -56591,7 +56581,7 @@ static short jt355(short mask, short which)
 	unsigned char        hi;
 
 	PROBE("jt355");
-	if (l5f04(0L, (short)(((unsigned char)mask & 0x40) ? 2 : 1))
+	if (jt363((long *)0, (short)(((unsigned char)mask & 0x40) ? 2 : 1))
 	    == 0)
 		return 0;
 	if ((which & 0xff) == 0)
@@ -56638,7 +56628,7 @@ static short jt352(short kind, short mask, long lo_p, long hi_p,
 	signed char          want, first = 1;
 
 	PROBE("jt352");
-	if (l5f04((long)(uintptr_t)&table, l6520_c8(kind)) == 0)
+	if (jt363(&table, l6520_c8(kind)) == 0)
 		return 0;
 	mask = (short)((unsigned char)mask & 127);
 
@@ -57939,7 +57929,7 @@ static void jt350(short a, short b, long c, long d) __attribute__((unused));
 static void jt350(short a, short b, long c, long d)
 {
 	PROBE("jt350");
-	l5f04(0L, l6520_c8((short)(unsigned char)b));
+	jt363((long *)0, l6520_c8((short)(unsigned char)b));
 	if (l6432(g_a5_long(-10370), (short)(unsigned char)a,
 	          (short)(unsigned char)b, c, d))
 		jt362(g_a5_long(-10370),
