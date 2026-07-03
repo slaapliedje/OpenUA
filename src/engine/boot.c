@@ -44247,7 +44247,14 @@ l5c7a:
 	}
 	/* fall through */
 l5dd2:
-	if (g_a5_byte(-22628) == 0)
+	/* Mac 0x5dd2: tstb -22628; BNE L5f10 — with the attack line already
+	 * established, skip straight to the swing; with NO line, fall into
+	 * the target pick (l2484 ranged / jt546 melee / l6042 move). The
+	 * old lift inverted the branch, so an AI actor without a remembered
+	 * target never picked or moved — it spun loop_top until the
+	 * 19-iteration runaway guard bailed it out (the observed slow
+	 * no-attack-line turns). */
+	if (g_a5_byte(-22628) != 0)
 		goto l5f10;
 	nmulti = l2484(m, (short)natt, 0);
 	if (nmulti != 0)
