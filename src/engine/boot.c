@@ -35974,7 +35974,7 @@ static void jt187(short id, short flag)
 	*(long *)(uintptr_t)nn = old_head;       /* node->next = old head (prepend) */
 }
 
-static void jt930(void);    /* leave-area cleanup leaf stub — defined just below */
+static void jt930(void);    /* the post-combat exit orchestrator — defined below */
 
 /* L28b0 (CODE 20 + 0x28b0) — the give/take-treasure event handler (l709e
  * cases 3 = l28b0(ev,1) "give + refresh", 25 = l28b0(ev,0) "give, no refresh").
@@ -36025,7 +36025,152 @@ static void l28b0(void *ev_v, short f)
  * + party-death message. A large function with its own subtree (L33d8/L4046/
  * L4268/L3806/L3d1e + jt62/jt73/jt76/jt21). Leaf PROBE stub for the give-
  * treasure slice; full lift is Slice C (see docs/treasure-event-wall.md). */
-static void jt930(void) { PROBE("jt930"); }
+/* jt930's CODE 12 locals. l33d8 (~1070B, the pre-exit XP-award sweep),
+ * l3806_c12 (~1300B, the XP distribution over the -22290 total) and
+ * l3d1e (~800B, the treasure hand-out UI) are PROBE stubs pending
+ * their own cards; l4046 + l4268_c12 are full lifts below. The _c12
+ * suffixes dodge the CODE 11 l4268 and the CODE 8 l3806 collisions
+ * (match on (CODE, offset) — the lxxxx rule). */
+static void l33d8(void)      { PROBE("L33d8"); }
+static void l3806_c12(long total) { PROBE("L3806_c12"); (void)total; }
+static void l3d1e(void)      { PROBE("L3d1e"); }
+
+/* Forward decls — these lift near the end of the file. */
+static void jt62(long *pnode);
+static void jt73(void);
+
+/* L4046 (CODE 12+0x4046) — the post-combat party-list sweep. Faithful
+ * full lift. hdr[21] counts the fallen; every summoned (mc[21]==1) or
+ * side-1 (rec[95]==1, the spawned monsters) member is DISBANDED via
+ * jt19 (mode 1 for summons, 0 for monsters; -27932 selects it first,
+ * out-of-combat ones bump hdr[21]); surviving real members get their
+ * combat sub-record freed back to the 26-byte -20448 bucket (jt471)
+ * and rec[64] cleared. -5792 latches "something was removed". Leaves
+ * -27932 at the list head. */
+static void l4046(void)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	long           cur, next;
+
+	PROBE("L4046");
+	hdr[21] = 0;
+	cur = g_a5_long(-27928);
+	while (cur != 0) {
+		unsigned char *p  = (unsigned char *)(uintptr_t)cur;
+		unsigned char *mc = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)(p + 64);
+
+		if (mc[21] == 1 || p[95] == 1) {
+			g_a5_byte(-5792) = 1;
+			if (p[382] == 0)
+				hdr[21]++;
+			next = *(long *)(void *)p;
+			g_a5_long(-27932) = cur;
+			jt19((short)((mc[21] == 1) ? 1 : 0), (short)1);
+			cur = next;
+		} else {
+			if (*(long *)(void *)(p + 64) != 0) {
+				jt471(*(long *)(void *)(p + 64), (short)26,
+				      (void *)&g_a5_byte(-20448));
+				*(long *)(void *)(p + 64) = 0;
+			}
+			cur = *(long *)(void *)p;
+		}
+	}
+	g_a5_long(-27932) = g_a5_long(-27928);
+}
+
+/* L4268 (CODE 12+0x4268) — release the spawned-monster state: clear the
+ * specials (-22267) / live-count (-22266) / -22275 bytes, reset the
+ * monster-slot high-water (-22311) to 8, and merge the staged loot
+ * money (jt73). Faithful full lift. (_c12: the CODE 11 l4268 is a
+ * different function.) */
+static void l4268_c12(void)
+{
+	PROBE("L4268_c12");
+	g_a5_byte(-22267) = 0;
+	g_a5_byte(-22266) = 0;
+	g_a5_byte(-22275) = 0;
+	g_a5_byte(-22311) = 8;
+	jt73();
+}
+
+/* JT[930] (CODE 12+0x4110) — the POST-COMBAT EXIT orchestrator (runs
+ * between the fight and the walk loop; also the case-3 treasure-event
+ * refresh). Faithful level-2 lift: the CFG and every call are 1:1; the
+ * three big locals (l33d8 XP-award sweep, l3806_c12 XP distribution,
+ * l3d1e treasure hand-out) are PROBE stubs pending their own cards.
+ *   hdr[46] = 0; clear the 4-byte -22322 block; -5792 = 0;
+ *   demo-off (-27988==0): l33d8 (award XP for the kills);
+ *   mode 6 (-27990); l4046 (sweep monsters/summons out of the party);
+ *   demo: l4268_c12 only. Else recompute every member (jt21), then:
+ *   party alive (-27982==0): the -5791 flag either frees the staged
+ *   item list (-25302, jt62 per node) or arms -22322/-22321; demo-off:
+ *   l3806_c12(-22290) XP hand-out + (l3d1e when -18885 or -5790 —
+ *   the treasure picker); jt73 money merge.
+ *   party destroyed: jt76, mode bytes -27912/-27911 = 2/6, the
+ *   "monsters rejoice..." banner (jt96 + l4b84 page pause).
+ *   Tail: -27981 = 1, clear hdr[1]/[47]/[28]/[30]/[29]/[31], l4268_c12. */
+static void jt930(void)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	long           m;
+
+	PROBE("jt930");
+	hdr[46] = 0;
+	jt65((long)(uintptr_t)&g_a5_byte(-22322), 4);
+	g_a5_byte(-5792) = 0;
+	if (g_a5_byte(-27988) == 0)
+		l33d8();
+	g_a5_byte(-27990) = 6;
+	l4046();
+	if (g_a5_byte(-27988) != 0) {
+		l4268_c12();
+		return;
+	}
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		jt21(m);
+
+	if (g_a5_byte(-27982) == 0) {          /* the party survived */
+		if (g_a5_byte(-5791) != 0) {
+			long node = g_a5_long(-25302);
+			while (node != 0) {
+				long cur = node;
+				node = *(long *)(uintptr_t)node;
+				jt62(&cur);
+			}
+			g_a5_long(-25302) = 0;
+		} else {
+			g_a5_byte(-22322) = 1;
+			g_a5_byte(-22321) = 0;
+		}
+		if (g_a5_byte(-27988) == 0) {
+			l3806_c12(g_a5_long(-22290));
+			if (g_a5_byte(-18885) != 0 || g_a5_byte(-5790) != 0)
+				l3d1e();
+		}
+		jt73();
+	} else {                               /* the party was destroyed */
+		jt76();
+		g_a5_byte(-27912) = 2;
+		g_a5_byte(-27911) = 6;
+		jt96((short)2, (short)5, (short)37, (short)22, (short)7,
+		     (short)0, (short)1,
+		     (long)(uintptr_t)ua_strs_at(0x618e), (short)0);
+		g_a5_byte(-18484) = 0;
+		l4b84();                       /* JT[99](0,0,-14644) page pause */
+	}
+
+	g_a5_byte(-27981) = 1;
+	hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	hdr[1]  = 0;
+	hdr[47] = 0;
+	hdr[28] = 0;
+	hdr[30] = 0;
+	hdr[29] = 0;
+	hdr[31] = 0;
+	l4268_c12();
+}
 
 /* L11a8 (CODE 7 + 0x11a8) — append one display row to the treasure-picker's
  * 40-byte row array at -24126. `*pcount` is the running row count: on the first
@@ -40387,7 +40532,16 @@ static void l1842(long actor_l)
 	if (p != 0 && ((unsigned char *)(uintptr_t)p)[95] == actor[95])
 		*(long *)(uintptr_t)(mc + 12) = 0;
 }
-static const char *jt63(short n) { PROBE("jt63"); (void)n; return ""; }  /* CODE 6+0x60b4 count -> string (stub) */
+/* JT[63] (CODE 6+0x60b4) — format the (byte) count into the A5 -13083
+ * string buffer via JT[478] and return its address. Faithful full lift
+ * (the "" stub blanked the "(N)" counts in the combat list titles and
+ * the attacks-left command prompt). */
+static const char *jt63(short n)
+{
+	PROBE("jt63");
+	jt478((short)(unsigned char)n, (char *)&g_a5_byte(-13083));
+	return (const char *)&g_a5_byte(-13083);
+}
 static short        jt182(const char *p1, long p2, short a3, short a4);  /* CODE 7+0x34f0 list dialog */
 /* CODE 13+0x1714 — the in-combat TARGET PICKER. Faithful full lift. Loops a
  * paged list dialog: build the "(N) " title (jt63 over rec[18] + the -13888
