@@ -74,6 +74,43 @@ rest driver) is lifted; these leaves are the next slice — then REST advances
 the clock and converts the `*` pending flags to memorized spells. SCRIBE
 (`l0df2`) and DISPLAY (`l1374`) magic screens also still stubbed.
 
+## Done (slice 6, 2026-07-03) — the REST loop closes: time/heal/memorize-completion
+
+jt915's eight leaves were all stubs; critically **L0418 (advance time) was a
+no-op, so jt915's while() INFINITE-LOOPED whenever anything was pending**
+(a latent hang the memorize slice would have triggered). Lifted the
+loop-closing set (CODE 19):
+- **`L0418`** — decrement the rest COUNTDOWN (the -23214 mixed-radix array;
+  -23212/-23210/-23208/-23206 = clk[1..4] = mins/tens/hours/days). Borrows up
+  through units, wipes (jt65) when exhausted, then `l032c` re-normalizes.
+  `l025a`/`l032c` (carry/spill) were already lifted — repointed.
+- **`L0528`** (num->str two-digit), **`L0572_c19`** (the "Rest Time:" repaint).
+- **`L07e6`** — heal 1 HP/member per 288-tick game-day (jt869), "The Whole
+  Party Is Healed" + HUD refresh.
+- **`L0d86`** + **`L0876`** — the memorize-completion: L0d86 counts down each
+  member's rec[126] timer (every 12 ticks); at 0, L0876 clears the pending
+  bit7 on the slots and the spell is memorized. **BUG fixed mid-lift**: L0d86
+  gates the L0876 call on L0980's RETURN value (not `*out`) — the first pass
+  had it on `*out` so L0876 never ran.
+
+Hatari-verified END TO END: Encamp -> Magic -> CAST-discard Lightning Bolt
+(LOSE IT? Yes -> pending) -> MEMORIZE KEEP -> **REST** (no hang; countdown
+advances) -> CAST shows LIGHTNING BOLT re-memorized. Full-HP no-pending REST
+returns immediately (counters 0).
+
+DEFERRED (both filed):
+- **The "<name> has memorized <spell>" announce** (l48f4 in L0876) bus-errors
+  the non-interactive rest loop — it draws a jt103 panel + jt92 (l4bac
+  present) mid-loop. Suppressed; the spell still memorizes. Fix when l4bac's
+  present is safe outside the event pump.
+- **The WORLD CLOCK (jt938's "12:00 AM", = hdr[6]/hdr[7]/hdr[8]) does NOT
+  advance during rest.** None of the CODE 19 rest leaves write hdr[6..8]; the
+  setter is L0004 (CODE 19+0x0004, takes explicit hh:mm) and it has NO caller
+  within CODE 19. The rest-to-world-clock commit is a separate hook (the
+  l09ea caller's tail, or a shared elapsed-time->hdr sync) still to trace.
+  L035c (effect expiry -> the ~700B L006c), L0cb8 (a second -23201-keyed
+  memorize path), L0e3e (encounter roll), L0694 (memorize setup) also stubbed.
+
 ## Remaining (slices 4..N) — still PROBE-stubbed
 
 | case | fn | size | what it is (to confirm by reading) |
