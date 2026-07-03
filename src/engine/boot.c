@@ -68652,7 +68652,100 @@ static void l0bc6(void)
 		jt23();
 }
 static void l0df2(void)                    { PROBE("L0df2"); }
-static void l1374(void)                    { PROBE("L1374"); }
+
+/* L1322 (CODE 21+0x1322) — append a 40-byte text node to the -21156 pool
+ * list: allocate into the current TAIL node's next field (jt477 stores
+ * the new node at *dst = the old tail's +0), advance the tail cursor,
+ * clear the new node's next, copy `str` to +5 and stamp the header
+ * `flag` at +4. Faithful full lift. */
+static void l1322(short flag, const char *str, long *tailp)
+{
+	unsigned char *node;
+
+	PROBE("L1322");
+	jt477((void *)(uintptr_t)g_a5_21156, 40,
+	      (void *)(uintptr_t)*tailp);            /* link off the old tail */
+	*tailp = *(long *)(uintptr_t)*tailp;         /* advance to the new node */
+	node = (unsigned char *)(uintptr_t)*tailp;
+	*(long *)(void *)node = 0;
+	jt384((char *)(node + 5), str);
+	node[4] = (unsigned char)flag;
+}
+
+/* L1374 (CODE 21+0x1374, magic case 3) — DISPLAY the party's active
+ * spell effects. Builds a -21156 pool node list: a header node per
+ * member (name), then one row per effect on the member's rec+4 list
+ * whose id is in the displayable whitelist and has a non-empty name in
+ * the -20096 effect-name table (" %s" rows), else " <No Spell Effects>",
+ * with a blank separator per member. Shown via the jt169 list viewer
+ * ((1,4)-(38,22), verbs -13760); jt147 frees; jt23 repaints. Faithful. */
+static void l1374(void)
+{
+	static const unsigned char show[] = {
+		1,2,4,5,6,8,9,10,12,13,14,15,16,17,19,20,21,23,24,25,
+		28,29,32,33,34,35,36,37,38,39,41,42,45,46,49,50,54,55,
+		56,57,61,62,63,68,69,71,74,75,78,89,92,93,98,115,119,
+		121,122,123,126,172
+	};
+	long           list = 0, tail;
+	long           m, sel_node = 0;
+	unsigned char  flag14 = 1;
+	short          sel58 = 0;
+	char           namebuf[42];
+
+	PROBE("L1374");
+	jt477((void *)(uintptr_t)g_a5_21156, 40, &list);
+	((unsigned char *)(uintptr_t)list)[4] = 1;
+	*(long *)(uintptr_t)list = 0;
+	m = g_a5_long(-27928);
+	jt384((char *)(uintptr_t)(list + 5),
+	      (const char *)(uintptr_t)(m + 96));
+	tail = list;
+
+	for (; m != 0; m = *(long *)(uintptr_t)m) {
+		unsigned char any = 0;
+		long          e;
+
+		if (m != g_a5_long(-27928))
+			l1322((short)1,
+			      (const char *)(uintptr_t)(m + 96), &tail);
+
+		for (e = *(long *)(uintptr_t)(m + 4); e != 0;
+		     e = *(long *)(uintptr_t)(e + 6)) {
+			unsigned char id = *(unsigned char *)(uintptr_t)e;
+			unsigned char ok = 0;
+			unsigned short k;
+
+			for (k = 0; k < sizeof show; k++)
+				if (show[k] == id) {
+					ok = 1;
+					break;
+				}
+			if (!ok)
+				continue;
+			jt384(namebuf, (const char *)(uintptr_t)
+			      g_a5_long(-20096 + (long)id * 4));
+			if (namebuf[0] == 0)
+				continue;
+			any = 1;
+			l1322((short)0, jt488(" %s", namebuf), &tail);
+		}
+		if (any == 0)
+			l1322((short)0,
+			      ua_strs_at(0x6c12) /* " <No Spell Effects>" */,
+			      &tail);
+		l1322((short)0, ua_strs_at(0x6c26) /* " " */, &tail);
+	}
+
+	jt76();
+	jt179((short)1);
+	(void)jt169(g_a5_long(-13952), g_a5_long(-13760),
+	            (short)1, (short)4, (short)38, (short)22,
+	            list, (short)1, (short)-1,
+	            &flag14, &sel58, &sel_node);
+	jt147(&list);
+	jt23();
+}
 
 /* L1850 (CODE 21 + 0x1850) — the MAGIC camp action. A second menu (jt160) over
  * six rows; row 4 (Rest) is dropped once the party is fully rested
