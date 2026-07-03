@@ -1,5 +1,30 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03n — NEXT LIFT: jt539, the interactive targeting crosshair
+
+The user's click test after the +20/+24 swap: the spell COMMITS (picker
+closes) but no announce, no target marker — the cast exits silently.
+The chain from there is fully lifted EXCEPT the last hop: jt547 ->
+jt599 (instant spell) -> the -24070 callback = jt538 (lifted; jt511
+installs it) -> l1efa first-pick -> **jt539 = a PROBE stub** that
+always reports "no pick" -> the null-pick abort path swallows the
+cast. THE SAME STUB is l08b4 case 1 (the AIM command) — it explains
+the long-standing "stuck on firing the bow / targeting" awkwardness.
+
+jt539 = JT[539], CODE 14+0x3b6c .. 0x4186 (~1.5KB): the in-combat
+interactive target picker — crosshair/marker UI (l6090 paints the
+marker), arrow/mouse cell walking, range gate (jt600), target
+validation + NEXT/PREV cycling, returns the picked combatant in the
+ua_pick10 buf and remembers it in mc[12]. Deps already lifted:
+jt538/l1efa/l1dd6/l4dee (the callers), l6090, jt525/jt531, jt506,
+jt173-family input. Lift it and BOTH manual cast targeting and AIM
+come alive.
+
+NOTE (user question): the Mac's CONTEXTUAL CURSOR (shield <-> sword
+<-> crosshair by hover) is NOT required for targeting — jt539 draws
+its own engine-side marker. The cursor swap is the jt1007/jt1123
+colour-cursor pair (#107's open hook) — polish, layered on after.
+
 ## STATUS 2026-07-03m — combat CAST LIVE: the spell picker lifted (jt597/L4faa)
 
 The "CAST not key-routed" card was a mis-diagnosis: probes showed the
