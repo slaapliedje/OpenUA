@@ -157,7 +157,7 @@ repaint (jt94 transparent-bg over old text — the prompt-plate bg rule).
 | case | fn | size | what it is |
 |-----:|----|------|------------|
 | 4 (camp) | `l2d7e` | ~3.5KB total | FIX auto-heal: L23dc gate, L2106/L2422 cure planning, two SILENT jt915 rests (-23189), L288c cast pass, L1fcc/L25dc/L2310/L27ec re-memorize bookkeeping |
-| 2 (magic) | `l0df2` | ~458 ln | SCRIBE (+ L0980 scroll-learn + l5726 scanner) |
+| ~~2 (magic)~~ | ~~`l0df2`~~ | DONE | SCRIBE lifted (slice 9): l0df2 + the CODE 16 scanners (l5726/l58a6/l5900/l523e) + jt597 arms 3/4/6/7/12 (jt3_extract-verified). L0980 (rest-time scroll-learn) still stubbed |
 | ~~3 (magic)~~ | ~~`l1374`~~ | DONE | DISPLAY lifted (slice 8): per-member active-effect list (whitelisted ids, -20096 names, jt169 viewer). Hatari-verified: "PROTECTED FROM EVIL" on Lady Illis from the save |
 | — | `l48f4` announce | — | deferred: bus-errors the non-interactive rest (jt92 present mid-loop) |
 
