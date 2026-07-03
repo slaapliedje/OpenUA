@@ -57789,20 +57789,217 @@ static void jt925(void)
 }
 
 /* The CODE 19 rest-engine locals — leaf PROBE stubs pending their
- * own lifts: L0572 = the camp clock/status repaint, L0694 = the
- * spell-memorize setup (0 = nothing to rest for), L0418 = advance
- * game time by (n, unit), L035c = the per-tick effect expiry,
- * L07e6 = the per-tick healing pass, L0cb8 = the hunger/upkeep
- * tick, L0d86 = the memorize-completion poll, L0e3e = the random-
- * encounter roll for the zone (0 = quiet night). */
-static void          l0572_c19(short a)        { PROBE("l0572"); (void)a; }
-static unsigned char l0694(void)               { PROBE("l0694"); return 1; }
-static void          l0418(short n, short u)   { PROBE("l0418"); (void)n; (void)u; }
+ * own lifts. Slice 6 (2026-07-03) lifts the loop-closing set: L0418
+ * (advance time), L025a/L032c (clock carry+spill), L0528 (num->str),
+ * L0572 (clock repaint), L07e6 (healing), L0d86/L0876 (memorize
+ * completion). Still stubbed: L035c (per-tick effect expiry, pulls the
+ * ~700B L006c), L0cb8 (hunger/upkeep), L0e3e (random-encounter roll, 0
+ * = quiet), L0694 (memorize setup, 1 = proceed), L0980 (scroll learn).
+ *
+ * The rest CLOCK is a 7-entry mixed-radix countdown at g_a5_-23214,
+ * each unit's radix in g_a5_-23228; the display fields (days/hours/
+ * ten-min/min) are g_a5_-23206/-23208/-23210/-23212. L07e6 heals 1 HP
+ * per member each 288-tick game-day; L0d86 decrements the per-member
+ * memorize timer rec[126] (every 12 ticks) and commits pending slots
+ * when it hits 0. */
+
+/* L0528 (CODE 19+0x0528) — format a 0..99 clock field into `dst`, zero-
+ * padded to two digits (jt394 "0%d" when < 10, else "%d"). */
+static void l0528(short v, char *dst)
+{
+	if ((unsigned char)v < 10)
+		jt394(dst, "0%d", (int)(unsigned char)v);
+	else
+		jt394(dst, "%d", (int)(unsigned char)v);
+}
+
+/* L025a (clock carry) / L032c (clock spill) are already lifted further
+ * down the file — forward-declare them for L0418. */
+static void l032c(void);
+
+/* L0418 (CODE 19+0x0418) — advance the clock by `n` units of size `u`
+ * (u = the clock-array index). When the display fields (-23206..-23212)
+ * are all zero it seeds them; otherwise it borrows `n` down through the
+ * clock array from unit u, carrying lower units up from their radix, then
+ * l032c re-normalizes. This is the tick that actually SHRINKS the rest
+ * countdown — the stub left it a no-op, which infinite-looped jt915's
+ * while() whenever anything was pending. Faithful full lift. */
+static void l0418(short n, short u)
+{
+	short *clk = &g_a5_word(-23214);
+
+	PROBE("L0418");
+	if (g_a5_word(-23206) == 0 && g_a5_word(-23208) == 0
+	    && g_a5_word(-23210) == 0 && g_a5_word(-23212) == 0)
+		return;
+
+	if ((unsigned short)(unsigned char)n > (unsigned short)clk[u]) {
+		/* borrow: scan units u+1..4 for a non-zero source (Mac
+		 * 0x045a). If only unit 5 remains, the time is exhausted —
+		 * wipe the clock (jt65) and subtract nothing. */
+		short i = (short)(u + 1), j;
+		while (clk[i] == 0 && i < 5)
+			i++;
+		if (i == 5) {
+			jt65((long)(uintptr_t)clk, (short)14);
+			n = 0;
+		} else {
+			for (j = i; j >= (short)(u + 1); j--) {
+				clk[j] -= 1;
+				clk[j - 1] = (short)(clk[j - 1]
+				    + g_a5_word(-23228 + (long)(j - 1) * 2));
+			}
+		}
+	}
+	clk[u] = (short)(clk[u] - (unsigned char)n);
+	l032c();
+}
+
+/* L0572 (CODE 19+0x0572) — repaint the camp "Rest Time:" line (row 17):
+ * the label, then the days/hours (clk[4]/clk[5]) and the combined
+ * ten-min+min field as colon-separated two-digit numbers (l0528). */
+static void l0572_c19(short a)
+{
+	char  buf[58];
+	short i, col;
+
+	PROBE("l0572");
+	(void)a;
+	jt94((short)1, (short)17, (short)7, (short)0, "%s",
+	     ua_strs_at(0x5888) /* "Rest Time:" */);
+	col = 11;
+	for (i = 4; i >= 3; i--) {
+		l0528((short)g_a5_word(-23214 + i * 2), buf);
+		jt94((short)(col + 1), (short)17, (short)7, (short)0, "%s", buf);
+		jt94((short)(col + 3), (short)17, (short)7, (short)0, "%s",
+		     ua_strs_at(0x5894) /* ":" */);
+		col += 3;
+	}
+	l0528((short)(g_a5_word(-23210) * 10 + g_a5_word(-23212)), buf);
+	jt94((short)(col + 1), (short)17, (short)7, (short)0, "%s", buf);
+}
+
+/* L07e6 (CODE 19+0x07e6) — the per-tick healing pass: every 288 ticks (a
+ * game-day of rest) heal 1 HP per member (jt869), repaint the clock,
+ * "The Whole Party Is Healed" (jt94), refresh the active member's HUD
+ * (jt937) when anyone healed, then jt92/jt20. Faithful full lift. */
+static void l07e6(short interactive)
+{
+	unsigned char healed = 0;
+	long          m;
+
+	PROBE("l07e6");
+	g_a5_word(-23192) += 1;
+	if (g_a5_word(-23192) < 288)
+		return;
+
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		if (jt869(m, (short)1, (short)0))
+			healed = 1;
+	if ((interactive & 0xff) != 0)
+		l0572_c19((short)0);
+	jt94((short)1, (short)19, (short)7, (short)0, "%s",
+	     ua_strs_at(0x5896) /* "The Whole Party Is Healed" */);
+	if (healed)
+		jt937(g_a5_long(-27932));
+	jt92();
+	jt20();
+	g_a5_word(-23192) = 0;
+}
+
 static void          l035c(short n, short u)   { PROBE("l035c"); (void)n; (void)u; }
-static void          l07e6(short inter)        { PROBE("l07e6"); (void)inter; }
 static void          l0cb8(void)               { PROBE("l0cb8"); }
-static void          l0d86(void *out)          { PROBE("l0d86"); (void)out; }
+static unsigned char l0694(void)               { PROBE("l0694"); return 1; }
 static unsigned char l0e3e(short zone)         { PROBE("l0e3e"); (void)zone; return 0; }
+
+/* L0980 (CODE 19+0x0980) — scroll-learn worker (memorize from a readied
+ * scroll during rest). Leaf PROBE stub returning 0 (nothing scribed),
+ * so L0d86 falls through to the L0876 slot-commit. The SCRIBE slice. */
+static unsigned char l0980(long member, unsigned char *out)
+{
+	PROBE("L0980");
+	(void)member; (void)out;
+	return 0;
+}
+
+/* L0876 (CODE 19+0x0876) — commit a member's pending-memorize slots.
+ * Aborted when -23189 is set. When *out is 0 it just reports the level of
+ * the first pending slot; when *out is nonzero (the L0d86 path) it clears
+ * bit7 on every pending slot, repaints the clock (L0572), and announces
+ * "<name> has memorized <spell>" (l48f4 = JT[670]). Returns the recorded
+ * level. Faithful full lift. */
+static unsigned char l0876(long member_l, unsigned char *out)
+{
+	unsigned char *rec  = (unsigned char *)(uintptr_t)member_l;
+	const unsigned char *defs = &g_a5_byte(-16906);
+	unsigned char  level = 0;
+	short          i;
+
+	PROBE("L0876");
+	if (g_a5_byte(-23189) != 0)
+		return 0;
+	if (rec[382] == 0)
+		return 0;
+
+	for (i = 0; i <= 140 && level == 0; i++) {
+		unsigned char s = rec[198 + i];
+
+		if ((s & 0x80) == 0)
+			continue;
+		if (*out == 0) {
+			level = defs[(long)(s & 0x7f) * 16 + 1];
+		} else {
+			rec[198 + i] = (unsigned char)(s - 128);   /* clear pending */
+			l0572_c19((short)0);
+			/* The Mac announces "<name> has memorized <spell>" here
+			 * via l48f4 (=jt670). On the port that draws a jt103
+			 * record panel + jt92 (l4bac present) mid-rest, which
+			 * bus-errors the non-interactive rest loop — deferred
+			 * until l4bac's present is safe outside the event pump
+			 * (docs/code21-camp-wall.md). The spell still memorizes
+			 * correctly; only the transient flash is suppressed. */
+			(void)l48f4;
+			*out = 1;
+		}
+	}
+	return level;
+}
+
+/* L0d86 (CODE 19+0x0d86) — the memorize-completion poll. Runs every 12
+ * ticks (the *tickptr counter). Decrements each party member's memorize
+ * timer rec[126]; when it hits 0 the member's pending slots commit
+ * (l0980 scroll path first, else l0876 slot path), and the per-member
+ * rest flag -23201[idx] = level*3. Faithful full lift. */
+static void l0d86(void *tickptr)
+{
+	unsigned char *tp = (unsigned char *)tickptr;
+	long           m;
+	short          idx;
+
+	PROBE("l0d86");
+	(*tp)++;
+	if (*tp < 12)
+		return;
+	*tp = 0;
+
+	idx = 1;
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m, idx++) {
+		unsigned char *rec = (unsigned char *)(uintptr_t)m;
+		unsigned char  out, lvl;
+
+		if (rec[126] <= 0)
+			continue;
+		rec[126]--;
+		if (rec[126] != 0)
+			continue;
+
+		out = 1;
+		lvl = l0980(m, &out);         /* scroll path first */
+		if (lvl == 0)                 /* Mac gates on L0980's RETURN */
+			lvl = l0876(m, &out); /* else the slot-commit path */
+		g_a5_buf(-23201)[idx] = (unsigned char)(lvl * 3);
+	}
+}
 
 /* JT[915] (CODE 19+0x0ffe) — the REST/Encamp engine, full CFG over
  * the eight rest-tier leaf stubs. The zone resolves through jt197
