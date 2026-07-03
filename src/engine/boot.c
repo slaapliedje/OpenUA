@@ -6116,9 +6116,31 @@ static void jt94(short page, short row, short col, short style,
 		style = 8;
 	}
 
-	/* 4b. mode-5 bottom-row paint. */
-	if (g_a5_27990 == 5 && page == 23) {
-		PROBE("jt94/mode5-bottom-row");
+	/* 4b. mode-5 ROW-23 arm (Mac L419a) — combat bottom-line text.
+	 * FAITHFUL GATE: the Mac tests fp@11 = the SECOND byte arg (row),
+	 * not the first. The old port gate (`page == 23`) + PROBE stub
+	 * swallowed every page-23 jt94 call in combat — which is exactly
+	 * jt38's info-panel "Hitpoints"/"AC" label rows (page 23, row
+	 * 3/5): they took this arm and painted NOTHING. With the row-23
+	 * gate they flow to the default text arm below and render.
+	 * The arm proper: anchor the text at the fixed 8000-space Y 8089
+	 * (the combat message line), step one page column right, erase
+	 * the band behind the text length (l3f88 on the jt1135-projected
+	 * strip), then the common jt1089 tail. */
+	if (g_a5_27990 == 5 && row == 23) {
+		short sy = 0, sx = 0, len;
+
+		page = (short)(page + 1);
+		jt1135((short)8089, (short)((page << 2) + 8000), &sy, &sx);
+		len = jt423(local_buf);
+		l3f88((short)(sy - 1),
+		      (short)((page << 2) + 8000),
+		      sy,
+		      (short)(((page + len) << 2) + 8000),
+		      style);
+		jt1089((short)8089, (short)((page << 2) + 8000),
+		       (short)((style << 4) | (unsigned char)col),
+		       ua_strs_at(0x6c0), local_buf);
 		return;
 	}
 
@@ -51829,7 +51851,14 @@ static void l1aea(short item_arg, short count, void *buf)
 		item_len = jt423(str);
 
 		if (g_a5_13002 != 0) {
-			shape = (g_a5_13001 < i) ? (short)8089 : (short)8095;
+			/* Mac L1aea 0x1b22: cmpw i,(-13001); BCS -> 8095. The
+			 * split index -13001 (the '@' word, e.g. "Quick@") and
+			 * everything BEFORE it belong on the UPPER row (8089);
+			 * the rest go LOWER (8095), restarting at start_x via
+			 * the == arm below. The old lift had the polarity
+			 * inverted, which is why the combat verb bar painted
+			 * Delay/View/Speed/End ABOVE Aim/Use/Guard/Quick. */
+			shape = (g_a5_13001 < i) ? (short)8095 : (short)8089;
 		} else {
 			shape = (short)8094;
 		}
