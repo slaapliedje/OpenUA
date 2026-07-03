@@ -1,5 +1,37 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03h — the QUICK "round-freeze" = a CRASH in jt501 (archer's arrow)
+
+USER INSIGHT cracked it: the garbled boxes at the top of the frozen frames
+are the GEM DESKTOP (icons + window) drawn over our Videl mode — frua had
+CRASHED to the desktop (bombs -> Pterm), and every "ignored key" was typed
+at a corpse. Not a wait, not a loop: a death.
+
+The kill chain, probe-verified (three marker rounds, each converging):
+  QUICKed ARCHER's turn -> l5b9a keeps the remembered target (jt554 ok)
+  -> attack line up (B f10=1) -> jt555 -> prelude ok (jt476(100) completes)
+  -> b != 0 (the arrow item) -> l2b24 -> it[40]=30 -> the type-30 arm
+  (jt502 + jt52(13)) completes -> "M preanim" logs -> jt501(trajectory)
+  -> CRASH inside jt501, before post501.
+
+jt501 suspects (in likelihood order):
+1. l19a0(sx, sy, 77+anim, 5, g_a5_long(-27866)) — the -27866 TILE
+   registry as the projectile sprite source: check whether -27866 is
+   composed in COMBAT (it's a dungeon-walk composition; DUNGCOM/COMSPR
+   own combat art) and whether the Mac's L2b24/L19a0 really source it.
+2. The jt119/jt122 save/restore under the projectile (12x12) at
+   l1944/l1972-mapped coords — combat-field vs area-map coord spaces.
+3. Phase-1's buf148 fill is bounded only by l6f68 termination (max-span
+   lines write exactly 148 — the edge; verify the combat grid is 50x25).
+NEXT: probe jt501's phases (post-phase1 count, post-jt521, pre/post
+l19a0 per step, log -27866) OR read Mac L1a92-ish (jt501, CODE 13) and
+compare the sprite-source argument directly.
+
+ALSO from this session's probes: jt541's round-1 seeds are mostly 0 for
+the webbed party (hdr[46] slow gate = the spiderweb event -> faithful),
+and the -27928 list holds ~20 nodes (6 party + 2 spiders + backup-copy
+nodes seeding mc[4]=0 out-of-combat — harmless but worth a dedup look).
+
 ## STATUS 2026-07-03b — DIAGNOSIS CORRECTED: no hang — combat is fully functional
 
 The precision markers (jt555 P1..P5 / l14bc / T2..T4 + l302c post) show
