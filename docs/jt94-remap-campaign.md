@@ -1,6 +1,24 @@
 # jt94 faithful-remap campaign — the audit + migration plan
 
-**Status: AUDITED 2026-07-03, execution pending (its own session).**
+**Status: EXECUTED 2026-07-03 — the remap is faithful; NO caller changes were needed.**
+
+Execution findings (they simplify the plan below): the deeper per-cluster
+audit showed the "tuned callers" fear mostly dissolved —
+- the port l02dc was ALREADY faithful (col 12/style 0 headers; the earlier
+  audit table row misattributed l0264_c7's lines to it);
+- l0264_c7's (7,8)/(11,8) list rows ARE the Mac's own literals (CODE 7
+  0x040c/0x04d2 push style 8 explicitly) — genuine passthrough usage;
+- jt886's page-23/style-8 re-anchor is the deliberate #108 positioning fix,
+  and under the faithful remap style 8 passes through to the IDENTICAL
+  colour word — no visual change.
+So the migration reduced to the remap flip + deleting the row-24 local
+remap (which the flip makes provably redundant: both transform style-0
+row-24 calls identically). Visual sweep (all green): main menu, Training
+Hall, load picker, the web-event roster screen (headers now the Mac's RED
+col 12 — the first visible faithfulness win), combat bar + panel.
+Divergence to watch: unselected multi-row list entries (style 8, col 7)
+are now grey-7 instead of the inverted remap's white-15 — that IS the
+Mac's literal output; re-check against a Mac screenshot if it reads wrong.
 
 ## The divergence
 

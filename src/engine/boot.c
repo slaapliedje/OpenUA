@@ -6056,24 +6056,31 @@ static void jt94(short page, short row, short col, short style,
 	/* 2. snapshot GrafPort. */
 	l3994();
 
+	/* 3. THE FAITHFUL STYLE REMAP (Mac L3fd6 0x3ff8..0x4040), applied
+	 * before every arm: style 0 defaults to 8 (the transparent
+	 * window-grey bg nibble), and on the bottom rows (row >= 23) the
+	 * grey cols 7/8 whiten to 15. Non-zero styles pass through
+	 * UNCHANGED. (The old port block was inverted on all three tests
+	 * — see docs/jt94-remap-campaign.md; the tuned callers it bred
+	 * were restored to their Mac literals in the same campaign.) */
+	if (style == 0) {
+		style = 8;
+		if (row >= 23 && (col == 7 || col == 8))
+			col = 15;
+	}
+
 	/* row == 24 — the bottom message / command-bar row. The Mac (L3fd6 @0x4042)
 	 * paints a filled rect + FOUR black edges (a full box outline) BEHIND the
 	 * text, via L3f88 / JT[1161] (the light "plate" the prompt/message sits on),
 	 * THEN draws the glyphs. The port had stubbed this (mis-gated on style==24 —
 	 * the Mac gates on row==24). Lifted here inline, mirroring 0x4050..0x4196 +
-	 * the 0x4266 text tail, with the Mac's faithful style remap (0x3ffe: only
-	 * when style==0) so the port's global (inverted) remap below is left
-	 * untouched for every other caller. */
+	 * the 0x4266 text tail. (Its local style remap was deleted when the
+	 * global remap above became faithful.) */
 	if (row == 24) {
 		short s  = style, c = col;
 		short pg = page;
 		short v2, v4, v6, v8, v10, v12, v14;
 
-		if (s == 0) {                           /* 0x3ffe: remap iff style==0 */
-			if (c == 7 || c == 8)           /* row(24) >= 23 arm (0x4028) */
-				c = 15;
-			s = 8;
-		}
 		jt1135((short)8094, (short)8000, &v2, &v4);     /* 0x4050 */
 		v2 = (short)(v2 + 1);                           /* 0x4068 */
 		pg = (short)(pg + 1);                           /* 0x406c page++ */
@@ -6103,17 +6110,6 @@ static void jt94(short page, short row, short col, short style,
 		       ua_strs_at(0x6c0), local_buf);
 		(void)v14;
 		return;
-	}
-
-	/* 3. style remap (PORT: kept inverted vs the Mac — the engine's non-prompt
-	 * text is tuned around it; the faithful condition lives in the row==24
-	 * branch above). */
-	if (style != 0) {
-		if (page < 23) {
-			if (col == 7 || col == 8)
-				col = 15;
-		}
-		style = 8;
 	}
 
 	/* 4b. mode-5 ROW-23 arm (Mac L419a) — combat bottom-line text.
