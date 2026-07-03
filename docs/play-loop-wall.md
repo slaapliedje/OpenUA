@@ -1,5 +1,30 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03k — l5f04=jt363 resolved; the archer-turn crash is INTERMITTENT (top open card)
+
+The stub-alias-audit's "signature clash" card is resolved: jt363 (the
+STRG spell/kind-table loader) is the authoritative faithful lift; the
+"l5f04 full lift" was a partial always-fail stub dead-ending the spell
+tables (jt349/jt347/jt352/jt355/jt350/jt366). Six callers repointed
+(details in docs/stub-alias-audit.md). Those paths are still
+unreachable today: the manual CAST combat command is NOT key-routed
+('c' on a caster's turn — the bar SHOWS CAST, Hatari-verified — does
+nothing; a separate card), and ENCAMP memorize is untested.
+
+BIGGER FINDING while verifying: the 03i "one-off stall" is actually an
+INTERMITTENT CRASH-TO-DESKTOP on the QUICKed archer's first turn,
+~1/3 of runs, and it REPRODUCES AT bd7e0c8 (before the l5f04 change,
+with probes proving the repointed paths never ran). Signature: GEM
+desktop garbage at frame top, the panel mid-repaint (only the weapon
+line "COMPOSITE LONG BOW +1" painted — name/HP/AC rows missing), keys
+dead. The healthy-run panel paints fully. So the crash fires DURING
+the actor-card repaint around the arrow launch — timing-dependent
+(same family as the "waited 0" freeze: one frozen run, identical
+rerun sailed). Next probe pass: instrument the panel painters (jt18/
+jt25/jt32/jt34/jt94) + jt501's step tail together and diff a crashed
+trail against a clean one. Reproduce: FRUA_ENTRY harness, FIFO drive
+p/l/a/b/c/Return, then a single q on MALTIER's turn (~1/3 hit rate).
+
 ## STATUS 2026-07-03j — treasure Slice-B LIVE: four stubs were alias twins + l2dde lifted
 
 The 03i arrow-fix pattern generalized immediately: l3d1e's four treasure
