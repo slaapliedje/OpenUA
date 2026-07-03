@@ -15555,7 +15555,6 @@ static short  jt1125(short kind, long p1, long p2)
 	short *out2 = (short *)(uintptr_t)p2;
 
 	PROBE("jt1125");
-	(void)kind;
 	if (out1 == NULL || out2 == NULL)
 		return 0;
 
@@ -15590,8 +15589,6 @@ static short  jt1125(short kind, long p1, long p2)
 		case 0x4d: ascii = 258; break;   /* Right -> turn right     */
 		default: break;
 		}
-		*out1 = ascii;
-		*out2 = ev.modifiers;
 		/* Mac engine has TWO event paths: jt1125 (used by L2d3e
 		 * Phase 1) and L725c->L6dd0 (used by L731e pump). On the
 		 * Mac they coexist because jt1125 reads from a separate
@@ -15603,9 +15600,31 @@ static short  jt1125(short kind, long p1, long p2)
 		 * still sees the key and the cmd=5 shortcut walk fires. */
 		g_a5_word(-818) = ascii;
 		g_a5_byte(-820) = 1;
+		/* Honour the Toolbox event MASK: every engine call site
+		 * passes kind = 7 (null + mouseDown + mouseUp) — on the Mac
+		 * jt1125 therefore NEVER returns key events; keys flow only
+		 * through the L725c/jt1133 pending path stamped above. The
+		 * old lift ignored `kind` and returned keys as events, and
+		 * L2d3e then fed (ascii, modifiers) into its (mouse_y,
+		 * mouse_x) hit-test — with the pointer parked over the
+		 * combat field, EVERY keypress committed the movement strip
+		 * under the cursor (the phantom ATTACK ALLY? prompt). Mac
+		 * masks: keyDown = 8, autoKey = 32. */
+		if ((kind & (8 | 32)) == 0) {
+			*out1 = 0;
+			*out2 = 0;
+			return 0;
+		}
+		*out1 = ascii;
+		*out2 = ev.modifiers;
 		return (ev.modifiers & cmdKey) ? (short)2 : (short)1;
 	}
 	case mouseDown:
+		if ((kind & 2) == 0) {          /* mouseDown mask bit */
+			*out1 = 0;
+			*out2 = 0;
+			return 0;
+		}
 		*out1 = ev.where.h;
 		*out2 = ev.where.v;
 		return 1;
