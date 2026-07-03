@@ -1,5 +1,35 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-02k — full combat loop CLOSES (e53cd1c): XP/treasure + jt182 fix
+
+The XP/treasure chain (0ab0d8d: l33d8+l2fd4+l31e0+l3806_c12+l3d1e+l2504)
+is lifted, and a new FRUA_AUTOWIN harness (off by default; kills the
+monster side at jt511 entry) let it run end to end. Two things landed
+exercising it:
+
+- **jt182 fast-path bug**: the "standard Press-Return prompt?" gate
+  compared p2 against the g_a5_14644 MACRO (the slot ADDRESS) where the
+  Mac + jt148 use g_a5_long(-14644) (the cached prompt-string pointer).
+  l3806_c12 passes that pointer as p2, so the Mac takes the fast l1806
+  path (the "PRESS [RETURN] TO CONTINUE." button, shortcut 64); the
+  port fell to the l206e modal whose button had a 'P' shortcut nothing
+  dismissed -> the XP page hung. One-line fix (match jt148).
+
+**Hatari-verified end to end**: walk -> web event -> CUT WEB -> spider
+battle -> (AUTOWIN) win -> "THE PARTY HAS WON. EACH CHARACTER RECEIVES
+548 EXPERIENCE POINTS. THE PARTY HAS FOUND NO TREASURE." -> Enter
+dismisses -> back at the dungeon (full roster/clock/command bar). Plain
+build: the live spider fight is unchanged.
+
+**make gotcha logged**: EXTRA_CFLAGS changes alone don't retrigger a
+recompile — `touch src/engine/boot.c` when flipping harness defines.
+
+**Remaining #115**: the treasure Slice-B interiors (l3b4a Take/Pool/
+Exit, l1c8a, l1d90, l0082 card paint, l2dde stack-merge) fire only when
+a monster drops loot (HEIRS spiders drop none, so untested); the l4af4
+double placement pass; and the mid-fight QUICK stall (the fight doesn't
+end on its own without AUTOWIN — the auto-turns don't resolve).
+
 ## STATUS 2026-07-02j — jt1125 EVENT-MASK fix (2c0e1f9): phantom input SOLVED
 
 The "QUICK hang", "'g' -> ATTACK ALLY?" and spurious strip commits were ONE
