@@ -156,7 +156,29 @@ repaint (jt94 transparent-bg over old text — the prompt-plate bg rule).
 
 | case | fn | size | what it is |
 |-----:|----|------|------------|
-| 4 (camp) | `l2d7e` | ~3.5KB total | FIX auto-heal: L23dc gate, L2106/L2422 cure planning, two SILENT jt915 rests (-23189), L288c cast pass, L1fcc/L25dc/L2310/L27ec re-memorize bookkeeping |
+| 4 (camp) | `l2d7e` | ~3.5KB total | FIX auto-heal — the ONE remaining camp action. Orchestrator FULLY DECODED (see below); the 8 locals are the volume |
+
+### FIX (l2d7e) recon — ready to lift (next session)
+
+The orchestrator (CODE 21+0x2d7e, decoded 2026-07-03): gate on hdr[2]==0
+(no-magic area) and L23dc()!=0; L2106(&8 plan args) plans the cure casts;
+jt406 saves the -23214 clock (14B -> fp-22); L2422 seeds the rest time from
+the plan; **-23189=1 (the silent flag l0876/l0980 honor) around jt915(0)**;
+on un-interrupted: L2310 + L288c (cast the planned cures) + L27ec; jt937 +
+jt938; clock restore/re-save via jt406 x2; L1fcc (second plan: re-memorize
+what was used) + L25dc (rebuild the pending list, 15 args); second silent
+jt915(0); second L288c pass; final jt937/jt938 + clock restore.
+
+Helper map (CODE_21.s line numbers):
+- L1f50 @2718 — DECODED: sum over i=0..6 of (rec[150+i]-rec[157+i]) deficits
+- L23dc @3126 — DECODED: party HP deficit = sum(rec[129]-rec[395]) (the gate)
+- L2422 @3149 — the healer/slot planner: per member with L20e4() (healer
+  gate) and Wis(117)>3: counts rec[355] (CLW slots, 15 min each) and
+  rec[365] (bank-2, 30 min each) into the out-params...(~340B)
+- L1fcc @2762, L2106 @2871, L2310 @3051, L25dc @3281, L27ec @3441,
+  L288c @3494 (+ L20e4 the healer gate)
+- Also still stubbed: L0980 (CODE 19 rest scroll-learn — completes SCRIBE's
+  pending marks during rest) and the l48f4 'has memorized' announce.
 | ~~2 (magic)~~ | ~~`l0df2`~~ | DONE | SCRIBE lifted (slice 9): l0df2 + the CODE 16 scanners (l5726/l58a6/l5900/l523e) + jt597 arms 3/4/6/7/12 (jt3_extract-verified). L0980 (rest-time scroll-learn) still stubbed |
 | ~~3 (magic)~~ | ~~`l1374`~~ | DONE | DISPLAY lifted (slice 8): per-member active-effect list (whitelisted ids, -20096 names, jt169 viewer). Hatari-verified: "PROTECTED FROM EVIL" on Lady Illis from the save |
 | — | `l48f4` announce | — | deferred: bus-errors the non-interactive rest (jt92 present mid-loop) |
