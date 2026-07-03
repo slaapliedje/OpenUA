@@ -1,5 +1,41 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03l — the intermittent archer-turn crash SOLVED: InvalRect's WindowPeek cast
+
+The 03k top card is closed, and the user's read was right — the arrow
+ANIMATION was the trigger (bar flips, arrow draws, death). The chain,
+pinned by Hatari `--trace cpu_exception` (bus error reading $4 at a
+PC disassembling to the EmptyRect shim) + DBG probes bracketing the
+death inside jt122's row loop:
+
+  jt501 step tail -> jt122 (the 12x12 restore) -> jt1202 -> l05ea
+  (mark the blitted region dirty) -> InvalRect -> compat/windows.c
+  cast GetPort() to WindowPeek WITHOUT checking the port is a window
+  -> `w->updateRgn` read GARBAGE past the bare screen-port struct ->
+  EmptyRect(&garbage->rgnBBox) -> bus error -> GEM desktop.
+
+WHY INTERMITTENT: the "updateRgn" slot is whatever static data follows
+g_a5/qd state in memory at that moment — NULL = survive (the handle
+check bailed), non-NULL = die. On the Mac this is legal code: the
+screen port IS the game window (WindowRecord starts with its
+GrafPort), so L05ea's InvalRect always hit a real window. The same
+latent fault sat under EVERY l05ea/jt1202 blit and the jt116/jt120
+InvalRect tails — combat's arrow was just the reliable trigger. It
+also retro-explains the one-off "waited 0" freeze (garbage bbox that
+was READABLE -> UnionRect scribble instead of a fault).
+
+FIX (compat/windows.c): win_is_window() — validate GetPort() against
+the window list before the WindowPeek cast in InvalRect/ValidRect
+(+ guard the region master pointer). Faithful to the Mac contract
+("the current port must be a window's port"); a non-window port
+no-ops. VERIFIED: the q+z+z mid-flight-keys recipe that crashed 3/3
+now survives 3/3 — arrows fly, rounds advance (NIVLOC's turn, spell
+flames burning on the spiders), both verb rows intact.
+
+Note: the mid-flight-keys correlation was a red herring (jt476's pump
+is inert in combat — jt1163 is a faithful `return 0` stub); the keys
+only perturbed which garbage landed in the fake updateRgn slot.
+
 ## STATUS 2026-07-03k — l5f04=jt363 resolved; the archer-turn crash is INTERMITTENT (top open card)
 
 The stub-alias-audit's "signature clash" card is resolved: jt363 (the

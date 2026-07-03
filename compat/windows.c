@@ -609,9 +609,31 @@ WindowPtr FrontWindow(void)
 }
 
 /*
+ * The current port is a window's port only when it is in the window list.
+ * A bare GrafPort — the qd screen port, an offscreen GWorld — merely shares
+ * the GrafPort struct prefix, and reading WindowRecord fields past its end
+ * (updateRgn) picks up whatever static data follows it in memory. On the Mac
+ * the engine's screen port belongs to the game WINDOW, so its InvalRect
+ * calls (l05ea after every jt1202 blit) are legal there; here they arrive
+ * on the bare screen port, and a garbage non-NULL "updateRgn" bus-errors
+ * inside EmptyRect — the intermittent combat arrow-animation crash.
+ */
+static int win_is_window(GrafPtr port)
+{
+	WindowPeek w = g_window_list;
+
+	while (w != NULL) {
+		if ((GrafPtr)w == port)
+			return 1;
+		w = w->nextWindow;
+	}
+	return 0;
+}
+
+/*
  * InvalRect — add `r` to the update region of the window whose port is
  * current, marking that area for redraw. As on the Mac, the current port
- * must be a window's port.
+ * must be a window's port; a non-window port is a no-op (see win_is_window).
  */
 void InvalRect(const Rect *r)
 {
@@ -620,8 +642,10 @@ void InvalRect(const Rect *r)
 	Rect      *bbox;
 
 	GetPort(&port);
+	if (port == NULL || !win_is_window(port))
+		return;
 	w = (WindowPeek)port;
-	if (w == NULL || w->updateRgn == NULL)
+	if (w->updateRgn == NULL || *w->updateRgn == NULL)
 		return;
 	bbox = &(*w->updateRgn)->rgnBBox;
 	if (EmptyRect(bbox))
@@ -649,8 +673,10 @@ void ValidRect(const Rect *r)
 	Rect      *bbox;
 
 	GetPort(&port);
+	if (port == NULL || !win_is_window(port))
+		return;
 	w = (WindowPeek)port;
-	if (w == NULL || w->updateRgn == NULL)
+	if (w->updateRgn == NULL || *w->updateRgn == NULL)
 		return;
 	bbox = &(*w->updateRgn)->rgnBBox;
 	if (EmptyRect(bbox))
