@@ -1,5 +1,33 @@
 # Play-loop + event-dispatch wall — the path from "design loaded" to "adventuring"
 
+## STATUS 2026-07-03m — combat CAST LIVE: the spell picker lifted (jt597/L4faa)
+
+The "CAST not key-routed" card was a mis-diagnosis: probes showed the
+routing was ALWAYS live — l0d16's accelerator pairs carry (3,'C') on a
+caster's turn, l25b6 matches, l08b4 case 3 runs jt547 -> jt595. The
+"nothing happens" was jt595's list builder L59c2 = a PROBE stub
+returning "no spells" (AND l59c2 = jt597 per the alias table — the
+alias-trap class again, this time with NO jt-side body either).
+
+LIFTED (faithful, CODE 16): jt597 (=L59c2) arms 0 in-Memory / 5
+to-Memorize / 1 in-Grimoire + the level-header tail; L5406 (the
+level-sorted row insert with "(xN)" memorized counts); L4e2c (the
+class/stat castability predicate over jt40); L4faa (the pick loop over
+the lifted jt169, non-header row -> spell id, jt147 list free). The
+scroll/scribe arms (jt597 cases 2/3/4/6/7/12 + L5726/L523e) stay TODO
+stubs — camp-flow cards. Data model in the boot.c header comment:
+-6454 nodes / -6450 ids / -6302 counts / -16906 defs / -17446 names /
+-6864 level headers / -18893 grimoire masks.
+
+HATARI-VERIFIED: c on STRANILLA's turn opens the faithful picker —
+"SPELLS IN MEMORY", red 1ST/2ND/3RD LEVEL headers, MAGIC MISSILE (4)
+highlighted with its memorized count, arrows navigate, Return/ESC
+cancel back to a clean command menu. The ROW COMMIT is mouse-first
+(the verb line is just "Exit"); the harness cannot click (known
+limitation) — the click -> jt547 "Begins Casting"/instant-cast hop
+needs a human mouse test. jt595's remaining stub: none (l4faa/l59c2
+were the last two).
+
 ## STATUS 2026-07-03l — the intermittent archer-turn crash SOLVED: InvalRect's WindowPeek cast
 
 The 03k top card is closed, and the user's read was right — the arrow

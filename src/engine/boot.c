@@ -53445,21 +53445,406 @@ static void jt79(void)
 	l3918(0L);
 }
 
-/* CODE 16 locals of the spell-list dialog, PROBE stubs pending their
- * own lifts: L59c2 builds the spell list for context `code` (returns
- * the count byte), L4faa runs the pick loop over it. */
-static unsigned char l59c2(short code)
+/* The CODE 16 spell-list dialog cluster. Data model (all A5 slots):
+ *   -6454  list head — 40-byte nodes from the -21156 pool (+0 next,
+ *          +4 header/section flag, +5.. the row's display text)
+ *   -6450  parallel spell-id byte array, level-ordered
+ *   -6302  parallel memorized-copy counts (renders "(xN)")
+ *   -6150  parallel scroll-item ptr array (mode-3 scribe)
+ *   -16906 the 16-byte spell-def table (class [0], level [1])
+ *   -17446 the spell-name pointer table (id * 4)
+ *   -6864  the 41-byte level-name strings (the section headers)
+ *   -18893 the 8-entry grimoire bitmask table                       */
+
+/* L4e2c (CODE 16+0x4e2c) — "rec can cast spells of `spell`'s class"
+ * predicate. Design mode (-18485 == 5) allows everything. Class 0
+ * (cleric school): Wis > 8 and (cleric levels or class-3 level > 8).
+ * Class 1 (druid): Wis > 8 and class-4 levels. Class 2 (mage): Int > 8
+ * and (mage levels — except the class-5 dual with a live rec[20] in
+ * combat — or class-4 level > 8, or with `flag` class-6 level > 10).
+ * Class 4 never. Faithful 1:1 lift. */
+static unsigned char l4e2c(long rec_l, short spell, short flag)
 {
-	PROBE("L59c2");
-	(void)code;
-	return 0;
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	const unsigned char *def;
+	unsigned char  ok = 0;
+
+	PROBE("L4e2c");
+	if (g_a5_byte(-18485) == 5)
+		return 1;
+	spell = (short)(spell & 0x7f);
+	def = (const unsigned char *)&g_a5_byte(-16906) + (long)spell * 16;
+	switch (def[0]) {                       /* JT[3] @0x4e6c min0 max4 */
+	case 0:
+		if (rec[117] > 8) {
+			if ((jt40(rec, 0) & 0xff) > 0
+			 || (jt40(rec, 3) & 0xff) > 8)
+				ok = 1;
+		}
+		break;
+	case 1:
+		if (rec[117] > 8 && (jt40(rec, 4) & 0xff) > 0)
+			ok = 1;
+		break;
+	case 2:
+		if (rec[115] <= 8)
+			break;
+		if ((jt40(rec, 5) & 0xff) > 0) {
+			if (!(rec[88] == 5
+			      && *(long *)(void *)(rec + 20) != 0
+			      && g_a5_byte(-27990) == 5))
+				ok = 1;
+		}
+		if ((jt40(rec, 4) & 0xff) > 8)
+			ok = 1;
+		if ((flag & 0xff) != 0 && (jt40(rec, 6) & 0xff) > 10)
+			ok = 1;
+		break;
+	case 4:
+		ok = 0;
+		break;
+	default:
+		break;
+	}
+	return ok;
 }
+
+/* L5406 (CODE 16+0x5406) — insert one spell row, level-sorted. An id
+ * already present just bumps its -6302 count; otherwise a new node
+ * splices in before the first row of a higher level, the counts
+ * array shifts up with 1 at the slot, and the id array shifts up
+ * likewise. The row text = ("." | " *" when bit7 of the raw byte)
+ * + the -17446 name (+ " (N)" when count > 1). Faithful 1:1 lift. */
+static void l5406(short spellb)
+{
+	const unsigned char *defs = (const unsigned char *)&g_a5_byte(-16906);
+	unsigned char *counts = &g_a5_byte(-6302);
+	unsigned char *ids    = &g_a5_byte(-6450);
+	short          id     = (short)(spellb & 0x7f);
+	unsigned char  newlvl = defs[(long)id * 16 + 1];        /* fp-20 */
+	long           node   = g_a5_long(-6454);               /* fp-6 */
+	unsigned char  found  = 0;                              /* fp-19 */
+	short          idx    = 0;                              /* fp-16 */
+	unsigned char  carry, tmpb;                             /* fp-1/fp-2 */
+	short          j;                                       /* fp-18 */
+	long           newnode;
+
+	PROBE("L5406");
+	if (g_a5_long(-6454) == 0) {                            /* first row */
+		l5f4e(counts, (short)151);
+		jt477((void *)(uintptr_t)g_a5_21156, (short)40, &node);
+		*(long *)(uintptr_t)node = 0;
+		g_a5_long(-6454) = node;
+		idx = 0;
+		counts[0] = 1;
+		goto textbuild;
+	}
+
+	/* Walk for the insertion point (headers advance idx too — the
+	 * build phase has none yet; faithful to the asm regardless). */
+	while (node != 0 && !found) {
+		unsigned char *n = (unsigned char *)(uintptr_t)node;
+
+		if (n[4] == 0) {
+			if (newlvl < defs[(long)ids[idx] * 16 + 1])
+				found = 1;
+			else if ((short)ids[idx] == id)
+				found = 1;
+			else {
+				idx++;
+				node = *(long *)(void *)n;
+			}
+		} else {
+			node = *(long *)(void *)n;
+			idx++;
+		}
+	}
+
+	if ((short)ids[idx] == id) {                            /* L55d2 dup */
+		counts[idx]++;
+	} else {
+		long scan = g_a5_long(-6454);
+
+		if (scan == node) {                             /* L5568 head */
+			jt477((void *)(uintptr_t)g_a5_21156, (short)40,
+			      &newnode);
+			*(long *)(uintptr_t)newnode = node;
+			g_a5_long(-6454) = newnode;
+		} else {                                        /* L5526 mid */
+			while (*(long *)(uintptr_t)scan != node)
+				scan = *(long *)(uintptr_t)scan;
+			jt477((void *)(uintptr_t)g_a5_21156, (short)40,
+			      &newnode);
+			*(long *)(uintptr_t)newnode =
+			    *(long *)(uintptr_t)scan;
+			*(long *)(uintptr_t)scan = newnode;
+		}
+		node = newnode;
+		carry = 1;                                      /* L5590 shift */
+		for (j = idx; j <= 140; j++) {
+			tmpb      = counts[j];
+			counts[j] = carry;
+			carry     = tmpb;
+		}
+	}
+
+ textbuild:                                                     /* L55dc */
+	{
+		char *text = (char *)(uintptr_t)node + 5;
+
+		jt384(text, (spellb & 0x80)
+		      ? ua_strs_at(0x531a)                      /* " *" */
+		      : ua_strs_at(0x531e));                    /* "."  */
+		jt384(text, jt488(ua_strs_at(0x5320) /* "%s%s" */, text,
+		      (const char *)(uintptr_t)
+		      g_a5_long(-17446 + (long)id * 4)));
+		((unsigned char *)(uintptr_t)node)[4] = 0;
+		if (counts[idx] > 1)
+			jt384(text, jt488(ua_strs_at(0x5326) /* "%s (%s)" */,
+			      text, jt63((short)counts[idx])));
+	}
+	if ((short)ids[idx] != id) {                            /* L56a8 shift */
+		carry    = ids[idx];
+		ids[idx] = (unsigned char)id;
+		for (j = (short)(idx + 1); j <= 134; j++) {
+			tmpb   = ids[j];
+			ids[j] = carry;
+			carry  = tmpb;
+		}
+	}
+}
+
+/* L5726 (CODE 16+0x5726) — the scroll/bundle item scanner feeding the
+ * mode-2/3/6/7 arms. Leaf PROBE stub pending its own card (the camp
+ * Scribe flow). */
+static void l5726(short a, short b)
+{
+	PROBE("L5726");
+	(void)a; (void)b;
+}
+
+/* jt597 (= L59c2, CODE 16+0x59c2 — the lxxxx/JT alias) — build the
+ * spell list for context `code` into the -6454 node list. Arms 0 (in
+ * Memory: the 141 memorized slots, unused bit7 excluded), 5 (to
+ * Memorize: bit7 set) and 1 (in Grimoire: the 126 grimoire bits +
+ * a free slot at the class/level row rec[355 + class*9 + level-1])
+ * are faithful full lifts; the scroll/scribe arms (2/3/4/6/7/12,
+ * the L5726/L5cd8 family) are deferred TODO stubs for the camp
+ * flows. The tail inserts a level-header node (text = the -6864
+ * level name, flag +4 = 1) at the head and before every level
+ * increase. Returns 1 when the list is non-empty. */
+static unsigned char jt597(short code)
+{
+	unsigned char *actor =
+	    (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	const unsigned char *defs =
+	    (const unsigned char *)&g_a5_byte(-16906);
+	unsigned char  headers = 1;                             /* fp-15 */
+	short          i;                                       /* fp-4 */
+
+	PROBE("jt597");
+	g_a5_long(-6454) = 0;
+	l5f4e(&g_a5_byte(-6450), (short)147);
+
+	switch ((unsigned char)code) {          /* JT[3] @0x59ec min0 max12 */
+	case 0:                                 /* in Memory */
+		for (i = 0; i <= 140; i++) {
+			unsigned char s = actor[198 + i];
+
+			if (s == 0)
+				continue;
+			if (!l4e2c((long)(uintptr_t)actor,
+			           (short)(s & 0x7f), 0))
+				continue;
+			if (s >= 128)
+				continue;
+			l5406((short)s);
+		}
+		break;
+	case 5:                                 /* to Memorize */
+		for (i = 0; i <= 140; i++) {
+			unsigned char s = actor[198 + i];
+
+			if ((s & 0x80) == 0)
+				continue;
+			if (!l4e2c((long)(uintptr_t)actor,
+			           (short)(s & 0x7f), 0))
+				continue;
+			l5406((short)s);
+		}
+		break;
+	case 1:                                 /* in Grimoire */
+		for (i = 1; i <= 126; i++) {
+			unsigned char cls, lvl;
+
+			if ((actor[339 + ((i - 1) >> 3)]
+			     & (&g_a5_byte(-18893))[(i - 1) & 7]) == 0)
+				continue;
+			cls = defs[(long)i * 16 + 0];
+			lvl = defs[(long)i * 16 + 1];
+			if (actor[355 + (long)cls * 9 + lvl - 1] == 0)
+				continue;
+			if (!l4e2c((long)(uintptr_t)actor, i, 0))
+				continue;
+			l5406(i);
+		}
+		break;
+	case 2:                                 /* on Scroll */
+		g_a5_byte(-6303) = 0;
+		l5726(0, 0);
+		headers = 0;
+		break;
+	case 3: case 4: case 6: case 7: case 12:
+		/* TODO — the scroll/scribe/bundle arms (Mac L5bee /
+		 * L5c18 / L5c02 / L5bde / L5cd8): camp flows, deferred
+		 * with L5726. */
+		break;
+	default:
+		break;
+	}
+
+	/* L5dbc — the level-header pass. */
+	if (g_a5_long(-6454) == 0)
+		return 0;
+	if (headers != 0) {
+		unsigned char prevlvl, lastlvl;                 /* fp-14/fp-13 */
+		long          walk, hdr;                        /* fp-8/fp-12 */
+
+		i = 0;                                          /* fp-4 */
+		prevlvl = defs[(long)(&g_a5_byte(-6450))[0] * 16 + 1];
+		jt477((void *)(uintptr_t)g_a5_21156, (short)40, &hdr);
+		*(long *)(uintptr_t)hdr = g_a5_long(-6454);
+		g_a5_long(-6454) = hdr;
+		jt384((char *)(uintptr_t)hdr + 5,
+		      (const char *)&g_a5_byte(-6864) + (long)prevlvl * 41);
+		((unsigned char *)(uintptr_t)hdr)[4] = 1;
+		walk = g_a5_long(-6454);
+		do {                                            /* L5e64 */
+			lastlvl = prevlvl;
+			if ((&g_a5_byte(-6450))[i] != 0)
+				prevlvl = defs[(long)
+				    (&g_a5_byte(-6450))[i] * 16 + 1];
+			if (lastlvl < prevlvl) {
+				jt477((void *)(uintptr_t)g_a5_21156,
+				      (short)40, &hdr);
+				*(long *)(uintptr_t)hdr =
+				    *(long *)(uintptr_t)walk;
+				*(long *)(uintptr_t)walk = hdr;
+				walk = *(long *)(uintptr_t)walk;
+				jt384((char *)(uintptr_t)walk + 5,
+				      (const char *)&g_a5_byte(-6864)
+				      + (long)prevlvl * 41);
+				((unsigned char *)(uintptr_t)walk)[4] = 1;
+			}
+			i++;
+			walk = *(long *)(uintptr_t)walk;
+		} while (walk != 0);
+	}
+	return 1;
+}
+
+/* Back-compat alias for jt595's original call spelling. */
+static unsigned char l59c2(short code) { return jt597(code); }
+
+/* L4faa (CODE 16+0x4faa) — run the jt169 picker over the -6454 spell
+ * list. `mode` picks the prompt (buf1, default the -13952 "Choose"
+ * family) and the verb line (buf2; the default appends "Exit" and
+ * arms the -101 escape flag), pages at 22 rows (15 with the -22729
+ * carry byte in mode 2), loops jt169 until 0/1/27, then maps the
+ * picked node back to its spell id by counting non-header rows.
+ * Mode 3 also stashes the -6150 scroll ptr in -24074. jt147 frees
+ * the list. Returns the picked spell id byte (0 = none). Faithful
+ * 1:1 lift over the lifted jt169. */
 static short l4faa(short mode, short *sel)
 {
+	char           buf1[46];                                /* fp-52 */
+	char           buf2[42];                                /* fp-94 */
+	unsigned char  pagesz = 22;                             /* fp-97 */
+	signed char    w101 = 0;                                /* fp-101 */
+	unsigned char  b100 = 0;                                /* fp-100 */
+	signed char    w99;                                     /* fp-99 */
+	unsigned char  rc;                                      /* fp-98 */
+	unsigned char  result;                                  /* fp-1 */
+	long           picked, node;                            /* fp-6/fp-10 */
+	short          nidx;                                    /* fp-96 */
+
 	PROBE("L4faa");
-	(void)mode;
-	(void)sel;
-	return 0;
+	jt384(buf1, (const char *)(uintptr_t)g_a5_long(-13940));
+	g_a5_byte(-24140) = 1;
+	switch ((unsigned char)mode) {          /* JT[3] @0x4fda min1 max9 */
+	case 1:
+		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13840));
+		break;
+	case 2:
+		jt179(1);
+		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13836));
+		break;
+	case 3:
+		jt179(1);
+		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13828));
+		break;
+	case 4:
+		jt179(0);
+		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13824));
+		break;
+	case 6:
+		jt179(1);
+		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13824));
+		break;
+	case 8:
+		jt179(1);
+		jt384(buf1, (const char *)(uintptr_t)g_a5_long(-13900));
+		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13832));
+		break;
+	case 9:
+		jt179(1);
+		jt384(buf1, (const char *)(uintptr_t)g_a5_long(-13896));
+		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13832));
+		break;
+	default:                                /* 0 / 5 / 7 */
+		w101 = -1;
+		jt384(buf1, (const char *)(uintptr_t)g_a5_long(-13952));
+		jt384(buf2, ua_strs_at(0x5308) /* "Exit" */);
+		break;
+	}
+	if ((unsigned char)mode == 2) {
+		pagesz = 15;
+		b100   = g_a5_byte(-22729);
+	} else {
+		pagesz = 22;
+	}
+	w99 = (signed char)(((unsigned char)mode != 4) ? 1 : 0);
+	if (*sel < 0) {
+		b100 = 1;
+		*sel = 0;
+	}
+	if ((unsigned char)mode == 4 || (unsigned char)mode == 1)
+		b100 = 1;
+
+	do {
+		picked = 0;
+		rc = (unsigned char)jt169((long)(uintptr_t)buf1,
+		         (long)(uintptr_t)buf2, 1, 5, 38, (short)pagesz,
+		         g_a5_long(-6454), (short)w99, (short)w101,
+		         &b100, sel, &picked);
+	} while (!(rc == 0 || rc == 1 || rc == 27));
+
+	node = g_a5_long(-6454);                /* count non-header rows */
+	nidx = 0;
+	while (node != picked) {
+		if (((unsigned char *)(uintptr_t)node)[4] == 0)
+			nidx++;
+		node = *(long *)(uintptr_t)node;
+	}
+	if (rc != 0)
+		result = 0;
+	else
+		result = (&g_a5_byte(-6450))[nidx];
+	if ((unsigned char)mode == 3)
+		g_a5_long(-24074) =
+		    *(long *)(void *)(&g_a5_byte(-6150) + (long)nidx * 4);
+	jt147(&g_a5_long(-6454));
+	return (short)(unsigned char)result;
 }
 
 /* JT[595] (CODE 16+0x7284) — the SPELL LIST dialog.  Level-2 lift:
