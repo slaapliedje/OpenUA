@@ -53857,13 +53857,173 @@ static void l5406(short spellb)
 	}
 }
 
-/* L5726 (CODE 16+0x5726) — the scroll/bundle item scanner feeding the
- * mode-2/3/6/7 arms. Leaf PROBE stub pending its own card (the camp
- * Scribe flow). */
-static void l5726(short a, short b)
+/* L523e (CODE 16+0x523e) — APPEND a scroll spell row to the -6454 node
+ * list (the l5406 sibling, without the sorted insert): walk to the tail
+ * counting non-header rows, emit a level-header node (-6864 level name)
+ * when the level changes from the LAST listed spell's, then the row —
+ * " *" prefix for a pending-scribe byte (bit7) else ".", "%s%s" with
+ * the -17446 name — and record the raw byte in -6450[count]. Faithful. */
+static void l523e(short spellb)
 {
+	const unsigned char *defs =
+	    (const unsigned char *)&g_a5_byte(-16906);
+	short          id      = (short)(spellb & 0x7f);
+	unsigned char  lastlvl = 0;
+	short          count   = 0;
+	long           node    = g_a5_long(-6454);
+	unsigned char *n;
+
+	PROBE("L523e");
+	if (node == 0) {
+		jt477((void *)(uintptr_t)g_a5_21156, 40, &node);
+		g_a5_long(-6454) = node;
+	} else {
+		count = 1;
+		while (*(long *)(uintptr_t)node != 0) {
+			if (((unsigned char *)(uintptr_t)node)[4] == 0)
+				count++;
+			node = *(long *)(uintptr_t)node;
+		}
+		lastlvl = defs[(long)(&g_a5_byte(-6450))[count - 1] * 16 + 1];
+		jt477((void *)(uintptr_t)g_a5_21156, 40,
+		      (void *)(uintptr_t)node);
+		node = *(long *)(uintptr_t)node;
+	}
+	*(long *)(uintptr_t)node = 0;
+
+	if (defs[(long)id * 16 + 1] != lastlvl) {
+		/* level-header node, then the row node */
+		jt384((char *)(uintptr_t)(node + 5),
+		      (const char *)&g_a5_byte(-6864
+		          + (long)defs[(long)id * 16 + 1] * 41));
+		((unsigned char *)(uintptr_t)node)[4] = 1;
+		jt477((void *)(uintptr_t)g_a5_21156, 40,
+		      (void *)(uintptr_t)node);
+		node = *(long *)(uintptr_t)node;
+		*(long *)(uintptr_t)node = 0;
+	}
+
+	n = (unsigned char *)(uintptr_t)node;
+	if ((unsigned char)spellb & 0x80)
+		jt384((char *)(n + 5), " *");
+	else
+		jt384((char *)(n + 5), ".");
+	jt384((char *)(n + 5),
+	      jt488("%s%s", n + 5,
+	            (const char *)(uintptr_t)
+	            g_a5_long(-17446 + (long)id * 4)));
+	n[4] = 0;
+	(&g_a5_byte(-6450))[count] = (unsigned char)spellb;
+}
+
+/* L5726 (CODE 16+0x5726) — scan ONE scroll item (the -24074 current-item
+ * global) for listable spells. gate12 skips item-def kind 12; a member
+ * without record-flag 16 (jt41) but with a class level (jt40) — or a
+ * kind-12 item — clears the item's low-3 "read" bits [51]; items with
+ * any of those bits set are skipped. Each of the four spell bytes
+ * [54..57]: scribing mode lists only pending-marked (> 128), plain mode
+ * any non-zero; the l4e2c class gate (arg 1) filters, l523e appends the
+ * row, and -6150[-6303++] records the source-scroll pointer. Faithful. */
+static void l5726(short scribing, short gate12)
+{
+	unsigned char *it = (unsigned char *)(uintptr_t)g_a5_long(-24074);
+	const unsigned char *idefs =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-27944);
+	unsigned char *cur = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	void          *lf;
+	short          s;
+
 	PROBE("L5726");
-	(void)a; (void)b;
+	if ((gate12 & 0xff) != 0
+	    && idefs[(long)it[40] * 16] == 12)
+		return;
+
+	if (jt41((long)(uintptr_t)cur, (short)16, &lf) == 0) {
+		if (jt40(cur, (short)0) > 0
+		    || idefs[(long)it[40] * 16] == 12)
+			it[51] = (unsigned char)(it[51] & 0xf8);
+	} else {
+		it[51] = (unsigned char)(it[51] & 0xf8);
+	}
+	if ((it[51] & 0x07) != 0)
+		return;
+
+	for (s = 1; s <= 4; s++) {
+		unsigned char b = it[53 + s];
+
+		if ((scribing & 0xff) != 0) {
+			if (b <= 128)
+				continue;
+		} else if (b == 0) {
+			continue;
+		}
+		if (l4e2c((long)(uintptr_t)cur, (short)b, (short)1) == 0)
+			continue;
+		l523e((short)b);
+		(&g_a5_long(-6150))[(unsigned char)g_a5_byte(-6303)] =
+		    (long)(uintptr_t)it;
+		g_a5_byte(-6303) += 1;
+	}
+}
+
+/* L58a6 (CODE 16+0x58a6) — jt597 case 7: list the spells on the CURRENT
+ * bundle item's sub-chain (-24074->[58] nodes) via l5726. Faithful. */
+static void l58a6(short scribing)
+{
+	short i;
+
+	PROBE("L58a6");
+	for (i = 0; i <= 50; i++)
+		(&g_a5_long(-6150))[i] = 0;
+	g_a5_byte(-6303) = 0;
+	g_a5_long(-24074) =
+	    *(long *)(uintptr_t)(g_a5_long(-24074) + 58);
+	while (g_a5_long(-24074) != 0) {
+		l5726(scribing, (short)0);
+		g_a5_long(-24074) =
+		    *(long *)(uintptr_t)(g_a5_long(-24074) + 58);
+	}
+}
+
+static unsigned char jt638(long rec_l);   /* CODE 16+0x46ca — is-scroll (defined below) */
+/* L5900 (CODE 16+0x5900) — jt597 cases 3/6: list the spells across the
+ * CURRENT MEMBER's whole item chain (rec[8]): jt638 filters scrolls,
+ * bundles (item[40]==73) walk their sub-chain, l5726 scans each.
+ * scribing=1 lists pending-marked bytes only ("to Scribe"); 0 lists
+ * all castable scroll spells ("on Scrolls"). Faithful full lift. */
+static void l5900(short scribing, short gate12)
+{
+	short i;
+
+	PROBE("L5900");
+	for (i = 0; i <= 50; i++)
+		(&g_a5_long(-6150))[i] = 0;
+	g_a5_byte(-6303) = 0;
+	g_a5_long(-24074) =
+	    *(long *)(uintptr_t)(g_a5_long(-27932) + 8);
+	while (g_a5_long(-24074) != 0) {
+		if (jt638(g_a5_long(-24074)) != 0) {
+			unsigned char *it = (unsigned char *)(uintptr_t)
+			                    g_a5_long(-24074);
+
+			if (it[40] == 73) {          /* bundle */
+				long saved = g_a5_long(-24074);
+
+				g_a5_long(-24074) =
+				    *(long *)(void *)(it + 58);
+				while (g_a5_long(-24074) != 0) {
+					l5726(scribing, gate12);
+					g_a5_long(-24074) = *(long *)(uintptr_t)
+					    (g_a5_long(-24074) + 58);
+				}
+				g_a5_long(-24074) = saved;
+			} else {
+				l5726(scribing, gate12);
+			}
+		}
+		g_a5_long(-24074) =
+		    *(long *)(uintptr_t)g_a5_long(-24074);
+	}
 }
 
 /* jt597 (= L59c2, CODE 16+0x59c2 — the lxxxx/JT alias) — build the
@@ -53937,10 +54097,56 @@ static unsigned char jt597(short code)
 		l5726(0, 0);
 		headers = 0;
 		break;
-	case 3: case 4: case 6: case 7: case 12:
-		/* TODO — the scroll/scribe/bundle arms (Mac L5bee /
-		 * L5c18 / L5c02 / L5bde / L5cd8): camp flows, deferred
-		 * with L5726. */
+	case 3:                                 /* on Scrolls (all) */
+		l5900((short)0, (short)1);
+		headers = 0;
+		break;
+	case 6:                                 /* to Scribe (pending) */
+		l5900((short)1, (short)1);
+		headers = 0;
+		break;
+	case 7:                                 /* on this bundle */
+		l58a6((short)0);
+		headers = 0;
+		break;
+	case 4:                                 /* scribe candidates: mage
+		 * spells with bank-3 capacity not yet in the grimoire */
+		for (i = 1; i <= 126; i++) {
+			unsigned char lvl = defs[(long)i * 16 + 1];
+
+			if (actor[373 + lvl - 1] == 0)
+				continue;
+			if (defs[(long)i * 16 + 0] != 2)
+				continue;
+			if ((actor[339 + ((i - 1) >> 3)]
+			     & (&g_a5_byte(-18893))[(i - 1) & 7]) != 0)
+				continue;
+			l5406(i);
+		}
+		break;
+	case 12:                                /* class-castable sweep
+		 * (JT[1] @0x5cec excludes 57,59..65,97,99,126) */
+		for (i = 1; i <= 126; i++) {
+			unsigned char cls;
+
+			if (i == 57 || (i >= 59 && i <= 65) || i == 97
+			    || i == 99 || i == 126)
+				continue;
+			cls = defs[(long)i * 16 + 0];
+			if (cls == 2) {
+				if (actor[162] == 0 && actor[161] == 0)
+					continue;
+			} else if (cls == 0) {
+				if (actor[157] == 0 && actor[160] == 0)
+					continue;
+			} else if (cls == 1) {
+				if (actor[161] == 0)
+					continue;
+			} else {
+				continue;
+			}
+			l5406(i);
+		}
 		break;
 	default:
 		break;
@@ -68651,7 +68857,184 @@ static void l0bc6(void)
 	if (repaint)
 		jt23();
 }
-static void l0df2(void)                    { PROBE("L0df2"); }
+/* L0df2 (CODE 21+0x0df2, magic case 2) — camp SCRIBE. l05c4(3) gate;
+ * jt597(6) builds the pending "to Scribe" list — non-empty shows the
+ * jt595(6,9) confirm (0 = user cleared -> l026e_c21 unmarks the
+ * scrolls). Then loop the jt595(3,3) "on Scrolls" picker: a pick is
+ * rejected if the grimoire already has it ("already knows that spell"),
+ * if any scroll already carries its pending mark ("already scribed" /
+ * "is already scribing that spell"), or the +355 capacity row for its
+ * class/level is 0 ("can not scribe that spell."); otherwise the FIRST
+ * scroll byte matching the spell gets bit7 set (pending scribe — the
+ * rest engine's L0980 learns it during rest). Empty picker = "has no
+ * copyable scrolls". On exit the pending list re-confirms once (clear
+ * -> l026e_c21); jt23 repaints. Faithful full lift. */
+static void l0df2(void)
+{
+	unsigned char *cur;
+	unsigned char  done = 0;       /* fp@(-1) */
+	unsigned char  listed;         /* fp@(-2) */
+	unsigned char  repaint;        /* fp@(-3) */
+	unsigned char  pick;           /* fp@(-4) */
+	short          sel = -1;       /* fp@(-8) */
+
+	PROBE("L0df2");
+	if (l05c4((short)3) == 0)
+		return;
+
+	listed = (unsigned char)jt597((short)6);
+	if (listed != 0) {
+		repaint = 1;
+		pick = (unsigned char)jt595((short)6, (short)9,
+		                            &sel, &listed);
+		if (pick == 0)
+			l026e_c21(g_a5_long(-27932));
+		else
+			done = 1;
+	} else {
+		repaint = 0;
+	}
+	sel = -1;
+
+	while (!done) {
+		const unsigned char *defs =
+		    (const unsigned char *)&g_a5_byte(-16906);
+		unsigned char stop17 = 0;
+		long          item;
+
+		cur = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		pick = (unsigned char)jt595((short)3, (short)3,
+		                            &sel, &listed);
+		if (pick == 0) {
+			done = 1;
+			if (listed == 0)
+				jt18(cur, (long)(uintptr_t)ua_strs_at(0x6b84)
+				     /* "has no copyable scrolls" */,
+				     (short)10, (short)1);
+			else
+				repaint = 1;
+			continue;
+		}
+		repaint = 1;
+
+		/* already in the grimoire? */
+		if ((cur[339 + ((pick - 1) >> 3)]
+		     & (&g_a5_byte(-18893))[(pick - 1) & 7]) != 0) {
+			jt18(cur, (long)(uintptr_t)ua_strs_at(0x6b9c)
+			     /* "already knows that spell" */,
+			     (short)10, (short)1);
+			sel = -1;
+			continue;
+		}
+
+		/* already pending on some scroll? */
+		for (item = *(long *)(uintptr_t)(g_a5_long(-27932) + 8);
+		     item != 0 && stop17 == 0;
+		     item = *(long *)(uintptr_t)item) {
+			unsigned char *it =
+			    (unsigned char *)(uintptr_t)item;
+			short s;
+
+			if (jt638(item) == 0)
+				continue;
+			if (it[40] == 73) {          /* bundle */
+				long          sub = *(long *)(void *)(it + 58);
+				unsigned char d = 1;
+
+				for (; d <= it[53] && sub != 0; d++,
+				     sub = *(long *)(uintptr_t)(sub + 58)) {
+					unsigned char *sn = (unsigned char *)
+					                    (uintptr_t)sub;
+
+					for (s = 1; s <= 4; s++) {
+						unsigned char b = sn[53 + s];
+
+						if ((b & 0x80) != 0
+						    && (b & 0x7f) == pick) {
+							jt18(cur, (long)(uintptr_t)
+							     ua_strs_at(0x6bb6)
+							     /* "already scribed that spell" */,
+							     (short)10, (short)1);
+							sel = -1;
+							stop17 = 1;
+						}
+					}
+				}
+			} else {
+				for (s = 1; s <= 4; s++) {
+					unsigned char b = it[53 + s];
+
+					if ((b & 0x80) != 0
+					    && (b & 0x7f) == pick) {
+						jt18(cur, (long)(uintptr_t)
+						     ua_strs_at(0x6bd2)
+						     /* "is already scribing that spell" */,
+						     (short)10, (short)1);
+						stop17 = 1;
+						sel = -1;
+					}
+				}
+			}
+		}
+		if (stop17)
+			continue;
+
+		/* capacity for that class/level? */
+		if (cur[355 + (long)defs[(long)pick * 16 + 0] * 9
+		        + defs[(long)pick * 16 + 1] - 1] == 0) {
+			jt18(cur, (long)(uintptr_t)ua_strs_at(0x6bf2)
+			     /* "can not scribe that spell." */,
+			     (short)10, (short)1);
+			sel = -1;
+			continue;
+		}
+
+		/* mark the first matching UNMARKED scroll byte pending */
+		stop17 = 0;
+		for (item = *(long *)(uintptr_t)(g_a5_long(-27932) + 8);
+		     item != 0 && stop17 == 0;
+		     item = *(long *)(uintptr_t)item) {
+			unsigned char *it =
+			    (unsigned char *)(uintptr_t)item;
+			short s;
+
+			if (it[40] == 73) {          /* bundle */
+				long          sub = *(long *)(void *)(it + 58);
+				unsigned char d = 1;
+
+				for (; d <= it[53] && sub != 0 && stop17 == 0;
+				     d++,
+				     sub = *(long *)(uintptr_t)(sub + 58)) {
+					unsigned char *sn = (unsigned char *)
+					                    (uintptr_t)sub;
+
+					for (s = 1; s <= 4 && !stop17; s++)
+						if (sn[53 + s] == pick) {
+							sn[53 + s] |= 0x80;
+							stop17 = 1;
+						}
+				}
+			} else if (jt638(item) != 0) {
+				for (s = 1; s <= 4 && !stop17; s++)
+					if (it[53 + s] == pick) {
+						it[53 + s] |= 0x80;
+						stop17 = 1;
+					}
+			}
+		}
+	}
+
+	/* exit: refresh the pending list once. */
+	if (sel != -1) {
+		sel = -1;
+		pick = (unsigned char)jt595((short)6, (short)9,
+		                            &sel, &listed);
+		if (pick == 0)
+			l026e_c21(g_a5_long(-27932));
+	}
+	if (repaint)
+		jt23();
+}
 
 /* L1322 (CODE 21+0x1322) — append a 40-byte text node to the -21156 pool
  * list: allocate into the current TAIL node's next field (jt477 stores
