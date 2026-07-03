@@ -23125,11 +23125,8 @@ static void        l3b1e(long a, short b, short c, long grp, short id);
 /* L035e (CODE 6+0x035e) — file-group mode switch on the -31234
  * current-mode global (JT[3] over 0..6). Leaf PROBE stub pending
  * its own lift. */
-static void l035e(short mode)
-{
-	PROBE("l035e");
-	(void)mode;
-}
+/* l035e (CODE 6+0x035e) = JT[131], the display-state transition driver
+ * — already lifted as jt131 (the alias-trap class); callers repointed. */
 
 /* JT[56] (CODE 6+0x5baa) — load + show a numbered body/portrait
  * picture library, full lift. "CH*"/"CB*" names drop their trailing
@@ -23173,7 +23170,7 @@ static void jt56(const char *name, short a, short b)
 		      (short)0, g_a5_long(-27866),
 		      (short)((unsigned char)b + 38));
 	} else {
-		l035e((short)1);
+		jt131((short)1);
 		l33ac(name, (short)-1, (short)1, (short)0, &handle);
 		l3b1e((long)(uintptr_t)handle, (short)(unsigned char)a,
 		      (short)1, g_a5_long(-27866),
@@ -55153,38 +55150,20 @@ static void l0ee6(long ctx, short y, short x, short c, short adv, short flag)
 	(void)ctx; (void)y; (void)x; (void)c; (void)adv; (void)flag;
 }
 
-/* L475e (CODE 22 + 0x475e) — "cell protected" predicate gating tool 3's
- * pick in edit mode; stub returns 0 (permissive) until lifted. */
-static short l475e(short cell)
-{
-	PROBE("L475e");
-	(void)cell;
-	return 0;
-}
-
-/* L07be (CODE 22 + 0x07be) — tool 3's pick commit (runs after the state
- * record is armed with mode 5). */
-static void l07be(long rec, short a, short b)
-{
-	PROBE("L07be");
-	(void)rec; (void)a; (void)b;
-}
-
-/* L423e / L3998 (CODE 22 + 0x423e / 0x3998) — repaint the brush cell
- * after a step (unlocked / locked variants). */
-static void l423e(short y, short x, short sr, short sc, short tool)
-{
-	PROBE("L423e");
-	(void)y; (void)x; (void)sr; (void)sc; (void)tool;
-}
-static void l3998(short y, short x, short sr, short sc, short tool)
-{
-	PROBE("L3998");
-	(void)y; (void)x; (void)sr; (void)sc; (void)tool;
-}
+/* jt290's CODE 22 helpers — ALL JT exports already lifted elsewhere
+ * (docs/lxxxx-jt-aliases.md CODE 22 row; the jt502/l1888 alias-trap
+ * class): L475e = JT[276] ("cell enclosed" predicate), L07be =
+ * JT[305] (pick commit / row painter), L423e = JT[279] and L3998 =
+ * JT[295] (brush-cell repaint, unlocked/locked). Forward decls for
+ * the two defined below. */
+static void jt279(short y, short x, short b1, short b2, short b3);
+static void jt295(short y, short x, short b1, short b2, short b3);
 
 /* L23ee (CODE 22 + 0x23ee) — the editor status-line refresh after a
- * brush step. */
+ * brush step. ALIAS NOTE: L23ee = JT[312] per the alias table, but the
+ * port's jt312(unsigned char *page) is the play-screen present with an
+ * ADAPTED signature — reconcile against the CODE 22 asm before
+ * repointing (the Mac pushes (ctx, a) here). Stub until then. */
 static void l23ee(long ctx, short a)
 {
 	PROBE("L23ee");
@@ -55252,7 +55231,7 @@ static short jt290(long ctx, short y, short x, short c, short adv)
 		(void)jt298(cell, (short)(holder[4] != 0 ? 0 : rec[15]));
 		break;
 	case 3:
-		if (editing != 0 && l475e(cell) != 0) {
+		if (editing != 0 && jt276(cell) != 0) {
 			result = 0;
 			break;
 		}
@@ -55264,7 +55243,7 @@ static short jt290(long ctx, short y, short x, short c, short adv)
 		g_a5_byte(-11702) = (unsigned char)y;
 		g_a5_byte(-11701) = (unsigned char)x;
 		g_a5_byte(-11700) = (unsigned char)c;
-		l07be((long)(uintptr_t)rec, (short)0, (short)0);
+		jt305((void *)rec, (char)0, (char)0);
 		break;
 	default:
 		result = 0;
@@ -55281,12 +55260,12 @@ static short jt290(long ctx, short y, short x, short c, short adv)
 			l1798((void *)(uintptr_t)ctx, (short)0);
 		} else {
 			if (editing != 0)
-				l423e((short)yb, (short)xb,
+				jt279((short)yb, (short)xb,
 				      (short)(unsigned char)g_a5_byte(-11708),
 				      (short)(unsigned char)g_a5_byte(-11707),
 				      (short)rec[5]);
 			else
-				l3998((short)yb, (short)xb,
+				jt295((short)yb, (short)xb,
 				      (short)(unsigned char)g_a5_byte(-11708),
 				      (short)(unsigned char)g_a5_byte(-11707),
 				      (short)rec[5]);
@@ -58081,18 +58060,13 @@ static void jt224(short key)
 	}
 }
 
-/* L4910 (CODE 7+0x4910) — run one triggered cell event. Leaf PROBE
- * stub pending its own lift. */
-static void l4910(short ev, short mode)
-{
-	PROBE("l4910");
-	(void)ev; (void)mode;
-}
+/* L4910 (CODE 7+0x4910) = JT[187], the treasure-item node builder —
+ * already lifted as jt187 (the alias-trap class); repointed below. */
 
 /* JT[188] (CODE 7+0x49aa) — scan a map cell's 20 trigger bits
  * (bit i lives in byte 2 - i/8, mask 1 << (i & 7)); each set bit
- * runs L4910 on the -12645 event table entry [hi-nibble * 20 + i].
- * Returns 1 when anything fired. Full lift over the leaf stub. */
+ * builds the -12645 treasure-table item [hi-nibble * 20 + i] via
+ * jt187 (= L4910). Returns 1 when anything fired. Full lift. */
 static unsigned char jt188(const unsigned char *cell)
                                                 __attribute__((unused));
 static unsigned char jt188(const unsigned char *cell)
@@ -58104,7 +58078,7 @@ static unsigned char jt188(const unsigned char *cell)
 	PROBE("jt188");
 	for (i = 19; i >= 0; i--) {
 		if (cell[2 - (i >> 3)] & (1 << (i & 7))) {
-			l4910((short)g_a5_buf(-12645)[hi * 20 + i],
+			jt187((short)g_a5_buf(-12645)[hi * 20 + i],
 			      (short)1);
 			fired = 1;
 		}
