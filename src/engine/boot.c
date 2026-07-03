@@ -22672,9 +22672,14 @@ static int jt169(long h1, long h2, short top, short left,
 	*(short *)(desc + 12) = *idx;
 	*(short *)(desc + 14) = (short)(count206e + 1);
 	*(long  *)(desc + 16) = (long)(uintptr_t)&jt143;
-	*(long  *)(desc + 20) = g_a5_long(-12654);
-	*(long  *)(desc + 24) = (g_a5_byte(-12649) != 0)
+	/* Mac L3600 slot order (fp-16/fp-12 = desc+20/+24): +20 is the
+	 * jt144 CONFIRM callback jt223 fires to commit a clicked row;
+	 * +24 is the caller's selection hook stashed via jt168 (-12654),
+	 * which l0e92 calls per selection move. The lift had them
+	 * SWAPPED — every list click selected but could never commit. */
+	*(long  *)(desc + 20) = (g_a5_byte(-12649) != 0)
 	                        ? (long)(uintptr_t)&jt144 : 0L;
+	*(long  *)(desc + 24) = g_a5_long(-12654);
 	g_a5_long(-12654) = 0;
 
 	if (*(short *)(desc + 8) != 0) {

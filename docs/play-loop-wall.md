@@ -19,6 +19,15 @@ stubs — camp-flow cards. Data model in the boot.c header comment:
 -6454 nodes / -6450 ids / -6302 counts / -16906 defs / -17446 names /
 -6864 level headers / -18893 grimoire masks.
 
+FOLLOW-UP (user click test): rows highlighted but never COMMITTED —
+the port jt169 had descriptor slots +20/+24 SWAPPED vs Mac L3600
+(fp-16/fp-12): +20 must hold the jt144 CONFIRM callback that jt223
+fires on a click of the already-selected row; +24 the jt168-armed
+selection hook l0e92 calls (Mac L0e92 reads a0@(24) — verified).
+With the stash at +20, jt223 always found 0 and no list click could
+ever commit — this affected EVERY jt169 list, not just spells.
+Swapped (the Mac model: click selects, click-again commits).
+
 HATARI-VERIFIED: c on STRANILLA's turn opens the faithful picker —
 "SPELLS IN MEMORY", red 1ST/2ND/3RD LEVEL headers, MAGIC MISSILE (4)
 highlighted with its memorized count, arrows navigate, Return/ESC
