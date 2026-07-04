@@ -16115,61 +16115,173 @@ static signed char l6804(void)
 	                     == g_a5_long(-2578));
 }
 
-/* jt1044 (CODE 5 + 0x5716), jt1050 (CODE 5 + 0x59ee) — Window
- * Manager helpers L747a / L74ae call. PROBE stubs; both involve
- * window allocation / disposal which the Falcon HAL doesn't
- * provide yet. */
-static short jt1044(char a, void *b, short c) __attribute__((unused));
-static short jt1044(char a, void *b, short c)
+/* --- CODE 5 THINK C trap glue (band 6) -------------------------------
+ * These JT entries are the runtime's register-ABI thunks over Toolbox
+ * OS traps (pop return -> a1, pop args, trap, push result, jmp a1).
+ * The port form is a plain C wrapper per entry routed through the
+ * compat shim; a lifted caller's push-args-call-glue sequence
+ * translates to a normal call. The earlier "Window Manager helper"
+ * guess for jt1044/jt1050 was wrong — the traps are _Write/_KillIO.
+ *
+ * PB-level IO (_Read/_Write/_SetFPos/_GetVol) interprets the classic
+ * ioParam fields: ioResult@16, ioNamePtr@18, ioVRefNum@22, ioRefNum@24,
+ * ioBuffer@32, ioReqCount@36, ioActCount@40, ioPosMode@44,
+ * ioPosOffset@46. The async flag is ignored — every shim IO call is
+ * synchronous, which also makes _KillIO's "cancel pending async ops"
+ * faithfully a no-op (there is never anything to cancel). */
+
+/* JT[1043] (CODE 5+0x5704) — _Read: position per ioPosMode, read
+ * ioReqCount bytes to ioBuffer, store ioActCount + ioResult. */
+static short jt1043(char async, void *pb_v) __attribute__((unused));
+static short jt1043(char async, void *pb_v)
 {
-	PROBE("jt1044");
-	(void)a; (void)b; (void)c;
-	return 0;
-}
-static short jt1050(short a, short b) __attribute__((unused));
-static short jt1050(short a, short b)
-{
-	PROBE("jt1050");
-	(void)a; (void)b;
-	return 0;
+	unsigned char *pb = (unsigned char *)pb_v;
+	long  count = *(long *)(void *)(pb + 36);
+	OSErr err = noErr;
+
+	PROBE("jt1043");
+	(void)async;
+	if (*(short *)(void *)(pb + 44) != 0)           /* not fsAtMark */
+		err = SetFPos(*(short *)(void *)(pb + 24),
+		              *(short *)(void *)(pb + 44),
+		              *(long *)(void *)(pb + 46));
+	if (err == noErr)
+		err = FSRead(*(short *)(void *)(pb + 24), &count,
+		             (void *)(uintptr_t)*(long *)(void *)(pb + 32));
+	*(long *)(void *)(pb + 40) = count;             /* ioActCount */
+	*(short *)(void *)(pb + 16) = err;              /* ioResult */
+	return err;
 }
 
-/* L74ae (CODE 4 + 0x74ae) — refresh after menu-bar window close.
- *
- *   if (g_a5_-180 > 0) {
- *       jt1050(-4, 0);                       // dispose window?
- *       if (g_a5_-779)
- *           MBarHeight = 0;                  // hide system menu bar
- *   }
- *
- * The MBarHeight write (Mac low-mem global at 0x280) is skipped
- * — Atari has no equivalent global and writing to absolute 0x280
- * would corrupt random low memory. The Falcon HAL handles menu
- * bar visibility separately. */
+/* JT[1044] (CODE 5+0x5716) — _Write: same shape over FSWrite. A
+ * NEGATIVE refnum is a Mac DRIVER write — FRUA only writes driver -4
+ * (.Sound: l747a queues sample ptr/length through the -196 PB). The
+ * Falcon audio path isn't wired yet, so a driver write completes
+ * immediately (ioResult 0, full ioActCount) so async pollers proceed;
+ * route to platform/sound when the audio wall lands. */
+static short jt1044(char async, void *pb_v) __attribute__((unused));
+static short jt1044(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	long  count = *(long *)(void *)(pb + 36);
+	short refnum = *(short *)(void *)(pb + 24);
+	OSErr err = noErr;
+
+	PROBE("jt1044");
+	(void)async;
+	if (refnum < 0) {                               /* driver (.Sound) */
+		*(long *)(void *)(pb + 40) = count;
+		*(short *)(void *)(pb + 16) = 0;
+		return 0;
+	}
+	if (*(short *)(void *)(pb + 44) != 0)
+		err = SetFPos(refnum,
+		              *(short *)(void *)(pb + 44),
+		              *(long *)(void *)(pb + 46));
+	if (err == noErr)
+		err = FSWrite(refnum, &count,
+		              (const void *)(uintptr_t)*(long *)(void *)(pb + 32));
+	*(long *)(void *)(pb + 40) = count;
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+
+/* JT[1049] (CODE 5+0x5890) — _SetFPos on the PB's refnum/mode/offset. */
+static short jt1049(char async, void *pb_v) __attribute__((unused));
+static short jt1049(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	OSErr err;
+
+	PROBE("jt1049");
+	(void)async;
+	err = SetFPos(*(short *)(void *)(pb + 24),
+	              *(short *)(void *)(pb + 44),
+	              *(long *)(void *)(pb + 46));
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+
+/* JT[1057] (CODE 5+0x5dc6) — _GetVol into ioNamePtr/ioVRefNum. */
+static short jt1057(char async, void *pb_v) __attribute__((unused));
+static short jt1057(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	short vref = 0;
+	OSErr err;
+
+	PROBE("jt1057");
+	(void)async;
+	err = GetVol((unsigned char *)(uintptr_t)*(long *)(void *)(pb + 18),
+	             &vref);
+	*(short *)(void *)(pb + 22) = vref;             /* ioVRefNum */
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+
+/* JT[1026] (CODE 5+0x4d3a) — _FreeMem. */
+static long jt1026(void) __attribute__((unused));
+static long jt1026(void)
+{
+	PROBE("jt1026");
+	return (long)FreeMem();
+}
+
+/* JT[1030]/JT[1031] (CODE 5+0x503e/0x5056) — _NewHandle plain / CLEAR. */
+static Handle jt1030(long size) __attribute__((unused));
+static Handle jt1030(long size)
+{
+	PROBE("jt1030");
+	return NewHandle(size);
+}
+static Handle jt1031(long size) __attribute__((unused));
+static Handle jt1031(long size)
+{
+	PROBE("jt1031");
+	return NewHandleClear(size);
+}
+
+/* JT[1034] (CODE 5+0x50d0) — _HUnlock; trap result = MemError. */
+static short jt1034(Handle h) __attribute__((unused));
+static short jt1034(Handle h)
+{
+	PROBE("jt1034");
+	HUnlock(h);
+	return (short)MemError();
+}
+
+/* JT[1050] (CODE 5+0x59ee) — _KillIO(refnum): faithfully noErr, see
+ * the cluster note (no async IO exists to cancel). */
+static short jt1050(short refnum) __attribute__((unused));
+static short jt1050(short refnum)
+{
+	PROBE("jt1050");
+	(void)refnum;
+	return 0;                       /* noErr */
+}
+
+/* L74ae (CODE 4 + 0x74ae) — stop the queued sound-driver write:
+ * jt1050 = _KillIO on driver -4 (.Sound) when one is pending
+ * (g_a5_-180 > 0). (Earlier "menu-bar window close" guess was wrong —
+ * the refnum is the sound driver's.) The Mac tail also cleared
+ * MBarHeight (low-mem 0x280) behind -779; skipped, no Atari
+ * equivalent. */
 static void l74ae(void) __attribute__((unused));
 static void l74ae(void)
 {
 	PROBE("L74ae");
 	if (g_a5_word(-180) <= 0)
 		return;
-	jt1050((short)-4, (short)0);
-	/* MBarHeight (Mac 0x280) write skipped — no Atari equivalent. */
+	jt1050((short)-4);
 }
 
-/* L747a (CODE 4 + 0x747a) — schedule menu-bar paint job.
- *
- * Sets up the paint descriptor cluster around g_a5_-196 then
- * calls jt1044(1, &g_a5_-196, 0) to enqueue it:
- *
- *   g_a5_-184 = c;                           // 3rd arg
- *   g_a5_-172 = -4;                          // constant
- *   g_a5_-164 = ptr;                         // 1st arg
- *   g_a5_-160 = b;                           // 2nd arg
- *   g_a5_-152 = 0;
- *   jt1044(1, &g_a5_-196, 0);
- *
- * Called by jt1145 (l747a(&g_a5_-216, 6, 0)) and jt1122
- * (l747a(&g_a5_-210, 14, 0)). */
+/* L747a (CODE 4 + 0x747a) — queue an async SOUND-DRIVER write: build
+ * the ioParam block at A5-196 (ioCompletion@-184, ioRefNum@-172 = -4
+ * the .Sound driver, ioBuffer@-164 = the sample data, ioReqCount@-160
+ * = its length, ioPosMode@-152 = 0) and hand it to the _Write glue
+ * (jt1044, async). Called by jt1145 (6-byte beep block) and jt1122
+ * (14-byte square-wave block). (The earlier "menu-bar paint job"
+ * reading was wrong — the refnum is the sound driver's.) */
 static void l747a(void *p1, long p2, long p3) __attribute__((unused));
 static void l747a(void *p1, long p2, long p3)
 {
@@ -16179,7 +16291,7 @@ static void l747a(void *p1, long p2, long p3)
 	g_a5_long(-164) = (long)(uintptr_t)p1;
 	g_a5_long(-160) = p2;
 	g_a5_word(-152) = 0;
-	(void)jt1044((char)1, g_a5_buf(-196), (short)0);
+	(void)jt1044((char)1, g_a5_buf(-196));
 }
 
 /* L7690 is the same address as JT[1122] — same function, two
