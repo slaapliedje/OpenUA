@@ -45534,8 +45534,104 @@ static void jt855(long rec_l) { PROBE("jt855"); jt498(rec_l); }
 
 /* JT[520] (CODE 14+0x6de8) — area-map combat cleanup leaf; PROBE stub until
  * the CODE 14 combat-status block is lifted (called by jt860). */
-static void jt520(long rec_l) __attribute__((unused));
-static void jt520(long rec_l) { PROBE("jt520"); (void)rec_l; }
+/* JT[520] (CODE 14+0x6de8) — combat death/removal cleanup, full lift.
+ * Out of the combat view (mode != 5): just jt52(6) + jt102. In view:
+ * skip if the actor is already parked in the -25410 corpse registry
+ * (9 slots, 10-byte stride, rec ptr @0); else resolve its cell
+ * (l6bbe) and map spot (l6b40/l6b6a), scroll to it if off-screen
+ * (l6554/l6836), repaint the trail (l635e), death sound (jt52(6)),
+ * l744e, then the 9-pass death flicker over the facing footprint
+ * (l5d92 offsets, on-screen-gated by l6520, glyph via jt57 alternating
+ * pass&1, jt117 + 10-tick delay per pass). Unless the sub-record's
+ * fled byte sub[21] is set or the actor is status 8: park the corpse
+ * — l7488 cell code into the new registry slot, the 30 (status 7) /
+ * 31 corpse marker into the occupancy map (base -25318 + my*50 + mx,
+ * byte 9) unless already 28/29, and the rec/mx/my into the slot.
+ * Tail: jt102, repaint the cell again, clear the actor's -27472 zone
+ * facing byte, recommit the field (jt524 = L61ae), scroll to the
+ * field header's home cell, and zero the sub-record action state. */
+static void jt520(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	unsigned char *sub;
+	unsigned char  zone, dx, dy;
+	short          i, mx, my, pass, cell;
+
+	PROBE("jt520");
+	if ((unsigned char)g_a5_byte(-27990) != 5) {
+		jt52((short)6);
+		jt102();
+		return;
+	}
+
+	for (i = 1; i < 9; i++)
+		if (*(long *)(void *)&g_a5_buf(-25410)[i * 10] == rec_l)
+			break;
+	if (i < 9)
+		return;                         /* already parked */
+
+	zone = (unsigned char)l6bbe(rec_l);
+	mx = (short)(signed char)l6b40(rec_l);
+	my = (short)(signed char)l6b6a(rec_l);
+	if (l6554(rec_l, (short)1) == 0)
+		l6836(mx, my, (short)3, (short)8);
+	l635e((short)0, (short)0, (short)zone);
+	jt52((short)6);
+	l744e();
+
+	for (pass = 0; pass <= 8; pass++) {
+		for (cell = 0; cell <= 5; cell++) {
+			unsigned char *ent = &g_a5_buf(-27472)[(long)zone * 6];
+			short          x, y;
+
+			if (!l5d92((short)ent[5], cell, &dx, &dy))
+				continue;
+			x = (short)((signed char)g_a5_buf(-27059)[zone]
+			            + (signed char)dx);
+			y = (short)((signed char)g_a5_buf(-26991)[zone]
+			            + (signed char)dy);
+			if (!l6520(x, y))
+				continue;
+			jt57(x, y, (short)3, (short)(pass & 1), (short)24);
+		}
+		(void)jt117();
+		jt476((short)10);
+	}
+	jt1193();
+
+	sub = (unsigned char *)(uintptr_t)*(long *)(void *)(rec + 64);
+	if (sub[21] == 0 && rec[94] != 8) {
+		unsigned char *slot, *cellp;
+
+		g_a5_byte(-25320)++;
+		slot = &g_a5_buf(-25410)[(long)g_a5_byte(-25320) * 10];
+		slot[8] = (unsigned char)l7488(mx, my);
+		cellp = (unsigned char *)(uintptr_t)
+		    (g_a5_long(-25318) + (long)my * 50 + mx);
+		if (cellp[9] != 29 && cellp[9] != 28)
+			cellp[9] = (unsigned char)(rec[94] == 7 ? 30 : 31);
+		*(long *)(void *)slot = rec_l;
+		*(short *)(void *)(slot + 4) = mx;
+		*(short *)(void *)(slot + 6) = my;
+	}
+
+	jt102();
+	l635e((short)0, (short)0, (short)zone);
+	g_a5_buf(-27472)[(long)(l6bbe(rec_l) & 0xff) * 6 + 5] = 0;
+	jt524();                                /* = L61ae field commit */
+	{
+		unsigned char *hdr =
+		    (unsigned char *)(uintptr_t)g_a5_long(-25318);
+
+		l6836((short)(*(short *)(void *)(hdr + 2) + 3),
+		      (short)(*(short *)(void *)(hdr + 4) + 3),
+		      (short)3, (short)8);
+	}
+	sub = (unsigned char *)(uintptr_t)*(long *)(void *)(rec + 64);
+	*(short *)(void *)(sub + 4) = 0;
+	sub[8] = 0;
+	sub[9] = 0;
+}
 
 /* JT[869] (CODE 18+0x23e6) — heal `amount` HP. Only statuses 0/1/4/5 are
  * healable; no-op if already at max (rec[129]) or (when flag==0) a type-215
@@ -47011,14 +47107,80 @@ static void jt36(long holder_l, long item_l)
 	}
 }
 
-/* L2d78 (CODE 19+0x2d78) — apply/remove the readied magic item's
- * side effects (the flag-bit-7 hook walk; ~500B). Leaf PROBE stub
- * pending its own lift. mode 1 = applying (just readied), 0 =
- * removing (just un-readied). */
-static void l2d78(long item, short mode)
+/* L2d78 (CODE 19+0x2d78) = JT[890] — apply/remove the readied magic
+ * item's side effects, dispatched on the item's hook kind item[56]&7f
+ * (JT[1] table @0x2da2, decoded via jt1_extract.py). mode 1 = just
+ * readied, 0 = just un-readied. Arms:
+ *   0 — set the -23187 latch and run the item-effect core l77a0
+ *       (= JT[857]) with apply = !mode;
+ *   1 — the WIZARDRY-RING kind: member[377] (the bonus-slot count)
+ *       <- the caster's slot entry from the -29876 progression table
+ *       (book row -30215 x261, level jt40(member,5) clamped 1..29,
+ *       9-byte entries, field 4) — DOUBLED while readied; on removal
+ *       restore it and trim excess memorizations (the 198-band scan:
+ *       spells whose -16906 info entry has book 2 / level 5 beyond
+ *       the restored count are dropped);
+ *   3/5 — recompute the member's effect set (jt875);
+ *   9 — on removal only, strip effect 23 (jt878).
+ * Faithful full lift 2026-07-04 (band 6). */
+static void l2d78(long item_l, short mode)
 {
+	unsigned char *item = (unsigned char *)(uintptr_t)item_l;
+	unsigned char *member =
+	    (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	short kind = (short)(item[56] & 0x7f);
+
 	PROBE("l2d78");
-	(void)item; (void)mode;
+	switch (kind) {                         /* JT[1] @0x2da2 */
+	case 0:
+		g_a5_byte(-23187) = 1;
+		l77a0((short)item[55], member, item,
+		      (short)(mode == 0 ? 1 : 0));
+		break;
+	case 1: {
+		short         n = (short)jt40(member, (short)5);
+		unsigned char slots;
+
+		if (n > 29)
+			n = 29;
+		else if (n < 1)
+			n = 1;
+		slots = g_a5_buf(-29876)[(long)g_a5_byte(-30215) * 261
+		                         + (long)(n - 1) * 9 + 4];
+		if (mode != 0) {
+			member[377] = (unsigned char)(slots + slots);
+		} else {
+			short i, cnt = 0;
+
+			member[377] = slots;
+			for (i = 0; i <= 140; i++) {
+				unsigned char        id = member[198 + i];
+				const unsigned char *sp;
+
+				if (id == 0)
+					continue;
+				sp = g_a5_buf(-16906) + (long)id * 16;
+				if (sp[0] != 2 || sp[1] != 5)
+					continue;
+				cnt++;
+				if (cnt <= (short)member[377])
+					continue;
+				member[198 + i] = 0;
+			}
+		}
+		break;
+	}
+	case 3:
+	case 5:
+		jt875((long)(uintptr_t)member, (short)0);
+		break;
+	case 9:
+		if (mode == 0)
+			jt878((long)(uintptr_t)member, (short)23, 0L);
+		break;
+	default:
+		break;
+	}
 }
 
 /* L2f6e (CODE 19+0x2f6e) — can the active member ready `item`? Full
@@ -58336,7 +58498,7 @@ static void jt184(long rec_l)
  *   - the EQUIP pass: for each item node l2f6e (= JT[902]) classifies,
  *     mark it readied (node[50] = 1), point the slot long
  *     rec[12 + slot*4] at it, and for bit-7 items run the readied
- *     side-effects l2d78 (= JT[890], still a leaf stub) with -27932
+ *     side-effects l2d78 (= JT[890], fully lifted) with -27932
  *     temporarily pointed at the record.
  *   - jt21 (derived stats) + jt906 (finalize).
  * Full lift of CODE 15 0xd9c..0x1186. */
