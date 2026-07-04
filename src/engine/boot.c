@@ -887,6 +887,19 @@ static void jt1061(unsigned char *modep)
 	(void)modep;   /* 68030 is always 32-bit addressing; leave *modep as-is */
 }
 
+/* JT[1062] (CODE 5 + 0x64c0) — _StripAddress ($A055) glue: mask an
+ * address (or the -1 probe) down to the machine's addressing width —
+ * 0x00FFFFFF on a 24-bit Mac, identity on 32-bit-clean ones. L3e38
+ * calls jt1062(-1) to fetch the mask (g_a5_-2588) it ANDs over the
+ * page base and translate table before a direct blit. The Atari
+ * 68030 is flat 32-bit — faithful identity, the jt1061 class. */
+static long jt1062(long addr) __attribute__((unused));
+static long jt1062(long addr)
+{
+	PROBE("jt1062");
+	return addr;
+}
+
 /* L4ab6 (CODE 7 + 0x4ab6) — point the string-table cursors at a
  * (possibly new) base. Cached so repeated loads of the same table
  * skip the re-seed. */
@@ -16732,14 +16745,88 @@ static void l24aa(void)
 	PROBE("L24aa");
 }
 
-/* L3d8c / L7de0 / L448c / L4350 / L1084 — L3e38's helper chain.
- * All PROBE-only stubs; the full repaint walks page descriptors
- * and the clip region. */
+/* L3e38's helper chain: l3d8c (CopyBits band present) and l3cb0
+ * (mono fast row-restore) are full lifts below; L7de0 / L4350 remain
+ * PROBE stubs (page-swap-pending / depth-change resume — dormant). */
+static short l04cc(void);               /* page height (defined below)  */
+static short l04de(void);               /* page width  (defined below)  */
+static long  l04f0(void);               /* depth shift (defined below)  */
+
+/* L3d8c (CODE 4 + 0x3d8c) — present the whole page into the window
+ * via CopyBits, in 25-row bands: SetRect a band, and when g_a5_-2346
+ * says the window is 2x-doubled, CopyBits it into the band rect
+ * doubled (CopyBits scales); undoubled, src and dst rects are the
+ * same. `entry` is the page descriptor (-2570 + 108*page; its
+ * bitmap record starts at +2), `win` the window (portBits at +2).
+ * The busy/background arm of L3e38 — and its fallback when the
+ * direct-blit selector matches nothing. */
 static void l3d8c(void *entry, void *win) __attribute__((unused));
 static void l3d8c(void *entry, void *win)
 {
+	Rect  r, r2;
+	short row;
+
 	PROBE("L3d8c");
-	(void)entry; (void)win;
+	for (row = 0; row < l04cc(); row = (short)(row + 25)) {
+		SetRect(&r, 0, row, l04de(), (short)(row + 25));
+		if (g_a5_byte(-2346) != 0) {
+			SetRect(&r2, 0, (short)(row * 2),
+			        (short)(l04de() * 2),
+			        (short)((row + 25) * 2));
+			CopyBits((const BitMap *)(void *)
+			             ((unsigned char *)entry + 2),
+			         (const BitMap *)(void *)
+			             ((unsigned char *)win + 2),
+			         &r, &r2, 0, NULL);
+		} else {
+			CopyBits((const BitMap *)(void *)
+			             ((unsigned char *)entry + 2),
+			         (const BitMap *)(void *)
+			             ((unsigned char *)win + 2),
+			         &r, &r, 0, NULL);
+		}
+	}
+}
+
+/* L3cb0 (CODE 4 + 0x3cb0) — the MONO fast-path row restore: copy the
+ * band `rect` (top@0/bottom@4 used) from the current page's 1bpp
+ * bitmap (descriptor+2 = base directly; 60-byte rows starting at +1)
+ * straight into the window's portBits (baseAddr@2, rowBytes@6,
+ * bounds@8). The 60-byte row copy keeps the Mac's alignment pattern
+ * (byte, 14 longs, word, byte). Bracketed by the g_a5_-1313
+ * _StripAddress / _SwapMMUMode dance (both faithful no-ops here). */
+static void l3cb0(short *rect) __attribute__((unused));
+static void l3cb0(short *rect)
+{
+	unsigned char *desc = g_a5_buf(-2570) + 108 * g_a5_word(-2354);
+	unsigned char *win  = (unsigned char *)(uintptr_t)g_a5_long(-2578);
+	const unsigned char *src;
+	unsigned char *dst;
+	long rb, dstadv;
+	short rows, r, k;
+
+	PROBE("L3cb0");
+	src = (const unsigned char *)(uintptr_t)
+	      (*(long *)(void *)(desc + 2) + (long)rect[0] * 60 + 1);
+	rb  = (long)*(short *)(void *)(win + 6);
+	dst = (unsigned char *)(uintptr_t)(*(long *)(void *)(win + 2))
+	    + (long)(rect[0] - *(short *)(void *)(win + 8)) * rb
+	    - (*(short *)(void *)(win + 10) >> 3);
+	dstadv = rb - 60;
+	rows = (short)(rect[2] - rect[0]);
+	if (g_a5_byte(-1313) != 0) {
+		src = (const unsigned char *)(uintptr_t)
+		      jt1062((long)(uintptr_t)src);
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	for (r = 0; r < rows; r++) {
+		for (k = 0; k < 60; k++)
+			*dst++ = *src++;
+		dst += dstadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
 }
 static signed char l7de0(void) __attribute__((unused));
 static signed char l7de0(void)
@@ -17557,98 +17644,243 @@ static void jt1101(const void *src_v, void *dst_v, const void *tbl_v,
 		jt1061((unsigned char *)&g_a5_byte(-2584));
 }
 
-/* L3e38 (CODE 4 + 0x3e38) = JT[1162] — window content repaint
- * dispatcher. Called inside the BeginUpdate / EndUpdate bracket
- * of L7090 (updateEvt arm).
+/* L3e38 (CODE 4 + 0x3e38) = JT[1162] — window content repaint (FULL
+ * lift; replaces the level-1 skeleton). Called inside the
+ * BeginUpdate / EndUpdate bracket of L7090 (updateEvt arm).
  *
- * Body (level-1 skeleton — leaves are PROBE stubs; the
- * 200+-line full dispatch is its own task):
+ * Flow:
+ *   - normalize the page index (-2354) to 0..1 (JT[1084] alert);
+ *   - busy (-1316) or not frontmost (l6804 clear) → l3d8c CopyBits
+ *     present of the whole page — WITHOUT ValidRect (the Mac skips
+ *     it on this arm; the update stays pending);
+ *   - page-swap pending (l7de0) → just ValidRect the portRect;
+ *   - when -1314 is clear, re-probe the screen depth (L448c); on a
+ *     change with colour QD + the 8bpp page flag, L4350(depth==8)
+ *     then the L24aa palette resume;
+ *   - read the window visRgn bbox (win+24 handle → +2), clamp to
+ *     0..page extent (l04cc/l04de, doubled when -2346); empty →
+ *     ValidRect only;
+ *   - colour QD: pick the page→window primitive (jt1092..jt1107 by
+ *     the -1312 page tier / -1318 window depth / -2346 doubling
+ *     matrix above); no match → l3d8c fallback. Otherwise blit the
+ *     bbox in 30-row bands, each bracketed ShieldCursor/ShowCursor,
+ *     calling the primitive with (page base, window pixels, the
+ *     -2343 translate table, the band rect [horizontal units =
+ *     source bytes], the window PixMap handle, page stride
+ *     l04de() >> l04f0()). The 2x primitives halve the band rect in
+ *     place; the Mac restores the bottom with an lslw before
+ *     looping (kept);
+ *   - mono (-2347 clear): when -1315 is set and portBits.bounds
+ *     .left ≡ 8 (mod 16), the l3cb0 60-row fast restore in bands;
+ *     else the l3d8c fallback;
+ *   - ValidRect the portRect.
  *
- *   short cur_page = g_a5_-2354;
- *   // Normalize page index to [0, 1].
- *   if (cur_page < 0 || cur_page > 1) {
- *       JT[1084]("...", cur_page);            // error dialog (= l036a)
- *       g_a5_-2354 = 1;
- *   }
- *
- *   // Idle + front → "fast path" exit:
- *   if (g_a5_-1316 == 0 && L6804()) {
- *       // L3e8e branch — many sub-paths around L7de0 / ValidRect
- *       // / L448c / L4350 / page-descriptor walks.  Deferred.
- *       PROBE("L3e38:idle-frontwindow-deferred");
- *       return;
- *   }
- *
- *   // Dirty or background → blit current page:
- *   unsigned char *entry = g_a5_-2570 + 108 * cur_page;
- *   L3d8c(entry, (void *)g_a5_-2578);
- *
- * The L3e8e branch is a substantial sub-dispatch (handles
- * "page-swap-in-progress" + clip-region updates + color-QD
- * specific blits). Left as deferred because it'd more than
- * double this function's size and isn't reachable in the boot
- * trace anyway (updateEvt not queued). */
+ * The Mac's -1313 arm fetches the _StripAddress mask (jt1062(-1) →
+ * -2588) to AND over the table and page base, and GetPixBaseAddr
+ * for a 32-bit-safe window base; on the flat 68030 the mask is
+ * identity and GetPixBaseAddr(h) is the pixmap's own baseAddr —
+ * both faithful reductions, noted inline. Port deviation: -2578 is
+ * NULL-checked before the deref chain (the Mac assumes the window
+ * exists; the port's window record isn't populated until #144
+ * wires the page-descriptor present). */
 static void l3e38(void)
 {
-	short cur_page;
+	short vis[4];           /* fp-8:  visRgn bbox (t,l,b,r)      */
+	short band[4];          /* fp-16: the primitive band rect     */
+	Rect  shield;           /* fp-24: ShieldCursor rect           */
+	void (*prim)(const void *, void *, const void *, short *,
+	             void *, long);                    /* fp-36       */
+	unsigned char *win;
+	short cur;
 
 	PROBE("L3e38");
-	cur_page = g_a5_word(-2354);
-
-	if (cur_page < 0 || cur_page > 1) {
-		l036a("repaint page out of range: %d", cur_page);  /* JT[1084] */
+	prim = NULL;
+	cur = g_a5_word(-2354);
+	if (cur < 0 || cur > 1) {
+		l036a("repaint page out of range: %d", cur);  /* JT[1084] */
 		g_a5_word(-2354) = 1;
-		cur_page = 1;
 	}
 
-	if (g_a5_byte(-1316) == 0 && l6804() != 0) {
-		/* L3e8e branch — idle + frontmost.
-		 *
-		 * 1. If L7de0 says a page-swap is pending, just call
-		 *    ValidRect on the content rect (no fresh paint
-		 *    needed) and exit.
-		 * 2. Otherwise, if -1314 is clear (no page-busy),
-		 *    probe depth via L448c; on depth change AND
-		 *    color-QD AND -1312 set, call L4350 with the
-		 *    "depth == 8" flag for the swap; then L24aa to
-		 *    restore the palette.
-		 * 3. Read the window's visRgn bbox (window+24 → handle
-		 *    → +2) into local rect; clamp to >= 0 and
-		 *    <= 2 * L04cc / L04de in half-scale or L04cc /
-		 *    L04de in full-scale.
-		 * 4. If the rect ends up empty, exit (L4342).
-		 * 5. Otherwise perform the actual page-descriptor
-		 *    walk + blit (400+ lines, deferred).
-		 */
-		PROBE("L3e38:idle-frontwindow");
-		if (l7de0() != 0) {
-			void *win_ptr = (void *)(uintptr_t)g_a5_long(-2578);
-			if (win_ptr != NULL)
-				ValidRect((Rect *)((unsigned char *)win_ptr + 16));
-			return;
-		}
-		if (g_a5_byte(-1314) == 0) {
-			short saved_depth = g_a5_word(-1318);
-			l448c();
-			if (saved_depth != g_a5_word(-1318)
-			    && g_a5_2347 != 0
-			    && g_a5_byte(-1312) != 0) {
-				l4350((short)((g_a5_word(-1318) == 8)
-				              ? -1 : 0));
-			}
-			l24aa();
-		}
-		/* Visible-rect copy + clamp + blit deferred — needs
-		 * window region deref + page-descriptor walk. */
-		PROBE("L3e38:idle-blit-deferred");
+	win = (unsigned char *)(uintptr_t)g_a5_long(-2578);
+	if (win == NULL)
+		return;                 /* port: no window record yet    */
+
+	if (g_a5_byte(-1316) != 0 || l6804() == 0) {
+		l3d8c(g_a5_buf(-2570) + 108 * g_a5_word(-2354), win);
+		return;                 /* Mac: no ValidRect on this arm */
+	}
+
+	if (l7de0() != 0) {
+		ValidRect((Rect *)(void *)(win + 16));
 		return;
+	}
+	if (g_a5_byte(-1314) == 0) {
+		short saved_depth = g_a5_word(-1318);
+
+		l448c();
+		if (saved_depth != g_a5_word(-1318)
+		    && g_a5_2347 != 0
+		    && g_a5_byte(-1312) != 0) {
+			l4350((short)((g_a5_word(-1318) == 8) ? 1 : 0));
+		}
+		l24aa();
+	}
+
+	/* visRgn bbox, clamped to the (possibly doubled) page. */
+	{
+		unsigned char *rgn = *(unsigned char **)(void *)(win + 24);
+
+		vis[0] = *(short *)(void *)(rgn + 2);
+		vis[1] = *(short *)(void *)(rgn + 4);
+		vis[2] = *(short *)(void *)(rgn + 6);
+		vis[3] = *(short *)(void *)(rgn + 8);
+	}
+	if (vis[0] < 0)
+		vis[0] = 0;
+	if (vis[1] < 0)
+		vis[1] = 0;
+	if (g_a5_byte(-2346) != 0) {
+		if ((short)(l04cc() * 2) < vis[2])
+			vis[2] = (short)(l04cc() * 2);
+		if ((short)(l04de() * 2) < vis[3])
+			vis[3] = (short)(l04de() * 2);
+	} else {
+		if (l04cc() < vis[2])
+			vis[2] = l04cc();
+		if (l04de() < vis[3])
+			vis[3] = l04de();
+	}
+	if (vis[0] >= vis[2] || vis[1] >= vis[3])
+		goto validate;
+
+	if (g_a5_2347 == 0)
+		goto mono;
+
+	/* Colour: pick the page→window primitive. */
+	if (g_a5_byte(-1312) != 0) {
+		switch (g_a5_word(-1318)) {
+		case 4:  prim = g_a5_byte(-2346) ? jt1107 : jt1106; break;
+		case 8:  prim = g_a5_byte(-2346) ? jt1105 : jt1104; break;
+		case 16: prim = g_a5_byte(-2346) ? jt1103 : jt1102; break;
+		case 32: prim = g_a5_byte(-2346) ? jt1101 : jt1100; break;
+		default: break;
+		}
+	} else {
+		switch (g_a5_word(-1318)) {
+		case 4:  prim = g_a5_byte(-2346) ? jt1099 : jt1098; break;
+		case 8:  prim = g_a5_byte(-2346) ? jt1097 : jt1096; break;
+		case 16: prim = g_a5_byte(-2346) ? jt1095 : jt1094; break;
+		case 32: prim = g_a5_byte(-2346) ? jt1093 : jt1092; break;
+		default: break;
+		}
+	}
+	if (prim == NULL) {
+		l3d8c(g_a5_buf(-2570) + 108 * g_a5_word(-2354), win);
+		goto validate;
 	}
 
 	{
-		unsigned char *entry = g_a5_buf(-2570) + 108 * cur_page;
-		void          *win   = (void *)(uintptr_t)g_a5_long(-2578);
-		l3d8c(entry, win);
+		void *pm_h = (void *)(uintptr_t)(*(long *)(void *)(win + 2));
+		unsigned char *desc =
+		    g_a5_buf(-2570) + 108 * g_a5_word(-2354);
+		unsigned char *pagepm =
+		    *(unsigned char **)(void *)(desc + 2);   /* handle    */
+		long pagebase = *(long *)(void *)pagepm;     /* PixMap @0 */
+		long stride = (long)(short)(l04de() >> l04f0());
+		const void *tbl = (const void *)&g_a5_byte(-2343);
+		unsigned char *pm;
+		unsigned char *dstbase;
+		Point pt;
+		short row;
+
+		if (g_a5_byte(-1313) != 0) {
+			g_a5_long(-2588) = jt1062(-1L); /* StripAddress mask */
+			tbl = (const void *)(uintptr_t)
+			      ((long)(uintptr_t)tbl & g_a5_long(-2588));
+			pagebase &= g_a5_long(-2588);
+		}
+		/* Mac: GetPixBaseAddr(pm_h) on the -1313 arm, the master
+		 * pointer's baseAddr otherwise — identical on a 32-bit-
+		 * clean machine. */
+		pm = *(unsigned char **)pm_h;
+		dstbase = (unsigned char *)(uintptr_t)
+		          (*(long *)(void *)pm);
+		pt = *(Point *)(void *)(pm + 6);        /* bounds top-left */
+
+		shield.left  = vis[1];
+		shield.right = vis[3];
+		if (g_a5_byte(-2346) != 0) {
+			if (g_a5_byte(-1312) != 0) {
+				band[1] = (short)(vis[1] >> 1);
+				band[3] = (short)((vis[3] + 1) >> 1);
+			} else {
+				band[1] = (short)(vis[1] >> 2);
+				band[3] = (short)((vis[3] + 3) >> 2);
+			}
+			row = vis[0];
+			do {
+				band[0] = row;
+				shield.top = row;
+				row = jt413((short)(row + 30), vis[2]);
+				band[2] = row;
+				shield.bottom = row;
+				ShieldCursor(&shield, pt);
+				prim((const void *)(uintptr_t)pagebase,
+				     dstbase, tbl, band, pm_h, stride);
+				ShowCursor();
+				/* the 2x primitive halved the band rect;
+				 * restore the bottom (the Mac's lslw) */
+				band[2] = (short)(band[2] << 1);
+				row = band[2];
+			} while (row < vis[2]);
+		} else {
+			if (g_a5_byte(-1312) != 0) {
+				band[1] = vis[1];
+				band[3] = vis[3];
+			} else {
+				band[1] = (short)(vis[1] >> 1);
+				band[3] = (short)((vis[3] + 1) >> 1);
+			}
+			row = vis[0];
+			do {
+				band[0] = row;
+				shield.top = row;
+				row = jt413((short)(row + 30), vis[2]);
+				band[2] = row;
+				shield.bottom = row;
+				ShieldCursor(&shield, pt);
+				prim((const void *)(uintptr_t)pagebase,
+				     dstbase, tbl, band, pm_h, stride);
+				ShowCursor();
+				row = band[2];
+			} while (row < vis[2]);
+		}
 	}
+	goto validate;
+
+mono:
+	if (g_a5_byte(-1315) != 0
+	    && (*(short *)(void *)(win + 10) & 15) == 8) {
+		Point pt = *(Point *)(void *)(win + 8);
+		short row;
+
+		band[1] = *(short *)(void *)(win + 18);  /* portRect.left  */
+		band[3] = *(short *)(void *)(win + 22);  /* portRect.right */
+		row = vis[0];
+		do {
+			band[0] = row;
+			row = jt413((short)(row + 60), vis[2]);
+			band[2] = row;
+			ShieldCursor((const Rect *)(void *)band, pt);
+			l3cb0(band);
+			ShowCursor();
+		} while (row != vis[2]);
+	} else {
+		l3d8c(g_a5_buf(-2570) + 108 * g_a5_word(-2354), win);
+	}
+
+validate:
+	ValidRect((Rect *)(void *)(win + 16));
 }
 
 /* JT[1064] (CODE 5 + 0x4992) — hit-test? L70e0 calls this after

@@ -70,6 +70,8 @@ void       SetCursor(const Cursor *c);  /* install a cursor                  */
 void       HideCursor(void);            /* nest-hide (level--)               */
 void       ShowCursor(void);            /* nest-show (level++, max visible)  */
 void       ObscureCursor(void);         /* hide until the mouse next moves   */
+void       ShieldCursor(const Rect *shieldRect, Point offsetPt);
+                                        /* nest-hide while a blit covers r   */
 CursHandle GetCursor(short cursorID);   /* standard IDs: 4 = watch, else arrow */
 const Cursor *qd_sword_cursor(void);    /* the FRUA engine sword (placeholder) */
 
