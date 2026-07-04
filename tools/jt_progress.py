@@ -180,7 +180,12 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         1156,  # CODE 4+0x670e: bare rts (band 7, disasm-verified)
         1207,  # CODE 4+0x7e3e: bare rts (band 7, disasm-verified)
         1117,  # CODE 4+0x77ee: empty linkw/unlk (band 7, disasm-verified)
-        1150}  # CODE 4+0x61fc: empty linkw/unlk (band 7, disasm-verified)
+        1150,  # CODE 4+0x61fc: empty linkw/unlk (band 7, disasm-verified)
+        1159}  # CODE 4+0x4350 = l4350: Palette Manager usage-hint reseed
+               # + ActivatePalette — HAL-moot (the port owns the CLUT;
+               # no palette object, depth pinned at 8). Documented no-op
+               # of the jt1158 class (band 7 batch 14; full decode in
+               # boot.c at l4350).
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
