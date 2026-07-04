@@ -16778,6 +16778,785 @@ static void l4350(short flag)
 	PROBE("L4350");
 	(void)flag;
 }
+
+/* JT[1092]..JT[1107] — the sixteen page→window PRESENT primitives
+ * (CODE 4 + 0x2b58..0x3e38). L3e38's deferred visible-rect walk picks
+ * ONE by display config and calls it through a function pointer (no
+ * direct jsr anywhere): g_a5_-1312 selects the source-page depth tier
+ * (clear = 4bpp page, jt1092-1099; set = 8bpp page, jt1100-1107),
+ * g_a5_-1318 the window pixel depth (4/8/16/32), and g_a5_-2346 the
+ * 2x-doubling variant (the odd entry of each pair).
+ *
+ * Common signature — (src, dst, table, rect, pm_handle, srcstride):
+ * src walks the off-screen page (row stride `srcstride`), dst is the
+ * window pixmap base, `table` translates page pixels to window pixels
+ * (byte→byte/word/long by depth; the 4bpp tier indexes per SOURCE
+ * BYTE = a pixel pair, except the 32bpp arms which split nibbles),
+ * `rect` is (top, left, bottom, right) with horizontal units = source
+ * BYTES, and pm_handle double-derefs to the Mac PixMap (rowBytes@4
+ * masked 0x1fff/0x3fff, bounds.top@6, bounds.left@8). The doubling
+ * variants HALVE rect's top/bottom in place (the Mac does — kept) and
+ * write each output row twice (the +rowbytes pair write). Every body
+ * brackets the copy with the g_a5_-1313-gated _SwapMMUMode dance via
+ * jt1061 (a faithful no-op on the flat-32-bit 68030).
+ *
+ * All sixteen are full lifts awaiting the L3e38 walk (task #144's
+ * faithful double-buffer present); until then only jt1104 — 8bpp page
+ * to 8bpp window, undoubled — matches the port's live config. */
+
+/* JT[1098] (CODE 4+0x2b58) — 4bpp page → 4bpp window, 1x:
+ * byte (pixel pair) → table byte. */
+static void jt1098(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1098(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	long srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1098");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + rect[1] - (*(short *)(void *)(pm + 8) >> 1);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb - w;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--)
+			*dst++ = tbl[*src++];
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1099] (CODE 4+0x2c44) — 4bpp page → 4bpp window, 2x:
+ * byte → table word (the pair doubled), written to a row pair. */
+static void jt1099(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1099(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1099");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + rect[1] + rect[1] - (*(short *)(void *)(pm + 8) >> 1);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = (rb - w) * 2;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned short v = *(const unsigned short *)
+			    (const void *)(tbl + ((short)*src++ << 1));
+
+			*(unsigned short *)(void *)(dst + rb) = v;
+			*(unsigned short *)(void *)dst = v;
+			dst += 2;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1096] (CODE 4+0x2d66) — 4bpp page → 8bpp window, 1x:
+ * byte → table word (two 8bpp pixels). */
+static void jt1096(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1096(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	long srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1096");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + rect[1] + rect[1] - *(short *)(void *)(pm + 8);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb - (long)(w + w);
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			*(unsigned short *)(void *)dst =
+			    *(const unsigned short *)
+			    (const void *)(tbl + ((short)*src++ << 1));
+			dst += 2;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1097] (CODE 4+0x2e5e) — 4bpp page → 8bpp window, 2x:
+ * byte → table long (four 8bpp pixels), row pair. */
+static void jt1097(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1097(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1097");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 2) - *(short *)(void *)(pm + 8);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = (rb - (long)(w + w)) * 2;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned long v = *(const unsigned long *)
+			    (const void *)(tbl + ((short)*src++ << 2));
+
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1094] (CODE 4+0x2f7a) — 4bpp page → 16bpp window, 1x:
+ * byte → table long (two 16bpp pixels). */
+static void jt1094(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1094(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	long srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1094");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 2)
+	     - (long)(short)(*(short *)(void *)(pm + 8) * 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb - (long)(short)(w << 2);
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			*(unsigned long *)(void *)dst =
+			    *(const unsigned long *)
+			    (const void *)(tbl + ((short)*src++ << 2));
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1095] (CODE 4+0x3070) — 4bpp page → 16bpp window, 2x: each
+ * nibble → table long (the 16bpp pixel doubled), row pair. */
+static void jt1095(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1095(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1095");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 3)
+	     - (long)(short)(*(short *)(void *)(pm + 8) * 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = (rb - (long)(short)(w << 2)) * 2;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned char b = *src++;
+			unsigned long v;
+
+			v = *(const unsigned long *)
+			    (const void *)(tbl + ((b >> 4) << 2));
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+			v = *(const unsigned long *)
+			    (const void *)(tbl + ((b << 2) & 0x3c));
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1092] (CODE 4+0x31a6) — 4bpp page → 32bpp window, 1x: each
+ * nibble → table long (one 32bpp pixel). */
+static void jt1092(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1092(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	long srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1092");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 3)
+	     - (long)(short)(*(short *)(void *)(pm + 8) << 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb - (long)(short)(w << 3);
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned char b = *src++;
+
+			*(unsigned long *)(void *)dst =
+			    *(const unsigned long *)
+			    (const void *)(tbl + ((b >> 4) << 2));
+			dst += 4;
+			*(unsigned long *)(void *)dst =
+			    *(const unsigned long *)
+			    (const void *)(tbl + ((b << 2) & 0x3c));
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1093] (CODE 4+0x32ac) — 4bpp page → 32bpp window, 2x: each
+ * nibble → table long written 2x2 (H pair + row pair). */
+static void jt1093(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1093(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1093");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 4)
+	     - (long)(short)(*(short *)(void *)(pm + 8) << 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = (rb - (long)(short)(w << 3)) * 2;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned char b = *src++;
+			unsigned long v;
+
+			v = *(const unsigned long *)
+			    (const void *)(tbl + ((b >> 4) << 2));
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+			v = *(const unsigned long *)
+			    (const void *)(tbl + ((b << 2) & 0x3c));
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1106] (CODE 4+0x33ee) — 8bpp page → 4bpp window, 1x: byte →
+ * table nibble, packed in pairs with read-modify-write edge bytes
+ * when either end lands mid-byte. */
+static void jt1106(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1106(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	long srcadv, dstadv;
+	short w, rows, r, k, oddl, oddr;
+
+	PROBE("jt1106");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + (short)((rect[1] - *(short *)(void *)(pm + 8)) >> 1);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	oddl = (short)((rect[1] - *(short *)(void *)(pm + 8)) & 1);
+	oddr = (short)((w & 1) ? (oddl == 0) : oddl);
+	srcadv = stride - w;
+	w = (short)(w - oddl - oddr);
+	dstadv = rb - ((w >> 1) + oddl + oddr);
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		if (oddl) {
+			*dst = (unsigned char)((*dst & 0xf0) | tbl[*src++]);
+			dst++;
+		}
+		for (k = (short)(w >> 1); k > 0; k--) {
+			unsigned char hi = (unsigned char)(tbl[*src++] << 4);
+
+			*dst++ = (unsigned char)(hi | tbl[*src++]);
+		}
+		if (oddr) {
+			*dst = (unsigned char)((unsigned char)(tbl[*src++] << 4)
+			                       | (*dst & 0x0f));
+			dst++;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1107] (CODE 4+0x3574) — 8bpp page → 4bpp window, 2x: byte →
+ * table byte (the nibble pre-doubled), row pair. */
+static void jt1107(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1107(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1107");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + (short)((short)(rect[1] + rect[1]
+	                       - *(short *)(void *)(pm + 8)) >> 1);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb * 2 - w;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned char v = tbl[*src++];
+
+			*(dst + rb) = v;
+			*dst++ = v;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1104] (CODE 4+0x3686) — 8bpp page → 8bpp window, 1x: the plain
+ * byte → table byte translate copy (the port's live config). */
+static void jt1104(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1104(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	long srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1104");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + rect[1] - *(short *)(void *)(pm + 8);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb - w;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--)
+			*dst++ = tbl[*src++];
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1105] (CODE 4+0x376e) — 8bpp page → 8bpp window, 2x: byte →
+ * table word (the pixel doubled), row pair. */
+static void jt1105(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1105(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1105");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x1fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] + rect[1])
+	     - *(short *)(void *)(pm + 8);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = (rb - w) * 2;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned short v = *(const unsigned short *)
+			    (const void *)(tbl + ((short)*src++ << 1));
+
+			*(unsigned short *)(void *)(dst + rb) = v;
+			*(unsigned short *)(void *)dst = v;
+			dst += 2;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1102] (CODE 4+0x3882) — 8bpp page → 16bpp window, 1x: byte →
+ * table word (one 16bpp pixel). */
+static void jt1102(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1102(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	long srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1102");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] + rect[1])
+	     - (long)(short)(*(short *)(void *)(pm + 8) * 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb - (long)(w + w);
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			*(unsigned short *)(void *)dst =
+			    *(const unsigned short *)
+			    (const void *)(tbl + ((short)*src++ << 1));
+			dst += 2;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1103] (CODE 4+0x3978) — 8bpp page → 16bpp window, 2x: byte →
+ * table long (the 16bpp pixel doubled), row pair. */
+static void jt1103(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1103(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1103");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 2)
+	     - (long)(short)(*(short *)(void *)(pm + 8) * 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = (rb - (long)(w + w)) * 2;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned long v = *(const unsigned long *)
+			    (const void *)(tbl + ((short)*src++ << 2));
+
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1100] (CODE 4+0x3a94) — 8bpp page → 32bpp window, 1x: byte →
+ * table long (one 32bpp pixel). */
+static void jt1100(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1100(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	long srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1100");
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)(rect[0] - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 2)
+	     - (long)(short)(*(short *)(void *)(pm + 8) << 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = rb - (long)(short)(w << 2);
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			*(unsigned long *)(void *)dst =
+			    *(const unsigned long *)
+			    (const void *)(tbl + ((short)*src++ << 2));
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
+/* JT[1101] (CODE 4+0x3b8a) — 8bpp page → 32bpp window, 2x: byte →
+ * table long written 2x2 (H pair + row pair). */
+static void jt1101(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+                                                __attribute__((unused));
+static void jt1101(const void *src_v, void *dst_v, const void *tbl_v,
+                   short *rect, void *pm_h, long stride)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *tbl = (const unsigned char *)tbl_v;
+	unsigned char *dst = (unsigned char *)dst_v;
+	unsigned char *pm  = *(unsigned char **)pm_h;
+	long rb, srcadv, dstadv;
+	short w, rows, r, k;
+
+	PROBE("jt1101");
+	rect[0] = (short)(rect[0] >> 1);
+	rect[2] = (short)((rect[2] + 1) >> 1);
+	rb = (long)(unsigned short)(*(short *)(void *)(pm + 4) & 0x3fff);
+	if (g_a5_byte(-1313) != 0) {
+		g_a5_byte(-2584) = 1;
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+	}
+	dst += (long)((short)(rect[0] + rect[0])
+	              - *(short *)(void *)(pm + 6)) * rb
+	     + (long)(short)(rect[1] << 3)
+	     - (long)(short)(*(short *)(void *)(pm + 8) << 2);
+	src += (long)rect[0] * stride + rect[1];
+	w = (short)(rect[3] - rect[1]);
+	srcadv = stride - w;
+	dstadv = (rb - (long)(short)(w << 2)) * 2;
+	rows = (short)(rect[2] - rect[0]);
+	for (r = 0; r < rows; r++) {
+		for (k = w; k > 0; k--) {
+			unsigned long v = *(const unsigned long *)
+			    (const void *)(tbl + ((short)*src++ << 2));
+
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+			*(unsigned long *)(void *)(dst + rb) = v;
+			*(unsigned long *)(void *)dst = v;
+			dst += 4;
+		}
+		dst += dstadv;
+		src += srcadv;
+	}
+	if (g_a5_byte(-1313) != 0)
+		jt1061((unsigned char *)&g_a5_byte(-2584));
+}
+
 /* L3e38 (CODE 4 + 0x3e38) = JT[1162] — window content repaint
  * dispatcher. Called inside the BeginUpdate / EndUpdate bracket
  * of L7090 (updateEvt arm).
