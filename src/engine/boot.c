@@ -6975,7 +6975,16 @@ static void jt1089(short v, short h, short color,
 		unsigned char savefg = ((CGrafPtr)port)->fgColor;
 		Rect bgr;
 
-		SetRect(&bgr, px, top, (short)(px + w), (short)(top + 9));
+		/* The Mac cell is ascent-anchored: cell top = baseline -
+		 * ascent = pen top - 1, NOT the pen top. Anchored at the
+		 * pen top the 9-row plate hangs one row low — measured on
+		 * the menu bars (11-row FRAME glyphs): it covered the
+		 * bar's bottom black outline row and left TWO grey rows
+		 * above the glyphs instead of one each side (user-caught
+		 * 2026-07-04). Invisible on flat fields; wrong wherever
+		 * the plate abuts art. */
+		SetRect(&bgr, px, (short)(top - 1),
+		        (short)(px + w), (short)(top + 8));
 		((CGrafPtr)port)->fgColor = (unsigned char)plate;
 		PaintRect(&bgr);
 		((CGrafPtr)port)->fgColor = savefg;
