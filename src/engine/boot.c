@@ -3385,7 +3385,20 @@ static void  l159a(void *ev, short f);     /* COMBAT event (cases 1/33) — defi
 /* l159a's combat-entry deps. jt510/jt512 are the CODE 13/14 combat engine
  * (task #115, still PROBE stubs); jt45 is a CODE 6 setup leaf; l10a0/l1176
  * are CODE 20 encounter-setup locals — all PROBE-deferred for the skeleton. */
-static void  jt45(void)                    { PROBE("jt45"); }
+/* JT[45] (CODE 6+0x5700) — reset the picture-type cache: release the
+ * -24320 binder slot (l31dc), zero the 6-byte -24322 block (l5f4e),
+ * clear the -24304 cached type name (empty STRS+0x750) and poison the
+ * cached id -24262 with 0xFF. Full lift (band 7). */
+static void  l5f4e(void *buf, short size);
+static void  jt384(char *dst, const char *src);
+static void  jt45(void)
+{
+	PROBE("jt45");
+	l31dc((void *)&g_a5_long(-24320));
+	l5f4e(&g_a5_byte(-24322), (short)6);
+	jt384((char *)&g_a5_byte(-24304), ua_strs_at(0x750) /* "" */);
+	g_a5_byte(-24262) = 0xff;
+}
 static void  jt510(void)                   { PROBE("jt510"); }  /* CODE 13+0x6d1a is a bare rts — faithfully empty */
 /* JT[512] (CODE 14 + 0x5d8e) — the Mac body is a bare `rts` (verified
  * disasm). Genuinely a no-op hook; this stub IS the faithful lift. */
@@ -40627,7 +40640,80 @@ static void jt58(void)
  * + l3ef6 + l3540 + l2e92/l2f82 + l2ca6 + l3016 + l32ba + l375a are lifted below;
  * l364c (the feature RNG, shared by l3936/l3b36) and l3d56 (l3b36's biome
  * feature placer) are PROBE stubs for their own cards. */
-static void jt68(void)   { PROBE("jt68"); }
+/* JT[68] (CODE 6+0x604e) — the setup yield/pump: consume a pending
+ * keypress if one is queued (jt1118 avail -> jt60 = L5f84 read, the
+ * dedup-card resolution), then drain the mask-7 OS event queue
+ * (jt1125). Full lift (band 7). */
+static unsigned char jt60(void);
+static void jt68(void)
+{
+	short a = 0, b = 0;
+
+	PROBE("jt68");
+	if (jt1118() != 0)
+		(void)jt60();
+	(void)jt1125((short)7, (long)(uintptr_t)&b, (long)(uintptr_t)&a);
+}
+
+/* JT[9] (CODE 1+0x03ec) — the THINK C runtime's exit unpatch: restore
+ * the saved _LoadSeg (0xa9f0) and _ExitToShell (0xa9f4) trap vectors
+ * from the a5@(104) save block and dispose it. The port never patches
+ * trap vectors (segments are statically linked), so the state this
+ * restores does not exist — the faithful port body is empty, like the
+ * MBarHeight skip in l74ae. */
+static void jt9(void)
+{
+	PROBE("jt9");
+}
+
+/* JT[10] (CODE 6+0x0538) — the "Pod" UI key handler jt989 registers
+ * (the port's empty jt10_handler thunk is the registration shim; call
+ * this once the jt989 dispatch ABI carries args): map keys A/B/C to
+ * 1/2/3, jt978(15), then feed the key to jt1008(ctx, key). */
+static void jt978(short n);
+static void jt1008(long ctx, short key);
+static void jt10(short a, short key, long ctx) __attribute__((unused));
+static void jt10(short a, short key, long ctx)
+{
+	PROBE("jt10");
+	(void)a;
+	if ((char)key == 'A') key = '1';
+	else if ((char)key == 'B') key = '2';
+	else if ((char)key == 'C') key = '3';
+	jt978((short)15);
+	jt1008(ctx, key);
+}
+
+/* JT[1008] (CODE 5+0xbe4) — jt10's key sink. Leaf PROBE stub pending
+ * its own lift. */
+static void jt1008(long ctx, short key)
+{
+	PROBE("jt1008");
+	(void)ctx; (void)key;
+}
+
+/* JT[11] (CODE 6+0x04c0) — the second "Pod" UI handler (the port's
+ * empty jt11_handler thunk registers it): scroll-clear (jt176); when
+ * `show` is set, map A/B/C to 1/2/3, format the key through the
+ * caller's format string (jt394 "%r" bridge -> C varargs compromise)
+ * and paint the banner at (0,24) colours 15/8 (the jt94 funnel);
+ * always present (jt117 = L3994). */
+static void jt11(short show, short key, long fmt) __attribute__((unused));
+static void jt11(short show, short key, long fmt)
+{
+	char buf[40];
+
+	PROBE("jt11");
+	jt176();
+	if ((show & 0xff) != 0) {
+		if ((char)key == 'A') key = '1';
+		else if ((char)key == 'B') key = '2';
+		else if ((char)key == 'C') key = '3';
+		jt394(buf, (const char *)(uintptr_t)fmt, (int)key);
+		jt94((short)0, (short)24, (short)15, (short)8, "%s", buf);
+	}
+	(void)jt117();
+}
 /* JT[536] (CODE 14 + 0x2cb2) — the party health-ratio for the combat HP gauge
  * (-22649). Walk the -27928 combatant list: sum the max-HP byte [129] of every
  * active member ([95]==1, type [94]!=9) into hpSum, and the current-HP byte
@@ -57193,12 +57279,18 @@ static void jt116(short a, short b, short c, short d, short e)
 }
 
 /* JT[126] (CODE 6+0x02d2) — the numbered-.dat load callback jt129
- * registers with jt987. Leaf PROBE stub pending its own lift. */
+ * registers with jt987: read the staged -31246 bytes into the staged
+ * -31244 destination (jt410) and report whether the full count
+ * arrived. Full lift (disasm-verified, band 7). */
+static short jt410(short refNum, void *buffer, short count);
 static unsigned char jt126(short refnum, void *spec)
 {
 	PROBE("jt126");
-	(void)refnum; (void)spec;
-	return 0;
+	(void)spec;
+	return (unsigned char)(jt410(refnum,
+	           (void *)(uintptr_t)g_a5_long(-31244),
+	           (short)g_a5_word(-31246))
+	       == (short)g_a5_word(-31246) ? 1 : 0);
 }
 
 /* JT[129] (CODE 6+0x02f6) — request a numbered design data file:
