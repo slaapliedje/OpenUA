@@ -59,10 +59,12 @@ side-effects — the REST-leaves slice), jt68 (setup yield/pump).
 ## Unverified UNKNOWNs (a follow-up pass; likely faithful accessors)
 
 l5ac0, l6804, l3d8c, l7de0, l4350, jt1064, l0004, l31ea, l31f0, jt985, jt965,
-l4f2c, l4ff6, jt441, l0062, l2cf4, l32e2, l15bc, and the CODE 4 codec
-siblings jt1183/jt1188/jt1181/jt1184/jt1189/jt1191 + jt1109/l157c/jt1152/
-jt1142/jt1121 (display-mode arms the colour build may never take). Each needs
-a one-minute Mac-asm check; none showed runtime symptoms.
+l4f2c, l4ff6, jt441, l0062, l2cf4, l32e2, l15bc, and jt1109/l157c/jt1121
+(display-mode arms the colour build may never take). Each needs a one-minute
+Mac-asm check; none showed runtime symptoms. The CODE 4 codec siblings
+jt1183/jt1188/jt1181/jt1184/jt1189/jt1191 were FULLY LIFTED 2026-07-04 (the
+shifted row-blit family + the faithful jt995 re-lift); jt1152/jt1142 lifted
+in band 7 batch 8.
 
 ## Verdict
 
