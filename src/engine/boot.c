@@ -58283,6 +58283,170 @@ static void jt344(void)
 	g_a5_byte(-10473) = 0;
 }
 
+/* ---- The editor Menu Manager (CODE 8) — the pulldown-menu bar the
+ * design tools use (ADR-0006: editor UI lives inside the shim, not
+ * AES). State: -10474 menu count, -10473 flags (bit4 = tall bar,
+ * bit5 = no-panel), -10472 the menu table (8 bytes per menu: long
+ * record ptr, word bar-x @4, word bar-width @6, both in 8000-space),
+ * -10376 the pending menu command (jt341 takes-and-clears it).
+ * Menu record: byte count @6?, byte flags @12/@13, word @10, word
+ * @18, items base handle @4 (8 bytes per item: word @4, byte @6,
+ * byte flags @7). */
+
+/* L5624 (CODE 8) — the menu key-command scanner (match a keypress
+ * against the item command keys; returns the packed (menu+1)<<8 |
+ * item or 0). Level-1 stub — the jt342 tracker batch lifts it. */
+static short l5624(short key) __attribute__((unused));
+static short l5624(short key)
+{
+	PROBE("L5624");
+	(void)key;
+	return 0;
+}
+
+/* JT[342] = L567c (CODE 8) — the modal menu-bar mouse tracker (the
+ * MenuSelect equivalent): jt1153(1)/jt1146() double-buffer bracket,
+ * per-menu bar hit scan against the -10472 x/width columns, pulldown
+ * open (l33f6/l324c + the jt1161 panel fill), in-menu tracking
+ * (l33dc) and the packed (menu+1)<<8 | item result. Level-1 stub —
+ * its own batch (needs the l33xx pulldown family). */
+static short l567c(short v, short h) __attribute__((unused));
+static short l567c(short v, short h)
+{
+	PROBE("L567c");
+	(void)v; (void)h;
+	return 0;
+}
+
+/* L34d6 (CODE 8) — the menu/item field accessor jt339 delegates to.
+ * item < 1 queries the MENU record, item >= 1 the item record
+ * (items base @4, 8 bytes each, 1-based). Both dispatch on `cmd`
+ * through JT[1] sparse tables (extracted with jt1_extract at 0x34ec
+ * and 0x357a): the 16.. family bit-tests the flag byte (rec[13] /
+ * item[7]) with 1 << (cmd-16) — the 68k lslw shifts mod 64, so the
+ * table's case 2 lands on a >= 16 count and yields 0, kept. */
+static short l34d6(unsigned char *rec, short item, short cmd)
+                                                __attribute__((unused));
+static short l34d6(unsigned char *rec, short item, short cmd)
+{
+	short sh, bit;
+
+	PROBE("L34d6");
+	if (item < 1) {
+		/* JT[1] sparse table at 0x34ec (7 cases). */
+		switch (cmd) {
+		case 2:
+		case 16:
+		case 17:
+		case 19:
+			sh  = (short)(cmd - 16);
+			bit = (short)((sh >= 0 && sh < 16)
+			              ? (short)(1 << sh) : 0);
+			return (short)
+			    (((short)(signed char)rec[13] & bit) != 0);
+		case 40:
+			return *(short *)(void *)(rec + 10);
+		case 45:
+			return (short)(*(short *)(void *)(rec + 18) << 2);
+		case 36:
+			return (short)(signed char)rec[12];
+		default:
+			return 0;
+		}
+	} else {
+		unsigned char *it = (unsigned char *)(uintptr_t)
+		    (*(long *)(void *)(rec + 4)) + (long)item * 8 - 8;
+
+		/* JT[1] sparse table at 0x357a (6 cases). */
+		switch (cmd) {
+		case 16:
+		case 17:
+		case 18:
+		case 23:
+			sh  = (short)(cmd - 16);
+			bit = (short)((sh >= 0 && sh < 16)
+			              ? (short)(1 << sh) : 0);
+			return (short)
+			    (((short)(signed char)it[7] & bit) != 0);
+		case 32:
+			return (short)(signed char)it[6];
+		case 42:
+			return *(short *)(void *)(it + 4);
+		default:
+			return 0;
+		}
+	}
+}
+
+/* JT[339] (CODE 8+0x5a1a) — the menu-info query: menu 0 returns the
+ * menu COUNT; item >= 0 delegates to the l34d6 field accessor for
+ * that menu's record; item < 0 answers bar-geometry queries on the
+ * -10472 table (JT[1] sparse table at 0x5a86: cmd 40 = bar-x, 45 =
+ * bar-width). Out-of-range menus raise the jt1084 alert (and fall
+ * through, as on the Mac). */
+static short jt339(short menu, short item, short cmd)
+                                                __attribute__((unused));
+static short jt339(short menu, short item, short cmd)
+{
+	PROBE("jt339");
+	menu--;
+	if (menu < -1 || (short)(signed char)g_a5_byte(-10474) <= menu)
+		l036a("Invalid menu num (%d)", menu);   /* JT[1084] */
+	if (menu < 0)
+		return (short)(signed char)g_a5_byte(-10474);
+	if (item >= 0)
+		return l34d6((unsigned char *)(uintptr_t)
+		             *(long *)(void *)
+		             (g_a5_buf(-10472) + (long)menu * 8),
+		             item, cmd);
+	/* JT[1] sparse table at 0x5a86 (2 cases). */
+	switch (cmd) {
+	case 40:
+		return *(short *)(void *)
+		       (g_a5_buf(-10472) + (long)menu * 8 + 4);
+	case 45:
+		return *(short *)(void *)
+		       (g_a5_buf(-10472) + (long)menu * 8 + 6);
+	default:
+		return 0;
+	}
+}
+
+/* JT[340] (CODE 8+0x5ac8) — the menu event dispatcher (a DLItem-
+ * style action proc): JT[3] switch on `what` (min 2 max 5, default
+ * with case 4):
+ *   2 (hit-test) — jt1139 translates the 8000-space click; in the
+ *     bar band (row < 4, or 5 when the -10473 bit4 tall-bar flag)
+ *     returns 1;
+ *   3 (click)    — run the l567c tracker, latch the packed command
+ *     into -10376, return command > 0;
+ *   5 (key)      — the l5624 key scanner, same latch;
+ *   4 / default  — fall through to the generic l1676 (JT[443]). */
+static short jt340(long ev, short what, short v, short h)
+                                                __attribute__((unused));
+static short jt340(long ev, short what, short v, short h)
+{
+	PROBE("jt340");
+	switch (what) {         /* JT[3] inline table at 0x5ad4 */
+	case 2: {
+		short row = 0, col = 0;
+
+		jt1139((short)8000, (short)8000, v, h, &row, &col);
+		return (short)
+		    ((((g_a5_byte(-10473) & 0x10) != 0) ? 5 : 4) > row);
+	}
+	case 3:
+		g_a5_word(-10376) = l567c(v, h);
+		return (short)(g_a5_word(-10376) > 0);
+	case 5:
+		g_a5_word(-10376) = l5624(v);
+		return (short)(g_a5_word(-10376) > 0);
+	case 4:
+	default:
+		return l1676((unsigned char *)(uintptr_t)ev, what, v, h);
+	}
+}
+
 /* JT[333] (CODE 8+0x3658) — colour word -> pattern index: the 0x8N
  * family maps to 280; otherwise ((cw & 15) ^ (cw >> 4)) | 256.
  * Full lift (band 7). */
