@@ -19194,10 +19194,15 @@ static void jt1114(void)
 	g_a5_byte(-900) = 1;
 }
 
-/* JT[1037] (CODE 5+0x512e) — dispose the -146 sound channel (~340
- * lines, Sound Manager tier). Leaf PROBE stub pending the audio
- * wall; l745e only reaches it when the -132 channel flag is up,
- * which the port never sets. */
+/* JT[1037] (CODE 5+0x512e) — _VRemove ($A034) trap glue: pop the
+ * return to a1, the VBL-task record to a0, trap, push the OSErr,
+ * jmp back. The counterpart to jt1036 (_VInstall) — l745e calls it
+ * to pull the -146 sound VBL task on teardown. HAL-moot: the Falcon
+ * VBL service owns the vblank and jt1036 never installed a Mac task,
+ * so there is nothing to remove — noErr is the faithful result (the
+ * jt1036 class). (Corrects an earlier note that mis-described this as
+ * a ~340-line sound-channel dispose; the Mac body is 5 instructions.)
+ * NOOP-whitelisted in tools/jt_progress.py. */
 static short jt1037(void *chan, short a)
 {
 	PROBE("jt1037");
