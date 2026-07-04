@@ -5438,308 +5438,195 @@ static short l21d0(short x)
 	return (short)(masked << (3 - m));
 }
 
-/* JT[1183] / JT[1184] / JT[1188] / JT[1189] / JT[1191] — the row-blit
- * primitive family jt995 dispatches into.
+/* JT[1181] / JT[1183] / JT[1184] / JT[1188] / JT[1189] / JT[1191] — the
+ * SHIFTED row-blit primitive family jt995 dispatches into; full lifts
+ * live in the CODE 4 codec cluster below, next to their unshifted
+ * siblings jt1165/jt1172. All take (src [, mask], rows, wbytes,
+ * srcskip, lmask, rmask, shift): `shift` is the sub-word bit offset
+ * l21d0 derives from the destination pixel column, lmask/rmask the
+ * first/last partial-word edge masks from the -4646/-4614 tables.
  *
- *   jt1183/jt1188(data, w, h, mask, lmask, rmask) → mode 0/1 vs 3
- *   jt1184/jt1181(data, w, h, mask, lmask, rmask) → mode 0/1 vs 3
- *   jt1189/jt1191(data, src2, w, h, mask, lmask, rmask) → 7 args
- *
- * Each writes a row of pixels at the GLIB blit cursor. Stubs for
- * now — the engine's actual rendering happens via the QuickDraw shim
- * path that jt382 cmd=1 still hits inline.
- *
- * JT[1177] = L053e (CODE 4 + 0x053e) — the cursor SEEDER — is now a
- * full lift (defined in the GLIB codec cluster below): it points the
- * -3076 cursor at (row, col) on the shim's screen surface, which
- * un-stubs the jt119/jt122 save-under path and the jt1126 scroll. */
+ * JT[1177] = L053e (CODE 4 + 0x053e) — the cursor SEEDER — is a full
+ * lift (defined in the GLIB codec cluster below): it points the
+ * -3076 cursor at (row, col) on the shim's screen surface. */
 static void jt1177(short row, short col);       /* = L053e, defined below */
-static char jt1183(long data, short w, short h, short mask,
-                   short lmask, short rmask) __attribute__((unused));
-static char jt1183(long data, short w, short h, short mask,
-                   short lmask, short rmask)
-{
-	PROBE("jt1183");
-	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
-	return 0;
-}
-static char jt1188(long data, short w, short h, short mask,
-                   short lmask, short rmask) __attribute__((unused));
-static char jt1188(long data, short w, short h, short mask,
-                   short lmask, short rmask)
-{
-	PROBE("jt1188");
-	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
-	return 0;
-}
-static void jt1181(long data, short w, short h, short mask,
-                   short lmask, short rmask) __attribute__((unused));
-static void jt1181(long data, short w, short h, short mask,
-                   short lmask, short rmask)
-{
-	PROBE("jt1181");
-	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
-}
-static void jt1184(long data, short w, short h, short mask,
-                   short lmask, short rmask) __attribute__((unused));
-static void jt1184(long data, short w, short h, short mask,
-                   short lmask, short rmask)
-{
-	PROBE("jt1184");
-	(void)data; (void)w; (void)h; (void)mask; (void)lmask; (void)rmask;
-}
-static void jt1189(long data, long src2, short w, short h,
-                   short mask, short lmask, short rmask) __attribute__((unused));
-static void jt1189(long data, long src2, short w, short h,
-                   short mask, short lmask, short rmask)
-{
-	PROBE("jt1189");
-	(void)data; (void)src2; (void)w; (void)h;
-	(void)mask; (void)lmask; (void)rmask;
-}
-static void jt1191(long data, long src2, short w, short h,
-                   short mask, short lmask, short rmask) __attribute__((unused));
-static void jt1191(long data, long src2, short w, short h,
-                   short mask, short lmask, short rmask)
-{
-	PROBE("jt1191");
-	(void)data; (void)src2; (void)w; (void)h;
-	(void)mask; (void)lmask; (void)rmask;
-}
+static short jt1183(const void *src, short rows, short wbytes,
+                    short srcskip, short lmask, short rmask, short shift);
+static short jt1188(const void *src, short rows, short wbytes,
+                    short srcskip, short lmask, short rmask, short shift);
+static void jt1181(const void *src, short rows, short wbytes,
+                   short srcskip, short lmask, short rmask, short shift);
+static void jt1184(const void *src, short rows, short wbytes,
+                   short srcskip, short lmask, short rmask, short shift);
+static void jt1189(const void *src, const void *mask, short rows,
+                   short wbytes, short srcskip, short lmask, short rmask,
+                   short shift);
+static void jt1191(const void *src, const void *mask, short rows,
+                   short wbytes, short srcskip, short lmask, short rmask,
+                   short shift);
 
-/* JT[995] (CODE 5 + 0x21fc) — clipped scaled-bitmap blit.
+/* JT[995] (CODE 5 + 0x21fc) — clipped GLIB glyph blit (full lift;
+ * replaces the level-2 skeleton, whose guessed frame slots fed the
+ * primitives wrong values once they became real).
  *
- * Structural skeleton (level 2). The Mac body is ~300 lines of
- * resource lookup → coord remap → clip rect math → row-walk
- * with a 6-arm row-blit dispatch. The CFG mirrors the asm but
- * the final blit primitives (jt1183/1184/1188/1189/1191/1181)
- * are PROBE stubs — the engine bitmap resources and a Falcon-
- * side row-blit aren't plumbed.
+ * Looks up glyph `size_high` in the style's GLIB (jt468 → L2856,
+ * which returns the bitmap pointer and fills the 8-byte metric
+ * header: w height @0, w v-bearing @2, w h-bearing @4, b bytes-per-
+ * row @6, b flags @7), anchors the cell ((top,left) scaled by
+ * jt1135, minus the bearings), rejects when fully outside the GLIB
+ * clip rect (-3054 top / -3050 bottom / -3056 left / -3052 right),
+ * clips each edge — whole clipped bytes accumulate into the per-row
+ * source skip, the partial-word edge masks come from the -4646
+ * (left) / -4614 (right) tables indexed by l21d0, and l21d0(left)
+ * is the sub-word bit shift — then seeds the cursor (jt1177) and
+ * dispatches per display plane (plane stride = height*wbytes,
+ * computed before clipping):
  *
- * Body shape:
+ *   mode 1/3 — hit-scan: OR jt1188/jt1183 over jt1198() planes;
+ *   mode 2   — masked composite jt1189/jt1191 (mask plane = the
+ *              bitmap; source = bitmap + one plane when flags bit0
+ *              says a second plane follows);
+ *   mode 0   — erase jt1184/jt1181;
  *
- *   handle    = jt468(style)
- *   info_ptr  = L2856(handle, size, &font_info)
- *   if (info_ptr == 0)       return 0;
- *   L4d88();                                     // flush InvalRect
- *   jt1135(top, left, &top, &left);              // engine→pixel
- *   top  -= font_info[3];                        // y bearing
- *   left -= font_info[2];                        // x bearing
- *   bpp_w = font_info[6];                        // byte width
- *
- *   // Reject when fully outside clip rect (-3050..-3056)
- *   if (top  < g_a5_-3054)             goto exit;
- *   if (top + font_info[4] > -3050)    goto exit;
- *   if (left < g_a5_-3056)             goto exit;
- *   if ((bpp_w << jt1200()) + left > -3052)  goto exit;
- *
- *   row_count = ((font_info[7] & 0x80) != 0) ? 1 : jt1198();
- *
- *   // Compute row stride (bytes per row in bitmap data)
- *   bytes_per_row = font_info[4] * bpp_w;
- *
- *   // Top / bottom clip:
- *   top_clip   = max(0, g_a5_-3054 - top);
- *   bottom_cap = min(font_info[4], g_a5_-3050 - top);
- *
- *   // Left clip: compute byte offset + boundary mask
- *   if (left < g_a5_-3056) {
- *       short over   = g_a5_-3056 - left;
- *       short bytes  = (over >> jt1200()) & ~1;
- *       lmask        = g_a5_-4646[L21d0(over)];
- *       left_clip    = bytes;
- *       left        += bytes << jt1200();
- *   } else { left_clip = 0; lmask = -1; }
- *
- *   // Right clip: same shape against -3052
- *   if ((bpp_w << jt1200()) + left > -3052) {
- *       short over   = (bpp_w << jt1200()) + left - g_a5_-3052;
- *       short bytes  = (over >> jt1200()) & ~1;
- *       right_clip   = bytes;
- *       rmask        = g_a5_-4614[L21d0(over)];
- *   } else { right_clip = 0; rmask = -1; }
- *
- *   info_ptr += top_clip * bytes_per_row + left_clip;
- *   bpp_w    -= left_clip + right_clip;
- *
- *   if (bottom_cap <= 0 || bpp_w <= 0)  return 0;
- *
- *   // Compute drawing mask from highlighted bit (font_info[7] bit 7) +
- *   // left coord parity
- *   mask = (jt1200() == 3) ? L21d0(left ^ 8) : L21d0(left);
- *
- *   // Dispatch — two paths based on `mode` arg
- *   composite = 0;
- *   if (mode != 0 && mode != 2) {
- *       jt1177(left, top);                       // begin column
- *       for (i = 0; i < jt1198(); i++) {
- *           jt1170();
- *           composite |= (jt1200() == 3 ? jt1188 : jt1183)(
- *               info_ptr, bpp_w, bottom_cap, mask, lmask, rmask);
- *       }
- *   } else {
- *       jt1177(left, top);
- *       long src2 = info_ptr + ((font_info[3] & 1) ? bytes_per_row : 0);
- *       for (i = 0; i < row_count; i++) {
- *           jt1170();
- *           if (mode != 0)
- *               (jt1200() == 3 ? jt1189 : jt1191)(
- *                   info_ptr, src2, bpp_w, bottom_cap, mask, lmask, rmask);
- *           else
- *               (jt1200() == 3 ? jt1184 : jt1181)(
- *                   info_ptr, bpp_w, bottom_cap, mask, lmask, rmask);
- *           info_ptr += bytes_per_row;
- *       }
- *   }
- *   return composite;
- *
- * The skeleton C lift below preserves the major CFG (resource
- * setup, clip math, mode-dispatched row loop) so when the row-
- * blit primitives lift to real bodies, the engine's bitmap path
- * will render through this function unchanged.
- *
- * Note: the bitmap is read from `info_ptr` which is what L2856
- * returns — a pointer into the engine's font / sprite resource
- * with the metric blob written into `font_info`. Without that
- * resource populated by data_pool, `info_ptr` may be NULL or
- * point at garbage, so the function exits early at the L2856
- * gate. */
+ * jt1200()==3 selects the first callee of each pair. The Mac pushes
+ * the plane index to JT[1170] (disasm-verified empty body) — the
+ * port's jt1170(void) drops the ignored arg. The height<=0 /
+ * wbytes<=0 exit returns the Mac's uninitialized fp-39 byte; the
+ * port returns 0. `mode` is tested as a byte (tstb/cmpib fp@17). */
 static short jt995(short top, short left, short style, short size_high,
                    short mode) __attribute__((unused));
 static short jt995(short top, short left, short style, short size_high,
                    short mode)
 {
-	unsigned char  font_info[8];                  /* fp@(-8..-1)        */
-	long           info_ptr;                       /* fp@(-12)           */
-	long           info_ptr_2;                     /* fp@(-16)           */
-	short          bpp_w;                          /* fp@(-18) byte cnt  */
-	short          bytes_per_row;                  /* fp@(-20) row stride*/
-	short          top_clip;                       /* fp@(-22)           */
-	short          left_clip;                      /* fp@(-24)           */
-	short          right_clip;                     /* fp@(-26)           */
-	short          row_count;                      /* fp@(-32)           */
-	short          lmask;                          /* fp@(-36)           */
-	short          rmask;                          /* fp@(-38)           */
-	short          mask;                           /* fp@(-34)           */
-	unsigned char  composite = 0;                  /* fp@(-39)           */
-	short          i;
-	long           handle;
-	short          v_scaled = 0, h_scaled = 0;
+	unsigned char blob[8];          /* fp@(-8..-1) metric header    */
+	long          src;              /* fp@(-12)                     */
+	long          src2;             /* fp@(-16)                     */
+	short         wbytes;           /* fp@(-18)                     */
+	short         planebytes;       /* fp@(-20) = height * wbytes   */
+	short         topclip;          /* fp@(-22)                     */
+	short         lbytes;           /* fp@(-24)                     */
+	short         skip;             /* fp@(-26) per-row source skip */
+	short         i;                /* fp@(-30)                     */
+	short         nplanes;          /* fp@(-32)                     */
+	short         shift;            /* fp@(-34)                     */
+	short         lmask;            /* fp@(-36)                     */
+	short         rmask;            /* fp@(-38)                     */
+	unsigned char hit = 0;          /* fp@(-39)                     */
+	short         height;           /* the blob word at fp@(-8)     */
 
 	PROBE("jt995");
 
-	handle    = jt468(style);
-	info_ptr  = (long)l2856(handle, size_high, font_info);
-	if (info_ptr == 0)
+	src = l2856(jt468(style), size_high, blob);
+	if (src == 0)
 		return 0;
 
 	l4d88();
-	jt1135(top, left, &v_scaled, &h_scaled);
-	top  = v_scaled;
-	left = h_scaled;
-	top  -= (short)(signed char)font_info[3];
-	left -= (short)(signed char)font_info[2];
-	bpp_w = (short)font_info[6];
+	jt1135(top, left, &top, &left);
+	top   -= *(short *)(void *)(blob + 2);
+	left  -= *(short *)(void *)(blob + 4);
+	wbytes = (short)blob[6];
+	height = *(short *)(void *)blob;
 
-	/* Reject fully-outside-clip-rect cases. */
-	if (top  <  g_a5_word(-3054))                                    return 0;
-	if (top  + (short)font_info[4] > g_a5_word(-3050))               return 0;
-	if (left <  g_a5_word(-3056))                                    return 0;
-	if ((short)(bpp_w << jt1200()) + left > g_a5_word(-3052))        return 0;
+	/* Reject when fully outside the GLIB clip rect. */
+	if (top >= g_a5_word(-3050))                    return 0;
+	if ((short)(top + height) <= g_a5_word(-3054))  return 0;
+	if (left >= g_a5_word(-3052))                   return 0;
+	if ((short)((wbytes << jt1200()) + left) <= g_a5_word(-3056))
+		return 0;
 
-	row_count = ((font_info[7] & 0x80) != 0) ? (short)1 : jt1198();
-
-	bytes_per_row = (short)((short)font_info[4] * bpp_w);
+	nplanes = ((blob[7] & 0x80) != 0) ? (short)1 : jt1198();
+	if ((short)(blob[7] & 0x0f) > 1)
+		return 0;
+	planebytes = (short)(height * wbytes);
 
 	/* Top / bottom clip. */
-	if (top < g_a5_word(-3054)) {
-		top_clip = (short)(g_a5_word(-3054) - top);
-	} else {
-		top_clip = 0;
-	}
-	if (top + (short)font_info[4] > g_a5_word(-3050)) {
-		font_info[4] = (unsigned char)(g_a5_word(-3050) - top);
-	}
+	if (top < g_a5_word(-3054))
+		topclip = (short)(g_a5_word(-3054) - top);
+	else
+		topclip = 0;
+	if ((short)(top + height) > g_a5_word(-3050))
+		height = (short)(g_a5_word(-3050) - top);
 
-	/* Left clip. */
+	/* Left clip: whole bytes skipped + the partial-word mask. */
 	if (left < g_a5_word(-3056)) {
-		short over  = (short)(g_a5_word(-3056) - left);
-		short m     = jt1200();
-		short bytes = (short)((over >> m) & ~1);
-		short pcnt  = l21d0(over);
-		left_clip   = bytes;
-		lmask       = *(short *)(g_a5_buf(-4646) + pcnt * 2);
-		left       += (short)(bytes << jt1200());
+		short over = (short)(g_a5_word(-3056) - left);
+
+		lbytes = (short)((over >> jt1200()) & ~1);
+		lmask  = *(short *)(void *)(g_a5_buf(-4646)
+		                            + (long)l21d0(over) * 2);
+		left  += (short)(lbytes << jt1200());
 	} else {
-		left_clip = 0;
-		lmask     = (short)-1;
+		lbytes = 0;
+		lmask  = (short)-1;
 	}
 
 	/* Right clip. */
-	if ((short)(bpp_w << jt1200()) + left > g_a5_word(-3052)) {
-		short over  = (short)((bpp_w << jt1200()) + left
-		                      - g_a5_word(-3052));
-		short m     = jt1200();
-		short bytes = (short)((over >> m) & ~1);
-		short pcnt  = l21d0(over);
-		right_clip  = bytes;
-		rmask       = *(short *)(g_a5_buf(-4614) + pcnt * 2);
+	if ((short)((wbytes << jt1200()) + left) > g_a5_word(-3052)) {
+		short over = (short)((wbytes << jt1200()) + left
+		                     - g_a5_word(-3052));
+
+		skip  = (short)((over >> jt1200()) & ~1);
+		rmask = *(short *)(void *)(g_a5_buf(-4614)
+		                           + (long)l21d0(over) * 2);
 	} else {
-		right_clip = 0;
-		rmask      = (short)-1;
+		skip  = 0;
+		rmask = (short)-1;
 	}
 
-	left     += top_clip;
-	info_ptr += (long)top_clip * (long)bpp_w + (long)left_clip;
-	bpp_w    -= (short)(left_clip + right_clip);
+	top    += topclip;
+	src    += (short)(topclip * wbytes + lbytes); /* addw then ext.l */
+	skip   += lbytes;
+	wbytes -= skip;
+	height -= topclip;
+	if (height <= 0 || wbytes <= 0)
+		return 0;               /* Mac: uninitialized fp-39     */
 
-	if ((short)font_info[4] <= 0 || bpp_w <= 0)
-		return 0;
+	shift = (jt1200() == 3) ? l21d0((short)(left ^ 8)) : l21d0(left);
 
-	/* Drawing mask. */
-	mask = (jt1200() == 3) ? l21d0((short)(left ^ 8)) : l21d0(left);
-
-	/* Mode dispatch. */
-	if (mode != 0 && mode != 2) {
-		jt1177(left, top);
+	if ((char)mode != 0 && (char)mode != 2) {
+		/* Hit-scan arm. */
+		jt1177(top, left);
 		for (i = 0; i < jt1198(); i++) {
-			jt1170();
+			jt1170();       /* Mac pushes the plane index   */
 			if (jt1200() == 3)
-				composite |= (unsigned char)jt1188(info_ptr, bpp_w,
-				                                   (short)font_info[4],
-				                                   mask, lmask, rmask);
+				hit |= (unsigned char)jt1188(
+				    (const void *)(uintptr_t)src, height,
+				    wbytes, skip, lmask, rmask, shift);
 			else
-				composite |= (unsigned char)jt1183(info_ptr, bpp_w,
-				                                   (short)font_info[4],
-				                                   mask, lmask, rmask);
+				hit |= (unsigned char)jt1183(
+				    (const void *)(uintptr_t)src, height,
+				    wbytes, skip, lmask, rmask, shift);
 		}
-	} else {
-		jt1177(left, top);
-		info_ptr_2 = info_ptr;
-		if ((font_info[3] & 0x01) != 0)
-			info_ptr += bytes_per_row;
-
-		for (i = 0; i < row_count; i++) {
-			jt1170();
-			if (mode != 0) {
-				if (jt1200() == 3)
-					jt1189(info_ptr, info_ptr_2, bpp_w,
-					       (short)font_info[4], mask, lmask, rmask);
-				else
-					jt1191(info_ptr, info_ptr_2, bpp_w,
-					       (short)font_info[4], mask, lmask, rmask);
-			} else {
-				if (jt1200() == 3)
-					jt1184(info_ptr, bpp_w, (short)font_info[4],
-					       mask, lmask, rmask);
-				else
-					jt1181(info_ptr, bpp_w, (short)font_info[4],
-					       mask, lmask, rmask);
-			}
-			info_ptr += bytes_per_row;
-		}
+		return (short)hit;
 	}
-	return (short)composite;
+
+	jt1177(top, left);
+	src2 = src;
+	if ((blob[7] & 0x01) != 0)
+		src += planebytes;
+
+	for (i = 0; i < nplanes; i++) {
+		jt1170();
+		if ((char)mode != 0) {
+			if (jt1200() == 3)
+				jt1189((const void *)(uintptr_t)src,
+				       (const void *)(uintptr_t)src2, height,
+				       wbytes, skip, lmask, rmask, shift);
+			else
+				jt1191((const void *)(uintptr_t)src,
+				       (const void *)(uintptr_t)src2, height,
+				       wbytes, skip, lmask, rmask, shift);
+		} else {
+			if (jt1200() == 3)
+				jt1184((const void *)(uintptr_t)src, height,
+				       wbytes, skip, lmask, rmask, shift);
+			else
+				jt1181((const void *)(uintptr_t)src, height,
+				       wbytes, skip, lmask, rmask, shift);
+		}
+		src += planebytes;
+	}
+	return (short)hit;
 }
 
 /* L148a (CODE 3 + 0x148a) — per-item glyph/marker paint dispatcher.
@@ -28018,6 +27905,282 @@ static void jt1176(const void *src_v, const void *mask_v, short rows,
 		row += stride;
 	}
 	g_a5_long(-3076) = (long)(uintptr_t)row;
+}
+
+/* JT[1181] (CODE 4+0x0cf2) — SHIFTED OR-paint: each source word is
+ * positioned at bit offset `shift` across two dest words (the Mac's
+ * swap / clr.w / lsr.l idiom) and ORed in. The first word of a row is
+ * pre-masked with `lmask`, the last with `rmask` (a one-word row gets
+ * both); intermediate words go through whole. The shift spills into
+ * one extra dest word per row — hence l05ea(rows, wbytes+2) and the
+ * +2 in the dest row advance (the tail write doesn't step the
+ * cursor). Full lift (band 7). */
+static void jt1181(const void *src_v, short rows, short wbytes,
+                   short srcskip, short lmask, short rmask, short shift)
+                                                __attribute__((unused));
+static void jt1181(const void *src_v, short rows, short wbytes,
+                   short srcskip, short lmask, short rmask, short shift)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	unsigned char *dst;
+	long dstadv;
+	short r, n, nw = (short)(wbytes >> 1);
+
+	PROBE("jt1181");
+	l05ea(rows, (short)(wbytes + 2));
+	dst = (unsigned char *)(uintptr_t)l05dc();
+	dstadv = g_a5_long(-3084) - wbytes + 2;
+	for (r = 0; r < rows; r++) {
+		unsigned short w = (unsigned short)
+		    (*(const short *)(const void *)src & lmask);
+
+		src += 2;
+		for (n = (short)(nw - 1); n > 0; n--) {
+			*(long *)(void *)dst |=
+			    (long)(((unsigned long)w << 16) >> shift);
+			dst += 2;
+			w = *(const unsigned short *)(const void *)src;
+			src += 2;
+		}
+		w = (unsigned short)(w & rmask);
+		*(long *)(void *)dst |=
+		    (long)(((unsigned long)w << 16) >> shift);
+		src += srcskip;
+		dst += dstadv;
+	}
+}
+
+/* JT[1184] (CODE 4+0x0d7c) — SHIFTED erase (jt1181's inverse): each
+ * source word is inverted, edge-masked, shifted into position, and
+ * the dest longword ANDed with the complement — clearing dest bits
+ * wherever the source has 0s inside the masked window. Same row
+ * geometry as jt1181. Full lift (band 7). */
+static void jt1184(const void *src_v, short rows, short wbytes,
+                   short srcskip, short lmask, short rmask, short shift)
+                                                __attribute__((unused));
+static void jt1184(const void *src_v, short rows, short wbytes,
+                   short srcskip, short lmask, short rmask, short shift)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	unsigned char *dst;
+	long dstadv;
+	short r, n, nw = (short)(wbytes >> 1);
+
+	PROBE("jt1184");
+	l05ea(rows, (short)(wbytes + 2));
+	dst = (unsigned char *)(uintptr_t)l05dc();
+	dstadv = g_a5_long(-3084) - wbytes + 2;
+	for (r = 0; r < rows; r++) {
+		unsigned short w = (unsigned short)
+		    (~*(const short *)(const void *)src & lmask);
+
+		src += 2;
+		for (n = (short)(nw - 1); n > 0; n--) {
+			*(long *)(void *)dst &=
+			    ~(long)(((unsigned long)w << 16) >> shift);
+			dst += 2;
+			w = (unsigned short)
+			    ~*(const short *)(const void *)src;
+			src += 2;
+		}
+		w = (unsigned short)(w & rmask);
+		*(long *)(void *)dst &=
+		    ~(long)(((unsigned long)w << 16) >> shift);
+		src += srcskip;
+		dst += dstadv;
+	}
+}
+
+/* JT[1191] (CODE 4+0x0e0e) — SHIFTED masked composite (the shifted
+ * jt1172): per word, dst = (dst & ~shift(~mask & edge)) ^ shift(src &
+ * edge). Inverting the mask word before the shift and the composite
+ * after it turns the zeros the shift introduces outside the 32-bit
+ * window into preserve-bits, so only the glyph's span is touched.
+ * src and mask advance by the same per-row skip; every write steps
+ * the cursor one word (dest row advance = stride - wbytes). Full
+ * lift (band 7). */
+static void jt1191(const void *src_v, const void *mask_v, short rows,
+                   short wbytes, short srcskip, short lmask, short rmask,
+                   short shift) __attribute__((unused));
+static void jt1191(const void *src_v, const void *mask_v, short rows,
+                   short wbytes, short srcskip, short lmask, short rmask,
+                   short shift)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *msk = (const unsigned char *)mask_v;
+	unsigned char *dst;
+	long dstadv;
+	short r, n, nw = (short)(wbytes >> 1);
+
+	PROBE("jt1191");
+	l05ea(rows, (short)(wbytes + 2));
+	dst = (unsigned char *)(uintptr_t)l05dc();
+	dstadv = g_a5_long(-3084) - wbytes;
+	for (r = 0; r < rows; r++) {
+		unsigned short s, m;
+
+		s = (unsigned short)
+		    (*(const short *)(const void *)src & lmask);
+		m = (unsigned short)
+		    (~*(const short *)(const void *)msk & lmask);
+		src += 2; msk += 2;
+		n = (short)(nw - 1);
+		if (n == 0) {
+			s = (unsigned short)(s & rmask);
+			m = (unsigned short)(m & rmask);
+		}
+		for (;;) {
+			unsigned long vs = ((unsigned long)s << 16) >> shift;
+			unsigned long vm = ((unsigned long)m << 16) >> shift;
+
+			*(unsigned long *)(void *)dst =
+			    (*(unsigned long *)(void *)dst & ~vm) ^ vs;
+			dst += 2;
+			n--;
+			if (n > 0) {
+				s = *(const unsigned short *)(const void *)src;
+				m = (unsigned short)
+				    ~*(const short *)(const void *)msk;
+				src += 2; msk += 2;
+			} else if (n == 0) {
+				s = (unsigned short)
+				    (*(const short *)(const void *)src & rmask);
+				m = (unsigned short)
+				    (~*(const short *)(const void *)msk
+				     & rmask);
+				src += 2; msk += 2;
+			} else {
+				break;
+			}
+		}
+		src += srcskip;
+		msk += srcskip;
+		dst += dstadv;
+	}
+}
+
+/* JT[1189] (CODE 4+0x0ec0) — byte-identical twin of JT[1191]: the
+ * bodies differ only in their PC-relative jsr displacements, which
+ * both resolve to L05ea/L05dc (THINK C compiled the routine twice).
+ * jt995's jt1200()==3 arm calls this copy. Delegates. */
+static void jt1189(const void *src, const void *mask, short rows,
+                   short wbytes, short srcskip, short lmask, short rmask,
+                   short shift) __attribute__((unused));
+static void jt1189(const void *src, const void *mask, short rows,
+                   short wbytes, short srcskip, short lmask, short rmask,
+                   short shift)
+{
+	PROBE("jt1189");
+	jt1191(src, mask, rows, wbytes, srcskip, lmask, rmask, shift);
+}
+
+/* JT[1183] (CODE 4+0x0f72) — SHIFTED hit-scan: tests whether the
+ * INVERTED source (edge-masked, shifted into dest bit position)
+ * overlaps any SET destination bits; returns -1 at the first overlap,
+ * 0 when the whole glyph footprint is clean. Read-only — no l05ea
+ * dirty-rect, the -3076 cursor is left untouched. jt995's mode-1/3
+ * arm ORs the result across planes. Full lift (band 7). */
+static short jt1183(const void *src_v, short rows, short wbytes,
+                    short srcskip, short lmask, short rmask, short shift)
+                                                __attribute__((unused));
+static short jt1183(const void *src_v, short rows, short wbytes,
+                    short srcskip, short lmask, short rmask, short shift)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	unsigned char *dst;
+	long dstadv;
+	short r, n, nw = (short)(wbytes >> 1);
+
+	PROBE("jt1183");
+	dst = (unsigned char *)(uintptr_t)l05dc();
+	dstadv = g_a5_long(-3084) - wbytes;
+	for (r = 0; r < rows; r++) {
+		unsigned short w = (unsigned short)
+		    (~*(const short *)(const void *)src & lmask);
+
+		src += 2;
+		n = (short)(nw - 1);
+		if (n == 0)
+			w = (unsigned short)(w & rmask);
+		for (;;) {
+			if (((((unsigned long)w << 16) >> shift)
+			     & *(const unsigned long *)(const void *)dst)
+			    != 0)
+				return -1;
+			dst += 2;
+			n--;
+			if (n > 0) {
+				w = (unsigned short)
+				    ~*(const short *)(const void *)src;
+				src += 2;
+			} else if (n == 0) {
+				w = (unsigned short)
+				    (~*(const short *)(const void *)src
+				     & rmask);
+				src += 2;
+			} else {
+				break;
+			}
+		}
+		src += srcskip;
+		dst += dstadv;
+	}
+	return 0;
+}
+
+/* JT[1188] (CODE 4+0x0ffc) — SHIFTED coverage scan (jt1183's mode-3
+ * sibling): same walk, but the test is (v & ~dst) != 0 — computed as
+ * (v & dst) ^ v — where v is the inverted edge-masked shifted source
+ * word. Returns -1 as soon as any masked source bit falls on a CLEAR
+ * dest bit, 0 otherwise. Read-only. Full lift (band 7). */
+static short jt1188(const void *src_v, short rows, short wbytes,
+                    short srcskip, short lmask, short rmask, short shift)
+                                                __attribute__((unused));
+static short jt1188(const void *src_v, short rows, short wbytes,
+                    short srcskip, short lmask, short rmask, short shift)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	unsigned char *dst;
+	long dstadv;
+	short r, n, nw = (short)(wbytes >> 1);
+
+	PROBE("jt1188");
+	dst = (unsigned char *)(uintptr_t)l05dc();
+	dstadv = g_a5_long(-3084) - wbytes;
+	for (r = 0; r < rows; r++) {
+		unsigned short w = (unsigned short)
+		    (~*(const short *)(const void *)src & lmask);
+
+		src += 2;
+		n = (short)(nw - 1);
+		if (n == 0)
+			w = (unsigned short)(w & rmask);
+		for (;;) {
+			unsigned long v =
+			    ((unsigned long)w << 16) >> shift;
+
+			if ((v & ~*(const unsigned long *)(const void *)dst)
+			    != 0)
+				return -1;
+			dst += 2;
+			n--;
+			if (n > 0) {
+				w = (unsigned short)
+				    ~*(const short *)(const void *)src;
+				src += 2;
+			} else if (n == 0) {
+				w = (unsigned short)
+				    (~*(const short *)(const void *)src
+				     & rmask);
+				src += 2;
+			} else {
+				break;
+			}
+		}
+		src += srcskip;
+		dst += dstadv;
+	}
+	return 0;
 }
 
 /* JT[1203] (CODE 4+0x212c) — expand one compression code through the
