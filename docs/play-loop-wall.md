@@ -867,3 +867,33 @@ EXIT -> TAKE -> MONEY -> "PLATINUM 100" -> "HOW MUCH PLATINUM WILL YOU TAKE?"
 chained farewell pages ("may the gods watch over you", the Thirsty Traveler)
 -> the DUNGEON with a live command bar. The mode-flip concern was unfounded —
 the walk loop handles the case-3 refresh fine once the crashes are gone.
+
+## 03w — the "second-cycle garble" DIAGNOSED: it's the entry-compose gap, both cycles (2026-07-03)
+
+Probe-driven correction of 03t — the second-cycle framing was WRONG:
+
+1. The l709e dispatch is IDENTICAL on both cycles (probe: event 33 type 10 ->
+   event 34 type 1, l694e gate 1 both times). The fired-bit/save-reload theory
+   is dead.
+2. Event 33 is a TYPE-10 encounter prompt (l3b0e: "the passageway is choked" +
+   CUT WEB / BURN WEB / ...). Type 10/21 arms draw NO picture (no l442e).
+3. The garble is the VIEWPORT UNDER that pic-less prompt: the prompt fires at
+   play-entry BEFORE any play-screen compose reaches the VISIBLE page. On a
+   fresh boot the stale page is BLACK (cycle 1 — probe-confirmed, the same
+   prompt renders on pure black: the "clean" look nobody flagged); on re-entry
+   it's shredded transition remains (the "cycle-2 garble"). Same bug, uglier
+   stale bytes.
+4. A qd_present() pair before l709e(special) does NOT fix cycle 1 — the
+   chunky buffer itself is black at that point: jt23's mode-4 entry compose
+   PARTIALLY no-ops on the first entry (jt937 roster text + jt938 clock land;
+   l67ca's FRAME chrome blits and the jt103 panel fills do NOT). Cycle 2's
+   compose paints the chrome fine (g5_e) — an asymmetry that points at the
+   modal page stack (-2352/-2354) or the FRAME group residency at that phase.
+5. VERDICT: this is #144 (compose-once/present-once) + the entry-compose
+   ordering, not an event bug. Acceptance test for #144: the type-10 entry
+   prompt at the AUTOWIN harness cell must show a coherent play screen behind
+   it on BOTH a fresh boot and a re-entry.
+
+Repro/harness notes: the entry event fires at 'b' (BEGIN) — gate screenshots
+BEFORE pressing 'c' (which answers the prompt as CUT WEB). The Hall drive
+letters: l = LOAD SAVED GAME, a = save A pick + Hall refresh, b = BEGIN.
