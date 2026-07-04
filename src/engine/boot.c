@@ -6651,6 +6651,8 @@ static void l3994(void)
  * on the right pen. With this in place every JT[94] / JT[42] caller
  * that reaches the default arm actually paints text into the
  * window's framebuffer. */
+static void jt1006(short idx, void *out);     /* CODE 5+0x28ea (below) */
+static short g_jt1089_plate;                  /* the remapped plate colour */
 static void jt1089(short v, short h, short color,
                    const char *fmt, ...)
 {
@@ -6669,12 +6671,30 @@ static void jt1089(short v, short h, short color,
 	g_a5_4894 = color;
 	g_a5_4892 = (unsigned char)((color >> 8) & 0xff);
 
-	/* Apply foreground index to the current port. The engine's 0..15
-	 * color nibble indexes the FRUA CLUT loaded at boot. */
-	GetPort(&port);
-	if (port != NULL)
-		((CGrafPtr)port)->fgColor =
-			(unsigned char)(color & 0x0f);
+	/* Apply the foreground index to the current port. FAITHFUL COLOUR
+	 * REMAP (Mac L4fae 0x5028..0x505e): when the 8-bit play state is
+	 * active (-1312 != 0) BOTH nibbles route through JT[1006] (the
+	 * -4188 colour-range table) before use — the same remap jt1161's
+	 * rect fills apply. The port had skipped this, so the text plates
+	 * painted RAW clut 8 (a lighter grey) instead of the remapped
+	 * panel grey and stood out as light bars on every panel. */
+	{
+		short fgi = (short)(color & 0x0f);
+		short pli = (short)((color >> 4) & 0x0f);
+
+		if (g_a5_1312 != 0) {
+			short rm;
+
+			jt1006(fgi, &rm);
+			fgi = (short)(rm & 0xff);
+			jt1006(pli, &rm);
+			pli = (short)(rm & 0xff);
+		}
+		g_jt1089_plate = pli;
+		GetPort(&port);
+		if (port != NULL)
+			((CGrafPtr)port)->fgColor = (unsigned char)fgi;
+	}
 
 	/* L0264: transform (v, h) via jt1135 + park in the pen slots
 	 * (-4898 = V, -4896 = H — the faithful order, same as jt966),
@@ -6725,7 +6745,7 @@ static void jt1089(short v, short h, short color,
 	 * GAME SPEED value, the combat round counters — the whole overprint
 	 * family.  Paint the plate unconditionally, exactly like the Mac. */
 	if (port != NULL && len > 0) {
-		short plate = (short)((color >> 4) & 0x0f);
+		short plate = g_jt1089_plate;
 		short top   = (short)g_a5_4898;   /* pen top (py is baseline) */
 		short w     = StringWidth(pstr);
 		unsigned char savefg = ((CGrafPtr)port)->fgColor;

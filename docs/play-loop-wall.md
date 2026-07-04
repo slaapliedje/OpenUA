@@ -838,3 +838,14 @@ The #115 "re-fire corrupts the 3D view" item, partially diagnosed:
 - NOTE: multi-cycle scripted drives are fragile (the second p/l/a/b desynced
   into the menu's Art Gallery once); add generous settles or screenshot-gate
   each step.
+
+## 03u — plate-grey correction: jt1089 was missing the JT[1006] remap (2026-07-03)
+
+User-caught regression from 03s: the new text plates painted RAW clut 8 — a
+LIGHTER grey than the panels, which route their fill through jt1006 (the
+-4188 colour-range table) when -1312 (the 8-bit play state) is set. The Mac's
+L4fae remaps BOTH nibbles through JT[1006] (0x5028..0x505e, gated on -1312) —
+the port's jt1089 had skipped that step for both the plate AND the glyphs.
+Fixed: jt1089 now remaps fg + plate via jt1006 under the same gate. Verified:
+plates blend invisibly into the panels (no light bars), the campfire entry
+and the crisp rest-editor digits both hold.
