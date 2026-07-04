@@ -3352,6 +3352,24 @@ static void  l40b4(void)
 	}
 	g_a5_byte(-5214) = 0;
 }
+
+/* JT[944] / JT[946] (CODE 20 + 0x41fa / 0x4256) — little-endian word
+ * store / read for the DOS-derived save records: jt944 writes v's low
+ * byte then high byte at out[0]/out[1]; jt946 reads them back.
+ * Disasm-verified faithful lifts (band 6). */
+static void jt944(short v, unsigned char *out) __attribute__((unused));
+static void jt944(short v, unsigned char *out)
+{
+	PROBE("jt944");
+	out[0] = (unsigned char)(v & 0xff);
+	out[1] = (unsigned char)((unsigned short)v >> 8);
+}
+static short jt946(const unsigned char *p) __attribute__((unused));
+static short jt946(const unsigned char *p)
+{
+	PROBE("jt946");
+	return (short)(p[0] | ((unsigned short)p[1] << 8));
+}
 static void  l1f76(void *ev);              /* affect-party effect event — defined after its deps */
 static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
 static void  l2d32(void *ev, short a);     /* in-dungeon Training Hall event — defined after its deps */
@@ -12566,6 +12584,15 @@ static signed char jt1160(void)
 	PROBE("jt1160");
 	return (g_a5_byte(-2592) & 0x02) ? 1 : 0;
 }
+
+/* JT[1112] (CODE 4 + 0x67d6) — sibling probe: bit 0 of the same -2592
+ * view-mode flags (btst #0; disasm-verified faithful lift). */
+static short jt1112(void) __attribute__((unused));
+static short jt1112(void)
+{
+	PROBE("jt1112");
+	return (g_a5_byte(-2592) & 0x01) ? 1 : 0;
+}
 static void        l1798(void *rec, short a)            { PROBE("L1798"); (void)rec;(void)a; }                /* CODE 22-local post-move default */
 
 /* L5368 (CODE 7 + 0x5368) — one-axis scroll-window solver for the overland
@@ -13559,7 +13586,19 @@ static void jt304(void *rec_v, short batch)
 	jt1088();
 }
 static void jt1148(void)      { PROBE("jt1148"); ObscureCursor(); }  /* CODE 4+0x61f8: _ObscureCursor + rts */
-static void jt1087(short a)   { PROBE("jt1087"); (void)a; }    /* CODE 5+0x12c per-row */
+/* JT[1087] (CODE 5+0x12c) — tick-paced beat: busy-wait until TickCount
+ * (jt1134) advances n*7 ticks past entry, then drain the event queues
+ * (jt1088 = L00a8). The map-reveal per-row pacer. Disasm-verified. */
+static void jt1087(short n)
+{
+	long target;
+
+	PROBE("jt1087");
+	target = jt1134() + (long)n * 7;
+	while (jt1134() < target)
+		;
+	jt1088();
+}
 
 /* L3fd8 cluster deps — the per-cell tile renderer and a few leaf setups stay
  * PROBE stubs pending their own lifts. L4430 (CODE 22+0x4430, ~270 instrs +
@@ -55302,15 +55341,16 @@ static void l7ab4(const char *fmt, ...)
 	}
 }
 
-/* JT[1074] (CODE 5+0x7c90) — print one paginated message line:
- * spill to a new page first when the -3148 line counter reaches
- * 56 (L7a0e, leaf stub), then L7ab4 with the "%* %r" recursive
- * format (width, the %r format long, and the caller's THINK C
- * vararg tail — represented as a long here per the jt400 ABI
- * notes). Full body over the two leaf stubs. */
+/* L7a0e (CODE 5 + 0x7a0e) = JT[1073] — flush to the end of the page:
+ * emit blank lines (jt1072 = L7c74) until the -3148 line counter
+ * wraps at 66. Faithful lift (disasm-verified, band 6). jt1074
+ * (CODE 5+0x7c90, below) spills through here when the counter
+ * reaches 56, then prints via L7ab4's "%* %r" recursive format. */
 static void l7a0e(void)
 {
 	PROBE("l7a0e");
+	if (g_a5_word(-3148) != 0)
+		jt1072((short)(66 - g_a5_word(-3148)));
 }
 static void jt1074(short width, long rfmt, long tail) __attribute__((unused));
 static void jt1074(short width, long rfmt, long tail)
