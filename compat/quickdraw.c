@@ -279,8 +279,38 @@ static void cursor_restore(void);
 static void qd_cursor_tick(void);            /* lazily push the VBL cursor sprite */
 static void qd_rebake_color_pointer(void);   /* re-resolve cursor to live CLUT */
 
+/* #144 off-screen compose: coalesce the intermediate presents a screen
+ * emits while it builds a frame in visible steps. The engine's faithful
+ * frame bracket drives this — JT[108]/L38d0 begin the off-page compose
+ * (qd_present_suppress(1)), l3994 commits it (qd_present_suppress(0)) —
+ * held in lockstep with the g_a5_-18395 compose flag, whose set/clear
+ * lifecycle the engine already keeps balanced. While suppressed a
+ * qd_present() just records that the frame wants presenting; the commit
+ * flushes it ONCE, so the whole frame appears in a single flip instead
+ * of flashing through its partial states. Screens outside the bracket
+ * never suppress and present eagerly exactly as before. */
+static int g_present_suppress;
+static int g_present_pending;
+
+void qd_present_suppress(int on)
+{
+	if (on) {
+		g_present_suppress = 1;
+	} else {
+		g_present_suppress = 0;
+		if (g_present_pending) {
+			g_present_pending = 0;
+			qd_present();            /* the single frame commit */
+		}
+	}
+}
+
 void qd_present(void)
 {
+	if (g_present_suppress) {
+		g_present_pending = 1;   /* defer to the commit */
+		return;
+	}
 	qd_cursor_tick();                /* (re)push the VBL cursor sprite if dirty */
 	cursor_composite();              /* no-op when the VBL cursor is active     */
 	if (g_present_hook != NULL)
