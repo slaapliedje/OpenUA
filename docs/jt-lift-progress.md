@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1079 done (982 lifted, 33 noop, 64 alias), 34 stub, 0 stand-in, 92 missing.
+**1205 distinct JT entries are called.** Overall: 1079 done (983 lifted, 33 noop, 63 alias), 34 stub, 0 stand-in, 92 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -39,7 +39,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 5 | 201–250 | **50/50** | 46 | 4 | 0 | 0 | 0 |
 | 6 | 251–300 | **50/50** | 39 | 11 | 0 | 0 | 0 |
 | 7 | 301–350 | **50/50** | 45 | 5 | 0 | 0 | 0 |
-| 8 | 351–400 | **49/50** | 36 | 13 | 1 | 0 | 0 |
+| 8 | 351–400 | **49/50** | 37 | 12 | 1 | 0 | 0 |
 | 9 | 401–450 | **49/50** | 39 | 10 | 1 | 0 | 0 |
 | 10 | 451–500 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (47 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (46 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l4218`  `l2d7e`
+> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l4218`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 

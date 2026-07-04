@@ -1175,6 +1175,18 @@ void ShowCursor(void)
 		plat_cursor_show(g_cursor_level >= 0);
 }
 
+void ShieldCursor(const Rect *shieldRect, Point offsetPt)
+{
+	/* Mac: hide the cursor while it intersects shieldRect (offset to
+	 * global coords by offsetPt); balanced by a following ShowCursor.
+	 * The shim hides unconditionally — a safe superset that keeps the
+	 * level pairing exact. FRUA's only callers (the L3e38 page-present
+	 * band walk) bracket every band with ShieldCursor/ShowCursor. */
+	(void)shieldRect;
+	(void)offsetPt;
+	HideCursor();
+}
+
 void ObscureCursor(void)
 {
 	/* Mac: the cursor goes invisible until the next mouse movement, then is
