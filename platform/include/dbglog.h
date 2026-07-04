@@ -21,5 +21,6 @@ void dbg_log_num(const char *label, long value);
  * A bring-up aid; not for shipping code.
  */
 void dbg_file_num(const char *label, long value);
+void dbg_file_str(const char *label, const char *value);
 
 #endif /* PLATFORM_DBGLOG_H */
