@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1009 done (921 lifted, 26 noop, 62 alias), 41 stub, 0 stand-in, 155 missing.
+**1205 distinct JT entries are called.** Overall: 1014 done (922 lifted, 27 noop, 65 alias), 39 stub, 0 stand-in, 152 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -44,8 +44,8 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 10 | 451–500 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
-| 13 | 601–650 | **45/50** | 43 | 2 | 2 | 0 | 3 |
-| 14 | 651–700 | **19/50** | 18 | 1 | 1 | 0 | 30 |
+| 13 | 601–650 | **47/50** | 43 | 4 | 1 | 0 | 2 |
+| 14 | 651–700 | **22/50** | 19 | 3 | 0 | 0 | 28 |
 | 15 | 701–750 | **20/50** | 17 | 3 | 1 | 0 | 29 |
 | 16 | 751–800 | **35/50** | 33 | 2 | 2 | 0 | 13 |
 | 17 | 801–850 | **46/50** | 46 | 0 | 2 | 0 | 2 |
@@ -73,7 +73,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 4 | 117 | 57 | 16 | 0 | 44 | **60** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
 | CODE 5 | 129 | 92 | 7 | 0 | 30 | **37** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 125 | 0 | 0 | 0 | **0** | file-group cache + GLIB art + resource manager |
-| CODE 7 | 97 | 92 | 2 | 0 | 3 | **5** | list dialog (JT[169]) + text widgets |
+| CODE 7 | 97 | 97 | 0 | 0 | 0 | **0** | list dialog (JT[169]) + text widgets |
 | CODE 8 | 46 | 30 | 1 | 0 | 15 | **16** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
@@ -331,17 +331,12 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 196 pending (stub+standin+missing), by call count:
+Top 50 of 191 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt1159 (2 calls, CODE 4) — missing
 - jt1165 (2 calls, CODE 4) — missing
 - jt9 (1 calls, CODE 1) — stub
-- jt136 (1 calls, CODE 7) — missing
-- jt203 (1 calls, CODE 7) — stub
-- jt208 (1 calls, CODE 7) — missing
-- jt219 (1 calls, CODE 7) — missing
-- jt220 (1 calls, CODE 7) — stub
 - jt233 (1 calls, CODE 11) — missing
 - jt235 (1 calls, CODE 11) — missing
 - jt239 (1 calls, CODE 11) — missing
@@ -383,4 +378,9 @@ Top 50 of 196 pending (stub+standin+missing), by call count:
 - jt334 (1 calls, CODE 8) — missing
 - jt335 (1 calls, CODE 8) — missing
 - jt336 (1 calls, CODE 8) — missing
+- jt337 (1 calls, CODE 8) — missing
+- jt339 (1 calls, CODE 8) — missing
+- jt340 (1 calls, CODE 8) — missing
+- jt342 (1 calls, CODE 8) — missing
+- jt344 (1 calls, CODE 8) — missing
 

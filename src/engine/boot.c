@@ -2623,6 +2623,7 @@ static void l6eea(short zone, short type)
  *
  * The backdrop-bitmap reload dance (JT[468]/JT[1004]/JT[459]/JT[405]/JT[115]
  * on the -27886 handle) is the deferred deep layer. */
+/* l6148 (CODE 7 + 0x6148) = JT[203]. */
 static void l6148(void)
 {
 	const unsigned char *h = (const unsigned char *)g_a5_28006;
@@ -2927,10 +2928,22 @@ static void l58c4(void)
  * backdrop-image overlay (L58c4), which is itself gated on the shared-palette
  * CLUT model. The faithful jt116 region geometry is preserved in
  * render_3d_faithful's inline fill (cells 2,16,11,44 / 2,60,11,2 / 2,62,11,42).*/
+/* l57f2 (CODE 7 + 0x57f2) = JT[219]. */
 static void  l57f2(void)
 {
 	PROBE("L57f2");
 	l58c4();
+}
+
+/* JT[208] (CODE 7+0x71f4) — reset the party to the map origin:
+ * row/col 0, facing 2. Full lift (band 7). */
+static void  jt208(void) __attribute__((unused));
+static void  jt208(void)
+{
+	PROBE("jt208");
+	g_a5_byte(-12288) = 0;
+	g_a5_byte(-12287) = 0;
+	g_a5_byte(-12286) = 2;
 }
 static void  l5822(void);             /* CODE 6+0x5822 — full backdrop refresh (defined below) */
 static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L5822: reblit the cached bigpic backdrop */
@@ -56383,14 +56396,8 @@ static void l7490(short n)
 	(void)n;
 }
 
-/* JT[220] (CODE 7+0x6ea2) — load area-map icon `n` into the -22222
- * art slot (the shared-icon variant). Leaf PROBE stub pending its
- * own lift. */
-static void jt220(short n)
-{
-	PROBE("jt220");
-	(void)n;
-}
+/* jt220 = the already-lifted l6ea2 (CODE 7+0x6ea2, the "back1" art
+ * binder) — the stub-shadowed-twin class; repointed 2026-07-04. */
 
 /* JT[353] (CODE 8+0x7556) — paint one area-map icon at cell (x, y),
  * full lift. Unless `flag` is set, icons >= 32 (except the 255
@@ -56433,7 +56440,7 @@ static void jt353(short x, short y, short icon, short mode, short flag)
 		}
 		jt115((void *)&g_a5_long(-10366));
 	} else {
-		jt220((short)ic);
+		l6ea2((short)ic);
 		if (jt1200() == 3) {
 			(void)jt108((short)1);
 			jt1001((short)(y * 16 - 24), (short)(x * 16 - 24),
@@ -58603,12 +58610,8 @@ static short jt352(short kind, short mask, long lo_p, long hi_p,
 	return row;
 }
 
-/* JT[203] (CODE 7+0x6148) — 3D-view repaint prologue. Leaf PROBE
- * stub pending its own lift. */
-static void jt203(void)
-{
-	PROBE("jt203");
-}
+/* jt203 = the already-lifted l6148 (CODE 7+0x6148, the level 3D-art
+ * ensure) — the stub-shadowed-twin class; repointed 2026-07-04. */
 
 /* JT[357] (CODE 8+0x76aa) — repaint ONE 3D-view wall cell at
  * (top, left), full lift: jt203 prologue, clear the cell rect
@@ -58630,7 +58633,7 @@ static void jt357(short top, short left, short code, short sub)
 	short          cell;
 
 	PROBE("jt357");
-	jt203();
+	l6148();                        /* = JT[203], the 3D-art ensure */
 	sub  = (short)((sub * 3) / 3);       /* the Mac's sign idiom */
 	cell = (short)(g_a5_buf(-12260)[sub] * 4);
 
