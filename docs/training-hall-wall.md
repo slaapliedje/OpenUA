@@ -1,5 +1,26 @@
 # Training Hall + char-gen worklist (audit 2026-06-18)
 
+## STATUS 2026-07-04 — jt556 HUMAN CHANGE CLASS fully lifted
+
+The last stub behind the Hall's case-7 arm is real code now: **jt556**
+(CODE 17+0x66ee, ~1.3KB) + its three locals — l6c60 (current class =
+first live 157-band level slot), l6bee (already-dualled marker = first
+164-band slot), l6578 (the AD&D dual-class qualification: differ from
+current, current-class primes 15+, NEW-class primes 17+ per the -30552
+minima table, alignment allowed per the -30450 row). The flow: guards
+("only conscious humans may change" / "%s doesn't qualify.") → the
+"Pick New Class" jt169 list built from the race's -30864 allowed-class
+row → commit (XP=0, old level parked in the 164 band via jt35, new
+class level 1, spell bands 355/150/198 cleared, Cleric/Magic-User
+seeds per the JT[1] @0x6a42 switch incl. the -18889..92 known-spell
+flags, "%s becomes a %s.", the jt910/911/912/906/907 recompute chain,
+and the jt882 unequip sweep of items whose ITEMS.DAT class mask
+excludes the new rec[183]). Returns the new class id / 17 = no change
+— the contract l0f74 already consumed. CAVEAT: the Hall gate -14433 is
+seeded 0 (the button is faithfully disabled in the stock Hall build),
+so this is disasm-faithful but not yet runtime-exercised; a design
+with Human Change Class enabled would light it up.
+
 ## STATUS 2026-07-02 — Hall chrome COMPLETE: every screen is faithful code
 
 The last port-side Hall screens are gone. The **label-crossed Remove /

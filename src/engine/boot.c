@@ -23757,15 +23757,268 @@ static int    jt41(long handle_long, short find_byte, void *descriptor)
 	}
 	return found;
 }
-/* JT[556] (CODE 17+0x66ee) = the Human-Change-Class eligibility check ("only
- * conscious humans may change") — NOT Remove. Stub; kept for when the faithful
- * Change-Class handler is lifted. */
-static int    jt556(long a) __attribute__((unused));
-static int    jt556(long a)                    { PROBE("jt556"); (void)a;
-                                                  /* stub: 17 = "pick aborted",
-                                                   * so l0f74 never mutates the
-                                                   * record on a fake pick */
-                                                  return 17; }
+/* deps of the jt556 lift defined further down in the file. */
+static unsigned char jt35(const unsigned char *rec);
+static void          jt65(long ptr, short size);
+static void          jt911(long ent_l);
+static void          jt912(long ent_l);
+static void          jt882(long item_l);
+
+/* L6bee (CODE 17+0x6bee) — the class this human already dualled FROM:
+ * the first class index whose rec[164+cls] former-level marker is set;
+ * 17 = none / not human (race rec[88] != 5). Mirrors the Mac exactly,
+ * including the cls==6 boundary read. */
+static signed char l6bee(unsigned char *rec)
+{
+	signed char result = 17;
+	short       cls;
+
+	PROBE("L6bee");
+	if (rec[88] != 5)
+		return result;
+	for (cls = 0; cls < 6; cls++)
+		if (rec[164 + cls] != 0)
+			break;
+	if (rec[164 + cls] != 0)
+		result = (signed char)cls;
+	return result;
+}
+
+/* L6c60 (CODE 17+0x6c60) — the CURRENT class index: the first class
+ * whose level slot rec[157+cls] is non-zero; 17 = none / not human.
+ * Same shape as l6bee over the 157 level band. */
+static signed char l6c60(unsigned char *rec)
+{
+	signed char result = 17;
+	short       cls;
+
+	PROBE("L6c60");
+	if (rec[88] != 5)
+		return result;
+	for (cls = 0; cls < 6; cls++)
+		if (rec[157 + cls] != 0)
+			break;
+	if (rec[157 + cls] != 0)
+		result = (signed char)cls;
+	return result;
+}
+
+/* L6578 (CODE 17+0x6578) — dual-class qualification for `cls`:
+ *   1. must differ from the current class (l6c60);
+ *   2. every prime requisite of the CURRENT class (requirement >= 9 in
+ *      the -30552 per-class 6-byte minima table) must score 15+
+ *      (rec ability words at 112 + stat*2);
+ *   3. every prime of the NEW class must score 17+;
+ *   4. the new class must allow the character's alignment rec[93]
+ *      (the -30450 row: count @0, allowed codes @1..).
+ * Returns 1 = qualifies. Faithful stage-by-stage lift. */
+static signed char l6578(short cls, unsigned char *rec)
+{
+	signed char ok;
+	short       i, k;
+
+	PROBE("L6578");
+	ok = (signed char)(l6c60(rec) != (signed char)cls ? 1 : 0);
+
+	for (i = 0; i <= 5; i++) {
+		short cur = l6c60(rec);
+
+		if ((unsigned char)g_a5_buf(-30552)[cur * 6 + i] < 9)
+			continue;
+		if ((unsigned char)rec[112 + i * 2] > 14)
+			continue;
+		break;                          /* a current-class prime < 15 */
+	}
+	ok = (signed char)((ok != 0 && i > 5) ? 1 : 0);
+
+	for (i = 0; i <= 5; i++) {
+		if ((unsigned char)g_a5_buf(-30552)[cls * 6 + i] < 9)
+			continue;
+		if ((unsigned char)rec[112 + i * 2] > 16)
+			continue;
+		break;                          /* a new-class prime < 17 */
+	}
+	ok = (signed char)((ok != 0 && i > 5) ? 1 : 0);
+
+	{
+		const unsigned char *row = g_a5_buf(-30450) + (long)cls * 12;
+
+		for (k = 0; k < (short)row[0]; k++)
+			if ((short)(signed char)row[1 + k] == (short)rec[93])
+				break;
+		ok = (signed char)((ok != 0 && k < (short)row[0]) ? 1 : 0);
+	}
+	return ok;
+}
+
+/* JT[556] (CODE 17+0x66ee) — HUMAN CHANGE CLASS, full lift. Guard
+ * checks (conscious, human via jt909, not already dualled via l6bee),
+ * build the "Pick New Class" list from the race's allowed classes
+ * (the -30864 row: count @0, class ids @1..) filtered by l6578, run
+ * the jt169 picker (Select/Exit verbs), then commit: XP -> 0, the old
+ * class's former-level marker (164 band) <- jt35, its level slot
+ * zeroed, the new class's level <- 1, the spell blocks (355/150/198
+ * bands) cleared, the class-specific seeds (JT[1] @0x6a42: Cleric 0 ->
+ * first cleric slot; Magic-User 5 -> first MU slot + the -18889..92
+ * known-spell flags), rec[89] <- the class, the "becomes a" message,
+ * the CODE 19 recompute chain (jt910/911/912/906, jt907 or the 139
+ * band clear), and an unequip sweep (jt882) of readied items whose
+ * ITEMS.DAT class mask (entry byte 13) excludes the new class mask
+ * rec[183]. Returns the new class id, or 17 = no change (the l0f74
+ * caller's contract). */
+static int jt556(long rec_l)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)rec_l;
+	void          *bucket = (void *)(uintptr_t)g_a5_long(-21156);
+	long           head = 0, node, item;
+	unsigned char  flag16;
+	short          idx14, nqual, count, pick, cls;
+
+	PROBE("jt556");
+
+	if (rec[94] != 0) {
+		jt101(ua_strs_at(0x4a9a)
+		      /* "only conscious humans may change" */, 11, 0);
+		return 17;
+	}
+	if (!(jt909(rec) != 0 && l6bee(rec) == 17)) {
+		jt101(jt488(ua_strs_at(0x4abc) /* "%s%s" */, rec + 96,
+		            ua_strs_at(0x4ac2) /* " doesn't qualify." */),
+		      11, 0);
+		return 17;
+	}
+
+	count = (short)g_a5_buf(-30864)[(long)rec[88] * 14];
+
+	/* the header row */
+	jt477(bucket, (short)40, &head);
+	node = head;
+	*(long *)(uintptr_t)node = 0;
+	((unsigned char *)(uintptr_t)node)[4] = 1;
+	jt384((char *)(uintptr_t)(node + 5),
+	      ua_strs_at(0x4ad4) /* "Pick New Class" */);
+
+	/* one row per qualifying class of this race */
+	nqual = 1;
+	for (g_a5_byte(-22307) = 1;
+	     (short)g_a5_byte(-22307) <= count;
+	     g_a5_byte(-22307)++) {
+		signed char c = (signed char)
+		    g_a5_buf(-30864)[(long)rec[88] * 14
+		                     + (signed char)g_a5_byte(-22307)];
+
+		if (!l6578((short)c, rec))
+			continue;
+		jt477(bucket, (short)40, (void *)(uintptr_t)node);
+		node = *(long *)(uintptr_t)node;
+		*(long *)(uintptr_t)node = 0;
+		((unsigned char *)(uintptr_t)node)[4] = 0;
+		jt384((char *)(uintptr_t)(node + 5),
+		      (const char *)(uintptr_t)
+		          g_a5_long(-14636 + (long)c * 4));
+		nqual++;
+	}
+
+	if (nqual == 1) {                       /* only the header row */
+		jt101(jt488(ua_strs_at(0x4ae4) /* "%s%s" */, rec + 96,
+		            ua_strs_at(0x4aea) /* " doesn't qualify." */),
+		      11, 8);
+		jt147(&head);
+		return 17;
+	}
+
+	/* the picker: Select commits, Exit / ESC aborts */
+	node = head;
+	idx14 = 0;
+	flag16 = 1;
+	for (;;) {
+		jt179((short)1);
+		pick = (short)(unsigned char)jt169(
+		    (long)(uintptr_t)ua_strs_at(0x4afc) /* "" */,
+		    (long)(uintptr_t)ua_strs_at(0x4afe) /* "Select Exit" */,
+		    1, 2, 38, 22, head, (short)1, 0,
+		    &flag16, &idx14, &node);
+		if (g_a5_byte(-24139) != 0 && pick == 27) {
+			jt147(&head);
+			return 17;
+		}
+		if (pick == 1) {
+			jt147(&head);
+			return 17;
+		}
+		if (pick == 0)
+			break;
+	}
+
+	/* --- commit --- */
+	*(long *)(void *)(rec + 68) = 0;        /* XP resets */
+	rec[197] = 0;
+	rec[171] = 2;
+
+	for (cls = 0; cls <= 6; cls++)          /* picked row -> class id */
+		if (jt396((const char *)(uintptr_t)
+		              g_a5_long(-14636 + (long)cls * 4),
+		          (const char *)(uintptr_t)(node + 5)))
+			break;
+	jt147(&head);
+
+	rec[l6c60(rec) + 164] = jt35(rec);      /* park the old level */
+	rec[138] = rec[137];
+	rec[137] = 1;
+	rec[l6c60(rec) + 157] = 0;              /* zero the old level slot */
+	rec[cls + 157] = 1;                     /* the new class starts at 1 */
+	jt399(rec + 355, (short)27, (short)0);
+	jt65((long)(uintptr_t)(rec + 150), (short)7);
+	jt65((long)(uintptr_t)(rec + 198), (short)141);
+
+	switch (cls) {                          /* JT[1] table @0x6a42 */
+	case 0:                                 /* Cleric */
+		rec[355] = 1;
+		break;
+	case 5:                                 /* Magic-User */
+		rec[373] = 1;
+		rec[340] |= g_a5_byte(-18891);
+		rec[341] |= g_a5_byte(-18892);
+		rec[340] |= g_a5_byte(-18890);
+		rec[341] |= g_a5_byte(-18889);
+		break;
+	default:
+		break;
+	}
+
+	rec[89] = (unsigned char)cls;
+	jt176();
+	jt101(jt488(ua_strs_at(0x4b0a) /* "%s%s%s." */, rec + 96,
+	            ua_strs_at(0x4b12) /* " becomes a " */,
+	            (const char *)(uintptr_t)
+	                g_a5_long(-14636 + (long)cls * 4)),
+	      15, 0);
+	jt399(rec + 198, (short)141, (short)0);
+
+	jt910((long)(uintptr_t)rec);
+	jt911((long)(uintptr_t)rec);
+	jt912((long)(uintptr_t)rec);
+	jt906(rec);
+	if (rec[163] > 0)
+		jt907(rec);
+	else
+		jt399(rec + 139, (short)8, (short)0);
+
+	/* unequip anything the new class may not use */
+	for (item = *(long *)(void *)(rec + 8); item != 0;
+	     item = *(long *)(uintptr_t)item) {
+		const unsigned char *it =
+		    (const unsigned char *)(uintptr_t)item;
+		const unsigned char *tbl = (const unsigned char *)(uintptr_t)
+		    (g_a5_long(-27944) + ((long)it[40] << 4));
+
+		if ((tbl[13] & rec[183]) == 0
+		    && it[52] == 0 && it[50] != 0)
+			jt882(item);
+	}
+
+	return (int)(unsigned char)cls;
+}
 /* JT[557] (CODE 17 + 0x6cd2 = L6cd2) — TRAIN the current character
  * (g_a5_-27932) at a Training Hall. Faithful lift of the Mac body.
  *
