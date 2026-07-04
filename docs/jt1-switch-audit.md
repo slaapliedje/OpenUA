@@ -56,11 +56,36 @@ routes keys through its own IKBD HAL rather than the Mac scan map, so
 it is not a faithful-arm-decode concern — noted, not audited as a
 value-switch.
 
+## JT[3] combat/char-gen dispatch (extended pass, 2026-07-04)
+
+The same arm-shift risk applies to the THINK C JT[3] inline switch.
+Audited the combat + char-gen JT[3] switches with `jt3_extract`
+(`--table-at 0xNN`), checking min/max/default and shared-arm groupings
+against the port's C `switch`:
+
+| CODE | table | range | port switch | verdict |
+|---|---|---|---|---|
+| 12 | 0x3230 | 0..16 | L31e0 per-class XP share | ✅ {8,10,11,12,13,14,16}→jt7(,2), {9,15}→jt7(,3), {1,7}→default |
+| 12 | 0x3f2c | 0..5  | post-fight pick | ✅ all distinct |
+| 14 | 0x53ac | 0..2  | jt40-based base value | ✅ all distinct |
+| 13 | 0x437e | 1..3  | area-render mode | ✅ all distinct |
+| 16 | 0x3478 | 0..8  | spell save-mod class | ✅ {2,3},{4,5},{7,8} grouped right |
+| 16 | 0x642  | 0..5  | spell save-mod class | ✅ {0,1} grouped right |
+| 17 | 0x2a74 | 8..16 | l29ae multi-class HP | ✅ SEMANTIC — verified each of the 9 *distinct* arms by the sub-entry byte offset it loads: 8-12→sub0, 14→sub2, 13/15/16→sub5 (the port's collapse is faithful, not a merge error) |
+
+The CODE 17 one is the instructive case: the 9 arms are separate in
+the asm (distinct offsets), so it *looks* like the port over-merged
+them — but dumping each arm's `base@(off)` accesses shows they all
+reduce to one of three sub-entries exactly as the port groups them.
+Confirming a decode against *arm behaviour*, not just the table, is
+the right check when arms share a computed result.
+
 ## Verdict
 
 The off-by-one arm shift #122 was guarding against is **absent** from
-every lifted JT[1] value-switch (combat CODE 14/16/18, char-gen 17,
-monster viewer 10, post-fight 12, design editor 2). The dispatch that
-drives spell applicability, effect ids, class seeds, and monster load
-is decoded correctly. Re-run this audit after any new JT[1] lift; the
-one-liner per site is above.
+every lifted JT[1] value-switch AND from the audited combat/char-gen
+JT[3] switches — 19 dispatch tables total. The dispatch driving spell
+applicability/save-mods, class HP seeds, XP shares, effect ids, and
+monster load is decoded correctly. Re-run this audit after any new
+JT[1]/JT[3] lift; the one-liner per site is above (jt1_extract for
+JT[1], jt3_extract for JT[3]).
