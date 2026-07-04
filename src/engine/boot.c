@@ -3680,6 +3680,27 @@ static void jt948(void)
 
 		/* L4b56: pick the entry arm and apply the landing cell's special. */
 		if (h != NULL && h[134] == 0) {        /* fresh entry */
+			/* PORT #144/#125: compose the FULL play frame — the FRAME
+			 * palette (CLUT 16..31), grey stone fill, and chrome — BEFORE
+			 * the landing-cell event fires. The Mac's entry sequence has
+			 * the play palette live here; the port's entry compose
+			 * (jt935/jt221) draws only the 3D view + roster/clock and
+			 * leaves the FRAME palette from the previous (Hall/menu) screen,
+			 * so a pic-less entry prompt (the type-10 spiderweb bar) shows
+			 * black chrome / background — the "entry-black" from play-loop-
+			 * wall 03w/03x. port_draw_play_frame commits the palette + fills
+			 * grey + draws chrome; jt935 then repaints the 3D view over the
+			 * hole. The walk loop's first jt312 re-composes identically. */
+			{
+				unsigned char *fpx; short fpitch, fsw, fsh;
+				if (qd_screen_pixels(&fpx, &fpitch, &fsw, &fsh)
+				    && fpx != NULL && (short)g_a5_18878 >= 5) {
+					port_draw_play_frame(fpx, fpitch, fsw, fsh);
+					jt935();           /* re-render the view over the frame */
+					jt937(g_a5_long(-27932));
+					jt938();
+				}
+			}
 			special = jt201((short)(signed char)g_a5_12288,
 			                (short)(signed char)g_a5_12287);
 #ifndef FRUA_SKIP_ENTRY_EVENTS

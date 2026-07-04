@@ -935,3 +935,28 @@ the backdrop range) in the entry compose before the landing-cell event fires
 loop uses, or call port_draw_play_frame / jt85 at l4b56 before l709e(special).
 Speculative fixes tried and reverted (none addressed the palette): boot clip
 seed, jt1193-at-entry, forced qd_present after l709e.
+
+## 03y — entry-black FIXED: commit the play frame before the landing event (2026-07-03)
+
+The palette-commit gap from 03x, fixed. The entry-event path (l4b56 ->
+l709e(special)) composed only jt935/jt221 (the 3D view) + jt937/jt938 text,
+leaving the FRAME palette (CLUT 16..31) from the previous Hall/menu screen and
+NO grey stone fill — so a pic-less type-10 prompt (the spiderweb bar) drew
+black chrome/background. Neither jt935 nor jt221 runs port_draw_play_frame
+(the palette + grey fill + chrome); only the walk loop's jt312 does, and it
+runs AFTER the event.
+
+FIX: at l4b56, before l709e(special), compose the full play frame —
+port_draw_play_frame (commit CLUT 16..31, memset grey 21, l67ca chrome) then
+jt935 (re-render the view over the frame) + jt937/jt938 (roster/clock). Guarded
+on dungeon mode (level>=5) + a live surface. Hatari-verified end to end on a
+fresh cycle: the type-10 entry prompt now shows full chrome + grey panels
+(pal_c1 / final_entry), the fight runs, and the walk loop composes the full
+3D-view dungeon (final_walk).
+
+STILL OPEN (separate, cycle-2 only, NOT this fix — verified independent since
+the MENU shows it too): after a camp->menu->re-enter round-trip the screen
+composes only the left ~280px (right half black) and the entry viewport shows
+the wall-tile garble (the 3D-view wall CLUT 32/64/96 not committed on
+re-entry). Both are display-transition / wall-palette issues for their own
+cards.
