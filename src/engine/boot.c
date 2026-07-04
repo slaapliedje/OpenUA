@@ -58293,29 +58293,294 @@ static void jt344(void)
  * @18, items base handle @4 (8 bytes per item: word @4, byte @6,
  * byte flags @7). */
 
-/* L5624 (CODE 8) — the menu key-command scanner (match a keypress
- * against the item command keys; returns the packed (menu+1)<<8 |
- * item or 0). Level-1 stub — the jt342 tracker batch lifts it. */
-static short l5624(short key) __attribute__((unused));
-static short l5624(short key)
+/* L4a16 (CODE 8) — the pulldown width core (longest item label in
+ * cells). Level-1 stub: ~1.1KB of label-measure asm, its own batch;
+ * a 0 return clamps the pulldown left to the bar column (benign). */
+static short l4a16(unsigned char *rec) __attribute__((unused));
+static short l4a16(unsigned char *rec)
 {
-	PROBE("L5624");
-	(void)key;
+	PROBE("L4a16");
+	(void)rec;
 	return 0;
 }
 
-/* JT[342] = L567c (CODE 8) — the modal menu-bar mouse tracker (the
- * MenuSelect equivalent): jt1153(1)/jt1146() double-buffer bracket,
- * per-menu bar hit scan against the -10472 x/width columns, pulldown
- * open (l33f6/l324c + the jt1161 panel fill), in-menu tracking
- * (l33dc) and the packed (menu+1)<<8 | item result. Level-1 stub —
- * its own batch (needs the l33xx pulldown family). */
+/* L45c6 (CODE 8) — the pulldown panel PAINT core (frame + item
+ * labels + separators + command keys). Level-1 stub (~1.1KB). */
+static void l45c6(unsigned char *rec, short colour, long flag)
+                                                __attribute__((unused));
+static void l45c6(unsigned char *rec, short colour, long flag)
+{
+	PROBE("L45c6");
+	(void)rec; (void)colour; (void)flag;
+}
+
+/* L3f2e (CODE 8) — the pulldown TRACK core (per-poll highlight move
+ * via the l3266 hit-test, mouse-up commit). Level-1 stub (~1.7KB);
+ * the -1 return reads as "still tracking", so a lifted caller loop
+ * would spin — the l567c tracker below therefore treats the stub's
+ * 0 as an immediate no-selection commit instead. Returns: -1 keep
+ * tracking, 0 closed with no pick, n = the picked item. */
+static short l3f2e(unsigned char *rec, short colour, long flag)
+                                                __attribute__((unused));
+static short l3f2e(unsigned char *rec, short colour, long flag)
+{
+	PROBE("L3f2e");
+	(void)rec; (void)colour; (void)flag;
+	return 0;
+}
+
+/* L33f6 (CODE 8) — menu width in cells: the l4a16 core. */
+static short l33f6(unsigned char *rec) __attribute__((unused));
+static short l33f6(unsigned char *rec)
+{
+	PROBE("L33f6");
+	return l4a16(rec);
+}
+
+/* L324c (CODE 8) — open/paint the pulldown: l45c6(rec, 143, 0). */
+static void l324c(unsigned char *rec) __attribute__((unused));
+static void l324c(unsigned char *rec)
+{
+	PROBE("L324c");
+	l45c6(rec, (short)143, 0L);
+}
+
+/* L33dc (CODE 8) — track the open pulldown: l3f2e(rec, 143, 0). */
+static short l33dc(unsigned char *rec) __attribute__((unused));
+static short l33dc(unsigned char *rec)
+{
+	PROBE("L33dc");
+	return l3f2e(rec, (short)143, 0L);
+}
+
+/* L33ce (CODE 8) — the menu idle hook: call through -10480 if a
+ * callback is registered. */
+static void l33ce(void) __attribute__((unused));
+static void l33ce(void)
+{
+	PROBE("L33ce");
+	if (g_a5_long(-10480) != 0)
+		((void (*)(void))(uintptr_t)g_a5_long(-10480))();
+}
+
+/* L3266 (CODE 8) — the pulldown item hit-test: translate the click
+ * by the pulldown origin (rec w@16, w@10) via jt1139, reject outside
+ * 0..4*rec[w18] columns, divide rows by the cell height (5 when the
+ * rec[13] bit4 tall flag, else 4), then walk the items counting
+ * non-separator rows (item[7] bit1) to the hit row. Returns -1 when
+ * the pointer is above the menu, the 1-based item on a hit (cell
+ * top written through `out`), 0 otherwise (disabled items — flags
+ * 0x81 — write -1 through `out` and return 0). Consumed by the
+ * l3f2e track core. */
+static short l3266(unsigned char *rec, short y, short x, short *out)
+                                                __attribute__((unused));
+static short l3266(unsigned char *rec, short y, short x, short *out)
+{
+	short maxx = (short)(*(short *)(void *)(rec + 18) << 2);
+	short cell, vis, idx;
+	char  inside;
+
+	PROBE("L3266");
+	jt1139(*(short *)(void *)(rec + 16),
+	       *(short *)(void *)(rec + 10), y, x, &y, &x);
+	inside = (char)(y >= 0 && x >= 0 && x < maxx);
+	if (inside) {
+		unsigned char *base = (unsigned char *)(uintptr_t)
+		    (*(long *)(void *)(rec + 4));
+
+		if ((rec[13] & 0x10) != 0)
+			y = (short)(y / 5);
+		else
+			y = (short)(y >> 2);
+		vis = 0;
+		idx = 0;
+		while (vis <= y && (short)(signed char)rec[12] > idx) {
+			if ((base[(long)idx * 8 + 7] & 0x02) == 0)
+				vis++;
+			idx++;
+		}
+		if (vis > y
+		    && (base[(long)(idx - 1) * 8 + 7] & 0x81) == 0) {
+			vis--;
+			cell = (short)(((rec[13] & 0x10) != 0)
+			               ? (vis * 5) : (vis << 2));
+		} else {
+			inside = 0;
+			cell = (short)-1;
+		}
+	} else {
+		cell = (short)-1;
+	}
+	*out = cell;
+	if (y < 0)
+		return -1;
+	return inside ? idx : (short)0;
+}
+
+/* L3416 (CODE 8) — one menu's key-command scan: Esc (27) and ` (96)
+ * bail with 0 unless the rec[13] bit2 flag claims them; otherwise
+ * match tolower(key) against each item's command char (item[6];
+ * uppercase chars fold to control codes, & 31). Returns the 1-based
+ * item, or -1 after the jt1080 beep (no beep when bit2). */
+static short l3416(unsigned char *rec, short key)
+                                                __attribute__((unused));
+static short l3416(unsigned char *rec, short key)
+{
+	unsigned char *base;
+	short i, ck;
+
+	PROBE("L3416");
+	if ((rec[13] & 0x04) == 0 && (key == 27 || key == 96))
+		return 0;
+	base = (unsigned char *)(uintptr_t)(*(long *)(void *)(rec + 4));
+	for (i = 0; i < (short)(signed char)rec[12]; i++) {
+		ck = (short)(signed char)base[(long)i * 8 + 6];
+		if (jt408(ck) != 0)
+			ck = (short)(ck & 31);
+		/* JT[395] tolower == the already-lifted l46b2 twin. */
+		if (ck != 0 && l46b2(key) == ck)
+			return (short)(i + 1);
+	}
+	if ((rec[13] & 0x04) == 0)
+		jt1080();
+	return -1;
+}
+
+/* L5624 (CODE 8) — the menu-bar key-command scanner: try each menu
+ * from the LAST to the first (l3416); a hit returns the packed
+ * (menu+1)<<8 | item, else 0. Full lift. */
+static short l5624(short key) __attribute__((unused));
+static short l5624(short key)
+{
+	short i, r;
+
+	PROBE("L5624");
+	for (i = (short)((short)(signed char)g_a5_byte(-10474) - 1);
+	     i >= 0; i--) {
+		r = l3416((unsigned char *)(uintptr_t)
+		          *(long *)(void *)
+		          (g_a5_buf(-10472) + (long)i * 8), key);
+		if (r > 0)
+			return (short)(((i + 1) << 8) + r);
+	}
+	return 0;
+}
+
+/* JT[342] = L567c (CODE 8 + 0x567c) — the modal menu-bar mouse
+ * tracker (the MenuSelect equivalent). Full lift: jt1153(1)/jt1146() enter the
+ * double-buffer bracket; each poll translates the mouse into menu
+ * units (jt1139 over the 8000-space, IN PLACE into v/h — the Mac
+ * reuses the arg slots); in the bar band the -10472 columns are
+ * scanned and a highlight change closes the old pulldown (jt1128
+ * page flip + jt1146 re-present) and opens the new one: the left
+ * clamp rec w@10 = min(bar-x, 8160 - 4*width), the jt1161 panel
+ * fill (skipped when the -10473 bit5 no-panel flag; tall-bar bit4
+ * picks the 1/2-row vs 8000-unit geometry), then the l324c paint.
+ * Below the bar an open pulldown tracks through l33dc — n commits
+ * ((menu+1)<<8 | n), 0 closes empty, negative keeps polling via the
+ * jt1113 mouse re-read; with nothing open jt1132 exits on demand
+ * and l33ce runs the idle hook. The paint/track cores are level-1
+ * stubs, so the interactive loop currently commits empty on the
+ * first below-bar poll — faithful once l3f2e/l45c6 lift.
+ * (CODE 8 + 0x567c) */
 static short l567c(short v, short h) __attribute__((unused));
 static short l567c(short v, short h)
 {
+	unsigned char *rec = NULL;      /* fp@(-4)  */
+	short highlight = -1;           /* fp@(-6)  */
+	short hit;                      /* fp@(-8)  */
+	short r;                        /* fp@(-12) */
+	short threshold;
+
 	PROBE("L567c");
-	(void)v; (void)h;
-	return 0;
+	jt1153((short)1);
+	jt1146();
+	for (;;) {
+		jt1139((short)8000, (short)8000, v, h, &v, &h);
+		threshold = (short)(((g_a5_byte(-10473) & 0x10) != 0)
+		                    ? 5 : 4);
+		if (threshold > v) {
+			short count =
+			    (short)(signed char)g_a5_byte(-10474);
+
+			for (hit = 0; hit < count; hit++) {
+				unsigned char *ent =
+				    g_a5_buf(-10472) + (long)hit * 8;
+				short relx = (short)
+				    (*(short *)(void *)(ent + 4) - 8000);
+
+				if (h >= relx
+				    && (short)(relx + *(short *)(void *)
+				               (ent + 6)) >= h)
+					break;
+			}
+			if (hit >= count)
+				hit = (short)-1;
+			if (highlight != hit) {
+				if (highlight >= 0) {
+					jt1128();
+					jt1146();
+				}
+				if (hit >= 0) {
+					unsigned char *ent =
+					    g_a5_buf(-10472)
+					    + (long)hit * 8;
+
+					rec = (unsigned char *)(uintptr_t)
+					      *(long *)(void *)ent;
+					*(short *)(void *)(rec + 10) =
+					    jt413(*(short *)(void *)
+					          (ent + 4),
+					          (short)(8160
+					              - (l33f6(rec) << 2)));
+					if ((g_a5_byte(-10473) & 0x20)
+					    == 0) {
+						short y0, tall, x0, x1;
+
+						if ((g_a5_byte(-10473)
+						     & 0x10) != 0)
+							y0 = (short)
+							    ((l04cc() < 300)
+							     ? 1 : 2);
+						else
+							y0 = (short)8000;
+						tall = (short)
+						    (((g_a5_byte(-10473)
+						       & 0x10) != 0)
+						     ? 5 : 4);
+						x0 = *(short *)(void *)
+						     (ent + 4);
+						x1 = (short)
+						    (*(short *)(void *)
+						     (ent + 4)
+						     + *(short *)(void *)
+						       (ent + 6));
+						jt1161(y0, x0,
+						       (short)(tall + 8000),
+						       x1, (short)271);
+					}
+					l324c(rec);
+				}
+				highlight = hit;
+			}
+		}
+		if (highlight >= 0) {
+			r = l33dc(rec);
+			if (r >= 0) {
+				jt1128();
+				jt1146();
+				if (r != 0)
+					return (short)
+					    (((highlight + 1) << 8) + r);
+				return 0;
+			}
+			jt1113(&v, &h);
+		} else {
+			if (jt1132(&v, &h) != 0)
+				return 0;
+			l33ce();
+		}
+	}
 }
 
 /* L34d6 (CODE 8) — the menu/item field accessor jt339 delegates to.
