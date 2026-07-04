@@ -1941,10 +1941,13 @@ static void  l0444(void);       /* CODE 6 + 0x0444 — start.dat design-name
 static void  jt120(void *arg);
 static void  l4d98(void);       /* CODE 6 + 0x4d98 — lifted near EOF (the
                                  * game-session init; needs the GLIB tier) */
-static void  l5888(short a)     { PROBE("l5888"); }     /* CODE 6 + 0x5888 */
+/* l5888 = JT[52] (sound command dispatcher), l5f66 = JT[69] (fatal
+ * content-load error), l6ada = JT[85] (FRAME palette reload) — all three
+ * were PROBE stubs shadowing full jtN lifts (the alias-twin class);
+ * repointed 2026-07-04. */
+static void  jt52(short cmd);
+static void  jt85(short group);
 static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
-static void  l5f66(void)        { PROBE("l5f66"); }     /* CODE 6 + 0x5f66 */
-static void  l6ada(short a)     { PROBE("l6ada"); }     /* CODE 6 + 0x6ada */
 static void  l07dc(void);                              /* defined below */
 
 /* UI-handler callbacks main() registers through JT[989]. */
@@ -2140,20 +2143,20 @@ int ua_main(short arg1, long arg2)
 	/* Phase 5 — string-table checks and the second UI handler. */
 	if (ua_strcmp(ua_get_string(2), "Heart") != 0)
 		jt919();
-	l6ada(0);
+	jt85(0);
 	jt977();
 	jt120((void *)0);
 	jt989(jt11_handler, 1, "Pod", 83);
 	jt1130();
 	g_24138 = 0;
 	g_24134 = 1;
-	l5888(255);
+	jt52(255);                              /* stop all voices */
 	if (ua_strcmp(ua_get_string(3), g_str_22253) != 0) {
 		if (jt931() == 0)
-			l5f66();
+			jt69();
 		for (g_22307 = 1; g_22307 < 4; g_22307++) {
 			if (g_22231[g_22307] == 0)
-				l5f66();
+				jt69();
 		}
 	}
 
@@ -2224,7 +2227,7 @@ static void          l68f8(void)
 	jt76();
 	l66e6(16);
 }
-static void          l2cb0(short a, short b)  { PROBE("l2cb0"); }                /* CODE 6 + 0x2cb0 */
+/* l2cb0 = JT[19] (party unlink, CODE 6+0x2cb0) — full lift below; repointed. */
 
 /* L07dc's play-loop predicate flag, A5-relative offset -4944. Lives here
  * (above the JT entries) so jt942 / jt943 can read and write it directly;
@@ -3869,7 +3872,7 @@ static void l07dc(void)
 
 	for (;;) {
 		jt942(0);
-		l5888(255);
+		jt52(255);                      /* stop all voices */
 
 		if (g_a5_18485 != 0) {
 			jt582();
@@ -3909,8 +3912,8 @@ static void l07dc(void)
 
 cleanup:
 	while (g_a5_27932 != 0)
-		l2cb0(0, 1);
-	l5888(255);
+		jt19(0, 1);
+	jt52(255);                              /* stop all voices */
 }
 
 /* =========================================================================
@@ -17508,7 +17511,6 @@ static void l5876(short n) { PROBE("L5876"); jt985(n); }
  *           (g_a5_-17444), in which case play sfx (jt965)
  *   32-39 = play song (cmd-32) via l5876 -> jt985
  * Only cmd < 42 (unsigned) or cmd == 255 are accepted (L5888 gate). */
-static void jt52(short cmd) __attribute__((unused));
 static void jt52(short cmd)
 {
 	PROBE("jt52");
@@ -26118,7 +26120,6 @@ static void jt515(long entity, short featIdx,
  * index into each cell of its facing footprint (the l5d92 step offsets off
  * the map position), and refresh its on-screen cell (g_a5_27059/g_a5_26991
  * = world position minus the scroll origin in the live-map header). */
-static void jt524(void) __attribute__((unused));
 static void jt524(void)
 {
 	short i, j;
@@ -28679,7 +28680,9 @@ static void  jt419(char *path, const char *ext, short flags)
 	}
 }
 static void  l1c92(void)                         { PROBE("L1c92"); }
-static void  l1cd2(void)                         { PROBE("L1cd2"); }
+/* l1cd2 = JT[586] (CODE 15+0x1cd2, the pending-treasure vault save) —
+ * was a PROBE stub shadowing the full jt586 lift; repointed 2026-07-04. */
+static void  jt586(void);
 
 /* C-string -> Pascal, for the File Manager Create/FSOpen save-slot calls. */
 static void str_c2p(unsigned char *p, const char *s)
@@ -30004,7 +30007,7 @@ static void   jt585(void)
 	if (g_a5_22218 != slot_char) {
 		l1c92();
 		g_a5_22218 = slot_char;
-		l1cd2();
+		jt586();
 	}
 	g_a5_27946 = 1;
 	jt176();
@@ -36380,7 +36383,6 @@ static long          jt7(long a, long b);
 static unsigned long jt5(unsigned long a, unsigned long b);
 
 /* JT[170] (CODE 7+0x15ae) — set the dialog-abort byte g_a5_-13005. */
-static void jt170(short b) __attribute__((unused));
 static void jt170(short b)
 {
 	PROBE("jt170");
@@ -43794,7 +43796,8 @@ static void jt553(long m, short v)
  * (L0660 and L2d48 turned out to be twins of full lifts: l660 = the
  * attacks-of-opportunity pass, jt544 = the side-morale value —
  * repointed per docs/stub-alias-audit.md.) */
-static void          l61ae(void)                 { PROBE("L61ae"); }                     /* CODE 14 — field commit */
+/* l61ae = JT[524] (CODE 14+0x61ae, the combat occupancy-field commit) —
+ * was a PROBE stub shadowing the full jt524 lift; repointed 2026-07-04. */
 static void          l660(long m);               /* CODE 14+0x0660 — attacks of opportunity (defined below) */
 
 /* CODE 14+0x74c — the MOVE COMMIT (jt551), run from l56d8 after a step is
@@ -43805,11 +43808,10 @@ static void          l660(long m);               /* CODE 14+0x0660 — attacks o
  * per jt472 else *2) out of the actor's budget mc[8] (clamped at 0). Monsters
  * (actor[383]) that step off-window (l6520) scroll the old cell into view
  * (jt521) when -22626 is live; it repaints the trail (l635e), writes the new
- * (row,col) back into the -27472 record, commits the field (l61ae), repaints
+ * (row,col) back into the -27472 record, commits the field (jt524), repaints
  * the destination (jt521), clears mc[17]/mc[20], plays the step sound (jt52
- * id 11) and runs the post-move update (l0660). Non-controllable or jt13-
- * flagged actors then spend their whole budget (mc[8] = 0). l61ae/l0660 are
- * PROBE stubs for now. */
+ * id 11) and runs the post-move update (l660). Non-controllable or jt13-
+ * flagged actors then spend their whole budget (mc[8] = 0). */
 static void jt551(long m, short v)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
@@ -43855,7 +43857,7 @@ static void jt551(long m, short v)
 		l635e(0, 0, (short)orient);
 	*(short *)(base27472 + idx + 0) = (short)trow;
 	*(short *)(base27472 + idx + 2) = (short)tcol;
-	l61ae();
+	jt524();                                /* = l61ae field commit */
 	if (g_a5_byte(-22626) != 0)
 		jt521((short)trow, (short)tcol, (short)cost, 8);
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
@@ -56238,21 +56240,18 @@ static void l17ca_c22(long rec, short b)
 	PROBE("l17ca");
 	(void)rec; (void)b;
 }
-static void l2180(long rec)
-{
-	PROBE("l2180");
-	(void)rec;
-}
+/* l2180 = JT[303] (CODE 22+0x2180, the play-view status header) — was a
+ * PROBE stub shadowing the full jt303 lift; repointed 2026-07-04. */
 
 /* JT[299] (CODE 22+0x1798) — repaint one saved-game slot: L17ca
- * state advance (leaf stub), L2180 box clear (leaf stub), then the
- * jt308 row paint. Full call sequence. */
+ * state advance (leaf stub), L2180 = jt303 (the status-header paint),
+ * then the jt308 row paint. Full call sequence. */
 static void jt299(long holder, short b) __attribute__((unused));
 static void jt299(long holder, short b)
 {
 	PROBE("jt299");
 	l17ca_c22(*(long *)(uintptr_t)holder, (short)(signed char)b);
-	l2180(*(long *)(uintptr_t)holder);
+	jt303((void *)(uintptr_t)*(long *)(uintptr_t)holder);
 	jt308(holder);
 }
 
@@ -58726,16 +58725,11 @@ static void jt960(void)
 	}
 }
 
-/* L15ae (CODE 7+0x15ae) — mode-12 post-pick hook. Leaf PROBE stub
- * pending its own lift. */
-static void l15ae(short n)
-{
-	PROBE("l15ae");
-	(void)n;
-}
+/* L15ae (CODE 7+0x15ae) = JT[170] (set the dialog-abort byte) — was a
+ * PROBE stub shadowing the full jt170 lift; repointed 2026-07-04. */
 
 /* JT[156] (CODE 7+0x1d5c) — the roster-pane CLICK handler, full
- * lift over the jt960/l15ae leaf stubs. jt1139 maps the click
+ * lift (mode-12 post-pick = jt170). jt1139 maps the click
  * against the -19172/-19174 roster origin; row = the local y / 4.
  * A click on the ACTIVE member (its -27928 list index) in pick
  * modes 13/9 confirms through jt444(item, 20) and sets -13004;
@@ -58784,7 +58778,7 @@ static void jt156(short item, short y, short x)
 
 	if (g_a5_byte(-13004) == 0) {
 		if (g_a5_word(-13018) == 12)
-			l15ae((short)1);
+			jt170((short)1);
 		jt937(g_a5_long(-27932));
 		jt1134();
 	}
@@ -65786,11 +65780,12 @@ static short jt74(short refnum)
  * key character navigation, and the exit cleanup are all faithful. The
  * three big action handlers it dispatches into — jt929 (take the shared
  * treasure pool into the active char), jt894 (pool/sell money), jt893
- * (the CODE-19 item-management dispatcher, ~2KB) — plus the vault file
- * load/save pair jt583/jt586 are documented leaf PROBE stubs, each its
- * own lift. So the Vault screen DISPLAYS faithfully and View / Exit /
- * char-switch work; Take / Pool / Items and vault persistence are
- * deferred. See docs/treasure-event-wall.md (Slice B4).
+ * (the CODE-19 item-management dispatcher, ~2KB) is a documented leaf
+ * PROBE stub, its own lift. The vault file load/save pair jt583/jt586
+ * have since been lifted (the l1cd2 save call was repointed to jt586
+ * 2026-07-04). So the Vault screen DISPLAYS faithfully and View /
+ * Exit / char-switch work; Take / Pool / Items is deferred. See
+ * docs/treasure-event-wall.md (Slice B4).
  * =================================================================== */
 
 /* JT[929] (CODE 12 + 0x3b4a) — move the pending shared treasure (money flag *a,
@@ -67119,7 +67114,8 @@ static void jt922(unsigned char *out)
 		jt21((long)(uintptr_t)chr);                      /* L2cda */
 	} while (done == 0);                                 /* L2ce4 */
 }
-static void l17f8(void) { PROBE("l17f8"); }                 /* CODE7+0x17f8 — exit-prompt text helper */
+/* l17f8 = JT[175] (CODE 7+0x17f8, the modal exit prompt) — was a PROBE
+ * stub shadowing the full jt175 lift; repointed 2026-07-04. */
 
 /* JT[183] (CODE 7 + 0x3e68) — the merchant / shop treasure screen, sibling of
  * the vault screen jt185. Faithful structural lift of the dialog loop:
@@ -67136,7 +67132,7 @@ static void l17f8(void) { PROBE("l17f8"); }                 /* CODE7+0x17f8 — 
  *  - a second JT[3] decides whether to repaint (jt23) after the arm.
  *  Loop until exit, then restore the prior mode (-27989).
  *  Reached from the shop/merchant event l5586 (l709e case 8). The arm-4/5
- *  handlers (jt921/jt922) and l17f8 are leaf stubs pending their own lifts. */
+ *  handlers (jt921/jt922) and the exit prompt (jt175) are lifted. */
 static void jt183(void)
 {
 	unsigned char done     = 0;   /* fp@(-2)  */
@@ -67231,7 +67227,7 @@ static void jt183(void)
 				     g_a5_long(-14060), 0);
 				jt96(1, 18, 38, 22, 3, 0, 0,
 				     g_a5_long(-14056), 0);
-				l17f8();
+				jt175();
 				jt96(1, 17, 38, 22, 7, 0, 1,
 				     g_a5_long(-14052), 0);
 				if (jt159((const char *)(uintptr_t)g_a5_long(-13952), 1))
