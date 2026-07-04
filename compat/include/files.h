@@ -78,6 +78,7 @@ OSErr SetFInfo(ConstStr255Param fileName, short vRefNum,
                const FInfo *fndrInfo);
 
 OSErr GetVol(unsigned char *volName, short *vRefNum);
+OSErr GetVInfo(ConstStr255Param volName, short *vRefNum, long *freeBytes);
 OSErr SetVol(ConstStr255Param volName, short vRefNum);
 OSErr FlushVol(ConstStr255Param volName, short vRefNum);
 

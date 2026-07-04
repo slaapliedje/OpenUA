@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 997 done (909 lifted, 26 noop, 62 alias), 38 stub, 0 stand-in, 170 missing.
+**1205 distinct JT entries are called.** Overall: 1001 done (913 lifted, 26 noop, 62 alias), 42 stub, 0 stand-in, 162 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -42,8 +42,8 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 8 | 351–400 | **49/50** | 36 | 13 | 1 | 0 | 0 |
 | 9 | 401–450 | **50/50** | 39 | 11 | 0 | 0 | 0 |
 | 10 | 451–500 | **50/50** | 48 | 2 | 0 | 0 | 0 |
-| 11 | 501–550 | **49/50** | 46 | 3 | 0 | 0 | 1 |
-| 12 | 551–600 | **47/50** | 39 | 8 | 1 | 0 | 2 |
+| 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
+| 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **42/50** | 40 | 2 | 2 | 0 | 6 |
 | 14 | 651–700 | **16/50** | 15 | 1 | 1 | 0 | 33 |
 | 15 | 701–750 | **20/50** | 17 | 3 | 1 | 0 | 29 |
@@ -55,8 +55,8 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 21 | 1001–1050 | **49/50** | 48 | 1 | 0 | 0 | 1 |
 | 22 | 1051–1100 | **31/50** | 27 | 4 | 8 | 0 | 11 |
 | 23 | 1101–1150 | **12/50** | 10 | 2 | 2 | 0 | 36 |
-| 24 | 1151–1200 | **7/50** | 5 | 2 | 11 | 0 | 32 |
-| 25 | 1201–1205 | **1/5** | 1 | 0 | 0 | 0 | 4 |
+| 24 | 1151–1200 | **7/50** | 5 | 2 | 15 | 0 | 28 |
+| 25 | 1201–1205 | **1/5** | 1 | 0 | 1 | 0 | 3 |
 
 ## Coverage by CODE segment (what's used where)
 
@@ -70,11 +70,11 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 1 | 9 | 8 | 0 | 0 | 1 | **1** | boot / A5 init / entry |
 | CODE 2 | 14 | 5 | 0 | 0 | 9 | **9** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
 | CODE 3 | 116 | 96 | 1 | 0 | 19 | **20** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
-| CODE 4 | 117 | 57 | 11 | 0 | 49 | **60** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
-| CODE 5 | 129 | 89 | 7 | 0 | 33 | **40** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
+| CODE 4 | 117 | 57 | 16 | 0 | 44 | **60** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
+| CODE 5 | 129 | 92 | 6 | 0 | 31 | **37** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 120 | 3 | 0 | 2 | **5** | file-group cache + GLIB art + resource manager |
 | CODE 7 | 97 | 89 | 2 | 0 | 6 | **8** | list dialog (JT[169]) + text widgets |
-| CODE 8 | 46 | 29 | 1 | 0 | 16 | **17** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
+| CODE 8 | 46 | 30 | 1 | 0 | 15 | **16** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
 | CODE 11 | 12 | 6 | 0 | 0 | 6 | **6** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (41 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (46 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l7a24`  `l4806`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l0062`  `l4218`  `l2d7e`
+> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l7a24`  `l4806`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l4218`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 
@@ -331,15 +331,11 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 208 pending (stub+standin+missing), by call count:
+Top 50 of 204 pending (stub+standin+missing), by call count:
 
 - jt45 (6 calls, CODE 6) — stub
 - jt68 (4 calls, CODE 6) — stub
 - jt1081 (4 calls, CODE 5) — stub
-- jt360 (2 calls, CODE 8) — missing
-- jt994 (2 calls, CODE 5) — stub
-- jt1051 (2 calls, CODE 5) — missing
-- jt1079 (2 calls, CODE 5) — missing
 - jt1159 (2 calls, CODE 4) — missing
 - jt1165 (2 calls, CODE 4) — missing
 - jt9 (1 calls, CODE 1) — missing
@@ -383,4 +379,8 @@ Top 50 of 208 pending (stub+standin+missing), by call count:
 - jt291 (1 calls, CODE 22) — missing
 - jt292 (1 calls, CODE 22) — missing
 - jt301 (1 calls, CODE 22) — missing
+- jt302 (1 calls, CODE 22) — missing
+- jt309 (1 calls, CODE 22) — missing
+- jt322 (1 calls, CODE 9) — missing
+- jt323 (1 calls, CODE 9) — missing
 
