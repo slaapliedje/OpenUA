@@ -57309,6 +57309,87 @@ static void l17ca_c22(long rec, short b)
 /* l2180 = JT[303] (CODE 22+0x2180, the play-view status header) — was a
  * PROBE stub shadowing the full jt303 lift; repointed 2026-07-04. */
 
+/* JT[301] / JT[291] (CODE 22+0x48b2 / 0x48ca) — facing -> paired
+ * index: ((facing >> 1) & 3 + 1) * 2, jt291 with the opposite facing
+ * (+2 mod 4). Full lifts (band 7). */
+static short jt301(short facing) __attribute__((unused));
+static short jt301(short facing)
+{
+	PROBE("jt301");
+	return (short)(((((facing & 0xff) >> 1) & 3) + 1) * 2);
+}
+static short jt291(short facing) __attribute__((unused));
+static short jt291(short facing)
+{
+	PROBE("jt291");
+	return (short)((((((facing & 0xff) >> 1) + 2) & 3) + 1) * 2);
+}
+
+/* JT[302] (CODE 22+0x04f2) — write the cell's special byte (the
+ * event slot ds[294 + cell*6]) unless the decoded value (l04d6)
+ * already matches `want`; 1 = written. Full lift (band 7). */
+static short jt302(short cell, short want, short val) __attribute__((unused));
+static short jt302(short cell, short want, short val)
+{
+	PROBE("jt302");
+	if (l04d6(cell) == want)
+		return 0;
+	((unsigned char *)(uintptr_t)g_a5_long(-12300))
+	    [(long)cell * 6 + 294] = (unsigned char)val;
+	return 1;
+}
+
+/* JT[309] (CODE 22+0x0808) — track the mouse over the viewport
+ * DLItem: for a kind-1 live item, read the pointer (jt1113),
+ * translate by the viewport origin (-11674/-11672) and stamp the
+ * inside-test against the extents (-11670/-11668) into rec[29].
+ * Full lift (band 7). */
+static void jt309(void *rec_v) __attribute__((unused));
+static void jt309(void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	short mx = 0, my = 0;
+
+	PROBE("jt309");
+	if (((unsigned char *)(uintptr_t)*(long *)(void *)rec)[4] != 1
+	    || rec[5] == 0)
+		return;
+	jt1113(&mx, &my);
+	mx = (short)(mx - g_a5_word(-11674));
+	my = (short)(my - g_a5_word(-11672));
+	rec[29] = (unsigned char)(mx >= 0 && mx < g_a5_word(-11670)
+	                          && my >= 0 && my < g_a5_word(-11668)
+	                          ? 1 : 0);
+}
+
+/* JT[324] (CODE 9+0x224a) — the readied-list kind scan: for command
+ * kind 9, find the first -11656 table entry (count word @0, 18-byte
+ * rows) whose kind byte [14] is 6/7/9/10 and fire its DLItem
+ * (jt444(row[15], 18)); 1 = fired. Full lift (band 7). */
+static short jt324(short a, short kind) __attribute__((unused));
+static short jt324(short a, short kind)
+{
+	const unsigned char *tbl =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-11656);
+	short i, n;
+
+	PROBE("jt324");
+	(void)a;
+	if (kind != 9 || tbl == NULL)
+		return 0;
+	n = *(const short *)(const void *)tbl;
+	for (i = 0; i < n; i++) {
+		const unsigned char *row = tbl + (long)i * 18;
+		unsigned char k = row[14];
+
+		if (k == 9 || k == 7 || k == 6 || k == 10) {
+			jt444((short)row[15], (short)18, 0, 0);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 /* JT[299] (CODE 22+0x1798) — repaint one saved-game slot: L17ca
  * state advance (leaf stub), L2180 = jt303 (the status-header paint),
  * then the jt308 row paint. Full call sequence. */
