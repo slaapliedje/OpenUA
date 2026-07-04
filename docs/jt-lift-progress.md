@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 992 done (905 lifted, 26 noop, 61 alias), 39 stub, 0 stand-in, 174 missing.
+**1205 distinct JT entries are called.** Overall: 993 done (905 lifted, 26 noop, 62 alias), 39 stub, 0 stand-in, 173 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -43,7 +43,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 9 | 401–450 | **50/50** | 39 | 11 | 0 | 0 | 0 |
 | 10 | 451–500 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 11 | 501–550 | **45/50** | 42 | 3 | 1 | 0 | 4 |
-| 12 | 551–600 | **46/50** | 39 | 7 | 1 | 0 | 3 |
+| 12 | 551–600 | **47/50** | 39 | 8 | 1 | 0 | 2 |
 | 13 | 601–650 | **42/50** | 40 | 2 | 2 | 0 | 6 |
 | 14 | 651–700 | **16/50** | 15 | 1 | 1 | 0 | 33 |
 | 15 | 701–750 | **20/50** | 17 | 3 | 1 | 0 | 29 |
@@ -85,7 +85,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 16 | 115 | 115 | 0 | 0 | 0 | **0** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 18 | 1 | 0 | 1 | **2** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 166 | 5 | 0 | 0 | **5** | combat engine (jt610 / jt856 / l4d98 / l709e) |
-| CODE 19 | 35 | 32 | 0 | 0 | 3 | **3** | character sheet + party container (jt886 / jt904 / jt910) |
+| CODE 19 | 35 | 33 | 0 | 0 | 2 | **2** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 13 | 0 | 0 | 1 | **1** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
 | CODE 21 | 9 | 7 | 2 | 0 | 0 | **2** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 43 | 0 | 0 | 8 | **8** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 213 pending (stub+standin+missing), by call count:
+Top 50 of 212 pending (stub+standin+missing), by call count:
 
 - jt45 (6 calls, CODE 6) — stub
 - jt68 (4 calls, CODE 6) — stub
@@ -341,7 +341,6 @@ Top 50 of 213 pending (stub+standin+missing), by call count:
 - jt427 (2 calls, CODE 3) — missing
 - jt433 (2 calls, CODE 3) — stub
 - jt435 (2 calls, CODE 3) — missing
-- jt890 (2 calls, CODE 19) — missing
 - jt994 (2 calls, CODE 5) — stub
 - jt1051 (2 calls, CODE 5) — missing
 - jt1079 (2 calls, CODE 5) — missing
@@ -383,4 +382,5 @@ Top 50 of 213 pending (stub+standin+missing), by call count:
 - jt269 (1 calls, CODE 10) — missing
 - jt270 (1 calls, CODE 10) — missing
 - jt281 (1 calls, CODE 22) — missing
+- jt282 (1 calls, CODE 22) — missing
 

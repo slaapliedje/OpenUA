@@ -47123,6 +47123,7 @@ static void jt36(long holder_l, long item_l)
  *   3/5 — recompute the member's effect set (jt875);
  *   9 — on removal only, strip effect 23 (jt878).
  * Faithful full lift 2026-07-04 (band 6). */
+/* l2d78 (CODE 19 + 0x2d78) = JT[890]. */
 static void l2d78(long item_l, short mode)
 {
 	unsigned char *item = (unsigned char *)(uintptr_t)item_l;
