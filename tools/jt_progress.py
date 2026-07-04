@@ -202,8 +202,18 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         1065,  # CODE 5+0x4a74: the Pack15 ($AC15) selector farm — no
                # Package Manager on the Falcon.
         1110,  # CODE 4+0x79ce: literal `return 3600` (ticks-per-minute).
-        1158}  # CODE 4+0x4c48: play-window/palette teardown — HAL-moot
+        1158,  # CODE 4+0x4c48: play-window/palette teardown — HAL-moot
                # (the port's play window IS the HAL screen).
+        # band 7 batch 19 — more disasm-verified faithful-empty / moot:
+        445,   # CODE 3+0x294e: bare `rts`.
+        746,   # CODE 18+0x3fda: empty linkw #0 / unlk / rts.
+        748,   # CODE 18+0x405a: empty linkw #0 / unlk / rts.
+        771,   # CODE 18+0x48f2: empty linkw #0 / unlk / rts.
+        774,   # CODE 18+0x4b5c: empty linkw #0 / unlk / rts.
+        785,   # CODE 18+0x4f30: empty linkw #0 / unlk / rts.
+        1037}  # CODE 5+0x512e: _VRemove ($A034) glue — the jt1036
+               # (_VInstall) counterpart, HAL-moot (Falcon VBL owns
+               # the vblank; nothing was ever installed to remove).
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
