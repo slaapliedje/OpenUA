@@ -17036,6 +17036,35 @@ static void l448c(void)
 	g_a5_word(-1318) = (short)8;       /* Falcon VIDEL chunky 8bpp */
 	g_a5_byte(-1315) = (signed char)0; /* not mono */
 }
+/* L4350 = JT[1159] (CODE 4) — re-seed the window palette's Palette
+ * Manager usage hints when the screen depth changes, then
+ * ActivatePalette. The Mac body (fully decoded):
+ *
+ *   if (!colourQD) return;
+ *   if (flag) {                        // arriving AT 8bpp depth
+ *     if (8bpp page) {
+ *       for (i = 1; i < (depth==4 ? 15 : 16); i++)
+ *         SetEntryUsage(-2574 pal, i, (-1313 ? 0x1500 : 0)+2, 0);
+ *       if (depth == 8)
+ *         for (i = 16; i < 256; i++) SetEntryUsage(pal, i, 12, 0);
+ *       else
+ *         for (i = 16; i < 256; i++)
+ *           SetEntryUsage(pal, i, (-1313 ? 0x1500 : 0)+2, 0);
+ *     } else                            // 4bpp page
+ *       for (i = 1; i < 15; i++)  SetEntryUsage(pal, i, ...+2, 0);
+ *   } else {                            // leaving 8bpp
+ *     for (i = 0; i < (8bpp page ? 256 : 16); i++)
+ *       SetEntryUsage(pal, i, ...+2, 0);
+ *   }
+ *   ActivatePalette(-2578 window);
+ *
+ * All of it drives the Mac Palette Manager's colour ARBITRATION —
+ * pmTolerant/pmExplicit/pmAnimated hints that negotiate CLUT slots
+ * with other applications and reload them on depth switches. The
+ * port's HAL owns the whole 8bpp CLUT outright (the GLIB palette
+ * subsystem writes it directly), there is no -2574 palette object,
+ * and l448c pins the depth at 8 so no depth change can occur. The
+ * jt1158 HAL-moot class: a documented no-op, not a stub. */
 static void l4350(short flag) __attribute__((unused));
 static void l4350(short flag)
 {
