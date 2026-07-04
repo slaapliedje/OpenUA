@@ -181,11 +181,29 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         1207,  # CODE 4+0x7e3e: bare rts (band 7, disasm-verified)
         1117,  # CODE 4+0x77ee: empty linkw/unlk (band 7, disasm-verified)
         1150,  # CODE 4+0x61fc: empty linkw/unlk (band 7, disasm-verified)
-        1159}  # CODE 4+0x4350 = l4350: Palette Manager usage-hint reseed
+        1159,  # CODE 4+0x4350 = l4350: Palette Manager usage-hint reseed
                # + ActivatePalette — HAL-moot (the port owns the CLUT;
                # no palette object, depth pinned at 8). Documented no-op
                # of the jt1158 class (band 7 batch 14; full decode in
                # boot.c at l4350).
+        # band 7 batch 18 — verified faithful-moot: each Mac body is empty,
+        # a constant, or pure trap glue whose OS trap is meaningless on the
+        # Falcon HAL (the jt1061 _SwapMMUMode class). Disasm-confirmed.
+        9,     # CODE 1+0x3ec: THINK C exit-unpatch of _LoadSeg/_ExitToShell
+               # trap vectors — the port never patches them (static link).
+        1036,  # CODE 5+0x5124: _VInstall ($A033) glue — the Falcon VBL
+               # service owns the vblank; the Mac VBL task is subsumed.
+        1040,  # CODE 5+0x5666: THINK C low-memory vector glue — no Mac
+               # low-memory globals exist on the Falcon (the jt9 class).
+        1050,  # CODE 5+0x59ee: _KillIO ($A006) glue — every shim IO is
+               # synchronous, so there is never a pending op to cancel.
+        1052,  # CODE 5+0x5af0: _Eject ($A017) glue — no ejectable media
+               # on the GEMDOS C: mount (the flat-dir/GetVol ruling).
+        1065,  # CODE 5+0x4a74: the Pack15 ($AC15) selector farm — no
+               # Package Manager on the Falcon.
+        1110,  # CODE 4+0x79ce: literal `return 3600` (ticks-per-minute).
+        1158}  # CODE 4+0x4c48: play-window/palette teardown — HAL-moot
+               # (the port's play window IS the HAL screen).
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
