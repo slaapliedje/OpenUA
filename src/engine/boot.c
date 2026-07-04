@@ -32574,13 +32574,46 @@ static void l6114(short code, short a, short b, short c, short d,
  * (jt598's void(void) ABI).  All PROBE stubs pending their own lifts —
  * the running worklist is docs/code16-wall.md; effect ids served by
  * each handler are noted (slot = A5 - 24066 + id*4). */
-/* JT[522] (CODE 14+0x7488) — combat-map occupant-class fetch for a
- * cell. Leaf PROBE stub pending its own lift. */
+/* JT[522] (CODE 14+0x7488) — combat-map occupant-class fetch for cell
+ * (x, y): the field byte at (-25318)[y*50 + x + 9]. Classes 27/28/29
+ * mark a MULTI-CELL monster: walk the -23234 combatant list and match
+ * each active sub-cell (m[18+i], origin m[28]/m[29] + the shared
+ * -27862/-27853 delta tables indexed by (-24085)[i]) to (x, y); a hit
+ * returns the sub-cell class m[8+i]. Faithful full lift. */
 static unsigned char jt522(short x, short y)
 {
+	unsigned char cls;
+	long          m;
+
 	PROBE("jt522");
-	(void)x; (void)y;
-	return 0;
+	cls = *(unsigned char *)(uintptr_t)
+	      (g_a5_long(-25318) + (long)y * 50 + x + 9);
+	if (cls == 27 || cls == 28 || cls == 29) {
+		for (m = g_a5_long(-23234); m != 0;
+		     m = *(long *)(uintptr_t)(m + 4)) {
+			unsigned char *mb =
+			    (unsigned char *)(uintptr_t)m;
+			short i;
+
+			for (i = 1; i <= 9; i++) {
+				unsigned char slot;
+
+				if (mb[18 + i] == 0)
+					continue;
+				slot = (&g_a5_byte(-24085))[i];
+				if ((short)((signed char)mb[28]
+				    + (signed char)(&g_a5_byte(-27862))[slot])
+				    != x)
+					continue;
+				if ((short)((signed char)mb[29]
+				    + (signed char)(&g_a5_byte(-27853))[slot])
+				    != y)
+					continue;
+				cls = mb[8 + i];
+			}
+		}
+	}
+	return cls;
 }
 
 /* JT[602] (CODE 16+0x0a62; handler ids 34/91/101) — spawn a
@@ -57960,8 +57993,11 @@ static unsigned char jt107(void)
  * PROBE stub pending its own lift. */
 static void jt897(long rec, short amount)
 {
+	/* L420e: rec word[86] -= amount (the coin-pool weight deduction
+	 * on pooling). Faithful full lift. */
 	PROBE("jt897");
-	(void)rec; (void)amount;
+	*(short *)(void *)((unsigned char *)(uintptr_t)rec + 86) -=
+	    amount;
 }
 
 /* JT[925] (CODE 12+0x1c8a) — bank the party's pooled coin/XP
