@@ -6711,38 +6711,30 @@ static void jt1089(short v, short h, short color,
 	for (i = 0; i < len; i++)
 		pstr[i + 1] = (unsigned char)buf[i];
 
-	/* Faithful GLIB 2-colour text (JT[1136] / L4e12): the colour word is a
-	 * (bg<<4)|fg PAIR, not a lone fg.  The Mac glyph writer fills the glyph
-	 * cells with `bg` when the pair is "opaque" — `bg==15 || fg==0` (its first
-	 * test); the `bg==0 || fg==15` cases stay transparent, and the remaining
-	 * pairs are -3016-table driven (defaulted transparent here, which keeps the
-	 * common style-8 text — bg 8 — transparent as before).  The port's
-	 * DrawString shim only carried `fg`, so opaque-background prompts (the
-	 * "Press [Return] to continue." / "Load which game" plates draw colour
-	 * 0x70 = bg 7 light-grey / fg 0 black) lost their light-grey box and the
-	 * black text fell onto the bare FRAME stone bar.  Paint the cell background
-	 * here, then OR the (transparent) glyphs on top. */
+	/* Faithful colour-mode text (JT[1136] flush -> L4fae, the -2347!=0 arm
+	 * the colour build always takes — L4e12's Erase/Paint dither waterfall
+	 * is the 1-BIT build only).  L4fae, disasm-verified:
+	 *     RGBForeColor(palette[HIGH nibble]);   RGBBackColor(palette[LOW]);
+	 *     _PaintRect(cell);                     TextMode(3 = srcBic);
+	 *     _DrawString;
+	 * i.e. the colour word is (PLATE<<4)|TEXT and the string cell is
+	 * ALWAYS filled with the plate colour before the glyphs land — there
+	 * is NO transparent text in this renderer.  The port's old transparent
+	 * default (plate painted only for (bg==15||fg==0)&&bg!=8) left stale
+	 * glyphs behind every in-place redraw: the rest-editor digits, the
+	 * GAME SPEED value, the combat round counters — the whole overprint
+	 * family.  Paint the plate unconditionally, exactly like the Mac. */
 	if (port != NULL && len > 0) {
-		short bg = (short)((color >> 4) & 0x0f);
-		short fg = (short)(color & 0x0f);
-		/* L4f0a opaque arm = _EraseRect (fills the GrafPort BACKGROUND colour
-		 * = the `bg` index).  bg 8 is the Mac's standard window-grey backdrop,
-		 * which already covers its dialogs — so an Erase to 8 is a visual no-op
-		 * there (all the menu/HUD text uses bg 8 = "no box").  The port has no
-		 * 8-coloured backdrop, so painting it would draw a spurious box behind
-		 * every fg==0 label (the disabled "Delete the Design"/"Unlock Editor"
-		 * items).  Treat bg 8 as the transparent default; only a distinct bg
-		 * (the prompts' bg 7 light-grey, or 15) actually paints a box. */
-		if ((bg == 15 || fg == 0) && bg != 8) {  /* L4e84..L4e92 opaque, minus the window-grey default */
-			short top = (short)g_a5_4898;   /* pen top (py is baseline) */
-			short w   = StringWidth(pstr);
-			unsigned char savefg = ((CGrafPtr)port)->fgColor;
-			Rect bgr;
-			SetRect(&bgr, px, top, (short)(px + w), (short)(top + 9));
-			((CGrafPtr)port)->fgColor = (unsigned char)bg;
-			PaintRect(&bgr);
-			((CGrafPtr)port)->fgColor = savefg;
-		}
+		short plate = (short)((color >> 4) & 0x0f);
+		short top   = (short)g_a5_4898;   /* pen top (py is baseline) */
+		short w     = StringWidth(pstr);
+		unsigned char savefg = ((CGrafPtr)port)->fgColor;
+		Rect bgr;
+
+		SetRect(&bgr, px, top, (short)(px + w), (short)(top + 9));
+		((CGrafPtr)port)->fgColor = (unsigned char)plate;
+		PaintRect(&bgr);
+		((CGrafPtr)port)->fgColor = savefg;
 	}
 	DrawString(pstr);
 }
@@ -12936,9 +12928,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 				                          * picture's jt1069 freed it */
 			jt1067();
 		}
-		if ((unsigned char)a_deep)
+		if ((unsigned char)a_deep) {
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
-		jt1113(&o10, &o12);
+			jt1113(&o10, &o12);
+			jt1193();       /* restore the full clip — the stale box
+			                 * clip (left 184) was clipping out every
+			                 * screen composed straight from the walk
+			                 * loop (the pink Encamp backdrop) */
+		} else {
+			jt1113(&o10, &o12);
+		}
 		/* TODO: the cell-change detection + re-render arms
 		 * (L64f2..L666c: jt272/jt284 hit-test, facing/coord update into
 		 * g_a5_-12286/-12287/-12288, jt312/jt280 redraw) are deferred —
@@ -13044,6 +13043,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			}
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 			jt312(ctx);
+			jt1193();       /* balance the box clip (see above) */
 		} else {
 			jt280(rec, (short)8024, (short)8092, (short)0);
 		}

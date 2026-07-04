@@ -790,3 +790,31 @@ scroll at 0x4ad6..0x4be4) are skeleton/TODO.
 (one wiring fix)**; after it, the work is the event-handler vocabulary (Gap 2),
 each independently liftable and testable. Tasks #115 (combat) + #124 (walk) live
 here.
+
+## 03s — the render-family pair: opaque text plates + the walk-loop clip leak (2026-07-03)
+
+Two API-level render fixes, both user-flagged, both with broad reach:
+
+**1. jt1089 now paints the text plate UNCONDITIONALLY (the overprint fix).**
+Ground truth: the Mac's colour-mode glyph writer is L4fae (CODE 4; JT[1136]'s
+flush takes it whenever -2347 != 0 — L4e12's Erase/Paint dither waterfall is
+the 1-BIT build only). L4fae, disasm-verified: RGBForeColor(palette[HIGH
+nibble]) + RGBBackColor(palette[LOW]) -> _PaintRect(cell) -> TextMode(3,
+srcBic) -> _DrawString. The colour word is (PLATE<<4)|TEXT and the cell is
+ALWAYS filled — there is NO transparent text in this renderer. The port's
+"transparent by default, plate only for (bg==15||fg==0)&&bg!=8" special case
+left stale glyphs under every in-place redraw: the rest-editor digits, GAME
+SPEED, round counters — the whole overprint family. Verified: main menu
+unchanged, rest editor crisp through value+field changes, SPEED digit crisp.
+
+**2. The l63c0 walk loop leaked the clock-box clip (the pink camp backdrop).**
+Two sites set jt1173(8024,8092,8058,8156) (projected clip LEFT = 184) without
+the jt1193 restore that the balanced entry site has. Every walk tick left the
+clip active, so ANY screen composed straight from the dungeon had x<184
+clipped out — the camp backdrop blit (l534a) dropped entirely, showing stale
+page bytes (the pink noise). Probe-proven: clip left 184 on the garbled pass,
+0 on the correct pass, same group/handle/args. Both sites now restore
+(jt1193) after their clipped op. Verified: the campfire renders at Encamp
+entry, dungeon walk unaffected. NOTE: the spiderweb-cell re-fire corruption
+seen while verifying is the KNOWN pre-existing "bigpic stomps wall pool on
+walk-back re-fire" (#115 memory), not this change.
