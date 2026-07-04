@@ -16440,6 +16440,226 @@ static short jt1050(short refnum)
 	return 0;                       /* noErr */
 }
 
+/* JT[1041] (CODE 5+0x56e0) — _Open: FSOpen the PB's ioNamePtr@18 on
+ * ioVRefNum@22, refnum out to ioRefNum@24. */
+static short jt1041(char async, void *pb_v) __attribute__((unused));
+static short jt1041(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	short ref = 0;
+	OSErr err;
+
+	PROBE("jt1041");
+	(void)async;
+	err = FSOpen((ConstStr255Param)(uintptr_t)
+	                 *(long *)(void *)(pb + 18),
+	             *(short *)(void *)(pb + 22), &ref);
+	*(short *)(void *)(pb + 24) = ref;
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+
+/* JT[1042] (CODE 5+0x56f2) — _Close on ioRefNum@24. */
+static short jt1042(char async, void *pb_v) __attribute__((unused));
+static short jt1042(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	OSErr err;
+
+	PROBE("jt1042");
+	(void)async;
+	err = FSClose(*(short *)(void *)(pb + 24));
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+
+/* JT[1047]/JT[1048] (CODE 5+0x585a/0x586c) — _GetEOF/_SetEOF on
+ * ioRefNum@24, length in ioMisc@28. */
+static short jt1047(char async, void *pb_v) __attribute__((unused));
+static short jt1047(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	long  eof = 0;
+	OSErr err;
+
+	PROBE("jt1047");
+	(void)async;
+	err = GetEOF(*(short *)(void *)(pb + 24), &eof);
+	*(long *)(void *)(pb + 28) = eof;
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+static short jt1048(char async, void *pb_v) __attribute__((unused));
+static short jt1048(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	OSErr err;
+
+	PROBE("jt1048");
+	(void)async;
+	err = SetEOF(*(short *)(void *)(pb + 24),
+	             *(long *)(void *)(pb + 28));
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+
+/* JT[1053] (CODE 5+0x5b34) — _Create + stamp type/creator (the Mac
+ * follows with Get/SetFileInfo); the shim Create does both. */
+static short jt1053(long creator, long fileType, short vref,
+                    long namePtr) __attribute__((unused));
+static short jt1053(long creator, long fileType, short vref,
+                    long namePtr)
+{
+	PROBE("jt1053");
+	return Create((ConstStr255Param)(uintptr_t)namePtr, vref,
+	              (OSType)creator, (OSType)fileType);
+}
+
+/* JT[1055]/JT[1056] (CODE 5+0x5d88/0x5d9e) — _OpenWD/_CloseWD
+ * (HFSDispatch sel 1/2): GEMDOS has no working-directory refnums —
+ * paths resolve against the flat mount (the GetVol treatment), so
+ * both faithfully report noErr with the PB untouched. */
+static short jt1055(char async, void *pb_v) __attribute__((unused));
+static short jt1055(char async, void *pb_v)
+{
+	PROBE("jt1055");
+	(void)async;
+	*(short *)(void *)((unsigned char *)pb_v + 16) = 0;
+	return 0;
+}
+static short jt1056(char async, void *pb_v) __attribute__((unused));
+static short jt1056(char async, void *pb_v)
+{
+	PROBE("jt1056");
+	(void)async;
+	*(short *)(void *)((unsigned char *)pb_v + 16) = 0;
+	return 0;
+}
+
+/* JT[1058] (CODE 5+0x5dee) — _DirCreate (HFSDispatch sel 6) -> the
+ * shim DirCreate; created dirID out at ioDirID@48. */
+static short jt1058(char async, void *pb_v) __attribute__((unused));
+static short jt1058(char async, void *pb_v)
+{
+	unsigned char *pb = (unsigned char *)pb_v;
+	long  dirid = 0;
+	OSErr err;
+
+	PROBE("jt1058");
+	(void)async;
+	err = DirCreate(*(short *)(void *)(pb + 22), 0L,
+	                (ConstStr255Param)(uintptr_t)
+	                    *(long *)(void *)(pb + 18),
+	                &dirid);
+	*(long *)(void *)(pb + 48) = dirid;
+	*(short *)(void *)(pb + 16) = err;
+	return err;
+}
+
+/* JT[1029] (CODE 5+0x5008) — _DisposPtr; trap result = MemError. */
+static short jt1029(long p) __attribute__((unused));
+static short jt1029(long p)
+{
+	PROBE("jt1029");
+	DisposePtr((Ptr)(uintptr_t)p);
+	return (short)MemError();
+}
+
+/* JT[1036] (CODE 5+0x5124) — _VInstall: the Falcon HAL owns the
+ * vblank (the VBL cursor/timer service); the tick side-effects the
+ * Mac tasks provided are subsumed, so install reports noErr. */
+static short jt1036(long task) __attribute__((unused));
+static short jt1036(long task)
+{
+	PROBE("jt1036");
+	(void)task;
+	return 0;
+}
+
+/* JT[1040] (CODE 5+0x5666) — THINK C low-memory vector glue (jumps
+ * through ROMBase 0x2AE / the 0x11C dispatch table / the 0x938 flag
+ * byte). No Falcon low-memory Mac globals exist; port-moot, the jt9
+ * class. */
+static void jt1040(void) __attribute__((unused));
+static void jt1040(void)
+{
+	PROBE("jt1040");
+}
+
+/* JT[1065] (CODE 5+0x4a74) — the Pack15 (trap 0xAC15) selector farm
+ * (bsr-ladder glue computing package selectors). No package manager
+ * exists on the Falcon; port-moot. */
+static long jt1065(void) __attribute__((unused));
+static long jt1065(void)
+{
+	PROBE("jt1065");
+	return 0;
+}
+
+/* JT[963] (CODE 5+0x7cc0) — clear the -3122 sound-sync counter. */
+static void jt963(void) __attribute__((unused));
+static void jt963(void)
+{
+	PROBE("jt963");
+	g_a5_word(-3122) = 0;
+}
+
+/* JT[1070] (CODE 5+0x7a04) — flush the page (l7a0e = JT[1073]) and
+ * close the print job (jt434). Full lift. */
+static void jt434(void);
+static void l7a0e(void);
+static void jt1070(void) __attribute__((unused));
+static void jt1070(void)
+{
+	PROBE("jt1070");
+	l7a0e();
+	jt434();
+}
+
+/* JT[1010] (CODE 5+0x0a20) — park a coordinate pair in the -4884 /
+ * -4882 slots (the jt1008 key-sink cursor). */
+static void jt1010(short a, short b) __attribute__((unused));
+static void jt1010(short a, short b)
+{
+	PROBE("jt1010");
+	g_a5_word(-4884) = a;
+	g_a5_word(-4882) = b;
+}
+
+/* JT[998] (CODE 5+0x289a) — read two words from `p` (jt406 4-byte
+ * copy) into *o1/*o2 and return the advanced pointer. */
+static long jt998(long p, short *o1, short *o2) __attribute__((unused));
+static long jt998(long p, short *o1, short *o2)
+{
+	unsigned char tmp[4];
+
+	PROBE("jt998");
+	jt406(tmp, (void *)(uintptr_t)p, (short)4);
+	*o1 = *(short *)(void *)(tmp + 0);
+	*o2 = *(short *)(void *)(tmp + 2);
+	return p + 4;
+}
+
+/* JT[1082] (CODE 5+0x00ec) — wait n*7 ticks (jt1134 TickCount) or
+ * until any event arrives (l0088); n == 0 waits for the event only. */
+static short l0088(void);
+static long  jt1134(void);
+static void  jt1082(short n) __attribute__((unused));
+static void  jt1082(short n)
+{
+	long t0;
+
+	PROBE("jt1082");
+	n = (short)(n * 7);
+	t0 = jt1134();
+	for (;;) {
+		if (l0088() != 0)
+			break;
+		if (n != 0 && jt1134() >= t0 + n)
+			break;
+	}
+}
+
 /* L74ae (CODE 4 + 0x74ae) — stop the queued sound-driver write:
  * jt1050 = _KillIO on driver -4 (.Sound) when one is pending
  * (g_a5_-180 > 0). (Earlier "menu-bar window close" guess was wrong —
@@ -56241,6 +56461,45 @@ static void l7ab4(const char *fmt, ...)
 		g_a5_word(-3148) = 0;
 		g_a5_word(-3146)++;
 	}
+}
+
+/* JT[428] (CODE 3+0x4868) — OPEN the print job: GetFNum("Moebius"),
+ * allocate the TPrint record (-9162), PrOpen + the style/job dialogs,
+ * save the port. No Falcon printing manager exists (the l4806/jt433
+ * verdict), so this stays a documented stub — -9162/-9163 remain
+ * clear and the print gate never opens. */
+static void jt428(void)
+{
+	PROBE("jt428");
+}
+
+/* JT[434] (CODE 3+0x4952) — CLOSE the print job: guarded on the
+ * -9162 TPrint record, which the port never allocates (jt428 above),
+ * so the faithful body is the guard alone; the PrClose/SetPort tail
+ * is unreachable. */
+static void jt434(void)
+{
+	PROBE("jt434");
+	if (g_a5_long(-9162) == 0)
+		return;
+	/* PrClosePage/PrCloseDoc/PrClose + SetPort — printing-manager
+	 * tier, unreachable until a print backend exists. */
+}
+
+/* JT[1075] (CODE 5+0x79e0) — init the pagination state: open the
+ * print job (jt428), zero the page number (-3146) and line counter
+ * (-3148), stash the header flag (-3140) and title ptr (-3144),
+ * clear -3139. Full lift (the l7ab4 header state feed). */
+static void jt1075(char flag, long title) __attribute__((unused));
+static void jt1075(char flag, long title)
+{
+	PROBE("jt1075");
+	jt428();
+	g_a5_word(-3146) = 0;
+	g_a5_word(-3148) = 0;
+	g_a5_byte(-3140) = (unsigned char)flag;
+	g_a5_long(-3144) = title;
+	g_a5_byte(-3139) = 0;
 }
 
 /* L7a0e (CODE 5 + 0x7a0e) = JT[1073] — flush to the end of the page:
