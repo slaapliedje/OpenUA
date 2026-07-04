@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1006 done (918 lifted, 26 noop, 62 alias), 41 stub, 0 stand-in, 158 missing.
+**1205 distinct JT entries are called.** Overall: 1009 done (921 lifted, 26 noop, 62 alias), 41 stub, 0 stand-in, 155 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -45,7 +45,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **45/50** | 43 | 2 | 2 | 0 | 3 |
-| 14 | 651–700 | **16/50** | 15 | 1 | 1 | 0 | 33 |
+| 14 | 651–700 | **19/50** | 18 | 1 | 1 | 0 | 30 |
 | 15 | 701–750 | **20/50** | 17 | 3 | 1 | 0 | 29 |
 | 16 | 751–800 | **35/50** | 33 | 2 | 2 | 0 | 13 |
 | 17 | 801–850 | **46/50** | 46 | 0 | 2 | 0 | 2 |
@@ -73,7 +73,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 4 | 117 | 57 | 16 | 0 | 44 | **60** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
 | CODE 5 | 129 | 92 | 7 | 0 | 30 | **37** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 125 | 0 | 0 | 0 | **0** | file-group cache + GLIB art + resource manager |
-| CODE 7 | 97 | 89 | 2 | 0 | 6 | **8** | list dialog (JT[169]) + text widgets |
+| CODE 7 | 97 | 92 | 2 | 0 | 3 | **5** | list dialog (JT[169]) + text widgets |
 | CODE 8 | 46 | 30 | 1 | 0 | 15 | **16** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (46 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (47 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l7a24`  `l4806`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l4218`  `l2d7e`
+> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l4218`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 199 pending (stub+standin+missing), by call count:
+Top 50 of 196 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt1159 (2 calls, CODE 4) — missing
@@ -342,9 +342,6 @@ Top 50 of 199 pending (stub+standin+missing), by call count:
 - jt208 (1 calls, CODE 7) — missing
 - jt219 (1 calls, CODE 7) — missing
 - jt220 (1 calls, CODE 7) — stub
-- jt227 (1 calls, CODE 7) — missing
-- jt228 (1 calls, CODE 7) — missing
-- jt230 (1 calls, CODE 7) — missing
 - jt233 (1 calls, CODE 11) — missing
 - jt235 (1 calls, CODE 11) — missing
 - jt239 (1 calls, CODE 11) — missing
@@ -383,4 +380,7 @@ Top 50 of 199 pending (stub+standin+missing), by call count:
 - jt331 (1 calls, CODE 8) — missing
 - jt332 (1 calls, CODE 8) — missing
 - jt333 (1 calls, CODE 8) — missing
+- jt334 (1 calls, CODE 8) — missing
+- jt335 (1 calls, CODE 8) — missing
+- jt336 (1 calls, CODE 8) — missing
 

@@ -55929,6 +55929,65 @@ static unsigned char jt348(short n)
 	return *(g_a5_13038 + (long)b * 20 - 20);
 }
 
+/* JT[227] (CODE 7+0x0040) — count the occupied rows of the -13038
+ * NCR record table (100 rows, 20-byte stride, byte 0 = in use);
+ * 0 when the table isn't loaded. Full lift (band 7). */
+static short jt227(void) __attribute__((unused));
+static short jt227(void)
+{
+	short i, n = 0;
+
+	PROBE("jt227");
+	if (g_a5_13038 == NULL)
+		return 0;
+	for (i = 0; i < 100; i++)
+		if (g_a5_13038[(long)i * 20] != 0)
+			n++;
+	return n;
+}
+
+/* JT[228] (CODE 7+0x0088) — the first FREE -13038 row's 1-based id;
+ * 0 when the table is full or unloaded. Full lift (band 7). */
+static short jt228(void) __attribute__((unused));
+static short jt228(void)
+{
+	short i;
+
+	PROBE("jt228");
+	if (g_a5_13038 == NULL)
+		return 0;
+	for (i = 0; i < 100; i++)
+		if (g_a5_13038[(long)i * 20] == 0)
+			return (short)(i + 1);
+	return 0;
+}
+
+/* L4e8a (CODE 7+0x4e8a) — the -13038 record lookup jt230 wraps
+ * (returns a 0-based index or < -1). Leaf PROBE stub pending its
+ * own lift; -2 = "not found" keeps jt230's contract (-2 + no
+ * adjust = still negative). */
+static short l4e8a(long a, long b)
+{
+	PROBE("L4e8a");
+	(void)a; (void)b;
+	return -2;
+}
+
+/* JT[230] (CODE 7+0x0110) — l4e8a lookup with the 0-based -> 1-based
+ * adjustment (indices >= -1 get +1; deeper negatives pass through).
+ * Full lift (band 7). */
+static short jt230(long a, long b) __attribute__((unused));
+static short jt230(long a, long b)
+{
+	short w;
+
+	PROBE("jt230");
+	w = l4e8a(a, b);
+	if (w >= -1)
+		w++;
+	return w;
+}
+
 /* JT[351] (CODE 8+0x73f8) — fixed-arg wrapper: JT[209](1). */
 static void jt351(void) __attribute__((unused));
 static void jt351(void)
