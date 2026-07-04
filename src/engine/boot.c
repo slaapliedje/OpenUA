@@ -3430,7 +3430,7 @@ static void  jt510(void)                   { PROBE("jt510"); }  /* CODE 13+0x6d1
 /* JT[512] (CODE 14 + 0x5d8e) — the Mac body is a bare `rts` (verified
  * disasm). Genuinely a no-op hook; this stub IS the faithful lift. */
 static void  jt512(void)                   { PROBE("jt512"); }
-static void  jt954(void)                   { PROBE("jt954"); }  /* CODE 21+0x38f4 — l2e42 move-code 3 */
+static void  jt954(void);   /* CODE 21+0x38f4 — l2e42 move-code 3; full lift near l2e42 */
 static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE 15+0x1188 — l380a effect apply */
 /* JT[99] == l4b84 (CODE 6+0x4b84) — jt99(11,0,-14644) just calls jt175() (the
  * page-pause); args are discarded, so callers use the lifted l4b84() directly. */
@@ -41684,6 +41684,69 @@ static void l380a(void *ev_v)
  * (+2 mod 8) — both re-render via jt202/jt221 — 3 = jt954, 0 = hold. Every
  * frame refreshes (jt476 delay + L4108 + jt20 + L085e + jt938). jt954 (CODE
  * 21) is a new PROBE stub; L40b4 the shared setup stub. */
+/* JT[954] (CODE 21 + 0x38f4) — l2e42 move-code 3: step the party one
+ * cell forward through a scripted event-movement cutscene. Footstep
+ * sound (jt52 11) + a beat (jt476 50), then advance the col/row party
+ * coords (-12288 / -12287) by the facing's delta (the shared -27862 /
+ * -27853 direction tables indexed by -12286), wrapping each toroidally
+ * against the level record's width (-12300[3]) / height (-12300[2]).
+ * Recompute the derived view cells (jt202 -> -12285, jt201 -> -12284),
+ * reset the per-step scratch (-22727 filled with 1s, -4930 cleared),
+ * and refresh the view (jt914; the -28006 rec[25] bit 0 picks the
+ * 2-pass vs 1-pass redraw). Full lift — un-stubs the code-3 arm of the
+ * cutscene mover (the stub did nothing, so those forward steps were
+ * silently dropped). */
+static void jt914(short count, short idx);      /* CODE 19+0x35c, below */
+static void jt954(void)
+{
+	unsigned char *lvl;
+	short facing, bound;
+
+	PROBE("jt954");
+	jt52((short)11);
+	jt476((short)50);
+
+	facing = (short)(unsigned char)g_a5_byte(-12286);
+	g_a5_byte(-12288) = (unsigned char)(g_a5_byte(-12288)
+	    + (signed char)g_a5_byte(-27862 + facing));
+	g_a5_byte(-12287) = (unsigned char)(g_a5_byte(-12287)
+	    + (signed char)g_a5_byte(-27853 + facing));
+
+	lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	if ((signed char)g_a5_byte(-12288) < 0)
+		g_a5_byte(-12288) = (unsigned char)((unsigned char)lvl[3] - 1);
+	bound = (short)((unsigned char)lvl[3] - 1);
+	if ((short)(signed char)g_a5_byte(-12288) > bound)
+		g_a5_byte(-12288) = 0;
+	if ((signed char)g_a5_byte(-12287) < 0)
+		g_a5_byte(-12287) = (unsigned char)((unsigned char)lvl[2] - 1);
+	bound = (short)((unsigned char)lvl[2] - 1);
+	if ((short)(signed char)g_a5_byte(-12287) > bound)
+		g_a5_byte(-12287) = 0;
+
+	g_a5_byte(-12285) = (unsigned char)jt202(
+	    (short)(signed char)g_a5_byte(-12288),
+	    (short)(signed char)g_a5_byte(-12287),
+	    (short)(unsigned char)g_a5_byte(-12286));
+
+	jt399(&g_a5_byte(-22727), (short)4, (short)1);
+	jt399(&g_a5_byte(-4930), (short)12, (short)0);
+
+	g_a5_byte(-12284) = (unsigned char)jt201(
+	    (short)(signed char)g_a5_byte(-12288),
+	    (short)(signed char)g_a5_byte(-12287));
+
+	{
+		unsigned char *rec =
+		    (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+		if (rec != NULL && (rec[25] & 1) != 0)
+			jt914((short)1, (short)2);
+		else
+			jt914((short)1, (short)1);
+	}
+}
+
 static void l2e42(void *ev_v)
 {
 	unsigned char *ev  = (unsigned char *)ev_v;

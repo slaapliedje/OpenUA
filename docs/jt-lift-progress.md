@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1117 done (1001 lifted, 49 noop, 67 alias), 16 stub, 0 stand-in, 72 missing.
+**1205 distinct JT entries are called.** Overall: 1118 done (1002 lifted, 49 noop, 67 alias), 15 stub, 0 stand-in, 72 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -53,7 +53,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 21 | 1001–1050 | **49/50** | 48 | 1 | 0 | 0 | 1 |
-| 22 | 1051–1100 | **33/50** | 28 | 5 | 8 | 0 | 9 |
+| 22 | 1051–1100 | **34/50** | 29 | 5 | 7 | 0 | 9 |
 | 23 | 1101–1150 | **44/50** | 37 | 7 | 2 | 0 | 4 |
 | 24 | 1151–1200 | **44/50** | 36 | 8 | 1 | 0 | 5 |
 | 25 | 1201–1205 | **4/5** | 3 | 1 | 0 | 0 | 1 |
@@ -87,7 +87,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 18 | 171 | 171 | 0 | 0 | 0 | **0** | combat engine (jt610 / jt856 / l4d98 / l709e) |
 | CODE 19 | 35 | 33 | 0 | 0 | 2 | **2** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 13 | 0 | 0 | 1 | **1** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
-| CODE 21 | 9 | 7 | 2 | 0 | 0 | **2** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
+| CODE 21 | 9 | 8 | 1 | 0 | 0 | **1** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 48 | 0 | 0 | 3 | **3** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 88 pending (stub+standin+missing), by call count:
+Top 50 of 87 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt233 (1 calls, CODE 11) — missing
