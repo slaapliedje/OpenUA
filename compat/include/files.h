@@ -70,6 +70,8 @@ OSErr SetFPos(short refNum, short posMode, long posOff);
 OSErr Create(ConstStr255Param fileName, short vRefNum,
              OSType creator, OSType fileType);
 OSErr FSDelete(ConstStr255Param fileName, short vRefNum);
+OSErr DirCreate(short vRefNum, long parentDirID,
+                ConstStr255Param dirName, long *createdDirID);
 
 OSErr GetFInfo(ConstStr255Param fileName, short vRefNum, FInfo *fndrInfo);
 OSErr SetFInfo(ConstStr255Param fileName, short vRefNum,

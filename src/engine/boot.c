@@ -490,6 +490,74 @@ static short l328e(const char *buf, short vRefNum, short flags)
 	return ref;
 }
 
+/* JT[418] (CODE 3+0x32e2) — "save file as...": SFPutFile (_Pack3
+ * sel 2, anchored at (60,15), default name = `name` Pascal-ified via
+ * l45d6, up to 4 optional hook longs packed from the vararg tail),
+ * then l328e-open the reply's file with `flags`; -1 when the user
+ * cancels. Callers: the CODE 10 art-gallery picture export.
+ * PORT: there is no Standard File dialog on the Falcon (the l341a
+ * precedent — GEMDOS-moot); the faithful surround is kept and the
+ * dialog itself reports CANCELLED, so the export declines cleanly.
+ * Upgrade path: a shim-native save prompt (jt169-style) can slot in
+ * where the _Pack3 trap sat. */
+static short jt418(const char *name, short flags, ...) __attribute__((unused));
+static short jt418(const char *name, short flags, ...)
+{
+	char buf[160];
+
+	PROBE("jt418");
+	(void)flags;
+	l45d6(buf, name);                        /* the default-name prompt */
+	/* _Pack3 SFPutFile would run here; reply.good = false. */
+	return -1;
+}
+
+/* JT[427] (CODE 3+0x539a) — delete the named file: Pascal-ify via
+ * l45d6, then _Delete (JT[1054]) on vRefNum 0 -> the shim FSDelete.
+ * Callers: the CODE 22 Delete-Design menu worker. */
+static short jt427(const char *name) __attribute__((unused));
+static short jt427(const char *name)
+{
+	char buf[256];
+
+	PROBE("jt427");
+	l45d6(buf, name);
+	return (short)FSDelete((ConstStr255Param)buf, 0);
+}
+
+/* JT[435] (CODE 3+0x52c0) — create the folder named by `path`, full
+ * lift: strip a lone leading ':'; a path with an embedded ':' gets a
+ * trailing ':' appended after the l45d6 copy (the Mac's folder-path
+ * spelling); otherwise resolve the default volume/dir (_GetVol WDPB
+ * -> ioWDVRefNum/ioWDDirID; the port's jt1057 fills ioVRefNum, and
+ * GEMDOS resolves relative paths against the current dir anyway).
+ * Then _DirCreate (JT[1058]) -> the shim DirCreate. Callers: the
+ * CODE 8 file-prefix tier ensuring the SAVE folder exists. The -9034
+ * A5 buffer holds the built Pascal path, as on the Mac. */
+static short jt435(const char *path) __attribute__((unused));
+static short jt435(const char *path)
+{
+	char *pbuf = (char *)(void *)&g_a5_buf(-9034)[0];
+	const char *colon;
+
+	PROBE("jt435");
+	colon = strchr(path, ':');
+	if (colon == NULL || *colon == 0 || path[0] == ':') {
+		if (path[0] == ':' && strchr(path + 1, ':') == NULL)
+			path++;
+		/* the Mac collects the default vol/dir here (jt1057
+		 * GetVol); GEMDOS-relative paths need neither. */
+		l45d6(pbuf, path);
+	} else {
+		unsigned char *pb = (unsigned char *)pbuf;
+
+		l45d6(pbuf, path);
+		pb[(unsigned char)pb[0] + 1] = ':';
+		pb[0]++;
+	}
+	return (short)DirCreate(0, 0L, (ConstStr255Param)pbuf, NULL);
+}
+
 /*
  * jt398 — CODE 3 + 0x37e4. Phase-3 control-file probe: opens / probes a
  * file by path. Two top-level branches:
@@ -55792,12 +55860,52 @@ static unsigned char l7a24(void)
 	return 1;
 }
 
-/* JT[433] (CODE 3+0x49a2) — emit one character to the message
- * window/print stream. Leaf PROBE stub pending its own lift. */
+/* L4806 (CODE 3+0x4806) — the Printing Manager page rollover
+ * (close page / open page / home the pen / TextFont -9152 size 7),
+ * gated on the -9164 print-job flag. There is no Falcon printing
+ * manager and no port path ever opens a print job, so this stays a
+ * PROBE stub — unreachable until a print backend exists. */
+static void l4806(void)
+{
+	PROBE("L4806");
+}
+
+/* JT[433] (CODE 3+0x49a2) — emit one character to the PRINT stream
+ * (the journal/paragraph printer), full lift. No-op while the print
+ * gate -9163 is clear (always, in the port, until a print job can
+ * open). Gated arms: '\n' bumps the -9154 line counter (page-feeds
+ * via the recursive '\f' arm at 66 lines) and re-homes the pen one
+ * 11/12-pt line down (-9146 picks the leading); '\f' runs the L4806
+ * page rollover; anything else DrawChars at the pen and advances 7px
+ * (the 7px monospace print cell). */
 static void jt433(short ch)
 {
+	Point pt;
+
 	PROBE("jt433");
-	(void)ch;
+	if (g_a5_byte(-9163) == 0)
+		return;
+	switch (ch) {                           /* JT[3] @0x49b8, 10..12 */
+	case 10:
+		g_a5_word(-9154)++;
+		if ((short)g_a5_word(-9154) >= 66) {
+			jt433((short)12);
+		} else {
+			GetPen(&pt);
+			MoveTo(0, (short)(pt.v
+			       + (g_a5_byte(-9146) != 0 ? 11 : 12)));
+		}
+		break;
+	case 12:
+		l4806();
+		break;
+	case 11:
+	default:
+		GetPen(&pt);
+		DrawChar(ch);
+		MoveTo((short)(pt.h + 7), pt.v);
+		break;
+	}
 }
 
 /* L7ab4 = JT[1076] (CODE 5+0x7ab4) — the message-window pagination

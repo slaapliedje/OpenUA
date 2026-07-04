@@ -310,6 +310,30 @@ OSErr FSDelete(ConstStr255Param fileName, short vRefNum)
 	return noErr;
 }
 
+/* HFS DirCreate (_FSDispatch sel 6) -> GEMDOS Dcreate. The Mac dirID
+ * scheme has no GEMDOS analogue: parentDirID is ignored (the path is
+ * resolved against the current directory, like every other call here)
+ * and *createdDirID reports 0. An already-existing directory returns
+ * noErr — callers use this as "ensure the folder exists". */
+OSErr DirCreate(short vRefNum, long parentDirID,
+                ConstStr255Param dirName, long *createdDirID)
+{
+	char path[MAX_PATH];
+	long r;
+
+	(void)vRefNum;
+	(void)parentDirID;
+	if (dirName == NULL)
+		return paramErr;
+	mac_path_to_c(dirName, path, sizeof path);
+	if (createdDirID != NULL)
+		*createdDirID = 0;
+	r = Dcreate(path);
+	if (r < 0 && r != -36)                  /* EACCDN: already exists */
+		return gemdos_err(r);
+	return noErr;
+}
+
 OSErr GetFInfo(ConstStr255Param fileName, short vRefNum, FInfo *fndrInfo)
 {
 	char           path[MAX_PATH];
