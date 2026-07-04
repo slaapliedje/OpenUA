@@ -3068,6 +3068,7 @@ static void jt936(long member, short highlight)
 static void  jt955(void) __attribute__((unused));
 static void  jt955(void)              { PROBE("jt955"); }   /* CODE 21+0x453c — used by a deferred jt948 arm */
 static void  l0006_20(void);          /* CODE 20+0x6 — play-entry combat/event init (lifted below) */
+static int   g_clut_clobbered;        /* tentative decl — dungeon CLUT dirtied by another screen (defined below) */
 /* ---- l709e event-handler arms (CODE 20 locals) — level-1 stubs, the deferred
  * per-event-type dispatch of the l709e skeleton below. Each is one dungeon
  * special-event type (message / give / combat / stairs / teleport / ...), to be
@@ -3695,6 +3696,19 @@ static void jt948(void)
 				unsigned char *fpx; short fpitch, fsw, fsh;
 				if (qd_screen_pixels(&fpx, &fpitch, &fsw, &fsh)
 				    && fpx != NULL && (short)g_a5_18878 >= 5) {
+					/* We arrive from a NON-play screen (Hall/menu/
+					 * camp) that overwrote the wall CLUT bands
+					 * (32/64/96) without going through jt1069 — so
+					 * g_clut_clobbered is clear, AND on a re-entry the
+					 * wall ids are unchanged, so the render's
+					 * wall-reload is skipped and the viewport paints
+					 * against the stale (menu) band = green/blue
+					 * garble (probe-confirmed: render_3d_faithful runs
+					 * with clob=0, grp==ds, no cw_finalize). Flag the
+					 * CLUT dirty so the entry render re-reads +
+					 * re-commits the wall + backdrop bands from disk
+					 * (play-loop-wall 03z). */
+					g_clut_clobbered = 1;
 					port_draw_play_frame(fpx, fpitch, fsw, fsh);
 					jt935();           /* re-render the view over the frame */
 					jt937(g_a5_long(-27932));
