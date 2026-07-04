@@ -897,3 +897,41 @@ Probe-driven correction of 03t — the second-cycle framing was WRONG:
 Repro/harness notes: the entry event fires at 'b' (BEGIN) — gate screenshots
 BEFORE pressing 'c' (which answers the prompt as CUT WEB). The Hall drive
 letters: l = LOAD SAVED GAME, a = save A pick + Hall refresh, b = BEGIN.
+
+## 03x — #144 investigated: the double-buffer model is CORRECT; the entry black is PALETTE (2026-07-03)
+
+Deep probe of the entry-black (the "second-cycle garble" from 03w). The #144
+premise — "off-screen compose, present once, faithful jt1146/jt1153 double-
+buffer" — is the WRONG target for this bug. Findings, all measured:
+
+1. The chunky surface is SINGLE and persistent (compat/quickdraw's screen
+   port baseAddr == platform/display_videl's g_surface.pixels; qd_screen_pixels
+   returns exactly what videl_present LUT-blits). #144's "double-buffer at the
+   page-descriptor level" doesn't exist — jt1146/jt1153 already collapse to the
+   HAL present. The 16bpp triple-buffer is display-side only and full-frame.
+2. During the entry prompt, qd_present is called ~1770x (every idle-pump
+   iteration), and the viewport-region checksum of g_surface is IDENTICAL on
+   every one (938619) — the composed content IS in the surface AND IS being
+   presented, frame-stably. So "present once" is a PERF optimisation (stop
+   presenting 1770x for one idle screen), NOT a correctness fix.
+3. The pixels ARE there but map to BLACK: viewport row-60 sample =
+   {0,0,146,147,148,147,0,0} (structured, a centred element), and the CLUT
+   probe shows clut[40]=0 and clut[146] flips 0->5516 across frames. The
+   FRAME-chrome / backdrop palette is UNCOMMITTED (or committed late) during
+   the entry-event compose.
+4. ROOT: the entry-event path (l4b56 -> l709e(special) -> the type-10 l3b0e
+   prompt) composes via jt23 case 4 (l67ca chrome + jt937/jt938 text) but does
+   NOT run the port's port_draw_play_frame / play-palette commit that the WALK
+   LOOP's compose (jt312 region) does — so CLUT 16..31 (FRAME) and the backdrop
+   range never load before the prompt shows. Text renders (jt1089/jt1161 remap
+   through jt1006 onto committed slots); raw chrome/backdrop indices (40, 146)
+   hit uncommitted CLUT = black.
+
+RECLASSIFY: this is a #125-family PALETTE-commit gap on dungeon entry, not
+#144. The real #144 (present-once perf) is independent and low-priority. The
+FIX for the black: commit the play-screen palette (the FRAME 16..31 range +
+the backdrop range) in the entry compose before the landing-cell event fires
+— i.e. route the pre-event compose through the same palette path the walk
+loop uses, or call port_draw_play_frame / jt85 at l4b56 before l709e(special).
+Speculative fixes tried and reverted (none addressed the palette): boot clip
+seed, jt1193-at-entry, forced qd_present after l709e.
