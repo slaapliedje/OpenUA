@@ -27916,6 +27916,146 @@ static short l6f68(unsigned char *r)
 static long l05e4(void) __attribute__((unused));
 static long l05e4(void) { PROBE("L05e4"); return g_a5_long(-3076); }
 
+/* L05dc / L05ea are defined just below in this codec block. */
+static long l05dc(void);
+static void l05ea(short n, short row);
+
+/* JT[1110] (CODE 4+0x79ce) — the ticks-per-minute constant (3600). */
+static short jt1110(void) __attribute__((unused));
+static short jt1110(void) { PROBE("jt1110"); return 3600; }
+
+/* JT[1165] (CODE 4+0x066a) — opaque word-copy blit: `rows` rows of
+ * `wbytes` bytes from `src` to the aligned GLIB cursor, source rows
+ * `srcskip` apart, dest rows g_a5_3084 apart; cursor left at the
+ * next row. Full lift (band 7). */
+static void jt1165(const void *src_v, short rows, short wbytes,
+                   short srcskip) __attribute__((unused));
+static void jt1165(const void *src_v, short rows, short wbytes,
+                   short srcskip)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	unsigned char *row;
+	long stride = g_a5_long(-3084);
+	short r, i, nw = (short)(wbytes >> 1);
+
+	PROBE("jt1165");
+	l05ea(rows, wbytes);
+	row = (unsigned char *)(uintptr_t)l05dc();
+	for (r = 0; r < rows; r++) {
+		unsigned char *dst = row;
+
+		for (i = 0; i < nw; i++) {
+			*(short *)(void *)dst =
+			    *(const short *)(const void *)src;
+			dst += 2; src += 2;
+		}
+		src += srcskip;
+		row += stride;
+	}
+	g_a5_long(-3076) = (long)(uintptr_t)row;
+}
+
+/* JT[1172] (CODE 4+0x0778) — masked word blit: per word the dest is
+ * ANDed with the mask stream then XORed with the source stream (the
+ * classic 1bpp sprite composite). Word-aligned cursor. Full lift. */
+static void jt1172(const void *src_v, const void *mask_v, short rows,
+                   short wbytes, short skip) __attribute__((unused));
+static void jt1172(const void *src_v, const void *mask_v, short rows,
+                   short wbytes, short skip)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *msk = (const unsigned char *)mask_v;
+	unsigned char *row;
+	long stride = g_a5_long(-3084);
+	short r, i, nw = (short)(wbytes >> 1);
+
+	PROBE("jt1172");
+	l05ea(rows, wbytes);
+	row = (unsigned char *)(uintptr_t)l05dc();
+	for (r = 0; r < rows; r++) {
+		unsigned char *dst = row;
+
+		for (i = 0; i < nw; i++) {
+			*(short *)(void *)dst = (short)
+			    ((*(short *)(void *)dst
+			      & *(const short *)(const void *)msk)
+			     ^ *(const short *)(const void *)src);
+			dst += 2; src += 2; msk += 2;
+		}
+		src += skip;
+		msk += skip;
+		row += stride;
+	}
+	g_a5_long(-3076) = (long)(uintptr_t)row;
+}
+
+/* JT[1176] (CODE 4+0x07dc) — masked BYTE blit (the 8bpp sibling of
+ * jt1172): dest &= mask, dest ^= src per byte; unaligned cursor
+ * (l05e4). Full lift (band 7). */
+static void jt1176(const void *src_v, const void *mask_v, short rows,
+                   short wbytes, short skip) __attribute__((unused));
+static void jt1176(const void *src_v, const void *mask_v, short rows,
+                   short wbytes, short skip)
+{
+	const unsigned char *src = (const unsigned char *)src_v;
+	const unsigned char *msk = (const unsigned char *)mask_v;
+	unsigned char *row;
+	long stride = g_a5_long(-3084);
+	short r, i;
+
+	PROBE("jt1176");
+	l05ea(rows, wbytes);
+	row = (unsigned char *)(uintptr_t)l05e4();
+	for (r = 0; r < rows; r++) {
+		unsigned char *dst = row;
+
+		for (i = 0; i < wbytes; i++) {
+			*dst = (unsigned char)((*dst & *msk++) ^ *src++);
+			dst++;
+		}
+		src += skip;
+		msk += skip;
+		row += stride;
+	}
+	g_a5_long(-3076) = (long)(uintptr_t)row;
+}
+
+/* JT[1203] (CODE 4+0x212c) — expand one compression code through the
+ * dictionary: codes >= 256 recurse on the parent at tbl[code*2+2050]
+ * and then emit the suffix byte tbl[code+1026]; literals emit
+ * directly. Returns the first (deepest) byte of the expansion — the
+ * jt1204 remap's decode-side sibling. Full lift (band 7). */
+static char jt1203(char **out, short code, const unsigned char *tbl)
+                                          __attribute__((unused));
+static char jt1203(char **out, short code, const unsigned char *tbl)
+{
+	char r;
+
+	PROBE("jt1203");
+	if (code >= 256) {
+		r = jt1203(out,
+		           *(const short *)(const void *)
+		               (tbl + (long)code * 2 + 2050),
+		           tbl);
+		*(*out)++ = (char)tbl[code + 1026];
+		return r;
+	}
+	*(*out)++ = (char)code;
+	return (char)code;
+}
+
+/* JT[1158] (CODE 4+0x4c48) — tear down the play window: reset the
+ * -2570/-2462 rects, drop the window's palette (GetPalette /
+ * DisposePalette on -2578) and DisposeWindow it. HAL-moot (the
+ * jt1044/jt1050 class): the port's play window IS the HAL screen —
+ * never allocated, never disposed; the Palette Manager tier has no
+ * port object. Documented no-op. */
+static void jt1158(void) __attribute__((unused));
+static void jt1158(void)
+{
+	PROBE("jt1158");
+}
+
 /* L04f0 (CODE 4 + 0x04f0) — the GLIB pixel-depth shift: 3 (1bpp packed) when
  * g_a5_2347 is clear, else 0/1 by the g_a5_1312 colour-mode flag. */
 static long l04f0(void) __attribute__((unused));
