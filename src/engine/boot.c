@@ -345,7 +345,35 @@
                          * live in platform/dbglog.c); only the per-call PROBE
                          * trace is gated, so harnesses can dbg_log without the
                          * full probe flood. */
-#ifdef FRUA_ENGINE_PROBE
+#if defined(FRUA_ENGINE_PROBE_ONCE)
+/* Coverage-set probe: log each PROBE name ONCE per run, to DBG.LOG via
+ * dbg_file_num — the console variant below is invisible under
+ * FRUA_NO_CONOUT (Cconws lands on Logbase), and its per-call flood is
+ * too slow for a full interactive session. Dedupe keys on the string
+ * literal's ADDRESS (each site has its own literal; if -fmerge-constants
+ * folds same-name literals we just log once — either way the SET of
+ * names hit is exact). Move-to-front keeps hot re-hits O(1). */
+static const char *g_probe_seen[1024];
+static short g_probe_seen_n;
+static void probe_once(const char *name)
+{
+	short i;
+	for (i = 0; i < g_probe_seen_n; i++) {
+		if (g_probe_seen[i] == name) {
+			if (i > 0) {            /* move-to-front */
+				g_probe_seen[i] = g_probe_seen[0];
+				g_probe_seen[0] = name;
+			}
+			return;
+		}
+	}
+	if (g_probe_seen_n < 1024) {
+		g_probe_seen[g_probe_seen_n++] = name;
+		dbg_file_num(name, 0);
+	}
+}
+#  define PROBE(name) probe_once("stub: " name)
+#elif defined(FRUA_ENGINE_PROBE)
 #  define PROBE(name) dbg_log("stub: " name)
 #else
 #  define PROBE(name) ((void)0)
@@ -583,7 +611,7 @@ static void color_mode_init(void)
 /* JT[1130] (CODE 4+0x61f6) — bare rts on the Mac; a faithful no-op. */
 static void  jt1130(void)                          { PROBE("jt1130"); }
 static void  jt920(void)                           { PROBE("jt920"); }
-static void  jt956(void)                           { PROBE("jt956"); }
+static void  jt956(void)                           { PROBE("jt956"); }  /* CODE 21+0x326a: literal `rts` on the Mac — faithful no-op (disasm-verified 2026-07-04) */
                                                    /* first CODE 21 entry */
 
 /* JT[1009] (CODE 5 + 0x0a34) — push paint-stack frame.
@@ -3291,7 +3319,26 @@ static void  l1176(void);                  /* combat NPC-ally spawn (lifted belo
 static void  jt511(void);                   /* CODE 13 combat tail — lifted below */
 static void  l4d26(void *ev);              /* message/text event — defined after its deps */
 static void  l28b0(void *ev, short f);     /* give/take treasure — defined after its deps */
-static void  l40b4(void)                   { PROBE("L40b4"); }
+/* L40b4 (CODE 20+0x40b4) — post-event view refresh: unless the event
+ * set the -5214 suppress flag, or the mode transition hides the view
+ * (mode 3, or mode 2 arriving from previous-mode 3), re-render the 3D
+ * view at the party cell (jt221), repaint the clock/position HUD
+ * (jt938) and flush (jt102). Always clears the suppress flag. */
+static void  jt102(void);
+static void  l40b4(void)
+{
+	PROBE("L40b4");
+	if (g_a5_byte(-5214) == 0
+	    && (char)g_a5_27990 != 3
+	    && !((char)g_a5_27990 == 2 && (char)g_a5_27989 == 3)) {
+		jt221((short)(signed char)g_a5_12288,
+		      (short)(signed char)g_a5_12287,
+		      (short)(unsigned char)g_a5_12286);
+		jt938();
+		jt102();
+	}
+	g_a5_byte(-5214) = 0;
+}
 static void  l1f76(void *ev);              /* affect-party effect event — defined after its deps */
 static void  l5676(void *ev, short t);     /* stairs / level change — defined after its deps */
 static void  l2d32(void *ev, short a);     /* in-dungeon Training Hall event — defined after its deps */
@@ -3568,7 +3615,9 @@ static void  l709e(short a)
 }
 static void  l473e(short a);          /* CODE 20-local — rest trigger, defined after jt957 */
 static void  l47f2(void)              { PROBE("L47f2"); }   /* CODE 20-local */
-static signed char l4738(void)        { PROBE("L4738"); return 0; }  /* CODE 20-local */
+/* L4738 (CODE 20+0x4738) — read the -4944 play-loop predicate flag
+ * (faithful 2-instruction getter; disasm-verified 2026-07-04). */
+static signed char l4738(void)        { PROBE("L4738"); return (signed char)g_a5_4944; }
 static short jt240(short cmd, long *flagsp, unsigned char *rec);     /* deep walk loop (CODE 11+0x4ffe), defined below */
 /* The command-bar index L63c0 latches on exit (jt152/l25b6 result, 0..7 =
  * Move/Area/Cast/View/Encamp/Search/Look/Inv), or -1 for an Esc / non-command
@@ -7538,7 +7587,9 @@ static int     jt117(void)
 	l3994();
 	return 0;
 }
-static int     jt146(void)                          { PROBE("jt146"); return 0; }
+/* JT[146] (CODE 7+0x1586) — read the -13004 dialog-done byte (the jt161
+ * setter's pair; faithful 2-instruction getter, disasm-verified). */
+static int     jt146(void)                          { PROBE("jt146"); return (int)g_a5_byte(-13004); }
 static void    jt161(short a)                       { PROBE("jt161"); g_a5_byte(-13004) = (unsigned char)a; }   /* CODE 7+0x158c */
 
 /* DLItem record layout — kept here so JT[444] (above the JT[452]
@@ -12112,8 +12163,32 @@ static int         jt273(void)
 	PROBE("jt273");
 	return (v <= 4) ? (int)v : 0;
 }
-static void        l4226(void *rec)                     { PROBE("L4226"); (void)rec; }        /* CODE 11-local */
-static void        l4268(void *rec)                     { PROBE("L4268"); (void)rec; }        /* CODE 11-local */
+/* L4268 (CODE 11+0x4268) — fill the rec's 8-byte view-slot band
+ * rec[30..37] with 0xFF (disasm-verified faithful lift 2026-07-04). */
+static void        l4268(void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+	short          i;
+
+	PROBE("L4268");
+	for (i = 0; i < 8; i++)
+		rec[30 + i] = 0xff;
+}
+/* L4226 (CODE 11+0x4226) — reset the play rec's view state: rec[5]=1
+ * (view live), rec[29]=0 (derived from !rec[5]), rec[4]=0 (area kind),
+ * word@rec[6]=0, then L4268's 0xFF band fill (disasm-verified). */
+static void        l4226(void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+
+	PROBE("L4226");
+	rec[5] = 1;
+	rec[29] = (unsigned char)(rec[5] == 0 ? 1 : 0);
+	rec[4] = 0;
+	rec[6] = 0;
+	rec[7] = 0;                     /* clrw a0@(6) — word at rec+6 */
+	l4268(rec);
+}
 static short       jt354(void)                          { PROBE("jt354"); return (short)jt1160(); }   /* CODE 8+0x5ef8: thunk to JT[1160] */
 static void        jt365(void)                          { PROBE("jt365"); }                   /* CODE 8+0x7238 */
 /* JT[358] (CODE 8+0x6e4a) — read the game counter byte g_a5_-10374
@@ -13367,7 +13442,10 @@ static void jt213(short a, short b, short c)
 	l5752(ra, rb, g_a5_word(-12282), g_a5_word(-12280),
 	      (short)(unsigned char)c);
 }
-static void jt1088(void)      { PROBE("jt1088"); }              /* CODE 5+0xa8 */
+/* JT[1088] (CODE 5+0xa8) — drain the event queues: pop pending events
+ * (jt441/jt439), drain the mask-7 OS queue (jt440), then reset (jt438).
+ * Deps are the lifted CODE 3 event-shim wrappers; defined after them. */
+static void jt1088(void);     /* body after jt438..jt441 below */
 
 /* JT[304] (CODE 22 + 0x17ca) — the automap-view setup jt237 runs before its
  * cell pass. Picks the view anchor by area kind (dungeon 8008,8004 / wilderness
@@ -15917,14 +15995,13 @@ static void l725c(short mask)
  *   short L6804(void) { return _FrontWindow() == g_a5_-2578; }
  *
  * Used by jt1134 to keep yielding to the OS until the engine's
- * own window regains focus.
- *
- * Stub: window Z-order isn't tracked yet, so always report front
- * so jt1134's event-pump loop exits after one iteration. */
+ * own window regains focus. Faithful lift (the shim tracks window
+ * Z-order): FrontWindow() == the -2578 app window, seq/negb -> 1/0. */
 static signed char l6804(void)
 {
 	PROBE("L6804");
-	return 1;
+	return (signed char)((long)(uintptr_t)FrontWindow()
+	                     == g_a5_long(-2578));
 }
 
 /* jt1044 (CODE 5 + 0x5716), jt1050 (CODE 5 + 0x59ee) — Window
@@ -24441,7 +24518,6 @@ static void jt476(short n)
 /* JT[102] (CODE 6 + 0x4b90, 29 sites) — "pause for one game-speed
  * beat": reads the speed byte at offset 18 of the g_a5_28006 record,
  * scales it by 100, and hands it to the tick-paced wait jt476. */
-static void jt102(void) __attribute__((unused));
 static void jt102(void)
 {
 	const unsigned char *p;
@@ -52750,7 +52826,13 @@ static short l217e(void)                             { PROBE("L217e");
                                                        return g_a5_13016; }
 static void  l2170(short arg)                        { PROBE("L2170");
                                                        g_a5_13016 = arg; }
-static signed char l15bc(void)                       { PROBE("L15bc"); return 0; }
+/* L15bc (CODE 7+0x15bc) = JT[177] — read the dialog-abort byte that
+ * jt170 sets (faithful 2-instruction getter; disasm-verified). */
+static signed char l15bc(void)
+{
+	PROBE("L15bc");
+	return (signed char)g_a5_byte(-13005);
+}
 
 /* Forward decl — jt142 (the option-button click proc) is defined later. */
 static void jt142(short y, short x);
@@ -56079,11 +56161,10 @@ static void jt295(short y, short x, short b1, short b2, short b3);
  * port's jt312(unsigned char *page) is the play-screen present with an
  * ADAPTED signature — reconcile against the CODE 22 asm before
  * repointing (the Mac pushes (ctx, a) here). Stub until then. */
-static void l23ee(long ctx, short a)
-{
-	PROBE("L23ee");
-	(void)ctx; (void)a;
-}
+/* l23ee = JT[312] (CODE 22+0x23ee, the dungeon-view render) — was a
+ * PROBE stub shadowing the jt312 lift; repointed 2026-07-04. The Mac
+ * caller pushes (ctx, word 0) but the body reads only the ctx handle
+ * (fp@(8)); the port jt312 ignores its arg, so the trailing 0 drops. */
 
 /* jt290 (CODE 22 + 0x0bc0) — the map-editor BRUSH CLICK handler: apply
  * the editor state's active tool (state byte +5) at map cell (y, x).
@@ -56188,7 +56269,7 @@ static short jt290(long ctx, short y, short x, short c, short adv)
 			    && (unsigned char)yb == rec[47])
 				jt213((short)yb, (short)xb, (short)rec[48]);
 		}
-		l23ee(ctx, (short)0);
+		jt312((unsigned char *)(uintptr_t)ctx);
 	}
 	return (short)result;
 }
@@ -61345,6 +61426,19 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 	for (i = 0; i < 10; i++)
 		if (*(short *)&g_a5_18468[i * 6] < 0)
 			break;
+	if (i == 10) {
+		/* Binder-pool overflow: the Mac code (and this faithful lift)
+		 * falls through to slot 10 = group 12 — stomping topview's
+		 * group. Never happens on the Mac (transitions release their
+		 * bindings); if it happens here a release call is missing.
+		 * Dump the ten live bindings so the leak is identifiable. */
+		short g;
+		dbg_file_str("BINDER FULL claiming ", name);
+		for (g = 2; g <= 12; g++)
+			if (!(g_a5_10074[g] & 0x80))
+				dbg_file_str("  bound: ",
+				             (char *)&g_a5_10026[g_a5_10074[g] * 14]);
+	}
 	slot = (short *)(void *)&g_a5_18468[i * 6];
 	*slotpp = slot;
 	slot[0] = (short)(i + 2);          /* group id */
@@ -61426,7 +61520,7 @@ static short jt1108(void)
 
 /* JT[1137] (CODE 4+0x7a10) — FlushEvents: a no-op in this port (returns 0). */
 static short jt1137(void) __attribute__((unused));
-static short jt1137(void) { PROBE("jt1137"); return 0; }
+static short jt1137(void) { PROBE("jt1137"); return 0; }  /* CODE 4+0x7a10: literal `moveq #0; rts` on the Mac — the stub IS the faithful body (disasm-verified 2026-07-04) */
 
 /* JT[437..441] (CODE 3) — the thin event-queue wrappers l036a/jt987 poll. */
 static short jt437(void) __attribute__((unused));
@@ -61443,6 +61537,23 @@ static short jt440(short kind, long p1, long p2)
 }
 static short jt441(void) __attribute__((unused));
 static short jt441(void) { PROBE("jt441"); return jt1118(); }
+
+/* JT[1088] (CODE 5+0xa8) — drain the event queues (forward-declared at
+ * the stub's old slot): pop pending events while any are available
+ * (jt441/jt439), drain the mask-7 OS event queue (jt440), reset (jt438). */
+static void jt1088(void)
+{
+	short a, b;
+
+	PROBE("jt1088");
+	while (jt441() != 0)
+		(void)jt439();
+	while (jt440((short)7,
+	             (long)(uintptr_t)&b,
+	             (long)(uintptr_t)&a) != 0)
+		;
+	(void)jt438();
+}
 
 /* L0088 (CODE 5+0x88) — is any event available? */
 static short l0088(void) __attribute__((unused));
@@ -61590,6 +61701,7 @@ static void l036a(const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(msg, sizeof msg, fmt, ap);   /* flatten the C-vararg message */
 	va_end(ap);
+	dbg_file_str("ERRMODAL: ", msg);       /* harness: capture the message */
 
 	l024c(240);                            /* pen colour/style 240 */
 	l0264(8096, 8000);                     /* MoveTo (top, left) */
