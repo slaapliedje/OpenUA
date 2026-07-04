@@ -1445,6 +1445,34 @@ void qd_cursor_refresh(void)
 	qd_present();                            /* composites at the live pos */
 }
 
+/* --- GDevice / Palette Manager minimum (see quickdraw.h) --- */
+static void *g_gdevice_sentinel;
+
+GDHandle GetGDevice(void)
+{
+	return (GDHandle)&g_gdevice_sentinel;
+}
+
+void SetGDevice(GDHandle gdh)
+{
+	(void)gdh;                      /* one screen device — no switch */
+}
+
+void PmForeColor(short pmIndex)
+{
+	GrafPtr  port;
+	CGrafPtr cp;
+
+	GetPort(&port);
+	if (port == NULL)
+		return;
+	/* Palette index == CLUT index on the fixed 8bpp HAL; the Mac
+	 * also resolves rgbFgColor from the palette entry — skipped,
+	 * the index is authoritative here. */
+	cp = (CGrafPtr)port;
+	cp->fgColor = pmIndex;
+}
+
 void RGBForeColor(const RGBColor *color)
 {
 	GrafPtr  port;
