@@ -175,7 +175,12 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         512,   # CODE 14+0x5d8e: bare rts (band 6, disasm-verified)
         744,   # CODE 18+0x3fb2: literal linkw/unlk/rts (band 6, disasm-verified)
         136,   # CODE 7+0x11a6: bare rts (band 7, disasm-verified)
-        962}   # CODE 5+0x7cbe: bare rts (band 7, disasm-verified)
+        962,   # CODE 5+0x7cbe: bare rts (band 7, disasm-verified)
+        1119,  # CODE 4+0x797e: bare rts (band 7, disasm-verified)
+        1156,  # CODE 4+0x670e: bare rts (band 7, disasm-verified)
+        1207,  # CODE 4+0x7e3e: bare rts (band 7, disasm-verified)
+        1117,  # CODE 4+0x77ee: empty linkw/unlk (band 7, disasm-verified)
+        1150}  # CODE 4+0x61fc: empty linkw/unlk (band 7, disasm-verified)
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
