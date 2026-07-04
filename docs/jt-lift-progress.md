@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1113 done (998 lifted, 49 noop, 66 alias), 17 stub, 0 stand-in, 75 missing.
+**1205 distinct JT entries are called.** Overall: 1114 done (998 lifted, 49 noop, 67 alias), 16 stub, 0 stand-in, 75 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -47,7 +47,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
 | 14 | 651–700 | **25/50** | 22 | 3 | 0 | 0 | 25 |
 | 15 | 701–750 | **32/50** | 25 | 7 | 2 | 0 | 16 |
-| 16 | 751–800 | **37/50** | 34 | 3 | 1 | 0 | 12 |
+| 16 | 751–800 | **38/50** | 34 | 4 | 0 | 0 | 12 |
 | 17 | 801–850 | **46/50** | 46 | 0 | 2 | 0 | 2 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
@@ -83,7 +83,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
 | CODE 15 | 19 | 14 | 2 | 0 | 3 | **5** | play-entry + save/load + party list (jt574..590 / l07dc) |
 | CODE 16 | 115 | 115 | 0 | 0 | 0 | **0** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
-| CODE 17 | 20 | 18 | 1 | 0 | 1 | **2** | character generation (jt574 / jt557 / l618c) |
+| CODE 17 | 20 | 19 | 0 | 0 | 1 | **1** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 171 | 0 | 0 | 0 | **0** | combat engine (jt610 / jt856 / l4d98 / l709e) |
 | CODE 19 | 35 | 33 | 0 | 0 | 2 | **2** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 13 | 0 | 0 | 1 | **1** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 92 pending (stub+standin+missing), by call count:
+Top 50 of 91 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt233 (1 calls, CODE 11) — missing

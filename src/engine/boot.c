@@ -18089,10 +18089,19 @@ validate:
 	ValidRect((Rect *)(void *)(win + 16));
 }
 
-/* JT[1064] (CODE 5 + 0x4992) — hit-test? L70e0 calls this after
- * computing scaled coords. Returns short — non-zero means the
- * activate processed something and we should not stamp the
- * modifier slot. PROBE-only stub for now. */
+/* JT[1064] (CODE 5 + 0x4992) — a THINK C package/selector-farm glue,
+ * NOT the "hit-test" an earlier note guessed. The body is bsr-ladders
+ * that compute a selector from the return-address offset and dispatch
+ * to _Pack traps (0xADE9 / 0xAC3D / 0xAC95 / 0xADE7); entry 0x4992
+ * enters at selector 0 of the 0xADE9 trap. L70e0's activateEvt arm
+ * calls it (with the window message + scaled h:v) to let the package
+ * pre-process the activate: a non-zero return means "the package
+ * handled it, do not stamp the -808 modifier slot", zero means "not
+ * handled, stamp it". The exact package op is unidentified and has no
+ * Falcon counterpart (no Package Manager); window-activate events also
+ * do not occur on the single HAL screen. The stub returns 0 (never
+ * handled → always stamp) — the honest default, NOT a NOOP claim:
+ * left a visible stub because the package semantics are unverified. */
 static short jt1064(long msg, long scaled, short flag) __attribute__((unused));
 static short jt1064(long msg, long scaled, short flag)
 {
@@ -26036,8 +26045,11 @@ static void jt557(void)
 		jt885((long)(uintptr_t)rec, trainMask, nClasses, 1);
 	rec[197] = (unsigned char)jt33(rec);
 }
-static void   jt560(void) __attribute__((unused)); /* now reached via l618c, not this stub */
-static void   jt560(void)                       { PROBE("jt560"); }
+/* JT[560] IS L618c (CODE 17 + 0x618c) — the Modify Character stat
+ * editor, fully lifted below. The old jt560 PROBE stub here was a
+ * dead shadow (unused, no callers — the editor is reached through
+ * l618c directly); removed so the scoreboard resolves jt560 as the
+ * l618c alias instead of a pending stub. */
 
 /* ============================================================
  * CODE 17 char-gen REVIEW screen — the 7x7 body-icon grid.
@@ -67122,7 +67134,8 @@ static void l6084(short act)                                  /* HP (field 7) */
 	l642c(0, 7);
 }
 
-/* L618c (= JT[560]) — the Modify Character stat editor. Eligibility guard
+/* L618c (= JT[560], CODE 17 + 0x618c) — the Modify Character stat
+ * editor. Eligibility guard
  * (only a freshly-created character — rec[68] XP == the design start -18882,
  * or one on a level boundary — is editable), save-and-paint setup, then the
  * edit loop (the jt178 bar -> per-stat dispatch). Wired to the Training Hall
