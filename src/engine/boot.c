@@ -63095,6 +63095,32 @@ static void jt257(short off)
 		    (unsigned char)(off & 255);
 }
 
+/* JT[255] (CODE 2+0x514e) — append a two-field record to the -12070
+ * event buffer: buffer[0] is the record count; each record adds one
+ * byte to the stream starting at offset 2 (arg1's low byte, at
+ * buffer[count+2]) and one to the stream at offset 8 (arg2's low
+ * byte, at buffer[count+8]), then bumps the count. A zero arg2 is
+ * dropped (the top-of-function guard). Full lift; the caller (the
+ * CODE 9 keyboard-macro dialog) seeds -12070 before the first append,
+ * so the port NULL-guard only matters until that lifts. */
+static void jt255(short arg1, short arg2) __attribute__((unused));
+static void jt255(short arg1, short arg2)
+{
+	unsigned char *base;
+	short count;
+
+	PROBE("jt255");
+	if (arg2 == 0)
+		return;
+	base = (unsigned char *)(uintptr_t)g_a5_long(-12070);
+	if (base == NULL)
+		return;
+	count = base[0];
+	base[count + 2] = (unsigned char)arg1;
+	base[count + 8] = (unsigned char)arg2;
+	base[0] = (unsigned char)(count + 1);
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
