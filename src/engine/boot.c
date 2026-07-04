@@ -18073,6 +18073,115 @@ static void jt1007(short group, short item)
  * a paint cycle. The "beep" sequence in jt1080 is actually a
  * brief blink of slot 2 (jt1122(2, 1189, 0) for blink-on, then
  * jt1122(2, 0, 0) for blink-off with a 5/1 tick pause between). */
+
+/* JT[1152] (CODE 4+0x70c4) — clear the -808 beat counter. */
+static void jt1152(void)
+{
+	PROBE("jt1152");
+	g_a5_word(-808) = 0;
+}
+
+/* JT[1114] (CODE 4+0x61ee) — raise the -900 cursor-dirty flag (the
+ * jt1157 reset's arm). */
+static void jt1114(void) __attribute__((unused));
+static void jt1114(void)
+{
+	PROBE("jt1114");
+	g_a5_byte(-900) = 1;
+}
+
+/* JT[1037] (CODE 5+0x512e) — dispose the -146 sound channel (~340
+ * lines, Sound Manager tier). Leaf PROBE stub pending the audio
+ * wall; l745e only reaches it when the -132 channel flag is up,
+ * which the port never sets. */
+static short jt1037(void *chan, short a)
+{
+	PROBE("jt1037");
+	(void)chan; (void)a;
+	return 0;
+}
+
+/* L765c (CODE 4+0x765c) — flush the queued square-wave beep: if the
+ * -780 wave block is live, zero its four longs, stop the pending
+ * driver write (l74ae = _KillIO on .Sound) and drop the flag; else
+ * run the jt1122 beat with a zero block. Full lift (band 7). */
+static void l765c(void)
+{
+	PROBE("L765c");
+	if (g_a5_byte(-780) != 0) {
+		g_a5_long(-264) = 0;
+		g_a5_long(-256) = 0;
+		g_a5_long(-248) = 0;
+		g_a5_long(-240) = 0;
+		l74ae();
+		g_a5_byte(-780) = 0;
+	} else {
+		jt1122((short)0, (short)0, (short)0);
+	}
+}
+
+/* L745e (CODE 4+0x745e) — stop the -146 sound channel (jt1037) when
+ * the -132 flag is up, then flush the beep queue (l765c). */
+static void l745e(void)
+{
+	PROBE("L745e");
+	if (g_a5_byte(-132) != 0)
+		(void)jt1037(&g_a5_byte(-146), (short)0);
+	g_a5_byte(-132) = 0;
+	l765c();
+}
+
+/* JT[1127] (CODE 4+0x761e) — full sound stop: channel (l745e) +
+ * beep queue (l765c). Full lift (band 7). */
+static void jt1127(void) __attribute__((unused));
+static void jt1127(void)
+{
+	PROBE("jt1127");
+	l745e();
+	l765c();
+}
+
+/* JT[1140] (CODE 4+0x77d0) — set the -806 sound-enable byte; a zero
+ * flushes the pending beep first (l765c). Full lift (band 7). */
+static void jt1140(char b) __attribute__((unused));
+static void jt1140(char b)
+{
+	PROBE("jt1140");
+	if (b == 0)
+		l765c();
+	g_a5_byte(-806) = (unsigned char)b;
+}
+
+/* JT[1052] (CODE 5+0x5af0) — _Eject: no ejectable media exists on
+ * the GEMDOS mount (the flat-dir/GetVol ruling) — noErr. */
+static short jt1052(short vref, long namePtr) __attribute__((unused));
+static short jt1052(short vref, long namePtr)
+{
+	PROBE("jt1052");
+	(void)vref; (void)namePtr;
+	return 0;
+}
+
+/* JT[1142] (CODE 4+0x7a2a) — the save-disk check: read the default
+ * volume's free space + vRefNum (jt1051 -> GetVInfo/Dfree), then
+ * _Eject it (jt1052, moot here). Full lift (band 7). */
+static short jt1051(long *free_out, short *vref_out,
+                    const unsigned char *volName, short vref);
+static short jt1142(void) __attribute__((unused));
+static short jt1142(void)
+{
+	unsigned char volbuf[256];
+	long  freeb = 0;
+	short vref = 0;
+	short err;
+
+	PROBE("jt1142");
+	err = jt1051(&freeb, &vref, volbuf, (short)1);
+	if (err == 0)
+		err = jt1052(vref, (long)(uintptr_t)volbuf);
+	return err;
+}
+
 static void jt1122(short mode, short slot_val, short c)
 {
 	long computed;
@@ -55811,10 +55920,7 @@ static void  jt1109(void) __attribute__((unused));
 static void  jt1109(void) { PROBE("jt1109"); }
 static void  l157c(short a, short b, long c) __attribute__((unused));
 static void  l157c(short a, short b, long c) { PROBE("L157c"); (void)a; (void)b; (void)c; }
-static void  jt1152(void) __attribute__((unused));
-static void  jt1152(void) { PROBE("jt1152"); }
-static void  jt1142(void) __attribute__((unused));
-static void  jt1142(void) { PROBE("jt1142"); }
+/* jt1152 / jt1142 lifted above (the CODE 4 sound/disk tier, band 7). */
 static short jt1121(void) __attribute__((unused));
 static short jt1121(void) { PROBE("jt1121"); return 0; }
 
@@ -60868,13 +60974,18 @@ static void l1e7a(long src, void *tbl)
 	(void)src; (void)tbl;
 }
 
-/* JT[1204] (CODE 4+0x22e6) — commit a piece's pixel data through the
- * translation table (the remap blit). Leaf PROBE stub pending its
- * own lift (CODE 4 display tier). */
+/* JT[1204] (CODE 4+0x22e6) — remap `count` bytes at `p` in place
+ * through the 256-entry translation table (the ClrTran commit).
+ * Full lift (band 7) — closes the jt994 chain. */
 static void jt1204(long p, short count, void *tbl)
 {
+	unsigned char *b = (unsigned char *)(uintptr_t)p;
+	const unsigned char *t = (const unsigned char *)tbl;
+	short i;
+
 	PROBE("jt1204");
-	(void)p; (void)count; (void)tbl;
+	for (i = 0; i < count; i++, b++)
+		*b = t[*b];
 }
 
 /* JT[994] (CODE 5+0x1f22) — ClrTran: remap GLIB piece (base,b)'s
@@ -60987,21 +61098,23 @@ static void  jt360(const char *fmt, ...)
  * volume's vRefNum and FREE BYTES (alloc-block size x free blocks on
  * the Mac; GEMDOS Dfree through the shim GetVInfo here). The
  * jt1142 disk-space check's callee. */
-static void jt1051(long *free_out, short *vref_out,
-                   const unsigned char *volName, short vref)
+static short jt1051(long *free_out, short *vref_out,
+                    const unsigned char *volName, short vref)
                                           __attribute__((unused));
-static void jt1051(long *free_out, short *vref_out,
-                   const unsigned char *volName, short vref)
+static short jt1051(long *free_out, short *vref_out,
+                    const unsigned char *volName, short vref)
 {
 	short v  = vref;
 	long  fb = 0;
+	OSErr err;
 
 	PROBE("jt1051");
-	(void)GetVInfo(volName, &v, &fb);
+	err = GetVInfo(volName, &v, &fb);
 	if (vref_out != NULL)
 		*vref_out = v;
 	if (free_out != NULL)
 		*free_out = fb;
+	return err;
 }
 
 /* JT[1079] (CODE 5+0x0004) — display-mode bring-up, STRUCTURAL
@@ -61017,9 +61130,40 @@ static void jt1144(short mode, long b)  { PROBE("jt1144"); (void)mode; (void)b; 
                  * the real jt1144 colour-mode work — reconcile when the
                  * CODE 4 tier lifts (the boot path calls it directly). */
 static void l0eda(short mode, long b)   { PROBE("L0eda");  (void)mode; (void)b; }
-static void jt1157(short mode, long b)  { PROBE("jt1157"); (void)mode; (void)b; }
-static void jt1155(void)                { PROBE("jt1155"); }
-static void jt1138(void)                { PROBE("jt1138"); }
+/* JT[1157] (CODE 4+0x61c6) — reset the cursor state: when the -900
+ * dirty flag is up, InitCursor and clear the -901..-912 tracking
+ * slots. (The jt1079 skeleton guessed a 2-arg signature; the Mac
+ * body takes none.) */
+static void jt1157(void)
+{
+	PROBE("jt1157");
+	if (g_a5_byte(-900) == 0)
+		return;
+	InitCursor();
+	g_a5_byte(-901) = 0;
+	g_a5_byte(-900) = 0;
+	g_a5_byte(-904) = 0;
+	g_a5_byte(-903) = 0;
+	g_a5_word(-910) = 0;
+	g_a5_word(-912) = 0;
+}
+/* JT[1155] (CODE 4+0x7972) — park TickCount in the -130 slot. */
+static void jt1155(void)
+{
+	PROBE("jt1155");
+	g_a5_long(-130) = TickCount();
+}
+/* JT[1138] (CODE 4+0x66f8) — reset the display-event state: clear
+ * -809/-810/-820, the -814 long, and the -2592 view-mode flags. */
+static void jt1138(void)
+{
+	PROBE("jt1138");
+	g_a5_byte(-809) = 0;
+	g_a5_byte(-810) = 0;
+	g_a5_byte(-820) = 0;
+	g_a5_long(-814) = 0;
+	g_a5_word(-2592) = 0;
+}
 static void l01a2(void)                 { PROBE("L01a2"); }
 static void l35e2(void)                 { PROBE("L35e2"); }
 static void l27a4(void)                 { PROBE("L27a4"); }
@@ -61031,7 +61175,7 @@ static void jt1079(short mode, long b, short kb_min, short kb_max)
 	PROBE("jt1079");
 	jt1144(mode, b);
 	l0eda(mode, b);
-	jt1157(mode, b);
+	jt1157();
 	jt1155();
 	jt1138();
 	l01a2();
