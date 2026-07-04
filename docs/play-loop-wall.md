@@ -818,3 +818,23 @@ page bytes (the pink noise). Probe-proven: clip left 184 on the garbled pass,
 entry, dungeon walk unaffected. NOTE: the spiderweb-cell re-fire corruption
 seen while verifying is the KNOWN pre-existing "bigpic stomps wall pool on
 walk-back re-fire" (#115 memory), not this change.
+
+## 03t — the walk-back event-pic garble: state + repro recipe (2026-07-03)
+
+The #115 "re-fire corrupts the 3D view" item, partially diagnosed:
+- The event pic path is l08ce -> l541a("PIC", ev[6]) -> l534a; the load runs
+  jt131(2), and jt131 LEAVING mode 0 runs the stage-4 wall unbind (jt209(0) ->
+  l11ca reclaim) — so the designed dispose EXISTS on this path. The garble is
+  therefore NOT a missing unbind hook; suspicion moves to (a) -31234 not being
+  0 at re-fire time (unbind skipped), or (b) second-cycle FAR-pool state (the
+  garble ONLY reproduced on the SECOND play cycle of one boot).
+- REPRO RECIPE (confirmed once): boot -> p l a b -> c -> Return x2 (AUTOWIN
+  build) -> ENCAMP -> EXIT (to menu) -> p l a b -> c -> Return x2 -> turn left
+  + step forward = the spiderweb event re-fires with the viewport shredded
+  (green herringbone = wall-tile bytes). A FRESH boot's same walk shows a
+  clean dungeon and no re-fire garble.
+- Probes to plant next session: jt131 (old,new) transitions + l541a's l33ac
+  handle + the 'glib: Out of FAR memory!' path, during the second cycle.
+- NOTE: multi-cycle scripted drives are fragile (the second p/l/a/b desynced
+  into the menu's Art Gallery once); add generous settles or screenshot-gate
+  each step.
