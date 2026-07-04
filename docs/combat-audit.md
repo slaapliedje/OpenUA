@@ -25,9 +25,9 @@ healthy in Hatari with visibly correct facings.
 |---|---|---|---|
 | jt522 | CODE 14+0x7488 | leaf | **LIFTED 2026-07-03**: cell class + the 27/28/29 multi-cell resolution over -23234 (origin m[28]/[29] + the shared -27862/-27853 deltas via -24085) |
 | jt897 | CODE 19+0x420e | leaf | **LIFTED 2026-07-03**: rec w[86] -= amount (coin-pool weight) |
-| jt520 | CODE 14+0x6de8 | ~930B not leaf | area-map combat cleanup: non-combat arm = jt52(6)+jt102; combat arm scans the 9-slot -25410 registry (10B stride) for the rec — carded |
+| jt520 | CODE 14+0x6de8 | ~930B not leaf | **LIFTED 2026-07-04** (band 6): the combat DEATH cleanup — death flicker over the l5d92 footprint, corpse parked in the -25410 registry + the 30/31 map marker, zone facing cleared, field recommit (jt524), scroll-back, sub-record reset. Both callers (out-of-combat + the case-13 death arm) were live. |
 | l61ae | CODE 14+0x61ae | ~300B | **RESOLVED 2026-07-04**: l61ae = JT[524], and jt524 was ALREADY fully lifted (the alias-twin class) — the jt551 call site was repointed; no lift needed. The "carded" plan was chasing done work. |
-| l2d78 | CODE 19+0x2d78 | ~500B | readied magic-item side effects — carded |
+| l2d78 | CODE 19+0x2d78 | ~500B | **LIFTED 2026-07-04** (band 6, = JT[890]): ready/un-ready side effects by hook kind item[56]&7f — l77a0 effect core / the wizardry-ring slot doubler (member[377] + the 198-band trim) / jt875 recompute / jt878 effect-23 strip. Three live callers (READY, UNREADY, the 58448 chain). |
 | l0116 | — | — | LIFTED already (post-combat aftermath) |
 
 ## CODE 16 spell-effect handlers

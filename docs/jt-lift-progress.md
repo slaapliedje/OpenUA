@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 991 done (904 lifted, 26 noop, 61 alias), 41 stub, 0 stand-in, 173 missing.
+**1205 distinct JT entries are called.** Overall: 992 done (905 lifted, 26 noop, 61 alias), 39 stub, 0 stand-in, 174 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -42,8 +42,8 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 8 | 351–400 | **49/50** | 36 | 13 | 1 | 0 | 0 |
 | 9 | 401–450 | **50/50** | 39 | 11 | 0 | 0 | 0 |
 | 10 | 451–500 | **50/50** | 48 | 2 | 0 | 0 | 0 |
-| 11 | 501–550 | **44/50** | 41 | 3 | 2 | 0 | 4 |
-| 12 | 551–600 | **46/50** | 39 | 7 | 2 | 0 | 2 |
+| 11 | 501–550 | **45/50** | 42 | 3 | 1 | 0 | 4 |
+| 12 | 551–600 | **46/50** | 39 | 7 | 1 | 0 | 3 |
 | 13 | 601–650 | **42/50** | 40 | 2 | 2 | 0 | 6 |
 | 14 | 651–700 | **16/50** | 15 | 1 | 1 | 0 | 33 |
 | 15 | 701–750 | **20/50** | 17 | 3 | 1 | 0 | 29 |
@@ -80,21 +80,21 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 11 | 12 | 6 | 0 | 0 | 6 | **6** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
 | CODE 12 | 23 | 17 | 3 | 0 | 3 | **6** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 22 | 0 | 0 | 0 | **0** | area-map line/region renderer (jt501) |
-| CODE 14 | 44 | 43 | 1 | 0 | 0 | **1** | area-map render tree (jt521) |
+| CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
 | CODE 15 | 19 | 14 | 2 | 0 | 3 | **5** | play-entry + save/load + party list (jt574..590 / l07dc) |
 | CODE 16 | 115 | 115 | 0 | 0 | 0 | **0** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 18 | 1 | 0 | 1 | **2** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 166 | 5 | 0 | 0 | **5** | combat engine (jt610 / jt856 / l4d98 / l709e) |
-| CODE 19 | 35 | 32 | 1 | 0 | 2 | **3** | character sheet + party container (jt886 / jt904 / jt910) |
+| CODE 19 | 35 | 32 | 0 | 0 | 3 | **3** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 13 | 0 | 0 | 1 | **1** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
 | CODE 21 | 9 | 7 | 2 | 0 | 0 | **2** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 43 | 0 | 0 | 8 | **8** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (41 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (40 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l2d78`  `l341a`  `l157c`  `l7a24`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l0062`  `l4218`  `l2d7e`
+> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l3d8c`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l7a24`  `l2aaa`  `l2f24`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l0062`  `l4218`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 214 pending (stub+standin+missing), by call count:
+Top 50 of 213 pending (stub+standin+missing), by call count:
 
 - jt45 (6 calls, CODE 6) — stub
 - jt68 (4 calls, CODE 6) — stub
@@ -341,8 +341,7 @@ Top 50 of 214 pending (stub+standin+missing), by call count:
 - jt427 (2 calls, CODE 3) — missing
 - jt433 (2 calls, CODE 3) — stub
 - jt435 (2 calls, CODE 3) — missing
-- jt520 (2 calls, CODE 14) — stub
-- jt890 (2 calls, CODE 19) — stub
+- jt890 (2 calls, CODE 19) — missing
 - jt994 (2 calls, CODE 5) — stub
 - jt1051 (2 calls, CODE 5) — missing
 - jt1079 (2 calls, CODE 5) — missing
@@ -383,4 +382,5 @@ Top 50 of 214 pending (stub+standin+missing), by call count:
 - jt268 (1 calls, CODE 10) — missing
 - jt269 (1 calls, CODE 10) — missing
 - jt270 (1 calls, CODE 10) — missing
+- jt281 (1 calls, CODE 22) — missing
 
