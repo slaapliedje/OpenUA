@@ -92,3 +92,28 @@ void dbg_file_num(const char *label, long value)
 	Fwrite((short)fh, 2L, "\r\n");
 	Fclose((short)fh);
 }
+
+/* String variant of dbg_file_num — appends "label value\r\n". Same
+ * open/append/close-per-call flush discipline. */
+void dbg_file_str(const char *label, const char *value)
+{
+	long fh;
+
+	if (!g_dbg_fh_started) {
+		fh = Fcreate("DBG.LOG", 0);
+		g_dbg_fh_started = 1;
+	} else {
+		fh = Fopen("DBG.LOG", 1);
+		if (fh >= 0)
+			Fseek(0L, (short)fh, 2);
+		else
+			fh = Fcreate("DBG.LOG", 0);
+	}
+	if (fh < 0)
+		return;
+
+	Fwrite((short)fh, (long)str_len(label), label);
+	Fwrite((short)fh, (long)str_len(value), value);
+	Fwrite((short)fh, 2L, "\r\n");
+	Fclose((short)fh);
+}

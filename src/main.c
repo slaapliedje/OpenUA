@@ -422,18 +422,32 @@ int main(void)
 			strs_size = GetHandleSize(h_strs);
 		}
 		if (strs_base != NULL) {
-			long off;
+			/* The Mac table's slots 2/3 hold the integrity markers
+			 * the phase-5 boot check compares: "Heart" against the
+			 * literal, "Boots" against the -22253 DATA string that
+			 * l31cc copies from STRS (via the -13448 reloc). With
+			 * slot 3 empty the check mismatches and the faithful
+			 * copy-protection challenge (jt931) fires at boot. */
+			static const char *marker[4] = { 0, 0, "Heart", "Boots" };
+			short m;
 
-			for (off = 0; off + 6 <= strs_size; off++) {
-				if (strs_base[off]     == 'H'
-				 && strs_base[off + 1] == 'e'
-				 && strs_base[off + 2] == 'a'
-				 && strs_base[off + 3] == 'r'
-				 && strs_base[off + 4] == 't'
-				 && strs_base[off + 5] == '\0') {
-					strtab[2] = (char *)(strs_base + off);
-					dbg_log_num("main: STRS \"Heart\" at off = ", off);
-					break;
+			for (m = 2; m <= 3; m++) {
+				long        off;
+				const char *want = marker[m];
+				short       len = 0;
+
+				while (want[len] != '\0')
+					len++;
+				for (off = 0; off + len + 1 <= strs_size; off++) {
+					short k = 0;
+
+					while (k < len && strs_base[off + k] == want[k])
+						k++;
+					if (k == len && strs_base[off + len] == '\0') {
+						strtab[m] = (char *)(strs_base + off);
+						dbg_log_num("main: STRS marker slot hit, off = ", off);
+						break;
+					}
 				}
 			}
 		}
