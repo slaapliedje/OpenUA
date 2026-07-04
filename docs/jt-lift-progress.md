@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1114 done (998 lifted, 49 noop, 67 alias), 16 stub, 0 stand-in, 75 missing.
+**1205 distinct JT entries are called.** Overall: 1115 done (999 lifted, 49 noop, 67 alias), 16 stub, 0 stand-in, 74 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -45,7 +45,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
-| 14 | 651–700 | **25/50** | 22 | 3 | 0 | 0 | 25 |
+| 14 | 651–700 | **26/50** | 23 | 3 | 0 | 0 | 24 |
 | 15 | 701–750 | **32/50** | 25 | 7 | 2 | 0 | 16 |
 | 16 | 751–800 | **38/50** | 34 | 4 | 0 | 0 | 12 |
 | 17 | 801–850 | **46/50** | 46 | 0 | 2 | 0 | 2 |
@@ -88,7 +88,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 19 | 35 | 33 | 0 | 0 | 2 | **2** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 13 | 0 | 0 | 1 | **1** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
 | CODE 21 | 9 | 7 | 2 | 0 | 0 | **2** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
-| CODE 22 | 51 | 47 | 0 | 0 | 4 | **4** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
+| CODE 22 | 51 | 48 | 0 | 0 | 3 | **3** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 91 pending (stub+standin+missing), by call count:
+Top 50 of 90 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt233 (1 calls, CODE 11) — missing
@@ -358,7 +358,6 @@ Top 50 of 91 pending (stub+standin+missing), by call count:
 - jt281 (1 calls, CODE 22) — missing
 - jt282 (1 calls, CODE 22) — missing
 - jt286 (1 calls, CODE 22) — missing
-- jt292 (1 calls, CODE 22) — missing
 - jt322 (1 calls, CODE 9) — missing
 - jt323 (1 calls, CODE 9) — missing
 - jt334 (1 calls, CODE 8) — missing
@@ -383,4 +382,5 @@ Top 50 of 91 pending (stub+standin+missing), by call count:
 - jt458 (1 calls, CODE 3) — missing
 - jt466 (1 calls, CODE 3) — missing
 - jt470 (1 calls, CODE 3) — missing
+- jt473 (1 calls, CODE 3) — missing
 

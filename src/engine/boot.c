@@ -12405,6 +12405,133 @@ static short l05ca(short cell, short dir)
 	return (short)((lvl[(long)cell * 6 + 290 + edge] >> 4) & 15);
 }
 
+/* ---- design-map WALL-EDIT data model (CODE 22). The GEO editor keeps
+ * wall data consistent between adjacent cells: each cell stores a wall
+ * code per edge (L05ca reads it, L0614 writes it), and the design-entry
+ * record mirrors the four edges it touches at rec[21..24] (L173a reads,
+ * L16e0 writes). jt292 propagates a wall change out to the 4 neighbours.
+ *
+ * The entry record's edge bytes, by the JT[3] direction selector (2/4/
+ * 6/8 = the four axes): cmd 2 -> rec[23], 4 -> rec[24], 6 -> rec[21],
+ * 8 -> rec[22]. The record is *(*handle). */
+
+/* L173a (CODE 22 + 0x173a) — read the entry record's edge byte for
+ * direction `cmd`. */
+static char l173a(long handle, short cmd) __attribute__((unused));
+static char l173a(long handle, short cmd)
+{
+	unsigned char *rec = *(unsigned char **)(uintptr_t)handle;
+
+	PROBE("L173a");
+	switch (cmd) {                  /* JT[3] inline table @ 0x1746 */
+	case 2:  return (char)rec[23];
+	case 4:  return (char)rec[24];
+	case 6:  return (char)rec[21];
+	case 8:  return (char)rec[22];
+	default: return 0;              /* Mac: fp@(-1) uninitialised */
+	}
+}
+
+/* L16e0 (CODE 22 + 0x16e0) — write `val` (low byte) into the entry
+ * record's edge byte for direction `cmd`. */
+static void l16e0(long handle, short cmd, short val) __attribute__((unused));
+static void l16e0(long handle, short cmd, short val)
+{
+	unsigned char *rec = *(unsigned char **)(uintptr_t)handle;
+
+	PROBE("L16e0");
+	switch (cmd) {                  /* JT[3] inline table @ 0x16ec */
+	case 2:  rec[23] = (unsigned char)val; break;
+	case 4:  rec[24] = (unsigned char)val; break;
+	case 6:  rec[21] = (unsigned char)val; break;
+	case 8:  rec[22] = (unsigned char)val; break;
+	default: break;
+	}
+}
+
+/* L0614 (CODE 22 + 0x0614) — set cell `cell`'s wall code on the edge
+ * facing `dir` to `val` (0..15), stored in the HIGH nibble of the
+ * -12300 level record's edge byte (the low nibble that L05ca ignores
+ * is preserved). Reads the current code first (L05ca): if it already
+ * equals `val` this is a no-op returning 0; otherwise it writes and
+ * returns 1 (changed). */
+static short l0614(short cell, short dir, short val) __attribute__((unused));
+static short l0614(short cell, short dir, short val)
+{
+	unsigned char *lvl;
+	short edge;
+	long off;
+
+	PROBE("L0614");
+	if (l05ca(cell, dir) == val)
+		return 0;
+	edge = (short)((dir & 6) >> 1);
+	lvl  = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	off  = (long)cell * 6 + 290 + edge;
+	lvl[off] = (unsigned char)((lvl[off] & 0x0f)
+	                           | (short)((val & 15) << 4));
+	return 1;
+}
+
+/* JT[292] = L14d8 (CODE 22 + 0x14d8) — propagate a wall edit to the 4
+ * neighbouring cells so shared edges stay consistent. For each axis
+ * dir in {2,4,6,8}: find the neighbour cell (delta tables -11693 /
+ * -11684 added to the base (by, bx)), skip if it is off the map
+ * (bounds vs the -12300 record's height rec[2] / width rec[3]); the
+ * neighbour shares THIS cell's opposite edge (opp = dir+4 wrapped to
+ * 1..8). If exactly one of {this entry's edge (L173a), the neighbour
+ * cell's wall (L05ca)} is zero — i.e. one side has a wall and the
+ * other doesn't — sync them: write the entry edge into the neighbour
+ * cell (L0614) and the neighbour wall into the entry edge (L16e0),
+ * and flag that a change happened.
+ *
+ * Level-2: the wall-sync DATA MODEL is faithful; the post-loop redraw
+ * (the L423e wall pixel-draw + the JT[218] neighbour-resolve + JT[213]
+ * marker, run only when a change happened) is deferred — that leaf is
+ * ~400B of screen drawing and isn't reachable until the GEO editor
+ * (CODE 11) that calls jt292 is lifted. */
+static void jt292(long handle, short by, short bx) __attribute__((unused));
+static void jt292(long handle, short by, short bx)
+{
+	unsigned char *lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	char changed = 0;
+	short dir;
+
+	PROBE("jt292");
+	for (dir = 2; dir <= 8; dir += 2) {
+		short ny = (short)((signed char)g_a5_byte(-11693 + dir) + by);
+		short nx = (short)((signed char)g_a5_byte(-11684 + dir) + bx);
+		short opp, nbcell;
+		char  edge_attr, nb_wall;
+
+		if (ny < 0 || (short)(signed char)lvl[2] <= ny)
+			continue;
+		if (nx < 0 || (short)(signed char)lvl[3] <= nx)
+			continue;
+		opp = (short)(dir + 4);
+		if (opp > 8)
+			opp = (short)(opp - 8);
+		nbcell = (short)((short)(signed char)lvl[3] * ny + nx);
+
+		nb_wall   = (char)l05ca(nbcell, opp);
+		edge_attr = l173a(handle, opp);
+		/* proceed only when exactly one side is zero (wall vs none) */
+		if (((edge_attr == 0) ? -1 : 0) == ((nb_wall == 0) ? -1 : 0))
+			continue;
+
+		l0614(nbcell, opp, (short)edge_attr);
+		changed = 1;
+		l16e0(handle, opp, (short)nb_wall);
+	}
+
+	if (changed) {
+		PROBE("jt292:redraw-deferred");
+		/* Mac: resolve the neighbour view (JT[218] -> L1798) or draw
+		 * the changed wall (L423e) + update the marker (JT[213]).
+		 * The L423e pixel-draw leaf is the deferred part. */
+	}
+}
+
 /* L1908 (CODE 22 + 0x1908) — commit a first-person move/turn: normalise the
  * new facing to [1,8], write the party cell (-12287 row / -12288 col / -12286
  * facing), recentre the view (JT[218]), mirror the cell into rec+46, and (when
