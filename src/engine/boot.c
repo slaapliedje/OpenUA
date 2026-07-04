@@ -13616,6 +13616,82 @@ static void l3806(short p_y, short p_x, short facing, short v1, short v2,
 
 	jt117();
 }
+
+/* L4f24 (CODE 11+0x4f24) — the GEO editor's ZONE-OVERLAY painter:
+ * for every visible map cell whose overlay byte is set, fill the
+ * 16px-scaled cell rect (jt1161) with the overlay value as the
+ * colour. The window: screen origin (-12282/-12280), extents
+ * (-12274/-12273 cells x the -12272 cell size), walking the overlay
+ * column-major with the (H - extent) row skip. Full lift (band 7). */
+static void l4f24(const unsigned char *ov)
+{
+	const unsigned char *ds =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short x, y, xe, ye;
+	long  idx;
+
+	PROBE("L4f24");
+	if (ov == NULL || ds == NULL)
+		return;
+	xe = (short)((unsigned char)g_a5_byte(-12274) * g_a5_word(-12272)
+	             + g_a5_word(-12282));
+	ye = (short)((unsigned char)g_a5_byte(-12273) * g_a5_word(-12272)
+	             + g_a5_word(-12280));
+	idx = (long)((short)ds[3] * g_a5_word(-12278) + g_a5_word(-12276));
+	for (x = g_a5_word(-12282); x < xe; x += g_a5_word(-12272)) {
+		for (y = g_a5_word(-12280); y < ye;
+		     y += g_a5_word(-12272), idx++) {
+			if (ov[idx] == 0)
+				continue;
+			jt1161(x, y,
+			       (short)(x + g_a5_word(-12272)),
+			       (short)(y + g_a5_word(-12272)),
+			       (short)ov[idx]);
+		}
+		idx += (short)ds[3] - (unsigned char)g_a5_byte(-12273);
+	}
+}
+
+/* L4f14 (CODE 11+0x4f14) — paint the -12200 editor overlay (+6 past
+ * its header) through l4f24. */
+static void l4f14(void)
+{
+	PROBE("L4f14");
+	l4f24((const unsigned char *)(uintptr_t)g_a5_long(-12200) + 6);
+}
+
+/* JT[235] (CODE 11+0x4ed2) — the GEO editor's map-window redraw:
+ * compose the screen (jt304(rec, 0)), paint the zone overlay
+ * (l4f14), then re-draw the marked cell (jt213 at rec[47]/rec[46],
+ * icon rec[48]). Full lift (band 7). */
+static void jt213(short a, short b, short c);
+static void jt235(void *rec_v) __attribute__((unused));
+static void jt235(void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+
+	PROBE("jt235");
+	jt304(rec_v, (short)0);
+	l4f14();
+	jt213((short)rec[47], (short)rec[46], (short)rec[48]);
+}
+
+/* JT[268] (CODE 10+0x365a) — latch a dismissal key: Tab (9), Return
+ * (13) or Esc (27) park in -10372 and report 1; anything else clears
+ * the latch. Full lift (band 7); the frame reads the second word arg. */
+static short jt268(short a, short key) __attribute__((unused));
+static short jt268(short a, short key)
+{
+	PROBE("jt268");
+	(void)a;
+	if (key == 9 || key == 13 || key == 27) {
+		g_a5_word(-10372) = key;
+		return 1;
+	}
+	g_a5_word(-10372) = 0;
+	return 0;
+}
+
 /* JT[213] (CODE 7 + 0x56f2) — draw map cell (a,b) only if it falls inside the
  * visible viewport. Subtract the viewport origin on each axis (-12278 / -12276),
  * reject when the relative cell is outside [0, extent) (-12274 / -12273 byte
