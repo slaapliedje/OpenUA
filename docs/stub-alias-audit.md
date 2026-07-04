@@ -11,6 +11,38 @@ table (same-segment (CODE, offset) match, twin must have a real body).
 Method: tools-free python sweep over boot.c + the alias doc; each hit
 then hand-verified against the stub's own header comment.
 
+## Sweep 2026-07-04 — NINE more twins repointed (the audit re-run)
+
+Re-ran the sweep over all 59 current lXXXX PROBE stubs, this time
+resolving each stub's TRUE segment from its callers' segments (not
+just comments — see the l2f24 trap below). Nine stubs shadowed full
+jtN lifts; all repointed, stubs deleted, `make test` green:
+
+| stub | = jtN | caller(s) | what was silently dead |
+|---|---|---|---|
+| l5888 | **jt52** (sound cmd dispatcher) | jt11_handler, l07dc ×2 | "stop all voices" (cmd 255) at menu entry + play-loop top/exit |
+| l5f66 | **jt69** (fatal content-load error) | jt11_handler ×2 | string-table integrity failures fell through silently |
+| l6ada | **jt85** (FRAME palette reload) | jt11_handler | the boot-phase FRAME CLUT re-commit |
+| l2cb0 | **jt19** (party unlink) | l07dc cleanup | play-loop exit never unlinked the party list |
+| l15ae | **jt170** (dialog-abort byte) | jt156 | roster-pane click in pick-mode 12 never aborted the dialog |
+| l17f8 | **jt175** (modal exit prompt) | jt183 | the shop exit prompt never showed/polled |
+| l1cd2 | **jt586** (pending-treasure vault save) | jt585 | vault persistence on level change was dropped |
+| l61ae | **jt524** (combat occupancy-field commit) | jt551 | AI-move field commit skipped (combat-audit had this CARDED as a ~300B lift — it was already done) |
+| l2180 | **jt303** (play-view status header) | jt299 | saved-game slot repaint skipped the header |
+
+**The l2f24 trap (why comments aren't enough):** boot.c's `l2f24`
+stub looked like JT[15] (CODE 6+0x2f24, the percent-chance roll —
+which would have been a nasty silent-RNG bug). But its caller jt278
+is CODE 22, so this `l2f24` is the CODE 22 design-entry painter —
+a DIFFERENT function at the same offset. Segment-of-caller is the
+ground truth for twin matching (cross-segment calls always go via
+the JT, so a direct lXXXX call means same-segment).
+
+Dual-stub aliases (both sides pending — lift ONCE under the jtN name,
+then repoint): l32e2=jt418 (C3), l2d78=jt890 (C19), l7a0e=jt1073 (C5),
+l0062=jt1081 (C5). l23ee=jt312 (C22) needs arity reconciliation
+(port jt312 takes 1 arg, the l23ee site passes 2) before repointing.
+
 ## Executed 2026-07-03 (same session)
 
 | stub | CODE+off | = jtN (lifted) | caller | status |

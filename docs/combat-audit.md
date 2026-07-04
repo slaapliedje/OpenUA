@@ -26,7 +26,7 @@ healthy in Hatari with visibly correct facings.
 | jt522 | CODE 14+0x7488 | leaf | **LIFTED 2026-07-03**: cell class + the 27/28/29 multi-cell resolution over -23234 (origin m[28]/[29] + the shared -27862/-27853 deltas via -24085) |
 | jt897 | CODE 19+0x420e | leaf | **LIFTED 2026-07-03**: rec w[86] -= amount (coin-pool weight) |
 | jt520 | CODE 14+0x6de8 | ~930B not leaf | area-map combat cleanup: non-combat arm = jt52(6)+jt102; combat arm scans the 9-slot -25410 registry (10B stride) for the rec — carded |
-| l61ae | CODE 14+0x61ae | ~300B | zone-field commit: clear -26922 (1250B, 50-wide), stamp zone ids via l5d92 over the -27472 zone entries (6B stride), tail seeds -27059/-26991 screen offsets — dep l5d92, carded |
+| l61ae | CODE 14+0x61ae | ~300B | **RESOLVED 2026-07-04**: l61ae = JT[524], and jt524 was ALREADY fully lifted (the alias-twin class) — the jt551 call site was repointed; no lift needed. The "carded" plan was chasing done work. |
 | l2d78 | CODE 19+0x2d78 | ~500B | readied magic-item side effects — carded |
 | l0116 | — | — | LIFTED already (post-combat aftermath) |
 
