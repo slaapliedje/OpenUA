@@ -63274,6 +63274,42 @@ static short jt250(short cmd, long *field, void *handle)
 	return *(short *)(sub + 10);
 }
 
+/* JT[322] (CODE 9+0x3632) — format a design-list entry label into `buf`
+ * by entry index: the -18824 table is 16-byte records (the entry name
+ * at offset 0). Three ranges — Keys 0..7, Items 8..19 (numbered from
+ * idx-7), Quests 20+ (numbered from idx-19). `verbose` picks
+ * "Key %d - %s" / "Item %2d - %s" (number + name); otherwise the name
+ * alone when present, else the bare "Key %d" / "Item %2d". Data-model
+ * string format (jt394/jt384 both lifted); unused until the CODE 9
+ * key/item/quest editor dialog that calls it is lifted. */
+static void jt322(char *buf, short idx, short verbose) __attribute__((unused));
+static void jt322(char *buf, short idx, short verbose)
+{
+	unsigned char *tbl = (unsigned char *)&g_a5_byte(-18824);
+	unsigned char *e   = tbl + (long)idx * 16;
+
+	PROBE("jt322");
+	if (idx < 8) {                                  /* Keys */
+		if ((verbose & 0xff) != 0)
+			jt394(buf, ua_strs_at(0x32e0),          /* "Key %d - %s" */
+			      idx + 1, (char *)e);
+		else if (e[0] != 0)
+			jt384(buf, (const char *)e);
+		else
+			jt394(buf, ua_strs_at(0x32ec), idx + 1); /* "Key %d" */
+	} else if (idx < 20) {                          /* Items */
+		if ((verbose & 0xff) != 0)
+			jt394(buf, ua_strs_at(0x32f4),          /* "Item %2d - %s" */
+			      idx - 7, (char *)e);
+		else if (e[0] != 0)
+			jt384(buf, (const char *)e);
+		else
+			jt394(buf, ua_strs_at(0x3302), idx - 7); /* "Item %2d" */
+	} else {                                        /* Quests */
+		jt394(buf, ua_strs_at(0x330c), idx - 19);   /* "Quest %2d" */
+	}
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
