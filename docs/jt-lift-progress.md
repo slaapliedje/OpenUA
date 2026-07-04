@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1014 done (922 lifted, 27 noop, 65 alias), 39 stub, 0 stand-in, 152 missing.
+**1205 distinct JT entries are called.** Overall: 1016 done (924 lifted, 27 noop, 65 alias), 39 stub, 0 stand-in, 150 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -45,7 +45,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **47/50** | 43 | 4 | 1 | 0 | 2 |
-| 14 | 651–700 | **22/50** | 19 | 3 | 0 | 0 | 28 |
+| 14 | 651–700 | **24/50** | 21 | 3 | 0 | 0 | 26 |
 | 15 | 701–750 | **20/50** | 17 | 3 | 1 | 0 | 29 |
 | 16 | 751–800 | **35/50** | 33 | 2 | 2 | 0 | 13 |
 | 17 | 801–850 | **46/50** | 46 | 0 | 2 | 0 | 2 |
@@ -76,8 +76,8 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 7 | 97 | 97 | 0 | 0 | 0 | **0** | list dialog (JT[169]) + text widgets |
 | CODE 8 | 46 | 30 | 1 | 0 | 15 | **16** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 2 | 0 | 0 | 3 | **3** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
-| CODE 10 | 12 | 4 | 0 | 0 | 8 | **8** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
-| CODE 11 | 12 | 6 | 0 | 0 | 6 | **6** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
+| CODE 10 | 12 | 5 | 0 | 0 | 7 | **7** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
+| CODE 11 | 12 | 7 | 0 | 0 | 5 | **5** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
 | CODE 12 | 23 | 17 | 3 | 0 | 3 | **6** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 22 | 0 | 0 | 0 | **0** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
@@ -331,14 +331,13 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 191 pending (stub+standin+missing), by call count:
+Top 50 of 189 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt1159 (2 calls, CODE 4) — missing
 - jt1165 (2 calls, CODE 4) — missing
 - jt9 (1 calls, CODE 1) — stub
 - jt233 (1 calls, CODE 11) — missing
-- jt235 (1 calls, CODE 11) — missing
 - jt239 (1 calls, CODE 11) — missing
 - jt242 (1 calls, CODE 11) — missing
 - jt243 (1 calls, CODE 11) — missing
@@ -357,7 +356,6 @@ Top 50 of 191 pending (stub+standin+missing), by call count:
 - jt265 (1 calls, CODE 10) — missing
 - jt266 (1 calls, CODE 10) — missing
 - jt267 (1 calls, CODE 10) — missing
-- jt268 (1 calls, CODE 10) — missing
 - jt269 (1 calls, CODE 10) — missing
 - jt270 (1 calls, CODE 10) — missing
 - jt281 (1 calls, CODE 22) — missing
@@ -383,4 +381,6 @@ Top 50 of 191 pending (stub+standin+missing), by call count:
 - jt340 (1 calls, CODE 8) — missing
 - jt342 (1 calls, CODE 8) — missing
 - jt344 (1 calls, CODE 8) — missing
+- jt365 (1 calls, CODE 8) — stub
+- jt371 (1 calls, CODE 8) — missing
 
