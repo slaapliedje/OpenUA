@@ -58293,15 +58293,46 @@ static void jt344(void)
  * @18, items base handle @4 (8 bytes per item: word @4, byte @6,
  * byte flags @7). */
 
-/* L4a16 (CODE 8) — the pulldown width core (longest item label in
- * cells). Level-1 stub: ~1.1KB of label-measure asm, its own batch;
- * a 0 return clamps the pulldown left to the bar column (benign). */
+/* JT[332] = L4a16 (CODE 8 + 0x4a16) — the pulldown WIDTH core: the
+ * panel width in pixels = max of the title width (StringWidth of the
+ * rec[0] Pascal string, or 0 when the rec[13] bit2/bit5 no-title
+ * flags are set) and every non-separator item's measured label
+ * (jt394 formats item[0] with the item[4] arg into a scratch buffer,
+ * jt423 measures it, +2 when the item carries an uppercase command
+ * key), then + (rec[14] ? 2 : 0) + 2 for the frame margin. Caches
+ * the result in rec[18] and returns it. Full lift (band 7). */
 static short l4a16(unsigned char *rec) __attribute__((unused));
 static short l4a16(unsigned char *rec)
 {
+	unsigned char  buf[90];         /* fp@(-90) label scratch */
+	unsigned char *item;
+	short width, i;
+
 	PROBE("L4a16");
-	(void)rec;
-	return 0;
+	if ((rec[13] & 0x04) != 0 || (rec[13] & 0x20) != 0)
+		width = 0;
+	else
+		width = jt423((const char *)(uintptr_t)
+		              *(long *)(void *)rec);
+	item = (unsigned char *)(uintptr_t)(*(long *)(void *)(rec + 4));
+	for (i = 0; i < (short)(signed char)rec[12]; i++, item += 8) {
+		short iw;
+
+		if ((item[7] & 0x02) != 0)
+			continue;               /* separator */
+		jt394((char *)buf, (const char *)(uintptr_t)
+		      *(long *)(void *)item,
+		      (int)*(short *)(void *)(item + 4));
+		iw = jt423((const char *)buf);
+		if (item[6] != 0 && jt408((short)(signed char)item[6]) != 0)
+			iw = (short)(iw + 2);
+		width = jt397(width, iw);
+	}
+	if (*(short *)(void *)(rec + 14) != 0)
+		width = (short)(width + 2);
+	width = (short)(width + 2);
+	*(short *)(void *)(rec + 18) = width;
+	return width;
 }
 
 /* L45c6 (CODE 8) — the pulldown panel PAINT core (frame + item
@@ -58329,7 +58360,8 @@ static short l3f2e(unsigned char *rec, short colour, long flag)
 	return 0;
 }
 
-/* L33f6 (CODE 8) — menu width in cells: the l4a16 core. */
+/* JT[331] = L33f6 (CODE 8 + 0x33f6) — menu panel width: the l4a16
+ * core (a thin JT-export wrapper). */
 static short l33f6(unsigned char *rec) __attribute__((unused));
 static short l33f6(unsigned char *rec)
 {
@@ -58337,7 +58369,8 @@ static short l33f6(unsigned char *rec)
 	return l4a16(rec);
 }
 
-/* L324c (CODE 8) — open/paint the pulldown: l45c6(rec, 143, 0). */
+/* JT[330] = L324c (CODE 8 + 0x324c) — open/paint the pulldown:
+ * l45c6(rec, 143, 0). */
 static void l324c(unsigned char *rec) __attribute__((unused));
 static void l324c(unsigned char *rec)
 {
