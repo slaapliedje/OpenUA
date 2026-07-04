@@ -331,6 +331,12 @@ typedef void (*qd_present_fn)(void);
 void          qd_set_present(qd_present_fn fn);
 void          qd_present(void);              /* call the registered hook */
 
+/* Off-screen compose (#144): while suppressed, qd_present() defers to a
+ * single commit. The engine's frame bracket (JT[108]/L38d0 begin,
+ * l3994 commit) toggles this in lockstep with the -18395 compose flag,
+ * coalescing a screen's intermediate presents into one flip. */
+void          qd_present_suppress(int on);
+
 /* Present only a dirty rect, when the backend supports it (else falls
  * back to a full present). Lets the dungeon view skip converting the
  * static parts of the screen each frame. */

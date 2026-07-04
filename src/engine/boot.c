@@ -4241,6 +4241,7 @@ static int  jt108(short a)
 		jt1146();
 	jt1153(0);
 	g_a5_18395 = 1;
+	qd_present_suppress(1);         /* #144: begin off-page compose */
 	return 0;
 }
 /* Forward decls for the jt81 chrome painter (bodies live further down). */
@@ -6739,9 +6740,10 @@ static void l3994(void)
 	}
 
 	if (g_a5_18395 != 0) {
-		jt1128();
+		jt1128();               /* deferred to the commit below */
 		jt1153(1);
 		g_a5_18395 = 0;
+		qd_present_suppress(0); /* #144: flush the composed frame once */
 	}
 
 	/* CODE 6 @0x39ea: jt1066 fires iff jt1163()!=0 OR jt1200()==0 (the
@@ -65943,6 +65945,7 @@ static void l38d0(short flag)
 			jt1146();
 		jt1153((short)0);
 		g_a5_byte(-18395) = 1;
+		qd_present_suppress(1);         /* #144: begin off-page compose */
 	}
 }
 

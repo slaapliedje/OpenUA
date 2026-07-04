@@ -249,9 +249,15 @@ Boolean GetNextEvent(short eventMask, EventRecord *theEvent)
 		return 1;
 	if (event_matches(eventMask, updateEvt) && update_to_event(theEvent))
 		return 1;
-	/* Idle: no real event this pump. Keep the cursor following the live
-	 * mouse so it doesn't freeze between engine repaints (no-op unless the
-	 * mouse moved since the last pump). */
+	/* Idle: no real event this pump — the engine is waiting for input, so
+	 * any off-screen compose in progress (#144) is complete. Flush it once
+	 * here as a safety net: even if a screen begins a compose but its frame
+	 * never reaches l3994 (the normal commit), the composed frame still
+	 * appears the moment the engine goes idle, so a leaked suppress can
+	 * never freeze the display. No-op when nothing is pending. */
+	qd_present_suppress(0);
+	/* Keep the cursor following the live mouse so it doesn't freeze between
+	 * engine repaints (no-op unless the mouse moved since the last pump). */
 	qd_cursor_refresh();
 	make_null(theEvent);
 	return 0;
