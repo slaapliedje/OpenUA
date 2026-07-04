@@ -988,3 +988,38 @@ cw_finalize's pal[32] at the exact garbled frame. The interactive
 camp->menu->re-enter drive is the bottleneck — script it with screenshot
 gates at every step (the dungeon-exit 'game not saved' prompt + the 'l/a/b'
 Hall keys desync easily).
+
+## 04a — cycle-2 wall-garble FIXED: force the wall reload on re-entry (2026-07-04)
+
+CORRECTS 03z (which reverted the fix on a testing error). PROBE-PROVEN root
+cause and fix:
+
+- ROOT (definitive): on a menu round-trip re-entry, render_3d_faithful runs
+  every frame with g_clut_clobbered=0 AND the wall ids unchanged
+  (grp[0]==ds[4]), so the wall-reload block is SKIPPED — cw_finalize never runs
+  and the viewport paints against the stale CLUT band the Hall/menu left (a
+  green/blue garble, NOT black — the band has colours, just the wrong ones).
+  Probe log across 5 cycle-2 renders: clob0 / grp01 / ds41 / chrdrawn1, no
+  RELOAD, no FIN. The reload gate `clob || ids-changed` is false on both terms
+  after a round-trip. (The Hall/menu commit their palette via qd_set_palette,
+  not jt1069, so nothing sets clob — unlike the camp campfire, whose jt1069
+  load DOES set clob, which is why camp->dungeon already recovered.)
+- FIX: set g_clut_clobbered=1 at l4b56 (the fresh-entry compose, next to the
+  03y FRAME commit). clob=1 forces the reload branch regardless of ids, so the
+  entry render re-reads the wall lib from disk (g_wallfile_which=-1) and
+  cw_finalize re-commits the wall + backdrop bands. Cycle-1 probe confirmed
+  clob=1 -> a second reload committing the correct band (pal[32].red=14135).
+- VERIFIED no cycle-1 regression: a fresh entry + walk renders the clean grey
+  stone corridor (fix_c1walk) — the extra per-entry wall re-read is harmless.
+- Earlier "didn't fix it" (03z) was a TEST error: every prior cycle-2 shot was
+  taken AFTER pressing CUT WEB, which starts the AUTOWIN spider-fight — the
+  captured frame was the combat field / a combat re-clobber, not the walls.
+
+STILL OPEN (separate, issue B): a real (non-AUTOWIN) fight may clobber band 32
+via the combat field and not re-commit the walls on combat exit — verify
+whether combat's palette load sets clob (jt1069 start<145) and the post-combat
+jt312 reload fires. Also the cycle-2 VISUAL of this fix is unconfirmed: the
+menu round-trip drive is non-deterministic (camp EXIT is mouse-only + a "GAME
+NOT SAVED, LOAD ANYWAY?" confirm desyncs the Hall keys). The fix rests on the
+probe proof + cycle-1 no-regression; a deterministic re-entry harness (or a
+user click-through) would close the visual.
