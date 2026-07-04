@@ -16045,6 +16045,45 @@ static void l4e12(short *rect_out)
 		rect_out[2] = 0; rect_out[3] = 0;
 	}
 }
+/* JT[1136] = L4cba (CODE 4) — append one character to the buffered
+ * GLIB glyph run (the batching front end l4d88 flushes): reject
+ * coordinates outside the text area (v > 192 colour / 288 mono,
+ * h > 312 / 468); when the pen (cached at -930/-928) or the
+ * style/size pair (-934/-932) changes, flush the pending run first
+ * (-926 = -1 re-arms the run-start marker). The char lands at the
+ * -940 buffer cursor, the -936 count bumps, and the pen advances by
+ * the fixed cell width — 8 colour / 12 mono — which is also the
+ * return value. */
+static short jt1136(short v, short h, short ch, short style, short size)
+                                                __attribute__((unused));
+static short jt1136(short v, short h, short ch, short style, short size)
+{
+	PROBE("jt1136");
+	if (v < 0 || h < 0)
+		return 0;
+	if (v > ((g_a5_2347 != 0) ? (short)192 : (short)288))
+		return 0;
+	if (h > ((g_a5_2347 != 0) ? (short)312 : (short)468))
+		return 0;
+	if (v != g_a5_word(-930) || h != g_a5_word(-928)) {
+		l4d88();
+		g_a5_word(-930) = v;
+		g_a5_word(-928) = h;
+		g_a5_word(-926) = (short)-1;
+	}
+	if ((short)(char)style != g_a5_word(-934)
+	    || (short)(char)size != g_a5_word(-932)) {
+		l4d88();
+		g_a5_word(-934) = (short)(char)style;
+		g_a5_word(-932) = (short)(char)size;
+	}
+	*(unsigned char *)(uintptr_t)g_a5_long(-940) = (unsigned char)ch;
+	g_a5_long(-940) += 1;
+	g_a5_word(-936) += 1;
+	g_a5_word(-928) += (g_a5_2347 != 0) ? (short)8 : (short)12;
+	return (g_a5_2347 != 0) ? (short)8 : (short)12;
+}
+
 static signed char l5d8c(void) __attribute__((unused));
 static signed char l5d8c(void)
 {
@@ -16465,6 +16504,41 @@ static short jt1029(long p)
 	return (short)MemError();
 }
 
+/* JT[1045] (CODE 5+0x575e) — _GetVolInfo glue: the indexed volume
+ * iterator (ioVolIndex@28, name out via ioNamePtr@18, ioVRefNum@22).
+ * GEMDOS mounts one volume (the C: work dir): index 1 reports it
+ * (vref 0, noErr); any other index is nsvErr (-35) — exactly the
+ * signal jt1109's iterate-all loop terminates on. */
+static short jt1045(short async, unsigned char *pb) __attribute__((unused));
+static short jt1045(short async, unsigned char *pb)
+{
+	short idx = *(short *)(void *)(pb + 28);
+	short err;
+
+	PROBE("jt1045");
+	(void)async;
+	err = (idx == 1) ? 0 : (short)-35;              /* nsvErr */
+	if (err == 0)
+		*(short *)(void *)(pb + 22) = 0;        /* ioVRefNum */
+	*(short *)(void *)(pb + 16) = err;              /* ioResult  */
+	return err;
+}
+
+/* JT[1046] (CODE 5+0x5794) — _FlushVol glue: flush the volume named
+ * by the PB. Routed to the shim FlushVol (GEMDOS flushes on close;
+ * the call is the honest boundary). */
+static short jt1046(short async, unsigned char *pb) __attribute__((unused));
+static short jt1046(short async, unsigned char *pb)
+{
+	short err;
+
+	PROBE("jt1046");
+	(void)async;
+	err = FlushVol(NULL, *(short *)(void *)(pb + 22));
+	*(short *)(void *)(pb + 16) = err;              /* ioResult  */
+	return err;
+}
+
 /* JT[1036] (CODE 5+0x5124) — _VInstall: the Falcon HAL owns the
  * vblank (the VBL cursor/timer service); the tick side-effects the
  * Mac tasks provided are subsumed, so install reports noErr. */
@@ -16828,6 +16902,109 @@ static void l3cb0(short *rect)
 	if (g_a5_byte(-1313) != 0)
 		jt1061((unsigned char *)&g_a5_byte(-2584));
 }
+
+/* JT[1196] = L17ee (CODE 4) — BEGIN drawing on the DRAW page: flush
+ * the pending glyph run (l4d88), SetPort the -2352 page descriptor
+ * (the draw page — distinct from -2354, the shown page), then set
+ * the pen for `colour`:
+ *   colour QD — save the current GDevice (-2614) and switch to the
+ *   main one (-1306); 8bpp page + colour >= 16 + depth 8 goes
+ *   through PmForeColor (palette index direct), everything else
+ *   through RGBForeColor on the -1310 colour table entry
+ *   (ctab + colour*8 + 10 = the ColorSpec rgb);
+ *   mono — PenPat: colour 0/odd = the -3422 pattern, 1 = -3414,
+ *   else build the dither: selector byte at -3016[colour&15],
+ *   4 pattern bytes at -3000 + sel*4, each inverted and mirrored
+ *   into the 8-byte -3024 pattern.
+ * PenMode: patXor (10) for odd colours, patCopy (8) even. Finally
+ * ClipRect the GLIB clip rect (-3054/-3056/-3050/-3052). Paired
+ * with jt1168 below. */
+static void jt1196(short colour) __attribute__((unused));
+static void jt1196(short colour)
+{
+	Rect r;
+
+	PROBE("jt1196");
+	l4d88();
+	SetPort((GrafPtr)(void *)
+	        (g_a5_buf(-2570) + 108 * g_a5_word(-2352)));
+	if (g_a5_2347 != 0) {
+		short c = (short)(colour
+		    & ((g_a5_byte(-1312) != 0) ? 0xff : 0x0f));
+
+		g_a5_long(-2614) = (long)(uintptr_t)GetGDevice();
+		SetGDevice((GDHandle)(uintptr_t)g_a5_long(-1306));
+		if (g_a5_byte(-1312) != 0 && c >= 16
+		    && g_a5_word(-1318) == 8) {
+			PmForeColor(c);
+		} else {
+			unsigned char *ctab = *(unsigned char **)(void *)
+			    (uintptr_t)g_a5_long(-1310);
+
+			RGBForeColor((const RGBColor *)(void *)
+			             (ctab + ((long)c << 3) + 10));
+		}
+	} else {
+		if (colour == 0 || (colour & 1) != 0) {
+			PenPat((const Pattern *)(void *)
+			       &g_a5_byte(-3422));
+		} else if (colour == 1) {
+			PenPat((const Pattern *)(void *)
+			       &g_a5_byte(-3414));
+		} else {
+			signed char sel = (signed char)
+			    g_a5_buf(-3016)[colour & 15];
+			const unsigned char *p4 =
+			    g_a5_buf(-3000) + (long)sel * 4;
+			short i;
+
+			for (i = 0; i < 4; i++) {
+				unsigned char b = (unsigned char)~p4[i];
+
+				g_a5_byte(-3024 + i) = b;
+				g_a5_byte(-3020 + i) = b;
+			}
+			PenPat((const Pattern *)(void *)
+			       &g_a5_byte(-3024));
+		}
+	}
+	PenMode(((colour & 1) != 0) ? (short)10 : (short)8);
+	r.top    = g_a5_word(-3054);
+	r.left   = g_a5_word(-3056);
+	r.bottom = g_a5_word(-3050);
+	r.right  = g_a5_word(-3052);
+	ClipRect(&r);
+}
+
+/* JT[1168] = L1952 (CODE 4) — END drawing on the draw page (the
+ * jt1196 pair): restore the saved GDevice (-2614), reset the pen
+ * (patCopy + the -3422 pattern), ClipRect back to the page's
+ * portRect (descriptor +16), SetPort back to the window (-2578),
+ * and when a port is current (l5d8c) InvalRect the touched rect —
+ * doubled IN PLACE first when the window is 2x (the caller's rect
+ * mutates, as on the Mac). */
+static void jt1168(Rect *touched) __attribute__((unused));
+static void jt1168(Rect *touched)
+{
+	PROBE("jt1168");
+	if (g_a5_2347 != 0)
+		SetGDevice((GDHandle)(uintptr_t)g_a5_long(-2614));
+	PenMode((short)8);
+	PenPat((const Pattern *)(void *)&g_a5_byte(-3422));
+	ClipRect((const Rect *)(void *)
+	         (g_a5_buf(-2570) + 108 * g_a5_word(-2352) + 16));
+	SetPort((GrafPtr)(uintptr_t)g_a5_long(-2578));
+	if (l5d8c() != 0) {
+		if (g_a5_byte(-2346) != 0) {
+			touched->top    = (short)(touched->top << 1);
+			touched->left   = (short)(touched->left << 1);
+			touched->bottom = (short)(touched->bottom << 1);
+			touched->right  = (short)(touched->right << 1);
+		}
+		InvalRect(touched);
+	}
+}
+
 static signed char l7de0(void) __attribute__((unused));
 static signed char l7de0(void)
 {
@@ -19160,6 +19337,101 @@ static void l0faa(long arg)
 /* JT[980] (CODE 5 + 0x0f9c) — service one voice with the current timer tick. */
 static void jt980(void) __attribute__((unused));
 static void jt980(void) { PROBE("jt980"); l0faa(jt1149()); }
+
+/* JT[1091] = L73ee (CODE 4) — the Sound Driver completion routine.
+ * Mac: a PC-relative slot inside the routine caches A5 on the first
+ * (arming) call from normal code; interrupt-time invocations restore
+ * A5 from it, dispatch the next tone (jt982 = l0faa with the jt1149
+ * tick delta) and set the -136 done flag. The port's A5 world is a
+ * static buffer — always addressable — so the cache dance reduces to
+ * the same arm-first/dispatch-after split. */
+static void jt1091(void) __attribute__((unused));
+static void jt1091(void)
+{
+	static long armed;              /* the L73f0 in-code slot */
+
+	PROBE("jt1091");
+	if (armed == 0) {
+		armed = 1;
+		return;
+	}
+	l0faa(jt1149());                /* jt982 */
+	g_a5_word(-136) = 1;
+}
+
+/* L741e (CODE 4) — arm the tone pipeline: run a missed completion
+ * (-131), point the completion vector (-140) at JT[1091], reset the
+ * run flags (-142 = 1, -134 = 0, -136 = 1), and on the first arm
+ * (-132 clear) _VInstall the -146 VBL task (jt1036 — subsumed by the
+ * Falcon VBL service). */
+static void l741e(void) __attribute__((unused));
+static void l741e(void)
+{
+	PROBE("L741e");
+	if (g_a5_byte(-131) != 0) {
+		jt1091();
+		g_a5_byte(-131) = 0;
+	}
+	g_a5_long(-140) = (long)(uintptr_t)(void (*)(void))jt1091;
+	g_a5_word(-142) = 1;
+	g_a5_word(-134) = 0;
+	g_a5_word(-136) = 1;
+	if (g_a5_byte(-132) == 0)
+		(void)jt1036((long)(uintptr_t)&g_a5_byte(-146));
+	g_a5_byte(-132) = 1;
+}
+
+/* JT[1111] = L74cc (CODE 4) — sound-synth init: set up the four
+ * channel slots (-216 count = 1, -214 → the -266 record, the -264/
+ * -256/-248/-240 heads cleared, the four -232..-220 wave pointers →
+ * the -778 table), then build the wave tables — a square wave at
+ * -522 (128 x 0x00 then 128 x 0xFF) and a trapezoid at -778 (16/240
+ * square with 8-step ramps of slope 14 splicing each edge) — seed
+ * -210 = -1 / -206 = 128, clear the -202 6-byte block (jt399), clear
+ * the -779/-780 latches, set -806, then arm the pipeline (l741e) and
+ * zero the sync counter (jt963). */
+static void jt1111(void) __attribute__((unused));
+static void jt1111(void)
+{
+	unsigned char *w;
+	short i;
+
+	PROBE("jt1111");
+	g_a5_word(-216) = 1;
+	g_a5_long(-214) = (long)(uintptr_t)&g_a5_byte(-266);
+	g_a5_long(-264) = 0;
+	g_a5_long(-256) = 0;
+	g_a5_long(-248) = 0;
+	g_a5_long(-240) = 0;
+	g_a5_long(-232) = (long)(uintptr_t)&g_a5_byte(-778);
+	g_a5_long(-228) = (long)(uintptr_t)&g_a5_byte(-778);
+	g_a5_long(-224) = (long)(uintptr_t)&g_a5_byte(-778);
+	g_a5_long(-220) = (long)(uintptr_t)&g_a5_byte(-778);
+	w = (unsigned char *)&g_a5_byte(-522);
+	for (i = 0; i < 128; i++) {
+		w[i]       = 0;
+		w[i + 128] = 0xff;
+	}
+	w = (unsigned char *)&g_a5_byte(-778);
+	for (i = 0; i < 128; i++) {
+		w[i]       = 16;
+		w[i + 128] = 0xf0;
+	}
+	for (i = 0; i < 8; i++) {
+		w[i]       = (unsigned char)(128 - i * 14);
+		w[i + 120] = (unsigned char)(i * 14 + 16);
+		w[i + 128] = (unsigned char)(i * 14 + 128);
+		w[i + 248] = (unsigned char)(240 - i * 14);
+	}
+	g_a5_word(-210) = (short)-1;
+	g_a5_word(-206) = 128;
+	jt399(&g_a5_byte(-202), 6, 0);
+	g_a5_byte(-779) = 0;
+	g_a5_byte(-780) = 0;
+	g_a5_byte(-806) = 1;
+	l741e();
+	jt963();
+}
 
 /* JT[979] (CODE 5 + 0x0f48) — count active voices in the 5-slot table (a slot
  * is live when its leading long is non-zero). */
@@ -29192,6 +29464,228 @@ static short jt1188(const void *src_v, short rows, short wbytes,
 		dst += dstadv;
 	}
 	return 0;
+}
+
+/* JT[1195] (CODE 4+0x0c08) — play a save-under RLE stream at the
+ * GLIB cursor (l05e4, unaligned; row stride = l04de() >> l04f0()).
+ * Token stream per row: bit7-set = advance dest by -(signed token)
+ * bytes, positive = a literal run of that many stream bytes copied
+ * to dest, 0 = end of row. Skips `before` rows of the stream, plays
+ * `rows`, skips `after` (the skip loops consume tokens without
+ * copying). Returns the advanced stream pointer (0 for a NULL
+ * stream). Args 4/5 are in the caller's frame but never read — the
+ * sibling variants share the call shape. */
+static long jt1195(short before, short after, short rows, short u1,
+                   short u2, const void *stream_v) __attribute__((unused));
+static long jt1195(short before, short after, short rows, short u1,
+                   short u2, const void *stream_v)
+{
+	const unsigned char *s = (const unsigned char *)stream_v;
+	unsigned char *dst, *rowbase;
+	long stride;
+	short n;
+	signed char t;
+
+	PROBE("jt1195");
+	(void)u1; (void)u2;
+	if (s == NULL)
+		return 0;
+	dst = (unsigned char *)(uintptr_t)l05e4();
+	stride = (short)(l04de() >> l04f0());
+	for (n = before; n != 0; ) {
+		t = (signed char)*s++;
+		if (t < 0)
+			continue;
+		if (t != 0) {
+			s += t;
+			continue;
+		}
+		dst += stride;
+		n--;
+	}
+	rowbase = dst;
+	for (n = rows; n != 0; ) {
+		t = (signed char)*s++;
+		if (t < 0) {
+			dst -= t;
+			continue;
+		}
+		if (t != 0) {
+			jt406(dst, s, t);
+			dst += t;
+			s += t;
+			continue;
+		}
+		rowbase += stride;
+		dst = rowbase;
+		n--;
+	}
+	for (n = after; n != 0; ) {
+		t = (signed char)*s++;
+		if (t < 0)
+			continue;
+		if (t != 0) {
+			s += t;
+			continue;
+		}
+		dst += stride;
+		n--;
+	}
+	return (long)(uintptr_t)s;
+}
+
+/* JT[1174] (CODE 4+0x23e8) — LZ77 match-copy unpacker (another GLIB
+ * piece codec): tokens by high bits — 0xxxxxxx = short match (2-byte
+ * form: 0-3 leading literals from (b>>3)&3, 9-bit offset
+ * ((b<<2)&0x380)|t, length (b&7)+3); 10xxxxxx = long match (3-byte
+ * form: 0-3 literals from b2&3, 15-bit offset
+ * ((b1&0xE0)<<1)|(t&0x3F)|((b2<<7)&0x7E00), length (b1&31)+3);
+ * 110xxxxx = literal run (t&15 bytes when bit4 set, else
+ * 4*((t&15)+1)); 111xxxxx = end. Match source = dst - offset - 1
+ * (self-referencing, byte at a time). Returns the advanced source. */
+static long jt1174(const void *src_v, void *dst_v) __attribute__((unused));
+static long jt1174(const void *src_v, void *dst_v)
+{
+	const unsigned char *s = (const unsigned char *)src_v;
+	unsigned char *d = (unsigned char *)dst_v;
+	const unsigned char *m;
+	unsigned char t, b1, b2;
+	short n, off;
+
+	PROBE("jt1174");
+	for (;;) {
+		t = *s++;
+		if ((t & 0x80) == 0) {
+			b1 = *s++;
+			for (n = (short)((b1 >> 3) & 3); n > 0; n--)
+				*d++ = *s++;
+			off = (short)((((short)b1 << 2) & 0x380) | t);
+			m = d - off - 1;
+			for (n = (short)((b1 & 7) + 3); n > 0; n--)
+				*d++ = *m++;
+			continue;
+		}
+		if ((t & 0x40) == 0) {
+			b1 = *s++;
+			b2 = *s++;
+			for (n = (short)(b2 & 3); n > 0; n--)
+				*d++ = *s++;
+			off = (short)(((short)(b1 & 0xe0) << 1)
+			              | (t & 0x3f)
+			              | (((short)b2 << 7) & 0x7e00));
+			m = d - off - 1;
+			for (n = (short)((b1 & 31) + 3); n > 0; n--)
+				*d++ = *m++;
+			continue;
+		}
+		if ((t & 0x20) == 0) {
+			n = (short)(t & 15);
+			if ((t & 0x10) == 0)
+				n = (short)((n + 1) << 2);
+			for (; n > 0; n--)
+				*d++ = *s++;
+			continue;
+		}
+		break;
+	}
+	return (long)(uintptr_t)s;
+}
+
+/* JT[1019] (CODE 5+0x422c) — LZW dictionary sweep when the 1024-code
+ * table fills: pass 1 frees codes whose flag byte is negative
+ * (except `keep`, the in-flight prev code) and ages positive flags
+ * to -1; pass 2 re-protects every live code's parent (flag 1); both
+ * repeat until at least 85 codes are free. `nextfree` tracks the
+ * lowest freed slot and is returned. Lives in CODE 5 on the Mac but
+ * belongs to this cluster — jt1187 is its only caller. */
+static short jt1019(short keep, unsigned char *tbl, short nextfree)
+                                                __attribute__((unused));
+static short jt1019(short keep, unsigned char *tbl, short nextfree)
+{
+	short freed = 0;
+	short c;
+	unsigned char *p;
+
+	PROBE("jt1019");
+	do {
+		p = tbl + 256;
+		for (c = 256; c < 1024; c++, p++) {
+			if ((signed char)*p < 0) {
+				if (c == keep)
+					continue;
+				*p = 0;
+				freed++;
+				if (c < nextfree)
+					nextfree = c;
+			} else if ((signed char)*p > 0) {
+				*p = 0xff;
+			}
+		}
+		p = tbl + 256;
+		for (c = 256; c < 1024; c++, p++) {
+			if (*p != 0)
+				tbl[*(short *)(void *)
+				    (tbl + (long)c * 2 + 2050)] = 1;
+		}
+	} while (freed < 85);
+	return nextfree;
+}
+
+/* JT[1187] (CODE 4+0x218c) — the LZW decode main loop: pull 10-bit
+ * codes from the byte stream through a 16-bit shift register (`reg`,
+ * with `6 - remaining` bookkeeping in d5: two refill shapes — one
+ * byte while bits remain, two bytes on empty), expand each through
+ * jt1203 into *out, and grow the dictionary: flag the previous code
+ * protected (1), the new code fresh (-1), suffix byte = the
+ * expansion's first byte at tbl[code+1026], parent word at
+ * tbl[code*2+2050]; the next free slot is the next zero flag byte.
+ * jt1019 sweeps when the table hits 1024 codes. Runs until the
+ * output cursor reaches `end`; stores the final free slot at
+ * tbl+4098 and returns the advanced source pointer. */
+static char jt1203(char **out, short code, const unsigned char *tbl);
+static long jt1187(short reg, short prev, const unsigned char *src,
+                   short nextfree, const char *end, unsigned char *tbl,
+                   char **out) __attribute__((unused));
+static long jt1187(short reg, short prev, const unsigned char *src,
+                   short nextfree, const char *end, unsigned char *tbl,
+                   char **out)
+{
+	unsigned short sr = (unsigned short)reg;        /* d7 */
+	short avail = 6;                                /* d5 */
+	short code;                                     /* d4 */
+	char first;                                     /* fp@(-1) */
+
+	PROBE("jt1187");
+	while ((unsigned long)(uintptr_t)*out
+	       < (unsigned long)(uintptr_t)end) {
+		if (avail != 0) {
+			sr = (unsigned short)((sr << 8) | *src++);
+			avail -= 2;
+		} else {
+			sr = (unsigned short)(*src++ << 8);
+			sr |= *src++;
+			avail = 6;
+		}
+		code = (short)((sr >> avail) & 0x3ff);
+		first = jt1203(out, code, tbl);
+		if (nextfree >= 1024)
+			nextfree = jt1019(prev, tbl, nextfree);
+		tbl[prev] = 1;
+		tbl[nextfree] = 0xff;
+		tbl[nextfree + 1026] = (unsigned char)first;
+		*(short *)(void *)(tbl + (long)nextfree * 2 + 2050) = prev;
+		{
+			unsigned char *p = tbl + nextfree;
+
+			do {
+				p++;
+			} while (*p != 0);
+			nextfree = (short)(p - tbl);
+		}
+		prev = code;
+	}
+	*(short *)(void *)(tbl + 4098) = nextfree;
+	return (long)(uintptr_t)src;
 }
 
 /* JT[1203] (CODE 4+0x212c) — expand one compression code through the
@@ -57230,8 +57724,31 @@ static short jt416(const char *spec)
 	l45d6(pname, spec);
 	return (short)-FSDelete((ConstStr255Param)pname, (short)0);
 }
+/* JT[1109] = L7a5e (CODE 4) — flush every mounted volume: iterate
+ * _GetVolInfo (jt1045) over ioVolIndex 1.. until nsvErr (-35),
+ * _FlushVol (jt1046) each hit — the save path's disk sync. Full
+ * lift; on GEMDOS the iterator reports the single C: volume. */
 static void  jt1109(void) __attribute__((unused));
-static void  jt1109(void) { PROBE("jt1109"); }
+static void  jt1109(void)
+{
+	unsigned char name[258];        /* fp@(-326) name buffer */
+	unsigned char pb[64];           /* fp@(-64)  ioParam     */
+	short err = 0;                  /* fp@(-68)              */
+	short idx = 1;                  /* fp@(-66)              */
+
+	PROBE("jt1109");
+	while (err != -35) {
+		*(long *)(void *)(pb + 12) = 0;         /* ioCompletion */
+		*(long *)(void *)(pb + 18) =
+		    (long)(uintptr_t)name;              /* ioNamePtr    */
+		*(short *)(void *)(pb + 22) = 0;        /* ioVRefNum    */
+		*(short *)(void *)(pb + 28) = idx;      /* ioVolIndex   */
+		err = jt1045(0, pb);
+		if (err == 0)
+			(void)jt1046(0, pb);
+		idx++;
+	}
+}
 static void  l157c(short a, short b, long c) __attribute__((unused));
 static void  l157c(short a, short b, long c) { PROBE("L157c"); (void)a; (void)b; (void)c; }
 /* jt1152 / jt1142 lifted above (the CODE 4 sound/disk tier, band 7). */

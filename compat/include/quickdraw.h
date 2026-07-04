@@ -72,6 +72,18 @@ void       ShowCursor(void);            /* nest-show (level++, max visible)  */
 void       ObscureCursor(void);         /* hide until the mouse next moves   */
 void       ShieldCursor(const Rect *shieldRect, Point offsetPt);
                                         /* nest-hide while a blit covers r   */
+
+/* GDevice / Palette Manager minimum (the engine's page-draw bracket
+ * JT[1196]/JT[1168] saves, switches and restores the current device
+ * around off-screen drawing). The Falcon HAL is one screen device:
+ * GetGDevice returns an opaque non-NULL sentinel, SetGDevice ignores
+ * its argument, and PmForeColor sets the port fore colour to the
+ * palette index directly — the 8bpp CLUT and the Palette Manager
+ * palette are 1:1 here. */
+typedef void **GDHandle;
+GDHandle   GetGDevice(void);
+void       SetGDevice(GDHandle gdh);
+void       PmForeColor(short pmIndex);
 CursHandle GetCursor(short cursorID);   /* standard IDs: 4 = watch, else arrow */
 const Cursor *qd_sword_cursor(void);    /* the FRUA engine sword (placeholder) */
 
