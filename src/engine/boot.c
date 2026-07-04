@@ -785,6 +785,7 @@ static void  l6e50(short arg)
  *   L6e50(g_a5_-18828);            // active level/page, clamped 0..40
  *   *(short *)g_a5_-12300 = 0;      // reset the design-state cursor
  * g_a5_-18828 is a byte from the just-loaded GAME header. */
+/* l7222 (CODE 8 + 0x7222) = JT[369]. */
 static void  l7222(void)
 {
 	PROBE("L7222");
@@ -56084,6 +56085,28 @@ static short jt230(long a, long b)
 	if (w >= -1)
 		w++;
 	return w;
+}
+
+/* JT[344] (CODE 8+0x54fa) — reset the menu registry: clear the menu
+ * count (-10474) and the flag byte (-10473). Full lift (band 7). */
+static void jt344(void) __attribute__((unused));
+static void jt344(void)
+{
+	PROBE("jt344");
+	g_a5_byte(-10474) = 0;
+	g_a5_byte(-10473) = 0;
+}
+
+/* JT[333] (CODE 8+0x3658) — colour word -> pattern index: the 0x8N
+ * family maps to 280; otherwise ((cw & 15) ^ (cw >> 4)) | 256.
+ * Full lift (band 7). */
+static short jt333(short cw) __attribute__((unused));
+static short jt333(short cw)
+{
+	PROBE("jt333");
+	if ((cw & 0xf0) == 0x80)
+		return 280;
+	return (short)(((cw & 0x0f) ^ (cw >> 4)) | 0x100);
 }
 
 /* JT[351] (CODE 8+0x73f8) — fixed-arg wrapper: JT[209](1). */
