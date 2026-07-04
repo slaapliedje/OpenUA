@@ -960,3 +960,31 @@ composes only the left ~280px (right half black) and the entry viewport shows
 the wall-tile garble (the 3D-view wall CLUT 32/64/96 not committed on
 re-entry). Both are display-transition / wall-palette issues for their own
 cards.
+
+## 03z — cycle-2 wall-garble: the entry-reload works, it's a re-clobber AFTER (2026-07-03)
+
+Chased the cycle-2 viewport garble (the FRAME chrome is now fine after 03y;
+this is the 88x88 3D view rendering green/blue herringbone on a re-entry).
+
+- The wall CLUT (32/64/96) commits via cw_finalize (qd_set_palette(pal,0,256)),
+  reached from load_wall_groups, which render_3d_faithful / jt312 gate on
+  `g_clut_clobbered || ds[4..6] != g_cw_grp[]`. On a re-entry the wall ids are
+  unchanged (g_cw_grp static across the round-trip), so only the clobbered
+  flag can force the reload.
+- Tried: set g_clut_clobbered=1 at the entry (l4b56, next to the 03y frame
+  commit). PROBE-CONFIRMED it fires — cycle-1 shows a SECOND reload with a
+  CORRECT band (pal[32].red=14135, g_cw_sr[0][0]=55). So the entry reload path
+  works. But the cycle-2 garble PERSISTED, so the corruption happens AFTER the
+  entry reload — most likely the AUTOWIN spider-fight (the type-1 combat event
+  that chains off the type-10 web prompt) re-clobbers the wall band (combat
+  field / DUNGCOM) and the post-combat return doesn't re-commit it, OR the
+  captured frame was the combat field itself, not the walls.
+- REVERTED the g_clut_clobbered=1 (unverified for this bug + a per-entry wall
+  re-read of overhead). The 03y FRAME fix stays (verified).
+
+NEXT (own session): reproduce WITHOUT AUTOWIN (a real fight or a non-combat
+cell) so the entry reload is the last CLUT write before the screenshot; probe
+cw_finalize's pal[32] at the exact garbled frame. The interactive
+camp->menu->re-enter drive is the bottleneck — script it with screenshot
+gates at every step (the dungeon-exit 'game not saved' prompt + the 'l/a/b'
+Hall keys desync easily).
