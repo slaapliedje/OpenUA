@@ -849,3 +849,21 @@ the port's jt1089 had skipped that step for both the plate AND the glyphs.
 Fixed: jt1089 now remaps fg + plate via jt1006 under the same gate. Verified:
 plates blend invisibly into the panels (no light bars), the campfire entry
 and the crisp rest-editor digits both hold.
+
+## 03v — the give-treasure flow LIVE end to end (2026-07-03)
+
+The "dead app after the caravan reward" was FIVE NULL derefs of rec[64] (the
+member's combat sub-record — NULL outside combat; the Mac reads low memory
+harmlessly, the Falcon bus-errors — the InvalRect class again): three in
+l33d8's party sweeps, one in l4046's disband loop (both reached by jt930 from
+the non-combat give-treasure path), and two pre-emptively in the combat-setup
+placement sites. All guarded with mc != NULL.
+
+Hatari-verified END TO END on the HEIRS front door: intro caravan -> the
+give-treasure event -> "EACH CHARACTER RECEIVES 100 EXPERIENCE POINTS / THE
+PARTY HAS FOUND TREASURE!" -> the treasure-pile art + VIEW|TAKE|POOL|SHARE|
+EXIT -> TAKE -> MONEY -> "PLATINUM 100" -> "HOW MUCH PLATINUM WILL YOU TAKE?"
+-> 100 taken -> "THERE IS STILL TREASURE LEFT..." (the ring stays) -> the
+chained farewell pages ("may the gods watch over you", the Thirsty Traveler)
+-> the DUNGEON with a live command bar. The mode-flip concern was unfounded —
+the walk loop handles the case-3 refresh fine once the crashes are gone.
