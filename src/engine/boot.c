@@ -63121,6 +63121,96 @@ static void jt255(short arg1, short arg2)
 	base[0] = (unsigned char)(count + 1);
 }
 
+/* JT[250] (CODE 2+0x404c) — the design-record FIELD EDITOR: apply edit
+ * command `cmd` to the packed 32-bit `field` (the low word holds the
+ * wall/flag bits the editor toggles; `field[2]`/`field[4]` are its byte
+ * flags), committing through jt325 and repacking. `handle` is the edit
+ * context; sub = *(handle+4) is the record it acts on (sub[10] its mode
+ * word, sub[12] a packed backup).
+ *
+ * Two JT[3] dispatches (both machine-extracted): the first (on cmd)
+ * pre-extracts the edit value and seeds sub[10]; unless a fast-path flag
+ * fired, jt318/jt348/jt359 gather context and jt325 commits the edit (a
+ * bit-6 flag then runs jt321); the second (on sub[10]) repacks the
+ * result back into `field`. Returns sub[10]. Full lift — all callees
+ * are lifted; unused until the CODE 8/9 design editor that calls it is
+ * lifted. */
+static short jt318(void);               /* CODE 22+0x488, defined below */
+static long  jt359(short n);            /* CODE 8+0x6dd8, defined below */
+static short jt250(short cmd, long *field, void *handle) __attribute__((unused));
+static short jt250(short cmd, long *field, void *handle)
+{
+	unsigned char *hnd = (unsigned char *)handle;
+	unsigned char *fld = (unsigned char *)field;
+	unsigned char *sub;
+	short flag = 0, ext = 3, j325r = 0;
+	unsigned char t318, t348;
+
+	PROBE("jt250");
+	if (handle == NULL)
+		return 0;
+	sub = (unsigned char *)(uintptr_t)*(long *)(hnd + 4);
+
+	switch (cmd) {                  /* JT[3] @0x407e */
+	case 2: case 3: case 4: case 7:
+		ext = (short)((*field & 16383) | 32768);
+		*(short *)hnd = cmd;
+		hnd[2] = (unsigned char)(*field & 255);
+		*(short *)(sub + 10) = 6;
+		break;
+	case 6:
+		hnd[2] = (unsigned char)(*field & 255);
+		ext = (short)((*field & 16128) >> 8);
+		if (hnd[2] == 0 && (unsigned short)ext >= 62) {
+			flag = 1;
+			*(short *)(sub + 10) = *(short *)hnd;
+		}
+		break;
+	default:
+		break;
+	}
+
+	if (flag == 0) {
+		t318 = (unsigned char)jt318();
+		*field &= 49151;                        /* clear bit 14 */
+		t348 = jt348((short)hnd[2]);
+		j325r = jt325(cmd, field, sub, (short)t348,
+		              (void *)(uintptr_t)jt359((short)hnd[2]),
+		              ext, (short)20);
+		if (t318 == 0 && (fld[2] & (1 << 6)) != 0)
+			jt321();
+	}
+
+	*field &= (long)0xFFFF0000L;            /* clear the low word */
+	switch (*(short *)(sub + 10)) {         /* JT[3] @0x41be */
+	case 8:
+		fld[4] = 1;
+		*field |= (long)*(short *)(sub + 12);
+		break;
+	case 10: case 11:
+		*field |= (long)*(short *)(sub + 12);
+		break;
+	case 6:
+		if (flag != 0) {
+			*field |= (long)ext;
+		} else if (j325r == 3) {
+			*field |= (long)((*(short *)(sub + 12) & 16383)
+			                 << 16);
+		} else {
+			*field &= (long)0xFFFFC0FFL;    /* clear bits 8-13 */
+			if (j325r == 1)
+				fld[2] |= 0x01;
+		}
+		break;
+	case 2: case 3: case 4: case 7:
+		*field |= (long)jt397((short)0, (short)(ext - 62));
+		break;
+	default:                                /* 5, 9 */
+		break;
+	}
+	return *(short *)(sub + 10);
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
