@@ -36643,7 +36643,7 @@ static void l33d8(void)
 		unsigned char *mc = (unsigned char *)(uintptr_t)
 		    *(long *)(void *)(p + 64);
 
-		if (mc[21] == 1)
+		if (mc != NULL && mc[21] == 1)   /* PORT-SAFETY: rec[64] NULL outside combat */
 			break;
 		if (p[94] == 3)
 			g_a5_byte(-5791) = 1;
@@ -36669,7 +36669,7 @@ static void l33d8(void)
 			unsigned char *mc = (unsigned char *)(uintptr_t)
 			    *(long *)(void *)(p + 64);
 
-			if (mc[21] == 1)
+			if (mc != NULL && mc[21] == 1)   /* PORT-SAFETY */
 				break;
 			if (p[94] == 3 || p[94] == 1 || p[94] == 0) {
 				if (p[95] == 0 && !(p[147] & 0x80))
@@ -36722,7 +36722,7 @@ static void l33d8(void)
 			unsigned char *mc = (unsigned char *)(uintptr_t)
 			    *(long *)(void *)(p + 64);
 
-			if (mc[21] == 1)
+			if (mc != NULL && mc[21] == 1)   /* PORT-SAFETY */
 				break;
 			if (g_a5_byte(-5791) != 0) {   /* someone fled */
 				if (p[94] == 3) {
@@ -37005,13 +37005,13 @@ static void l4046(void)
 		unsigned char *mc = (unsigned char *)(uintptr_t)
 		    *(long *)(void *)(p + 64);
 
-		if (mc[21] == 1 || p[95] == 1) {
+		if ((mc != NULL && mc[21] == 1) || p[95] == 1) {   /* PORT-SAFETY NULL guard */
 			g_a5_byte(-5792) = 1;
 			if (p[382] == 0)
 				hdr[21]++;
 			next = *(long *)(void *)p;
 			g_a5_long(-27932) = cur;
-			jt19((short)((mc[21] == 1) ? 1 : 0), (short)1);
+			jt19((short)((mc != NULL && mc[21] == 1) ? 1 : 0), (short)1);
 			cur = next;
 		} else {
 			if (*(long *)(void *)(p + 64) != 0) {
@@ -37091,8 +37091,9 @@ static void jt930(void)
 		}
 		if (g_a5_byte(-27988) == 0) {
 			l3806_c12(g_a5_long(-22290));
-			if (g_a5_byte(-18885) != 0 || g_a5_byte(-5790) != 0)
+			if (g_a5_byte(-18885) != 0 || g_a5_byte(-5790) != 0) {
 				l3d1e();
+			}
 		}
 		jt73();
 	} else {                               /* the party was destroyed */
@@ -40760,7 +40761,7 @@ static void l404e(void)
 		band = (unsigned char)((p[147] & 127) * 2);
 		if (p[95] == 0) {
 			mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
-			if (mc[21] == 1) {
+			if (mc != NULL && mc[21] == 1) {   /* PORT-SAFETY */
 				if (band == 0 || (unsigned char)band > 102) {
 					gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
 					p[147] = (unsigned char)
@@ -40999,7 +41000,7 @@ static void l4af4(void)
 		} else {                                  /* L4e9c: placement failed */
 			cell[5] = 0;
 			mc = (unsigned char *)(uintptr_t)(*(long *)(p + 64));
-			if (mc[21] == 1) {                /* a just-summoned creature -> drop */
+			if (mc != NULL && mc[21] == 1) {  /* just-summoned -> drop; PORT-SAFETY NULL guard */
 				removed++;
 				g_a5_longs(-25676)[slot] = 0;
 				g_a5_long(-27932) = cur;
