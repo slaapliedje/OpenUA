@@ -1023,3 +1023,55 @@ menu round-trip drive is non-deterministic (camp EXIT is mouse-only + a "GAME
 NOT SAVED, LOAD ANYWAY?" confirm desyncs the Hall keys). The fix rests on the
 probe proof + cycle-1 no-regression; a deterministic re-entry harness (or a
 user click-through) would close the visual.
+
+## 04b — camp-exit BLACK VIEW + fall-to-menu: the binder-slot leak (2026-07-04)
+
+User-reported (and probe-reproduced): ENCAMP -> EXIT leaves a black 88x88
+viewport, empty message pane, no command bar; the next key lands on the MAIN
+MENU. Full causal chain, captured by the FRUA_ENGINE_PROBE_ONCE drive +
+l036a/l33ac instrumentation:
+
+1. cw_wallfile_load's stage-4 sibling dispose released the OTHER wall file
+   with `jt461(group); binder = NULL` — a bare drop. Only l31dc/jt115 free
+   the -18468 BINDER SLOT (word[0] = -1); the bare drop leaked one slot per
+   8X8DB<->8X8DC flip. HEIRS level 10 mixes both files, so entry + web event
+   + camp reloads leak ~6 slots (per-slot dump: 6 claimed-but-unbound slots,
+   4 live: activ / 8x8dc.CTL / 8x8dc3010.ctl / topview).
+2. At camp exit the wall reload finds all 10 slots claimed; l33ac's loop
+   falls through to slot 10 = GROUP 12 (the Mac has the IDENTICAL
+   fall-through — it just never fires there because transitions release
+   their slots). Group 12 belongs to topview.CTL.
+3. jt464 posts the l036a modal "Group 12 in use for 'topview.CTL'" — drawn
+   against the un-repainted transition frame = the user's BLACK SCREEN.
+   (A second modal fires later: topview rebind vs the stolen group 12.)
+4. The dismiss key unwinds the play loop (l07dc cleanup: jt19 unlink,
+   jt52(255) stop voices) -> main menu. NOT a crash — a faithful error exit.
+
+FIX: release the sibling through l31dc (frees the slot AND the group);
+keep the jt461 fallback for a group-only record. camp-exit now reloads the
+walls cleanly. Diagnostics kept in-tree (fire on error paths only):
+l036a message capture + the l33ac binder-overflow per-slot dump.
+
+LESSON (the port_* dispose idiom): NEVER `handle = NULL` a binder-held
+resource — always l31dc/jt115 so the -18468 slot returns to the pool. The
+overflow dump will name the holders if this class recurs.
+
+### 04b addendum — TWO fixes were needed; VERIFIED end-to-end (probe10)
+
+The binder-slot release alone removed the error modal but camp-EXIT still
+landed on the MAIN MENU: the port's jt948 ENCAMP arm was `l473e(1); break;`
+— an unconditional break out of the walk loop. The Mac L4c18 sets res=-1 and
+branches to the common tail, where `tstb -27982; beq L4be8` KEEPS WALKING
+(the inner-loop head) when the flag is clear — normal camp exit; a set flag
+(camp LOAD / stair swap requested inside camp) breaks to the outer L4cda
+level-reload. Fix: `if (g_a5_byte(-27982) == 0) continue;` before the break.
+
+VERIFIED (probe10 drive): entry -> WAIT -> walk (roster + clock + 3D view)
+-> ENCAMP (campfire + verb bar) -> EXIT -> **back in the dungeon**: 3D view
+renders, AREA/CAST/VIEW/ENCAMP/SEARCH/LOOK/INV command bar live, no error
+modal, no binder overflow (0 hits), no fall-to-menu.
+
+NEW NIT (filed): after camp exit the right-hand panels show the AREA/MARK
+overlay ("MARK CELL WALL / CURRENT MARK AT COL x ROW y") instead of the
+roster — the camp cleanup's mode restore (-27990 = -27989) appears to land
+in the area-map mode. The 3D view + command bar are correct; panel only.

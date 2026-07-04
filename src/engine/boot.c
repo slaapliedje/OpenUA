@@ -2409,6 +2409,7 @@ static short         g_wallfile_which = -1;   /* file index resident in buf (-1 
  * FAR pool (deduped across the 3 wall groups by jt464); jt468 resolves the base.
  * RM #127 stage 2. */
 static void *g_wallfile_binder[2];
+static void  l31dc(void *pp);          /* binder slot+group release (defined below) */
 static short g_wallfile_group[2] = { -1, -1 };
 
 /* cw_wallfile_load — return the GLIB base of 8X8D{C,B}.CTL `file` (0=DC, 1=DB).
@@ -2442,10 +2443,22 @@ static long cw_wallfile_load(short file)
 		 * 8X8DC set 10 and OOM'd exactly here). Release the sibling
 		 * file's group first so l11ca can reclaim it for this load. */
 		short other = g_wallfile_group[file ^ 1];
-		if (other >= 0 && jt468(other) != 0) {
+		if (g_wallfile_binder[file ^ 1] != NULL) {
+			/* Release through l31dc so the -18468 BINDER SLOT is
+			 * freed too (word[0] = -1), not just the FC group. The
+			 * old bare `binder = NULL` drop leaked one slot per
+			 * 8X8DB<->8X8DC flip; after ~6 flips (entry + event +
+			 * camp reloads on the mixed-file HEIRS level 10) the
+			 * 10-slot pool was FULL and l33ac fell through to
+			 * group 12 — "Group 12 in use for 'topview.CTL'", an
+			 * error modal over a black frame, and the play loop
+			 * unwound to the main menu (the camp-exit black-view
+			 * bug, probe-captured 2026-07-04). */
+			l31dc((void *)&g_wallfile_binder[file ^ 1]);
+			g_wallfile_group[file ^ 1] = -1;
+		} else if (other >= 0 && jt468(other) != 0) {
 			jt461(other);
-			g_wallfile_group[file ^ 1]  = -1;
-			g_wallfile_binder[file ^ 1] = NULL;
+			g_wallfile_group[file ^ 1] = -1;
 		}
 		l338c((short)50);                     /* JT[113] load-kind */
 		/* PLAIN name (no trailing digit) so l33ac takes the jt997
@@ -3842,8 +3855,20 @@ static void jt948(void)
 			if (g_a5_byte(-5221) != 0)
 				break;                  /* immediate area-leave */
 
-			if (res == 4) {                 /* L4c18 — exit adventure */
+			if (res == 4) {                 /* L4c18 — ENCAMP */
 				l473e(1);
+				/* Mac tail (L4c8e -> L4cda): res=-1, the fp-9
+				 * flag skips the jt955/jt935 refresh once
+				 * (l473e's own tail already re-rendered), then
+				 * `tstb -27982; beq L4be8` — KEEP WALKING (the
+				 * inner-loop head) when the flag is clear
+				 * (normal camp EXIT); a set flag (camp LOAD /
+				 * stair swap requested inside camp) breaks to
+				 * the outer L4cda level-reload. The old
+				 * unconditional break dumped every post-camp
+				 * player back at the main menu. */
+				if (g_a5_byte(-27982) == 0)
+					continue;
 				break;
 			}
 			if (res == 6) {                 /* L4c3c — area/stairs swap */
@@ -12673,7 +12698,54 @@ static void        jt148(long prompt, char *title, short flag);  /* CODE 7+0x33d
 static short       l206e(long p1, unsigned char *buf, const char *suffix, unsigned char *byte_ptr); /* CODE 7+0x206e */
 static void        l1f3e(short a8, short a10);            /* CODE 7+0x1f3e — bar sizer */
 static void        l2858(short mode);                    /* CODE 7+0x2858 */
-static void        l429c(short a, short b)               { PROBE("L429c"); (void)a;(void)b; }                  /* CODE 11-local */
+/* L429c (CODE 11+0x429c) — rebuild the play-view layer for the area
+ * kind (JT[3] switch on `kind`, disasm-verified faithful lift):
+ *   case 0 (3D dungeon): repaint the frame chrome (jt78) with the
+ *     facing byte masked to 0..7, then optionally (b != 0) draw the
+ *     "menu" GLIB group-21 piece 1 at (8000,8000);
+ *   case 1 (area map): b != 0 draws the same group-21 piece 2, else
+ *     clears the scrolled map band (jt1139 offset -> jt1161 fill 8).
+ * Tail = jt117 (present). Called from jt240/jt241 with (0, rec[4]). */
+static void        jt78(void);          /* CODE 6+0x67ca, defined later */
+static void        l429c(short kind, short b)
+{
+	PROBE("L429c");
+	switch (kind) {
+	case 1:
+		if ((b & 0xff) != 0) {
+			jt997((short)(jt1200() == 3 ? 51 : 52),
+			      ua_strs_at(0x2a8a) /* "menu" */, (short)21);
+			jt1001(8000, 8000, 21, 2);
+			jt461((short)21);
+		} else {
+			short w = (short)g_a5_word(-12272);
+			short row, col;
+
+			jt1139(0, 0, (short)-w, (short)(w * 21),
+			       &row, &col);
+			jt1161((short)(row + 8008), 8004, 8008,
+			       (short)(col + 8004), 8);
+		}
+		break;
+	case 0: {
+		unsigned char saved = g_a5_byte(-12286);
+
+		g_a5_byte(-12286) = (unsigned char)(saved & 7);
+		jt78();
+		g_a5_byte(-12286) = saved;
+		if ((b & 0xff) != 0) {
+			jt997((short)(jt1200() == 3 ? 51 : 52),
+			      ua_strs_at(0x2a90) /* "menu" */, (short)21);
+			jt1001(8000, 8000, 21, 1);
+			jt461((short)21);
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	(void)jt117();
+}
 /* L476e (CODE 11 + 0x476e) — set up the play-view interior rect. `active`
  * (low byte) gates; `layout` picks the view: 0 = the compact dungeon view
  * (9x9 cells anchored at 8008,8068), nonzero = the full area map (20x21 cells
@@ -61432,12 +61504,19 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 		 * group. Never happens on the Mac (transitions release their
 		 * bindings); if it happens here a release call is missing.
 		 * Dump the ten live bindings so the leak is identifiable. */
-		short g;
+		short s;
 		dbg_file_str("BINDER FULL claiming ", name);
-		for (g = 2; g <= 12; g++)
-			if (!(g_a5_10074[g] & 0x80))
-				dbg_file_str("  bound: ",
+		for (s = 0; s < 10; s++) {
+			short *sl = (short *)(void *)&g_a5_18468[s * 6];
+			short  g  = sl[0];
+
+			dbg_file_num("  slot kind=", sl[1]);
+			if (g >= 0 && g < 48 && !(g_a5_10074[g] & 0x80))
+				dbg_file_str("    -> ",
 				             (char *)&g_a5_10026[g_a5_10074[g] * 14]);
+			else
+				dbg_file_num("    -> unbound grp ", g);
+		}
 	}
 	slot = (short *)(void *)&g_a5_18468[i * 6];
 	*slotpp = slot;
