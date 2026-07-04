@@ -57786,8 +57786,23 @@ static void  jt1109(void)
 static void  l157c(short a, short b, long c) __attribute__((unused));
 static void  l157c(short a, short b, long c) { PROBE("L157c"); (void)a; (void)b; (void)c; }
 /* jt1152 / jt1142 lifted above (the CODE 4 sound/disk tier, band 7). */
+/* JT[1121] (CODE 4+0x70ca) — read-and-clear the -808 event-modifier
+ * slot: return its current word and zero it. l70e0 (activateEvt) and
+ * l71ac (osEvt suspend/resume) stamp -808 with the event's low word;
+ * this drains it. The disk-retry / modal wait loops poll
+ * `while (!l0088() && jt1121() == 0)`, so the old return-0 stub could
+ * only ever exit via l0088() — a real modifier event never broke the
+ * spin. Full lift (band 7). */
 static short jt1121(void) __attribute__((unused));
-static short jt1121(void) { PROBE("jt1121"); return 0; }
+static short jt1121(void)
+{
+	short m;
+
+	PROBE("jt1121");
+	m = g_a5_word(-808);
+	g_a5_word(-808) = 0;
+	return m;
+}
 
 /* ====================================================================
  * "Select a Design" picker (jt315 case 1 -> L494e) and its helpers.
