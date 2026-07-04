@@ -1,3 +1,47 @@
+# Stand-in / stub audit — 2026-07-04 (live-probe refresh)
+
+## Snapshot 2026-07-04 (regen `tools/jt_progress.py` + FRUA_ENGINE_PROBE_ONCE)
+
+1205 JT entries: **974 done**, ~45 stub, 183 missing after this
+session's fixes. Two new audit instruments this refresh:
+
+1. **Alias re-sweep** (caller-segment resolution): NINE stub-shadowed
+   twins repointed (c4ceb06) — jt52 sound dispatch, jt69 fatal-error,
+   jt85 FRAME palette, jt19 unlink, jt170/jt175 dialog leaves, jt586
+   vault save, jt524 combat field commit, jt303 status header; plus
+   l23ee=jt312 (65ef359). Full table + the l2f24 same-offset trap in
+   docs/stub-alias-audit.md.
+2. **Live-probe coverage** (`make EXTRA_CFLAGS=-DFRUA_ENGINE_PROBE_ONCE
+   ...`, drive the play loop, harvest DBG.LOG): only ~14 distinct stubs
+   fire across boot->menu->hall->load->entry->event->walk->camp->exit.
+   ALL resolved 2026-07-04 (65ef359): l40b4/l6804/l15bc/l4738/jt146/
+   jt1088/l4226/l4268 lifted; jt1115/jt956/jt1137 disasm-verified
+   faithful NOOPs; jt931 = the rule-book copy-protection challenge
+   (unreachable once the slot-3 "Boots" marker seeds, f518e7b);
+   l005a = documented GEMDOS divergence (save medium always reachable).
+
+**Boot-fatal regression lesson (f518e7b):** repointing a stub to a real
+body can ARM dormant faithful behaviour — jt69 (fatal content-load
+error) made the phase-5 string-table integrity check lethal because the
+port's curated string table lacked the slot-3 "Boots" marker. Smoke-boot
+in Hatari after every repoint batch, not just `make test`.
+
+**Camp-exit black-view: RESOLVED (two fixes, probe-verified).** The
+chain: (1) cw_wallfile_load's sibling dispose did `jt461(group);
+binder = NULL` — a bare drop that leaked one -18468 binder slot per
+8X8DB<->8X8DC flip; after ~6 flips the 10-slot pool was full and
+l33ac fell through to group 12 (topview's) → the invisible "Group 12
+in use" modal → black frame. Fix = release through l31dc (slot AND
+group). (2) jt948's ENCAMP arm was `l473e(1); break;` — the Mac
+(L4c18→L4cda) KEEPS WALKING when -27982 is clear; the unconditional
+break dumped every post-camp player to the main menu. Fix = continue
+the walk loop when the flag is clear. probe10: camp→EXIT→dungeon
+live, 0 overflows, 0 modals. Full story: docs/play-loop-wall.md 04b.
+OPEN NIT: post-camp right-hand panels show the AREA/MARK overlay
+(mode restore lands in area-map mode); view + command bar correct.
+
+---
+
 # Stand-in / stub audit — 2026-07-01 (refresh)
 
 ## Snapshot 2026-07-01 (regen `tools/jt_progress.py`)
