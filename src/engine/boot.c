@@ -60256,12 +60256,187 @@ static long jt359(short n)
 	return (long)(uintptr_t)(g_a5_13038 + (long)b * 20 - 20);
 }
 
-/* JT[994] (CODE 5+0x1f22) — draw a GLIB piece from a group base
- * (the jt109 path). Leaf PROBE stub pending its own lift. */
+/* L1e7a (CODE 5+0x1e7a) — build the 274-byte colour-translation
+ * table for ClrTran, dispatched on the display mode (JT[3] 0..3:
+ * jt406 straight copy / the packed-nibble split via the 15/240
+ * masks / passthrough). Leaf PROBE stub pending its own lift. */
+static void l1e7a(long src, void *tbl)
+{
+	PROBE("L1e7a");
+	(void)src; (void)tbl;
+}
+
+/* JT[1204] (CODE 4+0x22e6) — commit a piece's pixel data through the
+ * translation table (the remap blit). Leaf PROBE stub pending its
+ * own lift (CODE 4 display tier). */
+static void jt1204(long p, short count, void *tbl)
+{
+	PROBE("jt1204");
+	(void)p; (void)count; (void)tbl;
+}
+
+/* JT[994] (CODE 5+0x1f22) — ClrTran: remap GLIB piece (base,b)'s
+ * embedded colours through the translation table l1e7a builds from
+ * `a`, then commit the pixel data (jt1204). Full lift ("Invalid
+ * type (%x) to ClrTran" is this function's own modal):
+ *   kind 8 (raw-8bpp): only in the colour modes (jt1200!=0 needs
+ *     jt1163); flags bit 0 = a variable palette — remap the header's
+ *     word-2 colour field through the table, write the header back
+ *     (jt406) and skip entries x 3 RGB bytes (jt4 multiply) — else
+ *     skip the fixed 768-byte CLUT; flags bit 1 = remap byte 2 of
+ *     each 4-byte colour entry in place (hdr[6] entries);
+ *   other kinds: size = hdr[6] x the width word, x8 in the 1bpp
+ *     mode (jt1200==0), x4 deep (jt1163); kind 1 skips the data,
+ *     kinds 0/5 fall to the commit, anything else posts the modal.
+ * The Mac reaches the commit with an UNSET count in the pure kind-8
+ * paths (stack garbage); the port passes the deterministic 0. */
 static void jt994(long base, short b, long a)
 {
+	unsigned char  hdr[8];
+	unsigned char  tbl[274];
+	long           p;
+	short          kind, count = 0, i;
+
 	PROBE("jt994");
-	(void)base; (void)b; (void)a;
+	p = l2856(base, b, hdr);
+	if (p == 0)
+		return;
+	l1e7a(a, tbl);
+	kind = (short)(hdr[7] & 0x0f);
+
+	if (kind == 8) {
+		if (jt1200() != 0 && jt1163() == 0)
+			return;
+		if (hdr[1] & 0x01) {            /* variable palette */
+			unsigned short oldw =
+			    *(unsigned short *)(void *)(hdr + 2);
+			short entries;
+
+			*(unsigned short *)(void *)(hdr + 2) = tbl[oldw];
+			jt406((void *)(uintptr_t)(p - 8), hdr, (short)8);
+			entries = *(short *)(void *)(hdr + 4);
+			p += jt4((long)entries, 3L);
+		} else {
+			p += 768;
+		}
+		if (hdr[1] & 0x02) {            /* 4-byte colour entries */
+			unsigned char e4[4];
+
+			for (i = 0; i < (short)hdr[6]; i++) {
+				jt406(e4, (void *)(uintptr_t)p, (short)4);
+				e4[2] = tbl[e4[2]];
+				jt406((void *)(uintptr_t)p, e4, (short)4);
+				p += 4;
+			}
+		}
+		return;         /* kind 8 never reaches the jt1204 commit */
+	} else {
+		count = (short)((short)hdr[6]
+		        * *(short *)(void *)(hdr + 0));
+		if (jt1200() == 0)
+			count = (short)(count << 3);
+		if (jt1163() != 0)
+			count = (short)(count << 2);
+		if (kind == 1) {
+			p += (unsigned short)count;
+		} else if (kind != 0 && kind != 5) {
+			l036a(ua_strs_at(0x6e32)
+			      /* "Invalid type (%x) to ClrTran" */,
+			      (int)hdr[7]);
+		}
+	}
+	jt1204(p, count, tbl);
+}
+
+/* JT[360] (CODE 8+0x7404) — the centred one-line status banner:
+ * page 1 + surface up (jt108/jt112), jt1080, scroll-clear (jt176),
+ * format the message (the Mac passes "%r" + its caller's THINK C
+ * tail to JT[394]; C varargs here — the standing jt394 compromise),
+ * centre it (col = max(0, 38 - len) / 2, row 24, colours 15/8 via
+ * jt94), surface down, present (jt117), then jt1090 + jt1128.
+ * Full lift, all deps live. */
+static short jt397(short a, short b);
+static void  jt1090(void);
+static void  jt360(const char *fmt, ...) __attribute__((unused));
+static void  jt360(const char *fmt, ...)
+{
+	char    buf[42];
+	short   x;
+	va_list ap;
+
+	PROBE("jt360");
+	(void)jt108((short)1);
+	(void)jt112((short)1);
+	jt1080();
+	jt176();
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof buf, fmt, ap);
+	va_end(ap);
+	x = (short)(jt397((short)0,
+	                  (short)(38 - jt423(buf))) >> 1);
+	jt94(x, (short)24, (short)15, (short)8, "%s", buf);
+	(void)jt112((short)0);
+	(void)jt117();
+	jt1090();
+	jt1128();
+}
+
+/* JT[1051] (CODE 5+0x5a0a) — _HGetVInfo glue: report the default
+ * volume's vRefNum and FREE BYTES (alloc-block size x free blocks on
+ * the Mac; GEMDOS Dfree through the shim GetVInfo here). The
+ * jt1142 disk-space check's callee. */
+static void jt1051(long *free_out, short *vref_out,
+                   const unsigned char *volName, short vref)
+                                          __attribute__((unused));
+static void jt1051(long *free_out, short *vref_out,
+                   const unsigned char *volName, short vref)
+{
+	short v  = vref;
+	long  fb = 0;
+
+	PROBE("jt1051");
+	(void)GetVInfo(volName, &v, &fb);
+	if (vref_out != NULL)
+		*vref_out = v;
+	if (free_out != NULL)
+		*free_out = fb;
+}
+
+/* JT[1079] (CODE 5+0x0004) — display-mode bring-up, STRUCTURAL
+ * SKELETON (level 2): the faithful call order into the CODE 4
+ * display tier (jt1144 / L0eda / jt1157 / jt1155 / jt1138 / L01a2,
+ * all PROBE stubs — the VIDEL HAL owns the real mode switch,
+ * ADR-0005), pen colour 15 (l024c, lifted), the FAR-pool init
+ * jt463(kb_min, kb_max) (lifted), then L35e2 / L27a4 (stubs). No
+ * port caller exists — the port boots through master_init — so the
+ * jt463 re-init cannot fire against a live pool. */
+static void jt1144(short mode, long b)  { PROBE("jt1144"); (void)mode; (void)b; }
+                /* NOTE: the port's color_mode_init (top of file) carries
+                 * the real jt1144 colour-mode work — reconcile when the
+                 * CODE 4 tier lifts (the boot path calls it directly). */
+static void l0eda(short mode, long b)   { PROBE("L0eda");  (void)mode; (void)b; }
+static void jt1157(short mode, long b)  { PROBE("jt1157"); (void)mode; (void)b; }
+static void jt1155(void)                { PROBE("jt1155"); }
+static void jt1138(void)                { PROBE("jt1138"); }
+static void l01a2(void)                 { PROBE("L01a2"); }
+static void l35e2(void)                 { PROBE("L35e2"); }
+static void l27a4(void)                 { PROBE("L27a4"); }
+static void jt463(short minkb, short maxkb);
+static void jt1079(short mode, long b, short kb_min, short kb_max)
+                                          __attribute__((unused));
+static void jt1079(short mode, long b, short kb_min, short kb_max)
+{
+	PROBE("jt1079");
+	jt1144(mode, b);
+	l0eda(mode, b);
+	jt1157(mode, b);
+	jt1155();
+	jt1138();
+	l01a2();
+	l024c((short)15);
+	jt463(kb_min, kb_max);
+	l35e2();
+	l27a4();
 }
 
 /* JT[109] (CODE 6+0x3af8) — draw piece `b` of GLIB group `grp`

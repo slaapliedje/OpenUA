@@ -389,6 +389,29 @@ OSErr GetVol(unsigned char *volName, short *vRefNum)
 	return noErr;
 }
 
+/* HFS GetVInfo (_HGetVInfo) -> GEMDOS Dfree on the current drive.
+ * The Mac reports alloc-block size x free blocks; Dfree's DISKINFO
+ * is free clusters / total clusters / sector size / sectors per
+ * cluster — free bytes = b_free * b_secsiz * b_clsiz. */
+OSErr GetVInfo(ConstStr255Param volName, short *vRefNum, long *freeBytes)
+{
+	long di[4];                     /* b_free, b_total, b_secsiz, b_clsiz */
+	long r;
+
+	(void)volName;
+	if (vRefNum != NULL)
+		*vRefNum = 0;
+	r = Dfree(di, 0);               /* 0 = the current drive */
+	if (r < 0) {
+		if (freeBytes != NULL)
+			*freeBytes = 0;
+		return gemdos_err(r);
+	}
+	if (freeBytes != NULL)
+		*freeBytes = di[0] * di[2] * di[3];
+	return noErr;
+}
+
 OSErr SetVol(ConstStr255Param volName, short vRefNum)
 {
 	(void)volName;
