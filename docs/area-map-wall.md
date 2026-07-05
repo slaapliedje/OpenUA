@@ -1,5 +1,27 @@
 # CODE 11/22 area-map chain — worklist (#151)
 
+> **CORRECTION (2026-07-04, after jt239) — this cluster is the GEO/DESIGN
+> EDITOR, not the runtime.** Traced the dispatcher's caller: the CODE 22
+> `L0004` 21-arm dispatcher is called from **jt315** (the main menu) inside
+> its design-set branch (`jt133` persists the design name) — i.e. the
+> **EDIT MODULES / design-editing** path. Its arms are the design-list
+> painters (jt281/282/286) + cell encoders (jt233/242/243). And **jt239 is
+> the editor's area-PREVIEW, not the runtime automap** — the live automap
+> is the separate, already-wired `l63c0(rec,1,1,0,&jt237,&jt236)`
+> (boot.c:14263); jt239 uses `&jt235` = "the GEO editor's map-window
+> redraw." boot.c:15476 confirms jt315's editor selection handlers are a
+> **deferred** next step, "not yet wired into the live menu."
+>
+> Consequences: (a) everything lifted here (jt244/jt233/jt239 + l4d24/l49dc)
+> is faithful but **ADR-0008-deferred editor tooling** — dormant *by policy*,
+> not just pending a wire-up; (b) it is **mouse-gated** (menu + editor
+> clicks) so it is unvalidatable headless even once wired; (c) the "L0004
+> keystone lights the cluster up for validation" premise is FALSE — L0004 is
+> the editor command loop. Remaining jt242/jt243/L0004 are more of the same.
+> **Recommendation: stop grinding this cluster; the runtime/validatable work
+> is elsewhere.** The original (mistaken) runtime framing is kept below for
+> the record.
+
 The last MISSING cluster that touches the **runtime** (not the design
 editor): the CODE 11 area/geo functions and the CODE 22 area-command
 dispatcher that drives them. Picked over CODE 8 monster-art (dark, no
