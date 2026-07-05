@@ -17437,6 +17437,10 @@ static void jt983(short arg)
  * Stays a PROBE stub until the Palette Manager shim or direct
  * VIDEL bridge lands. Dormant in boot trace (only L71ac /
  * L7204 osEvt resume paths reach it). */
+/* L24aa = CODE 4 + 0x24aa (JT[1178]) — restated at the def so the
+ * scoreboard's alias window (600 chars before the header) can see the
+ * segment+offset past the long algorithm note above, and count jt1178 as
+ * STUB (present-but-placeholder) rather than MISSING. */
 static void l24aa(void) __attribute__((unused));
 static void l24aa(void)
 {
