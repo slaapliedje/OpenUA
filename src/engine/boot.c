@@ -2388,7 +2388,6 @@ static int           cg_char_sheet(unsigned char *rec);                         
  * jt918 case handlers above their definitions). */
 static short         cg_collect_party(unsigned char **out, short max);
 static void          save_roster(void);
-extern short         ua_rand(short n);   /* rand.h — CODE 5 / JT[1083] LCG */
 /* JT[937] (CODE 12 + 0x02dc, 28 sites) — public alias for L02dc
  * (Modify Character roster grid, lifted further down). */
 static void          l02dc(long highlight);
@@ -4583,13 +4582,10 @@ static short jt485(short n)
  * the result into the LCG state at app init so each session's dice / random
  * encounters differ. Faithful transcription (asm 0x7b8a..0x7ba6).
  *
- * DORMANT for now: the port deliberately plants a REPRODUCIBLE seed
- * (g_a5_4902 = 1 in boot_a5_seed_defaults) for debuggable runs, and the roller
- * is split across two seed states — g_a5_4902 (jt1083) and rand.c's static
- * g_rand_seed (ua_rand). Flipping to entropic RNG means unifying those and
- * seeding both from here; that is a deliberate, single follow-up change, not a
- * side effect of this lift. #152. */
-static long jt1143(void) __attribute__((unused));
+ * LIVE: planted into the unified LCG seed (g_a5_4902) by
+ * boot_a5_seed_defaults, mirroring the Mac's L01a2 (CODE 5+0x1a2). The two
+ * former roller states were merged — ua_rand now routes through jt1083, so
+ * g_a5_4902 is the single seed and this entropy reaches every roll. #152. */
 static long jt1143(void)
 {
 	unsigned long t;
@@ -9072,12 +9068,14 @@ void boot_a5_seed_defaults(void)
 	 * init loads the B&W .TLB libraries instead. */
 	g_a5_2347 = 1;
 
-	/* JT[1083] PRNG seed. A non-zero seed is required — with state
-	 * == 0 the LCG locks at state = 1 forever (state * mul + 1
-	 * → 1) and all rolls degenerate to 0. Plant 1 here so each
-	 * boot starts at a known, reproducible point; later passes can
-	 * pull entropy from TickCount or similar. */
-	g_a5_4902 = 1;
+	/* JT[1083] PRNG seed. The Mac's L01a2 (CODE 5+0x1a2) plants
+	 * g_a5_4902 = jt1143() = GetDateTime() ^ TickCount() at app init so each
+	 * session's dice / random encounters differ; mirror that here. g_a5_4902
+	 * is now the SINGLE seed for the unified roller (ua_rand was merged into
+	 * jt1083), so this entropy reaches every roll. time ^ ticks is
+	 * effectively always non-zero; even a 0 result only restarts the LCG at
+	 * 1, it never locks. For a reproducible debug run, plant a constant. */
+	g_a5_4902 = jt1143();
 
 	/* Dungeon-view direction-step tables (the -27862 view-state struct:
 	 * drow at -27862+dir, dcol at -27853+dir, dir 0..7). These are NOT BSS —
@@ -15167,7 +15165,7 @@ static void port_run_encounter(short zone)
 	load_monsters();
 	mac = 0;
 	if (g_mdb_n > 0) {
-		short mi = (short)ua_rand(g_mdb_n);
+		short mi = (short)jt1083(g_mdb_n);
 		mname  = g_mdb[mi].name;
 		hp_each = g_mdb[mi].hp;
 		mthac0 = g_mdb[mi].thac0;
@@ -15185,7 +15183,7 @@ static void port_run_encounter(short zone)
 	if (mac < 2)  mac = 2;
 	if (mac > 10) mac = 10;
 	/* real records can be boss-tier (50+ HP), so keep the group small */
-	mcount  = (short)(1 + (short)ua_rand(hp_each >= 30 ? 2 : 4) + (zone & 1));
+	mcount  = (short)(1 + (short)jt1083(hp_each >= 30 ? 2 : 4) + (zone & 1));
 	if (mcount > 5) mcount = 5;
 	mhp     = (long)mcount * hp_each;
 
@@ -15211,7 +15209,7 @@ static void port_run_encounter(short zone)
 		if (ascii == 'f' || ascii == 'F')
 			break;
 		if (ascii == 'r' || ascii == 'R' || ascii == 27) {
-			fled = (ua_rand(2) == 0);   /* 50% clean escape */
+			fled = (jt1083(2) == 0);   /* 50% clean escape */
 			break;
 		}
 	}
@@ -15232,8 +15230,8 @@ static void port_run_encounter(short zone)
 				continue;
 			lvl    = party[i][CHAR_LEVEL]; if (lvl < 1) lvl = 1;
 			pthac0 = (short)(21 - lvl);    if (pthac0 < 1) pthac0 = 1;
-			if ((short)(ua_rand(20) + 1) >= pthac0 - mac)
-				mhp -= (long)(ua_rand(8) + 1 + lvl / 2);
+			if ((short)(jt1083(20) + 1) >= pthac0 - mac)
+				mhp -= (long)(jt1083(8) + 1 + lvl / 2);
 		}
 		if (mhp <= 0) { victory = 1; break; }
 
@@ -15244,10 +15242,10 @@ static void port_run_encounter(short zone)
 			for (t = 0; t < nparty; t++)
 				if (party[t][CHAR_HP] != 0) live[nl++] = t;
 			if (nl == 0) break;
-			t = live[ua_rand(nl)];
-			if ((short)(ua_rand(20) + 1) >= mthac0 - party[t][CHAR_AC]) {
+			t = live[jt1083(nl)];
+			if ((short)(jt1083(20) + 1) >= mthac0 - party[t][CHAR_AC]) {
 				hp = (short)(party[t][CHAR_HP]
-				             - (short)(ua_rand(mdmg) + 1));
+				             - (short)(jt1083(mdmg) + 1));
 				party[t][CHAR_HP] = (unsigned char)(hp < 0 ? 0 : hp);
 			}
 		}
@@ -15329,7 +15327,7 @@ static int encounter_check(void)
 	zone = (short)(ds[290 + cell * 6 + 5] >> 2);     /* monster/event zone */
 	if (zone == 0)
 		return 0;
-	if (ua_rand(8) != 0)                             /* ~12% per step */
+	if (jt1083(8) != 0)                             /* ~12% per step */
 		return 0;
 	port_run_encounter(zone);
 	return 1;
@@ -23839,8 +23837,6 @@ static const char *const cg_stat_names[6] = {
 	"STR", "INT", "WIS", "DEX", "CON", "CHA",
 };
 
-extern short ua_rand(short n);   /* CODE 5 / JT[1083] LCG, 0..n-1 */
-
 #define CG_NALIGNS 9
 static const char *const cg_aligns[CG_NALIGNS] = {
 	"Lawful Good", "Lawful Neut", "Lawful Evil",
@@ -23945,7 +23941,7 @@ static void cg_build_record(const cg_state *s)
 	if (cg_pool_count >= 16)             /* pool full — drop the create */
 		return;
 	if (dexmod > 4) dexmod = 4;
-	hp = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
+	hp = (short)(jt1083(cg_class_hd[klass]) + 1 + conmod);
 	if (hp < 1) hp = 1;
 	ac = (short)(10 - dexmod);
 
@@ -24221,7 +24217,7 @@ static void cg_train_screen(void)
 			short con    = CHAR_STAT(c, 4);
 			short conmod = (con >= 16) ? 2 : (con >= 15) ? 1
 			             : (con <= 6) ? -1 : 0;
-			short gain   = (short)(ua_rand(cg_class_hd[klass]) + 1 + conmod);
+			short gain   = (short)(jt1083(cg_class_hd[klass]) + 1 + conmod);
 			short nhp, nmax;
 			if (gain < 1) gain = 1;
 			nhp  = (short)(c[CHAR_HP] + gain);
@@ -59917,8 +59913,99 @@ static short jt272(short y, short x)
  * state==0 flag. */
 static void l2aaa(long hp, short y, short x, short sel, short st, short z)
 { PROBE("l2aaa"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
-static void l2f24(long hp, short y, short x, short sel, short st, short z)
-{ PROBE("l2f24"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+/* JT[282] (CODE 22 + 0x2f24) — paint a design-list entry, kind 1 (reached
+ * via jt278's kind dispatch). Resolves the entry code (L0674(sel) for a
+ * specific cell, else rec[14]); when repainting one cell (sel>=0) it skips if
+ * the code is unchanged (rec[32]) and stamps it. Then paints per the is-zero
+ * flag `z` and paint-all (sel<0) vs single-cell (sel>=0):
+ *   z && sel>=0 : compact code swatch + "%s %d" label (-11316 type name + code)
+ *   z && sel<0  : full frame + label + jt1173-clipped fill + fixed jt353 icon
+ *   z==0        : full frame + label + clipped fill, then the type icon —
+ *                 jt353(4/23) in the sel==-999 mode, else jt1200-selected
+ *                 (20/24 or 3/11) — closed by jt1193 clip-reset + jt117 present.
+ * dstate = the -12300 design struct's [code+8] byte (the icon index).
+ *
+ * Faithful goto-mirror of 0x2f24..0x329a. Coords are Mac (v,h) order — the
+ * port primitives all match post-#116 (jt1089 v/h, jt1161/jt1173 top/left,
+ * jt353 x/y), so the asm push order transcribes directly, no swap. #153.
+ * Dormant: mouse-gated editor (jt278's live parent is EDIT MODULES). */
+static void jt353(short x, short y, short icon, short mode, short flag);
+static void jt282(long hp, short y, short x, short sel, short st, short z)
+    __attribute__((unused));
+static void jt282(long hp, short y, short x, short sel, short st, short z)
+{
+	unsigned char *rec;
+	unsigned char  code;
+	unsigned char  dstate;
+	const char    *tyname = (const char *)(uintptr_t)g_a5_long(-11316);
+
+	PROBE("jt282");
+
+	if (sel < 0) goto L2f3e;
+	code = (unsigned char)l0674(sel);
+	goto L2f60;
+ L2f3e:
+	rec  = *(unsigned char **)(uintptr_t)hp;
+	code = rec[14];
+	if ((st & 0xff) == 0) goto L2f60;
+	if (code == 0) goto L3298;
+	code = 0;
+ L2f60:
+	if (sel < 0) goto L2f76;
+	rec = *(unsigned char **)(uintptr_t)hp;
+	if (rec[32] == code) goto L3298;
+ L2f76:
+	if (sel < 0) goto L2f86;
+	rec = *(unsigned char **)(uintptr_t)hp;
+	rec[32] = code;
+ L2f86:
+	dstate = ((unsigned char *)(uintptr_t)g_a5_long(-12300))[code + 8];
+	if ((z & 0xff) == 0) goto L30fc;
+	if (sel < 0) goto L300c;
+	/* z && sel>=0 : compact swatch + label */
+	jt1161((short)(y + 4), x, (short)(y + 8), (short)(x + 4), (short)code);
+	jt1089((short)(y + 4), (short)(x + 6), (short)135, "%s %d",
+	       tyname, (short)(code + 1));
+	goto L3298;
+ L300c:
+	/* z && sel<0 : full frame + fixed icon */
+	jt1161((short)(y + 19), x, (short)(y + 23), (short)(x + 4), (short)code);
+	jt1089((short)(y + 19), (short)(x + 6), (short)135, "%s %d",
+	       tyname, (short)(code + 1));
+	jt1173((short)(y + 5), (short)(x + 12), (short)(y + 17), (short)(x + 48));
+	jt1161((short)(y + 5), (short)(x + 12), (short)(y + 17), (short)(x + 48),
+	       (short)0);
+	jt353((short)22, (short)13, (short)dstate,
+	      (short)(sel < 0 ? 1 : 0), (short)0);
+	goto L3290;
+ L30fc:
+	/* z==0 : full frame + label, then the type icon */
+	if (sel >= 0)
+		y = (short)(y - 2);
+	jt1161((short)(y + 21), x, (short)(y + 25), (short)(x + 4), (short)code);
+	jt1089((short)(y + 21), (short)(x + 6), (short)135, "%s %d",
+	       tyname, (short)(code + 1));
+	jt1173((short)(y + 7), (short)(x + 12), (short)(y + 19), (short)(x + 48));
+	jt1161((short)(y + 7), (short)(x + 12), (short)(y + 19), (short)(x + 48),
+	       (short)0);
+	if (sel == -999) {
+		jt353((short)(x > 8050 ? 23 : 4), (short)6, (short)dstate,
+		      (short)(x > 8050 ? 1 : 0), (short)0);
+		goto L3290;
+	}
+	if (jt1200() == 3) {
+		jt353((short)(sel < 0 ? 24 : 20), (short)(sel < 0 ? 9 : 3),
+		      (short)dstate, (short)(sel < 0 ? 1 : 0), (short)0);
+		goto L3290;
+	}
+	jt353((short)24, (short)(sel < 0 ? 11 : 3), (short)dstate,
+	      (short)(sel < 0 ? 1 : 0), (short)0);
+ L3290:
+	jt1193();
+	jt117();
+ L3298:
+	return;
+}
 static void l329c(long hp, short y, short x, short sel, short st, short z)
 { PROBE("l329c"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
 static void l347a(long hp, short y, short x, short sel, short st, short z)
@@ -59954,7 +60041,7 @@ static void jt278(long handle_ptr, short repaint)
 	switch (rec[5]) {
 	case 0: l2aaa(handle_ptr, y, x, (short)-1,
 	              (short)(signed char)rec[4], is_zero); break;
-	case 1: l2f24(handle_ptr, y, x, (short)-1,
+	case 1: jt282(handle_ptr, y, x, (short)-1,
 	              (short)(signed char)rec[4], is_zero); break;
 	case 2: l329c(handle_ptr, y, x, (short)-1,
 	              (short)(signed char)rec[4], is_zero); break;
@@ -75169,7 +75256,7 @@ static void jt500(short rings, short art, short sound)
 	total = (short)((unsigned char)rings * 3 + 1);
 	for (ring = 1; ring <= total; ring++) {
 		for (n = (short)(ring * 2 - 2); n >= 0; n--) {
-			ang = ua_rand((short)180);
+			ang = jt1083((short)180);
 			dx = (short)((short)(signed char)
 			     g_a5_buf(-8764)[(ang + 45) % 180] * ring + 50)
 			     / 100;
