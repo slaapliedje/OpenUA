@@ -118,13 +118,16 @@ L4f9c  ✓  ~86  tile-band pack driver (l4eda + jt1004/1197/406/1177/1170; only
 L66a2  ✓  ~84  PICT file -> handle load (jt403/412/1030/1026/1033/414/1032 +
                "Insufficent Memory" alert)                    LIFTED 2026-07-05
 L6892  ✓  ~6   dispose a PICT handle (jt1032)                 LIFTED 2026-07-05
-⛔ L67a0  ~80  PICT DISPLAY — BLOCKED on QuickDraw shim. Uses raw Mac traps
-               _DrawPicture (0xa8f6), _GetGWorld/_SetGWorld (0xaa28/0xaa39),
-               _ForeColor/_BackColor (0xa863/0xa862), _PenMode, _SetCursor +
-               jt1159 (CODE 4, also unlifted). The shim has SetCursor/GetCursor/
-               PenMode/ClipRect but NOT DrawPicture/ForeColor/BackColor/GWorld.
-               Needs a PICT opcode interpreter (the port renders GLIB art, not
-               Mac PICT) — its own task. L36e0 skeleton PROBE-stubs it.
+◑ L67a0  ~80  PICT DISPLAY — mostly UNBLOCKED (2026-07-05). The big blocker
+               is gone: **DrawPicture is now implemented** in the QuickDraw
+               shim (compat/quickdraw.c — a v1/v2 PICT opcode interpreter:
+               BitsRect/PackBitsRect/DirectBitsRect, 1/2/4/8-bit indexed +
+               16/32-bit direct, clip, comments; PackBits validated vs Apple's
+               canonical vector), and **ForeColor/BackColor** are added.
+               REMAINING for L67a0: _GetGWorld/_SetGWorld (0xaa28/0xaa39) — map
+               to the single-surface current-port (no real GWorld in the port),
+               _SetCursor/GetCursor/PenMode (present), and **jt1159** (CODE 4,
+               still unlifted). Do L67a0 when L36e0 sets up the target buffer.
 L4cae ~185   L49f8 ~231   L509e  ~262   (mid helpers)
 L42f2 ~528   sub-giant    L53b0  big (spans past jt260)
 ```

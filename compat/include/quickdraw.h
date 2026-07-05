@@ -486,4 +486,47 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
               const Rect *srcRect, const Rect *dstRect,
               short mode, RgnHandle maskRgn);
 
+/* --- classic (indexed) colour constants, for ForeColor / BackColor --- */
+#define blackColor    33
+#define whiteColor    30
+#define redColor     205
+#define greenColor   341
+#define blueColor    409
+#define cyanColor    273
+#define magentaColor 137
+#define yellowColor   69
+
+/*
+ * ForeColor / BackColor — the classic (pre-Color-QuickDraw) colour setters.
+ * They map one of the eight planar colour constants above to an RGB and route
+ * through RGBForeColor / RGBBackColor, so the port ends up with the
+ * nearest-match palette index in fgColor / bkColor. Anything unrecognised maps
+ * to black.
+ */
+void ForeColor(long color);
+void BackColor(long color);
+
+/*
+ * DrawPicture — render a QuickDraw Picture (PICT) into the current port,
+ * scaling its picFrame to `dstRect`. A focused PICT opcode interpreter:
+ * handles the v1 / v2 headers, the Clip opcode, comments/NOPs, and the three
+ * bitmap opcodes that carry an image — BitsRect (0x0090), PackBitsRect
+ * (0x0098) and DirectBitsRect (0x009A) — for 1-bit BitMaps, indexed PixMaps
+ * (1/2/4/8 bpp with a colour table) and 16/32-bit direct PixMaps. Pixels land
+ * as 8-bit palette indices in the current port's PixMap: 1-bit sources use
+ * fgColor / bkColor, indexed sources remap through the PICT's colour table via
+ * the nearest-palette lookup, direct sources nearest-match each RGB. Unknown
+ * opcodes past the handled set stop the interpreter (rather than guess a data
+ * size). The port has no PICT recorder, so this is playback only.
+ */
+typedef struct Picture {
+	short picSize;                  /* 0  low 16 bits of the byte size   */
+	Rect  picFrame;                 /* 2  the picture's bounding box      */
+	/* opcode stream follows at offset 10 */
+} Picture;
+typedef Picture  *PicPtr;
+typedef Picture **PicHandle;
+
+void DrawPicture(PicHandle myPicture, const Rect *dstRect);
+
 #endif /* COMPAT_QUICKDRAW_H */
