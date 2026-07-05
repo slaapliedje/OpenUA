@@ -14599,6 +14599,55 @@ static short jt233(short cmd, long *rec, void *area)
 	return ret;
 }
 
+/* L4d24 (CODE 11 + 0x4d24) — the automap region flood-fill. Recursively
+ * marks every cell reachable from `cell` whose shared edge (l05ca=JT[293])
+ * has a wall code <= the threshold p[4], stamping the pass id p[5] into
+ * the per-cell visited array p[6+cell]. Spreads N/S by +/- width (toroidal
+ * via the total count p[2]) and W/E by +/- 1 within the row (toroidal via
+ * width), tracking the row base in `a`. p = the -12200 work block, level
+ * dims in -12300 ([3]=width). Used by L49dc's area panel; jt239 chain, #151. */
+static void l4d24_c11(short a, short cell) __attribute__((unused));
+static void l4d24_c11(short a, short cell)
+{
+	unsigned char *p   = (unsigned char *)(uintptr_t)g_a5_long(-12200);
+	unsigned char *lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short          n;
+
+	PROBE("L4d24");
+	if (p[6 + cell] == p[5])                 /* already in this region */
+		return;
+	p[6 + cell] = p[5];
+
+	if ((unsigned short)l05ca(cell, (short)8) <= (unsigned char)p[4]) {
+		n = (short)(cell - lvl[3]);      /* north neighbour */
+		*(short *)p = n;
+		if (n < 0)
+			*(short *)p = (short)(n + *(short *)(p + 2));
+		l4d24_c11(a, *(short *)p);
+	}
+	if ((unsigned short)l05ca(cell, (short)4) <= (unsigned char)p[4]) {
+		n = (short)(cell + lvl[3]);      /* south neighbour */
+		*(short *)p = n;
+		if (n >= *(short *)(p + 2))
+			*(short *)p = a;
+		l4d24_c11(a, *(short *)p);
+	}
+	if ((unsigned short)l05ca(cell, (short)6) <= (unsigned char)p[4]) {
+		n = (short)(a - 1);              /* west neighbour */
+		*(short *)p = n;
+		if (n < 0)
+			*(short *)p = (short)(n + (unsigned char)lvl[3]);
+		l4d24_c11(*(short *)p, (short)(cell - (a - *(short *)p)));
+	}
+	if ((unsigned short)l05ca(cell, (short)2) <= (unsigned char)p[4]) {
+		n = (short)(a + 1);              /* east neighbour */
+		*(short *)p = n;
+		if (n >= (unsigned char)lvl[3])
+			*(short *)p = (short)(n - (unsigned char)lvl[3]);
+		l4d24_c11(*(short *)p, (short)(cell + (*(short *)p - a)));
+	}
+}
+
 /* L5126 (CODE 11 + 0x5126) — the deep dungeon status-header panel jt240 draws
  * above the first-person view. Fills the header rect (JT[1161]) then paints
  * four text rows via JT[1089]: the area-name line (g_a5_-10640/-11136/-10816),

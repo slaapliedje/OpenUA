@@ -40,12 +40,19 @@ All ~40 JT deps these call are already LIFTED (jt273/325/317/358/364/
   JT[1]/JT[3] on the type) packing the type nibble + the +16 direction
   field into *rec. All tables via jt1_extract/jt3_extract. `unused`.
 
+- **l4d24_c11** (CODE 11+0x4d24) — the automap **region flood-fill**
+  (recursive 4-dir, toroidal, marks connected cells while the shared
+  edge's wall code <= threshold). The deepest/riskiest leaf of the
+  jt239 subtree; landed on its own. dep l05ca=JT[293] (lifted). `unused`.
+
 ## Remaining (leaf-first order)
 
 1. **jt239** (CODE 11+0x4846, ~128) — the runtime area-ENTER: seats the
    party (area[46..] -> -12288 block), rebuilds the play view (L429c),
-   runs the L63c0 walk loop with jt235 as cb. Needs its one unlifted
-   local **L49dc** (~254, deps jt1089/1161/399 + L4d24). On the walk path.
+   runs the L63c0 walk loop with jt235 as cb. Needs its one remaining
+   unlifted local **L49dc** (~254) — the area info-panel painter
+   (jt1089/jt1161 text, "%s: %d %s%s" counts) which drives l4d24_c11
+   (now done). Lift L49dc, then jt239. On the walk path.
 2. **jt242** (CODE 11+0x589a, ~101, cell-edit committer) — JT[3] over 5
    unlifted painters: L5a06(77), L6136(44), L61c6(44) are small leaves;
    L5ee2(183), L5b0e(200) are larger. (`l61c6` in the port is a *different*
