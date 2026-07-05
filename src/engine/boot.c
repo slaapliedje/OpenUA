@@ -70852,6 +70852,31 @@ static short l36e0_c10(short id, short arttype)
 	return got;                                 /* L4196 — fp@(-1042) */
 }
 
+/* ===== CODE 2 jt254 event-editor cluster (Phase B) — see
+ * docs/event-editor-wall.md. All 9 JT leaves already lifted (jt193=l4fbe,
+ * jt207=l5484, jt1076=l7ab4, + jt358/397/384/394/404/201). ===== */
+
+/* L4c92 (CODE 2 + 0x4c92) — map-cell glyph picker. Samples l5484 (JT[207], the
+ * map wall/connection probe) at cell (a,b) and its 7 neighbours with per-edge
+ * direction codes, folds them with jt397 (JT[397]), and writes '+' if the fold
+ * is non-zero else ' ' into *out. */
+static void l4c92(char *out, short a, short b) __attribute__((unused));
+static void l4c92(char *out, short a, short b)
+{
+	short acc;
+
+	PROBE("L4c92");
+	acc = l5484(b, a, (short)0);
+	acc = jt397(acc, l5484(b, (short)(a - 1), (short)4));
+	acc = jt397(acc, l5484(b, a, (short)6));
+	acc = jt397(acc, l5484((short)(b - 1), a, (short)2));
+	acc = jt397(acc, l5484(b, (short)(a - 1), (short)6));
+	acc = jt397(acc, l5484((short)(b - 1), (short)(a - 1), (short)2));
+	acc = jt397(acc, l5484((short)(b - 1), a, (short)0));
+	acc = jt397(acc, l5484((short)(b - 1), (short)(a - 1), (short)4));
+	*out = (char)(acc != 0 ? 43 : 32);          /* '+' : ' ' */
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
