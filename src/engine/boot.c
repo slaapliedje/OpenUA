@@ -70275,9 +70275,10 @@ static short l42f2(long src, short width, long dst, short stride, short inv,
  * dither), scale the depth byte, compute the flag, then jt1148 (compose begin).
  * A JT[3] switch (jt3_extract 0x5516, cases 0..9) dispatches by format nibble
  * to the packers: 2 -> l4f9c, 3 -> l4cae, 7 -> l509e (all lifted, done here);
- * 9 -> a small record fill + jt406; 4/6/default -> jt1147 (abort). Cases 0/5
- * (inline scanline copy / l4924) and 1 (per-plane l42f2 loops + l4924) are
- * deferred with TODO + opcode ranges. Returns the packed size (fp@(-14));
+ * 9 -> a small record fill + jt406; 4/6/default -> jt1147 (abort). Case 0/5 is
+ * the inline scanline copy / l4924; case 1 (0x5698..0x59ba) is the per-plane
+ * unpack (jt1170/jt1177/jt1197) + l42f2 colour-key/depth convert + l4924 pack,
+ * transcribed from the exact stack pushes. Returns the packed size (fp@(-14));
  * closes with jt1130 (compose commit). Dormant/unvalidatable headless. */
 static short l53b0(void *desc_p, long a12, short a16, short a18) __attribute__((unused));
 static short l53b0(void *desc_p, long a12, short a16, short a18)
@@ -70346,10 +70347,74 @@ static short l53b0(void *desc_p, long a12, short a16, short a18)
 		ret14 = (short)(size * m20 + 8);
 		break;
 	}
-	case 1:
-		/* TODO(fill 0x5698..0x59ba): jt1163/jt1198 gate + size-guard, then the
-		 * per-plane l42f2 conversion loops (0x583c/0x58c0/0x5934) + l4924. */
+	case 1: {                               /* per-plane unpack + l42f2 convert + l4924 pack */
+		short size  = (short)(*(short *)(desc + 4) * w10);  /* fp@(-14) */
+		short psize = size;                                 /* fp@(-16) plane-total */
+		short divisor;
+		/* jt1163 is a 0-returning stub; keep the gate faithful to the asm. */
+		if (jt1163() != 0)
+			psize = (short)(jt1198() * psize);
+		divisor = (short)(m20 + (jt1163() != 0 ? m20 : 1));
+		if (16376 / divisor < size) {
+			l036a(ua_strs_at(0x2fa0) /* "Tile too large %l/%d" */,
+			      (long)(jt4((long)size, (long)m20) + psize + 8), 16384);
+			ret14 = 8;
+			break;
+		}
+		if (w10 & 1) {                  /* hi-res: unpack each plane's columns */
+			short w12 = (short)(w10 + (w10 & 1));   /* round even */
+			long  out = jt1004() + psize;
+			short i8, i6;
+			for (i8 = 0; i8 < jt1198(); i8++) {
+				jt1170();       /* Mac pushes the plane index; body is empty */
+				for (i6 = 0; i6 < *(short *)(desc + 4); i6++) {
+					jt1177((short)(*(short *)desc + i6),
+					       *(short *)(desc + 2));
+					jt1197(sbuf, (short)1, w12);
+					jt406((void *)(uintptr_t)out, sbuf, w10);
+					out += w10;
+				}
+			}
+		} else {                        /* even-width: unpack whole rows */
+			short i8;
+			jt1177(*(short *)desc, *(short *)(desc + 2));
+			for (i8 = 0; i8 < jt1198(); i8++) {
+				jt1170();
+				jt1197((void *)(uintptr_t)(jt1004() + psize +
+				                           (long)i8 * size + 8),
+				       *(short *)(desc + 4), w10);
+			}
+		}
+		/* per-plane l42f2 convert (source at +psize down to the base). */
+		if (desc[15] != 0) {
+			short i6;
+			for (i6 = 0; i6 < *(short *)(desc + 4); i6++) {
+				long src = jt1004() + psize + (long)i6 * w10;
+				long dst = jt1004() + (long)i6 * w10;
+				l42f2(src + 8, w10, dst + 8, size, (short)1,
+				      jt1198(), f22, i6);
+			}
+		}
+		if (jt1200() == 3) {
+			short i6;
+			for (i6 = 0; i6 < *(short *)(desc + 4); i6++) {
+				long src = jt1004() + psize + (long)i6 * w10;
+				long dst = jt1004() + (long)i6 * w10;
+				l42f2(src + 8, w10, dst + 8, size, (short)1,
+				      jt1198(), f22, i6);
+			}
+		} else {                        /* single whole-tile convert */
+			long src = jt1004() + psize;
+			long dst = jt1004();
+			l42f2(src + 8, size, dst + 8, size, (short)1,
+			      jt1198(), f22, (short)0);
+		}
+		/* pack the converted planes into the output buffer. */
+		l4924((void *)(uintptr_t)(jt1004() + 8),
+		      (void *)(uintptr_t)(jt1004() + psize + 8), size, m20);
+		ret14 = (short)(size * m20 + psize + 8);
 		break;
+	}
 	case 2:
 		ret14 = (short)l4f9c(*(short *)desc, *(short *)(desc + 2),
 		                     *(short *)(desc + 4), w10, m20);
