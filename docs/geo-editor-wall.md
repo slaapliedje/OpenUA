@@ -111,8 +111,17 @@ harness can't catch it.
 - **jt282 — LIFTED** (2026-07-05). Faithful goto-mirror of 0x2f24..0x329a
   replacing the l2f24 stub; jt278 case 1 rewired to it. Build clean,
   tests 129 pass, smoke stable. Dormant (mouse-gated).
-- **jt286 (l2aaa) — next.** kind 0; verify its ~6 CODE-22 local deps.
-- **jt281 (l329c) — after.** kind 2; uses -11312 (not -11316); ~6 locals.
+- **jt286 (l2aaa) — next, a 5-function mini-project.** kind 0, 366 insn,
+  but gated on **4 unlifted CODE-22 locals** (lift these first):
+  - L0524 (~21) — `(arg & 6) >> 1` index helper
+  - L475e (~130, has a loop) — the larger one
+  - L48b2 (~10) — `((arg>>1)&3)+1)*2` table index
+  - L48ca (~11) — `((arg>>1)+2)&3)+1` table index
+  (L05ca=jt293 and L4900 already lifted; JT deps jt1089/1161/1200/357 lifted.)
+- **jt281 (l329c) — after.** kind 2, 390 insn; uses -11312 (not -11316);
+  ~6 CODE-22 locals to check (incl. L0716).
 
-The convention above is settled, so the trio's remaining two are
-straight transcriptions once their local deps are confirmed lifted.
+The coordinate convention above is settled; the remaining two are
+straight transcriptions once their local dep trees are lifted. Each is
+its own focused session (the "every entry is a mini-project" reality) —
+do NOT rush them, since nothing here is smoke-validatable.
