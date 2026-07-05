@@ -72,9 +72,18 @@ check jtN too (the mirror of the jtN→lXXXX trap the jt_lookup fix now handles)
 
 **B2 COMPLETE** — the only genuinely-absent leaves were the three pure-local
 glyph pickers (L4c92/L4dcc/L4e3e), now lifted; L514e/L5194 were already jt255/
-jt256. Plan:
-- **B3** — lift L541c + the L4eb2 −102 worker, then the l4c5a (=jt254) entry;
-  verify the whole screen builds.
+jt256.
+
+**B3 — jt254 is the event-list PRINT command** (bigger than the insn count
+implied). The l4c5a entry is a thin jt259-style wrapper (call worker → pack byte
+result into *desc → return state); the real worker is **L541c** (frame −282, a
+large print driver: "Printing . . ." + printer setup + JT[76/94/1134/1009/978]
++ text-format helpers + _UnLoadSeg housekeeping). L541c drives **L4eb2**, the
+ASCII map-grid printer.
+- **B3a DONE** — L4eb2 (map-grid renderer) lifted.
+- **B3b** — L541c (the print driver): skeleton then fill (its own sub-pass;
+  audit its JT leaves first with jt_lookup — several are printer/text glue).
+- **B3c** — wire the l4c5a = jt254 entry (thin wrapper over L541c).
 
 ## Method (same as jt259 / #153 so far)
 
