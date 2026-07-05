@@ -242,6 +242,9 @@ ALIAS_LIFTED = {
     110: "lifted as l33ac (same address; binder open, the jt81 dep)",
     193: "lifted as l4fbe (same address; see combat gateway notes)",
     195: "lifted as l4db4 (same address; the design string-table region setup)",
+    575: "lifted as l3cd4_c17 (CODE 17+0x3cd4; char-gen proficiency/spell-school "
+         "bitfield finalize, wired into jt574 create @24073 + @68107). Reads MISSING "
+         "only because the _c17 collision suffix hides it from the auto-aliaser.",
     480: "lifted in str.c (the string-table setter jt480(count, table))",
     591: "lifted as l0ce0_c15 (same address; native->little-endian rec fixup)",
     973: "lifted as l4010 (same address; the GLIB group converter)",
