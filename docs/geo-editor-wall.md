@@ -102,20 +102,25 @@ lifts), L66a2/L6606/L6892, DrawPicture shim, jt259 wrapper, L36e0 + L53b0
 level-2 skeletons, L53b0 cases 0/2/3/5/7/9. REMAINING, chunked in dependency
 order — each is one build+commit:
 
-- **A4** — l36e0_c10 tile-loop CORE (L3dd0..L407e minus the geometry tables):
+STATUS 2026-07-05: A4-A10 DONE (l36e0_c10 is now a full lift — the import runs
+end-to-end for a human at the mouse). Remaining: A11 (L53b0 case 1, needs a
+trace), A12 (L67a0 display), + one small TODO (the 0x408a palette-record
+append, needs the fp@(-40)/-39 flags traced).
+
+- **A4** ✓ — l36e0_c10 tile-loop CORE (L3dd0..L407e minus the geometry tables):
   the 120-dim 3-strip vs single-tile dispatch, the L53b0 calls, and the
   jt1022/jt1004/jt468/jt1012/jt406 tile store. Reads geometry from the
   descriptor locals (arms still TODO). Declare the full local set here.
-- **A5** — the geometry-ADVANCE tables (L3faa..L4070): the next-strip tile
+- **A5** ✓ — the geometry-ADVANCE tables (L3faa..L4070): the next-strip tile
   dimensions per art-type/view-mode (the fp@(-16/-14/-12/-6) constant sets).
-- **A6** — JT[1] arm BIGP (case 16/32, 0x3cea): jt394 name + geometry, no
-  dialog — the simplest arm; proves one art-family end-to-end (minus writeout).
-- **A7** — JT[1] arms PIC (case 1, 0x398c) + SPRI (case 2, 0x3abc).
-- **A8** — JT[1] arm CPIC (case 4/8, 0x3bf6) incl. the jt182 "Shape:" dialog
-  (Normal/Tall/Wide/Big/Cancel → fp@(-37) shape bits drive the geometry).
-- **A9** — palette/art-table setup (L37ee..0x3920): jt399 + jt468/jt1012/jt406
-  CLUT copy + DungCom/MENU table load.
-- **A10** — writeout (L413c..0x4196): jt431 x2 dir-prefix + jt392 write +
+- **A6** ✓ — JT[1] arm BIGP (case 16/32, 0x3cea) + the container-open (L3d72)
+  + the shared-locals refactor.
+- **A7** ✓ — JT[1] arms PIC (case 1, 0x398c) + SPRI (case 2, 0x3abc).
+- **A8** ✓ — JT[1] arm CPIC (case 4/8, 0x3bf6) incl. the jt182 "Shape:" dialog
+  (Normal/Tall/Wide/Big/Cancel → shape bits drive the geometry).
+- **A9** ✓ — palette/art-table setup (L37ee..0x3920): jt399 + jt468/jt1012/
+  jt406 CLUT copy + DungCom/MENU table load into clutbuf.
+- **A10** ✓ — writeout (L413c..0x4196): jt431 x2 dir-prefix + jt392 write +
   jt411 close + jt457 register + jt461 release.
 - **A11** — L53b0 case 1 (0x5698, the l42f2 convert format) — ⚠ has the
   ambiguous per-plane l42f2 buffer args; best done against a Mac trace.
