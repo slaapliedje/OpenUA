@@ -71255,6 +71255,96 @@ static short l2350(void)
 static void jt252(void) __attribute__((unused));
 static void jt252(void) { PROBE("jt252"); }
 
+/* L4842 (CODE 2 + 0x4842) — reshape the design's event-cell array when the map
+ * column count changes (grow or shrink). The cell array is `rr*cc` 6-byte cells
+ * starting at base+290 (base = the -12300 design record, passed in and also read
+ * via the global — the caller guarantees fp@(8) == g_a5(-12300)); each cell's
+ * byte at offset 4 (base + k*6 + 294) is its event id.
+ *
+ * Steps: (1) if the new dims already fit (base[2] >= rr && base[3] == cc), do
+ * nothing. (2) Reset the selection ring and scan the two newly-exposed regions
+ * — rows [base[2],rr) x cols [0,cc) and rows [0,min(rr,base[2])) x cols
+ * [base[3],cc) — appending each non-empty cell's event id to the ring (L20ac)
+ * and counting them. (3) Re-space the surviving rows from the old stride
+ * (base[3]*6) to the new stride (cc*6) via jt406 block moves: forward when the
+ * width grew, back-to-front when it shrank (zeroing the vacated gap each row),
+ * or just zero the freed tail when the width is unchanged. Returns the count of
+ * events found in the affected region (so the caller can warn about loss). */
+static short l4842(void *base_p, short rr_arg, short cc_arg) __attribute__((unused));
+static short l4842(void *base_p, short rr_arg, short cc_arg)
+{
+	unsigned char *base = (unsigned char *)base_p;
+	unsigned char rr = (unsigned char)rr_arg;
+	unsigned char cc = (unsigned char)cc_arg;
+	unsigned char count = 0;            /* fp@(-22) — return: event count  */
+	unsigned char evid;                 /* fp@(-21)                        */
+	unsigned char *endp, *src, *dst;    /* fp@(-20) / fp@(-16) / fp@(-12)  */
+	short stride;                       /* fp@(-8)                         */
+	short delta;                        /* fp@(-6)  = (cc - base[3]) * 6    */
+	unsigned char lim;                  /* fp@(-3)  = min(rr, base[2])      */
+	unsigned char i, j;                 /* fp@(-1) / fp@(-2)                */
+
+	PROBE("L4842");
+	if (base[2] >= rr && base[3] == cc)
+		return 0;
+
+	l20ac((short)0);                    /* reset the selection ring */
+
+	/* scan the newly-exposed rows [base[2], rr) x cols [0, cc) */
+	for (i = base[2]; i < rr; i++)
+		for (j = 0; j < cc; j++) {
+			evid = base[((long)i * cc + j) * 6 + 294];
+			if (evid != 0) { l20ac((short)evid); count++; }
+		}
+
+	lim = (unsigned char)jt413((short)rr, (short)base[2]);
+
+	/* scan the newly-exposed cols [base[3], cc) x rows [0, lim) */
+	for (j = base[3]; j < cc; j++)
+		for (i = 0; i < lim; i++) {
+			evid = base[((long)i * cc + j) * 6 + 294];
+			if (evid != 0) { l20ac((short)evid); count++; }
+		}
+
+	delta = (short)(((int)cc - (int)base[3]) * 6);
+	endp  = base + 290 + (long)rr * cc * 6;
+
+	if (delta > 0) {
+		/* columns grew: re-space each surviving row to the wider stride */
+		dst = base + 290 + (long)cc * 6;
+		src = base + 290 + (long)base[3] * 6;
+		stride = (short)((int)base[3] * 6);
+		for (i = 1; i < lim; i++) {
+			jt406(dst, src, stride);
+			dst += (long)cc * 6;
+			src += (long)base[3] * 6;
+		}
+		jt399(src, (short)jt4(jt7((long)(endp - src), 6), 6), (short)0);
+	} else if (delta < 0) {
+		/* columns shrank: re-space rows to the narrower stride, back-to-front */
+		delta = (short)(-delta);
+		dst = base + 290 + (long)lim * cc * 6;
+		jt399(dst, (short)jt4(jt7((long)(endp - dst), 6), 6), (short)0);
+		dst -= (long)cc * 6;
+		src = base + 290 + (long)(lim - 1) * base[3] * 6;
+		stride = (short)((int)cc * 6);
+		for (i = (unsigned char)(lim - 1); i > 0; i--) {
+			jt406(dst, src, stride);
+			jt399(src - delta, delta, (short)0);
+			dst -= (long)cc * 6;
+			src -= (long)base[3] * 6;
+		}
+	} else {
+		/* width unchanged: just zero the freed tail past the new extent */
+		dst = base + 290 + (long)base[2] * base[3] * 6;
+		if (dst < endp)
+			jt399(dst, (short)jt4(jt7((long)(endp - dst), 6), 6),
+			      (short)0);
+	}
+
+	return (short)count;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
