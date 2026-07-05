@@ -360,10 +360,10 @@ Top 50 of 52 pending (stub+standin+missing), by call count:
 - jt371 (1 calls, CODE 8) — missing
 - jt372 (1 calls, CODE 8) — missing
 - jt373 (1 calls, CODE 8) — missing
-- jt426 (1 calls, CODE 3) — missing
+- jt426 (1 calls, CODE 3) — missing — SUPERSEDED — Mac indexed-catalog OPEN; only caller is jt990, which the port reimplements over GEMDOS Fsfirst. Dead on the port.
 - jt428 (1 calls, CODE 3) — stub
-- jt432 (1 calls, CODE 3) — missing
-- jt458 (1 calls, CODE 3) — missing
+- jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
+- jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
 - jt587 (1 calls, CODE 15) — stub
 - jt896 (1 calls, CODE 19) — missing
 - jt916 (1 calls, CODE 12) — missing
@@ -377,10 +377,10 @@ Top 50 of 52 pending (stub+standin+missing), by call count:
 - jt974 (1 calls, CODE 5) — stub
 - jt985 (1 calls, CODE 5) — stub
 - jt1008 (1 calls, CODE 5) — stub
-- jt1027 (1 calls, CODE 5) — missing
-- jt1039 (1 calls, CODE 5) — missing
-- jt1063 (1 calls, CODE 5) — missing
+- jt1027 (1 calls, CODE 5) — missing — NOT HFS — pokes Mac low-memory (0x114/0x2aa free-list); moot on Atari (no such struct). NOOP candidate.
+- jt1039 (1 calls, CODE 5) — missing — NOT HFS — date/time (_SecondsToDate/_DateToSeconds); a Toolbox date shim (GEMDOS Tgetdate/Tgettime). Own lift.
+- jt1063 (1 calls, CODE 5) — missing — NOT HFS — Memory Manager handle dup (_HandToHand/_PtrToHand/_BlockMove); route to the macmemory shim. Own lift.
 - jt1064 (1 calls, CODE 5) — stub
-- jt1143 (1 calls, CODE 4) — missing
+- jt1143 (1 calls, CODE 4) — missing — NOT HFS — 7-line RNG seed (jt1039() ^ _TickCount()); depends on jt1039. Own lift once the date shim lands.
 - jt1144 (1 calls, CODE 4) — stub
 
