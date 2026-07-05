@@ -27,18 +27,19 @@ sub-chain per session; do not try to boil it in one pass.
 Instruction counts from `tools` survey (2026-07-04). "deps clean" = every
 JT + lXXXX callee already lifted.
 
-### CODE 22 — design-list rendering (the tractable start)
+### CODE 22 — design-list rendering — ✅ COMPLETE
 | JT | addr | ~insn | notes |
 |---|---|---|---|
-| ~~jt282~~ | l2f24 | 283 | **LIFTED** — entry painter kind 1 (jt278 case 1) |
 | ~~jt286~~ | l2aaa | 366 | **LIFTED** — entry painter kind 0 (jt278 case 0) |
+| ~~jt282~~ | l2f24 | 283 | **LIFTED** — entry painter kind 1 (jt278 case 1) |
 | ~~jt281~~ | l329c | ~120 | **LIFTED** — entry painter kind 2 (jt278 case 2) |
-| jt??? | l347a | ~200 | entry painter kind 3 (jt278 case 3) — **only one left**; check JT id |
+| ~~l347a~~ | l347a | ~200 | **LIFTED** — entry painter kind 3 (jt278 case 3); CODE-local, no JT id |
 
-These four painters (l2aaa/l2f24/l329c/l347a) are dispatched by the
-already-lifted **jt278** (CODE 22+0x294e) on the entry's kind byte. The trio
-(kinds 0/1/2) is DONE; **l347a (kind 3) is the last** — check its JT mapping,
-then the design-list paint path is complete.
+All four painters (l2aaa/l2f24/l329c/l347a), dispatched by **jt278**
+(CODE 22+0x294e) on the entry kind byte, are lifted. **The design-list
+paint path is complete** — the first coherent, self-contained deliverable of
+the editor cluster. Everything is still dormant (mouse-gated) until the editor
+UI (EDIT MODULES, ADR-0006 Dialog/Control/TextEdit) is wired.
 
 ### CODE 2 — the design-record editor ("recorder")
 | JT | addr | ~insn | notes |

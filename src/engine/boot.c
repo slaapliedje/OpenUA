@@ -60302,8 +60302,143 @@ static void jt281(long hp, short y, short x, short sel, short st, short z)
 	    : "";
 	jt1089((short)(y + 16), x, (short)135, "%16s", strptr);
 }
+/* L347a (CODE 22 + 0x347a) — paint a design-list entry, kind 3 (jt278's 4th
+ * painter; CODE-local, no JT export). The richest of the four: it maintains the
+ * entry's edit state and repaints via a recursive jt278(hp,0) when a cache
+ * changes.
+ *   sel<0 recomputes the current cell index from the party position
+ *     (-12287 col * design-struct width[3] + -12288 row) and reads the record
+ *     state (rec[4]==1 && holder[29]==0 clears v4).
+ *   v4 = the cell's decoded floor/ceiling byte (l04d6(sel)) unless st is set.
+ *   When v4's zero-ness diverges from the holder[37] cache, restamp it, poke
+ *     jt308(hp), and invalidate holder[35].
+ *   jt273()-gated block: dirty-checks holder[35] vs l475e_c22(sel) (and, for
+ *     sel<0, holder[36] vs holder[4]); on a miss it either repaints
+ *     (jt278(hp,0), sel>=0) or draws a "%16s" marker (-10644 / empty, sel<0)
+ *     and forces st.low=1.
+ *   Secondary holder[34] cache drives another conditional jt278(hp,0).
+ *   Finally builds the label — a "%s %s" pair (jt394 into a scratch: -10660/
+ *     -10784 + -10592, only for sel<0/v4==0/holder[4]==0) OR jt366's indexed
+ *     string (kind 10, id jt348(v4)) — and draws it "%*s" right-justified at
+ *     width 13 (compact: z && sel>=0) or 15, colour 128/135 by st.low. A
+ *     -10648 "%16s" marker short-circuits when v2 && sel>=0.
+ *
+ * Faithful goto-mirror of 0x347a..0x3790. Holder/record split as in jt278/281/
+ * 282/286: cache bytes 4/29/34/35/36/37 are single-deref hp[N]; the sole record
+ * read (rec[4]) is double-deref (*hp)[4]. The scratch buf20 mirrors fp@(-20)
+ * (jt394/jt366 dest, buf[13]=fp@(-7) compact-truncate point); the flag bytes
+ * live just past it in the real frame — kept as separate C locals here (the
+ * editor labels are short, same as jt281's namebuf). #153. Dormant: mouse-
+ * gated editor; verify against the disasm, not the smoke harness. */
+static void jt278(long handle_ptr, short repaint);
+static void jt308(long holder);
 static void l347a(long hp, short y, short x, short sel, short st, short z)
-{ PROBE("l347a"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+    __attribute__((unused));
+static void l347a(long hp, short y, short x, short sel, short st, short z)
+{
+	unsigned char *holder = (unsigned char *)(uintptr_t)hp;
+	unsigned char *rec;
+	short          sneg;                /* fp@(-1): (orig sel<0)?1:0 */
+	unsigned char  v4 = 0;              /* fp@(-4) */
+	unsigned char  v3 = 0;              /* fp@(-3) */
+	unsigned char  v2 = 0;              /* fp@(-2) */
+	short          width;               /* fp@(-22) */
+	short          color;
+	char           buf20[64];           /* fp@(-20): jt394/jt366 label dest */
+	const char    *strptr;
+
+	PROBE("l347a");
+
+	sneg = (short)((sel < 0) ? 1 : 0);
+	if (sneg != 0) {
+		const unsigned char *base =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		sel = (short)((short)(signed char)g_a5_byte(-12287) * (short)base[3]
+		              + (short)(signed char)g_a5_byte(-12288));
+	}
+ /* L34ae */
+	if ((st & 0xff) != 0)
+		v4 = 0;
+	else
+		v4 = (unsigned char)l04d6(sel);
+
+	if (sneg == 0) goto L353a;
+	/* sneg != 0 (sel<0): reconcile v4 against the record + holder[37] cache */
+	rec = *(unsigned char **)(uintptr_t)hp;
+	if (rec[4] == 1 && holder[29] == 0)
+		v4 = 0;
+ /* L34f6 */
+	if ((((holder[37] == 0) ? 1 : 0) ^ ((v4 == 0) ? 1 : 0)) != 0) {
+		holder[37] = v4;
+		jt308((long)hp);
+		holder[35] = 0xFF;
+	}
+ L353a:
+	if (jt273() == 0) goto L3604;
+	v2 = (unsigned char)l475e_c22(sel);
+	if ((short)holder[35] == (short)(signed char)v2) {
+		if (sneg == 0) goto L3604;
+		if ((short)holder[36] == (short)(signed char)holder[4]) goto L3604;
+	}
+	/* L3584 */
+	if (sneg != 0) goto L35bc;
+	/* sneg == 0 : repaint the whole entry, stamp the cache */
+	jt278((long)hp, (short)0);
+	v3 = 1;
+	holder[35] = v2;
+	if (v2 == 0)
+		holder[34] = 0xFF;
+	goto L3648;
+ L35bc:
+	strptr = v2 ? (const char *)(uintptr_t)g_a5_long(-10644) : "";
+	jt1089((short)(y + 8), x, (short)128, "%16s", strptr);
+	if (v2 == 0) goto L3648;
+	st = (short)((st & 0xff00) | 1);    /* fp@(19) = 1 */
+	v4 = 0;
+	goto L3648;
+ L3604:
+	if (sneg != 0) goto L3648;
+	/* sneg == 0 : decide whether the primary state changed */
+	if (holder[4] != 0 && holder[37] != 0) goto L3636;
+	if (holder[4] != 0) goto L3648;
+	if (v4 == holder[37]) goto L3648;
+ L3636:
+	jt278((long)hp, (short)0);
+	v3 = 1;
+ L3648:
+	if (sneg == 0 && holder[34] == v4) goto L378e;
+	if (sneg == 0) {
+		holder[34] = v4;
+		if (v3 == 0) {
+			jt278((long)hp, (short)0);
+			v3 = 1;
+		}
+	}
+	/* L3686 */
+	if (v2 != 0 && sneg == 0) {
+		jt1089((short)(y + 4), x, (short)135, "%16s",
+		       (const char *)(uintptr_t)g_a5_long(-10648));
+		goto L378e;
+	}
+	/* L36b8 */
+	if (sneg != 0 && v4 == 0 && holder[4] == 0) {
+		strptr = v2 ? (const char *)(uintptr_t)g_a5_long(-10660)
+		            : (const char *)(uintptr_t)g_a5_long(-10784);
+		jt394(buf20, "%s %s", strptr,
+		      (const char *)(uintptr_t)g_a5_long(-10592));
+		goto L371a;
+	}
+	/* L36f8 */
+	jt366((short)(jt348(v4) & 255), (short)10, (long)(uintptr_t)buf20);
+ L371a:
+	if ((z & 0xff) != 0 && sel >= 0 && sneg == 0)
+		buf20[13] = 0;                  /* fp@(-7): compact truncation */
+	color = (short)(((st & 0xff) != 0) ? 128 : 135);
+	width = (short)(((z & 0xff) != 0 && sel >= 0 && sneg == 0) ? 13 : 15);
+	jt1089((short)(y + 4), x, color, "%*s", (int)width, buf20);
+ L378e:
+	return;
+}
 
 /* JT[278] (CODE 22+0x294e) — paint one design-list entry. `handle_ptr`
  * is the entry HOLDER: bytes 0-3 point to the design record R (=*hp),
