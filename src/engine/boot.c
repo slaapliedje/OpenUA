@@ -70548,8 +70548,40 @@ static short l36e0_c10(short id, short arttype)
 		outer      = 3;
 		cpic_multi = 1;                     /* multi-strip geometry (A5) */
 		break;
-	case 4: case 8:                             /* CPIC — TODO(A8) */
+	case 4: case 8: {                           /* CPIC (0x3b66) — Shape dialog */
+		short shape;
+		jt1001((short)8000, (short)8000, (short)1, (short)1);
+		jt1001((short)8000, (short)8000, (short)1, (short)2);
+		jt1001((short)8000, (short)8000, (short)1, (short)3);
+		jt1001((short)8000, (short)8000, (short)1, (short)4);
+		jt179((short)3);
+		shape = (short)(jt182(ua_strs_at(0x2e6a) /* "Shape:" */,
+		                (long)(uintptr_t)ua_strs_at(0x2e72)
+		                /* "Normal Tall Wide Big Cancel" */,
+		                (short)0, (short)0) & 0xFF);
+		if (shape == 4)
+			return 0;               /* Cancel */
+		clut_start = 0;
+		clut_count = 0;
+		if (jt1200() == 3) {
+			jt394(namebuf, ua_strs_at(0x2e8e) /* "CPIC1%03d.tlb" */,
+			      (unsigned)(unsigned char)id);
+			*(short *)(td + 2) = (shape & 2) ? 232 : 56;
+			*(short *)(td + 0) = (shape & 1) ? 94 : 35;
+			*(short *)(td + 4) = (shape & 1) ? 64 : 32;
+			td[10] = (unsigned char)(((shape & 2) ? 64 : 32) >> 3);
+		} else {
+			jt394(namebuf, ua_strs_at(0x2e9c) /* "CPIC1%03d.ctl" */,
+			      (unsigned)(unsigned char)id);
+			*(short *)(td + 2) = (shape & 2) ? 64 : 192;
+			*(short *)(td + 0) = (shape & 1) ? 22 : 84;
+			*(short *)(td + 4) = (shape & 1) ? 48 : 24;
+			td[10] = (unsigned char)(((shape & 2) ? 48 : 24) >> 3);
+		}
+		format = 5;
+		outer  = 2;
 		break;
+	}
 	case 16: case 32:                           /* BIGP (0x3cea) */
 		clut_start = 32;
 		clut_count = 224;
