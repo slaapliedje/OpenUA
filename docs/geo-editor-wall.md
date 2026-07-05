@@ -62,40 +62,44 @@ deps mostly lifted) — see below.
 ### CODE 10 — module viewers (editor-adjacent)
 | JT | addr | ~insn | notes |
 |---|---|---|---|
-| ~~jt265~~ | l65be | 7 | **LIFTED** (2026-07-05) — "Experience:" entry prompt: jt98 field + new L654a atol. Clean leaf. (wall's "224 insn" swept in L654a/L6606/L66a2/L67a0.) |
+| ~~jt265~~ | l65be | 7 | **LIFTED** (2026-07-05) — "Experience:" entry prompt: jt98 field + new L654a atol. Clean leaf. |
+| ~~jt264~~ | l6316 | ~130 | **LIFTED** (2026-07-05) — monster-editor art/id sub-state handler (jt263 sibling; 2× JT[3]). |
 | jt269 | l0004 | tiny | segment entry (check first) |
-| jt267 | l1a14 | 129 | viewer helper; local deps L116a/L2ebe (verify) |
-| jt264 | l6316 | ~130 | **BLOCKED** — needs L611c (monster-save, +jt372, +jt1084) |
-| jt270 | l3262 | 294 | **BLOCKED** — needs jt456 + l06ae + l2ebe + L611c subtree |
+| jt267 | l1a14 | 129 | viewer helper; local deps L116a/L2ebe (l2ebe now lifted) |
+| jt270 | l3262 | ~253 | **UNBLOCKED** — all deps lifted; the modal list-picker loop remains (level-3 pass). |
 | jt266 | l1bc2 | 1692 | big — own session |
 | jt259 | l368a | 2757 | the giant — own session |
 
-**CODE 10 reality check (2026-07-05):** of the three "small viewers"
-(jt264/jt265/jt270), only **jt265** was a clean leaf — now done. The wall's
-`~insn`/deps columns were mis-scanned (jt265 is 7 insn, not 224). jt264 and
-jt270 both bottom out on a shared, deep multi-function subtree — a dedicated
-session, NOT a leaf pass:
+**CODE 10 reality check — CORRECTED (2026-07-05).** The earlier "jt264/jt270
+bottom out on a ~900-insn subtree with jt1084 + jt456 MISSING" was WRONG: I
+trusted `defs=0` without alias-checking. Re-checking the alias doc /
+`ALIAS_LIFTED` map showed **jt1084 was already lifted (l036a)** and **jt456
+already lifted (l2d3e)** — both counted done, never missing. The real
+remaining chain was small and is now **fully lifted this session**:
 
 ```
-jt264 → L611c (monster-save, ~78 insn)
-          ├─ jt372  (l666c CODE 8, MISSING) → l6520_c8✓ + jt363✓ + L62e0_c8
-          │        L62e0_c8 (CODE 8, ~110 insn, MISSING) → L60b0_c8 (CODE 8, MISSING)
-          └─ jt1084 (l036a CODE 5, MISSING) → modal "Error: %r" alert with its
-                   own event loop + 5 CODE-5 locals (L024c/L0264/L0306/L00a8/L0088)
-jt270 → everything above (via L611c) PLUS
-          ├─ jt456  (l2d3e CODE 3, ~170 insn, MISSING)
-          ├─ l06ae  (CODE 10, ~13 insn — trivial kind→1/-1/0 classifier; deps clean)
-          └─ l2ebe  (CODE 10, ~60 insn — stores &jt261/&jt262 callback ptrs, tail
-                   jt347; deps clean but coupled to how jt270 consumes the callback)
+jt264 ✓ → L611c ✓ (monster save, CODE 10)
+             ├─ jt372 ✓ (CODE 8, was MISSING) → l6520_c8✓ jt363✓ + L62e0_c8 ✓
+             │        L62e0_c8 ✓ (CODE 8, the full sibling of the l6432 stub)
+             │          → l60b0✓ jt370✓ jt191✓  (all already lifted)
+             └─ jt1084 = l036a ✓  (ALREADY lifted — the Mac's variadic "Error: %r"
+                      maps onto l036a(const char*, ...) + vsnprintf; l611c calls it)
+jt270 (unblocked) → l06ae ✓ + l2ebe ✓ (CODE 10, this session) + jt456 = l2d3e ✓
+             + L611c ✓ + ~20 already-lifted JTs
 ```
 
-So the shared blocker is **L611c → {jt1084 modal-alert, jt372 → L62e0_c8 →
-L60b0_c8}**; jt270 adds jt456 + l06ae + l2ebe. That's ~10 functions across
-CODE 3/5/8/10 (~900 insn) — its own multi-lift session. **jt1084** (the
-low-level Error alert) is the highest-value entry to lift first: it is a
-MISSING JT used broadly across the app, not just here. l06ae + l2ebe should
-be lifted alongside jt270 (so the callback-pointer ABI is verified in one
-pass), not in isolation.
+**Lesson (again):** alias-check EVERY `defs=0` against `docs/lxxxx-jt-aliases.md`
+AND `tools/jt_progress.py`'s `ALIAS_LIFTED` before calling anything "missing" —
+a lXXXX-named lift (l036a, l2d3e, l60b0, l6520_c8) reads as MISSING under its
+jtNNNN name but IS the body.
+
+**jt270 remaining** — the only unlifted piece is jt270 itself: a ~253-insn
+modal list-picker event loop (the monster/spell chooser). Its own level-3 pass,
+like sibling jt263 (lifted as a level-2 skeleton). Dispatcher conventions for
+the transcription are settled: `jt444(item,a,b,c)` — pad unused trailing args
+with 0; `jt452(long shape0, …)` variadic-longs; `jt456` → **l2d3e()** (no-arg
+event poll); list callbacks pass **&jt268 / &jt327** function pointers; the two
+title strings format via jt394 "%s %s" then draw with jt1089.
 
 ### CODE 11 — area/geo editor (continuing earlier work)
 | JT | addr | ~insn | notes |
