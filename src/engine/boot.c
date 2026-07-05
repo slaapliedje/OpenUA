@@ -61634,6 +61634,47 @@ static short jt262(short val)
 	               ? -1 : 0);
 }
 
+/* L654a (CODE 10+0x654a) — atol(): parse a signed decimal string.
+ * An optional leading '-' sets the sign; each digit accumulates as
+ * the NEGATIVE of the value (result = result*10 - (c-'0')) so the
+ * INT_MIN edge parses without overflow, then the sign is applied at
+ * the end (negate for a positive input). jt389 = isdigit, jt4 =
+ * the THINK C 32-bit multiply runtime. The char is sign-extended
+ * before each test/subtract, matching the asm's extw/extl. */
+static long l654a(char *s) __attribute__((unused));
+static long l654a(char *s)
+{
+	long result = 0;
+	char neg;
+
+	PROBE("L654a");
+	if (*s == '-') {
+		neg = 1;
+		s++;
+	} else {
+		neg = 0;
+	}
+	while (jt389((short)(signed char)*s)) {
+		result = jt4(result, 10) - (signed char)*s + 48;
+		s++;
+	}
+	if (neg)
+		return result;
+	return -result;
+}
+
+/* JT[265] (CODE 10+0x65be) — prompt "Experience: " and return the
+ * entered amount as a signed long. jt98 runs the labelled text-entry
+ * field (fg 7, bg 8, max 8 chars) and returns the typed string;
+ * L654a converts it to an integer. */
+static long jt265(void) __attribute__((unused));
+static long jt265(void)
+{
+	PROBE("jt265");
+	return l654a(jt98((long)(uintptr_t)ua_strs_at(0x3010) /* "Experience: " */,
+	                  (short)7, (short)8, (short)8));
+}
+
 /* --- band-4 CODE 8 design-record tier -------------------------------- */
 
 /* JT[362] (CODE 8+0x600c) — (re)load the STRG spell-name table for
