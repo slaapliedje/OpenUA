@@ -63310,6 +63310,74 @@ static void jt322(char *buf, short idx, short verbose)
 	}
 }
 
+/* JT[256] (CODE 2+0x5194) — word-wrap design string #(id-1) to the
+ * -12070 event display, one line at a time. l4fbe loads the string
+ * into the -5213 scratch; then greedily emit lines: skip leading
+ * spaces, scan up to 38 chars, back up to the last space (word
+ * boundary). Three cases per line — a space within 38 (break there,
+ * consume the space), the string ends within 38 (emit the rest, done),
+ * or a single word longer than 38 (force-break at 38, keep the char).
+ * Each line prints "%s" at y = (-12070)[1]*2 + 6 via jt1074 (which
+ * advances the line counter); jt1072(1) finalises. Data-model text
+ * layout — all callees lifted; unused until the CODE 9 dialog that
+ * calls it is lifted, so the binary is behaviourally unchanged.
+ * NOTE (band 7): a caller-pending leaf — verified by asm reasoning
+ * about the break paths, not by running it (the display isn't
+ * reachable headless). */
+static void jt1074(short width, long rfmt, long tail);   /* CODE 5+0x7c90, below */
+static void jt1072(short n);                             /* CODE 5+0x7c74, below */
+static void jt256(short id) __attribute__((unused));
+static void jt256(short id)
+{
+	char *line, *p;
+
+	PROBE("jt256");
+	if (id == 0)
+		return;
+	l4fbe((void *)(uintptr_t)g_a5_long(-13034), (short)(id - 1),
+	      (char *)&g_a5_byte(-5213));
+
+	for (line = (char *)&g_a5_byte(-5213); *line != 0; ) {
+		unsigned char *ebuf;
+		short          y;
+
+		while (*line == ' ')                    /* skip leading spaces */
+			line++;
+		for (p = line; *p != 0 && (long)(p - line) < 38; p++)
+			;                               /* scan up to 38 chars */
+		while (*p != 0 && *p != ' ' && p > line)
+			p--;                            /* back up to a space */
+
+		ebuf = (unsigned char *)(uintptr_t)g_a5_long(-12070);
+		y    = (short)((short)ebuf[1] * 2 + 6);
+
+		if (p > line) {
+			if (*p != 0) {                  /* break at the space */
+				*p = 0;
+				jt1074(y, (long)(uintptr_t)ua_strs_at(0x2ca6),
+				       (long)(uintptr_t)line);
+				line = p + 1;
+			} else {                        /* rest fits — last line */
+				jt1074(y, (long)(uintptr_t)ua_strs_at(0x2caa),
+				       (long)(uintptr_t)line);
+				line = p;
+			}
+		} else {                                /* word > 38 — force-break */
+			char saved;
+
+			for (p = line; *p != 0 && (long)(p - line) < 38; p++)
+				;
+			saved = *p;
+			*p = 0;
+			jt1074(y, (long)(uintptr_t)ua_strs_at(0x2ca2),
+			       (long)(uintptr_t)line);
+			*p = saved;
+			line = p;
+		}
+	}
+	jt1072((short)1);
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
