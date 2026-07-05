@@ -68249,6 +68249,52 @@ static short jt264(short state, long result_l, long ctx_l)
 	return *(short *)geo;
 }
 
+/* L06ae (CODE 10+0x6ae) — classify a design-list entry kind for the
+ * monster viewer: kinds 1 and 11 are "editable" (1), kind 7 is
+ * "special" (-1), everything else 0. */
+static short l06ae(short kind) __attribute__((unused));
+static short l06ae(short kind)
+{
+	PROBE("L06ae");
+	if (kind == 11 || kind == 1)
+		return 1;
+	if (kind == 7)
+		return -1;
+	return 0;
+}
+
+/* L2ebe (CODE 10+0x2ebe) — resolve the row-fill descriptor for one
+ * design-list record `rec`, row index `n`. A kind-9 sub-2 record is a
+ * plain header (clear *out, return n); an empty record (rec[16]==0 &&
+ * n==0) returns 255/0 by whether rec[6] >= 6. Otherwise it picks the
+ * per-row callback — kind-21 records use jt261 (memorized) or jt262
+ * (known) by rec[9] — and defers to jt347 to fetch the n'th matching
+ * entry into *out. Returns jt347's level/row code. */
+static short l2ebe(long out, long rec, short n) __attribute__((unused));
+static short l2ebe(long out, long rec, short n)
+{
+	unsigned char *r = (unsigned char *)(uintptr_t)rec;
+	long           proc;
+
+	PROBE("L2ebe");
+	if (r[6] == 9 && *(short *)(r + 2) == 2) {
+		if (out)
+			*(long *)(uintptr_t)out = 0;
+		return n;
+	}
+	if (r[16] == 0 && n == 0) {
+		if (out)
+			*(long *)(uintptr_t)out = 0;
+		return (short)((r[6] >= 6) ? 255 : 0);
+	}
+	if (*(short *)(r + 2) == 21)
+		proc = r[9] ? (long)(uintptr_t)&jt261
+		            : (long)(uintptr_t)&jt262;
+	else
+		proc = 0;
+	return jt347(n, (short)r[6], (short)r[7], (short)r[16], out, proc);
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
