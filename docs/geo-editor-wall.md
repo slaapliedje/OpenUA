@@ -102,10 +102,11 @@ lifts), L66a2/L6606/L6892, DrawPicture shim, jt259 wrapper, L36e0 + L53b0
 level-2 skeletons, L53b0 cases 0/2/3/5/7/9. REMAINING, chunked in dependency
 order — each is one build+commit:
 
-STATUS 2026-07-05: A4-A10 DONE (l36e0_c10 is now a full lift — the import runs
-end-to-end for a human at the mouse). Remaining: A11 (L53b0 case 1, needs a
-trace), A12 (L67a0 display), + one small TODO (the 0x408a palette-record
-append, needs the fp@(-40)/-39 flags traced).
+STATUS 2026-07-05: A4-A11 DONE (l36e0_c10 is a full lift AND L53b0 case 1 is
+lifted — every art format now packs). The ambiguity was resolved by reading the
+exact stack pushes from CODE_10.s (jt1163 is a 0-stub, jt1170 is empty), so no
+trace was needed. Remaining: A12 (L67a0 display), + one small TODO (the 0x408a
+palette-record append, needs the fp@(-40)/-39 flags traced).
 
 - **A4** ✓ — l36e0_c10 tile-loop CORE (L3dd0..L407e minus the geometry tables):
   the 120-dim 3-strip vs single-tile dispatch, the L53b0 calls, and the
@@ -122,8 +123,11 @@ append, needs the fp@(-40)/-39 flags traced).
   jt406 CLUT copy + DungCom/MENU table load into clutbuf.
 - **A10** ✓ — writeout (L413c..0x4196): jt431 x2 dir-prefix + jt392 write +
   jt411 close + jt457 register + jt461 release.
-- **A11** — L53b0 case 1 (0x5698, the l42f2 convert format) — ⚠ has the
-  ambiguous per-plane l42f2 buffer args; best done against a Mac trace.
+- **A11** ✓ — L53b0 case 1 (0x5698..0x59ba): size-guard, per-plane unpack
+  (hi-res col loop / even-width row loop via jt1170/jt1177/jt1197), the two
+  l42f2 convert paths (desc[15] gate + jt1200()==3 gate else single), and the
+  l4924 pack. Buffer offsets transcribed from the pea/movel pushes — no trace
+  needed once jt1163 (0-stub) and jt1170 (empty) were confirmed.
 - **A12** — L67a0 (PICT display): GetGWorld/SetGWorld -> current-port mapping +
   jt1159.
 
