@@ -70877,6 +70877,46 @@ static void l4c92(char *out, short a, short b)
 	*out = (char)(acc != 0 ? 43 : 32);          /* '+' : ' ' */
 }
 
+/* L4dcc (CODE 2 + 0x4dcc) — horizontal-edge glyph picker. Folds the cell (b,a)
+ * and its west neighbour (b,a-1) via jt397, then a JT[3] switch (@0x4e12,
+ * min=0/max=2) writes ' '(0) / '.'(1) / '-'(2); out-of-range leaves *out. */
+static void l4dcc(char *out, short a, short b) __attribute__((unused));
+static void l4dcc(char *out, short a, short b)
+{
+	short acc;
+
+	PROBE("L4dcc");
+	acc = l5484(b, a, (short)0);
+	acc = jt397(acc, l5484(b, (short)(a - 1), (short)4));
+	switch (acc) {                          /* JT[3] @0x4e12 */
+	case 0: *out = (char)32; break;         /* ' ' */
+	case 1: *out = (char)46; break;         /* '.' */
+	case 2: *out = (char)45; break;         /* '-' */
+	default: break;                         /* leave *out unchanged */
+	}
+}
+
+/* L4e3e (CODE 2 + 0x4e3e) — vertical-edge glyph picker. Folds the cell (b,a)
+ * and its north neighbour (b-1,a) via jt397, then a JT[3] switch (@0x4e86,
+ * min=0/max=2) writes ' '(0) / ':'(1) / '|'(2); out-of-range leaves *out. The
+ * L4c92/L4dcc/L4e3e trio render the editor's ASCII map grid (junction / horiz /
+ * vert). */
+static void l4e3e(char *out, short a, short b) __attribute__((unused));
+static void l4e3e(char *out, short a, short b)
+{
+	short acc;
+
+	PROBE("L4e3e");
+	acc = l5484(b, a, (short)6);
+	acc = jt397(acc, l5484((short)(b - 1), a, (short)2));
+	switch (acc) {                          /* JT[3] @0x4e86 */
+	case 0: *out = (char)32;  break;        /* ' ' */
+	case 1: *out = (char)58;  break;        /* ':' */
+	case 2: *out = (char)124; break;        /* '|' */
+	default: break;                         /* leave *out unchanged */
+	}
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
