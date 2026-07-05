@@ -102,11 +102,14 @@ lifts), L66a2/L6606/L6892, DrawPicture shim, jt259 wrapper, L36e0 + L53b0
 level-2 skeletons, L53b0 cases 0/2/3/5/7/9. REMAINING, chunked in dependency
 order — each is one build+commit:
 
-STATUS 2026-07-05: A4-A11 DONE (l36e0_c10 is a full lift AND L53b0 case 1 is
-lifted — every art format now packs). The ambiguity was resolved by reading the
-exact stack pushes from CODE_10.s (jt1163 is a 0-stub, jt1170 is empty), so no
-trace was needed. Remaining: A12 (L67a0 display), + one small TODO (the 0x408a
-palette-record append, needs the fp@(-40)/-39 flags traced).
+STATUS 2026-07-05: A4-A12 DONE — jt259 art-import is fully lifted end-to-end
+(pick → decode → per-family descriptor → L53b0 pack for EVERY format → PICT
+preview → resource store → .tlb write). A11's "needs a trace" flag was wrong
+(the exact CODE_10.s pushes pinned it; jt1163 is a 0-stub, jt1170 empty). A12's
+"blocked on a ~300-insn jt1159 lift" was ALSO wrong: jt1159 = l4350 was already
+lifted (the HAL-moot Palette-Manager no-op) — the alias map would have said so.
+Only ONE small TODO remains: the 0x408a palette-record append (needs the
+fp@(-40)/-39 header flags traced).
 
 - **A4** ✓ — l36e0_c10 tile-loop CORE (L3dd0..L407e minus the geometry tables):
   the 120-dim 3-strip vs single-tile dispatch, the L53b0 calls, and the
@@ -128,8 +131,13 @@ palette-record append, needs the fp@(-40)/-39 flags traced).
   l42f2 convert paths (desc[15] gate + jt1200()==3 gate else single), and the
   l4924 pack. Buffer offsets transcribed from the pea/movel pushes — no trace
   needed once jt1163 (0-stub) and jt1170 (empty) were confirmed.
-- **A12** — L67a0 (PICT display): GetGWorld/SetGWorld -> current-port mapping +
-  jt1159.
+- **A12** ✓ — L67a0 (PICT preview, 0x67a0..0x6890): SetCursor(watch), jt1086,
+  picFrame rect from *pic+2 (offset to origin), jt1196, ForeColor(black)/
+  BackColor(white)/PenMode(srcCopy), DrawPicture, jt1168, then the two jt1159
+  Palette-Manager re-arbitration calls via l4350. GetGWorld/SetGWorld
+  (0xaa28/0xaa39) collapse to no-ops on the single shared surface; jt1159=l4350
+  was already lifted as the HAL-moot no-op. Needed a forward proto for jt1086
+  (defined later in the file).
 
 Counter-reuse note: `fp@(-34)` is BOTH the outer strip counter (L407e dec) and
 the inner 3-strip counter (L3df8 0..2, then set to -1) — the 120-dim path runs

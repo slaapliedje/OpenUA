@@ -70451,15 +70451,46 @@ static short l53b0(void *desc_p, long a12, short a16, short a18)
 	return ret14;
 }
 
-/* L67a0 (CODE 10+0x67a0) — DrawPicture the loaded PICT into the offscreen
- * import buffer. The shim now HAS DrawPicture; the remaining pieces are the
- * GetGWorld/SetGWorld -> current-port mapping (the port has one shared
- * surface) and jt1159 (CODE 4, unlifted). PROBE stub until those land. */
+static void jt1086(short fill);         /* = CODE 5+0x208, defined below */
+
+/* L67a0 (CODE 10+0x67a0) — DrawPicture the imported PICT for preview. Full
+ * faithful lift. The Mac brackets the draw with GetGWorld/SetGWorld (traps
+ * 0xaa28/0xaa39) to render into the import offscreen, then jt1168's InvalRect
+ * flushes it to the window; on the port's ONE shared surface those collapse to
+ * no-ops and DrawPicture rasterises straight to it. Both jt1159 calls are the
+ * Palette-Manager usage re-arbitration = l4350 (the HAL-moot no-op: the VIDEL
+ * HAL owns the 8bpp CLUT, no -2574 palette object, depth pinned at 8). The
+ * dst rect is the PICT picFrame (*pic + 2) offset to the origin. */
 static void l67a0(void *pic) __attribute__((unused));
 static void l67a0(void *pic)
 {
+	Rect   r;
+	short *pf;
+
 	PROBE("L67a0");
-	(void)pic;                      /* TODO: GWorld map + DrawPicture + jt1159 */
+	SetCursor(*GetCursor((short)4));        /* watchCursor — busy */
+	jt1086((short)15);
+
+	/* GetGWorld save + SetGWorld(import offscreen) — no-op: one surface. */
+
+	pf = (short *)((char *)(*(void **)pic) + 2);   /* &picFrame */
+	r.top    = pf[0];
+	r.left   = pf[1];
+	r.bottom = (short)(pf[2] - pf[0]);      /* height */
+	r.right  = (short)(pf[3] - pf[1]);      /* width  */
+	r.top    = 0;
+	r.left   = 0;
+
+	jt1196((short)0);
+	ForeColor((long)blackColor);            /* 33 */
+	BackColor((long)whiteColor);            /* 30 */
+	PenMode((short)0);                      /* asm sets srcCopy (0) here */
+	DrawPicture((PicHandle)pic, &r);
+	jt1168(&r);
+
+	/* GetGWorld/SetGWorld again (no-op), palette re-arbitration via l4350. */
+	l4350((short)0);                        /* jt1159(0) */
+	l4350((short)((g_a5_word(-1318) == 8) ? 1 : 0));   /* jt1159(atDepth8) */
 }
 
 static short l36e0_c10(short id, short arttype);     /* the importer, defined below */
