@@ -14648,6 +14648,97 @@ static void l4d24_c11(short a, short cell)
 	}
 }
 
+/* L49dc (CODE 11 + 0x49dc) — the automap area info-panel painter. `rec`
+ * is the party cell (area+46; [0]=col, [1]=row). Phase 1: three
+ * l4d24_c11 flood passes over the -12200 work block at tightening
+ * thresholds {13,5,1} with pass ids {13,14,15} — the tightest class a
+ * cell is reachable at wins (open cells end 15, walled ones 13). Phase
+ * 2: tally the marked cells into hist[0..2] by class (15->0,14->1,13->2)
+ * plus a grand total. Phase 3: paint the panel — a filled backdrop
+ * (jt1161) then jt1089 lines from the string table (-11120 names,
+ * -11136/-11128/-11132 labels) with singular/plural suffixes. jt239
+ * chain, #151. `unused` until jt239 lands above it. */
+static void l49dc_c11(void *arg) __attribute__((unused));
+static void l49dc_c11(void *arg)
+{
+	unsigned char *rec = (unsigned char *)arg;
+	unsigned char *p   = (unsigned char *)(uintptr_t)g_a5_long(-12200);
+	unsigned char *lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char  thresh[3];
+	short          hist[3];
+	short          cell, i;
+	short          region_total, scan, r, c;
+	short          rx, ry, strp;
+
+	PROBE("L49dc");
+	/* phase 1 — three flood passes, tightest threshold wins */
+	jt399(hist, (short)6, (short)0);
+	thresh[0] = 1; thresh[1] = 5; thresh[2] = 13;
+	cell = (short)((short)rec[1] * lvl[3] + rec[0]);
+	*(short *)(p + 2)   = (short)(lvl[2] * lvl[3]);
+	*(short *)(p + 582) = 0;
+	jt399(p + 6, *(short *)(p + 2), (short)0);
+	for (i = 2; i >= 0; i--) {
+		p[4] = thresh[i];
+		p[5] = (unsigned char)(15 - i);
+		l4d24_c11((short)rec[0], cell);
+	}
+
+	/* phase 2 — tally marked cells by class */
+	region_total = 0;
+	scan = 0;
+	for (r = 0; r < lvl[2]; r++) {
+		for (c = 0; c < lvl[3]; c++) {
+			unsigned char m = p[6 + scan];
+			if (m != 0) {
+				hist[15 - m]++;
+				region_total++;
+			}
+			scan++;
+		}
+	}
+
+	/* phase 3 — paint the panel */
+	rx = 8032;
+	ry = 8092;
+	jt1161(rx, ry, (short)(rx + 54), (short)(ry + 64), (short)8);
+	jt1089((short)(rx + 4), (short)(ry + 12), (short)139, "%s:",
+	       (const char *)(uintptr_t)g_a5_long(-11144));
+	rx += 4;
+	strp = 0;
+	for (i = 0; i < 3; i++) {
+		const char *sfx;
+		short xoff;
+
+		jt1161((short)(rx + 4), ry, (short)(rx + 8),
+		       (short)(ry + 4), (short)(15 - i));
+		jt1089((short)(rx + 4), (short)(ry + 6), (short)135,
+		       (const char *)(uintptr_t)g_a5_long(-11120 + (long)strp * 4));
+		strp++;
+		if (i != 0) {
+			jt1089((short)(rx + 8), (short)(ry + 6), (short)135,
+			       (const char *)(uintptr_t)g_a5_long(-11120
+			                                          + (long)strp * 4));
+			strp++;
+		}
+		xoff = (short)(((i == 0) ? 8 : 12) + rx);
+		sfx  = (hist[i] == 1) ? ua_strs_at(0x2aa4) : ua_strs_at(0x2aa6);
+		jt1089(xoff, (short)(ry + 6), (short)135, "%d %s%s.", hist[i],
+		       (const char *)(uintptr_t)g_a5_long(-11136), sfx);
+		rx += (i == 0) ? 10 : 14;
+	}
+	{
+		const char *sfx = (region_total == 1) ? ua_strs_at(0x2ab4)
+		                                      : ua_strs_at(0x2ab6);
+		jt1089((short)(rx + 4), ry, (short)135, "%s: %d %s%s",
+		       (const char *)(uintptr_t)g_a5_long(-11128), region_total,
+		       (const char *)(uintptr_t)g_a5_long(-11136), sfx);
+	}
+	jt1089((short)(rx + 8), ry, (short)135, "%s %d.",
+	       (const char *)(uintptr_t)g_a5_long(-11132),
+	       *(short *)(p + 2));
+}
+
 /* L5126 (CODE 11 + 0x5126) — the deep dungeon status-header panel jt240 draws
  * above the first-person view. Fills the header rect (JT[1161]) then paints
  * four text rows via JT[1089]: the area-name line (g_a5_-10640/-11136/-10816),
