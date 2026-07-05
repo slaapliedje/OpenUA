@@ -59906,13 +59906,225 @@ static short jt272(short y, short x)
 	return 4;
 }
 
+/* --- CODE 22 design-editor cell accessors (jt286 dep tree, #153) --- */
+
+/* L0524 (CODE 22 + 0x0524) — cell `cell`'s edge nibble at sub-index
+ * (v & 6) >> 1: byte 290 of (design base + cell*6 + idx) low nibble when
+ * idx in 0..3, else 0. */
+static short l0524_c22(short cell, short v) __attribute__((unused));
+static short l0524_c22(short cell, short v)
+{
+	short idx = (short)((v & 6) >> 1);
+
+	if (idx < 0 || idx >= 4)
+		return 0;
+	return (short)(((const unsigned char *)(uintptr_t)g_a5_long(-12300))
+	               [(long)cell * 6 + idx + 290] & 15);
+}
+
+/* L48b2 (CODE 22 + 0x48b2) — edge sub-index A: (((arg & 0xff) >> 1) & 3
+ * + 1) * 2. */
+static short l48b2_c22(short arg) __attribute__((unused));
+static short l48b2_c22(short arg)
+{
+	short d = (short)(((arg & 0xff) >> 1) & 3);
+
+	return (short)((d + 1) * 2);
+}
+
+/* L475e (CODE 22 + 0x475e) — "no open adjacent edge" predicate for cell
+ * `cell`. Walks the four neighbours (JT[3] 0..3 = N cell-width [+292],
+ * E cell+1 [+293], S cell+width [+290], W cell-1 [+291]) computing each
+ * neighbour's edge-byte pointer, NULL when out of bounds (guarded by the
+ * design width/height at base[3]/base[2] via the same divuw row/column
+ * math the Mac uses). Returns 0 as soon as any in-bounds neighbour has a
+ * zero high-nibble, else 1. Faithful. */
+static short l475e_c22(short cell) __attribute__((unused));
+static short l475e_c22(short cell)
+{
+	const unsigned char *base =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned short width  = base[3];
+	unsigned short height = base[2];
+	short          dir;
+
+	for (dir = 0; dir < 4; dir++) {
+		const unsigned char *a4 = NULL;
+
+		switch (dir) {              /* JT[3] @0x4774, min 0 max 3 */
+		case 0: {                   /* N: cell - width, byte 292 */
+			short diff = (short)(cell - (short)width);
+			if (diff >= 0)
+				a4 = base + (long)diff * 6 + 292;
+			break;
+		}
+		case 1: {                   /* E: cell + 1, byte 293 */
+			unsigned short t = (unsigned short)(cell + 1);
+			if ((unsigned short)((unsigned long)t % width) != 0)
+				a4 = base + (long)t * 6 + 293;
+			break;
+		}
+		case 2: {                   /* S: cell + width, byte 290 */
+			unsigned short row =
+			    (unsigned short)((unsigned long)(unsigned short)cell / width);
+			if ((unsigned short)(row + 1) < height)
+				a4 = base + (long)(cell + (short)width) * 6 + 290;
+			break;
+		}
+		default: {                  /* W: cell - 1, byte 291 */
+			unsigned short t   = (unsigned short)(cell - 1);
+			unsigned short rem = (unsigned short)((unsigned long)t % width);
+			if (rem < (unsigned short)(width - 1))
+				a4 = base + (long)(short)t * 6 + 291;
+			break;
+		}
+		}
+
+		if (a4 == NULL)
+			continue;
+		if ((short)((*a4 >> 4) & 15) != 0)
+			continue;
+		return 0;
+	}
+	return 1;
+}
+
 /* CODE 22 design-entry painters (L2aaa / L2f24 / L329c / L347a) —
  * one per entry kind 0..3; leaf PROBE stubs pending their own
  * lifts. Args: the entry handle-holder, the (y, x) anchor in
  * 8000-space, -1 (paint-all), the entry state byte, and the
  * state==0 flag. */
-static void l2aaa(long hp, short y, short x, short sel, short st, short z)
-{ PROBE("l2aaa"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+/* JT[286] (CODE 22 + 0x2aaa) — paint a design-list entry, kind 0 (the
+ * cell/edge entry), dispatched by jt278. Two modes by the is-zero flag `z`
+ * and paint-all (sel<0) vs single-cell (sel>=0):
+ *   z && sel>=0 : the 3-edge DETAIL view — for the facing's left/forward/
+ *     right edges (dir = jt291(facing) / facing / l48b2), read the edge code
+ *     l05ca(sel,dir), fill a swatch (jt1161) and paint the "%s %s:" direction
+ *     label (-10824/-10820/-10828 + -10816) plus the code name (-11296[code]).
+ *   else : the list-row paint. jt273() picks the source: !=0 -> the l475e
+ *     "enclosed" predicate (code 15/0) with the row nudged up 15; ==0 ->
+ *     l0524(sel,facing) or rec[10]. Stamps rec[30], paints the primary code
+ *     (jt1200==3 -> jt357 sprite, else jt1161 bars), recomputes the secondary
+ *     code (l05ca(sel,facing) or rec[12]), stamps rec[31], paints it, and
+ *     labels via -11232[code!=0] (jt273 set) or -11296[code].
+ *
+ * Faithful goto-mirror of 0x2aaa..0x2f22; coords Mac order (see the wall
+ * doc). #153. Dormant (mouse-gated editor). */
+static void jt357(short top, short left, short code, short sub);
+static short jt291(short facing);
+static void jt286(long hp, short y, short x, short sel, short st, short z)
+    __attribute__((unused));
+static void jt286(long hp, short y, short x, short sel, short st, short z)
+{
+	unsigned char *rec;
+	unsigned char  f4900;               /* fp@(-1) = jt273() flag */
+	unsigned char  code = 0;            /* fp@(-2) */
+	short          facing = (short)(g_a5_byte(-12286) & 0xff);
+	const char    *lbl2 = (const char *)(uintptr_t)g_a5_long(-10816);
+
+	PROBE("jt286");
+
+	if ((z & 0xff) == 0) goto L2cb0;
+	if (sel < 0) goto L2cb0;
+
+	/* z && sel>=0 : 3-edge detail view */
+	code = (unsigned char)l05ca(sel, jt291(facing));
+	jt1161((short)(y+4), x, (short)(y+8), (short)(x+4), (short)code);
+	jt1089((short)(y+4), (short)(x+4), (short)135, "%s %s:",
+	       (const char *)(uintptr_t)g_a5_long(-10824), lbl2);
+	jt1089((short)(y+8), x, (short)135,
+	       (const char *)(uintptr_t)g_a5_long(-11296 + (long)code * 4));
+
+	code = (unsigned char)l05ca(sel, facing);
+	jt1161((short)(y+14), x, (short)(y+18), (short)(x+4), (short)code);
+	jt1089((short)(y+14), (short)(x+4), (short)135, "%s %s:",
+	       (const char *)(uintptr_t)g_a5_long(-10820), lbl2);
+	jt1089((short)(y+18), x, (short)135,
+	       (const char *)(uintptr_t)g_a5_long(-11296 + (long)code * 4));
+
+	code = (unsigned char)l05ca(sel, l48b2_c22(facing));
+	jt1161((short)(y+24), x, (short)(y+28), (short)(x+4), (short)code);
+	jt1089((short)(y+24), (short)(x+4), (short)135, "%s %s:",
+	       (const char *)(uintptr_t)g_a5_long(-10828), lbl2);
+	jt1089((short)(y+28), x, (short)135,
+	       (const char *)(uintptr_t)g_a5_long(-11296 + (long)code * 4));
+	goto L2f20;
+
+ L2cb0:
+	f4900 = (unsigned char)jt273();
+	if (f4900 == 0) goto L2ce4;
+	if (sel < 0) goto L2cda;
+	code = (unsigned char)(l475e_c22(sel) ? 15 : 0);
+ L2cda:
+	y = (short)(y - 15);
+	goto L2e42;
+
+ L2ce4:
+	if (sel < 0) goto L2d02;
+	code = (unsigned char)l0524_c22(sel, facing);
+	goto L2d1c;
+ L2d02:
+	if ((st & 0xff) != 0)
+		code = 0;
+	else {
+		rec  = *(unsigned char **)(uintptr_t)hp;
+		code = rec[10];
+	}
+ L2d1c:
+	if (sel < 0) goto L2d32;
+	rec = *(unsigned char **)(uintptr_t)hp;
+	if (rec[30] == code) goto L2e26;
+ L2d32:
+	if (sel >= 0) {
+		rec = *(unsigned char **)(uintptr_t)hp;
+		rec[30] = code;
+	}
+	if (jt1200() == 3) {
+		jt1161((short)(y+4), (short)(x+4), (short)(y+20), (short)(x+18),
+		       (short)8);
+		jt357((short)(y+4), (short)(x+8), (short)code, (short)3);
+		goto L2e26;
+	}
+	jt1161((short)(y+9), x, (short)(y+13), (short)(x+4), (short)code);
+	jt1161((short)(y+17), (short)(x+6), (short)(y+18), (short)(x+18),
+	       (short)8);
+	jt357((short)(y+5), (short)(x+6), (short)code, (short)3);
+ L2e26:
+	if (sel >= 0)
+		code = (unsigned char)l05ca(sel, facing);
+ L2e42:
+	if (sel < 0) {
+		if ((st & 0xff) != 0)
+			code = 0;
+		else {
+			rec  = *(unsigned char **)(uintptr_t)hp;
+			code = rec[12];
+		}
+	}
+	if (sel >= 0) {
+		rec = *(unsigned char **)(uintptr_t)hp;
+		if (rec[31] == code) goto L2f20;
+	}
+	if (sel >= 0) {
+		rec = *(unsigned char **)(uintptr_t)hp;
+		rec[31] = code;
+	}
+	if (jt1200() == 3) {
+		y = (short)(y + 1);
+		goto L2ec8;
+	}
+	jt1161((short)(y+19), x, (short)(y+23), (short)(x+4), (short)code);
+ L2ec8:
+	if (f4900 != 0)
+		jt1089((short)(y+19), (short)(x+6), (short)135,
+		       (const char *)(uintptr_t)g_a5_long(
+		           -11232 + (long)(code != 0 ? 1 : 0) * 4));
+	else
+		jt1089((short)(y+19), (short)(x+6), (short)135,
+		       (const char *)(uintptr_t)g_a5_long(-11296 + (long)code * 4));
+ L2f20:
+	return;
+}
 /* JT[282] (CODE 22 + 0x2f24) — paint a design-list entry, kind 1 (reached
  * via jt278's kind dispatch). Resolves the entry code (L0674(sel) for a
  * specific cell, else rec[14]); when repainting one cell (sel>=0) it skips if
@@ -60039,7 +60251,7 @@ static void jt278(long handle_ptr, short repaint)
 		       (short)(x + 64), (short)8);
 
 	switch (rec[5]) {
-	case 0: l2aaa(handle_ptr, y, x, (short)-1,
+	case 0: jt286(handle_ptr, y, x, (short)-1,
 	              (short)(signed char)rec[4], is_zero); break;
 	case 1: jt282(handle_ptr, y, x, (short)-1,
 	              (short)(signed char)rec[4], is_zero); break;

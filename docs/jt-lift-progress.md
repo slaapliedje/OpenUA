@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1158 done (1032 lifted, 52 noop, 74 alias), 15 stub, 0 stand-in, 32 missing.
+**1205 distinct JT entries are called.** Overall: 1159 done (1033 lifted, 52 noop, 74 alias), 15 stub, 0 stand-in, 31 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -45,7 +45,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
-| 14 | 651–700 | **33/50** | 30 | 3 | 0 | 0 | 17 |
+| 14 | 651–700 | **34/50** | 31 | 3 | 0 | 0 | 16 |
 | 15 | 701–750 | **40/50** | 33 | 7 | 2 | 0 | 8 |
 | 16 | 751–800 | **48/50** | 41 | 7 | 0 | 0 | 2 |
 | 17 | 801–850 | **49/50** | 47 | 2 | 1 | 0 | 0 |
@@ -88,13 +88,13 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 19 | 35 | 34 | 0 | 0 | 1 | **1** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 13 | 0 | 0 | 1 | **1** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
 | CODE 21 | 9 | 8 | 1 | 0 | 0 | **1** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
-| CODE 22 | 51 | 49 | 0 | 0 | 2 | **2** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
+| CODE 22 | 51 | 50 | 0 | 0 | 1 | **1** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (47 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (46 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l45c6`  `l3f2e`  `l7a24`  `l4806`  `l2aaa`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l4218`  `l2d7e`
+> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l45c6`  `l3f2e`  `l7a24`  `l4806`  `l329c`  `l347a`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l4218`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 47 of 47 pending (stub+standin+missing), by call count:
+Top 46 of 46 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt242 (1 calls, CODE 11) — missing
@@ -350,7 +350,6 @@ Top 47 of 47 pending (stub+standin+missing), by call count:
 - jt269 (1 calls, CODE 10) — missing
 - jt270 (1 calls, CODE 10) — missing
 - jt281 (1 calls, CODE 22) — missing
-- jt286 (1 calls, CODE 22) — missing
 - jt334 (1 calls, CODE 8) — missing
 - jt335 (1 calls, CODE 8) — missing
 - jt336 (1 calls, CODE 8) — missing
