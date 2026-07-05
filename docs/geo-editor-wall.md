@@ -65,15 +65,20 @@ deps mostly lifted) — see below.
 | ~~jt265~~ | l65be | 7 | **LIFTED** (2026-07-05) — "Experience:" entry prompt: jt98 field + new L654a atol. Clean leaf. |
 | ~~jt264~~ | l6316 | ~130 | **LIFTED** (2026-07-05) — monster-editor art/id sub-state handler (jt263 sibling; 2× JT[3]). |
 | ~~jt270~~ | l3262 | ~253 | **LIFTED** (2026-07-05) — monster/spell list-entry edit loop (l2d3e event loop, jt452/jt444 List Manager, jt196 name writeback). |
-| jt269 | l0004 | tiny | segment entry (check first) |
-| jt267 | l1a14 | 129 | viewer helper; local deps L116a/L2ebe (l2ebe now lifted) |
+| ~~jt267~~ | l1a14 | ~129 | **LIFTED** (2026-07-05) — row art-label refresh + subtree (L1282/l15c2_c10/L116a). |
+| jt269 | l0004 | ~200 | **NOT tiny** — the CODE 10 state-machine entry (21-arm JT[3] + JT[1] tail switches); own session |
 | jt266 | l1bc2 | 1692 | big — own session |
 | jt259 | l368a | 2757 | the giant — own session |
 
-**CODE 10 viewer trio COMPLETE (2026-07-05): jt265 + jt264 + jt270 all lifted**,
-along with the whole jt264/jt270 dependency arc (jt372/L62e0_c8/L611c on the
-save side, L06ae/L2ebe on the row side). Remaining CODE 10 entries are jt269
-(tiny segment entry), jt267 (viewer helper), and the two giants jt266/jt259.
+**CODE 10 progress (2026-07-05): jt265 + jt264 + jt270 + jt267 lifted**, along
+with the whole jt264/jt270 dependency arc (jt372/L62e0_c8/L611c save side,
+L06ae/L2ebe row side) and jt267's subtree (L1282 List-Manager item setter,
+l15c2_c10 row-label composer, L116a item-arm). **jt269 was mis-labelled "tiny"**
+— it is the ~200-insn monster-editor state-machine entry: a 21-arm JT[3] switch
+(jt3_extract) plus two JT[1] tail switches (jt1_extract) that pack flags into
+*outp, calling three unlifted CODE-local helpers (L300c/L040c/L03ce) and jt358
+(MISSING). Its own session (like jt266/jt259). Remaining CODE 10: jt269, jt266,
+jt259.
 
 **CODE 10 reality check — CORRECTED (2026-07-05).** The earlier "jt264/jt270
 bottom out on a ~900-insn subtree with jt1084 + jt456 MISSING" was WRONG: I
