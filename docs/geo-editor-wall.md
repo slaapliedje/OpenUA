@@ -44,12 +44,20 @@ UI (EDIT MODULES, ADR-0006 Dialog/Control/TextEdit) is wired.
 ### CODE 2 — the design-record editor ("recorder")
 | JT | addr | ~insn | notes |
 |---|---|---|---|
-| jt258 | l0004 | tiny | segment entry (rts / thin dispatcher — check first) |
-| jt246 | l311a | 161 | record-field painter (jt1089/1161/1200/358/367/394) |
-| jt254 | l4c5a | 367 | jt1076 modal + jt201/207/358/384/394 |
-| jt253 | l44cc | 569 | JT[1] switch dispatcher (jt273/317/319/320/325) |
+| ~~jt246~~ | l311a | ~40 | **LIFTED** (2026-07-05) — field-swatch column painter, 8-row loop. Self-contained, no holder/record. (the wall's "161 insn" was over-counted; it's 0x311a..0x31ca.) |
+| jt258 | l0004 | ~260 | **NOT a painter** — the record-editor *constructor*: allocs into fp@(-8), stores fields, drives a **JT[1] switch** on fp@(8). Own pass (jt1_extract). |
+| jt254 | l4c5a | 367 | **BLOCKED, own session.** 2× **JT[3] switch** (jt3_extract), 4× jt1076 modal, and its deps **jt207 (×12) + jt1076 (×4) are MISSING**, plus 4 unlifted CODE-2 locals (L4dcc/L4c92/L541c/L4e3e). Lift jt207 + jt1076 first. |
+| jt253 | l44cc | 569 | JT[1] switch dispatcher (jt273/317/319/320/325) — own session |
 | jt248 | l26aa | 773 | list editor (jt117/147/167/168/169) — own session |
 | jt249 | l333a | 1025 | big dispatcher — own session |
+
+**CODE 2 reality check (2026-07-05):** only **jt246** was a clean leaf painter —
+now done. The rest are dispatchers/constructors/modals, not leaf renderers:
+jt258 is the JT[1]-switch constructor; jt254 needs jt207 + jt1076 lifted first
+(both MISSING) plus its own JT[3] tables and 4 locals. So the CODE 2 "small
+painters" idea only yielded jt246; jt254 is properly a multi-lift subtree.
+Better next leaf targets are the **CODE 10 small viewers** (jt264/265/270,
+deps mostly lifted) — see below.
 
 ### CODE 10 — module viewers (editor-adjacent)
 | JT | addr | ~insn | notes |
