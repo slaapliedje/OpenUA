@@ -69129,6 +69129,106 @@ static short l419e(short id, short kind)
 	return 1;
 }
 
+static void l3804(short c1, short c2, short frame, short unused, void *ptr); /* JT[114], below */
+
+/* L37d6 (CODE 6+0x37d6) = JT[118], faithful body: the JT[114] cell blit
+ * (l3804) preceded by jt108(1) (= Mac L38d0(1), the marker-layer select).
+ * l3804 already reproduces jt1001(fp@10, fp@8, *(short*)handleptr, idx) with
+ * its args in Mac push order (v@8, h@10, idx@12, pad@14, ptr@16), so this is
+ * literally "jt108(1) + JT[114]". Named _c6 because the port's other l37d6 is
+ * a different segment's combat-target-ring helper ((CODE,offset) recurrence);
+ * the GLOBAL jt118 has a divergent, caller-less ABI (it takes an
+ * already-resolved handle and a phantom `page` arg) and is deliberately NOT
+ * used by the CODE 10 grid painters — see [jt118/jt114 signature mismatch]. */
+static void l37d6_c6(short v, short h, short idx, short pad, long handleptr)
+{
+	PROBE("L37d6");
+	jt108((short)1);
+	l3804(v, h, idx, pad, (void *)(uintptr_t)handleptr);
+}
+
+/* L2660 (CODE 10+0x2660) — blit a 5-row x 13-column grid of GLIB cells from
+ * the byte cursor `src` (one glyph index per cell, consumed left-to-right,
+ * top-to-bottom) into the -27870 art slot via JT[118]. `y0`/`x0` are the
+ * top-left raw-8000 coords; both axes step by (step & 255) per cell. Leaf. */
+static void l2660(char *src, short y0, short x0, short step) __attribute__((unused));
+static void l2660(char *src, short y0, short x0, short step)
+{
+	short s = (short)(unsigned char)step;
+	short oy = y0, row;
+
+	PROBE("L2660");
+	for (row = 0; row < 5; row++) {
+		short col, ix = x0;
+		for (col = 0; col < 13; col++) {
+			l37d6_c6(ix, oy, (short)(unsigned char)*src, (short)0,
+			         g_a5_long(-27870));
+			src++;
+			ix = (short)(ix + s);
+		}
+		oy = (short)(oy + s);
+	}
+}
+
+/* L2282 (CODE 10+0x2282) — repaint the cached picture in the -24320 slot at
+ * cell (a,b). No-op when the slot is empty. In view-mode 3 the composite goes
+ * through JT[114] at the scaled raw coords (a*16-24, b*2+2) with sub-cell
+ * `frame`; otherwise the plain GLIB blit (l3880) at (a,b). Always commits the
+ * slot's palette (jt124). Leaf. */
+static void l2282(short a, short b, short frame) __attribute__((unused));
+static void l2282(short a, short b, short frame)
+{
+	PROBE("L2282");
+	if (g_a5_long(-24320) == 0)
+		return;
+	if (jt1200() == 3)
+		l3804((short)(a * 16 - 24), (short)(b * 2 + 2),
+		      (short)(unsigned char)frame, (short)0,
+		      (void *)(uintptr_t)g_a5_long(-24320));
+	else
+		l3880(a, b, (short)(unsigned char)frame,
+		      (void *)(uintptr_t)g_a5_long(-24320));
+	jt124(g_a5_long(-24320));
+}
+
+/* L23c6 (CODE 10+0x23c6) — draw the 4x4 DungCom wall-set preview for set
+ * `set` into the -27870 slot. Loads "DungCom1" set art (jt54) + selects it
+ * (jt120), then blits the 16 cells (bytes from -12066) via JT[118], stepping
+ * both axes by 32 (mode 3) or 12. In view-mode 3 the top-left is forced to
+ * (40, 96) — or (40, 256) when the passed col base exceeds 8040. Closes with
+ * jt58 (commit). Leaf. */
+static void l23c6(short top, short left, short set) __attribute__((unused));
+static void l23c6(short top, short left, short set)
+{
+	short          step, oy, row;
+	unsigned char *src;
+
+	PROBE("L23c6");
+	if (jt1200() == 3) {
+		top  = 40;
+		left = (left > 8040) ? 256 : 96;
+		step = 32;
+	} else {
+		step = 12;
+	}
+	jt54(ua_strs_at(0x2dbe) /* "DungCom1" */, (short)(unsigned char)set,
+	     (short)0);
+	jt120((void *)(uintptr_t)g_a5_long(-27870));
+	oy  = top;
+	src = (unsigned char *)&g_a5_byte(-12066);
+	for (row = 0; row < 4; row++) {
+		short col, ix = left;
+		for (col = 0; col < 4; col++) {
+			l37d6_c6(ix, oy, (short)(unsigned char)*src, (short)0,
+			         g_a5_long(-27870));
+			src++;
+			ix = (short)(ix + step);
+		}
+		oy = (short)(oy + step);
+	}
+	jt58();
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
