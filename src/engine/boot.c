@@ -69229,6 +69229,52 @@ static void l23c6(short top, short left, short set)
 	jt58();
 }
 
+/* L22f0 (CODE 10+0x22f0) — repaint the two "spell components" preview
+ * columns. Selects display-mode 4 (jt131), then for column i=0,1 (raw base
+ * 8012,8026 stepping +60): on pic==0 erase the 48x48 rect (jt1161); else draw
+ * the DungCom preview (l23c6 set 2), load CPIC[pic] art (jt56), resolve the
+ * cell's raw (x,y) via jt53, and stamp its label (jt57 at (i*5+3, 4-x)) +
+ * repaint (jt55). Leaf-ish (only l23c6 is a sibling helper). */
+static void l22f0(short pic) __attribute__((unused));
+static void l22f0(short pic)
+{
+	short i, A = 8012, B = 8026;
+	short px = 0, py = 0;                 /* jt53 outputs (fp@(-8)/fp@(-10)) */
+
+	PROBE("L22f0");
+	jt131((short)4);
+	for (i = 0; i < 2; i++) {
+		if (pic == 0) {
+			jt1161(A, B, (short)(A + 48), (short)(B + 48), (short)0);
+		} else {
+			l23c6(A, B, (short)2);
+			jt56(ua_strs_at(0x2db8) /* "CPIC" */, pic, (short)8);
+			jt53((short)8, i, &px, &py);
+			jt57((short)(i * 5 + 3), (short)(4 - px), (short)0, i,
+			     (short)8);
+			jt55((short)8);
+		}
+		B = (short)(B + 60);
+	}
+}
+
+/* L2618 (CODE 10+0x2618) — thin wrapper: blit the 5x13 grid (l2660) sourcing
+ * its glyph bytes from the -12050 buffer. Leaf. */
+static void l2618(short y0, short x0, short step) __attribute__((unused));
+static void l2618(short y0, short x0, short step)
+{
+	PROBE("L2618");
+	l2660((char *)&g_a5_byte(-12050), y0, x0, (short)(unsigned char)step);
+}
+
+/* L263c (CODE 10+0x263c) — same as l2618 but sourcing from -11984. Leaf. */
+static void l263c(short y0, short x0, short step) __attribute__((unused));
+static void l263c(short y0, short x0, short step)
+{
+	PROBE("L263c");
+	l2660((char *)&g_a5_byte(-11984), y0, x0, (short)(unsigned char)step);
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {

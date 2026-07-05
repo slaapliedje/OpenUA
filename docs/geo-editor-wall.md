@@ -103,8 +103,28 @@ Tier 0 (only JT deps — all present):
   L6238 ✓  (MONST%03d.dat delete + name copy; jt394/436/416/l6028/384)
   L2660 ✓  (5x13 grid blit via JT[118]/l37d6_c6)  L2282 ✓ (pic-slot repaint; JT[114]/l3804 or l3880)
   L23c6 ✓  (4x4 DungCom preview via JT[118]; jt54/jt120/jt58)
-Tier 1:  L2618/L263c (→L2660)  L22f0 (→L23c6)  L20cc (→L2282)  L27c2 (→L3244✓,L1f86✓)
+Tier 1:  L2618 ✓  L263c ✓ (→L2660)  L22f0 ✓ (→L23c6)
+         ⚠ L20cc (→L2282; needs jt199 page — see note)  L27c2 (~113, viewer body)
 Tier 2:  L24fa (→L263c,L2618)
+
+Tier-1 wrappers DONE (2026-07-05): L22f0 (2-column CPIC preview: l23c6 + jt56/
+jt53/jt57/jt55), L2618/L263c (thin l2660 grid wrappers, sources -12050/-11984).
+
+**DEFERRED — L20cc** (the monster/sprite 3D-preview, ~113 insn, dual loop
+mode-3 vs not). Fully decoded: for i=0..2 it calls jt353 + **jt199** + l2282,
+stepping raw B by step (48/40) and C by step>>2. The blocker is the PORT jt199:
+Mac jt199(B,A,row,col,facing) takes NO surface, but the port refactored it to
+`jt199(unsigned char *page, Y, X, row, col, facing)` — the sole live caller
+(render_3d_faithful @11657, which the comment confirms is THIS CODE 10 @0x2178
+site) supplies a `static unsigned char page[BP_STRIDE*BP_ROWS]` "unused in
+colour mode". L20cc must supply the same. Map: port(page, Y=B, X=A,
+row=(signed char)-12288, col=(signed char)-12287, facing=(unsigned char)-12286).
+Do this in the jt266-main session where the compose surface is in hand — don't
+fabricate a second 30KB buffer in isolation.
+
+**DEFERRED — L27c2** (~113, spans 0x27c2–0x29f6+): the real viewer body glue
+(L06ae/L3244/L1f86 + jt353 + per-arm logic), not a leaf. Belongs with jt266
+main.
 
 Tier-0 leaves ALL DONE (2026-07-05). L419e's JT[1] decoded with
 tools/jt1_extract.py --jsr-at 0x41a8 (never by hand): 6 sparse cases
