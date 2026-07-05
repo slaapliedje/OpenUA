@@ -70811,10 +70811,31 @@ static short l36e0_c10(short id, short arttype)
 		}
 	}
 
-	/* --- 5. write the .tlb file (L413c..0x4196) ---
-	 * TODO(0x408a..0x4138): the clut_count!=0 palette-record append (needs the
-	 * fp@(-40)/fp@(-39) flags traced). Then build the path (design dir + leaf),
-	 * flush the resource file, close, register it as FC group 24, release. */
+	/* --- palette-record append (0x408a..0x4138) — only when clut_count != 0.
+	 * fp@(-40) is provably 0 here: L3950 clears it and nothing else in L36e0
+	 * writes it (never address-taken either), so the +fp*4 size pad, the flags
+	 * bit-1, and the header byte all fold to constants. Store an 8-byte header
+	 * {flags, start, count, 0, 8} into resource 24, then the clut_count RGB
+	 * triples from clutbuf[start*3]. */
+	if (clut_count != 0) {
+		unsigned char hdr[8];
+		long          base;
+
+		jt1021((short)24, (short)0, (long)(clut_count * 3 + 8));
+		*(short *)(hdr + 0) = 1;        /* bit0 set; bit1 = (fp@-40 != 0) = 0 */
+		*(short *)(hdr + 2) = clut_start;
+		*(short *)(hdr + 4) = clut_count;
+		hdr[6] = 0;                     /* (unsigned char)fp@(-40) */
+		hdr[7] = 8;
+		base = jt1012(jt468((short)24), (short)0);
+		jt406((void *)(uintptr_t)base, hdr, (short)8);
+		jt406((void *)(uintptr_t)(base + 8),
+		      &clutbuf[clut_start * 3], (short)(clut_count * 3));
+	}
+
+	/* --- 5. write the .tlb file (L413c..0x4196) — build the path (design dir
+	 * + leaf), flush the resource file, close, register it as FC group 24,
+	 * release. */
 	{
 		char  pathbuf[256];                 /* fp@(-1040) */
 		short wref;

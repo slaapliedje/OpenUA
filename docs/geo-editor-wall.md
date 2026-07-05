@@ -102,14 +102,14 @@ lifts), L66a2/L6606/L6892, DrawPicture shim, jt259 wrapper, L36e0 + L53b0
 level-2 skeletons, L53b0 cases 0/2/3/5/7/9. REMAINING, chunked in dependency
 order — each is one build+commit:
 
-STATUS 2026-07-05: A4-A12 DONE — jt259 art-import is fully lifted end-to-end
-(pick → decode → per-family descriptor → L53b0 pack for EVERY format → PICT
-preview → resource store → .tlb write). A11's "needs a trace" flag was wrong
-(the exact CODE_10.s pushes pinned it; jt1163 is a 0-stub, jt1170 empty). A12's
-"blocked on a ~300-insn jt1159 lift" was ALSO wrong: jt1159 = l4350 was already
-lifted (the HAL-moot Palette-Manager no-op) — the alias map would have said so.
-Only ONE small TODO remains: the 0x408a palette-record append (needs the
-fp@(-40)/-39 header flags traced).
+STATUS 2026-07-05: jt259 art-import COMPLETE — fully lifted end-to-end with NO
+remaining stubs or TODOs (pick → decode → per-family descriptor → L53b0 pack for
+EVERY format → PICT preview → palette-record append → resource store → .tlb
+write). Three "needs a trace / blocked" flags all turned out resolvable from the
+disassembly alone: A11 (exact CODE_10.s pushes; jt1163 0-stub, jt1170 empty),
+A12 (jt1159 = l4350 already lifted, the HAL-moot Palette-Manager no-op), and the
+0x408a append (fp@(-40) is provably 0 — cleared at L3950, never re-set, never
+address-taken). jt259 is the first design-editor giant done; on to Phase B.
 
 - **A4** ✓ — l36e0_c10 tile-loop CORE (L3dd0..L407e minus the geometry tables):
   the 120-dim 3-strip vs single-tile dispatch, the L53b0 calls, and the
