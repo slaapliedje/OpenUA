@@ -84,30 +84,35 @@ CODE 22 **L0004** area-command loop (21 arms) and jt315's EDIT MODULES
 branch; both are mouse-gated, so wiring them does not unlock headless
 tests — it only makes the editor runnable for a human tester.
 
-## Care-point: the jt1089 (v,h) transposition (#116)
+## Coordinate convention: transcribe asm push order DIRECTLY (no swap)
 
-The painters call three coordinate primitives with **different** arg
-conventions — get this wrong and you get a transposed-but-plausible
-result that the (mouse-gated) smoke harness cannot catch:
+Verified while lifting jt282 (the earlier "jt1089 needs a swap" note was
+BACKWARDS — corrected here). Post-#116 the port primitives all match the
+Mac's coordinate arg order, so you transcribe each asm call's push order
+straight through:
 
-- **jt1161**(top, left, bottom, right, fill) and **jt353**(x, y, icon,
-  mode, flag) keep the Mac order — transcribe the asm push order as-is.
-- **jt1089**(x, y, color, fmt, …) is the port's **lone transposed
-  primitive** (#116): the Mac pushes JT[1089] as **(v, h)** but the port
-  signature is **(x=h, y=v)**. So every jt1089 call in these painters
-  must **swap** the first two asm operands: asm pushes (fp12±, fp14±) →
-  call `jt1089(fp14±, fp12±, …)`. In jt282 that is `jt1089(x+6, y+4,
-  135, "%s %d", g_a5_long(-11316), code+1)` where fp12=y(vert),
-  fp14=x(horiz).
+- **jt1089**(v, h, color, fmt, …) — the body param names are `(v, h)`
+  (the misleading forward decl says `x,y`); it feeds `jt1135(v, h, …)`.
+  The Mac pushes JT[1089] as (v, h), so **no swap**. jt1089 formats via
+  `vsnprintf`, so `"%s %d"` + (char* , promoted short) works directly.
+- **jt1161**(top, left, bottom, right, fill) and **jt1173**(top, left,
+  bottom, right) — Mac (v, h, v, h) order, direct.
+- **jt353**(x, y, icon, mode, flag) — x=horiz, y=vert (it calls
+  jt1001(y*16-…, x*16-…)); the Mac push order still transcribes direct.
 
-Verify each jt1089 site against an already-lifted caller's swap before
-trusting it. This is why the painter lifts want a focused session, not a
-tail-of-session rush.
+So the rule for every painter: **read the asm push order (last operand
+pushed = first C arg) and pass it straight through.** The remaining risk
+is not transposition but getting a coordinate offset or a branch arm
+wrong — cross-check each against the disasm, since the mouse-gated smoke
+harness can't catch it.
 
 ## Status
 
-Map established 2026-07-04. jt282 fully traced + verified deps-clean
-(L0674 + jt1089/1161/117/1173/1193/1200/353 all lifted) and ready as the
-first lift; the jt1089 (v,h) swap is the one care-point. No lift
-committed yet — this doc is the plan; the painter trio is the next
-focused session.
+- **jt282 — LIFTED** (2026-07-05). Faithful goto-mirror of 0x2f24..0x329a
+  replacing the l2f24 stub; jt278 case 1 rewired to it. Build clean,
+  tests 129 pass, smoke stable. Dormant (mouse-gated).
+- **jt286 (l2aaa) — next.** kind 0; verify its ~6 CODE-22 local deps.
+- **jt281 (l329c) — after.** kind 2; uses -11312 (not -11316); ~6 locals.
+
+The convention above is settled, so the trio's remaining two are
+straight transcriptions once their local deps are confirmed lifted.
