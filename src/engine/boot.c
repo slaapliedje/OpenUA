@@ -69837,6 +69837,260 @@ static void l6892(void *handle)
 	jt1032((Handle)handle);
 }
 
+static short l42f2(long src, short width, long dst, short stride, short inv,
+                   short height, short key, short row);            /* below */
+static long  l49f8(short count, long srcp, long pin_p, long *ctlpp, long dbase,
+                   short p26, short planes, short stride);         /* below */
+
+/* L4cae (CODE 10+0x4cae, ~157 insn) — the tile-strip ORCHESTRATOR under L53b0.
+ * For each row of the strip it reads the scanlines (jt1170/jt1177/jt1197 into
+ * `sbuf`, jt1198() planes of `w2` bytes), converts the pixel format (l42f2 ->
+ * `mbuf` mask), and RLE-encodes it (l49f8, `mbuf` mask guiding `sbuf` plane
+ * data into the jt1004() ST-RAM output at 3072-byte plane pitch, control bytes
+ * to `ctl`). Guards against a >16384-byte packed tile (l036a "Tile too large
+ * (packed)"). Finalises: pad the control + per-plane data streams to even,
+ * write the [ctlsize][datasize] header at jt1004()+8, then compact the planes
+ * contiguously. Returns the total packed size. Dormant/unvalidatable headless
+ * — verify vs a Mac trace when wired. */
+static long l4cae(short startrow, short col, short count, short width,
+                  short planes, short key) __attribute__((unused));
+static long l4cae(short startrow, short col, short count, short width,
+                  short planes, short key)
+{
+	unsigned char sbuf[346];               /* fp@(-346) scanline buffer  */
+	unsigned char mbuf[346];               /* fp@(-666) l42f2 mask output */
+	long          ctl   = jt1004() + 12;   /* fp@(-16) control cursor      */
+	long          dbase = ctl + (long)(4 - planes) * 1536 + 2048; /* fp@(-24) */
+	long          data  = dbase;           /* fp@(-20) data cursor         */
+	short         w2 = (short)((width + 1) & ~1);          /* fp@(-10) */
+	short         row, i, ctlsz, datasz;
+
+	PROBE("L4cae");
+	for (row = startrow; (short)(startrow + count) > row; row++) {
+		short h;
+		for (i = 0; i < jt1198(); i++) {
+			jt1170();
+			jt1177(row, col);
+			jt1197(&sbuf[i * w2], (short)1, w2);
+		}
+		h = (short)jt1198();
+		l42f2((long)(uintptr_t)sbuf, width, (long)(uintptr_t)mbuf, w2,
+		      (short)0, h, key, (short)(row - startrow));
+		if ((unsigned long)(jt1004() + 16384) <
+		    (unsigned long)(data + (long)(planes - 1) * 3072 + w2)) {
+			l036a(ua_strs_at(0x2f04) /* "Tile too large (packed)" */);
+			break;
+		}
+		data += (long)(short)l49f8(width, (long)(uintptr_t)mbuf,
+		                           (long)(uintptr_t)sbuf, &ctl, data,
+		                           (short)jt1198(), planes, w2);
+	}
+
+	/* finalise */
+	ctlsz  = (short)(ctl - jt1004() - 12);
+	datasz = (short)(data - dbase);
+	if (ctlsz & 1) {
+		ctlsz++;
+		*(unsigned char *)(uintptr_t)ctl = 0;
+	}
+	if (datasz & 1) {
+		datasz++;
+		for (i = 0; i < planes; i++)
+			*(unsigned char *)(uintptr_t)(data + (long)i * 3072) = 0;
+	}
+	{
+		short hdr[2];
+		hdr[0] = ctlsz;
+		hdr[1] = datasz;
+		jt406((void *)(uintptr_t)(jt1004() + 8), hdr, (short)4);
+	}
+	ctl = jt1004() + ctlsz + 12;
+	for (i = 0; i < planes; i++) {
+		jt406((void *)(uintptr_t)ctl,
+		      (void *)(uintptr_t)(dbase + (long)i * 3072), datasz);
+		ctl += (unsigned short)datasz;
+	}
+	return ctl - jt1004();
+}
+
+/* L509e (CODE 10+0x509e, ~223 insn) — the single-plane "byte packed" tile
+ * writer, the byte-RLE sibling of l4cae. Per plane, per row: read the
+ * scanlines (jt1170/1177/1197 -> sbuf), convert (l42f2 inv=1 -> mbuf mask),
+ * overflow-guard (>16384 -> l036a "Tile too large (byte packed)"), then byte-
+ * RLE the plane's row into the jt1004() output: a NON-zero mask byte starts a
+ * TRANSPARENT run (control = -count, skip the data), a zero mask byte starts a
+ * LITERAL run (control = +count, jt406 copy `count` data bytes). Runs cap at
+ * 127. Each row ends with a 0 terminator. Returns the total packed size. The
+ * peek-then-backup mask cursor mirrors the Mac exactly. Dormant/unvalidatable
+ * headless — verify vs a Mac trace when wired. */
+static long l509e(short startrow, short col, short count, short width,
+                  short planes, short key) __attribute__((unused));
+static long l509e(short startrow, short col, short count, short width,
+                  short planes, short key)
+{
+	unsigned char sbuf[338];               /* fp@(-338) scanline buffer  */
+	unsigned char mbuf[338];               /* fp@(-658) l42f2 mask output */
+	long          out = jt1004() + 8;      /* fp@(-16) output cursor      */
+	short         w2 = (short)((width + 1) & ~1);          /* fp@(-8) */
+	short         plane, c, i;
+
+	PROBE("L509e");
+	for (plane = 0; plane < planes; plane++) {
+		for (c = startrow; (short)(startrow + count) > c; c++) {
+			unsigned char *maskptr, *srcptr;
+			short          j = 0;                 /* fp@(-12) */
+
+			for (i = 0; i < jt1198(); i++) {
+				jt1170();
+				jt1177(c, col);
+				jt1197(&sbuf[i * w2], (short)1, w2);
+			}
+			l42f2((long)(uintptr_t)sbuf, width, (long)(uintptr_t)mbuf,
+			      w2, (short)1, (short)jt1198(), key,
+			      (short)(c - startrow));
+			if ((unsigned long)(jt1004() + 16384) <
+			    (unsigned long)(w2 + out)) {
+				l036a(ua_strs_at(0x2f3a) /* "Tile too large (byte packed)" */);
+				break;                        /* -> next plane */
+			}
+
+			maskptr = &sbuf[plane * w2];          /* fp@(-662) */
+			srcptr  = &mbuf[plane * w2];          /* fp@(-666) */
+			while (j < width) {
+				short d10;                    /* fp@(-10) */
+
+				if (*srcptr != 0) {           /* transparent run */
+					for (d10 = 0;;) {
+						if (j >= width) break;
+						if (*srcptr++ == 0) break;
+						if (d10 >= 127) break;
+						maskptr++; d10++; j++;
+					}
+					srcptr--;
+					if (j >= width)
+						break;
+					*(unsigned char *)(uintptr_t)out = (unsigned char)(-d10);
+					out++;
+				}
+				for (d10 = 0;;) {             /* literal run */
+					if (j >= width) break;
+					if (*srcptr++ != 0) break;
+					if (d10 >= 127) break;
+					d10++; j++;
+				}
+				srcptr--;
+				if (d10 != 0) {
+					*(unsigned char *)(uintptr_t)out = (unsigned char)d10;
+					out++;
+					jt406((void *)(uintptr_t)out, maskptr, d10);
+					maskptr += d10;
+					out     += d10;
+				}
+			}
+			*(unsigned char *)(uintptr_t)out = 0;         /* row terminator */
+			out++;
+		}
+	}
+	return out - jt1004();
+}
+
+/* L49f8 (CODE 10+0x49f8, ~221 insn) — the multi-plane RLE ENCODER under L53b0.
+ * Walks the mask/index stream `src` and packs the deinterleaved plane data
+ * `pin` (planes `stride` apart) into the output stream `data` (planes 3072
+ * apart), emitting control bytes to `*ctlpp`. Four run types, each a control
+ * byte:
+ *   bare count (<64)  — a run of `n` transparent (zero) cells: skip, no data.
+ *   0x40 | n          — a literal run of `n` distinct bytes (jt406 per plane).
+ *   0x80 | n          — a uniform vertical run (l4970 finds >=2 identical
+ *                        columns): copy the value per plane, 1 data byte.
+ *   0xC0 | n          — a "255-marker" run whose columns aren't uniform.
+ * `d6` clamps each run to jt413(remaining, 63). Ends with a 0 terminator,
+ * writes the control cursor back through `ctlpp`, and returns the data bytes
+ * emitted. Plane offsets are (unsigned short)(plane*pitch), per the Mac's
+ * swap/clrw/swap. Leaf (calls only l4970/jt413/jt406). Dormant/unvalidatable
+ * headless — verify vs a Mac trace when wired. */
+static long l49f8(short count, long srcp, long pin_p, long *ctlpp, long dbase,
+                  short p26, short planes, short stride) __attribute__((unused));
+static long l49f8(short count, long srcp, long pin_p, long *ctlpp, long dbase,
+                  short p26, short planes, short stride)
+{
+	unsigned char *ctl  = (unsigned char *)(uintptr_t)*ctlpp;   /* fp@(-14) */
+	unsigned char *data = (unsigned char *)(uintptr_t)dbase;    /* fp@(-10) */
+	unsigned char *src  = (unsigned char *)(uintptr_t)srcp;     /* fp@(10)  */
+	unsigned char *pin  = (unsigned char *)(uintptr_t)pin_p;    /* fp@(14)  */
+	short          d6, d7, plane;
+
+	PROBE("L49f8");
+	while (count > 0) {
+		unsigned char b = *src++;                       /* fp@(-1) */
+		d7 = 1;
+		d6 = jt413(count, (short)63);
+		if (b == 0) {
+			/* run of transparent cells */
+			while (d7 < d6 && *src == 0) { src++; d7++; }
+			if (d7 < count)
+				*ctl++ = (unsigned char)d7;
+			pin   += d7;
+			count  = (short)(count - d7);
+		} else if (b != 255) {
+			/* literal run */
+			unsigned char *ctlsave = ctl++;             /* fp@(-6) */
+			*ctl++ = b;
+			while (d7 < d6) {
+				b = *src;
+				if (b == 0 || b == 255)
+					break;
+				*ctl++ = b;
+				src++;
+				d7++;
+			}
+			*ctlsave = (unsigned char)(d7 | 0x40);
+			for (plane = 0; plane < planes; plane++)
+				jt406(data + (unsigned short)(plane * 3072),
+				      pin  + (unsigned short)(plane * stride), d7);
+			data  += d7;
+			pin   += d7;
+			count  = (short)(count - d7);
+		} else {
+			/* b == 255: a uniform-repeat or marker run */
+			d7 = l4970(pin, src, stride, p26);
+			d7 = jt413(d6, d7);
+			if (d7 >= 2) {
+				for (plane = 0; plane < planes; plane++)
+					jt406(data + (unsigned short)(plane * 3072),
+					      pin  + (unsigned short)(plane * stride),
+					      (short)2);
+				*ctl++ = (unsigned char)(d7 | 0x80);
+				data  += 1;
+				src   += d7 - 1;
+				count  = (short)(count - d7);
+				pin   += d7;
+			} else {
+				/* 0xC0 marker run */
+				unsigned char *scan = pin;              /* fp@(-6) */
+				while (d7 < d6 && *src == 255) {
+					long got = l4970(scan, src, stride, p26);
+					scan++;
+					if (got >= 2)
+						break;
+					src++;
+					d7++;
+				}
+				for (plane = 0; plane < planes; plane++)
+					jt406(data + (unsigned short)(plane * 3072),
+					      pin  + (unsigned short)(plane * stride), d7);
+				count  = (short)(count - d7);
+				data  += d7;
+				*ctl++ = (unsigned char)(d7 | 0xC0);
+				pin   += d7;
+			}
+		}
+	}
+	*ctl++  = 0;                                        /* terminator */
+	*ctlpp  = (long)(uintptr_t)ctl;                     /* write the cursor back */
+	return (long)(uintptr_t)data - dbase;
+}
+
 /* L42f2 (CODE 10+0x42f2, ~468 insn) — the imported-art pixel-format converter,
  * the leaf under L53b0. Two modes:
  *
