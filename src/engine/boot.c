@@ -66014,6 +66014,15 @@ static short jt970(short refnum)
 	               == size);
 }
 
+/* JT[430] (CODE 3 + 0x4fda) — a bit-4 flag test on -9114 (the file/IO
+ * mode byte): 255 if set, 0 otherwise. #151. */
+static short jt430(void) __attribute__((unused));
+static short jt430(void)
+{
+	PROBE("jt430");
+	return (short)((g_a5_byte(-9114) & (1 << 4)) ? 255 : 0);
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
