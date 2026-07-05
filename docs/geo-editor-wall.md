@@ -97,13 +97,21 @@ L15c2(=l15c2_c10), L2ebe, L6028, L611c. The 17 to lift, by tier:
 ```
 Tier 0 (only JT deps — all present):
   L3244 ✓  (l3244, printable-glyph test)        L2f8e ✓  (l2f8e_c10, -12300 hdr init)
-  L205a    (~35, jt1161/45/47/46)               L24a4    (~28, jt1161/43/106/124)
-  L1f86    (~62, jt80/1173/1200/1161/1001)       L26de    (~70, jt209/1200/1161/357)
-  L419e    (~113, has a JT[1] switch — jt1_extract; jt394/45/48/419/465/431/416)
-  L6238    (~39, jt394/436/416/l6028/384)
+  L205a ✓  (pic-slot paint; jt1161/45/47/46)     L24a4 ✓  (backdrop-slot; jt1161/43/106/124)
+  L1f86 ✓  (portrait frame; jt80/1173/1200/1161/1001)  L26de ✓ (icon strip; jt209/1200/1161/357)
+  L419e ✓  (.tlb purge; JT[1] 1/2/4/8/16/32 → PIC/SPRI/CPIC/BIGP + jt45/48/419/465/431/416)
+  L6238 ✓  (MONST%03d.dat delete + name copy; jt394/436/416/l6028/384)
   ⚠ L2660  (~41), L2282 (~39), L23c6 (~73)  — blit via jt118/jt114 (see gotcha)
-Tier 1:  L2618/L263c (→L2660)  L22f0 (→L23c6)  L20cc (→L2282)  L27c2 (→L3244✓,L1f86)
+Tier 1:  L2618/L263c (→L2660)  L22f0 (→L23c6)  L20cc (→L2282)  L27c2 (→L3244✓,L1f86✓)
 Tier 2:  L24fa (→L263c,L2618)
+
+Tier-0 non-blit leaves DONE (2026-07-05). L419e's JT[1] decoded with
+tools/jt1_extract.py --jsr-at 0x41a8 (never by hand): 6 sparse cases
+1/2/4/8/16/32, arms build the four .tlb name templates; the PIC letter A..F
+comes from the id band (<76 A, <138 B, <164 C, <193 D, <227 E, else F). The
+default arm leaves the name buffer uninitialised — faithful; kind is always a
+valid art bitmask in practice. Remaining tier-0: the 3 blit helpers (need the
+jt118 sig resolved first).
 ```
 
 **GOTCHA — jt118/jt114 blit sig.** L2660 (and L2282/L23c6) blit through
