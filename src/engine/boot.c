@@ -14739,6 +14739,72 @@ static void l49dc_c11(void *arg)
 	       *(short *)(p + 2));
 }
 
+/* JT[239] (CODE 11 + 0x4846) — the runtime area-ENTER. `rec`/`area` is
+ * the area block. Brings up the play layers (l476e/l6256/jt108/jt112/
+ * l429c/jt148/jt449), copies the entry cell (area[46..51]) into the
+ * party position block (-12288) and maps it (jt218), repoints the work
+ * block (-12200 <- -21148) and paints the area info panel (l49dc_c11),
+ * then runs the L63c0 walk loop with jt235 as the render callback — a
+ * non-zero result stamps rec[3]. Writes the (possibly moved) party
+ * position back, and tears the layers down. Returns `cmd` unchanged.
+ * `unused` until the CODE 22 L0004 area dispatcher wires it. #151. */
+static short jt239(short cmd, long *rec, void *area) __attribute__((unused));
+static short jt239(short cmd, long *rec, void *area)
+{
+	unsigned char *ap = (unsigned char *)area;
+	unsigned char *dst;
+	signed char    flag;
+	short          i;
+
+	PROBE("jt239");
+	if (area == NULL)
+		return cmd;
+
+	if (ap[4] == 0)
+		l476e((short)1, (short)1);
+	ap[4] = 1;
+	flag = (signed char)((ap[5] == 0 && jt273() == 0) ? 1 : 0);
+
+	l6256((short)ap[4], (short)0);
+	jt108((short)1);
+	jt112((short)1);
+	l429c((short)ap[4], (short)0);
+	jt148(g_a5_long(-13952), (char *)(uintptr_t)g_a5_long(-14644),
+	      (short)0);
+	jt449((short)1);
+
+	dst = &g_a5_byte(-12288);
+	for (i = 0; i < 6; i++)                   /* seat party at entry cell */
+		dst[i] = ap[46 + i];
+	jt218((signed char *)&g_a5_byte(-12287),
+	      (signed char *)&g_a5_byte(-12288),
+	      (short *)&g_a5_byte(-11706),
+	      (short *)&g_a5_byte(-11704),
+	      (short)g_a5_byte(-11708),
+	      (short)g_a5_byte(-11707),
+	      (short)0);
+	g_a5_long(-12200) = g_a5_long(-21148);
+	l49dc_c11(ap + 46);
+	jt112((short)0);
+	jt117();
+
+	*rec &= ~(long)15;
+	if (l63c0(ap, (short)flag, (short)0, (short)0,
+	          (long)(uintptr_t)&jt235, (long)0) != 0)
+		((unsigned char *)rec)[3] |= 1;
+	jt451();
+
+	dst = &g_a5_byte(-12288);
+	for (i = 0; i < 6; i++)                   /* party position write-back */
+		dst[i] = ap[46 + i];
+	if (jt273() == 0)
+		l4810((void *)(ap + 4), (long)0);
+	if (ap[4] == 0)
+		l476e((short)1, (short)0);
+
+	return cmd;
+}
+
 /* L5126 (CODE 11 + 0x5126) — the deep dungeon status-header panel jt240 draws
  * above the first-person view. Fills the header rect (JT[1161]) then paints
  * four text rows via JT[1089]: the area-name line (g_a5_-10640/-11136/-10816),

@@ -49,14 +49,16 @@ All ~40 JT deps these call are already LIFTED (jt273/325/317/358/364/
   (jt1161 backdrop + jt1089 lines from the -11120/-11136/-11128/-11132
   string table, singular/plural suffixes). Drives l4d24_c11. `unused`.
 
+- **jt239** (CODE 11+0x4846) — the runtime area-ENTER: layers up
+  (l476e/l6256/jt108/jt112/l429c/jt148/jt449), seats the party
+  (area[46..] -> -12288), maps it (jt218), repoints -12200 and paints
+  the info panel (l49dc_c11), runs the L63c0 walk loop with jt235 as cb
+  (result stamps rec[3]), writes the party position back, tears down.
+  **The area-enter path is complete** (jt239 + its l4d24/l49dc locals).
+
 ## Remaining (leaf-first order)
 
-1. **jt239** (CODE 11+0x4846, ~128) — the runtime area-ENTER: seats the
-   party (area[46..] -> -12288 block), rebuilds the play view (L429c),
-   runs the L63c0 walk loop with jt235 as cb, calls l49dc_c11 (now
-   done) for the info panel. **All its locals are now lifted** — this is
-   the next lift and it moves the scoreboard. On the walk path.
-2. **jt242** (CODE 11+0x589a, ~101, cell-edit committer) — JT[3] over 5
+1. **jt242** (CODE 11+0x589a, ~101, cell-edit committer) — JT[3] over 5
    unlifted painters: L5a06(77), L6136(44), L61c6(44) are small leaves;
    L5ee2(183), L5b0e(200) are larger. (`l61c6` in the port is a *different*
    segment — suffix `_c11`.) Lift the painters first, then jt242.
