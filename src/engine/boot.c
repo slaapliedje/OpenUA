@@ -60488,6 +60488,39 @@ static void jt278(long handle_ptr, short repaint)
 	holder[36] = holder[4];
 }
 
+/* JT[246] (CODE 2 + 0x311a) — the record-editor's field-swatch column
+ * painter. Draws 8 rows (loop counter g_a5_byte(-22307) = 0..7): each row is
+ * a small filled swatch (jt1161, fill = the row index) plus a "%s %d" label
+ * (jt1089: -11312 type name + index+1). The selected row (index == `sel`)
+ * gets colour 139, the rest 135. The row anchor v starts at 8016 and steps
+ * +4 per row; the column h is fixed at 8076. jt1200()==3 (the sprite-mode
+ * check) gates jt89/jt90 clip toggles around each swatch fill.
+ *
+ * Faithful goto-mirror of 0x311a..0x31ca. Self-contained (no holder/record) —
+ * a leaf renderer of the CODE 2 record editor. Coords Mac (v,h) order, direct
+ * push-order transcription. #153. Dormant: mouse-gated editor. */
+static void jt246(short sel) __attribute__((unused));
+static void jt246(short sel)
+{
+	short v = 8016;                     /* fp@(-2): row anchor (h = 8076 fixed) */
+
+	PROBE("jt246");
+	for (g_a5_byte(-22307) = 0;
+	     (signed char)g_a5_byte(-22307) < 8;
+	     g_a5_byte(-22307)++, v = (short)(v + 4)) {
+		short i     = (short)(signed char)g_a5_byte(-22307);
+		short color;
+
+		if (jt1200() == 3) jt89();
+		jt1161(v, (short)8076, (short)(v + 4), (short)(8076 + 4), i);
+		if (jt1200() == 3) jt90();
+
+		color = (short)((i == sel) ? 139 : 135);
+		jt1089(v, (short)(8076 + 6), color, "%s %d",
+		       (const char *)(uintptr_t)g_a5_long(-11312), (short)(i + 1));
+	}
+}
+
 /* L7490 (CODE 8+0x7490) — load area-map icon `n` into the -10366
  * art slot. Leaf PROBE stub pending its own lift. */
 static void l7490(short n)
