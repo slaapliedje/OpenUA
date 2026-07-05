@@ -66050,6 +66050,92 @@ static short jt576(short refnum)
 	                     (short)16) == 16);
 }
 
+/* JT[1190] (CODE 4 + 0x0710) — delimiter-aware transposed grid copy.
+ * Copies a `cols` x `rows` block from `src` (row stride `stride`) into
+ * the l05e4() destination (column pitch -3084), skipping bytes equal to
+ * `delim` (dest cursor still advances, leaving a gap). Leaves the end
+ * cursor in -3076. l05ea sizes the destination first. #151. */
+static void l05ea(short n, short row);
+static long l05e4(void);
+static void jt1190(void *src, short cols, short rows, short stride,
+                   short delim) __attribute__((unused));
+static void jt1190(void *src, short cols, short rows, short stride,
+                   short delim)
+{
+	unsigned char *sp = (unsigned char *)src;
+	unsigned char *dp;
+	unsigned char *rowbase;
+	long           pitch     = g_a5_long(-3084);
+	long           srcstride = (long)stride;
+	unsigned char  dl        = (unsigned char)delim;
+	short          oc, ic;
+
+	PROBE("jt1190");
+	l05ea(cols, rows);
+	dp = (unsigned char *)(uintptr_t)l05e4();
+	for (oc = (short)(cols - 1); ; oc--) {
+		rowbase = dp;
+		for (ic = (short)(rows - 1); ; ic--) {
+			unsigned char c = *sp++;
+			if (c == dl)
+				dp++;
+			else
+				*dp++ = c;
+			if (ic == 0)
+				break;
+		}
+		sp += srcstride;
+		dp  = rowbase + pitch;
+		if (oc == 0)
+			break;
+	}
+	g_a5_long(-3076) = (long)(uintptr_t)dp;
+}
+
+/* JT[1120] (CODE 4 + 0x5156) — swap the two active page buffers. a4/a3
+ * are the [-2354] and [1-(-2354)] entries of the -2570 108-byte record
+ * table (deref depth per the -2347 mode flag); l050a() is the byte
+ * count. Exchanges them in <=1024-byte chunks through a stack scratch
+ * (the classic 3-copy dance), l4d88/l3e38 book-end it. #151. */
+static void l4d88(void);
+static long l050a(void);
+static void l3e38(void);
+static void jt1120(void) __attribute__((unused));
+static void jt1120(void)
+{
+	unsigned char  scratch[1024];
+	unsigned char *a4, *a3, *tbl;
+	short          idx = g_a5_word(-2354);
+	unsigned short n;
+
+	PROBE("jt1120");
+	l4d88();
+	tbl = (unsigned char *)&g_a5_byte(-2570);
+	if (g_a5_byte(-2347) != 0) {
+		unsigned char *p;
+		p  = *(unsigned char **)(tbl + idx * 108 + 2);
+		p  = *(unsigned char **)p;
+		a4 = *(unsigned char **)p;
+		p  = *(unsigned char **)(tbl + (1 - idx) * 108 + 2);
+		p  = *(unsigned char **)p;
+		a3 = *(unsigned char **)p;
+	} else {
+		a4 = *(unsigned char **)(tbl + idx * 108 + 2);
+		a3 = *(unsigned char **)(tbl + (1 - idx) * 108 + 2);
+	}
+	n = (unsigned short)l050a();
+	while (n > 0) {
+		short chunk = (short)(n >= 1024 ? 1024 : n);
+		jt406(scratch, a4, chunk);   /* scratch = a4 */
+		jt406(a4, a3, chunk);        /* a4 = a3     */
+		jt406(a3, scratch, chunk);   /* a3 = scratch */
+		a4 += chunk;
+		a3 += chunk;
+		n = (unsigned short)(n - chunk);
+	}
+	l3e38();
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
