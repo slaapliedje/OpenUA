@@ -86,6 +86,44 @@ Remaining CODE 10: **jt266** (1692-insn giant; also unblocks jt269's L040c
 dialog) and **jt259** (2757-insn giant) — each its own session. Every other
 CODE 10 viewer (jt264/jt265/jt267/jt269/jt270) is lifted.
 
+### jt266 (l1bc2) — roadmap (STARTED 2026-07-05)
+
+The monster-editor viewer/dialog: ~1692 insn (CODE_10.s lines 2342–4239), 68
+distinct JT deps (**all resolve** — the 5 reading MISSING, jt43/47/48/105/106,
+are aliases l579e/l541a/l5864/l3f3c/l3880 with bodies present), 6 switch sites,
+and **17 CODE-local helpers**. Already-lifted helpers it reuses: L06ae, L116a,
+L15c2(=l15c2_c10), L2ebe, L6028, L611c. The 17 to lift, by tier:
+
+```
+Tier 0 (only JT deps — all present):
+  L3244 ✓  (l3244, printable-glyph test)        L2f8e ✓  (l2f8e_c10, -12300 hdr init)
+  L205a    (~35, jt1161/45/47/46)               L24a4    (~28, jt1161/43/106/124)
+  L1f86    (~62, jt80/1173/1200/1161/1001)       L26de    (~70, jt209/1200/1161/357)
+  L419e    (~113, has a JT[1] switch — jt1_extract; jt394/45/48/419/465/431/416)
+  L6238    (~39, jt394/436/416/l6028/384)
+  ⚠ L2660  (~41), L2282 (~39), L23c6 (~73)  — blit via jt118/jt114 (see gotcha)
+Tier 1:  L2618/L263c (→L2660)  L22f0 (→L23c6)  L20cc (→L2282)  L27c2 (→L3244✓,L1f86)
+Tier 2:  L24fa (→L263c,L2618)
+```
+
+**GOTCHA — jt118/jt114 blit sig.** L2660 (and L2282/L23c6) blit through
+JT[118]/JT[114]. The port `jt118(unsigned char *page, short top, short left,
+short idx, long handle)` **ignores `page`** and the arg *order* differs from the
+Mac push order (the Mac pushes the page/handle pointer FIRST = last C arg).
+Reconcile each call against the real Mac jt118 (CODE 6+0x37d6 = jt108(1) +
+jt1001(top,left,*handle,idx)) before transcribing — this is the standing
+[jt118/jt114 signature mismatch] latent issue; do NOT copy the push order blind.
+
+**Naming:** L2f8e clashed with another segment's l2f8e → suffixed `l2f8e_c10`
+(the (CODE,offset) recurrence hazard). Check each remaining helper the same way
+before naming.
+
+**Recommended order:** finish the tier-0 non-blit leaves (L205a/L24a4/L1f86/
+L26de/L6238/L419e) → resolve the jt118 sig once, then L2660/L2282/L23c6 → tier 1
+→ tier 2 → jt266 main as a **level-2 skeleton** first (1692 insn; mirror the CFG,
+call every helper in order, defer per-arm detail), then fill arms. jt266 also
+completes jt269's L040c dialog stub.
+
 **CODE 10 reality check — CORRECTED (2026-07-05).** The earlier "jt264/jt270
 bottom out on a ~900-insn subtree with jt1084 + jt456 MISSING" was WRONG: I
 trusted `defs=0` without alias-checking. Re-checking the alias doc /

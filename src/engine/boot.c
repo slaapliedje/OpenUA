@@ -68913,6 +68913,44 @@ static short jt269(short state, long outp, long rec)
 	return *(short *)h;
 }
 
+/* --- CODE 10 jt266 (monster-editor viewer, the giant) leaf helpers --- */
+
+/* L3244 (CODE 10+0x3244) — printable-glyph test: 1 when 32 <= ch < 255,
+ * else 0 (signed compares). Leaf. */
+static short l3244(short ch) __attribute__((unused));
+static short l3244(short ch)
+{
+	PROBE("L3244");
+	if (ch < 32 || ch >= 255)
+		return 0;
+	return 1;
+}
+
+/* L2f8e (CODE 10+0x2f8e) — (re)init the -12300 design-record header for
+ * the viewer: only when its type word is 0, clear 290 bytes (jt399),
+ * set the colour pair rec[2]/rec[3] (15/38 for a real kind 1..4, else
+ * 11/11), and arm the three sub-slot active flags rec[4..6]. Leaf. */
+static void l2f8e_c10(short kind) __attribute__((unused));
+static void l2f8e_c10(short kind)
+{
+	unsigned char *gp = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short          i;
+
+	PROBE("L2f8e");
+	if (*(short *)gp != 0)
+		return;
+	jt399(gp, (short)290, (short)0);
+	if ((unsigned char)kind != 0 && (unsigned char)kind <= 4) {
+		gp[2] = 15;
+		gp[3] = 38;
+	} else {
+		gp[2] = 11;
+		gp[3] = 11;
+	}
+	for (i = 0; i < 3; i++)
+		gp[i + 4] = 1;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
