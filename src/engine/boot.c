@@ -70480,14 +70480,31 @@ static short l36e0_c10(short id, short arttype)
 		jt461((short)24);
 		jt465(ua_strs_at(0x2e16) /* "Import" */);
 	} else {
-		/* PICT: build the palette + DungCom/MENU art tables from resources,
-		 * install the CLUT, then DrawPicture the image and dispose it.
-		 * TODO(fill 0x37ee..0x3920): jt399 clear; jt468/jt1012/jt406 copy
-		 * CLUT resources 0 and 1; arttype 4/8 -> "DungCom1" (jt54) +
-		 * jt468/jt1012/jt406 + jt58, else "MENU" (jt997) + jt468/jt1012/
-		 * jt406 + jt461 + (arttype 2 -> jt399). */
-		jt1069((short)0, (short)256, (unsigned char *)0 /* TODO -808 CLUT buf */,
-		       (short)0, (short)0);
+		/* PICT (L37ee): build the 256-entry CLUT in clutbuf — CLUT resources
+		 * 0 and 1 (48 bytes each, +8 hdr skip) at [0]/[48]; then the art table
+		 * (DungCom for CPIC, MENU otherwise) at [192]/[96] — install the CLUT,
+		 * DrawPicture, dispose. */
+		long src24;
+		jt399(clutbuf, (short)768, (short)1);
+		src24 = jt1012(jt468((short)0), (short)0) + 8;
+		jt406(clutbuf, (void *)(uintptr_t)src24, (short)48);
+		src24 = jt1012(jt468((short)1), (short)0) + 8;
+		jt406(clutbuf + 48, (void *)(uintptr_t)src24, (short)48);
+		if ((unsigned char)arttype == 4 || (unsigned char)arttype == 8) {
+			jt54(ua_strs_at(0x2e1e) /* "DungCom1" */, (short)1, (short)0);
+			src24 = jt1012(jt468((short)*(short *)(uintptr_t)
+			               g_a5_long(-27870)), (short)0) + 8;
+			jt406(clutbuf + 192, (void *)(uintptr_t)(src24 + 96), (short)576);
+			jt58();
+		} else {
+			jt997((short)52, ua_strs_at(0x2e28) /* "MENU" */, (short)24);
+			src24 = jt1012(jt468((short)24), (short)0) + 8;
+			jt406(clutbuf + 96, (void *)(uintptr_t)(src24 + 96), (short)672);
+			jt461((short)24);
+			if ((unsigned char)arttype == 2)
+				jt399(clutbuf + 96, (short)432, (short)0);
+		}
+		jt1069((short)0, (short)256, clutbuf, (short)0, (long)0);
 		jt1066();
 		l67a0(pic);                         /* DrawPicture the imported PICT */
 		l6892(pic);                         /* dispose the handle            */
