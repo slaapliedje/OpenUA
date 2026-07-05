@@ -1,0 +1,113 @@
+# GEO / design-editor cluster — worklist (ADR-0008 phase-2)
+
+Opening the last big cluster: the **design editor** (jt315 main menu →
+EDIT MODULES). ADR-0008 defers the tools behind the runtime; the runtime
+is ~96% done, so this is the sanctioned phase-2 work. Scope is unchanged
+— the full *Unlimited Adventures* package is the goal.
+
+## The two hard truths about this cluster
+
+1. **It is 100% mouse-gated.** Every entry is reached through the editor
+   UI (EDIT MODULES → tool clicks). Hatari does not inject mouse buttons
+   (see the run-falcon-port skill), so **nothing here is validatable
+   headless.** Correctness rests on faithful transcription cross-checked
+   against the disasm + the already-lifted dep tree — the smoke harness
+   only proves boot-unregressed (these are all `__attribute__((unused))`
+   dormant lifts until the editor UI is wired, itself a large ADR-0006
+   Dialog/Control/TextEdit effort).
+2. **It is deeply entangled.** Every JT entry pulls in CODE-local
+   painter/helper `lXXXX` deps that must be lifted first. There are no
+   quick leaf wins — each entry is a mini-project.
+
+Consequence: this is a **multi-session** effort. Bank one coherent
+sub-chain per session; do not try to boil it in one pass.
+
+## The 18 open entries, by segment and size
+
+Instruction counts from `tools` survey (2026-07-04). "deps clean" = every
+JT + lXXXX callee already lifted.
+
+### CODE 22 — design-list rendering (the tractable start)
+| JT | addr | ~insn | notes |
+|---|---|---|---|
+| **jt282** | l2f24 | 283 | design-list entry painter, kind 1. **deps clean** (L0674 + jt1089/1161/117/1173/1193/1200/353). Live parent = jt278. **← recommended first lift** |
+| jt286 | l2aaa | 366 | entry painter kind 0; ~6 CODE-22 local deps (verify) |
+| jt281 | l329c | 390 | entry painter kind 2; ~6 CODE-22 local deps (verify) |
+
+These four painters (l2aaa/l2f24/l329c/l347a) are dispatched by the
+already-lifted **jt278** (CODE 22+0x294e) on the entry's kind byte. l347a
+(kind 3) is the 4th; check its JT mapping. Finishing the trio completes
+the design-list paint path — a coherent, self-contained deliverable.
+
+### CODE 2 — the design-record editor ("recorder")
+| JT | addr | ~insn | notes |
+|---|---|---|---|
+| jt258 | l0004 | tiny | segment entry (rts / thin dispatcher — check first) |
+| jt246 | l311a | 161 | record-field painter (jt1089/1161/1200/358/367/394) |
+| jt254 | l4c5a | 367 | jt1076 modal + jt201/207/358/384/394 |
+| jt253 | l44cc | 569 | JT[1] switch dispatcher (jt273/317/319/320/325) |
+| jt248 | l26aa | 773 | list editor (jt117/147/167/168/169) — own session |
+| jt249 | l333a | 1025 | big dispatcher — own session |
+
+### CODE 10 — module viewers (editor-adjacent)
+| JT | addr | ~insn | notes |
+|---|---|---|---|
+| jt269 | l0004 | tiny | segment entry (check first) |
+| jt267 | l1a14 | 129 | viewer helper; local deps L116a/L2ebe (verify) |
+| jt264 | l6316 | 203 | jt135/356/361/370/389 |
+| jt265 | l65be | 224 | jt1026/1030/1032/1033/1086/1089 |
+| jt270 | l3262 | 294 | jt1067/1089/108/112/117/148 |
+| jt266 | l1bc2 | 1692 | big — own session |
+| jt259 | l368a | 2757 | the giant — own session |
+
+### CODE 11 — area/geo editor (continuing earlier work)
+| JT | addr | ~insn | notes |
+|---|---|---|---|
+| jt242 | l589a | 1122 | cell-edit committer; JT[3] over 5 unlifted painters (L5a06/L6136/L61c6/L5ee2/L5b0e) — lift painters first |
+| jt243 | l0b26 | ~800 | the big CODE-11 dispatcher — own session |
+
+(jt233/jt239/jt244 + l4d24/l49dc already lifted this campaign — see
+docs/area-map-wall.md.)
+
+## Recommended attack order
+
+1. **CODE 22 painter trio** (jt282 → jt286 → jt281): deps mostly lifted,
+   live dispatcher, coherent. Start with **jt282** (verified clean).
+2. **CODE 2 small painters** (jt258, jt246, then jt254): the record
+   editor's leaf renderers.
+3. **CODE 10 small viewers** (jt269, jt264, jt265, jt270).
+4. **CODE 11 jt242** (after its 5 painter locals).
+5. **The giants** (jt259/266/249/248/243) — one focused session each.
+
+The dispatchers that *wire* the cluster for eventual validation are the
+CODE 22 **L0004** area-command loop (21 arms) and jt315's EDIT MODULES
+branch; both are mouse-gated, so wiring them does not unlock headless
+tests — it only makes the editor runnable for a human tester.
+
+## Care-point: the jt1089 (v,h) transposition (#116)
+
+The painters call three coordinate primitives with **different** arg
+conventions — get this wrong and you get a transposed-but-plausible
+result that the (mouse-gated) smoke harness cannot catch:
+
+- **jt1161**(top, left, bottom, right, fill) and **jt353**(x, y, icon,
+  mode, flag) keep the Mac order — transcribe the asm push order as-is.
+- **jt1089**(x, y, color, fmt, …) is the port's **lone transposed
+  primitive** (#116): the Mac pushes JT[1089] as **(v, h)** but the port
+  signature is **(x=h, y=v)**. So every jt1089 call in these painters
+  must **swap** the first two asm operands: asm pushes (fp12±, fp14±) →
+  call `jt1089(fp14±, fp12±, …)`. In jt282 that is `jt1089(x+6, y+4,
+  135, "%s %d", g_a5_long(-11316), code+1)` where fp12=y(vert),
+  fp14=x(horiz).
+
+Verify each jt1089 site against an already-lifted caller's swap before
+trusting it. This is why the painter lifts want a focused session, not a
+tail-of-session rush.
+
+## Status
+
+Map established 2026-07-04. jt282 fully traced + verified deps-clean
+(L0674 + jt1089/1161/117/1173/1193/1200/353 all lifted) and ready as the
+first lift; the jt1089 (v,h) swap is the one care-point. No lift
+committed yet — this doc is the plan; the painter trio is the next
+focused session.
