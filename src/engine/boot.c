@@ -69275,6 +69275,171 @@ static void l263c(short y0, short x0, short step)
 	l2660((char *)&g_a5_byte(-11984), y0, x0, (short)(unsigned char)step);
 }
 
+/* L20cc (CODE 10+0x20cc) — the monster/sprite 3D-preview render. When
+ * spr != 0 loads SPRIT[spr] art (l541a) + its palette range (l3f3c). Then for
+ * three preview facings i=0..2 (counter in -22307) renders the frustum view
+ * (jt353 tool select + jt199 walk) and composites the sprite slot (l2282),
+ * using the live party coords -12288(row)/-12287(col)/-12286(facing). Raw B
+ * steps by `step`, C by step>>2. In view-mode 3 (step 40) there is no per-cell
+ * erase; other modes (step 48) erase each cell rect (jt1161) and composite at
+ * C (not C-1).
+ *
+ * jt199's `page` is the port's ADDED off-screen surface (unused in colour
+ * mode). It is supplied here the same way the sole live caller
+ * (render_3d_faithful) does — a static back-buffer — because the port jt199
+ * ABI diverges from the Mac (which takes no surface); see
+ * [jt118/jt114 signature mismatch] for the render-path ABI note. */
+static void l20cc(short spr) __attribute__((unused));
+static void l20cc(short spr)
+{
+	static unsigned char page[BP_STRIDE * BP_ROWS];  /* jt199 surface (unused in colour) */
+	short A = 8012, B, C = 2, step;
+
+	PROBE("L20cc");
+	B    = (short)((C << 2) + 8000);                 /* 8008 */
+	step = 48;
+	if (spr != 0) {
+		l541a(ua_strs_at(0x2db2) /* "SPRIT" */, spr, (short)1, &g_a5_24322);
+		l3f3c((short)176, (short)255);
+	}
+	if (jt1200() == 3) {
+		step = 40;
+		for (g_a5_byte(-22307) = 0;
+		     (signed char)g_a5_byte(-22307) < 3;
+		     g_a5_byte(-22307)++) {
+			if (spr != 0) {
+				jt353((short)(C - 1), (short)2, (short)9, (short)0,
+				      (short)1);
+				jt199(page, B, A,
+				      (short)(signed char)g_a5_byte(-12288),
+				      (short)(signed char)g_a5_byte(-12287),
+				      (short)(unsigned char)g_a5_byte(-12286));
+				l2282((short)(C - 1), (short)3,
+				      (short)((signed char)g_a5_byte(-22307) + 1));
+			}
+			B = (short)(B + (step & 255));
+			C = (short)(C + ((step & 255) >> 2));
+		}
+	} else {
+		for (g_a5_byte(-22307) = 0;
+		     (signed char)g_a5_byte(-22307) < 3;
+		     g_a5_byte(-22307)++) {
+			jt1161(A, B, (short)(A + 44), (short)(B + 44), (short)0);
+			if (spr != 0) {
+				jt353((short)(C - 1), (short)2, (short)9, (short)0,
+				      (short)1);
+				jt199(page, B, A,
+				      (short)(signed char)g_a5_byte(-12288),
+				      (short)(signed char)g_a5_byte(-12287),
+				      (short)(unsigned char)g_a5_byte(-12286));
+				l2282(C, (short)3,
+				      (short)((signed char)g_a5_byte(-22307) + 1));
+			}
+			B = (short)(B + (step & 255));
+			C = (short)(C + ((step & 255) >> 2));
+		}
+	}
+}
+
+/* L27c2 (CODE 10+0x27c2) — render the viewer's memorized-spell caption
+ * column. Draws `count` rows (= 2 when l06ae(kind)==0, else 1): each erases a
+ * 44x44 cell (jt1161), stamps the row status icon (jt353), and — when the code
+ * is a printable glyph (l3244) — composes a "<class> <letter>" caption (jt394
+ * "%s %c": class string from -10576/-10580 by code parity, letter =
+ * (code-32)/2+'A'), lays it out right-aligned (jt423 width → jt448 frame
+ * glyphs 13/14/15), scales the anchor (jt1135) and paints it (jt1089). A
+ * non-printable code on a later row draws a filled divider box instead. When
+ * kind==2, `code` is first remapped through the -12300 level record[code+8]. */
+static void l27c2(short code, short kind) __attribute__((unused));
+static void l27c2(short code, short kind)
+{
+	char          buf[64];               /* fp@(-24) — the "%s %c" caption */
+	short         oy = 8012, ox = 8012;  /* fp@(-6) / fp@(-8) */
+	short         step = 68;             /* fp@(-14) */
+	short         ty, tx;                /* fp@(-10) / fp@(-12) */
+	unsigned char count, i, j, nchars;   /* fp@(-3)/-1/-2/-4 */
+
+	PROBE("L27c2");
+	jt131((short)0);
+	count = (l06ae(kind) == 0) ? 2 : 1;
+	if (kind == 2)
+		code = ((unsigned char *)(uintptr_t)g_a5_long(-12300))
+		       [(short)code + 8];
+	for (i = 0; i < count; i++, code++, ox = (short)(ox + step)) {
+		if (i != 0 && l3244(code) == 0) {
+			jt1161((short)(oy - 8), (short)(ox - 8),
+			       (short)(oy + 52), (short)(ox + 58), (short)8);
+			continue;
+		}
+		if (i != 0)
+			l1f86(step);
+		jt1161(oy, ox, (short)(oy + 44), (short)(ox + 44), (short)0);
+		jt353((short)((i & 1) * 17 + 2), (short)2, code, (short)i,
+		      (short)1);
+		if (l3244(code) == 0)
+			continue;
+		{
+			long  cls = (code & 1) ? g_a5_long(-10576)
+			                       : g_a5_long(-10580);
+			short letter = (short)((short)(code - 32) / 2 + 65);
+			jt394(buf, ua_strs_at(0x2ddc) /* "%s %c" */,
+			      (char *)(uintptr_t)cls, (int)letter);
+		}
+		ty     = (short)(oy + 47);
+		nchars = (unsigned char)jt423(buf);
+		tx     = (short)(ox - ((nchars << 2) >> 1) + 22);
+		jt448(ty, tx, (short)1, (short)13);
+		for (j = 0; j < nchars; j++)
+			jt448(ty, (short)(tx + j * 4), (short)1, (short)14);
+		jt448(ty, (short)((nchars - 1) * 4 + tx), (short)1, (short)15);
+		jt1135(ty, tx, &ty, &tx);
+		jt1089((short)(ty + 1), tx, (short)135, buf);
+	}
+}
+
+/* L24fa (CODE 10+0x24fa) — draw the Wild/Dungeon combat-set preview grid.
+ * Sets mode 4 (jt131), picks the rect + row pitch by view-mode (mode 3: top
+ * (22,32) 160x424, step 32; else raw (8004,8004..8064,8156), step 12), clips
+ * to it (jt1173). For code 255 just erase (jt1161). Otherwise load the set art
+ * — "WildCom1" when the `wild` flag is set, else "DungCom1" — (jt54) + select
+ * it (jt120), and blit the 5x13 grid from the matching buffer (l263c for Wild
+ * / -11984, l2618 for Dungeon / -12050). Closes with commit (jt58) + full clip
+ * restore (jt1193). */
+static void l24fa(short code, short wild) __attribute__((unused));
+static void l24fa(short code, short wild)
+{
+	short top, left, bottom, right, step;   /* fp@(-2)/-4/-6/-8/-9 */
+
+	PROBE("L24fa");
+	jt131((short)4);
+	if (jt1200() == 3) {
+		top    = 22;
+		left   = 32;
+		bottom = (short)(top + 160);        /* 182 */
+		right  = (short)(left + 424);       /* 456 */
+		step   = 32;
+	} else {
+		top = 8004; left = 8004; bottom = 8064; right = 8156;
+		step = 12;
+	}
+	jt1173(top, left, bottom, right);
+	if (code == 255) {
+		jt1161(top, left, bottom, right, (short)0);
+	} else if ((unsigned char)wild != 0) {
+		jt54(ua_strs_at(0x2dc8) /* "WildCom1" */,
+		     (short)(unsigned char)code, (short)0);
+		jt120((void *)(uintptr_t)g_a5_long(-27870));
+		l263c(top, left, step);
+	} else {
+		jt54(ua_strs_at(0x2dd2) /* "DungCom1" */,
+		     (short)(unsigned char)code, (short)0);
+		jt120((void *)(uintptr_t)g_a5_long(-27870));
+		l2618(top, left, step);
+	}
+	jt58();
+	jt1193();
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {

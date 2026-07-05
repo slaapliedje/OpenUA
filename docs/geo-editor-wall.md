@@ -103,9 +103,14 @@ Tier 0 (only JT deps — all present):
   L6238 ✓  (MONST%03d.dat delete + name copy; jt394/436/416/l6028/384)
   L2660 ✓  (5x13 grid blit via JT[118]/l37d6_c6)  L2282 ✓ (pic-slot repaint; JT[114]/l3804 or l3880)
   L23c6 ✓  (4x4 DungCom preview via JT[118]; jt54/jt120/jt58)
-Tier 1:  L2618 ✓  L263c ✓ (→L2660)  L22f0 ✓ (→L23c6)
-         ⚠ L20cc (→L2282; needs jt199 page — see note)  L27c2 (~113, viewer body)
-Tier 2:  L24fa (→L263c,L2618)
+Tier 1:  L2618 ✓  L263c ✓ (→L2660)  L22f0 ✓ (→L23c6)  L20cc ✓  L27c2 ✓
+Tier 2:  L24fa ✓ (→L263c,L2618)
+
+ALL 17 HELPERS DONE (2026-07-05). L20cc (3D sprite preview; jt199 page = the
+render_3d_faithful static back-buffer, unused in colour mode — port ABI
+artifact, not a stand-in), L27c2 (spell-caption column: jt394 "%s %c" + jt423/
+jt448/jt1135/jt1089 text layout), L24fa (Wild/Dung combat-set preview grid).
+jt266 main can now be a FULL lift (all helpers present).
 
 Tier-1 wrappers DONE (2026-07-05): L22f0 (2-column CPIC preview: l23c6 + jt56/
 jt53/jt57/jt55), L2618/L263c (thin l2660 grid wrappers, sources -12050/-11984).
