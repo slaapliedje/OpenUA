@@ -63456,6 +63456,82 @@ static void jt385(short ch)
 	l375a_c03((short)(signed char)ch);
 }
 
+/* ---- CODE 3 design-save block writer. The -10270 long[] is the design
+ * resource directory (entry N = its byte offset); entry N+1 minus entry
+ * N is block N's size. jt374 streams the -9290-indexed block to an open
+ * file in 512-byte chunks. */
+
+/* L384a (CODE 3+0x384a) — write `count` bytes of `buf` to file `refNum`
+ * via a synchronous PBWrite (jt1044), no seek. Returns the bytes
+ * actually written, or -1 on error. */
+static short l384a(short refNum, void *buf, short count) __attribute__((unused));
+static short l384a(short refNum, void *buf, short count)
+{
+	unsigned char pb[52];
+	short         i, err;
+
+	PROBE("L384a");
+	for (i = 0; i < (short)sizeof(pb); i++)
+		pb[i] = 0;
+	*(short *)(void *)(pb + 24) = refNum;                    /* ioRefNum   */
+	*(long  *)(void *)(pb + 32) = (long)(uintptr_t)buf;      /* ioBuffer   */
+	*(long  *)(void *)(pb + 36) = (long)count;               /* ioReqCount */
+	*(short *)(void *)(pb + 44) = 0;                         /* ioPosMode  */
+
+	err = jt1044((char)0, pb);
+	if (err != 0)
+		return -1;
+	return *(short *)(void *)(pb + 42);      /* low word of ioActCount@40 */
+}
+
+/* JT[374] (CODE 3+0x12ca) — copy the -9290-indexed design block to the
+ * open file `refNum`, 512 bytes at a time, through a stack staging
+ * buffer: BlockMove (jt406) each chunk in, PBWrite (l384a) it out.
+ * Returns 1 on success, 0 on a short write. Shaped as a glib_load_cb
+ * (the jt987/l17e2 callback ABI: (refnum, spec) -> success byte); the
+ * `spec` is unused here — jt457 hands it in as the block writer. */
+static unsigned char jt374(short refNum, void *spec) __attribute__((unused));
+static unsigned char jt374(short refNum, void *spec)
+{
+	long          *dir = (long *)(void *)&g_a5_byte(-10270);
+	short          idx = g_a5_word(-9290);
+	unsigned char *src = (unsigned char *)(uintptr_t)dir[idx];
+	long           remaining = dir[idx + 1] - dir[idx];
+	unsigned char  buf[512];
+
+	PROBE("jt374");
+	(void)spec;
+	while (remaining > 0) {
+		short chunk = (remaining >= 512) ? (short)512 : (short)remaining;
+
+		jt406(buf, src, chunk);                 /* L366a: BlockMove in  */
+		if (l384a(refNum, buf, chunk) < chunk)  /* short write -> fail  */
+			return 0;
+		src       += chunk;
+		remaining -= chunk;
+	}
+	return 1;
+}
+
+/* JT[457] (CODE 3+0x137a) — write design group `group` to file `name`
+ * via jt987/l17e2: validate the group (0..47) and that it is loaded
+ * (-10074[group] >= 0; both misfires just alert and press on, matching
+ * the Mac), publish its directory index into -9290, then drive jt987
+ * with jt374 as the per-block writer callback. `kind` is the resource
+ * selector char. */
+static void jt457(short kind, long name, short group) __attribute__((unused));
+static void jt457(short kind, long name, short group)
+{
+	PROBE("jt457");
+	if (group < 0 || group >= 48)
+		l036a(ua_strs_at(0x431a), group);       /* "Invalid group number (%d)" */
+	if ((signed char)g_a5_byte(-10074 + group) < 0)
+		l036a(ua_strs_at(0x4334), group);       /* "Refrencing a non-loaded group (%d)" */
+	g_a5_word(-9290) = (short)(signed char)g_a5_byte(-10074 + group);
+	jt987((short)(signed char)kind, (const char *)(uintptr_t)name,
+	      (short)1, (void *)jt374);
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
