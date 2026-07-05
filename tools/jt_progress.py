@@ -392,6 +392,24 @@ PENDING_NOTES = {
     327:  "dispatcher — 14-case JT[1] design-record edit, 2.2KB. Own session",
     290:  "dispatcher — the 806B editor click tool over 5 unlifted CODE 22 "
           "locals (L1240/L0ee6/L0674/L069a/L0716). Own session",
+    # HFS/GEMDOS file shim (docs/hfs-gemdos-shim-audit.md): the shim is
+    # already complete; these stay MISSING BY DESIGN, superseded by the
+    # port's ratified GEMDOS model — do NOT lift (dead code).
+    426:  "SUPERSEDED — Mac indexed-catalog OPEN; only caller is jt990, which "
+          "the port reimplements over GEMDOS Fsfirst. Dead on the port.",
+    432:  "SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the "
+          "port reimplements over GEMDOS Fsnext. Dead on the port.",
+    458:  "SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac "
+          "boot mega-init the port replaces with boot.c). Never reached.",
+    # NOT the file shim (mislabelled): own subsystems.
+    1039: "NOT HFS — date/time (_SecondsToDate/_DateToSeconds); a Toolbox date "
+          "shim (GEMDOS Tgetdate/Tgettime). Own lift.",
+    1063: "NOT HFS — Memory Manager handle dup (_HandToHand/_PtrToHand/"
+          "_BlockMove); route to the macmemory shim. Own lift.",
+    1143: "NOT HFS — 7-line RNG seed (jt1039() ^ _TickCount()); depends on "
+          "jt1039. Own lift once the date shim lands.",
+    1027: "NOT HFS — pokes Mac low-memory (0x114/0x2aa free-list); moot on "
+          "Atari (no such struct). NOOP candidate.",
 }
 
 
