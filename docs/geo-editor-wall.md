@@ -140,10 +140,21 @@ L42f2 ✓ ~468  imported-art pixel-format converter — FULL faithful lift
 L53b0  big (spans past jt260) — the remaining tile-converter sub-giant
 ```
 
-**L53b0 sub-tree status:** L4924 ✓ L4970 ✓ L4eda ✓ L4f9c ✓ **L42f2 ✓**;
-remaining leaves L49f8 (~231) / L4cae (~185) / L509e (~262), then **L53b0**
-itself (the orchestrator, still a PROBE stub in l36e0_c10). Once L53b0 is
-lifted the tile-conversion loop in l36e0_c10 can be filled.
+**L53b0 sub-tree status (2026-07-05):** ALL LEAVES DONE — L4924 ✓ L4970 ✓
+L4eda ✓ L4f9c ✓ L42f2 ✓ **L49f8 ✓** (multi-plane RLE encoder: zero-skip / 0x40
+literal / 0x80 uniform / 0xC0 marker, plane pitch 3072) **L4cae ✓** (multi-
+plane tile-strip orchestrator: l42f2 convert -> l49f8 encode per row, overflow
+guard, header + plane compact) **L509e ✓** (single-plane byte-RLE writer:
+-count transparent / +count literal). Only **L53b0** itself remains (the
+orchestrator that ties L42f2/L49f8/L4cae/L509e together; still a PROBE stub in
+l36e0_c10). Once L53b0 is lifted, l36e0_c10's tile-conversion loop can be
+filled.
+
+⚠ **The whole converter/RLE family (L42f2, L49f8, L4cae, L509e) is bit-exact,
+dormant, and UNVALIDATABLE headless** — the packing (control-byte bits, plane
+pitches, peek/backup RLE cursors) can only be confirmed against a **Mac trace
+of these functions** on a real import. Do that validation pass before trusting
+the import output. See [[mac-blit-ground-truth]] for the trace method.
 
 Also lifted this pass: **jt1032** (_DisposHandle) + **jt1033** (_HLock) — trivial
 Memory Manager trap wrappers over the shim, previously absent; needed by L66a2.
