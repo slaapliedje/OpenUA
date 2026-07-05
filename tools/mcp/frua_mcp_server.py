@@ -45,6 +45,7 @@ JUMPTABLE = os.path.join(DISASM, "jumptable.txt")
 DOCS = os.path.join(REPO, "docs")
 ENGINE = os.path.join(REPO, "src", "engine")
 FUNCREF = os.path.join(DOCS, "function-reference.md")
+ALIASES = os.path.join(DOCS, "lxxxx-jt-aliases.md")
 
 sys.path.insert(0, os.path.join(REPO, "tools"))
 try:
@@ -357,13 +358,23 @@ def tool_jt_lookup(args):
     if notes:
         out.append("\n  function-reference.md:")
         out.append(notes)
-    # 3. lifted C: definition + caller count in the engine
-    defs = _grep_files(_engine_files(),
-                       rf"\b(static\b.*\bjt{idx}\s*\(|jt{idx}\s*\([^)]*\)\s*$)",
-                       max_hits=6)
+    # 3. lifted C: definition + caller count in the engine. Search BOTH the
+    #    jtN spelling AND the lXXXX alias(es) — many functions are lifted only
+    #    under their lXXXX local-label name (e.g. jt1159 = l4350, jt193 = l4fbe),
+    #    so a jtN-only grep falsely reports them "unlifted".
+    aliases = _lxxxx_for_jt(idx)
+    if aliases:
+        out.append(f"\n  lXXXX alias(es): {', '.join(aliases)} (= jt{idx})")
+    patterns = [rf"\b(static\b.*\bjt{idx}\s*\(|jt{idx}\s*\([^)]*\)\s*$)"]
+    for lx in aliases:
+        patterns.append(rf"\bstatic\b.*\b{lx}\s*\(")
+    defs = _grep_files(_engine_files(), "|".join(patterns), max_hits=8)
     if defs:
         out.append("\n  lifted C (defs/sites):")
         out.append(defs)
+    elif aliases:
+        out.append(f"\n  (no def under jt{idx} nor {'/'.join(aliases)} "
+                   "— likely genuinely unlifted)")
     if len(out) == 1:
         out.append("  (no records found — try sym_search or disasm_grep)")
     return "\n".join(out)
@@ -373,6 +384,19 @@ def _engine_files():
     return sorted(glob.glob(os.path.join(ENGINE, "*.c"))) + \
         sorted(glob.glob(os.path.join(REPO, "compat", "*.c"))) + \
         sorted(glob.glob(os.path.join(REPO, "compat", "*.h")))
+
+
+def _lxxxx_for_jt(idx):
+    """Return the lXXXX local-label alias(es) mapped to JT index `idx` in
+    docs/lxxxx-jt-aliases.md, so 'is jtN lifted?' can also check the lXXXX
+    spelling the port often lifts a function under."""
+    if not os.path.isfile(ALIASES):
+        return []
+    found = []
+    for m in re.finditer(rf"\b(l[0-9a-fA-F]+)\s*=\s*jt{idx}\b", _read(ALIASES)):
+        if m.group(1) not in found:
+            found.append(m.group(1))
+    return found
 
 
 def tool_sym_search(args):
