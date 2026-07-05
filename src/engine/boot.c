@@ -64906,6 +64906,77 @@ static void jt350(short a, short b, long c, long d)
 		      l6520_c8((short)(unsigned char)b));
 }
 
+/* L62e0 (CODE 8+0x62e0) — locate one record in the -10370 monster
+ * table by kind/id, the full sibling of the l6432 stub (jt372's leaf
+ * where jt350 uses l6432). `b`=kind selects the flag mask via
+ * jt370(kind,0); `a`=id is the entry key. A wildcard id (255) with
+ * kind in [6,10) is folded to 0 (header row). With a real handle and
+ * id, scan the (little-endian count @0) 14-byte entries at +14: an
+ * entry matches when (entry[1] & flag) and entry[0] == id — on a hit,
+ * jt191-unpack its name into `c` (when non-NULL), store entry[1] into
+ * *`d`, return 1; on no match, l60b0 the default row and return 0.
+ * With no handle or a wildcard id, emit the l60b0 header row into `c`,
+ * store the flag into *`d`, return (handle != 0). `_c8` suffix: the
+ * CODE 8 l62e0 is distinct from jt827's same-offset helper. */
+static unsigned char l62e0_c8(long handle, short a, short b,
+                              long c, long d) __attribute__((unused));
+static unsigned char l62e0_c8(long handle, short a, short b,
+                              long c, long d)
+{
+	unsigned char *h = (unsigned char *)(uintptr_t)handle;
+	unsigned char  flag;
+	unsigned char *entry;
+	short          i, total;
+
+	PROBE("l62e0");
+
+	if ((unsigned char)b >= 6 && (unsigned char)b < 10 &&
+	    (unsigned char)a == 255)
+		a = 0;
+
+	flag = (unsigned char)jt370(b, (short)0);
+
+	if (handle != 0 && (unsigned char)a != 0) {
+		total = (short)(((short)h[1] << 8) | h[0]);
+		entry = h + 14;
+		for (i = 0; i < total; i++, entry += 14) {
+			if ((entry[1] & flag) == 0)
+				continue;
+			if (entry[0] != (unsigned char)a)
+				continue;
+			if (c != 0)
+				jt191(entry + 2, (char *)(uintptr_t)c,
+				      (short)15);
+			if (d != 0)
+				*(unsigned char *)(uintptr_t)d = entry[1];
+			return 1;
+		}
+		l60b0((short)(unsigned char)a, b, (short)flag,
+		      (char *)(uintptr_t)c);
+		return 0;
+	}
+
+	if (c != 0)
+		l60b0((short)0, b, (short)flag, (char *)(uintptr_t)c);
+	if (d != 0)
+		*(unsigned char *)(uintptr_t)d = flag;
+	return (unsigned char)((handle != 0) ? 1 : 0);
+}
+
+/* JT[372] (CODE 8+0x666c) — fetch a monster record: prime the
+ * kind-classed table (jt363/l6520_c8) then locate the record via the
+ * full L62e0 (jt350's sibling, minus the jt362 name-refresh tail).
+ * Propagates L62e0's found/handle flag. */
+static unsigned char jt372(short a, short b, long c, long d)
+                                                __attribute__((unused));
+static unsigned char jt372(short a, short b, long c, long d)
+{
+	PROBE("jt372");
+	jt363((long *)0, l6520_c8((short)(unsigned char)b));
+	return l62e0_c8(g_a5_long(-10370), (short)(unsigned char)a,
+	                (short)(unsigned char)b, c, d);
+}
+
 /* JT[93] (CODE 6+0x475e) — write a "%( %)"-grouped value at text
  * cell (a, b) colour c (jt94 with style = the colour repeated, the
  * THINK C group format passing value d). Full lift. */
@@ -68019,6 +68090,59 @@ static void l036a(const char *fmt, ...)
 	jt1161(8096, 8000, 8100, 8160, 0);     /* erase the box */
 	jt1167();                              /* restore the clip bounds */
 	jt1153(saved);
+}
+
+/* --- CODE 10 monster-editor record viewers (jt264 + deps) ----------- */
+
+/* L611c (CODE 10+0x611c) — write the edited monster record `num` back
+ * to the resident MONST pool and reconcile its art/name refs. Selects
+ * the file group (jt132/jt131), points `dest` at the -28006 record
+ * pool + 101, stamps dest[397]=num and dest[395]=dest[129], then
+ * queues the save via jt129 ("MONST%03d.dat", 450 bytes). jt129 is a
+ * queue request, so the size word stays 450 and the "Unable to save"
+ * error path (jt1084 = the l036a alert) is the defensive miss branch
+ * the Mac emitted — transcribed faithfully. On success it fetches the
+ * saved record's art tag (jt372 -> name into `namebuf`, flag into v7),
+ * ORs in bit 6, and if the tag differs from the record's own +96 name
+ * (jt393) re-registers it via jt350 (or, when the names match but the
+ * bit-6 state changed, the null-buffer jt350). Returns 1 on the save
+ * path, 0 on the (defensive) queue-miss. */
+static unsigned char l611c(short num) __attribute__((unused));
+static unsigned char l611c(short num)
+{
+	unsigned char  ret = 0;
+	unsigned char *dest;
+	short          size;
+	char           namebuf[16];
+	unsigned char  v7 = 0, v8;
+
+	PROBE("L611c");
+	jt132((short)50);
+	jt131((short)6);
+	dest = (unsigned char *)(uintptr_t)g_a5_long(-28006) + 101;
+	dest[397] = (unsigned char)num;
+	dest[395] = dest[129];
+	size = 450;
+	jt129((long)(uintptr_t)ua_strs_at(0x2fe2) /* "MONST" */,
+	      num, size, (long)(uintptr_t)dest);
+	if (size != 450) {
+		l036a(ua_strs_at(0x2fe8) /* "Unable to save monster %d" */,
+		      (int)num);
+		jt69();
+		return 0;
+	}
+
+	jt372(num, (short)3, (long)(uintptr_t)namebuf,
+	      (long)(uintptr_t)&v7);
+	v8 = (unsigned char)(v7 | 64);
+	if (jt393((const char *)(dest + 96), namebuf) != 0)
+		jt350(num, (short)3, (long)(uintptr_t)(dest + 96),
+		      (long)(uintptr_t)&v8);
+	else if (v8 != v7)
+		jt350(num, (short)3, (long)0, (long)(uintptr_t)&v8);
+
+	ret = 1;
+	return ret;
 }
 
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
