@@ -63573,6 +63573,49 @@ static void jt436(char *a, char *b, short force)
 	jt384(a, buf);
 }
 
+/* JT[375] (CODE 3+0x0bf4) — thin wrapper: look up resource item `refnum`
+ * with the "current/whole" selector -1 (jt460 = l0c0a). */
+static unsigned char jt460(short refnum, long arg);   /* CODE 3+0xc0a, below */
+static short jt375(short refnum) __attribute__((unused));
+static short jt375(short refnum)
+{
+	PROBE("jt375");
+	return (short)jt460(refnum, (long)-1);
+}
+
+/* JT[466] (CODE 3+0x0632) — tear down the open design container: reset
+ * the key state (jt465 with no key) then dispose the -10270 directory
+ * handle (jt1029). */
+static short jt466(void) __attribute__((unused));
+static short jt466(void)
+{
+	PROBE("jt466");
+	jt465(NULL);
+	return jt1029(g_a5_long(-10270));
+}
+
+/* JT[386] (CODE 3+0x4762) — printf to the design text console: format
+ * `fmt` and stream each byte through jt385 (the CR/LF/BEL/DrawChar
+ * putchar). The Mac threads C varargs through the jt400 VM with jt385
+ * as the emit sink and no custom handlers; the port bridges the
+ * varargs with vsprintf first (same choice as the jt394 sibling), then
+ * feeds the flattened text to jt385 — identical for the standard
+ * conversions jt386 uses. */
+static void jt386(char *fmt, ...) __attribute__((unused));
+static void jt386(char *fmt, ...)
+{
+	char        tmp[256];
+	const char *p;
+	va_list     ap;
+
+	PROBE("jt386");
+	va_start(ap, fmt);
+	vsprintf(tmp, fmt ? fmt : "", ap);
+	va_end(ap);
+	for (p = tmp; *p != 0; p++)
+		jt385((short)(signed char)*p);
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
