@@ -62,13 +62,40 @@ deps mostly lifted) — see below.
 ### CODE 10 — module viewers (editor-adjacent)
 | JT | addr | ~insn | notes |
 |---|---|---|---|
+| ~~jt265~~ | l65be | 7 | **LIFTED** (2026-07-05) — "Experience:" entry prompt: jt98 field + new L654a atol. Clean leaf. (wall's "224 insn" swept in L654a/L6606/L66a2/L67a0.) |
 | jt269 | l0004 | tiny | segment entry (check first) |
 | jt267 | l1a14 | 129 | viewer helper; local deps L116a/L2ebe (verify) |
-| jt264 | l6316 | 203 | jt135/356/361/370/389 |
-| jt265 | l65be | 224 | jt1026/1030/1032/1033/1086/1089 |
-| jt270 | l3262 | 294 | jt1067/1089/108/112/117/148 |
+| jt264 | l6316 | ~130 | **BLOCKED** — needs L611c (monster-save, +jt372, +jt1084) |
+| jt270 | l3262 | 294 | **BLOCKED** — needs jt456 + l06ae + l2ebe + L611c subtree |
 | jt266 | l1bc2 | 1692 | big — own session |
 | jt259 | l368a | 2757 | the giant — own session |
+
+**CODE 10 reality check (2026-07-05):** of the three "small viewers"
+(jt264/jt265/jt270), only **jt265** was a clean leaf — now done. The wall's
+`~insn`/deps columns were mis-scanned (jt265 is 7 insn, not 224). jt264 and
+jt270 both bottom out on a shared, deep multi-function subtree — a dedicated
+session, NOT a leaf pass:
+
+```
+jt264 → L611c (monster-save, ~78 insn)
+          ├─ jt372  (l666c CODE 8, MISSING) → l6520_c8✓ + jt363✓ + L62e0_c8
+          │        L62e0_c8 (CODE 8, ~110 insn, MISSING) → L60b0_c8 (CODE 8, MISSING)
+          └─ jt1084 (l036a CODE 5, MISSING) → modal "Error: %r" alert with its
+                   own event loop + 5 CODE-5 locals (L024c/L0264/L0306/L00a8/L0088)
+jt270 → everything above (via L611c) PLUS
+          ├─ jt456  (l2d3e CODE 3, ~170 insn, MISSING)
+          ├─ l06ae  (CODE 10, ~13 insn — trivial kind→1/-1/0 classifier; deps clean)
+          └─ l2ebe  (CODE 10, ~60 insn — stores &jt261/&jt262 callback ptrs, tail
+                   jt347; deps clean but coupled to how jt270 consumes the callback)
+```
+
+So the shared blocker is **L611c → {jt1084 modal-alert, jt372 → L62e0_c8 →
+L60b0_c8}**; jt270 adds jt456 + l06ae + l2ebe. That's ~10 functions across
+CODE 3/5/8/10 (~900 insn) — its own multi-lift session. **jt1084** (the
+low-level Error alert) is the highest-value entry to lift first: it is a
+MISSING JT used broadly across the app, not just here. l06ae + l2ebe should
+be lifted alongside jt270 (so the callback-pointer ABI is verified in one
+pass), not in isolation.
 
 ### CODE 11 — area/geo editor (continuing earlier work)
 | JT | addr | ~insn | notes |
@@ -81,13 +108,23 @@ docs/area-map-wall.md.)
 
 ## Recommended attack order
 
-1. **CODE 22 painter trio** (jt282 → jt286 → jt281): deps mostly lifted,
-   live dispatcher, coherent. Start with **jt282** (verified clean).
-2. **CODE 2 small painters** (jt258, jt246, then jt254): the record
-   editor's leaf renderers.
-3. **CODE 10 small viewers** (jt269, jt264, jt265, jt270).
+1. ✅ **CODE 22 painter trio** (jt282/jt286/jt281/l347a) — DONE.
+2. **CODE 2 small painters** — only jt246 was a clean leaf (DONE); the rest
+   (jt258/jt254/…) are dispatchers/constructors needing jt207+jt1076 first.
+3. **CODE 10 small viewers** — only jt265 was a clean leaf (DONE, 2026-07-05);
+   jt264/jt270 need the **L611c subtree** (see the CODE 10 reality-check
+   above). Best next entry there: **jt1084** (the low-level Error alert —
+   MISSING, broadly used), then jt372 (+L62e0_c8/L60b0_c8), then L611c, then
+   jt264; jt270 additionally needs jt456 + l06ae + l2ebe.
 4. **CODE 11 jt242** (after its 5 painter locals).
 5. **The giants** (jt259/266/249/248/243) — one focused session each.
+
+**Pattern across CODE 2 and CODE 10 (2026-07-05):** the wall's per-entry
+`~insn`/deps columns were scanned label-to-label and swept in the following
+CODE-local helpers, so they wildly over-count and mislabel deps. Each
+"small viewer/painter" cluster has yielded exactly ONE genuine clean leaf
+(jt246, jt265); the rest are dispatchers or bottom out on deep multi-segment
+subtrees. Measure each entry against the disasm before trusting the table.
 
 The dispatchers that *wire* the cluster for eventual validation are the
 CODE 22 **L0004** area-command loop (21 arms) and jt315's EDIT MODULES
