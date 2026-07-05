@@ -271,6 +271,12 @@ ALIAS_LIFTED = {
     105: "lifted as l3f3c (same address; bigpic palette-range install)",
     1038: "the _GetOSEvent/SetTrapAddress trap glue = the shim's events",
     1059: "the async-PB file trap glue (FSDispatch sel 9/10/16/17/11) = the shim's files.c",
+    1063: "the _HandToHand Pascal trap glue = the shim's HandToHand (macmemory.c) "
+          "— dup a handle in place; the port's lifted callers use the shim directly",
+    1027: "Mac low-memory node-recycler (tstw 0x28e; pop a 12-byte node off the "
+          "0x114/0x2aa free-list) — MOOT on Atari: those addresses are 68k "
+          "exception vectors / TOS sysvars, not Mac low-mem, so the faithful "
+          "behaviour is a no-op (the _StripAddress / _SysEnvirons pattern)",
     1060: "the async-PB volume trap glue = the shim's files.c",
     1062: "the _StripAddress glue — identity on the 68030's flat 32-bit bus",
     1025: "the _SysEnvirons availability glue — the shim's environment is fixed",
@@ -402,14 +408,10 @@ PENDING_NOTES = {
     458:  "SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac "
           "boot mega-init the port replaces with boot.c). Never reached.",
     # NOT the file shim (mislabelled): own subsystems.
-    1039: "NOT HFS — date/time (_SecondsToDate/_DateToSeconds); a Toolbox date "
-          "shim (GEMDOS Tgetdate/Tgettime). Own lift.",
-    1063: "NOT HFS — Memory Manager handle dup (_HandToHand/_PtrToHand/"
-          "_BlockMove); route to the macmemory shim. Own lift.",
-    1143: "NOT HFS — 7-line RNG seed (jt1039() ^ _TickCount()); depends on "
-          "jt1039. Own lift once the date shim lands.",
-    1027: "NOT HFS — pokes Mac low-memory (0x114/0x2aa free-list); moot on "
-          "Atari (no such struct). NOOP candidate.",
+    1039: "NOT HFS — GetDateTime glue (reads low-mem Time 0x20c, secs-since-1904); "
+          "a Toolbox date shim (GEMDOS Tgetdate/Tgettime). Own lift.",
+    1143: "NOT HFS — RNG seed (GetDateTime() ^ _TickCount()); seeds the LCG "
+          "(rand.c A5-4902). Depends on jt1039. Own lift once the date shim lands.",
 }
 
 
