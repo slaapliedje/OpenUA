@@ -1,3 +1,50 @@
+# Remaining stub frontier — full triage (2026-07-04, post-jt592)
+
+After jt954 + jt592, the scoreboard reads **1134/1205 done, 14 stub +
+57 missing**. This pass individually re-scouted **all 14 remaining
+stubs** (asm body + port caller + deps) to answer one question: *is any
+of them a clean, isolated, live, screenshot-validatable gap-fix like
+jt954/jt592 were?* Answer: **no — the clean live-stub frontier is
+exhausted.** Every one is blocked by at least one hard barrier below.
+Recorded so the next session doesn't re-derive it. (`--wiring` lists
+these by asm weight; sizes are label→rts in `data/work/disasm`.)
+
+| stub | CODE | port | disposition — why it is NOT a clean live gap-fix |
+|---|---|---|---|
+| jt933 | 12 | 3 | **Modal menu loop** — builds items via JT[155], selects via JT[160] (mouse), 9-arm JT[3] dispatch, loops until "exit". Mouse-gated + non-HEIRS. UNVALIDATABLE headless. |
+| jt931 | 12 | 1 | **Rule-book copy-protection challenge** menu (already documented below: unreachable once the slot-3 "Boots" marker seeds). Same menu family. |
+| jt919 | 12 | 1 | Same CODE 12 modal-menu family (JT[155]/JT[160] driven). Mouse-gated. |
+| jt1081 | 5 | 1 | **Global teardown chain**, reached ONLY on the jt69 fatal-exit path; jt415/ExitToShell runs immediately after, so the per-subsystem releases are MOOT on the port. 5 of its 9 deps (l27bc, jt1156, l01ac, jt1119, l0f14) are still MISSING. |
+| jt1064 | 5 | 1 | **Toolbox A-trap glue** (`.short 0xaded`/`0xade7` = Menu/Window Mgr traps, computed `bsr` dispatch). NOT clean C — same class as jt1059=l5e30. Port handles window-content hit-test via its own event system. |
+| jt955 | 18 | 0 | 2-instruction leaf, **port=0** — nothing in the port calls it. DEAD. |
+| jt985 | 5 | 0 | "Song out of range (%d/%d)"-checked music-play; **port=0**. DEAD (audio anyway). |
+| jt974 | 5 | 0 | **port=0**. DEAD. |
+| jt1008 | 5 | 2 | jt10's Pod-UI key sink — but its only caller jt10 is `__attribute__((unused))` (jt989 dispatch ABI not wired) AND dep L0ab6 is MISSING. UNREACHABLE. |
+| jt965 | 5 | 1 | **Sound/voice engine** (guarded by jt1154 sound-enabled). The DMA-sound HAL is stubbed; audio, so unvalidatable via screenshot. HAL-BLOCKED. |
+| jt587 | 15 | 1 | Party-add 398-byte record init (`jt399` clear → JT[3] case-1 `L08ba` → jt21 + jt910). But the **caller reimplements party-add via the `cg_pool` stand-in**, so a faithful jt587 is unwired without a #141-style migration; dep L08ba is MISSING; copy-direction is corruption-risky. STAND-IN-ENTANGLED — follow-up to #141, not an isolated fill. |
+| jt365 | 8 | 1 | **Monster-art loader** — needs the CODE 8 art pipeline (l62e0 bind etc.). GRAPHICAL/ART subsystem. |
+| jt428 | 3 | 1 | Text print — needs the console/HAL path. HAL-BLOCKED. |
+| jt1144 | 4 | 1 | **Mac Toolbox app-init** (`_InitGraf`/`_InitWindows`/`_InitMenus`/`_TEInit`/`_InitDialogs`/`_FlushEvents`). The port's compat shim + boot sequence IS the analog — there is no Toolbox to init. NOOP-class (like jt9's trap-unpatch), not a pending body; candidate to move stub→noop in `jt_progress.py`. |
+
+**The barriers, grouped:** interactive/mouse-gated menu loops
+(jt933/931/919) can be *rendered + screenshotted* but not *clicked
+through* headless — validation needs the user's mouse (see #144 note).
+Audio/HAL (jt965/jt428) and monster-art (jt365) need subsystem/HAL
+build-out first. jt1081 is moot (exits after) with missing deps;
+jt1064/jt1144 are Toolbox glue with no faithful C body; jt955/985/974
+are dead (port=0); jt1008 is unreachable; jt587 is stand-in-entangled.
+
+**So jt954 and jt592 were the last isolated clean live-stub lifts.**
+Forward paths from here are (a) the mouse-gated menus, lifted *with the
+user driving Hatari to click through them* (jt933 party menu is the
+highest-value), or (b) the MISSING subsystem chains — jt426 design-LOAD
+parser, CODE 2 recorder (jt246/253/254/258), CODE 8 monster-art
+(jt365/371/372), CODE 10/11 viewers (jt267/jt244) — each a multi-lift
+buildout, not a leaf fill. Neither is a "keep grinding leaves" step;
+both want an explicit scope decision.
+
+---
+
 # Stand-in / stub audit — 2026-07-04 (live-probe refresh)
 
 ## Snapshot 2026-07-04 (regen `tools/jt_progress.py` + FRUA_ENGINE_PROBE_ONCE)
