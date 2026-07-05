@@ -60016,6 +60016,7 @@ static void jt286(long hp, short y, short x, short sel, short st, short z)
     __attribute__((unused));
 static void jt286(long hp, short y, short x, short sel, short st, short z)
 {
+	unsigned char *holder = (unsigned char *)(uintptr_t)hp;
 	unsigned char *rec;
 	unsigned char  f4900;               /* fp@(-1) = jt273() flag */
 	unsigned char  code = 0;            /* fp@(-2) */
@@ -60071,14 +60072,12 @@ static void jt286(long hp, short y, short x, short sel, short st, short z)
 		code = rec[10];
 	}
  L2d1c:
+	/* holder[30]/holder[31] = paint caches (single deref, NOT rec[N]). */
 	if (sel < 0) goto L2d32;
-	rec = *(unsigned char **)(uintptr_t)hp;
-	if (rec[30] == code) goto L2e26;
+	if (holder[30] == code) goto L2e26;
  L2d32:
-	if (sel >= 0) {
-		rec = *(unsigned char **)(uintptr_t)hp;
-		rec[30] = code;
-	}
+	if (sel >= 0)
+		holder[30] = code;
 	if (jt1200() == 3) {
 		jt1161((short)(y+4), (short)(x+4), (short)(y+20), (short)(x+18),
 		       (short)8);
@@ -60102,13 +60101,10 @@ static void jt286(long hp, short y, short x, short sel, short st, short z)
 		}
 	}
 	if (sel >= 0) {
-		rec = *(unsigned char **)(uintptr_t)hp;
-		if (rec[31] == code) goto L2f20;
+		if (holder[31] == code) goto L2f20;
 	}
-	if (sel >= 0) {
-		rec = *(unsigned char **)(uintptr_t)hp;
-		rec[31] = code;
-	}
+	if (sel >= 0)
+		holder[31] = code;
 	if (jt1200() == 3) {
 		y = (short)(y + 1);
 		goto L2ec8;
@@ -60146,6 +60142,7 @@ static void jt282(long hp, short y, short x, short sel, short st, short z)
     __attribute__((unused));
 static void jt282(long hp, short y, short x, short sel, short st, short z)
 {
+	unsigned char *holder = (unsigned char *)(uintptr_t)hp;
 	unsigned char *rec;
 	unsigned char  code;
 	unsigned char  dstate;
@@ -60163,13 +60160,12 @@ static void jt282(long hp, short y, short x, short sel, short st, short z)
 	if (code == 0) goto L3298;
 	code = 0;
  L2f60:
+	/* holder[32] = last-painted code cache (single deref, NOT rec[32]). */
 	if (sel < 0) goto L2f76;
-	rec = *(unsigned char **)(uintptr_t)hp;
-	if (rec[32] == code) goto L3298;
+	if (holder[32] == code) goto L3298;
  L2f76:
 	if (sel < 0) goto L2f86;
-	rec = *(unsigned char **)(uintptr_t)hp;
-	rec[32] = code;
+	holder[32] = code;
  L2f86:
 	dstate = ((unsigned char *)(uintptr_t)g_a5_long(-12300))[code + 8];
 	if ((z & 0xff) == 0) goto L30fc;
@@ -60218,21 +60214,113 @@ static void jt282(long hp, short y, short x, short sel, short st, short z)
  L3298:
 	return;
 }
-static void l329c(long hp, short y, short x, short sel, short st, short z)
-{ PROBE("l329c"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
+/* JT[281] (CODE 22 + 0x329c) — paint a design-list entry, kind 2 (reached via
+ * jt278's kind dispatch). Resolves the entry code (jt306(sel) for a specific
+ * cell, else rec[15] when the state byte `st` is set, else 0), and when
+ * repainting one cell (sel>=0) skips the primary paint if the holder's cached
+ * code (holder[33]) is unchanged, stamping it otherwise. Primary paint: a code
+ * swatch (jt1161), a "%s %d" type label (-11312 name + code+1), and the cell's
+ * 16-byte name field (design struct byte 134+code*16, read into a scratch via
+ * jt406) drawn right-justified as "%*s" in a width of 13 (compact: z && sel>=0)
+ * or 16 — falling back to jt488(-10604, code+1) when the name is empty. Then a
+ * secondary state line: when jt273() is set and l475e_c22(sel) differs from the
+ * holder's cache (holder[35]), stamp it and paint "%16s" (the -10648 marker
+ * when non-zero, else empty).
+ *
+ * Faithful goto-mirror of 0x329c..0x3478. Coords are Mac (v,h) order (jt1089
+ * v/h, jt1161 top/left) so the asm push order transcribes directly — with ONE
+ * exception: jt406's port lift is memmove(dst,src) while the Mac pushes
+ * (src,dst), so the record->scratch copy is written SWAPPED (see the jt406
+ * callers). The paint-cache bytes (33/35) live in the HOLDER struct (hp[N],
+ * single deref), NOT the record (*hp, double deref) — the same holder/record
+ * split verified in jt278/282/286. #153. Dormant: mouse-gated editor. */
+static void jt281(long hp, short y, short x, short sel, short st, short z)
+    __attribute__((unused));
+static void jt281(long hp, short y, short x, short sel, short st, short z)
+{
+	unsigned char *holder = (unsigned char *)(uintptr_t)hp;
+	unsigned char *rec;
+	unsigned char  code;
+	char           namebuf[18];         /* fp@(-18): jt406 fills [0..15] */
+	const char    *strptr;
+	short          width;
+
+	PROBE("jt281");
+
+	if (sel < 0) goto L32b6;
+	code = (unsigned char)jt306(sel);
+	goto L32ce;
+ L32b6:
+	if ((st & 0xff) != 0) {
+		rec  = *(unsigned char **)(uintptr_t)hp;
+		code = rec[15];
+	} else {
+		code = 0;
+	}
+ L32ce:
+	if (sel >= 0 && holder[33] == code)
+		goto L33fe;
+	if (sel >= 0)
+		holder[33] = code;
+
+	/* primary paint */
+	jt1161((short)(y + 4), x, (short)(y + 8), (short)(x + 4), (short)code);
+	jt1089((short)(y + 4), (short)(x + 6), (short)135, "%s %d",
+	       (const char *)(uintptr_t)g_a5_long(-11312), (short)(code + 1));
+
+	/* SWAPPED jt406 (Mac copy(src,dst) vs port memmove(dst,src)): read the
+	 * 16-byte cell name from the -12300 design struct's byte 134+code*16 into
+	 * the scratch buffer for the "%*s" draw below. */
+	jt406(namebuf,
+	      (const void *)(uintptr_t)(g_a5_long(-12300) + (long)code * 16 + 134),
+	      (short)16);
+
+	if ((z & 0xff) != 0 && sel >= 0)
+		namebuf[13] = 0;                /* fp@(-5): compact truncation */
+	else
+		namebuf[16] = 0;                /* fp@(-2): full-width terminator */
+
+	width = ((z & 0xff) != 0 && sel >= 0) ? 13 : 16;
+	if (namebuf[0] != 0)
+		strptr = namebuf;
+	else
+		strptr = jt488((const char *)(uintptr_t)g_a5_long(-10604),
+		               (short)(code + 1));
+	jt1089((short)(y + 8), x, (short)135, "%*s", (int)width, strptr);
+	jt273();                            /* result discarded */
+
+ L33fe:
+	if (sel < 0)
+		return;
+	if (jt273() == 0)
+		return;
+	if ((short)holder[35] == (short)(signed char)l475e_c22(sel))
+		return;
+	holder[35] = (unsigned char)l475e_c22(sel);
+	strptr = holder[35]
+	    ? (const char *)(uintptr_t)g_a5_long(-10648)
+	    : "";
+	jt1089((short)(y + 16), x, (short)135, "%16s", strptr);
+}
 static void l347a(long hp, short y, short x, short sel, short st, short z)
 { PROBE("l347a"); (void)hp;(void)y;(void)x;(void)sel;(void)st;(void)z; }
 
-/* JT[278] (CODE 22+0x294e) — paint one design-list entry. The
- * handle's record: byte 4 = state (0 picks the (8068, 8084) anchor
- * and bar height 24, else (8058, 8092) and 26), byte 5 = kind
- * (JT[3] switch 0..3 over the four painters), byte 36 = last
- * painted state (stamped at exit). `repaint` clears the entry's
- * rect first (JT[1161] fill 8). Structural lift: the call sequence
- * is faithful, the per-kind painters are leaf stubs. */
+/* JT[278] (CODE 22+0x294e) — paint one design-list entry. `handle_ptr`
+ * is the entry HOLDER: bytes 0-3 point to the design record R (=*hp),
+ * and the holder's own bytes hold per-entry paint state. Two structures,
+ * two deref depths (verified against the asm):
+ *   record R (double deref, (*hp)[N]): byte 4 = state (0 picks the
+ *     (8068,8084) anchor and bar height 24, else (8058,8092) and 26),
+ *     byte 5 = kind (JT[3] switch 0..3 over the four painters).
+ *   holder H (single deref, hp[N]): byte 4 = the state passed to the
+ *     painter as `st`, byte 36 = last-painted state (stamped at exit).
+ * `repaint` clears the entry's rect first (JT[1161] fill 8). The kind
+ * painters jt286/jt282/jt281 are faithful lifts; l347a (kind 3) is a
+ * leaf stub pending its own pass. */
 static void jt278(long handle_ptr, short repaint) __attribute__((unused));
 static void jt278(long handle_ptr, short repaint)
 {
+	unsigned char *holder = (unsigned char *)(uintptr_t)handle_ptr;
 	unsigned char *rec =
 	    (unsigned char *)(uintptr_t)*(long *)(uintptr_t)handle_ptr;
 	short          is_zero = (short)((rec[4] == 0) ? -1 : 0);
@@ -60252,17 +60340,17 @@ static void jt278(long handle_ptr, short repaint)
 
 	switch (rec[5]) {
 	case 0: jt286(handle_ptr, y, x, (short)-1,
-	              (short)(signed char)rec[4], is_zero); break;
+	              (short)(signed char)holder[4], is_zero); break;
 	case 1: jt282(handle_ptr, y, x, (short)-1,
-	              (short)(signed char)rec[4], is_zero); break;
-	case 2: l329c(handle_ptr, y, x, (short)-1,
-	              (short)(signed char)rec[4], is_zero); break;
+	              (short)(signed char)holder[4], is_zero); break;
+	case 2: jt281(handle_ptr, y, x, (short)-1,
+	              (short)(signed char)holder[4], is_zero); break;
 	case 3: l347a(handle_ptr, y, x, (short)-1,
-	              (short)(signed char)rec[4], is_zero); break;
+	              (short)(signed char)holder[4], is_zero); break;
 	default: break;
 	}
 
-	rec[36] = rec[4];
+	holder[36] = holder[4];
 }
 
 /* L7490 (CODE 8+0x7490) — load area-map icon `n` into the -10366

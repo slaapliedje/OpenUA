@@ -30,14 +30,15 @@ JT + lXXXX callee already lifted.
 ### CODE 22 — design-list rendering (the tractable start)
 | JT | addr | ~insn | notes |
 |---|---|---|---|
-| **jt282** | l2f24 | 283 | design-list entry painter, kind 1. **deps clean** (L0674 + jt1089/1161/117/1173/1193/1200/353). Live parent = jt278. **← recommended first lift** |
-| jt286 | l2aaa | 366 | entry painter kind 0; ~6 CODE-22 local deps (verify) |
-| jt281 | l329c | 390 | entry painter kind 2; ~6 CODE-22 local deps (verify) |
+| ~~jt282~~ | l2f24 | 283 | **LIFTED** — entry painter kind 1 (jt278 case 1) |
+| ~~jt286~~ | l2aaa | 366 | **LIFTED** — entry painter kind 0 (jt278 case 0) |
+| ~~jt281~~ | l329c | ~120 | **LIFTED** — entry painter kind 2 (jt278 case 2) |
+| jt??? | l347a | ~200 | entry painter kind 3 (jt278 case 3) — **only one left**; check JT id |
 
 These four painters (l2aaa/l2f24/l329c/l347a) are dispatched by the
-already-lifted **jt278** (CODE 22+0x294e) on the entry's kind byte. l347a
-(kind 3) is the 4th; check its JT mapping. Finishing the trio completes
-the design-list paint path — a coherent, self-contained deliverable.
+already-lifted **jt278** (CODE 22+0x294e) on the entry's kind byte. The trio
+(kinds 0/1/2) is DONE; **l347a (kind 3) is the last** — check its JT mapping,
+then the design-list paint path is complete.
 
 ### CODE 2 — the design-record editor ("recorder")
 | JT | addr | ~insn | notes |
@@ -106,28 +107,48 @@ is not transposition but getting a coordinate offset or a branch arm
 wrong — cross-check each against the disasm, since the mouse-gated smoke
 harness can't catch it.
 
-## Status — painter trio 2/3 done
+## The holder-vs-record split (found lifting jt281 — corrected jt278/282/286)
 
-- **jt282 — LIFTED** (2026-07-05). Faithful goto-mirror of 0x2f24..0x329a;
-  jt278 case 1 rewired. Dormant (mouse-gated).
-- **jt286 — LIFTED** (2026-07-05). kind 0, 366 insn + its 3-local dep tree
-  (l0524_c22 / l48b2_c22 / l475e_c22, all lifted this pass; L48ca resolved
-  to the already-lifted jt291, L4900=jt273, L05ca=jt293). jt278 case 0
-  rewired. Dormant.
-- **jt281 (l329c) — NEXT, verified deps-clean (a pure single lift).** kind
-  2, ~390 insn. All callees already lifted: L0716=jt306, L22c4=jt308,
-  L294e=jt278, L4900=jt273, L475e=l475e_c22, L04d6. Uses -11312 (not
-  -11316). **Care-points for the transcription** (new primitives vs jt282/
-  jt286 — verify each arg convention first):
-  - **jt406**(cell,scratch,16,...) formats a decimal into a fp@(-18)
-    buffer (the -12300 design struct's byte 134+cell*16 record).
-  - **jt488**(-10604, count) — the width/pad helper feeding the "%*s".
-  - **jt1089 "%*s"** (STRS 0x30de) — a width-formatted string draw; confirm
-    the port's jt1089 vsnprintf handles `%*s` (width + string args).
-  These make jt281 a genuine focused transcription, not rote — hence
-  deferred rather than rushed at the tail of a 13-commit session.
+jt278's `handle_ptr` is an entry **HOLDER**, not the record. Two structures,
+two deref depths — verified against the asm (`2050 moveal %a0@,%a0` present =
+double deref = record; absent = single deref = holder):
+
+- **record R = `*hp`** (double deref, `(*hp)[N]`): the live design content —
+  byte 4 = state (drives jt278's anchor/height + is_zero), byte 5 = kind, and
+  the painters' content bytes 10/12/14/15.
+- **holder H = `hp`** (single deref, `hp[N]`): the entry's own per-paint
+  caches — byte 4 = the `st` value jt278 passes to the painters, byte 36 =
+  jt278's last-painted stamp, and the painters' dirty-check caches 30/31/32/33
+  and the secondary-state cache 35.
+
+The first-pass lifts of jt278/jt282/jt286 wrongly read those cache bytes through
+`rec = *hp` (double). **Corrected in this commit**: jt278 (`st` = holder[4],
+stamp `holder[36]=holder[4]`), jt282 (holder[32]), jt286 (holder[30]/[31]) —
+each now single-deref via a `holder` local, with the content bytes (5/10/12/14/
+15) unchanged (still `(*hp)[N]`). No behaviour change today (all dormant), but
+using the record's bytes 30-36 as paint caches would have corrupted record data
+once the editor UI is wired.
+
+## Status — painter trio COMPLETE (3/3)
+
+- **jt282 — LIFTED** (2026-07-05). kind 1. jt278 case 1. holder[32] fix.
+- **jt286 — LIFTED** (2026-07-05). kind 0 + 3-local dep tree. jt278 case 0.
+  holder[30]/[31] fix.
+- **jt281 — LIFTED** (2026-07-05, was l329c=entry_jt281). kind 2, faithful
+  goto-mirror of 0x329c..0x3478 (the "390 insn" note conflated it with l347a;
+  it's ~120 insn). jt278 case 2 rewired. Care-points, all resolved:
+  - **jt406** is the swap-convention exception — port lift is
+    `memmove(dst,src)` but the Mac pushes `copy(src,dst)`, so the record→scratch
+    name read is `jt406(namebuf, base+134+code*16, 16)` (SWAPPED; matches the
+    jt406(b,a,n) rule at the other callers).
+  - **jt488**(-10604, code+1) = the empty-name fallback string (vsnprintf into
+    g_a5_10362, returns it).
+  - **jt1089 "%*s"** (STRS 0x30de) width-draw — the port jt1089 is vsnprintf so
+    `%*s`(int width, char*) works directly. Width = 13 (compact: z&&sel>=0) or
+    16. Terminators at namebuf[13]/[16] (fp@(-5)/fp@(-2)). STRS 0x30e8 = "".
+  - Uses -11312 (type label) / -10604 (fallback fmt) / -10648 (state marker).
 
 The coordinate convention (Mac order, direct push-order transcription) is
-settled. Kind 3 (l347a) remains a stub after the trio; check its JT id.
-Everything here is dormant/mouse-gated — verify against the disasm, not
-the smoke harness.
+settled; jt406 is the lone swap. **Kind 3 (l347a = its own entry_jt?) remains
+a stub** — the next design-list painter. Everything here is dormant/mouse-gated;
+verify against the disasm, not the smoke harness.
