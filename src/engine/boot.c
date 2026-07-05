@@ -3431,7 +3431,7 @@ static void  jt510(void)                   { PROBE("jt510"); }  /* CODE 13+0x6d1
  * disasm). Genuinely a no-op hook; this stub IS the faithful lift. */
 static void  jt512(void)                   { PROBE("jt512"); }
 static void  jt954(void);   /* CODE 21+0x38f4 — l2e42 move-code 3; full lift near l2e42 */
-static void  jt592(short v)                { PROBE("jt592"); (void)v; }  /* CODE 15+0x1188 — l380a effect apply */
+static void  jt592(short code);   /* CODE 15+0x1188 — effect-monster spawn; full lift near jt590 */
 /* JT[99] == l4b84 (CODE 6+0x4b84) — jt99(11,0,-14644) just calls jt175() (the
  * page-pause); args are discarded, so callers use the lifted l4b84() directly. */
 static void  l1e30(void *ev_v, long target);  /* per-member effect apply — lifted below */
@@ -25321,6 +25321,44 @@ static void jt590(void *entry_v)
 
 	if ((entry[147] & 0x80) != 0)
 		jt910((long)(uintptr_t)entry);
+}
+
+/* JT[592] (CODE 15+0x1188) — spawn `code` as an effect-monster and set
+ * up its on-screen actor. Guarded on the design header (-28006[32] must
+ * be <= 7). Allocates a 398-byte record from the -22212 bucket (jt477),
+ * loads monster `code` into it (jt588 = the MONST-container loader),
+ * runs the post-load pass (jt590), then flags it live (rec[147] bit 7),
+ * stamps its type (rec[181]=code), loads its "CPIC" picture (jt56), and
+ * derives the actor cell-size rec[130] from the picture's pixel extent
+ * (jt53 -> px/py; (py*2 + px - 2) with rec[130] bit 7 preserved).
+ * Un-stubs the effect-monster arm of the l380a HP-percentage event
+ * (was a no-op PROBE, so the effect actor never appeared). NULL guard
+ * on the alloc is a port-defensive add (the Mac assumes success). */
+static void jt588(short id, unsigned char *rec);
+static void jt56(const char *name, short a, short b);
+static void jt53(short col, short row, short *px, short *py);
+static void jt592(short code)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char *rec = NULL;
+	short          px = 0, py = 0;
+
+	PROBE("jt592");
+	if ((unsigned char)hdr[32] > 7)
+		return;
+
+	jt477(&g_a5_byte(-22212), (short)398, &rec);
+	if (rec == NULL)
+		return;
+	jt588((short)(unsigned char)code, rec);
+	jt590(rec);
+
+	rec[147] |= 0x80;
+	rec[181] = (unsigned char)code;
+	jt56("CPIC", (short)(unsigned char)code, (short)rec[189]);
+	jt53((short)rec[189], (short)0, &px, &py);
+	rec[130] = (unsigned char)(((short)(py * 2 + px - 2))
+	                           | (rec[130] & 0x80));
 }
 /* jt56 deps defined later in the file. */
 static const char *jt482(const char *src, short offset, short count);
