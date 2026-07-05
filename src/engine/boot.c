@@ -66136,6 +66136,41 @@ static void jt1120(void)
 	l3e38();
 }
 
+/* JT[1077] (CODE 5 + 0x08f6) — the modal numeric-entry prompt. Sizes the
+ * field from the max (`hi` digits via jt388 + a sign column), formats the
+ * default (jt394 "%r") if non-zero, reads a line (jt1078), atoi's it
+ * (jt417) and loops (l0156 beep) until it parses inside [lo, hi];
+ * returns the value, or lo-1 on cancel. #151. */
+static short jt1077(short lo, short hi, long deflt, short width) __attribute__((unused));
+static short jt1077(short lo, short hi, long deflt, short width)
+{
+	char  inbuf[16];        /* fp@(-92) — the typed digits */
+	char  defbuf[80];       /* fp@(-84) — the formatted default */
+	short digits;           /* fp@(-2) */
+	short w;                /* fp@(-4) */
+	short n;
+
+	PROBE("jt1077");
+	digits = (short)(lo < 0 ? 2 : 1);
+	w = (short)(-jt388(hi));
+	while (w <= -10) {
+		digits++;
+		w = (short)(w / 10);
+	}
+	if (deflt != 0)
+		jt394(defbuf, ua_strs_at(0x6d38) /* "%r" */, deflt, &width);
+	for (;;) {
+		inbuf[0] = 0;
+		if (!jt1078((long)(uintptr_t)(deflt != 0 ? defbuf : NULL),
+		            inbuf, digits, width))
+			return (short)(lo - 1);
+		n = jt417((long)(uintptr_t)inbuf);
+		if (n >= lo && n <= hi)
+			return n;
+		l0156();
+	}
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
