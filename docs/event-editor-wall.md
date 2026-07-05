@@ -25,8 +25,8 @@ until enough of these arms exist. Track that as the Phase-B/C "wire-up" step.
 
 | entry | alias | CODE 2 off | insn | role |
 |-------|-------|-----------|------|------|
-| jt254 | l4c5a | 0x4c5a | 422 | smallest editor screen — **START (B2-B4)** |
-| jt253 | l44cc | 0x44cc | 644 | editor screen |
+| jt254 | l4c5a | 0x4c5a | 422 | event-list PRINT command — **COMPLETE** |
+| jt253 | l44cc | 0x44cc | 644 | editor screen — **NEXT** |
 | jt252 | l44ca | 0x44ca | tiny | 2 bytes before jt253 — fold in with jt253 |
 | jt248 | l26aa | 0x26aa | 890 | editor screen |
 | jt249 | l333a | 0x333a | 1102 | editor screen |
@@ -79,11 +79,27 @@ implied). The l4c5a entry is a thin jt259-style wrapper (call worker → pack by
 result into *desc → return state); the real worker is **L541c** (frame −282, a
 large print driver: "Printing . . ." + printer setup + JT[76/94/1134/1009/978]
 + text-format helpers + _UnLoadSeg housekeeping). L541c drives **L4eb2**, the
-ASCII map-grid printer.
+ASCII map-grid printer, and **L5304** the recursive event-chain printer.
 - **B3a DONE** — L4eb2 (map-grid renderer) lifted.
-- **B3b** — L541c (the print driver): skeleton then fill (its own sub-pass;
-  audit its JT leaves first with jt_lookup — several are printer/text glue).
-- **B3c** — wire the l4c5a = jt254 entry (thin wrapper over L541c).
+- **B3b+c DONE — jt254 COMPLETE.** L541c (the print driver, 4 output blocks:
+  map tiles → cell legend → Step Events → Rest-in-Zone) + **L5304** lifted as
+  `l5304_c2` (recursive chain printer; (CODE,offset) clash with a CODE 6 l5304
+  item-loader → `_c2` suffix) + the l4c5a=jt254 entry wrapper. Two tail leaves
+  (jt260 CODE 10+0x5aca, jt709 CODE 16+0x0004) were empty `rts` in the Mac →
+  added as PROBE stubs (mirror jt859). All other leaves already lifted.
+  - **Print path is a documented stub at the printing-manager boundary:**
+    jt428 (open job) is a PROBE stub → the -9162 gate never opens → jt433 output
+    is gated off by l7a24(). So L541c/L5304 transcribe faithfully and emit
+    nothing — the ADR-consistent HAL-boundary treatment, no Falcon print driver.
+  - **jt325 is a level-2 skeleton** that doesn't populate the child list via
+    g_a5(-12070), so l5304_c2's recursion is currently inert (count stays 0). It
+    activates faithfully once jt325's record-editor tail is lifted.
+  - **jt1074 collapses the Mac "%r" sub-format to one tail operand** — L5304's
+    "%s - %s" 2nd operand (the event name) is dropped by the port's fixed jt1074
+    signature; moot behind the dead print gate. Noted in the lift comment.
+
+**jt254 (l4c5a, the smallest editor screen) is now COMPLETE.** Next target:
+jt253 (l44cc, 644) + jt252 (l44ca, tiny) — the next editor screen.
 
 ## Method (same as jt259 / #153 so far)
 

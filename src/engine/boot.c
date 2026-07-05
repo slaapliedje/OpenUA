@@ -71008,6 +71008,188 @@ static void l4eb2(short oStart, short iStart, short oEnd, short iEnd,
 	*pidx = idx;
 }
 
+/* JT[260] (CODE 10 + 0x5aca) and JT[709] (CODE 16 + 0x0004) — both are an
+ * empty `rts` in the Mac binary (disasm-verified: CODE_10.s @5aca and
+ * CODE_16.s @0004 are a bare `4e75`). L541c re-references them at its tail as
+ * the segment-cleanup no-ops that pair with the head _UnLoadSeg calls; the
+ * faithful lift is the empty body (mirrors jt859). */
+static void jt260(void) __attribute__((unused));
+static void jt260(void) { PROBE("jt260"); }
+static void jt709(void) __attribute__((unused));
+static void jt709(void) { PROBE("jt709"); }
+
+/* L5304 (CODE 2 + 0x5304) — recursive event-CHAIN printer for the jt254 PRINT
+ * command (frame -50). Formats one event line ("<label> - <event name>") via
+ * the pagination printer jt1074, resolves the event's chained children through
+ * jt325 (which the Mac fills into a 14-byte struct pointed to by g_a5(-12070)),
+ * then recurses on each child — indenting one level (jt413 clamps depth to 18)
+ * and appending " Chain" to the label. The port's jt325 is a level-2 skeleton
+ * that does not yet populate the child list, so the recursion is currently
+ * inert (count stays 0); it activates faithfully once jt325's record-editor
+ * tail is lifted. Named _c2: an unrelated CODE 6 l5304 (item.dat loader) exists.
+ *   a0 = depth, a1 = parent label, a2 = event type/id, a3 = jt325 context. */
+static void l5304_c2(short a0, char *a1, short a2, void *a3) __attribute__((unused));
+static void l5304_c2(short a0, char *a1, short a2, void *a3)
+{
+	char  buf50[30];            /* fp@(-50) — event-name / child-label scratch */
+	long  slot20;               /* fp@(-20) — jt325 out (long *rec; port unused) */
+	short i;                    /* fp@(-16) — child loop counter                */
+	/* fp@(-14): 14-byte chain struct = { count[0], depth[1], childA[2..7],
+	 * childB[8..13] }; childA[i] = fp@(i-12), childB[i] = fp@(i-6). g_a5(-12070)
+	 * points at it for the (deferred) child resolver. */
+	unsigned char chain[14];
+
+	PROBE("L5304_c2");
+	/* line 1: "<a1> - <event name from jt366>" through the paginator. The
+	 * port's jt1074 collapses the Mac "%r" sub-format to a single tail operand,
+	 * so the 2nd operand (buf50, the event name) is dropped — moot behind the
+	 * never-opened print gate (jt428 stub). */
+	jt366((short)jt348(a2), (short)10, (long)(intptr_t)buf50);
+	jt1074((short)(a0 * 2 + 4),
+	       (long)(intptr_t)ua_strs_at(0x2cae) /* "%s - %s" */,
+	       (long)(intptr_t)a1);
+
+	chain[1] = (unsigned char)a0;                 /* fp@(-13) = depth        */
+	chain[0] = 0;                                 /* fp@(-14) = 0 (count)    */
+	g_a5_long(-12070) = (long)(intptr_t)chain;
+	jt325((short)0, (long *)&slot20, a3, (short)jt348(a2),
+	      (void *)(uintptr_t)(g_a5_long(-13038) + (long)a2 * 20 - 20),
+	      (short)7, (short)20);
+
+	for (i = 0; (unsigned char)chain[0] > i; i++) {
+		/* build "<child name> Chain" into buf50, then recurse one deeper */
+		jt345((short)jt348(a2), (short)chain[2 + i] /* childA[i] */,
+		      (long)(intptr_t)buf50);
+		jt404(buf50, ua_strs_at(0x2cb6) /* " Chain" */);
+		l5304_c2(jt413((short)(a0 + 1), (short)18), buf50,
+		         (short)chain[8 + i] /* childB[i] */, a3);
+	}
+}
+
+/* L541c (CODE 2 + 0x541c) — the jt254 event-list PRINT worker (frame -282).
+ * Opens the print-job header ("Printing . . ." via jt94 + jt1075/jt1071 rules),
+ * then prints the design's events in four blocks:
+ *   1. the map as an ASCII grid, tiled 24x24 cells (jt413 clamps each tile to
+ *      the map dims rec[2] x rec[3]); each tile rendered by l4eb2, which records
+ *      every non-empty cell into cellarr[] and its running count idx.
+ *   2. a legend: for each placed cell 0..idx-1, its label ("%2d", or base-26
+ *      "%c%d" for >=100) then its event chain via l5304_c2.
+ *   3. Step Events: 8 slots at rec[o*4 + 80], nonzero ones printed.
+ *   4. Rest-in-Zone: 8 slots at rec[o*4 + 48].
+ * Returns 1. The Mac _UnLoadSeg housekeeping (CODE 10/16/18) at head/tail is
+ * dropped — segments are resident in the port (jt260/jt709 empty, jt859 a
+ * no-op). The whole path is gated behind the never-opened print job (jt428
+ * stub), so nothing is emitted; lifted for faithfulness. */
+static signed char l541c(short a0) __attribute__((unused));
+static signed char l541c(short a0)
+{
+	short oEndTmp;                 /* fp@(-282) — first jt413 result (tile oEnd) */
+	char  labelbuf[64];           /* fp@(-280) — per-item label scratch         */
+	char  titlebuf[64];           /* fp@(-260) — "<hdr> - <design name>"         */
+	unsigned char cellarr[200];   /* fp@(-220) — placed-cell event bytes         */
+	short idx;                    /* fp@(-20)  — placed-cell count / pidx        */
+	short inner;                  /* fp@(-18)  — map column (step 24)            */
+	short outer;                  /* fp@(-16)  — map row / general loop counter  */
+	unsigned char evctx[16];      /* fp@(-14)  — l5304_c2 -> jt325 scratch ctx   */
+	unsigned char *rec;
+	short iEnd;
+
+	PROBE("L541c");
+	jt76();
+	jt94((short)13, (short)6, (short)7, (short)0,
+	     ua_strs_at(0x2cbe) /* "Printing . . ." */);
+	(void)jt1134();
+	jt1009((short)8086, (short)1);
+	jt978((short)139);
+	/* _UnLoadSeg(CODE 10/16/18) — resident port no-op */
+
+	jt367((short)(unsigned char)a0, (void *)titlebuf);
+	rec = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	jt394(titlebuf, ua_strs_at(0x2cce) /* "%s - %s" */,
+	      titlebuf, (char *)(rec + 118));
+	jt405(titlebuf);
+	jt1075((char)1, (long)(intptr_t)titlebuf);
+	jt1072((short)6);
+	jt1071(ua_strs_at(0x2cd6) /* "%(-%)" ruler */, 40);
+	jt1071(titlebuf);
+	jt1071(ua_strs_at(0x2cdc) /* "%(-%)" ruler */, 40);
+	l7a0e();                              /* JT[1073] — flush to page end */
+
+	/* block 1 — the map as ASCII grid, tiled 24 x 24 cells */
+	idx = 0;
+	for (outer = 0; (unsigned char)rec[2] > outer; outer += 24) {
+		for (inner = 0; (unsigned char)rec[3] > inner; inner += 24) {
+			oEndTmp = jt413((short)(outer + 24),
+			                (short)(unsigned char)rec[2]);
+			iEnd = jt413((short)(inner + 24),
+			             (short)(unsigned char)rec[3]);
+			l4eb2(outer, inner, oEndTmp, iEnd, cellarr, &idx);
+			l7a0e();                     /* JT[1073] */
+		}
+	}
+
+	/* block 2 — the legend: cell label + its event chain */
+	jt1072((short)2);
+	for (outer = 0; outer < idx; outer++) {
+		if (outer + 1 >= 100)
+			jt394(labelbuf, ua_strs_at(0x2ce6) /* "%c%d" */,
+			      65 + (outer - 99) / 10, (outer - 99) % 10);
+		else
+			jt394(labelbuf, ua_strs_at(0x2ce2) /* "%2d" */,
+			      outer + 1);
+		l5304_c2((short)0, labelbuf, (short)cellarr[outer],
+		         (void *)evctx);
+		jt1072((short)1);
+	}
+
+	/* block 3 — Step Events: 8 slots at rec[o*4 + 80] */
+	for (outer = 0; outer < 8; outer++) {
+		unsigned char *e = rec + (long)outer * 4;
+		if (e[80] != 0) {
+			jt394(labelbuf, ua_strs_at(0x2cec) /* "Step Event %d" */,
+			      outer + 1);
+			l5304_c2((short)0, labelbuf, (short)e[80],
+			         (void *)evctx);
+			jt1072((short)1);
+		}
+	}
+
+	/* block 4 — Rest in Zone: 8 slots at rec[o*4 + 48] */
+	for (outer = 0; outer < 8; outer++) {
+		unsigned char *e = rec + (long)outer * 4;
+		if (e[48] != 0) {
+			jt394(labelbuf,
+			      ua_strs_at(0x2cfa) /* "Rest in Zone %d" */,
+			      outer + 1);
+			l5304_c2((short)0, labelbuf, (short)e[48],
+			         (void *)evctx);
+			jt1072((short)1);
+		}
+	}
+
+	jt1070();                             /* JT[1070] */
+	jt977();                              /* JT[977]  */
+	jt859();                              /* JT[859]  (CODE 18, no-op) */
+	jt709();                              /* JT[709]  (CODE 16, empty) */
+	jt260();                              /* JT[260]  (CODE 10, empty) */
+	return 1;
+}
+
+/* JT[254] (CODE 2 + 0x4c5a = entry_jt254) — the event-list PRINT command entry.
+ * A thin jt259-style wrapper: run l541c (which returns 1), pack its signed-char
+ * result into the low word of *desc, and echo `state` back. */
+static short jt254(short state, long *desc) __attribute__((unused));
+static short jt254(short state, long *desc)
+{
+	signed char r;
+
+	PROBE("jt254");
+	r = l541c((short)((unsigned char)(jt358() & 0xff)));
+	*desc &= 0xFFFF0000L;
+	*desc |= (long)r;
+	return state;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
