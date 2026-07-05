@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1160 done (1034 lifted, 52 noop, 74 alias), 15 stub, 0 stand-in, 30 missing.
+**1205 distinct JT entries are called.** Overall: 1161 done (1035 lifted, 52 noop, 74 alias), 15 stub, 0 stand-in, 29 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -45,7 +45,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 11 | 501–550 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
-| 14 | 651–700 | **35/50** | 32 | 3 | 0 | 0 | 15 |
+| 14 | 651–700 | **36/50** | 33 | 3 | 0 | 0 | 14 |
 | 15 | 701–750 | **40/50** | 33 | 7 | 2 | 0 | 8 |
 | 16 | 751–800 | **48/50** | 41 | 7 | 0 | 0 | 2 |
 | 17 | 801–850 | **49/50** | 47 | 2 | 1 | 0 | 0 |
@@ -68,7 +68,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE | entries | done | stub | standin | missing | pending | subsystem |
 |-----:|--------:|-----:|-----:|--------:|--------:|--------:|-----------|
 | CODE 1 | 9 | 9 | 0 | 0 | 0 | **0** | boot / A5 init / entry |
-| CODE 2 | 14 | 8 | 0 | 0 | 6 | **6** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
+| CODE 2 | 14 | 9 | 0 | 0 | 5 | **5** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
 | CODE 3 | 116 | 112 | 1 | 0 | 3 | **4** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
 | CODE 4 | 117 | 114 | 2 | 0 | 1 | **3** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
 | CODE 5 | 129 | 123 | 6 | 0 | 0 | **6** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
@@ -331,12 +331,11 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 45 of 45 pending (stub+standin+missing), by call count:
+Top 44 of 44 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt242 (1 calls, CODE 11) — missing
 - jt243 (1 calls, CODE 11) — missing
-- jt246 (1 calls, CODE 2) — missing
 - jt248 (1 calls, CODE 2) — missing
 - jt249 (1 calls, CODE 2) — missing
 - jt253 (1 calls, CODE 2) — missing
