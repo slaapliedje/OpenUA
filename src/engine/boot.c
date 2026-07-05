@@ -63532,6 +63532,47 @@ static void jt457(short kind, long name, short group)
 	      (short)1, (void *)jt374);
 }
 
+/* JT[417] (CODE 3+0x39f0) — atoi: parse a signed decimal from the C
+ * string at `strPtr`. Leading '-' sets the sign; digits (jt389)
+ * accumulate negatively (acc = acc*10 - (c-'0')) so INT_MIN parses,
+ * then the sign is applied. 16-bit accumulator, matching the asm. */
+static short jt417(long strPtr) __attribute__((unused));
+static short jt417(long strPtr)
+{
+	unsigned char *p = (unsigned char *)(uintptr_t)strPtr;
+	short          acc = 0, neg;
+
+	PROBE("jt417");
+	if (*p == '-') {
+		neg = 1;
+		p++;
+	} else {
+		neg = 0;
+	}
+	while (jt389((short)(signed char)*p)) {
+		acc = (short)(acc * 10 - (short)(signed char)*p + 48);
+		p++;
+	}
+	return neg ? acc : (short)(-acc);
+}
+
+/* JT[436] (CODE 3+0x4be0) — prefix directory `b` onto path `a` in
+ * place: when `force` is set, or `a` already carries a ':' volume
+ * separator (jt390), rebuild a = b + a through a 200-byte scratch
+ * (jt384 copy + jt431 concat + jt384 back). Otherwise leave `a`. */
+static void jt436(char *a, char *b, short force) __attribute__((unused));
+static void jt436(char *a, char *b, short force)
+{
+	char buf[200];
+
+	PROBE("jt436");
+	if ((force & 0xff) == 0 && *jt390(a, (short)':') == 0)
+		return;
+	jt384(buf, b);
+	jt431(buf, a);
+	jt384(a, buf);
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
