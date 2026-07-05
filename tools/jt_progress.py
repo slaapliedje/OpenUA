@@ -215,7 +215,8 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
                # (_VInstall) counterpart, HAL-moot (Falcon VBL owns
                # the vblank; nothing was ever installed to remove).
         489,   # CODE 3+0x0004: bare `rts` (band 7, disasm-verified).
-        905}   # CODE 19+0x5b9c: bare `rts` (band 7, disasm-verified).
+        905,   # CODE 19+0x5b9c: bare `rts` (band 7, disasm-verified).
+        594}   # CODE 15+0x0004: bare `rts` (#151, disasm-verified).
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
@@ -241,6 +242,9 @@ ALIAS_LIFTED = {
     110: "lifted as l33ac (same address; binder open, the jt81 dep)",
     193: "lifted as l4fbe (same address; see combat gateway notes)",
     195: "lifted as l4db4 (same address; the design string-table region setup)",
+    480: "lifted in str.c (the string-table setter jt480(count, table))",
+    591: "lifted as l0ce0_c15 (same address; native->little-endian rec fixup)",
+    973: "lifted as l4010 (same address; the GLIB group converter)",
     364: "lifted as l6e50 (same address; clamp 0..40 -> -10374)",
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
