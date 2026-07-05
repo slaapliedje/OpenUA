@@ -68951,6 +68951,184 @@ static void l2f8e_c10(short kind)
 		gp[i + 4] = 1;
 }
 
+static void l541a(const char *type, short id, short flag, void *buf); /* JT[47], below */
+static void l3880(short a, short b, short frame, void *ptr);           /* JT[106], below */
+
+/* L205a (CODE 10+0x205a) — viewer picture-slot paint. When `pic` == 0 the
+ * slot is empty: erase the 44x44 art rect at raw (8012,8012) via jt1161 and
+ * reset the -24322 slot header (jt45). Otherwise fetch PIC[pic] into the
+ * -24322 slot (l541a) and composite it at (3,3) via jt46. Leaf. */
+static void l205a(short pic) __attribute__((unused));
+static void l205a(short pic)
+{
+	PROBE("L205a");
+	if (pic == 0) {
+		short w = 8012;                          /* fp@(-2) == fp@(-4) */
+		jt1161(w, w, (short)(w + 44), (short)(w + 44), (short)0);
+		jt45();
+	} else {
+		l541a(ua_strs_at(0x2dae) /* "PIC" */, pic, (short)0, &g_a5_24322);
+		jt46((short)3, (short)3, (short)1, (short)0);
+	}
+}
+
+/* L24a4 (CODE 10+0x24a4) — viewer backdrop-slot paint. When `pic` == 0 the
+ * slot is empty: erase the backdrop rect (8004,8004,8064,8156) via jt1161.
+ * Otherwise load bigpic[pic] into the -24260 slot (l579e), blit it at cell
+ * (1,1) via l3880, and commit its palette (jt124). Sibling of l5822 with an
+ * added erase arm. Leaf. */
+static void l24a4(short pic) __attribute__((unused));
+static void l24a4(short pic)
+{
+	PROBE("L24a4");
+	if (pic == 0) {
+		jt1161((short)8004, (short)8004, (short)8064, (short)8156, (short)0);
+	} else {
+		l579e(pic);
+		l3880((short)1, (short)1, (short)1, g_a5_24260);
+		jt124(g_a5_long(-24260));
+	}
+}
+
+/* L1f86 (CODE 10+0x1f86) — draw the viewer's editable-portrait frame. When
+ * `edit` == 0 first lock the tool overlay off (jt80(2)); set the clip to the
+ * portrait rect (jt1173), then only in view-mode 3 with edit==0 lay down the
+ * static frame corners (erase + FRAME cells 1/2/3/7). Always draw the live
+ * FRAME cell 9 at the (8000, edit+8000) seam and restore full-screen clip
+ * (jt1193). Leaf. */
+static void l1f86(short edit) __attribute__((unused));
+static void l1f86(short edit)
+{
+	PROBE("L1f86");
+	if (edit == 0)
+		jt80((short)2);
+	jt1173((short)8000, (short)8000, (short)8066, (short)8160);
+	if (jt1200() == 3 && edit == 0) {
+		jt1161((short)8000, (short)8000, (short)8064, (short)8160, (short)0);
+		jt1001((short)8000, (short)8000, (short)1, (short)1);
+		jt1001((short)8000, (short)8000, (short)1, (short)2);
+		jt1001((short)8000, (short)8000, (short)1, (short)3);
+		jt1001((short)8064, (short)8000, (short)1, (short)7);
+	}
+	jt1001((short)8000, (short)(edit + 8000), (short)1, (short)9);
+	jt1193();
+}
+
+/* L26de (CODE 10+0x26de) — repaint the viewer's icon strip. Stashes the
+ * kind byte into the -12300 header[4], forces a tool reset (jt209(1)), then
+ * clears the strip's background rect (jt1161 fill 8) — the rect geometry and
+ * row pitch differ between view-mode 3 (8000 base, 160-wide, pitch 31) and
+ * all other modes (8006 base, 150-wide, pitch 30). For a real icon id (not
+ * 0, not 255) it stamps the six icon cells (jt357 code i, sub 6) down the
+ * column, stepping the row by the pitch. Leaf. */
+static void l26de(short icon) __attribute__((unused));
+static void l26de(short icon)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short          top, left, pitch;
+
+	PROBE("L26de");
+	hdr[4] = (unsigned char)icon;
+	jt209((short)1);
+	if (jt1200() == 3) {
+		top = 8014; left = 8000; pitch = 31;
+		jt1161(top, left, (short)(top + 38), (short)(left + 160), (short)8);
+	} else {
+		top = 8014; left = 8006; pitch = 30;
+		jt1161(top, left, (short)(top + 32), (short)(left + 150), (short)8);
+	}
+	if (icon != 0 && icon != 255) {
+		short i;
+		for (i = 1; i <= 5; i++) {
+			jt357(top, left, i, (short)6);
+			left = (short)(left + pitch);
+		}
+	}
+}
+
+/* L6238 (CODE 10+0x6238) — delete monster #id's exported "MONST%03d.dat"
+ * scratch file: build the leaf name (jt394), prefix the design directory
+ * (jt436), FSDelete it (jt416). On a clean delete (>= 0) with the record
+ * still resident (l6028), copy its name field (record + 96) into `dst` and
+ * return 1; otherwise 0. Leaf. */
+static short l6238(short id, long dst) __attribute__((unused));
+static short l6238(short id, long dst)
+{
+	char  buf[202];
+	short ok = 0;
+
+	PROBE("L6238");
+	jt394(buf, ua_strs_at(0x3002) /* "MONST%03d.dat" */,
+	      (unsigned)(unsigned char)id);
+	jt436(buf, &g_a5_31336, (short)1);
+	if (jt416(buf) >= 0 && l6028((short)(unsigned char)id) != 0) {
+		char *rec = (char *)(uintptr_t)
+		            *(long *)((char *)(uintptr_t)g_a5_long(-11718) + 10);
+		jt384((char *)(uintptr_t)dst, (const char *)(rec + 96));
+		ok = 1;
+	}
+	return ok;
+}
+
+/* L419e (CODE 10+0x419e) — purge the on-disk art-library ".tlb" that backs
+ * resource `id` of art-kind `kind`. The kind (JT[1] on its low byte, cases
+ * 1/2/4/8/16/32) picks the leaf-name template and which in-memory slot to
+ * flush: 1 -> "PIC%c1%03d.tlb" (the letter A..F chosen by the id band) +
+ * jt45; 2 -> "SPRI0%03d.tlb" + jt45; 4/8 -> "CPIC1%03d.tlb"; 16/32 ->
+ * "BIGP0%03d.tlb" + l5864(=JT[48]). Then (outside view-mode 3) register the
+ * "CTL" group (jt419), release the resource key (jt465), and FSDelete the
+ * design-dir-prefixed path (two jt431 concats + jt416). Returns 1. */
+static short l419e(short id, short kind) __attribute__((unused));
+static short l419e(short id, short kind)
+{
+	char name[200];   /* fp@(-200) — the .tlb leaf name */
+	char full[200];   /* fp@(-400) — the design-dir-prefixed path */
+
+	PROBE("L419e");
+	switch ((unsigned char)kind) {
+	case 1: {
+		unsigned char a = (unsigned char)id;
+		short         letter;
+		if      (a < 76)  letter = 'A';
+		else if (a < 138) letter = 'B';
+		else if (a < 164) letter = 'C';
+		else if (a < 193) letter = 'D';
+		else if (a < 227) letter = 'E';
+		else              letter = 'F';
+		jt394(name, ua_strs_at(0x2ec6) /* "PIC%c1%03d.tlb" */,
+		      (int)letter, (unsigned)(unsigned char)id);
+		jt45();
+		break;
+	}
+	case 2:
+		jt394(name, ua_strs_at(0x2ed6) /* "SPRI0%03d.tlb" */,
+		      (unsigned)(unsigned char)id);
+		jt45();
+		break;
+	case 4:
+	case 8:
+		jt394(name, ua_strs_at(0x2ee4) /* "CPIC1%03d.tlb" */,
+		      (unsigned)(unsigned char)id);
+		break;
+	case 16:
+	case 32:
+		jt394(name, ua_strs_at(0x2ef2) /* "BIGP0%03d.tlb" */,
+		      (unsigned)(unsigned char)id);
+		l5864();                        /* JT[48] — flush the BIGP slot */
+		break;
+	default:
+		break;
+	}
+	if (jt1200() != 3)
+		jt419(name, ua_strs_at(0x2f00) /* "CTL" */, (short)1);
+	jt465(name);
+	full[0] = 0;
+	jt431(full, &g_a5_31336);
+	jt431(full, name);
+	jt416(full);
+	return 1;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
