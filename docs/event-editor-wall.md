@@ -55,20 +55,26 @@ exports, so not in the alias map):
 
 | helper | off | deps | order |
 |--------|-----|------|-------|
-| L4c92 | 0x4c92 | JT[207]+JT[397] (both lifted) | B2 — cluster leaf |
-| L4dcc | 0x4dcc | JT[207]+JT[397]+JT[3] switch | B2 — cluster leaf |
-| L4e3e | 0x4e3e | JT[207]+JT[397]+JT[3] switch | B2 — cluster leaf |
-| L514e | 0x514e | (small, frame 0) | B2 |
-| L5194 | 0x5194 | JT[193]… (frame −10) | B2 |
-| L541c | 0x541c | jt254 entry's direct callee | B3 |
-| L4eb2 | 0x4eb2 | calls L4c92/L4dcc/L4e3e + JT[384/394/404/1076/201] | B3 — worker (after its callees) |
-| l4c5a | 0x4c5a | JT[358] + L541c — the jt254 ENTRY | B3 — wire last |
+| L4c92 | 0x4c92 | JT[207]+JT[397] | ✓ B2 (pure local) |
+| L4dcc | 0x4dcc | JT[207]+JT[397]+JT[3] | ✓ B2 (pure local) |
+| L4e3e | 0x4e3e | JT[207]+JT[397]+JT[3] | ✓ B2 (pure local) |
+| L514e | 0x514e | **= jt255** (line 64342) | ✓ ALREADY LIFTED |
+| L5194 | 0x5194 | **= jt256** (line 64503, word-wrap) | ✓ ALREADY LIFTED |
+| L541c | 0x541c | jt254 entry's direct callee | B3 (pure local) |
+| L4eb2 | 0x4eb2 | calls L4c92/L4dcc/L4e3e + JT[384/394/404/1076/201] | B3 — worker |
+| l4c5a | 0x4c5a | **= jt254** — JT[358] + L541c — the ENTRY | B3 — wire last |
 
-Plan:
-- **B2** — lift the cluster leaves (L4c92, L4dcc, L4e3e, L514e, L5194); JT[3]
-  switches via `tools/jt3_extract.py`.
-- **B3** — lift L541c + the L4eb2 −102 worker, then the l4c5a entry; verify the
-  whole screen builds.
+**LESSON (both directions):** a cluster member's lXXXX name being absent does
+NOT mean it is unlifted — it may be a JT export lifted under its jtN name. Two
+of these five (L514e=jt255, L5194=jt256) were already done; nearly re-lifted
+L5194. For every lXXXX, grep `docs/lxxxx-jt-aliases.md` for `lXXXX = jtN` and
+check jtN too (the mirror of the jtN→lXXXX trap the jt_lookup fix now handles).
+
+**B2 COMPLETE** — the only genuinely-absent leaves were the three pure-local
+glyph pickers (L4c92/L4dcc/L4e3e), now lifted; L514e/L5194 were already jt255/
+jt256. Plan:
+- **B3** — lift L541c + the L4eb2 −102 worker, then the l4c5a (=jt254) entry;
+  verify the whole screen builds.
 
 ## Method (same as jt259 / #153 so far)
 
