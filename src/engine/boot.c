@@ -69440,6 +69440,167 @@ static void l24fa(short code, short wild)
 	jt1193();
 }
 
+/* JT[266] (CODE 10+0x1bc2) — the monster/spell-editor VIEWER: repaints the
+ * lowest dirty sub-panel of the record open in the -22290 holder; the caller
+ * loops to flush every dirty bit. `state` selects the sub-slot base.
+ *
+ * Prologue: notify the row (l116a), lock the marker layer (jt108/jt112),
+ * resolve the row descriptor (l2ebe → `sub` + the `v14` descriptor) and read
+ * the record's dirty mask rec[7]. Then, gated on holder[64] and the
+ * descriptor, dispatch by record kind rec[6]:
+ *   rec[6] < 6  — spell/monster panels (bits 0..5): panel 0 sprite (l205a),
+ *      1 3D preview (l20cc), 2/3 CPIC (l22f0), 4/5 backdrop (l24a4). Panel 0's
+ *      first paint (rec[11]==1) tears down the prior view (jt1173/jt84/jt1193/
+ *      jt80/jt117).
+ *   rec[6] >= 6 — combat/wild panels (bits 0..4, each |0x40): 0/1 combat-set
+ *      grid (l24fa), 2 icon strip (l26de), 3/4 caption column (l27c2).
+ *   holder[64]==0 kind-9 rec[2]==2 special: caption column (l27c2).
+ * Each painted bit (re)labels via l15c2_c10(jt346 flags) and stamps rec[11].
+ * Faithful goto-CFG; two JT[3] switches decoded with jt3_extract (0x1d3e /
+ * 0x1e92), the case-0 hidden lead-ins raw-decoded (#122). Unblocks jt269's
+ * L040c dialog. */
+static void jt266(short state) __attribute__((unused));
+static void jt266(short state)
+{
+	unsigned char *holder, *rec;
+	long           v14 = 0;               /* fp@(-14) — l2ebe descriptor */
+	short          sub, i10;              /* fp@(-8) / fp@(-10) */
+	unsigned char  recstate, bit;         /* fp@(-5) / fp@(-6) */
+
+	PROBE("jt266");
+	holder = (unsigned char *)(uintptr_t)g_a5_long(-22290);
+	if (holder == NULL)
+		return;
+	l116a((long)(uintptr_t)holder, state);
+	jt108((short)1);
+	jt112((short)1);
+	rec = (unsigned char *)(uintptr_t)*(long *)holder;
+	{
+		short base = (*(long *)(holder + 64) != 0) ? 0 : (short)rec[16];
+		base = (short)(base + state);
+		sub  = l2ebe((long)(uintptr_t)&v14, (long)(uintptr_t)rec, base);
+	}
+	recstate = rec[7];
+
+	if (*(long *)(holder + 64) == 0)
+		goto tail_special;            /* L1f28 */
+
+	if (v14 != 0) {
+		recstate &= ((unsigned char *)(uintptr_t)v14)[1];
+		if (recstate != 0)
+			goto paint;           /* L1c7c */
+	}
+	if (sub == 0)
+		goto paint;
+	if (sub != 255)
+		goto tail_special;
+	if ((unsigned char)rec[6] < 6)
+		goto tail_special;
+
+paint:                                        /* L1c7c */
+	if ((unsigned char)rec[6] >= 6) {
+		/* L1e20 — combat/wild panels (bits 0..4, |0x40) */
+		for (i10 = 0; i10 < 5;
+		     i10++, recstate = (unsigned char)(recstate >> 1)) {
+			if (!(recstate & 1))
+				continue;
+			bit = (unsigned char)((1 << i10) | 64);
+			if (bit != rec[11]) {
+				jt1161((short)8004, (short)8004, (short)8064,
+				       (short)8156, (short)8);
+				l15c2_c10((long)(uintptr_t)holder,
+				          (short)(jt346((short)bit, NULL) & 255));
+			}
+			switch (i10) {
+			case 0:
+			case 1:
+				l24fa(sub, (short)(i10 == 1 ? 1 : 0));
+				i10 = 99;
+				break;
+			case 2:
+				l26de(sub);
+				i10 = 99;
+				break;
+			case 3:
+			case 4:
+				l1f86((short)0);
+				l27c2(sub, *(short *)(rec + 2));
+				jt80((short)0);
+				i10 = 99;
+				break;
+			}
+			rec[11] = bit;
+		}
+	} else {
+		/* spell/monster panels (bits 0..5) */
+		for (i10 = 0; i10 < 6;
+		     i10++, recstate = (unsigned char)(recstate >> 1)) {
+			if (!(recstate & 1))
+				continue;
+			bit = (unsigned char)(1 << i10);
+			if (bit != rec[11]) {
+				if (rec[11] == 1) {
+					jt1173((short)8000, (short)8000,
+					       (short)8066, (short)8160);
+					jt84();
+					jt1193();
+					jt80((short)2);
+					jt117();
+				}
+				jt1161((short)8004, (short)8004, (short)8064,
+				       (short)8156, (short)8);
+				l15c2_c10((long)(uintptr_t)holder,
+				          (short)(jt346((short)bit, NULL) & 255));
+			}
+			switch (i10) {
+			case 0:
+				l1f86((short)0);
+				l205a(sub);
+				jt80((short)0);
+				i10 = 99;
+				break;
+			case 1:
+				if (bit != rec[11]) {
+					jt351();
+					l3f3c((short)32, (short)255);
+				}
+				l20cc(sub);
+				if (bit != rec[11]) {
+					if (jt1163() != 0 || jt1200() == 0)
+						jt124(g_a5_long(-27894));
+				}
+				i10 = 99;
+				break;
+			case 2:
+			case 3:
+				l22f0(sub);
+				i10 = 99;
+				break;
+			case 4:
+			case 5:
+				l24a4(sub);
+				i10 = 99;
+				break;
+			}
+			rec[11] = bit;
+		}
+	}
+	goto tail;                            /* L1f76 */
+
+tail_special:                                 /* L1f28 */
+	if (*(long *)(holder + 64) == 0
+	    && (unsigned char)rec[6] == 9
+	    && *(short *)(rec + 2) == 2) {
+		l1f86((short)0);
+		l27c2(sub, *(short *)(rec + 2));
+		jt80((short)0);
+	}
+
+tail:                                         /* L1f76 */
+	jt112((short)0);
+	jt117();
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {

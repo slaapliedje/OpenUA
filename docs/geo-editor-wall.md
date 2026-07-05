@@ -67,7 +67,7 @@ deps mostly lifted) — see below.
 | ~~jt270~~ | l3262 | ~253 | **LIFTED** (2026-07-05) — monster/spell list-entry edit loop (l2d3e event loop, jt452/jt444 List Manager, jt196 name writeback). |
 | ~~jt267~~ | l1a14 | ~129 | **LIFTED** (2026-07-05) — row art-label refresh + subtree (L1282/l15c2_c10/L116a). |
 | ~~jt269~~ | l0004 | ~200 | **LIFTED** (2026-07-05) — state-machine entry (21-arm JT[3] + JT[1]/JT[3] flag-pack tail); L03ce/L300c lifted, L040c dialog = PROBE stub pending jt266. |
-| jt266 | l1bc2 | 1692 | big — own session; also unblocks jt269's L040c dialog |
+| ~~jt266~~ | l1bc2 | ~230 | **LIFTED** (2026-07-05) — full faithful lift; body was ~230 insn (the "1692" counted the whole helper cluster). All 17 helpers + 2 JT[3] switches. Unblocks jt269's L040c dialog. |
 | jt259 | l368a | 2757 | the giant — own session |
 
 **CODE 10 progress (2026-07-05): jt265 + jt264 + jt270 + jt267 lifted**, along
