@@ -68145,6 +68145,110 @@ static unsigned char l611c(short num)
 	return ret;
 }
 
+/* JT[264] (CODE 10+0x6316) — the monster-editor "art/id" sub-state
+ * handler, jt263's sibling (same (state, result, ctx) contract; ctx+6
+ * -> geo sub-block, ctx[3]=id, ctx[4]=packed). Two JT[3] switches:
+ *
+ *   Switch 1 on `state` (8..11) seeds geo[0]/geo[4] and the packed
+ *   value v2:
+ *     10/11: if *result's low nibble is set, refresh the art id
+ *            (jt261 -> geo[9]) and re-arm (geo[0]=8); else stamp
+ *            ctx[2] and fold ctx[3] into v2.
+ *     8: if ctx[2] is pending, commit id/packed from *result
+ *        (geo[0]=11); else (re)load the MONST record — when *result's
+ *        high-bit id is valid and l6028 loads it, redraw (jt135/356/
+ *        361) and save via l611c — then re-arm (geo[0]=8).
+ *     9/default: no seed (geo[0] stays = state).
+ *
+ *   L64ee clears *result's low word, then Switch 2 on the seeded
+ *   geo[0] ORs the packed flags back into *result: state 8 -> v2
+ *   (clearing result[4] first), 10/11 -> geo[4], else geo[0]=1.
+ *   Returns the final geo[0]. `state`/`result`/`ctx` per jt263. The two
+ *   JT[3] tables were decoded with jt3_extract (arms 0x6364/0x6510
+ *   each lead with a moveal %fp@(10) the linear disasm hides). */
+static short jt264(short state, long result_l, long ctx_l)
+                                                __attribute__((unused));
+static short jt264(short state, long result_l, long ctx_l)
+{
+	unsigned char *ctx;
+	unsigned char *geo;
+	unsigned char *rp = (unsigned char *)(uintptr_t)result_l;
+	short          v2 = 0;
+
+	PROBE("jt264");
+	if (ctx_l == 0)
+		return 0;
+	ctx = (unsigned char *)(uintptr_t)ctx_l;
+	g_a5_long(-11718) = (long)(uintptr_t)ctx;
+	geo = *(unsigned char **)(ctx + 6);
+	*(short *)geo = state;
+	*(short *)(geo + 4) = 1;
+
+	switch (state) {                       /* JT[3] @0x6356 (8..11) */
+	case 10:
+	case 11:                               /* L6364 */
+		if ((*(long *)rp & 15) != 0) {
+			jt361((short)0);
+			geo[9] = (unsigned char)jt261((short)ctx[3]);
+			*(short *)(geo + 4) = 0;
+			v2 = (short)((jt370((short)3, (short)0) & 255) << 8);
+			*(short *)geo = 8;
+		} else {                       /* L63bc */
+			*(short *)(geo + 4) = 1;
+			ctx[2] = 1;
+			v2 = (short)(((jt370((short)3, (short)0) & 255) << 8)
+			             | ctx[3]);
+			*(short *)geo = 8;
+		}
+		break;
+	case 8:                                /* L63fe */
+		if (ctx[2] != 0) {
+			ctx[2] = 0;
+			ctx[3] = (unsigned char)(*(long *)rp & 255);
+			ctx[4] = (unsigned char)((*(long *)rp >> 8) & 0x7f);
+			*(short *)(geo + 4) = 4;
+			*(short *)geo = 11;
+		} else {                       /* L6450 */
+			if ((((*(long *)rp & 0xff00) >> 8) & 0x80) != 0 &&
+			    l6028((short)(*(long *)rp & 255)) != 0) {
+				jt135();
+				jt356();
+				jt361((short)0);
+				l611c((short)ctx[3]);
+			} else {               /* L64a0 */
+				jt135();
+				jt356();
+				jt361((short)0);
+			}
+			*(short *)(geo + 4) = 1;
+			ctx[2] = 1;
+			v2 = (short)(((jt370((short)3, (short)0) & 255) << 8)
+			             | ctx[3]);
+			*(short *)geo = 8;
+		}
+		break;
+	default:                               /* case 9 + out-of-range */
+		break;
+	}
+
+	*(long *)rp &= -65536L;                /* L64ee: clear low word */
+	switch (*(short *)geo) {                /* JT[3] @0x6502 (8..11) */
+	case 8:                                /* L6522 */
+		rp[4] = 0;
+		*(long *)rp |= (long)v2;
+		break;
+	case 10:
+	case 11:                               /* L6510 */
+		*(long *)rp |= (long)*(short *)(geo + 4);
+		break;
+	default:                               /* case 9 + out-of-range */
+		*(short *)geo = 1;
+		break;
+	}
+
+	return *(short *)geo;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
