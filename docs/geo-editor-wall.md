@@ -108,20 +108,24 @@ multi-session (est. 6-10 focused passes).
 ```
 L4924  ✓  ~25  AND-NOT sprite-mask blit (dep jt1163)          LIFTED 2026-07-05
 L4970  ✓  ~45  uniform-column run-length (pure)               LIFTED 2026-07-05
-L6606     ~52  PICT scanline unpack+store loop (jt1170/1171/1177/1179/1202/
-               1166/413/468) — clean leaf; ⚠ jt1170 is void in the port but
-               the Mac pushes a word arg (verify like jt80/jt208); jt1171=l108e.
-L4eda     ~64  (next to read)      L4f9c  ~86      L66a2  ~84   L67a0  ~80
-L4cae    ~185  L49f8 ~231  L509e  ~262
-L42f2    ~528  sub-giant           L53b0  big (spans past jt260)  L6892  tail
+L6606  ✓  ~52  PICT scanline unpack+store (jt468/1170/1171/1177/1179/1202/
+               1166/413) — jt1170 CONFIRMED no-op in the Mac too (link/unlk/rts),
+               so the port's empty void stub is faithful; jt1171 is a direct
+               port fn (returns advanced cursor), NOT an alias.  LIFTED 07-05
+L4eda  ✓  ~64  PackBits (RLE) compressor, pure                 LIFTED 2026-07-05
+L4f9c  ✓  ~86  tile-band pack driver (l4eda + jt1004/1197/406/1177/1170; only
+               1-plane real, planes>1 = Mac logged-stub)       LIFTED 2026-07-05
+L66a2  ~84   L67a0  ~80   L6892  tail   (next leaves)
+L4cae ~185   L49f8 ~231   L509e  ~262   (mid helpers)
+L42f2 ~528   sub-giant    L53b0  big (spans past jt260)
 ```
 
-**Recommended order:** finish the clean leaves (L6606 after the jt1170 sig
-check, then L4eda/L4f9c/L66a2/L67a0) → the mid helpers (L4cae/L49f8/L509e) →
-the two sub-giants (L42f2, L53b0) → L36e0 main as a **level-2 skeleton** first
-(mirror the CFG + call every helper, defer per-arm), then fill. This is the
-FRUA art-import path (design-editor "Import Picture") — dormant/mouse-gated,
-so unvalidatable headless; verify against the disasm, not the smoke harness.
+**Recommended order:** clean leaves ✓ (L4924/L4970/L6606/L4eda/L4f9c done) →
+L66a2/L67a0/L6892 → mid helpers (L4cae/L49f8/L509e) → sub-giants (L42f2, L53b0)
+→ L36e0 main as a **level-2 skeleton** first (mirror the CFG + call every
+helper, defer per-arm), then fill. This is the FRUA art-import path
+(design-editor "Import Picture") — dormant/mouse-gated, so unvalidatable
+headless; verify against the disasm, not the smoke harness.
 
 ### jt266 (l1bc2) — roadmap (COMPLETE 2026-07-05)
 

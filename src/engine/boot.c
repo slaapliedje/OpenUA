@@ -68953,6 +68953,7 @@ static void l2f8e_c10(short kind)
 
 static void l541a(const char *type, short id, short flag, void *buf); /* JT[47], below */
 static void l3880(short a, short b, short frame, void *ptr);           /* JT[106], below */
+static short jt1166(void);                                            /* CODE 4, below */
 
 /* L205a (CODE 10+0x205a) — viewer picture-slot paint. When `pic` == 0 the
  * slot is empty: erase the 44x44 art rect at raw (8012,8012) via jt1161 and
@@ -69649,6 +69650,124 @@ static short l4970(unsigned char *base, unsigned char *col, short stride, short 
 		base++;
 	}
 	return count;
+}
+
+/* L6606 (CODE 10+0x6606) — decode a PICT resource into scanlines. Resolves the
+ * resource handle (jt468), skips its 512-byte header, resets the unpack state
+ * (jt1170, a genuine no-op in the Mac too), then for each row up to
+ * min(720, jt1166()): _UnpackBits 72 bytes of packed data (jt1171, advancing
+ * the cursor), select the scanline (jt1177 row), and store it (jt1202) at a
+ * width from jt413 driven by the jt1179 >> jt1200 shift. Leaf. */
+static void l6606(short id) __attribute__((unused));
+static void l6606(short id)
+{
+	unsigned char  buf[80];                     /* fp@(-80) — one scanline */
+	unsigned char *handle;                      /* fp@(-4) */
+	short          row;
+
+	PROBE("L6606");
+	handle = (unsigned char *)(uintptr_t)jt468(id) + 512;
+	jt1170();
+	for (row = 0; row < 720 && jt1166() > row; row++) {
+		short v, sh;
+		handle = (unsigned char *)jt1171(handle, buf, (short)72);
+		jt1177(row, (short)0);
+		v  = (short)jt1179();
+		sh = (short)jt1200();
+		jt1202(buf, (short)1, jt413((short)72, (short)(v >> sh)),
+		       (short)0);
+	}
+}
+
+/* L4eda (CODE 10+0x4eda) — PackBits (RLE) compress `len` bytes from `src` into
+ * `dst`; returns the compressed byte count. Standard MacPaint/PICT packing: a
+ * run of 2..128 identical bytes emits header (1-runlen) + the byte; otherwise a
+ * literal run of 1..128 bytes emits header (count-1) + the bytes, stopping the
+ * literal early when a 3-byte run appears ahead. Pure leaf. */
+static long l4eda(unsigned char *src, unsigned char *dst, short len) __attribute__((unused));
+static long l4eda(unsigned char *src, unsigned char *dst, short len)
+{
+	unsigned char *a4   = src;           /* src cursor */
+	unsigned char *a3   = dst;           /* dst cursor */
+	unsigned char *dst0 = dst;           /* fp@(-4) */
+	short          d7   = len;           /* bytes remaining */
+
+	PROBE("L4eda");
+	while (d7 > 0) {
+		if (d7 > 1 && a4[0] == a4[1]) {
+			/* run of identical bytes */
+			short         d6 = 0;
+			unsigned char d5 = *a4;
+			a4++;
+			while (d6 < d7 - 1 && *a4 == d5 && d6 < 127) {
+				d6++;
+				a4++;
+			}
+			*a3++ = (unsigned char)(-d6);
+			*a3++ = d5;
+			d7 = (short)(d7 - (d6 + 1));
+		} else {
+			/* literal run */
+			short          d6 = 0;
+			unsigned char *a2 = a4;
+			short          k;
+			for (;;) {
+				if (d6 >= d7 || d6 >= 128)
+					break;
+				if (d6 >= d7 - 2) {   /* near end: keep accumulating */
+					a2++;
+					d6++;
+					continue;
+				}
+				if (a2[0] == a2[1] && a2[0] == a2[2])
+					break;         /* run ahead: end the literal */
+				a2++;
+				d6++;
+			}
+			*a3++ = (unsigned char)(d6 - 1);
+			d7 = (short)(d7 - d6);
+			for (k = d6; --k >= 0; )
+				*a3++ = *a4++;
+		}
+	}
+	return (long)(a3 - dst0);
+}
+
+/* L4f9c (CODE 10+0x4f9c) — pack a band of tile rows into the output buffer.
+ * For each row y in [y0, y0+count), read every plane's scanline (jt1197 into a
+ * per-plane buffer, jt1177 selecting the row) then PackBits-compress the
+ * assembled `planeW*planes`-byte tile (l4eda) onto the running output cursor
+ * (base jt1004()+8). Bails returning 0 if the output exceeds 15360 bytes; else
+ * returns the total compressed size. Only the single-plane path is real
+ * (jt406 copies the lone scanline); planes>1 is the Mac's logged-stub
+ * ("Big packed tile for %d planes" via l036a). */
+static short l4f9c(short y0, short col, short count, short planeW, short planes) __attribute__((unused));
+static short l4f9c(short y0, short col, short count, short planeW, short planes)
+{
+	unsigned char  tile[336];      /* fp@(-648) — assembled tile */
+	unsigned char  planebuf[336];  /* fp@(-326) — per-plane scanlines */
+	unsigned char *dst;            /* fp@(-4)   — output cursor */
+	short          stride, y, plane;
+
+	PROBE("L4f9c");
+	stride = (short)((planeW + 1) & ~1);
+	dst    = (unsigned char *)(uintptr_t)jt1004() + 8;
+	for (y = y0; y < (short)(y0 + count); y++) {
+		for (plane = 0; plane < planes; plane++) {
+			jt1170();
+			jt1177(y, col);
+			jt1197(planebuf + stride * plane, (short)1, stride);
+		}
+		if (planes == 1)
+			jt406(tile, planebuf, planeW);   /* memmove(dst,src) */
+		else
+			l036a(ua_strs_at(0x2f1c) /* "Big packed tile for %d planes" */,
+			      (int)planes);
+		dst += l4eda(tile, dst, (short)(planeW * planes));
+		if ((long)(dst - (unsigned char *)(uintptr_t)jt1004()) > 15360)
+			return 0;
+	}
+	return (short)(dst - (unsigned char *)(uintptr_t)jt1004());
 }
 
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
