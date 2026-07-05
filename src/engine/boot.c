@@ -4577,6 +4577,28 @@ static short jt485(short n)
 	return jt1083(n);
 }
 
+/* JT[1143] (CODE 4 + 0x7b8a) — RNG-seed entropy: GetDateTime() ^ TickCount().
+ * The Mac reads the wall clock (JT[1039] = the GetDateTime veneer over low-mem
+ * Time, secs since 1904) and XORs it with the 60 Hz tick counter, then plants
+ * the result into the LCG state at app init so each session's dice / random
+ * encounters differ. Faithful transcription (asm 0x7b8a..0x7ba6).
+ *
+ * DORMANT for now: the port deliberately plants a REPRODUCIBLE seed
+ * (g_a5_4902 = 1 in boot_a5_seed_defaults) for debuggable runs, and the roller
+ * is split across two seed states — g_a5_4902 (jt1083) and rand.c's static
+ * g_rand_seed (ua_rand). Flipping to entropic RNG means unifying those and
+ * seeding both from here; that is a deliberate, single follow-up change, not a
+ * side effect of this lift. #152. */
+static long jt1143(void) __attribute__((unused));
+static long jt1143(void)
+{
+	unsigned long t;
+
+	PROBE("jt1143");
+	GetDateTime(&t);
+	return (long)(t ^ (unsigned long)TickCount());
+}
+
 /* JT[870] (CODE 18 + 0x15f4, 95 sites) — "count d item" dice roll.
  *
  * Sums `count` rolls of `1..item` using jt485 (which wraps
