@@ -68295,6 +68295,166 @@ static short l2ebe(long out, long rec, short n)
 	return jt347(n, (short)r[6], (short)r[7], (short)r[16], out, proc);
 }
 
+/* JT[270] (CODE 10+0x3262) — the monster/spell list entry EDIT loop.
+ * Pops a titled name-entry field + a scrollable picker over one design
+ * record `rec`, lets the user rename/navigate/select, commits the edit
+ * back into the record, and reports via `outp`'s flag bits; returns the
+ * passthrough command `cmd` (0 when `rec` is NULL).
+ *
+ * Setup: L2ebe resolves the row descriptor into v176 (NULL -> just
+ * clear outp's low nibble and bail). jt191 unpacks the current name
+ * into v84; two jt394 "%s %s" titles are drawn (jt1089 centred) and set
+ * as the jt148 prompt; jt447 + two jt452 register the List Manager
+ * items (item 7 -> &jt268 field, item 8 -> &jt327 record editor) over
+ * the v68 edit buffer (a copy of v84) and the v168 row buffer.
+ *
+ * Loop (l2d3e event poll): jt152 maps the key; the -24139 "commit"
+ * flag folds Return(13)->0 / Esc(27)/'`'(96)->v90; otherwise the item-1
+ * List Manager command (jt454/jt444) runs, arming the name-edit mode
+ * (v2) on Esc. A settled selection (v86 != 0 && != v90) keeps looping;
+ * v86 == 0 or == v90 exits. On exit: clear outp's low word; for a real
+ * pick (v86 == 0) re-run L2ebe when paginated, and if the edited name
+ * (v68) differs from the original (v84) pack it back via jt196, refresh
+ * the STRG names (jt362/l6520_c8) and — for a kind-7 (v1) record —
+ * l6028-load + jt384-name + l611c-save the linked MONST record. Finally
+ * set outp bit 0. Faithful goto-CFG; List Manager conventions per the
+ * geo-editor wall (jt444 item,flag pad-0; jt452 all-long varargs;
+ * jt456=l2d3e()). */
+static short jt270(short cmd, long outp, long rec) __attribute__((unused));
+static short jt270(short cmd, long outp, long rec)
+{
+	unsigned char *v172;
+	unsigned char *v176rec;
+	long           v176 = 0;
+	long           v180;
+	unsigned char  v1, v2, v3;
+	short          v88, v86, v90;
+	char           v28[64], v84[32], v68[32], v168[64];
+	char           v129;
+	short          len, d1;
+
+	PROBE("jt270");
+	if (rec == 0)
+		return 0;
+	v172 = (unsigned char *)(uintptr_t)rec;
+	v1 = (unsigned char)((l06ae(*(short *)(v172 + 2)) < 0) ? 1 : 0);
+	l2ebe((long)(uintptr_t)&v176, (long)(uintptr_t)v172,
+	      *(short *)(v172 + 14));
+	if (v176 == 0) {
+		*(long *)(uintptr_t)outp &= -16L;
+		return cmd;
+	}
+
+	jt191((const void *)(uintptr_t)(v176 + 2), v84, (short)15);
+	jt108((short)1);
+	jt112((short)1);
+	jt76();
+	jt394(v28, ua_strs_at(0x2de2) /* "%s %s" */,
+	      (const char *)(uintptr_t)g_a5_long(-10684),
+	      (const char *)(uintptr_t)(v1 ? g_a5_long(-10836)
+	                                   : g_a5_long(-10840)));
+	len = jt423(v28);
+	d1  = (short)(((38 - len) << 2) / 2);
+	jt1089((short)8008, (short)(8004 + d1), (short)140, v28);
+
+	v3 = 0;
+	v2 = 0;
+	v90 = 1;
+	jt394(v28, ua_strs_at(0x2de8) /* "%s %s" */,
+	      (const char *)(uintptr_t)g_a5_long(-10684),
+	      (const char *)(uintptr_t)g_a5_long(-10692));
+	jt447();
+	jt452((long)7, (long)(uintptr_t)&jt268, (long)20, (long)0);
+	jt384(v68, v84);
+	v129 = 0;
+	(void)v129;
+	jt452((long)8, (long)(uintptr_t)&jt327, (long)39,
+	      (long)(uintptr_t)v68, (long)38, (long)112, (long)35,
+	      (long)(uintptr_t)v168, (long)40, (long)8040, (long)8056,
+	      (long)42, (long)15, (long)20, (long)0);
+	jt179(v90);
+	jt148(g_a5_long(-13952), v28, (short)0);
+	if (v2 != 0)
+		jt444((short)4, (short)16, (short)0, (short)0);
+
+	jt1089((short)8040, (short)8036, (short)135,
+	       ua_strs_at(0x2dee) /* "%s:" */,
+	       (const char *)(uintptr_t)g_a5_long(-10688));
+	jt449((short)1);
+	jt112((short)0);
+	jt117();
+	goto loop_top;
+
+ redraw:
+	jt1067();
+ loop_top:
+	v88 = l2d3e();                          /* JT[456] event poll */
+	if (v88 < 0)
+		goto redraw;
+	v86 = jt152(v88);
+	if (v86 < 0)
+		goto l34a4;
+	if (g_a5_byte(-24139) == 0)
+		goto l352a;
+	v86 = (short)((v86 == 13) ? 0 : v90);
+	g_a5_byte(-24139) = 0;
+	goto l352a;
+
+ l34a4:
+	if (v88 != 0)
+		goto l352a;
+	if (g_a5_word(-10372) == 9) {
+		jt444((short)1, (short)18, (short)0, (short)0);
+		goto l352a;
+	}
+	if (jt454((short)1, (short)18) != 0) {
+		if (g_a5_word(-10372) == 27 && v3 != 0 && v2 == 0) {
+			v2 = 1;
+			jt444((short)4, (short)16, (short)0, (short)0);
+		}
+		jt444((short)1, (short)5, (short)g_a5_word(-10372),
+		      (short)0);
+		goto l352a;
+	}
+	v86 = (short)((g_a5_word(-10372) == 27) ? v90 : 0);
+
+ l352a:
+	if (v2 != 0 && jt393(v68, v168) != 0) {
+		v2 = 0;
+		jt444((short)4, (short)24, (short)0, (short)0);
+	}
+	if (!(v86 == 0 || v86 == v90))
+		goto loop_top;
+
+	jt451();
+	*(long *)(uintptr_t)outp &= -65536L;
+	if (v86 != 0)
+		goto l3652;
+
+	if (jt454(v86, (short)18) != 0)
+		jt444(v86, (short)26, (short)0, (short)0);
+	if (v90 > 1)
+		l2ebe((long)(uintptr_t)&v176, (long)(uintptr_t)v172,
+		      *(short *)(v172 + 14));
+	if (jt393(v84, v68) == 0)
+		goto l3648;
+	jt196((long)(uintptr_t)v68, (long)(v176 + 2));
+	jt362((long)0, l6520_c8((short)v172[6]));
+	if (v1 == 0)
+		goto l3648;
+	v176rec = (unsigned char *)(uintptr_t)v176;
+	v180 = l6028((short)v176rec[0]);
+	if (v180 == 0)
+		goto l3648;
+	jt384((char *)(uintptr_t)(v180 + 96), v68);
+	l611c((short)v176rec[0]);
+
+ l3648:
+	((unsigned char *)(uintptr_t)outp)[3] |= 1;
+ l3652:
+	return cmd;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
