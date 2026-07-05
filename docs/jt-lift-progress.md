@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1145 done (1023 lifted, 52 noop, 70 alias), 14 stub, 0 stand-in, 46 missing.
+**1205 distinct JT entries are called.** Overall: 1147 done (1025 lifted, 52 noop, 70 alias), 14 stub, 0 stand-in, 44 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -47,13 +47,13 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
 | 14 | 651–700 | **32/50** | 29 | 3 | 0 | 0 | 18 |
 | 15 | 701–750 | **39/50** | 32 | 7 | 2 | 0 | 9 |
-| 16 | 751–800 | **46/50** | 40 | 6 | 0 | 0 | 4 |
+| 16 | 751–800 | **47/50** | 41 | 6 | 0 | 0 | 3 |
 | 17 | 801–850 | **49/50** | 47 | 2 | 1 | 0 | 0 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 21 | 1001–1050 | **49/50** | 48 | 1 | 0 | 0 | 1 |
-| 22 | 1051–1100 | **39/50** | 32 | 7 | 7 | 0 | 4 |
+| 22 | 1051–1100 | **40/50** | 33 | 7 | 7 | 0 | 3 |
 | 23 | 1101–1150 | **44/50** | 37 | 7 | 2 | 0 | 4 |
 | 24 | 1151–1200 | **44/50** | 36 | 8 | 1 | 0 | 5 |
 | 25 | 1201–1205 | **4/5** | 3 | 1 | 0 | 0 | 1 |
@@ -78,10 +78,10 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 9 | 5 | 4 | 0 | 0 | 1 | **1** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 5 | 0 | 0 | 7 | **7** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
 | CODE 11 | 12 | 10 | 0 | 0 | 2 | **2** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
-| CODE 12 | 23 | 17 | 3 | 0 | 3 | **6** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
+| CODE 12 | 23 | 18 | 3 | 0 | 2 | **5** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 22 | 0 | 0 | 0 | **0** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
-| CODE 15 | 19 | 17 | 1 | 0 | 1 | **2** | play-entry + save/load + party list (jt574..590 / l07dc) |
+| CODE 15 | 19 | 18 | 1 | 0 | 0 | **1** | play-entry + save/load + party list (jt574..590 / l07dc) |
 | CODE 16 | 115 | 115 | 0 | 0 | 0 | **0** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 19 | 0 | 0 | 1 | **1** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 171 | 0 | 0 | 0 | **0** | combat engine (jt610 / jt856 / l4d98 / l709e) |
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 60 pending (stub+standin+missing), by call count:
+Top 50 of 58 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt242 (1 calls, CODE 11) — missing
@@ -366,13 +366,11 @@ Top 50 of 60 pending (stub+standin+missing), by call count:
 - jt432 (1 calls, CODE 3) — missing
 - jt458 (1 calls, CODE 3) — missing
 - jt575 (1 calls, CODE 17) — missing
-- jt576 (1 calls, CODE 15) — missing
 - jt587 (1 calls, CODE 15) — stub
 - jt896 (1 calls, CODE 19) — missing
 - jt916 (1 calls, CODE 12) — missing
 - jt919 (1 calls, CODE 12) — stub
 - jt927 (1 calls, CODE 12) — missing
-- jt928 (1 calls, CODE 12) — missing
 - jt931 (1 calls, CODE 12) — stub
 - jt933 (1 calls, CODE 12) — stub
 - jt939 (1 calls, CODE 20) — missing
@@ -383,4 +381,6 @@ Top 50 of 60 pending (stub+standin+missing), by call count:
 - jt1008 (1 calls, CODE 5) — stub
 - jt1027 (1 calls, CODE 5) — missing
 - jt1039 (1 calls, CODE 5) — missing
+- jt1063 (1 calls, CODE 5) — missing
+- jt1064 (1 calls, CODE 5) — stub
 

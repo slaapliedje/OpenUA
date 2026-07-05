@@ -66023,6 +66023,33 @@ static short jt430(void)
 	return (short)((g_a5_byte(-9114) & (1 << 4)) ? 255 : 0);
 }
 
+/* JT[928] (CODE 12 + 0x2da6) — draw the 4x4 combat marker at the active
+ * actor's cell: (rec[38]+1)*4 / (rec[37]+1)*4 in 8000-space, via jt122.
+ * rec = the -28006 level/actor record. #151. */
+static void jt928(void) __attribute__((unused));
+static void jt928(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short x = (short)(((short)(rec[38] + 1) << 2) + 8000);
+	short y = (short)(((short)(rec[37] + 1) << 2) + 8000);
+
+	PROBE("jt928");
+	jt122(x, y, (short)4, (short)4);
+}
+
+/* JT[576] (CODE 15 + 0x017a) — read the 16-byte record at file offset 96
+ * of `refnum` into -6922: jt412 (seek/tell) then jt401 the bytes; returns
+ * 1 on a full 16-byte read, 0 otherwise. #151. */
+static short jt576(short refnum) __attribute__((unused));
+static short jt576(short refnum)
+{
+	PROBE("jt576");
+	if (jt412(refnum, (long)96, (short)0) < 0)
+		return 0;
+	return (short)(jt401(refnum, (void *)(uintptr_t)g_a5_long(-6922),
+	                     (short)16) == 16);
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
