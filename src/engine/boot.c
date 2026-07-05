@@ -70715,11 +70715,24 @@ static short l36e0_c10(short id, short arttype)
 		}
 	}
 
-	/* --- 5. write the .tlb file + clean up ---
-	 * TODO(fill 0x413c..0x4196): jt431 x2 (prefix the design directory onto
-	 * the leaf), jt392 (write), jt411 (close), jt457 (register), jt461
-	 * (release). */
-	return 0;                                   /* L36e0's d0 at rts is incidental */
+	/* --- 5. write the .tlb file (L413c..0x4196) ---
+	 * TODO(0x408a..0x4138): the clut_count!=0 palette-record append (needs the
+	 * fp@(-40)/fp@(-39) flags traced). Then build the path (design dir + leaf),
+	 * flush the resource file, close, register it as FC group 24, release. */
+	{
+		char  pathbuf[256];                 /* fp@(-1040) */
+		short wref;
+		pathbuf[0] = 0;
+		jt431(pathbuf, (void *)(uintptr_t)g_a5_long(-31336));  /* design dir */
+		jt431(pathbuf, namebuf);                               /* + leaf name */
+		wref = jt392(pathbuf, (short)512);
+		if (wref >= 0) {
+			jt411(wref);
+			jt457((short)0, (long)(uintptr_t)pathbuf, (short)24);
+		}
+		jt461((short)24);
+	}
+	return got;                                 /* L4196 — fp@(-1042) */
 }
 
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
