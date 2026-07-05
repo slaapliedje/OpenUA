@@ -69837,6 +69837,157 @@ static void l6892(void *handle)
 	jt1032((Handle)handle);
 }
 
+/* L53b0 (CODE 10, the tile-converter sub-giant) — PROBE stub. Converts a band
+ * of the imported image into a PackBits-compressed art tile and returns its
+ * byte size; internally drives L42f2 / L4924 / L4970 / L49f8 / L4cae / L4eda /
+ * L4f9c / L509e. Call site: l53b0(&scanBuf, 0L, height, 1). Level-1 stub until
+ * that sub-tree is lifted — the jt259 import path is dormant (mouse-gated). */
+static short l53b0(void *out, long a2, short height, short flag) __attribute__((unused));
+static short l53b0(void *out, long a2, short height, short flag)
+{
+	PROBE("L53b0");
+	(void)out; (void)a2; (void)height; (void)flag;
+	return 0;                       /* TODO: tile-convert sub-giant */
+}
+
+/* L67a0 (CODE 10+0x67a0) — DrawPicture the loaded PICT into the offscreen
+ * import buffer. The shim now HAS DrawPicture; the remaining pieces are the
+ * GetGWorld/SetGWorld -> current-port mapping (the port has one shared
+ * surface) and jt1159 (CODE 4, unlifted). PROBE stub until those land. */
+static void l67a0(void *pic) __attribute__((unused));
+static void l67a0(void *pic)
+{
+	PROBE("L67a0");
+	(void)pic;                      /* TODO: GWorld map + DrawPicture + jt1159 */
+}
+
+static short l36e0_c10(short id, short arttype);     /* the importer, defined below */
+
+/* JT[259] = L368a (CODE 10 + 0x368a) — the art-IMPORT entry: a thin wrapper.
+ * `desc` packs (id = low byte, arttype = byte 1) with the top bit reserved;
+ * it clears that bit, splits the two bytes, runs the importer L36e0, and packs
+ * the byte result back into the low word of `desc`. Returns `state` unchanged. */
+static short jt259(short state, long *desc) __attribute__((unused));
+static short jt259(short state, long *desc)
+{
+	short id, arttype, r;
+
+	PROBE("jt259");
+	*desc &= 0x00007FFFL;                       /* clear the reserved top bit */
+	id      = (short)(*desc & 0xFF);
+	arttype = (short)((*desc >> 8) & 0xFF);
+	r       = l36e0_c10(id, arttype);
+	*desc &= 0xFFFF0000L;                        /* andil #-65536 */
+	*desc |= (long)(signed char)r;               /* extw/extl/orl of the result */
+	return state;
+}
+
+/* L36e0 (CODE 10 + 0x36e0) — the MacPaint/PICT art-IMPORT handler
+ * (~1030 insn), lifted as a LEVEL-2 SKELETON: the top-level flow + the
+ * helper/JT call spine are faithful; three inner subsections are deferred
+ * with TODO(fill) markers and their exact opcode ranges, and the two
+ * substantial sub-trees (L53b0 tile converter, L67a0 PICT display) are PROBE
+ * stubs. `arttype` (the desc's byte 1) selects the art family (JT[1] cases
+ * 1/2/4/8/16/32 -> PIC/SPRI/CPIC/BIGP). Dormant (mouse-gated). */
+static short l36e0_c10(short id, short arttype) __attribute__((unused));
+static short l36e0_c10(short id, short arttype)
+{
+	short refnum;
+	char  got = 0;                              /* fp@(-1042): a file was picked */
+	void *pic = 0;                              /* fp@(-1046): the PICT handle    */
+
+	PROBE("L36e0");
+	(void)id;
+	jt131((short)4);
+
+	/* --- 1. std-file open: MacPaint (view-mode 3) or PICT --- */
+	if (jt1200() == 3) {
+		refnum = jt418(ua_strs_at(0x2df2) /* "MacPaint File:" */, (short)0,
+		               (long)0x504E5447L /* 'PNTG' */, (long)0);
+		if (refnum >= 0) {
+			l3e38();
+			jt464(ua_strs_at(0x2e02) /* "Import" */, (short)24);
+			if (jt460(refnum, (long)-1) != 0)
+				got = 1;
+			jt411(refnum);
+		} else {
+			l3e38();
+		}
+	} else {
+		refnum = jt418(ua_strs_at(0x2e0a) /* "PICT File:" */, (short)0,
+		               (long)0x50494354L /* 'PICT' */, (long)0);
+		if (refnum >= 0) {
+			l3e38();
+			pic = l66a2(refnum);
+			jt411(refnum);
+			if (pic != 0)
+				got = 1;
+		} else {
+			l3e38();
+		}
+	}
+	if (!got)
+		return 0;                           /* L4196 — nothing imported */
+
+	jt1153((short)1);                           /* begin the compose buffer */
+
+	/* --- 2. decode / display the imported image --- */
+	if (jt1200() == 3) {
+		l6606((short)24);                   /* MacPaint: decode to scanlines */
+		jt461((short)24);
+		jt465(ua_strs_at(0x2e16) /* "Import" */);
+	} else {
+		/* PICT: build the palette + DungCom/MENU art tables from resources,
+		 * install the CLUT, then DrawPicture the image and dispose it.
+		 * TODO(fill 0x37ee..0x3920): jt399 clear; jt468/jt1012/jt406 copy
+		 * CLUT resources 0 and 1; arttype 4/8 -> "DungCom1" (jt54) +
+		 * jt468/jt1012/jt406 + jt58, else "MENU" (jt997) + jt468/jt1012/
+		 * jt406 + jt461 + (arttype 2 -> jt399). */
+		jt1069((short)0, (short)256, (unsigned char *)0 /* TODO -808 CLUT buf */,
+		       (short)0, (short)0);
+		jt1066();
+		l67a0(pic);                         /* DrawPicture the imported PICT */
+		l6892(pic);                         /* dispose the handle            */
+	}
+
+	/* --- 3. build the output art-library leaf name by art family ---
+	 * JT[1] on `arttype` (jt1_extract 0x396c): 1 -> PIC, 2 -> SPRI,
+	 * 4/8 -> CPIC, 16/32 -> BIGP; each arm jt394's the name with view-mode
+	 * variants. TODO(fill 0x398c..0x3d72). Parallels the lifted l419e. */
+	switch ((unsigned char)arttype) {
+	case 1:                                     /* PIC  */
+	case 2:                                     /* SPRI */
+	case 4: case 8:                             /* CPIC */
+	case 16: case 32:                           /* BIGP */
+	default:
+		break;
+	}
+
+	/* --- 4. tile-conversion loop: pack the image into art tiles ---
+	 * jt1163/jt1200 gate, jt1069/jt1066 CLUT, jt465 + jt1024 open the target
+	 * container, then per tile: L53b0 converts+PackBits the band, jt1021/
+	 * jt1022 (re)size the resource, jt1004/jt468/jt1012/jt406 store it. Art
+	 * dimension 120 packs 3 strips, else one. TODO(fill 0x3d72..0x407e): the
+	 * jt1163/jt1069/jt1066/jt465/jt1024 container open, the outer loop bounds,
+	 * and the two store arms; L53b0 is a PROBE stub. Representative inner
+	 * strip (art dim 120 -> 3 iterations): */
+	{
+		short strip;
+		for (strip = 0; strip < 3; strip++) {
+			short h    = (jt1200() == 3) ? 144 : 192;
+			short size = l53b0((void *)0 /* TODO &scanBuf */, (long)0, h, (short)1);
+			(void)size;                 /* TODO: jt1022 resize + jt1004/jt468/
+			                             *       jt1012/jt406 store */
+		}
+	}
+
+	/* --- 5. write the .tlb file + clean up ---
+	 * TODO(fill 0x413c..0x4196): jt431 x2 (prefix the design directory onto
+	 * the leaf), jt392 (write), jt411 (close), jt457 (register), jt461
+	 * (release). */
+	return 0;                                   /* L36e0's d0 at rts is incidental */
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
