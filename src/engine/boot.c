@@ -70917,6 +70917,97 @@ static void l4e3e(char *out, short a, short b)
 	}
 }
 
+/* L4eb2 (CODE 2 + 0x4eb2) — render the event map as an ASCII grid into the
+ * message window (the jt254 PRINT worker's map pass). A column-number header,
+ * then per grid row: a "+--+--" junction/edge line (L4c92 corners + L4dcc
+ * edges) and a "| N| N" content line (L4e3e walls + jt201 cell value, labelled
+ * 1..99 then A0/A1/… for >=100), then a bottom border. Each non-empty cell's
+ * value is recorded into cellarr[idx]; the running idx is written back through
+ * pidx. Args: (oStart,oEnd) rows, (iStart,iEnd) cols. */
+static void l4eb2(short oStart, short iStart, short oEnd, short iEnd,
+                  unsigned char *cellarr, short *pidx) __attribute__((unused));
+static void l4eb2(short oStart, short iStart, short oEnd, short iEnd,
+                  unsigned char *cellarr, short *pidx)
+{
+	char  line[128];
+	char  cell[12];
+	short oi, ii, idx;
+
+	PROBE("L4eb2");
+	idx = *pidx;
+
+	/* column-number header */
+	jt384(line, ua_strs_at(0x2c76) /* "    " */);
+	for (ii = iStart; ii < iEnd; ii++) {
+		jt394(cell, ua_strs_at(0x2c7c) /* " %2d" */, ii);
+		jt404(line, cell);
+	}
+	l7ab4(line);
+
+	for (oi = oStart; oi < oEnd; oi++) {
+		/* junction / horizontal-edge row: "+--+--..." */
+		jt384(line, ua_strs_at(0x2c82) /* "    " */);
+		for (ii = iStart; ii <= iEnd; ii++) {
+			l4c92(&cell[0], oi, ii);
+			if (ii < iEnd) {
+				l4dcc(&cell[1], oi, ii);
+				l4dcc(&cell[2], oi, ii);
+				cell[3] = 0;
+			} else {
+				cell[1] = 0;
+			}
+			jt404(line, cell);
+		}
+		l7ab4(line);
+
+		/* vertical-wall / content row: "| N| N..." (left margin = row #) */
+		jt394(line, ua_strs_at(0x2c88) /* " %2d " */, oi);
+		for (ii = iStart; ii <= iEnd; ii++) {
+			l4e3e(&cell[0], oi, ii);
+			if (ii < iEnd) {
+				short v = (short)(jt201(ii, oi) & 0xFF);
+				if (v != 0) {
+					cellarr[idx] = (unsigned char)v;
+					idx++;
+					if (idx < 100) {
+						jt394(&cell[1],
+						      ua_strs_at(0x2c8e) /* "%2d" */, idx);
+					} else {
+						short letter = (short)((idx - 100) / 10 + 65);
+						short digit  = (short)((idx - 100) % 10);
+						jt394(&cell[1],
+						      ua_strs_at(0x2c92) /* "%c%d" */,
+						      letter, digit);
+					}
+				} else {
+					jt384(&cell[1], ua_strs_at(0x2c98) /* "  " */);
+				}
+			} else {
+				cell[1] = 0;
+			}
+			jt404(line, cell);
+		}
+		l7ab4(line);
+	}
+
+	/* bottom border (junction row at oi == oEnd) */
+	jt384(line, ua_strs_at(0x2c9c) /* "    " */);
+	for (ii = iStart; ii <= iEnd; ii++) {
+		l4c92(&cell[0], oEnd, ii);
+		if (ii < iEnd) {
+			l4dcc(&cell[1], oEnd, ii);
+			l4dcc(&cell[2], oEnd, ii);
+			cell[3] = 0;
+		} else {
+			cell[1] = 0;
+		}
+		jt404(line, cell);
+	}
+	l7ab4(line);
+
+	*pidx = idx;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
