@@ -211,9 +211,10 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         771,   # CODE 18+0x48f2: empty linkw #0 / unlk / rts.
         774,   # CODE 18+0x4b5c: empty linkw #0 / unlk / rts.
         785,   # CODE 18+0x4f30: empty linkw #0 / unlk / rts.
-        1037}  # CODE 5+0x512e: _VRemove ($A034) glue — the jt1036
+        1037,  # CODE 5+0x512e: _VRemove ($A034) glue — the jt1036
                # (_VInstall) counterpart, HAL-moot (Falcon VBL owns
                # the vblank; nothing was ever installed to remove).
+        489}   # CODE 3+0x0004: bare `rts` (band 7, disasm-verified).
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work

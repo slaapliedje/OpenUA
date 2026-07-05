@@ -63378,6 +63378,35 @@ static void jt256(short id)
 	jt1072((short)1);
 }
 
+/* ---- CODE 3 tiny string-builder utilities (the sprintf-style helper
+ * tier). -10280 = the source scan pointer, -10276 = its length,
+ * -10274 = the output write cursor; jt488 arms them, JT[470] appends,
+ * the byte extractors split words. All bare faithful lifts. */
+
+/* JT[473] (CODE 3+0x03a4) — high byte of a word: (x >> 8) & 255. */
+static short jt473(short x) __attribute__((unused));
+static short jt473(short x) { PROBE("jt473"); return (short)((x >> 8) & 255); }
+
+/* JT[474] (CODE 3+0x03b6) — low byte of a word: x & 255. */
+static short jt474(short x) __attribute__((unused));
+static short jt474(short x) { PROBE("jt474"); return (short)(x & 255); }
+
+/* JT[480] (CODE 3+0x03c6) — the source-scan setter (length -10276,
+ * base ptr -10280) is already lifted in str.c (the THINK C string-
+ * table setter jt480); not duplicated here. */
+
+/* JT[470] (CODE 3+0x0424) — append one byte (the low byte of `b`) to
+ * the -10274 output cursor, advancing it. */
+static void jt470(short b) __attribute__((unused));
+static void jt470(short b)
+{
+	unsigned char *c = (unsigned char *)(uintptr_t)g_a5_long(-10274);
+
+	PROBE("jt470");
+	g_a5_long(-10274) = (long)(uintptr_t)(c + 1);
+	*c = (unsigned char)b;
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
