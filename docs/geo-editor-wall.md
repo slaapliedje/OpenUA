@@ -95,6 +95,37 @@ PICT art-IMPORT pipeline** (0x36e0..0x42f2, ~1030 insn main) plus **13
 CODE-local helpers**. Total ~2732 insn across the subsystem — genuinely
 multi-session (est. 6-10 focused passes).
 
+### jt259 completion — FOCUSED sub-phases (one small chunk per commit)
+
+DONE so far: all leaves (L4924/L4970/L4eda/L4f9c/L42f2/L49f8/L4cae/L509e full
+lifts), L66a2/L6606/L6892, DrawPicture shim, jt259 wrapper, L36e0 + L53b0
+level-2 skeletons, L53b0 cases 0/2/3/5/7/9. REMAINING, chunked in dependency
+order — each is one build+commit:
+
+- **A4** — l36e0_c10 tile-loop CORE (L3dd0..L407e minus the geometry tables):
+  the 120-dim 3-strip vs single-tile dispatch, the L53b0 calls, and the
+  jt1022/jt1004/jt468/jt1012/jt406 tile store. Reads geometry from the
+  descriptor locals (arms still TODO). Declare the full local set here.
+- **A5** — the geometry-ADVANCE tables (L3faa..L4070): the next-strip tile
+  dimensions per art-type/view-mode (the fp@(-16/-14/-12/-6) constant sets).
+- **A6** — JT[1] arm BIGP (case 16/32, 0x3cea): jt394 name + geometry, no
+  dialog — the simplest arm; proves one art-family end-to-end (minus writeout).
+- **A7** — JT[1] arms PIC (case 1, 0x398c) + SPRI (case 2, 0x3abc).
+- **A8** — JT[1] arm CPIC (case 4/8, 0x3bf6) incl. the jt182 "Shape:" dialog
+  (Normal/Tall/Wide/Big/Cancel → fp@(-37) shape bits drive the geometry).
+- **A9** — palette/art-table setup (L37ee..0x3920): jt399 + jt468/jt1012/jt406
+  CLUT copy + DungCom/MENU table load.
+- **A10** — writeout (L413c..0x4196): jt431 x2 dir-prefix + jt392 write +
+  jt411 close + jt457 register + jt461 release.
+- **A11** — L53b0 case 1 (0x5698, the l42f2 convert format) — ⚠ has the
+  ambiguous per-plane l42f2 buffer args; best done against a Mac trace.
+- **A12** — L67a0 (PICT display): GetGWorld/SetGWorld -> current-port mapping +
+  jt1159.
+
+Counter-reuse note: `fp@(-34)` is BOTH the outer strip counter (L407e dec) and
+the inner 3-strip counter (L3df8 0..2, then set to -1) — the 120-dim path runs
+the outer loop exactly once. Constants are magic; when in doubt, trace.
+
 - **51 distinct JT deps — all resolve** (jt48=l5864, jt1084=l036a, jt1162=l3e38
   are the only alias reads). Heavy on file/resource I/O (jt418 std-file,
   jt460/461/464/465/468 resource, jt411/413/416/419/431 file, jt1162/1163
