@@ -110,8 +110,8 @@ helpers, several of which are SHARED with jt257/jt258 (the selection ring):
 |-------|-----|-------|------|--------|--------|
 | L20ac | 0x20ac | 0 | selection-ring PRODUCER (append/reset the -12190 ring) | — | ✓ done |
 | L2350 | 0x2350 | -4 | selection-ring CONSUMER (advance cursor -12196, validate) | jt229, jt321 | ✓ done |
-| L4842 | 0x4842 | -22 | map-region SHIFT (insert/delete row-col; nested double loop) | L20ac, jt413/406/399/7/4 | next |
-| L4bd4 | 0x4bd4 | -18 | event-picker COMMIT loop (working copy → jt325 serialize) | jt348/359/325, L2350 | after |
+| L4842 | 0x4842 | -22 | cell-array RESHAPE (grow/shrink col stride via jt406/jt399; ring-scans affected events) | L20ac, jt413/406/399/7/4 | ✓ done |
+| L4bd4 | 0x4bd4 | -18 | event-picker COMMIT loop (working copy → jt325 serialize) | jt348/359/325, L2350 | next |
 | L44cc | 0x44cc | -16 | **main dispatcher** — 2× JT[1] value-switch {2,5,10,8} + 1× JT[3] {5}; packs display flags into *desc | jt319/273/317/320/325, L4842, L4bd4 | last |
 | l44ca | 0x44ca | — | **= jt252**, empty `rts` (adjacent placeholder) | — | ✓ stub |
 
@@ -124,8 +124,10 @@ All JT leaves already lifted (jt319/273/317/320/325/229/321/348/359/413/406/399/
 7/4). Design record base = g_a5(-12300); event-cell records are 6-byte at
 rec+290 (the L4842 field scan), 20-byte at g_a5(-13038) (jt325 src).
 
-**B-jt253a DONE:** L20ac + L2350 (the selection-ring pair) + jt252 stub. Next:
-L4842 (the map-region shifter), then L4bd4, then the L44cc main.
+**B-jt253a DONE:** L20ac + L2350 (the selection-ring pair) + jt252 stub.
+**B-jt253b DONE:** L4842 (the cell-array reshape / column re-stride helper —
+grow forward, shrink back-to-front, or tail-zero; collects affected events into
+the ring). Next: L4bd4 (the event-picker commit loop), then the L44cc main.
 
 ## Method (same as jt259 / #153 so far)
 
