@@ -80,5 +80,6 @@ way). Each leaf/helper = one build + commit; codegen stays 1889, tests 129/1.
 Dormant (mouse-gated, unvalidatable headless) — verify vs disasm, not smoke.
 
 STATUS 2026-07-05: B1 (scope) DONE. Leaf audit corrected — all 9 jt254 leaves
-were already lifted (the "3 absent" were lXXXX-aliased). B2 STARTED: L4c92
-(map-cell glyph picker) lifted. Next B2: L4dcc, L4e3e, L514e, L5194.
+were already lifted (the "3 absent" were lXXXX-aliased). B2 in progress: L4c92
+(junction '+'), L4dcc (horiz '.'/'-'), L4e3e (vert ':'/'|') lifted — the ASCII
+map-grid glyph trio. Next B2: L514e, L5194. Then B3: L541c + L4eb2 + l4c5a.
