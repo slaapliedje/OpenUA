@@ -1700,6 +1700,425 @@ typedef char qd_assert_portrect_off[offsetof(GrafPort, portRect) == 16 ? 1 : -1]
 /* The Color QuickDraw structs must match their Macintosh layouts too — and
  * CGrafPort must be GrafPort's size, with portRect at the same offset. */
 typedef char qd_assert_cgrafport[sizeof(CGrafPort) == 108 ? 1 : -1];
+/* ===================================================================== *
+ *  ForeColor / BackColor + DrawPicture — the PICT playback path.         *
+ *                                                                        *
+ *  A focused Mac PICT opcode interpreter. The port has no PICT recorder  *
+ *  and no GWorld; DrawPicture rasterises straight into the current       *
+ *  CGrafPort's 8-bit PixMap. It handles the v1/v2 headers, Clip,         *
+ *  comments/NOPs, and the three image-carrying bitmap opcodes            *
+ *  (BitsRect 0x90, PackBitsRect 0x98, DirectBitsRect 0x9A). Enough for   *
+ *  the design-editor "Import Picture" path; unknown opcodes stop the     *
+ *  interpreter rather than guess a data size.                            *
+ * ===================================================================== */
+
+static void qd_classic_rgb(long c, RGBColor *out)
+{
+	const unsigned short F = 0xFFFF;
+
+	switch (c) {
+	case whiteColor:   out->red = F; out->green = F; out->blue = F; break;
+	case yellowColor:  out->red = F; out->green = F; out->blue = 0; break;
+	case magentaColor: out->red = F; out->green = 0; out->blue = F; break;
+	case redColor:     out->red = F; out->green = 0; out->blue = 0; break;
+	case cyanColor:    out->red = 0; out->green = F; out->blue = F; break;
+	case greenColor:   out->red = 0; out->green = F; out->blue = 0; break;
+	case blueColor:    out->red = 0; out->green = 0; out->blue = F; break;
+	case blackColor:
+	default:           out->red = 0; out->green = 0; out->blue = 0; break;
+	}
+}
+
+void ForeColor(long color)
+{
+	RGBColor c;
+	qd_classic_rgb(color, &c);
+	RGBForeColor(&c);
+}
+
+void BackColor(long color)
+{
+	RGBColor c;
+	qd_classic_rgb(color, &c);
+	RGBBackColor(&c);
+}
+
+/* --- a bounds-checked big-endian cursor over the picture data --- */
+typedef struct {
+	const unsigned char *p;
+	const unsigned char *base;      /* picture start, for v2 word alignment */
+	const unsigned char *end;
+	int                  bad;
+} pict_reader;
+
+static unsigned char pr_byte(pict_reader *r)
+{
+	if (r->p >= r->end) { r->bad = 1; return 0; }
+	return *r->p++;
+}
+
+static short pr_word(pict_reader *r)
+{
+	unsigned hi = pr_byte(r);
+	unsigned lo = pr_byte(r);
+	return (short)((hi << 8) | lo);
+}
+
+static long pr_long(pict_reader *r)
+{
+	unsigned long hi = (unsigned short)pr_word(r);
+	unsigned long lo = (unsigned short)pr_word(r);
+	return (long)((hi << 16) | lo);
+}
+
+static void pr_skip(pict_reader *r, long n)
+{
+	if (n < 0 || r->p + n > r->end) { r->bad = 1; r->p = r->end; return; }
+	r->p += n;
+}
+
+static void pr_rect(pict_reader *r, Rect *rc)
+{
+	rc->top    = pr_word(r);
+	rc->left   = pr_word(r);
+	rc->bottom = pr_word(r);
+	rc->right  = pr_word(r);
+}
+
+static void pr_align(pict_reader *r)            /* v2 opcodes are word-aligned */
+{
+	if (((r->p - r->base) & 1) != 0)
+		(void)pr_byte(r);
+}
+
+/* Expand one PackBits row into exactly `dstBytes` bytes (excess in a run is
+ * clamped to the row, matching the Mac _UnpackBits trap). */
+static void pict_unpack_row(pict_reader *r, unsigned char *dst, short dstBytes)
+{
+	short n = 0;
+
+	while (n < dstBytes && !r->bad) {
+		signed char c = (signed char)pr_byte(r);
+		short       i;
+
+		if (c >= 0) {
+			short cnt = (short)c + 1;
+			for (i = 0; i < cnt && n < dstBytes; i++)
+				dst[n++] = pr_byte(r);
+		} else if (c != -128) {
+			short         cnt = (short)(1 - c);
+			unsigned char v   = pr_byte(r);
+			for (i = 0; i < cnt && n < dstBytes; i++)
+				dst[n++] = v;
+		}
+		/* c == -128: no-op byte */
+	}
+}
+
+/* Resolve one source pixel (sx,sy) of the decoded bitmap to an 8-bit
+ * destination palette index. */
+static unsigned char pict_pixel(const unsigned char *buf, long rowBytes,
+                                short sx, short sy, short pixelSize,
+                                const unsigned char *ctabMap, int hasCtab,
+                                unsigned char fg, unsigned char bg)
+{
+	const unsigned char *row = buf + (long)sy * rowBytes;
+
+	if (pixelSize == 1 && !hasCtab) {
+		int bit = (row[sx >> 3] >> (7 - (sx & 7))) & 1;
+		return bit ? fg : bg;
+	}
+	if (pixelSize <= 8) {
+		unsigned idx;
+		if (pixelSize == 8)      idx = row[sx];
+		else if (pixelSize == 4) idx = (sx & 1) ? (row[sx >> 1] & 0x0F)
+		                                        : (row[sx >> 1] >> 4);
+		else if (pixelSize == 2) idx = (row[sx >> 2] >> ((3 - (sx & 3)) * 2)) & 3;
+		else /* 1 */             idx = (row[sx >> 3] >> (7 - (sx & 7))) & 1;
+		return hasCtab ? ctabMap[idx & 0xFF] : (unsigned char)idx;
+	}
+	/* direct colour */
+	{
+		RGBColor c;
+		if (pixelSize == 16) {
+			const unsigned char *pp = row + (long)sx * 2;
+			unsigned short px = (unsigned short)((pp[0] << 8) | pp[1]);
+			unsigned r5 = (px >> 10) & 0x1F, g5 = (px >> 5) & 0x1F, b5 = px & 0x1F;
+			c.red   = (unsigned short)((r5 << 11) | (r5 << 6) | (r5 << 1));
+			c.green = (unsigned short)((g5 << 11) | (g5 << 6) | (g5 << 1));
+			c.blue  = (unsigned short)((b5 << 11) | (b5 << 6) | (b5 << 1));
+		} else {                          /* 32-bit chunky: [x,R,G,B] */
+			const unsigned char *pp = row + (long)sx * 4;
+			c.red   = (unsigned short)(pp[1] << 8 | pp[1]);
+			c.green = (unsigned short)(pp[2] << 8 | pp[2]);
+			c.blue  = (unsigned short)(pp[3] << 8 | pp[3]);
+		}
+		return qd_nearest_color(&c);
+	}
+}
+
+/* Draw one BitsRect / PackBitsRect / DirectBitsRect opcode.  `pictXform`
+ * carries the picFrame -> caller-dstRect mapping so a source pixel lands in
+ * the right place on the current port. */
+static void pict_do_bits(pict_reader *r, short opcode, int hasRgn,
+                         const Rect *picFrame, const Rect *pictDst,
+                         const Rect *pictClip, GrafPtr port)
+{
+	CGrafPtr        cp = (CGrafPtr)port;
+	PixMap         *pm;
+	Rect            clip, bounds, srcR, dstR, opDst, screen;
+	unsigned char   ctabMap[256];
+	unsigned char  *buf, *dp;
+	unsigned char   fg, bg;
+	long            rowBytes, srcRowBytes, dstRow, bufRows;
+	short           pixelSize = 1, pwide, high, sy, X, Y;
+	int             hasCtab = 0, packed;
+
+	if (opcode == 0x009A)
+		(void)pr_long(r);               /* DirectBitsRect: skip baseAddr */
+
+	rowBytes = (unsigned short)pr_word(r);
+	if (opcode == 0x009A || (rowBytes & 0x8000)) {
+		/* PixMap header */
+		rowBytes &= 0x7FFF;
+		pr_rect(r, &bounds);
+		(void)pr_word(r);               /* pmVersion  */
+		(void)pr_word(r);               /* packType   */
+		(void)pr_long(r);               /* packSize   */
+		(void)pr_long(r); (void)pr_long(r);   /* hRes, vRes */
+		(void)pr_word(r);               /* pixelType  */
+		pixelSize = pr_word(r);
+		(void)pr_word(r);               /* cmpCount   */
+		(void)pr_word(r);               /* cmpSize    */
+		(void)pr_long(r);               /* planeBytes */
+		(void)pr_long(r);               /* pmTable    */
+		(void)pr_long(r);               /* pmReserved */
+		if (opcode != 0x009A) {         /* indexed: read the colour table */
+			short i, ctSize;
+			(void)pr_long(r);           /* ctSeed  */
+			(void)pr_word(r);           /* ctFlags */
+			ctSize = pr_word(r);
+			for (i = 0; i <= ctSize && !r->bad; i++) {
+				RGBColor c;
+				short    v = pr_word(r);
+				c.red = pr_word(r); c.green = pr_word(r); c.blue = pr_word(r);
+				if (v < 0 || v > 255) v = (short)(i & 0xFF);
+				ctabMap[v & 0xFF] = qd_nearest_color(&c);
+			}
+			hasCtab = 1;
+		}
+	} else {
+		/* old-style 1-bit BitMap */
+		pr_rect(r, &bounds);
+		pixelSize = 1;
+	}
+
+	pr_rect(r, &srcR);
+	pr_rect(r, &dstR);                  /* destination within the picFrame */
+	(void)pr_word(r);                   /* transfer mode — treated as srcCopy */
+
+	if (hasRgn) {                       /* BitsRgn/PackBitsRgn: skip maskRgn */
+		short rs = pr_word(r);
+		pr_skip(r, rs - 2);
+	}
+
+	/* clamp dstR to the picture's clip (picture coords) */
+	opDst = dstR;
+	if (pictClip->left   > opDst.left)   opDst.left   = pictClip->left;
+	if (pictClip->top    > opDst.top)    opDst.top    = pictClip->top;
+	if (pictClip->right  < opDst.right)  opDst.right  = pictClip->right;
+	if (pictClip->bottom < opDst.bottom) opDst.bottom = pictClip->bottom;
+
+	srcRowBytes = rowBytes;
+	high = (short)(bounds.bottom - bounds.top);
+	pwide = (short)(bounds.right - bounds.left);
+	/* 0x90/0x91 are unpacked; 0x98/0x99/0x9A are PackBits (rowBytes >= 8) */
+	packed = (opcode == 0x0098 || opcode == 0x0099 || opcode == 0x009A) &&
+	         (rowBytes >= 8);
+	if (r->bad || high <= 0 || pwide <= 0 || rowBytes <= 0)
+		return;
+
+	/* decode the whole source bitmap into a scratch buffer */
+	bufRows = (long)high * srcRowBytes;
+	buf = (unsigned char *)NewPtr(bufRows);
+	if (buf == NULL)
+		return;
+	for (sy = 0; sy < high && !r->bad; sy++) {
+		unsigned char *row = buf + (long)sy * srcRowBytes;
+		if (!packed) {
+			short i;
+			for (i = 0; i < srcRowBytes; i++)
+				row[i] = pr_byte(r);
+		} else {
+			long cnt = (rowBytes > 250) ? (unsigned short)pr_word(r)
+			                            : (unsigned char)pr_byte(r);
+			const unsigned char *rowend;
+			(void)cnt;                  /* the count bounds the run stream */
+			rowend = r->p;
+			pict_unpack_row(r, row, (short)srcRowBytes);
+			(void)rowend;
+		}
+	}
+
+	/* destination pixmap + effective clip */
+	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG ||
+	    cp->portPixMap == NULL || *cp->portPixMap == NULL) {
+		DisposePtr((Ptr)buf);
+		return;
+	}
+	pm     = *cp->portPixMap;
+	dp     = (unsigned char *)pm->baseAddr;
+	dstRow = pm->rowBytes;
+	if (dp == NULL || !qd_effective_clip(port, &clip)) {
+		DisposePtr((Ptr)buf);
+		return;
+	}
+	fg = (unsigned char)cp->fgColor;
+	bg = (unsigned char)cp->bkColor;
+
+	/* map opDst (picture coords) -> screen coords through picFrame->pictDst */
+	{
+		long pfW = picFrame->right - picFrame->left;
+		long pfH = picFrame->bottom - picFrame->top;
+		long cdW = pictDst->right - pictDst->left;
+		long cdH = pictDst->bottom - pictDst->top;
+		if (pfW <= 0 || pfH <= 0 || cdW <= 0 || cdH <= 0) {
+			DisposePtr((Ptr)buf);
+			return;
+		}
+		screen.left   = (short)(pictDst->left + (opDst.left   - picFrame->left) * cdW / pfW);
+		screen.right  = (short)(pictDst->left + (opDst.right  - picFrame->left) * cdW / pfW);
+		screen.top    = (short)(pictDst->top  + (opDst.top    - picFrame->top)  * cdH / pfH);
+		screen.bottom = (short)(pictDst->top  + (opDst.bottom - picFrame->top)  * cdH / pfH);
+
+		/* intersect with the port clip + pixmap bounds */
+		if (clip.left   > screen.left)   screen.left   = clip.left;
+		if (clip.top    > screen.top)    screen.top    = clip.top;
+		if (clip.right  < screen.right)  screen.right  = clip.right;
+		if (clip.bottom < screen.bottom) screen.bottom = clip.bottom;
+		if (pm->bounds.left   > screen.left)   screen.left   = pm->bounds.left;
+		if (pm->bounds.top    > screen.top)    screen.top    = pm->bounds.top;
+		if (pm->bounds.right  < screen.right)  screen.right  = pm->bounds.right;
+		if (pm->bounds.bottom < screen.bottom) screen.bottom = pm->bounds.bottom;
+
+		for (Y = screen.top; Y < screen.bottom; Y++) {
+			/* inverse-map Y -> source row */
+			long fy = picFrame->top + (long)(Y - pictDst->top) * pfH / cdH;
+			long sy2 = srcR.top + (fy - dstR.top) * (bounds.bottom - bounds.top)
+			           / (dstR.bottom - dstR.top ? dstR.bottom - dstR.top : 1);
+			long srow = sy2 - bounds.top;
+			unsigned char *dstline;
+			if (srow < 0 || srow >= high)
+				continue;
+			dstline = dp + (long)(Y - pm->bounds.top) * dstRow;
+			for (X = screen.left; X < screen.right; X++) {
+				long fx = picFrame->left + (long)(X - pictDst->left) * pfW / cdW;
+				long sx2 = srcR.left + (fx - dstR.left) * (bounds.right - bounds.left)
+				           / (dstR.right - dstR.left ? dstR.right - dstR.left : 1);
+				long scol = sx2 - bounds.left;
+				if (scol < 0 || scol >= pwide)
+					continue;
+				dstline[X - pm->bounds.left] =
+					pict_pixel(buf, srcRowBytes, (short)scol, (short)srow,
+					           pixelSize, ctabMap, hasCtab, fg, bg);
+			}
+		}
+	}
+	DisposePtr((Ptr)buf);
+}
+
+void DrawPicture(PicHandle myPicture, const Rect *dstRect)
+{
+	GrafPtr      port;
+	pict_reader  R;
+	Rect         picFrame, pictDst, pictClip;
+	int          v2;
+
+	if (myPicture == NULL || *myPicture == NULL || dstRect == NULL)
+		return;
+	GetPort(&port);
+	if (port == NULL)
+		return;
+
+	R.base = (const unsigned char *)*myPicture;
+	R.end  = R.base + GetHandleSize((Handle)myPicture);
+	R.p    = R.base;
+	R.bad  = 0;
+
+	(void)pr_word(&R);                  /* picSize  */
+	pr_rect(&R, &picFrame);             /* picFrame */
+	pictDst  = *dstRect;
+	pictClip = picFrame;                /* default clip = the whole frame */
+
+	v2 = (R.p < R.end && *R.p == 0x00); /* v2 opcodes are word-aligned (0x0011) */
+
+	while (!R.bad && R.p < R.end) {
+		short opcode;
+		if (v2) {
+			pr_align(&R);
+			opcode = pr_word(&R);
+		} else {
+			opcode = (short)pr_byte(&R);
+		}
+
+		switch (opcode) {
+		case 0x0000:                    /* NOP */
+			break;
+		case 0x0011:                    /* VersionOp */
+			if (v2) (void)pr_word(&R);  /* version word 0x02FF */
+			else    (void)pr_byte(&R);  /* version byte 0x01   */
+			break;
+		case 0x0C00:                    /* HeaderOp (v2) */
+			pr_skip(&R, 24);
+			break;
+		case 0x0001: {                  /* Clip: region */
+			short rgnSize = pr_word(&R);
+			if (rgnSize >= 10) {
+				pr_rect(&R, &pictClip);
+				pr_skip(&R, rgnSize - 10);
+			} else {
+				pr_skip(&R, rgnSize - 2);
+			}
+			break;
+		}
+		case 0x001E:                    /* DefHilite */
+			break;
+		case 0x00A0:                    /* ShortComment */
+			(void)pr_word(&R);
+			break;
+		case 0x00A1: {                  /* LongComment */
+			short n;
+			(void)pr_word(&R);          /* kind */
+			n = pr_word(&R);
+			pr_skip(&R, n);
+			break;
+		}
+		case 0x0090:                    /* BitsRect      */
+		case 0x0098:                    /* PackBitsRect  */
+			pict_do_bits(&R, opcode, 0, &picFrame, &pictDst, &pictClip, port);
+			if (v2) pr_align(&R);
+			break;
+		case 0x0091:                    /* BitsRgn       */
+		case 0x0099: {                  /* PackBitsRgn   */
+			/* skip the region that precedes the pixel data */
+			pict_do_bits(&R, opcode, 1, &picFrame, &pictDst, &pictClip, port);
+			if (v2) pr_align(&R);
+			break;
+		}
+		case 0x009A:                    /* DirectBitsRect */
+			pict_do_bits(&R, opcode, 0, &picFrame, &pictDst, &pictClip, port);
+			if (v2) pr_align(&R);
+			break;
+		case 0x00FF:                    /* OpEndPic */
+			return;
+		default:
+			/* an opcode outside the handled set — stop rather than
+			 * mis-skip an unknown data length. */
+			return;
+		}
+	}
+}
+
 typedef char qd_assert_cport_rect[offsetof(CGrafPort, portRect) == 16 ? 1 : -1];
 typedef char qd_assert_pixmap[sizeof(PixMap) == 50 ? 1 : -1];
 typedef char qd_assert_pixpat[sizeof(PixPat) == 28 ? 1 : -1];
