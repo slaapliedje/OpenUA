@@ -68455,6 +68455,285 @@ static short jt270(short cmd, long outp, long rec)
 	return cmd;
 }
 
+/* --- CODE 10 monster/spell list-row refresh (jt267 + deps) ---------- */
+
+/* L1282 (CODE 10+0x1282) — set one List Manager item's enable state.
+ * `item` is bounds-checked against holder[54] (item count). flag > 0
+ * enables (jt444 25+16) unless already active; flag < 0 forces the
+ * 17 state; flag == 0 disables (jt444 25+24) unless already off. Each
+ * committed change stamps holder[55] = 1 (the "list dirty" flag).
+ * jt454 queries item state, jt444 sets it. */
+static void l1282(long holder, short item, short flag) __attribute__((unused));
+static void l1282(long holder, short item, short flag)
+{
+	unsigned char *h  = (unsigned char *)(uintptr_t)holder;
+	short          it = (short)(unsigned char)item;
+	signed char    f  = (signed char)flag;
+
+	PROBE("L1282");
+	if ((unsigned char)item > h[54])
+		return;
+	if (f > 0) {
+		if (jt454(it, (short)17) == 0 && jt454(it, (short)16) != 0)
+			return;
+		jt444(it, (short)25, 0, 0);
+		jt444(it, (short)16, 0, 0);
+		h[55] = 1;
+	} else if (f < 0) {
+		if (jt454(it, (short)17) != 0)
+			return;
+		jt444(it, (short)17, 0, 0);
+		h[55] = 1;
+	} else {
+		if (jt454(it, (short)17) == 0 && jt454(it, (short)16) == 0)
+			return;
+		jt444(it, (short)25, 0, 0);
+		jt444(it, (short)24, 0, 0);
+		h[55] = 1;
+	}
+}
+
+/* L15c2 (CODE 10+0x15c2 — distinct from jt165 = CODE 7's l15c2, hence
+ * _c10) — compose and draw one design-list row label for the flag bit
+ * `param2` of the record `*holder`. Classifies the record kind
+ * (L06ae -> v47), the kind-21 flag (v46) and the has-sublist flag
+ * (v45 = rec[10]==0), then builds the label into `buf` from the art
+ * name (-11224 table or -10836), a type suffix ("s"/"es"/" %s"), and
+ * the kind-specific columns (kinds 2/3 and the v46 branch), finally
+ * centring it with jt1089 "%*s". Text path only; all format helpers
+ * (jt394/jt488/jt404/jt384/jt423/jt1089) already lifted. */
+static void l15c2_c10(long holder, short param2) __attribute__((unused));
+static void l15c2_c10(long holder, short param2)
+{
+	unsigned char *h   = (unsigned char *)(uintptr_t)holder;
+	unsigned char *rec = *(unsigned char **)h;
+	signed char    v47;
+	char           v46, v45;
+	char           buf[64];
+	long           strptr = 0;
+	short          idx = (short)(unsigned char)param2;
+
+	PROBE("l15c2");
+	v47 = (signed char)l06ae(*(short *)(rec + 2));
+	v46 = (char)((*(short *)(rec + 2) == 21) ? 1 : 0);
+	v45 = (char)((rec[10] == 0) ? 1 : 0);
+
+	if (v45 != 0) {
+		long s1 = v47 ? g_a5_long(-10708) : g_a5_long(-10704);
+		long s2 = v46 ? (long)(uintptr_t)ua_strs_at(0x2d60)
+		              : g_a5_long(-10840);
+		jt1089((short)8076, (short)8092, (short)139,
+		       ua_strs_at(0x2d5a) /* "%s %s" */,
+		       (const char *)(uintptr_t)s1,
+		       (const char *)(uintptr_t)s2);
+	}
+
+	{
+		long art;
+		if (v47 >= 0 && v46 == 0)
+			art = ((long *)(uintptr_t)&g_a5_long(-11224))[idx];
+		else
+			art = g_a5_long(-10836);
+		jt384(buf, (const char *)(uintptr_t)art);
+	}
+
+	if (*(short *)(rec + 2) == 2) {
+		jt404(buf, jt488(ua_strs_at(0x2d62) /* " %s" */,
+		                 (const char *)(uintptr_t)g_a5_long(-10568)));
+	} else if (v47 != 0 && (unsigned char)param2 != 0) {
+		jt404(buf, ((unsigned char)param2 == 7)
+		           ? ua_strs_at(0x2d66) /* "es" */
+		           : ua_strs_at(0x2d6a) /* "s" */);
+	}
+
+	if (v45 != 0) {
+		jt1089((short)8080, (short)8092, (short)135,
+		       ua_strs_at(0x2d6c) /* "%*s" */, (int)16, buf);
+	} else if (v46 != 0 || v47 >= 0) {
+		strptr = (long)(uintptr_t)jt488(ua_strs_at(0x2d70) /* "%s %s" */,
+		         (const char *)(uintptr_t)g_a5_long(-10704), buf);
+	} else {
+		strptr = (long)(uintptr_t)jt488(
+		         ua_strs_at(0x2d76) /* "%s %s: %s" */,
+		         (const char *)(uintptr_t)g_a5_long(-10704),
+		         (const char *)(uintptr_t)g_a5_long(-10840), buf);
+	}
+
+	if (*(short *)(rec + 2) == 2) {
+		if (*(short *)(rec + 12) >= 0) {
+			if (v45 != 0) {
+				jt1089((short)8084, (short)8092, (short)135,
+				       ua_strs_at(0x2d80) /* "%s %s" */,
+				       (const char *)(uintptr_t)g_a5_long(-10776),
+				       (const char *)(uintptr_t)g_a5_long(-10800));
+				jt1089((short)8088, (short)8092, (short)135,
+				       ua_strs_at(0x2d86) /* "%s %d" */,
+				       (const char *)(uintptr_t)g_a5_long(-10764),
+				       (short)(*(short *)(rec + 12) + 1));
+			} else {
+				jt394(buf, ua_strs_at(0x2d8c) /* "%s %s" */,
+				      (const char *)(uintptr_t)g_a5_long(-10776),
+				      (const char *)(uintptr_t)g_a5_long(-10800));
+			}
+		}
+	} else if (*(short *)(rec + 2) == 3) {
+		if ((unsigned char)param2 >= 6) {
+			if ((unsigned char)param2 >= 8)
+				jt394(buf, ua_strs_at(0x2d92) /* "%s" */,
+				      (const char *)(uintptr_t)g_a5_long(-10656));
+			else
+				jt394(buf, ua_strs_at(0x2d96) /* "%s %s" */,
+				      (const char *)(uintptr_t)g_a5_long(-10760),
+				      (const char *)(uintptr_t)g_a5_long(-10572));
+			if (v45 != 0)
+				jt1089((short)8084, (short)8092, (short)135, buf);
+		}
+	} else if (v46 != 0) {
+		jt394(buf, ua_strs_at(0x2d9c) /* "%s %s %s" */,
+		      (const char *)(uintptr_t)g_a5_long(-10776),
+		      (const char *)(uintptr_t)g_a5_long(-10672),
+		      (const char *)(uintptr_t)g_a5_long(-10756));
+		if (v45 != 0)
+			jt1089((short)8084, (short)8092, (short)135, buf);
+	} else {
+		buf[0] = 0;
+	}
+
+	if (v45 == 0) {
+		short len, x;
+		if (buf[0] != 0) {
+			jt404((char *)(uintptr_t)strptr, ua_strs_at(0x2da6) /* " " */);
+			jt404((char *)(uintptr_t)strptr, buf);
+		}
+		jt384(buf, (const char *)(uintptr_t)strptr);
+		len = jt423(buf);
+		x   = (short)(((38 - len) / 2) * 4 + 8004);
+		jt1089((short)8004, (short)8004, (short)143,
+		       ua_strs_at(0x2da8) /* "%*s" */, (int)38,
+		       ua_strs_at(0x2dac));
+		jt1089((short)8004, x, (short)143, buf);
+	}
+}
+
+/* L116a (CODE 10+0x116a) — arm the List Manager items for the record
+ * `*holder`'s memorized/known art bits. Skips non-monster kinds
+ * (L06ae == 0, or rec[6] >= 6). L2ebe resolves the row descriptor into
+ * v6; then, by the L06ae sign, l1282-enables items 5 and 3 from the
+ * descriptor's bit-7 (memorized) / byte-0 (known) — or item 5 from
+ * its bit-6 for the special (kind-7) case. `param2` biases the L2ebe
+ * row index. */
+static void l116a(long holder, short param2) __attribute__((unused));
+static void l116a(long holder, short param2)
+{
+	unsigned char *h   = (unsigned char *)(uintptr_t)holder;
+	unsigned char *rec = *(unsigned char **)h;
+	long           v6  = 0;
+	unsigned char *v6r;
+	signed char    v_1;
+	short          n;
+
+	PROBE("L116a");
+	v_1 = (signed char)l06ae(*(short *)(rec + 2));
+	if (v_1 == 0)
+		return;
+	if ((unsigned char)rec[6] >= 6)
+		return;
+	n = (short)((*(long *)(h + 64) != 0) ? 0 : (unsigned char)rec[16]);
+	n = (short)(n + param2);
+	l2ebe((long)(uintptr_t)&v6, (long)(uintptr_t)rec, n);
+	if (v_1 > 0) {
+		v6r = (unsigned char *)(uintptr_t)v6;
+		if (v6 != 0 && (v6r[1] & 0x80))
+			l1282(holder, 5, 0);
+		else
+			l1282(holder, 5, 1);
+		v6r = (unsigned char *)(uintptr_t)v6;
+		if (v6r[0] <= 127)
+			l1282(holder, 3, 1);
+		else
+			l1282(holder, 3, 0);
+	} else {
+		v6r = (unsigned char *)(uintptr_t)v6;
+		if (v6 != 0 && (v6r[1] & 0x40))
+			l1282(holder, 5, 0);
+		else
+			l1282(holder, 5, 1);
+	}
+}
+
+/* JT[267] (CODE 10+0x1a14) — refresh the design-list row art labels for
+ * the resident -22290 record after an edit. l116a arms the item states;
+ * L2ebe fetches the descriptor; then it walks the memorized/known art
+ * bit mask (rec[7] & descriptor[1]) and, for each set bit whose art id
+ * (rec[11]) changed, redraws that row's label via l15c2_c10 (the bit
+ * folded through jt346). Two bit-walk loops: bits 0..5 for a normal
+ * record (rec[6] < 6), bits 0..4 with the +0x40 tag for a spell-like
+ * record. Guarded on holder[64] (an active-editor flag). */
+static short jt267(short param) __attribute__((unused));
+static short jt267(short param)
+{
+	long           holder;
+	unsigned char *h;
+	unsigned char *rec;
+	long           v14 = 0;
+	unsigned char *v14r;
+	short          v8;
+	unsigned char  v5, v6;
+	short          n, i;
+
+	PROBE("jt267");
+	holder = g_a5_long(-22290);
+	if (holder == 0)
+		return 0;
+	h = (unsigned char *)(uintptr_t)holder;
+	l116a(holder, param);
+	rec = *(unsigned char **)h;
+	n = (short)((*(long *)(h + 64) != 0) ? 0 : (unsigned char)rec[16]);
+	n = (short)(n + param);
+	v8 = l2ebe((long)(uintptr_t)&v14, (long)(uintptr_t)*(long *)h, n);
+	rec = *(unsigned char **)h;
+	v5  = rec[7];
+	if (*(long *)(h + 64) == 0)
+		return 0;
+
+	v14r = (unsigned char *)(uintptr_t)v14;
+	if (!(v14 != 0 && (v5 = (unsigned char)(v5 & v14r[1])) != 0)) {
+		if (v8 != 0) {
+			if (v8 != 255)
+				return 0;
+			rec = *(unsigned char **)h;
+			if ((unsigned char)rec[6] < 6)
+				return 0;
+		}
+	}
+
+	rec = *(unsigned char **)h;
+	if ((unsigned char)rec[6] >= 6) {
+		for (i = 0; i < 5; i++, v5 = (unsigned char)(v5 >> 1)) {
+			if (v5 & 1) {
+				v6 = (unsigned char)((1 << i) | 0x40);
+				if ((*(unsigned char **)h)[11] != v6)
+					l15c2_c10(holder,
+					          (short)(jt346(v6, (short *)0) & 255));
+				i = 99;
+				(*(unsigned char **)h)[11] = v6;
+			}
+		}
+	} else {
+		for (i = 0; i < 6; i++, v5 = (unsigned char)(v5 >> 1)) {
+			if (v5 & 1) {
+				v6 = (unsigned char)(1 << i);
+				if ((*(unsigned char **)h)[11] != v6)
+					l15c2_c10(holder,
+					          (short)(jt346(v6, (short *)0) & 255));
+				i = 99;
+				(*(unsigned char **)h)[11] = v6;
+			}
+		}
+	}
+	return 0;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
