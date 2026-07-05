@@ -71190,6 +71190,71 @@ static short jt254(short state, long *desc)
 	return state;
 }
 
+/* ===== CODE 2 jt253 event-cell EDIT cluster (Phase B) — see
+ * docs/event-editor-wall.md. jt253 (L44cc) is the interactive "place/edit an
+ * event at the clicked map cell" command; it shares the selection-ring helpers
+ * below with jt257/jt258. Lifted bottom-up; this first pass = the ring pair. */
+
+/* L20ac (CODE 2 + 0x20ac) — selection-ring PRODUCER. Append event byte `v` to
+ * the multi-select ring at g_a5(-12190) (count -12194, cap 99, current -12191);
+ * v==0 resets the ring (cursor -12196 = 0, current = 0, count = -1 = empty).
+ * Shared by the CODE 2 event editor's rubber-band select. Pure A5 state. */
+static void l20ac(short arg) __attribute__((unused));
+static void l20ac(short arg)
+{
+	unsigned char v = (unsigned char)arg;
+
+	PROBE("L20ac");
+	if (v != 0) {
+		if (g_a5_word(-12194) < 0)
+			g_a5_byte(-12191) = v;
+		if (g_a5_word(-12194) < 99) {
+			g_a5_word(-12194)++;
+			g_a5_buf(-12190)[g_a5_word(-12194)] = v;
+		}
+	} else {
+		g_a5_word(-12196) = 0;
+		g_a5_byte(-12191) = 0;
+		g_a5_word(-12194) = -1;
+	}
+}
+
+/* L2350 (CODE 2 + 0x2350) — selection-ring CONSUMER. Advance the cursor
+ * (-12196) through the ring built by L20ac: validate the current entry via
+ * jt229, notify the editor via jt321, then step to the next. Returns the next
+ * event byte, -1 once the cursor passes the count (-12194), or 0 when the ring
+ * is spent / the current entry is invalid. Pure A5 state + two lifted leaves. */
+static short l2350(void) __attribute__((unused));
+static short l2350(void)
+{
+	short ret = 0;
+	unsigned char cur;
+
+	PROBE("L2350");
+	if (g_a5_word(-12196) < 0)
+		return 0;
+	if (g_a5_word(-12196) > g_a5_word(-12194))
+		return 0;
+	cur = g_a5_buf(-12190)[g_a5_word(-12196)];
+	if (jt229((short)cur) == 0)
+		return 0;
+	jt321();
+	g_a5_word(-12196)++;
+	if (g_a5_word(-12196) > g_a5_word(-12194)) {
+		ret = -1;
+	} else {
+		g_a5_byte(-12191) = g_a5_buf(-12190)[g_a5_word(-12196)];
+		ret = (short)(unsigned char)g_a5_byte(-12191);
+	}
+	return ret;
+}
+
+/* JT[252] (CODE 2 + 0x44ca) — an empty `rts` in the Mac binary (a 2-byte
+ * placeholder export immediately before jt253's L44cc). Faithful lift is a
+ * no-op; its call ABI is unknown until the CODE 22 dispatcher is lifted. */
+static void jt252(void) __attribute__((unused));
+static void jt252(void) { PROBE("jt252"); }
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {

@@ -98,8 +98,34 @@ ASCII map-grid printer, and **L5304** the recursive event-chain printer.
     "%s - %s" 2nd operand (the event name) is dropped by the port's fixed jt1074
     signature; moot behind the dead print gate. Noted in the lift comment.
 
-**jt254 (l4c5a, the smallest editor screen) is now COMPLETE.** Next target:
-jt253 (l44cc, 644) + jt252 (l44ca, tiny) — the next editor screen.
+**jt254 (l4c5a, the smallest editor screen) is now COMPLETE.**
+
+## jt253 (l44cc) — the event-cell EDIT command (STARTED)
+
+The interactive "place / edit an event at the clicked map cell" command. Bigger
+and branchier than jt254 — a ~530-insn CODE-2 cluster of the main + four local
+helpers, several of which are SHARED with jt257/jt258 (the selection ring):
+
+| piece | off | frame | role | leaves | status |
+|-------|-----|-------|------|--------|--------|
+| L20ac | 0x20ac | 0 | selection-ring PRODUCER (append/reset the -12190 ring) | — | ✓ done |
+| L2350 | 0x2350 | -4 | selection-ring CONSUMER (advance cursor -12196, validate) | jt229, jt321 | ✓ done |
+| L4842 | 0x4842 | -22 | map-region SHIFT (insert/delete row-col; nested double loop) | L20ac, jt413/406/399/7/4 | next |
+| L4bd4 | 0x4bd4 | -18 | event-picker COMMIT loop (working copy → jt325 serialize) | jt348/359/325, L2350 | after |
+| L44cc | 0x44cc | -16 | **main dispatcher** — 2× JT[1] value-switch {2,5,10,8} + 1× JT[3] {5}; packs display flags into *desc | jt319/273/317/320/325, L4842, L4bd4 | last |
+| l44ca | 0x44ca | — | **= jt252**, empty `rts` (adjacent placeholder) | — | ✓ stub |
+
+Switch tables (extract-tool decoded, #122-safe):
+- JT[1] @0x44fe: {2→0x4512, 5→0x4524, 10→0x4536, 8/default→0x45d4}
+- JT[1] @0x4718: {10→0x472c, 8→0x4766, 2/default→0x4836, 5→0x4784}
+- JT[3] @0x4550: min=max=5 {5→0x4558, default→0x45d4}
+
+All JT leaves already lifted (jt319/273/317/320/325/229/321/348/359/413/406/399/
+7/4). Design record base = g_a5(-12300); event-cell records are 6-byte at
+rec+290 (the L4842 field scan), 20-byte at g_a5(-13038) (jt325 src).
+
+**B-jt253a DONE:** L20ac + L2350 (the selection-ring pair) + jt252 stub. Next:
+L4842 (the map-region shifter), then L4bd4, then the L44cc main.
 
 ## Method (same as jt259 / #153 so far)
 
