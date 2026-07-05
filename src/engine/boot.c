@@ -14447,6 +14447,158 @@ static short jt244(short a, long *rec, void *area)
 	return a;
 }
 
+/* JT[233] (CODE 11 + 0x027e) — the cell wall/state encoder. `cmd`
+ * (1..11) selects the operation; `rec` is the cell's 32-bit packed
+ * word, `area` a scratch descriptor. cmd<10 SETS the wall type / art
+ * index (jt358) / edit-flags in *rec (JT[3] on the fresh type in
+ * area[1]); cmd 10/11 EDIT an existing cell (JT[3] on cmd, then JT[1]
+ * / JT[3] on area[1]) — restoring or re-stamping the type nibble and
+ * the +16 direction field, dirtying rec[3] as needed. Returns the
+ * resulting mode code (10/11 = needs redraw). `unused` until the
+ * CODE 22 L0004 area-command dispatcher wires it. #151. Tables all
+ * via jt1_extract/jt3_extract (0x0306/0x0400/0x044c/0x05f6). */
+static void  jt135(void);
+static void  jt356(void);
+static short jt318(void);
+static short jt233(short cmd, long *rec, void *area) __attribute__((unused));
+static short jt233(short cmd, long *rec, void *area)
+{
+	unsigned char *ap = (unsigned char *)area;
+	unsigned char *rb = (unsigned char *)rec;
+	short          ret;
+	short          t;
+
+	PROBE("jt233");
+	if (area == NULL)
+		return 0;
+
+	if (cmd < 10) {                          /* L029e — set a fresh cell */
+		ret   = cmd;
+		ap[0] = (unsigned char)cmd;
+		ap[4] = (unsigned char)((cmd == 2 && (rb[2] & (1 << 5)))
+		                        ? 0 : 1);
+		ap[1] = (unsigned char)(*rec & 15);
+		*(short *)(ap + 2) = 0;
+		ap[5] = 0;
+		*rec &= ~(long)15;
+		switch (ap[1]) {                 /* JT[3] @0x0306 (1..10) */
+		case 1:
+			t = (short)(jt358() & 255);
+			*rec |= (long)(t << 4);
+			break;
+		case 2:
+			rb[3] |= 1;
+			break;
+		case 3:
+			ret = 11;
+			t = (short)(jt358() & 255);
+			*rec |= (long)((t << 4) | 1024);
+			break;
+		case 4:
+			ap[5] = 1;
+			ret = 11;
+			rb[3] |= (1 << 2);
+			break;
+		case 5:
+			ap[5] = 1;
+			rb[3] |= (1 << 1);
+			ret = 10;
+			break;
+		case 10:
+			if (jt318())
+				ret = 10;        /* *rec |= 0 (no-op) */
+			else
+				rb[3] |= 1;
+			break;
+		default:                         /* 6,7,8,9 -> no arm */
+			break;
+		}
+		return ret;
+	}
+
+	ret = (short)ap[0];                      /* L03ec — edit an existing cell */
+	switch (cmd) {                           /* JT[3] @0x0400 (10..11) */
+	case 10: {
+		short nib = (short)(*rec & 15);
+		*rec &= ~(long)0xFFF;
+		if (nib != 0) {
+			switch (ap[1]) {         /* JT[1] @0x05f6 */
+			case 1:
+			case 4:
+			case 10:
+				*rec |= (long)(nib & 15);
+				break;
+			case 5:
+				rb[3] |= 1;
+				break;
+			default:                 /* 8 / other -> no arm */
+				break;
+			}
+		} else if (ap[1] == 4) {         /* L0642 */
+			jt135();
+			jt356();
+			jt361((short)0);
+		}
+		break;
+	}
+	case 11: {
+		short nib;
+		*(short *)(ap + 2) = (short)((*rec & 0xFF0) >> 4);
+		nib = (short)(*rec & 15);
+		*rec &= ~(long)0x1FFF;
+		if (nib != 0) {
+			switch (ap[1]) {         /* JT[3] @0x044c (1..4) */
+			case 1:
+				if ((jt358() & 255)
+				    != (63 & *(short *)(ap + 2))) {
+					*rec &= ~(long)0x3F0000;
+					*rec |= ((long)(*(short *)(ap + 2)
+					                & 63) << 16);
+					if (jt318())
+						ret = 10;
+					else
+						rb[3] |= 1;
+				}
+				break;
+			case 3:
+				*rec &= ~(long)0x3F0000;
+				*rec |= (((long)(*(short *)(ap + 2) & 63)
+				          << 16) | 1);
+				break;
+			case 4:
+				if (ap[5] != 0) {
+					jt361((short)0);
+					ap[5] = 0;
+					ret = 11;
+					t = (short)(jt358() & 255);
+					*rec |= (long)((((t < 4) ? 1 : 5)
+					                << 4) | 2048);
+				} else {         /* L054a */
+					*rec &= ~(long)0x3F0000;
+					*rec |= ((long)(*(short *)(ap + 2)
+					                & 63) << 16);
+					if (jt318())
+						ret = 10;
+					else
+						rb[3] |= 1;
+				}
+				break;
+			default:                 /* 2 / other -> no arm */
+				break;
+			}
+		} else if (ap[1] == 4 && ap[5] == 0) {   /* L0598 */
+			jt135();
+			jt356();
+			jt361((short)0);
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	return ret;
+}
+
 /* L5126 (CODE 11 + 0x5126) — the deep dungeon status-header panel jt240 draws
  * above the first-person view. Fills the header rect (JT[1161]) then paints
  * four text rows via JT[1089]: the area-name line (g_a5_-10640/-11136/-10816),

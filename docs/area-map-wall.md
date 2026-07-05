@@ -34,13 +34,24 @@ All ~40 JT deps these call are already LIFTED (jt273/325/317/358/364/
   (below), still unlifted, so the visible payoff is deferred. Build
   clean, boot unregressed.
 
+- **jt233** (CODE 11+0x27e, cell wall/state encoder) — self-contained
+  (zero unlifted locals; all JT deps lifted). Four switches: cmd<10
+  sets a fresh cell (JT[3] on the type), cmd 10/11 edit (JT[3] on cmd →
+  JT[1]/JT[3] on the type) packing the type nibble + the +16 direction
+  field into *rec. All tables via jt1_extract/jt3_extract. `unused`.
+
 ## Remaining (leaf-first order)
 
-1. **jt233** (CODE 11+0x27e, ~266) — calls jt358/318/361/135/356, JT[1] switch.
-2. **jt242** (CODE 11+0x589a, ~101) — JT[3] switch over local painters L5a06/L5b0e/L5ee2/L6136/L61c6.
-3. **jt239** (CODE 11+0x4846, ~128) — the play-view layer rebuild (L429c/L6256/L63c0/jt235/jt218…), on the walk path.
-4. **jt243** (CODE 11+0xb26, ~800) — the big one; JT[3] dispatch + many locals (L4144/L16ae/L23de/jt321/jt305/jt346…).
-5. **CODE 22 L0004** — the 21-arm area-command dispatcher (calls jt233/239/242/243/244 + jt281/282/286). Lifting this WIRES the whole cluster → first screenshot-validatable payoff. Find its JT entry (near jt316/318/321) and its reachability from the play loop first.
+1. **jt239** (CODE 11+0x4846, ~128) — the runtime area-ENTER: seats the
+   party (area[46..] -> -12288 block), rebuilds the play view (L429c),
+   runs the L63c0 walk loop with jt235 as cb. Needs its one unlifted
+   local **L49dc** (~254, deps jt1089/1161/399 + L4d24). On the walk path.
+2. **jt242** (CODE 11+0x589a, ~101, cell-edit committer) — JT[3] over 5
+   unlifted painters: L5a06(77), L6136(44), L61c6(44) are small leaves;
+   L5ee2(183), L5b0e(200) are larger. (`l61c6` in the port is a *different*
+   segment — suffix `_c11`.) Lift the painters first, then jt242.
+3. **jt243** (CODE 11+0xb26, ~800) — the big one; JT[3] dispatch + many locals.
+4. **CODE 22 L0004** — the 21-arm area-command dispatcher (calls jt233/239/242/243/244 + jt281/282/286). Lifting this WIRES the whole cluster → first screenshot-validatable payoff. Find its JT entry (near jt316/318/321) and its reachability from the play loop first.
 
 Each CODE 11 entry pulls in a handful of CODE-11-local painters
 (L5a06, L5b0e, …) — size + alias-check them before each lift (the
