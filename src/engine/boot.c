@@ -65963,6 +65963,57 @@ static void glib_pool_selftest(void)
 #endif
 }
 
+/* --- CODE 5 resource/buffer loaders (#151, small MISSING leaves) --- */
+
+/* JT[981] (CODE 5 + 0x113e) — MLoad's buffer allocator: NewPtr(size)
+ * into -4770, else the "Insufficient memory in MLoad." fatal exit. */
+static void jt981(short size) __attribute__((unused));
+static void jt981(short size)
+{
+	PROBE("jt981");
+	g_a5_long(-4770) = jt387(size);
+	if (g_a5_long(-4770) == 0) {
+		jt386((char *)ua_strs_at(0x6d62)); /* "Insufficient memory in MLoad." */
+		jt415((short)1);
+	}
+}
+
+/* JT[971] (CODE 5 + 0x3bf4) — read a resource item into -3620: length
+ * via jt1011(refnum, -3616) -> -3614, then jt401 the bytes; returns 1
+ * on a full read, 0 otherwise. */
+static short jt971(short refnum) __attribute__((unused));
+static short jt971(short refnum)
+{
+	PROBE("jt971");
+	g_a5_word(-3614) = (short)jt1011(refnum, g_a5_word(-3616));
+	if (g_a5_word(-3614) <= 0)
+		return 0;
+	return (short)(jt401(refnum, (void *)(uintptr_t)g_a5_long(-3620),
+	                     g_a5_word(-3614)) == g_a5_word(-3614));
+}
+
+/* JT[970] (CODE 5 + 0x3c86) — LBDecode's buffer loader: on first use
+ * NewPtr(jt403 size) into -3612 (else "Out of memory on LBDecode"),
+ * then jt401 the bytes; returns 1 on a full read. (The Mac reuse path
+ * leaves `size` uninitialised — dormant, init 0 here.) */
+static short jt970(short refnum) __attribute__((unused));
+static short jt970(short refnum)
+{
+	short size = 0;
+
+	PROBE("jt970");
+	if (g_a5_long(-3612) == 0) {
+		size = (short)jt403(refnum);
+		g_a5_long(-3612) = jt387(size);
+		if (g_a5_long(-3612) == 0) {
+			l036a((char *)ua_strs_at(0x6fde)); /* "Out of memory on LBDecode" */
+			return 0;
+		}
+	}
+	return (short)(jt401(refnum, (void *)(uintptr_t)g_a5_long(-3612), size)
+	               == size);
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
