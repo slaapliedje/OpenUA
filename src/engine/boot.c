@@ -70511,6 +70511,7 @@ static short l36e0_c10(short id, short arttype)
 		unsigned char td[16];                   /* fp@(-16) tile descriptor  */
 		long          acc;                      /* fp@(-28) accumulated size */
 		short         outer = 0;                /* fp@(-34) strip count (arm) */
+		char          cpic_multi = 0;           /* fp@(-1041) CPIC multi-shape */
 		short         strip;
 
 		jt399(td, (short)16, (short)0);
@@ -70552,7 +70553,30 @@ static short l36e0_c10(short id, short arttype)
 				jt406((void *)(uintptr_t)hnd,
 				      (void *)(uintptr_t)jt1004(), sz);
 			}
-			/* TODO(A5): palette-remap (L3f5a) + geometry-advance (L3faa). */
+			/* A5: geometry-advance (L3faa) — set the NEXT strip's tile
+			 * dimensions. (Palette-remap L3f5a is TODO — its jt994 CLUT
+			 * refresh only fires for format-5 art.) */
+			if (cpic_multi) {                       /* CPIC multi-shape */
+				short m3 = (jt1200() == 3);
+				if (strip == 2) {
+					*(short *)(td + 0) = m3 ? 54 : 24;
+					*(short *)(td + 2) = m3 ? 208 : 120;
+					*(short *)(td + 4) = m3 ? 106 : 53;
+					td[10]             = m3 ? 14 : 7;
+					*(short *)(td + 6) = m3 ? -32 : -16;
+					*(short *)(td + 8) = m3 ? -32 : -16;
+				} else if (strip == 1) {
+					*(short *)(td + 0) = m3 ? 35 : 16;
+					*(short *)(td + 2) = 16;
+					*(short *)(td + 4) = m3 ? 160 : 80;
+					td[10]             = m3 ? 18 : 9;
+					*(short *)(td + 6) = -8;
+					*(short *)(td + 8) = -8;
+				}
+			} else {
+				*(short *)(td + 2) = (short)(*(short *)(td + 2) -
+					(((unsigned char)td[10] << 3) + 8));
+			}
 		}
 	}
 
