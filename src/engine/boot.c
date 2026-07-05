@@ -70498,8 +70498,56 @@ static short l36e0_c10(short id, short arttype)
 	 * 4/8 -> CPIC, 16/32 -> BIGP; each arm jt394's the name with view-mode
 	 * variants + sets the tile geometry. A6: BIGP done; A7/A8: PIC/SPRI/CPIC. */
 	switch ((unsigned char)arttype) {
-	case 1:                                     /* PIC  — TODO(A7) */
-	case 2:                                     /* SPRI — TODO(A7) */
+	case 1: {                                   /* PIC (0x398c) */
+		unsigned char b = (unsigned char)id;
+		short letter = (b < 76)  ? 'A' : (b < 138) ? 'B' : (b < 164) ? 'C'
+		             : (b < 193) ? 'D' : (b < 227) ? 'E' : 'F';
+		clut_start = 32;
+		clut_count = 224;
+		*(short *)(td + 0) = 16;
+		*(short *)(td + 2) = 16;
+		if (jt1200() == 3) {
+			jt394(namebuf, ua_strs_at(0x2e2e) /* "PIC%c1%03d.tlb" */,
+			      (int)letter, (unsigned)(unsigned char)id);
+			*(short *)(td + 0) = 23;
+			*(short *)(td + 4) = 176;
+			td[10] = 22;
+		} else {
+			jt394(namebuf, ua_strs_at(0x2e3e) /* "PIC%c1%03d.ctl" */,
+			      (int)letter, (unsigned)(unsigned char)id);
+			*(short *)(td + 4) = 88;
+			td[10] = 11;
+		}
+		format = 0;
+		outer  = 1;
+		break;
+	}
+	case 2:                                     /* SPRI (0x3abc) */
+		clut_start = 176;
+		clut_count = 80;
+		format     = 5;
+		if (jt1200() == 3) {
+			jt394(namebuf, ua_strs_at(0x2e4e) /* "SPRI0%03d.tlb" */,
+			      (unsigned)(unsigned char)id);
+			*(short *)(td + 0) = 74;
+			*(short *)(td + 2) = 360;
+			*(short *)(td + 4) = 70;
+			td[10] = 10;
+			*(short *)(td + 6) = -52;
+			*(short *)(td + 8) = -48;
+		} else {
+			jt394(namebuf, ua_strs_at(0x2e5c) /* "SPRI0%03d.ctl" */,
+			      (unsigned)(unsigned char)id);
+			*(short *)(td + 0) = 34;
+			*(short *)(td + 2) = 224;
+			*(short *)(td + 4) = 35;
+			td[10] = 5;
+			*(short *)(td + 6) = -26;
+			*(short *)(td + 8) = -24;
+		}
+		outer      = 3;
+		cpic_multi = 1;                     /* multi-strip geometry (A5) */
+		break;
 	case 4: case 8:                             /* CPIC — TODO(A8) */
 		break;
 	case 16: case 32:                           /* BIGP (0x3cea) */
