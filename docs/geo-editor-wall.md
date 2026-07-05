@@ -64,11 +64,16 @@ deps mostly lifted) — see below.
 |---|---|---|---|
 | ~~jt265~~ | l65be | 7 | **LIFTED** (2026-07-05) — "Experience:" entry prompt: jt98 field + new L654a atol. Clean leaf. |
 | ~~jt264~~ | l6316 | ~130 | **LIFTED** (2026-07-05) — monster-editor art/id sub-state handler (jt263 sibling; 2× JT[3]). |
+| ~~jt270~~ | l3262 | ~253 | **LIFTED** (2026-07-05) — monster/spell list-entry edit loop (l2d3e event loop, jt452/jt444 List Manager, jt196 name writeback). |
 | jt269 | l0004 | tiny | segment entry (check first) |
 | jt267 | l1a14 | 129 | viewer helper; local deps L116a/L2ebe (l2ebe now lifted) |
-| jt270 | l3262 | ~253 | **UNBLOCKED** — all deps lifted; the modal list-picker loop remains (level-3 pass). |
 | jt266 | l1bc2 | 1692 | big — own session |
 | jt259 | l368a | 2757 | the giant — own session |
+
+**CODE 10 viewer trio COMPLETE (2026-07-05): jt265 + jt264 + jt270 all lifted**,
+along with the whole jt264/jt270 dependency arc (jt372/L62e0_c8/L611c on the
+save side, L06ae/L2ebe on the row side). Remaining CODE 10 entries are jt269
+(tiny segment entry), jt267 (viewer helper), and the two giants jt266/jt259.
 
 **CODE 10 reality check — CORRECTED (2026-07-05).** The earlier "jt264/jt270
 bottom out on a ~900-insn subtree with jt1084 + jt456 MISSING" was WRONG: I
