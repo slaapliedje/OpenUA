@@ -135,12 +135,32 @@ L42f2 ~528   sub-giant    L53b0  big (spans past jt260)
 Also lifted this pass: **jt1032** (_DisposHandle) + **jt1033** (_HLock) — trivial
 Memory Manager trap wrappers over the shim, previously absent; needed by L66a2.
 
-**Recommended order:** clean leaves ✓ (L4924/L4970/L6606/L4eda/L4f9c done) →
-L66a2/L67a0/L6892 → mid helpers (L4cae/L49f8/L509e) → sub-giants (L42f2, L53b0)
-→ L36e0 main as a **level-2 skeleton** first (mirror the CFG + call every
-helper, defer per-arm), then fill. This is the FRUA art-import path
-(design-editor "Import Picture") — dormant/mouse-gated, so unvalidatable
-headless; verify against the disasm, not the smoke harness.
+**L36e0 main = LEVEL-2 SKELETON DONE (2026-07-05)** — lifted as `l36e0_c10`
+(a (CODE,offset) clash with another segment's l36e0), driven by the **jt259**
+wrapper (L368a: clears the desc top bit, splits id/arttype, calls the importer,
+packs the byte result back). jt259 is now OUT of MISSING (scoreboard done).
+
+The skeleton faithfully captures the top-level spine: std-file open (MacPaint
+'PNTG' / PICT 'PICT' via jt418) → the "got a file" gate → decode/display
+(mode-3 l6606 MacPaint scanlines; else the CLUT-setup + l67a0 DrawPicture +
+l6892 dispose block) → the JT[1] art-family switch → the tile-conversion loop
+(l53b0 per strip + store) → the .tlb write-out. Every top-level helper/JT is
+called in order.
+
+**Still to FILL (TODO markers in l36e0_c10, with opcode ranges):**
+- the PICT palette/DungCom/MENU table setup (0x37ee..0x3920)
+- the JT[1] filename-format arms (0x398c..0x3d72; parallels lifted l419e)
+- the tile-loop store arithmetic + outer bounds (0x3d72..0x407e)
+- the .tlb write-out tail (0x413c..0x4196)
+- **L53b0** (tile-converter sub-giant → L42f2/L4924/L4970/L49f8/L4cae/L4eda/
+  L4f9c/L509e) — still a PROBE stub; the biggest remaining piece.
+- **L67a0** (DrawPicture display) — DrawPicture now EXISTS in the shim; needs
+  the GWorld→current-port mapping + jt1159. Still a PROBE stub.
+
+So jt259 "counts done" but the import is NOT functional yet — it's the spine.
+Remaining order: L53b0 sub-tree (L42f2 first) → fill l36e0_c10's arms → L67a0
+GWorld glue + jt1159 → validate a real import (needs a human at the mouse).
+This is dormant/mouse-gated — verify against the disasm, not the smoke harness.
 
 ### jt266 (l1bc2) — roadmap (COMPLETE 2026-07-05)
 
