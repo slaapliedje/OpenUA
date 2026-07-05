@@ -70431,9 +70431,16 @@ static short l36e0_c10(short id, short arttype)
 	short refnum;
 	char  got = 0;                              /* fp@(-1042): a file was picked */
 	void *pic = 0;                              /* fp@(-1046): the PICT handle    */
+	unsigned char td[16];                       /* fp@(-16) tile descriptor      */
+	unsigned char clutbuf[768];                 /* fp@(-808) CLUT palette (A9)   */
+	char          namebuf[256];                 /* fp@(-840) output leaf name    */
+	short         outer = 0;                    /* fp@(-34) strip count          */
+	short         clut_start = 0, clut_count = 256;  /* fp@(-30) / fp@(-32)      */
+	char          cpic_multi = 0;               /* fp@(-1041) CPIC multi-shape   */
+	unsigned char format = 0;                   /* fp@(-5) art format            */
 
 	PROBE("L36e0");
-	(void)id;
+	jt399(td, (short)16, (short)0);
 	jt131((short)4);
 
 	/* --- 1. std-file open: MacPaint (view-mode 3) or PICT --- */
@@ -70489,15 +70496,45 @@ static short l36e0_c10(short id, short arttype)
 	/* --- 3. build the output art-library leaf name by art family ---
 	 * JT[1] on `arttype` (jt1_extract 0x396c): 1 -> PIC, 2 -> SPRI,
 	 * 4/8 -> CPIC, 16/32 -> BIGP; each arm jt394's the name with view-mode
-	 * variants. TODO(fill 0x398c..0x3d72). Parallels the lifted l419e. */
+	 * variants + sets the tile geometry. A6: BIGP done; A7/A8: PIC/SPRI/CPIC. */
 	switch ((unsigned char)arttype) {
-	case 1:                                     /* PIC  */
-	case 2:                                     /* SPRI */
-	case 4: case 8:                             /* CPIC */
-	case 16: case 32:                           /* BIGP */
+	case 1:                                     /* PIC  — TODO(A7) */
+	case 2:                                     /* SPRI — TODO(A7) */
+	case 4: case 8:                             /* CPIC — TODO(A8) */
+		break;
+	case 16: case 32:                           /* BIGP (0x3cea) */
+		clut_start = 32;
+		clut_count = 224;
+		if (jt1200() == 3) {
+			jt394(namebuf, ua_strs_at(0x2eaa) /* "BIGP0%03d.tlb" */,
+			      (unsigned)(unsigned char)id);
+			*(short *)(td + 0) = 2;
+			*(short *)(td + 2) = 8;
+			*(short *)(td + 4) = 180;
+			td[10] = 58;
+		} else {
+			jt394(namebuf, ua_strs_at(0x2eb8) /* "BIGP0%03d.ctl" */,
+			      (unsigned)(unsigned char)id);
+			*(short *)(td + 0) = 1;
+			*(short *)(td + 2) = 8;
+			*(short *)(td + 4) = 120;
+			td[10] = 38;
+		}
+		format = 2;
+		outer  = 1;
+		break;
 	default:
 		break;
 	}
+
+	/* --- 3b. open the container + install the tile CLUT (L3d72) --- */
+	if (jt1163() != 0 || jt1200() == 0) {
+		jt1069(clut_start, clut_count,
+		       &clutbuf[clut_start * 3], (short)0, (long)0);
+		jt1066();
+	}
+	jt465(namebuf);
+	jt1024((long)(uintptr_t)namebuf, (short)24, (long)0x54494C45L /* 'TILE' */);
 
 	/* --- 4. tile-conversion loop CORE (A4) — L3dd0..L407e ---
 	 * Per tile: L53b0 converts+packs the band into jt1004(), jt1021/jt1022
@@ -70508,13 +70545,9 @@ static short l36e0_c10(short id, short arttype)
 	 * `td` + `outer` (the strip count) + open the container. Until then `outer`
 	 * is 0 so the loop is inert (dormant/mouse-gated import). */
 	{
-		unsigned char td[16];                   /* fp@(-16) tile descriptor  */
-		long          acc;                      /* fp@(-28) accumulated size */
-		short         outer = 0;                /* fp@(-34) strip count (arm) */
-		char          cpic_multi = 0;           /* fp@(-1041) CPIC multi-shape */
-		short         strip;
+		long  acc;                              /* fp@(-28) accumulated size */
+		short strip;
 
-		jt399(td, (short)16, (short)0);
 		for (strip = outer; --strip >= 0; ) {
 			if (*(short *)(td + 4) == 120) {
 				short s;
@@ -70553,9 +70586,14 @@ static short l36e0_c10(short id, short arttype)
 				jt406((void *)(uintptr_t)hnd,
 				      (void *)(uintptr_t)jt1004(), sz);
 			}
+			/* L3f5a: format-5 palette remap. TODO(A8, CPIC): fill the
+			 * -1302 index buffer from fp@(-37) + jt994 CLUT rebuild. */
+			if (format == 5) {
+				/* TODO(A8) */
+			}
+
 			/* A5: geometry-advance (L3faa) — set the NEXT strip's tile
-			 * dimensions. (Palette-remap L3f5a is TODO — its jt994 CLUT
-			 * refresh only fires for format-5 art.) */
+			 * dimensions. */
 			if (cpic_multi) {                       /* CPIC multi-shape */
 				short m3 = (jt1200() == 3);
 				if (strip == 2) {
