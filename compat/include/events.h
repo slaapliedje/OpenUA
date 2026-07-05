@@ -63,6 +63,7 @@ typedef struct EventRecord {
 #define controlKey    0x1000
 
 long    TickCount(void);
+void    GetDateTime(unsigned long *secs);   /* DateTimeUtils — secs since 1904 */
 Boolean Button(void);
 void    GetMouse(Point *mouseLoc);
 
