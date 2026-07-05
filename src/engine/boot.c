@@ -66171,6 +66171,69 @@ static short jt1077(short lo, short hi, long deflt, short width)
 	}
 }
 
+/* JT[323] (CODE 9 + 0x0e2c) — paint the combat action-row for action
+ * `act`: find its 18-byte record in the -11656 table (matched on [13]),
+ * fill the row (jt1161), map the action's move-type (via jt454 + the
+ * base2@550 table) through a JT[3] into an arrow slot 0..4 (or none),
+ * draw the "->" marker, then the 5 direction cells (jt444, the selected
+ * one highlighted) and the label string (jt1089). #151. */
+static short jt454(short item, short cmd);
+static void  jt323(short act) __attribute__((unused));
+static void  jt323(short act)
+{
+	unsigned char *tbl = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+	unsigned char *rec = tbl + 2;
+	unsigned char *base2, *p, *label;
+	short          i, typ, j, count;
+
+	PROBE("jt323");
+	for (i = 0; i < *(short *)tbl; i++, rec += 18)
+		if (rec[13] == act)
+			break;
+
+	jt1161((short)8039, (short)8012, (short)8067, (short)8020, (short)8);
+
+	base2 = tbl + rec[15] * 20;
+	p = *(unsigned char **)(base2 + 550)
+	    + ((long)jt454(act, (short)36) << 3);
+	typ = (short)(*(short *)(p - 4) - 1);
+	switch (typ) {                            /* JT[3] @0xec8 (1..17) */
+	case 1: case 2: case 9: case 10: case 11:
+		typ = 0;  break;
+	case 5:
+		typ = 1;  break;
+	case 8:
+		typ = 2;  break;
+	case 16:
+		typ = 3;  break;
+	case 17:
+		typ = 4;  break;
+	default:
+		typ = -1; break;
+	}
+
+	if (typ >= 0)
+		jt1089((short)(8039 + typ * 6), (short)8012, (short)135,
+		       ua_strs_at(0x324a) /* "->" */);
+
+	count = jt455();
+	if (act + 1 >= count)
+		return;
+	for (j = 0; j <= 4; j++) {
+		short color = (short)(j == typ ? 24 : 16);
+		jt444((short)(act + j + 1), color, (short)0, (short)0);
+	}
+
+	label = *(unsigned char **)(rec + 18);
+	{
+		short x     = label[3];
+		short y     = label[4];
+		short color = (short)(typ != 0 ? 384 : 135);
+		jt1089((short)(x + 8000), (short)(y + 8000), color,
+		       ua_strs_at(0x324e) /* "%s" */, (const char *)(label + 6));
+	}
+}
+
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
  * open by mode (mode 3/0 = read via jt398; mode 1/4 = create via jt392), run
  * the caller's read callback, close (jt411); on failure bump the per-group
