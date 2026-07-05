@@ -70499,21 +70499,60 @@ static short l36e0_c10(short id, short arttype)
 		break;
 	}
 
-	/* --- 4. tile-conversion loop: pack the image into art tiles ---
-	 * jt1163/jt1200 gate, jt1069/jt1066 CLUT, jt465 + jt1024 open the target
-	 * container, then per tile: L53b0 converts+PackBits the band, jt1021/
-	 * jt1022 (re)size the resource, jt1004/jt468/jt1012/jt406 store it. Art
-	 * dimension 120 packs 3 strips, else one. TODO(fill 0x3d72..0x407e): the
-	 * jt1163/jt1069/jt1066/jt465/jt1024 container open, the outer loop bounds,
-	 * and the two store arms; L53b0 is a PROBE stub. Representative inner
-	 * strip (art dim 120 -> 3 iterations): */
+	/* --- 4. tile-conversion loop CORE (A4) — L3dd0..L407e ---
+	 * Per tile: L53b0 converts+packs the band into jt1004(), jt1021/jt1022
+	 * (re)size resource item 24, jt1004/jt468/jt1012/jt406 store it. Art
+	 * dimension (td[4]) == 120 packs 3 strips into one resource; else a single
+	 * tile. `td` is the 16-byte tile descriptor L53b0 reads. TODO(A5): the
+	 * geometry-advance (L3faa). TODO(A6-A8): the JT[1] art-family arms populate
+	 * `td` + `outer` (the strip count) + open the container. Until then `outer`
+	 * is 0 so the loop is inert (dormant/mouse-gated import). */
 	{
-		short strip;
-		for (strip = 0; strip < 3; strip++) {
-			short h    = (jt1200() == 3) ? 144 : 192;
-			short size = l53b0((void *)0 /* TODO &scanBuf */, (long)0, h, (short)1);
-			(void)size;                 /* TODO: jt1022 resize + jt1004/jt468/
-			                             *       jt1012/jt406 store */
+		unsigned char td[16];                   /* fp@(-16) tile descriptor  */
+		long          acc;                      /* fp@(-28) accumulated size */
+		short         outer = 0;                /* fp@(-34) strip count (arm) */
+		short         strip;
+
+		jt399(td, (short)16, (short)0);
+		for (strip = outer; --strip >= 0; ) {
+			if (*(short *)(td + 4) == 120) {
+				short s;
+				acc = 8;
+				jt1021((short)24, (short)0, (long)8);
+				for (s = 0; s < 3; s++) {
+					short h, sz, szm8;
+					long  hnd;
+					*(short *)(td + 4) = 40;
+					h    = (jt1200() == 3) ? (short)144 : (short)192;
+					sz   = l53b0(td, (long)0, h, (short)1);
+					szm8 = (short)(sz - 8);
+					jt1022((short)24, (short)0, (long)szm8 + acc);
+					hnd = jt1012(jt468((short)24), (short)0);
+					if (acc == 8) {
+						*(short *)(uintptr_t)jt1004() = 120;
+						jt406((void *)(uintptr_t)hnd,
+						      (void *)(uintptr_t)jt1004(),
+						      (short)(szm8 + 8));
+					} else {
+						jt406((void *)(uintptr_t)(hnd + acc),
+						      (void *)(uintptr_t)(jt1004() + 8),
+						      szm8);
+					}
+					acc += szm8;
+					*(short *)(td + 0) =
+						(short)(*(short *)(td + 0) + 40);
+				}
+				strip = -1;             /* 120-dim runs the outer once */
+			} else {
+				short h  = (jt1200() == 3) ? (short)144 : (short)192;
+				short sz = l53b0(td, (long)0, h, (short)1);
+				long  hnd;
+				jt1021((short)24, (short)0, (long)sz);
+				hnd = jt1012(jt468((short)24), (short)0);
+				jt406((void *)(uintptr_t)hnd,
+				      (void *)(uintptr_t)jt1004(), sz);
+			}
+			/* TODO(A5): palette-remap (L3f5a) + geometry-advance (L3faa). */
 		}
 	}
 
