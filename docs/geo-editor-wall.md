@@ -129,8 +129,21 @@ L6892  ✓  ~6   dispose a PICT handle (jt1032)                 LIFTED 2026-07-0
                _SetCursor/GetCursor/PenMode (present), and **jt1159** (CODE 4,
                still unlifted). Do L67a0 when L36e0 sets up the target buffer.
 L4cae ~185   L49f8 ~231   L509e  ~262   (mid helpers)
-L42f2 ~528   sub-giant    L53b0  big (spans past jt260)
+L42f2 ✓ ~468  imported-art pixel-format converter — FULL faithful lift
+              (2026-07-05): mode-3 silhouette-mask builder + the depth/colour-
+              key converter (2 JT[3] switches: 1/4/2bpp reduce + 8/4/2/1bpp
+              key-match; jt1153/1177/1170/1197 scanline read, jt1163 dither
+              gate, jt406 blit). 330-byte sl[] frame + separate scalar locals.
+              Resolved the "fp@(-5)" scare (= low byte of the width local ->
+              round-to-even). ⚠ dormant/unvalidatable headless — verify the
+              pixel output vs a Mac trace of L42f2 when the import is wired.
+L53b0  big (spans past jt260) — the remaining tile-converter sub-giant
 ```
+
+**L53b0 sub-tree status:** L4924 ✓ L4970 ✓ L4eda ✓ L4f9c ✓ **L42f2 ✓**;
+remaining leaves L49f8 (~231) / L4cae (~185) / L509e (~262), then **L53b0**
+itself (the orchestrator, still a PROBE stub in l36e0_c10). Once L53b0 is
+lifted the tile-conversion loop in l36e0_c10 can be filled.
 
 Also lifted this pass: **jt1032** (_DisposHandle) + **jt1033** (_HLock) — trivial
 Memory Manager trap wrappers over the shim, previously absent; needed by L66a2.
