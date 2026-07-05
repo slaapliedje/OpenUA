@@ -106,22 +106,28 @@ is not transposition but getting a coordinate offset or a branch arm
 wrong — cross-check each against the disasm, since the mouse-gated smoke
 harness can't catch it.
 
-## Status
+## Status — painter trio 2/3 done
 
-- **jt282 — LIFTED** (2026-07-05). Faithful goto-mirror of 0x2f24..0x329a
-  replacing the l2f24 stub; jt278 case 1 rewired to it. Build clean,
-  tests 129 pass, smoke stable. Dormant (mouse-gated).
-- **jt286 (l2aaa) — next, a 5-function mini-project.** kind 0, 366 insn,
-  but gated on **4 unlifted CODE-22 locals** (lift these first):
-  - L0524 (~21) — `(arg & 6) >> 1` index helper
-  - L475e (~130, has a loop) — the larger one
-  - L48b2 (~10) — `((arg>>1)&3)+1)*2` table index
-  - L48ca (~11) — `((arg>>1)+2)&3)+1` table index
-  (L05ca=jt293 and L4900 already lifted; JT deps jt1089/1161/1200/357 lifted.)
-- **jt281 (l329c) — after.** kind 2, 390 insn; uses -11312 (not -11316);
-  ~6 CODE-22 locals to check (incl. L0716).
+- **jt282 — LIFTED** (2026-07-05). Faithful goto-mirror of 0x2f24..0x329a;
+  jt278 case 1 rewired. Dormant (mouse-gated).
+- **jt286 — LIFTED** (2026-07-05). kind 0, 366 insn + its 3-local dep tree
+  (l0524_c22 / l48b2_c22 / l475e_c22, all lifted this pass; L48ca resolved
+  to the already-lifted jt291, L4900=jt273, L05ca=jt293). jt278 case 0
+  rewired. Dormant.
+- **jt281 (l329c) — NEXT, verified deps-clean (a pure single lift).** kind
+  2, ~390 insn. All callees already lifted: L0716=jt306, L22c4=jt308,
+  L294e=jt278, L4900=jt273, L475e=l475e_c22, L04d6. Uses -11312 (not
+  -11316). **Care-points for the transcription** (new primitives vs jt282/
+  jt286 — verify each arg convention first):
+  - **jt406**(cell,scratch,16,...) formats a decimal into a fp@(-18)
+    buffer (the -12300 design struct's byte 134+cell*16 record).
+  - **jt488**(-10604, count) — the width/pad helper feeding the "%*s".
+  - **jt1089 "%*s"** (STRS 0x30de) — a width-formatted string draw; confirm
+    the port's jt1089 vsnprintf handles `%*s` (width + string args).
+  These make jt281 a genuine focused transcription, not rote — hence
+  deferred rather than rushed at the tail of a 13-commit session.
 
-The coordinate convention above is settled; the remaining two are
-straight transcriptions once their local dep trees are lifted. Each is
-its own focused session (the "every entry is a mini-project" reality) —
-do NOT rush them, since nothing here is smoke-validatable.
+The coordinate convention (Mac order, direct push-order transcription) is
+settled. Kind 3 (l347a) remains a stub after the trio; check its JT id.
+Everything here is dormant/mouse-gated — verify against the disasm, not
+the smoke harness.
