@@ -14310,6 +14310,143 @@ static short jt241(short cmd, long *flagsp, unsigned char *rec)
 	return cmd;                                     /* L5860 / L5864 */
 }
 
+/* ---- CODE 11 area-load entry (jt244) + its three local helpers. The
+ * area-load transition: jt325 pulls the area block in, then either the
+ * string-table is (re)initialised (jt195=l4db4 + the two cell-array
+ * resets) or the party is placed at the entry cell and the art rebound.
+ * jt244's caller is the CODE 22 L0004 area-command dispatcher, still
+ * unlifted — so jt244 is `unused` for now (leaf-first; the visible
+ * payoff lands when that dispatcher is lifted). #151. */
+static void  jt316(void);
+static void  jt317(void);
+static void  jt351(void);
+
+/* L011c (CODE 11 + 0x011c) — clear the 8 word slots at offset 272 in
+ * the live level block (-12300). */
+static void  l011c_c11(void)
+{
+	short i;
+
+	PROBE("L011c");
+	for (i = 0; i < 8; i++)
+		*(short *)((char *)(uintptr_t)g_a5_long(-12300)
+		           + (long)i * 2 + 272) = 0;
+}
+
+/* L0148 (CODE 11 + 0x0148) — reset the per-area cell arrays in the
+ * level block (-12300): the H*W occupancy bytes (stride 6, +294), two
+ * 8-entry slot tables (stride 4: +78/+80/+81 and +46/+48/+49, the
+ * word seeded via the JT[1180] endian-swap of 1), an 8-byte run at
+ * +110, and the 100-entry NCR table (-13038, stride 20). */
+static void  l0148_c11(void)
+{
+	unsigned char *base;
+	unsigned char *ncr;
+	short          i;
+
+	PROBE("L0148");
+	base = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	for (i = 0; i < base[2] * base[3]; i++)
+		base[i * 6 + 294] = 0;
+	for (i = 0; i < 8; i++) {
+		unsigned char *p = base + i * 4;
+		*(short *)(p + 78) = jt1180((short)1);
+		p[80] = 0;
+		p[81] = 0;
+	}
+	for (i = 0; i < 8; i++) {
+		unsigned char *p = base + i * 4;
+		*(short *)(p + 46) = jt1180((short)1);
+		p[48] = 0;
+		p[49] = 0;
+	}
+	for (i = 0; i < 8; i++)
+		base[i + 110] = 0;
+	ncr = (unsigned char *)(uintptr_t)g_a5_long(-13038);
+	for (i = 0; i < 100; i++)
+		ncr[i * 20] = 0;
+}
+
+/* L068a (CODE 11 + 0x068a) — bind the area's geo/art (jt198/JT[364])
+ * and refresh the view cell (jt201 -> -12284); when the area id
+ * changed, seat the party at the default entry cell (row/col/facing
+ * = -12288/-12287/-12286) read from the level table (-12300). `cell`
+ * is the target area id; `a` is unused by the Mac body. */
+static void  l068a_c11(short a, short cell)
+{
+	signed char    changed;
+	signed char    idx;
+	unsigned char *base;
+
+	PROBE("L068a");
+	(void)a;
+	changed = (signed char)(((jt358() & 255) != cell) ? 1 : 0);
+	g_a5_byte(-12284) = (unsigned char)(jt201((short)0, (short)0) & 255);
+	jt198((short)(cell & 63));
+	l6e50((short)(cell & 63));               /* JT[364] */
+	jt351();
+	jt316();
+	if (changed) {
+		base = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+		if ((unsigned char)g_a5_byte(-18828) == cell)
+			idx = (signed char)g_a5_byte(-18827);
+		else
+			idx = 0;
+		g_a5_byte(-12288) = base[idx * 4 + 15];  /* party ROW    */
+		g_a5_byte(-12287) = base[idx * 4 + 14];  /* party COL    */
+		g_a5_byte(-12286) = base[idx * 4 + 16];  /* party FACING */
+	}
+}
+
+/* JT[244] (CODE 11 + 0x0004) — the area-load transition. `rec` is the
+ * area/event record, `area` the area control block. jt325 loads the
+ * block; on success (result==1) either the party is re-seated + art
+ * rebound (flag set), or the string table is re-initialised (flag
+ * clear). Returns `a` unchanged (0 if `area` is NULL). */
+static short jt244(short a, long *rec, void *area) __attribute__((unused));
+static short jt244(short a, long *rec, void *area)
+{
+	unsigned char  flag;
+	unsigned char  save_h, save_w;
+	unsigned char  art;
+	short          result;
+	short          code;
+	unsigned char *lvl;
+
+	PROBE("jt244");
+	if (area == NULL)
+		return 0;
+	flag   = 1;
+	lvl    = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	save_h = lvl[2];
+	save_w = lvl[3];
+	code   = (short)(jt273() ? 55 : 56);
+	result = jt325(a, rec, area, code, &flag, (short)2, (short)4);
+	*rec  &= ~(long)0xFFFF;                   /* andil #-65536 */
+	if (result == 1) {
+		if (flag != 0) {
+			lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+			if (!(save_h == lvl[2] && save_w == lvl[3]))
+				jt317();
+			art  = (unsigned char)jt358();
+			code = (short)(jt273() ? 41 : 42);
+			l068a_c11((short)1, code);
+			l6e50((short)art);               /* JT[364] */
+			((unsigned char *)(uintptr_t)g_a5_long(-28006))[19] = art;
+			lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+			lvl[2] = save_h;
+			lvl[3] = save_w;
+		} else {
+			l4db4((void *)(uintptr_t)g_a5_long(-13034),
+			      (short)7168);              /* = JT[195] */
+			l011c_c11();
+			l0148_c11();
+		}
+		((unsigned char *)rec)[3] |= 1;          /* bset #0, rec[3] */
+	}
+	return a;
+}
+
 /* L5126 (CODE 11 + 0x5126) — the deep dungeon status-header panel jt240 draws
  * above the first-person view. Fills the header rect (JT[1161]) then paints
  * four text rows via JT[1089]: the area-name line (g_a5_-10640/-11136/-10816),

@@ -240,6 +240,7 @@ ALIAS_LIFTED = {
     106: "lifted as l3880 (same address; GLIB cell blit)",
     110: "lifted as l33ac (same address; binder open, the jt81 dep)",
     193: "lifted as l4fbe (same address; see combat gateway notes)",
+    195: "lifted as l4db4 (same address; the design string-table region setup)",
     364: "lifted as l6e50 (same address; clamp 0..40 -> -10374)",
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
