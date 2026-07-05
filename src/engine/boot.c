@@ -66096,6 +66096,196 @@ static void jt1190(void *src, short cols, short rows, short stride,
 	g_a5_long(-3076) = (long)(uintptr_t)dp;
 }
 
+/* JT[1185] (CODE 4 + 0x094e) — clipped, masked RLE scanline blit; the
+ * masked sibling of jt1190. Decodes the RLE control stream `ctl` (a4)
+ * plus the pixel/mask data `pix` (a3) into the l05e4() destination
+ * (a2, column pitch -3084):
+ *   pass 1  — skip `rows1` leading source rows (top clip): a dry run
+ *             that advances a3/a4 exactly as the blit consumes them;
+ *   per row — pass 2 skips `skip` leading columns (left clip); pass 3
+ *             blits `width` visible columns; then the tail dry-run
+ *             skips the rest of the row to its 0 terminator; a2 steps
+ *             by the pitch each row.
+ * Each control byte's bit7/bit6 select the mode (copy-run, RLE-fill of
+ * one source byte, per-bit transparency mask-merge, or a transparent
+ * advance); the low 6 bits are the run length. l05ea sizes the
+ * destination first; the end cursor lands in -3076.
+ *
+ * Faithful goto-mirror of the asm CFG (0x094e..0x0c06): the passes
+ * cross-jump (L0a62 hands its leftover run straight into pass 3, the
+ * tail loop and pass 3 share exits), so the structure is transliterated
+ * label-for-label rather than re-structured. #151. Dormant: its caller
+ * is not wired yet. */
+static void jt1185(short rows1, short rows, short skip, short width,
+                   void *ctl, void *pix) __attribute__((unused));
+static void jt1185(short rows1, short rows, short skip, short width,
+                   void *ctl, void *pix)
+{
+	unsigned char *a4 = (unsigned char *)ctl;   /* control / RLE stream */
+	unsigned char *a3 = (unsigned char *)pix;   /* pixel + mask data    */
+	unsigned char *a2 = NULL;                   /* destination cursor   */
+	unsigned char *save_a2 = NULL;              /* row base (fp@-4)     */
+	long  pitch = g_a5_long(-3084);
+	short cnt8  = rows1;
+	short cnt10 = rows;
+	short d4 = 0, d5 = 0;
+	unsigned char d6 = 0, d7 = 0;
+
+	PROBE("jt1185");
+	l05ea(rows, width);
+
+	/* ---- pass 1: skip `rows1` source rows (advance a3/a4 only) ---- */
+	goto l09ce;
+ l0970:
+	d7 = *a4++;
+	if (d7 & 0x80) {
+		if (d7 & 0x40)
+			a3 += (d7 & 0x3f);              /* L098a */
+		else
+			a3 += 1;                        /* L099c */
+		goto l09cc;
+	}
+	if (d7 & 0x40) {                                /* L09aa */
+		a4 += (d7 & 0x3f);
+		a3 += (d7 & 0x3f);
+		goto l09cc;
+	}
+	if (d7 == 0)                                    /* L09c8 */
+		goto l09ce;
+ l09cc:
+	goto l0970;
+ l09ce:
+	if (--cnt8 >= 0)
+		goto l09cc;
+	a2 = (unsigned char *)(uintptr_t)l05e4();
+	goto l0bf0;
+
+	/* ---- per-row body ---- */
+ l09e2:
+	save_a2 = a2;
+	d5 = skip;
+	goto l0a60;
+
+	/* pass 2: skip `skip` leading columns (advance a3/a4) */
+ l09ee:
+	d7 = *a4++;
+	d4 = (short)(d7 & 0x3f);
+	if (d7 & 0x80) {
+		if (d7 & 0x40) {                        /* L0a12 */
+			if (d4 > d5) { a3 += d5; d4 -= d5; goto l0a62; }
+			a3 += d4; d5 -= d4; goto l0a60; /* L0a1e */
+		}
+		if (d4 > d5) { d4 -= d5; goto l0a62; }  /* L0a26 */
+		a3 += 1; d5 -= d4; goto l0a60;          /* L0a2e */
+	}
+	if (d7 & 0x40) {                                /* L0a3e */
+		if (d4 > d5) { d4 -= d5; a4 += d5; a3 += d5; goto l0a62; }
+		d5 -= d4; a4 += d4; a3 += d4; goto l0a60; /* L0a4a */
+	}
+	if (d4 == 0) goto l0a62;                        /* L0a52 */
+	if (d4 > d5) { d4 -= d5; goto l0a62; }
+	d5 -= d4;                                       /* L0a5e */
+ l0a60:
+	goto l09ee;
+ l0a62:
+	d5 = width;
+	goto l0b84;
+
+	/* pass 3: blit `width` visible columns */
+ l0a6a:
+	if (d7 & 0x80) {
+		if (d7 & 0x40) {                        /* L0a80 — copy run */
+			if (d4 > d5) { d4 -= d5; goto l0a92; }
+			d5 -= d4; goto l0aac;           /* L0a9e */
+		}
+		d6 = *a3++;                             /* L0ab6 — RLE fill */
+		if (d4 > d5) goto l0ac8;
+		d5 -= d4; goto l0adc;                   /* L0ad2 */
+	}
+	if (d7 & 0x40) {                                /* L0af2 — mask merge */
+		if (d4 > d5) { d4 -= d5; goto l0b20; }
+		d5 -= d4; goto l0b58;                   /* L0b2e */
+	}
+	if (d4 == 0) { a4 -= 1; goto l0be4; }           /* L0b60 */
+	if (d4 > d5) goto l0be4;                        /* L0b6a */
+	d5 -= d4; a2 += d4;
+	goto l0b74;
+
+ l0a88:
+	*a2++ = *a3++;
+ l0a92:
+	if (--d5 >= 0) goto l0a88;
+	a3 += d4;
+	goto l0be4;
+
+ l0aa2:
+	*a2++ = *a3++;
+ l0aac:
+	if (--d4 >= 0) goto l0aa2;
+	goto l0b74;
+
+ l0ac2:
+	*a2++ = d6;
+ l0ac8:
+	if (--d5 >= 0) goto l0ac2;
+	goto l0be4;
+
+ l0ad6:
+	*a2++ = d6;
+ l0adc:
+	if (--d4 >= 0) goto l0ad6;
+	goto l0b74;
+
+ l0afa:
+	d6 = *a4++;
+	{ int keep = (*a2) & ~(int)d6; int take = (*a3++) & (int)d6;
+	  *a2++ = (unsigned char)(keep | take); }
+ l0b20:
+	if (--d5 >= 0) goto l0afa;
+	a3 += d4; a4 += d4;
+	goto l0be4;
+
+ l0b32:
+	d6 = *a4++;
+	{ int keep = (*a2) & ~(int)d6; int take = (*a3++) & (int)d6;
+	  *a2++ = (unsigned char)(keep | take); }
+ l0b58:
+	if (--d4 >= 0) goto l0b32;
+	goto l0b74;
+
+ l0b74:
+	d7 = *a4++;
+	d4 = (short)(d7 & 0x3f);
+ l0b84:
+	goto l0a6a;
+
+	/* row tail: skip remaining control bytes to the 0 terminator */
+ l0b88:
+	d7 = *a4++;
+	if (d7 & 0x80) {
+		if (d7 & 0x40)
+			a3 += (d7 & 0x3f);              /* L0ba2 */
+		else
+			a3 += 1;                        /* L0bb4 */
+		goto l0be4;
+	}
+	if (d7 & 0x40) {                                /* L0bc2 */
+		a4 += (d7 & 0x3f);
+		a3 += (d7 & 0x3f);
+		goto l0be4;
+	}
+	if (d7 == 0)                                    /* L0be0 */
+		goto l0be6;
+ l0be4:
+	goto l0b88;
+ l0be6:
+	a2 = save_a2 + pitch;
+ l0bf0:
+	if (--cnt10 >= 0)
+		goto l09e2;
+	g_a5_long(-3076) = (long)(uintptr_t)a2;
+}
+
 /* JT[1120] (CODE 4 + 0x5156) — swap the two active page buffers. a4/a3
  * are the [-2354] and [1-(-2354)] entries of the -2570 108-byte record
  * table (deref depth per the -2347 mode flag); l050a() is the byte
