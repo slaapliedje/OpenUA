@@ -69837,6 +69837,181 @@ static void l6892(void *handle)
 	jt1032((Handle)handle);
 }
 
+/* L42f2 (CODE 10+0x42f2, ~468 insn) — the imported-art pixel-format converter,
+ * the leaf under L53b0. Two modes:
+ *
+ *  - view-mode 3 (jt1200==3): build a one-scanline SILHOUETTE MASK in `dst` —
+ *    walk `src` from both ends, writing 0xFF over the leading/trailing zero
+ *    bytes and OR-filling the mask bits above the first set bit at each edge.
+ *
+ *  - otherwise: the tile depth/colour-key converter. `key & 1` set -> read the
+ *    strip's scanlines into a 330-byte stack buffer (jt1153/jt1177/jt1170/
+ *    jt1197, 80-byte row pitch, <=4 rows), XOR each against `src` (jt1163
+ *    gates per-cell store vs row-0 accumulate), then reduce depth by the
+ *    JT[3](mode) family (0: 1bpp threshold, 1: 4bpp nibble-fill, 2: 2bpp
+ *    field-fill), optionally invert, and jt406 the buffer out. `key & 1` clear
+ *    -> the per-byte colour-key path: JT[3](mode) compares each source
+ *    pixel/field against `key` (0: 8bpp, 1: 4bpp, 2: 2bpp, 3: 1bpp AND across
+ *    rows), builds the output byte, optional invert, store.
+ *
+ * The 330-byte scanline buffer is `sl[]` here (the Mac's fp@(-330) frame
+ * region); the Mac's fp@(-N) scalar locals are separate C locals (no overlap
+ * at height<=4/width<=80). Both JT[3] switches decoded with jt3_extract
+ * (0x4570 / 0x47ae). Dormant/unvalidatable headless — verify the pixel output
+ * against a Mac trace of L42f2 when the import path is wired. */
+static short l42f2(long src, short width, long dst, short stride, short inv,
+                   short height, short key, short row) __attribute__((unused));
+static short l42f2(long src, short width, long dst, short stride, short inv,
+                   short height, short key, short row)
+{
+	unsigned char sl[330];                  /* fp@(-330) scanline frame region */
+	short         i2, i4;                   /* fp@(-2) / fp@(-4) loop indices  */
+
+	PROBE("L42f2");
+
+	if (jt1200() == 3) {
+		/* --- silhouette-mask builder (one scanline) --- */
+		unsigned char *p1, *p2, mask;
+		short          i;
+
+		jt399((void *)(uintptr_t)dst, width, (short)0);
+		p1 = (unsigned char *)(uintptr_t)dst;
+		p2 = (unsigned char *)(uintptr_t)src;
+		for (i = 0; i < width && *p2 == 0; i++) { *p1++ = 0xFF; p2++; }
+		if (i < width)
+			for (mask = 0x80; mask != 0 && (*p2 & mask) == 0; mask >>= 1)
+				*p1 |= mask;
+		if (width - 1 > i) {
+			p1 = (unsigned char *)(uintptr_t)dst + width - 1;
+			p2 = (unsigned char *)(uintptr_t)src + width - 1;
+			for (i = 0; i < width && *p2 == 0; i++) { *p1-- = 0xFF; p2--; }
+			if (i < width)
+				for (mask = 1; mask != 0 && (*p2 & mask) == 0;
+				     mask = (unsigned char)(mask << 1))
+					*p1 |= mask;
+		}
+		return 0;
+	}
+
+	/* --- the depth/colour-key converter --- */
+	{
+		unsigned char *s    = (unsigned char *)(uintptr_t)src;
+		unsigned char *d    = (unsigned char *)(uintptr_t)dst;
+		short          mode = (jt1163() != 0) ? 0 : (short)jt1200();  /* fp@(-8) */
+
+		if (key & 1) {
+			/* read the strip's scanlines, XOR-delta, depth-reduce, blit out */
+			short w2 = (short)((width + 1) & ~1);   /* round up to even */
+
+			jt1153((short)0);
+			jt1177(row, (short)0);
+			for (i2 = 0; i2 < height; i2++) {
+				jt1170();
+				jt1197(&sl[i2 * 80], (short)1, w2);
+			}
+			jt1153((short)1);
+
+			for (i4 = 0; i4 < width; i4++) {
+				for (i2 = 0; i2 < height; i2++) {
+					unsigned char v =
+						(unsigned char)(sl[i2 * 80 + i4] ^
+						                s[i2 * stride + i4]);
+					if (jt1163() != 0) {
+						sl[i2 * 80 + i4] = v;
+					} else if (i2 != 0) {
+						sl[i4] |= v;
+					} else {
+						sl[i4] = v;
+					}
+				}
+			}
+
+			switch (mode) {           /* JT[3] @0x4570 */
+			case 0:                   /* 1bpp threshold */
+				for (i4 = 0; i4 < width; i4++)
+					for (i2 = 0; i2 < height; i2++)
+						if (sl[i2 * 80 + i4] != 0)
+							sl[i2 * 80 + i4] = 0xFF;
+				break;
+			case 1:                   /* 4bpp nibble-fill */
+				for (i4 = 0; i4 < width; i4++) {
+					if (sl[i4] & 0x0F) sl[i4] |= 0x0F;
+					if (sl[i4] & 0xF0) sl[i4] |= 0xF0;
+				}
+				break;
+			case 2:                   /* 2bpp field-fill */
+				for (i4 = 0; i4 < width; i4++) {
+					if (sl[i4] & 0x03) sl[i4] |= 0x03;
+					if (sl[i4] & 0x0C) sl[i4] |= 0x0C;
+					if (sl[i4] & 0x30) sl[i4] |= 0x30;
+					if (sl[i4] & 0xC0) sl[i4] |= 0xC0;
+				}
+				break;
+			default:
+				break;
+			}
+
+			if ((unsigned char)inv != 0) {        /* invert */
+				for (i4 = 0; i4 < width; i4++) {
+					sl[i4] ^= 0xFF;
+					if (jt1163() != 0)
+						for (i2 = 1; i2 < height; i2++)
+							sl[i2 * 80 + i4] ^= 0xFF;
+				}
+			}
+
+			jt406((void *)(uintptr_t)dst, &sl[0], width);
+			if (jt1163() != 0)
+				for (i2 = 1; i2 < height; i2++)
+					jt406((void *)(uintptr_t)(dst + (long)i2 * width),
+					      &sl[i2 * 80], width);
+			return 0;
+		}
+
+		/* --- per-byte colour-key path (key & 1 clear) --- */
+		if (jt1163() != 0)
+			width = (short)(width * height);
+		for (; --width >= 0; ) {
+			unsigned char v9 = 0;                  /* fp@(-9) */
+			switch (mode) {                        /* JT[3] @0x47ae */
+			case 0:                                /* 8bpp exact match */
+				v9 = ((short)s[0] == key) ? 0xFF : 0;
+				break;
+			case 1:                                /* 4bpp per nibble */
+				v9 = ((short)(s[0] & 0x0F) == key) ? 0x0F : 0;
+				if ((short)((s[0] >> 4) & 0x0F) == key)
+					v9 |= 0xF0;
+				break;
+			case 2:                                /* 2bpp per field */
+				v9 = ((short)(s[0] & 3) == key) ? 3 : 0;
+				if ((short)((s[0] >> 2) & 3) == key) v9 |= 0x0C;
+				if ((short)((s[0] >> 4) & 3) == key) v9 |= 0x30;
+				if ((short)((s[0] >> 6) & 3) == key) v9 |= 0xC0;
+				break;
+			case 3: {                              /* 1bpp AND across rows */
+				unsigned char m = 1;
+				v9 = 0xFF;
+				for (i2 = 0; i2 < height; i2++) {
+					unsigned char p = s[i2 * stride];
+					if (m & key) v9 &= p;
+					else         v9 &= (unsigned char)~p;
+					m = (unsigned char)(m << 1);
+				}
+				break;
+			}
+			default:
+				break;
+			}
+			if ((unsigned char)inv == 0)
+				v9 ^= 0xFF;
+			*d++ = v9;
+			s++;
+		}
+		(void)d;
+		return 0;
+	}
+}
+
 /* L53b0 (CODE 10, the tile-converter sub-giant) — PROBE stub. Converts a band
  * of the imported image into a PackBits-compressed art tile and returns its
  * byte size; internally drives L42f2 / L4924 / L4970 / L49f8 / L4cae / L4eda /
