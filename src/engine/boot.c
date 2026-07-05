@@ -70266,17 +70266,94 @@ static short l42f2(long src, short width, long dst, short stride, short inv,
 	}
 }
 
-/* L53b0 (CODE 10, the tile-converter sub-giant) — PROBE stub. Converts a band
- * of the imported image into a PackBits-compressed art tile and returns its
- * byte size; internally drives L42f2 / L4924 / L4970 / L49f8 / L4cae / L4eda /
- * L4f9c / L509e. Call site: l53b0(&scanBuf, 0L, height, 1). Level-1 stub until
- * that sub-tree is lifted — the jt259 import path is dormant (mouse-gated). */
-static short l53b0(void *out, long a2, short height, short flag) __attribute__((unused));
-static short l53b0(void *out, long a2, short height, short flag)
+/* L53b0 (CODE 10+0x53b0, ~513 insn) — the tile-conversion ORCHESTRATOR, lifted
+ * as a LEVEL-2 SKELETON. `desc` (arg @8) is the source descriptor (shorts at
+ * 0/2/4 = start/col/count; bytes 13/14/15); `a16` OR's the art-format bits into
+ * the output header byte [7], `a18` is the strip index. Prologue: pick the mask
+ * count (jt1198 or 1), copy the 8-byte tile header into desc+4, set + remap the
+ * format nibble (5->1 / 7->3 by view-mode+dither via jt1200/jt1163; 3->7 by
+ * dither), scale the depth byte, compute the flag, then jt1148 (compose begin).
+ * A JT[3] switch (jt3_extract 0x5516, cases 0..9) dispatches by format nibble
+ * to the packers: 2 -> l4f9c, 3 -> l4cae, 7 -> l509e (all lifted, done here);
+ * 9 -> a small record fill + jt406; 4/6/default -> jt1147 (abort). Cases 0/5
+ * (inline scanline copy / l4924) and 1 (per-plane l42f2 loops + l4924) are
+ * deferred with TODO + opcode ranges. Returns the packed size (fp@(-14));
+ * closes with jt1130 (compose commit). Dormant/unvalidatable headless. */
+static short l53b0(void *desc_p, long a12, short a16, short a18) __attribute__((unused));
+static short l53b0(void *desc_p, long a12, short a16, short a18)
 {
+	unsigned char *desc = (unsigned char *)desc_p;                 /* fp@(8)  */
+	unsigned char *obuf = (unsigned char *)(uintptr_t)jt1004();    /* fp@(-4) */
+	short          m20, w10, f22, fmt, ret14 = 0;
+
 	PROBE("L53b0");
-	(void)out; (void)a2; (void)height; (void)flag;
-	return 0;                       /* TODO: tile-convert sub-giant */
+	m20 = (a16 & 0x80) ? (short)1 : (short)jt1198();               /* fp@(-20) */
+	jt406(desc + 4, (void *)(uintptr_t)jt1004(), (short)8);
+	obuf = (unsigned char *)(uintptr_t)jt1004();
+
+	obuf[7] = (unsigned char)((obuf[7] & 0x0F) | a16);
+	if ((obuf[7] & 0x0F) == 5 && jt1200() != 0 && jt1163() == 0)
+		obuf[7] = (unsigned char)(a16 | 1);
+	if ((obuf[7] & 0x0F) == 7 && jt1200() != 0 && jt1163() == 0)
+		obuf[7] = (unsigned char)(a16 | 3);
+	if ((obuf[7] & 0x0F) == 3 && jt1163() != 0)
+		obuf[7] = (unsigned char)(a16 | 7);
+	if (jt1200() != 0)
+		obuf[6] = (unsigned char)(obuf[6] << (3 - jt1200()));
+	w10 = obuf[6];                                                 /* fp@(-10) */
+	if (jt1200() == 0)
+		w10 = (short)(w10 << 3);
+	f22 = (short)desc[13];                                         /* fp@(-22) */
+	if (desc[15] != 0 && (short)(desc[15] - 1) != a18)
+		f22 |= 1;
+	jt1148();
+
+	fmt = (short)(obuf[7] & 0x0F);
+	switch (fmt) {                          /* JT[3] @0x5516 */
+	case 0:
+	case 5:
+		/* TODO(fill 0x5534..0x5694): size-guard (jt4/jt1084), then either an
+		 * inline scanline copy (jt1170/jt1177/jt1197/jt406) or l4924 pack,
+		 * gated by the fp@(-9)/fp@(-11) high/low-res flags. */
+		break;
+	case 1:
+		/* TODO(fill 0x5698..0x59ba): jt1163/jt1198 gate + size-guard, then the
+		 * per-plane l42f2 conversion loops (0x583c/0x58c0/0x5934) + l4924. */
+		break;
+	case 2:
+		ret14 = (short)l4f9c(*(short *)desc, *(short *)(desc + 2),
+		                     *(short *)(desc + 4), w10, m20);
+		break;
+	case 3:
+		ret14 = (short)l4cae(*(short *)desc, *(short *)(desc + 2),
+		                     *(short *)(desc + 4), w10, m20, f22);
+		break;
+	case 7:
+		ret14 = (short)l509e(*(short *)desc, *(short *)(desc + 2),
+		                     *(short *)(desc + 4), w10, m20, f22);
+		break;
+	case 9: {                               /* record fill + copy */
+		short i, n = desc[14];
+		for (i = 0; i < n; i++)
+			*(unsigned char *)(uintptr_t)(a12 + (long)i * 6 + 1) =
+				(unsigned char)desc[14];
+		ret14 = (short)(n * 6);
+		jt406((void *)(uintptr_t)(jt1004() + 8), (void *)(uintptr_t)a12, ret14);
+		ret14 = (short)(ret14 + 8);
+		break;
+	}
+	case 8:
+		break;                          /* straight to the epilogue */
+	case 4:
+	case 6:
+	default:
+		jt1147();                       /* abort this tile */
+		ret14 = 0;
+		break;
+	}
+
+	jt1130();                               /* compose commit */
+	return ret14;
 }
 
 /* L67a0 (CODE 10+0x67a0) — DrawPicture the loaded PICT into the offscreen

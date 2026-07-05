@@ -137,7 +137,14 @@ L42f2 ✓ ~468  imported-art pixel-format converter — FULL faithful lift
               Resolved the "fp@(-5)" scare (= low byte of the width local ->
               round-to-even). ⚠ dormant/unvalidatable headless — verify the
               pixel output vs a Mac trace of L42f2 when the import is wired.
-L53b0  big (spans past jt260) — the remaining tile-converter sub-giant
+L53b0 ◑ ~513  the tile-conversion ORCHESTRATOR — LEVEL-2 SKELETON (2026-07-05).
+              Faithful prologue (mask pick, header copy, format-nibble set +
+              5->1/7->3/3->7 remaps by view-mode+dither, depth scale, flag) +
+              the JT[3](0..9) format dispatch. Cases 2->l4f9c, 3->l4cae,
+              7->l509e, 9 (record fill) done FULLY; 4/6/default->jt1147; 0/5
+              (inline scanline / l4924) and 1 (per-plane l42f2 + l4924) DEFERRED
+              with TODO + opcode ranges (0x5534.. / 0x5698..). Returns the
+              packed size; jt1130 commit.
 ```
 
 **L53b0 sub-tree status (2026-07-05):** ALL LEAVES DONE — L4924 ✓ L4970 ✓
