@@ -70284,6 +70284,7 @@ static short l53b0(void *desc_p, long a12, short a16, short a18)
 {
 	unsigned char *desc = (unsigned char *)desc_p;                 /* fp@(8)  */
 	unsigned char *obuf = (unsigned char *)(uintptr_t)jt1004();    /* fp@(-4) */
+	unsigned char  sbuf[346];                    /* fp@(-346) scanline buffer */
 	short          m20, w10, f22, fmt, ret14 = 0;
 
 	PROBE("L53b0");
@@ -70311,11 +70312,40 @@ static short l53b0(void *desc_p, long a12, short a16, short a18)
 	fmt = (short)(obuf[7] & 0x0F);
 	switch (fmt) {                          /* JT[3] @0x5516 */
 	case 0:
-	case 5:
-		/* TODO(fill 0x5534..0x5694): size-guard (jt4/jt1084), then either an
-		 * inline scanline copy (jt1170/jt1177/jt1197/jt406) or l4924 pack,
-		 * gated by the fp@(-9)/fp@(-11) high/low-res flags. */
+	case 5: {                               /* direct scanline copy */
+		short size = (short)(*(short *)(desc + 4) * w10);
+		if (16376 / m20 < size) {
+			l036a(ua_strs_at(0x2f8a) /* "Tile too large %l/%d" */,
+			      (long)(jt4((long)size, (long)m20) + 8), 16384);
+			ret14 = 8;
+			break;
+		}
+		if (w10 & 1) {                  /* fp@(-9): odd-width (hi-res) path */
+			short w12 = (short)(w10 + (w10 & 1));   /* round even */
+			long  out = jt1004() + 8;
+			short i8, i6;
+			for (i8 = 0; i8 < m20; i8++) {
+				jt1170();
+				for (i6 = 0; i6 < *(short *)(desc + 4); i6++) {
+					jt1177((short)(*(short *)desc + i6),
+					       *(short *)(desc + 2));
+					jt1197(sbuf, (short)1, w12);
+					jt406((void *)(uintptr_t)out, sbuf, w10);
+					out += w10;
+				}
+			}
+		} else {
+			short i8;
+			jt1177(*(short *)desc, *(short *)(desc + 2));
+			for (i8 = 0; i8 < m20; i8++) {
+				jt1170();
+				jt1197((void *)(uintptr_t)(jt1004() + (long)i8 * size + 8),
+				       (short)1, *(short *)(desc + 4));
+			}
+		}
+		ret14 = (short)(size * m20 + 8);
 		break;
+	}
 	case 1:
 		/* TODO(fill 0x5698..0x59ba): jt1163/jt1198 gate + size-guard, then the
 		 * per-plane l42f2 conversion loops (0x583c/0x58c0/0x5934) + l4924. */
