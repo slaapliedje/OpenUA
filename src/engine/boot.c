@@ -68734,6 +68734,185 @@ static short jt267(short param)
 	return 0;
 }
 
+/* --- CODE 10 monster-editor state-machine entry (jt269 + deps) ------ */
+
+/* L03ce (CODE 10+0x3ce) — reset a monster-editor holder's edit fields:
+ * copy holder[0] into holder[2], mark holder[17] active, and (unless
+ * the record is kind 21) clear the art id holder[9], then force the
+ * paint cache holder[11] to -1. Leaf. */
+static void l03ce(long holder) __attribute__((unused));
+static void l03ce(long holder)
+{
+	unsigned char *h = (unsigned char *)(uintptr_t)holder;
+
+	PROBE("L03ce");
+	*(short *)(h + 2) = *(short *)h;
+	h[17] = 1;
+	if (*(short *)(h + 2) != 21)
+		h[9] = 0xFF;
+	h[11] = 0xFF;
+}
+
+/* L300c (CODE 10+0x300c) — mark the state-16 (memorized) art bit set on
+ * the L2ebe-resolved row descriptor and refresh its STRG names
+ * (jt362/l6520_c8 via the jt346 flag). Deps all lifted. */
+static void l300c(long holder) __attribute__((unused));
+static void l300c(long holder)
+{
+	unsigned char *h = (unsigned char *)(uintptr_t)holder;
+	long           v = 0;
+
+	PROBE("L300c");
+	l2ebe((long)(uintptr_t)&v, (long)(uintptr_t)h, *(short *)(h + 14));
+	if (v != 0) {
+		unsigned char *r = (unsigned char *)(uintptr_t)v;
+		r[1] |= 0x80;
+		jt362((long)0,
+		      l6520_c8((short)(jt346((short)r[1], (short *)0) & 255)));
+	}
+}
+
+/* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
+ * insn): jt168/jt169 List Manager over the record's art/spell rows,
+ * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
+ * helpers L2a06/L19ea/L0960/L1162/L1396. PROBE stub pending jt266 and
+ * those helpers — jt269 dispatches into it faithfully, so the dialog is
+ * the one deferred piece of the state machine. */
+static void l040c(long holder) __attribute__((unused));
+static void l040c(long holder)
+{
+	PROBE("L040c");
+	(void)holder;
+}
+
+/* JT[269] (CODE 10+0x0004) — the monster-editor state-machine entry.
+ * `holder` (arg3) is the editor context; jt269 stamps holder[0]=state
+ * then dispatches the 21-arm JT[3]:
+ *   1        -> reset (jt208 party-coord reset), enter kind-11 setup
+ *   2/3/4/5/7-> commit id/flags from *outp (jt346), L03ce + the dialog
+ *   10/16/18 -> restore holder[0] from holder[2]; state 16 sets the
+ *               memorized bit (L300c); run the dialog
+ *   11       -> derive kind/flags (jt370), pack them, L03ce; run dialog
+ *   21       -> mark holder[0]=7 then fall into the 2/3/4/5/7 arm
+ *   default  -> holder[0] = holder[2]
+ * Then the L02e8 tail clears *outp's low word and, via a JT[1] switch
+ * on holder[0], packs the display flags into its high word. The modal
+ * dialog itself (L040c) is a PROBE stub pending jt266; every other arm
+ * — the flag derivation and the JT[1]/JT[3] tail packing — is faithful.
+ * JT[3]/JT[1] tables decoded with jt3_extract/jt1_extract. */
+static short jt269(short state, long outp, long rec) __attribute__((unused));
+static short jt269(short state, long outp, long rec)
+{
+	unsigned char *h;
+	unsigned char *o = (unsigned char *)(uintptr_t)outp;
+	short          v2;
+
+	PROBE("jt269");
+	if (rec == 0)
+		return 0;
+	h = (unsigned char *)(uintptr_t)rec;
+	*(short *)h = state;
+
+	switch (state) {                     /* JT[3] @0x2a (1..21) */
+	case 1:                              /* L01ea */
+		jt358();                      /* result is the ignored jt208 arg */
+		jt208();
+		h[6] = 0;
+		*(short *)(h + 4) = 2;
+		*(short *)h = 11;
+		break;
+	case 10:
+	case 16:
+	case 18:                             /* L005a */
+		*(short *)h = *(short *)(h + 2);
+		*(short *)(h + 4) = 0;
+		if ((*(long *)o & 15) != 0 && state == 16)
+			l300c((long)(uintptr_t)h);
+		if (*(short *)(h + 4) != 0)   /* always false here (just cleared) */
+			break;
+		l040c((long)(uintptr_t)h);
+		break;
+	case 11:                             /* L00c4 */
+		v2 = *(short *)(h + 4);
+		*(short *)(h + 4) = 0;
+		if ((*(long *)o & 15) == 0) {
+			if (v2 == 2) {        /* L01b6 */
+				*(short *)(h + 4) = 1;
+				*(short *)h = 1;
+			}
+		} else if ((v2 & 15) == 2) {  /* JT[3] @0xee case 2 -> L00f6 */
+			h[6] = (unsigned char)((*(long *)o & 4080) >> 4);
+			*(short *)(h + 12) = -1;
+			h[7] = (unsigned char)jt370((short)h[6],
+			                            *(short *)(h + 12));
+			if (h[6] == 9)
+				h[7] |= 0x10;
+			h[16] = (unsigned char)((o[4] == 0) ? 1 : 0);
+			h[8] = 0;
+			*(long *)o &= 0xffff0000;
+			*(long *)o |= ((long)(unsigned short)
+			              ((h[7] << 8) | h[8])) << 16;
+			h[7] &= 63;
+			l03ce((long)(uintptr_t)h);
+		}
+		if (*(short *)(h + 4) != 0)   /* L01d0 */
+			break;
+		l040c((long)(uintptr_t)h);
+		break;
+	case 21:                             /* L0218 -> L022a */
+		if (*(short *)(h + 4) != 0)
+			*(short *)h = 7;
+		goto l022a;
+	case 2:
+	case 3:
+	case 4:
+	case 5:
+	case 7:                              /* L022a */
+	l022a:
+		h[7] = (unsigned char)((*(long *)o & 0xff00) >> 8);
+		h[6] = (unsigned char)jt346((short)h[7],
+		                            (short *)(h + 12));
+		h[7] &= 63;
+		h[16] = (unsigned char)((o[4] == 0) ? 1 : 0);
+		h[8] = h[16];
+		if (*(short *)(h + 12) > 0)
+			*(short *)(h + 12) = (short)(*(long *)o & 255);
+		else
+			h[8] = (unsigned char)(*(long *)o & 255);
+		l03ce((long)(uintptr_t)h);
+		l040c((long)(uintptr_t)h);
+		break;
+	default:                             /* L02dc: 6,8,9,12-15,17,19,20 */
+		*(short *)h = *(short *)(h + 2);
+		break;
+	}
+
+	/* L02e8 — clear *outp's low word, then pack the display flags into
+	 * the high word via a JT[1] switch on holder[0]. */
+	*(long *)o &= 0xffff0000;
+	switch (*(short *)h) {                /* JT[1] @0x2fc on holder[0] */
+	case 10:                              /* L030c */
+		*(long *)o |= (long)(short)(*(short *)(h + 4) & 63);
+		break;
+	case 11:                              /* L0332 -> JT[3] @0x340 */
+		if ((*(short *)(h + 4) & 63) == 2)
+			*(long *)o |= ((long)(unsigned short)
+			              ((h[6] << 4) | *(short *)(h + 4))) << 16;
+		break;
+	case 1:                               /* L03c4 (return) */
+		break;
+	default:                              /* L036c */
+		if ((unsigned char)h[6] >= 6)
+			h[7] |= 0x40;
+		if ((h[5] & 0x80) == 0)
+			h[7] |= 0x80;
+		*(long *)o |= ((long)(unsigned short)
+		              ((h[7] << 8) | (h[8] & 255))) << 16;
+		break;
+	}
+	return *(short *)h;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
