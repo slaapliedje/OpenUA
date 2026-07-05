@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1133 done (1015 lifted, 51 noop, 67 alias), 15 stub, 0 stand-in, 57 missing.
+**1205 distinct JT entries are called.** Overall: 1134 done (1016 lifted, 51 noop, 67 alias), 14 stub, 0 stand-in, 57 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -48,7 +48,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 14 | 651–700 | **29/50** | 26 | 3 | 0 | 0 | 21 |
 | 15 | 701–750 | **38/50** | 31 | 7 | 2 | 0 | 10 |
 | 16 | 751–800 | **45/50** | 40 | 5 | 0 | 0 | 5 |
-| 17 | 801–850 | **46/50** | 46 | 0 | 2 | 0 | 2 |
+| 17 | 801–850 | **47/50** | 47 | 0 | 1 | 0 | 2 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
@@ -81,7 +81,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 12 | 23 | 17 | 3 | 0 | 3 | **6** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 22 | 0 | 0 | 0 | **0** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
-| CODE 15 | 19 | 14 | 2 | 0 | 3 | **5** | play-entry + save/load + party list (jt574..590 / l07dc) |
+| CODE 15 | 19 | 15 | 1 | 0 | 3 | **4** | play-entry + save/load + party list (jt574..590 / l07dc) |
 | CODE 16 | 115 | 115 | 0 | 0 | 0 | **0** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 19 | 0 | 0 | 1 | **1** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 171 | 0 | 0 | 0 | **0** | combat engine (jt610 / jt856 / l4d98 / l709e) |
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 50 of 72 pending (stub+standin+missing), by call count:
+Top 50 of 71 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt233 (1 calls, CODE 11) — missing
@@ -374,7 +374,6 @@ Top 50 of 72 pending (stub+standin+missing), by call count:
 - jt576 (1 calls, CODE 15) — missing
 - jt587 (1 calls, CODE 15) — stub
 - jt591 (1 calls, CODE 15) — missing
-- jt592 (1 calls, CODE 15) — stub
 - jt594 (1 calls, CODE 15) — missing
 - jt896 (1 calls, CODE 19) — missing
 - jt916 (1 calls, CODE 12) — missing
@@ -383,4 +382,5 @@ Top 50 of 72 pending (stub+standin+missing), by call count:
 - jt928 (1 calls, CODE 12) — missing
 - jt931 (1 calls, CODE 12) — stub
 - jt933 (1 calls, CODE 12) — stub
+- jt939 (1 calls, CODE 20) — missing
 
