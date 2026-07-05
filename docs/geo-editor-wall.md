@@ -82,9 +82,48 @@ loop (jt168/jt169 List Manager + jt266 the giant + L2a06/L19ea/L0960/L1162/L1396
 — is the single PROBE-stub arm, deferred until jt266's session. jt358 turned out
 already lifted (a one-liner), jt208 confirmed void.
 
-Remaining CODE 10: **jt266** (1692-insn giant; also unblocks jt269's L040c
-dialog) and **jt259** (2757-insn giant) — each its own session. Every other
-CODE 10 viewer (jt264/jt265/jt267/jt269/jt270) is lifted.
+Remaining CODE 10: **jt259** (the art-import giant) — jt266 is now LIFTED.
+Every other CODE 10 viewer (jt264/jt265/jt267/jt269/jt270) is lifted.
+
+### jt259 (L368a → L36e0) — roadmap (STARTED 2026-07-05)
+
+jt259 (L368a) is a thin ~15-insn wrapper: it clears the top bit of *fp@(10),
+splits *fp@(10) into (low byte, byte 1), calls **L36e0(lo, hi)**, and packs the
+byte result back into the low word of *fp@(10); returns fp@(8) unchanged. The
+real giant is **L36e0** (`linkw #-1306` — a 1306-byte frame): the **MacPaint /
+PICT art-IMPORT pipeline** (0x36e0..0x42f2, ~1030 insn main) plus **13
+CODE-local helpers**. Total ~2732 insn across the subsystem — genuinely
+multi-session (est. 6-10 focused passes).
+
+- **51 distinct JT deps — all resolve** (jt48=l5864, jt1084=l036a, jt1162=l3e38
+  are the only alias reads). Heavy on file/resource I/O (jt418 std-file,
+  jt460/461/464/465/468 resource, jt411/413/416/419/431 file, jt1162/1163
+  double-buffer, jt1147/1148/1153 compose, jt1170/1171/1177 unpack, jt1066/1069
+  CLUT, jt1197/1198 mode).
+- **3 JT[3] switches, 2 JT[1] switches** — decode with jt3_extract/jt1_extract.
+- Main dispatch: jt1200()==3 → MacPaint import ('PNTG', "MacPaint File:");
+  else PICT import ('PICT', "PICT File:"). Both go std-file (jt418) → import.
+
+**13 CODE-local helpers (by size, none lifted yet):**
+```
+L4924  ✓  ~25  AND-NOT sprite-mask blit (dep jt1163)          LIFTED 2026-07-05
+L4970  ✓  ~45  uniform-column run-length (pure)               LIFTED 2026-07-05
+L6606     ~52  PICT scanline unpack+store loop (jt1170/1171/1177/1179/1202/
+               1166/413/468) — clean leaf; ⚠ jt1170 is void in the port but
+               the Mac pushes a word arg (verify like jt80/jt208); jt1171=l108e.
+L4eda     ~64  (next to read)      L4f9c  ~86      L66a2  ~84   L67a0  ~80
+L4cae    ~185  L49f8 ~231  L509e  ~262
+L42f2    ~528  sub-giant           L53b0  big (spans past jt260)  L6892  tail
+```
+
+**Recommended order:** finish the clean leaves (L6606 after the jt1170 sig
+check, then L4eda/L4f9c/L66a2/L67a0) → the mid helpers (L4cae/L49f8/L509e) →
+the two sub-giants (L42f2, L53b0) → L36e0 main as a **level-2 skeleton** first
+(mirror the CFG + call every helper, defer per-arm), then fill. This is the
+FRUA art-import path (design-editor "Import Picture") — dormant/mouse-gated,
+so unvalidatable headless; verify against the disasm, not the smoke harness.
+
+### jt266 (l1bc2) — roadmap (COMPLETE 2026-07-05)
 
 ### jt266 (l1bc2) — roadmap (STARTED 2026-07-05)
 

@@ -69601,6 +69601,56 @@ tail:                                         /* L1f76 */
 	jt117();
 }
 
+/* --- CODE 10 jt259 (L36e0 MacPaint/PICT art-import giant) leaf helpers --- */
+
+/* L4924 (CODE 10+0x4924) — AND-NOT mask blit: for `outer` rows of `inner`
+ * bytes, clear in `dst` every bit set in the `src` mask (*dst &= ~*src). The
+ * source cursor advances continuously but is rewound to the row start (`src`)
+ * at the top of each row unless jt1163() is nonzero (the tiled-mask mode).
+ * Used by the import to punch a sprite's transparency mask. Leaf. */
+static void l4924(void *src, void *dst, short inner, short outer) __attribute__((unused));
+static void l4924(void *src, void *dst, short inner, short outer)
+{
+	unsigned char *d = (unsigned char *)dst;   /* a3, fp@(12) */
+	unsigned char *s = (unsigned char *)src;   /* a4, fp@(8)  */
+	short          o, i;
+
+	PROBE("L4924");
+	for (o = outer; --o >= 0; ) {
+		if (jt1163() == 0)
+			s = (unsigned char *)src;
+		for (i = inner; --i >= 0; ) {
+			*d = (unsigned char)(*d & ~*s);
+			d++;
+			s++;
+		}
+	}
+}
+
+/* L4970 (CODE 10+0x4970) — uniform-column run length: scan columns of the
+ * bitmap starting at `base` (row pitch `stride`, `rows` tall), counting how
+ * many consecutive columns are "flat" — every row has base[k]==base[k+1] — and
+ * whose matching `col` marker byte is 0xFF. Stops at the first column that
+ * breaks either test; returns the run length. Pure leaf (no deps). */
+static short l4970(unsigned char *base, unsigned char *col, short stride, short rows) __attribute__((unused));
+static short l4970(unsigned char *base, unsigned char *col, short stride, short rows)
+{
+	short count = 0;                     /* fp@(-2) */
+	char  flag = 1;                      /* fp@(-5) */
+
+	PROBE("L4970");
+	while (flag) {
+		short j;
+		count++;
+		if (*col++ != 255)
+			flag = 0;
+		for (j = 0; flag && j < rows; j++)
+			flag = (char)(base[stride * j] == base[stride * j + 1]);
+		base++;
+	}
+	return count;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
