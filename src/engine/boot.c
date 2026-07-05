@@ -63407,6 +63407,55 @@ static void jt470(short b)
 	*c = (unsigned char)b;
 }
 
+/* ---- CODE 3 text-console putchar (the design editor's on-screen text
+ * output). Named _c03 to avoid the offset collision with the unrelated
+ * char-gen l375a sprite drawer. */
+
+/* L37b8 (CODE 3+0x37b8) — emit one glyph: BEL (7) rings SysBeep,
+ * anything else draws at the pen. */
+static void l37b8_c03(short ch) __attribute__((unused));
+static void l37b8_c03(short ch)
+{
+	PROBE("L37b8");
+	if ((unsigned char)ch == 7)
+		SysBeep((short)6);
+	else
+		DrawChar((short)(signed char)ch);
+}
+
+/* L375a (CODE 3+0x375a) — console putchar with control handling:
+ * CR (13) returns the pen to the left margin (x=0, same line); LF (10)
+ * moves it down one 14px line, clamped at the bottom (pen.v >= 326
+ * stays); every other byte goes to L37b8 (BEL or DrawChar). */
+static void l375a_c03(short ch) __attribute__((unused));
+static void l375a_c03(short ch)
+{
+	Point pen;
+
+	PROBE("L375a");
+	if ((unsigned char)ch == 13) {                  /* CR */
+		GetPen(&pen);
+		MoveTo((short)0, pen.v);
+	} else if ((unsigned char)ch == 10) {           /* LF */
+		GetPen(&pen);
+		if (pen.v < 326)
+			MoveTo((short)0, (short)(pen.v + 14));
+		else
+			MoveTo((short)0, pen.v);
+	} else {
+		l37b8_c03(ch);
+	}
+}
+
+/* JT[385] (CODE 3+0x36ec) — console putchar wrapper: emit the low byte
+ * of `ch` through L375a. */
+static void jt385(short ch) __attribute__((unused));
+static void jt385(short ch)
+{
+	PROBE("jt385");
+	l375a_c03((short)(signed char)ch);
+}
+
 /* JT[1006] (CODE 5+0x28ea) — fill pattern for colour `idx` (& 15).
  * The 8-bit colour mode (jt1200() == 0) reports the -4188 palette byte
  * as one word; the reduced-depth modes (jt1200() != 0 — 4bpp/1bpp) expand
