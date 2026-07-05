@@ -115,10 +115,22 @@ L6606  ✓  ~52  PICT scanline unpack+store (jt468/1170/1171/1177/1179/1202/
 L4eda  ✓  ~64  PackBits (RLE) compressor, pure                 LIFTED 2026-07-05
 L4f9c  ✓  ~86  tile-band pack driver (l4eda + jt1004/1197/406/1177/1170; only
                1-plane real, planes>1 = Mac logged-stub)       LIFTED 2026-07-05
-L66a2  ~84   L67a0  ~80   L6892  tail   (next leaves)
+L66a2  ✓  ~84  PICT file -> handle load (jt403/412/1030/1026/1033/414/1032 +
+               "Insufficent Memory" alert)                    LIFTED 2026-07-05
+L6892  ✓  ~6   dispose a PICT handle (jt1032)                 LIFTED 2026-07-05
+⛔ L67a0  ~80  PICT DISPLAY — BLOCKED on QuickDraw shim. Uses raw Mac traps
+               _DrawPicture (0xa8f6), _GetGWorld/_SetGWorld (0xaa28/0xaa39),
+               _ForeColor/_BackColor (0xa863/0xa862), _PenMode, _SetCursor +
+               jt1159 (CODE 4, also unlifted). The shim has SetCursor/GetCursor/
+               PenMode/ClipRect but NOT DrawPicture/ForeColor/BackColor/GWorld.
+               Needs a PICT opcode interpreter (the port renders GLIB art, not
+               Mac PICT) — its own task. L36e0 skeleton PROBE-stubs it.
 L4cae ~185   L49f8 ~231   L509e  ~262   (mid helpers)
 L42f2 ~528   sub-giant    L53b0  big (spans past jt260)
 ```
+
+Also lifted this pass: **jt1032** (_DisposHandle) + **jt1033** (_HLock) — trivial
+Memory Manager trap wrappers over the shim, previously absent; needed by L66a2.
 
 **Recommended order:** clean leaves ✓ (L4924/L4970/L6606/L4eda/L4f9c done) →
 L66a2/L67a0/L6892 → mid helpers (L4cae/L49f8/L509e) → sub-giants (L42f2, L53b0)

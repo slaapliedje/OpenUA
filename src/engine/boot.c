@@ -17004,6 +17004,24 @@ static Handle jt1031(long size)
 	return NewHandleClear(size);
 }
 
+/* JT[1032] (CODE 5+0x506e) — _DisposHandle; trap result = MemError. */
+static short jt1032(Handle h) __attribute__((unused));
+static short jt1032(Handle h)
+{
+	PROBE("jt1032");
+	DisposeHandle(h);
+	return (short)MemError();
+}
+
+/* JT[1033] (CODE 5+0x50c6) — _HLock; trap result = MemError. */
+static short jt1033(Handle h) __attribute__((unused));
+static short jt1033(Handle h)
+{
+	PROBE("jt1033");
+	HLock(h);
+	return (short)MemError();
+}
+
 /* JT[1034] (CODE 5+0x50d0) — _HUnlock; trap result = MemError. */
 static short jt1034(Handle h) __attribute__((unused));
 static short jt1034(Handle h)
@@ -69768,6 +69786,55 @@ static short l4f9c(short y0, short col, short count, short planeW, short planes)
 			return 0;
 	}
 	return (short)(dst - (unsigned char *)(uintptr_t)jt1004());
+}
+
+/* L66a2 (CODE 10+0x66a2) — load a PICT file (`refnum`, already open) into a
+ * fresh handle. Size = GetEOF - 512 (skip the 512-byte PICT header); bail if
+ * empty. Seek past the header (jt412), allocate a handle (jt1030), and — only
+ * if FreeMem stays above 20000 after — lock it (jt1033) and read the body
+ * (jt414). Returns the handle on a full read; on a short read disposes and
+ * returns 0; on out-of-memory disposes, shows the three-line "Insufficent
+ * Memory" alert (jt76 + jt1089 x3 + jt175 modal) and returns 0. */
+static Handle l66a2(short refnum) __attribute__((unused));
+static Handle l66a2(short refnum)
+{
+	long   size;      /* fp@(-8) */
+	Handle handle;    /* fp@(-4) */
+
+	PROBE("L66a2");
+	size = jt403(refnum) - 512;
+	if (size <= 0)
+		return 0;
+	if (jt412(refnum, (long)512, (short)0) <= 0)
+		return 0;
+	handle = jt1030(size);
+	if (handle != 0 && jt1026() > 20000) {
+		jt1033(handle);
+		if (jt414(refnum, (long)(uintptr_t)*handle, size) == size)
+			return handle;
+		jt1032(handle);
+		return 0;
+	}
+	if (handle != 0)
+		jt1032(handle);
+	jt76();
+	jt1089((short)8016, (short)8044, (short)139,
+	       ua_strs_at(0x301e) /* "Insufficent Memory" */);
+	jt1089((short)8024, (short)8010, (short)135,
+	       ua_strs_at(0x3032) /* "Try increasing the amount of memory" */);
+	jt1089((short)8030, (short)8028, (short)135,
+	       ua_strs_at(0x3056) /* "allocated for the program." */);
+	jt175();
+	return 0;
+}
+
+/* L6892 (CODE 10+0x6892) — dispose a loaded PICT handle (jt1032 =
+ * _DisposHandle). Trivial leaf. */
+static void l6892(void *handle) __attribute__((unused));
+static void l6892(void *handle)
+{
+	PROBE("L6892");
+	jt1032((Handle)handle);
 }
 
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
