@@ -73956,6 +73956,149 @@ static short jt258(short cmd, long *desc, void *out)
 	return *(short *)rec;            /* 0x420 — return rec[0] */
 }
 
+/*
+ * jt243 (CODE 22 + 0x0b26) and jt242 (CODE 22 + 0x589a) — two design-editor
+ * command handlers reached by the l0096_c22 dispatcher below.  Their bodies
+ * live in CODE 22 and are not yet lifted (jt243 is a roadmap giant); PROBE
+ * stubs so the dispatcher links.  Same (short cmd, long *rec, void *area) ABI
+ * as the sibling handlers jt233/jt239/jt244.
+ */
+static short jt243(short cmd, long *rec, void *area) __attribute__((unused));
+static short jt243(short cmd, long *rec, void *area)
+{
+	PROBE("jt243");
+	(void)cmd; (void)rec; (void)area;
+	return 0;
+}
+
+static short jt242(short cmd, long *rec, void *area) __attribute__((unused));
+static short jt242(short cmd, long *rec, void *area)
+{
+	PROBE("jt242");
+	(void)cmd; (void)rec; (void)area;
+	return 0;
+}
+
+/*
+ * l0096_c22 (CODE 22 + 0x0096) — the design-editor command dispatcher.
+ *
+ * A modal command pump.  The caller (CODE 22 + 0x0050, not yet lifted) hands a
+ * command block by reference with cmd->word@4 seeded to the first command;
+ * this loop dispatches on word@4 through the THINK C JT[3] inline table @0x00aa
+ * (min=1, max=21, default), runs the matching command handler, and feeds the
+ * handler's return back into word@4 as the next command.  It runs until a
+ * handler (or an out-of-range command) sets cmd->byte@0 — command 1 and the
+ * default arm both terminate.
+ *
+ * cmd block layout (offsets off the by-ref base cmdp):
+ *   byte@0   loop-terminate flag         word@2  echoed (previous) command
+ *   word@4   current command / result    @8      primary editor state (by-ref)
+ *   @16/@100/@108/@120/@130/@144/@154/@172/@178  per-command sub-fields
+ *   @104/@116/@126/@136/@150  pointer slots seeded to &cmd@328 before the call
+ *   @328     embedded working buffer
+ *
+ * Each arm passes word@2 (the PRIOR command, arg1), &cmd@8 (arg2), and a
+ * per-command third arg, exactly as the asm pushes them (0x9e reads word@4 for
+ * the switch; every arm pushes word@2 as arg1).  Handlers the port lifted with
+ * fewer params silently drop the surplus pushed word — jt247/jt248/jt254 drop
+ * the pushed 0L, jt259 drops &@144 — faithful to those 2-arg lifts.  jt249's
+ * pushed 0L is its p14 (NULL); jt264/jt269/jt270 take their by-ref args as
+ * long, matching their lifts.  `ret` is fp@(-2), a persistent stack local: the
+ * exit arms leave it untouched, so word@4 on loop exit is a don't-care (seeded
+ * 0).  Unreferenced until the 0x0050 caller is lifted → DCE'd.
+ */
+static void l0096_c22(void *cmdp) __attribute__((unused));
+static void l0096_c22(void *cmdp)
+{
+	unsigned char *c = (unsigned char *)cmdp;
+	short ret = 0;                                 /* fp@(-2) — persistent local */
+
+	while (c[0] == 0) {                            /* 0x468 loop condition (pre-tested) */
+		short value = *(short *)(c + 4);      /* 0x9e — switch on word@4 */
+		short prev  = *(short *)(c + 2);      /* word@2 = arg1 to every handler */
+		switch (value) {                      /* JT[3] @0x00aa, min=1 max=21 */
+		case 1:                               /* 0xda — quit the editor */
+			c[0] = 1;
+			break;
+		case 2:                               /* 0xe6 — jt243 */
+			ret = jt243(prev, (long *)(c + 8), (void *)(c + 16));
+			break;
+		case 3:                               /* 0x196 — jt253 */
+			*(char **)(c + 116) = (char *)(c + 328);
+			ret = jt253(prev, (long *)(c + 8), (void *)(c + 108));
+			break;
+		case 4:                               /* 0x1ce — jt251 */
+			*(char **)(c + 126) = (char *)(c + 328);
+			ret = jt251(prev, (long *)(c + 8), (void *)(c + 120));
+			break;
+		case 5:                               /* 0x10e — jt250 */
+			*(char **)(c + 104) = (char *)(c + 328);
+			ret = jt250(prev, (long *)(c + 8), (void *)(c + 100));
+			break;
+		case 6:                               /* 0x146 — jt258 (event editor) */
+			ret = jt258(prev, (long *)(c + 8), (void *)(c + 178));
+			break;
+		case 7:                               /* 0x206 — jt263 */
+			*(char **)(c + 136) = (char *)(c + 328);
+			ret = jt263(prev, (long *)(c + 8), (void *)(c + 130));
+			break;
+		case 8:                               /* 0x16e — jt269 */
+			ret = jt269(prev, (long)(uintptr_t)(c + 8),
+			                  (long)(uintptr_t)(c + 154));
+			break;
+		case 9:                               /* 0x23e — jt233 */
+			ret = jt233(prev, (long *)(c + 8), (void *)(c + 172));
+			break;
+		case 10:                              /* 0x266 — jt247 (pushed 0L dropped) */
+			ret = jt247(prev, (long *)(c + 8));
+			break;
+		case 11:                              /* 0x288 — jt248 (pushed 0L dropped) */
+			ret = jt248(prev, (long *)(c + 8));
+			break;
+		case 12:                              /* 0x2aa — jt249 (p14 = NULL) */
+			ret = jt249(prev, (long *)(c + 8), (long *)0);
+			break;
+		case 13:                              /* 0x2cc — jt239 */
+			ret = jt239(prev, (long *)(c + 8), (void *)(c + 16));
+			break;
+		case 14:                              /* 0x2f4 — jt241 */
+			ret = jt241(prev, (long *)(c + 8), (unsigned char *)(c + 16));
+			break;
+		case 15:                              /* 0x31c — jt240 */
+			ret = jt240(prev, (long *)(c + 8), (unsigned char *)(c + 16));
+			break;
+		case 16:                              /* 0x344 — jt259 (&@144 dropped) */
+			*(char **)(c + 150) = (char *)(c + 328);
+			ret = jt259(prev, (long *)(c + 8));
+			break;
+		case 17:                              /* 0x37c — jt254 (pushed 0L dropped) */
+			ret = jt254(prev, (long *)(c + 8));
+			break;
+		case 18:                              /* 0x39e — jt270 */
+			ret = jt270(prev, (long)(uintptr_t)(c + 8),
+			                  (long)(uintptr_t)(c + 154));
+			break;
+		case 19:                              /* 0x3c6 — jt244 */
+			ret = jt244(prev, (long *)(c + 8), (void *)(c + 328));
+			break;
+		case 20:                              /* 0x3ec — jt242 */
+			ret = jt242(prev, (long *)(c + 8), (void *)(c + 16));
+			break;
+		case 21:                              /* 0x412 — jt264 */
+			*(char **)(c + 136) = (char *)(c + 154);
+			ret = jt264(prev, (long)(uintptr_t)(c + 8),
+			                  (long)(uintptr_t)(c + 130));
+			break;
+		default:                              /* 0x448 — invalid command: quit */
+			c[0] = 1;
+			break;
+		}
+		/* 0x450 epilogue: echo the command just run, stash the result. */
+		*(short *)(c + 2) = *(short *)(c + 4);  /* word@2 = word@4 (0x458) */
+		*(short *)(c + 4) = ret;                /* word@4 = handler result (0x462) */
+	}
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
