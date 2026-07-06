@@ -72796,6 +72796,24 @@ static short l178c(void *rec)
 	return v;                               /* 0x191e — ret = v */
 }
 
+/* L1954 (CODE 2 + 0x1954) — reset an event-array header: count@0 = 0, index@2 =
+ * -1 (empty/uninitialised). */
+static void l1954(void *p) __attribute__((unused));
+static void l1954(void *p)
+{
+	PROBE("L1954");
+	*(short *)p = 0;                        /* 0x195c — count@0 = 0 */
+	*(short *)((char *)p + 2) = -1;         /* 0x1964 — index@2 = -1 */
+}
+
+/* L1686 (CODE 2 + 0x1686) — reset the record's event-array header at rec+22. */
+static void l1686(void *rec) __attribute__((unused));
+static void l1686(void *rec)
+{
+	PROBE("L1686");
+	l1954((char *)rec + 22);                /* 0x1692 */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
@@ -72828,10 +72846,20 @@ static void  l0524(void *rec, short a1, short a2) __attribute__((unused));
 static void  l0524(void *rec, short a1, short a2)
 { PROBE("L0524"); (void)rec; (void)a1; (void)a2; }
 
-/* jt258 case-11 (0x204) helpers. l1e8a(a,b) takes two record bytes; l07c6(rec)
- * is the "*desc low nibble == 0" branch handler. PROBE-only stubs for now. */
+/* L1e8a (CODE 2 + 0x1e8a) — set the first byte of record a's row in the map at
+ * g_a5_long(-13038) (20-byte rows) to b: map[a-1][0] = b. No-op when b == 0. */
 static void  l1e8a(short a, short b) __attribute__((unused));
-static void  l1e8a(short a, short b) { PROBE("L1e8a"); (void)a; (void)b; }
+static void  l1e8a(short a, short b)
+{
+	PROBE("L1e8a");
+	if ((unsigned char)b == 0)              /* 0x1e90/0x1e96 */
+		return;
+	((char *)(uintptr_t)g_a5_long(-13038))[(unsigned char)a * 20 - 20] =
+	    (unsigned char)b;                   /* 0x1e9e-0x1ea8 */
+}
+
+/* L07c6 (CODE 2 + 0x7c6) — the "*desc low nibble == 0" branch handler.
+ * PROBE-only stub for now. */
 static void  l07c6(void *rec) __attribute__((unused));
 static void  l07c6(void *rec) { PROBE("L07c6"); (void)rec; }
 
