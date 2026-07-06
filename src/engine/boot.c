@@ -71549,11 +71549,12 @@ static void l31cc_c2(short y, short xbase, short field, short idx,
 }
 
 /* JT[248] (CODE 2 + 0x26aa = entry_jt248, frame -140) — the interactive
- * event-parameter editor modal. LEVEL-2 SKELETON (ADR-0002): the prologue,
- * the type-4 early exit, both base-string prompt builds, the 8-arm JT[3]
- * dispatch scaffold, and the shared cleanup are lifted; the per-type parameter
- * arms and the shared modal tail (jt169 List-Manager pick loop + jt347 value
- * adjust + the *desc repack) are DEFERRED — see docs/event-editor-wall.md.
+ * event-parameter editor modal. FULL LIFT (ADR-0002 level 3): the prologue,
+ * the type-4 early exit, both base-string prompt builds, all 8 JT[3] parameter
+ * arms (c0 item-index, c1 plain-enumerate, c2 fixed-9-table, c3 per-cell coord,
+ * c5 nested-JT[3] rec-array, c6/7 door/wall, c4+default "Item %d"/invalid), and
+ * the shared modal tail (jt169 List-Manager pick loop + jt347 value adjust +
+ * the *desc repack) are all lifted — see docs/event-editor-wall.md.
  *
  * *desc encodes the event: low nibble = type (0-15), bits 4-9 = a sub-value.
  * type 4 is a "current cell" early exit (jt314). Otherwise a base prompt string
@@ -71827,7 +71828,32 @@ static short jt248(short a8, long *desc)
 			            (short)0, 0L));
 		}
 		break;
-	default: /* case 4 + out-of-range -> L2dc2 "Item %d" arm */
+	default:
+		/* L2dc2 — JT[3] case 4 AND out-of-range (8-15) both land here
+		 * (jt3_extract: key 4 offset == default offset). type>=8 is the
+		 * invalid path: blank the prompt (buf62) and fall through with an
+		 * empty list, so the tail's list_holder guard short-circuits to
+		 * jt147. type<8 reaches the "Item %d" builder — but the only type<8
+		 * routed to default is 4, which the prologue early-exit pre-filters,
+		 * so that body is faithful-but-dead. It builds cnt124 = (sub?sub:255)
+		 * nodes each labeled "Item <n>" from loop8 (= lo113 = 1). */
+		if (type >= 8) {
+			buf62[0] = 0;                           /* L2e3e */
+		} else {
+			cnt124 = (short)((sub != 0) ? sub : 255);
+			str12 = g_a5_long(-10704);
+			jt167(cnt124, (long)(intptr_t)&list_holder);
+			cursor128 = list_holder;
+			loop8 = (short)(lo113 & 0xFF);
+			while (cursor128 != NULL) {
+				jt394((char *)cursor128 + 5,
+				      ua_strs_at(0x2c26) /* "Item %d" */,
+				      (short)loop8);
+				((unsigned char *)cursor128)[4] = 0;
+				cursor128 = *(void **)cursor128;
+				loop8++;
+			}
+		}
 		break;
 	}
 
