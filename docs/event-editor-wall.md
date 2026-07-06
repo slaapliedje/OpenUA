@@ -220,7 +220,15 @@ jt169 List-Manager pick LOOP (re-runs until pick∈{0,1}), the JT[2]-decoded
 jt347 value clamp, and the L30d8 *desc repack `(*desc & 0xFFFFF000) |
 ((1-pick)&15) | ((idx&255)<<4)`. The tail is SHARED — so the remaining 7 arms
 now each plug in as one commit (they populate the same list_holder + modal
-state). Remaining fill: c1=L29c8, c2=L2af6, c3=L2cbe, c5=L2b9a, c6/7=L2a36,
+state).
+
+**jt248d DONE — arm 1 (L29c8), the simplest arm.** A plain kind-10/mask-96
+enumerate: `f117=1`; `cnt124 = jt352(10, 96, &lo113, 0L, 0L, &idx122, 0L)` (the
+selected index writes straight into idx122 via out_idx — no per-node relabel
+loop, unlike arm 0's kind-11/mask-1); `str12 = g_a5_long(-10704)`; jt167 holder;
+`loop8 = lo113 + jt349(list_holder, 10, 96, lo113, 0, 0, 0L)` (hdrflag=0 here,
+=1 in arm 0). Consistency: the tail's JT[2] case 1 clamps this arm with the same
+(10, 96) jt347 pair. Remaining fill: c2=L2af6, c3=L2cbe, c5=L2b9a, c6/7=L2a36,
 c4/def=L2dc2.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
