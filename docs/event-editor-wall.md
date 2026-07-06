@@ -687,6 +687,20 @@ g_a5_long(-10508/-10524/-10528/-10532/-10592/-10660/-10768/-10780). All JT slots
 lifted (jt1161/jt366/jt345/jt394/jt1089/l1af8). Codegen 1889, tests 129/1. l12e8
 unblocks l1084. NEXT: l31cc (JT-slot), l1568, l1084 (jt444 2-arg), then l0ade.
 
+**jt258x DONE — l31cc_c2 COMPLETED (was a line-1-only partial lift).** CAUGHT: a
+prior session (jt248/jt253 era) lifted l31cc_c2 as ONLY the line-1 column label,
+mis-reading `bge 0x323c` as an early return — but 0x323c is line 2, not the
+epilogue (0x3336). So arg5/arg6 (declared "dead/unused") are actually READ. The
+full function draws THREE centred lines (rows y/y+4/y+8, x = xbase+((field-
+jt423)/2)*4): line1 label g_a5_longs(-11184)[idx] (idx<10); line2 override
+g_a5(-18876) else default -10616; line3 (unless flag) the current-area name from
+g_a5(-12300)+118 (jt406 swap-ABI, buf[16]=0 terminate, jt367 default if empty).
+shift=jt397(0,shift) nudges y before lines 2/3. STRS 0x2c3a/2c3e/2c42 all "%s"
+(rfork-extracted). jt slots jt397/jt394/jt423/jt1089/jt358/jt406/jt367 all lifted.
+Also DELETED my accidental duplicate. Codegen 1889, tests 129/1. **LESSON: a
+"shared/already-lifted" helper may be a PARTIAL lift — verify its CFG covers the
+whole function before trusting it.** NEXT: l1568, l1084, then l0ade -> l0a32.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
