@@ -540,6 +540,16 @@ l19f2/l196c/l1934/l1b70/l1ba4_c2) is now lifted. NEXT mid tier: l1cf0 (l1ad2/
 l1af8 + JT[3]@0x1d80), then l174a/l1c10/l178c/l169c/l1be4/l1e38 (all callees now
 lifted or nearly), working up toward l0a32 and the direct stubs.
 
+**jt258k DONE — l1cf0 (commit event-array entry into the area maps).** Reads the
+append slot (l1ad2 rec+22) for type@0/value@1/coords@2,3 and peeks the current
+top (l1af8 mode 0). top!=NULL: must be type 0 -> write value into the 20-stride
+record map at g_a5_long(-13038) at (top[1]-1)*20+slot[2]; else return 0. top==
+NULL: JT[3]@0x1d80 (jt3_extract min=1 max=4) on the type byte -> writes into the
+current-area block g_a5_long(-12300): case1 cell-array stride6 +294 idx=col*
+width[3]+row, case2 +48/stride4, case3 +80/stride4, case4 +110/stride1; default
++ all cases return 1. First mid-helper whose callees were all pre-lifted (l1ad2/
+l1af8). Codegen 1889, tests 129/1. NEXT: l174a/l1c10/l178c/l169c/l1be4/l1e38.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
