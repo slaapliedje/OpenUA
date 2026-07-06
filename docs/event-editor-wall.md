@@ -343,10 +343,16 @@ The loop (for i=1..16): j=(i==8)?7:i, strptr = g_a5_longs(-11296)[arr94[j]],
 l3c18(i,&c74,&c76), len=jt423(strptr), off=jt397(0,15-len), then jt452 shape 3
 (c74, c76, strptr, 38, 135, 42, off, 20, 0) — the string left-padded to width 15.
 
-**Remaining jt249 body (fill order):** the prompt/list finalization 0x369c
-(jt423 center + jt452 shape 6 draws buf52 + jt179(2) + jt148 list from buf72 +
-jt452 shape 7 with &jt245 + jt79, then clrb f7) → JT[3] @0x3862 → modal region →
-JT[3] @0x3e5a → the jt1161 redraw tail (0x3e6e-0x4022). One block per commit.
+**jt249e DONE — prompt/list finalization (0x369c-0x370e).** jt423(buf52) →
+jt452 shape 6 draws the prompt centred (x = (38-len)*4/2 + 8006 off 8004);
+jt179(2) brackets; jt148(g_a5(-13952), buf72, 1) installs the list; jt452 shape
+7 registers the &jt245 selection hook; jt79(); then clrb f7 (folded into the
+deferred next block's setup). Now the whole static screen (frame + grid outlines
++ labels + cursor + prompt + list) is drawn.
+
+**Remaining jt249 body (fill order):** 0x3726 onward — the two inner JT[3]
+dispatches (0x3862, 0x3e5a), the modal pick loop, and the jt1161 redraw tail
+(0x3e6e-0x4022). Those consume f8/f10. One block per commit.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
