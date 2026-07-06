@@ -71988,6 +71988,44 @@ static void l3c18(short idx, short *out1, short *out2)
 	*out2 = (jt1200() == 3) ? (short)8097 : (short)8090;
 }
 
+/* L3c5e (CODE 2 + 0x3c5e, frame -4) — draw the marker swatch for grid slot idx:
+ * l3c18 gives its (col X, row Y); a 4x4 filled box is drawn at (colX, rowY+60)
+ * with fill = arr[idx] (the reorder-table value). Called from jt249 at 0x3762. */
+static void l3c5e(short idx, unsigned char *arr) __attribute__((unused));
+static void l3c5e(short idx, unsigned char *arr)
+{
+	short colx, rowy;   /* fp@(-2) = l3c18 out1, fp@(-4) = out2 */
+
+	PROBE("L3c5e");
+	l3c18(idx, &colx, &rowy);
+	jt1161(colx, (short)(rowy + 60), (short)(colx + 4),
+	       (short)(rowy + 64), arr[(unsigned char)idx]);
+}
+
+/* L3d90 (CODE 2 + 0x3d90, frame -6) — draw slot idx's cell: l3cbe gives its
+ * (row axis o2, col axis o4); o6 = o2+16. In the vertical layout (jt1200()==3)
+ * the axes shift +12; otherwise a jt1161 box is drawn at (o6-4, o4+4, o6, o4+8)
+ * filled with idx. Then jt357 places the cell content (code=idx, sub=3) and
+ * jt1134 commits. Called from jt249 at 0x371c. */
+static void l3d90(short idx) __attribute__((unused));
+static void l3d90(short idx)
+{
+	short o2, o4, o6;   /* fp@(-2)/fp@(-4) l3cbe coords, fp@(-6) */
+
+	PROBE("L3d90");
+	l3cbe(idx, &o2, &o4);
+	o6 = (short)(o2 + 16);
+	if (jt1200() == 3) {
+		o2 = (short)(o2 + 12);
+		o6 = (short)(o6 + 12);
+	} else {
+		jt1161((short)(o6 - 4), (short)(o4 + 4), o6,
+		       (short)(o4 + 8), idx);
+	}
+	jt357(o2, o4, idx, (short)3);
+	jt1134();
+}
+
 /* JT[249] (CODE 2 + 0x333a = entry_jt249, frame -98) — a large interactive
  * event-editor screen (sibling of jt248, one command up in the CODE 22
  * design-editor dispatcher). LEVEL-2 SKELETON (ADR-0002): the prologue is fully
