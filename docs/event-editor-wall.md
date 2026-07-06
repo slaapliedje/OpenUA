@@ -256,8 +256,19 @@ record's name field `rec + loop8*16 + 134` via **jt406 with the (src,dst)→
 (dst,src) SWAP** (the flagged Mac ABI: rec is the Mac top-of-stack = src, node
 is dst), null-terminates cursor+21, and falls back to `jt394(cursor+5,
 "#%d"@-10604, loop8+1)` when the copied name is empty; cursor[4]=0; advance.
-No jt349. jt246 stays DCE'd (jt248 is dead). Remaining fill: c3=L2cbe,
-c6/7=L2a36, c4/def=L2dc2.
+No jt349. jt246 stays DCE'd (jt248 is dead). Remaining fill: c6/7=L2a36,
+c4/def=L2dc2.
+
+**jt248g DONE — arm 3 (L2cbe), the per-cell coordinate arm.** cnt124=8, lo113=0,
+str12=g_a5(-11008). `idx122 = sub` directly, gated `if (sub!=0 && sub<8)` (bge,
+not bgt). jt167(8) then an 8-node loop: each cell = the -12300 event record at a
+4-BYTE stride (`rec + loop8*4`, vs arm 5's *16). Label = `jt394(cursor+5,
+"%s %d: %d,%d %s"@0x2c14, g_a5(-10636), loop8+1, cell[15], cell[14], strval)`.
+`strval` is f116-gated: f116 set -> ""@0x2c24 (dead — f116 is 0 until the tail);
+f116 clear -> `g_a5_longs(-10924)[(cell[16] & 6) >> 1]` (the same facing table
+the type-3 prologue prompt uses). No jt349; f117 stays 0 so the tail's jt347
+clamp is skipped. STRS verified: 0x2c14="%s %d: %d,%d %s", 0x2c24="".
+Remaining fill: c6/7=L2a36, c4/def=L2dc2.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
