@@ -74388,6 +74388,32 @@ static void l2414(void *holder_v)
 	}
 }
 
+/* L1d10 (CODE 11 + 0x1d10) — try to place/edit the cell at (y=a2, x=a3, code=a4)
+ * through JT[290]; the `adv` arg passes as (signed char)a5.  On success (>0) it
+ * commits the highlight cell (g_a5_-11702/-11701/-11700 = a2/a3/a4 low bytes) and
+ * repaints (JT[321] then JT[305](rec,1,1)); on an outright failure (==0) it beeps
+ * via JT[1080]; a negative result does nothing.  rec = *holder, and rec[19] is
+ * refreshed from rec[4] first.  A jt243 (GEO editor) leaf; caller l3654. */
+static void l1d10(void *holder_v, short a2, short a3, short a4, short a5) __attribute__((unused));
+static void l1d10(void *holder_v, short a2, short a3, short a4, short a5)
+{
+	unsigned char *rec = *(unsigned char **)holder_v;          /* 0x1d1c — *holder */
+	signed char    ok;                                         /* fp@(-1) */
+
+	rec[19] = rec[4];                                          /* 0x1d20 */
+	ok = (signed char)jt290((long)(uintptr_t)holder_v, a2, a3, a4,
+	                        (short)(signed char)a5);           /* 0x1d3e — JT[290] */
+	if (ok > 0) {                                              /* 0x1d4a */
+		jt321();                                          /* 0x1d4e */
+		g_a5_byte(-11702) = (unsigned char)a2;            /* 0x1d52 */
+		g_a5_byte(-11701) = (unsigned char)a3;            /* 0x1d58 */
+		g_a5_byte(-11700) = (unsigned char)a4;            /* 0x1d5e */
+		jt305(rec, (char)1, (char)1);                     /* 0x1d72 — repaint */
+	} else if (ok == 0) {                                     /* 0x1d7a */
+		jt1080();                                         /* 0x1d80 — error beep */
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
