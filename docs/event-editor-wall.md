@@ -457,9 +457,15 @@ l0722; else -> l0622(rec, f4). All 8 handlers added as PROBE stubs (l2156/l22b6
 return the status the chain branches on). Byte-addressed bit tests preserved
 (rec+13 = low byte of the rec[12] short, rec+12 = high byte).
 
-**Fill order (jt258):** (1) the L01cc default (JT[3] @0x1d2 sub-dispatch on
-(f2>>8) + l0524); (2) the 0x31a post-process (2 JT[1] switches @0x32a/@0x34c) +
-the return; (3) cases 11/10/default; (4) the ~10 case-5 helper stubs lifted
+**jt258d DONE — the L01cc default arm (JT[3] @0xf4 default).** dispatch on
+(f2>>8) via JT[3] @0x1d2 (jt3_extract: min=2 max=3): cases 2/3 -> l0524(rec,
+*desc&0xFF, f4); default -> straight to the 0x31a post-process. l0524 added as a
+PROBE stub. Case 5's JT[3] @0xf4 sub-tree is now fully structured (both arms
+lifted); all paths converge at the deferred 0x31a post-process.
+
+**Fill order (jt258):** (1) the 0x31a post-process (*desc&=0xFFFF0000, JT[1]
+@0x32a on rec[0], JT[1] @0x34c on rec[10]&63) + the return -> this replaces the
+0 placeholder; (2) cases 11/10/default; (3) the case-5 helper stubs lifted
 bottom-up (l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/l0722/l0622/l0524).
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-

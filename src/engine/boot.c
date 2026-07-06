@@ -72401,6 +72401,9 @@ static void  l0722(void *rec) __attribute__((unused));
 static void  l0722(void *rec) { PROBE("L0722"); (void)rec; }
 static void  l0622(void *rec, short a) __attribute__((unused));
 static void  l0622(void *rec, short a) { PROBE("L0622"); (void)rec; (void)a; }
+static void  l0524(void *rec, short a1, short a2) __attribute__((unused));
+static void  l0524(void *rec, short a1, short a2)
+{ PROBE("L0524"); (void)rec; (void)a1; (void)a2; }
 
 /* JT[258] (CODE 2 + 0x0004 = entry_jt258, frame -8) — the event-editor MAIN
  * dispatcher: the largest CODE 2 function (~2100 insn, ~50 internal helpers,
@@ -72474,9 +72477,18 @@ static short jt258(short cmd, long *desc, void *out)
 				}
 				break;
 			default:
-				/* TODO L01cc — JT[3] @0x1d2 sub-dispatch
-				 * on (f2>>8) then l0524 */
-				(void)f2;
+				/* L01cc — dispatch on (f2 >> 8): the 2/3
+				 * arms format via l0524, else straight to
+				 * the post-process. */
+				switch ((short)(f2 >> 8)) {  /* JT[3] @0x1d2 */
+				case 2:
+				case 3:
+					l0524(rec, (short)(d & 0xFF),
+					      (short)f4);      /* 0x1e0 */
+					break;
+				default:                     /* 0x31a */
+					break;
+				}
 				break;
 			}
 		}
