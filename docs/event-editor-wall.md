@@ -141,7 +141,34 @@ tiered 512/768/1024 position pack via the 16-bit lslw/oriw/extl sequence).
 Both JT[1] + the JT[3] decoded via the extract tools (#122-safe). Returns ctx[2].
 
 **jt253 (l44cc) is now COMPLETE** — two editor screens (jt254, jt253) done.
-Next targets by size: **jt248 (l26aa, 890)** → jt249 (l333a, 1102) → jt258
+
+## jt248 (l26aa, frame -140) — the interactive event-parameter EDITOR (STARTED)
+
+Bigger and different from jt253: a mostly-MONOLITHIC modal (~668 insn, 0x26aa..
+0x311a), NOT a helper cluster. Structure:
+- **Prologue** (0x26aa-0x2806): parse *desc — type = *desc&15 (fp-2), sub =
+  (*desc&1008)>>4 (fp-4); type==4 is an early exit via jt314 + repack (-> L3116).
+  Build a base prompt string (jt394) for type==3 ("...%d, %d%s?") / type<4
+  ("...%s:") using the -108xx string-table globals.
+- **8-arm JT[3]** on type @0x280e {0->L2824, 1->L29c8, 2->L2af6, 3->L2cbe,
+  4/def->L2dc2, 5->L2b9a, 6/7->L2a36} — each arm formats one event type's
+  parameters into the fp(-62) buffer. THE per-arm work (the bulk).
+- **Modal tail** (0x2ec8-0x3116): jt84/jt117 screen setup, jt423+jt1089 draw the
+  prompt, L31cc labels, jt169 List Manager pick, jt347 value clamp, pack the
+  adjusted value back into *desc, jt147 cleanup. Returns fp@(8).
+
+Only local helper = **L31cc** (0x31cc, a centered-label renderer). Everything
+else is inline arms. All JT leaves already lifted (jt314=l494e, jt347, jt167,
+jt179, jt488, jt168, jt360, jt147, jt169 List Mgr, jt1089, jt423, jt394, jt84,
+jt117, jt273, jt179). JT[3] decoded via the extract tool.
+
+**jt248a DONE:** L31cc (lifted as `l31cc_c2` — (CODE,offset) clash vs a CODE 6
+l31cc design-name copy). Remaining = the monolithic L26aa main: a level-2
+skeleton (prologue + head + JT[3] scaffold + modal tail) then fill the 8 arms —
+its own multi-commit sub-arc (frame locals couple the arms to the tail, so lift
+the scaffold first, then each arm).
+
+Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
 
 ## Method (same as jt259 / #153 so far)
