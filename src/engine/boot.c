@@ -71521,31 +71521,63 @@ static short jt253(short a8, long *desc, void *ctx_arg)
  * jt169 List Manager to pick/adjust a parameter, clamps it (jt347) and packs it
  * back into *desc. Lifted bottom-up; this first pass = its L31cc label helper. */
 
-/* L31cc (CODE 2 + 0x31cc, frame -42) — draw a centered menu-column label: format
- * the string at g_a5(-11184)[idx] ("%s") into a scratch buffer, measure it
- * (jt423), and draw it via jt1089 centered in a `field`-wide column at row `y`,
- * x-base `xbase` (x = xbase + ((field - len) / 2) * 4). idx >= 10 is skipped.
- * The Mac stores jt397(0,a4) into the a4 slot and never reads it (dead), and a5
- * is passed but unused — both kept faithfully. Named _c2: an unrelated CODE 6
- * l31cc (design-name copy) already exists. */
+/* L31cc (CODE 2 + 0x31cc, frame -42) — draw the event-list column-header trio:
+ * up to three centred lines in a `field`-wide column (x = xbase + ((field -
+ * jt423(text)) / 2) * 4), at rows y, y+4, y+8.
+ *   line 1 (only when idx < 10): the label at g_a5_longs(-11184)[idx];
+ *   line 2: the override string at g_a5(-18876), else the default at -10616;
+ *   line 3 (unless `flag`): the current area's name copied from
+ *     g_a5_long(-12300)+118 (jt406), or the jt367 default when the copy is empty.
+ * `shift` seeds jt397 and its result nudges the base row before lines 2/3. Named
+ * _c2: an unrelated CODE 6 l31cc (design-name copy) already holds the bare name.
+ * (Completed from an earlier line-1-only pass — the Mac bge target 0x323c is
+ * line 2, NOT a return; arg5/arg6 are read here, not dead.) */
 static void l31cc_c2(short y, short xbase, short field, short idx,
-                     short a4, short a5) __attribute__((unused));
+                     short shift, short flag) __attribute__((unused));
 static void l31cc_c2(short y, short xbase, short field, short idx,
-                     short a4, short a5)
+                     short shift, short flag)
 {
 	char  buf[40];             /* fp@(-40) */
-	short len, x;
+	unsigned char z;
 
 	PROBE("L31cc_c2");
-	(void)jt397((short)0, a4);          /* fp@(16) = jt397(0,a4), unused */
-	(void)a5;
-	if (idx >= 10)
+	shift = jt397((short)0, shift);                 /* 0x31d6 — fp@(16) = jt397(0,shift) */
+	if (idx < 10) {                                 /* 0x31e0 — line 1 */
+		short x;
+		jt394(buf, ua_strs_at(0x2c3a) /* "%s" */,       /* 0x3202 */
+		      (long)g_a5_longs(-11184)[idx]);
+		x = (short)(xbase + ((field - jt423(buf)) / 2) * 4);   /* 0x320e */
+		jt1089(y, x, (short)140, buf);          /* 0x3234 */
+	}
+	/* 0x323c — line 2. */
+	if (g_a5_byte(-18876) != 0)                     /* 0x3240 */
+		jt394(buf, (const char *)&g_a5_byte(-18876));   /* 0x324a */
+	else
+		jt394(buf, (const char *)(uintptr_t)g_a5_long(-10616)); /* 0x325a */
+	y += (short)(shift * 4);                        /* 0x3266 */
+	{
+		short x = (short)(xbase + ((field - jt423(buf)) / 2) * 4);      /* 0x326e */
+		jt1089((short)(y + 4), x, (short)135,
+		       ua_strs_at(0x2c3e) /* "%s" */, buf);            /* 0x329e */
+	}
+	if (flag & 0xFF)                                /* 0x32a6 */
+		return;                                 /* 0x3336 */
+	z = (unsigned char)jt358();                     /* 0x32ae */
+	if (z == 0)                                     /* 0x32b6 */
 		return;
-	jt394(buf, ua_strs_at(0x2c3a) /* "%s" */,
-	      (long)g_a5_longs(-11184)[idx]);
-	len = jt423(buf);
-	x = (short)(xbase + ((field - len) / 2) * 4);
-	jt1089(y, x, (short)140, buf);
+	{
+		char *area = (char *)(uintptr_t)g_a5_long(-12300);
+		short x;
+		if (*(short *)area == 0)                /* 0x32c0 — no current area */
+			return;
+		jt406(buf, area + 118, 16);             /* 0x32d6 — copy area name (swap ABI) */
+		buf[16] = 0;                            /* 0x32de — null-terminate */
+		if ((unsigned char)buf[0] == 0)         /* 0x32e2 — empty */
+			jt367((short)z, buf);           /* 0x32f4 — default it */
+		x = (short)(xbase + ((field - jt423(buf)) / 2) * 4);   /* 0x32fe */
+		jt1089((short)(y + 8), x, (short)135,
+		       ua_strs_at(0x2c42) /* "%s" */, buf);            /* 0x332e */
+	}
 }
 
 /* JT[248] (CODE 2 + 0x26aa = entry_jt248, frame -140) — the interactive
