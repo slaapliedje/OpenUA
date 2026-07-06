@@ -72407,6 +72407,63 @@ static void *l1af8(void *p, short mode)
 	return (char *)p + (long)idx * 4 + 4;   /* 0x1b1e */
 }
 
+/* L1b30 (CODE 2 + 0x1b30) — the push counterpart to l1af8: &elem[count+1]. With
+ * a non-zero mode arg it increments the count in place (push); mode 0 previews
+ * the next slot. Returns NULL when the array is full (count >= capacity@2). */
+static void *l1b30(void *p, short mode) __attribute__((unused));
+static void *l1b30(void *p, short mode)
+{
+	short idx;
+
+	PROBE("L1b30");
+	if (*(short *)p >= *(short *)((char *)p + 2))   /* 0x1b3e — full */
+		return NULL;                            /* 0x1b6a */
+	if (mode & 0xFF)                                /* 0x1b44 — push */
+		idx = ++*(short *)p;                    /* 0x1b4e — increment + reuse */
+	else                                            /* preview next */
+		idx = (short)(*(short *)p + 1);         /* 0x1b5a */
+	return (char *)p + (long)idx * 4 + 4;           /* 0x1b5e */
+}
+
+/* L207c (CODE 2 + 0x207c) — seed the event-editor cursor/selection A5 state from
+ * (a, b): the current+anchor byte (-12190/-12191), zero the two selection words
+ * (-12194/-12196), and set/clear the "range active" flag bit (-12192 bit 0). */
+static void l207c(short a, short b) __attribute__((unused));
+static void l207c(short a, short b)
+{
+	PROBE("L207c");
+	g_a5_byte(-12191) = (unsigned char)a;   /* 0x2080 */
+	g_a5_word(-12194) = 0;                   /* 0x2086 */
+	g_a5_word(-12196) = 0;                   /* 0x208a */
+	g_a5_byte(-12190) = (unsigned char)a;   /* 0x208e */
+	if (b & 0xFF)                            /* 0x2094 — tstb arg2 */
+		g_a5_byte(-12192) |= 0x01;      /* 0x209a — bset #0 */
+	else
+		g_a5_byte(-12192) &= (unsigned char)~0x01;  /* 0x20a2 — bclr #0 */
+}
+
+/* L6cc (CODE 2 + 0x6cc) — "encounter" retype helper: mark rec@12 bits 1|7, then
+ * ask jt228() whether a monster table exists. If so, stash its id in rec[19] and
+ * retype the record to 11 (rec@10=1); otherwise clear rec[19] and retype to 10. */
+static void l6cc(void *rec) __attribute__((unused));
+static void l6cc(void *rec)
+{
+	unsigned char b;
+
+	PROBE("L6cc");
+	*(short *)((char *)rec + 12) |= 0x82;   /* 0x6d4 — oriw #130 */
+	b = (unsigned char)jt228();             /* 0x6da */
+	if (b) {                                /* 0x6e2 */
+		*(unsigned char *)((char *)rec + 19) = b;       /* 0x6ea */
+		*(short *)((char *)rec + 10) = 1;               /* 0x6f6 */
+		*(short *)rec = 11;                             /* 0x700 */
+	} else {
+		*(unsigned char *)((char *)rec + 19) = 0;       /* 0x708 */
+		*(short *)((char *)rec + 10) = 10;              /* 0x712 */
+		*(short *)rec = 10;                             /* 0x71c */
+	}
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
