@@ -277,7 +277,20 @@ WIDER 4080 mask (bits 4-11, vs the prologue's 1008/bits 4-9); lo113=0, v6=-1,
 idx122 = sub - (lo113!=0?1:0); the original sub byte is captured into a new
 cap115 local (fp@(-115)) BEFORE sub is overwritten to 12/14, then passed as
 jt352's cap_p (5th arg; arms 0/1 passed 0L there). str12=g_a5(-10704). jt349
-uses kind=12/14, mask=1, hdrflag=0. Remaining fill: c4/def=L2dc2 (the LAST arm).
+uses kind=12/14, mask=1, hdrflag=0.
+
+**jt248i DONE — arm 4/default (L2dc2) — jt248 is now a FULL LIFT.** The outer
+JT[3] (jt3_extract @0x280a: min=0 max=7, default=0x2dc2, and key 4 ALSO =0x2dc2)
+routes case 4 and out-of-range (8-15) to the same block, so the C `default`
+covers both. `type>=8` (invalid): blank buf62 and fall through with an empty
+list — the tail's list_holder guard then short-circuits to jt147. `type<8`
+(only type 4, which the prologue early-exit pre-filters → faithful-but-dead):
+build cnt124=(sub?sub:255) nodes each `jt394(cursor+5, "Item %d"@0x2c26, loop8)`
+from loop8=lo113=1. STRS verified: 0x2c26="Item %d".
+
+**jt248 COMPLETE** — all 8 arms (c0 c1 c2 c3 c4/def c5 c6 c7) + the shared modal
+tail lifted across 9 commits (jt248a L31cc → jt248i). The whole cluster is DCE'd
+(jt248 unreferenced until the CODE 22 dispatcher is lifted), codegen holds 1889.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
