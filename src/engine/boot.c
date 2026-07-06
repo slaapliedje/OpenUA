@@ -73554,8 +73554,26 @@ static short l22b6(void *rec)
 	}
 	return ret;                                            /* 0x2348 */
 }
+/* L09d6 (CODE 2 + 0x9d6) — L0102 "bit 2 result <= 0" handler. Clear rec[13] bit
+ * 2; take the append slot (l1ad2). If it exists and rec[12] bit 5 is clear, hand
+ * off to l0a32; otherwise retype the record to 5 with rec@10 = ((a!=0)+62)<<8. */
 static void  l09d6(void *rec, short a) __attribute__((unused));
-static void  l09d6(void *rec, short a) { PROBE("L09d6"); (void)rec; (void)a; }
+static void  l09d6(void *rec, short a)
+{
+	void *e;
+
+	PROBE("L09d6");
+	*((unsigned char *)rec + 13) &= (unsigned char)~0x04;   /* 0x9de — bclr #2 */
+	e = l1ad2((char *)rec + 22);            /* 0x9ec */
+	if (e != NULL &&                        /* 0x9f2 */
+	    !(*((unsigned char *)rec + 12) & 0x20)) {   /* 0x9fa — bit 5 clear */
+		l0a32(rec);                     /* 0xa06 */
+	} else {
+		*(short *)((char *)rec + 10) =  /* 0xa22 */
+		    (short)((((a & 0xFF) != 0 ? 1 : 0) + 62) << 8);
+		*(short *)rec = 5;              /* 0xa2c */
+	}
+}
 static void  l1e8a(short a, short b);   /* forward — case-11 helper, defined below */
 /* L0722 (CODE 2 + 0x722) — "door/wall" edit commit. Record rec[19] into the map
  * row byte (l1e8a(rec[19], rec[14])), tick jt321, then either grow the array
@@ -73585,8 +73603,38 @@ static void  l0722(void *rec)
 	    (short)((save & 0xFF) | 0x200);
 	*(short *)rec = 5;                              /* 0x7c0 */
 }
+/* L0622 (CODE 2 + 0x622) — L0102 "no flag set" default handler. Needs an append
+ * slot (l1ad2) or returns. With a==0 and rec[13] bit 7 set: clear rec@12 bits
+ * 4|7, set rec[13] bit 2, hand to l0910. Else if the slot has content (e[0]) and
+ * rec[12] bit 5 is set: clear rec[13] bit 7 (and rec[12] bit 5 when a set), pack
+ * rec@10 = (a+62)<<8, retype 5. Otherwise hand off to l0a32. */
 static void  l0622(void *rec, short a) __attribute__((unused));
-static void  l0622(void *rec, short a) { PROBE("L0622"); (void)rec; (void)a; }
+static void  l0622(void *rec, short a)
+{
+	void *e;
+
+	PROBE("L0622");
+	e = l1ad2((char *)rec + 22);            /* 0x62e */
+	if (e == NULL)                          /* 0x638 */
+		return;                         /* 0x6c8 */
+	if ((a & 0xFF) == 0 &&                  /* 0x63e */
+	    (*((unsigned char *)rec + 13) & 0x80)) {    /* 0x648 — bit 7 */
+		*(short *)((char *)rec + 12) &= (short)~0x0090; /* 0x654 — andiw #-145 */
+		*((unsigned char *)rec + 13) |= 0x04;   /* 0x65e — bset #2 */
+		l0910(rec);                     /* 0x668 */
+	} else if (*(unsigned char *)e != 0 &&  /* 0x676 — e[0] */
+	           (*((unsigned char *)rec + 12) & 0x20)) {     /* 0x67e — bit 5 */
+		*((unsigned char *)rec + 13) &= (unsigned char)~0x80;   /* 0x68a — bclr #7 */
+		if (a & 0xFF)                   /* 0x690 */
+			*((unsigned char *)rec + 12) &=
+			    (unsigned char)~0x20;   /* 0x69a — bclr #5 */
+		*(short *)((char *)rec + 10) =  /* 0x6a0 */
+		    (short)(((signed char)a + 62) << 8);
+		*(short *)rec = 5;              /* 0x6ba */
+	} else {
+		l0a32(rec);                     /* 0x6c2 */
+	}
+}
 static void  l0524(void *rec, short a1, short a2) __attribute__((unused));
 static void  l0524(void *rec, short a1, short a2)
 { PROBE("L0524"); (void)rec; (void)a1; (void)a2; }
@@ -73603,10 +73651,35 @@ static void  l1e8a(short a, short b)
 	    (unsigned char)b;                   /* 0x1e9e-0x1ea8 */
 }
 
-/* L07c6 (CODE 2 + 0x7c6) — the "*desc low nibble == 0" branch handler.
- * PROBE-only stub for now. */
+/* L07c6 (CODE 2 + 0x7c6) — the "*desc low nibble == 0" branch handler. Clear
+ * rec@12 bits 1|7; if rec[19] names a monster, notify jt229. If rec[13] bit 0 or
+ * rec[12] bit 5 is set: set rec[13] bit 4, then pack rec@10 from rec[6] with
+ * 0x3E00 (bit 5 set) or 0x0300 (bit 5 clear -> also clear rec[13] bit 0) and
+ * retype to 5. Otherwise hand off to l0a32. */
 static void  l07c6(void *rec) __attribute__((unused));
-static void  l07c6(void *rec) { PROBE("L07c6"); (void)rec; }
+static void  l07c6(void *rec)
+{
+	PROBE("L07c6");
+	*(short *)((char *)rec + 12) &= (short)~0x0082; /* 0x7ce — andiw #-131 */
+	if (*((unsigned char *)rec + 19) != 0)          /* 0x7d8 */
+		jt229((short)*((unsigned char *)rec + 19));     /* 0x7ea */
+	if ((*((unsigned char *)rec + 13) & 0x01) ||    /* 0x7f4 — bit 0 */
+	    (*((unsigned char *)rec + 12) & 0x20)) {    /* 0x800 — bit 5 */
+		*((unsigned char *)rec + 13) |= 0x10;   /* 0x80c — bset #4 */
+		if (*((unsigned char *)rec + 12) & 0x20) {      /* 0x816 — bit 5 */
+			*(short *)((char *)rec + 10) =  /* 0x830 */
+			    (short)(*((unsigned char *)rec + 6) | 0x3E00);
+		} else {
+			*((unsigned char *)rec + 13) &=
+			    (unsigned char)~0x01;       /* 0x83a — bclr #0 */
+			*(short *)((char *)rec + 10) =  /* 0x852 */
+			    (short)(*((unsigned char *)rec + 6) | 0x0300);
+		}
+		*(short *)rec = 5;              /* 0x85c */
+	} else {
+		l0a32(rec);                     /* 0x864 */
+	}
+}
 
 /* JT[258] (CODE 2 + 0x0004 = entry_jt258, frame -8) — the event-editor MAIN
  * dispatcher: the largest CODE 2 function (~2100 insn, ~50 internal helpers,
