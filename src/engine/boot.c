@@ -72253,14 +72253,80 @@ static short jt249(short a8, long *desc, long *p14)
 			} else {
 				fp4 = -1;
 				switch (fp2) {          /* JT[3] @0x3862 nav */
-				case 129: /* TODO L38ee */ break;
-				case 130: /* TODO L3a6a */ break;
-				case 131: /* TODO L39c0 */ break;
-				case 132: /* TODO L3954 */ break;
-				case 133: /* TODO L3ac4 */ break;
-				case 134: /* TODO L3a26 */ break;
-				case 135: /* TODO L3aac */ break;
-				case 136: /* TODO L387c */ break;
+				case 129:               /* L38ee — up */
+					if (f10 == 0 && f9 != 0)
+						fp4 = (f6 <= 1 || f6 > 9)
+						    ? (short)9 : (short)1;
+					else if (f8 == 0)
+						fp4 = 13;
+					else if (f8 <= 5)
+						fp4 = 0;
+					else
+						fp4 = (short)(f8 - 5);
+					break;
+				case 136:               /* L387c — up (variant) */
+					if (f10 != 0) {
+						if (f8 == 0)
+							fp4 = 13;
+						else if (f8 <= 5)
+							fp4 = 0;
+						else
+							fp4 = (short)(f8 - 5);
+					} else if (f9 != 0) {
+						fp4 = (short)((f6 + 14) % 16 + 1);
+					} else {
+						fp4 = (short)((f8 + 15) & 15);
+					}
+					break;
+				case 131:               /* L39c0 — down */
+					if (f10 == 0 && f9 != 0)
+						fp4 = (f6 >= 16 || f6 < 8)
+						    ? (short)8 : (short)16;
+					else if (f8 == 0)
+						fp4 = 3;
+					else if (f8 >= 11)
+						fp4 = 0;
+					else
+						fp4 = (short)(f8 + 5);
+					break;
+				case 132:               /* L3954 — down (variant) */
+					if (f10 != 0) {
+						if (f8 == 0)
+							fp4 = 3;
+						else if (f8 >= 11)
+							fp4 = 0;
+						else
+							fp4 = (short)(f8 + 5);
+					} else if (f9 != 0) {
+						fp4 = (short)(f6 % 16 + 1);
+					} else {
+						fp4 = (short)((f8 + 1) & 15);
+					}
+					break;
+				case 130:               /* L3a6a — right / field toggle */
+					if (f10 != 0) {
+						fp4 = (short)((f8 + 1) & 15);
+					} else {
+						f9 = (unsigned char)(1 - f9);
+						fp4 = (f9 != 0) ? f6 : (short)f8;
+					}
+					break;
+				case 134:               /* L3a26 — left / field toggle */
+					if (f10 != 0) {
+						fp4 = (short)((f8 + 15) & 15);
+					} else {
+						f9 = (unsigned char)(1 - f9);
+						fp4 = (f9 != 0) ? f6 : (short)f8;
+					}
+					break;
+				case 133:               /* L3ac4 — end */
+					fp4 = (f10 == 0 && f9 != 0)
+					    ? (short)16 : (short)15;
+					break;
+				case 135:               /* L3aac — home */
+					fp4 = (f10 == 0 && f9 != 0)
+					    ? (short)1 : (short)0;
+					break;
 				default:  jt1080(); break;   /* L3adc */
 				}
 				/* 0x3ae0 — apply the new selection (shared). */
