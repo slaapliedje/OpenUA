@@ -74024,6 +74024,50 @@ static void l5dc8(void *p_v, short y, short x, short val)
 	}
 }
 
+/* L5ee2 (CODE 11 + 0x5ee2) — bulk wall-replace.  With target codes (t1,t2) in
+ * the low bytes of args 2/3, scan every cell (ds[2] rows x ds[3] cols) and each
+ * of the four wall sides 8/4/2/6: where the side's code A (jt285) == t1 and its
+ * code B (jt293) == t2, overwrite that side with the current cell's codes
+ * p[10]/p[12] (jt277/jt283) and count it.  Returns the number of sides changed;
+ * 0 immediately if the cell already carries (t1,t2).  `flag` mirrors the asm's
+ * fp@(-1): it is always 1 once past the early-return guard.  A jt242 leaf. */
+static short l5ee2(void *p_v, short a2, short a3) __attribute__((unused));
+static short l5ee2(void *p_v, short a2, short a3)
+{
+	unsigned char       *p  = (unsigned char *)p_v;
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char t1 = (unsigned char)a2;         /* fp@(13) */
+	unsigned char t2 = (unsigned char)a3;         /* fp@(15) */
+	unsigned char flag;                           /* fp@(-1) */
+	short count = 0;                              /* fp@(-4) */
+	short row, col, cell = 0;                     /* fp@(-6)/fp@(-8)/fp@(-10) */
+	static const short sides[4] = { 8, 4, 2, 6 }; /* the asm unrolls these */
+	int s;
+
+	/* 0x5ee2 — if the cell already carries the target codes, nothing to do. */
+	if (t1 == p[10] && t2 == p[12])
+		return 0;
+	flag = 1;                                     /* 0x5f08 — codes differ */
+
+	for (row = 0; row < ds[2]; row++) {           /* 0x611c outer */
+		for (col = 0; col < ds[3]; col++) {   /* 0x6106 inner */
+			for (s = 0; s < 4; s++) {     /* sides 8/4/2/6 (unrolled in asm) */
+				short side = sides[s];
+				/* jt293 is lifted as l05ca (CODE 22 alias). */
+				if (jt285(cell, side) == t1 &&
+				    (flag == 0 || l05ca(cell, side) == t2)) {
+					jt277(cell, side, p[10]);
+					if (flag != 0)
+						jt283(cell, side, p[12]);
+					count++;
+				}
+			}
+			cell++;                       /* 0x60fe */
+		}
+	}
+	return count;
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
  * command handlers reached by the l0096 dispatcher below.  Their bodies live
