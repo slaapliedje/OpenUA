@@ -742,6 +742,18 @@ screen). Forward-declared l0ade (full body later in block). All callees lifted.
 Codegen 1889, tests 129/1. l0a32 unblocks the LAST 3 direct stubs. NEXT: l0622,
 l09d6, l07c6 (all call l0a32), then l0524 + l042a = jt258 COMPLETE.
 
+**jt258cc DONE — l0622 / l09d6 / l07c6 (3 direct stubs -> 10 of 12).** All route
+to l0a32 or retype the record. l09d6 (0x9d6): bclr rec[13] bit2, l1ad2; if slot &&
+rec[12] bit5 clear -> l0a32, else rec@10=((a!=0)+62)<<8 retype 5. l0622 (0x622):
+l1ad2 (return if NULL); a==0 && rec[13] bit7 -> clear rec@12 bits4|7, set rec[13]
+bit2, l0910; elif e[0] && rec[12] bit5 -> clear bit7 (+bit5 if a), rec@10=(a+62)<<
+8 (signed a) retype 5; else l0a32. l07c6 (0x7c6): clear rec@12 bits1|7, jt229(
+rec[19]) if set; if rec[13] bit0 || rec[12] bit5 -> set bit4, rec@10 from rec[6]
+|0x3E00 (bit5) or |0x0300 (clear bit5->clear bit0) retype 5; else l0a32. Codegen
+1889, tests 129/1. **10 of 12 direct stubs filled.** LAST 2: l0524 (param-format,
+calls l1b30/l1934/l0a32/l06cc/l174a/l1c10) + l042a (high-bit, l494e/l1686/l06cc/
+l196c/l1be4/l0a32/l086e). Then jt258 COMPLETE.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
