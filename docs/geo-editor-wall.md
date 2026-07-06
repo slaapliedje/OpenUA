@@ -22,7 +22,14 @@ is ~96% done, so this is the sanctioned phase-2 work. Scope is unchanged
 Consequence: this is a **multi-session** effort. Bank one coherent
 sub-chain per session; do not try to boil it in one pass.
 
-## The 18 open entries, by segment and size
+## The open entries, by segment and size
+
+> **Status 2026-07-06:** most of this cluster is now DONE — CODE 22 painter
+> trio, the entire CODE 2 event editor (jt246/254/253/248/249/258), and CODE 10
+> (jt259 art import + jt266). **The remaining depth is CODE 11 (jt242/jt243)** —
+> see the "CODE 11 — GEO 3D-map editor — Phase C SCOPE" section below, which is
+> the authoritative worklist. The per-segment tables below are kept as the
+> historical campaign record.
 
 Instruction counts from `tools` survey (2026-07-04). "deps clean" = every
 JT + lXXXX callee already lifted.
@@ -351,27 +358,87 @@ with 0; `jt452(long shape0, …)` variadic-longs; `jt456` → **l2d3e()** (no-ar
 event poll); list callbacks pass **&jt268 / &jt327** function pointers; the two
 title strings format via jt394 "%s %s" then draw with jt1089.
 
-### CODE 11 — area/geo editor (continuing earlier work)
-| JT | addr | ~insn | notes |
-|---|---|---|---|
-| jt242 | l589a | 1122 | cell-edit committer; JT[3] over 5 unlifted painters (L5a06/L6136/L61c6/L5ee2/L5b0e) — lift painters first |
-| jt243 | l0b26 | ~800 | the big CODE-11 dispatcher — own session |
+### CODE 11 — GEO 3D-map editor — Phase C SCOPE (2026-07-06)
 
-(jt233/jt239/jt244 + l4d24/l49dc already lifted this campaign — see
-docs/area-map-wall.md.)
+The last big depth block. **CODE 11 = the GEO (3D area map) editor.** It exports
+jt233–244; every export is already lifted EXCEPT the two giants **jt242** and
+**jt243**, which are currently PROBE stubs. Both are wired: the CODE 22 command
+dispatcher `l0096` routes **cmd 2 → jt243** and **cmd 20 → jt242** (see
+`event-editor-wall.md`). Dormant/DCE'd until jt315's selection dispatch is wired.
 
-## Recommended attack order
+**Segment layout (address order of the JT exports):**
+`l0004=jt244 · l027e=jt233 · l0b24=jt234 · l0b26=jt243 · l4846=jt239 ·
+l4ed2=jt235 · l4ffe=jt240 · l5236=jt237 · l5514=jt241 · l5868=jt236 ·
+l589a=jt242 · l67d0=jt238`. So jt243 owns **0x0b26–0x4846** and jt242 owns
+**0x589a–0x67d0** (the intervening exports jt239/235/240/237/241/236 are all
+lifted — the area-map handlers).
+
+#### jt242 (l589a, 0x589a–0x67d0, ~1298 insn) — the CELL-EDIT committer
+
+**Structure: 1 dispatcher + 8 CODE-local helpers** (linkw boundaries):
+`589a` (jt242 proper) · `5a06` · `5b0e` · `5dc8` · `5ee2` · `6136` · `61c6` ·
+`6256` · `63c0`. jt242's main dispatch is **JT[3] @0x58ce (min=0, max=2,
+default)** — a 3-way + default cell-edit sub-command; 5 JT[3] switches total
+(0x58ce/5986/5a32/5de6/66d2).
+
+**Dependencies: ALL LIFTED.** Its JT vocabulary is the shared painter/text
+library (jt76/108/112/117/148/179/272/273/277/280–288/293/298/300/303/306/
+311/312/384/394/423/447/449/451/452/456/1067/1080/1089/1113/1139/1160/1161/
+1173/1193). The one that greps as "MISSING", **jt456, is lifted as `l2d3e`**
+(both-directions alias — a5@0x0e62=3682; the jt258-campaign trap). Its two
+backward calls into jt243's range (0x4226/0x4268) are **already lifted**
+(`l4226`/`l4268`). So jt242 has NO missing deps — the work is purely lifting
+its own 8 local helpers then the dispatcher body.
+
+**C2 attack:** lift the 8 helpers bottom-up (leaves 5a06/5dc8/6256 first — small
+linkw frames; then the painters 5b0e/5ee2/6136/61c6/63c0), then jt242 proper's
+5-switch dispatcher. ~2–3 sessions.
+
+#### jt243 (l0b26, 0x0b26–0x4846, ~5216 insn) — the GEO editor MAIN dispatcher
+
+**This is NOT one function — it is ~40 functions** (40 linkw / 40 rts filling
+0x0b26–0x4846): jt243 proper (the dispatcher, ~800 insn) + **39 CODE-local
+helpers**. The subtree is dispatch-heavy: **22 JT[3] + 5 JT[1] switches**, 94
+pc-relative local calls, 101 distinct JT calls.
+
+jt243 proper: `jt243(short a8, long *rec_desc=fp@14, long *p14)` — NULL-guards
+fp@(14) (→ return 0), stores it into a holder at fp@(-8), writes a8 into
+rec->word@0, then **JT[3] @0xb48 (min=1, max=20, default=0x136e)** — a 20-arm
+tool/command dispatch (the GEO editor's tool palette). Structurally a sibling of
+the CODE 22 `l0096` and the CODE 2 `jt258` dispatchers.
+
+**Helper entry addresses (39):** `1626 16ae 16f4 1822 1958 1a1c 1d10 1d88 237c
+23de 2414 24b6 2836 28d4 2d40 2dbe 2e1c 2ea0 3236 3380 3654 36f6 37d8 37f6 3ab0
+3d1a 3ddc 3e60 4144 4168 41a0 4226 4268 429c 43c2 4416 455c 476e 4810`. Two are
+already lifted (`l4226`/`l4268`), so **37 helpers + the dispatcher remain**.
+
+**C5+ attack:** bottom-up per the proven giant method (jt258/jt266) — enumerate
+each helper's JT + local deps (alias-check every one against
+`docs/lxxxx-jt-aliases.md` BOTH directions), lift leaves → mid → the 20-arm
+dispatcher as a level-2 skeleton, then fill. Decode all 22 JT[3] + 5 JT[1]
+tables with `jt3_extract`/`jt1_extract --jsr-at` (never hand-decode, #122).
+Realistically **6–10 sessions**.
+
+(Already lifted this campaign: jt233/234/235/236/237/238/239/240/241/244 +
+l4226/l4268 — see `docs/area-map-wall.md`.)
+
+## Recommended attack order — updated 2026-07-06
 
 1. ✅ **CODE 22 painter trio** (jt282/jt286/jt281/l347a) — DONE.
-2. **CODE 2 small painters** — only jt246 was a clean leaf (DONE); the rest
-   (jt258/jt254/…) are dispatchers/constructors needing jt207+jt1076 first.
-3. **CODE 10 small viewers** — only jt265 was a clean leaf (DONE, 2026-07-05);
-   jt264/jt270 need the **L611c subtree** (see the CODE 10 reality-check
-   above). Best next entry there: **jt1084** (the low-level Error alert —
-   MISSING, broadly used), then jt372 (+L62e0_c8/L60b0_c8), then L611c, then
-   jt264; jt270 additionally needs jt456 + l06ae + l2ebe.
-4. **CODE 11 jt242** (after its 5 painter locals).
-5. **The giants** (jt259/266/249/248/243) — one focused session each.
+2. ✅ **CODE 2 event editor** (jt246/jt254/jt253/jt248/jt249/jt258) — DONE
+   (Phase B); wired by the CODE 22 `l0096` command dispatcher.
+3. ✅ **CODE 10 viewers + jt259 art import + jt266** — DONE (Phase A).
+4. **CODE 11 jt242** (Phase C2) — 8 local helpers then the dispatcher; deps all
+   lifted. ← **NEXT**
+5. **CODE 11 jt243** (Phase C5+) — the 5216-insn / ~40-function GEO editor main;
+   bottom-up, multi-session.
+6. **Foundational giant** CODE 8 jt335 (2598) — may unblock the editor giants.
+7. **Wire the editor live** — jt315 selection dispatch (CODE 22+0x5180/0x5266)
+   → `l0004_22`, making the whole editor reachable for a human tester.
+
+**Deferred/parallel runtime polish** (not editor, but still open): inventory/
+equip, remaining `l709e` event arms, camp spell-memorize, save/load pickers,
+audio, and the small-stub cleanup (CODE 5/12/4). See `subsystem-status.md`.
 
 **Pattern across CODE 2 and CODE 10 (2026-07-05):** the wall's per-entry
 `~insn`/deps columns were scanned label-to-label and swept in the following
