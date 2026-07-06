@@ -71971,6 +71971,23 @@ static void l3cbe(short idx, short *out1, short *out2)
 	}
 }
 
+/* L3c18 (CODE 2 + 0x3c18, frame 0) — jt249's slot-LABEL coordinate helper (the
+ * sibling of l3cbe, used by the L35ea label loop). Writes *out1 = the column X
+ * (idx'*4 + 8020) and *out2 = a fixed row Y (8097 vertical / 8090 horizontal,
+ * keyed on jt1200()). Slots 1..8 fold down by one (b = idx-1); 9..16 keep idx.
+ * Called from jt249 at 0x363e/0x3c72. */
+static void l3c18(short idx, short *out1, short *out2) __attribute__((unused));
+static void l3c18(short idx, short *out1, short *out2)
+{
+	unsigned char b = (unsigned char)idx;   /* fp@(9) — the low byte */
+
+	PROBE("L3c18");
+	if (b <= 8)
+		b = (unsigned char)(b - 1);
+	*out1 = (short)(b * 4 + 8020);
+	*out2 = (jt1200() == 3) ? (short)8097 : (short)8090;
+}
+
 /* JT[249] (CODE 2 + 0x333a = entry_jt249, frame -98) — a large interactive
  * event-editor screen (sibling of jt248, one command up in the CODE 22
  * design-editor dispatcher). LEVEL-2 SKELETON (ADR-0002): the prologue is fully
@@ -72065,10 +72082,27 @@ static short jt249(short a8, long *desc, long *p14)
 	/* L35c6 — the selection cursor (shape 2) at the found position f6. */
 	jt452((long)2, (long)16, (long)35, (long)(intptr_t)&f6, (long)0);
 
-	/* BODY DEFERRED (level-2): the slot-label loop (needs the l3c18 helper),
-	 * the prompt/list finalization (jt423/jt452/jt179/jt148/jt79 + &jt245),
-	 * the two inner JT[3] dispatches, the modal pick loop, and the jt1161
-	 * redraw tail. Those consume f8/f10. */
+	/* L35ea — label each of the 16 slots: pull the slot's string from the
+	 * -11296 table via the reorder map (slot 8 reuses index 7), place it with
+	 * l3c18, and draw it (jt452 shape 3) left-padded to width 15 (jt397 on the
+	 * 15-len gap). */
+	for (i = 1; i <= 16; i++) {
+		short j = (i == 8) ? (short)7 : i;
+		const char *strptr = (const char *)(uintptr_t)
+		    g_a5_longs(-11296)[arr94[j]];       /* fp@(-98) */
+		short len, off;
+		l3c18(i, &c74, &c76);
+		len = jt423(strptr);
+		off = jt397((short)0, (short)(15 - len));
+		jt452((long)3, (long)c74, (long)c76, (long)(uintptr_t)strptr,
+		      (long)38, (long)135, (long)42, (long)off,
+		      (long)20, (long)0);
+	}
+
+	/* BODY DEFERRED (level-2): the prompt/list finalization at 0x369c
+	 * (jt423 center + jt452 shape 6 + jt179(2) + jt148 list + jt452 shape 7
+	 * with &jt245 + jt79), the two inner JT[3] dispatches, the modal pick
+	 * loop, and the jt1161 redraw tail. Those consume f8/f10. */
 	(void)f8; (void)f10;
 	return a8;
 }
