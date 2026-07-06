@@ -72464,6 +72464,90 @@ static void l6cc(void *rec)
 	}
 }
 
+/* jt258 event-array structural primitives (leaf layer). All operate on the same
+ * header the l1ad2/l1af8/l1b30 accessors use: {count@0 (word), tail-index@2
+ * (word); elements at header+4, 4-byte stride}. word@2 is the working/tail index
+ * an edit walks; word@0 is the committed count. */
+
+/* L19f2 (CODE 2 + 0x19f2) — append *src at the next index (++index@2), bounded to
+ * -1..28. Returns 1 on success, 0 when index@2 is out of range. */
+static short l19f2(void *p, const void *src) __attribute__((unused));
+static short l19f2(void *p, const void *src)
+{
+	short *idx = (short *)((char *)p + 2);
+
+	PROBE("L19f2");
+	if (*idx >= 29 || *idx < -1)            /* 0x19fa/0x1a06 — bounds */
+		return 0;                       /* 0x1a30 */
+	*idx += 1;                              /* 0x1a12 */
+	*(long *)((char *)p + (long)*idx * 4 + 4) =
+	    *(const long *)src;                 /* 0x1a28 — elem[index@2] = *src */
+	return 1;
+}
+
+/* L196c (CODE 2 + 0x196c) — ordered insert: place *src at index count@0, shifting
+ * the tail [count@0 .. index@2] up by one, then bump index@2. Returns 1, or 0 if
+ * index@2 >= 29 or count@0 < 0. */
+static short l196c(void *p, const void *src) __attribute__((unused));
+static short l196c(void *p, const void *src)
+{
+	short cnt  = *(short *)p;                        /* count@0 */
+	short tail = *(short *)((char *)p + 2);          /* index@2 */
+	short i;
+
+	PROBE("L196c");
+	if (tail >= 29 || cnt < 0)              /* 0x1974/0x1982 */
+		return 0;                       /* 0x19ec */
+	for (i = tail; i >= cnt; i--)           /* 0x19bc — shift tail up one slot */
+		*(long *)((char *)p + (long)(i + 1) * 4 + 4) =
+		    *(long *)((char *)p + (long)i * 4 + 4);
+	*(long *)((char *)p + (long)cnt * 4 + 4) =
+	    *(const long *)src;                 /* 0x19dc — elem[count@0] = *src */
+	*(short *)((char *)p + 2) += 1;         /* 0x19e0 — index@2++ */
+	return 1;
+}
+
+/* L1934 (CODE 2 + 0x1934) — reset the secondary cursor: word@24 = word@22 (only
+ * when word@24 is non-negative). */
+static void l1934(void *p) __attribute__((unused));
+static void l1934(void *p)
+{
+	PROBE("L1934");
+	if (*(short *)((char *)p + 24) >= 0)    /* 0x193c */
+		*(short *)((char *)p + 24) =    /* 0x194a */
+		    *(short *)((char *)p + 22);
+}
+
+/* L1b70 (CODE 2 + 0x1b70) — rewind to &elem[0]; a non-zero mode also resets
+ * count@0 to 0. Returns NULL when index@2 is negative. */
+static void *l1b70(void *p, short mode) __attribute__((unused));
+static void *l1b70(void *p, short mode)
+{
+	PROBE("L1b70");
+	if (*(short *)((char *)p + 2) < 0)      /* 0x1b78 — index@2 negative */
+		return NULL;                    /* 0x1b9e */
+	if (mode & 0xFF)                        /* 0x1b7e */
+		*(short *)p = 0;                /* 0x1b88 — reset count */
+	return (char *)p + 4;                   /* 0x1b92 — &elem[0] */
+}
+
+/* L1ba4 (CODE 2 + 0x1ba4) — &elem[index@2]; a non-zero mode commits the count
+ * (count@0 = index@2). Returns NULL when index@2 is negative. Suffixed _c2: a
+ * different l1ba4 (a CODE-16 spell helper) already holds the bare name. */
+static void *l1ba4_c2(void *p, short mode) __attribute__((unused));
+static void *l1ba4_c2(void *p, short mode)
+{
+	short idx;
+
+	PROBE("L1ba4");
+	if (*(short *)((char *)p + 2) < 0)      /* 0x1bac — index@2 negative */
+		return NULL;                    /* 0x1bde */
+	idx = *(short *)((char *)p + 2);
+	if (mode & 0xFF)                        /* 0x1bb2 */
+		*(short *)p = idx;              /* 0x1bc4 — commit count = index */
+	return (char *)p + (long)idx * 4 + 4;   /* 0x1bd2 */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
