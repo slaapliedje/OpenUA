@@ -71937,6 +71937,81 @@ static short jt248(short a8, long *desc)
 	return a8;                          /* L3116 */
 }
 
+/* JT[249] (CODE 2 + 0x333a = entry_jt249, frame -98) — a large interactive
+ * event-editor screen (sibling of jt248, one command up in the CODE 22
+ * design-editor dispatcher). LEVEL-2 SKELETON (ADR-0002): the prologue is fully
+ * lifted here — the JT[2] type dispatch that builds the two prompt strings, the
+ * *desc field unpack, the 16-entry display-reorder table, and the position
+ * search. The body — the frame/field draw (jt447/jt1200/jt452 + the L3cbe
+ * helper), the two inner JT[3] dispatches (0x3862, 0x3e5a), the modal pick
+ * loop, and the jt1161 redraw tail — is DEFERRED. See docs/event-editor-wall.md.
+ *
+ * Called jt249(short a8, long *desc, long *p14) from CODE 22+0x02aa with
+ * p14 = NULL; desc = &caller_struct[8]. *desc low nibble = type; the JT[2]
+ * @0x334c fans type 1 -> "%s %s %s %s:", type 2 -> "%s %s %s?", default -> the
+ * common path. The reorder table maps the 16 sub-values into display order
+ * {0,1,14,15,2..13}; the search locates f77's position in it. */
+static short jt249(short a8, long *desc, long *p14) __attribute__((unused));
+static short jt249(short a8, long *desc, long *p14)
+{
+	short i;
+	unsigned char f10 = 1;      /* fp@(-10)                              */
+	unsigned char f7;           /* fp@(-7)  scratch (bits 4-11 of *desc) */
+	unsigned char f8;           /* fp@(-8)  *desc bits 4-7               */
+	unsigned char f77;          /* fp@(-77) *desc bits 8-11              */
+	short f6;                   /* fp@(-6)  found display position       */
+	unsigned char arr94[17];    /* fp@(-94) display-reorder table [1..16]*/
+	char buf52[64];             /* fp@(-52) primary prompt               */
+	char buf72[64];             /* fp@(-72) secondary prompt             */
+
+	PROBE("jt249");
+	(void)p14;
+
+	/* L334c — JT[2] on the event type (*desc & 15): build the prompt pair.
+	 * Table @0x3350: count=2, keys {1,2}, default; decoded via the long-key
+	 * (off.W,key.L)-pairs format -> {1:0x3360, 2:0x339e, default:0x33d6}. */
+	switch ((short)(*desc & 15)) {
+	case 1:                                         /* 0x3360 */
+		jt394(buf52, ua_strs_at(0x2c46) /* "%s %s %s %s:" */,
+		      g_a5_long(-10728), g_a5_long(-10704),
+		      g_a5_long(-10792), g_a5_long(-10748));
+		jt394(buf72, ua_strs_at(0x2c54) /* "%s %s" */,
+		      g_a5_long(-10704), g_a5_long(-10692));
+		break;
+	case 2:                                         /* 0x339e */
+		jt394(buf52, ua_strs_at(0x2c5a) /* "%s %s %s?" */,
+		      g_a5_long(-10800), g_a5_long(-10740), g_a5_long(-10748));
+		jt394(buf72, ua_strs_at(0x2c64) /* "%s %s" */,
+		      g_a5_long(-10800), g_a5_long(-10692));
+		break;
+	default:                                        /* 0x33d6 — common */
+		break;
+	}
+
+	/* L33d6 — unpack *desc: f8 = bits 4-7, f77 = bits 8-11. */
+	f7  = (unsigned char)((*desc & 4080) >> 4);     /* bits 4-11 */
+	f8  = (unsigned char)(f7 & 15);                 /* bits 4-7  */
+	f77 = (unsigned char)((f7 >> 4) & 15);          /* bits 8-11 */
+
+	/* L340c/L343c/L3474 — build the 16-entry display-reorder table
+	 * arr94[1..16] = {0,1,14,15,2,3,4,5,6,7,8,9,10,11,12,13}. */
+	for (i = 0; i < 2;  i++) arr94[i + 1] = (unsigned char)i;
+	for (i = 2; i < 4;  i++) arr94[i + 1] = (unsigned char)(i + 12);
+	for (i = 4; i < 16; i++) arr94[i + 1] = (unsigned char)(i - 2);
+
+	/* L34b0 — find the display position of f77 in the reorder table. */
+	f6 = 0;
+	for (i = 1; i <= 16 && f6 == 0; i++)
+		if (arr94[i] == f77)
+			f6 = i;
+
+	/* BODY DEFERRED (level-2): the frame/field draw (jt447/jt1200/jt452 +
+	 * L3cbe), the two inner JT[3] dispatches, the modal pick loop, and the
+	 * jt1161 redraw tail. Those consume f6/f8/f10 and the two prompts. */
+	(void)f6; (void)f8; (void)f10;
+	return a8;
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
