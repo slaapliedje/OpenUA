@@ -72078,13 +72078,13 @@ static void l3e1e(short idx, short fill)
 
 /* JT[249] (CODE 2 + 0x333a = entry_jt249, frame -98) — a large interactive
  * event-editor screen (sibling of jt248, one command up in the CODE 22
- * design-editor dispatcher). LEVEL-2 SKELETON (ADR-0002): the prologue is fully
- * lifted here — the JT[2] type dispatch that builds the two prompt strings, the
- * *desc field unpack, the 16-entry display-reorder table, and the position
- * search, the static screen draw, and the redraw helper cluster (l3c18, l3c5e,
- * l3cbe, l3d90, l3e1e — the last with its own JT[3] @0x3e5a). Still DEFERRED:
- * the dynamic redraw block (0x3714) and the input wait + the single main-body
- * JT[3] @0x3862 command dispatch (0x37ee-0x3c16). See docs/event-editor-wall.md.
+ * design-editor dispatcher). FULL LIFT (ADR-0002 level 3): the JT[2] type
+ * dispatch that builds the two prompt strings, the *desc field unpack, the
+ * 16-entry display-reorder table and position search, the static screen draw,
+ * the dynamic redraw (via the l3c18/l3c5e/l3cbe/l3d90/l3e1e helper cluster —
+ * l3e1e has its own JT[3] @0x3e5a), and the modal input loop (the fetch, the
+ * JT[3] @0x3862 navigation, the L3b2a pointer handling, and the *desc repack).
+ * See docs/event-editor-wall.md.
  *
  * Called jt249(short a8, long *desc, long *p14) from CODE 22+0x02aa with
  * p14 = NULL; desc = &caller_struct[8]. *desc low nibble = type; the JT[2]
@@ -72243,8 +72243,24 @@ static short jt249(short a8, long *desc, long *p14)
 		fp2 = jt152(fp4);
 
 		if (fp2 < 0) {
-			/* L3b2a — pointer/special event: slot pick + field
-			 * cycle from the raw key. DEFERRED (level-2). */
+			/* L3b2a — pointer/special event: the raw l2d3e value fp4
+			 * selects a slot (< 16), cycles the field (17..32 ->
+			 * f77 = arr94[f6]), or is a Return/ESC key (16 / > 32 ->
+			 * the -10372 word). */
+			if (fp4 < 16) {
+				if (f8 != fp4) {
+					l3e1e((short)f8, (short)8);
+					f8 = (unsigned char)fp4;
+					l3e1e((short)f8, (short)15);
+				}
+			} else if (fp4 == 16 || fp4 > 32) {
+				if (g_a5_word(-10372) == 13)
+					fp2 = 0;
+				else if (g_a5_word(-10372) == 27)
+					fp2 = 1;
+			} else {                        /* 17..32 */
+				f77 = arr94[f6];
+			}
 		} else if (g_a5_byte(-24139) != 0) {
 			if (fp2 == 13) {                /* Return -> accept */
 				fp2 = 0;
