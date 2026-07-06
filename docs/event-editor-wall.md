@@ -268,7 +268,16 @@ not bgt). jt167(8) then an 8-node loop: each cell = the -12300 event record at a
 f116 clear -> `g_a5_longs(-10924)[(cell[16] & 6) >> 1]` (the same facing table
 the type-3 prologue prompt uses). No jt349; f117 stays 0 so the tail's jt347
 clamp is skipped. STRS verified: 0x2c14="%s %d: %d,%d %s", 0x2c24="".
-Remaining fill: c6/7=L2a36, c4/def=L2dc2.
+
+**jt248h DONE — arm 6/7 (L2a36), the door/wall-type arm (types 6 & 7 share it).**
+Structurally arm-1-like (jt352 enumerate + jt349 finalize, no per-node loop),
+but the list KIND is 12 (type 6) or 14 (type 7) — the SAME value the tail's
+JT[2] case-6/7 jt347 clamp uses. Details: f117=1; sub is re-derived with the
+WIDER 4080 mask (bits 4-11, vs the prologue's 1008/bits 4-9); lo113=0, v6=-1,
+idx122 = sub - (lo113!=0?1:0); the original sub byte is captured into a new
+cap115 local (fp@(-115)) BEFORE sub is overwritten to 12/14, then passed as
+jt352's cap_p (5th arg; arms 0/1 passed 0L there). str12=g_a5(-10704). jt349
+uses kind=12/14, mask=1, hdrflag=0. Remaining fill: c4/def=L2dc2 (the LAST arm).
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).

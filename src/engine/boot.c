@@ -71800,7 +71800,32 @@ static short jt248(short a8, long *desc)
 		}
 		break;
 	case 6:
-	case 7:  /* TODO: L2a36 — sub=(*desc&4080)>>4 arm */
+	case 7:
+		/* L2a36 — the door/wall-type arm (types 6 and 7 share it). Like arm
+		 * 1 (jt352 enumerate + jt349 finalize, no per-node relabel), but the
+		 * list KIND is 12 (type 6) or 14 (type 7) — the same value the tail's
+		 * JT[2] case-6/7 jt347 clamp uses. sub is re-derived with the wider
+		 * 4080 mask (bits 4-11), lo113=0, v6=-1, and the original sub byte is
+		 * captured into cap115 (jt352's cap_p) before sub is overwritten with
+		 * 12/14. f117=1 so the tail's jt347 clamp runs. */
+		{
+			unsigned char cap115;
+			f117 = 1;
+			sub = (short)((*desc & 4080) >> 4);
+			lo113 = 0;
+			v6 = -1;
+			idx122 = (short)(sub - (lo113 != 0 ? 1 : 0));
+			cap115 = (unsigned char)sub;    /* fp@(-3), pre-overwrite */
+			sub = (type == 6) ? (short)12 : (short)14;
+			cnt124 = jt352(sub, (short)1, (long)(intptr_t)&lo113, 0L,
+			               (long)(intptr_t)&cap115,
+			               (long)(intptr_t)&idx122, 0L);
+			str12 = g_a5_long(-10704);
+			jt167(cnt124, (long)(intptr_t)&list_holder);
+			loop8 = (short)(lo113 + jt349((long)(intptr_t)list_holder,
+			            sub, (short)1, (short)lo113, (short)0,
+			            (short)0, 0L));
+		}
 		break;
 	default: /* case 4 + out-of-range -> L2dc2 "Item %d" arm */
 		break;
