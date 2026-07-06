@@ -74236,6 +74236,28 @@ static short l5b0e(void *p_v, short a2, short a3, short a4)
 	return 0;
 }
 
+/* ===================================================================
+ * CODE 11 GEO 3D-map editor — jt243 (l0b26) helper cluster (Phase C5).
+ * jt243 is the ~5216-insn / 40-function editor MAIN dispatcher (JT[3]
+ * @0xb48, 20 tool arms).  Subtree scope: 6 helpers already lifted
+ * (l4144/l4226/l4268/l429c/l476e/l4810), 18 unlifted leaves, 16
+ * unlifted non-leaves; l28d4 is the central hub.  Lifted bottom-up
+ * (leaves first).  See docs/geo-editor-wall.md (Phase C SCOPE).
+ * =================================================================== */
+
+/* L23de (CODE 11 + 0x23de) — set two cell-record fields and repaint.  Writes
+ * rec[20] = (byte)a2 and (rec + a2)[28] = (byte)a3, then jt305(rec, 2,
+ * sign_ext(a4)) to redraw.  A jt243 leaf (called directly by the dispatcher). */
+static void l23de(void *rec_v, short a2, short a3, short a4) __attribute__((unused));
+static void l23de(void *rec_v, short a2, short a3, short a4)
+{
+	unsigned char *rec = (unsigned char *)rec_v;
+
+	rec[20] = (unsigned char)a2;                    /* 0x23e6 */
+	rec[a2 + 28] = (unsigned char)a3;               /* 0x23ec — (rec + a2)[28] */
+	jt305(rec, (char)2, (char)a4);                  /* 0x240a — repaint, sign_ext(a4) */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
