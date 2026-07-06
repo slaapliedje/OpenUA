@@ -662,6 +662,17 @@ else -1; 131/default -> -1. Always clears g_a5_byte(-24139); returns the action.
 Codegen 1889, tests 129/1. lefe unblocks lce2. NEXT: lce2 (lefe+jt1080+JT[3]+
 array prims), l12e8/l31cc (JT-slot), l1568, l1084, then l0ade -> l0a32 -> stubs.
 
+**jt258v DONE — l86e (start range) + lce2 (nav-key executor).** l86e (0x86e):
+begin a range at the append slot — mark rec@12 bits 2|5, capture rec[15]=
+map[v-1][3] and clear it (unless rec[12] bit5), seed l207c(v,0), rec@10=v|0x600
+retype 5. lce2 (0xce2, big, JT[3]@0xd2a 0..6): when a selection is live
+(g_a5(-24139)) map key via lefe; key<0 -> jt1080 (only -1) + return; else 7 arms
+(0 clear/0x3f00; 1 pop+peek+seed; 2 seed+push l1b30; 3 seed|0x200 or jt1080; 4
+l6cc; 5 jt1080 or l86e start; 6 l1fbe row-step with savekey==134?1:0; default
+jt1080). All callees lifted (lefe/l1af8/l207c/l1ad2/l1b30/l6cc/l86e/l1fbe/jt1080).
+Codegen 1889, tests 129/1. lce2 unblocks l0ade partially. NEXT: l12e8/l31cc
+(JT-slot only), l1568, l1084, then l0ade -> l0a32 -> the last 3 direct stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
