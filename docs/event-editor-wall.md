@@ -605,6 +605,20 @@ l0910). NOTE for l1084/l0ade: a5@3586=jt444 is a 4-arg Dialog helper but the
 CODE-2 grid-draw sites push only 2 words -> ABI care needed there (deferred).
 NEXT: l09d6/l07c6 need l0a32; l0a32 needs l0ade (big). Or fill l2156/l22b6.
 
+**jt258q DONE — the multi-select ring trio l2156 / l222c / l22b6 (3 direct stubs).**
+All operate the selection ring at g_a5_buf(-12190) (cursor -12196, end/count
+-12194, current byte -12191, anchor -12193). l222c (0x222c, LEAF): step the ring
+— room -> advance cursor, load next entry, pack (byte|0x600) retype 5; else close
+ring (reseed -12194 from rec[16], cursor=0, pack (count<<8)|6 retype 10). l2156
+(0x2156, calls l1ad2+l222c): clear rec[13] bit5, patch map[slot[1]-1][3]=rec[15]
+if differing, then on span (-12194 - -12196): <=0 retype 4/10; bit5 -> latch +
+l222c; else pack (span<<8)|6 retype 10; ALWAYS returns 1 (so the L0102 chain's
+`if(l2156==0) l0910` never fires via this arm — faithful). l22b6 (0x22b6): gated
+advance via jt229(entry)+jt321 (both lifted); returns signed -1/0/1 (chain casts
+(signed char)). Forward-declared l222c before l2156 (defined-later in block).
+Codegen 1889, tests 129/1. **5 of 12 direct stubs filled** (l1e8a, l0910, l2156,
+l222c, l22b6). Remaining 7: l042a, l0ade, l09d6, l0722, l0622, l0524, l07c6.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 

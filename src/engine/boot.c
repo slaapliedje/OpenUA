@@ -72828,8 +72828,47 @@ static void l042a(void *rec, short a1, short a2, short a3)
  * return a status the chain branches on (0 from the stub). */
 static void  l0ade(void *rec) __attribute__((unused));
 static void  l0ade(void *rec) { PROBE("L0ade"); (void)rec; }
+static void  l222c(void *rec);          /* forward — full body below in this block */
+/* L2156 (CODE 2 + 0x2156) — normalize after a range edit. Clear rec[13] bit 5;
+ * if rec[15] names a record whose append-slot value differs, patch its map link
+ * (map[slot[1]-1][3] = rec[15]). Then, on the selection span (-12194 minus
+ * -12196): <=0 retype to command 4/10; else if rec[12] bit 5, latch bit 0, stash
+ * -12193 into rec[16] and advance (l222c); else pack (span<<8)|6 into rec@10 and
+ * retype to 10. Always returns 1. */
 static short l2156(void *rec) __attribute__((unused));
-static short l2156(void *rec) { PROBE("L2156"); (void)rec; return 0; }
+static short l2156(void *rec)
+{
+	void *slot;
+	short range;
+
+	PROBE("L2156");
+	*((unsigned char *)rec + 13) &= (unsigned char)~0x20;   /* 0x215e — bclr #5 */
+	if (*((unsigned char *)rec + 15) != 0) {                /* 0x2168 */
+		slot = l1ad2((char *)rec + 22);                 /* 0x2176 */
+		if (slot != NULL) {                             /* 0x2180 */
+			unsigned char sb = *((unsigned char *)slot + 1);  /* 0x2188 */
+			if (sb != 0 &&                          /* 0x218e */
+			    *((unsigned char *)rec + 15) != sb) /* 0x2198 */
+				((char *)(uintptr_t)g_a5_long(-13038))
+				    [sb * 20 - 17] =            /* 0x21b2 — map[sb-1][3] */
+				    *((unsigned char *)rec + 15);
+		}
+	}
+	range = (short)(g_a5_word(-12194) - g_a5_word(-12196)); /* 0x21b8 */
+	if (range <= 0) {                                       /* 0x21c6 */
+		*(short *)((char *)rec + 10) = 4;               /* 0x2218 */
+		*(short *)rec = 10;                             /* 0x2224 */
+	} else if (*((unsigned char *)rec + 12) & 0x20) {       /* 0x21cc — btst #5 */
+		*((unsigned char *)rec + 12) |= 0x01;          /* 0x21d8 — bset #0 */
+		*((unsigned char *)rec + 16) = g_a5_byte(-12193);       /* 0x21e2 */
+		l222c(rec);                                     /* 0x21ec */
+	} else {
+		*(short *)((char *)rec + 10) =                  /* 0x21f6-0x2204 */
+		    (short)((range << 8) | 6);
+		*(short *)rec = 10;                             /* 0x220e */
+	}
+	return 1;                                               /* 0x2228 */
+}
 /* L0910 (CODE 2 + 0x910) — commit/normalize the event array after an edit. If
  * the append slot is both elem[0] and elem[index@2] (a single-entry array),
  * flush it (l1e38). Then remove the top record (l178c): on a non-zero id, seed
@@ -72864,10 +72903,72 @@ static short l0910(void *rec)
 	jt1080();                               /* 0x9cc */
 	return 0;                               /* 0x9d0 */
 }
+/* L222c (CODE 2 + 0x222c) — step the multi-select ring. If the ring has room
+ * (-12194 minus -12196 > 0 and -12194 < 100): advance the cursor -12196, load the
+ * next entry byte into -12191, pack it as (byte|0x600) into rec@10 and retype to
+ * 5. Otherwise close the ring: clear rec[12] bit 0, reseed -12194 from rec[16],
+ * reset the cursor -12196=0 and -12191 from the ring head, and retype to command
+ * 10 with rec@10 = (old-count<<8)|6. */
 static void  l222c(void *rec) __attribute__((unused));
-static void  l222c(void *rec) { PROBE("L222c"); (void)rec; }
+static void  l222c(void *rec)
+{
+	PROBE("L222c");
+	if (g_a5_word(-12194) - g_a5_word(-12196) > 0 &&        /* 0x2230-0x223a */
+	    g_a5_word(-12194) < 100) {                          /* 0x223c */
+		g_a5_word(-12196) += 1;                         /* 0x2244 */
+		g_a5_byte(-12191) =                             /* 0x2250 */
+		    g_a5_buf(-12190)[g_a5_word(-12196)];
+		*(short *)((char *)rec + 10) =                  /* 0x2262 */
+		    (short)((g_a5_byte(-12191) & 0xFF) | 0x600);
+		*(short *)rec = 5;                              /* 0x226c */
+	} else {
+		short save;
+		*((unsigned char *)rec + 12) &= (unsigned char)~0x01;   /* 0x2274 — bclr #0 */
+		save = g_a5_word(-12194);                       /* 0x227a */
+		g_a5_word(-12194) = *((unsigned char *)rec + 16);       /* 0x228a */
+		g_a5_word(-12196) = 0;                          /* 0x228e */
+		g_a5_byte(-12191) = g_a5_byte(-12190);          /* 0x2292 */
+		*(short *)((char *)rec + 10) =                  /* 0x229c-0x22a6 */
+		    (short)((save << 8) | 6);
+		*(short *)rec = 10;                             /* 0x22b0 */
+	}
+}
+
+/* L22b6 (CODE 2 + 0x22b6) — advance the multi-select ring by one, gated on
+ * jt229(next-entry). Requires rec[13] bit 2 and a valid cursor (0 <= -12196 <=
+ * -12194). If jt229 rejects the entry, return 0. Otherwise fire jt321, advance
+ * -12196: if it overran -12194 return -1 (range done); else load the new entry
+ * into -12191, pack (byte|0x500) into rec@10, retype to 5, return 1. */
 static short l22b6(void *rec) __attribute__((unused));
-static short l22b6(void *rec) { PROBE("L22b6"); (void)rec; return 0; }
+static short l22b6(void *rec)
+{
+	signed char ret = 0;
+	unsigned char b;
+
+	PROBE("L22b6");
+	if (!(*((unsigned char *)rec + 13) & 0x04))            /* 0x22c2 — btst #2 */
+		return 0;                                      /* 0x2348 */
+	if (g_a5_word(-12196) < 0)                             /* 0x22cc */
+		return 0;
+	if (g_a5_word(-12196) > g_a5_word(-12194))             /* 0x22d4-0x22dc */
+		return 0;
+	b = g_a5_buf(-12190)[g_a5_word(-12196)];               /* 0x22e0-0x22e8 */
+	if (jt229((short)b) == 0)                              /* 0x22f4 */
+		return 0;                                      /* 0x2348 */
+	jt321();                                               /* 0x22fe */
+	g_a5_word(-12196) += 1;                                /* 0x2302 */
+	if (g_a5_word(-12196) > g_a5_word(-12194)) {           /* 0x2306-0x230e */
+		ret = -1;                                      /* 0x2342 */
+	} else {
+		g_a5_byte(-12191) =                            /* 0x2318 */
+		    g_a5_buf(-12190)[g_a5_word(-12196)];
+		*(short *)((char *)rec + 10) =                 /* 0x232a */
+		    (short)((g_a5_byte(-12191) & 0xFF) | 0x500);
+		*(short *)rec = 5;                             /* 0x2338 */
+		ret = 1;                                       /* 0x233c */
+	}
+	return ret;                                            /* 0x2348 */
+}
 static void  l09d6(void *rec, short a) __attribute__((unused));
 static void  l09d6(void *rec, short a) { PROBE("L09d6"); (void)rec; (void)a; }
 static void  l0722(void *rec) __attribute__((unused));
