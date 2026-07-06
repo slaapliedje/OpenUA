@@ -74129,6 +74129,113 @@ static short l61c6_c11(void *p_v, short a2)
 	return count;
 }
 
+/* L5b0e (CODE 11 + 0x5b0e) — the cell-edit CONFIRM dialog and the last jt242
+ * private helper.  Draws a modal prompt over the map: a centred header line
+ * (g_a5(-11408)); a body prompt describing the pending bulk change of `a2`
+ * cells (with "1 cell" vs "N cells" plural handling via the STRS "s"); two
+ * labelled before/after swatches painted by l5dc8 (old code a3 at x=8012, new
+ * code a4 at x=8092); then a jt456/l2d3e keypress poll loop.  Returns 1 only
+ * when the codes actually differ (a3 != a4) AND the user confirmed (Return =>
+ * key 0); otherwise 0.  `flag58` = (a2 != 0) is the dialog's button-count/accept
+ * bound.  Mouse-gated (unvalidatable headless) — faithful transcription. */
+static short l5b0e(void *p_v, short a2, short a3, short a4) __attribute__((unused));
+static short l5b0e(void *p_v, short a2, short a3, short a4)
+{
+	unsigned char *p = (unsigned char *)p_v;
+	char  buf40[40];                 /* fp@(-40): header, then the body prompt */
+	char  buf56[16];                 /* fp@(-56): the dialog title line */
+	short flag58;                    /* fp@(-58) */
+	short ev, key;                   /* fp@(-62), fp@(-60) */
+	short d1;
+
+	jt108(1);                        /* 0x5b12 */
+	jt112(1);                        /* 0x5b1c */
+	jt76();                          /* 0x5b26 */
+
+	/* 0x5b2a — draw the header line (g_a5(-11408)), centred at row 8008. */
+	jt384(buf40, (const char *)(uintptr_t)g_a5_long(-11408));
+	d1 = (short)((38 - jt423(buf40)) * 2);         /* 0x5b42: ((38-w)<<2)/2 */
+	jt1089((short)8008, (short)(8004 + d1), (short)139, buf40);   /* 0x5b4e */
+
+	flag58 = (short)(a2 != 0 ? 1 : 0);             /* 0x5b68 */
+
+	if ((unsigned char)a3 == (unsigned char)a4) {  /* 0x5b78 — codes already equal */
+		flag58 = 0;                            /* 0x5b82 */
+		jt394(buf56, ua_strs_at(0x2b0e) /* "%s" */,
+		      (const char *)(uintptr_t)g_a5_long(-10692));
+		jt384(buf40, (const char *)(uintptr_t)g_a5_long(-10736));
+	} else if (a2 != 0) {                          /* 0x5bae — differ, count > 0 */
+		const char *plural = (a2 == 1) ? ua_strs_at(0x2b28) /* "" */
+		                               : ua_strs_at(0x2b2a) /* "s" */;
+		const char *kind =
+		    (const char *)(uintptr_t)g_a5_longs(-11320)[p[5]];
+		jt394(buf40, ua_strs_at(0x2b12) /* "%s %s %s %d %s %s%s?" */,
+		      (const char *)(uintptr_t)g_a5_long(-10696),
+		      (const char *)(uintptr_t)g_a5_long(-10776),
+		      (const char *)(uintptr_t)g_a5_long(-10800),
+		      a2,
+		      (const char *)(uintptr_t)g_a5_long(-11136),
+		      kind, plural);
+		jt394(buf56, ua_strs_at(0x2b2c) /* "%s %s" */,
+		      (const char *)(uintptr_t)g_a5_long(-10800),
+		      (const char *)(uintptr_t)g_a5_long(-10692));
+	} else {                                       /* 0x5c3a — differ, count == 0 */
+		jt384(buf40, (const char *)(uintptr_t)g_a5_long(-10732));
+		jt394(buf56, ua_strs_at(0x2b32) /* "%s" */,
+		      (const char *)(uintptr_t)g_a5_long(-10696));
+	}
+
+	/* 0x5c5e — the two swatch captions, then re-draw the body prompt centred. */
+	jt1089((short)8032, (short)8012, (short)140, ua_strs_at(0x2b36) /* "%s %s:" */,
+	       (const char *)(uintptr_t)g_a5_long(-10800),
+	       (const char *)(uintptr_t)g_a5_long(-10752));
+	jt1089((short)8032, (short)8092, (short)140, ua_strs_at(0x2b3e) /* "%s %s:" */,
+	       (const char *)(uintptr_t)g_a5_long(-10764),
+	       (const char *)(uintptr_t)g_a5_long(-10752));
+	d1 = (short)((38 - jt423(buf40)) * 2);         /* 0x5ca2 */
+	jt1089((short)8081, (short)(8004 + d1), (short)143, buf40);  /* 0x5cb8 */
+
+	/* 0x5cd2 — preview the old (a3) and new (a4) codes as before/after swatches. */
+	l5dc8(p, (short)8036, (short)8012, a3);
+	l5dc8(p, (short)8036, (short)8092, a4);
+
+	/* 0x5d0a — finalise + install the modal dialog. */
+	jt447();
+	jt179(flag58);
+	jt148(g_a5_long(-13952), buf56, 0);
+	jt449(1);
+	jt112(0);
+	jt117();
+
+	/* 0x5d42 — the modal poll loop. */
+	for (;;) {
+		ev = l2d3e();                          /* 0x5d46 — jt456 event poll */
+		if (ev < 0) {                          /* 0x5d4e */
+			jt1067();                      /* 0x5d42 — idle, then re-poll */
+			continue;
+		}
+		key = jt152(ev);                       /* 0x5d52 — classify */
+		if (key >= 0 && g_a5_byte(-24139) != 0) {   /* 0x5d60/0x5d64 */
+			if (key == 13)                 /* Return -> confirm */
+				key = 0;               /* 0x5d72 */
+			else                           /* Esc(27)/96/other -> flag58 */
+				key = flag58;          /* 0x5d88/0x5d90 */
+			g_a5_byte(-24139) = 0;         /* 0x5d96 */
+		}
+		if (key < 0)                           /* 0x5d9a — keep polling */
+			continue;
+		if (key > flag58)                      /* 0x5da0 — out of range */
+			continue;
+		break;                                 /* accepted: key in [0, flag58] */
+	}
+	jt451();                                       /* 0x5daa */
+
+	/* 0x5dae — confirmed iff the codes differ and the user pressed Return. */
+	if ((unsigned char)a3 != (unsigned char)a4 && key == 0)
+		return 1;
+	return 0;
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
  * command handlers reached by the l0096 dispatcher below.  Their bodies live
