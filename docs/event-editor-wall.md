@@ -777,8 +777,56 @@ still unreachable at runtime until the CODE 22 dispatcher @0x0096 wires it (only
 jt315 main menu is live) — that dispatcher is the next frontier for making the
 editor launchable.
 
-Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
-then-fill, last).
+## CODE 22 design-editor command dispatcher — l0096_c22 LIFTED (2026-07-06)
+
+The dispatcher @0x0096 that wires the whole editor is now a full faithful lift
+(`l0096_c22` in boot.c — an l0096 already exists in another segment, so the
+_c22 suffix per the (CODE,offset) rule). It is CODE-local (`jsr pc@` from its
+0x0050 caller), NOT a jtN.
+
+**Shape:** a modal command pump — `while (cmd->byte@0 == 0)` dispatch on
+`cmd->word@4` through the THINK C JT[3] table @0x00aa (min=1, max=21, default),
+run the matching handler, feed its return back into word@4 as the next command.
+Command 1 and any out-of-range command set byte@0 and terminate. Epilogue each
+loop: `word@2 = word@4` (echo the command just run), `word@4 = ret`.
+
+**The 21-command → handler map** (slot = (a5off−34)/8, all verified; each arm
+pushes word@2=prior-command as arg1, &cmd@8 as arg2, a per-command 3rd arg):
+
+| cmd | handler | 3rd arg / ptr pre-store |
+|---|---|---|
+| 1, default | quit (byte@0=1) | — |
+| 2 | **jt243** (stub) | &@16 |
+| 3 | jt253 | c@116=&@328; &@108 |
+| 4 | jt251 | c@126=&@328; &@120 |
+| 5 | jt250 | c@104=&@328; &@100 |
+| 6 | **jt258** (event editor) | &@178 |
+| 7 | jt263 | c@136=&@328; &@130 |
+| 8 | jt269 | &@154 |
+| 9 | jt233 | &@172 |
+| 10 | jt247 | 0L (dropped) |
+| 11 | jt248 | 0L (dropped) |
+| 12 | jt249 | 0L → p14=NULL |
+| 13 | jt239 | &@16 |
+| 14 | jt241 | &@16 |
+| 15 | jt240 | &@16 |
+| 16 | jt259 (art import) | c@150=&@328; &@144 (dropped) |
+| 17 | jt254 (event-list print) | 0L (dropped) |
+| 18 | jt270 | &@154 |
+| 19 | jt244 | &@328 |
+| 20 | **jt242** (stub) | &@16 |
+| 21 | jt264 | c@136=&@154; &@130 |
+
+**Only 2 handlers were missing** — jt242 (=l589a) and jt243 (=l0b26), both in
+the CODE 22 handler block; added as PROBE stubs (jt243 is a roadmap giant, a
+future full lift). The other 18 were already lifted. 2-arg port lifts (jt247/
+jt248/jt254 drop the pushed 0L; jt259 drops &@144) are called faithfully with
+their surplus pushed word omitted. Codegen holds 1889 (l0096_c22 unreferenced
+until the 0x0050 caller is lifted → DCE'd), tests 129/1.
+
+**NEXT to make the editor launchable:** lift the 0x0050 caller (CODE 22) that
+pumps l0096_c22, then trace back to how jt315's main menu selects the design
+editor, and wire it. Also: the two new stubs jt242/jt243 want full lifts.
 
 ## Method (same as jt259 / #153 so far)
 
