@@ -73934,6 +73934,53 @@ static short jt258(short cmd, long *desc, void *out)
 	return *(short *)rec;            /* 0x420 — return rec[0] */
 }
 
+/* ===================================================================
+ * CODE 11 GEO 3D-map editor — jt242 helper cluster (Phase C2).
+ * jt242 (l589a) is a cell-edit committer: a dispatcher over 8 CODE-local
+ * helpers (l5a06/l5b0e/l5dc8/l5ee2/l6136/l61c6/l6256/l63c0).  Lifted
+ * bottom-up (leaves first); all reference the current-area block
+ * g_a5(-12300), a flat array of 6-byte cells with feature bytes at
+ * cell*6 + 290..295.  See docs/geo-editor-wall.md (Phase C SCOPE).
+ * =================================================================== */
+
+/* L5a06 (CODE 11 + 0x5a06) — tally map cells whose selected feature equals a
+ * target value.  arg[5] picks the feature: 0 = any of the cell's four wall
+ * bytes (ds[cell*6 + 290..293]); 1 = code A (byte 295 & 3); 2 = code B
+ * (byte 295 >> 2 & 7).  Scans all ds[2]*ds[3] cells.  JT[3] @0x5a32 (min=0,
+ * max=2).  A jt242 leaf (no local calls). */
+static short l5a06(const void *arg, short target) __attribute__((unused));
+static short l5a06(const void *arg, short target)
+{
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	const unsigned char *a = (const unsigned char *)arg;
+	unsigned char t = (unsigned char)target;    /* fp@(13) — match target */
+	short limit = (short)(ds[2] * ds[3]);       /* fp@(-4) — total cells */
+	short count = 0;                            /* fp@(-2) */
+	short i, j;
+
+	switch (a[5]) {                             /* JT[3] @0x5a32 (min=0, max=2) */
+	case 0:                                     /* 0x5a42 — the four wall bytes */
+		for (i = 0; i < limit; i++)
+			for (j = 0; j < 4; j++)
+				if (ds[i * 6 + j + 290] == t)
+					count++;
+		break;
+	case 1:                                     /* 0x5a8e — code A (byte295 & 3) */
+		for (i = 0; i < limit; i++)
+			if ((ds[i * 6 + 295] & 3) == t)
+				count++;
+		break;
+	case 2:                                     /* 0x5aca — code B (byte295>>2 & 7) */
+		for (i = 0; i < limit; i++)
+			if (((ds[i * 6 + 295] >> 2) & 7) == t)
+				count++;
+		break;
+	default:                                    /* 0x5b06 — no tally */
+		break;
+	}
+	return count;
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
  * command handlers reached by the l0096 dispatcher below.  Their bodies live
