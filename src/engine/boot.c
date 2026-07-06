@@ -71994,6 +71994,7 @@ static short jt249(short a8, long *desc, long *p14)
 	unsigned char f8;           /* fp@(-8)  *desc bits 4-7               */
 	unsigned char f77;          /* fp@(-77) *desc bits 8-11              */
 	short f6;                   /* fp@(-6)  found display position       */
+	short c74, c76;             /* fp@(-74)/fp@(-76) l3cbe slot coords   */
 	unsigned char arr94[17];    /* fp@(-94) display-reorder table [1..16]*/
 	char buf52[64];             /* fp@(-52) primary prompt               */
 	char buf72[64];             /* fp@(-72) secondary prompt             */
@@ -72039,10 +72040,36 @@ static short jt249(short a8, long *desc, long *p14)
 		if (arr94[i] == f77)
 			f6 = i;
 
-	/* BODY DEFERRED (level-2): the frame/field draw (jt447/jt1200/jt452 +
-	 * L3cbe), the two inner JT[3] dispatches, the modal pick loop, and the
-	 * jt1161 redraw tail. Those consume f6/f8/f10 and the two prompts. */
-	(void)f6; (void)f8; (void)f10;
+	/* L34ea — draw the outer frame: jt447 setup, then the base rectangle
+	 * (shape 5) with the layout keyed on jt1200(). */
+	jt447();
+	if (jt1200() == 3)
+		jt452((long)5, (long)8012, (long)8044, (long)16,
+		      (long)17, (long)20, (long)0);          /* L34f8 */
+	else
+		jt452((long)5, (long)8014, (long)8038, (long)16,
+		      (long)12, (long)20, (long)0);          /* L351c */
+
+	/* L3548 — outline each of the 15 grid slots; l3cbe gives its coords, and
+	 * the shape-5 box shifts the row axis by +12 in the vertical layout. */
+	for (i = 1; i < 16; i++) {
+		l3cbe(i, &c74, &c76);
+		if (jt1200() == 3)
+			jt452((long)5, (long)(short)(c74 + 12), (long)c76,
+			      (long)16, (long)12, (long)20, (long)0);  /* L356a */
+		else
+			jt452((long)5, (long)c74, (long)c76,
+			      (long)16, (long)12, (long)20, (long)0);  /* L3594 */
+	}
+
+	/* L35c6 — the selection cursor (shape 2) at the found position f6. */
+	jt452((long)2, (long)16, (long)35, (long)(intptr_t)&f6, (long)0);
+
+	/* BODY DEFERRED (level-2): the slot-label loop (needs the l3c18 helper),
+	 * the prompt/list finalization (jt423/jt452/jt179/jt148/jt79 + &jt245),
+	 * the two inner JT[3] dispatches, the modal pick loop, and the jt1161
+	 * redraw tail. Those consume f8/f10. */
+	(void)f8; (void)f10;
 	return a8;
 }
 
