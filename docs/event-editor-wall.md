@@ -240,7 +240,24 @@ jt167 holder; then loop each of the 9 nodes labeling `cursor+5` from the
 `cursor[4]=0`, next, loop8++ (loop8 starts at lo113, ends lo113+9 = lo113+cnt124
 → tail guard passes). f117 stays 0 → the tail's jt347 value-clamp is skipped for
 this arm. STRS confirmed: 0x2c00="%s %s", 0x2c06="%s". Remaining fill: c3=L2cbe,
-c5=L2b9a, c6/7=L2a36, c4/def=L2dc2.
+c6/7=L2a36, c4/def=L2dc2.
+
+**jt248f DONE — arm 5 (L2b9a), the nested-JT[3] rec-array arm.** The richest
+arm so far. `lea a5@(2002)` = the code address of JT[246] (annotated disasm) →
+`p136 = (void*)jt246` (the selection hook the tail stashes via jt168). cnt124=8,
+lo113=0. `loop8 = (sub & 48)>>4` (bits 8-9 of *desc) is the INNER JT[3] key
+(jt3_extract @0x2be2: min=1 max=2, key1→0x2bf0, key2→0x2bf8, default→0x2c28);
+then `sub &= 15` and the same `if (sub!=0 && sub<=8) idx122 = sub-lo113`. Inner
+JT[3]: key1 → str12=g_a5(-10704); key2 → str12=g_a5(-10800) + rebuild buf62 via
+`jt394(buf62, "%s %s %s?"@0x2c0a, -10800, -10740, g_a5_longs(-10956)[type])`;
+default → neither (all three converge on the common list build). Then jt167(8)
+and the 8-node loop fills each `cursor+5` (16 bytes) from the -12300 event
+record's name field `rec + loop8*16 + 134` via **jt406 with the (src,dst)→
+(dst,src) SWAP** (the flagged Mac ABI: rec is the Mac top-of-stack = src, node
+is dst), null-terminates cursor+21, and falls back to `jt394(cursor+5,
+"#%d"@-10604, loop8+1)` when the copied name is empty; cursor[4]=0; advance.
+No jt349. jt246 stays DCE'd (jt248 is dead). Remaining fill: c3=L2cbe,
+c6/7=L2a36, c4/def=L2dc2.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
