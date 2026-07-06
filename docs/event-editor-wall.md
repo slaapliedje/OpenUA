@@ -210,9 +210,18 @@ straight to the *desc repack.
 Arm 0 writes fp[-114/-124/-113/-2/-8/-128/-12/-122/-6/-119/-117] and the tail
 consumes them (list_holder=fp[-132] via jt167; fp[-6/-119/-117/-12] are
 tail-ONLY reads). So an arm can't commit without the tail (dead stores) and the
-tail can't run without an arm (uninit reads). **Fill order: arm 0 (L2824) + the
-full modal tail together** as the first fill commit — it unblocks all 8 arms
-(the tail is shared); remaining arms then plug in one commit each.
+tail can't run without an arm (uninit reads).
+
+**jt248c DONE — arm 0 (L2824) + the full shared modal tail.** Arm 0 enumerates
+the design's items (jt352 count → jt167 list → jt394/jt367 node labels → jt349
+finalize) with the sub-type seeding from *desc bits 10-12. The tail: list-walk
+to the selected node, title (jt394), draw (jt84/jt117/jt1089 + l31cc_c2), the
+jt169 List-Manager pick LOOP (re-runs until pick∈{0,1}), the JT[2]-decoded
+jt347 value clamp, and the L30d8 *desc repack `(*desc & 0xFFFFF000) |
+((1-pick)&15) | ((idx&255)<<4)`. The tail is SHARED — so the remaining 7 arms
+now each plug in as one commit (they populate the same list_holder + modal
+state). Remaining fill: c1=L29c8, c2=L2af6, c3=L2cbe, c5=L2b9a, c6/7=L2a36,
+c4/def=L2dc2.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
