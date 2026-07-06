@@ -72548,6 +72548,63 @@ static void *l1ba4_c2(void *p, short mode)
 	return (char *)p + (long)idx * 4 + 4;   /* 0x1bd2 */
 }
 
+/* L1cf0 (CODE 2 + 0x1cf0) — commit the top event-array entry at rec+22 into the
+ * area maps. Reads the append slot (l1ad2) for its type/value/coords and peeks
+ * the current top (l1af8, mode 0). If a top exists it must be type 0: writes the
+ * value into the 20-stride record map at g_a5_long(-13038) (row = top[1], col =
+ * slot[2]), returning 1 — or 0 for a non-zero type. With no top, dispatches on
+ * the type byte (JT[3] @0x1d80, 1..4) into the current-area block
+ * g_a5_long(-12300): 1 -> cell array (stride 6, +294) indexed col*width[3]+row;
+ * 2 -> +48 map (stride 4); 3 -> +80 map (stride 4); 4 -> +110 map (stride 1).
+ * The no-top path always returns 1. */
+static short l1cf0(void *rec) __attribute__((unused));
+static short l1cf0(void *rec)
+{
+	void *slot, *top;
+	unsigned char valb, typ;
+
+	PROBE("L1cf0");
+	slot = l1ad2((char *)rec + 22);         /* 0x1cfc — append slot */
+	valb = *((unsigned char *)slot + 1);    /* 0x1d0a — slot[1] value */
+	typ  = *(unsigned char *)slot;          /* 0x1d14 — slot[0] type */
+	top  = l1af8((char *)rec + 22, 0);      /* 0x1d22 — current top (peek) */
+	if (top != NULL) {                      /* 0x1d2e */
+		char *base;
+		if (typ != 0)                   /* 0x1d38 */
+			return 0;               /* 0x1d74 */
+		/* 0x1d40 — record map: base + (top[1]-1)*20 + slot[2] = value. */
+		base = (char *)(uintptr_t)g_a5_long(-13038)
+		    + (long)*((unsigned char *)top + 1) * 20 - 20;
+		base[*((unsigned char *)slot + 2)] = valb;      /* 0x1d6c */
+		return 1;                       /* 0x1e32 */
+	}
+	{
+		char *mb = (char *)(uintptr_t)g_a5_long(-12300);
+		short col = (short)*((unsigned char *)slot + 2);
+
+		switch (typ) {          /* JT[3] @0x1d80 (min=1, max=4) */
+		case 1: {  /* 0x1d92 — cell array (stride 6, +294) */
+			short idx = (short)(col * (unsigned char)mb[3]
+			    + *((unsigned char *)slot + 3));  /* 0x1d9c-0x1db4 */
+			mb[(long)idx * 6 + 294] = valb;           /* 0x1dc6 */
+			break;
+		}
+		case 2:  /* 0x1dce — +48 map (stride 4) */
+			mb[(long)col * 4 + 48] = valb;            /* 0x1dea */
+			break;
+		case 3:  /* 0x1df2 — +80 map (stride 4) */
+			mb[(long)col * 4 + 80] = valb;            /* 0x1e0e */
+			break;
+		case 4:  /* 0x1e16 — +110 map (stride 1) */
+			mb[(long)col + 110] = valb;               /* 0x1e2c */
+			break;
+		default: /* 0x1e32 */
+			break;
+		}
+	}
+	return 1;                               /* 0x1e32 */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
