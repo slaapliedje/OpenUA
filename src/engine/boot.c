@@ -72605,6 +72605,80 @@ static short l1cf0(void *rec)
 	return 1;                               /* 0x1e32 */
 }
 
+/* L174a (CODE 2 + 0x174a) — append the record's staged coord (rec+18) to the
+ * event array, commit the count (l1ba4_c2 mode 1), then flush it into the area
+ * maps (l1cf0). Returns 0 if the append overflowed, else l1cf0's status. */
+static short l174a(void *rec) __attribute__((unused));
+static short l174a(void *rec)
+{
+	PROBE("L174a");
+	if (l19f2((char *)rec + 22, (char *)rec + 18) == 0)  /* 0x175e */
+		return 0;                                     /* 0x1786 */
+	l1ba4_c2((char *)rec + 22, 1);   /* 0x1774 — commit count = index (ret unused) */
+	return l1cf0(rec);               /* 0x177e */
+}
+
+/* L1c10 (CODE 2 + 0x1c10) — propagate along the record map's link chain. Seeds a
+ * 4-byte entry {flag=0, cur, type=mode, pad} from the append slot's value byte,
+ * then walks map[cur-1][3] links at g_a5_long(-13038) (20-byte rows), appending
+ * the entry (type 3 after the first hop) via l19f2 until the link is 0. Returns 0
+ * if an append overflowed mid-chain, else appends the terminal entry (or 1). */
+static short l1c10(void *rec, short mode) __attribute__((unused));
+static short l1c10(void *rec, short mode)
+{
+	unsigned char ent[4];   /* fp@(-10..-7): [0]=flag [1]=cur [2]=type [3]=pad */
+	void *slot;             /* fp@(-6) */
+	unsigned char v;        /* fp@(-1) — current record id */
+	char *base = (char *)(uintptr_t)g_a5_long(-13038);
+
+	PROBE("L1c10");
+	slot = l1ad2((char *)rec + 22);         /* 0x1c1c — append slot */
+	if (slot == NULL)                       /* 0x1c26 */
+		return 0;                       /* 0x1c2a */
+	v = *((unsigned char *)slot + 1);       /* 0x1c34 — slot[1] */
+	/* 0x1c3e-0x1c50 — a "row" byte (rec@24>=0 ? 1:0)+rec@22 is computed into
+	 * ent[3]'s neighbour but only the entry bytes below feed l19f2. */
+	ent[0] = 0;                             /* 0x1c54 — flag */
+	ent[2] = (unsigned char)mode;           /* 0x1c58 — type */
+	ent[1] = base[v * 20 + (unsigned char)mode - 20];  /* 0x1c7c — map[v-1][mode] */
+
+	for (;;) {                              /* 0x1caa — loop test */
+		if (ent[1] == 0)                /* tstb: chain end */
+			break;
+		if (l19f2((char *)rec + 22, ent) == 0)   /* 0x1cbc — append */
+			break;                  /* overflow */
+		/* 0x1c84 — advance to the next link */
+		ent[2] = 3;
+		v = ent[1];
+		ent[1] = base[v * 20 - 17];     /* 0x1ca4 — map[v-1][3] */
+	}
+	if (ent[1] != 0)                        /* 0x1cc6 — broke on overflow */
+		return 0;                       /* 0x1ccc */
+	if (v != 0)                             /* 0x1cd0 */
+		return l19f2((char *)rec + 22, ent);  /* 0x1ce2 — terminal entry */
+	return 1;                               /* 0x1cea */
+}
+
+/* L1e38 (CODE 2 + 0x1e38) — flush the head event-array entry into the area maps
+ * with its value byte suppressed: peek &elem[0] (l1b70 mode 0), zero elem[0][1]
+ * across the l1cf0 call, then restore it. Returns l1cf0's status (0 if empty). */
+static short l1e38(void *rec) __attribute__((unused));
+static short l1e38(void *rec)
+{
+	void *e;
+	unsigned char ret = 0;
+
+	PROBE("L1e38");
+	e = l1b70((char *)rec + 22, 0);         /* 0x1e4a — &elem[0], no reset */
+	if (e != NULL) {                        /* 0x1e56 */
+		unsigned char save = *((unsigned char *)e + 1);  /* 0x1e5c */
+		*((unsigned char *)e + 1) = 0;  /* 0x1e66 */
+		ret = (unsigned char)l1cf0(rec);/* 0x1e6e */
+		*((unsigned char *)e + 1) = save;                 /* 0x1e7c — restore */
+	}
+	return ret;                             /* 0x1e82 */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
