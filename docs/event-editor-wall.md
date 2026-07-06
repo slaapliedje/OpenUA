@@ -644,6 +644,15 @@ l1fbe(rec,0,1). Codegen 1889, tests 129/1. Unblocks l1eb2 (l1fbe+l1ad2 both
 lifted). NEXT ready sub-helpers: l1eb2, lefe (JT[3]@0xf30), l12e8/l31cc (JT-slot
 only — verify jt1161/jt366/jt394/jt423/jt358 lifted), building toward l0ade.
 
+**jt258t DONE — l1eb2 (row-cursor finalize / row search).** Callees l1ad2/l1fbe
+lifted. Two paths: (a) rec[8] && rec[7] -> step cursor down (dec rec[7], wrap
+0->-12193, l1fbe(rec,0,1)) when count -12194 > 0; zero rec[7] if -12194<=1. (b)
+else when -12194 > 1 -> scan g_a5_buf(-12090) from index 1 for the first row
+matching the append slot's coord slot[2] (l1ad2), leave rec[7] on the match or 0
+if none. Always clears rec[8] at exit. Codegen 1889, tests 129/1. l1eb2 unblocks
+nothing new directly but is a callee of l0ade's tree. NEXT: lefe (JT[3]@0xf30),
+then l12e8/l31cc (JT-slot only), l1568/l1084/lce2, then l0ade -> l0a32 -> stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
