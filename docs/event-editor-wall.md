@@ -327,9 +327,20 @@ arg's low byte (fp@(9)) is the effective idx; the in-place `subqb #1,fp@(9)` is
 just how THINK C reuses the slot for k. Called from jt249 at 0x3548/0x3da4/
 0x3e3e/0x3f70. DCE'd (no live caller until jt249's body lands).
 
-**Remaining jt249 body (fill order):** 0x34ea drawing setup (jt447/jt1200/two
-jt452) → L3548 draw loop (uses l3cbe) → JT[3] @0x3862 → modal region → JT[3]
-@0x3e5a → the jt1161 redraw tail (0x3e6e-0x4022). One block per commit.
+**jt249c DONE — draw setup + L3548 slot-outline loop (0x34ea-0x35dc).** jt447
+setup, then the base rectangle (jt452 shape 5) with coords keyed on jt1200()
+(==3 vertical 8012/8044, else 8014/8038). Then the L3548 loop outlines the 15
+grid slots (for i=1..15): l3cbe(i,&c74,&c76) → jt452 shape 5 box (row axis +12
+in the vertical layout). Then the selection cursor (jt452 shape 2, 16/35) at the
+found position &f6 — this is where f6 is consumed. All jt452 args cast (long)
+per the DLItem-stream convention.
+
+**Remaining jt249 body (fill order):** L35ea slot-LABEL loop (needs the l3c18
+helper at 0x3c18 — like l3cbe but a second coord variant; draws each slot's
+string from g_a5_longs(-11296)[arr94[j]] with the f7==8→7 quirk) → the prompt/
+list finalization 0x369c (jt423 center + jt452 shape 6 + jt179(2) + jt148 list +
+jt452 shape 7 with &jt245 + jt79) → JT[3] @0x3862 → modal region → JT[3] @0x3e5a
+→ the jt1161 redraw tail (0x3e6e-0x4022). One block per commit; lift l3c18 next.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
