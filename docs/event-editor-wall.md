@@ -180,9 +180,39 @@ a8) are lifted and faithful on the always-run path. jt314 is callable as
   jt394 formats, and the -108xx/-109xx/-11xxx string-table globals.
 - The shared modal tail (L2e42..L30d8): list-walk, jt179, jt84/jt117/jt1089 +
   l31cc_c2 draw, the **jt169** List-Manager pick LOOP (re-runs until the pick is
-  0/1), jt347 value-adjust behind its **JT[2] @0x3042** switch (NOT yet decoded —
-  jt1_extract's JT[1] read gave odd/odd-address arms, so decode carefully in the
-  fill pass), and the *desc repack at L30d8. jt168/jt360 also here.
+  0/1), jt347 value-adjust behind its **JT[2] @0x3042** switch, and the *desc
+  repack at L30d8. jt168/jt360 also here.
+
+### JT[2] @0x3042 — DECODED (2026-07-05)
+
+jt1_extract read it wrong (it assumes JT[1] *word* keys; JT[2] uses *long* keys
+— boot.c:5724). Decoded by the documented `(off.W, key.L)`-pairs format and
+cross-checked against the arm bodies (the 0x308c arm literally tests
+`*desc&15==6`). switch(*desc & 15): **{1 → 0x305c, 6 → 0x308c, 7 → 0x308c,
+default → 0x30d8}**. 0x305c/0x308c call jt347 (value clamp); default 0x30d8 =
+straight to the *desc repack.
+
+### Fill-pass leaf signatures (all lifted, arg orders pinned)
+
+- `jt352(short kind, short mask, long lo_p, long hi_p, long cap_p, long out_idx,
+  long proc)` — arm enumerate; arm0 = jt352(11,1,&fp[-113],&fp[-114],0,&fp[-2],0)
+- `jt349(long node, short kind, short mask, short minlvl, short hdrflag,
+  short u6, long proc)` — arm0 = jt349(fp[-132],11,1,fp[-113],1,0,0)
+- `jt169(long h1, long h2, short top, short left, short right, short bottom,
+  long head, short a, short b, uchar *flag, short *idx, long *next)` — the modal
+  = jt169(g_a5(-13952), &fp[-112], 2,4,38,15, fp[-132], 1,0, &fp[-116],
+  &fp[-122], &fp[-128])
+- jt167(count, &holder), jt147(&holder), jt168(head,0,1), jt179(1), jt360(fmt,..),
+  jt367(v,buf), jt397(a,b), jt84(void), jt117(void), l31cc_c2 (jt248a).
+
+### COUPLING (why the arms + tail are one unit)
+
+Arm 0 writes fp[-114/-124/-113/-2/-8/-128/-12/-122/-6/-119/-117] and the tail
+consumes them (list_holder=fp[-132] via jt167; fp[-6/-119/-117/-12] are
+tail-ONLY reads). So an arm can't commit without the tail (dead stores) and the
+tail can't run without an arm (uninit reads). **Fill order: arm 0 (L2824) + the
+full modal tail together** as the first fill commit — it unblocks all 8 arms
+(the tail is shared); remaining arms then plug in one commit each.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
