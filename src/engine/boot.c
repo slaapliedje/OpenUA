@@ -72845,6 +72845,47 @@ static void l1fbe(void *rec, short dir, short flag)
 	l1b30((char *)rec + 22, 1);             /* 0x2072 — push a fresh slot */
 }
 
+/* L1eb2 (CODE 2 + 0x1eb2) — finalize the row cursor rec[7]. If rec[8] and rec[7]
+ * are both set, step the cursor down one (wrap 0 -> -12193) and re-propagate
+ * (l1fbe(rec,0,1)) when the count -12194 > 0; zero rec[7] when -12194 <= 1.
+ * Otherwise, when -12194 > 1, scan the row table g_a5_buf(-12090) from index 1
+ * for one matching the append slot's coord (slot[2]); leave rec[7] on the match
+ * or zero it if none. Always clears rec[8] at the end. */
+static void l1eb2(void *rec) __attribute__((unused));
+static void l1eb2(void *rec)
+{
+	PROBE("L1eb2");
+	if (*((unsigned char *)rec + 8) != 0 &&         /* 0x1eba */
+	    *((unsigned char *)rec + 7) != 0) {         /* 0x1ec6 — step cursor down */
+		if (g_a5_word(-12194) > 0) {            /* 0x1ed0 */
+			*((unsigned char *)rec + 7) -= 1;               /* 0x1ed6 */
+			if (*((unsigned char *)rec + 7) < 1)            /* 0x1ee4 */
+				*((unsigned char *)rec + 7) =
+				    g_a5_byte(-12193);                  /* 0x1eea — wrap */
+			l1fbe(rec, 0, 1);                               /* 0x1efa */
+		}
+		if (g_a5_word(-12194) <= 1)             /* 0x1f06 */
+			*((unsigned char *)rec + 7) = 0;/* 0x1f0e */
+	} else if (g_a5_word(-12194) > 1) {             /* 0x1f1c — search for the row */
+		void *slot = l1ad2((char *)rec + 22);   /* 0x1f28 */
+		if (slot != NULL) {                     /* 0x1f34 */
+			*((unsigned char *)rec + 7) = 1;/* 0x1f3e */
+			while (*((unsigned char *)rec + 7) != g_a5_word(-12194) &&
+			       g_a5_buf(-12090)[*((unsigned char *)rec + 7)] !=
+			       *((unsigned char *)slot + 2))            /* 0x1f4c */
+				*((unsigned char *)rec + 7) += 1;       /* 0x1f44 */
+			if (g_a5_buf(-12090)[*((unsigned char *)rec + 7)] !=
+			    *((unsigned char *)slot + 2))               /* 0x1f9a */
+				*((unsigned char *)rec + 7) = 0;        /* 0x1fa4 — no match */
+		} else {
+			*((unsigned char *)rec + 7) = 0;/* 0x1faa — no slot */
+		}
+	} else {
+		*((unsigned char *)rec + 7) = 0;        /* 0x1faa — -12194 <= 1 */
+	}
+	*((unsigned char *)rec + 8) = 0;                /* 0x1fb6 */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
