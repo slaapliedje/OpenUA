@@ -573,6 +573,18 @@ propagate(type 3). All JT slots (jt406/jt397/jt413) pre-lifted. Codegen 1889,
 tests 129/1. l1a36 unblocks l178c (last mid-tier blocker). NEXT: l178c, then
 l0a32 and the 12 direct stubs.
 
+**jt258n DONE — l178c (record unlink + chain repair), full lift ~424 insn.**
+Stage the append slot into rec+18 (jt406 swap ABI), clear map[v-1][3]=0 unless
+rec[12] bit5, l1a36 remove the element, then rebuild: if a next entry existed
+re-stage rec+18 into the new append slot and l1cf0 flush; else when rec[18]==0
+clear neighbour cell map[next[1]-1][rec[20]] and set rec[8]=1. Two jt406 copies
+(both swap-ABI verified: call1 Mac src=slot -> port jt406(rec+18,slot,4); call2
+Mac src=rec+18 -> port jt406(nxt,rec+18,4)). Returns the removed value byte on
+success, 0 on failed remove/flush. Uses l1ad2/l1b30/l1934/l1c10/l1a36/l1cf0 (all
+lifted) + jt406. Codegen 1889, tests 129/1. **MID TIER COMPLETE** — the array +
+chain-edit layer is fully lifted. NEXT: the top helpers l0a32/l0ade/lce2/l1568/
+l1084/l1686/l1e8a, then the 12 direct stub bodies.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
