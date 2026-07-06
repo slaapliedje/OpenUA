@@ -385,12 +385,15 @@ jt242's main dispatch is **JT[3] @0x58ce (min=0, max=2, default)** — a 3-way +
 default cell-edit sub-command; 5 JT[3] switches total (0x58ce/5986/5a32/5de6/
 66d2).
 
-**C2 progress (2026-07-06):** l5a06 (tally), l5dc8 (preview-paint), l5ee2 (bulk
-wall-replace), l6136 + l61c6_c11 (bulk cell-code A/B replace) all LIFTED. The
-only remaining helper is **l5b0e** — a modal confirm dialog (linkw #-62, ~200
-insn: prompt draw, two l5dc8 preview-paints, a jt456/l2d3e keypress poll loop
-with the -24139 selection-live flag and keys 13/27/96, 8 STRS strings). A
-mini-project in its own right; do it as one focused step, then jt242 proper.
+**C2 COMPLETE (2026-07-06) — jt242 fully lifted.** Helpers: l5a06 (tally),
+l5dc8 (preview-paint), l5ee2 (bulk wall-replace), l6136 + l61c6_c11 (cell-code
+A/B replace), l5b0e (the modal confirm dialog — 8 STRS strings, jt456/l2d3e poll
+loop). jt242 proper (l589a): read old value per kind (JT[3] @0x58ce), tally +
+confirm (l5a06/l5b0e), then apply the bulk edit per kind (JT[3] @0x5986 →
+l5ee2/l6136/l61c6_c11) and mark desc[3] bit 0 dirty. ABI: jt242(cmd, desc=long*
+result/flags, area=the cell record). jt_progress: jt242 no longer a stub
+(1175 done / 16 stub). **NEXT: C5+ = jt243** (l0b26, the 5216-insn / ~40-fn GEO
+editor MAIN dispatcher — the last big depth block, multi-session).
 
 **Dependencies: ALL LIFTED.** Its JT vocabulary is the shared painter/text
 library (jt76/108/112/117/148/179/272/273/277/280–288/293/298/300/303/306/
