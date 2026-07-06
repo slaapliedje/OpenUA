@@ -73304,8 +73304,83 @@ static void l042a(void *rec, short a1, short a2, short a3)
 /* jt258 case-5 L0102 bit-test-chain handlers — one per rec[12]/rec[13] flag.
  * PROBE-only stubs for now; each body lifts in a later commit. l2156/l22b6
  * return a status the chain branches on (0 from the stub). */
+/* L0ade (CODE 2 + 0xade) — the event-editor MAIN screen + modal loop (jt258
+ * case-5 "high-bit" path). Sets up the screen (jt108/jt112/jt84 cursor+redraw,
+ * l1568 status footer, jt447 frame, jt179/jt148 prompt, the jt452 DLItem stream
+ * of clickable cells, l1eb2 cursor finalize, jt444 item toggles, jt449/jt117),
+ * then loops: redraw the event triplet (l1084), poll an event (l2d3e = jt456,
+ * idling via jt1067 while none), classify it (jt152); a non-negative class runs
+ * lce2 directly, else JT[3] @0xc60 maps the arrow/enter keys (8/9 -> 136/132,
+ * 10 -> 3, 11/12 -> 134/130, setting the -24139 selection flag) into lce2. Loops
+ * until rec@10 (the committed event type) is non-zero, then jt451 cleanup. */
 static void  l0ade(void *rec) __attribute__((unused));
-static void  l0ade(void *rec) { PROBE("L0ade"); (void)rec; }
+static void  l0ade(void *rec)
+{
+	short key, cls;
+
+	PROBE("L0ade");
+	/* --- screen setup --- */
+	jt108(1);                               /* 0xae6 */
+	jt112(1);                               /* 0xaf0 */
+	jt84();                                 /* 0xaf6 */
+	l1568();                                /* 0xafe — status footer (ignores its arg) */
+	jt447();                                /* 0xb04 */
+	jt179(6);                               /* 0xb0c */
+	jt148(g_a5_long(-13952),                /* 0xb1e — prompt */
+	      (char *)(uintptr_t)g_a5_long(-10624), 1);
+	jt452((long)5, (long)8008, (long)8004, (long)12, (long)153,     /* 0xbc0 — DLItem stream */
+	          (long)41, (long)11, (long)20,
+	      (long)5, (long)8048, (long)8004, (long)12, (long)153,
+	          (long)41, (long)7, (long)20,
+	      (long)5, (long)8024, (long)8004, (long)20, (long)153, (long)20,
+	      (long)5, (long)8024, (long)8000, (long)20, (long)4,
+	          (long)41, (long)9, (long)20,
+	      (long)5, (long)8024, (long)8156, (long)20, (long)4,
+	          (long)41, (long)5, (long)20,
+	      (long)0);
+	l1eb2(rec);                             /* 0xbcc */
+	if (*((unsigned char *)rec + 7) == 0) { /* 0xbd6 */
+		jt444(7, 16, 0, 0);             /* 0xbe4 */
+		jt444(11, 16, 0, 0);            /* 0xbf2 */
+		jt444(12, 16, 0, 0);            /* 0xc00 */
+	}
+	jt449(1);                               /* 0xc0a */
+	jt112(0);                               /* 0xc12 */
+	jt117();                                /* 0xc18 — once, before the loop */
+
+	/* --- modal loop --- */
+	do {
+		l1084(rec);                     /* 0xc1c — redraw the event triplet */
+		key = l2d3e();                  /* 0xc2c — jt456 event poll */
+		while (key < 0) {               /* 0xc36 */
+			jt1067();               /* 0xc28 — idle */
+			key = l2d3e();
+		}
+		cls = jt152(key);               /* 0xc38 — classify */
+		if (cls >= 0) {                 /* 0xc48 */
+			lce2(rec, cls);         /* 0xc52 */
+		} else {
+			switch (key) {  /* JT[3] @0xc60 (min=8, max=12) */
+			case 8:  /* 0xc74 (shared with 9) */
+			case 9:
+				g_a5_byte(-24139) = 1;
+				lce2(rec, (short)(key == 8 ? 136 : 132));
+				break;
+			case 10: /* 0xc9a */
+				lce2(rec, 3);
+				break;
+			case 11: /* 0xcaa (shared with 12) */
+			case 12:
+				g_a5_byte(-24139) = 1;
+				lce2(rec, (short)(key == 11 ? 134 : 130));
+				break;
+			default: /* 0xcce */
+				break;
+			}
+		}
+	} while (*(short *)((char *)rec + 10) == 0);     /* 0xcce */
+	jt451();                                /* 0xcda */
+}
 static void  l222c(void *rec);          /* forward — full body below in this block */
 /* L2156 (CODE 2 + 0x2156) — normalize after a range edit. Clear rec[13] bit 5;
  * if rec[15] names a record whose append-slot value differs, patch its map link
