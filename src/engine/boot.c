@@ -72814,6 +72814,37 @@ static void l1686(void *rec)
 	l1954((char *)rec + 22);                /* 0x1692 */
 }
 
+/* L1fbe (CODE 2 + 0x1fbe) — step the record's row cursor rec[7] in a direction
+ * and re-propagate. No-op if rec[7]==0. With flag==0 first pop the array top
+ * (l1af8 mode 1; bail if empty). Then: dir!=0 decrements rec[7], wrapping 0 ->
+ * -12193 anchor; dir==0 increments, wrapping past -12194 count -> 1. Reset the
+ * secondary cursor (l1934), propagate the row's map byte (l1c10 with
+ * g_a5_buf(-12090)[rec[7]]), and push a fresh slot (l1b30 mode 1). */
+static void l1fbe(void *rec, short dir, short flag) __attribute__((unused));
+static void l1fbe(void *rec, short dir, short flag)
+{
+	PROBE("L1fbe");
+	if (*((unsigned char *)rec + 7) == 0)   /* 0x1fc6 */
+		return;                         /* 0x2078 */
+	if ((flag & 0xFF) == 0) {               /* 0x1fce — flag byte */
+		if (l1af8((char *)rec + 22, 1) == NULL) /* 0x1fe0 — pop top */
+			return;                 /* 0x1fe8 */
+	}
+	if (dir & 0xFF) {                       /* 0x1fec — decrement */
+		*((unsigned char *)rec + 7) -= 1;               /* 0x1ff6 */
+		if (*((unsigned char *)rec + 7) < 1)            /* 0x2004 — hit 0 */
+			*((unsigned char *)rec + 7) =
+			    g_a5_byte(-12193);                  /* 0x200a — wrap to anchor */
+	} else {                                /* 0x2018 — increment */
+		*((unsigned char *)rec + 7) += 1;               /* 0x201c */
+		if (*((unsigned char *)rec + 7) > g_a5_word(-12194))    /* 0x202a */
+			*((unsigned char *)rec + 7) = 1;        /* 0x2032 — wrap to 1 */
+	}
+	l1934(rec);                             /* 0x203a — secondary-cursor reset */
+	l1c10(rec, (short)g_a5_buf(-12090)[*((unsigned char *)rec + 7)]);  /* 0x2060 */
+	l1b30((char *)rec + 22, 1);             /* 0x2072 — push a fresh slot */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
