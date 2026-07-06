@@ -403,10 +403,18 @@ navigation vs f6-position navigation vs field-toggle; all comparisons keep the
 asm's signed(f6)/unsigned(f8-byte) mix. Verified each arm's fp4 assignment
 push-by-push against 0x387c-0x3ada.
 
-**Remaining jt249 (fill):** only the L3b2a pointer/special block (0x3b2a, reached
-when jt152 returns < 0): fp4<16 -> slot pick (unhighlight f8 via l3e1e(,8), set
-f8 = fp4 low byte, l3e1e(,15)); 17<=fp4<=32 -> field cycle (f77 = arr94[f6]);
-else g_a5(-10372) Return(13)->fp2=0 / ESC(27)->fp2=1. That closes jt249.
+**jt249k DONE — L3b2a pointer/special block; jt249 is a FULL LIFT.** The fp2<0
+handler: fp4<16 -> slot pick (if f8!=fp4: l3e1e(f8,8) unhighlight, f8=fp4,
+l3e1e(f8,15) highlight); fp4==16 || fp4>32 -> the g_a5_word(-10372) key check
+(13->fp2=0, 27->fp2=1); 17..32 -> field cycle (f77 = arr94[f6]). Slot-pick and
+field-cycle leave fp2<0 so the loop continues; the key check can set fp2>=0 to
+exit.
+
+**jt249 COMPLETE** — full lift across 11 commits (jt249a prologue → jt249k). The
+CODE 2 event-editor cluster now has jt254, jt253, jt248, and jt249 all lifted;
+helpers l3c18/l3c5e/l3cbe/l3d90/l3e1e added. Whole cluster DCE'd (unreferenced
+until the CODE 22 design-editor dispatcher @0x0096 is lifted), codegen holds
+1889. Next Phase B target: **jt258 (l0004, 2808, the event-editor MAIN)**.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
