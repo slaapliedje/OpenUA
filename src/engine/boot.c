@@ -71716,7 +71716,52 @@ static short jt248(short a8, long *desc)
 		break;
 	case 3:  /* TODO: L2cbe — "%s %d: %d,%d %s" per-cell arm (rec -12300) */
 		break;
-	case 5:  /* TODO: L2b9a — nested-JT[3] "%s %s %s?" arm */
+	case 5:
+		/* L2b9a — the nested-JT[3] arm (8 fixed rec-array entries). Installs
+		 * the jt246 selection hook (p136 = &jt246, stashed by the tail's
+		 * jt168), then an inner JT[3] on *desc bits 8-9 picks the title
+		 * source: key 1 -> str12=-10704; key 2 -> str12=-10800 plus a
+		 * "%s %s %s?" prompt rebuild into buf62; default -> neither. The 8
+		 * nodes are then filled from the -12300 event record's 16-byte name
+		 * fields (rec + loop8*16 + 134) via jt406 (Mac (src,dst) SWAPPED to
+		 * the memmove dst,src order), null-terminated at cursor+21, with the
+		 * -10604 "#%d" fallback when the name is empty. */
+		p136 = (void *)jt246;                           /* lea a5@(2002) */
+		cnt124 = 8;
+		lo113 = 0;
+		loop8 = (short)((sub & 48) >> 4);               /* inner JT[3] key */
+		sub = (short)(sub & 15);
+		if (sub != 0 && sub <= cnt124)
+			idx122 = (short)(sub - (lo113 & 0xFF));
+		switch (loop8) {                    /* JT[3] @0x2be2 (min=1 max=2) */
+		case 1:                                         /* 0x2bf0 */
+			str12 = g_a5_long(-10704);
+			break;
+		case 2:                                         /* 0x2bf8 */
+			str12 = g_a5_long(-10800);
+			jt394(buf62, ua_strs_at(0x2c0a) /* "%s %s %s?" */,
+			      g_a5_long(-10800), g_a5_long(-10740),
+			      (long)g_a5_longs(-10956)[type]);
+			break;
+		default:                                        /* 0x2c28 */
+			break;
+		}
+		jt167(cnt124, (long)(intptr_t)&list_holder);
+		cursor128 = list_holder;
+		loop8 = (short)(lo113 & 0xFF);
+		while (cursor128 != NULL) {
+			jt406((char *)cursor128 + 5,
+			      (const void *)(uintptr_t)(g_a5_long(-12300)
+			          + (long)loop8 * 16 + 134), (short)16);
+			((unsigned char *)cursor128)[21] = 0;
+			if (((unsigned char *)cursor128)[5] == 0)
+				jt394((char *)cursor128 + 5,
+				      (const char *)(uintptr_t)g_a5_long(-10604),
+				      (short)(loop8 + 1));
+			((unsigned char *)cursor128)[4] = 0;
+			cursor128 = *(void **)cursor128;
+			loop8++;
+		}
 		break;
 	case 6:
 	case 7:  /* TODO: L2a36 — sub=(*desc&4080)>>4 arm */
