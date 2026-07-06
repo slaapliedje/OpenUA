@@ -71714,7 +71714,43 @@ static short jt248(short a8, long *desc)
 			loop8++;
 		}
 		break;
-	case 3:  /* TODO: L2cbe — "%s %d: %d,%d %s" per-cell arm (rec -12300) */
+	case 3:
+		/* L2cbe — the per-cell coordinate arm. 8 nodes labeled from the
+		 * -12300 event record's 4-byte-strided cell entries: each is
+		 * "%s %d: %d,%d %s" = <-10636 label> <N>: <cell[15]>,<cell[14]>
+		 * <direction>. The direction string is f116-gated: f116 set -> the
+		 * empty string @0x2c24 (dead here, f116 is 0 until the tail); f116
+		 * clear -> g_a5_longs(-10924)[(cell[16] & 6) >> 1] (same facing table
+		 * the type-3 prologue prompt uses). idx122 = sub (bge: only when
+		 * 1 <= sub < 8). No jt349, f117 stays 0 (tail clamp skipped). */
+		cnt124 = 8;
+		lo113 = 0;
+		if (sub != 0 && sub < cnt124)
+			idx122 = sub;
+		str12 = g_a5_long(-11008);
+		jt167(cnt124, (long)(intptr_t)&list_holder);
+		cursor128 = list_holder;
+		loop8 = (short)(lo113 & 0xFF);
+		while (cursor128 != NULL) {
+			unsigned char *cell = (unsigned char *)(uintptr_t)
+			    (g_a5_long(-12300) + (long)loop8 * 4);
+			const char *strval;
+			if (f116 != 0)
+				strval = ua_strs_at(0x2c24) /* "" */;
+			else
+				strval = (const char *)(uintptr_t)
+				    g_a5_longs(-10924)[(cell[16] & 6) >> 1];
+			jt394((char *)cursor128 + 5,
+			      ua_strs_at(0x2c14) /* "%s %d: %d,%d %s" */,
+			      g_a5_long(-10636),
+			      (short)(loop8 + 1),
+			      (short)cell[15],
+			      (short)cell[14],
+			      strval);
+			((unsigned char *)cursor128)[4] = 0;
+			cursor128 = *(void **)cursor128;
+			loop8++;
+		}
 		break;
 	case 5:
 		/* L2b9a — the nested-JT[3] arm (8 fixed rec-array entries). Installs
