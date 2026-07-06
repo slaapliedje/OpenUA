@@ -72026,14 +72026,65 @@ static void l3d90(short idx)
 	jt1134();
 }
 
+/* L3e1e (CODE 2 + 0x3e1e, frame -8) — draw the highlight OUTLINE (four thin
+ * jt1161 bars) around grid slot idx, filled with `fill`. Two layout variants
+ * on jt1200(): the vertical (==3) path first nudges the column axis by a JT[3]
+ * @0x3e5a on (idx-1)%5 (cases 0/1 -> +1, case 4 -> -1, 2/3/default -> none) to
+ * square up the grid edges, then draws the 4 bars off (o2 row, o4 col, o6=o2+16,
+ * o8=o4+17); the horizontal path draws off (o2, o4, o6=o2+16, o8=o4+12). Called
+ * from jt249 at 0x373e with fill=15. */
+static void l3e1e(short idx, short fill) __attribute__((unused));
+static void l3e1e(short idx, short fill)
+{
+	short o2, o4, o6, o8;   /* fp@(-2)/fp@(-4) l3cbe coords, fp@(-6)/fp@(-8) */
+
+	PROBE("L3e1e");
+	if (jt1200() == 3) {
+		unsigned char b = (unsigned char)idx;
+		l3cbe(idx, &o2, &o4);
+		switch ((short)((unsigned short)(b - 1) % 5)) {  /* JT[3] @0x3e5a */
+		case 0:
+		case 1:
+			o4 = (short)(o4 + 1);
+			break;
+		case 4:
+			o4 = (short)(o4 - 1);
+			break;
+		default:                                         /* 2, 3 */
+			break;
+		}
+		o6 = (short)(o2 + 16);
+		o8 = (short)(o4 + 17);
+		jt1161((short)(o2 + 11), (short)(o4 - 3), (short)(o2 + 12),
+		       (short)(o8 - 1), fill);
+		jt1161((short)(o2 + 12), (short)(o8 - 2), (short)(o6 + 12),
+		       (short)(o8 - 1), fill);
+		jt1161((short)(o6 + 12), (short)(o4 - 3), (short)(o6 + 13),
+		       (short)(o8 - 1), fill);
+		jt1161((short)(o2 + 12), (short)(o4 - 3), (short)(o6 + 12),
+		       (short)(o4 - 2), fill);
+	} else {
+		l3cbe(idx, &o2, &o4);
+		o6 = (short)(o2 + 16);
+		o8 = (short)(o4 + 12);
+		jt1161((short)(o2 - 2), (short)(o4 - 2), o2,
+		       (short)(o8 + 2), fill);
+		jt1161(o2, o8, o6, (short)(o8 + 2), fill);
+		jt1161(o6, (short)(o4 - 2), (short)(o6 + 2),
+		       (short)(o8 + 2), fill);
+		jt1161(o2, (short)(o4 - 2), o6, o4, fill);
+	}
+}
+
 /* JT[249] (CODE 2 + 0x333a = entry_jt249, frame -98) — a large interactive
  * event-editor screen (sibling of jt248, one command up in the CODE 22
  * design-editor dispatcher). LEVEL-2 SKELETON (ADR-0002): the prologue is fully
  * lifted here — the JT[2] type dispatch that builds the two prompt strings, the
  * *desc field unpack, the 16-entry display-reorder table, and the position
- * search. The body — the frame/field draw (jt447/jt1200/jt452 + the L3cbe
- * helper), the two inner JT[3] dispatches (0x3862, 0x3e5a), the modal pick
- * loop, and the jt1161 redraw tail — is DEFERRED. See docs/event-editor-wall.md.
+ * search, the static screen draw, and the redraw helper cluster (l3c18, l3c5e,
+ * l3cbe, l3d90, l3e1e — the last with its own JT[3] @0x3e5a). Still DEFERRED:
+ * the dynamic redraw block (0x3714) and the input wait + the single main-body
+ * JT[3] @0x3862 command dispatch (0x37ee-0x3c16). See docs/event-editor-wall.md.
  *
  * Called jt249(short a8, long *desc, long *p14) from CODE 22+0x02aa with
  * p14 = NULL; desc = &caller_struct[8]. *desc low nibble = type; the JT[2]

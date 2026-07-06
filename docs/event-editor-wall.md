@@ -365,11 +365,20 @@ else a jt1161 box (o6-4,o4+4,o6,o4+8) fill=idx; then jt357(o2,o4,idx,3) places
 the content and jt1134 commits. Both DCE'd (their redraw-block callers are
 deferred).
 
-**Remaining jt249 body (fill order):** the redraw block 0x3714-0x37ea (loop1
-l3d90 per slot; l3e1e(f8,15) once; loop2 l3c5e per slot in the horizontal
-layout; 3 jt1089 text draws) → the input wait + JT[3] @0x3862 command dispatch +
-arms + loop-back/exit (0x37ee-0x3c16). Lift l3e1e (large, own JT[3]) before the
-redraw block.
+**jt249g DONE — l3e1e, the highlight-outline helper.** l3e1e(short idx, short
+fill): draws four thin jt1161 bars outlining grid slot idx. Vertical layout
+(jt1200()==3) first nudges the column axis via JT[3] @0x3e5a on (idx-1)%5
+(jt3_extract: min=0 max=4; cases 0/1 → o4+1, case 4 → o4-1, 2/3/default → none),
+then draws off (o2, o4, o6=o2+16, o8=o4+17); horizontal draws off (o2, o4, o6,
+o8=o4+12). fill = fp@(10) = the caller's word arg (15) — this is the fp@(10)
+that read as a word, NOT jt249's desc. All 8 bar-coords verified push-by-push.
+The whole redraw helper cluster (l3c18/l3c5e/l3cbe/l3d90/l3e1e) is now lifted.
+
+**Remaining jt249 body (fill order):** the dynamic redraw block 0x3714-0x37ea
+(loop1 l3d90 per slot; l3e1e(f8,15) once; loop2 l3c5e per slot in the horizontal
+layout; 3 jt1089 text draws) → the input wait + the single main-body JT[3]
+@0x3862 command dispatch + arms + loop-back/exit (0x37ee-0x3c16). One block per
+commit; all helpers are now available.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
