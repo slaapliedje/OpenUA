@@ -711,6 +711,17 @@ c!=0 else "!" (0x2bb0), drawn centred (jt423) at xconst+16. jt4=mul jt7=div arit
 lifted (l31cc_c2/jt194/jt227/jt4/jt7/jt394/jt423/jt1089). Codegen 1889, tests
 129/1. NEXT: l1084 (l12e8 + jt444 2-arg), then l0ade -> l0a32 -> last 3 stubs.
 
+**jt258z DONE — l1084 (event-cell triplet renderer).** Paints from/event/to cells
+across 3 columns. Peeks head (l1af8), append (l1ad2), preview-next (l1b30);
+toggles dialog items via jt444(item,cmd,0,0) [4-arg dispatch, Mac pushes 2 words,
+method reads only cmd, b/c unused per resolution]; draws each column header
+(jt1089) + box + l12e8 body (flags 1/0/-1). Column 2 labels the step count via
+jt488(g_a5(-10544), rec[7], -12194) into "%s %s". STRS 0x2b46="%s %s"/0x2b4c=""
+(rfork). jt488 IS lifted (const char* jt488(fmt,...), line 839). All callees
+lifted (l1af8/l1ad2/l1b30/jt444/jt1089/jt488/jt1161/l12e8). Codegen 1889, tests
+129/1. **ALL of l0ade's renderer subtree is now lifted.** NEXT: l0ade (450 insn,
+its callees l1568/l1eb2/l1084/lce2/l0622... + a5 slots — verify), then l0a32.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 

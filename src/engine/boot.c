@@ -73217,6 +73217,81 @@ static void l1568(void)
 	}
 }
 
+/* L1084 (CODE 2 + 0x1084) — paint the event-cell triplet (from / event / to)
+ * across the editor's three columns. Peeks the array head (l1af8), append slot
+ * (l1ad2) and preview-next (l1b30), toggles the matching dialog items via jt444,
+ * then draws each column: a header label (jt1089), an active/inactive box + the
+ * l12e8 cell body (flags 1 / 0 / -1). The middle column labels the current step
+ * count via jt488 into "%s %s". jt444 here is the 4-arg DLItem dispatch but the
+ * Mac sites push only 2 words -> call jt444(item, cmd, 0, 0) (the dispatched
+ * method reads only cmd; b/c are unused). */
+static void l1084(void *rec) __attribute__((unused));
+static void l1084(void *rec)
+{
+	void *e0, *e1, *e2;
+	short y, x, color;
+	const char *s;
+
+	PROBE("L1084");
+	e0 = l1af8((char *)rec + 22, 0);        /* 0x1092 — head entry (peek) */
+	if (e0 != NULL) {                       /* 0x109e */
+		jt444(2, 24, 0, 0);             /* 0x10a8 */
+		jt444(8, 24, 0, 0);             /* 0x10b6 */
+	} else {
+		jt444(2, 16, 0, 0);             /* 0x10be */
+		jt444(8, 16, 0, 0);             /* 0x10cc */
+	}
+	e1 = l1ad2((char *)rec + 22);           /* 0x10e2 — append slot */
+	e2 = l1b30((char *)rec + 22, 0);        /* 0x10f6 — preview next */
+	if (e2 != NULL || *((unsigned char *)e1 + 1) != 0) {    /* 0x1102/0x1108 */
+		jt444(3, 24, 0, 0);             /* 0x110e */
+		jt444(9, 24, 0, 0);
+	} else {
+		jt444(3, 16, 0, 0);             /* 0x112c */
+		jt444(9, 16, 0, 0);
+	}
+	if (*((unsigned char *)e1 + 1) != 0) {  /* 0x114c */
+		jt444(4, 24, 0, 0);             /* 0x1152 */
+		jt444(6, 24, 0, 0);
+		jt444(10, 24, 0, 0);
+	} else {
+		jt444(4, 16, 0, 0);             /* 0x117e */
+		jt444(6, 16, 0, 0);
+		jt444(10, 16, 0, 0);
+	}
+	y = 8004;                               /* 0x11a8 */
+
+	/* Column 1 — the "from" cell (e0). */
+	x = 8008;                               /* 0x11ae */
+	color = e0 ? 135 : 128;                 /* 0x11b4 */
+	jt1089(x, y, color,
+	       (const char *)(uintptr_t)g_a5_long(-10552));     /* 0x11d2 */
+	l12e8(rec, e0, (short)(x + 4), y, 1);   /* 0x11f2 */
+
+	/* Column 2 — the event itself (e1); labels the step count via jt488. */
+	x = 8024;                               /* 0x11fa */
+	if (*((unsigned char *)rec + 7) != 0)   /* 0x1204 */
+		s = jt488((const char *)(uintptr_t)g_a5_long(-10544),
+		          (short)*((unsigned char *)rec + 7),
+		          g_a5_word(-12194));   /* 0x121e */
+	else
+		s = ua_strs_at(0x2b4c) /* "" */;        /* 0x1226 */
+	jt1089(x, y, 139, ua_strs_at(0x2b46) /* "%s %s" */,
+	       (const char *)(uintptr_t)g_a5_long(-10548), s);  /* 0x1246 */
+	l12e8(rec, e1, (short)(x + 4), y, 0);   /* 0x1264 */
+
+	/* Column 3 — the "to" cell (e2). */
+	x = 8048;                               /* 0x126c */
+	if (e2 != NULL) {                       /* 0x1276 */
+		color = (*((unsigned char *)e2 + 1) != 0) ? 135 : 128;  /* 0x127c */
+		jt1089(x, y, color,
+		       (const char *)(uintptr_t)g_a5_long(-10540));     /* 0x129a */
+	} else {
+		jt1161(x, y, (short)(x + 4), 8156, 8);  /* 0x12bc — empty box */
+	}
+	l12e8(rec, e2, (short)(x + 4), y, -1);  /* 0x12dc */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
