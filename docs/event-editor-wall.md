@@ -528,6 +528,18 @@ tests 129/1. With these the bottom leaf layer is done; NEXT = the mid-level
 helpers that call them (l0a32, l09d6, l0910, l06cc, l19f2, l1ba4, l1cf0, ...),
 then the direct stubs.
 
+**jt258j DONE — event-array structural primitives (2nd leaf tier).** Five more
+pure leaves on the same array header {count@0, tail-index@2; elem@+4 stride 4}:
+l19f2 (append *src at ++index@2, bounds -1..28), l196c (ordered insert at
+count@0, shift tail up, index@2++), l1934 (secondary-cursor reset word@24=
+word@22), l1b70 (rewind &elem[0]; mode resets count@0=0), l1ba4 (&elem[index@2];
+mode commits count@0=index@2). CLASH: a CODE-16 spell helper already owns the
+bare name l1ba4 -> lifted the CODE-2 one as **l1ba4_c2** (_cNN rule). All DCE'd;
+codegen 1889, tests 129/1. The full array-primitive layer (l1ad2/l1af8/l1b30/
+l19f2/l196c/l1934/l1b70/l1ba4_c2) is now lifted. NEXT mid tier: l1cf0 (l1ad2/
+l1af8 + JT[3]@0x1d80), then l174a/l1c10/l178c/l169c/l1be4/l1e38 (all callees now
+lifted or nearly), working up toward l0a32 and the direct stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
