@@ -722,6 +722,19 @@ lifted (l1af8/l1ad2/l1b30/jt444/jt1089/jt488/jt1161/l12e8). Codegen 1889, tests
 129/1. **ALL of l0ade's renderer subtree is now lifted.** NEXT: l0ade (450 insn,
 its callees l1568/l1eb2/l1084/lce2/l0622... + a5 slots — verify), then l0a32.
 
+**jt258aa DONE — l0ade (event-editor MAIN screen + modal loop, 7th direct stub).**
+Screen setup: jt108(1)/jt112(1)/jt84 cursor+redraw, l1568 footer, jt447 frame,
+jt179(6)/jt148(prompt), jt452 DLItem stream (39 (long)-cast args = 5 shape-5 cell
+groups + 0 terminator; existing jt452 callers all cast (long)), l1eb2 finalize,
+jt444(7/11/12,16) toggles if rec[7]==0, jt449(1)/jt112(0)/jt117 once. Modal loop:
+l1084 triplet redraw, l2d3e (=jt456 ALIAS TRAP, both-directions) poll idling via
+jt1067, jt152 classify -> cls>=0 lce2(rec,cls) else JT[3]@0xc60 (8/9->136/132,
+10->3, 11/12->134/130, set -24139 flag) -> lce2; loop until rec@10 != 0, jt451
+cleanup. All JT slots lifted (jt108/112/84/447/179/148/452/449/117/1067/152/451 +
+l2d3e). Codegen 1889, tests 129/1. **7 of 12 direct stubs filled.** l0ade
+unblocks l0a32. NEXT: l0a32 (l1ad2/l1af8/l207c/l0ade all lifted) -> then l0622/
+l09d6/l07c6 (need l0a32) + l0524/l042a.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
