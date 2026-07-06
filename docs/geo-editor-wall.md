@@ -433,6 +433,17 @@ dispatcher as a level-2 skeleton, then fill. Decode all 22 JT[3] + 5 JT[1]
 tables with `jt3_extract`/`jt1_extract --jsr-at` (never hand-decode, #122).
 Realistically **6–10 sessions**.
 
+**C5 SCOPE (2026-07-06) — the 40-function subtree mapped.** Already lifted (6):
+l4144 l4226 l4268 l429c l476e l4810. jt243 (l0b26) fans out to l16ae/l16f4/l1958/
+l23de/l28d4/l36f6/l37d8/l4168 (+ lifted l4144/l476e). **l28d4 is the hub** (waits
+on l1a1c/l24b6/l2836/l2d40/l2dbe/l3380/l43c2). **18 unlifted leaves** (lift these
+first): l1626 l16f4 l1822 l1958 l1d10 l237c l23de l2414 l24b6 l3236 l36f6 l37d8
+l3ab0 l3d1a l3ddc l3e60 l41a0 l455c. **16 non-leaves** blocked on local deps.
+NB: some "leaves" call *external* CODE-11 helpers below 0xb26 that may be
+unlifted — e.g. l37d8 → l0742 (unlifted); check external pc-relative targets too.
+**C5a DONE:** l23de (set rec[20]/(rec+a2)[28], jt305 repaint). Next leaves:
+l16f4/l1958 (jt243-direct), then work up toward l28d4.
+
 (Already lifted this campaign: jt233/234/235/236/237/238/239/240/241/244 +
 l4226/l4268 — see `docs/area-map-wall.md`.)
 
