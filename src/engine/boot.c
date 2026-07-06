@@ -72101,6 +72101,8 @@ static short jt249(short a8, long *desc, long *p14)
 	unsigned char f77;          /* fp@(-77) *desc bits 8-11              */
 	short f6;                   /* fp@(-6)  found display position       */
 	short c74, c76;             /* fp@(-74)/fp@(-76) l3cbe slot coords   */
+	short fp2, fp4;             /* fp@(-2) key/pick, fp@(-4) new slot    */
+	unsigned char f9 = 0;       /* fp@(-9)  modal mode flag              */
 	unsigned char arr94[17];    /* fp@(-94) display-reorder table [1..16]*/
 	char buf52[64];             /* fp@(-52) primary prompt               */
 	char buf72[64];             /* fp@(-72) secondary prompt             */
@@ -72220,10 +72222,72 @@ static short jt249(short a8, long *desc, long *p14)
 	jt1089((short)(c74 + 4), (short)(c76 + 10), (short)135,
 	       (const char *)(uintptr_t)(g_a5_long(-11284) + 7));
 
-	/* BODY DEFERRED (level-2): the input wait + the single main-body JT[3]
-	 * @0x3862 command dispatch + arms + loop-back/exit (0x37ee-0x3c16).
-	 * Consumes f10. */
-	(void)f10;
+	/* L37ee — the modal input loop. Fetch an event, translate it, dispatch
+	 * navigation / Return / ESC, and on exit repack *desc. LEVEL-2: the loop
+	 * structure, the shared selection-apply (0x3ae0), and the exit repack are
+	 * lifted; the 8 per-key navigation arms (JT[3] @0x3862, keys 129-136 — each
+	 * computes a new slot fp4) and the L3b2a pointer/special handling are
+	 * DEFERRED. See docs/event-editor-wall.md. */
+	jt117();
+	if (f10 == 0) {
+		f9 = 0;
+		jt1130();
+	}
+	for (;;) {                              /* modal loop; top = L3806 */
+		do {                            /* fetch a valid event */
+			fp4 = l2d3e();          /* JT[456] event poll */
+			if (fp4 >= 0)
+				break;
+			jt1067();
+		} while (1);
+		fp2 = jt152(fp4);
+
+		if (fp2 < 0) {
+			/* L3b2a — pointer/special event: slot pick + field
+			 * cycle from the raw key. DEFERRED (level-2). */
+		} else if (g_a5_byte(-24139) != 0) {
+			if (fp2 == 13) {                /* Return -> accept */
+				fp2 = 0;
+			} else if (fp2 == 27 || fp2 == 96) {   /* ESC / ` -> cancel */
+				fp2 = 1;
+			} else {
+				fp4 = -1;
+				switch (fp2) {          /* JT[3] @0x3862 nav */
+				case 129: /* TODO L38ee */ break;
+				case 130: /* TODO L3a6a */ break;
+				case 131: /* TODO L39c0 */ break;
+				case 132: /* TODO L3954 */ break;
+				case 133: /* TODO L3ac4 */ break;
+				case 134: /* TODO L3a26 */ break;
+				case 135: /* TODO L3aac */ break;
+				case 136: /* TODO L387c */ break;
+				default:  jt1080(); break;   /* L3adc */
+				}
+				/* 0x3ae0 — apply the new selection (shared). */
+				if (fp4 >= 0 && (f10 != 0 || f9 == 0)) {
+					l3e1e((short)f8, (short)8);
+					f8 = (unsigned char)fp4;
+					l3e1e((short)f8, (short)15);
+				}
+				fp2 = -1;               /* 0x3b1c -> loop */
+			}
+			g_a5_byte(-24139) = 0;          /* L3b22 */
+		}
+		if (fp2 < 0)                            /* L3ba6 */
+			continue;
+		break;
+	}
+
+	/* L3bae — commit and repack *desc: low nibble = 1-fp2 (accept/cancel),
+	 * bits 4-7 = f8, bits 8-11 = f77 (the same layout the prologue unpacked). */
+	if (f10 == 0)
+		jt1148();
+	jt451();
+	{
+		short pack = (short)((f8 & 15) | ((f77 & 15) << 4));
+		*desc &= 0xFFFFF000L;
+		*desc |= (long)(short)((1 - fp2) | (pack << 4));
+	}
 	return a8;
 }
 
