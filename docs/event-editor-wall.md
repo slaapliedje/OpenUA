@@ -489,6 +489,20 @@ else l07c6(rec). Two new PROBE stubs added: l1e8a(short,short) (2 record-byte
 word args, ABI-ordered rec[19] then rec[14]) and l07c6(void*). Codegen 1889,
 tests 129/1. NEXT: case 10 (0x2a4), then the case-5/case-11 helper bodies.
 
+**jt258g DONE — top-level case 10 (0x2a4).** Same shape as case 11: rec[0]=rec[2]
+(0x2ac), save+clear rec@10 (0x2b4/0x2be), then JT[1] @0x2c8 (jt1_extract: keys
+10 -> 0x2dc, 4 -> 0x2e8, 6 -> 0x2e8, default -> 0x31a) on rec@10&63. case 10 ->
+l07c6(rec); cases 4/6 (shared arm) -> if *desc&15 then l0910(rec) else
+l09d6(rec,0). All three helpers were already stubbed (l07c6 from jt258f, l0910/
+l09d6 from jt258c). No new stubs. Codegen 1889, tests 129/1.
+
+**jt258 TOP-LEVEL DISPATCH COMPLETE.** All four command arms (case 5 open/edit,
+case 11, case 10, default) + the shared 0x31a epilogue are lifted; jt258 returns
+a real rec[0]. What remains is the HELPER BODIES — the ~12 PROBE stubs still
+faithful-lift bottom-up: case-5 (l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/
+l0722/l0622/l0524) + case-11/10 (l1e8a/l07c6). These are event-record
+serialization primitives; several are shared across the case arms.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 

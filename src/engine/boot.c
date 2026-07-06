@@ -72530,8 +72530,29 @@ static short jt258(short cmd, long *desc, void *out)
 		}
 		break;
 	}
-	case 10: /* TODO 0x02a4 — converges at 0x31a */
+	case 10: {  /* 0x2a4 */
+		char *r = (char *)rec;
+		short f2;
+
+		*(short *)r = *(short *)(r + 2);        /* 0x2ac — rec[0] = rec[2] */
+		f2 = *(short *)(r + 10);                /* 0x2b4 — save rec@10 */
+		*(short *)(r + 10) = 0;                 /* 0x2be — clear rec@10 */
+		switch (f2 & 63) {      /* JT[1] @0x2c8 (keys 10, 4, 6; default -> 0x31a) */
+		case 10: /* 0x2dc */
+			l07c6(rec);
+			break;
+		case 4:  /* 0x2e8 (shared with 6) */
+		case 6:
+			if ((*desc & 15L) != 0)         /* 0x2ee */
+				l0910(rec);             /* 0x2f8 */
+			else
+				l09d6(rec, 0);          /* 0x306 */
+			break;
+		default: /* -> 0x31a (converge) */
+			break;
+		}
 		break;
+	}
 	default: /* 0x30e — normalize: copy rec[2] over rec[0], fall to 0x31a. */
 		*(short *)rec = *(short *)((char *)rec + 2);
 		break;
