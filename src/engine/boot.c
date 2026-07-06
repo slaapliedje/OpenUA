@@ -72679,6 +72679,66 @@ static short l1e38(void *rec)
 	return ret;                             /* 0x1e82 */
 }
 
+/* L169c (CODE 2 + 0x169c) — ordered-insert the staged coord (l196c) then splice
+ * the record's link chain: copy the previewed next slot over the append slot
+ * (jt406, keeping the append slot's value byte), set map[value-1][3] = next[1] at
+ * g_a5_long(-13038), reset the next entry (next[0]=0, next[2]=3), and flush via
+ * l1cf0. Returns 0 if the insert overflowed, else l1cf0's status. */
+static short l169c(void *rec) __attribute__((unused));
+static short l169c(void *rec)
+{
+	void *slot, *next;
+	char *base = (char *)(uintptr_t)g_a5_long(-13038);
+
+	PROBE("L169c");
+	if (l196c((char *)rec + 22, (char *)rec + 18) == 0)  /* 0x16b0 — insert */
+		return 0;                                     /* 0x1744 */
+	slot = l1ad2((char *)rec + 22);         /* 0x16c4 — append slot */
+	next = l1b30((char *)rec + 22, 0);      /* 0x16d8 — preview next slot */
+	if (next != NULL) {                     /* 0x16e4 */
+		unsigned char save = *((unsigned char *)slot + 1);   /* 0x16ea */
+		jt406(slot, next, 4);           /* 0x16fc — copy next -> slot (swap ABI) */
+		*((unsigned char *)slot + 1) = save;                 /* 0x1708 — restore */
+		base[save * 20 - 17] =          /* 0x1722 — map[save-1][3] = next[1] */
+		    *((unsigned char *)next + 1);
+		*(unsigned char *)next = 0;     /* 0x172c — next[0] */
+		*((unsigned char *)next + 2) = 3;                    /* 0x1734 — next[2] */
+	}
+	return l1cf0(rec);                      /* 0x173c */
+}
+
+/* L1a36 (CODE 2 + 0x1a36) — remove the element at count@0, shifting the tail
+ * [count@0+1 .. index@2] down one slot, decrement index@2, then recompute count@0
+ * = jt397(0, jt413(count@0, index@2)). Guards index@2<0, count@0<0, count@0>=30
+ * -> 0; success -> 1. */
+static short l1a36(void *p) __attribute__((unused));
+static short l1a36(void *p)
+{
+	short *cnt = (short *)p;                 /* count@0 */
+	short *idx = (short *)((char *)p + 2);   /* index@2 */
+	short i;
+
+	PROBE("L1a36");
+	if (*idx < 0 || *cnt < 0 || *cnt >= 30)  /* 0x1a3e/0x1a4a/0x1a54 */
+		return 0;                        /* 0x1acc */
+	for (i = *cnt; i < *idx; i++)            /* 0x1a8e — shift tail down one slot */
+		*(long *)((char *)p + (long)i * 4 + 4) =
+		    *(long *)((char *)p + (long)(i + 1) * 4 + 4);
+	*idx -= 1;                               /* 0x1aa0 */
+	*cnt = jt397(0, jt413(*cnt, *idx));      /* 0x1ab2/0x1abc — recompute count */
+	return 1;                                /* 0x1ac8 */
+}
+
+/* L1be4 (CODE 2 + 0x1be4) — ordered-insert the staged coord (l196c), then
+ * propagate the chain with type 3 (l1c10). Returns l1c10's status. */
+static short l1be4(void *rec) __attribute__((unused));
+static short l1be4(void *rec)
+{
+	PROBE("L1be4");
+	l196c((char *)rec + 22, (char *)rec + 18);   /* 0x1bf8 — ordered insert */
+	return l1c10(rec, 3);                          /* 0x1c06 — propagate */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));

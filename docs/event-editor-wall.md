@@ -562,6 +562,17 @@ then restored. CLASH: l174a calls the renamed l1ba4_c2. All DCE'd; codegen 1889,
 tests 129/1. l1c10 unblocks l178c + l1be4. NEXT: l178c (needs l1a36 leaf),
 l1be4, l169c (a5@3282), then l0a32 and the direct stubs.
 
+**jt258m DONE — l169c / l1a36 / l1be4.** l169c (0x169c): ordered-insert staged
+coord (l196c) then splice the record chain — jt406(slot,next,4) [swap ABI: Mac
+top=next=src, slot=dst -> port jt406(dst=slot,src=next,4)] keeping slot's value
+byte, set map[value-1][3]=next[1] at g_a5_long(-13038), reset next[0]=0/next[2]=3,
+flush via l1cf0. l1a36 (0x1a36, leaf): remove elem at count@0, shift tail
+[count+1..index@2] down, index@2--, recompute count@0=jt397(0,jt413(count,index));
+guards index@2<0/count@0<0/count@0>=30. l1be4 (0x1be4): l196c insert + l1c10
+propagate(type 3). All JT slots (jt406/jt397/jt413) pre-lifted. Codegen 1889,
+tests 129/1. l1a36 unblocks l178c (last mid-tier blocker). NEXT: l178c, then
+l0a32 and the 12 direct stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
