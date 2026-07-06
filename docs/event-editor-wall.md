@@ -481,6 +481,14 @@ degenerate JT[1] @0x34c (0 cases) -> `*desc |= (long)(short)rec@10`; case 11
 11 (0x204) / 10 (0x2a4); (3) the case-5 helper stubs lifted bottom-up
 (l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/l0722/l0622/l0524).
 
+**jt258f DONE — top-level case 11 (0x204).** rec[0]=rec[2] (0x20c), save+clear
+rec@10 (0x214/0x21e), then JT[3] @0x228 (jt3_extract: min=1 max=1; case 1 ->
+0x234, default -> 0x31a) on rec@10&15. case 1: if *desc&15 -> stash (*desc&0xff0)
+>>4 into rec[14], call l1e8a(rec[19], rec[14]), rec@10=rec[19], retype rec[0]=5;
+else l07c6(rec). Two new PROBE stubs added: l1e8a(short,short) (2 record-byte
+word args, ABI-ordered rec[19] then rec[14]) and l07c6(void*). Codegen 1889,
+tests 129/1. NEXT: case 10 (0x2a4), then the case-5/case-11 helper bodies.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
