@@ -381,11 +381,23 @@ then two "%ss:" column headers (jt1089 @8014,8096 / @8014,8010 with g_a5(-10744)
 (-10816)) and the active-field label (l3c18 slot 8 -> jt1089 @c74+4,c76+10 of the
 -11284 buffer + 7). f8 is consumed here. All 5 helpers now have live callers.
 
-**Remaining jt249 body (fill order):** the input wait + the single main-body
-JT[3] @0x3862 command dispatch + arms + loop-back/exit (0x37ee-0x3c16). This is
-the interactive half: jt117, the event fetch (jt3682) + key translate (jt1250),
-the ESC/backtick/Return handling, then JT[3] @0x3862 on the command, arms, and
-the loop back to L3714 (redraw) or the exit repack. Consumes f10.
+**jt249i DONE — the modal input-loop skeleton (0x37ee-0x3c16).** jt117 + the
+one-time jt1130 setup; the fetch loop (l2d3e=JT[456] event poll, retry via
+jt1067); jt152 key translate; the Return(13)→fp2=0 / ESC(27)|backtick(96)→fp2=1
+preprocess (gated on g_a5(-24139)); the JT[3] @0x3862 nav scaffold (keys 129-136
++ default jt1080); the SHARED selection-apply @0x3ae0 (fp4>=0 && (f10||!f9):
+l3e1e(f8,8) unhighlight → f8=fp4 → l3e1e(f8,15) highlight; fp2=-1 to loop); the
+L3ba6 loop test (fp2<0 loops, else exits); and the full L3bae *desc repack (low
+nibble = 1-fp2, bits 4-7 = f8, bits 8-11 = f77 — mirrors the prologue unpack).
+NOTE: jt456 is lifted as l2d3e (both-directions alias trap). DEFERRED: the 8
+per-key nav computations (each sets fp4) and the L3b2a pointer/special handling.
+jt249's main body is now STRUCTURALLY COMPLETE.
+
+**Remaining jt249 (fill):** the 8 JT[3] nav arms (129→L38ee, 130→L3a6a, 131→
+L39c0, 132→L3954, 133→L3ac4, 134→L3a26, 135→L3aac, 136→L387c — each computes the
+new slot fp4 from f8/f77/f6/f9/f10 then applies via 0x3ae0), and the L3b2a
+pointer/special block (0x3b2a: fp4<16 slot pick + l3e1e; 17..32 field cycle via
+arr94[f6]; g_a5(-10372) Return/ESC). One arm-group per commit.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
