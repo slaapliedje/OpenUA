@@ -735,6 +735,13 @@ l2d3e). Codegen 1889, tests 129/1. **7 of 12 direct stubs filled.** l0ade
 unblocks l0a32. NEXT: l0a32 (l1ad2/l1af8/l207c/l0ade all lifted) -> then l0622/
 l09d6/l07c6 (need l0a32) + l0524/l042a.
 
+**jt258bb DONE — l0a32 (case-5 dispatcher tail).** rec@12 &= 0xC000, rec[13] |=
+0x40; pick working entry = l1ad2 append slot (if rec[8]&&rec[7]) else l1af8 top;
+if entry: l207c(v,1), rec@10=v|0x600, retype 5; else l207c(0,1) + l0ade (open main
+screen). Forward-declared l0ade (full body later in block). All callees lifted.
+Codegen 1889, tests 129/1. l0a32 unblocks the LAST 3 direct stubs. NEXT: l0622,
+l09d6, l07c6 (all call l0a32), then l0524 + l042a = jt258 COMPLETE.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
