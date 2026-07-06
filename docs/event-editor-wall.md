@@ -777,14 +777,23 @@ still unreachable at runtime until the CODE 22 dispatcher @0x0096 wires it (only
 jt315 main menu is live) — that dispatcher is the next frontier for making the
 editor launchable.
 
-## CODE 22 design-editor command dispatcher — l0096_c22 LIFTED (2026-07-06)
+## CODE 22 design-editor command dispatcher — l0096 COMPLETED (2026-07-06)
 
-The dispatcher @0x0096 that wires the whole editor is now a full faithful lift
-(`l0096_c22` in boot.c — an l0096 already exists in another segment, so the
-_c22 suffix per the (CODE,offset) rule). It is CODE-local (`jsr pc@` from its
-0x0050 caller), NOT a jtN.
+The dispatcher @0x0096 (`l0096` in boot.c, CODE-local `jsr pc@`, NOT a jtN) is
+now a full 21-arm faithful lift. **It already existed as a 2-arm PARTIAL** —
+only cases 4/14 (jt251/jt241, the two handlers lifted at the time), everything
+else lumped into `default: stop`. This campaign completed all 21 arms and its
+caller was already present too (`l0004_22`, CODE 22 + 0x0004, the entry that
+clears the 342-byte ctx block via jt399, publishes ctx+6 to A5-11714, seeds the
+starting command per its own JT[3] @0x2e (arg 6→cmd4, 7→cmd2, 8→cmd8, 9→cmd7),
+then pumps l0096).  (PROCESS NOTE — the partial-lift trap struck twice: the
+first pass re-derived the complete dispatch as a duplicate `l0096_c22` on the
+false premise that `grep -c l0096`=2 meant a cross-segment clash, when it was
+this same function's def+call; the duplicate was folded back into the canonical
+`l0096` and deleted.  Always READ an existing same-offset lift before treating
+it as a different function OR before re-deriving it.)
 
-**Shape:** a modal command pump — `while (cmd->byte@0 == 0)` dispatch on
+**Shape:** a modal command pump — `while (ctx->byte@0 == 0)` dispatch on
 `cmd->word@4` through the THINK C JT[3] table @0x00aa (min=1, max=21, default),
 run the matching handler, feed its return back into word@4 as the next command.
 Command 1 and any out-of-range command set byte@0 and terminate. Epilogue each
@@ -817,16 +826,21 @@ pushes word@2=prior-command as arg1, &cmd@8 as arg2, a per-command 3rd arg):
 | 20 | **jt242** (stub) | &@16 |
 | 21 | jt264 | c@136=&@154; &@130 |
 
-**Only 2 handlers were missing** — jt242 (=l589a) and jt243 (=l0b26), both in
-the CODE 22 handler block; added as PROBE stubs (jt243 is a roadmap giant, a
-future full lift). The other 18 were already lifted. 2-arg port lifts (jt247/
-jt248/jt254 drop the pushed 0L; jt259 drops &@144) are called faithfully with
-their surplus pushed word omitted. Codegen holds 1889 (l0096_c22 unreferenced
-until the 0x0050 caller is lifted → DCE'd), tests 129/1.
+**Only 2 handlers were missing** — jt242 (=**CODE 11**+0x589a) and jt243
+(=**CODE 11**+0x0b26), both in the CODE 11 handler block (NOT CODE 22 — the
+`l0004=jt244…` alias block that lists them is under `### CODE 11`); added as
+PROBE stubs (jt243 is a roadmap giant, a future full lift). The l0004_22 header
+comment already correctly attributed jt243→CODE 11 / jt269,jt263→CODE 10. The
+other 18 were already lifted. 2-arg port lifts (jt247/jt248/jt254 drop the
+pushed 0L; jt259 drops &@144) are called faithfully with their surplus pushed
+word omitted. Codegen holds 1889 (l0096/l0004_22 both DCE'd — l0004_22 is
+`unused`, called by nothing yet), tests 129/1.
 
-**NEXT to make the editor launchable:** lift the 0x0050 caller (CODE 22) that
-pumps l0096_c22, then trace back to how jt315's main menu selects the design
-editor, and wire it. Also: the two new stubs jt242/jt243 want full lifts.
+**NEXT to make the editor launchable:** l0004_22 already exists but is marked
+`unused` — its header says it's "called locally from jt315 (CODE 22+0x5180/
+0x5266)", so the wiring step is to lift jt315's selection dispatch at those
+offsets and actually call l0004_22 from it. Also: the two stubs jt242/jt243
+(CODE 11) want full lifts.
 
 ## Method (same as jt259 / #153 so far)
 
