@@ -335,12 +335,18 @@ in the vertical layout). Then the selection cursor (jt452 shape 2, 16/35) at the
 found position &f6 — this is where f6 is consumed. All jt452 args cast (long)
 per the DLItem-stream convention.
 
-**Remaining jt249 body (fill order):** L35ea slot-LABEL loop (needs the l3c18
-helper at 0x3c18 — like l3cbe but a second coord variant; draws each slot's
-string from g_a5_longs(-11296)[arr94[j]] with the f7==8→7 quirk) → the prompt/
-list finalization 0x369c (jt423 center + jt452 shape 6 + jt179(2) + jt148 list +
-jt452 shape 7 with &jt245 + jt79) → JT[3] @0x3862 → modal region → JT[3] @0x3e5a
-→ the jt1161 redraw tail (0x3e6e-0x4022). One block per commit; lift l3c18 next.
+**jt249d DONE — l3c18 helper + the L35ea slot-label loop (0x35ea-0x3698).**
+l3c18(short idx, short *out1, short *out2): the label-coord sibling of l3cbe —
+*out1 = column X (idx'*4 + 8020), *out2 = fixed row Y (8097 vertical / 8090
+horizontal via jt1200()); slots 1..8 fold down by one (b=idx-1), 9..16 keep idx.
+The loop (for i=1..16): j=(i==8)?7:i, strptr = g_a5_longs(-11296)[arr94[j]],
+l3c18(i,&c74,&c76), len=jt423(strptr), off=jt397(0,15-len), then jt452 shape 3
+(c74, c76, strptr, 38, 135, 42, off, 20, 0) — the string left-padded to width 15.
+
+**Remaining jt249 body (fill order):** the prompt/list finalization 0x369c
+(jt423 center + jt452 shape 6 draws buf52 + jt179(2) + jt148 list from buf72 +
+jt452 shape 7 with &jt245 + jt79, then clrb f7) → JT[3] @0x3862 → modal region →
+JT[3] @0x3e5a → the jt1161 redraw tail (0x3e6e-0x4022). One block per commit.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
