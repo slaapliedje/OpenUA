@@ -72373,6 +72373,15 @@ static short jt249(short a8, long *desc, long *p14)
 	return a8;
 }
 
+/* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
+ * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
+static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
+static void l042a(void *rec, short a1, short a2, short a3)
+{
+	PROBE("L042a");
+	(void)rec; (void)a1; (void)a2; (void)a3;
+}
+
 /* JT[258] (CODE 2 + 0x0004 = entry_jt258, frame -8) — the event-editor MAIN
  * dispatcher: the largest CODE 2 function (~2100 insn, ~50 internal helpers,
  * 4 JT[1] + 10 JT[3] sub-switches). Called jt258(short cmd, long *desc, void
@@ -72400,8 +72409,45 @@ static short jt258(short cmd, long *desc, void *out)
 	*(short *)rec = cmd;        /* 0x001a — *out+0 = cmd */
 
 	switch (cmd) {              /* JT[1] @0x26 (keys 5, 11, 10, default) */
-	case 5:  /* TODO 0x003a — main open/edit path (JT[3] @0xf4 sub-tree) */
+	case 5: {  /* L003a — main open/edit path */
+		long d = *desc;
+		char *r = (char *)rec;
+		short f2;
+		unsigned char f3, f4;
+
+		/* 0x3a-0x82 — unpack *desc into the working record. */
+		*(short *)(r + 2) = cmd;                        /* 0x3a */
+		*(short *)(r + 12) = (short)((*(short *)(r + 12) & 0x3FFF)
+		    | (short)(d & 0xC000));                     /* 0x44/0x4e */
+		*(short *)(r + 4) = (short)(d >> 16);           /* 0x62 */
+		f3 = (unsigned char)(d & 0xFF);                 /* 0x74 */
+
+		if (d & 0x8000) {                               /* 0x84 — bit 15 */
+			l042a(rec, (short)f3, (short)((d >> 8) & 7),
+			      (short)((d >> 11) & 7));          /* 0xbe */
+			/* -> 0x31a post-process (DEFERRED) */
+		} else {
+			f2 = *(short *)(r + 10);                /* 0xca */
+			*(short *)(r + 10) = 0;                 /* 0xd4 */
+			f4 = (unsigned char)((d & 0x3F00) >> 8);/* 0xdc */
+			switch (f4) {           /* JT[3] @0xf4 (0,1,default) */
+			case 0:
+			case 1:
+				/* TODO L0102 — the rec-flag bit-test chain
+				 * (l0ade/l2156/l0910/l222c/l22b6/l09d6/
+				 * l0722/l0622 on rec[12]/rec[13] bits) */
+				break;
+			default:
+				/* TODO L01cc — JT[3] @0x1d2 sub-dispatch
+				 * on (f2>>8) then l0524 */
+				break;
+			}
+			(void)f2;
+		}
+		/* 0x31a — post-process: *desc &= 0xFFFF0000, JT[1] @0x32a on
+		 * rec[0], JT[1] @0x34c on rec[10]&63, repack. DEFERRED. */
 		break;
+	}
 	case 11: /* TODO 0x0204 */
 		break;
 	case 10: /* TODO 0x02a4 */

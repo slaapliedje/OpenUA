@@ -440,8 +440,19 @@ mostly 0x1ad2-0x2156): heavy hitters 0x1ad2 (21×), 0x1b30 (9×), 0x1af8 (7×),
 (return 0 @0x426), *out+0 = cmd store, and the 4-arm JT[1] dispatch scaffold
 (arms deferred, returns 0 placeholder). DCE'd, codegen 1889.
 
-**Fill order:** the case-5 *desc→out unpack + JT[3] @0xf4 sub-tree first (it
-gates the editor), then the helper cluster bottom-up, then cases 11/10/default.
+**jt258b DONE — case-5 unpack + JT[3] @0xf4 scaffold.** The field unpack (0x3a-
+0x82): rec[2]=cmd, rec[12] = (rec[12]&0x3FFF)|(*desc&0xC000), rec[4]=*desc>>16,
+f3=*desc&0xFF. Then the bit-15 branch (*desc & 0x8000 -> l042a(rec, f3, (d>>8)&7,
+(d>>11)&7), a PROBE stub for now). Else: f2=rec[10], rec[10]=0, f4=(*desc&0x3F00)
+>>8, and the JT[3] @0xf4 (jt3_extract: cases 0/1 -> 0x102, default -> 0x1cc)
+scaffold. NOTE: case-5 arms converge at 0x31a (post-process: *desc&=0xFFFF0000
+then JT[1] @0x32a on rec[0] + JT[1] @0x34c on rec[10]&63) before the 0x426 rts —
+that post-process is DEFERRED, so jt258 still returns the 0 placeholder.
+
+**Fill order (jt258):** (1) the L0102 rec-flag bit-test chain (calls l0ade/l2156/
+l0910/l222c/l22b6/l09d6/l0722/l0622); (2) the L01cc default (JT[3] @0x1d2 +
+l0524); (3) the 0x31a post-process (2 JT[1] switches) + the return; (4) cases
+11/10/default; (5) the helper cluster bottom-up. l042a stub -> real lift later.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
