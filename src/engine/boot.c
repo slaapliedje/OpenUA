@@ -74300,6 +74300,44 @@ static short l16f4(void *desc_v, short grp, const void *src_v)
 	return (short)changed;                                     /* 0x181a */
 }
 
+/* L1958 (CODE 11 + 0x1958) — clamp the GEO editor's scroll cursor to the current
+ * area's dimensions and re-anchor the highlight cell.  ds = the design-state
+ * buffer (g_a5_-12300); ds[2]/ds[3] are the area dims.  Clamps the scroll cursor
+ * g_a5_-12287 to [0, ds[2]-1] and g_a5_-12288 to [0, ds[3]-1] (negative -> 0,
+ * over-range -> dim-1).  Then, if the highlight cell (g_a5_-11702 / -11701) has
+ * fallen outside those dims, snaps it back to the scroll cursor and marks a
+ * change; on any such change, when ctx[18]==1 it repaints via JT[305](ctx,0,0).
+ * A jt243 (GEO editor) leaf; ctx is the editor holder (caller l12be passes it). */
+static void l1958(void *ctx_v) __attribute__((unused));
+static void l1958(void *ctx_v)
+{
+	unsigned char       *ctx = (unsigned char *)ctx_v;         /* fp@(8) */
+	const unsigned char *ds  = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	signed char          changed = 0;                          /* fp@(-1) */
+
+	if ((signed char)g_a5_12287 < 0)                           /* 0x195c — clamp axis 1 low */
+		g_a5_12287 = 0;
+	else if ((short)(signed char)g_a5_12287 >= (short)(unsigned char)ds[2])
+		g_a5_12287 = (unsigned char)((unsigned char)ds[2] - 1);  /* 0x197c — clamp high */
+
+	if ((signed char)g_a5_12288 < 0)                           /* 0x198c — clamp axis 2 low */
+		g_a5_12288 = 0;
+	else if ((short)(signed char)g_a5_12288 >= (short)(unsigned char)ds[3])
+		g_a5_12288 = (unsigned char)((unsigned char)ds[3] - 1);  /* 0x19ac — clamp high */
+
+	if ((unsigned char)g_a5_byte(-11702) >= (unsigned char)ds[2]) {  /* 0x19c8 */
+		g_a5_byte(-11702) = g_a5_12287;                    /* 0x19ce — snap to cursor */
+		changed = 1;
+	}
+	if ((unsigned char)g_a5_byte(-11701) >= (unsigned char)ds[3]) {  /* 0x19e2 */
+		g_a5_byte(-11701) = g_a5_12288;                    /* 0x19e8 */
+		changed = 1;
+	}
+
+	if (changed && ctx[18] == 1)                               /* 0x19f4 / 0x1a04 */
+		jt305(ctx, (char)0, (char)0);                      /* 0x1a12 — repaint */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
