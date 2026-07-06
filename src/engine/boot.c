@@ -74258,6 +74258,26 @@ static void l23de(void *rec_v, short a2, short a3, short a4)
 	jt305(rec, (char)2, (char)a4);                  /* 0x240a — repaint, sign_ext(a4) */
 }
 
+/* L1626 (CODE 11 + 0x1626) — refresh the GEO editor holder's derived cell-edit
+ * fields after a repaint.  Repaints first (JT[305](ctx,0,0)), copies ctx[4] into
+ * ctx[19], sets ctx[20] = ctx[5] ? ctx[5]+3 : 0, then mirrors the 7-byte source
+ * band ctx[10..16] into both the ctx[21..27] and ctx[28..34] working bands.  A
+ * jt243 (GEO editor) leaf; caller l16ae. */
+static void l1626(void *ctx_v) __attribute__((unused));
+static void l1626(void *ctx_v)
+{
+	unsigned char *ctx = (unsigned char *)ctx_v;               /* fp@(8) */
+	short i;                                                    /* fp@(-2) */
+
+	jt305(ctx, (char)0, (char)0);                              /* 0x1632 — repaint */
+	ctx[19] = ctx[4];                                          /* 0x1640 */
+	ctx[20] = (ctx[5] != 0) ? (unsigned char)(ctx[5] + 3) : 0; /* 0x1650 */
+	for (i = 0; i < 7; i++) {                                  /* 0x166c / 0x16a2 */
+		ctx[i + 21] = ctx[i + 10];                         /* 0x1682 */
+		ctx[i + 28] = ctx[i + 10];                         /* 0x1698 */
+	}
+}
+
 /* L16f4 (CODE 11 + 0x16f4) — apply a source cell's three style bytes into the
  * design-state GROUP record, capturing the old value for undo and flagging a
  * repaint.  The design-state buffer (g_a5_-12300) holds an array of 4-byte
