@@ -350,9 +350,26 @@ jt179(2) brackets; jt148(g_a5(-13952), buf72, 1) installs the list; jt452 shape
 deferred next block's setup). Now the whole static screen (frame + grid outlines
 + labels + cursor + prompt + list) is drawn.
 
-**Remaining jt249 body (fill order):** 0x3726 onward — the two inner JT[3]
-dispatches (0x3862, 0x3e5a), the modal pick loop, and the jt1161 redraw tail
-(0x3e6e-0x4022). Those consume f8/f10. One block per commit.
+**STRUCTURE CORRECTION.** jt249's MAIN body is 0x333a-0x3c16 (unlk/rts @0x3c14).
+The region 0x3c18-0x4022 is a HELPER CLUSTER, not jt249's tail: l3c18 (0x3c18),
+l3c5e (0x3c5e), l3cbe (0x3cbe), l3d90 (0x3d90), l3e1e (0x3e1e-0x4022). So the
+"second JT[3] @0x3e5a" and the "jt1161 tail 0x3e6e-0x4022" are INSIDE l3e1e, not
+jt249. That resolves the fp@(10) puzzle: l3e1e's `movew fp@(10)` reads its OWN
+word arg, not jt249's desc pointer. jt249's main body has exactly ONE JT[3]
+(@0x3862).
+
+**jt249f DONE — l3c5e + l3d90 marker/cell helpers.** l3c5e(short idx, uchar
+*arr): l3c18 coords → jt1161 4x4 box at (colX, rowY+60) fill=arr[idx]. l3d90
+(short idx): l3cbe coords, o6=o2+16; vertical (jt1200()==3) shifts axes +12,
+else a jt1161 box (o6-4,o4+4,o6,o4+8) fill=idx; then jt357(o2,o4,idx,3) places
+the content and jt1134 commits. Both DCE'd (their redraw-block callers are
+deferred).
+
+**Remaining jt249 body (fill order):** the redraw block 0x3714-0x37ea (loop1
+l3d90 per slot; l3e1e(f8,15) once; loop2 l3c5e per slot in the horizontal
+layout; 3 jt1089 text draws) → the input wait + JT[3] @0x3862 command dispatch +
+arms + loop-back/exit (0x37ee-0x3c16). Lift l3e1e (large, own JT[3]) before the
+redraw block.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
