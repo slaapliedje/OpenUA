@@ -72971,8 +72971,35 @@ static short l22b6(void *rec)
 }
 static void  l09d6(void *rec, short a) __attribute__((unused));
 static void  l09d6(void *rec, short a) { PROBE("L09d6"); (void)rec; (void)a; }
+static void  l1e8a(short a, short b);   /* forward — case-11 helper, defined below */
+/* L0722 (CODE 2 + 0x722) — "door/wall" edit commit. Record rec[19] into the map
+ * row byte (l1e8a(rec[19], rec[14])), tick jt321, then either grow the array
+ * (l174a + l1c10 type 3) when rec[13] bit 0 is set and the push slot is full, or
+ * ordered-insert+splice (l169c). Finally clear rec[13] bit 1, set bit 4, pack
+ * (rec[19]|0x200) into rec@10 and retype the record to 5. */
 static void  l0722(void *rec) __attribute__((unused));
-static void  l0722(void *rec) { PROBE("L0722"); (void)rec; }
+static void  l0722(void *rec)
+{
+	unsigned char save;
+
+	PROBE("L0722");
+	save = *((unsigned char *)rec + 19);            /* 0x72a */
+	l1e8a((short)(save & 0xFF),                     /* 0x744 */
+	      (short)*((unsigned char *)rec + 14));
+	jt321();                                        /* 0x74a */
+	if ((*((unsigned char *)rec + 13) & 0x01) &&    /* 0x752 — bit 0 */
+	    l1b30((char *)rec + 22, 1) == NULL) {       /* 0x766 — push slot full */
+		l174a(rec);                             /* 0x774 */
+		l1c10(rec, 3);                          /* 0x782 */
+	} else {
+		l169c(rec);                             /* 0x78e */
+	}
+	*((unsigned char *)rec + 13) &= (unsigned char)~0x02;   /* 0x798 — bclr #1 */
+	*((unsigned char *)rec + 13) |= 0x10;                   /* 0x7a2 — bset #4 */
+	*(short *)((char *)rec + 10) =                  /* 0x7b6 */
+	    (short)((save & 0xFF) | 0x200);
+	*(short *)rec = 5;                              /* 0x7c0 */
+}
 static void  l0622(void *rec, short a) __attribute__((unused));
 static void  l0622(void *rec, short a) { PROBE("L0622"); (void)rec; (void)a; }
 static void  l0524(void *rec, short a1, short a2) __attribute__((unused));

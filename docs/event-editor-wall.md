@@ -619,6 +619,16 @@ advance via jt229(entry)+jt321 (both lifted); returns signed -1/0/1 (chain casts
 Codegen 1889, tests 129/1. **5 of 12 direct stubs filled** (l1e8a, l0910, l2156,
 l222c, l22b6). Remaining 7: l042a, l0ade, l09d6, l0722, l0622, l0524, l07c6.
 
+**jt258r DONE — l0722 (door/wall edit commit, 6th direct stub).** l1e8a(rec[19],
+rec[14]) records the map row byte, jt321 tick, then: if rec[13] bit0 set AND
+l1b30(rec+22,1) push slot full -> grow (l174a + l1c10 type 3), else ordered-
+insert+splice (l169c). Finally clear rec[13] bit1, set bit4, pack (rec[19]|0x200)
+into rec@10, retype 5. All callees lifted (l1e8a/jt321/l1b30/l174a/l1c10/l169c);
+forward-declared l1e8a (case-11 block is later). Codegen 1889, tests 129/1. **6 of
+12 direct stubs filled**. Remaining 6: l042a, l0ade, l09d6, l0622, l0524, l07c6 —
+l0622 needs l0a32; l09d6/l07c6 need l0a32; l0a32 needs l0ade (the big grid helper,
+jt444 2-vs-4-arg ABI question); l0524/l042a are the param-format/high-bit handlers.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
