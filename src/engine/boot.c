@@ -72739,6 +72739,63 @@ static short l1be4(void *rec)
 	return l1c10(rec, 3);                          /* 0x1c06 — propagate */
 }
 
+/* L178c (CODE 2 + 0x178c) — unlink the append-slot record and repair the chain.
+ * Stage the append slot into rec+18 (jt406), clear the record's map link
+ * (map[v-1][3]=0 unless rec[12] bit 5), remove the element (l1a36), then rebuild:
+ * if a next entry existed, re-stage rec+18 into the new append slot and flush
+ * (l1cf0); otherwise, when rec[18]==0, clear the neighbour cell map[next[1]-1]
+ * [rec[20]] and flag rec[8]=1. Returns the removed value byte on success, 0 on a
+ * failed remove/flush. */
+static short l178c(void *rec) __attribute__((unused));
+static short l178c(void *rec)
+{
+	void *slot, *nxt;
+	unsigned char v, ret = 0;
+	char *base = (char *)(uintptr_t)g_a5_long(-13038);
+
+	PROBE("L178c");
+	slot = l1ad2((char *)rec + 22);         /* 0x1798 — append slot */
+	if (slot == NULL)                       /* 0x17a2 */
+		return 0;                       /* 0x17a8 */
+	*((unsigned char *)rec + 8) = 0;        /* 0x17b4 — rec[8] = 0 */
+	jt406((char *)rec + 18, slot, 4);       /* 0x17c8 — slot -> rec+18 (swap ABI) */
+	v = *((unsigned char *)slot + 1);       /* 0x17d4 — slot[1] value byte */
+	nxt = l1b30((char *)rec + 22, 0);       /* 0x17e4 — preview next */
+	if (nxt != NULL && *((unsigned char *)nxt + 2) != 3) {  /* 0x17f0/0x17fc */
+		l1934(rec);                     /* 0x1806 — secondary-cursor reset */
+		l1c10(rec, 3);                  /* 0x1814 — propagate */
+		nxt = l1b30((char *)rec + 22, 0);       /* 0x1824 — re-preview */
+	}
+	if (!(*((unsigned char *)rec + 12) & 0x20))     /* 0x1832 — rec[12] bit 5 clear */
+		base[v * 20 - 17] = 0;          /* 0x184a — map[v-1][3] = 0 */
+	if (l1a36((char *)rec + 22) == 0)       /* 0x1856 — remove element */
+		return ret;                     /* 0x185e — 0 */
+	if (nxt != NULL) {                      /* 0x1862 */
+		unsigned char save;
+		nxt  = l1ad2((char *)rec + 22); /* 0x1870 — new append slot */
+		save = *((unsigned char *)nxt + 1);     /* 0x187e */
+		jt406(nxt, (char *)rec + 18, 4);/* 0x1894 — rec+18 -> nxt (swap ABI) */
+		*((unsigned char *)nxt + 1) = save;     /* 0x18a0 — restore value byte */
+		if (l1cf0(rec) != 0)            /* 0x18aa */
+			ret = v;                /* 0x18b6 */
+		return ret;
+	}
+	/* nxt == NULL (0x18c0) */
+	nxt = l1ad2((char *)rec + 22);          /* 0x18c8 */
+	if (nxt == NULL)                        /* 0x18d2 */
+		return v;                       /* 0x1926 — ret = v */
+	if (*((unsigned char *)rec + 18) != 0)  /* 0x18da — rec[18] set */
+		return ret;                     /* 0x18de — 0 */
+	/* rec[18] == 0 (0x18e0) — clear the neighbour cell and flag rec[8]. */
+	{
+		char *rowbase = base
+		    + (long)*((unsigned char *)nxt + 1) * 20 - 20;  /* 0x18e6 */
+		rowbase[*((unsigned char *)rec + 20)] = 0;          /* 0x1912 */
+	}
+	*((unsigned char *)rec + 8) = 1;        /* 0x191a — rec[8] = 1 */
+	return v;                               /* 0x191e — ret = v */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
