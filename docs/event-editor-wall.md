@@ -449,10 +449,18 @@ scaffold. NOTE: case-5 arms converge at 0x31a (post-process: *desc&=0xFFFF0000
 then JT[1] @0x32a on rec[0] + JT[1] @0x34c on rec[10]&63) before the 0x426 rts —
 that post-process is DEFERRED, so jt258 still returns the 0 placeholder.
 
-**Fill order (jt258):** (1) the L0102 rec-flag bit-test chain (calls l0ade/l2156/
-l0910/l222c/l22b6/l09d6/l0722/l0622); (2) the L01cc default (JT[3] @0x1d2 +
-l0524); (3) the 0x31a post-process (2 JT[1] switches) + the return; (4) cases
-11/10/default; (5) the helper cluster bottom-up. l042a stub -> real lift later.
+**jt258c DONE — the L0102 rec-flag bit-test chain (JT[3] @0xf4 case 0/1).** A
+linear cascade; the first set flag picks the handler: rec[13] bit 6 -> l0ade;
+bit 5 -> l2156, and if it returns 0, l0910; rec[12] bit 0 -> l222c; rec[13] bit 2
+-> f2=(signed char)l22b6, and if f2<=0, l09d6(rec, f2<0?1:0); rec[13] bit 1 ->
+l0722; else -> l0622(rec, f4). All 8 handlers added as PROBE stubs (l2156/l22b6
+return the status the chain branches on). Byte-addressed bit tests preserved
+(rec+13 = low byte of the rec[12] short, rec+12 = high byte).
+
+**Fill order (jt258):** (1) the L01cc default (JT[3] @0x1d2 sub-dispatch on
+(f2>>8) + l0524); (2) the 0x31a post-process (2 JT[1] switches @0x32a/@0x34c) +
+the return; (3) cases 11/10/default; (4) the ~10 case-5 helper stubs lifted
+bottom-up (l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/l0722/l0622/l0524).
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
