@@ -74237,11 +74237,10 @@ static short l5b0e(void *p_v, short a2, short a3, short a4)
 }
 
 /*
- * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
- * command handlers reached by the l0096 dispatcher below.  Their bodies live
- * in CODE 11 and are not yet lifted (jt243 is a roadmap giant); PROBE stubs so
- * the dispatcher links.  Same (short cmd, long *rec, void *area) ABI as the
- * sibling handlers jt233/jt239/jt244.
+ * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
+ * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
+ * links.  Same (short cmd, long *rec, void *area) ABI as the sibling handlers
+ * jt233/jt239/jt244.
  */
 static short jt243(short cmd, long *rec, void *area) __attribute__((unused));
 static short jt243(short cmd, long *rec, void *area)
@@ -74251,12 +74250,65 @@ static short jt243(short cmd, long *rec, void *area)
 	return 0;
 }
 
-static short jt242(short cmd, long *rec, void *area) __attribute__((unused));
-static short jt242(short cmd, long *rec, void *area)
+/* jt242 (CODE 11 + 0x589a) — the cell-edit COMMITTER (l0096 command 20).  Given
+ * a cell record (area) whose kind rec[5] selects the field, and a new value in
+ * the low byte of *desc, it: reads the current packed value per kind (JT[3]
+ * @0x58ce — kind 0 = rec[10]/rec[12] nibbles, 1 = rec[14], 2 = rec[15]); tallies
+ * matching cells (l5a06); shows the confirm dialog (l5b0e); and, if confirmed,
+ * applies the bulk replace per kind (JT[3] @0x5986 — 0 = l5ee2 walls, 1 = l6136
+ * code A, 2 = l61c6_c11 code B), marking desc[3] bit 0 dirty when any cell
+ * changed.  Returns cmd unchanged (its command echoes back to the l0096 loop).
+ * Completes the jt242 helper tree (Phase C2). */
+static short jt242(short cmd, long *desc, void *area) __attribute__((unused));
+static short jt242(short cmd, long *desc, void *area)
 {
-	PROBE("jt242");
-	(void)cmd; (void)rec; (void)area;
-	return 0;
+	unsigned char *rec = (unsigned char *)area;   /* fp@(14) — the cell record */
+	unsigned char v;                              /* fp@(-1) — the new value */
+	unsigned char oldval = 0;                     /* fp@(-2) — current packed value */
+	short count;                                  /* fp@(-4) */
+
+	if (area == NULL)                             /* 0x589e — no record */
+		return cmd;
+
+	v = (unsigned char)(*desc & 0xFF);            /* 0x58b4 — low byte of *desc */
+
+	switch (rec[5]) {                             /* JT[3] @0x58ce (min=0, max=2) */
+	case 0:                                       /* 0x58de — codes A/B nibbles */
+		oldval = (unsigned char)((rec[10] & 0x0F) |
+		                         ((rec[12] & 0x0F) << 4));
+		break;
+	case 1:                                       /* 0x5922 — rec[14] */
+		oldval = rec[14];
+		break;
+	case 2:                                       /* 0x592e — rec[15] */
+		oldval = rec[15];
+		break;
+	default:                                      /* 0x5938 — oldval unset (don't-care) */
+		break;
+	}
+
+	*desc &= 0xFFFF0000L;                          /* 0x5938 — clear the result low word */
+	count = l5a06(rec, v);                         /* 0x594e — tally cells matching v */
+
+	if (l5b0e(rec, count, v, oldval)) {            /* 0x596e — confirm dialog */
+		switch (rec[5]) {                     /* JT[3] @0x5986 — apply the edit */
+		case 0:                               /* 0x5996 — walls, both nibbles */
+			count = l5ee2(rec, (short)(v & 0x0F),
+			              (short)((v >> 4) & 0x0F));
+			break;
+		case 1:                               /* 0x59c0 — cell code A */
+			count = l6136(rec, v);
+			break;
+		case 2:                               /* 0x59d8 — cell code B */
+			count = l61c6_c11(rec, v);
+			break;
+		default:                              /* 0x59ee — nothing applied */
+			break;
+		}
+		if (count != 0)                       /* 0x59ee */
+			((unsigned char *)desc)[3] |= 0x01;   /* 0x59f4 — desc dirty */
+	}
+	return cmd;                                   /* 0x59fe */
 }
 
 /*
