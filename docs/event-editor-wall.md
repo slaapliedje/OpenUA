@@ -228,8 +228,19 @@ selected index writes straight into idx122 via out_idx — no per-node relabel
 loop, unlike arm 0's kind-11/mask-1); `str12 = g_a5_long(-10704)`; jt167 holder;
 `loop8 = lo113 + jt349(list_holder, 10, 96, lo113, 0, 0, 0L)` (hdrflag=0 here,
 =1 in arm 0). Consistency: the tail's JT[2] case 1 clamps this arm with the same
-(10, 96) jt347 pair. Remaining fill: c2=L2af6, c3=L2cbe, c5=L2b9a, c6/7=L2a36,
-c4/def=L2dc2.
+(10, 96) jt347 pair.
+
+**jt248e DONE — arm 2 (L2af6), the fixed 9-entry table arm.** Unlike arms 0/1
+this one has NO jt352 (cnt124 is the constant 9) and NO jt349: `cnt124=9`;
+`if (sub!=0 && sub<=9) idx122 = sub-lo113`; the TITLE is built directly into
+buf112 via `jt394(buf112, "%s %s"@0x2c00, g_a5(-10796), g_a5(-10700))` (so the
+tail's own str12 title-build is skipped, which is why str12 is never set here);
+jt167 holder; then loop each of the 9 nodes labeling `cursor+5` from the
+`g_a5_longs(-11224)[loop8]` string table via `jt394(., "%s"@0x2c06, table[i])`,
+`cursor[4]=0`, next, loop8++ (loop8 starts at lo113, ends lo113+9 = lo113+cnt124
+→ tail guard passes). f117 stays 0 → the tail's jt347 value-clamp is skipped for
+this arm. STRS confirmed: 0x2c00="%s %s", 0x2c06="%s". Remaining fill: c3=L2cbe,
+c5=L2b9a, c6/7=L2a36, c4/def=L2dc2.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
