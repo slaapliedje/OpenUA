@@ -72886,6 +72886,67 @@ static void l1eb2(void *rec)
 	*((unsigned char *)rec + 8) = 0;                /* 0x1fb6 */
 }
 
+/* Lefe (CODE 2 + 0xefe) — translate a raw key into an event-editor nav action.
+ * Return(13) -> 3, Esc(27)/`(96) -> 0. Otherwise JT[3] @0xf30 on keys 130..136:
+ *   130/134 -> 6 if rec[7] set else -1;
+ *   132 -> 2 if append slot != elem[index@2] (l1ba4_c2) else -1;
+ *   133 -> if != elem[index@2] commit (l1ba4_c2 mode 1) and -2, else -1;
+ *   135 -> if append slot != elem[0] (l1b70) reset (l1b70 mode 1) and -2, else -1;
+ *   136 -> 1 if append slot != elem[0] else -1;
+ *   131/default -> -1.
+ * Always clears g_a5_byte(-24139); returns the resolved action code. */
+static short lefe(void *rec, short key) __attribute__((unused));
+static short lefe(void *rec, short key)
+{
+	void *slot;
+
+	PROBE("Lefe");
+	if (key == 13) {                        /* 0xf02 — Return */
+		key = 3;
+	} else if (key == 27 || key == 96) {    /* 0xf14/0xf1c — Esc / ` */
+		key = 0;
+	} else {
+		switch (key) {          /* JT[3] @0xf30 (min=130, max=136) */
+		case 130:               /* 0xfc0 (shared with 134) */
+		case 134:
+			key = (*((unsigned char *)rec + 7) != 0) ? 6 : -1;      /* 0xfc4 */
+			break;
+		case 132:               /* 0xf84 */
+			slot = l1ad2((char *)rec + 22);
+			key = (l1ba4_c2((char *)rec + 22, 0) != slot) ? 2 : -1;
+			break;
+		case 133:               /* 0x1028 */
+			slot = l1ad2((char *)rec + 22);
+			if (l1ba4_c2((char *)rec + 22, 0) != slot) {
+				l1ba4_c2((char *)rec + 22, 1);  /* commit */
+				key = -2;
+			} else {
+				key = -1;
+			}
+			break;
+		case 135:               /* 0xfde */
+			slot = l1ad2((char *)rec + 22);
+			if (l1b70((char *)rec + 22, 0) != slot) {
+				l1b70((char *)rec + 22, 1);     /* reset */
+				key = -2;
+			} else {
+				key = -1;
+			}
+			break;
+		case 136:               /* 0xf48 */
+			slot = l1ad2((char *)rec + 22);
+			key = (l1b70((char *)rec + 22, 0) != slot) ? 1 : -1;
+			break;
+		case 131:               /* 0x1072 (shared with default) */
+		default:
+			key = -1;
+			break;
+		}
+	}
+	g_a5_byte(-24139) = 0;                   /* 0x1078 */
+	return key;                              /* 0x107c */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
