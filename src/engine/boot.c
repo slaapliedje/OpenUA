@@ -72373,6 +72373,40 @@ static short jt249(short a8, long *desc, long *p14)
 	return a8;
 }
 
+/* jt258 event-array element-pointer accessors (matched leaf pair, called by
+ * many of the case handlers). The array header is {count@0 (word), ...,
+ * capacity/valid-flag@2 (word)}; elements start at header+4, 4-byte stride.
+ *
+ * L1ad2 (CODE 2 + 0x1ad2) — &elem[count]: the append slot at the current count.
+ * Returns NULL when the header's word@2 is negative (array not allocated). */
+static void *l1ad2(void *p) __attribute__((unused));
+static void *l1ad2(void *p)
+{
+	PROBE("L1ad2");
+	if (*(short *)((char *)p + 2) < 0)      /* 0x1ada — word@2 negative */
+		return NULL;                    /* 0x1af2 */
+	/* 0x1ae4 — header + count*4 + 4 (element at index = current count). */
+	return (char *)p + (long)*(short *)p * 4 + 4;
+}
+
+/* L1af8 (CODE 2 + 0x1af8) — &elem[count-1]: the top (most recent) slot. With a
+ * non-zero mode arg it also decrements the count in place (pop); mode 0 peeks.
+ * Returns NULL when the count (word@0) is <= 0. */
+static void *l1af8(void *p, short mode) __attribute__((unused));
+static void *l1af8(void *p, short mode)
+{
+	short idx;
+
+	PROBE("L1af8");
+	if (*(short *)p <= 0)                   /* 0x1b00 — empty */
+		return NULL;                    /* 0x1b2a */
+	if (mode & 0xFF)                        /* 0x1b04 — tstb: pop */
+		idx = --*(short *)p;            /* 0x1b0e — decrement + reuse */
+	else                                    /* peek */
+		idx = (short)(*(short *)p - 1); /* 0x1b1a */
+	return (char *)p + (long)idx * 4 + 4;   /* 0x1b1e */
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
