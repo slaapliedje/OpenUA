@@ -71345,6 +71345,39 @@ static short l4842(void *base_p, short rr_arg, short cc_arg)
 	return (short)count;
 }
 
+/* L4bd4 (CODE 2 + 0x4bd4, frame -18) — the event-picker COMMIT loop. Snapshots
+ * the 14-byte cell context `rec14` (jt325 uses it as scratch), then repeatedly:
+ * while the selection-ring iterator L2350 yields a live entry (>0), serialize
+ * an event record into the design via jt325, using jt348/jt359 to resolve the
+ * event's type + record pointer. Restores rec14 from the snapshot afterwards
+ * (undoing jt325's scratch writes) and returns whether it ran.
+ *
+ * Faithful quirk: the Mac stores L2350's result as a 0/1 flag (the `sgt`) and
+ * feeds THAT flag — not the event byte — to jt348/jt359, so the loop serializes
+ * against event record 1 while L2350 walks the ring. Transcribed as-is; this is
+ * dormant and jt325 is a level-2 skeleton, so no observable divergence. */
+static short l4bd4(short state, long *desc, void *rec14) __attribute__((unused));
+static short l4bd4(short state, long *desc, void *rec14)
+{
+	unsigned char work[14];      /* fp@(-16) — snapshot of *rec14 */
+	unsigned char type;          /* fp@(-17) */
+	short flag = 0;              /* fp@(-2)  — L2350()>0 flag      */
+	long src;
+
+	PROBE("L4bd4");
+	memcpy(work, rec14, 14);
+
+	while ((flag = (short)(l2350() > 0 ? 1 : 0)) != 0) {
+		type = (unsigned char)jt348(flag);
+		src  = jt359(flag);
+		jt325(state, desc, rec14, (short)type,
+		      (void *)(uintptr_t)src, (short)5, (short)20);
+	}
+
+	memcpy(rec14, work, 14);
+	return (short)(flag != 0 ? 1 : 0);
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
