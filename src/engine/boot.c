@@ -73065,6 +73065,88 @@ static void lce2(void *rec, short key)
 	}
 }
 
+/* L12e8 (CODE 2 + 0x12e8) — paint one event-list grid cell: a bevel box (jt1161)
+ * plus a formatted label (jt394 build + jt1089 draw) keyed on the entry's event
+ * type (JT[3] @0x13e8, 0..4). ent==NULL or an inactive cell paints just the
+ * blank label. Colours: active 135/139, inactive 128; cell width 12 or 20 by the
+ * flag. STRS format offsets extracted from the rfork (ua_strs_at). */
+static void l12e8(void *a8, void *ent, short x, short y, short flag) __attribute__((unused));
+static void l12e8(void *a8, void *ent, short x, short y, short flag)
+{
+	unsigned char v;
+	short w, color;
+	char buf[20];
+	char *base = (char *)(uintptr_t)g_a5_long(-13038);
+
+	PROBE("L12e8");
+	v = ent ? *((unsigned char *)ent + 1) : 0;              /* 0x12ec */
+	if (flag & 0xFF) {                                      /* 0x1304 */
+		w = 12;                                         /* 0x130a */
+		color = v ? 135 : 128;                          /* 0x1310 */
+	} else {
+		w = 20;                                         /* 0x1326 */
+		color = v ? 139 : 128;                          /* 0x132c */
+	}
+	jt1161(x, y, (short)(x + w), 8156, 8);                  /* 0x135a — cell box */
+
+	if (ent == NULL ||                                      /* 0x1362 */
+	    (v == 0 && (signed char)flag >= 1)) {              /* 0x136a-0x1376 */
+		if ((signed char)flag > 0 || ent != NULL)      /* 0x153a/0x153c */
+			jt1089(x, y, 128, ua_strs_at(0x2b88) /* "%s %s" */,
+			       (char *)(uintptr_t)g_a5_long(-10660),
+			       (char *)(uintptr_t)g_a5_long(-10592));   /* 0x155c */
+		return;
+	}
+
+	/* 0x137a — build the cell's record name into buf. */
+	if (v != 0)                                            /* 0x137e */
+		jt366(base[v * 20 - 20], 10, (long)(uintptr_t)buf);     /* 0x13a6 */
+	else
+		jt394(buf, ua_strs_at(0x2b4e) /* "%s %s" */,           /* 0x13c0 */
+		      (char *)(uintptr_t)g_a5_long(-10660),
+		      (char *)(uintptr_t)g_a5_long(-10592));
+	jt1089(x, y, color, buf);                             /* 0x13d8 — draw the name */
+
+	switch (*(unsigned char *)ent) {  /* JT[3] @0x13e8 on ent[0] (min=0, max=4) */
+	case 0: {  /* 0x13fc */
+		unsigned char ent2 = *((unsigned char *)ent + 2);
+		void *slot2 = (ent2 != 3) ? l1af8((char *)a8 + 22, 0) : NULL;  /* 0x141c */
+		if (ent2 != 3 && slot2 != NULL)                /* 0x1428 */
+			jt345(base[*((unsigned char *)slot2 + 1) * 20 - 20],
+			      (short)ent2, (long)(uintptr_t)buf);      /* 0x1458 */
+		else
+			jt394(buf, ua_strs_at(0x2b54) /* "%s %s" */,   /* 0x1472 */
+			      (char *)(uintptr_t)g_a5_long(-10508),
+			      (char *)(uintptr_t)g_a5_long(-10528));
+		jt1089((short)(x + 4), y, color,
+		       ua_strs_at(0x2b5a) /* "%s %s %s" */,            /* 0x149c */
+		       (char *)(uintptr_t)g_a5_long(-10532),
+		       (char *)(uintptr_t)g_a5_long(-10768), buf);
+		break;
+	}
+	case 1:  /* 0x14a8 */
+		jt1089((short)(x + 4), y, color,
+		       ua_strs_at(0x2b64) /* "%s %s %s col: %d, row: %d" */,
+		       (char *)(uintptr_t)g_a5_long(-10524),
+		       (char *)(uintptr_t)g_a5_long(-10592),
+		       (char *)(uintptr_t)g_a5_long(-10780),
+		       (short)*((unsigned char *)ent + 3),
+		       (short)*((unsigned char *)ent + 2));            /* 0x14e2 */
+		break;
+	case 2:
+	case 3:
+	case 4:  /* 0x14ee */
+		jt1089((short)(x + 4), y, color,
+		       ua_strs_at(0x2b7e) /* "%s %s #%d" */,
+		       (char *)(uintptr_t)g_a5_longs(-10520)[*(unsigned char *)ent - 2],
+		       (char *)(uintptr_t)g_a5_long(-10592),
+		       (short)(*((unsigned char *)ent + 2) + 1));      /* 0x152c */
+		break;
+	default: /* 0x1564 */
+		break;
+	}
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
