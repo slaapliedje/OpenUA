@@ -73936,11 +73936,14 @@ static short jt258(short cmd, long *desc, void *out)
 
 /* ===================================================================
  * CODE 11 GEO 3D-map editor — jt242 helper cluster (Phase C2).
- * jt242 (l589a) is a cell-edit committer: a dispatcher over 8 CODE-local
- * helpers (l5a06/l5b0e/l5dc8/l5ee2/l6136/l61c6/l6256/l63c0).  Lifted
- * bottom-up (leaves first); all reference the current-area block
- * g_a5(-12300), a flat array of 6-byte cells with feature bytes at
- * cell*6 + 290..295.  See docs/geo-editor-wall.md (Phase C SCOPE).
+ * jt242 (l589a) is a cell-edit committer.  Its private helper tree is
+ * {l5a06, l5dc8, l5ee2, l6136, l61c6_c11, l5b0e} — six functions.  (The
+ * l6256/l63c0 that also live in jt242's 0x589a..0x67d0 address range are
+ * NOT jt242 helpers: they are the shared dungeon-walk source-registration
+ * / exploration-loop, already lifted and called by jt241's play path.)
+ * All reference the current-area block g_a5(-12300), a flat array of
+ * 6-byte cells with feature bytes at cell*6 + 290..295.  See
+ * docs/geo-editor-wall.md (Phase C SCOPE).
  * =================================================================== */
 
 /* L5a06 (CODE 11 + 0x5a06) — tally map cells whose selected feature equals a
