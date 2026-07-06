@@ -73325,12 +73325,49 @@ static void l0a32(void *rec)
 }
 
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
- * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
+ * bit 15 of *desc is set). Reset the record (rec@12 to top bits + byte@12 bit 5,
+ * rec@10=0, rec[6]=0), seed rec[9] from jt318(), stash a1->rec[19], a2->rec[18].
+ * Dispatch on a2 (JT[3] @0x480, 1..4): 1 -> stamp the party coord into rec[20/21]
+ * (g_a5(-12287/-12288)) + rec[13] bit 2 when a3 set; 2/3/4 -> rec[20]=a3. Then
+ * l1686 finalize and route: a1==0 -> l6cc; rec[13] bit 2 -> l196c insert + l86e;
+ * else l1be4 + l0a32. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
 static void l042a(void *rec, short a1, short a2, short a3)
 {
 	PROBE("L042a");
-	(void)rec; (void)a1; (void)a2; (void)a3;
+	*(short *)((char *)rec + 12) &= (short)0xC000;  /* 0x432 — word AND */
+	*((unsigned char *)rec + 12) |= 0x20;           /* 0x43c — byte@12 bit 5 */
+	*(short *)((char *)rec + 10) = 0;               /* 0x446 */
+	*((unsigned char *)rec + 6) = 0;                /* 0x44e */
+	*((unsigned char *)rec + 9) =                   /* 0x452 — rec[9] = (jt318()==0) */
+	    (unsigned char)(jt318() == 0 ? 1 : 0);
+	*((unsigned char *)rec + 19) = (unsigned char)a1;       /* 0x46a */
+	*((unsigned char *)rec + 18) = (unsigned char)a2;       /* 0x474 */
+	switch (a2) {   /* JT[3] @0x480 (min=1, max=4) */
+	case 1:  /* 0x492 */
+		*((unsigned char *)rec + 20) = g_a5_byte(-12287);       /* 0x496 — col */
+		*((unsigned char *)rec + 21) = g_a5_byte(-12288);       /* 0x4a0 — row */
+		if (a3 & 0xFF)                  /* 0x4a6 */
+			*((unsigned char *)rec + 13) |= 0x04;   /* 0x4b0 — bset #2 */
+		break;
+	case 2:
+	case 3:
+	case 4:  /* 0x4b8 */
+		*((unsigned char *)rec + 20) = (unsigned char)a3;       /* 0x4bc */
+		break;
+	default: /* 0x4c2 */
+		break;
+	}
+	l1686(rec);                             /* 0x4c2 — reset the event array */
+	if ((a1 & 0xFF) == 0) {                 /* 0x4cc */
+		l6cc(rec);                      /* 0x4d6 */
+	} else if (*((unsigned char *)rec + 13) & 0x04) {       /* 0x4e2 — bit 2 */
+		l196c((char *)rec + 22, (char *)rec + 18);      /* 0x4fa — ordered insert */
+		l86e(rec);                      /* 0x504 */
+	} else {
+		l1be4(rec);                     /* 0x510 */
+		l0a32(rec);                     /* 0x51a */
+	}
 }
 
 /* jt258 case-5 L0102 bit-test-chain handlers — one per rec[12]/rec[13] flag.
@@ -73635,9 +73672,48 @@ static void  l0622(void *rec, short a)
 		l0a32(rec);                     /* 0x6c2 */
 	}
 }
+/* L0524 (CODE 2 + 0x524) — the case-5 JT[3] @0x1d2 arms 2/3 handler. Mask rec@12
+ * to its top bits, set rec[13] bit 0, stash a1->rec[19], a2->rec[20] (rec[18]=0).
+ * Preview the next slot (l1b30): if its coord differs (e[2]!=a2) reset the cursor
+ * (l1934); else if a1 != e[1] pack rec@10 = a1|0x300, or flag a "commit" when
+ * a1 == e[1] && a1 != 0. On commit: push a slot (l1b30) + l0a32. Otherwise, when
+ * rec@10 is still 0: l6cc if a1==0, else l174a + l1c10(3) + l0a32. */
 static void  l0524(void *rec, short a1, short a2) __attribute__((unused));
 static void  l0524(void *rec, short a1, short a2)
-{ PROBE("L0524"); (void)rec; (void)a1; (void)a2; }
+{
+	void *e;
+	unsigned char ret = 0;
+
+	PROBE("L0524");
+	*(short *)((char *)rec + 12) &= (short)0xC000;  /* 0x530 */
+	*((unsigned char *)rec + 13) |= 0x01;           /* 0x53a — bset #0 */
+	*((unsigned char *)rec + 19) = (unsigned char)a1;       /* 0x544 */
+	*((unsigned char *)rec + 18) = 0;               /* 0x54e */
+	*((unsigned char *)rec + 20) = (unsigned char)a2;       /* 0x556 */
+	e = l1b30((char *)rec + 22, 0);         /* 0x566 — preview next */
+	if (e != NULL) {                        /* 0x570 */
+		if (*((unsigned char *)e + 2) != (unsigned char)a2) {   /* 0x57c */
+			l1934(rec);             /* 0x586 */
+		} else if ((unsigned char)a1 != *((unsigned char *)e + 1)) {    /* 0x596 */
+			*(short *)((char *)rec + 10) =  /* 0x5a2 */
+			    (short)((a1 & 0xFF) | 0x300);
+		} else if (a1 & 0xFF) {         /* 0x5b0 */
+			ret = 1;                /* 0x5b8 */
+		}
+	}
+	if (ret != 0) {                         /* 0x5c0 */
+		l1b30((char *)rec + 22, 1);     /* 0x5ce — push */
+		l0a32(rec);                     /* 0x5d8 */
+	} else if (*(short *)((char *)rec + 10) == 0) {         /* 0x5e4 */
+		if ((a1 & 0xFF) == 0)           /* 0x5ea */
+			l6cc(rec);              /* 0x5f4 */
+		else {
+			l174a(rec);             /* 0x600 */
+			l1c10(rec, 3);          /* 0x60e */
+			l0a32(rec);             /* 0x618 */
+		}
+	}
+}
 
 /* L1e8a (CODE 2 + 0x1e8a) — set the first byte of record a's row in the map at
  * g_a5_long(-13038) (20-byte rows) to b: map[a-1][0] = b. No-op when b == 0. */
@@ -73687,11 +73763,18 @@ static void  l07c6(void *rec)
  * *out) from CODE 22+0x0146 with cmd = *(struct+2), desc = &struct[8], out =
  * &struct[178]. Returns a short status/result.
  *
- * LEVEL-2 SKELETON (ADR-0002): the prologue (NULL-out early exit + the *out=cmd
- * store) and the top-level JT[1] @0x26 command dispatch are lifted; each command
- * arm (case 5 = the main open/edit path with its own JT[3] @0xf4 sub-tree and
- * ~40 helpers; case 11 @0x204; case 10 @0x2a4; default @0x30e) is DEFERRED. The
- * arms and helpers fill in over subsequent commits. See docs/event-editor-wall.md.
+ * FULL LIFT (ADR-0002 level 3): the prologue (NULL-out early exit + the *out=cmd
+ * store), the top-level JT[1] @0x26 command dispatch (case 5 = the main open/edit
+ * path with its JT[3] @0xf4 sub-tree; case 11 @0x204; case 10 @0x2a4; default
+ * @0x30e), the shared 0x31a post-process (repack into *desc + return rec[0]), AND
+ * the entire ~50-helper tree are all lifted — the array primitives (l1ad2/l1af8/
+ * l1b30/l19f2/l196c/l1934/l1b70/l1ba4_c2/l1a36), the chain-edit layer (l1cf0/
+ * l1c10/l174a/l1e38/l169c/l1be4/l178c), the cursor/nav layer (lefe/lce2/l1fbe/
+ * l1eb2/l0a32), the renderers (l12e8/l31cc_c2/l1568/l1084/l0ade the main screen),
+ * and the 12 case handlers (l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/l0722/
+ * l0622/l0524/l1e8a/l07c6). Whole cluster is unreferenced until the CODE 22
+ * design-editor dispatcher @0x0096 is lifted, so it is dead-code-eliminated and
+ * codegen holds at 1889. See docs/event-editor-wall.md.
  *
  * NOTE (CODE,offset clash): the existing l0004 is CODE 4's menu stub; this
  * CODE 2 function is named jt258 to avoid the collision. */

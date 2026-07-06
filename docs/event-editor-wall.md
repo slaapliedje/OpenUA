@@ -754,6 +754,29 @@ rec[19]) if set; if rec[13] bit0 || rec[12] bit5 -> set bit4, rec@10 from rec[6]
 calls l1b30/l1934/l0a32/l06cc/l174a/l1c10) + l042a (high-bit, l494e/l1686/l06cc/
 l196c/l1be4/l0a32/l086e). Then jt258 COMPLETE.
 
+**jt258dd DONE — l0524 + l042a = jt258 COMPLETE (full lift).** l0524 (0x524): the
+case-5 JT[3]@0x1d2 arms-2/3 handler — mask rec@12, set rec[13] bit0, stash a1/a2,
+preview slot (l1b30), reset cursor (l1934) if e[2]!=a2 else pack rec@10=a1|0x300
+or flag-commit; commit -> l1b30 push + l0a32; else if rec@10==0: l6cc (a1==0) or
+l174a+l1c10(3)+l0a32. l042a (0x42a): the "high-bit" handler — reset record, seed
+rec[9]=jt318()==0, stash a1/a2, JT[3]@0x480 on a2 (1 -> party coord -12287/-12288
+into rec[20/21] + bit2 if a3; 2/3/4 -> rec[20]=a3); l1686, then a1==0 -> l6cc /
+bit2 -> l196c+l86e / else l1be4+l0a32. All callees lifted (jt318/l1b30/l1934/
+l0a32/l6cc/l174a/l1c10/l1686/l196c/l86e/l1be4). **ALL 12 DIRECT STUBS FILLED.**
+jt258 header updated LEVEL-2 SKELETON -> FULL LIFT. Codegen 1889, tests 129/1.
+
+## jt258 COMPLETE — full faithful lift (2026-07-06)
+
+The largest CODE 2 function (~2100 insn, ~50 helpers) is now a complete level-3
+lift: dispatcher (4 command arms + shared 0x31a epilogue, real rec[0] return) +
+the entire helper tree. Zero PROBE stubs remain in the cluster; whole thing is
+DCE'd (unreferenced until the CODE 22 design-editor dispatcher @0x0096 is lifted),
+codegen holds 1889, tests 129/1. Commits jt258a..jt258dd (~30). **Phase B jt-target
+order (jt254/jt253/jt248/jt249/jt258) is now ALL COMPLETE.** The event editor is
+still unreachable at runtime until the CODE 22 dispatcher @0x0096 wires it (only
+jt315 main menu is live) — that dispatcher is the next frontier for making the
+editor launchable.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
