@@ -629,6 +629,21 @@ forward-declared l1e8a (case-11 block is later). Codegen 1889, tests 129/1. **6 
 l0622 needs l0a32; l09d6/l07c6 need l0a32; l0a32 needs l0ade (the big grid helper,
 jt444 2-vs-4-arg ABI question); l0524/l042a are the param-format/high-bit handlers.
 
+**jt258 helper-tree note (jt444 RESOLVED):** a5@3586 = JT[444] entry (A5+0xE00)
++2 = jt444(item,a,b,c), the 4-arg DLItem-method dispatch (CODE 3+0x3056). The
+CODE-2 grid-draw sites (l1084/l0ade) push only 2 words -> the dispatched method
+uses just `a`; when lifting those, call jt444(item, a, 0, 0) with a comment (b/c
+are unused-garbage on the Mac; jt444/its method + jt258 are all DCE'd anyway).
+
+**jt258s DONE — l1fbe (row-cursor step, deep sub-helper).** All callees lifted
+(l1af8/l1934/l1c10/l1b30). l1fbe(rec,dir,flag): no-op if rec[7]==0; flag==0 first
+pops the array top (bail if empty); dir!=0 decrements rec[7] wrapping 0->-12193
+anchor, dir==0 increments wrapping past -12194 count->1; then l1934 reset, l1c10
+propagate with g_a5_buf(-12090)[rec[7]], l1b30 push. Caller l1eb2 @0x1ef0 =
+l1fbe(rec,0,1). Codegen 1889, tests 129/1. Unblocks l1eb2 (l1fbe+l1ad2 both
+lifted). NEXT ready sub-helpers: l1eb2, lefe (JT[3]@0xf30), l12e8/l31cc (JT-slot
+only — verify jt1161/jt366/jt394/jt423/jt358 lifted), building toward l0ade.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
