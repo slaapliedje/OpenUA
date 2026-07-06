@@ -515,6 +515,19 @@ pop, mode 0 = peek; NULL if count<=0). Confirmed callsite l0a32 @0xa66/0xa7c doe
 l1ad2(rec+22)/l1af8(rec+22,0) — the array header lives at rec+22. Both DCE'd
 (callers still stubs); codegen 1889, tests 129/1. NEXT leaves: l1b30, l207c, l6cc.
 
+**jt258i DONE — the remaining leaf primitives l1b30 / l207c / l6cc.** l1b30
+(0x1b30) = the push counterpart of l1af8: &elem[count+1], mode!=0 increments
+count in place (full when count>=capacity@2) — completing the array-accessor
+trio (l1ad2 append-slot, l1af8 pop-top, l1b30 push-next). l207c (0x207c) seeds
+the cursor/selection A5 state from (a,b): -12191/-12190 = anchor/current byte,
+-12194/-12196 zeroed, -12192 bit0 = range-active flag (confirmed 2-word-arg ABI
+via caller l910 @0x98a). l6cc (0x6cc) = "encounter" retype: rec@12 |= 0x82, then
+b=jt228() (a5@1858 = JT[228], already lifted); if b -> rec[19]=b, rec@10=1,
+rec[0]=11; else rec[19]=0, rec@10=10, rec[0]=10. All leaves DCE'd; codegen 1889,
+tests 129/1. With these the bottom leaf layer is done; NEXT = the mid-level
+helpers that call them (l0a32, l09d6, l0910, l06cc, l19f2, l1ba4, l1cf0, ...),
+then the direct stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
