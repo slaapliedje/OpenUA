@@ -72405,6 +72405,13 @@ static void  l0524(void *rec, short a1, short a2) __attribute__((unused));
 static void  l0524(void *rec, short a1, short a2)
 { PROBE("L0524"); (void)rec; (void)a1; (void)a2; }
 
+/* jt258 case-11 (0x204) helpers. l1e8a(a,b) takes two record bytes; l07c6(rec)
+ * is the "*desc low nibble == 0" branch handler. PROBE-only stubs for now. */
+static void  l1e8a(short a, short b) __attribute__((unused));
+static void  l1e8a(short a, short b) { PROBE("L1e8a"); (void)a; (void)b; }
+static void  l07c6(void *rec) __attribute__((unused));
+static void  l07c6(void *rec) { PROBE("L07c6"); (void)rec; }
+
 /* JT[258] (CODE 2 + 0x0004 = entry_jt258, frame -8) — the event-editor MAIN
  * dispatcher: the largest CODE 2 function (~2100 insn, ~50 internal helpers,
  * 4 JT[1] + 10 JT[3] sub-switches). Called jt258(short cmd, long *desc, void
@@ -72494,8 +72501,35 @@ static short jt258(short cmd, long *desc, void *out)
 		/* All case-5 sub-arms converge at the shared 0x31a tail below. */
 		break;
 	}
-	case 11: /* TODO 0x0204 — converges at 0x31a */
+	case 11: {  /* 0x204 */
+		char *r = (char *)rec;
+		short f2;
+
+		*(short *)r = *(short *)(r + 2);        /* 0x20c — rec[0] = rec[2] */
+		f2 = *(short *)(r + 10);                /* 0x214 — save rec@10 */
+		*(short *)(r + 10) = 0;                 /* 0x21e — clear rec@10 */
+		switch (f2 & 15) {      /* JT[3] @0x228 (min=1, max=1; default -> 0x31a) */
+		case 1:  /* 0x234 */
+			if ((*desc & 15L) != 0) {       /* 0x23a — low nibble of *desc set */
+				/* 0x240 — stash *desc bits 4..11 into rec[14]. */
+				*(unsigned char *)(r + 14) =
+				    (unsigned char)((*desc & 0x0FF0L) >> 4);
+				/* 0x25a — l1e8a(rec[19], rec[14]). */
+				l1e8a((short)*(unsigned char *)(r + 19),
+				      (short)*(unsigned char *)(r + 14));
+				/* 0x274 — rec@10 = rec[19]; retype the record to 5. */
+				*(short *)(r + 10) =
+				    (short)*(unsigned char *)(r + 19);
+				*(short *)r = 5;        /* 0x28e */
+			} else {
+				l07c6(rec);             /* 0x296 */
+			}
+			break;
+		default: /* -> 0x31a (converge) */
+			break;
+		}
 		break;
+	}
 	case 10: /* TODO 0x02a4 — converges at 0x31a */
 		break;
 	default: /* 0x30e — normalize: copy rec[2] over rec[0], fall to 0x31a. */
