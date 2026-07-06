@@ -73981,6 +73981,49 @@ static short l5a06(const void *arg, short target)
 	return count;
 }
 
+/* L5dc8 (CODE 11 + 0x5dc8) — preview-paint one cell field.  Builds a 1-slot
+ * holder over the record p, temporarily overwrites the field selected by p[5]
+ * (0 = codes A/B in bytes 10/12 = val's two nibbles; 1 = byte 14; 2 = byte 15)
+ * with `val`, repaints the cell via jt286/jt282/jt281 — all called with sel<0,
+ * the read-only path that reads *hp only and skips the holder[30..] cache
+ * writes, so the 4-byte holder is safe — then RESTORES the field.  A jt242 leaf
+ * (called by l5b0e).  JT[3] @0x5de6 (min=0, max=2). */
+static void l5dc8(void *p_v, short y, short x, short val) __attribute__((unused));
+static void l5dc8(void *p_v, short y, short x, short val)
+{
+	unsigned char *p = (unsigned char *)p_v;
+	void         *record = p;                    /* fp@(-4): holder's record slot */
+	long          hp = (long)(uintptr_t)&record; /* fp@(-8): &record = the holder */
+	unsigned char v = (unsigned char)val;        /* fp@(17): the new field value */
+	unsigned char save0, save1;                  /* fp@(-9), fp@(-10) */
+
+	switch (p[5]) {                              /* JT[3] @0x5de6 (min=0, max=2) */
+	case 0:                                      /* 0x5df6 — codes A/B (bytes 10/12) */
+		save0 = p[10];
+		p[10] = v & 0x0F;
+		save1 = p[12];
+		p[12] = (v >> 4) & 0x0F;
+		jt286(hp, y, x, (short)-1, 0, 0);
+		p[10] = save0;
+		p[12] = save1;
+		break;
+	case 1:                                      /* 0x5e64 — byte 14 */
+		save0 = p[14];
+		p[14] = v;
+		jt282(hp, (short)(y + 2), x, (short)-999, 0, 0);
+		p[14] = save0;
+		break;
+	case 2:                                      /* 0x5ea4 — byte 15 */
+		save0 = p[15];
+		p[15] = v;
+		jt281(hp, y, x, (short)-1, 0, 0);
+		p[15] = save0;
+		break;
+	default:                                     /* 0x5ede */
+		break;
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
  * command handlers reached by the l0096 dispatcher below.  Their bodies live
