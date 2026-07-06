@@ -673,6 +673,20 @@ jt1080). All callees lifted (lefe/l1af8/l207c/l1ad2/l1b30/l6cc/l86e/l1fbe/jt1080
 Codegen 1889, tests 129/1. lce2 unblocks l0ade partially. NEXT: l12e8/l31cc
 (JT-slot only), l1568, l1084, then l0ade -> l0a32 -> the last 3 direct stubs.
 
+**jt258w DONE — l12e8 (event-grid cell renderer, ~640 insn full lift).** Paints
+one grid cell: bevel box (jt1161(x,y,x+w,8156,8)) + a formatted label keyed on
+the entry's event type via JT[3]@0x13e8 (jt3_extract 0..4). v=ent?ent[1]:0 picks
+colour (active 135/139, inactive 128) and width (12/20 by flag). ent==NULL or
+inactive -> blank label only. Name built via jt366/jt345 (name lookup) or jt394
+(sprintf) into buf, drawn with jt1089 (variadic formatted text). Arms: 0 sub-
+record name (l1af8 peek + jt345) + "%s %s %s"; 1 "%s %s %s col:%d,row:%d" from
+ent[3]/ent[2]; 2/3/4 "%s %s #%d" via g_a5_longs(-10520)[ent[0]-2] label table.
+**6 STRS format strings extracted from the rfork** (0x2b4e/2b54/2b5a/2b64/2b7e/
+2b88 -> "%s %s"/"%s %s %s"/... via ua_strs_at, NOT CODE bytes). Label pointers =
+g_a5_long(-10508/-10524/-10528/-10532/-10592/-10660/-10768/-10780). All JT slots
+lifted (jt1161/jt366/jt345/jt394/jt1089/l1af8). Codegen 1889, tests 129/1. l12e8
+unblocks l1084. NEXT: l31cc (JT-slot), l1568, l1084 (jt444 2-arg), then l0ade.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
