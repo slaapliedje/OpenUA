@@ -99,6 +99,62 @@ history + against the Mac:
 4. **Walk-loop stall:** trace why the `l709e`/event dispatch does not return
    to the exploration/movement loop (jt953 / l63c0) after the caravan.
 
+## AUDIT VERDICT (2026-07-06) — it is the wall-PALETTE model, not a coord bug and not a deleted function
+
+Root cause: **the port fabricates a separate per-set 37-entry CLUT band for
+each wall set and rebases tile bytes into it, but the Mac uses ONE shared
+dungeon palette that every set indexes directly.** Live constants (the
+"32/64/96" comments are stale): `g_cw_base[CW_SLOTS] = {32, 69, 106}`,
+`CW_BAND = 37` (boot.c:9454/9443), backdrop `BACK_PAL_BASE = 144`.
+
+- `l309c_tile` rebase (boot.c:10585-10612): `off = v - 32; if (0 <= off <
+  CW_BAND) v = base + off; else v written UNCHANGED`.
+- **Wall1 = set5 STONE, slot 0, base 32** → rebase is the *identity*, and
+  set5's bytes (41..60) sit inside the band → renders ~OK. This is why
+  stone-dominated levels (#124, [[dungeon-3d-render-state]]) looked fine.
+- **Wall2 = set8 WOOD, slot 1, base 69** → set8's tile bytes span **0..53**;
+  the low bytes (0..31) hit `off < 0` and are written **UNCHANGED into CLUT
+  0..31 (the UI/chrome band)**, the rest read set8's item-0 (not the shared
+  palette) → wood walls paint in chrome/near-black indices = **invisible**,
+  doubly so over the dark night sky.
+- **Wall3 = set1, slot 2, base 106** → same class of failure.
+
+So it is intrinsically per-set / config-specific (Wall2/Wall3 wood + night
+sky), NOT a clean regression — matching this doc's own hedge. Corroborated by
+`docs/dungeon-view-wall.md:186-197` (shared overlapping palette; "the per-set
+32-band rebase can't serve them") and `docs/dungeon-3d-stack-audit.md` Card 1
+("the faithful l3f3c/jt1069/jt1066 palette path is DEAD for the 3D view … the
+wood-vs-stone / wrong-colour root").
+
+**Mechanism inside it:** `cw_load_slot` (boot.c:9743-9758) treats sub-GLIB
+item-0 as a self-contained 37-colour RGB palette and **zero-fills entries past
+`pe` = BLACK**; `pe` also over-counts because item-0 now includes trailing
+colour-cycle records (added by `2863b8a`) read as RGB garbage.
+
+**Closest thing to a genuine regression (secondary):** `63bbf75`'s
+clobber-recovery sets `g_wallfile_which = -1`, but `cw_wallfile_load`
+(boot.c:2508) only consults it in the **fallback resident-buffer path**
+(:2571); the live **FC-pool path** (:2517-2563) ignores it → the "re-read the
+wall library after a CLUT clobber" recovery is a **no-op post far-pool-stage4**.
+
+**RULED OUT:** the coordinate path (Mac traces confirm faithful 8000-space
+placement; `dungeon-3d-stack-audit` Card 2 RESOLVED; `g_cwf_ox/oy` unused *by
+design* per `8b4418f`). And `90b7bd9`'s 16 deleted stand-ins are all
+0-live-reference retired-software-renderer code — no live wall-path function
+was wrongly deleted.
+
+**FIX DIRECTION (known + RISKY):** retire the per-set bands; load the Mac's
+single shared dungeon palette into CLUT 32+ (the `l3f3c` / GLIB path currently
+gated off behind `g_dungeon_bigpic_overlay = 0`) and blit tile bytes DIRECT (no
+rebase). This is `dungeon-view-wall.md` Card 1 — and note the standing warning
+`dungeon-view-wall.md:137`: "do NOT touch the palette, it regressed badly last
+time." So this is a deliberate, well-tested rework, not a quick patch.
+
+**Confirm-probe:** in `l309c_tile` for `g_cwf_slot == 1` (Wall2) blits, log the
+raw tile byte `v` and the final written value — any `v < 32` (falling into the
+UI band) or a near-black final value confirms. The separate walk-loop stall is
+still open and untouched by this audit.
+
 ## Reproduction (needs a human at the mouse-gated menu)
 
 Instrumented build: add `FRUA_XFER_TRACE` probes (this session's set,
