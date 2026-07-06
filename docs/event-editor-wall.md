@@ -585,6 +585,15 @@ lifted) + jt406. Codegen 1889, tests 129/1. **MID TIER COMPLETE** — the array 
 chain-edit layer is fully lifted. NEXT: the top helpers l0a32/l0ade/lce2/l1568/
 l1084/l1686/l1e8a, then the 12 direct stub bodies.
 
+**jt258o DONE — l1e8a (1st direct stub filled) + l1954 / l1686 leaves.** l1e8a
+(0x1e8a): map[a-1][0] = b at g_a5_long(-13038) (20-byte rows), no-op if b==0 —
+this is the FIRST of the 12 direct case stubs to get a real body (case-11's
+l1e8a(rec[19], rec[14])). l1954 (0x1954, leaf): reset an array header (count@0=0,
+index@2=-1). l1686 (0x1686): l1954(rec+22) — reset the record's event-array.
+Both leaves DCE'd; l1e8a DCE'd transitively (jt258 unreferenced). Codegen 1889,
+tests 129/1. NEXT: l1084 (a5@3586=jt444 + array prims), l1686 caller, then
+l0a32/l0ade and the remaining 11 direct stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
