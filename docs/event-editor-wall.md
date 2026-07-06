@@ -393,11 +393,20 @@ NOTE: jt456 is lifted as l2d3e (both-directions alias trap). DEFERRED: the 8
 per-key nav computations (each sets fp4) and the L3b2a pointer/special handling.
 jt249's main body is now STRUCTURALLY COMPLETE.
 
-**Remaining jt249 (fill):** the 8 JT[3] nav arms (129→L38ee, 130→L3a6a, 131→
-L39c0, 132→L3954, 133→L3ac4, 134→L3a26, 135→L3aac, 136→L387c — each computes the
-new slot fp4 from f8/f77/f6/f9/f10 then applies via 0x3ae0), and the L3b2a
-pointer/special block (0x3b2a: fp4<16 slot pick + l3e1e; 17..32 field cycle via
-arr94[f6]; g_a5(-10372) Return/ESC). One arm-group per commit.
+**jt249j DONE — the 8 JT[3] navigation arms.** Each computes the new slot fp4
+from f8/f77/f6/f9/f10 then falls into the shared apply @0x3ae0. Direction pairs:
+129/136 = up (f8-5, top row clamps to 0, f8==0 wraps to 13), 131/132 = down
+(f8+5, bottom row clamps to 0, f8==0 -> 3), 130 = right (f8+1)&15 / 134 = left
+(f8-1)&15 — both toggle the f9 field-mode in the non-f10 path (fp4 = f9?f6:f8),
+133 = end (15/16), 135 = home (0/1). The f10!=0 and f9!=0 modes select f8-cell
+navigation vs f6-position navigation vs field-toggle; all comparisons keep the
+asm's signed(f6)/unsigned(f8-byte) mix. Verified each arm's fp4 assignment
+push-by-push against 0x387c-0x3ada.
+
+**Remaining jt249 (fill):** only the L3b2a pointer/special block (0x3b2a, reached
+when jt152 returns < 0): fp4<16 -> slot pick (unhighlight f8 via l3e1e(,8), set
+f8 = fp4 low byte, l3e1e(,15)); 17<=fp4<=32 -> field cycle (f77 = arr94[f6]);
+else g_a5(-10372) Return(13)->fp2=0 / ESC(27)->fp2=1. That closes jt249.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
