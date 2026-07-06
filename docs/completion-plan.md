@@ -6,10 +6,15 @@ Claude Code session can read this + the named wall doc and start.
 
 ## Honest status — where we actually are
 
-The **JT scoreboard reads 1168/1205 done (~97%)** — but that number is
-misleading, and it matters that we say so. The remaining 37 entries are not the
+The **JT scoreboard reads 1174/1205 done (~97%)** — but that number is
+misleading, and it matters that we say so. The remaining 31 entries are not the
 easy tail; they include **the single largest functions in the whole codebase**,
 deliberately left for last under ADR-0008 ("runtime first").
+
+> **Update 2026-07-06:** Phase A (jt259 art import) and Phase B (the entire
+> CODE 2 event editor) are now COMPLETE, and the CODE 22 command dispatcher
+> (`l0096`) that routes to them is lifted. The frontier is now **Phase C**
+> (CODE 11 GEO 3D-map editor — jt242/jt243) plus the foundational/misc giants.
 
 Two very different truths:
 
@@ -19,13 +24,13 @@ Two very different truths:
   (CODE 22) — all lifted and exercised. This is the ADR-0008 phase-1 goal and
   it is met. If "finished" means *play SSI's UA modules*, we are close.
 
-- **The DESIGN EDITOR (phase 2) is a large remaining frontier.** The pending
-  work is ~**18,000+ instructions** concentrated in a handful of giants, almost
-  all in the authoring/editor segments (CODE 2 event+map editing, CODE 11 GEO
-  3D-map editing), plus the CODE 10 art-import (jt259) and two foundational
-  giants (CODE 8 jt335, CODE 19 jt896). If "finished" means *the full design
-  editor works*, we are **not** close — realistically **25–50 focused
-  sessions**.
+- **The DESIGN EDITOR (phase 2) is still the remaining frontier, but smaller.**
+  With the CODE 2 event editor and the jt259 art-import now lifted, the pending
+  editor work is ~**10,000 instructions**, concentrated in the **CODE 11 GEO
+  3D-map editor** (jt243 5216 + jt242 1298 ≈ 6,500 insn — the biggest single
+  block left) plus the foundational **CODE 8 jt335** (2598) and a few smaller
+  giants (jt896, jt916, jt1206). If "finished" means *the full design editor
+  works*, realistically **12–25 focused sessions**.
 
 So: close on breadth (nearly every function touched), not on depth (the editor
 giants are barely begun). Don't let "97%" set the expectation.
@@ -35,22 +40,26 @@ giants are barely begun). Don't let "97%" set the expectation.
 | JT | CODE | ~insn | Subsystem | Wall doc |
 |----|------|------:|-----------|----------|
 | jt243 | 11 | **5216** | GEO 3D-map editor (biggest fn in the codebase) | geo-editor-wall |
-| jt258 | 2 | **2808** | event-editor main | event-subsystem-campaign |
-| jt259 | 10 | **2732** | MacPaint/PICT art import — **STARTED** | geo-editor-wall |
 | jt335 | 8 | **2598** | foundational UI/file library | — |
 | jt242 | 11 | **1298** | GEO 3D-map editor | geo-editor-wall |
-| jt249 | 2 | **1102** | event editor | event-subsystem-campaign |
-| jt248 | 2 | **890** | event editor | event-subsystem-campaign |
 | jt896 | 19 | **666** | character sheet / party container | — |
-| jt253 | 2 | **644** | event editor | event-subsystem-campaign |
-| jt254 | 2 | **422** | event editor | event-subsystem-campaign |
 | jt916 | 12 | **392** | Training Hall | training-hall-menu-keystone |
 | jt1206 | 4 | **314** | display low-level (may be HAL-superseded — check first) | — |
 
-Plus the smaller misc missing (CODE 8 jt334/336/337/371/373, CODE 12 jt927,
-CODE 20 jt939) and **15 stubs** (mostly small PROBE leaves: CODE 5
+**DONE since this plan was authored (2026-07-06):** jt259 (art import, 2732 —
+Phase A) and the entire CODE 2 event editor — jt254 (422) / jt253 (644) /
+jt248 (890) / jt249 (1102) / jt258 (2808) — Phase B. The CODE 22 command
+dispatcher `l0096` now routes to them (cmd 6→jt258, 16→jt259, 17→jt254,
+3→jt253, 4→jt251, 5→jt250, 7→jt263, 8→jt269, …). The editor is fully lifted but
+**dormant (DCE'd)** until jt315's selection dispatch (CODE 22+0x5180/0x5266) is
+wired to call `l0004_22` (which exists, `unused`).
+
+Plus the smaller misc missing (CODE 8 jt334/336/337/371/373, CODE 12 jt916/927,
+CODE 19 jt896, CODE 20 jt939) and **17 stubs** (mostly small PROBE leaves: CODE 5
 jt965/974/985/1008/1064/1081, CODE 4 jt1144/1178, CODE 12 jt919/931/933,
-CODE 3 jt428, CODE 8 jt365, CODE 15 jt587, CODE 21 jt955).
+CODE 3 jt428, CODE 8 jt365, CODE 15 jt587, CODE 21 jt955, CODE 11 jt242/jt243).
+Several CODE 3/4 "missing" (jt426/432/458, most of CODE 4) are **SUPERSEDED** —
+GEMDOS / the VIDEL HAL replaces them; close them out, don't lift.
 
 ## Session sequencing
 
@@ -59,29 +68,23 @@ level-2 skeleton, then fill), the method proven on jt266. Order the giants by
 (a) unblocking value and (b) warm context. Rough plan — each line is ~1 session
 unless noted:
 
-### Phase A — finish jt259 (art import), ~6-8 sessions [IN PROGRESS]
-Context is warm. Follow the jt259 roadmap in `geo-editor-wall.md`.
-- A1  ✓ L4924 + L4970 leaves + roadmap (2026-07-05, committed)
-- A2  L6606 (after the jt1170 void-vs-word-arg check) + L4eda + L4f9c
-- A3  L66a2 + L67a0 + L6892 + L4924-family tie-ins
-- A4  L4cae + L49f8 (mid helpers)
-- A5  L509e (mid) + L4970-family
-- A6  L42f2 (~528 sub-giant) — 1-2 sessions
-- A7  L53b0 (sub-giant) — 1-2 sessions
-- A8  L36e0 main skeleton → fill; wire jt259 wrapper
+### Phase A — jt259 (art import) — ✓ COMPLETE (2026-07-06)
+The MacPaint/PICT art import (jt259, 2732) is lifted (boot.c). Was the "warm
+context" continuation of the CODE 10 work.
 
-### Phase B — event editor (CODE 2), ~8-12 sessions
-The largest cluster. See `event-subsystem-campaign` memory + a CODE-2 wall doc
-(create `docs/event-editor-wall.md` in B1). Bottom-up per giant.
-- B1  scope CODE 2, enumerate shared helpers, write the wall doc; lift the
-      shared leaves
-- B2-B4  jt254 (422) + jt253 (644) — the smaller editor screens first
-- B5-B7  jt248 (890) + jt249 (1102)
-- B8-B12 jt258 (2808) — the event-editor main; skeleton then fill
+### Phase B — event editor (CODE 2) — ✓ COMPLETE (2026-07-06)
+The whole CODE 2 cluster is lifted, bottom-up per giant, across ~40 commits:
+jt254 (422) → jt253 (644) → jt248 (890) → jt249 (1102) → jt258 (2808, the
+event-editor main). Scope doc `docs/event-editor-wall.md` written. **Wired** by
+the CODE 22 dispatcher `l0096` (this session) — command 6 → jt258, etc.
+Remaining B-adjacent task: wire jt315's selection dispatch to `l0004_22` so the
+editor is reachable at runtime (currently DCE'd/dormant).
 
-### Phase C — GEO 3D-map editor (CODE 11), ~8-14 sessions
-The single biggest function (jt243, 5216). See `geo-editor-wall`.
-- C1  scope CODE 11, shared-helper inventory, wall doc; leaves
+### Phase C — GEO 3D-map editor (CODE 11), ~8-14 sessions  [NEXT / ACTIVE]
+The single biggest function (jt243, 5216) + jt242 (1298); both currently PROBE
+stubs referenced by `l0096` (cmd 2 → jt243, cmd 20 → jt242). See
+`geo-editor-wall.md` (being written in C1).
+- C1  scope CODE 11, shared-helper inventory, wall doc; leaves  ← current step
 - C2-C4  jt242 (1298) — skeleton then fill
 - C5-C14 jt243 (5216) — the big one; multiple skeleton+fill passes
 

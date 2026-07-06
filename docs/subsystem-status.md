@@ -9,12 +9,15 @@ next target. It is the index over the queue of `docs/*-wall.md` scope docs.
   segment / layer), `docs/gap-analysis.md` (by play-flow the player
   experiences), `docs/jt-lift-progress.md` (auto-generated JT counts — the
   source of truth for numbers; rerun `python3 tools/jt_progress.py`).
-- Counts as of 2026-06-24 (HEAD e892f8e): **826 lifted / 109 stub / 273
-  no-jtN-def** of 1208 JT entries (~68% by JT-name; true coverage higher — much
-  of "missing" is lifted under its CODE-local `lXXXX` alias). Raw counts mislead
-  — most remaining "missing" is demand-driven display/runtime paths the working
-  code never calls. The one real block is **CODE 16 (80 stub effect handlers)**.
-  Status below is by *player-facing subsystem*, not by count.
+- Counts as of 2026-07-06: **1174 done / 17 stub / 14 missing** of 1205 JT
+  entries (~97% — 1050 lifted + 52 noop + 72 alias). Raw counts mislead — most
+  of the 31 pending is demand-driven display/runtime paths the working code
+  never calls, or SUPERSEDED shims (CODE 3 jt426/432/458 → GEMDOS, most of
+  CODE 4 → VIDEL HAL). The one real remaining DEPTH block is the **CODE 11 GEO
+  3D-map editor (jt243 5216 + jt242 1298 insn)**, followed by the foundational
+  **CODE 8 jt335 (2598)**. The play runtime + the CODE 2 event editor + jt259
+  art import are all lifted. Status below is by *player-facing subsystem*, not
+  by count.
 
 Status legend: ✅ done (works end-to-end) · 🟡 partial (lifted but
 incomplete/buggy) · 🔴 not started (stub/missing) · ⏸ deferred (ADR-0008,
@@ -99,13 +102,19 @@ cell → `l159a`, or call `l159a(ev,1)`. See `docs/milestone.md` §2 +
 | **Event pictures / portraits** (PIC/SPRIT/CPIC/bigpic) | 20/6/5 | 🟡 | `event-pictures-wall.md` — runtime pipeline (`l442e`→…→`l6e58`) FAITHFUL + works; 2 open bugs are composition-ordering + buffer-sharing, NOT palette math. CODE 10 = the picture EDITOR (deferred), not the runtime path |
 | **Audio / music / sound** (.slb engine) | 5/6 | 🔴 | `audio-wall.md` — dispatch + bank-load lifted, every output leaf stubbed → MUTED. FRUA uses the Device Manager (`_Write`), NOT the Sound Manager. Falcon DMA HAL already exists; needs the engine→HAL glue. Multi-part |
 
-## 7. Editor / authoring tools  ⏸ deferred (ADR-0008: runtime first)
+## 7. Editor / authoring tools  🟡 lifted-but-dormant / 🔴 GEO frontier
+
+The authoring track opened (ADR-0008 phase-2). The CODE 2 event editor is fully
+lifted; the CODE 11 GEO editor is the active frontier. All editor code is
+DCE'd/dormant until jt315's selection dispatch (CODE 22+0x5180/0x5266) calls
+`l0004_22` — the wiring step that makes the editor reachable at runtime.
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
-| Event / zone / map-step editing | 2 | ⏸ | — (deferred) |
-| 3D-map (GEO) editing + save | 11 | ⏸ | — (deferred) |
-| Editor record panels (jt281/282/286) | 22 | ⏸ | — (deferred) |
+| Event / zone / map-step editing (jt254/253/248/249/258) | 2 | 🟡 | `event-editor-wall.md` — COMPLETE, dormant; command dispatcher `l0096` (CODE 22) wired |
+| Art import (MacPaint/PICT, jt259) | 10 | 🟡 | lifted, dormant (dispatcher cmd 16) |
+| **3D-map (GEO) editing + save (jt242/jt243)** | 11 | 🔴 | `geo-editor-wall.md` ← **NEXT FOCUSED TASK** (Phase C); both are PROBE stubs |
+| Editor record panels (jt281/282/286) | 22 | ✅ | lifted (CODE 22 alias block) |
 
 ---
 
@@ -122,32 +131,40 @@ trace; `inventory-subsystem-wall.md` was the model):
 4. **Audio / sound** → `audio-wall.md` ✅ charted (corrected: Device Manager,
    not Sound Manager; HAL already exists).
 
-The only subsystems without a wall are the ⏸ **editor** segments (CODE 2/11/22),
-deferred by ADR-0008 — chart them when the authoring-tools track opens.
+The editor segments are now charted: **CODE 2 = `event-editor-wall.md`** (event
+editor COMPLETE), **CODE 11 = `geo-editor-wall.md`** (GEO editor, Phase C —
+active). The CODE 22 command dispatcher (`l0096`) is lifted.
 
-## Targeting priority (highest leverage first)
+## Targeting priority (highest leverage first) — updated 2026-07-06
 
-1. **Inventory / equip** (`inventory-subsystem-wall.md`) — the active task;
-   makes the char sheet truthful + unlocks ITEMS/TRADE/DROP. Small, testable now.
-2. **Event-handler vocabulary** (`l709e` remaining arms) — each cheap +
-   live-testable on a HEIRS cell; makes designed dungeons actually play.
-3. **3D-render placement bug** (`dungeon-view-wall.md`) — isolated; the
-   unfinished mirror of the b945821 right-side fix.
-4. **CODE-16 effect handlers** (`code16-wall.md`) — the 80 announce/apply
-   payloads. The combat spine is now lifted, so this is what makes abilities
-   *do* something. The single biggest remaining block.
-5. **Combat runtime bring-up** — drive a live round; fix what the breadth-first
-   spine/field lifts got wrong. The integration pass once a few handlers land.
-6. **Rest/camp completion + spell memorize** (`code21-camp-wall.md`).
-7. **Polish:** save/load slot pickers, #129 frame-stomp, audio, editor (last).
+The play runtime + the CODE 2 event editor + jt259 art import are lifted. The
+frontier is now the **design editor's last giant** and a short tail of runtime
+polish. Per `completion-plan.md` (the master sequence):
+
+1. **CODE 11 GEO 3D-map editor** (`geo-editor-wall.md`, Phase C) — jt242 (1298)
+   then jt243 (5216, the biggest fn in the codebase). The single largest
+   remaining block; both are PROBE stubs the `l0096` dispatcher already routes
+   to. **The active task.**
+2. **Wire the editor live** — lift jt315's selection dispatch (CODE 22 +
+   0x5180/0x5266) to call `l0004_22`, making the whole editor reachable.
+3. **CODE 8 foundational giant** jt335 (2598) + jt334/336/337/371/373 — may
+   unblock the editor giants; pull early if C depends on it.
+4. **Runtime polish** still genuinely open: inventory/equip
+   (`inventory-subsystem-wall.md`), the remaining `l709e` event arms, rest/camp
+   spell-memorize (`code21-camp-wall.md`), save/load slot pickers, audio
+   (`audio-wall.md`, muted).
+5. **Small-stub cleanup** — CODE 5 (6 leaves), CODE 12 Training Hall
+   (jt916/919/927/931/933), CODE 4 (check HAL-superseded). Batch by segment.
 
 ## Bottom line
 
-Foundation + front door are **done**; the port boots, builds a party, picks a
-design, saves/loads, and walks the dungeon. The frontier is the **in-game
-vocabulary**: inventory (next), the rest of the event handlers, then **combat**
-(one keystone — `l076e`). Combat is the single largest remaining block; the
-editor is deliberately last.
+Foundation, front door, and the **in-game play runtime are done**; the port
+boots, builds a party, picks a design, saves/loads, walks the dungeon, and the
+combat spine + effect handlers are lifted. The **CODE 2 event editor and jt259
+art import are lifted** (dormant). The remaining frontier is the **CODE 11 GEO
+3D-map editor** (jt242/jt243 — the last big depth block) plus wiring the editor
+into the menu, then a short tail of runtime polish (inventory, events, audio)
+and small-stub cleanup.
 
 > Maintenance: update this table whenever a subsystem's status changes or a new
 > `*-wall.md` lands — same commit. Keep it to status + pointers; detail lives in
