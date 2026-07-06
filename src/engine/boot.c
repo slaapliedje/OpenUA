@@ -74358,6 +74358,36 @@ static void l1958(void *ctx_v)
 		jt305(ctx, (char)0, (char)0);                      /* 0x1a12 — repaint */
 }
 
+/* L2414 (CODE 11 + 0x2414) — sync the editor's scroll cursor / highlight cell to
+ * the active cell record after a move.  The arg is a holder whose word@0 points
+ * at the record.  When rec[4] (area-kind) is 0 it copies the record's 6-byte
+ * position block rec[46..51] into the scroll-cursor globals g_a5_-12288..-12283,
+ * then — if rec[18]==1 and the highlight cell (g_a5_-11702/-11701/-11700) no
+ * longer matches the record's (row=rec[47], col=rec[46], facing=rec[48]) —
+ * repaints via JT[305](rec, 0, 1).  When rec[4]!=0 it instead snaps the highlight
+ * cell onto the scroll cursor (-11702=-12287, -11701=-12288, -11700=-12286).  A
+ * jt243 (GEO editor) leaf; caller l2ea0. */
+static void l2414(void *holder_v) __attribute__((unused));
+static void l2414(void *holder_v)
+{
+	unsigned char *rec = *(unsigned char **)holder_v;          /* 0x241c — *holder */
+	short k;
+
+	if (rec[4] == 0) {                                         /* 0x2424 */
+		for (k = 0; k < 6; k++)                            /* 0x2438/0x243a — rec[46..51] */
+			g_a5_byte(-12288 + k) = rec[46 + k];
+		if (rec[18] == 1 &&                               /* 0x2448 */
+		    ((short)(unsigned char)g_a5_byte(-11702) != (short)(signed char)rec[47] ||
+		     (short)(unsigned char)g_a5_byte(-11701) != (short)(signed char)rec[46] ||
+		     (unsigned char)g_a5_byte(-11700) != rec[48]))   /* 0x245c/0x2472/0x2482 */
+			jt305(rec, (char)0, (char)1);             /* 0x2498 — repaint */
+	} else {                                                  /* 0x24a0 */
+		g_a5_byte(-11702) = g_a5_12287;                   /* highlight <- scroll cursor */
+		g_a5_byte(-11701) = g_a5_12288;
+		g_a5_byte(-11700) = g_a5_12286;
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
