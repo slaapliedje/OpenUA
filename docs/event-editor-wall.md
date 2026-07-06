@@ -112,7 +112,7 @@ helpers, several of which are SHARED with jt257/jt258 (the selection ring):
 | L2350 | 0x2350 | -4 | selection-ring CONSUMER (advance cursor -12196, validate) | jt229, jt321 | ✓ done |
 | L4842 | 0x4842 | -22 | cell-array RESHAPE (grow/shrink col stride via jt406/jt399; ring-scans affected events) | L20ac, jt413/406/399/7/4 | ✓ done |
 | L4bd4 | 0x4bd4 | -18 | event-picker COMMIT loop (snapshot rec14 → jt325 serialize → restore) | jt348/359/325, L2350 | ✓ done |
-| L44cc | 0x44cc | -16 | **main dispatcher** — 2× JT[1] value-switch {2,5,10,8} + 1× JT[3] {5}; packs display flags into *desc | jt319/273/317/320/325, L4842, L4bd4, L4842's L20ac | **last — next** |
+| L44cc | 0x44cc | -16 | **= jt253 main dispatcher** — 2× JT[1] {2,5,10,8} + JT[3] {5}; packs display flags into *desc | jt319/273/317/320/325, L4842, L4bd4 | ✓ done |
 | l44ca | 0x44ca | — | **= jt252**, empty `rts` (adjacent placeholder) | — | ✓ stub |
 
 Switch tables (extract-tool decoded, #122-safe):
@@ -130,10 +130,19 @@ grow forward, shrink back-to-front, or tail-zero; collects affected events into
 the ring).
 **B-jt253c DONE:** L4bd4 (event-picker commit loop — snapshot rec14, serialize
 each ring selection via jt325, restore). Faithful quirk: the Mac feeds L2350's
-0/1 flag (not the event byte) to jt348/jt359. **Only the L44cc main dispatcher
-remains** — the 2× JT[1] {2,5,10,8} + JT[3] {5} switch that reads the click
-cell, calls L4842/L4bd4/jt325 + the CODE 22 callbacks, and packs the resulting
-display flags into *desc (the 0x4702 second-JT[1] + 0x472c-0x4836 packing block).
+0/1 flag (not the event byte) to jt348/jt359.
+**B-jt253d DONE — jt253 COMPLETE:** the L44cc main dispatcher. JT[1] on a8
+{2 store / 5 recall / 10 begin-edit (nested JT[3] on ctx[4] case 5 = L4842
+reshape / L4bd4 picker when *desc&15, else seed dims + jt319) / default no-op};
+then (unless committed) jt325 serialize (type 51/52 per jt273), jt317 dim
+reconcile, and on a jt320 commit either mark the cell or L4842 reshape; then a
+second JT[1] on ctx[2] packs p16[12] into *desc's bit-fields (case 5 = the
+tiered 512/768/1024 position pack via the 16-bit lslw/oriw/extl sequence).
+Both JT[1] + the JT[3] decoded via the extract tools (#122-safe). Returns ctx[2].
+
+**jt253 (l44cc) is now COMPLETE** — two editor screens (jt254, jt253) done.
+Next targets by size: **jt248 (l26aa, 890)** → jt249 (l333a, 1102) → jt258
+(l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
 
 ## Method (same as jt259 / #153 so far)
 

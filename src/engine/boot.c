@@ -71378,6 +71378,143 @@ static short l4bd4(short state, long *desc, void *rec14)
 	return (short)(flag != 0 ? 1 : 0);
 }
 
+/* JT[253] (CODE 2 + 0x44cc = entry_jt253, frame -16) — the event-cell EDIT
+ * command: place/edit an event at the clicked map cell. `ctx` is the click
+ * context (word[0] state echo, word[2]/word[4] tool state, byte[6]/byte[7] the
+ * target cell row/col, long[8] -> the event record `p16`); `desc` receives the
+ * packed display-flags result; `a8` is the incoming tool state.
+ *
+ * A JT[1] on a8: {2 = store state into ctx[0]; 5 = recall it; 10 = begin-edit
+ * (nested JT[3] on ctx[4]: case 5 runs the L4842 reshape / L4bd4 picker when
+ * *desc's low nibble is set, else seeds the design dims + jt319); default =
+ * no-op}. Unless that path already committed (flag), serialize the cell via
+ * jt325 (record type 51/52 per jt273), reconcile the design dims (jt317), and
+ * on a committed edit (jt320) either mark the cell (ctx[2]=10, ctx[4]=5) or
+ * reshape via L4842. Finally a second JT[1] on ctx[2] packs p16[12] into *desc's
+ * display bit-fields (case 5 = the tiered 512/768/1024 position pack). Returns
+ * ctx[2]. All leaves lifted; jt325 is a level-2 skeleton (dormant editor). */
+static short jt253(short a8, long *desc, void *ctx_arg) __attribute__((unused));
+static short jt253(short a8, long *desc, void *ctx_arg)
+{
+	unsigned char *ctx;
+	unsigned char *p16;
+	unsigned char *dr;                 /* the -12300 design record */
+	char  mode = 3;                    /* fp@(-7)  */
+	char  flag = 0;                    /* fp@(-1)  */
+	short jt325res;                    /* fp@(-6)  */
+	short tmp;                         /* fp@(-4)  */
+
+	PROBE("jt253");
+	if (ctx_arg == 0)
+		return 0;
+
+	ctx = (unsigned char *)ctx_arg;
+	p16 = *(unsigned char **)(void *)(ctx + 8);
+	dr  = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	switch (a8) {                                   /* JT[1] @0x44fe */
+	case 2:
+		*(short *)(void *)(ctx + 0) = a8;
+		mode = 2;
+		break;
+	case 5:
+		a8 = *(short *)(void *)(ctx + 0);
+		mode = 2;
+		break;
+	case 10:
+		*(short *)(void *)(ctx + 2) = *(short *)(void *)(p16 + 10);
+		switch (*(short *)(void *)(ctx + 4)) {  /* JT[3] @0x4550 (min=max=5) */
+		case 5:
+			if ((*desc & 15) != 0) {
+				if (l4842(dr, (short)ctx[6], (short)ctx[7]) != 0)
+					l4bd4(a8, desc, p16);
+			} else {
+				dr[2] = ctx[6];
+				dr[3] = ctx[7];
+				jt319();
+			}
+			flag = 1;                       /* L45c0 */
+			*(short *)(void *)(ctx + 2) =
+			    *(short *)(void *)(p16 + 10);
+			break;
+		default:
+			break;
+		}
+		break;
+	default:                                        /* case 8 + default */
+		break;
+	}
+
+	if (flag == 0) {                                /* L45d4 */
+		short type;
+
+		ctx[6] = dr[2];
+		ctx[7] = dr[3];
+		type = ((unsigned char)jt273()) ? (short)52 : (short)51;
+		jt325res = jt325(a8, desc, p16, type, dr,
+		                 (short)mode, (short)290);
+		if (*(short *)(void *)(p16 + 10) == 6)
+			*(short *)(void *)(p16 + 10) = 5;
+		*(short *)(void *)(ctx + 2) = *(short *)(void *)(p16 + 10);
+		if (!(dr[2] == ctx[6] && dr[3] == ctx[7]))
+			jt317();
+		if (jt325res == 1
+		    || (jt325res == 3 && *(short *)(void *)(p16 + 10) == 5)) {
+			if (jt320() != 0) {
+				if (dr[2] >= ctx[6] && dr[3] >= ctx[7])
+					l4842(dr, (short)ctx[6],
+					      (short)ctx[7]);      /* L46de */
+				else {
+					*(short *)(void *)(ctx + 2) = 10;
+					*(short *)(void *)(ctx + 4) = 5;   /* L46c8 */
+				}
+			}
+		}
+	}
+
+	*desc &= 0xFFFF0000L;                            /* L4702 — pack flags */
+	switch (*(short *)(void *)(ctx + 2)) {           /* JT[1] @0x4718 */
+	case 10:
+		if (*(short *)(void *)(ctx + 2) == *(short *)(void *)(p16 + 10))
+			*desc |= (long)*(short *)(void *)(p16 + 12);
+		else
+			*desc |= (long)*(short *)(void *)(ctx + 4);
+		break;
+	case 8:
+		((unsigned char *)desc)[4] = 1;
+		*desc |= (long)*(short *)(void *)(p16 + 12);
+		break;
+	case 5:
+		/* tiered position pack: split p16[12] into a low byte + a
+		 * (val>>8)-48 index, encoded 512/768/1024 by 32-cell band (the
+		 * lslw/oriw/extl 16-bit sequence, so cast through unsigned short). */
+		*desc |= (long)(*(short *)(void *)(p16 + 12) & 0xFF);
+		*(short *)(void *)(p16 + 12) =
+		    (short)(*(short *)(void *)(p16 + 12) >> 8);
+		tmp = (short)(*(short *)(void *)(p16 + 12) - 48);
+		if (tmp < 32) {
+			*desc |= (long)(short)(unsigned short)
+			         (((unsigned)(tmp / 4) << 11) | 512u);
+		} else {
+			tmp -= 32;
+			if (tmp < 32) {
+				*desc |= (long)(short)(unsigned short)
+				         (((unsigned)(tmp / 4) << 11) | 768u);
+			} else {
+				tmp -= 32;
+				if (tmp < 8)
+					*desc |= (long)(short)(unsigned short)
+					         (((unsigned)tmp << 11) | 1024u);
+			}
+		}
+		break;
+	default:                                         /* case 2 + default */
+		break;
+	}
+
+	return *(short *)(void *)(ctx + 2);
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
