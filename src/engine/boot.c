@@ -71548,6 +71548,99 @@ static void l31cc_c2(short y, short xbase, short field, short idx,
 	jt1089(y, x, (short)140, buf);
 }
 
+/* JT[248] (CODE 2 + 0x26aa = entry_jt248, frame -140) — the interactive
+ * event-parameter editor modal. LEVEL-2 SKELETON (ADR-0002): the prologue,
+ * the type-4 early exit, both base-string prompt builds, the 8-arm JT[3]
+ * dispatch scaffold, and the shared cleanup are lifted; the per-type parameter
+ * arms and the shared modal tail (jt169 List-Manager pick loop + jt347 value
+ * adjust + the *desc repack) are DEFERRED — see docs/event-editor-wall.md.
+ *
+ * *desc encodes the event: low nibble = type (0-15), bits 4-9 = a sub-value.
+ * type 4 is a "current cell" early exit (jt314). Otherwise a base prompt string
+ * is built (type 3 = a "N, N?" confirm; else a "...:" label), then the JT[3]
+ * on type fans out to per-type parameter formatting. Each arm builds an event
+ * list (jt167 -> the -132 holder) and its modal state; the shared tail then
+ * draws the prompt, runs jt169, clamps the pick (jt347), packs it back into
+ * *desc, and cleans up (jt147). Returns the incoming a8. With the arms deferred
+ * the list holder stays empty and the Mac short-circuits to the jt147 cleanup,
+ * so this skeleton is faithful on its always-executed path. */
+static short jt248(short a8, long *desc) __attribute__((unused));
+static short jt248(short a8, long *desc)
+{
+	short type;                 /* fp@(-2)  = *desc & 15 (event type)  */
+	short sub;                  /* fp@(-4)  = (*desc & 1008) >> 4       */
+	char  buf62[96];            /* fp@(-62) = the prompt string         */
+	void *list_holder = NULL;   /* fp@(-132) = event-list holder        */
+
+	PROBE("jt248");
+	type = (short)(*desc & 15);
+	sub  = (short)((*desc & 1008) >> 4);
+	(void)sub;                  /* consumed only by the deferred type arms */
+
+	if (type == 4) {
+		/* L26e8 — "current cell" early exit: take the type from jt314
+		 * (= l494e) and repack it into *desc's low nibble. */
+		short r = (short)l494e();
+		*desc &= 0xFFFFF000L;
+		*desc |= (long)(r & 15);
+		return a8;
+	}
+
+	if (type == 3) {
+		/* L2716 — a "<a> <b> <c> <d> N, N?" confirm prompt */
+		int  r273 = jt273();
+		long base = r273 ? g_a5_long(-11140) : g_a5_long(-10636);
+		long val  = r273
+		    ? (long)(uintptr_t)ua_strs_at(0x2bec)
+		    : (long)(uintptr_t)jt488(ua_strs_at(0x2bee) /* " %s" */,
+		          (long)g_a5_longs(-10924)[(g_a5_byte(-12286) & 6) >> 1]);
+		jt394(buf62, ua_strs_at(0x2bd6) /* "%s %s %s %s %d, %d%s?" */,
+		      g_a5_long(-10804), g_a5_long(-10740), base, g_a5_long(-10780),
+		      (short)g_a5_byte(-12288), (short)g_a5_byte(-12287), val);
+	} else {
+		/* L27b6 — a "<a> <b> <c> <d>:" label prompt */
+		long base = (type < 4) ? g_a5_long(-10788) : g_a5_long(-10792);
+		jt394(buf62, ua_strs_at(0x2bf2) /* "%s %s %s %s:" */,
+		      g_a5_long(-10728), g_a5_long(-10704), base,
+		      (long)g_a5_longs(-10956)[type]);
+	}
+
+	/* L27f4 — the 8-way per-event-type parameter dispatch. Each arm formats
+	 * the type's parameters (into buf62 and an event list via jt167) and
+	 * converges at the shared modal tail. DEFERRED (level-2): until the arms
+	 * are lifted the list stays empty and the tail short-circuits. */
+	switch (type) {                     /* JT[3] @0x280e (min=0 max=7) */
+	case 0:  /* TODO: L2824 — item-index arm (jt352/jt167/jt349 enumerate) */
+		break;
+	case 1:  /* TODO: L29c8 — jt352/jt167/jt349 enumerate */
+		break;
+	case 2:  /* TODO: L2af6 — "%s %s" list arm (-11224 table) */
+		break;
+	case 3:  /* TODO: L2cbe — "%s %d: %d,%d %s" per-cell arm (rec -12300) */
+		break;
+	case 5:  /* TODO: L2b9a — nested-JT[3] "%s %s %s?" arm */
+		break;
+	case 6:
+	case 7:  /* TODO: L2a36 — sub=(*desc&4080)>>4 arm */
+		break;
+	default: /* case 4 + out-of-range -> L2dc2 "Item %d" arm */
+		break;
+	}
+
+	/* L2e42 — the shared modal tail: walk the event list, draw the prompt
+	 * (jt84/jt117/jt1089 + l31cc_c2 labels), run the jt169 List Manager pick
+	 * loop, clamp the chosen value (jt347) and pack it back into *desc.
+	 * DEFERRED with the arms; with list_holder == NULL the Mac jumps straight
+	 * to the jt147 cleanup below. */
+	if (list_holder != NULL) {
+		/* TODO: shared modal tail (L2e42..L30d8) — the jt169 modal loop,
+		 * the jt347 value-adjust (its JT[2] @0x3042 switch) and *desc repack. */
+	}
+
+	jt147(&list_holder);                /* L3108 */
+	return a8;                          /* L3116 */
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
