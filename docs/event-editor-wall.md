@@ -292,8 +292,39 @@ from loop8=lo113=1. STRS verified: 0x2c26="Item %d".
 tail lifted across 9 commits (jt248a L31cc → jt248i). The whole cluster is DCE'd
 (jt248 unreferenced until the CODE 22 dispatcher is lifted), codegen holds 1889.
 
-Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
-(l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
+## jt249 (l333a, CODE 2+0x333a → 0x4024, frame -98, ~900 insn) — STARTED
+
+The large sibling editor screen. Signature confirmed from the CODE 22+0x02aa
+caller (pushes `word *(struct+2)`, `&struct[8]`, `0L`): **jt249(short a8, long
+*desc, long *p14)**, p14 = NULL from that caller, desc = &caller_struct[8].
+CAUTION: fp@(10)=desc is read as a long pointer early (moveal; a0@) AND as a
+WORD late (the 8× `movew fp@(10)` at 0x3e9c-0x4000 feed jt1161) — the late reads
+are the desc pointer's HIGH word, transcribe faithfully when lifting the tail.
+
+**Dispatch map:** main **JT[2] @0x334c** on `*desc & 15` (table @0x3350: count=2,
+keys {1,2}, long-key format → {1:0x3360, 2:0x339e, default:0x33d6}) builds the
+prompt pair. Two inner **JT[3]** sites: @0x3862 (jsr) and @0x3e5a (jsr, decode
+with jt3_extract --jsr-at 0x3e5a). Internal helper **L3cbe** (jsr pc@ from
+0x3558) — a coord/field sub-routine, lift as an lXXXX. Heavy JT leaves: jt1161
+(10×, filled-rect top/left/bottom/right/fill), jt452 (8×, DLItem draw), jt1200
+(7×, ==3 query), jt394 (4×, prompt fmt), jt1089/jt447/jt79/jt357/jt179/jt152/
+jt148/jt423 singles.
+
+**jt249a DONE — the prologue (0x333a-0x34e8).** JT[2] prompt build (type 1 →
+buf52 "%s %s %s %s:"@0x2c46 + buf72 "%s %s"@0x2c54; type 2 → buf52 "%s %s %s?"
+@0x2c5a + buf72 "%s %s"@0x2c64; default → common), *desc unpack (f8=bits 4-7,
+f77=bits 8-11), the 16-entry display-reorder table arr94[1..16] =
+{0,1,14,15,2..13} (3 fill loops), and the search that finds f6 = position of f77
+in the table. STRS verified. Body deferred (level-2); f6/f8/f10 (void)-marked as
+consumed-by-deferred-body. Codegen 1889, tests 129/1.
+
+**Remaining jt249 body (fill order):** 0x34ea drawing setup (jt447/jt1200/two
+jt452) → L3548 draw loop (uses L3cbe) → JT[3] @0x3862 → modal region → JT[3]
+@0x3e5a → the jt1161 redraw tail (0x3e6e-0x4022). Lift L3cbe first, then each
+block one commit.
+
+Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
+then-fill, last).
 
 ## Method (same as jt259 / #153 so far)
 
