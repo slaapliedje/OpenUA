@@ -701,6 +701,16 @@ Also DELETED my accidental duplicate. Codegen 1889, tests 129/1. **LESSON: a
 "shared/already-lifted" helper may be a PARTIAL lift — verify its CFG covers the
 whole function before trusting it.** NEXT: l1568, l1084, then l0ade -> l0a32.
 
+**jt258y DONE — l1568 (event-list status footer, full lift).** Draws the header
+trio (l31cc_c2(8072,8004,38,6,0,0)) + one summary line: reads a step/limit pair
+(jt194 into out + ret, jt227=b), remaining=out-ret, scaled progress c=jt7(jt7(
+jt4(1000,remaining),out)+5,10), pct=100-b, then formats "%s %d %s, %d %s. %s
+%ld%% %s%s" (STRS 0x2b8e) from -10488..-10500 label ptrs, ending "." (0x2bae) if
+c!=0 else "!" (0x2bb0), drawn centred (jt423) at xconst+16. jt4=mul jt7=div arith;
+%d args pass shorts (C-promote to int, l12e8 precedent); %ld=c long. All JT slots
+lifted (l31cc_c2/jt194/jt227/jt4/jt7/jt394/jt423/jt1089). Codegen 1889, tests
+129/1. NEXT: l1084 (l12e8 + jt444 2-arg), then l0ade -> l0a32 -> last 3 stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
