@@ -74068,6 +74068,35 @@ static short l5ee2(void *p_v, short a2, short a3)
 	return count;
 }
 
+/* L6136 (CODE 11 + 0x6136) — bulk cell-code replace.  If target t1 (low byte of
+ * arg 2) already equals the record's code p[14], return 0; else scan every cell
+ * (ds[2] rows x ds[3] cols) and, where the cell's code A (jt300, lifted as
+ * l0674) == t1, set it to p[14] (jt288) and count it.  Returns the number
+ * changed.  A jt242 leaf — the cell-code sibling of l5ee2 (the four wall sides). */
+static short l6136(void *p_v, short a2) __attribute__((unused));
+static short l6136(void *p_v, short a2)
+{
+	const unsigned char *p  = (const unsigned char *)p_v;
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char t1 = (unsigned char)a2;         /* fp@(13) */
+	short count = 0;                              /* fp@(-2) */
+	short row, col, cell = 0;                     /* fp@(-4)/fp@(-6)/fp@(-8) */
+
+	if (t1 == p[14])                              /* 0x613e — already the target */
+		return 0;
+
+	for (row = 0; row < ds[2]; row++) {           /* 0x61ae outer */
+		for (col = 0; col < ds[3]; col++) {   /* 0x619a inner */
+			if (l0674(cell) == t1) {      /* jt300 — cell code A == t1 */
+				jt288(cell, p[14]);   /* write the new code */
+				count++;
+			}
+			cell++;                       /* 0x6192 */
+		}
+	}
+	return count;
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
  * command handlers reached by the l0096 dispatcher below.  Their bodies live
