@@ -503,6 +503,18 @@ faithful-lift bottom-up: case-5 (l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/
 l0722/l0622/l0524) + case-11/10 (l1e8a/l07c6). These are event-record
 serialization primitives; several are shared across the case arms.
 
+**Helper bodies — lifting bottom-up (leaves first).** The 12 direct stubs each
+call a deep subtree (l0a32/l0ade/l207c/l1ad2/l1b30/l174a/l1c10... none of the 12
+is a shallow leaf), so the faithful order is deepest-primitive-first. True leaves
+found (no pc@ calls, only a5@ JT-slot calls or none): l1ad2, l1af8, l1b30, l207c,
+l6cc. **jt258h DONE — the event-array element-pointer accessor pair l1ad2/l1af8.**
+Both operate on an array header {count@0 word, valid-flag@2 word; elements at
+header+4, 4-byte stride}. l1ad2(p) = &elem[count] (append slot; NULL if word@2<0);
+l1af8(p,mode) = &elem[count-1] (top slot; mode!=0 also decrements count in place =
+pop, mode 0 = peek; NULL if count<=0). Confirmed callsite l0a32 @0xa66/0xa7c does
+l1ad2(rec+22)/l1af8(rec+22,0) — the array header lives at rec+22. Both DCE'd
+(callers still stubs); codegen 1889, tests 129/1. NEXT leaves: l1b30, l207c, l6cc.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
