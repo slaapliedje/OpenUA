@@ -71567,15 +71567,29 @@ static void l31cc_c2(short y, short xbase, short field, short idx,
 static short jt248(short a8, long *desc) __attribute__((unused));
 static short jt248(short a8, long *desc)
 {
-	short type;                 /* fp@(-2)  = *desc & 15 (event type)  */
-	short sub;                  /* fp@(-4)  = (*desc & 1008) >> 4       */
-	char  buf62[96];            /* fp@(-62) = the prompt string         */
-	void *list_holder = NULL;   /* fp@(-132) = event-list holder        */
+	short type;                 /* fp@(-2)   event type / reused as sub2 + pick */
+	short sub;                  /* fp@(-4)   (*desc & 1008) >> 4                */
+	short cnt124 = 0;           /* fp@(-124) enumerated item count             */
+	short idx122;               /* fp@(-122) selected index                    */
+	short loop8  = 0;           /* fp@(-8)   list cursor / counter             */
+	short v6;                   /* fp@(-6)                                     */
+	unsigned char lo113;        /* fp@(-113)                                   */
+	signed char   hi114 = 0;    /* fp@(-114)                                   */
+	unsigned char f119, f118, f117;   /* fp@(-119) / -118 / -117               */
+	unsigned char f116 = 0;     /* fp@(-116)                                   */
+	long  str12 = 0;            /* fp@(-12)  title-string pointer              */
+	void *cursor128 = NULL;     /* fp@(-128) list walking cursor               */
+	void *list_holder;          /* fp@(-132) event-list holder                 */
+	void *p136;                 /* fp@(-136)                                   */
+	char  buf62[96];            /* fp@(-62)  the prompt string                 */
+	char  buf112[64];           /* fp@(-112) the title string                  */
 
 	PROBE("jt248");
+	p136 = NULL;                                    /* 0x26ae */
 	type = (short)(*desc & 15);
 	sub  = (short)((*desc & 1008) >> 4);
-	(void)sub;                  /* consumed only by the deferred type arms */
+	f118 = 0; f117 = 0; f119 = 0;                   /* 0x26d0-26d8 */
+	buf112[0] = 0;                                  /* 0x26dc clrb fp[-112] */
 
 	if (type == 4) {
 		/* L26e8 — "current cell" early exit: take the type from jt314
@@ -71609,8 +71623,57 @@ static short jt248(short a8, long *desc)
 	 * the type's parameters (into buf62 and an event list via jt167) and
 	 * converges at the shared modal tail. DEFERRED (level-2): until the arms
 	 * are lifted the list stays empty and the tail short-circuits. */
+	v6 = 0; idx122 = 0; lo113 = 1; list_holder = NULL;   /* 0x27f4-2802 */
+
 	switch (type) {                     /* JT[3] @0x280e (min=0 max=7) */
-	case 0:  /* TODO: L2824 — item-index arm (jt352/jt167/jt349 enumerate) */
+	case 0:
+		/* L2824 — item-index arm: enumerate the design's items into an
+		 * event list. Re-derive a sub-type from *desc bits 10-12, seed the
+		 * lo/hi bounds + selected index per that sub-type, then jt352 counts
+		 * the items, jt167 allocates the list, and the loop labels each node
+		 * (jt394/jt367 into node+5); jt349 finalizes the count. */
+		hi114 = -1;
+		cnt124 = 40;
+		type = (short)((*desc & 7168) >> 10);   /* fp[-2] = sub2 */
+		if (type == 2 || type == 1) {
+			if (sub != 0 && sub < 4)
+				hi114 = 4;
+			else
+				lo113 = 5;
+			if ((short)lo113 == sub)
+				idx122++;
+			if (type == 2)
+				f119 = 1;
+		} else if (type == 4) {
+			lo113 = (sub != 0) ? 1 : 0;
+			v6 = -1;
+			idx122 = (short)(sub - (lo113 != 0 ? 1 : 0));
+		} else if (type == 0) {
+			idx122 = (short)(sub - 1);
+		}
+		str12 = (long)g_a5_longs(-11020)[type];
+		f117 = 1;
+		cnt124 = jt352((short)11, (short)1, (long)(intptr_t)&lo113,
+		               (long)(intptr_t)&hi114, 0L,
+		               (long)(intptr_t)&type, 0L);
+		jt167(cnt124, (long)(intptr_t)&list_holder);
+		cursor128 = list_holder;
+		if (lo113 == 0) {
+			jt394((char *)cursor128 + 5,
+			      (const char *)(uintptr_t)g_a5_long(-10600));
+			((unsigned char *)cursor128)[4] = 0;
+			cursor128 = *(void **)cursor128;
+		}
+		loop8 = jt397((short)lo113, (short)1);
+		while (cursor128 != NULL) {
+			jt367(loop8, (char *)cursor128 + 5);
+			((unsigned char *)cursor128)[4] = 0;
+			cursor128 = *(void **)cursor128;
+			loop8++;
+		}
+		loop8 = (short)(lo113 + jt349((long)(intptr_t)list_holder,
+		            (short)11, (short)1, (short)lo113, (short)1,
+		            (short)0, 0L));
 		break;
 	case 1:  /* TODO: L29c8 — jt352/jt167/jt349 enumerate */
 		break;
@@ -71627,17 +71690,83 @@ static short jt248(short a8, long *desc)
 		break;
 	}
 
-	/* L2e42 — the shared modal tail: walk the event list, draw the prompt
-	 * (jt84/jt117/jt1089 + l31cc_c2 labels), run the jt169 List Manager pick
-	 * loop, clamp the chosen value (jt347) and pack it back into *desc.
-	 * DEFERRED with the arms; with list_holder == NULL the Mac jumps straight
-	 * to the jt147 cleanup below. */
-	if (list_holder != NULL) {
-		/* TODO: shared modal tail (L2e42..L30d8) — the jt169 modal loop,
-		 * the jt347 value-adjust (its JT[2] @0x3042 switch) and *desc repack. */
+	/* L2e42 — the shared modal tail: draw the prompt, run the jt169 List
+	 * Manager pick loop, clamp the chosen value (jt347) and pack it back into
+	 * *desc. Runs only when an arm populated the list (list_holder) and its
+	 * enumerated count matches; otherwise the Mac jumps straight to jt147. */
+	type = 1;
+	if (list_holder != NULL && (short)(loop8 - lo113) == cnt124) {
+		f116 = 1;                                       /* L2e64 */
+		cursor128 = list_holder;
+		for (loop8 = 0; loop8 < idx122 && cursor128 != NULL; loop8++)
+			cursor128 = *(void **)cursor128;            /* L2e82 walk */
+		if (cursor128 == NULL)
+			cursor128 = list_holder;
+		jt179((short)1);
+		if (buf112[0] == 0)                             /* L2ea8 title */
+			jt394(buf112, ua_strs_at(0x2c2e) /* "%s %s" */,
+			      str12, g_a5_long(-10692));
+
+		jt84();                                         /* L2ec8 draw */
+		jt117();
+		{
+			short len = jt423(buf62);
+			short h = (short)(8004 + ((38 - len) * 4) / 2);
+			jt1089((short)8008, h, (short)143, buf62);
+		}
+		{
+			short d = (a8 == 21) ? (short)7 : a8;       /* L2f00 label */
+			l31cc_c2((short)8072, (short)8004, (short)38, d,
+			         (short)1, (short)f119);
+		}
+
+		do {                                            /* L2f32 modal loop */
+			if (p136 != NULL)
+				jt168((long)(intptr_t)p136, (short)0, (short)1);
+			type = (short)(jt169(g_a5_long(-13952),
+			    (long)(intptr_t)buf112, (short)2, (short)4,
+			    (short)38, (short)15, (long)(intptr_t)list_holder,
+			    (short)1, (short)0, &f116, &idx122,
+			    (long *)&cursor128) & 0xFF);
+			idx122 = (short)(idx122 + (lo113 & 0xFF));   /* L2f86 */
+			if (g_a5_byte(-24139) != 0)
+				type = (type == 13) ? (short)0 : (short)1;
+			if (f118)                                    /* L2fc4/L2fd6 */
+				type = (short)(1 - type);
+			if (type == 0 && v6 != 0 && idx122 == v6) {  /* L2fe6 */
+				jt360((const char *)(uintptr_t)g_a5_long(-10652),
+				      0);
+				idx122 = (short)(idx122 - (lo113 & 0xFF));
+				f116 = 1;
+				type = -1;
+			}
+		} while (type < 0 || type > 1);                 /* L3020 */
+
+		if (f117 != 0) {                                /* JT[2] @0x3042 */
+			switch ((short)(*desc & 15)) {
+			case 1:                                     /* 0x305c */
+				idx122 = jt347((short)(idx122 - lo113),
+				    (short)10, (short)96, (short)lo113,
+				    0L, 0L);
+				break;
+			case 6:                                     /* 0x308c */
+			case 7:
+				sub = ((short)(*desc & 15) == 6)
+				    ? (short)12 : (short)14;
+				idx122 = jt347((short)(idx122 - lo113),
+				    sub, (short)1, (short)lo113, 0L, 0L);
+				break;
+			default:                                    /* 0x30d8 */
+				break;
+			}
+		}
+
+		*desc &= 0xFFFFF000L;                           /* L30d8 pack */
+		*desc |= (long)(((1 - type) & 15)
+		    | ((idx122 & 255) << 4));
 	}
 
-	jt147(&list_holder);                /* L3108 */
+	jt147((void *)&list_holder);        /* L3108 */
 	return a8;                          /* L3116 */
 }
 
