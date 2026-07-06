@@ -375,11 +375,22 @@ lifted — the area-map handlers).
 
 #### jt242 (l589a, 0x589a–0x67d0, ~1298 insn) — the CELL-EDIT committer
 
-**Structure: 1 dispatcher + 8 CODE-local helpers** (linkw boundaries):
-`589a` (jt242 proper) · `5a06` · `5b0e` · `5dc8` · `5ee2` · `6136` · `61c6` ·
-`6256` · `63c0`. jt242's main dispatch is **JT[3] @0x58ce (min=0, max=2,
-default)** — a 3-way + default cell-edit sub-command; 5 JT[3] switches total
-(0x58ce/5986/5a32/5de6/66d2).
+**Structure: 1 dispatcher + 6 private CODE-local helpers.** The linkw scan of
+jt242's 0x589a..0x67d0 range shows 9 functions, but **l6256 and l63c0 are NOT
+jt242 helpers** — they are the shared dungeon-walk source-registration (l6256,
+called by jt241) and the exploration poll-loop (l63c0), both already lifted for
+the play path. jt242's private tree (by its actual call graph) is:
+`5a06` · `5dc8` · `5ee2` · `6136` · `61c6` · `5b0e` (which calls 5dc8).
+jt242's main dispatch is **JT[3] @0x58ce (min=0, max=2, default)** — a 3-way +
+default cell-edit sub-command; 5 JT[3] switches total (0x58ce/5986/5a32/5de6/
+66d2).
+
+**C2 progress (2026-07-06):** l5a06 (tally), l5dc8 (preview-paint), l5ee2 (bulk
+wall-replace), l6136 + l61c6_c11 (bulk cell-code A/B replace) all LIFTED. The
+only remaining helper is **l5b0e** — a modal confirm dialog (linkw #-62, ~200
+insn: prompt draw, two l5dc8 preview-paints, a jt456/l2d3e keypress poll loop
+with the -24139 selection-live flag and keys 13/27/96, 8 STRS strings). A
+mini-project in its own right; do it as one focused step, then jt242 proper.
 
 **Dependencies: ALL LIFTED.** Its JT vocabulary is the shared painter/text
 library (jt76/108/112/117/148/179/272/273/277/280–288/293/298/300/303/306/
