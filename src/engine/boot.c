@@ -72201,12 +72201,29 @@ static short jt249(short a8, long *desc, long *p14)
 	jt148(g_a5_long(-13952), buf72, (short)1);
 	jt452((long)7, (long)(uintptr_t)&jt245, (long)20, (long)0);
 	jt79();
-	/* 0x370e clrb f7 — resets the counter for the deferred next block. */
 
-	/* BODY DEFERRED (level-2): the two inner JT[3] dispatches (0x3862,
-	 * 0x3e5a), the modal pick loop, and the jt1161 redraw tail (0x3726-
-	 * 0x4022). Those consume f8/f10. */
-	(void)f8; (void)f10;
+	/* L3714 — the DYNAMIC redraw: each slot's cell (l3d90), the current
+	 * selection's highlight outline (l3e1e over f8, fill 15), the per-slot
+	 * markers in the horizontal layout (l3c5e), the two "%ss:" column headers,
+	 * and the active-field label (l3c18 slot 8 -> the -11284 buffer + 7). */
+	for (i = 0; i < 16; i++)
+		l3d90(i);
+	l3e1e((short)f8, (short)15);
+	for (i = 1; i <= 16; i++)
+		if (jt1200() != 3)
+			l3c5e(i, arr94);
+	jt1089((short)8014, (short)8096, (short)140,
+	       ua_strs_at(0x2c6a) /* "%ss:" */, g_a5_long(-10744));
+	jt1089((short)8014, (short)8010, (short)140,
+	       ua_strs_at(0x2c70) /* "%ss:" */, g_a5_long(-10816));
+	l3c18((short)8, &c74, &c76);
+	jt1089((short)(c74 + 4), (short)(c76 + 10), (short)135,
+	       (const char *)(uintptr_t)(g_a5_long(-11284) + 7));
+
+	/* BODY DEFERRED (level-2): the input wait + the single main-body JT[3]
+	 * @0x3862 command dispatch + arms + loop-back/exit (0x37ee-0x3c16).
+	 * Consumes f10. */
+	(void)f10;
 	return a8;
 }
 

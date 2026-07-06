@@ -374,11 +374,18 @@ o8=o4+12). fill = fp@(10) = the caller's word arg (15) — this is the fp@(10)
 that read as a word, NOT jt249's desc. All 8 bar-coords verified push-by-push.
 The whole redraw helper cluster (l3c18/l3c5e/l3cbe/l3d90/l3e1e) is now lifted.
 
-**Remaining jt249 body (fill order):** the dynamic redraw block 0x3714-0x37ea
-(loop1 l3d90 per slot; l3e1e(f8,15) once; loop2 l3c5e per slot in the horizontal
-layout; 3 jt1089 text draws) → the input wait + the single main-body JT[3]
-@0x3862 command dispatch + arms + loop-back/exit (0x37ee-0x3c16). One block per
-commit; all helpers are now available.
+**jt249h DONE — the dynamic redraw block (0x3714-0x37ea).** for i=0..15 l3d90(i)
+draws each slot's cell; l3e1e(f8, 15) outlines the current selection; for i=1..16
+l3c5e(i, arr94) draws the per-slot markers (horizontal layout only, jt1200()!=3);
+then two "%ss:" column headers (jt1089 @8014,8096 / @8014,8010 with g_a5(-10744)/
+(-10816)) and the active-field label (l3c18 slot 8 -> jt1089 @c74+4,c76+10 of the
+-11284 buffer + 7). f8 is consumed here. All 5 helpers now have live callers.
+
+**Remaining jt249 body (fill order):** the input wait + the single main-body
+JT[3] @0x3862 command dispatch + arms + loop-back/exit (0x37ee-0x3c16). This is
+the interactive half: jt117, the event fetch (jt3682) + key translate (jt1250),
+the ESC/backtick/Return handling, then JT[3] @0x3862 on the command, arms, and
+the loop back to L3714 (redraw) or the exit repack. Consumes f10.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
