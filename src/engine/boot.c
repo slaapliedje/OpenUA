@@ -71937,6 +71937,40 @@ static short jt248(short a8, long *desc)
 	return a8;                          /* L3116 */
 }
 
+/* L3cbe (CODE 2 + 0x3cbe, frame 0) — jt249's grid-cell coordinate helper.
+ * Given a slot index `idx`, writes the two screen coords (*out1 the row/Y axis,
+ * *out2 the column/X axis) for that slot. Two layouts keyed on jt1200(): ==3 is
+ * the vertical arrangement, else the horizontal one; idx==0 is the header/base
+ * slot with fixed coords. Non-zero slots tile a 5-wide grid: k=idx-1, the
+ * "*out1" axis steps by 20 per row (k/5), "*out2" by 19 or 14 per column (k%5).
+ * Called from jt249 at 0x3548/0x3da4/0x3e3e/0x3f70. */
+static void l3cbe(short idx, short *out1, short *out2) __attribute__((unused));
+static void l3cbe(short idx, short *out1, short *out2)
+{
+	unsigned char b = (unsigned char)idx;   /* fp@(9) — the low byte */
+
+	PROBE("L3cbe");
+	if (jt1200() == 3) {
+		if (b == 0) {
+			*out1 = 8001;
+			*out2 = 8044;
+		} else {
+			short k = (short)(b - 1);
+			*out1 = (short)((k / 5 + 1) * 20 + 8000);
+			*out2 = (short)((k % 5) * 19 + 8006);
+		}
+	} else {
+		if (b == 0) {
+			*out1 = 8014;
+			*out2 = 8038;
+		} else {
+			short k = (short)(b - 1);
+			*out1 = (short)((k / 5 + 1) * 20 + 8014);
+			*out2 = (short)((k % 5) * 14 + 8010);
+		}
+	}
+}
+
 /* JT[249] (CODE 2 + 0x333a = entry_jt249, frame -98) — a large interactive
  * event-editor screen (sibling of jt248, one command up in the CODE 22
  * design-editor dispatcher). LEVEL-2 SKELETON (ADR-0002): the prologue is fully
