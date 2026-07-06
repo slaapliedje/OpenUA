@@ -653,6 +653,15 @@ if none. Always clears rec[8] at exit. Codegen 1889, tests 129/1. l1eb2 unblocks
 nothing new directly but is a callee of l0ade's tree. NEXT: lefe (JT[3]@0xf30),
 then l12e8/l31cc (JT-slot only), l1568/l1084/lce2, then l0ade -> l0a32 -> stubs.
 
+**jt258u DONE — lefe (key -> nav-action translator).** Callees l1ad2/l1b70/
+l1ba4_c2 lifted. lefe(rec,key): Return(13)->3, Esc(27)/`(96)->0, else JT[3]@0xf30
+(jt3_extract min=130 max=136) on 130..136: 130/134 -> 6 if rec[7] else -1; 132 ->
+2 if append!=elem[index@2] else -1; 133 -> if != commit(l1ba4_c2 m1) -2 else -1;
+135 -> if append!=elem[0] reset(l1b70 m1) -2 else -1; 136 -> 1 if append!=elem[0]
+else -1; 131/default -> -1. Always clears g_a5_byte(-24139); returns the action.
+Codegen 1889, tests 129/1. lefe unblocks lce2. NEXT: lce2 (lefe+jt1080+JT[3]+
+array prims), l12e8/l31cc (JT-slot), l1568, l1084, then l0ade -> l0a32 -> stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
