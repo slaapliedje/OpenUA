@@ -594,6 +594,17 @@ Both leaves DCE'd; l1e8a DCE'd transitively (jt258 unreferenced). Codegen 1889,
 tests 129/1. NEXT: l1084 (a5@3586=jt444 + array prims), l1686 caller, then
 l0a32/l0ade and the remaining 11 direct stubs.
 
+**jt258p DONE — l0910 (2nd direct stub filled).** All its pc@ callees were
+lifted (l1ad2/l1b70/l1ba4_c2/l1e38/l178c/l207c/l1cf0) + jt1080 (a5@8674, lifted).
+l0910(rec): if the append slot is both elem[0] and elem[index@2] (single-entry
+array) flush it (l1e38, flag=1); remove the top record (l178c); on a non-zero id
+seed the cursor (l207c r,0), retype the record to 5 with rec@10 = id|0x500,
+return 1; else flush pending (l1cf0 if flag) + jt1080(), return 0. Sig changed
+void->short. Codegen 1889, tests 129/1. **2 of 12 direct stubs filled** (l1e8a,
+l0910). NOTE for l1084/l0ade: a5@3586=jt444 is a 4-arg Dialog helper but the
+CODE-2 grid-draw sites push only 2 words -> ABI care needed there (deferred).
+NEXT: l09d6/l07c6 need l0a32; l0a32 needs l0ade (big). Or fill l2156/l22b6.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 

@@ -72830,8 +72830,40 @@ static void  l0ade(void *rec) __attribute__((unused));
 static void  l0ade(void *rec) { PROBE("L0ade"); (void)rec; }
 static short l2156(void *rec) __attribute__((unused));
 static short l2156(void *rec) { PROBE("L2156"); (void)rec; return 0; }
-static void  l0910(void *rec) __attribute__((unused));
-static void  l0910(void *rec) { PROBE("L0910"); (void)rec; }
+/* L0910 (CODE 2 + 0x910) — commit/normalize the event array after an edit. If
+ * the append slot is both elem[0] and elem[index@2] (a single-entry array),
+ * flush it (l1e38). Then remove the top record (l178c): on a non-zero id, seed
+ * the cursor (l207c), retype the record to 5 with rec@10 = id|0x500 and return 1;
+ * otherwise flush a pending entry (l1cf0 when the single-entry flag was set),
+ * poke jt1080, and return 0. */
+static short l0910(void *rec) __attribute__((unused));
+static short l0910(void *rec)
+{
+	void *slot;
+	unsigned char flag = 0, r;
+
+	PROBE("L0910");
+	slot = l1ad2((char *)rec + 22);         /* 0x920 — append slot */
+	if (l1b70((char *)rec + 22, 0) == slot) {       /* 0x934/0x93a — == elem[0] */
+		slot = l1ad2((char *)rec + 22); /* 0x948 */
+		if (l1ba4_c2((char *)rec + 22, 0) == slot) {    /* 0x95c — == elem[index] */
+			flag = 1;               /* 0x96a */
+			l1e38(rec);             /* 0x972 */
+		}
+	}
+	r = (unsigned char)l178c(rec);          /* 0x97c — remove top record */
+	if (r != 0) {                           /* 0x986 */
+		l207c(r, 0);                    /* 0x994 */
+		*(short *)((char *)rec + 10) =  /* 0x99c-0x9ac — rec@10 = id|0x500 */
+		    (short)((r & 0xFF) | 0x500);
+		*(short *)rec = 5;              /* 0x9b6 — retype to 5 */
+		return 1;                       /* 0x9b8 */
+	}
+	if (flag != 0)                          /* 0x9bc */
+		l1cf0(rec);                     /* 0x9c6 */
+	jt1080();                               /* 0x9cc */
+	return 0;                               /* 0x9d0 */
+}
 static void  l222c(void *rec) __attribute__((unused));
 static void  l222c(void *rec) { PROBE("L222c"); (void)rec; }
 static short l22b6(void *rec) __attribute__((unused));
