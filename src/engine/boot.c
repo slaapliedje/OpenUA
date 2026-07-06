@@ -71691,7 +71691,28 @@ static short jt248(short a8, long *desc)
 		            (short)10, (short)96, (short)lo113, (short)0,
 		            (short)0, 0L));
 		break;
-	case 2:  /* TODO: L2af6 — "%s %s" list arm (-11224 table) */
+	case 2:
+		/* L2af6 — the fixed 9-entry table arm over g_a5_longs(-11224).
+		 * No jt352 (count is a constant 9) and no jt349: the title is built
+		 * directly into buf112 here (so the tail skips its own str12-based
+		 * title build) and each of the 9 nodes is labeled from the -11224
+		 * string table. f117 stays 0, so the tail's jt347 value-clamp is
+		 * skipped for this arm. */
+		cnt124 = 9;
+		if (sub != 0 && sub <= cnt124)
+			idx122 = (short)(sub - (lo113 & 0xFF));
+		jt394(buf112, ua_strs_at(0x2c00) /* "%s %s" */,
+		      g_a5_long(-10796), g_a5_long(-10700));
+		jt167(cnt124, (long)(intptr_t)&list_holder);
+		cursor128 = list_holder;
+		loop8 = (short)(lo113 & 0xFF);
+		while (cursor128 != NULL) {
+			jt394((char *)cursor128 + 5, ua_strs_at(0x2c06) /* "%s" */,
+			      (long)g_a5_longs(-11224)[loop8]);
+			((unsigned char *)cursor128)[4] = 0;
+			cursor128 = *(void **)cursor128;
+			loop8++;
+		}
 		break;
 	case 3:  /* TODO: L2cbe — "%s %d: %d,%d %s" per-cell arm (rec -12300) */
 		break;
