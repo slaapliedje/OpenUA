@@ -72099,10 +72099,24 @@ static short jt249(short a8, long *desc, long *p14)
 		      (long)20, (long)0);
 	}
 
-	/* BODY DEFERRED (level-2): the prompt/list finalization at 0x369c
-	 * (jt423 center + jt452 shape 6 + jt179(2) + jt148 list + jt452 shape 7
-	 * with &jt245 + jt79), the two inner JT[3] dispatches, the modal pick
-	 * loop, and the jt1161 redraw tail. Those consume f8/f10. */
+	/* L369c — centre and draw the prompt (buf52, shape 6; the x is the 38-col
+	 * centring of its length off 8006), install the list (jt148 over buf72)
+	 * bracketed by jt179(2), draw the shape-7 selection hook (&jt245), jt79. */
+	{
+		short len = jt423(buf52);
+		jt452((long)6, (long)8004,
+		      (long)((38 - len) * 4 / 2 + 8006),
+		      (long)(intptr_t)buf52, (long)38, (long)143, (long)0);
+	}
+	jt179((short)2);
+	jt148(g_a5_long(-13952), buf72, (short)1);
+	jt452((long)7, (long)(uintptr_t)&jt245, (long)20, (long)0);
+	jt79();
+	/* 0x370e clrb f7 — resets the counter for the deferred next block. */
+
+	/* BODY DEFERRED (level-2): the two inner JT[3] dispatches (0x3862,
+	 * 0x3e5a), the modal pick loop, and the jt1161 redraw tail (0x3726-
+	 * 0x4022). Those consume f8/f10. */
 	(void)f8; (void)f10;
 	return a8;
 }
