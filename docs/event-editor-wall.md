@@ -414,7 +414,34 @@ exit.
 CODE 2 event-editor cluster now has jt254, jt253, jt248, and jt249 all lifted;
 helpers l3c18/l3c5e/l3cbe/l3d90/l3e1e added. Whole cluster DCE'd (unreferenced
 until the CODE 22 design-editor dispatcher @0x0096 is lifted), codegen holds
-1889. Next Phase B target: **jt258 (l0004, 2808, the event-editor MAIN)**.
+1889.
+
+## jt258 (l0004, CODE 2+0x0004 → 0x20ee, frame -8, ~2100 insn) — STARTED
+
+The event-editor MAIN — the largest CODE 2 function. Signature confirmed from
+CODE 22+0x0146 (pushes `*(struct+2)` word, `&struct[8]`, `&struct[178]`):
+**short jt258(short cmd, long *desc, void *out)** — desc = &struct[8] (same
+convention as jt248/jt249), out = &struct[178] (the result record). NAMING:
+existing l0004 is CODE 4's menu stub; this CODE 2 function is named `jt258`.
+
+**Top-level dispatch = JT[1] @0x26** on `cmd` (jt1_extract: 3 cases + default):
+- **case 5 → 0x003a** — the main open/edit path (the bulk): re-unpacks *desc into
+  the out record, then a JT[3] @0xf4 sub-tree (1 case + default) fanning to the
+  helper cluster (0x42a, 0xade, 0x2156, 0x910, ...).
+- **case 11 → 0x0204**, **case 10 → 0x02a4**, **default → 0x030e** — smaller arms.
+
+**Sub-switches (14):** JT[1] @0x26/0x2c8/0x32a/0x34c; JT[3] @0xf4/0x1d2/0x228/
+0x376/0x480/0xc60/0xd2a/0xf30/0x13e8/0x1d80. **Helper cluster** (~50 pc@ targets,
+mostly 0x1ad2-0x2156): heavy hitters 0x1ad2 (21×), 0x1b30 (9×), 0x1af8 (7×),
+0xa32/0x207c (6×). Top JT leaves: jt444 (a5@3586, 17×), jt1089 (9×), jt1080
+(5×), jt394 (3×).
+
+**jt258a DONE — prologue + JT[1] top-level scaffold.** Early-exit on out==NULL
+(return 0 @0x426), *out+0 = cmd store, and the 4-arm JT[1] dispatch scaffold
+(arms deferred, returns 0 placeholder). DCE'd, codegen 1889.
+
+**Fill order:** the case-5 *desc→out unpack + JT[3] @0xf4 sub-tree first (it
+gates the editor), then the helper cluster bottom-up, then cases 11/10/default.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).

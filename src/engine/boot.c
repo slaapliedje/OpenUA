@@ -72373,6 +72373,45 @@ static short jt249(short a8, long *desc, long *p14)
 	return a8;
 }
 
+/* JT[258] (CODE 2 + 0x0004 = entry_jt258, frame -8) — the event-editor MAIN
+ * dispatcher: the largest CODE 2 function (~2100 insn, ~50 internal helpers,
+ * 4 JT[1] + 10 JT[3] sub-switches). Called jt258(short cmd, long *desc, void
+ * *out) from CODE 22+0x0146 with cmd = *(struct+2), desc = &struct[8], out =
+ * &struct[178]. Returns a short status/result.
+ *
+ * LEVEL-2 SKELETON (ADR-0002): the prologue (NULL-out early exit + the *out=cmd
+ * store) and the top-level JT[1] @0x26 command dispatch are lifted; each command
+ * arm (case 5 = the main open/edit path with its own JT[3] @0xf4 sub-tree and
+ * ~40 helpers; case 11 @0x204; case 10 @0x2a4; default @0x30e) is DEFERRED. The
+ * arms and helpers fill in over subsequent commits. See docs/event-editor-wall.md.
+ *
+ * NOTE (CODE,offset clash): the existing l0004 is CODE 4's menu stub; this
+ * CODE 2 function is named jt258 to avoid the collision. */
+static short jt258(short cmd, long *desc, void *out) __attribute__((unused));
+static short jt258(short cmd, long *desc, void *out)
+{
+	void *rec;                  /* fp@(-8) = out */
+
+	PROBE("jt258");
+	(void)desc;                 /* consumed by the deferred command arms */
+	if (out == NULL)            /* 0x0008 — no output record */
+		return 0;               /* 0x0426 exit */
+	rec = out;
+	*(short *)rec = cmd;        /* 0x001a — *out+0 = cmd */
+
+	switch (cmd) {              /* JT[1] @0x26 (keys 5, 11, 10, default) */
+	case 5:  /* TODO 0x003a — main open/edit path (JT[3] @0xf4 sub-tree) */
+		break;
+	case 11: /* TODO 0x0204 */
+		break;
+	case 10: /* TODO 0x02a4 */
+		break;
+	default: /* TODO 0x030e */
+		break;
+	}
+	return 0;                   /* placeholder — arms deferred */
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
