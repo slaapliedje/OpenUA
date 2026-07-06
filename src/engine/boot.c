@@ -74258,6 +74258,48 @@ static void l23de(void *rec_v, short a2, short a3, short a4)
 	jt305(rec, (char)2, (char)a4);                  /* 0x240a — repaint, sign_ext(a4) */
 }
 
+/* L16f4 (CODE 11 + 0x16f4) — apply a source cell's three style bytes into the
+ * design-state GROUP record, capturing the old value for undo and flagging a
+ * repaint.  The design-state buffer (g_a5_-12300) holds an array of 4-byte
+ * group records based at offset +14; `grp` selects one (rec = ds + grp*4, so
+ * the record proper is rec[14..17]).  Snapshots the whole record as a long
+ * (undo), then copies src[0]/src[1]/src[2] into record bytes rec[15]/rec[14]/
+ * rec[16] but only where they differ, setting a changed flag.  If anything
+ * changed it stashes the pre-edit long in desc[36], the group byte in desc[39],
+ * and calls JT[305](desc, 3, 0) to repaint.  Returns 1 iff the record changed.
+ * A jt243 (GEO editor) leaf; caller l0cb6 passes desc, the group nibble, and
+ * &desc[46] as the source triplet. */
+static short l16f4(void *desc_v, short grp, const void *src_v) __attribute__((unused));
+static short l16f4(void *desc_v, short grp, const void *src_v)
+{
+	unsigned char     *desc = (unsigned char *)desc_v;         /* fp@(8) */
+	const signed char *src  = (const signed char *)src_v;      /* fp@(14) */
+	unsigned char     *rec  = (unsigned char *)(uintptr_t)g_a5_long(-12300)
+	                          + (long)grp * 4;                 /* 0x170a — ds + grp*4 */
+	long   snapshot = *(long *)(rec + 14);                     /* 0x1710 — fp@(-6), pre-edit */
+	signed char changed = 0;                                   /* fp@(-1) */
+
+	if ((short)(unsigned char)rec[15] != (short)src[0]) {      /* 0x1738 — cmpw, src sign-ext */
+		rec[15] = (unsigned char)src[0];                   /* 0x1754 */
+		changed = 1;
+	}
+	if ((short)(unsigned char)rec[14] != (short)src[1]) {      /* 0x1782 — cmpw, src sign-ext */
+		rec[14] = (unsigned char)src[1];                   /* 0x179e */
+		changed = 1;
+	}
+	if (rec[16] != (unsigned char)src[2]) {                    /* 0x17c6 — cmpb, plain byte */
+		rec[16] = (unsigned char)src[2];                   /* 0x17e4 */
+		changed = 1;
+	}
+
+	if (changed) {                                             /* 0x17f0 */
+		*(long *)(desc + 36) = snapshot;                   /* 0x17fa — undo value */
+		desc[39] = (unsigned char)grp;                     /* 0x1804 — which group */
+		jt305(desc, (char)3, (char)0);                     /* 0x1814 — JT[305] repaint */
+	}
+	return (short)changed;                                     /* 0x181a */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
