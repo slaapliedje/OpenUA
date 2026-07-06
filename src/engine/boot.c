@@ -73179,6 +73179,44 @@ static void l12e8(void *a8, void *ent, short x, short y, short flag)
 	}
 }
 
+/* L1568 (CODE 2 + 0x1568, frame -274) — draw the event-list status footer: the
+ * column-header trio (l31cc_c2) plus one formatted summary line. Reads a
+ * step/limit pair (jt194 into out + its return, jt227), derives remaining =
+ * out - ret and a scaled progress c = jt7(jt7(jt4(1000, remaining), out) + 5, 10)
+ * and pct = 100 - jt227, then formats "%s %d %s, %d %s. %s %ld%% %s%s" (STRS
+ * 0x2b8e) from the -10488..-10500 label pointers, ending in "." or "!" by whether
+ * c is non-zero, and draws it centred (jt423 width) at row xconst+16. */
+static void l1568(void) __attribute__((unused));
+static void l1568(void)
+{
+	char  buf[256];            /* fp@(-256) */
+	short out = 0, aret, remaining, b, pct;
+	long  c;
+	const char *tail;
+
+	PROBE("L1568");
+	l31cc_c2((short)8072, (short)8004, (short)38, (short)6,
+	         (short)0, (short)0);                   /* 0x158c — header trio */
+	aret = jt194((long)(uintptr_t)g_a5_long(-13034), &out);  /* 0x159c */
+	b = jt227();                                    /* 0x15a6 */
+	remaining = (short)(out - aret);                /* 0x15ae */
+	c = jt7(jt7(jt4(1000, (long)remaining), (long)out) + 5, 10);   /* 0x15c4-0x15e0 */
+	pct = (short)(100 - b);                         /* 0x15e6 */
+	tail = (c != 0) ? ua_strs_at(0x2bae) /* "." */
+	                : ua_strs_at(0x2bb0) /* "!" */;  /* 0x15ee */
+	jt394(buf, ua_strs_at(0x2b8e), /* "%s %d %s, %d %s. %s %ld%% %s%s" */  /* 0x163e */
+	      (char *)(uintptr_t)g_a5_long(-10496), b,
+	      (char *)(uintptr_t)g_a5_long(-10492), pct,
+	      (char *)(uintptr_t)g_a5_long(-10488),
+	      (char *)(uintptr_t)g_a5_long(-10500), c,
+	      (char *)(uintptr_t)g_a5_long(-10488), tail);
+	{
+		short x = (short)(8004 + ((38 - jt423(buf)) / 2) * 4);  /* 0x1650 */
+		jt1089((short)(8072 + 16), x, (short)135,
+		       ua_strs_at(0x2bb2) /* "%s" */, buf);            /* 0x167a */
+	}
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
