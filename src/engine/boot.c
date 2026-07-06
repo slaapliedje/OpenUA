@@ -74097,6 +74097,35 @@ static short l6136(void *p_v, short a2)
 	return count;
 }
 
+/* L61c6 (CODE 11 + 0x61c6) — bulk cell-code replace, code B.  Identical to
+ * l6136 but for the record's byte 15 and the code-B accessors: if t1 (low byte
+ * of arg 2) already equals p[15], return 0; else set every cell whose code B
+ * (jt306) == t1 to p[15] (jt298) and count it.  A jt242 leaf.  (_c11: an
+ * unrelated l61c6 exists in a later CODE segment — the (CODE,offset) rule.) */
+static short l61c6_c11(void *p_v, short a2) __attribute__((unused));
+static short l61c6_c11(void *p_v, short a2)
+{
+	const unsigned char *p  = (const unsigned char *)p_v;
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	unsigned char t1 = (unsigned char)a2;         /* fp@(13) */
+	short count = 0;                              /* fp@(-2) */
+	short row, col, cell = 0;                     /* fp@(-4)/fp@(-6)/fp@(-8) */
+
+	if (t1 == p[15])                              /* 0x61ce — already the target */
+		return 0;
+
+	for (row = 0; row < ds[2]; row++) {           /* 0x623e outer */
+		for (col = 0; col < ds[3]; col++) {   /* 0x622a inner */
+			if (jt306(cell) == t1) {      /* cell code B == t1 */
+				jt298(cell, p[15]);   /* write the new code */
+				count++;
+			}
+			cell++;                       /* 0x6222 */
+		}
+	}
+	return count;
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
  * command handlers reached by the l0096 dispatcher below.  Their bodies live
@@ -78302,7 +78331,7 @@ fail:
 
 /* L61c6 (CODE 6 + 0x61c6) — store the loaded vault item count into -13048.
  * jt74's success tail. */
-static void l61c6(short v) __attribute__((unused));
+static void l61c6(short v) __attribute__((unused));   /* CODE 12 — distinct from l61c6_c11 (CODE 11) */
 static void l61c6(short v)
 {
 	PROBE("L61c6");
