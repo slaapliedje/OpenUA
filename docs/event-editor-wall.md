@@ -550,6 +550,18 @@ width[3]+row, case2 +48/stride4, case3 +80/stride4, case4 +110/stride1; default
 + all cases return 1. First mid-helper whose callees were all pre-lifted (l1ad2/
 l1af8). Codegen 1889, tests 129/1. NEXT: l174a/l1c10/l178c/l169c/l1be4/l1e38.
 
+**jt258l DONE — mid-tier l174a / l1c10 / l1e38.** l174a (0x174a): append the
+staged coord rec+18 (l19f2), commit count (l1ba4_c2 mode 1), flush to area maps
+(l1cf0). l1c10 (0x1c10, rec, mode word): propagate along the record-map link
+chain at g_a5_long(-13038) (20-byte rows) — seed a 4-byte entry {0,cur,mode,pad}
+from the append slot, walk map[cur-1][3] links (type becomes 3 after hop 1)
+appending via l19f2 until link 0; returns 0 on mid-chain overflow, else appends
+the terminal entry. Its fp@(-2) "row" byte is write-only (dead) -> omitted. l1e38
+(0x1e38): flush head elem (l1b70 mode 0) with elem[0][1] suppressed across l1cf0,
+then restored. CLASH: l174a calls the renamed l1ba4_c2. All DCE'd; codegen 1889,
+tests 129/1. l1c10 unblocks l178c + l1be4. NEXT: l178c (needs l1a36 leaf),
+l1be4, l169c (a5@3282), then l0a32 and the direct stubs.
+
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
 
