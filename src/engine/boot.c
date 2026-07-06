@@ -15447,33 +15447,11 @@ static short jt251(short command, long *flagsp, void *rec_v)
 	return *(short *)(rec + 2);             /* next mode = master[10] */
 }
 
-static short l0096(unsigned char *ctx)
-{
-	short res = 0;                          /* fp@(-2): handler result */
-
-	PROBE("L0096");
-	while (ctx[0] == 0) {                    /* L0468 -> L009e */
-		short mode = *(short *)(ctx + 4);
-
-		switch (mode) {                 /* JT[3] on ctx[4] */
-		case 4:                         /* L0314 — design/play action (JT[251]) */
-			res = jt251(*(short *)(ctx + 2),
-			            (long *)(ctx + 8), ctx + 16);
-			break;
-		case 14:                        /* L02f4 — play/dungeon action */
-			res = jt241(*(short *)(ctx + 2),
-			            (long *)(ctx + 8), ctx + 16);
-			break;
-		default:                        /* L0448 + deferred modes: stop */
-			ctx[0] = 1;
-			res = mode;
-			break;
-		}
-		*(short *)(ctx + 2) = *(short *)(ctx + 4);  /* L0450 */
-		*(short *)(ctx + 4) = res;
-	}
-	return *(short *)(ctx + 2);
-}
+/* L0096 (CODE 22 + 0x0096) — the design-editor command dispatcher.  The full
+ * 21-arm lift lives after jt258 (where all its command handlers are defined);
+ * forward-declared here for l0004_22 below.  (Was a 2-arm partial — cases 4/14
+ * only — until the CODE 22 dispatcher campaign completed it.) */
+static short l0096(unsigned char *ctx) __attribute__((unused));
 
 /* L0004 (CODE 22 + 0x4) — the play/edit state-machine ENTRY. This is the
  * faithful menu->play bridge L0096's header refers to ("reaching them needs
@@ -73957,11 +73935,11 @@ static short jt258(short cmd, long *desc, void *out)
 }
 
 /*
- * jt243 (CODE 22 + 0x0b26) and jt242 (CODE 22 + 0x589a) — two design-editor
- * command handlers reached by the l0096_c22 dispatcher below.  Their bodies
- * live in CODE 22 and are not yet lifted (jt243 is a roadmap giant); PROBE
- * stubs so the dispatcher links.  Same (short cmd, long *rec, void *area) ABI
- * as the sibling handlers jt233/jt239/jt244.
+ * jt243 (CODE 11 + 0x0b26) and jt242 (CODE 11 + 0x589a) — two design-editor
+ * command handlers reached by the l0096 dispatcher below.  Their bodies live
+ * in CODE 11 and are not yet lifted (jt243 is a roadmap giant); PROBE stubs so
+ * the dispatcher links.  Same (short cmd, long *rec, void *area) ABI as the
+ * sibling handlers jt233/jt239/jt244.
  */
 static short jt243(short cmd, long *rec, void *area) __attribute__((unused));
 static short jt243(short cmd, long *rec, void *area)
@@ -73980,38 +73958,40 @@ static short jt242(short cmd, long *rec, void *area)
 }
 
 /*
- * l0096_c22 (CODE 22 + 0x0096) — the design-editor command dispatcher.
+ * l0096 (CODE 22 + 0x0096) — the design-editor command dispatcher.  DEFINITION
+ * (forward-declared up by l0004_22, which is its only caller).
  *
- * A modal command pump.  The caller (CODE 22 + 0x0050, not yet lifted) hands a
- * command block by reference with cmd->word@4 seeded to the first command;
- * this loop dispatches on word@4 through the THINK C JT[3] inline table @0x00aa
- * (min=1, max=21, default), runs the matching command handler, and feeds the
- * handler's return back into word@4 as the next command.  It runs until a
- * handler (or an out-of-range command) sets cmd->byte@0 — command 1 and the
- * default arm both terminate.
+ * A modal command pump.  l0004_22 hands a command block by reference with
+ * ctx->word@4 seeded to the first command; this loop dispatches on word@4
+ * through the THINK C JT[3] inline table @0x00aa (min=1, max=21, default), runs
+ * the matching command handler, and feeds the handler's return back into word@4
+ * as the next command.  It runs until a handler (or an out-of-range command)
+ * sets ctx->byte@0 — command 1 and the default arm both terminate.
  *
- * cmd block layout (offsets off the by-ref base cmdp):
+ * ctx block layout (offsets off the by-ref base):
  *   byte@0   loop-terminate flag         word@2  echoed (previous) command
  *   word@4   current command / result    @8      primary editor state (by-ref)
  *   @16/@100/@108/@120/@130/@144/@154/@172/@178  per-command sub-fields
- *   @104/@116/@126/@136/@150  pointer slots seeded to &cmd@328 before the call
+ *   @104/@116/@126/@136/@150  pointer slots seeded to &ctx@328 before the call
  *   @328     embedded working buffer
  *
- * Each arm passes word@2 (the PRIOR command, arg1), &cmd@8 (arg2), and a
+ * Each arm passes word@2 (the PRIOR command, arg1), &ctx@8 (arg2), and a
  * per-command third arg, exactly as the asm pushes them (0x9e reads word@4 for
  * the switch; every arm pushes word@2 as arg1).  Handlers the port lifted with
  * fewer params silently drop the surplus pushed word — jt247/jt248/jt254 drop
  * the pushed 0L, jt259 drops &@144 — faithful to those 2-arg lifts.  jt249's
  * pushed 0L is its p14 (NULL); jt264/jt269/jt270 take their by-ref args as
- * long, matching their lifts.  `ret` is fp@(-2), a persistent stack local: the
- * exit arms leave it untouched, so word@4 on loop exit is a don't-care (seeded
- * 0).  Unreferenced until the 0x0050 caller is lifted → DCE'd.
+ * long, matching their lifts.  `res` is fp@(-2), a persistent stack local: the
+ * exit arms leave it untouched, so word@4 on loop exit is a don't-care.  This
+ * replaces the earlier 2-arm partial (cases 4/14 only).  DCE'd until l0004_22
+ * is wired into jt315's menu selection.
  */
-static void l0096_c22(void *cmdp) __attribute__((unused));
-static void l0096_c22(void *cmdp)
+static short l0096(unsigned char *ctx)
 {
-	unsigned char *c = (unsigned char *)cmdp;
+	unsigned char *c = ctx;
 	short ret = 0;                                 /* fp@(-2) — persistent local */
+
+	PROBE("L0096");
 
 	while (c[0] == 0) {                            /* 0x468 loop condition (pre-tested) */
 		short value = *(short *)(c + 4);      /* 0x9e — switch on word@4 */
@@ -74097,6 +74077,7 @@ static void l0096_c22(void *cmdp)
 		*(short *)(c + 2) = *(short *)(c + 4);  /* word@2 = word@4 (0x458) */
 		*(short *)(c + 4) = ret;                /* word@4 = handler result (0x462) */
 	}
+	return *(short *)(c + 2);                        /* 0x472 — d0 = word@2 */
 }
 
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
