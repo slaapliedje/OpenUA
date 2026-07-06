@@ -72382,6 +72382,26 @@ static void l042a(void *rec, short a1, short a2, short a3)
 	(void)rec; (void)a1; (void)a2; (void)a3;
 }
 
+/* jt258 case-5 L0102 bit-test-chain handlers — one per rec[12]/rec[13] flag.
+ * PROBE-only stubs for now; each body lifts in a later commit. l2156/l22b6
+ * return a status the chain branches on (0 from the stub). */
+static void  l0ade(void *rec) __attribute__((unused));
+static void  l0ade(void *rec) { PROBE("L0ade"); (void)rec; }
+static short l2156(void *rec) __attribute__((unused));
+static short l2156(void *rec) { PROBE("L2156"); (void)rec; return 0; }
+static void  l0910(void *rec) __attribute__((unused));
+static void  l0910(void *rec) { PROBE("L0910"); (void)rec; }
+static void  l222c(void *rec) __attribute__((unused));
+static void  l222c(void *rec) { PROBE("L222c"); (void)rec; }
+static short l22b6(void *rec) __attribute__((unused));
+static short l22b6(void *rec) { PROBE("L22b6"); (void)rec; return 0; }
+static void  l09d6(void *rec, short a) __attribute__((unused));
+static void  l09d6(void *rec, short a) { PROBE("L09d6"); (void)rec; (void)a; }
+static void  l0722(void *rec) __attribute__((unused));
+static void  l0722(void *rec) { PROBE("L0722"); (void)rec; }
+static void  l0622(void *rec, short a) __attribute__((unused));
+static void  l0622(void *rec, short a) { PROBE("L0622"); (void)rec; (void)a; }
+
 /* JT[258] (CODE 2 + 0x0004 = entry_jt258, frame -8) — the event-editor MAIN
  * dispatcher: the largest CODE 2 function (~2100 insn, ~50 internal helpers,
  * 4 JT[1] + 10 JT[3] sub-switches). Called jt258(short cmd, long *desc, void
@@ -72433,16 +72453,32 @@ static short jt258(short cmd, long *desc, void *out)
 			switch (f4) {           /* JT[3] @0xf4 (0,1,default) */
 			case 0:
 			case 1:
-				/* TODO L0102 — the rec-flag bit-test chain
-				 * (l0ade/l2156/l0910/l222c/l22b6/l09d6/
-				 * l0722/l0622 on rec[12]/rec[13] bits) */
+				/* L0102 — the rec-flag bit-test chain: the
+				 * first set flag picks the handler. */
+				if (*(unsigned char *)(r + 13) & 0x40) {
+					l0ade(rec);             /* bit 6 */
+				} else if (*(unsigned char *)(r + 13) & 0x20) {
+					if (l2156(rec) == 0)    /* bit 5 */
+						l0910(rec);
+				} else if (*(unsigned char *)(r + 12) & 0x01) {
+					l222c(rec);             /* rec+12 bit 0 */
+				} else if (*(unsigned char *)(r + 13) & 0x04) {
+					f2 = (short)(signed char)l22b6(rec);
+					if (f2 <= 0)            /* bit 2 */
+						l09d6(rec,
+						    (short)(f2 < 0 ? 1 : 0));
+				} else if (*(unsigned char *)(r + 13) & 0x02) {
+					l0722(rec);             /* bit 1 */
+				} else {
+					l0622(rec, (short)f4);
+				}
 				break;
 			default:
 				/* TODO L01cc — JT[3] @0x1d2 sub-dispatch
 				 * on (f2>>8) then l0524 */
+				(void)f2;
 				break;
 			}
-			(void)f2;
 		}
 		/* 0x31a — post-process: *desc &= 0xFFFF0000, JT[1] @0x32a on
 		 * rec[0], JT[1] @0x34c on rec[10]&63, repack. DEFERRED. */
