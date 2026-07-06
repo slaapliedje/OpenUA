@@ -318,10 +318,18 @@ f77=bits 8-11), the 16-entry display-reorder table arr94[1..16] =
 in the table. STRS verified. Body deferred (level-2); f6/f8/f10 (void)-marked as
 consumed-by-deferred-body. Codegen 1889, tests 129/1.
 
+**jt249b DONE — L3cbe (0x3cbe-0x3d8e), the grid-cell coord helper.** `l3cbe(short
+idx, short *out1, short *out2)`: writes the (row/Y, col/X) screen coords for slot
+`idx`. Two layouts on jt1200() (==3 vertical, else horizontal); idx==0 = the
+header slot (fixed 8001/8044 or 8014/8038). Non-zero: k=idx-1, out1 steps 20 per
+row (k/5) off 8000/8014, out2 steps 19 or 14 per column (k%5) off 8006/8010. The
+arg's low byte (fp@(9)) is the effective idx; the in-place `subqb #1,fp@(9)` is
+just how THINK C reuses the slot for k. Called from jt249 at 0x3548/0x3da4/
+0x3e3e/0x3f70. DCE'd (no live caller until jt249's body lands).
+
 **Remaining jt249 body (fill order):** 0x34ea drawing setup (jt447/jt1200/two
-jt452) → L3548 draw loop (uses L3cbe) → JT[3] @0x3862 → modal region → JT[3]
-@0x3e5a → the jt1161 redraw tail (0x3e6e-0x4022). Lift L3cbe first, then each
-block one commit.
+jt452) → L3548 draw loop (uses l3cbe) → JT[3] @0x3862 → modal region → JT[3]
+@0x3e5a → the jt1161 redraw tail (0x3e6e-0x4022). One block per commit.
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).
