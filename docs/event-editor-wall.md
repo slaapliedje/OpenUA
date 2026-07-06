@@ -163,10 +163,26 @@ jt179, jt488, jt168, jt360, jt147, jt169 List Mgr, jt1089, jt423, jt394, jt84,
 jt117, jt273, jt179). JT[3] decoded via the extract tool.
 
 **jt248a DONE:** L31cc (lifted as `l31cc_c2` — (CODE,offset) clash vs a CODE 6
-l31cc design-name copy). Remaining = the monolithic L26aa main: a level-2
-skeleton (prologue + head + JT[3] scaffold + modal tail) then fill the 8 arms —
-its own multi-commit sub-arc (frame locals couple the arms to the tail, so lift
-the scaffold first, then each arm).
+l31cc design-name copy).
+
+**jt248b DONE — L26aa level-2 SKELETON:** the prologue (parse type=*desc&15,
+sub=(*desc&1008)>>4), the type-4 early exit (l494e repack), BOTH base-string
+prompt builds (type 3 = jt273/jt488 "%s %s %s %s %d, %d%s?"; else "%s %s %s
+%s:"), the 8-arm JT[3] scaffold, and the short-circuit cleanup (jt147 + return
+a8) are lifted and faithful on the always-run path. jt314 is callable as
+**l494e** (not jt314). All 8 arms converge at L2e42; the prologue zeroes the
+-132 list holder so with arms deferred the tail short-circuits to jt147.
+
+**jt248 FILL-PASS TODO (remaining):**
+- The 8 JT[3] arms (converge at L2e42), each populating the -132 list (jt167) +
+  modal state (-113/-122/-6/-124/-119/-117): c0=L2824, c1=L29c8, c2=L2af6,
+  c3=L2cbe, c5=L2b9a, c6/7=L2a36, c4/def=L2dc2. Arms use jt352/jt349 (enumerate),
+  jt394 formats, and the -108xx/-109xx/-11xxx string-table globals.
+- The shared modal tail (L2e42..L30d8): list-walk, jt179, jt84/jt117/jt1089 +
+  l31cc_c2 draw, the **jt169** List-Manager pick LOOP (re-runs until the pick is
+  0/1), jt347 value-adjust behind its **JT[2] @0x3042** switch (NOT yet decoded —
+  jt1_extract's JT[1] read gave odd/odd-address arms, so decode carefully in the
+  fill pass), and the *desc repack at L30d8. jt168/jt360 also here.
 
 Next targets by size: **jt248 main (l26aa)** → jt249 (l333a, 1102) → jt258
 (l0004, 2808, the event-editor MAIN — skeleton-then-fill, last).
