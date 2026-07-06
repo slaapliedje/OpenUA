@@ -463,10 +463,23 @@ return the status the chain branches on). Byte-addressed bit tests preserved
 PROBE stub. Case 5's JT[3] @0xf4 sub-tree is now fully structured (both arms
 lifted); all paths converge at the deferred 0x31a post-process.
 
-**Fill order (jt258):** (1) the 0x31a post-process (*desc&=0xFFFF0000, JT[1]
-@0x32a on rec[0], JT[1] @0x34c on rec[10]&63) + the return -> this replaces the
-0 placeholder; (2) cases 11/10/default; (3) the case-5 helper stubs lifted
-bottom-up (l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/l0722/l0622/l0524).
+**jt258e DONE — the 0x31a shared post-process + top-level default arm + real
+return.** 0x31a is the function's COMMON EPILOGUE, not a case-5 tail: verified
+every command arm converges here (bras/braw 0x31a from case 5 @0xc6..0x200,
+case 11 @0x292/0x2a0, case 10 @0x2e6/0x2fe/0x30c; the top-level default @0x30e
+falls through). Restructured accordingly: the 0x31a repack now lives AFTER the
+`switch (cmd)`, shared by all arms. Body: `*desc &= 0xFFFF0000` (0x31e) then
+JT[1] @0x32a on rec[0] (jt1_extract: cases 10/11/5, default). case 10 (0x33e) =
+degenerate JT[1] @0x34c (0 cases) -> `*desc |= (long)(short)rec@10`; case 11
+(0x368) = JT[3] @0x376 (min=1,max=1): case 1 -> `*desc |= rec@10&15`, default ->
+`*desc |= (short)rec@10`; case 5 (0x3a6) = the only arm doing the big repack
+(k=(rec@10&0x3f00)>>8; if k∈{2,3} rec[6]=rec@10&0xff; then `*desc |=
+(u16)rec@12&0xC000`, `*desc |= rec@10&0x3fff`, and if rec[12] byte bit5
+`*desc |= 0x8000`); default -> no repack. The top-level default arm @0x30e
+(`rec[0]=rec[2]`) is now lifted too. Return changed from the `0` placeholder to
+`rec[0]` (0x420-0x424). Codegen holds 1889 (DCE'd), tests 129/1. NEXT: (2) cases
+11 (0x204) / 10 (0x2a4); (3) the case-5 helper stubs lifted bottom-up
+(l042a/l0ade/l2156/l0910/l222c/l22b6/l09d6/l0722/l0622/l0524).
 
 Next target after jt249: jt258 (l0004, 2808, the event-editor MAIN — skeleton-
 then-fill, last).

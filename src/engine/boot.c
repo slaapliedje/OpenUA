@@ -72425,7 +72425,6 @@ static short jt258(short cmd, long *desc, void *out)
 	void *rec;                  /* fp@(-8) = out */
 
 	PROBE("jt258");
-	(void)desc;                 /* consumed by the deferred command arms */
 	if (out == NULL)            /* 0x0008 — no output record */
 		return 0;               /* 0x0426 exit */
 	rec = out;
@@ -72492,18 +72491,62 @@ static short jt258(short cmd, long *desc, void *out)
 				break;
 			}
 		}
-		/* 0x31a — post-process: *desc &= 0xFFFF0000, JT[1] @0x32a on
-		 * rec[0], JT[1] @0x34c on rec[10]&63, repack. DEFERRED. */
+		/* All case-5 sub-arms converge at the shared 0x31a tail below. */
 		break;
 	}
-	case 11: /* TODO 0x0204 */
+	case 11: /* TODO 0x0204 — converges at 0x31a */
 		break;
-	case 10: /* TODO 0x02a4 */
+	case 10: /* TODO 0x02a4 — converges at 0x31a */
 		break;
-	default: /* TODO 0x030e */
+	default: /* 0x30e — normalize: copy rec[2] over rec[0], fall to 0x31a. */
+		*(short *)rec = *(short *)((char *)rec + 2);
 		break;
 	}
-	return 0;                   /* placeholder — arms deferred */
+
+	/* 0x31a — shared post-process. Every command arm converges here (verified:
+	 * bras/braw 0x31a from case 5 @0xc6..0x200, case 11 @0x292/0x2a0, case 10
+	 * @0x2e6/0x2fe/0x30c; the default arm @0x30e falls through). Clear the low
+	 * word of *desc, then repack the working record back into it, keyed on the
+	 * final event type in rec[0]. The function returns rec[0]. */
+	*desc &= 0xFFFF0000L;                            /* 0x31e */
+	switch (*(short *)rec) {         /* JT[1] @0x32a on rec[0] (final event type) */
+	case 10: {  /* 0x33e */
+		short k = (short)(*(short *)((char *)rec + 10) & 63);   /* 0x344 */
+		(void)k;                 /* JT[1] @0x34c is degenerate (0 cases -> dflt) */
+		/* 0x354 — OR the sign-extended rec@10 word into *desc. */
+		*desc |= (long)*(short *)((char *)rec + 10);
+		break;
+	}
+	case 11: {  /* 0x368 */
+		short k = (short)(*(short *)((char *)rec + 10) & 15);   /* 0x36e */
+		switch (k) {             /* JT[3] @0x376 (min=1, max=1) */
+		case 1:  /* 0x382 — OR the masked key */
+			*desc |= (long)k;
+			break;
+		default: /* 0x392 — OR the sign-extended rec@10 word */
+			*desc |= (long)*(short *)((char *)rec + 10);
+			break;
+		}
+		break;
+	}
+	case 5: {  /* 0x3a6 */
+		unsigned short w10 = (unsigned short)*(short *)((char *)rec + 10);
+		short k = (short)((w10 & 0x3F00) >> 8);          /* 0x3ae — bits 8..13 */
+		if (k == 2 || k == 3)                            /* 0x3b8/0x3be */
+			*(unsigned char *)((char *)rec + 6) =
+			    (unsigned char)(w10 & 0xFF);         /* 0x3c6 */
+		/* 0x3da — the common repack (reached from the case-5 arm only). */
+		*desc |= (unsigned long)((unsigned short)
+		    *(short *)((char *)rec + 12) & 0xC000u);      /* 0x3de — bits 14/15 */
+		*desc |= (unsigned long)(w10 & 0x3FFFu);          /* 0x3f6 — bits 0..13 */
+		if (*(unsigned char *)((char *)rec + 12) & 0x20)  /* 0x40e — rec[12] bit 5 */
+			*desc |= 0x8000L;                        /* 0x416 — set *desc bit 15 */
+		break;
+	}
+	default:    /* 0x420 — no repack for other event types */
+		break;
+	}
+	return *(short *)rec;            /* 0x420 — return rec[0] */
 }
 
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
