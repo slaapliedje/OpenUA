@@ -74414,6 +74414,39 @@ static void l1d10(void *holder_v, short a2, short a3, short a4, short a5)
 	}
 }
 
+/* L3654 (CODE 11 + 0x3654) — place the cell under the record's position via
+ * l1d10, temporarily borrowing the scroll cursor when the area is kind rec[4]==1:
+ * save g_a5_-12288..-12283, load them from the record's position rec[46..51], call
+ * l1d10(holder, y=-12287, x=-12288, facing=-12286, 1), then restore the saved
+ * cursor.  Finally, for a type-5 record (word@rec[0]==5) with a non-zero
+ * word@rec[6], it sets bit 7 of rec[6].  rec = *holder.  A jt243 (GEO editor)
+ * helper; its only local dep l1d10 is lifted. */
+static void l3654(void *holder_v) __attribute__((unused));
+static void l3654(void *holder_v)
+{
+	unsigned char *rec = *(unsigned char **)holder_v;          /* 0x365c — *holder */
+	unsigned char  saved[6] = {0};                             /* fp@(-6) */
+	short k;
+
+	if (rec[4] == 1) {                                         /* 0x3664 */
+		for (k = 0; k < 6; k++)                            /* 0x3672 — save cursor */
+			saved[k] = g_a5_byte(-12288 + k);
+		for (k = 0; k < 6; k++)                            /* 0x3684 — load from rec */
+			g_a5_byte(-12288 + k) = rec[46 + k];
+	}
+
+	l1d10(holder_v, (short)(signed char)g_a5_12287,            /* 0x36a8 — JT[290] via l1d10 */
+	      (short)(signed char)g_a5_12288,
+	      (short)(unsigned char)g_a5_12286, 1);
+
+	if (rec[4] == 1)                                           /* 0x36bc — restore cursor */
+		for (k = 0; k < 6; k++)
+			g_a5_byte(-12288 + k) = saved[k];
+
+	if (*(short *)(rec + 6) != 0 && *(short *)rec == 5)        /* 0x36d4 / 0x36e0 */
+		rec[6] |= 0x80;                                    /* 0x36ec — bset #7 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
