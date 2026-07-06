@@ -71675,7 +71675,21 @@ static short jt248(short a8, long *desc)
 		            (short)11, (short)1, (short)lo113, (short)1,
 		            (short)0, 0L));
 		break;
-	case 1:  /* TODO: L29c8 — jt352/jt167/jt349 enumerate */
+	case 1:
+		/* L29c8 — the plain kind-10 enumerate arm (the simplest one):
+		 * jt352 counts the kind-10/mask-96 list writing the selected index
+		 * straight into idx122, jt167 allocates the holder, and jt349
+		 * finalizes. No per-node relabel loop (unlike arm 0). The tail's
+		 * JT[2] case 1 clamps this arm's value with the same (10, 96) pair. */
+		f117 = 1;
+		cnt124 = jt352((short)10, (short)96, (long)(intptr_t)&lo113,
+		               0L, 0L,
+		               (long)(intptr_t)&idx122, 0L);
+		str12 = g_a5_long(-10704);
+		jt167(cnt124, (long)(intptr_t)&list_holder);
+		loop8 = (short)(lo113 + jt349((long)(intptr_t)list_holder,
+		            (short)10, (short)96, (short)lo113, (short)0,
+		            (short)0, 0L));
 		break;
 	case 2:  /* TODO: L2af6 — "%s %s" list arm (-11224 table) */
 		break;
