@@ -73292,6 +73292,38 @@ static void l1084(void *rec)
 	l12e8(rec, e2, (short)(x + 4), y, -1);  /* 0x12dc */
 }
 
+/* L0a32 (CODE 2 + 0xa32) — case-5 dispatcher tail: mask rec@12 to its top two
+ * bits and set rec[13] bit 6, then pick the working entry — the append slot
+ * (l1ad2) when rec[8] and rec[7] are both set, else the array top (l1af8). If an
+ * entry exists, seed the cursor (l207c(v,1)), pack rec@10 = v|0x600 and retype to
+ * 5; otherwise seed an empty cursor (l207c(0,1)) and open the main event-editing
+ * screen (l0ade). */
+static void l0ade(void *rec);           /* forward — full body below in this block */
+static void l0a32(void *rec) __attribute__((unused));
+static void l0a32(void *rec)
+{
+	void *e;
+
+	PROBE("L0a32");
+	*(short *)((char *)rec + 12) &= (short)0xC000;  /* 0xa3a — andiw #-16384 */
+	*((unsigned char *)rec + 13) |= 0x40;           /* 0xa44 — bset #6 */
+	if (*((unsigned char *)rec + 8) != 0 &&         /* 0xa4e */
+	    *((unsigned char *)rec + 7) != 0)           /* 0xa58 */
+		e = l1ad2((char *)rec + 22);            /* 0xa66 — append slot */
+	else
+		e = l1af8((char *)rec + 22, 0);         /* 0xa7c — array top */
+	if (e != NULL) {                                /* 0xa8a */
+		unsigned char v = *((unsigned char *)e + 1);    /* 0xa90 */
+		l207c((short)v, 1);                     /* 0xaa2 */
+		*(short *)((char *)rec + 10) =          /* 0xab6 */
+		    (short)((v & 0xFF) | 0x600);
+		*(short *)rec = 5;                      /* 0xac0 */
+	} else {
+		l207c(0, 1);                            /* 0xaca */
+		l0ade(rec);                             /* 0xad4 — open the main screen */
+	}
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
