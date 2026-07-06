@@ -71515,6 +71515,39 @@ static short jt253(short a8, long *desc, void *ctx_arg)
 	return *(short *)(void *)(ctx + 2);
 }
 
+/* ===== CODE 2 jt248 event-parameter EDITOR cluster (Phase B) — see
+ * docs/event-editor-wall.md. jt248 (L26aa, frame -140) is the interactive modal
+ * that formats an event's description (8-arm JT[3] type dispatch), runs the
+ * jt169 List Manager to pick/adjust a parameter, clamps it (jt347) and packs it
+ * back into *desc. Lifted bottom-up; this first pass = its L31cc label helper. */
+
+/* L31cc (CODE 2 + 0x31cc, frame -42) — draw a centered menu-column label: format
+ * the string at g_a5(-11184)[idx] ("%s") into a scratch buffer, measure it
+ * (jt423), and draw it via jt1089 centered in a `field`-wide column at row `y`,
+ * x-base `xbase` (x = xbase + ((field - len) / 2) * 4). idx >= 10 is skipped.
+ * The Mac stores jt397(0,a4) into the a4 slot and never reads it (dead), and a5
+ * is passed but unused — both kept faithfully. Named _c2: an unrelated CODE 6
+ * l31cc (design-name copy) already exists. */
+static void l31cc_c2(short y, short xbase, short field, short idx,
+                     short a4, short a5) __attribute__((unused));
+static void l31cc_c2(short y, short xbase, short field, short idx,
+                     short a4, short a5)
+{
+	char  buf[40];             /* fp@(-40) */
+	short len, x;
+
+	PROBE("L31cc_c2");
+	(void)jt397((short)0, a4);          /* fp@(16) = jt397(0,a4), unused */
+	(void)a5;
+	if (idx >= 10)
+		return;
+	jt394(buf, ua_strs_at(0x2c3a) /* "%s" */,
+	      (long)g_a5_longs(-11184)[idx]);
+	len = jt423(buf);
+	x = (short)(xbase + ((field - len) / 2) * 4);
+	jt1089(y, x, (short)140, buf);
+}
+
 /* L3804 (CODE 6+0x3804) — blit one GLIB cell at raw 8000-space (c1,c2). */
 static void l3804(short c1, short c2, short frame, short unused, void *ptr)
 {
