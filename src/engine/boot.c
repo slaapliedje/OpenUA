@@ -72947,6 +72947,124 @@ static short lefe(void *rec, short key)
 	return key;                              /* 0x107c */
 }
 
+/* L86e (CODE 2 + 0x86e) — begin a range selection at the append slot. No-op if
+ * the array is empty. Mark rec@12 bits 2|5; take the slot's value byte v; unless
+ * rec[12] high-byte bit 5 is already set, capture the record's map link
+ * (rec[15] = map[v-1][3]) and clear it, else clear rec[15]. Seed the cursor
+ * (l207c(v, 0)), set rec@10 = v|0x600 and retype the record to 5. */
+static void l86e(void *rec) __attribute__((unused));
+static void l86e(void *rec)
+{
+	void *slot;
+	unsigned char v;
+	char *base = (char *)(uintptr_t)g_a5_long(-13038);
+
+	PROBE("L86e");
+	slot = l1ad2((char *)rec + 22);         /* 0x87a — append slot */
+	if (slot == NULL)                       /* 0x884 */
+		return;                         /* 0x90c */
+	*(short *)((char *)rec + 12) |= 0x24;   /* 0x88e — rec@12 word |= bits 2,5 */
+	v = *((unsigned char *)slot + 1);       /* 0x898 */
+	if (!(*((unsigned char *)rec + 12) & 0x20)) {   /* 0x8a2 — byte@12 bit 5 clear */
+		*((unsigned char *)rec + 15) =  /* 0x8be — rec[15] = map[v-1][3] */
+		    base[v * 20 - 17];
+		base[v * 20 - 17] = 0;          /* 0x8d4 — map[v-1][3] = 0 */
+	} else {
+		*((unsigned char *)rec + 15) = 0;       /* 0x8de */
+	}
+	l207c(v, 0);                            /* 0x8ec */
+	*(short *)((char *)rec + 10) =          /* 0x900 */
+	    (short)((v & 0xFF) | 0x600);
+	*(short *)rec = 5;                      /* 0x90a */
+}
+
+/* Lce2 (CODE 2 + 0xce2) — execute an event-editor nav key. When a selection is
+ * live (g_a5_byte(-24139)) the raw key is first mapped through lefe. Negative
+ * results poke jt1080 (only for -1) and return. Otherwise JT[3] @0xd2a (0..6):
+ *   0 -> clear rec[13] bit6, rec@10=0x3f00, retype 5;
+ *   1 -> pop+peek the array, seed cursor l207c(v,1), rec@10=v|0x600, retype 5;
+ *   2 -> if append slot value set, seed+retype, then push a slot (l1b30);
+ *   3 -> if append slot value set, clear bit6 + rec@10=v|0x200 retype 5, else jt1080;
+ *   4 -> clear bit6 + l6cc (encounter retype);
+ *   5 -> if append value 0 jt1080, else clear bit6 + l86e (start range);
+ *   6 -> l1fbe(rec, savekey==134 ? 1 : 0, 0) (step the row cursor);
+ *   default -> jt1080. */
+static void lce2(void *rec, short key) __attribute__((unused));
+static void lce2(void *rec, short key)
+{
+	void *slot;
+	unsigned char ret = 0;
+	short savekey;
+
+	PROBE("Lce2");
+	if (g_a5_byte(-24139) != 0) {           /* 0xcea */
+		savekey = key;                  /* 0xcf0 */
+		key = lefe(rec, key);           /* 0xcfe */
+	} else {
+		savekey = 0;                    /* 0xd0a */
+	}
+	if (key < 0) {                          /* 0xd12 */
+		if (key == -1)                  /* 0xd14 */
+			jt1080();               /* 0xd1e */
+		return;                         /* 0xd1a/0xd22 */
+	}
+	switch (key) {          /* JT[3] @0xd2a (min=0, max=6) */
+	case 0:  /* 0xd42 */
+		*((unsigned char *)rec + 13) &= (unsigned char)~0x40;
+		*(short *)((char *)rec + 10) = 0x3F00;
+		*(short *)rec = 5;
+		break;
+	case 1:  /* 0xd62 */
+		l1af8((char *)rec + 22, 1);             /* pop */
+		slot = l1af8((char *)rec + 22, 0);      /* peek top */
+		ret = slot ? *((unsigned char *)slot + 1) : 0;
+		l207c((short)ret, 1);
+		*(short *)((char *)rec + 10) = (short)((ret & 0xFF) | 0x600);
+		*(short *)rec = 5;
+		break;
+	case 2:  /* 0xdce */
+		slot = l1ad2((char *)rec + 22);
+		if (slot != NULL && (ret = *((unsigned char *)slot + 1)) != 0) {
+			l207c((short)ret, 1);
+			*(short *)((char *)rec + 10) =
+			    (short)((ret & 0xFF) | 0x600);
+			*(short *)rec = 5;
+		}
+		l1b30((char *)rec + 22, 1);             /* always push */
+		break;
+	case 3:  /* 0xe32 */
+		slot = l1ad2((char *)rec + 22);
+		if (slot != NULL && (ret = *((unsigned char *)slot + 1)) != 0) {
+			*((unsigned char *)rec + 13) &= (unsigned char)~0x40;
+			*(short *)((char *)rec + 10) =
+			    (short)((ret & 0xFF) | 0x200);
+			*(short *)rec = 5;
+		} else {
+			jt1080();
+		}
+		break;
+	case 4:  /* 0xe84 */
+		*((unsigned char *)rec + 13) &= (unsigned char)~0x40;
+		l6cc(rec);
+		break;
+	case 5:  /* 0xe9c */
+		slot = l1ad2((char *)rec + 22);
+		if (slot != NULL && *((unsigned char *)slot + 1) == 0) {
+			jt1080();
+		} else {
+			*((unsigned char *)rec + 13) &= (unsigned char)~0x40;
+			l86e(rec);
+		}
+		break;
+	case 6:  /* 0xeda */
+		l1fbe(rec, (short)(savekey == 134 ? 1 : 0), 0);
+		break;
+	default: /* 0xef6 */
+		jt1080();
+		break;
+	}
+}
+
 /* L042a (CODE 2 + 0x042a) — jt258 case-5 "high-bit" event handler (called when
  * bit 15 of *desc is set). PROBE-only stub for now — body deferred. */
 static void l042a(void *rec, short a1, short a2, short a3) __attribute__((unused));
