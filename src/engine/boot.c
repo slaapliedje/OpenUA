@@ -76427,6 +76427,26 @@ static void l28d4(void *arg8)
  * links.  Same (short cmd, long *rec, void *area) ABI as the sibling handlers
  * jt233/jt239/jt244.
  */
+/* L16ae (CODE 11 + 0x16ae) — jt243 "escape / reset selection to the party cell" tail.
+ * Copies holder[0] (cmd) into holder[2] (prev), invalidates the selection rect
+ * (-11706/-11704 = -1), snapshots the party cell (-12287/-12288/-12286 -> the saved
+ * -11702/-11701/-11700), re-seeds the editor view (l1626), and re-enters the modal
+ * command loop l28d4.  Called by the L136e/L12fc/L0bf8 jt243 arms. */
+static void l16ae(void *holder_v) __attribute__((unused));
+static void l16ae(void *holder_v)
+{
+	unsigned char *h = (unsigned char *)holder_v;
+
+	*(short *)(h + 2) = *(short *)h;             /* 0x16b2 holder[2]=holder[0] */
+	g_a5_word(-11706) = -1;                      /* 0x16be */
+	g_a5_word(-11704) = -1;                      /* 0x16c4 */
+	g_a5_byte(-11702) = g_a5_byte(-12287);       /* 0x16ca save col */
+	g_a5_byte(-11701) = g_a5_byte(-12288);       /* 0x16d0 save row */
+	g_a5_byte(-11700) = g_a5_byte(-12286);       /* 0x16d6 save facing */
+	l1626(h);                                    /* 0x16dc */
+	l28d4(h);                                     /* 0x16e6 */
+}
+
 /* L13aa..L1622 (CODE 11) — jt243's shared per-tool FINALIZE tail.  Clears the low 16
  * bits of the `rec` (fp@10) 32-bit tool word, then packs the edited tool state back
  * into it — differently per tool via a JT[1] @0x13ba on holder[0]=cmd (arms decoded
