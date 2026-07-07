@@ -457,15 +457,30 @@ key navigation — full lift w/ JT[1] arrows/accel/disabled-skip).
 (rec = arg); l2414/l1d10/l3654/l237c/l3236 take a HOLDER whose word@0 points at
 the record (rec = *arg) — match the asm's deref per-function, don't assume.
 
-**NEXT (C5o+) — two prerequisites unlock the remaining leaves/mids:**
-1. **Add CODE-8 JT PROBE stubs** jt330/jt331/jt332/jt334/jt336/jt337/jt342 (none
-   exist yet; alias-check first) → unblocks leaves **l3ddc** (330/331/332/336),
-   **l3d1a** (334/342), **l3e60** (337).
-2. **Lift external CODE-11 helpers** l0742 and l066a (below 0xb26) → unblocks
-   **l36f6** (l0742 + lifted l476e/l4810), **l37d8** (l0742), **l24b6** (l066a).
-**Unblocked mid ready now:** l1d88 (1524B, dep l237c ✓ — 13 JT calls, a JT[3]).
-Then the hub **l28d4** (waits on l1a1c/l24b6/l2836/l2d40/l2dbe/l3380/l43c2), then
-jt243 proper (the 20-arm JT[3] @0xb48 tool palette) as a level-2 skeleton.
+**C5o–C5p DONE (2026-07-06):** l066a_c11 (dirty-flag toggle; _c11 because
+JT[1165]=CODE4+0x066a is a *different* fn at the same offset — recurring-offset
+trap), and **JT[310]=l04d6** (CODE 22, a 9-insn cell-record byte-4 accessor;
+`g_a5_-12300 + cell*6 + 294`) — was MISSING, blocked l1d88.
+
+**Key finding: every remaining subtree fn bottoms out on a missing JT callee.**
+Sizes checked — the CODE-8 backend is DEEP and out of jt243 scope: jt336=1102B,
+jt334=686B, jt342=602B, jt337=534B, jt332=248B, plus jt330/jt331 (tiny but call
+jt336/jt332). These are the editor's 3D-map RENDER backend (a separate CODE-8
+subsystem, shared with other render paths) — PROBE-stub them per CLAUDE.md
+lift-level-1 when lifting l3ddc/l3d1a/l3e60 (alias-check: jt330=l324c, jt331=l33f6,
+jt332=l4a16, jt334=l3f2e, jt336=l45c6, jt337=l41de, jt342=l567c; jt395=l46b2 CODE 3).
+
+**NEXT — l1d88 (1524B) is READY (all deps present: dep l237c ✓, jt310 ✓):**
+the per-kind cell-render/commit dispatcher, `rec = *holder`, a **4-arm JT[3]
+@0x1d9e (min=1 max=4) on rec[18]** (1→L1dac, 2→L2014, 3→L2150, 4→L226c). Arms are
+LINEAR-but-large (field copies over the 8-byte-element table at rec[20]/`*hp`,
+cursor repaints via JT292/278/279/295/290/312/321, calls l237c). ~380 insn — do
+it as its own careful full lift (level 3), NOT rushed. Then the hub **l28d4**
+(waits l1a1c/l24b6/l2836/l2d40/l2dbe/l3380/l43c2), then jt243 proper (20-arm
+JT[3] @0xb48 tool palette) as a level-2 skeleton.
+**Still blocked:** l24b6 (needs jt395 stub), l3ddc/l3d1a/l3e60 (CODE-8 stubs),
+l36f6/l37d8 (l0742 subtree: l0854/l07c2 + ~10 JT — l0742 = the "Save 3D Map" GEO
+writer, 12962-byte level write).
 
 (Already lifted this campaign: jt233/234/235/236/237/238/239/240/241/244 +
 l4226/l4268 — see `docs/area-map-wall.md`.)
