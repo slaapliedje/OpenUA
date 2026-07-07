@@ -75143,6 +75143,121 @@ static void l43c2(void *holder_v)
 	jt343();                                                  /* 0x440e */
 }
 
+/* L1a1c (CODE 11 + 0x1a1c) — the GEO editor's cell paint-drag modal loop.  Reads
+ * the pointer (JT[1113]); if H[6]==2 sets H[4]=1; bails (beep) when H[29]==0.
+ * Then runs one of two nearly-identical track loops that follow the cursor
+ * (JT[289] step, JT[3] axis-lock, JT[1112]/JT[1132] poll) and place a cell at each
+ * new grid position via l1d10, remembering the last-placed cell to avoid repeats:
+ *   - loop 1 (rec[5]==0 && !JT[273]): JT[289] flag 1, placement test JT[272], the
+ *     "same cell" guard compares g_a5_-12286/-12287/-12288, beep on res==-1;
+ *   - loop 2 (else): JT[289] flag 0, test JT[284], 2-coord same-cell guard, beep on
+ *     res==0, and on exit re-arms while rec[5]==3 && JT[354]!=0.
+ * rec = *holder; H[4]/[6]/[29] are holder-direct fields.  A jt243 (GEO editor)
+ * mid; caller l28d4 (the hub). */
+static void l1a1c(void *holder_v) __attribute__((unused));
+static void l1a1c(void *holder_v)
+{
+	unsigned char *H = (unsigned char *)holder_v;             /* fp@(8) */
+	unsigned char *rec;
+	short p4 = 0, p6 = 0;          /* fp@(-4)/fp@(-6) — live cursor */
+	short p8, p10;                 /* fp@(-8)/fp@(-10) — previous */
+	short p12, p14;                /* fp@(-12)/fp@(-14) — last placed */
+	short res;                     /* fp@(-2) */
+	signed char mstate;            /* fp@(-16) */
+	signed char kflag;             /* fp@(-15) */
+
+	jt1113(&p4, &p6);                                         /* 0x1a28 */
+	if (*(short *)(H + 6) == 2)                               /* 0x1a32 */
+		H[4] = 1;                                         /* 0x1a40 */
+	if (H[29] == 0) {                                         /* 0x1a48 */
+		jt1080();                                         /* L1d08 */
+		return;
+	}
+	mstate = 0;                                              /* 0x1a50 */
+	p8 = p10 = -99;                                          /* 0x1a54 */
+	p12 = p14 = -99;                                         /* 0x1a5e */
+	rec = *(unsigned char **)H;
+
+	if (rec[5] == 0 && jt273() == 0) {                       /* 0x1a74 / 0x1a7e — loop 1 */
+		kflag = 1;                                       /* 0x1a84 */
+		do {                                             /* L1a8a */
+			if (mstate != 0) {
+				if (mstate == 1 && p12 >= 0)     /* 0x1a92 / 0x1a9a */
+					mstate = (signed char)jt289(p4, p6, &p8, &p10, (short)1);
+				switch (mstate) {                /* JT[3] @0x1aca */
+				case 2: p4 = p8;  break;         /* 0x1ad4 */
+				case 3: p6 = p10; break;         /* 0x1adc */
+				default:          break;
+				}
+			}
+			if (!(p4 == p8 && p6 == p10)) {          /* 0x1ae2 */
+				res = jt272(p4, p6);             /* 0x1b00 */
+				if (res >= 0) {                  /* 0x1b0a */
+					if ((short)(unsigned char)g_a5_12286 != res ||   /* 0x1b16 */
+					    (short)(signed char)g_a5_12287 != p12 ||     /* 0x1b22 */
+					    (short)(signed char)g_a5_12288 != p14) {     /* 0x1b2e */
+						g_a5_12286 = (unsigned char)res;         /* 0x1b34 */
+						l1d10(H, (short)(signed char)g_a5_12287, /* 0x1b5a */
+						      (short)(signed char)g_a5_12288,
+						      (short)(unsigned char)g_a5_12286, (short)1);
+						p12 = (short)(signed char)g_a5_12287;    /* 0x1b68 */
+						p14 = (short)(signed char)g_a5_12288;    /* 0x1b72 */
+					}
+				} else if (kflag != 0 && res == -1) {    /* 0x1b78 */
+					jt1080();
+				}
+				p8 = p4; p10 = p6;               /* 0x1b8a */
+			}
+			if (kflag != 0) {                        /* 0x1b96 */
+				mstate = (signed char)jt1112();
+				kflag = 0;
+			}
+		} while (jt1132(&p4, &p6) == 0);                 /* 0x1bb0 */
+		return;                                          /* L1d0c */
+	}
+
+	kflag = 1;                                               /* 0x1bc0 — loop 2 */
+	for (;;) {                                                /* L1bc6 */
+		if (mstate != 0) {
+			if (mstate == 1 && p12 >= 0)
+				mstate = (signed char)jt289(p4, p6, &p8, &p10, (short)0);  /* 0x1bee */
+			switch (mstate) {                        /* JT[3] @0x1c04 */
+			case 2: p4 = p8;  break;
+			case 3: p6 = p10; break;
+			default:          break;
+			}
+		}
+		if (!(p4 == p8 && p6 == p10)) {                  /* 0x1c1c */
+			res = jt284(p4, p6);                     /* 0x1c3a */
+			if (res > 0) {                           /* 0x1c48 */
+				if ((short)(signed char)g_a5_12287 != p12 ||     /* 0x1c50 */
+				    (short)(signed char)g_a5_12288 != p14) {     /* 0x1c5c */
+					l1d10(H, (short)(signed char)g_a5_12287, /* 0x1c82 */
+					      (short)(signed char)g_a5_12288,
+					      (short)(unsigned char)g_a5_12286, (short)1);
+					p12 = (short)(signed char)g_a5_12287;
+					p14 = (short)(signed char)g_a5_12288;
+				}
+			} else if (kflag != 0 && res == 0) {     /* 0x1ca0 */
+				jt1080();
+			}
+			p8 = p4; p10 = p6;                       /* 0x1cb0 */
+		}
+		if (kflag != 0) {                                /* 0x1cbc */
+			mstate = (signed char)jt1112();
+			kflag = 0;
+		}
+		if (jt1132(&p4, &p6) != 0)                       /* 0x1cd6 */
+			break;                                   /* → L1d0c return */
+		rec = *(unsigned char **)H;                      /* 0x1ce0 */
+		if (rec[5] == 3) {                               /* 0x1cec */
+			H[4] = (unsigned char)jt354();           /* 0x1cf4 */
+			if (H[4] == 0)                           /* 0x1d00 */
+				break;                           /* → return */
+		}
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
