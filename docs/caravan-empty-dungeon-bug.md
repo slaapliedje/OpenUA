@@ -1,5 +1,21 @@
 # BUG: HEIRS caravan → "empty" dungeon (walls blit but invisible + can't walk)
 
+## ✅✅ BOTH BUGS FIXED 2026-07-07 — dungeon is walkable
+
+Confirmed on the REAL caravan playthrough (HEIRS): walls render (stone + wood
+corridors, arches, doors), and the party walks — 10,8 → 7,8, view updates on every
+arrow. Two independent fixes:
+- **Invisible walls** (0722bf1): jt200_layer's spurious extra GLIB level — see below.
+- **Walk stall** (241f5a1): jt1125 masked key events for kind=7 (the phantom
+  ATTACK-ALLY combat fix), stamping arrows into the -818 pending path — but l63c0's
+  movement routing (write g_a5_-10372, return 0 -> case 0 -> jt297) lives in l2d3e
+  PHASE 1, gated on that masked key return. So arrows never reached -10372 and the
+  party was frozen. Fix: jt1125 passes keys through when g_walk_input is set (walk
+  loop only; combat/Hall keep the mask); ack -820 on the walk-input return.
+  Found by driving level 5 headless + probing jt1125/l2d3e/l63c0. HEADLESS DRIVE:
+  the menu is keyboard-driven (P=Play, L=Load, A=slot, B=Begin, Returns through the
+  event; treasure = Escape -> N -> Returns); the 3D view responds to arrow keys.
+
 ## ✅ WALLS FIXED 2026-07-07 (commit 0722bf1)
 
 The invisible walls were **NOT** a palette bug (the per-set band model is correct,
