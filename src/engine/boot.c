@@ -76427,6 +76427,78 @@ static void l28d4(void *arg8)
  * links.  Same (short cmd, long *rec, void *area) ABI as the sibling handlers
  * jt233/jt239/jt244.
  */
+/* L068a (CODE 11 + 0x068a) — switch the active wall SET to `set` and reload the GEO
+ * view: flag whether the set actually changed (jt358 != set), stash a cell code
+ * (jt201), reload the level art (jt198), clamp the set counter (l6eea's JT[364]=
+ * l6e50), refresh caches (jt351/jt316); when the set changed, restore the party cell
+ * from the saved -18828/-18827 slot (ds[idx*4 + 14/15/16] -> col/row/facing).  A
+ * jt243 (GEO editor) helper; caller l36f6. */
+static void l068a(short a8, short set) __attribute__((unused));
+static void l068a(short a8, short set)
+{
+	signed char changed = ((jt358() & 255) != set) ? 1 : 0;   /* 0x068e (fp@10=set) */
+	(void)a8;                                                 /* fp@(8) — unused */
+	g_a5_byte(-12284) = (unsigned char)(jt201(0, 0) & 255);   /* 0x06a4 */
+	jt198((short)(set & 63));                                 /* 0x06ba */
+	l6e50((short)(set & 63));                                 /* 0x06c8 = JT[364] */
+	jt351();                                                  /* 0x06d6 */
+	jt316();                                                  /* 0x06da */
+	if (changed) {                                            /* 0x06de */
+		const unsigned char *ds =
+			(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		signed char idx = ((short)(unsigned char)g_a5_byte(-18828) == set)  /* 0x06e4 */
+			? (signed char)g_a5_byte(-18827) : 0;             /* 0x06f0/0x06f8 */
+		g_a5_byte(-12288) = ds[(long)idx * 4 + 15];       /* 0x070c row */
+		g_a5_byte(-12287) = ds[(long)idx * 4 + 14];       /* 0x0722 col */
+		g_a5_byte(-12286) = ds[(long)idx * 4 + 16];       /* 0x0738 facing */
+	}
+}
+
+/* L36f6 (CODE 11 + 0x36f6) — jt243 "commit the edited cell + reposition" helper.
+ * l4810 syncs the holder[4]/[5] mode bytes; for a low tool code (arg&63 <= 4) it
+ * clears a pending holder[5]==1 (jt275 repaint) and forces edit mode holder[4]=1;
+ * switches the wall set (l068a), refreshes (l476e/jt319/jt305), then loads the party
+ * cell col/row/facing (ds[14/15/16]) into holder[46..48] and commits holder[46..51]
+ * to the live party coords g_a5_-12288.  A jt243 (GEO editor) helper; callers l4144
+ * (=l4144_c11) and the cmd-9 arm. */
+static void l36f6(void *holder_v, short arg) __attribute__((unused));
+static void l36f6(void *holder_v, short arg)
+{
+	unsigned char       *h = (unsigned char *)holder_v;
+	const unsigned char *ds;
+
+	l4810((void *)&h[5], (long)(uintptr_t)&h[4]);    /* 0x370a */
+	if ((arg & 63) <= 4) {                           /* 0x3710 bhi */
+		if (h[5] == 1) {                         /* 0x371c */
+			h[5] = 0;                        /* 0x3730 */
+			jt275((short)(unsigned char)h[5],
+			      (short)(unsigned char)h[4]);   /* 0x374c */
+		}
+		h[4] = 1;                                /* 0x3752 */
+	}
+	l068a((short)(unsigned char)h[4], arg);          /* 0x376c */
+	l476e(1, (short)(unsigned char)h[4]);            /* 0x3782 */
+	jt319();                                         /* 0x3788 */
+	jt305(h, 0, 0);                                  /* 0x3794 */
+	ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	h[47] = ds[14];                                  /* 0x37a2 */
+	h[46] = ds[15];                                  /* 0x37b0 */
+	h[48] = ds[16];                                  /* 0x37be */
+	g_a5_long(-12288) = *(long *)&h[46];             /* 0x37d0 holder[46..49] */
+	g_a5_word(-12284) = *(short *)&h[50];            /* 0x37d2 holder[50..51] */
+}
+
+/* L4144 (CODE 11 + 0x4144) = l4144_c11 — jt243 helper: switch/commit the wall set
+ * via l41a0 then l36f6 (the low byte of `val` = the tool code).  (Distinct from the
+ * CODE-20 void l4144 stub used elsewhere; same offset, different segment.)  Callers:
+ * the L136e/L12fc/L0bf8 jt243 arms. */
+static void l4144_c11(void *holder_v, short val) __attribute__((unused));
+static void l4144_c11(void *holder_v, short val)
+{
+	l41a0(holder_v);                                 /* 0x4148 */
+	l36f6(holder_v, (short)(unsigned char)val);      /* 0x415e (fp@13 low byte) */
+}
+
 /* L16ae (CODE 11 + 0x16ae) — jt243 "escape / reset selection to the party cell" tail.
  * Copies holder[0] (cmd) into holder[2] (prev), invalidates the selection rect
  * (-11706/-11704 = -1), snapshots the party cell (-12287/-12288/-12286 -> the saved
