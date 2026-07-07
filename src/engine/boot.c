@@ -58974,19 +58974,8 @@ static short jt307(const unsigned char *entry)
 	PROBE("jt307");
 	return (short)((entry != NULL && entry[4] != 0) ? 8 : 7);
 }
-
-/* JT[310] (CODE 22 + 0x04d6) — read byte 4 of the design-state cell record at
- * index `cell`.  The cell records are 6 bytes each based at offset 290 in the
- * g_a5_-12300 buffer (290 + cell*6 + 4 = cell*6 + 294; same record layout as
- * l5bfa/jt205); the byte is returned zero-extended. */
-static short jt310(short cell) __attribute__((unused));
-static short jt310(short cell)
-{
-	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
-
-	PROBE("jt310");
-	return (short)(unsigned char)ds[(long)cell * 6 + 294];   /* 0x04ea */
-}
+/* NOTE: JT[310] = CODE 22+0x04d6 is already lifted as l04d6 (see above, used by
+ * jt302/jt278/jt290) — call l04d6 at JT[310] sites; do NOT re-add a jt310. */
 
 /* JT[348] (CODE 8+0x6db2) — field 0 of record `n`-1 in the 20-byte
  * record table at A5 -13038 (the jt23 record-table base); 0 when
