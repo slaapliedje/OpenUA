@@ -531,17 +531,20 @@ re-verify every arg (l5150 had 4 slips caught that way; l41de re-reads state fie
 from memory as the asm does).
 
 **NOW UNBLOCKED — the final CODE-11 tail to jt243 proper (all deps present):**
-- **l3e60 ✓ (C6l)** — the menu scroll-to-selection / highlight (drives jt337=l41de).
-- **l37f6** (CODE 11 + 0x37f6 → 0x3aae, ~170 insn) — the top-level pulldown MENU-BAR
-  modal loop.  **FULLY MAPPED — lift carefully (like l5150, re-verify each call):**
-  head matches key fp@(12) against the menu table fp@(14) (deref-deref, menu[0]);
-  then a modal loop tracking the active menu fp@(-12)/index fp@(-2) and selected item
-  fp@(-6): skip disabled items (item[-1]&0x83), highlight via **l3e60** (twice: clear
-  old + set new), poll via **l3ab0** (key-nav, ret>0=picked) or **l3d1a** (mouse), and
-  on a pick dispatch via **l3ddc** / **l2dbe**; JT[1007]/1087/1108/1118/1128/1146/112/
-  397 for the modal plumbing.  Args (rec, key, menutab, count@fp19, a@fp20, b@fp22).
-- Then **l2d40** (small; the hub's last dep) → **l28d4 hub** → **jt243 proper**
-  (~800-insn 20-arm JT[3] @0xb48 tool palette).
+- **l3e60 ✓ (C6l)**, **l37f6 ✓ (C6m)** (menu-bar modal loop), **l2d40 ✓ (C6n)** (key
+  command entry).  **ALL l28d4 HUB DEPENDENCIES ARE NOW LIFTED** (l1a1c/l24b6/l2836/
+  l2d40/l2dbe/l2ea0/l3380/l43c2 ✓, + the whole CODE-8 menu manager).
+
+**ONLY TWO FUNCTIONS LEFT to finish the entire jt243 lift:**
+1. **l28d4 (CODE 11 + 0x28d4 → 0x2d40, ~1132B / ~270 insn) — the GEO editor MODAL
+   COMMAND LOOP (the hub)** — NEXT.  Seen at 0x2b34–0x2cfa: polls JT[456]=l2d3e
+   (keypress), dispatches to l2dbe/l2d40/l3380 + jt278/jt284/jt312/jt152/l24b6/l4268;
+   a big modal loop like jt258's l0ade.  Lift carefully (re-verify each call).
+2. **jt243 proper (0x0b26, ~800 insn) — the 20-arm JT[3] @0xb48 tool palette** — the
+   dispatcher itself (currently a PROBE stub).  Level-2 skeleton then fill, per the
+   proven jt258/jt266 giant method.
+Everything below these two is lifted — no missing deps, no collisions, nothing
+deferred.  This is the last stretch.
 
 **NEXT — l41de = jt337 (CODE 8 + 0x41de → 0x43f4, ~160 insn) — FULLY MAPPED, lift
 carefully (like l5150, re-verify each call):** the pulldown SCROLL handler.  Args
