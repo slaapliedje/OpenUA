@@ -76018,6 +76018,91 @@ static void l3380(void *holder_v, short key)
 	}
 }
 
+/* L3e60 (CODE 11 + 0x3e60) — scroll a GEO editor menu so the selected item `*sel`
+ * is visible, or (no scroll needed) draw the selection highlight.  Counts the
+ * non-separator items above `*sel-1` (rec[4] 8-byte table) to a y offset, subtracts
+ * the scroll origin sc[0], and decides a scroll delta (-step at top / +step at
+ * bottom, step = rec[13]&0x10 ? 5 : 4).  When scrolling (and out16 given): loops
+ * l41de(=JT[337]) to shift the strip, advancing the item index (JT[388] paging,
+ * skipping separators, JT[1082]) and re-checking JT[1118]/JT[1108] until it settles
+ * or runs out; commits *sel.  Otherwise draws the highlight band: jt1135 baseline,
+ * jt1161 fill of colour jt333((sc?112:143)).  Finally *out16 = (scrolled ? *sel : 0).
+ * A jt243 (GEO editor) mid; caller l37f6. */
+static void l3e60(void *rec_v, short *sel, short *out16, void *sc_v) __attribute__((unused));
+static void l3e60(void *rec_v, short *sel, short *out16, void *sc_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;             /* fp@(8) */
+	unsigned char *sc  = (unsigned char *)sc_v;              /* fp@(20) */
+	short idx, count, i, step, margin = 0, y, scroll, flag;  /* -16/-14/-12/-10/-8/-2/-18/-20 */
+
+	if (sel == NULL)                                         /* 0x3e64 */
+		return;
+	idx = (short)(*sel - 1);                                 /* 0x3e6c */
+	if (idx < 0)                                             /* 0x3e78 */
+		return;
+	if ((short)(signed char)rec[12] <= idx)                 /* 0x3e7e */
+		return;
+	step = (rec[13] & 0x10) ? 5 : 4;                        /* 0x3e90 */
+	count = 0;                                               /* 0x3eaa */
+	for (i = 0; i < idx && (short)(signed char)rec[12] > i; i++) {   /* 0x3eda */
+		unsigned char *item = (unsigned char *)(uintptr_t)
+		        (*(long *)(rec + 4) + (long)i * 8);     /* 0x3eb4 */
+		if (!(item[7] & 2))                             /* 0x3ecc */
+			count++;                                /* 0x3ed2 */
+	}
+	if (sc != NULL)                                          /* 0x3ef4 */
+		count = (short)(count - *(short *)(sc + 0));    /* 0x3f00 */
+	y = (short)(count * step + *(short *)(rec + 16));       /* 0x3f04 */
+	scroll = 0;                                              /* 0x3f1c */
+	if (sc != NULL && y == *(short *)(rec + 16) && *(short *)(sc + 0) > 0)   /* 0x3f20 */
+		scroll = (short)(-step);                        /* 0x3f42 */
+	else if (sc != NULL && (short)(*(short *)(sc + 6) - step) == y           /* 0x3f48 */
+	         && *(short *)(sc + 2) > 0)
+		scroll = step;                                  /* 0x3f6a */
+
+	if (scroll != 0 && out16 != NULL) {                      /* 0x3f70 / 0x3f78 — SCROLL */
+		flag = -1;                                      /* 0x3f80 */
+		y = (short)(y - *(short *)(rec + 16));           /* 0x3f86 */
+	L3f96:
+		i = l41de(rec, sc, scroll, (short)112, margin, y, &flag, *sel);  /* 0x3fb8 JT[337] */
+		if (flag == -1) {                               /* 0x3fc4 */
+		L3fce:
+			idx = (short)(idx + scroll / jt388(scroll));    /* 0x3fd2 */
+			if (((unsigned char *)(uintptr_t)
+			     (*(long *)(rec + 4) + (long)idx * 8))[7] & 2)  /* 0x3ffc */
+				goto L3fce;
+			jt1082((short)1);                       /* 0x4006 */
+			if (idx < 0 || (short)(signed char)rec[12] <= idx) {    /* 0x400c / 0x401c */
+				i = 0;                          /* 0x4030 */
+				goto L405a;
+			}
+			*sel = (short)(idx + 1);                /* 0x4028 */
+		}
+		if (!(jt1118() != 0 || jt1108() != 0) && flag == -1)    /* 0x4036 / 0x4050 */
+			goto L3f96;
+	L405a:
+		if (flag != -1)                                 /* 0x405a */
+			*sel = i;                               /* 0x4064 */
+	} else {                                                 /* L4070 — DRAW highlight */
+		short o1, o2, bottom, right, fill;
+
+		flag = 0;                                       /* 0x4070 */
+		jt1135(y, (short)(*(short *)(rec + 10) + margin), &o1, &o2);   /* 0x408e */
+		if (rec[13] & 0x10) {                           /* 0x40a0 */
+			if (jt1166() >= 300)                    /* 0x40a6 */
+				o1++;
+			o1++;                                   /* 0x40b4 */
+		}
+		bottom = (short)(y + step);                     /* 0x40b8 */
+		right = (short)(*(short *)(rec + 18) * 4 + *(short *)(rec + 10) - margin);  /* 0x40c4 */
+		fill = (sc != NULL) ? 112 : 143;                /* 0x40d6 */
+		jt1161(o1, o2, bottom, right, jt333(fill));     /* 0x4102 / 0x411a */
+	}
+
+	if (out16 != NULL)                                       /* 0x4122 */
+		*out16 = (flag == -1) ? *sel : 0;               /* 0x4128 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
