@@ -76398,12 +76398,43 @@ static void l28d4(void *arg8)
  * links.  Same (short cmd, long *rec, void *area) ABI as the sibling handlers
  * jt233/jt239/jt244.
  */
+/* jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor MAIN dispatcher (l0096 command 2).
+ * ~800 insn: NULL-guards the holder `area` (fp@14), stashes it, writes the tool
+ * command `cmd` into holder[0], then a 20-arm JT[3] @0x0b48 (min=1,max=20) tool
+ * palette.  The arms edit the holder fields (holder[2]=prev, holder[6]=exit flag,
+ * holder[15], holder[17]) and the `rec` (fp@10) packed bitfields, calling the lifted
+ * helpers (l23de, l16f4, l4144, l16ae, …) and CODE-22 painters (JT[274]/305/321),
+ * and MANY converge on the shared tail L0cd4 which — when holder[6]==0 — enters the
+ * modal command loop **l28d4** (the hub).  Exit tails L13aa (a JT[1] @0x13ba fan-out)
+ * and L1622 (return).
+ *
+ * LEVEL-2 SKELETON (Phase C7a): the head is a full faithful lift; the 20 arms are the
+ * remaining bottom-up fill (all their callees are lifted).  Decoded arm map (share =
+ * common target):  1→0x12fc  3→0x126e  5→0x11c0  8→0x0ef2  9→0x0fce  11→0x0b7a
+ * 12→0x0de4  20→0x0dac ; {10,14,15,17}→0x0cee ; {13,19}→0x1290 ;
+ * {2,4,6,7,16,18,default}→0x136e.  Kept as a PROBE stub body below the faithful head
+ * until the arms are filled; jt243 is DCE'd until jt315's selection dispatch wires
+ * l0004_22, so the stub tail is inert. */
 static short jt243(short cmd, long *rec, void *area) __attribute__((unused));
 static short jt243(short cmd, long *rec, void *area)
 {
+	unsigned char *holder = (unsigned char *)area;   /* fp@(-8) = fp@(14) */
+
 	PROBE("jt243");
-	(void)cmd; (void)rec; (void)area;
-	return 0;
+	(void)rec;
+	if (area == NULL)                                /* 0x0b2a — NULL guard */
+		return 0;                                /* 0x0b32 → L1622 (d0=0) */
+	*(short *)holder = cmd;                          /* 0x0b40 — holder[0] = tool cmd */
+
+	switch (cmd) {                                   /* 0x0b48 JT[3] (min=1,max=20) */
+	/* TODO C7b+ — fill the tool-palette arms bottom-up (see the map above).  The
+	 * dominant path is: edit holder/rec fields, then shared tail L0cd4 → if
+	 * holder[6]==0, l28d4(holder) [the modal command loop].  All arm callees
+	 * (l23de/l16f4/l4144/l16ae/l28d4/…) are already lifted. */
+	default:
+		break;
+	}
+	return cmd;                                      /* placeholder — real return via L13aa/L1622 tails (C7 fill) */
 }
 
 /* jt242 (CODE 11 + 0x589a) — the cell-edit COMMITTER (l0096 command 20).  Given
