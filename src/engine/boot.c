@@ -61371,17 +61371,19 @@ static short jt291(short facing)
 	return (short)((((((facing & 0xff) >> 1) + 2) & 3) + 1) * 2);
 }
 
-/* JT[302] (CODE 22+0x04f2) — write the cell's special byte (the
- * event slot ds[294 + cell*6]) unless the decoded value (l04d6)
- * already matches `want`; 1 = written. Full lift (band 7). */
-static short jt302(short cell, short want, short val) __attribute__((unused));
-static short jt302(short cell, short want, short val)
+/* JT[302] (CODE 22+0x04f2) — write the cell's decoration byte (ds[294 + cell*6])
+ * to (byte)want unless the decoded value l04d6(cell) already equals want; returns
+ * 1 = written, 0 = unchanged.  The Mac writes fp@11 = the LOW BYTE of the `want`
+ * word (2-arg function); an earlier lift wrongly split off a 3rd `val` param and
+ * wrote that instead.  Corrected to 2-arg (had no other callers). Full lift. */
+static short jt302(short cell, short want) __attribute__((unused));
+static short jt302(short cell, short want)
 {
 	PROBE("jt302");
-	if (l04d6(cell) == want)
+	if (l04d6(cell) == want)                        /* 0x0500 */
 		return 0;
 	((unsigned char *)(uintptr_t)g_a5_long(-12300))
-	    [(long)cell * 6 + 294] = (unsigned char)val;
+	    [(long)cell * 6 + 294] = (unsigned char)want;   /* 0x0514 — moveb fp@(11) */
 	return 1;
 }
 
