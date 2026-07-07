@@ -59161,6 +59161,65 @@ static void l5150(short top, short left, short width, const unsigned char *item,
 		jt1089(x0, (short)(left + (icon != 0 ? 4 : 0)), style, ".");   /* 0x54ee */
 }
 
+/* L4c4c (CODE 8 + 0x4c4c) — draw the pulldown's scroll-arrow title cell: format the
+ * arrow glyph (94 '^' when `flag` set, else 118 'v') into a scratch and render it as
+ * a menu item (l5150) at (top, rec[10]) with the record's width/icon/style.  A CODE-8
+ * menu-manager leaf (jt337 chain); needs l5150. */
+static void l4c4c(void *rec_v, short top, short style, short flag) __attribute__((unused));
+static void l4c4c(void *rec_v, short top, short style, short flag)
+{
+	unsigned char *rec = (unsigned char *)rec_v;             /* fp@(8) */
+	char           buf[2];                                   /* fp@(-2) */
+
+	jt394(buf, "%c", (short)((unsigned char)flag != 0 ? 94 : 118));   /* 0x4c68 */
+	l5150(top, *(short *)(rec + 10), *(short *)(rec + 18),            /* 0x4ca8 */
+	      (const unsigned char *)buf, style, (short)0, (short)0,
+	      *(short *)(rec + 14), (short)((short)(signed char)rec[13] | 2));
+}
+
+/* L4b10 (CODE 8 + 0x4b10) — locate and draw one pulldown menu item.  For a non-zero
+ * scroll index `idx` it pages via JT[388] (idx /= items-per-page), advances the
+ * column *idxp by idx, walks the 8-byte item table (rec[4] base) skipping separators
+ * (item[7] bit1) until the column limit, and commits the column back to *idxp.  Then
+ * it formats the item's label (jt394 with item[0..3] ptr + item[4] arg, or empty) and
+ * draws it via l5150 at (top, rec[10]) carrying the item's command key item[6] and
+ * flags item[7].  A CODE-8 menu-manager leaf (jt337 chain); needs l5150. */
+static void l4b10(void *rec_v, short *idxp, short idx, short top,
+                  short style) __attribute__((unused));
+static void l4b10(void *rec_v, short *idxp, short idx, short top, short style)
+{
+	unsigned char *rec = (unsigned char *)rec_v;             /* fp@(8) */
+	char           buf[80];                                  /* fp@(-80) */
+	short          curcol;                                   /* fp@(-82) */
+	short          limit;                                    /* fp@(-84) */
+	unsigned char *item;                                     /* fp@(-88) */
+
+	if (idx != 0) {                                          /* 0x4b14 */
+		short n = jt388(idx);                            /* 0x4b20 */
+		idx = (short)(idx / n);                          /* 0x4b2c — divsw */
+		curcol = (short)(*idxp + idx);                   /* 0x4b32 */
+		limit = (idx > 0) ? (short)(signed char)rec[12] : 1;   /* 0x4b40 */
+		item = (unsigned char *)(uintptr_t)
+		       (*(long *)(rec + 4) + (long)curcol * 8 - 8);    /* 0x4b5a */
+		while (curcol != limit && (item[7] & 2)) {       /* 0x4b86 / 0x4b90 */
+			item += (long)idx * 8;                   /* 0x4b72 */
+			curcol = (short)(curcol + idx);          /* 0x4b7e */
+		}
+		if (!(item[7] & 2))                              /* 0x4ba0 */
+			*idxp = curcol;                          /* 0x4bb0 */
+	}
+	item = (unsigned char *)(uintptr_t)
+	       (*(long *)(rec + 4) + (long)(*idxp) * 8 - 8);     /* 0x4bb8 */
+	if (*(long *)item != 0)                                  /* 0x4bd0 */
+		jt394(buf, *(const char **)item, (short)*(short *)(item + 4));  /* 0x4bea */
+	else
+		buf[0] = 0;                                      /* 0x4bf4 */
+	l5150(top, *(short *)(rec + 10), *(short *)(rec + 18),   /* 0x4c40 */
+	      (const unsigned char *)buf, style,
+	      (short)(signed char)item[6], (short)(signed char)item[7],
+	      *(short *)(rec + 14), (short)(signed char)rec[13]);
+}
+
 /* JT[332] = L4a16 (CODE 8 + 0x4a16) — the pulldown WIDTH core: the
  * panel width in pixels = max of the title width (StringWidth of the
  * rec[0] Pascal string, or 0 when the rec[13] bit2/bit5 no-title
