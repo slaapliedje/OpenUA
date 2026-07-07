@@ -493,19 +493,22 @@ the l24b6 build once).**
 a2-1: set-kind / toggle-sub-kind / toggle-rec[9]; tool-palette highlight table
 g_a5_-11508[k].7; scroll step jt218; recompose chain). Full lift.
 
-**C5u–C5w DONE — hub mids:** l4416 (rebuild tool menus), l43c2 (open tool-menu
-panel), l1a1c (cell paint-drag modal loop) — all full lifts.
+**C5u–C5y DONE — hub mids + both giants:** l4416 (rebuild tool menus), l43c2 (open
+tool-menu panel), l1a1c (cell paint-drag modal loop), **l1d88** (the 380-insn
+per-kind cell-commit giant), l2836 (commit pending edits). Both 380-insn giants
+(l1d88 + l2ea0) are now DONE — full lifts.
 
 **HUB l28d4 (0x28d4–0x2d40) — the GEO editor modal command LOOP — remaining deps:**
-l2836, l2d40, l2dbe, l3380 (DONE now: l1a1c ✓ l24b6 ✓ l2ea0 ✓ l43c2 ✓). It polls
-JT[456]=l2d3e (keypress) and dispatches to l2dbe/l2d40/l3380 + jt278/jt284/jt312/
-jt152/l24b6/l4268 (seen at 0x2b34–0x2cfa). Dependency chain for the last 4:
-- **l2836** (158B) and part of **l3380** (724B) need **l1d88** (READY — the other
-  380-insn giant); lift l1d88 next to unblock them.
-- **l2d40 / l2dbe / l3380** also need **l2e1c** (132B), which needs l37d8 -> l0742
-  -> **jt371=l660c (genuinely MISSING)** + locals l0854/l07c2.
-So the two remaining giants/blockers are **l1d88** (ready) and the **jt371=l660c +
-l0742 "Save 3D Map" subtree**. After the 4 mids -> l28d4 -> jt243 proper.
+l2d40, l2dbe, l3380 (DONE now: l1a1c ✓ l24b6 ✓ l2ea0 ✓ l43c2 ✓ l2836 ✓). All three
+funnel through ONE chain: **jt371=l660c → l0742 → l37d8 → l2e1c** (l2dbe/l3380 need
+l2e1c; l2d40 also needs l37f6, which needs l2dbe + l3e60). So the whole rest of the
+subtree is gated on the **two genuinely-missing JTs**:
+- **jt371=l660c** → the l0742 "Save 3D Map" subtree (l0854/l07c2) → l37d8 → l2e1c →
+  l2dbe/l3380/l2d40 → l28d4.
+- **jt337=l41de** → l3e60 → l37f6 → l2d40.
+Lift jt371=l660c and jt337=l41de (check sizes — likely faithful-liftable, they are
+the ONLY two missing across the 149-JT subtree), then the chain cascades to the
+hub and jt243 proper.
 **Also genuinely blocked:** l3e60 (jt337=l41de) — the last of the 2 truly-missing
 JTs (jt337, jt371); everything else in the subtree is lifted or ready.
 
