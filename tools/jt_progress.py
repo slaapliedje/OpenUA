@@ -250,8 +250,9 @@ ALIAS_LIFTED = {
     973: "lifted as l4010 (same address; the GLIB group converter)",
     364: "lifted as l6e50 (same address; clamp 0..40 -> -10374)",
     336: "lifted as l45c6 (same address; the list/pulldown panel PAINT core, "
-         "full lift + its l4ede/l5150 subtree). jt334 (l3f2e TRACK core) is still "
-         "a stub -> deliberately NOT listed here.",
+         "full lift + its l4ede/l5150 subtree).",
+    334: "lifted as l3f2e (same address; the list/pulldown TRACK core, full lift "
+         "+ its l43f6/l4cb4/l4cb4_row_rect subtree; drives l3d1a + jt335 case 3).",
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
     1154: "lifted as jt1154_pg (page-up toggle read, A5 -806)",
