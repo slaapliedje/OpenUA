@@ -76103,6 +76103,104 @@ static void l3e60(void *rec_v, short *sel, short *out16, void *sc_v)
 		*out16 = (flag == -1) ? *sel : 0;               /* 0x4128 */
 }
 
+/* L37f6 (CODE 11 + 0x37f6) — the GEO editor's pulldown MENU-BAR modal loop.  The
+ * menu table `menutab` is &rec[8] (the record's menu-pointer slots).  Head: find
+ * the menu whose title matches `key` (deref twice: (*(*slot))[0]); no match ->
+ * return 0.  Then a modal loop (JT[1007] enter) tracking the active menu index `mi`
+ * and selected item `sel`: fetch menu = *slot; find the first enabled item
+ * (item[-1]&0x83 = disabled); on a menu change redraw the panel (jt1146/jt112/
+ * l3ddc); on a selection change repaint the highlight (l3e60, clear old + set new);
+ * wait for input (JT[1118] key / JT[1108] mouse); key -> l3ab0 (nav, ret>0=picked),
+ * mouse -> l3d1a; loop until a pick or the menu closes.  On a pick, dispatch via
+ * l2dbe; returns jt397(result).  A jt243 (GEO editor) mid; caller l2d40. */
+static short l37f6(void *rec_v, short key, void *menutab, short w18,
+                   short a20, void *b22) __attribute__((unused));
+static short l37f6(void *rec_v, short key, void *menutab, short w18, short a20, void *b22)
+{
+	unsigned char *rec = (unsigned char *)rec_v;             /* fp@(8) */
+	signed char    res = 0;                                  /* fp@(-1) */
+	unsigned char  mi = 0;                                   /* fp@(-2) */
+	unsigned char  lastmi;                                   /* fp@(-3) */
+	short          sel, oldsel;                              /* fp@(-6)/fp@(-8) */
+	unsigned char *menu;                                     /* fp@(-12) */
+
+	while (key != 0 && mi < (unsigned char)w18) {            /* 0x382e — title match */
+		unsigned char *x = *(unsigned char **)((char *)menutab + (long)mi * 4);  /* 0x3818 */
+		if ((short)(signed char)(*(unsigned char **)x)[0] == key)   /* 0x381a/0x3820 */
+			key = 0;                                 /* 0x3826 */
+		mi++;                                            /* 0x382a */
+	}
+	if (key != 0)                                            /* 0x383e — no match */
+		return 0;
+
+	sel = a20;                                               /* 0x384a */
+	jt1007((short)0, (short)1);                              /* 0x3856 */
+	lastmi = 0;                                              /* 0x385c */
+	oldsel = 0;                                              /* 0x3860 */
+	res = 0;                                                 /* 0x3864 */
+L3868:
+	menu = *(unsigned char **)((char *)menutab + ((long)mi - 1) * 4);  /* 0x387e */
+	if (menu == NULL)                                        /* 0x3882 */
+		goto L3a6e;
+	if (sel == 0) {                                          /* 0x3886 — first enabled item */
+		sel = 1;                                         /* 0x388c */
+		while (sel <= (short)(signed char)menu[12] &&    /* 0x3898 */
+		       (((unsigned char *)(uintptr_t)(*(long *)(menu + 4)
+		         + (long)sel * 8))[-1] & 0x83))          /* 0x38ba */
+			sel++;                                   /* 0x3894 */
+		if ((short)(signed char)menu[12] < sel) {        /* 0x38c8 */
+			jt1080();                                /* 0x38d8 */
+			goto L3a6e;
+		}
+	}
+	if (mi != lastmi) {                                      /* 0x38e4 */
+		jt1146();                                        /* 0x38ea */
+		jt112((short)1);                                 /* 0x38f2 */
+		l3ddc(menu, (short)mi, (long)(uintptr_t)b22);    /* 0x3908 */
+		lastmi = mi;                                     /* 0x3910 */
+	}
+	if (sel != oldsel) {                                     /* 0x391a */
+		if (oldsel != 0)                                 /* 0x3920 */
+			l3e60(menu, &oldsel, NULL, b22);         /* 0x3934 — clear */
+		l3e60(menu, &sel, &oldsel, b22);                 /* 0x394c — draw */
+	}
+	while (!(jt1118() != 0 || jt1108() != 0))                /* 0x3954 — await input */
+		;
+	if (jt1118() != 0) {                                     /* 0x396e — keyboard */
+		res = (signed char)l3ab0(menu, &mi, &sel,        /* 0x3990 */
+		                         (short)(unsigned char)w18, b22);
+		if (res > 0) {                                   /* 0x399c */
+			if (sel != oldsel) {                     /* 0x39a2 */
+				if (oldsel != 0)
+					l3e60(menu, &oldsel, NULL, b22);   /* 0x39c0 */
+				l3e60(menu, &sel, &oldsel, b22);           /* 0x39d8 */
+			}
+			jt1087((short)1);                        /* 0x39e4 */
+		} else if (res == 0 && mi != lastmi) {           /* 0x39ee/0x39f6 */
+			sel = 0;                                 /* 0x3a02 */
+			oldsel = 0;
+			jt112((short)0);                         /* 0x3a0a */
+			jt1128();                                /* 0x3a12 */
+		}
+	} else if (jt1108() != 0) {                              /* 0x3a18 — mouse */
+		if (oldsel != 0)                                 /* 0x3a20 */
+			l3e60(menu, &oldsel, NULL, b22);         /* 0x3a34 — clear */
+		res = (signed char)l3d1a(menu, &mi, &sel, (long)(uintptr_t)b22);  /* 0x3a4c */
+		if (res != 0)                                    /* 0x3a58 */
+			lastmi = 0;                              /* 0x3a5c */
+	}
+	if (menu != NULL && res == 0)                            /* 0x3a60 */
+		goto L3868;
+L3a6e:
+	if (lastmi != 0) {                                       /* 0x3a6e */
+		jt112((short)0);                                 /* 0x3a76 */
+		jt1128();                                        /* 0x3a7c */
+	}
+	if (res > 0)                                             /* 0x3a80 */
+		l2dbe(rec, (short)mi, sel);                      /* 0x3a96 */
+	return jt397((short)(signed char)res, (short)0);         /* 0x3aa6 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
