@@ -482,11 +482,18 @@ NOT CODE 11's l066a).
 456=l2d3e 1084=l036a), and **only 2 genuinely MISSING: jt337=l41de, jt371=l660c.**
 So the CODE-8 menu/render backend is DONE (band-7 lifts); nothing to stub there.
 
-**Newly-confirmed UNBLOCKED leaves (call the lXXXX at the JT sites):** l3ddc
-(330/331/332/336 → l324c/l33f6/l4a16/l45c6 ✓), l3d1a (334/342 → l3f2e/l567c ✓),
-l24b6 (395 → l46b2 ✓; + l066a_c11 ✓). **Still genuinely blocked:** l3e60 (needs
-jt337=l41de), l36f6/l37d8 (l0742 subtree needs jt371=l660c + locals l0854/l07c2;
-l0742 = the "Save 3D Map" GEO writer, 12962-byte level write).
+**C5q–C5s DONE (2026-07-06) — the alias-unblocked leaves:** l3ddc (menu/panel
+repaint; JT[330/331/332/336]=l324c/l33f6/l4a16/l45c6), l3d1a (modal menu/colour
+pick; JT[334/342]=l3f2e/l567c), l24b6 (menu-item enable/disable; JT[395]=l46b2 +
+helper l24b6_label). **Reminder: at each JT[NNN] site whose entry is alias-only,
+call the lXXXX name — `jtNNN` is not a symbol (mistyping `jt395` for `l46b2` broke
+the l24b6 build once).**
+
+**Newly UNBLOCKED mid — l2ea0 (918B, ~230 insn):** all deps now present (locals
+l2414/l24b6/l4268/l429c/l455c/l476e ✓, all JT resolve). A big cell-edit sub-handler
+toward the hub l28d4. **Still genuinely blocked:** l3e60 (needs jt337=l41de),
+l36f6/l37d8 (l0742 subtree needs jt371=l660c + locals l0854/l07c2; l0742 = the
+"Save 3D Map" GEO writer, 12962-byte level write).
 
 **Also found: jt302 was a MIS-LIFT** — the Mac l04f2 is 2-arg `jt302(cell, want)`
 writing `(byte)want` (fp@11 = low byte of arg2); the port added a spurious 3rd
