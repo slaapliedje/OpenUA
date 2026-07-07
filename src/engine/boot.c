@@ -74520,6 +74520,33 @@ static void l1822(void *rec_v)
 	      (short)(unsigned char)rec[48]);                     /* 0x194e */
 }
 
+/* L41a0 (CODE 11 + 0x41a0) — reset the GEO editor's active object to a fresh
+ * placement state: set the tool cursor (JT[113](50)), clear a status rect
+ * (JT[217](15,0,0,8)), refresh the -11699 label from source 0 (JT[384]), derive
+ * obj[4]/obj[5] via l4810, mark obj[9]=1, zero the 7-byte band obj[10..16] (loop
+ * counter is the A5 scratch g_a5_-22307), clear the long g_a5_-11666, and default
+ * the facing g_a5_-12286 to 8 when zero.  obj = arg.  A jt243 (GEO editor) leaf;
+ * its only local call l4810 is already lifted. */
+static void l41a0(void *obj_v) __attribute__((unused));
+static void l41a0(void *obj_v)
+{
+	unsigned char *obj = (unsigned char *)obj_v;               /* fp@(8) */
+
+	jt113((short)50);                                          /* 0x41a4 */
+	jt217((short)15, (short)0, (short)0, (short)8);           /* 0x41ba */
+	jt384(g_a5_chars(-11699),
+	      (const char *)(uintptr_t)g_a5_long(-11072));         /* 0x41c8 */
+	l4810((void *)&obj[5], (long)(uintptr_t)&obj[4]);          /* 0x41de */
+	obj[9] = 1;                                                /* 0x41ea */
+	for (g_a5_byte(-22307) = 0;                                /* 0x41ee / 0x420a */
+	     (signed char)g_a5_byte(-22307) < 7;
+	     g_a5_byte(-22307)++)
+		obj[(signed char)g_a5_byte(-22307) + 10] = 0;      /* 0x4202 */
+	g_a5_long(-11666) = 0;                                     /* 0x4212 — clrl */
+	if (g_a5_12286 == 0)                                       /* 0x4216 */
+		g_a5_12286 = 8;                                    /* 0x421e */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
