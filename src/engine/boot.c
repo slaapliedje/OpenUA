@@ -74681,6 +74681,112 @@ static void l455c(short mode)
 	      (char *)(uintptr_t)g_a5_long(-10632), (short)0);
 }
 
+/* L3ab0 (CODE 11 + 0x3ab0) — menu-grid key navigation for the GEO editor.  Reads
+ * a key (JT[1133]); for a printable key (<=255, uppercased, not 0/'-') it scans
+ * each enabled list entry's accelerator string — entry = list[4] + i*8, gated by
+ * entry[7]&0x81, string at entry[0..3] — and on a hit sets the selected column
+ * *colp = i+1 and returns handled.  Otherwise it dispatches the key (JT[1]
+ * @0x3bac): 258/262 step the row idxp[0] with modular wrap by `rowdiv`; 264/260
+ * step the column *colp (signed modular wrap by list[12]) honouring the arg5
+ * boundary guards (JT[397]) and skipping disabled columns (entry[-1]&0x83);
+ * 17/27 cancel (-1); 13 confirm (1 if *colp!=0 else beep); default beeps
+ * (JT[1080]).  Returns the handled flag (-1/0/1).  A jt243 (GEO editor) leaf. */
+static short l3ab0(void *list_v, unsigned char *idxp, short *colp,
+                   short rowdiv, void *p5_v) __attribute__((unused));
+static short l3ab0(void *list_v, unsigned char *idxp, short *colp,
+                   short rowdiv, void *p5_v)
+{
+	unsigned char *list    = (unsigned char *)list_v;          /* fp@(8) */
+	unsigned char *p5      = (unsigned char *)p5_v;            /* fp@(22) */
+	unsigned char  divisor = (unsigned char)rowdiv;            /* fp@(21) low byte */
+	signed char    handled = 0;                                /* fp@(-6) */
+	short          key;                                        /* fp@(-8) */
+	short          i;                                          /* fp@(-5) */
+	int            skip_accel;
+
+	key = jt1133();                                            /* 0x3ab8 */
+
+	skip_accel = ((unsigned short)key > 255);                 /* 0x3ac0 */
+	if (!skip_accel && key >= 97) {                           /* 0x3aca — lower->upper */
+		key = (short)(key - 32);                          /* 0x3ad2 */
+		if (key == 0) skip_accel = 1;                     /* 0x3ad8 */
+	}
+	if (!skip_accel && key <= 0)  skip_accel = 1;             /* 0x3ae0 */
+	if (!skip_accel && key == 45) skip_accel = 1;             /* 0x3ae8 */
+
+	if (!skip_accel) {                                        /* accelerator match loop */
+		for (i = 0; !handled && i < (short)(signed char)list[12]; i++) {  /* 0x3b80/0x3b96 */
+			unsigned char *e = (unsigned char *)(uintptr_t)
+			        (*(long *)(list + 4) + (long)i * 8);   /* 0x3afa */
+			const char *s;
+
+			if (e[7] & 0x81)                          /* 0x3b18 — disabled/separator */
+				continue;
+			s = *(const char **)e;                    /* 0x3b3a — accelerator string */
+			while (*s != 0 &&                         /* 0x3b44 */
+			       (short)(signed char)*s != key)     /* 0x3b54 */
+				s++;
+			if ((short)(signed char)*s == key) {      /* 0x3b62 — matched */
+				handled = 1;
+				*colp = (short)(i + 1);           /* 0x3b7a */
+			}
+		}
+	}
+
+	if (handled)                                             /* 0x3b9c */
+		return (short)handled;
+
+	switch (key) {                                           /* JT[1] @0x3bac */
+	case 258:                                                /* 0x3bcc — row next */
+		idxp[0] = (unsigned char)(((unsigned char)idxp[0] % divisor) + 1);
+		break;
+	case 262:                                                /* 0x3bf8 — row prev */
+		idxp[0] = (unsigned char)(((((unsigned char)idxp[0] + divisor) - 2)
+		                          % divisor) + 1);
+		break;
+	case 264:                                                /* 0x3c26 — column arm */
+	case 260:
+		if (p5 != NULL) {                                /* 0x3c26 */
+			if (key == 264 && *colp == 1 &&          /* 0x3c2c/0x3c34 */
+			    *(short *)p5 != 0)                    /* 0x3c3e */
+				return (short)handled;
+			if (key == 260) {                        /* 0x3c48 */
+				short r = jt397(*(short *)(p5 + 2), 0);   /* 0x3c5a */
+				if (((short)(signed char)list[12] - r) == *colp &&  /* 0x3c60 */
+				    *(short *)(p5 + 2) != 0)         /* 0x3c74 */
+					return (short)handled;
+			}
+		}
+	col_skip:                                                /* L3c80 */
+		if (key == 260)                                  /* 0x3c80/0x3c88 — signed % */
+			*colp = (short)((*colp % (short)(signed char)list[12]) + 1);
+		else                                             /* 0x3ca8 — key 264 */
+			*colp = (short)(((*colp + (short)(signed char)list[12] - 2)
+			                 % (short)(signed char)list[12]) + 1);
+		{                                                /* 0x3cd2 — skip disabled column */
+			unsigned char *e = (unsigned char *)(uintptr_t)
+			        (*(long *)(list + 4) + (long)*colp * 8);
+			if ((*((unsigned char *)e - 1) & 0x83) != 0)   /* 0x3ce6 */
+				goto col_skip;
+		}
+		break;
+	case 17:                                                 /* 0x3cf6 — cancel */
+	case 27:
+		handled = -1;
+		break;
+	case 13:                                                 /* 0x3cfe — confirm */
+		if (*colp != 0)
+			handled = 1;
+		else
+			jt1080();                                /* 0x3d0e — beep */
+		break;
+	default:                                                 /* 0x3d0e — beep */
+		jt1080();
+		break;
+	}
+	return (short)handled;                                    /* 0x3d12 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
