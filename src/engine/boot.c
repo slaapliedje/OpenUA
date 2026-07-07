@@ -74570,7 +74570,7 @@ static void l4168(void *obj_v)
  * 5 also saves the record position rec[46..51] into the scroll cursor; case 7
  * bumps g_a5_-18485 when JT[318] is set and masks the facing g_a5_-12286 to 3
  * bits.  Cases 3/6 and any out-of-range value beep (JT[1080]).  A jt243 (GEO
- * editor) leaf; caller l2e1c ignores the return. */
+ * editor) leaf; caller l2dbe ignores the return. */
 static void l3236(void *holder_v, short a2) __attribute__((unused));
 static void l3236(void *holder_v, short a2)
 {
