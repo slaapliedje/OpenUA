@@ -64906,6 +64906,23 @@ static void jt350(short a, short b, long c, long d)
 		      l6520_c8((short)(unsigned char)b));
 }
 
+/* JT[371] (CODE 8 + 0x660c) — refresh the monster-record STRG names for kind a2,
+ * id a1, into buffer a3.  Structurally jt350 with the trailing arg fixed to 0:
+ * seeds the kind-classed name table (jt363 + l6520_c8), locates the record
+ * (l6432 into the -10370 handle), and on a hit refreshes the names (jt362).  The
+ * CODE-8 categorizer is l6520_c8 (NOT the same-offset l6520 in another segment).
+ * A jt243-subtree dep via the l0742 "Save 3D Map" path. */
+static void jt371(short a1, short a2, long a3) __attribute__((unused));
+static void jt371(short a1, short a2, long a3)
+{
+	PROBE("jt371");
+	jt363((long *)0, l6520_c8((short)(unsigned char)a2));      /* 0x6618/0x6622 */
+	if (l6432(g_a5_long(-10370), (short)(unsigned char)a1,     /* 0x6642 */
+	          (short)(unsigned char)a2, a3, 0L))
+		jt362(g_a5_long(-10370),                          /* 0x6662 */
+		      l6520_c8((short)(unsigned char)a2));
+}
+
 /* L62e0 (CODE 8+0x62e0) — locate one record in the -10370 monster
  * table by kind/id, the full sibling of the l6432 stub (jt372's leaf
  * where jt350 uses l6432). `b`=kind selects the flag mask via
