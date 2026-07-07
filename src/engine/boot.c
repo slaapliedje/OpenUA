@@ -9800,7 +9800,7 @@ static void jt1069(short start, short count, unsigned char *src,
  * near-black (invisible).  The static per-set palette install (qd_set_palette below)
  * is correct and gives visible walls on its own, so the cycle install is gated OFF by
  * default.  Flip to 1 only once the cycle path is actually fixed. */
-static int g_cw_wall_cycle = 0;
+static int g_cw_wall_cycle = 1;
 
 static void cw_finalize(void)
 {
@@ -10816,21 +10816,26 @@ static void jt200_layer(unsigned char *page, short top, short left,
 	 * Wall3->slot2): l309c_tile rebases the tile's 32-based bytes into that
 	 * slot's clut band (32/64/96) so each set keeps its own CLUT. */
 	const short *binder = (const short *)(uintptr_t)g_a5_long(-27894 + (long)group * 4);
-	long base, sub;
+	long base;
 
 	g_cwf_slot = group;
 	/* Binder model: -27894+group*4 is the -18468 binder slot l6eea's l33ac wrote;
-	 * binder[0] is the FC group. Resolve the set's sub-GLIB FRESH each blit —
-	 * jt468 follows the live pool base (purge-safe), l37aa picks this type's set.
-	 * The Mac's jt114 does the same jt468(*handle) indirection (CODE 6 L3804). */
+	 * binder[0] is the FC group. jt468 follows the live pool base (purge-safe) and
+	 * hands back THIS group's wall SET — a 48-piece sub-GLIB the FC pool loads one
+	 * per group. The Mac's jt114 does exactly this jt468(*handle) indirection then
+	 * blits piece `idx` from it (CODE 6 L3804). */
 	if (binder == NULL)
 		return;
 	base = jt468(binder[0]);
 	if (base == 0)
 		return;
-	sub = l37aa(base, g_wall_set[group]);
-	if (sub != 0)
-		jt114(page, top, left, idx, sub);
+	/* base IS the set: blit piece `idx` straight from it (l2856(base, idx)).  An
+	 * earlier port revision inserted l37aa(base, g_wall_set[group]) here, treating
+	 * base as the 10-set FILE TOP — but jt468 already returns the SET, so that lookup
+	 * landed on a raw PIECE (a metric header, not a nested GLIB); l2856 then failed
+	 * its GLIB-magic check and EVERY wall tile silently dropped -> walls invisible.
+	 * g_cwf_slot (= group) still selects the CLUT band in l309c_tile. */
+	jt114(page, top, left, idx, base);
 }
 
 #ifdef FRUA_SKIP_ENTRY_EVENTS
