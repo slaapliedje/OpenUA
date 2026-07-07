@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1180 done (1054 lifted, 52 noop, 74 alias), 15 stub, 0 stand-in, 10 missing.
+**1205 distinct JT entries are called.** Overall: 1182 done (1055 lifted, 52 noop, 75 alias), 15 stub, 0 stand-in, 8 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -52,8 +52,8 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
-| 21 | 1001–1050 | **49/50** | 48 | 1 | 0 | 0 | 1 |
-| 22 | 1051–1100 | **40/50** | 33 | 7 | 7 | 0 | 3 |
+| 21 | 1001–1050 | **50/50** | 49 | 1 | 0 | 0 | 0 |
+| 22 | 1051–1100 | **41/50** | 33 | 8 | 7 | 0 | 2 |
 | 23 | 1101–1150 | **48/50** | 38 | 10 | 2 | 0 | 0 |
 | 24 | 1151–1200 | **48/50** | 40 | 8 | 2 | 0 | 0 |
 | 25 | 1201–1205 | **4/5** | 3 | 1 | 0 | 0 | 1 |
@@ -85,16 +85,16 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 16 | 115 | 115 | 0 | 0 | 0 | **0** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 20 | 0 | 0 | 0 | **0** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 171 | 0 | 0 | 0 | **0** | combat engine (jt610 / jt856 / l4d98 / l709e) |
-| CODE 19 | 35 | 34 | 0 | 0 | 1 | **1** | character sheet + party container (jt886 / jt904 / jt910) |
-| CODE 20 | 14 | 13 | 0 | 0 | 1 | **1** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
+| CODE 19 | 35 | 35 | 0 | 0 | 0 | **0** | character sheet + party container (jt886 / jt904 / jt910) |
+| CODE 20 | 14 | 14 | 0 | 0 | 0 | **0** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
 | CODE 21 | 9 | 8 | 1 | 0 | 0 | **1** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 51 | 0 | 0 | 0 | **0** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (43 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (42 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l040c`  `l4218`  `l2d7e`
+> `l32e2`  `l62e0`  `l5ac0`  `l2cf4`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l040c`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 25 of 25 pending (stub+standin+missing), by call count:
+Top 23 of 23 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt337 (1 calls, CODE 8) — missing
@@ -342,13 +342,11 @@ Top 25 of 25 pending (stub+standin+missing), by call count:
 - jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
 - jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
 - jt587 (1 calls, CODE 15) — stub
-- jt896 (1 calls, CODE 19) — missing
 - jt916 (1 calls, CODE 12) — missing
 - jt919 (1 calls, CODE 12) — stub
 - jt927 (1 calls, CODE 12) — missing
 - jt931 (1 calls, CODE 12) — stub
 - jt933 (1 calls, CODE 12) — stub
-- jt939 (1 calls, CODE 20) — missing
 - jt955 (1 calls, CODE 21) — stub
 - jt965 (1 calls, CODE 5) — stub
 - jt974 (1 calls, CODE 5) — stub

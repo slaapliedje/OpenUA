@@ -253,6 +253,8 @@ ALIAS_LIFTED = {
          "full lift + its l4ede/l5150 subtree).",
     334: "lifted as l3f2e (same address; the list/pulldown TRACK core, full lift "
          "+ its l43f6/l4cb4/l4cb4_row_rect subtree; drives l3d1a + jt335 case 3).",
+    939: "lifted as l4218 (same address; write a LE u32 to a slot, inverse of "
+         "l427c=jt940; the jt896 donation-total write).",
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
     1154: "lifted as jt1154_pg (page-up toggle read, A5 -806)",
