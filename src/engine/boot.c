@@ -75258,6 +75258,149 @@ static void l1a1c(void *holder_v)
 	}
 }
 
+/* L1d88 (CODE 11 + 0x1d88) — commit/repaint a cell after an edit, per the record
+ * kind rec[18] (JT[3] @0x1d9e, 1..4); rec = *holder.  Each arm temporarily swaps
+ * some of the record's working fields into place, calls the relevant Toolbox
+ * painter, then restores:
+ *  1: cell edit — rec[5]==0 & JT[273] -> jt292+l237c; rec[5]==0 else -> swap
+ *     rec[10..13]<->rec[21..24] around jt290 then restore; rec[5]==3 -> decode the
+ *     cell (JT[310]=l04d6), stamp it (jt302), repaint (jt279/jt295 + jt312/jt321);
+ *     rec[5] in {1,2} -> single swap at index rec[5]+3 around jt290;
+ *  2: swap rec[n+10]<->rec[n+28] (n=rec[20], plus the 0/2 special) then jt278;
+ *  3: swap the design-state long ds[k*4+14] with rec's long (rec[39]<8: rec+36;
+ *     else k=0..7: rec+52) — the level-decoration commit;
+ *  4: repaint (jt279/jt295), swap rec[46..51]<->rec[40..45], redraw (jt213).
+ *  default: beep.  A jt243 (GEO editor) mid; callers l2836/l3380 (hub subtree). */
+static void l1d88(void *holder_v) __attribute__((unused));
+static void l1d88(void *holder_v)
+{
+	unsigned char *H   = (unsigned char *)holder_v;           /* fp@(8) */
+	unsigned char *rec = *(unsigned char **)holder_v;         /* *H */
+	unsigned char *ds  = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short i;
+
+	switch (rec[18]) {                                        /* JT[3] @0x1d9e */
+	case 1:                                                   /* L1dac */
+		if (rec[5] == 0) {
+			if (jt273() != 0) {                       /* 0x1dbe */
+				jt292((long)(uintptr_t)H,         /* 0x1dda */
+				      (short)(unsigned char)g_a5_byte(-11702),
+				      (short)(unsigned char)g_a5_byte(-11701));
+				l237c(H);                         /* 0x1de4 */
+				break;
+			}
+			{                                         /* L1dee — swap [10..13]<->[21..24] */
+				short wtmp[8];
+				for (i = 0; i < 4; i++) {         /* 0x1df4/0x1e32 */
+					wtmp[i] = rec[i + 10];
+					rec[i + 10] = rec[i + 21];
+				}
+				jt290((long)(uintptr_t)H,         /* 0x1fa2 (via L1f82) */
+				      (short)(unsigned char)g_a5_byte(-11702),
+				      (short)(unsigned char)g_a5_byte(-11701),
+				      (short)(unsigned char)g_a5_byte(-11700), (short)1);
+				for (i = 0; i < 4; i++)           /* 0x1fc0 — restore */
+					rec[i + 10] = (unsigned char)wtmp[i];
+				l237c(H);                         /* L2006 */
+			}
+		} else if (rec[5] == 3) {                         /* L1e3e */
+			short cell = (short)(ds[3] * (short)(unsigned char)g_a5_byte(-11702)
+			                     + (short)(unsigned char)g_a5_byte(-11701));   /* 0x1e52 */
+			unsigned char old = (unsigned char)l04d6(cell);   /* 0x1e74 — JT[310] */
+			jt302(cell, rec[27]);                     /* 0x1e90 */
+			rec[27] = old;                            /* 0x1e9c */
+			if (jt273() != 0)                         /* 0x1ea2 */
+				jt279((short)(unsigned char)g_a5_byte(-11702),  /* 0x1ed8 */
+				      (short)(unsigned char)g_a5_byte(-11701),
+				      (short)(unsigned char)g_a5_byte(-11708),
+				      (short)(unsigned char)g_a5_byte(-11707),
+				      (short)(unsigned char)rec[5]);
+			else
+				jt295((short)(unsigned char)g_a5_byte(-11702),  /* 0x1f10 */
+				      (short)(unsigned char)g_a5_byte(-11701),
+				      (short)(unsigned char)g_a5_byte(-11708),
+				      (short)(unsigned char)g_a5_byte(-11707),
+				      (short)(unsigned char)rec[5]);
+			jt312((unsigned char *)H);                /* 0x1f1e */
+			l237c(H);                                 /* 0x1f24 */
+			jt321();                                  /* 0x1f2e */
+		} else {                                          /* L1f36 — rec[5] in {1,2} */
+			short wtmp[8];
+			short k1 = (short)(rec[5] + 3);           /* fp@(-66) */
+			wtmp[k1] = rec[k1 + 10];                  /* 0x1f5c */
+			rec[k1 + 10] = rec[k1 + 21];              /* 0x1f7c */
+			jt290((long)(uintptr_t)H,                 /* L1f82 */
+			      (short)(unsigned char)g_a5_byte(-11702),
+			      (short)(unsigned char)g_a5_byte(-11701),
+			      (short)(unsigned char)g_a5_byte(-11700), (short)1);
+			rec[k1 + 10] = (unsigned char)wtmp[k1];   /* L1fea — restore */
+			l237c(H);                                 /* L2006 */
+		}
+		break;
+	case 2: {                                                 /* L2014 */
+		unsigned char save_n10 = rec[rec[20] + 10];       /* fp@(-64) */
+		rec[rec[20] + 10] = rec[rec[20] + 28];            /* 0x206c */
+		if (rec[20] == 0 || rec[20] == 2) {               /* 0x207e / 0x208e */
+			short sel = (rec[20] == 0) ? 2 : 0;       /* fp@(-60) */
+			unsigned char save_s10 = rec[sel + 10];   /* fp@(-62) */
+			rec[sel + 10] = rec[sel + 28];            /* 0x20d8 */
+			rec[11] = rec[10];                        /* 0x20ea */
+			rec[13] = rec[12];                        /* 0x20fc */
+			rec[sel + 28] = save_s10;                 /* 0x210c */
+		}
+		rec[rec[20] + 28] = save_n10;                     /* 0x212c */
+		jt278((long)(uintptr_t)H, (short)0);              /* 0x2138 */
+		l237c(H);                                         /* 0x2142 */
+		jt321();                                          /* 0x2148 */
+		break;
+	}
+	case 3:                                                   /* L2150 */
+		if (rec[39] < 8) {                                /* 0x215c */
+			short k = rec[39];                        /* fp@(-70) */
+			long  tmp;
+			rec[39] = 0;                              /* 0x2174 */
+			tmp = *(long *)(ds + (long)k * 4 + 14);   /* 0x2198 */
+			*(long *)(ds + (long)k * 4 + 14) = *(long *)(rec + 36);  /* 0x21b2 */
+			*(long *)(rec + 36) = tmp;                /* 0x21ca */
+			rec[39] = (unsigned char)k;               /* 0x21d6 — restore */
+		} else {                                          /* L21e0 */
+			short k;
+			for (k = 0; k < 8; k++) {                 /* 0x21e8/0x2252 */
+				long tmp = *(long *)(ds + (long)k * 4 + 14);
+				*(long *)(ds + (long)k * 4 + 14) = *(long *)(rec + (long)k * 4 + 52);
+				*(long *)(rec + (long)k * 4 + 52) = tmp;
+			}
+		}
+		l237c(H);                                         /* L225a */
+		jt321();
+		break;
+	case 4: {                                                 /* L226c */
+		unsigned char tmp[6];
+
+		if (jt273() != 0)                                 /* 0x226c */
+			jt279((short)(signed char)rec[47], (short)(signed char)rec[46],  /* 0x22ae */
+			      (short)(unsigned char)g_a5_byte(-11708),
+			      (short)(unsigned char)g_a5_byte(-11707),
+			      (short)(unsigned char)rec[5]);
+		else
+			jt295((short)(signed char)rec[47], (short)(signed char)rec[46],  /* 0x22f2 */
+			      (short)(unsigned char)g_a5_byte(-11708),
+			      (short)(unsigned char)g_a5_byte(-11707),
+			      (short)(unsigned char)rec[5]);
+		for (i = 0; i < 6; i++) tmp[i]     = rec[46 + i];  /* 0x2308 — save */
+		for (i = 0; i < 6; i++) rec[46 + i] = rec[40 + i]; /* 0x2320 */
+		for (i = 0; i < 6; i++) rec[40 + i] = tmp[i];      /* 0x2334 */
+		jt213((short)(signed char)rec[47], (short)(signed char)rec[46],  /* 0x2360 */
+		      (short)(unsigned char)rec[48]);
+		l237c(H);                                         /* 0x236a */
+		break;
+	}
+	default:                                                  /* L2372 */
+		jt1080();
+		break;
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
