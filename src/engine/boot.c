@@ -76555,6 +76555,32 @@ static short jt243(short cmd, long *rec, void *area)
 		}
 		l28d4(holder);                                   /* 0x0dda (unconditional) */
 		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	case 12:                                         /* L0de4 — edit both cell-code nibbles */
+		*(short *)holder = *(short *)(holder + 2);       /* 0x0de4 */
+		if ((*rec & 15) != 0) {                          /* 0x0df0 */
+			scratch = (short)((*rec & 4080) >> 4);   /* 0x0dfe fp(-2) */
+			switch (*(short *)(holder + 6)) {        /* 0x0e10 JT[3] @0x0e1c (1,2) */
+			case 1:                                  /* L0e26 */
+				*(short *)(holder + 6) = holder[10];             /* 0x0e2a */
+				holder[10] = holder[11] = (unsigned char)(scratch & 15);  /* 0x0e38 */
+				l23de(holder, 0, *(short *)(holder + 6), 0);     /* 0x0e4e */
+				*(short *)(holder + 6) = holder[12];             /* 0x0e66 */
+				holder[12] = holder[13] =
+					(unsigned char)((scratch >> 4) & 15);    /* 0x0e78 */
+				l23de(holder, 2, *(short *)(holder + 6), 0);     /* 0x0e92 */
+				*(short *)(holder + 6) = 0;                      /* 0x0eac */
+				break;
+			case 2:                                  /* L0eb6 */
+				*(short *)(holder + 6) = (short)(0x8000 | scratch);  /* 0x0eb6 */
+				*(short *)holder = 20;                           /* 0x0ec6 */
+				break;
+			}
+		} else {                                         /* L0ed0 */
+			*(short *)(holder + 6) = 0;
+		}
+		if (*(short *)(holder + 6) == 0)                 /* L0ed8 */
+			l28d4(holder);                           /* 0x0ee4 */
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
 	default:
 		/* TODO C7c+ — remaining arms: 1(L12fc) 3(L126e) 5(L11c0) 8(L0ef2)
 		 * 9(L0fce) 11(L0b7a/L0bf8) 12(L0de4) {13,19}(L1290) default/paint
