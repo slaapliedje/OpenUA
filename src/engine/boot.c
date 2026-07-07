@@ -59815,6 +59815,167 @@ static short l34d6(unsigned char *rec, short item, short cmd)
 	}
 }
 
+/* jt335 (l3686, CODE 8 + 0x3686) — the list-widget definition procedure (LDEF).
+ * A message dispatcher for the scrolling text list used across the editors: H is
+ * the widget, data = H[8] its data record, pblock = H[12] an optional layout
+ * block.  The message (fp@12) drives a JT[1] sparse switch (0x36c4):
+ *   0  init/measure   — clamp the anchor row, size the frame, seed defaults
+ *   1  draw           — title (jt1089) + frame corners (jt1135) + rules (jt1161)
+ *                       + the anchor row (l3bfa)
+ *   2  point hit-test — is (fp@14,fp@16) a live cell? -> 0/1
+ *   3  activate/find  — locate + draw the current row (l3f2e/l45c6/l3bfa)
+ *   4  commit         — l3cb4 then the user callback H[4](index, row)
+ *   5  key/type-select— l3416 advances the anchor
+ *   36 set anchor row — fp@14 -> H[24], relayout
+ *   39 set data ptr   — fp@14:fp@16 (long) -> H[12], relayout
+ *   default           — forward to JT[443] (l1676)
+ * Layout math lives in l3cb4; row paint in l3bfa; item count/field access in
+ * l4a16 (=jt332)/l34d6.  Scratch globals: -10476 (row colour), -9254 (widget
+ * array base for the callback index).  rowh = (data[13]&0x10)?5:4. */
+static short jt335(void *rec_v, short msg, short p14, short p16)
+                                                __attribute__((unused));
+static short jt335(void *rec_v, short msg, short p14, short p16)
+{
+	unsigned char *H = (unsigned char *)rec_v;       /* fp@(-24) = fp@8 */
+	unsigned char *data;                              /* fp@(-28) = H[8] */
+	unsigned char *pblock;                            /* fp@(-32) = H[12] */
+	short          result = 0;                         /* fp@(-10) */
+	short          rowh;
+
+	if (H == NULL)                                    /* 0x368a */
+		return 0;
+	data   = *(unsigned char **)(H + 8);              /* 0x369c */
+	pblock = *(unsigned char **)(H + 12);             /* 0x36a6 */
+	if (data == NULL)                                 /* 0x36b0 */
+		return 0;
+	rowh = (data[13] & 0x10) ? 5 : 4;
+
+	switch (msg) {                                    /* JT[1] @0x36c4 (0,1,2,3,4,5,36,39) */
+	case 0:                                           /* L36ec — init / measure */
+		if (pblock != NULL)                       /* 0x36ec */
+			data[13] |= 0x20;                 /* 0x36f6 bset #5 */
+		if (*(short *)(H + 24) < 1
+		    || l34d6(data, 0, 36) < *(short *)(H + 24))   /* 0x36fc-0x3720 */
+			*(short *)(H + 24) = 1;           /* L3722 */
+		l3cb4(H, data, pblock);                   /* 0x3738 */
+		if (*(short *)(H + 22) == 0)              /* 0x3744 */
+			*(short *)(H + 22) = l4a16(data); /* 0x374e =jt332 */
+		if (*(char **)data != NULL) {             /* 0x3760 */
+			short w = *(short *)(H + 18);      /* fp@-34 */
+			*(short *)(H + 18) = (short)(
+			    (jt423(*(char **)data) << 2) + w + 4);  /* 0x3774-0x3786 */
+		}
+		if (H[31] == 0)                           /* 0x378e */
+			H[31] = (unsigned char)0x87;      /* 0x3798 */
+		*(short *)(data + 10) = *(short *)(H + 18); /* 0x37a6 */
+		break;
+	case 1: {                                         /* L37b0 — draw */
+		short a, b, c, d;   /* fp@-14, fp@-16, fp@-18, fp@-20 (frame corners) */
+		short col;          /* fp@-12 */
+		H[28] |= 0x80;                            /* 0x37b0 */
+		if (H[28] & 2)                            /* 0x37ba btst #1 */
+			break;
+		if (*(char **)data != NULL) {             /* 0x37cc */
+			short y = (short)(*(short *)(H + 18)
+			    - (jt423(*(char **)data) << 2));  /* 0x37d6-0x37ec */
+			short colour = (H[28] & 1) ? 384 : (unsigned char)H[31];  /* 0x37ee-0x3814 */
+			jt1089(*(short *)(H + 16), (short)(y - 4), colour,
+			       *(char **)data);           /* 0x3830 JT[1089] */
+		}
+		/* L3838 — frame + anchor row */
+		col = (H[28] & 1) ? 384 : 112;            /* 0x383c */
+		g_a5_word(-10476) = col;                  /* 0x3856 */
+		if (l4a16(data) < *(short *)(H + 22))     /* 0x385c-0x386e */
+			*(short *)(data + 18) = *(short *)(H + 22);   /* 0x3870 */
+		jt1135(*(short *)(H + 16), *(short *)(H + 18), &a, &b);   /* 0x387e */
+		jt1135((short)(rowh + *(short *)(H + 16)),
+		       (short)((*(short *)(H + 22) << 2) + *(short *)(H + 18)),
+		       &c, &d);                            /* 0x38b4-0x38da */
+		if (data[13] & 0x10)                      /* 0x38e2 */
+			a += (jt1166() >= 300) ? 2 : 1;   /* 0x38f2-0x3904 */
+		jt1161((short)(a - 2), (short)(b - 1), (short)(c + 1), (short)(d + 1), 0);  /* 0x3908 */
+		jt1161((short)(a - 1), b, (short)(c + 2), (short)(d + 2), 0);               /* 0x3932 */
+		jt1161((short)(a - 1), b, c, d, (short)((col & 0xF0) >> 4));                /* 0x3958 */
+		l3bfa(H, data, col);                      /* 0x3980 */
+		break;
+	}
+	case 2: {                                         /* L3998 — point hit-test */
+		short r6, r8;
+		if ((H[28] & 3) != 0) {                   /* 0x3998 */
+			result = 0;
+			break;
+		}
+		jt1139(*(short *)(H + 16), *(short *)(H + 18), p14, p16, &r6, &r8);  /* 0x39d2 */
+		result = (r6 >= 0 && rowh > r6
+		          && r8 >= 0 && (*(short *)(data + 18) << 2) > r8) ? 1 : 0;   /* 0x39da-0x3a18 */
+		break;
+	}
+	case 3: {                                         /* L3a20 — activate / find current row */
+		short r6;
+		jt1146();                                 /* 0x3a20 */
+		l45c6(data, 112, (long)pblock);           /* 0x3a30 =jt336 */
+		do {
+			r6 = l3f2e(data, 112, (long)pblock);   /* 0x3a44 =jt334 */
+		} while (r6 < 0);                          /* 0x3a50 */
+		if (r6 > 0) {                             /* 0x3a54 */
+			*(short *)(H + 24) = r6;          /* 0x3a5a */
+			result = 1;                       /* 0x3a64 */
+		} else if (*(short *)(pblock + 0) != 0
+		           || *(short *)(pblock + 2) != 0) {   /* 0x3a6c-0x3a7c */
+			l3cb4(H, data, pblock);           /* 0x3a8a */
+		}
+		jt1153(0);                                /* 0x3a94 */
+		l3bfa(H, data, 112);                      /* 0x3aa6 */
+		jt1153(1);                                /* 0x3ab2 */
+		H[28] |= 0x80;                            /* 0x3ab8 */
+		jt1128();                                 /* 0x3ac2 */
+		break;
+	}
+	case 4: {                                         /* L3aca — commit + user callback */
+		l3cb4(H, data, pblock);                   /* 0x3aca */
+		if (*(long *)(H + 4) != 0) {              /* 0x3ade */
+			long idx = ((long)(uintptr_t)H - g_a5_long(-9254)) >> 5;  /* 0x3aec-0x3af4 */
+			void (*proc)(long, short) =
+			    *(void (**)(long, short))(H + 4);  /* 0x3b00 */
+			proc(idx, *(short *)(H + 24));
+		}
+		H[28] &= 0x7F;                            /* 0x3b08 */
+		break;
+	}
+	case 5: {                                         /* L3b16 — key / type-select */
+		short r;
+		if (data[13] & 4) {                       /* 0x3b16 btst #2 */
+			r = l3416(data, p14);             /* 0x3b30 */
+			if (r > 0)                        /* 0x3b3a */
+				*(short *)(H + 24) = r;   /* 0x3b44 */
+			result = (r > 0) ? 1 : 0;         /* 0x3b4a */
+		}
+		break;
+	}
+	case 36:                                          /* L3b5c — set anchor row */
+		*(short *)(H + 24) = p14;                 /* 0x3b5c */
+		l3cb4(H, data, pblock);                   /* 0x3b6e */
+		H[28] &= 0x7F;                            /* 0x3b7a */
+		break;
+	case 39: {                                        /* L3b88 — set data pointer H[12] */
+		long newp = ((long)p14 << 16) | (unsigned short)p16;   /* 0x3b88 fp@14 (long) */
+		if (*(long *)(H + 12) != newp) {          /* 0x3b8e-0x3b9a */
+			*(long *)(H + 12) = newp;         /* 0x3b9c */
+			H[28] &= 0x7F;                    /* 0x3ba6 */
+			if (newp != 0) {                 /* 0x3bb0 */
+				H[28] |= 0x20;           /* 0x3bb6 bset #5 */
+				l3cb4(H, data, (unsigned char *)newp);   /* 0x3bc0 */
+			}
+		}
+		break;
+	}
+	default:                                          /* L3bd6 — forward unknown msg */
+		result = l1676(H, msg, p14, p16);         /* 0x3be6 JT[443] */
+		break;
+	}
+	return result;                                    /* L3bf2 */
+}
+
 /* JT[339] (CODE 8+0x5a1a) — the menu-info query: menu 0 returns the
  * menu COUNT; item >= 0 delegates to the l34d6 field accessor for
  * that menu's record; item < 0 answers bar-geometry queries on the
