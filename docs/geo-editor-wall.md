@@ -542,15 +542,24 @@ dispatch (jt152→l3380/l24b6 or JT[3] @0x2c38 → l2dbe/l2d40/l1a1c/jt311), idl
 (jt1067/jt354) + hover/mouse (jt272/jt284/l4268). All 4 JT[3] decoded via
 jt3_extract. Resolved: fp@(-3)=low byte of cmd; REC==arg8; case-0 facing = sx+=1.
 
-**ONLY jt243 PROPER LEFT — the whole subtree below it is lifted.**
-- **jt243 proper (CODE 11 + 0x0b26, ~800 insn) — the 20-arm JT[3] @0xb48 TOOL
-  PALETTE dispatcher** (currently a PROBE stub).  Sig `(short a8, long *rec=fp@14,
-  long *p14)`: NULL-guard fp@(14), stash holder fp@(-8), write a8→rec[0], then the
-  20-arm JT[3] @0xb48 (min=1,max=20).  One arm enters the hub **l28d4**; the others
-  wire the per-tool commands (all callees lifted).  Do it as a **level-2 skeleton
-  then fill**, per the proven jt258/jt266 giant method — decode the @0xb48 table
-  with jt3_extract first, mirror the CFG, then fill arms bottom-up.
-No missing deps, no collisions, nothing deferred anywhere below it.
+**jt243 PROPER — LEVEL-2 SKELETON DONE (C7a); ARMS ARE THE FILL.**  Sig
+`jt243(short cmd, long *rec=fp@10, void *area=fp@14=holder)`.  Head is a FULL
+faithful lift: NULL-guard area→0, `*(short*)holder = cmd`, then the 20-arm JT[3]
+@0x0b48 (min=1,max=20).  The ~800-insn arm body is the remaining bottom-up fill.
+
+**Decoded arm map** (jt3_extract): 1→0x12fc  3→0x126e  5→0x11c0  8→0x0ef2  9→0x0fce
+11→0x0b7a  12→0x0de4  20→0x0dac ; {10,14,15,17}→0x0cee ; {13,19}→0x1290 ;
+{2,4,6,7,16,18,default}→0x136e.  **Structure seen while scoping:** arms edit holder
+fields (holder[2]=prev, [6]=exit flag, [15], [17]) + the `rec` packed bitfields, call
+l23de/l16f4/l4144/l16ae + CODE-22 painters (JT[274]/305/321), and many converge on
+the shared tail **L0cd4** → when holder[6]==0, enter the modal loop **l28d4** (the
+hub).  Exit tails: **L13aa** (a JT[1] @0x13ba fan-out — decode with jt1_extract, never
+by hand) and **L1622** (return).  Nested JT[3]s inside arms (e.g. @0x0c24, @0x0c3c).
+
+**C7 FILL PLAN (next):** fill arms bottom-up — start with the shared tail L0cd4→l28d4
+and the simplest arms (0x0dac/0x0de4), then the field editors (0x0cee family),
+decode the L13aa JT[1] tail, and work up to the general handler L0bf8.  All callees
+lifted; nothing missing/collided/deferred below jt243 proper.
 
 **NEXT — l41de = jt337 (CODE 8 + 0x41de → 0x43f4, ~160 insn) — FULLY MAPPED, lift
 carefully (like l5150, re-verify each call):** the pulldown SCROLL handler.  Args
