@@ -75622,6 +75622,17 @@ static void l0742(short a, short num)
 	jt316();                                                 /* 0x07ba */
 }
 
+/* L37d8 (CODE 11 + 0x37d8) — thin wrapper: invoke the Save-3D-Map command l0742
+ * with the holder's byte-4 (area kind) and the design number `num`.  A jt243 (GEO
+ * editor) helper; caller l2e1c. */
+static void l37d8(void *holder_v, short num) __attribute__((unused));
+static void l37d8(void *holder_v, short num)
+{
+	unsigned char *h = (unsigned char *)holder_v;            /* fp@(8) */
+
+	l0742((short)(unsigned char)h[4], num);                  /* 0x37ec */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
