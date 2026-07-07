@@ -43,7 +43,7 @@ giants are barely begun). Don't let "97%" set the expectation.
 | ~~jt335~~ | 8 | ~~2598~~ 1396 | list-widget LDEF — ✅ DONE (Phase D1, l3686+l3cb4+l3bfa) | — |
 | ~~jt242~~ | 11 | **1298** | GEO 3D-map editor — ✅ DONE (Phase C) | geo-editor-wall |
 | ~~jt896~~ | 19 | ~~666~~ 564 | temple donation/tithe screen — ✅ DONE (+l3fd2 numeric field, +jt939=l4218 LE write) | — |
-| jt916 | 12 | **392** | Training Hall | training-hall-menu-keystone |
+| ~~jt916~~ | 12 | **392** | Training Hall key handler — ✅ DONE (level-2; + jt927 cursor redraw) | training-hall-menu-keystone |
 | jt1206 | 4 | **314** | display low-level (may be HAL-superseded — check first) | — |
 
 **Phase C (GEO editor) + Phase D1 (jt335) DONE (2026-07-07):** jt243 — all 20
@@ -105,7 +105,8 @@ stubs referenced by `l0096` (cmd 2 → jt243, cmd 20 → jt242). See
 - D1-D3  CODE 8 jt335 (2598) — foundational UI/file lib (may unblock others;
          consider pulling EARLIER if B/C depend on it)
 - D4  CODE 19 jt896 (666) — char sheet/party
-- D5  CODE 12 jt916 (392) + jt927 + Training Hall stubs (jt919/931/933)
+- ~~D5  CODE 12 jt916 (392) + jt927~~ ✅ DONE (jt916 level-2 handler, jt927 cursor
+        redraw); Training Hall stubs jt919/931/933 remain (leaf stubs)
 - D6  CODE 4 jt1206 (314) — first confirm it isn't already HAL-superseded
 
 ### Phase E — stub + small-missing cleanup, ~2-3 sessions
