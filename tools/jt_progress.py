@@ -255,6 +255,8 @@ ALIAS_LIFTED = {
          "+ its l43f6/l4cb4/l4cb4_row_rect subtree; drives l3d1a + jt335 case 3).",
     939: "lifted as l4218 (same address; write a LE u32 to a slot, inverse of "
          "l427c=jt940; the jt896 donation-total write).",
+    337: "lifted as l41de (same address; the CODE-8 menu scroll/render chain "
+         "l41de/l4b10/l4c4c — completes jt334's page-scroll delegate).",
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
     1154: "lifted as jt1154_pg (page-up toggle read, A5 -806)",
