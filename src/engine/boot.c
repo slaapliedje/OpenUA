@@ -74258,6 +74258,23 @@ static void l23de(void *rec_v, short a2, short a3, short a4)
 	jt305(rec, (char)2, (char)a4);                  /* 0x240a — repaint, sign_ext(a4) */
 }
 
+/* L066a (CODE 11 + 0x066a) — toggle the two GEO editor "dirty/redraw" flags per
+ * the JT[318] state: when set, clear g_a5_-11601 / g_a5_-11577 to 0; else seed
+ * both to 0x81 (moveq #-127).  A jt243 (GEO editor) leaf; caller l24b6.  Named
+ * _c11 because JT[1165] is a *different* function at CODE 4+0x066a (same offset,
+ * other segment — the recurring-offset trap). */
+static void l066a_c11(void) __attribute__((unused));
+static void l066a_c11(void)
+{
+	if (jt318() != 0) {                             /* 0x066a — JT[318] set */
+		g_a5_byte(-11601) = 0;                  /* 0x0672 */
+		g_a5_byte(-11577) = 0;                  /* 0x0676 */
+	} else {                                        /* 0x067c */
+		g_a5_byte(-11601) = (unsigned char)0x81;   /* moveq #-127 */
+		g_a5_byte(-11577) = (unsigned char)0x81;
+	}
+}
+
 /* L1626 (CODE 11 + 0x1626) — refresh the GEO editor holder's derived cell-edit
  * fields after a repaint.  Repaints first (JT[305](ctx,0,0)), copies ctx[4] into
  * ctx[19], sets ctx[20] = ctx[5] ? ctx[5]+3 : 0, then mirrors the 7-byte source
