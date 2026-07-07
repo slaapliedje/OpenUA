@@ -74473,6 +74473,53 @@ static void l237c(void *arg_v)
 	jt449((short)0);                                                          /* 0x23d4 — repaint walk */
 }
 
+/* L1822 (CODE 11 + 0x1822) — move the highlighted object to the scroll cursor.
+ * When rec[5]!=0 or JT[273] is set it resolves a placement value (JT[1113] fills
+ * two locals, JT[272] maps them) and, if non-negative, stores it in the facing
+ * global g_a5_-12286.  Then it repaints the old cell — JT[279] when JT[273] is set
+ * else JT[295], both (rec[47], rec[46], -11708, -11707, rec[5]) — defaults the
+ * facing to 8 if zero, saves the record's current position rec[46..51] into
+ * rec[40..45], loads the scroll cursor (g_a5_-12288..-12283) into rec[46..51],
+ * repaints (JT[305](rec,4,1)), and redraws at the new cell (JT[213]).  rec = arg
+ * (used directly).  A jt243 (GEO editor) leaf. */
+static void l1822(void *rec_v) __attribute__((unused));
+static void l1822(void *rec_v)
+{
+	unsigned char *rec = (unsigned char *)rec_v;               /* fp@(8) */
+	short k;
+
+	if (rec[5] != 0 || jt273() != 0) {                        /* 0x1830 / 0x1834 */
+		short v4 = 0, v6 = 0, r;                           /* fp@(-4) / fp@(-6) */
+		jt1113(&v4, &v6);                                 /* 0x1844 */
+		r = jt272(v4, v6);                                /* 0x1852 */
+		if (r >= 0)                                       /* 0x185c */
+			g_a5_12286 = (unsigned char)r;            /* 0x1860 */
+	}
+
+	if (jt273() != 0)                                         /* 0x1866 */
+		jt279((short)(signed char)rec[47], (short)(signed char)rec[46],
+		      (short)(unsigned char)g_a5_byte(-11708),
+		      (short)(unsigned char)g_a5_byte(-11707),
+		      (short)(unsigned char)rec[5]);              /* 0x18a2 */
+	else
+		jt295((short)(signed char)rec[47], (short)(signed char)rec[46],
+		      (short)(unsigned char)g_a5_byte(-11708),
+		      (short)(unsigned char)g_a5_byte(-11707),
+		      (short)(unsigned char)rec[5]);              /* 0x18e0 */
+
+	if (g_a5_12286 == 0)                                      /* 0x18e8 */
+		g_a5_12286 = 8;
+
+	for (k = 0; k < 6; k++)                                   /* 0x1904 — save old pos */
+		rec[40 + k] = rec[46 + k];
+	for (k = 0; k < 6; k++)                                   /* 0x1914 — load cursor */
+		rec[46 + k] = g_a5_byte(-12288 + k);
+
+	jt305(rec, (char)4, (char)1);                            /* 0x1924 — repaint */
+	jt213((short)(signed char)rec[47], (short)(signed char)rec[46],
+	      (short)(unsigned char)rec[48]);                     /* 0x194e */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
