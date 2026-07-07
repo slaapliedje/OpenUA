@@ -76581,6 +76581,30 @@ static short jt243(short cmd, long *rec, void *area)
 		if (*(short *)(holder + 6) == 0)                 /* L0ed8 */
 			l28d4(holder);                           /* 0x0ee4 */
 		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	case 8:                                          /* L0ef2 — item/flag edit */
+		*(short *)holder = *(short *)(holder + 2);       /* 0x0ef2 */
+		scratch = *(short *)(holder + 6);                /* 0x0efe fp(-2) */
+		*(short *)(holder + 6) = 0;                       /* 0x0f08 */
+		{
+			short flags = (short)((*rec & 65280) >> 8);  /* 0x0f10 fp(-4) */
+			if ((flags & 0x80)                       /* 0x0f22 btst #7 */
+			    && (jt346(flags, (short *)0) & 255) == 9) {   /* 0x0f2a JT[3]@0xf3e case 9 */
+				switch (scratch) {               /* 0x0f46 JT[3]@0xf4e (1,2) */
+				case 1:                          /* L0f58 */
+					scratch = holder[14];                        /* 0x0f5c */
+					holder[14] = (unsigned char)(*rec & 255);    /* 0x0f66 */
+					l23de(holder, 4, scratch, 0);                /* 0x0f7a */
+					break;
+				case 2:                          /* L0f92 */
+					*(short *)(holder + 6) = (short)((*rec & 255) | 0x8000);  /* 0x0f92 */
+					*(short *)holder = 20;                       /* 0x0fac */
+					break;
+				}
+			}
+		}
+		if (*(short *)(holder + 6) == 0)                 /* L0fb4 */
+			l28d4(holder);                           /* 0x0fc0 */
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
 	default:
 		/* TODO C7c+ — remaining arms: 1(L12fc) 3(L126e) 5(L11c0) 8(L0ef2)
 		 * 9(L0fce) 11(L0b7a/L0bf8) 12(L0de4) {13,19}(L1290) default/paint
