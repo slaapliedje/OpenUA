@@ -75594,6 +75594,34 @@ static void l07c2(short num)
 	((unsigned char *)g_a5_28006)[19] = (unsigned char)num;  /* 0x0846 */
 }
 
+/* L0742 (CODE 11 + 0x0742) — the "Save 3D Map" command entry: gated by JT[318],
+ * masks the design number `num` to 6 bits, prepares the header title (jt405 on
+ * ds[118]), writes the GEO level (l07c2), clamps the counter (JT[364]=l6e50),
+ * formats the design name (jt366 into a scratch), and if it changed vs the stored
+ * title (jt393) refreshes the monster names (jt371); finishes with JT[351]/JT[316]
+ * housekeeping.  The first arg (the caller's holder[4]) is unused.  Top of the
+ * Save-3D-Map subtree; caller l37d8. */
+static void l0742(short a, short num) __attribute__((unused));
+static void l0742(short a, short num)
+{
+	unsigned char *ds;
+	char           buf[18];                                  /* fp@(-18) */
+
+	(void)a;                                                 /* fp@(8) unused */
+	if (jt318() == 0)                                        /* 0x0746 — gate */
+		return;
+	num &= 63;                                               /* 0x0750 */
+	ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	jt405((char *)&ds[118]);                                 /* 0x075e */
+	l07c2(num);                                              /* 0x0768 — write GEO */
+	l6e50(num);                                              /* 0x0772 — JT[364] clamp */
+	jt366(num, (short)11, (long)(uintptr_t)buf);             /* 0x0784 — format name */
+	if (jt393((const char *)&ds[118], buf) != 0)             /* 0x0796 — title changed? */
+		jt371(num, (short)11, (long)(uintptr_t)&ds[118]);/* 0x07b0 — refresh names */
+	jt351();                                                 /* 0x07b6 */
+	jt316();                                                 /* 0x07ba */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
