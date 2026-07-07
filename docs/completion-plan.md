@@ -50,13 +50,14 @@ giants are barely begun). Don't let "97%" set the expectation.
 JT[3]@0x0b48 tool arms + finalize + subtree — completes the CODE-11 GEO editor
 (jt242+jt243).  jt335 (l3686) — the CODE-8 list-widget LDEF dispatcher — plus its
 two missing helpers l3cb4 (viewport layout) and l3bfa (row paint); its other
-callees were already present (l34d6, l3416, jt332=l4a16).  **Residual in the
-cluster:** jt334 (l3f2e, pulldown/list TRACK core, ~1.7KB) and jt336 (l45c6,
-panel PAINT core, ~1.1KB) are still Level-1 STUBS shared with the menu subsystem
-— jt335 calls them faithfully (case 3's `do-while(r6<0)` matches the real
-tracking loop) but they need full lifts (Phase E, or a D1d follow-up).  The
-jt_progress tool mis-labels both as "missing" (its alias set lacks l3f2e/l45c6);
-they are stubs, not absent.
+callees were already present (l34d6, l3416, jt332=l4a16).  **The whole CODE-8
+list/menu widget cluster is now DONE (D1a-h):** jt334 (l3f2e TRACK core) + jt335
+(l3686 dispatch) + jt336 (l45c6 PAINT core) are all full lifts, along with every
+helper — l3cb4, l3bfa, l4ede, l43f6, l4cb4, l4cb4_row_rect (l33ce was already
+lifted; l34d6/l3416/l3266/l41de=jt337/l3658=jt333 pre-existing).  Faithful jt334
+(-1 = "keep tracking") now makes the l3d1a GEO pulldown branch + jt335 case-3
+`do-while(r<0)` loop live — both were dead against the old stub's 0.  ALIAS_LIFTED
+updated for jt334/jt336; jt_progress now 1180 done / 15 stub / 10 missing.
 
 **DONE since this plan was authored (2026-07-06):** jt259 (art import, 2732 —
 Phase A) and the entire CODE 2 event editor — jt254 (422) / jt253 (644) /
