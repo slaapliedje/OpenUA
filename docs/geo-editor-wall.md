@@ -511,14 +511,24 @@ CODE 17** (not CODE 11's l0854), **l4c4c=jt777 is CODE 18** (not CODE 8's). ALWA
 confirm the candidate's comment says the RIGHT `CODE N + 0xOFFSET` before trusting
 "lifted".
 
-**ACTUAL remaining subtree (~13 fns, verified unlifted) to reach jt243 proper:**
-- **l0742 "Save 3D Map" chain (CODE 11):** l0854, l07c2, l0742 (needs JT[371] ✓ +
-  l0854/l07c2) → l37d8 → l2e1c → l2dbe / l3380 → l2d40.
-- **jt337 chain (CODE 8):** l5150, l4b10 (needs l5150), l4c4c (needs l5150),
-  l41de=jt337 → l3e60 (CODE 11) → l37f6 → l2d40.
+**C6a DONE — Save-3D-Map IFF chunk writers:** l0ad0 (chunk header: tag+len) and
+l0a4e (full chunk: header + data + odd pad). jt406 is memmove(dst,src) but the Mac
+ABI is copy(SRC,dst) → the port call SWAPS to jt406(dst=*ctx, src=&value).
+
+**l0742 "Save 3D Map" chain (CODE 11) — remaining:** l0878 (the FORM writer,
+~460B — NEXT), l0854 (30B), l07c2 (~130B), l0742 (~130B) → l37d8 → l2e1c →
+l2dbe/l3380 → l2d40. **l0878 reference:** it writes the exact IFF layout the LOAD
+path jt198 parses — documented at **boot.c:815–830** (FORM/AMOD/HDR<0x122>/
+MAP<0xd80>/ENCR<0x7d0>→g_a5_-13038/STRG<0x1c00>→g_a5_-13034). The +272 HDR fields
+are byte-swapped via jt1180 around the HDR write (swap, write, swap back). Use the
+SAME -13038/-13034 representation jt198 uses (**g_a5_long(-13034)** = jt387 slot;
+check jt198 for -13038); JT[192]=l4e3a (CODE 7) brackets the STRG write.
+
+**jt337 chain (CODE 8) — remaining:** l5150, l4b10 (needs l5150), l4c4c (needs
+l5150), l41de=jt337 → l3e60 (CODE 11) → l37f6 → l2d40.
 - Then the **hub l28d4** (needs l2d40/l2dbe/l3380), then **jt243 proper** (20-arm
   JT[3] @0xb48 tool palette).
-Bottom-up order: (a) l0854 + l07c2 → l0742 → l37d8 → l2e1c; (b) l5150 → l4b10 +
+Order: (a) l0878 → l0854 → l07c2 → l0742 → l37d8 → l2e1c; (b) l5150 → l4b10 +
 l4c4c → jt337 → l3e60; then l37f6, l2dbe, l3380, l2d40, l28d4, jt243.
 
 **Also found: jt302 was a MIS-LIFT** — the Mac l04f2 is 2-arg `jt302(cell, want)`
