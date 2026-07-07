@@ -75633,6 +75633,36 @@ static void l37d8(void *holder_v, short num)
 	l0742((short)(unsigned char)h[4], num);                  /* 0x37ec */
 }
 
+/* L2e1c (CODE 11 + 0x2e1c) — GEO editor file/mode command handler; rec = *holder,
+ * dispatch on the command a2 (JT[1] @0x2e2a): case 2 = Save 3D Map (l37d8(rec,
+ * JT[358]&0xff)); case 7 -> next-command rec[6]=1/rec[0]=3; case 8 -> rec[6]=1/
+ * rec[0]=17; default -> rec[6]=a2/rec[0]=9.  A jt243 (GEO editor) helper; callers
+ * l2dbe/l2d40. */
+static void l2e1c(void *holder_v, short a2) __attribute__((unused));
+static void l2e1c(void *holder_v, short a2)
+{
+	unsigned char *H   = (unsigned char *)holder_v;          /* fp@(8) */
+	unsigned char *rec = *(unsigned char **)holder_v;        /* *H */
+
+	switch ((unsigned char)a2) {                             /* JT[1] @0x2e2a */
+	case 2:                                                  /* 0x2e3a — Save 3D Map */
+		l37d8(rec, (short)(jt358() & 0xff));             /* 0x2e4a */
+		break;
+	case 7:                                                  /* 0x2e52 */
+		*(short *)(rec + 6) = 1;
+		*(short *)rec = 3;
+		break;
+	case 8:                                                  /* 0x2e6a */
+		*(short *)(rec + 6) = 1;
+		*(short *)rec = 17;
+		break;
+	default:                                                 /* 0x2e82 */
+		*(short *)(rec + 6) = (short)(unsigned char)a2;
+		*(short *)rec = 9;
+		break;
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
