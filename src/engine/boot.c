@@ -59350,8 +59350,83 @@ static short l4a16(unsigned char *rec)
 	return width;
 }
 
-/* L45c6 (CODE 8) — the pulldown panel PAINT core (frame + item
- * labels + separators + command keys). Level-1 stub (~1.1KB). */
+/* l4ede (CODE 8 + 0x4ede) — jt336's list-panel PAINT core: draws every visible
+ * row of the data record `rec` (skipping elem[7]&2 separators), an optional
+ * header row (unless rec[13]&4), and the two enclosing frame rules.  Row text
+ * comes from JT[394] (format the element) into a scratch buffer, painted by
+ * l5150; the frame corners are mapped through jt1135 and stroked with jt1161.
+ * When rec[13]&8, the running top folds upward past the pre-anchor skipped rows.
+ * rowh = (rec[13]&0x10)?5:4.  Called by l45c6 (=jt336). */
+static void l4ede(unsigned char *rec, short colour) __attribute__((unused));
+static void l4ede(unsigned char *rec, short colour)
+{
+	char           namebuf[80];      /* fp@(-100) */
+	unsigned char *elem;             /* fp@(-4) */
+	short          y     = *(short *)(rec + 8);    /* fp@(-6)  running row top */
+	short          x     = *(short *)(rec + 10);   /* fp@(-8) */
+	short          width = *(short *)(rec + 18);   /* fp@(-14) */
+	short          c2y = 0, c2x = 0;                /* fp@(-10), fp@(-12) */
+	short          rowh  = (rec[13] & 0x10) ? 5 : 4;   /* fp@(-20) */
+	short          skipped, i;
+
+	/* if rec[13]&8: fold the top upward past the skipped rows before the anchor */
+	if (rec[13] & 8) {                              /* 0x4f1a btst #3 */
+		skipped = 0;                            /* fp@(-18) */
+		i = 0;                                  /* fp@(-16) */
+		elem = *(unsigned char **)(rec + 4);    /* 0x4f34 */
+		while ((signed char)rec[12] > i) {      /* 0x4f5c-0x4f6a */
+			if (elem[7] & 2)                /* 0x4f44 btst #1 */
+				skipped++;              /* 0x4f50 */
+			i++;                            /* 0x4f54 */
+			elem += 8;                      /* 0x4f58 */
+		}
+		y += (short)(skipped << 2);             /* 0x4f6c-0x4f72 */
+		if (rec[13] & 0x10)                     /* 0x4f76 btst #4 */
+			y += skipped;                   /* 0x4f86 */
+	}
+
+	*(short *)(rec + 16) = y;                        /* 0x4f8e store top */
+
+	/* header row (drawn unless rec[13]&4) */
+	if (!(rec[13] & 4))                             /* 0x4f98 btst #2 */
+		l5150((short)(y - rowh), x, width,
+		      *(const unsigned char **)rec,      /* item = rec[0] */
+		      colour, 0, 0,
+		      *(short *)(rec + 14),               /* icon = rec[14] */
+		      (short)((signed char)rec[13] | 2)); /* flags2 = rec[13]|2 */
+
+	/* body rows */
+	i = 0;                                          /* fp@(-16) */
+	elem = *(unsigned char **)(rec + 4);            /* 0x4fec */
+	while ((signed char)rec[12] > i) {              /* 0x508c-0x509a */
+		if (!(elem[7] & 2)) {                   /* 0x4ffa (skip separators) */
+			if (*(long *)elem != 0)         /* 0x5010 */
+				jt394(namebuf, *(char **)elem,
+				      (short)*(short *)(elem + 4));   /* 0x5026 */
+			else
+				namebuf[0] = 0;         /* 0x5030 */
+			l5150(y, x, width,
+			      (const unsigned char *)namebuf, colour,
+			      (signed char)elem[6], (signed char)elem[7],
+			      *(short *)(rec + 14), (signed char)rec[13]);  /* 0x5074 */
+			y += rowh;                      /* 0x507c */
+		}
+		i++;                                    /* 0x5084 */
+		elem += 8;                              /* 0x5088 */
+	}
+
+	/* frame: map two corners through jt1135, stroke top + right rules */
+	jt1135(y, (short)(x + 1), &y, &x);              /* 0x50b2 (overwrites y,x) */
+	jt1135((short)(*(short *)(rec + 8) + 1),
+	       (short)((width << 2) + *(short *)(rec + 10)),
+	       &c2y, &c2x);                              /* 0x50de */
+	if (rec[13] & 0x10)                             /* 0x50e6 */
+		y += (jt1166() >= 300) ? 2 : 1;         /* 0x50f6-0x5108 */
+	jt1161(y, x, (short)(y + 1), (short)(c2x + 1), 0);   /* 0x510c top rule */
+	jt1161(c2y, c2x, y, (short)(c2x + 1), 0);            /* 0x512e right rule */
+}
+
+/* L45c6 (CODE 8) — jt336, the list/pulldown panel PAINT core. */
 static void l45c6(unsigned char *rec, short colour, long flag)
                                                 __attribute__((unused));
 static void l45c6(unsigned char *rec, short colour, long flag)
