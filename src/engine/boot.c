@@ -2960,7 +2960,27 @@ static void  jt208(void)
 }
 static void  l5822(void);             /* CODE 6+0x5822 — full backdrop refresh (defined below) */
 static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L5822: reblit the cached bigpic backdrop */
-static void  l2cf4(void)              { PROBE("L2cf4"); }  /* CODE 12-local — redraw tail */
+/* l2cf4 (CODE 12 + 0x2cf4) = JT[927] — the design-editor cursor REDRAW tail.
+ * Redraws the selection box at the design header's cell (col=hdr[38], row=
+ * hdr[37]), each scaled *4 + the 8000 coord origin: jt119 strokes the 4x4 box,
+ * then per jt1200's mode the cursor is drawn as jt995(...,25,2) (mode 3) or
+ * jt1001(...,25) (otherwise).  Forward decls below reach callees defined later. */
+static void  jt119(short x, short y, short c, short d);
+static short jt995(short top, short left, short style, short size_high, short mode);
+static void  jt1001(short a, short b, short c, short d);
+static void  l2cf4(void) __attribute__((unused));
+static void  l2cf4(void)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short x = (short)(((hdr[38] + 1) << 2) + 8000);   /* col -> x  (0x2cfa-0x2d1e) */
+	short y = (short)(((hdr[37] + 1) << 2) + 8000);   /* row -> y  (0x2d08-0x2d1c) */
+
+	jt119(x, y, 4, 4);                                 /* 0x2d24 stroke the box */
+	if (jt1200() == 3)                                 /* 0x2d2a-0x2d32 */
+		jt995(x, y, 0, 25, 2);                     /* 0x2d66 cursor variant A */
+	else
+		jt1001(x, y, 0, 25);                       /* 0x2d9e cursor variant B */
+}
 
 /* JT[221] (CODE 7 + 0x6076) — render the play view at the party position
  * (x,y,facing). Brackets the draw with JT[131]/JT[80] (begin) and dispatches

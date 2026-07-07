@@ -257,6 +257,8 @@ ALIAS_LIFTED = {
          "l427c=jt940; the jt896 donation-total write).",
     337: "lifted as l41de (same address; the CODE-8 menu scroll/render chain "
          "l41de/l4b10/l4c4c — completes jt334's page-scroll delegate).",
+    927: "lifted as l2cf4 (same address; the design-editor cursor redraw tail — "
+         "jt119 box + jt995/jt1001 per jt1200 mode; full lift replacing the stub).",
     516: "lifted as l6554 (same address; creature-on-map predicate)",
     66: "lifted as l6048 (same address; 6-byte thunk -> l604e)",
     1154: "lifted as jt1154_pg (page-up toggle read, A5 -806)",
