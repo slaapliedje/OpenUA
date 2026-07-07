@@ -76223,6 +76223,175 @@ static void l2d40(void *rec_v, short key, long arg3)
 	}
 }
 
+/* L28d4 (CODE 11 + 0x28d4) — the GEO 3D-map editor MODAL COMMAND LOOP (the hub).
+ * Builds the on-stack editor-state block `state` (state[0..3]=the record arg8,
+ * published to g_a5_-11666; state[4]/[5] flags the setup calls populate), draws the
+ * initial view (l4226/l429c/l43c2, JT[218] cursor, l2836/jt299, jt312, jt278), then
+ * loops until the record's exit word rec[6] is set: recomputes the cursor screen
+ * position from the party cell (g_a5_-12287/-12288 * cell -12272 + origin) offset by
+ * facing (JT[3] @0x29f6, 4 edge-centres), polls a keypress (JT[456]=l2d3e); a real
+ * key is classified by jt152 -> l3380/l24b6, else dispatched (JT[3] @0x2c38) to
+ * l2dbe / l2d40 / (rec[4]? l1a1c/jt311 : l2d40) tool commands; a null key runs the
+ * idle path (jt1067/jt354 blink toggle, jt272 hover -> move commit, jt312 repaint)
+ * and the mouse-drag path (jt284/l4268).  Closes with jt451.  Full lift; all four
+ * JT[3] tables decoded with jt3_extract.  This is jt243 proper's command engine. */
+static void l28d4(void *arg8) __attribute__((unused));
+static void l28d4(void *arg8)
+{
+	unsigned char  state[8] = {0};                   /* fp@(-52) editor-state block */
+	unsigned char *rec = (unsigned char *)arg8;      /* = *(void**)state (set once) */
+	signed char    flag;                             /* fp@(-1) */
+	short          cmd;                              /* fp@(-4) (fp@(-3)=low byte) */
+	short          key;                              /* fp@(-6) */
+	short          sx, sy;                           /* fp@(-8)/fp@(-10) */
+	signed char    prow = -128, pcol = -128, pface = -128;  /* fp@(-11)/-12/-13 */
+	signed char    dirty = 0;                        /* fp@(-23) */
+	short          tmp;                              /* fp@(-54) */
+
+	*(unsigned char **)state = rec;                  /* 0x28ea — state[0..3]=record */
+	g_a5_long(-11666) = (long)(uintptr_t)state;      /* 0x28f4 — publish &state */
+	l4226(state);                                    /* 0x28fc */
+	l429c((short)(signed char)rec[4], (short)1);     /* 0x2912 */
+	l43c2(state);                                    /* 0x291c */
+	jt218((signed char *)&g_a5_byte(-12287), (signed char *)&g_a5_byte(-12288),   /* 0x2956 */
+	      &g_a5_word(-11706), &g_a5_word(-11704),
+	      (short)(signed char)g_a5_byte(-11708), (short)(signed char)g_a5_byte(-11707),
+	      (short)(rec[4] == 0 ? 1 : 0));
+	if (l2836(state) == 0)                           /* 0x2962 */
+		jt299((long)(uintptr_t)state, (short)1); /* 0x2974 */
+	jt312(state);                                    /* 0x297c (2nd arg 0 dropped) */
+	jt278((long)(uintptr_t)state, (short)0);         /* 0x2988 */
+	*(short *)(rec + 6) = 0;                          /* 0x2996 — clear exit flag */
+
+	do {                                             /* L299e … L2d2c (rec[6]==0) */
+		flag = (rec[5] == 0 && jt273() == 0) ? 1 : 0;   /* 0x299e */
+		if (state[5] == 0) {                     /* 0x29be — cursor + facing */
+			sx = (short)((short)(signed char)g_a5_byte(-12287) * g_a5_word(-12272)
+			             + g_a5_word(-11674));   /* 0x29c6 */
+			sy = (short)((short)(signed char)g_a5_byte(-12288) * g_a5_word(-12272)
+			             + g_a5_word(-11672));   /* 0x29d8 */
+			switch ((g_a5_byte(-12286) & 6) >> 1) {         /* 0x29f6 JT[3] */
+			case 0:                          /* 0x2a08 — W edge */
+				sx = (short)(sx + 1);
+				sy = (short)(sy + g_a5_word(-12272) / 2);
+				break;
+			case 1:                          /* 0x2a1e — S edge */
+				sy = (short)(sy + g_a5_word(-12272) - 1);
+				sx = (short)(sx + g_a5_word(-12272) / 2);
+				break;
+			case 2:                          /* 0x2a3a — E edge */
+				sx = (short)(sx + g_a5_word(-12272) - 1);
+				sy = (short)(sy + g_a5_word(-12272) / 2);
+				break;
+			case 3:                          /* 0x2a56 — N edge */
+				sy = (short)(sy + 1);
+				sx = (short)(sx + g_a5_word(-12272) / 2);
+				break;
+			}
+		}
+		goto L2bf8;
+
+	L2a6c:                                           /* idle path (key < 0) */
+		jt1067();                                /* 0x2a6c */
+		tmp = (state[4] == 0) ? 1 : 0;           /* 0x2a70 */
+		if ((tmp ^ ((jt354() == 0) ? 1 : 0)) != 0) {   /* 0x2a7e/0x2a8a */
+			state[4] = (state[4] == 0) ? 1 : 0;     /* 0x2a9e */
+			jt278((long)(uintptr_t)state, (short)0);/* 0x2aa8 */
+		}
+		if (rec[4] == 1 && state[5] != 0)        /* 0x2ab2/0x2ac0 */
+			jt1113(&sx, &sy);                /* 0x2ace */
+		if (flag != 0) {                         /* 0x2ad4 */
+			cmd = jt272(sx, sy);             /* 0x2ae4 */
+			if (cmd < -1)                    /* 0x2aee */
+				goto L2b56;
+			if (cmd >= 0)                    /* 0x2af6 */
+				g_a5_byte(-12286) = (unsigned char)cmd;   /* 0x2afc (fp@(-3)) */
+			if (!(g_a5_byte(-12286) == (unsigned char)pface   /* 0x2b02 */
+			      && prow == (signed char)g_a5_byte(-12287)
+			      && pcol == (signed char)g_a5_byte(-12288)
+			      && dirty != 0)) {
+				prow = (signed char)g_a5_byte(-12287);    /* 0x2b2e */
+				pcol = (signed char)g_a5_byte(-12288);
+				pface = (signed char)g_a5_byte(-12286);
+				dirty = 1;               /* 0x2b40 */
+				jt312(state);            /* 0x2b46 */
+			}
+			goto L2bf8;
+		}
+	L2b56:                                           /* mouse-drag path */
+		if (flag == 0) {                         /* 0x2b56 */
+			if (jt284(sx, sy) >= 0) {        /* 0x2b64 */
+				if (!(prow == (signed char)g_a5_byte(-12287)   /* 0x2b6e */
+				      && pcol == (signed char)g_a5_byte(-12288)
+				      && dirty != 0)) {
+					prow = (signed char)g_a5_byte(-12287); /* 0x2b8a */
+					pcol = (signed char)g_a5_byte(-12288);
+					dirty = 1;
+					jt312(state);
+				}
+				goto L2bf8;
+			}
+		}
+		if (dirty != 0) {                        /* 0x2baa */
+			dirty = 0;                       /* 0x2bb0 */
+			jt312(state);                    /* 0x2bbc */
+			l4268(state);                    /* 0x2bc6 */
+			if (rec[5] == 3)                 /* 0x2bd6 */
+				jt278((long)(uintptr_t)state, (short)1);  /* 0x2be4 */
+			pface = -128;                    /* 0x2bea */
+			pcol = -128;
+			prow = -128;
+		}
+
+	L2bf8:
+		key = l2d3e();                           /* 0x2bf8 JT[456] keypress */
+		if (key < 0)                             /* 0x2c00 */
+			goto L2a6c;
+		cmd = jt152(key);                        /* 0x2c0a */
+		if (cmd >= 0) {                          /* 0x2c14 */
+			l3380(state, cmd);               /* 0x2c20 */
+			l24b6(state);                    /* 0x2c2a */
+			goto L2d2c;
+		}
+		switch (key) {                           /* 0x2c38 JT[3] (min=0,max=1) */
+		case 0:                                  /* 0x2c46 */
+			cmd = key;
+			l2dbe(state, (short)((cmd >> 8) & 0xff), (short)(cmd & 0xff));  /* 0x2c64 */
+			break;
+		case 1:                                  /* 0x2c6e */
+			l2d40(state, g_a5_word(-10372), 0L);   /* 0x2c78 */
+			break;
+		default:                                 /* 0x2c84 */
+			if (rec[4] == 0) {               /* 0x2c8e */
+				cmd = 0;                 /* 0x2c94 */
+				switch (key) {           /* 0x2c9c JT[3] (min=2,max=5) */
+				case 2: cmd = 264; break;   /* 0x2cae */
+				case 3: cmd = 260; break;   /* 0x2cb6 */
+				case 4: cmd = 258; break;   /* 0x2cbe */
+				case 5: cmd = 262; break;   /* 0x2cc6 */
+				}
+				l2d40(state, cmd, 0L);   /* 0x2cd6 */
+			} else {                         /* 0x2ce2 */
+				switch (key) {           /* 0x2ce6 JT[3] (min=2,max=6) */
+				case 2:                  /* 0x2cfa */
+					l1a1c(state);
+					break;
+				case 3:
+				case 4:
+				case 5:
+				case 6:                  /* 0x2d06 */
+					jt311(state, (short)((key - 3) * 2 + 258), 0L);
+					break;
+				}
+			}
+			break;
+		}
+		l24b6(state);                            /* 0x2d22/0x2d26 */
+	L2d2c: ;
+	} while (*(short *)(rec + 6) == 0);               /* 0x2d2c */
+	jt451();                                         /* 0x2d38 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
