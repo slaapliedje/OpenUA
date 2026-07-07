@@ -523,14 +523,18 @@ JT[192]=l4e3a and JT[364]=l6e50 and JT[1084]=l036a are alias-only names.
 (command router), l3380 (keyboard command handler, ~180 insn). Combined with
 l2836/l1a1c/l24b6/l2ea0/l43c2 earlier, the **only remaining hub dep is l2d40**.
 
-**THE WHOLE REMAINDER funnels through ONE chain — the jt337 CODE-8 subtree:**
-l2d40 → l37f6 → l3e60 → **jt337=l41de**, which needs **l5150 ✓ → l4b10 + l4c4c**.
+**CODE-8 jt337 RENDER CHAIN COMPLETE (C6i–C6k):** l5150 ✓ (item renderer) + l4b10 ✓
++ l4c4c ✓ + **l41de = JT[337] ✓** (pulldown scroll).  **BOTH genuinely-missing JTs
+(jt337, jt371) are now faithfully lifted — the whole CODE-8 menu manager is done.**
+Lesson from these renderers: build each draw call from the exact push order and
+re-verify every arg (l5150 had 4 slips caught that way; l41de re-reads state fields
+from memory as the asm does).
 
-**C6i–C6j DONE — l5150, l4b10, l4c4c (CODE 8) are LIFTED.** l5150 (the ~200-insn
-item renderer) had 4 transcription slips caught on re-verify; l4b10 (locate+draw one
-item, page via JT[388], skip separators) and l4c4c (scroll-arrow ^/v cell) both call
-l5150.  Lesson: build each draw call from the exact push order, re-verify every arg.
-Placement: needed a `static short jt1166(void);` forward decl before l5150.
+**NOW UNBLOCKED — the final CODE-11 tail to jt243 proper (all deps present):**
+- **l3e60** (~185 insn) — the menu-command dispatcher that drives jt337=l41de (JT
+  deps all resolve). NEXT.
+- **l37f6** → **l2d40** (small; l2d40 = the hub's last dep).
+- **l28d4 hub** → **jt243 proper** (~800-insn 20-arm JT[3] @0xb48 tool palette).
 
 **NEXT — l41de = jt337 (CODE 8 + 0x41de → 0x43f4, ~160 insn) — FULLY MAPPED, lift
 carefully (like l5150, re-verify each call):** the pulldown SCROLL handler.  Args
