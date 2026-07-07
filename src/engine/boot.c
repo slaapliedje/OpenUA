@@ -83694,6 +83694,83 @@ static long l3fd2(long max, const char *prompt, short colour)
 	return ret;                                             /* 0x4200 */
 }
 
+/* jt896 (l4a66, CODE 19 + 0x4a66) — the temple DONATION / tithe screen.  Builds a
+ * "label + padding + name" line for the active party member (g_a5_-27932) or the
+ * shared money pool (g_a5_-25314), draws it, then runs the "How much PLATINUM do
+ * you donate?" numeric field (l3fd2).  Deducts the entered amount from the
+ * member's purse (rec[76]) or the pool, thanks the player (jt96 + jt175), and
+ * folds it into the design's running donation total (header g_a5_-28006 rec[63],
+ * read via jt940=l427c / written via jt939=l4218).  If that total reaches `limit`
+ * and the gate byte (arg2 low byte) is set, it zeroes the total and raises the
+ * over-limit flag — the return value.  The outer loop runs once (did is 1). */
+static unsigned char jt896(long limit, short arg2) __attribute__((unused));
+static unsigned char jt896(long limit, short arg2)
+{
+	char          name[24];      /* fp@-20 */
+	char          pad[24];       /* fp@-38 */
+	char          prompt[48];    /* fp@-80 */
+	char          line[64];      /* fp@-124 */
+	long          amount;        /* fp@-84 */
+	long          pool;          /* fp@-88 */
+	long          newtotal;      /* fp@-128 */
+	unsigned char over = 0;      /* fp@-129 */
+	unsigned char did;           /* fp@-3 */
+	unsigned char gate = (unsigned char)arg2;    /* fp@13 = low byte of arg2 */
+
+	do {
+		unsigned char *party = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		unsigned char *hdr   = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+		pool = g_a5_long(-25314);                       /* fp@-88 */
+
+		if (*(short *)(party + 76) != 0 || pool != 0) { /* 0x4a7c / 0x4b58 */
+			short i, pcount;
+
+			/* build "label + padding + name" into `line` */
+			if (*(short *)(party + 76) != 0)                        /* 0x4a8e */
+				jt384(name, jt59(*(short *)(party + 76)));      /* 0x4aa8 */
+			else
+				jt384(name, jt70(pool));                       /* 0x4ac0 */
+			pcount = (short)((18 - jt483((const char *)(uintptr_t)g_a5_long(-14492)))
+			                 - jt483(name));                       /* 0x4ac6-0x4ae6 */
+			jt384(pad, "");                                        /* 0x4aec */
+			for (i = 1; i <= pcount; i++)                          /* 0x4b04-0x4b2c */
+				jt384(pad, jt488("%s ", pad));                 /* append a space */
+			jt384(line, jt488("%s%s%s",                            /* 0x4b3a */
+			      (const char *)(uintptr_t)g_a5_long(-14492), pad, name));
+
+			/* draw the line + run the donation field (jt96 s9 arg unused) */
+			jt96(1, 17, 38, 22, 7, 0, 1, (long)(uintptr_t)line, 0);   /* 0x4b84 */
+			prompt[0] = 0;                                         /* 0x4b8c */
+			jt384(prompt, "How much PLATINUM do you donate?");     /* 0x4b9a */
+			if (*(short *)(party + 76) != 0) {                     /* 0x4ba4 */
+				amount = l3fd2((long)(unsigned short)*(short *)(party + 76),
+				               prompt, 7);                     /* 0x4bbe */
+				*(short *)(party + 76) -= (short)amount;        /* 0x4bd2 */
+			} else {
+				amount = l3fd2(pool, prompt, 7);               /* 0x4be4 */
+				g_a5_long(-25314) -= amount;                    /* 0x4bf4 */
+			}
+
+			if (amount != 0) {                                    /* 0x4bf8 */
+				jt96(1, 17, 38, 22, 7, 0, 1,
+				     (long)(uintptr_t)"Thank you for your generous donation.", 0);  /* 0x4c20 */
+				jt175();                                       /* 0x4c28 */
+				newtotal = l427c(hdr + 63) + amount;           /* 0x4c34-0x4c42 (jt940) */
+				if (newtotal >= limit && gate != 0) {          /* 0x4c4a-0x4c54 */
+					over = 1;                               /* 0x4c56 */
+					newtotal = 0;                           /* 0x4c5c */
+				}
+				l4218(newtotal, hdr + 63);                     /* 0x4c6c (jt939 write) */
+			}
+		}
+
+		did = 1;                                                /* L4c72 / L4c7a */
+		jt20();                                                 /* 0x4c80 */
+	} while (did == 0 && over == 0);                                /* 0x4c84 (runs once) */
+
+	return over;                                                    /* 0x4c92 */
+}
+
 /* L216a (CODE 20 + 0x216a, ~1862B) — the give-treasure / TEMPLE event with an
  * interactive TAKE picker (l709e case 9). Faithful structural lift:
  *  - first visit seeds the event picture id (ev[6]=220) + flag bit7; paints it
