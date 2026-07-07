@@ -59070,6 +59070,97 @@ static void jt344(void)
  * @18, items base handle @4 (8 bytes per item: word @4, byte @6,
  * byte flags @7). */
 
+static short jt1166(void);                        /* forward — CODE 4, defined far below */
+/* L5150 (CODE 8 + 0x5150) — draw ONE pulldown menu item.  Args: (top, left, width,
+ * item Pascal-string ptr, style, cmdchar, flags1, icon, flags2).  If width==0 it is
+ * measured (jt423 StringWidth + (icon?2) + (cmdchar uppercase?2) + 2).  Two draw
+ * modes on flags2 bit4: highlighted paints an inverted band (two jt1161 fills with
+ * a jt1135 baseline map, JT[1166]/JT[1200]/JT[1198] deep-mode adjust) else a single
+ * jt1161; then the icon columns (jt995 highlighted / jt1001 normal, icon>>7 row /
+ * icon&127 col at both ends), an optional style tweak (flags1 bit0), the label text
+ * (jt1089: item[0]=='(' uses "%(%c%1g%)", flags2 bit1 right-justifies via a second
+ * StringWidth, else left), the command-key glyph (jt1089 "^%c" when jt408(cmdchar)),
+ * and a trailing "." dimmer when flags1 bit2.  A CODE-8 menu-manager leaf shared by
+ * l4b10/l4c4c (and the pulldown tracker).  x-cursor is fp@(-2). */
+static void l5150(short top, short left, short width, const unsigned char *item,
+                  short style, short cmdchar, short flags1, short icon,
+                  short flags2) __attribute__((unused));
+static void l5150(short top, short left, short width, const unsigned char *item,
+                  short style, short cmdchar, short flags1, short icon,
+                  short flags2)
+{
+	short x0 = top;                                  /* fp@(-2) */
+	short a, b;                                       /* fp@(-6), fp@(-4) — jt1135 outs */
+	short w4;                                         /* fp@(-8) */
+
+	if (width == 0) {                                /* 0x515a — measure */
+		short wv = jt423((const char *)item);    /* StringWidth */
+		wv = (short)(wv + (icon != 0 ? 2 : 0));  /* 0x516c */
+		if (cmdchar != 0)                        /* 0x518e */
+			wv = (short)(wv + (jt408(cmdchar) != 0 ? 2 : 0));  /* 0x519c */
+		width = (short)(wv + 2);                 /* 0x51b0 */
+	}
+	w4 = (short)(width << 2);                        /* 0x51ba */
+
+	if (flags2 & 0x10) {                             /* 0x51c0 btst #4 — highlighted */
+		short t, fill;
+
+		x0++;                                    /* 0x51ca */
+		jt1135(top, left, &a, &b);               /* 0x51de */
+		if (jt1166() >= 300) a++;                /* 0x51e6 */
+		a++;                                     /* 0x51f4 */
+		jt1161(a, left, (short)(top + 5), (short)(left + w4),   /* 0x521e */
+		       (short)((style & 0xf0) >> 4));
+		jt1135((short)(top + 5), left, &a, &b);  /* 0x523a */
+		b = (short)(a + 1);                      /* 0x5242 */
+		if (jt1166() >= 300) b++;                /* 0x524c */
+		t = (short)(left + w4);                  /* 0x525a */
+		fill = (jt1200() == 3 && jt1198() == 1) ? 0 : 8;   /* 0x5266 */
+		jt1161(a, left, b, t, fill);             /* 0x5292 */
+	} else {                                         /* L529c — normal */
+		jt1161(top, left, (short)(top + 4), (short)(left + w4),   /* 0x52c2 */
+		       (short)((style & 0xf0) >> 4));
+	}
+
+	if (icon != 0) {                                 /* 0x52ca */
+		short row = (short)(icon >> 7);          /* asrw #7 */
+		short col = (short)(icon & 127);
+		if (jt1166() >= 300) {                   /* 0x52d2 — highlighted icon */
+			jt995(x0, left, row, col, (short)2);                 /* 0x52f8 */
+			jt995(x0, (short)(left + w4 - 4), row, (short)(col + 1), (short)2);  /* 0x5326 */
+		} else {                                 /* L5330 — normal icon */
+			jt1001(x0, left, row, col);                          /* 0x5348 */
+			jt1001(x0, (short)(left + w4 - 4), row, (short)(col + 1));  /* 0x5370 */
+		}
+	}
+
+	if (flags1 & 0x01)                               /* 0x5376 btst #0 fp@23 */
+		style = (short)((style & 0xf0) | 7 | 256);   /* 0x537e */
+
+	if (item[0] == 40) {                             /* 0x5392 — '(' label */
+		if (icon != 0)                           /* 0x539c */
+			jt1089(x0, (short)(left + 4), style, "%(%c%1g%)",   /* 0x53cc */
+			       (short)(width - 2), (short)(signed char)item[1]);
+		else                                     /* L53d8 */
+			jt1089(x0, left, style, "%(%c%1g%)",                /* 0x53fa */
+			       width, (short)(signed char)item[1]);
+	} else if (flags2 & 0x02) {                      /* 0x5406 btst #1 fp@27 — right-justify */
+		jt1089(x0, (short)((width - jt423((const char *)item)) * 2 + left),  /* 0x5432 */
+		       style, (const char *)item);
+	} else {                                         /* L543c */
+		jt1089(x0, (short)(left + (icon != 0 ? 4 : 0) + 4),                  /* 0x545c */
+		       style, (const char *)item);
+	}
+
+	if (cmdchar != 0 && jt408(cmdchar) != 0) {       /* 0x5464/0x5470 — command key */
+		short cx = (short)(left + w4 - (icon != 0 ? 4 : 0) - 8);   /* 0x547a */
+		jt1089(x0, cx, style, "^%c", (short)(cmdchar | 64));       /* 0x54be */
+	}
+
+	if (flags1 & 0x04)                               /* 0x54c6 btst #2 fp@23 — dim '.' */
+		jt1089(x0, (short)(left + (icon != 0 ? 4 : 0)), style, ".");   /* 0x54ee */
+}
+
 /* JT[332] = L4a16 (CODE 8 + 0x4a16) — the pulldown WIDTH core: the
  * panel width in pixels = max of the title width (StringWidth of the
  * rec[0] Pascal string, or 0 when the rec[13] bit2/bit5 no-title
