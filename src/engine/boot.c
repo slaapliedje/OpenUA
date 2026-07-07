@@ -75552,6 +75552,48 @@ static short l0878(void *ctx_v)
 	return 1;
 }
 
+/* L0854 (CODE 11 + 0x0854) — stamp the design-state format tag ds[0]=106 and run
+ * the GEO FORM writer l0878 into ctx.  Returns 0 on success, -1 on failure.  A
+ * leaf of l07c2. */
+static short l0854(void *ctx_v) __attribute__((unused));
+static short l0854(void *ctx_v)
+{
+	unsigned char *ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	*(short *)ds = 106;                                      /* 0x085e */
+	return (short)(l0878(ctx_v) != 0 ? 0 : -1);              /* 0x0864 */
+}
+
+/* L07c2 (CODE 11 + 0x07c2) — write the GEO level for design `num`: grab the write
+ * buffer (JT[1004]), serialize into it (l0854 -> l0878) reporting a fatal alert
+ * on failure (l036a + jt69), then flush it to GEO<num> on disk (JT[129], 12962
+ * bytes), and stamp the design handle's byte 19 = num.  NB: JT[129] returns void,
+ * so the Mac's "bytes written != 12962" re-check compares 12962 to itself — a
+ * dead branch, transcribed as-is.  A leaf of l0742. */
+static void l07c2(short num) __attribute__((unused));
+static void l07c2(short num)
+{
+	long  h;                                                 /* fp@(-8) */
+	short w, w2;                                             /* fp@(-4) / fp@(-2) */
+
+	jt209((short)1);                                         /* 0x07ca */
+	h = jt1004();                                            /* 0x07d0 — write buffer */
+	if (l0854((void *)(uintptr_t)h) < 0) {                   /* 0x07dc — serialize */
+		l036a(ua_strs_at(0x2a42));                       /* 0x07ec — "Unable to write geo…" */
+		jt69();                                          /* 0x07f2 */
+	}
+	w = 12962;                                               /* 0x07f6 */
+	if (w & 1)                                               /* 0x07fe — 12962 even: no pad */
+		w++;
+	w2 = w;                                                  /* 0x0808 */
+	jt129((long)(uintptr_t)ua_strs_at(0x2a64), num, w2, h);  /* 0x0824 — flush 'GEO'<num> */
+	if (w2 != w) {                                           /* 0x082c — dead (jt129 is void) */
+		l036a(ua_strs_at(0x2a68));                       /* "Unable to save geo…" */
+		jt69();
+	}
+	((unsigned char *)g_a5_28006)[19] = (unsigned char)num;  /* 0x0846 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
