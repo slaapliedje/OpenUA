@@ -75451,6 +75451,49 @@ static short l2836(void *holder_v)
 	return (short)changed;                                   /* 0x28cc */
 }
 
+/* L0ad0 (CODE 11 + 0x0ad0) — write one IFF chunk HEADER into the Save-3D-Map
+ * output buffer: the 4-byte tag then the 4-byte length, advancing the write
+ * cursor ctx[0] by 8.  ctx[0] is the current buffer pointer (jt406 memcpy dest);
+ * NOTE the jt406 Mac ABI is copy(SRC,dst) so the port call swaps to
+ * jt406(dst=*ctx, src=&value).  Returns 1, or 0 if ctx / *ctx is null.  A leaf of
+ * the l0878 GEO writer. */
+static short l0ad0(void *ctx_v, long tag, long len) __attribute__((unused));
+static short l0ad0(void *ctx_v, long tag, long len)
+{
+	unsigned char *ctx = (unsigned char *)ctx_v;             /* fp@(8) */
+
+	if (ctx == NULL || *(long *)ctx == 0)                    /* 0x0ad4 / 0x0ade */
+		return 0;
+	jt406((void *)(uintptr_t)*(long *)ctx, &tag, (short)4);  /* 0x0af4 — tag */
+	*(long *)ctx += 4;                                       /* 0x0b00 */
+	jt406((void *)(uintptr_t)*(long *)ctx, &len, (short)4);  /* 0x0b10 — length */
+	*(long *)ctx += 4;                                       /* 0x0b1c */
+	return 1;
+}
+
+/* L0a4e (CODE 11 + 0x0a4e) — write one full IFF chunk (header via l0ad0 then the
+ * `len` bytes of `data`) into the Save-3D-Map buffer, advancing ctx[0]; if `len`
+ * is odd it appends a zero pad byte.  Returns 1, or 0 if ctx/*ctx null or the
+ * header write fails.  A leaf of the l0878 GEO writer. */
+static short l0a4e(void *ctx_v, long tag, const void *data, long len) __attribute__((unused));
+static short l0a4e(void *ctx_v, long tag, const void *data, long len)
+{
+	unsigned char *ctx = (unsigned char *)ctx_v;             /* fp@(8) */
+
+	if (ctx == NULL || *(long *)ctx == 0)                    /* 0x0a52 */
+		return 0;
+	if (l0ad0(ctx, tag, len) == 0)                           /* 0x0a72 */
+		return 0;
+	jt406((void *)(uintptr_t)*(long *)ctx, data, (short)len);/* 0x0a90 — chunk data */
+	*(long *)ctx += len;                                     /* 0x0a9c */
+	if (len & 1) {                                           /* 0x0aa2 — btst #0, odd len */
+		unsigned char pad = 0;                           /* fp@(-1) */
+		jt406((void *)(uintptr_t)*(long *)ctx, &pad, (short)1);  /* 0x0abc — pad */
+		*(long *)ctx += 1;                               /* 0x0ac8 */
+	}
+	return 1;
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
