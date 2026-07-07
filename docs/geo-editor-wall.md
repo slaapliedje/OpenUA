@@ -535,16 +535,22 @@ from memory as the asm does).
   command entry).  **ALL l28d4 HUB DEPENDENCIES ARE NOW LIFTED** (l1a1c/l24b6/l2836/
   l2d40/l2dbe/l2ea0/l3380/l43c2 ✓, + the whole CODE-8 menu manager).
 
-**ONLY TWO FUNCTIONS LEFT to finish the entire jt243 lift:**
-1. **l28d4 (CODE 11 + 0x28d4 → 0x2d40, ~1132B / ~270 insn) — the GEO editor MODAL
-   COMMAND LOOP (the hub)** — NEXT.  Seen at 0x2b34–0x2cfa: polls JT[456]=l2d3e
-   (keypress), dispatches to l2dbe/l2d40/l3380 + jt278/jt284/jt312/jt152/l24b6/l4268;
-   a big modal loop like jt258's l0ade.  Lift carefully (re-verify each call).
-2. **jt243 proper (0x0b26, ~800 insn) — the 20-arm JT[3] @0xb48 tool palette** — the
-   dispatcher itself (currently a PROBE stub).  Level-2 skeleton then fill, per the
-   proven jt258/jt266 giant method.
-Everything below these two is lifted — no missing deps, no collisions, nothing
-deferred.  This is the last stretch.
+**THE HUB l28d4 IS LIFTED (C6o).** Full faithful lift (~270 insn): the modal
+command loop — setup (l4226/l429c/l43c2/JT[218]/l2836/jt299/jt312/jt278), then loop
+until rec[6]: cursor+facing (JT[3] @0x29f6), keypress poll (JT[456]=l2d3e), command
+dispatch (jt152→l3380/l24b6 or JT[3] @0x2c38 → l2dbe/l2d40/l1a1c/jt311), idle blink
+(jt1067/jt354) + hover/mouse (jt272/jt284/l4268). All 4 JT[3] decoded via
+jt3_extract. Resolved: fp@(-3)=low byte of cmd; REC==arg8; case-0 facing = sx+=1.
+
+**ONLY jt243 PROPER LEFT — the whole subtree below it is lifted.**
+- **jt243 proper (CODE 11 + 0x0b26, ~800 insn) — the 20-arm JT[3] @0xb48 TOOL
+  PALETTE dispatcher** (currently a PROBE stub).  Sig `(short a8, long *rec=fp@14,
+  long *p14)`: NULL-guard fp@(14), stash holder fp@(-8), write a8→rec[0], then the
+  20-arm JT[3] @0xb48 (min=1,max=20).  One arm enters the hub **l28d4**; the others
+  wire the per-tool commands (all callees lifted).  Do it as a **level-2 skeleton
+  then fill**, per the proven jt258/jt266 giant method — decode the @0xb48 table
+  with jt3_extract first, mirror the CFG, then fill arms bottom-up.
+No missing deps, no collisions, nothing deferred anywhere below it.
 
 **NEXT — l41de = jt337 (CODE 8 + 0x41de → 0x43f4, ~160 insn) — FULLY MAPPED, lift
 carefully (like l5150, re-verify each call):** the pulldown SCROLL handler.  Args
