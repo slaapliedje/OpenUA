@@ -74630,6 +74630,57 @@ static void l3236(void *holder_v, short a2)
 	}
 }
 
+/* L455c (CODE 11 + 0x455c) — build the GEO editor's map-view DLItem panel; the
+ * editor twin of the play-path l6256.  Resets the DLItem pool (JT[447]), installs
+ * the shape-8 keyboard source (method jt340) and the shape-7 command source
+ * (method jt287), then lays out the hit regions: for `mode`==0 (a flat map) four
+ * shape-5 header regions in one batched JT[452] stream; else (a dungeon) it maps
+ * the party cell to a view origin (JT[1139], as l6256) and installs the shape-5
+ * select region (method jt294) plus four directional pads (keys 5/7/9/11).
+ * Finishes by sizing the panel (JT[179](fp@-6 - 1) = 5) and opening the modal
+ * (JT[148] with the -13952 prompt / -10632 title).  A jt243 (GEO editor) leaf. */
+static void l455c(short mode) __attribute__((unused));
+static void l455c(short mode)
+{
+	short len = 6;                                             /* fp@(-6) */
+
+	jt447();                                                  /* 0x4566 */
+	jt452((long)8, (long)(uintptr_t)&jt340, (long)20, (long)0);   /* 0x4578 */
+	jt452((long)7, (long)(uintptr_t)&jt287, (long)20, (long)0);   /* 0x458e */
+
+	if (mode == 0) {                                          /* 0x4596 — flat-map header */
+		jt452((long)5, (long)8004, (long)8020, (long)28, (long)44,   /* 0x4620 — one stream */
+		      (long)41, (long)11, (long)20,
+		      (long)5, (long)8048, (long)8000, (long)9, (long)68,
+		      (long)41, (long)23, (long)20,
+		      (long)5, (long)8004, (long)8048, (long)44, (long)16,
+		      (long)41, (long)21, (long)20,
+		      (long)5, (long)8004, (long)8000, (long)44, (long)20,
+		      (long)41, (long)22, (long)20,
+		      (long)0);
+	} else {                                                 /* 0x462c — dungeon view */
+		short cy = (short)((unsigned char)g_a5_byte(-11708) * g_a5_word(-12272));
+		short cx = (short)((unsigned char)g_a5_byte(-11707) * g_a5_word(-12272));
+		short r2, r4;                                     /* fp@(-2) / fp@(-4) */
+
+		jt1139((short)8000, (short)8000, cy, cx, &r2, &r4);   /* 0x4654 */
+		jt452((long)5, (long)8008, (long)8004, (long)r2, (long)r4,     /* 0x4686 — select */
+		      (long)34, (long)(uintptr_t)&jt294, (long)41, (long)-1, (long)20, (long)0);
+		jt452((long)5, (long)8004, (long)(r4 + 8004), (long)(r2 + 8),  /* 0x46ba */
+		      (long)4, (long)41, (long)5, (long)20, (long)0);
+		jt452((long)5, (long)(r2 + 8008), (long)8004, (long)4, (long)r4,  /* 0x46ea */
+		      (long)41, (long)7, (long)20, (long)0);
+		jt452((long)5, (long)8004, (long)8000, (long)(r2 + 8), (long)4,   /* 0x4718 */
+		      (long)41, (long)9, (long)20, (long)0);
+		jt452((long)5, (long)8004, (long)8004, (long)4, (long)r4,     /* 0x4742 */
+		      (long)41, (long)11, (long)20, (long)0);
+	}
+
+	jt179((short)(len - 1));                                  /* 0x4752 — size panel (=5) */
+	jt148((long)g_a5_long(-13952),                            /* 0x4762 — open modal */
+	      (char *)(uintptr_t)g_a5_long(-10632), (short)0);
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
