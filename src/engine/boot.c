@@ -59426,13 +59426,111 @@ static void l4ede(unsigned char *rec, short colour)
 	jt1161(c2y, c2x, y, (short)(c2x + 1), 0);            /* 0x512e right rule */
 }
 
-/* L45c6 (CODE 8) — jt336, the list/pulldown panel PAINT core. */
+/* l45c6 (CODE 8 + 0x45c6) — jt336, the list/pulldown panel PAINT core with the
+ * layout block `flag`.  With no block it delegates to l4ede (the plain panel
+ * paint).  Otherwise, using the l3cb4 layout block P (P[0]=top margin, P[1]=
+ * bottom margin, P[2]=visible span), it: draws the header row (unless rec[13]&
+ * 0x24), advances to the first visible element, paints the scroll-overflow
+ * strips (P[0]/P[1]<0 filled rects, >0 "more" markers via l4c4c), draws the
+ * visible body rows (l5150 with JT[394] text, separators skipped), and strokes a
+ * 3D-beveled frame (corners mapped by jt1135, seven jt1161 rules).  rowh =
+ * (rec[13]&0x10)?5:4. */
 static void l45c6(unsigned char *rec, short colour, long flag)
                                                 __attribute__((unused));
 static void l45c6(unsigned char *rec, short colour, long flag)
 {
-	PROBE("L45c6");
-	(void)rec; (void)colour; (void)flag;
+	char           namebuf[80];      /* fp@(-100) */
+	unsigned char *elem;             /* fp@(-4) */
+	short         *P;                 /* fp@14 — l3cb4 layout block */
+	short          y, x, width, c2y = 0, c2x = 0, rowh, i, botmarg;
+
+	if (flag == 0) {                                /* 0x45c6 */
+		l4ede(rec, colour);                     /* 0x45d8 */
+		return;
+	}
+	P     = (short *)flag;
+	y     = *(short *)(rec + 8);                    /* fp@-6 */
+	x     = *(short *)(rec + 10);                   /* fp@-8 */
+	width = *(short *)(rec + 18);                   /* fp@-14 */
+	rowh  = (rec[13] & 0x10) ? 5 : 4;               /* fp@-20 */
+	*(short *)(rec + 16) = y;                        /* 0x461a */
+
+	if ((rec[13] & 0x24) == 0)                      /* 0x462e header row */
+		l5150((short)(y - rowh), x, width,
+		      *(const unsigned char **)rec, colour, 0, 0,
+		      *(short *)(rec + 14),
+		      (short)((signed char)rec[13] | 2));   /* 0x466e */
+
+	/* advance i to P[0] visible rows (skipping separators) */
+	i = 0;                                          /* fp@-16 */
+	elem = *(unsigned char **)(rec + 4);
+	while (i < P[0]) {                              /* 0x469e */
+		if (!(elem[7] & 2))                     /* 0x4686 */
+			i++;
+		elem += 8;
+	}
+
+	/* top overflow */
+	if (P[0] < 0) {                                 /* 0x46aa */
+		jt1161(y, x, (short)(y - P[0] * rowh),
+		       (short)((width << 2) + x),
+		       (short)((colour >> 4) & 15));        /* 0x46d6 */
+		y = (short)(y - P[0] * rowh);            /* 0x46ec */
+	} else if (P[0] > 0) {                          /* 0x46fc */
+		l4c4c(rec, y, colour, 1);                /* 0x4704 "more above" */
+		y += rowh;                               /* 0x471c */
+		i++;                                     /* 0x4724 */
+	}
+
+	botmarg = (P[1] > 0) ? (short)(P[1] + 1) : 0;   /* 0x4728 fp@-18 */
+
+	/* main visible-row draw */
+	elem = *(unsigned char **)(rec + 4) + (long)i * 8;   /* 0x4746 */
+	while ((short)(P[2] - botmarg) > i) {           /* 0x47f0 */
+		if (!(elem[7] & 2)) {                   /* 0x475e */
+			if (*(long *)elem != 0)         /* 0x4774 */
+				jt394(namebuf, *(char **)elem,
+				      (short)*(short *)(elem + 4));   /* 0x478a */
+			else
+				namebuf[0] = 0;         /* 0x4794 */
+			l5150(y, x, width, (const unsigned char *)namebuf,
+			      colour, (signed char)elem[6], (signed char)elem[7],
+			      *(short *)(rec + 14), (signed char)rec[13]);   /* 0x47d8 */
+			y += rowh;                       /* 0x47e0 */
+		}
+		i++;
+		elem += 8;
+	}
+
+	/* bottom overflow */
+	if (P[1] > 0) {                                 /* 0x4804 */
+		l4c4c(rec, y, colour, 0);                /* 0x481c "more below" */
+		y += rowh;
+	} else if (P[1] < 0) {                          /* 0x482e */
+		jt1161(y, x, (short)(y - P[1] * rowh),
+		       (short)((width << 2) + x),
+		       (short)((colour >> 4) & 15));        /* 0x485e */
+		y = (short)(y - P[1] * rowh);            /* 0x4874 */
+	}
+
+	/* 3D beveled frame (corners mapped, seven rules) */
+	jt1135(y, (short)(x + 1), &y, &x);              /* 0x4884 (overwrites y,x) */
+	jt1135((short)(*(short *)(rec + 8) + 1),
+	       (short)((width << 2) + *(short *)(rec + 10)),
+	       &c2y, &c2x);                              /* 0x48c4 */
+	if (rec[13] & 0x10)                             /* 0x48cc */
+		y += (jt1166() >= 300) ? 2 : 1;         /* 0x48dc-0x48ee */
+	if (!(rec[13] & 4)) {                           /* 0x48f2 */
+		jt1161((short)(c2y - 3), (short)(x - 2), (short)(c2y - 2), c2x,
+		       (short)((colour >> 4) & 15));    /* 0x490c A */
+		jt1161((short)(c2y - 4), (short)(x - 3), (short)(c2y - 3),
+		       (short)(c2x + 1), 0);            /* 0x4932 B */
+	}
+	jt1161((short)(c2y - 3), (short)(x - 3), y, (short)(x - 2), 0);      /* 0x495c C */
+	jt1161(y, (short)(x - 3), (short)(y + 1), (short)(c2x + 2), 0);      /* 0x4982 D */
+	jt1161((short)(y + 1), x, (short)(y + 2), (short)(c2x + 2), 0);      /* 0x49a8 E */
+	jt1161((short)(c2y - 3), c2x, y, (short)(c2x + 1), 0);               /* 0x49ce F */
+	jt1161(c2y, (short)(c2x + 1), y, (short)(c2x + 2), 0);               /* 0x49f0 G */
 }
 
 /* L3f2e (CODE 8) — the pulldown TRACK core (per-poll highlight move
