@@ -75686,6 +75686,129 @@ static void l2dbe(void *holder_v, short a2, short a3)
 	}
 }
 
+/* L3380 (CODE 11 + 0x3380) — the GEO editor's keyboard command handler.  rec =
+ * *holder.  While a selection is live (g_a5_-24139) only ESC/backtick (27/96)
+ * commit via l2e1c(holder,10), anything else beeps, and the flag clears.
+ * Otherwise dispatches the key (JT[3] @0x33be, 0..5):
+ *  0: sub-dispatch on rec[5] (JT[3] @0x33e0) — 0: toggle rec[12]/rec[13] (0<->15)
+ *     + l23de/jt278 when JT[273], else set rec[6]=1/rec[0]=12; 1: rec[6]=1/rec[0]=8;
+ *     2: rec[6]=21/rec[0]=11; 3: beep;
+ *  1/3: move — borrow the cursor for a kind-1 area, step it (jt291 for key 1 else
+ *     jt301) and place via l1d10, then restore; gated off when JT[273] or rec[5];
+ *  2: l3654 (place-at-record);
+ *  4: rec[18]==0 -> rec[6]=9/rec[0]=10, else commit (l1d88 + jt303/jt308);
+ *  5: delete — for a kind-1 area with rec[29], l1822 unless the target cell is
+ *     blocked (jt276) under JT[273]; rec[29]==0 -> rec[6]=1/rec[0]=15.
+ * A jt243 (GEO editor) mid; caller l28d4. */
+static void l3380(void *holder_v, short key) __attribute__((unused));
+static void l3380(void *holder_v, short key)
+{
+	unsigned char *rec = *(unsigned char **)holder_v;        /* *H */
+	short k;
+
+	if (g_a5_byte(-24139) != 0) {                            /* 0x3384 — selection live */
+		if (key == 27 || key == 96)                      /* 0x338a / 0x3392 */
+			l2e1c(holder_v, (short)10);              /* 0x33a2 */
+		else
+			jt1080();                                /* 0x33aa */
+		g_a5_byte(-24139) = 0;                           /* 0x33ae */
+		return;
+	}
+
+	switch (key) {                                           /* JT[3] @0x33be */
+	case 0:                                                  /* L33d0 */
+		switch (rec[5]) {                                /* JT[3] @0x33e0 */
+		case 0:                                          /* L33ee */
+			if (jt273() == 0) {                      /* 0x33ee/0x33f2 */
+				*(short *)(rec + 6) = 1;         /* L3460 */
+				*(short *)rec = 12;
+			} else {                                 /* 0x33f8 — toggle+edit */
+				short v = rec[12];               /* fp@(-2) */
+				unsigned char nv = (rec[12] != 0) ? 0 : 15;
+				rec[12] = nv;                    /* 0x342c */
+				rec[13] = nv;                    /* 0x3432 */
+				l23de(rec, (short)2, v, (short)1);   /* 0x3448 */
+				jt278((long)(uintptr_t)holder_v, (short)0);  /* 0x3456 */
+			}
+			break;
+		case 1:                                          /* L347a */
+			*(short *)(rec + 6) = 1;
+			*(short *)rec = 8;
+			break;
+		case 2:                                          /* L3494 */
+			*(short *)(rec + 6) = 21;
+			*(short *)rec = 11;
+			break;
+		case 3:                                          /* L34ae */
+			jt1080();
+			break;
+		default:                                         /* L3650 */
+			break;
+		}
+		break;
+	case 1:                                                  /* L34b6 — move */
+	case 3: {
+		unsigned char saved[8];
+		short r;
+
+		if (jt273() != 0 || rec[5] != 0) {               /* 0x34ba / 0x34ce */
+			jt1080();                                /* L3576 */
+			break;
+		}
+		if (rec[4] == 1) {                               /* 0x34de — borrow cursor */
+			for (k = 0; k < 6; k++)                  /* 0x34e4 — save */
+				saved[k] = g_a5_byte(-12288 + k);
+			for (k = 0; k < 6; k++)                  /* 0x34f0 — load from rec */
+				g_a5_byte(-12288 + k) = rec[46 + k];
+		}
+		if (key == 1)                                    /* 0x3502 */
+			r = jt291((short)(unsigned char)g_a5_12286);  /* 0x3512 */
+		else
+			r = jt301((short)(unsigned char)g_a5_12286);  /* 0x3524 */
+		l1d10(holder_v, (short)(signed char)g_a5_12287,  /* 0x354a */
+		      (short)(signed char)g_a5_12288, r, (short)1);
+		if (rec[4] == 1)                                 /* 0x355e — restore */
+			for (k = 0; k < 6; k++)
+				g_a5_byte(-12288 + k) = saved[k];/* 0x3566 */
+		break;
+	}
+	case 2:                                                  /* L357e */
+		l3654(holder_v);                                 /* 0x3582 */
+		break;
+	case 4:                                                  /* L358c */
+		if (rec[18] == 0) {                              /* 0x3594 */
+			*(short *)(rec + 6) = 9;
+			*(short *)rec = 10;
+		} else {                                         /* L35b6 */
+			l1d88(holder_v);                         /* 0x35ba */
+			jt303(rec);                              /* 0x35c6 */
+			jt308((long)(uintptr_t)holder_v);        /* 0x35d0 */
+		}
+		break;
+	case 5:                                                  /* L35da — delete */
+		if (rec[4] != 1)                                 /* 0x35e6 */
+			break;
+		if (rec[29] == 0) {                              /* 0x35f2 — L363a */
+			*(short *)(rec + 6) = 1;
+			*(short *)rec = 15;
+		} else {
+			if (jt273() != 0) {                      /* 0x35f8 */
+				unsigned char *ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+				short cell = (short)((short)(signed char)g_a5_12287 * ds[3]
+				                     + (short)(signed char)g_a5_12288);  /* 0x3600 */
+				if (jt276(cell) != 0) {          /* 0x361c */
+					jt1080();                /* 0x3626 */
+					break;
+				}
+			}
+			l1822(rec);                              /* 0x362c */
+		}
+		break;
+	default:                                                 /* L3650 */
+		break;
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
