@@ -74563,6 +74563,73 @@ static void l4168(void *obj_v)
 		obj[46 + k] = g_a5_byte(-12288 + k);
 }
 
+/* L3236 (CODE 11 + 0x3236) — tool-command state transition.  Decrements the
+ * command byte a2 and dispatches on (a2-1) via JT[3] @0x3248 (min=0 max=7), each
+ * arm writing the editor's mode word rec[6] and next-command word rec[0] on the
+ * record (rec = *holder).  Case 1 sub-dispatches on rec[5] (JT[3] @0x3288).  Case
+ * 5 also saves the record position rec[46..51] into the scroll cursor; case 7
+ * bumps g_a5_-18485 when JT[318] is set and masks the facing g_a5_-12286 to 3
+ * bits.  Cases 3/6 and any out-of-range value beep (JT[1080]).  A jt243 (GEO
+ * editor) leaf; caller l2e1c ignores the return. */
+static void l3236(void *holder_v, short a2) __attribute__((unused));
+static void l3236(void *holder_v, short a2)
+{
+	unsigned char *rec = *(unsigned char **)holder_v;         /* *holder */
+	unsigned char  idx = (unsigned char)((unsigned char)a2 - 1);  /* 0x323a subqb + zero-ext */
+	short k;
+
+	switch (idx) {                                            /* JT[3] @0x3248 */
+	case 0:                                                   /* 0x325e */
+		*(short *)(rec + 6) = 1;
+		*(short *)rec = 13;
+		break;
+	case 1:                                                   /* 0x3278 */
+		switch (rec[5]) {                                 /* JT[3] @0x3288 */
+		case 0:                                          /* 0x3294 */
+			*(short *)(rec + 6) = 2;
+			*(short *)rec = 12;
+			break;
+		case 1:                                          /* 0x32ae */
+			*(short *)(rec + 6) = 2;
+			*(short *)rec = 8;
+			break;
+		case 2:                                          /* 0x32c8 */
+			*(short *)(rec + 6) = 37;
+			*(short *)rec = 11;
+			break;
+		default:                                         /* 0x32e2 */
+			jt1080();
+			break;
+		}
+		break;
+	case 2:                                                   /* 0x32ea */
+		*(short *)(rec + 6) = 1;
+		*(short *)rec = 19;
+		break;
+	case 4:                                                   /* 0x3304 */
+		*(short *)(rec + 6) = 1;
+		*(short *)rec = 14;
+		break;
+	case 5:                                                   /* 0x331e */
+		*(short *)(rec + 6) = 3;
+		*(short *)rec = 11;
+		for (k = 0; k < 6; k++)                          /* 0x333a — save rec pos to cursor */
+			g_a5_byte(-12288 + k) = rec[46 + k];
+		break;
+	case 7:                                                   /* 0x3348 */
+		g_a5_18485 = 1;
+		if (jt318() != 0)                                /* 0x334e */
+			g_a5_18485++;
+		g_a5_12286 = (unsigned char)(g_a5_12286 & 7);    /* 0x335a — facing &= 7 */
+		*(short *)(rec + 6) = 1;
+		*(short *)rec = 1;
+		break;
+	default:                                                 /* 0x3378 — cases 3/6 + OOR */
+		jt1080();
+		break;
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
