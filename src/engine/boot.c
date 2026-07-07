@@ -74547,6 +74547,22 @@ static void l41a0(void *obj_v)
 		g_a5_12286 = 8;                                    /* 0x421e */
 }
 
+/* L4168 (CODE 11 + 0x4168) — enter object-placement mode: reset the active object
+ * (l41a0), select the tool layout for its kind (l476e(1, obj[4])), and load the
+ * scroll cursor g_a5_-12288..-12283 into the object's position obj[46..51].
+ * obj = arg.  A jt243-direct helper; its deps l41a0/l476e are lifted. */
+static void l4168(void *obj_v) __attribute__((unused));
+static void l4168(void *obj_v)
+{
+	unsigned char *obj = (unsigned char *)obj_v;               /* fp@(8) */
+	short k;
+
+	l41a0(obj);                                                /* 0x4170 */
+	l476e((short)1, (short)(unsigned char)obj[4]);            /* 0x4186 */
+	for (k = 0; k < 6; k++)                                    /* 0x4198 — load cursor */
+		obj[46 + k] = g_a5_byte(-12288 + k);
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
