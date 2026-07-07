@@ -83619,6 +83619,81 @@ static void l4218(long amount, void *slot)
 static unsigned char jt933(long ev, short exit_arm, long item_head, short v)
 	{ PROBE("jt933"); (void)ev; (void)exit_arm; (void)item_head; (void)v; return 0; } /* CODE12+0x5720 take-commit */
 
+/* ===== CODE 19 char-sheet / party-money helpers (jt896 subtree) ============ */
+
+/* l3fd2 (CODE 19 + 0x3fd2) — a numeric-entry field for jt896.  Draws the prompt,
+ * then reads keys in a loop: digits 0-9 (and the shifted number row `)!@#$%^&*(`
+ * mapped back to digits via jt409) append to an accumulator, backspace (8)
+ * deletes the last char, and Enter/Esc/` (13/27/96) commit.  Each new digit is
+ * parsed (jt487) and, if it would exceed `max`, the accumulator is clamped to the
+ * max string.  Returns the entered value, or 0 on Esc/`.  colour = the low byte
+ * of the 3rd arg (the field's text style). */
+static long l3fd2(long max, const char *prompt, short colour)
+                                                __attribute__((unused));
+static long l3fd2(long max, const char *prompt, short colour)
+{
+	char          acc[8];    /* fp@(-22) — the digit accumulator */
+	char          maxbuf[8]; /* fp@(-14) — max rendered as %ld (for clamping) */
+	unsigned char key;       /* fp@(-23) */
+	unsigned char plen;      /* fp@(-6)  — prompt length */
+	unsigned char cursor;    /* fp@(-5) */
+	long          val, ret = 0;   /* fp@(-28), fp@(-34) */
+	short         endidx;    /* fp@(-30) */
+	short         commit;
+
+	jt176();                                                /* 0x3fd6 */
+	jt94(0, 24, (short)(unsigned char)colour, 0, prompt);   /* 0x3fee draw prompt */
+	plen = (unsigned char)jt423(prompt);                    /* 0x3ffa */
+	cursor = plen;                                          /* 0x4000 */
+	jt394(maxbuf, "%ld", max);                              /* 0x4018 */
+	acc[0] = 0;                                             /* 0x4020 */
+	jt117();                                                /* 0x4024 */
+
+	do {
+		key = jt60();                                   /* 0x4028 read key */
+		switch (key) {
+		default:                                        /* L4076 — shifted digit? */
+			key = (unsigned char)(jt409(")!@#$%^&*(", 10, key) + 48);   /* 0x4088 */
+			if (jt389(key) == 0)                    /* 0x409e not a digit -> ignore */
+				break;
+			/* fall through — treat the mapped char as a digit */
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':       /* L40aa */
+			if (jt423(acc) >= 6) {                  /* 0x40aa too long */
+				jt1080();                        /* L4124 beep */
+			} else {
+				jt394(acc, "%s%c", acc, key);           /* 0x40ce append */
+				jt487(acc, &val, &endidx);              /* 0x40e6 parse */
+				if (val > max) {                        /* 0x40f2 clamp to max */
+					jt384(acc, maxbuf);              /* 0x4106 */
+					cursor = (unsigned char)(plen + jt423(maxbuf));  /* 0x410c */
+				} else {
+					cursor++;                        /* 0x40f8 */
+				}
+			}
+			jt94((short)plen, 24, 11, 0, acc);              /* 0x4128 redraw field */
+			break;
+		case 8:                                         /* L4148 backspace */
+			if (jt423(acc) > 0) {                   /* 0x4148 */
+				jt384(acc, jt482(acc, 1, (short)(jt423(acc) - 1)));  /* 0x4164 drop last */
+				cursor--;                                /* 0x417e */
+				jt93((short)cursor, 24, 0, 1);           /* 0x4194 erase glyph */
+			}
+			break;
+		case 13: case 27: case 96:                      /* L419a commit keys */
+			break;
+		}
+		commit = (key == 13 || key == 27 || key == 96) ? 1 : 0;   /* L419a */
+	} while (!commit);                                      /* 0x41c6 loop until commit */
+
+	jt176();                                                /* 0x41ca cursor off */
+	if (key == 27 || key == 96)                             /* 0x41ce cancel */
+		ret = 0;                                        /* 0x41e6 */
+	else
+		jt487(acc, &ret, &endidx);                      /* 0x41ec parse final */
+	return ret;                                             /* 0x4200 */
+}
+
 /* L216a (CODE 20 + 0x216a, ~1862B) — the give-treasure / TEMPLE event with an
  * interactive TAKE picker (l709e case 9). Faithful structural lift:
  *  - first visit seeds the event picture id (ev[6]=220) + flag bit7; paints it
