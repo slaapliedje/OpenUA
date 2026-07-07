@@ -60678,6 +60678,78 @@ static const char *jt475(short idx)
 	return ua_strs_at(0x41c0);
 }
 
+/* jt916 (l08f8, CODE 12 + 0x08f8) — the Training Hall keyboard command handler
+ * (registered as a proc via `pea JT[916]`).  Drains queued scroll auto-repeat
+ * (jt1118 poll; arrows 338/339 page the roster via jt50/jt51, jt1133 reads the
+ * next key), then dispatches the settled key:
+ *   338/339          — a final page scroll, returns 0
+ *   'J'/'j' (74/106) — the training toggle: unless the copy-protection slot-2
+ *                      word (jt475(2)) is "Heart", flip the -22730 flag, announce
+ *                      "training on/off" (l036a=jt1084), refresh the row
+ *                      (jt444 method 20), returns 1
+ *   260/261/263/264  — member navigation: sample the member's state (jt909/jt558
+ *                      == 17) before and after the switch (l0848 select + l02dc=
+ *                      jt937 roster redraw), setting the -19168/-19169 change
+ *                      flags, returns 1
+ *   else             — returns 0
+ * Level-2 structural lift: the leaf callees jt1118/jt444/jt909/jt558 are still
+ * stubs (bodies in untouched CODE); the dispatch CFG is faithful and drives the
+ * lifted jt475/jt393/l036a/l0848/l02dc helpers. */
+static short jt916(short arg, short key) __attribute__((unused));
+static short jt916(short arg, short key)
+{
+	while (jt1118() != 0) {                          /* L0920 drain scroll repeat */
+		if (key == 338) jt50();                  /* 0x08fe page up */
+		else if (key == 339) jt51();             /* 0x090c page down */
+		key = jt1133();                          /* 0x0918 read next key */
+	}
+
+	if (key == 338) { jt50(); return 0; }           /* 0x0928 */
+	if (key == 339) { jt51(); return 0; }           /* 0x093a */
+	if (g_a5_long(-27932) == 0)                     /* 0x094c no active member */
+		return 0;
+
+	if (key == 74 || key == 106) {                  /* 0x0954 'J'/'j' training toggle */
+		if (jt393(jt475(2), "Heart") != 0) {    /* 0x0966-0x0980 copy-protection word */
+			g_a5_byte(-22730) = 0;           /* 0x0982 */
+			return 0;
+		}
+		g_a5_byte(-22730) =
+		    (signed char)((g_a5_byte(-22730) == 0) ? 1 : 0);   /* 0x098c toggle */
+		if (g_a5_byte(-22730) != 0)             /* 0x099a */
+			l036a("training on");            /* 0x09a0 (jt1084) */
+		else
+			l036a("training off");           /* 0x09ae */
+		if (((unsigned char *)(uintptr_t)g_a5_long(-28006))[48] == 0)  /* 0x09ba */
+			g_a5_byte(-14437) = 0;           /* 0x09c8 */
+		jt444(arg, 20, 0, 0);                    /* 0x09cc refresh row (method 20) */
+		return 1;
+	}
+
+	if (key == 263 || key == 261 || key == 264 || key == 260) {  /* 0x09e0 member nav */
+		unsigned char *party = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		short after;
+
+		g_a5_byte(-19168) = (signed char)                            /* 0x0a02-0x0a26 before */
+		    ((jt909(party) != 0 && jt558(party) == 17) ? 1 : 0);
+
+		key = (key == 263 || key == 264) ? 135 : 133;   /* 0x0a2a remap */
+		l0848(key);                              /* 0x0a48 select member */
+		l02dc((long)(uintptr_t)party);           /* 0x0a52 = jt937 roster redraw */
+
+		after = (jt909(party) != 0 && jt558(party) == 17) ? 1 : 0;   /* 0x0a5c-0x0a7e */
+		if ((after ^ (short)(signed char)g_a5_byte(-19168)) != 0) {  /* 0x0a80-0x0a8a */
+			unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			g_a5_byte(-19169) = (signed char)((hdr[48] > 0) ? 1 : 0);  /* 0x0a8c */
+		} else {
+			g_a5_byte(-19169) = 0;           /* 0x0a9a */
+		}
+		return 1;                                /* 0x0aa4 */
+	}
+
+	return 0;                                        /* L0aa8 */
+}
+
 /* JT[499] (CODE 13+0x279c) — does combat record `rec` have a
  * multi-unit kind? rec+12 -> aux record; aux[40] indexes the
  * 16-byte entries at A5 -27944; true when entry[12] > 1. */
