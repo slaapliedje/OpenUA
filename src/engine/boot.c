@@ -76398,6 +76398,78 @@ static void l28d4(void *arg8)
  * links.  Same (short cmd, long *rec, void *area) ABI as the sibling handlers
  * jt233/jt239/jt244.
  */
+/* L13aa..L1622 (CODE 11) — jt243's shared per-tool FINALIZE tail.  Clears the low 16
+ * bits of the `rec` (fp@10) 32-bit tool word, then packs the edited tool state back
+ * into it — differently per tool via a JT[1] @0x13ba on holder[0]=cmd (arms decoded
+ * with jt1_extract, incl. the nested JT[1] @0x151e).  Repaints for the paint tools
+ * (JT[274]/JT[201]/JT[275]), clears holder[17], and returns the tool command
+ * holder[0].  `scratch` is jt243's fp@(-2) carried from the head arm (only the cmd-12
+ * arm reads it).  Every jt243 arm returns through here.  Phase C7b. */
+static short l243_finalize(unsigned char *h, long *rec, short scratch) __attribute__((unused));
+static short l243_finalize(unsigned char *h, long *rec, short scratch)
+{
+	*rec &= 0xFFFF0000L;                                      /* 0x13aa */
+	switch (*(short *)h) {                                    /* 0x13ba JT[1](holder[0]) */
+	case 5:                                                  /* 0x13e2 — paint finalize */
+		jt274((void *)(h + 46), &g_a5_byte(-12288));     /* 0x13fa */
+		*rec |= (long)(jt201((short)(signed char)g_a5_byte(-12288),
+		                     (short)(signed char)g_a5_byte(-12287)) & 0xff) << 16;   /* 0x1410 */
+		*rec |= (long)((((*(short *)(h + 6) & 6) << 10) | 256) & 0xffff) << 16;      /* 0x142a */
+		break;
+	case 9:                                                  /* 0x144c */
+		if (h[4] == 0)                                   /* 0x1452 */
+			((unsigned char *)rec)[2] |= 0x20;       /* 0x145a bset #5 */
+		*rec |= (long)(*(short *)(h + 6) & 0xff);        /* 0x1464 */
+		break;
+	case 10:                                                /* 0x147e (JT[1] 0-case) */
+		*rec |= (long)(*(short *)(h + 6) & 63);          /* 0x1494 */
+		break;
+	case 20:                                                /* 0x14a4 */
+		*rec |= (long)(*(short *)(h + 6) & 0xff) << 16;  /* 0x14b0 */
+		break;
+	case 8:                                                 /* 0x14c0 */
+		h[4] = 1;                                        /* 0x14c6 */
+		{
+			short r = (short)(jt370((short)9,
+			           (short)(*(short *)(h + 6) == 2 ? 1 : 0)) & 0xff);   /* 0x14e0 */
+			*rec |= (long)(((r << 8) | h[14]) & 0xffff) << 16;           /* 0x14ee */
+		}
+		break;
+	case 11:                                                /* 0x1510 */
+		switch (*(short *)(h + 6) & 15) {                /* 0x151e JT[1] */
+		case 0:                                          /* 0x1532 */
+			*rec |= (long)*(short *)(h + 6);
+			break;
+		case 3:                                          /* 0x1546 */
+			*rec |= (long)(*(short *)(h + 6) & 15);
+			break;
+		case 5:                                          /* 0x1556 */
+			*rec |= (long)((((h[15] << 4) | (*(short *)(h + 6) & 15)
+			                 | ((*(short *)(h + 6) & 48) << 4))) & 0xffff) << 16;
+			break;
+		}
+		break;
+	case 12:                                                /* 0x1584 */
+		{
+			short t = (short)((scratch & 0xFFF0) | (h[10] & 15));    /* 0x1584 */
+			t = (short)((t & 0xFF0F) | ((h[12] & 15) << 4));         /* 0x159e */
+			*rec |= (long)((((t & 0xFF) << 4)
+			                | (*(short *)(h + 6) & 15)) & 0xffff) << 16;  /* 0x15bc */
+		}
+		break;
+	case 1:                                                 /* 0x15e0 */
+		g_a5_long(-12288) = *(long *)(h + 46);           /* 0x15e4 */
+		g_a5_word(-12284) = *(short *)(h + 50);
+		g_a5_byte(-12286) &= 7;                          /* 0x15f0 */
+		jt275((short)(unsigned char)h[5], (short)(unsigned char)h[4]);   /* 0x160e */
+		break;
+	default:                                                /* 0x1614 */
+		break;
+	}
+	h[17] = 0;                                               /* 0x1614 */
+	return *(short *)h;                                      /* 0x1620 */
+}
+
 /* jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor MAIN dispatcher (l0096 command 2).
  * ~800 insn: NULL-guards the holder `area` (fp@14), stashes it, writes the tool
  * command `cmd` into holder[0], then a 20-arm JT[3] @0x0b48 (min=1,max=20) tool
