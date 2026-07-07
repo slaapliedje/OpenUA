@@ -42,7 +42,7 @@ giants are barely begun). Don't let "97%" set the expectation.
 | ~~jt243~~ | 11 | **5216** | GEO 3D-map editor — ✅ DONE (Phase C, all 20 arms) | geo-editor-wall |
 | ~~jt335~~ | 8 | ~~2598~~ 1396 | list-widget LDEF — ✅ DONE (Phase D1, l3686+l3cb4+l3bfa) | — |
 | ~~jt242~~ | 11 | **1298** | GEO 3D-map editor — ✅ DONE (Phase C) | geo-editor-wall |
-| jt896 | 19 | **666** | character sheet / party container | — |
+| ~~jt896~~ | 19 | ~~666~~ 564 | temple donation/tithe screen — ✅ DONE (+l3fd2 numeric field, +jt939=l4218 LE write) | — |
 | jt916 | 12 | **392** | Training Hall | training-hall-menu-keystone |
 | jt1206 | 4 | **314** | display low-level (may be HAL-superseded — check first) | — |
 
