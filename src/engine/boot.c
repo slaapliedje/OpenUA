@@ -75064,6 +75064,62 @@ static void l2ea0(void *holder_v, short a2)
 	}
 }
 
+/* L4416 (CODE 11 + 0x4416) — (re)build the GEO editor's three tool menus.  After
+ * JT[344] resets the menu manager, installs the three menu-record buffers
+ * g_a5_-11536 / -11436 / -11352 into the holder's pointer slots H[8]/[12]/[16]
+ * and inits each (JT[338]), stamps H[28]=3 (menu count), bumps the three menu
+ * counters (-11528/-11428/-11344), and rebuilds the item states (l24b6).  Then it
+ * lights the sub-kind highlight table g_a5_-11508[i+3].7 = (rec[5]==i ? 4 : 0) for
+ * i=0..3, and seeds the colour/flag scratch (-11501/-11493/-11469/-11409/-11484)
+ * per JT[358] and rec[4].  rec = *holder.  A jt243 (GEO editor) mid; caller l43c2.
+ * JT[338] drops its (unused) 2nd arg in the port lift, like JT[312]. */
+static void l4416(void *holder_v) __attribute__((unused));
+static void l4416(void *holder_v)
+{
+	unsigned char *H = (unsigned char *)holder_v;             /* fp@(8) */
+	unsigned char *rec;
+	short i;
+
+	jt344();                                                  /* 0x441a */
+
+	*(long *)(H + 8)  = (long)(uintptr_t)&g_a5_byte(-11536);   /* 0x4438 */
+	jt338((long)(uintptr_t)&g_a5_byte(-11536));               /* 0x4440 */
+	*(long *)(H + 12) = (long)(uintptr_t)&g_a5_byte(-11436);   /* 0x445c */
+	jt338((long)(uintptr_t)&g_a5_byte(-11436));               /* 0x4464 */
+	*(long *)(H + 16) = (long)(uintptr_t)&g_a5_byte(-11352);   /* 0x4480 */
+	jt338((long)(uintptr_t)&g_a5_byte(-11352));               /* 0x4488 */
+
+	H[28] = 3;                                                /* 0x4492 — menu count */
+	g_a5_word(-11528) += 1;                                   /* 0x4498 */
+	g_a5_word(-11428) += 1;                                   /* 0x449c */
+	g_a5_word(-11344) += 1;                                   /* 0x44a0 */
+	l24b6(H);                                                 /* 0x44a8 */
+
+	rec = *(unsigned char **)H;
+	for (i = 0; i < 4; i++)                                   /* 0x44b4/0x44f2 */
+		g_a5_byte(-11508 + (i + 3) * 8 + 7) =
+		        (unsigned char)(rec[5] == i ? 4 : 0);
+
+	if ((jt358() & 0xff) <= 4) {                              /* 0x44fa/0x4502 */
+		g_a5_byte(-11501) = (unsigned char)0x81;
+		g_a5_byte(-11493) = 4;
+		g_a5_long(-11484) = g_a5_long(-11512);            /* 0x4514 */
+		g_a5_byte(-11469) = (unsigned char)0x81;
+		g_a5_byte(-11409) = (unsigned char)0x81;
+	} else {                                                  /* L4528 */
+		rec = *(unsigned char **)H;
+		if (rec[4] == 0) {                                /* 0x4534 */
+			g_a5_byte(-11501) = 4;
+			g_a5_byte(-11493) = 0;
+		} else {                                          /* L4544 */
+			g_a5_byte(-11501) = 0;
+			g_a5_byte(-11493) = 4;
+		}
+		g_a5_byte(-11409) = 0;                            /* 0x454e */
+		g_a5_long(-11484) = g_a5_long(-11516);            /* 0x4552 */
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
