@@ -75662,6 +75662,30 @@ static void l2e1c(void *holder_v, short a2)
 	}
 }
 
+/* L2dbe (CODE 11 + 0x2dbe) — GEO editor command router: dispatch on the group a2
+ * (JT[3] @0x2dcc, 1..3) to the file/mode handler l2e1c (1), the cell tool/kind
+ * handler l2ea0 (2), or the tool-command handler l3236 (3), each with the
+ * sub-command a3; an out-of-range group beeps (JT[1080]).  A jt243 (GEO editor)
+ * helper; caller l2d40. */
+static void l2dbe(void *holder_v, short a2, short a3) __attribute__((unused));
+static void l2dbe(void *holder_v, short a2, short a3)
+{
+	switch ((unsigned char)a2) {                             /* JT[3] @0x2dcc */
+	case 1:                                                  /* 0x2dd8 */
+		l2e1c(holder_v, (short)(unsigned char)a3);
+		break;
+	case 2:                                                  /* 0x2dec */
+		l2ea0(holder_v, (short)(unsigned char)a3);
+		break;
+	case 3:                                                  /* 0x2e00 */
+		l3236(holder_v, (short)(unsigned char)a3);
+		break;
+	default:                                                 /* 0x2e14 */
+		jt1080();
+		break;
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
