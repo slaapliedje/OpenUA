@@ -526,11 +526,22 @@ l2836/l1a1c/l24b6/l2ea0/l43c2 earlier, the **only remaining hub dep is l2d40**.
 **THE WHOLE REMAINDER funnels through ONE chain — the jt337 CODE-8 subtree:**
 l2d40 → l37f6 → l3e60 → **jt337=l41de**, which needs **l5150 ✓ → l4b10 + l4c4c**.
 
-**C6i DONE — l5150 (CODE 8, the ~200-insn menu-item renderer) is LIFTED.** It was
-error-prone (found+fixed 4 slips on re-verify); the transcription lesson: build each
-jt1089/jt995/jt1001/jt1161 call from the exact push order, then re-verify every arg.
-Placement note: needed a `static short jt1166(void);` forward decl before it.
-**NEXT: l4b10 (~97) + l4c4c (~31), both need l5150 ✓ → l41de=jt337 (~160).**
+**C6i–C6j DONE — l5150, l4b10, l4c4c (CODE 8) are LIFTED.** l5150 (the ~200-insn
+item renderer) had 4 transcription slips caught on re-verify; l4b10 (locate+draw one
+item, page via JT[388], skip separators) and l4c4c (scroll-arrow ^/v cell) both call
+l5150.  Lesson: build each draw call from the exact push order, re-verify every arg.
+Placement: needed a `static short jt1166(void);` forward decl before l5150.
+
+**NEXT — l41de = jt337 (CODE 8 + 0x41de → 0x43f4, ~160 insn) — FULLY MAPPED, lift
+carefully (like l5150, re-verify each call):** the pulldown SCROLL handler.  Args
+(rec, state, delta, style, margin, value, outp, col@fp28 in/out=return).  Two
+symmetric branches on delta sign (down: delta<0 / up: delta>=0): compute two
+y-bounds fp@(-2)/fp@(-4) from state[0]/state[2]/state[6] + rec[16], adjust
+state[0]/state[2] counters, and when a counter hits 1 draw the scroll arrow
+(l4c4c(rec, top, style, up?1:0)).  Then a 7-arg JT[1126] scroll blit
+(y-bounds, rec[10]+margin, rec[18]*4+rec[10]-margin, delta+8000, 0, style-nibble),
+an l4b10 to draw the revealed item(s) (idxp=&col), and set *outp = value (or -1 on
+no-scroll); returns col.  Then **l3e60 → l37f6 → l2d40 → l28d4 hub → jt243 proper.**
 
 (Historical scope note — l5150 details:) full menu-ITEM RENDERER (0x5150 → 0x54f8):
 two draw modes on fp@27 bit4; icon/highlight blits (JT[995]/JT[1001]), formatted
