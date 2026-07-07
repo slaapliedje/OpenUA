@@ -9792,6 +9792,16 @@ static void jt1069(short start, short count, unsigned char *src,
  * into the clut, set the ceiling/floor fallback colours, build the per-slot
  * per-depth darken remap (nearest darker colour within the slot's own
  * band), and re-lay the backdrop band (which this clut write clobbers). */
+/* The dungeon wall colour-cycle (fireplace/torch, Card B.1b/B.2, commit 2863b8a)
+ * never worked and REGRESSED the walls: cw_finalize's jt1069 install seeds the -3258
+ * cycle entries + the -3394 work buffer, and the per-frame jt1067 rotation then
+ * commits its [min..max] range straight to the hardware CLUT (l6e58), overwriting the
+ * per-set wall bands with rotated/garbage colour every frame -> walls blit but paint
+ * near-black (invisible).  The static per-set palette install (qd_set_palette below)
+ * is correct and gives visible walls on its own, so the cycle install is gated OFF by
+ * default.  Flip to 1 only once the cycle path is actually fixed. */
+static int g_cw_wall_cycle = 0;
+
 static void cw_finalize(void)
 {
 	static const short fct[4] = { 256, 178, 128, 92 };
@@ -9867,6 +9877,7 @@ static void cw_finalize(void)
 	 * B.2. (jt1069 only stages -3390 / installs -3258 here; we don't call
 	 * jt1066, whose all-used commit would re-write the UI band black until the
 	 * whole dungeon palette is staged.) */
+	if (g_cw_wall_cycle) {                   /* OFF by default — see g_cw_wall_cycle */
 	if (g_a5_long(-3394) == 0)
 		jt1068();                       /* ensure the cycle buffers exist */
 	if ((void *)(uintptr_t)g_a5_long(-3394) != NULL) {
@@ -9898,6 +9909,7 @@ static void cw_finalize(void)
 			jt1069(g_cw_base[slot], (short)CW_BAND, src,
 			       g_cw_cyc_n[slot], rem);
 		}
+	}
 	}
 
 	load_backdrop(g_back_set);
