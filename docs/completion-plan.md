@@ -107,12 +107,44 @@ stubs referenced by `l0096` (cmd 2 → jt243, cmd 20 → jt242). See
 - D4  CODE 19 jt896 (666) — char sheet/party
 - ~~D5  CODE 12 jt916 (392) + jt927~~ ✅ DONE (jt916 level-2 handler, jt927 cursor
         redraw); Training Hall stubs jt919/931/933 remain (leaf stubs)
-- D6  CODE 4 jt1206 (314) — first confirm it isn't already HAL-superseded
+- D6  CODE 4 jt1206 — **VERIFIED 2026-07-07: a real ~52 B CODE-4 dispatcher**
+       (l04a0/l04f0/l0370, returns fp@14 pass-through), NOT HAL-superseded.
+       Small but has 3 local deps to check first.
 
-### Phase E — stub + small-missing cleanup, ~2-3 sessions
-The 15 stubs + CODE 8 jt334/336/337/371/373 + CODE 20 jt939 + CODE 5 stubs.
-Mostly small leaves; batch by segment. Finish with a full `jt_progress.py`
-sweep to confirm 0 missing / 0 stub / 0 stand-in.
+### Phase E — stub + small-missing cleanup
+
+**2026-07-07 verification (before starting E):**
+- **jt373** (CODE 8 +0x0004) — NOT superseded/aliased.  A real **~2362 B widget
+  dispatcher** structurally identical to jt335's LDEF (NULL-guard rec, data=
+  rec[8], JT[1] switch on the message).  A genuine giant — its own multi-step
+  lift, not a stub.  (The l0004 at boot.c:19014 is a *different* CODE-4/6 menu
+  dispatcher — collision; do not repoint jt373 to it.)
+- **jt426 / jt432 / jt458** (CODE 3) — CONFIRMED **SUPERSEDED / dead**: Mac
+  indexed-catalog OPEN / READ-NEXT / volume-enum, whose only callers (jt990/
+  jt991/jt12) the port reimplements over GEMDOS Fsfirst/Fsnext/boot.c.  Never
+  reached — count as done.
+
+**The 15 "leaf" stubs are NOT leaves — each roots a multi-function SUBTREE**
+(scoped 2026-07-07).  They stay stubs precisely because their sub-helpers are
+unlifted, several across (CODE,offset) collisions.  Real per-subtree work, not a
+batch.  Rough map (√ = sub-dep lifted, ✗ = missing sub-dep):
+- jt1008 (5, 32 B) → l0ab6 (280 B, box-panel draw: jt1141/jt1161/jt394 "%r"/
+  l0334=jt1089√) — intricate centre/truncate coord math.
+- jt587 (15, 76 B) → l08ba (46 B) → **l0006_c15** (84 B, 3-arg modal proc runner;
+  ✗ collides with a void l0006 at boot.c:48620).
+- jt985 (5, 80 B, "play song N") → l0f1e (→l0f48/l0faa) + l11a2 (→l0fc4) — all ✗.
+- jt1081 (5, 138 B, 4 sites) → l27bc/l35f8 ✗.
+- jt919 (12, 152 B) → l192c/l19d4/l1aea.  jt965 (5, 156 B) → l0088/l37aa√/l7ee0.
+- jt365 (8, 460 B) — all-JT file/catalog (jt990/991/384/130/133/404/419/431/435);
+  no locals — the most tractable, but real 460 B logic.
+- jt428 (3, 234 B); jt931 (12, 634 B, rule-book copy-protection prompt); jt933
+  (12, take-commit); jt974 (5, 632 B).
+- LARGE (real functions, not leaves): jt955 (21, 1014 B), jt1064 (5, 2076 B),
+  jt1144 (4, 1236 B), jt1178 (4, 1710 B).
+
+Sequence each as its own subtree lift (bottom-up, collisions suffixed `_cNN`),
+verifying against the disasm.  Finish with a full `jt_progress.py` sweep to
+confirm 0 missing / 0 stub / 0 stand-in.
 
 ## Standing constraints (every session)
 
