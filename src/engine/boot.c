@@ -74834,6 +74834,51 @@ static void l3ddc(void *obj_v, short a2, long a3)
 		l324c(obj);                                      /* 0x3e56 — JT[330] plain draw */
 }
 
+/* L3d1a (CODE 11 + 0x3d1a) — run one modal menu/colour pick for the GEO editor.
+ * Polls the event (JT[1125] kind 7); returns 0 if none.  Otherwise draws the menu
+ * via JT[334]=l3f2e(rec, colour, a4) with colour 112 when a4 (the frame handle)
+ * is set else 143.  A negative result means a pulldown is open: it re-reads the
+ * pointer (JT[1113]), hides then re-tracks the cursor (JT[112](0)/JT[1120]), maps
+ * the click to a menu/item pair via JT[342]=l567c and, when non-zero, writes the
+ * item byte (*outb = hi-nibble>>8&15) and the menu word (*outw = lo&15).  A
+ * non-negative result writes the picked word to *outw (when >0) and repaints
+ * (JT[112](0)/JT[1128]).  Returns 1 if something was picked, -1 if cancelled, 0
+ * if no event.  A jt243 (GEO editor) leaf; JT[334]/JT[342] are the lifted CODE-8
+ * l3f2e/l567c (alias map — not missing). */
+static short l3d1a(void *rec_v, void *outb_v, void *outw_v, long a4) __attribute__((unused));
+static short l3d1a(void *rec_v, void *outb_v, void *outw_v, long a4)
+{
+	unsigned char *rec  = (unsigned char *)rec_v;             /* fp@(8) */
+	unsigned char *outb = (unsigned char *)outb_v;            /* fp@(12) */
+	short         *outw = (short *)outw_v;                     /* fp@(16) */
+	short          v2 = 0, v4 = 0;                            /* fp@(-2) / fp@(-4) */
+	short          r, colour;                                 /* fp@(-6) */
+
+	if (jt1125((short)7, (long)(uintptr_t)&v2,                /* 0x3d2a — poll */
+	           (long)(uintptr_t)&v4) == 0)
+		return 0;                                        /* 0x3dd6 */
+
+	colour = (a4 != 0) ? (short)112 : (short)143;            /* 0x3d38 */
+	r = l3f2e(rec, colour, a4);                              /* 0x3d50 — JT[334] draw */
+
+	if (r < 0) {                                             /* 0x3d5c — pulldown open */
+		jt1113(&v2, &v4);                                /* 0x3d68 */
+		jt112((short)0);                                 /* 0x3d70 */
+		jt1120();                                        /* 0x3d76 */
+		r = l567c(v2, v4);                               /* 0x3d82 — JT[342] hit-test */
+		if (r != 0) {                                    /* 0x3d8c */
+			*outb = (unsigned char)((r >> 8) & 15);  /* 0x3d9a — item */
+			*outw = (short)(r & 15);                 /* 0x3daa — menu */
+		}
+	} else {                                                 /* 0x3dae */
+		if (r > 0)                                       /* 0x3db2 */
+			*outw = r;                               /* 0x3db8 */
+		jt112((short)0);                                 /* 0x3dbe */
+		jt1128();                                        /* 0x3dc4 */
+	}
+	return (short)(r != 0 ? 1 : -1);                         /* 0x3dc8 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
