@@ -75120,6 +75120,29 @@ static void l4416(void *holder_v)
 	}
 }
 
+/* L43c2 (CODE 11 + 0x43c2) — open the GEO editor's tool-menu panel for the current
+ * cell record (rec = *holder): lay the map-view panel (l455c(rec[4])), queue the
+ * title-label DLItem (jt444(JT[307]+4, 39, &-11699) — pointer in the (b,c) pair),
+ * rebuild the three tool menus (l4416), run the menu (JT[1010](0,1)) and repaint
+ * (JT[343]).  A jt243 (GEO editor) mid; caller l28d4 (the hub). */
+static void l43c2(void *holder_v) __attribute__((unused));
+static void l43c2(void *holder_v)
+{
+	unsigned char *H   = (unsigned char *)holder_v;           /* fp@(8) */
+	unsigned char *rec = *(unsigned char **)holder_v;         /* *H */
+	short          base;
+	uintptr_t      lbl;
+
+	l455c((short)rec[4]);                                     /* 0x43d4 */
+	base = jt307(rec);                                        /* 0x43e0 */
+	lbl  = (uintptr_t)g_a5_chars(-11699);
+	jt444((short)(base + 4), (short)39,                       /* 0x43f2 — title DLItem */
+	      (short)((unsigned long)lbl >> 16), (short)((unsigned long)lbl & 0xFFFF));
+	l4416(H);                                                 /* 0x43fc */
+	jt1010((short)0, (short)1);                               /* 0x4408 — run menu */
+	jt343();                                                  /* 0x440e */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
