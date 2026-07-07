@@ -39,12 +39,24 @@ giants are barely begun). Don't let "97%" set the expectation.
 
 | JT | CODE | ~insn | Subsystem | Wall doc |
 |----|------|------:|-----------|----------|
-| jt243 | 11 | **5216** | GEO 3D-map editor (biggest fn in the codebase) | geo-editor-wall |
-| jt335 | 8 | **2598** | foundational UI/file library | — |
-| jt242 | 11 | **1298** | GEO 3D-map editor | geo-editor-wall |
+| ~~jt243~~ | 11 | **5216** | GEO 3D-map editor — ✅ DONE (Phase C, all 20 arms) | geo-editor-wall |
+| ~~jt335~~ | 8 | ~~2598~~ 1396 | list-widget LDEF — ✅ DONE (Phase D1, l3686+l3cb4+l3bfa) | — |
+| ~~jt242~~ | 11 | **1298** | GEO 3D-map editor — ✅ DONE (Phase C) | geo-editor-wall |
 | jt896 | 19 | **666** | character sheet / party container | — |
 | jt916 | 12 | **392** | Training Hall | training-hall-menu-keystone |
 | jt1206 | 4 | **314** | display low-level (may be HAL-superseded — check first) | — |
+
+**Phase C (GEO editor) + Phase D1 (jt335) DONE (2026-07-07):** jt243 — all 20
+JT[3]@0x0b48 tool arms + finalize + subtree — completes the CODE-11 GEO editor
+(jt242+jt243).  jt335 (l3686) — the CODE-8 list-widget LDEF dispatcher — plus its
+two missing helpers l3cb4 (viewport layout) and l3bfa (row paint); its other
+callees were already present (l34d6, l3416, jt332=l4a16).  **Residual in the
+cluster:** jt334 (l3f2e, pulldown/list TRACK core, ~1.7KB) and jt336 (l45c6,
+panel PAINT core, ~1.1KB) are still Level-1 STUBS shared with the menu subsystem
+— jt335 calls them faithfully (case 3's `do-while(r6<0)` matches the real
+tracking loop) but they need full lifts (Phase E, or a D1d follow-up).  The
+jt_progress tool mis-labels both as "missing" (its alias set lacks l3f2e/l45c6);
+they are stubs, not absent.
 
 **DONE since this plan was authored (2026-07-06):** jt259 (art import, 2732 —
 Phase A) and the entire CODE 2 event editor — jt254 (422) / jt253 (644) /
