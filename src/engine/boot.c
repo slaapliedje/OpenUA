@@ -76734,15 +76734,65 @@ static short jt243(short cmd, long *rec, void *area)
 		}
 		l28d4(holder);                                   /* L12ee 0x12ee */
 		return l243_finalize(holder, rec, scratch);      /* → L13aa */
-	default:
-		/* TODO C7c+ — remaining arms: 1(L12fc) 3(L126e) 5(L11c0) 8(L0ef2)
-		 * 9(L0fce) 11(L0b7a/L0bf8) 12(L0de4) {13,19}(L1290) default/paint
-		 * (L136e).  The L136e/L12fc/L0bf8 arms call the CODE-11 l4144/l16ae
-		 * PROBE stubs — lift those first.  Each ends: edits → shared tail
-		 * [if holder[6]==0, l28d4] → return l243_finalize(holder,rec,scratch). */
-		break;
+	case 1:                                          /* L12fc — commit or (re)start a fill */
+		if (g_a5_byte(-18485) != 0) {                    /* 0x12fc — fill in progress */
+			l4168(holder);                           /* 0x1306 */
+			if (g_a5_byte(-18485) == 2)              /* 0x130c */
+				jt321();                         /* 0x1314 */
+			g_a5_byte(-18485) = 0;                   /* 0x1318 */
+			l16ae(holder);                           /* 0x1320 */
+		} else {                                         /* L132a — start */
+			scratch = (short)((*rec & 0x3F0000L) >> 16);  /* 0x132a fp(-2) */
+			if (scratch == 0)                        /* 0x133e */
+				scratch = 5;                     /* 0x1342 */
+			*rec &= 0xFFC0FFFFL;                     /* 0x1348 clear bits 16..21 */
+			*(short *)holder = 11;                   /* 0x1352 */
+			*(short *)(holder + 6) = (short)(scratch << 4);  /* 0x135a */
+		}
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	case 11:                                         /* L0b7a → L0bf8 — general tool handler */
+		/* Only cmd 11 is routed here (head JT[3]); L0b7a's (cmd&15==0) L0b8e branch
+		 * is unreachable, and the JT[3]@0xc24/@0xc3c below switch on cmd&15 / (cmd&48)
+		 * — both default for cmd 11, so the executed path is commit + hub.  The arms
+		 * are transcribed faithfully (they mirror the shared L0bf8 handler). */
+		*(short *)(holder + 2) = *(short *)holder;       /* 0x0bf8 */
+		*(short *)(holder + 6) = 0;                       /* 0x0c04 */
+		if ((*rec & 15) != 0) {                          /* 0x0c0c (==0 -> L0cd4) */
+			switch (cmd & 15) {                      /* 0x0c1a JT[3]@0xc24 (3/4/5) */
+			case 3:                                  /* L0ca8 */
+				if (l16f4(holder, (short)((*rec & 4080) >> 4),
+				          holder + 46) != 0)            /* 0x0cc4 */
+					jt321();                       /* 0x0cd0 */
+				break;
+			case 5:                                  /* L0c30 */
+				switch ((cmd & 48) >> 4) {       /* 0x0c30 JT[3]@0xc3c (1/2) */
+				case 1:                          /* L0c46 */
+					scratch = holder[15];                          /* 0x0c46 */
+					holder[15] = (unsigned char)((*rec & 4080) >> 4);  /* 0x0c54 */
+					l23de(holder, 5, scratch, 0);                  /* 0x0c6a */
+					break;
+				case 2:                          /* L0c82 */
+					*(short *)(holder + 6) =
+						(short)(((*rec & 4080) >> 4) | 0x8000);    /* 0x0c82 */
+					*(short *)holder = 20;                         /* 0x0ca2 */
+					break;
+				}
+				break;
+			}
+		}
+		if (*(short *)(holder + 6) == 0)                 /* L0cd4 0x0cd4 */
+			l28d4(holder);                           /* 0x0ce4 */
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	default:                                         /* L136e — cmds 2/4/6/7/16/18 + default */
+		if (jt273() != 0) {                              /* 0x136e */
+			l4144_c11(holder, (short)(jt358() & 255));   /* 0x1384 */
+			l16ae(holder);                           /* 0x138e */
+		} else {                                         /* L1396 */
+			l4168(holder);                           /* 0x139a */
+			l16ae(holder);                           /* 0x13a4 */
+		}
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
 	}
-	return cmd;                                      /* placeholder — unfilled arms (C7c+) */
 }
 
 /* jt242 (CODE 11 + 0x589a) — the cell-edit COMMITTER (l0096 command 20).  Given
