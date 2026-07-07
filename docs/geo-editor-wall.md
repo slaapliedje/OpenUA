@@ -489,9 +489,16 @@ helper l24b6_label). **Reminder: at each JT[NNN] site whose entry is alias-only,
 call the lXXXX name — `jtNNN` is not a symbol (mistyping `jt395` for `l46b2` broke
 the l24b6 build once).**
 
-**Newly UNBLOCKED mid — l2ea0 (918B, ~230 insn):** all deps now present (locals
-l2414/l24b6/l4268/l429c/l455c/l476e ✓, all JT resolve). A big cell-edit sub-handler
-toward the hub l28d4. **Still genuinely blocked:** l3e60 (needs jt337=l41de),
+**C5t DONE — l2ea0 (918B):** the cell tool/kind command handler (JT[3] 0..8 on
+a2-1: set-kind / toggle-sub-kind / toggle-rec[9]; tool-palette highlight table
+g_a5_-11508[k].7; scroll step jt218; recompose chain). Full lift.
+
+**HUB l28d4 (0x28d4–0x2d40) — the GEO editor modal command LOOP — remaining deps:**
+l1a1c, l2836, l2d40, l2dbe, l3380, l43c2 (l24b6 ✓, l2ea0 ✓).  It polls JT[456]=
+l2d3e (keypress) and dispatches to l2dbe/l2d40/l3380 + jt278/jt284/jt312/jt152/
+l24b6/l4268 (seen at 0x2b34–0x2cfa).  Lift those 6 mids, then l28d4, then l1d88,
+then jt243 proper.  **Still genuinely blocked (need the 2 truly-missing JTs):**
+l3e60 (jt337=l41de),
 l36f6/l37d8 (l0742 subtree needs jt371=l660c + locals l0854/l07c2; l0742 = the
 "Save 3D Map" GEO writer, 12962-byte level write).
 
