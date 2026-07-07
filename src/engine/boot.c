@@ -59631,6 +59631,92 @@ static short l567c(short v, short h)
 	}
 }
 
+/* l3cb4 (CODE 8 + 0x3cb4) — jt335's list VIEWPORT-LAYOUT calculator.  Pure
+ * arithmetic (no draws): given the list widget H, its data record, and an
+ * optional output block `pb`, it computes the pixel origin of the anchor row
+ * (data[8]) and, when pb is present, the scroll margins pb[0]/pb[2], the visible
+ * span pb[4] and the pixel extent pb[6] — scanning the 8-byte element array
+ * (elem[7]&2 = a skipped/separator row) above and below the anchor row H[24] and
+ * balancing the top/bottom overflow.  rowh = (data[13]&0x10)?5:4.  Uses the Mac
+ * scratch global g_a5_-27914 as the element-scan counter. */
+static void l3cb4(unsigned char *H, unsigned char *data, unsigned char *pb)
+                                                __attribute__((unused));
+static void l3cb4(unsigned char *H, unsigned char *data, unsigned char *pb)
+{
+	short          rowh = (data[13] & 0x10) ? 5 : 4;
+	short          saved_row = 0;     /* fp@(-4) */
+	short          top_saved;         /* fp@(-6) */
+	unsigned char *elem;              /* fp@(-10) */
+
+	if (pb == NULL) {                                       /* 0x3cbc */
+		H[28] &= ~0x20;                                 /* 0x3cc2 bclr #5 */
+		*(short *)(data + 8) =                           /* 0x3d06 */
+		    (short)(*(short *)(H + 16)
+		            - (short)((*(short *)(H + 24) - 1) * rowh));   /* 0x3cf0-0x3d00 */
+		return;                                         /* → L3f2a */
+	}
+
+	if (data[13] & 4) {                                     /* 0x3d18 btst #2 */
+		saved_row = *(short *)(H + 24);                 /* 0x3d22 */
+		*(short *)(H + 24) = 1;                          /* 0x3d2c */
+	}
+
+	/* pb[0] = anchor - rows-above-fold - 1 ;  pb[2] = (data[12]-anchor) - rows-below-fold - 1 */
+	*(short *)(pb + 0) = (short)(*(short *)(H + 24)
+	    - (short)((unsigned short)(*(short *)(H + 16) - 8008) / rowh) - 1);   /* 0x3d5a-0x3d76 */
+	*(short *)(pb + 2) = (short)((signed char)data[12] - *(short *)(H + 24)
+	    - (short)((unsigned short)(8092 - *(short *)(H + 16)) / rowh) - 1);   /* 0x3d80-0x3dac */
+	*(short *)(pb + 4) = 0;                                                   /* 0x3db4 */
+
+	/* scan rows ABOVE the anchor (index H[24]-2 down to 0): skipped rows shrink
+	 * the top margin pb[0], visible rows grow the span pb[4]. */
+	g_a5_word(-27914) = (short)(*(short *)(H + 24) - 2);            /* 0x3dc0 */
+	elem = *(unsigned char **)(data + 4)
+	     + ((long)g_a5_word(-27914) << 3);                          /* 0x3dc6-0x3dd6 */
+	while (g_a5_word(-27914) >= 0) {                                 /* 0x3e04 */
+		if (elem[7] & 2)                                        /* 0x3de0 btst #1 */
+			*(short *)(pb + 0) -= 1;                        /* 0x3df0 */
+		else
+			*(short *)(pb + 4) += 1;                        /* 0x3df8 */
+		g_a5_word(-27914) -= 1;                                 /* 0x3dfc */
+		elem -= 8;                                              /* 0x3e00 */
+	}
+
+	/* scan rows AT/BELOW the anchor (index H[24] up to data[12]): skipped rows
+	 * shrink the bottom margin pb[2], visible rows grow the span pb[4]. */
+	top_saved = *(short *)(pb + 4);                                 /* 0x3e0e */
+	*(short *)(pb + 4) += 1;                                         /* 0x3e18 */
+	g_a5_word(-27914) = *(short *)(H + 24);                          /* 0x3e20 */
+	elem = *(unsigned char **)(data + 4)
+	     + ((long)g_a5_word(-27914) << 3);                          /* 0x3e26-0x3e36 */
+	while ((signed char)data[12] > g_a5_word(-27914)) {            /* 0x3e6a-0x3e74 */
+		if (elem[7] & 2)                                        /* 0x3e40 */
+			*(short *)(pb + 2) -= 1;                        /* 0x3e50 */
+		else
+			*(short *)(pb + 4) += 1;                        /* 0x3e5a */
+		g_a5_word(-27914) += 1;                                 /* 0x3e5e */
+		elem += 8;                                              /* 0x3e62 */
+	}
+
+	/* balance the top overflow against the bottom margin, and vice-versa. */
+	while (*(short *)(pb + 0) < 0
+	    && (short)(-*(short *)(pb + 0)) > *(short *)(pb + 2))        /* 0x3e7e-0x3e96 */
+		*(short *)(pb + 0) += 1;                                /* 0x3e78 */
+	while (*(short *)(pb + 2) < 0
+	    && (short)(-*(short *)(pb + 2)) > *(short *)(pb + 0))        /* 0x3ea2-0x3eba */
+		*(short *)(pb + 2) += 1;                                /* 0x3e9a */
+
+	/* final pixel geometry: data[8] = top of the fold; pb[6] = bottom extent. */
+	*(short *)(data + 8) = (short)(*(short *)(H + 16)
+	    - (short)((top_saved - *(short *)(pb + 0)) * rowh));         /* 0x3ebe-0x3eda */
+	*(short *)(pb + 6) = (short)((*(short *)(pb + 4)
+	    - *(short *)(pb + 0) - *(short *)(pb + 2)) * rowh
+	    + *(short *)(data + 8));                                     /* 0x3ee2-0x3f08 */
+
+	if (data[13] & 4)                                               /* 0x3f10 */
+		*(short *)(H + 24) = saved_row;                        /* 0x3f24 */
+}
+
 /* l3bfa (CODE 8 + 0x3bfa) — jt335's per-row PAINT helper.  Resolves the row's
  * 8-byte list element (data[4] base + H[24]*8 - 8, i.e. the 1-based row H[24]),
  * formats its display string (JT[394] runs the element's format-pointer *elem
