@@ -155,6 +155,33 @@ raw tile byte `v` and the final written value — any `v < 32` (falling into the
 UI band) or a near-black final value confirms. The separate walk-loop stall is
 still open and untouched by this audit.
 
+## "What you broke" reconciled (2026-07-07) — deliberate design + a never-run path
+
+Not an accidental regression.  Two threads, both confirmed against the current tree
+and git history:
+
+1. **The per-set CLUT-band model is a deliberate design**, introduced by `cac2002`
+   ("per-set wall palette (CTL item 0 @ clut[32]) — kills candy cast"), extended by
+   `f5aef40` (per-edge sets, `g_cw_base = {32,64,96}`) and retuned to `{32,69,106}`
+   by `2863b8a`.  `l309c_tile` (boot.c:10585-10617) rebases `off = v-32`; for the
+   WOOD sets (Wall2 = set8, bytes 0..53) the low bytes `v<32` fall through UNCHANGED
+   into CLUT 0..31 (the UI/chrome band) → invisible, worst over the night sky.  This
+   is the audit-verdict root cause, still live.
+2. **The faithful Mac shared-palette path was lifted but NEVER RUN.**  `l58c4`
+   (boot.c:2894, the backdrop overlay that installs the dungeon picture palette via
+   `l3f3c(32,255)` = JT[105]) is gated by `g_dungeon_bigpic_overlay`, which was born
+   `0` in `ddecbb8` and has never been flipped.  So the shared-palette CLUT model has
+   literally never executed → the Wall2/Wall3-wood + night-sky config never worked.
+   **Incomplete path, not a break** — matches the audit hedge.
+
+**FIX = enable the faithful path, carefully:** turn on the shared dungeon palette
+(the `l58c4`/`l3f3c` install) and blit tile bytes DIRECT (drop the `l309c_tile`
+rebase), retiring the per-set bands — per the standing `dungeon-view-wall.md` Card 1.
+RISKY (the "palette regressed badly last time" warning).  **Do the low-risk
+confirm-probe FIRST** (below) to capture the exact band/coord ground truth before the
+rework; HEIRS.DSN is staged and the `FRUA_SKIP_ENTRY_EVENTS`/`J200DIFF` level-5
+harness runs headless.
+
 ## Reproduction (needs a human at the mouse-gated menu)
 
 Instrumented build: add `FRUA_XFER_TRACE` probes (this session's set,
