@@ -59631,6 +59631,44 @@ static short l567c(short v, short h)
 	}
 }
 
+/* l3bfa (CODE 8 + 0x3bfa) — jt335's per-row PAINT helper.  Resolves the row's
+ * 8-byte list element (data[4] base + H[24]*8 - 8, i.e. the 1-based row H[24]),
+ * formats its display string (JT[394] runs the element's format-pointer *elem
+ * with the word arg elem[4] into a scratch buffer, else empties it), then hands
+ * that string plus the row geometry / colour / cmd-char / icon fields to the row
+ * renderer l5150.  jt335 calls it for the normal and highlighted row draws.
+ * (elem is read unconditionally for l5150 — the Mac relies on the base+offset
+ * being non-NULL for a valid row; the NULL guard only gates the name fetch.) */
+static void l3bfa(unsigned char *H, unsigned char *data, short colour)
+                                                __attribute__((unused));
+static void l3bfa(unsigned char *H, unsigned char *data, short colour)
+{
+	unsigned char *elem;             /* fp@(-46) — the row's list element */
+	char           namebuf[42];      /* fp@(-42) — formatted display string */
+
+	if (H == NULL || data == NULL)                                 /* 0x3bfe-0x3c12 */
+		return;
+
+	/* elem = data[4] (base ptr) + H[24] (1-based row) * 8 - 8 */
+	elem = *(unsigned char **)(data + 4)
+	     + ((long)*(short *)(H + 24) << 3) - 8;                     /* 0x3c16-0x3c2c */
+	if (elem != NULL && *(long *)elem != 0)                        /* 0x3c30-0x3c3a */
+		jt394(namebuf, (const char *)*(long *)elem,
+		      (short)*(short *)(elem + 4));                    /* 0x3c4e JT[394] */
+	else
+		namebuf[0] = 0;                                        /* 0x3c58 */
+
+	l5150((short)*(short *)(H + 16),          /* top     0x3ca4 */
+	      (short)*(short *)(H + 18),          /* left    0x3c9c */
+	      (short)*(short *)(data + 18),       /* width   0x3c94 */
+	      (const unsigned char *)namebuf,     /* item    0x3c8c */
+	      colour,                             /* style   0x3c88 (fp@16) */
+	      (signed char)elem[6],               /* cmdchar 0x3c80 */
+	      (signed char)elem[7],               /* flags1  0x3c74 */
+	      (short)*(short *)(data + 14),       /* icon    0x3c6c */
+	      (signed char)data[13]);             /* flags2  0x3c60 */
+}
+
 /* L34d6 (CODE 8) — the menu/item field accessor jt339 delegates to.
  * item < 1 queries the MENU record, item >= 1 the item record
  * (items base @4, 8 bytes each, 1-based). Both dispatch on `cmd`
