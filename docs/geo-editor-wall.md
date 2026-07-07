@@ -556,10 +556,21 @@ the shared tail **L0cd4** → when holder[6]==0, enter the modal loop **l28d4** 
 hub).  Exit tails: **L13aa** (a JT[1] @0x13ba fan-out — decode with jt1_extract, never
 by hand) and **L1622** (return).  Nested JT[3]s inside arms (e.g. @0x0c24, @0x0c3c).
 
-**C7 FILL PLAN (next):** fill arms bottom-up — start with the shared tail L0cd4→l28d4
-and the simplest arms (0x0dac/0x0de4), then the field editors (0x0cee family),
-decode the L13aa JT[1] tail, and work up to the general handler L0bf8.  All callees
-lifted; nothing missing/collided/deferred below jt243 proper.
+**C7b DONE — the FINALIZE keystone l243_finalize(holder, rec, scratch) is lifted.**
+jt243's L13aa..L1622 tail: clear rec low16, JT[1] @0x13ba on holder[0] → per-tool
+bit-pack into rec (8 arms; nested JT[1] @0x151e decoded), repaint (JT[274]/201/275),
+holder[17]=0, return holder[0].  `scratch`=jt243's fp@(-2) (only cmd-12 reads it).
+The whole ~800-insn jt243 proper has now been READ and all 5 JT[3]/JT[1] tables
+decoded — the fill is a well-specified transcription task.
+
+**C7 REMAINING — fill the head arms** (each ends: edit holder/rec fields → shared tail
+[if holder[6]==0, l28d4(holder)] → `return l243_finalize(holder, rec, scratch)`):
+- Simple: **L0dac (cmd 20)**, **L0cee (cmds 10/14/15/17)**, **L0d92/L0ed8** hub tails.
+- Field editors: **L0de4 (12)**, **L0ef2 (8)**, **L0fce (9)**, **L11c0 (5)**, **L126e
+  (3)**, **L12fc (1)**, **L1290 (13/19)**, **L136e (default/paint)**.
+- General handler **L0bf8** (case 11 family) with nested JT[3]s @0x0c24/@0x0c3c.
+All arm callees lifted (l23de/l16f4/l4144/l16ae/l4168/l28d4 + CODE-22 painters);
+nothing missing/collided/deferred.
 
 **NEXT — l41de = jt337 (CODE 8 + 0x41de → 0x43f4, ~160 insn) — FULLY MAPPED, lift
 carefully (like l5150, re-verify each call):** the pulldown SCROLL handler.  Args
