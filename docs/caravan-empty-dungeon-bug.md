@@ -1,6 +1,28 @@
 # BUG: HEIRS caravan → "empty" dungeon (walls blit but invisible + can't walk)
 
-**Status:** OPEN, well-narrowed (2026-07-06). Two distinct bugs on the
+## ✅ WALLS FIXED 2026-07-07 (commit 0722bf1)
+
+The invisible walls were **NOT** a palette bug (the per-set band model is correct,
+see [[wall-palette-per-set-is-correct]]) and **NOT** the colour cycle. Root cause:
+`jt200_layer` resolved the wall tile **one GLIB level too deep**. `jt468(binder[0])`
+already returns this group's 48-piece wall SET (the FC pool loads one set per group),
+but the port inserted an extra `sub = l37aa(base, g_wall_set[group])` treating base as
+the 10-set FILE TOP → it landed on a raw PIECE (metric header, not a nested GLIB) →
+`l2856`'s `l37aa` failed its 'GLIB' magic check → `l309c_tile` bailed at
+`if(info==0)return` for EVERY wall tile. The Mac's jt114 does `jt468(*handle)` then
+`l2856(base,idx)` directly (CODE 6 L3804). **Fix:** drop the extra `l37aa`,
+`jt114(page,top,left,idx,base)`. Found by driving HEIRS level 5 **headless**
+(keyboard: P→L→A→B→Returns) + probing the wall chain (`cw_load_slot` works with
+base_cnt=10/sub=GLIB; jt200_layer had base_cnt=48/sub=raw). tile blits 0→28; the
+corridor (stone walls + wood door) renders, with the colour cycle re-enabled.
+
+**STILL OPEN (separate, pre-existing):** the **walk-loop stall** — can't move/turn in
+the dungeon after the caravan event (jt221 fires once at entry; the exploration loop
+doesn't resume). Unaffected by the wall fix. Next target for a workable playthrough.
+
+---
+
+**Status:** WALLS FIXED; walk-loop stall open. (History below, well-narrowed 2026-07-06.) Two distinct bugs on the
 HEIRS "Load save → Begin Adventuring → intro caravan → take reward"
 path. Diagnosed live with a `FRUA_XFER_TRACE` DBG.LOG probe set (since
 reverted) + a Basilisk (Mac) ground-truth blit trace supplied by the user.
