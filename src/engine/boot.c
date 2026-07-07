@@ -59350,6 +59350,75 @@ static short l4a16(unsigned char *rec)
 	return width;
 }
 
+/* l43f6 (CODE 8 + 0x43f6) — jt334's POINT->ELEMENT hit-test.  Maps the click
+ * (cy,cx) through jt1139 to a row/col in the data record `rec`, checks it lands
+ * inside the panel, converts the pixel row to a visible-row index (/rowh, +P[0]
+ * top margin), then walks the 8-byte element array counting non-separator rows
+ * up to that index and validates the landed element's flags (elem[7]&0x81 = not
+ * selectable).  Writes the row's pixel offset (or -1) to *out and returns the
+ * element index (or -1 / 0).  rowh = (rec[13]&0x10)?5:4; P = l3cb4 layout block. */
+static short l43f6(unsigned char *rec, short cy, short cx, short *out, short *P)
+                                                __attribute__((unused));
+static short l43f6(unsigned char *rec, short cy, short cx, short *out, short *P)
+{
+	short          width4 = (short)(*(short *)(rec + 18) << 2);   /* fp@-4 */
+	short          flag;                                          /* fp@-9 */
+	short          lim;                                           /* fp@-8 */
+	short          vcount = 0;                                    /* fp@-2 (also *out) */
+	short          eidx = 0;                                      /* fp@-6 element index */
+	unsigned char *elem;
+
+	jt1139(*(short *)(rec + 16), *(short *)(rec + 10), cy, cx, &cy, &cx);   /* 0x4428 */
+
+	flag = (cy >= 0 && cx >= 0 && cx < width4) ? 1 : 0;          /* 0x4430 */
+
+	if (!flag) {                                                 /* 0x4450 */
+		vcount = -1;                                        /* L458a */
+	} else {
+		if (rec[13] & 0x10)                                 /* 0x4458 */
+			cy = (short)(cy / 5);                       /* 0x4468 signed */
+		else
+			cy = (short)(cy >> 2);                      /* 0x4478 */
+		cy += P[0];                                         /* 0x4482 */
+		lim = (short)((signed char)rec[12]
+		              - (P[1] > 0 ? P[1] : 0));             /* 0x448c-0x44b0 */
+		flag = (cy >= 0 && cy < lim) ? 1 : 0;               /* 0x44b4 */
+
+		if (flag) {                                         /* 0x44ce */
+			vcount = 0;
+			eidx = 0;
+			while (vcount <= cy && eidx < lim) {        /* 0x4502/0x450c */
+				elem = *(unsigned char **)(rec + 4)
+				     + (long)eidx * 8;
+				if (!(elem[7] & 2))                 /* 0x44ee */
+					vcount++;
+				eidx++;
+			}
+		}
+
+		if (flag && vcount > cy                             /* 0x4516-0x4524 */
+		    && ((*(unsigned char **)(rec + 4)
+		         + (long)(eidx - 1) * 8)[7] & 129) == 0) {  /* 0x4526-0x4546 */
+			vcount = (short)(vcount - (P[0] + 1));      /* 0x4554 */
+			if (rec[13] & 0x10)                         /* 0x4560 */
+				vcount = (short)(vcount * 5);
+			else
+				vcount = (short)(vcount << 2);
+		} else {                                            /* L4548 */
+			flag = 0;
+			vcount = -1;
+		}
+	}
+
+	*out = vcount;                                              /* 0x4590 */
+
+	if ((rec[13] & 4) && cy < 0)                                /* 0x4598 */
+		return -1;
+	if (flag)                                                   /* 0x45b2 */
+		return eidx;
+	return 0;
+}
+
 /* l4ede (CODE 8 + 0x4ede) — jt336's list-panel PAINT core: draws every visible
  * row of the data record `rec` (skipping elem[7]&2 separators), an optional
  * header row (unless rec[13]&4), and the two enclosing frame rules.  Row text
