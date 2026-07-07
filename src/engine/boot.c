@@ -59602,6 +59602,69 @@ static void l45c6(unsigned char *rec, short colour, long flag)
 	jt1161(c2y, (short)(c2x + 1), y, (short)(c2x + 2), 0);               /* 0x49f0 G */
 }
 
+/* Forward decls — these jt334 helpers/exports are defined later in the file. */
+static short l3266(unsigned char *rec, short y, short x, short *out);
+static void  l33ce(void);
+static short jt333(short cw);
+
+/* l4cb4_row_rect (the shared inline block at CODE 8 +0x4d1c / +0x4dde) — paint
+ * one row's invert highlight bar: map its top-left through jt1135 (+icon nudge),
+ * then stroke the rowh-tall, full-width rect with the jt333-derived fill.  The
+ * bottom/right edges use the un-mapped content coords, exactly as the Mac. */
+static void l4cb4_row_rect(unsigned char *rec, short colour, short row)
+                                                __attribute__((unused));
+static void l4cb4_row_rect(unsigned char *rec, short colour, short row)
+{
+	short top    = *(short *)(rec + 16);            /* fp@-2 */
+	short width4 = (short)(*(short *)(rec + 18) << 2);   /* fp@-4 */
+	short my, mx;                                    /* fp@-10, fp@-12 */
+	short rowh;
+
+	jt1135((short)(top + row), *(short *)(rec + 10), &my, &mx);   /* 0x4d3c */
+	if (rec[13] & 0x10)                             /* 0x4d48 */
+		my += (jt1166() >= 300) ? 2 : 1;         /* 0x4d54-0x4d62 */
+	rowh = (rec[13] & 0x10) ? 5 : 4;                /* 0x4d6e-0x4d8e */
+	jt1161(my, mx,
+	       (short)(top + row + rowh),               /* 0x4d96 (un-mapped bottom) */
+	       (short)(*(short *)(rec + 10) + width4),  /* 0x4da6 (un-mapped right) */
+	       jt333(colour));                          /* 0x4dce fill = jt333(colour) */
+}
+
+/* l4cb4 (CODE 8 + 0x4cb4) — jt334's mouse-TRACK loop.  Each pass polls the mouse
+ * (jt1132 -> position + button) and hit-tests it (l3266); when the highlighted
+ * element changes it repaints the new and old rows' invert bars, then pumps one
+ * idle tick (jt1007 + l33ce).  Loops while the button is held AND the hit is
+ * valid; returns the committed element (l3266's result, forced to 0 if the
+ * button released outside any element). */
+static short l4cb4(unsigned char *rec, short colour) __attribute__((unused));
+static short l4cb4(unsigned char *rec, short colour)
+{
+	short         prev = -1;         /* fp@-14 */
+	short         hit;               /* fp@-8  (l3266 return) */
+	short         out;               /* fp@-6  (l3266 out) */
+	short         y, x;              /* fp@-10, fp@-12 (mouse) */
+	unsigned char button;            /* fp@-17 */
+
+	for (;;) {
+		button = (unsigned char)jt1132(&y, &x);        /* 0x4cda mouse poll */
+		hit = l3266(rec, y, x, &out);                  /* 0x4cfc hit-test */
+		if (out != prev) {                             /* 0x4d08 */
+			if (out >= 0)                          /* 0x4d14 */
+				l4cb4_row_rect(rec, colour, out);   /* NEW highlight */
+			if (prev >= 0)                         /* 0x4dd6 */
+				l4cb4_row_rect(rec, colour, prev);  /* OLD highlight */
+			prev = out;                            /* 0x4e98 */
+		}
+		jt1007(0, (short)((hit == 0) ? 2 : 1));        /* 0x4eae idle tick */
+		l33ce();                                        /* 0x4eb4 */
+		if (button != 0 || hit < 0)                    /* 0x4eb8-0x4ec2 */
+			break;
+	}
+	if (button != 0 && hit < 0)                            /* 0x4ec6-0x4ed0 */
+		hit = 0;
+	return hit;                                            /* 0x4ed6 */
+}
+
 /* L3f2e (CODE 8) — the pulldown TRACK core (per-poll highlight move
  * via the l3266 hit-test, mouse-up commit). Level-1 stub (~1.7KB);
  * the -1 return reads as "still tracking", so a lifted caller loop
