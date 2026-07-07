@@ -76491,22 +76491,50 @@ static short jt243(short cmd, long *rec, void *area) __attribute__((unused));
 static short jt243(short cmd, long *rec, void *area)
 {
 	unsigned char *holder = (unsigned char *)area;   /* fp@(-8) = fp@(14) */
+	short scratch = 0;                               /* fp@(-2) — carried to l243_finalize */
 
 	PROBE("jt243");
-	(void)rec;
 	if (area == NULL)                                /* 0x0b2a — NULL guard */
 		return 0;                                /* 0x0b32 → L1622 (d0=0) */
 	*(short *)holder = cmd;                          /* 0x0b40 — holder[0] = tool cmd */
 
 	switch (cmd) {                                   /* 0x0b48 JT[3] (min=1,max=20) */
-	/* TODO C7b+ — fill the tool-palette arms bottom-up (see the map above).  The
-	 * dominant path is: edit holder/rec fields, then shared tail L0cd4 → if
-	 * holder[6]==0, l28d4(holder) [the modal command loop].  All arm callees
-	 * (l23de/l16f4/l4144/l16ae/l28d4/…) are already lifted. */
+	case 10: case 14: case 15: case 17:              /* L0cee — layer/backdrop tools */
+		*(short *)holder = *(short *)(holder + 2);       /* 0x0cee holder[0]=holder[2] */
+		scratch = *(short *)(holder + 6);                /* 0x0cfe fp(-2)=holder[6] */
+		*(short *)(holder + 6) = 0;                      /* 0x0d08 */
+		if ((*rec & 15) != 0) {                          /* 0x0d0c */
+			if (cmd == 14) {                         /* 0x0d18 */
+				holder[17] &= ~4;                /* 0x0d24 bclr#2 */
+				jt321();                         /* 0x0d2a */
+				jt305(holder, 3, 0);             /* 0x0d38 */
+			} else if (cmd == 15) {                  /* 0x0d40 */
+				jt305(holder, 4, 0);             /* 0x0d52 */
+			}                                        /* cmd 10/17: no paint */
+		} else if (cmd == 14 && (holder[17] & 4)) {      /* L0d62 0x0d62/0x0d6a */
+			jt305(holder, 0, 0);                     /* 0x0d82 */
+			holder[17] &= ~4;                        /* 0x0d88 bclr#2 */
+		}
+		if (*(short *)(holder + 6) == 0)                 /* L0d92 0x0d96 */
+			l28d4(holder);                           /* 0x0da2 */
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	case 20:                                         /* L0dac */
+		*(short *)holder = *(short *)(holder + 2);       /* 0x0dac holder[0]=holder[2] */
+		if ((*rec & 15) != 0) {                          /* 0x0dbc */
+			jt321();                                 /* 0x0dc4 */
+			jt305(holder, 0, 0);                     /* 0x0dd0 */
+		}
+		l28d4(holder);                                   /* 0x0dda (unconditional) */
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
 	default:
+		/* TODO C7c+ — remaining arms: 1(L12fc) 3(L126e) 5(L11c0) 8(L0ef2)
+		 * 9(L0fce) 11(L0b7a/L0bf8) 12(L0de4) {13,19}(L1290) default/paint
+		 * (L136e).  The L136e/L12fc/L0bf8 arms call the CODE-11 l4144/l16ae
+		 * PROBE stubs — lift those first.  Each ends: edits → shared tail
+		 * [if holder[6]==0, l28d4] → return l243_finalize(holder,rec,scratch). */
 		break;
 	}
-	return cmd;                                      /* placeholder — real return via L13aa/L1622 tails (C7 fill) */
+	return cmd;                                      /* placeholder — unfilled arms (C7c+) */
 }
 
 /* jt242 (CODE 11 + 0x589a) — the cell-edit COMMITTER (l0096 command 20).  Given
