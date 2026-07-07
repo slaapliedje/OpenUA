@@ -76601,13 +76601,12 @@ static short l243_finalize(unsigned char *h, long *rec, short scratch)
  * modal command loop **l28d4** (the hub).  Exit tails L13aa (a JT[1] @0x13ba fan-out)
  * and L1622 (return).
  *
- * LEVEL-2 SKELETON (Phase C7a): the head is a full faithful lift; the 20 arms are the
- * remaining bottom-up fill (all their callees are lifted).  Decoded arm map (share =
- * common target):  1→0x12fc  3→0x126e  5→0x11c0  8→0x0ef2  9→0x0fce  11→0x0b7a
- * 12→0x0de4  20→0x0dac ; {10,14,15,17}→0x0cee ; {13,19}→0x1290 ;
- * {2,4,6,7,16,18,default}→0x136e.  Kept as a PROBE stub body below the faithful head
- * until the arms are filled; jt243 is DCE'd until jt315's selection dispatch wires
- * l0004_22, so the stub tail is inert. */
+ * COMPLETE (Phase C7a-j): head + all 20 arms + the L13aa/L1622 finalize (l243_finalize)
+ * faithfully lifted.  Arm map (share = common target):  1→L12fc  3→L126e  5→L11c0
+ * 8→L0ef2  9→L0fce  11→L0bf8  12→L0de4  20→L0dac ; {10,14,15,17}→L0cee ; {13,19}→L1290 ;
+ * {2,4,6,7,16,18,default}→L136e.  Helper subtree l068a/l36f6/l4144_c11/l16ae lifted
+ * alongside.  Every JT[3]/JT[1] table decoded with jt3_extract/jt1_extract.  jt243 is
+ * DCE'd until jt315's selection dispatch wires l0004_22. */
 static short jt243(short cmd, long *rec, void *area) __attribute__((unused));
 static short jt243(short cmd, long *rec, void *area)
 {

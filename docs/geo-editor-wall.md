@@ -542,10 +542,12 @@ dispatch (jt152→l3380/l24b6 or JT[3] @0x2c38 → l2dbe/l2d40/l1a1c/jt311), idl
 (jt1067/jt354) + hover/mouse (jt272/jt284/l4268). All 4 JT[3] decoded via
 jt3_extract. Resolved: fp@(-3)=low byte of cmd; REC==arg8; case-0 facing = sx+=1.
 
-**jt243 PROPER — LEVEL-2 SKELETON DONE (C7a); ARMS ARE THE FILL.**  Sig
-`jt243(short cmd, long *rec=fp@10, void *area=fp@14=holder)`.  Head is a FULL
-faithful lift: NULL-guard area→0, `*(short*)holder = cmd`, then the 20-arm JT[3]
-@0x0b48 (min=1,max=20).  The ~800-insn arm body is the remaining bottom-up fill.
+**✅ jt243 PROPER — COMPLETE (C7a–C7j, 2026-07-07).**  Sig
+`jt243(short cmd, long *rec=fp@10, void *area=fp@14=holder)`: NULL-guard area→0,
+`*(short*)holder = cmd`, then the 20-arm JT[3] @0x0b48 (min=1,max=20), all arms +
+the L13aa/L1622 finalize (l243_finalize) faithfully lifted.  Subtree lifted with it:
+l068a/l36f6/l4144_c11/l16ae.  Traps: jt364=l6e50 (alias, not missing); CODE-11 l4144
+vs the CODE-20 void l4144 → _c11 suffix.  The whole CODE-11 GEO editor is done.
 
 **Decoded arm map** (jt3_extract): 1→0x12fc  3→0x126e  5→0x11c0  8→0x0ef2  9→0x0fce
 11→0x0b7a  12→0x0de4  20→0x0dac ; {10,14,15,17}→0x0cee ; {13,19}→0x1290 ;
