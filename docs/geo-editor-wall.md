@@ -531,10 +531,17 @@ re-verify every arg (l5150 had 4 slips caught that way; l41de re-reads state fie
 from memory as the asm does).
 
 **NOW UNBLOCKED — the final CODE-11 tail to jt243 proper (all deps present):**
-- **l3e60** (~185 insn) — the menu-command dispatcher that drives jt337=l41de (JT
-  deps all resolve). NEXT.
-- **l37f6** → **l2d40** (small; l2d40 = the hub's last dep).
-- **l28d4 hub** → **jt243 proper** (~800-insn 20-arm JT[3] @0xb48 tool palette).
+- **l3e60 ✓ (C6l)** — the menu scroll-to-selection / highlight (drives jt337=l41de).
+- **l37f6** (CODE 11 + 0x37f6 → 0x3aae, ~170 insn) — the top-level pulldown MENU-BAR
+  modal loop.  **FULLY MAPPED — lift carefully (like l5150, re-verify each call):**
+  head matches key fp@(12) against the menu table fp@(14) (deref-deref, menu[0]);
+  then a modal loop tracking the active menu fp@(-12)/index fp@(-2) and selected item
+  fp@(-6): skip disabled items (item[-1]&0x83), highlight via **l3e60** (twice: clear
+  old + set new), poll via **l3ab0** (key-nav, ret>0=picked) or **l3d1a** (mouse), and
+  on a pick dispatch via **l3ddc** / **l2dbe**; JT[1007]/1087/1108/1118/1128/1146/112/
+  397 for the modal plumbing.  Args (rec, key, menutab, count@fp19, a@fp20, b@fp22).
+- Then **l2d40** (small; the hub's last dep) → **l28d4 hub** → **jt243 proper**
+  (~800-insn 20-arm JT[3] @0xb48 tool palette).
 
 **NEXT — l41de = jt337 (CODE 8 + 0x41de → 0x43f4, ~160 insn) — FULLY MAPPED, lift
 carefully (like l5150, re-verify each call):** the pulldown SCROLL handler.  Args
