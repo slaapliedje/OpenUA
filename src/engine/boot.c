@@ -75641,8 +75641,7 @@ static void l37d8(void *holder_v, short num)
 static void l2e1c(void *holder_v, short a2) __attribute__((unused));
 static void l2e1c(void *holder_v, short a2)
 {
-	unsigned char *H   = (unsigned char *)holder_v;          /* fp@(8) */
-	unsigned char *rec = *(unsigned char **)holder_v;        /* *H */
+	unsigned char *rec = *(unsigned char **)holder_v;        /* *H, fp@(8) */
 
 	switch ((unsigned char)a2) {                             /* JT[1] @0x2e2a */
 	case 2:                                                  /* 0x2e3a — Save 3D Map */
