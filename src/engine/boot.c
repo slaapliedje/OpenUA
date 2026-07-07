@@ -75401,6 +75401,39 @@ static void l1d88(void *holder_v)
 	}
 }
 
+/* L2836 (CODE 11 + 0x2836) — commit any pending cell edits flagged in rec[17].
+ * Iterates i=0..2 (the A5 scratch g_a5_-22307); for each set bit of rec[17] and
+ * i in {0,1} (JT[3] @0x2864) it commits via l1d88, notifies (JT[303]/JT[308]),
+ * flags changed, and for i==1 repaints (JT[305](rec,0,1)); each iteration shifts
+ * rec[17] right one bit.  rec = *holder.  Returns the changed flag.  A jt243 (GEO
+ * editor) mid (hub dep); caller l28d4. */
+static short l2836(void *holder_v) __attribute__((unused));
+static short l2836(void *holder_v)
+{
+	unsigned char *H = (unsigned char *)holder_v;             /* fp@(8) */
+	unsigned char *rec;
+	signed char    changed = 0;                               /* fp@(-1) */
+
+	for (g_a5_byte(-22307) = 0;                               /* 0x283e / 0x28c2 */
+	     (signed char)g_a5_byte(-22307) < 3;
+	     g_a5_byte(-22307)++) {
+		rec = *(unsigned char **)H;
+		if ((rec[17] & 1) &&                             /* 0x2852 — btst #0 */
+		    ((signed char)g_a5_byte(-22307) == 0 ||      /* JT[3] @0x2864 cases 0/1 */
+		     (signed char)g_a5_byte(-22307) == 1)) {
+			l1d88(H);                                /* 0x2872 */
+			jt303(rec);                              /* 0x287e — *H */
+			jt308((long)(uintptr_t)H);               /* 0x2888 */
+			changed = 1;                             /* 0x2890 */
+			if ((signed char)g_a5_byte(-22307) == 1) /* 0x2894 */
+				jt305(rec, (char)0, (char)1);    /* 0x28a8 */
+		}
+		rec = *(unsigned char **)H;                      /* 0x28ae */
+		rec[17] = (unsigned char)((signed char)rec[17] >> 1);   /* 0x28b8 — asrb */
+	}
+	return (short)changed;                                   /* 0x28cc */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
