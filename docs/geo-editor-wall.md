@@ -519,16 +519,20 @@ l0742 (command entry, JT[318]-gated) + **l37d8** (thin wrapper → l0742).  Gotc
 recorded: jt406 is memmove(dst,src) but Mac ABI copy(SRC,dst) → SWAP the call;
 JT[192]=l4e3a and JT[364]=l6e50 and JT[1084]=l036a are alias-only names.
 
-**NOW UNBLOCKED — l2e1c (132B, dep l37d8 ✓, JT[1]/jt358):** lift it → unblocks
-l2dbe and l3380 (l3380 also needs l1d88 ✓).  Then only **l2d40** remains for the
-hub, and it needs l37f6 → l3e60 → the **jt337 CODE-8 chain**.
+**C6f–C6h DONE — the hub's CODE-11 deps:** l2e1c (file/mode handler), l2dbe
+(command router), l3380 (keyboard command handler, ~180 insn). Combined with
+l2836/l1a1c/l24b6/l2ea0/l43c2 earlier, the **only remaining hub dep is l2d40**.
 
-**jt337 chain (CODE 8) — remaining:** l5150, l4b10 (needs l5150), l4c4c (needs
-l5150), l41de=jt337 → l3e60 (CODE 11) → l37f6 → l2d40.
-- Then the **hub l28d4** (needs l2d40/l2dbe/l3380), then **jt243 proper** (20-arm
-  JT[3] @0xb48 tool palette).
-Order: (a) **l2e1c → l2dbe + l3380** (ready now); (b) l5150 → l4b10 +
-l4c4c → jt337 → l3e60; then l37f6, l2dbe, l3380, l2d40, l28d4, jt243.
+**THE WHOLE REMAINDER now funnels through ONE chain — the jt337 CODE-8 subtree:**
+l2d40 needs l37f6 → l3e60 → **jt337=l41de**, which needs **l5150 → l4b10 + l4c4c**
+(all CODE 8, verified unlifted; NOT collisions).  So:
+1. **l5150** (CODE 8) — the shared leaf; lift first.
+2. **l4b10 + l4c4c** (CODE 8, both need l5150).
+3. **l41de = jt337** (CODE 8, ~160 insn).
+4. **l3e60** (CODE 11) → **l37f6** (CODE 11) → **l2d40** (CODE 11).
+5. **hub l28d4** (all deps then met), then **jt243 proper** (20-arm JT[3] @0xb48).
+That's ~9 functions to the dispatcher; the CODE-8 jt337 chain is the last real
+unknown (verify each callee's CODE+offset — the resolver lies).
 
 **Also found: jt302 was a MIS-LIFT** — the Mac l04f2 is 2-arg `jt302(cell, want)`
 writing `(byte)want` (fp@11 = low byte of arg2); the port added a spurious 3rd
