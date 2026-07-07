@@ -83614,8 +83614,17 @@ static short jt160(long title, long block, short c, short e)
 
 /* ---- l216a temple-event sub-helpers (not yet lifted) ----------------------
  * (l026e_c20 — the CODE20 Yes/No prompt — is already lifted above.) */
-static void l4218(long amount, void *slot)
-	{ PROBE("l4218"); (void)amount; (void)slot; }                        /* money write to rec[63] */
+/* l4218 (CODE 20 + 0x4218) = JT[939] — write `amount` to `slot` as a little-
+ * endian u32 (FRUA design data keeps DOS byte order); the exact inverse of
+ * l427c (JT[940]).  Used by jt896 to persist the running donation total. */
+static void l4218(long amount, void *slot_v)
+{
+	unsigned char *slot = (unsigned char *)slot_v;
+	slot[0] = (unsigned char)amount;              /* 0x4220 (fp@11 = low byte) */
+	slot[1] = (unsigned char)(amount >> 8);       /* 0x4228-0x422e */
+	slot[2] = (unsigned char)(amount >> 16);      /* 0x4232-0x423e */
+	slot[3] = (unsigned char)(amount >> 24);      /* 0x4242-0x424e */
+}
 static unsigned char jt933(long ev, short exit_arm, long item_head, short v)
 	{ PROBE("jt933"); (void)ev; (void)exit_arm; (void)item_head; (void)v; return 0; } /* CODE12+0x5720 take-commit */
 
