@@ -493,14 +493,21 @@ the l24b6 build once).**
 a2-1: set-kind / toggle-sub-kind / toggle-rec[9]; tool-palette highlight table
 g_a5_-11508[k].7; scroll step jt218; recompose chain). Full lift.
 
+**C5u–C5w DONE — hub mids:** l4416 (rebuild tool menus), l43c2 (open tool-menu
+panel), l1a1c (cell paint-drag modal loop) — all full lifts.
+
 **HUB l28d4 (0x28d4–0x2d40) — the GEO editor modal command LOOP — remaining deps:**
-l1a1c, l2836, l2d40, l2dbe, l3380, l43c2 (l24b6 ✓, l2ea0 ✓).  It polls JT[456]=
-l2d3e (keypress) and dispatches to l2dbe/l2d40/l3380 + jt278/jt284/jt312/jt152/
-l24b6/l4268 (seen at 0x2b34–0x2cfa).  Lift those 6 mids, then l28d4, then l1d88,
-then jt243 proper.  **Still genuinely blocked (need the 2 truly-missing JTs):**
-l3e60 (jt337=l41de),
-l36f6/l37d8 (l0742 subtree needs jt371=l660c + locals l0854/l07c2; l0742 = the
-"Save 3D Map" GEO writer, 12962-byte level write).
+l2836, l2d40, l2dbe, l3380 (DONE now: l1a1c ✓ l24b6 ✓ l2ea0 ✓ l43c2 ✓). It polls
+JT[456]=l2d3e (keypress) and dispatches to l2dbe/l2d40/l3380 + jt278/jt284/jt312/
+jt152/l24b6/l4268 (seen at 0x2b34–0x2cfa). Dependency chain for the last 4:
+- **l2836** (158B) and part of **l3380** (724B) need **l1d88** (READY — the other
+  380-insn giant); lift l1d88 next to unblock them.
+- **l2d40 / l2dbe / l3380** also need **l2e1c** (132B), which needs l37d8 -> l0742
+  -> **jt371=l660c (genuinely MISSING)** + locals l0854/l07c2.
+So the two remaining giants/blockers are **l1d88** (ready) and the **jt371=l660c +
+l0742 "Save 3D Map" subtree**. After the 4 mids -> l28d4 -> jt243 proper.
+**Also genuinely blocked:** l3e60 (jt337=l41de) — the last of the 2 truly-missing
+JTs (jt337, jt371); everything else in the subtree is lifted or ready.
 
 **Also found: jt302 was a MIS-LIFT** — the Mac l04f2 is 2-arg `jt302(cell, want)`
 writing `(byte)want` (fp@11 = low byte of arg2); the port added a spurious 3rd
