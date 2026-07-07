@@ -76605,6 +76605,43 @@ static short jt243(short cmd, long *rec, void *area)
 		if (*(short *)(holder + 6) == 0)                 /* L0fb4 */
 			l28d4(holder);                           /* 0x0fc0 */
 		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	case 5:                                          /* L11c0 — place/toggle cell flag */
+		*rec &= 0xFFFFL;                                 /* 0x11c4 clear high word */
+		*rec |= (long)(jt358() & 255) << 16;             /* 0x11ca */
+		if (holder[6] & 0x80)                            /* 0x11e6 btst #7 */
+			jt274((void *)(holder + 46), &g_a5_byte(-12288));   /* 0x11fa */
+		*(short *)holder = *(short *)(holder + 2);       /* 0x1200 */
+		{
+			const unsigned char *ds =
+				(const unsigned char *)(uintptr_t)g_a5_long(-12300);
+			if ((*rec & 15) == 0 && jt273() != 0        /* 0x120c/0x1218 */
+			    && jt276((short)((short)(signed char)g_a5_byte(-12287)
+			                     * (signed char)ds[3]
+			                     + (short)(signed char)g_a5_byte(-12288))) != 0)  /* 0x123c */
+				holder[17] |= 2;                    /* 0x1246 bset #1 */
+			else
+				jt305(holder, 0, 0);                /* L1252 0x1252 */
+		}
+		l28d4(holder);                                   /* L1260 0x1260 */
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	case 3:                                          /* L126e — pack, then the L1290 body */
+		*rec &= 0xFFFFL;                                 /* 0x126e */
+		*rec |= (long)(jt358() & 255) << 16;             /* 0x1278 */
+		/* fall through */
+	case 13:                                         /* L1290 — commit + optional clear */
+	case 19:
+		*(short *)holder = *(short *)(holder + 2);       /* 0x1290 */
+		if (jt320() != 0) {                              /* 0x129c */
+			jt319();                                 /* 0x12a4 */
+			l476e(1, (short)(unsigned char)holder[4]);   /* 0x12b8 */
+			l1958(holder);                           /* 0x12c2 */
+		}
+		if (cmd == 19 && (*rec & 15) != 0) {             /* 0x12c8/0x12d0 */
+			jt321();                                 /* 0x12dc */
+			jt305(holder, 0, 0);                     /* 0x12e0 */
+		}
+		l28d4(holder);                                   /* L12ee 0x12ee */
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
 	default:
 		/* TODO C7c+ — remaining arms: 1(L12fc) 3(L126e) 5(L11c0) 8(L0ef2)
 		 * 9(L0fce) 11(L0b7a/L0bf8) 12(L0de4) {13,19}(L1290) default/paint
