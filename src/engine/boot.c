@@ -76750,6 +76750,66 @@ static short jt243(short cmd, long *rec, void *area)
 			*(short *)(holder + 6) = (short)(scratch << 4);  /* 0x135a */
 		}
 		return l243_finalize(holder, rec, scratch);      /* → L13aa */
+	case 9:                                          /* L0fce — multi-mode edit tool */
+		*(short *)holder = *(short *)(holder + 2);       /* 0x0fce */
+		scratch = *(short *)(holder + 6);                /* 0x0fda fp(-2) */
+		*(short *)(holder + 6) = 0;                       /* 0x0fe8 */
+		if ((*rec & 15) != 0) {                          /* 0x0fec (==0 -> L11a6) */
+			char namebuf[42];                        /* fp@(-42) string scratch */
+			switch (scratch) {                       /* 0x0ffa JT[3]@0x1002 (1..10) */
+			case 1:                                  /* L101c */
+			case 4:
+				if ((*rec & 15) == 2) {          /* 0x101c */
+					if (scratch == 4) {      /* 0x102c */
+						jt384(namebuf, (const char *)&g_a5_byte(-31336));  /* 0x1034 */
+						jt135();         /* 0x1042 */
+						jt356();         /* 0x1046 */
+					}
+					l37d8(holder, (short)(jt358() & 255));   /* 0x104a */
+					if (scratch == 4) {      /* 0x105e */
+						jt133(namebuf);  /* 0x1066 */
+						jt356();         /* 0x1070 */
+					}
+				}
+				{                                /* L1074 */
+					short v = (short)(jt358() & 255);        /* 0x1074 fp(-4) */
+					l36f6(holder, (short)((*rec >> 16) & 63));   /* 0x1080 */
+					if (scratch == 1) {      /* 0x109c */
+						if (jt273() != 0 && holder[5] == 1)  /* 0x10a4/0x10ae */
+							holder[5] = 0;               /* 0x10c0 */
+					} else {                 /* L10cc */
+						jt135();         /* 0x10cc */
+						jt356();         /* 0x10d0 */
+						l6e50(v);        /* 0x10d4 = JT[364] */
+						jt361(0);        /* 0x10de */
+						*rec &= 0xFFC0FFFFL;                 /* 0x10e6 */
+						*rec |= (long)(jt358() & 255) << 16; /* 0x10f0 */
+						jt321();         /* 0x1108 */
+					}
+				}
+				break;
+			case 3:                                  /* L1128 */
+				if ((jt358() & 255) != (short)((*rec >> 16) & 63)) {  /* 0x1128 */
+					l6e50((short)((*rec >> 16) & 63));   /* 0x1146 JT[364] */
+					jt321();                             /* 0x115e */
+				}
+				/* fall through */
+			case 2:                                  /* L1162 */
+				l37d8(holder, (short)(jt358() & 255));       /* 0x1162 */
+				break;
+			case 5:                                  /* L1110 */
+				l36f6(holder, (short)(jt358() & 255));       /* 0x1110 */
+				break;
+			case 10:                                 /* L1178 */
+				if ((*rec & 15) == 2)            /* 0x1178 */
+					l37d8(holder, (short)(jt358() & 255));   /* 0x1188 */
+				*(short *)(holder + 6) = 1;      /* 0x119c */
+				break;
+			}
+		}
+		if (*(short *)(holder + 6) == 0)                 /* L11a6 */
+			l28d4(holder);
+		return l243_finalize(holder, rec, scratch);      /* → L13aa */
 	case 11:                                         /* L0b7a → L0bf8 — general tool handler */
 		/* Only cmd 11 is routed here (head JT[3]); L0b7a's (cmd&15==0) L0b8e branch
 		 * is unreachable, and the JT[3]@0xc24/@0xc3c below switch on cmd&15 / (cmd&48)
