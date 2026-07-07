@@ -59665,19 +59665,67 @@ static short l4cb4(unsigned char *rec, short colour)
 	return hit;                                            /* 0x4ed6 */
 }
 
-/* L3f2e (CODE 8) — the pulldown TRACK core (per-poll highlight move
- * via the l3266 hit-test, mouse-up commit). Level-1 stub (~1.7KB);
- * the -1 return reads as "still tracking", so a lifted caller loop
- * would spin — the l567c tracker below therefore treats the stub's
- * 0 as an immediate no-selection commit instead. Returns: -1 keep
- * tracking, 0 closed with no pick, n = the picked item. */
+/* l3f2e (CODE 8 + 0x3f2e) — jt334, the list/pulldown TRACK core with the layout
+ * block `flag`.  With no block it delegates to l4cb4 (the plain mouse track).
+ * Otherwise each pass polls the mouse (jt1132), hit-tests it against the panel
+ * (l43f6 -> element index `out`, tracking result `hit`), and: repaints the old
+ * highlight bar when the row changed; if the hit lands on the top/bottom scroll
+ * zone (row 0 with a top margin P[0], or the last row reaching P[6]) it flags a
+ * page delta and hands off to l41de (=jt337) which scrolls the list; otherwise
+ * it paints the new highlight bar.  Pumps one idle tick (jt1007 + l33ce) and
+ * loops while the button is held and the hit is valid.  Returns the committed
+ * element: -1 keep tracking, 0 no pick, n = the picked item.  rowh =
+ * (rec[13]&0x10)?5:4; highlight bars via the shared l4cb4_row_rect. */
 static short l3f2e(unsigned char *rec, short colour, long flag)
                                                 __attribute__((unused));
 static short l3f2e(unsigned char *rec, short colour, long flag)
 {
-	PROBE("L3f2e");
-	(void)rec; (void)colour; (void)flag;
-	return 0;
+	short        *P;
+	short         top, rowh;
+	short         prev = -1;         /* fp@-20 */
+	short         hit, out, y, x, scroll;
+	unsigned char button;            /* fp@-1 */
+
+	if (flag == 0)                                  /* 0x3f2e */
+		return l4cb4(rec, colour);              /* 0x3f40 */
+
+	P    = (short *)flag;
+	top  = *(short *)(rec + 16);                    /* fp@-8 */
+	rowh = (rec[13] & 0x10) ? 5 : 4;                /* fp@-12 */
+
+	for (;;) {
+		button = (unsigned char)jt1132(&y, &x);        /* 0x3f86 */
+		hit = l43f6(rec, y, x, &out, P);               /* 0x3fac */
+		if (out != prev && prev >= 0)                  /* 0x3fb8-0x3fc8 */
+			l4cb4_row_rect(rec, colour, prev);      /* 0x3fcc OLD bar */
+
+		scroll = 0;                                    /* fp@-22 */
+		if (out >= 0) {                                /* 0x4062 */
+			if (out == 0 && P[0] > 0)              /* 0x406a-0x4076 */
+				scroll = (short)-rowh;          /* 0x4078 page up */
+			else if (P[1] > 0
+			         && (short)(top + out + rowh) == P[3])  /* 0x4086-0x40a4 (P[6]) */
+				scroll = rowh;                  /* 0x40a6 page down */
+			else if (out != prev)                  /* 0x40b0 */
+				l4cb4_row_rect(rec, colour, out);   /* 0x40bc NEW bar */
+		}
+
+		if (scroll != 0) {                             /* 0x414e */
+			hit = (button == 0)                    /* 0x4154 */
+			      ? l41de(rec, P, scroll, colour, 0, out, &prev, hit)  /* 0x417a =jt337 */
+			      : 0;                             /* 0x4188 */
+		} else if (out != prev) {                      /* 0x418e */
+			prev = out;                            /* 0x4198 */
+		}
+
+		jt1007(0, (short)((hit == 0) ? 2 : 1));        /* 0x41aa */
+		l33ce();                                        /* 0x41b4 */
+		if (button != 0 || hit < 0)                    /* 0x41b8-0x41c2 */
+			break;
+	}
+	if (button != 0 && hit < 0)                            /* 0x41c6-0x41d0 */
+		hit = 0;
+	return hit;                                            /* 0x41d6 */
 }
 
 /* JT[331] = L33f6 (CODE 8 + 0x33f6) — menu panel width: the l4a16
