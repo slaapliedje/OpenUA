@@ -524,15 +524,28 @@ JT[192]=l4e3a and JT[364]=l6e50 and JT[1084]=l036a are alias-only names.
 l2836/l1a1c/l24b6/l2ea0/l43c2 earlier, the **only remaining hub dep is l2d40**.
 
 **THE WHOLE REMAINDER now funnels through ONE chain — the jt337 CODE-8 subtree:**
-l2d40 needs l37f6 → l3e60 → **jt337=l41de**, which needs **l5150 → l4b10 + l4c4c**
-(all CODE 8, verified unlifted; NOT collisions).  So:
-1. **l5150** (CODE 8) — the shared leaf; lift first.
-2. **l4b10 + l4c4c** (CODE 8, both need l5150).
-3. **l41de = jt337** (CODE 8, ~160 insn).
-4. **l3e60** (CODE 11) → **l37f6** (CODE 11) → **l2d40** (CODE 11).
-5. **hub l28d4** (all deps then met), then **jt243 proper** (20-arm JT[3] @0xb48).
-That's ~9 functions to the dispatcher; the CODE-8 jt337 chain is the last real
-unknown (verify each callee's CODE+offset — the resolver lies).
+l2d40 → l37f6 → l3e60 → **jt337=l41de**, which needs **l5150 → l4b10 + l4c4c** (all
+CODE 8, verified unlifted; NOT collisions).
+
+**SCOPE CORRECTION (2026-07-06):** **l5150 is NOT a small leaf** — it is a ~200-insn
+/ 800-byte full menu-ITEM RENDERER (CODE 8 + 0x5150 → 0x54f8): two draw modes on
+fp@27 bit4; icon/highlight blits (JT[995]/JT[1001]), formatted item text via
+JT[1089] with STRS format strings "%(%c%1g%)" / "^%c" / ".", command-key measure
+(JT[423]/JT[408]), coord math via JT[1135]/JT[1161]/JT[1166]/JT[1200]/JT[1198]. So
+the jt337 chain is a **CODE-8 menu-RENDER sub-campaign** (~490 insn: l5150 ~200,
+l4b10 ~97, l4c4c ~31, l41de=jt337 ~160), completing the already-band-7-lifted menu
+manager (jt332/jt336/l4a16 done).
+
+**The realistic remaining picture to jt243 proper:**
+1. **CODE-8 jt337 render chain** (~490 insn, 4 fns) — l5150 (renderer) → l4b10 +
+   l4c4c → l41de=jt337.  (Alt: PROBE-stub jt337 to reach the dispatcher structurally
+   — but its siblings jt332/336 are faithful, so a stub is inconsistent.)
+2. **l3e60 → l37f6 → l2d40** (CODE 11, 3 fns).
+3. **hub l28d4** (~1132B) → **jt243 proper** (~800-insn dispatcher, 20-arm JT[3]
+   @0xb48).
+This is a multi-session tail, not a quick finish; l5150 in particular wants a fresh
+careful pass (coordinate + JT[1089] format-arg heavy).  Verify each callee's
+CODE+offset — the name-only resolver has lied 4× here.
 
 **Also found: jt302 was a MIS-LIFT** — the Mac l04f2 is 2-arg `jt302(cell, want)`
 writing `(byte)want` (fp@11 = low byte of arg2); the port added a spurious 3rd
