@@ -74879,6 +74879,91 @@ static short l3d1a(void *rec_v, void *outb_v, void *outw_v, long a4)
 	return (short)(r != 0 ? 1 : -1);                         /* 0x3dc8 */
 }
 
+/* Inlined 3× in l24b6 (0x26ac/0x2706/0x2760): configure the base+2 DLItem's
+ * label from string pointer p — set the pointer (jt444 method 39, p in the (b,c)
+ * short pair), its raw first byte (method 32), and its lowercase (method 33 via
+ * JT[395]=l46b2). */
+static void l24b6_label(short base, const unsigned char *p)
+{
+	uintptr_t P = (uintptr_t)p;
+
+	jt444((short)(base + 2), (short)39,
+	      (short)((unsigned long)P >> 16), (short)((unsigned long)P & 0xFFFF));
+	jt444((short)(base + 2), (short)32, (short)(signed char)*p, 0);
+	jt444((short)(base + 2), (short)33, l46b2((short)(signed char)*p), 0);  /* JT[395] */
+}
+
+/* L24b6 (CODE 11 + 0x24b6) — set the GEO editor's menu-item enable/disable states
+ * for the current cell record (rec = *holder).  base = JT[307](rec) (7 or 8).
+ * Uses the JT[444] DLItem builder (state 24 = enabled, 16 = disabled) keyed on
+ * rec[4] (area kind), rec[5] (cell kind), rec[9], and the JT[273] flag, and sets
+ * the automap-colour scratch g_a5_-11437 / -11409 / -11401.  For the item label
+ * (base+2) it uses one of two string pools g_a5_-10796 / -10804 (picked by
+ * rec[5]==3 and JT[201] at the cell), then a final base+4 item on rec[18].  A
+ * jt243 (GEO editor) helper; JT[395] is the lifted CODE-3 l46b2 (alias map). */
+static void l24b6(void *holder_v) __attribute__((unused));
+static void l24b6(void *holder_v)
+{
+	unsigned char *rec  = *(unsigned char **)holder_v;        /* fp@(8), rec = *H */
+	short          base = jt307(rec);                         /* fp@(-2) — JT[307] */
+	signed char    r273 = (signed char)jt273();               /* fp@(-3) */
+
+	if (rec[4] == 0) {                                        /* 0x24de */
+		jt444((short)(base + 2), (short)24, 0, 0);        /* 0x24f0 */
+		if (rec[5] != 0)                                  /* 0x24fa */
+			jt444((short)(base + 5), (short)16, 0, 0);/* 0x250c */
+		if (rec[5] == 0) {                                /* 0x2518 */
+			jt444((short)(base + 1), (short)24, 0, 0);/* 0x252e */
+			jt444((short)(base + 3), (short)24, 0, 0);/* 0x2540 */
+		} else {                                          /* L2548 */
+			jt444((short)(base + 1), (short)16, 0, 0);/* 0x2554 */
+			jt444((short)(base + 3), (short)16, 0, 0);/* 0x2566 */
+		}
+		g_a5_byte(-11437) = (unsigned char)(rec[9] ? 0 : 4);   /* 0x257e */
+	} else {                                                  /* L2586 — rec[4] != 0 */
+		jt444((short)(base + 2), (short)24, 0, 0);        /* 0x2592 */
+		if (rec[5] != 0)                                  /* 0x259c */
+			jt444((short)(base + 5), (short)24, 0, 0);/* 0x25ae */
+		g_a5_byte(-11437) = (unsigned char)((rec[9] ? 0 : 4) + 129);   /* 0x25c6 */
+		if (r273 != 0) {                                  /* 0x25ce */
+			g_a5_byte(-11409) = (unsigned char)0x81;  /* 0x25d6 (moveq #-127) */
+			jt444((short)(base + 1), (short)16, 0, 0);/* 0x25e6 */
+			jt444((short)(base + 3), (short)16, 0, 0);/* 0x25f8 */
+		} else {                                          /* L2600 */
+			g_a5_byte(-11409) = 0;                    /* 0x2600 */
+			if (rec[5] == 0) {                        /* 0x2610 */
+				jt444((short)(base + 1), (short)24, 0, 0);/* 0x2620 */
+				jt444((short)(base + 3), (short)24, 0, 0);/* 0x2632 */
+			} else {                                  /* L263a */
+				jt444((short)(base + 1), (short)16, 0, 0);/* 0x2646 */
+				jt444((short)(base + 3), (short)16, 0, 0);/* 0x2658 */
+			}
+		}
+	}
+
+	if (rec[5] == 3) {                                        /* 0x266a */
+		jt444(base, (short)16, 0, 0);                     /* 0x267a */
+		g_a5_byte(-11401) = (unsigned char)0x81;          /* 0x2682 */
+		if (jt201((short)(signed char)rec[46],            /* 0x26a2 — JT[201] at cell */
+		          (short)(signed char)rec[47]) != 0)
+			l24b6_label(base, (const unsigned char *)(uintptr_t)g_a5_long(-10796));  /* 0x26ac */
+		else                                              /* L2706 */
+			l24b6_label(base, (const unsigned char *)(uintptr_t)g_a5_long(-10804));
+	} else {                                                  /* L2760 — rec[5] != 3 */
+		l24b6_label(base, (const unsigned char *)(uintptr_t)g_a5_long(-10804));
+		if (r273 != 0 && rec[5] != 2)                     /* 0x27b6 */
+			g_a5_byte(-11401) = (unsigned char)0x81;  /* 0x27d0 */
+		else                                              /* L27d6 */
+			g_a5_byte(-11401) = 0;
+		jt444(base, (short)24, 0, 0);                     /* 0x27e2 */
+	}
+
+	if (rec[18] == 0)                                        /* 0x27f4 / L27e8 */
+		jt444((short)(jt307(rec) + 4), (short)16, 0, 0);  /* 0x280c */
+	else
+		jt444((short)(jt307(rec) + 4), (short)24, 0, 0);  /* 0x2828 */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
