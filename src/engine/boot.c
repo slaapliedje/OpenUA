@@ -59220,6 +59220,65 @@ static void l4b10(void *rec_v, short *idxp, short idx, short top, short style)
 	      *(short *)(rec + 14), (short)(signed char)rec[13]);
 }
 
+/* JT[337] = L41de (CODE 8 + 0x41de) — scroll a pulldown menu by `delta` rows and
+ * redraw the newly-revealed item(s).  `state` holds the scroll counters (word@0
+ * top, word@2 bottom, word@6 origin).  Two symmetric branches on delta sign compute
+ * the source/dest y-bounds (from state + rec[16]), bump the counters, and when a
+ * counter reaches 1 draw the up/down scroll arrow (l4c4c).  Then JT[1126] scrolls the
+ * strip (v1/v2 y-bounds, rec[10]+margin .. rec[18]*4+rec[10]-margin, dv=delta+8000,
+ * fill=(style>>4)&15), l4b10 draws the freed row, and — when the scroll actually
+ * consumed a row (state[0]==0 down / state[2]==0 up) — a second l4b10 draws it with a
+ * nibble-swapped style and *outp = value (else *outp = -1).  Returns the column (col,
+ * updated in place by l4b10).  Completes the CODE-8 jt337 menu-render chain. */
+static short l41de(void *rec_v, void *state_v, short delta, short style,
+                   short margin, short value, short *outp, short col) __attribute__((unused));
+static short l41de(void *rec_v, void *state_v, short delta, short style,
+                   short margin, short value, short *outp, short col)
+{
+	unsigned char *rec = (unsigned char *)rec_v;             /* fp@(8) */
+	unsigned char *st  = (unsigned char *)state_v;           /* fp@(12) */
+	short fp_2, fp_4;                                         /* fp@(-2)/fp@(-4) */
+	short sstyle = (short)(((style & 0xf0) >> 4) | ((style & 0x0f) << 4));  /* nibble-swap */
+
+	if (delta < 0) {                                         /* 0x41e2 — scroll down */
+		short m = (*(short *)(st + 2) < 0)
+		          ? (short)(-*(short *)(st + 2) - 1) : 1;/* 0x4202 — from state[2] */
+		fp_2 = (short)(*(short *)(rec + 16) + value - delta);   /* 0x41ea */
+		fp_4 = (short)(m * delta + *(short *)(st + 6));  /* 0x421a */
+		*(short *)(st + 0) -= 1;                         /* 0x422e — state[0]-- */
+		*(short *)(st + 2) += 1;                         /* 0x4234 — state[2]++ */
+		if (*(short *)(st + 2) == 1)                     /* 0x423c */
+			l4c4c(rec, (short)(*(short *)(st + 6) + delta), style, 0);  /* 0x425e */
+	} else {                                                 /* 0x426a — scroll up */
+		short m = (*(short *)(st + 0) < 0)
+		          ? (short)(-*(short *)(st + 0) - 1) : 1;/* 0x426e — from state[0] */
+		fp_2 = (short)(m * delta + *(short *)(rec + 16));/* 0x4282 */
+		fp_4 = (short)(*(short *)(rec + 16) + value);    /* 0x4292 */
+		*(short *)(st + 2) -= 1;                         /* 0x42a6 — state[2]-- */
+		*(short *)(st + 0) += 1;                         /* 0x42aa — state[0]++ */
+		if (*(short *)(st + 0) == 1)                     /* 0x42b4 */
+			l4c4c(rec, *(short *)(rec + 16), style, 1);   /* 0x42ce */
+	}
+
+	jt1126(fp_2, (short)(*(short *)(rec + 10) + margin), fp_4,   /* 0x431c — scroll strip */
+	       (short)(*(short *)(rec + 18) * 4 + *(short *)(rec + 10) - margin),
+	       (short)(delta + 8000), (short)0, (short)((style >> 4) & 15));
+
+	l4b10(rec, &col, (short)0,                               /* 0x434a — redraw freed row */
+	      (delta > 0) ? (short)(fp_4 - delta) : fp_2, style);
+
+	if (delta < 0 && *(short *)(st + 0) == 0) {              /* 0x4352 / 0x4358 */
+		l4b10(rec, &col, delta, (short)(fp_2 + delta), sstyle);  /* 0x438c */
+		*outp = value;                                  /* 0x4394 */
+	} else if (delta > 0 && *(short *)(st + 2) == 0) {      /* 0x439e / 0x43a4 */
+		l4b10(rec, &col, delta, fp_4, sstyle);          /* 0x43d4 */
+		*outp = value;                                  /* 0x43dc */
+	} else {
+		*outp = -1;                                     /* 0x43e6 */
+	}
+	return col;                                             /* 0x43ee */
+}
+
 /* JT[332] = L4a16 (CODE 8 + 0x4a16) — the pulldown WIDTH core: the
  * panel width in pixels = max of the title width (StringWidth of the
  * rec[0] Pascal string, or 0 when the rec[13] bit2/bit5 no-title
