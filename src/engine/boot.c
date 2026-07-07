@@ -16586,8 +16586,16 @@ static short  jt1125(short kind, long p1, long p2)
 		 * mouse_x) hit-test — with the pointer parked over the
 		 * combat field, EVERY keypress committed the movement strip
 		 * under the cursor (the phantom ATTACK ALLY? prompt). Mac
-		 * masks: keyDown = 8, autoKey = 32. */
-		if ((kind & (8 | 32)) == 0) {
+		 * masks: keyDown = 8, autoKey = 32.
+		 *
+		 * EXCEPTION — the dungeon walk loop (g_walk_input): l63c0's movement
+		 * routing lives in L2d3e Phase 1 (it stamps g_a5_-10372 and returns 0
+		 * to reach case 0 -> jt297), which is gated on this key return. With the
+		 * mask on, arrows only landed in the -818 pending path and NEVER reached
+		 * -10372, so the party couldn't move/turn (the caravan-dungeon "walk
+		 * stall"). Combat/Hall keep the mask (g_walk_input == 0), so the phantom
+		 * ATTACK-ALLY leak stays fixed; only the walk loop gets keys as events. */
+		if ((kind & (8 | 32)) == 0 && !g_walk_input) {
 			*out1 = 0;
 			*out2 = 0;
 			return 0;
@@ -20524,8 +20532,12 @@ static short l2d3e(void)
 		 * source (return 0) before the command-bar DLItem match, so they
 		 * reach l63c0's switch(0) -> jt297 rather than exiting the loop. */
 		if (g_walk_input
-		    && ((kc >= 257 && kc <= 264) || kc == 27 || kc == 13))
+		    && ((kc >= 257 && kc <= 264) || kc == 27 || kc == 13)) {
+			g_a5_byte(-820) = 0;    /* ack the consumed key (this return
+						 * skips Phase 5, which would otherwise
+						 * re-fire on the stale -820 flag) */
 			return (short)0;
+		}
 		/* Modal "press a key to continue" (l1806, the event / encounter
 		 * text confirm): the Mac dismisses on ANY key. Stash the pending
 		 * key so l25b6's arg_count==0 path surfaces it, and exit the poll
