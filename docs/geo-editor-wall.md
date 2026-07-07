@@ -523,17 +523,21 @@ JT[192]=l4e3a and JT[364]=l6e50 and JT[1084]=l036a are alias-only names.
 (command router), l3380 (keyboard command handler, ~180 insn). Combined with
 l2836/l1a1c/l24b6/l2ea0/l43c2 earlier, the **only remaining hub dep is l2d40**.
 
-**THE WHOLE REMAINDER now funnels through ONE chain — the jt337 CODE-8 subtree:**
-l2d40 → l37f6 → l3e60 → **jt337=l41de**, which needs **l5150 → l4b10 + l4c4c** (all
-CODE 8, verified unlifted; NOT collisions).
+**THE WHOLE REMAINDER funnels through ONE chain — the jt337 CODE-8 subtree:**
+l2d40 → l37f6 → l3e60 → **jt337=l41de**, which needs **l5150 ✓ → l4b10 + l4c4c**.
 
-**SCOPE CORRECTION (2026-07-06):** **l5150 is NOT a small leaf** — it is a ~200-insn
-/ 800-byte full menu-ITEM RENDERER (CODE 8 + 0x5150 → 0x54f8): two draw modes on
-fp@27 bit4; icon/highlight blits (JT[995]/JT[1001]), formatted item text via
-JT[1089] with STRS format strings "%(%c%1g%)" / "^%c" / ".", command-key measure
-(JT[423]/JT[408]), coord math via JT[1135]/JT[1161]/JT[1166]/JT[1200]/JT[1198]. So
-the jt337 chain is a **CODE-8 menu-RENDER sub-campaign** (~490 insn: l5150 ~200,
-l4b10 ~97, l4c4c ~31, l41de=jt337 ~160), completing the already-band-7-lifted menu
+**C6i DONE — l5150 (CODE 8, the ~200-insn menu-item renderer) is LIFTED.** It was
+error-prone (found+fixed 4 slips on re-verify); the transcription lesson: build each
+jt1089/jt995/jt1001/jt1161 call from the exact push order, then re-verify every arg.
+Placement note: needed a `static short jt1166(void);` forward decl before it.
+**NEXT: l4b10 (~97) + l4c4c (~31), both need l5150 ✓ → l41de=jt337 (~160).**
+
+(Historical scope note — l5150 details:) full menu-ITEM RENDERER (0x5150 → 0x54f8):
+two draw modes on fp@27 bit4; icon/highlight blits (JT[995]/JT[1001]), formatted
+item text via JT[1089] with STRS strings "%(%c%1g%)" / "^%c" / ".", command-key
+measure (JT[423]/JT[408]), coord math via JT[1135]/JT[1161]/JT[1166]/JT[1200]/
+JT[1198].  The jt337 chain is a **CODE-8 menu-RENDER sub-campaign** completing the
+already-band-7-lifted menu
 manager (jt332/jt336/l4a16 done).
 
 **The realistic remaining picture to jt243 proper:**
