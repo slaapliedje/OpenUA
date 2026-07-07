@@ -442,21 +442,30 @@ l3ab0 l3d1a l3ddc l3e60 l41a0 l455c. **16 non-leaves** blocked on local deps.
 NB: some "leaves" call *external* CODE-11 helpers below 0xb26 that may be
 unlifted — e.g. l37d8 → l0742 (unlifted); check external pc-relative targets too.
 
-**C5a–C5k DONE (2026-07-06, 11 fns):** l23de (C5a), l16f4 (group-record edit-
-apply), l1958 (scroll-cursor clamp/re-anchor), l1626 (holder derived-field
-refresh), l2414 (cursor/highlight sync — *derefs* holder→rec), l1d10 (place-cell
-+ commit/beep via jt290), l3654 (place-at-record wrapper, unblocked by l1d10),
-l237c (toggle-label format+draw; jt444 takes &-11699 as its (b,c) short pair),
-l1822 (move object to scroll cursor), l41a0 (reset active object; A5 scratch
-g_a5_-22307 is the loop counter), l4168 (enter placement mode; deps l41a0/l476e).
+**C5a–C5n DONE (2026-07-06, 14 fns) — the clean-leaf tier is CLEARED:** l23de
+(C5a), l16f4 (group-record edit-apply), l1958 (scroll-cursor clamp/re-anchor),
+l1626 (holder derived-field refresh), l2414 (cursor/highlight sync — *derefs*
+holder→rec), l1d10 (place-cell + commit/beep via jt290), l3654 (place-at-record
+wrapper, unblocked by l1d10), l237c (toggle-label format+draw; jt444 takes &-11699
+as its (b,c) short pair), l1822 (move object to scroll cursor), l41a0 (reset
+active object; A5 scratch g_a5_-22307 is the loop counter), l4168 (enter placement
+mode; deps l41a0/l476e), l3236 (tool-command state transition; 2× JT[3]), l455c
+(map-view DLItem panel — the editor twin of the play-path l6256), l3ab0 (menu-grid
+key navigation — full lift w/ JT[1] arrows/accel/disabled-skip).
 **jt243-direct now:** l16f4/l1958/l23de/l4168 DONE; l16ae/l28d4/l36f6/l37d8 left.
 **Two arg conventions in this subtree:** most helpers take the record directly
-(rec = arg); l2414/l1d10/l3654/l237c take a HOLDER whose word@0 points at the
-record (rec = *arg) — match the asm's deref per-function, don't assume.
-**Remaining clean leaves (all JT deps exist):** l3236 (JT[3] switch), l455c,
-l3ab0. **Leaves BLOCKED on missing CODE-8 JT stubs:** l3ddc (jt330/331/332/336),
-l3d1a (jt334/342), l3e60 (jt337) — add PROBE stubs for those first. **Next
-unblocked mids:** l1d88 (dep l237c ✓), l3654 done.
+(rec = arg); l2414/l1d10/l3654/l237c/l3236 take a HOLDER whose word@0 points at
+the record (rec = *arg) — match the asm's deref per-function, don't assume.
+
+**NEXT (C5o+) — two prerequisites unlock the remaining leaves/mids:**
+1. **Add CODE-8 JT PROBE stubs** jt330/jt331/jt332/jt334/jt336/jt337/jt342 (none
+   exist yet; alias-check first) → unblocks leaves **l3ddc** (330/331/332/336),
+   **l3d1a** (334/342), **l3e60** (337).
+2. **Lift external CODE-11 helpers** l0742 and l066a (below 0xb26) → unblocks
+   **l36f6** (l0742 + lifted l476e/l4810), **l37d8** (l0742), **l24b6** (l066a).
+**Unblocked mid ready now:** l1d88 (1524B, dep l237c ✓ — 13 JT calls, a JT[3]).
+Then the hub **l28d4** (waits on l1a1c/l24b6/l2836/l2d40/l2dbe/l3380/l43c2), then
+jt243 proper (the 20-arm JT[3] @0xb48 tool palette) as a level-2 skeleton.
 
 (Already lifted this campaign: jt233/234/235/236/237/238/239/240/241/244 +
 l4226/l4268 — see `docs/area-map-wall.md`.)
