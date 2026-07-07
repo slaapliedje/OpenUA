@@ -75494,6 +75494,64 @@ static short l0a4e(void *ctx_v, long tag, const void *data, long len)
 	return 1;
 }
 
+/* L0878 (CODE 11 + 0x0878) — serialize the live design-state into the Save-3D-Map
+ * IFF buffer ctx (the write counterpart of the LOAD path jt198, layout at
+ * boot.c:815).  Writes FORM<0x329a> + AMOD<0x3292> headers (l0ad0), then the four
+ * data chunks (l0a4e): HDR<0x122> = ds[0..289], MAP<0xd80> = ds[290..], ENCR<0x7d0>
+ * = g_a5_-13038, STRG<0x1c00> = g_a5_-13034.  The 8 HDR words at ds+272 are stored
+ * big-endian: byte-swap them (jt1180) around the HDR write and swap back after.
+ * JT[192]=l4e3a re-points the string cursors around the STRG write.  Returns 1 on
+ * success, 0 on a null ctx or any chunk-write failure.  A leaf of l0854. */
+static short l0878(void *ctx_v) __attribute__((unused));
+static short l0878(void *ctx_v)
+{
+	unsigned char *ctx = (unsigned char *)ctx_v;             /* fp@(8) */
+	unsigned char *ds  = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short idx;
+
+	if (ctx == NULL)                                         /* 0x087c */
+		return 0;
+	if (l0ad0(ctx, 0x464f524dL, 0x329aL) == 0)               /* 0x0896 — 'FORM' */
+		return 0;
+	if (l0ad0(ctx, 0x414d4f44L, 0x3292L) == 0)               /* 0x08b6 — 'AMOD' */
+		return 0;
+
+	for (g_a5_byte(-22307) = 0; (signed char)g_a5_byte(-22307) < 8;   /* 0x08c8 — swap HDR words */
+	     g_a5_byte(-22307)++) {
+		idx = (signed char)g_a5_byte(-22307);
+		*(short *)(ds + idx * 2 + 272) = jt1180(*(short *)(ds + idx * 2 + 272));
+	}
+
+	if (l0a4e(ctx, 0x48445220L, ds, 0x122L) == 0) {          /* 0x0920 — 'HDR ' */
+		for (g_a5_byte(-22307) = 0; (signed char)g_a5_byte(-22307) < 8;   /* 0x0932 — swap back */
+		     g_a5_byte(-22307)++) {
+			idx = (signed char)g_a5_byte(-22307);
+			*(short *)(ds + idx * 2 + 272) = jt1180(*(short *)(ds + idx * 2 + 272));
+		}
+		return 0;
+	}
+	for (g_a5_byte(-22307) = 0; (signed char)g_a5_byte(-22307) < 8;   /* 0x097e — swap back */
+	     g_a5_byte(-22307)++) {
+		idx = (signed char)g_a5_byte(-22307);
+		*(short *)(ds + idx * 2 + 272) = jt1180(*(short *)(ds + idx * 2 + 272));
+	}
+
+	if (l0a4e(ctx, 0x4d415020L, ds + 290, 0xd80L) == 0)      /* 0x09d4 — 'MAP ' */
+		return 0;
+	if (l0a4e(ctx, 0x454e4352L,                              /* 0x09f8 — 'ENCR' */
+	          (void *)(uintptr_t)g_a5_long(-13038), 0x7d0L) == 0)
+		return 0;
+
+	l4e3a((void *)(uintptr_t)g_a5_long(-13034));             /* 0x0a0c */
+	if (l0a4e(ctx, 0x53545247L,                              /* 0x0a24 — 'STRG' */
+	          (void *)(uintptr_t)g_a5_long(-13034), 0x1c00L) == 0) {
+		l4e3a((void *)(uintptr_t)g_a5_long(-13034));     /* 0x0a30 */
+		return 0;
+	}
+	l4e3a((void *)(uintptr_t)g_a5_long(-13034));             /* 0x0a42 */
+	return 1;
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
