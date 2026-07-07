@@ -155,6 +155,32 @@ raw tile byte `v` and the final written value — any `v < 32` (falling into the
 UI band) or a near-black final value confirms. The separate walk-loop stall is
 still open and untouched by this audit.
 
+## FIX APPLIED (2026-07-07) — the colour-cycle install was the regression
+
+**Root cause (corrected — the per-set palette model is RIGHT, see
+[[wall-palette-per-set-is-correct]]):** the dungeon wall fireplace/torch
+**colour-cycle** (Card B.1b/B.2, commit `2863b8a`) — which never fully worked —
+regressed the walls invisible.  `cw_finalize`'s `jt1069` install seeds the `-3258`
+cycle entries + the `-3394` work buffer; the per-frame **`jt1067`** rotation then
+commits its `[min..max]` range straight to the hardware CLUT (`l6e58`), overwriting
+the per-set wall bands (`g_cw_base = {32,69,106}`) with rotated/garbage colour every
+frame → walls blit correctly but paint near-black, worst over the night sky.  The
+static `qd_set_palette` install (boot.c:9819) is correct and gives visible walls on
+its own.
+
+**Fix:** gate the colour-cycle install OFF — `static int g_cw_wall_cycle = 0;`
+around the `jt1069` block in `cw_finalize`.  `jt1067` then never touches the wall
+bands; walls render from the correct static per-set palette.  Reversible (flip to 1
+once the cycle path is genuinely fixed).  NOT a shared-palette rewrite (that earlier
+"audit verdict" was a wrong turn — struck below).
+
+**⚠ Needs VISUAL confirmation** (dungeon entry is mouse-gated, can't verify
+headless): boot the level-5 harness (`FRUA_SKIP_ENTRY_EVENTS`/`FRUA_ENTRY_LEVEL=5`,
+HEIRS staged), PLAY → Load save → walk to a wall — walls should now be visible.
+
+The "shared-palette / per-set-is-wrong" audit-verdict section below is SUPERSEDED
+(kept only for the ruled-out trail).
+
 ## "What you broke" reconciled (2026-07-07) — deliberate design + a never-run path
 
 Not an accidental regression.  Two threads, both confirmed against the current tree
