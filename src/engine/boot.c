@@ -76201,6 +76201,28 @@ L3a6e:
 	return jt397((short)(signed char)res, (short)0);         /* 0x3aa6 */
 }
 
+/* L2d40 (CODE 11 + 0x2d40) — top-level GEO editor key command entry.  When the
+ * pending menu command g_a5_-10372 is ESC (27), commit via l2e1c(rec,10); when the
+ * key is a menu-bar accelerator (320..345), open the pulldown menu bar l37f6(rec,
+ * key-255, &rec[8], rec[28], 0, NULL) and beep on no-op; otherwise hand the key to
+ * the map-walk handler jt297.  A jt243 (GEO editor) mid; caller l28d4 (the hub). */
+static void l2d40(void *rec_v, short key, long arg3) __attribute__((unused));
+static void l2d40(void *rec_v, short key, long arg3)
+{
+	unsigned char *rec = (unsigned char *)rec_v;             /* fp@(8) */
+
+	if (g_a5_word(-10372) == 27) {                           /* 0x2d44 — ESC */
+		l2e1c(rec, (short)10);                           /* 0x2d54 */
+	} else if ((unsigned short)key >= 320                    /* 0x2d5e / 0x2d66 — menu-bar range */
+	           && (unsigned short)key <= 345) {
+		if (l37f6(rec, (short)(key - 255), (void *)&rec[8],   /* 0x2d94 */
+		          (short)(unsigned char)rec[28], (short)0, NULL) == 0)
+			jt1080();                                /* 0x2da0 */
+	} else {                                                 /* L2da6 */
+		jt297(rec, key, arg3);                           /* 0x2db2 */
+	}
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
