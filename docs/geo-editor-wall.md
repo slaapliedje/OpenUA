@@ -498,19 +498,28 @@ tool-menu panel), l1a1c (cell paint-drag modal loop), **l1d88** (the 380-insn
 per-kind cell-commit giant), l2836 (commit pending edits). Both 380-insn giants
 (l1d88 + l2ea0) are now DONE — full lifts.
 
-**HUB l28d4 (0x28d4–0x2d40) — the GEO editor modal command LOOP — remaining deps:**
-l2d40, l2dbe, l3380 (DONE now: l1a1c ✓ l24b6 ✓ l2ea0 ✓ l43c2 ✓ l2836 ✓). All three
-funnel through ONE chain: **jt371=l660c → l0742 → l37d8 → l2e1c** (l2dbe/l3380 need
-l2e1c; l2d40 also needs l37f6, which needs l2dbe + l3e60). So the whole rest of the
-subtree is gated on the **two genuinely-missing JTs**:
-- **jt371=l660c** → the l0742 "Save 3D Map" subtree (l0854/l07c2) → l37d8 → l2e1c →
-  l2dbe/l3380/l2d40 → l28d4.
-- **jt337=l41de** → l3e60 → l37f6 → l2d40.
-Lift jt371=l660c and jt337=l41de (check sizes — likely faithful-liftable, they are
-the ONLY two missing across the 149-JT subtree), then the chain cascades to the
-hub and jt243 proper.
-**Also genuinely blocked:** l3e60 (jt337=l41de) — the last of the 2 truly-missing
-JTs (jt337, jt371); everything else in the subtree is lifted or ready.
+**C5z DONE — JT[371] = l660c** (monster-record name refresh; = jt350 with 5th arg
+0; the categorizer is **l6520_c8**, not the same-offset l6520 in another segment).
+One of the two "missing JTs" cleared.
+
+### RESOLVER CAVEAT (2026-07-06) — name-defined ≠ lifted; verify (CODE, offset)
+The dependency resolver checks whether a helper's `lXXXX`/alias NAME is defined —
+but the SAME offset recurs across segments, so a defined name can be a DIFFERENT
+function. This over-reported "ready/lifted" 3× in this area: l6520 (port's is a
+2-coord bounds check, NOT the CODE-8 categorizer l6520_c8), **l0854=jt562 is
+CODE 17** (not CODE 11's l0854), **l4c4c=jt777 is CODE 18** (not CODE 8's). ALWAYS
+confirm the candidate's comment says the RIGHT `CODE N + 0xOFFSET` before trusting
+"lifted".
+
+**ACTUAL remaining subtree (~13 fns, verified unlifted) to reach jt243 proper:**
+- **l0742 "Save 3D Map" chain (CODE 11):** l0854, l07c2, l0742 (needs JT[371] ✓ +
+  l0854/l07c2) → l37d8 → l2e1c → l2dbe / l3380 → l2d40.
+- **jt337 chain (CODE 8):** l5150, l4b10 (needs l5150), l4c4c (needs l5150),
+  l41de=jt337 → l3e60 (CODE 11) → l37f6 → l2d40.
+- Then the **hub l28d4** (needs l2d40/l2dbe/l3380), then **jt243 proper** (20-arm
+  JT[3] @0xb48 tool palette).
+Bottom-up order: (a) l0854 + l07c2 → l0742 → l37d8 → l2e1c; (b) l5150 → l4b10 +
+l4c4c → jt337 → l3e60; then l37f6, l2dbe, l3380, l2d40, l28d4, jt243.
 
 **Also found: jt302 was a MIS-LIFT** — the Mac l04f2 is 2-arg `jt302(cell, want)`
 writing `(byte)want` (fp@11 = low byte of arg2); the port added a spurious 3rd
