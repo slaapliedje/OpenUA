@@ -457,30 +457,47 @@ key navigation — full lift w/ JT[1] arrows/accel/disabled-skip).
 (rec = arg); l2414/l1d10/l3654/l237c/l3236 take a HOLDER whose word@0 points at
 the record (rec = *arg) — match the asm's deref per-function, don't assume.
 
-**C5o–C5p DONE (2026-07-06):** l066a_c11 (dirty-flag toggle; _c11 because
+**C5o DONE (2026-07-06):** l066a_c11 (dirty-flag toggle; _c11 because
 JT[1165]=CODE4+0x066a is a *different* fn at the same offset — recurring-offset
-trap), and **JT[310]=l04d6** (CODE 22, a 9-insn cell-record byte-4 accessor;
-`g_a5_-12300 + cell*6 + 294`) — was MISSING, blocked l1d88.
+trap). **C5p was a MISFIRE — see correction below.**
 
-**Key finding: every remaining subtree fn bottoms out on a missing JT callee.**
-Sizes checked — the CODE-8 backend is DEEP and out of jt243 scope: jt336=1102B,
-jt334=686B, jt342=602B, jt337=534B, jt332=248B, plus jt330/jt331 (tiny but call
-jt336/jt332). These are the editor's 3D-map RENDER backend (a separate CODE-8
-subsystem, shared with other render paths) — PROBE-stub them per CLAUDE.md
-lift-level-1 when lifting l3ddc/l3d1a/l3e60 (alias-check: jt330=l324c, jt331=l33f6,
-jt332=l4a16, jt334=l3f2e, jt336=l45c6, jt337=l41de, jt342=l567c; jt395=l46b2 CODE 3).
+### ALIAS-TRAP AUDIT CORRECTION (2026-07-06) — read this before "blocked" claims
+An earlier note here claimed the remaining leaves were "blocked on missing CODE-8
+JT stubs (jt330/331/332/334/336/337/342) — PROBE-stub them." **That was WRONG.**
+Those functions are **already faithfully lifted** under their `lXXXX` alias names.
+The error: the *missing-JT* method grepped the `jtNNN` name, which reports MISSING
+for every JT entry that lives under an `lXXXX` alias (there are ~200 such). The
+same trap made C5p re-lift JT[310] as a duplicate `jt310` when it already existed
+as `l04d6` (reverted in "fix C5p").
 
-**NEXT — l1d88 (1524B) is READY (all deps present: dep l237c ✓, jt310 ✓):**
-the per-kind cell-render/commit dispatcher, `rec = *holder`, a **4-arm JT[3]
-@0x1d9e (min=1 max=4) on rec[18]** (1→L1dac, 2→L2014, 3→L2150, 4→L226c). Arms are
-LINEAR-but-large (field copies over the 8-byte-element table at rec[20]/`*hp`,
-cursor repaints via JT292/278/279/295/290/312/321, calls l237c). ~380 insn — do
-it as its own careful full lift (level 3), NOT rushed. Then the hub **l28d4**
-(waits l1a1c/l24b6/l2836/l2d40/l2dbe/l3380/l43c2), then jt243 proper (20-arm
-JT[3] @0xb48 tool palette) as a level-2 skeleton.
-**Still blocked:** l24b6 (needs jt395 stub), l3ddc/l3d1a/l3e60 (CODE-8 stubs),
-l36f6/l37d8 (l0742 subtree: l0854/l07c2 + ~10 JT — l0742 = the "Save 3D Map" GEO
-writer, 12962-byte level write).
+**Correct method (always):** resolve each JT dep through `docs/lxxxx-jt-aliases.md`
+(`lXXXX = jtN`) and grep the **lXXXX** name too; a JT is only truly missing when
+neither `jtN` nor its alias `lXXXX` is defined. Verify the alias is the right
+`(CODE, offset)` — the same offset recurs across segments (l066a=jt1165 is CODE 4,
+NOT CODE 11's l066a).
+
+**Ground truth (resolver over all 149 JT entries CODE 11 calls):** 132 defined as
+`jtN`, **15 lifted via alias** (192=l4e3a 195=l4db4 293=l05ca 300=l0674 310=l04d6
+330=l324c 331=l33f6 332=l4a16 334=l3f2e 336=l45c6 342=l567c 364=l6e50 395=l46b2
+456=l2d3e 1084=l036a), and **only 2 genuinely MISSING: jt337=l41de, jt371=l660c.**
+So the CODE-8 menu/render backend is DONE (band-7 lifts); nothing to stub there.
+
+**Newly-confirmed UNBLOCKED leaves (call the lXXXX at the JT sites):** l3ddc
+(330/331/332/336 → l324c/l33f6/l4a16/l45c6 ✓), l3d1a (334/342 → l3f2e/l567c ✓),
+l24b6 (395 → l46b2 ✓; + l066a_c11 ✓). **Still genuinely blocked:** l3e60 (needs
+jt337=l41de), l36f6/l37d8 (l0742 subtree needs jt371=l660c + locals l0854/l07c2;
+l0742 = the "Save 3D Map" GEO writer, 12962-byte level write).
+
+**Also found: jt302 was a MIS-LIFT** — the Mac l04f2 is 2-arg `jt302(cell, want)`
+writing `(byte)want` (fp@11 = low byte of arg2); the port added a spurious 3rd
+`val`. Fixed to 2-arg (no other callers).
+
+**NEXT — l1d88 (1524B) is READY (deps all present via l04d6):** the per-kind
+cell-render/commit dispatcher, `rec = *holder`, a **4-arm JT[3] @0x1d9e (min=1
+max=4) on rec[18]** (1→L1dac, 2→L2014, 3→L2150, 4→L226c). Arms are LINEAR-but-large
+(field copies over the design-state cell table `ds[+290]`/rec bands, cursor
+repaints via jt292/278/279/295/290/312/321, calls l237c). ~380 insn — careful
+full lift. Then the hub **l28d4**, then jt243 proper (20-arm JT[3] @0xb48).
 
 (Already lifted this campaign: jt233/234/235/236/237/238/239/240/241/244 +
 l4226/l4268 — see `docs/area-map-wall.md`.)
