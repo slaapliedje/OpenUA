@@ -74808,6 +74808,32 @@ static short l3ab0(void *list_v, unsigned char *idxp, short *colp,
 	return (short)handled;                                    /* 0x3d12 */
 }
 
+/* L3ddc (CODE 11 + 0x3ddc) — repaint one GEO editor menu/panel.  Measures its
+ * width (JT[332]); if obj[13] bit 2 is set it positions the panel — jt339(a2,
+ * -1, 40) picks the anchor, JT[331] the height h, and jt413 maps them into the
+ * panel's x-slot obj@10 (8160 - h*4 origin).  Then paints: JT[336](obj,112,a3)
+ * when a3 (the frame handle) is non-zero, else JT[330](obj) for the plain draw.
+ * A jt243 (GEO editor) leaf; caller l37f6.  JT[330/331/332/336] are the already-
+ * lifted CODE-8 menu manager l324c/l33f6/l4a16/l45c6 (called directly per the
+ * alias map — they are NOT missing). */
+static void l3ddc(void *obj_v, short a2, long a3) __attribute__((unused));
+static void l3ddc(void *obj_v, short a2, long a3)
+{
+	unsigned char *obj = (unsigned char *)obj_v;              /* fp@(8) */
+
+	l4a16(obj);                                               /* 0x3de4 — JT[332] width */
+	if (obj[13] & 4) {                                        /* 0x3df4 — btst #2 */
+		short anchor = jt339(a2, (short)-1, (short)40);   /* 0x3e06 — JT[339] */
+		short h      = l33f6(obj);                        /* 0x3e14 — JT[331] height */
+		*(short *)(obj + 10) = jt413(anchor,              /* 0x3e28 — JT[413] */
+		                             (short)(8160 - h * 4));
+	}
+	if (a3 != 0)                                              /* 0x3e36 */
+		l45c6(obj, (short)112, a3);                      /* 0x3e48 — JT[336] framed paint */
+	else
+		l324c(obj);                                      /* 0x3e56 — JT[330] plain draw */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
