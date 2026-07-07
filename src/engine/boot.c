@@ -74447,6 +74447,32 @@ static void l3654(void *holder_v)
 		rec[6] |= 0x80;                                    /* 0x36ec — bset #7 */
 }
 
+/* L237c (CODE 11 + 0x237c) — format and queue the GEO editor's toggle label.
+ * g_a5_-11072 is a 2-entry array of source strings; jt393 compares the current
+ * -11699 label buffer to entry 0 and picks entry (match ? 1 : 0), which jt384
+ * formats into the shared -11699 buffer.  Then it measures the record entry
+ * (*arg) via jt307 and queues the DLItem draw jt444(item = width+4, col = 39,
+ * &-11699) followed by a repaint walk jt449(0).  The &-11699 pointer rides in
+ * jt444's (b,c) short pair (its DLItem method reconstructs it).  A jt243 (GEO
+ * editor) leaf. */
+static void l237c(void *arg_v) __attribute__((unused));
+static void l237c(void *arg_v)
+{
+	short     flag, w;
+	uintptr_t lbl;
+
+	flag = (jt393(g_a5_chars(-11699),
+	              (const char *)(uintptr_t)g_a5_long(-11072)) == 0) ? 1 : 0;   /* 0x2388/0x238e */
+	jt384(g_a5_chars(-11699),
+	      (const char *)(uintptr_t)g_a5_long(-11072 + 4 * flag));              /* 0x23ae */
+	w   = jt307(*(const unsigned char **)arg_v);                              /* 0x23ba — measure */
+	lbl = (uintptr_t)g_a5_chars(-11699);
+	jt444((short)(w + 4), (short)39,                                          /* 0x23cc — DLItem draw */
+	      (short)((unsigned long)lbl >> 16),
+	      (short)((unsigned long)lbl & 0xFFFF));   /* &-11699 passed as (b,c) */
+	jt449((short)0);                                                          /* 0x23d4 — repaint walk */
+}
+
 /*
  * jt243 (CODE 11 + 0x0b26) — the GEO 3D-map editor main dispatcher, a roadmap
  * giant (~5216 insn / ~40 functions), still a PROBE stub so the l0096 dispatcher
