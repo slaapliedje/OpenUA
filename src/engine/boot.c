@@ -12464,7 +12464,22 @@ static void jt280(void *rec_v, short x, short y, short mode)
 			       (const char *)(uintptr_t)g_a5_long(-10820));
 	}
 }
-static void        jt1113(short *o1, short *o2)         { PROBE("jt1113"); if(o1)*o1=0; if(o2)*o2=0; }        /* CODE 4+0x6204 */
+/* JT[1113] (CODE 4+0x6204) — GetMouse into (o1 = vertical, o2 = horizontal),
+ * halved when the play window is 2x-doubled (g_a5_-2346, 0 on the port). Was a
+ * (0,0) stub; now routes to the shim GetMouse -> the live HAL pointer so the
+ * engine sees the real cursor position (hover cursor tracking, viewport hit). */
+static void        jt1113(short *o1, short *o2)
+{
+	Point pt;
+	PROBE("jt1113");
+	GetMouse(&pt);
+	if (g_a5_byte(-2346) != 0) {
+		pt.h = (short)(pt.h >> 1);
+		pt.v = (short)(pt.v >> 1);
+	}
+	if (o1) *o1 = pt.v;
+	if (o2) *o2 = pt.h;
+}
 static short       l2d3e(void);                         /* JT[456] event poll, CODE 3+0x2d3e (full lift, defined below) */
 static void        l0848(short key);                    /* Training Hall roster selection (CODE 12+0x848, below) */
 static void        l02dc(long highlight);               /* Training Hall roster paint (below) */
@@ -20811,6 +20826,26 @@ static short l2d3e(void)
 			}
 		} else {
 			jt1080();                /* no hit — sleep tick */
+		}
+	}
+
+	/* The event hit-test (Phase 2) only has a valid pointer position on a
+	 * click; on an idle/hover pass it tested the stale (0,0) event coords, so
+	 * the sword/shield cursor (Phase 4) never flipped on hover — only on a
+	 * click. Recompute the hit against the LIVE HAL pointer here so the cursor
+	 * tracks the mouse continuously. plat_mouse_pos gives (h=x, v=y); the
+	 * DLItem hit-test (kind 2) takes (arg3, arg4) = the same order the click
+	 * path feeds it — jt1125 gives out1=where.h, out2=where.v, so (h, v). It is
+	 * side-effect-free. Phase 5 re-derives i/rec, so overwriting is safe. */
+	{
+		short lh = 0, lv = 0;
+		plat_mouse_pos(&lh, &lv);
+		rec = (unsigned char *)g_a5_9254;
+		for (i = 0; i < count; i++) {
+			method = *(dlitem_method_t *)rec;
+			if (method != NULL && method(rec, (short)2, lh, lv) != 0)
+				break;
+			rec += DLITEM_BYTES;
 		}
 	}
 
