@@ -20237,8 +20237,76 @@ static void jt984(void)
 /* JT[985] (CODE 5 + 0x12b4) — play song index `n`, range-checked against the
  * song count g_a5_-4758 (else "Song out of range").  AUDIO LEAF: the playback
  * (jt11a2) is the .slb engine over the Falcon DMA sound HAL — stubbed. */
+/* L0fc4 (CODE 5 + 0x0fc4) — convert a song-header period word to a
+ * voice reload value: (period * 105) / (2 * jt1110()) = period*105/7200.
+ * jt4 / jt7 are the THINK C 32-bit mul/div runtime helpers (plain C
+ * operators per their own lift). Full lift. */
+static short jt1110(void);
+static short l0fc4(short period) __attribute__((unused));
+static short l0fc4(short period)
+{
+	long num = (long)(unsigned short)period * 0x69;      /* jt4: *105 */
+	return (short)(num / ((long)jt1110() * 2));           /* jt7: /7200 */
+}
+
+/* L11a2 (CODE 5 + 0x11a2) — load song `idx` into the 5-voice mixer
+ * table (-4848). The song header a4 = -4770 (song base) + the -4756
+ * word-offset table entry for `idx`; a3 = a4+14 is the pattern data.
+ * a4[0] = period (-> L0fc4), a4[2] = a shared voice byte, a4[3] = the
+ * voice count. For each of a4[3] voices, arm a 14-byte record: [0] the
+ * tick base, [4] the pattern pointer (a3 + the per-voice offset word at
+ * a4[4+2i]), [8] the reload value, [10] phase 0, [12] a4[2], [13] state
+ * 3. m68k is big-endian like the Mac, so the resource words read
+ * natively (no swap). Full lift. */
+static void l11a2(short idx, long tickbase) __attribute__((unused));
+static void l11a2(short idx, long tickbase)
+{
+	unsigned char *a4, *a3;
+	short period, i;
+
+	a4 = (unsigned char *)(uintptr_t)(g_a5_long(-4770)
+	     + (unsigned short)*(short *)(g_a5_buf(-4756) + (long)idx * 2));
+	a3 = a4 + 14;
+
+	period = l0fc4(*(short *)a4);
+
+	if ((unsigned char)a4[3] > 1)
+		jt1145();
+	while (tickbase == 0)
+		tickbase = jt1149();
+
+	for (i = 0; i < (unsigned char)a4[3]; i++) {
+		unsigned char *slot = (unsigned char *)g_a5_buf(-4848) + (long)i * 14;
+		unsigned short voff = (unsigned short)*(short *)(a4 + (long)i * 2 + 4);
+
+		slot[12] = a4[2];
+		slot[13] = 3;
+		*(short *)(slot + 8)  = period;
+		*(long  *)(slot + 4)  = (long)(uintptr_t)(a3 + voff);
+		*(short *)(slot + 10) = 0;
+		*(long  *)(slot + 0)  = tickbase;
+	}
+}
+
+/* JT[985] (CODE 5 + 0x12b4) — play song `n`: save the -4778 active-
+ * voice index, reset the mixer table (L0f1e), then range-check n
+ * against the -4758 song count — in range [0, count) it loads via
+ * L11a2(n, 0), otherwise prints "Song out of range (n/count)" — and
+ * restore -4778. Full lift. */
 static void jt985(short n) __attribute__((unused));
-static void jt985(short n) { PROBE("jt985"); (void)n; }
+static void jt985(short n)
+{
+	short saved = g_a5_word(-4778);
+	short count = (unsigned char)g_a5_byte(-4758);
+
+	l0f1e();
+	if ((unsigned short)count > (unsigned short)n && n >= 0)
+		l11a2(n, 0);
+	else
+		l036a(ua_strs_at(0x6d80) /* "Song out of range (%d/%d)" */,
+		      n, count);
+	g_a5_word(-4778) = saved;
+}
 
 /* JT[965] (CODE 5 + 0x7dee) — play a sound effect (loads the sound resource via
  * jt468, then drives the output leaf l7ee0 in a loop).  AUDIO LEAF: stubbed. */
