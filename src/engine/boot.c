@@ -43758,12 +43758,38 @@ static void jt10(short a, short key, long ctx)
 	jt1008(ctx, key);
 }
 
-/* JT[1008] (CODE 5+0xbe4) — jt10's key sink. Leaf PROBE stub pending
- * its own lift. */
+/* l0ab6 (CODE 5 + 0x0ab6) — draw one on-screen box (index g_a5_-4886) from the
+ * parallel box tables: primary coord (-4880), width (-4870), colour (-4860).
+ * Maps the frame via jt1141, fills the border with the colour's hi-nibble
+ * (jt1161), formats the label with THINK C's "%r" recursive mode (jt394; a8 =
+ * the format string, a12 = its args), truncates the result to the box width,
+ * then draws it (jt1089 = l0334).  The one missing helper under jt1008. */
+static void l0ab6(long a8, long a12) __attribute__((unused));
+static void l0ab6(long a8, long a12)
+{
+	short i  = g_a5_word(-4886);
+	short t0 = g_a5_word(-4880 + 2 * i);   /* primary coord (arr[-4880][i]) */
+	short tw = g_a5_word(-4870 + 2 * i);   /* box width     (arr[-4870][i]) */
+	short tc = g_a5_word(-4860 + 2 * i);   /* box colour    (arr[-4860][i]) */
+	short bottom, right;                    /* fp@-2, fp@-4 */
+	char  namebuf[80];                      /* fp@-84 */
+
+	jt1141(t0, (short)(8160 - tw), 8004, 0, &bottom, &right);       /* 0x0ade map frame */
+	jt1161(t0, (short)(tw + 8000), bottom, right,
+	       (short)((tc >> 4) & 15));                                /* 0x0b22 fill border */
+
+	jt394(namebuf, "%r", a8, a12);                                 /* 0x0b46 "%r" recursive */
+	namebuf[40 - (tw >> 1)] = 0;                                   /* 0x0b60 truncate to box */
+	jt1089(t0, (short)(8080 - jt423(namebuf) * 2), tc, namebuf);   /* 0x0b80 draw */
+}
+
+/* JT[1008] (CODE 5 + 0xbe4) — jt10's key-sink cursor box: highlight (jt1153) then
+ * repaint the input box echoing the key via l0ab6's "%r" (ctx = format, &key =
+ * args).  Full lift replacing the stub. */
 static void jt1008(long ctx, short key)
 {
-	PROBE("jt1008");
-	(void)ctx; (void)key;
+	jt1153(1);                                       /* 0x0be8 */
+	l0ab6(ctx, (long)(uintptr_t)&key);               /* 0x0bfa "%r"(ctx, &key) */
 }
 
 /* JT[11] (CODE 6+0x04c0) — the second "Pod" UI handler (the port's
