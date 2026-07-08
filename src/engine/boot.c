@@ -389,7 +389,9 @@ static unsigned char g_24134;          /* A5-24134 — set to 1 by main()     */
 static char          g_str_22253[32];  /* A5-22253 — a DATA-resource string;
                                          *           real size/contents TBD */
 static signed char   g_22307;          /* A5-22307 — phase-5 loop counter   */
-static unsigned char g_22231[4];        /* A5-22231 — flag bytes [1..3]      */
+static unsigned char g_22231[5];        /* A5-22231..-22227 — 5 contiguous flag
+                                         * bytes; caller checks [1..3], jt931
+                                         * (copy-protect) also sets [4]=-22227  */
 
 /*
  * --- Frontier: routines main() calls that are not lifted yet ---
@@ -2075,7 +2077,7 @@ static void  jt361(short a)
 	}
 }
 static void  jt919(void);                                                       /* CODE 12 + 0x1b12 — full lift below */
-static int   jt931(void)                           { PROBE("jt931"); return 0; }  /* CODE 12 + 0x430c */
+static int   jt931(void);                          /* CODE 12 + 0x430c — copy-protection prompt, lifted below */
 /* JT[949] (CODE 20 + 0x77a2) — Mac body is just `rts`. Genuinely
  * a no-op placeholder hook. */
 static void  jt949(void)                           { PROBE("jt949"); }            /* CODE 20 + 0x77a2 */
@@ -84122,6 +84124,104 @@ static void l4218(long amount, void *slot_v)
 	slot[2] = (unsigned char)(amount >> 16);      /* 0x4232-0x423e */
 	slot[3] = (unsigned char)(amount >> 24);      /* 0x4242-0x424e */
 }
+/* L4280 (CODE 12 + 0x4280) — decode an obfuscated copy-protection word into
+ * `dst`: reverse `src` and subtract its length from every byte.  (The design
+ * stores the manual answer words obfuscated so they can't be read straight out
+ * of the file.)  Full lift. */
+static void l4280(char *dst, const char *src)
+{
+	char          buf[64];                          /* fp@-42 work buffer */
+	unsigned char len = (unsigned char)jt483(src);  /* fp@-44 */
+	unsigned char i;                                /* fp@-43 */
+
+	jt384(buf, ua_strs_at(0x64ca) /* "" */);
+	for (i = len; i >= 1; i--) {
+		char c = (char)((signed char)src[i - 1] - len);
+		jt384(buf, jt488(ua_strs_at(0x64cc) /* "%s%c" */, buf, c));
+	}
+	jt384(dst, buf);
+}
+
+/* JT[931] (CODE 12 + 0x430c) — the manual / rule-book copy-protection prompt.
+ * Up to 3 attempts: pick a random page (jt485(20)) and word (jt485(3)) from the
+ * 20-byte-record challenge table at -5702 (record: [0] heading ptr, [4] page #,
+ * [5..7] the three word #s (255 = unused slot), [8]/[12]/[16] the three
+ * obfuscated answer-word ptrs), decode the answer into -5788 (L4280), draw the
+ * "rule book, page N ... what is word # M ... after the heading H" prompt, read
+ * the player's word (jt98 -> -5747) and compare (jt396).  Loops until a correct
+ * answer or the 3rd attempt; returns 1 iff the final entry matched (the caller
+ * runs jt69 / ExitToShell on 0).  The -22231..-22227 flag bytes track progress.
+ * Full lift. */
+static int jt931(void)
+{
+	unsigned char match;                    /* fp@-1 */
+	char          heading[64];              /* fp@-42 */
+	int           ok;
+
+	jt65((long)(uintptr_t)g_22231, (short)5);       /* clear the 5 flag bytes */
+	jt76();
+	g_a5_byte(-5706) = 0;                            /* attempt counter */
+
+	do {
+		unsigned char *rec;
+		unsigned char  page, word;
+
+		g_a5_byte(-5706)++;
+		jt384((char *)&g_a5_byte(-5788), ua_strs_at(0x64d2) /* "" */);
+		g_22231[1] = 1;                             /* -22230 */
+		page = (unsigned char)jt485((short)20);
+		g_a5_byte(-5705) = (char)page;
+
+		/* pick a word slot in use (word # 255 = unused) */
+		do {
+			word = (unsigned char)jt485((short)3);
+			g_a5_byte(-5704) = (char)word;
+			rec = (unsigned char *)g_a5_buf(-5702) + (long)page * 20;
+		} while (rec[5 + word] == 255);
+
+		/* decode the answer word into -5788 */
+		l4280((char *)&g_a5_byte(-5788),
+		      (const char *)(uintptr_t)*(long *)(rec + 8 + (long)word * 4));
+
+		/* draw the challenge */
+		jt94((short)3, (short)2, (short)10, (short)0,
+		     ua_strs_at(0x64d4) /* " rule book, page " */);
+		jt94((short)19, (short)2, (short)13, (short)0,
+		     jt488(ua_strs_at(0x64e6) /* "%s%s%s" */,
+		           ua_strs_at(0x64ee) /* " (" */,
+		           jt63((short)rec[4]),
+		           ua_strs_at(0x64f2) /* ")....  " */));
+		jt94((short)3, (short)4, (short)10, (short)0,
+		     ua_strs_at(0x64fa) /* " what is word # " */);
+		jt94((short)19, (short)4, (short)13, (short)0,
+		     jt488(ua_strs_at(0x650c) /* "%s%s" */,
+		           jt63((short)rec[5 + word]),
+		           ua_strs_at(0x6512) /* ".. " */));
+		jt94((short)3, (short)6, (short)10, (short)0,
+		     ua_strs_at(0x6516) /* " after the heading " */);
+		jt103((short)4, (short)8, (short)38, (short)8);
+		l4280(heading, (const char *)(uintptr_t)*(long *)rec);
+		jt94((short)4, (short)8, (short)13, (short)0, heading);
+
+		/* read the player's answer */
+		jt384((char *)&g_a5_byte(-5747),
+		      jt98((long)(uintptr_t)ua_strs_at(0x652a) /* "Enter " */,
+		           (short)11, (short)0, (short)20));
+		g_22231[2] = 1;                             /* -22229 */
+
+		/* stop after 3 attempts or on a correct answer */
+		ok = (g_a5_byte(-5706) == 3) ||
+		     (jt396((const char *)&g_a5_byte(-5747),
+		            (const char *)&g_a5_byte(-5788)) != 0);
+	} while (!ok);
+
+	g_22231[3] = 1;                                 /* -22228 */
+	match = (jt396((const char *)&g_a5_byte(-5747),
+	               (const char *)&g_a5_byte(-5788)) != 0) ? 1 : 0;
+	g_22231[4] = 1;                                 /* -22227 */
+	return match;
+}
+
 static unsigned char jt933(long ev, short exit_arm, long item_head, short v)
 	{ PROBE("jt933"); (void)ev; (void)exit_arm; (void)item_head; (void)v; return 0; } /* CODE12+0x5720 take-commit */
 
