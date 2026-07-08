@@ -13473,7 +13473,20 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			}
 			break;
 		case 1: case 2: case 3: case 4: /* directional move (L674a) */
-			jt311(ctx, (short)(258 + (pollres - 1) * 2), cb2);
+			/* Mac L674a calls jt311 (overland scroll), which sets
+			 * -12287/-12288 directly. But the port's first-person view
+			 * tracks the party in rec[46..51] and the deep re-render below
+			 * SNAPS -12288.. from that mirror — overwriting jt311's change —
+			 * so a pad click never moved the dungeon. Route deep pad clicks
+			 * through jt297, the same proven first-person mover the keyboard
+			 * uses (-> l1908 -> rec[46..51]); overland keeps the faithful
+			 * jt311. The synthesized key 258/260/262/264 maps in jt297 to
+			 * turn-right / about-face / turn-left / forward, matching the pad
+			 * layout (right / bottom / left / top edge). */
+			if ((unsigned char)a_deep)
+				jt297(ctx, (short)(258 + (pollres - 1) * 2), cb2);
+			else
+				jt311(ctx, (short)(258 + (pollres - 1) * 2), cb2);
 			break;
 		case 5:                         /* select (L676a) */
 			if ((unsigned char)a_sel && l67e4(ctx, (short)(signed char)a_wild)
