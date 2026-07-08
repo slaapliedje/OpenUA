@@ -1427,6 +1427,20 @@ static void qd_cursor_tick(void)
 	}
 }
 
+/* Per-frame cursor keep-up for a modal spin (l2d3e): when the VBL owns the
+ * pointer it already tracks the position every vblank, so a mouse move needs
+ * only a pending SHAPE swap pushed (a 16x16 sprite, no c2p). Using a full
+ * qd_present per move instead just throttles the modal loop, starving the
+ * sword/shield hit-test so the cursor lags and flickers. Fall back to a full
+ * present only when the cursor is software-composited into the frame. */
+void qd_cursor_track(void)
+{
+	if (plat_cursor_active())
+		qd_cursor_tick();
+	else
+		qd_present();
+}
+
 static void cursor_composite(void)
 {
 	unsigned char *px;
