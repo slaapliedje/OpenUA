@@ -2034,7 +2034,7 @@ static void  jt361(short a)
 #endif
 	}
 }
-static void  jt919(void)                           { PROBE("jt919"); }            /* CODE 12 + 0x1b12 */
+static void  jt919(void);                                                       /* CODE 12 + 0x1b12 — full lift below */
 static int   jt931(void)                           { PROBE("jt931"); return 0; }  /* CODE 12 + 0x430c */
 /* JT[949] (CODE 20 + 0x77a2) — Mac body is just `rts`. Genuinely
  * a no-op placeholder hook. */
@@ -56310,12 +56310,14 @@ static void l3880(short a, short b, short frame, void *ptr);   /* JT[106] — fo
  * jt108/jt124/jt117 frame chrome, and reloads with the caller's mode byte for a
  * two-pass (frames 1 + 2) draw — a frame rect when mode==5 and jt1200 != 3.
  * Disposes the handle (jt115) each pass.  jt919's row helper. */
-static void l19d4(const char *name, short arg2) __attribute__((unused));
-static void l19d4(const char *name, short arg2)
+static void l19d4(const char *name, short arg2, short a3, short a4) __attribute__((unused));
+static void l19d4(const char *name, short arg2, short a3, short a4)
 {
 	long          handle = 0;                /* fp@-4 */
 	char          buf[16];                   /* fp@-16 */
 	unsigned char mode = (unsigned char)arg2;   /* fp@13 = low byte of arg2 */
+
+	(void)a3; (void)a4;                      /* fp@14/fp@16 pushed by jt919, unused here */
 
 	jt384(buf, name);                                /* 0x19dc */
 	jt404(buf, "1");                                 /* 0x19ea append "1" */
@@ -56338,6 +56340,52 @@ static void l19d4(const char *name, short arg2)
 	jt124(handle);                                   /* 0x1ace */
 	jt117();                                         /* 0x1ad8 */
 	jt115(&handle);                                  /* 0x1adc dispose */
+}
+
+/* l1aea_c12 (CODE 12 + 0x1aea) — a small redraw tail (frameless).  (_c12: the
+ * CODE-12 l1aea is unrelated to the 3-arg roster l1aea at ~line 56206.)  Unless
+ * (jt1163==0 && jt1200!=0), fetches art tag 0 (jt468) and blits it (jt993), then
+ * refreshes (jt1130). */
+static void l1aea_c12(void) __attribute__((unused));
+static void l1aea_c12(void)
+{
+	if (jt1163() != 0 || jt1200() == 0)      /* 0x1aea-0x1af8 */
+		jt993(jt468(0), 0);              /* 0x1afa-0x1b0a */
+	jt1130();                                /* 0x1b0c */
+}
+
+/* jt919 (CODE 12 + 0x1b12) — the Training Hall screen setup + portrait roll.
+ * Sets the screen (jt131), clears (jt1153), reskins the viewport (jt120), kicks
+ * a sound (jt52 cmd 32), paints (jt113), hides the cursor (jt1148), then rolls
+ * portraits 2..6 (l19d4 "title") each waiting ~1050 ticks for a key (l192c):
+ * Escape ends via jt1130; any non-space key ends via l1aea_c12; space (timeout)
+ * advances.  A frameless l1aea_c12 closes if the roll runs out. */
+static void jt919(void)
+{
+	short         i;      /* fp@-2 */
+	unsigned char key;    /* fp@-3 */
+
+	jt131(5);                                        /* 0x1b16 */
+	jt1153(0);                                       /* 0x1b20 */
+	jt120(NULL);                                     /* 0x1b28 reskin viewport */
+	jt52(32);                                        /* 0x1b30 sound cmd 32 */
+	jt113(49);                                       /* 0x1b3a */
+	jt1148();                                        /* 0x1b44 obscure cursor */
+
+	for (i = 2; i <= 6; i++) {                       /* 0x1b48-0x1b9c */
+		l19d4("title", i, 1, 1);                 /* 0x1b50 portrait */
+		key = (unsigned char)l192c(1050);        /* 0x1b6a wait ~1050 for a key */
+		if (key == 27) {                         /* 0x1b78 Escape */
+			jt1130();                        /* 0x1b7e */
+			return;
+		}
+		if (key != 32) {                         /* 0x1b84 any non-space key */
+			l1aea_c12();                     /* 0x1b8c */
+			return;
+		}
+		/* space (timeout) -> advance (L1b92 i++) */
+	}
+	l1aea_c12();                                     /* 0x1b9e roll exhausted */
 }
 
 /* L1bfe (CODE 7 + 0x1bfe) — roster-row content renderer.
