@@ -12296,7 +12296,7 @@ static void        l4226(void *rec_v)
 	l4268(rec);
 }
 static short       jt354(void)                          { PROBE("jt354"); return (short)jt1160(); }   /* CODE 8+0x5ef8: thunk to JT[1160] */
-static void        jt365(void)                          { PROBE("jt365"); }                   /* CODE 8+0x7238 */
+static void        jt365(void);                                                               /* CODE 8+0x7238 — full lift below jt129 */
 /* JT[358] (CODE 8+0x6e4a) — read the game counter byte g_a5_-10374
  * (shown in the status line via jt367; gated by jt273). */
 static short       jt358(void)                          { PROBE("jt358"); return (short)(unsigned char)g_a5_byte(-10374); }
@@ -62563,6 +62563,69 @@ static void jt129(long name, short num, short w, long dest)
 	g_a5_long(-31244) = dest;
 	g_a5_word(-31246) = w;
 	jt987((short)0, path, (short)4, (void *)(uintptr_t)jt126);
+}
+
+/* jt365 (CODE 8 + 0x7238) — generate a UNIQUE design/save name for "Create New
+ * Design".  Unless the -31336 flag is set (then it skips straight to the "GAME"
+ * name prompt), it takes the current design name (g_a5_-18876), normalises it
+ * (jt130/jt405), defaults to "AAAAAAAA" if empty, then counter-increments the
+ * 8-char name (short names get an 'A' appended; full names roll the last non-'Z'
+ * position up and reset the tail to 'A') until jt990 finds no existing NAME.DSN.
+ * Persists the winner (jt431/jt435 path build, jt133 sets the design name) and
+ * shows the game-name prompt (jt129 "GAME").  All-JT; the former stub. */
+static void jt365(void)
+{
+	char  name[200];    /* fp@(-202) — the design name being generated */
+	char  path[200];    /* fp@(-402) — name + ".DSN" */
+	char  isdir;        /* fp@(-403) — jt991 out flag */
+	short i;            /* fp@(-2) */
+
+	jt132(51);                                       /* 0x723c */
+	if (g_a5_byte(-31336) == 0) {                    /* 0x7246 (set -> straight to L73da) */
+		jt384(name, (const char *)&g_a5_byte(-18876));  /* 0x7256 */
+		jt130(name);                             /* 0x7260 */
+		jt405(name);                             /* 0x726a */
+		if (name[0] == 0)                        /* 0x7270 */
+			jt384(name, "AAAAAAAA");         /* 0x7280 */
+		jt384(path, name);                       /* 0x728e */
+		jt419(path, "DSN", 1);                   /* 0x72a2 */
+
+		while (jt990(0, path, NULL, 1, 1) != 0) { /* 0x737c file exists -> increment */
+			while (jt991(&isdir) != 0)       /* 0x72ae drain the catalog scan */
+				;
+			if (jt423(name) < 8) {           /* 0x72bc */
+				jt404(name, "A");        /* 0x72cc append 'A' */
+			} else {                         /* L72e0 counter-increment */
+				i = 7;                   /* 0x72e0 */
+				while (i >= 0 && name[i] == 'Z')  /* 0x72ec skip trailing Z */
+					i--;
+				if (i < 0)               /* 0x7300 */
+					i = 0;
+				if (jt391((signed char)name[i]) != 0) {  /* 0x730a incrementable */
+					name[i]++;       /* 0x7322 */
+					i++;             /* 0x732c */
+					while (i < 8) {  /* 0x7342 reset the tail to 'A' */
+						name[i] = 'A';   /* 0x7332 */
+						i++;
+					}
+				} else {                 /* L734c */
+					name[i] = 'A';   /* 0x7352 */
+				}
+			}
+			jt384(path, name);               /* 0x7358 rebuild path */
+			jt419(path, "DSN", 1);           /* 0x7366 */
+		}
+
+		name[0] = 0;                             /* 0x739a persist the winner */
+		jt431(name, path);                       /* 0x739e */
+		jt435(name);                             /* 0x73ac */
+		jt133(path);                             /* 0x73b6 set the design name */
+		jt431(name, "SAVE");                     /* 0x73c0 */
+		jt435(name);                             /* 0x73d0 */
+	}
+
+	jt129((long)(uintptr_t)"GAME", 1, 388,           /* 0x73da the "GAME" name prompt */
+	      (long)(uintptr_t)&g_a5_byte(-18876));
 }
 
 /* L0004 (CODE 6+0x0004 — NOT the lifted menu-selection l0004,
