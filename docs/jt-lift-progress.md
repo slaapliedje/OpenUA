@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1187 done (1058 lifted, 52 noop, 77 alias), 13 stub, 0 stand-in, 5 missing.
+**1205 distinct JT entries are called.** Overall: 1188 done (1059 lifted, 52 noop, 77 alias), 12 stub, 0 stand-in, 5 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -48,7 +48,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 14 | 651–700 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 15 | 701–750 | **47/50** | 37 | 10 | 1 | 0 | 2 |
 | 16 | 751–800 | **48/50** | 41 | 7 | 0 | 0 | 2 |
-| 17 | 801–850 | **49/50** | 47 | 2 | 1 | 0 | 0 |
+| 17 | 801–850 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
@@ -81,7 +81,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 12 | 23 | 20 | 3 | 0 | 0 | **3** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 22 | 0 | 0 | 0 | **0** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
-| CODE 15 | 19 | 18 | 1 | 0 | 0 | **1** | play-entry + save/load + party list (jt574..590 / l07dc) |
+| CODE 15 | 19 | 19 | 0 | 0 | 0 | **0** | play-entry + save/load + party list (jt574..590 / l07dc) |
 | CODE 16 | 115 | 115 | 0 | 0 | 0 | **0** | combat HANDLER tier — spell-effect/per-actor handlers registered into CODE 18 (code16-wall) |
 | CODE 17 | 20 | 20 | 0 | 0 | 0 | **0** | character generation (jt574 / jt557 / l618c) |
 | CODE 18 | 171 | 171 | 0 | 0 | 0 | **0** | combat engine (jt610 / jt856 / l4d98 / l709e) |
@@ -331,7 +331,7 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 18 of 18 pending (stub+standin+missing), by call count:
+Top 17 of 17 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt373 (1 calls, CODE 8) — missing
@@ -339,7 +339,6 @@ Top 18 of 18 pending (stub+standin+missing), by call count:
 - jt428 (1 calls, CODE 3) — stub
 - jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
 - jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
-- jt587 (1 calls, CODE 15) — stub
 - jt919 (1 calls, CODE 12) — stub
 - jt931 (1 calls, CODE 12) — stub
 - jt933 (1 calls, CODE 12) — stub
