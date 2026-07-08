@@ -176,6 +176,22 @@ static Boolean mouse_edge_to_event(EventRecord *out, Boolean ack)
 {
 	int cur = plat_mouse_btn();
 
+	/* A latched down-edge from the IKBD interrupt yields a mouseDown even if
+	 * the button was already released before this poll -- a fast press+release
+	 * (or a click while the modal loop was busy) would otherwise leave no
+	 * level change and be lost entirely. */
+	if (plat_mouse_click_pending()) {
+		out->what    = mouseDown;
+		out->message = 0;
+		fill_common(out);
+		if (ack) {
+			plat_mouse_take_click();     /* consume the latched click */
+			g_last_mouse_btn = 1;        /* level now reflects the press;
+			                              * the release yields mouseUp next */
+		}
+		return 1;
+	}
+
 	if ((cur != 0) == (g_last_mouse_btn != 0))
 		return 0;
 	out->what    = cur ? mouseDown : mouseUp;
