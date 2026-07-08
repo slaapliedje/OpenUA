@@ -188,8 +188,14 @@ batch.  Rough map (√ = sub-dep lifted, ✗ = missing sub-dep):
   (272-byte frame — the cleric "pay for cure" service, jt96/jt159/jt394) →
   **L45ca**.  ~400 lines across 4 fns — its own focused session (level-2
   skeleton then fill), not a leaf.
-- LARGE (real functions, not leaves): jt955 (21, 1014 B), jt1064 (5, 2076 B),
-  jt1178 (4, 1710 B).
+- LARGE (real functions, not leaves): jt955 (21, 1014 B), jt1064 (5, 2076 B,
+  sound cluster).
+- jt1178 (4, 1710 B, = l24aa) ✅ NOOP 2026-07-08 — VERIFIED HAL-moot: the Mac
+  palette-reapply-on-RESUME (install the -1310 palette into the GrafPort pmTable
+  + 0xAA33 entry save + PaintRect), reached ONLY by the osEvt resume paths
+  (L71ac/L7204) = a Mac multitasking event.  TOS is single-tasking → the CLUT is
+  never clobbered → the reapply is never needed (jt1050/jt1052 single-tasking
+  class); the VIDEL HAL owns the CLUT (ADR-0005).  jt1144/jt1159 class; NOOP set.
 - jt1144 (4, 1236 B) ✅ NOOP 2026-07-08 — VERIFIED (full disasm read) as 100%
   Mac Toolbox app bring-up (Window Mgr GetNewWindow/SizeWindow/ShowWindow;
   Palette Mgr / Color QuickDraw / GDevice 0xAAxx farm, incl. a call to the
