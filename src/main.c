@@ -325,6 +325,7 @@ static void load_frua_cursors(void)
 	OSErr          err;
 	unsigned short count, w, h, hx, hy;
 	unsigned char *p;
+	short          i;
 
 	if (FSOpen((ConstStr255Param)"\010frua.cur", 0, &ref) != noErr) {
 		dbg_log("main: frua.cur absent (mono cursor)");
@@ -351,14 +352,25 @@ static void load_frua_cursors(void)
 	count = (unsigned short)((buf[6] << 8) | buf[7]);
 	if (count < 1)
 		return;
-	p  = buf + 8 + 48;                        /* first cursor (the sword) */
-	w  = (unsigned short)((p[0] << 8) | p[1]);
-	h  = (unsigned short)((p[2] << 8) | p[3]);
-	hx = (unsigned short)((p[4] << 8) | p[5]);
-	hy = (unsigned short)((p[6] << 8) | p[7]);
-	qd_install_color_pointer((short)w, (short)h, (short)hx, (short)hy,
-	                         p + 8, buf + 8);
-	dbg_log("main: frua.cur colour pointer installed");
+	/* Load the whole set into the shim's cursor bank (shared palette at buf+8);
+	 * the engine's per-frame cursor pick swaps between them. Cursor 0 is the
+	 * sword; the bank index matches the FRUA cursor number minus one. */
+	p = buf + 8 + 48;                         /* first cursor (0 = the sword) */
+	for (i = 0; i < (short)count; i++) {
+		if (p + 8 > buf + size)
+			break;
+		w  = (unsigned short)((p[0] << 8) | p[1]);
+		h  = (unsigned short)((p[2] << 8) | p[3]);
+		hx = (unsigned short)((p[4] << 8) | p[5]);
+		hy = (unsigned short)((p[6] << 8) | p[7]);
+		if (p + 8 + (long)w * h > buf + size)
+			break;
+		qd_load_color_cursor((int)i, (short)w, (short)h,
+		                     (short)hx, (short)hy, p + 8, buf + 8);
+		p += 8 + (long)w * h;
+	}
+	qd_select_color_cursor(0);                /* default: the sword pointer */
+	dbg_log_num("main: frua.cur cursors loaded = ", (long)count);
 }
 
 int main(void)

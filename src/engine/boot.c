@@ -19826,6 +19826,14 @@ static void jt1007(short group, short item)
 	unsigned char  depth, flags;
 
 	PROBE("jt1007");
+	/* Mirror the engine's cursor pick onto the colour VBL pointer (frua.cur).
+	 * Group 0 is the ALWAYS cursor set the pack carries; its piece `item`
+	 * (1-based: 1 sword, 2 shield, 4-11 dungeon arrows, 21-23 turns, 26
+	 * hourglass) maps to bank index item-1. Done up front so the on-screen
+	 * shape still tracks the engine even when no mono GLIB cursor art is
+	 * resident (the port ships the colour pack instead). */
+	if (group == 0)
+		qd_select_color_cursor((int)item - 1);
 	piece = l2856(jt468(group), item, hdr);
 	if (piece == 0)
 		return;
