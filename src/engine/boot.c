@@ -66747,10 +66747,31 @@ static short jt1051(long *free_out, short *vref_out,
  * jt463(kb_min, kb_max) (lifted), then L35e2 / L27a4 (stubs). No
  * port caller exists — the port boots through master_init — so the
  * jt463 re-init cannot fire against a live pool. */
+/* JT[1144] (CODE 4+0x4774, 1236 B) — the Mac application window + palette +
+ * menu-bar bring-up.  VERIFIED 2026-07-08 (full disasm read) as **100% Mac
+ * Toolbox app-init with zero portable engine logic**, so it stays a HAL-moot
+ * NOOP (the jt428 / jt1159 class).  What it does, all via Toolbox traps:
+ *   - InitGraf/InitFonts/InitWindows/InitMenus/TEInit/InitDialogs/FlushEvents
+ *     (0xA86E..0xA032) — the one-time Toolbox init;
+ *   - GetWMgrPort (0xA910), screen-bounds geometry, GetNewWindow (0xA9BD),
+ *     SizeWindow/MoveWindow/ShowWindow (0xA91D/0xA91B/0xA915), SetPort — the
+ *     main game window (SysBeep x3 + ExitToShell on failure);
+ *   - the Palette Manager / Color QuickDraw / GDevice farm (0xAA18/24/28/2D/39/
+ *     46/95/96 + the 108-byte GDevice records + the ColorSpec entry loop) — the
+ *     colour table; it even calls jt1159 (L4350), itself already a NOOP for
+ *     being "Palette Manager reseed, HAL-moot";
+ *   - GetMenu/InsertMenu/AddResMenu 'DRVR'/DrawMenuBar (0xA9BF/A935/A94D/A937)
+ *     — the menu bar (incl. the desk-accessory Apple menu).
+ * The Falcon/TT port owns the screen and CLUT through the VIDEL HAL (ADR-0005),
+ * draws its menus in the shim (ADR-0006), and does this window/palette/menu
+ * bring-up NATIVELY in color_mode_init + master_init — so every trap here is
+ * moot.  It is also DEAD: the sole caller jt1079 is __attribute__((unused)) and
+ * uncalled (the port boots through master_init, not jt1079).  A C body would
+ * mean re-implementing Window/Palette/Menu Manager init atop the HAL — the exact
+ * redundancy ADR-0005/0006 avoid — so the faithful port body is this no-op.
+ * Moved to the jt_progress NOOP set; cf. jt428 (Printing Mgr) and the jt1159
+ * Palette-Manager class. */
 static void jt1144(short mode, long b)  { PROBE("jt1144"); (void)mode; (void)b; }
-                /* NOTE: the port's color_mode_init (top of file) carries
-                 * the real jt1144 colour-mode work — reconcile when the
-                 * CODE 4 tier lifts (the boot path calls it directly). */
 static void l0eda(short mode, long b)   { PROBE("L0eda");  (void)mode; (void)b; }
 /* JT[1157] (CODE 4+0x61c6) — reset the cursor state: when the -900
  * dirty flag is up, InitCursor and clear the -901..-912 tracking
