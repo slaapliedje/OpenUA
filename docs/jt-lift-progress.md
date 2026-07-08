@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1188 done (1059 lifted, 52 noop, 77 alias), 12 stub, 0 stand-in, 5 missing.
+**1205 distinct JT entries are called.** Overall: 1190 done (1060 lifted, 53 noop, 77 alias), 10 stub, 0 stand-in, 5 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -46,14 +46,14 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
 | 14 | 651–700 | **50/50** | 47 | 3 | 0 | 0 | 0 |
-| 15 | 701–750 | **47/50** | 37 | 10 | 1 | 0 | 2 |
+| 15 | 701–750 | **48/50** | 37 | 11 | 0 | 0 | 2 |
 | 16 | 751–800 | **48/50** | 41 | 7 | 0 | 0 | 2 |
 | 17 | 801–850 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 21 | 1001–1050 | **50/50** | 49 | 1 | 0 | 0 | 0 |
-| 22 | 1051–1100 | **43/50** | 34 | 9 | 7 | 0 | 0 |
+| 22 | 1051–1100 | **44/50** | 35 | 9 | 6 | 0 | 0 |
 | 23 | 1101–1150 | **49/50** | 39 | 10 | 1 | 0 | 0 |
 | 24 | 1151–1200 | **48/50** | 40 | 8 | 2 | 0 | 0 |
 | 25 | 1201–1205 | **4/5** | 3 | 1 | 0 | 0 | 1 |
@@ -69,7 +69,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 |-----:|--------:|-----:|-----:|--------:|--------:|--------:|-----------|
 | CODE 1 | 9 | 9 | 0 | 0 | 0 | **0** | boot / A5 init / entry |
 | CODE 2 | 14 | 14 | 0 | 0 | 0 | **0** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
-| CODE 3 | 116 | 112 | 1 | 0 | 3 | **4** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
+| CODE 3 | 116 | 113 | 0 | 0 | 3 | **3** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
 | CODE 4 | 117 | 114 | 2 | 0 | 1 | **3** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
 | CODE 5 | 129 | 124 | 5 | 0 | 0 | **5** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 125 | 0 | 0 | 0 | **0** | file-group cache + GLIB art + resource manager |
@@ -78,7 +78,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 9 | 5 | 5 | 0 | 0 | 0 | **0** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 12 | 0 | 0 | 0 | **0** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
 | CODE 11 | 12 | 12 | 0 | 0 | 0 | **0** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
-| CODE 12 | 23 | 20 | 3 | 0 | 0 | **3** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
+| CODE 12 | 23 | 21 | 2 | 0 | 0 | **2** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 22 | 0 | 0 | 0 | **0** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
 | CODE 15 | 19 | 19 | 0 | 0 | 0 | **0** | play-entry + save/load + party list (jt574..590 / l07dc) |
@@ -331,15 +331,13 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 17 of 17 pending (stub+standin+missing), by call count:
+Top 15 of 15 pending (stub+standin+missing), by call count:
 
 - jt1081 (4 calls, CODE 5) — stub
 - jt373 (1 calls, CODE 8) — missing
 - jt426 (1 calls, CODE 3) — missing — SUPERSEDED — Mac indexed-catalog OPEN; only caller is jt990, which the port reimplements over GEMDOS Fsfirst. Dead on the port.
-- jt428 (1 calls, CODE 3) — stub
 - jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
 - jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
-- jt919 (1 calls, CODE 12) — stub
 - jt931 (1 calls, CODE 12) — stub
 - jt933 (1 calls, CODE 12) — stub
 - jt955 (1 calls, CODE 21) — stub

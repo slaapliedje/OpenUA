@@ -123,6 +123,20 @@ stubs referenced by `l0096` (cmd 2 → jt243, cmd 20 → jt242). See
   indexed-catalog OPEN / READ-NEXT / volume-enum, whose only callers (jt990/
   jt991/jt12) the port reimplements over GEMDOS Fsfirst/Fsnext/boot.c.  Never
   reached — count as done.
+- **jt428** (CODE 3+0x4868, "OPEN the print job") — VERIFIED 2026-07-07
+  **Printing-Manager-unmappable, HAL-moot** (the jt1065 Pack15 / jt1159 Palette
+  class).  Every Pr* call (PrOpen/PrValidate/PrStlDialog/PrJobDialog/PrOpenDoc/
+  PrError/PrClose) funnels through the PrGlue trampoline `L551c` → trap **0xA8FD
+  (_PrGlue)**; GetFNum is trap 0xA900.  The Falcon/TT have **no Printing
+  Manager**, the port ships **no print backend** (zero PrGlue refs in compat/ or
+  platform/; no Printing row in toolbox-mapping.md — never in scope), and the
+  whole print subsystem (jt428 → jt1075 → jt256/jt1074/jt1072, all
+  `__attribute__((unused))`) is **dead on the port**: `-9162` (the TPrint
+  record) never opens, so jt433 emit / jt434 close / L4806 rollover stay inert
+  as they already document.  The faithful port body is the documented no-op — a
+  C body would be either no-op zero-stores (gaming the classifier) or calls into
+  unshimmed traps.  Moved to the `NOOP` set in jt_progress.py (done); reaching a
+  real lift would need an out-of-scope printer backend.
 
 **The 15 "leaf" stubs are NOT leaves — each roots a multi-function SUBTREE**
 (scoped 2026-07-07).  They stay stubs precisely because their sub-helpers are
