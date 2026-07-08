@@ -1256,6 +1256,18 @@ static struct {
 	unsigned char img[16 * 16];      /* raw[] re-mapped to live CLUT indices    */
 } g_color_cursor;
 
+/* The full cursor set loaded from frua.cur (the DOS ALWAYS cursor library:
+ * 0 sword, 1 shield, 3-10 directional arrows, 20-22 turns, 25 hourglass ...).
+ * qd_select_color_cursor makes one of these the active g_color_cursor. */
+#define QD_CURSOR_BANK_MAX 32
+static struct {
+	int           present;
+	short         hotx, hoty;
+	unsigned char raw[16 * 16];
+	unsigned char pal[16 * 3];
+} g_cursor_bank[QD_CURSOR_BANK_MAX];
+static int g_cursor_bank_sel = -1;       /* active bank index, -1 = none */
+
 /* (Re)resolve the cursor's RGB palette to the LIVE CLUT and translate the raw
  * source indices into screen indices. The cursor palette is fixed but the CLUT
  * changes per screen (boot wall palette -> UI palette -> dungeon ...), so this
@@ -1297,6 +1309,53 @@ void qd_install_color_pointer(short w, short h, short hotx, short hoty,
 	g_color_cursor.hotx   = hotx;
 	g_color_cursor.hoty   = hoty;
 	g_color_cursor.loaded = 1;
+	qd_rebake_color_pointer();          /* bake against the current CLUT */
+	g_cursor_dirty = 1;                 /* re-push the 16bpp VBL sprite */
+	g_cursor_bank_sel = -1;             /* single-install path: forget the bank */
+}
+
+/* The full FRUA cursor set (frua.cur) lives in a bank, loaded once at boot;
+ * the engine's per-frame cursor pick (jt1007 item -> qd_select_color_cursor)
+ * swaps the ACTIVE entry (g_color_cursor above) without re-reading the file.
+ * All entries share the pack's single 16-colour palette. */
+void qd_load_color_cursor(int idx, short w, short h, short hotx, short hoty,
+                          const unsigned char *pix, const unsigned char *pal_rgb)
+{
+	short i;
+
+	if (idx < 0 || idx >= QD_CURSOR_BANK_MAX)
+		return;
+	if (w != 16 || h != 16 || pix == NULL || pal_rgb == NULL)
+		return;                         /* 16x16 only, matching the sprite */
+	for (i = 0; i < 16 * 16; i++)
+		g_cursor_bank[idx].raw[i] = pix[i];
+	for (i = 0; i < 16 * 3; i++)
+		g_cursor_bank[idx].pal[i] = pal_rgb[i];
+	g_cursor_bank[idx].hotx    = hotx;
+	g_cursor_bank[idx].hoty    = hoty;
+	g_cursor_bank[idx].present = 1;
+}
+
+/* Make bank entry `idx` the active colour pointer. No-op when it is already
+ * active (the engine re-picks every idle tick, so this guard keeps us off the
+ * per-frame re-bake path). Silently ignores an absent/out-of-range entry so an
+ * unmapped engine cursor just leaves the current shape up. */
+void qd_select_color_cursor(int idx)
+{
+	short i;
+
+	if (idx == g_cursor_bank_sel)
+		return;
+	if (idx < 0 || idx >= QD_CURSOR_BANK_MAX || !g_cursor_bank[idx].present)
+		return;
+	for (i = 0; i < 16 * 16; i++)
+		g_color_cursor.raw[i] = g_cursor_bank[idx].raw[i];
+	for (i = 0; i < 16 * 3; i++)
+		g_color_cursor.pal[i] = g_cursor_bank[idx].pal[i];
+	g_color_cursor.hotx   = g_cursor_bank[idx].hotx;
+	g_color_cursor.hoty   = g_cursor_bank[idx].hoty;
+	g_color_cursor.loaded = 1;
+	g_cursor_bank_sel     = idx;
 	qd_rebake_color_pointer();          /* bake against the current CLUT */
 	g_cursor_dirty = 1;                 /* re-push the 16bpp VBL sprite */
 }

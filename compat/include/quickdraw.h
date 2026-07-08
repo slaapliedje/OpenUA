@@ -100,6 +100,14 @@ void qd_install_color_pointer(short w, short h, short hotx, short hoty,
                               const unsigned char *idx,
                               const unsigned char *pal_rgb);
 
+/* The dynamic cursor set. qd_load_color_cursor stashes one 16x16 shape from
+ * frua.cur into the bank (call once per shape at boot); qd_select_color_cursor
+ * makes bank entry `idx` the active colour pointer (the engine's cursor pick
+ * calls this every frame — it no-ops when idx is already active). */
+void qd_load_color_cursor(int idx, short w, short h, short hotx, short hoty,
+                          const unsigned char *pix, const unsigned char *pal_rgb);
+void qd_select_color_cursor(int idx);
+
 void    SetPt(Point *pt, short h, short v);
 void    SetRect(Rect *r, short left, short top, short right, short bottom);
 void    OffsetRect(Rect *r, short dh, short dv);
