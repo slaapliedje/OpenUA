@@ -217,6 +217,17 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         489,   # CODE 3+0x0004: bare `rts` (band 7, disasm-verified).
         905,   # CODE 19+0x5b9c: bare `rts` (band 7, disasm-verified).
         594,   # CODE 15+0x0004: bare `rts` (#151, disasm-verified).
+        1144, # CODE 4+0x4774 (1236 B): the Mac application window + palette +
+              # menu-bar bring-up.  VERIFIED 2026-07-08 (full disasm read) as
+              # 100% Mac Toolbox app-init (Window Mgr GetNewWindow/SizeWindow/
+              # ShowWindow; Palette Mgr / Color QuickDraw / GDevice 0xAAxx farm,
+              # incl. a call to jt1159 which is itself a HAL-moot NOOP; Menu Mgr
+              # GetMenu/InsertMenu/AddResMenu 'DRVR'/DrawMenuBar) with ZERO
+              # portable engine logic.  The port owns the screen+CLUT via the
+              # VIDEL HAL (ADR-0005) and menus via the shim (ADR-0006), and does
+              # this natively in color_mode_init + master_init.  Also dead: the
+              # only caller jt1079 is __attribute__((unused)) / uncalled.  The
+              # jt428 / jt1159 HAL-moot class; faithful port body is the no-op.
         428}   # CODE 3+0x4868: OPEN the print job — the Printing Manager
                # analog of the jt1065 (Pack15) / jt1159 (Palette Mgr) HAL-moot
                # class.  VERIFIED 2026-07-07: every Pr* call (PrOpen/PrValidate/

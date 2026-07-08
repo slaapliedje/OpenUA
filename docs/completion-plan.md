@@ -189,7 +189,15 @@ batch.  Rough map (√ = sub-dep lifted, ✗ = missing sub-dep):
   **L45ca**.  ~400 lines across 4 fns — its own focused session (level-2
   skeleton then fill), not a leaf.
 - LARGE (real functions, not leaves): jt955 (21, 1014 B), jt1064 (5, 2076 B),
-  jt1144 (4, 1236 B), jt1178 (4, 1710 B).
+  jt1178 (4, 1710 B).
+- jt1144 (4, 1236 B) ✅ NOOP 2026-07-08 — VERIFIED (full disasm read) as 100%
+  Mac Toolbox app bring-up (Window Mgr GetNewWindow/SizeWindow/ShowWindow;
+  Palette Mgr / Color QuickDraw / GDevice 0xAAxx farm, incl. a call to the
+  already-NOOP jt1159; Menu Mgr GetMenu/InsertMenu/AddResMenu 'DRVR'/
+  DrawMenuBar) with ZERO portable engine logic.  Port owns screen+CLUT (VIDEL
+  HAL, ADR-0005) + shim menus (ADR-0006), does this natively in color_mode_init
+  + master_init; also dead (jt1079 unused/uncalled).  jt428/jt1159 HAL-moot
+  class; moved to the jt_progress NOOP set.
 
 Sequence each as its own subtree lift (bottom-up, collisions suffixed `_cNN`),
 verifying against the disasm.  Finish with a full `jt_progress.py` sweep to
