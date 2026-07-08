@@ -17531,19 +17531,21 @@ static void jt983(short arg)
  *   ... pmTable structure and triggering _PaintRect on the
  *   ... visible content rect.
  *
- * Lifting requires a Palette Manager equivalent in the compat
- * shim (_PMForeColor / pmTable / PaletteHandle) which the
- * current shim doesn't model. The Falcon HAL handles palette
- * via VIDEL color regs directly — when that's wired, this
- * function should map to a single "reapply engine palette" call.
- *
- * Stays a PROBE stub until the Palette Manager shim or direct
- * VIDEL bridge lands. Dormant in boot trace (only L71ac /
- * L7204 osEvt resume paths reach it). */
-/* L24aa = CODE 4 + 0x24aa (JT[1178]) — restated at the def so the
- * scoreboard's alias window (600 chars before the header) can see the
- * segment+offset past the long algorithm note above, and count jt1178 as
- * STUB (present-but-placeholder) rather than MISSING. */
+ * VERIFIED 2026-07-08 as a HAL-moot NOOP (the jt1144 / jt1159 Palette-
+ * Manager class).  This is the Mac palette-reapply-on-RESUME: it is
+ * reached ONLY by the osEvt resume paths (L71ac / L7204) — i.e. when
+ * another Mac app had the foreground, clobbered the shared CLUT, and
+ * this app is switched back.  TOS is single-tasking: no other app ever
+ * runs, the CLUT is never clobbered, so the reapply is genuinely never
+ * needed (the jt1050 _KillIO / jt1052 _Eject "moot on single-tasking
+ * TOS" class).  Its whole body is Palette Manager (install the -1310
+ * palette into the GrafPort pmTable, 0xAA33 SaveFore/entry save, then
+ * PaintRect) — the port owns the CLUT through the VIDEL HAL directly
+ * (ADR-0005) and reapplies the engine palette there, so every op here
+ * is moot.  Faithful port body is the no-op; moved to the jt_progress
+ * NOOP set (l24aa alias).  If a Palette-Manager/VIDEL bridge ever wants
+ * an explicit "reapply engine palette" on some port-side event, flip it
+ * from NOOP to that single HAL call. */
 static void l24aa(void) __attribute__((unused));
 static void l24aa(void)
 {

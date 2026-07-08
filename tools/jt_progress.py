@@ -217,6 +217,17 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
         489,   # CODE 3+0x0004: bare `rts` (band 7, disasm-verified).
         905,   # CODE 19+0x5b9c: bare `rts` (band 7, disasm-verified).
         594,   # CODE 15+0x0004: bare `rts` (#151, disasm-verified).
+        1178, # CODE 4+0x24aa (1710 B, = l24aa): the Mac palette-reapply-on-
+              # RESUME.  VERIFIED 2026-07-08 as HAL-moot (jt1144/jt1159 class):
+              # its whole body installs the -1310 palette into the GrafPort
+              # pmTable (0xAA33 entry save + PaintRect), and is reached ONLY by
+              # the osEvt resume paths (L71ac/L7204) — a Mac multitasking event
+              # (another app clobbered the shared CLUT).  TOS is single-tasking
+              # so the CLUT is never clobbered and the reapply is never needed
+              # (jt1050 _KillIO / jt1052 _Eject "moot on single-tasking TOS"
+              # class); the VIDEL HAL owns the CLUT directly (ADR-0005).  Was
+              # mis-classified MISSING (l24aa alias unconfirmed); faithful port
+              # body is the no-op.
         1144, # CODE 4+0x4774 (1236 B): the Mac application window + palette +
               # menu-bar bring-up.  VERIFIED 2026-07-08 (full disasm read) as
               # 100% Mac Toolbox app-init (Window Mgr GetNewWindow/SizeWindow/
