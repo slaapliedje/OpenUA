@@ -56258,6 +56258,49 @@ static void l1aea(short item_arg, short count, void *buf)
 	}
 }
 
+/* ===== jt919 Training Hall screen subtree (l192c / l19d4 / jt919) =========== */
+static signed char jt1085(void);   /* forward — defined below */
+
+/* l192c (CODE 12 + 0x192c) — wait for a key with a timeout + idle animation.
+ * Snapshots the time (jt100) + fp@8 duration, then loops animating (jt1067,
+ * unless jt1163==0 && jt1200!=0) until a key is pending (jt1085) or the deadline
+ * passes; reads the key (jt1118/jt1133), pages the roster on 338/339 (jt50/jt51,
+ * 338 keeps waiting), and returns the key byte — or 32 (space) on timeout. */
+static unsigned char l192c(short duration) __attribute__((unused));
+static unsigned char l192c(short duration)
+{
+	long          start, end;   /* fp@-6, fp@-10 */
+	short         key = 32;     /* fp@-12 */
+	unsigned char result;       /* fp@-1 */
+
+	jt66();                                          /* 0x1930 */
+	start = jt100();                                 /* 0x1934 */
+	end = duration + start;                          /* 0x193e-0x1946 */
+
+	for (;;) {                                       /* wait loop (L1968) */
+		if (jt1085() == 0 && jt100() < end) {    /* 0x1968-0x1980 still waiting */
+			if (jt1163() != 0 || jt1200() == 0)   /* L1954 animate unless (1163==0 && 1200!=0) */
+				jt1067();
+			continue;                        /* → L1968 */
+		}
+		if (jt1118() == 0)                       /* 0x1984 no key -> exit */
+			break;
+		key = jt1133();                          /* 0x198c */
+		if (key == 338) {                        /* 0x1994 page up, keep waiting */
+			jt50();
+			continue;                        /* → L19ae → L1968 */
+		}
+		if (key == 339)                          /* 0x19a2 page down */
+			jt51();
+		break;                                   /* → L19b0 (339 + any other key exit) */
+	}
+
+	result = (jt100() >= end) ? (unsigned char)32    /* L19b0 0x19b0 timeout -> space */
+	                          : (unsigned char)key;  /* else the key's low byte */
+	jt1088();                                        /* 0x19c8 */
+	return result;                                   /* 0x19cc */
+}
+
 /* L1bfe (CODE 7 + 0x1bfe) — roster-row content renderer.
  *
  * The body L206e hands to last. Paints the suffix string (with
