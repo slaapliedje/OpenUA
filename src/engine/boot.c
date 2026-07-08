@@ -16593,7 +16593,9 @@ static short jt1118(void)
  *
  * Event mapping:
  *   keyDown / autoKey → out1 = charCode, out2 = modifiers
- *   mouseDown         → out1 = where.h,  out2 = where.v
+ *   mouseDown         → out1 = where.v,  out2 = where.h  (vertical first,
+ *                       matching the DLItem hit-test's top/bottom-then-
+ *                       left/right order)
  *   anything else     → (0, 0), return 0
  *
  * With this in place the engine's dialog loop receives real
@@ -16687,8 +16689,15 @@ static short  jt1125(short kind, long p1, long p2)
 			*out2 = 0;
 			return 0;
 		}
-		*out1 = ev.where.h;
-		*out2 = ev.where.v;
+		/* out1 = VERTICAL, out2 = HORIZONTAL. l2d3e feeds these to the
+		 * DLItem hit-test as method(rec, 2, out1, out2), which tests
+		 * out1 against the item's top/bottom (a vertical range) and out2
+		 * against left/right — so vertical MUST come first. (Was h,v,
+		 * which transposed every menu hit box 90 degrees: clicks/hover
+		 * landed on the wrong button. The (v,h) migration fixed drawing
+		 * and the jt1005 rects but missed this mouse-event source.) */
+		*out1 = ev.where.v;
+		*out2 = ev.where.h;
 		return 1;
 	default:
 		*out1 = 0;
@@ -20833,17 +20842,18 @@ static short l2d3e(void)
 	 * click; on an idle/hover pass it tested the stale (0,0) event coords, so
 	 * the sword/shield cursor (Phase 4) never flipped on hover — only on a
 	 * click. Recompute the hit against the LIVE HAL pointer here so the cursor
-	 * tracks the mouse continuously. plat_mouse_pos gives (h=x, v=y); the
-	 * DLItem hit-test (kind 2) takes (arg3, arg4) = the same order the click
-	 * path feeds it — jt1125 gives out1=where.h, out2=where.v, so (h, v). It is
-	 * side-effect-free. Phase 5 re-derives i/rec, so overwriting is safe. */
+	 * tracks the mouse continuously. plat_mouse_pos gives (h, v); the DLItem
+	 * hit-test (kind 2) takes (vertical, horizontal) — it tests arg3 against
+	 * the item's top/bottom and arg4 against left/right — so pass (v, h), the
+	 * same order the fixed click path now feeds it. Side-effect-free; Phase 5
+	 * re-derives i/rec, so overwriting is safe. */
 	{
 		short lh = 0, lv = 0;
 		plat_mouse_pos(&lh, &lv);
 		rec = (unsigned char *)g_a5_9254;
 		for (i = 0; i < count; i++) {
 			method = *(dlitem_method_t *)rec;
-			if (method != NULL && method(rec, (short)2, lh, lv) != 0)
+			if (method != NULL && method(rec, (short)2, lv, lh) != 0)
 				break;
 			rec += DLITEM_BYTES;
 		}
