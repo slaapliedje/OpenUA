@@ -60761,20 +60761,57 @@ static void l7ab4(const char *fmt, ...)
 	}
 }
 
-/* JT[428] (CODE 3+0x4868) — OPEN the print job: GetFNum("Moebius"),
- * allocate the TPrint record (-9162), PrOpen + the style/job dialogs,
- * save the port. No Falcon printing manager exists (the l4806/jt433
- * verdict), so this stays a documented stub — -9162/-9163 remain
- * clear and the print gate never opens. */
+/* JT[428] (CODE 3+0x4868) — OPEN the print job.  VERIFIED
+ * 2026-07-07 as a pure Mac **Printing Manager** function with no Atari
+ * mapping; stays a level-1 documented stub (CLAUDE.md lift level 1 —
+ * "body lives in CODE we haven't touched").  The Mac CFG:
+ *
+ *   GetFNum("Moebius", &-9152)          ; trap 0xA900 (Font Manager)
+ *   -9162 = NewPtr(120)  [JT[1030]]     ; the TPrint record
+ *     if !-9162 -> "Out of Memory!" [JT[1084]], done
+ *   GetPort(&-9150)                     ; trap 0xA874
+ *   PrOpen()             [L5500]        ; PrGlue sel 0xC8000000
+ *   PrValidate(-9162)    [L53f6]        ; PrGlue sel 0x20040480
+ *   if PrStlDialog(-9162)[L5404] {      ; PrGlue sel 0x2A040484 (style)
+ *     if PrJobDialog(-9162)[L5412] {    ; PrGlue sel 0x32040488 (job)
+ *       JT[1162]; SetCursor(GetCursor(4))   ; watch cursor 0xA9B9/0xA851
+ *       -9158 = PrOpenDoc(-9162,0,0) [L53be] ; PrGlue sel 0x04000C00
+ *       -9164 = (PrError()[L54e4]!=0)         ; PrGlue sel 0xBA000000
+ *       if -9164 SetPort(-9158)  [0xA873]
+ *       L4806()                              ; page-setup body
+ *     } else goto cancel;
+ *   } else { cancel: clrb -9163/-9164; PrClose()[L550e sel 0xD0000000];
+ *            DisposePtr(-9162)[JT[1032]]; SetPort(-9150) }
+ *   clrb -9146
+ *
+ * Every Pr* call funnels through the shared PrGlue trampoline L551c,
+ * which invokes trap **0xA8FD (_PrGlue)** with a routine selector — the
+ * classic Mac Printing Manager dispatch.  The Falcon030/TT030 have no
+ * Printing Manager, the port ships no print backend (verified: zero
+ * PrGlue/PrOpen refs in compat/ or platform/, and toolbox-mapping.md
+ * carries no Printing row — printing was never in scope), and GetFNum
+ * (0xA900) is likewise unshimmed.  So the print job can never open:
+ * -9162 (the TPrint record) stays 0, which keeps the whole print
+ * subsystem — jt433 emit / jt434 close / L4806 rollover — inert, as
+ * those functions already document.  Both the Mac success and the
+ * dialog-cancel branches are unreachable on the port.  Writing a C
+ * body would mean either no-op zero-stores (gaming the LIFTED
+ * classifier) or calls into unshimmed traps — neither faithful; the
+ * honest lift is this documented no-op.  Would need a printer backend
+ * (out of scope) to reach "0 stub"; cf. the jt426/432/458 SUPERSEDED
+ * disposition in tools/jt_progress.py. */
 static void jt428(void)
 {
 	PROBE("jt428");
 }
 
-/* JT[434] (CODE 3+0x4952) — CLOSE the print job: guarded on the
- * -9162 TPrint record, which the port never allocates (jt428 above),
- * so the faithful body is the guard alone; the PrClose/SetPort tail
- * is unreachable. */
+/* JT[434] (CODE 3+0x4952) — CLOSE the print job.  Guarded on the -9162
+ * TPrint record, which the port never allocates (jt428, verified
+ * Printing-Manager-unmappable above), so the faithful body is the
+ * guard alone; the tail — PrClosePage [L4854->L53e8], PrCloseDoc
+ * [L53cc sel 0x08000484], PrClose [L550e], SetPort — is Printing
+ * Manager (PrGlue, trap 0xA8FD) and unreachable until a print backend
+ * exists. */
 static void jt434(void)
 {
 	PROBE("jt434");

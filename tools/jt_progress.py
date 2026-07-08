@@ -216,7 +216,19 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
                # the vblank; nothing was ever installed to remove).
         489,   # CODE 3+0x0004: bare `rts` (band 7, disasm-verified).
         905,   # CODE 19+0x5b9c: bare `rts` (band 7, disasm-verified).
-        594}   # CODE 15+0x0004: bare `rts` (#151, disasm-verified).
+        594,   # CODE 15+0x0004: bare `rts` (#151, disasm-verified).
+        428}   # CODE 3+0x4868: OPEN the print job — the Printing Manager
+               # analog of the jt1065 (Pack15) / jt1159 (Palette Mgr) HAL-moot
+               # class.  VERIFIED 2026-07-07: every Pr* call (PrOpen/PrValidate/
+               # PrStlDialog/PrJobDialog/PrOpenDoc/PrError/PrClose) funnels
+               # through the PrGlue trampoline -> trap 0xA8FD (_PrGlue); the
+               # Falcon/TT have no Printing Manager, the port ships no print
+               # backend (no PrGlue in compat/ or platform/, no Printing row in
+               # toolbox-mapping.md), and the whole print subsystem (jt428 ->
+               # jt1075 -> jt256/jt1074/jt1072, all __attribute__((unused))) is
+               # dead on the port.  So -9162 (the TPrint record) never opens and
+               # the faithful port body is the documented no-op (boot.c).  Cf.
+               # the jt426/432/458 SUPERSEDED trio in ALIAS_LIFTED below.
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
