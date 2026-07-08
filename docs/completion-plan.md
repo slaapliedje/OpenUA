@@ -174,8 +174,20 @@ batch.  Rough map (√ = sub-dep lifted, ✗ = missing sub-dep):
 - jt428 (3, 234 B) ✅ NOOP; ~~jt931 (12, 634 B, rule-book copy-protection
   prompt)~~ ✅ DONE 2026-07-08 (full lift + l4280 word deobfuscator; -5702
   20-byte challenge-record table; g_22231 widened to [5] for the -22227 flag;
-  gate-dormant on HEIRS so boot unchanged); jt933 (12, take-commit); jt974 (5,
-  632 B).
+  gate-dormant on HEIRS so boot unchanged); jt974 (5, 632 B, sound cluster).
+- **jt933 — RE-SCOPED 2026-07-08: a GIANT, not "take-commit".**  jt933
+  (CODE 12+0x5720) is the event/item-take **modal dispatcher**: a
+  `do { l2504 init; jt155 arms 0-8; key = jt160(list modal); switch(key) }
+  while(!done)` loop returning whether an action fired.  Its 9-arm JT[3]@0x5870
+  switch and the jt155/jt160 core are all present — the 8 command-handlers are
+  the already-lifted aliases jt921/922/924/925/926/934/936/937 + jt896 (case 7 =
+  temple donation) + jt904/jt23.  The ONLY new work is 3-4 CODE-12 locals:
+  **L5120** (case 0, ~250 B — the take-item walk over the -5286/-17446 item
+  tables; callees jt167/176/84/103/94/59/384/483 all done), **L54c8** (case 2,
+  ~200 B item state-machine; callees jt878/394/59/84/41 done) → **L46f6**
+  (272-byte frame — the cleric "pay for cure" service, jt96/jt159/jt394) →
+  **L45ca**.  ~400 lines across 4 fns — its own focused session (level-2
+  skeleton then fill), not a leaf.
 - LARGE (real functions, not leaves): jt955 (21, 1014 B), jt1064 (5, 2076 B),
   jt1144 (4, 1236 B), jt1178 (4, 1710 B).
 
