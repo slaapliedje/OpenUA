@@ -305,6 +305,13 @@ void qd_present_suppress(int on)
 	}
 }
 
+/* DEBUG click marker: qd_dbg_mark stashes a screen point; qd_present overlays a
+ * magenta crosshair there so you can see exactly where a click's hit-test landed
+ * (vs the cursor sprite, whose hotspot is offset from the hit point). Temporary
+ * bring-up aid for the dungeon mouse work. */
+static short g_dbg_mark_x = -1, g_dbg_mark_y = -1;
+static void  qd_dbg_draw_mark(void);
+
 void qd_present(void)
 {
 	if (g_present_suppress) {
@@ -313,6 +320,7 @@ void qd_present(void)
 	}
 	qd_cursor_tick();                /* (re)push the VBL cursor sprite if dirty */
 	cursor_composite();              /* no-op when the VBL cursor is active     */
+	qd_dbg_draw_mark();              /* overlay the debug click crosshair        */
 	if (g_present_hook != NULL)
 		g_present_hook();
 	cursor_restore();
@@ -1115,6 +1123,48 @@ static unsigned char qd_nearest_color(const RGBColor *color)
 		}
 	}
 	return best;
+}
+
+/* Draw the debug click crosshair into the 8-bit surface (before c2p): a magenta
+ * plus with a small box ("circle") centred on the stashed click point. */
+static void qd_dbg_draw_mark(void)
+{
+	unsigned char *px;
+	short          pitch, sw, sh, k, yy, xx;
+	RGBColor       red = { 0xFFFF, 0, 0 };
+	unsigned char  c;
+	short          x = g_dbg_mark_x, y = g_dbg_mark_y;
+
+	if (x < 0 || y < 0)
+		return;
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	c = qd_nearest_color(&red);                     /* bright red, contrasts */
+	for (k = -7; k <= 7; k++) {                     /* the plus, 15 px */
+		if (y >= 0 && y < sh && x + k >= 0 && x + k < sw)
+			px[(long)y * pitch + (x + k)] = c;
+		if (x >= 0 && x < sw && y + k >= 0 && y + k < sh)
+			px[(long)(y + k) * pitch + x] = c;
+	}
+	for (k = -4; k <= 4; k++) {                     /* a 9x9 box outline */
+		xx = x + k; yy = y + k;
+		if (xx >= 0 && xx < sw) {
+			if (y - 4 >= 0) px[(long)(y - 4) * pitch + xx] = c;
+			if (y + 4 < sh) px[(long)(y + 4) * pitch + xx] = c;
+		}
+		if (yy >= 0 && yy < sh) {
+			if (x - 4 >= 0) px[(long)yy * pitch + (x - 4)] = c;
+			if (x + 4 < sw) px[(long)yy * pitch + (x + 4)] = c;
+		}
+	}
+}
+
+/* Stash the last click point for the debug crosshair (screen coords: x = horiz,
+ * y = vert). (-1, -1) clears it. */
+void qd_dbg_mark(short x, short y)
+{
+	g_dbg_mark_x = x;
+	g_dbg_mark_y = y;
 }
 
 /* ===================== Cursor Manager ===================== *

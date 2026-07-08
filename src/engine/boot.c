@@ -20661,6 +20661,12 @@ static short l2d3e(void)
 	l2c60((short)0);                /* walk dirty items with cmd=1 */
 	key = l3198(7, (long)&mouse_y, (long)&mouse_x);
 
+	/* DEBUG: drop a crosshair at the click's hit point. After the (v,h) fix
+	 * mouse_y = vertical, mouse_x = horizontal, so qd_dbg_mark(x, y) takes
+	 * (mouse_x, mouse_y). Shows exactly where a click lands vs the cursor. */
+	if (g_event_was_click)
+		qd_dbg_mark(mouse_x, mouse_y);
+
 	/* l3198/jt1125 return the event TYPE (1 key / 2 cmd-key / 1 mouse); the
 	 * actual key char is in mouse_y (out1) for a keyDown, modifiers in mouse_x.
 	 * Translate the cursor keys to the engine's movement codes (257..264) and
