@@ -47,6 +47,13 @@ void plat_mouse_pos(short *h, short *v);
 /* 1 if the mouse button is currently pressed. */
 int plat_mouse_btn(void);
 
+/* Down-edge click latch: plat_mouse_take_click() returns 1 (and clears) if a
+ * button-down edge occurred since the last take, even if the button was already
+ * released -- so a fast press+release between polls isn't lost. _pending peeks
+ * without consuming (for non-destructive event peeks). */
+int plat_mouse_click_pending(void);
+int plat_mouse_take_click(void);
+
 /*
  * Install the IKBD-packet mouse handler — wires our trampoline into the
  * keyboard table's mousevec via Supexec, with the mouse initialised to

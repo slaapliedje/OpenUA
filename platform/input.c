@@ -99,6 +99,12 @@ unsigned char plat_kb_shift(void)
 static volatile short         g_mouse_x;
 static volatile short         g_mouse_y;
 static volatile unsigned char g_mouse_btn;
+/* Down-edge latch: a full press+release can happen between two engine polls
+ * (a fast click, or the modal loop busy after a screen change). The level in
+ * g_mouse_btn would be back to 0 by the time the poll runs, so the click is
+ * lost entirely. Latch the down-edge here in the interrupt and let the event
+ * pump consume it, so no click is dropped. */
+static volatile unsigned char g_mouse_click_pending;
 static short g_mouse_max_x = 320;
 static short g_mouse_max_y = 200;
 
@@ -119,9 +125,14 @@ void ikbd_mouse_handler(unsigned char *packet)
 	if (ny < 0) ny = 0;
 	if (nx >= g_mouse_max_x) nx = (short)(g_mouse_max_x - 1);
 	if (ny >= g_mouse_max_y) ny = (short)(g_mouse_max_y - 1);
-	g_mouse_x   = nx;
-	g_mouse_y   = ny;
-	g_mouse_btn = (unsigned char)((packet[0] & 0x02) != 0);
+	{
+		unsigned char newbtn = (unsigned char)((packet[0] & 0x02) != 0);
+		if (newbtn && !g_mouse_btn)      /* left-button DOWN edge */
+			g_mouse_click_pending = 1;   /* latch until the pump takes it */
+		g_mouse_x   = nx;
+		g_mouse_y   = ny;
+		g_mouse_btn = newbtn;
+	}
 }
 
 /*
@@ -187,4 +198,22 @@ void plat_mouse_pos(short *h, short *v)
 int plat_mouse_btn(void)
 {
 	return g_mouse_btn ? 1 : 0;
+}
+
+/* Peek the latched click without consuming (for non-destructive EventAvail). */
+int plat_mouse_click_pending(void)
+{
+	return g_mouse_click_pending ? 1 : 0;
+}
+
+/* Consume one latched click: returns 1 (and clears the latch) if a down-edge
+ * was seen since the last take. Interrupt-set, so read-then-clear; a rare race
+ * with a fresh edge just carries that click to the next poll. */
+int plat_mouse_take_click(void)
+{
+	if (g_mouse_click_pending) {
+		g_mouse_click_pending = 0;
+		return 1;
+	}
+	return 0;
 }
