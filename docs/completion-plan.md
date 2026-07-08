@@ -156,11 +156,26 @@ batch.  Rough map (√ = sub-dep lifted, ✗ = missing sub-dep):
   (5×14-byte sound-table reset at -4848 + jt1151) + jt1127; L27bc/L35f8(CODE5)/
   L01ac are bare rts and jt1156/jt1119 are the bare-rts NOOP class — elided (as
   jt69 elides l4d7a).  Live releases: jt466/jt1114/l0f14/jt1158.
-- jt919 (12, 152 B) → l192c/l19d4/l1aea.  jt965 (5, 156 B) → l0088/l37aa√/l7ee0.
+- jt919 (12, 152 B) → l192c/l19d4/l1aea. ✅ DONE.
+- **SOUND-DRIVER CLUSTER (DEFERRED 2026-07-08 per user — do after the other 5).**
+  jt965 / jt974 / jt1064 (all CODE 5) = the digitized-sound engine, NOT clean
+  transcriptions.  jt965 (5+0x7dee) is the LIVE sfx path (-17444=1 on the port,
+  so dispatcher cmds 3-15 route here) → l7ee0 (5+0x7ee0), which bottoms out in
+  the Mac **Sound Driver**: L5716/L59ee are Device-Manager `_Write`/`_Read` trap
+  glue (`PBWrite`/`PBRead` to the `.Sound` driver, refnum -4).  l7ee0 fills a DM
+  param block (-3138) with the sample buffer (snd+8), rate (snd[0]*35944/12207
+  reload), duration (snd[2], clamped to a 740-multiple) and PBWrites it.  The
+  faithful port maps this to the Falcon DMA sound HAL (`plat_sound_play_mono8`)
+  via a NEW low-level compat/sound.c primitive (engine→compat→platform) + a
+  Mac-trace pass to pin the rate/format (jt964 = the group-18 sfx converter).
+  Multi-file HAL integration — its own session.  l0088/l37aa/jt468/jt1154 done.
 - jt365 (8, 460 B) — all-JT file/catalog (jt990/991/384/130/133/404/419/431/435);
   no locals — the most tractable, but real 460 B logic.
-- jt428 (3, 234 B); jt931 (12, 634 B, rule-book copy-protection prompt); jt933
-  (12, take-commit); jt974 (5, 632 B).
+- jt428 (3, 234 B) ✅ NOOP; ~~jt931 (12, 634 B, rule-book copy-protection
+  prompt)~~ ✅ DONE 2026-07-08 (full lift + l4280 word deobfuscator; -5702
+  20-byte challenge-record table; g_22231 widened to [5] for the -22227 flag;
+  gate-dormant on HEIRS so boot unchanged); jt933 (12, take-commit); jt974 (5,
+  632 B).
 - LARGE (real functions, not leaves): jt955 (21, 1014 B), jt1064 (5, 2076 B),
   jt1144 (4, 1236 B), jt1178 (4, 1710 B).
 
