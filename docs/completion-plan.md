@@ -146,7 +146,11 @@ batch.  Rough map (√ = sub-dep lifted, ✗ = missing sub-dep):
   l0334=jt1089√) — intricate centre/truncate coord math.
 - jt587 (15, 76 B) → l08ba (46 B) → **l0006_c15** (84 B, 3-arg modal proc runner;
   ✗ collides with a void l0006 at boot.c:48620).
-- jt985 (5, 80 B, "play song N") → l0f1e (→l0f48/l0faa) + l11a2 (→l0fc4) — all ✗.
+- ~~jt985 (5, 80 B, "play song N")~~ ✅ DONE 2026-07-07 — range-checked song
+  play. Full lift: l0f1e (done via jt1081) + l11a2 (song-loader: -4770/-4756
+  voice-table walk arming the 5×14-byte mixer records at -4848) + l0fc4
+  (period*105/7200 reload calc). m68k big-endian = Mac, so resource words read
+  natively. (l0f48/l0faa were already lifted, not ✗.)
 - ~~jt1081 (5, 138 B, 4 sites)~~ ✅ DONE 2026-07-07 — the jt69 fatal-error
   teardown chain.  Full lift: the only real sub-helper is l0f14 → l0f1e
   (5×14-byte sound-table reset at -4848 + jt1151) + jt1127; L27bc/L35f8(CODE5)/
