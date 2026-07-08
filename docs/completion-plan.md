@@ -147,7 +147,11 @@ batch.  Rough map (√ = sub-dep lifted, ✗ = missing sub-dep):
 - jt587 (15, 76 B) → l08ba (46 B) → **l0006_c15** (84 B, 3-arg modal proc runner;
   ✗ collides with a void l0006 at boot.c:48620).
 - jt985 (5, 80 B, "play song N") → l0f1e (→l0f48/l0faa) + l11a2 (→l0fc4) — all ✗.
-- jt1081 (5, 138 B, 4 sites) → l27bc/l35f8 ✗.
+- ~~jt1081 (5, 138 B, 4 sites)~~ ✅ DONE 2026-07-07 — the jt69 fatal-error
+  teardown chain.  Full lift: the only real sub-helper is l0f14 → l0f1e
+  (5×14-byte sound-table reset at -4848 + jt1151) + jt1127; L27bc/L35f8(CODE5)/
+  L01ac are bare rts and jt1156/jt1119 are the bare-rts NOOP class — elided (as
+  jt69 elides l4d7a).  Live releases: jt466/jt1114/l0f14/jt1158.
 - jt919 (12, 152 B) → l192c/l19d4/l1aea.  jt965 (5, 156 B) → l0088/l37aa√/l7ee0.
 - jt365 (8, 460 B) — all-JT file/catalog (jt990/991/384/130/133/404/419/431/435);
   no locals — the most tractable, but real 460 B logic.

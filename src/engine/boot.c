@@ -973,12 +973,52 @@ static long  jt1004(void)
 	return g_a5_long(-4582);
 }
 
-/* JT[1081] (CODE 5 + 0x62) — global teardown chain (9 calls:
- * L27bc, L35f8, jt466, jt1156, L01ac, jt1119, jt1114, L0f14,
- * jt1158 — releases every subsystem before an exit). PROBE stub;
- * only the jt69 fatal path reaches it, and jt415 exits right
- * after, so the per-subsystem releases are moot on the port. */
-static void  jt1081(void)        { PROBE("jt1081"); }
+/* L0f1e (CODE 5 + 0x0f1e) — reset the 5-entry sound/voice table:
+ * -4778 (the active-voice index) = -1, clear the leading long of each
+ * of the five 14-byte records at -4848, then jt1151 (silence the
+ * mixer). Full lift. Shared with the jt985 song subtree. */
+static void jt1151(void);
+static void l0f1e(void)
+{
+	short i;
+
+	g_a5_word(-4778) = -1;
+	for (i = 0; i < 5; i++)
+		g_a5_long(-4848 + (long)i * 14) = 0;
+	jt1151();
+}
+
+/* L0f14 (CODE 5 + 0x0f14) — L0f1e table reset + jt1127 (the sound-
+ * enable flush). Full lift. */
+static void jt1127(void);
+static void l0f14(void)
+{
+	l0f1e();
+	jt1127();
+}
+
+/* JT[1081] (CODE 5 + 0x62) — the jt69 fatal-error teardown chain: run
+ * every subsystem release in Mac order before jt415 (ExitToShell).
+ * Full lift. Of the nine Mac calls, L27bc / L35f8 (CODE 5) / L01ac are
+ * bare rts (empty teardown hooks) and jt1156 / jt1119 are the bare-rts
+ * NOOP class (no port symbol) — all elided, exactly as jt69 itself
+ * elides l4d7a. The live releases are jt466 (record/console cleanup),
+ * jt1114, l0f14 (sound-table reset), and jt1158 (play-window/palette
+ * teardown, HAL-moot). */
+static short jt466(void);
+static void jt1114(void);
+static void jt1158(void);
+static void jt1081(void)
+{
+	/* L27bc, L35f8 (CODE 5): bare rts — elided */
+	(void)jt466();           /* CODE 3+0x632 */
+	/* jt1156 (CODE 4+0x670e): bare-rts NOOP — elided */
+	/* L01ac (CODE 5): bare rts — elided */
+	/* jt1119 (CODE 4+0x797e): bare-rts NOOP — elided */
+	jt1114();                /* CODE 4+0x61ee */
+	l0f14();                 /* CODE 5+0x0f14: sound-table reset */
+	jt1158();                /* CODE 4+0x4c48: play-window/palette teardown */
+}
 
 /* JT[69] (CODE 6 + 0x5f66) — content-load fatal error path, full
  * lift: jt461(0) disk-error alert, l5ac0, jt1081 teardown chain,
