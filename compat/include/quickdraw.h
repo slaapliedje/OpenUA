@@ -113,6 +113,11 @@ void qd_select_color_cursor(int idx);
  * a present). Call instead of qd_present when only the mouse has moved. */
 void qd_cursor_track(void);
 
+/* DEBUG: stash a screen point (x=horizontal, y=vertical); qd_present overlays a
+ * magenta crosshair there so you can see exactly where a click's hit-test
+ * landed. (-1,-1) clears it. Temporary dungeon-mouse bring-up aid. */
+void qd_dbg_mark(short x, short y);
+
 void    SetPt(Point *pt, short h, short v);
 void    SetRect(Rect *r, short left, short top, short right, short bottom);
 void    OffsetRect(Rect *r, short dh, short dv);
