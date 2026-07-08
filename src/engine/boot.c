@@ -20745,7 +20745,14 @@ static short l2d3e(void)
 	 * the plate rect (jt1135 -> [pxx-5,pxx+145) x [py-7,py+3));
 	 * commit + return the item under the click. */
 	if (key != 0 && g_event_was_click) {
-		short cx = mouse_y, cy = mouse_x;
+		/* (v,h): mouse_y = vertical, mouse_x = horizontal (post jt1125 fix).
+		 * The item methods take (y=vertical, x=horizontal) — so cy=mouse_y,
+		 * cx=mouse_x, and the calls pass (cy, cx). The old order (cx=mouse_y,
+		 * cy=mouse_x -> passing (mouse_x, mouse_y)) was transposed once jt1125
+		 * started emitting vertical-first, so 8000-space commits (the dungeon
+		 * walk pads) hit-tested against swapped axes and matched the wrong
+		 * item; the hover loop below already uses (mouse_y, mouse_x). */
+		short cy = mouse_y, cx = mouse_x;
 		unsigned char *hr = (unsigned char *)g_a5_9254;
 		for (i = 0; i < count; i++) {
 			short iy = *(short *)(hr + 16);
