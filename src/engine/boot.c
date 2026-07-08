@@ -56301,6 +56301,45 @@ static unsigned char l192c(short duration)
 	return result;                                   /* 0x19cc */
 }
 
+static void l3880(short a, short b, short frame, void *ptr);   /* JT[106] — forward */
+
+/* l19d4 (CODE 12 + 0x19d4) — load + blit the "<name>1" portrait/picture for the
+ * Training Hall row.  Copies the name (jt384) + "1" (jt404), loads the resource
+ * into a handle (jt110 — NB: its port sig is reversed vs the Mac, so the args are
+ * the pushes in code order: out, a, b, c, name), blits it (l3880=jt106) with the
+ * jt108/jt124/jt117 frame chrome, and reloads with the caller's mode byte for a
+ * two-pass (frames 1 + 2) draw — a frame rect when mode==5 and jt1200 != 3.
+ * Disposes the handle (jt115) each pass.  jt919's row helper. */
+static void l19d4(const char *name, short arg2) __attribute__((unused));
+static void l19d4(const char *name, short arg2)
+{
+	long          handle = 0;                /* fp@-4 */
+	char          buf[16];                   /* fp@-16 */
+	unsigned char mode = (unsigned char)arg2;   /* fp@13 = low byte of arg2 */
+
+	jt384(buf, name);                                /* 0x19dc */
+	jt404(buf, "1");                                 /* 0x19ea append "1" */
+	jt110(&handle, 0, 1, 1, buf);                    /* 0x19fa load "<name>1" -> handle */
+	jt108(0);                                        /* 0x1a14 */
+	l3880(0, 0, 1, (void *)(uintptr_t)handle);       /* 0x1a1c blit frame 1 */
+	jt124(handle);                                   /* 0x1a30 */
+	jt115(&handle);                                  /* 0x1a3a dispose */
+
+	jt110(&handle, 0, 1, mode, buf);                 /* 0x1a44 reload with the mode */
+	if (jt1200() != 3) {                             /* 0x1a62 */
+		if (mode == 5)                           /* 0x1a6c */
+			jt103(1, 1, 38, 22);             /* 0x1a78 frame rect */
+		l3880(0, 0, 1, (void *)(uintptr_t)handle);   /* 0x1a8e */
+		jt117();                                 /* 0x1a98 */
+		jt108(1);                                /* 0x1a9c */
+	}
+	l3880(0, 0, 1, (void *)(uintptr_t)handle);       /* 0x1aa6 frame 1 */
+	l3880(0, 0, 2, (void *)(uintptr_t)handle);       /* 0x1aba frame 2 */
+	jt124(handle);                                   /* 0x1ace */
+	jt117();                                         /* 0x1ad8 */
+	jt115(&handle);                                  /* 0x1adc dispose */
+}
+
 /* L1bfe (CODE 7 + 0x1bfe) — roster-row content renderer.
  *
  * The body L206e hands to last. Paints the suffix string (with
