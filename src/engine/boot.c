@@ -25638,10 +25638,51 @@ static void jt477(void *bucket, short tag, void *out)
 static void jt147(void *headp);   /* CODE 7+0x18d4, defined below */
 static void jt581(long head, long tail)     { PROBE("jt581");   /* CODE 15+0x1c76 */
                                               jt147(&head); jt147(&tail); }
+/* Forward decls — defined later; needed by the jt587 load subtree. */
+static short jt987(short kind, const char *name, short mode, void *cb);
+static void  jt21(long mp);
+static void  jt910(long ent_l);
+
+/* l0006_c15 (CODE 15 + 0x0006) — build the "<savedir>SAVE<name>" path and hand it
+ * to jt987 (kind 0) with the caller's mode + per-record callback.  (_c15: this
+ * CODE-15 l0006 is unrelated to the void combat l0006 at ~48620.) */
+static void l0006_c15(const char *name, short mode, void *cb) __attribute__((unused));
+static void l0006_c15(const char *name, short mode, void *cb)
+{
+	char path[202];    /* fp@(-202) */
+
+	path[0] = 0;                                     /* 0x000e */
+	jt431(path, (const void *)&g_a5_byte(-31336));   /* 0x001a save-dir prefix */
+	jt431(path, "SAVE");                             /* 0x002a */
+	jt431(path, name);                               /* 0x0038 */
+	jt987(0, path, mode, cb);                        /* 0x004e (fp@-2 kind = 0) */
+}
+
+/* l08ba (CODE 15 + 0x08ba) — copy the roster name, stash the party-pool slot in
+ * g_a5_-6902, and load its save via l0006_c15 with jt577 as the per-character
+ * callback.  jt587's mode-1 arm. */
+static void l08ba(const char *name, void *bucket) __attribute__((unused));
+static void l08ba(const char *name, void *bucket)
+{
+	char buf[42];      /* fp@(-42) */
+
+	jt384(buf, name);                                /* 0x08be */
+	g_a5_long(-6902) = (long)(uintptr_t)bucket;      /* 0x08cc */
+	l0006_c15(buf, 0, (void *)jt577);                /* 0x08d2 (&JT[577] proc pointer) */
+}
+
+/* jt587 (CODE 15 + 0x08e8) — (re)initialise a 398-byte party-pool slot: zero it
+ * (jt399), optionally load the saved roster into it (mode g_a5_-22733 == 1 ->
+ * l08ba), then recompute derived stats (jt21) + refresh (jt910). */
 static void jt587(void *dst, void *bucket, short a, short b)
-                                            { PROBE("jt587"); (void)dst;
-                                              (void)bucket; (void)a;
-                                              (void)b; }
+{
+	(void)a; (void)b;                                /* fp@16/fp@18 unused by the body */
+	jt399(bucket, 398, 0);                           /* 0x08e8 zero the pool slot */
+	if (g_a5_byte(-22733) == 1)                      /* 0x08fc JT[3]@0x906 (min=max=1) */
+		l08ba((const char *)dst, bucket);        /* 0x090e load from save */
+	jt21((long)(uintptr_t)bucket);                   /* 0x0920 derived stats */
+	jt910((long)(uintptr_t)bucket);                  /* 0x092a */
+}
 /* jt990 / jt991 (CODE 5 + 0x1b76 / +0x1cb6) — enumerate the entries of a
  * folder, one at a time, with a keep-files / keep-dirs / name-match filter.
  *
