@@ -13337,11 +13337,6 @@ static void dungeon_cycle_ensure(void)
 	}
 }
 
-/* Area-map / dungeon cell hit-test — defined later in CODE 22; l63c0's mouse
- * cell-tracker calls them ahead of their definition. */
-static short jt272(short y, short x);
-static short jt284(short y, short x);
-
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
                          short a_deep, long cb1, long cb2)
 {
@@ -13350,11 +13345,6 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	signed char    exitflag = 0;            /* fp@(-1): 0 keep looping, !=0 exit */
 	short          pollres, procres = 0;    /* fp@(-8), fp@(-6) */
 	short          o10 = 0, o12 = 0;        /* fp@(-10), fp@(-12) */
-	/* Mouse cell-tracking state (Mac fp@-13/-14/-15 cached cell, fp@-25 flag).
-	 * 0x80 = "no cell cached" sentinel, matching the Mac's reset (L666c). */
-	unsigned char  hov_col = 0x80, hov_row = 0x80, hov_face = 0x80;
-	unsigned char  hov_shown = 0;           /* a hovered cell is drawn */
-	short          hov_lastv = 0, hov_lasth = 0;  /* mouse-moved guard */
 
 	PROBE("L63c0");
 
@@ -13401,10 +13391,6 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	else
 		g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) | 0x02);
 	g_walk_input = 1;
-	jt1113(&hov_lastv, &hov_lasth);   /* seed the mouse-moved guard: on entry
-	                                   * the pointer hasn't moved, so the cell-
-	                                   * tracker below won't fire on frame 1 and
-	                                   * stomp the party position we just set. */
 
 	/* --- the input / movement loop (L64ae .. L67ae) --- */
 	for (;;) {
@@ -13431,61 +13417,11 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		} else {
 			jt1113(&o10, &o12);
 		}
-		/* L64f2..L667a — mouse cell-tracking (faithful lift of the deferred
-		 * arm). Hit-test the pointer's cell: jt272 (wilderness / area map)
-		 * returns a facing (2/4/6/8) and stamps the hovered cell into
-		 * -12287/-12288 + facing -12286; jt284 (dungeon) tests the cell
-		 * interior (also stamping -12287/-12288). Re-render the highlight only
-		 * when the cell actually changes (jt312 first-person / jt280 area map),
-		 * and restore when the pointer leaves the view.
-		 *
-		 * Port guard: the Mac runs this every frame, but our idle loop can rest
-		 * the pointer over the view — and jt272/jt284 overwrite the party
-		 * cell — so gate on an actual pointer MOVE. That protects the keyboard
-		 * walk (which sets the same globals) while the mouse sits still.
-		 * o10 = vertical, o12 = horizontal. */
-		if (o10 != hov_lastv || o12 != hov_lasth) {
-			int inside = 0;
-			hov_lastv = o10;
-			hov_lasth = o12;
-			if ((unsigned char)a_wild != 0) {
-				short r = jt272(o10, o12);
-				if (r >= -1) {              /* -2 = pointer outside the map */
-					inside = 1;
-					if (r >= 0)
-						g_a5_12286 = (unsigned char)(r & 0xff);
-					if (!(hov_face == g_a5_12286
-					   && hov_col  == g_a5_12287
-					   && hov_row  == g_a5_12288 && hov_shown)) {
-						hov_col   = g_a5_12287;
-						hov_row   = g_a5_12288;
-						hov_face  = g_a5_12286;
-						hov_shown = 1;
-						if ((unsigned char)a_deep) jt312(ctx);
-						else jt280(rec, (short)8024, (short)8092, (short)1);
-					}
-				}
-			} else {
-				if ((short)jt284(o10, o12) >= 0) {
-					inside = 1;
-					if (!(hov_col == g_a5_12287
-					   && hov_row == g_a5_12288 && hov_shown)) {
-						hov_col   = g_a5_12287;
-						hov_row   = g_a5_12288;
-						hov_shown = 1;
-						if ((unsigned char)a_deep) jt312(ctx);
-						else jt280(rec, (short)8024, (short)8092, (short)1);
-					}
-				}
-			}
-			if (!inside && hov_shown) {      /* pointer left the view: restore */
-				hov_shown = 0;
-				if ((unsigned char)a_deep) jt312(ctx);
-				else jt280(rec, (short)8024, (short)8092, (short)1);
-				l4268(ctx);
-				hov_col = hov_row = hov_face = 0x80;
-			}
-		}
+		/* TODO: the cell-change detection + re-render arms
+		 * (L64f2..L666c: jt272/jt284 hit-test, facing/coord update into
+		 * g_a5_-12286/-12287/-12288, jt312/jt280 redraw) are deferred —
+		 * they need jt272/284/297/311 lifted. */
+		(void)o12;
 
 		pollres = l2d3e();              /* event poll (JT[456]) */
 		if (pollres < 0) {
