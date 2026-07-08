@@ -20903,11 +20903,12 @@ static short l2d3e(void)
 		}
 	}
 
-	/* Port mouse tracking: the software cursor is composited at present
-	 * time (qd_present), but this modal spin otherwise only presents on a
-	 * content change, so a moving pointer would lag a frame behind the
-	 * IKBD. Present whenever the mouse has moved since the last spin so the
-	 * sword tracks smoothly without burning c2p while the pointer is idle. */
+	/* Port mouse tracking: keep the pointer live between engine repaints.
+	 * qd_cursor_track pushes a pending SHAPE change (sword<->shield) cheaply
+	 * when the VBL owns the pointer position — a full qd_present per mouse
+	 * move burns a whole c2p and throttles this spin, which starves the
+	 * hover hit-test above and makes the cursor lag/flicker. It still falls
+	 * back to a present for the software-composited cursor. */
 	{
 		static short last_h = -0x7fff, last_v = -0x7fff;
 		short mh, mv;
@@ -20915,7 +20916,7 @@ static short l2d3e(void)
 		if (mh != last_h || mv != last_v) {
 			last_h = mh;
 			last_v = mv;
-			qd_present();
+			qd_cursor_track();
 		}
 	}
 

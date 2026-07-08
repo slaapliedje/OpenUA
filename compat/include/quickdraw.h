@@ -108,6 +108,11 @@ void qd_load_color_cursor(int idx, short w, short h, short hotx, short hoty,
                           const unsigned char *pix, const unsigned char *pal_rgb);
 void qd_select_color_cursor(int idx);
 
+/* Cheap cursor keep-up for a tight modal spin: pushes a pending shape change
+ * without a full-frame c2p when the VBL draws the pointer (else falls back to
+ * a present). Call instead of qd_present when only the mouse has moved. */
+void qd_cursor_track(void);
+
 void    SetPt(Point *pt, short h, short v);
 void    SetRect(Rect *r, short left, short top, short right, short bottom);
 void    OffsetRect(Rect *r, short dh, short dv);
