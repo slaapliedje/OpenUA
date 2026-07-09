@@ -2787,24 +2787,52 @@ static short l5484(short row, short col, short dir)
 }
 
 /* L54f2 (CODE 7 + 0x54f2) — draw one area-map cell at screen (sy,sx). Queries
- * the cell (L5484, edge 8); empty -> nothing. Otherwise paints the cell's top
- * edge as a 1px bar (fill 7), and for a style-1 cell adds a short centre mark
- * (fill 8) — this is the dashed top-down automap look. */
+ * each of the cell's FOUR edges (L5484: 8=top, 2=right, 4=bottom, 6=left) and,
+ * where an edge is present, paints its wall bar (fill 7); a style-1 edge also
+ * gets a short centre mark (fill 8) — the dashed top-down automap look. The
+ * earlier lift only drew the top edge (and returned early when it was absent),
+ * so the map showed nothing but horizontal walls; this is the faithful 1:1 of
+ * CODE 7 L54f2..L56ee (all four edge arms). */
 static void l54f2(short maprow, short mapcol, short sy, short sx)
 {
-	short cs    = (short)g_a5_word(-12272);         /* cell size */
-	short right = (short)(sx + cs);
-	short half  = (short)((cs - 2) / 2);
+	short cs     = (short)g_a5_word(-12272);        /* cell size */
+	short bottom = (short)(sy + cs);
+	short right  = (short)(sx + cs);
+	short half   = (short)((cs - 2) / 2);
 	short t;
 
 	PROBE("L54f2");
+	/* edge 8 — top: horizontal bar along the top of the cell */
 	t = l5484(maprow, mapcol, 8);
-	if (t == 0)
-		return;
-	jt1161(sy, sx, (short)(sy + 1), right, 7);      /* top bar */
-	if (t == 1) {
-		short x0 = (short)(sx + half);
-		jt1161(sy, x0, (short)(sy + 1), (short)(x0 + 2), 8);
+	if (t != 0) {
+		jt1161(sy, sx, (short)(sy + 1), right, 7);
+		if (t == 1)
+			jt1161(sy, (short)(sx + half), (short)(sy + 1),
+			       (short)(sx + half + 2), 8);
+	}
+	/* edge 2 — right: vertical bar down the right side */
+	t = l5484(maprow, mapcol, 2);
+	if (t != 0) {
+		jt1161(sy, (short)(right - 1), bottom, right, 7);
+		if (t == 1)
+			jt1161((short)(sy + half), (short)(right - 1),
+			       (short)(sy + half + 2), right, 8);
+	}
+	/* edge 4 — bottom: horizontal bar along the bottom */
+	t = l5484(maprow, mapcol, 4);
+	if (t != 0) {
+		jt1161((short)(bottom - 1), sx, bottom, right, 7);
+		if (t == 1)
+			jt1161((short)(bottom - 1), (short)(sx + half), bottom,
+			       (short)(sx + half + 2), 8);
+	}
+	/* edge 6 — left: vertical bar down the left side */
+	t = l5484(maprow, mapcol, 6);
+	if (t != 0) {
+		jt1161(sy, sx, bottom, (short)(sx + 1), 7);
+		if (t == 1)
+			jt1161((short)(sy + half), sx, (short)(sy + half + 2),
+			       (short)(sx + 1), 8);
 	}
 }
 
