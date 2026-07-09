@@ -3064,6 +3064,45 @@ static void jt221(short x, short y, short facing)
 	}
 }
 
+/* jt953 L40f8 (CODE 21 + 0x40f8) — the AREA command, factored out so both the
+ * overland command loop (jt953 case 1) and the deep-dungeon walk loop
+ * (jt948 -> l63c0, g_walk_cmd == 1) drive the one faithful body.
+ *
+ * L40f8: if the area gates its automap behind the manual word (pl[26] != 0)
+ *   AND the design's copy-protection word (jt475(3)) does NOT match the -22253
+ *   trigger buffer, show the "answer from the manual" alert (jt101 %r, id 11,
+ *   the -14100 string) and stop — the map stays hidden.
+ * L4120: otherwise TOGGLE the top-down automap flag -12290 and re-render via
+ *   jt221, which paints the area map when the flag is set and the first-person
+ *   3D view when it's clear.
+ *
+ * Port adaptation: the Mac primes the automap cell size (-12272) in
+ * entry_jt315 via jt215; the port reimplemented that entry (jt315 is the menu
+ * shell), so jt215 never ran and -12272 stayed 0 -> the map collapsed to a
+ * point. Invoke the real jt215 here, at the one automap consumer, before the
+ * render. jt312's deep re-render carries the same -12290 branch so the map
+ * scroll-follows the party as it walks. */
+static const char *jt475(short idx);
+static void jt215(void);
+static void l40f8_area_cmd(void)
+{
+	unsigned char *pl = (unsigned char *)g_a5_28006;
+
+	PROBE("L40f8");
+	if (pl != NULL && pl[26] != 0
+	 && jt393(jt475(3), (const char *)&g_a5_byte(-22253)) != 0) {
+		jt101((const char *)(uintptr_t)g_a5_long(-14100), 11, 0);
+		return;
+	}
+	jt215();                                /* prime the -12272 automap cell size */
+	g_a5_12290 = (unsigned char)(g_a5_12290 == 0 ? 1 : 0);
+	jt221((short)(signed char)g_a5_12288,
+	      (short)(signed char)g_a5_12287,
+	      (short)(signed char)g_a5_12286);
+	qd_present();
+	qd_present();
+}
+
 /* JT[201] (CODE 7 + 0x5f6a) — return the special-feature byte of map cell
  * (x,y). L5baa bounds-tests the cell; out of range -> 0. Otherwise it indexes
  * the level's 6-byte cell records (base lvl+290, same layout jt205/jt212 read)
@@ -4021,6 +4060,9 @@ static void jt948(void)
 					res = 4;            /* Encamp / Esc -> leave the area */
 				} else {
 					switch (g_walk_cmd) {
+					case 1:             /* Area — toggle the top-down automap (L40f8) */
+						l40f8_area_cmd();
+						break;
 					case 3: {           /* View character */
 						unsigned char done = 0;
 						jt904(&done);
@@ -4029,7 +4071,7 @@ static void jt948(void)
 					case 7:             /* Inventory */
 						jt23();
 						break;
-					default:            /* Move / Area / Cast / Search / Look */
+					default:            /* Move / Cast / Search / Look */
 						break;          /* (actions TODO) — stay in the dungeon */
 					}
 					continue;           /* re-enter the walk loop */
@@ -12181,6 +12223,18 @@ static void jt312(unsigned char *page)
 	 * independent test. See [[screen-320x200-not-640x400]]. */
 	if (ds == NULL || jt1160() != 0)        /* first-person dungeon view only */
 		return;
+	/* AREA command (automap) active: the party moved while the top-down map is
+	 * up, so re-render the map (jt221's -12290 branch) instead of the 3D view
+	 * -> the map scroll-follows the party as l1908 walks. jt221 dispatches on
+	 * -12290, so it takes the l52b8/l50fe map path here, never render_3d. */
+	if (g_a5_12290 != 0) {
+		jt221((short)(signed char)g_a5_12288,
+		      (short)(signed char)g_a5_12287,
+		      (short)(signed char)g_a5_12286);
+		qd_present();
+		qd_present();
+		return;
+	}
 	if (!dungeon_view_setup())
 		return;
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
@@ -58044,7 +58098,8 @@ static short jt953(void)
 			case 0:                         /* Move */
 				g_a5_22268 = 1;
 				break;
-			case 1:                         /* Area — TODO: JT[221]/JT[101] */
+			case 1:                         /* Area — toggle the top-down automap (L40f8) */
+				l40f8_area_cmd();
 				break;
 			case 2:                         /* Cast — TODO: L06d6 */
 				break;
