@@ -13362,7 +13362,7 @@ static void play_screen_relayout(unsigned char *rec)
 	l206e(g_a5_long(-13764), cbar_buf,
 	      (const char *)(uintptr_t)g_a5_long(-13952), &defitem);
 	l1f3e((short)g_a5_19172, (short)g_a5_19174);
-	if (g_a5_18485 == 5) {
+	if (g_a5_12911 != 0) {
 		jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
 		      (long)41, (long)22, (long)20,
 		      (long)5, (long)8000, (long)8020, (long)50, (long)28,
@@ -15116,7 +15116,7 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 		l206e(g_a5_long(-13764), cbar_buf,
 		      (const char *)(uintptr_t)g_a5_long(-13952), &defitem);
 		l1f3e((short)g_a5_19172, (short)g_a5_19174);
-		if (g_a5_18485 == 5) {
+		if (g_a5_12911 != 0) {
 			jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
 			      (long)41, (long)22, (long)20,
 			      (long)5, (long)8000, (long)8020, (long)50, (long)28,
