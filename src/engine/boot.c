@@ -6023,6 +6023,16 @@ static void jt25(long entry, short page, short row, short style)
 	PROBE("jt25");
 	if (e == NULL)
 		return;
+	/* Wild-pointer guard. The AREA command's play re-render can hand the
+	 * roster-name paint a corrupted node (a stray/wrapped next-link): with
+	 * e ~ 0xFFFFFFB8, &e[96] wraps to 0x18 and the jt94 %s below bus-errors
+	 * (observed: PC=$c0ec4, move.b (a2),d0 reading $18). A live record lives
+	 * in low heap, so reject an implausible pointer before any deref. The
+	 * stray link itself (why the AREA re-render produces it) is a separate
+	 * faithful fix — see docs/dungeon walk notes. */
+	if ((unsigned long)(uintptr_t)e < 0x800UL ||
+	    (unsigned long)(uintptr_t)e >= 0x04000000UL)
+		return;
 
 	/* Faithful colour pick (Mac L2456): the name is normally light GREY (7);
 	 * dead members go colour 0 (or 7 in render mode 3), a summoned creature in
