@@ -3221,7 +3221,13 @@ static void jt935(void)
 	 && g_a5_byte(-23188) != 0) {                   /* first-entry full redraw */
 		jt214();
 		jt44();
-		l2cf4();
+		/* L2cf4 strokes the GEO-editor's selection box + cursor (the yellow
+		 * mark) at the design header's cell. That belongs to the design editor,
+		 * not Begin-Adventuring play; the port shares jt935 for both, so gate it
+		 * to design mode (g_a5_-18485 == 5) — the editor keeps its cursor, play
+		 * no longer shows a stray mark in the 3D view. */
+		if (g_a5_18485 == 5)
+			l2cf4();
 		g_a5_byte(-23188) = 0;                  /* L007c */
 		return;
 	}
