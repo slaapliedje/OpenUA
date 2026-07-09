@@ -15129,7 +15129,14 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 		}
 	}
 	jt449(1);
-	l5126(rec);                                     /* deep status header panel */
+	/* L5126 is the GEO EDITOR's status header (design name / DUNGEON nn / WD/HT /
+	 * "MARK CELL WALL" mode / "CURRENT MARK AT COL,ROW" / facing). jt240 is the
+	 * editor's design-walk driver that the port reuses for play; the Mac play
+	 * walk (jt953/jt948) never runs jt240, so this editor panel must not paint in
+	 * play — the play HUD (jt937 roster + jt938 clock/position) already covers the
+	 * header. Draw it only in design mode (g_a5_-18485 == 5). */
+	if (g_a5_18485 == 5)
+		l5126(rec);                             /* deep status header panel */
 	jt112(0);
 	jt117();
 
