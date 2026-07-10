@@ -9617,6 +9617,7 @@ static unsigned char cell_edge(short x, short y, short f)
  * whatever the wall palette zeroed them to (the dungeon-HUD black bands). */
 static RGBColor g_menu_pal[256];
 static int      g_menu_state;
+static short    g_menu_pe;       /* UI-palette entry count (defined w/ load_menu_ui) */
 
 /* Seed pal[0..31] with the live UI palette (clut 0..3, 6..31) so a
  * full-CLUT wall install doesn't wipe the chrome/text band. Indices 4/5
@@ -12320,9 +12321,24 @@ static void jt312(unsigned char *page)
 	 * -> the map scroll-follows the party as l1908 walks. jt221 dispatches on
 	 * -12290, so it takes the l52b8/l50fe map path here, never render_3d. */
 	if (g_a5_12290 != 0) {
+		/* Re-install the UI palette before painting the top-down map. The
+		 * automap fills with logical colours 7 (wall bar) and 8 (centre/field);
+		 * jt1161 remaps them through the -4188 range (logical 8 -> clut 23) and
+		 * the map was authored against the MENU palette (clut 23 = warm-brown
+		 * plate). But the dungeon load overwrote clut 0..255 with the wall
+		 * palette (clut 129) — so clut 23 became a dark FRAME-chrome colour and
+		 * the map came up BLACK, the roster text grey-on-grey, exposing jt303's
+		 * header. The 3D branch restores only the text indices (port_hud_text_clut,
+		 * 1/6..15) and returns before this map branch, so the map's mid indices
+		 * stayed clobbered. Re-seat the whole UI palette here (what load_menu_ui
+		 * installs) so the map + roster recolour correctly; toggling back to 3D
+		 * force-fulls and reloads the wall/frame bands. */
+		if (g_menu_state == 1)
+			qd_set_palette(g_menu_pal, (short)0, (short)32);
 		jt221((short)(signed char)g_a5_12288,
 		      (short)(signed char)g_a5_12287,
 		      (short)(signed char)g_a5_12286);
+		jt937(g_a5_long(-27932));       /* repaint the roster in the map view */
 		qd_present();
 		qd_present();
 		return;
@@ -13516,11 +13532,32 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	       (short)(g_a5_word(-11674) + g_a5_word(-11670)),
 	       (short)(g_a5_word(-11672) + g_a5_word(-11668)), (short)8);
 	l4226(ctx);
-	jt303(rec);                             /* status line */
+	/* jt303 paints the GEO editor's status header (module title, "DUNGEON nn",
+	 * map "WD nn HT nn"). l63c0 is the editor's design-walk driver that the port
+	 * reuses for the *play* dungeon walk (the faithful Mac play walk is
+	 * jt953/jt948 and never runs l63c0), so this editor header leaks into play:
+	 * its jt1089 text draws narrow the QuickDraw clip to the right HUD panel,
+	 * which the following automap paint (jt312 -> jt221 -> l50fe) inherits — so
+	 * after an AREA toggle the top-down map is CLIPPED OUT (black) and the header
+	 * itself bleeds over the roster. The play HUD (jt937 roster + jt938 clock)
+	 * owns that panel, so gate jt303 to design mode only — same treatment as the
+	 * L5126 / l2cf4 editor-chrome gates. Wilderness/deep play headers are jt280 /
+	 * the 3D chrome, drawn below. */
+	if (g_a5_18485 == 5)
+		jt303(rec);                     /* status line (design editor only) */
 
 	/* initial first-person view (deep) or top-down (wilderness) */
 	if ((unsigned char)a_deep) {
-		jt1173((short)8024, (short)8092, (short)8058, (short)8156);
+		/* jt1173 narrows the clip to the 88x88 first-person viewport for the
+		 * 3D render; the top-down AREA map (jt312's -12290 branch) draws a
+		 * wider region and would be CLIPPED OUT (black) by it — the entry-frame
+		 * black that only cleared after a step (the per-step re-render runs
+		 * jt312 with the full clip). Skip the viewport clip and keep the full
+		 * screen (jt1193) while the map is up. */
+		if (g_a5_12290 == 0)
+			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
+		else
+			jt1193();
 		jt312(ctx);
 		jt1193();
 	} else {
@@ -13529,7 +13566,15 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 
 	if (cb1 == 0)
 		cb1 = (long)(uintptr_t)(void *)jt238;
-	((void (*)(unsigned char *))(uintptr_t)cb1)(rec);   /* per-screen dispatch */
+	/* Per-screen dispatch — for the deep play walk cb1 is jt238 -> jt304, the
+	 * first-person dungeon-view composer (l3fd8 tile draw). When the top-down
+	 * AREA map is up (-12290) that would overpaint the map jt312 just drew into
+	 * the same view region — the "flash then black" on the FIRST AREA frame (the
+	 * per-step re-render goes jt297 -> jt312 and never hits jt304, which is why
+	 * the map reappeared only after a move). The map is self-contained (its own
+	 * party marker via l5752), so skip the 3D composer while it is showing. */
+	if (g_a5_12290 == 0)
+		((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
 
 	/* Port adaptation: the Mac draws immediately to the visible CGrafPort,
 	 * but our QuickDraw shim renders into a back-buffer that the Falcon HAL
@@ -13557,13 +13602,19 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		 * self-gates on -3150 + -2347, so other screens stay unaffected.
 		 * NB: the idle loop only spins on input today, so the fire advances per
 		 * step/turn; continuous standing animation is B.3. */
-		if (jt1163() == 0 && (jt1200() != 0 || (unsigned char)a_deep)) {
+		/* The fire colour-cycle + the 3D-viewport frame are FIRST-PERSON view
+		 * maintenance. When the top-down AREA map is up (-12290) they corrupt
+		 * it — jt1067 re-commits the cycled wall bands and jt1173 strokes the
+		 * 88x88 viewport box over the map — so the map "flashed then went
+		 * black". Skip them while the map is showing; the map owns the view. */
+		if (jt1163() == 0 && (jt1200() != 0 || (unsigned char)a_deep)
+		    && g_a5_12290 == 0) {
 			if ((unsigned char)a_deep)
 				dungeon_cycle_ensure();  /* re-arm the fire cycle if a
 				                          * picture's jt1069 freed it */
 			jt1067();
 		}
-		if ((unsigned char)a_deep) {
+		if ((unsigned char)a_deep && g_a5_12290 == 0) {
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 			jt1113(&o10, &o12);
 			jt1193();       /* restore the full clip — the stale box
