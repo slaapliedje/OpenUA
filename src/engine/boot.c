@@ -22536,7 +22536,17 @@ static int   jt315(void)
 		case 3: menu_todo("Delete the Design"); break;  /* CODE 8 */
 		case 4: break;                   /* Unlock Editor — disabled */
 		case 5: menu_todo("Game Settings");     break;  /* JT[247] CODE 2 */
-		case 6: menu_todo("Edit Modules");      break;  /* CODE 12 editor */
+		case 6:                          /* Edit Modules — the design editor */
+		/* Faithful to the Mac jt315 selection dispatch (CODE 22 JT[3]@0x5116):
+		 * menu item 6 -> L5262 -> L0004(6). l0004_22(6) seeds the master
+		 * context to mode 4 and runs the l0096 mode loop -> jt251 (the
+		 * design-action dispatcher / module picker), which navigates to the
+		 * GEO editor (jt243, mode 2 -> jt242 on a cell commit) and the other
+		 * modules. This turns on the whole (previously DCE'd) editor chain.
+		 * The Mac's post-call -18476/fp@(-7) redraw is covered by the outer
+		 * menu_run repaint on the next loop iteration. */
+		(void)l0004_22((short)6);
+		break;
 		case 7: menu_todo("Art Gallery");       break;  /* JT[1080] CODE 5 */
 		case 8: menu_todo("Monster Editor");    break;  /* CODE 12 editor */
 		case 9:                          /* Quit From Game */
