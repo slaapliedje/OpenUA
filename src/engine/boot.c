@@ -3112,6 +3112,7 @@ static void jt221(short x, short y, short facing)
  * scroll-follows the party as it walks. */
 static const char *jt475(short idx);
 static void jt215(void);
+static short g_view_force_full;         /* fwd (defined below); armed on AREA->3D toggle */
 static void l40f8_area_cmd(void)
 {
 	unsigned char *pl = (unsigned char *)g_a5_28006;
@@ -3124,6 +3125,16 @@ static void l40f8_area_cmd(void)
 	}
 	jt215();                                /* prime the -12272 automap cell size */
 	g_a5_12290 = (unsigned char)(g_a5_12290 == 0 ? 1 : 0);
+	/* Toggling BACK to the 3D view: the automap branch (jt312 -12290) installs
+	 * the menu palette over clut 0..31 (incl. the FRAME chrome band 16..31) for
+	 * the map colours and repaints the roster itself. Returning to first-person
+	 * does NOT undo that unless jt312 runs a full chrome frame — so without this
+	 * the play HUD came back with a grey (menu-clobbered) panel plate and no
+	 * roster. Arm a force-full so the next deep frame re-runs port_draw_play_frame
+	 * (restores the FRAME palette) + port_hud_text_clut + jt937/jt938 (roster +
+	 * clock). Only the 3D leg needs it; the map leg repaints itself. */
+	if (g_a5_12290 == 0)
+		g_view_force_full = 1;
 	jt221((short)(signed char)g_a5_12288,
 	      (short)(signed char)g_a5_12287,
 	      (short)(signed char)g_a5_12286);
