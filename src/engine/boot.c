@@ -13637,7 +13637,19 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		} else {
 			jt280(rec, (short)8024, (short)8092, (short)0);
 		}
-		((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
+		/* cb1 (default jt238 -> jt304) is the AUTOMAP compose — it belongs
+		 * to the top-down walk (jt241 passes jt237, the automap cb). In the
+		 * DEEP walk this re-render tail is a port stand-in for the deferred
+		 * faithful per-step arms (L64f2..L666c), and running the automap
+		 * compose here painted l3806's flat-map cell marks + jt304's jt213
+		 * party facing marker OVER the play screen every step — the
+		 * accumulating yellow facing arrow at the view corner — and the
+		 * full present below then pushed the clobbered frame to both flip
+		 * pages, wiping the command bar. The Mac deep walk never composes
+		 * the flat automap over the play screen; skip it here too.
+		 * (Hatari-verified: bar survives steps/turns/events, corner clean.) */
+		if (!(unsigned char)a_deep)
+			((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
 		if ((unsigned char)a_deep)
 			port_draw_compass();    /* track the party facing */
 		qd_present();
