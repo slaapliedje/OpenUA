@@ -3148,6 +3148,12 @@ static short jt201(short x, short y)
 	return (short)lvl[290 + idx * 6 + 4];           /* a0@(294): record field +4 */
 }
 
+#ifdef FRUA_LEAKPROBE
+/* Wild-node hunt: validate the party list + active member, log the first
+ * corruption with a tag naming the call site. Body after cg_node_in_pool. */
+static void dbg_party_check(const char *tag);
+#endif
+
 /* JT[934] (CODE 12 + 0x0848, 15 sites) — roster cursor navigation: move the
  * active party member (g_a5_-27932) to the next or previous entry in the party
  * list (head g_a5_-27928, .next at member offset 0), wrapping at the ends. The
@@ -3174,6 +3180,11 @@ static void jt934(short sel)
 	long member;
 
 	PROBE("jt934");
+#ifdef FRUA_LEAKPROBE
+	dbg_party_check("jt934-in");
+	dbg_file_num("jt934 sel=", (long)(sel & 0xff));
+	dbg_file_num("  active=", active);
+#endif
 	g_a5_long(-27940) = active;             /* save previous active */
 	sel &= 0xff;
 
@@ -3199,6 +3210,9 @@ static void jt934(short sel)
 		/* else active is the tail -> member stays = head (wrap) */
 	}
 
+#ifdef FRUA_LEAKPROBE
+	dbg_file_num("jt934 commit=", member);
+#endif
 	g_a5_27932 = member;                    /* commit new active member */
 }
 
@@ -3274,6 +3288,10 @@ static void jt936(long member, short highlight)
 	short b;
 
 	PROBE("jt936");
+#ifdef FRUA_LEAKPROBE
+	dbg_party_check("jt936-in");
+	dbg_file_num("jt936 member=", member);
+#endif
 
 	if (g_a5_byte(-27990) == 3) {                   /* L0082 */
 		h = (const unsigned char *)g_a5_28006;
@@ -6107,8 +6125,12 @@ static void jt25(long entry, short page, short row, short style)
 	 * stray link itself (why the AREA re-render produces it) is a separate
 	 * faithful fix — see docs/dungeon walk notes. */
 	if ((unsigned long)(uintptr_t)e < 0x800UL ||
-	    (unsigned long)(uintptr_t)e >= 0x04000000UL)
+	    (unsigned long)(uintptr_t)e >= 0x04000000UL) {
+#ifdef FRUA_LEAKPROBE
+		dbg_file_num("jt25 WILD-GUARDED e=", (long)entry);
+#endif
 		return;
+	}
 
 	/* Faithful colour pick (Mac L2456): the name is normally light GREY (7);
 	 * dead members go colour 0 (or 7 in render mode 3), a summoned creature in
@@ -7660,6 +7682,33 @@ static const unsigned char cg_class_to_port[17] = {
 	1,  /* 15 Fighter/Magic-User/Thief  -> Fighter */
 	2,  /* 16 Magic-User/Thief          -> Mage    */
 };
+
+#ifdef FRUA_LEAKPROBE
+static int cg_node_in_pool(const unsigned char *p);
+static void dbg_party_check(const char *tag)
+{
+	const unsigned char *node =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+	long  active = g_a5_long(-27932);
+	short n = 0;
+
+	while (node != NULL && n < 12) {
+		if (!cg_node_in_pool(node)) {
+			dbg_file_str("PARTY-CORRUPT at ", tag);
+			dbg_file_num("  bad node = ", (long)(uintptr_t)node);
+			dbg_file_num("  index    = ", (long)n);
+			return;
+		}
+		node = *(const unsigned char * const *)node;
+		n++;
+	}
+	if (active != 0
+	 && !cg_node_in_pool((const unsigned char *)(uintptr_t)active)) {
+		dbg_file_str("ACTIVE-CORRUPT at ", tag);
+		dbg_file_num("  -27932 = ", active);
+	}
+}
+#endif
 
 /* cg_pool / cg_node_in_pool are defined further down (with the char-gen pool);
  * forward-declare them so l02dc's roster walk can reject a stray non-pool link
@@ -22762,6 +22811,11 @@ static void l0848(short key)
 	unsigned char *node = head;
 
 	PROBE("L0848");
+#ifdef FRUA_LEAKPROBE
+	dbg_party_check("l0848-in");
+	dbg_file_num("l0848 key=", (long)key);
+	dbg_file_num("  sel=", (long)(uintptr_t)sel);
+#endif
 	g_a5_long(-27940) = g_a5_long(-27932);          /* backup the selection */
 	if (head == NULL || sel == NULL)
 		return;
@@ -26233,6 +26287,9 @@ static void jt590(void *entry_v)
 
 	if ((entry[147] & 0x80) != 0)
 		jt910((long)(uintptr_t)entry);
+#ifdef FRUA_LEAKPROBE
+	dbg_party_check("jt590-out");
+#endif
 }
 
 /* JT[592] (CODE 15+0x1188) — spawn `code` as an effect-monster and set
@@ -40326,6 +40383,9 @@ static void l28b0(void *ev_v, short f)
 	short          i;
 
 	PROBE("L28b0");
+#ifdef FRUA_LEAKPROBE
+	dbg_party_check("l28b0-in");
+#endif
 	if (ev == NULL)
 		return;
 	if (rec)
@@ -42023,6 +42083,9 @@ static void l5bde(void *ev_v)
 	unsigned char  subrec[20];               /* fp@(-20)..fp@(-1) */
 
 	PROBE("L5bde");
+#ifdef FRUA_LEAKPROBE
+	dbg_party_check("l5bde-in");
+#endif
 	if (ev == NULL || rec == NULL)
 		return;
 
@@ -84632,6 +84695,9 @@ static short l216a(void *ev_v)
 	char           yesno[34];          /* fp@(-48): "~Yes ~No" prompt scratch */
 
 	PROBE("L216a");
+#ifdef FRUA_LEAKPROBE
+	dbg_party_check("l216a-in");
+#endif
 
 	if (ev[6] == 0) {                              /* first visit */
 		ev[6] = (unsigned char)220;            /* picture id 0xdc */
