@@ -1695,6 +1695,16 @@ static void  jt1014(short kind, const char *name, short group);
  * Args mirror the Mac stack: a8 (stored to the control block),
  * rec (caller record ptr), ctrl (control block), type, src (input
  * buffer), cmd, count. */
+
+/* Group 24 is TIME-MULTIPLEXED on the Mac: MENU.CTL while a menu is up,
+ * SCRIPT.GLB while the record editor (jt325) is live. The port keeps MENU
+ * resident (g_menu_base) and routes jt468(24) to it, but that must YIELD to
+ * the editor's FAR-pool SCRIPT.GLB or l4010 reads back the MENU header
+ * (count=3, wrong size) and aborts into the modal error dialog — which hangs.
+ * jt325 sets this while it holds SCRIPT in group 24; l0004_22 clears it on
+ * editor exit so the menu path keeps its resident MENU. */
+static short g_group24_script_active;
+
 static short jt325(short a8, long *rec, void *ctrl, short type,
                    void *src, short cmd, short count)
 {
@@ -1708,6 +1718,10 @@ static short jt325(short a8, long *rec, void *ctrl, short type,
 	jt131((short)4);
 	jt134((short)0);
 	jt113((short)51);
+	/* Claim group 24 for SCRIPT.GLB BEFORE the load: jt1014 runs l4010
+	 * (the header validate) mid-load, and it must read back SCRIPT's
+	 * header from the FAR pool, not the resident MENU. */
+	g_group24_script_active = 1;
 	jt1014((short)51, "script", (short)24);
 	g_a5_long(-11656) = jt1004();
 	g_a5_long(-11660) = g_a5_long(-22208);
@@ -12180,6 +12194,9 @@ static void port_always_load(void)
  * faithful main menu (jt315/CODE 22) draws a bar per command from this.
  * See [[faithful-main-menu-code22]]. */
 static long g_menu_base;
+/* g_group24_script_active is declared earlier (before jt325); see the note
+ * there. When set, jt468(24) yields the resident MENU to the FAR-pool
+ * SCRIPT.GLB the record editor loads into group 24. */
 static void port_menu_load(void)
 {
 	static unsigned char mbuf[12000];      /* MENU.CTL is ~11064 bytes */
@@ -12229,7 +12246,12 @@ static long port_ui_group_base(short group)
 		       ? g_a5_10270[id] : 0;
 	}
 	if (group == 1)  { port_frame_load();  return g_frame_base;  }
-	if (group == 24) { port_menu_load();   return g_menu_base;   }
+	if (group == 24) {
+		if (g_group24_script_active)   /* editor holds SCRIPT.GLB -> FAR pool */
+			return 0;
+		port_menu_load();
+		return g_menu_base;
+	}
 	return 0;
 }
 
@@ -15889,6 +15911,9 @@ static short l0004_22(short arg)
 	*(long *)(ctx + 8) |= ((long)(jt358() & 0xff)) << 16;
 	if (ctx[0] == 0)
 		(void)l0096(ctx);
+	/* Editor done: group 24 reverts to the resident MENU (jt325 may have
+	 * left SCRIPT.GLB parked in the FAR pool). */
+	g_group24_script_active = 0;
 	return 0;
 }
 
