@@ -2289,6 +2289,21 @@ int ua_main(short arg1, long arg2)
 	for (;;)
 		jt920();
 #endif
+#ifdef FRUA_AREATEST
+	/* AREA-map / play-HUD harness: seed HEIRS + roster, build the party, install
+	 * the play CLUT (load_menu_ui), and enter the dungeon walk (jt948) directly,
+	 * bypassing the mouse-only Hall. In the walk, the 'a' key toggles the AREA
+	 * automap (latched in l2d3e, since Hatari's SDL ignores synthetic mouse
+	 * clicks under Xvfb). For iterating on the automap + editor chrome without
+	 * driving the menus by mouse. `make EXTRA_CFLAGS=-DFRUA_AREATEST run-game`
+	 * (+ -DFRUA_SKIP_ENTRY_EVENTS to skip the caravan event). Body defined below. */
+	{
+		void frua_areatest_entry(void);
+		frua_areatest_entry();
+	}
+	for (;;)
+		jt920();
+#endif
 	jt920();
 	jt1009(8096, 0);
 
@@ -3925,6 +3940,9 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec);     /* deep wal
  * Move/Area/Cast/View/Encamp/Search/Look/Inv), or -1 for an Esc / non-command
  * exit. jt948's dungeon walk loop reads it to dispatch the command. */
 static short g_walk_cmd = -1;
+#ifdef FRUA_AREATEST
+static short g_areatest_cmd = -1;   /* FRUA_AREATEST: 'a' in the walk latches the Area cmd */
+#endif
 static void  jt23(void);                                            /* play-frame stand-up (defined below) */
 static void  jt904(unsigned char *out_done);                        /* View-character screen (defined below) */
 
@@ -13453,7 +13471,11 @@ static void play_screen_relayout(unsigned char *rec)
 	l206e(g_a5_long(-13764), cbar_buf,
 	      (const char *)(uintptr_t)g_a5_long(-13952), &defitem);
 	l1f3e((short)g_a5_19172, (short)g_a5_19174);
-	if (g_a5_12911 != 0) {
+	/* The four shape-5 frame items back the first-person walk's command-bar /
+	 * pad frame (gating them out entirely dropped the play arrows — 97cc42f).
+	 * But on the top-down AREA map they surface as three stray editor plates
+	 * across the top of the view, so draw them only in the 3D leg (-12290==0). */
+	if (g_a5_12911 != 0 && g_a5_12290 == 0) {
 		jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
 		      (long)41, (long)22, (long)20,
 		      (long)5, (long)8000, (long)8020, (long)50, (long)28,
@@ -13642,6 +13664,14 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		(void)o12;
 
 		pollres = l2d3e();              /* event poll (JT[456]) */
+#ifdef FRUA_AREATEST
+		if (g_areatest_cmd >= 0) {      /* keyboard Area toggle (harness) */
+			g_walk_cmd = g_areatest_cmd;
+			g_areatest_cmd = -1;
+			exitflag = -1;
+			break;
+		}
+#endif
 		if (pollres < 0) {
 			jt1080();                   /* idle */
 			if (exitflag != 0)
@@ -15254,7 +15284,9 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 		l206e(g_a5_long(-13764), cbar_buf,
 		      (const char *)(uintptr_t)g_a5_long(-13952), &defitem);
 		l1f3e((short)g_a5_19172, (short)g_a5_19174);
-		if (g_a5_12911 != 0) {
+		/* Shape-5 command-bar/pad frames — 3D leg only; on the AREA map they
+		 * showed as three stray editor plates across the top (see jt240). */
+		if (g_a5_12911 != 0 && g_a5_12290 == 0) {
 			jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
 			      (long)41, (long)22, (long)20,
 			      (long)5, (long)8000, (long)8020, (long)50, (long)28,
@@ -16126,6 +16158,33 @@ static int load_roster(void)
 	 * built in the Hall via Add Character / Load Saved Game. (#141/#100) */
 	return 1;
 }
+
+#ifdef FRUA_AREATEST
+static void load_menu_ui(void);
+/* FRUA_AREATEST harness body (declared in ua_main): seed HEIRS + roster, build
+ * the party from the .CHR pool, install the play CLUT (load_menu_ui — the -4188
+ * colour range, without which the map/roster read dark), and enter the dungeon
+ * walk (jt948) directly. 'a' toggles the AREA automap in the walk. */
+void frua_areatest_entry(void)
+{
+	port_test_seed_design();
+	node_pool_init();
+	(void)load_roster();
+	cg_party_build_from_pool(6);
+	load_menu_ui();
+	g_a5_12911 = 1;   /* match real play (jt174/L2062 sets it) so jt452 grids draw */
+	g_a5_18878 = (short)g_a5_18828;
+	g_a5_18488 = (unsigned char)(g_a5_18827 - 1);
+	jt942(0);
+	jt52(255);
+	l67ca();
+	jt937(g_a5_27932);
+	jt938();
+	jt217((short)g_a5_12294, (short)g_a5_12293,
+	      (short)g_a5_12292, (short)g_a5_12291);
+	jt948();
+}
+#endif
 
 /* Merge persisted CHAR*.CHR character files into the pool that aren't already
  * present (dedup by the 16-byte name at +96), appending up to the 16-slot cap.
@@ -20928,6 +20987,13 @@ static short l2d3e(void)
 			dbg_log_num("walk key = ", (long)kc);
 #endif
 		g_a5_word(-10372) = kc;
+#ifdef FRUA_AREATEST
+		/* Latch the Area command from the keyboard ('a') so the automap can be
+		 * toggled without a mouse (SDL ignores synthetic clicks under Xvfb).
+		 * Read here in l2d3e Phase 1 — before jt287 rejects the bare letter. */
+		if (g_walk_input && (kc == 'a' || kc == 'A'))
+			g_areatest_cmd = 1;
+#endif
 		/* Training Hall menu: Up/Down move the roster selection (l0848)
 		 * rather than the DLItem button nav. Exit the modal with an
 		 * out-of-range sentinel (12) so l0aae returns it and jt918's loop
