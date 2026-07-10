@@ -4171,11 +4171,20 @@ static void jt948(void)
 			break;
 		}
 
-		/* L4cda: reload the level for a stair transition while the
-		 * adventure is still active; otherwise fall through to exit. */
+		/* L4cda (faithful CODE20 0x4cda..0x4d24): a set -27982 leaves the
+		 * walk. The Mac then walks the party handles (JT[19]) and, when a
+		 * LOAD was requested inside camp (L4738 / jt942(1) -> g_a5_-4944),
+		 * runs JT[582] to pick+read the save. It does NOT reload the level
+		 * here. The port additionally keeps a stair-transition reload for the
+		 * -27982-without-load case (a port path that set -27982 for a level
+		 * swap); gate that on l4738()==0 so a camp LOAD (l4738 set) falls
+		 * through to the JT[582] exit instead of being swallowed by the
+		 * reload — the bug that made in-game "Load" flash and do nothing. */
 		if (g_a5_byte(-27982) != 0) {
 			g_a5_byte(-27982) = 0;
-			continue;                       /* -> L4a1a reload */
+			if (l4738() == 0)
+				continue;               /* stair swap -> L4a1a reload */
+			/* camp LOAD requested -> fall through to the JT[582] exit */
 		}
 
 		/* exit: walk the party-handle list (JT[19]) then JT[582]. */
