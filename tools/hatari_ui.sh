@@ -99,6 +99,17 @@ wait_for() {
 $(tail -5 "$LOG" 2>/dev/null)"
 }
 
+# Screenshot backend — works with ImageMagick 7 (the unified `magick`, on Arch)
+# or ImageMagick 6 (`import`/`compare`, the Debian/Ubuntu/Mint default, which has
+# no `magick`). im_grab <window-id> <out.png>; im_compare <a> <b> -> AE metric.
+if command -v magick >/dev/null 2>&1; then
+	im_grab()    { magick "x:$1" "$2" 2>/dev/null || true; }
+	im_compare() { magick compare -metric AE "$1" "$2" null: 2>&1; }
+else
+	im_grab()    { import -window "$1" "$2" 2>/dev/null || true; }
+	im_compare() { compare -metric AE "$1" "$2" null: 2>&1; }
+fi
+
 cmd="${1:-}"; shift || true
 case "$cmd" in
 start)
@@ -190,7 +201,7 @@ shot)
 	WID="$(cat "$STATE/wid" 2>/dev/null)" || WID="$(find_window)"
 	# Retry: a ~358-byte PNG is an empty grab.
 	for _ in 1 2 3; do
-		magick "x:$WID" "$OUT" 2>/dev/null || true
+		im_grab "$WID" "$OUT"
 		[[ -f "$OUT" && "$(stat -c%s "$OUT")" -gt 2000 ]] && break
 		sleep 0.5
 	done
@@ -210,13 +221,13 @@ shots)
 	WID="$(cat "$STATE/wid" 2>/dev/null)" || WID="$(find_window)"
 	PREV="$STATE/shotprev.png"
 	CUR="$STATE/shotcur.png"
-	magick "x:$WID" "$PREV" 2>/dev/null || true
+	im_grab "$WID" "$PREV"
 	stable=0
 	for _ in $(seq 1 "$TRIES"); do
 		sleep 0.4
-		magick "x:$WID" "$CUR" 2>/dev/null || true
+		im_grab "$WID" "$CUR"
 		[[ -f "$CUR" && "$(stat -c%s "$CUR")" -gt 2000 ]] || continue
-		d="$(magick compare -metric AE "$PREV" "$CUR" null: 2>&1 \
+		d="$(im_compare "$PREV" "$CUR" \
 		     | grep -oE '^[0-9]+' | head -1 || echo 999999)"
 		cp "$CUR" "$PREV"
 		if [[ "${d:-999999}" -lt "$THRESH" ]]; then
