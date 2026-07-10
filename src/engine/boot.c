@@ -57091,11 +57091,7 @@ static signed char l15bc(void);
  * is deferred (it's only meaningful once the design-roster paint
  * actually runs). The boot path's jt166(9) leaves mode = 9, so
  * the loop just polls L2d3e for input — exactly what we want for
- * the "wait for user keypress" semantic.
- *
- * iter_guard caps the loop while jt1085 / L2d3e are still being
- * driven by the IKBD chain; release the cap once the per-mode
- * timing arms light up. */
+ * the "wait for user keypress" semantic. */
 static short l23b4(short arg)
 {
 	long           fp_minus_32 = 0;
@@ -57104,7 +57100,6 @@ static short l23b4(short arg)
 	short          item;
 	signed char    rc;
 	unsigned char  arg_lo;
-	short          iter_guard;
 	short          mode_with_timer;
 
 	PROBE("L23b4");
@@ -57126,8 +57121,16 @@ static short l23b4(short arg)
 		fp_minus_28    = fp_minus_24 + 50L;
 	}
 
+	/* Faithful loop shape (asm L23b4 0x2440..0x259e): spin until l2d3e
+	 * returns a selection (item >= 0) or the mode-2/7/12/13 timeout fires
+	 * (-13006 = 1, whose l25b6 fast path returns the cached result). The
+	 * bring-up iter_guard cap (4096) is GONE: it could pop while the user
+	 * idled at a "Press [Return]" modal and return item = -1 — which
+	 * l1806's l25b6(tmp, NULL, ..) translated into a read at
+	 * ((char **)NULL)[-2] = $fffffff8 -> bus error, killing the app. The
+	 * Mac never returns -1 from this loop; neither do we. */
 	item = -1;
-	for (iter_guard = 0; iter_guard < 4096; iter_guard++) {
+	for (;;) {
 		if (jt1163() == 0 && jt1200() != 0)
 			jt1067();
 		rc   = jt1085();
