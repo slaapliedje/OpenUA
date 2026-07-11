@@ -68908,6 +68908,7 @@ static short jt1077(short lo, short hi, long deflt, short width)
 /* ===== jt325 record-editor tail helpers (CODE 9) — Phase D =====
  * See docs/jt325-record-editor-wall.md. Lifted bottom-up; each is
  * __attribute__((unused)) until the tail dispatch that calls it lands. */
+static short jt409(const char *s, short len, short ch);   /* defined lower */
 
 /* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
  * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
@@ -69157,6 +69158,175 @@ static short l348e(short cur)
 		const unsigned char *tbl =
 		    (const unsigned char *)&g_a5_byte(-12645);
 		return tbl[kind * 20 + sel - 1];
+	}
+}
+
+/* L3876 (CODE 9 + 0x3876) — the editor VALIDATION ERROR dialog. JT[1]@0x388e on
+ * `code` selects the message; each arm sets a bold title (+ up to two body lines,
+ * some formatted with `arg`), then the common tail draws them (jt1089: colour 139
+ * title / 135 body, centred at y = 8080 - 2*len) and beeps/waits (jt175). Codes
+ * 1/2/3 self-check (map size / monster tallies over the 6 slots at stage[8..19])
+ * and show nothing when within limits. Returns 0 if a message was shown, else 1. */
+static short l3876(short code, short arg) __attribute__((unused));
+static short l3876(short code, short arg)
+{
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	const char    *title = NULL;
+	char           line1[40];
+	char           line2[40];
+	short          count = 0, i;
+
+	PROBE("L3876");
+	line1[0] = 0;
+	line2[0] = 0;
+
+	switch (code) {                         /* JT[1] @0x388e */
+	case 1:                                 /* L38aa — Map Area too large */
+		if (stage[2] * stage[3] > 576) {
+			title = ua_strs_at(0x3338) /* "Map Area too large!" */;
+			jt394(line1, ua_strs_at(0x334c) /* "Try width of %d or" */,
+			      (short)(576 / stage[2]));
+			jt394(line2, ua_strs_at(0x3360) /* "height of %d." */,
+			      (short)(576 / stage[3]));
+		}
+		break;
+	case 2:                                 /* L3922 — too many monsters (limit 50) */
+		count = 0;
+		for (i = 8; i <= 18; i += 2) {
+			unsigned char *node = stage + i;
+			if (node[1] == 0)
+				continue;
+			count += node[0] & 31;
+			if (jt409((const char *)&g_a5_byte(-11652), (short)28,
+			          (short)node[1]) < 28)
+				count += node[0] & 31;         /* counts double */
+		}
+		if (count > 50) {
+			title = ua_strs_at(0x336e) /* "Too many monsters!" */;
+			jt384(line1, ua_strs_at(0x3382) /* "There is a limit of 50 monsters." */);
+			jt384(line2, ua_strs_at(0x33a4) /* "Some monsters count double." */);
+		}
+		break;
+	case 3:                                 /* L39ce — a single doubled monster over 50 */
+		/* count is set (not accumulated) per slot; the Mac leaves fp@(-2)
+		 * uninitialised when no slot qualifies — 0 (no error) is the safe
+		 * reading, which the declaration init gives. */
+		for (i = 8; i <= 18; i += 2) {
+			unsigned char *node = stage + i;
+			if (node[1] == 0)
+				continue;
+			count = node[0] & 31;
+			if (jt409((const char *)&g_a5_byte(-11652), (short)28,
+			          (short)node[1]) < 28)
+				count += node[0] & 31;
+			if (count > 50)
+				break;
+		}
+		if (count > 50) {
+			title = ua_strs_at(0x33c0) /* "Too many monsters!" */;
+			jt384(line1, ua_strs_at(0x33d4) /* "There is a limit of 25 monsters" */);
+			jt384(line2, ua_strs_at(0x33f4) /* "when they count double." */);
+		}
+		break;
+	case 256:                               /* L3a7e — text area full */
+		title = ua_strs_at(0x340c) /* "Text area is full!" */;
+		jt384(line1, ua_strs_at(0x3420) /* "There is too much text" */);
+		jt384(line2, ua_strs_at(0x3438) /* "in the Module." */);
+		break;
+	case 257:                               /* L3aaa — button text too long */
+		title = ua_strs_at(0x3448) /* "Button text too long!" */;
+		jt384(line1, ua_strs_at(0x345e) /* "Try making a label shorter." */);
+		jt394(line2, ua_strs_at(0x347a) /* "Too long by %d characters." */, arg);
+		break;
+	case 258:                               /* L3adc — buttons must start with letters */
+		title = ua_strs_at(0x3496) /* "Buttons must start with letters!" */;
+		jt384(line1, ua_strs_at(0x34b8) /* "And each must be unique." */);
+		jt394(line2, ua_strs_at(0x34d2) /* "Button %d is wrong." */, arg);
+		break;
+	default:                                /* L3b0c */
+		break;
+	}
+
+	if (title == NULL)
+		return 1;                       /* no message shown */
+
+	jt76();
+	jt1089((short)8016, (short)(8080 - jt423(title) * 2), (short)139,
+	       ua_strs_at(0x34e6) /* "%s" */, title);
+	if (line1[0] != 0)
+		jt1089((short)8024, (short)(8080 - jt423(line1) * 2), (short)135,
+		       ua_strs_at(0x34ea) /* "%s" */, line1);
+	if (line2[0] != 0)
+		jt1089((short)8030, (short)(8080 - jt423(line2) * 2), (short)135,
+		       ua_strs_at(0x34ee) /* "%s" */, line2);
+	jt175();
+	return 0;
+}
+
+/* L06e0 (CODE 9 + 0x06e0) — typed field WRITER, the counterpart to l0052. Packs
+ * `value` into the staging-buffer field named by `desc` (desc[0]=type, desc[1..2]
+ * =16-bit LE offset), LITTLE-endian per JT[3]@0x071c type 50/51/52/53 =
+ * byte/word/long/packed-bitfield (type 53 spends value LSB-first over the listed
+ * bit positions). Marks the record dirty (stage[2510]=1) on every byte that
+ * actually changes. */
+static void l06e0(unsigned char *desc, long value) __attribute__((unused));
+static void l06e0(unsigned char *desc, long value)
+{
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *field = stage + (desc[1] | ((long)desc[2] << 8));
+
+	PROBE("L06e0");
+	switch (desc[0]) {                      /* JT[3] @0x071c min=50 max=53 */
+	case 50:                                /* byte */
+		if (field[0] != (unsigned char)value)
+			stage[2510] = 1;
+		field[0] = (unsigned char)value;
+		break;
+	case 51:                                /* word (LE) */
+		if (field[0] != (unsigned char)value)
+			stage[2510] = 1;
+		field[0] = (unsigned char)value;
+		if (field[1] != (unsigned char)(value >> 8))
+			stage[2510] = 1;
+		field[1] = (unsigned char)(value >> 8);
+		break;
+	case 52:                                /* long (LE) */
+		if (field[0] != (unsigned char)value)
+			stage[2510] = 1;
+		field[0] = (unsigned char)value;
+		if (field[1] != (unsigned char)(value >> 8))
+			stage[2510] = 1;
+		field[1] = (unsigned char)(value >> 8);
+		if (field[2] != (unsigned char)(value >> 16))
+			stage[2510] = 1;
+		field[2] = (unsigned char)(value >> 16);
+		if (field[3] != (unsigned char)(value >> 24))
+			stage[2510] = 1;
+		field[3] = (unsigned char)(value >> 24);
+		break;
+	case 53: {                              /* packed bitfield — value LSB-first */
+		short count, i;
+
+		desc++;                         /* skip the type byte */
+		count = *desc++;
+		for (i = 0; i < count; i++) {
+			short pos     = desc[0] | (desc[1] << 8);
+			short byteoff = pos >> 3;
+			short bitidx  = pos & 7;
+			unsigned char nb;
+
+			desc += 2;
+			nb = (unsigned char)((stage[byteoff] & ~(1 << bitidx))
+			                     | ((value & 1) << bitidx));
+			if (stage[byteoff] != nb)
+				stage[2510] = 1;
+			stage[byteoff] = nb;
+			value >>= 1;
+		}
+		break;
+	}
+	default:                                /* L0936 */
+		break;
 	}
 }
 
