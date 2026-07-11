@@ -73016,6 +73016,113 @@ static void l06d8_c10(unsigned char *dc, short sel)
 	}
 }
 
+/* L0bd2 (CODE 10+0x0bd2) — compute the list-row column layout and format
+ * its header string. dc[0] = holder; l06ae classifies holder[2] (the kind).
+ * Sets dc[54] (0..6 = column-layout code) and picks two label pointers
+ * (method1/method2, from A5 string globals) that feed a jt394 sprintf into
+ * dc[4]. The A5 globals -10708/-10684/-10680/-10676/-10672/-10560/-10796
+ * are the fixed column-header label strings. Returns dc[54]. */
+static short l0bd2_c10(unsigned char *dc) __attribute__((unused));
+static short l0bd2_c10(unsigned char *dc)
+{
+	char *method1 = 0;                               /* fp@(-4) */
+	char *method2 = 0;                               /* fp@(-8) */
+	signed char kind_class;                          /* fp@(-9) */
+	unsigned char *h;
+
+	PROBE("L0bd2");
+	dc[54] = 0;
+	h = *(unsigned char **)dc;
+	kind_class = (signed char)l06ae(*(short *)(h + 2));
+	if (kind_class != 0) {
+		method1 = (char *)g_a5_ptr(-10700);
+		h = *(unsigned char **)dc;
+		if (kind_class > 0 && h[6] >= 6) {
+			dc[54] = 3;
+		} else if (kind_class >= 0) {
+			dc[54] = 5;
+		} else {
+			dc[54] = 6;
+		}
+		method2 = (char *)g_a5_ptr(-13952);
+	} else {
+		/* JT[1] sparse table at 0xc5e over holder[2]. */
+		h = *(unsigned char **)dc;
+		switch (*(short *)(h + 2)) {
+		case 2:                                  /* L0c72 */
+			h = *(unsigned char **)dc;
+			if (h[6] == 9 && *(short *)(h + 12) >= 0) {
+				method1 = (char *)g_a5_ptr(-10800);
+				dc[54] = 2;
+				method2 = (char *)g_a5_ptr(-10692);
+				break;
+			}
+			method1 = (char *)g_a5_ptr(-10704); /* L0caa */
+			dc[54] = 3;
+			method2 = (char *)g_a5_ptr(-10692);
+			break;
+		case 3:                                  /* L0cc4 */
+		case 4:
+		case 21:
+			h = *(unsigned char **)dc;
+			if (h[6] == 9 || h[6] == 8) {    /* L0ce8 */
+				h = *(unsigned char **)dc;
+				h[9] = (unsigned char)((h[8] & 0xc0) >> 6);
+				h = *(unsigned char **)dc;
+				h[8] &= (unsigned char)0x3f;
+			}
+			method1 = (char *)g_a5_ptr(-10704); /* L0d10 */
+			dc[54] = 3;
+			method2 = (char *)g_a5_ptr(-10692);
+			break;
+		default:                                 /* L0d28 */
+			h = *(unsigned char **)dc;
+			if (*(short *)(h + 2) < 22) {
+				if (method1 == 0)
+					method1 = (char *)g_a5_ptr(-10704);
+				dc[54] = 3;
+				method2 = (char *)g_a5_ptr(-10692);
+			}
+			break;
+		}
+	}
+
+	/* L0d52 — format the header row from the chosen labels. */
+	if (dc[54] != 0) {
+		jt179((short)(dc[54] - 1));
+		if (dc[54] == 2) {
+			jt394((char *)(dc + 4), "%s %s", method1, method2);
+		} else if (kind_class != 0) {
+			h = *(unsigned char **)dc;
+			if (*(short *)(h + 2) == 7) {
+				jt394((char *)(dc + 4), "%s %s %s %s %s %s",
+				      method1,
+				      (char *)g_a5_ptr(-10708),
+				      (char *)g_a5_ptr(-10684),
+				      (char *)g_a5_ptr(-10796),
+				      (char *)g_a5_ptr(-10560),
+				      (char *)g_a5_ptr(-10672));
+			} else if (dc[54] == 3) {
+				jt394((char *)(dc + 4), "%s %s %s",
+				      method1,
+				      (char *)g_a5_ptr(-10708),
+				      (char *)g_a5_ptr(-10684));
+			} else {
+				jt394((char *)(dc + 4), "%s %s %s %s %s",
+				      method1,
+				      (char *)g_a5_ptr(-10708),
+				      (char *)g_a5_ptr(-10684),
+				      (char *)g_a5_ptr(-10680),
+				      (char *)g_a5_ptr(-10676));
+			}
+		} else {
+			jt394((char *)(dc + 4), "%s %s %s",
+			      method1, (char *)g_a5_ptr(-10708), method2);
+		}
+	}
+	return (short)dc[54];
+}
+
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
  * insn): jt168/jt169 List Manager over the record's art/spell rows,
  * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
