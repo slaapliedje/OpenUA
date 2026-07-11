@@ -68909,6 +68909,7 @@ static short jt1077(short lo, short hi, long deflt, short width)
  * See docs/jt325-record-editor-wall.md. Lifted bottom-up; each is
  * __attribute__((unused)) until the tail dispatch that calls it lands. */
 static short jt409(const char *s, short len, short ch);   /* defined lower */
+static short jt454(short item, short cmd);                /* defined lower */
 
 /* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
  * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
@@ -69326,6 +69327,279 @@ static void l06e0(unsigned char *desc, long value)
 		break;
 	}
 	default:                                /* L0936 */
+		break;
+	}
+}
+
+/* L01a2_c09 (CODE 9 + 0x01a2) — RECOMPUTE + format one editor widget row. row =
+ * (idx*18 + [-11656] + 2) in the 18-byte field-descriptor table. Read the field
+ * value (l0052) into row[8], transform it per the field type (JT[3]@0x01e8), then
+ * per the widget kind (JT[3]@0x03b6) either apply the value or format the widget's
+ * display text into the buffer at [-11656]+row[15]*16+2728 (JT[3]@0x0494, field-
+ * types 128..133). Named _c09 — the bare l01a2 is a jt1079 stub in another segment.
+ * (jt4 = THINK C long-multiply, inlined as 18*value since the 020 multiplies
+ * natively; jt444's 4th arg is Mac stack garbage for the arrow-cell command.) */
+static void l01a2_c09(short idx) __attribute__((unused));
+static void l01a2_c09(short idx)
+{
+	unsigned char *tbl   = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *row   = tbl + idx * 18 + 2;
+	unsigned char *desc;
+	long           value, buf;
+	short          code;
+
+	PROBE("L01a2");
+	if (*(long *)(row + 4) == 0)
+		return;
+	desc  = (unsigned char *)(uintptr_t)(*(long *)(row + 4));
+	value = l0052(desc);
+	*(long *)(row + 8) = value;
+
+	/* Phase 1 — JT[3]@0x01e8 on row[16]: transform the value in place. */
+	switch (row[16]) {
+	case 2:                                 /* logical NOT */
+		*(long *)(row + 8) = (value == 0) ? 1 : 0;
+		break;
+	case 3:                                 /* +1, but 0 for an all-zero 3-byte field */
+		value += 1;
+		*(long *)(row + 8) = value;
+		if (value == 1) {
+			unsigned char *f = stage + l0006_c09(desc);
+			if (f[0] == 0 && f[1] == 0 && f[2] == 0)
+				*(long *)(row + 8) = 0;
+		}
+		break;
+	case 4:                                 /* 60 - value */
+		*(long *)(row + 8) = 60 - value;
+		break;
+	case 5:                                 /* value + 1 */
+		*(long *)(row + 8) = value + 1;
+		break;
+	case 6:                                 /* cell code 1/2/9/10/11 -> stage[2] */
+		code = (stage[1] >> 3) & 31;
+		if (code == 1 || code == 2 || code == 9 || code == 10 || code == 11)
+			*(long *)(row + 8) = stage[2];
+		break;
+	case 7:                                 /* code 5 */
+		if (((stage[1] >> 3) & 31) == 5)
+			*(long *)(row + 8) = stage[2];
+		break;
+	case 8:                                 /* code 8 */
+		if (((stage[1] >> 3) & 31) == 8)
+			*(long *)(row + 8) = stage[2];
+		break;
+	case 9:                                 /* code 16 */
+		if (((stage[1] >> 3) & 31) == 16)
+			*(long *)(row + 8) = stage[2];
+		break;
+	case 10:                                /* code 17 */
+		if (((stage[1] >> 3) & 31) == 17)
+			*(long *)(row + 8) = stage[2];
+		break;
+	default:
+		break;
+	}
+	value = *(long *)(row + 8);
+	buf   = g_a5_long(-11656) + row[15] * 16 + 2728;
+
+	/* Phase 2 — JT[3]@0x03b6 on row[12]: apply / format per widget kind. */
+	switch (row[12]) {
+	case 4:                                 /* copy word@10 -> word@8 */
+		*(short *)(row + 8) = *(short *)(row + 10);
+		break;
+	case 5: {                               /* direction-cell scan (jt444) */
+		unsigned char *base = tbl + row[15] * 20;
+		unsigned char *ent  = (unsigned char *)(uintptr_t)(*(long *)(base + 550));
+		short i;
+		for (i = 0; i < base[558]; i++, ent += 8) {
+			if (*(short *)(ent + 4) == value + 1)
+				jt444(row[13], (short)36, (short)(i + 1), (short)0);
+		}
+		break;
+	}
+	case 7:                                 /* store value into the +2382 table */
+		*(long *)(uintptr_t)(g_a5_long(-11656) + row[15] * 22 + 2382) = value;
+		break;
+	case 8:                                 /* JT[3]@0x0494 on row[14]: format text */
+		switch (row[14]) {
+		case 128:                       /* L04a6 */
+			jt367(*(short *)(row + 10), (void *)(uintptr_t)buf);
+			break;
+		case 129:                       /* L04d2 — string from the -10908 table */
+			jt384((char *)(uintptr_t)buf,
+			      (const char *)(uintptr_t)g_a5_longs(-10908)[value]);
+			break;
+		case 130: {                     /* L0508 — item name */
+			unsigned char item[62];
+			if (value == 0) {
+				jt384((char *)&item[5],
+				      ua_strs_at(0x3228) /* "No item" */);
+			} else {
+				if (value == 255)
+					jt184((long)(uintptr_t)&item[40]);
+				else
+					jt479((const void *)(uintptr_t)
+					          (g_a5_long(-27920) + 18 * value),
+					      &item[40], (short)18);
+				item[51] &= (unsigned char)~7;
+				jt28(0, (long)(uintptr_t)&item[0],
+				     (short)0, (short)0, (short)0, (short)0);
+			}
+			jt384((char *)(uintptr_t)buf, (const char *)&item[5]);
+			break;
+		}
+		case 131:                       /* L05ac */
+			jt366(row[11], (short)12, buf);
+			break;
+		case 132:                       /* L05e0 */
+			jt322((char *)(uintptr_t)buf, *(short *)(row + 10), (short)0);
+			break;
+		case 133: {                     /* L060e — "%d spells" over stage[198..338] */
+			short count = 0, k;
+			for (k = 198; k <= 338; k++)
+				if (stage[k] != 0)
+					count++;
+			jt394((char *)(uintptr_t)buf,
+			      ua_strs_at(0x3230) /* "%d spells" */, count);
+			break;
+		}
+		default: {                      /* L066e */
+			short count;
+			if (row[14] == 96)
+				count = (unsigned char)jt348(*(short *)(row + 10));
+			else
+				count = *(short *)(row + 10);
+			jt366(count, (short)(jt355(row[14], count) & 0xff), buf);
+			break;
+		}
+		}
+		break;
+	default:                                /* 3, 6, 9 -> nothing */
+		break;
+	}
+}
+
+/* L093a (CODE 9 + 0x093a) — APPLY one editor widget row: derive the widget's
+ * working value (JT[3]@0x096a on row[12]: word@0 / a jt454 lookup / a jt396
+ * dirty-check), transform it per field type (JT[3]@0x0a48 on row[16]), WRITE it
+ * back to the staging record (l06e0), then a post-write fix-up (JT[1]@0x0cae on
+ * row[16]: the bit-7 flag / spell accumulate). The write-direction sibling of
+ * l01a2_c09 over the same 18-byte rows at [-11656]. */
+static void l093a(short idx) __attribute__((unused));
+static void l093a(short idx)
+{
+	unsigned char *tbl   = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *row   = tbl + idx * 18 + 2;
+	unsigned char *desc;
+	long           v;
+	short          code;
+
+	PROBE("L093a");
+	if (*(long *)(row + 4) == 0)
+		return;
+	desc = (unsigned char *)(uintptr_t)(*(long *)(row + 4));
+
+	/* First switch — JT[3]@0x096a on row[12]: derive the value into row[8]. */
+	switch (row[12]) {
+	case 9: {                               /* L0980 — field-vs-template dirty check */
+		unsigned char *faddr = stage + l0006_c09(desc);
+		long other = g_a5_long(-11656) + row[15] * 78 + 2986;
+		if (jt396((const char *)faddr, (const char *)(uintptr_t)other) == 0)
+			stage[2510] = 1;
+		return;
+	}
+	case 4:                                 /* L09ca — value = (short)word@0 */
+		*(long *)(row + 8) = (long)*(short *)row;
+		break;
+	case 5: {                               /* L09e4 — jt454 lookup */
+		unsigned char *base = tbl + row[15] * 20;
+		long ptr = *(long *)(base + 550)
+		           + (long)jt454(row[13], (short)36) * 8;
+		*(long *)(row + 8) = *(short *)(uintptr_t)(ptr - 4) - 1;
+		break;
+	}
+	case 3: case 6: case 10:                /* L0d80 — nothing */
+		return;
+	default:                                /* 7, 8, ... -> common */
+		break;
+	}
+
+	/* Common — L0a30. Second switch — JT[3]@0x0a48 on row[16]. */
+	v = *(long *)(row + 8);
+	switch (row[16]) {
+	case 1:                                 /* L0a62 — bit-7 from jt355 */
+		v = ((jt355(row[14], *(short *)(row + 10)) & 0xff) == 2) ? 0 : 1;
+		if (((stage[7] >> 7) & 1) != (v & 1))
+			stage[2510] = 1;
+		stage[7] = (unsigned char)((stage[7] & 0x7f) | ((v & 1) << 7));
+		v = *(long *)(row + 8);         /* reload the value */
+		break;
+	case 2:                                 /* L0af0 — logical NOT */
+		v = (*(long *)(row + 8) == 0) ? 1 : 0;
+		break;
+	case 3:                                 /* L0b08 — recompute + 3-byte write-back */
+		l01a2_c09(idx);
+		if (v != *(long *)(row + 8)) {
+			unsigned char *f;
+			long b;
+
+			*(long *)(row + 8) = v;
+			b = (v != 0) ? 255 : v;
+			f = stage + l0006_c09(desc);
+			f[0] = f[1] = f[2] = (unsigned char)b;
+		}
+		v = jt397((short)0, (short)(*(long *)(row + 8) - 1));
+		break;
+	case 4:                                 /* L0bb4 — 60 - v */
+		v = 60 - v;
+		break;
+	case 5:                                 /* L0bc2 — v - 1 */
+		v -= 1;
+		break;
+	case 6:                                 /* L0bca — cell code 1/2/9/10/11 */
+		code = (stage[1] >> 3) & 31;
+		if (code == 1 || code == 2 || code == 9 || code == 10 || code == 11)
+			stage[2] = (unsigned char)v;
+		break;
+	case 7:                                 /* L0c04 — code 5 */
+		if (((stage[1] >> 3) & 31) == 5)
+			stage[2] = (unsigned char)v;
+		break;
+	case 8:                                 /* L0c2a — code 8 */
+		if (((stage[1] >> 3) & 31) == 8)
+			stage[2] = (unsigned char)v;
+		break;
+	case 9:                                 /* L0c4c — code 16 */
+		if (((stage[1] >> 3) & 31) == 16)
+			stage[2] = (unsigned char)v;
+		break;
+	case 10:                                /* L0c6e — code 17 */
+		if (((stage[1] >> 3) & 31) == 17)
+			stage[2] = (unsigned char)v;
+		break;
+	default:
+		break;
+	}
+
+	/* L0c8e — write the value, then post-fix-up JT[1]@0x0cae on row[16]. */
+	l06e0(desc, v);
+	switch (row[16]) {
+	case 1:                                 /* L0cba — bit-7 from jt355 (again) */
+		v = ((jt355(row[14], *(short *)(row + 10)) & 0xff) == 2) ? 0 : 1;
+		if (((stage[7] >> 7) & 1) != (v & 1))
+			stage[2510] = 1;
+		stage[7] = (unsigned char)((stage[7] & 0x7f) | ((v & 1) << 7));
+		break;
+	case 11: {                              /* L0d3c — accumulate stage[157..163] */
+		short i;
+		stage[137] = 0;
+		for (i = 157; i <= 163; i++)
+			stage[137] = (unsigned char)jt397(stage[137], stage[i]);
+		break;
+	}
+	default:
 		break;
 	}
 }
