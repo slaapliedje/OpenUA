@@ -81,7 +81,7 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | l06e0 | 0x06e0 / 203 | ✅ LIFTED | field WRITER — the l0052 counterpart (packs value → staging, dirty@2510) | JT[3]@0x071c 50..53 |
 | l093a | 0x093a / 365 | ✅ LIFTED | widget-row APPLY+write (l06e0), 4 dispatch tables | JT[3]@0x096a, @0x0a48; JT[1]@0x0bde, @0x0cae |
 | **l01a2_c09** | 0x01a2 / 434 | ✅ LIFTED | widget-row RECOMPUTE + display-text format (128..133) | JT[3]@0x01e8, @0x03b6, @0x0494 |
-| l1ae2 | 0x1ae2 / 566 | ⬜ BIG | the SCRIPT record LOOP: outer loop over field records, matches record type, inner field loop dispatches JT[1]@0x1c4c (types 3-10,32-34) building the 18-byte rows + drawing labels (jt1089)/menus (jt452) | JT[1]@0x1c4c (11), JT[1]@0x21a8 (4) |
+| l1ae2 | 0x1ae2 / 566 | 🔨 WIP | the SCRIPT record LOOP. **DONE: head + 2-pass loop + field-record match (rec[3]==a2) + field iteration + l100c/l3bbc integration + JT[1]@0x21a8 undo (types 3/32/33/34).** PENDING: the 11 JT[1]@0x1c4c widget-build arms (below). | JT[1]@0x1c4c (11), JT[1]@0x21a8 |
 | ↳ l100c | 0x100c / 913 | ✅ LIFTED | **the field-byte CODEC** — JT[3]@0x109a (48..79, ALL 32 arms). Sig `l100c(desc,rec,w2,w3,mode)`; header parse + field loop; label/banner/numeric/cell/value/string/flag-bit field types. Called 1× by l1ae2. | JT[3]@0x109a 48..79 |
 | ↳ l3bbc | 0x3bbc / 330 | ✅ LIFTED | picture/item/class PANEL drawer — JT[3]@0x3bc8 (1..8): combat-pic frames (jt118×N loop), item-icon grid (jt28/jt479/jt184/jt444, like l01a2 c130), "%2d"/class rows. jt118 arg order VERIFIED (page ignored; port jt118(NULL,top=B,left=A,idx=C,handle) = Mac fp@10/fp@8/fp@12/fp@16). | JT[3]@0x3bc8 1..8 |
 | l30d4 | 0x30d4 / 203 | ⬜ (defer) | nested type-133 sub-editor | own switches |
@@ -139,6 +139,26 @@ remaining--` for the type byte. ✅ = lifted.
 WATCH: some arms jump to L1ad4 (test) directly after a full advance → in C those
 cases must `continue` (skip the loop-bottom `desc++`); arm 48 uses L1acc so it
 does NOT continue. Determine per-arm from where it branches.
+
+## l1ae2 widget-build arms (JT[1]@0x1c4c on the field type; each -> L2158)
+
+Inside `if(match){ row[0]=rec_ptr; row[12]=type; row[13]=jt455(); row[4]=0;
+switch(type){...} }`. Arms draw the field's editor widget (jt452 DLItem menus w/
+method ptrs jt327/328/335, jt1089 labels, l3bbc panels). Then the common L2158
+does tbl[0]++/row+=18. base=fp@-16(record header); rec_ptr=fp@-12(field record).
+
+| type | arm | role / key calls |
+|------|-----|------------------|
+| 3 | L1c7c | static label — jt1089 "%s" at (8000+base[3],8000+base[4]) colour 140; row[13]=-1, row[15]=0x8c |
+| 4 | L1cce | jt452 shape-4 field menu (many args) |
+| 5 | L1d24 | direction/arrow-cell setup — row[15] tables (tbl+..550/546/706), jt452 shape-8 w/ jt335 method |
+| 6 | L1e1c | (base[6]==126 skip) list column — jt452 shape-8 w/ jt328 + jt384 name |
+| 7 | L1ec4 | jt452 list column w/ ...; tbl[2372] table |
+| 8 | L1fa6 | (biggest) |
+| 9/10 | L2076 | jt452 shape-8 w/ jt327 (2986 table) + jt384 |
+| 32 | L2112 | row[13]=d0; tbl[542]=rec_ptr[3] |
+| 33 | L2130 | row[13]=d0; l3bbc(rec_ptr[3]) — the panel draw |
+| 34 | L214e | row[13]=d0 |
 
 ## Lift order (leaves → up)
 
