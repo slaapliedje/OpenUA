@@ -70120,8 +70120,70 @@ static void l1ae2(short a0, short a1, short a2, short flag20, short type)
 							      (long)135, (long)35,
 							      (long)(uintptr_t)&row[8], (long)0);
 							break;
-						/* TODO Phase D — widget-build arms 5-10
-						 * (L1d24..L2076): jt452 menus w/ method ptrs. */
+						case 5: {       /* L1d24 — direction-cell setup + jt335 menu */
+							row[15] = tbl[545];
+							*(short *)(tbl + 544) += 1;
+							*(long *)(tbl + row[15] * 20 + 546) =
+							    (long)(uintptr_t)(rec_ptr + 6);
+							*(long *)(tbl + row[15] * 20 + 550) =
+							    (long)(uintptr_t)(tbl
+							        + *(short *)(tbl + 770) * 8 + 772);
+							(tbl + row[15] * 20)[558] = 0;
+							jt452((long)8, (long)(uintptr_t)&jt335,
+							      (long)39,
+							      (long)(uintptr_t)(tbl + row[15] * 8 + 706),
+							      (long)35,
+							      (long)(uintptr_t)(tbl + row[15] * 20 + 546),
+							      (long)36, (long)1, (long)40,
+							      (long)(8000 + rec_ptr[3]),
+							      (long)(8000 + rec_ptr[4]));
+							break;
+						}
+						case 6:         /* L1e1c — list column (jt328) */
+							if (rec_ptr[6] == 126)
+								break;
+							row[15] = tbl[3923];
+							*(short *)(tbl + 3922) += 1;
+							jt452((long)8, (long)(uintptr_t)&jt328,
+							      (long)35,
+							      (long)(uintptr_t)(tbl + row[15] * 290 + 3924),
+							      (long)40, (long)(8005 + rec_ptr[3]),
+							      (long)(8000 + rec_ptr[4]), (long)0);
+							jt384((char *)(tbl + row[15] * 290 + 4174),
+							      (const char *)&rec_ptr[6]);
+							break;
+						case 8: {       /* L1fa6 — labeled cell */
+							short len;
+							row[15] = tbl[2727];
+							*(short *)(tbl + 2726) += 1;
+							jt1089((short)(8000 + rec_ptr[3]),
+							       (short)(8000 + rec_ptr[4]), (short)135,
+							       ua_strs_at(0x325e) /* "%s" */,
+							       (const char *)&rec_ptr[6]);
+							len = jt423((const char *)&rec_ptr[6]);
+							jt452((long)1, (long)(8000 + rec_ptr[3]),
+							      (long)(8004 + rec_ptr[4] + len * 4),
+							      (long)(uintptr_t)(tbl + row[15] * 16 + 2728),
+							      (long)36, (long)15, (long)38, (long)135,
+							      (long)20, (long)0);
+							break;
+						}
+						case 9: case 10:  /* L2076 — list column (jt327) */
+							row[15] = tbl[2985];
+							*(short *)(tbl + 2984) += 1;
+							jt452((long)8, (long)(uintptr_t)&jt327,
+							      (long)35,
+							      (long)(uintptr_t)(tbl + row[15] * 78 + 2986),
+							      (long)40, (long)(8000 + rec_ptr[3]),
+							      (long)(8000 + rec_ptr[4]), (long)42,
+							      (long)15, (long)0);
+							jt384((char *)(tbl + row[15] * 78 + 3025),
+							      (const char *)&rec_ptr[6]);
+							break;
+						/* TODO Phase D — arm 7 (L1ec4) blocks on jt373
+						 * (CODE 8+0x4, a ~2362B widget, still MISSING —
+						 * it's the DLItem method this arm stores). Lift
+						 * jt373 first, then this jt452 shape-8 menu. */
 						default:
 							break;
 						}
