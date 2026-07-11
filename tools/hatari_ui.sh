@@ -38,12 +38,17 @@ LOG="$STATE/conout.log"
 FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/TOSv4.04.img}"
 GEMDOS_DIR="${GEMDOS_DIR:-$REPO/data/work/gamedata}"
 FRUA_MEM="${FRUA_MEM:-14}"
-# Which Hatari binary. Default = system. Set HATARI_BIN=hrdb (or a path) to use
-# the tattlemuss debugger fork, which auto-loads frua.prg's symbol table so the
-# `dbg` action can reference engine symbols (_l309c, _g_a5_below, ...) by name.
-HRDB_HATARI="$HOME/src/tattlemuss-hatari/build/src/hatari"
+# Which Hatari binary. Default = system. Set HATARI_BIN=hrdb to enable the
+# debugger: stock Hatari 2.4.1+ already speaks `hatari-debug` over the cmd-fifo
+# and can load frua.prg's symbol table (`symbols prg`), so the `dbg` action
+# works WITHOUT the tattlemuss fork — HATARI_BIN=hrdb just turns on symbol
+# auto-load so `dbg` can reference engine symbols (_l309c, _g_a5_below, ...) by
+# name. Point HRDB_HATARI at a custom build if you prefer one; it defaults to
+# the system hatari.
+HRDB_HATARI="${HRDB_HATARI:-$(command -v hatari)}"
 HATARI_BIN="${HATARI_BIN:-hatari}"
-[[ "$HATARI_BIN" == hrdb ]] && HATARI_BIN="$HRDB_HATARI"
+FRUA_DBG=""
+[[ "$HATARI_BIN" == hrdb ]] && { HATARI_BIN="$HRDB_HATARI"; FRUA_DBG=1; }
 # Readiness marker `start` waits for before dropping fast-forward. Override for
 # non-menu boots (e.g. the FRUA_HALL/dungeon path emits "j200_dump: wrote", the
 # merchant path emits nothing — set READY_MARKER=- to skip the wait entirely).
@@ -154,9 +159,10 @@ start)
 	# Drop back to real speed for interaction. The explicit option
 	# form is idempotent (the fastforward shortcut TOGGLES — racy).
 	echo "hatari-option --fast-forward no" > "$STATE/cmd.fifo" || true
-	# On the debugger fork, auto-load the running program's symbol table so
-	# `dbg` can reference engine names (_l309c, _g_lc_x0, _g_a5_below, ...).
-	if [[ "$HATARI_BIN" == "$HRDB_HATARI" ]]; then
+	# In debug mode (HATARI_BIN=hrdb), auto-load the running program's symbol
+	# table so `dbg` can reference engine names (_l309c, _g_lc_x0,
+	# _g_a5_below, ...). Stock Hatari 2.4.1+ supports `symbols prg`.
+	if [[ -n "$FRUA_DBG" ]]; then
 		echo "hatari-debug symbols prg" > "$STATE/cmd.fifo" || true
 	fi
 	find_window > /dev/null
@@ -206,10 +212,11 @@ click)
 	echo "hatari_ui: click $btn at window($cx,$cy) = screen($sx,$sy)"
 	;;
 dbg)
-	# Drive the Hatari debugger headlessly over the command FIFO (needs the
-	# tattlemuss fork: HATARI_BIN=hrdb). Sends `hatari-debug <cmd>` and prints
-	# the debugger's reply, captured from the conout log. frua.prg symbols are
-	# auto-loaded, so reference engine names directly, e.g.:
+	# Drive the Hatari debugger headlessly over the command FIFO. Stock Hatari
+	# 2.4.1+ speaks `hatari-debug <cmd>` over --cmd-fifo, so this works on the
+	# system hatari — start with HATARI_BIN=hrdb to auto-load frua.prg's symbol
+	# table (`symbols prg`). Prints the debugger's reply, captured from the
+	# stdout log. With symbols loaded, reference engine names directly, e.g.:
 	#   tools/hatari_ui.sh dbg 'm _g_lc_x0 _g_lc_y0'   # last wall-blit origin
 	#   tools/hatari_ui.sh dbg 'b _l309c'              # break on the wall blit
 	#   tools/hatari_ui.sh dbg 'm _g_a5_below+12288'   # A5 globals (party cell)

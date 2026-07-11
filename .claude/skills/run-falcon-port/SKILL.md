@@ -72,8 +72,31 @@ D=.claude/skills/run-falcon-port/driver.sh
                            #   Modules, p=Play); inside dialogs n=NEXT, p=PREV
 "$D" wait 'regex' [n]      # block until the conout log has >= n matches
 "$D" log                   # dump the conout log (engine printf / dbg_log)
+"$D" dbg '<cmd>'           # run a Hatari-debugger command (see below)
 "$D" stop                  # kill Hatari (leaves Xvfb up for reuse)
 ```
+
+**Debugger (`dbg`).** Stock Hatari 2.4.1+ speaks the `hatari-debug` protocol
+over the cmd-fifo — no fork needed. Boot with `HATARI_BIN=hrdb "$D" start` to
+auto-load frua.prg's symbol table, then reference engine names directly:
+
+```bash
+HATARI_BIN=hrdb "$D" start          # boot + `symbols prg` (engine names resolve)
+"$D" dbg 'd _l28d4'                  # disassemble a function by name
+"$D" dbg 'm _jt272'                  # dump memory at a symbol
+"$D" dbg 'e _g_a5_below+12288'       # evaluate expr -> address (A5 globals);
+                                     #   then `m $<hex>` to dump it
+"$D" dbg 'r'                         # CPU registers + next instruction
+"$D" dbg 'b pc=_jt272'               # set a conditional breakpoint (halts on hit)
+"$D" dbg 'b'                         # list breakpoints
+```
+
+Syntax notes (stock Hatari): `m`/`d` take a bare symbol or hex — NOT `sym+off`
+arithmetic; use `e sym+off` to get the address, then `m $hex`. `b` alone lists
+breakpoints; `b pc=_sym` sets one. Output is captured from the stdout log. To
+catch a crash PC, boot with `HATARI_ARGS="--debug"` so a CPU exception drops
+into the debugger, then `dbg 'r'`. (Avoid `--trace cpu_exception` — it floods
+on every TOS TRAP and makes boot impractically slow.)
 
 Then view the PNG with the Read tool. A correct boot looks like the main menu:
 title "UNLIMITED ADVENTURES", "CURRENT GAME DESIGN: HEIRS.DSN", and a 2-column
