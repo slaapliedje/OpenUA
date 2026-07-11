@@ -1705,6 +1705,75 @@ static void  jt1014(short kind, const char *name, short group);
  * editor exit so the menu path keeps its resident MENU. */
 static short g_group24_script_active;
 
+/* ===== jt325 record-editor tail helpers (CODE 9) — Phase D =====
+ * See docs/jt325-record-editor-wall.md. Lifted bottom-up; each is
+ * __attribute__((unused)) until the tail dispatch that calls it lands. */
+
+/* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
+ * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
+ * = the field's byte offset within the staging buffer as a 16-bit LITTLE-endian
+ * value (records are stored little-endian — FRUA's DOS heritage). JT[3] @0x008e
+ * (min 50 max 53):
+ *   50 byte  -> field[0]
+ *   51 word  -> field[0] | field[1]<<8            (LE)
+ *   52 long  -> field[0..3] little-endian
+ *   53 packed-bitfield -> the descriptor continues with a count byte then
+ *      `count` 16-bit LE bit positions; result bit i = the bit at the i-th
+ *      position (byteoff = pos>>3, bitidx = pos&7) read from the staging buffer.
+ * Returns the field value. */
+static long l0052(unsigned char *desc) __attribute__((unused));
+static long l0052(unsigned char *desc)
+{
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *field;
+	long           val = 0;
+
+	PROBE("L0052");
+	field = stage + (desc[1] | ((long)desc[2] << 8));   /* 16-bit LE offset */
+
+	switch (desc[0]) {                      /* JT[3] @0x008e min=50 max=53 */
+	case 50:                                /* byte */
+		val = field[0];
+		break;
+	case 51:                                /* word (LE) */
+		val = field[0] | ((long)field[1] << 8);
+		break;
+	case 52:                                /* long (LE) */
+		val =  (long)field[0]         | ((long)field[1] << 8)
+		    | ((long)field[2] << 16) | ((long)field[3] << 24);
+		break;
+	case 53: {                              /* packed bitfield */
+		short count, i;
+
+		desc++;                         /* skip the type byte */
+		count = *desc++;                /* number of bits */
+		for (i = 0; i < count; i++) {
+			short pos = desc[0] | (desc[1] << 8);  /* 16-bit LE bit pos */
+			desc += 2;
+			val |= (long)((stage[pos >> 3] >> (pos & 7)) & 1) << i;
+		}
+		break;
+	}
+	default:                                /* L019a: unhandled -> 0 */
+		break;
+	}
+	return val;
+}
+
+/* L0006 (CODE 9 + 0x0006) — the field's byte-offset within the staging buffer,
+ * from its descriptor. Packed bitfield (type 53): (desc[2]>>3) + (desc[3]<<5)
+ * — the byte holding the field's first bit. Otherwise the 16-bit LE offset
+ * desc[1] | (desc[2]<<8) (same offset L0052 reads). Named _c09 — the combat
+ * `l0006` (boot.c) is a different CODE segment's helper. */
+static long l0006_c09(unsigned char *desc) __attribute__((unused));
+static long l0006_c09(unsigned char *desc)
+{
+	PROBE("L0006");
+	if (desc[0] == 53)
+		return (desc[2] >> 3) + ((long)desc[3] << 5);
+	return desc[1] | ((long)desc[2] << 8);
+}
+
 static short jt325(short a8, long *rec, void *ctrl, short type,
                    void *src, short cmd, short count)
 {
