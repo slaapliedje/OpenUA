@@ -65,9 +65,11 @@ them via state in `/tmp/frua-ui`):
 ```bash
 D=.claude/skills/run-falcon-port/driver.sh
 "$D" start                 # boot; returns when "menu: modal up" (~12s here)
-"$D" shots /tmp/frua.png   # STABLE-frame screenshot (waits for the frame to settle)
-"$D" key Down Return       # send keystrokes (XTEST) — see the Gotchas on input
-"$D" click 150 298         # CLICK the Falcon display at screenshot pixel (x,y) — works headless
+"$D" dump /tmp/frua.png    # PREFERRED screenshot: Hatari's OWN screendump (clean,
+                           #   cropped, no X grab; robust in fullscreen). See below.
+"$D" shots /tmp/frua.png   # X-grab screenshot (waits for the frame to settle)
+"$D" key e                 # send keystrokes — MENU HAS LETTER ACCELERATORS (e=Edit
+                           #   Modules, p=Play); inside dialogs n=NEXT, p=PREV
 "$D" wait 'regex' [n]      # block until the conout log has >= n matches
 "$D" log                   # dump the conout log (engine printf / dbg_log)
 "$D" stop                  # kill Hatari (leaves Xvfb up for reuse)
@@ -79,8 +81,12 @@ button grid (PLAY THE GAME … QUIT FROM GAME), over a Hatari status bar reading
 "14MB Falcon, TOS 4.04" (the dev default; `FRUA_MEM=4` or `1` selects the
 memory-fit configurations — the shipping floor is 4MB today, 1MB the goal).
 
-- Use **`shots`** (not `shot`) for the dungeon/play screen — it does a slow
-  full-screen present and a single grab often catches a half-drawn frame.
+- **Prefer `dump` over `shots`/`shot`.** `dump` triggers Hatari's built-in
+  screendump over the control FIFO (`hatari-shortcut screenshot`; the launch sets
+  `--screenshot-dir $STATE/shots --crop yes`). It needs no X window grab or
+  imagemagick, gives a clean statusbar-cropped 688x490 PNG, and works in
+  fullscreen (where the X-grab breaks). `shots` (the X-grab) still works and is
+  the fallback. Both wait for a fresh frame.
 - Env: `GEMDOS_DIR` (C: mount, default `data/work/gamedata`), `FALCON_TOS`,
   `FRUA_XVFB_DISPLAY` (default `:99`), or set `DISPLAY` to reuse a real X server.
 
@@ -123,12 +129,15 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
   only"-looking screens. Verified: `key e` opens the record editor, `key n`
   pages it. Prefer this over the mouse.
 - **Synthetic MOUSE clicks are UNRELIABLE here (use the keyboard accels above).**
-  `driver.sh click <x> <y>` exists and the harness sets `--mousewarp no`, but in
-  practice a teleport-move click does not move the emulated cursor; a gradual
-  step-in from outside the window makes motion reach the IKBD, but the cursor
-  then accumulates relative-mode drift (stuck in the screen's right margin,
-  can't reach the left ~85%). Treat mouse as a last resort; keyboard accels
-  cover the menu + editor.
+  Tried both windowed and fullscreen (`HATARI_ARGS="-f"`). Windowed: teleport
+  clicks don't move the ST cursor; a gradual step-in makes motion register but it
+  drifts (relative-mode). Fullscreen + `hatari-shortcut mousegrab` (over the FIFO)
+  DOES move the FRUA cursor via `xdotool mousemove_relative`, but button clicks
+  still don't land on FRUA UI — Hatari's ST-mouse position (a fixed centre
+  crosshair in grab mode) desyncs from FRUA's drawn cursor, so the click hits a
+  dead zone. Net: motion is drivable, precise clicking is not. Use keyboard
+  accels; they cover the menu + editor. (Only two FIFO shortcuts exist:
+  `mousegrab`, `screenshot`.)
 - **`shots` prints a harmless `[[: arithmetic syntax error` line** under Xvfb
   (the `magick compare` AE metric trips `set -o pipefail` when frames differ).
   It self-recovers and still saves a correct settled frame — ignore the stderr.
