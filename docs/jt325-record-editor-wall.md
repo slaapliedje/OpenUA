@@ -182,12 +182,14 @@ does tbl[0]++/row+=18. base=fp@-16(record header); rec_ptr=fp@-12(field record).
 
 ## Verification
 
-Build clean (020 codegen 2022→2037), 129 tests pass, menu boots (9s, all
-glyphs). Transcription verified block-by-block vs CODE_09.s. **Live mouse-drive
-of the editor screens is PENDING**: in this session Hatari/SDL did NOT inject
-synthetic clicks (even with `--mousewarp no` + a tight move+click; the in-game
-cursor never moved and no menu button — not even the known-good PLAY THE GAME —
-responded). This contradicts [[headless-arrows-and-roster-garbage]]'s earlier
-"clicks now work" claim; the mouse harness is currently broken/environment-
-dependent. Live-drive Edit Modules → jt251 → the field editor when the harness
-mouse is sorted, or verify on real hardware (user's pointer).
+Build clean, 129 tests pass, menu boots. Transcription verified block-by-block
+vs CODE_09.s. **✅ LIVE-VALIDATED (2026-07-10)** by driving the menu with
+KEYBOARD accelerators (no mouse): `driver.sh key e` = EDIT MODULES →
+l0004_22(6) → l0096 mode 4 → jt251 → jt325 → the record editor renders "GAME
+SETTINGS" with the real field labels/edit boxes + PAGE 1/3 + OK/PREV/NEXT/
+CANCEL; `key n` = NEXT pages to "KEYS IN SPECIAL INVENTORY" (PAGE 2). Two l1ae2
+field-build bugs found + fixed while driving it (commit f179eae): the pass-loop
+`break`→`continue` (type>=51 built no fields) and the stage[454] page-count
+byte→word write (read 768 pages). **Open:** stg[456] (field-descriptor count) is
+still 0 → the commit/SAVE path (validation-2 / write-back on OK) is inert;
+populating it (via l1ae2/l100c) is the next editor task.
