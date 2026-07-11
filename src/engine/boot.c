@@ -70111,8 +70111,17 @@ static void l1ae2(short a0, short a1, short a2, short flag20, short type)
 						case 34:        /* L214e */
 							row[13] = rec_ptr[0];
 							break;
-						/* TODO Phase D — widget-build arms 4-10
-						 * (L1cce..L2076): jt452 DLItem menus. */
+						case 4:         /* L1cce — jt452 shape-4 field menu */
+							jt452((long)4,
+							      (long)(8000 + rec_ptr[3]),
+							      (long)(8002 + rec_ptr[4]),
+							      (long)(uintptr_t)&rec_ptr[6],
+							      (long)37, (long)16, (long)38,
+							      (long)135, (long)35,
+							      (long)(uintptr_t)&row[8], (long)0);
+							break;
+						/* TODO Phase D — widget-build arms 5-10
+						 * (L1d24..L2076): jt452 menus w/ method ptrs. */
 						default:
 							break;
 						}

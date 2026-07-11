@@ -150,7 +150,7 @@ does tbl[0]++/row+=18. base=fp@-16(record header); rec_ptr=fp@-12(field record).
 | type | arm | role / key calls |
 |------|-----|------------------|
 | ✅ 3 | L1c7c | static label — jt1089 "%s" at (8000+base[3],8000+base[4]) colour 140; row[13]=-1, row[15]=0x8c |
-| 4 | L1cce | jt452 shape-4 field menu (many args) |
+| ✅ 4 | L1cce | jt452 shape-4 field menu (11 args) |
 | 5 | L1d24 | direction/arrow-cell setup — row[15] tables (tbl+..550/546/706), jt452 shape-8 w/ jt335 method |
 | 6 | L1e1c | (base[6]==126 skip) list column — jt452 shape-8 w/ jt328 + jt384 name |
 | 7 | L1ec4 | jt452 list column w/ ...; tbl[2372] table |
