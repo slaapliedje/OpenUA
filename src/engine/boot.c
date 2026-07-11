@@ -69730,6 +69730,7 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 	unsigned char *base  = desc;                    /* fp@(-16) — record header base */
 	unsigned char *rec   = (unsigned char *)rec_v;  /* fp@(12) — current field row */
 	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *tbl   = (unsigned char *)(uintptr_t)g_a5_long(-11656);
 	short          remaining = desc[1] | (desc[2] << 8);   /* fp@(-6) */
 	short          hdrsize;
 	long           val_ptr = 0;                     /* fp@(-20) — set in numeric mode==0 */
@@ -69908,12 +69909,124 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 			desc++; remaining--;            /* L16b4: +1, then L1acc +1 -> +2 */
 			break;
 		}
-		/* TODO Phase D — arms 55..79 (addresses/roles in the wall doc):
-		 * 55 L16c0,
-		 * 56 L174a, 57 L17b2, 58-63 L181a, 64-67 L185c, 68 L1884, 69 L18e6,
-		 * 70 L1910, 71 L1950, 72 L19a4, 73 L1a18, 74-79 L189e. Until lifted
-		 * they fall to the default single-byte step. */
-		default:
+		case 55: {                              /* L16c0 — sub-record group entry */
+			if (mode != 0) {
+				unsigned char *ent = tbl + *(short *)(tbl + 770) * 8;
+				*(long *)(ent + 772) = (long)(uintptr_t)(desc + 3);
+				ent = tbl + *(short *)(tbl + 770) * 8;
+				*(short *)(ent + 776) = desc[1] + 1;
+				(tbl + rec[15] * 20)[558] += 1;
+				*(short *)(tbl + 770) += 1;
+			}
+			{
+				short adv = desc[2] + 1;   /* L1724 */
+				desc += adv; remaining -= adv;
+			}
+			break;
+		}
+		case 56: {                              /* L174a — row[2378] = LE32 */
+			if (mode != 0)
+				*(long *)(tbl + rec[15] * 22 + 2378) =
+				    desc[1] | ((long)desc[2] << 8)
+				    | ((long)desc[3] << 16) | ((long)desc[4] << 24);
+			desc += 4; remaining -= 4;      /* +5 with L1acc */
+			break;
+		}
+		case 57: {                              /* L17b2 — row[2374] = LE32 */
+			if (mode != 0)
+				*(long *)(tbl + rec[15] * 22 + 2374) =
+				    desc[1] | ((long)desc[2] << 8)
+				    | ((long)desc[3] << 16) | ((long)desc[4] << 24);
+			desc += 4; remaining -= 4;      /* +5 */
+			break;
+		}
+		case 58: case 59: case 60:
+		case 61: case 62: case 63:              /* L181a — OR a flag bit into rec[14] */
+			if (desc[0] == 59 && (jt358() & 0xff) < 5)
+				break;                  /* -> L1acc (skip) */
+			if (mode != 0)
+				rec[14] |= (unsigned char)(1 << (desc[0] - 58));
+			break;                          /* +1 */
+		case 64: case 65: case 66: case 67:     /* L185c — set rec[14] = bit|0x40 */
+			if (mode != 0)
+				rec[14] = (unsigned char)((1 << (desc[0] - 64)) | 64);
+			break;                          /* +1 */
+		case 68:                                /* L1884 */
+			if (mode != 0)
+				rec[14] = 96;
+			flag25 = 1;
+			break;                          /* +1 */
+		case 69:                                /* L18e6 */
+			if (mode != 0)
+				jt452((long)42, (long)desc[1], (long)0);
+			desc++; remaining--;            /* +2 */
+			break;
+		case 70: {                              /* L1910 — byte value */
+			long value = desc[1];
+			if (w2 != 0) {
+				if (mode != 0)
+					*(long *)(rec + 8) = value;
+				else
+					l06e0((unsigned char *)(uintptr_t)val_ptr, value);
+			}
+			desc++; remaining--;            /* +2 */
+			break;
+		}
+		case 71: {                              /* L1950 — word value (LE) */
+			long value = desc[1] | ((long)desc[2] << 8);
+			if (w2 != 0) {
+				if (mode != 0)
+					*(long *)(rec + 8) = value;
+				else
+					l06e0((unsigned char *)(uintptr_t)val_ptr, value);
+			}
+			desc += 2; remaining -= 2;      /* +3 */
+			break;
+		}
+		case 72: {                              /* L19a4 — long value (LE) */
+			long value = desc[1] | ((long)desc[2] << 8)
+			           | ((long)desc[3] << 16) | ((long)desc[4] << 24);
+			if (w2 != 0) {
+				if (mode != 0)
+					*(long *)(rec + 8) = value;
+				else
+					l06e0((unsigned char *)(uintptr_t)val_ptr, value);
+			}
+			desc += 4; remaining -= 4;      /* +5 */
+			break;
+		}
+		case 74: case 75: case 76:
+		case 77: case 78: case 79:              /* L189e — set rec[14] = type+54 (128..133) */
+			if (mode != 0) {
+				rec[14] = (unsigned char)(desc[0] + 54);
+				if (desc[0] == 76) {
+					jt452((long)36, (long)30, (long)0);
+					*(short *)(tbl + 2726) += 1;
+				}
+			}
+			break;                          /* +1 */
+		case 73: {                              /* L1a18 — string field (jt384 copy) */
+			if (w2 != 0) {
+				if (base[0] == 9) {
+					unsigned char *fd = (mode != 0)
+					    ? (unsigned char *)(uintptr_t)(*(long *)(rec + 4))
+					    : (unsigned char *)(uintptr_t)val_ptr;
+					jt384((char *)(stage + l0006_c09(fd)),
+					      (const char *)&desc[2]);
+				} else if (w3 != 0
+				           && (base[0] == 6 || base[0] == 10)) {
+					jt384((char *)(stage
+					          + (*(short *)(stage + 456) - 1) * 250 + 474),
+					      (const char *)&desc[2]);
+				}
+			}
+			{
+				short adv = desc[1];    /* L1aac */
+				desc += adv; remaining -= adv;   /* then L1acc +1 */
+			}
+			break;
+		}
+		default:                                /* all 32 arms (48..79) lifted */
 			break;
 		}
 		desc++; remaining--;                    /* L1acc — the type byte */
