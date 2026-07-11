@@ -1607,13 +1607,15 @@ static short l6520_c8(short kind)
  * table subsystem (jt349/jt347/jt352/jt355/jt350/jt366); callers now
  * call jt363. */
 
-/* L62e0 (CODE 8+0x62e0) — bind/load one monster-art entry into the
- * -10370 slot (re-runs JT[370] for the kind flags; 255 id wildcard
- * for mid-band kinds). Leaf PROBE stub pending its own lift. */
+/* L62e0 (CODE 8+0x62e0) — resolve the name of the kind/id entry in the -10370
+ * group into `out`. This was a PROBE stub, but the SAME CODE-8 function is
+ * already fully lifted below as l62e0_c8 (a (CODE,offset) duplicate trap): the
+ * stub left `out` UNINITIALIZED, so jt366's callers read garbage. Forward to
+ * the real lift. */
+static unsigned char l62e0_c8(long handle, short a, short b, long c, long d);
 static void l62e0(long handle, short id, short kind, long out, long z)
 {
-	PROBE("l62e0");
-	(void)handle; (void)id; (void)kind; (void)out; (void)z;
+	(void)l62e0_c8(handle, id, kind, out, z);
 }
 
 /* JT[366] (CODE 8+0x6594) — show monster art for `kind`/`id`: the
