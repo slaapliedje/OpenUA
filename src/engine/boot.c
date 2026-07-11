@@ -69707,6 +69707,74 @@ static void l3bbc(short cmd)
 	}
 }
 
+/* L100c (CODE 9 + 0x100c) — the field-byte CODEC: parse/serialise a record's
+ * fields from its SCRIPT stream. `desc` points at the record's SCRIPT bytes; the
+ * header (size from desc[0]: <32 -> desc[5]+5, ==34 -> 3, else 4) is skipped,
+ * then each field is dispatched by its leading type byte (JT[3]@0x109a, types
+ * 48..79) — drawing the widget (jt1089/jt452) and/or moving the value in/out of
+ * the staging record. `rec` (fp@12) is the current field row; `mode` (fp@21)
+ * gates drawing. Loop: L1ad4 tests `remaining>0`; L1acc is the default step
+ * (`desc++; remaining--` for the 1 type byte); each arm advances past its own
+ * data first.
+ *
+ * WIP (Phase D, incremental): the head + loop + arm 48 (title/label) are lifted;
+ * arms 49..79 are pending (map in docs/jt325-record-editor-wall.md) — each a
+ * self-contained field-type handler, landing one commit at a time. Until then
+ * unlifted types fall to the single-byte default step (they misparse, but l100c
+ * is __attribute__((unused)) until l1ae2 wires it, so nothing runs it yet). */
+static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mode)
+    __attribute__((unused));
+static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mode)
+{
+	unsigned char *base = desc;                    /* fp@(-16) — record header base */
+	unsigned char *rec  = (unsigned char *)rec_v;  /* fp@(12) — current field row */
+	short          remaining = desc[1] | (desc[2] << 8);   /* fp@(-6) */
+	short          hdrsize;
+
+	PROBE("L100c");
+	(void)w2; (void)w3;
+	if (desc[0] < 32)
+		hdrsize = desc[5] + 5;
+	else if (desc[0] == 34)
+		hdrsize = 3;
+	else
+		hdrsize = 4;
+	desc      += hdrsize;
+	remaining -= hdrsize;
+
+	while (remaining > 0) {                         /* L1ad4 test / L108e body */
+		switch (desc[0]) {                      /* JT[3]@0x109a min=48 max=79 */
+		case 48: {                              /* L10e0 — title/label field */
+			short color = 135;              /* JT[3]@0x10f6 on desc[1] (else 135) */
+			if (desc[1] == 1)      color = 139;
+			else if (desc[1] == 2) color = 140;
+			if (mode != 0) {
+				if ((signed char)rec[13] < 0 || rec[12] == 8) {
+					jt1089((short)(8000 + base[3]),
+					       (short)(8000 + base[4]), color,
+					       ua_strs_at(0x3252) /* "%s" */,
+					       (const char *)&base[6]);
+					if ((signed char)rec[13] >= 0)
+						rec[15] = (unsigned char)color;
+				} else {
+					jt452((long)38, color, (short)0);
+				}
+			}
+			desc++; remaining--;            /* L118e: past 1 data byte */
+			break;
+		}
+		/* TODO Phase D — arms 49..79 (addresses/roles in the wall doc):
+		 * 49 L119a, 50/51/52 L1222 (numeric), 53 L14ca, 54 L1528, 55 L16c0,
+		 * 56 L174a, 57 L17b2, 58-63 L181a, 64-67 L185c, 68 L1884, 69 L18e6,
+		 * 70 L1910, 71 L1950, 72 L19a4, 73 L1a18, 74-79 L189e. Until lifted
+		 * they fall to the default single-byte step. */
+		default:
+			break;
+		}
+		desc++; remaining--;                    /* L1acc — the type byte */
+	}
+}
+
 /* JT[323] (CODE 9 + 0x0e2c) — paint the combat action-row for action
  * `act`: find its 18-byte record in the -11656 table (matched on [13]),
  * fill the row (jt1161), map the action's move-type (via jt454 + the
