@@ -1705,116 +1705,6 @@ static void  jt1014(short kind, const char *name, short group);
  * editor exit so the menu path keeps its resident MENU. */
 static short g_group24_script_active;
 
-/* ===== jt325 record-editor tail helpers (CODE 9) — Phase D =====
- * See docs/jt325-record-editor-wall.md. Lifted bottom-up; each is
- * __attribute__((unused)) until the tail dispatch that calls it lands.
- * Forward decls for the JT callees defined further down the file. */
-static void jt54(const char *name, short b, short c);
-static void jt55(short id);
-static void jt56(const char *name, short a, short b);
-static void jt58(void);
-static void jt120(void *arg);
-
-/* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
- * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
- * = the field's byte offset within the staging buffer as a 16-bit LITTLE-endian
- * value (records are stored little-endian — FRUA's DOS heritage). JT[3] @0x008e
- * (min 50 max 53):
- *   50 byte  -> field[0]
- *   51 word  -> field[0] | field[1]<<8            (LE)
- *   52 long  -> field[0..3] little-endian
- *   53 packed-bitfield -> the descriptor continues with a count byte then
- *      `count` 16-bit LE bit positions; result bit i = the bit at the i-th
- *      position (byteoff = pos>>3, bitidx = pos&7) read from the staging buffer.
- * Returns the field value. */
-static long l0052(unsigned char *desc) __attribute__((unused));
-static long l0052(unsigned char *desc)
-{
-	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
-	unsigned char *field;
-	long           val = 0;
-
-	PROBE("L0052");
-	field = stage + (desc[1] | ((long)desc[2] << 8));   /* 16-bit LE offset */
-
-	switch (desc[0]) {                      /* JT[3] @0x008e min=50 max=53 */
-	case 50:                                /* byte */
-		val = field[0];
-		break;
-	case 51:                                /* word (LE) */
-		val = field[0] | ((long)field[1] << 8);
-		break;
-	case 52:                                /* long (LE) */
-		val =  (long)field[0]         | ((long)field[1] << 8)
-		    | ((long)field[2] << 16) | ((long)field[3] << 24);
-		break;
-	case 53: {                              /* packed bitfield */
-		short count, i;
-
-		desc++;                         /* skip the type byte */
-		count = *desc++;                /* number of bits */
-		for (i = 0; i < count; i++) {
-			short pos = desc[0] | (desc[1] << 8);  /* 16-bit LE bit pos */
-			desc += 2;
-			val |= (long)((stage[pos >> 3] >> (pos & 7)) & 1) << i;
-		}
-		break;
-	}
-	default:                                /* L019a: unhandled -> 0 */
-		break;
-	}
-	return val;
-}
-
-/* L0006 (CODE 9 + 0x0006) — the field's byte-offset within the staging buffer,
- * from its descriptor. Packed bitfield (type 53): (desc[2]>>3) + (desc[3]<<5)
- * — the byte holding the field's first bit. Otherwise the 16-bit LE offset
- * desc[1] | (desc[2]<<8) (same offset L0052 reads). Named _c09 — the combat
- * `l0006` (boot.c) is a different CODE segment's helper. */
-static long l0006_c09(unsigned char *desc) __attribute__((unused));
-static long l0006_c09(unsigned char *desc)
-{
-	PROBE("L0006");
-	if (desc[0] == 53)
-		return (desc[2] >> 3) + ((long)desc[3] << 5);
-	return desc[1] | ((long)desc[2] << 8);
-}
-
-/* L0d84 (CODE 9 + 0x0d84) — type 1/33 (combat-event) editor SETUP: load the
- * DungCom art set, then load up to 6 CPIC combat pictures whose ids sit at
- * staging bytes stage[2i+9] into slots 8..13. l0e00 is the teardown. (jt54's
- * 4th pushed word in the asm is unused — jt54 reads only name/fp@13/fp@15.) */
-static void l0d84(void) __attribute__((unused));
-static void l0d84(void)
-{
-	unsigned char *stage;
-	short i;
-
-	PROBE("L0d84");
-	jt54(ua_strs_at(0x323a) /* "DungCom1" */, (short)2, (short)0);
-	jt120((void *)(uintptr_t)g_a5_long(-27870));
-	stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
-	for (i = 0; i < 6; i++) {
-		unsigned char *p = stage + i * 2;
-		if (p[9] != 0)
-			jt56(ua_strs_at(0x3244) /* "CPIC" */,
-			     (short)p[9], (short)(i + 8));
-	}
-}
-
-/* L0e00 (CODE 9 + 0x0e00) — type 1/33 editor FINALIZE: free the 6 combat
- * picture slots (8..13) l0d84 loaded, then jt58. */
-static void l0e00(void) __attribute__((unused));
-static void l0e00(void)
-{
-	short i;
-
-	PROBE("L0e00");
-	for (i = 0; i < 6; i++)
-		jt55((short)(i + 8));
-	jt58();
-}
-
 static short jt325(short a8, long *rec, void *ctrl, short type,
                    void *src, short cmd, short count)
 {
@@ -69012,6 +68902,261 @@ static short jt1077(short lo, short hi, long deflt, short width)
 		if (n >= lo && n <= hi)
 			return n;
 		l0156();
+	}
+}
+
+/* ===== jt325 record-editor tail helpers (CODE 9) — Phase D =====
+ * See docs/jt325-record-editor-wall.md. Lifted bottom-up; each is
+ * __attribute__((unused)) until the tail dispatch that calls it lands. */
+
+/* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
+ * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
+ * = the field's byte offset within the staging buffer as a 16-bit LITTLE-endian
+ * value (records are stored little-endian — FRUA's DOS heritage). JT[3] @0x008e
+ * (min 50 max 53):
+ *   50 byte  -> field[0]
+ *   51 word  -> field[0] | field[1]<<8            (LE)
+ *   52 long  -> field[0..3] little-endian
+ *   53 packed-bitfield -> the descriptor continues with a count byte then
+ *      `count` 16-bit LE bit positions; result bit i = the bit at the i-th
+ *      position (byteoff = pos>>3, bitidx = pos&7) read from the staging buffer.
+ * Returns the field value. */
+static long l0052(unsigned char *desc) __attribute__((unused));
+static long l0052(unsigned char *desc)
+{
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *field;
+	long           val = 0;
+
+	PROBE("L0052");
+	field = stage + (desc[1] | ((long)desc[2] << 8));   /* 16-bit LE offset */
+
+	switch (desc[0]) {                      /* JT[3] @0x008e min=50 max=53 */
+	case 50:                                /* byte */
+		val = field[0];
+		break;
+	case 51:                                /* word (LE) */
+		val = field[0] | ((long)field[1] << 8);
+		break;
+	case 52:                                /* long (LE) */
+		val =  (long)field[0]         | ((long)field[1] << 8)
+		    | ((long)field[2] << 16) | ((long)field[3] << 24);
+		break;
+	case 53: {                              /* packed bitfield */
+		short count, i;
+
+		desc++;                         /* skip the type byte */
+		count = *desc++;                /* number of bits */
+		for (i = 0; i < count; i++) {
+			short pos = desc[0] | (desc[1] << 8);  /* 16-bit LE bit pos */
+			desc += 2;
+			val |= (long)((stage[pos >> 3] >> (pos & 7)) & 1) << i;
+		}
+		break;
+	}
+	default:                                /* L019a: unhandled -> 0 */
+		break;
+	}
+	return val;
+}
+
+/* L0006 (CODE 9 + 0x0006) — the field's byte-offset within the staging buffer,
+ * from its descriptor. Packed bitfield (type 53): (desc[2]>>3) + (desc[3]<<5)
+ * — the byte holding the field's first bit. Otherwise the 16-bit LE offset
+ * desc[1] | (desc[2]<<8) (same offset L0052 reads). Named _c09 — the combat
+ * `l0006` (boot.c) is a different CODE segment's helper. */
+static long l0006_c09(unsigned char *desc) __attribute__((unused));
+static long l0006_c09(unsigned char *desc)
+{
+	PROBE("L0006");
+	if (desc[0] == 53)
+		return (desc[2] >> 3) + ((long)desc[3] << 5);
+	return desc[1] | ((long)desc[2] << 8);
+}
+
+/* L0d84 (CODE 9 + 0x0d84) — type 1/33 (combat-event) editor SETUP: load the
+ * DungCom art set, then load up to 6 CPIC combat pictures whose ids sit at
+ * staging bytes stage[2i+9] into slots 8..13. l0e00 is the teardown. (jt54's
+ * 4th pushed word in the asm is unused — jt54 reads only name/fp@13/fp@15.) */
+static void l0d84(void) __attribute__((unused));
+static void l0d84(void)
+{
+	unsigned char *stage;
+	short i;
+
+	PROBE("L0d84");
+	jt54(ua_strs_at(0x323a) /* "DungCom1" */, (short)2, (short)0);
+	jt120((void *)(uintptr_t)g_a5_long(-27870));
+	stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	for (i = 0; i < 6; i++) {
+		unsigned char *p = stage + i * 2;
+		if (p[9] != 0)
+			jt56(ua_strs_at(0x3244) /* "CPIC" */,
+			     (short)p[9], (short)(i + 8));
+	}
+}
+
+/* L0e00 (CODE 9 + 0x0e00) — type 1/33 editor FINALIZE: free the 6 combat
+ * picture slots (8..13) l0d84 loaded, then jt58. */
+static void l0e00(void) __attribute__((unused));
+static void l0e00(void)
+{
+	short i;
+
+	PROBE("L0e00");
+	for (i = 0; i < 6; i++)
+		jt55((short)(i + 8));
+	jt58();
+}
+
+/* L376a (CODE 9 + 0x376a) — the field-type 132 value PICKER. Build a 64-item
+ * list (jt167), format each item's text (jt322 verbose), draw the
+ * "<a> <b> <c> Variable:" header centred, then run the "Select Cancel" list
+ * dialog (jt169) seeded with `cur`. Returns the picked index, or -1 on cancel. */
+static short l376a(short cur) __attribute__((unused));
+static short l376a(short cur)
+{
+	long          list = 0, cursor;
+	short         i, sel, result;
+	unsigned char flag;
+	char          buf[40];
+
+	PROBE("L376a");
+	jt167((short)64, (long)(uintptr_t)&list);
+	cursor = list;
+	for (i = 0; i < 64; i++) {                     /* fill each node's item text */
+		unsigned char *node = (unsigned char *)(uintptr_t)cursor;
+		jt322((char *)&node[5], i, (short)1);
+		cursor = *(long *)node;                /* node->next */
+	}
+	jt76();
+	jt394(buf, ua_strs_at(0x3316) /* "%s %s %s Variable:" */,
+	      g_a5_long(-10728), g_a5_long(-10704), g_a5_long(-10792));
+	jt1089((short)8008, (short)(8000 + (40 - jt423(buf)) * 2),
+	       (short)143, buf);
+	cursor = list;
+	sel    = cur;
+	flag   = 1;
+	jt179((short)1);
+	result = (short)(jt169(g_a5_long(-13952),
+	                       (long)(uintptr_t)ua_strs_at(0x332a) /* "Select Cancel" */,
+	                       (short)2, (short)4, (short)38, (short)22,
+	                       list, (short)1, (short)0,
+	                       &flag, &sel, &cursor) & 0xff);
+	jt147(&list);
+	return (result != 0) ? (short)-1 : sel;
+}
+
+/* L3342 (CODE 9 + 0x3342) — the field-type 129 value PICKER ("Item Kind"). Build
+ * a 16/17-item list from the -10908 string-pointer table (index 0 is included
+ * only when `with_any`!=0), draw the "<a> <b> <c> Item Kind:" header, run the
+ * "Select Cancel" dialog seeded at `cur`. Returns the picked kind, or -1 on
+ * cancel. */
+static short l3342(short cur, short with_any) __attribute__((unused));
+static short l3342(short cur, short with_any)
+{
+	long          list = 0, cursor;
+	short         i, sel, result;
+	unsigned char flag;
+	char          buf[40];
+
+	PROBE("L3342");
+	jt167((short)(with_any ? 17 : 16), (long)(uintptr_t)&list);
+	cursor = list;
+	for (i = (with_any ? 0 : 1); i < 17; i++) {
+		unsigned char *node = (unsigned char *)(uintptr_t)cursor;
+		node[4] = 0;
+		jt384((char *)&node[5],
+		      (const char *)(uintptr_t)g_a5_longs(-10908)[i]);
+		cursor = *(long *)node;
+	}
+	jt76();
+	jt394(buf, ua_strs_at(0x3298) /* "%s %s %s Item Kind:" */,
+	      g_a5_long(-10728), g_a5_long(-10704), g_a5_long(-10792));
+	jt1089((short)8008, (short)(8000 + (40 - jt423(buf)) * 2),
+	       (short)143, buf);
+	cursor = list;
+	for (i = 0; i < cur; i++)                       /* seed the cursor at `cur` */
+		cursor = *(long *)(uintptr_t)cursor;
+	sel  = cur;
+	flag = 1;
+	jt179((short)1);
+	result = (short)(jt169(g_a5_long(-13952),
+	                       (long)(uintptr_t)ua_strs_at(0x32ac) /* "Select Cancel" */,
+	                       (short)2, (short)4, (short)38, (short)22,
+	                       list, (short)1, (short)0,
+	                       &flag, &sel, &cursor) & 0xff);
+	jt147(&list);
+	return (result != 0) ? (short)-1 : sel;
+}
+
+/* L348e (CODE 9 + 0x348e) — the field-type 130 value PICKER (an item). First
+ * pick the item KIND (l3342), then rebuild the filtered pending-item list
+ * (jt73 clear + jt188 fill) and prepend a synthetic "No Item" node, draw the
+ * "<a> <b> <c> Item:" header, and run the "Select Cancel" dialog seeded at
+ * `cur`. Returns -1 (cancel), 0 ("No Item"), else the item id from the -12645
+ * kind table at [kind*20 + sel - 1]. */
+static short l348e(short cur) __attribute__((unused));
+static short l348e(short cur)
+{
+	unsigned char  filter[3];
+	unsigned char *node;
+	long           cursor, no_item;
+	short          kind, sel, result;
+	unsigned char  flag;
+	char           buf[40];
+
+	PROBE("L348e");
+	kind = l3342((short)0, (short)0);
+	if (kind < 0)
+		return -1;
+
+	filter[0] = (unsigned char)((kind << 4) | 15);
+	filter[1] = 0xFF;
+	filter[2] = 0xFF;
+	jt73();                                         /* free the pending list */
+	jt188(filter);                                  /* build the filtered list */
+
+	no_item = g_a5_long(-25302);                    /* current head -> chain after */
+	jt477(&g_a5_long(-25302), (short)62, &g_a5_byte(-21508));
+	jt399((void *)(uintptr_t)g_a5_long(-25302), (short)62, (short)0);
+	*(long *)(uintptr_t)g_a5_long(-25302) = no_item;
+	node = (unsigned char *)(uintptr_t)g_a5_long(-25302);
+	jt384((char *)&node[5], ua_strs_at(0x32ba) /* "No Item" */);
+	no_item = g_a5_long(-25302);                    /* the "No Item" head node */
+
+	jt76();
+	jt394(buf, ua_strs_at(0x32c2) /* "%s %s %s Item:" */,
+	      g_a5_long(-10728), g_a5_long(-10704), g_a5_long(-10788));
+	jt1089((short)8008, (short)(8000 + (40 - jt423(buf)) * 2),
+	       (short)143, buf);
+
+	for (cursor = g_a5_long(-25302); cursor != 0;
+	     cursor = *(long *)(uintptr_t)cursor) {     /* prep each item node */
+		node = (unsigned char *)(uintptr_t)cursor;
+		node[51] &= (unsigned char)~7;
+		jt28((long)0, (long)(uintptr_t)node,
+		     (short)0, (short)0, (short)0, (short)0);
+	}
+
+	cursor = no_item;
+	sel    = cur;
+	flag   = 1;
+	jt179((short)1);
+	result = (short)(jt169(g_a5_long(-13952),
+	                       (long)(uintptr_t)ua_strs_at(0x32d2) /* "Select Cancel" */,
+	                       (short)2, (short)4, (short)38, (short)22,
+	                       g_a5_long(-25302), (short)1, (short)0,
+	                       &flag, &sel, &cursor) & 0xff);
+	jt73();                                         /* free the pending list */
+	if (result != 0)
+		return -1;
+	if (sel == 0)
+		return 0;                               /* "No Item" */
+	{
+		const unsigned char *tbl =
+		    (const unsigned char *)&g_a5_byte(-12645);
+		return tbl[kind * 20 + sel - 1];
 	}
 }
 
