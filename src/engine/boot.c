@@ -73220,6 +73220,106 @@ static short l0e7a_c10(unsigned char *dc, short *out)
 	return (short)(*out > 0 ? 1 : 0);
 }
 
+/* L0960 (CODE 10+0x0960) — the list BUILD driver. Formats the header via
+ * l0bd2 and counts the rows via l0e7a; on failure marks holder[4]=1 and
+ * bails. Allocates the row-node chain into dc[56] (jt167), then fills it:
+ * for kind-9/holder[2]==2 lists it labels each node "%s %d" (jt394); else
+ * it delegates to jt349 (proc = jt261/jt262 for kind-21). Finally it seeks
+ * dc[60] to the holder[14]-th unflagged node. dc[55]=1 marks "built".
+ * Returns 0 (empty layout), 1 (empty node chain), or 2 (built). */
+static short L0960_c10(unsigned char *dc) __attribute__((unused));
+static short L0960_c10(unsigned char *dc)
+{
+	short list_count = 0;                            /* fp@(-4) */
+	short i;                                          /* fp@(-2) */
+	long method2;                                    /* fp@(-8) */
+	unsigned char *h;
+	unsigned char *node;
+
+	PROBE("L0960");
+	*(long *)(dc + 64) = 0;
+	if (l0bd2_c10(dc) != 0 && l0e7a_c10(dc, &list_count) != 0) {
+		/* both succeeded */
+	} else {
+		h = *(unsigned char **)dc;
+		*(short *)(h + 4) = 1;
+		return 0;                                /* L0bca, d0=0 */
+	}
+
+	*(long *)(dc + 56) = 0;
+	jt167(list_count, (long)(uintptr_t)(dc + 56));   /* L09ac */
+	*(long *)(dc + 60) = *(long *)(dc + 56);
+	if (*(long *)(dc + 56) == 0) {
+		h = *(unsigned char **)dc;
+		*(short *)(h + 4) = 1;
+		return 1;                                /* L09e8, d0=1 */
+	}
+
+	h = *(unsigned char **)dc;
+	if (h[6] == 9 && *(short *)(h + 2) == 2) {        /* L09e8 → kind-9 labels */
+		*(long *)(dc + 64) = 0;
+		i = 1;
+		while (*(long *)(dc + 60) != 0) {         /* L0a1a */
+			node = (unsigned char *)(uintptr_t)*(long *)(dc + 60);
+			jt394((char *)(node + 5), "%s %d",
+			      (char *)g_a5_ptr(-11316), i);
+			node[4] = 0;
+			*(long *)(dc + 60) = *(long *)node;
+			i++;
+		}
+	} else {                                          /* L0a6a */
+		if (*(long *)(dc + 64) != 0) {
+			short flag;                       /* (holder[10]==0)?1:0 */
+			h = *(unsigned char **)dc;
+			flag = (h[10] == 0) ? 1 : 0;
+			h = *(unsigned char **)dc;
+			if (*(short *)(h + 2) == 21)
+				method2 = h[9] ? (long)(uintptr_t)jt261
+				               : (long)(uintptr_t)jt262;
+			else
+				method2 = 0;
+			h = *(unsigned char **)dc;
+			jt349(*(long *)(dc + 56), (short)h[6], (short)h[7],
+			      (short)h[16], 0, flag, method2);
+		} else {
+			*(long *)(dc + 56) = 0;           /* L0b0a */
+		}
+	}
+
+	/* L0b12 — seek dc[60] to the holder[14]-th unflagged node. */
+	if (*(long *)(dc + 56) == 0) {
+		h = *(unsigned char **)dc;
+		*(short *)(h + 4) = 1;                    /* L0bbc */
+		return 2;
+	}
+	dc[55] = 1;
+	*(long *)(dc + 60) = *(long *)(dc + 56);
+	/* L0b48 — skip leading flagged nodes */
+	while (*(long *)(dc + 60) != 0) {
+		node = (unsigned char *)(uintptr_t)*(long *)(dc + 60);
+		if (node[4] == 0)
+			break;
+		*(long *)(dc + 60) = *(long *)node;      /* L0b38 */
+	}
+	/* L0b60/L0b88 — advance over holder[14] unflagged nodes */
+	i = 0;
+	for (;;) {
+		h = *(unsigned char **)dc;
+		if (i >= *(short *)(h + 14))
+			break;
+		if (*(long *)(dc + 60) == 0)
+			break;
+		node = (unsigned char *)(uintptr_t)*(long *)(dc + 60);
+		if (node[4] == 0)                        /* L0b66 */
+			i++;
+		*(long *)(dc + 60) = *(long *)node;      /* L0b78 */
+	}
+	/* L0ba2 — wrap to head if we fell off the end */
+	if (*(long *)(dc + 60) == 0)
+		*(long *)(dc + 60) = *(long *)(dc + 56);
+	return 2;                                        /* L0bc8, d0=2 */
+}
+
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
  * insn): jt168/jt169 List Manager over the record's art/spell rows,
  * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
