@@ -66799,14 +66799,43 @@ static void jt345(short id, short kind, long buf)
 		      (short)13, buf);
 }
 
-/* L6432 (CODE 8+0x6432) — locate/load one monster-art record from
- * the -10370 table. Leaf PROBE stub pending its own lift. */
+/* L6432 (CODE 8+0x6432) — the SAVE sibling of l62e0_c8: locate the `b`(kind)/
+ * `a`(id) entry in the -10370 group and, on a hit, ENCODE the name string at
+ * `c` into that entry's 6-bit-packed field (jt196, the encoder — vs l62e0_c8's
+ * jt191 decode) and set its flag byte from *`d`; return 1. No match / no handle
+ * / wildcard id -> return 0 (unlike l62e0_c8 there is no l60b0 default write).
+ * Same head as l62e0_c8: JT[370] class mask, id-255 wildcard fold for mid-band
+ * kinds, 14-byte entries with an LE count at handle[0]. Was a PROBE stub (jt350/
+ * jt371 no-ops); jt371 needs it live to save GEO names + fire jt362. */
 static unsigned char l6432(long handle, short a, short b, long c,
                            long d)
 {
+	unsigned char *h     = (unsigned char *)(uintptr_t)handle;
+	unsigned char  idb   = (unsigned char)a;
+	unsigned char  kindb = (unsigned char)b;
+	unsigned char  classb;
+	unsigned char *entry;
+	short          i, count;
+
 	PROBE("l6432");
-	(void)handle; (void)a; (void)b; (void)c; (void)d;
-	return 0;
+	if (kindb >= 6 && kindb < 10 && idb == 255)              /* 0x6438..0x645a */
+		idb = 0;
+	if (handle == 0 || idb == 0)                             /* 0x645e..0x6472 -> L6474 */
+		return 0;
+
+	classb = (unsigned char)jt370((short)kindb, (short)0);   /* 0x647c JT[370] */
+	entry  = h + 14;                                         /* 0x6496 */
+	count  = (short)((h[1] << 8) | h[0]);                    /* 0x64fe */
+	for (i = 0; count > i; i++, entry += 14) {               /* 0x64fe bhi */
+		if ((entry[1] & classb) != 0 && entry[0] == idb) {  /* 0x64a2..0x64c2 */
+			if (c != 0)                              /* 0x64c4 */
+				jt196(c, (long)(uintptr_t)&entry[2]);    /* 0x64ca JT[196] encode */
+			if (d != 0)                              /* 0x64dc */
+				entry[1] = *(unsigned char *)(uintptr_t)d;   /* 0x64e2 entry[1] = *d */
+			return 1;                                /* 0x64ee */
+		}
+	}
+	return 0;                                                /* 0x651a */
 }
 
 /* JT[350] (CODE 8+0x66b0) — fetch a monster record: prime the
