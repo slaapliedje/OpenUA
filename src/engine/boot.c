@@ -22609,6 +22609,12 @@ static int   jt315(void)
 {
 	PROBE("jt315");
 
+	/* Faithful to the Mac jt315 head (CODE 22 + 0x4d94): prime the automap
+	 * cell stride g_a5_-12272 before the menu dispatch can enter an editor.
+	 * Without it the map editor's l28d4 input loop divides by a 0 stride in
+	 * jt272 (mouse cell hit-test) and bus-errors on OPEN. */
+	jt215();
+
 	for (;;) {
 		short hit = menu_run(g_mainmenu,
 		    (short)(sizeof g_mainmenu / sizeof g_mainmenu[0]),
