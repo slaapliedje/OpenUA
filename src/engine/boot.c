@@ -73320,17 +73320,122 @@ static short L0960_c10(unsigned char *dc)
 	return 2;                                        /* L0bc8, d0=2 */
 }
 
+static void jt266(short state);                 /* CODE 10 — defined below */
+
+/* L1162 (CODE 10+0x1162) — empty in the Mac build (link/unlk/rts); a
+ * compiled-out hook. Distinct from the 3-arg l1162 in CODE 6/17
+ * (the (CODE,offset) clash). Kept as a faithful no-op call site. */
+static void l1162_c10(unsigned char *dc) __attribute__((unused));
+static void l1162_c10(unsigned char *dc)
+{
+	PROBE("L1162");
+	(void)dc;
+}
+
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
- * insn): jt168/jt169 List Manager over the record's art/spell rows,
- * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
- * helpers L2a06/L19ea/L0960/L1162/L1396. PROBE stub pending jt266 and
- * those helpers — jt269 dispatches into it faithfully, so the dialog is
- * the one deferred piece of the state machine. */
+ * insn). Builds a 104-byte dialog context `dc` (dc[0]=holder), sets it up
+ * (l2a06), pushes the frame (l19ea), builds the row list (L0960), then
+ * runs the List-Manager modal loop: jt168 installs the row proc (jt266
+ * for list holders, jt267 for the flat row view) and jt169 pumps the
+ * List Mgr, returning the event key. Arrow/Return/Esc (13/27/96) are
+ * remapped when g_a5_-24139 is set; a wrapped cursor (holder[14]==
+ * holder[12]) beeps (jt360) and re-seeks; otherwise l06d8 dispatches the
+ * selected row. The loop runs while holder[4]==0. On exit it frees the
+ * list (jt147), pops the frame, commits the fields (l2d68), and — for a
+ * positive terminal selection — folds it back into the record (l0894,
+ * for the kind classes that l06ae/holder[0] admit). */
 static void l040c(long holder) __attribute__((unused));
 static void l040c(long holder)
 {
+	long           dc_storage[26];                   /* 104-byte dc, aligned */
+	unsigned char *dc = (unsigned char *)dc_storage;
+	unsigned char *h = (unsigned char *)(uintptr_t)holder;
+	short          event = 0;                        /* fp@(-4) */
+	signed char    l0960_ret;                        /* fp@(-2) */
+	signed char    kind_class;                       /* fp@(-1) */
+
 	PROBE("L040c");
-	(void)holder;
+	if (h[7] == 0) {
+		*(short *)(h + 4) = -1;
+		*(short *)h = *(short *)(h + 2);
+	}
+	/* L0430 */
+	*(long *)dc = holder;                            /* dc[0] = holder */
+	*(short *)(h + 4) = 0;
+	l2a06_c10(dc);
+	l19ea_c10(dc, 1);
+	l0960_ret = (signed char)L0960_c10(dc);
+	kind_class = (signed char)l06ae(*(short *)(h + 2));
+	if (kind_class != 0 && *(short *)(h + 4) != 0)
+		*(short *)h = 1;
+	/* L048c */
+	l1162_c10(dc);
+	l1396_c10(dc);
+	l15c2_c10((long)(uintptr_t)dc, (short)h[6]);
+
+	/* L062c is the loop guard: braw L062c before the body => while(). */
+	while (*(short *)(h + 4) == 0) {
+		/* L04ba — pump the List Manager for one event. */
+		if (h[10] == 0) {
+			short a = (h[6] == 1) ? 1 : 0;
+			short b = (kind_class == 0) ? 1 : 0;
+			jt168((long)(uintptr_t)jt266, a, b);
+			event = (short)(jt169(
+			        (long)(uintptr_t)g_a5_ptr(-13952),
+			        (long)(uintptr_t)(dc + 4),
+			        1, 17, 20, 23, *(long *)(dc + 56),
+			        1, 0, dc + 55, (short *)(h + 14),
+			        (long *)(dc + 60)) & 0xff);
+		} else {                                 /* L0538 */
+			short a = (kind_class == 0) ? 1 : 0;
+			jt168((long)(uintptr_t)jt267, 0, a);
+			event = (short)(jt169(
+			        (long)(uintptr_t)g_a5_ptr(-13952),
+			        (long)(uintptr_t)(dc + 4),
+			        2, 4, 38, 22, *(long *)(dc + 56),
+			        1, 0, dc + 55, (short *)(h + 14),
+			        (long *)(dc + 60)) & 0xff);
+		}
+		/* L0592 — key remapping when the accelerator flag is set. */
+		if (g_a5_byte(-24139) != 0) {
+			if (event == 13 && kind_class == 0) {
+				event = 0;
+			} else if (event == 27 || event == 96) {
+				if (kind_class != 0)
+					event = 0;
+				else
+					event = (short)(dc[54] - 1);
+			}
+		}
+		/* L05d2 — wrapped cursor: beep and re-seek. */
+		if (event == 0 && *(short *)(h + 12) >= 0 &&
+		    *(short *)(h + 14) == *(short *)(h + 12)) {
+			jt360((const char *)g_a5_ptr(-10652), 0);
+			dc[55] = 1;
+			event = -1;
+		}
+		/* L060c — dispatch the selected row. */
+		if (event >= 0 && (short)(unsigned char)dc[54] > event)
+			l06d8_c10(dc, event);
+	}
+
+	/* L0638 — teardown and commit. */
+	if (l0960_ret != 0)
+		jt147((void *)(dc + 56));
+	l19ea_c10(dc, 0);
+	l2d68_c10(dc);
+	if (*(short *)(h + 4) > 0) {
+		short kc = l06ae(*(short *)h);
+		short v  = *(short *)h;
+		int   commit;
+		if (kc != 0 && v != 18) {
+			commit = 1;                      /* L06a0 */
+		} else {                                 /* L0682 */
+			commit = (v < 9) || (v == 16) || (v == 21);
+		}
+		if (commit)
+			l0894_c10(dc);
+	}
 }
 
 /* JT[269] (CODE 10+0x0004) — the monster-editor state-machine entry.
