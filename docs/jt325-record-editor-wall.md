@@ -82,7 +82,7 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | l093a | 0x093a / 365 | ✅ LIFTED | widget-row APPLY+write (l06e0), 4 dispatch tables | JT[3]@0x096a, @0x0a48; JT[1]@0x0bde, @0x0cae |
 | **l01a2_c09** | 0x01a2 / 434 | ✅ LIFTED | widget-row RECOMPUTE + display-text format (128..133) | JT[3]@0x01e8, @0x03b6, @0x0494 |
 | l1ae2 | 0x1ae2 / 566 | ⬜ BIG | the SCRIPT record LOOP: outer loop over field records, matches record type, inner field loop dispatches JT[1]@0x1c4c (types 3-10,32-34) building the 18-byte rows + drawing labels (jt1089)/menus (jt452) | JT[1]@0x1c4c (11), JT[1]@0x21a8 (4) |
-| ↳ l100c | 0x100c / **913** | 🔨 WIP | **the field-byte CODEC** — JT[3]@0x109a (48..79, 32 arms). Sig `l100c(desc,rec,w2,w3,mode)`; head parses the record header (size from desc[0]: <32→desc[5]+5, ==34→3, else 4), loop dispatches each field. **DONE: head + loop + arms 48, 49, 50/51/52, 53, 54.** Arms 55..79 pending (below). Called 1× by l1ae2 @0x218a. | JT[3]@0x109a 48..79 |
+| ↳ l100c | 0x100c / 913 | ✅ LIFTED | **the field-byte CODEC** — JT[3]@0x109a (48..79, ALL 32 arms). Sig `l100c(desc,rec,w2,w3,mode)`; header parse + field loop; label/banner/numeric/cell/value/string/flag-bit field types. Called 1× by l1ae2. | JT[3]@0x109a 48..79 |
 | ↳ l3bbc | 0x3bbc / 330 | ✅ LIFTED | picture/item/class PANEL drawer — JT[3]@0x3bc8 (1..8): combat-pic frames (jt118×N loop), item-icon grid (jt28/jt479/jt184/jt444, like l01a2 c130), "%2d"/class rows. jt118 arg order VERIFIED (page ignored; port jt118(NULL,top=B,left=A,idx=C,handle) = Mac fp@10/fp@8/fp@12/fp@16). | JT[3]@0x3bc8 1..8 |
 | l30d4 | 0x30d4 / 203 | ⬜ (defer) | nested type-133 sub-editor | own switches |
 
@@ -147,7 +147,7 @@ does NOT continue. Determine per-arm from where it branches.
 2. mid: ✅ l3876, ✅ l06e0, ✅ l093a, ✅ l01a2_c09 — **the mid tier is cleared.**
 4. big — l1ae2 subsystem (~1800 lines, its own multi-session arc):
    a. ✅ l3bbc (330, drawer) — DONE; jt118 arg order verified.
-   b. l100c (913, the field-byte codec, 32 arms JT[3]@0x109a) — the critical path, NEXT.
+   b. ✅ l100c (913, the field-byte codec, ALL 32 arms) — DONE.
    c. l1ae2 (566, the loop) — wires l100c/l3bbc + builds the field rows.
    (l30d4 deferrable — only field-type 133 reaches it.)
 5. the tail dispatch (blocks A/B/C/merge) → drop jt325's DEFERRED block.
