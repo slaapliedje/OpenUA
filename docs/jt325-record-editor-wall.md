@@ -82,7 +82,7 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | l093a | 0x093a / 365 | ✅ LIFTED | widget-row APPLY+write (l06e0), 4 dispatch tables | JT[3]@0x096a, @0x0a48; JT[1]@0x0bde, @0x0cae |
 | **l01a2_c09** | 0x01a2 / 434 | ✅ LIFTED | widget-row RECOMPUTE + display-text format (128..133) | JT[3]@0x01e8, @0x03b6, @0x0494 |
 | l1ae2 | 0x1ae2 / 566 | ⬜ BIG | the SCRIPT record LOOP: outer loop over field records, matches record type, inner field loop dispatches JT[1]@0x1c4c (types 3-10,32-34) building the 18-byte rows + drawing labels (jt1089)/menus (jt452) | JT[1]@0x1c4c (11), JT[1]@0x21a8 (4) |
-| ↳ l100c | 0x100c / **913** | 🔨 WIP | **the field-byte CODEC** — JT[3]@0x109a (48..79, 32 arms). Sig `l100c(desc,rec,w2,w3,mode)`; head parses the record header (size from desc[0]: <32→desc[5]+5, ==34→3, else 4), loop dispatches each field. **DONE: head + loop + arm 48** (title/label). Arms 49..79 pending (below). Called 1× by l1ae2 @0x218a. | JT[3]@0x109a 48..79 |
+| ↳ l100c | 0x100c / **913** | 🔨 WIP | **the field-byte CODEC** — JT[3]@0x109a (48..79, 32 arms). Sig `l100c(desc,rec,w2,w3,mode)`; head parses the record header (size from desc[0]: <32→desc[5]+5, ==34→3, else 4), loop dispatches each field. **DONE: head + loop + arms 48, 50/51/52.** Arms 49, 53..79 pending (below). Called 1× by l1ae2 @0x218a. | JT[3]@0x109a 48..79 |
 | ↳ l3bbc | 0x3bbc / 330 | ✅ LIFTED | picture/item/class PANEL drawer — JT[3]@0x3bc8 (1..8): combat-pic frames (jt118×N loop), item-icon grid (jt28/jt479/jt184/jt444, like l01a2 c130), "%2d"/class rows. jt118 arg order VERIFIED (page ignored; port jt118(NULL,top=B,left=A,idx=C,handle) = Mac fp@10/fp@8/fp@12/fp@16). | JT[3]@0x3bc8 1..8 |
 | l30d4 | 0x30d4 / 203 | ⬜ (defer) | nested type-133 sub-editor | own switches |
 
@@ -120,7 +120,7 @@ remaining--` for the type byte. ✅ = lifted.
 |------|-----|------------------|
 | ✅ 48 | L10e0 | title/label — jt1089 or jt452(38,...); color from desc[1] (0/1/2→135/139/140) |
 | 49 | L119a | (mode-gated) jt1161 fill + draw |
-| 50/51/52 | L1222 | NUMERIC field — l01a2_c09 recompute, JT[7] div, l0006/l0052, jt452/jt193, L13ec sub-loop |
+| ✅ 50/51/52 | L1222 | NUMERIC field — l01a2_c09 recompute, JT[7] div, l0006/l0052, jt452/jt193, L13ec word-wrap sub-loop (+3 advance) |
 | 53 | L14ca | l01a2_c09 + JT[7] |
 | 54 | L1528 | jt444 rows + jt409 + jt423 + jt1161 |
 | 55 | L16c0 | (advances desc+1 @L16b4) |
