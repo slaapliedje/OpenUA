@@ -115,20 +115,20 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
   your *outer* command times out mid-`start`, the disowned Hatari keeps running
   and holds the C: mount, stalling the next boot. Give `start` ≥150s of headroom,
   and `pkill -9 -x hatari` before retrying if a boot hangs.
-- **Mouse clicks DO work headless — via `driver.sh click <x> <y>`.** The key
-  is that the harness launches Hatari with `--mousewarp no`; with mouse-warp
-  ON (the Hatari default) the host pointer runs in relative/grab mode and
-  absolute positioning is consumed, so clicks land nowhere — which is why this
-  used to look impossible. With warp off, XTEST button events register the same
-  way keys do. `x y` are pixels **as seen in a `shots` screenshot** (the grab is
-  1:1 with the window), e.g. `click 150 298` hits PLAY THE GAME on the main
-  menu. Take a screenshot, read off the button's pixel coords, click, screenshot
-  again to confirm. This unblocks the mouse-only screens (main menu, party
-  screen, the design editor, the Training Hall). The dungeon walk also responds
-  to keyboard (arrows/Esc/Return).
-  - Caveat: use `driver.sh click` (windowed). `-f`/`--fullscreen` under Xvfb
-    zooms and crops the grab (you see only part of the screen) with no benefit —
-    windowed shows the whole 688-wide display at clean 1:1 coords.
+- **Drive the main menu with KEYBOARD ACCELERATORS — `driver.sh key <letter>`,
+  no mouse needed.** Each menu button has a letter accelerator (first letter of
+  the item): `key e` = EDIT MODULES, `key p` = PLAY THE GAME, etc. Inside
+  dialogs the nav buttons take accels too (e.g. `key n` = NEXT page, `key p` =
+  PREV). This is the RELIABLE way to reach the design editor and other "mouse-
+  only"-looking screens. Verified: `key e` opens the record editor, `key n`
+  pages it. Prefer this over the mouse.
+- **Synthetic MOUSE clicks are UNRELIABLE here (use the keyboard accels above).**
+  `driver.sh click <x> <y>` exists and the harness sets `--mousewarp no`, but in
+  practice a teleport-move click does not move the emulated cursor; a gradual
+  step-in from outside the window makes motion reach the IKBD, but the cursor
+  then accumulates relative-mode drift (stuck in the screen's right margin,
+  can't reach the left ~85%). Treat mouse as a last resort; keyboard accels
+  cover the menu + editor.
 - **`shots` prints a harmless `[[: arithmetic syntax error` line** under Xvfb
   (the `magick compare` AE metric trips `set -o pipefail` when frames differ).
   It self-recovers and still saves a correct settled frame — ignore the stderr.
