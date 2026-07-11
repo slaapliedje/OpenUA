@@ -70033,6 +70033,52 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 	}
 }
 
+/* jt373 (CODE 8 + 0x0004) — the list-widget LDEF: the DLItem method for the
+ * record editor's list columns (l1ae2 arm 7 stores &jt373; l348e-style pickers
+ * use it too). Dispatches on the message (JT[1]@0x003c): 0 init/measure, 1 draw,
+ * 2/3/5 scroll/select, 18/26 (de)activate, 36/40/42 hit/track, 128 "exists",
+ * 4/19/21/22/27 no-op; default -> jt443 (=l1676, the generic DLItem handler). A
+ * sibling of jt335. (NOT the CODE-4/6 l0004 menu dispatcher — a different fn.)
+ *
+ * WIP (Phase D): the head + NULL guards + the message switch + the common exit +
+ * default routing are lifted; the substantive handlers (0/1/2/3/5/18/26/36/40/42)
+ * and jt373's own local helper tree (L0a86/L0942/L09ce/...) are its own multi-step
+ * lift (a ~2362-byte widget) and land incrementally — until then those messages
+ * exit with result 0. Defining jt373 unblocks l1ae2 arm 7. */
+static short jt373(void *rec_v, short msg, short p14, short p16)
+    __attribute__((unused));
+static short jt373(void *rec_v, short msg, short p14, short p16)
+{
+	unsigned char *H = (unsigned char *)rec_v;      /* fp@8 / fp@-24 */
+	unsigned char *data;                             /* fp@-28 = H[8] */
+	short          result = 0;                        /* fp@-14 */
+
+	if (H == NULL)
+		return 0;
+	data = *(unsigned char **)(H + 8);
+	if (data == NULL)
+		return 0;
+
+	switch (msg) {                                   /* JT[1]@0x003c */
+	case 128:                                        /* L05de — "exists" */
+		result = 1;
+		break;
+	case 4: case 19: case 21: case 22: case 27:      /* L091e — no-op */
+		break;
+	case 0: case 1: case 2: case 3: case 5:
+	case 18: case 26: case 36: case 40: case 42:     /* TODO — real handlers pending */
+		break;
+	default:                                         /* L0902 — generic handler */
+		result = l1676(H, msg, p14, p16);
+		break;
+	}
+
+	/* L091e — common exit */
+	if (*(long *)(data + 8) != *(long *)(data + 12))
+		H[28] |= 0x40;
+	return result;
+}
+
 /* L1ae2 (CODE 9 + 0x1ae2) — the SCRIPT record LOOP: the field-editor's layout
  * interpreter. Two passes over SCRIPT.GLB (group 24) — pass 0 the base record
  * (`flag20`), pass 1 the `type` record — each loaded via jt468(24)+jt1012. For
@@ -70180,10 +70226,21 @@ static void l1ae2(short a0, short a1, short a2, short flag20, short type)
 							jt384((char *)(tbl + row[15] * 78 + 3025),
 							      (const char *)&rec_ptr[6]);
 							break;
-						/* TODO Phase D — arm 7 (L1ec4) blocks on jt373
-						 * (CODE 8+0x4, a ~2362B widget, still MISSING —
-						 * it's the DLItem method this arm stores). Lift
-						 * jt373 first, then this jt452 shape-8 menu. */
+						case 7:         /* L1ec4 — list column (jt373) */
+							row[15] = tbl[2373];
+							*(short *)(tbl + 2372) += 1;
+							*(long *)(tbl + row[15] * 22 + 2378) = 0;
+							*(long *)(tbl + row[15] * 22 + 2374) = 100;
+							*(long *)(tbl + row[15] * 22 + 2382) = 0;
+							*(long *)(tbl + row[15] * 22 + 2390) =
+							    (long)(uintptr_t)&row[8];
+							jt452((long)8, (long)(uintptr_t)&jt373,
+							      (long)39, (long)(uintptr_t)&rec_ptr[6],
+							      (long)35,
+							      (long)(uintptr_t)(tbl + row[15] * 22 + 2374),
+							      (long)40, (long)(8000 + rec_ptr[3]),
+							      (long)(8000 + rec_ptr[4]), (long)0);
+							break;
 						default:
 							break;
 						}
