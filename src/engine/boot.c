@@ -1707,7 +1707,13 @@ static short g_group24_script_active;
 
 /* ===== jt325 record-editor tail helpers (CODE 9) — Phase D =====
  * See docs/jt325-record-editor-wall.md. Lifted bottom-up; each is
- * __attribute__((unused)) until the tail dispatch that calls it lands. */
+ * __attribute__((unused)) until the tail dispatch that calls it lands.
+ * Forward decls for the JT callees defined further down the file. */
+static void jt54(const char *name, short b, short c);
+static void jt55(short id);
+static void jt56(const char *name, short a, short b);
+static void jt58(void);
+static void jt120(void *arg);
 
 /* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
  * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
@@ -1772,6 +1778,41 @@ static long l0006_c09(unsigned char *desc)
 	if (desc[0] == 53)
 		return (desc[2] >> 3) + ((long)desc[3] << 5);
 	return desc[1] | ((long)desc[2] << 8);
+}
+
+/* L0d84 (CODE 9 + 0x0d84) — type 1/33 (combat-event) editor SETUP: load the
+ * DungCom art set, then load up to 6 CPIC combat pictures whose ids sit at
+ * staging bytes stage[2i+9] into slots 8..13. l0e00 is the teardown. (jt54's
+ * 4th pushed word in the asm is unused — jt54 reads only name/fp@13/fp@15.) */
+static void l0d84(void) __attribute__((unused));
+static void l0d84(void)
+{
+	unsigned char *stage;
+	short i;
+
+	PROBE("L0d84");
+	jt54(ua_strs_at(0x323a) /* "DungCom1" */, (short)2, (short)0);
+	jt120((void *)(uintptr_t)g_a5_long(-27870));
+	stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	for (i = 0; i < 6; i++) {
+		unsigned char *p = stage + i * 2;
+		if (p[9] != 0)
+			jt56(ua_strs_at(0x3244) /* "CPIC" */,
+			     (short)p[9], (short)(i + 8));
+	}
+}
+
+/* L0e00 (CODE 9 + 0x0e00) — type 1/33 editor FINALIZE: free the 6 combat
+ * picture slots (8..13) l0d84 loaded, then jt58. */
+static void l0e00(void) __attribute__((unused));
+static void l0e00(void)
+{
+	short i;
+
+	PROBE("L0e00");
+	for (i = 0; i < 6; i++)
+		jt55((short)(i + 8));
+	jt58();
 }
 
 static short jt325(short a8, long *rec, void *ctrl, short type,
