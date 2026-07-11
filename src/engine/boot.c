@@ -1705,6 +1705,11 @@ static void  jt1014(short kind, const char *name, short group);
  * editor exit so the menu path keeps its resident MENU. */
 static short g_group24_script_active;
 
+/* Set while the design-editor mode loop (l0096) runs, so the shared play render
+ * jt312 skips its port-added play-HUD block (command bar / roster / clock) — the
+ * editor has no play context and those would deref unset structures. */
+static short g_geo_editor_active;
+
 /* The record-editor TAIL (asm 0x242c..0x30c2) is lifted as jt325_tail, placed
  * with its CODE-9 sibling helpers in the Phase-D cluster (where every callee is
  * already declared). The prologue below tail-calls it. */
@@ -12452,7 +12457,13 @@ static void jt312(unsigned char *page)
 	 * the labels paint in the HUD palette (253 grey / 254 white hotkey),
 	 * installed right here so dungeon_view_setup's clut-129 256-entry load can't
 	 * clobber it. */
-	if (s_view_first || g_view_force_full) {
+	/* The command bar + roster + clock are the port's per-frame re-composition
+	 * of the PLAY HUD (the Mac jt312 = CODE 22+0x23ee draws none of them — it is
+	 * just the 3D render). The design editor reuses jt312 for its 3D preview but
+	 * has no play context (no command string, no party), so l2c60/jt937/jt938
+	 * would deref unset structures — bus error. Skip the whole HUD block in the
+	 * editor (g_geo_editor_active), matching the Mac render. */
+	if ((s_view_first || g_view_force_full) && !g_geo_editor_active) {
 		RGBColor hud[2];
 
 		hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0xC8C8;
@@ -80402,8 +80413,10 @@ static short l0096(unsigned char *ctx)
 {
 	unsigned char *c = ctx;
 	short ret = 0;                                 /* fp@(-2) — persistent local */
+	short prev_editor = g_geo_editor_active;
 
 	PROBE("L0096");
+	g_geo_editor_active = 1;    /* editor context: jt312 skips the play HUD */
 
 	while (c[0] == 0) {                            /* 0x468 loop condition (pre-tested) */
 		short value = *(short *)(c + 4);      /* 0x9e — switch on word@4 */
@@ -80489,6 +80502,7 @@ static short l0096(unsigned char *ctx)
 		*(short *)(c + 2) = *(short *)(c + 4);  /* word@2 = word@4 (0x458) */
 		*(short *)(c + 4) = ret;                /* word@4 = handler result (0x462) */
 	}
+	g_geo_editor_active = prev_editor;              /* leave play renders unaffected */
 	return *(short *)(c + 2);                        /* 0x472 — d0 = word@2 */
 }
 
