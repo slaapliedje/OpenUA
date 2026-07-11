@@ -14,7 +14,8 @@
 #   driver.sh start               # ensure Xvfb, boot, wait for "menu: modal up"
 #   driver.sh shot   <out.png>    # single screenshot of the Falcon display
 #   driver.sh shots  <out.png>    # STABLE-frame screenshot (use for the play/dungeon screen)
-#   driver.sh key    <keysym>...  # send key(s) via XTEST (mouse clicks do NOT inject — see SKILL.md)
+#   driver.sh key    <keysym>...  # send key(s) via XTEST
+#   driver.sh click  <x> <y> [b]  # click the Falcon display at screenshot pixel (x,y) — mouse-warp off makes this work
 #   driver.sh wait   <regex> [n]  # block until the conout log has >= n matches
 #   driver.sh log                 # dump the conout log
 #   driver.sh stop                # kill Hatari (leaves Xvfb up for reuse)
@@ -59,7 +60,7 @@ case "$cmd" in
 	build)
 		cd "$REPO"; exec make "$@"
 		;;
-	start|shot|shots|key|wait|dbg|log)
+	start|shot|shots|key|click|wait|dbg|log)
 		ensure_display
 		exec "$UI" "$cmd" "$@"
 		;;
@@ -78,7 +79,7 @@ case "$cmd" in
 		echo "driver: smoke screenshot -> $OUT"
 		;;
 	*)
-		echo "usage: $(basename "$0") build | start | shot <png> | shots <png> | key <keysym>... | wait <regex> [n] | log | stop | smoke <png>" >&2
+		echo "usage: $(basename "$0") build | start | shot <png> | shots <png> | key <keysym>... | click <x> <y> [button] | wait <regex> [n] | log | stop | smoke <png>" >&2
 		exit 1
 		;;
 esac
