@@ -70101,8 +70101,13 @@ static void l1ae2(short a0, short a1, short a2, short flag20, short type)
 	for (pass = 0; pass < 2; pass++) {      /* L1b20/L223a — base then type record */
 		long  base;
 		short idx;
-		if (pass != 0) { if (type < 0)   break; idx = type; }
-		else           { if (flag20 < 0) break; idx = flag20; }
+		/* Each pass's guard branches to L2236 (the pass++ increment /
+		 * loop test), NOT the function exit — so a failed guard is a
+		 * CONTINUE, not a break. (Was `break`, which for type>=51
+		 * [flag20=-1] skipped pass 1 = the type record entirely, so the
+		 * editor built no fields — the "(NULL)"/empty screen.) */
+		if (pass != 0) { if (type < 0)   continue; idx = type; }
+		else           { if (flag20 < 0) continue; idx = flag20; }
 		base    = jt468((short)24);
 		rec_ptr = (unsigned char *)(uintptr_t)jt1012(base, idx);
 		if (a2 < 0)                     /* save the record cursor */
@@ -70111,7 +70116,11 @@ static void l1ae2(short a0, short a1, short a2, short flag20, short type)
 
 		do {                            /* L1b9e — per field-record */
 			if ((unsigned char)a0)
-				stage[454] = (unsigned char)jt397(stage[454], rec_ptr[3]);
+				/* stage[454] is a WORD (Mac movew @0x1bb4/0x1bc2 —
+				 * page count); a byte write left stg[455] stale so
+				 * the editor's word read saw 0x0300=768 pages. */
+				*(short *)(stage + 454) =
+				    jt397(*(short *)(stage + 454), rec_ptr[3]);
 			match = (rec_ptr[3] == a2) ? -1 : 0;
 			if ((unsigned char)a0 || (unsigned char)a1 || match) {
 				if (match) { *(short *)tbl = 0; row = tbl + 2; }
