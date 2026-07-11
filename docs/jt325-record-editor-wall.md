@@ -72,11 +72,11 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | l0006_c09 | 0x0006 / 29 | ✅ LIFTED (this session) | field byte-offset from descriptor | — |
 | l0e2c=jt323 | 0x0e2c / 169 | ✅ LIFTED (jt323) | draw action direction-arrow row | — |
 | l224a=jt324 | 0x224a / 45 | ✅ LIFTED (jt324) | readied-list kind scan → fire DLItem | — |
-| l0e00 | 0x0e00 / 16 | ⬜ leaf | type 1/33 editor FINALIZE (L308e) | — |
-| l0d84 | 0x0d84 / 41 | ⬜ leaf | type 1/33 editor SETUP (L258e) | — |
-| l376a | 0x376a / 77 | ⬜ leaf | value picker, field-type 132 | — |
-| l3342 | 0x3342 / 107 | ⬜ leaf | value picker, field-type 129 (→ val or <0) | — |
-| l348e | 0x348e / 125 | ⬜ leaf | value picker, field-type 130 | — |
+| l0e00 | 0x0e00 / 16 | ✅ LIFTED | type 1/33 editor FINALIZE (L308e) | — |
+| l0d84 | 0x0d84 / 41 | ✅ LIFTED | type 1/33 editor SETUP (L258e) | — |
+| l376a | 0x376a / 77 | ✅ LIFTED | value picker, field-type 132 (64-item jt169 list) | — |
+| l3342 | 0x3342 / 107 | ✅ LIFTED | value picker, field-type 129 "Item Kind" (16/17 from -10908) | — |
+| l348e | 0x348e / 125 | ✅ LIFTED | value picker, field-type 130 item (l3342 kind + jt188 filtered list) | — |
 | l3876 | 0x3876 / 240 | ⬜ mid | editor error/beep dialog (codes 256/257/258/101/102), 5 sites | — |
 | l06e0 | 0x06e0 / 203 | ⬜ mid | field WRITER — the L0052 counterpart (packs value → staging) | JT[3] type switch (verify) |
 | l093a | 0x093a / 365 | ⬜ mid | widget-row RENDER (depends on l0006_c09) | JT[3]@0x096a 3..10 |
@@ -91,11 +91,15 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 > lifting. All JT-entry callees (jt399/406/452/468/1012/1089/384/397/423/455/…)
 > are already lifted.
 
+The Phase-D helper cluster lives with its CODE-9 siblings just before jt323
+(~boot.c:68908), where every JT callee is already declared — not up by jt325
+(line ~1700), which would need dozens of forward decls.
+
 ## Lift order (leaves → up)
 
-1. ✅ l0052, l0006_c09 (done); l0e2c=jt323, l224a=jt324 (already lifted).
-2. small leaves: l0e00, l0d84, l376a, l3342, l348e.
-3. mid: l3876, l06e0, l093a, l01a2_c09.
+1. ✅ l0052, l0006_c09, l0d84, l0e00, l376a, l3342, l348e (done); l0e2c=jt323,
+   l224a=jt324 (already lifted). **All the leaves are cleared.**
+2. mid: l3876, l06e0, l093a, l01a2_c09.
 4. big: l1ae2 (+ its leaves l3bbc, l100c; decode JT[1]@0x1c4c/@0x21a8 first); l30d4 (defer).
 5. the tail dispatch (blocks A/B/C/merge) → drop jt325's DEFERRED block.
 
