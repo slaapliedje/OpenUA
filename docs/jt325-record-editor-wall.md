@@ -190,6 +190,12 @@ SETTINGS" with the real field labels/edit boxes + PAGE 1/3 + OK/PREV/NEXT/
 CANCEL; `key n` = NEXT pages to "KEYS IN SPECIAL INVENTORY" (PAGE 2). Two l1ae2
 field-build bugs found + fixed while driving it (commit f179eae): the pass-loop
 `break`→`continue` (type>=51 built no fields) and the stage[454] page-count
-byte→word write (read 768 pages). **Open:** stg[456] (field-descriptor count) is
-still 0 → the commit/SAVE path (validation-2 / write-back on OK) is inert;
-populating it (via l1ae2/l100c) is the next editor task.
+byte→word write (read 768 pages). **stg[456]=0 TRACED — FAITHFUL, not a bug:**
+the descriptor table (stg[456]/stg[458]) is built in l100c only for widget types
+6/10 (`if(w3){if(base[0]==6||10){…stg[456]++}}` @0x1312), and Game Settings uses
+types 5/7/8/9 (logged base[0]=9,8,7,5,…) → stg[456] stays 0 on the Mac too.
+Non-6/10 fields save via the field-edit→l06e0 direct staging writes + the
+jt406(src,staging,count) copy on OK — not the descriptor loop. Commit VERIFIED
+clean (`key o`=OK returns to menu). Still untested headless: a field-EDIT
+round-trip (click-to-focus, mouse unreliable) and the 6/10 write-back loop
+(needs a list/mnemonic record, e.g. NPC/monster editor).
