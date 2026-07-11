@@ -68910,6 +68910,7 @@ static short jt1077(short lo, short hi, long deflt, short width)
  * __attribute__((unused)) until the tail dispatch that calls it lands. */
 static short jt409(const char *s, short len, short ch);   /* defined lower */
 static short jt454(short item, short cmd);                /* defined lower */
+static void  jt323(short act);                            /* defined just below */
 
 /* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
  * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
@@ -69834,8 +69835,81 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 			desc += 2; remaining -= 2;      /* L14be, then L1acc +1 -> total +3 */
 			break;
 		}
-		/* TODO Phase D — arms 49..79 (addresses/roles in the wall doc):
-		 * 49 L119a, 53 L14ca, 54 L1528, 55 L16c0,
+		case 49: {                              /* L119a — banner label from header */
+			if (mode != 0) {
+				jt1161((short)(8000 + base[3]), (short)8004,
+				       (short)(8004 + base[3]), (short)8156, (short)8);
+				jt1089((short)(8000 + base[3]),
+				       (short)(8000 + (40 - base[5]) * 2), rec[15],
+				       ua_strs_at(0x3256) /* "%s" */,
+				       (const char *)&base[6]);
+			}
+			break;                          /* -> L1acc (+1 type byte) */
+		}
+		case 53: {                              /* L14ca — recompute + variable advance */
+			short adv;
+			if (mode != 0) {
+				long idx;
+				*(long *)(rec + 4) = (long)(uintptr_t)desc;
+				idx = jt7((long)((unsigned char *)rec
+				         - (unsigned char *)(uintptr_t)g_a5_long(-11656)
+				         - 2), 18);
+				l01a2_c09((short)idx);
+			} else {
+				val_ptr = (long)(uintptr_t)desc;
+			}
+			adv = desc[1] * 2 + 1;          /* L1500 */
+			desc += adv; remaining -= adv;  /* then L1acc +1 */
+			break;
+		}
+		case 54: {                              /* L1528 — cell/checkbox + banner */
+			if (mode != 0) {
+				short flag = 0;
+				rec[16] = desc[1];
+				switch (rec[16]) {      /* JT[3]@0x1550 min 50 max 53 */
+				case 50:                /* L155e */
+					if ((signed char)rec[13] >= 0)
+						jt444((signed char)rec[13], (short)16,
+						      (short)0, (short)0);
+					break;
+				case 51:                /* L1584 */
+					if (stage[397] < 112)
+						flag = 1;
+					break;
+				case 52:                /* L15a0 */
+					if (stage[397] < 112
+					    && jt409((const char *)&g_a5_byte(-11652),
+					             (short)28, (short)stage[397]) >= 28)
+						flag = 1;
+					break;
+				case 53:                /* L15d8 — register jt323 as the cell proc */
+					jt444((signed char)rec[13], (short)34,
+					      (short)((uintptr_t)&jt323 >> 16),
+					      (short)(uintptr_t)&jt323);
+					*(short *)((unsigned char *)(uintptr_t)
+					    g_a5_long(-11656) + 4504) = (signed char)rec[13];
+					break;
+				default:
+					break;
+				}
+				if (flag != 0 && (signed char)rec[13] >= 0) {
+					jt444((signed char)rec[13], (short)17,
+					      (short)0, (short)0);
+					if (base[0] == 8) {   /* draw the field banner */
+						short len = jt423((const char *)&base[6]);
+						jt1161((short)(8000 + base[3]),
+						       (short)(8000 + base[4]),
+						       (short)(8004 + base[3]),
+						       (short)(8000 + base[4] + len * 4),
+						       (short)8);
+					}
+				}
+			}
+			desc++; remaining--;            /* L16b4: +1, then L1acc +1 -> +2 */
+			break;
+		}
+		/* TODO Phase D — arms 55..79 (addresses/roles in the wall doc):
+		 * 55 L16c0,
 		 * 56 L174a, 57 L17b2, 58-63 L181a, 64-67 L185c, 68 L1884, 69 L18e6,
 		 * 70 L1910, 71 L1950, 72 L19a4, 73 L1a18, 74-79 L189e. Until lifted
 		 * they fall to the default single-byte step. */
