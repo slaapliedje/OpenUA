@@ -102,18 +102,23 @@ cell → `l159a`, or call `l159a(ev,1)`. See `docs/milestone.md` §2 +
 | **Event pictures / portraits** (PIC/SPRIT/CPIC/bigpic) | 20/6/5 | 🟡 | `event-pictures-wall.md` — runtime pipeline (`l442e`→…→`l6e58`) FAITHFUL + works; 2 open bugs are composition-ordering + buffer-sharing, NOT palette math. CODE 10 = the picture EDITOR (deferred), not the runtime path |
 | **Audio / music / sound** (.slb engine) | 5/6 | 🔴 | `audio-wall.md` — dispatch + bank-load lifted, every output leaf stubbed → MUTED. FRUA uses the Device Manager (`_Write`), NOT the Sound Manager. Falcon DMA HAL already exists; needs the engine→HAL glue. Multi-part |
 
-## 7. Editor / authoring tools  🟡 lifted-but-dormant / 🔴 GEO frontier
+## 7. Editor / authoring tools  ✅ LIVE + menu-wired (map-editor area-load 🔴)
 
-The authoring track opened (ADR-0008 phase-2). The CODE 2 event editor is fully
-lifted; the CODE 11 GEO editor is the active frontier. All editor code is
-DCE'd/dormant until jt315's selection dispatch (CODE 22+0x5180/0x5266) calls
-`l0004_22` — the wiring step that makes the editor reachable at runtime.
+The authoring track is now LIVE (2026-07-11). jt315's selection dispatch is
+wired AND label-corrected (JT[452] index decode): all four editor menu items
+open their correct editor with the right title — verified live (driver key
+g/e/a/m + dump). The record-editor engine (jt325_tail) and the jt269 picture
+gallery's l040c dialog tree are lifted and runtime-validated. The one remaining
+editor DEPTH gap is the map editor's area bring-up.
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
-| Event / zone / map-step editing (jt254/253/248/249/258) | 2 | 🟡 | `event-editor-wall.md` — COMPLETE, dormant; command dispatcher `l0096` (CODE 22) wired |
-| Art import (MacPaint/PICT, jt259) | 10 | 🟡 | lifted, dormant (dispatcher cmd 16) |
-| **3D-map (GEO) editing + save (jt242/jt243)** | 11 | 🔴 | `geo-editor-wall.md` ← **NEXT FOCUSED TASK** (Phase C); both are PROBE stubs |
+| **Editor menu wiring** (Game Settings/Edit Modules/Art Gallery/Monster Editor) | 22 | ✅ | `jt325-record-editor-phase-d` (mem) — 2026-07-11, all 4 open correctly (JT[452] index decode) |
+| **Game Settings** record editor (jt251 → jt325_tail) | 9/22 | ✅ | `jt325-record-editor-wall.md` — renders + pages + commits |
+| Event / zone / map-step editing (jt254/253/248/249/258) | 2 | ✅ | `event-editor-wall.md` — lifted; l0096 dispatcher wired |
+| **Art Gallery** / picture editor (jt269 + l040c; import jt259) | 10 | ✅ | l040c dialog tree lifted + LIVE-validated 2026-07-11 |
+| **Monster / NPC** record editor (jt263 → jt325 type 54/57) | 10/9 | 🟡 | opens + renders monster art; edit round-trip untested |
+| **Map (GEO) editor** (jt242/jt243) | 11 | 🟡 | `geo-editor-wall.md` — lifted; picker opens, **OPEN bus-errors on the empty -12300 area block** (jt244/mode-19 area-load never triggered) ← the editor's last DEPTH gap |
 | Editor record panels (jt281/282/286) | 22 | ✅ | lifted (CODE 22 alias block) |
 
 ---
@@ -135,26 +140,33 @@ The editor segments are now charted: **CODE 2 = `event-editor-wall.md`** (event
 editor COMPLETE), **CODE 11 = `geo-editor-wall.md`** (GEO editor, Phase C —
 active). The CODE 22 command dispatcher (`l0096`) is lifted.
 
-## Targeting priority (highest leverage first) — updated 2026-07-06
+## Targeting priority (highest leverage first) — updated 2026-07-11
 
-The play runtime + the CODE 2 event editor + jt259 art import are lifted. The
-frontier is now the **design editor's last giant** and a short tail of runtime
-polish. Per `completion-plan.md` (the master sequence):
+The JT scoreboard is at **1196/1205 done** (5 stub, 4 missing; 3 of those 9 are
+superseded-dead). Both former #1/#2 priorities — the GEO editor giants
+(jt242/jt243) AND wiring the editor live — are DONE, plus jt335 and the editor
+menu label fix. The frontier has moved OFF the JT count and onto **runtime
+validation and player-facing depth**:
 
-1. **CODE 11 GEO 3D-map editor** (`geo-editor-wall.md`, Phase C) — jt242 (1298)
-   then jt243 (5216, the biggest fn in the codebase). The single largest
-   remaining block; both are PROBE stubs the `l0096` dispatcher already routes
-   to. **The active task.**
-2. **Wire the editor live** — lift jt315's selection dispatch (CODE 22 +
-   0x5180/0x5266) to call `l0004_22`, making the whole editor reachable.
-3. **CODE 8 foundational giant** jt335 (2598) + jt334/336/337/371/373 — may
-   unblock the editor giants; pull early if C depends on it.
-4. **Runtime polish** still genuinely open: inventory/equip
-   (`inventory-subsystem-wall.md`), the remaining `l709e` event arms, rest/camp
-   spell-memorize (`code21-camp-wall.md`), save/load slot pickers, audio
-   (`audio-wall.md`, muted).
-5. **Small-stub cleanup** — CODE 5 (6 leaves), CODE 12 Training Hall
-   (jt916/919/927/931/933), CODE 4 (check HAL-superseded). Batch by segment.
+1. **Combat runtime bring-up** — the single biggest UNTESTED block. The combat
+   spine + all 106 CODE-16 effect handlers + physical-damage tier are lifted but
+   **never run in a real fight**; `port_run_encounter`/`port_play_message` are
+   still stand-ins over the faithful chain. Trigger a fight (type-1/33 event →
+   `l159a`→`jt511`) in Hatari and debug. High risk, high value. `code13/14-wall`.
+2. **Map editor area-load** — the last editor DEPTH gap. 3 of 4 editors open
+   live; the map editor's OPEN bus-errors on the empty `-12300` block because the
+   jt244/mode-19 area-load is never triggered. Trace the Mac's mode-2 first-entry
+   (how jt248's pick reaches jt244). `geo-editor-wall.md` / `geo-editor-phase-c`.
+3. **Player-facing runtime gaps** — inventory/equip
+   (`inventory-subsystem-wall.md`), rest/camp spell-memorize
+   (`code21-camp-wall.md`), the remaining `l709e` event arms (~17), audio
+   (`audio-wall.md`, MUTED = CODE 5 jt965/974/1064 sound cluster).
+4. **Real stub subtrees** (not leaves): jt933 (CODE 12 item-take modal, ~400
+   lines), jt955 (CODE 21 camp, 1014 B), jt1206 (CODE 4, small dispatcher).
+5. **Editor edit round-trips** — the record editors OPEN + render; validate an
+   actual field EDIT → save for Game Settings / monster / NPC (mouse-gated).
+6. **Close-out** — mark jt426/432/458 superseded-done in the tracker; save/load
+   slot pickers + boot auto-load; shop sell/identify (jt189/jt190).
 
 ## Bottom line
 

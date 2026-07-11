@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1195 done (1063 lifted, 55 noop, 77 alias), 5 stub, 0 stand-in, 5 missing.
+**1205 distinct JT entries are called.** Overall: 1196 done (1066 lifted, 55 noop, 75 alias), 5 stub, 0 stand-in, 4 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -38,7 +38,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 4 | 151–200 | **50/50** | 45 | 5 | 0 | 0 | 0 |
 | 5 | 201–250 | **50/50** | 46 | 4 | 0 | 0 | 0 |
 | 6 | 251–300 | **50/50** | 41 | 9 | 0 | 0 | 0 |
-| 7 | 301–350 | **50/50** | 45 | 5 | 0 | 0 | 0 |
+| 7 | 301–350 | **50/50** | 46 | 4 | 0 | 0 | 0 |
 | 8 | 351–400 | **50/50** | 38 | 12 | 0 | 0 | 0 |
 | 9 | 401–450 | **50/50** | 40 | 10 | 0 | 0 | 0 |
 | 10 | 451–500 | **50/50** | 48 | 2 | 0 | 0 | 0 |
@@ -46,9 +46,9 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
 | 14 | 651–700 | **50/50** | 47 | 3 | 0 | 0 | 0 |
-| 15 | 701–750 | **48/50** | 37 | 11 | 0 | 0 | 2 |
+| 15 | 701–750 | **49/50** | 38 | 11 | 0 | 0 | 1 |
 | 16 | 751–800 | **48/50** | 41 | 7 | 0 | 0 | 2 |
-| 17 | 801–850 | **50/50** | 48 | 2 | 0 | 0 | 0 |
+| 17 | 801–850 | **50/50** | 49 | 1 | 0 | 0 | 0 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
@@ -74,7 +74,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 5 | 129 | 126 | 3 | 0 | 0 | **3** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 125 | 0 | 0 | 0 | **0** | file-group cache + GLIB art + resource manager |
 | CODE 7 | 97 | 97 | 0 | 0 | 0 | **0** | list dialog (JT[169]) + text widgets |
-| CODE 8 | 46 | 45 | 0 | 0 | 1 | **1** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
+| CODE 8 | 46 | 46 | 0 | 0 | 0 | **0** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 5 | 0 | 0 | 0 | **0** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 12 | 0 | 0 | 0 | **0** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
 | CODE 11 | 12 | 12 | 0 | 0 | 0 | **0** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (41 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (40 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l040c`  `l2d7e`
+> `l32e2`  `l62e0`  `l5ac0`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 
@@ -331,9 +331,8 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 10 of 10 pending (stub+standin+missing), by call count:
+Top 9 of 9 pending (stub+standin+missing), by call count:
 
-- jt373 (1 calls, CODE 8) — missing
 - jt426 (1 calls, CODE 3) — missing — SUPERSEDED — Mac indexed-catalog OPEN; only caller is jt990, which the port reimplements over GEMDOS Fsfirst. Dead on the port.
 - jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
 - jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
