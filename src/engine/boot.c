@@ -69726,13 +69726,16 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
     __attribute__((unused));
 static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mode)
 {
-	unsigned char *base = desc;                    /* fp@(-16) — record header base */
-	unsigned char *rec  = (unsigned char *)rec_v;  /* fp@(12) — current field row */
+	unsigned char *base  = desc;                    /* fp@(-16) — record header base */
+	unsigned char *rec   = (unsigned char *)rec_v;  /* fp@(12) — current field row */
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
 	short          remaining = desc[1] | (desc[2] << 8);   /* fp@(-6) */
 	short          hdrsize;
+	long           val_ptr = 0;                     /* fp@(-20) — set in numeric mode==0 */
+	unsigned char  flag25  = 0;                      /* fp@(-25) */
 
 	PROBE("L100c");
-	(void)w2; (void)w3;
+	(void)w2;
 	if (desc[0] < 32)
 		hdrsize = desc[5] + 5;
 	else if (desc[0] == 34)
@@ -69757,14 +69760,82 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 					if ((signed char)rec[13] >= 0)
 						rec[15] = (unsigned char)color;
 				} else {
-					jt452((long)38, color, (short)0);
+					jt452((long)38, (long)color, (long)0);
 				}
 			}
 			desc++; remaining--;            /* L118e: past 1 data byte */
 			break;
 		}
+		case 50: case 51: case 52: {            /* L1222 — numeric field */
+			if (mode != 0) {
+				long idx;
+				*(long *)(rec + 4) = (long)(uintptr_t)desc;
+				idx = jt7((long)((unsigned char *)rec
+				         - (unsigned char *)(uintptr_t)g_a5_long(-11656)
+				         - 2), 18);
+				l01a2_c09((short)idx);
+				if (rec[12] == 9) {
+					jt452((long)39,
+					      g_a5_long(-11660) + l0006_c09(desc),
+					      (long)0);
+				} else if (rec[12] == 6 || rec[12] == 10) {
+					short i;
+					for (i = 0; i < *(short *)(stage + 456); i++)
+						if (*(short *)(stage + i * 2 + 458)
+						    == (short)l0006_c09(desc))
+							break;
+					if (base[6] != 126)
+						jt452((long)39,
+						      (long)(uintptr_t)(stage + i * 250 + 474),
+						      (long)0);
+				}
+			} else {
+				val_ptr = (long)(uintptr_t)desc;   /* L130c */
+			}
+			/* L1312 — register the entry / draw the value */
+			if (w3 != 0) {
+				if (base[0] == 6 || base[0] == 10) {
+					short cnt = *(short *)(stage + 456);
+					*(short *)(stage + cnt * 2 + 458) =
+					    (short)l0006_c09(desc);
+					if (l0052((unsigned char *)(uintptr_t)val_ptr) != 0)
+						l4fbe((void *)(uintptr_t)g_a5_long(-13034),
+						      (short)(l0052((unsigned char *)
+						              (uintptr_t)val_ptr) - 1),
+						      (char *)(stage + cnt * 250 + 474));
+					else
+						(stage + cnt * 250)[474] = 0;
+					if (base[6] == 126) {      /* word-wrap into 5 lines */
+						unsigned char *text = stage + cnt * 250 + 474;
+						short line;
+						for (line = 0; line < 5; line++) {
+							short j = 0;
+							if (text[0] == 94)
+								text++;
+							while (text[j] != 0 && text[j] != 94)
+								j++;
+							jt406((void *)(stage + (line + 1) * 40),
+							      text, j);   /* dst,src (port swaps Mac) */
+							(stage + (line + 1) * 40)[j] = 0;
+							text += j;
+						}
+						*(short *)(stage + 2474) =
+						    *(short *)(stage + 456) + 1;
+					}
+					*(short *)(stage + 456) += 1;
+				}
+			}
+			/* L148a */
+			if (w3 != 0 && flag25 != 0) {
+				*(short *)(stage + *(short *)(stage + 2476) * 2 + 2478) =
+				    desc[1];
+				*(short *)(stage + 2476) += 1;
+			}
+			desc += 2; remaining -= 2;      /* L14be, then L1acc +1 -> total +3 */
+			break;
+		}
 		/* TODO Phase D — arms 49..79 (addresses/roles in the wall doc):
-		 * 49 L119a, 50/51/52 L1222 (numeric), 53 L14ca, 54 L1528, 55 L16c0,
+		 * 49 L119a, 53 L14ca, 54 L1528, 55 L16c0,
 		 * 56 L174a, 57 L17b2, 58-63 L181a, 64-67 L185c, 68 L1884, 69 L18e6,
 		 * 70 L1910, 71 L1950, 72 L19a4, 73 L1a18, 74-79 L189e. Until lifted
 		 * they fall to the default single-byte step. */
