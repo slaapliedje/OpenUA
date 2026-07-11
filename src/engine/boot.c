@@ -22641,7 +22641,19 @@ static int   jt315(void)
 		(void)l0004_22((short)6);
 		break;
 		case 7: menu_todo("Art Gallery");       break;  /* JT[1080] CODE 5 */
-		case 8: menu_todo("Monster Editor");    break;  /* CODE 12 editor */
+		case 8:                          /* menu item 8 -> l0004_22(8) -> mode 8 */
+		/* Faithful to the Mac jt315 selection dispatch (CODE 22 JT[3]@0x5116):
+		 * menu items 6/7/8/9 -> L5262 -> L0004(item), i.e. the dispatch case IS
+		 * the l0004_22 arg (already proven for item 6 = Edit Modules). Item 8
+		 * seeds mode 8 and runs the l0096 loop -> jt269 -> jt248 module picker ->
+		 * the l040c List-Manager picker (probe-traced live: jt269->jt248->l040c->
+		 * jt266). It reaches a working editor over already-design-loaded data (no
+		 * area-block bring-up needed, unlike the map editor), so this replaces a
+		 * dead menu_todo stub with the live jt269 editor and exercises the whole
+		 * l040c dialog tree end-to-end. NB the picker currently shows a stale
+		 * "ART GALLERY" title (jt259 ran at boot) — cosmetic, tracked separately. */
+		(void)l0004_22((short)8);
+		break;
 		case 9:                          /* Quit From Game */
 			return 0;
 		default:
