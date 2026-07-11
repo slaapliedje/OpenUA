@@ -73123,6 +73123,103 @@ static short l0bd2_c10(unsigned char *dc)
 	return (short)dc[54];
 }
 
+/* L0e7a (CODE 10+0x0e7a) — enumerate the list rows into *out (row count).
+ * dc[0]=holder. Per kind (JT[3] over holder[6]) it normalizes the row
+ * cursor fields holder[8]/[9]/[12]/[16], then either (kind 9, holder[2]==2)
+ * remaps holder[8] via jt397 and wraps holder[14] into range, or builds the
+ * row set with jt352 (proc = jt261/jt262 for kind-21 lists). Returns 1 when
+ * *out > 0, else 0. dc[64] is the jt363 list handle. */
+static short l0e7a_c10(unsigned char *dc, short *out) __attribute__((unused));
+static short l0e7a_c10(unsigned char *dc, short *out)
+{
+	unsigned char *h;
+
+	PROBE("L0e7a");
+	*out = 0;
+	h = *(unsigned char **)dc;
+	switch (h[6]) {
+	case 6:                                          /* L0ea6 */
+	case 7:
+	case 8:
+		h = *(unsigned char **)dc;
+		if (h[17] == 0)
+			break;
+		h = *(unsigned char **)dc;
+		if (h[8] == 0)
+			h[8] = 0xff;
+		h = *(unsigned char **)dc;
+		if (*(short *)(h + 12) == 0)
+			*(short *)(h + 12) = 255;
+		h = *(unsigned char **)dc;
+		if (h[9] != 0 && h[9] != 255)
+			h[16] = 0;
+		break;
+	case 9:                                          /* L0f14 */
+		h = *(unsigned char **)dc;
+		if (*(short *)(h + 2) == 2) {
+			h[16] = 0;
+			*out = 4;
+			break;
+		}
+		h = *(unsigned char **)dc;
+		if (h[17] == 0)
+			break;
+		h = *(unsigned char **)dc;
+		if (h[8] == 0)
+			h[8] = 0xff;
+		h = *(unsigned char **)dc;
+		if (*(short *)(h + 12) == 0)
+			*(short *)(h + 12) = 255;
+		h = *(unsigned char **)dc;
+		if (h[9] != 0 && h[9] != 255)
+			h[16] = 0;
+		break;
+	default:                                         /* L0f9e */
+		break;
+	}
+
+	/* L0f9e — the kind-9/kind-2 direct remap, else the jt352 enumerate. */
+	h = *(unsigned char **)dc;
+	if (h[17] != 0 && h[6] == 9 && *(short *)(h + 2) == 2) {
+		h = *(unsigned char **)dc;
+		h[8] = (unsigned char)jt397((short)h[8], (short)h[16]);
+		h = *(unsigned char **)dc;
+		*(short *)(h + 14) = (short)((int)h[8] - (int)h[16]);
+		h = *(unsigned char **)dc;
+		if ((short)h[8] == *(short *)(h + 12)) {
+			short div = (short)(*out + 1);
+			int q = (int)(short)(*(short *)(h + 14) + 1);
+			*(short *)(h + 14) = (short)(q % div);
+		}
+	} else {                                          /* L1068 */
+		short num;
+		h = *(unsigned char **)dc;
+		num = (h[6] < 6) ? 2 : 1;
+		if (jt363((long *)(dc + 64), num) != 0) {
+			long method1, method2;
+			h = *(unsigned char **)dc;
+			method1 = h[17] ? (long)(uintptr_t)(h + 14) : 0;
+			h = *(unsigned char **)dc;
+			if (*(short *)(h + 2) == 21)
+				method2 = h[9] ? (long)(uintptr_t)jt261
+				               : (long)(uintptr_t)jt262;
+			else
+				method2 = 0;
+			*out = jt352((short)h[6], (short)h[7],
+			             (long)(uintptr_t)(h + 16), 0,
+			             (long)(uintptr_t)(h + 8),
+			             method1, method2);
+		} else {
+			return 0;
+		}
+	}
+
+	/* L1144 */
+	h = *(unsigned char **)dc;
+	h[17] = 0;
+	return (short)(*out > 0 ? 1 : 0);
+}
+
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
  * insn): jt168/jt169 List Manager over the record's art/spell rows,
  * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
