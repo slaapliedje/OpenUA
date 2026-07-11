@@ -80679,7 +80679,14 @@ static void l2d40(void *rec_v, short key, long arg3)
 static void l28d4(void *arg8) __attribute__((unused));
 static void l28d4(void *arg8)
 {
-	unsigned char  state[8] = {0};                   /* fp@(-52) editor-state block */
+	/* fp@(-52) editor-state block.  On the Mac l28d4's frame is linkw #-54 and
+	 * this block spans fp@(-52)..fp@(-1) (52 bytes); the callees it is handed to
+	 * (l4226/l43c2/l2836/jt299/jt312/jt278) write fields deep into it — e.g.
+	 * l4226 writes state[29] (CODE 11 0x4246 `moveb d0,a0@(29)`).  The original
+	 * lift sized this at [8], so those writes overran the stack and corrupted
+	 * the heap free list (a bus error at the next NewPtr).  Size it to the full
+	 * Mac frame so every callee write lands in-bounds. */
+	unsigned char  state[52] = {0};                  /* fp@(-52) editor-state block */
 	unsigned char *rec = (unsigned char *)arg8;      /* = *(void**)state (set once) */
 	signed char    flag;                             /* fp@(-1) */
 	short          cmd;                              /* fp@(-4) (fp@(-3)=low byte) */
