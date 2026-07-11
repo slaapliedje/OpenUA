@@ -72756,6 +72756,66 @@ static short l31a0_c10(unsigned char *dc)
 	return result;
 }
 
+/* L1396 (CODE 10+0x1396) — draw the dialog's title lines. After the l195a
+ * backdrop, only when holder[10]==0 (f43): format the record name ("%s" via
+ * l06ae<0, else "%s %s") and draw it (jt1089), then the design-name / counter
+ * lines (jt406 copies the 16-byte name from -12300[118], jt367 formats the
+ * counter). f43 is always -1 past the early return, so the centered-x
+ * else-branches (jt423-based) are faithful-but-dead. */
+static void l1396_c10(unsigned char *dc) __attribute__((unused));
+static void l1396_c10(unsigned char *dc)
+{
+	unsigned char *h = *(unsigned char **)dc;
+	char  buf[40];                  /* fp@(-40); buf[16] = the fp@(-24) byte */
+	short pos;                      /* fp@(-42) */
+	signed char f43;                /* fp@(-43) */
+
+	PROBE("L1396");
+	l195a_c10(h);
+	f43 = (signed char)((h[10] == 0) ? -1 : 0);
+	if (f43 == 0)
+		return;
+
+	if (l06ae(*(short *)(h + 2)) < 0) {
+		jt394(buf, ua_strs_at(0x2d4c) /* "%s" */, g_a5_long(-11156));
+		pos = (f43 != 0) ? (short)8096
+		    : (short)(8004 + (((38 - jt423(buf)) / 2) << 2));
+	} else {
+		jt394(buf, ua_strs_at(0x2d50) /* "%s %s" */,
+		      g_a5_long(-10564), g_a5_long(-10664));
+		pos = (f43 != 0) ? (short)8100
+		    : (short)(8004 + (((38 - jt423(buf)) / 2) << 2));
+	}
+	jt1089((short)8068, pos, (short)140, buf);
+
+	if (f43 != 0 && *(short *)(uintptr_t)g_a5_long(-12300) != 0) {
+		jt406(buf, (void *)(uintptr_t)(g_a5_long(-12300) + 118), (short)16);
+		buf[16] = 0;
+		if (buf[0] == 0)
+			jt367((short)(jt358() & 0xff), buf);
+	}
+
+	pos = (f43 != 0) ? (short)8092
+	    : (short)(8004 + (((38 - jt423(buf)) / 2) << 2));
+
+	if (f43 != 0) {
+		buf[16] = 0;
+		jt1089((short)8072, pos, (short)135, buf);
+	} else {
+		jt1089((short)8072, pos, (short)135, buf);
+		if (*(short *)(uintptr_t)g_a5_long(-12300) != 0) {
+			jt406(buf, (void *)(uintptr_t)(g_a5_long(-12300) + 118),
+			      (short)16);
+			buf[16] = 0;
+			if (buf[0] == 0)
+				jt367((short)(jt358() & 0xff), buf);
+			jt1089((short)8076,
+			       (short)(8004 + (((38 - jt423(buf)) / 2) << 2)),
+			       (short)135, ua_strs_at(0x2d56) /* "%s" */, buf);
+		}
+	}
+}
+
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
  * insn): jt168/jt169 List Manager over the record's art/spell rows,
  * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
