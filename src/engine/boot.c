@@ -8433,22 +8433,36 @@ static short l1676(unsigned char *rec, short cmd, ...)
 		va_end(ap);
 		return 0;
 	}
+	/* Long-arg arms (34/35/39/44): the Mac reads one raw long off the
+	 * caller's stack. The port's method chain (jt444 -> shape handler ->
+	 * here) delivers every arg in its own int slot, and the jt444 callers
+	 * split pointers into a (hi, lo) short pair (see l237c/jt305/L15d8),
+	 * so the faithful port read is joining the two slots — a single
+	 * va_arg(long) read only the hi word (crash #2: wild 0x2c label). */
 	case 34: {
 		va_list ap;
 		unsigned char *r = (unsigned char *)rec;
+		long hi, lo;
 		PROBE("L1676:cmd=34-set4");
 		va_start(ap, cmd);
-		*(long *)(r + 4) = va_arg(ap, long);
+		hi = va_arg(ap, int);
+		lo = va_arg(ap, int);
 		va_end(ap);
+		*(long *)(r + 4) = ((long)(unsigned short)hi << 16)
+		                 | (unsigned short)lo;
 		return 0;
 	}
 	case 35: {
 		va_list ap;
 		unsigned char *r = (unsigned char *)rec;
+		long hi, lo;
 		PROBE("L1676:cmd=35-set8");
 		va_start(ap, cmd);
-		*(long *)(r + 8) = va_arg(ap, long);
+		hi = va_arg(ap, int);
+		lo = va_arg(ap, int);
 		va_end(ap);
+		*(long *)(r + 8) = ((long)(unsigned short)hi << 16)
+		                 | (unsigned short)lo;
 		return 0;
 	}
 	case 36: {
@@ -8491,11 +8505,14 @@ static short l1676(unsigned char *rec, short cmd, ...)
 	case 39: {
 		va_list ap;
 		unsigned char *r = (unsigned char *)rec;
-		long new_val;
+		long hi, lo, new_val;
 		PROBE("L1676:cmd=39-set12");
 		va_start(ap, cmd);
-		new_val = va_arg(ap, long);
+		hi = va_arg(ap, int);
+		lo = va_arg(ap, int);
 		va_end(ap);
+		new_val = ((long)(unsigned short)hi << 16)
+		        | (unsigned short)lo;
 		if (*(long *)(r + 12) == new_val)
 			return 0;
 		*(long *)(r + 12) = new_val;
@@ -8555,10 +8572,14 @@ static short l1676(unsigned char *rec, short cmd, ...)
 		/* cmd=44 — raw method ptr write (caller-supplied). */
 		va_list ap;
 		unsigned char *r = (unsigned char *)rec;
+		long hi, lo;
 		PROBE("L1676:cmd=44-setraw");
 		va_start(ap, cmd);
-		*(long *)r = va_arg(ap, long);
+		hi = va_arg(ap, int);
+		lo = va_arg(ap, int);
 		va_end(ap);
+		*(long *)r = ((long)(unsigned short)hi << 16)
+		           | (unsigned short)lo;
 		return 0;
 	}
 	default: break;
