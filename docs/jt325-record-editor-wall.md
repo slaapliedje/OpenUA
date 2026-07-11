@@ -44,9 +44,15 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 - **Prologue 0x22d8..0x242c — DONE** (staging: file-group setup, SCRIPT.GLB load
   into grp 24, point the staging cursor at g_a5_-22208 / grab field buffer
   g_a5_-11656, per-cmd stage init, control-block header).
-- **Tail 0x242c..0x30c2 — DEFERRED (this Phase).** The field-serialization +
-  interactive editor. Dispatch on `cmd` (byte `fp@(25)`) and `type` (word
-  `fp@(18)`):
+- **Tail 0x242c..0x30c2 — ✅ LIFTED (commit 482e008, 2026-07-10)** as
+  `jt325_tail` (split from the prologue so all ~40 callees are in scope; the
+  prologue tail-calls it). Builds clean (020 codegen 2022→2037), 129 tests
+  pass, menu boots. jt325 is no longer a provisional-0 stub — cmd 2/3 now enter
+  the live modal editor. **Live mouse-drive still PENDING** (Hatari/SDL isn't
+  injecting synthetic clicks in this environment even with `--mousewarp no`;
+  the in-game cursor never moves — orthogonal to the lift). Verified
+  block-by-block vs CODE_09.s. The field-serialization + interactive editor.
+  Dispatch on `cmd` (byte `fp@(25)`) and `type` (word `fp@(18)`):
   - **L242c** (cmd==3 fetch): calls JT[76], JT[447], **L1ae2** (field codec,
     fetch dir), then per-field descriptor math (18-byte entries in the -11656
     field buffer) + bitfield extract + L093a / L01a2.
@@ -61,7 +67,7 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | **A** cmd-3 field fetch | L242c 0x242c | if cmd==3: L1ae2 (fetch dir) + per-field descriptor math → pack value to row[10] |
 | **B** cmd→status map | L258e 0x258e | non-interactive: map cmd→status(fp-14)/flag(fp-35); type 1/33→L0d84; L1ae2 (encode) → L2adc |
 | **C** interactive editor UI | L2626 0x2626 | modal field-edit loop: rebuild list, draw name + "Page %2d", run driver, render+dispatch each widget row. nav JT[1]@0x27b2 {0=commit,1=page−,2=page+,4/27=cancel}; field-edit JT[1]@0x289a on row[16] {96,128..133}→pickers |
-| **merge** finalize/commit | L2adc 0x2adc | validate (mnemonic scan, width loops via L0052/L06e0); per-cmd COMMIT (jt257/jt255/jt256/jt406/jt321); type 1/33→L0e00; jt461(24); return status |
+| **merge** finalize/commit | L2adc 0x2adc | validate (mnemonic scan, width loops via L0052/L06e0); per-cmd COMMIT (jt257/jt255/jt256/jt406/jt321); type 1/33→L0e00; jt461(24); return status. NB **jt406 direction**: Mac stack fp@8=staging,fp@12=src → port `jt406(src, staging, count)` (reversed BlockMove ABI) — copies edited staging back to caller. |
 | **D** nested sub-editor | L30d4 0x30d4 | field-type 133: swaps -27932/-11660, -18485=5, own edit loop |
 
 ## Helper tree — worklist (mapped 2026-07-10)
@@ -171,10 +177,17 @@ does tbl[0]++/row+=18. base=fp@-16(record header); rec_ptr=fp@-12(field record).
    b. ✅ l100c (913, the field-byte codec, ALL 32 arms) — DONE.
    c. l1ae2 (566, the loop) — wires l100c/l3bbc + builds the field rows.
    (l30d4 deferrable — only field-type 133 reaches it.)
-5. the tail dispatch (blocks A/B/C/merge) → drop jt325's DEFERRED block.
+5. ✅ the tail dispatch (blocks A/B/C/merge) → jt325's DEFERRED block dropped;
+   lifted as `jt325_tail` (commit 482e008). **Phase D is COMPLETE.**
 
 ## Verification
 
-Headless mouse now works (`driver.sh click x y`, `--mousewarp no`;
-[[headless-arrows-and-roster-garbage]]) — so once the tail lands, drive Edit
-Modules → screenshot the field editor → click a field/module → confirm.
+Build clean (020 codegen 2022→2037), 129 tests pass, menu boots (9s, all
+glyphs). Transcription verified block-by-block vs CODE_09.s. **Live mouse-drive
+of the editor screens is PENDING**: in this session Hatari/SDL did NOT inject
+synthetic clicks (even with `--mousewarp no` + a tight move+click; the in-game
+cursor never moved and no menu button — not even the known-good PLAY THE GAME —
+responded). This contradicts [[headless-arrows-and-roster-garbage]]'s earlier
+"clicks now work" claim; the mouse harness is currently broken/environment-
+dependent. Live-drive Edit Modules → jt251 → the field editor when the harness
+mouse is sorted, or verify on real hardware (user's pointer).
