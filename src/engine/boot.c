@@ -22628,32 +22628,28 @@ static int   jt315(void)
 		case 2: menu_todo("Create New Design"); break;  /* CODE 8 */
 		case 3: menu_todo("Delete the Design"); break;  /* CODE 8 */
 		case 4: break;                   /* Unlock Editor — disabled */
-		case 5: menu_todo("Game Settings");     break;  /* JT[247] CODE 2 */
-		case 6:                          /* Edit Modules — the design editor */
-		/* Faithful to the Mac jt315 selection dispatch (CODE 22 JT[3]@0x5116):
-		 * menu item 6 -> L5262 -> L0004(6). l0004_22(6) seeds the master
-		 * context to mode 4 and runs the l0096 mode loop -> jt251 (the
-		 * design-action dispatcher / module picker), which navigates to the
-		 * GEO editor (jt243, mode 2 -> jt242 on a cell commit) and the other
-		 * modules. This turns on the whole (previously DCE'd) editor chain.
-		 * The Mac's post-call -18476/fp@(-7) redraw is covered by the outer
-		 * menu_run repaint on the next loop iteration. */
-		(void)l0004_22((short)6);
-		break;
-		case 7: menu_todo("Art Gallery");       break;  /* JT[1080] CODE 5 */
-		case 8:                          /* menu item 8 -> l0004_22(8) -> mode 8 */
-		/* Faithful to the Mac jt315 selection dispatch (CODE 22 JT[3]@0x5116):
-		 * menu items 6/7/8/9 -> L5262 -> L0004(item), i.e. the dispatch case IS
-		 * the l0004_22 arg (already proven for item 6 = Edit Modules). Item 8
-		 * seeds mode 8 and runs the l0096 loop -> jt269 -> jt248 module picker ->
-		 * the l040c List-Manager picker (probe-traced live: jt269->jt248->l040c->
-		 * jt266). It reaches a working editor over already-design-loaded data (no
-		 * area-block bring-up needed, unlike the map editor), so this replaces a
-		 * dead menu_todo stub with the live jt269 editor and exercises the whole
-		 * l040c dialog tree end-to-end. NB the picker currently shows a stale
-		 * "ART GALLERY" title (jt259 ran at boot) — cosmetic, tracked separately. */
-		(void)l0004_22((short)8);
-		break;
+		/* The four editor items dispatch through the Mac jt315 selection
+		 * handler (CODE 22 JT[3]@0x5116): menu items 6/7/8/9 -> L5262 ->
+		 * L0004(item), i.e. the selected jt453 index IS the l0004_22 arg.
+		 * Those indices come from the JT[452] allocation order in jt315's own
+		 * menu build (CODE 22, JT[447] reset then 3 JT[452] streams): decoding
+		 * the streams gives idx 6=Game Settings, 7=Edit Modules, 8=Art Gallery,
+		 * 9=Monster Editor (idx 4/10 are blank spacers). The port's g_mainmenu
+		 * DROPS those two spacers, so its array indices run one low from idx 6
+		 * up — hence each editor item maps to l0004_22(array_hit + 1):
+		 *   Game Settings  -> l0004_22(6) -> mode 4 (jt251, type-53 "Game
+		 *                     settings" record editor)
+		 *   Edit Modules   -> l0004_22(7) -> mode 2 (jt243, the map/GEO editor)
+		 *   Art Gallery    -> l0004_22(8) -> mode 8 (jt269 picture gallery;
+		 *                     probe-traced live jt269->jt248->l040c->jt266)
+		 *   Monster Editor -> l0004_22(9) -> mode 7 (jt263, NPC/monster record
+		 *                     editor)
+		 * (Earlier this was wired one-too-low, so "Edit Modules" opened Game
+		 * Settings and "Monster Editor" opened the Art Gallery.) */
+		case 5: (void)l0004_22((short)6); break;  /* Game Settings  */
+		case 6: (void)l0004_22((short)7); break;  /* Edit Modules   */
+		case 7: (void)l0004_22((short)8); break;  /* Art Gallery    */
+		case 8: (void)l0004_22((short)9); break;  /* Monster Editor */
 		case 9:                          /* Quit From Game */
 			return 0;
 		default:
