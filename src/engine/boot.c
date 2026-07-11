@@ -72591,6 +72591,7 @@ static void l300c(long holder)
  * dialog-stack link, etc. Lifted bottom-up. */
 static short l3244(short ch);                   /* CODE 10 — defined below */
 static short jt346(short flags, short *out);    /* CODE 8  — defined below */
+static short l419e(short id, short kind);       /* CODE 10 — defined below */
 
 /* JT[368] (CODE 8+0x6520) — map a spell/art level byte to its display
  * category: <6 -> 1, 6..10 -> 2, 11 -> 3, 12 -> 4, 13 -> 5, 14 -> 6, else 0.
@@ -72724,6 +72725,35 @@ static void l2d68_c10(unsigned char *dc)
 			flags = (unsigned char)(flags >> 1);
 		}
 	}
+}
+
+/* L31a0 (CODE 10+0x31a0) — predicate: is the currently-selected row a valid,
+ * available spell/art the party can pick? Resolve the row (l2ebe), gate on
+ * l419e (the row's kind/flags), then check the spell is castable now via
+ * jt346->jt368->jt362. Returns 1 if usable, else 0. */
+static short l31a0_c10(unsigned char *dc) __attribute__((unused));
+static short l31a0_c10(unsigned char *dc)
+{
+	long item = 0;                             /* fp@(-6) */
+	unsigned char *h = *(unsigned char **)dc;
+	short result = 0;                          /* fp@(-1) */
+
+	PROBE("L31a0");
+	(void)l2ebe((long)(uintptr_t)&item, (long)(uintptr_t)h, *(short *)(h + 14));
+	if (item != 0) {
+		unsigned char *it = (unsigned char *)(uintptr_t)item;
+		short m;
+		h = *(unsigned char **)dc;
+		m = (short)((h[7] & it[1]) & 0x3f);
+		if (l419e((short)it[0], m) != 0) {
+			short c;
+			it[1] &= (unsigned char)0x7f;
+			c = (short)(jt346((short)it[1], (short *)0) & 0xff);
+			if (jt362((long)0, jt368(c)) != 0)
+				result = 1;
+		}
+	}
+	return result;
 }
 
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
