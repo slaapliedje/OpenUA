@@ -79,8 +79,8 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | l348e | 0x348e / 125 | ✅ LIFTED | value picker, field-type 130 item (l3342 kind + jt188 filtered list) | — |
 | l3876 | 0x3876 / 240 | ✅ LIFTED | editor validation-error dialog, JT[1]@0x388e codes 1/2/3/256/257/258 | JT[1]@0x388e |
 | l06e0 | 0x06e0 / 203 | ✅ LIFTED | field WRITER — the l0052 counterpart (packs value → staging, dirty@2510) | JT[3]@0x071c 50..53 |
-| l093a | 0x093a / 365 | ⬜ mid | widget-row RENDER (depends on l0006_c09) | JT[3]@0x096a 3..10 |
-| **l01a2_c09** | 0x01a2 / 434 | ⬜ mid ⚠ | widget-row RECOMPUTE (row[16] switch mutates row[8]) | JT[3]@0x01e8 2..10 |
+| l093a | 0x093a / 365 | ✅ LIFTED | widget-row APPLY+write (l06e0), 4 dispatch tables | JT[3]@0x096a, @0x0a48; JT[1]@0x0bde, @0x0cae |
+| **l01a2_c09** | 0x01a2 / 434 | ✅ LIFTED | widget-row RECOMPUTE + display-text format (128..133) | JT[3]@0x01e8, @0x03b6, @0x0494 |
 | l1ae2 | 0x1ae2 / 566 | ⬜ BIG | the field CODEC: loop over layout SCRIPT, per-field-type dispatch; jt468(24)/jt1012 read SCRIPT.GLB, JT[452]×6 | JT[1]@0x1c4c (11), JT[1]@0x21a8 (4) |
 | l30d4 | 0x30d4 / 203 | ⬜ (defer) | nested type-133 sub-editor | own switches |
 
@@ -99,7 +99,7 @@ The Phase-D helper cluster lives with its CODE-9 siblings just before jt323
 
 1. ✅ l0052, l0006_c09, l0d84, l0e00, l376a, l3342, l348e (done); l0e2c=jt323,
    l224a=jt324 (already lifted). **All the leaves are cleared.**
-2. mid: ✅ l3876, ✅ l06e0 (done); l093a, l01a2_c09 (the two 18-byte-row helpers).
+2. mid: ✅ l3876, ✅ l06e0, ✅ l093a, ✅ l01a2_c09 — **the mid tier is cleared.**
 4. big: l1ae2 (+ its leaves l3bbc, l100c; decode JT[1]@0x1c4c/@0x21a8 first); l30d4 (defer).
 5. the tail dispatch (blocks A/B/C/merge) → drop jt325's DEFERRED block.
 
