@@ -72942,6 +72942,80 @@ static short l3066_c10(unsigned char *dc)
 	return result;
 }
 
+/* L06d8 (CODE 10+0x06d8) — dispatch the picker's current selection `sel`. First
+ * l06ae(holder[2]) classifies the holder (f); f<0 remaps sel (0->2, 3->0), f>=0
+ * with holder-flag dc[54]==2 remaps sel!=0 -> 2. Then dispatch: 0 = set next
+ * action (holder[4]=2 if kind 11 else 1); 1 = toggle holder[10] + redraw
+ * (l1396/l15c2), arm holder[55]; 2/3 = leave with holder[0]=18/16; 4 = append
+ * (l3066) or preview (l31a0); 5 = holder[0]=21; and for f==0 sel==2, reset. */
+static void l06d8_c10(unsigned char *dc, short sel) __attribute__((unused));
+static void l06d8_c10(unsigned char *dc, short sel)
+{
+	unsigned char *h = *(unsigned char **)dc;
+	signed char f;
+
+	PROBE("L06d8");
+	f = (signed char)l06ae(*(short *)(h + 2));
+	if (f < 0) {
+		if (sel == 0) {
+			sel = 2;
+			f = 0;
+		} else if (sel == 3) {
+			sel = 0;
+		}
+	} else if (f == 0 && dc[54] == 2 && sel != 0) {
+		sel = 2;
+	}
+
+	switch (sel) {                          /* JT[3] @0x073e (0..1) */
+	case 0:
+		*(short *)(h + 4) = (h[0] == 11) ? 2 : 1;
+		break;
+	case 1:
+		h[10]++;
+		h[10] = (unsigned char)(h[10] & 1);
+		l1396_c10(dc);
+		h[11] = 0xff;
+		l15c2_c10((long)(uintptr_t)dc, (short)h[6]);
+		h[55] = 1;
+		break;
+	default:                                /* L07ce */
+		if (f != 0) {
+			switch (sel) {          /* JT[3] @0x07de (2..5) */
+			case 2:
+				*(short *)(h + 4) = 1;
+				*(short *)h = 18;
+				break;
+			case 3:
+				*(short *)(h + 4) = 1;
+				*(short *)h = 16;
+				break;
+			case 4:
+				if (f < 0) {
+					(void)l3066_c10(dc);
+					h[55] = 1;
+				} else {
+					(void)l31a0_c10(dc);
+				}
+				break;
+			case 5:
+				if (f < 0) {
+					*(short *)(h + 4) = 1;
+					*(short *)h = 21;
+				}
+				break;
+			default:
+				break;
+			}
+		} else if (sel == 2) {          /* L0866 */
+			h[8] = 0;
+			*(short *)(h + 4) = -1;
+			h[7] &= (unsigned char)0x7f;
+		}
+		break;
+	}
+}
+
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
  * insn): jt168/jt169 List Manager over the record's art/spell rows,
  * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
