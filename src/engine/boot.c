@@ -1792,6 +1792,14 @@ static short jt325(short a8, long *rec, void *ctrl, short type,
  *   geo[10] word  sub-state       geo[12] word packed value
  * `result` (long*) receives packed display flags. Returns the new
  * geo sub-state. */
+/* Forward decls for jt263's NPC/monster-editor block (all defined below). */
+static void jt591(unsigned char *rec);          /* CODE 15 */
+static int  jt159(const char *prompt, short b); /* CODE 7  yes/no dialog */
+static int  jt574(long ctx);                    /* CODE 17 char-gen create */
+static int  jt556(long rec_l);                  /* CODE 17 */
+static void jt76(void);                         /* CODE 6  */
+static void jt471(long entry, short tag, void *bucket);  /* CODE 3 list dispose */
+static unsigned char l611c(short num);          /* CODE 10 */
 static short jt263(short state, long *result, void *ctxp)
 {
 	unsigned char *ctx;
@@ -1847,18 +1855,82 @@ static short jt263(short state, long *result, void *ctxp)
 		break;
 	}
 
-	/* L5c14 */
+	/* L5c14 — the NPC/monster record-editor block (asm 0x5c14..0x5e9c):
+	 * optionally re-create the NPC (char-gen), rebuild the record's readied
+	 * lists, then serialize it through the shared record editor JT[325]. */
 	if (!setup_done) {
-		/* DEFERRED — NPC editor + JT[325] record serialize
-		 * (asm 0x5c1c..0x5e9c). Drives the "Re-create NPC?" /
-		 * "change class?" dialogs (jt159/jt574/jt556/jt76/
-		 * jt557/jt575/jt150/l65be), the design-record field
-		 * walks (two JT[471] list loops + the @430 clear +
-		 * jt591), and finally JT[325](state, result, geo,
-		 * cmd 57|54, rec, mode, 450) to pack the 450-byte
-		 * record, with L611c(ctx[3]) on a success result.
-		 * Lift when the monster/NPC editor subsystem lands. */
-		(void)mode;
+		unsigned char *rec = *(unsigned char **)(ctx + 10);
+		short res325;
+		short i;
+
+		if (ctx[3] >= 112) {                     /* L5c1c — NPC (id >= 112) */
+			if (jt159(ua_strs_at(0x2fb6) /* "Re-create NPC?" */,
+			          (short)0) != 0
+			    && jt574((long)(uintptr_t)rec) != 0) {
+				/* re-create confirmed + jt574 (char-gen) succeeded */
+				if (rec[88] == 5
+				    && jt159(ua_strs_at(0x2fc6)
+				             /* "Try to change class?" */,
+				             (short)0) != 0) {
+					jt76();
+					if (jt556((long)(uintptr_t)rec) != 17) {
+						/* DEFERRED (0x5c9a..0x5d16): the
+						 * change-class animation — l65be +
+						 * jt150(1)/jt557-poll-loop/jt575 (the
+						 * 563-line CODE-17 char-gen roll
+						 * screen) + state restore. Rare
+						 * sub-path (NPC class 5); the -22731
+						 * loop-exit runs through jt557's
+						 * deeper input chain. Lift when jt575
+						 * lands. */
+					}
+				}
+				/* L5d1e — rebuild the readied-item band rec[430..439]
+				 * from the rec[4] list, dispose the rec[4]/rec[8]
+				 * design sub-lists (JT[471]), byte-order-fix (jt591). */
+				rec[397] = ctx[3];
+				rec[147] = 0xb2;
+				{
+					unsigned char *p = *(unsigned char **)(rec + 4);
+					for (i = 0; p != NULL; i++) {   /* L5d52 */
+						rec[430 + i] = p[4];
+						p = *(unsigned char **)(p + 6);
+					}
+					for (; i < 10; i++)             /* L5d82 */
+						rec[430 + i] = 0;
+				}
+				{                                       /* L5db2 */
+					unsigned char *p = *(unsigned char **)(rec + 4);
+					while (p != NULL) {
+						unsigned char *nx =
+						    *(unsigned char **)(p + 6);
+						jt471((long)(uintptr_t)p, (short)10,
+						      &g_a5_byte(-21152));
+						p = nx;
+					}
+				}
+				{                                       /* L5dec */
+					unsigned char *q = *(unsigned char **)(rec + 8);
+					while (q != NULL) {
+						unsigned char *nx =
+						    *(unsigned char **)q;
+						jt471((long)(uintptr_t)q, (short)62,
+						      &g_a5_byte(-21508));
+						q = nx;
+					}
+				}
+				jt591(rec);                             /* L5e14 */
+			}
+			res325 = jt325(state, result,           /* L5e22 — type 57 */
+			               (void *)(uintptr_t)geo, (short)57,
+			               (void *)rec, (short)mode, (short)450);
+		} else {                                 /* L5e54 — monster (id < 112) */
+			res325 = jt325(state, result,
+			               (void *)(uintptr_t)geo, (short)54,
+			               (void *)rec, (short)mode, (short)450);
+		}
+		if (res325 == 1)                         /* L5e84 */
+			(void)l611c(ctx[3]);
 	}
 
 	/* L5e9e — pack display flags into *result by the geo sub-state */
@@ -64941,6 +65013,27 @@ static void jt588(short id, unsigned char *rec)
 
 	jt21((long)(uintptr_t)rec);
 	jt906(rec);
+}
+
+/* JT[591] (CODE 15 + 0x0ce0) — byte-order fixup of a monster/NPC record's
+ * numeric fields for on-disk storage (records are stored little-endian; jt1180
+ * = word swap, jt1199 = long swap). Applies jt1180 to rec[82], rec[76/78/80]
+ * (the 3 word slots), rec[84], rec[86]; and jt1199 to the two long handles
+ * rec[68], rec[72]. Called by jt263's NPC-editor block before the jt325
+ * serialize. */
+static void jt591(unsigned char *rec)
+{
+	short i;
+
+	PROBE("jt591");
+	*(short *)(rec + 82) = jt1180(*(short *)(rec + 82));
+	for (i = 0; i <= 2; i++)
+		*(short *)(rec + i * 2 + 76) =
+		    jt1180(*(short *)(rec + i * 2 + 76));
+	*(long *)(rec + 68) = jt1199(*(long *)(rec + 68));
+	*(long *)(rec + 72) = jt1199(*(long *)(rec + 72));
+	*(short *)(rec + 84) = jt1180(*(short *)(rec + 84));
+	*(short *)(rec + 86) = jt1180(*(short *)(rec + 86));
 }
 
 /* JT[196] (CODE 7+0x4aee) — pack a C-string name into the 6-bit
