@@ -70091,8 +70091,28 @@ static void l1ae2(short a0, short a1, short a2, short flag20, short type)
 						row[13] = (unsigned char)jt455();
 						*(long *)(row + 4) = 0;
 						switch (rec_ptr[0]) {   /* JT[1]@0x1c4c */
-						/* TODO Phase D — widget-build arms 3-10,
-						 * 32-34 (L1c7c..L214e). See wall doc. */
+						case 3:         /* L1c7c — static label */
+							jt1089((short)(8000 + rec_ptr[3]),
+							       (short)(8000 + rec_ptr[4]),
+							       (short)140,
+							       ua_strs_at(0x325a) /* "%s" */,
+							       (const char *)&rec_ptr[6]);
+							row[13] = (unsigned char)-1;
+							row[15] = 0x8c;
+							break;
+						case 32:        /* L2112 */
+							row[13] = rec_ptr[0];
+							*(short *)(tbl + 542) = rec_ptr[3];
+							break;
+						case 33:        /* L2130 — panel draw */
+							row[13] = rec_ptr[0];
+							l3bbc(rec_ptr[3]);
+							break;
+						case 34:        /* L214e */
+							row[13] = rec_ptr[0];
+							break;
+						/* TODO Phase D — widget-build arms 4-10
+						 * (L1cce..L2076): jt452 DLItem menus. */
 						default:
 							break;
 						}
