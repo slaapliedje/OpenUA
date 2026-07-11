@@ -67,6 +67,7 @@ D=.claude/skills/run-falcon-port/driver.sh
 "$D" start                 # boot; returns when "menu: modal up" (~12s here)
 "$D" shots /tmp/frua.png   # STABLE-frame screenshot (waits for the frame to settle)
 "$D" key Down Return       # send keystrokes (XTEST) — see the Gotchas on input
+"$D" click 150 298         # CLICK the Falcon display at screenshot pixel (x,y) — works headless
 "$D" wait 'regex' [n]      # block until the conout log has >= n matches
 "$D" log                   # dump the conout log (engine printf / dbg_log)
 "$D" stop                  # kill Hatari (leaves Xvfb up for reuse)
@@ -114,11 +115,20 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
   your *outer* command times out mid-`start`, the disowned Hatari keeps running
   and holds the C: mount, stalling the next boot. Give `start` ≥150s of headroom,
   and `pkill -9 -x hatari` before retrying if a boot hangs.
-- **Mouse clicks do NOT inject.** `xdotool` keys reach Hatari (the driver's
-  `key`), but synthetic mouse *button* events don't register in Hatari's SDL.
-  The main menu and several screens are **mouse-only**, so you can render and
-  screenshot them but not click through. The dungeon walk responds to keyboard
-  (arrows/Esc/Return). To exercise a mouse-only control, ask the user to click.
+- **Mouse clicks DO work headless — via `driver.sh click <x> <y>`.** The key
+  is that the harness launches Hatari with `--mousewarp no`; with mouse-warp
+  ON (the Hatari default) the host pointer runs in relative/grab mode and
+  absolute positioning is consumed, so clicks land nowhere — which is why this
+  used to look impossible. With warp off, XTEST button events register the same
+  way keys do. `x y` are pixels **as seen in a `shots` screenshot** (the grab is
+  1:1 with the window), e.g. `click 150 298` hits PLAY THE GAME on the main
+  menu. Take a screenshot, read off the button's pixel coords, click, screenshot
+  again to confirm. This unblocks the mouse-only screens (main menu, party
+  screen, the design editor, the Training Hall). The dungeon walk also responds
+  to keyboard (arrows/Esc/Return).
+  - Caveat: use `driver.sh click` (windowed). `-f`/`--fullscreen` under Xvfb
+    zooms and crops the grab (you see only part of the screen) with no benefit —
+    windowed shows the whole 688-wide display at clean 1:1 coords.
 - **`shots` prints a harmless `[[: arithmetic syntax error` line** under Xvfb
   (the `magick compare` AE metric trips `set -o pipefail` when frames differ).
   It self-recovers and still saves a correct settled frame — ignore the stderr.

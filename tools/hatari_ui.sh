@@ -126,6 +126,7 @@ start)
 		--tos "$FALCON_TOS" \
 		$CONOUT_ARG \
 		--fast-forward yes \
+		--mousewarp no \
 		--joy0 none --joy1 none \
 		--cmd-fifo "$STATE/cmd.fifo" \
 		-d "$GEMDOS_DIR" \
@@ -180,6 +181,27 @@ key)
 		xdotool key "$k"
 		sleep 0.3
 	done
+	;;
+click)
+	# Click a point on the Falcon display headlessly. X Y are pixels as seen
+	# in a screenshot (window-relative, 1:1 with the grab). Requires the
+	# launch to have set `--mousewarp no` (baked into `start` above) — with
+	# mouse-warp ON, Hatari runs the host pointer in relative/grab mode and
+	# absolute positioning is consumed, so clicks land nowhere. XTEST button
+	# events DO register once warp is off (same mechanism as `key`). Optional
+	# 3rd arg = button number (default 1). e.g. `click 150 298` = PLAY THE GAME.
+	[[ $# -ge 2 ]] || die "click needs X Y (window-relative pixels, from a screenshot)"
+	cx="$1"; cy="$2"; btn="${3:-1}"
+	WID="$(cat "$STATE/wid" 2>/dev/null)"; [[ -n "$WID" ]] || WID="$(find_window)"
+	xdotool windowactivate --sync "$WID" 2>/dev/null \
+		|| { xdotool windowraise "$WID" 2>/dev/null; xdotool windowfocus "$WID" 2>/dev/null; }
+	eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)"
+	sx=$((${X:-0} + cx)); sy=$((${Y:-0} + cy))
+	xdotool mousemove "$sx" "$sy"
+	sleep 0.2
+	xdotool click "$btn"
+	sleep 0.3
+	echo "hatari_ui: click $btn at window($cx,$cy) = screen($sx,$sy)"
 	;;
 dbg)
 	# Drive the Hatari debugger headlessly over the command FIFO (needs the
