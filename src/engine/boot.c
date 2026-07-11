@@ -72592,6 +72592,25 @@ static void l300c(long holder)
 static short l3244(short ch);                   /* CODE 10 — defined below */
 static short jt346(short flags, short *out);    /* CODE 8  — defined below */
 
+/* JT[368] (CODE 8+0x6520) — map a spell/art level byte to its display
+ * category: <6 -> 1, 6..10 -> 2, 11 -> 3, 12 -> 4, 13 -> 5, 14 -> 6, else 0.
+ * (l31a0 uses it to bucket the selected row.) */
+static short jt368(short v)
+{
+	unsigned char x = (unsigned char)v;
+
+	PROBE("jt368");
+	if (x < 6)  return 1;
+	if (x <= 10) return 2;
+	switch (x) {
+	case 11: return 3;
+	case 12: return 4;
+	case 13: return 5;
+	case 14: return 6;
+	default: return 0;
+	}
+}
+
 /* L19ea (CODE 10+0x19ea) — push/pop the dialog frame `dc` on the global
  * dialog-context stack g_a5_-22290 (dc[70] is the "next" link). flag != 0
  * pushes (dc becomes the head); flag == 0 pops (head = dc's next). */
@@ -72664,6 +72683,45 @@ static void l0894_c10(unsigned char *dc)
 		if (l3244((short)h[8]) != 0) {
 			h = *(unsigned char **)dc;
 			h[8] &= (unsigned char)0xfe;
+		}
+	}
+}
+
+/* L2d68 (CODE 10+0x2d68) — dialog teardown: commit the edited fields back to
+ * the live play globals. Iterate the holder[7] flag bits (LSB-first): for
+ * holder[6]<6, when bit 1 fires, copy the party cell (dc[94..99] -> g_a5_-12288),
+ * the level byte (dc[92] -> player[19]), the three area cell-blocks (dc[74..] ->
+ * -12300[290..] per j) and dc[69] -> -12300[4], then jt351; for holder[6]>=6,
+ * bit 2 commits only player[19]/-12300[4] + jt351. */
+static void l2d68_c10(unsigned char *dc) __attribute__((unused));
+static void l2d68_c10(unsigned char *dc)
+{
+	unsigned char *h = *(unsigned char **)dc;
+	unsigned char flags = h[7];
+	short i, j;
+
+	PROBE("L2d68");
+	if (h[6] < 6) {
+		for (i = 0; i < 6; i++) {
+			if ((flags & 1) && i == 1) {
+				memcpy(&g_a5_byte(-12288), dc + 94, 6);
+				((unsigned char *)(uintptr_t)g_a5_long(-28006))[19] = dc[92];
+				for (j = 0; j < 3; j++)
+					memcpy((unsigned char *)(uintptr_t)g_a5_long(-12300)
+					       + j * 6 + 290, dc + j * 6 + 74, 6);
+				((unsigned char *)(uintptr_t)g_a5_long(-12300))[4] = dc[69];
+				jt351();
+			}
+			flags = (unsigned char)(flags >> 1);
+		}
+	} else {
+		for (i = 0; i < 5; i++) {
+			if ((flags & 1) && i == 2) {
+				((unsigned char *)(uintptr_t)g_a5_long(-28006))[19] = dc[92];
+				((unsigned char *)(uintptr_t)g_a5_long(-12300))[4] = dc[69];
+				jt351();
+			}
+			flags = (unsigned char)(flags >> 1);
 		}
 	}
 }
