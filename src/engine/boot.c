@@ -72585,6 +72585,89 @@ static void l300c(long holder)
 	}
 }
 
+/* ===== l040c monster-editor dialog helper cluster (CODE 10) =====
+ * l040c builds a 104-byte local "dialog context" (dc) whose fields these
+ * helpers read/write by offset: dc[0] = holder ptr, dc[70] = the -22290
+ * dialog-stack link, etc. Lifted bottom-up. */
+static short l3244(short ch);                   /* CODE 10 — defined below */
+static short jt346(short flags, short *out);    /* CODE 8  — defined below */
+
+/* L19ea (CODE 10+0x19ea) — push/pop the dialog frame `dc` on the global
+ * dialog-context stack g_a5_-22290 (dc[70] is the "next" link). flag != 0
+ * pushes (dc becomes the head); flag == 0 pops (head = dc's next). */
+static void l19ea_c10(unsigned char *dc, short flag) __attribute__((unused));
+static void l19ea_c10(unsigned char *dc, short flag)
+{
+	PROBE("L19ea");
+	if ((unsigned char)flag != 0) {
+		*(long *)(dc + 70) = g_a5_long(-22290);
+		g_a5_long(-22290) = (long)(uintptr_t)dc;
+	} else {
+		g_a5_long(-22290) = *(long *)(dc + 70);
+	}
+}
+
+/* L195a (CODE 10+0x195a) — draw the dialog backdrop. h[10]==0 (the list
+ * view): clear (jt84), frame the two panels (jt1173 clip + jt1001 GLIB
+ * blit, twice when jt1200()==3 = deep view); else (h[10]!=0) the plain
+ * jt79 backdrop. Present via jt117. */
+static void l195a_c10(unsigned char *h) __attribute__((unused));
+static void l195a_c10(unsigned char *h)
+{
+	PROBE("L195a");
+	if (h[10] == 0) {
+		jt84();
+		jt1173((short)8066, (short)8000, (short)8093, (short)8160);
+		jt1001((short)8032, (short)8012, (short)1, (short)8);
+		jt1193();
+		if (jt1200() == 3) {
+			jt1173((short)8080, (short)8000, (short)8093, (short)8160);
+			jt1001((short)8012, (short)8012, (short)1, (short)8);
+			jt1193();
+		}
+	} else {
+		jt79();
+	}
+	jt117();
+}
+
+/* L0894 (CODE 10+0x0894) — commit the dialog's current selection back to the
+ * record. l2ebe resolves the selected row (holder[14]) -> holder[8]; if a row
+ * came back, fold its flag byte into holder[7] (mask 0x3f, set bit 6 when
+ * holder[6]>=6) and recompute holder[6] via jt346; finally, for kind 9 with an
+ * l3244-flagged holder[8], clear holder[8] bit 0. `dc[0]` = the holder. */
+static void l0894_c10(unsigned char *dc) __attribute__((unused));
+static void l0894_c10(unsigned char *dc)
+{
+	long item = 0;                                   /* fp@(-4) */
+	unsigned char *h;
+
+	PROBE("L0894");
+	h = *(unsigned char **)dc;
+	h[8] = (unsigned char)l2ebe((long)(uintptr_t)&item,
+	                            (long)(uintptr_t)h, *(short *)(h + 14));
+	if (item != 0) {
+		unsigned char *it = (unsigned char *)(uintptr_t)item;
+		h = *(unsigned char **)dc;
+		h[7] &= (unsigned char)(it[1] & 0x3f);
+		h = *(unsigned char **)dc;
+		if (h[6] >= 6) {
+			h = *(unsigned char **)dc;
+			h[7] |= 0x40;
+		}
+		h = *(unsigned char **)dc;
+		h[6] = (unsigned char)jt346((short)h[7], (short *)0);
+	}
+	h = *(unsigned char **)dc;
+	if (h[6] == 9) {
+		h = *(unsigned char **)dc;
+		if (l3244((short)h[8]) != 0) {
+			h = *(unsigned char **)dc;
+			h[8] &= (unsigned char)0xfe;
+		}
+	}
+}
+
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
  * insn): jt168/jt169 List Manager over the record's art/spell rows,
  * jt266 (the CODE 10 giant) + jt267 row refresh, and CODE-local
