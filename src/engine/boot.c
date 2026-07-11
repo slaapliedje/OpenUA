@@ -1705,12 +1705,18 @@ static void  jt1014(short kind, const char *name, short group);
  * editor exit so the menu path keeps its resident MENU. */
 static short g_group24_script_active;
 
+/* The record-editor TAIL (asm 0x242c..0x30c2) is lifted as jt325_tail, placed
+ * with its CODE-9 sibling helpers in the Phase-D cluster (where every callee is
+ * already declared). The prologue below tail-calls it. */
+static short jt325_tail(long *rec, unsigned char *cb, short type,
+                        void *src, short cmd, short count,
+                        short flag20, short page);
+
 static short jt325(short a8, long *rec, void *ctrl, short type,
                    void *src, short cmd, short count)
 {
 	unsigned char *cb = (unsigned char *)ctrl;
 	unsigned char *stage;
-	short status = 0;            /* fp@(-14) — provisional, see tail */
 	short flag20;
 	short slot10;
 
@@ -1752,33 +1758,12 @@ static short jt325(short a8, long *rec, void *ctrl, short type,
 		*(short *)(cb + 8) = a8;
 	}
 
-	/* DEFERRED: the field-serialization tail (asm 0x242c..0x30c2,
-	 * ~1023 lines through ~40 entries). A trace shows this is not a
-	 * data-only codec but the interactive RECORD EDITOR — every one
-	 * of the 8 commands flows into one of:
-	 *
-	 *   L1ae2 (CODE 9 + 0x1ae2, 566 lines) — the field codec. It
-	 *     does not just copy fields; it reads each record's field-
-	 *     layout *script* and edits fields through the cmd-arg
-	 *     stream parser JT[452] (called 6x) plus JT[1012] (GLIB
-	 *     glyphs), JT[468], JT[423]. L0052 is its per-field
-	 *     descriptor accessor (a JT[3] type switch 50..53 =
-	 *     byte/word/.../long over the staging buffer g_a5_-11660).
-	 *
-	 *   L2626+ — the editor UI: JT[1089] formats the field/"Page
-	 *     %2d" strings, JT[155] runs the driver, JT[452] the menus.
-	 *
-	 * The return status word (fp@(-14)) is itself written in ~10
-	 * places across the editor body, so there is no faithful slice
-	 * that completes the read/write contract without lifting the
-	 * editor. This is a multi-session subsystem arc; the prologue
-	 * above stages the raw record into g_a5_-22208, which is the
-	 * data-meaningful step the store-direction callers rely on.
-	 * Record types seen in the tail: 1, 21, 33, 51, 52. */
-	(void)flag20; (void)slot10; (void)rec;
-
-	jt134((short)1);             /* file op end */
-	return status;
+	/* The field-serialization + interactive record-editor tail
+	 * (asm 0x242c..0x30c2) — block A (cmd-3 fetch), block B (cmd->status
+	 * map), the modal editor loop (L2626<->L2adc), field validation,
+	 * per-cmd commit, and finalize. Lifted as jt325_tail (below); it owns
+	 * the status word fp@(-14) and does the closing JT[134](1). */
+	return jt325_tail(rec, cb, type, src, cmd, count, flag20, slot10);
 }
 
 /* JT[263] (CODE 10 + 0x5acc) — monster/NPC setup state machine.
@@ -70417,6 +70402,419 @@ static void  jt323(short act)
 		jt1089((short)(x + 8000), (short)(y + 8000), color,
 		       ua_strs_at(0x324e) /* "%s" */, (const char *)(label + 6));
 	}
+}
+
+/* 68k `lsl.l #1 by (letter-'A')` used by the mnemonic-uniqueness scan: the
+ * shift count is taken mod 64 and counts >= 32 yield 0 (so a non-letter or NUL
+ * first char, which makes the count negative/large, contributes no bit). */
+static long jt325_bit(short letter)
+{
+	short sh = (short)((letter - 65) & 63);
+	return (sh < 32) ? (long)(1UL << sh) : 0L;
+}
+
+/* jt325_tail (CODE 9, asm 0x242c..0x30c2) — the record-editor TAIL: block A
+ * (cmd-3 field fetch into the field-row table), block B (cmd -> status/commit
+ * map), the interactive modal editor loop (L2626 draw+poll <-> L2adc merge),
+ * field validation (mnemonic uniqueness + record width), the per-cmd commit
+ * (jt257/jt255/jt256 + jt406 copy staging->caller), and finalize.
+ *
+ * Frame map (fp negative locals):  fp@(-4)=cb, fp@(-8)=tmp8(mask), fp@(-10)=page,
+ * fp@(-12)=sel, fp@(-14)=status, fp@(-16)=tmp16, fp@(-18)=dlg, fp@(-20)=flag20,
+ * fp@(-22)=wsum, fp@(-23)=drv, fp@(-26..-24)=desc{type,off_lo,off_hi},
+ * fp@(-30)=fbuf, fp@(-34)=p, fp@(-35)=commit. Args: rec=fp@(10), cb=fp@(14),
+ * type=fp@(18), src=fp@(20), cmd byte=fp@(25), count=fp@(26).
+ *
+ * ftab = g_a5_long(-11656) = the field-row / widget table (18-byte rows; word@0
+ * = row count). stg = g_a5_long(-11660) = the staging record buffer. */
+static short jt325_tail(long *rec, unsigned char *cb, short type,
+                        void *src, short cmd, short count,
+                        short flag20, short page)
+{
+	unsigned char *ftab, *stg, *row, *fbuf, *p;
+	short status = 0;             /* fp@(-14) */
+	short sel;                    /* fp@(-12) */
+	short tmp16 = 0;              /* fp@(-16) */
+	short dlg;                    /* fp@(-18) */
+	long  tmp8;                   /* fp@(-8) */
+	short wsum;                   /* fp@(-22) */
+	unsigned char drv;            /* fp@(-23) */
+	unsigned char desc[3];        /* fp@(-26,-25,-24): {type, off_lo, off_hi} */
+	unsigned char commit = 0;     /* fp@(-35) */
+	short i;
+
+	PROBE("jt325_tail");
+
+	/* ---- Block A (L242c): cmd-3 field FETCH into the last field row ---- */
+	if (cmd == 3 && *(short *)(cb + 4) != 0) {
+		jt76();
+		jt447();
+		l1ae2((short)0, (short)0, page, flag20, type);
+		ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+		row  = ftab + (*(short *)(cb + 4) - 1) * 18;
+		tmp8 = (row[16] == 128 || row[16] == 131) ? 1 : 32768;
+		if ((rec[0] & tmp8) != 0) {
+			if (row[16] == 128)
+				tmp8 = (rec[0] >> 4) & 63;
+			else if (row[16] == 131)
+				tmp8 = (rec[0] >> 4) & 255;
+			else
+				tmp8 = rec[0] & 255;
+			if (tmp8 == 255)
+				tmp8 = 0;
+			ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+			row  = ftab + (*(short *)(cb + 4) - 1) * 18;
+			*(long *)(row + 10) = tmp8;
+			l093a((short)(*(short *)(cb + 4) - 1));
+			l01a2_c09((short)(*(short *)(cb + 4) - 1));
+		}
+		*(short *)(cb + 4) = 0;              /* L2586 */
+	}
+
+	/* ---- Block B (L258e): cmd -> status/commit map ---- */
+	if (cmd == 0 || cmd == 4 || cmd == 5) {
+		status = 1;
+		commit = 1;
+	} else if (cmd == 6 || cmd == 7) {
+		status = 1;
+		commit = 0;
+	} else {                                 /* cmd 1/2/3 */
+		status = 0;
+		commit = 0;
+		if (type == 1 || type == 33)
+			l0d84();
+	}
+
+	/* ---- L25ea: run the encode pass, then merge ---- */
+	l1ae2((short)(cmd != 3 ? 1 : 0),
+	      (short)((cmd == 0 || cmd == 1) ? 1 : 0),
+	      (short)-1, flag20, type);
+	goto L2adc;
+
+	/* ==== Block C (L2626): interactive editor draw + modal poll ==== */
+L2626:
+	jt76();
+	jt447();
+	l1ae2((short)0, (short)0, page, flag20, type);
+	stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	jt1089((short)8005, (short)8004, (short)139, "%s",
+	       *(long *)(stg + 450));           /* the record name */
+	jt1089((short)8005, (short)8128, (short)139, "Page %2d", page);
+	drv = 0;
+	jt155((short)0, &drv);
+	if (*(short *)(stg + 454) > 1) {         /* >1 page -> enable page nav */
+		jt155((short)1, &drv);
+		jt155((short)2, &drv);
+	}
+	jt155((short)4, &drv);
+	jt148(g_a5_long(-13952),
+	      (char *)(uintptr_t)g_a5_long(-10628), (short)0);
+	jt452((short)7, (long)(uintptr_t)&jt324, (long)0);
+	jt324((short)-10, (short)0);
+	ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+	if (*(short *)(ftab + 4504) != 0)
+		jt323(*(short *)(ftab + 4504));
+	jt449((short)1);
+	jt117();
+	dlg = jt453((jt453_filter_t)0);          /* modal poll (blocks in l2d3e) */
+	jt324((short)-11, (short)0);
+	l30ba((short)0, (short)(jt455() - 1), (short)128);   /* JT[446] */
+	ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+	for (i = 0; i < *(short *)ftab; i++)     /* render each widget row */
+		l093a(i);
+	sel = jt152(dlg);
+	if (sel != 4) {
+		ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+		if (*(short *)(ftab + 542) != 0)
+			if (l3876(*(short *)(ftab + 542), (short)0) == 0)
+				goto L2adc;              /* pending field error -> reloop */
+	}
+	if (sel < 0)
+		goto L2826;
+	switch (sel) {                           /* nav dispatch (JT[1]@0x27ae) */
+	case 0:                                  /* commit / OK */
+		status = 1;
+		commit = 1;
+		goto L2adc;
+	case 1:                                  /* page - */
+		if (page <= 1) {
+			stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+			page = *(short *)(stg + 454);
+		} else {
+			page--;
+		}
+		goto L2adc;
+	case 2:                                  /* page + */
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		if (page >= *(short *)(stg + 454))
+			page = 1;
+		else
+			page++;
+		goto L2adc;
+	case 4:
+	case 27:                                 /* cancel */
+		status = 2;
+		commit = 0;
+		goto L2adc;
+	default:
+		goto L2adc;                      /* status stays 0 -> reloop */
+	}
+
+	/* ---- L2826: field-edit (poll returned a field cell, sel < 0) ---- */
+L2826:
+	ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+	for (i = 0; i < *(short *)ftab; i++) {
+		row = ftab + i * 18;
+		if ((short)(signed char)row[15] == dlg)
+			break;
+	}
+	if (i >= *(short *)ftab) {               /* row not found (L2ad6) */
+		status = 2;
+		goto L2adc;
+	}
+	row = ftab + i * 18;
+	if (row[14] != 8)                        /* not an editable cell */
+		goto L2adc;
+	status = 3;
+	switch (row[16]) {                       /* field-edit dispatch (JT[1]@0x2896) */
+	case 96:
+		*(short *)(cb + 10) = 6;
+		*(short *)(cb + 12) = (short)(
+			(l0006_c09((unsigned char *)(uintptr_t)
+			           (*(long *)(row + 6))) << 8)
+			| *(long *)(row + 10));
+		commit = 1;
+		if (type == 51 || type == 52)
+			*(short *)(cb + 6) = page;
+		goto L2aca;
+	case 128:
+		*(short *)(cb + 10) = 11;
+		*(short *)(cb + 12) = (short)((*(long *)(row + 10) << 4) + 4096);
+		*(short *)(cb + 4) = i + 1;
+		goto L2aca;
+	case 129:
+		tmp16 = l3342(*(short *)(row + 12), (short)1);
+		if (tmp16 >= 0) {
+			ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+			row = ftab + i * 18;
+			*(long *)(row + 10) = (long)tmp16;
+			l093a(i);
+		}
+		status = 0;
+		goto L2aca;
+	case 130:
+		tmp16 = l348e(*(short *)(row + 12));
+		if (tmp16 >= 0) {
+			ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+			row = ftab + i * 18;
+			*(long *)(row + 10) = (long)tmp16;
+			l093a(i);
+		}
+		status = 0;
+		goto L2aca;
+	case 131:
+		*(short *)(cb + 10) = 11;
+		*(short *)(cb + 12) = (short)((*(long *)(row + 10) << 4) + 6);
+		*(short *)(cb + 4) = i + 1;
+		goto L2aca;
+	case 132:
+		tmp16 = l376a(*(short *)(row + 12));
+		if (tmp16 >= 0) {
+			ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+			row = ftab + i * 18;
+			*(long *)(row + 10) = (long)tmp16;
+			l093a(i);
+		}
+		status = 0;
+		goto L2aca;
+	case 133:
+		l30d4();
+		status = 0;
+		goto L2aca;
+	default:
+		*(short *)(cb + 10) = 8;
+		*(short *)(cb + 12) = (short)(
+			((row[16] << 8) & 0xff00) | *(long *)(row + 10));
+		*(short *)(cb + 4) = i + 1;
+		goto L2aca;
+	}
+
+L2aca:
+	*(short *)(cb + 2) = page;
+	/* fall through to L2adc */
+
+	/* ==== L2adc: merge / dispatch out of the modal loop ==== */
+L2adc:
+	if (status == 0)
+		goto L2626;                      /* keep editing */
+	if (commit == 0)
+		goto L2fa2;                      /* no store -> straight to commit block */
+
+	/* ---- Validation 1 (L2aec): mnemonic first-letter uniqueness ---- */
+	stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	if (*(short *)(stg + 2474) != 0) {
+		fbuf = stg + (*(short *)(stg + 2474) - 1) * 250 + 474;
+		tmp8 = 0;                        /* bitmask of used first-letters */
+		fbuf[0] = 0;
+		for (i = 0; i < 5; i++) {
+			short L;
+			jt404((char *)fbuf, "^");
+			stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+			p = stg + (i + 1) * 40;
+			for (; *p != 0; p++)     /* strip '^'/'~' markers to spaces */
+				if (*p == 94 || *p == 126)
+					*p = 32;
+			p = stg + (i + 1) * 40;
+			if (*p != 0) {
+				if (jt391(*p) != 0 &&
+				    (tmp8 & jt325_bit(jt422(*p))) == 0)
+					goto L2be6;      /* alpha + unused -> record it */
+				/* non-alpha, or letter already used: conflict */
+				if (type != 21) {
+					l3876((short)258, (short)(i + 1));
+					status = 0;
+					goto L2626;
+				}
+L2be6:
+				tmp8 |= jt325_bit(jt422(*p));
+				jt404((char *)fbuf, (char *)p);
+			}
+			/* trim trailing spaces from the accumulator */
+			L = jt423((char *)fbuf);
+			while (L > 0 && fbuf[L - 1] == 32) {
+				fbuf[L - 1] = 0;
+				L = jt423((char *)fbuf);
+			}
+		}
+		if (jt423((char *)fbuf) > 39 && type != 21) {
+			l3876((short)257, (short)(jt423((char *)fbuf) - 39));
+			status = 0;
+			goto L2626;
+		}
+		if (jt423((char *)fbuf) <= 5)
+			fbuf[0] = 0;
+	}
+
+	/* ---- Validation 2 (L2ca0): total record width fits storage ---- */
+	if (status == 1 && cmd != 0 && cmd != 5) {
+		wsum = 0;
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		for (i = 0; i < *(short *)(stg + 456); i++) {
+			short off;
+			desc[0] = 51;
+			stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+			off = *(short *)(stg + 458 + i * 2);
+			desc[1] = (unsigned char)(off & 0xff);
+			desc[2] = (unsigned char)((off >> 8) & 0xff);
+			if (l0052(desc) != 0) {
+				ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+				l4fbe((void *)(uintptr_t)g_a5_long(-13034),
+				      (short)(l0052(desc) - 1),
+				      (char *)(ftab + 3924));
+				wsum -= jt423((char *)(ftab + 3924));
+			}
+			stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+			wsum += jt423((char *)(stg + i * 250 + 474));
+		}
+		wsum += (short)(jt194(g_a5_long(-13034), &tmp16) + 2);
+		if (wsum > tmp16) {
+			l3876((short)256, (short)0);
+			status = 0;
+			goto L2626;
+		}
+	}
+
+	/* ---- Field write-back loop (L2daa): commit edited item strings ---- */
+	stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	for (i = 0; i < *(short *)(stg + 456); i++) {
+		short off;
+		desc[0] = 51;
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		off = *(short *)(stg + 458 + i * 2);
+		desc[1] = (unsigned char)(off & 0xff);
+		desc[2] = (unsigned char)((off >> 8) & 0xff);
+		if (cmd == 5) {
+			if (l0052(desc) != 0)
+				jt226(g_a5_long(-13034), (short)l0052(desc));
+			continue;                /* L2f34 */
+		}
+		ftab = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+		if (l0052(desc) != 0)
+			l4fbe((void *)(uintptr_t)g_a5_long(-13034), (short)(l0052(desc) - 1),
+			      (char *)(ftab + 3924));
+		else
+			ftab[3924] = 0;
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		if (jt396((char *)(ftab + 3924),
+		          (char *)(stg + i * 250 + 474)) != 0)
+			continue;                /* unchanged -> L2f34 */
+		if (l0052(desc) != 0) {
+			jt226(g_a5_long(-13034), (short)l0052(desc));
+			l06e0(desc, (long)0);
+		}
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		if (stg[i * 250 + 474] != 0) {
+			tmp16 = jt230(g_a5_long(-13034),
+			              (long)(uintptr_t)(stg + i * 250 + 474));
+			if (tmp16 <= 0) {
+				if (status == 1 && cmd != 0) {
+					l3876((short)256, (short)0);
+					status = 0;
+					goto L2626;
+				}
+				tmp16 = 0;
+			}
+		} else {
+			tmp16 = 0;
+		}
+		l06e0(desc, (long)tmp16);
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		stg[2510] = 1;                   /* dirty */
+	}
+
+	if (cmd == 5) {
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		for (i = 0; i < *(short *)(stg + 2476); i++)
+			jt257(*(short *)(stg + i * 2 + 2478));
+	}
+	/* Copy the edited staging record back to the caller buffer (`src`).
+	 * Port jt406(dst,src,count) reverses the Mac stack: Mac BlockMove(
+	 * fp@8=staging, fp@12=src) -> port jt406(src, staging, count). */
+	jt406(src, (void *)(uintptr_t)g_a5_long(-11660), count);
+	stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	if (stg[2510] != 0)
+		jt321();
+
+	/* ---- L2fa2: per-cmd 6/7 finalize passes ---- */
+L2fa2:
+	if (cmd == 6) {
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		for (i = 0; i < *(short *)(stg + 2476); i++)
+			jt257(*(short *)(stg + i * 2 + 2478));
+		goto L308e;
+	}
+	if (cmd == 7) {
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		for (i = 0; i < *(short *)(stg + 2476); i++) {
+			short off = *(short *)(stg + i * 2 + 2478);
+			jt255(off, (short)stg[off]);
+		}
+		stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		for (i = 0; i < *(short *)(stg + 456); i++) {
+			short off = *(short *)(stg + i * 2 + 458);
+			jt256((short)(stg[off] + (stg[off + 1] << 8)));
+		}
+	}
+
+	/* ---- L308e: type-1/33 finalize, release SCRIPT group, return ---- */
+L308e:
+	if (type == 1 || type == 33)
+		l0e00();
+	jt461((short)24);
+	if (status != 3)
+		*(short *)(cb + 10) = *(short *)(cb + 8);
+	jt134((short)1);                         /* L30c2 — file op end */
+	return status;
 }
 
 /* L17e2 (CODE 5+0x17e2) — the resource-file opener. Build the path (L16c6),
