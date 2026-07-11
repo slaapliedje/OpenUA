@@ -72593,6 +72593,7 @@ static short l3244(short ch);                   /* CODE 10 — defined below */
 static short jt346(short flags, short *out);    /* CODE 8  — defined below */
 static short l419e(short id, short kind);       /* CODE 10 — defined below */
 static void  l2f8e_c10(short kind);             /* CODE 10 — defined below */
+static short l6238(short id, long dst);         /* CODE 10 — defined below */
 
 /* JT[368] (CODE 8+0x6520) — map a spell/art level byte to its display
  * category: <6 -> 1, 6..10 -> 2, 11 -> 3, 12 -> 4, 13 -> 5, 14 -> 6, else 0.
@@ -72898,6 +72899,47 @@ static void l2a06_c10(unsigned char *dc)
 			flags = (unsigned char)(flags >> 1);
 		}
 	}
+}
+
+/* L3066 (CODE 10+0x3066) — resolve the selected row (l2ebe), validate + normalize
+ * its name (l6238 unpack -> jt196 re-pack into item[2..]), and if it is a
+ * castable spell now (jt346->jt368->jt362) append it to the picker list via
+ * jt349 (method jt261/jt262 for a kind-21 holder, else none). Returns 1 if it
+ * was appended. */
+static short l3066_c10(unsigned char *dc) __attribute__((unused));
+static short l3066_c10(unsigned char *dc)
+{
+	long item = 0;                  /* fp@(-22) */
+	unsigned char name[18];         /* fp@(-18) */
+	unsigned char *h = *(unsigned char **)dc;
+	short result = 0;               /* fp@(-1) */
+
+	PROBE("L3066");
+	(void)l2ebe((long)(uintptr_t)&item, (long)(uintptr_t)h, *(short *)(h + 14));
+	if (item != 0) {
+		unsigned char *it = (unsigned char *)(uintptr_t)item;
+		if (l6238((short)it[0], (long)(uintptr_t)name) != 0) {
+			short c, cat;
+			jt196((long)(uintptr_t)name, (long)(uintptr_t)(it + 2));
+			it[1] &= (unsigned char)~0x40;
+			c = (short)(jt346((short)it[1], (short *)0) & 0xff);
+			cat = jt368(c);
+			if (jt362((long)0, cat) != 0) {
+				long proc;
+				result = 1;
+				if (h[2] == 21)
+					proc = (h[9] != 0)
+					     ? (long)(uintptr_t)&jt261
+					     : (long)(uintptr_t)&jt262;
+				else
+					proc = 0;
+				jt349(*(long *)(dc + 56), (short)h[6], (short)h[7],
+				      (short)h[16], (short)0,
+				      (short)((h[10] == 0) ? -1 : 0), proc);
+			}
+		}
+	}
+	return result;
 }
 
 /* L040c (CODE 10+0x40c) — the monster-editor MODAL DIALOG loop (222
