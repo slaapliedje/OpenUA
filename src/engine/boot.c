@@ -72592,6 +72592,7 @@ static void l300c(long holder)
 static short l3244(short ch);                   /* CODE 10 — defined below */
 static short jt346(short flags, short *out);    /* CODE 8  — defined below */
 static short l419e(short id, short kind);       /* CODE 10 — defined below */
+static void  l2f8e_c10(short kind);             /* CODE 10 — defined below */
 
 /* JT[368] (CODE 8+0x6520) — map a spell/art level byte to its display
  * category: <6 -> 1, 6..10 -> 2, 11 -> 3, 12 -> 4, 13 -> 5, 14 -> 6, else 0.
@@ -72812,6 +72813,89 @@ static void l1396_c10(unsigned char *dc)
 			jt1089((short)8076,
 			       (short)(8004 + (((38 - jt423(buf)) / 2) << 2)),
 			       (short)135, ua_strs_at(0x2d56) /* "%s" */, buf);
+		}
+	}
+}
+
+/* L2a06 (CODE 10+0x2a06) — dialog SETUP: snapshot the play state into the dialog
+ * context (dc) and stand up a small preview room so the 3D view shows the spell/
+ * art in context. The inverse of l2d68 (teardown). Iterates the holder[7] flag
+ * bits: for holder[6]<6 bit 1 saves party cell (-12288 -> dc[94..99]) + area
+ * cells (-12300[290..] -> dc[74..], then jt399-clear) and paints a 3-cell room
+ * (position-dependent wall nibbles) + dc[68]=-12300[4], -12300[4]=1, jt351; for
+ * holder[6]>=6 bit 2 saves only player[19]->dc[92] and dc[68]=-12300[4]. */
+static void l2a06_c10(unsigned char *dc) __attribute__((unused));
+static void l2a06_c10(unsigned char *dc)
+{
+	unsigned char *h = *(unsigned char **)dc;
+	unsigned char flags = h[7];
+	short i, j, k;
+
+	PROBE("L2a06");
+	if (h[6] < 6) {
+		for (i = 0; i < 6; i++) {
+			if ((flags & 1) && i == 1) {
+				unsigned char *ds;
+				if (*(short *)(uintptr_t)g_a5_long(-12300) == 0)
+					l2f8e_c10((short)5);
+				dc[92] = ((unsigned char *)(uintptr_t)
+				          g_a5_long(-28006))[19];
+				((unsigned char *)(uintptr_t)g_a5_long(-28006))[19] = 5;
+				memcpy(dc + 94, &g_a5_byte(-12288), 6);
+				g_a5_byte(-12287) = 0;
+				g_a5_byte(-12288) = 0;
+				g_a5_byte(-12286) = 2;
+				for (j = 0; j < 3; j++) {
+					ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+					memcpy(dc + j * 6 + 74, ds + j * 6 + 290, 6);
+					jt399(ds + j * 6 + 290, (short)6, (short)0);
+				}
+				for (j = 0; j < 3; j++) {
+					ds = (unsigned char *)(uintptr_t)g_a5_long(-12300)
+					     + j * 6 + 290;
+					for (k = 0; k < 3; k += 2) {
+						unsigned char *c = ds + k;
+						if (k == 0 && (j == 0 || j == 2)) {
+							c[0] = (unsigned char)((c[0] & 0xf0) | 4);
+							c[0] = (unsigned char)((c[0] & 0x0f) | 0);
+						} else if (k == 2 && j == 1) {
+							c[0] = (unsigned char)((c[0] & 0xf0) | 3);
+							c[0] = (unsigned char)((c[0] & 0x0f) | 0);
+						} else {
+							c[0] = (unsigned char)((c[0] & 0xf0) | 1);
+							c[0] = (unsigned char)((c[0] & 0x0f) | 224);
+						}
+					}
+					if (j == 2) {
+						unsigned char *c = ds + 1;
+						c[0] = (unsigned char)((c[0] & 0xf0) | 4);
+						c[0] = (unsigned char)((c[0] & 0x0f) | 0);
+					}
+					{
+						unsigned char *c = ds + 5;
+						c[0] = (unsigned char)((c[0] & 0xfc) | 1);
+					}
+				}
+				ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+				*(short *)(dc + 68) = ds[4];
+				ds[4] = 1;
+				jt351();
+			}
+			flags = (unsigned char)(flags >> 1);
+		}
+	} else {
+		for (i = 0; i < 5; i++) {
+			if ((flags & 1) && i == 2) {
+				unsigned char *ds;
+				if (*(short *)(uintptr_t)g_a5_long(-12300) == 0)
+					l2f8e_c10((short)5);
+				dc[92] = ((unsigned char *)(uintptr_t)
+				          g_a5_long(-28006))[19];
+				((unsigned char *)(uintptr_t)g_a5_long(-28006))[19] = 5;
+				ds = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+				*(short *)(dc + 68) = ds[4];
+			}
+			flags = (unsigned char)(flags >> 1);
 		}
 	}
 }
