@@ -81,8 +81,22 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | l06e0 | 0x06e0 / 203 | ✅ LIFTED | field WRITER — the l0052 counterpart (packs value → staging, dirty@2510) | JT[3]@0x071c 50..53 |
 | l093a | 0x093a / 365 | ✅ LIFTED | widget-row APPLY+write (l06e0), 4 dispatch tables | JT[3]@0x096a, @0x0a48; JT[1]@0x0bde, @0x0cae |
 | **l01a2_c09** | 0x01a2 / 434 | ✅ LIFTED | widget-row RECOMPUTE + display-text format (128..133) | JT[3]@0x01e8, @0x03b6, @0x0494 |
-| l1ae2 | 0x1ae2 / 566 | ⬜ BIG | the field CODEC: loop over layout SCRIPT, per-field-type dispatch; jt468(24)/jt1012 read SCRIPT.GLB, JT[452]×6 | JT[1]@0x1c4c (11), JT[1]@0x21a8 (4) |
+| l1ae2 | 0x1ae2 / 566 | ⬜ BIG | the SCRIPT record LOOP: outer loop over field records, matches record type, inner field loop dispatches JT[1]@0x1c4c (types 3-10,32-34) building the 18-byte rows + drawing labels (jt1089)/menus (jt452) | JT[1]@0x1c4c (11), JT[1]@0x21a8 (4) |
+| ↳ l100c | 0x100c / **913** | ⬜ BIG | **the field-byte CODEC** — JT[3]@0x109a on the field-byte type (48..79, 32 arms): parse/serialize each field value from the SCRIPT stream. Called 1× by l1ae2 @0x218a. Bigger than l1ae2 itself. | JT[3]@0x109a 48..79 |
+| ↳ l3bbc | 0x3bbc / 330 | ⬜ | picture/item/class PANEL drawer — JT[3]@0x3bc8 (1..8): combat-pic frames (jt118×N loop), item-icon grid (jt28/jt479/jt184/jt444, like l01a2 c130), "%2d"/class rows. Called 1× by l1ae2 @0x2146. | JT[3]@0x3bc8 1..8 |
 | l30d4 | 0x30d4 / 203 | ⬜ (defer) | nested type-133 sub-editor | own switches |
+
+> **l1ae2 SCOPE (measured 2026-07-10):** "l1ae2" is really a ~1800-line
+> subsystem = the loop (566) + l100c the field codec (**913**) + l3bbc the
+> drawer (330); l100c/l3bbc are exclusive to l1ae2. This is the LAST and by far
+> the LARGEST block of Phase D — a focused multi-session effort of its own; every
+> other helper is done. Recon complete: JT[1]@0x1c4c (11 arms: 3-10,32-34),
+> JT[1]@0x21a8 (3,32,33,34→one arm), l100c JT[3]@0x109a (48..79), l3bbc
+> JT[3]@0x3bc8 (1..8) all decoded. CAVEAT to verify first: **jt118** (l3bbc's
+> blitter, 14 sites) is itself `__attribute__((unused))` — confirm its 5-arg
+> order (page,top,left,idx,handle) against CODE 6+0x37d6 before trusting l3bbc's
+> `jt118(336,x,23,0,picbuf)` mapping; page=336 looks like a piece/coord id, not
+> a pointer, so the port lift's arg order may need a second look.
 
 > **Collision traps (confirmed):** bare `l01a2` is a PROBE stub for jt1079 → use
 > **`l01a2_c09`**. `l0006`/`l0006_c15`/`l0006_c17` exist → **`l0006_c09`** (done).
@@ -100,7 +114,11 @@ The Phase-D helper cluster lives with its CODE-9 siblings just before jt323
 1. ✅ l0052, l0006_c09, l0d84, l0e00, l376a, l3342, l348e (done); l0e2c=jt323,
    l224a=jt324 (already lifted). **All the leaves are cleared.**
 2. mid: ✅ l3876, ✅ l06e0, ✅ l093a, ✅ l01a2_c09 — **the mid tier is cleared.**
-4. big: l1ae2 (+ its leaves l3bbc, l100c; decode JT[1]@0x1c4c/@0x21a8 first); l30d4 (defer).
+4. big — l1ae2 subsystem (~1800 lines, its own multi-session arc):
+   a. l3bbc (330, drawer) — verify jt118 arg order first.
+   b. l100c (913, the field-byte codec, 32 arms JT[3]@0x109a) — the critical path.
+   c. l1ae2 (566, the loop) — wires l100c/l3bbc + builds the field rows.
+   (l30d4 deferrable — only field-type 133 reaches it.)
 5. the tail dispatch (blocks A/B/C/merge) → drop jt325's DEFERRED block.
 
 ## Verification
