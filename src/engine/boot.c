@@ -68911,6 +68911,9 @@ static short jt1077(short lo, short hi, long deflt, short width)
 static short jt409(const char *s, short len, short ch);   /* defined lower */
 static short jt454(short item, short cmd);                /* defined lower */
 static void  jt323(short act);                            /* defined just below */
+static unsigned char jt961(void);                         /* defined lower (CODE 21) */
+static void          jt959(void);                         /* defined lower (CODE 21) */
+static short         l03b2(short level, short class_, unsigned char *out); /* =jt958 */
 
 /* L0052 (CODE 9 + 0x0052) — typed field READER over the record staging buffer
  * (g_a5_-11660). `desc` is a field descriptor: desc[0] = field type, desc[1..2]
@@ -70265,6 +70268,91 @@ static void l1ae2(short a0, short a1, short a2, short flag20, short type)
 				rec_ptr += rec_ptr[1] | (rec_ptr[2] << 8); /* L2202 — skip */
 			}
 		} while (rec_ptr[0] != 0);      /* L2228 */
+	}
+}
+
+/* L30d4 (CODE 9 + 0x30d4) — the nested SPELL-MEMORIZATION sub-editor, reached
+ * from the tail's field-type-133 handler. Swaps the stage buffer into g_a5_-27932
+ * and sets design mode (-18485=5), then runs its own modal loop: count the
+ * memorized spells in stage[198..338], draw "%d Spells Memorized", offer the
+ * memorize/forget/exit actions (jt155), poll (jt182). action 0 = memorize (pick a
+ * spell via jt595, gated by jt961 + the -16906 spell table via l03b2=jt958 when
+ * stage[397]>=112; store it in the first free slot, "Memorized"); 1 = forget (pick
+ * + clear its slot); else exit (restore -27932/-18485 + return). jt959 per loop. */
+static void l30d4(void) __attribute__((unused));
+static void l30d4(void)
+{
+	long           old = g_a5_long(-27932);   /* fp@-4 — saved -27932 */
+	unsigned char *stage;
+	unsigned char  flag;    /* fp@-19 — jt155 counter */
+	short          sel;     /* fp@-6  — jt595 out */
+	unsigned char  pick;    /* fp@-9  — jt595 out */
+	unsigned char  jout;    /* fp@-20 — l03b2 out */
+	short          count, action, fp8;
+	unsigned char *p;
+
+	PROBE("L30d4");
+	g_a5_long(-27932) = g_a5_long(-11660);    /* swap in the stage buffer */
+	g_a5_byte(-18485) = 5;                     /* design/edit mode */
+
+	for (;;) {                                 /* L30ee <-> L333a */
+		stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+		jt76();
+		count = 0;
+		for (p = stage + 338; p >= stage + 198; p--)   /* count memorized spells */
+			if (*p != 0)
+				count++;
+		jt1089((short)8024, (short)8024, (short)135,
+		       ua_strs_at(0x327a) /* "%d Spells Memorized" */, count);
+		flag = 0;
+		if (count < 140) jt155((short)0, &flag);
+		if (count != 0) jt155((short)1, &flag);
+		jt155((short)2, &flag);
+		action = (short)(jt182((const char *)(uintptr_t)g_a5_long(-13952),
+		                       g_a5_long(-10720), (short)0, (short)1) & 0xff);
+
+		if (action == 0) {                     /* L31b0 — MEMORIZE */
+			if (stage[397] >= 112)
+				jt83();
+			while (count < 140) {          /* L32b6 */
+				if (stage[397] < 112) {                /* L3248 */
+					fp8 = jt595((short)12, (short)6, &sel, &pick) & 0xff;
+				} else {                                /* L31ca */
+					unsigned char *e;
+					if (!jt961())
+						break;
+					fp8 = jt595((short)1, (short)2, &sel, &pick) & 0xff;
+					if (fp8 != 0) {
+						e = (unsigned char *)&g_a5_byte(-16906)
+						    + fp8 * 16;
+						if (l03b2((short)e[1], (short)e[0], &jout) == 0)
+							continue;          /* -> L32b6 */
+					}
+				}
+				if (fp8 == 0)                           /* L3268 — cancelled */
+					break;
+				for (p = stage + 338; p >= stage + 198; p--)
+					if (*p == 0) {                  /* first free slot */
+						*p = (unsigned char)fp8;
+						jt42(ua_strs_at(0x328e) /* "Memorized" */);
+						count++;
+						break;
+					}
+			}
+		} else if (action == 1) {              /* L3322 -> L32c4 — FORGET */
+			while (count > 0) {
+				fp8 = jt595((short)0, (short)1, &sel, &pick) & 0xff;
+				if (fp8 == 0)
+					break;
+				for (p = stage + 338; p >= stage + 198; p--)
+					if (*p == fp8) { *p = 0; count--; break; }
+			}
+		} else {                               /* L332a — EXIT */
+			g_a5_long(-27932) = old;
+			g_a5_byte(-18485) = 0;
+			return;
+		}
+		jt959();                               /* L3336 */
 	}
 }
 

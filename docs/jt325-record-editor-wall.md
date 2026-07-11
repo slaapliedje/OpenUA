@@ -85,7 +85,7 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | ↳ l100c | 0x100c / 913 | ✅ LIFTED | **the field-byte CODEC** — JT[3]@0x109a (48..79, ALL 32 arms). Sig `l100c(desc,rec,w2,w3,mode)`; header parse + field loop; label/banner/numeric/cell/value/string/flag-bit field types. Called 1× by l1ae2. | JT[3]@0x109a 48..79 |
 | ↳ l3bbc | 0x3bbc / 330 | ✅ LIFTED | picture/item/class PANEL drawer — JT[3]@0x3bc8 (1..8): combat-pic frames (jt118×N loop), item-icon grid (jt28/jt479/jt184/jt444, like l01a2 c130), "%2d"/class rows. jt118 arg order VERIFIED (page ignored; port jt118(NULL,top=B,left=A,idx=C,handle) = Mac fp@10/fp@8/fp@12/fp@16). | JT[3]@0x3bc8 1..8 |
 | jt373 | CODE8+0x4 / ~590 | 🔨 WIP | list-widget LDEF (arm 7's method) — head+msg switch+exit+default lifted; 10 handlers + local helper tree pending | JT[1]@0x003c (16 msgs) |
-| l30d4 | 0x30d4 / 203 | ⬜ (defer) | nested type-133 sub-editor | own switches |
+| l30d4 | 0x30d4 / 203 | ✅ LIFTED | nested type-133 SPELL-MEMORIZATION sub-editor (modal: memorize/forget/exit) | JT[3]@0x31a6 |
 
 > **l1ae2 SCOPE (measured 2026-07-10):** "l1ae2" is really a ~1800-line
 > subsystem = the loop (566) + l100c the field codec (**913**) + l3bbc the
