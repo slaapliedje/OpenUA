@@ -73,27 +73,29 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | **Shop / merchant** (sell/identify/value) | 20/19/7 | 🟡 | `shop-merchant-wall.md` — event + shop screen (`l5586`/`jt183`) LIFTED; only `jt189` SELL + `jt190` IDENTIFY stub (Mac bodies in CODE_07.s). No "buy" verb. `jt923` is NOT missing (= lifted overload gate). Untested live (HEIRS shop cell unconfirmed) |
 | **Conditional / quest-flag events** (stat-check, set-flag, rumors, pass-time) | 18 | ✅ | `treasure-event-wall.md` (cases 15/27/37/38) |
 
-## 5. In-game — combat  🟢 spine lifted (runtime-untested) / 🔴 effect handlers
+## 5. In-game — combat  ✅ PLAYABLE end-to-end (render nits remain)
 
-Major advance: the combat **spine is wired top-to-bottom**, both turn-dispatch
-sides are lifted, and **CODE 16's effect handlers are now ALL lifted (106/106,
-2026-06-24)**, and the **physical-damage tier is now COMPLETE** (l29fc/l022c/
-l030a/l1d0c/l14bc/l2b24): a weapon swing — melee and missile — computes damage,
-deducts HP (jt39) and resolves death/XP. So a round now resolves **both** spell
-and physical attacks for real. All still **breadth-first / runtime-untested**:
-the next step is the Hatari bring-up. Trigger a fight via a type-1/33 event
-cell → `l159a`, or call `l159a(ev,1)`. See `docs/milestone.md` §2 +
-`docs/code14-wall.md` (physical-damage tier).
+The combat subsystem is **lifted AND runtime-validated end-to-end** (07-02→07-04,
+re-confirmed 2026-07-11 on the current build). A HEIRS spider fight was driven
+via the FRUA_ENTRY harness: L10 entry → spiderweb prompt → CUT WEB → spider
+bigpic → tactical field (6 party sprites vs spiders) → win → **548 XP** page →
+clean return to the dungeon HUD. Manual turns (move/attack/cast/target/guard/
+flee/quick), saves, ammo, real damage, and the AUTOWIN path all execute. The
+combat hot path is fully lifted (`combat-audit.md`, 754 reachable fns verified).
+Repro: `make EXTRA_CFLAGS="-DFRUA_ENTRY_LEVEL=10 -DFRUA_ENTRY_COL=4
+-DFRUA_ENTRY_ROW=12 -DFRUA_ENTRY_FACING=2 [-DFRUA_AUTOWIN]"`, then Play → Load
+save A → Begin Adventuring. Remaining = render polish, not logic.
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
-| Combat **effects engine** (poison/cure/damage payloads) | 18 | ✅ | (band 9) — ~98% done, the hard payloads are lifted |
-| Combat **main loop / spine** (`jt511`→`l076e` per-actor turn) | 13 | 🟢 | `code13-wall.md` — spine + per-turn tree lifted; live caller is `l159a`→`jt511`. 90% by JT. **Runtime-untested** |
-| Combat **turn dispatch** (`l08b4` player, `l5008` monster-AI) | 13 | 🟢 | both sides + all 7 `l5008` executors lifted, stub-free. Turn Undead + Cast Spell are complete vertical slices |
-| Combat **field render** (actor sprites, HP, targeting) | 14 | 🟡 | `code14-wall.md` — 81%; field-draw leaves `jt512`/`jt517`/`jt514`/`jt516`/`jt518`/`jt528`/`jt536`/`jt542` remain |
-| Combat **effect handlers** (106 announce/apply) | 16 | ✅ | `code16-wall.md` — **COMPLETE 2026-06-24, all 106 lifted** (112/115 CODE-16 JT exports by name, 0 stub). Breadth-first / runtime-untested |
-| Combat **physical-damage tier** (l29fc/l022c/l030a/l1d0c/l14bc/l2b24) | 14 | ✅ | COMPLETE 2026-06-24 — melee + missile swings deal damage, deduct HP (jt39), resolve death/XP; `code14-wall.md`. Runtime-untested |
-| Encounter **narration** ("A battle begins…") | 20 | 🟢 | `l159a` cases 1/33 — lifted, drives `jt511` |
+| Combat **effects engine** (poison/cure/damage payloads) | 18 | ✅ | (band 9) — hard payloads lifted; live in fights |
+| Combat **main loop / spine** (`jt511`→`l076e` per-actor turn) | 13 | ✅ | `code13-wall.md` — runs end-to-end, round loop + turns validated |
+| Combat **turn dispatch** (`l08b4` player, `l5008` monster-AI) | 13 | ✅ | both sides live; move/attack/cast/target/guard/flee/quick all drive |
+| Combat **field render** (actor sprites, HP, targeting) | 14 | 🟡 | `code14-wall.md` — renders live; nits: marker residue (jt119/jt122), RANGE=0 readout, occasional CPIC strip garble |
+| Combat **effect handlers** (106 announce/apply) | 16 | ✅ | `code16-wall.md` — all 106 lifted; spell payloads fire live |
+| Combat **physical-damage tier** (l29fc/l022c/l030a/l1d0c/l14bc/l2b24) | 14 | ✅ | melee + missile swings deal real damage, resolve death/XP live |
+| Encounter **narration** ("A battle begins…") | 20 | ✅ | `l159a` cases 1/33 — drives `jt511`; validated |
+| Combat **render nits** (2nd-cycle wall re-clobber, marker residue) | 14/22 | 🟡 | cosmetic; `combat-encounter-gateway` (mem) 07-03/04 cards |
 
 ## 6. Cross-cutting media  🟡 / 🔴
 
@@ -143,30 +145,28 @@ active). The CODE 22 command dispatcher (`l0096`) is lifted.
 ## Targeting priority (highest leverage first) — updated 2026-07-11
 
 The JT scoreboard is at **1196/1205 done** (5 stub, 4 missing; 3 of those 9 are
-superseded-dead). Both former #1/#2 priorities — the GEO editor giants
-(jt242/jt243) AND wiring the editor live — are DONE, plus jt335 and the editor
-menu label fix. The frontier has moved OFF the JT count and onto **runtime
-validation and player-facing depth**:
+superseded-dead). The GEO editor giants, jt335, wiring the editor live, the menu
+label fix — all DONE. And combat is **runtime-validated end-to-end** (re-confirmed
+2026-07-11, §5). The frontier is now a short tail of DEPTH gaps + player-facing
+polish:
 
-1. **Combat runtime bring-up** — the single biggest UNTESTED block. The combat
-   spine + all 106 CODE-16 effect handlers + physical-damage tier are lifted but
-   **never run in a real fight**; `port_run_encounter`/`port_play_message` are
-   still stand-ins over the faithful chain. Trigger a fight (type-1/33 event →
-   `l159a`→`jt511`) in Hatari and debug. High risk, high value. `code13/14-wall`.
-2. **Map editor area-load** — the last editor DEPTH gap. 3 of 4 editors open
+1. **Map editor area-load** — the last editor DEPTH gap. 3 of 4 editors open
    live; the map editor's OPEN bus-errors on the empty `-12300` block because the
    jt244/mode-19 area-load is never triggered. Trace the Mac's mode-2 first-entry
    (how jt248's pick reaches jt244). `geo-editor-wall.md` / `geo-editor-phase-c`.
-3. **Player-facing runtime gaps** — inventory/equip
-   (`inventory-subsystem-wall.md`), rest/camp spell-memorize
-   (`code21-camp-wall.md`), the remaining `l709e` event arms (~17), audio
-   (`audio-wall.md`, MUTED = CODE 5 jt965/974/1064 sound cluster).
-4. **Real stub subtrees** (not leaves): jt933 (CODE 12 item-take modal, ~400
+2. **Player-facing runtime gaps** — inventory/equip
+   (`inventory-subsystem-wall.md`), the remaining `l709e` event arms (~17), and
+   **audio (MUTED)** = the CODE 5 sound cluster jt965/974/1064 (`audio-wall.md`):
+   engine→Falcon-DMA-HAL glue, the biggest genuinely-open subsystem.
+3. **Real stub subtrees** (not leaves): jt933 (CODE 12 item-take modal, ~400
    lines), jt955 (CODE 21 camp, 1014 B), jt1206 (CODE 4, small dispatcher).
-5. **Editor edit round-trips** — the record editors OPEN + render; validate an
+4. **Editor edit round-trips** — the record editors OPEN + render; validate an
    actual field EDIT → save for Game Settings / monster / NPC (mouse-gated).
+5. **Combat/camp render nits** — marker residue (jt119/jt122), 2nd-cycle wall
+   re-clobber, RANGE=0 readout, camp repaint overprint. Cosmetic.
 6. **Close-out** — mark jt426/432/458 superseded-done in the tracker; save/load
-   slot pickers + boot auto-load; shop sell/identify (jt189/jt190).
+   slot pickers + boot auto-load; shop sell/identify (jt189/jt190); l2d7e camp
+   Alter.
 
 ## Bottom line
 
