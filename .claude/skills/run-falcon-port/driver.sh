@@ -60,7 +60,7 @@ case "$cmd" in
 	build)
 		cd "$REPO"; exec make "$@"
 		;;
-	start|shot|shots|key|click|wait|dbg|log)
+	start|shot|shots|dump|key|click|wait|dbg|log)
 		ensure_display
 		exec "$UI" "$cmd" "$@"
 		;;

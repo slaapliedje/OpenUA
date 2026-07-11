@@ -113,7 +113,7 @@ fi
 cmd="${1:-}"; shift || true
 case "$cmd" in
 start)
-	mkdir -p "$STATE"
+	mkdir -p "$STATE" "$STATE/shots"
 	pkill -9 -x hatari 2>/dev/null || true
 	[[ -f "$REPO/frua.prg" ]] || die "frua.prg not built"
 	: > "$LOG"
@@ -129,6 +129,8 @@ start)
 		--mousewarp no \
 		--joy0 none --joy1 none \
 		--cmd-fifo "$STATE/cmd.fifo" \
+		--screenshot-dir "$STATE/shots" \
+		--crop yes \
 		-d "$GEMDOS_DIR" \
 		--auto 'C:\frua.prg' \
 		${HATARI_ARGS:-} \
@@ -260,6 +262,26 @@ shots)
 	cp "$CUR" "$OUT" 2>/dev/null || cp "$PREV" "$OUT"
 	echo "hatari_ui: $OUT ($(stat -c%s "$OUT") bytes, stable=$stable)"
 	;;
+dump)
+	# Hatari's OWN screenshot (AltGr+G) via the control FIFO — no X grab,
+	# no imagemagick, and it always captures the settled Falcon frame (cropped
+	# of the statusbar via --crop). Robust in fullscreen where the X-window grab
+	# breaks. Writes grabNNNN.png into $STATE/shots; we copy the newest to $out.
+	out="${1:-$STATE/dump.png}"
+	[[ -p "$STATE/cmd.fifo" ]] || die "no cmd.fifo — run 'start' first"
+	before="$(ls -t "$STATE/shots"/*.png 2>/dev/null | head -1)"
+	echo "hatari-shortcut screenshot" > "$STATE/cmd.fifo"
+	for i in $(seq 1 25); do
+		newest="$(ls -t "$STATE/shots"/*.png 2>/dev/null | head -1)"
+		[[ -n "$newest" && "$newest" != "$before" ]] && break
+		# re-send once if the first request was dropped (boot-time FIFO race)
+		[[ "$i" == 8 ]] && echo "hatari-shortcut screenshot" > "$STATE/cmd.fifo"
+		sleep 0.2
+	done
+	[[ -n "${newest:-}" && "$newest" != "$before" ]] || die "no new screenshot appeared"
+	cp -f "$newest" "$out"
+	echo "hatari_ui: $out (via Hatari screendump)"
+	;;
 log)
 	cat "$LOG"
 	;;
@@ -268,7 +290,7 @@ stop)
 	echo "hatari_ui: stopped"
 	;;
 *)
-	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | dbg <debugger-cmd> | shot <png> | shots <png> [thresh] [tries] | log | stop
+	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | dbg <debugger-cmd> | shot <png> | shots <png> [thresh] [tries] | dump [png] | log | stop
   env: HATARI_BIN=hrdb (tattlemuss debugger fork)  READY_MARKER=<regex>|-  READY_TIMEOUT=<s>"
 	;;
 esac
