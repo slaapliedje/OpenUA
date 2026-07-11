@@ -70033,6 +70033,93 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 	}
 }
 
+/* L1ae2 (CODE 9 + 0x1ae2) — the SCRIPT record LOOP: the field-editor's layout
+ * interpreter. Two passes over SCRIPT.GLB (group 24) — pass 0 the base record
+ * (`flag20`), pass 1 the `type` record — each loaded via jt468(24)+jt1012. For
+ * every field-RECORD whose rec[3] matches `a2`, it walks the fields: builds an
+ * 18-byte row (in the -11656 table), dispatches the field type (JT[1]@0x1c4c) to
+ * draw the widget, calls the field-byte codec l100c, then drops the row again for
+ * non-storing field types 3/32/33/34 (JT[1]@0x21a8). a0/a1 (fp@9/11) gate the
+ * clear/scan; a2 (fp@12) is the match target + "clear table" flag.
+ *
+ * WIP (Phase D): the head + 2-pass loop + field-record match + field-iteration
+ * control flow + the l100c/l3bbc integration are lifted; the 11 JT[1]@0x1c4c
+ * widget-build arms (types 3-10, 32-34 — jt452 DLItem menus, jt1089 labels,
+ * l3bbc panels) land incrementally. __attribute__((unused)) until jt325's tail
+ * wires it, so nothing runs it yet. */
+static void l1ae2(short a0, short a1, short a2, short flag20, short type)
+    __attribute__((unused));
+static void l1ae2(short a0, short a1, short a2, short flag20, short type)
+{
+	unsigned char *tbl   = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *rec_ptr;
+	unsigned char *row = tbl + 2;
+	short          pass;
+	char           match;
+
+	PROBE("L1ae2");
+	if ((unsigned char)a0)                  /* fp@9 — clear the staging fields */
+		jt399((void *)(stage + 450), (short)2062, (short)0);
+	if (a2 > 0)                             /* fp@12 — clear the field-row table */
+		jt399(tbl, (short)4506, (short)0);
+
+	for (pass = 0; pass < 2; pass++) {      /* L1b20/L223a — base then type record */
+		long  base;
+		short idx;
+		if (pass != 0) { if (type < 0)   break; idx = type; }
+		else           { if (flag20 < 0) break; idx = flag20; }
+		base    = jt468((short)24);
+		rec_ptr = (unsigned char *)(uintptr_t)jt1012(base, idx);
+		if (a2 < 0)                     /* save the record cursor */
+			*(long *)(stage + 450) = (long)(uintptr_t)(rec_ptr + 1);
+		rec_ptr += rec_ptr[0];          /* skip the record header */
+
+		do {                            /* L1b9e — per field-record */
+			if ((unsigned char)a0)
+				stage[454] = (unsigned char)jt397(stage[454], rec_ptr[3]);
+			match = (rec_ptr[3] == a2) ? -1 : 0;
+			if ((unsigned char)a0 || (unsigned char)a1 || match) {
+				if (match) { *(short *)tbl = 0; row = tbl + 2; }
+				rec_ptr += 4;
+				while (rec_ptr[0] != 2) {   /* L21ec — field loop */
+					if (match) {
+						/* L1c10 — build the field row, then dispatch
+						 * the widget-build arm. */
+						*(long *)row = (long)(uintptr_t)rec_ptr;
+						row[12] = rec_ptr[0];
+						row[13] = (unsigned char)jt455();
+						*(long *)(row + 4) = 0;
+						switch (rec_ptr[0]) {   /* JT[1]@0x1c4c */
+						/* TODO Phase D — widget-build arms 3-10,
+						 * 32-34 (L1c7c..L214e). See wall doc. */
+						default:
+							break;
+						}
+						*(short *)tbl += 1;     /* L2158 */
+						row += 18;
+					}
+					l100c(rec_ptr, row - 18, a1, a0, match); /* L2166 */
+					if (match) {                    /* JT[1]@0x21a8 */
+						switch (row[-6]) {      /* = current row[12] */
+						case 3: case 32: case 33: case 34:
+							row -= 18;      /* drop non-storing types */
+							*(short *)tbl -= 1;
+							break;
+						default:
+							break;
+						}
+					}
+					rec_ptr += rec_ptr[1] | (rec_ptr[2] << 8); /* L21ca */
+				}
+				rec_ptr++;              /* skip the 0x02 end marker */
+			} else {
+				rec_ptr += rec_ptr[1] | (rec_ptr[2] << 8); /* L2202 — skip */
+			}
+		} while (rec_ptr[0] != 0);      /* L2228 */
+	}
+}
+
 /* JT[323] (CODE 9 + 0x0e2c) — paint the combat action-row for action
  * `act`: find its 18-byte record in the -11656 table (matched on [13]),
  * fill the row (jt1161), map the action's move-type (via jt454 + the
