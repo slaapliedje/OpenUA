@@ -69604,6 +69604,109 @@ static void l093a(short idx)
 	}
 }
 
+/* L3bbc (CODE 9 + 0x3bbc) — the record editor's picture/item/class PANEL drawer.
+ * JT[3]@0x3bc8 on cmd (1..8): 1/2 draw the 3 combat-monster picture frames
+ * (jt118 tile blits, coords raw or 8000-based per jt1200 mode, + a jt57 marker
+ * when the slot is occupied); 3..6 draw the 20-item icon+name grid from the
+ * -12645 kind table; 7 the round counter "%2d"; 8 the "Old Class:" line.
+ * NOTE on jt118: the port's jt118 IGNORES its `page` arg and blits via
+ * l309c(top,left,handle,idx); the Mac stack (A@8,B@10,C@12,_,HANDLE@16) maps to
+ * port jt118(page=NULL, top=B, left=A, idx=C, handle=HANDLE) — verified against
+ * CODE 6+0x37d6 (jt1001(fp@10,fp@8,*fp@16,fp@13)). */
+static void l3bbc(short cmd) __attribute__((unused));
+static void l3bbc(short cmd)
+{
+	unsigned char *stage = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+	unsigned char *tbl   = (unsigned char *)(uintptr_t)g_a5_long(-11656);
+
+	PROBE("L3bbc");
+	switch (cmd) {                          /* JT[3]@0x3bc8 min=1 max=8 */
+	case 1:
+	case 2: {                               /* L3bde — combat picture frames */
+		long  picbuf = g_a5_long(-27870);
+		short slot   = (cmd == 1) ? 9 : 15;
+		short pos, r, c;
+
+		if (picbuf == 0)
+			return;
+		for (pos = 0; pos < 3; pos++) {
+			if (jt1200() == 3) {
+				const short lefts[3] = {336, 368, 400};
+				short x = pos << 6;
+				for (r = 0; r < 2; r++)
+					for (c = 0; c < 3; c++)
+						jt118(NULL, (short)(x + (r ? 88 : 56)),
+						      lefts[c], (short)23, picbuf);
+			} else {
+				const short lefts[3] = {8116, 8128, 8140};
+				short x = pos * 24;
+				for (r = 0; r < 2; r++)
+					for (c = 0; c < 3; c++)
+						jt118(NULL, (short)(x + (r ? 8028 : 8016)),
+						      lefts[c], (short)23, picbuf);
+			}
+			if (stage[slot] != 0)
+				jt57((short)10, (short)(pos * 2 + 1), (short)0,
+				     (short)0, (short)((slot - 9) / 2 + 8));
+			slot += 2;
+		}
+		break;
+	}
+	case 3: case 4: case 5: case 6: {       /* L3e02 — 20-item icon+name grid */
+		short base = (cmd - 3) * 3 + 8;
+		short kind = (stage[base] >> 4) & 15;
+		short i;
+
+		for (i = 0; i < 20; i++) {
+			unsigned char id =
+			    ((const unsigned char *)&g_a5_byte(-12645))[kind * 20 + i];
+			if (id == 0) {                  /* empty slot -> clear the row cell */
+				unsigned char *r = tbl + i * 18;
+				jt444(r[15], (short)17, (short)0, (short)0);
+			} else {
+				unsigned char item[62];
+				if (id == 255)
+					jt184((long)(uintptr_t)&item[40]);
+				else
+					jt479((const void *)(uintptr_t)
+					          (g_a5_long(-27920) + id * 18),
+					      &item[40], (short)18);
+				item[51] &= (unsigned char)~7;
+				jt28(0, (long)(uintptr_t)&item[0],
+				     (short)0, (short)0, (short)0, (short)0);
+				jt1089((short)(8012 + i * 4), (short)8016, (short)135,
+				       ua_strs_at(0x34f2) /* "%s" */,
+				       (const char *)&item[5]);
+			}
+		}
+		break;
+	}
+	case 7:                                 /* L3f16 — round counter */
+		jt1089((short)8049, (short)8128, (short)135,
+		       ua_strs_at(0x34f6) /* "%2d" */, stage[137]);
+		break;
+	case 8: {                               /* L3f40 — "Old Class:" line */
+		short i;
+
+		if (stage[88] != 5)
+			return;
+		for (i = 0; i <= 6; i++) {
+			if (stage[i + 164] == 0)
+				continue;
+			if (jt35(stage) <= stage[i + 164])
+				continue;
+			jt1089((short)8042, (short)8008, (short)384,
+			       ua_strs_at(0x34fa) /* "Old Class:   %s" */,
+			       (const char *)(uintptr_t)g_a5_longs(-14636)[i]);
+			i = 6;                          /* stop after the first match */
+		}
+		break;
+	}
+	default:                                /* L3fd4 */
+		break;
+	}
+}
+
 /* JT[323] (CODE 9 + 0x0e2c) — paint the combat action-row for action
  * `act`: find its 18-byte record in the -11656 table (matched on [13]),
  * fill the row (jt1161), map the action's move-type (via jt454 + the
