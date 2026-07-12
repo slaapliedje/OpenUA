@@ -67222,14 +67222,106 @@ out:
 	return hit;
 }
 
-/* L0980 (CODE 19+0x0980) — scroll-learn worker (memorize from a readied
- * scroll during rest). Leaf PROBE stub returning 0 (nothing scribed),
- * so L0d86 falls through to the L0876 slot-commit. The SCRIBE slice. */
+/* L0980's inner scan — one scroll record's THREE spell slots (bytes 54/55/56).
+ * The Mac spells this out twice, once for a bundle's sub-items and once for a
+ * plain scroll; the two bodies are identical apart from the record scanned and
+ * the (duplicate) STRS entry for "has scribed", so it is factored here.
+ *
+ * A slot byte > 128 means "pending, bit 7 set, spell id non-zero". In REPORT
+ * mode (*out == 0) it just answers the spell's level, from the 16-byte spell
+ * defs at -16906 (+1 = the level field). In COMMIT mode it:
+ *   - sets the member's KNOWN-SPELL bit — bit (id-1)&7 of member[339 + (id-1)/8],
+ *     the mask coming from the 8-byte table at -18893 (the same idiom jt575 uses)
+ *   - jt661(member, item, id) consumes the scroll charge
+ *   - repaints the clock (l0572_c19) and announces "<name> has scribed <spell>"
+ *   - raises *out
+ * Returns the level found (0 = nothing), which stops both loops. */
+static void jt661(long holder, long item_l, short want);   /* CODE 16+0x4718 */
+static unsigned char l0980_slots(long member, long item, const unsigned char *rec,
+                                 unsigned char *out, long strs_off)
+{
+	short i;
+
+	for (i = 1; i <= 3; i++) {                        /* L0b0e / L0c78 */
+		unsigned char s = rec[54 + (i - 1)];      /* 0x0a04 / 0x0b6e */
+		short         id, byteoff, bit;
+
+		if (s <= 128)                             /* 0x0a08 — unsigned */
+			continue;
+		if (*out == 0)                            /* report: level only */
+			return g_a5_byte(-16906 + (long)(s & 0x7f) * 16 + 1);
+
+		id      = (short)(s & 0x7f);              /* L0a52 */
+		byteoff = (short)((id - 1) >> 3);
+		bit     = (short)((id - 1) & 7);
+		((unsigned char *)(uintptr_t)member)[339 + byteoff] |=
+		    (unsigned char)g_a5_byte(-18893 + bit);   /* 0x0ac4 */
+
+		jt661(member, item, id);                  /* 0x0ad8 — spend the charge */
+		l0572_c19((short)0);                      /* 0x0ae2 — repaint the clock */
+		l48f4(member, (long)(uintptr_t)ua_strs_at(strs_off), id);
+		                                          /* 0x0afa "has scribed" */
+		*out = 1;
+	}
+	return 0;
+}
+
+/* L0980 (CODE 19 + 0x0980) — the SCROLL-LEARN worker: during rest, scribe from
+ * a readied scroll. Walks the member's item chain (rec[8]); for each entry that
+ * jt638 calls a scroll, scan its spell slots — a BUNDLE (item[40] == 73) has
+ * item[53] sub-items chained through +58, each scanned in turn (the -22307 A5
+ * scratch is the Mac's loop counter); a plain scroll is scanned directly.
+ *
+ * Returns the level of the first pending spell found, 0 if none — which is what
+ * makes L0d86 fall through to the L0876 slot path. Aborted (0) when -23189 is
+ * set, exactly as l0876 is.
+ *
+ * While this returned 0, scribing from a scroll during rest NEVER happened; the
+ * scroll's pending spells silently stayed pending. */
 static unsigned char l0980(long member, unsigned char *out)
 {
+	unsigned char level = 0;                          /* fp@(-4) */
+	long          item;                               /* fp@(-8) */
+
 	PROBE("L0980");
-	(void)member; (void)out;
-	return 0;
+	if (g_a5_byte(-23189) != 0)                       /* 0x0988 — aborted */
+		return 0;
+
+	item = *(const long *)(uintptr_t)(member + 8);    /* 0x099e — chain head */
+
+	while (item != 0 && level == 0) {                 /* L0c98 */
+		const unsigned char *irec =
+		    (const unsigned char *)(uintptr_t)item;
+
+		if (jt638(item) != 0) {                   /* 0x09b2 — is it a scroll? */
+			if (irec[40] == 73) {             /* 0x09c8 — a BUNDLE */
+				long sub = *(const long *)(uintptr_t)(item + 58);
+
+				for (g_a5_byte(-22307) = 1;   /* L0b34 */
+				     (short)(unsigned char)g_a5_byte(-22307)
+				         <= (short)irec[53];
+				     g_a5_byte(-22307)++) {
+					if (sub == 0)         /* PORT: the Mac walks blind */
+						break;
+					level = l0980_slots(
+					    member, item,
+					    (const unsigned char *)(uintptr_t)sub,
+					    out, 0x58beL);
+					if (level != 0)
+						break;
+					sub = *(const long *)   /* L0b26 */
+					      (uintptr_t)(sub + 58);
+				}
+			} else {                          /* L0b4e — a plain scroll */
+				level = l0980_slots(member, item, irec,
+				                    out, 0x58caL);
+			}
+		}
+		if (level != 0)
+			break;
+		item = *(const long *)(uintptr_t)item;    /* L0c90 — next in chain */
+	}
+	return level;                                     /* L0caa */
 }
 
 /* L0876 (CODE 19+0x0876) — commit a member's pending-memorize slots.
