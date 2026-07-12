@@ -1,10 +1,30 @@
 # Audio / music / sound subsystem — findings + worklist
 
 Goal: make the port audible — UI beep, combat/event SFX, then `.slb` music.
-**Today sound is fully muted by design:** the dispatch + bank-load layers are
-lifted, but **every actual audio-output leaf is a stub**, and the engine never
-calls the (already-real) Sound Manager shim or the (already-real) Falcon DMA HAL.
-The substrate is unusually mature; the missing piece is the engine→HAL glue.
+
+**SFX ARE LIVE (2026-07-11).** `jt52 → jt965 → l7ee0 → SndDriverWrite →
+plat_sound_play_mono8` plays through the Falcon DMA CODEC, verified by recording
+the emulator's audio (`driver.sh sound`, see the run skill). Still muted: **song
+playback** (`jt985`/`l11a2`), the **per-tick mixer pump** (`jt974`) and `SysBeep`.
+
+Three defects had to fall before anything was audible — the first was the real
+blocker and the other two were only findable once we could listen:
+
+1. **`l0eda` (the sound-subsystem init) was never called.** On the Mac it rides
+   in `JT[1079]`'s toolbox bring-up, which the port's `jt12` boot replaces — so
+   `jt1111` never ran, the sound-active flag `-806` stayed 0, and *every* sound
+   path bailed at its `JT[1154]` gate while the bank loaded happily. **If sound
+   ever goes silent again, check `-806` and `-17444` first** (the `FRUA_SNDTEST`
+   harness logs both).
+2. **Effects cut each other off.** `l7ee0` spins on the driver-busy word BEFORE
+   its KillIO — the Mac waits for the previous effect to finish. `plat_sound_playing()`
+   was a skeleton returning "never busy", so each new effect killed the one still
+   playing. Now reads the DMA state back with `Buffoper(-1) & SB_PLA_ENA`.
+3. **Effects played ~10% sharp.** The CODEC clocks only 8 fixed rates and FRUA's
+   effects are 22254.5454/n (7417 / 11127 Hz) — *none* of them clockable. The HAL
+   was playing the samples at the nearest rate, which transposes them. It now
+   RESAMPLES to the nearest clockable rate (linear, 16.16 fixed point — the
+   default build is `-msoft-float`), preserving the Mac's pitch and duration.
 
 > KEY FINDING: **FRUA does NOT use the high-level Mac Sound Manager.**
 > `_SoundDispatch` (0xa800) appears nowhere in any CODE segment. The `.slb` is a
@@ -54,21 +74,26 @@ Grounded in CODE_05.s:
 
 Per the layer rule, hardware lives in `platform/`; engine must not touch XBIOS.
 The HAL already exists and is correct:
-- `platform/sound_falcon.c:94` — `plat_sound_play_mono8()` does the real path:
+- `platform/sound_falcon.c` — `plat_sound_play_mono8()` does the real path:
   `Locksnd`/`Setbuffer(SR_PLAY)`/`Setmode(MONO)`/`Devconnect(...)`/`Buffoper`,
-  DMA buffer in ST-RAM via `Mxalloc(count,0)`, CODEC rate-match (Mac 22 kHz →
-  CLK20K/19668 Hz). API in `platform/include/plat_sound.h`.
-- `compat/sound.c` already parses Mac `snd ` resources + converts unsigned→signed
-  and calls that HAL — but is **dead code** (engine never calls `SndPlay`).
+  DMA buffer in ST-RAM via `Mxalloc(count,0)`, and **resamples** to the nearest
+  clockable CODEC rate (see the pitch defect above). `plat_sound_playing()` reads
+  the DMA state back via `Buffoper(-1)`. API in `platform/include/plat_sound.h`.
+- `compat/sound.c` — `SndDriverWrite`/`SndDriverBusy`/`SndDriverStop` are the live
+  shim boundary the sfx leaf goes through (ADR-0003: no HAL calls from engine
+  code); they decode the FFSynthRec header and convert Mac-unsigned → Falcon-signed.
+  The `snd `-resource path (`SndPlay`) remains **dead code** — FRUA's effects are
+  GLIB items, not `snd ` resources.
 - **TT030 caveat:** Falcon030 = 8-bit stereo DMA + DSP56001; TT030 = YM2149 PSG
   only (no DMA sound). The HAL must degrade gracefully; TT path unimplemented.
 - **SysBeep** (compat/sound.c:226) has no backend yet — TODO XBIOS `Dosound`/YM2149.
 
-The missing glue is **between** the engine and this HAL: jt965/jt974/jt985 need
-bodies that take the loaded `.slb` sample data and hand it to
+The remaining glue is **between** the engine and this HAL: `jt974`/`jt985` still
+need bodies that take the loaded `.slb` sample data and hand it to
 `plat_sound_play_mono8`, rather than the Mac `_Write`-to-driver mechanism. Since
 the `.slb` stores raw 8-bit PCM (jt975 loads it; jt964/l7eb8 convert it), this is
-mostly lifting L7ee0/L11a2/jt974 to push buffers into the HAL.
+mostly lifting L11a2/jt974 to push buffers into the HAL — exactly what L7ee0 (the
+sfx leaf, now done) turned out to be. Use it as the model.
 
 ## Status table
 
@@ -82,8 +107,9 @@ mostly lifting L7ee0/L11a2/jt974 to push buffers into the HAL.
 | `l59d6` | CODE6+0x59d6 | **LIFTED** | 51669 | audio bring-up: load `music.slb` + `sounds` group 18 |
 | `jt1122`/`jt1131`/`jt1145`/`jt1151`/`jt1149` | CODE4 | **LIFTED** (menu-tone, not samples) | 18448/18660/17117/17144/18506 | semitone→period helpers → jt1122 menu-slot |
 | `jt1147` | JT[1147], CODE4+0x77f6 | **LIFTED** | 48409 | Alert beep → `SysBeep(6)` — the ONLY Sound Manager call wired |
-| `jt965` | JT[965], CODE5+0x7dee | **STUB** | 18568 | Play SFX (load resource, loop L7ee0 count×reps) |
-| `l7ee0` | CODE5+0x7ee0 | **MISSING** | — | SFX output leaf — builds IO param block, `_Write` to driver |
+| `jt965` | JT[965], CODE5+0x7dee | **LIFTED** | 18568 | Play SFX (load resource, loop L7ee0 count×reps) |
+| `l7ee0` | CODE5+0x7ee0 | **LIFTED** | 20926 | SFX output leaf — FFSynthRec in place, busy-spin, `SndDriverWrite` |
+| `l0eda` | CODE5+0x0eda | **LIFTED** | 67610 | Sound-subsystem init (`jt1111` + voice table). **Was the blocker** |
 | `jt985` | JT[985], CODE5+0x12b4 | **STUB** | 18562 | Play song n (range-checked) |
 | `l11a2` | CODE5+0x11a2 | **MISSING** | — | Song-play leaf (note-stream over the `.slb` bank) |
 | `jt974` | JT[974], CODE5+0x1304 | **STUB** (~600B) | 18593 | Per-tick MIXER pump (5-voice table at -4848) |
