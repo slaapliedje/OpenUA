@@ -159,6 +159,27 @@ static Boolean kb_to_event(EventRecord *out)
 		}
 	}
 	out->what    = keyDown;
+
+	/* Alternate+key: TOS's alternate keytable maps the character rows to
+	 * NO character (ascii 0), but the Mac event carries the letter even
+	 * with Cmd held — the engine's Cmd-key fold (L6dd0: toupper + 255 =
+	 * the 320..345 menu-accelerator band) needs it. Recover the char from
+	 * the BIOS unshifted table, and force cmdKey into the modifiers: a
+	 * printable key delivering ascii 0 only happens under Alternate, and
+	 * Kbshift(-1) at poll time races a fast Alt release (synthetic input
+	 * releases the modifier before the engine polls the key). */
+	if (ascii == 0) {
+		_KEYTAB *kt = Keytbl((void *)-1, (void *)-1, (void *)-1);
+		unsigned char ch = (kt != NULL && kt->unshift != NULL)
+		    ? ((const unsigned char *)kt->unshift)[scan] : 0;
+
+		if (ch >= 32 && ch < 127) {
+			out->message = ((long)scan << 8) | (long)ch;
+			fill_common(out);
+			out->modifiers |= cmdKey;
+			return 1;
+		}
+	}
 	out->message = ((long)scan << 8) | (long)ascii;
 	fill_common(out);
 	return 1;

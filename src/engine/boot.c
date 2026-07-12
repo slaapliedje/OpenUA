@@ -17029,6 +17029,8 @@ static short jt1118(void)
  * returned 0. */
 short g_event_was_click;   /* set by jt1125: 1 if the last event was a click */
 
+static signed char jt391(short ch);     /* isalpha — defined below (CODE 3) */
+static short       jt422(short ch);     /* toupper — defined below (CODE 3) */
 static short  jt1125(short kind, long p1, long p2)
 {
 	EventRecord ev;
@@ -17068,7 +17070,21 @@ static short  jt1125(short kind, long p1, long p2)
 		case 0x50: ascii = 260; break;   /* Down  -> S / about-face */
 		case 0x4b: ascii = 262; break;   /* Left  -> turn left      */
 		case 0x4d: ascii = 258; break;   /* Right -> turn right     */
-		default: break;
+		default:
+			/* Cmd(Alt)+key: the Mac's L6dd0 pump folds these to the
+			 * command band before stashing -818 (letter -> toupper +
+			 * 255 = 320..345, else the ctrl code). This port bridge
+			 * replaced that pump (WaitNextEvent consumes the event
+			 * first — see below), so the fold happens here; without
+			 * it the editor menu-bar accelerators (l2d40 -> l37f6)
+			 * never see the 320..345 band. */
+			if ((ev.modifiers & cmdKey) != 0) {
+				if (jt391(ascii))
+					ascii = (short)(jt422(ascii) + 255);
+				else
+					ascii = (short)(ascii & 0x1f);
+			}
+			break;
 		}
 		/* Mac engine has TWO event paths: jt1125 (used by L2d3e
 		 * Phase 1) and L725c->L6dd0 (used by L731e pump). On the
@@ -19735,9 +19751,12 @@ static void l6dd0(EventRecord *ev)
 	lo  = (short)(msg & 0xFFFFL);
 	ch  = (short)(msg & 0xFFL);                /* low byte = char */
 
-	if ((ev->modifiers & 0x01) != 0) {
-		/* Cmd-key path. Mac uses byte 5 (low byte of message,
-		 * the char) as the MenuKey input. */
+	if ((ev->modifiers & cmdKey) != 0) {
+		/* Cmd-key path (Mac asm: btst #0, ev@(14) — bit 0 of the
+		 * modifiers HIGH byte = 0x0100 = cmdKey; the old lift's
+		 * `& 0x01` tested the LOW byte and never fired). Mac uses
+		 * byte 5 (low byte of message, the char) as the MenuKey
+		 * input. */
 		sel = MenuKey(ch);
 		if ((sel & 0xFFFF0000L) != 0) {
 			l0004(sel);
@@ -59959,6 +59978,20 @@ static void jt344(void)
 	g_a5_byte(-10473) = 0;
 }
 
+/* JT[341] (CODE 8+0x5b7c = l5b7c) — take-and-clear the pending menu
+ * command word -10376 (set by the menu-bar mouse tracker l567c/l5624
+ * via jt342). The l28d4 hub's event-class-0 arm reads it to dispatch
+ * a fired menu command as (group<<8)|item. Full lift (8 insn). */
+static short jt341(void) __attribute__((unused));
+static short jt341(void)
+{
+	short w = (short)g_a5_word(-10376);
+
+	PROBE("jt341");
+	g_a5_word(-10376) = 0;
+	return w;
+}
+
 /* ---- The editor Menu Manager (CODE 8) — the pulldown-menu bar the
  * design tools use (ADR-0006: editor UI lives inside the shim, not
  * AES). State: -10474 menu count, -10473 flags (bit4 = tall bar,
@@ -80657,6 +80690,10 @@ L3868:
 			l3e60(menu, &oldsel, NULL, b22);         /* 0x3934 — clear */
 		l3e60(menu, &sel, &oldsel, b22);                 /* 0x394c — draw */
 	}
+	/* Publish the pulldown (port 3-buffer model: drawn = invisible until
+	 * a present — the same pattern as jt453). Every repaint pass (l3ddc
+	 * panel, l3e60 highlight) re-enters here before blocking on input. */
+	qd_present();
 	while (!(jt1118() != 0 || jt1108() != 0))                /* 0x3954 — await input */
 		;
 	if (jt1118() != 0) {                                     /* 0x396e — keyboard */
@@ -80854,8 +80891,8 @@ static void l28d4(void *arg8)
 			goto L2d2c;
 		}
 		switch (key) {                           /* 0x2c38 JT[3] (min=0,max=1) */
-		case 0:                                  /* 0x2c46 */
-			cmd = key;
+		case 0:                                  /* 0x2c46 — a menu command fired */
+			cmd = jt341();                   /* 0x2c46 jsr JT[341]: take-and-clear -10376 */
 			l2dbe(state, (short)((cmd >> 8) & 0xff), (short)(cmd & 0xff));  /* 0x2c64 */
 			break;
 		case 1:                                  /* 0x2c6e */
