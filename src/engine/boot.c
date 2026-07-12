@@ -21372,44 +21372,6 @@ static void menu_button_press_draw(unsigned char *rec, int pressed)
 	}
 }
 
-/* Track a press on DLItem `rec` until the mouse button releases — the faithful
- * l1676 cmd=3 loop (highlight while held, toggle as the cursor drags on/off).
- * Returns 1 if the release lands on the button (fire), 0 if it dragged off. */
-static int menu_button_track(unsigned char *rec)
-{
-	Point mp;
-	int over = 1;
-	short (*method)(void *, short, ...) =
-	    *(short (**)(void *, short, ...))rec;
-
-	if (method == NULL)
-		return 0;
-	/* Press feedback through the item's own method (jt137): cmd 19
-	 * sets the highlight bit and cmd 1 repaints — the Mac's pressed
-	 * look (recessed bars 13/14/15, label colours 131/139) at the
-	 * item's true position.  (menu_button_press_draw, the old port
-	 * renderer, drew its own bevel and a baseline-anchored label
-	 * 8px high — the "drift" on activation.) */
-	method(rec, (short)19);
-	method(rec, (short)1);
-	qd_present();
-	while (Button()) {
-		int now;
-		GetMouse(&mp);
-		now = (method(rec, (short)2, mp.v, mp.h) != 0);
-		if (now != over) {
-			method(rec, (short)(now ? 19 : 27));
-			method(rec, (short)1);
-			qd_present();
-			over = now;
-		}
-	}
-	method(rec, (short)27);
-	method(rec, (short)1);           /* release: back to the idle look */
-	qd_present();
-	return over;
-}
-
 static short l2d3e(void)
 {
 	short  key, mouse_x = 0, mouse_y = 0;
@@ -21594,9 +21556,22 @@ static short l2d3e(void)
 					}
 				}
 
-				/* Press feedback: recessed + blue/cyan while held, fire
-				 * on release-over-button (faithful l1676 cmd=3 track). */
-				if (!menu_button_track(hr))
+				/* Track the press through the item's OWN cmd 3 — the
+				 * Mac's L2dc2 dispatch, and l1676's faithful loop:
+				 * cmd 19 (highlight) + cmd 1 (dirty) + JT[1134] (flush)
+				 * + cmd 7 (press hook), then poll L31b8 and toggle the
+				 * highlight as the cursor drags on and off, returning 1
+				 * only if the release lands on the item.
+				 *
+				 * This replaces menu_button_track(), a port stand-in that
+				 * re-implemented the same loop against Button()/GetMouse()
+				 * directly. It existed because the faithful loop's hit
+				 * test could not work: L31b8 -> jt1132 returns the BUFFERED
+				 * click, and the port's latch had (v, h) TRANSPOSED, so
+				 * cmd 2 was fed swapped axes and the track never matched
+				 * the item under the cursor. With the latch corrected the
+				 * real arm works, so the stand-in goes. */
+				if (hm(hr, (short)3, cy, cx, key) == 0)
 					return (short)-1;     /* released off: no pick */
 
 				/* Radio list row vs commit button.  A char-gen pick row

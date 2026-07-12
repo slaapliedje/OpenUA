@@ -272,10 +272,16 @@ force-commit is a stand-in for those missing procs; lifting them is what would
 let the faithful sequence replace it wholesale. Until then the stand-in stays
 and only the focus step is faithful.
 
-Also note `menu_button_track()` is a port reimplementation of l1676's cmd-3
-track loop, and it CANNOT simply be replaced by `method(rec, 3, ...)` while
-jt328 is in the dialog: it waits for the button release, and jt328's own cmd 3
-then spins forever in its `jt1132` click poll.
+~~Also note `menu_button_track()` is a port reimplementation of l1676's cmd-3
+track loop, and it CANNOT simply be replaced by `method(rec, 3, ...)`...~~
+**SUPERSEDED — `menu_button_track()` is GONE (2026-07-12).** It only existed
+because the faithful loop's hit test could not work: L31b8 -> jt1132 returns the
+BUFFERED click, and the port's latch had (v, h) transposed, so cmd 2 was fed
+swapped axes and the track never matched the item under the cursor. With the
+latch corrected, `method(rec, 3, ...)` is the track. The ordering worry was
+real but is handled: focusable items take their cmd 3 in the FOCUS branch
+ABOVE (which returns), so a field never reaches the button track and jt328's
+cmd-3 click poll is never entered after a release.
 
 **PRE-EXISTING BUG (not from this work, A/B-confirmed against HEAD):** in the
 party-roster picker, clicking **ADD** wedges the dialog — EXIT stops responding.
