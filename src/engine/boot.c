@@ -2184,6 +2184,11 @@ static void  jt85(short group);
 static long  jt1134(void);      /* tick counter — paces the FRUA_SNDTEST effects */
 static short l0f48(void);       /* live-voice count — the harness reports it     */
 #endif
+/* L5ac0 (CODE 6 + 0x5ac0) — an empty `rts` in the Mac binary (disasm-verified:
+ * CODE_06.s @5ac0 is a bare 4e75), so the empty body IS the faithful lift. Both
+ * callers are shutdown paths — main()'s normal exit and jt69's fatal
+ * content-load abort — which is why it looks load-bearing and is not. Mirrors
+ * jt260/jt709/jt859. */
 static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
 static void  l07dc(void);                              /* defined below */
 
@@ -3714,7 +3719,32 @@ static void  l4336(short idx)
 	mask    = (short)(unsigned char)(1 << (bitpos % 8));
 	rec[525 + byteoff] = (unsigned char)(rec[525 + byteoff] | mask);
 }
-static void  l4144(void)                   { PROBE("L4144"); }
+/* L4144 (CODE 20 + 0x4144) — RESTORE the live record's saved position
+ * (rec[23]/rec[24]) into the active slot, then re-stash via L4108. The exact
+ * inverse of l4108, on the same -27990 display-mode split: in-view (==4) the
+ * active slot is the live cursor (-12288/-12287), otherwise it is the overview
+ * pair rec[37]/rec[38]. The trailing l4108 is idempotent after either arm (it
+ * copies straight back), but the Mac calls it unconditionally, so we do too.
+ *
+ * NOT CODE 11's L4144 — that is the jt243 wall-set switch, lifted separately as
+ * l4144_c11. Same offset, different segment. */
+static void  l4108(void);                  /* CODE 20 + 0x4108 — defined below */
+static void  l4144(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	PROBE("L4144");
+	if (rec == NULL)                   /* PORT: the Mac derefs unconditionally */
+		return;
+	if ((unsigned char)g_a5_byte(-27990) == 4) {    /* 0x4144 in-view */
+		g_a5_byte(-12288) = rec[23];
+		g_a5_byte(-12287) = rec[24];
+	} else {                                        /* L4162 overview */
+		rec[37] = rec[23];
+		rec[38] = rec[24];
+	}
+	l4108();                                        /* L417e */
+}
 static short jt202(short x, short y, short facing);  /* CODE 7+0x5e52, defined later */
 /* L085e (CODE 20 + 0x085e) — refresh the per-cell view caches and reset the
  * display-state struct. Caches the current cell's special byte (jt201 ->
@@ -60061,7 +60091,6 @@ static short l0088(void);
 static void  l00a8(void);
 static void  l00da(void);
 static void  l0156(void);
-static void  l0062(void);
 static void  l036a(const char *fmt, ...);
 
 /* The GLIB resource read callback (L17e2 arg16): given the open file's
@@ -63609,14 +63638,121 @@ static char *jt98(long prompt, short fg, short bg, short maxlen)
 	return (char *)&g_a5_byte(-17568);
 }
 
-/* L60b0 (CODE 8+0x60b0) — format the spell-list header text for
- * (kind, mask) into `out`. Leaf PROBE stub pending its own lift
- * (empties the buffer so jt349 skips the header row cleanly). */
+/* L60b0 (CODE 8 + 0x60b0) — format the spell/ability list's DEFAULT row text
+ * for (z, kind, mask) into `out`. jt349 and jt363's lookup call it for the
+ * header/"no match" row; every arm is a jt394 into `out`.
+ *
+ * Shape: `mask == 0` empties the buffer and returns. Otherwise `z` picks
+ * between two parallel JT[1] SPARSE tables over `kind` — both with the same six
+ * cases {11, 10, 3, 12, 13, 14} plus a default:
+ *
+ *   z != 0  (table @0x60d6) — the "<label> <n>" form, `z` as the count:
+ *     11 -> empty buffer
+ *     10 -> "%s %s"  (-10788, -10592)
+ *      3 -> "%*s %d" (width 11, the mask bit-2 label, z)
+ *     12 -> "%s %s"  (-10788, -10584)
+ *     13 -> "%s %s"  (-10792, -10528)
+ *     14 -> "%s %s"  (-10792, -10688)
+ *    def -> "%*s %d" (width 11, the -11224 LONG TABLE indexed by kind, z)
+ *
+ *   z == 0  (table @0x61f0) — the plain "<prefix> <label>" form, all six arms
+ *     "%s %s" against the shared -10660 prefix (11 -> -10596, 10 -> -10592,
+ *     3 -> the mask bit-2 label, 12 -> -10584, 13 -> -10528, 14 -> -10688),
+ *     and the default is a bare jt384 copy of the -11224 table's FIRST entry.
+ *
+ * Case 3's label is the one conditional: `mask & 4` selects -10836, else
+ * -10832. Every A5 slot here holds a STRING POINTER; -11224 is a long table
+ * indexed by `kind`. The format strings are the STRS entries the asm relocs
+ * name, kept at their own offsets even though several repeat "%s %s". */
 static void l60b0(short z, short kind, short mask, char *out)
 {
-	PROBE("l60b0");
-	(void)z; (void)kind; (void)mask;
-	out[0] = 0;
+	const long   *tbl = (const long *)(const void *)&g_a5_byte(-11224);
+	unsigned char zb  = (unsigned char)z;
+	unsigned char kb  = (unsigned char)kind;
+	unsigned char mb  = (unsigned char)mask;
+	const char   *lbl;
+
+	PROBE("L60b0");
+	if (mb == 0) {                                  /* 0x60b4 */
+		out[0] = 0;
+		return;
+	}
+
+	lbl = (const char *)(uintptr_t)                 /* 0x611a / 0x6248 */
+	      ((mb & 4) ? g_a5_long(-10836) : g_a5_long(-10832));
+
+	if (zb != 0) {                                  /* 0x60c4 */
+		switch (kb) {                           /* JT[1] @0x60d6 */
+		case 11:                                /* 0x60f2 */
+			out[0] = 0;
+			break;
+		case 10:                                /* 0x60fc */
+			jt394(out, ua_strs_at(0x40f4),  /* "%s %s" */
+			      (const char *)(uintptr_t)g_a5_long(-10788),
+			      (const char *)(uintptr_t)g_a5_long(-10592));
+			break;
+		case 3:                                 /* 0x611a */
+			jt394(out, ua_strs_at(0x40fa),  /* "%*s %d" */
+			      (int)11, lbl, (int)zb);
+			break;
+		case 12:                                /* 0x6154 */
+			jt394(out, ua_strs_at(0x4102),
+			      (const char *)(uintptr_t)g_a5_long(-10788),
+			      (const char *)(uintptr_t)g_a5_long(-10584));
+			break;
+		case 13:                                /* 0x6172 */
+			jt394(out, ua_strs_at(0x4108),
+			      (const char *)(uintptr_t)g_a5_long(-10792),
+			      (const char *)(uintptr_t)g_a5_long(-10528));
+			break;
+		case 14:                                /* 0x6190 */
+			jt394(out, ua_strs_at(0x410e),
+			      (const char *)(uintptr_t)g_a5_long(-10792),
+			      (const char *)(uintptr_t)g_a5_long(-10688));
+			break;
+		default:                                /* 0x61ae */
+			jt394(out, ua_strs_at(0x4114),  /* "%*s %d" */
+			      (int)11,
+			      (const char *)(uintptr_t)tbl[kb], (int)zb);
+			break;
+		}
+		return;
+	}
+
+	switch (kb) {                                   /* JT[1] @0x61f0 — z == 0 */
+	case 11:                                        /* 0x620c */
+		jt394(out, ua_strs_at(0x411c),
+		      (const char *)(uintptr_t)g_a5_long(-10660),
+		      (const char *)(uintptr_t)g_a5_long(-10596));
+		break;
+	case 10:                                        /* 0x622a */
+		jt394(out, ua_strs_at(0x4122),
+		      (const char *)(uintptr_t)g_a5_long(-10660),
+		      (const char *)(uintptr_t)g_a5_long(-10592));
+		break;
+	case 3:                                         /* 0x6248 */
+		jt394(out, ua_strs_at(0x4128),
+		      (const char *)(uintptr_t)g_a5_long(-10660), lbl);
+		break;
+	case 12:                                        /* 0x627a */
+		jt394(out, ua_strs_at(0x412e),
+		      (const char *)(uintptr_t)g_a5_long(-10660),
+		      (const char *)(uintptr_t)g_a5_long(-10584));
+		break;
+	case 13:                                        /* 0x6296 */
+		jt394(out, ua_strs_at(0x4134),
+		      (const char *)(uintptr_t)g_a5_long(-10660),
+		      (const char *)(uintptr_t)g_a5_long(-10528));
+		break;
+	case 14:                                        /* 0x62b2 */
+		jt394(out, ua_strs_at(0x413a),
+		      (const char *)(uintptr_t)g_a5_long(-10660),
+		      (const char *)(uintptr_t)g_a5_long(-10688));
+		break;
+	default:                                        /* 0x62ce */
+		jt384(out, (const char *)(uintptr_t)tbl[0]);
+		break;
+	}
 }
 
 /* JT[191] (CODE 7 + 0x4c88) — decode a 6-bit-packed name (4 chars in 3 bytes)
@@ -72588,7 +72724,7 @@ static short jt987(short kind, const char *name, short mode, void *cb)
 		key = jt1118() ? jt1133() : (l00a8(), (short)0);
 		l157c(0, 0, 0L);
 		if (key == 81) {             /* 'Q' -> quit */
-			l0062();
+			jt1081();      /* L0062 IS jt1081 (alias map) */
 			jt415(1);
 		} else if (key == 67) {      /* 'C' -> cancel */
 			return 0;
@@ -73394,12 +73530,6 @@ static void jt1167(void)
 static void jt1147(void) __attribute__((unused));
 static void jt1147(void) { PROBE("jt1147"); SysBeep(6); }
 
-/* L0062 (CODE 5+0x62) — the "quit from the error dialog" teardown (jt466/
- * jt1156/jt1119/jt1114/jt1158 + L27bc/L35f8/L01ac/L0f14). Level-2 skeleton:
- * the rare 'q'-from-error abort branch, lifted with the loader/quit path. */
-static void l0062(void) __attribute__((unused));
-static void l0062(void) { PROBE("L0062"); }
-
 /* L036a (CODE 5+0x36a) — the modal "Error: <msg>" alert (JT[1084]). Faithful
  * CFG over the lifted box (jt1161), event (l0088/l00a8/jt1118/jt1133) and
  * clip-save (jt1205/jt1167) primitives. The text now runs the REAL jt400 VM:
@@ -73440,7 +73570,7 @@ static void l036a(const char *fmt, ...)
 		;
 	if (jt1118()) {
 		if (jt1133() == 113) {             /* 'q' -> quit from the error */
-			l0062();
+			jt1081();      /* L0062 IS jt1081 (alias map) */
 			jt415(1);
 		}
 	}
@@ -82461,8 +82591,8 @@ static void l36f6(void *holder_v, short arg)
 
 /* L4144 (CODE 11 + 0x4144) = l4144_c11 — jt243 helper: switch/commit the wall set
  * via l41a0 then l36f6 (the low byte of `val` = the tool code).  (Distinct from the
- * CODE-20 void l4144 stub used elsewhere; same offset, different segment.)  Callers:
- * the L136e/L12fc/L0bf8 jt243 arms. */
+ * CODE-20 `void l4144(void)` — the saved-position restore, also lifted; same
+ * offset, different segment.)  Callers: the L136e/L12fc/L0bf8 jt243 arms. */
 static void l4144_c11(void *holder_v, short val) __attribute__((unused));
 static void l4144_c11(void *holder_v, short val)
 {
