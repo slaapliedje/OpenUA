@@ -2186,9 +2186,14 @@ static short l0f48(void);       /* live-voice count — the harness reports it  
 static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
 static void  l07dc(void);                              /* defined below */
 
-/* UI-handler callbacks main() registers through JT[989]. */
-static void  jt10_handler(void) { }     /* CODE 6 + 0x0538 (jump-table entry 10) */
-static void  jt11_handler(void) { }     /* CODE 6 + 0x04c0 (jump-table entry 11) */
+/* The UI handlers main() registers through JT[989] — the disk / not-found
+ * dialog painters L157c defers to (it calls the -4680 hook in preference to
+ * painting itself).  These were EMPTY STUBS while the real jt10 / jt11 sat
+ * lifted and unused further down, so L157c dutifully called a handler that did
+ * nothing: a failed load printed no message and just spun.  The Mac registers
+ * JT[10] (CODE 6 + 0x0538) and JT[11] (CODE 6 + 0x04c0); so do we. */
+static void  jt10(short a, short key, long ctx);
+static void  jt11(short show, short key, long fmt);
 
 static short jt953(void);                /* exploration command dispatcher */
 #ifdef FRUA_CHARGEN
@@ -2265,7 +2270,7 @@ int ua_main(short arg1, long arg2)
 	 * carry the THINK C runtime's (string-table count, pointer); jt480
 	 * stows them in the A5-world globals ua_get_string reads from. */
 	jt480(arg1, (void *)arg2);
-	jt989(jt10_handler, 1, "Pod", 83);
+	jt989((void (*)(void))jt10, 1, "Pod", 83);
 	/* Sound-subsystem init.  On the Mac this rides in JT[1079]'s toolbox
 	 * bring-up (L0eda: JT[1111] arms the -806 sound-active flag, clears the
 	 * voice table, resets the song state); the port replaces jt12/jt1079's
@@ -2443,7 +2448,7 @@ int ua_main(short arg1, long arg2)
 	jt85(0);
 	jt977();
 	jt120((void *)0);
-	jt989(jt11_handler, 1, "Pod", 83);
+	jt989((void (*)(void))jt11, 1, "Pod", 83);
 	jt1130();
 	g_24138 = 0;
 	g_24134 = 1;
@@ -32514,7 +32519,25 @@ static int jt394(char *buf, const char *fmt, ...)
 	if (fmt == NULL)
 		fmt = "";
 	va_start(ap, fmt);
-	n = vsprintf(buf, fmt, ap);
+	if (fmt[0] == '%' && fmt[1] == 'r' && fmt[2] == 0) {
+		/* THINK C's "%r" — RECURSIVE format.  The next argument is
+		 * itself a format string, and the one after it a POINTER to
+		 * that format's own argument block (on the Mac, a pointer into
+		 * the caller's stack frame).  m68k's va_list IS a plain byte
+		 * pointer into such a block, so the inner call is just a
+		 * vsprintf over it.
+		 *
+		 * L0ab6 (the box-label painter) is the only user, and it always
+		 * passes "%r" alone: jt394(buf, "%r", caller_fmt, caller_args).
+		 * Without this the disk dialogs formatted through it printed
+		 * whatever vsprintf makes of an unknown conversion. */
+		const char *inner = va_arg(ap, const char *);
+		void       *iargs = va_arg(ap, void *);
+
+		n = vsprintf(buf, inner ? inner : "", (va_list)iargs);
+	} else {
+		n = vsprintf(buf, fmt, ap);
+	}
 	va_end(ap);
 	return n;
 }
@@ -44888,12 +44911,11 @@ static void jt9(void)
 }
 
 /* JT[10] (CODE 6+0x0538) — the "Pod" UI key handler jt989 registers
- * (the port's empty jt10_handler thunk is the registration shim; call
- * this once the jt989 dispatch ABI carries args): map keys A/B/C to
+ * (main() registered an EMPTY thunk in its place, so the disk dialogs
+ * never drew): map keys A/B/C to
  * 1/2/3, jt978(15), then feed the key to jt1008(ctx, key). */
 static void jt978(short n);
 static void jt1008(long ctx, short key);
-static void jt10(short a, short key, long ctx) __attribute__((unused));
 static void jt10(short a, short key, long ctx)
 {
 	PROBE("jt10");
@@ -44939,13 +44961,12 @@ static void jt1008(long ctx, short key)
 	l0ab6(ctx, (long)(uintptr_t)&key);               /* 0x0bfa "%r"(ctx, &key) */
 }
 
-/* JT[11] (CODE 6+0x04c0) — the second "Pod" UI handler (the port's
- * empty jt11_handler thunk registers it): scroll-clear (jt176); when
+/* JT[11] (CODE 6+0x04c0) — the second "Pod" UI handler (main() registered an EMPTY
+ * thunk in its place): scroll-clear (jt176); when
  * `show` is set, map A/B/C to 1/2/3, format the key through the
  * caller's format string (jt394 "%r" bridge -> C varargs compromise)
  * and paint the banner at (0,24) colours 15/8 (the jt94 funnel);
  * always present (jt117 = L3994). */
-static void jt11(short show, short key, long fmt) __attribute__((unused));
 static void jt11(short show, short key, long fmt)
 {
 	char buf[40];
@@ -59904,8 +59925,99 @@ static void  jt1109(void)
 		idx++;
 	}
 }
-static void  l157c(short a, short b, long c) __attribute__((unused));
-static void  l157c(short a, short b, long c) { PROBE("L157c"); (void)a; (void)b; (void)c; }
+/* L157c (CODE 5 + 0x157c) — the cold-disk / file-not-found dialog (FULL lift).
+ *
+ * jt987's retry loop is built round this: `l157c(1, kind, name)` puts the
+ * message up, the loop waits for a disk-insert or a keypress, and
+ * `l157c(0, 0, 0)` takes it back down.  While this was a PROBE stub the
+ * message never appeared, so a failed load looked like a HANG — it is the
+ * mechanism behind the ADD-CHARACTER wedge and every other "frozen but alive"
+ * screen a missing file has produced.
+ *
+ * `a` picks the message and doubles as show/hide:
+ *   0  DISMISS   — repaint over the box and restore the saved page (-4658).
+ *   1  "Please Insert %s" — the disk to mount.  A kind of 'S' is remapped
+ *      through the save-disk letter at -4670 FIRST (the Mac writes it back
+ *      over its own argument, and the paint below reads the remapped value);
+ *      ' ' -> "the Disk", 'S' -> "SAVE Disk", anything else -> "Disk %c",
+ *      whose %c is filled at PAINT time with that same letter.  A kind of 0
+ *      means the file itself is missing: "'%s' not found" over `c`.
+ *   2  "Disk %s error" — "write" when `b` is set, else "read".
+ *
+ * The painter is L0be4 — which IS jt1008 (CODE 5 + 0xbe4; the lXXXX = jtN
+ * alias trap, already lifted).  It is variadic: jt1008(fmt, arg) hands both
+ * to L0ab6, which formats the box label through jt394's "%r" recursive mode.
+ * A caller-installed hook at -4680 (JT[989]) pre-empts it when set. */
+static short jt1116(void);
+static void  l157c(short a, short b, long c);
+static void  l157c(short a, short b, long c)
+{
+	char msg[220];                  /* fp@(-220) */
+	void (*hook)(short, short, const char *) =
+	    (void (*)(short, short, const char *))(uintptr_t)g_a5_4680;
+
+	PROBE("L157c");
+	msg[0] = 0;                     /* PORT: the Mac leaves this uninit; the
+	                                 * default arm below would paint it. */
+
+	switch ((short)(signed char)a) {        /* JT[3] @ 0x158a, min 0 max 2 */
+	case 0:                                 /* L1596 — dismiss */
+		if (hook != NULL)
+			hook(a, b, ua_strs_at(0x6d9a) /* "" */);
+		else
+			jt1008((long)(uintptr_t)ua_strs_at(0x6d9c) /* "" */,
+			       (short)0);
+		jt1153((short)(signed char)g_a5_byte(-4658));
+		break;
+
+	case 1:                                 /* L15da — insert disk / missing */
+		if ((signed char)b == 'S')
+			b = (short)(signed char)g_a5_4670;
+		if ((signed char)b != 0) {
+			const char *what;
+
+			if ((signed char)b == ' ')
+				what = ua_strs_at(0x6dc2);      /* "the Disk"  */
+			else if ((signed char)b == 'S')
+				what = ua_strs_at(0x6db8);      /* "SAVE Disk" */
+			else
+				what = ua_strs_at(0x6db0);      /* "Disk %c"   */
+			jt394(msg, ua_strs_at(0x6d9e)           /* "Please Insert %s" */,
+			      what);
+		} else {
+			jt394(msg, ua_strs_at(0x6dcc)           /* "'%s' not found" */,
+			      (const char *)(uintptr_t)c);
+		}
+		break;
+
+	case 2:                                 /* L1648 — read / write error */
+		jt394(msg, ua_strs_at(0x6ddc)               /* "Disk %s error" */,
+		      ((signed char)b != 0) ? ua_strs_at(0x6dea)   /* "write" */
+		                            : ua_strs_at(0x6df0)); /* "read"  */
+		break;
+
+	default:
+		break;
+	}
+
+	/* L1674 — a != 0 means SHOW: stash the page we are on, flip to the
+	 * visible one, and paint. */
+	if ((signed char)a != 0) {
+		g_a5_byte(-4658) = (unsigned char)jt1116();
+		jt1153((short)1);
+		if (hook != NULL)
+			hook(a, b, msg);
+		else
+			jt1008((long)(uintptr_t)msg, b);
+		/* PORT CONCESSION (the jt1134 one, same reason): on the Mac the
+		 * framebuffer IS the screen, so the box is visible the moment it
+		 * is drawn.  The Falcon HAL double-buffers, and jt987's wait loop
+		 * never reaches a present — so without this the dialog was drawn
+		 * and never shown, which is what made a failed load look like a
+		 * freeze rather than a prompt. */
+		qd_present();
+	}
+}
 /* jt1152 / jt1142 lifted above (the CODE 4 sound/disk tier, band 7). */
 /* JT[1121] (CODE 4+0x70ca) — read-and-clear the -808 event-modifier
  * slot: return its current word and zero it. l70e0 (activateEvt) and
@@ -72060,8 +72172,12 @@ static short jt987(short kind, const char *name, short mode, void *cb)
 		l157c(1, kind, (long)(uintptr_t)name);
 		l0156();
 		l00a8();
+		/* L1a3c — the wait loop has a BODY: jt980 (= L0f9c, CODE 5 +
+		 * 0x0f9c) services the sound driver's next voice, so the music
+		 * keeps playing while the dialog waits on the disk.  The port
+		 * spun on an empty body, which silenced it. */
 		while (!l0088() && jt1121() == 0)
-			;
+			jt980();
 		key = jt1118() ? jt1133() : (l00a8(), (short)0);
 		l157c(0, 0, 0L);
 		if (key == 81) {             /* 'Q' -> quit */
