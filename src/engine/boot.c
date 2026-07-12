@@ -4080,6 +4080,9 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec);     /* deep wal
 static short g_walk_cmd = -1;
 #ifdef FRUA_AREATEST
 static short g_areatest_cmd = -1;   /* FRUA_AREATEST: 'a' in the walk latches the Area cmd */
+#ifdef FRUA_CBTSND
+static short g_cbtsnd_fire;         /* FRUA_CBTSND: 'k' in the walk latches "start the fight" */
+#endif
 #endif
 static void  jt23(void);                                            /* play-frame stand-up (defined below) */
 static void  jt904(unsigned char *out_done);                        /* View-character screen (defined below) */
@@ -13912,6 +13915,18 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		(void)o12;
 
 		pollres = l2d3e();              /* event poll (JT[456]) */
+#ifdef FRUA_CBTSND
+		if (g_cbtsnd_fire) {            /* harness: start the fight from the walk */
+			g_cbtsnd_fire = 0;
+			/* Load the level AT FIRE TIME: the walk loads its own level
+			 * after the harness entry runs, so a jt198 up there is
+			 * overwritten before 'k' is ever pressed. */
+			jt198((short)1);
+			dbg_log("cbtsnd: firing GEO001 event 6 (type 33 = COMBAT)");
+			l709e((short)6);
+			dbg_log("cbtsnd: combat returned");
+		}
+#endif
 #ifdef FRUA_AREATEST
 		if (g_areatest_cmd >= 0) {      /* keyboard Area toggle (harness) */
 			g_walk_cmd = g_areatest_cmd;
@@ -16450,6 +16465,29 @@ void frua_areatest_entry(void)
 	dbg_log("evtsnd: firing event 6 through l709e");
 	l709e((short)6);
 	dbg_log("evtsnd: done");
+#endif
+#ifdef FRUA_CBTSND
+	/* Combat-sound harness — PARTIAL, and honest about it.
+	 *
+	 * Pressing 'k' in the walk fires GEO001 event 6 (type 33 = COMBAT) through
+	 * the real dispatcher, in the real play context. The event DISPATCHES, but
+	 * l159a returns without reaching jt511 (the tactical loop), so the fight
+	 * never starts and the attack sounds — which jt503 gates on combat VIEW
+	 * (-27990 == 5) — never play. That is an ENCOUNTER-GATEWAY gap, not a sound
+	 * gap: every jt52 site the Mac has is now present in the port.
+	 *
+	 * Findings worth keeping, each of which cost a run to learn:
+	 *   - Event type 1 and type 33 are COMBAT (l159a -> jt511). Type 4 is NOT —
+	 *     it is l1f76, a per-member effect that awards XP and treasure without
+	 *     ever entering combat view, which is why it looked like a silent fight.
+	 *   - l694e rejects once-only events (ev[1] bit 0), so GEO001 event 12 never
+	 *     dispatches at all.
+	 *   - The WALK RELOADS ITS OWN LEVEL after this harness entry runs, so jt198
+	 *     must be called at FIRE time (in the 'k' latch), not here.
+	 *   - The jt511 / jt503 logs below are the instrumentation to continue with.
+	 *
+	 * `make EXTRA_CFLAGS="-DFRUA_AREATEST -DFRUA_CBTSND" run-game`, then press k. */
+	dbg_log("cbtsnd: ready - press k in the walk to fight");
 #endif
 	jt948();
 }
@@ -21379,6 +21417,14 @@ static short l2d3e(void)
 		 * Read here in l2d3e Phase 1 — before jt287 rejects the bare letter. */
 		if (g_walk_input && (kc == 'a' || kc == 'A'))
 			g_areatest_cmd = 1;
+#endif
+#ifdef FRUA_CBTSND
+		/* 'k' fires the GEO001 combat event from INSIDE the walk, so the fight
+		 * starts in the real play context and reaches combat VIEW (-27990 == 5)
+		 * — which is what gates jt503's hit/miss sound. Firing it before the
+		 * walk loop instead auto-resolves the fight in silence. */
+		if (g_walk_input && (kc == 'k' || kc == 'K'))
+			g_cbtsnd_fire = 1;
 #endif
 		/* Training Hall menu: Up/Down move the roster selection (l0848)
 		 * rather than the DLItem button nav. Exit the modal with an
@@ -29668,6 +29714,9 @@ static void jt503(long entity, short a, long ptr)
 	signed char xb, yb;
 
 	PROBE("jt503");
+#ifdef FRUA_CBTSND
+	dbg_log_num("cbtsnd: jt503 mode = ", (long)(unsigned char)g_a5_byte(-27990));
+#endif
 	if ((unsigned char)g_a5_byte(-27990) != 5) {           /* not combat view */
 		jt18((void *)(uintptr_t)entity, ptr, 10, 1);
 		return;
@@ -49662,6 +49711,9 @@ static void jt511(void)
 	long m;
 
 	PROBE("jt511");
+#ifdef FRUA_CBTSND
+	dbg_log("cbtsnd: jt511 ENTER (tactical combat loop)");
+#endif
 	g_a5_byte(-27990) = 5;
 	g_a5_long(-24070) = (long)(uintptr_t)jt538;
 	jt542();
@@ -56360,7 +56412,9 @@ static void jt145(void)
  * A pick animates — projectile sprite jt497 (32 for effects
  * 47/115/74/133 with a jt502 trail, else 19), the jt505 direction
  * scan, the caster pose flip (jt523), the cast sound (JT[1] value
- * switch: 47 -> jt52(9), 51 -> jt52(3), else jt52(12)), the jt501
+ * switch: 47 -> jt52(12), 51 -> jt52(9), else jt52(3) — the arms the
+ * CODE lifts, verified against the inline table at 0x672e; an earlier
+ * revision of THIS COMMENT had them permuted), the jt501
  * trajectory, and the per-effect jt500 explosion (JT[1] table:
  * 34 -> (1,28,12); 91/133/47 -> (2or3,25,12) on GEO hdr[34];
  * 115 -> (2or3,26,12) on hdr[60]; 87 -> (2,20,9) underwater only;
@@ -67291,13 +67345,106 @@ static void jt93(short a, short b, short c, short d)
 
 /* --- band-5 CODE 16 effect pair --------------------------------------- */
 
-/* L7026 (CODE 16+0x7026) — the saving-throw-modified effect
- * announce ("is held" etc with modifier d). Leaf PROBE stub
- * pending its own lift. */
+/* L7026 (CODE 16 + 0x7026) — the AREA-EFFECT DELIVERY CORE.
+ *
+ * jt596 has already resolved the targets into the -23512 slot array (count in
+ * -23510); this walks them and, for each, throws the bolt and applies the
+ * effect. It is what the "is held" / "is charmed" / "is highlighted" handlers
+ * tail-call, and it is where the AREA-EFFECT CAST SOUND lives — jt52(3), the
+ * one jt52 site in the whole Mac binary the port did not have.
+ *
+ * Per target:
+ *   - the bolt: jt52(3) cast sound, jt497(19) projectile sprite, then jt501
+ *     animates it from the caster (-27932) to the target. MAC QUIRK KEPT: the
+ *     slot walk runs DOWN from `count` to 1 and the bolt is skipped while
+ *     i >= count, so the first slot visited gets no animation.
+ *   - the save: effects 79/81 on that first slot auto-save; otherwise jt866
+ *     rolls it, modified by `mod` and the effect table's byte 9.
+ *   - overrides: class-6 targets auto-save against effects 23/49; effect 108
+ *     also auto-saves unless the target carries the byte-191 bit-6 immunity.
+ *   - the roll: jt17(code, 1); for effect 81 the caster's byte 95 folds in as a
+ *     high bit.
+ *   - apply: l602c(code) prices the duration, jt871 announces `msg` and commits.
+ *
+ * The effect table is 16-byte records at -16906 indexed by the current effect
+ * code (-25262); bytes 8/9/10 are the ones used here. The Mac RE-READS -25262
+ * at every point rather than caching it (jt866/jt871 are free to change it), so
+ * this does too. Full lift. */
 static void l7026(short mod, const char *msg)
 {
+	unsigned char count = (unsigned char)g_a5_byte(-23510);
+	unsigned char flag9 = 0;                /* fp@(-9): set ONCE, before the loop */
+	short         i;
+
 	PROBE("l7026");
-	(void)mod; (void)msg;
+	for (i = (short)count; i >= 1; i--) {                   /* 0x7272 — DOWN */
+		unsigned char *ent, *tbl;
+		unsigned char  saved, v7, roll;
+		short          dur;
+
+		if (g_a5_long(-23512 + (long)i * 4) == 0)       /* 0x704c */
+			continue;
+		ent = (unsigned char *)(uintptr_t)g_a5_long(-23512 + (long)i * 4);
+
+		if ((unsigned char)i < count) {                 /* 0x706e */
+			unsigned char cx, cy, tx, ty;
+
+			jt52((short)3);                         /* 0x7076 CAST SOUND */
+			jt497((short)19);                       /* 0x7080 */
+			cx = jt525(g_a5_long(-27932));          /* 0x708e caster x */
+			cy = jt531(g_a5_long(-27932));          /* 0x709c caster y */
+			tx = jt525((long)(uintptr_t)ent);       /* 0x70aa target x */
+			ty = jt531((long)(uintptr_t)ent);       /* 0x70b8 target y */
+			jt501((short)cx, (short)cy, (short)tx, (short)ty,
+			      (short)4, (short)30);             /* 0x70e2 */
+		}
+
+		if (((unsigned char)g_a5_byte(-25262) == 79      /* 0x70f0 */
+		     || (unsigned char)g_a5_byte(-25262) == 81)  /* 0x70fc */
+		    && (unsigned char)i == count) {              /* 0x7106 */
+			saved = 1;                              /* 0x710c */
+			v7    = 1;
+		} else {
+			tbl = &g_a5_byte(-16906)
+			    + (long)(unsigned char)g_a5_byte(-25262) * 16;  /* 0x7128 */
+			saved = (unsigned char)jt866((long)(uintptr_t)ent,
+			                             (short)tbl[9], mod);   /* 0x7142 */
+			tbl = &g_a5_byte(-16906)
+			    + (long)(unsigned char)g_a5_byte(-25262) * 16;  /* 0x715a */
+			v7 = tbl[8];                            /* 0x7160 */
+		}
+
+		if (ent[88] == 6                                 /* 0x716c */
+		    && ((unsigned char)g_a5_byte(-25262) == 23   /* 0x717c */
+		        || (unsigned char)g_a5_byte(-25262) == 49))     /* 0x7188 */
+			saved = 1;                              /* 0x718e */
+
+		if (!(ent[191] & 64)                             /* 0x719e */
+		    && (unsigned char)g_a5_byte(-25262) == 108)  /* 0x71ac */
+			saved = 1;                              /* 0x71b2 */
+
+		if ((unsigned char)g_a5_byte(-25262) == 81) {    /* 0x71be */
+			unsigned char *caster =
+			    (unsigned char *)(uintptr_t)g_a5_long(-27932);
+			short r = jt17((short)(unsigned char)g_a5_byte(-25262),
+			               (short)1);               /* 0x71d0 */
+
+			roll  = (unsigned char)((short)(r & 0xff)
+			                        + (short)(caster[95] << 7));    /* 0x71e6 */
+			flag9 = 1;                              /* 0x71ec */
+		} else {
+			roll = (unsigned char)jt17(
+			    (short)(unsigned char)g_a5_byte(-25262),
+			    (short)1);                          /* 0x7200 */
+		}
+
+		tbl = &g_a5_byte(-16906)
+		    + (long)(unsigned char)g_a5_byte(-25262) * 16;          /* 0x7218 */
+		dur = l602c((short)(unsigned char)g_a5_byte(-25262));       /* 0x722a */
+		jt871((long)(uintptr_t)ent, (short)tbl[10], dur,
+		      (short)roll, (short)flag9, (short)v7, (short)saved,
+		      (long)(uintptr_t)msg);                                /* 0x7266 */
+	}
 }
 
 
