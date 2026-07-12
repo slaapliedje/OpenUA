@@ -242,3 +242,53 @@ bodies. They work for the demo but aren't 1:1:
 - Broader stub list + band coverage: `docs/stub-inventory.md`.
 - Char-gen internals + L618c: `docs/code17-chargen-wall.md`.
 - Faithful play entry (Save/Begin/Load): task #100, [[faithful-play-entry-chain]].
+
+## The ADD-CHARACTER wedge — SOLVED (2026-07-12)
+
+Clicking **Add** in the party-roster picker froze the dialog: the character was
+not added, and **Exit** stopped responding afterwards. The engine was not
+crashed — it was spinning, and `jt169` never returned.
+
+**Chain:** Hall menu case 5 (`l1036`) → `l12a0` → `jt169` → `l23b4` (the modal
+poll). `l2d3e` DID return the Add button's item index; the hang was downstream,
+in `l12a0`'s add path:
+
+    jt477(&g_a5_22212, 398, fresh_slot);          /* out-param never deref'd */
+    matched = jt165(idx, tail);
+    jt587(fresh_slot, matched, 0, 1);             /* BOTH ARGS WRONG */
+
+The Mac (CODE 12, L13f8..L1430) is `jt587(&node[5], slot, 0, 1)` — the character
+**NAME** first, the freshly-allocated 398-byte **slot** second. jt587 zeroes its
+2nd argument for 398 bytes and then loads that name's save into it. The port had
+them swapped, so it **zeroed 398 bytes over the roster's LIST NODE** and took the
+name from an uninitialised 64-byte local. `l01be` never names the peer list's
+nodes either (it writes the display name only into the out2/display list), so the
+name was empty regardless. The open failed, and **`jt987` spun in its cold-disk
+retry dialog forever** (`l157c` is a stub, so the dialog can never be answered) —
+the same hard-hang trap as the combat library-id mismatch.
+
+**Why the port cannot take the Mac's add path at all.** The Mac's Add is a DISK
+LOAD: allocate a slot from `g_a5_22212`, fill it from the character's own save
+file. Two independent blockers:
+  1. the port's saved characters are flat 512-byte `cg_pool` dumps
+     (`save_roster`), not the Mac's `.cch` stream that `jt577` walks; and
+  2. decisively, the port models the party as nodes **inside `cg_pool`** —
+     `cg_node_in_pool()` rejects any node not on a 512-byte pool boundary — so a
+     `g_a5_22212` slot could never be walked as a party member.
+So the pick is resolved against `cg_pool` (ADR-0003), and the Mac's party CAPS
+are lifted on top of it. Wiring the faithful loader means migrating the save
+format to `jt578`/`.cch` first; `jt577`/`jt578` exist and round-trip, and the
+reconciled reader `l08ba_c15`/`l_cch_read` is already there, unused, for then.
+
+**Also fixed, both faithful lifts of the same block:**
+- The party CAPS (L1486..L1538) were missing entirely: duplicate rejection,
+  bodies < 6, party < 8, and the "too many rangers in party" cap (JT[42],
+  STRS 0x5fe0) at 3+ rangers.
+- The loop-exit test was **INVERTED**. Mac L159c leaves when the party is FULL
+  (`body_count > 5 || occupied > 7`); the port had `body_count < 5 && occupied
+  < 7`, so it left after a single add and looped once the party was full.
+
+**LIVE:** Add MALTIER then BARBARUS — both gain the `* ` in-party marker, the
+picker stays responsive, re-adding a marked character is ignored, Exit returns
+to the Hall, and the roster shows both (MALTIER AC -5 HP 77, BARBARUS AC -3
+HP 78).

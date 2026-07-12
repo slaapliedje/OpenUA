@@ -32231,12 +32231,11 @@ static void l12a0(void)
 	long  head = 0;
 	long  tail = 0;
 	long  entry;
-	long  matched;
 	short input = 0;
 	short idx   = 0;
-	short body_count   = 0;
+	short body_count   = 0;         /* fp@(-28) — bodies already in the party */
+	short rangers      = 0;         /* fp@(-29) */
 	unsigned char loop_flag = 0;
-	unsigned char fresh_slot[64];
 
 	PROBE("L12a0");
 
@@ -32298,37 +32297,49 @@ static void l12a0(void)
 		if (input != 1 && input != 27) {
 			const unsigned char *e =
 				(const unsigned char *)(uintptr_t)entry;
+			unsigned char *picked_rec = NULL;
 
 			if (e[5] == '*')
 				goto exit_check;
 
-			/* Port: add the picked saved character to the active
-			 * party.  The Mac copies the saved record into a fresh
-			 * 398-byte party-pool slot (jt477 + jt165 + jt587); the
-			 * port's party is the CHAR_INPARTY subset of cg_pool, so
-			 * flag the matching slot and relink.  Matched on the raw
-			 * name (before the "* " marker is prefixed below). */
+			/* Resolve the pick to its cg_pool record, then apply the
+			 * Mac's party caps (L1486..L1538) to it.
+			 *
+			 * THE MAC'S OWN ADD IS A DISK LOAD: allocate a fresh
+			 * 398-byte slot (jt477), then jt587(&node[5], slot) —
+			 * the NAME first, the slot second — fills it from that
+			 * character's save file. The port CANNOT take that path,
+			 * for two independent reasons:
+			 *   - its saved characters are flat 512-byte cg_pool
+			 *     dumps, not the Mac's .cch stream jt577 walks; and
+			 *   - decisively, the port models the party as nodes
+			 *     INSIDE cg_pool — cg_node_in_pool() rejects any node
+			 *     that is not on a 512-byte pool boundary — so a
+			 *     g_a5_22212 slot could never be walked as a member.
+			 * (ADR-0003. Wiring the faithful loader means migrating
+			 * the save format to jt578/.cch first; jt577/jt578 exist
+			 * and round-trip, but save_roster still writes raw slots.
+			 * The reconciled reader l08ba_c15/l_cch_read is already
+			 * there, unused, for when that lands.)
+			 *
+			 * Calling it anyway is what WEDGED this picker. The port
+			 * passed `jt587(fresh_slot, matched, 0, 1)` — both args
+			 * wrong: it zeroed 398 bytes over the LIST NODE, and took
+			 * the character's name from an uninitialised local. l01be
+			 * never names the peer list's nodes either, so the name
+			 * was empty regardless; the open failed and jt987 spun in
+			 * its cold-disk retry dialog forever. jt169 never
+			 * returned, so Add — and then Exit — stopped responding. */
 			{
 				short pi;
+
 				for (pi = 0; pi < cg_pool_count; pi++)
 					if (jt396((const char *)&cg_pool[pi][96],
 					          (const char *)&e[5]) != 0) {
-						/* Splice the picked saved character into the
-						 * party list -27928 directly (jt590), if it is
-						 * not already a member and there is room. (#141) */
-						if (!cg_in_party(cg_pool[pi])
-						    && cg_party_size() < CG_PARTY_MAX) {
-							*(long *)cg_pool[pi] = 0;
-							jt590(cg_pool[pi]);
-							save_roster();
-						}
+						picked_rec = cg_pool[pi];
 						break;
 					}
 			}
-
-			jt477(&g_a5_22212, 398, fresh_slot);
-			matched = jt165(idx, tail);
-			jt587(fresh_slot, (void *)(uintptr_t)matched, 0, 1);
 
 			{
 				const char *prefixed =
@@ -32337,21 +32348,67 @@ static void l12a0(void)
 				jt384((char *)(uintptr_t)&e[5], prefixed);
 			}
 
-			if (g_a5_27928 == 0) {
-				/* Empty roster — commit and stop. */
+			body_count = 0;                         /* L145c */
+			if (picked_rec == NULL) {
+				/* no matching record — nothing to add */
+			} else if (g_a5_27928 == 0) {
+				/* L1466 — first member: reset the party count,
+				 * link the record in, refresh. */
 				unsigned char *handle =
 					(unsigned char *)g_a5_28006;
 				if (handle != NULL)
 					handle[32] = 0;
-				jt590(fresh_slot);
+				*(long *)picked_rec = 0;
+				jt590(picked_rec);
 				jt593(1);
+				save_roster();
 			} else {
-				/* Walk the roster counting body entries;
-				 * the "rangers in party" cap at L1562
-				 * stays PROBE-deferred — the dispatcher
-				 * exits cleanly via L1562 / L159c. */
-				body_count = 0;
-				jt471(matched, 398, &g_a5_22212);
+				/* L1486 — walk the party: count bodies (rec[147]
+				 * < 128) and rangers (rec[161] > 0), stopping if
+				 * we meet the picked record itself (a duplicate). */
+				unsigned char *node =
+					(unsigned char *)(uintptr_t)g_a5_long(-27928);
+				int accept;
+
+				rangers = 0;
+				while (node != NULL && node != picked_rec) {
+					if (node[147] < 128)
+						body_count++;
+					if (node[161] > 0)
+						rangers++;
+					node = *(unsigned char **)node;
+				}
+
+				if (node != NULL) {
+					accept = 0;             /* L14da — already a member */
+				} else if (!(picked_rec[147] & 0x80)
+				           && body_count < 6) {
+					accept = 1;             /* L14f0 — room for a body */
+				} else if (!(picked_rec[147] & 0x80)) {
+					accept = 0;             /* L14fe — bodies full */
+				} else {
+					/* L150e — a follower: capped by party size. */
+					unsigned char *h =
+						(unsigned char *)g_a5_28006;
+					accept = (h != NULL && h[32] < 8);
+				}
+				/* L151e — and never more than 3 rangers. */
+				if (accept && picked_rec[161] != 0 && rangers >= 3)
+					accept = 0;
+
+				if (accept) {                   /* L1538 */
+					*(long *)picked_rec = 0;
+					jt590(picked_rec);
+					jt593(1);
+					save_roster();
+					if (!(picked_rec[147] & 0x80))
+						body_count++;   /* L154c */
+				} else if (picked_rec[161] != 0 && rangers > 2) {
+					jt42(ua_strs_at(0x5fe0));
+					/* "too many rangers in party" */
+				}
+				/* (L1588's jt471 frees the Mac's unused disk slot;
+				 * there is none to free on this path.) */
 			}
 		}
 
@@ -32361,8 +32418,12 @@ exit_check:
 				(const unsigned char *)g_a5_28006;
 			short occupied =
 				(handle != NULL) ? (short)handle[32] : 0;
+			/* L159c — leave on Exit, or once the party is FULL.
+			 * The port had this INVERTED (`body_count < 5 &&
+			 * occupied < 7`), so it left the picker after a single
+			 * add and kept looping once the party was full. */
 			short exit_now = (input == 1) ||
-			                 (body_count < 5 && occupied < 7);
+			                 (body_count > 5) || (occupied > 7);
 			if (exit_now) {
 				jt581(head, tail);
 				return;
