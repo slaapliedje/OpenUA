@@ -64137,18 +64137,254 @@ static void l2724(char *buf)
 	jt399(buf + len, (short)(250 - len), (short)0);
 }
 
-/* L2756 (CODE 8 + 0x2756) — the segment-table maintainer: pos < 0
- * wipes + re-tokenizes the whole buffer into word segments (the
- * L2dca/L2d5e char classes, 38-col lines); pos >= 0 adjusts the table
- * around an insert/delete at pos and validates the result. ~1.7KB —
- * PROBE leaf stub returning 1 ("table fine"), so the seg machinery
- * sees one empty segment and plain typing still works; lift together
- * with the word-wrap paint layer (L24e8/L2410/L1f6c). */
+/* L2d5e (CODE 8 + 0x2d5e) — the CLOSING char class: punctuation that
+ * stays glued to the end of the word it follows, so the wrapper never
+ * strands it at the head of the next line.  . , ? ! : - ; ) ] } " */
+static short l2d5e(short ch)
+{
+	PROBE("L2d5e");
+	switch ((unsigned char)ch) {
+	case '.': case ',': case '?': case '!': case ':': case '-':
+	case ';': case ')': case ']': case '}': case '"':
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/* L2dca (CODE 8 + 0x2dca) — the OPENING char class: punctuation that
+ * glues to the FRONT of the word it precedes.  ( [ { "  (the quote is
+ * in both classes — it opens and closes.) */
+static short l2dca(short ch)
+{
+	PROBE("L2dca");
+	switch ((unsigned char)ch) {
+	case '(': case '[': case '{': case '"':
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/* L2756 (CODE 8 + 0x2756) — the segment-table maintainer, and the whole
+ * of the big field's word-wrap (FULL lift).  It re-tokenizes buf[0..232]
+ * into up to 6 word-wrapped lines of <= 38 columns, writing the (start,
+ * end) byte pairs at buf[236 + 2i] / buf[237 + 2i], and narrows the
+ * repaint window buf[248] (first dirty cell) / buf[249] (rows touched)
+ * that L24e8 consumes.  Returns 1 = the text fits, 0 = it does NOT —
+ * which is how L2df8 knows to beep and undo the keystroke.  The 6x38
+ * wrap, not L2df8's maxw of 233, is the field's real capacity.
+ *
+ * A word is scanned as [opening punct][body][closing punct][spaces]
+ * (L2dca / L2d5e); the position of the last space is remembered as the
+ * break point, so a word that would overflow column 38 moves whole to
+ * the next line.
+ *
+ * `pos` is the cursor and `flag` says the cursor ADVANCED (an insert)
+ * rather than retreated (a delete): the table entries that pointed at
+ * the OLD end-of-string (len -/+ 1) are re-pointed at the new one before
+ * the re-scan.
+ *
+ * TWO faithful vestiges, both kept because removing either changes
+ * behaviour:
+ *   - the `pos < 0` "wipe the table and rebuild from scratch" path is
+ *     DEAD in the shipped binary.  THINK C compiled `pos` as an
+ *     UNSIGNED char (the asm zero-extends the byte, then tst.w/SCS —
+ *     an unsigned "< 0"), so it is false for every input including the
+ *     -1 that jt328's bind passes.  Keep the flag false: it is also
+ *     what makes an overflow REJECT (restore the table, return 0)
+ *     instead of truncating, which is the behaviour L2df8 relies on.
+ *   - the `i > row` guard on the +236 fix-up can never fail either
+ *     (the counter starts at row + 1).
+ *
+ * The loop counter lives in the A5 byte at -22307 — a scratch slot the
+ * Mac shares with several other loops; it is dead outside this call. */
 static short l2756(char *buf, short pos, short flag)
 {
+	unsigned char *t = (unsigned char *)buf;
+	unsigned char  save[14];        /* fp@(-34) — the pre-edit table   */
+	char          *q;               /* fp@(-14) — the scan pointer     */
+	short          p;               /* fp@(-2)  — the pending boundary */
+	short          row    = 0;      /* fp@(-4)                         */
+	short          rowlim = 0;      /* fp@(-6)                         */
+	short          col    = 0;      /* fp@(-8)  — columns used so far  */
+	short          len;             /* fp@(-10)                        */
+	short          chg;             /* fp@(-15)                        */
+	short          rebuild;         /* fp@(-16)                        */
+	unsigned char  c = (unsigned char)pos;          /* fp@(13) */
+
 	PROBE("L2756");
-	(void)buf; (void)pos; (void)flag;
-	return 1;
+	jt406(save, t + 236, (short)14);
+	q   = buf;
+	len = jt423(buf);
+	rebuild = 0;                    /* the dead `pos < 0` test — above */
+
+	if (rebuild) {
+		row    = 0;
+		rowlim = 0;
+		c      = 0;
+		jt399((char *)(t + 236), (short)14, (short)0);
+	} else {
+		chg = (short)(l20c2(buf, (short)c, &row, (short)0) & 0xff);
+
+		/* Re-point every later boundary that still names the OLD
+		 * end-of-string at the new one. */
+		for (g_a5_22307 = (unsigned char)(row + 1);
+		     (short)(signed char)g_a5_22307 < 6;
+		     g_a5_22307 = (unsigned char)(g_a5_22307 + 1)) {
+			short i = (short)(signed char)g_a5_22307;
+			short d = (short)(len
+			          + (((flag & 0xff) != 0) ? -1 : 1));
+
+			if (i > row && (short)t[2 * i + 236] == d)
+				t[2 * i + 236] = (unsigned char)len;
+			if ((short)t[2 * i + 237] == d)
+				t[2 * i + 237] = (unsigned char)len;
+		}
+
+		if (chg != 0)
+			row++;
+		rowlim = row;
+		if ((flag & 0xff) == 0 && c >= t[2 * rowlim + 237])
+			rowlim++;
+		if (row != 0)
+			row--;
+	}
+
+	/* L28f6 — re-scan from the start of `row`. */
+	t[248] = c;
+	q      = buf + t[2 * row + 236];
+	col    = 0;
+	p      = (short)(q - buf);
+	chg    = 1;
+
+	for (;;) {
+		/* L2c2a — keep wrapping while there is text, a row to put
+		 * it in, and either something changed or we are still
+		 * inside the rows the edit could have disturbed. */
+		if (*q == 0 || row >= 6)
+			break;
+		if (chg == 0 && row > rowlim)
+			break;
+
+		while (*q != 0 && col < 38) {           /* L2a6e */
+			/* L2944 — opening punctuation. */
+			while (*q != 0 && l2dca((short)(signed char)*q) != 0
+			       && col < 38) {
+				q++;
+				col++;
+			}
+			/* L2972 — the word body. */
+			while (*q != 0 && *q != ' '
+			       && l2d5e((short)(signed char)*q) == 0
+			       && l2dca((short)(signed char)*q) == 0
+			       && col < 38) {
+				q++;
+				col++;
+			}
+			/* L29ca — closing punctuation. */
+			while (*q != 0 && l2d5e((short)(signed char)*q) != 0
+			       && col < 38) {
+				q++;
+				col++;
+			}
+			/* L2a16 — the spaces after it; the LAST one is the
+			 * break point this row would wrap at. */
+			while (*q != 0 && *q == ' ' && col <= 38) {
+				p = (short)(t[2 * row + 236] + col);
+				col++;
+				q++;
+			}
+			/* L2a30 — the word fitted (or the text ran out):
+			 * the break point moves past it. */
+			if (col < 38 || *q == 0)
+				p = (short)(t[2 * row + 236]
+				            + jt413(col, (short)38));
+		}
+
+		/* L2a80 — a row that produced no break point ends where
+		 * the scan stopped. */
+		if ((short)t[2 * row + 236] == p)
+			p = (short)(p + col);
+
+		/* L2aa2 — commit the row end, and pull the repaint window
+		 * back to the earliest cell it disturbed. */
+		chg = ((short)t[2 * row + 237] != p) ? 1 : 0;
+		if (chg != 0) {
+			if ((short)t[248] >= p
+			    || t[2 * row + 237] < t[248]) {
+				t[248] = (unsigned char)jt413(
+				    jt397((short)0,
+				          jt413((short)(p - 1),
+				                (short)t[2 * row + 237])),
+				    (short)t[248]);
+			}
+			t[2 * row + 237] = (unsigned char)p;
+		}
+
+		/* L2b54 — on to the next row. */
+		q = buf + t[2 * row + 237];
+		row++;
+		if (row < 6) {
+			/* L2b8a — a full row swallows the spaces that
+			 * would otherwise open the next one. */
+			while (*q != 0 && *q == ' ' && col >= 38)
+				q++;
+			p   = (short)(q - buf);
+			col = 0;
+			if ((short)t[2 * row + 236] != p) {
+				t[2 * row + 236] = (unsigned char)p;
+				chg = 1;
+			}
+		} else if (col >= 38) {
+			/* L2bec — out of rows: trailing spaces are not an
+			 * overflow, so eat them and cut the string there. */
+			p = (short)(q - buf);
+			while (*q != 0 && *q == ' ')
+				q++;
+			if (*q == 0)
+				buf[p] = 0;
+		}
+	}
+
+	/* L2c4e */
+	t[249] = (unsigned char)row;
+
+	if (*q == 0) {
+		p = (short)(q - buf);
+		for (; row < 6; row++) {                /* L2c72 */
+			if (t[2 * row + 237] != 0) {
+				t[2 * row + 237] = 0;
+				t[249] = (unsigned char)(row + 1);
+			}
+			/* L2caa — an unused row collapses onto the end of
+			 * the text, unless it is already there (and a
+			 * delete that emptied a full 38-column row still
+			 * has to move it). */
+			if ((short)t[2 * row + 236] == p) {
+				if ((flag & 0xff) != 0)
+					continue;
+				if (row == 0)
+					continue;
+				if ((short)((short)c
+				    - (short)t[2 * (row - 1) + 236]) != 37)
+					continue;
+			}
+			t[2 * row + 236] = (unsigned char)p;
+			t[249] = (unsigned char)(row + 1);
+		}
+		return 1;
+	}
+
+	/* L2d26 — text left over.  Only a full 6 rows is an overflow. */
+	if (row != 6)
+		return 1;
+	if (rebuild != 0) {
+		*q = 0;                 /* the dead path: force-truncate */
+		return 1;
+	}
+	jt406(t + 236, save, (short)14);        /* reject: put the table back */
+	return 0;
 }
 
 /* L2df8 (CODE 8 + 0x2df8) — the line-editor keystroke primitive
@@ -64686,23 +64922,87 @@ verdict:
  * record (rec+8) is the 250-byte revert copy with the label at +250.
  * The grid is 38 cols x 6 rows (152 x 24 units). */
 
-/* L24e8 (CODE 8 + 0x24e8) — draw the field text from `from`, walking
- * the segment table row by row (clamps `from` to buf[248] first).
- * Word-wrap paint layer — PROBE leaf stub pending its lift. */
+/* L24e8 (CODE 8 + 0x24e8) — paint the field text from cell `from` down
+ * (FULL lift).  L2756 leaves a repaint window behind — buf[248] is the
+ * earliest cell it disturbed, buf[249] the number of rows — and this is
+ * what consumes it: `from` is pulled back to buf[248], and only rows
+ * 0..buf[249) are touched.  Each row is drawn by NUL-terminating the
+ * text at the segment end, printing from the segment start (+ the
+ * leading column on the first row), restoring the byte, then padding
+ * the rest of the 38 columns with spaces ("%*s" of an empty string) so
+ * a shortened line erases its own tail.  Both slots are reset to
+ * "everything" (0, 6) on the way out, so the window fires exactly once.
+ *
+ * The row's own text is passed as JT[1089]'s FORMAT STRING, not as a
+ * "%s" argument — faithful, and it means a '%' typed into a big field
+ * is interpreted, on the Mac too. */
 static void l24e8(short v, short h, short from, short pal, char *buf)
 {
+	unsigned char *t   = (unsigned char *)buf;
+	short          row = 0;
+	short          col;
+	char           save = 0;
+
 	PROBE("L24e8");
-	(void)v; (void)h; (void)from; (void)pal; (void)buf;
+	from = jt413((short)(unsigned char)from, (short)t[248]);
+	(void)l20c2(buf, (short)(unsigned char)from, &row, (short)1);
+	col = jt397((short)0,
+	            jt413((short)((short)(unsigned char)from
+	                          - (short)t[2 * row + 236]),
+	                  (short)37));
+
+	while (jt413((short)t[249], (short)6) > row) {
+		if (t[2 * row + 237] != 0) {
+			save = buf[t[2 * row + 237]];
+			buf[t[2 * row + 237]] = 0;
+			jt1089((short)(v + row * 4),
+			       (short)(h + col * 4), pal,
+			       buf + t[2 * row + 236] + col);
+			buf[t[2 * row + 237]] = save;   /* L26ae */
+		}
+		/* L2618 — clear the rest of the row. */
+		col = (short)(jt397((short)t[2 * row + 237],
+		                    (short)t[2 * row + 236])
+		              - (short)t[2 * row + 236]);
+		if ((unsigned short)(unsigned char)col < 38) {
+			jt1089((short)(v + row * 4),
+			       (short)(h + col * 4), pal,
+			       ua_strs_at(0x4064) /* "%*s" */,
+			       (int)(short)(38 - col),
+			       ua_strs_at(0x4068) /* "" */);
+		}
+		col = 0;
+		row++;
+	}
+	t[248] = 0;
+	t[249] = 6;
 }
 
-/* L2410 (CODE 8 + 0x2410) — draw ONE grid cell: L20c2 locates `idx`'s
- * segment for the row, the column is idx - segment start. PROBE leaf
- * stub pending its lift. */
+/* L2410 (CODE 8 + 0x2410) — paint ONE grid cell (FULL lift), the big
+ * field's cursor block.  L20c2 puts `idx`'s row in `row`; the column is
+ * idx - the row's start, clamped to 0..37.  A `ch` of 0 means "whatever
+ * is in the buffer there" (an empty cell prints as a space), which is
+ * how jt328 inverts the cell under the cursor and puts the old one back. */
 static void l2410(short v, short h, short idx, short pal, char *buf,
                   short ch)
 {
+	const unsigned char *t   = (const unsigned char *)buf;
+	short                row = 0;
+	short                col;
+
 	PROBE("L2410");
-	(void)v; (void)h; (void)idx; (void)pal; (void)buf; (void)ch;
+	(void)l20c2(buf, (short)(unsigned char)idx, &row, (short)1);
+	col = jt397((short)0,
+	            jt413((short)((short)(unsigned char)idx
+	                          - (short)t[2 * row + 236]),
+	                  (short)37));
+	if ((ch & 0xff) == 0)
+		ch = (short)(unsigned char)buf[t[2 * row + 236] + col];
+	if ((ch & 0xff) == 0)
+		ch = 32;
+	jt1089((short)(v + row * 4), (short)(h + col * 4), pal,
+	       ua_strs_at(0x4060) /* "%c" */,
+	       (int)(short)(signed char)(ch & 0xff));
 }
 
 /* L1f6c (CODE 8 + 0x1f6c) — map the mouse position into a cursor index
