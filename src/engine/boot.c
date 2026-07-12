@@ -21610,8 +21610,24 @@ static short l2d3e(void)
 					}
 				}
 
-				hr[28] |= 0x10;
-				return i;                     /* commit button */
+				/* THE ITEM DECIDES (Mac L2dc2..L2e28): cmd 4 activates
+				 * it, and only a set commit bit (rec[28] bit 4) leaves
+				 * the modal; otherwise mark dirty and stay.
+				 *
+				 * This replaces the port's `hr[28] |= 0x10; return i;`
+				 * force-commit, which existed because the faithful test
+				 * appeared to freeze jt169's List Manager dialog. It did
+				 * not: THAT was the transposed click latch (3bffc1b)
+				 * making cmd 3's track return "released off" for every
+				 * item. With the latch fixed, jt169's Add/Exit, the main
+				 * menu and the Hall menu all set their own commit bit —
+				 * no action proc needed lifting. */
+				hm(hr, (short)4, cy, cx, key);
+				if ((hr[28] & 0x10) != 0)
+					return i;             /* committed -> leave */
+				hr[28] &= 0x7f;               /* repaint; stay */
+				qd_present();
+				return (short)-1;
 			}
 			hr += DLITEM_BYTES;
 		}
