@@ -8939,6 +8939,7 @@ static void l14d0(unsigned char *rec, short arg)
  * length plus rec[22] (extra columns) — used by items that have
  * a clickable region wider than their visible glyph extent. */
 static short jt380(void *rec_v, short cmd, ...) __attribute__((unused));
+static short jt381(void *rec_v, short cmd, ...);   /* the shape-2 radio container */
 static short jt380(void *rec_v, short cmd, ...)
 {
 	unsigned char *rec = (unsigned char *)rec_v;
@@ -8953,6 +8954,54 @@ static short jt380(void *rec_v, short cmd, ...)
 	if (cmd == 1) {
 		/* L2266: paint via L14d0(rec, 16). */
 		l14d0(rec, (short)16);
+		return 0;
+	}
+
+	if (cmd == 4) {
+		/* L23ba — a radio ROW was picked.  Walk BACKWARD to the item
+		 * whose method IS the shape-2 handler (g_a5_-9278 = the radio
+		 * container jt381; the table at -9282 holds one handler per
+		 * shape, so entry 1 lives at -9278), counting the steps: that
+		 * count is this row's CHILD INDEX.  Hand it to the container
+		 * through its own cmd 4 — which clears the radio bit on the
+		 * old child, sets it on this one, writes the value-output
+		 * global and fires the group's action proc (jt566/jt567/jt568/
+		 * jt569/jt570) — then fire this row's OWN action proc, with its
+		 * DLItem index, if it carries one.
+		 *
+		 * This arm was simply missing: the port's jt380 sent every
+		 * cmd but 1 and 2 to l1676, whose action arm reads rec[4], and
+		 * a row has none (jt452's cmd 34 sets the proc on the
+		 * CONTAINER).  So clicking a race or class did nothing, and
+		 * l2d3e grew a stand-in that guessed the container by scanning
+		 * back for "the nearest item with a pointer at rec[8]".  That
+		 * guess is gone; this compares the METHOD, which is what the
+		 * Mac does. */
+		unsigned char *cont  = rec;
+		unsigned char *base  = (unsigned char *)(uintptr_t)g_a5_9254;
+		short          local = 0;
+		const long     radio = g_a5_long(-9278);
+
+		/* PORT GUARD: the Mac walks back unbounded, trusting that a
+		 * shape-3 row always follows its shape-2 container. Stop at the
+		 * pool base rather than run off the front of a static array —
+		 * and when there is no container above (a shape-3 item used as
+		 * a plain labelled button), just skip the group dispatch and
+		 * still fire the item's own action proc below. */
+		while (cont >= base && *(long *)(void *)cont != radio) {
+			local++;
+			cont -= DLITEM_BYTES;
+		}
+		if (cont >= base)
+			jt381(cont, (short)4, (int)local, (int)0);
+
+		if (*(long *)(void *)(rec + 4) != 0) {
+			void (*action)(short) =
+			    *(void (**)(short))(void *)(rec + 4);
+			short idx = (short)(((long)(uintptr_t)rec - g_a5_9254)
+			                    / DLITEM_BYTES);
+			action(idx);
+		}
 		return 0;
 	}
 
@@ -9003,7 +9052,6 @@ static short jt380(void *rec_v, short cmd, ...)
 	if (x <  right ) return 1;
 	return 0;
 }
-static short jt381(void *rec_v, short cmd, ...) __attribute__((unused));
 /* jt381 — shape 2 method: the radio-GROUP container (L20c4). Its children
  * are the 1-based DLItems that immediately follow it (child N = rec + N*32).
  * rec[24] = the selected child index, rec[8] = the value-output global ptr,
@@ -21573,42 +21621,6 @@ static short l2d3e(void)
 				 * real arm works, so the stand-in goes. */
 				if (hm(hr, (short)3, cy, cx, key) == 0)
 					return (short)-1;     /* released off: no pick */
-
-				/* Radio list row vs commit button.  A char-gen pick row
-				 * (RACE/CLASS/GENDER/ALIGNMENT) belongs to a shape-2 radio
-				 * container — the only DLItem with a value-output ptr at
-				 * rec[8] and a child count at rec[22].  Selecting a row must
-				 * fire the CONTAINER's cmd-4 (writes the value global + runs
-				 * the action proc jt566/jt567/jt568/jt569/jt570) and KEEP the
-				 * modal open; only a standalone button (Training Hall menu,
-				 * Done/Exit) commits and leaves.  The old code force-committed
-				 * EVERY click, so clicking a race exited the pick with nothing
-				 * selected -> the "click Elf -> instant human fighter" bug
-				 * (and class/gender/alignment were never pickable by mouse). */
-				{
-					unsigned char *cont  = hr;
-					short          local = 0;
-					int            is_row = 0;
-
-					while (cont > (unsigned char *)(uintptr_t)g_a5_9254) {
-						cont  -= DLITEM_BYTES;
-						local += 1;
-						if (*(long *)(void *)(cont + 8) != 0) {
-							/* nearest container: a child iff in its range */
-							if (local <= *(short *)(void *)(cont + 22))
-								is_row = 1;
-							break;
-						}
-					}
-					if (is_row) {
-						dlitem_method_t cm =
-						    *(dlitem_method_t *)cont;
-						if (cm != NULL)
-							cm(cont, (short)4, (int)local);
-						qd_present();         /* show the new selection */
-						return (short)-1;     /* stay in the pick */
-					}
-				}
 
 				/* THE ITEM DECIDES (Mac L2dc2..L2e28): cmd 4 activates
 				 * it, and only a set commit bit (rec[28] bit 4) leaves
