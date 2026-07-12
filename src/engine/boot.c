@@ -63490,14 +63490,59 @@ static void l60b0(short z, short kind, short mask, char *out)
 	out[0] = 0;
 }
 
-/* JT[191] (CODE 7+0x4c88) — decode a 6-bit-packed name (4 chars in
- * 3 bytes, the SSI radix coding) into `out`, up to `max` chars.
- * Leaf PROBE stub pending its own lift. */
+/* JT[191] (CODE 7 + 0x4c88) — decode a 6-bit-packed name (4 chars in 3 bytes)
+ * into `out`. The exact inverse of the lifted jt196 packer: phase 1 takes
+ * byte0>>2; phase 2 stitches (byte0<<4 | byte1>>4); phase 3 (byte1<<2 |
+ * byte2>>6); phase 4 reuses byte2's low 6 bits WITHOUT fetching (the
+ * `if (phase < 4)` guard on the source read at 0x4cac). Each 6-bit value in
+ * 1..31 is folded up by 64 into 'A'..'_' (undoing l4a7a's pack-side fold);
+ * 0 and 32..63 pass through literal.
+ *
+ * Faithful edge: the loop emits exactly `max` bytes — a decoded 0 is WRITTEN
+ * and counted, not treated as a terminator — and then NUL-terminates, so the
+ * buffer must hold max+1 (callers pass 15 into 16-byte buffers). The asm's
+ * extw sign-extensions on prev vanish under the final &63. */
 static void jt191(const void *packed, char *out, short max)
 {
+	const unsigned char *src = (const unsigned char *)packed;
+	unsigned char        ch  = 0;           /* fp@(-7) */
+	unsigned char        cur = 0, prev = 0; /* fp@(-3) / fp@(-4) */
+	short                phase = 1;         /* fp@(-6) */
+	short                si = -1;           /* fp@(-10) */
+	short                n;                 /* fp@(-2) */
+
 	PROBE("jt191");
-	(void)packed; (void)max;
-	out[0] = 0;
+	for (n = 0; n < max; n++) {                     /* L4d9e */
+		if (phase < 4) {                        /* L4cac fetch */
+			si++;
+			prev = cur;
+			cur  = src[si];
+		}
+		switch (phase) {                        /* JT[3] @0x4cd8 */
+		case 1:                                 /* L4ce6 */
+			ch = (unsigned char)((cur >> 2) & 63);
+			break;
+		case 2:                                 /* L4cfc */
+			ch = (unsigned char)((short)((prev << 4) + (cur >> 4)) & 63);
+			break;
+		case 3:                                 /* L4d1e */
+			ch = (unsigned char)((short)((prev << 2) + (cur >> 6)) & 63);
+			break;
+		case 4:                                 /* L4d3e */
+			ch = (unsigned char)(cur & 63);
+			break;
+		default:
+			break;
+		}
+		if (phase < 4)                          /* L4d4c */
+			phase++;
+		else
+			phase = 1;
+		if (ch != 0 && ch <= 31)                /* L4d66 unfold */
+			ch = (unsigned char)(ch + 64);
+		*out++ = (char)ch;                      /* L4d82 */
+	}
+	*out = 0;                                       /* L4daa */
 }
 
 /* JT[349] (CODE 8+0x6910) — build the spell/scroll list rows, full
