@@ -3945,6 +3945,14 @@ static void  l709e(short a)
 		if (l694e((short)(idx & 0xff), 0) != 0) {
 			l4336((short)(idx & 0xff));
 			type = ev[0];
+#ifdef FRUA_EVTPROBE
+			dbg_log_num("evtprobe: event type = ", (long)type);
+			if (type == 17) {
+				short k;
+				for (k = 4; k < 14; k++)
+					dbg_log_num("evtprobe:   sound id = ", (long)ev[k]);
+			}
+#endif
 
 			switch (type) {                                  /* JT[3] 0..38 */
 			case 1:  l159a(ev, 0); break;
@@ -16429,6 +16437,20 @@ void frua_areatest_entry(void)
 	jt938();
 	jt217((short)g_a5_12294, (short)g_a5_12293,
 	      (short)g_a5_12292, (short)g_a5_12291);
+#ifdef FRUA_EVTSND
+	/* Dungeon EVENT-SOUND harness. HEIRS has exactly three "play sounds" events
+	 * (type 17) — GEO008/009/010, event index 8 — and they sit deep enough in
+	 * the dungeon that walking to one is impractical. So load that level with
+	 * the REAL loader (jt198) and fire the event through the REAL dispatcher
+	 * (l709e). Only the trigger (the party stepping on the cell) is shortcut:
+	 * l709e -> case 17 -> l3ac6 -> jt52 -> jt965 is all engine code.
+	 * `make EXTRA_CFLAGS="-DFRUA_AREATEST -DFRUA_EVTSND" run-game`. */
+	dbg_log("evtsnd: loading GEO008 (holds the type-17 event)");
+	jt198((short)8);
+	dbg_log("evtsnd: firing event 6 through l709e");
+	l709e((short)6);
+	dbg_log("evtsnd: done");
+#endif
 	jt948();
 }
 #endif
@@ -21039,6 +21061,9 @@ static void l5876(short n) { PROBE("L5876"); jt985(n); }
 static void jt52(short cmd)
 {
 	PROBE("jt52");
+#ifdef FRUA_EVTPROBE
+	dbg_log_num("evtprobe: jt52 cmd = ", (long)cmd);
+#endif
 	if (!((unsigned short)cmd < 42 || cmd == 255))
 		return;
 

@@ -59,15 +59,33 @@ Two trigger paths reach `jt52`, the dispatcher (boot.c:18587; cmd 255=stop,
     a **menu-slot poke, not a sample**. Silent.
   - `-17444!=0`: `jt965(...)` → boot.c:18568 → **PROBE stub. No sound.**
 - **B. Dungeon event "PLAY SOUNDS"** — `l709e` case 17 → `l3ac6(ev)`
-  (boot.c:3266, **stub**); faithfully loops ev[4..13] into jt52. `l40b4()`
-  (3252, **stub**) is an event-sound pre-hook before cases 4/11/26/27/34.
+  (**LIFTED**); loops ev[4..13] into jt52. `l40b4()` (**LIFTED**) is the post-event
+  VIEW REFRESH, NOT a sound hook — it is called before cases 4/11/26/27/34 because
+  those redraw, not because they make noise.
 - **Song path** — jt52 cmd 32–39 → `l5876(cmd-32)` → `jt985` (18562, **stub**) →
   faithfully `l11a2` (**missing**), the note-stream player over the `.slb` bank.
 
 *(All of the above is now LIVE — jt965, jt985, jt974 are lifted and the driver
-write reaches the HAL. `l3ac6` (the event "PLAY SOUNDS" arm) and `l40b4` (the
-event-sound pre-hook) are the only sound-adjacent stubs left: they feed jt52,
-which works, so lifting them makes dungeon events audible.)*
+write reaches the HAL.)*
+
+**DUNGEON EVENT SOUNDS ARE LIVE too, and needed no new lift.** `l3ac6` (the
+type-17 "play sounds" arm) was ALREADY a faithful lift, and **`l40b4` is not a
+sound function at all** — it is the post-event VIEW REFRESH (jt221 + jt938 +
+jt102). An older revision of this file called it "an event-sound pre-hook"; that
+was a guess, and it was wrong. Nothing was stubbed; the chain simply had no
+working `jt52` under it until the sfx/music work landed.
+
+Verified end-to-end (`FRUA_EVTSND`): HEIRS holds exactly **three** type-17 events
+— `GEO008/009/010`, **l709e index 6** — each queueing ten ids
+(`[8,8,8,10,8,8,8,8,10,6]` -> jt52 cmds -> sfx 5/7/3). Firing one through the real
+dispatcher produces a single 2.7 s burst containing ten distinct attacks: L7ee0's
+busy-spin makes each effect wait for the previous, so they play BACK-TO-BACK with
+no gaps. That is the faithful behaviour, not a bug.
+
+**Where the events live:** a GEO level is an IFF file (`FORM`/`AMOD`); the event
+table is the **`ENCR` chunk** — 0x7d0 bytes = 100 records x 20, type in byte 0,
+and for type 17 the ten sound ids in bytes 4..13. `tools/` has no dumper; the
+one-liner is `d.find(b'ENCR')` + the big-endian size that follows.
 
 ## What the Mac side does (the faithful behaviour to reproduce)
 
@@ -152,10 +170,10 @@ The synth's DMA loop is therefore programmed ONCE, from normal context
 | `jt1117` | JT[1117], CODE4+0x77ee | **LIFTED** | — | link/unlk/rts — a genuine Mac NO-OP |
 | `jt1036` | JT[1036] | **LIFTED** | 17868 | `_VInstall` — installs the sound VBL task. Was a stub: **the sequencer never ran** |
 | `jt1044`/`jt1050` | CODE5 | **LIFTED** | 17574/17685 | `_Write`/`_KillIO` to .Sound. The write was **SWALLOWED** — the true dead end |
-| `l3ac6` | CODE6 (case-17) | **STUB** | 3266 | Event "PLAY SOUNDS": loop ev[4..13] → jt52 |
-| `l40b4` | CODE6+0x40b4 | **STUB** | 3252 | Event-sound pre-hook |
+| `l3ac6` | CODE20+0x3ac6 (case-17) | **LIFTED** | 43368 | Event "PLAY SOUNDS": loop ev[4..13] → jt52 |
+| `l40b4` | CODE20+0x40b4 | **LIFTED** | 3757 | Post-event VIEW REFRESH (jt221/jt938/jt102) — **not audio** |
 | `SndPlay`/`SndNewChannel`/`SndDoCommand` | shim | **SHIMMED but DEAD** | compat/sound.c | parse `snd ` → plat_sound_play_mono8; never called |
-| `SysBeep` | shim | **STUB (logs only)** | compat/sound.c:226 | no tone generator; TODO Dosound |
+| `SysBeep` | shim | **LIVE** | compat/sound.c | real tone via the swMode square wave (count=710 ≈ 1.1 kHz) |
 | `plat_sound_play_mono8` | HAL | **LIFTED** (Falcon DMA) | platform/sound_falcon.c:94 | real DMA path — unreachable |
 
 > Corrections to prior docs: **`jt17` is NOT a sound function** (it's a class/HD
