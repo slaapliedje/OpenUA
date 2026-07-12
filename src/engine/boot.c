@@ -19762,8 +19762,17 @@ static void l6cba(EventRecord *ev)
 		h >>= 1;
 	}
 
-	g_a5_word(-908) = jt413(jt397((short)0, h), l04cc());
-	g_a5_word(-906) = jt413(jt397((short)0, v), l04de());
+	/* (v, h) — NOT (h, v).  The Mac reads ev->where as a Point LONG into
+	 * fp@(-4): the high word is v, the low word is h, and it latches
+	 * -908 = clamp(v, L04cc()) / -906 = clamp(h, L04de()) — which is the
+	 * order JT[1113] hands back (out_y from -908, out_x from -906).  The
+	 * port had the two swapped, so every consumer of the buffered click
+	 * got its axes transposed: jt328's cmd-3 hit test missed the field it
+	 * had just been clicked on (so the caret never moved), and l1676's
+	 * cmd-3 track loop hit-tested against swapped axes too.  The second
+	 * transposed primitive found, after jt1089's MoveTo (#116). */
+	g_a5_word(-908) = jt413(jt397((short)0, v), l04cc());
+	g_a5_word(-906) = jt413(jt397((short)0, h), l04de());
 	g_a5_byte(-903) = 1;
 	g_a5_byte(-901) = 0;
 }
@@ -21541,8 +21550,13 @@ static short l2d3e(void)
 				/* A TEXT FIELD takes FOCUS on a click; it does not
 				 * commit the dialog. The Mac keeps the dialog open with
 				 * the caret in the field — jt327/jt328 answer cmd 128
-				 * ("are you focusable?") with 1 and cmd 18 ("take focus")
-				 * by running l1dd8, which sets rec[28] bit 2. The commit
+				 * ("are you focusable?") with 1, and their cmd 3 — the
+				 * same arm the Mac's l2d3e hands every clicked item —
+				 * maps the click to a cursor index (l1f6c on the big
+				 * field's 38x6 grid, l1f18 on the small one) and then
+				 * runs l1dd8, which sets rec[28] bit 2. cmd 3 is what
+				 * puts the caret WHERE YOU CLICKED; cmd 18 alone would
+				 * focus the field but leave the caret where it was. The commit
 				 * below fired for EVERY hit, so clicking the big
 				 * multi-line field left the editor instead of focusing it
 				 * and it could never be typed into.
@@ -21557,12 +21571,26 @@ static short l2d3e(void)
 				 * one consumes the keystroke. (That is also why typing
 				 * into an unfocused field fell through to the menu
 				 * accelerators and left the editor.) */
-				if (hm(hr, (short)128, (short)0, (short)0) != 0) {
-					hm(hr, (short)18, (short)0, (short)0);
-					if ((hr[28] & 0x04) != 0) {
-						hr[28] &= 0x7f;   /* dirty -> repaint */
-						qd_present();
-						return (short)-1; /* stay in the dialog */
+				{
+					/* CAREFUL: jt328's cmd 128 FALLS THROUGH into
+					 * cmd 26 (defocus), so probing an item that is
+					 * ALREADY focused un-focuses it — a second click
+					 * inside the field would drop the caret and then
+					 * commit the dialog. An item holding focus is by
+					 * definition focusable, so only probe when it is
+					 * not (bit 2 clear). */
+					int focusable = (hr[28] & 0x04) != 0;
+
+					if (!focusable)
+						focusable = (hm(hr, (short)128,
+						                (short)0, (short)0) != 0);
+					if (focusable) {
+						hm(hr, (short)3, cy, cx, key);
+						if ((hr[28] & 0x04) != 0) {
+							hr[28] &= 0x7f;   /* dirty -> repaint */
+							qd_present();
+							return (short)-1; /* stay */
+						}
 					}
 				}
 
@@ -65104,14 +65132,44 @@ static void l2410(short v, short h, short idx, short pal, char *buf,
 	       (int)(short)(signed char)(ch & 0xff));
 }
 
-/* L1f6c (CODE 8 + 0x1f6c) — map the mouse position into a cursor index
- * on the 38x6 grid (row via the segment table, col /4). PROBE leaf
- * stub pending its lift; returns 0 (cursor to the start). */
+/* L1f6c (CODE 8 + 0x1f6c) — map the mouse into a cursor index on the
+ * 38x6 grid (FULL lift).  JT[1113] reads the pointer, JT[1139] maps it
+ * into the field's own grid, and the cell is (v / 4, h / 4) — the same
+ * 4-unit step L2410 and L24e8 paint on.  The row's segment (start, end)
+ * then decides where the caret may actually land:
+ *
+ *   end == 0     the row holds no text -> the end of the string
+ *   end == len   the LAST row: clamp to the end of the text and to 38
+ *                columns (start + 37), so a click past the final
+ *                character lands ON it rather than beyond
+ *   otherwise    an interior row: clamp to end - 1, keeping the caret
+ *                off the space the wrap breaks at
+ *
+ * (Row is NOT clamped to 0..5 — jt328's cmd-2 hit test accepts down to
+ * grid row 6 and the Mac indexes the table there too, reading buf[248]
+ * / buf[249]. Bounded, so kept as-is.) */
 static short l1f6c(short v, short h, char *buf)
 {
+	const unsigned char *t = (const unsigned char *)buf;
+	short my = 0, mx = 0;
+	short row, col, len, start, end;
+
 	PROBE("L1f6c");
-	(void)v; (void)h; (void)buf;
-	return 0;
+	jt1113(&my, &mx);
+	jt1139(v, h, my, mx, &v, &h);
+	row = (short)(v / 4);
+	col = (short)(h / 4);
+	len = jt423(buf);
+
+	end = (short)t[2 * row + 237];
+	if (end == 0)                                   /* L2098 */
+		return len;
+	start = (short)t[2 * row + 236];
+	if (end == len)                                 /* L1ffe — last row */
+		return jt413((short)(start + col),
+		             jt413(end, (short)(start + 37)));
+	return jt413((short)(start + col),              /* L205e */
+	             (short)(end - 1));
 }
 
 /* jt328 (CODE 8 + 0x16a8) — the multi-line BIG-field DLItem method,
