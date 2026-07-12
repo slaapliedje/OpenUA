@@ -13921,9 +13921,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			/* Load the level AT FIRE TIME: the walk loads its own level
 			 * after the harness entry runs, so a jt198 up there is
 			 * overwritten before 'k' is ever pressed. */
-			jt198((short)1);
-			dbg_log("cbtsnd: firing GEO001 event 6 (type 33 = COMBAT)");
-			l709e((short)6);
+			jt198((short)7);
+			dbg_log("cbtsnd: firing GEO007 event 37 (type 1 = COMBAT)");
+			l709e((short)37);
 			dbg_log("cbtsnd: combat returned");
 		}
 #endif
@@ -16467,26 +16467,38 @@ void frua_areatest_entry(void)
 	dbg_log("evtsnd: done");
 #endif
 #ifdef FRUA_CBTSND
-	/* Combat-sound harness — PARTIAL, and honest about it.
+	/* COMBAT harness. Press 'k' in the walk: it loads GEO007 with the real
+	 * loader (jt198) and fires event 37 — a type-1 COMBAT event with chance 0
+	 * (so it always dispatches) — through the real dispatcher (l709e). The
+	 * fight then runs for real: l159a -> jt510/jt512/jt511, the tactical map,
+	 * and the combat sounds.
 	 *
-	 * Pressing 'k' in the walk fires GEO001 event 6 (type 33 = COMBAT) through
-	 * the real dispatcher, in the real play context. The event DISPATCHES, but
-	 * l159a returns without reaching jt511 (the tactical loop), so the fight
-	 * never starts and the attack sounds — which jt503 gates on combat VIEW
-	 * (-27990 == 5) — never play. That is an ENCOUNTER-GATEWAY gap, not a sound
-	 * gap: every jt52 site the Mac has is now present in the port.
+	 * ★USE A DUNGEON LEVEL (5+), NOT AN OVERLAND ONE (1-4). The combat backdrop
+	 * library id comes from the GEO header, and WHICH BYTE depends on the walk
+	 * mode: l3f24 reads hdr[12] when the game record's byte 34 is set (the
+	 * dungeon walk, mode 4) and hdr[264] when it is clear (overland, mode 3).
+	 * HEIRS levels 1-4 are OVERLAND and carry hdr[12] = 255 (unset) with a valid
+	 * hdr[264]; levels 5+ are the reverse. Forcing an overland level under the
+	 * dungeon walk therefore asks for library 255, which does not exist
+	 * (WILDCOM.CTL has ids 1-4, DUNGCOM.CTL 1-5) — and jt987's cold-disk RETRY
+	 * LOOP then spins forever, hanging the game hard at "A battle begins...".
+	 * That is faithful engine behaviour meeting an impossible request; the port
+	 * is not at fault. Keep the walk mode and the level KIND in agreement.
 	 *
-	 * Findings worth keeping, each of which cost a run to learn:
-	 *   - Event type 1 and type 33 are COMBAT (l159a -> jt511). Type 4 is NOT —
-	 *     it is l1f76, a per-member effect that awards XP and treasure without
-	 *     ever entering combat view, which is why it looked like a silent fight.
-	 *   - l694e rejects once-only events (ev[1] bit 0), so GEO001 event 12 never
-	 *     dispatches at all.
-	 *   - The WALK RELOADS ITS OWN LEVEL after this harness entry runs, so jt198
-	 *     must be called at FIRE time (in the 'k' latch), not here.
-	 *   - The jt511 / jt503 logs below are the instrumentation to continue with.
+	 * Other things worth knowing:
+	 *   - Event types 1 and 33 are COMBAT (l159a -> jt511). Type 4 is NOT: it is
+	 *     l1f76, a per-member effect that awards XP and treasure without ever
+	 *     entering combat view.
+	 *   - l694e rejects once-only events (ev[1] bit 0), and ev[1] is also a
+	 *     CHANCE percentage, so most combat events only fire some of the time.
+	 *     Event 37 on GEO007 has chance 0 = always.
+	 *   - l159a BLOCKS in l3f22 waiting for a key to dismiss the event text.
+	 *     That is correct; send Return before expecting jt511.
+	 *   - The walk RELOADS its own level, so jt198 must run at FIRE time.
 	 *
-	 * `make EXTRA_CFLAGS="-DFRUA_AREATEST -DFRUA_CBTSND" run-game`, then press k. */
+	 * `make EXTRA_CFLAGS="-DFRUA_AREATEST -DFRUA_CBTSND -DFRUA_SKIP_ENTRY_EVENTS"`,
+	 * then: press 'k', Return a few times, then 'q' (QUICK) to let the computer
+	 * fight — the hit/miss and spell sounds follow. */
 	dbg_log("cbtsnd: ready - press k in the walk to fight");
 #endif
 	jt948();
@@ -29714,9 +29726,6 @@ static void jt503(long entity, short a, long ptr)
 	signed char xb, yb;
 
 	PROBE("jt503");
-#ifdef FRUA_CBTSND
-	dbg_log_num("cbtsnd: jt503 mode = ", (long)(unsigned char)g_a5_byte(-27990));
-#endif
 	if ((unsigned char)g_a5_byte(-27990) != 5) {           /* not combat view */
 		jt18((void *)(uintptr_t)entity, ptr, 10, 1);
 		return;
@@ -49711,9 +49720,6 @@ static void jt511(void)
 	long m;
 
 	PROBE("jt511");
-#ifdef FRUA_CBTSND
-	dbg_log("cbtsnd: jt511 ENTER (tactical combat loop)");
-#endif
 	g_a5_byte(-27990) = 5;
 	g_a5_long(-24070) = (long)(uintptr_t)jt538;
 	jt542();
