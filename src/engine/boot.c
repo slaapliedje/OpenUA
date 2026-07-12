@@ -2179,6 +2179,9 @@ static void  l4d98(void);       /* CODE 6 + 0x4d98 — lifted near EOF (the
  * repointed 2026-07-04. */
 static void  jt52(short cmd);
 static void  jt85(short group);
+#ifdef FRUA_SNDTEST
+static long  jt1134(void);      /* tick counter — paces the FRUA_SNDTEST effects */
+#endif
 static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
 static void  l07dc(void);                              /* defined below */
 
@@ -2390,6 +2393,33 @@ int ua_main(short arg1, long arg2)
 	}
 	for (;;)
 		jt920();
+#endif
+#ifdef FRUA_SNDTEST
+	/* Sound harness: the DMA path is the one subsystem a screenshot cannot
+	 * check, so drive the sfx dispatcher straight from boot and let Hatari's
+	 * AVI recorder capture the CODEC output. l4d98 -> l59d6 has already run by
+	 * here, so the "sounds" GLIB group is resident and -17444 is set; both
+	 * gates are logged so a silent run says WHICH gate closed.
+	 * `make EXTRA_CFLAGS=-DFRUA_SNDTEST run-game`. */
+	{
+		short i;
+
+		dbg_log_num("sndtest: -806 sound-active = ", (long)g_a5_byte(-806));
+		dbg_log_num("sndtest: -17444 sfx-on    = ", (long)g_a5_byte(-17444));
+		for (i = 3; i < 7; i++) {
+			long until;
+
+			dbg_log_num("sndtest: jt52 cmd = ", (long)i);
+			jt52(i);                        /* cmd-3 = sfx id 0..3 */
+			/* Pace the effects further apart than the longest one (~1.1s):
+			 * jt52 returns while the DMA is still running, and it is the NEXT
+			 * effect that blocks on the busy-poll, so a short gap would run
+			 * them back-to-back with no silence to separate them. */
+			for (until = jt1134() + 150; jt1134() < until; )
+				;                       /* ~2.5s of TickCount between effects */
+		}
+		dbg_log("sndtest: done");
+	}
 #endif
 	jt920();
 	jt1009(8096, 0);
