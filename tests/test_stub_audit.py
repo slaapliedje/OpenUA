@@ -116,6 +116,32 @@ def test_writing_an_a5_global_is_a_real_body(tmp_path):
     assert _body(str(f), 'jt174') == 'REAL'
 
 
+def test_probe_only_is_a_stub_claim(tmp_path):
+    """"stays PROBE-only" means "still a stub" — and it got away for months.
+
+    l1bfe's header said "L1aea ... and JT[138] / JT[139] ... stay PROBE-only"
+    over three functions that were ALL fully lifted. The audit ran green the
+    whole time because CLAIM_RE only knew the phrase "PROBE stub", so someone
+    read the comment and asked for l1aea to be lifted a second time. Every
+    wording that means "this is still a stub" has to be caught.
+    """
+    f = tmp_path / 'x.c'
+    f.write_text('/* l0005 — the inner L1aea leaf stays PROBE-only for now. */\n'
+                 'static void l0005(short a)\n{\n\tjt42(a);\n}\n\n'
+                 'static void l1aea(short a)\n{\n\tjt43(a);\n}\n')
+    _, _, stale = stub_audit.audit(str(f))
+    targets = {s['target'] for s in stale}
+    assert 'l1aea' in targets, stale
+
+
+def test_probe_only_in_the_past_tense_is_not_a_claim(tmp_path):
+    f = tmp_path / 'x.c'
+    f.write_text('/* l0006 — this WAS PROBE-only; it is a full lift now. */\n'
+                 'static void l0006(short a)\n{\n\tjt42(a);\n}\n')
+    _, _, stale = stub_audit.audit(str(f))
+    assert stale == []
+
+
 def test_brace_in_a_char_literal_does_not_end_the_function(tmp_path):
     """`case '{':` is a BRACE CHARACTER, not a block.
 

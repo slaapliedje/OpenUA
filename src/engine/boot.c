@@ -6538,11 +6538,11 @@ static void jt1089(short x, short y, short color,
  *                              → mode-5 bottom-row paint via L3f88.
  *        default                → simple text draw via JT[1089].
  *
- * The two non-default branches stay PROBE-deferred — both pull in
- * the rect-fill paint primitive (JT[1161]) and the L3f88 helper,
- * which need the display-HAL fill stroke first. The default arm
- * is the hot path (the design-edit roster columns, the menu
- * labels, every static "Name" / "AC HP" header) and lifts here.
+ * (HISTORICAL: the two non-default branches were once deferred
+ * pending the display-HAL fill stroke; JT[1161] and L3f88 are both
+ * lifted and they run.) The default arm is the hot path — the
+ * design-edit roster columns, the menu labels, every static
+ * "Name" / "AC HP" header.
  *
  * The post-jt1200 col==11 remap models the asm's redundant double
  * cmpiw #11 — the second compare is dead code in C. */
@@ -17457,12 +17457,11 @@ static void l79ec(void)
  *          index (g_a5_-2354) — i.e. "are we invalidating a
  *          page that's actually on-screen?"
  *
- * L5d8c is lifted faithfully (trivial). L4fae / L4e12 remain
- * stubs that zero the rect — the full lift requires the engine's
- * font-metrics + character-class infrastructure (g_a5_-3016
- * table) and Mac Toolbox DrawString. With the boot trace not
- * driving any deferred-paint (g_a5_-936 stays 0 throughout),
- * the rect content doesn't matter yet. */
+ * L5d8c is lifted faithfully (trivial). L4fae / L4e12 are lifted
+ * too — they WERE rect-zeroing stubs pending the font-metrics +
+ * character-class infrastructure (g_a5_-3016) and DrawString; both
+ * arrived, and L4fae is now the faithful colour-mode text writer
+ * jt1089's flush routes through. */
 static void l4fae(short *rect_out) __attribute__((unused));
 static void l4fae(short *rect_out)
 {
@@ -17617,8 +17616,10 @@ static void l690e(EventRecord *ev);
  *
  * Mini lift: WaitNextEvent the queue, stash event.what into
  * g_a5_-2592, dispatch case 8 → L71ac so suspend/resume actually
- * runs end-to-end. Other arms still PROBE-only (logged but not
- * routed). The MultiFinder branch (g_a5_-2590) is collapsed to
+ * runs end-to-end. The remaining arms are logged but not routed —
+ * that is a routing gap, not a missing body (the arm handlers
+ * themselves are lifted). The MultiFinder branch (g_a5_-2590) is
+ * collapsed to
  * always-WaitNextEvent — TT/Falcon don't have classic Finder. */
 static void l725c(short mask)
 {
@@ -20183,11 +20184,10 @@ static void l7204(EventRecord *ev)
  * a side-effect lives inside JT[4] / JT[7] we haven't found yet.
  *
  * The dirty flag (g_a5_-1316) is DATA-initialized to 0x05; we
- * zero it in boot_a5_seed_defaults so the inner loop exits on
- * the first pass while L725c is still a PROBE-only stub. Once
- * real events flow through L725c → L71ac / L7204 → L79ec, the
- * flag will drain naturally and the loop will iterate as the
- * Mac intended. */
+ * zero it in boot_a5_seed_defaults so the inner loop exits on the
+ * first pass. (L725c is LIFTED — it was a stub when this note was
+ * written; real events do flow through it now, so the seed is
+ * belt-and-braces rather than load-bearing.) */
 static long jt1134(void)
 {
 	long elapsed;
@@ -33406,10 +33406,10 @@ static void l2062(void)                           { jt174(); }
  *
  * JT[42]'s message-append wraps every text-draw between two
  * jt176() calls so the QuickDraw shim sees a clean paint boundary;
- * other callers do the same. The bodies of the inner JT[1173] /
- * JT[1193] / L2062 leaves stay PROBE-deferred — their semantics
- * are "set up window clip / commit pen", which the QuickDraw shim
- * already handles implicitly. */
+ * other callers do the same. JT[1173] / JT[1193] / L2062 are all
+ * lifted (L2062 is an alias for jt174 — see docs/lxxxx-jt-aliases).
+ * Their semantics are "set up window clip / commit pen", much of
+ * which the QuickDraw shim also handles implicitly. */
 static void   jt176(void)
 {
 	PROBE("jt176");
@@ -34715,7 +34715,8 @@ static void jt28(long arg0, long item, short s16, short s18,
  * The L00e0(fn, JT[580]) callback writes the actual file bytes —
  * JT[580] is the per-byte write hook the file I/O loop calls.
  *
- * Level-2 lift: structure preserved, sub-helpers PROBE-only. The
+ * Level-2 lift: structure preserved. Of its 11 callees only l005a
+ * (save-medium reachable?) and l1c92 are still stubs. The
  * player handle deref (g_a5_-28006) is NULL-guarded since our boot
  * path has no player data yet — without the design-load chain, no
  * one populates g_a5_-28006. iter_guard caps the slot-picker loop
@@ -34724,9 +34725,9 @@ static void jt28(long arg0, long item, short s16, short s18,
  *
  * Caveat: NOT actually wired into the boot dispatch path — jt918
  * case 11 (l120c) gates on g_a5_-14429 which our fresh-init leaves
- * 0, so jt585 doesn't fire from a real 'L' press. Lift is mostly
- * documentation + structural readiness for when g_a5_-14429 gets
- * enabled (or the design-load chain populates it). */
+ * 0, so jt585 doesn't fire from a real 'L' press. That is a
+ * REACHABILITY gap, not a body gap: jt585 and its sub-helpers are
+ * lifted and run once g_a5_-14429 is populated. */
 static void   jt585(void)
 {
 	char           fn[44];
@@ -35199,11 +35200,12 @@ static void   jt82(void)
 
 /* L1276 (CODE 19 + 0x1276) — character status panel renderer.
  *
- * Entry side effects + ~600 lines of formatted field paints. The
- * prologue is lifted faithfully; the field paints stay PROBE-only
- * until JT[94] (formatted text) and the character-data deref chain
- * are wired (none of the field paints fire safely when g_a5_-5806
- * is NULL).
+ * Entry side effects + ~600 lines of formatted field paints, all
+ * lifted — the name header, the six ability rows, the rest. (This
+ * header used to say the field paints were "PROBE-only until JT[94]
+ * and the character-data deref chain are wired"; both of those were
+ * wired long ago, and all 15 of its callees are lifted.) The paints
+ * are still gated on g_a5_-5806: no character record, no fields.
  *
  * Prologue:
  *   g_a5_-5806 = g_a5_-27932;          ; current record = design ptr
@@ -41109,7 +41111,7 @@ static void jt930(void);    /* the post-combat exit orchestrator — defined bel
  * Stages the loot: money long ev[4..7] (LE, high bit cleared) -> -25314, words
  * ev[8..9]/ev[10..11] -> -25310/-25306, and 8 item ids ev[12..19] -> the -25302
  * list via jt187. On the flag path it refreshes the play screen (jt930 cleanup
- * then jt23 stand-up). jt930 is a leaf stub for now (Slice C). */
+ * then jt23 stand-up). */
 static void l28b0(void *ev_v, short f)
 {
 	unsigned char *ev  = (unsigned char *)ev_v;
@@ -46722,8 +46724,8 @@ static void l6836(short x, short y, short kind, short dir)
 /* L44b2 (CODE 14 + 0x44b2) — one step of a missile/ray sprite trail: blit a
  * kind-3 sprite (l6836) at the current trail cursor (-7230 = x, -7228 = y), then
  * advance the cursor by direction `dir`'s cell delta from the -27862 (row) /
- * -27853 (col) delta tables.  Faithful 1:1 lift of L44b2; called by the (not yet
- * lifted) l3a4e / jt548 ray walkers, so parked unused for now. */
+ * -27853 (col) delta tables.  Faithful 1:1 lift of L44b2; its callers l3a4e /
+ * jt548 (the ray walkers) are lifted too. */
 static void l44b2(short dir) __attribute__((unused));
 static void l44b2(short dir)
 {
@@ -48877,9 +48879,8 @@ static unsigned char jt535(long m)
  * table. It resolves with the -7839 attack counter / -7840 last-direction, a
  * jt546 re-acquire or l6042 move, the -22626 scroll-into-view flag (l6554), and
  * the strike draw (jt523 pose, jt553/jt551 bars, jt879). l26ea ends the turn;
- * l52fe casts when the command is empty. l544e/jt535/jt553/jt551 are PROBE stubs
- * for now, so the step loop runs to its cap and the strike resolves without the
- * per-cell move/contact art. */
+ * l52fe casts when the command is empty. l544e / jt535 / jt553 / jt551 are all
+ * lifted — this header claimed they were stubs long after they landed. */
 static void l56d8(long m)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
@@ -49485,8 +49486,9 @@ static void l167e(long m, long target, void *out)
  * jt555 ranged, with l549/l550 reach gates and the -22628 hit flag driving the
  * jt521 map redraw). l6042 is the move fallback; l26ea ends the turn. Returns 1
  * (turn done) once the continue flag clears, 0 to keep going — l5008 loops on it.
- * Heavy resolvers (l56d8, l713c, l2484, l25f4, l2bde, jt554/549/550) are PROBE
- * stubs for now, so a swing currently re-acquires/moves rather than landing. */
+ * The heavy resolvers (l56d8, l713c, l2484, l25f4, l2bde, jt554/549/550) are ALL
+ * lifted; a swing lands. (This header claimed they were stubs long after combat
+ * became playable — see docs/combat notes.) */
 static signed char l5b9a(long m)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
@@ -57550,12 +57552,11 @@ static void jt919(void)
  * followed by a space/@, otherwise a space is appended so the
  * roster text never butts up against the user's typing area.
  *
- * L1aea (the row-content render) and JT[138] / JT[139] (the
- * DLItem callbacks) stay PROBE-only — they're the actual pixel
- * paint and the click-hit-test methods for the roster cells.
- * Lifting this commit surfaces the row-install + per-row paint
- * dispatch in the trace; L1aea is the natural next layer for
- * visible content. */
+ * L1aea (the per-row DLItem install + paint) and JT[138] / JT[139]
+ * (the keystroke-filter callbacks it hands each row) are all FULL
+ * LIFTS and run — this header claimed for a long time that they
+ * were "PROBE-only", which was simply false, and it sent a session
+ * off to lift l1aea a second time. Read the body, not the comment. */
 static void l1bfe(short width, void *buf, const char *suffix,
                   short trail, short flag)
 {
@@ -57688,10 +57689,9 @@ static short jt393(const char *a, const char *b)
  * L2184 walks the prompt string extracting letters/digits into the
  * 20-entry g_a5_-24126 index buffer the L25b6 fallback path scans.
  * L1a0c builds the per-glyph buffer L1bfe paints; L1bfe is the
- * actual roster-row renderer. Helpers stay PROBE-only — the
- * cache-comparison + JT[384] copy chain runs as the Mac code
- * intended (jt393 lifted faithfully so the dirty flag tracks
- * real prompt changes). */
+ * actual roster-row renderer. L2184 / L1a0c / jt393 are all lifted
+ * — the cache-comparison + JT[384] copy chain runs as the Mac code
+ * intended, so the dirty flag tracks real prompt changes. */
 static short l206e(long p1, unsigned char *buf,
                    const char *suffix, unsigned char *byte_ptr)
 {
@@ -58465,8 +58465,8 @@ static void  jt559(short a)                          { PROBE("jt559"); g_a5_byte
  * Exit: write 2 into g_a5_-13018 (mark "consumed"), return byte
  * result.
  *
- * Sub-helpers L217e / L2170 / L15bc / JT[548] / JT[559] all
- * PROBE-only. With L217e returning 0 and all gates false, the
+ * Sub-helpers: L15bc / JT[548] / JT[559] are lifted (L217e / L2170
+ * are inlined here, not separate functions). With the gates false the
  * fallback fires; arg_count = 0 from jt182's L23b4 result gives
  * the "arg8_count == 0" sub-path which reads g_a5_-12913 (pending
  * key char) and returns it. In the boot path the pending byte is
@@ -89673,7 +89673,7 @@ static void l1e44(void)
  *   exit flags; Load returns immediately (state is replaced).
  * On exit restores the prev mode and repaints (jt84/jt23 for overland mode 3,
  * else jt78/jt937/jt938). *out reports a sub-action's exit request.
- * Faithful structural lift; the five deep actions are PROBE stubs for now. */
+ * Faithful structural lift; the five deep actions are lifted too. */
 static void jt957(unsigned char *out)
 {
 	unsigned char  choice = 0xff;          /* fp@(-1) */

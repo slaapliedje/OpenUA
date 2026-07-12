@@ -27,15 +27,27 @@ FUNC_RE = re.compile(r'^static\s+[\w \*]+?\**(\w+)\s*\(')
 NAME_RE = re.compile(r'\b([lL][0-9a-f]{4}(?:_c\d+)?|jt\d{1,4})\b')
 
 # A claim that some function is CURRENTLY a stub.
+#
+# "PROBE-only" is the phrasing that got away: the audit ran green for months
+# while l1bfe's header said "L1aea ... and JT[138] / JT[139] stay PROBE-only"
+# over three functions that were all fully lifted — and someone read that and
+# asked for l1aea to be lifted a second time. Any wording that means "this is
+# still a stub" belongs here.
 CLAIM_RE = re.compile(
     r'[^.;]*\b(PROBE stub|leaf stub|stubs?\b[^.;]{0,40}?(?:pending|for now|here)|'
     r'pending (?:its|their) own lift|is a stub|are stubs|'
-    r'lands? as (?:a )?PROBE stubs?|not yet lifted|deferred lift)[^.;]*', re.I)
+    r'lands? as (?:a )?PROBE stubs?|not yet lifted|deferred lift|'
+    r'PROBE[- ]only|probe[- ]only|stay(?:s)? (?:a )?PROBE|'
+    r'remain(?:s)? (?:a )?(?:PROBE|stub))[^.;]*', re.I)
 
 # ...unless it is talking about the PAST ("was a stub, now lifted").
+#
+# NB "now" must not match "for NOW" — that is a PRESENT-tense claim ("a stub
+# for now"), and treating it as history silently excused every comment phrased
+# that way.
 HIST_RE = re.compile(
     r'\bwas\b|\bwere\b|\bold\b|earlier|used to|no longer|already (?:fully )?lifted|'
-    r'\bnow\b|since lifted|has been lifted|An earlier revision|full body over|'
+    r'(?<!for )\bnow\b|since lifted|has been lifted|An earlier revision|full body over|'
     r'full lift over|full CFG over|full call shape over', re.I)
 
 # Statements that do not count as "doing something".
