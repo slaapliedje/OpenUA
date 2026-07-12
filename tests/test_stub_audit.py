@@ -142,6 +142,44 @@ def test_probe_only_in_the_past_tense_is_not_a_claim(tmp_path):
     assert stale == []
 
 
+def _triage_of(src, name):
+    noop, live, dead = stub_audit.triage(src)
+    for bucket, rows in (('noop', noop), ('live', live), ('dead', dead)):
+        if any(r[0] == name for r in rows):
+            return bucket
+    return None
+
+
+def test_a_shared_doc_comment_still_documents_the_second_function(tmp_path):
+    """jt260 and jt709 are BOTH a bare Mac `rts` under one shared header.
+
+    doc_above() stops at jt260's one-line body, so jt709 looked undocumented
+    and the triage called it a live gap — 27 phantom call-sites of work that
+    does not exist. A header that names a function documents that function,
+    even when it documents its neighbour too.
+    """
+    f = tmp_path / 'x.c'
+    f.write_text('/* JT[260] and JT[709] — both are an empty `rts` in the Mac\n'
+                 ' * binary; the faithful lift is the empty body. */\n'
+                 'static void jt260(void) { PROBE("jt260"); }\n'
+                 'static void jt709(void) { PROBE("jt709"); }\n'
+                 '\nstatic void caller(void)\n{\n\tjt709();\n\tjt260();\n}\n')
+    assert _triage_of(str(f), 'jt260') == 'noop'
+    assert _triage_of(str(f), 'jt709') == 'noop'
+
+
+def test_a_shared_doc_does_not_leak_to_a_function_it_never_names(tmp_path):
+    """Walking up past a sibling must not hand every function its neighbour's
+    doc — the comment has to actually name us."""
+    f = tmp_path / 'x.c'
+    f.write_text('/* JT[260] — an empty `rts` in the Mac binary, a real no-op. */\n'
+                 'static void jt260(void) { PROBE("jt260"); }\n'
+                 'static void jt711(void) { PROBE("jt711"); }\n'
+                 '\nstatic void caller(void)\n{\n\tjt711();\n\tjt260();\n}\n')
+    assert _triage_of(str(f), 'jt260') == 'noop'
+    assert _triage_of(str(f), 'jt711') == 'live'   # undocumented — still a gap
+
+
 def test_brace_in_a_char_literal_does_not_end_the_function(tmp_path):
     """`case '{':` is a BRACE CHARACTER, not a block.
 

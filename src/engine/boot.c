@@ -5808,9 +5808,14 @@ static void l4d88(void);
 static void jt1135(short v1, short v2, short *out1, short *out2);
 static void l731e(short arg);
 
-/* JT[1198] (CODE 4 + 0x52e) — Mac body returns 1 always.
- * Likely "rows per glyph step" — placeholder hook from the Mac
- * build that the engine reads as a constant. */
+/* JT[1198] (CODE 4 + 0x52e) — the source-art PLANE COUNT, and it is NOT a
+ * stub: the Mac body is literally `moveq #1,%d0; rts`, the whole function.
+ * FRUA's art is 1-bit, and the shipped build freezes the count at one.
+ *
+ * Its neighbour jt1163 (CODE 4 + 0x532) is the same two instructions with
+ * `moveq #0` — the "chunky?" query. The pair is the frozen device
+ * description the blitters branch on, always as `jt1163() ? jt1198() : 1`,
+ * i.e. always 1. Leave both alone; there is nothing behind them. */
 static short jt1198(void) __attribute__((unused));
 static short jt1198(void)
 {
