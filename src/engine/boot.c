@@ -63050,12 +63050,58 @@ static void jt246(short sel)
 	}
 }
 
-/* L7490 (CODE 8+0x7490) — load area-map icon `n` into the -10366
- * art slot. Leaf PROBE stub pending its own lift. */
+static unsigned char jt107(void);        /* CODE 6+0x36da — art-bound latch (below) */
+static void          jt109(long a, short b, long h);  /* CODE 6+0x3af8 (below) */
+
+/* L7490 (CODE 8 + 0x7490) — bind area-map icon `n` out of the "back2" library
+ * into the -10366 art slot, REMAP its colour indices, and commit the palette.
+ * Its caller (the BACKDROP-placement preview, below) then blits -10366 and
+ * frees it — so while this was a stub the slot was never bound and the preview
+ * blitted an empty handle: the black box in the editor's BACKDROP mode.
+ *
+ * The load is the l6ea2 shape with a different library and slot:
+ * JT[110] IS l33ac (same address), and the Mac pushes it name-first here —
+ * l33ac("back2", n, 0, g_a5_-12294, &g_a5_-10366).
+ *
+ * The colour map is the 256-byte frame local at fp@(-258):
+ *
+ *   for (i = 0;   i < 256; i++) map[i] = i;          <- identity
+ *   for (i = 144; i < 176; i++) map[i] = i + 32;     <- 144..175 -> 176..207
+ *
+ * The first loop's source is `moveb %fp@(-1)`, which LOOKS like an
+ * uninitialised read but is not: fp@(-2) is the word counter i, so fp@(-1) is
+ * its LOW BYTE — THINK C overlapped them, and the loop stores i & 0xff. The
+ * table is therefore the identity except for the icon art's own 144..175 band,
+ * lifted clear by 32 so it cannot land on the chrome/HUD entries. JT[109]
+ * applies it to pieces 0 and 1; JT[124] commits.
+ *
+ * The remap is skipped unless the art actually bound (JT[107]) and we are not
+ * in the doubled deep mode: `jt107() && (jt1163() || jt1200() == 0)`. jt1163 is
+ * the frozen 0 constant, so in practice that is jt1200() == 0 — true in the
+ * port's native 8-bit state. JT[124] commits either way. */
 static void l7490(short n)
 {
-	PROBE("l7490");
-	(void)n;
+	unsigned char map[256];                 /* fp@(-258) */
+	short         i;                        /* fp@(-2)   */
+
+	PROBE("L7490");
+
+	jt113((short)50);                                       /* 0x7498 */
+	l33ac("back2", n, (short)0,                             /* 0x74ba — JT[110] */
+	      (short)(unsigned char)g_a5_byte(-12294),
+	      (void **)&g_a5_long(-10366));
+
+	if (jt107() != 0                                        /* 0x74c2 */
+	    && (jt1163() != 0 || jt1200() == 0)) {              /* 0x74cc / 0x74d4 */
+		for (i = 0; i < 256; i++)                       /* L74e4 */
+			map[i] = (unsigned char)i;
+		for (i = 144; i < 176; i++)                     /* L7504 */
+			map[i] = (unsigned char)(i + 32);
+		for (i = 0; i < 2; i++)                         /* L7528 */
+			jt109((long)(uintptr_t)map, i,
+			      g_a5_long(-10366));
+	}
+	jt124(g_a5_long(-10366));                               /* L7548 */
 }
 
 /* jt220 = the already-lifted l6ea2 (CODE 7+0x6ea2, the "back1" art
@@ -68295,14 +68341,57 @@ static long jt359(short n)
 	return (long)(uintptr_t)(g_a5_13038 + (long)b * 20 - 20);
 }
 
-/* L1e7a (CODE 5+0x1e7a) — build the 274-byte colour-translation
- * table for ClrTran, dispatched on the display mode (JT[3] 0..3:
- * jt406 straight copy / the packed-nibble split via the 15/240
- * masks / passthrough). Leaf PROBE stub pending its own lift. */
+/* L1e7a (CODE 5 + 0x1e7a) — expand the caller's 256-entry colour map `src` into
+ * jt994's 274-byte translation table, in the DISPLAY MODE's pixel packing.
+ * Mode = `jt1163() ? 0 : jt1200()`, then a JT[3] switch @0x1e8e (min 0, max 3):
+ *
+ *   0  (0x1f0a) — 8bpp chunky: a straight 256-byte copy.
+ *   1  (0x1eb8) — 4bpp PACKED, two pixels per byte, so a byte's translation is
+ *                 both nibbles mapped and re-packed:
+ *                     tbl[i] = (src[(i >> 4) & 15] << 4) | src[i & 15]
+ *                 (the asm ORs the full bytes and truncates with moveb).
+ *   3  (0x1ea0) — deep: only the 16 low entries are copied.
+ *   2 / default — nothing (falls straight to L1f1e).
+ *
+ * The Mac pushes jt406 SOURCE-first, so `jt406(src, tbl, n)` in the asm is our
+ * jt406(tbl, src, n).
+ *
+ * This being a stub was the CLUT corruption in the editor's BACKDROP mode:
+ * jt994 declares `tbl` as a 274-byte STACK local and hands it straight here, so
+ * with the body empty every jt994 remap read uninitialised stack. It then
+ * rewrites the GLIB palette item's start-index through it (hdr[2] = tbl[oldw]),
+ * so an icon whose palette should relocate to 176..207 instead installed at a
+ * garbage CLUT offset and repainted the dungeon's wall bands. Nothing called
+ * jt994's remap path until l7490 was lifted, which is why it went unseen. */
 static void l1e7a(long src, void *tbl)
 {
+	const unsigned char *s = (const unsigned char *)(uintptr_t)src;
+	unsigned char       *t = (unsigned char *)tbl;
+	short                mode;
+	short                i;
+
 	PROBE("L1e7a");
-	(void)src; (void)tbl;
+	if (s == (const unsigned char *)0 || t == (unsigned char *)0)
+		return;
+
+	mode = jt1163() ? (short)0 : (short)jt1200();
+
+	switch (mode) {                          /* JT[3] @0x1e8e */
+	case 0:                                  /* 0x1f0a — 8bpp chunky */
+		jt406(t, s, (short)256);
+		break;
+	case 1:                                  /* 0x1eb8 — 4bpp packed pairs */
+		for (i = 0; i < 256; i++)
+			t[i] = (unsigned char)
+			    (((unsigned)s[(i >> 4) & 15] << 4)
+			     | (unsigned)s[i & 15]);
+		break;
+	case 3:                                  /* 0x1ea0 — deep: 16 entries */
+		jt406(t, s, (short)16);
+		break;
+	default:                                 /* case 2 / out of range */
+		break;
+	}
 }
 
 /* JT[1204] (CODE 4+0x22e6) — remap `count` bytes at `p` in place
@@ -68561,13 +68650,23 @@ static void jt1079(short mode, long b, short kb_min, short kb_max)
 	l27a4();
 }
 
-/* JT[109] (CODE 6+0x3af8) — draw piece `b` of GLIB group `grp`
- * through JT[994] on the jt468-resolved base. Full call shape. */
-static void jt109(long a, short b, short grp) __attribute__((unused));
-static void jt109(long a, short b, short grp)
+/* JT[109] (CODE 6+0x3af8) — apply the colour map `a` to piece `b` of the GLIB
+ * bound by the HANDLE `h`, through JT[994] on the jt468-resolved base.
+ *
+ * The third argument is a HANDLE, not a group id: the Mac loads it into a0 and
+ * pushes the WORD AT *a0 (`moveal %fp@(14),%a0; movew %a0@,%sp@-`) as jt468's
+ * tag — the same first-word-is-the-group-tag deref l7490's caller does on
+ * g_a5_long(-10366). The old lift took a bare `short grp` (and so could not be
+ * handed a handle at all); it had no callers, which is why it went unnoticed. */
+static void jt109(long a, short b, long h) __attribute__((unused));
+static void jt109(long a, short b, long h)
 {
+	const short *hp = (const short *)(uintptr_t)h;
+
 	PROBE("jt109");
-	jt994(jt468(grp), b, a);
+	if (hp == (const short *)0)
+		return;
+	jt994(jt468(*hp), b, a);
 }
 
 /* --- band-4 trivial trio (docs/band4-wall.md) ------------------------ */

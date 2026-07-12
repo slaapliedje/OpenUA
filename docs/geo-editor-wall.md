@@ -749,23 +749,55 @@ for the LOW nibble instead. Harmless while the callee was a no-op stub; a live
 bug the moment it was lifted. The very next line (`if (rec[4] == 0) l476e(1,0)`)
 reads what it writes.
 
-### EXPOSED GAP: BACKDROP placement mode renders broken
+### BACKDROP placement mode — what l4810 exposed, and what fixed it (2026-07-12)
 
 With the tool byte at 0 the lifted `l4810` is **pixel-identical** to the old stub
-(verified: same MD5 on the editor screen). With the byte at 1 — i.e. the last
-session left the editor in BACKDROP placement — `l4810` faithfully restores
-`obj[5] = 1` and the editor opens on BACKDROP PLACEMENT, where the port renders:
+(same MD5 on the editor screen). With it at 1 it faithfully restores
+`obj[5] = 1` and the editor opens on BACKDROP PLACEMENT — which turned out to be
+a mode the port had never actually rendered. Three defects, in a chain:
 
-- the FILE / MAP / UTILITIES menu bar as coloured noise,
-- the automap in green/cyan instead of yellow/blue,
-- and NO bottom verb bar (SELECT/LEFT/PLACE/RIGHT/UNDO/MARK) at all.
+1. **`l7490` (CODE 8 + 0x7490) was a stub.** It binds area-map icon `n` from the
+   "back2" library into the -10366 art slot; its caller then blits -10366 and
+   frees it. With it stubbed the slot was never bound, so the preview blitted an
+   empty handle: **the black box**. Lifting it also restored **the verb bar**
+   (SELECT/LEFT/PLACE/RIGHT/UNDO/MARK), which had been absent entirely.
 
-This is a **pre-existing hole in the BACKDROP path, not in l4810** — the same
-state a user reaches from MAP -> BACKDROP PLACEMENT. The palette symptoms point
-at a CLUT clobber when the backdrop art group is loaded (cf. the GLIB
-colour-range allocator and the event-picture CLUT fix). `l4810` merely makes it
-the ENTRY state whenever start.dat remembers it.
+2. **`jt109` had the wrong signature.** The Mac takes a HANDLE and derefs its
+   first WORD for jt468's tag (`moveal %fp@(14),%a0; movew %a0@,%sp@-`); the port
+   declared `short grp`. It had no callers, so nothing had caught it.
 
-**Next target here:** the BACKDROP-mode chrome/CLUT. Until it is fixed, opening
-the map editor with a persisted tool byte of 1 lands in that broken mode; zeroing
-the last byte of start.dat opens on WALL placement instead.
+3. **`l1e7a` (CODE 5 + 0x1e7a) was a stub — the real landmine.** jt994 declares
+   its translation table as a 274-byte STACK local and hands it straight to
+   l1e7a to fill. With the body empty, **every jt994 remap read uninitialised
+   stack**. jt994 rewrites a GLIB palette item's start index through that table
+   (`hdr[2] = tbl[oldw]`), so the icon palette installed at a garbage CLUT offset
+   and repainted the dungeon's wall bands. Nothing exercised jt994's remap path
+   until l7490 was lifted, which is why it sat unnoticed.
+
+With all three fixed the remap works exactly as the Mac intends — traced live:
+back2 installs its two palette items at **start=16 count=16** and, after the
+144..175 -> 176..207 relocation, **start=176 count=32**.
+
+**MISDIAGNOSIS TO NOT REPEAT:** the first BACKDROP screenshot showed a garbled
+FILE/MAP/UTILITIES bar and it was written up here as a CLUT clobber. It was a
+MID-DRAW CAPTURE. The settled frame is clean. Always re-shoot and compare MD5s
+before calling a frame corrupted.
+
+### STILL OPEN: the sky tint in BACKDROP mode
+
+back2's FIRST palette item legitimately installs at **CLUT 16..31** (the remap
+only relocates the 144..175 band, so 16 stays 16). 16..31 is the PORT's invented
+FRAME/chrome band — and it also holds the sky fill colour (-12294). So the 3D
+view's sky goes from dark blue to BLACK (the stars, being separate art, survive).
+
+This is the fabricated-CLUT-model collision that `g_dungeon_bigpic_overlay` is
+already gated for: the Mac indexes wall tiles + backdrop into ONE shared dungeon
+palette, the port bands them (walls 32/69/106, backdrop 144, frame 16..31). The
+port's own repair exists — jt993 sets `g_clut_clobbered` (it does fire here:
+start=16 < 145) and render_3d_faithful reinstalls the wall/backdrop/chrome CLUT
+— but only **on the next dungeon frame**, and the editor draws its 3D view BEFORE
+the preview loads and then sits idle. A forced 3D repaint after the preview's
+palette commit would heal it; the real fix is the shared-palette CLUT model.
+
+**Net:** BACKDROP mode went from unusable (no verb bar, black preview) to usable
+with a wrong sky colour. WALL mode is byte-identical to before (verified).
