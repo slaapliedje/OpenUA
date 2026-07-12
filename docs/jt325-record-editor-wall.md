@@ -331,3 +331,31 @@ Two things had to change around it before it could ever run:
 lands on that character — then type: `(big) ` is inserted THERE, the paragraph
 re-wraps, and the caret tracks. Regression-swept: main menu, design-picker rows,
 Hall roster rows, Add/Exit, char-gen race/class radio picks.
+
+
+## l2d3e's click block is now fully faithful (2026-07-12)
+
+The last stand-in is gone. `jt380` — the shape-3 method, which is what a char-gen
+pick ROW is — was missing its **cmd 4 arm (L23ba)** entirely: the port sent every
+cmd but 1 and 2 to `l1676`, whose action arm reads `rec[4]`, and a row carries no
+proc there (jt452's cmd 34 sets it on the CONTAINER). So clicking a race or class
+did nothing, and `l2d3e` had grown a stand-in that guessed the container by
+scanning back for "the nearest item with a pointer at rec[8]".
+
+The Mac's L23ba walks BACKWARD until it finds the item whose **method IS the
+shape-2 handler** (`g_a5_-9278` — the handler table at -9282 holds one entry per
+shape, so shape 2 lives at -9278), counting the steps: that count is the row's
+CHILD INDEX. It hands that to the container through its own cmd 4 (jt381 — moves
+the radio bit, writes the value-output global, fires jt566/jt567/jt568/jt569/
+jt570), then fires the row's OWN action proc with its DLItem index if it has one
+(the stand-in never did that second part). Comparing the METHOD, not guessing
+from rec[8], is the difference.
+
+**All three stand-ins in the click block are now gone** — `menu_button_track()`,
+the `hr[28] |= 0x10` force-commit, and the radio-container probe. Two of the
+three turned out to be masking a single broken primitive (the transposed click
+latch); only this one was a genuinely missing lift.
+
+**LIVE:** all four char-gen radio groups (RACE, CLASS, GENDER, and both ALIGNMENT
+groups — which sit stacked, so they prove the walk finds the RIGHT container);
+main menu; Hall menu; party-picker rows; Add/Exit; and the big text field.
