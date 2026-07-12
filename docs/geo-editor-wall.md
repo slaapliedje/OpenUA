@@ -715,3 +715,57 @@ The coordinate convention (Mac order, direct push-order transcription) is
 settled; jt406 is the lone swap. **Kind 3 (l347a = its own entry_jt?) remains
 a stub** — the next design-list painter. Everything here is dormant/mouse-gated;
 verify against the disasm, not the smoke harness.
+
+## L4810 — the persisted placement tool, and the BACKDROP-mode chrome gap (2026-07-12)
+
+`L4810` (CODE 11 + 0x4810) is the inverse of `jt275` (CODE 22 + 0x04b2). jt275
+packs `(a & 15) | ((b & 15) << 4)` into the A5 byte **-18476**, and its callers
+pass it `(rec[5], rec[4])` — so -18476 holds the editor's placement state:
+
+- **low nibble  -> rec[5]** = the PLACE CATEGORY. The MAP menu names them:
+  `0 = WALL`, `1 = BACKDROP`, `2 = ZONE`, `3 = EVENT` placement.
+- **high nibble -> rec[4]** = the level KIND.
+
+`l4810` reads them back out, each destination independently optional (the Mac
+tests both pointers), so a caller can ask for one nibble and pass NULL for the
+other. All four call sites are EDITOR paths — `l41a0`/`l36f6` (jt243 helpers)
+and `jt239`/`jt241` (reached only from the CODE 22 dispatcher `l0096`). It never
+runs in the play walk.
+
+-18476 is persisted to **start.dat** by `jt128` and read back by `l0444`, so the
+map editor REMEMBERS THE LAST PLACEMENT TOOL ACROSS BOOTS. That is faithful Mac
+behaviour, not a port artifact.
+
+**The argument-order trap.** The Mac pushes right-to-left, so:
+
+    pea a0@(4)      ; pushed 1st -> arg2
+    pea a0@(5)      ; pushed 2nd -> arg1
+    jsr L4810                            => L4810(&x[5], &x[4])
+
+but at 0x49b4 / 0x5840 (inside jt239 / jt241) it pushes `&rec[4]` and then
+`clrl`, i.e. **`L4810(NULL, &rec[4])`** — the KIND, the HIGH nibble. The port had
+those two sites written as `l4810(rec + 4, 0L)`, arguments swapped, which asks
+for the LOW nibble instead. Harmless while the callee was a no-op stub; a live
+bug the moment it was lifted. The very next line (`if (rec[4] == 0) l476e(1,0)`)
+reads what it writes.
+
+### EXPOSED GAP: BACKDROP placement mode renders broken
+
+With the tool byte at 0 the lifted `l4810` is **pixel-identical** to the old stub
+(verified: same MD5 on the editor screen). With the byte at 1 — i.e. the last
+session left the editor in BACKDROP placement — `l4810` faithfully restores
+`obj[5] = 1` and the editor opens on BACKDROP PLACEMENT, where the port renders:
+
+- the FILE / MAP / UTILITIES menu bar as coloured noise,
+- the automap in green/cyan instead of yellow/blue,
+- and NO bottom verb bar (SELECT/LEFT/PLACE/RIGHT/UNDO/MARK) at all.
+
+This is a **pre-existing hole in the BACKDROP path, not in l4810** — the same
+state a user reaches from MAP -> BACKDROP PLACEMENT. The palette symptoms point
+at a CLUT clobber when the backdrop art group is loaded (cf. the GLIB
+colour-range allocator and the event-picture CLUT fix). `l4810` merely makes it
+the ENTRY state whenever start.dat remembers it.
+
+**Next target here:** the BACKDROP-mode chrome/CLUT. Until it is fixed, opening
+the map editor with a persisted tool byte of 1 lands in that broken mode; zeroing
+the last byte of start.dat opens on WALL placement instead.
