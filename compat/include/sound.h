@@ -131,4 +131,30 @@ NumVersion SndSoundManagerVersion(void);
  */
 void SysBeep(short duration);
 
+/*
+ * SndDriverWrite — the classic Sound DRIVER (not Manager) free-form
+ * synth write. FRUA's sfx leaf (CODE 5 L7ee0) doesn't use `snd `
+ * resources: it builds an FFSynthRec in place at the head of the sound
+ * library's item and PBWrites it to the ".Sound" driver. The buffer is
+ * exactly what the Mac driver receives:
+ *
+ *   short mode;          // free-form synth mode word
+ *   Fixed count;         // rate multiplier, 1.0 (0x10000) = 22254.5454 Hz
+ *   Byte  waveBytes[];   // unsigned 8-bit samples, 0x80 = silence
+ *
+ * `byte_count` is the driver's ioReqCount — the whole buffer including
+ * the 6-byte header. The shim decodes the rate, converts the Mac's
+ * unsigned samples to the Falcon CODEC's signed ones, and hands them to
+ * the sound HAL. Returns noErr, or a Mac error when the buffer is
+ * malformed / playback fails.
+ */
+OSErr SndDriverWrite(const void *ff_buffer, long byte_count);
+
+/* 1 while the sound HAL is still playing (the driver-busy poll L7ee0
+ * spins on before it queues the next effect). */
+int SndDriverBusy(void);
+
+/* Stop playback immediately (the driver KillIO L7ee0 issues first). */
+void SndDriverStop(void);
+
 #endif /* COMPAT_SOUND_H */
