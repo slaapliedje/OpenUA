@@ -21538,6 +21538,34 @@ static short l2d3e(void)
 					qd_present();     /* selection moved -> repaint, stay */
 					return (short)-1;
 				}
+				/* A TEXT FIELD takes FOCUS on a click; it does not
+				 * commit the dialog. The Mac keeps the dialog open with
+				 * the caret in the field — jt327/jt328 answer cmd 128
+				 * ("are you focusable?") with 1 and cmd 18 ("take focus")
+				 * by running l1dd8, which sets rec[28] bit 2. The commit
+				 * below fired for EVERY hit, so clicking the big
+				 * multi-line field left the editor instead of focusing it
+				 * and it could never be typed into.
+				 *
+				 * Asked through the item's own protocol rather than by
+				 * testing its shape, and self-correcting: if an item calls
+				 * itself focusable but does not actually take focus, we
+				 * fall through to the button path unchanged.
+				 *
+				 * Once focused, the keys arrive on their own — Phase 5
+				 * already walks every item with cmd 5 and only the focused
+				 * one consumes the keystroke. (That is also why typing
+				 * into an unfocused field fell through to the menu
+				 * accelerators and left the editor.) */
+				if (hm(hr, (short)128, (short)0, (short)0) != 0) {
+					hm(hr, (short)18, (short)0, (short)0);
+					if ((hr[28] & 0x04) != 0) {
+						hr[28] &= 0x7f;   /* dirty -> repaint */
+						qd_present();
+						return (short)-1; /* stay in the dialog */
+					}
+				}
+
 				/* Press feedback: recessed + blue/cyan while held, fire
 				 * on release-over-button (faithful l1676 cmd=3 track). */
 				if (!menu_button_track(hr))

@@ -244,3 +244,39 @@ cursor at the start of the text; (c) the box renders empty unless the record
 supplies text — real event text is fetched by string index from the event
 record, so seeing it live needs the actual event-editor flow, not a repointed
 Game Settings record.
+
+## Field FOCUS — the big field is typeable (2026-07-12)
+
+`l2d3e`'s click path force-committed **every** hit (`rec[28] |= 0x10; return i;`),
+so clicking a text field left the dialog instead of focusing it. The field was
+therefore never focused, and — because the key phase walks every DLItem with
+cmd 5 and only a FOCUSED item consumes the keystroke — typing fell straight
+through to the menu accelerators and exited the editor.
+
+Fix: before the commit, ask the item through its own protocol —
+**cmd 128 = "are you focusable?"** (jt327/jt328 answer 1), then **cmd 18 =
+"take focus"** (runs l1dd8, which sets rec[28] bit 2). If it really took focus,
+repaint and STAY in the dialog. No shape test, and self-correcting: an item that
+claims to be focusable but does not take focus falls through to the button path
+unchanged. Keys then arrive on their own — Phase 5 was already faithful.
+
+**LIVE:** click into TAVERN EVENT's "PLAYER READS:" box and type — the text
+appears, word-wraps at the column-38 boundary, and the cursor block tracks.
+
+**Why not the full Mac click sequence?** L2dc2..L2e28 is `cmd 3` (track) → `cmd 4`
+(activate) → commit iff `rec[28]` bit 4. That was tried and is only half-usable
+here: menu buttons, list rows and char-gen all still worked, but **jt169's List
+Manager buttons (ADD / EXIT) never set the commit bit** — their action procs are
+not lifted — so the party-roster dialog froze with no way out. The port's
+force-commit is a stand-in for those missing procs; lifting them is what would
+let the faithful sequence replace it wholesale. Until then the stand-in stays
+and only the focus step is faithful.
+
+Also note `menu_button_track()` is a port reimplementation of l1676's cmd-3
+track loop, and it CANNOT simply be replaced by `method(rec, 3, ...)` while
+jt328 is in the dialog: it waits for the button release, and jt328's own cmd 3
+then spins forever in its `jt1132` click poll.
+
+**PRE-EXISTING BUG (not from this work, A/B-confirmed against HEAD):** in the
+party-roster picker, clicking **ADD** wedges the dialog — EXIT stops responding.
+EXIT works fine if ADD is never pressed.
