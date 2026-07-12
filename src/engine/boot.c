@@ -12475,8 +12475,20 @@ static void jt312(unsigned char *page)
 	 * view still renders deep via g_cwf_force_deep (set inside
 	 * render_3d_faithful), so gating on jt1160() is the right, scale-
 	 * independent test. See [[screen-320x200-not-640x400]]. */
-	if (ds == NULL || jt1160() != 0)        /* first-person dungeon view only */
+	if (ds == NULL || jt1160() != 0) {      /* first-person dungeon view only */
+		/* Top-down / overland: the Mac jt312 doesn't run at all here — the
+		 * screen was already composed by jt304 -> L3fd8 (backdrop + the
+		 * L4430 cell tiles).  But the port's 3-buffer display only shows a
+		 * composed frame on a present, and jt312 is the only presenter on
+		 * this path, so bailing left the overland map drawn-but-invisible
+		 * (the editor froze on the half-erased picker).  Publish it — twice,
+		 * so both pages carry the frame (the jt453 / l37f6 pattern). */
+		if (g_geo_editor_active && ds != NULL) {
+			qd_present();
+			qd_present();
+		}
 		return;
+	}
 	/* AREA command (automap) active: the party moved while the top-down map is
 	 * up, so re-render the map (jt221's -12290 branch) instead of the 3D view
 	 * -> the map scroll-follows the party as l1908 walks. jt221 dispatches on
@@ -79799,7 +79811,17 @@ static void l2ea0(void *holder_v, short a2)
 {
 	unsigned char *H   = (unsigned char *)holder_v;           /* fp@(8) */
 	unsigned char *rec = *(unsigned char **)holder_v;         /* *H */
+	/* 0x2ea4 `subqb #1,fp@(13)` decrements the arg IN PLACE, so every later
+	 * fp@(13) read — the kind stored into rec[4], the "already this kind"
+	 * compare, the -11508 menu-flag slots and the ==1 test — sees a2-1, not
+	 * a2.  The earlier lift decremented only for the JT[3] dispatch and used
+	 * the raw a2 elsewhere, so "3-D view" (item 1) set rec[4]=1 (= Area) and
+	 * "Area view" (item 2) set rec[4]=2 (out of range for l429c's 0/1 kind
+	 * switch): the two view items were off by one and the 3-D kind was
+	 * unreachable. */
 	unsigned char  idx = (unsigned char)((unsigned char)a2 - 1);  /* 0x2ea4 subqb */
+
+	a2 = (short)idx;                                          /* the decremented arg */
 
 	switch (idx) {                                            /* JT[3] @0x2eb2 */
 	case 0:
@@ -81390,11 +81412,34 @@ static short jt243(short cmd, long *rec, void *area)
 		if (*(short *)(holder + 6) == 0)                 /* L11a6 */
 			l28d4(holder);
 		return l243_finalize(holder, rec, scratch);      /* → L13aa */
-	case 11:                                         /* L0b7a → L0bf8 — general tool handler */
-		/* Only cmd 11 is routed here (head JT[3]); L0b7a's (cmd&15==0) L0b8e branch
-		 * is unreachable, and the JT[3]@0xc24/@0xc3c below switch on cmd&15 / (cmd&48)
-		 * — both default for cmd 11, so the executed path is commit + hub.  The arms
-		 * are transcribed faithfully (they mirror the shared L0bf8 handler). */
+	case 11:                                         /* L0b7a — the picker-return arm */
+		/* L0b7a's head tests holder[6] (the pending sub-command word), NOT
+		 * `cmd`: `moveal fp@(-8),a0; movew a0@(6),d0; movew d0,fp@(-2);
+		 * andiw #15,d0; tstw d0; bne L0bf8` (0x0b7a..0x0b8c).  An earlier
+		 * lift read it as cmd&15 — always 11 for this arm — and so declared
+		 * the L0b8e block dead and hard-branched to L0bf8.  It is NOT dead:
+		 * it is the arm the MODULE PICKER returns through (jt248 packs the
+		 * pick into *rec: bits 0-3 = OK/cancel, bits 4-11 = the module), and
+		 * it is what LOADS the picked module — l4144_c11 -> l36f6 -> l068a ->
+		 * jt198 (the GEO level into -12300) + l6e50 (the level number into
+		 * -10374, which is jt273's deep-view gate).  With it skipped the
+		 * editor never loaded an area at all: empty grid, dims 0, and jt304
+		 * could only ever take the flat l3806 branch. */
+		scratch = *(short *)(holder + 6);                /* 0x0b82 fp@(-2) */
+		if ((scratch & 15) == 0) {                       /* 0x0b86/0x0b8a */
+			*(short *)holder = 1;                    /* 0x0b92 holder[0]=1 */
+			if ((*rec & 15) != 0) {                  /* 0x0b96 — picked (not cancel) */
+				*rec &= 0xFFC0FFFFL;             /* 0x0ba6 clear bits 16-21 */
+				*rec |= (*rec & 1008L) << 12;    /* 0x0bb0 — stash the pick there */
+				l4144_c11(holder,                /* 0x0bd6 — APPLY: load the module */
+				          (short)((*rec & 1008L) >> 4));
+				l16ae(holder);                   /* 0x0be0 — reset + re-enter the hub */
+			} else {                                 /* L0bea — cancelled */
+				*(short *)(holder + 6) = 1;      /* 0x0bf0 */
+			}
+			return l243_finalize(holder, rec, scratch);   /* → L13aa */
+		}
+		/* holder[6] & 15 != 0 -> L0bf8, the general tool handler below. */
 		*(short *)(holder + 2) = *(short *)holder;       /* 0x0bf8 */
 		*(short *)(holder + 6) = 0;                       /* 0x0c04 */
 		if ((*rec & 15) != 0) {                          /* 0x0c0c (==0 -> L0cd4) */
