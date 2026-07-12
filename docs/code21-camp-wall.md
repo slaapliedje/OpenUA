@@ -195,3 +195,50 @@ The Magic spell screens (`l0df2` ~458 ln etc.) are the largest remaining piece;
 - `rec[44]` (rec = -28006) heal allowance (0 / 100); set by `l473e`
 - `-27982` "keep adventuring" / reload flag (Save/Load/Exit set it)
 - `-13952`/`-13660` jt160 menu title/block; `-14104` camp title; `-14288` save name
+
+## The LAST live gap: l2d7e (camp FIX) — scoped 2026-07-12
+
+`l2d7e` is the final entry on the live-gap list, and it is a **SLICE, not a leaf**.
+Alias-checked and port-name-checked: all eight of its CODE-21 helpers are genuinely
+unlifted, **1118 disasm lines** in total.
+
+| helper | lines | role (from the call shape) |
+|---|---:|---|
+| `L288c` | 399 | the big one — called TWICE, 8 pointer args (the per-member state restore) |
+| `L2106` | 180 | fills the same 8 locals (the state CAPTURE, mirror of L288c) |
+| `L25dc` | 160 | 13 args — the widest call; the fix/recompute itself |
+| `L2422` | 132 | fills fp@(-54)/(-8)/(-6)/(-4) from fp@(-2) |
+| `L1fcc` | 96 | fills the 7 odd-offset locals (-28/-32/-36/-40/-44/-48/-52) |
+| `L2310` | 75 | consumes what L2422 filled |
+| `L27ec` | 53 | takes fp@(-2) alone |
+| `L23dc` | 23 | the precondition — bails the whole action when 0 |
+
+**The CFG of l2d7e itself is already understood** (read it before lifting the
+helpers, it explains what they must return):
+
+```
+rec = -28006;  if (rec[2] != 0) return;      /* wrong mode */
+zero 8 locals; *out = 0;
+if (!L23dc()) return;                        /* precondition */
+L2106(...8 out-params...);                   /* capture state */
+jt406(save, -23214, 14);                     /* stash 14 bytes */
+L2422(...);
+-23189 = 1;  *out = jt915(0);  -23189 = 0;   /* REST pass 1, non-interactive */
+if (*out) return;                            /* interrupted -> abort */
+L2310(...); L288c(...); L27ec(...);
+jt937(-27932); jt938();                      /* HUD refresh */
+jt406(save <-> -23214, 14);                  /* restore, then re-stash */
+L1fcc(...); L25dc(...13 args...);
+-23189 = 1;  *out = jt915(0);  -23189 = 0;   /* REST pass 2 */
+if (*out) return;
+L288c(...); jt937(-27932); jt938(); jt406(...);
+```
+
+So it is TWO non-interactive rest passes with a full state capture/restore around
+each — which is why the helpers come in mirrored pairs (L2106 captures what L288c
+restores; L2422 feeds L2310).
+
+**Do it as its own focused pass.** Lift the eight bottom-up (L23dc, L27ec, L2310,
+L1fcc, L2422, L2106, L25dc, L288c) and l2d7e falls out. Verification needs a party
+that actually has something to fix — an aged/damaged member — so plan the harness
+setup with it.
