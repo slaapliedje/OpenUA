@@ -13013,7 +13013,38 @@ static void jt303(void *rec_v)
 	       (const char *)(uintptr_t)g_a5_long(-11324),
 	       (int)lvl[2], (int)lvl[3]);
 }
-static void        l2788(void)                          { PROBE("L2788"); }                                   /* CODE 22-local wilderness compass */
+/* L2788 (CODE 22 + 0x2788) — the wilderness compass ARROW: a JT[3] over the
+ * party facing (-12286, min 2 max 8) blitting one FRAME.CTL glyph at (8000,
+ * 8000) — jt1001(top, left, group 1, item), the same shape jt76 uses for the
+ * bevel pieces.
+ *
+ *   facing 2 -> item 25    facing 4 -> item 23
+ *   facing 6 -> item 24    facing 8 -> item 22
+ *
+ * Only the four EVEN facings draw; 3/5/7 and anything out of range fall to the
+ * default and blit nothing (the Mac's L2804 tail is a bare rts). That is
+ * faithful, not a gap: the overland compass has four arrows, while the
+ * dungeon's eight-way facing is drawn by jt280's own readout. */
+static void        l2788(void)
+{
+	PROBE("L2788");
+	switch ((unsigned char)g_a5_byte(-12286)) {   /* JT[3] @0x2792 */
+	case 2:                                       /* L27a6 */
+		jt1001((short)8000, (short)8000, (short)1, (short)25);
+		break;
+	case 4:                                       /* L27be */
+		jt1001((short)8000, (short)8000, (short)1, (short)23);
+		break;
+	case 6:                                       /* L27d6 */
+		jt1001((short)8000, (short)8000, (short)1, (short)24);
+		break;
+	case 8:                                       /* L27ee */
+		jt1001((short)8000, (short)8000, (short)1, (short)22);
+		break;
+	default:                                      /* L2804 — nothing */
+		break;
+	}
+}
 
 /* JT[280] (CODE 22 + 0x265e) — the dungeon position / compass readout drawn
  * at the top of the play view (all via jt1089, the real text drawer):
@@ -13578,7 +13609,57 @@ static void jt311(void *rec_v, short dir, long cb)
 		jt1080();
 	}
 }
-static signed char l67e4(void *rec, short a)            { PROBE("L67e4"); (void)rec;(void)a; return 0; }       /* CODE 11-local */
+/* L67e4 (CODE 11 + 0x67e4) — l63c0's SELECT (case 5) hit test: read the mouse
+ * (jt1113 -> y, x) and resolve what was clicked in the map view. Returns 1 when
+ * the click landed on something, which is what gates the caller's cb2 select
+ * callback; 0 (with a JT[1080] beep) when it did not.
+ *
+ *   holder[29] == 0  -> beep, 0        (nothing selectable on this screen)
+ *   a != 0 (wilderness) -> jt272(y, x): >= 0 sets the party FACING from its low
+ *                         byte (-12286) and returns 1; exactly -1 beeps.
+ *   a == 0 (dungeon)    -> jt284(y, x): > 0 returns 1; exactly 0 beeps.
+ *
+ * Note the asymmetry is the Mac's: jt272 treats every negative EXCEPT -1 as a
+ * silent miss, and jt284 (sign-extended from a byte) treats every negative as
+ * one. `rec` is the HOLDER — byte 29 is a single-deref cache byte, per the
+ * holder/record split.
+ *
+ * While this returned 0, clicking a cell in l63c0's map view did nothing. */
+static short jt272(short y, short x);      /* CODE 22+0x87c  — defined below */
+static short jt284(short y, short x);      /* CODE 22+0x9b0  — defined below */
+static signed char l67e4(void *rec_v, short a)
+{
+	unsigned char *holder = (unsigned char *)rec_v;
+	short          y = 0, x = 0;              /* fp@(-4) / fp@(-6) */
+	short          hit;                       /* fp@(-2) */
+
+	PROBE("L67e4");
+	jt1113(&y, &x);                           /* 0x67f4 */
+
+	if (holder[29] == 0) {                    /* 0x67fe -> L686a */
+		jt1080();
+		return 0;
+	}
+
+	if ((unsigned char)a != 0) {              /* 0x6806 — wilderness */
+		hit = jt272(y, x);                /* 0x6814 */
+		if (hit >= 0) {
+			g_a5_byte(-12286) =       /* 0x6822 — facing = hit & 0xff */
+			    (unsigned char)hit;
+			return 1;
+		}
+		if (hit == -1)                    /* L6830 */
+			jt1080();
+		return 0;
+	}
+
+	hit = (short)(signed char)jt284(y, x);    /* L683e — extw of a byte */
+	if (hit > 0)
+		return 1;
+	if (hit == 0)                             /* L685e */
+		jt1080();
+	return 0;
+}
 static void jt304(void *rec_v, short batch);   /* CODE 22+0x17ca, defined below */
 static void        jt238(void *rec)                     { PROBE("jt238"); jt304(rec, 0); }                    /* CODE 11+0x67d0 -> jt304 */
 
@@ -62190,13 +62271,63 @@ static void jt351(void)
 	jt209((short)1);
 }
 
-/* L7a24 (CODE 5+0x7a24) — the per-character page gate: nonzero
- * while output may continue on the current page. Leaf stub: allow
- * (the line accounting below still paginates). */
+/* L7a24 (CODE 5 + 0x7a24) — the PRINTER-READY gate, not (as the old comment
+ * had it) a "per-character page gate". l7ab4 calls it before every character,
+ * and it answers "may output continue?":
+ *
+ *   -3139 latched  -> 0 (the job was already abandoned; never ask again)
+ *   jt429()        -> 1 (ready: both -9163/-9164 print-job flags up)
+ *   otherwise      -> a 720-tick (12 s at 60 Hz) grace poll for the printer to
+ *                     come up; if it does, 1. On timeout, put up
+ *                     "The printer is not ready!", wait for a keypress OR the
+ *                     printer, and answer 1 if it finally came up — else LATCH
+ *                     -3139 and return 0, killing the rest of the job.
+ *
+ * The alert is jt1008 (= L0be4). The Mac pushes it ONE argument where jt1008
+ * takes (ctx, key) — THINK C leaves `key` as stack garbage, which is harmless
+ * because the message carries no % conversions. We pass 0.
+ *
+ * PORT: -9163 is never set (there is no Falcon print backend; jt428 and l4806
+ * are the documented Printing-Manager no-ops), so jt429() is always 0 and this
+ * always ends in the alert. That is the CORRECT answer for a machine with no
+ * printer, and it is reachable only from the design editor's PRINT command
+ * (jt254, l0096 case 17) — never from play. Previously it returned 1 always, so
+ * Print silently pretended to work. When the deferred GDOS/VDI backend lands,
+ * jt429 starts returning 1 and this gate opens on its own. */
+static short jt429(void);                       /* CODE 3+0x4a28 — print-job flags */
 static unsigned char l7a24(void)
 {
-	PROBE("l7a24");
-	return 1;
+	long deadline;
+
+	PROBE("L7a24");
+	if (g_a5_byte(-3139) != 0)              /* 0x7a28 — abort latched */
+		return 0;
+	if (jt429() != 0)                       /* 0x7a34 -> L7aae */
+		return 1;
+
+	deadline = jt1134() + 720;              /* 0x7a3e — 12 s grace */
+	while (jt1134() <= deadline) {          /* L7a5c */
+		if (jt429() != 0)               /* L7a4e */
+			return 1;
+	}
+
+	jt1146();                               /* 0x7a66 — timed out */
+	jt1153((short)1);
+	jt1008((long)(uintptr_t)ua_strs_at(0x7170), (short)0);
+	                                        /* "The printer is not ready!" */
+
+	do {                                    /* L7a80 — key or printer */
+		if (l0088() != 0)
+			break;
+	} while (jt429() == 0);
+
+	l00a8();                                /* L7a90 — drain the queue */
+	jt1128();
+	if (jt429() != 0)                       /* 0x7a98 */
+		return 1;
+
+	g_a5_byte(-3139) = 1;                   /* L7aa4 — latch the abort */
+	return 0;
 }
 
 /* L4806 (CODE 3+0x4806) — the Printing Manager page rollover
