@@ -5666,7 +5666,37 @@ static void l309c(short a, short b, long handle, short size)
 
 	mode = (short)metric[7];
 	if ((mode & 15) == 9) {
+		/* Piece type 9 = COMPOSITE: the item body is a run of 6-byte
+		 * sub-records { byte idx, byte count, word dy, word dx }, each
+		 * naming another item in the same library to blit at this
+		 * piece's (already bearing-adjusted) origin plus (dy, dx).
+		 * The Mac (L309c 0x30fc..0x3166) seeds count = 1, then re-reads
+		 * it from each record's byte 1 — so the FIRST record carries the
+		 * total.  Recursion is safe: jt1135 passes values <= 6000 (pixel
+		 * coords) through unchanged, so the nested calls don't re-scale.
+		 *
+		 * This arm was a bail-out stub, so every composite piece drew
+		 * NOTHING — including the map editor's area-view chrome (the
+		 * "menu" group-21 piece 2 l429c blits for area kind 1).  With no
+		 * background painted, the module picker's pixels showed through
+		 * (the editor "picker residue"). */
+		short count = 1, i;
+		const unsigned char *src =
+		    (const unsigned char *)(uintptr_t)info;
+
 		PROBE("l309c-composite");
+		for (i = 0; i < count; i++) {
+			unsigned char sub[6];
+			short dy, dx;
+
+			jt406(sub, src, (short)6);        /* 0x3108 (dst, src, n) */
+			src += 6;                          /* 0x3120 */
+			dy = (short)((sub[2] << 8) | sub[3]);
+			dx = (short)((sub[4] << 8) | sub[5]);
+			l309c((short)(sy + dy), (short)(sx + dx),
+			      handle, (short)sub[0]);      /* 0x3146 — recurse */
+			count = (short)sub[1];             /* 0x3150 */
+		}
 		return;
 	}
 
