@@ -81795,8 +81795,17 @@ static void l579e(short id)
 		return;                          /* already the active backdrop */
 
 	l338c((short)50);                       /* select the bigpic load kind */
+	/* The library letter was INVERTED.  Mac 0x57c8: `cmpiw #248,d0; bcs
+	 * L57d2` — bcs is unsigned less-than, and L57d2 is `moveq #99` — so
+	 * id < 248 picks 'c' (BIGPIC, the base pictures) and id >= 248 picks
+	 * 'x' (BIGPIX, the extended set).  The lift had the arms swapped, so
+	 * every base-range id (the 240..247 backdrops) was looked up in the
+	 * WRONG library: the item is absent there, the fetch fails, and the
+	 * resource layer spins in its headless retry poll (the overland
+	 * map-editor hang).  l33ac strips the trailing %d digit and opens the
+	 * base "<name>.ctl", so BIGPIC.CTL / BIGPIX.CTL are both reachable. */
 	name = jt488(ua_strs_at(0x752),         /* "bigpi%c%d" */
-	             (id < 248) ? 120 : 99,
+	             (id < 248) ? 99 : 120,
 	             (int)(unsigned char)g_a5_byte(-23185));
 	l33ac(name, id, (short)0, (short)0, (void **)&g_a5_24260);
 	l3f3c((short)32, (short)255);           /* install the picture's palette range */
