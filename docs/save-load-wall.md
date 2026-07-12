@@ -267,3 +267,51 @@ boot.c:28837):
 Related: [[inventory-subsystem-wall]] (the 398 B record's item serialization is
 the same format), [[party-model-migration]] (the `-27928` party list jt579
 rebuilds).
+
+## The cold-disk / not-found dialog — jt987's retry loop can be ANSWERED (2026-07-12)
+
+A load that could not find its file used to spin forever in `jt987`'s retry loop
+with nothing on screen. That is the single mechanism behind every "frozen but
+alive" screen a missing file has produced — the ADD-CHARACTER wedge among them.
+It is now a dialog you can answer. **Four** separate defects, and the loudest one
+(`l157c` being a stub) was not the reason it was invisible:
+
+1. **`l157c` (CODE 5 + 0x157c) was a PROBE stub.** Full lift now. `a` picks the
+   message and doubles as show/hide: 0 = dismiss (repaint over the box, restore
+   the saved page at -4658); 1 = "Please Insert %s" (a kind of 'S' is remapped
+   through the save-disk letter at -4670 FIRST — the Mac writes it back over its
+   own argument — then ' ' -> "the Disk", 'S' -> "SAVE Disk", else "Disk %c"; a
+   kind of 0 means the file is missing: "'%s' not found"); 2 = "Disk %s error"
+   ("write" when `b` is set, else "read").
+
+2. **★ main() registered EMPTY THUNKS as the dialog handlers.** `l157c` calls the
+   hook at -4680 (installed via JT[989]) in preference to painting itself — and
+   the port registered `jt10_handler` / `jt11_handler`, two `{ }` stubs, while
+   the REAL `jt10` (CODE 6 + 0x0538) and `jt11` (CODE 6 + 0x04c0) sat fully
+   lifted and `__attribute__((unused))` a few thousand lines away. So `l157c`
+   dutifully called a handler that did nothing. THIS is why nothing drew. Both
+   thunks deleted; the real handlers are registered, exactly as the Mac does.
+
+3. **`jt987`'s wait loop lost its BODY.** The Mac's `while (!L0088() && !JT[1121]())`
+   calls **L0f9c** every iteration — which the port already has, as **jt980**
+   (the lXXXX = jtN alias trap again): it services the sound driver's next voice,
+   so the music keeps playing while the dialog waits. The port spun on an empty
+   body, silencing it.
+
+4. **`jt394` had no "%r".** THINK C's recursive conversion: the next arg is a
+   format string and the one after it a POINTER to that format's own argument
+   block. `L0ab6` (the box-label painter) is its only user and always passes
+   `"%r"` alone. m68k's `va_list` IS a byte pointer into such a block, so the
+   inner call is a plain `vsprintf` over it. This is also what fills the `%c` in
+   "Disk %c" — at PAINT time, with the drive letter. Not a Mac bug after all.
+
+Plus one port concession, the same one `jt1134` carries: `l157c`'s paint ends in
+`qd_present()`. On the Mac the framebuffer IS the screen; the Falcon HAL
+double-buffers and `jt987`'s wait loop never reaches a present, so the box was
+drawn and never shown.
+
+**Verified live** (temp harness: `jt987(0, "NOSUCH.XXX", 0, NULL)` right after the
+menu comes up): the box paints **'NOSUCH.XXX' NOT FOUND**; lowercase `c` (99) is
+not a verb so it retries and re-shows — faithful; uppercase **`C`** (67) cancels
+and `jt987` returns 0. The Mac compares against uppercase `'Q'`/`'C'`/`'?'` and
+`jt1133` does not up-case, so uppercase is correct, not a port quirk.
