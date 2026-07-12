@@ -90456,7 +90456,493 @@ static void l66cc(void *ev_v)
 static void l1850(void *out);              /* MAGIC camp action — defined after l09ea (slice 3) */
 static void l09ea(void *out);              /* REST action — defined after jt957 (slice 2) */
 static short l0006_c21(void *member);      /* per-member rest-minutes (CODE-21 L0006) */
-static void l2d7e(void *out)               { PROBE("L2d7e"); (void)out; }
+/* ---- CODE-21 slice 8: the camp FIX action (l2d7e) and its seven helpers ----
+ *
+ * FIX = "cast every healing/restorative spell the party has memorised, twice
+ * over, resting in between". The whole slice hangs off eight per-affliction
+ * counters that L2106 / L25dc FILL (spells available), L1fcc counts the NEED
+ * for, L2422 / L25dc price in casting MINUTES, and L288c SPENDS:
+ *
+ *   slot  affliction / spell        L288c announces
+ *   ----  -----------------------   -----------------------------
+ *   s34   blindness (effect 33)     "regains sight"
+ *   s30   curse     (effect 36)     "is relieved of a curse"
+ *   s26   raise dead                "has been raised from the dead"
+ *   s42   poison    (effect 55)     "is detoxified"
+ *   s46   petrified (status 7)      "is changed back to flesh"
+ *   s38   wounded   (effect 68)     "is healed"
+ *   s50   restoration (spell 102)   -- drained levels, cast in a loop
+ *   s24   resurrection              "has been resurrected"
+ *
+ * The party record fields this slice reads: [94] status (6 dead, 7 stoned),
+ * [88] raisable, [121] CON, [129] max HP, [395] current HP, [150..156] the
+ * per-class ORIGINAL levels, [157..163] the CURRENT ones (their difference is
+ * the level drain), [355..361]/[375..378] memorised-spell counts per level, and
+ * [339..353] the known-spell bitmap (bit (id-1)&7 of byte 339 + (id-1)/8, mask
+ * from the -18893 table — the same idiom jt575 and l0980 use). */
+
+/* L23dc (CODE 21 + 0x23dc) — the FIX precondition: the party's TOTAL missing HP
+ * (sum of maxHP[129] - curHP[395]). Zero means nothing to fix, and l2d7e bails. */
+static short l23dc(void)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+	short total = 0;
+
+	PROBE("L23dc");
+	while (m != NULL) {
+		total = (short)(total + (short)m[129] - (short)m[395]);
+		m = *(const unsigned char *const *)m;      /* next: chain at +0 */
+	}
+	return total;
+}
+
+/* L1f50 (CODE 21 + 0x1f50) — how many class LEVELS this member has been drained:
+ * sum over the 7 class slots of (original[150+i] - current[157+i]) where the
+ * current one is lower. Drives the Restoration loop and its time cost. */
+static unsigned char l1f50(long member)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)member;
+	unsigned char total = 0;
+	short i;
+
+	PROBE("L1f50");
+	for (i = 0; i <= 6; i++)
+		if (m[157 + i] < m[150 + i])              /* 0x1f7e — unsigned */
+			total = (unsigned char)(total + (m[150 + i] - m[157 + i]));
+	return total;
+}
+
+/* L27ec (CODE 21 + 0x27ec) — spend the healing POOL: walk the party and hand
+ * each wounded member up to (maxHP - curHP) points, clamped to what is left in
+ * *pool, via jt869; on a successful heal the amount comes off the pool. A
+ * member owed less than 1 point is skipped (the `< 1 -> 0` clamp is the Mac's). */
+static void l27ec(short *pool)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+
+	PROBE("L27ec");
+	while (m != NULL) {
+		if (m[129] > m[395]) {                    /* 0x2806 — wounded */
+			short want = (short)(m[129] - m[395]);
+
+			if (want > *pool)                 /* 0x2830 */
+				want = *pool;
+			if (want < 1)                     /* 0x283c */
+				want = 0;
+			if (want > 0                      /* 0x2848 */
+			    && jt869((long)(uintptr_t)m, want, (short)0) != 0
+			    && want <= *pool)             /* 0x286c */
+				*pool = (short)(*pool - want);
+		}
+		m = *(unsigned char **)m;
+	}
+}
+
+/* L20e4 (CODE 21 + 0x20e4) — "is this member present?" — status byte [94] == 0. */
+static signed char l20e4(long member)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)member;
+
+	return (signed char)(m[94] == 0 ? 1 : 0);
+}
+
+/* L2310 (CODE 21 + 0x2310) — roll the cure-wounds dice into the pool. The four
+ * counts are, in AD&D order, Cure Light (1d8), Moderate (2d8+1), Serious
+ * (3d8+3) and Critical (4d8+3) — jt870(n, 8) being "n d8". */
+static void l2310(short *pool, const short *n_crit, const short *n_ser,
+                  const short *n_mod, const short *n_light)
+{
+	short total = 0;
+	short i;
+
+	PROBE("L2310");
+	for (i = 1; i <= *n_light; i++)                   /* L2320 */
+		total = (short)(total + jt870((short)1, (short)8));
+	for (i = 1; i <= *n_mod; i++)                     /* L234c */
+		total = (short)(total + jt870((short)2, (short)8) + 1);
+	for (i = 1; i <= *n_ser; i++)                     /* L237a */
+		total = (short)(total + jt870((short)3, (short)8) + 3);
+	for (i = 1; i <= *n_crit; i++)                    /* L23a8 */
+		total = (short)(total + jt870((short)4, (short)8) + 3);
+	*pool = (short)(*pool + total);
+}
+
+/* Split `minutes` into the camp clock's three display words. */
+static void l2d7e_clock(short minutes)
+{
+	g_a5_word(-23208) = (short)((unsigned short)minutes / 60);          /* hours */
+	g_a5_word(-23210) = (short)(((unsigned short)(minutes
+	                     - (short)(g_a5_word(-23208) * 60))) / 10);     /* tens  */
+	g_a5_word(-23212) = (short)((unsigned short)minutes % 10);          /* units */
+}
+
+/* L2422 (CODE 21 + 0x2422) — tally the CURE-WOUNDS spells the party has, and
+ * price the casting. Only members that are present (l20e4) and whose [117] is
+ * > 3 (the caster gate) contribute. Counts: [355] and [365] -> light, [358] ->
+ * moderate, [359] -> serious, [360] -> critical; the per-spell minute costs are
+ * 15/30/60/75/90 and the clock shows the SLOWEST member's total, scaled down
+ * when the party's missing HP (L23dc) is less than *pool. */
+static void l2422(short *n_crit, short *n_ser, short *n_mod, short *n_light,
+                  const short *pool)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+	short maxtime = 0;
+
+	PROBE("L2422");
+	*n_light = 0; *n_mod = 0; *n_ser = 0; *n_crit = 0;
+
+	while (m != NULL) {
+		short t = 0;
+
+		if (l20e4((long)(uintptr_t)m) != 0 && m[117] > 3) {   /* 0x247e */
+			*n_light = (short)(*n_light + m[355]);
+			t = (short)(t + m[355] * 15);
+			*n_light = (short)(*n_light + m[365]);
+			t = (short)(t + m[365] * 30);
+			*n_mod   = (short)(*n_mod  + m[358]);
+			t = (short)(t + m[358] * 60);
+			*n_ser   = (short)(*n_ser  + m[359]);
+			t = (short)(t + m[359] * 75);
+			*n_crit  = (short)(*n_crit + m[360]);
+			t = (short)(t + m[360] * 90);
+		}
+		if (maxtime < t)                                      /* 0x2556 */
+			maxtime = t;
+		m = *(const unsigned char *const *)m;
+	}
+
+	{
+		short missing = l23dc();                              /* 0x2572 */
+
+		if (missing < *pool && missing != 0) {                /* PORT: /0 guard */
+			short ratio = (short)((unsigned short)*pool
+			                      / (unsigned short)missing);
+			if (ratio != 0)
+				maxtime = (short)((unsigned short)maxtime
+				                  / (unsigned short)ratio);
+		}
+	}
+	l2d7e_clock(maxtime);                                         /* L259e */
+}
+
+/* L2106 (CODE 21 + 0x2106) — tally the RESTORATIVE spells, gated on the member
+ * actually KNOWING each one (the [339..353] bitmap). Four of them also fold a
+ * flat healing value into the pool (weights 9/17/27/50). */
+static void l2106(short *pool, short *s24, short *s34, short *s46,
+                  short *s30, short *s26, short *s42, short *s38)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+	short acc = 0;
+
+	PROBE("L2106");
+	while (m != NULL) {
+		if (l20e4((long)(uintptr_t)m) != 0) {
+			if (m[339] & g_a5_byte(-18891))   /* 0x2138 */
+				acc = (short)(acc + m[355] * 9);
+			if (m[346] & g_a5_byte(-18892))   /* 0x2160 */
+				acc = (short)(acc + m[358] * 17);
+			if (m[347] & g_a5_byte(-18887))   /* 0x2188 */
+				acc = (short)(acc + m[359] * 27);
+			if (m[343] & g_a5_byte(-18890)) { /* 0x21b0 */
+				acc  = (short)(acc + m[360] * 50);
+				*s38 = (short)(*s38 + m[360]);
+			}
+			if (m[347] & g_a5_byte(-18891))   /* L21da */
+				*s42 = (short)(*s42 + m[358]);
+			if (m[348] & g_a5_byte(-18891))   /* L2202 */
+				*s26 = (short)(*s26 + m[359]);
+			if (m[344] & g_a5_byte(-18891))   /* L222a */
+				*s30 = (short)(*s30 + m[357]);
+			if (m[350] & g_a5_byte(-18893))   /* L2252 */
+				*s30 = (short)(*s30 + m[375]);
+			if (m[353] & g_a5_byte(-18893))   /* L227a */
+				*s24 = (short)(*s24 + m[378]);
+			if (m[343] & g_a5_byte(-18889))   /* L22a2 */
+				*s34 = (short)(*s34 + m[357]);
+			if (m[352] & g_a5_byte(-18893))   /* L22ca */
+				*s24 = (short)(*s24 + m[360]);
+		}
+		m = *(const unsigned char *const *)m;
+	}
+	*pool = (short)(*pool + acc);                             /* 0x2306 */
+}
+
+/* L1fcc (CODE 21 + 0x1fcc) — count what the party NEEDS fixing. Restoration and
+ * raise-dead are priced at 2 each (they cost two spell slots); the rest at 1.
+ * Note the else: a member with effect 68 does NOT also count as needing 33. */
+static void l1fcc(short *n_dead, short *n_curse, short *n_blind, short *n_wound,
+                  short *n_poison, short *n_stone, short *n_drain)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+	long d = 0;
+
+	PROBE("L1fcc");
+	*n_drain = 0; *n_dead = 0; *n_curse = 0; *n_blind = 0;
+	*n_wound = 0; *n_poison = 0; *n_stone = 0;
+
+	while (m != NULL) {
+		long ml = (long)(uintptr_t)m;
+
+		*n_drain = (short)(*n_drain + l1f50(ml) * 2);      /* 0x2018 */
+		if (m[94] == 6 && m[88] > 0)                       /* 0x2028 — dead */
+			*n_dead = (short)(*n_dead + 2);
+		if (m[94] == 7)                                    /* 0x204a — stoned */
+			*n_stone = (short)(*n_stone + 1);
+		if (jt41(ml, (short)36, &d) != 0)                  /* 0x2062 — cursed */
+			*n_curse = (short)(*n_curse + 1);
+		if (jt41(ml, (short)55, &d) != 0)                  /* 0x2080 — poisoned */
+			*n_poison = (short)(*n_poison + 1);
+		if (jt41(ml, (short)68, &d) != 0)                  /* 0x209e — wounded */
+			*n_wound = (short)(*n_wound + 1);
+		else if (jt41(ml, (short)33, &d) != 0)             /* L20b2 — blind */
+			*n_blind = (short)(*n_blind + 1);
+		m = *(const unsigned char *const *)m;
+	}
+}
+
+/* L25dc (CODE 21 + 0x25dc) — the SECOND-pass recount: re-tally the available
+ * spells (memorisation changed over the first rest), then price the work as
+ * sum over each affliction of min(available, needed) * minutes. Raise-dead
+ * (75 min) is only priced when there is no RESURRECTION available, and its
+ * counter is then zeroed — resurrection supersedes it. */
+static void l25dc(const short *n_curse, const short *n_blind,
+                  const short *n_poison, const short *n_stone,
+                  const short *n_wound, const short *n_dead,
+                  const short *n_drain,
+                  short *s34, short *s30, short *s42, short *s26,
+                  short *s46, short *s38, short *s24, short *s50)
+{
+	const unsigned char *m = (const unsigned char *)(uintptr_t)g_a5_long(-27928);
+	short t = 0;
+
+	PROBE("L25dc");
+	while (m != NULL) {                                        /* L25ea */
+		if (l20e4((long)(uintptr_t)m) != 0) {
+			*s50 = (short)(*s50 + m[361]);
+			*s24 = (short)(*s24 + m[361]);
+			*s38 = (short)(*s38 + m[360]);
+			*s46 = (short)(*s46 + m[378]);
+			*s26 = (short)(*s26 + m[359]);
+			*s42 = (short)(*s42 + m[358]);
+			*s30 = (short)(*s30 + m[376]);
+			*s30 = (short)(*s30 + m[357]);
+			*s34 = (short)(*s34 + m[357]);
+		}
+		m = *(const unsigned char *const *)m;
+	}
+
+	t = (short)(t + jt413(*s50, *n_drain)  * 105);             /* 0x26c2 */
+	t = (short)(t + jt413(*s24, *n_dead)   * 105);             /* 0x26e0 */
+	t = (short)(t + jt413(*s38, *n_wound)  * 90);              /* 0x26fe */
+	t = (short)(t + jt413(*s46, *n_stone)  * 90);              /* 0x271c */
+	if (*s24 == 0) {                                           /* 0x272c */
+		t = (short)(t + jt413(*s26, *n_dead) * 75);
+		*s26 = 0;                                          /* 0x2752 */
+	}
+	t = (short)(t + jt413(*s42, *n_poison) * 60);              /* 0x2766 */
+	t = (short)(t + jt413(*s34, *n_blind)  * 45);              /* 0x2784 */
+	t = (short)(t + jt413(*s30, *n_curse)  * 45);              /* 0x27a2 */
+
+	l2d7e_clock(t);
+}
+
+/* L288c (CODE 21 + 0x288c) — SPEND the spells: walk the party and, for each
+ * affliction whose counter is still positive, cure it, announce it (jt18 with
+ * colour 10) and decrement the counter. Called TWICE by l2d7e, once after each
+ * rest pass. `healed` (fp@(-9)) suppresses the blindness arm when this member
+ * was already healed this pass — the Mac's own ordering quirk. */
+static void l288c(short *s34, short *s30, short *s26, short *s42,
+                  short *s46, short *s38, short *s50, short *s24)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	long           d = 0;
+
+	PROBE("L288c");
+	while (m != NULL) {
+		long        ml     = (long)(uintptr_t)m;
+		signed char healed = 0;                            /* fp@(-9) */
+
+		/* RESTORATION (spell 102), two slots a cast, while levels are drained */
+		while (l1f50(ml) > 0 && *s50 > 0) {                /* L28ba */
+			g_a5_long(-23508) = ml;
+			g_a5_byte(-25262) = 102;
+			jt598((short)102);
+			*s50 = (short)(*s50 - 2);
+		}
+
+		if (*s38 > 0 && jt41(ml, (short)68, &d) != 0) {    /* L28d4 — wounded */
+			jt878(ml, (short)68, 0L);
+			if (jt41(ml, (short)33, &d) != 0)
+				jt878(ml, (short)33, 0L);
+			healed = 1;
+			jt18(m, (long)(uintptr_t)ua_strs_at(0x6c32),   /* "is healed" */
+			     (short)10, (short)1);
+			*s38 = (short)(*s38 - 1);
+			jt875(ml, (short)1);
+			jt875(ml, (short)2);
+		}
+
+		if (*s46 > 0 && m[94] == 7) {                      /* L2976 — petrified */
+			m[94]  = 0;
+			m[382] = 1;
+			m[395] = 1;
+			jt18(m, (long)(uintptr_t)ua_strs_at(0x6c3c),
+			     (short)10, (short)1);   /* "is changed back to flesh" */
+			*s46 = (short)(*s46 - 1);
+		}
+
+		if (*s42 > 0 && jt41(ml, (short)55, &d) != 0) {    /* L29ca — poisoned */
+			if (m[395] == 0)
+				m[395] = 1;
+			g_a5_byte(-25258) = 1;                     /* silence the strip */
+			jt878(ml, (short)55, 0L);
+			jt878(ml, (short)22, 0L);
+			jt878(ml, (short)15, 0L);
+			g_a5_byte(-25258) = 0;
+			if (m[395] != 0) {
+				m[382] = 1;
+				m[94]  = 0;
+			}
+			jt18(m, (long)(uintptr_t)ua_strs_at(0x6c56),
+			     (short)10, (short)1);   /* "is detoxified" */
+			*s42 = (short)(*s42 - 1);
+		}
+
+		/* DEAD: resurrection (s24) outranks raise-dead (s26) */
+		if ((*s26 > 0 || *s24 > 0) && m[94] == 6 && m[88] > 0) {   /* L2a82 */
+			g_a5_byte(-25258) = 1;
+			jt878(ml, (short)55, 0L);
+			g_a5_byte(-25258) = 0;
+			m[395] = 1;
+			m[94]  = 0;
+			m[382] = 1;
+
+			if (*s24 > 0) {                            /* L2aee — resurrect */
+				*s26 = 0;
+				jt18(m, (long)(uintptr_t)ua_strs_at(0x6c64),
+				     (short)10, (short)1); /* "has been resurrected" */
+				*s24 = (short)(*s24 - 1);
+			} else {                                   /* L2b20 — raise dead */
+				unsigned char hploss = 0;          /* fp@(-10) */
+				unsigned char dice   = 0;          /* fp@(-11) */
+				short         i;
+
+				if (m[121] > 0 && *s26 > 0)        /* the CON cost */
+					m[121]--;
+
+				if (m[129] > m[184])               /* L2b3e */
+					hploss = (unsigned char)(m[129] - m[184]);
+
+				if (m[121] >= 14) {                /* 0x2b7e */
+					for (i = 0; i <= 6; i++) {   /* L2b8e */
+						unsigned char lv = m[157 + i];
+
+						if (lv == 0)
+							continue;
+						if (i == 1 || i == 2 || i == 3 || i == 4)
+							dice = (unsigned char)
+							    (dice + (short)(m[121] - 14) * lv);
+						else if (m[121] > 15)
+							dice = (unsigned char)(dice + lv * 2);
+						else
+							dice = (unsigned char)(dice + lv);
+					}
+					if (dice > 0)              /* L2c44 */
+						hploss = (unsigned char)
+						    ((unsigned short)hploss / dice);
+
+					if (!(m[121] >= 17 && m[159] == 0   /* L2c64 */
+					      && m[160] == 0
+					      && m[159] <= m[138]))
+						m[129] = (unsigned char)(m[129] - hploss);
+				}
+				jt18(m, (long)(uintptr_t)ua_strs_at(0x6c7a),
+				     (short)10, (short)1);
+				     /* "has been raised from the dead" */
+				*s26 = (short)(*s26 - 1);
+			}
+		}
+
+		if (*s30 > 0 && jt41(ml, (short)36, &d) != 0) {    /* L2cce — cursed */
+			g_a5_long(-23508) = ml;
+			jt687();
+			jt18(m, (long)(uintptr_t)ua_strs_at(0x6c98),
+			     (short)10, (short)1);   /* "is relieved of a curse" */
+			*s30 = (short)(*s30 - 1);
+		}
+
+		if (healed == 0 && *s34 > 0                        /* L2d18 — blind */
+		    && jt41(ml, (short)33, &d) != 0) {
+			/* NB the Mac uses the CURRENT member global (-27932) for
+			 * both of these, not `m` — transcribed as-is. */
+			jt878(g_a5_long(-27932), (short)33, 0L);
+			jt18((void *)(uintptr_t)g_a5_long(-27932),
+			     (long)(uintptr_t)ua_strs_at(0x6cb0),
+			     (short)10, (short)1);   /* "regains sight" */
+		}
+
+		m = *(unsigned char **)m;                          /* L2d6a */
+	}
+}
+
+/* L2d7e (CODE 21 + 0x2d7e) — the camp FIX action itself (jt957 case 4). Two
+ * non-interactive rest passes with the camp clock block (-23214, 14 bytes)
+ * saved and restored around each, so the FIX does not disturb the real rest
+ * state. Either pass returning non-zero from jt915 means the rest was
+ * interrupted, and the whole action aborts. */
+static void l2d7e(void *out_v)
+{
+	unsigned char *out = (unsigned char *)out_v;
+	const unsigned char *rec =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short heal = 0;                                   /* fp@(-2)  the pool */
+	short n_crit = 0, n_ser = 0, n_mod = 0, n_light = 0;   /* -54/-8/-6/-4 */
+	short s24 = 0, s26 = 0, s30 = 0, s34 = 0;             /* the 8 spell slots */
+	short s38 = 0, s42 = 0, s46 = 0, s50 = 0;
+	short t28 = 0, t32 = 0, t36 = 0, t40 = 0;             /* the 7 need slots */
+	short t44 = 0, t48 = 0, t52 = 0;
+	unsigned char save[14];                           /* fp@(-22) */
+
+	PROBE("L2d7e");
+	if (rec == NULL || rec[2] != 0)                   /* 0x2d88 — wrong mode */
+		return;
+	*out = 0;
+	if (l23dc() == 0)                                 /* 0x2dbc — nothing to fix */
+		return;
+
+	l2106(&heal, &s24, &s34, &s46, &s30, &s26, &s42, &s38);   /* 0x2de6 */
+	jt406(save, &g_a5_byte(-23214), (short)14);               /* 0x2dfa save */
+	l2422(&n_crit, &n_ser, &n_mod, &n_light, &heal);          /* 0x2e16 */
+
+	g_a5_byte(-23189) = 1;                            /* 0x2e20 — silent rest */
+	*out = jt915((short)0);
+	g_a5_byte(-23189) = 0;
+	if (*out != 0)                                    /* 0x2e3a — interrupted */
+		return;
+
+	l2310(&heal, &n_crit, &n_ser, &n_mod, &n_light);  /* 0x2e54 — roll the dice */
+	l288c(&s34, &s30, &s26, &s42, &s46, &s38, &s50, &s24);    /* 0x2e7c */
+	l27ec(&heal);                                     /* 0x2e88 — spend the pool */
+	jt937(g_a5_long(-27932));
+	jt938();
+	jt406(&g_a5_byte(-23214), save, (short)14);       /* 0x2ea8 restore */
+	jt406(save, &g_a5_byte(-23214), (short)14);       /* 0x2ebc save again */
+
+	l1fcc(&t28, &t32, &t36, &t40, &t44, &t48, &t52);  /* 0x2ee0 — what is left */
+	l25dc(&t32, &t36, &t44, &t48, &t40, &t28, &t52,   /* 0x2f24 — recount + time */
+	      &s34, &s30, &s42, &s26, &s46, &s38, &s24, &s50);
+
+	g_a5_byte(-23189) = 1;                            /* 0x2f2e — rest pass 2 */
+	*out = jt915((short)0);
+	g_a5_byte(-23189) = 0;
+	if (*out != 0)
+		return;
+
+	l288c(&s34, &s30, &s26, &s42, &s46, &s38, &s50, &s24);    /* 0x2f6c */
+	jt937(g_a5_long(-27932));
+	jt938();
+	jt406(&g_a5_byte(-23214), save, (short)14);       /* 0x2f8e restore */
+}
 
 /* L026e (CODE 21+0x026e) — clear the pending-scribe marks on one member's
  * SCROLL items: walk the item chain at rec[8]; for a bundle item

@@ -196,6 +196,72 @@ The Magic spell screens (`l0df2` ~458 ln etc.) are the largest remaining piece;
 - `-27982` "keep adventuring" / reload flag (Save/Load/Exit set it)
 - `-13952`/`-13660` jt160 menu title/block; `-14104` camp title; `-14288` save name
 
+## DONE (slice 8, 2026-07-12) — the camp FIX action. LIVE-GAP LIST NOW ZERO.
+
+`l2d7e` and its seven helpers are lifted (1118 disasm lines). FIX = "cast every
+healing/restorative spell the party has memorised, twice over, resting between".
+
+The whole slice turns on **eight per-affliction counters**: `L2106` / `L25dc` fill
+them (spells AVAILABLE), `L1fcc` counts the NEED, `L2422` / `L25dc` price the
+casting in MINUTES, and `L288c` SPENDS them:
+
+| slot | affliction / spell | L288c announces |
+|---|---|---|
+| s34 | blindness (effect 33) | "regains sight" |
+| s30 | curse (effect 36) | "is relieved of a curse" |
+| s26 | raise dead | "has been raised from the dead" |
+| s42 | poison (effect 55) | "is detoxified" |
+| s46 | petrified (status 7) | "is changed back to flesh" |
+| s38 | wounded (effect 68) | "is healed" |
+| s50 | restoration (spell 102) | — drained levels, cast in a loop |
+| s24 | resurrection | "has been resurrected" |
+
+The helpers, and what each really is:
+
+- **`L23dc`** — the PRECONDITION: the party's total missing HP (`maxHP[129] -
+  curHP[395]`). Zero and FIX does nothing.
+- **`L1f50`** — a member's DRAINED LEVELS: `original[150+i] - current[157+i]` over
+  the 7 class slots. Drives the Restoration loop.
+- **`L2310`** — rolls the cure-wounds dice into the pool. Unmistakable AD&D:
+  **1d8 / 2d8+1 / 3d8+3 / 4d8+3** = Cure Light / Moderate / Serious / Critical.
+- **`L27ec`** — SPENDS the pool: hands each wounded member up to its deficit via
+  jt869, decrementing the pool.
+- **`L2422`** — tallies the cure-wounds spells (15/30/60/75/90 min each) and shows
+  the SLOWEST member's total on the camp clock (-23208/-23210/-23212 = h/tens/units).
+- **`L2106`** — tallies the restoratives, gated on the member KNOWING each spell
+  (the [339..353] bitmap, same idiom as jt575/l0980); four also fold a flat heal
+  into the pool (weights 9/17/27/50).
+- **`L1fcc`** — counts the NEED. Restoration and raise-dead cost 2 slots each.
+- **`L25dc`** — the second-pass recount: prices `min(available, needed) * minutes`.
+  Raise-dead (75 min) is only priced when there is NO resurrection available, and
+  its counter is then zeroed — resurrection supersedes it.
+
+`l2d7e` itself: two NON-INTERACTIVE rest passes (`jt915(0)` with -23189 raised),
+with the 14-byte camp-clock block at -23214 saved and restored around each, so FIX
+does not disturb the real rest state. Either pass returning non-zero means the rest
+was INTERRUPTED and the whole action aborts.
+
+### Verified live (Hatari, HEIRS, traced)
+
+Wounded BARBARUS (10/78) + cleric CLARANA (5 level-1 cure spells memorised),
+camped in DUNGEON 01. The trace matches hand-derivation exactly:
+
+```
+JT957 entered / CAMP raw choice 4 / CAMP choice 4     -> l2d7e reached
+FIX: missing HP        68     <- l23dc; BARBARUS 78-10 exactly
+FIX: pool after l2106  45     <- CLARANA's 5 spells x weight 9 exactly
+```
+
+...then the rest ran (camp clock advanced 12:00 -> 12:05) and was INTERRUPTED —
+**"A GUARD YELLS ANGRILY AT THE PARTY, 'NO SLEEPING IN THE STREETS, MOVE ALONG!'"**
+— so `jt915` returned non-zero and l2d7e correctly ABORTED. That is the faithful
+abort path, exercised end to end.
+
+**NOT yet exercised: the SUCCESS tail** (L2310's dice, L288c's spend, L27ec's
+heal). DUNGEON 01 is "TOWN AT BEGIN" and the street cells always fire the guard
+interrupt. To finish the verification, camp somewhere restable (a real dungeon
+level, or a town interior) and confirm the party's HP actually comes back.
+
 ## The LAST live gap: l2d7e (camp FIX) — scoped 2026-07-12
 
 `l2d7e` is the final entry on the live-gap list, and it is a **SLICE, not a leaf**.
