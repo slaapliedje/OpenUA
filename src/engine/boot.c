@@ -3090,16 +3090,33 @@ static void l6ea2(short id)
 	      (void **)&g_a5_22222);
 }
 
-/* Gate for L58c4's perspective-backdrop IMAGE overlay. The faithful path
- * installs the backdrop's OWN palette into CLUT entries 32..255 (L3f3c) and
- * indexes the wall tiles + backdrop into that one SHARED dungeon palette. The
- * port still uses the fabricated per-band CLUT model (wall sets banded at
- * 32/64/96, plus the HUD/menu palette) — so installing the backdrop palette
- * clobbers all of it: the region fills go black and the menu palette corrupts.
- * Until the shared-palette CLUT model lands ([[wall-piece-8x8db-structure]] /
- * [[glib-palette-subsystem]]), keep the image overlay OFF; the L57f2 region
- * shell (CLUT-safe solid fills) stays live. Flip to 1 once the dungeon uses
- * the faithful shared palette. */
+/* Gate for L58c4's perspective-backdrop IMAGE overlay. KEEP IT 0. Do NOT
+ * "fix" this by moving the dungeon onto one shared palette.
+ *
+ * READ THIS BEFORE TOUCHING IT. An earlier version of this comment claimed the
+ * L3f3c(32,255) path — install the backdrop's own palette across CLUT 32..255
+ * and index wall tiles + backdrop into ONE shared dungeon palette — was "the
+ * faithful path", and called the port's per-set band model "fabricated". That
+ * is WRONG, it has been rejected repeatedly, and the comment itself is what
+ * keeps resurrecting it (it did so twice in one session on 2026-07-12).
+ *
+ * The PER-SET BAND MODEL IS CORRECT AND IS HOW FRUA WORKS. See jt114's comment
+ * further down, which proves it from the art: every 8X8DB set's item-0 header
+ * declares start=32, count=37 — each texture set carries its OWN 37-entry
+ * palette wanting CLUT 32..68, and a level mixes three sets whose palettes
+ * differ over the SAME byte range. They cannot share one flat palette; that is
+ * exactly why g_cw_base bands them (32/69/106).
+ *
+ * And the overlay buys NOTHING: the port already draws the cell's perspective
+ * backdrop. render_3d_faithful blits BACK.CTL's 88x88 image (g_back_img) into
+ * the view hole directly — its bytes are DIRECT clut indices (night skies use
+ * 144..175) and load_backdrop lays that 32-entry palette at exactly BACK_PAL_BASE,
+ * touching nothing else. That is the starfield sky you see in the dungeon today.
+ * Turning L58c4 on would re-blit the same picture AND install its palette over
+ * 32..255, wiping the wall bands, the backdrop band and the menu palette.
+ *
+ * L58c4 stays lifted (it is a real Mac function and the lift is faithful); this
+ * gate is what keeps it from running. Leave both alone. */
 static int g_dungeon_bigpic_overlay = 0;
 
 /* L58c4 (CODE 7 + 0x58c4) — overlay the cell's perspective backdrop image.
@@ -3157,8 +3174,9 @@ static void l58c4(void)
  * map_px writes (same pixel-fill semantics, kept inside the dungeon-view
  * direct-blit pipeline — routing them through the port's QuickDraw PaintRect
  * does not compose with the wall walk that follows). This function carries the
- * backdrop-image overlay (L58c4), which is itself gated on the shared-palette
- * CLUT model. The faithful jt116 region geometry is preserved in
+ * backdrop-image overlay (L58c4), which stays gated OFF for good — see
+ * g_dungeon_bigpic_overlay; the port draws the backdrop image itself, per-band.
+ * The faithful jt116 region geometry is preserved in
  * render_3d_faithful's inline fill (cells 2,16,11,44 / 2,60,11,2 / 2,62,11,42).*/
 /* l57f2 (CODE 7 + 0x57f2) = JT[219]. */
 static void  l57f2(void)
@@ -12177,10 +12195,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	/* Blit the cell's backdrop image (g_back_img — BACK.CTL's 88x88 perspective
 	 * sky/ceiling + floor) into the view hole over the flat fills, the way the
 	 * Mac does (the starfield night sky + receding stone floor; cf.
-	 * data/mac_3d_start_e.png). This was gated off (l58c4's
-	 * g_dungeon_bigpic_overlay) because l58c4's FAITHFUL path installs the
-	 * backdrop palette across CLUT 32..255 and clobbers the port's per-band wall/
-	 * menu model. Instead blit the already-loaded image directly: its bytes are
+	 * data/mac_3d_start_e.png). THIS is how the port draws the backdrop, and it
+	 * is correct. l58c4's own overlay stays gated off (g_dungeon_bigpic_overlay)
+	 * because its L3f3c installs the backdrop palette across CLUT 32..255 and
+	 * would wipe the per-set wall bands, the backdrop band and the menu palette —
+	 * that path is a rejected dead end, NOT "the faithful one" an older comment
+	 * here called it. Blit the already-loaded image directly: its bytes are
 	 * DIRECT clut indices (the night skies use 144..175), and load_backdrop lays
 	 * the 32-entry palette at exactly that band (BACK_PAL_BASE), so nothing else
 	 * in the CLUT is touched. Drawn before jt199 so the wall tiles overlay it. */

@@ -797,7 +797,9 @@ port's own repair exists — jt993 sets `g_clut_clobbered` (it does fire here:
 start=16 < 145) and render_3d_faithful reinstalls the wall/backdrop/chrome CLUT
 — but only **on the next dungeon frame**, and the editor draws its 3D view BEFORE
 the preview loads and then sits idle. A forced 3D repaint after the preview's
-palette commit would heal it; the real fix is the shared-palette CLUT model.
+palette commit would heal it. (BOTH GUESSES WERE WRONG — see the SOLVED section
+below. And 'the shared-palette CLUT model' is NOT the fix for anything: it is a
+repeatedly-rejected dead end. See g_dungeon_bigpic_overlay's comment in boot.c.)
 
 **Net:** BACKDROP mode went from unusable (no verb bar, black preview) to usable
 with a wrong sky colour. WALL mode is byte-identical to before (verified).
@@ -829,7 +831,9 @@ puts its backdrop/sky palette somewhere in that range — a genuine band collisi
 not a stale-frame problem. The next step is to find which CLUT range `l4430` /
 `l309c` load the editor's backdrop into (the play path uses BACK_PAL_BASE 144,
 32 entries = 144..175, which does NOT overlap 176..207 — so the editor differs).
-That is the shared-palette CLUT model work, not a repaint.
+That turned out to be wrong too — see the SOLVED section below. (It is a STALE
+MIRROR in the GLIB allocator, and nothing to do with any 'shared-palette CLUT
+model', which is a rejected dead end.)
 
 ### SOLVED: the sky tint was a STALE MIRROR in the GLIB palette allocator (2026-07-12)
 
@@ -878,7 +882,14 @@ any faithful body.
 | play, event picture (orc) + the 3D view after it | byte-identical |
 | play, AREA automap | byte-identical |
 
-The `g_dungeon_bigpic_overlay` gate and the shared-palette CLUT model are still
-open — this fixes the MIRROR, not the band layout. But the class of bug it
-removes ("a wide allocator commit silently reverts a directly-installed band")
-was live for every jt1066 caller, not just the editor.
+**Correction (same day).** Earlier passes of this doc — mine — kept saying "the
+shared-palette CLUT model is still open", as if it were pending work. It is NOT.
+It is a repeatedly-rejected dead end: the PER-SET BAND model is correct and is how
+FRUA works (every 8X8DB set's item-0 header declares start=32 count=37, so three
+sets on one level cannot share a flat palette — see jt114's comment). The port
+already draws the perspective backdrop per-band, and `g_dungeon_bigpic_overlay`
+must stay 0. I got this from that flag's own comment, which asserted the opposite;
+it has now been rewritten to say the truth. Nothing here is blocked on it.
+
+The class of bug the mirror fix removes ("a wide allocator commit silently reverts
+a directly-installed band") was live for every jt1066 caller, not just the editor.
