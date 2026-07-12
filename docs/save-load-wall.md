@@ -315,3 +315,39 @@ menu comes up): the box paints **'NOSUCH.XXX' NOT FOUND**; lowercase `c` (99) is
 not a verb so it retries and re-shows — faithful; uppercase **`C`** (67) cancels
 and `jt987` returns 0. The Mac compares against uppercase `'Q'`/`'C'`/`'?'` and
 `jt1133` does not up-case, so uppercase is correct, not a port quirk.
+
+## l005a — the save-medium precondition (2026-07-12)
+
+`l005a` (CODE 15 + 0x5a) is the gate `jt589` / `jt585` / the roster builders sit
+behind, and it was a stub returning 1. Full lift now, Mac shape kept verbatim:
+
+    for (;;) {
+        if (scan opens) break;              /* L00b2 — medium answered   */
+        jt179(1);                           /* L0082 — prompt and retry  */
+        if (jt182("Please insert save disk.", "Ok Exit", 0, 0) & 0xff == 1)
+            return 0;                       /*         Exit -> give up   */
+    }
+    while (jt991(&isdir)) ;                 /* L00cc — DRAIN the scan    */
+    return 1;
+
+Draining is load-bearing: jt990/jt991 carry their cursor in globals, so a
+half-consumed scan bleeds into L01be's.
+
+**PORT (ADR-0003) — and the trap in it.** The Mac scans the design's SAVE FOLDER
+(jt431 over the design name at -31336, then "SAVE"), and an EMPTY folder still
+counts as REACHABLE; it is L01be's own scan that decides whether any characters
+exist (jt589 posts "No characters to load." over an empty list). The Atari has no
+per-design SAVE folder — saved characters are flat CHAR*.CHR on the C: mount — so
+the medium IS that mount and the test is a scan of it. **The pattern must NOT be
+"CHAR*.CHR":** the port's jt990 reports "a file matched", not "the scan opened",
+so a roster with no characters yet would look like an absent disk and prompt
+forever. `"*.*"` is the reachability question the port can actually ask.
+
+The stub's answer (1) was right on a hard disk, but it skipped the prompt
+entirely — with the data unmounted the engine sailed past the precondition
+instead of saying so.
+
+**LIVE** (temp: point the scan at a pattern that cannot match): "PLEASE INSERT
+SAVE DISK." with OK / EXIT renders; **OK retries and re-prompts**, **EXIT returns
+0** and the engine recovers without hanging. With the medium present the roster
+builders are untouched — the Add-Character picker still lists all six.

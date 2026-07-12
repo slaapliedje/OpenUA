@@ -33449,19 +33449,48 @@ static void   jt584(long rec_l, const char *suffix);  /* CODE 15 .cch save (belo
 static short jt182(const char *p1, long p2, short arg3, short arg4);
 static void  jt176(void);
 
-/* L005a (CODE 15 + 0x5a) — "is the save medium reachable?" precondition for
- * the roster builders.  The Mac builds the design's SAVE path and opens a scan
- * over it (JT[990]); on failure it prompts "Please insert save disk."
- * (JT[182], Ok/Exit) and retries, returning 0 if the user gives up.
+/* L005a (CODE 15 + 0x5a) — "is the save medium reachable?", the precondition
+ * jt589 / jt585 / the roster builders gate on (FULL lift).
  *
- * Port reconciliation: the Atari's saved characters live on the always-present
- * hard disk (CHAR*.CHR in the working dir), so the medium is always reachable
- * and the removable-disk prompt is moot — return 1.  Whether any characters
- * actually exist is then up to L01be's scan (jt589 posts "No characters ..."
- * when the resulting list is empty). */
+ * Mac shape, kept verbatim: open a scan over the save location; while it will
+ * not open, put up "Please insert save disk." (JT[182], verbs "Ok Exit"),
+ * where Ok retries and Exit gives up with 0; once it opens, DRAIN the scan and
+ * return 1.  Draining matters — jt990/jt991 carry their cursor in globals, so a
+ * half-consumed scan would bleed into L01be's.
+ *
+ * The Mac scans the design's SAVE FOLDER (jt431 over the design name at -31336,
+ * then "SAVE"); an EMPTY folder still counts as reachable, and it is L01be's own
+ * scan that decides whether any characters exist (jt589 posts "No characters
+ * to load." over an empty list).  PORT (ADR-0003): the Atari has no per-design
+ * SAVE folder — saved characters are flat CHAR*.CHR on the C: mount — so the
+ * medium IS that mount, and the reachability test is a scan of it.  The
+ * pattern must therefore NOT be "CHAR*.CHR": the port's jt990 reports "a file
+ * matched", not "the scan opened", so a roster with no characters yet would
+ * look like an absent disk and prompt forever.
+ *
+ * This was a stub returning 1, which is the right ANSWER on a hard disk but
+ * skipped the prompt entirely: with the data unmounted the engine sailed past
+ * the precondition instead of telling the user the save medium was missing. */
 static int l005a(void)
 {
+	signed char isdir = 0;
+
 	PROBE("L005a");
+
+	for (;;) {                              /* L00b2 */
+		if (jt990((short)0, (void *)"*.*", (const void *)0,
+		          (short)1, (short)0) != 0)
+			break;                  /* the medium answered */
+
+		jt179((short)1);                /* L0082 — prompt + retry */
+		if ((jt182(ua_strs_at(0x4bfa),  /* "Please insert save disk." */
+		           (long)(uintptr_t)ua_strs_at(0x4c14), /* "Ok Exit" */
+		           (short)0, (short)0) & 0xff) == 1)
+			return 0;               /* Exit — the user gave up */
+	}
+
+	while (jt991(&isdir) != 0)              /* L00cc — drain the scan */
+		;
 	return 1;
 }
 
