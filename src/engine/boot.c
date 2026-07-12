@@ -9929,6 +9929,49 @@ static void cw_seed_ui_band(RGBColor *pal)
 	}
 }
 
+/* PORT: install a CLUT range AND mirror it into the GLIB palette allocator's
+ * buffers. Use this for every direct palette install; qd_set_palette alone is
+ * only correct inside l6e58 (which IS the allocator's own commit).
+ *
+ * jt1069/jt1066 keep their own RGB mirrors of the CLUT — LIVE (-3390) and WORK
+ * (-3394) — and jt1066 commits a CONTIGUOUS span, work[min..max], spanning
+ * every slot its used-bitmap has ever marked. On the Mac that is sound because
+ * EVERY palette install goes through the allocator, so the mirrors are always
+ * the truth.
+ *
+ * The port does not: it installs several ranges directly (the UI band 0..31,
+ * the wall bands 32/69/106, the backdrop band at BACK_PAL_BASE 144). Those
+ * never reached the mirrors — so the moment an allocator commit SPANNED one of
+ * them, it repainted it from a stale (usually zero) mirror. That is what blacked
+ * out the dungeon sky when the GEO editor's BACKDROP preview loaded "back2":
+ * the icon's range (176..207 after jt994's remap) stretched jt1066's commit span
+ * to 70..207, straight across the backdrop band, which the mirror held as black.
+ *
+ * Mirroring the direct installs keeps the allocator's view of the CLUT true, so
+ * a span commit re-emits exactly what is already on screen. */
+static void port_clut_install(const RGBColor *pal, short first, short count)
+{
+	unsigned char *live = (unsigned char *)(uintptr_t)g_a5_long(-3390);
+	unsigned char *work = (unsigned char *)(uintptr_t)g_a5_long(-3394);
+	short i;
+
+	qd_set_palette(pal, first, count);
+
+	if (pal == NULL || live == NULL || work == NULL)
+		return;
+	if (first < 0 || count <= 0 || (short)(first + count) > 256)
+		return;
+	for (i = 0; i < count; i++) {
+		long          o = (long)(first + i) * 3;
+		unsigned char r = (unsigned char)(pal[i].red   >> 8);
+		unsigned char g = (unsigned char)(pal[i].green >> 8);
+		unsigned char b = (unsigned char)(pal[i].blue  >> 8);
+
+		live[o] = r; live[o + 1] = g; live[o + 2] = b;
+		work[o] = r; work[o + 1] = g; work[o + 2] = b;
+	}
+}
+
 /* Colour wall sets — up to CW_SLOTS loaded at once so the three wall
  * groups a level can use (Wall1-3) are all on screen. Each slot holds a
  * copy of its set's plain-wall piece (item 8, 8bpp chunky, <=56x56) and a
@@ -10326,7 +10369,7 @@ static void cw_finalize(void)
 			pal[base + k].blue  = (unsigned short)((b << 8) | b);
 		}
 	}
-	qd_set_palette(pal, 0, 256);
+	port_clut_install(pal, 0, 256);
 
 	for (slot = 0; slot < CW_SLOTS; slot++)
 		for (d = 0; d < 4; d++)
@@ -10519,7 +10562,7 @@ static int load_backdrop(short n)
 			bpal[k].green = (unsigned short)((g << 8) | g);
 			bpal[k].blue  = (unsigned short)((b << 8) | b);
 		}
-		qd_set_palette(bpal, BACK_PAL_BASE, pe);
+		port_clut_install(bpal, BACK_PAL_BASE, pe);
 	}
 	return 1;
 }
@@ -12539,7 +12582,7 @@ static void port_reinstall_frame_band(void)
 		fp[k].green = (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
 		fp[k].blue  = (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
 	}
-	qd_set_palette(fp, (short)16, (short)16);
+	port_clut_install(fp, (short)16, (short)16);
 }
 
 static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh)
@@ -12562,7 +12605,7 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 			fp[k].green = (unsigned short)((pp[k*3+1] << 8) | pp[k*3+1]);
 			fp[k].blue  = (unsigned short)((pp[k*3+2] << 8) | pp[k*3+2]);
 		}
-		qd_set_palette(fp, (short)16, (short)16);
+		port_clut_install(fp, (short)16, (short)16);
 	}
 
 	/* grey stone background (clut 21 ~ mid stone) under the chrome. */
@@ -12656,7 +12699,7 @@ static void jt312(unsigned char *page)
 		 * installs) so the map + roster recolour correctly; toggling back to 3D
 		 * force-fulls and reloads the wall/frame bands. */
 		if (g_menu_state == 1)
-			qd_set_palette(g_menu_pal, (short)0, (short)32);
+			port_clut_install(g_menu_pal, (short)0, (short)32);
 		jt221((short)(signed char)g_a5_12288,
 		      (short)(signed char)g_a5_12287,
 		      (short)(signed char)g_a5_12286);
@@ -12757,7 +12800,7 @@ static void jt312(unsigned char *page)
 
 		hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0xC8C8;
 		hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xFFFF;
-		qd_set_palette(hud, (short)253, (short)2);
+		port_clut_install(hud, (short)253, (short)2);
 		g_hud_paint = 1;
 		l2c60((short)1);                /* force-repaint the bar (plate per word) */
 		g_hud_paint = 0;
@@ -15849,7 +15892,7 @@ static unsigned char *encounter_screen(short *pitch, short *sw, short *sh)
 		return NULL;
 	hud[0].red = hud[0].green = hud[0].blue = 0xffff;            /* white */
 	hud[1].red = 0xffff; hud[1].green = 0xd000; hud[1].blue = 0; /* gold  */
-	qd_set_palette(hud, HUD_CLUT_WHITE, 2);
+	port_clut_install(hud, HUD_CLUT_WHITE, 2);
 	for (y = 0; y < *sh; y++)
 		memset(px + (long)y * *pitch, 0, (size_t)*sw);
 	return px;
@@ -22295,7 +22338,7 @@ static void load_menu_ui(void)
 		}
 	}
 	if (g_menu_state == 1) {             /* install the UI palette */
-		qd_set_palette(g_menu_pal, (short)0, g_menu_pe);
+		port_clut_install(g_menu_pal, (short)0, g_menu_pe);
 		/* The roster/window box (jt103, fill=8) maps logical colour 8 through
 		 * the -4188 colour-range table (jt1006). The faithful menu colour-range
 		 * sends logical 8 to the warm-brown plate (clut 23 = MENU_PLATE_FILL);
@@ -22319,8 +22362,8 @@ static void port_hud_text_clut(void)
 {
 	if (g_menu_state != 1)
 		return;                          /* UI palette not loaded yet */
-	qd_set_palette(g_menu_pal + 6, (short)6, (short)10);   /* 6..15 */
-	qd_set_palette(g_menu_pal + 1, (short)1, (short)1);    /* name colour */
+	port_clut_install(g_menu_pal + 6, (short)6, (short)10);   /* 6..15 */
+	port_clut_install(g_menu_pal + 1, (short)1, (short)1);    /* name colour */
 }
 
 /* ui_glib_blit — the faithful l309c (CODE 5 + 0x309c) for the chunky UI
@@ -22641,7 +22684,7 @@ static void port_show_intro(void)
 		 * globe). intro_load_palette honours the start slot + skips magenta. */
 		memcpy(pal, base_pal, sizeof pal);
 		(void)intro_load_palette(base, set, pal);
-		qd_set_palette(pal, (short)0, (short)256);
+		port_clut_install(pal, (short)0, (short)256);
 		/* the set's palette CYCLE ranges (set 2 — the SSI screen —
 		 * carries three: the twinkling stars + logo shimmer) */
 		ncyc = intro_load_cycles(base, set, cyc, (short)8);
@@ -22702,7 +22745,7 @@ static void port_show_intro(void)
 					stepped = 1;
 				}
 				if (stepped)
-					qd_set_palette(&pal[cb], cb, cn);
+					port_clut_install(&pal[cb], cb, cn);
 			}
 			if (WaitNextEvent(everyEvent, &ev, 6, NULL)
 			 && (ev.what == keyDown || ev.what == mouseDown))
@@ -28061,7 +28104,7 @@ static void l09dc(void)
 						cpal[k].blue  = (unsigned short)((rgb[k*3+2]<<8)|rgb[k*3+2]);
 					}
 					if (count > 0)
-						qd_set_palette(cpal, start, count);
+						port_clut_install(cpal, start, count);
 				}
 			}
 		}
