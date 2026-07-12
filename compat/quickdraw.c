@@ -556,6 +556,26 @@ void PaintRect(const Rect *r)
 }
 
 /*
+ * XOR-fill `r` with `value` — the engine's jt1161 bit-8 fill mode (the
+ * Mac CODE 4 L19be/L0888 pixel run: pixel = (pixel & mask) ^ value with
+ * mask 0xFFFF). The menu-highlight invert paints through this: XORing
+ * the same rect twice restores the original pixels, so the pulldown's
+ * selection bar moves without ever redrawing the labels.
+ */
+void qd_xor_rect(const Rect *r, unsigned char value)
+{
+	GrafPtr port;
+	Rect    clip;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL)
+		return;
+	if (!qd_effective_clip(port, &clip))
+		return;
+	qd_pixmap_fill(port, &clip, r, value, 0, patXor, NULL);
+}
+
+/*
  * Plot one pixel at (x, y) into the current port's pixmap, silently
  * discarding writes that fall outside the precomputed clip rect. Callers
  * compute the clip once at entry via qd_effective_clip and pass it in, so
