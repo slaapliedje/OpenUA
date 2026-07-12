@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1196 done (1066 lifted, 55 noop, 75 alias), 5 stub, 0 stand-in, 4 missing.
+**1205 distinct JT entries are called.** Overall: 1197 done (1067 lifted, 55 noop, 75 alias), 4 stub, 0 stand-in, 4 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -53,7 +53,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 21 | 1001–1050 | **50/50** | 49 | 1 | 0 | 0 | 0 |
-| 22 | 1051–1100 | **46/50** | 37 | 9 | 4 | 0 | 0 |
+| 22 | 1051–1100 | **47/50** | 38 | 9 | 3 | 0 | 0 |
 | 23 | 1101–1150 | **49/50** | 39 | 10 | 1 | 0 | 0 |
 | 24 | 1151–1200 | **50/50** | 40 | 10 | 0 | 0 | 0 |
 | 25 | 1201–1205 | **4/5** | 3 | 1 | 0 | 0 | 1 |
@@ -71,7 +71,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 2 | 14 | 14 | 0 | 0 | 0 | **0** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
 | CODE 3 | 116 | 113 | 0 | 0 | 3 | **3** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
 | CODE 4 | 117 | 116 | 0 | 0 | 1 | **1** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
-| CODE 5 | 129 | 126 | 3 | 0 | 0 | **3** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
+| CODE 5 | 129 | 127 | 2 | 0 | 0 | **2** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 125 | 0 | 0 | 0 | **0** | file-group cache + GLIB art + resource manager |
 | CODE 7 | 97 | 97 | 0 | 0 | 0 | **0** | list dialog (JT[169]) + text widgets |
 | CODE 8 | 46 | 46 | 0 | 0 | 0 | **0** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (40 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (37 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l32e2`  `l62e0`  `l5ac0`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l6432`  `l7026`  `l501e`  `l1e7a`  `l0eda`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l2d7e`
+> `l32e2`  `l5ac0`  `l4144`  `l47f2`  `l2788`  `l1798`  `l67e4`  `l4810`  `l24aa`  `l7de0`  `l4350`  `l0004`  `l005a`  `l1c92`  `l4f2c`  `l4ff6`  `l341a`  `l157c`  `l4e8a`  `l7a24`  `l4806`  `l7490`  `l1240`  `l0ee6`  `l2756`  `l24e8`  `l2410`  `l1f6c`  `l0980`  `l7026`  `l501e`  `l1e7a`  `l01a2`  `l35e2`  `l27a4`  `l0062`  `l2d7e`
 
 ## Band 1 detail (rank 1–100)
 
@@ -331,14 +331,13 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 9 of 9 pending (stub+standin+missing), by call count:
+Top 8 of 8 pending (stub+standin+missing), by call count:
 
 - jt426 (1 calls, CODE 3) — missing — SUPERSEDED — Mac indexed-catalog OPEN; only caller is jt990, which the port reimplements over GEMDOS Fsfirst. Dead on the port.
 - jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
 - jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
 - jt933 (1 calls, CODE 12) — stub
 - jt955 (1 calls, CODE 21) — stub
-- jt965 (1 calls, CODE 5) — stub
 - jt974 (1 calls, CODE 5) — stub
 - jt1064 (1 calls, CODE 5) — stub
 - jt1206 (1 calls, CODE 4) — missing
