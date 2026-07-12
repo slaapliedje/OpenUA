@@ -11901,9 +11901,18 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	/* Draw the FRAME.CTL play-screen chrome once (and after a wall-set change).
 	 * MUST run AFTER load_wall_groups, which wipes the clut, so the frame band
 	 * (16-31) survives; the 88x88 view then draws into the hole over it. The
-	 * chrome is static, so subsequent frames only repaint the hole. */
+	 * chrome is static, so subsequent frames only repaint the hole.
+	 *
+	 * NOT in the editor: l28d4's head already composed the screen faithfully
+	 * (l429c -> jt78 chrome + the group-21 "menu" strip, l43c2 -> the
+	 * FILE/MAP/UTILITIES bar, jt299 -> jt304 view) — this stand-in's full
+	 * memset ran after all of it and wiped the menu bar. Only the palette
+	 * band needs re-seating after the wall-set clut wipe. */
 	if (!s_chrome_drawn) {
-		port_draw_play_frame(px, pitch, sw, sh);
+		if (g_geo_editor_active)
+			port_reinstall_frame_band();
+		else
+			port_draw_play_frame(px, pitch, sw, sh);
 		s_chrome_drawn = 1;
 	}
 
@@ -12530,8 +12539,16 @@ static void jt312(unsigned char *page)
 	/* Draw the play-screen frame (FRAME.CTL chrome) + full-present once;
 	 * thereafter only the 88x88 viewport changes, so we present just that
 	 * rect (the c2p of the static 320x400 screen was the perf wall). The
-	 * chrome is static, so it persists between viewport-only presents. */
-	if (s_view_first || g_view_force_full) {
+	 * chrome is static, so it persists between viewport-only presents.
+	 *
+	 * NOT in the editor: the Mac jt312 draws no chrome at all, and the
+	 * GEO editor's screen is composed faithfully by l28d4's head —
+	 * l429c (jt78 frame pieces + the group-21 "menu" strip), l43c2
+	 * (the FILE/MAP/UTILITIES bar via jt343), and jt299 -> jt304 (the
+	 * view compose, repointed from its l17ca stub). This stand-in's
+	 * full-screen memset ran AFTER l43c2 and wiped the menu bar on
+	 * first entry. */
+	if ((s_view_first || g_view_force_full) && !g_geo_editor_active) {
 		/* The faithful frame is the "bigpic" backdrop (jt214 -> l579e load,
 		 * jt44 = l5822 blit). Overlaying it here regressed badly: the loaded
 		 * picture lands as black blocks over the roster/clock and clobbers the
@@ -63259,13 +63276,12 @@ static void jt308(long holder)
 	       (const char *)(uintptr_t)str_b);
 }
 
-/* CODE 22 locals L17ca (per-entry state advance) and L2180 (entry
- * box clear) — leaf PROBE stubs pending their own lifts. */
-static void l17ca_c22(long rec, short b)
-{
-	PROBE("l17ca");
-	(void)rec; (void)b;
-}
+/* l17ca = JT[304] (CODE 22+0x17ca, the view composer — `entry_jt304:
+ * L17ca` in the disasm): the full lift lives above as jt304. This was a
+ * duplicate PROBE stub shadowing it (the same (CODE,offset)-alias trap
+ * as l62e0/l2180), so jt299 never composed the editor screen — the
+ * first-entry chrome came only from jt312's port_draw_play_frame
+ * stand-in, which overpaints the menu-bar row. Repointed 2026-07-11. */
 /* l2180 = JT[303] (CODE 22+0x2180, the play-view status header) — was a
  * PROBE stub shadowing the full jt303 lift; repointed 2026-07-04. */
 
@@ -63352,14 +63368,16 @@ static short jt324(short a, short kind)
 	return 0;
 }
 
-/* JT[299] (CODE 22+0x1798) — repaint one saved-game slot: L17ca
- * state advance (leaf stub), L2180 = jt303 (the status-header paint),
- * then the jt308 row paint. Full call sequence. */
+/* JT[299] (CODE 22+0x1798) — compose the map/automap screen for the
+ * holder's record: L17ca = jt304 (the view composer — anchor pick +
+ * L3fd8/L3806 render), L2180 = jt303 (the status-header paint), then
+ * the jt308 row paint. Full call sequence. */
 static void jt299(long holder, short b) __attribute__((unused));
 static void jt299(long holder, short b)
 {
 	PROBE("jt299");
-	l17ca_c22(*(long *)(uintptr_t)holder, (short)(signed char)b);
+	jt304((void *)(uintptr_t)*(long *)(uintptr_t)holder,
+	      (short)(signed char)b);
 	jt303((void *)(uintptr_t)*(long *)(uintptr_t)holder);
 	jt308(holder);
 }
