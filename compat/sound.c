@@ -25,6 +25,8 @@
 #include <stddef.h>
 extern int  plat_sound_play_mono8(const signed char *samples, long count,
                                   int rate_hz);
+extern void plat_sound_stop(void);
+extern int  plat_sound_playing(void);
 
 /* Big-endian readers for the `snd ` resource. */
 static unsigned short rd_be16(const unsigned char *p)
@@ -229,4 +231,62 @@ void SysBeep(short duration)
 	 * error/alert paths are visible in the boot trace; TODO: emit a short
 	 * tone via XBIOS Dosound / the YM2149. */
 	dbg_log_num("snd: SysBeep ticks = ", (long)duration);
+}
+
+/* --- classic Sound Driver (free-form synth) — FRUA's sfx path --------------
+ *
+ * See SndDriverWrite in sound.h. The Mac's free-form `count` is a Fixed rate
+ * multiplier against the hardware's 22254.5454 Hz base, so
+ *     hz = 22254.5454 * count / 65536
+ * which we evaluate as count * 22255 / 65536 (integer, <0.01% off — well
+ * inside the CODEC's own rate quantisation, which snaps to 49170/n anyway).
+ */
+#define FF_HEADER_BYTES  6            /* short mode + Fixed count */
+#define FF_BASE_HZ       22255L       /* 22254.5454 rounded */
+
+/* Conversion scratch: the Mac samples are unsigned, the Falcon CODEC wants
+ * signed, and the source lives in the resident sound library (converting in
+ * place would corrupt the cached item on replay). FRUA's effects are short;
+ * anything longer is truncated rather than dropped. */
+static signed char g_snd_scratch[16384];
+
+int SndDriverBusy(void)
+{
+	return plat_sound_playing();
+}
+
+void SndDriverStop(void)
+{
+	plat_sound_stop();
+}
+
+OSErr SndDriverWrite(const void *ff_buffer, long byte_count)
+{
+	const unsigned char *p = (const unsigned char *)ff_buffer;
+	unsigned long        count_fixed;
+	long                 n;
+	int                  rate_hz;
+	long                 i;
+
+	if (p == NULL || byte_count <= FF_HEADER_BYTES)
+		return (OSErr)-50;              /* paramErr */
+
+	/* p[0..1] = mode (unused by the port's sample-only backend),
+	 * p[2..5] = Fixed count, p[6..] = the unsigned wave bytes. */
+	count_fixed = rd_be32(p + 2);
+	n           = byte_count - FF_HEADER_BYTES;
+
+	rate_hz = (int)((count_fixed * FF_BASE_HZ) >> 16);
+	if (rate_hz <= 0)
+		return (OSErr)-50;              /* paramErr */
+
+	if (n > (long)sizeof g_snd_scratch)
+		n = (long)sizeof g_snd_scratch;
+	for (i = 0; i < n; i++)
+		g_snd_scratch[i] = (signed char)((int)p[FF_HEADER_BYTES + i] - 128);
+
+	dbg_log_num("snd: sfx rate = ", (long)rate_hz);
+	if (plat_sound_play_mono8(g_snd_scratch, n, rate_hz) != 0)
+		return (OSErr)-1;
+	return 0;                               /* noErr */
 }

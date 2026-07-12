@@ -341,7 +341,9 @@
  * and drive the next lifting priority. See docs/engine-bring-up.md
  * for the first probe's results and how to re-run.
  */
-#include "dbglog.h"     /* dbg_log / dbg_log_num — always declared (the bodies
+#include "dbglog.h"
+
+static void l0eda(short mode, long b);   /* CODE 5+0x0eda — sound-subsystem init (fwd) */     /* dbg_log / dbg_log_num — always declared (the bodies
                          * live in platform/dbglog.c); only the per-call PROBE
                          * trace is gated, so harnesses can dbg_log without the
                          * full probe flood. */
@@ -2260,6 +2262,13 @@ int ua_main(short arg1, long arg2)
 	 * stows them in the A5-world globals ua_get_string reads from. */
 	jt480(arg1, (void *)arg2);
 	jt989(jt10_handler, 1, "Pod", 83);
+	/* Sound-subsystem init.  On the Mac this rides in JT[1079]'s toolbox
+	 * bring-up (L0eda: JT[1111] arms the -806 sound-active flag, clears the
+	 * voice table, resets the song state); the port replaces jt12/jt1079's
+	 * mega-init with this function, and the sound half had never been wired —
+	 * so -806 stayed 0 and EVERY sound path bailed at its JT[1154] gate.  It
+	 * must run before L4d98, whose L59d6 loads and converts the sample bank. */
+	l0eda((short)0, 0L);
 	l4cc0();        /* design buffers — the Mac's jt12 runs L4cc0 before
 	                 * L4d98 (ITEMS.DAT/item.dat read into its allocs) */
 	l4d98();
@@ -20867,14 +20876,94 @@ static void jt985(short n)
 	g_a5_word(-4778) = saved;
 }
 
-/* JT[965] (CODE 5 + 0x7dee) — play a sound effect (loads the sound resource via
- * jt468, then drives the output leaf l7ee0 in a loop).  AUDIO LEAF: stubbed. */
+static long jt7(long a, long b);        /* CODE 1 signed long divide — below */
+
+/* L7ee0 (CODE 5 + 0x7ee0) — the sfx OUTPUT LEAF: hand one sound item to the
+ * Mac's classic Sound DRIVER (not the Sound Manager — FRUA's effects are not
+ * `snd ` resources).  The item's own header carries the playback rate and the
+ * driver byte count; the driver buffer (an FFSynthRec) is built IN PLACE at
+ * item+8, which is why the item reserves those 6 bytes:
+ *
+ *   item+0  word  sample rate in Hz          (the Mac scales it to the driver's
+ *   item+2  long  driver byte count           Fixed `count`: hz * 65536 /
+ *   item+8  word  FFSynthRec.mode  <- 0       22254.5454, i.e. the asm's
+ *   item+10 long  FFSynthRec.count <- rate    JT[4](hz,35944)/JT[7](.,12207))
+ *   item+14 ...   unsigned 8-bit wave bytes
+ *
+ * The Mac then spins on the driver-busy word (-3122), issues a KillIO, fills
+ * the .Sound param block (-3138: ioBuffer = item+8, ioReqCount = the count,
+ * clamped DOWN to a whole multiple of 740 bytes once it exceeds 1480) and
+ * PBWrites it.  The port keeps all of that and routes the write itself through
+ * the Sound Manager shim (SndDriverWrite), which is where the Mac-unsigned ->
+ * Falcon-signed conversion and the DMA hand-off live (ADR-0003: no HAL calls
+ * from engine code). */
+static void l7ee0(long item)
+{
+	unsigned char *h = (unsigned char *)(uintptr_t)item;
+	unsigned char *ff;
+	short          hz;
+	long           len;
+
+	PROBE("L7ee0");
+	if (h == NULL)
+		return;
+
+	hz  = (short)(((unsigned short)h[0] << 8) | h[1]);       /* 0x7ef0 */
+	len = (long)(((unsigned long)h[2] << 24) | ((unsigned long)h[3] << 16)
+	           | ((unsigned long)h[4] << 8)  |  (unsigned long)h[5]);  /* 0x7efa */
+
+	ff = h + 8;                                              /* 0x7f00 */
+	*(short *)(void *)ff = 0;                                /* 0x7f08 — mode */
+	*(long *)(void *)(ff + 2) =                              /* 0x7f26 — Fixed rate */
+	    jt7(jt4((long)(unsigned short)hz, 35944L), 12207L);
+
+	while (SndDriverBusy())                                  /* 0x7f2a — busy spin */
+		;
+	SndDriverStop();                                         /* 0x7f36 — L59ee KillIO */
+
+	if (len > 1480)                                          /* 0x7f4c */
+		len = jt4(jt7(len, 740L), 740L);                 /* whole 740-byte pages */
+
+	(void)SndDriverWrite(ff, len);                           /* 0x7f84 — L5716 write */
+}
+
+/* JT[965] (CODE 5 + 0x7dee) — play sound effect `id`, `count * reps` times.
+ * Bails when sound is off (JT[1154]); resolves the item through the sound
+ * library — an override library when the -3088 flag is set (jt468 of the
+ * -3087 group, then L37aa item `id`), else jt468(id) directly — then drives
+ * L7ee0 in a loop, aborting as soon as any event is pending (L0088), which is
+ * what lets a keypress cut a long effect short.
+ *
+ * The Mac walks its own varargs (fp@(8) onward) to pick out arg2 = id and
+ * arg5 = reps; the other three are read past but unused.  Full lift — the last
+ * audio leaf.  Its output primitive was the only thing keeping it stubbed. */
 static void jt965(short count, short id, short a, short b,
                   short reps, short c) __attribute__((unused));
 static void jt965(short count, short id, short a, short b, short reps, short c)
 {
+	long  item;
+	short n;
+
 	PROBE("jt965");
-	(void)count; (void)id; (void)a; (void)b; (void)reps; (void)c;
+	(void)a; (void)b; (void)c;               /* read but unused, as on the Mac */
+
+	if (!jt1154_pg())                        /* 0x7df2 — sound enabled? */
+		return;
+
+	if (g_a5_byte(-3088) != 0)               /* 0x7e28 — override library */
+		item = l37aa(jt468((short)(unsigned char)g_a5_byte(-3087)), id);
+	else                                     /* L7e4e */
+		item = jt468(id);
+
+	n = (short)(reps * count);               /* 0x7e5c */
+	for (;;) {                               /* 0x7e68 -> the test comes first */
+		n--;                             /* 0x7e7c */
+		if (n < 0)
+			break;
+		l7ee0(item);                     /* 0x7e6e */
+		if (l0088())                     /* 0x7e74 — any event aborts */
+			break;
+	}
 }
 
 /* L5876 (CODE 6 + 0x5876) — forward to the song player (JT[985]). */
@@ -67507,7 +67596,31 @@ static short jt1051(long *free_out, short *vref_out,
  * Moved to the jt_progress NOOP set; cf. jt428 (Printing Mgr) and the jt1159
  * Palette-Manager class. */
 static void jt1144(short mode, long b)  { PROBE("jt1144"); (void)mode; (void)b; }
-static void l0eda(short mode, long b)   { PROBE("L0eda");  (void)mode; (void)b; }
+/* L0eda (CODE 5 + 0x0eda) — the SOUND SUBSYSTEM INIT, run once from jt1079's
+ * boot chain.  Arms the driver (JT[1111]: the -806 sound-active flag + JT[963]),
+ * clears the five 14-byte voice slots at -4848, and resets the playback state:
+ * no active song (-4778 = -1), -4776 = 1, no voice-service callback (-4774 = 0).
+ * The Mac caller pushes (mode, b) but the body reads neither — the args exist
+ * only to share jt1079's calling shape.
+ *
+ * This was a PROBE stub, so JT[1111] never ran, -806 stayed 0, and EVERY sound
+ * path bailed at its JT[1154] "is sound on?" gate — including the freshly lifted
+ * jt965.  The bank was loading (l59d6 -> jt964) with nothing able to play it. */
+static void jt1111(void);               /* CODE 4+0x74cc — defined above */
+static void l0eda(short mode, long b)
+{
+	short i;
+
+	PROBE("L0eda");
+	(void)mode; (void)b;                     /* pushed by the caller, unread */
+
+	jt1111();                                /* 0x0ee0 — arm the sound driver */
+	for (i = 0; i < 5; i++)                  /* 0x0ee8 — clear the voice slots */
+		*(long *)(void *)&g_a5_byte(-4848 + i * 14) = 0;
+	g_a5_word(-4778) = (short)-1;            /* 0x0f00 — no active song */
+	g_a5_byte(-4776) = 1;                    /* 0x0f06 */
+	g_a5_long(-4774) = 0;                    /* 0x0f0a — no voice callback */
+}
 /* JT[1157] (CODE 4+0x61c6) — reset the cursor state: when the -900
  * dirty flag is up, InitCursor and clear the -901..-912 tracking
  * slots. (The jt1079 skeleton guessed a 2-arg signature; the Mac
