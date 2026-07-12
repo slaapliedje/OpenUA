@@ -13588,7 +13588,24 @@ static void jt215(void)
 	PROBE("jt215");
 	g_a5_word(-12272) = (jt1200() == 3) ? (short)12 : (short)8;
 }
-static void        l4810(void *p, long a)               { PROBE("L4810"); (void)p;(void)a; }                  /* CODE 11-local */
+/* L4810 (CODE 11 + 0x4810) — UNPACK the -18476 mode byte, the exact inverse of
+ * jt275 (CODE 22 + 0x04b2), which packs it as (a & 15) | ((b & 15) << 4).  Its
+ * callers pass jt275 the pair (rec[5], rec[4]), so -18476 holds the current
+ * area's (mode, kind) nibbles: low = rec[5], high = rec[4].
+ *
+ * Both destinations are independently optional — the Mac tests each pointer —
+ * so a caller can ask for one nibble by passing NULL for the other, which the
+ * jt239/jt241 area-exit sites do (they want the kind back and nothing else). */
+static void l4810(void *lo, void *hi)
+{
+	PROBE("L4810");
+	if (lo != (void *)0)
+		*(unsigned char *)lo =
+		    (unsigned char)(g_a5_byte(-18476) & 0x0f);
+	if (hi != (void *)0)
+		*(unsigned char *)hi =
+		    (unsigned char)((g_a5_byte(-18476) >> 4) & 0x0f);
+}
 /* JT[276] (CODE 22 + 0x475e) — area-map cell topology test.  Walks the four
  * neighbours of `cell` (N/E/S/W, via a JT[3] direction switch) in the level
  * cell array (base g_a5_-12300; base[2]=height, base[3]=width; cell records are
@@ -15026,8 +15043,11 @@ static short jt241(short cmd, long *flagsp, unsigned char *rec)
 		unsigned char *dst = &g_a5_12288;       /* -12288 .. -12283 */
 		for (i = 0; i < 6; i++)
 			dst[i] = rec[46 + i];
+		/* L5836: restore the saved level KIND into rec[4] — the HIGH nibble,
+		 * so the NULL goes first (Mac: pea &rec[4]; clrl; jsr L4810). The
+		 * L5846 test on the next line reads what this writes. */
 		if (jt273() == 0)                       /* L5836 */
-			l4810(rec + 4, 0L);
+			l4810((void *)0, rec + 4);
 		if (rec[4] == 0)                        /* L5846 */
 			l476e(1, 0);
 	}
@@ -15521,8 +15541,10 @@ static short jt239(short cmd, long *rec, void *area)
 	dst = &g_a5_byte(-12288);
 	for (i = 0; i < 6; i++)                   /* party position write-back */
 		dst[i] = ap[46 + i];
+	/* Same L5836/L5846 pair as jt241: the kind is the HIGH nibble, so NULL is
+	 * the FIRST argument (Mac 0x49b4: pea &ap[4]; clrl; jsr L4810). */
 	if (jt273() == 0)
-		l4810((void *)(ap + 4), (long)0);
+		l4810((void *)0, (void *)(ap + 4));
 	if (ap[4] == 0)
 		l476e((short)1, (short)0);
 
@@ -80397,7 +80419,7 @@ static void l41a0(void *obj_v)
 	jt217((short)15, (short)0, (short)0, (short)8);           /* 0x41ba */
 	jt384(g_a5_chars(-11699),
 	      (const char *)(uintptr_t)g_a5_long(-11072));         /* 0x41c8 */
-	l4810((void *)&obj[5], (long)(uintptr_t)&obj[4]);          /* 0x41de */
+	l4810((void *)&obj[5], (void *)&obj[4]);                   /* 0x41de */
 	obj[9] = 1;                                                /* 0x41ea */
 	for (g_a5_byte(-22307) = 0;                                /* 0x41ee / 0x420a */
 	     (signed char)g_a5_byte(-22307) < 7;
@@ -82079,7 +82101,7 @@ static void l36f6(void *holder_v, short arg)
 	unsigned char       *h = (unsigned char *)holder_v;
 	const unsigned char *ds;
 
-	l4810((void *)&h[5], (long)(uintptr_t)&h[4]);    /* 0x370a */
+	l4810((void *)&h[5], (void *)&h[4]);            /* 0x370a */
 	if ((arg & 63) <= 4) {                           /* 0x3710 bhi */
 		if (h[5] == 1) {                         /* 0x371c */
 			h[5] = 0;                        /* 0x3730 */
