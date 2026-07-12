@@ -1,5 +1,22 @@
 # Remaining stub frontier — full triage (2026-07-04, post-jt592)
 
+> **2026-07-12 — run `python3 tools/stub_audit.py` before trusting anything below.**
+> It parses every function in `boot.c`, classifies the body, and reconciles it
+> against what the header comment CLAIMS. As of the sweep: **2127 functions, 90
+> genuine PROBE stubs, 0 stale claims.**
+>
+> The sweep existed because the comments had rotted badly: 47 header comments
+> still described functions as "PROBE stub pending its own lift" that had been
+> fully lifted, some of them months earlier. Three separate sessions lost time
+> hunting for work that did not exist — `l3ac6`/`l40b4` (never stubs; `l40b4`
+> is not even an audio function), `jt985`/`l11a2` (lifted; the table said STUB),
+> and the whole `l076e`/`l08b4` combat chain (fully playable from the keyboard
+> while its header said the handlers "land as PROBE stubs").
+>
+> `tests/test_stub_audit.py` now fails the build if a stale claim reappears, so
+> **lifting a stub means updating the comment that describes it.** The numbers in
+> this file below are from 2026-07-04 and are NOT maintained; the tool is.
+
 After jt954 + jt592, the scoreboard reads **1134/1205 done, 14 stub +
 57 missing**. This pass individually re-scouted **all 14 remaining
 stubs** (asm body + port caller + deps) to answer one question: *is any

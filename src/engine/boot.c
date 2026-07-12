@@ -1622,8 +1622,8 @@ static void l62e0(long handle, short id, short kind, long out, long z)
 
 /* JT[366] (CODE 8+0x6594) — show monster art for `kind`/`id`: the
  * L6520 art class primes L5f04's release of the current slot, then
- * L62e0 binds the new entry from the -10370 group. Full body; the
- * two locals are leaf stubs. */
+ * L62e0 binds the new entry from the -10370 group. Full body; both
+ * locals are lifted (L62e0 forwards to the real l62e0_c8). */
 static void jt366(short id, short kind, long out) __attribute__((unused));
 static void jt366(short id, short kind, long out)
 {
@@ -2510,7 +2510,7 @@ int ua_main(short arg1, long arg2)
  * lifting frontier for this segment. Globals carry their A5 offset.
  * ========================================================================= */
 
-/* Local CODE-6 helpers L07dc calls — L5124 lifted below; the rest are stubs. */
+/* Local CODE-6 helpers L07dc calls — all lifted below. */
 static void          l5124(void);                                                /* CODE 6 + 0x5124 — lifted below */
 static void          jt101(const char *fmt, short a, short b);   /* = L4b40; the CODE 6 "%r" alert (lifted below) */
                                                                                  
@@ -2539,9 +2539,8 @@ static void          l68f8(void)
 /* g_a5_27990 / g_a5_28006 / g_a5_12287 / g_a5_12288 are all macros
  * defined in the cluster block at the top of the file. */
 
-/* Cross-segment JT entries L07dc calls — most are stubs; jt918 / jt942 /
- * jt943 are lifted (jt942 and jt943 are the paired setter / getter on the
- * loop predicate flag g_a5_4944). */
+/* Cross-segment JT entries L07dc calls (jt942 and jt943 are the paired setter /
+ * getter on the loop predicate flag g_a5_4944). */
 static void          jt942(short a)
 {
 	/* CODE 20 + 0x472a: moveb fp@(9), A5_-4944 — store the low byte. */
@@ -8753,8 +8752,8 @@ static short jt377(void *rec_v, short cmd, ...)
  * (lifted from L25ba): JT[1139] maps the click into a grid cell,
  * the cell is bounds-checked against rec[22] (max row) and rec[24]
  * (max col), and bit 6 of rec[28] optionally gates the result on
- * a per-item callback at rec[4]. JT[1139] is a PROBE stub; until
- * it's filled in, every in-range click maps to cell (0, 0). */
+ * a per-item callback at rec[4]. JT[1139] is lifted, so the click
+ * maps to the real cell. */
 static short jt378(void *rec_v, short cmd, ...) __attribute__((unused));
 static short jt378(void *rec_v, short cmd, ...)
 {
@@ -8871,10 +8870,9 @@ static short jt379(void *rec_v, short cmd, ...)
  *   jt1141(rec[16], rec[18], 0, 8006, &v, &h);  // -> pixel, +6 inset
  *   jt1089(v, h, col, rec[12]);            // draw the label string
  *
- * L148a routes through jt995 / jt1001 (font-bitmap blit) which are
- * PROBE stubs in the port, so the visible glyphs come from jt1089's
- * DrawString — the same QuickDraw shim path the headers (l35f8) and
- * jt382 button labels render through. The jt452 list-builds tag each
+ * L148a routes through jt995 / jt1001 (font-bitmap blit, both lifted), but the
+ * visible glyphs come from jt1089's DrawString — the same QuickDraw shim path
+ * the headers (l35f8) and jt382 button labels render through. The jt452 list-builds tag each
  * row with rec[31] = g_a5_-7000 (135 shallow / 15 deep), so col's low
  * nibble lands on a visible CLUT index (7 = light grey) rather than
  * the bare-default 0xf0 (index 0). The selection marker is a separate
@@ -11251,8 +11249,8 @@ static void jt114(unsigned char *page, short top, short left, short idx,
  * from the level's colour wall sets (8X8DC-family). The cw_blit_piece colour
  * stand-in and the group-2 DUNGCOM fallback are dropped: DUNGCOM is ENCOUNTER
  * art (the combat sub-map), not the 3D walls — see [[dungeon-render-architecture]].
- * Groups whose handle is still 0 (L6eea not yet lifted / set not configured)
- * draw nothing rather than a stand-in. */
+ * L6eea is lifted; a group whose handle is still 0 (set not configured) draws
+ * nothing rather than a stand-in. */
 static void jt200_layer(unsigned char *page, short top, short left,
                         short group, short idx)
 {
@@ -18119,8 +18117,8 @@ static short l0f48(void)
  *   }
  *
  * Idempotent on the visible flag (-780): only schedules once. The
- * actual visual change happens inside L747a; lifted as a stub
- * here so the state bits move correctly. */
+ * actual work happens inside L747a (lifted) — this is the four-tone
+ * synth being armed, not a menu bar; see [[music-four-tone-synth]]. */
 static void jt1145(void) __attribute__((unused));
 static void jt1145(void)
 {
@@ -23301,9 +23299,8 @@ static unsigned char jt513(long key)
  * L2058:
  *   g_a5_12910 = g_a5_19176
  *
- * The menu-build calls (JT[452] / JT[444]) themselves are still PROBE
- * stubs — what the lift captures is the count walk + mode dispatch
- * that drives them.
+ * The menu-build calls (JT[452] / JT[444]) are lifted; what this lift adds is
+ * the count walk + mode dispatch that drives them.
  */
 static void jt158(short arg1, short arg2)
 {
@@ -24648,11 +24645,10 @@ static void l3cd4_c17(unsigned char *rec)
  * retry while the basename is empty AND the "accept" flag jt91 (-17528) is set,
  * or while its first byte is an ASCII digit '0'..'9'. Faithful transcription.
  *
- * NOT wired into the live jt574 create flow yet: jt98 delegates keystroke
- * collection to jt1078 (the CODE 5 modal line editor), still a PROBE stub, so
- * the box would draw but collect nothing and accept an empty name. l238e_c17
- * goes live the moment jt1078 is lifted; until then jt574 keeps the port-side
- * placeholder name. */
+ * jt98 delegates keystroke collection to jt1078 (the CODE 5 modal line editor),
+ * which IS lifted. Whether l238e_c17 is wired into the live jt574 create flow —
+ * it once was not, pending jt1078 — has NOT been re-checked since; verify before
+ * relying on it. */
 static char         *jt98(long prompt, short fg, short bg, short maxlen);
 static void          jt130(char *buf);
 static unsigned char jt91(void);
@@ -26953,7 +26949,7 @@ static void        l3b1e(long a, short b, short c, long grp, short id);
  * "CPIC", 49 for "COMSPR", 51 otherwise. The CPIC branch binds
  * "<name>1" through l33ac (sub-mode 0 for CH-names, 15 otherwise)
  * and shows pieces b and b+38 of the -27866 combat overlay group;
- * the non-CPIC branch enters file-group mode 1 (L035e leaf stub),
+ * the non-CPIC branch enters file-group mode 1 (L035e),
  * binds the raw name (kind -1, mode 1), and shows piece b with
  * id a (CH-names) or a+128, plus the b+38 pair. The slot handle is
  * released through l31dc either way. */
@@ -27894,8 +27890,8 @@ static void jt110(void *out, short a, short b, short c, const char *name)
  *
  * The DUNGCOM1 art is the body-icon set (combat sprites) — the
  * "DUNGCOM is combat-only" rule is about the 3D dungeon VIEW, not this
- * picker, so loading it here is faithful.  jt110 (the loader) is a leaf
- * stub, so the grid icons do not yet draw; everything else is lifted. */
+ * picker, so loading it here is faithful.  jt110 (the loader) is lifted, so
+ * the grid icons draw. */
 static void l09dc(void)
 {
 	unsigned char *rec = (unsigned char *)g_a5_ptr(-27932);
@@ -41551,9 +41547,7 @@ static void l3806_c12(long xp)
 }
 
 /* L3d1e (CODE 12+0x3d1e) — the post-fight TREASURE screen loop.
- * Faithful CFG lift; the verb-arm interiors l3b4a (Take), l1c8a /
- * l1d90 and the l0082 roster-card paint are PROBE stubs pending the
- * Slice-B cards. Per pass: reset the verb table (jt399 0xff), probe
+ * Faithful CFG lift. Per pass: reset the verb table (jt399 0xff), probe
  * the loot flags (l2504), scan the ACTIVE member's 141 spell slots
  * for a cure (5/11/77, member in combat) -> the HEAL verb; build the
  * verb list (0/2/5 always; 1 Take when loot; 3 when money; 4 Heal
@@ -41743,7 +41737,7 @@ static void l4268_c12(void)
  * between the fight and the walk loop; also the case-3 treasure-event
  * refresh). Faithful level-2 lift: the CFG and every call are 1:1; the
  * three big locals (l33d8 XP-award sweep, l3806_c12 XP distribution,
- * l3d1e treasure hand-out) are PROBE stubs pending their own cards.
+ * l3d1e treasure hand-out) are all lifted.
  *   hdr[46] = 0; clear the 4-byte -22322 block; -5792 = 0;
  *   demo-off (-27988==0): l33d8 (award XP for the kills);
  *   mode 6 (-27990); l4046 (sweep monsters/summons out of the party);
@@ -43261,8 +43255,8 @@ static void l1f76(void *ev_v)
  * ev[8]. Shows the picture (L442e) or refreshes (jt935), prints the text
  * (L3f22), applies jt592(ev[8]), then sets the active character's current HP
  * (char[395]) to (maxHP char[129] * ev[9]) / 100, clamped to [1,250], and
- * recomputes derived stats (jt21) + repaints the roster row (jt937). jt592
- * (CODE 15) is a new PROBE stub. */
+ * recomputes derived stats (jt21) + repaints the roster row (jt937). Dep jt592
+ * (CODE 15) is lifted. */
 static void l380a(void *ev_v)
 {
 	unsigned char *ev = (unsigned char *)ev_v;
@@ -44928,7 +44922,7 @@ static void l3d56(short col, short row, short a3, short a4, short a5, short a6, 
  * l3d56(col,row,...) with a parameter set chosen by the climate band:
  *   [-30,9]->(0,0,0,30,15)  [10,29]->(0,1,5,20,10)  [30,69]->(0,2,5,10,5)
  *   [70,89]->(10,2,10,10,1) [90,110]->(15,5,15,10,1).
- * Deps l364c/l3d56 are PROBE stubs. This is l3ef6's last pass. */
+ * Deps l364c/l3d56 are lifted. This is l3ef6's last pass. */
 static void l3b36(void)
 {
 	short         climate;      /* fp@(-4) */
@@ -44996,8 +44990,7 @@ static short l364c(void)
  * cell above are both "type 37" (the -27848 cost table's +3 byte) it rolls
  * jt870(1,100): if <= density a feature is placed — a second jt870(1,100) <=
  * density gives a single bush (terrain jt870(1,2)+41 at the cell), else a 2-tall
- * tree (jt870(1,5)+31 above, jt870(1,5)+36 at the cell). Dep jt870 lifted; l364c
- * is a PROBE stub. */
+ * tree (jt870(1,5)+31 above, jt870(1,5)+36 at the cell). Deps jt870 and l364c are lifted. */
 static void l3936(void)
 {
 	signed char   density;      /* fp@(-3) */
@@ -45092,8 +45085,7 @@ static void l3678(short col, short row, unsigned char *width)
  * jt870(1,20) roll <= the running width) or widens it — laying a 6-wide bank
  * (offsets +9..+14 = cols col..col+5: 52 / jt870(1,2)+52 / 55 / 55 / jt870(1,2)
  * +55 / 52, each clipped to col+n < 49) and bumping the width. Advances col by 1
- * each row. Dep jt870 lifted; l3678 (the straight-channel extender) is a PROBE
- * stub. */
+ * each row. Deps jt870 and l3678 (the straight-channel extender) are lifted. */
 static void l375a(void)
 {
 	unsigned char *gs = (unsigned char *)(uintptr_t)g_a5_long(-28006);
@@ -45398,7 +45390,7 @@ static void l2ca6(short a, short b, short c)
  * field with value 22 via the cell-paint primitive l2ca6(col,row,val). Then, per
  * the west edge code -7932: code 1 (open) draws a diagonal passage (rows 2..4:
  * l2ca6(row-1,row,4) / (row,row,3) / (row+1,row,13)); code 3 (door) stamps the
- * two door cells l2ca6(1,2,8) and l2ca6(5,4,0). Dep l2ca6 is a PROBE stub. */
+ * two door cells l2ca6(1,2,8) and l2ca6(5,4,0). Dep l2ca6 is lifted. */
 static void l2e92(void)
 {
 	unsigned char i, j;             /* fp@(-1) inner col / fp@(-2) outer row */
@@ -45423,7 +45415,7 @@ static void l2e92(void)
 /* CODE 13+0x2f82 — l3540 per-cell field pass: the NORTH-edge (-7933) decoration
  * (frameless). Faithful full lift. Per the north edge code -7933: code 1 (open)
  * stamps the passage cells l2ca6(3,0,5)/(4,0,5)/(3,1,10)/(4,1,10); otherwise it
- * fills those four cells with 22 (wall). Dep l2ca6 is a PROBE stub. */
+ * fills those four cells with 22 (wall). Dep l2ca6 is lifted. */
 static void l2f82(void)
 {
 	PROBE("L2f82");
@@ -45448,7 +45440,7 @@ static void l2f82(void)
  * cardinal edge passabilities via l2df8_c13 (dir 6/0/2/4 -> -7932/-7933/-7931/
  * -7930), then runs the per-cell passes l2e92, l2f82 and the two JT[3]
  * sub-dispatchers l3016/l32ba (each handed &row,&col). Deps jt399/l2df8_c13
- * lifted; l2e92/l2f82/l3016/l32ba are PROBE stubs for their own cards. */
+ * and l2e92/l2f82/l3016/l32ba are all lifted. */
 static void l3540(void)
 {
 	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
@@ -45489,7 +45481,7 @@ static void l3540(void)
  * full lift (frameless). Fills the live field map (-25318 + 9) with terrain
  * code 69 for 1250 bytes (jt399), copies the encounter's monster cap -28006[418]
  * into -7928, then runs the three field-setup passes l375a / l3936 / l3b36.
- * Dep jt399 lifted; l375a/l3936/l3b36 are PROBE stubs for their own cards. */
+ * Deps jt399 and l375a/l3936/l3b36 are all lifted. */
 static void l3ef6(void)
 {
 	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
@@ -45517,9 +45509,14 @@ static void l3ef6(void)
  * Then it resets the field header -25318 (+6=0, +7=1, +8=0) and runs the
  * field-init tail: l3540 when -28006[34] is still set (outdoor-normal), else
  * l3ef6. Art names referenced via ua_strs_at at the exact STRS relocs (0x44d2
- * "WildCom1", 0x44dc "DungCom1", 0x44e6 "WildCom1"). Deps jt54/jt197 lifted;
- * l3540/l3ef6 are PROBE stubs. NOTE the call site pushes a 4th value (39/25)
- * that the real jt54 (3 used params) ignores, so it is dropped here. */
+ * "WildCom1", 0x44dc "DungCom1", 0x44e6 "WildCom1"). Deps jt54/jt197/l3540/l3ef6
+ * are all lifted. NOTE the call site pushes a 4th value (39/25) that the real
+ * jt54 (3 used params) ignores, so it is dropped here.
+ * ★The library id and the WALK MODE must agree: -28006[34] set = the DUNGEON
+ * walk, and only levels 5+ carry a valid id at ds[12]; levels 1-4 are OVERLAND
+ * (id 255 = unset) and supply theirs at ds[264]. Asking for id 255 cannot
+ * resolve (WILDCOM.CTL has ids 1-4) and jt987's cold-disk retry loop then spins
+ * forever. */
 static void jt54(const char *name, short b, short c);
 static short jt197(short a, short b);
 static void l3f24(void)
@@ -46189,8 +46186,8 @@ static void          jt551(long m, short v);
  * a terrain cell -> pay the move cost (-27848, x3 on a jt472 diagonal) if
  * affordable (else jt42 "can't"), commit via jt553/jt551, and run the
  * jt879/jt13/l26ea turn-end tail. Loops until *done is set or the key is a
- * terminator (0/1/13); a leftover budget < 2 is zeroed on exit. jt532 is a PROBE
- * stub (highlight render); all other callees are lifted. */
+ * terminator (0/1/13); a leftover budget < 2 is zeroed on exit. All callees,
+ * jt532 (highlight render) included, are lifted. */
 static void l1162(long actor_l, short cmd, unsigned char *done)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
@@ -46431,8 +46428,8 @@ static void jt599(short effect, short b, short c, unsigned char *out);  /* CODE 
  * jt498(caster); a slower spell announces "Begins Casting", stores the spell in
  * the caster's mc[0], reduces its initiative mc[4] by the casting time (floored at
  * 1), and re-inserts the caster into the -22624 initiative queue at the matching
- * slot (jt870 tie-break on equal initiative). Deps jt595/jt599 (CODE 16) lifted;
- * only l276c (post-present init) is still a PROBE stub. */
+ * slot (jt870 tie-break on equal initiative). Deps jt595/jt599 (CODE 16) and
+ * l276c (post-present init) are all lifted. */
 static void jt547(short a, short b, unsigned char *out)
 {
 	long           caster = g_a5_long(-27932);   /* fp@(-12) */
@@ -46613,8 +46610,8 @@ static void l44b2(short dir)
  * the caller's c arg, byte +7 = the combatant's body-slot facing (cell record
  * -27472[l6bbe(a)]+5). When the show-effect flag -22626 is set it blits the turn
  * marker via l6836(x=l6b40(a), y=l6b6a(a), frame=b, size=8). Finally it restores
- * the field header (+6=0, +7=1). Dep l6bbe lifted; the sprite-coord/draw trio
- * l6b40/l6b6a/l6836 spawned as PROBE stubs. */
+ * the field header (+6=0, +7=1). Dep l6bbe and the sprite-coord/draw trio
+ * l6b40/l6b6a/l6836 are all lifted. */
 static void l73cc(long a, short b, short c)
 {
 	unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
@@ -46760,9 +46757,8 @@ static void l6de8(long undead_l)
  * destroyed ("Is destroyed" jt18 + l6de8 remove + [94]=8). The affected count is
  * rolled once (1d12, or 1d6+6 for a destroy cell); "Nothing Happens..." (jt42)
  * when none turn. Closes with area-map redraw (jt490) + resolve (jt498) +
- * present (jt20). NOTE jt540 (target iterator) and jt388 (turn threshold) are
- * still PROBE stubs, so this is faithful but inert until they land; l73cc/l6de8
- * spawned as PROBE stubs. */
+ * present (jt20). jt540 (target iterator), jt388 (turn threshold) and l73cc/l6de8
+ * are all lifted, so this runs for real. */
 static void jt534(long actor_l)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)actor_l;
@@ -46856,8 +46852,9 @@ static void jt534(long actor_l)
 }
 
 /* CODE 13+0x076e — execute one actor's combat turn (THE KEYSTONE). Faithful
- * level-2 lift: the turn structure is faithful; the action dispatch (l5008
- * monster AI / l08b4 player command) lands as PROBE stubs for their own cards.
+ * lift: the turn structure is faithful and the action dispatch (l5008 monster AI
+ * / l08b4 player command) is lifted too — the player turn is driven from the
+ * keyboard through l08b4 -> l1162.
  * Clears the actor's per-turn combatant flags (sub +17/+20/+9), erases the
  * sprite (jt868 sel 7); bails if the actor is out of actions (sub +4 <= 0),
  * clamping 20 -> 19. Makes the actor active (-27932), sets the -22626 visibility
@@ -47436,7 +47433,7 @@ static void          jt877(long entity, short status, long msg);  /* CODE 18+0x1
  * and the party's scariness (100 - rec[27], summoned +95 creatures excepted);
  * if it must check, it rolls jt37/2 vs the morale value (jt544) — fail -> flee
  * (mc[22]=1); pass + Int (actor[115]) > 5 -> "Surrenders" (jt877) + resolve
- * (l26ea). jt544 lands as a PROBE stub (returns 0). */
+ * (l26ea). Dep jt544 (the morale value) is lifted. */
 static signed char l6176(long m)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
@@ -47556,8 +47553,8 @@ static unsigned char jt540(long actor_l, void *out_v, void *param_v)
  * reached via l5008). Faithful full lift. Bails when the actor is fleeing
  * (mc[22] != 0) or out of range (mc[19] >= -22267). When it can turn undead
  * (jt40 capability), it asks jt540 for a field target (param 13); on success
- * it marks the action taken and executes it via jt534. jt540 lands as a PROBE
- * stub (its own card), so the field action is currently declined. */
+ * it marks the action taken and executes it via jt534. Dep jt540 is lifted, so
+ * the field action really resolves. */
 static signed char l525c(long m)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
@@ -47869,8 +47866,8 @@ static unsigned char l6c96(long record, void *unused)
  * -22648 == 0). Otherwise picks a spell (l6c96), builds a cast-likelihood
  * threshold = sum of jt40 levels (slots 2/3/4/1) * 4, and — if a spell was
  * picked and a 1d100 beats the threshold and a 1d5 is within the spell's
- * cast-chance (the -16906 spell table [+13]) — casts it (jt547). l6c96 lands as
- * a PROBE stub (no spell), so the decision currently declines. */
+ * cast-chance (the -16906 spell table [+13]) — casts it (jt547). Dep l6c96 (the
+ * spell pick) is lifted, so the decision really resolves. */
 static signed char l52fe(long m)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
@@ -48712,7 +48709,7 @@ static unsigned char l2484(long m, short a, short b);
  * half the actor's move value (jt37 >> 1) — under it escapes, equal it's a 1d2
  * coin flip, over it is blocked. Announces "Got Away" (jt877 status 3) or
  * "Escape is blocked" (jt42), then ends the turn (l26ea) and returns its
- * result. l2484/l2d48 are PROBE stubs, so the flee currently always succeeds. */
+ * result. Dep l2484 is lifted. */
 static unsigned char jt535(long m)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)m;
@@ -49568,9 +49565,9 @@ static signed char l6042(long m)
 }
 
 /* CODE 13+0x5008 — the MONSTER-AI turn (the l076e monster-path keystone).
- * Faithful structural skeleton (CLAUDE.md level 2): the AI flow is faithful;
- * the action executors (l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) land as PROBE
- * stubs. Acquires a target (jt546) when it has none; magic check (l609a); when
+ * Faithful lift: the AI flow is faithful and the action executors
+ * (l6176/l52ee/l525c/l52fe/l6454/l5b9a/l6042) are all lifted too.
+ * Acquires a target (jt546) when it has none; magic check (l609a); when
  * not controllable, auto-resolves (l26ea); rolls morale/fear into mc[23]
  * (keep a current 1..3 fear unless a 1d4 says re-roll; re-roll = 1d8, an 8
  * giving 1d2+4 else 1d4) and runs the morale check (l6176), announcing "flees
@@ -51530,7 +51527,7 @@ static signed char l2f6e(long member_l, long item_l,
  * line + "already using <holder>"), 3 = "Your hands are full!"
  * (suppressed in mode 5 for a charmed member), 4/5/6 = the
  * Dragonlance-leftover messages. Items with flag bit 7 (+56) run
- * the L2d78 side-effect pass (leaf stub) on both transitions. */
+ * the L2d78 side-effect pass (lifted) on both transitions. */
 static void jt882(long item_l) __attribute__((unused));
 static void jt882(long item_l)
 {
@@ -56421,7 +56418,7 @@ static void jt145(void)
  * set when -23230, which reports back through *out) — deduct the
  * memorized spell (jt31) on a yes, and DON'T run the apply loop.
  *
- * In combat: announce through L48f4 (leaf stub), then loop: the
+ * In combat: announce through L48f4 (lifted), then loop: the
  * -24070 targeting callback picks a target into -23236/-23235; a
  * null pick offers the jt159(-14404) "abort?" prompt (declining
  * retries the pick; accepting prints -14400 via jt42 and deducts).
@@ -56439,7 +56436,7 @@ static void jt145(void)
  * registered effect handler through jt598 (the -24066 table — the
  * jt610-registered handlers like jt674/jt687 now run end-to-end)
  * with -25262 staged as the current target. jt20 closes; combat
- * adds the jt145 repaint tick (leaf stub). */
+ * adds the jt145 repaint tick (lifted). */
 static void jt500(short rings, short glyph, short period);
 static void jt599(short effect, short b, short c, unsigned char *out)
 {
@@ -62671,8 +62668,7 @@ static void l347a(long hp, short y, short x, short sel, short st, short z)
  *   holder H (single deref, hp[N]): byte 4 = the state passed to the
  *     painter as `st`, byte 36 = last-painted state (stamped at exit).
  * `repaint` clears the entry's rect first (JT[1161] fill 8). The kind
- * painters jt286/jt282/jt281 are faithful lifts; l347a (kind 3) is a
- * leaf stub pending its own pass. */
+ * painters jt286/jt282/jt281 and l347a (kind 3) are all faithful lifts. */
 static void jt278(long handle_ptr, short repaint) __attribute__((unused));
 static void jt278(long handle_ptr, short repaint)
 {
@@ -65591,7 +65587,8 @@ static unsigned char jt107(void)
 }
 
 /* JT[897] (CODE 19+0x420e) — per-coin-bank XP credit hook. Leaf
- * PROBE stub pending its own lift. */
+ * Faithful full lift: rec word[86] -= amount (the coin-pool weight
+ * deduction on pooling). */
 static void jt897(long rec, short amount)
 {
 	/* L420e: rec word[86] -= amount (the coin-pool weight deduction
@@ -65604,7 +65601,7 @@ static void jt897(long rec, short amount)
 /* JT[925] (CODE 12+0x1c8a) — bank the party's pooled coin/XP
  * words: each live member (status 0 or the 179 charm placeholder)
  * adds its three words at +76 into the -25314 pool longs and runs
- * the jt897 credit hook (leaf stub), then the words clear (jt399).
+ * the jt897 credit hook (lifted), then the words clear (jt399).
  * Raises the -23229 dirty flag. Full lift. */
 static void jt925(void) __attribute__((unused));
 static void jt925(void)
@@ -74017,7 +74014,7 @@ static void l040c(long holder)
  *   default  -> holder[0] = holder[2]
  * Then the L02e8 tail clears *outp's low word and, via a JT[1] switch
  * on holder[0], packs the display flags into its high word. The modal
- * dialog itself (L040c) is a PROBE stub pending jt266; every other arm
+ * dialog itself (L040c) is lifted, as is jt266; every other arm
  * — the flag derivation and the JT[1]/JT[3] tail packing — is faithful.
  * JT[3]/JT[1] tables decoded with jt3_extract/jt1_extract. */
 static short jt269(short state, long outp, long rec) __attribute__((unused));
@@ -75719,9 +75716,8 @@ static short jt259(short state, long *desc)
 /* L36e0 (CODE 10 + 0x36e0) — the MacPaint/PICT art-IMPORT handler
  * (~1030 insn), lifted as a LEVEL-2 SKELETON: the top-level flow + the
  * helper/JT call spine are faithful; three inner subsections are deferred
- * with TODO(fill) markers and their exact opcode ranges, and the two
- * substantial sub-trees (L53b0 tile converter, L67a0 PICT display) are PROBE
- * stubs. `arttype` (the desc's byte 1) selects the art family (JT[1] cases
+ * with TODO(fill) markers and their exact opcode ranges. The two substantial
+ * sub-trees (L53b0 tile converter, L67a0 PICT display) are lifted. `arttype` (the desc's byte 1) selects the art family (JT[1] cases
  * 1/2/4/8/16/32 -> PIC/SPRI/CPIC/BIGP). Dormant (mouse-gated). */
 static short l36e0_c10(short id, short arttype) __attribute__((unused));
 static short l36e0_c10(short id, short arttype)
@@ -83800,9 +83796,9 @@ static void cg_body_repro(void)
  * lift of the CODE 19 painter: faithful label set + screen coords, the
  * JT[1200] label-colour split (grey 7 in combat / cyan 11 on the sheet),
  * the AC-shade classify over rec[385], and THAC0 = 60 - rec[384]. The
- * value funnels JT[32]/JT[34] (and the unlifted JT[59]/JT[63]/JT[37]) are
- * PROBE stubs, so the numbers are drawn via JT[94] off the faithful CHAR_*
- * offsets too (the port-addition pattern l02dc uses). The faithful code
+ * value funnels JT[32]/JT[34]/JT[59]/JT[63]/JT[37] are all lifted; the numbers
+ * are still drawn via JT[94] off the faithful CHAR_* offsets (the port-addition
+ * pattern l02dc uses). The faithful code
  * reads g_a5_-27932; the port passes the viewed record. STRS label offsets
  * (non-encounter copies): HP 0x599e, AC 0x59b6, Enc 0x59ce, THAC0 0x59e2,
  * Move 0x59f4. */
@@ -84147,13 +84143,12 @@ static short jt918_count_visible_designs(void)
  *   - L0ec6: local = L0aae(); if local in {0..6, 8..11} → jt76();
  *     if local == 1 → L02dc(g_a5_27932);
  *   - JT[3] switch on local (0..11) — each case fires the per-action
- *     arm. Case bodies live in CODE 12 + 0x0f1a..0x123a and stay as
- *     PROBE stubs.
+ *     arm. The case bodies (CODE 12 + 0x0f1a..0x123a) are LIFTED —
+ *     l104c / l1060 / l10ca / l1142 / l115a / l120c — which is why the
+ *     Training Hall is complete.
  *
  * Exit edges (L123a / L123e) live inside two of the case bodies and
- * return 0. Until those bodies are lifted, the skeleton runs one
- * iteration, hits the L0aae-returns-0 case, and bails to keep the
- * return-0 contract.
+ * return 0.
  */
 static int jt918(short a)
 {
@@ -87148,8 +87143,8 @@ done:
  *
  * *out is the caller's transfer flag: when an arm sets it (ready->equip), the
  * loop exits so the caller can leave the screen.  The inline arms are lifted
- * faithfully (they touch money/inventory); the seven sub-function arms are
- * PROBE stubs above, each its own follow-up. NOT yet Hatari-tested. */
+ * faithfully (they touch money/inventory); the seven sub-function arms
+ * (l32c4 / jt889 / jt189 / jt190 / l23d2_c19) are lifted too. */
 static void jt893(unsigned char *out)
 {
 	unsigned char *chr    = (unsigned char *)(uintptr_t)g_a5_long(-27932);
