@@ -890,6 +890,123 @@ void FrameOval(const Rect *r)
 	}
 }
 
+/* Plot the outline of the oval `ov`, but only points inside the box `q` —
+ * FrameRoundRect's quarter-corner worker (FrameOval's two-pass scan with a
+ * quadrant clamp). */
+static void qd_frame_oval_quadrant(GrafPtr port, const Rect *clip,
+                                   const Rect *ov, const Rect *q)
+{
+	short cx, cy, rx, ry, x, y;
+	long  rx2, ry2, denom;
+
+	qd_oval_axes(ov, &cx, &cy, &rx, &ry);
+	if (rx == 0 || ry == 0)
+		return;
+	rx2   = (long)rx * rx;
+	ry2   = (long)ry * ry;
+	denom = rx2 * ry2;
+
+	for (y = ov->top; y < ov->bottom; y++) {
+		long  dy  = y - cy;
+		long  dyy = dy * dy * rx2;
+		short xleft = -1, xright = -1;
+
+		if (dyy > denom || y < q->top || y >= q->bottom)
+			continue;
+		for (x = ov->left; x < ov->right; x++) {
+			long dx = x - cx;
+			if (dx * dx * ry2 + dyy <= denom) {
+				if (xleft < 0)
+					xleft = x;
+				xright = x;
+			}
+		}
+		if (xleft >= q->left && xleft < q->right)
+			qd_pen_plot(port, clip, xleft, y);
+		if (xright != xleft && xright >= q->left && xright < q->right)
+			qd_pen_plot(port, clip, xright, y);
+	}
+	for (x = ov->left; x < ov->right; x++) {
+		long  dx  = x - cx;
+		long  dxx = dx * dx * ry2;
+		short ytop = -1, ybottom = -1;
+
+		if (dxx > denom || x < q->left || x >= q->right)
+			continue;
+		for (y = ov->top; y < ov->bottom; y++) {
+			long dy = y - cy;
+			if (dy * dy * rx2 + dxx <= denom) {
+				if (ytop < 0)
+					ytop = y;
+				ybottom = y;
+			}
+		}
+		if (ytop >= q->top && ytop < q->bottom)
+			qd_pen_plot(port, clip, x, ytop);
+		if (ybottom != ytop && ybottom >= q->top && ybottom < q->bottom)
+			qd_pen_plot(port, clip, x, ybottom);
+	}
+}
+
+/* FrameRoundRect — a rect outline whose corners are quarter-ovals of size
+ * (ovalWidth, ovalHeight). Straight edges run between the corner spans;
+ * everything honours the pen size, matching FrameRect/FrameOval. The
+ * engine's L6d40 draws the modal default-button ring with this (PenSize
+ * 3,3, corners 18,18). Degenerate oval sizes collapse to FrameRect. */
+void FrameRoundRect(const Rect *r, short ovalWidth, short ovalHeight)
+{
+	GrafPtr port;
+	Rect    clip, ov, q;
+	short   w, h, rx, ry;
+
+	GetPort(&port);
+	if (port == NULL || r == NULL || EmptyRect(r))
+		return;
+	if (!qd_effective_clip(port, &clip))
+		return;
+
+	w = (short)(r->right - r->left);
+	h = (short)(r->bottom - r->top);
+	if (ovalWidth  > w) ovalWidth  = w;
+	if (ovalHeight > h) ovalHeight = h;
+	if (ovalWidth <= 1 || ovalHeight <= 1) {
+		FrameRect(r);
+		return;
+	}
+	rx = (short)(ovalWidth / 2);
+	ry = (short)(ovalHeight / 2);
+
+	/* straight edges, shortened by the corner radii */
+	qd_pen_hline(port, &clip, (short)(r->left + rx),
+	             (short)(r->right - 1 - rx), r->top);
+	qd_pen_hline(port, &clip, (short)(r->left + rx),
+	             (short)(r->right - 1 - rx), (short)(r->bottom - 1));
+	qd_pen_vline(port, &clip, r->left,
+	             (short)(r->top + ry), (short)(r->bottom - 1 - ry));
+	qd_pen_vline(port, &clip, (short)(r->right - 1),
+	             (short)(r->top + ry), (short)(r->bottom - 1 - ry));
+
+	/* four quarter-oval corners */
+	ov.left = r->left; ov.top = r->top;
+	ov.right = (short)(r->left + ovalWidth);
+	ov.bottom = (short)(r->top + ovalHeight);
+	q.left = r->left; q.top = r->top;
+	q.right = (short)(r->left + rx); q.bottom = (short)(r->top + ry);
+	qd_frame_oval_quadrant(port, &clip, &ov, &q);           /* TL */
+
+	ov.left = (short)(r->right - ovalWidth); ov.right = r->right;
+	q.left = (short)(r->right - rx); q.right = r->right;
+	qd_frame_oval_quadrant(port, &clip, &ov, &q);           /* TR */
+
+	ov.top = (short)(r->bottom - ovalHeight); ov.bottom = r->bottom;
+	q.top = (short)(r->bottom - ry); q.bottom = r->bottom;
+	qd_frame_oval_quadrant(port, &clip, &ov, &q);           /* BR */
+
+	ov.left = r->left; ov.right = (short)(r->left + ovalWidth);
+	q.left = r->left; q.right = (short)(r->left + rx);
+	qd_frame_oval_quadrant(port, &clip, &ov, &q);           /* BL */
+}
+
 /*
  * CopyBits — blit a rectangular region of 8-bit pixels.
  *

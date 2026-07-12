@@ -398,6 +398,9 @@ void qd_xor_rect(const Rect *r, unsigned char value);
 void FrameRect(const Rect *r);  /* outline r in the port's foreground */
 void PaintOval(const Rect *r);  /* fill r's inscribed oval, fg */
 void FrameOval(const Rect *r);  /* outline r's inscribed oval, fg */
+void FrameRoundRect(const Rect *r, short ovalWidth, short ovalHeight);
+                                /* outline r, quarter-oval corners (L6d40's
+                                 * modal default-button ring) */
 void ClipRect(const Rect *r);   /* set the current port's clipRgn to r */
 
 /* --- line drawing and the pen ---

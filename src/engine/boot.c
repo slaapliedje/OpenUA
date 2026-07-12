@@ -44,6 +44,7 @@
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
+#include "dialogs.h"          /* GetNewDialog / ModalDialog (l6d40)   */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
 #include "menus.h"            /* MenuKey (L6dd0 keyDown arm)         */
@@ -20085,15 +20086,143 @@ static short jt422(short ch)
 	return (ch >= 'a' && ch <= 'z') ? (short)(ch - 32) : ch;
 }
 
-/* L0004 (CODE 4 + 0x0004) — segment entry / menu dispatch. Called
- * from L6dd0 with the long result of MenuKey when a Cmd-key
- * combo hits a menu item. PROBE-only stub — the segment-entry
- * dispatcher is complex (linkw fp,#-268, multi-arm JT[3]). */
+/* L6d40 (CODE 4 + 0x6d40) — pose modal dialog `id` and report the verdict:
+ * hide the menu bar (JT[983](0)), GetNewDialog(id, 0, front), ring item 1
+ * (the default button) with InsetRect(-4,-4) + PenSize(3,3) +
+ * FrameRoundRect(18,18) in the dialog's own port, ModalDialog(NULL), dispose,
+ * restore the game port (the -2578 app window) and the menu bar, and return
+ * 1 when ITEM 2 was hit (the asm's cmpiw #2 / seq / negb) — the callers'
+ * "yes, do it" button. ids: 201 About (result ignored), 202/203 the two
+ * File-menu quit confirms. All three DLOGs are in frua.rsc, and every trap
+ * maps onto the existing shim (main.c's demo already runs 201/202 through
+ * this same path). */
+static signed char l6d40(short id)
+{
+	DialogPtr d;
+	GrafPtr   entry_port = (GrafPtr)0;
+	short     type, hit = 0;                 /* fp@(-20) / fp@(-18) */
+	Handle    h;                             /* fp@(-8)  */
+	Rect      box;                           /* fp@(-16) */
+
+	PROBE("L6d40");
+	GetPort(&entry_port);
+	jt983((short)0);                                 /* 0x6d46 hide bar */
+	d = GetNewDialog(id, (void *)0, (WindowPtr)-1L); /* 0x6d58 */
+	if (d != NULL) {
+		GetDialogItem(d, (short)1, &type, &h, &box);   /* 0x6d74 */
+		InsetRect(&box, (short)-4, (short)-4);         /* 0x6d82 */
+		SetPort((GrafPtr)d);                           /* 0x6d88 */
+		PenSize((short)3, (short)3);                   /* 0x6d92 */
+		FrameRoundRect(&box, (short)18, (short)18);    /* 0x6da0 */
+		ModalDialog((void *)0, &hit);                  /* 0x6da8 */
+		DisposeDialog(d);                              /* 0x6dae */
+	}
+	/* 0x6db4: the Mac SetPorts its app window (-2578). The port never
+	 * writes -2578 (jt1144, which would, is the HAL-moot NOOP), so a raw
+	 * SetPort here would null the port and kill every draw after the first
+	 * dialog. Restore the Mac global when it exists, else the entry port —
+	 * the same guarded-unset-global reconciliation as the -2570 GDevice
+	 * table derefs. */
+	if (g_a5_long(-2578) != 0)
+		SetPort((GrafPtr)(uintptr_t)g_a5_long(-2578));
+	else
+		SetPort(entry_port);
+	jt983((short)1);                                 /* 0x6dba show bar */
+	return (signed char)(hit == 2 ? 1 : 0);          /* 0x6dc0 seq/negb */
+}
+
+/* L7abe (CODE 4 + 0x7abe) — the File-menu item 4 quit tail: sweep every
+ * mounted volume (JT[1025] default volume, then JT[1045] indexed GetVolInfo
+ * until nsvErr -35) and flush/eject each via JT[1052], then GetWMgrPort +
+ * teardown. Mac Volume Manager housekeeping with no GEMDOS analogue — the
+ * single C: mount needs no eject sweep, so the faithful port body is this
+ * no-op (the jt1144 HAL-moot class). Reached only through l0004's item-4
+ * arm after the DLOG 203 confirm. */
+static void l7abe(void)
+{
+	PROBE("L7abe");
+}
+
+/* L67e6 (CODE 4 + 0x67e6) — store the pending display-event long: one
+ * write of the arg into A5 -814 (the slot jt1138 resets). */
+static void l67e6(long x)
+{
+	PROBE("L67e6");
+	g_a5_long(-814) = x;
+}
+
+/* L0004 (CODE 4 + 0x0004) — the MAC MENU BAR dispatcher: menuID = the
+ * selection's high word (JT[3], arms 1..3 = Apple / File / Edit), item = the
+ * low word. Called from L690e (inMenuBar MenuSelect) and L6dd0 (Cmd-key
+ * MenuKey). NOT the design tools' FILE/MAP/UTILITIES bar — that is the
+ * CODE 8 editor Menu Manager (-10474/-10472, pending pick in -10376),
+ * dispatched through jt341, per ADR-0006.
+ *
+ * Full structure; the desk-accessory arms are the documented HAL-moot class
+ * (same ruling as jt1144, which is the function that would have REGISTERED
+ * the Apple menu): Apple item >= 2 = GetMHandle/GetItem/OpenDeskAcc, File
+ * item 1 = CloseDeskAcc(FrontWindow), Edit = an EMPTY JT[1] sparse dispatch
+ * (count 0, decoded @0x0100) falling into SystemEdit(item-1) — all DA
+ * plumbing with no Atari analogue (cf. L690e's inSysWindow arm).
+ *
+ * `pend` mirrors fp@(-264): cleared at entry, tested at the tail into
+ * L67e6 — no arm ever sets it (THINK C frame residue), kept faithfully. */
 static void l0004(long menu_selection) __attribute__((unused));
 static void l0004(long menu_selection)
 {
+	short menu_id = (short)(menu_selection >> 16);   /* fp@(-2) */
+	short item    = (short)menu_selection;           /* fp@(-4) */
+	long  pend    = 0;                               /* fp@(-264) */
+
 	PROBE("L0004");
-	(void)menu_selection;
+	switch (menu_id) {                               /* JT[3] @0x0026 */
+	case 1:                                          /* L0032 — Apple */
+		if (item == 1) {
+			(void)l6d40((short)201);         /* 0x003e About */
+		} else {
+			/* 0x0048: GetMHandle(1)/GetItem/GetPort, jt983(0),
+			 * L79d4, OpenDeskAcc, L79ec, jt983(1), SetPort,
+			 * L24aa — desk-accessory launch, HAL-moot. */
+			PROBE("L0004:open-DA");
+		}
+		break;
+	case 2:                                          /* L0096 — File */
+		switch (item) {                          /* JT[3] @0x009e */
+		case 1:                                  /* L00ac */
+			/* CloseDeskAcc(FrontWindow()->windowKind) —
+			 * desk-accessory close, HAL-moot. */
+			PROBE("L0004:close-DA");
+			break;
+		case 2:                                  /* -> L0112 */
+			break;
+		case 3:                                  /* L00bc — Quit */
+			if (l6d40((short)202) != 0) {
+				jt1081();                /* 0x00cc teardown */
+				jt415((short)0);         /* 0x00d2 ExitToShell */
+			}
+			break;
+		case 4:                                  /* L00dc — Quit+eject */
+			if (l6d40((short)203) != 0) {
+				jt1081();                /* 0x00ec */
+				l7abe();                 /* 0x00f0 volume sweep */
+			}
+			break;
+		default:
+			break;
+		}
+		break;
+	case 3:                                          /* L00f8 — Edit */
+		/* JT[1] @0x0100 is EMPTY (count 0) — every item falls to
+		 * SystemEdit(item - 1), which forwards Cut/Copy/Paste to an
+		 * open desk accessory. HAL-moot. */
+		PROBE("L0004:system-edit");
+		break;
+	default:                                         /* -> L0112 */
+		break;
+	}
+
+	if (pend != 0)                                   /* L0112 tail */
+		l67e6(pend);
 }
 
 /* L6dd0 (CODE 4 + 0x6dd0) — keyDown / autoKey arm.
@@ -64357,8 +64486,9 @@ static void l0004_c6(char *buf, short ch)
 }
 
 /* JT[130] (CODE 6+0x0040) — build the design's 8-char file basename
- * from the 17-byte -31268 name table (L0004 per char, leaf stub),
- * truncate at 8, uppercase (jt405). Full body. */
+ * from the 17-byte -31268 name table (l0004_c6 per char, a leaf stub —
+ * CODE 6's own L0004, NOT the CODE 4 menu dispatcher of the same
+ * offset), truncate at 8, uppercase (jt405). Full body. */
 static void jt130(char *buf) __attribute__((unused));
 static void jt130(char *buf)
 {
