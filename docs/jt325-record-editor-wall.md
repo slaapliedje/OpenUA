@@ -199,3 +199,48 @@ jt406(src,staging,count) copy on OK — not the descriptor loop. Commit VERIFIED
 clean (`key o`=OK returns to menu). Still untested headless: a field-EDIT
 round-trip (click-to-focus, mouse unreliable) and the 6/10 write-back loop
 (needs a list/mnemonic record, e.g. NPC/monster editor).
+
+## The big text field (widget type 6 → jt328) — 2026-07-12
+
+**Widget type 6 is the EVENT MESSAGE box** — the 6-row × 38-column text area
+you type an event's prose into ("player reads:", "ask:"). It is far from rare:
+**30 of SCRIPT.GLB's 58 record types carry one**, and they are exactly the event
+types (1..38). Game Settings (53) has none, which is why the whole widget went
+unexercised for so long. Scan for them with the field walk below — a field
+record's fields advance by an LE16 length at bytes 1..2, terminated by 0x02;
+the field-record chain terminates by 0x00.
+
+Two independent defects had to fall before the field could appear:
+
+1. **Its word-wrap layer was stubbed** — l2756 (segment table), l24e8 (row
+   paint), l2410 (cursor cell). Now full lifts; see the commit for the two
+   faithful vestiges (the dead `pos < 0` rebuild path; the unreachable `i > row`
+   guard).
+
+2. **`jt452` dropped every bare-setter stream.** The port initialised its
+   stream target to `rec = NULL`, so a `jt452(cmd, val, 0)` call that did NOT
+   open with a shape token 1..8 hit the `if (rec != NULL)` guards and did
+   nothing. The Mac (CODE 3 + 0x29a0, L29ac) starts the target at the
+   **last-allocated item**: `rec = pool + count * 32 - 32`. That is precisely
+   how l100c hands the big field its edit buffer — l1ae2's arm 6 sends only
+   cmd 35 (rec+8 = the 290-byte bound block: 250 revert copy + 40 label) and
+   cmd 40 (position), and it is l100c's numeric arm (field types 50/51/52) that
+   afterwards issues the standalone `jt452(39, stage + i*250 + 474, 0)` setting
+   rec+12 = the live buffer. With the target NULL that never landed, `buf`
+   stayed NULL, and jt328's paint bails at `if (buf == NULL) break;` — so the
+   field drew *nothing at all*: no box, no label, no text. Fixed faithfully.
+
+**LIVE (2026-07-12):** temp-repointing jt251's driver from type 53 to 7 renders
+the TAVERN EVENT editor with "PLAYER READS:" and its 6-row box (measured 304×48
+engine px = 38 cols × 8px, 6 rows × 8px — correct); to 37 renders TAVERN TALES
+with "TALE 1:"/"TALE 2:". Before the jt452 fix both pages showed a blank
+rectangle. Reverted after.
+
+**STILL OPEN:** (a) the field does not take FOCUS on click — jt328 cmd 2/3 are
+reached but the modal loop never focuses it, so typing falls through to the menu
+accelerators; (b) **l1f6c** (mouse position → cursor index on the 38×6 grid) is
+still a PROBE stub returning 0, so even once focus works a click will land the
+cursor at the start of the text; (c) the box renders empty unless the record
+supplies text — real event text is fetched by string index from the event
+record, so seeing it live needs the actual event-editor flow, not a repointed
+Game Settings record.

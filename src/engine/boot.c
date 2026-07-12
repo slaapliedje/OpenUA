@@ -16794,7 +16794,7 @@ void port_test_seed_design(void)
 static void jt452(long shape0, ...)
 {
 	va_list        ap;
-	unsigned char *rec  = NULL;
+	unsigned char *rec;
 	long          *table;
 	long           cmd  = shape0;
 
@@ -16802,6 +16802,16 @@ static void jt452(long shape0, ...)
 	if (g_a5_9254 == 0)
 		jt452_init();
 	table = (long *)g_a5_buf(-9282);
+
+	/* The stream's target starts at the LAST-ALLOCATED item, NOT at
+	 * "nothing" (Mac L29ac: rec = pool + count * 32 - 32).  A stream that
+	 * opens with a shape token 1..8 overwrites this immediately, but one
+	 * that opens with a bare SETTER — as l100c's `jt452(39, buf, 0)` and
+	 * `jt452(38, colour, 0)` do — is addressing the item just built.  The
+	 * port started this at NULL and the setters were guarded, so every
+	 * such call was silently dropped: that is why the big text field
+	 * (jt328) never received its edit buffer and painted nothing at all. */
+	rec = g_dlitem_pool + ((long)g_a5_9250 - 1) * DLITEM_BYTES;
 
 	va_start(ap, shape0);
 
