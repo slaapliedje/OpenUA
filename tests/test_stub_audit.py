@@ -94,3 +94,23 @@ def test_a_stale_claim_is_caught(tmp_path):
     _, _, stale = stub_audit.audit(str(f))
     assert len(stale) == 1
     assert stale[0]['target'] == 'l0004'
+
+
+def test_pointer_deref_write_is_a_real_body(tmp_path):
+    """`*(char *)p = 1;` is WORK, not a comment.
+
+    A body line beginning with '*' looks exactly like a block-comment
+    continuation. Treating it as one hid jt321's real body behind a STUB.
+    """
+    f = tmp_path / 'x.c'
+    f.write_text('static void jt321(void)\n{\n\tPROBE("jt321");\n'
+                 '\t*(unsigned char *)(uintptr_t)g_a5_long(-11714) = 1;\n}\n')
+    assert _body(str(f), 'jt321') == 'REAL'
+
+
+def test_writing_an_a5_global_is_a_real_body(tmp_path):
+    """Setting engine state IS the lift — jt174's whole Mac body is two stores."""
+    f = tmp_path / 'x.c'
+    f.write_text('static void jt174(void)\n{\n\tPROBE("jt174");\n'
+                 '\tg_a5_12912 = 1;\n\tg_a5_12911 = 1;\n}\n')
+    assert _body(str(f), 'jt174') == 'REAL'
