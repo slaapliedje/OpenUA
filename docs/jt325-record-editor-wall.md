@@ -280,3 +280,40 @@ then spins forever in its `jt1132` click poll.
 **PRE-EXISTING BUG (not from this work, A/B-confirmed against HEAD):** in the
 party-roster picker, clicking **ADD** wedges the dialog — EXIT stops responding.
 EXIT works fine if ADD is never pressed.
+
+## Click-to-place-caret — l1f6c + a transposed click latch (2026-07-12)
+
+`l1f6c` (CODE 8 + 0x1f6c) is now a full lift: JT[1113] reads the pointer,
+JT[1139] maps it into the field's grid, the cell is `(v / 4, h / 4)` — the same
+4-unit step L2410/L24e8 paint on — and the row's segment (start, end) clamps
+where the caret may land (empty row -> end of text; last row -> min(end,
+start+37); interior row -> end - 1, keeping the caret off the wrap's break
+space).
+
+Two things had to change around it before it could ever run:
+
+1. **The focus branch must send cmd 3, not cmd 18.** `l1f6c` lives inside
+   jt328's **cmd 3** arm (the same arm the Mac's l2d3e hands every clicked
+   item): poll -> re-hit -> `buf[235] = l1f6c(...)` -> l1dd8. cmd 18 ("focus
+   request") only runs l1dd8, so it focused the field but left the caret where
+   it was. ALSO: jt328's **cmd 128 FALLS THROUGH into cmd 26 (defocus)**, so
+   probing an already-focused item un-focuses it — a second click inside the
+   field dropped focus and then committed the dialog. Only probe cmd 128 when
+   rec[28] bit 2 is clear; an item holding focus is focusable by definition.
+
+2. **★ THE CLICK LATCH WAS TRANSPOSED.** L6cba stores `ev->where` — a Point
+   LONG whose HIGH word is v and LOW word is h — and latches
+   `-908 = clamp(v, L04cc())`, `-906 = clamp(h, L04de())`, which is exactly the
+   order JT[1113] hands back (`out_y` from -908, `out_x` from -906). The port
+   had the two **swapped**, so every consumer of the buffered click got its axes
+   transposed: jt328's cmd-3 hit test missed the field it had just been clicked
+   on (so cmd 3 bailed before l1f6c and the caret never moved), and **l1676's
+   cmd-3 track loop hit-tested against swapped axes too** — which is very likely
+   why the port grew `menu_button_track()` as a stand-in for it. This is the
+   SECOND transposed primitive found, after jt1089's MoveTo (#116). If a click
+   consumer behaves as though the axes are crossed, check the latch.
+
+**LIVE:** type into the big field, click on the "L" of LEANS mid-text — the caret
+lands on that character — then type: `(big) ` is inserted THERE, the paragraph
+re-wraps, and the caret tracks. Regression-swept: main menu, design-picker rows,
+Hall roster rows, Add/Exit, char-gen race/class radio picks.
