@@ -16,9 +16,11 @@
  *
  * Sample-rate matching: the Falcon CODEC supports a small set of
  * fixed rates (8195 / 9834 / 12292 / 16390 / 19668 / 24585 / 32780 /
- * 49170 Hz). pick_clk() returns the prescaler value whose Hz is
- * closest to the request — Mac 22.05 kHz lands on 19668 (CLK20K),
- * 11.025 kHz on 12292 (CLK12K).
+ * 49170 Hz), and none of the Mac's rates is among them (FRUA's effects
+ * are 22254.5454/n — 7417 and 11127 Hz). pick_clk() picks the closest
+ * clockable rate and plat_sound_play_mono8 RESAMPLES the wave to it, so
+ * the effect keeps the Mac's pitch instead of being transposed by the
+ * ratio between the two rates.
  */
 
 #include <mint/falcon.h>
@@ -46,9 +48,11 @@ static const struct {
 	{ 49170, CLK50K },
 };
 
-static int pick_clk(int hz)
+/* Nearest supported CODEC rate to `hz`; *out_hz gets the rate actually clocked. */
+static int pick_clk(int hz, int *out_hz)
 {
 	int best  = k_clks[0].clk;
+	int besth = k_clks[0].hz;
 	long bd   = (long)hz - k_clks[0].hz;
 	unsigned k;
 
@@ -60,10 +64,13 @@ static int pick_clk(int hz)
 		if (d < 0)
 			d = -d;
 		if (d < bd) {
-			bd   = d;
-			best = k_clks[k].clk;
+			bd    = d;
+			best  = k_clks[k].clk;
+			besth = k_clks[k].hz;
 		}
 	}
+	if (out_hz != NULL)
+		*out_hz = besth;
 	return best;
 }
 
@@ -93,28 +100,61 @@ void plat_sound_shutdown(void)
 
 int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
 {
-	int clk;
+	int           clk, out_hz;
+	unsigned long step, pos;
+	long          out_count, i;
 
-	if (!g_locked || samples == NULL || count <= 0)
+	if (!g_locked || samples == NULL || count <= 0 || rate_hz <= 0)
 		return -1;
 
-	if (g_buf_size < count) {
+	/* The CODEC only clocks the eight fixed rates in k_clks, and FRUA's
+	 * effects are sampled at 22254.5454/n (7417 / 11127 Hz) — none of which
+	 * the Falcon can clock. Playing the samples out at the nearest rate would
+	 * transpose them (7417 -> 8195 is a semitone sharp), so RESAMPLE to the
+	 * rate we can actually clock and keep the Mac's pitch. Linear
+	 * interpolation, 16.16 fixed point — no FPU (the default build is
+	 * -msoft-float). */
+	clk       = pick_clk(rate_hz, &out_hz);
+	step      = ((unsigned long)rate_hz << 16) / (unsigned long)out_hz;
+	out_count = (long)(((unsigned long)count * (unsigned long)out_hz)
+	                   / (unsigned long)rate_hz);
+	if (out_count <= 0)
+		return -1;
+	out_count &= ~1L;                       /* DMA wants an even byte count */
+	if (out_count <= 0)
+		return -1;
+
+	if (g_buf_size < out_count) {
 		if (g_buf != NULL)
 			Mfree(g_buf);
-		g_buf = (char *)Mxalloc(count, 0);      /* 0 = ST-RAM */
+		g_buf = (char *)Mxalloc(out_count, 0);  /* 0 = ST-RAM */
 		if (g_buf == NULL) {
 			g_buf_size = 0;
 			return -1;
 		}
-		g_buf_size = count;
+		g_buf_size = out_count;
 	}
-	memcpy(g_buf, samples, (size_t)count);
 
-	clk = pick_clk(rate_hz);
+	pos = 0;
+	for (i = 0; i < out_count; i++) {
+		long idx  = (long)(pos >> 16);
+		long frac = (long)(pos & 0xffffUL);
+		long s0, s1;
+
+		if (idx >= count - 1) {
+			s0 = s1 = samples[count - 1];
+		} else {
+			s0 = samples[idx];
+			s1 = samples[idx + 1];
+		}
+		g_buf[i] = (char)(s0 + (((s1 - s0) * frac) >> 16));
+		pos += step;
+	}
+
 	Buffoper(0);
 	Setmode(MODE_MONO);
 	Settracks(0, 0);
-	Setbuffer(SR_PLAY, g_buf, g_buf + count);
+	Setbuffer(SR_PLAY, g_buf, g_buf + out_count);
 	Devconnect(DMAPLAY, DAC, CLK25M, clk, 1);
 	Buffoper(SB_PLA_ENA);
 	return 0;
@@ -128,8 +168,12 @@ void plat_sound_stop(void)
 
 int plat_sound_playing(void)
 {
-	/* Sndstatus's bit semantics differ across TOS revisions; the
-	 * skeleton reports "not playing" so the engine never blocks on
-	 * busy-wait. Real status follows when an async path needs it. */
-	return 0;
+	/* Buffoper(-1) reads the DMA state back without changing it; the
+	 * play-enable bit clears itself when the buffer runs out (we never set
+	 * repeat). The engine's sfx leaf (L7ee0) spins on this BEFORE its KillIO,
+	 * so a stubbed "never busy" made each effect cut off the one still
+	 * playing — the Mac waits for it to finish. */
+	if (!g_locked)
+		return 0;
+	return (Buffoper(-1) & SB_PLA_ENA) ? 1 : 0;
 }
