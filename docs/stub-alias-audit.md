@@ -109,6 +109,7 @@ same asm can drift; compare against the disasm, keep one, repoint.
 | l5f84 | 6+0x5f84 | jt60 | key read; return width differs (short vs unsigned char) |
 | l6bbe | 14+0x6bbe | jt519 | zone lookup; return width differs |
 | ~~l5f04~~ | 8+0x5f04 | jt363 | RESOLVED — see the l5f04/jt363 section above (jt363 authoritative; the "full lift" was actually a partial stub) |
+| ~~l17ca~~ | 22+0x17ca | jt304 | RESOLVED 2026-07-11 (429546d) — the l17ca_c22 stub shadowed the lifted jt304 view composer; jt299 repointed. Was the "map editor first-entry menu-bar overpaint" (jt299 never composed, so the port play-chrome stand-ins owned the screen). |
 
 ## Rule going forward
 
