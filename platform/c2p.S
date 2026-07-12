@@ -171,3 +171,18 @@ _vbl_trampoline:
 	jbsr	_vbl_flip_handler
 	movem.l	(%sp)+,%d0-%d2/%a0-%a2
 	rts
+
+| --------------------------------------------------------------------------
+| Sound VBL trampoline. The four-tone synth's DMA loop is refilled every
+| vblank (plat_sound_vbl). It gets its OWN vblqueue slot rather than riding
+| on the display's: that one only exists when the VIDEL backend is triple-
+| buffering, and the music must not depend on how the screen is buffered.
+| Same register discipline as _vbl_trampoline above.
+	.text
+	.even
+	.globl	_snd_vbl_trampoline
+_snd_vbl_trampoline:
+	movem.l	%d0-%d2/%a0-%a2,-(%sp)
+	jbsr	_plat_sound_vbl
+	movem.l	(%sp)+,%d0-%d2/%a0-%a2
+	rts

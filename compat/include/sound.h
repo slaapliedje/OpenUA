@@ -157,4 +157,14 @@ int SndDriverBusy(void);
 /* Stop playback immediately (the driver KillIO L7ee0 issues first). */
 void SndDriverStop(void);
 
+/*
+ * _VInstall / _VRemove — the Mac VBL task queue. FRUA uses exactly one task:
+ * the sound sequencer (L741e installs it, JT[1091] is its routine), which must
+ * run every vblank or the music never advances a note. The shim registers it on
+ * the sound HAL's vblank. `vblTask` is the Mac VBLTask record:
+ *   qLink(4) qType(2) vblAddr(4) vblCount(2) vblPhase(2)
+ */
+OSErr VInstall(void *vblTask);
+OSErr VRemove(void *vblTask);
+
 #endif /* COMPAT_SOUND_H */

@@ -36,12 +36,22 @@ static long read_hz200(void)
 	return *(volatile long *)0x4BAL;
 }
 
+/* Set while the sound vblank is running the engine's sound task. Supexec is a
+ * TRAP, and trapping from inside an interrupt handler is fatal — but a VBL
+ * handler is ALREADY in supervisor mode, so it can read _hz_200 straight. The
+ * sequencer asks for the tick on every vblank (jt1091 -> jt1149 -> TickCount),
+ * so this path is not hypothetical: without the flag it bus-errors within
+ * seconds. */
+volatile int g_plat_in_super;
+
 unsigned long plat_ticks(void)
 {
 	/* 200 Hz → 60 Hz: *60/200 = *3/10. The unsigned-long arithmetic
 	 * gives us ~248 days of run-time before the 60 Hz counter wraps,
 	 * comfortably outside any plausible session. */
-	unsigned long h200 = (unsigned long)Supexec(read_hz200);
+	unsigned long h200 = g_plat_in_super
+	                   ? (unsigned long)read_hz200()
+	                   : (unsigned long)Supexec(read_hz200);
 
 	return (h200 * 3UL) / 10UL;
 }

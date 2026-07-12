@@ -2181,6 +2181,7 @@ static void  jt52(short cmd);
 static void  jt85(short group);
 #ifdef FRUA_SNDTEST
 static long  jt1134(void);      /* tick counter — paces the FRUA_SNDTEST effects */
+static short l0f48(void);       /* live-voice count — the harness reports it     */
 #endif
 static void  l5ac0(void)        { PROBE("l5ac0"); }     /* CODE 6 + 0x5ac0 */
 static void  l07dc(void);                              /* defined below */
@@ -2403,12 +2404,15 @@ int ua_main(short arg1, long arg2)
 	 * `make EXTRA_CFLAGS=-DFRUA_SNDTEST run-game`. */
 	{
 		short i;
+		long  until;
 
 		dbg_log_num("sndtest: -806 sound-active = ", (long)g_a5_byte(-806));
 		dbg_log_num("sndtest: -17444 sfx-on    = ", (long)g_a5_byte(-17444));
-		for (i = 3; i < 7; i++) {
-			long until;
+		dbg_log_num("sndtest: -4776 voices-on  = ", (long)g_a5_byte(-4776));
+		dbg_log_num("sndtest: -4682 seq-guard  = ", (long)(signed char)g_a5_byte(-4682));
+		dbg_log_num("sndtest: -4758 songs      = ", (long)(unsigned char)g_a5_byte(-4758));
 
+		for (i = 3; i < 7; i++) {
 			dbg_log_num("sndtest: jt52 cmd = ", (long)i);
 			jt52(i);                        /* cmd-3 = sfx id 0..3 */
 			/* Pace the effects further apart than the longest one (~1.1s):
@@ -2418,6 +2422,15 @@ int ua_main(short arg1, long arg2)
 			for (until = jt1134() + 150; jt1134() < until; )
 				;                       /* ~2.5s of TickCount between effects */
 		}
+
+		/* MUSIC: jt52 cmd 32+n plays song n. The sequencer runs off the VBL,
+		 * so just let it play — 12s is a couple of phrases. */
+		dbg_log("sndtest: jt52 cmd = 32 (song 0)");
+		jt52((short)32);
+		for (until = jt1134() + 720; jt1134() < until; )
+			;                               /* ~12s of song */
+		dbg_log_num("sndtest: song voices live = ", (long)l0f48());
+		jt52((short)255);                       /* stop all voices */
 		dbg_log("sndtest: done");
 	}
 #endif
@@ -17581,8 +17594,17 @@ static short jt1044(char async, void *pb_v)
 	PROBE("jt1044");
 	(void)async;
 	if (refnum < 0) {                               /* driver (.Sound) */
-		*(long *)(void *)(pb + 40) = count;
-		*(short *)(void *)(pb + 16) = 0;
+		/* THE SOUND OUTPUT PATH. A negative refnum is a driver, and the only
+		 * one FRUA opens is .Sound (-4): L747a builds the ioParam block and
+		 * comes through here to play a synth buffer — the four-tone record for
+		 * music (jt1145), a square-wave tone (jt1122), or a sampled effect.
+		 * The write used to be SWALLOWED here, which is why the engine's whole
+		 * music path ran with nothing coming out. The shim decodes the synth
+		 * mode word (ADR-0003: no HAL calls from engine code). */
+		(void)SndDriverWrite(*(void **)(void *)(pb + 32),  /* ioBuffer   */
+		                     count);                       /* ioReqCount */
+		*(long *)(void *)(pb + 40) = count;             /* ioActCount */
+		*(short *)(void *)(pb + 16) = 0;                /* ioResult   */
 		return 0;
 	}
 	if (*(short *)(void *)(pb + 44) != 0)
@@ -17679,13 +17701,16 @@ static short jt1034(Handle h)
 	return (short)MemError();
 }
 
-/* JT[1050] (CODE 5+0x59ee) — _KillIO(refnum): faithfully noErr, see
- * the cluster note (no async IO exists to cancel). */
+/* JT[1050] (CODE 5+0x59ee) — _KillIO(refnum). A negative refnum is a DRIVER,
+ * and the only driver FRUA opens is .Sound (-4): L74ae kills its IO to stop a
+ * sound dead (the sfx leaf L7ee0 does the same through SndDriverStop). File
+ * refnums have no async IO to cancel, so they stay noErr. */
 static short jt1050(short refnum) __attribute__((unused));
 static short jt1050(short refnum)
 {
 	PROBE("jt1050");
-	(void)refnum;
+	if (refnum < 0)
+		SndDriverStop();
 	return 0;                       /* noErr */
 }
 
@@ -17855,9 +17880,12 @@ static short jt1046(short async, unsigned char *pb)
 static short jt1036(long task) __attribute__((unused));
 static short jt1036(long task)
 {
+	/* _VInstall. FRUA installs exactly one VBL task — the SOUND SEQUENCER
+	 * (L741e builds it at -146 with JT[1091] as its routine). Stubbing this
+	 * out meant the sequencer never ran: songs loaded into the voice table and
+	 * sat there, silent. The shim registers it on the sound HAL's vblank. */
 	PROBE("jt1036");
-	(void)task;
-	return 0;
+	return (short)VInstall((void *)(uintptr_t)task);
 }
 
 /* JT[1040] (CODE 5+0x5666) — THINK C low-memory vector glue (jumps
@@ -84570,13 +84598,189 @@ static unsigned char jt975(short refnum, void *spec)
 	     == size);
 }
 
-/* JT[974] (CODE 5+0x1304, ~600B) — the sound-mixer pump jt986 installs
- * at -4774 (walks the -4848 channel table each tick, jt1131 output).
- * PROBE stub pending the audio-output lift. */
+/* L0ff2 (CODE 5 + 0x0ff2) — decode a pattern DURATION byte into ticks.
+ *
+ *   d = 26880 >> (b & 7);                  // note value: whole .. 1/128
+ *   if (b & 8)      d = (d >> 1) * 3;      // dotted — one and a half
+ *   t = (b & 48) >> 3;                     // tuplet: 0, 2, 4 or 6
+ *   if (t)          d = (d / (t + 1)) * t; // n notes in the time of n+1
+ *
+ * The Mac keeps `d` in a word throughout (the divide zero-extends the low
+ * word first), so the truncation at each step is part of the result. Bits 6
+ * and 7 of the byte are flags read by jt974, not part of the duration. Full
+ * lift. */
+static short l0ff2(short b) __attribute__((unused));
+static short l0ff2(short b)
+{
+	unsigned short d = 26880;               /* 0x6900 */
+	short          t;
+
+	d >>= (unsigned short)(b & 7);          /* 0x1006 */
+	if (b & 8) {                            /* 0x1008 — dotted */
+		d >>= 1;
+		d = (unsigned short)(d * 3);    /* 0x1010 */
+	}
+	t = (short)((b & 48) >> 3);             /* 0x1020 */
+	if ((b & 48) != 0) {                    /* 0x1018 */
+		d = (unsigned short)(d / (unsigned short)(t + 1));  /* 0x1032 */
+		d = (unsigned short)(d * (unsigned short)t);        /* 0x1034 */
+	}
+	return (short)d;                        /* 0x1038 */
+}
+
+/* JT[1117] (CODE 4 + 0x77ee) — link/unlk/rts. A genuine NO-OP on the Mac:
+ * the four-tone synth carries its amplitude in the wave table, so the
+ * per-voice "set level" call the sequencer makes has nothing to do. Kept as a
+ * real function so jt974 reads like the asm. Full lift (all three
+ * instructions of it). */
+static void jt1117(short voice, short level) __attribute__((unused));
+static void jt1117(short voice, short level)
+{
+	(void)voice;
+	(void)level;
+}
+
+/* JT[974] (CODE 5 + 0x1304) — THE SEQUENCER. jt986 installs it at -4774 and
+ * the sound-driver completion (jt1091 -> l0faa) calls it with the current tick;
+ * it walks the five 14-byte voice slots at -4848 and, for every voice whose
+ * next-event tick has arrived, advances that voice's pattern stream and pushes
+ * the new note out through jt1131 (-> jt1122, which writes the live FTSoundRec
+ * the four-tone synth is playing from).
+ *
+ * Voice slot (14 bytes): [0] long  next-event tick
+ *                        [4] long  pattern pointer
+ *                        [8] word  tempo divisor (l0fc4 of the song period)
+ *                        [10] word fractional-tick accumulator
+ *                        [12] byte current level (jt1131's amp arg)
+ *                        [13] byte state: 0 re-strike, 1 sounding, 2 tied, 3 off
+ *
+ * Pattern stream: (value, duration) byte PAIRS. A pair is a COMMAND while
+ * value > 128 or duration bit 7 is set — 129 = re-strike, 132 = set level, and
+ * anything else is skipped; 255 ends the voice. Otherwise the pair is a note:
+ * value 128 = rest, else the note number. Duration bit 6 = tie (hold into the
+ * next pair). The tick of the next event advances by l0ff2(duration) / the
+ * tempo divisor, with the remainder carried in [10] so the tempo doesn't drift.
+ *
+ * -4682 is a reentrancy guard (this runs at interrupt time on the Mac). When
+ * every voice has ended, the song either LOOPS (-4778 >= 0 -> l11a2 reloads it)
+ * or the synth is shut down (jt1151). Full lift. */
 static void jt974(long tick)
 {
+	unsigned char *slot;
+	short          i;
+	char           ended = 0;               /* fp@(-2) */
+
 	PROBE("jt974");
-	(void)tick;
+	/* 0x130c — take the guard; a nested (interrupt-time) entry backs out. */
+	g_a5_byte(-4682)--;
+	if ((signed char)g_a5_byte(-4682) <= 0) {
+		g_a5_byte(-4682)++;
+		return;
+	}
+
+	slot = (unsigned char *)g_a5_buf(-4848);
+	for (i = 0; i < 5; i++, slot += 14) {   /* 0x1330 .. 0x153e */
+		unsigned char *pat;
+
+		if (*(long *)(void *)slot == 0)         /* 0x1330 — voice idle */
+			continue;
+		if (*(long *)(void *)slot > tick)       /* 0x1338 — not due yet */
+			continue;
+
+		if (slot[13] == 0) {                    /* 0x1340 — re-strike */
+			if (g_a5_byte(-4776) != 0)
+				jt1131(i, (short)0, (short)-1);   /* note off */
+			slot[13] = 3;                   /* 0x1360 */
+			*(long *)(void *)slot += 1;
+			continue;
+		}
+
+		pat = *(unsigned char **)(void *)(slot + 4);    /* 0x136c */
+
+		/* 0x13d4 — consume COMMAND pairs until a note (or the 255 end). */
+		while ((pat[0] > 128 || (pat[1] & 0x80)) && pat[0] != 255) {
+			switch (pat[0]) {               /* 0x1378 — JT[1] sparse */
+			case 129:                       /* 0x1388 — re-strike */
+				if (g_a5_byte(-4776) != 0 && slot[13] < 3)
+					jt1131(i, (short)0, (short)-1);
+				slot[13] = 3;           /* 0x13aa */
+				jt1117(i, (short)pat[1]);
+				break;
+			case 132:                       /* 0x13c8 — set level */
+				slot[12] = pat[1];
+				break;
+			default:                        /* 0x13ce — skip */
+				break;
+			}
+			*(long *)(void *)(slot + 4) += 2;       /* 0x13ce */
+			pat += 2;
+		}
+
+		if (pat[0] == 255) {                    /* 0x1506 — voice ended */
+			*(long *)(void *)slot = 0;
+			if (g_a5_byte(-4776) != 0 && slot[13] < 3)
+				jt1131(i, (short)0, (short)-1);
+			slot[13] = 3;
+			ended = 1;
+			continue;
+		}
+
+		/* 0x1400 — when is this voice's next event? l0ff2(duration) scaled
+		 * by the tempo divisor, remainder carried in [10]. */
+		{
+			unsigned short dur = (unsigned short)l0ff2((short)pat[1]);
+			unsigned short div = *(unsigned short *)(void *)(slot + 8);
+
+			if (div != 0) {
+				*(long *)(void *)slot += (long)(dur / div);   /* 0x141e */
+				*(unsigned short *)(void *)(slot + 10) =
+				    (unsigned short)(*(unsigned short *)(void *)(slot + 10)
+				                     + (dur % div));          /* 0x143a */
+				if (*(unsigned short *)(void *)(slot + 10) >= div) { /* 0x1442 */
+					*(long *)(void *)slot += 1;
+					*(unsigned short *)(void *)(slot + 10) =
+					    (unsigned short)(*(unsigned short *)(void *)(slot + 10)
+					                     - div);
+				}
+			}
+		}
+
+		if (pat[0] == 128) {                    /* 0x1452 — a REST */
+			if (g_a5_byte(-4776) != 0 && slot[13] < 3)
+				jt1131(i, (short)0, (short)-1);
+			slot[13] = 3;                   /* 0x147e */
+		} else {                                /* 0x1488 — a NOTE */
+			if (slot[13] != 2 && g_a5_byte(-4776) != 0) {
+				if (slot[13] < 3)       /* 0x1496 — release first */
+					jt1131(i, (short)0, (short)-1);
+				jt1131(i, (short)pat[0], (short)slot[12]);   /* 0x14b2 */
+			}
+			if (pat[1] & 0x40) {            /* 0x14ce — tied */
+				slot[13] = 2;
+			} else {
+				/* 0x14e2 — if the NEXT pair repeats this note, drop
+				 * back a tick and re-strike it rather than slur. */
+				unsigned char *p = *(unsigned char **)(void *)(slot + 4);
+
+				if (p[0] == p[2]) {
+					*(long *)(void *)slot -= 1;
+					slot[13] = 0;
+				} else {
+					slot[13] = 1;
+				}
+			}
+		}
+		*(long *)(void *)(slot + 4) += 2;       /* 0x1500 — next pair */
+	}
+
+	/* 0x1548 — when the last voice ends, loop the song or shut the synth down. */
+	if (ended && l0f48() == 0) {
+		if (g_a5_word(-4778) >= 0)
+			l11a2(g_a5_word(-4778), tick);  /* 0x1564 — replay */
+		else
+			jt1151();                       /* 0x156c — silence */
+	}
+	g_a5_byte(-4682)++;                             /* 0x1570 — release */
 }
 
 /* JT[986] (CODE 5+0x10f0) — open the "<name>.slb" sound bank: build

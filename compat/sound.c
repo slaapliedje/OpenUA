@@ -13,6 +13,7 @@
  */
 
 #include <stddef.h>             /* NULL */
+#include <stdint.h>             /* uintptr_t */
 #include <string.h>             /* memset */
 
 #include "dbglog.h"
@@ -27,6 +28,10 @@ extern int  plat_sound_play_mono8(const signed char *samples, long count,
                                   int rate_hz);
 extern void plat_sound_stop(void);
 extern int  plat_sound_playing(void);
+extern int  plat_sound_synth_start(const void *ftsoundrec);
+extern void plat_sound_synth_stop(void);
+extern void plat_sound_tone(int count, int amp, int duration_ticks);
+extern void plat_sound_set_vbl_hook(void (*fn)(void));
 
 /* Big-endian readers for the `snd ` resource. */
 static unsigned short rd_be16(const unsigned char *p)
@@ -227,10 +232,13 @@ NumVersion SndSoundManagerVersion(void)
 
 void SysBeep(short duration)
 {
-	/* No tone generator yet (the DMA path is sample-only). Log it so the
-	 * error/alert paths are visible in the boot trace; TODO: emit a short
-	 * tone via XBIOS Dosound / the YM2149. */
-	dbg_log_num("snd: SysBeep ticks = ", (long)duration);
+	/* The alert beep. Now that the HAL renders square waves for the Mac's
+	 * swMode synth, the beep is just a tone: the classic Mac beep is ~1.1 kHz,
+	 * which in the driver's period units (freq = 783360 / count) is count=710.
+	 * `duration` is in ticks, as the Mac passes it. */
+	if (duration <= 0)
+		duration = 6;
+	plat_sound_tone(710, 128, (int)duration);
 }
 
 /* --- classic Sound Driver (free-form synth) — FRUA's sfx path --------------
@@ -250,6 +258,63 @@ void SysBeep(short duration)
  * anything longer is truncated rather than dropped. */
 static signed char g_snd_scratch[16384];
 
+/* --- the Mac VBL task (_VInstall) -------------------------------------------
+ *
+ * FRUA's sound is driven by a VBLTask: L741e installs one whose routine is
+ * JT[1091], and every vblank that routine dispatches the SEQUENCER (jt974),
+ * which advances each voice's pattern and rewrites the four-tone rates. Without
+ * it the music loads and never plays a note.
+ *
+ * We register it on the sound HAL's vblank — the one already running to keep
+ * the synth's DMA loop fed, which is exactly the Mac's arrangement (its sound
+ * VBL task and its Sound Driver shared the same interrupt).
+ *
+ * VBLTask:  qLink(4)  qType(2)  vblAddr(4)  vblCount(2)  vblPhase(2)
+ *
+ * vblCount counts vblanks down to zero, then the routine runs; the routine
+ * re-arms it (JT[1091] sets it back to 1, i.e. "every vblank"). A zero count
+ * means dormant — the Mac would dequeue it, we simply skip it.
+ */
+static unsigned char * volatile g_vbl_task;
+
+static void vbl_task_run(void)
+{
+	unsigned char *t = (unsigned char *)g_vbl_task;
+	short          count;
+	void         (*fn)(void);
+
+	if (t == NULL)
+		return;
+	count = *(short *)(void *)(t + 10);             /* vblCount */
+	if (count <= 0)
+		return;
+	count--;
+	*(short *)(void *)(t + 10) = count;
+	if (count != 0)
+		return;
+	fn = (void (*)(void))(uintptr_t)*(long *)(void *)(t + 6);   /* vblAddr */
+	if (fn != NULL)
+		fn();
+}
+
+OSErr VInstall(void *vblTask)
+{
+	if (vblTask == NULL)
+		return -50;                             /* paramErr */
+	g_vbl_task = (unsigned char *)vblTask;
+	plat_sound_set_vbl_hook(vbl_task_run);
+	dbg_log("snd: VBL sound task installed");
+	return 0;
+}
+
+OSErr VRemove(void *vblTask)
+{
+	(void)vblTask;
+	plat_sound_set_vbl_hook(NULL);
+	g_vbl_task = NULL;
+	return 0;
+}
+
 int SndDriverBusy(void)
 {
 	return plat_sound_playing();
@@ -268,11 +333,49 @@ OSErr SndDriverWrite(const void *ff_buffer, long byte_count)
 	int                  rate_hz;
 	long                 i;
 
-	if (p == NULL || byte_count <= FF_HEADER_BYTES)
+	if (p == NULL || byte_count <= 2)
 		return (OSErr)-50;              /* paramErr */
 
-	/* p[0..1] = mode (unused by the port's sample-only backend),
-	 * p[2..5] = Fixed count, p[6..] = the unsigned wave bytes. */
+	/* Every buffer handed to the .Sound driver starts with the SYNTH MODE
+	 * word, and FRUA uses all three synthesizers:
+	 *
+	 *   ftMode (1)  — the four-tone synth: {mode, FTSoundRec *}. THIS IS THE
+	 *                 MUSIC. The record is live — the sequencer rewrites its
+	 *                 four rate fields as the song plays — so hand the HAL the
+	 *                 pointer, not a copy.
+	 *   swMode (-1) — the square-wave synth: {mode, count, amp, duration},
+	 *                 count being a period (freq = 783360/count).
+	 *   ffMode (0)  — free-form sampled: {mode, Fixed rate, wave...} — the sfx.
+	 */
+	switch ((short)rd_be16(p)) {
+	case 1: {                               /* ftMode */
+		const void *rec;
+
+		if (byte_count < 6)
+			return (OSErr)-50;
+		rec = (const void *)(uintptr_t)rd_be32(p + 2);
+		if (rec == NULL)
+			return (OSErr)-50;
+		/* NO dbg_log here: a looping song re-arms the synth from the
+		 * sequencer, which runs at interrupt time, and dbg_log's Cconws is a
+		 * trap. */
+		return (plat_sound_synth_start(rec) == 0) ? 0 : (OSErr)-1;
+	}
+	case -1:                                /* swMode */
+		if (byte_count < 8)
+			return (OSErr)-50;
+		plat_sound_tone((int)rd_be16(p + 2),    /* count (period) */
+		                (int)rd_be16(p + 4),    /* amplitude      */
+		                (int)rd_be16(p + 6));   /* duration ticks */
+		return 0;
+	default:
+		break;                          /* ffMode — the sampled path below */
+	}
+
+	if (byte_count <= FF_HEADER_BYTES)
+		return (OSErr)-50;              /* paramErr */
+
+	/* p[0..1] = mode (ffMode), p[2..5] = Fixed count, p[6..] = the wave. */
 	count_fixed = rd_be32(p + 2);
 	n           = byte_count - FF_HEADER_BYTES;
 

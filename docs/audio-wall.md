@@ -2,10 +2,25 @@
 
 Goal: make the port audible — UI beep, combat/event SFX, then `.slb` music.
 
-**SFX ARE LIVE (2026-07-11).** `jt52 → jt965 → l7ee0 → SndDriverWrite →
-plat_sound_play_mono8` plays through the Falcon DMA CODEC, verified by recording
-the emulator's audio (`driver.sh sound`, see the run skill). Still muted: **song
-playback** (`jt985`/`l11a2`), the **per-tick mixer pump** (`jt974`) and `SysBeep`.
+**SFX AND MUSIC ARE LIVE (2026-07-11).** Both verified by recording the
+emulator's audio (`driver.sh sound`, see the run skill): four effects, then ten
+seconds of a three-voice tune whose pitch walks a melody.
+
+* **SFX:** `jt52 → jt965 → l7ee0 → SndDriverWrite → plat_sound_play_mono8`.
+* **MUSIC:** `jt52 → l5876 → jt985 → l11a2` arms the voice table; the SEQUENCER
+  `jt974` (run every vblank by the Mac VBL task `jt1091`) walks each voice's
+  pattern and pushes notes through `jt1131 → jt1122`, which writes the four rate
+  fields of a **live FTSoundRec**; the HAL renders that record continuously.
+
+> **FRUA's music is NOT sampled.** It drives the Mac Sound Driver's **four-tone
+> synthesizer** — 4 voices, each a Fixed 16.16 step through a 256-byte wave table
+> that `jt1111` builds (a square at -522, a trapezoid at -778). The Mac ROM
+> rendered that in software, so the PORT HAS TO TOO: the four-tone synth now
+> lives in `platform/sound_falcon.c`. `jt1122`'s magic constant `0x233244F7` is
+> the giveaway — rate = 0x233244F7/count reproduces the square-wave synth's
+> `freq = 783360/count` to within 0.01%, which is what pinned the whole model.
+
+Still muted: nothing. (`SysBeep` now emits a real tone through the swMode path.)
 
 Three defects had to fall before anything was audible — the first was the real
 blocker and the other two were only findable once we could listen:
@@ -34,7 +49,7 @@ blocker and the other two were only findable once we could listen:
 > `.slb` mixer pump + the IO-param-block playback leaves, routing their buffers to
 > the Atari DMA HAL instead of a Mac driver `_Write`.
 
-## The sound dispatch flow (and where it dies)
+## The sound dispatch flow  (HISTORICAL — this is where it USED to die)
 
 Two trigger paths reach `jt52`, the dispatcher (boot.c:18587; cmd 255=stop,
 0/1=mute, 2=drain, 3–15=beat/sfx, 32–39=song):
@@ -49,9 +64,10 @@ Two trigger paths reach `jt52`, the dispatcher (boot.c:18587; cmd 255=stop,
 - **Song path** — jt52 cmd 32–39 → `l5876(cmd-32)` → `jt985` (18562, **stub**) →
   faithfully `l11a2` (**missing**), the note-stream player over the `.slb` bank.
 
-Every path bottoms out in a PROBE stub (jt965 / jt985 / jt974 / l3ac6 / l40b4)
-**before** any sample reaches hardware. The Falcon DMA backend that *could* play
-is never invoked.
+*(All of the above is now LIVE — jt965, jt985, jt974 are lifted and the driver
+write reaches the HAL. `l3ac6` (the event "PLAY SOUNDS" arm) and `l40b4` (the
+event-sound pre-hook) are the only sound-adjacent stubs left: they feed jt52,
+which works, so lifting them makes dungeon events audible.)*
 
 ## What the Mac side does (the faithful behaviour to reproduce)
 
@@ -73,7 +89,7 @@ Grounded in CODE_05.s:
 ## The Atari target (scoping only — `platform/` concern)
 
 Per the layer rule, hardware lives in `platform/`; engine must not touch XBIOS.
-The HAL already exists and is correct:
+The HAL now carries the Sound Driver's synthesizers (the Mac ROM's job):
 - `platform/sound_falcon.c` — `plat_sound_play_mono8()` does the real path:
   `Locksnd`/`Setbuffer(SR_PLAY)`/`Setmode(MONO)`/`Devconnect(...)`/`Buffoper`,
   DMA buffer in ST-RAM via `Mxalloc(count,0)`, and **resamples** to the nearest
@@ -86,14 +102,33 @@ The HAL already exists and is correct:
   GLIB items, not `snd ` resources.
 - **TT030 caveat:** Falcon030 = 8-bit stereo DMA + DSP56001; TT030 = YM2149 PSG
   only (no DMA sound). The HAL must degrade gracefully; TT path unimplemented.
-- **SysBeep** (compat/sound.c:226) has no backend yet — TODO XBIOS `Dosound`/YM2149.
+- **SysBeep** now emits a real tone: the HAL renders the Mac's swMode square wave,
+  so the beep is `plat_sound_tone(710, 128, ticks)` (freq = 783360/count → ~1.1 kHz).
+- **The four-tone synth** (music) is rendered by the HAL into a looping ST-RAM DMA
+  ring, refilled from the HAL's own vblank. It is deliberately NOT tied to the
+  display's VBL, which only exists when the VIDEL backend triple-buffers.
 
-The remaining glue is **between** the engine and this HAL: `jt974`/`jt985` still
-need bodies that take the loaded `.slb` sample data and hand it to
-`plat_sound_play_mono8`, rather than the Mac `_Write`-to-driver mechanism. Since
-the `.slb` stores raw 8-bit PCM (jt975 loads it; jt964/l7eb8 convert it), this is
-mostly lifting L11a2/jt974 to push buffers into the HAL — exactly what L7ee0 (the
-sfx leaf, now done) turned out to be. Use it as the model.
+**The two things that were actually missing** (everything else was already
+lifted, which is why this looked bigger than it was):
+
+1. **`jt1044` swallowed the driver write.** A negative refnum is a driver, and
+   the only one FRUA opens is `.Sound` (-4). The shim now decodes the synth MODE
+   WORD every buffer starts with — ftMode(1) = music, swMode(-1) = tone,
+   ffMode(0) = sampled effect — and routes it to the HAL.
+2. **`jt1036` (`_VInstall`) was a stub, so the sequencer never ran.** FRUA
+   installs exactly one VBL task: the sound task (`L741e`, routine `JT[1091]`).
+   Without it the song loaded into the voice table and sat there in silence.
+
+**Interrupt-context hazards (both bit, both fixed).** The sequencer runs from the
+vblank, so anything it can reach must not TRAP:
+* `plat_ticks()` read the 200 Hz counter through **`Supexec`** — a trap — and
+  `jt1091 -> jt1149 -> TickCount` calls it every vblank. Bus error within
+  seconds. A VBL handler is already supervisor, so it now reads `_hz_200`
+  directly (`g_plat_in_super`).
+* `dbg_log` is `Cconws`, also a trap. Nothing on a sequencer-reachable path may
+  log — a looping song re-arms the synth from interrupt context.
+The synth's DMA loop is therefore programmed ONCE, from normal context
+(`plat_sound_init`), and the vblank only ever writes memory.
 
 ## Status table
 
@@ -110,9 +145,13 @@ sfx leaf, now done) turned out to be. Use it as the model.
 | `jt965` | JT[965], CODE5+0x7dee | **LIFTED** | 18568 | Play SFX (load resource, loop L7ee0 count×reps) |
 | `l7ee0` | CODE5+0x7ee0 | **LIFTED** | 20926 | SFX output leaf — FFSynthRec in place, busy-spin, `SndDriverWrite` |
 | `l0eda` | CODE5+0x0eda | **LIFTED** | 67610 | Sound-subsystem init (`jt1111` + voice table). **Was the blocker** |
-| `jt985` | JT[985], CODE5+0x12b4 | **STUB** | 18562 | Play song n (range-checked) |
-| `l11a2` | CODE5+0x11a2 | **MISSING** | — | Song-play leaf (note-stream over the `.slb` bank) |
-| `jt974` | JT[974], CODE5+0x1304 | **STUB** (~600B) | 18593 | Per-tick MIXER pump (5-voice table at -4848) |
+| `jt985` | JT[985], CODE5+0x12b4 | **LIFTED** | 20895 | Play song n (range-checked) |
+| `l11a2` | CODE5+0x11a2 | **LIFTED** | 20860 | Arm the 5-voice table from the song header |
+| `jt974` | JT[974], CODE5+0x1304 | **LIFTED** | 84576 | **THE SEQUENCER** — walks each voice's pattern, emits notes |
+| `l0ff2` | CODE5+0x0ff2 | **LIFTED** | — | Duration byte -> ticks (26880>>n, dotted, tuplets) |
+| `jt1117` | JT[1117], CODE4+0x77ee | **LIFTED** | — | link/unlk/rts — a genuine Mac NO-OP |
+| `jt1036` | JT[1036] | **LIFTED** | 17868 | `_VInstall` — installs the sound VBL task. Was a stub: **the sequencer never ran** |
+| `jt1044`/`jt1050` | CODE5 | **LIFTED** | 17574/17685 | `_Write`/`_KillIO` to .Sound. The write was **SWALLOWED** — the true dead end |
 | `l3ac6` | CODE6 (case-17) | **STUB** | 3266 | Event "PLAY SOUNDS": loop ev[4..13] → jt52 |
 | `l40b4` | CODE6+0x40b4 | **STUB** | 3252 | Event-sound pre-hook |
 | `SndPlay`/`SndNewChannel`/`SndDoCommand` | shim | **SHIMMED but DEAD** | compat/sound.c | parse `snd ` → plat_sound_play_mono8; never called |
