@@ -242,7 +242,11 @@
 #define g_a5_9292  g_a5_word(-9292)    /* compaction counter (purge=0) */
 /* GLIB library-converter registry (_LBInit / _LBRegister). -3656 = count
  * (max 3), -3654[i] = the 4-char library signature, -3638[i] = the
- * converter fn-ptr. FRUA registers exactly one: 'GLIB' -> L4010 itself,
+ * converter fn-ptr. FRUA registers TWO: 'GLIB' -> L4010 (L35e2) and
+ * 'TILE' -> JT[1206] (L27a4); the shipped data uses both (30 'GLIB', 16 'TILE').
+ * NOTE both registrations hang off jt1079, the MAC boot chain, which the port
+ * does not run (master_init boots instead) — so the registry is EMPTY at
+ * runtime and l4010/jt1023 always take their "no converter -> leaf" path,
  * so L4010's relocation recurses over GLIB-of-GLIBs. */
 #define g_a5_3656  g_a5_word(-3656)
 #define g_a5_3654  g_a5_longs(-3654)
@@ -68991,9 +68995,82 @@ static void jt1138(void)
 	g_a5_long(-814) = 0;
 	g_a5_word(-2592) = 0;
 }
-static void l01a2(void)                 { PROBE("L01a2"); }
-static void l35e2(void)                 { PROBE("L35e2"); }
-static void l27a4(void)                 { PROBE("L27a4"); }
+/* --- jt1079's three boot leaves (CODE 5) -------------------------------
+ *
+ * jt1079 is the MAC's boot chain. The port boots through master_init instead
+ * (jt1079 is uncalled), so everything below is inert TODAY — lifted for
+ * correctness, not behaviour. See the note on l35e2.                     */
+
+/* L01a2 (CODE 5 + 0x1a2) — seed the RNG: g_a5_-4902 = JT[1143]() (the
+ * DateTime^TickCount entropy). The port already plants exactly this in
+ * boot_a5_seed_defaults, which is why the roller works without jt1079. */
+static void l01a2(void)
+{
+	PROBE("L01a2");
+	g_a5_long(-4902) = jt1143();
+}
+
+/* Forward — the GLIB converter registry lives in the GLIB cluster below.
+ * glib_lb_init IS L35e2 and glib_lb_register IS L35fa; they were lifted under
+ * port names, which is why the alias map could not pair them with the stubs. */
+typedef long (*lb_converter_fwd)(short group, long off, long size);
+static void glib_lb_init(void);                                  /* = L35e2 */
+static void glib_lb_register(long sig, lb_converter_fwd fn);     /* = L35fa */
+static long jt1206(short group, long off, long size);            /* CODE 4+0x17e */
+
+/* L04a0 (CODE 4 + 0x4a0) — set the TILE converter's row-stride global (-4578).
+ * In the doubled deep mode (jt1200()==3) it stores (3*a)>>1 — 1.5x for the
+ * 3-plane deep layout — else `a` unchanged. The port runs native (g_a5_2347=1
+ * -> jt1200() != 3), so this is the identity store. */
+static void l04a0(short a)
+{
+	PROBE("L04a0");
+	if (jt1200() == 3)
+		g_a5_word(-4578) = (short)((short)(a + a + a) >> 1);
+	else
+		g_a5_word(-4578) = a;
+}
+
+/* L0370 (CODE 4 + 0x370) — the DEEP-MODE tile expansion: walk the library's
+ * items (jt468 + JT[1003] header read, a JT[1] dispatch over the item-type
+ * nibble) and rewrite each tile's pixels into the doubled 3-plane layout.
+ * DEFERRED, and UNREACHABLE in the port: its only caller (jt1206) gates it on
+ * jt1200()==3, which needs g_a5_2347==0 — the port sets 2347=1 (native). Lift
+ * this only if the doubled deep mode is ever wired. */
+static void l0370(short group, long off)
+{
+	PROBE("L0370");
+	(void)group; (void)off;
+}
+
+/* JT[1206] (CODE 4 + 0x17e) — the 'TILE' library converter, registered by
+ * L27a4. Refreshes the stride global on first use (-3086 == 0), then in deep
+ * mode expands the tiles in place (L0370); returns `size` UNCHANGED either way,
+ * i.e. it never resizes the byte range. In the port's native mode that makes it
+ * a genuine no-op — the same result the empty registry produces today. */
+static long jt1206(short group, long off, long size)
+{
+	PROBE("jt1206");
+	if (g_a5_word(-3086) == 0)              /* 0x0182 */
+		l04a0(g_a5_word(-4578));        /* 0x018c */
+	if (jt1200() == 3)                      /* 0x0192 — L04f0 IS jt1200 */
+		l0370(group, off);              /* 0x01a4 */
+	return size;                            /* 0x01aa */
+}
+
+/* L27a4 (CODE 5 + 0x27a4) — register the SECOND library signature, 'TILE' ->
+ * JT[1206], and seed its stride global (-4578 = 8).
+ *
+ * The registry key is the GLIB header's SUB-signature (hdr[12:16]), and the
+ * shipped game data really uses both: of the 52 GLIB files, 30 are 'GLIB' and
+ * 16 are 'TILE' (the rest 'DATA'/'DIG8'). So the port's registry comment
+ * claiming FRUA "registers exactly one" signature was wrong. */
+static void l27a4(void)
+{
+	PROBE("L27a4");
+	glib_lb_register(0x54494C45L, jt1206);  /* 'TILE' */
+	g_a5_word(-4578) = 8;
+}
 static void jt463(short minkb, short maxkb);
 static void jt1079(short mode, long b, short kb_min, short kb_max)
                                           __attribute__((unused));
@@ -69008,7 +69085,7 @@ static void jt1079(short mode, long b, short kb_min, short kb_max)
 	l01a2();
 	l024c((short)15);
 	jt463(kb_min, kb_max);
-	l35e2();
+	glib_lb_init();   /* L35e2 — lifted under a port name */
 	l27a4();
 }
 
@@ -69383,7 +69460,6 @@ static long l4010(short group, long off, long size);
 
 /* L35fa (CODE 5+0x35fa) — _LBRegister: record one (signature, converter)
  * pair. Max 3; overflow alerts "Too many library signatures". */
-static void glib_lb_register(long sig, lb_converter fn) __attribute__((unused));
 static void glib_lb_register(long sig, lb_converter fn)
 {
 	if (g_a5_3656 >= 3) {
@@ -69398,7 +69474,6 @@ static void glib_lb_register(long sig, lb_converter fn)
 /* L35e2 (CODE 5+0x35e2) — _LBInit: clear the registry and register the
  * one built-in signature, 'GLIB' -> L4010 (recursive descent). Must run
  * once before the FAR pool loads any library. */
-static void glib_lb_init(void) __attribute__((unused));
 static void glib_lb_init(void)
 {
 	g_a5_3656 = 0;
