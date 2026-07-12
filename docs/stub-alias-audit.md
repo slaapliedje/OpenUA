@@ -110,12 +110,36 @@ same asm can drift; compare against the disasm, keep one, repoint.
 | l6bbe | 14+0x6bbe | jt519 | zone lookup; return width differs |
 | ~~l5f04~~ | 8+0x5f04 | jt363 | RESOLVED — see the l5f04/jt363 section above (jt363 authoritative; the "full lift" was actually a partial stub) |
 | ~~l17ca~~ | 22+0x17ca | jt304 | RESOLVED 2026-07-11 (429546d) — the l17ca_c22 stub shadowed the lifted jt304 view composer; jt299 repointed. Was the "map editor first-entry menu-bar overpaint" (jt299 never composed, so the port play-chrome stand-ins owned the screen). |
+| ~~l1798~~ | 22+0x1798 | jt299 | RESOLVED 2026-07-12 — the SIBLING of the l17ca twin above, and missed by that same sweep: an `l1798` PROBE stub shadowed the already-lifted jt299, with 3 live callers (l1908, jt311's no-callback default, jt290). Deleted; all three repointed. See the design-mode gate note below. |
+
+## Repointing an editor twin into the play walk (the jt299 gate)
+
+`l1908` / `l63c0` are the DESIGN EDITOR's walk driver, which the port reuses to
+drive the play dungeon walk (the Mac play walk is `jt948`/`jt953` and never runs
+either). So repointing a CODE-22 editor twin can arm editor chrome inside play.
+
+`jt299` recomposes the map screen — `jt304` view + **`jt303` status header** +
+`jt308` row paint. `l63c0` already gates its OWN `jt303` call to design mode
+(`g_a5_18485 == 5`) because that header paints `<module> / DUNGEON nn / WD nn HT
+nn` straight across the play roster panel. An ungated `jt299` call silently
+defeats that gate. The `l1908` call site therefore carries the same condition.
+
+**How this nearly shipped broken:** the first frame after a single step is
+*pixel-identical* with and without the call (`jt312` overpaints the view region),
+so a one-step A/B says "no change" — byte-identical PNGs, same MD5. The editor
+header only appears a few moves in, after an AREA toggle. **A one-step frame
+diff is not a regression test for the walk.** Walk several steps, turn, toggle
+AREA, and step again.
 
 ## Rule going forward
 
 Before stubbing ANY lXXXX callee during a lift: check the alias table
 for the callee too, not just the lift target. If it maps to a jtN with
 a real body, forward-declare and call the jtN — never mint a stub.
+
+When you find one twin, sweep its NEIGHBOURS in the same segment: `l1798`
+(jt299) sat one function away from `l17ca` (jt304) and survived the sweep that
+found it.
 
 Re-run the sweep after big lift batches (the python one-liner lives in
 the session log; regenerate the alias table first with
