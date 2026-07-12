@@ -830,3 +830,55 @@ not a stale-frame problem. The next step is to find which CLUT range `l4430` /
 `l309c` load the editor's backdrop into (the play path uses BACK_PAL_BASE 144,
 32 entries = 144..175, which does NOT overlap 176..207 — so the editor differs).
 That is the shared-palette CLUT model work, not a repaint.
+
+### SOLVED: the sky tint was a STALE MIRROR in the GLIB palette allocator (2026-07-12)
+
+Neither earlier guess was right. Tracing every `qd_set_palette` call and diffing
+the WALL vs BACKDROP editor entry gave it away instantly:
+
+    WALL entry  ... 144..175 (backdrop band), 16..31, then only 97..102 (fire cycle)
+    BACKDROP    ... 144..175 (backdrop band), 16..31, then  70..207  (count 138)  <--
+
+The last BACKDROP install is a single **138-entry span, 70..207** — not the
+176..207 that jt993 reports. That span runs straight across the backdrop band
+(144..175), which is the sky.
+
+**Why.** `jt1066` (the allocator's COMMIT) walks the -3386 used-slot bitmap,
+promotes LIVE(-3390) -> WORK(-3394) for used slots, and then commits **one
+CONTIGUOUS span, `work[min..max]`**, over every slot the bitmap has ever marked.
+The icon's range (176..207 after jt994's remap) stretches [min,max] to 70..207.
+
+On the Mac that is sound, because EVERY palette install goes through the
+allocator — so its LIVE/WORK mirrors are always the truth, and re-committing a
+wide span just re-emits what is already on screen.
+
+**The port does not.** It installs several ranges DIRECTLY via qd_set_palette,
+bypassing the allocator entirely: the UI band (0..31, load_menu_ui), the wall
+bands (32/69/106, load_wall_groups), the backdrop band (BACK_PAL_BASE 144,
+load_backdrop), the HUD entries. Those never reached the mirrors — so the moment
+a jt1066 commit SPANNED one of them, it repainted it from a **stale (zero)
+mirror**. The backdrop band was black in the mirror; the sky went black.
+
+**The fix** (`port_clut_install`, next to cw_seed_ui_band): one wrapper that does
+the qd_set_palette AND mirrors the same RGB into LIVE and WORK. All 14 direct
+installs in boot.c now go through it. `l6e58`'s own commit stays a raw
+qd_set_palette — it IS the allocator's write.
+
+This keeps the allocator's view of the CLUT true, so a span commit re-emits
+exactly what is on screen. It is a port-model consistency fix, not a change to
+any faithful body.
+
+**Verified, all byte-identical (same MD5) except the intended fix:**
+
+| screen | result |
+|---|---|
+| GEO editor, BACKDROP entry | **sky FIXED** — night sky + stars, verb bar, real preview |
+| GEO editor, WALL entry | byte-identical to pre-change |
+| play walk, entry frame | byte-identical |
+| play, event picture (orc) + the 3D view after it | byte-identical |
+| play, AREA automap | byte-identical |
+
+The `g_dungeon_bigpic_overlay` gate and the shared-palette CLUT model are still
+open — this fixes the MIRROR, not the band layout. But the class of bug it
+removes ("a wide allocator commit silently reverts a directly-installed band")
+was live for every jt1066 caller, not just the editor.
