@@ -7347,21 +7347,25 @@ static void jt1161(short top, short left, short bottom, short right,
 	 * L19be/L0888 pixel run is pixel = (pixel & mask) ^ value with mask
 	 * 0xFFFF when bit 8 is set, mask 0 (= the solid fill below) when
 	 * clear. The menu highlight (l3e60) paints through this — XOR twice
-	 * restores the row, so labels survive the selection bar moving. */
+	 * restores the row, so labels survive the selection bar moving.
+	 *
+	 * The pen colour (the port's stand-in for the Mac's L17ee, which the
+	 * default arm calls before _PaintRect) is set on BOTH arms: it is the
+	 * shim's live pen state, and the text primitives (DrawString/DrawChar
+	 * via jt1089) read port->fgColor.  An early return that skipped it
+	 * left a stale pen and crashed jt325's dialog inside vfprintf. */
+	GetPort(&port);
+	if (port != NULL)
+		((CGrafPtr)port)->fgColor = (unsigned char)(fill & 0xff);
+
 	if (fill & 0x100) {
 		SetRect(&r, cl, ct, cr, cb);
 		qd_xor_rect(&r, (unsigned char)(fill & 0xff));
 		return;
 	}
 
-	/* Default arm (@0x1b8c) and the encounter arm (L19be) converge here under
-	 * the shim: set the fg colour from the (possibly remapped) low byte and
-	 * PaintRect the clipped rect. */
-	GetPort(&port);
-	if (port != NULL)
-		((CGrafPtr)port)->fgColor =
-			(unsigned char)(fill & 0xff);
-
+	/* Default arm (@0x1b8c): PaintRect the clipped rect in the pen colour
+	 * set above. */
 	SetRect(&r, cl, ct, cr, cb);
 	PaintRect(&r);
 }
@@ -14121,8 +14125,11 @@ static void l3a1a(short cx, short cy, short sa, short scrx, short special)
 	far_x = (short)(far_x - 1);
 	far_y = (short)(far_y - 1);
 	switch (special & 0xff) {
-	case 2:  color = (short)(l0788(cx, cy) & 0xff); break;
-	case 1:  color = (short)(l06e2(cx, cy) & 0xff); break;
+	/* Mac L3f3a/L3f52 push fp@(8) then fp@(10) -> (cy, cx), matching the
+	 * jt205/jt212 calls above and the case-3 index below; the old (cx, cy)
+	 * calls transposed the cell for the feature-fill colour. */
+	case 2:  color = (short)(l0788(cy, cx) & 0xff); break;
+	case 1:  color = (short)(l06e2(cy, cx) & 0xff); break;
 	case 3: {
 		const unsigned char *cell = lvl + (long)((short)lvl[3] * cx + cy) * 6;
 		color = (cell[294] != 0) ? (short)15 : (short)0;
@@ -14338,10 +14345,9 @@ static void jt1087(short n)
 	jt1088();
 }
 
-/* L3fd8 cluster deps — the per-cell tile renderer and a few leaf setups stay
- * PROBE stubs pending their own lifts. L4430 (CODE 22+0x4430, ~270 instrs +
- * ~17 local helpers) is the dungeon-cell tile draw; jt214 (CODE 7+0x71c6) and
- * jt124 (CODE 6+0x3eea) are per-view setup leaves; jt448 (CODE 3+0x148a) is the
+/* L3fd8 cluster deps. L4430 (CODE 22+0x4430) is the dungeon-cell tile draw
+ * (lifted above, asm-audited 2026-07-11); jt214 (CODE 7+0x71c6) and jt124
+ * (CODE 6+0x3eea) are per-view setup leaves; jt448 (CODE 3+0x148a) is the
  * glyph drawer JT[216] uses. */
 /* L0788 (CODE 22 + 0x0788) — cell code B by (x, y): jt306 of cell
  * (width * y + x). Full lift (was a stub). */
@@ -14426,7 +14432,11 @@ static void l4430(short cx, short cy, short sa, short scrx, short special)
 		break;
 
 	case 2: {                               /* filled cell + marker */
-		short color = (short)(l0788(cx, cy) & 0xff);
+		/* Mac 0x46d4 pushes fp@(8) then fp@(10) -> L0788(fp@10, fp@8),
+		 * whose internal index lvl[3]*arg2 + arg1 then equals this
+		 * function's own lvl[3]*cx + cy (the case-3 computation below).
+		 * The old (cx, cy) call transposed the cell for the fill colour. */
+		short color = (short)(l0788(cy, cx) & 0xff);
 		long  idx;
 		jt1161((short)(sa + 2), (short)(scrx + 2),
 		       (short)(far_x - 2), (short)(far_y - 2), color);
@@ -14535,12 +14545,10 @@ static void jt216(short cellX, short cellY, short screenX, short screenY, short 
  * (jt1139 / JT[1001] / jt124 / jt1193), then loops the visible cells drawing
  * each through L4430 and finally the party marker (JT[216]).
  *
- * Structural lift (level 2): the setup / origin / clip / window / fill and the
- * cell-loop control flow are faithful; the per-cell tile draw (L4430) is a stub
- * pending its own lift, so the grid frames correctly but the wall/floor tiles
- * are blank. jt214 / jt124 (leaf setups) are stubs too. Args mirror jt304's
- * call: party (y,x,facing), the view anchor (v1,v2), the view-cell dims
- * (cells_a,cells_b), and the special/marker/batch/entry flags. */
+ * Full chain: the setup / origin / clip / window / fill, the cell loop and
+ * the per-cell tile draw (L4430, lifted above) are all live. Args mirror
+ * jt304's call: party (y,x,facing), the view anchor (v1,v2), the view-cell
+ * dims (cells_a,cells_b), and the special/marker/batch/entry flags. */
 static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
                   short cells_a, short cells_b, short special,
                   short pmark, short batch, short entry) __attribute__((unused));
@@ -14599,7 +14607,7 @@ static void l3fd8(short p_y, short p_x, short facing, short v1, short v2,
 	jt124(g_a5_long(-24260));
 	jt1193();
 
-	/* per-cell render (L4430 stubbed) */
+	/* per-cell render (L4430 — the tile draw, lifted above) */
 	if ((special & 0xff) != 4) {
 		for (i = 0; i < (short)(unsigned char)g_a5_byte(-12274); i++) {
 			for (j = 0; j < (short)(unsigned char)g_a5_byte(-12273); j++)
