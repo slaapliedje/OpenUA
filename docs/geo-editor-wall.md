@@ -801,3 +801,32 @@ palette commit would heal it; the real fix is the shared-palette CLUT model.
 
 **Net:** BACKDROP mode went from unusable (no verb bar, black preview) to usable
 with a wrong sky colour. WALL mode is byte-identical to before (verified).
+
+### The sky tint: TWO FIXES TRIED AND DISPROVEN (2026-07-12) — do not retry these
+
+**1. Forced 3D repaint via `g_clut_clobbered` — IMPOSSIBLE, not just wrong.**
+The plan was: jt993 already sets `g_clut_clobbered`, render_3d_faithful already
+reinstates the wall/backdrop/chrome bands, so just force one 3D frame after the
+preview paints. A PROBE_ONCE log of the map-editor entry kills it outright — the
+editor screen **never calls `l63c0`, `jt312`, `jt221`, or `render_3d_faithful`
+at all.** Those are the PLAY dungeon walk. The editor composes its own 3D view
+through the jt243 panel painters (`l4430` / `l309c` composites; the probe shows
+jt304 -> l3806, which paints the AUTOMAP, plus the l309c piece path). So the
+whole `g_clut_clobbered` -> reinstate machinery is UNREACHABLE from the editor,
+and a repaint hook in l63c0 is dead code there. (The editor's l63c0 calls, in
+jt239/jt241, also pass `a_deep = 0` — only play passes 1.)
+
+**2. Restoring the port's UI band (clut 0..31) inside jt993 — BUILT, RAN, NO
+EFFECT.** The reasoning looked airtight: back2's first palette item installs at
+16..31, which is the port's FRAME chrome band, and `cw_seed_ui_band` already
+re-seeds 0..31 through every wall install for exactly that reason. Re-seeding
+0..3/6..31 from `g_menu_pal` after any sub-32 install builds and runs — and the
+sky stays black. **So the sky colour is NOT in 0..31.**
+
+**What that leaves.** The sky must be indexed in the band back2's SECOND item
+takes after jt994's remap (176..207), which means the editor's own 3D composite
+puts its backdrop/sky palette somewhere in that range — a genuine band collision,
+not a stale-frame problem. The next step is to find which CLUT range `l4430` /
+`l309c` load the editor's backdrop into (the play path uses BACK_PAL_BASE 144,
+32 entries = 144..175, which does NOT overlap 176..207 — so the editor differs).
+That is the shared-palette CLUT model work, not a repaint.
