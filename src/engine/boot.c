@@ -13001,7 +13001,7 @@ static void        jt311(void *rec_v, short dir, long cb);
 static signed char jt218(signed char *rowp, signed char *colp,
                          short *out_row, short *out_col,
                          short span_r, short span_c, short wrap);
-static void        l1798(void *rec, short a);
+static void        jt299(long holder, short b);         /* == CODE 22's L1798 */
 /* JT[50] / JT[51] (CODE 6 + 0x5ac2 / 0x5ad8) — the page-up / page-down
  * (pause-scroll) toggles, already lifted below under their lXXXX names
  * l5ac2 / l5ad8 (toggle g_a5_-806 / toggle g_a5_-17443 -> jt983).
@@ -13190,8 +13190,23 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
 	for (k = 0; k < 6; k++)
 		rec[46 + k] = g_a5_byte(-12288 + k);
 
-	if (moved)
-		l1798(rec_v, 0);
+	/* L1798 is JT[299] (see docs/lxxxx-jt-aliases.md) — recompose the map
+	 * screen: jt304 view + jt303 status header + jt308 row paint.
+	 *
+	 * l1908/l63c0 are the DESIGN EDITOR's walk driver, which the port reuses to
+	 * drive the play dungeon walk (the Mac play walk is jt948/jt953 and never
+	 * runs either). jt299 calls jt303 — the editor's status header — and l63c0
+	 * already gates its own jt303 call to design mode precisely because that
+	 * header paints "<module> / DUNGEON nn / WD nn HT nn" straight across the
+	 * play roster panel. An ungated call here silently defeats that gate: the
+	 * header duly appears over the HUD after an AREA toggle + a step. Same
+	 * condition, same reason as the L5126 / l2cf4 editor-chrome gates.
+	 *
+	 * (It is NOT enough to compare the first frame after a single step — that
+	 * one is pixel-identical either way, because jt312 below overpaints the
+	 * view region. The corruption only surfaces a few moves in.) */
+	if (moved && g_a5_18485 == 5)
+		jt299((long)(uintptr_t)rec_v, 0);
 	/* else: JT[213] blocked-step recentre redraw — deferred. */
 
 	if (redraw && rec[4] != 0 && rec[5] == 0)
@@ -13348,7 +13363,6 @@ static short jt1112(void)
 	PROBE("jt1112");
 	return (g_a5_byte(-2592) & 0x01) ? 1 : 0;
 }
-static void        l1798(void *rec, short a)            { PROBE("L1798"); (void)rec;(void)a; }                /* CODE 22-local post-move default */
 
 /* L5368 (CODE 7 + 0x5368) — one-axis scroll-window solver for the overland
  * map. Wraps *coord into [0, dim) (the map is toroidal), then returns the
@@ -13462,7 +13476,7 @@ static void jt311(void *rec_v, short dir, long cb)
 		if (cb != 0)
 			((void (*)(long))(uintptr_t)cb)(*(long *)rec_v);
 		else
-			l1798(rec_v, 0);
+			jt299((long)(uintptr_t)rec_v, 0);
 	} else {
 		jt1080();
 	}
@@ -63779,7 +63793,7 @@ static short jt290(long ctx, short y, short x, short c, short adv)
 		          (short)(unsigned char)g_a5_byte(-11708),
 		          (short)(unsigned char)g_a5_byte(-11707),
 		          (short)(rec[4] == 0 ? 1 : 0)) != 0) {
-			l1798((void *)(uintptr_t)ctx, (short)0);
+			jt299(ctx, (short)0);
 		} else {
 			if (editing != 0)
 				jt279((short)yb, (short)xb,
