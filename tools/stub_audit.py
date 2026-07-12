@@ -114,9 +114,26 @@ def classify(lines, op, cl):
                 continue
             return 'REAL'
         return 'STUB'
+    incomment = False
     for raw in lines[op + 1:cl]:
         t = raw.strip()
-        if not t or t.startswith(('/*', '*', '//', '#')) or t in ('{', '}'):
+        # Track block-comment state properly. A continuation line starts with
+        # '*' — but so does a POINTER DEREFERENCE (`*(char *)p = 1;`), and
+        # treating those as comments hid real bodies (jt321) behind a STUB.
+        if incomment:
+            if '*/' in t:
+                incomment = False
+                t = t.split('*/', 1)[1].strip()
+            else:
+                continue
+        while t.startswith('/*'):
+            if '*/' in t:
+                t = t.split('*/', 1)[1].strip()
+            else:
+                incomment = True
+                t = ''
+                break
+        if not t or t.startswith('//') or t.startswith('#') or t in ('{', '}'):
             continue
         if TRIVIAL[0].match(t) or TRIVIAL[1].match(t):
             continue
@@ -126,6 +143,8 @@ def classify(lines, op, cl):
             if CONST_RET.match(t):
                 continue
             return 'REAL'                          # returns a computed value
+        if 'g_a5_' in t:
+            return 'REAL'      # writing an A5 global IS the work (jt174, jt321)
         if CONST_STORE.match(t):                   # *out = -1;  buf[0] = 0;
             continue
         return 'REAL'
@@ -184,11 +203,66 @@ def audit(path=SRC):
     return funcs, status, stale
 
 
+# A body that is empty ON THE MAC TOO is not a gap — the comment says so.
+NOOP_RE = re.compile(
+    r'no-op|noop|bare `?rts|empty body|faithfully empty|literally `moveq|just `rts|'
+    r'rts only|compiled-out|link/unlk/rts|empty \(rts|is literally|genuinely a no|'
+    r'faithful.{0,12}empty|the constant|constant \(', re.I)
+
+
+def triage(path=SRC):
+    """Split the stub bodies into faithful-no-op / live gap / uncalled gap."""
+    lines = load(path)
+    funcs = parse_funcs(lines)
+    status = {n: classify(lines, op, cl) for n, _, op, cl in funcs}
+    src = '\n'.join(lines)
+    noop, live, dead = [], [], []
+    for name, sig, op, cl in funcs:
+        if status[name] != 'STUB':
+            continue
+        cs, ce = doc_above(lines, sig)
+        doc = ' '.join(' '.join(lines[cs:ce + 1]).split()) if cs is not None else ''
+        for k in range(sig, min(op + 2, len(lines))):
+            m = re.search(r'/\*(.*?)\*/', lines[k])
+            if m:
+                doc += ' ' + m.group(1)
+        hits = len(re.findall(r'\b%s\s*\(' % re.escape(name), src))
+        decls = len(re.findall(r'^static [^;\n]*\b%s\s*\([^;]*;\s*(?:/\*.*)?$'
+                               % re.escape(name), src, re.M))
+        calls = max(hits - decls - 1, 0)
+        row = (name, sig + 1, calls, ' '.join(doc.replace('/*', ' ').replace('*/', ' ').split()))
+        if NOOP_RE.search(doc):
+            noop.append(row)
+        elif calls:
+            live.append(row)
+        else:
+            dead.append(row)
+    return noop, live, dead
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--quiet', action='store_true')
+    ap.add_argument('--stubs', action='store_true',
+                    help='triage the remaining stubs instead of auditing comments')
     ap.add_argument('--file', default=SRC)
     a = ap.parse_args()
+
+    if a.stubs:
+        noop, live, dead = triage(a.file)
+        print('%d stub bodies: %d faithful no-ops (NOT gaps), '
+              '%d live gaps, %d uncalled gaps\n'
+              % (len(noop) + len(live) + len(dead), len(noop), len(live), len(dead)))
+        print('=== LIVE GAPS — lifted code calls these, so they gate behaviour ===')
+        for n, l, c, d in sorted(live, key=lambda r: -r[2]):
+            print('  %-10s line %-6d %2d call(s)' % (n, l, c))
+        print('\n=== UNCALLED GAPS ===')
+        for n, l, c, d in sorted(dead):
+            print('  %-10s line %-6d' % (n, l))
+        print('\n=== FAITHFUL NO-OPS (the Mac body is empty too — leave them) ===')
+        print('  ' + ', '.join(sorted(n for n, _, _, _ in noop)))
+        return 0
+
     funcs, status, stale = audit(a.file)
     nstub = sum(1 for v in status.values() if v == 'STUB')
 
