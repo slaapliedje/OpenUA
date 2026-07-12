@@ -4125,7 +4125,60 @@ static void  l709e(short a)
 	}
 }
 static void  l473e(short a);          /* CODE 20-local — rest trigger, defined after jt957 */
-static void  l47f2(void)              { PROBE("L47f2"); }   /* CODE 20-local */
+/* L47f2 (CODE 20 + 0x47f2) — the SECRET-DOOR sweep: after an area/stairs swap,
+ * probe all four edges of the party's cell and announce any secret door found.
+ *
+ *   rec[57] = 0                       (clear the pending-message byte)
+ *   gate: rec[25] bit 0 must be set AND -27990 == 4 (in-view mode)
+ *   for dir in 0(N) 2(E) 4(S) 6(W):
+ *       if (jt210(row, col, dir) & 255) is 1, 3 or 5   -- the secret-door codes
+ *           jt20(); l0b20("The party has discovered a secret door to the <dir>.");
+ *           jt92();
+ *
+ * The Mac re-calls jt210 for each of the three comparisons; it is a pure map
+ * read, so one call per direction is equivalent. Coords are the party cell,
+ * sign-extended: -12288 = row, -12287 = col (jt210 takes them in that order).
+ *
+ * The caller (jt948's res==6 area/stairs swap) FORCES rec[25] |= 1 around this
+ * call and restores it after — i.e. it is deliberately arming this gate, which
+ * is why a stubbed body meant arriving in a new area never revealed its secret
+ * doors. */
+static short jt210(short row, short col, short dir);  /* CODE 7+0x5bfa  */
+static void  jt92(void);                             /* CODE 6+0x4bac  */
+static void  l0b20(void *p);                         /* CODE 20 msg box */
+static void  l47f2(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	short          row, col, i;
+	static const struct { short dir; long msg; } dirs[4] = {
+		{ 0, 0x68beL },   /* "...to the north." */
+		{ 2, 0x68f4L },   /* "...to the east."  */
+		{ 4, 0x6928L },   /* "...to the south." */
+		{ 6, 0x695eL },   /* "...to the west."  */
+	};
+
+	PROBE("L47f2");
+	if (rec == NULL)                          /* PORT: the Mac derefs blind */
+		return;
+	rec[57] = 0;                              /* 0x47f6 */
+	if ((rec[25] & 1) == 0)                   /* 0x4804 -> L4a10 */
+		return;
+	if ((unsigned char)g_a5_byte(-27990) != 4)  /* 0x480c */
+		return;
+
+	row = (short)(signed char)g_a5_byte(-12288);
+	col = (short)(signed char)g_a5_byte(-12287);
+
+	for (i = 0; i < 4; i++) {
+		short code = (short)(jt210(row, col, dirs[i].dir) & 0xff);
+
+		if (code == 1 || code == 3 || code == 5) {   /* secret-door codes */
+			jt20();
+			l0b20((void *)(uintptr_t)ua_strs_at(dirs[i].msg));
+			jt92();
+		}
+	}
+}
 /* L4738 (CODE 20+0x4738) — read the -4944 play-loop predicate flag
  * (faithful 2-instruction getter; disasm-verified 2026-07-04). */
 static signed char l4738(void)        { PROBE("L4738"); return (signed char)g_a5_4944; }
@@ -36217,8 +36270,138 @@ static int cg_char_sheet(unsigned char *rec)
 	rec[125] = rec[124];
 	return 1;
 }
-static void   l4f2c(long ptr)                        { PROBE("L4f2c"); (void)ptr; }
-static void   l4ff6(long ptr)                        { PROBE("L4ff6"); (void)ptr; }
+/* L4f2c (CODE 19 + 0x4f2c) — the paladin's LAY ON HANDS, off jt904's verb bar
+ * (case 5). `caster` is the acting character; the target is picked with l596a
+ * ("Heal whom? ", cancellable), seeded from the party head (-27928).
+ *
+ *   heal = jt40(caster, 3) * 2          -- twice the level-ish stat in slot 3
+ *   jt869(target, heal, 0)  -> nonzero if any HP actually went back on:
+ *        jt936(target, 1)   -- flash the target in the HUD
+ *        "<name> feels better"          (name = target[96])
+ *   else "<name> is unaffected"
+ *   jt876(caster, 140, 1440, 0, 0)      -- burn the once-a-day ability (1440 min)
+ *   l1276()                             -- repaint
+ *
+ * Cancelling the picker (target NULL) repaints and does nothing else — the
+ * ability is NOT spent. */
+static unsigned char jt869(long rec_l, short amount, short flag);  /* CODE 18+0x23e6 */
+static void   l4f2c(long caster)
+{
+	long member;
+
+	PROBE("L4f2c");
+	jt23();                                          /* 0x4f30 */
+	member = g_a5_long(-27928);                      /* 0x4f34 */
+	l596a(ua_strs_at(0x5dd0), (short)1, (short)0, &member);   /* "Heal whom? " */
+	if (member == 0) {                               /* 0x4f52 */
+		l1276();
+		return;
+	}
+
+	{
+		short heal = (short)(jt40((void *)(uintptr_t)caster, (short)3) & 0xff);
+		const unsigned char *tgt = (const unsigned char *)(uintptr_t)member;
+
+		heal = (short)(heal + heal);             /* 0x4f72 addw d0,d0 */
+		if (jt869(member, heal, (short)0) != 0) {         /* 0x4f7c */
+			jt936(member, (short)1);                  /* 0x4f8e */
+			jt42(jt488(ua_strs_at(0x5ddc),            /* "%s%s" */
+			           (const char *)(tgt + 96),
+			           ua_strs_at(0x5de2)));          /* " feels better" */
+		} else {                                          /* L4fba */
+			jt42(jt488(ua_strs_at(0x5df0),            /* "%s is unaffected" */
+			           (const char *)(tgt + 96)));
+		}
+	}
+
+	jt876(caster, (short)140, (short)1440, (short)0, (short)0);  /* L4fd6 */
+	l1276();                                         /* 0x4fee */
+}
+
+/* L4ff6 (CODE 19 + 0x4ff6) — the paladin's CURE DISEASE, off jt904's verb bar
+ * (case 6). Same picker ("Cure whom? "), then:
+ *
+ *   diseased = any of the 6 disease effect-ids at -25292[0..5] present on the
+ *              target (jt41)
+ *   if NOT diseased: jt18(target, "is not diseased", 0, 0) and ask
+ *                    jt159("cure anyway: "); its answer replaces `go`
+ *   if go == 1:
+ *       -25258 = 1                      -- the "silent" flag, so stripping the
+ *                                          effects does not spam the message box
+ *       jt878(target, -25292[i], 0) for each of the 6   -- strip them
+ *       -25258 = 0
+ *       if (caster[128] > 0) caster[128]--             -- spend a charge
+ *       if the caster does NOT already carry effect 110:
+ *           jt876(caster, 110, 10080, 0, 1)            -- 10080 min = one WEEK
+ *       "<target> is cured"   when it was diseased
+ *       "<caster> cures the healthy"  when it was not  (yes, the CASTER's name —
+ *                                                       fp@(8)+96 in the asm)
+ *   l1276()
+ *
+ * The loop counter is the A5 scratch -22307, as the Mac has it. */
+static void   l4ff6(long caster)
+{
+	unsigned char *crec = (unsigned char *)(uintptr_t)caster;
+	long           member;
+	long           desc = 0;                  /* fp@(-10) — jt41's out */
+	signed char    diseased = 0;              /* fp@(-5)  */
+	short          go = 1;                    /* fp@(-6)  */
+	short          i;
+
+	PROBE("L4ff6");
+	jt23();                                          /* 0x4ffa */
+	member = g_a5_long(-27928);
+	l596a(ua_strs_at(0x5e02), (short)1, (short)0, &member);   /* "Cure whom? " */
+	if (member == 0) {                               /* 0x501c */
+		l1276();
+		return;
+	}
+
+	for (g_a5_byte(-22307) = 0;                      /* L5034 */
+	     (signed char)g_a5_byte(-22307) < 6;
+	     g_a5_byte(-22307)++) {
+		i = (short)(signed char)g_a5_byte(-22307);
+		if (jt41(member, (short)(unsigned char)g_a5_byte(-25292 + i),
+		         &desc) != 0)
+			diseased = 1;
+	}
+
+	if (diseased == 0) {                             /* 0x5072 */
+		jt18((void *)(uintptr_t)member,
+		     (long)(uintptr_t)ua_strs_at(0x5e0e),    /* "is not diseased" */
+		     (short)0, (short)0);
+		go = (short)jt159(ua_strs_at(0x5e1e), (short)0);  /* "cure anyway: " */
+		jt20();
+	}
+
+	if (go == 1) {                                   /* L50a4 */
+		g_a5_byte(-25258) = 1;                   /* silence the strip */
+		for (g_a5_byte(-22307) = 0;              /* L50be */
+		     (signed char)g_a5_byte(-22307) < 6;
+		     g_a5_byte(-22307)++) {
+			i = (short)(signed char)g_a5_byte(-22307);
+			jt878(member,
+			      (short)(unsigned char)g_a5_byte(-25292 + i), 0L);
+		}
+		g_a5_byte(-25258) = 0;
+
+		if (crec != NULL && crec[128] > 0)       /* 0x50ee — spend a charge */
+			crec[128]--;
+
+		if (jt41(caster, (short)110, &desc) == 0)   /* 0x5104 */
+			jt876(caster, (short)110, (short)10080,
+			      (short)0, (short)1);            /* one week */
+
+		if (diseased != 0)                       /* L5136 */
+			jt42(jt488(ua_strs_at(0x5e2c),   /* "%s is cured" */
+			           (const char *)((const unsigned char *)
+			                          (uintptr_t)member + 96)));
+		else                                     /* L515a */
+			jt42(jt488(ua_strs_at(0x5e38),   /* "%s cures the healthy" */
+			           (const char *)(crec + 96)));
+	}
+	l1276();                                         /* L5176 */
+}
 /* JT[35] (CODE 6 + 0x2f74) — the multi-class lead stat byte.
  * If rec[88] (class id) != 5, returns 0. For class 5, scans the
  * stat row rec[157..162] for the first non-zero byte and returns
