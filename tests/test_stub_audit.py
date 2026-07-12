@@ -114,3 +114,23 @@ def test_writing_an_a5_global_is_a_real_body(tmp_path):
     f.write_text('static void jt174(void)\n{\n\tPROBE("jt174");\n'
                  '\tg_a5_12912 = 1;\n\tg_a5_12911 = 1;\n}\n')
     assert _body(str(f), 'jt174') == 'REAL'
+
+
+def test_brace_in_a_char_literal_does_not_end_the_function(tmp_path):
+    """`case '{':` is a BRACE CHARACTER, not a block.
+
+    The CODE-8 word-wrap char classes (l2dca/l2d5e) switch on punctuation,
+    braces included. Counting those as real braces closed l2dca early and
+    desynchronised every function after it — boot.c went from 2127 parsed
+    functions to 1557, and 25 stubs silently vanished from the report.
+    """
+    f = tmp_path / 'x.c'
+    f.write_text("static short l2dca(short ch)\n{\n\tPROBE(\"L2dca\");\n"
+                 "\tswitch ((unsigned char)ch) {\n"
+                 "\tcase '(': case '[': case '{': case '\"':\n"
+                 "\t\treturn 1;\n\tdefault:\n\t\treturn 0;\n\t}\n}\n"
+                 "\nstatic void after(void)\n{\n\tPROBE(\"after\");\n}\n")
+    names = [n for n, _, _, _ in stub_audit.parse_funcs(stub_audit.load(str(f)))]
+    assert names == ['l2dca', 'after'], names
+    assert _body(str(f), 'l2dca') == 'REAL'
+    assert _body(str(f), 'after') == 'STUB'

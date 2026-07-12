@@ -58,6 +58,21 @@ def load(path):
 
 ONE_LINE = re.compile(r'^static\s+[\w \*]+?\**(\w+)\s*\([^;]*\)\s*\{.*\}')
 
+# Braces also live inside CHARACTER LITERALS — `case '{':` is exactly how the
+# CODE-8 word-wrap char classes (l2dca/l2d5e) spell their punctuation arms. A
+# naive count sees that as an unbalanced brace, ends the function early, and
+# then desynchronises every function after it (lifting l2dca cost the parser
+# 570 of boot.c's 2127 functions and silently "removed" 25 stubs). Strip
+# literals and inline comments before counting.
+LITERAL = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"")
+INLINE_COMMENT = re.compile(r'/\*.*?\*/|//.*$')
+
+
+def depth_delta(line):
+    """Net brace depth contributed by a line, ignoring literals/comments."""
+    code = INLINE_COMMENT.sub('', LITERAL.sub('', line))
+    return code.count('{') - code.count('}')
+
 
 def parse_funcs(lines):
     """(name, sig_idx, open_idx, close_idx) for every DEFINITION.
@@ -92,7 +107,7 @@ def parse_funcs(lines):
             continue
         k, depth = j + 1, 1
         while k < len(lines) and depth > 0:
-            depth += lines[k].count('{') - lines[k].count('}')
+            depth += depth_delta(lines[k])
             k += 1
         funcs.append((m.group(1), i, j, k - 1))
         i = k
