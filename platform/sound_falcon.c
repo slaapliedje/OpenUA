@@ -26,6 +26,7 @@
 #include <mint/falcon.h>
 #include <mint/osbind.h>          /* Mxalloc, Mfree */
 #include <stddef.h>
+#include <stdint.h>               /* uintptr_t */
 #include <string.h>
 
 #include "plat_sound.h"
@@ -74,6 +75,14 @@ static int pick_clk(int hz, int *out_hz)
 	return best;
 }
 
+static int  ring_start(void);
+static void (* volatile g_vbl_hook)(void);
+
+/* The engine's sound task runs here, in supervisor mode. plat_ticks() checks
+ * this so it reads _hz_200 directly instead of trapping through Supexec — see
+ * platform/input.c. */
+extern volatile int g_plat_in_super;
+
 int plat_sound_init(void)
 {
 	long r = Locksnd();
@@ -81,21 +90,286 @@ int plat_sound_init(void)
 	if (r != 1)
 		return -1;
 	g_locked = 1;
+	/* Bring the synth's DMA loop up NOW, from normal context. Everything the
+	 * engine's sound task later does at interrupt time (start a song, kill a
+	 * sound, mix an effect) then reduces to memory writes — no XBIOS call is
+	 * ever made from the vblank. An idle loop renders silence. */
+	(void)ring_start();
 	return 0;
 }
 
-void plat_sound_shutdown(void)
+/* The engine's Mac VBL task (the sound sequencer). Registered through the
+ * Sound Manager shim's VInstall; run from our vblank, after the refill. */
+void plat_sound_set_vbl_hook(void (*fn)(void))
 {
-	if (!g_locked)
-		return;
-	Buffoper(0);
-	Unlocksnd();
-	g_locked = 0;
-	if (g_buf != NULL) {
-		Mfree(g_buf);
-		g_buf      = NULL;
-		g_buf_size = 0;
+	g_vbl_hook = fn;
+}
+
+/* plat_sound_shutdown lives at the end of the file — it tears down the synth
+ * ring and the VBL slot, which are declared below. */
+
+/* ==========================================================================
+ * The four-tone synth — FRUA's music.
+ *
+ * The Mac Sound Driver rendered ftMode in software; we are that driver now. A
+ * ring buffer in ST-RAM loops forever under the DMA (SB_PLA_RPT) and the VBL
+ * renders ahead of the play pointer. Programming the DMA happens ONCE, from
+ * normal context (a song always starts from the engine's main loop); after
+ * that the VBL only writes samples and reads the DMA address counter, so no
+ * XBIOS call is ever made at interrupt time.
+ *
+ * ONE DELIBERATE DIVERGENCE, at the driver level (not the lift): the Mac's
+ * .Sound driver has a single channel, so an effect's KillIO (L7ee0) cancelled
+ * the music and it did not come back. Here the effect is MIXED INTO the loop
+ * as an extra voice and the music plays on. The engine is unchanged — L7ee0
+ * still issues its KillIO — this is only what our "driver" does with it.
+ * ========================================================================== */
+
+#define SYNTH_CLK       CLK25K          /* 24585 Hz — closest to the Mac's rate */
+#define SYNTH_HZ        24585L
+#define MAC_SYNTH_HZ    22255L          /* 22254.5454, what the Fixed rates mean */
+#define RING_SAMPLES    2048L           /* ~83 ms; the VBL renders ~410/frame     */
+
+/* FTSoundRec field offsets (see plat_sound.h). */
+#define FT_RATE(v)      (2 + (v) * 8)
+#define FT_WAVE(v)      (34 + (v) * 4)
+
+static char                 *g_ring;            /* ST-RAM; the DMA loops on it  */
+static volatile long         g_ring_w;          /* next sample the VBL renders  */
+static volatile int          g_ring_live;       /* the loop is programmed + running */
+static const unsigned char * volatile g_ft_rec; /* the LIVE record, or NULL     */
+static unsigned long         g_ft_phase[4];
+
+/* An effect mixed into the loop while the synth owns the DMA. */
+static volatile long         g_sfx_len, g_sfx_pos;
+static signed char           g_sfx_buf[24576];
+
+/* A square-wave tone (swMode): phase-accumulated, counted down in samples. */
+static unsigned long         g_tone_phase, g_tone_inc;
+static volatile long         g_tone_left;
+static short                 g_tone_amp;
+
+static unsigned long rd_be32_p(const unsigned char *p)
+{
+	return ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
+	     | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
+}
+
+/* Where the DMA is reading, as an index into the ring. The Falcon exposes the
+ * running playback address in three registers; it moves while we read it, so
+ * re-read until two passes agree. */
+static unsigned long dma_addr(void)
+{
+	return ((unsigned long)*(volatile unsigned char *)0xFFFF8909UL << 16)
+	     | ((unsigned long)*(volatile unsigned char *)0xFFFF890BUL << 8)
+	     |  (unsigned long)*(volatile unsigned char *)0xFFFF890DUL;
+}
+
+static long ring_play_index(void)
+{
+	unsigned long base = (unsigned long)(uintptr_t)g_ring;
+	unsigned long a, b;
+	int           tries;
+
+	a = dma_addr();
+	for (tries = 0; tries < 4; tries++) {
+		b = dma_addr();
+		if (a == b)
+			break;
+		a = b;
 	}
+	if (a < base || a >= base + (unsigned long)RING_SAMPLES)
+		return 0;                       /* not in our ring — treat as 0 */
+	return (long)(a - base);
+}
+
+/* Render `n` samples of (4 wavetable voices + square tone + effect) into dst. */
+static void synth_render(char *dst, long n)
+{
+	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	const unsigned char *wave[4];
+	unsigned long        inc[4];
+	int                  v, voiced = 0;
+	long                 i;
+
+	for (v = 0; v < 4; v++) {
+		unsigned long rate;
+
+		inc[v]  = 0;
+		wave[v] = NULL;
+		if (rec == NULL)
+			continue;
+		rate    = rd_be32_p(rec + FT_RATE(v));
+		wave[v] = (const unsigned char *)(uintptr_t)rd_be32_p(rec + FT_WAVE(v));
+		if (rate == 0 || wave[v] == NULL)
+			continue;
+		/* The Fixed rate steps the wave at the MAC's sample rate; we clock the
+		 * CODEC at SYNTH_HZ, so rescale the step or every note is transposed. */
+		inc[v] = (unsigned long)(((unsigned long long)rate
+		                          * (unsigned long long)MAC_SYNTH_HZ)
+		                         / (unsigned long long)SYNTH_HZ);
+		if (inc[v] != 0)
+			voiced = 1;
+	}
+
+	for (i = 0; i < n; i++) {
+		long acc = 0;
+
+		if (voiced) {
+			for (v = 0; v < 4; v++) {
+				if (inc[v] == 0)
+					continue;
+				g_ft_phase[v] += inc[v];
+				acc += (long)wave[v][(g_ft_phase[v] >> 16) & 0xff] - 128;
+			}
+			acc >>= 2;              /* 4 voices summed -> back into 8-bit */
+		}
+		if (g_tone_left > 0) {          /* swMode square wave */
+			g_tone_phase += g_tone_inc;
+			acc += ((g_tone_phase & 0x80000000UL) ? g_tone_amp : -g_tone_amp) >> 1;
+			g_tone_left--;
+		}
+		if (g_sfx_pos < g_sfx_len)      /* the effect rides on top */
+			acc += g_sfx_buf[g_sfx_pos++];
+
+		if (acc > 127)
+			acc = 127;
+		else if (acc < -128)
+			acc = -128;
+		dst[i] = (char)acc;
+	}
+}
+
+void plat_sound_vbl(void)
+{
+	void (*hook)(void);
+	long play, lead, todo;
+
+	if (!g_ring_live)
+		return;
+
+	play = ring_play_index();
+	lead = g_ring_w - play;
+	if (lead < 0)
+		lead += RING_SAMPLES;
+	todo = (RING_SAMPLES / 2) - lead;       /* stay half a ring ahead */
+
+	while (todo > 0) {
+		long chunk = RING_SAMPLES - g_ring_w;
+
+		if (chunk > todo)
+			chunk = todo;
+		synth_render(g_ring + g_ring_w, chunk);
+		g_ring_w += chunk;
+		if (g_ring_w >= RING_SAMPLES)
+			g_ring_w = 0;
+		todo -= chunk;
+	}
+
+	/* Then run the engine's sound task — the Mac VBL task that drives the
+	 * sequencer. Refill FIRST so a slow sequencer pass can never starve the
+	 * DMA. It only touches memory (the ring is already programmed), so there
+	 * is no XBIOS call from interrupt context. */
+	hook = g_vbl_hook;
+	if (hook != NULL) {
+		g_plat_in_super = 1;
+		hook();
+		g_plat_in_super = 0;
+	}
+}
+
+/* Our own VBL slot: the display's VBL only exists when it triple-buffers, and
+ * music must not depend on that. Same mechanism as display_videl.c —
+ * _vblqueue @ 0x456, _nvbls @ 0x454. */
+extern void snd_vbl_trampoline(void);
+static long g_snd_vbl_slot = -1;
+
+static long snd_vbl_install_super(void)
+{
+	long  *queue = *(long **)0x456UL;
+	short  nvbls = *(short *)0x454UL;
+	short  i;
+
+	for (i = 0; i < nvbls; i++) {
+		if (queue[i] == 0) {
+			queue[i] = (long)(uintptr_t)snd_vbl_trampoline;
+			return i;
+		}
+	}
+	return -1;
+}
+
+static long snd_vbl_remove_super(void)
+{
+	long *queue = *(long **)0x456UL;
+
+	if (g_snd_vbl_slot >= 0)
+		queue[g_snd_vbl_slot] = 0;
+	return 0;
+}
+
+/* Program the DMA to loop over the ring forever and hook the vblank that keeps
+ * it fed. Called ONCE, from normal context (plat_sound_init). */
+static int ring_start(void)
+{
+	int v;
+
+	if (g_ring_live)
+		return 0;
+	if (g_ring == NULL) {
+		g_ring = (char *)Mxalloc(RING_SAMPLES, 0);      /* 0 = ST-RAM */
+		if (g_ring == NULL)
+			return -1;
+	}
+	memset(g_ring, 0, (size_t)RING_SAMPLES);
+	g_ring_w = 0;
+	for (v = 0; v < 4; v++)
+		g_ft_phase[v] = 0;
+
+	Buffoper(0);
+	Setmode(MODE_MONO);
+	Settracks(0, 0);
+	Setbuffer(SR_PLAY, g_ring, g_ring + RING_SAMPLES);
+	Devconnect(DMAPLAY, DAC, CLK25M, SYNTH_CLK, 1);
+	Buffoper(SB_PLA_ENA | SB_PLA_RPT);       /* loop forever */
+	g_ring_live = 1;
+
+	if (g_snd_vbl_slot < 0)
+		g_snd_vbl_slot = Supexec(snd_vbl_install_super);
+	return 0;
+}
+
+int plat_sound_synth_start(const void *ftsoundrec)
+{
+	if (!g_locked || ftsoundrec == NULL)
+		return -1;
+	/* The record is LIVE — the sequencer rewrites its rate fields while it
+	 * plays — so keep the pointer, never a copy. */
+	g_ft_rec = (const unsigned char *)ftsoundrec;
+	return ring_start();                    /* already up unless Mxalloc failed */
+}
+
+void plat_sound_synth_stop(void)
+{
+	/* Silence the voices but keep the loop running: stopping the DMA would
+	 * need XBIOS, and jt1151 can reach here from the sequencer. A synth with
+	 * no record renders silence. */
+	g_ft_rec = NULL;
+}
+
+void plat_sound_tone(int count, int amp, int duration_ticks)
+{
+	if (!g_ring_live || count <= 0) {
+		g_tone_left = 0;
+		return;
+	}
+	/* swMode: frequency = 783360 / count. */
+	g_tone_inc  = (unsigned long)(((unsigned long long)783360UL << 32)
+	                              / ((unsigned long long)count * (unsigned long long)SYNTH_HZ));
+	g_tone_amp  = (short)(amp & 0xff);
+	g_tone_left = (long)duration_ticks * SYNTH_HZ / 60L;
+	if (g_tone_left > SYNTH_HZ)             /* the engine passes 2500 "forever" */
+		g_tone_left = SYNTH_HZ / 4;
 }
 
 int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
@@ -106,6 +380,38 @@ int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
 
 	if (!g_locked || samples == NULL || count <= 0 || rate_hz <= 0)
 		return -1;
+
+	/* When the synth owns the DMA, an effect becomes another voice in the loop
+	 * (see the divergence note above) — resample it to the loop's rate and let
+	 * the VBL mix it in, rather than reprogramming the DMA out from under the
+	 * music. */
+	if (g_ring_live) {
+		unsigned long sstep = ((unsigned long)rate_hz << 16) / (unsigned long)SYNTH_HZ;
+		unsigned long spos  = 0;
+		long          n     = (long)(((unsigned long)count
+		                              * (unsigned long)SYNTH_HZ)
+		                             / (unsigned long)rate_hz);
+
+		if (n > (long)sizeof g_sfx_buf)
+			n = (long)sizeof g_sfx_buf;
+		for (i = 0; i < n; i++) {
+			long idx  = (long)(spos >> 16);
+			long frac = (long)(spos & 0xffffUL);
+			long s0, s1;
+
+			if (idx >= count - 1) {
+				s0 = s1 = samples[count - 1];
+			} else {
+				s0 = samples[idx];
+				s1 = samples[idx + 1];
+			}
+			g_sfx_buf[i] = (signed char)(s0 + (((s1 - s0) * frac) >> 16));
+			spos += sstep;
+		}
+		g_sfx_pos = 0;
+		g_sfx_len = n;                  /* the VBL picks it up on the next pass */
+		return 0;
+	}
 
 	/* The CODEC only clocks the eight fixed rates in k_clks, and FRUA's
 	 * effects are sampled at 22254.5454/n (7417 / 11127 Hz) — none of which
@@ -162,18 +468,56 @@ int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
 
 void plat_sound_stop(void)
 {
-	if (g_locked)
-		Buffoper(0);
+	if (!g_locked)
+		return;
+	if (g_ring_live) {
+		/* L7ee0's KillIO. With the synth looping, this cancels the EFFECT —
+		 * killing the DMA would stop the music and could not be restarted
+		 * from interrupt context. */
+		g_sfx_len = 0;
+		g_sfx_pos = 0;
+		return;
+	}
+	Buffoper(0);
 }
 
 int plat_sound_playing(void)
 {
-	/* Buffoper(-1) reads the DMA state back without changing it; the
-	 * play-enable bit clears itself when the buffer runs out (we never set
-	 * repeat). The engine's sfx leaf (L7ee0) spins on this BEFORE its KillIO,
-	 * so a stubbed "never busy" made each effect cut off the one still
-	 * playing — the Mac waits for it to finish. */
+	/* "Is the EFFECT still going?" — L7ee0 spins on this BEFORE its KillIO, so
+	 * a stubbed "never busy" made each effect cut off the one still playing;
+	 * the Mac waits for it to finish.
+	 *
+	 * With the synth looping, the DMA never stops, so the play-enable bit says
+	 * nothing about the effect — track the mixed-in effect instead. Otherwise
+	 * read the DMA state back with Buffoper(-1); the hardware clears the
+	 * play-enable bit itself when a one-shot buffer runs out. */
 	if (!g_locked)
 		return 0;
+	if (g_ring_live)
+		return (g_sfx_pos < g_sfx_len) ? 1 : 0;
 	return (Buffoper(-1) & SB_PLA_ENA) ? 1 : 0;
+}
+
+void plat_sound_shutdown(void)
+{
+	if (!g_locked)
+		return;
+	if (g_snd_vbl_slot >= 0) {              /* unhook before freeing the ring */
+		Supexec(snd_vbl_remove_super);
+		g_snd_vbl_slot = -1;
+	}
+	g_ring_live = 0;
+	g_ft_rec    = NULL;
+	Buffoper(0);
+	Unlocksnd();
+	g_locked = 0;
+	if (g_buf != NULL) {
+		Mfree(g_buf);
+		g_buf      = NULL;
+		g_buf_size = 0;
+	}
+	if (g_ring != NULL) {
+		Mfree(g_ring);
+		g_ring = NULL;
+	}
 }
