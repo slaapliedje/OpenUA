@@ -263,14 +263,22 @@ unchanged. Keys then arrive on their own — Phase 5 was already faithful.
 **LIVE:** click into TAVERN EVENT's "PLAYER READS:" box and type — the text
 appears, word-wraps at the column-38 boundary, and the cursor block tracks.
 
-**Why not the full Mac click sequence?** L2dc2..L2e28 is `cmd 3` (track) → `cmd 4`
-(activate) → commit iff `rec[28]` bit 4. That was tried and is only half-usable
-here: menu buttons, list rows and char-gen all still worked, but **jt169's List
-Manager buttons (ADD / EXIT) never set the commit bit** — their action procs are
-not lifted — so the party-roster dialog froze with no way out. The port's
-force-commit is a stand-in for those missing procs; lifting them is what would
-let the faithful sequence replace it wholesale. Until then the stand-in stays
-and only the focus step is faithful.
+**~~Why not the full Mac click sequence?~~ — IT IS THE SEQUENCE NOW (2026-07-12).**
+L2dc2..L2e28 (`cmd 3` track → `cmd 4` activate → commit iff `rec[28]` bit 4) is
+what the click path runs. The earlier attempt froze jt169's List Manager dialog
+and I blamed unlifted action procs. **That diagnosis was WRONG: it was the
+transposed click latch** (fixed in 3bffc1b). `l31b8` → `jt1132` hands back the
+BUFFERED click, whose (v, h) the port had swapped, so cmd 3's track hit-tested
+against crossed axes, decided the release landed OFF the item, and returned 0 —
+no pick, for every button. With the latch corrected, jt169's Add/Exit, the main
+menu and the Hall menu all set their own commit bit. **No action proc needed
+lifting.** `menu_button_track()` and the `hr[28] |= 0x10; return i;`
+force-commit are both gone.
+
+**One stand-in remains** in the click block: the char-gen radio-container probe.
+That one is real — removing it and re-testing, the RACE/CLASS picks stopped
+moving (stuck on their defaults), so the row's own cmd-4 → container dispatch
+is genuinely unlifted, not a latch artefact.
 
 ~~Also note `menu_button_track()` is a port reimplementation of l1676's cmd-3
 track loop, and it CANNOT simply be replaced by `method(rec, 3, ...)`...~~
