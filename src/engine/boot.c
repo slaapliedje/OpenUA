@@ -16497,8 +16497,11 @@ void frua_areatest_entry(void)
 	 *   - The walk RELOADS its own level, so jt198 must run at FIRE time.
 	 *
 	 * `make EXTRA_CFLAGS="-DFRUA_AREATEST -DFRUA_CBTSND -DFRUA_SKIP_ENTRY_EVENTS"`,
-	 * then: press 'k', Return a few times, then 'q' (QUICK) to let the computer
-	 * fight — the hit/miss and spell sounds follow. */
+	 * then press 'k' and Return a few times. The player turn is then driven by
+	 * the ARROW KEYS (move into a monster to attack; "CAN'T GO THERE" is l1162
+	 * rejecting an illegal step) — QUICK ('q') is a convenience, not a
+	 * requirement. Arrow-driven play produces MORE sound than QUICK does: the
+	 * melee attack sfx jt52(8)/jt52(13) as well as jt52(11). */
 	dbg_log("cbtsnd: ready - press k in the walk to fight");
 #endif
 	jt948();
@@ -47113,12 +47116,15 @@ static void          jt543(long rec_l);
 static unsigned char jt545(short flag);
 
 /* CODE 13+0x08b4 — the player action dispatcher / combat command loop (the
- * action-tier keystone). Faithful structural skeleton (CLAUDE.md level 2): the
- * outer gate + the command loop + the 13-arm JT[3] command dispatch + the
- * JT[1] roster-nav/special-key path are faithful; the command handlers (l1162
- * Move/Attack, l0d16 menu, l272a Guard, l1842/l5008 flee, l1714 target, l26ea
- * auto-resolve, l609a magic, jt547/jt534) land as PROBE stubs for their own
- * cards (wall Clusters 2/3).
+ * action-tier keystone). FULL: the outer gate, the command loop, the 13-arm
+ * JT[3] command dispatch and the JT[1] roster-nav/special-key path are
+ * faithful, and so are the command handlers — l1162 (Move/Attack), l0d16
+ * (the command menu + keystroke read), l272a (Guard), l1842/l5008 (flee),
+ * l1714 (target), l26ea (auto-resolve), l609a (magic) and jt547/jt534 are all
+ * lifted.  (An earlier revision of this comment called them PROBE stubs.  They
+ * are not: the player turn works from the keyboard — arrow keys move and
+ * attack, "CAN'T GO THERE" is l1162 rejecting an illegal step — and QUICK is a
+ * convenience, not a requirement.)
  *
  * If the actor is not player-controllable (sub +382 == 0) it auto-resolves via
  * l26ea. Otherwise: magic off, run any FORCED action queued at mc[0] (jt599 +
@@ -49699,10 +49705,14 @@ static void l0006(void)
 
 /* JT[511] (CODE 13+0x05a6) — the COMBAT MAIN LOOP (and the other half
  * of the -24070 registration: installs jt538 at entry, l0006 restores
- * jt601 on the way out).  Structural lift — the round/actor control
- * flow and every JT call are faithful; the heavy locals (l076e per-
- * actor turn, l0434 initiative build, l102a round bookkeeping, l4f22
- * staging, l0116 aftermath) are PROBE stubs pending their own lifts.
+ * jt601 on the way out).  FULL: the round/actor control flow and every
+ * JT call are faithful, and so are the heavy locals — l076e (per-actor
+ * turn), l0434 (initiative build), l102a (round bookkeeping), l4f22
+ * (staging) and l0116 (aftermath) are all lifted.  (An earlier revision
+ * of this comment called them PROBE stubs; they have not been for some
+ * time, and the claim sent a later session hunting for work that did
+ * not exist.  Combat runs end to end: the tactical map renders and the
+ * player turn is driven by the arrow keys through l08b4 -> l1162.)
  *   Round loop: jt490 message flush, jt541 prep over the -27928 party,
  *   clear the game record's byte 46, l0434, then walk the -22624
  *   initiative slots (index -22332, capped at 72): l076e per actor,
