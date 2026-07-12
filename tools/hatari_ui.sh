@@ -296,8 +296,27 @@ stop)
 	pkill -9 -x hatari 2>/dev/null || true
 	echo "hatari_ui: stopped"
 	;;
+quit)
+	# GRACEFUL shutdown, via the command fifo. `stop` SIGKILLs, which is fine
+	# for a screenshot run but truncates any file Hatari finalizes on close —
+	# an --avirecord AVI keeps its RIFF/LIST sizes at 0 and is unreadable. Use
+	# this whenever a recording is open. Needs --confirm-quit off (the sound
+	# capture in driver.sh passes it), else Hatari waits on a dialog.
+	if [[ -p "$STATE/cmd.fifo" ]]; then
+		echo "hatari-shortcut quit" > "$STATE/cmd.fifo" 2>/dev/null || true
+	fi
+	for _ in $(seq 1 30); do
+		pgrep -x hatari >/dev/null || break
+		sleep 1
+	done
+	if pgrep -x hatari >/dev/null; then
+		echo "hatari_ui: graceful quit timed out — forcing" >&2
+		pkill -9 -x hatari 2>/dev/null || true
+	fi
+	echo "hatari_ui: quit"
+	;;
 *)
-	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | dbg <debugger-cmd> | shot <png> | shots <png> [thresh] [tries] | dump [png] | log | stop
+	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | dbg <debugger-cmd> | shot <png> | shots <png> [thresh] [tries] | dump [png] | log | quit | stop
   env: HATARI_BIN=hrdb (tattlemuss debugger fork)  READY_MARKER=<regex>|-  READY_TIMEOUT=<s>"
 	;;
 esac

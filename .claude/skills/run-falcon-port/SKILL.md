@@ -15,12 +15,11 @@ All paths below are relative to the repo root.
 
 ## Prerequisites
 
-Host tools (verified present in this container; **Garuda/Arch → `pacman`**, not
-apt). Names are the Arch packages that own each binary:
+This box is **Linux Mint 22.2 (Ubuntu 24.04 base) → `apt`**. (An earlier revision
+of this skill said Arch/`pacman`; that was wrong for this machine.)
 
 ```bash
-sudo pacman -S --needed hatari xorg-server-xvfb imagemagick \
-  xorg-xwininfo xorg-xdpyinfo xdotool python
+sudo apt install hatari xvfb imagemagick x11-utils xdotool python3
 ```
 
 - **Falcon TOS ROM** ships with the `hatari` package at
@@ -34,6 +33,38 @@ sudo pacman -S --needed hatari xorg-server-xvfb imagemagick \
   `data/work/gamedata` here. `run`/`screenshot` need it; without it the engine
   boots "with no resources" (a near-empty screen). Staging is documented in
   `docs/mac-release.md` (`make gamedata DSN=HEIRS.DSN`).
+
+## Newer Hatari (2.6.1) — already built at `~/opt/hatari`
+
+Ubuntu/Mint ship **2.4.1**. A 2.6.1 build lives at `~/opt/hatari/bin/hatari` and
+`driver.sh` picks it up automatically (override with `HATARI_BIN`). Nothing to do
+unless it's missing.
+
+If you need to rebuild it: Debian's own 2.6.1 `.deb` will NOT run here (it wants
+glibc 2.42; Mint has 2.39), so build from source — and `sudo` needs a password on
+this box, so get the dev headers WITHOUT root by unpacking the debs into a
+sysroot:
+
+```bash
+apt-get download libsdl2-dev zlib1g-dev libpng-dev   # works as a normal user
+for d in *.deb; do dpkg-deb -x "$d" sysroot; done
+# the dev .so symlinks point at runtime libs that live in the SYSTEM, not the
+# sysroot — repoint the dangling ones or the link fails:
+ln -sf /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0.3000.0 sysroot/usr/lib/x86_64-linux-gnu/libSDL2.so
+ln -sf /usr/lib/x86_64-linux-gnu/libz.so.1.3            sysroot/usr/lib/x86_64-linux-gnu/libz.so
+
+curl -LO https://github.com/hatari/hatari/archive/refs/tags/v2.6.1.tar.gz
+# cmake is not installed either — Kitware's binary tarball needs no root.
+cmake -S hatari-2.6.1 -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=$HOME/opt/hatari \
+  -DCMAKE_LIBRARY_PATH=$PWD/sysroot/usr/lib/x86_64-linux-gnu \
+  -DCMAKE_C_FLAGS="-I$PWD/sysroot/usr/include/x86_64-linux-gnu -I$PWD/sysroot/usr/include"
+cmake --build build -j"$(nproc)" && cmake --install build
+```
+
+The `-I .../x86_64-linux-gnu` is load-bearing: Ubuntu's `SDL_config.h` is a shim
+that includes `SDL2/_real_SDL_config.h` from the arch-specific include dir, which
+GCC only searches by default under `/usr`.
 
 ## Build
 
@@ -73,8 +104,45 @@ D=.claude/skills/run-falcon-port/driver.sh
 "$D" wait 'regex' [n]      # block until the conout log has >= n matches
 "$D" log                   # dump the conout log (engine printf / dbg_log)
 "$D" dbg '<cmd>'           # run a Hatari-debugger command (see below)
+"$D" quit                  # GRACEFUL shutdown (finalizes an open AVI recording)
 "$D" stop                  # kill Hatari (leaves Xvfb up for reuse)
 ```
+
+## Sound (agent path) — how to check audio without ears
+
+A screenshot can't tell you whether the DMA path is silent, so `driver.sh sound`
+records the emulator's audio and reports it:
+
+```bash
+"$D" sound /tmp/frua-sound.wav     # ~60s: build+boot+record+quit+analyze
+```
+
+It builds the **`FRUA_SNDTEST`** harness (`src/engine/boot.c` — fires four sfx
+through `jt52` right after boot, and logs the two gates `-806` / `-17444` so a
+silent run says WHICH gate closed), boots with `--avirecord`, quits Hatari
+gracefully, and runs `tools/avi_audio.py` to print every burst of sound:
+
+```
+4 burst(s) of sound:
+  #1  start  33.33s  dur  0.98s  peak  7872  ~ 386 Hz dominant
+  ...
+```
+
+Four bursts = the sfx path is live end-to-end. `NONE — the DMA path produced
+silence` (exit 1) = it is not. Afterwards run plain `make` to get the stock
+binary back (the harness build is left in place).
+
+Sound gotchas, all of which cost real time to find:
+
+- **Quit Hatari, don't kill it.** An `--avirecord` AVI is finalized on close;
+  `stop` SIGKILLs, leaving RIFF sizes at 0 and the file unparseable. Use `quit`
+  (needs `--confirm-quit off`, which `sound` passes).
+- **Record at real speed** (`--fast-forward no`), or the samples are dropped.
+- **Hatari writes UNPADDED AVI chunks**, against the spec — a spec-conformant
+  parser desyncs a byte on the first odd-sized chunk and finds no audio at all.
+  `tools/avi_audio.py` resyncs; don't hand this AVI to a strict reader.
+- `"main: sound chip locked"` in the log is **success** — it's the engine
+  reporting `Locksnd()` worked, not an error.
 
 **Debugger (`dbg`).** Stock Hatari 2.4.1+ speaks the `hatari-debug` protocol
 over the cmd-fifo — no fork needed. Boot with `HATARI_BIN=hrdb "$D" start` to
