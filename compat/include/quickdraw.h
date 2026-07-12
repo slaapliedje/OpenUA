@@ -393,6 +393,8 @@ void qd_init_port_defaults(GrafPtr port);
  */
 void EraseRect(const Rect *r);  /* fill r with the port's background */
 void PaintRect(const Rect *r);  /* fill r with the port's foreground */
+void qd_xor_rect(const Rect *r, unsigned char value);
+                                /* XOR-fill r (jt1161's bit-8 invert mode) */
 void FrameRect(const Rect *r);  /* outline r in the port's foreground */
 void PaintOval(const Rect *r);  /* fill r's inscribed oval, fg */
 void FrameOval(const Rect *r);  /* outline r's inscribed oval, fg */

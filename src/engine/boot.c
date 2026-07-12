@@ -7342,6 +7342,18 @@ static void jt1161(short top, short left, short bottom, short right,
 		}
 	}
 
+	/* Fill-word bit 8 = XOR mode (jt333 composes these: |0x100 + the
+	 * nibble-XOR value; the 0x8N family maps to 280 = XOR 24). The Mac
+	 * L19be/L0888 pixel run is pixel = (pixel & mask) ^ value with mask
+	 * 0xFFFF when bit 8 is set, mask 0 (= the solid fill below) when
+	 * clear. The menu highlight (l3e60) paints through this — XOR twice
+	 * restores the row, so labels survive the selection bar moving. */
+	if (fill & 0x100) {
+		SetRect(&r, cl, ct, cr, cb);
+		qd_xor_rect(&r, (unsigned char)(fill & 0xff));
+		return;
+	}
+
 	/* Default arm (@0x1b8c) and the encounter arm (L19be) converge here under
 	 * the shim: set the fg colour from the (possibly remapped) low byte and
 	 * PaintRect the clipped rect. */
@@ -60070,12 +60082,26 @@ static void l5150(short top, short left, short width, const unsigned char *item,
 		style = (short)((style & 0xf0) | 7 | 256);   /* 0x537e */
 
 	if (item[0] == 40) {                             /* 0x5392 — '(' label */
+		/* The Mac template "%(%c%1g%)" runs in the jt400 VM: %( loads
+		 * the repeat count from the first arg (the width), %c emits
+		 * item[1], %1g rewinds the arg cursor, %) loops — i.e. emit
+		 * item[1] `width` times (the separator dash line "(-" ->
+		 * '-' x width). The port's jt1089 formats via vsnprintf over
+		 * C varargs (where %( / %g are meaningless), so pre-expand
+		 * the repeat and pass the result as a plain string. */
+		char  sep[80];
+		short n = (icon != 0) ? (short)(width - 2) : width;
+		short j;
+
+		if (n > (short)(sizeof sep - 1))
+			n = (short)(sizeof sep - 1);
+		for (j = 0; j < n; j++)
+			sep[j] = (char)item[1];
+		sep[(n > 0) ? n : 0] = 0;
 		if (icon != 0)                           /* 0x539c */
-			jt1089(x0, (short)(left + 4), style, "%(%c%1g%)",   /* 0x53cc */
-			       (short)(width - 2), (short)(signed char)item[1]);
+			jt1089(x0, (short)(left + 4), style, "%s", sep);    /* 0x53cc */
 		else                                     /* L53d8 */
-			jt1089(x0, left, style, "%(%c%1g%)",                /* 0x53fa */
-			       width, (short)(signed char)item[1]);
+			jt1089(x0, left, style, "%s", sep);                 /* 0x53fa */
 	} else if (flags2 & 0x02) {                      /* 0x5406 btst #1 fp@27 — right-justify */
 		jt1089(x0, (short)((width - jt423((const char *)item)) * 2 + left),  /* 0x5432 */
 		       style, (const char *)item);
@@ -66802,14 +66828,29 @@ static void jt1071(const char *fmt, ...)
 /* --- band-5 CODE 8 trio + jt93 ---------------------------------------- */
 
 /* L35d6 (CODE 8+0x35d6 — NOT jt416's CODE 3+0x35d6) — paint one
- * command-bar menu title bar. Leaf PROBE stub pending its own
- * lift. */
+ * command-bar menu TITLE cell: style 143 (white-on-grey; 248 in the
+ * B&W deep mode when on the bar row), and for the bar row (y==8000)
+ * remap the top to pixels (jt1135 of 8001, then +1) and clear the
+ * highlight bit before handing the cell to the item painter l5150.
+ * Full lift of the asm (the args map to l5150's cmdchar/flags1/icon/
+ * flags2 slots: z/hot/key/style). */
 static void l35d6_c8(short y, short x, short w, long label, short z,
                      short hot, short key, short style)
 {
+	short style6 = 143;                              /* fp@(-4) */
+	short scratch;                                   /* fp@(-2) */
+
 	PROBE("l35d6_c8");
-	(void)y; (void)x; (void)w; (void)label;
-	(void)z; (void)hot; (void)key; (void)style;
+	if (jt1200() == 3 && y == 8000)                  /* 0x35e0 / 0x35ea */
+		style6 = 248;                            /* 0x35f2 */
+	if (y == 8000) {                                 /* 0x35f8 — the bar row */
+		y = 8001;                                /* 0x3600 */
+		jt1135(y, x, &y, &scratch);              /* 0x3616 — to pixels */
+		y++;                                     /* 0x361e */
+		style = (short)(style & ~0x10);          /* 0x3622 — bclr #4 */
+	}
+	l5150(y, x, w, (const unsigned char *)(uintptr_t)label,
+	      style6, z, hot, key, style);               /* 0x364c */
 }
 
 /* JT[343] (CODE 8+0x58e0) — paint every registered command-bar
@@ -80626,7 +80667,13 @@ static void l3e60(void *rec_v, short *sel, short *out16, void *sc_v)
 	}
 
 	if (out16 != NULL)                                       /* 0x4122 */
-		*out16 = (flag == -1) ? *sel : 0;               /* 0x4128 */
+		/* Mac 0x4128: cmpiw #-1 -> beq (d0=0), else d0=*sel — i.e.
+		 * the DRAW path latches *out16 = *sel (so the caller's
+		 * oldsel can be un-highlighted next pass); only the SCROLL
+		 * path (flag == -1) writes 0. The old lift had the arms
+		 * transposed, so l37f6's clear never fired and every
+		 * highlighted row stayed inverted. */
+		*out16 = (flag == -1) ? (short)0 : *sel;        /* 0x4128 */
 }
 
 /* L37f6 (CODE 11 + 0x37f6) — the GEO editor's pulldown MENU-BAR modal loop.  The
