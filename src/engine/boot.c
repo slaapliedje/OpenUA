@@ -404,8 +404,8 @@ static unsigned char g_22231[5];        /* A5-22231..-22227 — 5 contiguous fla
  * value-returning stubs return 0 — jt315() in particular must, or the play
  * loop below would never terminate.
  */
-/* jt398's CODE-3 callees — all stubs. */
-static void  l32e2(const char *prompt, short a, long b)  { PROBE("l32e2"); }       /* CODE 3 + 0x32e2 — prompt */
+/* jt398's CODE-3 callees. (L32e2 IS jt418 — the SFGetFile open dialog —
+ * lifted below; jt398's '%' arm calls it directly.) */
 
 /* L322c (CODE 3 + 0x322c) — path-type classifier. Returns 0 for a
  * normal HFS path; non-zero only for the '#vol:...' search-path
@@ -513,7 +513,7 @@ static short jt418(const char *name, short flags, ...)
 	PROBE("jt418");
 	(void)flags;
 	l45d6(buf, name);                        /* the default-name prompt */
-	/* _Pack3 SFPutFile would run here; reply.good = false. */
+	/* _Pack3 selector 2 = SFGetFile would run here; reply.good = false. */
 	return -1;
 }
 
@@ -567,15 +567,14 @@ static short jt435(const char *path)
  * jt398 — CODE 3 + 0x37e4. Phase-3 control-file probe: opens / probes a
  * file by path. Two top-level branches:
  *
- *   - if `path` starts with '%', call l32e2 with "File to open" — likely
- *     a prompt / standard-file dialog
+ *   - if `path` starts with '%', call jt418 (= L32e2) with "File to open" —
+ *     the SFGetFile standard-file dialog; its result is discarded
  *   - otherwise: l322c(path) to test the path; if it returned non-zero,
  *     transform via l31fc; copy into a local 128-byte buffer with l45d6;
  *     open via l328e(buf, 0, flags) and return its result
  *
  * Engine code calls this with ":DISK4:ALWAYS.CTL" + flags=0 from
- * ua_main's phase 3 (the "small / large screen mode" branch). The
- * 5 callees ship as PROBE-instrumented stubs.
+ * ua_main's phase 3 (the "small / large screen mode" branch).
  */
 static short jt398(const char *path, short flags)
 {
@@ -586,7 +585,7 @@ static short jt398(const char *path, short flags)
 	if (path == NULL)
 		return 0;
 	if (path[0] == '%') {
-		l32e2("File to open", 0, 0L);
+		(void)jt418("File to open", (short)0, 0L);   /* L32e2 IS jt418 */
 		return 0;
 	}
 	status = l322c(path);
@@ -33779,7 +33778,7 @@ static void  jt419(char *path, const char *ext, short flags)
 		jt384(p, ext);
 	}
 }
-static void  l1c92(void)                         { PROBE("L1c92"); }
+static void  jt583(void);   /* CODE 15 + 0x1c92 — the vault flush; L1c92 IS jt583 (alias map) */
 /* l1cd2 = JT[586] (CODE 15+0x1cd2, the pending-treasure vault save) —
  * was a PROBE stub shadowing the full jt586 lift; repointed 2026-07-04. */
 static void  jt586(void);
@@ -34598,7 +34597,7 @@ static short l1f3e_c6(const unsigned char *m)
 /* L1c92 (CODE 6 + 0x1c92) — a second adjustment keyed on player[119] (used by
  * L08f4 as a magic-weapon to-hit term): 0-2 -> -4, 3-5 -> -3..-1, 6-15 -> 0,
  * 16-18 -> +1..+3, 19-20 -> +3, 21-23 -> +4, 24-25 -> +5, else 0. Named
- * l1c92_c6: the bare l1c92 is an unrelated CODE save-helper stub. */
+ * l1c92_c6: distinct from CODE 15's L1c92, which IS jt583 (the vault flush). */
 static short l1c92_c6(const unsigned char *m) __attribute__((unused));
 static short l1c92_c6(const unsigned char *m)
 {
@@ -35030,8 +35029,9 @@ static void jt28(long arg0, long item, short s16, short s18,
  * The L00e0(fn, JT[580]) callback writes the actual file bytes —
  * JT[580] is the per-byte write hook the file I/O loop calls.
  *
- * Level-2 lift: structure preserved. Of its 11 callees only l005a
- * (save-medium reachable?) and l1c92 are still stubs. The
+ * Level-2 lift: structure preserved. Its callees are now all lifted (l005a
+ * is the save-medium precondition; the old `l1c92` stub was jt583, the vault
+ * flush, and is repointed). The
  * player handle deref (g_a5_-28006) is NULL-guarded since our boot
  * path has no player data yet — without the design-load chain, no
  * one populates g_a5_-28006. iter_guard caps the slot-picker loop
@@ -35106,7 +35106,7 @@ static void   jt585(void)
 	}
 
 	if (g_a5_22218 != slot_char) {
-		l1c92();
+		jt583();
 		g_a5_22218 = slot_char;
 		jt586();
 	}
@@ -64409,18 +64409,6 @@ static void jt1150(short top, short left, short bottom, short right)
 	(void)top; (void)left; (void)bottom; (void)right;
 }
 
-/* CODE 22 local L3792 (cell -> pixel transform with scroll) — leaf
- * PROBE stub; reports failure through -1 coords. (L3a1a, the cell
- * redraw worker, is already lifted earlier in the file.) */
-static void l3792(short y, short x, short b1, short b2,
-                  short *out_py, short *out_px)
-{
-	PROBE("l3792");
-	(void)y; (void)x; (void)b1; (void)b2;
-	*out_py = -1;
-	*out_px = -1;
-}
-
 /* JT[295] (CODE 22+0x3998) — redraw one map cell: L3792 transforms
  * (y, x) to pixels (negative = off-view, skip), JT[1150] marks the
  * cell-sized rect dirty, L3a1a repaints, JT[1130] (noop) closes.
@@ -64432,8 +64420,8 @@ static void jt295(short y, short x, short b1, short b2, short b3)
 	short py = 0, px = 0;
 
 	PROBE("jt295");
-	l3792(y, x, (short)(unsigned char)b1, (short)(unsigned char)b2,
-	      &py, &px);
+	jt296(y, x, (short)(unsigned char)b1, (short)(unsigned char)b2,
+	      &py, &px);          /* L3792 IS jt296 (alias map) */
 	if (py < 0 || px < 0)
 		return;
 	jt1150(py, px, (short)(py + g_a5_word(-12272)),
@@ -66594,8 +66582,8 @@ static void jt279(short y, short x, short b1, short b2, short b3)
 	short cell = g_a5_word(-12272);
 
 	PROBE("jt279");
-	l3792(y, x, (short)(unsigned char)b1, (short)(unsigned char)b2,
-	      &py, &px);
+	jt296(y, x, (short)(unsigned char)b1, (short)(unsigned char)b2,
+	      &py, &px);          /* L3792 IS jt296 (alias map) */
 	if (py < 0 || px < 0)
 		return;
 
