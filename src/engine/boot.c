@@ -33089,15 +33089,71 @@ exit_check:
 
 /* stdarg.h / stdio.h moved to the top so jt452 can use va_list too. */
 
+/* ua_fmt_pct_l — the one THINK C conversion a C vsprintf cannot spell.
+ *
+ * In FRUA's printf core (L3fb8, lifted here as jt400) 'l' is a first-class
+ * CONVERSION, not C's length modifier.  The 0x4296 arm takes the arg as a
+ * long, seeds base 11, then reads ONE more char as a radix override —
+ * d -> 11, u -> 10, x -> 16, o -> 8 (base 10|1: bit 0 is the signed flag) —
+ * and for any other char runs the 0x42de default, which PUSHES THAT CHAR
+ * BACK (`subql #1,%fp@(8)`) and keeps base 11.  So a bare "%l" is legal and
+ * means signed decimal long: exactly C's "%ld".  %ld/%lu/%lx/%lo already
+ * coincide with C, so bare %l is the whole gap.
+ *
+ * It is not a curiosity — STRS has 12 of them ("%l", "Tile too large %l/%d",
+ * "FCInsDel: Invalid offset %l", "sound driver, need %l bytes more."), and
+ * handed "%l" a C vsprintf emits NOTHING while still eating the argument.
+ * That is why l3806_c12's XP staging buffer and the shop's price column came
+ * out blank.  The jt400 VM gets this right; the vsprintf shims (jt394/jt488,
+ * and ua_vsprintf_fill on the print path) need the rewrite.
+ *
+ * Rewrites bare %l -> %ld into `buf` and returns the format to actually run;
+ * a format too long for `buf` is returned unchanged rather than truncated. */
+static const char *ua_fmt_pct_l(const char *fmt, char *buf, size_t n)
+{
+	size_t      i = 0;
+	const char *p = fmt;
+
+	if (fmt == NULL || strchr(fmt, 'l') == NULL)
+		return fmt;                      /* the overwhelmingly common case */
+	while (*p != 0) {
+		if (i + 3 >= n)
+			return fmt;              /* won't fit — run it unrewritten */
+		if (*p != '%') {
+			buf[i++] = *p++;
+			continue;
+		}
+		buf[i++] = *p++;                 /* the '%' */
+		if (*p == '%') {                 /* %% is not a conversion */
+			buf[i++] = *p++;
+			continue;
+		}
+		while (*p != 0 && (*p == '-' || *p == '+' || *p == ' '
+		    || *p == '#' || *p == '.' || (*p >= '0' && *p <= '9'))) {
+			if (i + 3 >= n)
+				return fmt;
+			buf[i++] = *p++;         /* flags + field width */
+		}
+		if (*p != 'l')
+			continue;                /* the conversion copies next pass */
+		buf[i++] = *p++;                 /* the 'l' */
+		if (*p != 'd' && *p != 'u' && *p != 'x' && *p != 'o')
+			buf[i++] = 'd';          /* bare %l == %ld (the 0x42de arm) */
+	}
+	buf[i] = 0;
+	return buf;
+}
+
 static const char *jt488(const char *fmt, ...)
 {
-	va_list ap;
+	va_list     ap;
+	char        fbuf[G_A5_10362_LEN];
+	const char *f;
 
 	PROBE("jt488");
-	if (fmt == NULL)
-		fmt = "";
+	f = ua_fmt_pct_l(fmt != NULL ? fmt : "", fbuf, sizeof fbuf);
 	va_start(ap, fmt);
-	vsnprintf(g_a5_10362, G_A5_10362_LEN, fmt, ap);
+	vsnprintf(g_a5_10362, G_A5_10362_LEN, f, ap);
 	va_end(ap);
 	return g_a5_10362;
 }
@@ -33122,6 +33178,7 @@ static int jt394(char *buf, const char *fmt, ...)
 {
 	va_list ap;
 	int     n;
+	char    fbuf[G_A5_10362_LEN];
 
 	PROBE("jt394");
 	if (buf == NULL)
@@ -33144,9 +33201,11 @@ static int jt394(char *buf, const char *fmt, ...)
 		const char *inner = va_arg(ap, const char *);
 		void       *iargs = va_arg(ap, void *);
 
-		n = vsprintf(buf, inner ? inner : "", (va_list)iargs);
+		n = vsprintf(buf, ua_fmt_pct_l(inner ? inner : "",
+		                               fbuf, sizeof fbuf),
+		             (va_list)iargs);
 	} else {
-		n = vsprintf(buf, fmt, ap);
+		n = vsprintf(buf, ua_fmt_pct_l(fmt, fbuf, sizeof fbuf), ap);
 	}
 	va_end(ap);
 	return n;
@@ -62859,12 +62918,14 @@ static void jt1072(short n);
 static void ua_vsprintf_fill(char *out, const char *fmt, va_list ap)
 {
 	char *o = out;
+	char  fbuf[G_A5_10362_LEN];
 
 	if (out == NULL || fmt == NULL) {
 		if (out != NULL)
 			*out = 0;
 		return;
 	}
+	fmt = ua_fmt_pct_l(fmt, fbuf, sizeof fbuf);   /* bare %l == %ld */
 	while (*fmt != 0) {
 		if (*fmt != '%') {
 			*o++ = *fmt++;
