@@ -106,6 +106,27 @@ python3 tools/art_convert.py data/work/gamedata/SOME.DSN/*.TLB   # -> *.ctl
 
 Run over AGAINST THE GIANTS: **75 of 79 art files converted**, 0 bus errors.
 
+### ⚠️ Wall libraries do NOT convert yet (found 2026-07-13 with Pool of Radiance)
+
+`8x8db`/`8x8dc` are a **container-of-containers** (10 wall SETS x 48 pieces).
+`convert()` now recurses into them — but installing a converted wall library over
+the base game's still renders a **BLACK 3D view**. 423 of Game39's 432 wall pieces
+parse as plain tiles; **9 fall into `_convert_entry`'s "opaque" fallback**, which
+copies a payload it does not understand straight through. That fallback is proven
+only for the *picture* palettes of the Yezukriis pair, and this is what it looks
+like when the assumption is wrong. The black view says something further is also
+wrong — the per-set colour-range/palette is the prime suspect
+(`docs/glib-palette-subsystem.md`). **Do not ship converted wall art.**
+
+### ★ How a "hack" is actually installed
+
+A whole-library hack is **NOT a design-dir override**. Dropping `8x8db.ctl` into
+the `.DSN` folder changes nothing — the engine builds per-id names
+(`8x8db<id>.ctl`) and otherwise reads the base library from the **install root**.
+A hacked module's replacement libraries must overwrite the ROOT files
+(`data/work/gamedata/8X8DB.CTL`). That is what "replaced base-game files" means,
+and it is why art-hacked modules need an install step, not just a convert step.
+
 **Refused (by design, loudly — never silently mangled):**
 - **piece type 2 (RLE)** — the two releases use *different* codecs. The Mac side
   is PackBits (`jt1171` = `_UnpackBits`); the DOS side is not decoded yet. In

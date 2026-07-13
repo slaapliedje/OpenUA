@@ -44,12 +44,30 @@ PIXELS (the part a byte-swap alone will never fix)
 Deplanarising HLIB yields the Mac bytes verbatim (12/12 tiles in the Yezukriis
 pair, byte-exact).
 
-NOT SUPPORTED YET: piece type 2 (low nibble of `flags`) is RLE-compressed and
-the two releases use *different* codecs -- the Mac side is PackBits (jt1171 =
-_UnpackBits), the DOS side is its own scheme and is not yet decoded.  In the
-Yezukriis pair this is exactly the two BIGP (big picture) payloads.  Such
-entries are REFUSED, loudly, rather than silently mangled -- see
-`UnsupportedPiece`.
+NOT SUPPORTED YET
+-----------------
+1. **piece type 2** (low nibble of `flags`) is RLE-compressed and the two
+   releases use *different* codecs -- the Mac side is PackBits (jt1171 =
+   _UnpackBits), the DOS side is its own scheme and is not decoded.  In the
+   Yezukriis pair this is exactly the two BIGP (big picture) payloads.  These are
+   REFUSED loudly -- see `UnsupportedPiece`.
+
+2. **THE WALL LIBRARIES (8x8db / 8x8dc) DO NOT CONVERT CORRECTLY.**  They are a
+   container-of-containers (10 wall SETS x 48 pieces) and `convert()` does
+   recurse into them -- but installing a converted wall library over the base
+   game's renders a **BLACK 3D view** in the engine.  Verified with Game39 (Pool
+   of Radiance).  423 of its 432 wall pieces parse as plain tiles and 9 fall into
+   the `_convert_entry` "opaque" fallback below, which copies a payload it does
+   not understand straight through -- so at minimum those 9 are garbage, and the
+   black view says something further is wrong (the per-set palette/colour-range
+   is the prime suspect; see docs/glib-palette-subsystem.md).
+   **Do not ship converted wall art until this is root-caused.**  Pictures and
+   sprites are fine -- those are proven byte-exact against real Mac art.
+
+CAUTION: the "opaque" fallback in `_convert_entry` (payload copied verbatim when
+the geometry does not describe it) is *proven* only for the picture palettes of
+the Yezukriis pair.  It is a silent passthrough, and item 2 is what it looks like
+when that assumption is wrong.
 """
 import os
 import struct
@@ -167,8 +185,23 @@ def _convert_entry(ent, to_mac):
     return struct.pack(dst + "Hhh", rows, xhot, yhot) + bytes([new_stride, new_flags]) + body
 
 
+def _swap_u16_array(b):
+    """Byte-swap a flat u16 array (the wall library's index entry)."""
+    out = bytearray(b)
+    for i in range(0, len(b) - 1, 2):
+        out[i], out[i + 1] = b[i + 1], b[i]
+    return bytes(out)
+
+
 def convert(data, to=None):
-    """Convert a whole container.  `to` = b'GLIB' | b'HLIB' (default: the other one)."""
+    """Convert a whole container.  `to` = b'GLIB' | b'HLIB' (default: the other one).
+
+    Containers NEST.  The wall libraries (8x8db/8x8dc) are a GLIB-of-GLIBs: their
+    `tag` is the magic itself, and each entry is a complete sub-container (one
+    wall SET, 48 pieces).  Treating those entries as flat tiles leaves the inner
+    containers in the source byte order — the engine then reads garbage and the
+    3D view goes BLACK, which is exactly what happened before this recursed.
+    """
     c = parse(data)
     if to is None:
         to = GLIB if c["magic"] == HLIB else HLIB
@@ -177,7 +210,11 @@ def convert(data, to=None):
     to_mac = (to == GLIB)
     e = ">" if to_mac else "<"
 
-    entries = [_convert_entry(x, to_mac) for x in c["entries"]]
+    if c["tag"] in (HLIB, GLIB):                     # container-of-containers
+        entries = [convert(x, to) if x[:4] in (HLIB, GLIB) else _swap_u16_array(x)
+                   for x in c["entries"]]
+    else:
+        entries = [_convert_entry(x, to_mac) for x in c["entries"]]
 
     # Rebuild the offset table.  Entry sizes are preserved by every transform we
     # support, so offsets carry over -- but recompute rather than assume.
@@ -187,11 +224,14 @@ def convert(data, to=None):
         off += len(x)
     offsets.append(off)
 
+    # A nested library names its own magic in `tag` — retarget that too.
+    tag = to if c["tag"] in (HLIB, GLIB) else c["tag"]
+
     out = bytearray()
     out += to
     out += struct.pack(e + "I", off)
     out += struct.pack(e + "HH", c["count"], c["flags"])
-    out += c["tag"]
+    out += tag
     out += struct.pack(e + "%dI" % (c["count"] + 1), *offsets)
     for x in entries:
         out += x
