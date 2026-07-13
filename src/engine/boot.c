@@ -16543,6 +16543,20 @@ static void cg_char_fn(short slot, char *fn)
 	fn[9]  = '.'; fn[10] = 'C'; fn[11] = 'H'; fn[12] = 'R';
 }
 
+/* C-string form of cg_char_fn. The .cch openers (L00e0 / l_cch_read) take a C
+ * string and convert it themselves, where the File Manager shim calls above
+ * take the Pascal form — so the roster needs both spellings of the same name. */
+static void cg_char_fn_c(short slot, char *fn)
+{
+	char p[16];
+	short i;
+
+	cg_char_fn(slot, p);
+	for (i = 0; i < p[0]; i++)
+		fn[i] = p[i + 1];
+	fn[i] = 0;
+}
+
 static void jt590(void *entry_v);        /* CODE 15+0x1b74 party-append (below) */
 
 /* Party membership IS the -27928 list now (the faithful primary model —
@@ -16674,12 +16688,27 @@ static void node_pool_init(void)
 }
 
 /* Write each pool character to its own CHARnnnn.CHR file; delete the files
- * for the now-unused higher slots so a removed character doesn't linger. */
+ * for the now-unused higher slots so a removed character doesn't linger.
+ *
+ * The payload is the FAITHFUL .cch stream (L00e0 + JT[578]): the 398-byte
+ * record, then each inventory item's 18 data bytes (containers followed by
+ * their sub-items), then the spell list. It is NOT a raw dump of the pool slot.
+ *
+ * That distinction is the whole point. A 512-byte blit of the slot also
+ * persists the record's four POINTER fields — rec+0 (party next), rec+4 (spell
+ * head), rec+8 (inventory head), rec+64 (sub-record) — which are live heap
+ * addresses. Reloading them in a fresh process hands the engine dangling
+ * pointers into a dead heap: JT[878] walks rec+4, follows a node whose .next is
+ * a garbage -1, and bus-errors (the "garbled roster" crash). It also cannot
+ * represent the item nodes at all, so equipment silently vanished and every
+ * inventory-derived stat (AC via jt21) was computed from whatever happened to
+ * be at those addresses. JT[578] writes the list CONTENTS and its counterpart
+ * JT[577] rebuilds the chains from fresh pool nodes on load, which is why the
+ * Mac never has this problem. */
 static void save_roster(void)
 {
-	short i, refnum;
-	long  n;
-	char  fn[16];
+	short i;
+	char  fn[16], fnc[16];
 
 	for (i = 0; i < 16; i++) {
 		cg_char_fn(i, fn);
@@ -16689,15 +16718,9 @@ static void save_roster(void)
 		 * the live -27928 node addresses valid; see l15e2). Holes get no
 		 * .CHR file, so the on-disk pool stays a clean set. */
 		if (i < cg_pool_count && cg_pool[i][96] != 0) {
-			(void)Create((ConstStr255Param)fn, 0,
-			             0x46525541L /* 'FRUA' */,
-			             0x53415645L /* 'SAVE' */);
-			if (FSOpen((ConstStr255Param)fn, 0, &refnum) == noErr) {
-				(void)SetEOF(refnum, 0);
-				n = 512;
-				(void)FSWrite(refnum, &n, cg_pool[i]);
-				(void)FSClose(refnum);
-			}
+			cg_char_fn_c(i, fnc);
+			g_a5_long(-6902) = (long)(uintptr_t)cg_pool[i];
+			l00e0(fnc, (void *)jt578);
 		} else {
 			(void)FSDelete((ConstStr255Param)fn, 0);  /* hole -> no file */
 		}
@@ -16705,44 +16728,44 @@ static void save_roster(void)
 }
 
 /* Scan the design folder for CHAR*.CHR via the FS shim's directory
- * enumeration (the capability JT[589] needs), reading each into the pool,
- * then relink the party from each record's CHAR_INPARTY flag. Returns 1 if
- * any character loaded. */
+ * enumeration (the capability JT[589] needs), deserializing each into the pool
+ * with the faithful .cch reader. Returns 1 if any character loaded.
+ *
+ * l_cch_read points g_a5_-6902 at the slot and runs JT[577], which reads the
+ * 398-byte record and then REBUILDS the inventory and spell chains out of fresh
+ * pool nodes (-21508 / -21152), NULing rec+0 and rec+64 on the way out. So every
+ * pointer field in the loaded record is either a live node or zero — never an
+ * address inherited from the process that wrote the file. See save_roster.
+ *
+ * The slot is zeroed first: JT[577] only writes the 398-byte record, and a stale
+ * tail from a previously-loaded character must not show through. */
 static int load_roster(void)
 {
 	char  cname[16];
-	short refnum, n2 = 0;
-	long  n;
+	short n2 = 0;
 	int   found;
 
 	for (found = files_find_first("CHAR*.CHR", cname, (int)sizeof cname);
 	     found && n2 < 16;
 	     found = files_find_next(cname, (int)sizeof cname)) {
-		char pfn[18];
-		short len = 0;
-		while (cname[len] != 0 && len < 16) {
-			pfn[len + 1] = cname[len];
-			len++;
-		}
-		pfn[0] = (char)len;
-		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) != noErr)
+		int a;
+
+		memset(cg_pool[n2], 0, 512);
+		if (l_cch_read(cname, cg_pool[n2]) == 0)
 			continue;
-		n = 512;
-		if (FSRead(refnum, &n, cg_pool[n2]) == noErr && n == 512) {
-			int a;
-			/* The .CHR stores only the BASE ability scores (even bytes
-			 * @112,114,…); the working/current scores (odd bytes
-			 * @113,115,…) are 0 in the file. A character at rest has
-			 * current == base (no temporary spell/item/aging modifier),
-			 * so seed them — jt895 (the sheet) and combat read the
-			 * current score rec[113 + i*2], which otherwise shows 0. */
-			for (a = 0; a < 6; a++)
-				if (cg_pool[n2][113 + a * 2] == 0)
-					cg_pool[n2][113 + a * 2] =
-					    cg_pool[n2][112 + a * 2];
-			n2++;
-		}
-		(void)FSClose(refnum);
+		if (cg_pool[n2][96] == 0)              /* no name -> not a character */
+			continue;
+		/* The .cch stores only the BASE ability scores (even bytes
+		 * @112,114,…); the working/current scores (odd bytes
+		 * @113,115,…) are 0 in the file. A character at rest has
+		 * current == base (no temporary spell/item/aging modifier),
+		 * so seed them — jt895 (the sheet) and combat read the
+		 * current score rec[113 + i*2], which otherwise shows 0. */
+		for (a = 0; a < 6; a++)
+			if (cg_pool[n2][113 + a * 2] == 0)
+				cg_pool[n2][113 + a * 2] =
+				    cg_pool[n2][112 + a * 2];
+		n2++;
 	}
 	if (n2 == 0)
 		return 0;
@@ -16993,6 +17016,15 @@ void port_test_seed_design(void)
 		if (!seeded) {
 			seeded = 1;
 			node_pool_init();            /* roster / design node pool */
+			/* load_roster now deserializes with JT[577], which hands out
+			 * inventory nodes from -21508 and spell nodes from -21152.
+			 * Both buckets are allocated by L4cc0 — which ua_main runs at
+			 * the faithful spot (before L4d98), but that is AFTER this
+			 * boot-time seed. Without the buckets jt477 returns a NULL
+			 * node and JT[577] would read the file into low memory. L4cc0
+			 * is idempotent and already documents this "probe harness
+			 * enters without the full boot" case, so pull it forward. */
+			l4cc0();
 			/* Roster source: the persisted .CHR characters (the jt589 pool
 			 * source), else the synthetic seed. The savegame is NOT read at
 			 * boot any more — the Mac loads a party only through the Hall's
@@ -34234,7 +34266,6 @@ static short jt903(void)
  * round-trip against jt578 to verify. The error-cleanup container bound reads
  * the Mac's -22216 scratch global; guarded against a NULL port value. */
 static void  jt101(const char *fmt, short a, short b);
-static short jt577(short refNum) __attribute__((unused));
 static short jt577(short refNum)
 {
 	unsigned char *const inv_pool   = (unsigned char *)&g_a5_byte(-21508);
@@ -34466,8 +34497,6 @@ static void jt584(long rec_l, const char *suffix)
  * builds nested SAVE paths through jt987/l16c6, which would not agree with
  * l00e0's flat-shim write location for a round-trip, so the port mirrors l00e0
  * instead (ADR-0003). */
-static signed char l_cch_read(const char *fn, unsigned char *rec)
-    __attribute__((unused));
 static signed char l_cch_read(const char *fn, unsigned char *rec)
 {
 	unsigned char pstr[64];

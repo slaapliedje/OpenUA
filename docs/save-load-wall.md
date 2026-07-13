@@ -26,8 +26,8 @@ Two live entry points converge on the same CODE-15 core:
 | `jt582` | CODE15+0x153e | **LIFTED + Hatari-verified** (A–J pick → party restore) | 30091 | "Load Which Game" picker; flat-dir glob (jt990/jt991) → `l143e`→jt579 → restore position |
 | `jt580` | CODE15+0x182c | **LIFTED** (party block + design-state pad, asm L19ca) | 28806 | Write player rec + position/state + count + per-member + pad-to-10284 |
 | `jt579` | CODE15+0x124c | **LIFTED** | 28793 | Read mirror of jt580; rebuilds party `-27928` |
-| `jt578` | CODE15+0x0934 | **LIFTED** | 28936 | Write one 398-byte record + inventory items + container sub-items + spells |
-| `jt577` | CODE15+0x03fe | **LIFTED** (record + inventory round-trip self-test PASS) | 29118 | Read mirror of jt578; container capacity guard (jt903, 120-slot cap) |
+| `jt578` | CODE15+0x0934 | **LIFTED + LIVE** (the saved-character roster writer) | 28936 | Write one 398-byte record + inventory items + container sub-items + spells |
+| `jt577` | CODE15+0x03fe | **LIFTED + LIVE** (the saved-character roster reader; round-trip self-tests PASS) | 29118 | Read mirror of jt578; **rebuilds** both chains from pool nodes; container capacity guard (jt903, 120-slot cap) |
 | `jt584` | CODE15 (chargen) | **LIFTED** | 29198 | Save one character to a named `.cch` ("Update %s?" via jt159) |
 | `l00e0` | CODE15+0x00e0 | **LIFTED** (port-adapted) | 28845 | Write opener: FSDelete+Create('FRUA','SAVE')+FSOpen → serializer cb |
 | `l143e` | CODE15+0x143e | **LIFTED** (port-adapted) | 30044 | Read opener: FSOpen → jt579 |
@@ -351,3 +351,108 @@ instead of saying so.
 SAVE DISK." with OK / EXIT renders; **OK retries and re-prompts**, **EXIT returns
 0** and the engine recovers without hanging. With the medium present the roster
 builders are untouched — the Add-Character picker still lists all six.
+
+## The saved-character roster is now a real .cch stream — the "garbled roster" crash (2026-07-12)
+
+**SOLVED, root-caused, Hatari-verified.** The intermittent "garbled roster panel"
+(the visual-garbage class the user has always correctly read as *"that's a crash
+to the desktop"*) was a **bus error in JT[878]**, and the cause was the port's
+saved-character file format.
+
+### The bug
+
+`save_roster()` wrote each pool slot as a **raw 512-byte blit** of the record.
+That also persists the record's four POINTER fields — `rec+0` (party next),
+`rec+4` (spell head), `rec+8` (inventory head), `rec+64` (sub-record) — which are
+**live heap addresses**. `load_roster()` read them straight back, so a fresh
+process inherited pointers into a **dead heap**:
+
+```
+CHAR0001.CHR   +4 = $004FB0F8     <- spell-list head
+               +8 = $004FFBC4     <- inventory head
+```
+
+JT[878] walks `rec+4`. Its NULL guards are all faithful and correct — but a
+garbage node's `.next` held **`-1`**, which passes `tst.l` and then dies on
+`cmp.b (a0),d1`:
+
+```
+Bus error reading at address $ffffffff PC=$46442     (SR 308 = USER mode = us)
+0004643A  movea.l ($0004,a2),a0    ; p = rec->spell_head
+0004643E  tst.l   a0
+00046440  beq.b   #$0E             ; NULL check passes...
+00046442  cmp.b   (a0),d1          ; <-- a0 = $ffffffff
+00046448  movea.l ($0006,a0),a0    ; p = p->next
+```
+
+The engine installs an `$_exception_handler`, so it **caught the fault and limped
+on** — which is why the symptom was half-drawn garbage rather than a clean bomb.
+
+Worse than the crash: the raw format **cannot represent the item nodes at all**
+(it only ever stored the 398-byte record). So equipment silently vanished across
+a save, and every inventory-derived stat — AC via jt21 — was being computed by
+walking **whatever happened to live at those stale addresses**. An observed
+"AC -3" was garbage that merely failed to fault.
+
+### The fix — use the serializer that was already sitting there
+
+`save_roster` / `load_roster` now go through the **faithful CODE-15 pair**:
+
+- **write:** `g_a5_-6902 = slot; l00e0(fn, jt578)` — JT[578] writes the 398-byte
+  record, then each inventory item's 18 data bytes (containers followed by their
+  sub-items), then the spell list.
+- **read:** `l_cch_read(fn, slot)` — points `-6902` at the slot and runs
+  **JT[577]**, which reads the record and then **rebuilds** both chains out of
+  fresh pool nodes (`-21508` items / `-21152` spells), NULing `rec+0` and `rec+64`
+  on the way out. Every pointer field in a loaded record is then either a live
+  node or zero — never an address inherited from the writer's process.
+
+Both `jt577` and `l_cch_read` existed, round-tripped, and were parked as
+`__attribute__((unused))` — the known debt noted at boot.c ("jt577/jt578 exist and
+round-trip, but save_roster still writes raw slots"). This just wires them up.
+
+**How JT[577] rebuilds (worth knowing — it is not a pointer read):**
+- *inventory*: the on-disk `rec+8` is used **only as a "had items?" flag**; the
+  rebuild is driven by the item count `rec[193]`.
+- *spells*: each 10-byte node is written **including its `+6` next pointer**, and
+  JT[577] reads that on-disk pointer purely as a **"another node follows"
+  boolean** (`cont_more = *(long*)(node+6)`), then zeroes it.
+
+### Ordering hazard (fixed in the same commit)
+
+`load_roster` runs from `port_test_seed_design()`, which the boot calls from
+`boot_a5_seed_defaults()` — **before** ua_main reaches `l4cc0()`, which is what
+allocates the `-21508` / `-21152` buckets. Without them `jt477` returns a NULL
+node and JT[577] would read the file into low memory. `l4cc0` is idempotent and
+already documents this "probe harness enters without the full boot" case, so it
+is pulled forward ahead of the roster load.
+
+### Verified
+
+- `cch round-trip self-test: PASS` (field@82 survives the byte-swap) and
+  **`cch inventory round-trip: PASS`** (item type@40 + swapped val@46 survive —
+  this is the pool-allocating rebuild loop, not just the flat record).
+- `CHAR*.CHR` are now **398 bytes** (the .cch record) where the raw dump was
+  always exactly 512.
+- Original repro (2-member party → Begin Adventuring), `--trace cpu_exception`:
+  **`Bus error … PC=$46442` gone; zero faults in engine address space.** The only
+  bus errors left are TOS's own two ROM hardware probes (`PC=$e0184e`,
+  `PC=$e02cde`), which are present even on a bare menu boot.
+- Reboot → all four pool characters deserialize from `.cch` and list correctly.
+
+### Note for anyone with old files
+
+The raw-512 and .cch formats share the same `CHAR*.CHR` name. **Old raw files are
+not readable** as .cch (their garbage `rec+8` makes JT[577] try to read items out
+of the record padding). Delete `data/work/gamedata/CHAR*.CHR` once; the port
+re-seeds the pool and rewrites them in the new format.
+
+### Method note
+
+`--trace cpu_exception` floods the log with **millions** of TOS ROM lines — HBL /
+VBL / MFP interrupts, which Hatari's tracer also calls "exceptions". Filter to
+faults in **engine address space** (PC < `$e00000`) or on the `SR` S-bit (TOS runs
+supervisor `SR 2xxx`; our app is user mode, `SR 0xxx`). Then map the PC to a
+function: the relocation offset is `runtime - link` for any known symbol
+(here `_jt936`: `$40AA6 - $21A52 = $1F054`), so `$46442 - $1F054 = $273EE` →
+`nm -n frua.prg` → **`_jt878`**.
