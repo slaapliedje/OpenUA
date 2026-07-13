@@ -2987,10 +2987,15 @@ static short l5484(short row, short col, short dir)
 	switch (t) {                                    /* JT[3] @0x54ba */
 	case 1: case 3: case 5: case 14:
 		return 2;
-	case 0:
-		return 0;
-	default:
+	case 0: case 2: case 4: case 6: case 7: case 8: case 9:
+	case 10: case 11: case 12: case 13: case 15:
+		/* 0x54e0/0x54e4 both moveq #1 — the old listing hid case 0's
+		 * arm (JT[3]-table straddle) and the lift swapped it with the
+		 * out-of-range default, which is the moveq #0 at 0x54ec
+		 * (docs/jt3-straddle-audit.md). */
 		return 1;
+	default:
+		return 0;
 	}
 }
 
@@ -8911,6 +8916,21 @@ static short jt377(void *rec_v, short cmd, ...)
 	a = (short)va_arg(ap, int);
 	b = (short)va_arg(ap, int);
 	va_end(ap);
+	if (cmd == 1) {         /* L27dc — the paint arm. The whole arm was
+	                         * invisible in the old listing (JT[3]-table
+	                         * straddle, docs/jt3-straddle-audit.md): mark
+	                         * dirty, honour the disable bit, then draw the
+	                         * label at (rec16,rec18) in colour rec[31]
+	                         * (240 when unset) via jt1089. */
+		rec[28] |= 0x80;
+		if (rec[28] & 0x02)
+			return 0;
+		jt1089(*(short *)(rec + 16), *(short *)(rec + 18),
+		       (short)(rec[31] ? rec[31] : 240),
+		       (const char *)(uintptr_t)*(long *)(rec + 12),
+		       *(short *)(rec + 22));
+		return 0;
+	}
 	return l1676(rec, cmd, a, b);
 }
 /* jt378 — shape 5 method dispatcher. cmd=2 is a grid hit-test
@@ -17636,11 +17656,16 @@ static void l731e(short arg)
 	while (l6804() == 0 || EventAvail(mask, &ev)) {
 		l66e8(&ev);
 		l725c(mask);
+		if (arg == (short)3 && g_a5_byte(-820) != 0)
+			return;         /* 0x7388 tstb -820; bne exit — the tstb
+			                 * was eaten by the table straddle and the
+			                 * arm read as a bare exit */
 		if (arg == (short)3)
-			return;
+			goto refresh;   /* 0x7390 bras L739a */
 		if (arg == (short)2 && g_a5_byte(-903) != 0)
 			return;
 		/* Refresh mask (Mac L739a path). */
+refresh:
 		mask = (short)-1;
 		if (g_a5_byte(-820) != 0)
 			mask = (short)(mask & ~0x08);
@@ -20308,6 +20333,46 @@ static void l6b26(EventRecord *ev, WindowPtr which)
  * Tagged with arm-specific PROBE markers so the trace shows what
  * fires; the actual drag/zoom is a HAL job once we have it. */
 static void l690e(EventRecord *ev) __attribute__((unused));
+/* L6850 (CODE 4 + 0x6850) — enable/disable one menu item. `sel` packs
+ * menu<<16 | item (the MenuSelect layout); a missing menu is a no-op. */
+static void l6850(short flag, long sel)
+{
+	MenuHandle mh;
+
+	PROBE("L6850");
+	mh = GetMHandle((short)(sel >> 16));
+	if (mh == NULL)
+		return;
+	if (flag)
+		EnableItem(mh, (short)sel);
+	else
+		DisableItem(mh, (short)sel);
+}
+
+/* L6898 (CODE 4 + 0x6898) — l6850 over a run of `count` consecutive items
+ * starting at packed id `start`. */
+static void l6898(short flag, long start, short count)
+{
+	PROBE("L6898");
+	while (count-- > 0)
+		l6850(flag, start++);
+}
+
+/* L012e (CODE 4 + 0x012e) — refresh the menu-bar enable state before the
+ * menu is tracked (the first call of l690e's inMenuBar arm — eaten by the
+ * JT[3]-table straddle in the old listing, docs/jt3-straddle-audit.md):
+ * menu 2 item 1 and menu 3 items 1..6 are enabled exactly when the
+ * front-window gate l6804() is CLEAR. */
+static void l012e(void)
+{
+	short flag;
+
+	PROBE("L012e");
+	flag = (short)(l6804() == 0 ? 1 : 0);
+	l6898(flag, 0x20001L, 1);
+	l6898(flag, 0x30001L, 6);
+}
+
 static void l690e(EventRecord *ev)
 {
 	WindowPtr which = NULL;
@@ -20324,6 +20389,7 @@ static void l690e(EventRecord *ev)
 	case 0:                                    /* inDesk */
 		break;
 	case 1:                                    /* inMenuBar */
+		l012e();        /* 0x6948 jsr L012e — see l012e above */
 		menu_sel = MenuSelect(ev->where);
 		if ((menu_sel & 0xFFFF0000L) != 0) {
 			l0004(menu_sel);
@@ -30528,7 +30594,11 @@ static void jt875(long member, short idx)
 			e56 = (unsigned char)(item[56] & 0x7f);
 			switch (e56) {          /* JT[3] @ 0x1b94 (min 3, max 5) */
 			case 3:
-				ev = 3; eb = 100;
+				/* 0x1ba0 moveq #18 — eaten by the JT[3]-table
+				 * straddle; the lift guessed 3 from the case
+				 * number. Kind-3 = girdle: STR 18/00
+				 * (docs/jt3-straddle-audit.md). */
+				ev = 18; eb = 100;
 				break;
 			case 5:
 				ev = (unsigned char)(item[55] + 18);
@@ -37284,6 +37354,10 @@ static void jt539(long actor_l, short range, short zero, short areaflag,
 			}
 		} else switch ((short)g_a5_word(-7250)) {  /* JT[3] @0x3cf8 */
 		case 0:                                 /* NEXT target */
+			f6 = 1;         /* 0x3d0c — eaten by the table straddle;
+			                 * the PREV sibling (0x3d44) kept its
+			                 * copy. l315e can clear f6, so NEXT
+			                 * must re-arm the commit gate. */
 			g_a5_long(-7254) = l37d6((short)1, actor_l);
 			curX = (signed char)l6b40(g_a5_long(-7254));
 			curY = (signed char)l6b6a(g_a5_long(-7254));
@@ -59677,6 +59751,9 @@ static short jt953(void)
 			}
 			switch (cmd) {                  /* JT[3] min 0 max 7 */
 			case 0:                         /* Move */
+				jt176();  /* 0x40ea — eaten by the JT[3]-table
+				           * straddle in the old listing
+				           * (docs/jt3-straddle-audit.md) */
 				g_a5_22268 = 1;
 				break;
 			case 1:                         /* Area — toggle the top-down automap (L40f8) */
@@ -59729,7 +59806,11 @@ static short jt953(void)
 				if (g_a5_24139 != 0) {        /* L4486 — committed pick */
 					done = 1;
 					if (cmd >= 129 && cmd <= 136)
-						g_a5_12286 = (unsigned char)(cmd - 128);
+						/* 136 is the WRAP arm: 0x44ac clrb
+						 * -12286 (eaten by the table
+						 * straddle) — facing 0, not 8. */
+						g_a5_12286 = (unsigned char)
+							(cmd == 136 ? 0 : cmd - 128);
 					else
 						done = 0;             /* L44ea — no facing */
 				} else if (cmd == 4) {        /* L4474 — back / exit */
@@ -60297,6 +60378,9 @@ static short l4faa(short mode, short *sel)
 	g_a5_byte(-24140) = 1;
 	switch ((unsigned char)mode) {          /* JT[3] @0x4fda min1 max9 */
 	case 1:
+		jt179(1);       /* 0x4ff2 — eaten by the JT[3]-table straddle;
+		                 * every sibling arm has its jt179 call
+		                 * (docs/jt3-straddle-audit.md) */
 		jt384(buf2, (const char *)(uintptr_t)g_a5_long(-13840));
 		break;
 	case 2:
@@ -68486,6 +68570,10 @@ static short jt250(short cmd, long *field, void *handle)
 
 	switch (cmd) {                  /* JT[3] @0x407e */
 	case 2: case 3: case 4: case 7:
+		flag = 1;        /* 0x4098 moveq #1 -> fp(-4) — eaten by the
+		                  * JT[3]-table straddle in the old listing;
+		                  * skips the jt318/jt325 commit block below
+		                  * (docs/jt3-straddle-audit.md) */
 		ext = (short)((*field & 16383) | 32768);
 		*(short *)hnd = cmd;
 		hnd[2] = (unsigned char)(*field & 255);
@@ -68527,8 +68615,10 @@ static short jt250(short cmd, long *field, void *handle)
 		if (flag != 0) {
 			*field |= (long)ext;
 		} else if (j325r == 3) {
-			*field |= (long)((*(short *)(sub + 12) & 16383)
-			                 << 16);
+			/* 0x4224 swap/clrw/swap = zero-extend: OR into the
+			 * LOW word, not <<16 */
+			*field |= (long)(unsigned short)
+			          (*(short *)(sub + 12) & 16383);
 		} else {
 			*field &= (long)0xFFFFC0FFL;    /* clear bits 8-13 */
 			if (j325r == 1)
@@ -72349,7 +72439,11 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 					       (short)(8000 + base[4]), color,
 					       ua_strs_at(0x3252) /* "%s" */,
 					       (const char *)&base[6]);
-					if ((signed char)rec[13] >= 0)
+					if ((signed char)rec[13] < 0)
+						/* 0x1170 bges SKIPS the store —
+						 * it fires on the first-draw
+						 * (rec[13]<0) path only; the C
+						 * had it inverted */
 						rec[15] = (unsigned char)color;
 				} else {
 					jt452((long)38, (long)color, (long)0);
@@ -75999,8 +76093,13 @@ static short jt269(short state, long outp, long rec)
 			h[16] = (unsigned char)((o[4] == 0) ? 1 : 0);
 			h[8] = 0;
 			*(long *)o &= 0xffff0000;
-			*(long *)o |= ((long)(unsigned short)
-			              ((h[7] << 8) | h[8])) << 16;
+			/* 0x0194 swap/clrw/swap = zero-extend: the reply packs
+			 * into the LOW word (the next call parses it from
+			 * o&0xffff) — the old listing's straddle hid the arm
+			 * head and the lift shifted it high
+			 * (docs/jt3-straddle-audit.md). */
+			*(long *)o |= (long)(unsigned short)
+			              ((h[7] << 8) | h[8]);
 			h[7] &= 63;
 			l03ce((long)(uintptr_t)h);
 		}
@@ -76045,8 +76144,9 @@ static short jt269(short state, long outp, long rec)
 		break;
 	case 11:                              /* L0332 -> JT[3] @0x340 */
 		if ((*(short *)(h + 4) & 63) == 2)
-			*(long *)o |= ((long)(unsigned short)
-			              ((h[6] << 4) | *(short *)(h + 4))) << 16;
+			/* 0x035c zero-extend — LOW word, as above */
+			*(long *)o |= (long)(unsigned short)
+			              ((h[6] << 4) | *(short *)(h + 4));
 		break;
 	case 1:                               /* L03c4 (return) */
 		break;
@@ -76055,8 +76155,9 @@ static short jt269(short state, long outp, long rec)
 			h[7] |= 0x40;
 		if ((h[5] & 0x80) == 0)
 			h[7] |= 0x80;
-		*(long *)o |= ((long)(unsigned short)
-		              ((h[7] << 8) | (h[8] & 255))) << 16;
+		/* 0x03b8 zero-extend — LOW word, as above */
+		*(long *)o |= (long)(unsigned short)
+		              ((h[7] << 8) | (h[8] & 255));
 		break;
 	}
 	return *(short *)h;
@@ -84686,7 +84787,11 @@ static void l642c(short hl, short index)
 	PROBE("L642c");
 	switch (index) {
 	case 0: case 1: case 2: case 3: case 4: case 5:
-		jt895(index, index);            /* redraw the ability row */
+		/* 0x6450 pushes hl then index — jt895(index, hl). The hl push
+		 * was eaten by the JT[3]-table straddle in the old listing and
+		 * the lift doubled `index`, so ability rows always drew
+		 * highlighted (docs/jt3-straddle-audit.md). */
+		jt895(index, hl);               /* redraw the ability row */
 		break;
 	case 6:                                 /* the name field */
 		if (hl) {
@@ -84697,7 +84802,9 @@ static void l642c(short hl, short index)
 		}
 		break;
 	case 7:                                 /* HP value */
-		jt32((long)(uintptr_t)rec, 31, 3, 0, 0);
+		/* 0x646a pushes 0, hl, 3, 31, rec — jt32(rec, 31, 3, hl, 0);
+		 * the same dropped-hl error as the 0..5 arm. */
+		jt32((long)(uintptr_t)rec, 31, 3, hl, 0);
 		break;
 	default:
 		break;
@@ -91286,6 +91393,10 @@ static short l216a(void *ev_v)
 
 		switch (choice) {                      /* JT[3] 0..6 */
 		case 0:                                /* items -> commit only */
+			exit_arm = 0;   /* 0x244c clrb fp(-3) — eaten by the
+			                 * table straddle; without it a stale
+			                 * exit_arm=1 from an earlier verb-1
+			                 * pick leaks into jt933 */
 			break;
 		case 1:                                /* L2454 */
 			exit_arm = 1;
