@@ -37,14 +37,29 @@ Gotchas baked into the stage script:
 
 ## Worklist (smallest-first)
 
-1. **VDI trap glue** (`platform/`): a minimal VDI binding — `trap #2` with
-   d0=0x73, the contrl/intin/ptsin parameter block. Only what printing needs:
-   `v_opnwk`, `v_clswk`, `v_clrwk`, `v_updwk`, `v_gtext`, `vst_font`,
-   `vst_point`, `vqt_extent`.
-2. **Smoke test outside the engine**: open device **31 (META.SYS)** —
-   `v_opnwk(31)` → `v_gtext` → `v_clswk` → a `.GEM` metafile appears on C:.
-   Byte-diffable on the host; no printer emulation needed. Then device **21
-   (FX80)** with Hatari `--printer <file>` for the ESC/P path.
+1. ~~**VDI trap glue**~~ — **DONE** (`platform/vdi.c` + `plat_vdi.h`): trap #2
+   glue with the contrl/intin/ptsin block; `v_opnwk`/`v_clswk`/`v_clrwk`/
+   `v_updwk`/`v_gtext`/`vst_font`/`vst_point`, plus `vst_load_fonts`,
+   `vqt_name`, `vm_filename` and the d0=-2 GDOS-present probe.
+2. ~~**Smoke test**~~ — **META VERIFIED / FX80 OPEN** (the `FRUA_VDIPRINT_TEST`
+   hook in src/main.c, runs at main() entry before display init):
+   - **GDOS probe: positive. Metafile: PROVEN end to end** — v_opnwk(31) →
+     vm_filename → v_gtext → v_updwk → v_clswk produced `C:\PRNTTST.GEM` on the
+     host; decoding its 16-bit LE chars shows the attribute records and the
+     literal string `FRUA GDOS VDI SMOKE TEST`. This is the byte-diffable
+     verification channel for the compat face.
+   - **`vst_load_fonts` is MANDATORY**: without it the FX80 workstation has ZERO
+     faces (FX80.SYS has no built-in font) and text rasterizes to a silent
+     blank page — a well-formed ESC/P page of pure line-feeds (950 bytes of
+     `ESC 3` spacing ops) emits, proving v_updwk + Hatari's `--printer`
+     redirect work. With the call, the 5 staged Speedo faces attach and
+     vst_font(5003) (Swiss 721) selects.
+   - **OPEN: the FX80 v_updwk WEDGES when real glyphs must rasterize** (7+ min,
+     no output bytes, no Speedo ERROR.TXT; screen shows garbage bands). Not the
+     VIDEL mode switch — reproduces before display init. Suspects, in order:
+     the small-cache EXTEND preset (BITCACHE=32000) thrashing at 1020×1584;
+     try the LARGE preset (`EXTEND.2`), a different driver (NX1000/NECP), a
+     much longer wait under fast-forward, or point-size 10 vs 12.
 3. **Printing Manager face** (`compat/`): `PrOpen`/`PrOpenDoc` → `v_opnwk(21)`,
    `PrOpenPage`/`PrClosePage` → `v_clrwk`/`v_updwk`, `PrCloseDoc`/`PrClose` →
    `v_clswk`; the `-9152` "Moebius" print font → `vst_font` on the printer

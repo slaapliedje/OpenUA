@@ -22,6 +22,7 @@
 #include "files.h"
 #include "input.h"
 #include "plat_sound.h"
+#include "plat_vdi.h"
 #include "macmemory.h"
 #include "controls.h"
 #include "dialogs.h"
@@ -380,6 +381,61 @@ int main(void)
 	int                  rc;
 
 	dbg_log("main: entered");
+#ifdef FRUA_VDIPRINT_TEST
+	/* GDOS/VDI printing smoke test (docs/gdos-printing-wall.md step 2):
+	 * open the META.SYS metafile workstation (ASSIGN.SYS device 31),
+	 * redirect its output to C:\PRNTTST.GEM, draw a line of text, emit
+	 * the page, close. Success = a byte-inspectable .GEM file appears
+	 * in the gamedata folder on the HOST side. Define FRUA_VDIPRINT_TEST
+	 * to also try the FX80 printer (device 21) after the metafile. */
+	{
+		short w = 0, h = 0, cell = 0, handle;
+
+		dbg_log_num("vdi: gdos present = ", plat_vdi_gdos_present());
+		handle = plat_vdi_open(31, &w, &h);
+		dbg_log_num("vdi: meta handle = ", handle);
+		if (handle > 0) {
+			plat_vdi_meta_filename(handle, "C:\\PRNTTST.GEM");
+			dbg_log_num("vdi: meta page w = ", w);
+			dbg_log_num("vdi: meta page h = ", h);
+			dbg_log_num("vdi: vst_point -> ",
+			            plat_vdi_point(handle, 12, &cell));
+			dbg_log_num("vdi: cell h = ", cell);
+			plat_vdi_text(handle, 100, 200,
+			              "FRUA GDOS VDI SMOKE TEST");
+			plat_vdi_update(handle);
+			plat_vdi_close(handle);
+			dbg_log("vdi: metafile closed");
+		}
+		handle = plat_vdi_open(21, &w, &h);
+		dbg_log_num("vdi: fx80 handle = ", handle);
+		if (handle > 0) {
+			short nf, fi, fid = 0;
+			char  fname[33];
+
+			dbg_log_num("vdi: fx80 page w = ", w);
+			dbg_log_num("vdi: fx80 page h = ", h);
+			nf = plat_vdi_load_fonts(handle);
+			dbg_log_num("vdi: gdos fonts added = ", nf);
+			for (fi = 1; fi <= nf && fi <= 8; fi++) {
+				fid = plat_vdi_font_name(handle, fi, fname);
+				dbg_log_num(fname, fid);
+			}
+			/* select the FIRST enumerated face explicitly — the
+			 * page came out blank with the implicit default */
+			fid = plat_vdi_font_name(handle, 1, fname);
+			dbg_log_num("vdi: vst_font -> ",
+			            plat_vdi_font(handle, fid));
+			dbg_log_num("vdi: vst_point -> ",
+			            plat_vdi_point(handle, 12, &cell));
+			plat_vdi_text(handle, 100, 200,
+			              "FRUA FX80 SMOKE TEST");
+			plat_vdi_update(handle);
+			plat_vdi_close(handle);
+			dbg_log("vdi: fx80 closed");
+		}
+	}
+#endif
 
 	dsp = dsp_detect();
 	dbg_log(dsp->name);
@@ -400,6 +456,7 @@ int main(void)
 	else
 		dbg_log("main: sound init failed (continuing silent)");
 	dbg_log("main: shim up");
+
 
 	load_frua_rsrc();
 	data_pool_replay();
