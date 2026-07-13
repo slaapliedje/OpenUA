@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1200 done (1070 lifted, 55 noop, 75 alias), 2 stub, 0 stand-in, 3 missing.
+**1205 distinct JT entries are called.** Overall: 1200 done (1071 lifted, 54 noop, 75 alias), 2 stub, 0 stand-in, 3 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -46,7 +46,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 12 | 551–600 | **50/50** | 42 | 8 | 0 | 0 | 0 |
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
 | 14 | 651–700 | **50/50** | 47 | 3 | 0 | 0 | 0 |
-| 15 | 701–750 | **49/50** | 38 | 11 | 0 | 0 | 1 |
+| 15 | 701–750 | **49/50** | 39 | 10 | 0 | 0 | 1 |
 | 16 | 751–800 | **48/50** | 41 | 7 | 0 | 0 | 2 |
 | 17 | 801–850 | **50/50** | 49 | 1 | 0 | 0 | 0 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (12 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (11 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l5ac0`  `l24aa`  `l7de0`  `l4350`  `l7abe`  `l341a`  `l4e8a`  `l4806`  `l1240`  `l0ee6`  `l501e`  `l0370`
+> `l5ac0`  `l24aa`  `l7de0`  `l4350`  `l7abe`  `l341a`  `l4e8a`  `l1240`  `l0ee6`  `l501e`  `l0370`
 
 ## Band 1 detail (rank 1–100)
 

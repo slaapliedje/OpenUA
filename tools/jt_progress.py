@@ -228,7 +228,7 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
               # class); the VIDEL HAL owns the CLUT directly (ADR-0005).  Was
               # mis-classified MISSING (l24aa alias unconfirmed); faithful port
               # body is the no-op.
-        1144, # CODE 4+0x4774 (1236 B): the Mac application window + palette +
+        1144} # CODE 4+0x4774 (1236 B): the Mac application window + palette +
               # menu-bar bring-up.  VERIFIED 2026-07-08 (full disasm read) as
               # 100% Mac Toolbox app-init (Window Mgr GetNewWindow/SizeWindow/
               # ShowWindow; Palette Mgr / Color QuickDraw / GDevice 0xAAxx farm,
@@ -238,19 +238,15 @@ NOOP = {1170, 1198, 1163, 949, 3, 1, 2, 1061, 1130,
               # VIDEL HAL (ADR-0005) and menus via the shim (ADR-0006), and does
               # this natively in color_mode_init + master_init.  Also dead: the
               # only caller jt1079 is __attribute__((unused)) / uncalled.  The
-              # jt428 / jt1159 HAL-moot class; faithful port body is the no-op.
-        428}   # CODE 3+0x4868: OPEN the print job — the Printing Manager
-               # analog of the jt1065 (Pack15) / jt1159 (Palette Mgr) HAL-moot
-               # class.  VERIFIED 2026-07-07: every Pr* call (PrOpen/PrValidate/
-               # PrStlDialog/PrJobDialog/PrOpenDoc/PrError/PrClose) funnels
-               # through the PrGlue trampoline -> trap 0xA8FD (_PrGlue); the
-               # Falcon/TT have no Printing Manager, the port ships no print
-               # backend (no PrGlue in compat/ or platform/, no Printing row in
-               # toolbox-mapping.md), and the whole print subsystem (jt428 ->
-               # jt1075 -> jt256/jt1074/jt1072, all __attribute__((unused))) is
-               # dead on the port.  So -9162 (the TPrint record) never opens and
-               # the faithful port body is the documented no-op (boot.c).  Cf.
-               # the jt426/432/458 SUPERSEDED trio in ALIAS_LIFTED below.
+              # jt1159 HAL-moot class; faithful port body is the no-op.
+# jt428 was in this set until 2026-07-13 ("the Falcon/TT have no Printing
+# Manager, the port ships no print backend") — NO LONGER TRUE: the print stack
+# is live (platform/vdi.c GDOS/VDI HAL -> compat/printing.c Pr* face -> the
+# lifted jt428/jt433/jt434 chain), FX80.SYS prints the design maps for real
+# (docs/gdos-printing-wall.md).  jt428 now classifies LIFTED from its body,
+# like any other real lift.  Cf. the jt426/432/458 SUPERSEDED trio in
+# ALIAS_LIFTED below — those stay: GEMDOS Fsfirst/Fsnext supersedes the Mac
+# indexed-catalog walk they implement, independent of printing.
 
 # JT entries whose body was lifted under a CODE-local (lXXXX) name or a
 # differently-spelled wrapper; the JT symbol may be absent but the work
