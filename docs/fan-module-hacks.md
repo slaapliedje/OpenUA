@@ -76,10 +76,42 @@ but I did not isolate one of its nine replaced assets and diff it against the ba
 | Custom font (`.FON`), `DIFF.TBL`, CKIT edits | ❌ ignored | ❌ ignored |
 | Engine hacks (UA.EXE patches) | n/a — DOS binary patches | n/a |
 
-## What full PC-hack support would take
+## ✅ The converter — `tools/art_convert.py` (2026-07-13)
 
-Not a lift — a **converter**: `HLIB → GLIB` (endian flip + Mode-X 8bpp → the Mac
-piece codecs) **plus a rename** to the Mac `8x8db<id>.ctl` convention.
-`tools/hlib_extract.py` already decodes both containers ([[dos-vs-mac-art-formats]]),
-so the decode half exists. This is a real feature, not a decompilation task, and
-overlaps the long-standing DOS-ingest idea (task #106). **Ask before starting.**
+**Derived from ground truth, not guessed.** "The Curse of Yezukriis" ships as
+**both** a PC module (`pc/modules/y/yezu.zip`, HLIB) and a Mac module
+(`mac/modules/y/yezu1mac.zip`, GLIB) — the *same nine assets, authored once*.
+Diffing the pair gave the exact transform, and
+`tests/test_art_convert.py::test_converts_real_dos_art_to_byte_identical_real_mac_art`
+converts the real DOS art and asserts it equals the real Mac art **byte for
+byte** (and round-trips back). That test runs whenever the pair is staged.
+
+**The transform**
+
+| | HLIB (DOS) | GLIB (Mac) |
+|---|---|---|
+| container | little-endian | big-endian |
+| offset table | *identical values* — file size unchanged | |
+| entry `u16 rows, i16 xhot, i16 yhot` | byte-swapped | |
+| entry `byte[6]` | `W/4` (Mode-X per-plane stride) | `W/8` |
+| entry `byte[7]` | low nibble = piece type; high nibble **`0x1`** | high nibble **`0xc`** |
+| **pixels** | **VGA Mode-X, 4 unchained planes, PLANE-MAJOR** (plane `p` = columns `x%4==p`) | **linear rows of `W` bytes** |
+
+`W` = row width in bytes, padded to a multiple of 4. The pixel shuffle is the
+part a byte-swap alone never fixes.
+
+```sh
+python3 tools/art_convert.py data/work/gamedata/SOME.DSN/*.TLB   # -> *.ctl
+```
+
+Run over AGAINST THE GIANTS: **75 of 79 art files converted**, 0 bus errors.
+
+**Refused (by design, loudly — never silently mangled):**
+- **piece type 2 (RLE)** — the two releases use *different* codecs. The Mac side
+  is PackBits (`jt1171` = `_UnpackBits`); the DOS side is not decoded yet. In
+  practice this is exactly the **BIGP** (big event picture) payloads — 4 of
+  GIANTS' 79, and the reason its merchant portrait still falls back to base art.
+  **This is the remaining work.**
+- **wall sets** — DOS 8.3 truncates *both* `8x8db<id>` and `8x8dc<id>` to
+  `8X8D<id>`, so the Mac target cannot be inferred. Needs a Mac module that ships
+  wall art to disambiguate. `mac_name()` raises rather than guess.
