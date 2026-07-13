@@ -90006,7 +90006,15 @@ static void l3c7c(void)
 		coin  = (long)(unsigned short)*(short *)(member + 76);
 		pool  = g_a5_long(-25314);
 
+#ifdef FRUA_SHOPTRACE
+		dbg_file_num("BUY price ", (long)(unsigned short)price);
+		dbg_file_num("    coin  ", coin);
+		dbg_file_num("    pool  ", pool);
+#endif
 		if ((unsigned long)(unsigned short)price <= (unsigned long)coin) {
+#ifdef FRUA_SHOPTRACE
+			dbg_file_num("  ARM 1 personal coin pays", 1);
+#endif
 			jt186(sel, &abort_f);           /* 0x3d38 */
 			if (abort_f != 0)
 				continue;
@@ -90017,6 +90025,9 @@ static void l3c7c(void)
 			           (const char *)(item + 5)));
 		} else if ((unsigned long)(unsigned short)price
 		           <= (unsigned long)(pool + coin)) {
+#ifdef FRUA_SHOPTRACE
+			dbg_file_num("  ARM 2 pool tops up", 2);
+#endif
 			jt186(sel, &abort_f);           /* 0x3dd0 */
 			if (abort_f != 0)
 				continue;
@@ -90028,6 +90039,9 @@ static void l3c7c(void)
 			           (const char *)(member + 96),
 			           (const char *)(item + 5)));
 		} else {
+#ifdef FRUA_SHOPTRACE
+			dbg_file_num("  ARM 3 CANNOT AFFORD -> -14064", 3);
+#endif
 			jt42((const char *)(uintptr_t)g_a5_long(-14064));
 		}
 	} while (done == 0);

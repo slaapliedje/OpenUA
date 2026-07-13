@@ -122,13 +122,33 @@ with prices right-justified, `PERSONAL FUNDS: 100 / POOLED FUNDS: 0`.
 - Buy BELT → **596 → 592** (pool top-up arm; buyer already at zero).
 - ITEMS on the buyer shows **two BELTs** — jt186 transferred both.
 
-**Still unexercised:** the "can't afford" arm (needs price > coin + pool; HEIRS
-stock tops out at 16pp against a 592pp pool). **No contrived design needed after
-all** — `GAME001.DAT` bytes **36..37 (LE u16) are the party's STARTING MONEY**
-(HEIRS = 100, exactly what Barbarus carries), and **AGAINST THE GIANTS ships 0**.
-A fresh GIANTS party has 0 coin and 0 pool, so *any* purchase trips the arm; it
-has 16 shop events. Cost is a created party (fan designs ship no save).
-See [[frua-fan-module-test-corpus]].
+### ✅ The "can't afford" arm — CLOSED 2026-07-13, all three arms now exercised
+
+HEIRS can't reach it (16pp stock vs a 592pp pool), so it was closed against
+**AGAINST THE GIANTS**, which ships **0 starting gold** (`GAME001.DAT` bytes
+**36..37, LE u16** = the party's starting money; HEIRS = 100, exactly what
+Barbarus carries). A fresh GIANTS fighter with 0 coin and 0 pool trips the arm on
+any purchase.
+
+GIANTS' shop cells are on **GEO005** (11 of them) — e.g. **row 2, col 2**:
+```sh
+make EXTRA_CFLAGS="-DFRUA_SHOPTRACE -DFRUA_ENTRY_LEVEL=5 -DFRUA_ENTRY_ROW=2 -DFRUA_ENTRY_COL=2 -DFRUA_ENTRY_FACING=2"
+```
+Its stock prices differ from HEIRS' (BELT **1**, ELFIN CHAIN **756**), confirming
+prices come from the design, not a hardcode. With `PERSONAL 0 / POOLED 0`,
+buying the 1pp belt gives, in DBG.LOG:
+```
+BUY price 1
+    coin  0
+    pool  0
+  ARM 3 CANNOT AFFORD -> -14064
+```
+
+**`-DFRUA_SHOPTRACE`** (kept, #ifdef'd, zero cost) logs price/coin/pool and which
+of the three payment arms fires. It is the ONLY way to observe them: every
+message l3c7c prints (both "buys" lines AND the can't-afford line) is immediately
+overpainted by the loop's next `l3bcc`/`l38fe` repaint, so **the screen shows you
+nothing** — do not read a silent no-op as a broken arm.
 
 ## `jt893` anatomy (the per-item action menu — the keystone)
 
@@ -238,11 +258,25 @@ recipe that spawns the party straight onto it.
 5. ~~`l17f8` exit-prompt text~~ — not a stub: `l17f8` **= jt175** (alias, lifted).
 6. **`l3c7c` BUY** — the one genuinely missing piece. **DONE 07-13** (above).
 
-**Nothing is left on the shop worklist.** Items 2–5 cost nothing to "do" because
-they were already done — the table was lying. The remaining honest gap in the
-whole subsystem is the **"can't afford"** arm of BUY: not reachable in HEIRS
-(16pp max stock vs a 592pp pool), but reachable in **AGAINST THE GIANTS**, which
-starts characters with **0 gold** (`GAME001.DAT[36..37]`). Needs a created party.
+**The shop worklist is EMPTY.** Items 2–5 cost nothing to "do" because they were
+already done — the table was lying. And the last honest gap, BUY's **"can't
+afford"** arm, is **closed too** (2026-07-13, against AGAINST THE GIANTS — see
+above). Every arm of every shop verb has now been executed on real hardware
+emulation.
+
+## Open finding (NOT shop-specific) — the play-screen roster
+
+On the **fresh-party** path (create a character → ADD → **BEGIN ADVENTURING**,
+with no save/load), the play screen's **roster panel painted EMPTY** — no name,
+no AC/HP, no party coordinates — even though `VIEW` showed the character present
+and the clock/command-bar painted normally. After **SAVE CURRENT GAME → LOAD
+SAVED GAME** the same party's roster paints fine (and the Training Hall roster
+paints it in both cases).
+
+**Not root-caused.** It may be missing data on the fresh path, or merely a missed
+repaint after the design's intro events ran — I only sampled the frame right after
+those events. Worth a session; reproduce with a new character in any design that
+has no save.
 
 Next natural targets are elsewhere: `docs/inventory-subsystem-wall.md` (the
 ITEMS menu shares jt893) and whatever `docs/subsystem-status.md` ranks highest.
