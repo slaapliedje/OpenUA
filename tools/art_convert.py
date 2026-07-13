@@ -75,7 +75,7 @@ import sys
 
 HLIB, GLIB = b"HLIB", b"GLIB"
 HDR = 16                      # magic + size + count + flags + tag
-TYPE_COMPRESSED = 0x2         # low nibble of the entry flag byte
+# (drawing-method constants live next to _convert_entry)
 
 
 class UnsupportedPiece(Exception):
@@ -98,18 +98,26 @@ def parse(data):
     """-> dict(magic, endian, count, flags, tag, offsets, entries)."""
     if len(data) < HDR:
         raise BadContainer("truncated: %d bytes" % len(data))
-    magic = data[:4]
-    e = _endian(magic)
+    magic_ = data[:4]
+    e = _endian(magic_)
     size, = struct.unpack(e + "I", data[4:8])
-    count, flags = struct.unpack(e + "HH", data[8:12])
+    count, = struct.unpack(e + "H", data[8:10])
+    # Bytes 10 and 11 are TWO INDEPENDENT BYTES (TLBFORM.TXT): [10] unused,
+    # [11] "magic" -- 1 means the file carries an ID table.  They are NOT a u16:
+    # byte-swapping them moves the magic into the unused slot.  Picture files
+    # have magic=0 so a swap is a harmless no-op there, which is why this hid --
+    # but MASTER LIBRARIES (the wall sets) always have magic=1, and corrupting it
+    # is what rendered the converted wall art as a BLACK 3D view.
+    unused, magic = data[10], data[11]
     tag = data[12:16]
     end = HDR + 4 * (count + 1)
     if end > len(data):
         raise BadContainer("offset table runs past EOF")
     offsets = list(struct.unpack(e + "%dI" % (count + 1), data[HDR:end]))
     entries = [data[offsets[i]:offsets[i + 1]] for i in range(count)]
-    return dict(magic=magic, endian=e, size=size, count=count, flags=flags,
-                tag=tag, offsets=offsets, entries=entries)
+    return dict(magic=magic_, endian=e, size=size, count=count,
+                unused=unused, id_table=magic, tag=tag,
+                offsets=offsets, entries=entries)
 
 
 def _swap_flag_byte(b, to_mac):
@@ -153,36 +161,70 @@ def planarize(px, w, rows):
     return bytes(out)
 
 
+# Drawing methods, per the UA Shell hackdocs (TLBFORM.TXT).  This is the last
+# byte of an image header -- NOT a "flags" field, as an earlier guess here had it.
+DRAW_UNCOMPRESSED = (16, 17, 21)      # 17 carries an AND/OR mask pair
+DRAW_COMPRESSED = (18, 23)            # DOS RLE; see DRAW18.TXT / DRAW23.TXT
+DRAW_ID_LIST = 25
+COLOUR_TABLE_MAGIC = (8, 24)          # trailing byte of a colour-table header
+
+
 def _convert_entry(ent, to_mac):
-    """Convert one entry (8-byte header + payload)."""
+    """Convert one image entry: 8-byte header + data.
+
+    Header (TLBFORM.TXT): u16 height, i16 v-offset, i16 h-offset,
+                          u8 width/4, u8 drawing method.
+    """
     if len(ent) < 8:
         return ent                                   # empty / degenerate slot
     src = "<" if to_mac else ">"       # CURRENT order: HLIB when heading to Mac
     dst = ">" if to_mac else "<"
-    rows, xhot, yhot = struct.unpack(src + "Hhh", ent[0:6])
-    stride, flags = ent[6], ent[7]
+    height, voff, hoff = struct.unpack(src + "Hhh", ent[0:6])
+    w4, method = ent[6], ent[7]
     payload = ent[8:]
 
-    if (flags & 0x0F) == TYPE_COMPRESSED:
+    w = w4 * (4 if to_mac else 8)       # decode width with the SOURCE's unit
+    dos_method = method if to_mac else (method & 0x0F) | 0x10
+
+    # Classify by DRAWING METHOD first (TLBFORM.TXT).  An entry whose method is
+    # not an image method is the per-set COLOUR TABLE, whose trailing byte is a
+    # magic of 8 or 24 -- do not read it as a bitmap.
+    if dos_method in DRAW_COMPRESSED:
         raise UnsupportedPiece(
-            "piece type 2 (RLE) — DOS and Mac use different codecs; "
-            "the DOS side is not decoded yet")
+            "drawing method %d (compressed) — the DOS RLE is not decoded yet; "
+            "see hackdocs DRAW18.TXT / DRAW23.TXT" % dos_method)
+    if dos_method == DRAW_ID_LIST:
+        raise UnsupportedPiece("drawing method 25 (image-ID list)")
 
-    new_flags = _swap_flag_byte(flags, to_mac)
-
-    # Width in bytes: HLIB keeps W/4 (its per-plane stride), GLIB keeps W/8.
-    w = stride * (4 if to_mac else 8)     # decode with the SOURCE's unit
-    if w and rows and w * rows == len(payload):
-        new_stride = w // (8 if to_mac else 4)
-        body = (deplanarize(payload, w, rows) if to_mac
-                else planarize(payload, w, rows))
+    if dos_method in DRAW_UNCOMPRESSED:
+        if not (w and height and w * height == len(payload)):
+            raise UnsupportedPiece(
+                "drawing method %d but %d bytes != %dx%d — unhandled layout "
+                "(method 17 stores an AND+OR mask pair)" % (dos_method, len(payload), w, height))
+        # Mac CTL requires the width to divide evenly by 8 (TLBFORM.TXT).  A
+        # DOS-only width of 4 truncates to a ZERO-width piece -- which is what
+        # silently blanked the converted wall sets.  Refuse rather than emit it.
+        if to_mac and w % 8:
+            raise UnsupportedPiece(
+                "width %d is not a multiple of 8 — a Mac CTL cannot represent it "
+                "(it would truncate to width %d)" % (w, w // 8 * 8))
+        new_w4 = w // (8 if to_mac else 4)
+        new_method = _swap_flag_byte(method, to_mac)
+        body = (deplanarize(payload, w, height) if to_mac
+                else planarize(payload, w, height))
+    elif method in COLOUR_TABLE_MAGIC:
+        # The COLOUR TABLE (per-set palette).  Its header is u16 cycling /
+        # u16 first colour / u16 colour count, then two BYTES (cycle-range count,
+        # magic 8 or 24) -- so the words swap while the trailing bytes and the RGB
+        # payload pass through unchanged.  Byte-exact against the Yezukriis pair.
+        new_w4, new_method, body = w4, method, payload
     else:
-        # Geometry does not describe the payload (palette / opaque blob):
-        # swap the header words, copy the bytes through untouched.
-        new_stride, new_flags = stride, flags
-        body = payload
+        raise UnsupportedPiece(
+            "entry is neither a known drawing method nor a colour table "
+            "(trailing byte 0x%02x; expected a draw method or magic 8/24)" % method)
 
-    return struct.pack(dst + "Hhh", rows, xhot, yhot) + bytes([new_stride, new_flags]) + body
+    return (struct.pack(dst + "Hhh", height, voff, hoff)
+            + bytes([new_w4, new_method]) + body)
 
 
 def _swap_u16_array(b):
@@ -230,7 +272,8 @@ def convert(data, to=None):
     out = bytearray()
     out += to
     out += struct.pack(e + "I", off)
-    out += struct.pack(e + "HH", c["count"], c["flags"])
+    out += struct.pack(e + "H", c["count"])
+    out += bytes([c["unused"], c["id_table"]])      # two BYTES — never swapped
     out += tag
     out += struct.pack(e + "%dI" % (c["count"] + 1), *offsets)
     for x in entries:
