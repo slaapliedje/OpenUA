@@ -472,6 +472,35 @@ Confirmed end to end, **zero faults in engine address space**:
 **Harness note:** the list commits on the **verb-word LETTER accelerator**
 (`driver.sh key h` for HEAL) — clicking the verb button does NOT commit.
 
-**NOT yet exercised:** a cure on a genuinely WOUNDED character (BARBARUS was at
-full HP, so the 1d8 correctly restored nothing), and the party-wide `L54c8` "Fix".
-Both are reachable from the same harness — wound the party first.
+**~~NOT yet exercised~~ — BOTH VERIFIED (2026-07-12, post-reboot):**
+- **Wounded cure:** MALTIER **9/77 → 14/77** via Cure Light Wounds (a real 1d8=5)
+  through the payment gate; the services screen's HP readout drew in CYAN (the
+  `cur==max ? 7 : 11` colour branch) while wounded.
+- **The party-wide Fix (`L54c8`):** at GEO009's temple (row 17, col 20 —
+  "GREETINGS IN THE NAME OF SUNE") the verb bar showed **HEAL/VIEW/FIX/EXIT**
+  (arm 2's `ev[4]>=7 && ev[5]==0` gate passing for the first time); `key f` →
+  **"THE WHOLE PARTY IS HEALED."** with NO payment prompt (faithful — Fix's base
+  price is 0, so l46f6 takes the free path) → BARBARUS 12→78, LADY ILLIS 20→84,
+  MALTIER 9→77, all to max (`rec[395]=rec[129]`), HP colour back to grey.
+
+### Hunting temple cells — hard-won corrections to the recipe
+
+1. **Parse the CELLSCAN log PER-LEVEL-BLOCK, never in aggregate.** Every play
+   entry loads the header level (GEO005) BEFORE the harness level, so the log
+   contains multiple scan blocks — and GEO005 happens to have cells at (2,12)
+   and (7,8), the exact coordinates hunted on other levels. Three separate
+   mis-attributions came from deduping across blocks.
+2. **The scan must clamp to ds[2] (width) as well as ds[3] (height)** — the MAP
+   chunk is a fixed 576-cell region and the rows beyond the declared dims hold
+   stale editor data; jt201/l5baa reject those cells, so an unclamped scan
+   reports PHANTOM temples. (Fixed in the committed FRUA_CELLSCAN.)
+3. **An event in ENCR is not necessarily on any cell.** GEO008/GEO018 carry
+   Fix-capable temples in ENCR that no in-bounds cell references (chain-target
+   rewards, hence once-only). The OFFLINE cross-reference (parse HDR/MAP/ENCR
+   straight from the .DAT — see the session's python) beats emulator round-trips.
+4. **The walk-in Fix temples in HEIRS are GEO009 and GEO010 at (17,20)**, both
+   gated on `rec[8] outside 6..19` (l694e ct=3) — and `rec[8]=0` at game start,
+   so they fire on entry.
+5. **Drive the verb bars by LETTER only** (`key h`, `key f`): clicking a verb
+   sometimes commits the WRONG arm (a FIX click landed on EXIT); the letter
+   accelerators are deterministic.

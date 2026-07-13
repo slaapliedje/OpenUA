@@ -1222,15 +1222,21 @@ static void  jt198(short geo_num)
 		const unsigned char *lv =
 		    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 		if (lv != NULL) {
-			short w = (short)lv[3], x, y;
+			/* Column-major, stride = HEIGHT: ds[3] = height (row
+			 * limit), ds[2] = width (col limit) — the same bounds
+			 * l5baa enforces. Scanning past ds[2] reads stale
+			 * editor rows outside the playable map and reports
+			 * PHANTOM cells jt201 will never return. */
+			short h = (short)lv[3], w = (short)lv[2], x, y;
 			dbg_file_num("== GEO level", geo_num);
-			dbg_file_num("   width", w);
-			for (y = 0; y < 40; y++)
-				for (x = 0; x < w; x++) {
-					long id = (long)w * y + x;
+			dbg_file_num("   width(ds2)", w);
+			dbg_file_num("   height(ds3)", h);
+			for (y = 0; y < w; y++)
+				for (x = 0; x < h; x++) {
+					long id = (long)h * y + x;
 					unsigned char sp = lv[290 + id * 6 + 4];
 					if (sp != 0)
-						dbg_file_num("   sp*10000+x*100+y",
+						dbg_file_num("   sp*10000+row*100+col",
 						    sp * 10000L + x * 100L + y);
 				}
 		}
