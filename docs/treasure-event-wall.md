@@ -382,3 +382,96 @@ the HEIRS caravan cell's event type. NOT yet Hatari-tested.
 
 Related: [[bigpic-composer-129]] (event subsystem), [[combat-encounter-gateway]]
 (l709e cases 10/21), docs/play-loop-wall.md (event-type table).
+
+## JT[933] — the TEMPLE SERVICES screen is LIVE (2026-07-12)
+
+`jt933` was the project's **last live gap**. It was also mislabelled: the port's
+comment called it "the take-commit (the actual transfer)". It is nothing of the
+sort — it is the temple's own **modal SERVICES screen**, and with it stubbed the
+whole of FRUA's temple was dead.
+
+### What it actually is
+
+`L216a` (the temple event) runs the take/pool/share picker. On any turn where the
+player neither navigated the roster nor chose Exit, it hands off to `jt933`, which
+builds its OWN verb bar (JT[155] arms 0..8, run by JT[160]) and dispatches:
+
+| arm | target | |
+|--:|---|---|
+| 0 | `L5120` | the 13-entry SERVICES list |
+| 1 | `jt904` | View character |
+| 2 | `L54c8` | **"Fix"** — the whole-party heal/cure/raise |
+| 3/4/5/6 | `jt925`/`jt922`/`jt924`/`jt921` | Pool / take / money / Share |
+| 7 | `jt896` | the donation-limit commit (jt933's return value) |
+| 8 | — | Exit (ends the loop) |
+
+Every purchasable service funnels through **`L46f6`, the PAYMENT GATE**: price it
+with JT[932], show "<service> will only cost <N> platinum pieces.", confirm with
+JT[159] ("pay for cure"), then debit the active character's purse (rec[76], a
+WORD) or fall back to the party pool (-25314, a LONG); if neither covers it,
+"Not enough money." and the service is refused. On success it announces
+"<NAME> is cured." — or "the whole party is healed." when the caller is Fix (the
+service name compares equal to "Fix" under JT[393], a signed strcmp).
+
+The 12 services and their Mac list prices (platinum), each banded by JT[932]:
+
+| service | base | helper |
+|---|--:|---|
+| Cure Light / Serious / Critical Wounds | 20 / 70 / 120 | `L4a38` kinds 1-3 (1d8 / 2d8+1 / 3d8+3) |
+| Heal | 1000 | `L4a38` kind 4 — AD&D Heal: restores **all but 1d4** HP |
+| Cure Blindness / Cure Disease | 200 / 200 | `L488a` / `L4916` |
+| Neutralize Poison / Stone to Flesh | 200 / 400 | `L4d24_c12` / `L4ee4` |
+| Remove Curse / Raise Dead | 700 / 1100 | `L4e28` / `L4c18` |
+| Restore / Resurrection | 1500 / 2000 | `L4f6a` / `L5012` |
+
+A service the character does not need routes through **`L4586`** first — paint
+"<NAME> is not Diseased" / "is not poisoned." etc. and ask whether to buy anyway.
+
+### THE BUG IT EXPOSED — l216a's gate was INVERTED
+
+The Mac computes `did_exit || acted` and **branches AWAY on it** (0x26e0
+`bnew L2764`): jt933 runs only when the player did NEITHER. The port had
+`if (did_exit || acted)` — exactly backwards, so the services screen was
+**unreachable** and every roster keypress tried to open it. Also restored in the
+same commit: the -28006 header's `rec[20] = 1` stamp (0x26e8), and the 4th
+argument, which the Mac derives as `(ev[12] != 0)` where the port hardcoded 0.
+
+### The alias trap (again)
+
+Of jt933's ten CODE-12 callees, **six were already lifted under their JT names** —
+`l0082`=jt936, `l1c8a`=jt925, `l1d90`=jt921, `l2554`=jt922, `l229e`=jt924,
+`l2504`=jt926. Only `L5120` and `L54c8` were genuinely missing. **Check
+docs/lxxxx-jt-aliases.md BEFORE lifting any lXXXX** — it would have been six
+duplicate lifts. (Two twins remain in the tree: `l2504`/`jt926` and
+`l0848`/`jt934` are the same function lifted twice.)
+
+### Verified live (Hatari, HEIRS)
+
+Reaching a temple needs a harness — HEIRS' type-9 events are not on the default
+walk. Method: scan each level's `ENCR` chunk (20-byte event records, `ev[0]` =
+type) for type 9, then scan the LIVE level buffer (-12300; 6-byte cell records at
++290, special at +4, `idx = lvl[3]*y + x`) for the cell whose special is that
+event index. HEIRS' **entry level is GEO005**, and its temple sits at
+**row 5, col 5**:
+
+```sh
+make EXTRA_CFLAGS="-DFRUA_ENTRY_LEVEL=5 -DFRUA_ENTRY_ROW=5 -DFRUA_ENTRY_COL=5 -DFRUA_ENTRY_FACING=2"
+# Play -> Add Character -> Begin Adventuring
+```
+
+Confirmed end to end, **zero faults in engine address space**:
+1. **"TEMPLE OF TYMORA."** at 5,5 — the priest bigpic + event text
+2. **"MAY I HELP YOU?"** with `l216a`'s bar: HEAL / DONATE / VIEW / POOL / LEAVE
+3. HEAL -> **jt933**'s own bar appears: HEAL / VIEW / POOL / APPR. / EXIT
+4. HEAL -> **L5120**: *"BARBARUS, HOW CAN WE HELP YOU?"* with **7 of the 12**
+   services offered (the -5286 table gating on ev[4]) and "BARBARUS 78/78" below
+5. Buy Cure Light Wounds -> **L46f6**: *"CURE LIGHT WOUNDS WILL ONLY COST 6
+   PLATINUM PIECES."* / **PAY FOR CURE [YES] [NO]** (JT[932] banded 20 -> 6)
+6. YES -> debited, cure applied, back to the list
+
+**Harness note:** the list commits on the **verb-word LETTER accelerator**
+(`driver.sh key h` for HEAL) — clicking the verb button does NOT commit.
+
+**NOT yet exercised:** a cure on a genuinely WOUNDED character (BARBARUS was at
+full HP, so the 1d8 correctly restored nothing), and the party-wide `L54c8` "Fix".
+Both are reachable from the same harness — wound the party first.

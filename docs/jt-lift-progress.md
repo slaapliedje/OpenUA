@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1199 done (1069 lifted, 55 noop, 75 alias), 3 stub, 0 stand-in, 3 missing.
+**1205 distinct JT entries are called.** Overall: 1200 done (1070 lifted, 55 noop, 75 alias), 2 stub, 0 stand-in, 3 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -53,7 +53,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 21 | 1001–1050 | **50/50** | 49 | 1 | 0 | 0 | 0 |
-| 22 | 1051–1100 | **48/50** | 39 | 9 | 2 | 0 | 0 |
+| 22 | 1051–1100 | **49/50** | 40 | 9 | 1 | 0 | 0 |
 | 23 | 1101–1150 | **49/50** | 39 | 10 | 1 | 0 | 0 |
 | 24 | 1151–1200 | **50/50** | 40 | 10 | 0 | 0 | 0 |
 | 25 | 1201–1205 | **5/5** | 4 | 1 | 0 | 0 | 0 |
@@ -78,7 +78,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 9 | 5 | 5 | 0 | 0 | 0 | **0** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 12 | 0 | 0 | 0 | **0** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
 | CODE 11 | 12 | 12 | 0 | 0 | 0 | **0** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
-| CODE 12 | 23 | 22 | 1 | 0 | 0 | **1** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
+| CODE 12 | 23 | 23 | 0 | 0 | 0 | **0** | Training Hall menu + roster (jt918 / l0aae / l02dc) |
 | CODE 13 | 22 | 22 | 0 | 0 | 0 | **0** | area-map line/region renderer (jt501) |
 | CODE 14 | 44 | 44 | 0 | 0 | 0 | **0** | area-map render tree (jt521) |
 | CODE 15 | 19 | 19 | 0 | 0 | 0 | **0** | play-entry + save/load + party list (jt574..590 / l07dc) |
@@ -331,12 +331,11 @@ PENDING entries across ALL ranks — the most load-bearing work left,
 each tagged with its CODE segment (cross-ref the segment table). A note
 from `PENDING_NOTES` explains _why_ it is still open where known.
 
-Top 6 of 6 pending (stub+standin+missing), by call count:
+Top 5 of 5 pending (stub+standin+missing), by call count:
 
 - jt426 (1 calls, CODE 3) — missing — SUPERSEDED — Mac indexed-catalog OPEN; only caller is jt990, which the port reimplements over GEMDOS Fsfirst. Dead on the port.
 - jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
 - jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
-- jt933 (1 calls, CODE 12) — stub
 - jt955 (1 calls, CODE 21) — stub
 - jt1064 (1 calls, CODE 5) — stub
 

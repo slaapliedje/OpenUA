@@ -3359,7 +3359,7 @@ static void dbg_party_check(const char *tag);
  *
  * Not yet wired to a caller (the play-loop key handler in CODE 12/20 calls it);
  * lifted now so the roster-cursor path is ready, like jt936 before it. */
-static void jt934(short sel) __attribute__((unused));
+static void jt934(short sel);
 static void jt934(short sel)
 {
 	long head   = g_a5_27928;
@@ -3464,7 +3464,7 @@ static void jt32(long entry, short page, short row, short forceRed, short showMa
 static void jt97(short col, short row, short page, short style,
                  short a, short ch, short flag);
 static void jt103(short top, short left, short right, short bottom);
-static void jt936(long member, short highlight) __attribute__((unused));
+static void jt936(long member, short highlight);
 static void jt936(long member, short highlight)
 {
 	const unsigned char *h;
@@ -4967,7 +4967,7 @@ static short jt423(const char *s)
 /* JT[483] (CODE 3 + 0x0058, 36 sites) — duplicate public alias for
  * strlen-as-short. The Mac body literally JSRs to L39ae and
  * returns; routes to l39ae like JT[423]. */
-static short jt483(const char *s) __attribute__((unused));
+static short jt483(const char *s);
 static short jt483(const char *s)
 {
 	PROBE("jt483");
@@ -5055,7 +5055,7 @@ static long jt1143(void)
  * RNG is wired up the dice come alive without further changes.
  *
  * First lifted entry from CODE 18 — opens the segment. */
-static short jt870(short count, short item) __attribute__((unused));
+static short jt870(short count, short item);
 static short jt870(short count, short item)
 {
 	short sum = 0;
@@ -6583,7 +6583,7 @@ static void jt20(void);
  * Both JT[1200] arms in the design-edit path do the same thing
  * for `p != NULL` — the asm's redundant compare is preserved
  * here as a single inline check. */
-static void jt18(void *p, long val, short s1, short byte_flag) __attribute__((unused));
+static void jt18(void *p, long val, short s1, short byte_flag);
 static void jt18(void *p, long val, short s1, short byte_flag)
 {
 	short base_y;
@@ -28897,7 +28897,7 @@ static long jt26(long ctx, short level, short cls)
  * The chain head is stored at *head_holder. Stops early if the pool runs dry.
  * jt477 is the reserve; here the bucket is the pointer VALUE at -21156 (a heap
  * bucket), unlike jt876's inline &g_a5_-21152. Faithful lift of L183a. */
-static void jt167(short count, long head_holder) __attribute__((unused));
+static void jt167(short count, long head_holder);
 static void jt167(short count, long head_holder)
 {
 	void *bucket = (void *)(uintptr_t)g_a5_long(-21156);
@@ -30449,7 +30449,7 @@ static void l19f8(short kind, short level, unsigned char *acc, const unsigned ch
  *              delta, then grant/remove the low-HP effect 62 (jt876/jt878).
  *   idx 5   -> effect 14 bonus -> mp[123].
  * Args are the member pointer and the field index (low byte of the word). */
-static void jt875(long member, short idx) __attribute__((unused));
+static void jt875(long member, short idx);
 static void jt875(long member, short idx)
 {
 	unsigned char *m = (unsigned char *)(uintptr_t)member;
@@ -38060,7 +38060,7 @@ static void jt596(short x0, short y0, short tx, short ty, short mode,
 /* JT[598] (CODE 16 + 0x73ea) — dispatch a spell/status-effect handler:
  * call through the -24066 fn-ptr table slot `code` (the table jt610
  * fills at combat init; empty until that registration is lifted). */
-static void jt598(short code) __attribute__((unused));
+static void jt598(short code);
 static void jt598(short code)
 {
 	void (*fn)(void);
@@ -87766,7 +87766,7 @@ static long jt891(long maxval, const char *prompt, short width)
  * "%s%s%s"), reads the amount (jt891), and transfers it into the active char
  * (l21d6). Repeats while money remains; ends on cancel/Esc. Takes no args. The
  * money arm of jt929. */
-static void jt924(void) __attribute__((unused));
+static void jt924(void);
 static void jt924(void)
 {
 	char           buf[80];          /* fp@(-66) */
@@ -89945,8 +89945,7 @@ static int jt931(void)
 	return match;
 }
 
-static unsigned char jt933(long ev, short exit_arm, long item_head, short v)
-	{ PROBE("jt933"); (void)ev; (void)exit_arm; (void)item_head; (void)v; return 0; } /* CODE12+0x5720 take-commit */
+static unsigned char jt933(long ev, short exit_arm, long item_head, short v);
 
 /* ===== CODE 19 char-sheet / party-money helpers (jt896 subtree) ============ */
 
@@ -90032,7 +90031,7 @@ static long l3fd2(long max, const char *prompt, short colour)
  * read via jt940=l427c / written via jt939=l4218).  If that total reaches `limit`
  * and the gate byte (arg2 low byte) is set, it zeroes the total and raises the
  * over-limit flag — the return value.  The outer loop runs once (did is 1). */
-static unsigned char jt896(long limit, short arg2) __attribute__((unused));
+static unsigned char jt896(long limit, short arg2);
 static unsigned char jt896(long limit, short arg2)
 {
 	char          name[24];      /* fp@-20 */
@@ -90098,6 +90097,789 @@ static unsigned char jt896(long limit, short arg2)
 	} while (did == 0 && over == 0);                                /* 0x4c84 (runs once) */
 
 	return over;                                                    /* 0x4c92 */
+}
+
+/* ====================================================================
+ * JT[933] — the TEMPLE SERVICES screen (CODE 12 + 0x5720) and its tree.
+ *
+ * L216a (the temple event) runs the take/pool/share picker; on any turn where
+ * the player neither navigated the roster nor chose Exit, it hands off to
+ * JT[933], which is the temple's own modal screen: a verb bar (JT[155] arms 0..8,
+ * run by JT[160]) over the party, dispatching to
+ *
+ *   0  L5120   the 13-entry SERVICES list (Cure Light Wounds .. Resurrection)
+ *   1  jt904   View character
+ *   2  L54c8   "Fix" — the whole-party heal/cure/raise
+ *   3  jt925   Pool          4  jt922   (take)      5  jt924   (money)
+ *   6  jt921   Share         7  jt896   the donation/limit commit
+ *   8          Exit (ends JT[933]'s loop)
+ *
+ * Every purchasable service funnels through L46f6, the PAYMENT GATE: price the
+ * service with JT[932], show "<service> will only cost <N> platinum pieces.",
+ * confirm (JT[159] "pay for cure"), then debit the active character's purse
+ * (rec[76], a word) or fall back to the party pool (-25314, a long); if neither
+ * covers it, "Not enough money." and the service is refused.
+ *
+ * The prices are the Mac's own (platinum): Cure Light 20, Cure Serious 70,
+ * Cure Critical 120, Cure Blindness / Cure Disease / Neutralize Poison 200,
+ * Stone to Flesh 400, Remove Curse 700, Heal 1000, Raise Dead 1100,
+ * Restore 1500, Resurrection 2000.
+ * ==================================================================== */
+
+/* L4586 (CODE 12 + 0x4586) — the "are you sure?" guard used by every service
+ * that the active character does not actually need. Paints "<NAME> <msg>"
+ * (JT[18]) and then asks the -14004 confirm through JT[159], with the -22281
+ * suppress-flag saved/cleared/restored around it so the prompt always shows.
+ * Returns the answer: 1 = go ahead and buy it anyway. */
+static unsigned char l4586(const char *msg)
+{
+	unsigned char saved, ans;
+
+	PROBE("L4586");
+	jt18((void *)(uintptr_t)g_a5_long(-27932),
+	     (long)(uintptr_t)msg, 0, 0);               /* 0x458e */
+	saved = g_a5_byte(-22281);                      /* 0x459e */
+	g_a5_byte(-22281) = 0;
+	ans = (unsigned char)jt159(
+	          (const char *)(uintptr_t)g_a5_long(-14004), 0);  /* 0x45ae */
+	g_a5_byte(-22281) = saved;                      /* 0x45b8 */
+	jt20();
+	return ans;                                     /* 0x45c2 */
+}
+
+/* L46f6 (CODE 12 + 0x46f6) — the temple PAYMENT GATE. `name` is the service,
+ * `base` its list price, `kind` the event's rec[5] (the temple's price band,
+ * which JT[932] folds in). Returns 1 when the service may proceed.
+ *
+ *   cost = JT[932](base, kind, 1)          -- 0 means "free": proceed at once
+ *   "<name> will only cost <cost> platinum pieces."   (JT[96])
+ *   JT[159] "pay for cure"  -> no: bail (JT[20] closes the window)
+ *   debit rec[76] (the active character's purse, a WORD) if it covers the cost,
+ *   else the party pool -25314 (a LONG); neither -> "Not enough money." + fail.
+ *   On success announce: "<NAME> is cured." for a single-target service, or
+ *   "the whole party is healed." when the caller is the "Fix" service (the name
+ *   compares equal under JT[393], a signed strcmp). */
+static unsigned char l46f6(const char *name, long base, short kind)
+{
+	char           buf[256];                        /* fp@(-256) */
+	long           cost;                            /* fp@(-270) */
+	long           purse;                           /* fp@(-262) */
+	long           pool;                            /* fp@(-266) */
+	unsigned char  saved;                           /* fp@(-271) */
+	unsigned char  ok = 0;                          /* fp@(-257) */
+	unsigned char *m;
+
+	PROBE("L46f6");
+	cost = jt932(base, kind, 1);                    /* 0x470a */
+	if (cost == 0) {                                /* L47f4 */
+		ok = 1;
+	} else {
+		jt394(buf, ua_strs_at(0x6532),          /* "%s%s%ld%s" */
+		      name,
+		      ua_strs_at(0x653c),               /* " will only cost " */
+		      cost,
+		      ua_strs_at(0x654e));              /* " platinum pieces." */
+		jt96(1, 17, 38, 22, 7, 0, 1,
+		     (long)(uintptr_t)buf, 0);          /* 0x4760 */
+
+		saved = g_a5_byte(-22281);              /* 0x4768 */
+		g_a5_byte(-22281) = 0;
+		ok = (unsigned char)jt159(ua_strs_at(0x6560) /* "pay for cure" */,
+		                          1);           /* 0x477c */
+		g_a5_byte(-22281) = saved;
+
+		if (ok == 1) {                          /* 0x4796 */
+			m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+			purse = (long)(unsigned short)*(unsigned short *)(m + 76);
+			if (cost <= purse) {            /* 0x47ae */
+				*(short *)(m + 76) =
+				    (short)(*(short *)(m + 76) - (short)cost);
+			} else {                        /* L47be */
+				pool = g_a5_long(-25314);
+				if (cost <= pool) {
+					g_a5_long(-25314) -= cost;
+				} else {                /* L47d8 */
+					jt42(ua_strs_at(0x656e)); /* "Not enough money." */
+					jt20();
+					ok = 0;
+				}
+			}
+		} else {                                /* L47ee */
+			jt20();
+		}
+	}
+
+	if (ok == 1) {                                  /* 0x47fa */
+		jt20();
+		if (jt393(ua_strs_at(0x6580) /* "Fix" */, name) != 0) {
+			/* a single-target service: "<NAME> is cured." */
+			jt18((void *)(uintptr_t)g_a5_long(-27932),
+			     (long)(uintptr_t)ua_strs_at(0x6584), 0, 1);
+		} else {                                /* L483a — the Fix service */
+			jt394(buf, ua_strs_at(0x658e));  /* "the whole party is healed." */
+			jt96(1, 17, 38, 22, 7, 0, 1,
+			     (long)(uintptr_t)buf, 0);
+			jt181(0);
+			jt20();
+		}
+	}
+	return ok;                                      /* L487c */
+}
+
+/* L4a38 (CODE 12 + 0x4a38) — the four hit-point services, by `kind`:
+ *   1 Cure Light Wounds     20p   heal 1d8
+ *   2 Cure Serious Wounds   70p   heal 2d8+1
+ *   3 Cure Critical Wounds 120p   heal 3d8+3
+ *   4 Heal               1000p   AD&D Heal: restores ALL BUT 1d4 hit points —
+ *                                 amount = (max - cur) - 1d4, and nothing at all
+ *                                 when the target is already within 1d4 of full;
+ *                                 also strips effects 33/68 and JT[875] 1 and 2. */
+static void l4a38(short kind, long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char *m;
+	short          amount;
+
+	PROBE("L4a38");
+	switch (kind) {                                 /* JT[3] min 1 max 4 */
+	case 1:                                         /* L4a54 */
+		if (l46f6(ua_strs_at(0x65e2) /* "Cure Light Wounds" */,
+		          0x14L, (short)ev[5]) == 0)
+			break;
+		amount = jt870(1, 8);
+		jt869(g_a5_long(-27932), (short)(unsigned char)amount, 0);
+		break;
+	case 2:                                         /* L4aa2 */
+		if (l46f6(ua_strs_at(0x65f4) /* "Cure Serious Wounds" */,
+		          0x46L, (short)ev[5]) == 0)
+			break;
+		amount = (short)(jt870(2, 8) + 1);
+		jt869(g_a5_long(-27932), (short)(unsigned char)amount, 0);
+		break;
+	case 3:                                         /* L4af2 */
+		if (l46f6(ua_strs_at(0x6608) /* "Cure Critical Wounds" */,
+		          0x78L, (short)ev[5]) == 0)
+			break;
+		amount = (short)(jt870(3, 8) + 3);
+		jt869(g_a5_long(-27932), (short)(unsigned char)amount, 0);
+		break;
+	case 4:                                         /* L4b42 — Heal */
+		if (l46f6(ua_strs_at(0x661e) /* "Heal" */,
+		          0x3e8L, (short)ev[5]) == 0)
+			break;
+		amount = (short)(unsigned char)jt870(1, 4);      /* the 1d4 shortfall */
+		m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		if ((short)(m[395] + amount) > (short)m[129])
+			amount = 0;                     /* already within 1d4 of full */
+		else
+			amount = (short)((short)m[129] - (short)m[395] - amount);
+		jt869(g_a5_long(-27932), (short)(unsigned char)amount, 0);
+		jt878(g_a5_long(-27932), 33, 0L);
+		jt878(g_a5_long(-27932), 68, 0L);
+		jt875(g_a5_long(-27932), 1);
+		jt875(g_a5_long(-27932), 2);
+		break;
+	default:
+		break;
+	}
+}
+
+/* L488a (CODE 12 + 0x488a) — Cure Blindness (200p). If the character does not
+ * carry effect 33 the -13992 "is not Blind" guard asks whether to buy anyway. */
+static void l488a(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char  desc[4];                         /* fp@(-4) */
+	char           msg[44];                         /* fp@(-46) */
+	unsigned char  ok = 1;                          /* fp@(-47) */
+
+	PROBE("L488a");
+	msg[0] = 0;   /* the Mac passes this buffer to JT[18] without filling it */
+	if (jt41(g_a5_long(-27932), 33, desc) == 0)     /* 0x48a0 */
+		ok = l4586((const char *)(uintptr_t)g_a5_long(-13992));
+
+	if (ok == 1) {                                  /* 0x48c0 */
+		if (l46f6(ua_strs_at(0x65aa) /* "Cure Blindness" */,
+		          0xc8L, (short)ev[5]) != 0)
+			jt878(g_a5_long(-27932), 33, 0L);
+		jt18((void *)(uintptr_t)g_a5_long(-27932),
+		     (long)(uintptr_t)msg, 10, 1);      /* 0x490a */
+	}
+}
+
+/* L4916 (CODE 12 + 0x4916) — Cure Disease (200p). "Diseased" is any of the six
+ * disease effect-ids at -25292[1..6] (JT[41]); absent them, the -25292 scan
+ * leaves `found` clear and the "is not Diseased" guard (L4586) asks first.
+ * The cure strips all six with -25258 armed (so JT[878] does not cascade),
+ * then JT[875](member, 0) and announces "<NAME> is cured". */
+static void l4916(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char  desc[4];                         /* fp@(-4) */
+	char           msg[44];                         /* fp@(-46) */
+	unsigned char  found = 0;                       /* fp@(-48) */
+	unsigned char  ok;                              /* fp@(-49) */
+	short          i;                               /* fp@(-47) */
+
+	PROBE("L4916");
+	for (i = 1; i <= 6; i++) {                      /* L4926 */
+		if (jt41(g_a5_long(-27932),
+		         (short)(unsigned char)g_a5_byte(-25292 + i),
+		         desc) != 0) {
+			found = 1;
+			i = 6;                          /* 0x4958 — stop the scan */
+		}
+	}
+
+	if (found == 0)                                 /* 0x496e */
+		ok = l4586(ua_strs_at(0x65ba));         /* "is not Diseased" */
+	else
+		ok = 1;
+
+	if (ok != 1)                                    /* 0x498c */
+		return;
+	if (l46f6(ua_strs_at(0x65ca) /* "Cure Disease" */,
+	          0xc8L, (short)ev[5]) == 0)
+		return;
+
+	g_a5_byte(-25258) = 1;                          /* 0x49ba */
+	for (i = 1; i <= 6; i++)                        /* L49c8 */
+		jt878(g_a5_long(-27932),
+		      (short)(unsigned char)g_a5_byte(-25292 + i), 0L);
+	jt875(g_a5_long(-27932), 0);
+	g_a5_byte(-25258) = 0;
+
+	jt384(msg, ua_strs_at(0x65d8));                 /* "is cured" */
+	jt18((void *)(uintptr_t)g_a5_long(-27932),
+	     (long)(uintptr_t)msg, 0, 1);
+}
+
+/* L4c18 (CODE 12 + 0x4c18) — Raise Dead (1100p). Three gates, each with its own
+ * refusal prompt: the target must actually be dead (status 6) or fled (1);
+ * a class-0 (monster/NPC) target gets -13984; a status-8 (destroyed/ash) target
+ * gets -13980; anything else gets the generic -13976. Only a genuinely-dead,
+ * classed, non-destroyed body reaches JT[598](75) — the Raise Dead payload. */
+static void l4c18(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char *m;                               /* fp@(-6) */
+	unsigned char  dead = 0;                        /* fp@(-2) */
+	unsigned char  noclass = 0;                     /* fp@(-7) */
+	unsigned char  destroyed;                       /* fp@(-8) */
+	unsigned char  ok = 1;                          /* fp@(-1) */
+
+	PROBE("L4c18");
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (m[94] == 6 || m[94] == 1)                   /* 0x4c30 */
+		dead = 1;
+	destroyed = (unsigned char)(m[94] == 8 ? 1 : 0);  /* 0x4c5a */
+	if (m[88] < 1)                                  /* 0x4c6e — no class */
+		noclass = 1;
+
+	if (!dead || noclass) {                         /* 0x4c84 */
+		if (noclass)
+			ok = l4586((const char *)(uintptr_t)g_a5_long(-13984));
+		else if (destroyed)
+			ok = l4586((const char *)(uintptr_t)g_a5_long(-13980));
+		else
+			ok = l4586((const char *)(uintptr_t)g_a5_long(-13976));
+	}
+
+	if (ok != 1)                                    /* L4cca */
+		return;
+	if (l46f6(ua_strs_at(0x6624) /* "Raise Dead" */,
+	          0x44cL, (short)ev[5]) == 0)
+		return;
+	if (!dead || noclass || destroyed)              /* 0x4cf8..0x4d08 */
+		return;
+
+	g_a5_long(-23508) = (long)(uintptr_t)m;         /* L4d0a */
+	g_a5_byte(-25262) = 75;
+	jt598(75);
+}
+
+/* L4d24 (CODE 12 + 0x4d24) — Neutralize Poison (200p). Poison is effect 55.
+ * On success: force at least 1 HP, arm -25258, strip 55/22/15, clear it again,
+ * mark alive (rec[382]=1) and clear the status byte (rec[94]).
+ * Named _c12: CODE 11 has a DIFFERENT function at the same 0x4d24 offset. */
+static void l4d24_c12(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char  desc[4];                         /* fp@(-4) */
+	unsigned char  poisoned = 0;                    /* fp@(-6) */
+	unsigned char  ok = 1;                          /* fp@(-5) */
+	unsigned char *m;
+
+	PROBE("L4d24");
+	if (jt41(g_a5_long(-27932), 55, desc) != 0)     /* 0x4d3e */
+		poisoned = 1;
+	if (!poisoned)                                  /* 0x4d50 */
+		ok = l4586(ua_strs_at(0x6630));         /* "is not poisoned." */
+
+	if (ok != 1)                                    /* 0x4d66 */
+		return;
+	if (l46f6(ua_strs_at(0x6642) /* "Neutralize Poison" */,
+	          0xc8L, (short)ev[5]) == 0)
+		return;
+	if (!poisoned)                                  /* 0x4d98 */
+		return;
+	if (jt41(g_a5_long(-27932), 55, desc) == 0)     /* 0x4dac — re-check */
+		return;
+
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (m[395] == 0)                                /* 0x4dba */
+		m[395] = 1;
+	g_a5_byte(-25258) = 1;
+	jt878((long)(uintptr_t)m, 55, 0L);
+	jt878((long)(uintptr_t)m, 22, 0L);
+	jt878((long)(uintptr_t)m, 15, 0L);
+	g_a5_byte(-25258) = 0;
+	m[382] = 1;
+	m[94]  = 0;
+}
+
+/* L4e28 (CODE 12 + 0x4e28) — Remove Curse (700p). Scans the active character's
+ * inventory ([8]-chain, .next at +0) for a cursed item (item[52]); with none,
+ * and no effect 36 either, the -13968 guard asks first. JT[687] is the payload. */
+static void l4e28(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char *item;                            /* fp@(-6) */
+	unsigned char  desc[4];                         /* fp@(-10) */
+	unsigned char  cursed = 0;                      /* fp@(-1) */
+	unsigned char  ok = 1;                          /* fp@(-11) */
+
+	PROBE("L4e28");
+	item = *(unsigned char **)(uintptr_t)
+	       ((unsigned char *)(uintptr_t)g_a5_long(-27932) + 8);
+	while (item != NULL && !cursed) {               /* L4e42 */
+		if (item[52] != 0)
+			cursed = 1;
+		item = *(unsigned char * const *)item;   /* .next at +0 */
+	}
+
+	if (!cursed) {                                  /* 0x4e74 */
+		if (jt41(g_a5_long(-27932), 36, desc) == 0)
+			ok = l4586((const char *)(uintptr_t)g_a5_long(-13968));
+		else
+			ok = 1;
+	} else {
+		ok = 1;
+	}
+
+	if (ok != 1)                                    /* 0x4ea8 */
+		return;
+	if (l46f6(ua_strs_at(0x6654) /* "Remove Curse" */,
+	          0x2bcL, (short)ev[5]) == 0)
+		return;
+	g_a5_long(-23508) = g_a5_long(-27932);          /* 0x4ed6 */
+	jt687();
+}
+
+/* L4ee4 (CODE 12 + 0x4ee4) — Stone to Flesh (400p). Status 7 is petrified;
+ * anything else trips the -13964 guard. Success clears the status, marks the
+ * body alive (rec[382]) and leaves it on 1 HP (rec[395]). */
+static void l4ee4(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char *m;
+	unsigned char  ok = 1;                          /* fp@(-1) */
+
+	PROBE("L4ee4");
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (m[94] != 7)                                 /* 0x4ef8 */
+		ok = l4586((const char *)(uintptr_t)g_a5_long(-13964));
+
+	if (ok != 1)                                    /* 0x4f0c */
+		return;
+	if (l46f6(ua_strs_at(0x6662) /* "Stone to Flesh" */,
+	          0x190L, (short)ev[5]) == 0)
+		return;
+
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (m[94] != 7)                                 /* 0x4f3a — re-check */
+		return;
+	m[94]  = 0;
+	m[382] = 1;
+	m[395] = 1;
+}
+
+/* L4f6a (CODE 12 + 0x4f6a) — Restore (1500p). "Drained" = any current class
+ * level rec[157+i] below its original rec[150+i]; with none, the -13960 guard
+ * asks first. JT[598](102) is the restore-a-level payload. */
+static void l4f6a(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	const unsigned char *m;
+	unsigned char  drained = 0;                     /* fp@(-2) */
+	unsigned char  ok = 1;                          /* fp@(-1) */
+	short          i;                               /* fp@(-3) */
+
+	PROBE("L4f6a");
+	m = (const unsigned char *)(uintptr_t)g_a5_long(-27932);
+	for (i = 0; i <= 6; i++)                        /* L4f7e */
+		if (m[157 + i] < m[150 + i])
+			drained = 1;
+
+	if (!drained)                                   /* 0x4fb6 */
+		ok = l4586((const char *)(uintptr_t)g_a5_long(-13960));
+
+	if (ok != 1)                                    /* L4fca */
+		return;
+	if (l46f6(ua_strs_at(0x6672) /* "Restore" */,
+	          0x5dcL, (short)ev[5]) == 0)
+		return;
+	g_a5_long(-23508) = g_a5_long(-27932);          /* 0x4ff8 */
+	g_a5_byte(-25262) = 102;
+	jt598(102);
+}
+
+/* L5012 (CODE 12 + 0x5012) — Resurrection (2000p). Same three gates as Raise
+ * Dead, plus one more: a target whose status is not 8 but whose rec[120] is set
+ * counts as "already whole" (`destroyed` stays clear only for a real corpse).
+ * JT[598](105) is the resurrect payload. */
+static void l5012(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char *m;                               /* fp@(-6) */
+	unsigned char  dead = 0;                        /* fp@(-2) */
+	unsigned char  noclass = 0;                     /* fp@(-7) */
+	unsigned char  destroyed;                       /* fp@(-8) */
+	unsigned char  ok = 1;                          /* fp@(-1) */
+
+	PROBE("L5012");
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (m[94] == 6 || m[94] == 1)                   /* 0x502e */
+		dead = 1;
+	if (m[94] != 8 && m[120] != 0)                  /* 0x5054 */
+		destroyed = 0;
+	else
+		destroyed = 1;
+	if (m[88] < 1)                                  /* 0x507c */
+		noclass = 1;
+
+	if (!dead || noclass) {                         /* 0x5092 */
+		if (noclass)
+			ok = l4586((const char *)(uintptr_t)g_a5_long(-13984));
+		else if (destroyed)
+			ok = l4586((const char *)(uintptr_t)g_a5_long(-13980));
+		else
+			ok = l4586((const char *)(uintptr_t)g_a5_long(-13976));
+	}
+
+	if (ok != 1)                                    /* L50d8 */
+		return;
+	if (l46f6(ua_strs_at(0x667a) /* "Resurrection" */,
+	          0x7d0L, (short)ev[5]) == 0)
+		return;
+	g_a5_long(-23508) = g_a5_long(-27932);          /* 0x5106 */
+	g_a5_byte(-25262) = 105;
+	jt598(105);
+}
+
+/* L54c8 (CODE 12 + 0x54c8) — "Fix": the whole-party restorative, priced at 0
+ * base (JT[932] still bands it by the temple's rec[5]). L46f6 announces "the
+ * whole party is healed." for this one because the name compares equal to "Fix".
+ *
+ * For EVERY member of -27928 (.next at +0):
+ *   strip effects 68 and 33, then the six disease ids -25292[1..6];
+ *   if effect 55 (poison) is present: force >=1 HP, arm -25258, strip 55/22/15,
+ *     disarm, mark alive, clear the status byte;
+ *   status 6 (dead) with a class -> JT[598](105) resurrect;
+ *   status 7 (petrified) -> clear it, mark alive;
+ *   while any class level rec[157+i] is below its original rec[150+i],
+ *     JT[598](102) to restore one — repeat until none are drained;
+ *   JT[875](member, 0..5);
+ *   unless the status is 8 or 6, refill to full (rec[395] = rec[129]);
+ *   status 4 -> clear it, mark alive. */
+static void l54c8(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char *m;                               /* fp@(-6) */
+	unsigned char  desc[4];                         /* fp@(-12) */
+	unsigned char  drained;                         /* fp@(-8) */
+	short          i;
+
+	PROBE("L54c8");
+	if (l46f6(ua_strs_at(0x6580) /* "Fix" */, 0L, (short)ev[5]) == 0)
+		return;                                 /* L571c */
+
+	m = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	while (m != NULL) {                             /* L54f8 */
+		jt878((long)(uintptr_t)m, 68, 0L);
+		jt878((long)(uintptr_t)m, 33, 0L);
+		for (i = 1; i <= 6; i++)                /* L5524 */
+			jt878((long)(uintptr_t)m,
+			      (short)(unsigned char)g_a5_byte(-25292 + i), 0L);
+
+		if (jt41((long)(uintptr_t)m, 55, desc) != 0) {   /* 0x5566 */
+			if (m[395] == 0)
+				m[395] = 1;
+			g_a5_byte(-25258) = 1;
+			jt878((long)(uintptr_t)m, 55, 0L);
+			jt878((long)(uintptr_t)m, 22, 0L);
+			jt878((long)(uintptr_t)m, 15, 0L);
+			g_a5_byte(-25258) = 0;
+			m[382] = 1;
+			m[94]  = 0;
+		}
+
+		if (m[94] == 6 && m[88] != 0) {         /* L55de */
+			g_a5_long(-23508) = (long)(uintptr_t)m;
+			g_a5_byte(-25262) = 105;
+			jt598(105);
+		}
+		if (m[94] == 7) {                       /* L5612 */
+			m[94]  = 0;
+			m[382] = 1;
+		}
+
+		do {                                    /* L5634 */
+			drained = 0;
+			for (i = 0; i <= 6; i++)
+				if (m[157 + i] < m[150 + i])
+					drained = 1;
+			if (drained) {
+				g_a5_long(-23508) = (long)(uintptr_t)m;
+				g_a5_byte(-25262) = 102;
+				jt598(102);
+			}
+		} while (drained);                      /* 0x5692 */
+
+		for (i = 0; i <= 5; i++)                /* L569e */
+			jt875((long)(uintptr_t)m, i);
+
+		if (m[94] != 8 && m[94] != 6)           /* L56bc */
+			m[395] = m[129];
+		if (m[94] == 4) {                       /* L56ea */
+			m[94]  = 0;
+			m[382] = 1;
+		}
+
+		m = *(unsigned char **)(void *)m;       /* L570c — .next at +0 */
+	}
+}
+
+/* L5120 (CODE 12 + 0x5120) — the SERVICES list. The 12-entry menu table at
+ * -5286 is { short name_idx; short min_band; } per row; a row is offered when
+ * the temple's rec[4] band reaches its min_band. The offered rows are turned
+ * into a JT[167] list, each cell named from the -17446 string table (JT[384]),
+ * and run through the JT[169] list dialog, which is re-entered until the Exit
+ * row (12) or JT[169]'s own cancel arm (1) sets `done`.
+ *
+ * Above the list the active character's name and HP are repainted every pass:
+ * "cur/max", cur drawn in colour 7 when at full health and 11 when wounded.
+ *
+ * NOTE the Mac's counting loop runs i = 0..12 over a TWELVE-entry table — one
+ * past the end, into the saved frame pointer. That 13th "min_band" is a stack
+ * address, always far above the rec[4] byte it is compared against, so the row
+ * is never counted: a benign off-by-one. Transcribed as 0..11 (the real table),
+ * which is what it evaluates to. */
+static void l5120(long ev_l)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	const short   *tbl = (const short *)(void *)&g_a5_byte(-5286);
+	unsigned char *m;
+	long           head = 0, list = 0;              /* fp@(-52) / fp@(-56) */
+	char           num[24];                         /* fp@(-74) */
+	short          count = 0;                       /* fp@(-77) */
+	short          sel   = 0;                       /* fp@(-60) */
+	unsigned char  flag  = 1;                       /* fp@(-57) */
+	unsigned char  done  = 0;                       /* fp@(-61) */
+	unsigned char  choice;                          /* fp@(-62) */
+	short          i, len, colour;
+
+	PROBE("L5120");
+	for (i = 0; i <= 11; i++)                       /* L514a (see NOTE) */
+		if ((short)ev[4] >= tbl[i * 2 + 1])
+			count++;
+
+	jt167((short)(count - 1), (long)(uintptr_t)&list);   /* 0x518e */
+	head = list;
+
+	for (i = 1; list != 0 && i <= count; i++) {     /* L51a4 */
+		if ((short)ev[4] < tbl[(i - 1) * 2 + 1])
+			continue;
+		{
+			unsigned char *node =
+			    (unsigned char *)(uintptr_t)list;
+			short idx = tbl[(i - 1) * 2];
+			const char *const *strs =
+			    (const char *const *)(void *)&g_a5_byte(-17446);
+			jt384((char *)(node + 5), strs[idx]);
+			node[4] = 0;
+			list = *(long *)(void *)node;   /* .next at +0 */
+		}
+	}
+	list = head;                                    /* L521e */
+	jt176();
+	flag = 1;
+	jt84();
+	sel = 0;
+
+	do {                                            /* L5236 */
+		m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		jt103(1, 19, 38, 19);
+		jt94(1, 19, 11, 0, ua_strs_at(0x6688) /* "%s" */,
+		     (const char *)(m + 96));
+
+		jt384(num, jt59((short)m[395]));
+		len = jt483(num);
+		colour = (m[395] == m[129]) ? 7 : 11;   /* 0x529c */
+		jt94(18, 19, colour, 0, num);
+
+		jt384(num, jt59((short)m[129]));
+		jt394(num, ua_strs_at(0x668c) /* "/%s" */, jt59((short)m[129]));
+		jt94((short)(18 + len), 19, 7, 0, num);
+
+		jt94(1, 1, 11, 0, ua_strs_at(0x6690) /* "%s%s" */,
+		     (const char *)(m + 96),
+		     (const char *)(uintptr_t)g_a5_long(-13956));
+		jt179(1);
+
+		choice = (unsigned char)jt169(g_a5_long(-13952),
+		                              g_a5_long(-13684),
+		                              2, 3, 38, 15, list, 1, 0,
+		                              &flag, &sel, &head);
+
+		if (g_a5_byte(-24139) != 0) {           /* 0x538e */
+			if (choice == 27)
+				done = 1;
+			continue;
+		}
+		switch (choice) {                       /* JT[3] min 0 max 1 */
+		case 0:
+			switch (sel) {                  /* JT[3] min 0 max 12 */
+			case 0:  l4a38(1, ev_l);      break;  /* Cure Light    */
+			case 1:  l488a(ev_l);         break;  /* Cure Blindness*/
+			case 2:  l4916(ev_l);         break;  /* Cure Disease  */
+			case 3:  l4e28(ev_l);         break;  /* Remove Curse  */
+			case 4:  l4d24_c12(ev_l);     break;  /* Neutralize    */
+			case 5:  l4a38(2, ev_l);      break;  /* Cure Serious  */
+			case 6:  l4a38(3, ev_l);      break;  /* Cure Critical */
+			case 7:  l4c18(ev_l);         break;  /* Raise Dead    */
+			case 8:  l4a38(4, ev_l);      break;  /* Heal          */
+			case 9:  l4ee4(ev_l);         break;  /* Stone to Flesh*/
+			case 10: l4f6a(ev_l);         break;  /* Restore       */
+			case 11: l5012(ev_l);         break;  /* Resurrection  */
+			case 12: done = 1;            break;  /* Exit          */
+			default: break;
+			}
+			break;
+		case 1:                                 /* L549e */
+			done = 1;
+			break;
+		default:
+			break;
+		}
+	} while (done == 0);                            /* L54a4 */
+
+	jt147(&list);                                   /* 0x54b0 */
+	jt23();
+	l02dc(g_a5_long(-27932));
+}
+
+/* JT[933] (CODE 12 + 0x5720) — the temple's modal SERVICES screen. Rebuilds its
+ * verb bar every pass (JT[155] appends arms into a running counter) and runs it
+ * through JT[160], then dispatches. The bar is context-sensitive:
+ *
+ *   arm 0  Services (L5120)     only when `exit_arm` is clear
+ *   arm 1  View                 always
+ *   arm 2                       only when exit_arm is clear, ev[4] >= 7, ev[5]==0
+ *   arms 3+4                    when exit_arm is set OR ev[5] != 0
+ *   arms 5+6                    when the staged-loot poll (JT[926]) reports MONEY
+ *   arm 7                       only when exit_arm is set
+ *   arm 8  Exit                 always
+ *
+ * -24139 is the roster-select flag: while it is set the keypress is consumed as
+ * roster navigation (JT[936] unhighlight / JT[934] move / JT[936] re-highlight)
+ * and the verb is suppressed (choice = -1) — except Esc (27), which becomes
+ * verb 3. Returns 1 when JT[896]'s donation-limit commit fired. */
+static unsigned char jt933(long ev_l, short exit_arm, long item_head, short v)
+{
+	const unsigned char *ev = (const unsigned char *)(uintptr_t)ev_l;
+	unsigned char  money, items;                    /* fp@(-5) / fp@(-6) */
+	unsigned char  ret  = 0;                        /* fp@(-7) */
+	unsigned char  done = 0;                        /* fp@(-2) */
+	unsigned char  choice;                          /* fp@(-1) */
+	short          n;                               /* fp@(-3) */
+	short          scratch = 0;                     /* fp@(-4) */
+
+	PROBE("jt933");
+	do {                                            /* L572c */
+		jt926(&money, &items);                  /* L2504 — staged-loot poll */
+		n = 0;
+		if ((exit_arm & 0xff) == 0)
+			jt155(0, &n);
+		jt155(1, &n);
+		if ((exit_arm & 0xff) == 0
+		 && ev[4] >= 7 && ev[5] == 0)           /* 0x576e / 0x577e */
+			jt155(2, &n);
+		if ((exit_arm & 0xff) != 0 || ev[5] != 0) {   /* L5790 */
+			jt155(3, &n);
+			jt155(4, &n);
+		}
+		if (money != 0) {                       /* L57c0 */
+			jt155(5, &n);
+			jt155(6, &n);
+		}
+		if ((exit_arm & 0xff) != 0)             /* L57e2 */
+			jt155(7, &n);
+		jt155(8, &n);                           /* L57f6 */
+
+		choice = (unsigned char)jt160(g_a5_long(-13952),
+		                              g_a5_long(-13676), 1, 0);
+
+		if (g_a5_byte(-24139) != 0) {           /* 0x581e */
+			if (choice == 27) {
+				choice = 3;
+			} else {                        /* L5838 */
+				jt936(g_a5_long(-27932), 0);
+				jt934((short)choice);
+				jt936(g_a5_long(-27932), 1);
+				choice = (unsigned char)-1;
+			}
+		}
+
+		switch (choice) {                       /* JT[3] min 0 max 8 */
+		case 0:                                 /* L5888 */
+			l5120(ev_l);
+			break;
+		case 1:                                 /* L5896 */
+			jt904(&g_a5_byte(-24139));
+			break;
+		case 2:                                 /* L58a4 */
+			l54c8(ev_l);
+			l02dc(g_a5_long(-27932));
+			break;
+		case 3:                                 /* L58bc */
+			if (g_a5_byte(-24139) == 0)
+				jt925();
+			break;
+		case 4:                                 /* L58c8 */
+			jt922((unsigned char *)&scratch);
+			jt23();
+			break;
+		case 5:                                 /* L58d8 */
+			jt924();
+			jt23();
+			break;
+		case 6:                                 /* L58e2 */
+			jt921();
+			break;
+		case 7:                                 /* L58e8 */
+			if (jt896(item_head, (short)(signed char)(v & 0xff)) != 0)
+				ret = 1;
+			break;
+		case 8:                                 /* L5906 */
+			done = 1;
+			break;
+		default:
+			break;
+		}
+	} while (done == 0);                            /* L590c */
+
+	return ret;                                     /* 0x5914 */
 }
 
 /* L216a (CODE 20 + 0x216a, ~1862B) — the give-treasure / TEMPLE event with an
@@ -90262,11 +91044,29 @@ static short l216a(void *ev_v)
 			break;
 		}
 
-		/* L26cc — commit the take. jt933 (the actual transfer) is a stub. */
-		if (did_exit || acted) {
-			jt176();
+		/* L26cc — hand off to the temple's SERVICES screen (jt933).
+		 *
+		 * The gate is INVERTED from what the port had. The Mac computes
+		 * `did_exit || acted` and BRANCHES AWAY on it (0x26e0 bnew L2764):
+		 * jt933 runs only when the player neither navigated the roster
+		 * (`acted`, set whenever -24139 consumed the key) nor chose Exit —
+		 * i.e. after a real, non-Exit verb. The port ran it in exactly the
+		 * opposite case, so the services screen was unreachable and every
+		 * roster keypress tried to open it.
+		 *
+		 * Also restored: the -28006 header's rec[20] = 1 stamp (0x26e8) and
+		 * the 4th argument, which the Mac derives as (ev[12] != 0) — the port
+		 * hardcoded 0, which would have pinned jt896's gate byte off. */
+		if (!(did_exit || acted)) {
+			unsigned char *hdr;
+
+			jt176();                                        /* 0x26e4 */
+			hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+			if (hdr != NULL)
+				hdr[20] = 1;                            /* 0x26ec */
 			if (jt933((long)(uintptr_t)ev, (short)exit_arm,
-			          *(long *)(ev + 8), 0))
+			          *(long *)(ev + 8),
+			          (short)(ev[12] != 0 ? 1 : 0)))        /* 0x26f2 */
 				result = 1;
 		}
 	} while (!did_exit);                            /* L2818 */

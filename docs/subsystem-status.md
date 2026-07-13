@@ -10,16 +10,17 @@ next target. It is the index over the queue of `docs/*-wall.md` scope docs.
   experiences), `docs/jt-lift-progress.md` (auto-generated JT counts — the
   source of truth for numbers; rerun `python3 tools/jt_progress.py`).
 - Counts as of **2026-07-12** (regenerate: `python3 tools/jt_progress.py`,
-  `python3 tools/stub_audit.py --stubs`): **1199 done / 3 stub / 3 missing** of
-  1205 JT entries (1069 lifted + 55 noop + 75 alias). Stub bodies: 58 total —
-  36 faithful no-ops, **1 LIVE GAP**, 21 uncalled.
-- **THE one live gap: `jt933`** (CODE 12 + 0x5720, 150 insn) — the TREASURE
-  TAKE-COMMIT. `l26cc` calls it to actually transfer picked items into the
-  party's packs; it is a PROBE stub returning 0, so TAKE selects but never
-  hands over. Calls only lifted entries (jt3/23/155/160/896/904) — a clean,
-  self-contained lift. *(It was hidden for several sessions: `stub_audit`'s
-  parser dropped wrapped one-line bodies and reported "0 live gaps". Fixed +
-  regression-tested 2026-07-12.)*
+  `python3 tools/stub_audit.py --stubs`): **1200 done / 2 stub / 3 missing** of
+  1205 JT entries (1070 lifted + 55 noop + 75 alias). Stub bodies: 57 total —
+  36 faithful no-ops, **0 LIVE GAPS**, 21 uncalled.
+- **THE last live gap is CLOSED: `jt933`** (2026-07-12) — it was NOT a "take-
+  commit" as the port's comment claimed, but the temple's **SERVICES screen**
+  (Cure Light Wounds .. Resurrection, each priced through the L46f6 payment gate).
+  Lifted with its 13-function tree (~1400 insn) and Hatari-verified in the TEMPLE
+  OF TYMORA. It also exposed an INVERTED gate in l216a that made the screen
+  unreachable. See `treasure-event-wall.md`. *(It hid for several sessions because
+  `stub_audit`'s parser dropped wrapped one-line bodies and reported "0 live gaps";
+  fixed + regression-tested.)*
 - The other 5 pending JT are NOT gaps: `jt426`/`jt432`/`jt458` are SUPERSEDED
   (Toolbox→GEMDOS / printing, needs a GDOS backend — out of scope); `jt955`
   (deferred jt948 arm) and `jt1064` (Mac Package Manager, no Falcon counterpart)
@@ -75,9 +76,9 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
-| **Treasure / vault / pickup** (picker, reward, vault I/O) | 19/20 | 🟡 | `treasure-event-wall.md` — screen + reward + vault live; **`jt933` take-COMMIT is the one live gap: TAKE selects but never transfers** |
+| **Treasure / vault / pickup** (picker, reward, vault I/O) | 19/20 | ✅ | `treasure-event-wall.md` — screen + reward + vault live; **jt933 TEMPLE SERVICES lifted + Hatari-verified 2026-07-12** |
 | **Tavern** (drink/listen/fight) | 20 | ✅ | `treasure-event-wall.md` (case 7 `l4f9a`) |
-| **Temple** (take-text/donate) | 20 | ✅ | (case 9 `l216a`) |
+| **Temple** (take-text/donate + **SERVICES**) | 20/12 | ✅ | `treasure-event-wall.md` — jt933 services screen + L46f6 payment gate LIVE (2026-07-12) |
 | **Inn** (`l398a`, case 29) | 20 | 🔴 | gated on rest (`jt957`); shell clean, core is camp |
 | **Rest / camp** (menu, REST action, clock/heal) | 21 | 🟡 | `code21-camp-wall.md` — menu + REST + MAGIC-menu lifted; spell screens stub |
 | **Spell memorization** (4 magic screens) | 21 | ✅ | `code21-camp-wall.md` — `l06d6`/`l0bc6`/`l0df2`/`l1374` + `l1e44` + Alter `l2d7e` stub |
