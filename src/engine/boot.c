@@ -2755,6 +2755,41 @@ static short g_wallfile_group[2] = { -1, -1 };
  * ~296K library — it collides with a resident event bigpic in the 450K pool
  * until the dispose-reload/purge interplay (stage 4) lands — serve the resident
  * static buffer so the walls keep rendering. Reused by cw_load_slot and l6eea. */
+
+/* ua_open_art — open an art library DESIGN-FIRST, falling back to the install
+ * root (ADR-0011).
+ *
+ * The FC resource path already does this: l33ac composes "<design>:<name>" via
+ * jt431(g_a5_buf(-31336)) before opening.  The engine's *direct* whole-file art
+ * reads did not — they open a bare literal ("8X8DB.CTL", "FRAME.CTL", …) that
+ * can only resolve in the root.  That is the one file class left out of the
+ * engine's own override-with-fallback rule, and it is why a module's replacement
+ * art could previously only be installed by OVERWRITING the base game's copy.
+ *
+ * Same policy, applied to the sites that were missed.  A design that ships no art
+ * of its own falls straight through to the root and loads the identical bytes, so
+ * an unmodified design is bit-for-bit unchanged. */
+static OSErr ua_open_art(ConstStr255Param pname, short perm, short *refnum)
+{
+	const unsigned char *n = (const unsigned char *)pname;
+	const char          *dsn = (const char *)g_a5_buf(-31336);
+	unsigned char        p[256];
+	size_t               dl, k;
+
+	if (dsn != NULL && (dl = strlen(dsn)) != 0
+	    && dl + 1u + n[0] < sizeof p) {
+		memcpy(p + 1, dsn, dl);
+		k = dl;
+		p[1 + k++] = ':';                     /* HFS separator (jt431) */
+		memcpy(p + 1 + k, n + 1, n[0]);
+		k += n[0];
+		p[0] = (unsigned char)k;
+		if (FSOpen((ConstStr255Param)p, perm, refnum) == noErr)
+			return noErr;                 /* the design ships this art */
+	}
+	return FSOpen(pname, perm, refnum);           /* root fallback */
+}
+
 static long cw_wallfile_load(short file)
 {
 	static const char *const ctl[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
@@ -2820,7 +2855,7 @@ static long cw_wallfile_load(short file)
 	}
 	if (g_wallfile_which != file) {
 		g_wallfile_which = -1;                /* invalid until the load completes */
-		if (FSOpen((ConstStr255Param)ctl[file], 0, &refnum) != noErr)
+		if (ua_open_art((ConstStr255Param)ctl[file], 0, &refnum) != noErr)
 			return 0;
 		count = (long)CW_FILEBUF_SZ;
 		(void)FSRead(refnum, &count, g_wallfile_buf);
@@ -10677,7 +10712,7 @@ static int load_backdrop(short n)
 	short w, h;
 
 	g_back_w = g_back_h = 0;
-	if (FSOpen((ConstStr255Param)"\010BACK.CTL", 0, &refnum) != noErr)
+	if (ua_open_art((ConstStr255Param)"\010BACK.CTL", 0, &refnum) != noErr)
 		return 0;
 	count = (long)sizeof buf;
 	(void)FSRead(refnum, &count, buf);
@@ -12684,7 +12719,7 @@ static void port_menu_load(void)
 
 	if (g_menu_base)
 		return;
-	if (FSOpen((ConstStr255Param)"\010MENU.CTL", 0, &refnum) != noErr)
+	if (ua_open_art((ConstStr255Param)"\010MENU.CTL", 0, &refnum) != noErr)
 		return;
 	n = (long)sizeof mbuf;
 	(void)FSRead(refnum, &n, mbuf);
@@ -22780,7 +22815,7 @@ static void load_menu_ui(void)
 		g_menu_state = -1;
 
 		/* --- MENU.CTL item 0: the 256-entry base palette --- */
-		if (FSOpen((ConstStr255Param)"\010MENU.CTL", 0, &refnum) == noErr) {
+		if (ua_open_art((ConstStr255Param)"\010MENU.CTL", 0, &refnum) == noErr) {
 			long p1;
 			flen = (long)sizeof g_menu_file;
 			(void)FSRead(refnum, &flen, g_menu_file);
@@ -22807,7 +22842,7 @@ static void load_menu_ui(void)
 		/* --- FRAME.CTL item 0: the warm-grey band over clut 16..31 --- */
 		refnum = 0;
 		if (g_menu_pe > 0
-		 && FSOpen((ConstStr255Param)"\011FRAME.CTL", 0, &refnum) == noErr) {
+		 && ua_open_art((ConstStr255Param)"\011FRAME.CTL", 0, &refnum) == noErr) {
 			long pb;
 			flen = (long)sizeof g_frame_file;
 			(void)FSRead(refnum, &flen, g_frame_file);
@@ -22833,7 +22868,7 @@ static void load_menu_ui(void)
 		/* --- GEN.CTL item 1: the stone backdrop image (jt81's "gen") --- */
 		refnum = 0;
 		if (g_menu_pe > 0
-		 && FSOpen((ConstStr255Param)"\007GEN.CTL", 0, &refnum) == noErr) {
+		 && ua_open_art((ConstStr255Param)"\007GEN.CTL", 0, &refnum) == noErr) {
 			long p1;
 			flen = (long)sizeof g_gen_file;
 			(void)FSRead(refnum, &flen, g_gen_file);
@@ -23136,7 +23171,7 @@ static void port_show_intro(void)
 
 	extern long TickCount(void);
 
-	if (FSOpen((ConstStr255Param)"\011TITLE.CTL", 0, &refnum) != noErr)
+	if (ua_open_art((ConstStr255Param)"\011TITLE.CTL", 0, &refnum) != noErr)
 		return;                          /* data not mounted — skip   */
 	count = (long)sizeof file;
 	(void)FSRead(refnum, &count, file);
@@ -71221,7 +71256,7 @@ static void glib_pool_selftest(void)
 	dbg_log_num("GLIB pool: capacity = ", jt459(-2));
 	dbg_log_num("GLIB pool: free     = ", jt459(-1));
 
-	if (FSOpen((ConstStr255Param)"\012ALWAYS.CTL", 0, &refnum) != noErr) {
+	if (ua_open_art((ConstStr255Param)"\012ALWAYS.CTL", 0, &refnum) != noErr) {
 		dbg_log("GLIB: ALWAYS.CTL not found (mount gamedata)");
 		return;
 	}
