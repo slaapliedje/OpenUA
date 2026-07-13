@@ -157,11 +157,42 @@ the data. Start at `docs/glib-palette-subsystem.md` (the colour-range CLUT
 allocator) and [[glib-clut-mirror-invariant]] (jt1066 commits a *contiguous* span
 from its LIVE/WORK mirrors and silently reverts anything installed directly).
 
-One unexplained discrepancy worth checking first: the **colour-table magic byte**
-is **200 (0xC8)** in the base game's BIGPIC master-library sets, but **8** in
-design-level pictures — including in Yezukriis' *real Mac* art, so 8 is
-legitimate. Whether the engine keys off that byte when installing the range is
-unverified, and would explain a class-specific cast.
+### ~~The colour-table "magic" byte~~ — EXPLAINED, and NOT the cause (retracted)
+
+I flagged the magic byte (200 in the base BIGPIC sets vs 8 in design pictures) as
+a lead. **It is a dead end, and the engine says why.** `jt993` ("TNPalette"):
+
+```c
+if ((hdr[7] & 15) != 8) { l036a("Invalid TNPalette call ..."); return; }
+```
+
+**The low nibble is the BLOCK TYPE; 8 = "palette".** That is what the hackdocs'
+unexplained "value should be either 8 or 24" actually means — both have low nibble
+8 (24 = 0x18). And it is why the Mac's **200 (0xC8) is equally valid**:
+`0xC8 & 15 == 8`. The high nibble is a format/flags field. `art_convert` already
+preserves the low nibble and remaps the high nibble, so converted tables pass the
+check. All three values are accepted. **Not the cast.**
+
+*(The online docs never explain this. All 57 hackdocs were swept: they assert the
+value and stop, and they are explicitly DOS-only, so the Mac's 0xC8 is outside
+their scope entirely. The lifted engine is the better reference — use it first.)*
+
+### The rest of the header, decoded from jt993/jt1069
+
+    hdr[0..1]  flags   (TLBFORM calls it the "cycling value")
+                       bit0 -> the CLUT window is EXPLICIT (else 0..256)
+    hdr[2..3]  start   first CLUT index      } only when bit0 is set
+    hdr[4..5]  count   number of colours     }
+    hdr[6]     ncopy   count of 4-byte cycle/remap records after the RGB block
+    hdr[7]     low nibble = block type (8 = palette)
+
+Then `jt1069(start, count, palbuf, ncopy, rembuf)` allocates the ranges.
+
+**So base and fan pictures request the SAME window:** both have bit0 set and both
+resolve to start=32, count=224 (matching UAPALETT.TXT, which says big pictures use
+colours 32..255). The only header difference is `ncopy` — 7 cycle records in the
+base BIGPIC set, 0 in POR's. That is the next thing to look at, along with
+`jt1069`'s range allocator itself.
 
 **Not done:** a like-for-like base-vs-fan BIG PICTURE comparison in the gallery.
 Do that first — it decides whether the cast is fan-specific or hits every big
