@@ -1,10 +1,24 @@
 # Shop / Merchant subsystem — findings + worklist
 
 Goal: a working in-game merchant — the player reaches a shop event, sees the
-stock, and can sell / identify / take-money. **The subsystem is far more complete
-than earlier notes claimed:** the event flow and the shop screen are fully
-lifted; the only stubs on the actual transaction path are **`jt189` SELL** and
-**`jt190` IDENTIFY**.
+stock, and can buy / sell / identify / take-money.
+
+## ✅ DONE 2026-07-13 — THE SHOP IS COMPLETE AND LIVE
+
+**Zero stubs left anywhere in the subsystem** (`python3 tools/stub_audit.py
+--stubs` → 0 live gaps). Verified end-to-end in Hatari on a real HEIRS shop cell,
+with the arithmetic checked at every step:
+
+| step | funds |
+|---|---|
+| buy BELT (4pp) from personal coin | 100 → **96** |
+| POOL, then buy BELT from the pool | pool 596 → **592**, buyer drained to 0 |
+| SELL a COMPOSITE LONG BOW +1 (jt932 halves it → 1600) | 100 → **1700** |
+| buy MIRROR (16pp) | 1700 → **1684** |
+| IDENTIFY the mirror (flat 20pp) | 1684 → **1664** |
+
+Selling a **readied** item is silently refused by the `l23d2_c19` gate (unready
+it first) — that is faithful, not a bug.
 
 > Two corrections to the old [[shop-subsystem-scope]] memory:
 > - **`jt923` is NOT a missing "add-money" handler.** `JT[923] = CODE12+0x1baa`
@@ -122,16 +136,19 @@ class `chr[147]`; design header `-28006`):
 
 | Arm | Gate | Handler | Status |
 |----:|------|---------|--------|
-| 0 examine | always | `l30bc` | **STUB** |
-| 1 ready | chr[382] + design/mode | `l3b6e` | **STUB** |
-| 2 use | reach + mode≠5 | `l3228` (after `l23d2_c19`) | **STUB** |
-| 3 drop/vault | mode==10 | **inline** (53320–53382) | **LIVE** |
-| 4 trade/give | mode≠10 | **inline** (53383–53404) | **LIVE** |
-| 5 halve | chr[193]<16 | `l32c4` | **STUB** |
-| 6 join | always | `jt889` | **STUB** |
-| **7 sell** | **shop mode==1 & hdr[20]!=1** | **`jt189`** | **STUB** |
-| **8 identify** | **shop mode==1 & hdr[20]!=1** | **`jt190`** | **STUB** |
+| 0 examine | always | `l30bc` | LIFTED |
+| 1 ready | chr[382] + design/mode | `l3b6e` | LIFTED |
+| 2 use | reach + mode≠5 | `l3228` (after `l23d2_c19`) | LIFTED |
+| 3 drop/vault | mode==10 | **inline** (53320–53382) | LIVE |
+| 4 trade/give | mode≠10 | **inline** (53383–53404) | LIVE |
+| 5 halve | chr[193]<16 | `l32c4` | LIFTED |
+| 6 join | always | `jt889` | LIFTED |
+| **7 sell** | **shop mode==1 & hdr[20]!=1** | **`jt189`** | **LIVE-VERIFIED** 07-13 |
+| **8 identify** | **shop mode==1 & hdr[20]!=1** | **`jt190`** | **LIVE-VERIFIED** 07-13 |
 | 9 Exit | always | sets choice=9 | — |
+
+(This table's STUB column was stale too — see the warning under the function
+table. Everything here is lifted.)
 
 Cases 2/3/4/7 first pass the **`l23d2_c19`** gate (LIFTED, boot.c:53097) which
 blocks readied items and warns on scroll-charge loss. The two **inline arms are
@@ -174,12 +191,20 @@ fully lifted and touch the pool**: arm 3 (drop/vault) walks `-22216`, allocs a
 | `jt932` | CODE12+0x45ca | **LIFTED** | 45210 | Scale-by-kind table (sale price) |
 | `l1baa` (`jt923`) | CODE12+0x1baa | **LIFTED** | 52324 | Overload/encumbrance gate |
 | `l23d2_c19` | CODE19+0x23d2 | **LIFTED** | 53097 | "may this item be parted with?" gate |
-| `jt893` | CODE19+0x25ce | **SKELETON** (2 inline arms live, 7 leaf arms stub) | 53177 | Per-item action menu |
+| `jt893` | CODE19+0x25ce | **LIFTED** | 53177 | Per-item action menu |
 | `jt28`/`jt30`/`jt477` | CODE6 | **LIFTED** | 29788/24388/23016 | item-row paint / remove node / alloc 62B node |
-| **`jt189`** | CODE7+0x43a4 | **STUB** (Mac body ~640B CODE_07.s:5700) | 53086 | **SELL** |
-| **`jt190`** | CODE7+0x4644 | **STUB** (Mac body ~500B CODE_07.s:5904) | 53088 | **IDENTIFY** |
-| `l30bc`/`l3228`/`l3b6e`/`l32c4`/`jt889` | CODE19 | **STUB** | 53081–53085 / 52184 | examine / use / ready / halve / join (non-shop item verbs) |
-| `l17f8` | CODE7 | **STUB** | 53761 | jt183 exit-prompt text (cosmetic) |
+| **`jt189`** | CODE7+0x43a4 | **LIFTED** + live-verified 07-13 | 89046 | **SELL** |
+| **`jt190`** | CODE7+0x4644 | **LIFTED** + live-verified 07-13 | 89121 | **IDENTIFY** |
+| `l30bc`/`l3228`/`l3b6e`/`l32c4`/`jt889` | CODE19 | **LIFTED** | — | examine / use / ready / halve / join (non-shop item verbs) |
+| `l17f8` | CODE7 | **= jt175** (alias, lifted) | — | jt183 exit-prompt text |
+
+> **⚠️ The STUB column above was STALE for weeks** — jt189/jt190/jt893 and the
+> item verbs had all been lifted in earlier sessions while this table still said
+> STUB, and the [[shop-subsystem-scope]] memory repeated it. It nearly cost a
+> session re-lifting jt189 and jt190 from scratch.
+> **`tools/stub_audit.py` is the source of truth, not this table and not the
+> header comments** — `python3 tools/stub_audit.py --stubs` reports **0 live gaps**
+> across the whole engine. Read the body, never the comment.
 
 ## Testability
 
@@ -197,22 +222,21 @@ recipe that spawns the party straight onto it.
 > what seeded the wrong "FRUA has no buy verb" claim: BUY hides when the stock
 > list is empty, so an empty-stock visit shows a short bar.
 
-## Plan (smallest-first)
+## Plan — CLOSED
 
 1. ~~Confirm the HEIRS shop cell is a case-8 event~~ **DONE 07-13** — three of
    them on GEO005 (table above); the party spawns on one via `FRUA_ENTRY_*`.
-2. **`jt190` identify** (~500B) — simplest transaction: fixed 20-pt debit on
-   rec[76], mostly UI + the yes/no helper. Smallest faithful win.
-3. **`jt189` sell** (~640B) — the keystone verb. All deps lifted (jt932, jt30,
-   l1baa, jt28, UI). No new pool work; credits rec[76] + pool spill.
-4. **`l30bc`/`l3228`/`l3b6e`/`l32c4`/`jt889`** — the non-shop item verbs
-   (examine/use/ready/halve/join); independent, any order. These overlap the
-   inventory subsystem (the ITEMS menu uses the same jt893).
-5. **`l17f8`** exit-prompt text (cosmetic, last).
+2. ~~`jt190` identify~~ **DONE** — was already lifted; live-verified 07-13.
+3. ~~`jt189` sell~~ **DONE** — was already lifted; live-verified 07-13.
+4. ~~the non-shop item verbs~~ **DONE** — `l30bc`/`l3228`/`l3b6e`/`l32c4`/`jt889`
+   are all lifted (they were never re-checked after the table went stale).
+5. ~~`l17f8` exit-prompt text~~ — not a stub: `l17f8` **= jt175** (alias, lifted).
+6. **`l3c7c` BUY** — the one genuinely missing piece. **DONE 07-13** (above).
 
-Biggest single blocker to a live shop demo: ~~step 1~~ — **gone.** The shop
-demo runs: walk on, buy, pay, carry it away. What is left (SELL, IDENTIFY, the
-item verbs) is incremental leaf lifts onto an already-faithful scaffold.
+**Nothing is left on the shop worklist.** Items 2–5 cost nothing to "do" because
+they were already done — the table was lying. The remaining honest gap in the
+whole subsystem is the **"can't afford"** arm of BUY, which is untestable against
+HEIRS' stock (16pp max vs a 592pp pool) and needs a contrived design to exercise.
 
-Related: [[inventory-subsystem-wall]] (shares jt893 + the 62-byte pool),
-[[treasure-event-wall]] (the case-8 trigger sits next to give-treasure).
+Next natural targets are elsewhere: `docs/inventory-subsystem-wall.md` (the
+ITEMS menu shares jt893) and whatever `docs/subsystem-status.md` ranks highest.
