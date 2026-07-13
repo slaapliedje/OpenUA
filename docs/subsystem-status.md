@@ -83,7 +83,7 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | **Rest / camp** (menu, REST action, clock/heal) | 21 | 🟡 | `code21-camp-wall.md` — menu + REST + MAGIC-menu lifted; spell screens stub |
 | **Spell memorization** (4 magic screens) | 21 | ✅ | `code21-camp-wall.md` — `l06d6`/`l0bc6`/`l0df2`/`l1374` + `l1e44` + Alter `l2d7e` stub |
 | **Inventory / item-list / equip** (sheet items, ITEMS/TRADE/DROP) | 9 + 19 | ✅ | `inventory-subsystem-wall.md` ← **NEXT FOCUSED TASK**. NB: `jt893` (ITEMS dispatcher) now has a structural body |
-| **Shop / merchant** (buy/sell/identify/value) | 20/19/7 | ✅ | `shop-merchant-wall.md` — **COMPLETE + LIVE-VERIFIED 2026-07-13**, 0 stubs. BUY (`l3c7c`) was the last gap; SELL/IDENTIFY were already lifted and the doc's STUB column was just STALE. ★"No buy verb" was WRONG — retracted. Shop cell: HEIRS GEO005 row 5, col 9 |
+| **Shop / merchant** (buy/sell/identify/value) | 20/19/7 | ✅ | `shop-merchant-wall.md` — **COMPLETE + LIVE-VERIFIED 2026-07-13**, 0 stubs. BUY (`l3c7c`) was the last gap; SELL/IDENTIFY were already lifted and the doc's STUB column was just STALE. **All three payment arms executed** (can't-afford proved vs AGAINST THE GIANTS, 0 starting gold). ★"No buy verb" was WRONG — retracted. Shop cell: HEIRS GEO005 row 5, col 9 |
 | **Conditional / quest-flag events** (stat-check, set-flag, rumors, pass-time) | 18 | ✅ | `treasure-event-wall.md` (cases 15/27/37/38) |
 
 ## 5. In-game — combat  ✅ PLAYABLE end-to-end (render nits remain)
