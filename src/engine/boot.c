@@ -1215,6 +1215,27 @@ static void  jt198(short geo_num)
 		jt69();
 	}
 	jt131((short)0);
+#ifdef FRUA_CELLSCAN
+	/* TEMP: log every non-zero cell special on the loaded level, so a given
+	 * event index can be traced back to the cell that triggers it. */
+	{
+		const unsigned char *lv =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		if (lv != NULL) {
+			short w = (short)lv[3], x, y;
+			dbg_file_num("== GEO level", geo_num);
+			dbg_file_num("   width", w);
+			for (y = 0; y < 40; y++)
+				for (x = 0; x < w; x++) {
+					long id = (long)w * y + x;
+					unsigned char sp = lv[290 + id * 6 + 4];
+					if (sp != 0)
+						dbg_file_num("   sp*10000+x*100+y",
+						    sp * 10000L + x * 100L + y);
+				}
+		}
+	}
+#endif
 	hdr = (char *)(uintptr_t)g_a5_long(-28006);
 	if (hdr)
 		hdr[19] = (char)(geo_num & 0xff);
