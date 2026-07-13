@@ -44,6 +44,7 @@
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
+#include "printing.h"         /* the Pr* face over GDOS/VDI (jt428 print chain) */
 #include "dialogs.h"          /* GetNewDialog / ModalDialog (l6d40)   */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
 #include "windows.h"          /* InvalRect (L71ac osEvt arm)         */
@@ -2432,6 +2433,28 @@ int ua_main(short arg1, long arg2)
 	{
 		void frua_areatest_entry(void);
 		frua_areatest_entry();
+	}
+	for (;;)
+		jt920();
+#endif
+#ifdef FRUA_PRINTTEST
+	/* PRINT harness (docs/gdos-printing-wall.md step 4): drive the design
+	 * editor's PRINT command (L541c — the same body jt254 / l0096 case 17
+	 * invokes) straight from boot, so the whole engine print chain runs
+	 * against the GDOS/VDI backend without navigating the map editor by
+	 * mouse: jt1075 -> jt428 (PrOpen/PrOpenDoc/SetPort to the printing
+	 * GrafPort) -> jt1071/jt1072 -> L7ab4 -> jt433 (per-char DrawChar onto
+	 * the page) -> jt434 (PrClosePage/PrCloseDoc/PrClose). The design is
+	 * loaded by ua_main's jt361(1) above, so -12300 is live here.
+	 * Output lands in C:\FRUAPRN.GEM (the metafile device). */
+	{
+		extern signed char frua_printtest_entry(void);
+		dbg_log_num("printtest: L541c -> ",
+		            (long)frua_printtest_entry());
+		dbg_log_num("printtest: -9162 rec  = ", g_a5_long(-9162));
+		dbg_log_num("printtest: -9163 page = ", g_a5_byte(-9163));
+		dbg_log_num("printtest: -9164 doc  = ", g_a5_byte(-9164));
+		dbg_log("printtest: done");
 	}
 	for (;;)
 		jt920();
@@ -62620,14 +62643,49 @@ static unsigned char l7a24(void)
 	return 0;
 }
 
-/* L4806 (CODE 3+0x4806) — the Printing Manager page rollover
- * (close page / open page / home the pen / TextFont -9152 size 7),
- * gated on the -9164 print-job flag. There is no Falcon printing
- * manager and no port path ever opens a print job, so this stays a
- * PROBE stub — unreachable until a print backend exists. */
+/* L4806 (CODE 3+0x4806) — the Printing Manager page rollover: START a page.
+ * Full lift over the compat Pr* face (compat/printing.c) now that the
+ * GDOS/VDI backend exists.
+ *
+ *   if (!-9164) { -9163 = 0; return; }        // no valid open document
+ *   PrOpenPage(-9158, NULL);                  // L53da
+ *   -9163 = (PrError() == 0);                 // L54e4 — page ready?
+ *   if (-9163) { MoveTo(0,0); TextFont(-9152); TextSize(7); -9154 = 0; }
+ *   else       SysBeep(6);
+ *
+ * -9164 = "a print document is open and valid"; -9163 = "the current page
+ * accepts text" — the pair JT[429] ANDs into the print-job flag, and the
+ * gate JT[433] checks before emitting a character. -9154 is the line
+ * counter jt433 page-feeds on at 66. */
 static void l4806(void)
 {
 	PROBE("L4806");
+	if (g_a5_byte(-9164) == 0) {                    /* L484e */
+		g_a5_byte(-9163) = 0;
+		return;
+	}
+	PrOpenPage((TPPrPort)(uintptr_t)g_a5_long(-9158), NULL);   /* 0x4812 */
+	g_a5_byte(-9163) = (unsigned char)(PrError() == 0 ? 1 : 0);/* 0x4826 */
+	if (g_a5_byte(-9163) != 0) {                    /* 0x482e */
+		MoveTo(0, 0);
+		TextFont((short)g_a5_word(-9152));      /* the "Moebius" id */
+		TextSize(7);
+		g_a5_word(-9154) = 0;                   /* line counter */
+	} else {                                        /* L4846 */
+		SysBeep(6);
+	}
+}
+
+/* L4854 (CODE 3+0x4854) — the other half of the rollover: END a page.
+ * Gated on the same -9164; drops the page-ready flag so JT[433] stops
+ * emitting until the next L4806 opens a fresh page. */
+static void l4854(void)
+{
+	PROBE("L4854");
+	if (g_a5_byte(-9164) == 0)
+		return;
+	PrClosePage((TPPrPort)(uintptr_t)g_a5_long(-9158));        /* L53e8 */
+	g_a5_byte(-9163) = 0;
 }
 
 /* JT[433] (CODE 3+0x49a2) — emit one character to the PRINT stream
@@ -62657,6 +62715,14 @@ static void jt433(short ch)
 		}
 		break;
 	case 12:
+		/* FORM FEED — the Mac arm is TWO jsrs (0x49c4: jsr L4854;
+		 * 0x49c8: jsr L4806): CLOSE the finished page, then OPEN the
+		 * next. The port had only the open, so pages were started but
+		 * never emitted (PrClosePage -> v_updwk is what puts a page on
+		 * the device). The disassembler mis-split the pair — the bytes
+		 * are `4e ba fe 8e` = jsr pc@(-370) -> 0x4854. Caught by
+		 * running the chain: the map body printed nothing. */
+		l4854();
 		l4806();
 		break;
 	case 11:
@@ -62682,6 +62748,111 @@ static void jt433(short ch)
  * the gate allows, and the -3148 line counter wraps to a new page
  * (-3146) at 66 lines. */
 static void jt1072(short n);
+/* ua_vsprintf_fill — vsprintf plus the THINK C **fill directive** the print
+ * chain's format strings use:
+ *
+ *     %( X %)      emit the character X, (next int arg) times
+ *
+ * The Mac's print formats lean on it — the rulers are literally "%(-%)" with a
+ * width arg (40 dashes), and the page header is " %s%( %)Page %2d" with args
+ * (title, 71 - len(title), page): the fill directive pads the title out so the
+ * page number lands right-aligned.
+ *
+ * Plain vsprintf does not know %( — it copies it out literally AND, fatally,
+ * does not consume the fill count, so every later conversion reads the wrong
+ * argument. That is why the un-parked chain first printed "Page 57": 57 is
+ * 71 - strlen("OVERLAND 01 - "), the fill count, swallowed by the %2d.
+ *
+ * Conversions other than %( are handed to snprintf one at a time with their
+ * own single argument, so widths/flags/length modifiers keep working. */
+static void ua_vsprintf_fill(char *out, const char *fmt, va_list ap)
+{
+	char *o = out;
+
+	if (out == NULL || fmt == NULL) {
+		if (out != NULL)
+			*out = 0;
+		return;
+	}
+	while (*fmt != 0) {
+		if (*fmt != '%') {
+			*o++ = *fmt++;
+			continue;
+		}
+		/* %(X%) — the fill directive. */
+		if (fmt[1] == '(' && fmt[2] != 0
+		    && fmt[3] == '%' && fmt[4] == ')') {
+			char c = fmt[2];
+			int  n = va_arg(ap, int);
+
+			while (n-- > 0)
+				*o++ = c;
+			fmt += 5;
+			continue;
+		}
+		if (fmt[1] == '%') {            /* %% */
+			*o++ = '%';
+			fmt += 2;
+			continue;
+		}
+		{
+			/* Copy one conversion spec, then run it alone. */
+			char spec[16];
+			short n = 0;
+
+			spec[n++] = *fmt++;             /* '%' */
+			while (*fmt != 0 && n < (short)(sizeof spec - 2)
+			    && (*fmt == '-' || *fmt == '+' || *fmt == ' '
+			     || *fmt == '#' || *fmt == '0' || *fmt == '.'
+			     || *fmt == 'l' || *fmt == 'h'
+			     || (*fmt >= '0' && *fmt <= '9')))
+				spec[n++] = *fmt++;
+			if (*fmt == 0) {                /* trailing '%' */
+				spec[n] = 0;
+				break;
+			}
+			spec[n++] = *fmt;               /* the conversion */
+			spec[n]   = 0;
+			{
+				int   islong = 0;
+				short k;
+
+				for (k = 0; k < n; k++)
+					if (spec[k] == 'l')
+						islong = 1;
+				switch (*fmt) {
+				case 's':
+					o += sprintf(o, spec,
+					             va_arg(ap, char *));
+					break;
+				case 'c':
+					o += sprintf(o, spec,
+					             va_arg(ap, int));
+					break;
+				case 'd': case 'i': case 'u':
+				case 'x': case 'X': case 'o':
+					if (islong)
+						o += sprintf(o, spec,
+						             va_arg(ap, long));
+					else
+						o += sprintf(o, spec,
+						             va_arg(ap, int));
+					break;
+				default:
+					/* unknown (e.g. the %r/%* THINK C tail
+					 * compromise documented at jt394) —
+					 * copy it through untouched */
+					for (k = 0; k < n; k++)
+						*o++ = spec[k];
+					break;
+				}
+			}
+			fmt++;
+		}
+	}
+	*o = 0;
+}
+
 static void l7ab4(const char *fmt, ...)
 {
 	char  buf[82];
@@ -62706,7 +62877,7 @@ static void l7ab4(const char *fmt, ...)
 		va_list ap;
 
 		va_start(ap, fmt);
-		vsprintf(buf, fmt, ap);
+		ua_vsprintf_fill(buf, fmt, ap);   /* THINK C %(X%) fill */
 		va_end(ap);
 
 		if (jt423(buf) > 80) {
@@ -62737,71 +62908,136 @@ static void l7ab4(const char *fmt, ...)
 	}
 }
 
-/* JT[428] (CODE 3+0x4868) — OPEN the print job.  VERIFIED
- * 2026-07-07 as a pure Mac **Printing Manager** function with no Atari
- * mapping; stays a level-1 documented stub (CLAUDE.md lift level 1 —
- * "body lives in CODE we haven't touched").  The Mac CFG:
+/* JT[428] (CODE 3+0x4868) — OPEN the print job. FULL LIFT over the compat
+ * Printing Manager face (compat/printing.c) and its GDOS/VDI backend
+ * (platform/vdi.c) — the deferred backend named in the old stub comment now
+ * exists, so the faithful Mac CFG maps 1:1:
  *
- *   GetFNum("Moebius", &-9152)          ; trap 0xA900 (Font Manager)
- *   -9162 = NewPtr(120)  [JT[1030]]     ; the TPrint record
- *     if !-9162 -> "Out of Memory!" [JT[1084]], done
- *   GetPort(&-9150)                     ; trap 0xA874
- *   PrOpen()             [L5500]        ; PrGlue sel 0xC8000000
- *   PrValidate(-9162)    [L53f6]        ; PrGlue sel 0x20040480
- *   if PrStlDialog(-9162)[L5404] {      ; PrGlue sel 0x2A040484 (style)
- *     if PrJobDialog(-9162)[L5412] {    ; PrGlue sel 0x32040488 (job)
- *       JT[1162]; SetCursor(GetCursor(4))   ; watch cursor 0xA9B9/0xA851
- *       -9158 = PrOpenDoc(-9162,0,0) [L53be] ; PrGlue sel 0x04000C00
- *       -9164 = (PrError()[L54e4]!=0)         ; PrGlue sel 0xBA000000
- *       if -9164 SetPort(-9158)  [0xA873]
- *       L4806()                              ; page-setup body
- *     } else goto cancel;
- *   } else { cancel: clrb -9163/-9164; PrClose()[L550e sel 0xD0000000];
- *            DisposePtr(-9162)[JT[1032]]; SetPort(-9150) }
- *   clrb -9146
+ *   L45d6("Moebius", &local)             ; C string -> Str255
+ *   GetFNum(local, &-9152)               ; trap 0xA900 (Font Manager)
+ *   -9162 = NewPtr(120)   [JT[1030]]     ; the TPrint record
+ *     if !-9162 -> "Out of Memory!" [JT[1084] = l036a], done
+ *   GetPort(&-9150)                      ; save the caller's port
+ *   PrOpen()              [L5500]
+ *   PrValidate(-9162)     [L53f6]
+ *   if PrStlDialog(-9162) [L5404] && PrJobDialog(-9162) [L5412] {
+ *     JT[1162]; SetCursor(GetCursor(4))  ; the watch cursor — PORT-SKIPPED
+ *     -9158 = PrOpenDoc(-9162,0,0)  [L53be]
+ *     -9164 = (PrError() == 0)      [L54e4]   ; document open + valid
+ *     if -9164 SetPort(-9158)                 ; QuickDraw now draws on the PAGE
+ *     L4806()                                 ; open the first page
+ *   } else {                                  ; cancel
+ *     -9163 = -9164 = 0; PrClose() [L550e]; DisposePtr(-9162) [JT[1032]];
+ *     SetPort(-9150)
+ *   }
+ *   -9146 = 0                                 ; 11 vs 12 pt leading (jt433)
  *
- * Every Pr* call funnels through the shared PrGlue trampoline L551c,
- * which invokes trap **0xA8FD (_PrGlue)** with a routine selector — the
- * classic Mac Printing Manager dispatch.  The Falcon030/TT030 have no
- * Printing Manager, the port ships no print backend (verified: zero
- * PrGlue/PrOpen refs in compat/ or platform/, and toolbox-mapping.md
- * carries no Printing row — printing was never in scope), and GetFNum
- * (0xA900) is likewise unshimmed.  So the print job can never open:
- * -9162 (the TPrint record) stays 0, which keeps the whole print
- * subsystem — jt433 emit / jt434 close / L4806 rollover — inert, as
- * those functions already document.  Both the Mac success and the
- * dialog-cancel branches are unreachable on the port.  Writing a C
- * body would mean either no-op zero-stores (gaming the LIFTED
- * classifier) or calls into unshimmed traps — neither faithful; the
- * honest lift is this documented no-op.  Would need a printer backend
- * (out of scope) to reach "0 stub"; cf. the jt426/432/458 SUPERSEDED
- * disposition in tools/jt_progress.py. */
+ * The Mac's Pr* calls funnel through the PrGlue trampoline (L551c, trap
+ * 0xA8FD with a routine selector). The port's compat face implements the same
+ * surface over the VDI printer workstation; the printing port IS a GrafPort,
+ * so the SetPort(-9158) above is what routes jt433's DrawChar stream onto the
+ * page (compat/quickdraw.c -> pr_port_capture). ADR-0003: engine code keeps
+ * the Mac spellings.
+ *
+ * PORT DEVIATIONS (both documented, neither behavioural):
+ *   - JT[1162] + SetCursor(GetCursor(4)) — the watch cursor while the job
+ *     opens. Cosmetic, and jt1162 (CODE 4) is not lifted; the port's print is
+ *     synchronous and returns immediately. Skipped.
+ *   - JT[1030]/JT[1032] are the Mac's _NewHandle/_DisposHandle wrappers, but
+ *     the TPrint record is a PTR here (the Mac asm stores the JT[1030] result
+ *     straight into -9162 and passes it unwrapped to every Pr* call). The port
+ *     uses NewPtr/DisposePtr to match the pointer semantics the callers rely
+ *     on. */
 static void jt428(void)
 {
+	Ptr rec;
+
 	PROBE("jt428");
+	/* "Moebius" — the Mac print font. The compat Font Manager hands out
+	 * stable synthetic ids; the printing face renders through its own
+	 * monospace print face, so the id only has to round-trip. */
+	GetFNum((ConstStr255Param)"\007Moebius",
+	        (short *)&g_a5_word(-9152));            /* 0x4884 */
+
+	rec = NewPtr(120);                              /* JT[1030] */
+	g_a5_long(-9162) = (long)(uintptr_t)rec;
+	if (rec == NULL) {                              /* L4936 */
+		g_a5_byte(-9163) = 0;
+		g_a5_byte(-9164) = 0;
+		l036a(ua_strs_at(0x441e));              /* "Out of Memory!" */
+		g_a5_byte(-9146) = 0;
+		return;
+	}
+
+	{
+		GrafPtr saved;
+
+		GetPort(&saved);                        /* 0x48a2 */
+		g_a5_long(-9150) = (long)(uintptr_t)saved;
+	}
+	PrOpen();                                       /* L5500 */
+	PrValidate((TPPrint)(uintptr_t)g_a5_long(-9162));          /* L53f6 */
+
+	if (PrStlDialog((TPPrint)(uintptr_t)g_a5_long(-9162))      /* L5404 */
+	 && PrJobDialog((TPPrint)(uintptr_t)g_a5_long(-9162))) {   /* L5412 */
+		g_a5_long(-9158) = (long)(uintptr_t)
+		    PrOpenDoc((TPPrint)(uintptr_t)g_a5_long(-9162),
+		              NULL, NULL);              /* L53be */
+		g_a5_byte(-9164) =
+		    (unsigned char)(PrError() == 0 ? 1 : 0);  /* 0x4906 */
+		if (g_a5_byte(-9164) != 0)              /* 0x490c */
+			SetPort((GrafPtr)(uintptr_t)g_a5_long(-9158));
+		l4806();                                /* open the first page */
+	} else {                                        /* L491a — cancelled */
+		g_a5_byte(-9163) = 0;
+		g_a5_byte(-9164) = 0;
+		PrClose();                              /* L550e */
+		DisposePtr((Ptr)(uintptr_t)g_a5_long(-9162));  /* JT[1032] */
+		g_a5_long(-9162) = 0;
+		SetPort((GrafPtr)(uintptr_t)g_a5_long(-9150));
+	}
+	g_a5_byte(-9146) = 0;                           /* L494a */
 }
 
-/* JT[434] (CODE 3+0x4952) — CLOSE the print job.  Guarded on the -9162
- * TPrint record, which the port never allocates (jt428, verified
- * Printing-Manager-unmappable above), so the faithful body is the
- * guard alone; the tail — PrClosePage [L4854->L53e8], PrCloseDoc
- * [L53cc sel 0x08000484], PrClose [L550e], SetPort — is Printing
- * Manager (PrGlue, trap 0xA8FD) and unreachable until a print backend
- * exists. */
+/* JT[434] (CODE 3+0x4952) — CLOSE the print job. FULL LIFT (the Mac CFG):
+ *
+ *   if (!-9162) return;                       ; no record -> no job
+ *   L4854();                                  ; close the open page
+ *   PrCloseDoc(-9158)     [L53cc]
+ *   -9164 = 0
+ *   if ((*-9162)->[68] == 1)                  ; bJDocLoop == bSpoolLoop
+ *       PrPicFile(-9162, 0,0,0, &local)  [L5466]   ; spool the picture file
+ *   PrClose()             [L550e]
+ *   DisposePtr(-9162)     [JT[1032]]
+ *   SetPort(-9150)                            ; restore the caller's port
+ *
+ * PORT DEVIATION — the PrPicFile arm is UNREACHABLE, not skipped: it spools a
+ * saved picture file to the printer, which is the Mac's *spool* loop. The VDI
+ * backend renders straight to the workstation (the draft loop), never builds a
+ * spool file, and the compat face leaves the TPrint record opaque — so the
+ * bJDocLoop test can never select it. The draft branch below is the whole of
+ * the port's close path. */
 static void jt434(void)
 {
 	PROBE("jt434");
-	if (g_a5_long(-9162) == 0)
+	if (g_a5_long(-9162) == 0)                      /* 0x4956 */
 		return;
-	/* PrClosePage/PrCloseDoc/PrClose + SetPort — printing-manager
-	 * tier, unreachable until a print backend exists. */
+	l4854();                                        /* close the page */
+	PrCloseDoc((TPPrPort)(uintptr_t)g_a5_long(-9158));         /* L53cc */
+	g_a5_byte(-9164) = 0;
+	/* (the bSpoolLoop / PrPicFile arm — unreachable on the VDI draft
+	 * loop; see the header) */
+	PrClose();                                      /* L550e */
+	DisposePtr((Ptr)(uintptr_t)g_a5_long(-9162));   /* JT[1032] */
+	g_a5_long(-9162) = 0;
+	SetPort((GrafPtr)(uintptr_t)g_a5_long(-9150));
 }
 
 /* JT[1075] (CODE 5+0x79e0) — init the pagination state: open the
  * print job (jt428), zero the page number (-3146) and line counter
  * (-3148), stash the header flag (-3140) and title ptr (-3144),
  * clear -3139. Full lift (the l7ab4 header state feed). */
-static void jt1075(char flag, long title) __attribute__((unused));
+static void jt1075(char flag, long title);
 static void jt1075(char flag, long title)
 {
 	PROBE("jt1075");
@@ -62824,7 +63060,7 @@ static void l7a0e(void)
 	if (g_a5_word(-3148) != 0)
 		jt1072((short)(66 - g_a5_word(-3148)));
 }
-static void jt1074(short width, long rfmt, long tail) __attribute__((unused));
+static void jt1074(short width, long rfmt, long tail);
 static void jt1074(short width, long rfmt, long tail)
 {
 	PROBE("jt1074");
@@ -62835,7 +63071,7 @@ static void jt1074(short width, long rfmt, long tail)
 
 /* JT[1072] (CODE 5+0x7c74) — flush `n` pending message-window lines:
  * call L7ab4(NULL) n times (the asm pre-decrements, so exactly n). */
-static void jt1072(short n) __attribute__((unused));
+static void jt1072(short n);
 static void jt1072(short n)
 {
 	PROBE("jt1072");
@@ -68690,7 +68926,7 @@ static void jt1071(const char *fmt, ...)
 
 	PROBE("jt1071");
 	va_start(ap, fmt);
-	vsprintf(buf, fmt ? fmt : "", ap);
+	ua_vsprintf_fill(buf, fmt ? fmt : "", ap);   /* THINK C %(X%) fill */
 	va_end(ap);
 
 	pad = (short)((86 - jt423(buf)) / 2);
@@ -78061,6 +78297,22 @@ static signed char l541c(short a0)
 	jt260();                              /* JT[260]  (CODE 10, empty) */
 	return 1;
 }
+#ifdef FRUA_PRINTTEST
+/* The PRINT harness's entry (declared in ua_main): run the editor's PRINT
+ * command on level 1 of the loaded design. */
+signed char frua_printtest_entry(void);
+signed char frua_printtest_entry(void)
+{
+	/* l541c prints the map from the LEVEL BUFFER (-12300), which only a GEO
+	 * load fills — ua_main's jt361(1) brings up the design header but no
+	 * level, so at boot rec[2]/rec[3] (the map dims) are 0 and the grid loop
+	 * iterates zero times. Load a level the way play entry does. Level 5 is
+	 * a DUNGEON, so the walls exercise l4c92/l4dcc/l4e3e too. */
+	jt198((short)FRUA_PRINTTEST);
+	return l541c((short)1);
+}
+#endif
+
 
 /* JT[254] (CODE 2 + 0x4c5a = entry_jt254) — the event-list PRINT command entry.
  * A thin jt259-style wrapper: run l541c (which returns 1), pack its signed-char

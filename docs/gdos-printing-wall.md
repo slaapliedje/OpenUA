@@ -74,12 +74,51 @@ Gotchas baked into the stage script:
    VERIFIED: the FRUA_VDIPRINT_TEST hook drives the exact jt433 call shape
    through the face — FRUAPRN.GEM lands on the host with BOTH text runs at
    their pen coords ((50,100) + (50,112)), one v_gtext record per line.
-4. **Un-park the print chain**: flip `jt428`/`jt433`/`jt434`/`L4806` +
-   `jt1075`/`jt256`/`jt1074`/`jt1072` from dead/NOOP to live bodies over the
-   compat face; lift `jt426`/`jt432`/`jt458` (the last 3 MISSING JT entries).
-5. **End-to-end verify**: print a character sheet in-game → read the ESC/P (or
-   metafile) off the host disk. Update `docs/toolbox-mapping.md` (new Printing
-   Manager row) and the jt_progress NOOP note for jt428.
+4. ~~**Un-park the print chain**~~ — **DONE + VERIFIED END TO END.** `jt428`
+   (full lift: GetFNum/NewPtr(120)/PrOpen/PrValidate/dialogs/PrOpenDoc/SetPort/
+   L4806), `L4806` (PrOpenPage + MoveTo/TextFont/TextSize), the new `L4854`
+   (PrClosePage), `jt434` (full lift: L4854 + PrCloseDoc + PrClose + DisposePtr
+   + SetPort restore), and the pagination chain (`jt1075`/`jt1072`/`jt1074`)
+   un-parked. **The design editor's PRINT command (L541c — what jt254 /
+   l0096 case 17 runs) now prints the real design.**
+
+   ⚠ **`jt426`/`jt432`/`jt458` are NOT printing** — they are the Mac
+   indexed-catalog file enumeration (`jt990`/`jt991` callers), SUPERSEDED by
+   the GEMDOS Fsfirst/Fsnext shim and correctly dead. They stay that way; the
+   scoreboard does not go to 1205/1205 from this track.
+
+   **TWO REAL BUGS the un-parking exposed** (both invisible while nothing
+   printed):
+   - **`jt433`'s FORM FEED was missing its page close.** The Mac arm is TWO
+     jsrs — `0x49c4: jsr L4854` (PrClosePage) then `0x49c8: jsr L4806`
+     (PrOpenPage) — but `tools/dis68k.py` mis-split the pair (it renders the
+     first as a stray `.short 0xfe8e`), so the port had only the open. Pages
+     were started and never emitted. The raw bytes settle it:
+     `4e ba fe 8e` = `jsr pc@(-370)` → `0x49c6 - 0x172 = 0x4854`.
+     **Lesson: when a lift looks odd, read the BYTES, not the disassembler.**
+   - **The THINK C `%(X%)` FILL directive was unimplemented.** FRUA's print
+     formats use it — the rulers are literally `"%(-%)"` with a width arg (40
+     dashes) and the page header is `" %s%( %)Page %2d"` with args (title,
+     71-len(title), page). Plain `vsprintf` copied `%(` out literally AND did
+     not consume the fill count, so every later conversion read the wrong
+     argument: the first run printed **"Page 57"**, and 57 is exactly
+     `71 - strlen("OVERLAND 01 - ")`. Fixed with `ua_vsprintf_fill` (boot.c),
+     now used by `l7ab4` and `jt1071`.
+5. **VERIFIED** (`make EXTRA_CFLAGS="-DFRUA_PRINTTEST=<level>"`, which loads
+   that GEO level and runs L541c). HEIRS level 5 → **385 lines / 15 KB** into
+   `C:\FRUAPRN.GEM`: the title block with 40-dash rulers, the page header
+   right-aligned to "Page  1", the column-number ruler, and the event map as a
+   full ASCII floor plan — `+--+` walls, `|` partitions, event indices in their
+   cells. Level 1 (an OVERLAND map) prints the same structure with blank wall
+   glyphs, which is correct — overland has no walls. `docs/toolbox-mapping.md`
+   carries the Printing Manager row.
+
+## Remaining on this track
+
+- **The FX80 `v_updwk` wedge** (step 2) — output still goes to the METAFILE
+  device (`PR_VDI_DEVICE` 31). Flip to 21 once solved.
+- **jt_progress's jt428 NOOP note** still says "no Atari mapping"; it has one
+  now.
 
 ## Layering rule reminder
 
