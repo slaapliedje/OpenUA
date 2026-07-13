@@ -136,3 +136,33 @@ and it is why art-hacked modules need an install step, not just a convert step.
 - **wall sets** — DOS 8.3 truncates *both* `8x8db<id>` and `8x8dc<id>` to
   `8X8D<id>`, so the Mac target cannot be inferred. Needs a Mac module that ships
   wall art to disambiguate. `mac_name()` raises rather than guess.
+
+## Open: the big-picture colour cast (narrowed, NOT solved)
+
+Converted big pictures render with a magenta/cyan cast. What is **established**:
+
+- **Not a conversion bug.** The converter passes colour tables through
+  **byte-identically** (asserted against the real Mac art of the Yezukriis pair),
+  and the same cast appeared on GIANTS' intro picture *before any converter
+  existed*. The palette data is not being altered.
+- **The colour tables are well-formed**, and structurally the same as the base
+  game's: 224 colours starting at index 32. POR's payload is 672 bytes (= 224×3);
+  the base's is 700 (= that, plus 7 cycling ranges × 4 bytes), exactly as
+  TLBFORM.TXT describes.
+- **Base-game small pictures render with correct, natural colours**, so the port's
+  CLUT path is not broken in general.
+
+So the fault is in how the port installs a **big picture's** colour range, not in
+the data. Start at `docs/glib-palette-subsystem.md` (the colour-range CLUT
+allocator) and [[glib-clut-mirror-invariant]] (jt1066 commits a *contiguous* span
+from its LIVE/WORK mirrors and silently reverts anything installed directly).
+
+One unexplained discrepancy worth checking first: the **colour-table magic byte**
+is **200 (0xC8)** in the base game's BIGPIC master-library sets, but **8** in
+design-level pictures — including in Yezukriis' *real Mac* art, so 8 is
+legitimate. Whether the engine keys off that byte when installing the range is
+unverified, and would explain a class-specific cast.
+
+**Not done:** a like-for-like base-vs-fan BIG PICTURE comparison in the gallery.
+Do that first — it decides whether the cast is fan-specific or hits every big
+picture.
