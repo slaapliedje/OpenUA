@@ -16546,6 +16546,7 @@ static void cg_char_fn(short slot, char *fn)
 /* C-string form of cg_char_fn. The .cch openers (L00e0 / l_cch_read) take a C
  * string and convert it themselves, where the File Manager shim calls above
  * take the Pascal form — so the roster needs both spellings of the same name. */
+static void jt21(long mp);   /* CODE 6+0x16aa — derived-stat + equip-slot recompute */
 static void cg_char_fn_c(short slot, char *fn)
 {
 	char p[16];
@@ -16755,6 +16756,23 @@ static int load_roster(void)
 			continue;
 		if (cg_pool[n2][96] == 0)              /* no name -> not a character */
 			continue;
+		/* The 13 equip-by-kind slots rec[12..60] are DERIVED POINTERS into the
+		 * inventory chain. JT[578] writes them out with the record (so does the
+		 * Mac), which means they arrive here as addresses from the process that
+		 * wrote the file — the same dead-heap hazard as rec+4/rec+8, and the
+		 * documented jt28(rec[12]) bus-error trap.
+		 *
+		 * The Mac's own loader neutralises them by calling JT[21] right after
+		 * JT[577] (see jt579), which clears these slots and REFILES them from
+		 * the rebuilt rec+8 chain. We cannot call JT[21] here: this runs from the
+		 * boot-time seed, before ua_main reaches L4d98, so the item-template
+		 * table (-27944) JT[21] files by is still empty and it would mis-file.
+		 * Zero is the only correct value for a derived pointer read off disk —
+		 * it is exactly what JT[21] step 1 leaves — and the next JT[21] (every
+		 * path that touches a member runs one, with the tables up) refiles them
+		 * from the chain JT[577] rebuilt. */
+		for (a = 0; a <= 12; a++)
+			*(long *)(cg_pool[n2] + 12 + a * 4) = 0;
 		/* The .cch stores only the BASE ability scores (even bytes
 		 * @112,114,…); the working/current scores (odd bytes
 		 * @113,115,…) are 0 in the file. A character at rest has
@@ -17090,6 +17108,39 @@ void port_test_seed_design(void)
 		 * party is non-empty there), so in-session Add/Remove/Delete edits were
 		 * already preserved — removing it only leaves the BOOT party empty, the
 		 * faithful behaviour. (Was: cg_party_build_from_pool(cg_pool_count).) */
+	}
+
+	/* JT[21] refile of the pool's equip-by-kind slots (rec[12..60]).
+	 *
+	 * load_roster ZEROES those slots — they are derived pointers, and the values
+	 * in the .cch are addresses belonging to the process that wrote it. The Mac
+	 * rebuilds them the instant it deserializes a member: jt579 calls JT[21] right
+	 * after JT[577], and JT[21] refiles each worn item from the rec+8 chain by its
+	 * type-record kind.
+	 *
+	 * load_roster cannot do that itself. It runs from the BOOT seed, before jt361
+	 * reaches L4d98 and fills the item-template table (-27944) that JT[21] files
+	 * by; against an empty table JT[21] mis-files every item and wrecks the derived
+	 * stats — measured: AC 8 instead of -3, damage 0D0+1 instead of 1D8+4, plate
+	 * mail dropped entirely. (The Mac never meets this: it loads characters from
+	 * inside the Hall, with a design already up.)
+	 *
+	 * So defer the refile to the first call that arrives WITH a design loaded.
+	 * l07dc reaches here on its way to the Training Hall — the earliest point a
+	 * character sheet can be opened — by which time jt361/L4d98 have run. The boot
+	 * call itself is skipped (it is the one that seeds the pool). */
+	{
+		static int seed_call_seen;
+		static int refiled;
+
+		if (!seed_call_seen) {
+			seed_call_seen = 1;          /* this IS the boot seed — too early */
+		} else if (!refiled) {
+			short k;
+			refiled = 1;
+			for (k = 0; k < cg_pool_count; k++)
+				jt21((long)(uintptr_t)cg_pool[k]);
+		}
 	}
 
 	/* Enable the case-0 Training Hall action (Train Character) so its

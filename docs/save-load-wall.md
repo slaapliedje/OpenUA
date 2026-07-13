@@ -97,7 +97,9 @@ boot.c:28837):
 3. **jt581 splice vs cg_pool rebuild:** Mac jt579 splices loaded members via
    jt581/jt147; the port rebuilds via cg_pool/jt590 — confirm member ordering
    matches for a faithful round-trip.
-4. **jt577 untested** — needs a Hatari `.cch` round-trip against jt578.
+4. ~~**jt577 untested**~~ — **DONE.** jt577/jt578 are LIVE (the saved-character
+   roster) and Hatari-verified end to end; both `.cch` round-trip self-tests PASS,
+   including the pool-allocating inventory rebuild. See the 2026-07-12 section.
 5. Shim flattens `<design>/SAVE/` — slot files aren't design-namespaced; confirm
    no cross-design collision.
 
@@ -456,3 +458,48 @@ supervisor `SR 2xxx`; our app is user mode, `SR 0xxx`). Then map the PC to a
 function: the relocation offset is `runtime - link` for any known symbol
 (here `_jt936`: `$40AA6 - $21A52 = $1F054`), so `$46442 - $1F054 = $273EE` →
 `nm -n frua.prg` → **`_jt878`**.
+
+### Follow-up: the equip-by-kind slots rec[12..60] (same commit family)
+
+Wiring JT[577] exposed a second derived-pointer field. `rec[12..60]` are the **13
+equip-by-kind slots** — pointers INTO the inventory chain, one per item kind (plus
+two ring slots, ammo, off-hand). JT[578] writes them out with the record (the Mac
+does too), so they arrive from a load as **addresses belonging to the writer's
+process** — the documented `jt28(rec[12])` bus-error trap.
+
+The Mac neutralises them immediately: **jt579 calls JT[21] right after JT[577]**,
+and JT[21] step 1 clears those slots and **refiles** each worn item from the
+rebuilt `rec+8` chain by its type-record kind.
+
+**`load_roster` cannot call JT[21].** It runs from the BOOT seed
+(`main.c` → `boot_a5_seed_defaults` → `port_test_seed_design`), which is *before*
+`jt361` reaches `L4d98` and fills the item-template table (`-27944`) that JT[21]
+files by. Measured against an empty table, JT[21] mis-files and wrecks the derived
+stats:
+
+| field | correct | JT[21] with empty item table |
+|---|---|---|
+| Armor Class | **-3** | 8 |
+| THAC0 | **14** | 15 |
+| Damage | **1D8+4** | 0D0+1 |
+| Equipment | LONG SWORD +1 + PLATE MAIL +1 | sword only (armour dropped) |
+
+So the split is: **`load_roster` ZEROES the slots** (the only correct value for a
+derived pointer read off disk — exactly what JT[21] step 1 leaves), and the
+**refile is deferred** to the first `port_test_seed_design` call that arrives with
+a design up. `l07dc` reaches it on the way to the Training Hall, which is the
+earliest point a character sheet can be opened.
+
+**★ A trap worth remembering:** before the zeroing, the sheet rendered the gear
+*correctly* from the stale on-disk pointers — because JT[577] rebuilds the chain
+into the **same deterministic pool slots** (`base + idx*62`) the writer used, so
+the dead addresses happened to alias the right nodes. It would have broken the
+moment the character set or load order changed. **A stale pointer that "works" is
+still a stale pointer.**
+
+**Verified (HEIRS party, load save A → reboot → View Character):** all six members
+deserialize; BARBARUS shows **LONG SWORD +1 / PLATE MAIL +1, AC -3, THAC0 14,
+DAMAGE 1D8+4, ENCUMBRANCE 880** (the encumbrance proves the whole rec+8 chain is
+walked, not just the equipped pair); zero faults in engine address space. The six
+.cch files are 480–526 bytes — *different sizes per character*, where the raw dump
+was always exactly 512.
