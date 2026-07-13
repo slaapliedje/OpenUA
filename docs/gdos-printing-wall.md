@@ -113,12 +113,57 @@ Gotchas baked into the stage script:
    glyphs, which is correct — overland has no walls. `docs/toolbox-mapping.md`
    carries the Printing Manager row.
 
+## Step 6 — the FX80 "wedge": three bugs, none of them a wedge
+
+`PR_VDI_DEVICE=21` (FX80.SYS on the parallel port) is now the **default** and
+prints for real: the engine's own chain lands **32 KB of Epson ESC/P** on the
+port, and decoding it back to a bitmap shows the HEIRS `OVERLAND 01 - TOWN AT
+BEGIN` floor plan — header, 1..18 column ruler, numbered room grid.
+
+It looked like a hang in `vst_load_fonts`. It was three separate faults, and
+each one disguised the next:
+
+1. **GDOS `Dsetpath`s into `C:\GEMSYS` and does not put the path back.**
+   `v_opnwk` (driver load) and `vst_load_fonts` (face load) both do it. Every
+   relative GEMDOS open the engine makes afterwards then resolves under
+   `GEMSYS\` and fails — `frua.rsc not found`, `No GEMDOS dir ...\GEMSYS\heirs.dsn`
+   — so the app silently ran with **no resources and no design**.
+   `platform/vdi.c` now brackets both calls with a drive+path save/restore.
+
+   ★ This is also what made it look like a hang: `dbg_log`/`dbg_file_num` write
+   `DBG.LOG` **relative to the current directory**. GDOS moved the CWD, the log
+   file stopped being written mid-job, and the missing lines read as "the call
+   never returned". **The code was fine; the LOGGING died.** When a trail stops
+   dead, ask whether the logger still works before concluding the code hung.
+
+2. **SpeedoGDOS BUS ERRORS inside `vqt_name`** on a bitmap printer workstation
+   (reads `$ffffe001`, `PC=$ff4e`). The face-picking loop enumerated names to
+   find "Monospace ..." and walked straight into it. Because the engine installs
+   `$_exception_handler` and **limps on after a bus error**, there was no bomb —
+   the job just printed nothing, which is exactly what a wedge looks like.
+   `PrOpenDoc` no longer enumerates: `vst_font(handle, 1)` returns the id it
+   actually selected, which is all the shim needs.
+
+3. **Hatari's printer emulation was switched off.** `~/.config/hatari/hatari.cfg`
+   had `[Printer] bEnablePrinting = FALSE`, and with it off TOS reports the
+   printer busy (`Bcostat(0) == 0`) and never drives the port — so *nothing*
+   printed, not even a raw `Bconout(0, 'X')`. Set it `TRUE` (or pass
+   `--printer <file>`, which enables it and picks the filename; neither
+   `tools/hatari_ui.sh` nor the skill driver passes it, so the **cfg is the
+   switch**). Output then lands in `~/.config/hatari/hatari.prn` as a raw byte
+   dump of the parallel port — Hatari has **no** print-to-PDF; decode the ESC/P
+   yourself to look at a page.
+
+   Hatari feeds that file *only* from PSG writes (`psg.c`: port B = data, port A
+   bit 5 = STROBE, transferring on a high->low edge). A raw `Bconout(0, c)` and a
+   hand-rolled `Giaccess` strobe bit-bang are both good ways to prove the port is
+   alive without involving GDOS at all.
+
 ## Remaining on this track
 
-- **The FX80 `v_updwk` wedge** (step 2) — output still goes to the METAFILE
-  device (`PR_VDI_DEVICE` 31). Flip to 21 once solved.
 - **jt_progress's jt428 NOOP note** still says "no Atari mapping"; it has one
   now.
+- `tools/dis68k.py` still mis-splits `jsr` pairs (the jt433 form-feed trap).
 
 ## Layering rule reminder
 

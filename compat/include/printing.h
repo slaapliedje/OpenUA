@@ -15,9 +15,10 @@
  * NewPtr(120) and passes raw pointers everywhere (never Handles), so
  * the face is pointer-typed throughout.
  *
- * Output device: ASSIGN.SYS id PR_VDI_DEVICE — 31 (META.SYS, a .GEM
- * metafile on C:, byte-diffable) until the FX80 v_updwk wedge is
- * solved (docs/gdos-printing-wall.md), then 21.
+ * Output device: ASSIGN.SYS id PR_VDI_DEVICE — 21 (FX80.SYS, the Epson
+ * dot-matrix on the parallel port). Build with -DPR_VDI_DEVICE=31 to send
+ * the job to META.SYS instead, which drops a byte-diffable .GEM metafile at
+ * C:\FRUAPRN.GEM — the handy shape for tests.
  */
 
 #ifndef COMPAT_PRINTING_H

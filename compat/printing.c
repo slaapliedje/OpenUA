@@ -28,7 +28,7 @@
 #include "plat_vdi.h"
 
 #ifndef PR_VDI_DEVICE
-#define PR_VDI_DEVICE 31        /* META.SYS until the FX80 wedge is solved */
+#define PR_VDI_DEVICE 21        /* FX80.SYS on the parallel port (31 = META.SYS) */
 #endif
 
 #define PR_CELL_W    7          /* the Mac print cell jt433 advances by */
@@ -96,9 +96,6 @@ Boolean PrJobDialog(TPPrint prec)
 
 TPPrPort PrOpenDoc(TPPrint prec, TPrPort *port, void *ioBuf)
 {
-	short i, n, id;
-	char  name[33];
-
 	(void)prec;
 	(void)ioBuf;
 	if (port == NULL)
@@ -117,23 +114,19 @@ TPPrPort PrOpenDoc(TPPrint prec, TPrPort *port, void *ioBuf)
 	plat_vdi_meta_filename(pr_handle, "C:\\FRUAPRN.GEM");
 #endif
 
-	/* Attach the GDOS fonts and pick the monospace face — the print
-	 * stream is the engine's fixed 7px cell, so Monospace 821 (the
-	 * staged Bitstream face) stands in for the Mac's "Moebius". Any
-	 * enumerated face beats face 0 (FX80.SYS has no built-in font). */
-	n = plat_vdi_load_fonts(pr_handle);
-	pr_face = 0;
-	for (i = 1; i <= n; i++) {
-		id = plat_vdi_font_name(pr_handle, i, name);
-		if (pr_face == 0)
-			pr_face = id;           /* first face = fallback */
-		if (name[0] == 'M' && name[1] == 'o' && name[2] == 'n') {
-			pr_face = id;           /* "Monospace ..." */
-			break;
-		}
-	}
-	if (pr_face != 0)
-		(void)plat_vdi_font(pr_handle, pr_face);
+	/* Attach the GDOS fonts: MANDATORY, because FX80.SYS has no built-in
+	 * face and text on a face-less workstation rasterizes to a silent
+	 * blank page.
+	 *
+	 * Do NOT enumerate the faces with vqt_name to pick one by name.
+	 * SpeedoGDOS BUS ERRORS inside vqt_name on this bitmap printer
+	 * workstation (reads $ffffe001 and dies). The engine installs an
+	 * exception handler and limps on, so the crash left no bomb — the job
+	 * simply printed nothing, which is what made this look like a "wedge".
+	 * vst_font returns the id it actually selected, and id 1 is the VDI's
+	 * first/system face, so ask for it and take what we get. */
+	(void)plat_vdi_load_fonts(pr_handle);
+	pr_face = plat_vdi_font(pr_handle, 1);
 	(void)plat_vdi_point(pr_handle, 7, NULL);   /* the 7pt print cell */
 
 	/* A believable GrafPort: the page as portRect, pen homed. The
