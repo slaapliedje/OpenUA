@@ -89858,6 +89858,181 @@ static void jt922(unsigned char *out)
 /* l17f8 = JT[175] (CODE 7+0x17f8, the modal exit prompt) — was a PROBE
  * stub shadowing the full jt175 lift; repointed 2026-07-04. */
 
+/* L3bcc (CODE 7 + 0x3bcc) — the BUY screen's two funds lines, repainted at the
+ * top of every l3c7c pass so a purchase's cost shows up immediately:
+ *
+ *     Personal funds:<coin>          row 20, col 11
+ *     Pooled funds:  <coin>          row 21, col 11
+ *
+ * Each number is formatted, then jt95-padded to a 10-wide field before it is
+ * substituted into the label — that padding is what keeps the two rows'
+ * columns aligned. rec[76] is the character's coin word (the money triple is
+ * rec[76..81], mirrored by the -25314..-25306 pool longs). */
+static void l3bcc(void)
+{
+	unsigned char *member = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	char           buf[12];                       /* fp@(-12) */
+
+	PROBE("L3bcc");
+	jt384(buf, jt488(ua_strs_at(0x27d4) /* "%u" */,
+	                 (unsigned)(unsigned short)*(short *)(member + 76)));
+	jt95(buf, 10);
+	jt94(1, 20, 11, 0,
+	     jt488(ua_strs_at(0x27d8) /* "Personal funds:%s" */, buf));
+
+	jt384(buf, jt488(ua_strs_at(0x27ea) /* "%ld" */, g_a5_long(-25314)));
+	jt95(buf, 10);
+	jt94(1, 21, 11, 0,
+	     jt488(ua_strs_at(0x27ee) /* "Pooled funds:  %s" */, buf));
+}
+
+/* L38fe (CODE 7 + 0x38fe) — compose the BUY list rows, then run the picker.
+ *
+ * NOT jt112: docs/lxxxx-jt-aliases.md's `l38fe = jt112` is CODE *6*'s l38fe.
+ * This one is a CODE 7 private that happens to share the offset — it sits
+ * immediately after the 6-byte entry_jt180 getter and is exported by nothing.
+ *
+ * Each stock item's row is built in a 34-column field: the price (jt932 scales
+ * the item's base cost rec[46] by the design header's price class hdr[40] and
+ * the stack count rec[53]) is right-justified so it ENDS at column 34, then the
+ * name is laid over columns 0.. — and the composed row is written BACK over the
+ * item's own name field (rec+5).  That is what the Mac does: the picker paints
+ * rec+5, so the row text has to live there.  It is idempotent across passes —
+ * the name it re-reads already carries the price in the same columns.
+ *
+ * Then jt169 runs the scrolling list; it returns the verb key and leaves the
+ * highlighted node in *cursor, which is handed back as the selection. */
+static void l38fe(unsigned char *key_out, long *sel_out, long *cursor,
+                  short *idx)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	char           row[36];        /* fp@(-62) the composed row  */
+	char           pricestr[18];   /* fp@(-26)                   */
+	long           item;           /* fp@(-8)                    */
+	long           head;           /* fp@(-4)                    */
+	long           price;          /* fp@(-68)                   */
+	unsigned char  len;            /* fp@(-63)                   */
+	unsigned char  i;              /* fp@(-64)                   */
+
+	PROBE("L38fe");
+	for (item = g_a5_long(-25302); item != 0;
+	     item = *(long *)(uintptr_t)item) {
+		unsigned char *it = (unsigned char *)(uintptr_t)item;
+
+		jt384(row, (const char *)&g_a5_byte(-13732));   /* blank template */
+		price = jt932((long)(unsigned short)*(short *)(it + 46),
+		              (short)hdr[40], (short)it[53]);
+		jt394(pricestr, ua_strs_at(0x27b2) /* "%l" */, price);
+
+		len = (unsigned char)jt423(pricestr);
+		for (i = 0; i < len; i++)                       /* ends at col 34 */
+			row[(unsigned short)(34 - len + i)] = pricestr[i];
+
+		len = (unsigned char)jt423((const char *)(it + 5));
+		for (i = 0; i < len; i++)                       /* name from col 0 */
+			row[i] = (char)it[5 + i];
+
+		jt384((char *)(it + 5), row);                   /* name := the row */
+	}
+
+	head = g_a5_long(-25302);
+	g_a5_byte(-24140) = 0;
+	jt179(1);
+	jt168(0, 0, 1);
+	*key_out = (unsigned char)jt169(g_a5_long(-13868), g_a5_long(-13740),
+	                                1, 1, 38, 18, head, 1, 0,
+	                                &g_a5_byte(-12646), idx, cursor);
+	*sel_out = *cursor;
+
+	for (item = g_a5_long(-25302); item != 0;
+	     item = *(long *)(uintptr_t)item)
+		jt28(0, item, 0, 0, 0, 0);
+}
+
+/* L3c7c (CODE 7 + 0x3c7c) — BUY, arm 0 of the jt183 merchant screen.
+ *
+ * The straddle sweep (docs/jt3-straddle-audit.md) found jt183's case 0 empty
+ * because dis68k had eaten the `jsr L3c7c` — but L3c7c had never been lifted at
+ * all, so BUY was a net-new gap rather than a restore.
+ *
+ * Loop: repaint the funds lines (l3bcc), run the stock picker (l38fe), and on a
+ * pick price the item and try to pay for it.  The payment gate is two-tier and
+ * faithful to it: if the buyer's own coin (rec[76]) covers the price, it pays
+ * alone; otherwise the party pool (-25314) tops it up — the buyer is drained to
+ * zero and the pool absorbs the remainder.  Only if coin + pool still falls
+ * short does the "can't afford" line (-14064) print.  The item is transferred
+ * FIRST (jt186), and if it bounces there (no room / overloaded) nothing is
+ * charged.  Exits on verb key 1, or Esc (27) once -24139 says a verb committed.
+ *
+ * The two success arms print through separate STRS copies of the same pair of
+ * strings (0x2800/0x280c vs 0x281a/0x2826) — THINK C did not pool the
+ * duplicates, and the arms are kept apart here to match. */
+static void l3c7c(void)
+{
+	unsigned char key     = 0;     /* fp@(-5)  */
+	unsigned char done    = 0;     /* fp@(-6)  */
+	unsigned char abort_f = 0;     /* fp@(-17) */
+	long          sel     = 0;     /* fp@(-4)  */
+	long          cursor;          /* fp@(-22) */
+	short         idx;             /* fp@(-24) */
+
+	PROBE("L3c7c");
+	cursor = g_a5_long(-25302);
+	idx    = 0;
+	jt76();
+	g_a5_byte(-12646) = 1;
+
+	do {
+		unsigned char *item, *member, *hdr;
+		short          price;      /* fp@(-8)  */
+		long           coin;       /* fp@(-12) */
+		long           pool;       /* fp@(-16) */
+
+		l3bcc();
+		l38fe(&key, &sel, &cursor, &idx);
+
+		if (key == 1 || (key == 27 && g_a5_byte(-24139) != 0)) {
+			done = 1;
+			continue;                       /* -> L3e5c, the tail */
+		}
+		done = 0;
+
+		item   = (unsigned char *)(uintptr_t)sel;
+		member = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+		hdr    = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+		price = (short)jt932((long)(unsigned short)*(short *)(item + 46),
+		                     (short)hdr[40], (short)item[53]);
+		coin  = (long)(unsigned short)*(short *)(member + 76);
+		pool  = g_a5_long(-25314);
+
+		if ((unsigned long)(unsigned short)price <= (unsigned long)coin) {
+			jt186(sel, &abort_f);           /* 0x3d38 */
+			if (abort_f != 0)
+				continue;
+			*(short *)(member + 76) -= price;
+			jt42(jt488(ua_strs_at(item[53] > 0 ? 0x2800 : 0x280c),
+			           /* "%s buys %s " / "%s buys a %s " */
+			           (const char *)(member + 96),
+			           (const char *)(item + 5)));
+		} else if ((unsigned long)(unsigned short)price
+		           <= (unsigned long)(pool + coin)) {
+			jt186(sel, &abort_f);           /* 0x3dd0 */
+			if (abort_f != 0)
+				continue;
+			*(short *)(member + 76) = 0;    /* buyer drained ... */
+			g_a5_long(-25314) -=
+			    (long)(unsigned short)price - coin;   /* ... pool tops up */
+			jt42(jt488(ua_strs_at(item[53] > 0 ? 0x281a : 0x2826),
+			           /* the duplicate STRS copies */
+			           (const char *)(member + 96),
+			           (const char *)(item + 5)));
+		} else {
+			jt42((const char *)(uintptr_t)g_a5_long(-14064));
+		}
+	} while (done == 0);
+}
+
 /* JT[183] (CODE 7 + 0x3e68) — the merchant / shop treasure screen, sibling of
  * the vault screen jt185. Faithful structural lift of the dialog loop:
  *  - enter mode 1, redraw (jt23), draw the active-char HUD (jt937), ZERO the
@@ -89868,12 +90043,13 @@ static void jt922(unsigned char *out)
  *    (2 Take-money, 4 pool-op) when the pool holds no coin and row 0 when
  *    -25302 is empty; run the dialog (l2ebc); arrow keys switch the active
  *    character (jt936/jt934), Esc -> arm 6 (exit);
- *  - dispatch (JT[3]): 1 View char (jt904), 2 Take money (jt924), 3 Pool coin
- *    (jt925), 4 jt921, 5 jt922 gems/jewelry, 6 exit (warns if coin remains);
+ *  - dispatch (JT[3]): 0 BUY (l3c7c), 1 View char (jt904), 2 Take money
+ *    (jt924), 3 Pool coin (jt925), 4 jt921, 5 jt922 gems/jewelry, 6 exit
+ *    (warns if coin remains) — the classic Gold Box merchant verb bar;
  *  - a second JT[3] decides whether to repaint (jt23) after the arm.
  *  Loop until exit, then restore the prior mode (-27989).
- *  Reached from the shop/merchant event l5586 (l709e case 8). The arm-4/5
- *  handlers (jt921/jt922) and the exit prompt (jt175) are lifted. */
+ *  Reached from the shop/merchant event l5586 (l709e case 8). Every arm is now
+ *  lifted; arm 0 (BUY) was the last, landed 2026-07-13. */
 static void jt183(void)
 {
 	unsigned char done     = 0;   /* fp@(-2)  */
@@ -89945,6 +90121,9 @@ static void jt183(void)
 
 		/* L4006 — dispatch the picked arm. */
 		switch (choice) {                          /* JT[3] 0..6 */
+		case 0:
+			l3c7c();                   /* L4024 — BUY */
+			break;
 		case 1:
 			jt904(&out1);
 			break;

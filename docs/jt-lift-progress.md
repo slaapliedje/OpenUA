@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1205 distinct JT entries are called.** Overall: 1200 done (1071 lifted, 54 noop, 75 alias), 2 stub, 0 stand-in, 3 missing.
+**1206 distinct JT entries are called.** Overall: 1201 done (1072 lifted, 54 noop, 75 alias), 2 stub, 0 stand-in, 3 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -56,7 +56,7 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 22 | 1051–1100 | **49/50** | 40 | 9 | 1 | 0 | 0 |
 | 23 | 1101–1150 | **49/50** | 39 | 10 | 1 | 0 | 0 |
 | 24 | 1151–1200 | **50/50** | 40 | 10 | 0 | 0 | 0 |
-| 25 | 1201–1205 | **5/5** | 4 | 1 | 0 | 0 | 0 |
+| 25 | 1201–1206 | **6/6** | 5 | 1 | 0 | 0 | 0 |
 
 ## Coverage by CODE segment (what's used where)
 
@@ -74,7 +74,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 5 | 129 | 128 | 1 | 0 | 0 | **1** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 125 | 0 | 0 | 0 | **0** | file-group cache + GLIB art + resource manager |
 | CODE 7 | 97 | 97 | 0 | 0 | 0 | **0** | list dialog (JT[169]) + text widgets |
-| CODE 8 | 46 | 46 | 0 | 0 | 0 | **0** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
+| CODE 8 | 47 | 47 | 0 | 0 | 0 | **0** | foundational UI/file library — numeric-input fields (Valid numbers %ld-%ld), menu manager (Too many menus), file-group prefixes (DSN/GAME/SAVE/STR/STRG) |
 | CODE 9 | 5 | 5 | 0 | 0 | 0 | **0** | INVENTORY + spellbook viewer — item/spell list UI w/ pictures (Item Kind, %d Spells Memorized, Page, CPIC, Select/Cancel) |
 | CODE 10 | 12 | 12 | 0 | 0 | 0 | **0** | PICTURE/sprite display — PIC/SPRIT/CPIC event & portrait images (jt1004 art primitive); overlaps the event-picture path (#125) |
 | CODE 11 | 12 | 12 | 0 | 0 | 0 | **0** | design EDITOR — 3D-MAP (GEO) editing + save (Save3DMap, 'Unable to write geo') — AUTHORING, not the play path |
@@ -114,9 +114,9 @@ CODE-local helpers still PROBE-only in boot.c (11 found). These don't appear in 
 | 12 | jt18 | 115 | LIFTED |  |
 | 13 | jt413 | 107 | LIFTED |  |
 | 14 | jt155 | 99 | LIFTED |  |
-| 15 | jt444 | 96 | LIFTED |  |
-| 16 | jt1 | 95 | NOOP |  |
-| 17 | jt870 | 95 | LIFTED |  |
+| 15 | jt444 | 97 | LIFTED |  |
+| 16 | jt870 | 97 | LIFTED |  |
+| 17 | jt1 | 95 | NOOP |  |
 | 18 | jt20 | 94 | LIFTED |  |
 | 19 | jt397 | 92 | LIFTED |  |
 | 20 | jt423 | 88 | LIFTED |  |
@@ -129,9 +129,9 @@ CODE-local helpers still PROBE-only in boot.c (11 found). These don't appear in 
 | 27 | jt477 | 65 | LIFTED |  |
 | 28 | jt468 | 64 | LIFTED |  |
 | 29 | jt117 | 56 | LIFTED |  |
-| 30 | jt525 | 52 | LIFTED |  |
-| 31 | jt531 | 52 | LIFTED |  |
-| 32 | jt179 | 51 | LIFTED |  |
+| 30 | jt179 | 52 | LIFTED |  |
+| 31 | jt525 | 52 | LIFTED |  |
+| 32 | jt531 | 52 | LIFTED |  |
 | 33 | jt1080 | 50 | LIFTED |  |
 | 34 | jt7 | 43 | LIFTED |  |
 | 35 | jt96 | 43 | LIFTED |  |
@@ -145,7 +145,7 @@ CODE-local helpers still PROBE-only in boot.c (11 found). These don't appear in 
 | 43 | jt159 | 38 | LIFTED |  |
 | 44 | jt1061 | 38 | NOOP |  |
 | 45 | jt23 | 37 | LIFTED |  |
-| 46 | jt176 | 36 | LIFTED |  |
+| 46 | jt176 | 37 | LIFTED |  |
 | 47 | jt483 | 36 | LIFTED |  |
 | 48 | jt1163 | 36 | NOOP |  |
 | 49 | jt401 | 35 | LIFTED |  |
@@ -174,9 +174,9 @@ CODE-local helpers still PROBE-only in boot.c (11 found). These don't appear in 
 | 72 | jt1193 | 24 | LIFTED |  |
 | 73 | jt57 | 23 | LIFTED |  |
 | 74 | jt182 | 23 | LIFTED |  |
-| 75 | jt1173 | 23 | LIFTED |  |
-| 76 | jt118 | 22 | LIFTED |  |
-| 77 | jt273 | 22 | LIFTED |  |
+| 75 | jt273 | 23 | LIFTED |  |
+| 76 | jt1173 | 23 | LIFTED |  |
+| 77 | jt118 | 22 | LIFTED |  |
 | 78 | jt410 | 22 | LIFTED |  |
 | 79 | jt876 | 22 | LIFTED |  |
 | 80 | jt1177 | 22 | LIFTED |  |

@@ -32,7 +32,7 @@ Owners marked PROBE stub had nothing lifted from the bad text — skip.
 | jt17 | ✅ CLEAN 2026-07-13 | [x] CODE 6+0x27aa |
 | jt21 | ✅ CLEAN 2026-07-13 | [x] CODE 6+0x1790 |
 | jt131 | ✅ CLEAN 2026-07-13 | [x] CODE 6+0x038a |
-| jt183 | 🟠 GAP REVEALED — case 0 (the shop BUY action) calls L3c7c, which was never lifted. Needs a real lift (L3c7c ~148 insns + l3bcc + l38fe); not an eaten-instruction restore. FOLLOW-UP 2026-07-13 | [x] CODE 7+0x4024 |
+| jt183 | ✅ GAP CLOSED 2026-07-13 — case 0 (the shop BUY action) calls L3c7c, which had never been lifted. L3c7c + l38fe + l3bcc now lifted and live-verified. | [x] CODE 7+0x4024 |
 | jt207 | 🔴 MIS-LIFT FIXED — l5484 (JT[207]) case 0 and default were SWAPPED: style 0 must return 1, out-of-range returns 0. Area-map edge classifier 2026-07-13 | [x] CODE 7+0x54e0 |
 | jt224 | ✅ CLEAN 2026-07-13 | [x] CODE 7+0x0898 |
 | jt225 | ✅ CLEAN 2026-07-13 | [x] CODE 7+0x0bbe |
@@ -149,6 +149,11 @@ back out. l100c's `rec[13] >= 0` store gate was inverted (`bge` SKIPS the store)
 **One gap revealed, not a straddle bug:** jt183 case 0 — the shop's BUY action —
 dispatches to **L3c7c, which was never lifted at all**. The eaten instruction
 was a call to a missing function, so this is a net-new lift (~148 insns +
-l3bcc + l38fe), not a restore. **FOLLOW-UP.**
+l3bcc + l38fe), not a restore. **✅ CLOSED 2026-07-13** — L3c7c + l38fe + l3bcc
+lifted and live-verified in Hatari (buy an item, pay from personal coin, then
+from the party pool). It also disproved the wall doc's "FRUA has no buy verb"
+claim and exposed a formatter bug: THINK C's `%l` is a CONVERSION, not a length
+modifier, so the vsprintf shims were emitting nothing for it. See
+docs/shop-merchant-wall.md.
 
 Verified: 149 tests pass, clean smoke boot (menu up, zero bus errors).
