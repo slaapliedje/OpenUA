@@ -18,8 +18,39 @@
  */
 
 #include <stddef.h>             /* NULL */
+#include <mint/osbind.h>        /* Dgetdrv / Dsetdrv / Dgetpath / Dsetpath */
 
 #include "plat_vdi.h"
+
+/*
+ * GDOS moves the GEMDOS current directory out from under us.
+ *
+ * Opening a workstation loads the driver, and vst_load_fonts reads the faces
+ * named by ASSIGN.SYS — SpeedoGDOS does both by Dsetpath'ing into the font
+ * directory (C:\GEMSYS), and it does not put the path back. Every relative
+ * open the engine makes afterwards then resolves under GEMSYS\ and fails:
+ * "frua.rsc not found", "No GEMDOS dir C:\GEMSYS\heirs.dsn".
+ *
+ * The HAL owns the trap, so the HAL hides the side effect: bracket the two
+ * file-touching GDOS entries with a save/restore of drive + path.
+ */
+typedef struct { short drv; char path[128]; } vdi_cwd;
+
+static void cwd_save(vdi_cwd *c)
+{
+	c->drv = (short)Dgetdrv();
+	c->path[0] = 0;
+	Dgetpath(c->path, (short)(c->drv + 1));
+}
+
+static void cwd_restore(const vdi_cwd *c)
+{
+	Dsetdrv(c->drv);
+	if (c->path[0] != 0)
+		Dsetpath(c->path);
+	else
+		Dsetpath("\\");
+}
 
 static short contrl[12];
 static short intin[260];
@@ -71,6 +102,7 @@ int plat_vdi_gdos_present(void)
 
 short plat_vdi_open(short device, short *out_w, short *out_h)
 {
+	vdi_cwd cwd;
 	short i;
 
 	for (i = 0; i < 10; i++)
@@ -78,7 +110,9 @@ short plat_vdi_open(short device, short *out_w, short *out_h)
 	intin[0]  = device;
 	intin[10] = 2;                          /* raster coordinates */
 
+	cwd_save(&cwd);                         /* the driver load chdirs */
 	vdi(1, 0, 0, 0, 11);                    /* v_opnwk */
+	cwd_restore(&cwd);
 
 	if (contrl[6] > 0) {
 		if (out_w != NULL)
@@ -138,8 +172,12 @@ short plat_vdi_point(short handle, short pt, short *out_cell_h)
 
 short plat_vdi_load_fonts(short handle)
 {
+	vdi_cwd cwd;
+
 	intin[0] = 0;
+	cwd_save(&cwd);                         /* GDOS reads C:\GEMSYS and stays */
 	vdi(119, 0, handle, 0, 1);              /* vst_load_fonts */
+	cwd_restore(&cwd);
 	return intout[0];                       /* # fonts ADDED by GDOS */
 }
 
