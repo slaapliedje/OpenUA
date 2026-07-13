@@ -60,10 +60,20 @@ Gotchas baked into the stage script:
      the small-cache EXTEND preset (BITCACHE=32000) thrashing at 1020×1584;
      try the LARGE preset (`EXTEND.2`), a different driver (NX1000/NECP), a
      much longer wait under fast-forward, or point-size 10 vs 12.
-3. **Printing Manager face** (`compat/`): `PrOpen`/`PrOpenDoc` → `v_opnwk(21)`,
-   `PrOpenPage`/`PrClosePage` → `v_clrwk`/`v_updwk`, `PrCloseDoc`/`PrClose` →
-   `v_clswk`; the `-9152` "Moebius" print font → `vst_font` on the printer
-   workstation. Engine code keeps the Mac spellings (ADR-0003).
+3. ~~**Printing Manager face**~~ — **DONE + SMOKE-VERIFIED** (`compat/printing.c`
+   + `printing.h`). The faithful Mac model: `PrOpenDoc` returns a REAL GrafPort;
+   the engine SetPorts to it and ordinary QuickDraw text lands on the page.
+   `DrawChar` (compat/quickdraw.c) routes to `pr_port_capture` whenever the
+   printing port is current, folding jt433's per-char GetPen/DrawChar/MoveTo
+   stream into ONE `v_gtext` per line run (run-continuation keyed on "the pen
+   sits where the last capture left it"). PrOpen probes GDOS (PrError -192
+   absent); the dialogs confirm fixed setup (ADR-0006); PrOpenDoc = v_opnwk +
+   vst_load_fonts + the Monospace face at 7pt (+ vm_filename C:\FRUAPRN.GEM on
+   the metafile device); pages = v_clrwk/v_updwk; PrCloseDoc = v_clswk. GetFNum
+   (synthetic stable ids, compat/quickdraw.c) covers jt428's "Moebius" lookup.
+   VERIFIED: the FRUA_VDIPRINT_TEST hook drives the exact jt433 call shape
+   through the face — FRUAPRN.GEM lands on the host with BOTH text runs at
+   their pen coords ((50,100) + (50,112)), one v_gtext record per line.
 4. **Un-park the print chain**: flip `jt428`/`jt433`/`jt434`/`L4806` +
    `jt1075`/`jt256`/`jt1074`/`jt1072` from dead/NOOP to live bodies over the
    compat face; lift `jt426`/`jt432`/`jt458` (the last 3 MISSING JT entries).

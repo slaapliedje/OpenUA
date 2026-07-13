@@ -484,6 +484,7 @@ void qd_dump_palette(unsigned char *out768);
  * DrawString and StringWidth take Pascal strings: str[0] is the length,
  * str[1..len] are the bytes.
  */
+void  GetFNum(ConstStr255Param name, short *num);  /* Font Manager: synthetic ids */
 void  TextFont(short font);
 void  TextFace(short face);
 void  TextMode(short mode);

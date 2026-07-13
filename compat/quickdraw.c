@@ -21,6 +21,7 @@
 #include <stddef.h>             /* offsetof, NULL */
 
 #include "quickdraw.h"
+#include "printing.h"           /* pr_port_capture — printing-port text route */
 #include "macmemory.h"          /* NewHandleClear, DisposeHandle */
 #include "display.h"            /* dsp_color_t, dsp_detect — palette forward */
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
@@ -1791,6 +1792,45 @@ void RGBBackColor(const RGBColor *color)
 
 /* --- text drawing --- */
 
+/*
+ * GetFNum — Font Manager: the font id for a family name. The port has
+ * no font-family registry; hand out stable synthetic ids (128, 129, …)
+ * per distinct name instead. The one live caller is the print chain's
+ * jt428 (GetFNum("Moebius") for the TextFont of the printing port) —
+ * the printing shim renders every face as its monospace print face, so
+ * only stability matters, not the value.
+ */
+void GetFNum(ConstStr255Param name, short *num)
+{
+	static unsigned char reg[4][32];
+	static short         reg_n;
+	short                i, j;
+	unsigned char        len;
+
+	if (num == NULL)
+		return;
+	*num = 0;
+	if (name == NULL || name[0] == 0 || name[0] > 31)
+		return;
+	len = name[0];
+	for (i = 0; i < reg_n; i++) {
+		if (reg[i][0] != len)
+			continue;
+		for (j = 1; j <= len && reg[i][j] == name[j]; j++)
+			;
+		if (j > len) {
+			*num = (short)(128 + i);
+			return;
+		}
+	}
+	if (reg_n < 4) {
+		for (j = 0; j <= len; j++)
+			reg[reg_n][j] = name[j];
+		*num = (short)(128 + reg_n);
+		reg_n++;
+	}
+}
+
 void TextFont(short font) { GrafPtr p; GetPort(&p); if (p) p->txFont = font; }
 void TextFace(short face) { GrafPtr p; GetPort(&p); if (p) p->txFace = (Style)face; }
 void TextMode(short mode) { GrafPtr p; GetPort(&p); if (p) p->txMode = mode; }
@@ -1817,6 +1857,12 @@ void DrawChar(short ch)
 
 	GetPort(&port);
 	if (port == NULL)
+		return;
+	/* Printing: when the current port is the open printing GrafPort
+	 * (the Mac Printing Manager model — PrOpenDoc's port, SetPort'd by
+	 * the engine's print chain), the character belongs to the page, not
+	 * a PixMap. The capture advances the pen itself. */
+	if (pr_port_capture(port, ch))
 		return;
 	cp   = (CGrafPtr)port;
 	draw = qd_effective_clip(port, &clip);

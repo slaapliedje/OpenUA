@@ -23,6 +23,7 @@
 #include "input.h"
 #include "plat_sound.h"
 #include "plat_vdi.h"
+#include "printing.h"
 #include "macmemory.h"
 #include "controls.h"
 #include "dialogs.h"
@@ -382,58 +383,55 @@ int main(void)
 
 	dbg_log("main: entered");
 #ifdef FRUA_VDIPRINT_TEST
-	/* GDOS/VDI printing smoke test (docs/gdos-printing-wall.md step 2):
-	 * open the META.SYS metafile workstation (ASSIGN.SYS device 31),
-	 * redirect its output to C:\PRNTTST.GEM, draw a line of text, emit
-	 * the page, close. Success = a byte-inspectable .GEM file appears
-	 * in the gamedata folder on the HOST side. Define FRUA_VDIPRINT_TEST
-	 * to also try the FX80 printer (device 21) after the metafile. */
+	/* Printing Manager face smoke test (docs/gdos-printing-wall.md step
+	 * 3): drive the compat Pr* face EXACTLY the way the engine print
+	 * chain does — PrOpen, the dialogs, PrOpenDoc, SetPort to the
+	 * printing port, GetPen/DrawChar/MoveTo text (the jt433 stream
+	 * shape), page close, doc close, PrClose. Success = C:\FRUAPRN.GEM
+	 * on the host containing both text runs at their pen positions. */
 	{
-		short w = 0, h = 0, cell = 0, handle;
+		TPPrPort pp;
+		GrafPtr  saved;
+		Point    pt;
+		const char *l1 = "FRUA PRINTING MANAGER FACE";
+		const char *l2 = "PAGE TEXT VIA DRAWCHAR";
+		const char *c;
+		short    fnum = 0;
 
-		dbg_log_num("vdi: gdos present = ", plat_vdi_gdos_present());
-		handle = plat_vdi_open(31, &w, &h);
-		dbg_log_num("vdi: meta handle = ", handle);
-		if (handle > 0) {
-			plat_vdi_meta_filename(handle, "C:\\PRNTTST.GEM");
-			dbg_log_num("vdi: meta page w = ", w);
-			dbg_log_num("vdi: meta page h = ", h);
-			dbg_log_num("vdi: vst_point -> ",
-			            plat_vdi_point(handle, 12, &cell));
-			dbg_log_num("vdi: cell h = ", cell);
-			plat_vdi_text(handle, 100, 200,
-			              "FRUA GDOS VDI SMOKE TEST");
-			plat_vdi_update(handle);
-			plat_vdi_close(handle);
-			dbg_log("vdi: metafile closed");
-		}
-		handle = plat_vdi_open(21, &w, &h);
-		dbg_log_num("vdi: fx80 handle = ", handle);
-		if (handle > 0) {
-			short nf, fi, fid = 0;
-			char  fname[33];
-
-			dbg_log_num("vdi: fx80 page w = ", w);
-			dbg_log_num("vdi: fx80 page h = ", h);
-			nf = plat_vdi_load_fonts(handle);
-			dbg_log_num("vdi: gdos fonts added = ", nf);
-			for (fi = 1; fi <= nf && fi <= 8; fi++) {
-				fid = plat_vdi_font_name(handle, fi, fname);
-				dbg_log_num(fname, fid);
+		dbg_log_num("prn: gdos = ", plat_vdi_gdos_present());
+		GetFNum((ConstStr255Param)"\007Moebius", &fnum);
+		dbg_log_num("prn: GetFNum Moebius = ", fnum);
+		PrOpen();
+		dbg_log_num("prn: PrOpen err = ", PrError());
+		if (PrStlDialog(NULL) && PrJobDialog(NULL)) {
+			GetPort(&saved);
+			pp = PrOpenDoc(NULL, NULL, NULL);
+			dbg_log_num("prn: PrOpenDoc err = ", PrError());
+			if (PrError() == 0) {
+				SetPort((GrafPtr)pp);
+				TextFont(fnum);
+				TextSize(7);
+				PrOpenPage(pp, NULL);
+				MoveTo(50, 100);
+				for (c = l1; *c; c++) {   /* the jt433 dance */
+					GetPen(&pt);
+					DrawChar((short)*c);
+					MoveTo((short)(pt.h + 7), pt.v);
+				}
+				MoveTo(50, 112);
+				for (c = l2; *c; c++) {
+					GetPen(&pt);
+					DrawChar((short)*c);
+					MoveTo((short)(pt.h + 7), pt.v);
+				}
+				PrClosePage(pp);
+				PrCloseDoc(pp);
+				dbg_log("prn: doc closed");
 			}
-			/* select the FIRST enumerated face explicitly — the
-			 * page came out blank with the implicit default */
-			fid = plat_vdi_font_name(handle, 1, fname);
-			dbg_log_num("vdi: vst_font -> ",
-			            plat_vdi_font(handle, fid));
-			dbg_log_num("vdi: vst_point -> ",
-			            plat_vdi_point(handle, 12, &cell));
-			plat_vdi_text(handle, 100, 200,
-			              "FRUA FX80 SMOKE TEST");
-			plat_vdi_update(handle);
-			plat_vdi_close(handle);
-			dbg_log("vdi: fx80 closed");
+			SetPort(saved);
 		}
+		PrClose();
+		dbg_log("prn: done");
 	}
 #endif
 
