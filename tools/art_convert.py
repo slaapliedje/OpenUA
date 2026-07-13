@@ -161,6 +161,91 @@ def planarize(px, w, rows):
     return bytes(out)
 
 
+
+def rle_decode(data, total):
+    """The UA run codec (hackdocs DRAW18.TXT), shared by DOS and Mac.
+
+    x < 128  -> the next x+1 bytes are literal
+    x > 128  -> the next byte, repeated 257-x times
+    x == 128 -> no-op
+    """
+    out = bytearray()
+    i = 0
+    while len(out) < total and i < len(data):
+        x = data[i]
+        i += 1
+        if x < 128:
+            out += data[i:i + x + 1]
+            i += x + 1
+        elif x > 128:
+            out += bytes([data[i]]) * (257 - x)
+            i += 1
+    return bytes(out)
+
+
+def rle_encode(buf):
+    """Encode with the same codec.  Runs of 3+ become repeats (a 2-run costs the
+    same as a literal), literals accumulate, and runs flow across row boundaries.
+
+    NOT byte-identical to SSI's own encoder — ours lands ~0.25% larger on the
+    Yezukriis BIGPIC.  For a COMPRESSED payload that is fine and the distinction
+    matters: the correctness bar is that the decoder reproduces the right PIXELS,
+    which `tests` assert, not that we reproduce SSI's exact run splits.  (For the
+    uncompressed paths byte-exactness IS achievable, and is asserted.)
+    """
+    out, lit, i, n = bytearray(), bytearray(), 0, len(buf)
+
+    def flush():
+        s = 0
+        while s < len(lit):
+            chunk = lit[s:s + 128]
+            out.append(len(chunk) - 1)
+            out.extend(chunk)
+            s += 128
+        del lit[:]
+
+    while i < n:
+        j = i
+        while j + 1 < n and buf[j + 1] == buf[i] and j - i + 1 < 128:
+            j += 1
+        run = j - i + 1
+        if run >= 3:
+            flush()
+            out.append(257 - run)
+            out.append(buf[i])
+            i = j + 1
+        else:
+            lit.append(buf[i])
+            i += 1
+    flush()
+    return bytes(out)
+
+
+def _rows_deinterleave(raw, w, rows):
+    """DOS stores each ROW as 4 plane sweeps (DRAW18.TXT: "4 sweeps ... completing
+    the row").  Note this is PER-ROW — unlike the uncompressed methods, whose
+    planes span the WHOLE image."""
+    out = bytearray(w * rows)
+    k = 0
+    for y in range(rows):
+        for p in range(4):
+            for x in range(p, w, 4):
+                out[y * w + x] = raw[k]
+                k += 1
+    return bytes(out)
+
+
+def _rows_interleave(lin, w, rows):
+    out = bytearray(w * rows)
+    k = 0
+    for y in range(rows):
+        for p in range(4):
+            for x in range(p, w, 4):
+                out[k] = lin[y * w + x]
+                k += 1
+    return bytes(out)
+
+
 # Drawing methods, per the UA Shell hackdocs (TLBFORM.TXT).  This is the last
 # byte of an image header -- NOT a "flags" field, as an earlier guess here had it.
 DRAW_UNCOMPRESSED = (16, 17, 21)      # 17 carries an AND/OR mask pair
@@ -190,9 +275,23 @@ def _convert_entry(ent, to_mac):
     # not an image method is the per-set COLOUR TABLE, whose trailing byte is a
     # magic of 8 or 24 -- do not read it as a bitmap.
     if dos_method in DRAW_COMPRESSED:
-        raise UnsupportedPiece(
-            "drawing method %d (compressed) — the DOS RLE is not decoded yet; "
-            "see hackdocs DRAW18.TXT / DRAW23.TXT" % dos_method)
+        # Both releases use the SAME run codec; they differ only in pixel order.
+        # DOS interleaves 4 plane sweeps per ROW, Mac is linear.  Proved by
+        # decoding the Yezukriis BIGP0244 from both sides: identical pixels.
+        if not (w and height):
+            raise UnsupportedPiece("compressed entry with no geometry")
+        if to_mac and w % 8:
+            raise UnsupportedPiece("width %d not a multiple of 8" % w)
+        raw = rle_decode(payload, w * height)
+        if len(raw) != w * height:
+            raise UnsupportedPiece(
+                "compressed payload decoded to %d bytes, expected %dx%d"
+                % (len(raw), w, height))
+        lin = _rows_deinterleave(raw, w, height) if to_mac else raw
+        body = rle_encode(lin if to_mac else _rows_interleave(lin, w, height))
+        return (struct.pack(dst + "Hhh", height, voff, hoff)
+                + bytes([w // (8 if to_mac else 4),
+                         _swap_flag_byte(method, to_mac)]) + body)
     if dos_method == DRAW_ID_LIST:
         raise UnsupportedPiece("drawing method 25 (image-ID list)")
 
