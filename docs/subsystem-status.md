@@ -1,3 +1,8 @@
+> ⚠️ **REGENERATE, DO NOT TRUST THE STATUS COLUMN.** This table has now gone stale
+> three times (the shop's STUB column, jt893's arms, the event dispatcher). The
+> source of truth is `python3 tools/stub_audit.py --stubs` (engine gaps) and
+> `tools/jt_progress.py` (JT coverage). Read the body, never the comment.
+
 # Subsystem status register — the targeting dashboard
 
 **One place to see every subsystem, whether it's implemented, and where its
@@ -70,7 +75,7 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | Dungeon **walk / movement** loop (arrows + turn) | 15/19 | ✅ | `play-loop-wall.md`, `play-movement-chain` (mem) |
 | Dungeon **3D render** (wall sets, perspective) | — | ✅ | `dungeon-view-wall.md` — #129 CLOSED 2026-07-02: frame-stomp fixed (stage 4), left-column clip not reproducible; residual chrome-gap residue → #144 |
 | Dungeon **HUD chrome** (roster/clock/compass/cmd bar) | — | 🟡 | `dungeon-hud-chrome-arch` (mem) — renders; `port_draw_play_frame` over-blit stand-in remains |
-| **Event dispatcher** (`l709e`, 39 arms) | 18/20 | 🟡 | `play-loop-wall.md` + per-event walls — 16 arms lifted, ~17 stub |
+| **Event dispatcher** (`l709e`, 39 arms) | 18/20 | ✅ | `play-loop-wall.md` — **the "~17 arms stub" claim was STALE** (2026-07-13); `stub_audit --stubs` reports **0 live gaps** engine-wide and none of the 20 uncalled stubs is an event arm. Regenerate from stub_audit, never from this table. |
 
 ## 4. In-game — interactions / town  🟡
 
