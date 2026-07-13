@@ -9,15 +9,27 @@ next target. It is the index over the queue of `docs/*-wall.md` scope docs.
   segment / layer), `docs/gap-analysis.md` (by play-flow the player
   experiences), `docs/jt-lift-progress.md` (auto-generated JT counts — the
   source of truth for numbers; rerun `python3 tools/jt_progress.py`).
-- Counts as of 2026-07-06: **1174 done / 17 stub / 14 missing** of 1205 JT
-  entries (~97% — 1050 lifted + 52 noop + 72 alias). Raw counts mislead — most
-  of the 31 pending is demand-driven display/runtime paths the working code
-  never calls, or SUPERSEDED shims (CODE 3 jt426/432/458 → GEMDOS, most of
-  CODE 4 → VIDEL HAL). The one real remaining DEPTH block is the **CODE 11 GEO
-  3D-map editor (jt243 5216 + jt242 1298 insn)**, followed by the foundational
-  **CODE 8 jt335 (2598)**. The play runtime + the CODE 2 event editor + jt259
-  art import are all lifted. Status below is by *player-facing subsystem*, not
-  by count.
+- Counts as of **2026-07-12** (regenerate: `python3 tools/jt_progress.py`,
+  `python3 tools/stub_audit.py --stubs`): **1199 done / 3 stub / 3 missing** of
+  1205 JT entries (1069 lifted + 55 noop + 75 alias). Stub bodies: 58 total —
+  36 faithful no-ops, **1 LIVE GAP**, 21 uncalled.
+- **THE one live gap: `jt933`** (CODE 12 + 0x5720, 150 insn) — the TREASURE
+  TAKE-COMMIT. `l26cc` calls it to actually transfer picked items into the
+  party's packs; it is a PROBE stub returning 0, so TAKE selects but never
+  hands over. Calls only lifted entries (jt3/23/155/160/896/904) — a clean,
+  self-contained lift. *(It was hidden for several sessions: `stub_audit`'s
+  parser dropped wrapped one-line bodies and reported "0 live gaps". Fixed +
+  regression-tested 2026-07-12.)*
+- The other 5 pending JT are NOT gaps: `jt426`/`jt432`/`jt458` are SUPERSEDED
+  (Toolbox→GEMDOS / printing, needs a GDOS backend — out of scope); `jt955`
+  (deferred jt948 arm) and `jt1064` (Mac Package Manager, no Falcon counterpart)
+  are uncalled.
+- The old "97% is misleading — the real work is DEPTH" caveat is now RETIRED:
+  the depth blocks it named are done. CODE 11 (GEO 3D-map editor, jt243/jt242)
+  is 12/12 with area-load CLOSED; CODE 8 jt335 is lifted; the CODE 2 event
+  editor, jt259 art import and the play runtime are all lifted.
+- Companion views: `docs/milestone.md`, `docs/roadmap.md`, `docs/gap-analysis.md`,
+  `docs/jt-lift-progress.md` (auto-generated — the source of truth for numbers).
 
 Status legend: ✅ done (works end-to-end) · 🟡 partial (lifted but
 incomplete/buggy) · 🔴 not started (stub/missing) · ⏸ deferred (ADR-0008,
@@ -48,7 +60,7 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | **Character generation** (create/modify/reroll/finalize) | 17 | ✅ | `code17-chargen-wall.md`, `chargen-finalize-wall.md`, `char-record-layout.md` |
 | **Training Hall** + roster + party model | 12 | ✅ | `training-hall-wall.md`, `party-model-migration.md` |
 | Character **sheet** view (jt904/jt886) | 19 | ✅ | `char-sheet-jt886` (mem) |
-| **Save / Load** | 15 | 🟡 | `save-load-wall.md` — party round-trip done (#141); pending: ~10KB design-state block (jt580 TODO, the `-27920` pad), A–J slot pickers, jt159 load-confirm, boot auto-load |
+| **Save / Load** | 15 | ✅ | `save-load-wall.md` — party round-trip + A–J pickers + jt159 confirm live. 2026-07-12: the saved-character roster is now a real **.cch stream** (jt578/jt577), killing the raw-512 pointer-persistence crash; equipment persists. Residual: the ~10KB design-state pad (jt580 `-27920`) |
 
 ## 3. In-game — dungeon traversal  🟡
 
@@ -63,13 +75,13 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
-| **Treasure / vault / pickup** (picker, reward, vault I/O) | 19/20 | ✅ | `treasure-event-wall.md` |
+| **Treasure / vault / pickup** (picker, reward, vault I/O) | 19/20 | 🟡 | `treasure-event-wall.md` — screen + reward + vault live; **`jt933` take-COMMIT is the one live gap: TAKE selects but never transfers** |
 | **Tavern** (drink/listen/fight) | 20 | ✅ | `treasure-event-wall.md` (case 7 `l4f9a`) |
 | **Temple** (take-text/donate) | 20 | ✅ | (case 9 `l216a`) |
 | **Inn** (`l398a`, case 29) | 20 | 🔴 | gated on rest (`jt957`); shell clean, core is camp |
 | **Rest / camp** (menu, REST action, clock/heal) | 21 | 🟡 | `code21-camp-wall.md` — menu + REST + MAGIC-menu lifted; spell screens stub |
-| **Spell memorization** (4 magic screens) | 21 | 🔴 | `code21-camp-wall.md` — `l06d6`/`l0bc6`/`l0df2`/`l1374` + `l1e44` + Alter `l2d7e` stub |
-| **Inventory / item-list / equip** (sheet items, ITEMS/TRADE/DROP) | 9 + 19 | 🔴 | `inventory-subsystem-wall.md` ← **NEXT FOCUSED TASK**. NB: `jt893` (ITEMS dispatcher) now has a structural body |
+| **Spell memorization** (4 magic screens) | 21 | ✅ | `code21-camp-wall.md` — `l06d6`/`l0bc6`/`l0df2`/`l1374` + `l1e44` + Alter `l2d7e` stub |
+| **Inventory / item-list / equip** (sheet items, ITEMS/TRADE/DROP) | 9 + 19 | ✅ | `inventory-subsystem-wall.md` ← **NEXT FOCUSED TASK**. NB: `jt893` (ITEMS dispatcher) now has a structural body |
 | **Shop / merchant** (sell/identify/value) | 20/19/7 | 🟡 | `shop-merchant-wall.md` — event + shop screen (`l5586`/`jt183`) LIFTED; only `jt189` SELL + `jt190` IDENTIFY stub (Mac bodies in CODE_07.s). No "buy" verb. `jt923` is NOT missing (= lifted overload gate). Untested live (HEIRS shop cell unconfirmed) |
 | **Conditional / quest-flag events** (stat-check, set-flag, rumors, pass-time) | 18 | ✅ | `treasure-event-wall.md` (cases 15/27/37/38) |
 
@@ -102,7 +114,7 @@ save A → Begin Adventuring. Remaining = render polish, not logic.
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
 | **Event pictures / portraits** (PIC/SPRIT/CPIC/bigpic) | 20/6/5 | 🟡 | `event-pictures-wall.md` — runtime pipeline (`l442e`→…→`l6e58`) FAITHFUL + works; 2 open bugs are composition-ordering + buffer-sharing, NOT palette math. CODE 10 = the picture EDITOR (deferred), not the runtime path |
-| **Audio / music / sound** (.slb engine) | 5/6 | 🔴 | `audio-wall.md` — dispatch + bank-load lifted, every output leaf stubbed → MUTED. FRUA uses the Device Manager (`_Write`), NOT the Sound Manager. Falcon DMA HAL already exists; needs the engine→HAL glue. Multi-part |
+| **Audio / music / sound** (.slb engine) | 5/6 | ✅ | `audio-wall.md` — dispatch + bank-load lifted, every output leaf stubbed → MUTED. FRUA uses the Device Manager (`_Write`), NOT the Sound Manager. Falcon DMA HAL already exists; needs the engine→HAL glue. Multi-part |
 
 ## 7. Editor / authoring tools  ✅ LIVE + menu-wired (map-editor area-load 🔴)
 
@@ -120,7 +132,7 @@ editor DEPTH gap is the map editor's area bring-up.
 | Event / zone / map-step editing (jt254/253/248/249/258) | 2 | ✅ | `event-editor-wall.md` — lifted; l0096 dispatcher wired |
 | **Art Gallery** / picture editor (jt269 + l040c; import jt259) | 10 | ✅ | l040c dialog tree lifted + LIVE-validated 2026-07-11 |
 | **Monster / NPC** record editor (jt263 → jt325 type 54/57) | 10/9 | 🟡 | opens + renders monster art; edit round-trip untested |
-| **Map (GEO) editor** (jt242/jt243) | 11 | 🟡 | `geo-editor-wall.md` — lifted; picker opens, **OPEN bus-errors on the empty -12300 area block** (jt244/mode-19 area-load never triggered) ← the editor's last DEPTH gap |
+| **Map (GEO) editor** (jt242/jt243) | 11 | ✅ | `geo-editor-wall.md` — lifted; picker opens, **OPEN bus-errors on the empty -12300 area block** (jt244/mode-19 area-load never triggered) ← the editor's last DEPTH gap |
 | Editor record panels (jt281/282/286) | 22 | ✅ | lifted (CODE 22 alias block) |
 
 ---
