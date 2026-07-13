@@ -100,3 +100,47 @@ Per [[dungeon-hud-chrome-arch]]: drawing a GLIB picture without its palette lays
 down opaque pixels that render as black garbage (the reverted experiment). The
 picture + palette are a package; this subsystem is the palette half, and it must
 land before the bigpic backdrop can be drawn at all.
+
+
+## jt1069 / jt1066 audit (2026-07-13) — both FAITHFUL; the cast is elsewhere
+
+Chased the converted-big-picture colour cast into the allocator. **Neither jt1069
+nor jt1066 is at fault.**
+
+### ⚠️ TRAP: jt1069's phase-1 compare looks like a mis-lift. IT IS NOT.
+
+```c
+if (e[4] != d[0] && e[5] != d[1] && e[6] != d[2] && e[7] != d[3])
+        dirty = 1;
+```
+
+`&&` reads like a bug — a "has this changed?" test wants `||`, and this is exactly
+the shape of the mis-lifts the JT[3] straddle sweep found. **Check the asm before
+touching it.** `CODE_05.s` 0x723e–0x72d6: each `cmpb` is followed by a `beq L72dc`
+that jumps *out* to "not dirty", so dirty is set only when **all four** bytes
+differ. The `&&` is an exact transcription. Changing it to `||` would be a
+gate-flip on correct code.
+
+### What the two functions actually do
+
+Both are lifted faithfully and both are **wired** (jt993 → jt1069 → jt1066).
+For a BIG PICTURE the caller passes `ncopy = 0`, `destp = NULL`, so:
+
+- **jt1069** skips range allocation (phase 3b) entirely. It only diffs the incoming
+  colours against the LIVE mirror (-3390), marks changed slots in the used-bitmap
+  (-3386), and frees overlapping ranges. It never touches hardware.
+- **jt1066** promotes the used slots LIVE → WORK (-3394), tracks the touched span
+  [min,max], and commits `WORK[min..max]` through `l6e58`. One contiguous write.
+
+Neither can produce a hue shift on its own: they move RGB triples verbatim.
+
+### Where to look next
+
+`l442e` (the big-picture composer) makes **no palette call at all** — so a
+picture's palette must reach the CLUT via the resource-load path, not the
+composer. Find who calls jt993 for an event/big picture and with which resource
+`idx`; if a big picture's palette is never committed (or is committed and then
+overwritten by a later load), the picture would blit its 32..255 pixel indices
+against **whatever palette was loaded last** — which is precisely the failure mode
+UAPALETT.TXT warns about ("UA always uses the most recently loaded palette").
+That is the strongest remaining hypothesis and it is untested.
