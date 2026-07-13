@@ -78,6 +78,32 @@ def test_one_line_definition_is_parsed(tmp_path):
     assert _body(str(f), 'jt510') == 'STUB'
 
 
+def test_wrapped_one_line_body_is_parsed(tmp_path):
+    """Signature on one line, whole body on the NEXT — must not be skipped.
+
+        static unsigned char jt933(long ev, short arm)
+            { PROBE("jt933"); (void)ev; return 0; }  /* take-commit */
+
+    That line ends with '}', not '{', and is not a declaration, so the forward
+    scan fell through every arm and DROPPED the function: it never reached the
+    status map, so its stub was invisible and `--stubs` reported "0 live gaps"
+    while jt933 (the treasure take-commit) sat un-lifted on a LIVE path. A
+    triage that under-reports is worse than no triage — it is a false all-clear.
+    """
+    f = tmp_path / 'x.c'
+    f.write_text('static unsigned char jt933(long ev, short arm)\n'
+                 '\t{ PROBE("jt933"); (void)ev; (void)arm; return 0; } /* c */\n')
+    assert _body(str(f), 'jt933') == 'STUB'
+
+
+def test_wrapped_one_line_real_body_is_not_a_stub(tmp_path):
+    """The same shape with a real body must still classify as REAL."""
+    f = tmp_path / 'x.c'
+    f.write_text('static short jt400(long a)\n'
+                 '\t{ PROBE("jt400"); return jt401(a) + 1; }\n')
+    assert _body(str(f), 'jt400') == 'REAL'
+
+
 def test_historical_note_is_not_a_stale_claim(tmp_path):
     """"was a PROBE stub, now lifted" is a correct note, not a stale claim."""
     f = tmp_path / 'x.c'

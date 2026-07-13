@@ -103,17 +103,36 @@ def parse_funcs(lines):
         if not m:
             i += 1
             continue
-        j, ok = i, True
+        j, ok, wrapped = i, True, False
         while j < len(lines) and j - i < 6:
             # A forward declaration can end ");  /* comment */", which does not
             # end in ';' — strip the trailing comment before deciding.
             st = re.sub(r'/\*.*?\*/\s*$', '', lines[j]).rstrip()
             if st.endswith('{'):
                 break
+            # WRAPPED ONE-LINER: the signature is on its own line and the whole
+            # body follows on the next, opening AND closing its braces there:
+            #
+            #     static unsigned char jt933(long ev, short exit_arm, ...)
+            #         { PROBE("jt933"); (void)ev; ...; return 0; }  /* comment */
+            #
+            # This ends with '}', not '{', and is not a declaration, so the
+            # old scan fell through both arms and DROPPED the function — it
+            # never reached the status map, so its stub was invisible to the
+            # triage and `--stubs` reported "0 live gaps" while jt933 (the
+            # treasure take-commit) sat un-lifted on a live path.
+            if j > i and st.lstrip().startswith('{') and st.endswith('}') \
+                    and st.count('{') == st.count('}'):
+                wrapped = True
+                break
             if st.endswith(';'):
                 ok = False
                 break
             j += 1
+        if wrapped:
+            funcs.append((m.group(1), i, j, j))
+            i = j + 1
+            continue
         if not ok or j >= len(lines) or not lines[j].rstrip().endswith('{'):
             i += 1
             continue
