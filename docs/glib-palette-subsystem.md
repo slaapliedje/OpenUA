@@ -180,7 +180,50 @@ committed from 4 sites), `-22222`, `-10366`, `-27894 + band*4`, `-24320`.
 **⚠️ `l442e` — the event / big-picture composer — makes NO palette call at all.**
 No `jt124`, no `jt993`, no `l3f3c`, no `jt1066`.
 
-### PROBE RESULT (2026-07-13) — the ART GALLERY installs NO palette
+### ⛔ RETRACTED: "the ART GALLERY installs NO palette" — that result came from a CRASHED build
+
+**`make ENGINE_PROBE=1` produces a build that CRASHES.** It boots, logs ~1906
+probe lines, then dies:
+
+    WARN : Address Error reading at address $ffff00e1, PC=$19bca2
+
+The screen goes black and input stops advancing. Every "0 calls" I read off that
+build was a **false negative from a dead engine**, not evidence that the code was
+skipped. **The ENGINE_PROBE harness is BROKEN — fix it before trusting it.** (It
+also defaults OFF, so a build without `ENGINE_PROBE=1` reports 0 for everything
+too. Between the two, this probe produced three false negatives in one session.)
+
+**Use a targeted `#ifdef` trace instead** (`-DFRUA_PALTRACE`, committed; same
+pattern as `FRUA_SHOPTRACE`). It costs nothing, cannot spam the engine to death,
+and it works.
+
+### ✅ REAL RESULT (FRUA_PALTRACE) — the in-game palette chain WORKS
+
+Landing on HEIRS' shop cell (an event big picture — the merchant portrait):
+
+    PAL: l442e event-pic       1
+    PAL: l3f3c reserve-range   1
+    PAL: l3eea/jt124 commit    2
+    PAL: jt993 TNPalette       3
+
+The chain fires, 0 bus errors, and **the portrait renders with completely natural
+colours** (warm skin, blonde hair, blue backdrop, gold jewellery). Gameplay event
+pictures are FINE.
+
+### ⚠️ And the "colour cast" itself is now in doubt
+
+Both images I called "cast" were **forest scenes with red/magenta foliage and a
+cyan sky** — which may simply be *what the art is*. Decoding a POR big picture
+offline with its own palette (`art_convert`'s `rle_decode` + the entry-0 colour
+table) yields a **coherent, correctly-coloured scene**, and the palette RGBs are
+full 8-bit (255,0,0 …), not 6-bit VGA, so no scaling is missing either.
+
+**Remaining test (like-for-like, not yet done):** render *the exact picture the
+gallery displays* offline and diff it against the screenshot. Until then, treat
+"the big-picture colour cast" as **UNCONFIRMED — quite possibly not a bug at
+all**. It was flagged off a glance at stylised fantasy art.
+
+### (superseded) probe notes
 
 Ran it: `make ENGINE_PROBE=1` (**note: the probe is gated on `ENGINE_PROBE=1` and
 defaults OFF — a probe build is required, or every count reads 0 and you get a

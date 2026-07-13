@@ -41561,6 +41561,9 @@ static void l0ac2(void)
  * The display-state struct lives inline at -22302 (st[0]/st[1], 2 bytes). */
 static void l442e(void *ev_v)
 {
+#ifdef FRUA_PALTRACE
+	dbg_file_num("PAL: l442e event-pic", 1);
+#endif
 	unsigned char *ev = (unsigned char *)ev_v;
 	unsigned char *rec;
 	short          handled = 0;
@@ -70776,6 +70779,9 @@ static void jt1066(void)
 static void jt993(long handle, short idx) __attribute__((unused));
 static void jt993(long handle, short idx)
 {
+#ifdef FRUA_PALTRACE
+	dbg_file_num("PAL: jt993 TNPalette", 1);
+#endif
 	unsigned char  hdr[8];
 	unsigned char  palbuf[768];          /* 256*3 */
 	unsigned char  rembuf[256];          /* 64 max real use; oversized guard */
@@ -84220,6 +84226,9 @@ static void l3880(short a, short b, short frame, void *ptr)
  * GLIB picture subsystem (task #105). */
 static void l3eea(void *p)
 {
+#ifdef FRUA_PALTRACE
+	dbg_file_num("PAL: l3eea/jt124 commit", 1);
+#endif
 	short pv;
 	long  h;
 	short idx;
@@ -84296,6 +84305,9 @@ static void l338c(short mode)
  * deferred while they were stubs. */
 static void l3f3c(short lo, short hi)
 {
+#ifdef FRUA_PALTRACE
+	dbg_file_num("PAL: l3f3c reserve-range", 1);
+#endif
 	unsigned char buf[768];
 
 	PROBE("L3f3c");
@@ -84317,6 +84329,9 @@ static void l3f3c(short lo, short hi)
  * the backdrop renders with its own clut instead of the resident one. */
 static void l579e(short id)
 {
+#ifdef FRUA_PALTRACE
+	dbg_file_num("PAL: l579e load-bigpic", 1);
+#endif
 	const char *name;
 
 	PROBE("L579e");
