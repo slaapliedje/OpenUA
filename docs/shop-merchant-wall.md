@@ -123,7 +123,12 @@ with prices right-justified, `PERSONAL FUNDS: 100 / POOLED FUNDS: 0`.
 - ITEMS on the buyer shows **two BELTs** — jt186 transferred both.
 
 **Still unexercised:** the "can't afford" arm (needs price > coin + pool; HEIRS
-stock tops out at 16pp against a 592pp pool, so it takes a contrived design).
+stock tops out at 16pp against a 592pp pool). **No contrived design needed after
+all** — `GAME001.DAT` bytes **36..37 (LE u16) are the party's STARTING MONEY**
+(HEIRS = 100, exactly what Barbarus carries), and **AGAINST THE GIANTS ships 0**.
+A fresh GIANTS party has 0 coin and 0 pool, so *any* purchase trips the arm; it
+has 16 shop events. Cost is a created party (fan designs ship no save).
+See [[frua-fan-module-test-corpus]].
 
 ## `jt893` anatomy (the per-item action menu — the keystone)
 
@@ -235,8 +240,9 @@ recipe that spawns the party straight onto it.
 
 **Nothing is left on the shop worklist.** Items 2–5 cost nothing to "do" because
 they were already done — the table was lying. The remaining honest gap in the
-whole subsystem is the **"can't afford"** arm of BUY, which is untestable against
-HEIRS' stock (16pp max vs a 592pp pool) and needs a contrived design to exercise.
+whole subsystem is the **"can't afford"** arm of BUY: not reachable in HEIRS
+(16pp max stock vs a 592pp pool), but reachable in **AGAINST THE GIANTS**, which
+starts characters with **0 gold** (`GAME001.DAT[36..37]`). Needs a created party.
 
 Next natural targets are elsewhere: `docs/inventory-subsystem-wall.md` (the
 ITEMS menu shares jt893) and whatever `docs/subsystem-status.md` ranks highest.
