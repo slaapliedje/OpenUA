@@ -42,24 +42,46 @@ if [[ -z "${HATARI_BIN:-}" && -x "$HOME/opt/hatari/bin/hatari" ]]; then
 	export HATARI_BIN="$HOME/opt/hatari/bin/hatari"
 fi
 
+# Probe a display WITH A TIMEOUT. A wedged X server (seen 2026-07-12: the
+# long-lived :99 Xvfb began accepting connections without ever servicing
+# them) makes a bare `xdpyinfo` hang FOREVER — and since every driver command
+# runs ensure_display first, the whole harness stalls upstream of Hatari,
+# which looks exactly like emulator/engine flakiness. Timeout = the probe
+# FAILS instead, and the wedged server gets killed and respawned below.
+display_ok() {
+	timeout 5 xdpyinfo ${1:+-display "$1"} >/dev/null 2>&1
+}
+
 ensure_display() {
 	# A usable DISPLAY already? keep it.
-	if [[ -n "${DISPLAY:-}" ]] && xdpyinfo >/dev/null 2>&1; then
+	if [[ -n "${DISPLAY:-}" ]] && display_ok; then
 		return
 	fi
 	# Bring up (or reuse) a persistent headless Xvfb. nohup+disown so it
 	# outlives this shell — Hatari, screenshots and key-sends across separate
 	# driver invocations all attach to the same server.
-	if ! xdpyinfo -display "$XDISP" >/dev/null 2>&1; then
+	if ! display_ok "$XDISP"; then
+		# A server may exist on $XDISP but be wedged (probe timed out
+		# rather than got refused). Kill it and clear its lock, or the
+		# replacement fails to bind. Surgical: the X lock file's first
+		# line is the owning server's PID, so only $XDISP's server dies
+		# — not Xvfb instances on other displays. (And never `pkill -f
+		# Xvfb`: -f matches this very shell's command line and kills it.)
+		lock="/tmp/.X${XDISP#:}-lock"
+		if [[ -r "$lock" ]]; then
+			oldpid="$(tr -d '[:space:]' < "$lock")"
+			[[ "$oldpid" =~ ^[0-9]+$ ]] && kill -9 "$oldpid" 2>/dev/null || true
+		fi
+		rm -f "$lock"
 		nohup Xvfb "$XDISP" -screen 0 1280x1024x24 >/tmp/frua-xvfb.log 2>&1 &
 		disown
-		for _ in $(seq 1 20); do
-			xdpyinfo -display "$XDISP" >/dev/null 2>&1 && break
-			sleep 0.3
+		for _ in $(seq 1 30); do
+			display_ok "$XDISP" && break
+			sleep 0.5
 		done
 	fi
 	export DISPLAY="$XDISP"
-	xdpyinfo >/dev/null 2>&1 || { echo "driver: could not start Xvfb on $XDISP (see /tmp/frua-xvfb.log)" >&2; exit 1; }
+	display_ok || { echo "driver: could not start Xvfb on $XDISP (see /tmp/frua-xvfb.log)" >&2; exit 1; }
 }
 
 cmd="${1:-}"; shift || true
