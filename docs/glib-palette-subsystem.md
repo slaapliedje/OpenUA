@@ -180,13 +180,32 @@ committed from 4 sites), `-22222`, `-10366`, `-27894 + band*4`, `-24320`.
 **⚠️ `l442e` — the event / big-picture composer — makes NO palette call at all.**
 No `jt124`, no `jt993`, no `l3f3c`, no `jt1066`.
 
-### Next step (untested — do this first)
+### PROBE RESULT (2026-07-13) — the ART GALLERY installs NO palette
 
-Probe whether `jt993`/`jt124` fire at all when an event or gallery BIG PICTURE is
-displayed (`FRUA_ENGINE_PROBE`; see [[camp-exit-binder-leak]] for the method). If
-they do not, find the group handle `l442e` loads into and compare it against the
-`jt124` call sites above — the Mac must commit it somewhere, and that call is the
-one to lift.
+Ran it: `make ENGINE_PROBE=1` (**note: the probe is gated on `ENGINE_PROBE=1` and
+defaults OFF — a probe build is required, or every count reads 0 and you get a
+false negative; I hit exactly that first**), then displayed a BIG PICTURE in the
+ART GALLERY.
+
+**Every function in the chain fired ZERO times:** `L579e`, `L3f3c`, `jt1069`,
+`jt1066`, `jt124`/`L3eea`, `jt993`, `jt1017`. The probe itself was live (1906
+calls logged at boot) and the picture demonstrably loaded (`bigpic0245.ctl` in the
+conout log). So **the gallery blits a big picture without ever installing its
+palette** — it renders against whatever CLUT is resident. That is the cast.
+
+### ⚠️ …but this is the EDITOR path, NOT gameplay — scope corrected
+
+`l442e` (the in-game event-picture composer) **does** reach the chain:
+`l442e:41583 -> l579e (JT[43] load bigpic) -> l3f3c -> jt1069/jt1066`. So the
+gameplay path IS wired, and my earlier "l442e makes no palette call" note was
+looking at the wrong level — it calls `l579e`, which is what installs.
+
+**So the observed cast may be an ART GALLERY (editor) defect only.** UNTESTED:
+whether an in-game event picture (e.g. the shop merchant portrait, which goes
+through `l442e`) shows the same cast. **Do that next** — probe with `ENGINE_PROBE=1`
+while a shop/event picture displays and check whether `L3f3c`/`jt1066` fire. It
+decides whether this is a cosmetic editor bug or a real gameplay one, and they
+have very different priorities.
 
 **Do NOT "fix" `l3f3c`'s zero-fill.** It looks like a bug and is not; the asm says
 zero. Same trap as `jt1069`'s `&&` (above).
