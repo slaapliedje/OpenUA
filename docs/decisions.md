@@ -520,3 +520,70 @@ Screenshot: `data/work/screenshots/2026-05-29-f1-pressed-windows-spawned.png`.
 - **Lead target:** Falcon030 first, TT030 as a close follow-on.
 - **Audio:** Falcon030 has DMA sound + DSP56001; the TT030 has only the YM2149
   PSG (no DMA sound). The audio HAL must degrade gracefully on the TT.
+
+---
+
+## ADR-0011 — Art libraries resolve design-first, root-fallback; hacks never
+overwrite the base game
+
+**Decision:** A module's replacement art is **additive**, not destructive. The
+engine resolves an art library by trying the **current design's folder first**
+(`<design>:8X8DB.CTL`) and **falling back to the install root** when the design
+does not ship one. A design's art is therefore in force only while that design is
+current, and the base-game files are **never mutated**.
+
+Installing a module becomes: unpack → convert art (`tools/art_convert.py`) →
+done. There is no enable/disable step, no backup, no global state.
+
+**Why:**
+
+*The engine already does exactly this for every other design file.* `jt127` (the
+design-data loader) composes `<design>:<PREFIX><nnn>.dat`, tries that, and keeps
+the bare name as a fallback. Design data is already an override-with-fallback.
+**Art is the anomaly:** `cw_wallfile_load` opens a hardcoded, bare
+`"8X8DB.CTL"` / `"8X8DC.CTL"` with no design qualifier at all. So this ADR does
+not invent a policy — it extends the engine's own existing one to the one file
+class that was left out.
+
+*The alternative is permanent destructive global state.* On DOS, a "hack" is
+physically installed by overwriting the base game's files — which is precisely
+why UA Shell exists and calls itself a **hack manager**: its job is swapping
+those files in and out. Inherit that model and we inherit its problems forever:
+two modules with different wall art cannot coexist; enabling one silently
+degrades every other design; and an interrupted install corrupts the base
+installation. That is not theoretical — while testing Pool of Radiance's wall
+hack, the base `8X8DB.CTL`/`8X8DC.CTL` were overwritten twice and had to be
+restored from a backup taken by hand.
+
+**Is this a faithfulness violation?** It is a deviation, which is why it is being
+ratified rather than just done. It is acceptable because it is a **resource-
+location policy, not engine behaviour**:
+
+- For an unmodified design the observable behaviour is **identical** — the design
+  folder holds no art, the lookup falls through to the root, and the same bytes
+  load. Nothing about a faithful playthrough changes.
+- The no-shortcuts rule (ADR-0002, and the standing "lift the real Mac asm"
+  instruction) governs *engine logic* — we are not gate-flipping a behaviour or
+  substituting a stand-in for lifted code. Precedent: **ADR-0007** already
+  restructures the data layout (resource fork → a flat `(type, id)` archive)
+  without changing what the engine does with it.
+
+**Consequences / work required:**
+
+- Route **every** bare art open through the design-first resolver — not just the
+  walls. Audit at minimum `8X8DB`/`8X8DC`, `ALWAYS`, `FRAME`, `BACK`, `BIGPIC`,
+  `DUNGCOM`, and the font/`PIC*` libraries.
+- **Watch the FC/GLIB pool.** A design's library may be *larger* than the base's
+  (Pool of Radiance's converted `8x8db` is 296,922 B vs the base 296,414 B), and
+  the pool is already tight enough that two wall files cannot coexist in the
+  Mac-sized 450 K budget. Bigger third-party libraries could push it.
+- `tools/modtool.py` loses its enable/disable/backup commands entirely.
+- **Open, unverified:** whether *per-id* design art (`CPIC1001.CTL` and friends,
+  which fan modules ship inside the `.DSN`) already resolves design-first. It
+  plausibly does — that is how a Mac module's custom pictures are meant to work —
+  but it has not been traced. Confirm before assuming the walls are the only gap.
+
+**Rejected:** porting **UA Shell**. Its core function is launching external DOS
+editor executables, which this port does not need — the editors (GEO, event, art
+gallery, monster) are lifted and live *inside* the engine. The only part worth
+having is its hack management, and this ADR removes the need for it.

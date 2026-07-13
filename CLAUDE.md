@@ -26,6 +26,8 @@ retargeting the Mac Toolbox and the display/sound paths.
   (ADR-0008).
 - **Disassembly** via `tools/dis68k.py` (objdump-driven); listings are
   git-ignored, the lifted C in `src/engine/` is the committed work (ADR-0009).
+- **Art libraries resolve design-first, root-fallback**; a module's replacement
+  art lives in its `.DSN` and never overwrites the base game (ADR-0011).
 
 ## Source material
 
