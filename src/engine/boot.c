@@ -13784,11 +13784,15 @@ static void        l2858(short mode);                    /* CODE 7+0x2858 */
  *     clears the scrolled map band (jt1139 offset -> jt1161 fill 8).
  * Tail = jt117 (present). Called from jt240/jt241 with (0, rec[4]). */
 static void        jt78(void);          /* CODE 6+0x67ca, defined later */
+static void        jt77(void);          /* CODE 6+0x6920, defined later */
 static void        l429c(short kind, short b)
 {
 	PROBE("L429c");
 	switch (kind) {
 	case 1:
+		jt77();          /* 0x42b2 jsr JT[77] — the frame-chrome composer;
+		                  * eaten by the JT[3]-table straddle in the old
+		                  * listing (docs/jt3-straddle-audit.md) */
 		if ((b & 0xff) != 0) {
 			jt997((short)(jt1200() == 3 ? 51 : 52),
 			      ua_strs_at(0x2a8a) /* "menu" */, (short)21);
@@ -15508,6 +15512,9 @@ static short jt233(short cmd, long *rec, void *area)
 		*rec &= ~(long)15;
 		switch (ap[1]) {                 /* JT[3] @0x0306 (1..10) */
 		case 1:
+			ret = 11;        /* 0x0320 moveq #11 — was eaten by the
+			                  * JT[3]-table straddle in the old
+			                  * listing (docs/jt3-straddle-audit.md) */
 			t = (short)(jt358() & 255);
 			*rec |= (long)(t << 4);
 			break;

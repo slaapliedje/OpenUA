@@ -36,10 +36,10 @@ Owners marked PROBE stub had nothing lifted from the bad text — skip.
 | jt207 | not in boot.c (alias? check lxxxx-jt-aliases.md) | [ ] CODE 7+0x54e0 |
 | jt224 | LIFTED — AUDIT the arm | [ ] CODE 7+0x0898 |
 | jt225 | LIFTED — AUDIT the arm | [ ] CODE 7+0x0bbe |
-| jt233 | LIFTED — AUDIT the arm | [ ] CODE 11+0x0320, [ ] CODE 11+0x040a, [ ] CODE 11+0x045a |
-| jt241 | LIFTED — AUDIT the arm | [ ] CODE 11+0x5704 |
-| jt242 | LIFTED — AUDIT the arm | [ ] CODE 11+0x58de, [ ] CODE 11+0x5996, [ ] CODE 11+0x5df6 |
-| jt243 | LIFTED — AUDIT the arm | [ ] CODE 11+0x0b7a, [ ] CODE 11+0x0e26, [ ] CODE 11+0x0f46, [ ] CODE 11+0x0f58, [ ] CODE 11+0x286e, [ ] CODE 11+0x2a08, [ ] CODE 11+0x2c46, [ ] CODE 11+0x33ee, [ ] CODE 11+0x42b2 |
+| jt233 | ✅ AUDITED 2026-07-13 — 1 MIS-LIFT FIXED: case 1 (wall type) was missing `ret = 11` (0x0320 moveq #11, the eaten instruction); 0x040a/0x045a clean | [x] CODE 11+0x0320, [x] CODE 11+0x040a, [x] CODE 11+0x045a |
+| jt241 | ✅ AUDITED CLEAN 2026-07-13 — case 1 (occupancy compare) init matches | [x] CODE 11+0x5704 |
+| jt242 | ✅ AUDITED CLEAN 2026-07-13 — both jt242 case-0 arms (oldval compose / l5ee2 nibbles) match; 0x5df6 is the l5dc8 leaf (preview-paint), also clean | [x] CODE 11+0x58de, [x] CODE 11+0x5996, [x] CODE 11+0x5df6 |
+| jt243 | ✅ AUDITED 2026-07-13 — 1 MIS-LIFT FIXED in the l429c helper (0x42b2: case 1, the area map, was missing its opening jt77() frame-chrome call — LIVE, l28d4/l2f1c call l429c(rec[4],1)). jt243 proper clean (0x0b7a was already caught+fixed in a prior session — the picker-return arm; 0x0e26/0x0f46/0x0f58 match); l2836/l28d4/l3380/l5dc8 clean (l28d4 0x2c46 nit: the C masks (cmd>>8)&0xff where the asm asrw does not — harmless for real menu ids, outside the straddle scope) | [x] CODE 11+0x0b7a, [x] CODE 11+0x0e26, [x] CODE 11+0x0f46, [x] CODE 11+0x0f58, [x] CODE 11+0x286e, [x] CODE 11+0x2a08, [x] CODE 11+0x2c46, [x] CODE 11+0x33ee, [x] CODE 11+0x42b2 |
 | jt247 | LIFTED — AUDIT the arm | [ ] CODE 2+0x23f0 |
 | jt249 | LIFTED — AUDIT the arm | [ ] CODE 2+0x387c |
 | jt250 | LIFTED — AUDIT the arm | [ ] CODE 2+0x4098 |
