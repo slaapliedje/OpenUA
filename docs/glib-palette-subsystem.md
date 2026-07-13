@@ -144,3 +144,49 @@ overwritten by a later load), the picture would blit its 32..255 pixel indices
 against **whatever palette was loaded last** — which is precisely the failure mode
 UAPALETT.TXT warns about ("UA always uses the most recently loaded palette").
 That is the strongest remaining hypothesis and it is untested.
+
+
+## ★ Who commits a picture's palette — and why a big picture may get NONE
+
+Traced 2026-07-13, chasing the converted-big-picture colour cast.
+
+**The palette lands in TWO steps, and the first one is deliberately BLACK.**
+
+1. **`l3f3c(lo, hi)`** ("JT[105]: install palette", called by `l579e` after a
+   bigpic loads) **reserves** the range. It zero-fills a 768-byte scratch, hands
+   that to `jt1069`, and commits with `jt1066`:
+
+   ```c
+   jt399(buf, 768, 0);                       /* ZERO-fill */
+   jt1069(lo, hi - lo + 1, buf, 0, NULL);    /* stage 224 BLACK triples */
+   jt1066();
+   ```
+
+   **This is FAITHFUL** — verified against `CODE_06.s` 0x3f50–0x3f80. It really
+   does seed the range black. It is a *reservation*, not the palette.
+
+2. **`jt124` (= `l3eea`) -> `jt993` (TNPalette) -> `jt1069`/`jt1066`** is what
+   actually installs the picture's own RGBs, for a given **group handle**.
+
+**So a picture whose group handle is never passed to `jt124` never gets its
+palette installed at all.** It blits its 32..255 indices against whatever is
+resident — the classic failure `UAPALETT.TXT` describes ("UA always uses the most
+recently loaded palette"). Structurally perfect image, wrong hues. That is exactly
+the symptom.
+
+The `jt124` callers each commit a specific handle: `-24260` (the bigpic backdrop,
+committed from 4 sites), `-22222`, `-10366`, `-27894 + band*4`, `-24320`.
+
+**⚠️ `l442e` — the event / big-picture composer — makes NO palette call at all.**
+No `jt124`, no `jt993`, no `l3f3c`, no `jt1066`.
+
+### Next step (untested — do this first)
+
+Probe whether `jt993`/`jt124` fire at all when an event or gallery BIG PICTURE is
+displayed (`FRUA_ENGINE_PROBE`; see [[camp-exit-binder-leak]] for the method). If
+they do not, find the group handle `l442e` loads into and compare it against the
+`jt124` call sites above — the Mac must commit it somewhere, and that call is the
+one to lift.
+
+**Do NOT "fix" `l3f3c`'s zero-fill.** It looks like a bug and is not; the asm says
+zero. Same trap as `jt1069`'s `&&` (above).
