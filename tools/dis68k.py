@@ -165,22 +165,51 @@ def decode_jt3_table(data, table_at):
     return (table_end, min_c, max_c, default_target, case_targets)
 
 
-def find_jt3_tables(rows, data):
-    """Scan disassembled rows for `jsr JT[3]` and decode each inline table.
+def is_jt3_jsr(mnem, ops, jt_off):
+    """A `jsr JT[3]` site — the THINK C switch dispatcher. Its inline case
+    table follows the instruction. A JT call's displacement is
+    jt_off + 2 + 8*index (see annotate)."""
+    if mnem != "jsr":
+        return False
+    m = A5_DISP.search(ops)
+    return bool(m) and int(m.group(1)) == jt_off + 2 + 8 * 3
 
-    Returns {table_start_addr: (table_end, min, max, default, [cases])}.
+
+def resync_stream(data, jt_off, dis):
+    """Disassemble with a RESTART after every JT[3] inline switch table.
+
+    `dis(start)` yields (addr, raw_hex, mnem, ops) rows from byte offset
+    `start` (objdump in production; a fake in tests).
+
+    One linear objdump pass decodes each table's bytes as garbage
+    instructions, and a garbage "instruction" can straddle the table's
+    end and eat the first bytes of the REAL code after it — the stream
+    never resyncs. CODE 3's jt433 is the canonical victim: the form-feed
+    arm's `4eba fe8e` (`jsr L4854` = PrClosePage) sat exactly at its
+    table's end and was listed as a stray `.short 0xfe8e`, which cost a
+    mis-lift (jt433's form-feed case called L4806 with no page close).
+    So: at each decoded table, drop the tail and re-disassemble from
+    table_end. Table bytes never appear as rows, and the scan continues
+    over the fresh tail, so tables hidden behind an earlier straddle are
+    found too.
+
+    Returns (rows, {table_addr: decode_jt3_table(...) tuple}).
     """
+    insns = list(dis(NEAR_HEADER))
     tables = {}
-    for i, (addr, raw, mnem, ops, comment) in enumerate(rows):
-        if mnem != "jsr" or "(JT[3])" not in comment:
-            continue
-        if i + 1 >= len(rows):
-            continue
-        table_at = rows[i + 1][0]
-        decoded = decode_jt3_table(data, table_at)
-        if decoded is not None:
-            tables[table_at] = decoded
-    return tables
+    i = 0
+    while i < len(insns):
+        addr, raw, mnem, ops = insns[i]
+        if is_jt3_jsr(mnem, ops, jt_off):
+            table_at = addr + len(raw) // 2
+            decoded = decode_jt3_table(data, table_at)
+            if decoded is not None:
+                tables[table_at] = decoded
+                del insns[i + 1:]
+                if decoded[0] < len(data):          # table_end
+                    insns.extend(dis(decoded[0]))
+        i += 1
+    return insns, tables
 
 
 def reloc_note(crel, strs, data, addr, insn_len):
@@ -204,8 +233,19 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs):
     with open(bin_path, "wb") as f:
         f.write(data)
 
-    insns = list(objdump(bin_path, NEAR_HEADER, cpu))
+    # JT[3] inline switch tables are decoded (not disassembled) and the
+    # stream restarts at each table's end — see resync_stream. Their
+    # case/default targets become LXXXX labels so the arm code reads
+    # cleanly.
+    insns, jt3_tables = resync_stream(
+        data, jt_off, lambda start: objdump(bin_path, start, cpu))
     labels = set()
+    for _table_at, (_end, _min, _max, default_target,
+                    case_targets) in jt3_tables.items():
+        labels.add(default_target)
+        for t in case_targets:
+            labels.add(t)
+
     # routine offset -> global jump-table index, for this segment's exports.
     entries = {ro: gidx for gidx, ro in jt_owner.get(sid, [])}
     rows, traps, jt_calls = [], 0, 0
@@ -221,25 +261,6 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs):
             jt_calls += 1
         rows.append((addr, raw, mnem, ops, comment))
 
-    # Detect JT[3] inline switch tables and surface their case/default
-    # targets as LXXXX labels so the arm code reads cleanly. Any row
-    # whose address falls inside a table is suppressed in the listing
-    # (objdump decodes those bytes as garbage instructions).
-    jt3_tables = find_jt3_tables(rows, data)
-    skip_ranges = []
-    for table_at, (table_end, _min, _max, default_target,
-                   case_targets) in jt3_tables.items():
-        skip_ranges.append((table_at, table_end))
-        labels.add(default_target)
-        for t in case_targets:
-            labels.add(t)
-
-    def _in_table(a):
-        for s, e in skip_ranges:
-            if s <= a < e:
-                return True
-        return False
-
     s_path = os.path.join(out_dir, f"CODE_{sid:02d}.s")
     with open(s_path, "w") as f:
         f.write(f"; CODE segment {sid} -- {len(data)} bytes, "
@@ -253,20 +274,6 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs):
             if addr in entries:
                 f.write(f"\nentry_jt{entries[addr]}:"
                         f"  ; CODE {sid} jump-table export\n")
-            if addr in jt3_tables:
-                table_end, min_c, max_c, default_target, case_targets \
-                    = jt3_tables[addr]
-                f.write(f"; JT[3] inline table @ 0x{addr:04x}  "
-                        f"min={min_c} max={max_c}  "
-                        f"({table_end - addr} bytes)\n")
-                f.write(f";   default -> L{default_target:04x}\n")
-                for k, t in enumerate(case_targets):
-                    f.write(f";   case {min_c + k:>3} -> L{t:04x}\n")
-                continue
-            if _in_table(addr):
-                # Table bytes — objdump's "instruction" decode is garbage
-                # for these; the header above carries the real meaning.
-                continue
             if addr in labels:
                 f.write(f"L{addr:04x}:\n")
             text = f"{mnem} {ops}".strip()
@@ -274,6 +281,18 @@ def disassemble_segment(res, jt_off, jt, jt_owner, out_dir, cpu, crel, strs):
             if comment:
                 line = f"{line:<58}; {comment}"
             f.write(line + "\n")
+            # The table bytes never appear as rows (resync_stream skips
+            # them) — surface the decode after its `jsr JT[3]`.
+            table_at = addr + len(raw) // 2
+            if table_at in jt3_tables:
+                table_end, min_c, max_c, default_target, case_targets \
+                    = jt3_tables[table_at]
+                f.write(f"; JT[3] inline table @ 0x{table_at:04x}  "
+                        f"min={min_c} max={max_c}  "
+                        f"({table_end - table_at} bytes)\n")
+                f.write(f";   default -> L{default_target:04x}\n")
+                for k, t in enumerate(case_targets):
+                    f.write(f";   case {min_c + k:>3} -> L{t:04x}\n")
     return sid, len(data), len(insns), traps, jt_calls, len(crel)
 
 

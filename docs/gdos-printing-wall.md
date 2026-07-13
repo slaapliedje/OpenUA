@@ -161,9 +161,16 @@ each one disguised the next:
 
 ## Remaining on this track
 
-- **jt_progress's jt428 NOOP note** still says "no Atari mapping"; it has one
-  now.
-- `tools/dis68k.py` still mis-splits `jsr` pairs (the jt433 form-feed trap).
+Nothing — both follow-ups closed 2026-07-13:
+
+- jt428 left `jt_progress.py`'s NOOP whitelist ("no print backend" is no
+  longer true); it now classifies LIFTED from its real body like any lift.
+- `tools/dis68k.py` grew `resync_stream`: the decode restarts after every
+  JT[3] inline table, so a garbage "instruction" straddling a table's end can
+  no longer eat the first real code bytes after it. The jt433 form-feed site
+  now lists `jsr L4854` / `jsr L4806` correctly — and the same straddle had
+  garbled the first instruction of case arms at **75 sites** across the fork
+  (all now clean; same 307 tables decoded).
 
 ## Layering rule reminder
 

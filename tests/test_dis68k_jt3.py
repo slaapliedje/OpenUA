@@ -2,14 +2,15 @@
 
 The detector is the runtime sibling of tools/jt3_extract.py — it spots
 `jsr JT[3]` in the disassembled stream and decodes the inline table.
-These tests exercise the table-decode primitive (decode_jt3_table)
-and the row-walker (find_jt3_tables) over a synthetic blob; the
-listing-writer integration is covered indirectly by the real
-disassembly being re-runnable against the FRUA fork.
+These tests exercise the table-decode primitive (decode_jt3_table), the
+site predicate (is_jt3_jsr), and the resyncing stream walker
+(resync_stream) over a synthetic blob; the listing-writer integration
+is covered indirectly by the real disassembly being re-runnable
+against the FRUA fork.
 """
 import struct
 
-from dis68k import decode_jt3_table, find_jt3_tables
+from dis68k import decode_jt3_table, is_jt3_jsr, resync_stream
 
 
 def _l12a0_blob():
@@ -67,36 +68,76 @@ def test_decode_handles_negative_offsets():
     assert case_targets == [0x1f6]
 
 
-def test_find_walks_rows_for_jt3_calls():
-    """find_jt3_tables matches on the comment annotation dis68k
-    attaches to JT[3] JSRs and decodes the table at the next row's
-    address."""
+def test_is_jt3_jsr_matches_only_slot_3():
+    """A JSR through a non-JT[3] jump-table slot looks similar but
+    doesn't carry the inline-switch table — the predicate must skip it.
+    With jt_off=32, JT[3]'s call displacement is 32 + 2 + 8*3 = 58."""
+    assert is_jt3_jsr("jsr", "%a5@(58)", 32)
+    assert not is_jt3_jsr("jsr", "%a5@(64)", 32)     # JT[3.75] isn't a slot
+    assert not is_jt3_jsr("jsr", "%a5@(66)", 32)     # JT[4]
+    assert not is_jt3_jsr("pea", "%a5@(58)", 32)     # not a call
+    assert not is_jt3_jsr("jsr", "%a1@(58)", 32)     # not through A5
+
+
+def test_resync_walks_stream_and_decodes_tables():
+    """The walker spots `jsr JT[3]` sites and decodes the table at the
+    instruction's end address."""
     blob = _l12a0_blob()
-    # rows = (addr, raw, mnem, ops, comment) — only mnem + comment
-    # are inspected; address + comment shape mirror dis68k's output.
-    rows = [
-        (0x12e6, "4ead003a", "jsr", "%a5@(58)",
-         "-> CODE 1+0x158  (JT[3])"),
-        (0x12ea, "00000002", "orib",  "#2,%d0",  ""),
-        (0x12ee, "00180006", "orib",  "#6,%a0@+", ""),
-        (0x12f2, "000c",     ".short", "0x000c",  ""),
-        (0x12f4, "02ea",     ".short", "0x02ea",  ""),
-    ]
-    tables = find_jt3_tables(rows, blob)
+
+    def dis(start):
+        if start == 4:                       # NEAR_HEADER
+            return [
+                (0x12e6, "4ead003a", "jsr", "%a5@(58)"),
+                # the table bytes 0x12ea..0x12f6 decode as garbage; the
+                # walker restarts at table_end regardless, so these rows
+                # must vanish from the stream:
+                (0x12ea, "00000002", "orib",  "#2,%d0"),
+                (0x12ee, "00180006", "orib",  "#6,%a0@+"),
+                (0x12f2, "000c02ea", "orib",  "#42,%a2@"),
+            ]
+        assert start == 0x12f6               # the restart point
+        return [(0x12f6, "4e75", "rts", "")]
+
+    rows, tables = resync_stream(blob, 32, dis)
     assert 0x12ea in tables
     table_end, min_c, max_c, default_target, case_targets = tables[0x12ea]
     assert (min_c, max_c) == (0, 2)
     assert default_target == 0x1306
     assert case_targets == [0x12f6, 0x12fe, 0x15de]
+    # the garbage table rows are gone; the stream resumes at table_end
+    assert [r[0] for r in rows] == [0x12e6, 0x12f6]
 
 
-def test_find_ignores_non_jt3_jsrs():
-    """A JSR through a non-JT[3] jump-table slot looks similar but
-    doesn't carry the inline-switch table — the detector must skip it."""
-    blob = bytes(0x100)
-    rows = [
-        (0x40, "4ead0040", "jsr", "%a5@(64)",
-         "-> CODE 6+0x4bf6  (JT[103])"),
-        (0x44, "4e75",     "rts", "",                       ""),
-    ]
-    assert find_jt3_tables(rows, blob) == {}
+def test_resync_restarts_after_straddling_table():
+    """THE jt433 bug: a garbage 'instruction' straddles the table's end
+    and eats the first real code bytes after it. One linear pass never
+    resyncs — CODE 3's `4eba fe8e` (`jsr L4854`, the form-feed page
+    close) listed as a stray `.short 0xfe8e`. resync_stream must restart
+    the decode at table_end and return the REAL instruction."""
+    blob = _l12a0_blob()
+
+    def dis(start):
+        if start == 4:
+            return [
+                (0x12e6, "4ead003a", "jsr", "%a5@(58)"),
+                # garbage decode of the table bytes: the last one starts
+                # INSIDE the table (0x12f2) but is 6 bytes long — it
+                # swallows 0x12f6..0x12f8, the real jsr's opcode word.
+                (0x12ea, "00000002",     "orib", "#2,%d0"),
+                (0x12ee, "00180006",     "orib", "#6,%a0@+"),
+                (0x12f2, "000c02ea4eba", "cmpib", "#-70,%a2@(19130)"),
+                (0x12f8, "fe8e",         ".short", "0xfe8e"),
+                (0x12fa, "4e75",         "rts", ""),
+            ]
+        assert start == 0x12f6               # the resync point
+        return [
+            (0x12f6, "4ebafe8e", "jsr", "%pc@(0x1186)"),
+            (0x12fa, "4e75",     "rts", ""),
+        ]
+
+    rows, tables = resync_stream(blob, 32, dis)
+    assert 0x12ea in tables
+    # the straddling garbage and the stray .short are gone; the real
+    # jsr at table_end made it into the stream
+    assert [(r[0], r[2]) for r in rows] == \
+        [(0x12e6, "jsr"), (0x12f6, "jsr"), (0x12fa, "rts")]
