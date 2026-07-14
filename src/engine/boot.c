@@ -13743,12 +13743,26 @@ static void jt297(void *rec_v, short key, long cb)
 		    + (long)(signed char)g_a5_byte(-12288));
 		dbg_file_num("   special", (long)special);
 #endif
-		/* Reset-before so only a modal opened by THIS event counts; l1806
-		 * sets g_event_modal_shown when it shows a "Press [Return]" modal.
-		 * l63c0's per-step re-render reads it to rebuild the play screen
-		 * (play_screen_relayout) the event's shared-pool reset wiped. */
+		/* l63c0's per-step re-render reads g_event_modal_shown to rebuild the
+		 * play screen (play_screen_relayout) that the event's shared-pool reset
+		 * wiped. Reset-before so only THIS step's event counts.
+		 *
+		 * ★ Arm it for ANY dispatched event, not just the ones that end in
+		 * l1806. The Mac EXITS the command loop after every event (fp@(-2)=1 ->
+		 * L44f6) and jt948/jt953 then rebuild the play dialog FROM SCRATCH, so
+		 * whatever DLItems the event left in the shared pool are replaced no
+		 * matter which modal it used. The port's continuous walk loop can't
+		 * exit, so it drives the same rebuild through this flag — but the flag
+		 * was only ever set by l1806, so an event carrying its OWN verb bar
+		 * (the temple's l216a, l5676's jt159 LEAVE/FORCE-PAST question) left
+		 * that bar FROZEN over the play screen: you walked away from Tyr's
+		 * temple still looking at HEAL / DONATE / VIEW / POOL / LEAVE, and a
+		 * declined level-transfer left a dead "RETURN" button. Rebuilding after
+		 * any dispatched event is what the Mac does. */
 		g_event_modal_shown = 0;
 		l709e(special);
+		if (special != 0)
+			g_event_modal_shown = 1;
 	}
 #endif
 	if (snapped)
@@ -14605,10 +14619,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			 * chrome, and HUD instead of just the 88x88 viewport. The Mac
 			 * rebuilds the play dialog each jt948/jt953 cycle; the port's
 			 * continuous walk loop drives it here. #124. */
+#ifdef FRUA_BARTRACE
+			dbg_file_num("STEPRENDER modal_shown", (long)g_event_modal_shown);
+#endif
 			if (g_event_modal_shown) {
 				g_event_modal_shown = 0;
 				play_screen_relayout(rec);
 				g_view_force_full = 1;
+#ifdef FRUA_BARTRACE
+				dbg_file_num("STEPRENDER relayout done", 1L);
+#endif
 			}
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 			jt312(ctx);
@@ -37016,6 +37036,9 @@ static void l1806(short v)
 	l177a();
 	l2858((short)2);
 	g_press_to_continue = 1;
+#ifdef FRUA_BARTRACE
+	dbg_file_num("L1806 modal_shown:=1", 1L);
+#endif
 	g_event_modal_shown = 1;        /* this modal overdraws the play-screen
 	                                 * content + command bar; the event-exit
 	                                 * recompose (jt297 GAP-1) reads this. */
@@ -43543,6 +43566,9 @@ static void  l5676(void *ev_v, short type)
 			short want = (ev[7] & 0x40) ? 0 : 1;   /* bit6 inverted */
 			short got  = (short)(jt159(ua_strs_at(0x6a62), 1) & 0xff);
 			valid = (unsigned char)(got == want ? 1 : 0);
+#ifdef FRUA_BARTRACE
+			dbg_file_num("L5676 jt159 want*10+got", (long)(want * 10 + got));
+#endif
 			jt176(); jt20();
 		}
 	} else {                                               /* 573a bit5 clear */
@@ -43608,6 +43634,9 @@ static void  l5676(void *ev_v, short type)
 	return;
 
 invalid:
+#ifdef FRUA_BARTRACE
+	dbg_file_num("L5676 INVALID fp12", (long)fp12);
+#endif
 	if (fp12) { l4144(); l085e(); g_a5_byte(-4942) = 1; }  /* 5bb6 */
 	if (fp12 == 0 || valid == 0)
 		l3ef8();
