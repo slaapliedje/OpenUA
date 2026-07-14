@@ -506,14 +506,25 @@ from `l40f8` does NOT clear them — so the plates are reaching the screen by
 some path other than the relayout's guarded rebuild. Root cause still open;
 don't re-try the relayout hypothesis without new evidence.
 
-### Bug 3 — POR combat enters and renders, but the turn never starts (OPEN)
+### Bug 3 — POR combat enters and renders, but the turn never starts — ✅ FIXED (d3e1999)
 
-The tactical map composes correctly (GROG + 13 humanoids, POR's own combat
-sprites, floor/wall tiles) — but the **right-hand combat panel stays blank**,
-no combat command bar appears, and neither Return nor the arrow keys start the
-turn. Combat on HEIRS is playable (arrows drive the turn, #115), so this is
-POR-specific or specific to the chained-combat entry (`l709e` case 36 ->
-case 1 `l159a`). **The single most valuable thing to chase next.**
+**Symptom (as first filed):** the tactical map composes correctly (GROG + 13
+humanoids, POR's own combat sprites, floor/wall tiles) — but the right-hand
+combat panel stays blank, no combat command bar appears, and neither Return nor
+the arrow keys start the turn.
+
+**Root cause: a NULL-target BUS ERROR in the MONSTER turn (`l5b9a` L5d08).** The
+monsters win initiative in POR and act first, so the very first turn of the fight
+faulted and the whole round loop died with it. `l5b9a` derefs the monster's
+target pointer with no NULL check — **and so does the Mac** — which is legal
+there and a bus error on the Atari. Full write-up in the "SOLVED" section below;
+the standing lesson is in `mac-legal-deref-is-atari-buserror`.
+
+Two guesses in this original entry were WRONG and are corrected below, so don't
+act on them: it was **not** POR-specific (HEIRS would fault the same way — its
+combat had simply only ever been driven through the PLAYER's turn), and it was
+**not** the chained-combat entry. Combat now runs its full lifecycle; see "The
+fight, finished".
 
 ### The fight, finished (2026-07-14)
 
