@@ -4047,6 +4047,8 @@ static void  l661c(void *ev);              /* set standard rumors event — defi
  * eval, -18484 = auto-chain enable. PORT-SAFETY: bail if the event table
  * (-13038) is unallocated, and cap the chain length so a malformed/circular
  * event list can't hang the play loop (the Mac trusts the data). */
+static void  l06d6(void);   /* CODE 21+0x06d6 — CAST (shared with the camp menu) */
+static void  l3b80(void);   /* CODE 21+0x3b80 — the INVENTORY / special-items list */
 static void  l709e(short a)
 {
 	short         idx = a;
@@ -4534,11 +4536,19 @@ static void jt948(void)
 						g_event_modal_shown = 1;
 						break;
 					}
-					case 7:             /* Inventory */
+					case 2: {           /* L4164 — CAST (jt953 case 2) */
+						unsigned char *pc = (unsigned char *)
+						    (uintptr_t)g_a5_long(-27932);
+						if (pc != NULL && pc[94] == 0)
+							l06d6();
+						break;
+					}
+					case 7:             /* L4212 — INVENTORY */
+						l3b80();
 						jt23();
 						break;
-					default:            /* Move / Cast */
-						break;          /* (actions TODO) — stay in the dungeon */
+					default:            /* Move — handled by the walk loop */
+						break;
 					}
 					continue;           /* re-enter the walk loop */
 				}
@@ -60179,6 +60189,102 @@ static void jt904(unsigned char *out_done);
  *
  * On the way out (L44f6) it stands up the play frame once via jt103. Returns
  * the last picked command byte. */
+/* L3b80 (CODE 21 + 0x3b80) — the INVENTORY / SPECIAL-ITEMS list: the "Inv"
+ * command on the exploration bar (jt953 case 7, 0x4212: `jsr L3b80` then
+ * `jsr JT[23]`). The port ran only the jt23 frame redraw, so INV was a DEAD
+ * BUTTON — it repainted the screen and showed nothing. Faithful full lift.
+ *
+ * The party's special items live in the game record as a parallel pair: the
+ * COUNT byte rec[i+1] for slot i in 68..87, and the item's NAME in the 16-byte-
+ * stride table at A5 -18824, indexed by (i - 68). A slot counts only when BOTH
+ * are non-zero — an item with no count, or a count with no name, is not in the
+ * bag. That gate is applied twice, identically: once to size the list (3bb4)
+ * and once to fill it (3c78).
+ *
+ * Empty bag -> the "Empty!" alert (3d3a) and nothing else. Otherwise jt167
+ * builds a count-long DLItem list, each node's label (node+5) gets the item
+ * name (jt384), and jt169 runs the scrolling picker over it (rows 1..22, cols
+ * 1..38) before jt147 frees it.
+ *
+ * The -18485 arm is the DESIGN editor's view of the same data: all 64 slots,
+ * labelled "<name> - <count>" (jt322 + jt394). In play -18485 is 0, so the
+ * bag arm is the live one.
+ *
+ * The fill loop advances `i` on every pass but the cursor only on a MATCH, and
+ * runs while the cursor is non-NULL — it terminates exactly because the list
+ * was sized with the same gate. Faithful to the Mac, which likewise does not
+ * bound `i`. */
+static void jt322(char *buf, short idx, short verbose);
+static void jt167(short count, long head_holder);
+static void jt147(void *headp);
+static int  jt169(long h1, long h2, short top, short left,
+                  short right, short bottom, long head,
+                  short a, short b,
+                  unsigned char *flag, short *idx, long *next);
+static void l3b80(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	long           head = 0, cursor;
+	short          count = 0, i, idx = 0;
+	unsigned char  flag = 1;                /* fp@(-12) */
+
+	PROBE("L3b80");
+#ifdef FRUA_INVTRACE
+	dbg_file_num("L3b80 ENTER rec", (long)(uintptr_t)rec);
+#endif
+	if (rec == NULL)
+		return;
+
+	if (g_a5_byte(-18485) != 0) {           /* 3ba6 — design editor: all 64 */
+		count = 64;
+	} else {                                /* 3bb4 — the party's bag */
+		for (i = 68; i <= 87; i++) {
+			const unsigned char *nm =
+			    &g_a5_byte(-18824) + ((long)(i - 68) << 4);
+			if (rec[i + 1] != 0 && nm[0] != 0)
+				count++;
+		}
+	}
+
+#ifdef FRUA_INVTRACE
+	dbg_file_num("L3b80 count", (long)count);
+#endif
+	if (count == 0) {                       /* 3d3a */
+		jt42(ua_strs_at(0x6ce4));       /* "Empty!" */
+		return;
+	}
+
+	jt167(count, (long)(uintptr_t)&head);   /* 3bf8 */
+	cursor = head;
+
+	for (i = 68; cursor != 0; i++) {        /* 3c16 .. 3cd6 */
+		unsigned char *e = (unsigned char *)(uintptr_t)cursor;
+
+		if (g_a5_byte(-18485) != 0) {           /* 3c16 — design arm */
+			jt322((char *)(e + 5), (short)(i - 68), (short)1);
+			jt394((char *)(e + 5),
+			      ua_strs_at(0x6cdc) /* "%s - %d" */,
+			      (char *)(e + 5), (int)rec[i + 1]);
+		} else {                                /* 3c78 — play arm */
+			const unsigned char *nm =
+			    &g_a5_byte(-18824) + ((long)(i - 68) << 4);
+			if (rec[i + 1] == 0 || nm[0] == 0)
+				continue;               /* 3cce — cursor stays put */
+			jt384((char *)(e + 5), (const char *)nm);
+		}
+		e[4] = 0;
+		cursor = *(long *)(uintptr_t)e;         /* -> next */
+	}
+
+	jt76();                                 /* 3cda — window chrome */
+	jt179((short)1);
+	cursor = head;                          /* 3ce8 */
+	(void)jt169(g_a5_long(-13952), g_a5_long(-13760),
+	            (short)1, (short)1, (short)38, (short)22,
+	            head, (short)1, (short)2, &flag, &idx, &head);
+	jt147(&cursor);                         /* 3d2e */
+}
+
 static short jt953(void)
 {
 	unsigned char *pl = (unsigned char *)(uintptr_t)g_a5_28006;
@@ -60225,8 +60331,20 @@ static short jt953(void)
 			case 1:                         /* Area — toggle the top-down automap (L40f8) */
 				l40f8_area_cmd();
 				break;
-			case 2:                         /* Cast — TODO: L06d6 */
+			case 2: {                       /* L4164 — CAST
+				 * 4164: a0 = -27932 (the current character)
+				 * 416a: d0 = a0@(94)        ; status byte
+				 * 4170: bne  L43c2          ; not OK -> no cast
+				 * 4174: jsr  L06d6          ; the caster's spell menu
+				 * L06d6 is CODE 21+0x06d6 — the SAME function the camp
+				 * menu's CAST arm already calls, so it is simply
+				 * repointed here, not re-lifted. */
+				unsigned char *pc = (unsigned char *)
+				    (uintptr_t)g_a5_long(-27932);
+				if (pc != NULL && pc[94] == 0)
+					l06d6();
 				break;
+			}
 			case 3: {                       /* View character */
 				unsigned char done = 0;
 				jt904(&done);
@@ -60287,7 +60405,11 @@ static short jt953(void)
 				exit_flag = 1;
 				break;
 			}
-			case 7:                         /* Inventory — TODO: L3b80 */
+			case 7:                         /* L4212 — INVENTORY
+				 * 4212: jsr L3b80   ; the special-items list
+				 * 4216: jsr JT[23]  ; then repaint the play frame
+				 * The port ran only the jt23 redraw. */
+				l3b80();
 				jt23();
 				break;
 			default:                        /* L421e — TODO: JT[936/934] */
