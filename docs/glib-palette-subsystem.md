@@ -182,16 +182,27 @@ No `jt124`, no `jt993`, no `l3f3c`, no `jt1066`.
 
 ### ⛔ RETRACTED: "the ART GALLERY installs NO palette" — that result came from a CRASHED build
 
-**`make ENGINE_PROBE=1` produces a build that CRASHES.** It boots, logs ~1906
-probe lines, then dies:
+**`make ENGINE_PROBE=1` produced a build that CRASHED.** It booted, logged ~1906
+probe lines, then died:
 
     WARN : Address Error reading at address $ffff00e1, PC=$19bca2
 
-The screen goes black and input stops advancing. Every "0 calls" I read off that
+The screen went black and input stopped advancing. Every "0 calls" I read off that
 build was a **false negative from a dead engine**, not evidence that the code was
-skipped. **The ENGINE_PROBE harness is BROKEN — fix it before trusting it.** (It
-also defaults OFF, so a build without `ENGINE_PROBE=1` reports 0 for everything
-too. Between the two, this probe produced three false negatives in one session.)
+skipped. (It also defaults OFF, so a build *without* `ENGINE_PROBE=1` reports 0 for
+everything too. Between the two, this probe produced three false negatives in one
+session.)
+
+**✅ FIXED 2026-07-13.** Root cause: `PROBE` → `dbg_log` → `Cconws`, a **GEMDOS trap
+fired from inside the sound VBL** (which runs the engine's sequencer: `jt1091` →
+`jt1149`). GEMDOS is not reentrant; the stack was wrecked and `rts` returned to a
+negative address. The debug sinks now **defer** in interrupt context instead of
+trapping (`platform/dbglog.c`), and `ENGINE_PROBE=1` selects the deduped
+`DBG.LOG` probe, which boots to the menu and stays interactive. Full write-up in
+`docs/engine-bring-up.md`.
+
+**★ Still read a "0" from any probe with suspicion** — confirm the build is alive
+(`grep -c "menu: modal up"`) before concluding a function was never called.
 
 **Use a targeted `#ifdef` trace instead** (`-DFRUA_PALTRACE`, committed; same
 pattern as `FRUA_SHOPTRACE`). It costs nothing, cannot spam the engine to death,

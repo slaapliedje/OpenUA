@@ -29,10 +29,28 @@ DEP  := $(OBJ:.o=.d)
 CFLAGS += $(INCLUDE)
 CFLAGS += $(EXTRA_CFLAGS)
 
-# Engine bring-up probe: instrument the engine's unlifted stubs (boot.c,
-# master.c) so each logs its name when called. Default off so production
-# builds carry no logging spam. See docs/engine-bring-up.md.
+# Engine bring-up probe: instrument the engine's stubs so each logs its name
+# when called. Default off so production builds carry no logging spam.
+# See docs/engine-bring-up.md.
+#
+#   make ENGINE_PROBE=1        coverage set -> DBG.LOG. THE ONE TO USE.
+#   make ENGINE_PROBE=flood    every call -> VT-52 console. See the warning.
+#
+# ENGINE_PROBE=1 selects the DEDUPED FILE probe (each name logged once, in
+# first-hit order, to DBG.LOG). It boots to the menu and stays interactive.
+#
+# It used to select the per-call console probe, and that build CRASHED a couple
+# of seconds into boot (a GEMDOS trap from the sound VBL — see platform/dbglog.c)
+# after logging ~1900 lines. A probe that dies mid-run reports "0 calls" for
+# everything afterwards, which reads as "this code never runs": it produced
+# THREE false negatives in a single session. The crash is fixed, but the flood
+# mode is still a poor default — 70k+ Cconws calls are so slow the engine never
+# reaches the menu, and VT-52 text scribbles over the framebuffer. Keep it
+# opt-in, and read a "0" from it with suspicion.
 ifeq ($(ENGINE_PROBE),1)
+CFLAGS += -DFRUA_ENGINE_PROBE_ONCE
+endif
+ifeq ($(ENGINE_PROBE),flood)
 CFLAGS += -DFRUA_ENGINE_PROBE
 endif
 

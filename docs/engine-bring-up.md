@@ -7,18 +7,59 @@ engine actually tries to do per frame, not by guessing.
 
 ## Running a probe
 
-Build with the `ENGINE_PROBE=1` knob — every stub in `boot.c` and
-`master.c` then logs `stub: <name>` as it's called, `jt315` (the play-loop
-predicate) fires exactly once so the per-iteration body runs, and the
-trail mirrors to the host terminal via Hatari's `--conout 2`.
-
 ```sh
 make clean
-make ENGINE_PROBE=1 run
+make ENGINE_PROBE=1        # coverage set -> C:\DBG.LOG. THE ONE TO USE.
 ```
 
-Default builds are unaffected; the macro expands to `((void)0)` when
-`FRUA_ENGINE_PROBE` isn't defined.
+Each probed name is logged **once**, in first-hit order, to `DBG.LOG`
+(`data/work/gamedata/DBG.LOG` on the host). It boots to the menu and stays
+interactive — a normal play/edit session leaves a complete list of what the
+engine actually reached. Default builds are unaffected (the macro expands to
+`((void)0)`).
+
+`make ENGINE_PROBE=flood` is the old per-call console variant. It works now, but
+it is **not** the default for good reason — see below.
+
+## ⚠️⚠️ THE PROBE USED TO CRASH — and a crashed probe reports "0 calls"
+
+**`make ENGINE_PROBE=1` produced a build that DIED ~2 s into boot**, after
+logging ~1900 lines:
+
+    Address Error reading at address $ffff00e1, PC=$193212  op=4e75 (rts)
+
+`4e75` is `rts`, and `$ffff00e1` is odd — as a signed long, **−65311**. The stack
+pointer had gone *negative*. Every "0 calls" read off that build was **a false
+negative from a dead engine**, and it read as "this code never runs". It produced
+**three false negatives in one session**, one of which I reported as a finding
+before catching it.
+
+**Root cause: a GEMDOS trap from inside the VBL interrupt.** `PROBE` logged via
+`dbg_log` → `Cconws` — and `Cconws`, `Fopen`, `Fwrite` are all GEMDOS, which is
+**not reentrant**. `plat_sound_vbl` runs the *engine's* sequencer task from the
+VBL (`jt1091` → `jt1149` → TickCount — and `stub: jt1149` is the last line before
+the fault). Under the probe, that engine code traps from interrupt context,
+wrecks the GEMDOS stack, and the next `rts` returns to a negative address.
+
+`platform/input.c` had already hit this exact hazard and guarded it — *"Supexec is
+a TRAP, and trapping from inside an interrupt handler is fatal… without the flag
+it bus-errors within seconds."* The debug sinks were simply never given the same
+treatment.
+
+**Fix (`platform/dbglog.c`):** in interrupt context (`g_plat_in_super`) the sinks
+**defer** instead of trapping — the line is copied into a single-producer /
+single-consumer ring and flushed from the next call at task level. Nothing is
+dropped silently; an overflow prints `dbg: DEFERRED LINES LOST`. This protects
+*every* trace, including `FRUA_PALTRACE` / `FRUA_SHOPTRACE` / `FRUA_ARTTRACE`, from
+ever re-introducing the same fault. Verified: `jt1091`/`jt1149` are now captured
+**from the VBL**, with 0 faults and 0 lines lost.
+
+**Why `flood` is not the default:** fixing the crash exposed the next problem — 70k+
+`Cconws` calls are so slow the engine **never reaches the menu**, and VT-52 text
+scribbles over the framebuffer (black screen). It is crash-free, not useful.
+
+**★ Read a "0" from any probe with suspicion.** Confirm the build is alive
+(`grep -c "menu: modal up"`) before concluding a function was never called.
 
 ## First probe — 2026-05-23
 
