@@ -71,7 +71,8 @@ but I did not isolate one of its nine replaced assets and diff it against the ba
 | Payload | PC module | Mac module |
 |---|---|---|
 | Design data (`GAME001/GEO*/MONST*/STRG*.DAT`) | ✅ works (byte-identical DOS↔Mac) | ✅ works |
-| Custom art | ❌ **ignored** — `HLIB` + 8.3 names | ⬜ format+names correct; **display of a replaced asset unproven** |
+| Custom art — **as shipped** | ❌ **silently ignored** — `HLIB` + 8.3 names; falls back to base art with NO warning (use `-DFRUA_ARTTRACE`) | ⬜ format+names correct; display of a replaced asset unproven |
+| Custom art — **after `tools/art_convert.py`** | ✅ **LOADS AND RENDERS** — proved end-to-end with Pool of Radiance (see the play-test below) | n/a (already GLIB) |
 | Custom music (`.xmi` + `.PAT`/`.AD`) | ❌ ignored | — (Mac modules ship `.AD` too; unread) |
 | Custom font (`.FON`), `DIFF.TBL`, CKIT edits | ❌ ignored | ❌ ignored |
 | Engine hacks (UA.EXE patches) | n/a — DOS binary patches | n/a |
@@ -106,26 +107,32 @@ python3 tools/art_convert.py data/work/gamedata/SOME.DSN/*.TLB   # -> *.ctl
 
 Run over AGAINST THE GIANTS: **75 of 79 art files converted**, 0 bus errors.
 
-### ⚠️ Wall libraries do NOT convert yet (found 2026-07-13 with Pool of Radiance)
+### ✅ Wall libraries DO convert (the "black 3D view" was the byte[10]/[11] swap)
 
-`8x8db`/`8x8dc` are a **container-of-containers** (10 wall SETS x 48 pieces).
-`convert()` now recurses into them — but installing a converted wall library over
-the base game's still renders a **BLACK 3D view**. 423 of Game39's 432 wall pieces
-parse as plain tiles; **9 fall into `_convert_entry`'s "opaque" fallback**, which
-copies a payload it does not understand straight through. That fallback is proven
-only for the *picture* palettes of the Yezukriis pair, and this is what it looks
-like when the assumption is wrong. The black view says something further is also
-wrong — the per-set colour-range/palette is the prime suspect
-(`docs/glib-palette-subsystem.md`). **Do not ship converted wall art.**
+*(This section used to say "wall libraries do NOT convert — do not ship converted
+wall art." **That is stale.** Both the black-walls bug and the design-dir install
+problem were fixed the same day; POR now walks Phlan on its own converted walls.
+Left here because the stale version cost real time and the correction is the
+useful part.)*
 
-### ★ How a "hack" is actually installed
+`8x8db`/`8x8dc` are a **container-of-containers** (10 wall SETS × 48 pieces), and
+`convert()` recurses into them. The **BLACK 3D view** was not a palette problem at
+all: bytes **[10] and [11] are TWO INDEPENDENT BYTES** (unused; ID-table magic) —
+**not a u16** — and I was byte-swapping them, which moved the ID-table magic into
+the unused slot. Pictures have magic = 0, so the swap was a no-op there and the
+byte-exact ground-truth test never caught it; master libraries always have
+magic = 1. *A ground-truth test only covers what the ground truth contains.*
 
-A whole-library hack is **NOT a design-dir override**. Dropping `8x8db.ctl` into
-the `.DSN` folder changes nothing — the engine builds per-id names
-(`8x8db<id>.ctl`) and otherwise reads the base library from the **install root**.
-A hacked module's replacement libraries must overwrite the ROOT files
-(`data/work/gamedata/8X8DB.CTL`). That is what "replaced base-game files" means,
-and it is why art-hacked modules need an install step, not just a convert step.
+### ★ How a "hack" is actually installed — design-dir override, since ADR-0011
+
+*(Also formerly stale: "a whole-library hack is NOT a design-dir override —
+replacement libraries must overwrite the ROOT files." **ADR-0011 changed this.**)*
+
+`ua_open_art()` and the `l33ac`/`jt987` path now resolve **design-first, then the
+install root**, so a module's `8x8db.ctl` in its own `.DSN` is picked up *without*
+overwriting the base game. Confirmed live with `-DFRUA_ARTTRACE` (POR's per-id
+probes fall back, then `8x8db.ctl` resolves to POR's own converted library).
+Convert in place; no install step, and the base game is never touched.
 
 **Refused (by design, loudly — never silently mangled):**
 - **piece type 2 (RLE)** — the two releases use *different* codecs. The Mac side
