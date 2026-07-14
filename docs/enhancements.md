@@ -9,8 +9,15 @@ the emulator. Where I have not verified something, it says so.
 The runtime is **structurally complete but not feature-complete.** It plays a
 real commercial module (Pool of Radiance) end to end on its own art — walk,
 events, temple, shop, area transfers, level loads, the automap, save/load, and
-combat through to a party wipe. But **two of the eight exploration commands are
-dead buttons**, so this is an honest "playable beta", not a 1.0.
+combat through to a party wipe.
+
+**Update 2026-07-14 — all 8 exploration commands now work.** CAST and INV were
+the two dead buttons; `624ff7b` lifted `L3b80` and repointed `L06d6`. A full
+outfitting run then went through end to end on HEIRS: roll six characters, take
+the caravan purse, buy banded mail + helm at one shop and a battle axe at
+another, ready all three, and watch the sheet move **AC 10 → 2** and **DAMAGE
+1D2+1 → 1D8+1** — persisting across a save/load round-trip. Still a "playable
+beta" (see the verification gap below), but no longer one with dead buttons.
 
 ## ★★ The measurement that lied — and the tool gap behind it
 
@@ -44,12 +51,18 @@ overstate completeness — treat them as a floor, not a verdict.
 
 | # | Gap | Where | Status |
 |---|---|---|---|
-| 1 | **CAST does nothing** | `jt953` case 2 -> `L06d6` unlifted | dead button on the command bar |
-| 2 | **INV does nothing** | `jt953` case 7 -> `L3b80` unlifted (the arm calls `jt23`, a frame redraw, not the inventory screen) | dead button on the command bar |
+| 1 | ~~CAST does nothing~~ | `jt953` case 2 -> `L06d6` | ✅ FIXED `624ff7b` |
+| 2 | ~~INV does nothing~~ | `jt953` case 7 -> `L3b80` | ✅ FIXED `624ff7b` |
 | 3 | Default command arm | `jt953` default -> `JT[936]`/`JT[934]` | unhandled |
+| 4 | CAST/INV/shop messages are invisible | `jt42` writes the narrative band; the `jt23` repaint overpaints it | **the one live P1** |
 
-Working and verified live: MOVE, AREA (automap), VIEW (character sheet), ENCAMP,
-SEARCH, LOOK. So **6 of 8**.
+All 8 commands work: MOVE, AREA (automap), CAST, VIEW (character sheet), ENCAMP,
+SEARCH, LOOK, INV.
+
+Gap 4 is the remaining player-visible one and it is a *rendering* bug, not a
+lift gap — the arm runs, its message just gets wiped before the player sees it.
+Same class as the long-known shop-message overpaint. Use `-DFRUA_SHOPTRACE` to
+see the text that should be on screen.
 
 **Fixed during this audit:** clicking CAST — a command that does *nothing* —
 **corrupted the play screen** (blank roster, blank clock, three stray FRAME

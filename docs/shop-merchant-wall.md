@@ -312,3 +312,65 @@ became a "fix".
 
 Next natural targets are elsewhere: `docs/inventory-subsystem-wall.md` (the
 ITEMS menu shares jt893) and whatever `docs/subsystem-status.md` ranks highest.
+
+---
+
+## ★ A shop that "won't open" is usually a FACING MISS, not a bug (2026-07-14)
+
+HEIRS' **GEO005** carries three shops, and only one of them opens from any
+direction. Event byte 1 packs the "Event Happens if" condition (hackdocs
+`GEOEVENT.TXT`); value **64 = Facing Correct Direction**, with byte 2 the
+required facing bitmask (1=N 2=E 4=S 8=W):
+
+| cell (row,col) | special | ev[1] | ev[2] | opens when |
+|---|---|---|---|---|
+| 5, 9  | 21 | `00` | — | **always** — general goods (BELT/BOOTS/CLOAK/ROBE/MIRROR) |
+| 5, 10 | 25 | `40` | `08` | **facing West** — the ARMOURER |
+| 6, 11 | 22 | `40` | `04` | **facing South** — the WEAPONSMITH |
+
+`l694e` implements this faithfully (`ct = ev[1] >> 3`, case 8). Walk onto the
+armourer's cell from the wrong side and the step log reports `special=25` and
+the shop simply does not appear. **That is correct behaviour**, and it is
+indistinguishable from a broken event without a facing readout — it burned a
+session and produced three wrong root-cause theories ("no shop event fired",
+"the arm is unlifted", "the event is once-only"). `-DFRUA_CELLSCAN` now logs the
+facing byte on every step; steer by it.
+
+### ★★ facing is 1..8, and `case 0` is DEAD — a Mac quirk, faithfully ported
+
+`l1908` normalises facing to **[1,8]** — faithful, the Mac does exactly this
+(CODE 22 @0x190c: `tstw / addqw #8 / cmpiw #8 / subqw #8`). So the turn cycle is
+**2=E 4=S 6=W 8=N** and **the value 0 never occurs**. But `l694e`'s facing test
+switches on **0/2/4/6** with `default: result = 1` (CODE 20 @0x6ba8 and its JT[3]
+table — both verified against the asm). Therefore:
+
+- **North is stored as 8**, hits `default`, and **a "facing North" condition
+  always passes.** `case 0` is unreachable.
+- This is **the original game's quirk, not a port bug.** Both halves are
+  bit-faithful. **Do not "fix" either one** — masking the byte with `& 7` in
+  `l694e` would "correct" the Mac and desync the port from it.
+
+A facing byte of 8 landing in `default: result = 1` is also why the armourer
+*appeared* to honour a West approach on the first accidental hit: it wasn't
+satisfying the condition, it was **bypassing** it.
+
+### ✅ Buy → equip, verified end to end (2026-07-14)
+
+A six-character party rolled from scratch, funded from HEIRS' intro caravan
+purse (TAKE → MONEY → 100 PLATINUM → 200 personal funds), then:
+
+- **armourer** (5,10 facing W): BANDED MAIL 72 → funds 200→128; HELM 12 → 116.
+- **weaponsmith** (6,11 facing S): BATTLE AXE 4 → 112. Its stock list is long
+  enough to **scroll**, and the scrollbar renders.
+- camp → VIEW → **ITEMS** → RDY each: the list flips `NO.` → `YES.`
+- the sheet then reads **ARMOR CLASS 10 → 2** (banded mail + DEX 16) and
+  **DAMAGE 1D2+1 → 1D8+1** (fists → axe + STR), with `BATTLE AXE / BANDED MAIL`
+  on the equipped line, **surviving a save/load round-trip**.
+
+Two UI notes that cost time: the **ITEMS button only appears when the character
+owns something** (an empty-handed character's sheet shows just TRADE/DROP/EXIT —
+faithful arm-hiding, not a missing button); and in the shop the **arrow keys
+drive the ROSTER, not the stock list** once the list loses focus, so "PERSONAL
+FUNDS" silently starts reporting a *different character's* purse. **Click the
+stock line to select it** — clicks do work there. A purse that seems to lose
+money is probably the cursor sitting on someone else.

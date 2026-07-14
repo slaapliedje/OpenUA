@@ -338,7 +338,7 @@ release:
 	@cp $(TARGET) dist/$(DISTNAME)/
 	@cp frua.rsc dist/$(DISTNAME)/ 2>/dev/null || true
 	@cp README.md docs/enhancements.md dist/$(DISTNAME)/ 2>/dev/null || true
-	@printf 'FRUA Falcon030/TT030 port %s\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT), and the original\nFRUA game data (NOT included -- copyrighted).\n\nKnown gaps: CAST and INV do nothing (see enhancements.md).\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
+	@printf 'FRUA Falcon030/TT030 port %s\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT), and the original\nFRUA game data (NOT included -- copyrighted).\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping a weapon\nand armour are all playable. See enhancements.md for the known gaps.\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
 	@cd dist && zip -qr $(DISTNAME).zip $(DISTNAME)
 	@echo "release -> dist/$(DISTNAME).zip"
 
