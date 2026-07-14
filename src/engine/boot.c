@@ -4270,6 +4270,8 @@ static void  jt904(unsigned char *out_done);                        /* View-char
  * from JT[953]: 4 = exit the adventure (L473e), 6 = area/stairs swap (reload),
  * else keep exploring. -27982 is the "active adventure" gate (set by jt918's
  * Begin-Adventuring path); -5221 forces an immediate area-leave. */
+static void jt914(short count, short idx);   /* CODE 19+0x35c — advance game time */
+static short g_event_modal_shown;            /* l63c0's post-event relayout flag */
 static void jt948(void)
 {
 	unsigned char *h;
@@ -4459,10 +4461,65 @@ static void jt948(void)
 						jt904(&done);
 						break;
 					}
+					case 5: {           /* Search — jt953's L4194 */
+						unsigned char *pr = (unsigned char *)
+						    (uintptr_t)g_a5_28006;
+						/* A MODE TOGGLE (rec[25] bit 0), not an
+						 * action. eoriw #1 at 0x419e. */
+						if (pr != NULL)
+							pr[25] = (unsigned char)
+							         (pr[25] ^ 1);
+						jt938();
+						break;
+					}
+					case 6: {           /* Look — jt953's L41b2 */
+						unsigned char *pr = (unsigned char *)
+						    (uintptr_t)g_a5_28006;
+						short special;
+
+						/* The ONE player action that advances the
+						 * clock in exploration: rec[25] |= 2, repaint,
+						 * jt914(1,2), then read the party cell's
+						 * special and fire its event.
+						 *
+						 * The Mac reaches this through jt953 from BOTH
+						 * loops (CODE 20+0x4bee: jsr JT[953]); the port
+						 * split the dungeon onto l63c0 and left Look /
+						 * Search as no-ops here, so LOOK did nothing at
+						 * all in a dungeon and the clock never moved.
+						 *
+						 * ★ WALKING STILL DOES NOT ADVANCE TIME, and that
+						 * is FAITHFUL — jt176 (Move) never touches the
+						 * date/time bytes and CODE 7 never calls JT[914].
+						 * Don't "fix" the walk. */
+						if (pr != NULL)
+							pr[25] = (unsigned char)
+							         (pr[25] | 2);
+						jt938();
+						jt914((short)1, (short)2);
+						g_a5_word(-27992) = g_a5_word(-28000);
+						special = jt201(
+						    (short)(signed char)g_a5_byte(-12288),
+						    (short)(signed char)g_a5_byte(-12287));
+						g_a5_byte(-18483) =
+						    (unsigned char)special;
+						l709e(special);
+						/* The Mac EXITS the command loop here
+						 * (fp@(-2)=1 -> L44f6) so jt948/jt953 rebuild
+						 * the play dialog from scratch. The port's
+						 * continuous walk loop stays in, so drive the
+						 * same rebuild through the existing hook —
+						 * otherwise l709e's shared-pool reset leaves
+						 * the roster/clock panels blank until the next
+						 * step. (Same mechanism l1806 uses; see the
+						 * g_event_modal_shown handling in l63c0.) */
+						g_event_modal_shown = 1;
+						break;
+					}
 					case 7:             /* Inventory */
 						jt23();
 						break;
-					default:            /* Move / Cast / Search / Look */
+					default:            /* Move / Cast */
 						break;          /* (actions TODO) — stay in the dungeon */
 					}
 					continue;           /* re-enter the walk loop */
@@ -59909,12 +59966,58 @@ static short jt953(void)
 			case 4:                         /* Encamp -> leave the loop */
 				exit_flag = 1;
 				break;
-			case 5:                         /* Search — TODO: JT[914/201/947] */
+			/* L4194 — SEARCH: a MODE TOGGLE, not an action. Flips bit 0 of
+			 * the game record's rec[25] and repaints; the loop continues
+			 * (fp@(-2) stays 0). Searching-as-you-move is what costs time,
+			 * and the cost lands on LOOK below.
+			 *
+			 *   4194: moveb a0@(25),d0 ; eoriw #1,d0 ; moveb d0,a0@(25)
+			 *   41aa: jsr JT[938]      ; 41ae: braw L43c2
+			 *
+			 * (The old comment on THIS arm claimed JT[914/201/947]. That is
+			 * case 6's body, not case 5's — the labels were off by one.) */
+			case 5:
+				if (pl != NULL)
+					pl[25] = (unsigned char)(pl[25] ^ 1);
 				jt938();
 				break;
-			case 6:                         /* Look — TODO */
+
+			/* L41b2 — LOOK: sets rec[25] bit 1, repaints the clock, ADVANCES
+			 * GAME TIME, then reads the party cell's special and dispatches
+			 * its event. Exits the command loop afterwards (fp@(-2) = 1) so the
+			 * outer play loop re-renders whatever the event changed.
+			 *
+			 *   41b2: oriw #2 -> rec[25]
+			 *   41c8: jsr JT[938]              ; paint clock/position
+			 *   41d4: jsr JT[914] (1, 2)       ; ADVANCE TIME
+			 *   41da: movew -28000 -> -27992
+			 *   41f0: jsr JT[201] (col, row)   ; the cell's special
+			 *   4202: jsr JT[947] (special)    ; = l709e, the event dispatcher
+			 *   4208: moveq #1 -> fp@(-2)      ; exit the loop
+			 *
+			 * ★ THIS is the only place a player ACTION advances the clock in
+			 * exploration. WALKING DOES NOT ADVANCE TIME IN FRUA — jt176 (the
+			 * Move command) never touches the date/time bytes, and CODE 7 does
+			 * not call JT[914] at all. Every Mac caller of JT[914] is: this arm,
+			 * the scripted-move event (jt954), rest, a combat round, and the
+			 * pass-time event. A frozen clock while you walk is FAITHFUL —
+			 * do NOT "fix" it. */
+			case 6: {
+				short special;
+
+				if (pl != NULL)
+					pl[25] = (unsigned char)(pl[25] | 2);
 				jt938();
+				jt914((short)1, (short)2);
+				g_a5_word(-27992) = g_a5_word(-28000);
+				special = jt201(
+				    (short)(signed char)g_a5_byte(-12288),
+				    (short)(signed char)g_a5_byte(-12287));
+				g_a5_byte(-18483) = (unsigned char)special;
+				l709e(special);
+				exit_flag = 1;
 				break;
+			}
 			case 7:                         /* Inventory — TODO: L3b80 */
 				jt23();
 				break;
