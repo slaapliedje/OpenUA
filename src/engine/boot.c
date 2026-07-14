@@ -71165,8 +71165,20 @@ static long jt1016(short refnum, long arg, short groupid) __attribute__((unused)
 static long jt1016(short refnum, long arg, short groupid)
 {
 	PROBE("jt1016");
+#ifdef FRUA_ARTTRACE
+	dbg_file_num("BIND: jt1016 entry, group=", (long)groupid);
+	dbg_file_num("BIND:   freemap[group]=",
+	             (groupid >= 0 && groupid < 48)
+	             ? (long)g_a5_10074[groupid] : -999L);
+#endif
 	if (jt460(refnum, arg)) {
 		long size = jt459(groupid);
+#ifdef FRUA_ARTTRACE
+		dbg_file_num("BIND:   after jt460, freemap[group]=",
+		             (groupid >= 0 && groupid < 48)
+		             ? (long)g_a5_10074[groupid] : -999L);
+		dbg_file_num("BIND:   jt459(group)=", size);
+#endif
 
 		if (l4010(groupid, 0, size) >= 0)
 			return 1;
@@ -74459,14 +74471,43 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 	}
 	g_a5_18397 = 1;
 
-	/* read the whole library into the pool up front (inline open path) */
+	/* The DESIGN'S PER-ID OVERRIDE. If it opens AND reads, it IS the library:
+	 * the Mac closes it and RETURNS — jt987 is never called.
+	 *
+	 *   3556: jsr JT[398]     ; open <design>:<base><digit><nnn>.ctl
+	 *   3560: tstw %d0
+	 *   3562: blts L358e      ; no override -> fall through to jt987
+	 *   356c: jsr JT[460]     ; read it into the pool
+	 *   3572: tstb %d0        ; <-- TEST THE RETURN VALUE
+	 *   3574: beqs L3584      ; read failed -> close, fall through to jt987
+	 *   357a: jsr JT[411]     ; close
+	 *   3580: braw L3618      ; *** RETURN. jt987 IS NOT CALLED. ***
+	 *
+	 * The port ignored jt460's result and ALWAYS fell through to jt987 — so when
+	 * a design actually shipped an override we loaded the override into the group
+	 * and then loaded the BASE library on top of it. Two libraries, one group:
+	 * l4010's `*(long*)(hdr+4) != size` guard fired ("Invalid library header"),
+	 * jt104 rejected, and the engine faithfully reported a DISK READ ERROR and
+	 * asked for disk 4.
+	 *
+	 * It never fired on HEIRS because HEIRS ships NO per-id overrides — every
+	 * open missed and the fall-through was correct by accident. Pool of Radiance
+	 * ships them (its own art, and the Mac edition's too), so it tripped on the
+	 * first picture. This is why the bug looked like "missing art" and then like
+	 * "pool exhaustion": both were downstream of a group we had corrupted. */
 	path[0] = 0;
 	jt431(path, g_a5_buf(-31336));             /* directory prefix */
 	jt431(path, namebuf);
 	refnum = jt398(path, 0);
 	if (refnum >= 0) {
-		jt460(refnum, -1);                 /* read-to-EOF into the pool */
-		jt411(refnum);
+		if (jt460(refnum, -1)) {           /* read-to-EOF into the pool */
+			jt411(refnum);
+#ifdef FRUA_ARTTRACE
+			dbg_file_str("ART: DESIGN OVERRIDE loaded: ", path);
+#endif
+			return;                    /* Mac 3580: braw L3618 */
+		}
+		jt411(refnum);                     /* read failed -> use the base */
 	}
 #ifdef FRUA_ARTTRACE
 	/* THE SILENT FALLBACK. A missing per-id override is not an error — the
@@ -74492,6 +74533,11 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 	if (g_a5_18398 != 0 && subB == 15)
 		g_a5_18398 = 2;
 
+#ifdef FRUA_ARTTRACE
+	dbg_file_num("BIND: l33ac about to jt987, group=", (long)(i + 2));
+	dbg_file_num("BIND:   freemap[group]=", (long)g_a5_10074[i + 2]);
+	dbg_file_num("BIND:   refnum(override)=", (long)refnum);
+#endif
 	jt987(g_a5_18396, fullname, 0, (void *)jt104);
 }
 

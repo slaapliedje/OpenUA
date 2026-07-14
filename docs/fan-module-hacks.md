@@ -284,6 +284,37 @@ Reproduce it before theorising.
 - **Custom music** (`.xmi` — POR ships `addq1.xmi`) is still ignored; a new
   subsystem, not a lift.
 
+## ✅✅ SOLVED: the DISK READ ERROR was a MIS-LIFT in l33ac's override path
+
+**`l33ac` loaded the design's per-id override into the pool group AND THEN loaded
+the BASE library on top of it.** Two libraries in one group; `l4010`'s
+`*(long*)(hdr+4) != size` guard fired ("Invalid library header"), `jt104` rejected,
+and the engine faithfully reported a DISK READ ERROR and asked for disk 4.
+
+The Mac never does that — a successful override read IS the library, and it RETURNS:
+
+    3556: jsr JT[398]     ; open <design>:<base><digit><nnn>.ctl
+    3560: tstw %d0
+    3562: blts L358e      ; no override -> fall through to jt987
+    356c: jsr JT[460]     ; read it into the pool
+    3572: tstb %d0        ; <-- TEST THE RETURN VALUE
+    3574: beqs L3584      ; read failed -> close, fall through to jt987
+    357a: jsr JT[411]     ; close
+    3580: braw L3618      ; *** RETURN. jt987 IS NOT CALLED. ***
+
+The port ignored `jt460`'s result and always fell through. **It never fired on
+HEIRS because HEIRS ships NO per-id overrides** — every open missed, and the
+fall-through was correct by accident. Pool of Radiance ships them, so it tripped on
+the first picture.
+
+**Fixed. POR now loads its OWN override art** (its temple priest renders from
+`picb*.ctl`), 0 pool failures, 0 rejects, 0 bad headers, 0 bus errors. HEIRS
+unaffected (0 overrides, 0 failures).
+
+★ **This is why the bug wore three disguises.** "Missing art", "missing picture ID"
+and "pool exhaustion" were all *downstream of a group we had corrupted*. Each theory
+explained the symptom; none was the cause.
+
 ## ⛔ RETRACTED: "the DISK READ ERROR is FAR-POOL EXHAUSTION" — WRONG (3rd wrong root cause)
 
 **It is NOT byte exhaustion.** After the GLIB pool flip landed (below), the pool holds
