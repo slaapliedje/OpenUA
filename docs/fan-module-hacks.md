@@ -494,7 +494,7 @@ by `l1806`, so an event carrying its own verb bar (temple `l216a`, `l5676`'s
 EVERY event and rebuilds the play dialog from scratch; arm the flag for any
 dispatched event. `-DFRUA_BARTRACE` traces the flag across each hop.
 
-### Bug 2 — three stray editor plates + a blank clock on the AREA map (OPEN)
+### Bug 2 — three stray editor plates + a blank clock on the AREA map — ✅ FIXED
 
 The four shape-5 bevel-frame DLItems are built by `jt240` (the EDITOR's
 design-walk driver the port reuses for play; the Mac play walk never runs

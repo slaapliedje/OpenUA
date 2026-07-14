@@ -3375,6 +3375,9 @@ static void l40f8_area_cmd(void)
 	}
 	jt215();                                /* prime the -12272 automap cell size */
 	g_a5_12290 = (unsigned char)(g_a5_12290 == 0 ? 1 : 0);
+#ifdef FRUA_MAPTRACE
+	dbg_file_num("=== AREA toggle -> 12290", (long)g_a5_12290);
+#endif
 	/* Toggling BACK to the 3D view: the automap branch (jt312 -12290) installs
 	 * the menu palette over clut 0..31 (incl. the FRAME chrome band 16..31) for
 	 * the map colours and repaints the roster itself. Returning to first-person
@@ -4853,6 +4856,9 @@ static void l384c(short row, short col, short *slot)
 static void jt81(void)
 {
 	PROBE("jt81");
+#ifdef FRUA_MAPTRACE
+	dbg_file_num("*** jt81 MENU CHROME  (map flag)", (long)g_a5_12290);
+#endif
 	/* PORT: seed the engine clip full-screen before the chrome blits.
 	 * On a fresh boot the -3054..-3050 clip rect is A5-zero, so every
 	 * l2d4e blit (the gen backdrop, frame edges AND the jt137 button
@@ -5614,6 +5620,9 @@ static void jt209(short flag)
 static void jt204(void)
 {
 	PROBE("jt204");
+#ifdef FRUA_MAPTRACE
+	if (g_a5_12290 != 0) dbg_file_num("*** jt204 (map up)", 1L);
+#endif
 	jt115(&g_a5_22222);
 	g_a5_12289 = 0xFF;
 }
@@ -6032,6 +6041,14 @@ static void jt1001(short a, short b, short c, short d)
 	long base;
 
 	PROBE("jt1001");
+#ifdef FRUA_MAPTRACE
+	if (g_a5_12290 != 0) {
+		dbg_file_num("jt1001 top", (long)a);
+		dbg_file_num("   left", (long)b);
+		dbg_file_num("   grp", (long)c);
+		dbg_file_num("   item", (long)d);
+	}
+#endif
 	base = jt468(c);                     /* c = resource group id */
 	l309c(a, b, base, d);                /* d = glyph index in the group */
 }
@@ -13026,10 +13043,59 @@ static void jt312(unsigned char *page)
 		 * force-fulls and reloads the wall/frame bands. */
 		if (g_menu_state == 1)
 			port_clut_install(g_menu_pal, (short)0, (short)32);
-		jt221((short)(signed char)g_a5_12288,
-		      (short)(signed char)g_a5_12287,
-		      (short)(signed char)g_a5_12286);
+
+		/* PORT: compose the map leg the SAME WAY the 3D leg below does —
+		 * play chrome first, then the view, then the HUD panels.
+		 *
+		 * This leg used to call jt221, and jt221's PRELUDE (jt131/jt80) blits
+		 * the generic FRAME.CTL window chrome — group 1 items 1/2/3 — before it
+		 * ever reaches its l52b8/l50fe map painter. On the 3D leg that is
+		 * harmless because jt312 never calls jt221 at all: it lays
+		 * port_draw_play_frame and then calls render_3d_faithful DIRECTLY, so
+		 * the play chrome covers those pieces. The map leg was the odd one out —
+		 * nothing repainted over them, so items 1/2/3 surfaced as THREE STRAY
+		 * PLATES across the top of the street grid, pixel-aligned with the GEO
+		 * editor's FILE/MAP/UTILITIES bar (they are the same three FRAME pieces).
+		 * They were NOT the shape-5 command-bar items the old jt240 comment
+		 * blamed, which is why guarding those never cleared them.
+		 *
+		 * So: skip jt221 and drive its map painter (l52b8 -> l50fe) directly,
+		 * exactly as the 3D leg drives render_3d_faithful directly. The party
+		 * cell is jt221's own map-branch arm, argument for argument.
+		 *
+		 * jt938 is added for the same reason: the leg painted the roster (jt937)
+		 * but never the clock/position panel, so the clock went BLANK the moment
+		 * the AREA map came up. */
+		{
+			unsigned char *mpx; short mpitch, msw, msh;
+			signed char cy = (signed char)g_a5_12288;
+			signed char cx = (signed char)g_a5_12287;
+
+			if (qd_screen_pixels(&mpx, &mpitch, &msw, &msh) && mpx != NULL)
+				port_draw_play_frame(mpx, mpitch, msw, msh);
+			l52b8(&cy, &cx, NULL, NULL, (short)11, (short)11, (short)1);
+			l50fe((short)cy, (short)cx,
+			      (short)(signed char)g_a5_12286,
+			      (short)8012, (short)8012,
+			      (short)11, (short)11, (short)1, (short)0);
+		}
+		/* port_draw_play_frame wipes the command bar with the rest of the
+		 * chrome, so force-repaint it exactly as the 3D leg does below — the
+		 * bar's labels carry the "painted" bit, so a plain l2c60(0) would skip
+		 * them and the bar would come up EMPTY on the map. */
+		{
+			RGBColor hud[2];
+
+			hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0xC8C8;
+			hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xFFFF;
+			port_clut_install(hud, (short)253, (short)2);
+			g_hud_paint = 1;
+			l2c60((short)1);
+			g_hud_paint = 0;
+		}
+		port_hud_text_clut();
 		jt937(g_a5_long(-27932));       /* repaint the roster in the map view */
+		jt938();                        /* ...and the clock / position panel */
 		qd_present();
 		qd_present();
 		return;
