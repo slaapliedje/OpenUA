@@ -60,11 +60,19 @@ overstate completeness — treat them as a floor, not a verdict.
 All 8 commands work: MOVE, AREA (automap), CAST, VIEW (character sheet), ENCAMP,
 SEARCH, LOOK, INV. **P1 is now EMPTY.**
 
-⚠️ One thing is fixed but NOT fully re-verified: I proved the spell CAPACITY is
-granted (grimoire opens, `MAGIC-USER : 4 2 2`, memorizing consumes a slot) but
-never drove a rest to completion, so a spell has not actually been CAST in
-anger. Rest keeps getting interrupted (once by HEIRS' "no sleeping in the
-streets" guard — faithful). **Finish that round-trip before tagging.**
+**Magic is verified end to end (2026-07-14).** Full loop proven live on HEIRS:
+capacity grant (`MAGIC-USER : 4 2 2`) → grimoire → memorize (consumes a slot) →
+rest → **SPELLS IN MEMORY** → cast. `DETECT MAGIC` cast in camp prints
+**"ZOLTAN IS AFFECTED"** and is removed from the memorized list; `MAGIC MISSILE`
+offers **"CAN'T BE CAST HERE… LOSE IT?"** (faithful — it is a combat spell).
+
+⚠️ Gotcha that cost a session, now understood: **rest only completes in a
+rest-permitting ZONE.** `l473e` reads the party cell's zone
+(`jt197 = cell[5] >> 2 & 7`) and `ds[zone*4+49]` bit 7 = "no resting here" →
+`hdr[44]=100` → `jt957` drops the REST/FIX rows. HEIRS' town is mostly
+rest-hostile (zone 7 = 109 cells no-rest; zones 1/2 = 54 cells guard-interrupt);
+only zone 0 (198 cells, e.g. **(11,9)**) rests cleanly. All faithful. Build
+`-DFRUA_CELLSCAN` to see each zone's rest rule and the party's current zone.
 
 ## ⛔ The "message overpaint" bug DOES NOT EXIST — the harness was hiding it
 
