@@ -576,3 +576,34 @@ commands **129..136** (the direction pad) and routes them to `l1162`
 translates arrow keysyms to 129..136 in the combat dialog the way `jt297` does
 for the dungeon walk. **This is the one genuine combat lead left** — but note the
 turn is fully playable without it, via the verb bar.
+
+### CORRECTION: arrows are NOT "ignored" — TARGET opens the MOVE/ATTACK sub-mode
+
+Retracting the "one genuine combat lead" from the previous section. Driving the
+turn properly (with **Alt+Insert = left click**, the ST keyboard-mouse binding —
+Alt+Home is right click) showed the real command flow:
+
+    AIM (a)  ->  NEXT (n) cycles the target  ->  TARGET (t)
+             ->  "MOVE/ATTACK, MOVE LEFT = 3"
+
+That prompt is **l56d8's own string**, verbatim from the source. So `t` does not
+"fire a shot" — it commits the target and drops the actor into the **MOVE/ATTACK
+sub-mode**, which is where the ARROW KEYS live. Arrows doing nothing at the
+top-level verb bar is therefore **correct**: movement is not a top-level action.
+There is no arrow-key gap to chase. (I have not yet cleanly isolated a single
+arrow step inside the sub-mode — combat turns pass faster than the screenshot
+poll — but the framing "arrows are ignored / engine gap" was wrong.)
+
+Confirmed along the way:
+
+- **Alt+Insert really does inject a left click** (validated on the mouse-only
+  main menu: it pressed PLAY THE GAME). Alt+arrows move the pointer,
+  Alt+Shift+arrows one pixel.
+- **The AIM sub-bar is genuinely click-DEAF** — now proven with a click mechanism
+  that demonstrably works elsewhere on the same screen. `n` cycles the target
+  (RANGE 0 -> 1, the panel repaints with the TARGET's stats, and the TARGET
+  button appears); clicks on NEXT do nothing at all. **Verb bars are LETTERS.**
+- **The combat message log works**: "HOBGOBLIN ATTACKS GROG, HITTING FOR 5 POINTS
+  OF DAMAGE" / "HOBGOBLIN ATTACKS GROG AND MISSES". The right panel is the
+  blow-by-blow, and it populates correctly — it only looked "blank" earlier
+  because nothing had been logged yet.
