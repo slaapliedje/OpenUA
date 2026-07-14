@@ -137,27 +137,54 @@ and it is why art-hacked modules need an install step, not just a convert step.
   `8X8D<id>`, so the Mac target cannot be inferred. Needs a Mac module that ships
   wall art to disambiguate. `mac_name()` raises rather than guess.
 
-## Open: the big-picture colour cast (narrowed, NOT solved)
+## ⛔ CLOSED — the "big-picture colour cast" NEVER EXISTED (2026-07-13)
 
-Converted big pictures render with a magenta/cyan cast. What is **established**:
+**Not a bug. Not a conversion bug, not a palette bug, not a bug at all.** The
+port's big-picture render is **bit-exact** — 0 of 145,920 pixels wrong against an
+offline decode of the same asset (`tools/screen_diff.py`; full write-up in
+`docs/glib-palette-subsystem.md`).
 
-- **Not a conversion bug.** The converter passes colour tables through
-  **byte-identically** (asserted against the real Mac art of the Yezukriis pair),
-  and the same cast appeared on GIANTS' intro picture *before any converter
-  existed*. The palette data is not being altered.
-- **The colour tables are well-formed**, and structurally the same as the base
-  game's: 224 colours starting at index 32. POR's payload is 672 bytes (= 224×3);
-  the base's is 700 (= that, plus 7 cycling ranges × 4 bytes), exactly as
-  TLBFORM.TXT describes.
-- **Base-game small pictures render with correct, natural colours**, so the port's
-  CLUT path is not broken in general.
+Two things fooled me, and both are worth internalising:
 
-So the fault is in how the port installs a **big picture's** colour range, not in
-the data. Start at `docs/glib-palette-subsystem.md` (the colour-range CLUT
-allocator) and [[glib-clut-mirror-invariant]] (jt1066 commits a *contiguous* span
-from its LIVE/WORK mirrors and silently reverts anything installed directly).
+1. **The picture really is magenta and cyan.** Base big-picture set 6 is a
+   blighted enchanted forest the gallery names **`WALKING FOREST`**. The other
+   seven base pictures render perfectly naturally. I flagged a bug off a *glance*
+   at stylised 1993 fantasy art.
 
-### ~~The colour-table "magic" byte~~ — EXPLAINED, and NOT the cause (retracted)
+2. **★ The sighting that started it was a SILENT FALLBACK.** "GIANTS' intro
+   picture has a cast" — except GIANTS' `BIGP0245.TLB` is **HLIB**, which the
+   engine cannot read, so it fell back to **base id 245 = WALKING FOREST**.
+   I was looking at base-game art the whole time. GIANTS' own big pictures decode
+   to three natural overland maps and a brown title card.
+
+   **This is the CURSE tree-walls trap AGAIN** (see the correction above), in a
+   different subsystem. When a PC module's art looks wrong, **suspect the silent
+   HLIB fallback before the renderer.** Nothing warns you — that is the real
+   defect here, and it is a *missing warning*, not a broken pipeline.
+
+### ✅ `-DFRUA_ARTTRACE` — the fallback is no longer silent
+
+The fallback itself is **faithful** (`l33ac`: a missing per-id override just means
+"use the base library"; the Mac does exactly this) and must NOT be "fixed". What
+was missing is *visibility*. Build with the trace and it names itself:
+
+```sh
+make EXTRA_CFLAGS=-DFRUA_ARTTRACE     # NB: EXTRA_CFLAGS, not CFLAGS_EXTRA
+```
+
+With **GIANTS** selected, opening BIG PICTURES in the ART GALLERY now logs:
+
+    ART: no override, using base library: GIANTS.DSN:bigpic0245.ctl
+
+and the screen draws base id 245 — **WALKING FOREST** — which `screen_diff.py`
+confirms is bit-exact base art (0/145920 px) and 100% *unlike* GIANTS' own
+`BIGP0245` title card (145920/145920 px). Both halves proven, on screen.
+
+**Run this before concluding anything about a module's custom art.** It covers
+both resolvers: `l33ac` (per-id FC art — pictures, wall sets) and `ua_open_art`
+(whole-file art — FRAME/MENU/GEN/TITLE/BACK/ALWAYS).
+
+### ~~The colour-table "magic" byte~~ — EXPLAINED, and NOT the cause (retracted; the cast itself is now closed too)
 
 I flagged the magic byte (200 in the base BIGPIC sets vs 8 in design pictures) as
 a lead. **It is a dead end, and the engine says why.** `jt993` ("TNPalette"):
@@ -177,7 +204,7 @@ check. All three values are accepted. **Not the cast.**
 value and stop, and they are explicitly DOS-only, so the Mac's 0xC8 is outside
 their scope entirely. The lifted engine is the better reference — use it first.)*
 
-### The rest of the header, decoded from jt993/jt1069
+### The rest of the header, decoded from jt993/jt1069 — ✅ CONFIRMED CORRECT
 
     hdr[0..1]  flags   (TLBFORM calls it the "cycling value")
                        bit0 -> the CLUT window is EXPLICIT (else 0..256)
@@ -188,12 +215,20 @@ their scope entirely. The lifted engine is the better reference — use it first
 
 Then `jt1069(start, count, palbuf, ncopy, rembuf)` allocates the ranges.
 
-**So base and fan pictures request the SAME window:** both have bit0 set and both
-resolve to start=32, count=224 (matching UAPALETT.TXT, which says big pictures use
-colours 32..255). The only header difference is `ncopy` — 7 cycle records in the
-base BIGPIC set, 0 in POR's. That is the next thing to look at, along with
-`jt1069`'s range allocator itself.
+**This decode is now proven**, not inferred: `tools/screen_diff.py` uses exactly
+these fields to render the base big pictures offline, and the result is
+**bit-identical to what the engine puts on screen**. Base and fan pictures request
+the same window (bit0 set, start=32, count=224 — matching UAPALETT.TXT). `ncopy`
+differs (7 cycle records in base set 6, 0 in POR's) and that is **fine** — cycle
+records animate a range, they don't change base colours.
 
-**Not done:** a like-for-like base-vs-fan BIG PICTURE comparison in the gallery.
-Do that first — it decides whether the cast is fan-specific or hits every big
-picture.
+### The master libraries carry an ID TABLE — entry 0, when byte[11] == 1
+
+    base BIGPIC.CTL: id 240->set 1, 241->2, 242->3, 243->4,
+                     244->5, 245->6, 246->7, 247->8
+
+`u16 count`, then `count` × `(u16 id, u16 entry)`. This is how `BIGP0245.TLB`
+resolves, and it is what makes the silent fan-art fallback land on a *specific*
+base picture (id 245 → set 6 → WALKING FOREST). **Do not confuse byte[10] and
+byte[11]** — they are two independent bytes, not a u16; byte-swapping them is what
+caused the black-walls bug.

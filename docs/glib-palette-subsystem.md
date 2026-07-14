@@ -210,18 +210,61 @@ The chain fires, 0 bus errors, and **the portrait renders with completely natura
 colours** (warm skin, blonde hair, blue backdrop, gold jewellery). Gameplay event
 pictures are FINE.
 
-### ⚠️ And the "colour cast" itself is now in doubt
+## ⛔⛔ CLOSED — THE BIG-PICTURE COLOUR CAST **NEVER EXISTED**
 
-Both images I called "cast" were **forest scenes with red/magenta foliage and a
-cyan sky** — which may simply be *what the art is*. Decoding a POR big picture
-offline with its own palette (`art_convert`'s `rle_decode` + the entry-0 colour
-table) yields a **coherent, correctly-coloured scene**, and the palette RGBs are
-full 8-bit (255,0,0 …), not 6-bit VGA, so no scaling is missing either.
+**The port's big-picture render is BIT-EXACT. Zero pixels wrong. There is no
+cast, there was never a cast, and there is nothing here to fix.**
 
-**Remaining test (like-for-like, not yet done):** render *the exact picture the
-gallery displays* offline and diff it against the screenshot. Until then, treat
-"the big-picture colour cast" as **UNCONFIRMED — quite possibly not a bug at
-all**. It was flagged off a glance at stylised fantasy art.
+The like-for-like test finally run (2026-07-13): display a big picture in the ART
+GALLERY, decode the *same* asset offline straight from `BIGPIC.CTL` (no port code
+at all), and diff.
+
+    $ python3 tools/screen_diff.py shot.png base_6.ppm
+    art 304x120 drawn at 2x zoom, best fit at +36+70
+    RMSE 0.000   pixels differing: 0 / 145920
+    BIT-EXACT: the port's render matches the offline decode exactly.
+
+Decode, palette allocation, CLUT install, blit — the whole chain is faithful.
+
+### The picture is just LIKE THAT — it is called "WALKING FOREST"
+
+Rendering all 8 base big pictures offline settles it. Seven are gorgeous and
+natural (an overland map, a lake, a volcano, an island chain, a white dragon on a
+treasure hoard, a coastal city, a gothic gate). **Set 6 is a lurid magenta-and-
+cyan enchanted forest — and the gallery names it `WALKING FOREST`.** It is a
+blighted/animate-tree scene. Stylised 1993 fantasy art, not a defect. Had the
+palette been broken, all eight would have been wrong; seven were perfect.
+
+### ★★ And the ORIGINAL sighting was a FALLBACK — not GIANTS' art at all
+
+The whole chase began with "GIANTS' intro picture has magenta/cyan tones."
+**It was never GIANTS' picture.** The base ID table:
+
+    base BIGPIC.CTL: id 240->set 1 ... id 245->set 6 (WALKING FOREST) ... id 247->set 8
+
+GIANTS ships `BIGP0245.TLB` = **id 245** = its own brown "Against The Giants"
+title card — in **HLIB**, which the engine cannot read. So it **silently falls
+back to base id 245** and draws… WALKING FOREST. Rendering GIANTS' four big
+pictures offline confirms they are entirely natural (three overland maps + the
+brown title card).
+
+**This is the CURSE tree-walls trap for the SECOND time, in a different
+subsystem: art that "looks wrong" was BASE-GAME art substituted for a fan asset
+the engine never loaded.** When a PC module's art looks odd, suspect the silent
+HLIB fallback *before* suspecting the renderer. Nothing warns you.
+
+### ★ How to actually verify a render — `tools/screen_diff.py`
+
+**A Hatari screenshot is NOT 8:8:8 truth.** The SDL surface is **RGB565**, so
+every colour is bit-replicated on the way out: 8-bit `0x83` reads back as `0x82`,
+`0x1F` as `0x18`. Diff a *faithful* render against a raw 8-bit reference and you
+get **RMSE 671 and "97.35% of pixels differ"** — which looks precisely like a
+palette bug and is not one. Quantize the reference the same way and it drops to
+**exactly zero**. `screen_diff.py` does this (`--raw` reproduces the trap); the
+expansion is pinned by `tests/test_screen_diff.py`.
+
+Use it for the walls, the sprites, and the converted POR art. "Does the screen
+match ground truth?" is now a one-line question with a bit-exact answer.
 
 ### (superseded) probe notes
 

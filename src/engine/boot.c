@@ -2786,6 +2786,13 @@ static OSErr ua_open_art(ConstStr255Param pname, short perm, short *refnum)
 		p[0] = (unsigned char)k;
 		if (FSOpen((ConstStr255Param)p, perm, refnum) == noErr)
 			return noErr;                 /* the design ships this art */
+#ifdef FRUA_ARTTRACE
+		/* Silent by design (a design that ships no art of its own must
+		 * fall through) — but see the l33ac note: silence is exactly how
+		 * base art gets mistaken for a module's. */
+		p[p[0] + 1] = 0;
+		dbg_file_str("ART: no design art, using root: ", (char *)p + 1);
+#endif
 	}
 	return FSOpen(pname, perm, refnum);           /* root fallback */
 }
@@ -74369,6 +74376,19 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 		jt460(refnum, -1);                 /* read-to-EOF into the pool */
 		jt411(refnum);
 	}
+#ifdef FRUA_ARTTRACE
+	/* THE SILENT FALLBACK. A missing per-id override is not an error — the
+	 * Mac just carries on and jt987/jt104 pull the id out of the BASE library
+	 * below. Faithful, and NOT to be "fixed". But it is silent, and that has
+	 * now cost two sessions: a PC module's art is named in DOS 8.3 (BIGP0245
+	 * .TLB) and stored as HLIB, so the Mac-convention open ("bigpic0245.ctl")
+	 * misses, and the engine draws BASE art that merely looks unfamiliar. The
+	 * CURSE "tree walls" and the GIANTS "magenta intro picture" were BOTH this
+	 * — base art mistaken for a fan asset, then mistaken for a renderer bug.
+	 * Build with -DFRUA_ARTTRACE before concluding anything about custom art. */
+	else
+		dbg_file_str("ART: no override, using base library: ", path);
+#endif
 
 	/* stamp the binder context jt104 will read (consumed synchronously
 	 * inside jt987's callback, while this frame is still live) */
