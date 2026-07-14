@@ -34083,8 +34083,18 @@ static void l4bac(void)
 
 	PROBE("l4bac");
 	jt1134();
-	if (hdr != NULL)
+	if (hdr != NULL) {
+#ifdef FRUA_MSGTRACE
+		dbg_file_num("l4bac: speed byte hdr[18]", (long)hdr[18]);
+		dbg_file_num("l4bac:   dwell -17518[]",
+		    (long)(short)g_a5_word(-17518 + (long)hdr[18] * 2));
+#endif
 		jt476(g_a5_word(-17518 + (long)hdr[18] * 2));
+	}
+#ifdef FRUA_MSGTRACE
+	else
+		dbg_file_num("l4bac: hdr NULL - NO DWELL", 0);
+#endif
 }
 
 /* JT[92] (CODE 6 + 0x4bac, 22 sites) — public alias for L4bac
@@ -34144,6 +34154,9 @@ static unsigned char jt40(void *entity, short slot)
 static void jt42(const char *msg)
 {
 	PROBE("jt42");
+#ifdef FRUA_MSGTRACE
+	dbg_file_str("jt42 msg", msg ? msg : "(null)");
+#endif
 	jt176();
 	jt94(0, 24, 15, 8, ua_strs_at(0xd2), msg);   /* "%s" */
 	l4bac();

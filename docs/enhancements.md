@@ -54,15 +54,36 @@ overstate completeness — treat them as a floor, not a verdict.
 | 1 | ~~CAST does nothing~~ | `jt953` case 2 -> `L06d6` | ✅ FIXED `624ff7b` |
 | 2 | ~~INV does nothing~~ | `jt953` case 7 -> `L3b80` | ✅ FIXED `624ff7b` |
 | 3 | Default command arm | `jt953` default -> `JT[936]`/`JT[934]` | unhandled |
-| 4 | CAST/INV/shop messages are invisible | `jt42` writes the narrative band; the `jt23` repaint overpaints it | **the one live P1** |
+| 4 | ~~CAST/INV/shop messages are invisible~~ | — | ⛔ **RETRACTED — NEVER TRUE.** See below |
 
 All 8 commands work: MOVE, AREA (automap), CAST, VIEW (character sheet), ENCAMP,
-SEARCH, LOOK, INV.
+SEARCH, LOOK, INV. **P1 is empty apart from gap 3.**
 
-Gap 4 is the remaining player-visible one and it is a *rendering* bug, not a
-lift gap — the arm runs, its message just gets wiped before the player sees it.
-Same class as the long-known shop-message overpaint. Use `-DFRUA_SHOPTRACE` to
-see the text that should be on screen.
+## ⛔ The "message overpaint" bug DOES NOT EXIST — the harness was hiding it
+
+Carried for months as a known defect ("`jt42` writes the narrative band and the
+`jt23` repaint overpaints it"). **It is not real.** Every message displays:
+
+| trigger | message | where |
+|---|---|---|
+| CAST, as a fighter | `BORIS CANNOT DO MAGIC` | row 24 (`l05c4` -> `jt18`) |
+| INV, no special items | `EMPTY!` | row 24 (`l3b80` -> `jt42`) |
+| shop BUY | `PIOUS BUYS 20 ARROWS` | shop footer (`jt42`) |
+
+Each paints, **dwells ~1s** (`l4bac` -> `jt476`, fed by the design's text-speed
+table at `-17518`; HEIRS' speed byte 4 -> dwell 1000), then the screen repaints
+and the command bar restores. That is the faithful transient-message cycle.
+
+**★★ The bug was in how I was LOOKING.** `driver.sh shots` waits for the frame
+to *settle* before grabbing — so it skips transient text **by construction**. It
+is the right tool for a static screen and exactly the wrong one for a message
+that exists for one second. Every "the message never appears" observation came
+from a settled-frame grab taken after the message had already gone.
+
+**Use `driver.sh shot` (immediate) within ~1s of the keypress to see a message**,
+and `-DFRUA_MSGTRACE` to log the exact string `jt42` was handed plus the dwell
+value `l4bac` computed. A tool that silently drops the thing you are hunting is
+worse than no tool — see also the STEP-log row/col swap (`0429d4e`).
 
 **Fixed during this audit:** clicking CAST — a command that does *nothing* —
 **corrupted the play screen** (blank roster, blank clock, three stray FRAME

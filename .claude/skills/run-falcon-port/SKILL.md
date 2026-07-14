@@ -232,6 +232,15 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
 - **`shots` prints a harmless `[[: arithmetic syntax error` line** under Xvfb
   (the `magick compare` AE metric trips `set -o pipefail` when frames differ).
   It self-recovers and still saves a correct settled frame — ignore the stderr.
+- **★★ `shots` CANNOT see a transient message — it skips them by construction.**
+  FRUA prints messages ("BORIS CANNOT DO MAGIC", "EMPTY!", "PIOUS BUYS 20
+  ARROWS") on row 24, dwells ~1s (`l4bac` -> `jt476`), then repaints. `shots`
+  waits for the frame to **settle**, so it grabs the screen *after* the message
+  is gone — and the command bar it finds there looks like nothing ever happened.
+  This cost months: "CAST/INV/shop messages are invisible" was carried as a
+  known P1 bug that **never existed**. For anything transient use **`shot`**
+  (immediate) ~1s after the keypress, and build `-DFRUA_MSGTRACE` to log the
+  exact string and the dwell. `shots` remains correct for STATIC screens.
 - **`SDL_VIDEODRIVER=x11`** is load-bearing for screenshots; the harness sets it.
 - Boot speed varies with host load (~12s here at `--fast-forward`); the
   "Your system is too slow … sound samples" warning is cosmetic.
@@ -244,4 +253,5 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
 | boot hangs, never logs "menu: modal up" | Stale Hatari holding C:. `pkill -9 -x hatari`, then retry `start`. |
 | `no Hatari window found` / empty (~358 B) PNG | Xvfb not up or grab too early. Driver auto-starts Xvfb on `:99`; re-run `shots` (it retries). |
 | screenshot is a half-drawn/black play screen | Use `shots`, not `shot`; it waits for the frame to settle. |
+| a **transient message** never appears ("CAST does nothing") | **You used `shots`.** It waits for the frame to SETTLE, so it skips transient text BY CONSTRUCTION. Use **`shot`** (immediate) within ~1s of the keypress. See the Gotcha below. |
 | `make run-game` says gamedata not found | Copyrighted `data/frua-mac/joined` isn't unpacked. See `docs/mac-release.md`. |
