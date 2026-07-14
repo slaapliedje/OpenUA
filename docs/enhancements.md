@@ -111,11 +111,17 @@ bug that affected implemented ones.**
 
 - **Smooth-scroll + move sound** (`L4900` / `L423e` / `L3998`) — the port hard-jumps
   the view cell per step instead of animating the walk. Deferred, cosmetic.
-- **`jt303` design-name line** — blocked on an argument-order audit of `jt406`
-  (the port's `jt406(dst,src)` is REVERSED vs the Mac's `BlockMove(src,dst)`;
-  calling it faithfully today would corrupt the level header). **Fix jt406's arg
-  order across its call sites first** — this is a latent-corruption hazard, not
-  just a missing line.
+- ~~**`jt303` design-name line**~~ — ✅ DONE. The full `jt406` argument-order
+  audit ran 2026-07-14: all **141** call sites asm-cross-checked. `jt303` is
+  restored (the faithful call is the *swap* `jt406(buf, level+118, 16)`, which
+  the earlier deferral over-cautiously feared). One genuine reversal fixed
+  (`l53b0` prologue, dormant tile converter); two `l4842` sites (dormant editor
+  map-resize) flagged as a copy-DIRECTION divergence needing a Mac-trace re-lift.
+  See the banner on `jt406`'s definition and commit `62527d3e`.
+- ⚠️ **`l4842` map column-resize** (dormant, editor-only) — its row re-spacing
+  copies the OPPOSITE direction from the Mac and runs front-to-back, corrupting a
+  row when `cc < 2*base[3]`. Re-lift to match the asm and validate on a real grid
+  before trusting the editor's column resize. (Surfaced by the jt406 audit.)
 - **Drow-gear-dissolves scan** (`l5676`, `ev[12]` bit 3) — unimplemented event arm.
 - Per-step cell-change / redraw-hint arms (`l63c0`, `0x43f8..0x445c`).
 
