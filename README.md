@@ -1,113 +1,159 @@
 # FRUA — Atari Falcon030 / TT030 port
 
-A port of SSI's *Forgotten Realms: Unlimited Adventures* (1993) to the Atari
-Falcon030 and TT030.
+A port of SSI's *Forgotten Realms: Unlimited Adventures* (FRUA, 1993) to the
+Atari **Falcon030** and **TT030**, decompiled from the **Macintosh 68k** release.
 
-The port is based on the **Macintosh 68k release**. Because the Mac version is
-already 68k machine code and the Falcon/TT are 68030 machines, the CPU code
-carries over directly — the work is retargeting the Mac Toolbox to Atari
-TOS/GEM/XBIOS and rebuilding the display and sound paths.
+Because the Mac version is already 68k machine code and the Falcon/TT are 68030
+machines, the CPU code carries over directly. The work is retargeting the Mac
+Toolbox to Atari TOS/GEM/XBIOS and rebuilding the display, sound, and input
+paths behind a hardware-abstraction layer.
 
-## Status
+> **No game data is included.** FRUA and its modules are copyrighted. You supply
+> your own original Mac (or DOS — see below) FRUA data. See
+> [`data/README.md`](data/README.md).
 
-Early but interactive. `make` builds `frua.prg` and (if the source
-resource fork is present) packs `frua.rsc` from it. `make run` boots
-the build in Hatari: the engine entry runs end-to-end on top of the
-shim, then a small post-engine probe opens the three real `WIND`
-resources from the resource fork, stacks them on the desktop in the
-real CLUT-129 palette, and hands the mouse over — click-to-front,
-title-bar drag with an XOR outline, keypress to exit.
+## Status — playable beta (v0.1.0-beta)
 
-What's wired:
+The runtime plays a real adventure end to end. Verified in the **Hatari**
+emulator on its own art; it has **never been run on real Falcon030/TT030
+hardware** — treat it as emulator-validated only.
 
-- **Display HAL** (`platform/`) — Falcon VIDEL 256-colour back buffer
-  with mode switch, palette load, chunky-to-planar present; an `input`
-  HAL with a Supexec-installed IKBD-packet mouse driver and a 60 Hz
-  tick counter scaled from `_hz_200`.
-- **Toolbox shim** (`compat/`) — complete enough to drive the demo above:
-  - **Memory Manager** — `Ptr` and relocatable `Handle` blocks
-    (`HLock` / `HUnlock` are bookkeeping; the heap doesn't relocate).
-  - **QuickDraw** — geometry, the `GrafPort` / `CGrafPort` types, regions,
-    every rect / line / oval / blit / clip primitive, pen size / mode /
-    pattern, RGB foreground/background with nearest-CLUT lookup, and a
-    text family (TextFont/Size/Face/Mode + DrawChar/DrawString/CharWidth/
-    StringWidth) over an embedded 8x8 fallback font.
-  - **Window Manager** — full lifecycle, frames painted into the screen
-    port with active-vs-inactive title-bar styling, FindWindow / DragWindow
-    with an animated XOR outline, TrackGoAway.
-  - **Event Manager** — `EventRecord`, posted FIFO, `TickCount`, BIOS
-    keyboard pump, IKBD-driven mouse-edge synthesis for mouseDown /
-    mouseUp, updateEvt synthesis from non-empty `updateRgn`s,
-    `WaitNextEvent` with a sleep tick.
-  - **Resource Manager** — reads the flat `(type, id)` FRSC archive,
-    plus `OpenResFile` / `UseResFile` / `CurResFile` / `CloseResFile` /
-    `HomeResFile` / `CreateResFile` over a refnum table.
-  - **File Manager** — `FSOpen` / `FSRead` / `FSWrite` / `FSClose` /
-    `GetEOF` / `SetEOF` / `GetFPos` / `SetFPos` / `Create` / `FSDelete` /
-    `GetVol` / `SetVol` / `FlushVol` / `GetFInfo` / `SetFInfo` over
-    GEMDOS file calls.
-  - **Toolbox startup** — `toolbox_init` runs the seven manager inits in
-    Mac order; the engine's `master_init` calls it.
-- **Engine** (`src/engine/`) — lifted from the Mac CODE segments:
-  `ua_main` runs to completion, `core_init`, `master_init` / `_shutdown`,
-  the `fc` file-cache subsystem, allocator / string / RNG / error
-  helpers, and an early frontier on CODE 6: `L07dc` (the play-loop
-  body), `L5124` (its first-time init), `jt942` / `jt943` (the loop
-  predicate flag pair), `JT[399]` (the engine's memset), `jt174`, `jt76`,
-  `jt480` (the string-table setter), plus a `jt918` entry-only skeleton.
-  Unlifted callees are PROBE-instrumented stubs — `make ENGINE_PROBE=1`
-  emits the per-frame call sequence.
-- **Tooling** (`tools/`) — `dis68k.py`, the resource-fork extractors,
-  `rsrcpack` (Mac fork → FRSC archive), and a host test suite
-  (`make test`).
+What works:
 
-Still ahead: the THINK C `DATA + DREL` replay (real `ua_get_string`
-mapping for every index), the Dialog Manager (`ALRT` / `DLOG`), the
-Sound Manager, real NFNT font loading, and the engine's gameplay
-segments. `docs/` has the subsystem maps, the bring-up probe log,
-and the lifting workflow.
+- **Exploration** — first-person 3D dungeon view and the top-down area automap;
+  movement by arrow keys or mouse; all eight command-bar verbs
+  (MOVE · AREA · CAST · VIEW · ENCAMP · SEARCH · LOOK · INV).
+- **Events** — text, combat, treasure, stairs, transfers, shops, temples,
+  encounters, chains, and the approach-direction and quest-flag gating that
+  designs use.
+- **Combat** — turn-based, playable through to a party wipe, driven by the
+  arrow keys.
+- **Towns & services** — shops (buy / sell / identify, pooled and personal
+  funds), temples (healing services), taverns.
+- **Magic** — the full loop: memorize from the grimoire, rest to commit, cast;
+  spell effects apply and are consumed.
+- **Characters** — character generation for every class, the Training Hall
+  roster (add / remove / modify / view / train), equipping weapons and armour
+  (AC and damage update and persist), and save / load of the party and game.
+- **Editors** — the in-engine GEO map editor, event editor, record/game-settings
+  editor, art gallery, and monster editor, plus GDOS printing from the editor.
+- **Sound** — digitized SFX and the Mac four-tone-synth music.
 
-## Approach
-
-| Aspect       | Decision                                                      |
-|--------------|---------------------------------------------------------------|
-| Source base  | Decompile the Macintosh 68k release                           |
-| Decomp form  | Hybrid — recompilable C, with 68k asm where it resists lifting |
-| Mac Toolbox  | Compatibility shim first, native Atari APIs later             |
-| Toolchain    | m68k-atari-mint GCC cross-compiler                            |
-| Display      | Hardware abstraction layer: VIDEL / TT-shifter / VDI          |
-
-See [`docs/architecture.md`](docs/architecture.md) and
-[`docs/decisions.md`](docs/decisions.md) for the full rationale.
+It plays the bundled sample design **HEIRS TO SKULL CRAG** and real commercial
+modules (e.g. *Pool of Radiance*) on their own art. The current gaps are
+fidelity/polish, not missing features — see
+[`docs/enhancements.md`](docs/enhancements.md).
 
 ## Building
 
-Requires the [m68k-atari-mint](https://github.com/vincentariel/m68k-atari-mint)
-GCC cross toolchain on `PATH` (override the prefix with `make CROSS=`).
+Requires the **m68k-atari-mint GCC** cross toolchain with a soft-float
+`m68020-60` multilib on `PATH` (override the prefix with `make CROSS=…` or
+`TOOLROOT=…`). Building that toolchain is documented in
+[`docs/toolchain-softfloat-020.md`](docs/toolchain-softfloat-020.md).
 
 ```sh
-make            # build frua.prg (soft-float; runs on Falcon030 and TT030)
-make FPU=1      # FPU-required variant tuned for the TT030
-make run        # boot the build in the Hatari emulator (Falcon mode)
-make test       # host-side test suite (pytest over tools/)
-make clean      # remove build output
+make                 # build frua.prg (soft-float; runs on Falcon030 AND TT030)
+make FPU=1           # FPU-required variant tuned for the TT030 (68881 hard-float)
+make run             # boot the build in Hatari (Falcon mode)
+make test            # host-side test suite (pytest over tools/)
+make release         # packaged, flag-guarded shipping build -> dist/
+make clean
 ```
 
-## Layout
+The default build is soft-float so **one binary serves the FPU-less Falcon030
+and the 68882-equipped TT030**. The toolchain flags are non-negotiable
+(`-m68020-60 -msoft-float`); see [`CLAUDE.md`](CLAUDE.md).
+
+### Running a game module
+
+You provide your own FRUA data. Unpack the Mac release under `data/` (see
+[`docs/mac-release.md`](docs/mac-release.md)), then stage a design and boot:
+
+```sh
+make run-game DSN=HEIRS.DSN     # stage the shared libraries + a design, boot Hatari
+```
+
+`make gamedata DSN=<name>.DSN` flattens the shared engine libraries and the
+chosen `.DSN` into `data/work/gamedata/` (the GEMDOS `C:` mount) without
+disturbing any characters you created.
+
+## Using DOS FRUA data and fan modules
+
+FRUA has a large fan-module scene (hundreds of PC modules). Their art is authored
+for one release and is doubly unreadable by this Mac-derived engine — wrong byte
+order *and* a different pixel layout. `tools/art_convert.py` converts the art
+container both ways (DOS **`HLIB`** ↔ Mac **`GLIB`**), so PC modules become
+playable:
+
+```sh
+python3 tools/art_convert.py <module-art-files>   # HLIB <-> GLIB
+```
+
+The transform was **derived by diffing the same module shipped in both
+formats** (one asset set authored once, in both a PC and a Mac release), so it
+reproduces the real Mac bytes exactly — `tests/test_art_convert.py` checks that
+against the matched pair. Design/data files (`.DAT`/`.GEO`/…) are byte-identical
+between releases and need no conversion; only the art containers do. See
+[`docs/fan-module-hacks.md`](docs/fan-module-hacks.md) and
+[`docs/dos-inventory.md`](docs/dos-inventory.md).
+
+`tools/` also holds the resource-fork extractors (`macrsrc.py`, `hfs_extract.py`,
+`appledouble.py`), the `HLIB`/`GLIB` extractors (`hlib_extract.py`,
+`wall_extract.py`), `rsrcpack.py` (Mac resource fork → the flat FRSC archive the
+engine loads), and the disassembler `dis68k.py`.
+
+## Amiga AGA (in progress)
+
+A second target — **Amiga AGA** (A1200/A4000) — is scaffolded but not yet
+compiled. It reuses the whole engine and shim; only the toolchain and the
+`platform/` backend differ. `make MACHINE=amiga` selects it once the Bebbo
+`m68k-amigaos` toolchain is built. See
+[`docs/toolchain-amiga.md`](docs/toolchain-amiga.md) and ADR-0012 in
+[`docs/decisions.md`](docs/decisions.md).
+
+## Architecture
+
+The port is layered, and only the innermost platform layer knows which machine
+it runs on:
 
 ```
-src/        port bootstrap + decompiled engine (src/engine/)
-compat/     Mac Toolbox compatibility shim
-platform/   Atari hardware abstraction layer
-toolchain/  cross-toolchain configuration
-tools/      host-side extractors / converters
-tests/      host-side test suite
-docs/       architecture, decisions, Toolbox mapping
-data/       original FRUA assets (git-ignored)
+src/engine/  ->  compat/  ->  platform/  ->  TOS / AmigaOS
+ (lifted        (Mac         (hardware
+  engine)        Toolbox      abstraction:
+                 shim)        VIDEL / TT / AGA)
+```
+
+- **`src/engine/`** — the decompiled engine, lifted function-by-function from the
+  Mac CODE segments. Recompilable C, with 68k asm where lifting resists.
+- **`compat/`** — the Mac Toolbox compatibility shim (Memory, QuickDraw, Window,
+  Event, Resource, File, Dialog, Menu, Control, Sound, TextEdit managers). The
+  engine keeps the Mac spellings; the shim routes them to GEMDOS/GEM/VDI.
+- **`platform/`** — the display / input / sound / debug HAL. The engine renders
+  into one 8-bit paletted chunky buffer; each machine backend puts it on screen.
+
+Design rationale lives in [`docs/architecture.md`](docs/architecture.md) and the
+append-only decision log [`docs/decisions.md`](docs/decisions.md). `docs/` also
+holds the per-subsystem maps ("`*-wall.md`") and the decompilation workflow
+([`docs/decompilation.md`](docs/decompilation.md)).
+
+## Repository layout
+
+```
+src/         port bootstrap (src/main.c) + decompiled engine (src/engine/)
+compat/      Mac Toolbox compatibility shim
+platform/    hardware abstraction layer (platform/amiga/ = AGA backend)
+toolchain/   per-machine cross-toolchain configuration (.mk)
+tools/       host-side extractors / converters / disassembler
+tests/       host-side pytest suite
+docs/        architecture, decisions, subsystem maps, formats
+data/        original FRUA assets — you supply these (git-ignored)
 ```
 
 ## Legal
 
-This repository contains only port code. It ships no original FRUA assets or
-binaries — those are copyrighted by their rightsholders and must be supplied
-separately (see [`data/README.md`](data/README.md)).
+This repository contains **only port source code and tooling**. It ships no
+original FRUA assets, binaries, resource forks, or module data — those are
+copyrighted by their rightsholders and must be supplied separately from your own
+legally-obtained copy. The build regenerates the copyrighted replay tables from
+your resource fork locally; they are never committed. See
+[`data/README.md`](data/README.md).
