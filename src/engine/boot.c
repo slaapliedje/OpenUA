@@ -33288,6 +33288,29 @@ static void l12a0(void)
 					}
 			}
 
+			/* ★ jt587's TAIL — the half of it the port CAN take.
+			 *
+			 * jt587 is zero + load-from-disk + jt21 + jt910 (CODE 15
+			 * @0x0920 / @0x092a). The comment above explains why the port
+			 * cannot use its LOAD; the cg_pool lookup is the substitute.
+			 * But dropping jt587 wholesale also dropped its RECOMPUTE, and
+			 * jt910 is what runs jt908 — the spell-slot grant. Without it
+			 * rec[355..381] (the per-class-per-level memorize capacity) is
+			 * never built, so l05c4 sees rec[355]/[364]/[373] all zero and
+			 * answers "Cannot do magic". EVERY spellcaster added to a party
+			 * was mute: a level-6 mage could not cast, memorize or scribe.
+			 * The character EDITOR's Keep (l5044) calls jt908 directly,
+			 * which is why an edited character worked and an added one did
+			 * not — the tell that this was the ADD path, not jt908.
+			 *
+			 * jt21 + jt910 are the Mac's own functions at the Mac's own
+			 * point in the sequence (before the L1486 caps walk), so this
+			 * restores faithful behaviour rather than standing in for it. */
+			if (picked_rec != NULL) {
+				jt21((long)(uintptr_t)picked_rec);
+				jt910((long)(uintptr_t)picked_rec);
+			}
+
 			{
 				const char *prefixed =
 					jt488(ua_strs_at(0x5fda), &e[5]);
@@ -54102,6 +54125,15 @@ static void jt908(long ent_l)
 			}
 			break;
 		case 5:
+#ifdef FRUA_SPELLTRACE
+			dbg_file_num("jt908 mage lvl", (long)lvl);
+			dbg_file_num("   sel -30215", (long)(unsigned char)g_a5_byte(-30215));
+			{ short q; for (q = 0; q < 9; q++)
+				dbg_file_num("   prog[]", (long)(unsigned char)
+				    g_a5_byte(-29876
+				      + (long)(unsigned char)g_a5_byte(-30215) * 261
+				      + ((long)lvl - 1) * 9 + q)); }
+#endif
 			for (k = 1; k <= 9; k++) {
 				ent[373 + (k - 1)] = (unsigned char)
 				    (ent[373 + (k - 1)] +
@@ -54111,6 +54143,9 @@ static void jt908(long ent_l)
 					((long)lvl - 1) * 9 + (k - 1)));
 				jt912(ent_l);
 			}
+#ifdef FRUA_SPELLTRACE
+			dbg_file_num("   -> ent[373]", (long)(unsigned char)ent[373]);
+#endif
 			break;
 		default:	/* classes 1, 2, 6, 7 */
 			break;
@@ -60441,7 +60476,25 @@ static short jt953(void)
 				l3b80();
 				jt23();
 				break;
-			default:                        /* L421e — TODO: JT[936/934] */
+			/* L421e — the ROSTER CURSOR. Any command byte that is not one
+			 * of the eight verbs lands here; jt934 acts only on the four
+			 * cursor codes (132/133/135/136) and ignores the rest, so this
+			 * is also the Mac's catch-all for a stray key.
+			 *
+			 *   421e: jsr JT[936] (member, 0)   ; un-highlight the old active
+			 *   4232: jsr JT[934] (cmd)         ; move the cursor
+			 *   4240: jsr JT[936] (member, 1)   ; highlight the NEW active
+			 *   4246: jsr JT[938]               ; repaint clock/position
+			 *
+			 * -27932 is re-read after jt934 because jt934 is what changes it.
+			 * Without this arm the active character could not be changed from
+			 * the play screen at all — and the active character is who CAST
+			 * casts as, whose sheet VIEW opens, and whose purse a shop spends. */
+			default:
+				jt936(g_a5_long(-27932), (short)0);
+				jt934(cmd);
+				jt936(g_a5_long(-27932), (short)1);
+				jt938();
 				break;
 			}
 		}

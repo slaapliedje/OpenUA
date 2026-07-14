@@ -226,3 +226,50 @@ but reverted because of the two blockers below.
 3. Verify the sheet shows BARBARUS's LONG SWORD +1 / PLATE MAIL +1.
 4. Then the ITEMS / TRADE / DROP handlers (`l25ce`/`l4334`/`l46e0` in jt904) on
    the now-real lists.
+
+---
+
+## ★★ NO SPELLCASTER COULD EVER CAST — the ADD path dropped jt587's tail (FIXED 2026-07-14)
+
+**Symptom:** a level-6 MAGIC-USER pressing CAST gets **"ZOLTAN CANNOT DO MAGIC"**.
+So does a level-6 cleric. The magic subsystem — cast, memorize, scribe — was
+**completely unreachable for every character in the game**, and had been for the
+whole project. No audit caught it: nothing is stubbed, `stub_audit` reports 0
+live gaps, and every function involved is fully lifted.
+
+**Root cause.** `l05c4` refuses magic when the per-class memorize CAPACITY grid
+`rec[355]/[364]/[373]` is all zero. That grid is built by **`jt908`**, which runs
+only from **`jt910`** (the post-level-change recompute). The Mac reaches it on
+the ADD-CHARACTER path: its ADD is a disk load — `jt477` (alloc slot) then
+**`jt587`**, whose body is *zero → load-from-disk → `jt21` → `jt910`*
+(CODE 15 @0x0920 / @0x092a).
+
+The port **cannot use jt587's load** (its saved characters are flat cg_pool
+dumps, not the `.cch` stream `jt577` walks; and party members must live inside
+`cg_pool` to be walkable) — a deliberate, documented deviation. But dropping
+`jt587` wholesale **also dropped its RECOMPUTE TAIL**, and that tail is where the
+spells come from. The port substituted the load and silently lost the `jt910`.
+
+**Fix:** run `jt21` + `jt910` on the picked record at the Mac's own point in the
+ADD sequence (before the L1486 caps walk). These are the Mac's own functions —
+this restores faithful behaviour, it does not stand in for it.
+
+**Verified:** ZOLTAN (level-6 M-U) now opens **SPELLS IN GRIMOIRE** — CHARM
+PERSON / DETECT MAGIC / ENLARGE / MAGIC MISSILE / READ MAGIC / SHIELD / SLEEP /
+INVISIBILITY — with the capacity line **MAGIC-USER : 4 2 2**, exactly the
+progression `jt908` computes from the `-29876` table (selector 3, row
+`4 2 2 0 0 0 0 0 0`). Memorizing consumes a slot (4 2 2 -> 3 2 2). The A5
+progression table was seeded correctly all along; nothing ever called it.
+
+### ★ Why every audit missed it, and the tell that cracked it
+
+- **Nothing was stubbed.** `jt908`, `jt910`, `jt587`, `l05c4` are all fully
+  lifted and correct. The gap was a **missing CALL**, which no stub audit can
+  see. Same blind spot as the empty switch arm (`docs/enhancements.md`).
+- **The character EDITOR worked.** `l5044` (Modify -> Keep) calls `jt908`
+  directly, so an *edited* character got spells and an *added* one did not.
+  **That asymmetry is the tell** — it localised the bug to the ADD path.
+- ★★ **When a port must skip a Mac function, enumerate what else that function
+  did.** `jt587` was skipped for its LOAD; nobody checked its TAIL. A deviation
+  documented as "we can't take this path" quietly took the rest of the path with
+  it.

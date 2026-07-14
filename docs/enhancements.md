@@ -53,7 +53,8 @@ overstate completeness — treat them as a floor, not a verdict.
 |---|---|---|---|
 | 1 | ~~CAST does nothing~~ | `jt953` case 2 -> `L06d6` | ✅ FIXED `624ff7b` |
 | 2 | ~~INV does nothing~~ | `jt953` case 7 -> `L3b80` | ✅ FIXED `624ff7b` |
-| 3 | Default command arm | `jt953` default -> `JT[936]`/`JT[934]` | unhandled |
+| 3 | ~~Default command arm~~ | `jt953` default -> `JT[936]`/`JT[934]` | ✅ FIXED — the roster cursor; you could not change the active character from the play screen |
+| 5 | ~~NO spellcaster could ever CAST~~ | ADD-character dropped `jt587`'s `jt21`+`jt910` tail -> `jt908` never ran -> spell capacity all zero | ✅ FIXED — see `docs/inventory-subsystem-wall.md` |
 | 4 | ~~CAST/INV/shop messages are invisible~~ | — | ⛔ **RETRACTED — NEVER TRUE.** See below |
 
 All 8 commands work: MOVE, AREA (automap), CAST, VIEW (character sheet), ENCAMP,
