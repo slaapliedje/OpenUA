@@ -463,3 +463,54 @@ is the Rosetta stone.
 
 ⚠️ **An event cell RE-FIRES while you stand on it** — leaving the temple menu drops
 you back on its cell and the event runs again. Step OFF immediately, or you loop.
+
+## POR play-through, 2026-07-14 — the slums, and three bugs
+
+Drove a real route through *Pool of Radiance* with one level-10 fighter
+(GROG), steering by the `-DFRUA_CELLSCAN` step log because **POR hides its
+coordinate box** (a faithful per-level flag, `ds[7]` bit 0 — do NOT "fix" it).
+
+**The route out of Phlan.** Civilized Phlan (GEO016) has NO combat cell: 18
+text, 8 temple, 1 select-by-class, and two type-11 transfers. The transfer at
+step-coords (col 5, row 10) is a *dead end by design* — the Bishop's guards
+turn you away, and FORCE PAST just brings the city watch ("you retreat rather
+than battle them"). The real exit is the gate at **(col 4, row 19)**: walk
+INTO it and `l5676` loads **GEO015 — the slums**, landing you at (col 5, row 1).
+
+**Finding combat.** The slums' combat is not on a cell — it is reached by
+CHAIN. `tools`-free recipe: event records live at **offset 3786 of geoNNN.dat,
+20 bytes each, 100 slots** (hackdocs `GEOEVENT.TXT`), byte 0 = type. The chain
+cell at **(col 10, row 13)** runs QuestStage -> Q-Button ("WHAT DO YOU DO?
+LEAVE / TALK / ATTACK") -> ATTACK -> "AN ARMY OF HUMANOIDS APPEARS TO DEFEND
+THE OLD WIZARD!" -> combat, 13 humanoids on POR's own sprites.
+
+### Bug 1 — an event's OWN verb bar froze over the play screen (FIXED, fead0b9)
+
+Walk off Tyr's temple and the command bar still read HEAL / DONATE / VIEW /
+POOL / LEAVE; decline the transfer and a dead RETURN button survived every
+key and click. `l63c0`'s rebuild hook (`g_event_modal_shown`) was armed ONLY
+by `l1806`, so an event carrying its own verb bar (temple `l216a`, `l5676`'s
+`jt159` question) never triggered it. The Mac exits the command loop after
+EVERY event and rebuilds the play dialog from scratch; arm the flag for any
+dispatched event. `-DFRUA_BARTRACE` traces the flag across each hop.
+
+### Bug 2 — three stray editor plates + a blank clock on the AREA map (OPEN)
+
+The four shape-5 bevel-frame DLItems are built by `jt240` (the EDITOR's
+design-walk driver the port reuses for play; the Mac play walk never runs
+jt240) under a `-12290 == 0` 3D-leg guard. `l40f8_area_cmd` flips the leg
+AFTERWARDS, so they linger and paint across the top of the street grid. The
+clock/coord panel also goes blank on the map. **Pre-existing, not a
+regression** (reproduced on the parent commit). Forcing a `play_screen_relayout`
+from `l40f8` does NOT clear them — so the plates are reaching the screen by
+some path other than the relayout's guarded rebuild. Root cause still open;
+don't re-try the relayout hypothesis without new evidence.
+
+### Bug 3 — POR combat enters and renders, but the turn never starts (OPEN)
+
+The tactical map composes correctly (GROG + 13 humanoids, POR's own combat
+sprites, floor/wall tiles) — but the **right-hand combat panel stays blank**,
+no combat command bar appears, and neither Return nor the arrow keys start the
+turn. Combat on HEIRS is playable (arrows drive the turn, #115), so this is
+POR-specific or specific to the chained-combat entry (`l709e` case 36 ->
+case 1 `l159a`). **The single most valuable thing to chase next.**
