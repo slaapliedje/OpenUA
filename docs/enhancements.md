@@ -58,7 +58,13 @@ overstate completeness — treat them as a floor, not a verdict.
 | 4 | ~~CAST/INV/shop messages are invisible~~ | — | ⛔ **RETRACTED — NEVER TRUE.** See below |
 
 All 8 commands work: MOVE, AREA (automap), CAST, VIEW (character sheet), ENCAMP,
-SEARCH, LOOK, INV. **P1 is empty apart from gap 3.**
+SEARCH, LOOK, INV. **P1 is now EMPTY.**
+
+⚠️ One thing is fixed but NOT fully re-verified: I proved the spell CAPACITY is
+granted (grimoire opens, `MAGIC-USER : 4 2 2`, memorizing consumes a slot) but
+never drove a rest to completion, so a spell has not actually been CAST in
+anger. Rest keeps getting interrupted (once by HEIRS' "no sleeping in the
+streets" guard — faithful). **Finish that round-trip before tagging.**
 
 ## ⛔ The "message overpaint" bug DOES NOT EXIST — the harness was hiding it
 
