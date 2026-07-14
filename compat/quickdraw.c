@@ -307,11 +307,17 @@ void qd_present_suppress(int on)
 }
 
 /* DEBUG click marker: qd_dbg_mark stashes a screen point; qd_present overlays a
- * magenta crosshair there so you can see exactly where a click's hit-test landed
- * (vs the cursor sprite, whose hotspot is offset from the hit point). Temporary
- * bring-up aid for the dungeon mouse work. */
+ * crosshair there so you can see exactly where a click's hit-test landed (vs the
+ * cursor sprite, whose hotspot is offset from the hit point). A bring-up aid for
+ * the dungeon mouse work.
+ *
+ * ★ OFF BY DEFAULT (build with -DFRUA_CLICKMARK to get it back). It used to be
+ * unconditional, so the shipping binary drew a red crosshair over the play screen
+ * at every click — visible in every screenshot taken of this port for months. */
+#ifdef FRUA_CLICKMARK
 static short g_dbg_mark_x = -1, g_dbg_mark_y = -1;
 static void  qd_dbg_draw_mark(void);
+#endif
 
 void qd_present(void)
 {
@@ -321,7 +327,9 @@ void qd_present(void)
 	}
 	qd_cursor_tick();                /* (re)push the VBL cursor sprite if dirty */
 	cursor_composite();              /* no-op when the VBL cursor is active     */
+#ifdef FRUA_CLICKMARK
 	qd_dbg_draw_mark();              /* overlay the debug click crosshair        */
+#endif
 	if (g_present_hook != NULL)
 		g_present_hook();
 	cursor_restore();
@@ -1263,8 +1271,9 @@ static unsigned char qd_nearest_color(const RGBColor *color)
 	return best;
 }
 
-/* Draw the debug click crosshair into the 8-bit surface (before c2p): a magenta
+/* Draw the debug click crosshair into the 8-bit surface (before c2p): a
  * plus with a small box ("circle") centred on the stashed click point. */
+#ifdef FRUA_CLICKMARK
 static void qd_dbg_draw_mark(void)
 {
 	unsigned char *px;
@@ -1297,12 +1306,18 @@ static void qd_dbg_draw_mark(void)
 	}
 }
 
+#endif /* FRUA_CLICKMARK */
+
 /* Stash the last click point for the debug crosshair (screen coords: x = horiz,
- * y = vert). (-1, -1) clears it. */
+ * y = vert). (-1, -1) clears it. A no-op unless -DFRUA_CLICKMARK. */
 void qd_dbg_mark(short x, short y)
 {
+#ifdef FRUA_CLICKMARK
 	g_dbg_mark_x = x;
 	g_dbg_mark_y = y;
+#else
+	(void)x; (void)y;
+#endif
 }
 
 /* ===================== Cursor Manager ===================== *
