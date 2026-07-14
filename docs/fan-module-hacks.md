@@ -283,3 +283,60 @@ Reproduce it before theorising.
   (GEODATA offset 70). **Do not "fix" it without checking POR's zone data first.**
 - **Custom music** (`.xmi` — POR ships `addq1.xmi`) is still ignored; a new
   subsystem, not a lift.
+
+## ✅ ROOT CAUSE: the "DISK READ ERROR" is FAR-POOL EXHAUSTION (2026-07-13)
+
+Reproduced in POR and traced to the byte. `-DFRUA_ARTTRACE` now instruments the
+resource loader (`l17e2`) and the GLIB load callback (`jt104`):
+
+    RES: jt104 REJECT — jt1016 POOL LOAD FAILED, size=8148
+    RES:   group=4
+    RES:   FreeMem=8618768
+    RES: callback REJECTED  spec=:DISK4:PICB.ctl
+
+**An 8 KB picture could not be loaded while the machine had 8.6 MB free.** It is
+not system memory and it is not a missing file — **the 450 KB FAR pool is full.**
+
+The chain, end to end:
+
+1. `jt1016` (load into the FAR pool) fails — no room.
+2. `jt104` (the GLIB load callback) therefore returns 0.
+3. `l17e2` reads that as a failed load → `l157c(2,…)` = **"DISK READ ERROR"**.
+4. `jt987` retries, showing `l157c(1,…)` = **"PLEASE INSERT DISK 4"** — the Mac's
+   floppy-swap prompt, faithfully doing its job for a resource it cannot satisfy.
+
+**The 450 KB cap is FAITHFUL and correct** (CODE 6+0x5fc pushes `#450`). What is
+wrong is what we PUT in it: **the port loads WHOLE wall libraries into the pool**
+(POR's are 296,922 + 231,434 = **528 KB, already over the cap**), where the Mac
+extracts only the **requested per-set sub-GLIB (~37 KB)**. `cw_wallfile_load`'s own
+comment admits it — *"FALLBACK (migration scaffold, NOT the end state): if the pool
+can't hold the ~296K library…"*. POR's start level needs both wall files plus an
+event picture and blows the budget immediately; HEIRS mostly escapes it.
+
+**The fix is the pending GLIB pool flip** — make the wall load faithful (per-set
+sub-GLIB via `l33ac`/`jt987`/`jt104`), not a whole-file read. It was deprioritised
+as "not current priority"; it is now the thing standing between the port and a
+playable Pool of Radiance.
+
+### ⛔ Two WRONG root causes I published on the way — and how each died
+
+1. **"Missing converted art."** The mixed-case `.tlb` files (38 of them — `Pica1003
+   .tlb`, not `PICA1003.TLB`) really were missed by a case-sensitive `*.TLB` glob,
+   and they really do use unsupported drawing methods. It was a tidy story.
+   **Killed by staging the NATIVE MAC MODULE** (`POR.sit`, 193 native `.CTL`, zero
+   conversion): it fails **identically**. Missing art was never the cause.
+2. **"`jt1013` can't find the picture ID."** Plausible from reading `jt104`.
+   **Killed by instrumenting it** — that branch never fired.
+
+Both would have been "obvious" and both were wrong. The trace settled it.
+
+### Still open (real, but NOT the disk error)
+
+- **Drawing method 23** (compressed transparent) does not convert. The MAC/CTL
+  layout is **solved and confirmed** (`m23_decode`, `planar=False`, consumes SSI's
+  own streams exactly); the **DOS sweep layout is NOT** — the row set and opaque
+  pixel count come out exact, only the columns land wrong. Ground truth is staged
+  (`data/work/fanmods/pormac`). Solve it against that, not against DRAW23.TXT.
+- **Method 25** (image-ID list) and the CBODY/COMSPR entry class.
+- `art_convert`'s CLI is driven by a shell glob: use `*.TLB *.tlb`, or the
+  mixed-case files are silently skipped.

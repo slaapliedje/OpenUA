@@ -73674,8 +73674,16 @@ static short l17e2(short kind, const char *name, short mode, void *cbp)
 
 	if (mode != 4) {
 		refnum = jt398(spec, (short)(mode == 3 ? 0 : mode));
-		if (refnum < 0)
+		if (refnum < 0) {
+#ifdef FRUA_ARTTRACE
+			dbg_file_str("RES: open FAILED  spec=", spec);
+			dbg_file_str("RES:   name=", name);
+			dbg_file_num("RES:   kind='", (long)k);
+			dbg_file_num("RES:   counter=", (long)counter);
+			dbg_file_num("RES:   mode=", (long)mode);
+#endif
 			goto retry;              /* open failed: straight to retry */
+		}
 	}
 	if (mode == 1) {
 		jt411(refnum);
@@ -73696,6 +73704,12 @@ static short l17e2(short kind, const char *name, short mode, void *cbp)
 		}
 	}
 	/* callback rejected, or the create failed: close (if open) + complain */
+#ifdef FRUA_ARTTRACE
+	if (refnum >= 0)
+		dbg_file_str("RES: callback REJECTED  spec=", spec);
+	else
+		dbg_file_str("RES: create FAILED      spec=", spec);
+#endif
 	if (refnum >= 0)
 		jt411(refnum);
 	l157c(2, (short)(mode != 0 ? 1 : 0), 0L);
@@ -73977,15 +73991,38 @@ static unsigned char jt104(short refnum, void *spec)
 	if (idx <= 0) {
 		idx = jt1013(refnum,
 		             (short)(g_a5_18408 + 100 * g_a5_18404));
-		if (idx <= 0)
+		if (idx <= 0) {
+#ifdef FRUA_ARTTRACE
+			dbg_file_num("RES: jt104 REJECT — id not in library: ",
+			             (long)g_a5_18408);
+			dbg_file_num("RES:   also tried id: ",
+			             (long)(short)(g_a5_18408 + 100 * g_a5_18404));
+			dbg_file_num("RES:   digit(18404)= ", (long)g_a5_18404);
+			dbg_file_num("RES:   group(18406)= ", (long)g_a5_18406);
+#endif
 			return 0;
+		}
 	}
 	size = jt1011(refnum, idx);
-	if (size < 0)
+	if (size < 0) {
+#ifdef FRUA_ARTTRACE
+		dbg_file_num("RES: jt104 REJECT — jt1011 size<0, idx=", (long)idx);
+#endif
 		return 0;
+	}
 
-	if (g_a5_18398 == 0)                          /* mode 0 — plain load */
-		return jt1016(refnum, size, g_a5_18406) ? 1 : 0;
+	if (g_a5_18398 == 0) {                        /* mode 0 — plain load */
+		short okp = jt1016(refnum, size, g_a5_18406) ? 1 : 0;
+#ifdef FRUA_ARTTRACE
+		if (!okp) {
+			dbg_file_num("RES: jt104 REJECT — jt1016 POOL LOAD FAILED, "
+			             "size=", size);
+			dbg_file_num("RES:   group=", (long)g_a5_18406);
+			dbg_file_num("RES:   FreeMem=", (long)FreeMem());
+		}
+#endif
+		return (unsigned char)okp;
+	}
 
 	/* modes 1/2 — TLB cache build/append */
 	jt462();

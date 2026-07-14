@@ -249,8 +249,101 @@ def _rows_interleave(lin, w, rows):
 # Drawing methods, per the UA Shell hackdocs (TLBFORM.TXT).  This is the last
 # byte of an image header -- NOT a "flags" field, as an earlier guess here had it.
 DRAW_UNCOMPRESSED = (16, 17, 21)      # 17 carries an AND/OR mask pair
-DRAW_COMPRESSED = (18, 23)            # DOS RLE; see DRAW18.TXT / DRAW23.TXT
+DRAW_COMPRESSED = (18,)               # PackBits-style RLE; DRAW18.TXT
+DRAW_TRANSPARENT = 23                 # a DIFFERENT codec entirely; DRAW23.TXT
 DRAW_ID_LIST = 25
+
+
+# --- drawing method 23: compressed TRANSPARENT (DRAW23.TXT) ------------------
+#
+# NOT the method-18 codec, and lumping the two together (DRAW_COMPRESSED = (18,
+# 23)) is what silently broke every animated picture in Pool of Radiance.  A
+# method-23 stream is skip/literal, per row:
+#
+#     v == 0    end of row
+#     v >= 128  SKIP (257 - v) pixels -- they stay TRANSPARENT
+#     v <  128  the next v bytes are literal pixels
+#
+# The layouts differ, exactly as the uncompressed paths do:
+#   DOS/TLB : 4 plane sweeps.  In sweep p, each row starts at column p and steps
+#             by 4 ("advancing the offset on the screen by 4 for each pixel").
+#             All rows are walked once per sweep, then it wraps for the next.
+#   Mac/CTL : one pass, "each row is plotted completely before going to the next".
+#
+# Skips are the transparency: a skipped pixel is never written.  So a converter
+# has to carry a MASK, not just pixels -- re-encoding without it would paint the
+# transparent background opaque.
+
+def m23_decode(payload, w, rows, planar):
+    """Method-23 stream -> (pixels, mask).  mask[i] = 1 where a pixel was plotted."""
+    px, mask = bytearray(w * rows), bytearray(w * rows)
+    i, n = 0, len(payload)
+    step = 4 if planar else 1
+    for sweep in range(4 if planar else 1):
+        for y in range(rows):
+            x = sweep
+            while True:
+                if i >= n:
+                    return px, mask, i          # truncated: caller decides
+                v = payload[i]; i += 1
+                if v == 0:
+                    break                        # end of row
+                if v >= 128:
+                    x += (257 - v) * step        # transparent skip
+                    continue
+                for _ in range(v):              # literal run
+                    if i >= n:
+                        return px, mask, i
+                    if 0 <= x < w:
+                        px[y * w + x] = payload[i]
+                        mask[y * w + x] = 1
+                    i += 1
+                    x += step
+    return px, mask, i
+
+
+def m23_encode(px, mask, w, rows, planar):
+    """(pixels, mask) -> a method-23 stream in the requested layout."""
+    out = bytearray()
+    step = 4 if planar else 1
+    for sweep in range(4 if planar else 1):
+        for y in range(rows):
+            cols = list(range(sweep, w, step)) if planar else list(range(w))
+            row = y * w
+            # trailing transparency needs no skip -- just end the row.
+            last = -1
+            for k, x in enumerate(cols):
+                if mask[row + x]:
+                    last = k
+            k = 0
+            while k <= last:
+                x = cols[k]
+                if not mask[row + x]:
+                    run = 0
+                    while k + run <= last and not mask[row + cols[k + run]]:
+                        run += 1
+                    while run:
+                        # 257-v = n, and v must be a byte >= 128  ->  n in 2..129.
+                        # A 1-skip is NOT encodable; borrow from the next chunk.
+                        take = min(run, 129)
+                        if run - take == 1:
+                            take -= 1
+                        if take < 2:
+                            take = min(run, 2)
+                        out.append(257 - take)
+                        k += take
+                        run -= take
+                    continue
+                run = 0
+                while (k + run <= last and mask[row + cols[k + run]]
+                       and run < 127):
+                    run += 1
+                out.append(run)
+                for j in range(run):
+                    out.append(px[row + cols[k + j]])
+                k += run
+            out.append(0)                        # end of row
+    return bytes(out)
 def _is_colour_table(method):
     """A colour-table (palette) block, per the ENGINE's own rule.
 
@@ -310,6 +403,38 @@ def _convert_entry(ent, to_mac):
         return (struct.pack(dst + "Hhh", height, voff, hoff)
                 + bytes([w // (8 if to_mac else 4),
                          _swap_flag_byte(method, to_mac)]) + body)
+    if dos_method == DRAW_TRANSPARENT:
+        # Mac -> DOS is not blocked: the CTL layout is SOLVED (m23_decode/encode
+        # with planar=False round-trips SSI's own streams byte-for-byte).
+        if not to_mac:
+            if not (w and height):
+                raise UnsupportedPiece("method 23 entry with no geometry")
+            px, mask, used = m23_decode(payload, w, height, planar=False)
+            if used != len(payload):
+                raise UnsupportedPiece("method 23 stream consumed %d of %d bytes"
+                                       % (used, len(payload)))
+            # ...but we cannot WRITE the DOS layout until it is solved either.
+            raise UnsupportedPiece(
+                "drawing method 23 (compressed transparent): the DOS sweep "
+                "layout is not solved -- see the note in this file")
+        raise UnsupportedPiece(
+            "drawing method 23 (compressed transparent): the DOS sweep layout is "
+            "NOT SOLVED. Refusing rather than emitting garbage.\n"
+            "  KNOWN: the codec is skip/literal, per row -- 0 = end of row, "
+            "v>=128 = skip (257-v) transparent pixels, v<128 = v literal bytes.\n"
+            "  KNOWN: the MAC/CTL layout is SOLVED and CONFIRMED -- one linear "
+            "pass, each row plotted completely. It consumes SSI's own streams "
+            "exactly (615/615 bytes on POR's PICA1003) and yields a clean sprite.\n"
+            "  UNSOLVED: how the DOS/TLB stream's 4 sweeps map to columns. The "
+            "4-sweep structure is right (the DOS payload is longer by almost "
+            "exactly the extra row terminators) and the ROW SET and the OPAQUE "
+            "PIXEL COUNT both come out exact -- only the COLUMNS land wrong. "
+            "Tried and rejected: stride-4 interleave (x = p + 4c), contiguous "
+            "quarters (x = 22p + c), both sweep orders, both skip scalings.\n"
+            "  GROUND TRUTH IS AVAILABLE: the Mac edition of Pool of Radiance "
+            "ships these same pictures natively (data/work/fanmods/pormac). "
+            "Solve it against that, not by re-reading DRAW23.TXT.")
+
     if dos_method == DRAW_ID_LIST:
         raise UnsupportedPiece("drawing method 25 (image-ID list)")
 
