@@ -2,8 +2,10 @@
 
 ## Goal
 
-Port *Forgotten Realms: Unlimited Adventures* (SSI, 1993) from its Macintosh
-68k release to the Atari Falcon030 and TT030.
+**OpenUA** — an open reimplementation of SSI's *Unlimited Adventures* engine
+(1993), decompiled from its Macintosh 68k release and retargeted to Motorola 68k
+retro machines: the Atari Falcon030 / TT030 today, and the Amiga AGA next
+(ADR-0012). One engine, several machines, behind a hardware-abstraction layer.
 
 ## The layer cake
 

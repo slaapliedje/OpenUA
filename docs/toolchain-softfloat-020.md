@@ -53,7 +53,7 @@ mkdir build-gcc && cd build-gcc
   --with-sysroot=$PFX/m68k-atari-mint/sys-root --with-gcc-major-version-only \
   --with-gnu-as --with-gnu-ld --enable-languages=c --disable-nls \
   --disable-werror --disable-libssp --without-newlib \
-  --with-pkgversion='falcon-port softfloat-020' \
+  --with-pkgversion='openua softfloat-020' \
   CFLAGS_FOR_TARGET='-O2 -fomit-frame-pointer'
 
 # host gcc 16 defaults to a C++ dialect where u8"" is char8_t[] (breaks

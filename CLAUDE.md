@@ -4,10 +4,14 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-A port of SSI's *Forgotten Realms: Unlimited Adventures* (FRUA, 1993) to the
-Atari Falcon030 and TT030, based on a decompilation of the **Macintosh 68k**
-release. Mac 68k → Atari 68030: the CPU code carries over; the work is
-retargeting the Mac Toolbox and the display/sound paths.
+**OpenUA** — an open reimplementation of SSI's *Unlimited Adventures* engine
+(FRUA, 1993) for Motorola 68k retro machines, based on a decompilation of the
+**Macintosh 68k** release. It targets the Atari Falcon030 / TT030 today, with an
+Amiga AGA port in progress (ADR-0012). Mac 68k → 68020/030: the CPU code carries
+over; the work is retargeting the Mac Toolbox and the display/sound/input paths
+behind a HAL, so one engine serves several machines. (The repo was originally
+named `falcon-port`, before the second target; some tooling still uses that
+name.)
 
 ## Ratified decisions (see docs/decisions.md before changing course)
 

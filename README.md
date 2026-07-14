@@ -1,12 +1,22 @@
-# FRUA — Atari Falcon030 / TT030 port
+# OpenUA
 
-A port of SSI's *Forgotten Realms: Unlimited Adventures* (FRUA, 1993) to the
-Atari **Falcon030** and **TT030**, decompiled from the **Macintosh 68k** release.
+An open reimplementation of SSI's *Unlimited Adventures* engine — the 1993 Gold
+Box adventure **construction set** — for Motorola 68k retro machines. It targets
+the Atari **Falcon030** / **TT030** today, with an **Amiga AGA** port in
+progress.
 
-Because the Mac version is already 68k machine code and the Falcon/TT are 68030
-machines, the CPU code carries over directly. The work is retargeting the Mac
-Toolbox to Atari TOS/GEM/XBIOS and rebuilding the display, sound, and input
-paths behind a hardware-abstraction layer.
+*OpenUA* = **Open** + **U**nlimited **A**dventures.
+
+The engine is decompiled from the **Macintosh 68k** release of *Forgotten
+Realms: Unlimited Adventures*. Because the Mac version is already 68k machine
+code and the target machines are 68020/030, the CPU code carries over directly —
+the work is retargeting the Mac Toolbox and rebuilding the display, sound, and
+input paths behind a hardware-abstraction layer, so one engine serves several
+machines.
+
+> OpenUA is an unofficial, fan-made project, not affiliated with or endorsed by
+> the rightsholders of *Forgotten Realms*, *Unlimited Adventures*, or the Gold
+> Box games. It contains only original port code — no game data (see Legal).
 
 > **No game data is included.** FRUA and its modules are copyrighted. You supply
 > your own original Mac (or DOS — see below) FRUA data. See

@@ -1,5 +1,7 @@
-# Forgotten Realms: Unlimited Adventures
-# Atari Falcon030 / TT030 port — top-level cross-build.
+# OpenUA — an open reimplementation of SSI's Unlimited Adventures engine
+# for 68k retro machines. Top-level cross-build.
+#
+# MACHINE=falcon (default): Atari Falcon030 / TT030.  MACHINE=amiga: Amiga AGA.
 #
 #   make            build frua.prg
 #   make FPU=1      build an FPU-required TT030 variant
@@ -356,7 +358,7 @@ clean:
 # Emulator-validated only: nothing here has been run on real Falcon030/TT030
 # hardware. Say so in the release notes.
 VERSION ?= 0.1.0-beta
-DISTNAME := frua-falcon-$(VERSION)
+DISTNAME := openua-falcon-$(VERSION)
 
 release:
 	$(MAKE) clean
@@ -366,7 +368,7 @@ release:
 	@cp $(TARGET) dist/$(DISTNAME)/
 	@cp frua.rsc dist/$(DISTNAME)/ 2>/dev/null || true
 	@cp README.md docs/enhancements.md dist/$(DISTNAME)/ 2>/dev/null || true
-	@printf 'FRUA Falcon030/TT030 port %s\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT), and the original\nFRUA game data (NOT included -- copyrighted).\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping a weapon\nand armour are all playable. See enhancements.md for the known gaps.\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
+	@printf 'OpenUA (Atari Falcon030/TT030) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT), and the original\nUnlimited Adventures game data (NOT included -- copyrighted).\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping a weapon\nand armour are all playable. See enhancements.md for the known gaps.\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
 	@cd dist && zip -qr $(DISTNAME).zip $(DISTNAME)
 	@echo "release -> dist/$(DISTNAME).zip"
 
