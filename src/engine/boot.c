@@ -14474,10 +14474,24 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		 * from jt240, and re-running the rebuild wipes it (jt447) and loses the
 		 * command bar. That is the per-step path's job, where the pool really
 		 * was clobbered by a modal. */
-		if (g_event_modal_shown) {
-			g_event_modal_shown = 0;
-			g_view_force_full = 1;
-		}
+		/* ★ Force-full on EVERY deep entry, not just after an event.
+		 *
+		 * l63c0 is re-entered (through jt948 -> jt240) after EVERY command that
+		 * exits the loop, and that rebuild re-lays the pool and re-runs jt221's
+		 * chrome prelude. Without a force-full, jt312's 3D leg skips
+		 * port_draw_play_frame and never repaints the chrome or the HUD — so the
+		 * screen came back with a BLANK ROSTER, a BLANK CLOCK, and jt221's bare
+		 * FRAME pieces showing as three stray plates across the top.
+		 *
+		 * That is what made CAST — an unimplemented, empty switch arm that does
+		 * NOTHING — visibly corrupt the play screen: the corruption was never the
+		 * command, it was the un-repainted rebuild behind it. Any command taking
+		 * the same exit did it. The Mac rebuilds the play dialog from scratch on
+		 * every cycle; this is the port's equivalent, and it is cheap (l63c0 is
+		 * entered per COMMAND, not per frame; first entry already force-fulls via
+		 * s_view_first). */
+		g_event_modal_shown = 0;
+		g_view_force_full = 1;
 		/* jt1173 narrows the clip to the 88x88 first-person viewport for the
 		 * 3D render; the top-down AREA map (jt312's -12290 branch) draws a
 		 * wider region and would be CLIPPED OUT (black) by it — the entry-frame
