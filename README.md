@@ -79,11 +79,13 @@ disturbing any characters you created.
 
 ## Using DOS FRUA data and fan modules
 
-FRUA has a large fan-module scene (hundreds of PC modules). Their art is authored
-for one release and is doubly unreadable by this Mac-derived engine — wrong byte
-order *and* a different pixel layout. `tools/art_convert.py` converts the art
-container both ways (DOS **`HLIB`** ↔ Mac **`GLIB`**), so PC modules become
-playable:
+FRUA's whole point is that players build their own adventures, and a large
+**community** has — hundreds of fan-made modules, none of them official SSI
+releases. They are archived at **[frua.rosedragon.org](http://frua.rosedragon.org)**
+(the long-running community site). Most are authored on the PC, and their art is
+doubly unreadable by this Mac-derived engine — wrong byte order *and* a different
+pixel layout. `tools/art_convert.py` converts the art container both ways
+(DOS **`HLIB`** ↔ Mac **`GLIB`**), so those community modules become playable:
 
 ```sh
 python3 tools/art_convert.py <module-art-files>   # HLIB <-> GLIB
@@ -149,6 +151,19 @@ docs/        architecture, decisions, subsystem maps, formats
 data/        original FRUA assets — you supply these (git-ignored)
 ```
 
+## License
+
+The port's own source code, tooling, and documentation are licensed under the
+**GNU General Public License v2** — see [`LICENSE`](LICENSE).
+
+    Copyright (C) 2026 Slaapliedje
+
+This covers only the port (the decompiled/reimplemented engine, the Toolbox
+shim, the HAL, and the tools). It grants **no rights** to *Forgotten Realms:
+Unlimited Adventures* itself, which remains copyrighted by its rightsholders and
+is never included here (see Legal, below). The AI-generated free cursor set under
+`assets/cursors/` is part of the port and covered by the same license.
+
 ## Legal
 
 This repository contains **only port source code and tooling**. It ships no
@@ -157,3 +172,7 @@ copyrighted by their rightsholders and must be supplied separately from your own
 legally-obtained copy. The build regenerates the copyrighted replay tables from
 your resource fork locally; they are never committed. See
 [`data/README.md`](data/README.md).
+
+A **compiled** `frua.prg` built with real data embeds ~12 KB of copyrighted FRUA
+`DATA`, so binaries are **not** redistributable — build your own from your own
+data. This is a source-only project.
