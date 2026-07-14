@@ -240,7 +240,38 @@ base picture (id 245 → set 6 → WALKING FOREST). **Do not confuse byte[10] an
 byte[11]** — they are two independent bytes, not a u16; byte-swapping them is what
 caused the black-walls bug.
 
-## ✅ POOL OF RADIANCE play-test (2026-07-13) — it RUNS, with its own art
+## ✅✅ POOL OF RADIANCE play-through (2026-07-14) — PLAYS, on its OWN art
+
+Re-run after the `l33ac` override fix. **Zero bus errors, zero pool failures, zero
+disk errors across the whole session.**
+
+| | |
+|---|---|
+| Design loads | ✅ GAME 39 POOL OF RADIANCE |
+| **POR's OWN custom art** | ✅ Rolf on the docks, the **temple priest**, the campfire, Phlan's street walls — loaded from its per-id overrides (the path that was broken until today) |
+| Intro event chain (Rolf's tour) | ✅ |
+| 3D walk, ~80 steps | ✅ view + compass update |
+| AREA map | ✅ Phlan's street grid + party marker |
+| **TEMPLE** (`jt933`) | ✅ POR's priest; HEAL / DONATE / VIEW / POOL / LEAVE + the services submenu |
+| **ENCAMP** | ✅ campfire art, "THE PARTY MAKES CAMP..." |
+| **SAVE** | ✅ slot picker A–J; `SavGamB.csv` written (10,284 B) |
+| **LOAD** | ✅ picker correctly lists only the saves that exist (A, B); party restored |
+
+### Open, found by playing
+
+- **LOAD from camp drops to the TRAINING HALL** instead of resuming in the dungeon.
+  The party restores correctly; the in-dungeon position does not. This is the known
+  **L143e design-reload** gap ([[next-session-saveload]]), now confirmed live.
+- **The in-game CLOCK does not advance while walking** (12:05 AM held for ~80 steps).
+  **NOT POR-specific — HEIRS does the same**, so it is a general step-time gap, not a
+  fan-module issue. Do not chase it as a POR bug.
+- **No combat reached.** Phlan's civilized quarter is safe *by design*; the slums are
+  through the gate and I did not get there. Combat is verified on HEIRS
+  ([[combat-encounter-gateway]]) but remains **untested in this module**.
+
+*(The 2026-07-13 run below is superseded; kept for the DISK READ ERROR history.)*
+
+## (superseded) POOL OF RADIANCE play-test (2026-07-13) — it RUNS, with its own art
 
 A **DOS/PC module**, converted with `tools/art_convert.py` and staged as
 `POR.DSN`. Driven live in Hatari, start to walkabout:
