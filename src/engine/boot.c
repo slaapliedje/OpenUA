@@ -50577,12 +50577,24 @@ static signed char l5b9a(long m)
 
 loop_top:                                       /* L5c08 */
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a loop_top iter", (long)iter);
+	dbg_file_num("     mc[4] actions", (long)*(short *)(mc + 4));
+	dbg_file_num("     mc[8] movement", (long)mc[8]);
+	dbg_file_num("     mc[12] target", *(long *)(uintptr_t)(mc + 12));
+#endif
 	if (mc[22] != 0)
 		goto l5c22;
 	goto l5c52;
 
 l5c18:
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a -> l56d8 (flee step)", 1L);
+#endif
 	l56d8(m);
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a <- l56d8", 1L);
+#endif
 	/* fall through */
 l5c22:
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
@@ -50632,18 +50644,44 @@ l5c7a:
 	if (natt == 0 || natt == 255)
 		natt = 1;
 
-	/* L5d08 — keep the current target only if it's a summoned controllable. */
+	/* L5d08 — keep the current target only if it's a summoned controllable.
+	 *
+	 * ★ PORT: the Mac derefs the target pointer WITHOUT a NULL check —
+	 *
+	 *     5d16: moveal %fp@(-16),%a0      ; a0 = target, which may be 0
+	 *     5d1a: tstb  %a0@(382)           ; reads address 382 when target == 0
+	 *     5d26: moveb %a0@(95),%d0
+	 *
+	 * On the Mac that is harmless: 0x17e is ordinary low memory and the code
+	 * runs supervisor anyway. On the ATARI the hardware protects $0..$7ff from
+	 * USER-mode access, so the same read raises a BUS ERROR — which this engine
+	 * catches and limps on from, freezing combat with no bomb.
+	 *
+	 * A monster's mc[12] target goes NULL as soon as it uses up its movement
+	 * closing on the party, so EVERY monster melee turn hit this. It never
+	 * showed on HEIRS because combat there was only ever driven through the
+	 * PLAYER's turn; in POR the monsters win initiative and act first.
+	 *
+	 * Guarding is behaviour-preserving: when target == 0 the deref cannot
+	 * change control flow (both arms fall to l5dd2 with target still 0) — it
+	 * can only fault. Same idiom as l4144's rec==NULL guard. */
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
 	target = *(long *)(uintptr_t)(mc + 12);
-	{
+	if (target != 0) {
 		unsigned char *t = (unsigned char *)(uintptr_t)target;
 		if (!(t[382] != 0 && t[95] != 0))
 			target = 0;
 	}
 	if (target == 0)
 		goto l5dd2;
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a -> jt554", 1L);
+#endif
 	if (jt554(m, target, 0) == 0)
 		goto l5dd2;
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a <- jt554 ok, -> l713c", 1L);
+#endif
 	t_sx = jt525(target);
 	t_sy = jt531(target);
 	nattw = (short)natt;
@@ -50652,6 +50690,9 @@ l5c7a:
 	{
 		unsigned char ay = jt531(m);
 		if (l713c((short)a_sx, (short)ay, &t_sx, &t_sy, &nattw) != 0) {
+#ifdef FRUA_CMBTRACE
+			dbg_file_num("  l5b9a <- l713c LINE, nattw", (long)nattw);
+#endif
 			if ((unsigned short)(((unsigned short)nattw) >> 1) <= (unsigned short)natt)
 				g_a5_byte(-22628) = 1;
 		}
@@ -50667,18 +50708,36 @@ l5dd2:
 	 * no-attack-line turns). */
 	if (g_a5_byte(-22628) != 0)
 		goto l5f10;
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a -> l2484", 1L);
+#endif
 	nmulti = l2484(m, (short)natt, 0);
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a <- l2484 nmulti", (long)nmulti);
+#endif
 	if (nmulti != 0)
 		goto l5e4c;
 	/* melee swing */
 	if (jt546(m, 255, 0, 0, 0) != 0) {
+#ifdef FRUA_CMBTRACE
+		dbg_file_num("  l5b9a -> l56d8 (melee close)", 1L);
+#endif
 		l56d8(m);
+#ifdef FRUA_CMBTRACE
+		dbg_file_num("  l5b9a <- l56d8 (melee close)", 1L);
+#endif
 		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
 		if (mc[0] != 0)
 			cont = 0;
 		goto l5f10;
 	}
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a -> l6042 (unreachable)", 1L);
+#endif
 	done = l6042(m);                        /* couldn't reach: move */
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a <- l6042 done", (long)done);
+#endif
 	goto l5f10;
 l5e4c:
 	/* ranged/multi swing: pick a slot via a 1d(nmulti) roll into -22720. */
@@ -50720,7 +50779,13 @@ l5f10:
 		}
 	}
 	/* L5fe8 — resolve the hit (jt555 may set `done`). */
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a -> jt555 swing", 1L);
+#endif
 	jt555(m, target, 0, arg12, &done);
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("  l5b9a <- jt555 done", (long)done);
+#endif
 	if (done != 0) {
 		cont = 0;
 		goto tail;
@@ -50833,14 +50898,54 @@ static void l5008(long member)
 	l6454(member, *(long *)(uintptr_t)(mc + 12));
 	done = l609a(member);
 	do {
-		if (jt546(member, 255, 1, 0, 0) != 0) {
+#ifdef FRUA_CMBTRACE
+		{
+			static short spin;
 			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
-			if (*(short *)(mc + 4) > 0 && monster[382] != 0)
+			if (++spin < 24) {
+				dbg_file_num("l5008 spin", (long)spin);
+				dbg_file_num("   mc[4] actions", (long)*(short *)(mc + 4));
+				dbg_file_num("   r382 alive", (long)monster[382]);
+			}
+		}
+#endif
+		{
+		unsigned char tgt;
+#ifdef FRUA_CMBTRACE
+		dbg_file_num("   -> jt546 enter", 1L);
+#endif
+		tgt = jt546(member, 255, 1, 0, 0);
+#ifdef FRUA_CMBTRACE
+		dbg_file_num("   <- jt546 ret", (long)tgt);
+#endif
+		if (tgt != 0) {
+			mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(monster + 64));
+			if (*(short *)(mc + 4) > 0 && monster[382] != 0) {
+#ifdef FRUA_CMBTRACE
+				dbg_file_num("   -> l5b9a attack enter", 1L);
+#endif
 				done = l5b9a(member);   /* attack */
-			else
+#ifdef FRUA_CMBTRACE
+				dbg_file_num("   <- l5b9a ret", (long)done);
+#endif
+			} else {
+#ifdef FRUA_CMBTRACE
+				dbg_file_num("   -> l6042 move enter (a)", 1L);
+#endif
 				done = l6042(member);   /* move */
+#ifdef FRUA_CMBTRACE
+				dbg_file_num("   <- l6042 ret", (long)done);
+#endif
+			}
 		} else {
+#ifdef FRUA_CMBTRACE
+			dbg_file_num("   -> l6042 move enter (b)", 1L);
+#endif
 			done = l6042(member);           /* move */
+#ifdef FRUA_CMBTRACE
+			dbg_file_num("   <- l6042 ret", (long)done);
+#endif
+		}
 		}
 	} while (done == 0);
 }
@@ -50936,6 +51041,10 @@ static void jt511(void)
 	}
 	jt490();
 #endif
+#ifdef FRUA_CMBTRACE
+	dbg_file_num("jt511 side counts party*1000+mon",
+	    (long)g_a5_byte(-25298) * 1000L + (long)g_a5_byte(-25297));
+#endif
 	if (g_a5_byte(-25298) == 0 || g_a5_byte(-25297) == 0)
 		done = 1;
 	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
@@ -50949,9 +51058,20 @@ static void jt511(void)
 		l0434();
 		m = g_a5_long(-22620);
 		g_a5_byte(-22332) = 1;
+#ifdef FRUA_CMBTRACE
+		dbg_file_num("jt511 ROUND: initiative head", (long)m);
+#endif
 		while (m != 0 && !done
 		       && (g_a5_byte(-27988) == 0 || jt67() == 0)) {
+#ifdef FRUA_CMBTRACE
+			dbg_file_num("jt511  actor slot", (long)g_a5_byte(-22332));
+			dbg_file_num("jt511    side(r95)",
+			    (long)((unsigned char *)(uintptr_t)m)[95]);
+#endif
 			l076e(m);
+#ifdef FRUA_CMBTRACE
+			dbg_file_num("jt511    l076e returned", 1L);
+#endif
 			g_a5_byte(-22332)++;
 			if (g_a5_byte(-22332) > 72)
 				m = 0;
