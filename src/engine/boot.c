@@ -4787,10 +4787,18 @@ static void jt399(void *buf, short size, short fill)
  * (jt479, src,dst order) and the inner L366a keep the Mac spelling;
  * only this jt406 entry is flipped to read like memmove.
  *
- * Audited 2026-06: all 16 boot.c callsites honour the (dst, src)
- * contract (e.g. L4010 reads the pool into a local `hdr` then checks
- * hdr=='GLIB' — Hatari-verified). No caller is reversed. The hazard is
- * purely for future transcriptions, hence this banner. */
+ * Audited 2026-07-14: ALL 141 boot.c callsites, asm-cross-checked against
+ * the disassembly (not the stale "16" from the 2026-06 pass). Result:
+ *   - 138 honour the (dst, src) contract.
+ *   - 1 was REVERSED and is now FIXED: l53b0's prologue header copy
+ *     (~line 78385) copied obuf INTO desc+4 instead of desc+4 -> obuf
+ *     (Mac CODE 10 @0x53de). Dormant tile-converter, so it never bit.
+ *   - 2 in l4842 (the editor map column-resize, ~lines 79432/79452) DIVERGE
+ *     from the Mac in copy DIRECTION, not just arg order — flagged in place,
+ *     NOT blindly swapped (a bare swap would make it worse). l4842 is
+ *     __attribute__((unused)); validate its reshape before trusting it.
+ * The hazard for FUTURE transcriptions remains, hence this banner: a Mac
+ * `JT[406](A, B, n)` must be written jt406(B, A, n) — SWAP the first two. */
 static void jt406(void *dst, const void *src, short count) __attribute__((unused));
 static void jt406(void *dst, const void *src, short count)
 {
@@ -13336,12 +13344,12 @@ static void        jt367(short v, void *buf)
  * dimensions (g_a5_-12300[2] x [3], fmt g_a5_-11324). jt1161/JT[394]/jt1089
  * are real, so the header text renders.
  *
- * TODO: the design-name line (memmove level[+118] -> buf, then draw "%s" at
- * 140) is deferred. It goes through JT[406], whose port lift jt406(dst,src)
- * has its first two params REVERSED vs the real L57f8 BlockMove(src,dst) —
- * calling it faithfully (jt406(level+118, buf, 16)) would copy buf INTO the
- * level header and corrupt it. Restore this line once jt406's arg order is
- * audited and fixed across its callers. */
+ * The design-name line copies level[+118] (16 bytes) into buf and draws "%s"
+ * at style 140, (tx+8, ty), only when buf[0] != 0. It goes through JT[406] =
+ * the Mac BlockMove(src=level+118, dst=buf) (CODE 22 @0x224c-0x2260: the pea
+ * nearest the jsr is level+118 = fp@8 = SRC). The port's jt406 is (dst, src),
+ * so the faithful call is jt406(buf, level+118, 16) — the SWAP is the correct
+ * spelling, not a hazard; the earlier deferral feared writing it Mac-order. */
 static void jt303(void *rec_v)
 {
 	unsigned char *rec = (unsigned char *)rec_v;
@@ -13367,7 +13375,12 @@ static void jt303(void *rec_v)
 	jt367((short)(jt358() & 0xff), buf);
 	jt1089((short)(tx + 4), ty, (short)135, buf);
 
-	/* design-name line deferred — see the jt406 note above. */
+	/* design-name line: BlockMove(src=level+118, dst=buf); draw if non-empty.
+	 * jt406 is (dst, src) — swapped from the Mac's positional (src, dst). */
+	jt406(buf, (const void *)(uintptr_t)(g_a5_long(-12300) + 118), (short)16);
+	if (buf[0] != 0)
+		jt1089((short)(tx + 8), ty, (short)140,
+		       ua_strs_at(0x3076) /* "%s" */, buf);
 
 	lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	jt1089(dx, dy, (short)135,
@@ -78357,7 +78370,8 @@ static short l42f2(long src, short width, long dst, short stride, short inv,
  * as a LEVEL-2 SKELETON. `desc` (arg @8) is the source descriptor (shorts at
  * 0/2/4 = start/col/count; bytes 13/14/15); `a16` OR's the art-format bits into
  * the output header byte [7], `a18` is the strip index. Prologue: pick the mask
- * count (jt1198 or 1), copy the 8-byte tile header into desc+4, set + remap the
+ * count (jt1198 or 1), copy desc+4's 8-byte header INTO the output buffer (jt1004),
+ * set + remap the
  * format nibble (5->1 / 7->3 by view-mode+dither via jt1200/jt1163; 3->7 by
  * dither), scale the depth byte, compute the flag, then jt1148 (compose begin).
  * A JT[3] switch (jt3_extract 0x5516, cases 0..9) dispatches by format nibble
@@ -78377,8 +78391,14 @@ static short l53b0(void *desc_p, long a12, short a16, short a18)
 
 	PROBE("L53b0");
 	m20 = (a16 & 0x80) ? (short)1 : (short)jt1198();               /* fp@(-20) */
-	jt406(desc + 4, (void *)(uintptr_t)jt1004(), (short)8);
+	/* ★ jt406 arg-order FIX (was REVERSED). Mac CODE 10 @0x53d0-0x53de pushes
+	 * count=8, then DST=jt1004(), then SRC=desc+4 (the pea nearest the jsr), i.e.
+	 * BlockMove(src=desc+4, dst=obuf) — seed the OUTPUT buffer with the
+	 * descriptor's 8-byte header, which obuf[6]/[7] are then read and remapped
+	 * below. The port had (desc+4, obuf) = copy obuf INTO desc+4, corrupting the
+	 * descriptor and leaving obuf[6/7] unseeded. jt406 is (dst, src). */
 	obuf = (unsigned char *)(uintptr_t)jt1004();
+	jt406(obuf, desc + 4, (short)8);
 
 	obuf[7] = (unsigned char)((obuf[7] & 0x0F) | a16);
 	if ((obuf[7] & 0x0F) == 5 && jt1200() != 0 && jt1163() == 0)
@@ -79411,13 +79431,27 @@ static short l4842(void *base_p, short rr_arg, short cc_arg)
 	delta = (short)(((int)cc - (int)base[3]) * 6);
 	endp  = base + 290 + (long)rr * cc * 6;
 
+	/* ⚠️ SUSPECTED jt406 arg-order + copy-DIRECTION divergence from the Mac —
+	 * NOT fixed here, needs a Mac-trace validation of the whole reshape first.
+	 * At the grow call (Mac CODE 2 @0x4a02) the pushes are DST=fp@-16 (base[3]*6-
+	 * strided), SRC=fp@-12 (cc*6-strided): BlockMove copies the wide-strided
+	 * pointer INTO the narrow-strided one. This port maps its `dst` to the
+	 * cc-strided pointer and `src` to the base[3]-strided one, so port
+	 * jt406(dst,src) copies narrow->wide — the OPPOSITE direction, and it runs
+	 * FRONT-to-back, which overlaps and corrupts the next row when cc < 2*base[3].
+	 * The shrink call (0x4b22) is inverted the same way. Both look like an
+	 * "intuitive" reconstruction that diverged from the asm. l4842 is dormant
+	 * (__attribute__((unused)), editor map-resize, never exercised headless), so
+	 * this is latent — but do NOT trust the map column-resize until the reshape
+	 * is re-lifted to match the asm's pointer setup and validated on a real grid.
+	 * A bare arg swap would NOT fix it (the init offsets/strides differ too). */
 	if (delta > 0) {
 		/* columns grew: re-space each surviving row to the wider stride */
 		dst = base + 290 + (long)cc * 6;
 		src = base + 290 + (long)base[3] * 6;
 		stride = (short)((int)base[3] * 6);
 		for (i = 1; i < lim; i++) {
-			jt406(dst, src, stride);
+			jt406(dst, src, stride);        /* ⚠️ see the note above */
 			dst += (long)cc * 6;
 			src += (long)base[3] * 6;
 		}
@@ -79431,7 +79465,7 @@ static short l4842(void *base_p, short rr_arg, short cc_arg)
 		src = base + 290 + (long)(lim - 1) * base[3] * 6;
 		stride = (short)((int)cc * 6);
 		for (i = (unsigned char)(lim - 1); i > 0; i--) {
-			jt406(dst, src, stride);
+			jt406(dst, src, stride);        /* ⚠️ see the divergence note above */
 			jt399(src - delta, delta, (short)0);
 			dst -= (long)cc * 6;
 			src -= (long)base[3] * 6;
