@@ -14359,6 +14359,22 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 
 	/* initial first-person view (deep) or top-down (wilderness) */
 	if ((unsigned char)a_deep) {
+		/* A command that fired an EVENT (LOOK -> l709e, or a step-event modal)
+		 * reset the shared DLItem pool, so the roster/clock panels are wiped.
+		 * The Mac exits the command loop and lets jt948/jt953 rebuild the play
+		 * dialog; the port re-enters l63c0 through jt240, which HAS ALREADY
+		 * rebuilt the pool and the command bar for us. So the only thing missing
+		 * here is the full repaint — jt312 otherwise recomposes just the 88x88
+		 * viewport and the wiped HUD stays blank until the player takes a step.
+		 *
+		 * Do NOT call play_screen_relayout() here: on entry the pool is FRESH
+		 * from jt240, and re-running the rebuild wipes it (jt447) and loses the
+		 * command bar. That is the per-step path's job, where the pool really
+		 * was clobbered by a modal. */
+		if (g_event_modal_shown) {
+			g_event_modal_shown = 0;
+			g_view_force_full = 1;
+		}
 		/* jt1173 narrows the clip to the 88x88 first-person viewport for the
 		 * 3D render; the top-down AREA map (jt312's -12290 branch) draws a
 		 * wider region and would be CLIPPED OUT (black) by it — the entry-frame
