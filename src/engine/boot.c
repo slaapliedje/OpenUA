@@ -30,6 +30,7 @@
  */
 
 #include <stdarg.h>           /* va_list (jt452, jt488) */
+#include "engine/release_guard.h"   /* a release must not carry a behaviour-altering debug flag */
 #include <stddef.h>           /* NULL, size_t */
 #include <stdint.h>           /* uintptr_t (pointer ↔ long casts) */
 #include <stdio.h>            /* vsnprintf (jt488) */

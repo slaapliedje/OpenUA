@@ -315,7 +315,33 @@ test-slow:
 
 clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES)
+	$(RM) -r dist
+
+# --- release ----------------------------------------------------------------
+#
+# `make release` builds the shipping binary with -DFRUA_RELEASE, which hard-
+# errors if any BEHAVIOUR-ALTERING debug flag is enabled (FRUA_AUTOWIN silently
+# kills the monster side; FRUA_SKIP_ENTRY_EVENTS skips the event chain;
+# FRUA_CORRIDOR / FRUA_RAYCAST swap the renderer). Those must never ship, and
+# "we'll remember" is not a mechanism — see src/engine/release_guard.h.
+#
+# Emulator-validated only: nothing here has been run on real Falcon030/TT030
+# hardware. Say so in the release notes.
+VERSION ?= 0.1.0-beta
+DISTNAME := frua-falcon-$(VERSION)
+
+release:
+	$(MAKE) clean
+	$(MAKE) EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) test
+	@mkdir -p dist/$(DISTNAME)
+	@cp $(TARGET) dist/$(DISTNAME)/
+	@cp frua.rsc dist/$(DISTNAME)/ 2>/dev/null || true
+	@cp README.md docs/enhancements.md dist/$(DISTNAME)/ 2>/dev/null || true
+	@printf 'FRUA Falcon030/TT030 port %s\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT), and the original\nFRUA game data (NOT included -- copyrighted).\n\nKnown gaps: CAST and INV do nothing (see enhancements.md).\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
+	@cd dist && zip -qr $(DISTNAME).zip $(DISTNAME)
+	@echo "release -> dist/$(DISTNAME).zip"
 
 -include $(DEP)
 
-.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean data-pool-regen
+.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean data-pool-regen release
