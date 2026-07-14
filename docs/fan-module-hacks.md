@@ -544,3 +544,35 @@ gaps — verify before chasing):
   move/attack. GROG was surrounded with 0 movement left at the time, so this is
   inconclusive — retest with room to step. l08b4 maps arrows to 129..136 ->
   l1162 (move/attack), and both are lifted.
+
+### The two loose ends, RESOLVED — the player turn works; my input was wrong
+
+Both "unconfirmed" combat items above were **harness error, not engine gaps**.
+The Falcon mouse can be driven from the keyboard in Hatari (**Alt+arrows**, or
+Alt+Shift+arrows for one pixel), which is what exposed it.
+
+**1. AIM works, and its sub-bar is KEY-driven — clicks do NOT reach it.**
+Open AIM (click the main-bar button, or drive it as a verb) and it correctly
+boxes an adjacent enemy, shows **RANGE = 1**, and repaints the info panel with
+the TARGET's stats (HOBGOBLIN / HITPOINTS 6 / AC 5 / MACE). A **TARGET** button
+then appears in the sub-bar — it is absent when the cursor sits on the caster
+himself (RANGE = 0), which is why the first attempt looked dead.
+
+The sub-bar (NEXT / PREV / MANUAL / TARGET / CENTER / EXIT) does **not respond
+to mouse clicks at all** — not even hover-then-press with the pointer visibly on
+the button. It takes **LETTER keys**: `t` fires TARGET and commits the swing
+(AIM closes, the turn is consumed, play advances to the next actor). Same rule
+as every other verb bar in this engine — **verb bars are LETTERS ONLY**.
+
+GROG missed. That is not a bug: an unarmed level-10 fighter punches for **1d2**
+against a hobgoblin at **AC 5**. The target-cell pixels before/after the swing
+differ ONLY by the AIM highlight box — the swing fired, the blow didn't land.
+
+**2. Arrow keys are IGNORED on the combat player turn.** With a monster adjacent
+AND movement available, an arrow does nothing at all — the turn does not even
+end. (The earlier "GUARDING" was the turn lapsing, not the key.) `l08b4` expects
+commands **129..136** (the direction pad) and routes them to `l1162`
+(move/attack); both are lifted. So the open question is whether `l0d16`/`jt173`
+translates arrow keysyms to 129..136 in the combat dialog the way `jt297` does
+for the dungeon walk. **This is the one genuine combat lead left** — but note the
+turn is fully playable without it, via the verb bar.
