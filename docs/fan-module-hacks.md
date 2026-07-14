@@ -284,7 +284,28 @@ Reproduce it before theorising.
 - **Custom music** (`.xmi` — POR ships `addq1.xmi`) is still ignored; a new
   subsystem, not a lift.
 
-## ✅ ROOT CAUSE: the "DISK READ ERROR" is FAR-POOL EXHAUSTION (2026-07-13)
+## ⛔ RETRACTED: "the DISK READ ERROR is FAR-POOL EXHAUSTION" — WRONG (3rd wrong root cause)
+
+**It is NOT byte exhaustion.** After the GLIB pool flip landed (below), the pool holds
+~200 KB of its 450 KB and an 8,148-byte load STILL fails. The real failure, from a
+deeper trace:
+
+    RES:   jt1016: l4010 COMMIT failed, size=0
+
+`jt1016` does `jt460` (read) → `size = jt459(groupid)` → `l4010(groupid, 0, size)`
+(lift verified EXACT against CODE 5+0x3640). **`jt459(group)` returns 0** — the group
+reads as UNBOUND — so `l4010` hits its `*(long*)(hdr+4) != size` guard, logs
+"Invalid library header", returns −1, and the load fails. A GROUP-BINDING bug, not a
+memory-pressure one.
+
+I inferred "the pool is full" from *"an 8 KB load fails while 8.6 MB of system RAM is
+free"* and **never verified the pool was actually full.** It wasn't. Dump the pool's
+residents before claiming exhaustion — `-DFRUA_ARTTRACE` now does exactly that.
+
+*(The original reasoning is kept below because the pool flip it motivated is real and
+correct on its own merits — just not the fix for this bug.)*
+
+## (superseded) the exhaustion theory
 
 Reproduced in POR and traced to the byte. `-DFRUA_ARTTRACE` now instruments the
 resource loader (`l17e2`) and the GLIB load callback (`jt104`):

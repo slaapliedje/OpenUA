@@ -2738,13 +2738,10 @@ static short g_wall_set[3];
 static unsigned char *g_wallfile_buf;          /* lazily NewPtr'd, was [CW_FILEBUF_SZ] */
 static short         g_wallfile_which = -1;   /* file index resident in buf (-1 none) */
 
-/* The FC-pool wall library: per-file binder slot + the group l33ac bound it to
- * (0=DC, 1=DB). The faithful l6eea loads 8X8D{B,C}.CTL through l33ac into the
- * FAR pool (deduped across the 3 wall groups by jt464); jt468 resolves the base.
- * RM #127 stage 2. */
-static void *g_wallfile_binder[2];
+/* (The per-FILE binder slots that used to park a whole 296K wall library in the
+ * FAR pool are gone — see THE GLIB POOL FLIP at cw_setglib_load. The pool now
+ * holds only per-SET sub-GLIBs, which is what the Mac does.) */
 static void  l31dc(void *pp);          /* binder slot+group release (defined below) */
-static short g_wallfile_group[2] = { -1, -1 };
 
 /* cw_wallfile_load — return the GLIB base of 8X8D{C,B}.CTL `file` (0=DC, 1=DB).
  *
@@ -2803,61 +2800,25 @@ static OSErr ua_open_art(ConstStr255Param pname, short perm, short *refnum)
 static long cw_wallfile_load(short file)
 {
 	static const char *const ctl[2] = { "\0118X8DC.CTL", "\0118X8DB.CTL" };
-	char  name[8];
-	short group, refnum = 0;
-	long  base, count;
+	short refnum = 0;
+	long  count;
 
 	file &= 1;
 
-	/* --- faithful FC-pool load --- */
-	group = g_wallfile_group[file];
-	if (group < 0 || jt468(group) == 0) {         /* not loaded yet, or purged */
-		/* Stage-4 caller-driven dispose: cw_load_slot copies each SET's
-		 * pieces OUT of the file buffer, so the FC group is transient —
-		 * and two wall files (~296K each) cannot coexist in the
-		 * Mac-sized 450K pool (HEIRS level 10 mixes 8X8DB sets 1/2 with
-		 * 8X8DC set 10 and OOM'd exactly here). Release the sibling
-		 * file's group first so l11ca can reclaim it for this load. */
-		short other = g_wallfile_group[file ^ 1];
-		if (g_wallfile_binder[file ^ 1] != NULL) {
-			/* Release through l31dc so the -18468 BINDER SLOT is
-			 * freed too (word[0] = -1), not just the FC group. The
-			 * old bare `binder = NULL` drop leaked one slot per
-			 * 8X8DB<->8X8DC flip; after ~6 flips (entry + event +
-			 * camp reloads on the mixed-file HEIRS level 10) the
-			 * 10-slot pool was FULL and l33ac fell through to
-			 * group 12 — "Group 12 in use for 'topview.CTL'", an
-			 * error modal over a black frame, and the play loop
-			 * unwound to the main menu (the camp-exit black-view
-			 * bug, probe-captured 2026-07-04). */
-			l31dc((void *)&g_wallfile_binder[file ^ 1]);
-			g_wallfile_group[file ^ 1] = -1;
-		} else if (other >= 0 && jt468(other) != 0) {
-			jt461(other);
-			g_wallfile_group[file ^ 1] = -1;
-		}
-		l338c((short)50);                     /* JT[113] load-kind */
-		/* PLAIN name (no trailing digit) so l33ac takes the jt997
-		 * whole-file path — the cw slot loader l37aa's every set out
-		 * of the one base and copies the pieces, so it wants the full
-		 * library resident (transiently; the sibling dispose above
-		 * frees it when the other file is needed). The numbered
-		 * "8x8d%c%d" names are the BINDER path's per-set loads. */
-		name[0] = '8'; name[1] = 'x'; name[2] = '8'; name[3] = 'd';
-		name[4] = (char)(file ? 'b' : 'c');
-		name[5] = '\0';
-		l33ac(name, 0, 0, 0, &g_wallfile_binder[file]);   /* -> FAR-pool group */
-		group = (g_wallfile_binder[file] != NULL)
-		      ? *(short *)g_wallfile_binder[file] : -1;
-		g_wallfile_group[file] = group;
-	}
-	if (group >= 0) {
-		base = jt468(group);
-		if (base != 0 && l37aa(base, 0) != 0)         /* 'GLIB' magic */
-			return base;
-	}
-
-	/* --- fallback: the lazily-allocated resident buffer (best effort) --- */
+	/* LAST-RESORT fallback only. See THE GLIB POOL FLIP at cw_setglib_load.
+	 *
+	 * This used to pull the whole ~296K library into the FAR pool. Two wall
+	 * libraries are 296,922 + 231,434 = 528K against the Mac-faithful 450K pool
+	 * -- over the cap by themselves -- so a level mixing 8X8DB and 8X8DC could
+	 * not also hold an event picture. jt1016 then failed on an 8KB picture with
+	 * 8.6MB of system RAM free, jt104 rejected, and the engine faithfully
+	 * reported a DISK READ ERROR and asked for disk 4. Pool exhaustion wearing a
+	 * floppy prompt.
+	 *
+	 * cw_load_slot now takes the faithful per-set path (~34K per group). This
+	 * function survives only as its fallback, and it reads into a RESIDENT
+	 * NewPtr buffer -- not pool memory -- so a fallback can never re-create the
+	 * starvation. It is unreachable in normal play. */
 	if (g_wallfile_buf == NULL) {                 /* allocate only if ever needed */
 		g_wallfile_buf = (unsigned char *)NewPtr((Size)CW_FILEBUF_SZ);
 		if (g_wallfile_buf == NULL)
@@ -2876,7 +2837,6 @@ static long cw_wallfile_load(short file)
 	}
 	return (long)(uintptr_t)g_wallfile_buf;
 }
-
 static void l6eea(short zone, short type)
 {
 	/* The persistent HUD first-person view uses the COLOUR .CTL sets (8bpp,
@@ -10447,24 +10407,97 @@ static int wallset_for_id(short id, short *file, short *set);
  * set 2 forest green, etc. — and the tile bytes index it (band value 32..,
  * 0..20 light/dark ramp, 21..30 brown/fire, 31.. the magenta key). Returns
  * 1 on success. The big file buffer is shared+reused (we copy out). */
+/* --- THE GLIB POOL FLIP (2026-07-13) -------------------------------------- *
+ *
+ * cw_setglib_load — pull ONLY the requested wall SET's sub-GLIB into a FAR-pool
+ * group, the way the Mac does, and hand back its base.
+ *
+ * This replaces a whole-file load that was blowing the pool. cw_load_slot used
+ * to call cw_wallfile_load(), which pulled the ENTIRE ~296K library in, purely
+ * so it could compute `sub = l37aa(base, set)` and then copy a handful of pieces
+ * out. Two wall libraries are 296,922 + 231,434 = 528K against a Mac-faithful
+ * 450K pool, so a level mixing 8X8DB and 8X8DC could not fit them AND an event
+ * picture: jt1016 then failed on an 8KB picture with 8.6MB of system RAM free,
+ * jt104 rejected the load, and the engine — correctly, faithfully — reported a
+ * DISK READ ERROR and asked for disk 4 (docs/fan-module-hacks.md). Pool
+ * exhaustion, surfacing as a floppy prompt.
+ *
+ * The Mac never holds a whole wall library. l33ac's NUMBERED-name path (the same
+ * one l6eea already uses) resolves "8x8d<letter><digit>" -> the per-id override
+ * if the design ships one, else jt987 + jt104 on the base library, and jt104
+ * extracts ONLY the entry whose ID matches. The wall libraries carry an ID table
+ * for exactly this: 8X8DB holds ids 1..9, 8X8DC ids 10..16, and each sub-GLIB is
+ * 24-38K. Three groups now cost ~100K instead of 528K.
+ *
+ * jt468(group) IS the extracted sub-GLIB, so the old l37aa(base, set) index step
+ * disappears with the whole-file read that made it necessary. */
+static void  *g_cw_binder[CW_SLOTS];
+static short  g_cw_bgroup[CW_SLOTS] = { -1, -1, -1 };
+
+static long cw_setglib_load(short slot, short id)
+{
+	char  name[8];
+	short group, arg;
+
+	if (slot < 0 || slot >= CW_SLOTS)
+		return 0;
+
+	l338c((short)50);                         /* JT[113] load kind */
+	/* Per-GROUP digit, exactly as l6eea derives it (Mac CODE 7 0x6f1c..0x6f3e):
+	 * type+1 in the colour/8-bit modes so each group binds its own sub-GLIB;
+	 * 1 only in the deep 1bpp mode. Same name shape, so jt464's dedup and the
+	 * design-first override both behave identically to the faithful path. */
+	arg = (jt1163() || jt1200() == 0) ? (short)(slot + 1) : 1;
+	name[0] = '8'; name[1] = 'x'; name[2] = '8'; name[3] = 'd';
+	name[4] = (char)((id < 10) ? 'b' : 'c');
+	name[5] = (char)('0' + (arg & 0x0f));
+	name[6] = '\0';
+
+	l33ac(name, id, 0, 0, &g_cw_binder[slot]);      /* -> FAR-pool group */
+	group = (g_cw_binder[slot] != NULL)
+	      ? *(short *)g_cw_binder[slot] : -1;
+	g_cw_bgroup[slot] = group;
+	if (group < 0)
+		return 0;
+	return jt468(group);                      /* the SET's sub-GLIB base */
+}
+
 static int cw_load_slot(short slot, short file, short set)
 {
-	const unsigned char *buf;
 	short k;
 	long count, base, sub, p0, p1;
 	unsigned char metric[8];
 	short h, w;
+	short id;
 
 	g_cw_sid[slot] = 0;
-	base = cw_wallfile_load(file);            /* shared resident .CTL buffer */
-	if (base == 0)
-		return 0;
-	buf = (const unsigned char *)(uintptr_t)base;
-	if (slot == 0) {                          /* track set count for 't' cycling */
-		g_cw_setmax = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;
-		if (g_cw_setmax < 1) g_cw_setmax = 1;
+
+	/* wallset_for_id's inverse: 8X8DB (file 1) is ids 1..9, 8X8DC ids 10..16. */
+	id = (short)(file ? set : set + 9);
+
+	if (slot == 0) {
+		/* Set count for the manual 't' cycling affordance. The whole-library
+		 * header is no longer resident to read it from; the ID tables are
+		 * fixed (8X8DB 9 sets, 8X8DC 7). */
+		g_cw_setmax = (short)(file ? 9 : 7);
 	}
-	sub = l37aa(base, set);
+
+	sub = cw_setglib_load(slot, id);          /* FAITHFUL: per-set sub-GLIB */
+
+	if (sub == 0) {
+		/* Fallback: the resident whole-file buffer. NOT the FAR pool — a
+		 * fallback must never be able to re-create the exhaustion above. */
+		const unsigned char *buf;
+		base = cw_wallfile_load(file);
+		if (base == 0)
+			return 0;
+		buf = (const unsigned char *)(uintptr_t)base;
+		if (slot == 0) {
+			g_cw_setmax = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;
+			if (g_cw_setmax < 1) g_cw_setmax = 1;
+		}
+		sub = l37aa(base, set);
+	}
 	if (sub == 0)
 		return 0;
 
@@ -71137,7 +71170,15 @@ static long jt1016(short refnum, long arg, short groupid)
 
 		if (l4010(groupid, 0, size) >= 0)
 			return 1;
+#ifdef FRUA_ARTTRACE
+		dbg_file_num("RES:   jt1016: l4010 COMMIT failed, size=", size);
+		dbg_file_num("RES:   jt1016: group=", (long)groupid);
+#endif
 	}
+#ifdef FRUA_ARTTRACE
+	else
+		dbg_file_num("RES:   jt1016: jt460 READ failed, arg=", arg);
+#endif
 	jt462();
 	return 0;
 }
@@ -74015,10 +74056,21 @@ static unsigned char jt104(short refnum, void *spec)
 		short okp = jt1016(refnum, size, g_a5_18406) ? 1 : 0;
 #ifdef FRUA_ARTTRACE
 		if (!okp) {
+			short g;
+
 			dbg_file_num("RES: jt104 REJECT — jt1016 POOL LOAD FAILED, "
 			             "size=", size);
 			dbg_file_num("RES:   group=", (long)g_a5_18406);
 			dbg_file_num("RES:   FreeMem=", (long)FreeMem());
+			/* WHAT IS ACTUALLY IN THE POOL? Same record-table walk l33ac
+			 * uses for its BINDER FULL dump: g_a5_10074[g] indexes the
+			 * 14-byte records at g_a5_10026 (name first). */
+			for (g = 0; g < 48; g++) {
+				if (g_a5_10074[g] & 0x80)
+					continue;             /* group not bound */
+				dbg_file_str("RES:   resident: ",
+				             (char *)&g_a5_10026[g_a5_10074[g] * 14]);
+			}
 		}
 #endif
 		return (unsigned char)okp;
