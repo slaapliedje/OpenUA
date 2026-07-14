@@ -1229,10 +1229,21 @@ static void  jt198(short geo_num)
 			 * l5baa enforces. Scanning past ds[2] reads stale
 			 * editor rows outside the playable map and reports
 			 * PHANTOM cells jt201 will never return. */
-			short h = (short)lv[3], w = (short)lv[2], x, y;
+			short h = (short)lv[3], w = (short)lv[2], x, y, z;
 			dbg_file_num("== GEO level", geo_num);
 			dbg_file_num("   width(ds2)", w);
 			dbg_file_num("   height(ds3)", h);
+			/* Per-ZONE rest rules. jt197 maps a cell to zone
+			 * (cell[5] >> 2) & 7; l473e reads ds[zone*4 + 49] bit7
+			 * ("no resting in this zone" -> hdr[44] = 100 -> jt957
+			 * DROPS the REST and FIX rows), and jt915's interrupt
+			 * fires the zone's event ds[zone*4 + 48]. Print both so a
+			 * "REST has vanished from the camp menu" can be read off
+			 * the data instead of guessed at. */
+			for (z = 0; z < 8; z++)
+				dbg_file_num("   zone: norest*1000+event",
+				    ((lv[z * 4 + 49] & 0x80) ? 1000L : 0L)
+				    + (long)lv[z * 4 + 48]);
 			for (y = 0; y < w; y++)
 				for (x = 0; x < h; x++) {
 					long id = (long)h * y + x;
@@ -4047,6 +4058,7 @@ static void  l661c(void *ev);              /* set standard rumors event — defi
  * eval, -18484 = auto-chain enable. PORT-SAFETY: bail if the event table
  * (-13038) is unallocated, and cap the chain length so a malformed/circular
  * event list can't hang the play loop (the Mac trusts the data). */
+static short jt197(short a, short b);   /* CODE 7+0x601a — cell -> zone (rest rules) */
 static void  l06d6(void);   /* CODE 21+0x06d6 — CAST (shared with the camp menu) */
 static void  l3b80(void);   /* CODE 21+0x3b80 — the INVENTORY / special-items list */
 static void  l709e(short a)
@@ -13835,6 +13847,13 @@ static void jt297(void *rec_v, short key, long cb)
 		 * ours; don't "fix" it. An event that silently declines to fire is
 		 * usually a facing miss, so log the byte and steer by it. */
 		dbg_file_num("   facing", (long)(unsigned char)g_a5_byte(-12286));
+		{ const unsigned char *zl =
+		      (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		  short zn = jt197((short)(signed char)g_a5_byte(-12288),
+		                   (short)(signed char)g_a5_byte(-12287));
+		  dbg_file_num("   zone", (long)zn);
+		  if (zl) dbg_file_num("   zone norest",
+		      (long)((zl[zn * 4 + 49] & 0x80) ? 1 : 0)); }
 #endif
 		/* l63c0's per-step re-render reads g_event_modal_shown to rebuild the
 		 * play screen (play_screen_relayout) that the event's shared-pool reset
