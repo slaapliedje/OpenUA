@@ -18,6 +18,11 @@
  * ioErr so the engine sees a non-zero return.
  */
 
+/* This is the Falcon/TT (GEMDOS) File Manager backend. The Amiga (dos.library)
+ * backend is compat/files_amiga.c; exactly one compiles per MACHINE (ADR-0012).
+ * Guarding the whole TU keeps the amiga build from pulling <mint/osbind.h>. */
+#ifndef FRUA_AMIGA
+
 #include <stddef.h>             /* NULL                  */
 #include <string.h>             /* strncmp, memset       */
 #include <mint/osbind.h>        /* GEMDOS Fopen / Fread / ... */
@@ -481,3 +486,5 @@ int files_find_next(char *out, int max)
 	copy_dta_name(out, max);
 	return 1;
 }
+
+#endif /* !FRUA_AMIGA */

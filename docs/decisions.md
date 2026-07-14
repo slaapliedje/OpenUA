@@ -587,3 +587,57 @@ location policy, not engine behaviour**:
 editor executables, which this port does not need — the editors (GEO, event, art
 gallery, monster) are lifted and live *inside* the engine. The only part worth
 having is its hack management, and this ADR removes the need for it.
+
+
+## ADR-0012 — Second target: Amiga AGA, via a Bebbo-GCC toolchain and a direct-chipset display backend
+
+**Decision:** Add the **Amiga AGA** (A1200/A4000, 68020+, 8-bitplane 256-colour)
+as the second shipping target, alongside the Falcon030/TT030. The port is
+selected at build time by `MACHINE` (`falcon` default, `amiga`), and is confined
+to three seams the architecture already isolates:
+
+1. **Toolchain** — a new `toolchain/m68k-amigaos.mk` using **Bebbo's
+   `m68k-amigaos-gcc`** (github.com/bebbo/amiga-gcc): modern GCC, AmigaOS hunk
+   executables, bundled NDK (`exec`/`dos`/`graphics`/`intuition`). Chosen over
+   VBCC because the whole codebase is already GCC `-std=gnu99 -m68020` C, so it
+   compiles with minimal change; VBCC's dialect friction would add churn for no
+   gain. AGA's baseline CPU is the 68020 (A1200), so the flag is `-m68020`
+   (soft-float; no FPU assumed, same as the Falcon030 build).
+
+2. **Display HAL backend** — a new `platform/amiga/` backend implementing the
+   existing `dsp_backend_t` (`display.h`), using the **direct AGA chipset**: set
+   up 8 bitplanes + a copper list, convert the engine's 8bpp *chunky* back buffer
+   to bitplanes with the existing `platform/c2p.S`, and flip on the vertical
+   blank. This is the faithful analog of the VIDEL backend (ADR-0005), which
+   likewise owns the Falcon's video hardware. Rejected: routing through
+   `graphics.library` / `intuition` — multitasking-friendly but slower and more
+   OS-version-dependent, and a full-screen Gold Box game has no reason to behave
+   like a windowed app. The engine still renders into one 8-bit paletted surface
+   and knows nothing about bitplanes; only `platform/amiga/` does.
+
+3. **File I/O** — `compat/files.c` is the *only* file outside `platform/` that
+   still calls the machine directly (GEMDOS). Its I/O is factored behind the
+   `MACHINE` switch: the Atari path keeps GEMDOS; the Amiga path uses AmigaOS
+   `dos.library` (`Open`/`Read`/`Write`/`Close`/`Seek`), translated to the same
+   Mac `OSErr` the engine already expects. Everything else in `compat/` is
+   already portable (`macmemory` is `malloc`, QuickDraw draws into the chunky
+   surface, etc.), so no other shim file changes.
+
+**Why AGA and not ST/STe first:** the build emits **2153** 68020-only ops
+(`bfextu`/`bfins`/`muls.l`). The Amiga AGA shares the CPU (68020+) and the colour
+depth (256), and the chunky→planar step already exists — so AGA adds **one** new
+axis (the AmigaOS shim). ST/STe would add **three** at once (68000 codegen, a
+256→16 colour quantization the engine has never needed, and a 512K–1MB memory
+squeeze), each a research project. AGA is the lower-risk second target and proves
+the HAL boundary before the harder quantized target.
+
+**Layer rule unchanged (ADR-0005):** only `platform/` (and the one gated block in
+`compat/files.c`) may know which machine it is. Engine code compiles identically
+for both targets.
+
+**Status / prerequisites:** scaffolded 2026-07-14 with the Falcon build kept
+green. The Bebbo toolchain is a hard external prerequisite (built from source on
+a networked host; see `docs/toolchain-amiga.md`) and is not yet installed here,
+so the Amiga target is **not yet compiled or run** — the scaffold is structural.
+The run harness is **amiberry** (installed as the `com.blitterstudio.amiberry`
+flatpak), analogous to Hatari for the Atari side.

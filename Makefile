@@ -7,15 +7,43 @@
 #   make test       run the host-side pytest suite over tools/
 #   make clean      remove build output
 
+# Target machine (ADR-0012). `falcon` (default) builds the Atari Falcon030/TT030
+# .prg; `amiga` builds the Amiga AGA hunk executable. Only the toolchain and the
+# platform/ backend set differ — engine + compat + the shared c2p are identical.
+#   make                  Falcon030/TT030 (default)
+#   make MACHINE=amiga     Amiga AGA (needs the Bebbo toolchain; docs/toolchain-amiga.md)
+MACHINE ?= falcon
+
+# Shared platform sources (machine-neutral): the chunky->planar converter is
+# pure 68k asm used by any bitplane display backend (AGA; a future STe).
+PLATFORM_SHARED := platform/c2p.S
+
+ifeq ($(MACHINE),amiga)
+include toolchain/m68k-amigaos.mk
+TARGET       := frua
+PLATFORM_SRC := $(PLATFORM_SHARED) \
+                platform/amiga/display_aga.c \
+                platform/amiga/sound_paula.c \
+                platform/amiga/input_amiga.c \
+                platform/amiga/dbglog_amiga.c
+else ifeq ($(MACHINE),falcon)
 include toolchain/m68k-atari-mint.mk
+TARGET       := frua.prg
+PLATFORM_SRC := $(PLATFORM_SHARED) \
+                platform/display_videl.c \
+                platform/sound_falcon.c \
+                platform/input.c \
+                platform/vdi.c \
+                platform/dbglog.c
+else
+$(error unknown MACHINE '$(MACHINE)' — use 'falcon' or 'amiga')
+endif
 
-TARGET  := frua.prg
-
-SRCDIRS := src src/engine compat platform
+SRCDIRS := src src/engine compat
 INCLUDE := -Isrc -Icompat/include -Iplatform/include
 
-CSRC := $(foreach d,$(SRCDIRS),$(wildcard $(d)/*.c))
-ASRC := $(foreach d,$(SRCDIRS),$(wildcard $(d)/*.S))
+CSRC := $(foreach d,$(SRCDIRS),$(wildcard $(d)/*.c)) $(filter %.c,$(PLATFORM_SRC))
+ASRC := $(filter %.S,$(PLATFORM_SRC))
 OBJ  := $(CSRC:.c=.o) $(ASRC:.S=.o)
 
 # data_pool.c is generated at build time (see the data-pool rule
