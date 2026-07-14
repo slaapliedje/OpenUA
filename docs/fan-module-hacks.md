@@ -514,3 +514,33 @@ no combat command bar appears, and neither Return nor the arrow keys start the
 turn. Combat on HEIRS is playable (arrows drive the turn, #115), so this is
 POR-specific or specific to the chained-combat entry (`l709e` case 36 ->
 case 1 `l159a`). **The single most valuable thing to chase next.**
+
+### The fight, finished (2026-07-14)
+
+With the l5b9a NULL guard in, the combat runs its full lifecycle on POR:
+
+  entry -> 3 ROUNDS -> 112 actor turns -> party defeat -> teardown -> dungeon
+
+The monsters take real turns: they close, they swing, and they CAST — a
+lightning bolt arcs across the field and a fireball detonates, both animated on
+POR's own art. GROG (level 10, no weapon, alone) was worn down 74 -> 67 -> 9 and
+then killed: **"THE MONSTERS REJOICE, FOR THE PARTY HAS BEEN DESTROYED!"** The
+post-combat teardown is clean — back to the dungeon, command bar restored, and
+the clock advanced 12:05 -> 12:08 AM (combat rounds consume game time; faithful,
+and one of the few things that DOES advance the clock — see the JT[914] note).
+
+The player turn works through the command bar: AIM / GUARD / QUICK / DELAY /
+VIEW / SPEED / END. **QUICK (auto-combat) resolves the fight** and is the
+reliable way to drive a fight headlessly.
+
+Two loose ends, both UNCONFIRMED (they may be input-harness limits, not engine
+gaps — verify before chasing):
+
+- **AIM's targeting sub-bar (NEXT / PREV / MANUAL / CENTER / EXIT) did not
+  respond** to mouse clicks: "RANGE = 0" never changed and Return did not fire
+  the shot. Either the target cursor isn't being driven, or the sub-mode wants a
+  key the harness isn't sending.
+- **An arrow key on the player turn ended the turn as GUARDING** instead of a
+  move/attack. GROG was surrounded with 0 movement left at the time, so this is
+  inconclusive — retest with room to step. l08b4 maps arrows to 129..136 ->
+  l1162 (move/attack), and both are lifted.
