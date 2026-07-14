@@ -423,3 +423,43 @@ Both would have been "obvious" and both were wrong. The trace settled it.
 - **Method 25** (image-ID list) and the CBODY/COMSPR entry class.
 - `art_convert`'s CLI is driven by a shell glob: use `*.TLB *.tlb`, or the
   mixed-case files are silently skipped.
+
+## ⚠️ POR: no combat in the start area — and I did NOT reach the slums
+
+Mapped POR's start area (**GEO016, civilized Phlan**) exhaustively with an extended
+`-DFRUA_CELLSCAN` (it now prints each cell's **event TYPE**, read from the 20-byte
+event record at `-13038`, `ev[0]` — the same byte `l709e` switches on):
+
+| type | count | what |
+|---|---|---|
+| 2 | 18 | text / shop-keeper greetings |
+| 9 | 8 | **temple** ("The priests of Tyr welcome you") |
+| **11** | **2** | **AREA TRANSFER** — `case 11` calls `l5676`, the SAME function as type 5 (stairs) |
+| 32 | 1 | select-member-by-class |
+| **1 / 33** | **0** | **NO COMBAT AT ALL** |
+
+**Phlan's civilized quarter is safe BY DESIGN.** The two ways out are the type-11
+cells at step-coords **(row 4, col 19)** and **(row 5, col 10)**.
+
+**Verified working in POR, on its OWN custom art:** the temple (Priests of Tyr), a
+**shop** (the shopkeeper offers items — POR's own portrait), walking, the area map,
+LOOK (+10 min), save/load.
+
+**NOT achieved: I did not reach the slums and did not get POR into combat.** I
+walled myself in at (6,8) trying to reach the (5,10) transfer. Combat is verified on
+HEIRS ([[combat-encounter-gateway]]) and remains **untested in this module**.
+
+### ★ Navigating a design that hides its coordinates
+
+POR hides the coordinate box (a **faithful** per-level flag — `ds[7]` bit 0; see
+`docs/…` and do NOT "fix" it), so you cannot steer by the HUD. `FRUA_CELLSCAN` now
+also logs **`STEP row*100+col` + the cell's special on every step**, which is the
+only practical way to navigate such a design.
+
+⚠️ **The two logs use OPPOSITE row/col order** — the cell scan iterates column-major
+(`x` = row, `y` = col) while the step log prints `(-12287, -12288)`. Cross-reference
+by SWAPPING. The temple `sp=19` prints as scan `(11,3)` and step `(3,11)`; that pair
+is the Rosetta stone.
+
+⚠️ **An event cell RE-FIRES while you stand on it** — leaving the temple menu drops
+you back on its cell and the event runs again. Step OFF immediately, or you loop.

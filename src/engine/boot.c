@@ -1236,9 +1236,23 @@ static void  jt198(short geo_num)
 				for (x = 0; x < h; x++) {
 					long id = (long)h * y + x;
 					unsigned char sp = lv[290 + id * 6 + 4];
-					if (sp != 0)
+					if (sp != 0) {
+						/* special = ENCR event index + 1; the event
+						 * table is 20-byte records at -13038 and
+						 * ev[0] is the TYPE (l709e's switch). Print
+						 * it so combat cells (type 1 / 33) can be
+						 * targeted directly instead of walked into
+						 * blind. */
+						long evt = -1;
+						const unsigned char *tab =
+						    (const unsigned char *)(uintptr_t)
+						    g_a5_long(-13038);
+						if (tab != NULL)
+							evt = (long)tab[(sp - 1) * 20];
 						dbg_file_num("   sp*10000+row*100+col",
 						    sp * 10000L + x * 100L + y);
+						dbg_file_num("      evtype", evt);
+					}
 				}
 		}
 	}
@@ -13720,6 +13734,15 @@ static void jt297(void *rec_v, short key, long cb)
 		short special = jt201((short)(signed char)g_a5_byte(-12288),
 		                      (short)(signed char)g_a5_byte(-12287));
 		g_a5_byte(-18483) = (unsigned char)special;
+#ifdef FRUA_CELLSCAN
+		/* Navigation aid: a design may hide the coordinate box (a faithful
+		 * per-level flag, ds[7] bit 0 — POR does), so log the cell we land
+		 * on to steer by. row*100+col, with the cell's special. */
+		dbg_file_num("STEP row*100+col",
+		    (long)(signed char)g_a5_byte(-12287) * 100L
+		    + (long)(signed char)g_a5_byte(-12288));
+		dbg_file_num("   special", (long)special);
+#endif
 		/* Reset-before so only a modal opened by THIS event counts; l1806
 		 * sets g_event_modal_shown when it shows a "Press [Return]" modal.
 		 * l63c0's per-step re-render reads it to rebuild the play screen
