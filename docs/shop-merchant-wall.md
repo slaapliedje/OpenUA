@@ -264,19 +264,51 @@ afford"** arm, is **closed too** (2026-07-13, against AGAINST THE GIANTS — see
 above). Every arm of every shop verb has now been executed on real hardware
 emulation.
 
-## Open finding (NOT shop-specific) — the play-screen roster
+## ⛔ RETRACTED — "the play-screen roster paints EMPTY on a fresh party" IS NOT A BUG
 
-On the **fresh-party** path (create a character → ADD → **BEGIN ADVENTURING**,
-with no save/load), the play screen's **roster panel painted EMPTY** — no name,
-no AC/HP, no party coordinates — even though `VIEW` showed the character present
-and the clock/command-bar painted normally. After **SAVE CURRENT GAME → LOAD
-SAVED GAME** the same party's roster paints fine (and the Training Hall roster
-paints it in both cases).
+**The roster paints correctly. There is nothing to fix.** Re-tested 2026-07-13 on
+HEIRS *and* GIANTS, with both an ADDED character (`CHAR0000.CHR`) and a
+**freshly created** one (char-gen → ADD → BEGIN ADVENTURING, no save/load), through
+the entire intro-event chain and into the play HUD. **The roster painted name, AC
+and HP in every single frame.** No engine commit has touched `l02dc`/`jt937`/
+`-27928`/`-27987` since the claim was filed, so it was never fixed — it was never
+real.
 
-**Not root-caused.** It may be missing data on the fresh path, or merely a missed
-repaint after the design's intro events ran — I only sampled the frame right after
-those events. Worth a session; reproduce with a new character in any design that
-has no save.
+### What I actually saw: a full-width BIG PICTURE covering the roster panel
+
+The claim was written off **one frame sampled during GIANTS' intro event** (the note
+even said so: *"I only sampled the frame right after those events"*). GIANTS' intro
+is a **big picture** — and a FRUA bigpic is **304 px wide on a 320 px screen**. It
+covers the roster panel *because there is no room for it*. HEIRS' intro uses a small
+framed picture, so its roster stays visible; that difference is picture size, not a
+defect. Once the events clear, GIANTS' roster paints normally.
+
+**Lesson (the third time this shape has bitten me): a panel that is OVERPAINTED is
+not a panel that FAILED TO PAINT.** Same family as the invisible shop messages
+above. Sample the settled frame, not the one mid-event.
+
+### The one real difference — and it is FAITHFUL
+
+On GIANTS the **party-coordinate box** is blank where HEIRS shows `10,8`. That is a
+**per-level design flag**, not a bug. `l0006_20` (CODE 20 + 0x0006):
+
+    moveal %a5@(-12300),%a0     ; the current-area block
+    moveb  %a0@(7),%d0
+    btst   #0,%d0
+    beqs   L005c                ; bit0 CLEAR -> h[26] = 1  (coords HIDDEN)
+    clrb   %a0@(26)             ; bit0 SET   -> h[26] = 0  (coords SHOWN)
+
+and `jt938` draws the cell only `if (h[26] == 0)`. The C lift
+(`h[26] = (ds[7] & 1) ? 0 : 1`) is **exactly** this. GIANTS' level clears the bit;
+HEIRS' sets it. The port is honouring the design. **Do not "fix" it.**
+
+### Also disproven: the `-27987` suppression theory
+
+A plausible-looking hypothesis said `l442e` sets `g_a5_27987 = 1` on the BIGPIC
+branch and never clears it, suppressing every later `l02dc`. **Empirically false** —
+after GIANTS' bigpic intro the roster paints fine, so the flag *is* cleared (by the
+`l3ef8` event teardown). Reproducing first is what killed this theory before it
+became a "fix".
 
 Next natural targets are elsewhere: `docs/inventory-subsystem-wall.md` (the
 ITEMS menu shares jt893) and whatever `docs/subsystem-status.md` ranks highest.
