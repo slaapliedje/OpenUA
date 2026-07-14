@@ -13704,7 +13704,7 @@ static void jt297(void *rec_v, short key, long cb)
 	const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short cell, fp3, fp4, facing, k;
 	unsigned char snap[6];
-	unsigned char pre_col = 0, pre_row = 0;       /* party cell before the move */
+	unsigned char pre_row = 0, pre_col = 0;       /* party cell before the move */
 	int snapped = 0;
 
 	PROBE("jt297");
@@ -13721,8 +13721,8 @@ static void jt297(void *rec_v, short key, long cb)
 		for (k = 0; k < 6; k++) snap[k] = g_a5_byte(-12288 + k);
 		for (k = 0; k < 6; k++) g_a5_byte(-12288 + k) = rec[46 + k];
 		snapped = 1;
-		pre_col = g_a5_byte(-12288);   /* party cell BEFORE the move */
-		pre_row = g_a5_byte(-12287);
+		pre_row = g_a5_byte(-12288);   /* party cell BEFORE the move */
+		pre_col = g_a5_byte(-12287);
 	}
 	fp4    = (rec[4] == 0 && rec[9] != 0) ? 1 : 0;
 	facing = (short)g_a5_byte(-12286);
@@ -13806,19 +13806,35 @@ static void jt297(void *rec_v, short key, long cb)
 	 * change the cell, so they don't fire. l709e is a no-op when there's no
 	 * event table or special==0. (docs/play-loop-wall.md) */
 #ifndef FRUA_SKIP_ENTRY_EVENTS
-	if (snapped && (g_a5_byte(-12288) != pre_col
-	             || g_a5_byte(-12287) != pre_row)) {
+	if (snapped && (g_a5_byte(-12288) != pre_row
+	             || g_a5_byte(-12287) != pre_col)) {
 		short special = jt201((short)(signed char)g_a5_byte(-12288),
 		                      (short)(signed char)g_a5_byte(-12287));
 		g_a5_byte(-18483) = (unsigned char)special;
 #ifdef FRUA_CELLSCAN
 		/* Navigation aid: a design may hide the coordinate box (a faithful
 		 * per-level flag, ds[7] bit 0 — POR does), so log the cell we land
-		 * on to steer by. row*100+col, with the cell's special. */
+		 * on to steer by. row*100+col, with the cell's special.
+		 *
+		 * ★ -12288 is the ROW and -12287 the COL — jt201(x,y) indexes
+		 * height*y + x and this call site passes (-12288, -12287), so x is
+		 * the row. This log used to print them the other way round under a
+		 * "row*100+col" label; the CELLSCAN dump above prints row*100+col,
+		 * so the two navigation aids disagreed and steering by them walked
+		 * the party into the wrong cells. Same order in both, now. */
 		dbg_file_num("STEP row*100+col",
-		    (long)(signed char)g_a5_byte(-12287) * 100L
-		    + (long)(signed char)g_a5_byte(-12288));
+		    (long)(signed char)g_a5_byte(-12288) * 100L
+		    + (long)(signed char)g_a5_byte(-12287));
 		dbg_file_num("   special", (long)special);
+		/* The party facing. l1908 normalises it to [1,8] (faithful — the Mac
+		 * does the same at 0x190c), so the cycle is 2=E 4=S 6=W 8=N and the
+		 * value 0 NEVER occurs. l694e's case-8 "Facing Correct Direction" event
+		 * condition switches on 0/2/4/6 with `default: result = 1`, so a design
+		 * that gates an event on facing NORTH always passes — dead `case 0`.
+		 * That quirk is the Mac's (see CODE 20 @0x6ba8 + the JT[3] table), not
+		 * ours; don't "fix" it. An event that silently declines to fire is
+		 * usually a facing miss, so log the byte and steer by it. */
+		dbg_file_num("   facing", (long)(unsigned char)g_a5_byte(-12286));
 #endif
 		/* l63c0's per-step re-render reads g_event_modal_shown to rebuild the
 		 * play screen (play_screen_relayout) that the event's shared-pool reset
