@@ -251,7 +251,25 @@ def _rows_interleave(lin, w, rows):
 DRAW_UNCOMPRESSED = (16, 17, 21)      # 17 carries an AND/OR mask pair
 DRAW_COMPRESSED = (18, 23)            # DOS RLE; see DRAW18.TXT / DRAW23.TXT
 DRAW_ID_LIST = 25
-COLOUR_TABLE_MAGIC = (8, 24)          # trailing byte of a colour-table header
+def _is_colour_table(method):
+    """A colour-table (palette) block, per the ENGINE's own rule.
+
+    jt993 ("TNPalette") rejects anything else with exactly this test:
+
+        if ((hdr[7] & 15) != 8) { "Invalid TNPalette call ..."; return; }
+
+    The LOW NIBBLE is the block type (8 = palette); the HIGH NIBBLE is the
+    format field, and it is remapped DOS<->Mac like any other entry's.  This is
+    what the hackdocs' unexplained "value should be either 8 or 24" means -- 24
+    is 0x18, i.e. type 8 with format 1 -- and it is why the Mac's 200 (0xc8) is
+    equally valid.  No drawing method has low nibble 8 (16/17/18/21/23/25 ->
+    0/1/2/5/7/9), so there is no collision.
+
+    Keying off the low nibble rather than a list of observed VALUES is the whole
+    point: a hardcoded (8, 24) missed both DOS 0x18 -> Mac 0xc8 and the Mac's own
+    0xc8 on the way back.  Use the engine's rule, not a sample.
+    """
+    return (method & 0x0F) == 8
 
 
 def _convert_entry(ent, to_mac):
@@ -311,12 +329,22 @@ def _convert_entry(ent, to_mac):
         new_method = _swap_flag_byte(method, to_mac)
         body = (deplanarize(payload, w, height) if to_mac
                 else planarize(payload, w, height))
-    elif method in COLOUR_TABLE_MAGIC:
+    elif _is_colour_table(method):
         # The COLOUR TABLE (per-set palette).  Its header is u16 cycling /
         # u16 first colour / u16 colour count, then two BYTES (cycle-range count,
-        # magic 8 or 24) -- so the words swap while the trailing bytes and the RGB
-        # payload pass through unchanged.  Byte-exact against the Yezukriis pair.
-        new_w4, new_method, body = w4, method, payload
+        # block-type byte) -- so the words swap and the RGB payload passes through
+        # verbatim, but the BLOCK-TYPE BYTE IS STILL AN ENTRY FLAG BYTE and its
+        # high nibble must be remapped like any other.
+        #
+        # This line used to read `new_method = method` -- "byte-exact against the
+        # Yezukriis pair", and it was, because every palette in that pair is 0x08
+        # (high nibble already 0, so the remap is a no-op).  POR's WALL libraries
+        # use 0x18, which must become 0xc8.  That single unremapped nibble was the
+        # only difference between our conversion and the real Mac art: 9 bytes in
+        # 8X8DB.CTL, 7 in 8X8DC.CTL, and nothing else in 528K.
+        #
+        # A GROUND-TRUTH TEST ONLY COVERS WHAT THE GROUND TRUTH CONTAINS.
+        new_w4, new_method, body = w4, _swap_flag_byte(method, to_mac), payload
     else:
         raise UnsupportedPiece(
             "entry is neither a known drawing method nor a colour table "

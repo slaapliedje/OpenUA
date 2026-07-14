@@ -97,13 +97,51 @@ def test_offsets_and_size_survive_the_swap():
     assert parse(mac)["size"] == len(mac)
 
 
-def test_opaque_palette_entry_passes_through_untouched():
+def test_colour_table_payload_passes_through_but_words_swap():
     """rows/stride don't describe the payload -> copy the bytes, swap the words."""
     e = struct.pack("<Hhh", 1, 0, 0) + bytes([0x00, 0x08]) + b"\x98\x00\x97\x33"
     mac = parse(convert(_container(b"HLIB", [e]), to=b"GLIB"))["entries"][0]
     assert struct.unpack(">H", mac[0:2])[0] == 1
-    assert mac[6:8] == bytes([0x00, 0x08])      # flag byte NOT remapped
+    assert mac[6:8] == bytes([0x00, 0x08])      # 0x08: high nibble already 0
     assert mac[8:] == b"\x98\x00\x97\x33"       # payload verbatim
+
+
+def test_colour_table_flag_byte_IS_remapped_like_any_other_entry():
+    """0x18 -> 0xc8.  THE BUG THIS FILE ONCE ASSERTED AS CORRECT.
+
+    The colour table's trailing byte is still an entry flag byte: low nibble =
+    block type (8 = palette, per jt993's `(hdr[7] & 15) != 8` check), high nibble
+    = format, remapped DOS 0x1 <-> Mac 0xc.
+
+    Every palette in the Yezukriis ground-truth pair is 0x08 -- high nibble
+    already 0, so the remap is a no-op and NOT remapping passed the byte-exact
+    test.  POR's WALL libraries use 0x18, which must become 0xc8.  That one
+    nibble was the ONLY difference between our conversion and the real Mac art:
+    9 bytes in 296,922, 7 in 231,434.
+
+    A GROUND-TRUTH TEST ONLY COVERS WHAT THE GROUND TRUTH CONTAINS.
+    """
+    e = struct.pack("<Hhh", 3, 32, 224) + bytes([0x07, 0x18]) + b"\x11\x22\x33"
+    mac = parse(convert(_container(b"HLIB", [e]), to=b"GLIB"))["entries"][0]
+    assert mac[7] == 0xC8, "DOS 0x18 must convert to Mac 0xc8"
+    assert mac[6] == 0x07                       # cycle-record count untouched
+    assert mac[8:] == b"\x11\x22\x33"           # RGB payload verbatim
+    # ...and it must survive the trip home.
+    dos = parse(convert(convert(_container(b"HLIB", [e]), to=b"GLIB"),
+                        to=b"HLIB"))["entries"][0]
+    assert dos[7] == 0x18
+
+
+def test_mac_colour_table_is_recognised_coming_back():
+    """0xc8 (200) must be seen as a palette, not rejected as an unknown method.
+
+    The old code keyed off a literal list `(8, 24)`, which does not contain the
+    Mac's own 0xc8 -- so a Mac->DOS conversion of any real wall library threw.
+    Key off the LOW NIBBLE, which is what the engine itself does.
+    """
+    e = struct.pack(">Hhh", 3, 32, 224) + bytes([0x07, 0xC8]) + b"\x11\x22\x33"
+    dos = parse(convert(_container(b"GLIB", [e]), to=b"HLIB"))["entries"][0]
+    assert dos[7] == 0x18
 
 
 def test_compressed_piece_is_refused_not_mangled():
@@ -190,3 +228,38 @@ def test_rle_uses_repeats_for_runs_of_three_or_more():
     assert rle_encode(bytes([5] * 4)) == bytes([257 - 4, 5])
     # a 2-run costs the same as a literal, so it stays literal
     assert rle_encode(bytes([5, 5])) == bytes([1, 5, 5])
+
+
+# --- ground truth #2: WALL LIBRARIES (the class Yezukriis did not contain) ---
+
+POR_PC  = "data/work/gamedata/POR.DSN"
+POR_MAC = "data/work/fanmods/pormac/POR/GAME39.dsn"
+
+
+@pytest.mark.skipif(not os.path.isdir(POR_MAC),
+                    reason="Mac Pool of Radiance not staged (copyrighted; data/ is git-ignored)")
+def test_converts_real_dos_WALL_libraries_to_real_mac_wall_libraries():
+    """Pool of Radiance ships in BOTH editions -- same author, same module.
+
+    This is the ground truth the Yezukriis pair could not provide: Yezukriis has
+    NO wall art, so every wall-library claim was untested, and a real bug (the
+    colour table's flag byte, 0x18 -> 0xc8) sat undetected behind a byte-exact
+    test that passed.  8X8DB/8X8DC are container-of-containers -- 10 wall sets x
+    48 pieces, each set carrying its own palette -- so they exercise the nested
+    path, the per-set colour tables, AND the flag-byte remap in one file.
+
+    Bar: BYTE-IDENTICAL.  528,356 bytes of it.
+    """
+    for name in ("8X8DB", "8X8DC"):
+        dos = open(os.path.join(POR_PC, name + ".TLB"), "rb").read()
+        want = open(os.path.join(POR_MAC, name + ".CTL"), "rb").read()
+        got = convert(dos, to=b"GLIB")
+        assert got == want, (
+            "%s.CTL: converted DOS art != the real Mac art (%d bytes differ)"
+            % (name, sum(a != b for a, b in zip(got, want))))
+        # Round trip: NOT byte-exact back to the DOS file, and that is expected --
+        # re-encoding a compressed piece picks our run splits, not SSI's (~0.25%
+        # larger).  The invariant that matters is that no INFORMATION is lost:
+        # going home and back must land on the same Mac bytes.
+        assert convert(convert(got, to=b"HLIB"), to=b"GLIB") == want, \
+            "%s: round trip lost information" % name

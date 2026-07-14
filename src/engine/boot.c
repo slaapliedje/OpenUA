@@ -2287,9 +2287,12 @@ int ua_main(short arg1, long arg2)
 		jt411(status);
 		jt1129(1);
 		color_mode_init();      /* CODE 4 @0x47b4: derive jt1200 gates */
-		master_init(arg1, arg2, 214, 450);   /* stage4: Mac-sized pool */
+		master_init(arg1, arg2, 214, 450);   /* CODE 6+0x5fc: #450, #214 */
 	} else {
-		master_init(-5, arg2, 160, 450);     /* stage4: Mac-sized pool */
+		/* CODE 6+0x616 pushes #400, #160 — NOT 450. The port had 450 here, a
+		 * transcription slip on the no-design fallback arm (the arm taken when
+		 * the LB open fails). Faithful now. */
+		master_init(-5, arg2, 160, 400);
 	}
 
 	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
