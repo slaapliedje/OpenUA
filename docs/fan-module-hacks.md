@@ -232,3 +232,47 @@ resolves, and it is what makes the silent fan-art fallback land on a *specific*
 base picture (id 245 → set 6 → WALKING FOREST). **Do not confuse byte[10] and
 byte[11]** — they are two independent bytes, not a u16; byte-swapping them is what
 caused the black-walls bug.
+
+## ✅ POOL OF RADIANCE play-test (2026-07-13) — it RUNS, with its own art
+
+A **DOS/PC module**, converted with `tools/art_convert.py` and staged as
+`POR.DSN`. Driven live in Hatari, start to walkabout:
+
+| | |
+|---|---|
+| Design loads, appears in SELECT A DESIGN | ✅ "GAME 39 POOL OF RADIANCE" |
+| **POR's OWN custom art renders** | ✅ Rolf's portrait (the Council's guide), Phlan's street walls, its area map — correct colours |
+| Intro event chain | ✅ plays through (Rolf's greeting → the tour) |
+| 3D walk (arrow keys) | ✅ view + compass update, ~70 steps |
+| AREA map | ✅ POR's street grid + party marker |
+| Play HUD (roster / clock / command bar) | ✅ complete |
+| Bus errors | ✅ **zero**, whole session |
+
+This is the first end-to-end proof that **a converted PC module plays with its own
+art** — the converter's payoff, and the counterpart to the silent-fallback trap
+above. (`-DFRUA_ARTTRACE` confirms the per-id probes fall back and `8x8db.ctl`
+then resolves **design-first** to POR's converted library, per ADR-0011.)
+
+### ⚠️ OPEN — "DISK READ ERROR", seen ONCE, NOT reproduced
+
+On the *first* walk a `DISK READ ERROR` plate appeared at the bottom of the play
+screen (`l157c(2,…)` — the `jt987` loader's open/callback-failed path). It was
+**non-fatal**: the view kept rendering and the walk continued. **Three later runs
+over the same ground did not reproduce it**, so it is path- or state-dependent.
+
+**It is recorded as an OBSERVATION, not a diagnosis.** I have not root-caused it
+and will not guess: the FAR-pool ceiling (POR's wall libs are 297K + 231K against
+a 450K pool) is a *suspect*, not a finding — the faithful `jt987`/`jt104` path
+extracts only the ~37K per-set sub-GLIB, so the whole-file sizes may be irrelevant.
+Reproduce it before theorising.
+
+### Not established
+
+- **Combat in POR** — no encounter fired in ~70 steps of Phlan. Combat is verified
+  working in HEIRS ([[combat-encounter-gateway]]); it is *untested in this module*.
+- **A full play-through.** It is playable; it has not been played through.
+- The in-game **clock did not advance while walking** (12:05 AM held for ~70 steps).
+  This may be entirely faithful — per-step minutes are a per-zone design field
+  (GEODATA offset 70). **Do not "fix" it without checking POR's zone data first.**
+- **Custom music** (`.xmi` — POR ships `addq1.xmi`) is still ignored; a new
+  subsystem, not a lift.
