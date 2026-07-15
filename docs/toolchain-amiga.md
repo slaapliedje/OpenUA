@@ -176,7 +176,31 @@ compute and use, -O2. Workaround: `-fbbb=abcefilmnprsz0` (default minus `h`)
 in toolchain/m68k-amigaos.mk. If the toolchain is ever rebuilt/upgraded,
 re-run the reproducer before dropping the flag.
 
-Next, in order: the CIA keyboard (ciaa.resource ICR
-rawkey ring — the menu is mouse-only until then), Paula audio, the hardware
-sprite cursor — then the `run-amiga-port` driver skill (amiberry harness,
+### Input + speed (2026-07-15, 1b9578c + f81c15b)
+The mouse pointer is hardware sprites 0+1 (attached), repositioned in the
+VERTB server — video-rate tracking, no c2p cost. The keyboard is an
+**input.device handler** at priority 100, NOT the ciaa.resource ICR vector
+first planned: keyboard.device owns the CIA-A SP interrupt bit on any booted
+system (and this port keeps the OS alive for dos.library), so AddICRVector
+can never claim it. The handler consumes rawkey + rawmouse, which also stops
+input reaching the Workbench behind the game. Rawkeys map to Atari IKBD
+scancodes; the polls apply TOS keytable semantics, so the Event Manager shim
+is machine-blind.
+
+The naive per-pixel c2p cost ~1 second per 320x200 frame at 14MHz — every
+modal-loop pass ends in a full present (jt1134), so menus ran at seconds per
+pass and input LOOKED broken while the input layer was perfect. The c2p is
+now a masked-swap bit-matrix transpose (32 pixels/step, 68000-clean C,
+bit-identical to the naive scatter — tests/test_c2p_amiga.py). Build with
+`-DFRUA_KBTRACE` to get the modal-pass-rate counters that diagnosed this
+(polls / l2d3e / jt1134 / qd_present per 16 polls, logged to DBG.LOG).
+
+Emulator-harness gotchas: an instantaneous `xdotool click` is INVISIBLE to
+the game (the button is sampled from CIA PRA at 50Hz) — use
+`mousedown; sleep 0.3; mouseup`. Send ONE key per xdotool invocation.
+amiberry captures the mouse on the first in-window click; after that only
+RELATIVE host moves reach JOY0DAT.
+
+Next, in order: Paula audio (4ch DMA; the synth render is machine-neutral
+in the shim), then the `run-amiga-port` driver skill (amiberry harness,
 patterned on run-falcon-port).
