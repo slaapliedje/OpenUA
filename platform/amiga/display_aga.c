@@ -443,6 +443,9 @@ static void aga_set_palette(const dsp_color_t *colors, short first, short count)
 {
 	short i;
 
+#ifdef FRUA_KBTRACE
+	{ extern long g_kbt_setpal; g_kbt_setpal++; }
+#endif
 	if (s_cop == NULL)
 		return;
 	for (i = 0; i < count; i++) {

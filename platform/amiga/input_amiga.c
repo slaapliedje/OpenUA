@@ -209,7 +209,7 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 #ifdef FRUA_KBTRACE
 	{
 		extern long g_kbt_l2d3e, g_kbt_1134, g_kbt_qdpresent,
-		            g_kbt_qdsuppressed;
+		            g_kbt_qdsuppressed, g_kbt_1067rot, g_kbt_setpal;
 		static long polls;
 		if ((++polls & 0x0F) == 0) {
 			dbg_file_num("kbt: polls=", polls);
@@ -218,6 +218,8 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 			dbg_file_num("kbt: 1134=", g_kbt_1134);
 			dbg_file_num("kbt: qdpres=", g_kbt_qdpresent);
 			dbg_file_num("kbt: qdsupp=", g_kbt_qdsuppressed);
+			dbg_file_num("kbt: 1067rot=", g_kbt_1067rot);
+			dbg_file_num("kbt: setpal=", g_kbt_setpal);
 		}
 	}
 #endif

@@ -71679,6 +71679,9 @@ static void jt1067(void)
 			max  = jt397((short)(base + count1), max);  /* 7956 */
 			mode = 0;                       /* 796e */
 			*(long *)entry += (entry[5] & 0xff);    /* 7984 timer */
+#ifdef FRUA_KBTRACE
+			{ extern long g_kbt_1067rot; g_kbt_1067rot++; }
+#endif
 		}
 	}
 

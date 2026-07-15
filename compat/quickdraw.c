@@ -321,6 +321,7 @@ static void  qd_dbg_draw_mark(void);
 
 #ifdef FRUA_KBTRACE
 long g_kbt_l2d3e, g_kbt_1134, g_kbt_qdpresent, g_kbt_qdsuppressed;
+long g_kbt_1067rot, g_kbt_setpal;
 #endif
 
 void qd_present(void)
