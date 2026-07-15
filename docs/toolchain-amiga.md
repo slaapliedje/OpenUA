@@ -92,24 +92,47 @@ Snags hit and fixes:
 - **fd2sfd patch conflict** — franke's source is already patched, so Bebbo's
   `patch -N` errors. Fix: `rm patches/fd2sfd/fd2inline.c.diff` (and the `.rej`);
   the pre-patched configure script is fine, so the rule won't re-run.
-- **newlib build fails on `malloc.cpp`** — its C++ compile rule omits the
-  `-I…/newlib/libc/include` that the C rules have, so `<string.h>` isn't found.
-  OPEN: add that include to the amigaos `malloc.o` rule (or set
-  `CXXFLAGS_FOR_TARGET`). Until then libc.a isn't built; the newlib *headers*
-  exist in the source tree (`projects/newlib-cygwin/newlib/libc/include`) and can
-  be `-I`'d to compile (not link) the engine.
+- **newlib build failed on `malloc.cpp`** — FIXED (2026-07-14). Root cause: the
+  parent make augments `CC` with the multilib `-I…/targ-include -I…/libc/include`,
+  but the amigaos Makefile's `.cpp.o` suffix rule uses plain `$(CXX)`, which
+  isn't augmented — so `malloc.cpp` (the one C++ file in newlib) compiled with no
+  libc include path and couldn't find `<string.h>`/`<stabs.h>`. Fix: append both
+  `-I` to the `INCLUDES` variable (consumed by BOTH `COMPILE` and `CXXCOMPILE`)
+  in `newlib/libc/sys/amigaos/Makefile.{am,in}`:
+  `-I$(abs_builddir)/../../../targ-include -I$(newlib_basedir)/libc/include`.
+  Then `make newlib PREFIX=~/opt/amiga` completes and installs
+  `m68k-amigaos/lib/libc.a` (+ the newlib headers into the sysroot).
+  ⚠️ The multilib build spawns many jobs — do NOT launch a second `make newlib`
+  over a running one; concurrent `ar`/`ranlib` on the same `lib.a` races and
+  fails with `ranlib: unable to copy file 'lib.a'`. Let one finish.
 
 ## Status (2026-07-14)
 
 - ✅ **Toolchain**: working `m68k-amigaos-gcc 6.5.0b` + binutils, NDK headers
   integrated and auto-found. Built entirely from non-GitHub sources.
-- 🔶 **libc**: newlib lib build blocked on the `malloc.cpp` include snag above
-  (headers usable, lib not yet built).
-- 🔶 **Engine compile**: attempting `make MACHINE=amiga` surfaced the real
-  machine-coupling to port — these files still `#include <mint/osbind.h>`
-  (GEMDOS) and need their Atari bits guarded + routed through the HAL, the same
-  way `compat/files.c` already is: **`src/main.c`, `src/engine/error.c`,
-  `compat/events.c`, `compat/macmemory.c`** (`compat/files.c` = done). That is
-  the next concrete porting step.
-- The `platform/amiga/` backends + `compat/files_amiga.c` remain structural
-  skeletons (hardware bodies `TODO(hw)`). The Falcon/TT build is unaffected.
+- ✅ **libc**: newlib `libc.a` built and installed into the sysroot
+  (`~/opt/amiga/m68k-amigaos/lib/libc.a` + headers) after the `malloc.cpp` fix
+  above. `<stdlib.h>`/`<string.h>`/`<stdio.h>` now resolve with no `-I`.
+- ✅ **GEMDOS leaks routed through the HAL**: the four files that reached
+  straight to GEMDOS (`src/main.c`, `src/engine/error.c`, `compat/events.c`,
+  `compat/macmemory.c`) now go through a new **`plat_sys` HAL**
+  (`platform/include/plat_sys.h`; Falcon `platform/sys_falcon.c`, Amiga
+  `platform/amiga/sys_amiga.c`) for console I/O, largest-free-block, and the
+  wall clock; the keyboard scan→char lookup moved to the input HAL
+  (`plat_kb_unshifted_char`). All four + both new backends + `input_amiga.c`
+  now **compile clean for Amiga** with the mk's flags. Falcon build unchanged
+  and green; host tests 170 pass.
+  - NB: compile with the **mk's `CFLAGS`** — `-noixemul` is a *link* flag only;
+    passing it to a compile flips newlib's reent header path and breaks
+    `<stdio.h>` (`unknown type name '__FILE'`).
+- 🔶 **Next blocker — the `Point` namespace clash**: `compat/files_amiga.c`
+  fails to compile because the Mac Toolbox shim's `quickdraw.h` and the Amiga
+  NDK's graphics headers (pulled in transitively via `proto/dos.h` →
+  `inline/stubs.h` → `graphics/displayinfo.h`) both define **`Point`**. This is
+  the classic Mac-on-Amiga type collision and will hit every file that mixes the
+  Mac shim with an Amiga library proto. Resolve it once (isolate the Amiga
+  proto includes behind a thin C wrapper that doesn't see `quickdraw.h`, or
+  `#define`-rename one `Point`) before a full `make MACHINE=amiga`.
+- The `platform/amiga/` backends remain structural skeletons (hardware bodies
+  `TODO(hw)`); the new `sys_amiga.c` uses real exec/dos calls but is unverified
+  on hardware. The Falcon/TT build is unaffected.
