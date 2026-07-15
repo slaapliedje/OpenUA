@@ -14,7 +14,8 @@
  * is an ICR vector on ciaa.resource's SP interrupt; still TODO(hw) — the polls
  * report an empty queue until then (the menu is mouse-driven; keys follow).
  *
- * Status: VBL server + mouse integration complete, UNVERIFIED on amiberry.
+ * Status: VBL server + mouse integration VERIFIED on amiberry; the server
+ * also drives the display backend's sprite-0 pointer each frame.
  */
 
 #include "input.h"
@@ -96,6 +97,11 @@ static short          s_last_btn;
 static struct Interrupt s_vbl_int;
 static int              s_vbl_installed;
 
+/* Display backend's sprite-cursor tick (platform-internal, display_aga.c):
+ * repositions the hardware pointer from the mouse state integrated above,
+ * inside the same blank. No-ops until a cursor sprite has been pushed. */
+extern void amiga_display_vbl_cursor(void);
+
 /* INTB_VERTB server: all VERTB servers on the chain run every frame; the
  * C ABI already preserves what a server must (d2-d7/a2-a6). Return 0. */
 static LONG vbl_server(void)
@@ -121,6 +127,8 @@ static LONG vbl_server(void)
 		s_click_latch = 1;              /* down edge: latch until taken */
 	s_last_btn  = btn;
 	s_mouse_btn = btn;
+
+	amiga_display_vbl_cursor();         /* move the hardware pointer */
 
 	g_amiga_vbl_ticks++;
 	return 0;

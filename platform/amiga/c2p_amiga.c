@@ -16,16 +16,24 @@
 
 void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
                short w, short h, short plane_pitch);
+void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
+                    unsigned char *const planes[8], short plane_pitch,
+                    short x0, short y0, short w, short h);
 
-void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
-               short w, short h, short plane_pitch)
+/* Rect form: convert only the given cell. `x0` and `w` must be multiples of 8
+ * (the byte granularity of a bitplane row); the caller aligns. `chunky_pitch`
+ * is the chunky buffer's full row width. */
+void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
+                    unsigned char *const planes[8], short plane_pitch,
+                    short x0, short y0, short w, short h)
 {
 	short y, k;
 	long  x;
 
 	for (y = 0; y < h; y++) {
-		const unsigned char *src = chunky + (long)y * w;
-		long rowoff = (long)y * plane_pitch;
+		const unsigned char *src =
+		    chunky + (long)(y0 + y) * chunky_pitch + x0;
+		long rowoff = (long)(y0 + y) * plane_pitch + (x0 >> 3);
 
 		for (x = 0; x < w; x += 8) {
 			unsigned char pb[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -43,4 +51,10 @@ void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
 				planes[k][rowoff + (x >> 3)] = pb[k];
 		}
 	}
+}
+
+void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
+               short w, short h, short plane_pitch)
+{
+	c2p_amiga_rect(chunky, w, planes, plane_pitch, 0, 0, w, h);
 }
