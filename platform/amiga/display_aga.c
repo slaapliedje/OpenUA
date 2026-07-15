@@ -480,11 +480,26 @@ static const dsp_backend_t aga_backend = {
 	aga_set_palette,
 };
 
+const dsp_backend_t *dsp_backend_rtg(void);      /* display_rtg.c */
+
 const dsp_backend_t *dsp_detect(void)
 {
-	/* aga_init itself refuses to run without KS3.0 + Lisa, so claiming the
-	 * backend here is safe; an ECS fallback backend slots in later. */
-	return &aga_backend;
+	/* AA chipset -> the direct copper backend (free palette animation,
+	 * sprite pointer). No AA -> the RTG/OS backend: an ECS machine with a
+	 * graphics card (PiStorm RTG, ZZ9000, Picasso...) carries the full
+	 * 256-colour game on a chunky card screen; an ECS machine WITHOUT one
+	 * fails in rtg_init (no 8-bit mode) — a 16-colour native ECS backend
+	 * would need art degradation and is a separate decision. */
+	struct GfxBase *gb = (struct GfxBase *)
+	    OpenLibrary((CONST_STRPTR)"graphics.library", 39);
+	int aa = 0;
+
+	if (gb != NULL) {
+		aa = (gb->ChipRevBits0
+		      & (GFXF_AA_ALICE | GFXF_AA_LISA | GFXF_AA_MLISA)) != 0;
+		CloseLibrary((struct Library *)gb);
+	}
+	return aa ? &aga_backend : dsp_backend_rtg();
 }
 
 /* --- VBL mouse-cursor service (display.h) --------------------------------
