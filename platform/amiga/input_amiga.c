@@ -20,6 +20,7 @@
  */
 
 #include "input.h"
+#include "plat_sound.h"        /* plat_sound_vbl — fed from the VERTB server */
 
 #ifdef FRUA_AMIGA
 
@@ -367,6 +368,10 @@ static LONG vbl_server(void)
 	s_mouse_btn = btn;
 
 	amiga_display_vbl_cursor();         /* move the hardware pointer */
+
+	/* Feed the Paula ring + run the engine's sound sequencer (memory-only
+	 * at interrupt time — sound_paula.c owns the discipline). */
+	plat_sound_vbl();
 
 	g_amiga_vbl_ticks++;
 	return 0;

@@ -14,9 +14,11 @@
  *
  * ★ THE INTERRUPT-CONTEXT TRAP APPLIES HERE TOO. dos.library must never be
  * called from an interrupt (the Atari sink learned this the hard way — see
- * platform/dbglog.c's deferred ring). These sinks are TASK-LEVEL ONLY; the
- * VBL server and anything reachable from it must not log. The deferral ring
- * gets ported when the synth sequencer lands on the Amiga VBL.
+ * platform/dbglog.c's deferred ring). The synth sequencer now runs on the
+ * VERTB server (sound_paula.c), so the deferral ring is REAL: while
+ * g_amiga_in_int is set, every sink copies its line into a small ring
+ * instead of touching DOS; the next task-level log call flushes the ring
+ * first, in order.
  */
 
 #include "dbglog.h"
@@ -53,6 +55,34 @@ static long str_len(const char *s)
 	return n;
 }
 
+/* --- interrupt-context deferral ------------------------------------------
+ * Set by the VERTB server around engine code (sound_paula.c). While set,
+ * log lines land in this ring; the next task-level line flushes them. */
+
+volatile int g_amiga_in_int;
+
+#define DEFER_LINES 16
+#define DEFER_WIDTH 96
+static char          s_defer[DEFER_LINES][DEFER_WIDTH];
+static volatile int  s_defer_n;        /* lines pending (drops when full) */
+
+static void defer_line(const char *a, const char *b)
+{
+	int  n = s_defer_n;
+	char *d;
+	int  i = 0;
+
+	if (n >= DEFER_LINES)
+		return;                         /* full: drop (bring-up sink) */
+	d = s_defer[n];
+	while (a != NULL && *a != '\0' && i < DEFER_WIDTH - 1)
+		d[i++] = *a++;
+	while (b != NULL && *b != '\0' && i < DEFER_WIDTH - 1)
+		d[i++] = *b++;
+	d[i] = '\0';
+	s_defer_n = n + 1;
+}
+
 /* --- file sink (PROGDIR:DBG.LOG) ----------------------------------------- */
 
 static int s_truncated;
@@ -61,6 +91,31 @@ static void log_line(const char *a, const char *b)
 {
 	BPTR fh;
 
+	if (g_amiga_in_int) {
+		defer_line(a, b);
+		return;
+	}
+	if (s_defer_n > 0) {
+		/* Flush the interrupt-deferred lines first, in order. A deferred
+		 * line arriving DURING this flush just lands behind `count`. */
+		int count = s_defer_n, k;
+
+		for (k = 0; k < count; k++) {
+			const char *line = s_defer[k];
+			BPTR dfh = Open((CONST_STRPTR)"PROGDIR:DBG.LOG",
+			                s_truncated ? MODE_OLDFILE : MODE_NEWFILE);
+
+			s_truncated = 1;
+			if (dfh == 0)
+				continue;
+			Seek(dfh, 0, 1 /* OFFSET_END */);
+			Write(dfh, (APTR)"[int] ", 6);
+			Write(dfh, (APTR)line, str_len(line));
+			Write(dfh, (APTR)"\n", 1);
+			Close(dfh);
+		}
+		s_defer_n = 0;
+	}
 	if (!s_truncated) {
 		/* First line of the run: truncate. */
 		fh = Open((CONST_STRPTR)"PROGDIR:DBG.LOG", MODE_NEWFILE);
