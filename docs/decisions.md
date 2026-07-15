@@ -607,8 +607,12 @@ to three seams the architecture already isolates:
 2. **Display HAL backend** — a new `platform/amiga/` backend implementing the
    existing `dsp_backend_t` (`display.h`), using the **direct AGA chipset**: set
    up 8 bitplanes + a copper list, convert the engine's 8bpp *chunky* back buffer
-   to bitplanes with the existing `platform/c2p.S`, and flip on the vertical
-   blank. This is the faithful analog of the VIDEL backend (ADR-0005), which
+   to bitplanes, and flip on the vertical blank. NOTE: `platform/c2p.S` is the
+   *Falcon* converter — its output is word-interleaved 8-plane, which the Amiga's
+   per-plane fetch does not accept, so the Amiga needs its own chunky->planar to
+   8 separate (or row-interleaved) planes. The bit-transpose core is shared; only
+   the final scatter differs. This is the faithful analog of the VIDEL backend
+   (ADR-0005), which
    likewise owns the Falcon's video hardware. Rejected: routing through
    `graphics.library` / `intuition` — multitasking-friendly but slower and more
    OS-version-dependent, and a full-screen Gold Box game has no reason to behave
@@ -625,8 +629,10 @@ to three seams the architecture already isolates:
 
 **Why AGA and not ST/STe first:** the build emits **2153** 68020-only ops
 (`bfextu`/`bfins`/`muls.l`). The Amiga AGA shares the CPU (68020+) and the colour
-depth (256), and the chunky→planar step already exists — so AGA adds **one** new
-axis (the AmigaOS shim). ST/STe would add **three** at once (68000 codegen, a
+depth (256), and the bit-transpose core of the chunky→planar step is already
+written (the Amiga still needs its own final scatter — see the display backend
+note above) — so AGA adds **one** new axis (the AmigaOS shim). ST/STe would add
+**three** at once (68000 codegen, a
 256→16 colour quantization the engine has never needed, and a 512K–1MB memory
 squeeze), each a research project. AGA is the lower-risk second target and proves
 the HAL boundary before the harder quantized target.

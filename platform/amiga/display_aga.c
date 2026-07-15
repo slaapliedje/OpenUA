@@ -36,12 +36,22 @@
 #define AGA_DEPTH  8
 #define AGA_PITCH  (AGA_W / 8)          /* bytes per bitplane row */
 
-/* chunky->planar converter, shared 68k asm (platform/c2p.S). Signature matches
- * the Atari VIDEL backend's use: (chunky src, planar dst, width, height,
- * dst bytes-per-plane-row). Confirm the exact prototype against c2p.S when the
- * first build links. */
-extern void c2p_convert(const unsigned char *chunky, unsigned char *planes,
-                        short w, short h, short plane_pitch);
+/* ★ c2p LAYOUT MISMATCH — the Amiga needs its OWN chunky->planar.
+ *
+ * platform/c2p.S exports `c2p_group_asm(const unsigned long *src4,
+ * unsigned short *dst8)`: 16 chunky pixels -> 8 plane WORDS laid out
+ * word-INTERLEAVED (word0=plane0, word1=plane1, ... word7=plane7, then the next
+ * group). That is the Falcon's 8-plane mode format. The Amiga's Denise fetches
+ * each bitplane from its OWN BPLxPTH pointer, so it wants either 8 SEPARATE
+ * contiguous planes or ROW-interleaved planes (via BPLxMOD) — not word-
+ * interleaved. So the Falcon c2p is NOT directly reusable here.
+ *
+ * TODO(hw): write c2p_amiga(chunky, planes[8], w, h, plane_pitch) that scatters
+ * to 8 separate plane pointers (the classic Amiga "c2p 1x1 8bpp" shape — e.g.
+ * the Kalms/ Rink routines), or row-interleaved with BPLxMOD. The bit-transpose
+ * core of c2p.S is reusable; only the final scatter differs. */
+extern void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
+                      short w, short h, short plane_pitch);
 
 /* --- backend state ------------------------------------------------------- */
 
@@ -116,13 +126,18 @@ static dsp_surface_t *aga_surface(void)
 static void aga_present(void)
 {
 	unsigned char *back = s_planes[s_front ^ 1];
+	unsigned char *planes[8];
+	short p;
 
-	/* chunky -> the OFF-screen bitplane set. */
-	c2p_convert(s_chunky, back, AGA_W, AGA_H, AGA_PITCH);
+	/* The off-screen frame holds 8 separate planes back-to-back; hand their
+	 * addresses to the Amiga c2p to scatter the chunky buffer into them. */
+	for (p = 0; p < 8; p++)
+		planes[p] = back + (long)p * AGA_PITCH * AGA_H;
+	c2p_amiga(s_chunky, planes, AGA_W, AGA_H, AGA_PITCH);   /* TODO(hw): impl */
 
-	/* TODO(hw): on the next VBL, repoint the copper's BPLxPTH/PTL at `back`
-	 * (WaitTOF() then patch the 8 pointer pairs, or run two alternating copper
-	 * lists and swap COP1LC). Then flip the front index. */
+	/* TODO(hw): on the next VBL, repoint the copper's 8 BPLxPTH/PTL pairs at
+	 * `planes[0..7]` (WaitTOF() then patch, or run two alternating copper lists
+	 * and swap COP1LC). Then flip the front index. */
 	s_front ^= 1;
 }
 
