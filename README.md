@@ -230,6 +230,10 @@ legally-obtained copy. The build regenerates the copyrighted replay tables from
 your resource fork locally; they are never committed. See
 [`data/README.md`](data/README.md).
 
-A **compiled** `frua.prg` built with real data embeds ~12 KB of copyrighted FRUA
-`DATA`, so binaries are **not** redistributable — build your own from your own
-data. This is a source-only project.
+A **default** `make` build embeds ~31 KB of copyrighted FRUA `DATA` (the A5
+init image), so those binaries are **not** redistributable. **`make release`**
+(equivalently `make NOEMBED=1`) builds a binary that carries **no game data**:
+it stubs that table and reconstructs the A5 world from the user's own `frua.rsc`
+at launch, so the shipped binary contains only the port's own code and *can* be
+shared. See [`docs/redistributable-binary.md`](docs/redistributable-binary.md).
+Either way, playing still requires your own legally-obtained FRUA data.

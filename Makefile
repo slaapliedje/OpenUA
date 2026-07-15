@@ -157,19 +157,31 @@ frua.rsc: $(RFORK) tools/rsrcpack.py
 # stubs otherwise. See tools/dataemit.py for the encoder and
 # docs/engine-bring-up.md for how the replay is applied at engine
 # startup.
+#
+# NOEMBED=1 forces the stub even when frua.rsc IS present: the binary
+# then carries ZERO copyrighted bytes and data_pool_replay() rebuilds
+# the A5 world from the user's frua.rsc at runtime (the identical
+# DATA/ZERO/DREL decode, ported to C in data_pool_decode.h). This is
+# how a REDISTRIBUTABLE binary is produced — pair it with a stripped
+# link (see `make release`). Requires the runtime frua.rsc to supply
+# the data the binary no longer embeds.
 DATAPOOL_H := src/engine/data_pool.h
 DATAPOOL_C := src/engine/data_pool.c
 DATAPOOL_FILES := $(DATAPOOL_H) $(DATAPOOL_C)
 
 $(DATAPOOL_FILES) &: frua.rsc tools/dataemit.py tools/datapool.py
-	@if [ -f frua.rsc ]; then \
+	@if [ -z "$(NOEMBED)" ] && [ -f frua.rsc ]; then \
 		python3 tools/dataemit.py frua.rsc \
 			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
-		echo "  data_pool: regenerated from frua.rsc"; \
+		echo "  data_pool: regenerated from frua.rsc (embedded — not redistributable)"; \
 	else \
 		python3 tools/dataemit.py --stub \
 			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
-		echo "  data_pool: stubbed (no frua.rsc)"; \
+		if [ -n "$(NOEMBED)" ]; then \
+			echo "  data_pool: STUBBED (NOEMBED) — runtime replay from frua.rsc, redistributable"; \
+		else \
+			echo "  data_pool: stubbed (no frua.rsc)"; \
+		fi; \
 	fi
 
 # Make every .o depend on the data pool existing — but only as an
@@ -385,17 +397,22 @@ clean:
 VERSION ?= 0.1.0-beta
 DISTNAME := openua-falcon-$(VERSION)
 
+# The release binary is REDISTRIBUTABLE: NOEMBED=1 stubs the copyrighted DATA
+# pool (rebuilt at runtime from the user's frua.rsc), the link is stripped of
+# its symbol table, and frua.rsc is deliberately NOT bundled (it is the user's
+# copyrighted game data). The shipped .prg then contains only the port's own
+# code — see docs/redistributable-binary.md.
 release:
 	$(MAKE) clean
-	$(MAKE) EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(STRIP) $(TARGET)
 	$(MAKE) test
 	@mkdir -p dist/$(DISTNAME)
 	@cp $(TARGET) dist/$(DISTNAME)/
-	@cp frua.rsc dist/$(DISTNAME)/ 2>/dev/null || true
 	@cp README.md docs/enhancements.md dist/$(DISTNAME)/ 2>/dev/null || true
-	@printf 'OpenUA (Atari Falcon030/TT030) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT), and the original\nUnlimited Adventures game data (NOT included -- copyrighted).\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping a weapon\nand armour are all playable. See enhancements.md for the known gaps.\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
+	@printf 'OpenUA (Atari Falcon030/TT030) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT).\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping a weapon\nand armour are all playable. See enhancements.md for the known gaps.\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
 	@cd dist && zip -qr $(DISTNAME).zip $(DISTNAME)
-	@echo "release -> dist/$(DISTNAME).zip"
+	@echo "release -> dist/$(DISTNAME).zip  (redistributable: no game data embedded)"
 
 -include $(DEP)
 
