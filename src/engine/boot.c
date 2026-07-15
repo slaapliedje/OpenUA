@@ -10867,34 +10867,42 @@ static void load_wall_groups(const unsigned char *ds)
  * band at 32) untouched so it composes with the active wall set. */
 static int load_backdrop(short n)
 {
-	static unsigned char buf[163840];     /* BACK.CTL is ~150KB */
+	unsigned char *buf;                   /* BACK.CTL (~150KB) — lazily
+	                                       * NewPtr'd scratch, not resident;
+	                                       * only reloaded on backdrop change */
 	static RGBColor bpal[32];
 	short refnum = 0, k, pe;
 	long count, base, sub, p0, p1, img;
 	unsigned char metric[8];
 	short w, h;
+	int rc = 0;
 
 	g_back_w = g_back_h = 0;
 	if (ua_open_art((ConstStr255Param)"\010BACK.CTL", 0, &refnum) != noErr)
 		return 0;
-	count = (long)sizeof buf;
+	buf = (unsigned char *)NewPtr(163840);
+	if (buf == NULL) {                    /* no room — leave backdrop unset */
+		(void)FSClose(refnum);
+		return 0;
+	}
+	count = 163840;
 	(void)FSRead(refnum, &count, buf);
 	(void)FSClose(refnum);
 	base = (long)(uintptr_t)buf;
 	if (l37aa(base, 0) == 0)
-		return 0;
+		goto done;
 	g_back_max = (short)((((unsigned)buf[8] << 8) | buf[9])) - 1;
 	if (g_back_max < 1) g_back_max = 1;
 	if (n < 1) n = 1;
 	if (n > g_back_max) n = g_back_max;
 	sub = l37aa(base, n);
 	if (sub == 0)
-		return 0;
+		goto done;
 
 	/* item 1 = the 88x88 image; copy it out (buf gets reused next call). */
 	img = l2856(sub, 1, metric);
 	if (img == 0)
-		return 0;
+		goto done;
 	h = metric[1];
 	w = (short)(metric[6] * 8);
 	if (w > BACK_W) w = BACK_W;
@@ -10911,8 +10919,10 @@ static int load_backdrop(short n)
 	/* item 0 = the backdrop's RGB-triple palette -> clut[BACK_PAL_BASE..]. */
 	p0 = l37aa(sub, 0);
 	p1 = l37aa(sub, 1);
-	if (p0 == 0 || p1 <= p0)
-		return 1;                         /* image loaded; palette as-is */
+	if (p0 == 0 || p1 <= p0) {
+		rc = 1;                           /* image loaded; palette as-is */
+		goto done;
+	}
 	{
 		const unsigned char *pp = (const unsigned char *)(uintptr_t)(p0 + 8);
 		pe = (short)((p1 - p0 - 8) / 3);
@@ -10937,7 +10947,10 @@ static int load_backdrop(short n)
 		}
 		port_clut_install(bpal, BACK_PAL_BASE, pe);
 	}
-	return 1;
+	rc = 1;
+done:
+	DisposePtr((Ptr)buf);
+	return rc;
 }
 
 /* ua_backdrop_to_back — map a FRUA level-header backdrop id (the values
@@ -23534,7 +23547,9 @@ static short intro_load_cycles(long base, short set,
 
 static void port_show_intro(void)
 {
-	static unsigned char file[200000];      /* TITLE.CTL (~168KB)        */
+	unsigned char       *file;              /* TITLE.CTL (~168KB) — lazily
+	                                         * NewPtr'd, not a resident 195KB
+	                                         * static; freed before return   */
 	static RGBColor      base_pal[256];     /* set 1: the shared base    */
 	static RGBColor      pal[256];
 	struct intro_cycle   cyc[8];
@@ -23546,12 +23561,19 @@ static void port_show_intro(void)
 
 	if (ua_open_art((ConstStr255Param)"\011TITLE.CTL", 0, &refnum) != noErr)
 		return;                          /* data not mounted — skip   */
-	count = (long)sizeof file;
+	file = (unsigned char *)NewPtr(200000);
+	if (file == NULL) {                      /* no room — skip the intro  */
+		(void)FSClose(refnum);
+		return;
+	}
+	count = 200000;
 	(void)FSRead(refnum, &count, file);
 	(void)FSClose(refnum);
 	base = (long)(uintptr_t)file;
-	if (l37aa(base, 0) == 0)                 /* not a GLIB                */
+	if (l37aa(base, 0) == 0) {               /* not a GLIB                */
+		DisposePtr((Ptr)file);
 		return;
+	}
 
 	/* The Mac hides the cursor through the whole intro (clicks still skip);
 	 * the sword cursor only returns at the menu. ShowCursor() below re-shows. */
@@ -23696,6 +23718,7 @@ static void port_show_intro(void)
 			qd_present();
 		}
 	}
+	DisposePtr((Ptr)file);                   /* release the 195KB TITLE buf */
 	ShowCursor();                            /* cursor returns for the menu */
 	load_frua_palette();                     /* restore the UI palette    */
 }
