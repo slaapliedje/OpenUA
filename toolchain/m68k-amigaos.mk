@@ -52,17 +52,22 @@ OPT  ?= -O2 -g -fomit-frame-pointer
 STD  := -std=gnu99
 DEFS := -DFRUA_AMIGA
 
-# ★ MISCOMPILER WORKAROUND — do not remove without re-verifying the FAR pool.
-# Bebbo GCC 6.5.0b's own "h" optimization ("optimize shift instructions",
-# part of the default -fbbb=+) narrows a 32-bit shift of a 16-bit-typed
-# value to WORD shifts when it can sink the shift past calls, silently
-# dropping the carry-out bits: in jt463, `(long)maxkb * 1024L` with
-# maxkb=450 compiled to `lslw #8; lslw #2` = 0x70800 & 0xFFFF = 2048 —
-# the "Insufficient FAR Memory!" boot failure, heisen-masked by any nearby
-# instrumentation. Reproducer: a two-arg (long)short*1024L pair with calls
-# between compute and use (docs/toolchain-amiga.md). This -fbbb value is
-# the default set MINUS h; everything else stays on.
-BBB  := -fbbb=abcefilmnprsz0
+# ★ MISCOMPILER WORKAROUNDS — do not re-enable without re-verifying BOTH
+# reproducers (docs/toolchain-amiga.md). TWO of Bebbo GCC 6.5.0b's own -fbbb
+# passes miscompile this engine; this value is the default set MINUS them:
+#
+#  "h" (optimize shift instructions): narrows a 32-bit shift of a 16-bit-
+#      typed value to WORD shifts when it can sink the shift past calls —
+#      jt463's `(long)maxkb * 1024L` became `lslw #8; lslw #2` = a 2KB FAR
+#      pool ("Insufficient FAR Memory!" at boot, heisen-masked by any nearby
+#      instrumentation).
+#
+#  "r" (basic-block register rename): clobbers a live pointer under some
+#      rename shape — jt1015/l3b1e's library pointer arrived as garbage
+#      ("LBISize: Invalid Library File" on LOAD SAVED GAME, deterministic).
+#      Convicted by bisection: every -fbbb set containing r fails, every
+#      set without it passes (2026-07-15; the load-save-A repro).
+BBB  := -fbbb=abcefilmnpsz0
 
 CFLAGS  := $(CPU) $(STD) $(WARN) $(OPT) $(DEFS) $(BBB)
 ASFLAGS := $(CPU) $(DEFS)

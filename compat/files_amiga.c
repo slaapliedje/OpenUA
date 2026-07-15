@@ -151,6 +151,14 @@ OSErr FSOpen(ConstStr255Param fileName, short vRefNum, short *refNum)
 		return tmfoErr;                 /* descriptor table full */
 	}
 	*refNum = r;
+#ifdef FRUA_FILETRACE
+	{
+		extern void dbg_file_str(const char *, const char *);
+		extern void dbg_file_num(const char *, long);
+		dbg_file_str("ft: open ", path);
+		dbg_file_num("ft: -> refnum ", (long)r);
+	}
+#endif
 	return noErr;
 }
 

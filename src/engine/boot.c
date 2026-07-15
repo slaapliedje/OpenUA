@@ -68917,6 +68917,12 @@ static long l3834(long base, short item)
 
 	jt406(hdr, (const void *)(uintptr_t)base, (short)16);
 	if (*(long *)hdr != 0x474C4942L) {
+#ifdef FRUA_FILETRACE
+		dbg_log_num("LBI(l3834): bad magic, base = ", base);
+		dbg_log_num("LBI(l3834): hdr[0..3] = ",
+		            ((long)hdr[0] << 24) | ((long)hdr[1] << 16)
+		            | ((long)hdr[2] << 8) | (long)hdr[3]);
+#endif
 		l036a(ua_strs_at(0x6f50)
 		      /* "LBISize: Invalid Library File" */);
 		return 0;
@@ -71206,6 +71212,12 @@ static long jt1015(void *lib, short item)
 	PROBE("jt1015");
 	jt406(hdr, lib, 16);                        /* dst=hdr, src=lib */
 	if (*(const long *)hdr != 0x474C4942L) {    /* 'GLIB' */
+#ifdef FRUA_FILETRACE
+		dbg_log_num("LBI: bad magic, lib ptr = ", (long)(uintptr_t)lib);
+		dbg_log_num("LBI: hdr[0..3] = ",
+		            ((long)hdr[0] << 24) | ((long)hdr[1] << 16)
+		            | ((long)hdr[2] << 8) | (long)hdr[3]);
+#endif
 		l036a("LBISize: Invalid Library File");
 		return 0;
 	}
