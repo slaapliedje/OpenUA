@@ -3,18 +3,24 @@
  *
  * The engine renders into one 8-bit paletted CHUNKY back buffer (dsp_surface_t)
  * and calls present(). This backend owns the AGA video hardware: 8 bitplanes in
- * CHIP RAM, a copper list, and a VBL flip. present() converts the chunky buffer
- * to the 8 bitplanes with the shared c2p (platform/c2p.S) and swaps the display
- * to the freshly-filled set. This is the faithful analog of the VIDEL backend,
- * which likewise bangs the Falcon's video registers rather than going through
- * the OS. Nothing above platform/ knows bitplanes exist.
+ * CHIP RAM, a hand-built copper list, and a plane-pointer flip. present()
+ * converts the chunky buffer to 8 separate bitplanes (c2p_amiga) and repoints
+ * the copper's BPLxPT block at the freshly-filled set. This is the faithful
+ * analog of the VIDEL backend, which likewise bangs the Falcon's video
+ * registers rather than going through the OS. Nothing above platform/ knows
+ * bitplanes exist.
  *
- * ★ SCAFFOLD STATUS: the structure, palette conversion, and backend wiring are
- * real; the copper/bitplane hardware bring-up bodies marked TODO(hw) need to be
- * written against the NDK and validated on real AGA / amiberry once the Bebbo
- * toolchain is in place. They currently no-op or return failure so the intent
- * is never mistaken for a finished, tested backend. Do NOT ship until the
- * TODO(hw) blocks are done and a frame has been seen on hardware.
+ * The 256-entry palette lives IN the copper list (8 AGA banks x 32 COLORxx
+ * writes, high+low nibble passes via BPLCON3 LOCT), so set_palette() is a
+ * table patch the next frame displays — palette animation (the fireplace
+ * colour cycle) costs nothing here, not even the re-present the 16bpp Falcon
+ * path needs.
+ *
+ * Status: complete direct-AGA implementation, UNVERIFIED on amiberry/real
+ * hardware. Known bring-up simplifications, all flagged inline: pointer/
+ * palette patches are not VBL-synchronised (a one-frame glitch under heavy
+ * churn, never a tear lock), and the display is NTSC-timed 200 lines inside
+ * a PAL-tolerant window.
  */
 
 #include "display.h"
@@ -25,45 +31,159 @@
 #include <exec/memory.h>
 #include <graphics/gfxbase.h>
 #include <graphics/view.h>
+#include <hardware/custom.h>
+#include <hardware/dmabits.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
 
+/* The custom chip block. Addressed directly (volatile pointer) rather than
+ * through amiga.lib's `custom` symbol, so no extra link dependency. */
+#define CUSTOM ((volatile struct Custom *)0xDFF000)
+
 /* The engine's fixed play resolution (see the screen-320x200 note): 320x200,
- * 8 bitplanes = 256 colours, lores. AGA displays this as a standard lores
- * screen; 320x256 PAL leaves a border we letterbox. */
+ * 8 bitplanes = 256 colours, lores. On PAL the 200 lines sit in a 256-line
+ * frame's top; the remainder is border. */
 #define AGA_W      320
 #define AGA_H      200
 #define AGA_DEPTH  8
 #define AGA_PITCH  (AGA_W / 8)          /* bytes per bitplane row */
 
-/* ★ c2p LAYOUT MISMATCH — the Amiga needs its OWN chunky->planar.
- *
- * platform/c2p.S exports `c2p_group_asm(const unsigned long *src4,
- * unsigned short *dst8)`: 16 chunky pixels -> 8 plane WORDS laid out
- * word-INTERLEAVED (word0=plane0, word1=plane1, ... word7=plane7, then the next
- * group). That is the Falcon's 8-plane mode format. The Amiga's Denise fetches
- * each bitplane from its OWN BPLxPTH pointer, so it wants either 8 SEPARATE
- * contiguous planes or ROW-interleaved planes (via BPLxMOD) — not word-
- * interleaved. So the Falcon c2p is NOT directly reusable here.
- *
- * TODO(hw): write c2p_amiga(chunky, planes[8], w, h, plane_pitch) that scatters
- * to 8 separate plane pointers (the classic Amiga "c2p 1x1 8bpp" shape — e.g.
- * the Kalms/ Rink routines), or row-interleaved with BPLxMOD. The bit-transpose
- * core of c2p.S is reusable; only the final scatter differs. */
+/* The per-plane chunky->planar (platform/amiga/c2p_amiga.c): the Falcon c2p's
+ * word-interleaved output cannot feed Denise/Lisa, which fetches each plane
+ * from its own BPLxPT. */
 extern void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
                       short w, short h, short plane_pitch);
 
 /* --- backend state ------------------------------------------------------- */
 
+struct GfxBase *GfxBase;                        /* opened here, v39+ (KS 3.0) */
+
 static unsigned char *s_chunky;                 /* the engine's 8bpp buffer   */
-static unsigned char *s_planes[2];              /* double-buffered bitplanes  */
-static int            s_front;                  /* which s_planes is on screen*/
+static unsigned char *s_planes[2];              /* double-buffered plane sets */
+static int            s_front;                  /* which set is on screen     */
 static dsp_surface_t  s_surface;
 static struct View   *s_oldview;                /* to restore on shutdown     */
-static ULONG          s_palette[1 + AGA_DEPTH * 0]; /* placeholder; see below */
 
-/* CHIP-RAM size of one 8-bitplane frame. */
-#define FRAME_BYTES ((long)AGA_PITCH * AGA_H * AGA_DEPTH)
+/* CHIP-RAM size of one 8-bitplane frame (8 separate contiguous planes). */
+#define FRAME_BYTES ((ULONG)AGA_PITCH * AGA_H * AGA_DEPTH)
+
+/* --- the copper list ------------------------------------------------------
+ *
+ * Layout (every entry is a MOVE = 2 words; WAIT ends the list):
+ *   prologue: FMODE/BPLCONx/BPLxMOD/DIWSTRT/DIWSTOP/DDFSTRT/DDFSTOP
+ *   plane block: 8 x { BPLxPTH, hi ; BPLxPTL, lo }         (patched per flip)
+ *   palette block: 8 banks x { BPLCON3=bank ; 32 x COLORxx(high) ;
+ *                              BPLCON3=bank|LOCT ; 32 x COLORxx(low) }
+ *   WAIT 0xFFFF,0xFFFE
+ *
+ * s_cop_bpl points at the first plane-pointer OPERAND word; s_cop_pal[i]
+ * points at colour i's high/low operand words, so both patch in place. */
+
+#define COP_PROLOGUE_MOVES  12
+#define COP_PLANE_MOVES     (8 * 2)
+#define COP_PAL_MOVES       (8 * (1 + 32 + 1 + 32))
+#define COP_WORDS           ((COP_PROLOGUE_MOVES + COP_PLANE_MOVES \
+                              + COP_PAL_MOVES) * 2 + 2)
+
+static UWORD *s_cop;                    /* the copper list, CHIP RAM         */
+static UWORD *s_cop_bpl;                /* first BPLxPTH operand word        */
+static UWORD *s_cop_pal_hi[256];        /* colour i's high-nibble operand    */
+static UWORD *s_cop_pal_lo[256];        /* colour i's low-nibble operand     */
+
+/* Custom-register byte offsets (the copper MOVE target field). */
+#define R_BPLCON0  0x100
+#define R_BPLCON1  0x102
+#define R_BPLCON2  0x104
+#define R_BPLCON3  0x106
+#define R_BPL1MOD  0x108
+#define R_BPL2MOD  0x10A
+#define R_BPLCON4  0x10C
+#define R_DIWSTRT  0x08E
+#define R_DIWSTOP  0x090
+#define R_DDFSTRT  0x092
+#define R_DDFSTOP  0x094
+#define R_FMODE    0x1FC
+#define R_BPL1PTH  0x0E0                /* +4 per plane                      */
+#define R_COLOR00  0x180
+
+/* BPLCON3: bits 15-13 = palette BANK, bit 9 = LOCT (low-nibble pass). */
+#define BPLCON3_BANK(b)  ((UWORD)((b) << 13))
+#define BPLCON3_LOCT     ((UWORD)0x0200)
+
+static UWORD *cop_move(UWORD *cl, UWORD reg, UWORD val)
+{
+	*cl++ = reg;
+	*cl++ = val;
+	return cl;
+}
+
+static void cop_build(void)
+{
+	UWORD *cl = s_cop;
+	short p, bank, c;
+
+	/* FMODE 0 = 16-bit fetches, the classic DDF timing below stays valid.
+	 * (64-bit fetch would need DDFSTRT/STOP retimed; a later optimisation.) */
+	cl = cop_move(cl, R_FMODE,   0x0000);
+	/* BPLCON0: COLOR on (bit 9) + 8 bitplanes = BPU2-0 zero with BPU3
+	 * (bit 4) set — the AGA 8-plane encoding. */
+	cl = cop_move(cl, R_BPLCON0, 0x0210);
+	cl = cop_move(cl, R_BPLCON1, 0x0000);
+	cl = cop_move(cl, R_BPLCON2, 0x0000);
+	cl = cop_move(cl, R_BPLCON3, 0x0000);
+	cl = cop_move(cl, R_BPLCON4, 0x0011);
+	/* 8 separate contiguous planes: no modulo on either field. */
+	cl = cop_move(cl, R_BPL1MOD, 0x0000);
+	cl = cop_move(cl, R_BPL2MOD, 0x0000);
+	/* Standard lores window: top-left 0x2C,0x81; 200 lines -> bottom 0xF4. */
+	cl = cop_move(cl, R_DIWSTRT, 0x2C81);
+	cl = cop_move(cl, R_DIWSTOP, 0xF4C1);
+	cl = cop_move(cl, R_DDFSTRT, 0x0038);
+	cl = cop_move(cl, R_DDFSTOP, 0x00D0);
+
+	/* Plane pointers (patched by cop_point_planes on every flip). */
+	s_cop_bpl = cl + 1;                 /* first operand word */
+	for (p = 0; p < 8; p++) {
+		cl = cop_move(cl, (UWORD)(R_BPL1PTH + p * 4),     0);  /* hi */
+		cl = cop_move(cl, (UWORD)(R_BPL1PTH + p * 4 + 2), 0);  /* lo */
+	}
+
+	/* Palette: 8 AGA banks; per bank one high-nibble pass then one
+	 * low-nibble pass (LOCT). Colours start black; set_palette patches. */
+	for (bank = 0; bank < 8; bank++) {
+		cl = cop_move(cl, R_BPLCON3, BPLCON3_BANK(bank));
+		for (c = 0; c < 32; c++) {
+			s_cop_pal_hi[bank * 32 + c] = cl + 1;
+			cl = cop_move(cl, (UWORD)(R_COLOR00 + c * 2), 0);
+		}
+		cl = cop_move(cl, R_BPLCON3, (UWORD)(BPLCON3_BANK(bank) | BPLCON3_LOCT));
+		for (c = 0; c < 32; c++) {
+			s_cop_pal_lo[bank * 32 + c] = cl + 1;
+			cl = cop_move(cl, (UWORD)(R_COLOR00 + c * 2), 0);
+		}
+	}
+
+	/* End of list: WAIT for a line that never comes. */
+	*cl++ = 0xFFFF;
+	*cl++ = 0xFFFE;
+}
+
+/* Patch the copper's plane-pointer block at the given plane set.
+ * NOT VBL-synchronised: the copper re-reads the list each frame, so a patch
+ * racing the fetch shows at worst one frame with a mismatched hi/lo pair.
+ * Bring-up simplification; a double copper list swap fixes it later. */
+static void cop_point_planes(unsigned char *set)
+{
+	short p;
+
+	for (p = 0; p < 8; p++) {
+		ULONG addr = (ULONG)(set + (ULONG)p * AGA_PITCH * AGA_H);
+		s_cop_bpl[p * 4]     = (UWORD)(addr >> 16);
+		s_cop_bpl[p * 4 + 2] = (UWORD)(addr & 0xFFFF);
+	}
+}
+
+/* --- backend entry points ------------------------------------------------ */
 
 static void aga_shutdown_partial(void);
 
@@ -71,16 +191,26 @@ static int aga_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;    /* fixed 320x200 like the VIDEL backend */
 
+	/* Kickstart 3.0+ (v39) — the OS level every AGA machine ships. */
+	GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 39);
+	if (GfxBase == NULL)
+		return 1;
+	/* Real AGA (Lisa) — an ECS machine under KS3.0 must not get 8 planes.
+	 * The ECS answer is a future 32-colour backend, not this one. */
+	if (!(GfxBase->ChipRevBits0 & GFXF_AA_LISA)) {
+		aga_shutdown_partial();
+		return 1;
+	}
+
 	/* The chunky back buffer can live in FAST RAM (CPU-only). */
 	s_chunky = AllocMem((ULONG)AGA_W * AGA_H, MEMF_ANY | MEMF_CLEAR);
-	if (s_chunky == NULL)
-		return 1;
-
-	/* The bitplanes MUST be CHIP RAM (the Denise/Lisa DMA reads them). Two
-	 * frames for a tear-free VBL flip. */
+	/* The bitplanes MUST be CHIP RAM (Denise/Lisa DMA reads them). Two
+	 * frames for a tear-free flip; the copper list rides in chip too. */
 	s_planes[0] = AllocMem(FRAME_BYTES, MEMF_CHIP | MEMF_CLEAR);
 	s_planes[1] = AllocMem(FRAME_BYTES, MEMF_CHIP | MEMF_CLEAR);
-	if (s_planes[0] == NULL || s_planes[1] == NULL) {
+	s_cop       = AllocMem(COP_WORDS * sizeof(UWORD), MEMF_CHIP | MEMF_CLEAR);
+	if (s_chunky == NULL || s_planes[0] == NULL
+	    || s_planes[1] == NULL || s_cop == NULL) {
 		aga_shutdown_partial();
 		return 1;
 	}
@@ -91,32 +221,43 @@ static int aga_init(short want_w, short want_h)
 	s_surface.pitch  = AGA_W;      /* chunky: 1 byte/pixel, tightly packed */
 	s_surface.pixels = s_chunky;
 
-	/* TODO(hw): take over the display.
-	 *   - s_oldview = GfxBase->ActiView; save it.
-	 *   - LoadView(NULL); WaitTOF() x2 to let the OS copper settle.
-	 *   - Build a copper list: BPLCON0 = 8-bitplane lores (BPU=0..2 + the AGA
-	 *     BPU3 bit in BPLCON0), the 8 BPLxPTH/BPLxPTL pointers into s_planes[0],
-	 *     BPL1MOD/BPL2MOD = 0 (tightly packed, no interleave), DIWSTRT/DIWSTOP
-	 *     for 320x200, DDFSTRT/DDFSTOP = 0x38/0xD0 lores.
-	 *   - Enable AGA (FMODE = 0 for 16-bit fetch is fine at lores), point
-	 *     COP1LC at the list, and start copper DMA (DMACON = DMAF_SETCLR |
-	 *     DMAF_RASTER | DMAF_COPPER | DMAF_MASTER).
-	 * Until this lands, return failure so dsp_detect() can be honest. */
-	return 1;   /* TODO(hw): return 0 once the copper/bitplane setup is real */
+	cop_build();
+	cop_point_planes(s_planes[0]);
+
+	/* Take the display: park the OS view, hand the copper ours. */
+	s_oldview = GfxBase->ActiView;
+	LoadView(NULL);
+	WaitTOF();
+	WaitTOF();
+	CUSTOM->cop1lc  = (ULONG)s_cop;
+	CUSTOM->copjmp1 = 0;                        /* strobe: restart at cop1lc */
+	CUSTOM->dmacon  = (UWORD)(DMAF_SETCLR | DMAF_MASTER
+	                          | DMAF_RASTER | DMAF_COPPER);
+	return 0;
 }
 
 static void aga_shutdown_partial(void)
 {
+	if (s_cop)       { FreeMem(s_cop, COP_WORDS * sizeof(UWORD)); s_cop = NULL; }
 	if (s_planes[0]) { FreeMem(s_planes[0], FRAME_BYTES); s_planes[0] = NULL; }
 	if (s_planes[1]) { FreeMem(s_planes[1], FRAME_BYTES); s_planes[1] = NULL; }
 	if (s_chunky)    { FreeMem(s_chunky, (ULONG)AGA_W * AGA_H); s_chunky = NULL; }
+	if (GfxBase)     { CloseLibrary((struct Library *)GfxBase); GfxBase = NULL; }
 }
 
 static void aga_shutdown(void)
 {
-	/* TODO(hw): stop copper/bitplane DMA (DMACON clear RASTER|COPPER),
-	 * LoadView(s_oldview); RethinkDisplay() so the OS reclaims the screen. */
-	(void)s_oldview;
+	if (GfxBase != NULL && s_oldview != NULL) {
+		/* Give the display back: the OS view first, then its copper —
+		 * the classic takeover epilogue. (RethinkDisplay would be the
+		 * belt-and-braces extra, but it lives in intuition.library,
+		 * which this backend never opens.) */
+		LoadView(s_oldview);
+		WaitTOF();
+		WaitTOF();
+		CUSTOM->cop1lc  = (ULONG)GfxBase->copinit;
+		CUSTOM->copjmp1 = 0;
+	}
 	aga_shutdown_partial();
 }
 
@@ -131,22 +272,18 @@ static void aga_present(void)
 	unsigned char *planes[8];
 	short p;
 
-	/* The off-screen frame holds 8 separate planes back-to-back; hand their
-	 * addresses to the Amiga c2p to scatter the chunky buffer into them. */
 	for (p = 0; p < 8; p++)
-		planes[p] = back + (long)p * AGA_PITCH * AGA_H;
-	c2p_amiga(s_chunky, planes, AGA_W, AGA_H, AGA_PITCH);   /* TODO(hw): impl */
+		planes[p] = back + (ULONG)p * AGA_PITCH * AGA_H;
+	c2p_amiga(s_chunky, planes, AGA_W, AGA_H, AGA_PITCH);
 
-	/* TODO(hw): on the next VBL, repoint the copper's 8 BPLxPTH/PTL pairs at
-	 * `planes[0..7]` (WaitTOF() then patch, or run two alternating copper lists
-	 * and swap COP1LC). Then flip the front index. */
+	cop_point_planes(back);
 	s_front ^= 1;
 }
 
 static void aga_present_rect(short x, short y, short w, short h)
 {
-	/* AGA c2p is cheap enough to convert the whole frame; a partial-rect c2p
-	 * is a later optimisation. Fall back to a full present. */
+	/* The c2p converts the whole frame; a partial-rect c2p is a later
+	 * optimisation. */
 	(void)x; (void)y; (void)w; (void)h;
 	aga_present();
 }
@@ -154,19 +291,25 @@ static void aga_present_rect(short x, short y, short w, short h)
 static void aga_set_palette(const dsp_color_t *colors, short first, short count)
 {
 	short i;
-	(void)s_palette;
-	/* TODO(hw): AGA has 8-bit-per-gun colour. Build a LoadRGB32-style table
-	 * ({count<<16 | first}, then count * 3 longs of 0xRRRRRRRR/GG/BB) and call
-	 * LoadRGB32(&screen->ViewPort, table) — OR, in the direct-copper model,
-	 * write the AGA COLORxx registers through the BPLCON3 bank select. For now
-	 * just widen each 8-bit channel to the 32-bit gun value the hardware wants,
-	 * so the conversion math is in place. */
+
+	if (s_cop == NULL)
+		return;
 	for (i = 0; i < count; i++) {
-		const dsp_color_t *c = &colors[i];
-		ULONG r = ((ULONG)c->r * 0x01010101u);
-		ULONG g = ((ULONG)c->g * 0x01010101u);
-		ULONG b = ((ULONG)c->b * 0x01010101u);
-		(void)first; (void)r; (void)g; (void)b;   /* TODO(hw): store to regs */
+		short idx = (short)(first + i);
+		const dsp_color_t *c;
+
+		if (idx < 0 || idx > 255)
+			continue;
+		c = &colors[i];
+		/* AGA 24-bit colour as two 12-bit register passes: the high
+		 * nibbles land in the normal write, the low nibbles in the LOCT
+		 * pass. The copper replays both every frame. */
+		*s_cop_pal_hi[idx] = (UWORD)(((c->r & 0xF0) << 4)
+		                            | (c->g & 0xF0)
+		                            | ((c->b & 0xF0) >> 4));
+		*s_cop_pal_lo[idx] = (UWORD)(((c->r & 0x0F) << 8)
+		                            | ((c->g & 0x0F) << 4)
+		                            | (c->b & 0x0F));
 	}
 }
 
@@ -182,9 +325,8 @@ static const dsp_backend_t aga_backend = {
 
 const dsp_backend_t *dsp_detect(void)
 {
-	/* TODO(hw): confirm AGA is present (GfxBase->ChipRevBits0 & GFXF_AA_LISA/
-	 * ALICE, or the ECS/AGA flags) before claiming this backend. On a plain
-	 * ECS/OCS machine we'd want a 32-colour EHB fallback, not AGA. */
+	/* aga_init itself refuses to run without KS3.0 + Lisa, so claiming the
+	 * backend here is safe; an ECS fallback backend slots in later. */
 	return &aga_backend;
 }
 
