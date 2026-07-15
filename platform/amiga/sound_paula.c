@@ -109,12 +109,25 @@ void plat_sound_tone(int count, int amp, int duration_ticks)
 	 * `amp`, auto-off after duration_ticks VBLs. */
 }
 
+/* The engine's sound task (the Mac VBL task driving the sequencer). Stored
+ * here; run from plat_sound_vbl once the INTB_VERTB server is wired. */
+static void (* volatile s_vbl_hook)(void);
+
+void plat_sound_set_vbl_hook(void (*fn)(void))
+{
+	s_vbl_hook = fn;
+}
+
 void plat_sound_vbl(void)
 {
 	/* TODO(hw): per-frame audio housekeeping — advance the synth phases, retire
 	 * one-shot samples whose length has elapsed, clear DMA for finished voices.
 	 * ★ Must NEVER call anything that can trap from interrupt context (the same
 	 * rule the Atari VBL sink obeys — see platform/dbglog.c). */
+	void (*hook)(void) = s_vbl_hook;
+
+	if (hook != NULL)
+		hook();
 }
 
 #endif /* FRUA_AMIGA */

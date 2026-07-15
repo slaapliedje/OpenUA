@@ -25,10 +25,12 @@ include toolchain/m68k-amigaos.mk
 TARGET       := frua
 PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/amiga/display_aga.c \
+                platform/amiga/c2p_amiga.c \
                 platform/amiga/sound_paula.c \
                 platform/amiga/input_amiga.c \
                 platform/amiga/dbglog_amiga.c \
-                platform/amiga/sys_amiga.c
+                platform/amiga/sys_amiga.c \
+                platform/amiga/vdi_stub.c
 else ifeq ($(MACHINE),falcon)
 include toolchain/m68k-atari-mint.mk
 TARGET       := frua.prg

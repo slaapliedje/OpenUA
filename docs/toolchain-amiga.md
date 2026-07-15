@@ -106,33 +106,48 @@ Snags hit and fixes:
   over a running one; concurrent `ar`/`ranlib` on the same `lib.a` races and
   fails with `ranlib: unable to copy file 'lib.a'`. Let one finish.
 
-## Status (2026-07-14)
+## Status (2026-07-14 late) — ★★ THE PORT LINKS
 
-- ✅ **Toolchain**: working `m68k-amigaos-gcc 6.5.0b` + binutils, NDK headers
-  integrated and auto-found. Built entirely from non-GitHub sources.
-- ✅ **libc**: newlib `libc.a` built and installed into the sysroot
-  (`~/opt/amiga/m68k-amigaos/lib/libc.a` + headers) after the `malloc.cpp` fix
-  above. `<stdlib.h>`/`<string.h>`/`<stdio.h>` now resolve with no `-I`.
-- ✅ **GEMDOS leaks routed through the HAL**: the four files that reached
-  straight to GEMDOS (`src/main.c`, `src/engine/error.c`, `compat/events.c`,
-  `compat/macmemory.c`) now go through a new **`plat_sys` HAL**
-  (`platform/include/plat_sys.h`; Falcon `platform/sys_falcon.c`, Amiga
-  `platform/amiga/sys_amiga.c`) for console I/O, largest-free-block, and the
-  wall clock; the keyboard scan→char lookup moved to the input HAL
-  (`plat_kb_unshifted_char`). All four + both new backends + `input_amiga.c`
-  now **compile clean for Amiga** with the mk's flags. Falcon build unchanged
-  and green; host tests 170 pass.
+`make MACHINE=amiga` produces **`frua` — an AmigaOS loadseg()able hunk
+executable** (~660 KB) containing the complete engine + Toolbox shim + the
+platform/amiga backends. 68020 codegen verified (561 `mulsl`/`bfextu`/`bfins`
+in the linked binary).
+
+- ✅ **Toolchain**: `m68k-amigaos-gcc 6.5.0b` + binutils + NDK, all non-GitHub.
+- ✅ **libc**: newlib `libc.a` (after the `malloc.cpp` INCLUDES fix above).
+- ✅ **Runtime libs**: `make libgcc libnix PREFIX=~/opt/amiga` — the earlier
+  `make gcc` builds the compiler but NOT libgcc; the first link fails with
+  `cannot find -lgcc` until this runs. libnix provides crt0 + the -noixemul
+  C runtime.
+- ✅ **plat_sys HAL**: the four GEMDOS-coupled files route through
+  `platform/include/plat_sys.h` (Falcon `sys_falcon.c` / Amiga `sys_amiga.c`).
   - NB: compile with the **mk's `CFLAGS`** — `-noixemul` is a *link* flag only;
     passing it to a compile flips newlib's reent header path and breaks
     `<stdio.h>` (`unknown type name '__FILE'`).
-- 🔶 **Next blocker — the `Point` namespace clash**: `compat/files_amiga.c`
-  fails to compile because the Mac Toolbox shim's `quickdraw.h` and the Amiga
-  NDK's graphics headers (pulled in transitively via `proto/dos.h` →
-  `inline/stubs.h` → `graphics/displayinfo.h`) both define **`Point`**. This is
-  the classic Mac-on-Amiga type collision and will hit every file that mixes the
-  Mac shim with an Amiga library proto. Resolve it once (isolate the Amiga
-  proto includes behind a thin C wrapper that doesn't see `quickdraw.h`, or
-  `#define`-rename one `Point`) before a full `make MACHINE=amiga`.
-- The `platform/amiga/` backends remain structural skeletons (hardware bodies
-  `TODO(hw)`); the new `sys_amiga.c` uses real exec/dos calls but is unverified
-  on hardware. The Falcon/TT build is unaffected.
+- ✅ **Point clash solved**: `platform/include/amiga_ndk.h` — a dos.library-only
+  NDK wrapper that renames the NDK's graphics `Point` for shim-side TUs and
+  deliberately omits `proto/exec.h` (its `FreeMem(ptr,size)` declaration
+  collides irreconcilably with the Mac Memory Manager's `FreeMem(void)`).
+- ✅ **Link-stage cleanups**: c2p.S's TOS vblqueue trampolines are now
+  `#ifndef FRUA_AMIGA` (they name Falcon handlers); `c2p_amiga.c` is a
+  portable-C 8-plane chunky→planar for the AGA scatter; `vdi_stub.c` reports
+  no-GDOS so the printing shim fails exactly as the Mac with no printer;
+  sound_paula implements `plat_sound_set_vbl_hook` (now in plat_sound.h);
+  files_amiga.c has the real `mac_path_to_c` ('/' separators, and the
+  engine's literal '\' separators translate too).
+
+Gotchas:
+- **Machine switch needs `make clean`** — both machines share object paths;
+  `make` right after `make MACHINE=amiga` links Amiga objects with the MiNT
+  linker (and vice versa) and fails confusingly.
+- **`m68k-amigaos-objdump` decodes as 68000 by default** — 020 instructions
+  print as `.short` garbage and the codegen grep counts ZERO. Pass
+  `-m m68k:68020`.
+- GCC 6.5 rejects `static x = <const object>;` initializers newer GCCs fold
+  (quickdraw.c's cursor uses a macro initializer now).
+
+Next, in order: fill the `TODO(hw)` bodies — dos.library file ops in
+files_amiga.c, the AGA display takeover (LoadView(NULL) + copper list +
+palette), input.device/rawkey, Paula audio — then stage gamedata for amiberry
+and boot it. The `run-amiga-port` skill (an amiberry driver, patterned on
+run-falcon-port) comes with that.

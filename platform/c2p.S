@@ -159,6 +159,12 @@ _lutblit_span:
 	rts
 
 | --------------------------------------------------------------------------
+| ATARI-ONLY from here down: the TOS vblqueue trampolines. They name Falcon
+| backend handlers (vbl_flip_handler lives in display_videl.c), so they must
+| not assemble for other machines — the Amiga hooks its vertical blank
+| through exec's INTB_VERTB server chain in platform/amiga instead.
+#ifndef FRUA_AMIGA
+
 | VBL queue trampoline. The OS calls vblqueue routines at every vertical
 | blank in supervisor mode; this saves the scratch registers the C handler
 | may clobber (d0-d2/a0-a2; callee-saved regs the C handler preserves
@@ -186,3 +192,5 @@ _snd_vbl_trampoline:
 	jbsr	_plat_sound_vbl
 	movem.l	(%sp)+,%d0-%d2/%a0-%a2
 	rts
+
+#endif

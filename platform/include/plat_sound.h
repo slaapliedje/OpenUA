@@ -84,4 +84,13 @@ void plat_sound_tone(int count, int amp, int duration_ticks);
  */
 void plat_sound_vbl(void);
 
+/*
+ * Register the engine's sound task (the Mac VBL task that drives the
+ * sequencer — jt1091). The backend runs it from its own vertical-blank
+ * service, after the synth refill. The hook must touch memory only: it runs
+ * at interrupt time (see the GEMDOS-trap-from-VBL history in
+ * platform/dbglog.c).
+ */
+void plat_sound_set_vbl_hook(void (*fn)(void));
+
 #endif /* PLATFORM_SOUND_H */

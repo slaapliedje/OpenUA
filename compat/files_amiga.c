@@ -65,10 +65,49 @@ static OSErr amiga_err(void)
 
 /* Translate a Mac Pascal filename into a C path for dos.library. Mirrors
  * files.c mac_path_to_c: drop everything up to the last ':' EXCEPT a folder
- * component ending in ".DSN" (a design override folder), and turn that ':' into
- * '/'. TODO(hw): share this with files.c via a small common helper rather than
- * duplicating it — for now the logic is intentionally the same. */
-static void mac_path_to_c(ConstStr255Param mac, char *out, int max);   /* TODO(hw) */
+ * component ending in ".DSN" (a design data folder), which is kept with an
+ * AmigaDOS '/' separator. Two Amiga-specific twists vs the GEMDOS twin:
+ *  - the separator is '/', not '\';
+ *  - the engine's own path builders (e.g. savgam_path) emit literal '\'
+ *    separators, which GEMDOS consumes verbatim — here they translate to
+ *    '/' so "<design>.DSN\SavGamA.csv" resolves the same way. */
+static char fa_lc(unsigned char c)
+{
+	return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
+}
+
+static int fa_folder_is_dsn(ConstStr255Param p, int start, int end)
+{
+	int s = end - 4;
+	if (end - start < 4)
+		return 0;
+	return fa_lc(p[s]) == '.' && fa_lc(p[s + 1]) == 'd'
+	    && fa_lc(p[s + 2]) == 's' && fa_lc(p[s + 3]) == 'n';
+}
+
+static void mac_path_to_c(ConstStr255Param p, char *out, int max)
+{
+	int len = p ? p[0] : 0;
+	int lastcolon = 0, prevcolon = 0;
+	int i, j, fstart;
+
+	for (i = len; i >= 1; i--)
+		if (p[i] == ':') { lastcolon = i; break; }
+	for (i = lastcolon - 1; i >= 1; i--)
+		if (p[i] == ':') { prevcolon = i; break; }
+	fstart = prevcolon + 1;
+
+	j = 0;
+	if (lastcolon && fa_folder_is_dsn(p, fstart, lastcolon)) {
+		for (i = fstart; i < lastcolon && j < max - 1; i++)
+			out[j++] = (char)p[i];
+		if (j < max - 1)
+			out[j++] = '/';             /* AmigaDOS path separator */
+	}
+	for (i = (lastcolon ? lastcolon + 1 : 1); i <= len && j < max - 1; i++)
+		out[j++] = (p[i] == '\\') ? '/' : (char)p[i];
+	out[j] = '\0';
+}
 
 /* --- core file ops -------------------------------------------------------- */
 

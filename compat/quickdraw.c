@@ -1330,13 +1330,18 @@ void qd_dbg_mark(short x, short y)
  * engine's buffer untouched between frames (no trails). FRUA uses the
  * system arrow + watch; both are generic shapes, not FRUA art.
  */
-static const Cursor k_arrow_cursor = {
-	{ 0x0000, 0x4000, 0x6000, 0x7000, 0x7800, 0x7C00, 0x7E00, 0x7F00,
-	  0x7F80, 0x7FC0, 0x7C00, 0x4C00, 0x0600, 0x0600, 0x0300, 0x0000 },
-	{ 0xC000, 0xE000, 0xF000, 0xF800, 0xFC00, 0xFE00, 0xFF00, 0xFF80,
-	  0xFFC0, 0xFFE0, 0xFFE0, 0xFE00, 0xEF00, 0x0F00, 0x0780, 0x0380 },
-	{ 0, 0 }                        /* hotspot at the tip (v,h) */
-};
+/* Shared initializer: g_cursor below is a mutable copy and must be
+ * statically initialized with a constant expression (initializing from the
+ * const object is a GCC extension newer compilers fold but GCC 6 — the
+ * Amiga toolchain — rejects). */
+#define K_ARROW_CURSOR_INIT { \
+	{ 0x0000, 0x4000, 0x6000, 0x7000, 0x7800, 0x7C00, 0x7E00, 0x7F00, \
+	  0x7F80, 0x7FC0, 0x7C00, 0x4C00, 0x0600, 0x0600, 0x0300, 0x0000 }, \
+	{ 0xC000, 0xE000, 0xF000, 0xF800, 0xFC00, 0xFE00, 0xFF00, 0xFF80, \
+	  0xFFC0, 0xFFE0, 0xFFE0, 0xFE00, 0xEF00, 0x0F00, 0x0780, 0x0380 }, \
+	{ 0, 0 }                        /* hotspot at the tip (v,h) */ \
+}
+static const Cursor k_arrow_cursor = K_ARROW_CURSOR_INIT;
 /* A small "watch" disc (GetCursor(4)); good enough as a busy marker. */
 static const Cursor k_watch_cursor = {
 	{ 0x0000, 0x0FE0, 0x1FF0, 0x3CF8, 0x3CF8, 0x39B8, 0x3FF8, 0x3E78,
@@ -1359,7 +1364,7 @@ static const Cursor k_sword_cursor = {
 	{ 0, 0 }                        /* hotspot at the blade tip (v,h) */
 };
 
-static Cursor        g_cursor = k_arrow_cursor;
+static Cursor        g_cursor = K_ARROW_CURSOR_INIT;
 static short         g_cursor_level;            /* 0 visible, <0 hidden */
 static int           g_cursor_obscured;         /* ObscureCursor: 1 = hidden until next mouse move */
 static int           g_cursor_init;
