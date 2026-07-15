@@ -113,6 +113,12 @@ _c2p_group_asm:
 	rts
 
 | --------------------------------------------------------------------------
+| FALCON-ONLY: the 16bpp TrueColor LUT blit (display_videl.c's present).
+| It uses the 020+ scaled-index mode (a2,d2.w*2), which the assembler
+| rightly rejects on a -m68000 build — and no bitplane machine (Amiga
+| now; ECS/ST later) has a 16bpp present to feed anyway. The bit-transpose
+| c2p above stays 68000-clean for exactly those future targets.
+#ifndef FRUA_AMIGA
 | Fast 8->16 LUT blit for the 16bpp TrueColor present path, 68030.
 |
 | void lutblit_span(const unsigned char *src, unsigned short *dst,
@@ -157,6 +163,8 @@ _lutblit_span:
 2:
 	movem.l	(%sp)+,%d2/%a2
 	rts
+
+#endif
 
 | --------------------------------------------------------------------------
 | ATARI-ONLY from here down: the TOS vblqueue trampolines. They name Falcon

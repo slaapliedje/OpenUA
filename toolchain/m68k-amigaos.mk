@@ -22,16 +22,26 @@ STRIP    := $(CROSS)strip
 # AMIBERRY if you have a native binary on PATH.
 AMIBERRY ?= flatpak run com.blitterstudio.amiberry
 
-# Target CPU. AGA's baseline machine is the A1200 (68EC020), so -m68020 covers
-# the whole AGA range (020/030/040/060). Soft-float: no FPU is assumed, exactly
-# as on the FPU-less Falcon030 build — one binary serves a bare A1200 and an
-# FPU-equipped 030/040. Bebbo's default multilib is soft-float, so -msoft-float
-# is the natural (and only universally-safe) choice for shared code.
+# Target CPU — a per-machine KNOB, not a codebase assumption. The engine is
+# 68000-clean by construction (the original Mac FRUA binary contains zero
+# 68020-only instructions across all 22 CODE segments — the compiler flags
+# alone decide the codegen tier), which is deliberate: an ECS Amiga (A500,
+# 68000) target is on the roadmap, alongside Atari ST/STe. AGA's baseline is
+# the A1200 (68EC020), so 68020 is this machine's default; override for a
+# 68000 test build with:
 #
-# Verify 020 codegen took with:
-#   m68k-amigaos-objdump -d <obj>.o | grep -E 'muls\.l|bfextu|bfins'
-CPU   := -m68020 -msoft-float
-LDCPU := -m68020 -msoft-float
+#   make MACHINE=amiga CPU68K=68000
+#
+# Soft-float everywhere: no FPU is assumed, exactly as on the FPU-less
+# Falcon030 build. Bebbo's multilibs cover both tiers (the "." base multilib
+# is 68000; libm020 is selected automatically by -m68020).
+#
+# Verify 020 codegen with (NB: this objdump DECODES as 68000 by default —
+# without -m the 020 ops print as `.short` garbage and grep counts zero):
+#   m68k-amigaos-objdump -d -m m68k:68020 <obj> | grep -cE 'mulsl|bfextu|bfins'
+CPU68K ?= 68020
+CPU   := -m$(CPU68K) -msoft-float
+LDCPU := -m$(CPU68K) -msoft-float
 
 # FRUA_AMIGA gates the machine-specific paths (compat/files.c, platform/amiga).
 # -noixemul: link against libnix (a standalone C runtime), NOT ixemul.library —

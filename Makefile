@@ -348,8 +348,15 @@ test:
 test-slow:
 	$(PYTEST) tests -q -m slow
 
+# Clean BOTH machines' objects, not just $(OBJ) (the current MACHINE's list):
+# the machines share object paths, so a stale other-machine .o silently links
+# into the next build (seen live: a 68020 sys_amiga.o survived a falcon-mode
+# clean and linked into a -m68000 build).
 clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES)
+	find src compat platform -name '*.o' -delete 2>/dev/null || true
+	find src compat platform -name '*.d' -delete 2>/dev/null || true
+	$(RM) frua frua.prg
 	$(RM) -r dist
 
 # --- release ----------------------------------------------------------------
