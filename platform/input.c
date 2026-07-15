@@ -130,6 +130,19 @@ static short g_mouse_max_y = 200;
 static void (*g_old_mousevec)(unsigned char *packet);
 
 /*
+ * conterm ($484) bit 0 = the OS keyboard click (the BIOS pulses the YM2149 on
+ * every keystroke). Handy while testing to confirm keys register, but a game
+ * you play for hours should be silent — so we clear it at input init and put
+ * the user's original value back on shutdown. Bit 1 (key repeat) and bit 2
+ * (Ctrl-G bell) are left untouched. conterm lives in protected memory, so the
+ * read/modify/write runs in supervisor (via Supexec, like the mousevec swap).
+ */
+#define CONTERM       (*(volatile unsigned char *)0x484UL)
+#define CONTERM_CLICK 0x01
+static unsigned char g_old_conterm;
+static int           g_conterm_saved;
+
+/*
  * IKBD packet: byte 0 = 0xF8 | (left ? 2 : 0) | (right ? 1 : 0);
  * byte 1 = signed delta-X; byte 2 = signed delta-Y (positive = down,
  * the IKBD default). Only the left button is mapped — the Mac doesn't
@@ -176,6 +189,10 @@ static long install_supervisor(void)
 
 	g_old_mousevec = v->mousevec;
 	v->mousevec    = ikbd_mouse_trampoline;
+
+	g_old_conterm  = CONTERM;               /* silence the keyboard click */
+	g_conterm_saved = 1;
+	CONTERM        = (unsigned char)(g_old_conterm & ~CONTERM_CLICK);
 	return 0;
 }
 
@@ -186,6 +203,10 @@ static long uninstall_supervisor(void)
 	if (g_old_mousevec != NULL) {
 		v->mousevec    = g_old_mousevec;
 		g_old_mousevec = NULL;
+	}
+	if (g_conterm_saved) {                  /* restore the user's click setting */
+		CONTERM         = g_old_conterm;
+		g_conterm_saved = 0;
 	}
 	return 0;
 }
