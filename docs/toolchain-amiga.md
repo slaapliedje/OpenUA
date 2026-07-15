@@ -70,6 +70,38 @@ AGA machine config (A1200). Point amiberry at a hard-drive directory containing
 (`.claude/skills/run-amiga-port/`) is TODO — see the Falcon
 `run-falcon-port` skill for the pattern.
 
+## RTG (Picasso96) on a classic Amiga — verified recipe (2026-07-15)
+
+The full 256-colour game renders on a live Picasso96 320×200×8 RTG screen —
+a classic non-AGA Amiga with an accelerator and a graphics card. `dsp_detect`
+routes non-AA machines to `platform/amiga/display_rtg.c` (BestModeID +
+OpenScreenTags 8-bit + WriteChunkyPixels + LoadRGB32). What it took to stand
+up the P96 runtime under amiberry, in order (each step fixed one failure):
+
+1. **`gfxcard_type=uaegfx`** (not `A2410` — that's the Commodore TIGA board).
+   amiberry's "UAE RTG" board provides the card interface itself.
+2. **68020+** (`cpu_type=68020`, `cpu_24bit_addressing=false`): modern P96
+   refuses 68000. Authentic anyway — RTG cards lived in accelerated Amigas.
+3. **A real 3.2 ROM** (exec 47 — e.g. `CDTVA500A600A2000.47.115.rom`). The
+   Workbench 3.2 install's Startup-Sequence needs exec 47; a 3.1.4 ROM (exec
+   46) trips its `LoadModule ROMUPDATE` path and drops to a `1>` CLI.
+4. **A real Workbench 3.2 on the boot drive** (not a bare mount): P96's
+   `rtg.library` needs `ENV:`, the assigns, `icon.library`, `iffparse.library`
+   — all of which a full WB provides. Copy the WB dir into the mount, keep the
+   game data, install P96 into it (LIBS:Picasso96API.library, LIBS:Picasso96/
+   {rtg.library, uaegfx.card, emulation.library}, DEVS:Picasso96Settings.*),
+   and launch `frua` from `S/User-Startup`.
+5. **`fastmem_size=4`** — the engine's ~4 MB working set needs fast RAM (1 MB
+   chip alone → "not enough memory available"). ★`fastmem_size=8` SIGSEGVs
+   amiberry on this config; 4 MB works and fits the game.
+
+★The P96 **monitor is not needed** on amiberry — the UAE RTG board
+self-registers modes once `rtg.library` is loadable, so the monitor's "could
+not create graphics board context" is harmless. ★Use the older P96 (with
+`uaegfx.card`); the 2023 P96 3.x dropped it (targets real cards only). Build
+`frua` for this machine with the CPU it emulates (`make MACHINE=amiga` for
+68020; `CPU68K=68000` links too but P96 needs 020).
+
 ## Building it WITHOUT GitHub (what actually worked here, 2026-07-14)
 
 This sandbox's egress blocks GitHub's repo/API/codeload endpoints but allows

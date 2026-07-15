@@ -3,8 +3,8 @@
 An open reimplementation of SSI's *Unlimited Adventures* engine — the 1993 Gold
 Box adventure **construction set** — for Motorola 68k retro machines. One engine,
 four machines: the Atari **Falcon030** and **TT030**, and the **Amiga AGA**
-(A1200/A4000), plus an **RTG** path so an ECS Amiga with a graphics card runs the
-full 256-colour game.
+(A1200/A4000), plus an **RTG** path so a classic Amiga with a graphics card runs
+the full 256-colour game.
 
 *OpenUA* = **Open** + **U**nlimited **A**dventures.
 
@@ -35,7 +35,7 @@ accordingly.
 | **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target; full play-through verified in Hatari. |
 | **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
 | **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse, and Paula audio all live. |
-| **Amiga RTG** (ECS + graphics card) | Picasso96/CyberGraphX chunky screen | Backend written; the AGA-vs-RTG auto-detect is verified, the Picasso96 runtime is not yet stood up. |
+| **Amiga RTG** (classic Amiga + graphics card) | Picasso96 chunky 8-bit screen | Verified — the full 256-colour menu renders on a live Picasso96 320×200×8 RTG screen (amiberry, accelerated A2000 + uaegfx board, Workbench 3.2). A classic non-AGA Amiga with an accelerator and an RTG card runs the game at full colour, no bitplanes. |
 
 The same binary serves each family (one `frua.prg` for Falcon **and** TT; one
 `frua` for AGA **and** RTG) — the machine is detected at runtime and the matching
