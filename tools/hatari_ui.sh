@@ -205,8 +205,16 @@ click)
 		|| { xdotool windowraise "$WID" 2>/dev/null; xdotool windowfocus "$WID" 2>/dev/null; }
 	eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)"
 	sx=$((${X:-0} + cx)); sy=$((${Y:-0} + cy))
+	# Two moves + a generous settle: Hatari's IKBD emulation rate-limits the
+	# synthesized relative deltas, so after a long jump the EMULATED cursor
+	# can still be mid-travel when the click fires — it then lands on
+	# whatever region the path crosses (seen live: a turn-left click walked
+	# the party forward through a door). The second move corrects any
+	# residual drift once the first burst is consumed.
 	xdotool mousemove "$sx" "$sy"
-	sleep 0.2
+	sleep 0.4
+	xdotool mousemove "$sx" "$sy"
+	sleep 0.3
 	xdotool click "$btn"
 	sleep 0.3
 	echo "hatari_ui: click $btn at window($cx,$cy) = screen($sx,$sy)"

@@ -14663,12 +14663,50 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		if (deep)
 			rec[5] = (unsigned char)exitflag;
 
-		/* pollres 0 = the keyboard source (l2d3e routes arrows/Esc/Return
-		 * here): go straight to the switch (case 0 -> jt297) — don't run it
-		 * through jt152, which would mis-classify it as a command-bar pick
-		 * (the port's command-bar base isn't above the movement sources) and
-		 * break the play loop. Real command-bar items have pollres > 5. */
-		procres = (pollres == 0) ? (short)-1 : jt152(pollres);
+		/* jt164's four walk regions — the dungeon view's CLICK-TO-MOVE.
+		 * The Mac registers them in JT[164] when -12911 is set (CODE 7
+		 * 0x2ff4..0x3076: left strip / middle / right strip / bottom band
+		 * over the 3D view) and its modal maps a committed region
+		 * POSITIONALLY in L25b6 (arm = item - l217e()) to the key codes
+		 * 0x86/0x88/0x82/0x84, which jt953's JT[1] arms execute as
+		 * turn-left / forward-step / turn-right / about-face (CODE 21
+		 * 0x42e6/0x4270/0x4344/0x4288). The port's l63c0-driven walk pool
+		 * carries the keyboard source + command bar in front, so the
+		 * positional base differs and jt152's range gate rejects the
+		 * regions — a view click committed (pollres 9..12) and then fell
+		 * to the switch default = the jt1080 mis-click beep, so the mouse
+		 * could never move the party. Identify the committed region by its
+		 * rec[20] tag instead (22/11/21/23 — the hover-arrow cursor ids the
+		 * Mac's own JT[452] stream stamps, unique in the walk pool) and
+		 * fold it onto the pad index 1..4 whose case arm dispatches the
+		 * IDENTICAL movement (jt297 key 258+(n-1)*2) + re-render tail. */
+		{
+			short region_pad = 0;
+
+			if (pollres > 5 && pollres < g_a5_9250) {
+				unsigned char *wr = (unsigned char *)g_a5_9254
+				                  + (long)pollres * DLITEM_BYTES;
+				switch (*(short *)(wr + 20)) {
+				case 21: region_pad = 1; break; /* right  -> turn right (0x82) */
+				case 23: region_pad = 2; break; /* bottom -> about-face (0x84) */
+				case 22: region_pad = 3; break; /* left   -> turn left  (0x86) */
+				case 11: region_pad = 4; break; /* middle -> forward    (0x88) */
+				default: break;
+				}
+				if (region_pad != 0)
+					pollres = region_pad;
+			}
+
+			/* pollres 0 = the keyboard source (l2d3e routes arrows/Esc/
+			 * Return here): go straight to the switch (case 0 -> jt297) —
+			 * don't run it through jt152, which would mis-classify it as a
+			 * command-bar pick (the port's command-bar base isn't above the
+			 * movement sources) and break the play loop. Real command-bar
+			 * items have pollres > 5. A translated walk region is movement,
+			 * never a command, so it skips jt152 the same way. */
+			procres = (pollres == 0 || region_pad != 0)
+			          ? (short)-1 : jt152(pollres);
+		}
 		if (procres >= 0) {
 			/* a command-bar command: latch it for the caller (jt948's
 			 * dungeon loop dispatches by this index) and end the walk loop.
