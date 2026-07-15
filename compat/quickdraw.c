@@ -319,12 +319,22 @@ static short g_dbg_mark_x = -1, g_dbg_mark_y = -1;
 static void  qd_dbg_draw_mark(void);
 #endif
 
+#ifdef FRUA_KBTRACE
+long g_kbt_l2d3e, g_kbt_1134, g_kbt_qdpresent, g_kbt_qdsuppressed;
+#endif
+
 void qd_present(void)
 {
 	if (g_present_suppress) {
+#ifdef FRUA_KBTRACE
+		g_kbt_qdsuppressed++;
+#endif
 		g_present_pending = 1;   /* defer to the commit */
 		return;
 	}
+#ifdef FRUA_KBTRACE
+	g_kbt_qdpresent++;
+#endif
 	qd_cursor_tick();                /* (re)push the VBL cursor sprite if dirty */
 	cursor_composite();              /* no-op when the VBL cursor is active     */
 #ifdef FRUA_CLICKMARK

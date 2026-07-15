@@ -10,9 +10,10 @@
  * The 60 Hz Mac tick: ExecBase->VBlankFrequency says 50 (PAL) or 60 (NTSC);
  * plat_ticks scales the frame count so TickCount keeps Mac time either way.
  *
- * Keyboard: raw Amiga keys arrive over CIA-A's serial port. The proper wiring
- * is an ICR vector on ciaa.resource's SP interrupt; still TODO(hw) — the polls
- * report an empty queue until then (the menu is mouse-driven; keys follow).
+ * Keyboard: an input.device HANDLER (pri 100) — see the keyboard section for
+ * why not the ciaa.resource ICR vector. The handler consumes rawkey and
+ * rawmouse events, so the invisible Workbench behind the game never sees the
+ * player's input.
  *
  * Status: VBL server + mouse integration VERIFIED on amiberry; the server
  * also drives the display backend's sprite-0 pointer each frame.
@@ -25,10 +26,19 @@
 #include <exec/types.h>
 #include <exec/execbase.h>
 #include <exec/interrupts.h>
+#include <exec/io.h>
+#include <exec/ports.h>
+#include <devices/input.h>
+#include <devices/inputevent.h>
 #include <hardware/custom.h>
 #include <hardware/cia.h>
 #include <hardware/intbits.h>
 #include <proto/exec.h>
+
+#ifdef FRUA_KBTRACE
+#include "dbglog.h"
+static volatile long s_kbt_pushed;      /* handler-side counter (no DOS there) */
+#endif
 
 #define CUSTOM ((volatile struct Custom *)0xDFF000)
 #define CIAA   ((volatile struct CIA *)0xBFE001)
@@ -51,32 +61,260 @@ unsigned long plat_ticks(void)
 }
 
 /* --- keyboard ------------------------------------------------------------
- * TODO(hw): ciaa.resource ICR vector on the SP (serial) interrupt, pushing
- * (rawkey, ascii) pairs into a ring these polls drain. Empty until then. */
+ *
+ * NOT the ciaa.resource ICR route the roadmap first named: keyboard.device
+ * owns the CIA-A SP interrupt bit on any booted system, and AddICRVector
+ * refuses a claimed bit — and this port deliberately keeps the OS alive
+ * (dos.library does all file I/O), so the bit is never free. The
+ * system-friendly handle is an input.device HANDLER at priority 100: it
+ * sees every IECLASS_RAWKEY event (with qualifiers, and with the OS's own
+ * key-repeat synthesis) before Intuition does, and by consuming the events
+ * it also stops keys AND mouse clicks from leaking into the invisible
+ * Workbench behind the game — which they did until now.
+ *
+ * The handler (amiga_ihandler, entered through the register-ABI stub in
+ * platform/c2p.S) maps each key-down to its Atari IKBD scancode and pushes
+ * {scan, qualifier} into a ring; the polls below drain it and apply the TOS
+ * keytable semantics the Event Manager shim expects — including Alt/Amiga+
+ * letter delivering ASCII 0 so the shim's cmdKey recovery path fires, the
+ * same as TOS's alternate keytable does on the Falcon. */
+
+#define KB_RING 32
+
+static volatile ULONG s_kb_ring[KB_RING];   /* (qual << 16) | (scan << 8)  */
+static volatile UBYTE s_kb_head, s_kb_tail; /* head = writer, tail = reader */
+static volatile UWORD s_kb_qual;            /* live IEQUALIFIER_* snapshot  */
+
+static struct MsgPort  *s_in_port;
+static struct IOStdReq *s_in_io;
+static struct Interrupt s_in_handler;
+static int              s_in_open;
+
+extern void amiga_ihandler_entry(void);     /* platform/c2p.S              */
+
+/* Amiga rawkey -> Atari IKBD scancode (US layout; 0 = no equivalent).
+ * Modifier rawkeys 0x60-0x67 map to 0 — their state travels in the event
+ * qualifiers instead. */
+static const unsigned char k_raw2atari[0x68] = {
+	/* 0x00 */ 0x29, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,  /* ` 1-7 */
+	/* 0x08 */ 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x2B, 0x00, 0x70,  /* 890-=\ KP0 */
+	/* 0x10 */ 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,  /* QWERTYUI */
+	/* 0x18 */ 0x18, 0x19, 0x1A, 0x1B, 0x00, 0x6D, 0x6E, 0x6F,  /* OP[] KP123 */
+	/* 0x20 */ 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25,  /* ASDFGHJK */
+	/* 0x28 */ 0x26, 0x27, 0x28, 0x00, 0x00, 0x6A, 0x6B, 0x6C,  /* L;' KP456 */
+	/* 0x30 */ 0x00, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32,  /* ZXCVBNM */
+	/* 0x38 */ 0x33, 0x34, 0x35, 0x00, 0x71, 0x67, 0x68, 0x69,  /* ,./ KP.789 */
+	/* 0x40 */ 0x39, 0x0E, 0x0F, 0x72, 0x1C, 0x01, 0x53, 0x00,  /* spc BS tab KPent ret esc del */
+	/* 0x48 */ 0x00, 0x00, 0x4A, 0x00, 0x48, 0x50, 0x4D, 0x4B,  /* KP- up dn rt lf */
+	/* 0x50 */ 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42,  /* F1-F8 */
+	/* 0x58 */ 0x43, 0x44, 0x63, 0x64, 0x65, 0x66, 0x4E, 0x62,  /* F9 F10 KP([/*+ help */
+	/* 0x60 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  /* modifiers */
+};
+
+/* TOS US keytables by Atari scancode (what Keytbl() returns on the Falcon).
+ * Designated initializers: unnamed slots (modifiers, F-keys, arrows) stay 0.
+ * The shifted arrows really do yield digits — faithful to TOS. */
+static const unsigned char k_tos_unshift[128] = {
+	[0x01] = 27,
+	[0x02] = '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+	[0x0E] = 8, 9,
+	[0x10] = 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', 13,
+	[0x1E] = 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`',
+	[0x2B] = '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/',
+	[0x39] = ' ',
+	[0x4A] = '-',                       /* KP- */
+	[0x4E] = '+',                       /* KP+ */
+	[0x53] = 127,                       /* Del */
+	[0x63] = '(', ')', '/', '*',        /* keypad chrome */
+	[0x67] = '7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.', 13,
+};
+
+static const unsigned char k_tos_shift[128] = {
+	[0x01] = 27,
+	[0x02] = '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+',
+	[0x0E] = 8, 9,
+	[0x10] = 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', 13,
+	[0x1E] = 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~',
+	[0x2B] = '|', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?',
+	[0x39] = ' ',
+	[0x47] = '7', '8',                  /* Home, Up */
+	[0x4A] = '-',
+	[0x4B] = '4',                       /* Left */
+	[0x4D] = '6', '+',                  /* Right, KP+ */
+	[0x50] = '2',                       /* Down */
+	[0x52] = '0', 127,                  /* Insert, Del */
+	[0x63] = '(', ')', '/', '*',
+	[0x67] = '7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.', 13,
+};
+
+/* IEQUALIFIER_* -> the Atari Kbshift bitmap the shim translates
+ * (bit0 RSHIFT, bit1 LSHIFT, bit2 CTRL, bit3 ALT, bit4 CAPS). Both Alt and
+ * Amiga keys land on the ALT bit: the shim turns it into the Mac cmdKey. */
+static unsigned char qual_to_kbshift(UWORD q)
+{
+	unsigned char k = 0;
+
+	if (q & IEQUALIFIER_RSHIFT)   k |= 0x01;
+	if (q & IEQUALIFIER_LSHIFT)   k |= 0x02;
+	if (q & IEQUALIFIER_CONTROL)  k |= 0x04;
+	if (q & (IEQUALIFIER_LALT | IEQUALIFIER_RALT
+	         | IEQUALIFIER_LCOMMAND | IEQUALIFIER_RCOMMAND))
+		k |= 0x08;
+	if (q & IEQUALIFIER_CAPSLOCK) k |= 0x10;
+	return k;
+}
+
+/* The input.device handler. Runs in the input task; single writer of the
+ * ring. Consumes rawkey AND rawmouse events (IECLASS_NULL) so nothing
+ * reaches Intuition — the game owns input; the mouse itself is read from
+ * JOY0DAT, which the consumption doesn't affect. */
+struct InputEvent *amiga_ihandler(struct InputEvent *list, APTR data)
+{
+	struct InputEvent *ie;
+
+	(void)data;
+	for (ie = list; ie != NULL; ie = ie->ie_NextEvent) {
+		if (ie->ie_Class == IECLASS_RAWKEY) {
+			UWORD code = ie->ie_Code;
+
+			s_kb_qual = ie->ie_Qualifier;
+			if (!(code & IECODE_UP_PREFIX) && code < 0x68
+			    && k_raw2atari[code] != 0) {
+				UBYTE next = (UBYTE)((s_kb_head + 1) % KB_RING);
+
+				if (next != s_kb_tail) {    /* full: drop newest */
+					s_kb_ring[s_kb_head] =
+					    ((ULONG)ie->ie_Qualifier << 16)
+					    | ((ULONG)k_raw2atari[code] << 8);
+					s_kb_head = next;
+#ifdef FRUA_KBTRACE
+					s_kbt_pushed++;
+#endif
+				}
+			}
+			ie->ie_Class = IECLASS_NULL;
+		} else if (ie->ie_Class == IECLASS_RAWMOUSE) {
+			ie->ie_Class = IECLASS_NULL;
+		}
+	}
+	return list;
+}
 
 int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 {
-	(void)out_scan; (void)out_ascii;
-	return 0;   /* TODO(hw): pop the rawkey ring, map to (scancode, ASCII) */
+	ULONG entry;
+	unsigned char scan, kbs, ascii;
+
+#ifdef FRUA_KBTRACE
+	{
+		extern long g_kbt_l2d3e, g_kbt_1134, g_kbt_qdpresent,
+		            g_kbt_qdsuppressed;
+		static long polls;
+		if ((++polls & 0x0F) == 0) {
+			dbg_file_num("kbt: polls=", polls);
+			dbg_file_num("kbt: ticks=", (long)plat_ticks());
+			dbg_file_num("kbt: l2d3e=", g_kbt_l2d3e);
+			dbg_file_num("kbt: 1134=", g_kbt_1134);
+			dbg_file_num("kbt: qdpres=", g_kbt_qdpresent);
+			dbg_file_num("kbt: qdsupp=", g_kbt_qdsuppressed);
+		}
+	}
+#endif
+	if (s_kb_tail == s_kb_head)
+		return 0;
+	entry = s_kb_ring[s_kb_tail];
+	s_kb_tail = (UBYTE)((s_kb_tail + 1) % KB_RING);
+
+	scan = (unsigned char)(entry >> 8);
+	kbs  = qual_to_kbshift((UWORD)(entry >> 16));
+
+	if (kbs & 0x08) {
+		/* Alt/Amiga chords deliver NO character, exactly like TOS's
+		 * alternate keytable: the Event Manager recovers the letter
+		 * from plat_kb_unshifted_char and forces cmdKey. */
+		ascii = 0;
+	} else {
+		ascii = (kbs & 0x03) ? k_tos_shift[scan & 0x7F]
+		                     : k_tos_unshift[scan & 0x7F];
+		if ((kbs & 0x10) && ascii >= 'a' && ascii <= 'z')
+			ascii = (unsigned char)(ascii - 'a' + 'A');
+		if ((kbs & 0x04) && (ascii & 0x40))
+			ascii &= 0x1F;              /* Ctrl-letter, TOS-style */
+	}
+
+	if (out_scan)  *out_scan  = scan;
+	if (out_ascii) *out_ascii = ascii;
+#ifdef FRUA_KBTRACE
+	dbg_file_num("kbt: pop scan=", scan);
+	dbg_file_num("kbt: pushed total=", s_kbt_pushed);
+	dbg_file_num("kbt: ticks=", (long)plat_ticks());
+#endif
+	return 1;
 }
 
 int plat_kb_avail(void)
 {
-	return 0;   /* TODO(hw): ring non-empty? */
+	return s_kb_tail != s_kb_head;
 }
 
 unsigned char plat_kb_shift(void)
 {
-	return 0;   /* TODO(hw): track shift/ctrl/alt/caps from the rawkey stream,
-	             * same bitmap layout as Atari Kbshift (bit0 LSHIFT, 1 RSHIFT,
-	             * 2 CTRL, 3 ALT, 4 CAPS). */
+	return qual_to_kbshift(s_kb_qual);
 }
 
 unsigned char plat_kb_unshifted_char(unsigned char scan)
 {
-	(void)scan;
-	return 0;   /* TODO(hw): rawkey -> unshifted char via a keymap; 0 just
-	             * disables the Event Manager's Alt-key letter recovery. */
+	return k_tos_unshift[scan & 0x7F];
+}
+
+/* Install/remove the handler (called from plat_input_init/shutdown). */
+
+static void kb_install(void)
+{
+	if (s_in_open)
+		return;
+	s_in_port = CreateMsgPort();
+	if (s_in_port == NULL)
+		return;
+	s_in_io = (struct IOStdReq *)CreateIORequest(s_in_port,
+	                                             sizeof(struct IOStdReq));
+	if (s_in_io == NULL) {
+		DeleteMsgPort(s_in_port);
+		s_in_port = NULL;
+		return;
+	}
+	if (OpenDevice((CONST_STRPTR)"input.device", 0,
+	               (struct IORequest *)s_in_io, 0) != 0) {
+		DeleteIORequest((struct IORequest *)s_in_io);
+		DeleteMsgPort(s_in_port);
+		s_in_io = NULL;
+		s_in_port = NULL;
+		return;
+	}
+	s_in_handler.is_Node.ln_Type = NT_INTERRUPT;
+	s_in_handler.is_Node.ln_Pri  = 100;    /* ahead of Intuition (50) */
+	s_in_handler.is_Node.ln_Name = (char *)"OpenUA input";
+	s_in_handler.is_Data         = NULL;
+	s_in_handler.is_Code         = (VOID (*)())amiga_ihandler_entry;
+	s_in_io->io_Command = IND_ADDHANDLER;
+	s_in_io->io_Data    = &s_in_handler;
+	DoIO((struct IORequest *)s_in_io);
+	s_in_open = 1;
+}
+
+static void kb_remove(void)
+{
+	if (!s_in_open)
+		return;
+	s_in_io->io_Command = IND_REMHANDLER;
+	s_in_io->io_Data    = &s_in_handler;
+	DoIO((struct IORequest *)s_in_io);
+	CloseDevice((struct IORequest *)s_in_io);
+	DeleteIORequest((struct IORequest *)s_in_io);
+	DeleteMsgPort(s_in_port);
+	s_in_io   = NULL;
+	s_in_port = NULL;
+	s_in_open = 0;
 }
 
 /* --- mouse ---------------------------------------------------------------
@@ -180,11 +418,13 @@ void plat_input_init(short screen_w, short screen_h)
 		AddIntServer(INTB_VERTB, &s_vbl_int);
 		s_vbl_installed = 1;
 	}
-	/* TODO(hw): the ciaa.resource keyboard ICR vector installs here too. */
+	s_kb_head = s_kb_tail = 0;
+	kb_install();
 }
 
 void plat_input_shutdown(void)
 {
+	kb_remove();
 	if (s_vbl_installed) {
 		RemIntServer(INTB_VERTB, &s_vbl_int);
 		s_vbl_installed = 0;

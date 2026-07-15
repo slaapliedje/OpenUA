@@ -371,11 +371,20 @@ static dsp_surface_t *aga_surface(void)
 	return &s_surface;
 }
 
+#ifdef FRUA_KBTRACE
+static long s_kbt_full, s_kbt_rect;
+#endif
+
 static void aga_present(void)
 {
 	unsigned char *back = s_planes[s_front ^ 1];
 	unsigned char *planes[8];
 	short p;
+
+#ifdef FRUA_KBTRACE
+	if (++s_kbt_full <= 30 || (s_kbt_full % 200) == 0)
+		dbg_file_num("kbt: full present #", s_kbt_full);
+#endif
 
 	for (p = 0; p < 8; p++)
 		planes[p] = back + (ULONG)p * AGA_PITCH * AGA_H;
@@ -396,6 +405,13 @@ static void aga_present_rect(short x, short y, short w, short h)
 	unsigned char *front = s_planes[s_front];
 	unsigned char *planes[8];
 	short p, x1;
+
+#ifdef FRUA_KBTRACE
+	if (++s_kbt_rect <= 30 || (s_kbt_rect % 200) == 0) {
+		dbg_file_num("kbt: rect present #", s_kbt_rect);
+		dbg_file_num("kbt: rect y=", y);
+	}
+#endif
 
 	if (x < 0) { w = (short)(w + x); x = 0; }
 	if (y < 0) { h = (short)(h + y); y = 0; }

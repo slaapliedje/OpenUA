@@ -202,3 +202,22 @@ _snd_vbl_trampoline:
 	rts
 
 #endif
+
+#ifdef FRUA_AMIGA
+
+| input.device handler entry (input_amiga.c). The input task calls handlers
+| with the InputEvent chain in a0 and is_Data in a1; the C handler takes them
+| on the stack and returns the chain in d0 (which is where the C return value
+| already lands). The C ABI preserves d2-d7/a2-a6 itself.
+	.text
+	.even
+	.globl	_amiga_ihandler_entry
+	.globl	_amiga_ihandler
+_amiga_ihandler_entry:
+	move.l	%a1,-(%sp)
+	move.l	%a0,-(%sp)
+	jbsr	_amiga_ihandler
+	addq.l	#8,%sp
+	rts
+
+#endif

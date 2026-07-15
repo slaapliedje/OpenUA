@@ -21205,6 +21205,9 @@ static long jt1134(void)
 	long elapsed;
 
 	PROBE("jt1134");
+#ifdef FRUA_KBTRACE
+	{ extern long g_kbt_1134; g_kbt_1134++; }
+#endif
 	l4d88();
 	do {
 		do {
@@ -22442,6 +22445,9 @@ static short l2d3e(void)
 	dlitem_method_t method;
 
 	PROBE("L2d3e");
+#ifdef FRUA_KBTRACE
+	{ extern long g_kbt_l2d3e; g_kbt_l2d3e++; }
+#endif
 
 	/* Phase 1 — event read. */
 	jt1153(1);
