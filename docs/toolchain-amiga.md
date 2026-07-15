@@ -201,6 +201,19 @@ the game (the button is sampled from CIA PRA at 50Hz) — use
 amiberry captures the mouse on the first in-window click; after that only
 RELATIVE host moves reach JOY0DAT.
 
-Next, in order: Paula audio (4ch DMA; the synth render is machine-neutral
-in the shim), then the `run-amiga-port` driver skill (amiberry harness,
-patterned on run-falcon-port).
+### Paula audio (2026-07-15, 355d33e)
+The Falcon sound architecture one-for-one: a single looping DMA ring
+(Paula reloads AUDxLC/LEN natively) that the VERTB mixer renders into —
+four-tone synth voices, the swMode tone, and the current effect on top.
+Paula's audio pointers are write-only, so the play cursor is MODELED:
+period 156 consumes exactly 454 samples per PAL frame (156 x 454 = one
+frame in colour clocks), zero drift. The LED filter is switched off (a
+3.2kHz low-pass would muffle 11-22kHz content). Verified via the
+machine-neutral `EXTRA_CFLAGS=-DFRUA_SNDTEST` boot harness with host
+audio capture (`parec -d <sink>.monitor`): four sfx bursts + song 0
+sustained, spectral peak at middle C. NB: amiberry's config needs
+`sound_output=exact` — the bring-up config had `none`, which makes any
+capture silently pass-fail at the emulator, not the port.
+
+Next: the `run-amiga-port` driver skill (amiberry harness, patterned on
+run-falcon-port), then a PLAY THE GAME deep-run for Falcon parity.
