@@ -79,32 +79,56 @@ static int pick_clk(int hz, int *out_hz)
 static int  ring_start(void);
 static void (* volatile g_vbl_hook)(void);
 
+/* The ring's sample rate is a RUNTIME value: one binary serves the Falcon
+ * CODEC (24585 Hz via Devconnect) and the TT's STE-compatible DMA sound
+ * (25033 Hz, rate code 2 at 0xFF8921). Both sit within ~2% of the Mac's
+ * 22254.5 Hz; the voice-rate rescale in synth_render keeps pitch exact
+ * either way. Set by plat_sound_init before the ring starts. */
+static long g_synth_hz = 24585L;
+
 /* The engine's sound task runs here, in supervisor mode. plat_ticks() checks
  * this so it reads _hz_200 directly instead of trapping through Supexec — see
  * platform/input.c. */
 extern volatile int g_plat_in_super;
 
+/* Which DMA-sound flavour this machine has. Falcon = the CODEC XBIOS
+ * (Devconnect/Setbuffer); TT = the STE-compatible DMA registers banged
+ * directly (no XBIOS sound API on TOS 3.x). Anything else runs silent. */
+#define SND_NONE    0
+#define SND_FALCON  1
+#define SND_STE     2
+static int g_snd_kind = SND_NONE;
+
 int plat_sound_init(void)
 {
-	long r;
+	long r, vdo = dsp_vdo_cookie() >> 16;
 
-	/* This backend is the Falcon CODEC (Devconnect/Setbuffer XBIOS). On a
-	 * TT those calls don't exist — return failure so the engine runs
-	 * silent rather than trapping through missing XBIOS. The TT's STE-DMA
-	 * sound gets its own ring backend later (same model, different
-	 * registers — the DMA address counter is readable there too). */
-	if ((dsp_vdo_cookie() >> 16) != 3)
-		return -1;
+	if (vdo == 3) {
+		g_snd_kind = SND_FALCON;
+		g_synth_hz = 24585L;
+	} else if (vdo == 2) {
+		g_snd_kind = SND_STE;           /* TT: STE-compatible DMA sound */
+		g_synth_hz = 25033L;            /* rate code 2 at 0xFF8921 */
+	} else {
+		return -1;                      /* ST/unknown: silent */
+	}
 
-	r = Locksnd();
-	if (r != 1)
-		return -1;
+	if (g_snd_kind == SND_FALCON) {
+		r = Locksnd();
+		if (r != 1)
+			return -1;
+	}
 	g_locked = 1;
 	/* Bring the synth's DMA loop up NOW, from normal context. Everything the
 	 * engine's sound task later does at interrupt time (start a song, kill a
 	 * sound, mix an effect) then reduces to memory writes — no XBIOS call is
 	 * ever made from the vblank. An idle loop renders silence. */
-	(void)ring_start();
+	if (ring_start() != 0) {
+		g_locked = 0;                   /* no ring, no backend */
+		if (g_snd_kind == SND_FALCON)
+			Unlocksnd();
+		return -1;
+	}
 	return 0;
 }
 
@@ -135,10 +159,10 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
  * still issues its KillIO — this is only what our "driver" does with it.
  * ========================================================================== */
 
-#define SYNTH_CLK       CLK25K          /* 24585 Hz — closest to the Mac's rate */
-#define SYNTH_HZ        24585L
+#define SYNTH_CLK       CLK25K          /* Falcon: 24585 Hz, closest to the Mac */
 #define MAC_SYNTH_HZ    22255L          /* 22254.5454, what the Fixed rates mean */
 #define RING_SAMPLES    2048L           /* ~83 ms; the VBL renders ~410/frame     */
+#define SYNTH_HZ        g_synth_hz      /* runtime rate — declared near the top */
 
 /* FTSoundRec field offsets (see plat_sound.h). */
 #define FT_RATE(v)      (2 + (v) * 8)
@@ -318,6 +342,47 @@ static long snd_vbl_remove_super(void)
 	return 0;
 }
 
+/* --- the TT's STE-compatible DMA sound, banged directly -------------------
+ * TOS 3.x has no XBIOS sound API, but the hardware speaks the same ring
+ * model: frame base/end registers, a repeat mode that reloads them forever,
+ * and a LIVE address counter at the same 0xFF8909/0B/0D bytes dma_addr()
+ * already reads on the Falcon. All registers are supervisor-only; the two
+ * pokes below run under Supexec (init/shutdown — task context). */
+
+#define STE_CTRL   (*(volatile unsigned char *)0xFFFF8901UL)  /* b0 play, b1 loop */
+#define STE_BASE_H (*(volatile unsigned char *)0xFFFF8903UL)
+#define STE_BASE_M (*(volatile unsigned char *)0xFFFF8905UL)
+#define STE_BASE_L (*(volatile unsigned char *)0xFFFF8907UL)
+#define STE_END_H  (*(volatile unsigned char *)0xFFFF890FUL)
+#define STE_END_M  (*(volatile unsigned char *)0xFFFF8911UL)
+#define STE_END_L  (*(volatile unsigned char *)0xFFFF8913UL)
+#define STE_MODE   (*(volatile unsigned char *)0xFFFF8921UL)  /* b7 mono, b0-1 rate */
+
+static char *g_ste_ring;                /* Supexec argument channel */
+
+static long ste_ring_start_super(void)
+{
+	unsigned long base = (unsigned long)(uintptr_t)g_ste_ring;
+	unsigned long end  = base + RING_SAMPLES;
+
+	STE_CTRL   = 0;                     /* stop while reprogramming */
+	STE_MODE   = 0x82;                  /* mono, 25033 Hz */
+	STE_BASE_H = (unsigned char)(base >> 16);
+	STE_BASE_M = (unsigned char)(base >> 8);
+	STE_BASE_L = (unsigned char)base;
+	STE_END_H  = (unsigned char)(end >> 16);
+	STE_END_M  = (unsigned char)(end >> 8);
+	STE_END_L  = (unsigned char)end;
+	STE_CTRL   = 0x03;                  /* play + repeat: loop forever */
+	return 0;
+}
+
+static long ste_ring_stop_super(void)
+{
+	STE_CTRL = 0;
+	return 0;
+}
+
 /* Program the DMA to loop over the ring forever and hook the vblank that keeps
  * it fed. Called ONCE, from normal context (plat_sound_init). */
 static int ring_start(void)
@@ -336,12 +401,17 @@ static int ring_start(void)
 	for (v = 0; v < 4; v++)
 		g_ft_phase[v] = 0;
 
-	Buffoper(0);
-	Setmode(MODE_MONO);
-	Settracks(0, 0);
-	Setbuffer(SR_PLAY, g_ring, g_ring + RING_SAMPLES);
-	Devconnect(DMAPLAY, DAC, CLK25M, SYNTH_CLK, 1);
-	Buffoper(SB_PLA_ENA | SB_PLA_RPT);       /* loop forever */
+	if (g_snd_kind == SND_FALCON) {
+		Buffoper(0);
+		Setmode(MODE_MONO);
+		Settracks(0, 0);
+		Setbuffer(SR_PLAY, g_ring, g_ring + RING_SAMPLES);
+		Devconnect(DMAPLAY, DAC, CLK25M, SYNTH_CLK, 1);
+		Buffoper(SB_PLA_ENA | SB_PLA_RPT);      /* loop forever */
+	} else {                                        /* SND_STE (TT) */
+		g_ste_ring = g_ring;
+		Supexec(ste_ring_start_super);
+	}
 	g_ring_live = 1;
 
 	if (g_snd_vbl_slot < 0)
@@ -518,8 +588,12 @@ void plat_sound_shutdown(void)
 	}
 	g_ring_live = 0;
 	g_ft_rec    = NULL;
-	Buffoper(0);
-	Unlocksnd();
+	if (g_snd_kind == SND_FALCON) {
+		Buffoper(0);
+		Unlocksnd();
+	} else if (g_snd_kind == SND_STE) {
+		Supexec(ste_ring_stop_super);
+	}
 	g_locked = 0;
 	if (g_buf != NULL) {
 		Mfree(g_buf);
