@@ -49,3 +49,4 @@ dist/
 
 # Personal Claude Code config (permission grants, local paths) — never public
 .claude/settings.local.json
+frua
