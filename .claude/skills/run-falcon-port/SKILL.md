@@ -206,8 +206,11 @@ the on-screen 2*y+40):
 "$D" click 460 179                # = engine (230,179), BEGIN ADVENTURING
 ```
 
-Keys need no translation. Sound is intentionally silent on TT (the Falcon
-CODEC backend gates itself off; the STE-DMA ring backend is the open item).
+Keys need no translation. Sound works on the TT too (the STE-DMA ring path
+in `sound_falcon.c`, picked by the `_VDO` cookie at 25033 Hz). To capture
+audio, boot with `--fast-forward no` in `HATARI_ARGS` (fast-forward garbles
+Hatari's sound) and record the pulse monitor:
+`parec -d "$(pactl get-default-sink).monitor" --file-format=wav out.wav`.
 
 ## Run (human path)
 
