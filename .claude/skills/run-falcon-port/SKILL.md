@@ -181,6 +181,34 @@ memory-fit configurations — the shipping floor is 4MB today, 1MB the goal).
 - Env: `GEMDOS_DIR` (C: mount, default `data/work/gamedata`), `FALCON_TOS`,
   `FRUA_XVFB_DISPLAY` (default `:99`), or set `DISPLAY` to reuse a real X server.
 
+## Run the TT030 variant (same binary, TT-low letterbox)
+
+The same `frua.prg` runs on an emulated TT (the `_VDO` cookie picks the
+TT-shifter backend: 320x480 TT low, the 320x200 frame line-doubled into a
+40-line letterbox). Boot it through this same driver with overrides —
+`HATARI_ARGS` is applied last, so it overrides `--machine`:
+
+```bash
+export FALCON_TOS=~/opt/etos512us.img          # EmuTOS 512k (TT-capable)
+export HATARI_ARGS="--machine tt --dsp none"
+"$D" start                                     # "menu: modal up" as usual
+```
+
+TT-specific input gotcha: Hatari's absolute click targeting desyncs from the
+engine (engine clamps its pointer to 320x200; Hatari's model spans 320x480).
+Re-sync BEFORE every targeted click with two dead-zone clicks, then click at
+**(2*engine_x, engine_y)** window coordinates (x doubled, y RAW engine, not
+the on-screen 2*y+40):
+
+```bash
+"$D" click 638 478 && sleep 1     # far corner: both models clamp
+"$D" click 1 1     && sleep 1     # origin: both models at (0,0)
+"$D" click 460 179                # = engine (230,179), BEGIN ADVENTURING
+```
+
+Keys need no translation. Sound is intentionally silent on TT (the Falcon
+CODEC backend gates itself off; the STE-DMA ring backend is the open item).
+
 ## Run (human path)
 
 On a machine with a real display, the Makefile boots Hatari in a window:
