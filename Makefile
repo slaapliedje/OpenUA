@@ -48,6 +48,17 @@ endif
 SRCDIRS := src src/engine compat
 INCLUDE := -Isrc -Icompat/include -Iplatform/include
 
+# Machine stamp: the two machines share object paths, so a MACHINE switch
+# without a clean silently links stale other-machine objects (bitten three
+# times — an empty-guard files.o from the falcon build once linked into the
+# amiga binary). When the stamp disagrees with $(MACHINE), purge all objects
+# at parse time; the stamp file makes same-machine rebuilds incremental.
+ifneq ($(shell cat .machine 2>/dev/null),$(MACHINE))
+$(shell find src compat platform -name '*.o' -delete 2>/dev/null; \
+        find src compat platform -name '*.d' -delete 2>/dev/null; \
+        echo $(MACHINE) > .machine)
+endif
+
 CSRC := $(foreach d,$(SRCDIRS),$(wildcard $(d)/*.c)) $(filter %.c,$(PLATFORM_SRC))
 ASRC := $(filter %.S,$(PLATFORM_SRC))
 OBJ  := $(CSRC:.c=.o) $(ASRC:.S=.o)
