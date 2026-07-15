@@ -105,12 +105,24 @@ registers. Rebuild cost is per-`set_palette`, not per-frame.
 ## The bigger co-blocker: memory (target = 1 MB)
 
 Colour is not the only wall, and it's not the hard one. **The target is a 1 MB
-machine** (1 MB ECS Amiga / 1 MB STE — not a bone-stock 512K box). The current
-build assumes a ~4 MB floor ([[port-memory-vs-mac-1mb]]), so hitting 1 MB is a
-real footprint investigation — shrinking the FAR pool (~450K today), the play
-buffers, and the load-time working set — and it is arguably **more** gating for
-ECS/ST than the quantizer. The 68000-clean build (`CPU68K=68000`) already
-links; memory is the remaining structural piece.
+machine** (1 MB ECS Amiga / 1 MB STE — not a bone-stock 512K box).
+
+Measured (2026-07-15, Atari `.prg` GEMDOS header, `-O2`): the **static image is
+1.39 MB** = **968 K code + 454 K bss** (+ ~2 K data), on top of which the heap
+working set (FAR pool ~450 K, play/load buffers) sits. Two structural facts:
+
+- **BSS is very attackable** — it was almost entirely whole-file resident load
+  buffers. Converting the two biggest (TITLE.CTL 195 K, BACK.CTL 160 K) to
+  lazily-allocated transients cut BSS 800 K → 454 K (resident 1.75 MB → 1.39 MB).
+  Remaining BSS candidates: `g_frame_file` 40 K / `g_gen_file` 28 K /
+  `g_menu_file` 16 K (the "kept resident" GLIB loaders — need a shared-scratch
+  or lazy pass), `g_glib_dec` 64 K, `g_chunky`/page buffers (backend-owned).
+- **The 968 K of code is the hard wall.** Even with zero BSS and zero heap, code
+  alone nearly fills a 1 MB machine. Genuine 1 MB needs code **overlays**
+  (mirroring the Mac's 23 on-demand CODE segments) or a stripped play-only build
+  (drop the editors/GDOS printing) — a large structural effort. **A realistic
+  near-term target is 2 MB** (BSS shrink + heap fits comfortably); 1 MB is a
+  later push. The 68000-clean build (`CPU68K=68000`) already links.
 
 ## Suggested order of work
 
