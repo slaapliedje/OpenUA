@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "plat_sound.h"
+#include "display.h"           /* dsp_vdo_cookie: Falcon-vs-TT gate */
 
 static char *g_buf      = NULL;
 static long  g_buf_size = 0;
@@ -85,8 +86,17 @@ extern volatile int g_plat_in_super;
 
 int plat_sound_init(void)
 {
-	long r = Locksnd();
+	long r;
 
+	/* This backend is the Falcon CODEC (Devconnect/Setbuffer XBIOS). On a
+	 * TT those calls don't exist — return failure so the engine runs
+	 * silent rather than trapping through missing XBIOS. The TT's STE-DMA
+	 * sound gets its own ring backend later (same model, different
+	 * registers — the DMA address counter is readable there too). */
+	if ((dsp_vdo_cookie() >> 16) != 3)
+		return -1;
+
+	r = Locksnd();
 	if (r != 1)
 		return -1;
 	g_locked = 1;

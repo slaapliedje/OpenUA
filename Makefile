@@ -36,6 +36,7 @@ include toolchain/m68k-atari-mint.mk
 TARGET       := frua.prg
 PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/display_videl.c \
+                platform/display_tt.c \
                 platform/sound_falcon.c \
                 platform/input.c \
                 platform/vdi.c \

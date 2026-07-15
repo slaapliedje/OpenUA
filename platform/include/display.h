@@ -56,6 +56,11 @@ typedef struct dsp_backend {
 /* Probe the host machine and return the best available backend, or NULL. */
 const dsp_backend_t *dsp_detect(void);
 
+/* Atari builds: the _VDO cookie value (video hardware id in the high word:
+ * 0 ST, 1 STE, 2 TT, 3 VIDEL; 0 when no jar). Cached after the first call.
+ * Other machines' backends do not define it. */
+long dsp_vdo_cookie(void);
+
 /* --- VBL mouse-cursor service ------------------------------------------------
  *
  * When plat_cursor_active() is non-zero the backend draws the mouse pointer on

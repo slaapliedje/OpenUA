@@ -523,9 +523,41 @@ static const dsp_backend_t videl_backend = {
 	videl_set_palette,
 };
 
+/* _VDO cookie: video hardware id in the high word (0 ST shifter, 1 STE,
+ * 2 TT shifter, 3 VIDEL). The cookie jar pointer lives in protected low
+ * RAM (0x5A0), so the walk runs under Supexec. No jar / no cookie reads
+ * as 0 — "not TT, use VIDEL", matching the old unconditional behaviour
+ * on anything that isn't a TT. */
+static long vdo_cookie_super(void)
+{
+	long *jar = *(long **)0x5A0UL;
+
+	if (jar == NULL)
+		return 0;
+	for (; jar[0] != 0; jar += 2)
+		if (jar[0] == 0x5F56444FL)              /* '_VDO' */
+			return jar[1];
+	return 0;
+}
+
+const dsp_backend_t *dsp_backend_tt(void);      /* display_tt.c */
+
+long dsp_vdo_cookie(void)
+{
+	static int  probed;
+	static long vdo;
+
+	if (!probed) {
+		vdo    = Supexec(vdo_cookie_super);
+		probed = 1;
+		dbg_log_num("dsp: _VDO cookie = ", vdo);
+	}
+	return vdo;
+}
+
 const dsp_backend_t *dsp_detect(void)
 {
-	/* TODO: probe the _VDO cookie to tell Falcon (VIDEL) from TT
-	 * (TT-shifter) and pick the matching backend. Only VIDEL today. */
+	if ((dsp_vdo_cookie() >> 16) == 2)      /* TT shifter */
+		return dsp_backend_tt();
 	return &videl_backend;
 }
