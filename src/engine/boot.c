@@ -10707,14 +10707,14 @@ static void jt1069(short start, short count, unsigned char *src,
  * into the clut, set the ceiling/floor fallback colours, build the per-slot
  * per-depth darken remap (nearest darker colour within the slot's own
  * band), and re-lay the backdrop band (which this clut write clobbers). */
-/* The dungeon wall colour-cycle (fireplace/torch, Card B.1b/B.2, commit 2863b8a)
- * never worked and REGRESSED the walls: cw_finalize's jt1069 install seeds the -3258
- * cycle entries + the -3394 work buffer, and the per-frame jt1067 rotation then
- * commits its [min..max] range straight to the hardware CLUT (l6e58), overwriting the
- * per-set wall bands with rotated/garbage colour every frame -> walls blit but paint
- * near-black (invisible).  The static per-set palette install (qd_set_palette below)
- * is correct and gives visible walls on its own, so the cycle install is gated OFF by
- * default.  Flip to 1 only once the cycle path is actually fixed. */
+/* The dungeon wall colour-cycle (fireplace/torch, Card B.1b/B.2). Historically
+ * it "regressed the walls invisible" and was gated off — the real culprit was
+ * jt1067's ROTATION having both jt406 copy directions reversed (the
+ * BlockMove(src,dst) arg-swap trap), which smeared every cycled range to a
+ * single colour within ~count rotations: fire washed flat, and ranges carrying
+ * wall colours converged to junk = "ate the walls". With the rotate fixed
+ * (see jt1067) the cycle install is ON: cw_finalize seeds the -3258 entries +
+ * the -3394 work buffer, and the walk/modal loops tick jt1067 + re-present. */
 static int g_cw_wall_cycle = 1;
 
 static void cw_finalize(void)
@@ -14482,6 +14482,26 @@ static void dungeon_cycle_ensure(void)
 	}
 }
 
+/* 16bpp port: on the Mac (and an indexed-mode Falcon) jt1067's commit writes
+ * the HARDWARE palette, so the pixels already on screen recolour by
+ * themselves — that IS the fire/torch animation, zero redraw. The port's
+ * display path bakes the CLUT into RGB565 at present time, so a cycle commit
+ * is invisible until something re-presents — which is why the fire only
+ * advanced on a step/turn and froze while standing still. jt1067 bumps this
+ * epoch on every real commit; the idle loops call port_cycle_present() to
+ * re-present exactly then (rotations are due every `period` ticks, so this
+ * costs one present per rotation, nothing on quiet passes). */
+static unsigned long g_cyc_commit_epoch;
+static void port_cycle_present(void)
+{
+	static unsigned long presented;
+
+	if (presented != g_cyc_commit_epoch) {
+		presented = g_cyc_commit_epoch;
+		qd_present();
+	}
+}
+
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
                          short a_deep, long cb1, long cb2)
 {
@@ -14616,6 +14636,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 				dungeon_cycle_ensure();  /* re-arm the fire cycle if a
 				                          * picture's jt1069 freed it */
 			jt1067();
+			port_cycle_present();    /* 16bpp: show the commit */
 		}
 		if ((unsigned char)a_deep && g_a5_12290 == 0) {
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
@@ -14655,7 +14676,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		}
 #endif
 		if (pollres < 0) {
-			jt1080();                   /* idle */
+			/* Idle poll — no event. The Mac branches straight back to the
+			 * loop top (CODE 11 0x668e: `tstw d0; blt L64d2`), where the
+			 * JT[1067] colour-cycle tick runs — that tight spin IS the
+			 * fireplace/torch animation while standing still. The port had
+			 * jt1080() here (the "no-hit chime"): unfaithful — the Mac's
+			 * only jt1080 in this loop is case 0's unrecognized-KEY beep —
+			 * and doubly harmful: it beeped once per idle pass (the
+			 * machine-gun beeping whenever mouse motion pumped the event
+			 * queue) and its 5-tick jt1134 wait wedged the loop at true
+			 * idle, freezing the fire between steps. */
 			if (exitflag != 0)
 				break;
 			continue;
@@ -59372,8 +59402,16 @@ static short l23b4(short arg)
 	 * Mac never returns -1 from this loop; neither do we. */
 	item = -1;
 	for (;;) {
-		if (jt1163() == 0 && jt1200() != 0)
+		/* Mac gate (0x243a-0x2448): jt1163()==0 && jt1200()!=0. The port
+		 * runs the play screen native (g_a5_2347=1 -> jt1200()==0, see the
+		 * l63c0 loop-top), which would keep the fire/torch cycle frozen
+		 * through every event modal — so also tick in dungeon play mode
+		 * (-27990 == 4). jt1067 self-gates on -3150/-2347. The present
+		 * makes the commit visible on the 16bpp pipeline (epoch-gated). */
+		if (jt1163() == 0 && (jt1200() != 0 || g_a5_27990 == 4)) {
 			jt1067();
+			port_cycle_present();
+		}
 		rc   = jt1085();
 		item = (short)l2d3e();
 
@@ -71587,12 +71625,25 @@ static void jt1067(void)
 			short base   = entry[6];        /* 77b0 */
 			short count1 = (short)(entry[7] - 1);   /* 77be */
 			unsigned char r, g, b;
+			/* ★ jt406 arg-order FIX (both arms were REVERSED — the
+			 * jt406(dst,src) vs Mac BlockMove(src,dst) trap). The Mac
+			 * pushes @0x7842: SRC = work+(base+1)*3 (the push nearest
+			 * the jsr), DST = work+base*3 — a shift DOWN; the saved
+			 * FIRST colour then goes to the END (0x785c) = a true
+			 * rotate. @0x7902 is the mirror: SRC = base, DST = base+1
+			 * (shift UP), saved LAST to the FRONT. The port had both
+			 * copy directions inverted, which turned each rotation into
+			 * a lossy SMEAR — the whole range converged to one colour
+			 * within ~count passes (trace: a 6-colour fire ramp became
+			 * uniform 0xFFFF67 by pass 33), so the fireplace showed a
+			 * flat wash and cycle ranges carrying wall colours "ate"
+			 * the wall bands. */
 			if (entry[4] & 1) {             /* 77d8 forward */
 				r = work[base * 3 + 0];     /* 77e0 */
 				g = work[base * 3 + 1];
 				b = work[base * 3 + 2];
-				jt406(work + (base + 1) * 3, work + base * 3,
-				      (short)(count1 * 3)); /* 7842 shift up */
+				jt406(work + base * 3, work + (base + 1) * 3,
+				      (short)(count1 * 3)); /* 7842 shift down */
 				work[(base + count1) * 3 + 0] = r;  /* 785c */
 				work[(base + count1) * 3 + 1] = g;
 				work[(base + count1) * 3 + 2] = b;
@@ -71600,8 +71651,8 @@ static void jt1067(void)
 				r = work[(base + count1) * 3 + 0];  /* 7894 */
 				g = work[(base + count1) * 3 + 1];
 				b = work[(base + count1) * 3 + 2];
-				jt406(work + base * 3, work + (base + 1) * 3,
-				      (short)(count1 * 3)); /* 7902 shift down */
+				jt406(work + (base + 1) * 3, work + base * 3,
+				      (short)(count1 * 3)); /* 7902 shift up */
 				work[base * 3 + 0] = r;     /* 7918 */
 				work[base * 3 + 1] = g;
 				work[base * 3 + 2] = b;
@@ -71613,8 +71664,10 @@ static void jt1067(void)
 		}
 	}
 
-	if (max > min)                              /* 79a8 */
+	if (max > min) {                            /* 79a8 */
 		l6e58(min, (short)(max - min + 1), mode, work + min * 3);  /* 79d4 */
+		g_cyc_commit_epoch++;   /* 16bpp port: see port_cycle_present */
+	}
 }
 
 /* JT[1017] (CODE 5 + 0x38be, = LBIndxType) — the GLIB index-type byte
