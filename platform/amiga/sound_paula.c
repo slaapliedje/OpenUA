@@ -44,7 +44,7 @@ void plat_sound_shutdown(void)
 }
 
 int plat_sound_play_mono8(const signed char *samples, long count,
-                          long sample_rate)
+                          int sample_rate)
 {
 	if (samples == NULL || count <= 0 || sample_rate <= 0)
 		return 1;

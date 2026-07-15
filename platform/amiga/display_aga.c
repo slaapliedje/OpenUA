@@ -65,6 +65,8 @@ static ULONG          s_palette[1 + AGA_DEPTH * 0]; /* placeholder; see below */
 /* CHIP-RAM size of one 8-bitplane frame. */
 #define FRAME_BYTES ((long)AGA_PITCH * AGA_H * AGA_DEPTH)
 
+static void aga_shutdown_partial(void);
+
 static int aga_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;    /* fixed 320x200 like the VIDEL backend */

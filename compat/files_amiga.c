@@ -24,10 +24,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#include <exec/types.h>
-#include <dos/dos.h>
-#include <proto/dos.h>
-
+#include "amiga_ndk.h"          /* NDK protos, Point-collision-safe wrapper */
 #include "files.h"
 
 /* dos.library Seek() modes. */

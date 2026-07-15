@@ -32,6 +32,7 @@
 #define fLckdErr   (-45)        /* file locked                        */
 #define dupFNErr   (-48)        /* duplicate filename                 */
 #define paramErr   (-50)        /* bad parameter                      */
+#define rfNumErr   (-51)        /* bad file reference number          */
 
 /* SetFPos posMode */
 #define fsAtMark      0         /* offset ignored; seek to mark       */
