@@ -72002,8 +72002,13 @@ static void jt463(short minkb, short maxkb)
 
 	g_a5_10270[0] = (long)(uintptr_t)base;
 	g_a5_9304     = (long)(uintptr_t)base + want;
-	if (base == NULL || minbytes > want)
+	if (base == NULL || minbytes > want) {
+		/* Leave a diagnosable trail: which input starved the pool. */
+		dbg_file_num("farpool: FreeMem = ", (long)FreeMem());
+		dbg_file_num("farpool: minbytes = ", minbytes);
+		dbg_file_num("farpool: want = ", want);
 		l036a("Insufficient FAR Memory!");    /* JT[1084] */
+	}
 
 	g_a5_9300 = want;
 	g_a5_9292 = 0;

@@ -52,6 +52,18 @@ OPT  ?= -O2 -g -fomit-frame-pointer
 STD  := -std=gnu99
 DEFS := -DFRUA_AMIGA
 
-CFLAGS  := $(CPU) $(STD) $(WARN) $(OPT) $(DEFS)
+# ★ MISCOMPILER WORKAROUND — do not remove without re-verifying the FAR pool.
+# Bebbo GCC 6.5.0b's own "h" optimization ("optimize shift instructions",
+# part of the default -fbbb=+) narrows a 32-bit shift of a 16-bit-typed
+# value to WORD shifts when it can sink the shift past calls, silently
+# dropping the carry-out bits: in jt463, `(long)maxkb * 1024L` with
+# maxkb=450 compiled to `lslw #8; lslw #2` = 0x70800 & 0xFFFF = 2048 —
+# the "Insufficient FAR Memory!" boot failure, heisen-masked by any nearby
+# instrumentation. Reproducer: a two-arg (long)short*1024L pair with calls
+# between compute and use (docs/toolchain-amiga.md). This -fbbb value is
+# the default set MINUS h; everything else stays on.
+BBB  := -fbbb=abcefilmnprsz0
+
+CFLAGS  := $(CPU) $(STD) $(WARN) $(OPT) $(DEFS) $(BBB)
 ASFLAGS := $(CPU) $(DEFS)
 LDFLAGS := $(LDCPU) -noixemul

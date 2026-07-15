@@ -24,6 +24,7 @@
  */
 
 #include "display.h"
+#include "dbglog.h"
 
 #ifdef FRUA_AMIGA
 
@@ -193,11 +194,18 @@ static int aga_init(short want_w, short want_h)
 
 	/* Kickstart 3.0+ (v39) — the OS level every AGA machine ships. */
 	GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 39);
-	if (GfxBase == NULL)
+	if (GfxBase == NULL) {
+		dbg_log("aga: graphics.library v39 open failed");
 		return 1;
-	/* Real AGA (Lisa) — an ECS machine under KS3.0 must not get 8 planes.
-	 * The ECS answer is a future 32-colour backend, not this one. */
-	if (!(GfxBase->ChipRevBits0 & GFXF_AA_LISA)) {
+	}
+	/* Real AGA — an ECS machine under KS3.x must not get 8 planes (the ECS
+	 * answer is a future 32-colour backend). Accept ANY AA chip bit:
+	 * KS3.2 under amiberry reports the A1200's chipset as AA_MLISA (16)
+	 * with HR_AGNUS|HR_DENISE, NOT AA_LISA — seen live, ChipRevBits0=19. */
+	if (!(GfxBase->ChipRevBits0
+	      & (GFXF_AA_ALICE | GFXF_AA_LISA | GFXF_AA_MLISA))) {
+		dbg_log_num("aga: no AA chipset; ChipRevBits0 = ",
+		            (long)GfxBase->ChipRevBits0);
 		aga_shutdown_partial();
 		return 1;
 	}
@@ -211,6 +219,7 @@ static int aga_init(short want_w, short want_h)
 	s_cop       = AllocMem(COP_WORDS * sizeof(UWORD), MEMF_CHIP | MEMF_CLEAR);
 	if (s_chunky == NULL || s_planes[0] == NULL
 	    || s_planes[1] == NULL || s_cop == NULL) {
+		dbg_log("aga: AllocMem failed (chip for planes/copper?)");
 		aga_shutdown_partial();
 		return 1;
 	}

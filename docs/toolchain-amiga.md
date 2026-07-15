@@ -146,8 +146,37 @@ Gotchas:
 - GCC 6.5 rejects `static x = <const object>;` initializers newer GCCs fold
   (quickdraw.c's cursor uses a macro initializer now).
 
-Next, in order: fill the `TODO(hw)` bodies — dos.library file ops in
-files_amiga.c, the AGA display takeover (LoadView(NULL) + copper list +
-palette), input.device/rawkey, Paula audio — then stage gamedata for amiberry
-and boot it. The `run-amiga-port` skill (an amiberry driver, patterned on
-run-falcon-port) comes with that.
+## ★★ IT BOOTS (2026-07-15): the main menu renders on an emulated A1200
+
+`frua` + the staged gamedata in a directory harddrive (S/startup-sequence =
+`stack 65536` + `cd DH0:` + `frua`), Kickstart 3.2 (kicka1200.rom from the
+licensed AmigaOS 3.2 lha), amiberry A1200/AGA config with 2MB chip + 8MB fast:
+the port boots to the UNLIMITED ADVENTURES main menu — correct chrome, text,
+palette, cursor — through the direct copper list, the AGA bank palette, the C
+c2p, the dos.library file shim and the VERTB tick server. `PROGDIR:DBG.LOG`
+carries the boot breadcrumbs (the same trail as the Falcon's C:\DBG.LOG).
+
+Launch (headless-ish; the flatpak grabs the desktop display):
+```sh
+flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
+    --log --config ~/Amiberry/Configurations/openua.uae -G
+```
+
+### ★★ The Bebbo GCC 6.5 SHIFT MISCOMPILER (worked around in the mk)
+The first boots died with "Insufficient FAR Memory!": jt463's
+`maxbytes = (long)maxkb * 1024L` (maxkb=450) compiled to **WORD shifts**
+(`lslw #8; lslw #2`) — 0x70800 truncated to 0x0800 = a 2KB pool. The culprit
+is Bebbo's own `h` ("optimize shift instructions") pass in the default
+`-fbbb=+`: when it can sink such a shift past intervening calls it narrows it
+to HImode and silently drops the carry-out. Any nearby instrumentation
+changed the expression flow and masked it (a textbook heisenbug — chased
+through three false theories: caller-frame smash, stack overflow, memory
+race). Reproducer: two `(long)short * 1024L` locals with calls between
+compute and use, -O2. Workaround: `-fbbb=abcefilmnprsz0` (default minus `h`)
+in toolchain/m68k-amigaos.mk. If the toolchain is ever rebuilt/upgraded,
+re-run the reproducer before dropping the flag.
+
+Next, in order: the CIA keyboard (ciaa.resource ICR
+rawkey ring — the menu is mouse-only until then), Paula audio, the hardware
+sprite cursor — then the `run-amiga-port` driver skill (amiberry harness,
+patterned on run-falcon-port).
