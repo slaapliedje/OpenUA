@@ -57,6 +57,28 @@ def ehb(img):
     return reduce_colours(img, 64, 4)
 
 
+def banded(img, n, bits, nbands):
+    """Per-horizontal-band palette: split into `nbands` strips, quantise each
+    to its own N-colour palette. This models the achievable hardware — a
+    palette reload at horizontal blank (free on the Amiga copper, an HBL
+    handler on the ST), where each SCANLINE can carry its own colours but a
+    single scanline is one palette (so side-by-side regions on the same rows
+    still share). nbands == image height is the per-scanline ceiling; nbands
+    == 1 is the global baseline.
+    """
+    w, h = img.size
+    out = Image.new("RGB", (w, h))
+    y = 0
+    for i in range(nbands):
+        y1 = h * (i + 1) // nbands
+        if y1 <= y:
+            continue
+        strip = img.crop((0, y, w, y1))
+        out.paste(reduce_colours(strip, n, bits), (0, y))
+        y = y1
+    return out
+
+
 VARIANTS = [
     ("orig 256", lambda im: im),
     ("ST 16 / 3-bit", lambda im: reduce_colours(im, 16, 3)),
@@ -76,15 +98,45 @@ def strip_for(src):
     return out
 
 
+BAND_STEPS = [1, 4, 12, None]   # None = per-line (band count == height)
+
+
+def band_strip_for(src, n, bits):
+    """orig | global | 4-band | 12-band | per-line, at (n colours, bits/gun)."""
+    w, h = src.size
+    pad = 6
+    tiles = [("orig", src)]
+    for nb in BAND_STEPS:
+        nb = h if nb is None else nb
+        tiles.append((f"{nb}-band", banded(src, n, bits, nb)))
+    out = Image.new("RGB", (w * len(tiles) + pad * (len(tiles) - 1), h), (0, 0, 0))
+    for i, (_, t) in enumerate(tiles):
+        out.paste(t, (i * (w + pad), 0))
+    return out
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
+    band_mode = "--banded" in argv
+    argv = [a for a in argv if a != "--banded"]
     if not argv:
         sys.exit(__doc__)
     for path in argv:
         src = Image.open(path).convert("RGB")
-        out_path = os.path.splitext(path)[0] + ".quant.png"
-        strip_for(src).save(out_path)
-        print(f"{path} -> {out_path}  [{', '.join(l for l, _ in VARIANTS)}]")
+        bbox = src.getbbox()            # trim letterbox so bands map to content
+        if bbox:
+            src = src.crop(bbox)
+        stem = os.path.splitext(path)[0]
+        if band_mode:
+            # global vs banded, at ST-16 (3-bit) and ECS-32 (4-bit)
+            band_strip_for(src, 16, 3).save(stem + ".band-st16.png")
+            band_strip_for(src, 32, 4).save(stem + ".band-ecs32.png")
+            print(f"{path} -> {stem}.band-st16.png, {stem}.band-ecs32.png "
+                  f"[orig | {' | '.join(str(nb or 'per-line') for nb in BAND_STEPS)}]")
+        else:
+            strip_for(src).save(stem + ".quant.png")
+            print(f"{path} -> {stem}.quant.png  "
+                  f"[{', '.join(l for l, _ in VARIANTS)}]")
 
 
 if __name__ == "__main__":
