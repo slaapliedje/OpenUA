@@ -1,9 +1,10 @@
 # ECS / ST palette-quantizer plan
 
-*Status: planning. The display backends for ECS Amiga (native bitplanes) and
-Atari ST/STE do not exist yet; this note scopes the palette reduction they
-both need, informed by a host-side viability prototype
-(`tools/palette_preview.py`).*
+*Status: the runtime reducer is BUILT (`platform/include/quantize.h`,
+host-tested); the display backends for ECS Amiga (native bitplanes) and Atari
+ST/STE that consume it do not exist yet. This note scopes the palette reduction
+they both need, informed by a host-side viability prototype
+(`tools/palette_preview.py`) and now realised as portable C.*
 
 ## The problem
 
@@ -116,13 +117,20 @@ links; memory is the remaining structural piece.
 1. ✅ Host viability prototype — `tools/palette_preview.py` (done).
 2. ✅ Per-region (banded) prototype — confirmed banding is a large win,
    transformative at ST-16; per-region model settled as horizontal bands.
-3. **Memory footprint to 1 MB** — the real gate for ECS/ST; shrink the FAR
+3. ✅ Runtime reducer in C — `platform/include/quantize.h` (median cut over
+   the CLUT, counting-partition, 256->N remap LUT), host-tested
+   (`tests/test_quantize.py`), compiles clean under both cross toolchains.
+   Not yet wired into a backend.
+4. **Memory footprint to 1 MB** — the real gate for ECS/ST; shrink the FAR
    pool + play/load working set (see the memory co-blocker above). Do this in
    parallel with, or before, the native backends.
-4. Native ECS Amiga bitplane backend (32-colour) with the runtime quantizer +
-   **per-line copper palette** + remap LUT — testable in amiberry ECS, no
+5. Native ECS Amiga bitplane backend (32-colour) wiring in `quantize.h` +
+   **per-line copper palette** + the remap LUT — testable in amiberry ECS, no
    graphics card. (The copper per-line palette is the same mechanism the AGA
    backend already uses, so this is largely a depth/colour-count change.)
-5. STE backend (16-colour, 4-bit) with **layout-aligned HBL bands** — testable
+   Needs a detection split: non-AA currently routes to RTG, so bare ECS vs
+   ECS-with-graphics-card must be told apart (RTG mode present -> RTG, else
+   native bitplanes).
+6. STE backend (16-colour, 4-bit) with **layout-aligned HBL bands** — testable
    in Hatari `--machine ste`.
-6. EHB, per-line-on-ST, plain-ST, dithering — optional polish, each a later push.
+7. EHB, per-line-on-ST, plain-ST, dithering — optional polish, each a later push.
