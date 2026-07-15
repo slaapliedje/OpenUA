@@ -4281,9 +4281,10 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec);     /* deep wal
 static short g_walk_cmd = -1;
 #ifdef FRUA_AREATEST
 static short g_areatest_cmd = -1;   /* FRUA_AREATEST: 'a' in the walk latches the Area cmd */
-#ifdef FRUA_CBTSND
-static short g_cbtsnd_fire;         /* FRUA_CBTSND: 'k' in the walk latches "start the fight" */
 #endif
+#ifdef FRUA_CBTSND
+static short g_cbtsnd_fire;         /* FRUA_CBTSND: 'k' in the walk latches "start the fight"
+                                     * (was nested under FRUA_AREATEST — CBTSND now stands alone) */
 #endif
 static void  jt23(void);                                            /* play-frame stand-up (defined below) */
 static void  jt904(unsigned char *out_done);                        /* View-character screen (defined below) */
