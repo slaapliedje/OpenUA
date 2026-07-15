@@ -236,8 +236,13 @@ POR_PC  = "data/work/gamedata/POR.DSN"
 POR_MAC = "data/work/fanmods/pormac/POR/GAME39.dsn"
 
 
-@pytest.mark.skipif(not os.path.isdir(POR_MAC),
-                    reason="Mac Pool of Radiance not staged (copyrighted; data/ is git-ignored)")
+@pytest.mark.skipif(
+    not (os.path.isdir(POR_MAC)
+         and os.path.exists(os.path.join(POR_PC, "8X8DB.TLB"))),
+    reason="Pool of Radiance ground truth not staged — needs BOTH the Mac "
+           "wall CTLs (POR_MAC) and the DOS wall TLBs (POR_PC); copyrighted, "
+           "data/ is git-ignored. (POR_PC is a manual fixture; `make gamedata` "
+           "re-stages only Mac data and wipes it.)")
 def test_converts_real_dos_WALL_libraries_to_real_mac_wall_libraries():
     """Pool of Radiance ships in BOTH editions -- same author, same module.
 
