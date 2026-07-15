@@ -39,6 +39,16 @@ int plat_kb_avail(void);
 unsigned char plat_kb_shift(void);
 
 /*
+ * The printable character a scancode produces with NO modifier, from the
+ * platform's unshifted key table. The Event Manager's Alt-key recovery uses
+ * it: an Alt+letter that the OS mapped to ASCII 0 still carries its letter in
+ * the Mac event (the engine's Cmd-key menu-accelerator fold needs it). Returns
+ * 0 when the scancode has no printable unshifted char. On the Falcon this is
+ * the BIOS Keytbl unshift table; other targets map from their own keymap.
+ */
+unsigned char plat_kb_unshifted_char(unsigned char scan);
+
+/*
  * Current mouse position, in screen coordinates. Stubbed (0,0) until
  * the IKBD-packet mouse driver lands.
  */

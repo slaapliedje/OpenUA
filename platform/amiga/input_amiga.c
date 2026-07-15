@@ -56,6 +56,14 @@ unsigned char plat_kb_shift(void)
 	             * Manager translation is machine-independent. */
 }
 
+unsigned char plat_kb_unshifted_char(unsigned char scan)
+{
+	(void)scan;
+	return 0;   /* TODO(hw): map rawkey -> unshifted char via the Amiga keymap
+	             * (MapRawKey / a default keymap). 0 = no printable char, which
+	             * just disables the Event Manager's Alt-key letter recovery. */
+}
+
 /* --- mouse ---------------------------------------------------------------
  * Position is integrated from JOY0DAT's X/Y quadrature counters each VBL; the
  * button is CIA-A PRA bit 6 (fire, active low). */

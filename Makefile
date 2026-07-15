@@ -27,7 +27,8 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/amiga/display_aga.c \
                 platform/amiga/sound_paula.c \
                 platform/amiga/input_amiga.c \
-                platform/amiga/dbglog_amiga.c
+                platform/amiga/dbglog_amiga.c \
+                platform/amiga/sys_amiga.c
 else ifeq ($(MACHINE),falcon)
 include toolchain/m68k-atari-mint.mk
 TARGET       := frua.prg
@@ -36,7 +37,8 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/sound_falcon.c \
                 platform/input.c \
                 platform/vdi.c \
-                platform/dbglog.c
+                platform/dbglog.c \
+                platform/sys_falcon.c
 else
 $(error unknown MACHINE '$(MACHINE)' — use 'falcon' or 'amiga')
 endif

@@ -11,13 +11,13 @@
  * Hatari's --conout 2 so the bring-up trail survives a crash.
  */
 
-#include <mint/osbind.h>
 #include <stddef.h>             /* NULL    */
 #include <string.h>             /* memset  */
 
 #include "engine/boot.h"        /* ua_main */
 #include "engine/data_pool_replay.h"
 #include "dbglog.h"
+#include "plat_sys.h"           /* plat_console_getc — demo key-wait */
 #include "display.h"
 #include "files.h"
 #include "input.h"
@@ -526,7 +526,7 @@ int main(void)
 #ifdef FRUA_SHIM_DEMO
 	dsp->present();
 	dbg_log("main: snapshot after ua_main");
-	(void)Cnecin();
+	(void)plat_console_getc();
 
 	/* Open WIND 1 / 2 / 3 from the real resource fork and stack them.
 	 * All three share the same bounds in the resource, so MoveWindow

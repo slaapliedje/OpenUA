@@ -12,9 +12,9 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <mint/osbind.h>
 
 #include "macmemory.h"
+#include "plat_sys.h"           /* plat_mem_largest_free — FreeMem source */
 
 #define memFullErr (-108)       /* Mac Memory Manager: not enough room */
 
@@ -39,13 +39,14 @@ OSErr MemError(void)
 }
 
 /*
- * The Mac Memory Manager's _FreeMem reports total free heap space; the Atari
- * stand-in returns the largest free block (GEMDOS Malloc(-1)), which is the
+ * The Mac Memory Manager's _FreeMem reports total free heap space; the port's
+ * stand-in returns the largest free block (plat_mem_largest_free — GEMDOS
+ * Malloc(-1) on the Falcon, AvailMem(MEMF_LARGEST) on the Amiga), which is the
  * more useful figure for sizing a single large allocation.
  */
 Size FreeMem(void)
 {
-	return (Size)Malloc(-1L);
+	return (Size)plat_mem_largest_free();
 }
 
 /*

@@ -95,6 +95,15 @@ unsigned char plat_kb_shift(void)
 	return (unsigned char)Kbshift(-1);
 }
 
+unsigned char plat_kb_unshifted_char(unsigned char scan)
+{
+	_KEYTAB *kt = Keytbl((void *)-1, (void *)-1, (void *)-1);
+
+	if (kt != NULL && kt->unshift != NULL)
+		return ((const unsigned char *)kt->unshift)[scan];
+	return 0;
+}
+
 /* --- IKBD mouse ---
  *
  * The handler runs in MFP IRQ context — no GEMDOS / BIOS calls allowed.

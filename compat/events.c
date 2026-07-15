@@ -18,12 +18,12 @@
  */
 
 #include <stddef.h>             /* NULL */
-#include <mint/osbind.h>        /* GEMDOS Tgetdate / Tgettime (GetDateTime) */
 
 #include "events.h"
 #include "windows.h"            /* WindowPeek, FrontWindow, updateRgn */
-#include "input.h"              /* plat_ticks, plat_kb_poll, ... */
-#include "quickdraw.h"          /* qd_cursor_refresh (idle cursor tracking) */
+#include "input.h"             /* plat_ticks, plat_kb_poll, ... */
+#include "quickdraw.h"         /* qd_cursor_refresh (idle cursor tracking) */
+#include "plat_sys.h"          /* plat_get_datetime — GetDateTime's clock */
 
 #define EVENT_QUEUE_CAP 16
 
@@ -169,9 +169,7 @@ static Boolean kb_to_event(EventRecord *out)
 	 * Kbshift(-1) at poll time races a fast Alt release (synthetic input
 	 * releases the modifier before the engine polls the key). */
 	if (ascii == 0) {
-		_KEYTAB *kt = Keytbl((void *)-1, (void *)-1, (void *)-1);
-		unsigned char ch = (kt != NULL && kt->unshift != NULL)
-		    ? ((const unsigned char *)kt->unshift)[scan] : 0;
+		unsigned char ch = plat_kb_unshifted_char(scan);
 
 		if (ch >= 32 && ch < 127) {
 			out->message = ((long)scan << 8) | (long)ch;
@@ -254,10 +252,9 @@ long TickCount(void)
 }
 
 /* DateTimeUtils GetDateTime (the JT[1039] veneer on the Mac reads low-mem
- * Time, seconds since 1904-01-01 00:00:00). GEMDOS gives the wall clock as
- * a packed DOS date (Tgetdate: year-1980<<9 | month<<5 | day) and time
- * (Tgettime: hour<<11 | min<<5 | sec/2); convert to the Mac epoch so the
- * value matches what lifted callers expect. Grouped with TickCount as the
+ * Time, seconds since 1904-01-01 00:00:00). The platform HAL supplies the
+ * broken-down local wall clock (plat_get_datetime); the Mac-epoch conversion
+ * below is machine-neutral and stays here. Grouped with TickCount as the
  * shim's OS time primitives. */
 static int date_is_leap(int y)
 {
@@ -267,31 +264,25 @@ static int date_is_leap(int y)
 void GetDateTime(unsigned long *secs)
 {
 	static const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
-	unsigned int d = (unsigned int)Tgetdate();    /* DOS date word */
-	unsigned int t = (unsigned int)Tgettime();    /* DOS time word */
-	int  year   = 1980 + (int)((d >> 9) & 0x7f);
-	int  month  = (int)((d >> 5) & 0x0f);          /* 1..12 */
-	int  day    = (int)(d & 0x1f);                 /* 1..31 */
-	int  hour   = (int)((t >> 11) & 0x1f);
-	int  minute = (int)((t >> 5) & 0x3f);
-	int  second = (int)((t & 0x1f) * 2);
-	long days   = 0;
+	struct plat_datetime now;
+	long days = 0;
 	int  y, m;
 
 	if (secs == NULL)
 		return;
-	for (y = 1904; y < year; y++)
+	plat_get_datetime(&now);
+	for (y = 1904; y < now.year; y++)
 		days += date_is_leap(y) ? 366 : 365;
-	for (m = 1; m < month; m++) {
+	for (m = 1; m < now.month; m++) {
 		days += mdays[m - 1];
-		if (m == 2 && date_is_leap(year))
+		if (m == 2 && date_is_leap(now.year))
 			days += 1;
 	}
-	days += day - 1;
+	days += now.day - 1;
 	*secs = (unsigned long)days * 86400UL
-	      + (unsigned long)hour * 3600UL
-	      + (unsigned long)minute * 60UL
-	      + (unsigned long)second;
+	      + (unsigned long)now.hour * 3600UL
+	      + (unsigned long)now.minute * 60UL
+	      + (unsigned long)now.second;
 }
 
 Boolean Button(void)
