@@ -1,9 +1,10 @@
 # OpenUA
 
 An open reimplementation of SSI's *Unlimited Adventures* engine — the 1993 Gold
-Box adventure **construction set** — for Motorola 68k retro machines. It targets
-the Atari **Falcon030** / **TT030** today, with an **Amiga AGA** port in
-progress.
+Box adventure **construction set** — for Motorola 68k retro machines. One engine,
+four machines: the Atari **Falcon030** and **TT030**, and the **Amiga AGA**
+(A1200/A4000), plus an **RTG** path so an ECS Amiga with a graphics card runs the
+full 256-colour game.
 
 *OpenUA* = **Open** + **U**nlimited **A**dventures.
 
@@ -22,13 +23,26 @@ machines.
 > your own original Mac (or DOS — see below) FRUA data. See
 > [`data/README.md`](data/README.md).
 
-## Status — playable beta (v0.1.0-beta)
+## Status — playable beta
 
-The runtime plays a real adventure end to end. Verified in the **Hatari**
-emulator on its own art; it has **never been run on real Falcon030/TT030
-hardware** — treat it as emulator-validated only.
+The runtime plays a real adventure end to end on **all four** machine targets.
+Everything below is **emulator-validated only** — Hatari for the Atari builds,
+amiberry for the Amiga — and has **never been run on real hardware**. Treat it
+accordingly.
 
-What works:
+| Target | Backend | Status |
+|---|---|---|
+| **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target; full play-through verified in Hatari. |
+| **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
+| **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse, and Paula audio all live. |
+| **Amiga RTG** (ECS + graphics card) | Picasso96/CyberGraphX chunky screen | Backend written; the AGA-vs-RTG auto-detect is verified, the Picasso96 runtime is not yet stood up. |
+
+The same binary serves each family (one `frua.prg` for Falcon **and** TT; one
+`frua` for AGA **and** RTG) — the machine is detected at runtime and the matching
+display/sound path is chosen. On the paletted targets (TT, AGA, RTG) the palette
+lives in hardware, so colour-cycle animation like the tavern fireplace is free.
+
+What works (on every target unless noted):
 
 - **Exploration** — first-person 3D dungeon view and the top-down area automap;
   movement by arrow keys or mouse; all eight command-bar verbs
@@ -47,14 +61,35 @@ What works:
   (AC and damage update and persist), and save / load of the party and game.
 - **Editors** — the in-engine GEO map editor, event editor, record/game-settings
   editor, art gallery, and monster editor, plus GDOS printing from the editor.
-- **Sound** — digitized SFX and the Mac four-tone-synth music.
+- **Sound** — digitized SFX and the Mac four-tone-synth music, through the
+  Falcon CODEC, the TT's STE-DMA sound, or Amiga Paula.
 
 It plays the bundled sample design **HEIRS TO SKULL CRAG** and real commercial
 modules (e.g. *Pool of Radiance*) on their own art. The current gaps are
 fidelity/polish, not missing features — see
 [`docs/enhancements.md`](docs/enhancements.md).
 
+## Getting the game data
+
+**OpenUA ships no game data** — you supply your own from a legally-obtained copy
+of FRUA. The easiest source today is a digital re-release, both of which bundle
+FRUA in **Forgotten Realms: The Archives – Collection Two**:
+
+- **GOG** — [Forgotten Realms: The Archives – Collection Two](https://www.gog.com/game/forgotten_realms_the_archives_collection_two)
+- **Steam** — [Forgotten Realms: The Archives – Collection Two](https://store.steampowered.com/app/1882280/Forgotten_Realms_The_Archives__Collection_Two/)
+
+Those are the **DOS** release. The engine here is Mac-derived, but design/data
+files are byte-identical between the DOS and Mac versions, and the included art
+converter (`tools/art_convert.py`, below) makes the DOS art readable — so
+Collection Two's FRUA works. If you have the original **Macintosh** release
+instead, see [`docs/mac-release.md`](docs/mac-release.md) for unpacking it.
+
 ## Building
+
+`MACHINE` selects the target family (default `falcon`, which also covers the
+TT). Each family needs its own cross toolchain.
+
+### Atari (Falcon030 / TT030)
 
 Requires the **m68k-atari-mint GCC** cross toolchain with a soft-float
 `m68020-60` multilib on `PATH` (override the prefix with `make CROSS=…` or
@@ -62,7 +97,7 @@ Requires the **m68k-atari-mint GCC** cross toolchain with a soft-float
 [`docs/toolchain-softfloat-020.md`](docs/toolchain-softfloat-020.md).
 
 ```sh
-make                 # build frua.prg (soft-float; runs on Falcon030 AND TT030)
+make                 # build frua.prg — soft-float; runs on Falcon030 AND TT030
 make FPU=1           # FPU-required variant tuned for the TT030 (68881 hard-float)
 make run             # boot the build in Hatari (Falcon mode)
 make test            # host-side test suite (pytest over tools/)
@@ -71,8 +106,26 @@ make clean
 ```
 
 The default build is soft-float so **one binary serves the FPU-less Falcon030
-and the 68882-equipped TT030**. The toolchain flags are non-negotiable
-(`-m68020-60 -msoft-float`); see [`CLAUDE.md`](CLAUDE.md).
+and the 68882-equipped TT030**; the display and sound path (VIDEL vs. TT
+shifter) is chosen at runtime from the `_VDO` cookie. The toolchain flags are
+non-negotiable (`-m68020-60 -msoft-float`); see [`CLAUDE.md`](CLAUDE.md).
+
+### Amiga (AGA / RTG)
+
+Requires the **Bebbo `m68k-amigaos` GCC** toolchain (build it once per
+[`docs/toolchain-amiga.md`](docs/toolchain-amiga.md); default prefix
+`~/opt/amiga`).
+
+```sh
+make MACHINE=amiga               # build frua (an AmigaOS hunk executable)
+make MACHINE=amiga CPU68K=68000  # 68000-clean build (for the eventual ECS target)
+```
+
+One `frua` serves AGA and RTG: an AA-chipset machine gets the direct-copper AGA
+backend; a non-AA machine gets the RTG (Picasso96/CyberGraphX) backend. The
+engine is deliberately 68000-clean by construction (the original Mac binary uses
+zero 68020-only instructions), so the CPU tier is purely a compiler flag —
+groundwork for later ECS/ST machines.
 
 ### Running a game module
 
@@ -114,15 +167,6 @@ between releases and need no conversion; only the art containers do. See
 `wall_extract.py`), `rsrcpack.py` (Mac resource fork → the flat FRSC archive the
 engine loads), and the disassembler `dis68k.py`.
 
-## Amiga AGA (in progress)
-
-A second target — **Amiga AGA** (A1200/A4000) — is scaffolded but not yet
-compiled. It reuses the whole engine and shim; only the toolchain and the
-`platform/` backend differ. `make MACHINE=amiga` selects it once the Bebbo
-`m68k-amigaos` toolchain is built. See
-[`docs/toolchain-amiga.md`](docs/toolchain-amiga.md) and ADR-0012 in
-[`docs/decisions.md`](docs/decisions.md).
-
 ## Architecture
 
 The port is layered, and only the innermost platform layer knows which machine
@@ -132,7 +176,7 @@ it runs on:
 src/engine/  ->  compat/  ->  platform/  ->  TOS / AmigaOS
  (lifted        (Mac         (hardware
   engine)        Toolbox      abstraction:
-                 shim)        VIDEL / TT / AGA)
+                 shim)        VIDEL / TT-shifter / AGA-copper / RTG)
 ```
 
 - **`src/engine/`** — the decompiled engine, lifted function-by-function from the
@@ -141,7 +185,10 @@ src/engine/  ->  compat/  ->  platform/  ->  TOS / AmigaOS
   Event, Resource, File, Dialog, Menu, Control, Sound, TextEdit managers). The
   engine keeps the Mac spellings; the shim routes them to GEMDOS/GEM/VDI.
 - **`platform/`** — the display / input / sound / debug HAL. The engine renders
-  into one 8-bit paletted chunky buffer; each machine backend puts it on screen.
+  into one 8-bit paletted chunky buffer; each machine backend puts it on screen
+  (Falcon `platform/display_videl.c`, TT `platform/display_tt.c`, Amiga
+  `platform/amiga/`). Chunky→planar conversion, where a machine needs it, is a
+  shared masked-swap transpose; graphics-card targets take the buffer directly.
 
 Design rationale lives in [`docs/architecture.md`](docs/architecture.md) and the
 append-only decision log [`docs/decisions.md`](docs/decisions.md). `docs/` also
@@ -153,7 +200,7 @@ holds the per-subsystem maps ("`*-wall.md`") and the decompilation workflow
 ```
 src/         port bootstrap (src/main.c) + decompiled engine (src/engine/)
 compat/      Mac Toolbox compatibility shim
-platform/    hardware abstraction layer (platform/amiga/ = AGA backend)
+platform/    hardware abstraction layer (Atari VIDEL/TT here; platform/amiga/ = AGA + RTG)
 toolchain/   per-machine cross-toolchain configuration (.mk)
 tools/       host-side extractors / converters / disassembler
 tests/       host-side pytest suite
