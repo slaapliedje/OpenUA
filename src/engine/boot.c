@@ -35750,6 +35750,42 @@ static void jt28(long arg0, long item, short s16, short s18,
 #define g_a5_13776 g_a5_long(-13776)   /* JT[182] target buffer for save picker */
 #define g_a5_22733 g_a5_byte(-22733)   /* save-mode flag */
 
+/* Build the DESIGN-SCOPED save-slot path "<design>\SavGam<c>.csv" (c = a slot
+ * letter 'A'..'J', or '*' for the enumerate glob). The Mac keeps each design's
+ * saves in that design's own SAVE folder; the port keeps them in the design's
+ * .DSN staging folder, so switching designs in-game (which updates the current
+ * design name g_a5_-31336 via jt133) switches which slots Load/Save sees. When
+ * the design name is empty the path stays flat, the pre-fix behaviour.
+ *
+ * The separator is the GEMDOS '\': mac_path_to_c passes a '\'-containing path
+ * through unchanged (it only special-cases "<x>.DSN:<file>"), and Fsfirst needs
+ * '\' for the enumerate glob — so ONE construction serves the FSOpen (write /
+ * load) and Fsfirst (scan) paths alike. g_a5_-31336 already holds "<name>.DSN".
+ * (The '\' is GEMDOS-specific; revisit for the Amiga file backend.) */
+static void savgam_path(char *out, int c)
+{
+	const char *dsn = (const char *)g_a5_buf(-31336);
+	const char *s;
+	int j = 0;
+
+	/* "<design>.DSN\" folder prefix. Cap the design name so "<dsn>\SavGamX.csv"
+	 * fits the smallest caller buffer (fn[44]): 44 - strlen("\\SavGamA.csv") - 1
+	 * = 31 chars. Design folders are 8.3 in practice, so this never bites; it
+	 * only guards a pathological 34-byte start.dat name. */
+	if (dsn && dsn[0]) {
+		while (dsn[j] && j < 31) { out[j] = dsn[j]; j++; }
+		out[j++] = '\\';
+	}
+	for (s = "SavGam"; *s; s++) out[j++] = *s;
+	out[j++] = (char)c;
+	for (s = ".csv"; *s; s++) out[j++] = *s;
+	out[j] = '\0';
+#ifdef FRUA_SAVETRACE
+	dbg_file_str("savgam_path design", (dsn && dsn[0]) ? dsn : "(flat)");
+	dbg_file_str("savgam_path ->", out);
+#endif
+}
+
 /* JT[585] (CODE 15 + 0x1a24, 104 lines) — save / load slot picker.
  *
  * Despite the "Save Saved Game" naming in jt918's case-11 path
@@ -35869,8 +35905,7 @@ static void   jt585(void)
 	(void)jt94((short)0, (short)24, (short)0, (short)7,
 	           "%s", "Saving...Please Wait");
 
-	(void)jt394(fn, "%s%c", "SavGam", slot_char);
-	jt419(fn, "csv", (short)1);
+	savgam_path(fn, (int)slot_char);   /* "<design>\SavGam<slot>.csv" */
 
 	g_a5_22733 = 1;
 	if (l00e0(fn, (void *)jt580) == 0) {
@@ -36087,20 +36122,18 @@ static void jt582(void)
 	g_a5_22733 = 1;
 	ext = "csv";
 
+	(void)ext;
 	jt399(present, (short)10, (short)0);
-	jt394(fn, "%sX", "SavGam");
-	jt419(fn, ext, (short)1);
 
 	if (l005a() == 0)
 		return;                          /* save disk missing */
 
-	/* Port: l00e0 collapses the Mac's <design>:SAVE HFS path so the slots are
-	 * staged FLAT in the gamedata root. Enumerate them with a GEMDOS glob
-	 * ("SavGam*.csv") instead of the Mac folder walk; Fsfirst matching is
-	 * case-insensitive, so this finds both the port's SavGam<X>.csv and a
-	 * shipped SAVGAM<X>.CSV. (The faithful Mac built path = -31336:SAVE here.) */
-	jt394(path, "%s*", "SavGam");
-	jt419(path, ext, (short)1);                  /* "SavGam*.csv" */
+	/* Enumerate the CURRENT design's save slots. The Mac walks
+	 * "<design>:SAVE:" ; the port keeps each design's slots in that design's
+	 * .DSN staging folder, so the glob is "<design>\SavGam*.csv" (empty design
+	 * -> flat, the pre-fix behaviour). Fsfirst is case-insensitive, so this
+	 * finds the port's SavGam<X>.csv and a shipped SAVGAM<X>.CSV alike. */
+	savgam_path(path, '*');                      /* "<design>\SavGam*.csv" */
 	jt990((short)0, path, NULL, (short)1, (short)0);
 
 	for (entry = (void *)(uintptr_t)jt991(&is_dir); entry != NULL;
@@ -36143,11 +36176,10 @@ static void jt582(void)
 	if ((unsigned char)g_a5_byte(-6923) == 27)
 		return;                          /* cancelled */
 
-	{
-		char *dot = (char *)jt390(fn, (short)'.');
-		if (dot != fn)
-			dot[-1] = (char)g_a5_byte(-6923);
-	}
+	/* Build the chosen slot's path fresh — "<design>\SavGam<slot>.csv". (Can't
+	 * patch the glob buffer's '*' via jt390('.') any more: the design folder
+	 * "<name>.DSN" contains a '.', so the first-dot search would hit ".DSN". */
+	savgam_path(fn, (int)(unsigned char)g_a5_byte(-6923));
 	jt176();
 	jt94((short)0, (short)24, (short)7, (short)0, "%s", "Loading...Please Wait");
 

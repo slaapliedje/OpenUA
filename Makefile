@@ -243,6 +243,12 @@ gamedata: $(TARGET) frua.rsc
 	@# are staged; $(DSN) is the one the boot seed makes current.
 	@# Extra hand-dropped designs (data/designs/) are staged too, for
 	@# .DSN compatibility testing; .dsn or .DSN, case-insensitive.
+	@# Each design's own files go in its .DSN folder, AND its SAVE/ slots go
+	@# there too (SAVGAMA.CSV + VAULTA.DAT). The engine's savgam_path scopes
+	@# save slots to "<current-design>.DSN\SavGam*.csv", so switching designs
+	@# in-game (Select a Design) switches which slots Load/Save sees — without
+	@# this per-design staging, Load always found the one flat-staged design's
+	@# saves regardless of the picked design.
 	@for dsn in "$(MAC_JOINED)"/*.DSN "$(DESIGNS_DIR)"/*.DSN "$(DESIGNS_DIR)"/*.dsn; do \
 		[ -d "$$dsn" ] || continue; \
 		base=$$(basename "$$dsn"); \
@@ -250,15 +256,10 @@ gamedata: $(TARGET) frua.rsc
 		for f in "$$dsn"/*; do \
 			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/$$base/"; \
 		done; \
+		if [ -d "$$dsn/SAVE" ]; then \
+			cp "$$dsn/SAVE"/* "$(GAMEDATA_DIR)/$$base/" 2>/dev/null || true; \
+		fi; \
 	done
-	@# Stage the chosen design's SAVE folder (the shipped 1993 saves —
-	@# SAVGAMA.CSV + VAULTA.DAT) at the gamedata root: mac_path_to_c
-	@# strips non-.DSN folder prefixes, so "<dsn>:SAVE:SAVGAMA.CSV"
-	@# resolves to the bare filename there.
-	@if [ -d "$(MAC_JOINED)/$(DSN)/SAVE" ]; then \
-		cp "$(MAC_JOINED)/$(DSN)/SAVE"/* "$(GAMEDATA_DIR)/" \
-			&& echo "  gamedata: staged $(DSN)/SAVE saves"; \
-	fi
 	@# The faithful boot design marker "start.dat" (l0444 reads it at
 	@# boot; jt128 rewrites it when a design is picked in-game): a
 	@# 34-byte NUL-padded design name + the 1-byte resume flag.
