@@ -30,7 +30,7 @@
 
 #include "display.h"
 #include "dbglog.h"
-#include "c2p32.h"
+#include "c2p4st.h"             /* the nibble-optimized 4-plane span */
 #include "quantize.h"
 
 #define ST_W        320
@@ -191,54 +191,31 @@ static long st_vbl_remove_super(void)
 
 /* --- chunky -> ST-low interleaved planes -------------------------------- */
 
-/* Load 32 chunky pixels as 8 longwords with the remap LUT folded into the
- * load — no intermediate 32-byte bounce buffer (that write+re-read cost real
- * time on the 68000, where every present goes through here). */
-static void st_c2p_load32_lut(const unsigned char *src,
-                              const unsigned char *lut, c2p_u32 c[8])
-{
-	short k;
-
-	for (k = 0; k < 8; k++) {
-		c[k] = ((c2p_u32)lut[src[0]] << 24) | ((c2p_u32)lut[src[1]] << 16)
-		     | ((c2p_u32)lut[src[2]] << 8)  |  (c2p_u32)lut[src[3]];
-		src += 4;
-	}
-}
-
 /* Convert one 16-pixel-aligned span, remapping each pixel through `lut`
  * inline, into ST Low's 4 word-interleaved planes (8 bytes per 16-pixel
- * group). `w` is a multiple of 32 except a possible 16-pixel tail. */
+ * group). `w` is a multiple of 32 except a possible 16-pixel tail. The
+ * 32-pixel body is the nibble-optimized c2p4st_32 (see c2p4st.h) — roughly
+ * half the general path's cost, and this is the hot loop under every screen
+ * repaint on the 8MHz targets. */
 static void st_c2p_span(const unsigned char *src, unsigned char *dst, short w,
                         const unsigned char *lut)
 {
 	short x;
 
-	for (x = 0; x + 32 <= w; x += 32) {
-		c2p_u32 c[8], o[8];
-		unsigned short *d = (unsigned short *)(dst + (long)(x / 16) * 8);
+	for (x = 0; x + 32 <= w; x += 32)
+		c2p4st_32(src + x,  lut,
+		          (unsigned short *)(dst + (long)(x / 16) * 8));
+	if (x < w) {                            /* 16-pixel tail */
+		unsigned char pad[32];
+		unsigned short d[8];
+		unsigned short *out = (unsigned short *)(dst + (long)(x / 16) * 8);
 		short p;
 
-		st_c2p_load32_lut(src + x, lut, c);
-		c2p_transpose32(c, o);
-		for (p = 0; p < ST_DEPTH; p++) {
-			d[p]     = (unsigned short)(o[p] >> 16);
-			d[p + 4] = (unsigned short)(o[p]);
-		}
-	}
-	if (x < w) {
-		c2p_u32 c[8], o[8];
-		unsigned char rp[32];
-		unsigned short *d = (unsigned short *)(dst + (long)(x / 16) * 8);
-		short p, k;
-
-		for (k = 0; k < 16; k++)
-			rp[k] = lut[src[x + k]];
-		memset(rp + 16, 0, 16);       /* pad half never stored below */
-		c2p_load32(rp, c);
-		c2p_transpose32(c, o);
+		memcpy(pad, src + x, 16);
+		memset(pad + 16, 0, 16);        /* pads land only in d[4..7] */
+		c2p4st_32(pad, lut, d);
 		for (p = 0; p < ST_DEPTH; p++)
-			d[p] = (unsigned short)(o[p] >> 16);
+			out[p] = d[p];          /* store pixels 0-15 only */
 	}
 }
 

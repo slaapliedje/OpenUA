@@ -57,10 +57,15 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include
 # times — an empty-guard files.o from the falcon build once linked into the
 # amiga binary). When the stamp disagrees with $(MACHINE), purge all objects
 # at parse time; the stamp file makes same-machine rebuilds incremental.
-ifneq ($(shell cat .machine 2>/dev/null),$(MACHINE))
+# The stamp includes the CPU tier and FPU flag, not just the machine: a
+# `make CPU68K=68000` after a plain 020 `make` used to rebuild only changed
+# files as 68000 and silently link the rest as 68020 — an illegal-instruction
+# death on a real 68000 that looks like an engine bug (bitten 2026-07-15).
+BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
+ifneq ($(shell cat .machine 2>/dev/null),$(BUILDSTAMP))
 $(shell find src compat platform -name '*.o' -delete 2>/dev/null; \
         find src compat platform -name '*.d' -delete 2>/dev/null; \
-        echo $(MACHINE) > .machine)
+        echo $(BUILDSTAMP) > .machine)
 endif
 
 CSRC := $(foreach d,$(SRCDIRS),$(wildcard $(d)/*.c)) $(filter %.c,$(PLATFORM_SRC))
