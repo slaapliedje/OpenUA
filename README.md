@@ -36,10 +36,10 @@ Amiga — and has **never been run on real hardware**. Treat it accordingly.
 |---|---|---|
 | **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target; full play-through verified in Hatari. |
 | **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
-| **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette. A 68000 build (runs on any Atari). *v1: global palette — HBL colour bands are the next step.* |
+| **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours with a Timer-B raster split (per-band palette) | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette, per-band colours via an MFP raster interrupt. A 68000 build (runs on any Atari). *Faint band-boundary seams at 16 colours remain.* |
 | **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse, and Paula audio all live. |
 | **Amiga RTG** (classic Amiga + graphics card) | Picasso96 chunky 8-bit screen | Verified — the full 256-colour menu renders on a live Picasso96 320×200×8 RTG screen (amiberry, accelerated A2000 + uaegfx board, Workbench 3.2). A classic non-AGA Amiga with an accelerator and an RTG card runs the game at full colour, no bitplanes. |
-| **Amiga ECS/OCS** (bare classic Amiga) | Native 5bpl copper, quantized to 32 colours | Verified in amiberry on a bare OCS A2000: the menu renders in 32 colours, quantizer live, software cursor. *v1: global palette — per-line copper bands are the next step.* |
+| **Amiga ECS/OCS** (bare classic Amiga) | Native 5bpl copper, quantized to 32 colours with a per-band copper palette | Verified in amiberry on a bare OCS A2000: the menu renders in 32 colours, quantizer live, per-band palette (the copper reloads all 32 registers each band boundary for free), software cursor. The granite chrome renders as clean grey stone. |
 
 One binary serves each family — one `frua.prg` for Falcon **and** TT (plus a
 68000 `frua.prg` that also covers ST/STE); one `frua` for AGA **and** RTG (plus a

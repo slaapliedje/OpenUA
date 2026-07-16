@@ -137,22 +137,29 @@ working set (FAR pool ~450 K, play/load buffers) sits. Two structural facts:
    pool + play/load working set (see the memory co-blocker above). Do this in
    parallel with, or before, the native backends.
 5. ✅ Native ECS/OCS bitplane backend (`platform/amiga/display_ecs.c`,
-   32-colour) wiring in `quantize.h` + remap LUT + 5-plane c2p. **VERIFIED in
-   amiberry on a bare OCS A2000** — the menu renders in 32 colours, quantizer
-   live, software cursor. Remaining on this backend:
-   - **Per-line copper palette (banding)** — the big visual win (fixes the
-     granite-chrome speckle), and free on the copper. NOT done yet: v1 is a
-     GLOBAL 32-colour palette.
-   - **Detection split** — `-DFRUA_FORCE_ECS` forces it today; the runtime
-     bare-ECS-vs-graphics-card probe (try RTG, else ECS) is still to wire.
-   - Palette cycling (fireplace) only re-quantises on substantial loads.
-6. ✅ Native Atari ST/STE backend (`platform/display_ste.c`, 16-colour ST-low).
-   **VERIFIED under Hatari --machine ste + EmuTOS** — the menu renders in 16
-   colours, quantizer live, STE 4-bit palette. Built via `CPU68K=68000` (the
-   ST/STE is a 68000; the build runs on every Atari). Remaining: the
-   **layout-aligned HBL colour bands** (transformative at ST-16 per the banded
-   findings above — the big visual win), and per-line-on-ST as a later push.
-7. EHB, per-line/HBL banding, plain-ST 3-bit tuning, dithering — polish, each a
-   later push. **The banding (per-line copper on ECS, HBL on ST) is now the top
-   remaining item for BOTH native backends** — it's what turns the speckly
-   global-palette v1 into the near-original render the prototype showed.
+   32-colour) + **per-band copper palette** (`quant_banded`, 25 bands, WAIT +
+   32 COLOR per band — free on the copper). **VERIFIED in amiberry on a bare
+   OCS A2000**: the granite chrome that was purple/green speckle under a global
+   palette now renders as clean grey stone, near the AGA look. Remaining:
+   runtime detection split (`-DFRUA_FORCE_ECS` forces it today; the bare-ECS-vs-
+   graphics-card probe is still to wire); cycling only re-quantises on loads.
+6. ✅ Native Atari ST/STE backend (`platform/display_ste.c`, 16-colour ST-low)
+   + **per-band palette via an MFP Timer-B raster split** (event-count on
+   display-enable, self-phase-locking, VBL resets band 0). **VERIFIED under
+   Hatari --machine ste + EmuTOS on a 68000 STE**: the granite renders as grey
+   stone (was heavy speckle). Faint band-boundary seams remain at 16 colours.
+   Built via `CPU68K=68000` (runs on every Atari).
+7. Polish, each a later push: reduce ST band seams (**layout-aligned bands** so
+   boundaries fall at natural edges, and/or dithering), EHB on ECS, plain-ST
+   3-bit tuning, the ECS runtime detection split.
+
+## Banding — DONE (2026-07-15)
+
+`quant_banded` (quantize.h): one full-frame presence histogram, then a per-band
+median-cut over just the colours each strip uses (via `quant_reduce_n`).
+Re-banded only when the palette is marked dirty (a set_palette), deferred to the
+next present since it needs drawn pixels. Both backends do it; the difference is
+only how the hardware reloads the palette per band — **copper** (ECS, free) vs
+**Timer-B raster interrupt** (ST). The visual result matches the prototype:
+banding turns the speckly global v1 into grey stone. ST at 16 colours still
+shows faint seams (the refinement in step 7).
