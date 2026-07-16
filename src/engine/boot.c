@@ -11366,6 +11366,88 @@ done:
 	return rc;
 }
 
+#ifdef FRUA_BWMODE
+/* mono_dungeon_backdrop — the B&W first-person floor/ceiling/sky. The
+ * colour path uses BACK.CTL (8bpp + palette); the mono equivalent is
+ * BACK.TLB, a GLIB-of-GLIBs of 176x176 1bpp images (sub-GLIB `set`, item
+ * 1). This loads it DIRECTLY (like load_backdrop opens BACK.CTL) rather
+ * than through the FC binder l6ea2, whose numbered "back1NNN" path hunts
+ * per-id files the port folded into this one combined library. Blits the
+ * image 1:1 into the view hole at (BW_BD_OX, BW_BD_OY) via l309c ->
+ * l2d4e (the mode-0/2 1bpp leaf paints set bits as ink over the paper
+ * field); the transparent-masked wall tiles then composite on top.
+ * Reload only when the set changes. */
+#define BW_BD_OX 8
+#define BW_BD_OY 8
+static void mono_dungeon_backdrop(short set, unsigned char *px, short pitch,
+                                  short sw, short sh)
+{
+	static unsigned char bback[70000];      /* BACK.TLB is ~64KB           */
+	static short         bback_ok = 0;      /* library loaded?             */
+	unsigned char rowbuf[64];               /* one decoded row (bw <= 22)  */
+	unsigned char metric[8];
+	const unsigned char *body;
+	long base, sub, info;
+	short h, bw, mode, r, c;
+
+	if (!bback_ok) {
+		short refnum = 0;
+		long  n;
+
+		if (ua_open_art((ConstStr255Param)"\010BACK.TLB", 0, &refnum)
+		    != noErr)
+			return;
+		n = (long)sizeof bback;
+		(void)FSRead(refnum, &n, bback);
+		(void)FSClose(refnum);
+		if (l37aa((long)(uintptr_t)bback, 0) == 0)      /* GLIB magic */
+			return;
+		bback_ok = 1;
+	}
+	base = (long)(uintptr_t)bback;
+	sub  = l37aa(base, set);
+	if (sub == 0)
+		return;
+	info = l2856(sub, (short)1, metric);            /* item 1 = the image */
+	if (info == 0)
+		return;
+	h    = (short)(((unsigned)metric[0] << 8) | metric[1]);
+	bw   = (short)metric[6];
+	mode = (short)(metric[7] & 0x0f);
+	if (bw <= 0 || bw > (short)sizeof rowbuf || h <= 0)
+		return;
+	body = (const unsigned char *)(uintptr_t)info;
+
+	/* Blit DIRECTLY into the caller's presented surface (`px`) — NOT via
+	 * l2d4e, whose own qd_screen_pixels() lookup lands on a different back
+	 * buffer here, so its writes never reached the frame. Decode mode 0
+	 * (raw 1bpp) or mode 2 (per-row PackBits) and paint set bits as ink
+	 * (0), leaving clear bits as the paper field the walls composite over
+	 * (a night sky's stars draw, its clear sky stays white). */
+	for (r = 0; r < h; r++) {
+		short dy = (short)(BW_BD_OY + r);
+		const unsigned char *srow;
+
+		if (dy < 0 || dy >= sh)
+			continue;
+		if (mode == 2) {                        /* PackBits (day sets) */
+			body = (const unsigned char *)jt1171(body, rowbuf, bw);
+			srow = rowbuf;
+		} else {                                /* raw 1bpp (night)    */
+			srow = body + (long)r * bw;
+		}
+		for (c = 0; c < (short)(bw * 8); c++) {
+			short dx = (short)(BW_BD_OX + c);
+
+			if (dx < 0 || dx >= sw)
+				continue;
+			if (srow[c >> 3] & (0x80 >> (c & 7)))
+				px[(long)dy * pitch + dx] = 0;   /* ink */
+		}
+	}
+}
+#endif
+
 /* ua_backdrop_to_back — map a FRUA level-header backdrop id (the values
  * stored in ds[8..11]) to a BACK.CTL backdrop index (1-based). The day
  * backdrops (UA 1..13) index BACK.CTL directly; the night variants
@@ -12879,23 +12961,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		short col = (short)(signed char)g_a5_byte(-12287);
 		short fc  = (short)(g_a5_12286 & 7);
 
-		(void)pitch; (void)sw; (void)sh;
 		l6148();                            /* load the level's wall sets */
 		jt1173((short)8000, (short)8000, (short)8000, (short)8000);
 		l57f2();                            /* JT[219] — state only       */
 		jt1193();
 		jt1173((short)8007, (short)8000, (short)8067, (short)8160);
 		jt1001((short)16, (short)8000, (short)1, (short)9);
-		/* Mac: JT[118](A=8, B=24, item=1, _, -22222) — the 176x176
-		 * perspective backdrop into the view hole. Port convention:
-		 * (page, top=B, left=A, idx, RESOLVED base) — resolve the
-		 * l33ac binder tag through jt468. */
-		if (g_a5_22222 != 0) {
-			long bd = jt468(*(short *)(uintptr_t)g_a5_22222);
-
-			if (bd != 0)
-				jt118(px, (short)24, (short)8, (short)1, bd);
-		}
 		/* PORT: clip the frustum tiles to the viewport HOLE. The Mac draws
 		 * jt199 under the full-screen clip (its geometry keeps the tiles in
 		 * the frame); the port enforces the frame's opening as a clip so a
@@ -12905,6 +12976,19 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		 * too: jt1173 args < 6000 pass through jt1135 unchanged. The 176x176
 		 * opening of FRAME.TLB piece 9 sits at ~(8,8). */
 		jt1173((short)8, (short)8, (short)184, (short)184);
+		/* The floor/ceiling/sky backdrop — BACK.TLB's 176x176 1bpp image
+		 * for the party cell's zone, filling the hole under the walls
+		 * (Mac jt312's JT[118] backdrop, but via the port's direct
+		 * BACK.TLB loader; l6ea2's FC-binder path hunts per-id files this
+		 * combined library folded together). The transparent-masked wall
+		 * tiles composite on top. */
+		{
+			const unsigned char *dsb =
+			    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+			short bset = dsb ? ua_backdrop_to_back(cell_backdrop_id(dsb))
+			                 : (short)1;
+			mono_dungeon_backdrop(bset, px, pitch, sw, sh);
+		}
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 		g_j2_n = 0; g_j2_active = 1;
 #endif

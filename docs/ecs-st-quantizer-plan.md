@@ -464,14 +464,42 @@ The view clips to its hole (roster/HUD stay clean), the compass renders,
 and colour is byte-identical (menu + dungeon verified). Backdrop (sky/
 ceiling) still white — deferred with the BACK.TLB work.
 
+### Phase 2 runtime — B&W BACKDROP wired (2026-07-16, 8th leg)
+
+mono_dungeon_backdrop loads BACK.TLB DIRECTLY (like load_backdrop opens
+BACK.CTL) — NOT through l6ea2's FC binder, whose numbered "back1NNN"
+path hunts per-id files this combined library folded into sub-GLIB sets.
+It resolves the party cell's set (cell_backdrop_id -> ua_backdrop_to_back;
+HEIRS start = the night sky, set 19), decodes item 1 (176x176 1bpp, mode
+0 raw or mode 2 PackBits) and blits it into the view hole at (8,8),
+BEFORE jt199 (the faithful Mac order — jt118 backdrop then walls).
+
+TWO traps this leg:
+- l2d4e's own qd_screen_pixels() lookup lands on a DIFFERENT back buffer
+  than the `px` the caller threads down (verified: 9487 pixels written
+  via l2d4e, 0 survived to the frame). mono_dungeon_backdrop blits
+  DIRECTLY into `px` instead.
+- The 2-plane mask+data DATA-bit polarity: data set = ink (0), clear =
+  paper (15) — matches the walls (dark stone on white); the inverse
+  hollowed the walls (they are mostly data-clear surface).
+
+HONEST STATE: the backdrop draws every frame but is OCCLUDED in the
+straight-corridor test cell — the .TLB frustum walls fill the whole hole
+(the B&W dungeon is line-art: black wall texture on a white ceiling/
+floor, unlike the colour .CTL pieces whose 255-transparent ceiling/floor
+let g_back_img show). The night-sky set would show in an open/outdoor
+cell where the frustum doesn't fill the frame. The colour view fakes an
+always-visible sky via render_3d_view's trapezoid region-fills; matching
+that in mono (explicit sky/floor region fills à la l57f2/jt116, so the
+ceiling/floor read the backdrop instead of wall white) is the visible-
+sky follow-up.
+
 REMAINING worklist:
-1. B&W event pictures (PIC%c.TLB 176x176) via a bigpic composer mono arm
-   (like port_show_intro got).
-2. The B&W perspective backdrop (BACK.TLB 1bpp) — sky/ceiling behind the
-   walls (currently paper-white).
-3. Polish: per-cell wall variety, near-wall texture density, walk-test
-   the corridor turns.
+1. Visible sky/floor in the mono corridor — the l57f2/jt116 sky/floor
+   REGION fills (the colour render's inline fills) so the ceiling/floor
+   triangles read the backdrop, not wall white.
+2. B&W event pictures (PIC%c.TLB 176x176) via a bigpic composer mono arm.
+3. Polish: per-cell wall variety, walk-test the corridor turns.
 4. Codec loose ends (jt1165/jt1202/jt1197/jt1192 cursor family lacks
-   expand brackets at its call sites — jt119/jt122 save-under buffers
-   invisibly in mono) and a colour-side sighting of the newly-live
-   SPRIT/PIC mode-3 pieces.
+   expand brackets at its call sites) and a colour-side sighting of the
+   newly-live SPRIT/PIC mode-3 pieces.
