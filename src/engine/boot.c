@@ -5842,6 +5842,15 @@ static void jt1135(short v1, short v2, short *out1, short *out2);
 static const unsigned char *decode_glib_t7(const unsigned char *src,
                                            unsigned char *dst,
                                            short w, short h);
+static short jt1198(void);                      /* plane count (defined below) */
+static void  jt1177(short row, short col);      /* cursor seeder (below)       */
+static long  l289a(long src, short *w0, short *w1);   /* mode-3 header (below) */
+static void  jt1185(short rows1, short rows, short skip, short width,
+                    void *ctl, void *pix);      /* the #151 goto-mirror lift */
+#ifdef FRUA_BWMODE
+static void  mono_rows(short top, short left, short rows, short wpx,
+                       int to_page);            /* the mono planar-page shim */
+#endif
 static unsigned char g_glib_dec[320 * 200];     /* defined below; shared scratch */
 /* last GLIB blit's landed rect (debug: piece w/h + final screen origin), set by
  * l309c / l309c_tile and snapshotted per slot by the J200DIFF dump. */
@@ -5868,8 +5877,67 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	if (x >= right || x + pix_w <= left)
 		return;
 
-	if (mode == 3 || mode == 10) {
-		PROBE("l2d4e-mode");          /* deferred composite/wrap arms */
+	if (mode == 3) {
+		/* MASKED two-stream RLE (the Mac mode-3 arm, L2d4e 0x2f26..
+		 * 0x2fbc): the payload is a 4-byte header (L289a: w0 = the
+		 * CONTROL stream's length — the DATA stream follows it; w1 =
+		 * the per-plane data advance), then jt1185 composites the
+		 * clipped rows through the -3076 cursor. TITLE intro screens
+		 * and SPRIT sprites (both art sets), plus mode-3 pieces in
+		 * the PIC event pictures. Clip derivation mirrors the Mac:
+		 * byte-granular in mono (left/right floor to whole source
+		 * bytes; l2d4e's pixel clip-reject already guarantees >= 1
+		 * visible byte/row). */
+		short sh_m  = (short)jt1200();
+		short topcl = 0, lbytes = 0, rbytes = 0, vis, np, i;
+		short yy = y, xx = x, hh = height;
+		short w0, w1;
+		long  ctl, data;
+
+		if (yy < top)
+			topcl = (short)(top - yy);
+		if ((short)(yy + hh) > bottom)
+			hh = (short)(bottom - yy);
+		if (xx < left)
+			lbytes = (short)((short)(left - xx) >> sh_m);
+		if ((short)((bpp_w << sh_m) + xx) > right)
+			rbytes = (short)
+			    ((short)((bpp_w << sh_m) + xx - right) >> sh_m);
+		yy = (short)(yy + topcl);
+		xx = jt397(xx, left);                   /* 0x2f0a */
+		hh = (short)(hh - topcl);
+		vis = (short)(bpp_w - lbytes - rbytes);
+		np  = ((flags & 0x80) != 0) ? (short)1 : jt1198();
+
+		ctl  = l289a((long)(uintptr_t)src, &w0, &w1);
+		data = ctl + (unsigned short)w0;
+		for (i = 0; i < np; i++) {
+			jt1170();       /* Mac pushes the plane index */
+			jt1177(yy, xx);
+#ifdef FRUA_BWMODE
+			/* mono: the writer RMWs the planar page — seed its
+			 * span from the chunky surface, expand it back after.
+			 * The mono cursor is byte-granular: the touched span
+			 * is [xx & ~7, + vis*8), no window slop. */
+			if (sh_m == 3)
+				mono_rows(yy, (short)(xx & ~7), hh,
+				          (short)(vis << 3), 1);
+#endif
+			jt1185(topcl, hh, lbytes, vis,
+			       (void *)(uintptr_t)ctl,
+			       (void *)(uintptr_t)data);
+#ifdef FRUA_BWMODE
+			if (sh_m == 3)
+				mono_rows(yy, (short)(xx & ~7), hh,
+				          (short)(vis << 3), 0);
+#endif
+			data += (unsigned short)w1;     /* swap/clrw/swap =
+			                                 * ZERO-extend */
+		}
+		return;
+	}
+	if (mode == 10) {
+		PROBE("l2d4e-mode");          /* deferred wrap arm */
 		return;
 	}
 
@@ -6324,7 +6392,7 @@ static void mono_span(short y, short c0, short c1, int to_page)
 			else
 				*b = (unsigned char)(*b & ~m);
 		} else {
-#ifdef FRUA_MONO_TRACE
+#ifdef FRUA_MONO_TRACE_INK
 			d[c] = 0;               /* tracer: solid ink */
 #else
 			d[c] = (unsigned char)((*b & m) ? 0 : 15);
@@ -6358,10 +6426,23 @@ static void mono_rows(short top, short left, short rows, short wpx,
 
 #ifdef FRUA_MONO_TRACE
 	/* Debug knob (with the solid-ink tracer in mono_span): log each
-	 * expand rect to DBG.LOG — packed (hi<<16)|lo shorts. */
+	 * expand rect + how many INK bits the span reads from the page. */
 	if (!to_page) {
+		long inkbits = 0;
+		short yy2, cc2;
+
+		for (yy2 = top; yy2 < (short)(top + rows); yy2++) {
+			if (yy2 < 0 || yy2 >= MONO_PAGE_H) continue;
+			for (cc2 = left; cc2 < (short)(left + wpx); cc2++) {
+				long bit = (long)yy2 * MONO_PAGE_W + cc2 + 8;
+				if (cc2 < 0 || cc2 >= MONO_PAGE_W) continue;
+				if (s_mono_page[bit >> 3] & (0x80 >> (bit & 7)))
+					inkbits++;
+			}
+		}
 		dbg_file_num("exptl", ((long)(unsigned short)top << 16) | (unsigned short)left);
 		dbg_file_num("exprw", ((long)(unsigned short)rows << 16) | (unsigned short)wpx);
+		dbg_file_num("expink", inkbits);
 	}
 #endif
 	for (y = top; y < (short)(top + rows); y++)
@@ -7447,6 +7528,22 @@ static long l2856(long font_handle, short size, void *out_8bytes)
 		return 0;
 	jt406(out_8bytes, (const void *)(uintptr_t)entry, 8);   /* dst, src, n */
 	return entry + 8;
+}
+
+/* L289a (CODE 5 + 0x289a) — the mode-3 payload header reader: copy the
+ * two header words out (JT[406] BlockMove, byte-safe on odd .TLB
+ * offsets) and return the advanced source. w0 = the CONTROL stream's
+ * byte length (the DATA stream starts right after it), w1 = the
+ * per-plane DATA advance. Full lift. */
+static long l289a(long src, short *w0, short *w1)
+{
+	unsigned char b[4];
+
+	PROBE("L289a");
+	jt406(b, (const void *)(uintptr_t)src, 4);
+	*w0 = (short)(((unsigned short)b[0] << 8) | b[1]);
+	*w1 = (short)(((unsigned short)b[2] << 8) | b[3]);
+	return src + 4;
 }
 
 /* JT[1005] (CODE 5 + 0x31fc) — text-style bounding rect. Given
@@ -23622,6 +23719,18 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 	flags = metric[7];
 	if (h <= 0 || w <= 0)
 		return;
+
+	if ((flags & 0x0f) == 3 || !(flags & 0x40)) {
+		/* The mode-3 masked two-stream pieces (both art sets) and the
+		 * 1/2-bpp B&W leaves live in the faithful l2d4e dispatcher —
+		 * delegate rather than mirroring them here. (y, x) are already
+		 * pixel coords; jt1135 in l2d4e's callees is idempotent on
+		 * them. */
+		l2d4e((const unsigned char *)(uintptr_t)info,
+		      (short)metric[6], h, y, x, flags);
+		return;
+	}
+
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
@@ -23797,10 +23906,17 @@ static void port_show_intro(void)
 	short                ncyc;
 	short        refnum = 0, set;
 	long         count, base;
+	int          mono = (jt1200() == 3);    /* B&W mode: the .TLB art set —
+	                                         * 1-bit screens, NO palettes
+	                                         * (each set's item 0 is a meta
+	                                         * record, not RGB), field =
+	                                         * paper white */
 
 	extern long TickCount(void);
 
-	if (ua_open_art((ConstStr255Param)"\011TITLE.CTL", 0, &refnum) != noErr)
+	if (ua_open_art((ConstStr255Param)
+	                (mono ? "\011TITLE.TLB" : "\011TITLE.CTL"),
+	                0, &refnum) != noErr)
 		return;                          /* data not mounted — skip   */
 	file = (unsigned char *)NewPtr(200000);
 	if (file == NULL) {                      /* no room — skip the intro  */
@@ -23820,6 +23936,14 @@ static void port_show_intro(void)
 	 * the sword cursor only returns at the menu. ShowCursor() below re-shows. */
 	HideCursor();
 
+	/* Clip = the full screen. The faithful blit (l2d4e — the B&W leaves
+	 * and the mode-3 masked pieces route through it) rejects against the
+	 * -3050..-3056 clip globals, which are still ZERO this early in boot
+	 * (no screen has set them): without this every piece clip-rejects.
+	 * The colour intro never noticed — ui_glib_blit's own 8bpp arms
+	 * don't consult the clip. */
+	jt1193();
+
 	/* Build the shared base CLUT in two layers (the upper indices 224..255
 	 * are common to all screens and come from neither the screen nor set 1
 	 * alone):
@@ -23833,7 +23957,7 @@ static void port_show_intro(void)
 	 * Each screen then overlays its own 0..223 (magenta entries deferring to
 	 * this base) — see intro_load_palette. */
 	memset(base_pal, 0, sizeof base_pal);
-	{
+	if (!mono) {
 		Handle ch = GetResource(0x636C7574L /* 'clut' */, 129);
 		if (ch != NULL && *ch != NULL) {
 			const unsigned char *cd = (const unsigned char *)*ch;
@@ -23847,8 +23971,8 @@ static void port_show_intro(void)
 				    ((cd[8+i*8+6] << 8) | cd[8+i*8+7]);
 			}
 		}
+		(void)intro_load_palette(base, 1, base_pal);   /* set 1: 0..255 base */
 	}
-	(void)intro_load_palette(base, 1, base_pal);   /* set 1: full 0..255 base */
 
 	for (set = 2; set <= 6; set++) {
 		long          handle, set1h, deadline;
@@ -23865,22 +23989,29 @@ static void port_show_intro(void)
 		/* TRANSITION: blank the *displayed* screen to a solid field and
 		 * present it under the CURRENT palette, BEFORE swapping palettes.
 		 * Otherwise the next qd_set_palette recolours the previous screen's
-		 * still-displayed image for a frame (the corrupted-image flash). */
+		 * still-displayed image for a frame (the corrupted-image flash).
+		 * B&W: the field is paper white (15), the Mac's mono desktop. */
 		for (r = 0; r < sh; r++)
-			memset(px + (long)r * pitch, 0, (size_t)sw);
+			memset(px + (long)r * pitch, mono ? 15 : 0, (size_t)sw);
 		qd_present();
 
-		/* Every screen's palette = the set-1 base (full 0..255) + this
-		 * screen's own sub-palette loaded at its metric start slot (32 for
-		 * the picture screens, so their art's 32..255 indices get the right
-		 * colours — Micro Magic gold, the AD&D logo, the FR plaque, the UA
-		 * globe). intro_load_palette honours the start slot + skips magenta. */
-		memcpy(pal, base_pal, sizeof pal);
-		(void)intro_load_palette(base, set, pal);
-		port_clut_install(pal, (short)0, (short)256);
-		/* the set's palette CYCLE ranges (set 2 — the SSI screen —
-		 * carries three: the twinkling stars + logo shimmer) */
-		ncyc = intro_load_cycles(base, set, cyc, (short)8);
+		if (!mono) {
+			/* Every screen's palette = the set-1 base (full 0..255) +
+			 * this screen's own sub-palette loaded at its metric start
+			 * slot (32 for the picture screens, so their art's 32..255
+			 * indices get the right colours — Micro Magic gold, the
+			 * AD&D logo, the FR plaque, the UA globe).
+			 * intro_load_palette honours the start slot + skips
+			 * magenta. */
+			memcpy(pal, base_pal, sizeof pal);
+			(void)intro_load_palette(base, set, pal);
+			port_clut_install(pal, (short)0, (short)256);
+			/* the set's palette CYCLE ranges (set 2 — the SSI screen —
+			 * carries three: the twinkling stars + logo shimmer) */
+			ncyc = intro_load_cycles(base, set, cyc, (short)8);
+		} else {
+			ncyc = 0;               /* no CLUT, no cycles in B&W */
+		}
 
 		if (set == 5) {
 			/* The Unlimited Adventures title is a full-screen image — blit
@@ -23904,7 +24035,15 @@ static void port_show_intro(void)
 		 * each due range rotates one step — forward (first -> end) when
 		 * flags bit 0 is set, else backward (last -> front) — and its
 		 * timer advances by the period (catching up when behind). */
+#ifdef FRUA_MONO_TRACE
+		/* Debug: hold ~33 s per screen with the key-skip disabled
+		 * below, so a headless capture can screenshot each intro
+		 * screen (stray synthetic events skip them instantly
+		 * otherwise). */
+		deadline = TickCount() + 2000;
+#else
 		deadline = TickCount() + 240;    /* 60 ticks/s */
+#endif
 		{
 			short r;
 			for (r = 0; r < ncyc; r++)
@@ -23940,11 +24079,16 @@ static void port_show_intro(void)
 				if (stepped)
 					port_clut_install(&pal[cb], cb, cn);
 			}
+#ifdef FRUA_MONO_TRACE
+			(void)WaitNextEvent(everyEvent, &ev, 6, NULL);
+			(void)deadline;         /* debug: hold forever */
+#else
 			if (WaitNextEvent(everyEvent, &ev, 6, NULL)
 			 && (ev.what == keyDown || ev.what == mouseDown))
 				break;
 			if (TickCount() >= deadline)
 				break;
+#endif
 		}
 	}
 
@@ -23955,7 +24099,8 @@ static void port_show_intro(void)
 		short pitch, sw, sh, r;
 		if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL) {
 			for (r = 0; r < sh; r++)
-				memset(px + (long)r * pitch, 0, (size_t)sw);
+				memset(px + (long)r * pitch, mono ? 15 : 0,
+				       (size_t)sw);
 			qd_present();
 		}
 	}
@@ -72595,8 +72740,10 @@ static void jt1190(void *src, short cols, short rows, short stride,
  * Faithful goto-mirror of the asm CFG (0x094e..0x0c06): the passes
  * cross-jump (L0a62 hands its leftover run straight into pass 3, the
  * tail loop and pass 3 share exits), so the structure is transliterated
- * label-for-label rather than re-structured. #151. Dormant: its caller
- * is not wired yet. */
+ * label-for-label rather than re-structured. #151. LIVE since the
+ * mode-3 lift: l2d4e's composite arm (TITLE intro screens, SPRIT
+ * sprites, mode-3 PIC pieces) is the caller — the payload header
+ * (l289a) supplies the two streams. */
 static void jt1185(short rows1, short rows, short skip, short width,
                    void *ctl, void *pix) __attribute__((unused));
 static void jt1185(short rows1, short rows, short skip, short width,

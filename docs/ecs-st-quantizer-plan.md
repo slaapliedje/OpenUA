@@ -329,13 +329,56 @@ Colour build regression-checked (Falcon TOS 4.04 menu, pixel-clean); host
 suite 175 passed. Debug knob: -DFRUA_MONO_TRACE = solid-ink expand tracer +
 per-expand rect logging to DBG.LOG.
 
+### Phase 2 runtime — MODE-3 MASKED LIFT (2026-07-16, fourth leg)
+
+The mode-3 masked two-stream RLE format is LIVE: the B&W intro renders
+(SSI/Micro Magic verified on Hatari ST mono; the UNLIMITED ADVENTURES
+hand-dithered title verified through the engine's own jt1185 offline).
+
+The format (from CODE 5 0x2f26 + CODE 4 0x94e): the payload = a 4-byte
+header (L289a: w0 = CONTROL stream length, w1 = per-plane DATA advance),
+a CONTROL stream (0xC0|n opaque copy, 0x80|n one-byte fill run, 0x40|n
+per-byte masked RMW with the masks INLINE in the control stream, n
+transparent skip, 0x00 row end) and a DATA stream. The #151 jt1185
+goto-mirror lift was already in the tree (dormant) — l2d4e's mode-3 arm
+now wires it: faithful clip derivation (byte-granular in mono), jt1177
+cursor, per-plane loop, the mono sync/expand bracket ([xx & ~7, +vis*8),
+no window slop — byte-granular cursor). TITLE/SPRIT top-level items are
+NESTED SUB-GLIBs (item 0 = a mode-8 meta/order record; the metrics read
+as 'GLIB' if parsed flat). ui_glib_blit now DELEGATES mode-3 pieces and
+all 1/2-bpp B&W leaves to the faithful l2d4e dispatcher (its own arms
+are 8bpp-only) — this also turned the B&W menu backdrop/window frame
+into the real 1bpp art. port_show_intro grew its mono arm: TITLE.TLB,
+NO palettes (a .TLB set's item 0 is meta, not RGB), paper-white field.
+
+Bring-up finds:
+- The -3050..-3056 CLIP RECT globals are ZERO before the first screen
+  seeds them — the intro draws through l2d4e which clip-rejects against
+  them, so EVERYTHING vanished. port_show_intro now calls jt1193() (clip
+  = full screen). The colour intro never noticed: ui_glib_blit's own
+  arms don't consult the clip.
+- SELF-INFLICTED HAZARD, hours lost: the -DFRUA_MONO_TRACE debug build
+  had the solid-ink expand tracer active, so every debug screenshot of
+  the intro showed tracer output, not the pipeline's. The tracer now
+  lives on its own knob (-DFRUA_MONO_TRACE_INK); FRUA_MONO_TRACE also
+  holds each intro screen ~33 s with key-skip disabled for captures.
+- The per-expand INK-BIT COUNT trace (expink in DBG.LOG) matched the
+  host-harness pixel count exactly (10611) — the decisive instrument:
+  page content proven correct live, which localized the fault to the
+  clip/present path, not the writers.
+
+Colour regression: menu byte-identical; colour mode-3 pieces (97 in
+SPRIT.CTL + several PIC*.CTL event-picture pieces, silently dropped
+before) now render through the same arm. Host suite 175 passed.
+
 Remaining worklist (in order):
-1. The mode-3 masked format lift (L289a + JT[1170] + JT[1185]) — TITLE
-   intro screens + SPRIT sprites.
-2. Play-mode screens: Hall, dungeon (8X8DB.TLB walls), events (PIC%c.TLB
-   176x176 pictures — the flagship), combat. Iterate on screenshots.
-3. Codec loose ends: the jt1165/jt1202/jt1197/jt1192 cursor family still
+1. Play-mode screens in B&W: Hall, dungeon (8X8DB.TLB walls), events
+   (PIC%c.TLB 176x176 pictures — the flagship), combat. Iterate on
+   screenshots.
+2. Codec loose ends: the jt1165/jt1202/jt1197/jt1192 cursor family still
    writes the page WITHOUT a jt995-style expand bracket (their mono users —
    jt119/jt122 save-under, pattern fills — buffer invisibly until their
    call sites get the same sync/expand treatment); the mono hit-scan arm
    (jt995 modes 1/3) syncs but is exercised only by the editor cursor.
+3. Colour-side follow-up: verify a colour SPRIT/PIC mode-3 piece renders
+   in play (they were dropped pre-leg, so any sighting is new ground).
