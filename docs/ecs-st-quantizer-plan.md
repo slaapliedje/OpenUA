@@ -435,11 +435,42 @@ back1NNN files the port folded into BACK.TLB sub-GLIB sets; needs the
 same combined-file mapping the walls got, and to fit the pool alongside
 them). Walls render over paper-white for now.
 
+### Phase 2 runtime — B&W DUNGEON CORRIDOR COMPOSED (2026-07-16, 7th leg)
+
+The tessellation sub-campaign is DONE: the mono first-person view now
+composes a real receding corridor — cobblestone side walls converging to
+a centered vanishing point with a door ahead (matching the colour view's
+structure). Two fixes cracked it:
+
+- THE .TLB TILE SCALE: the .TLB wall tiles are authored at 2x the colour
+  .CTL tiles' resolution (640x400-native art), so they need the Mac's
+  DEEP transform — l5b42's ((v-8012)<<2)+8 with jt200's +16 slot step (a
+  16px grid), NOT the colour path's scale-3/+12px. Placing 2x-size tiles
+  on a 1.5x grid was the overlap. Restored the deep pre-scale (mono only,
+  jt1200()==3-guarded); the tiles land at direct screen coords (< 6000,
+  jt1135 passthrough), so the viewport clip is set in direct coords too:
+  jt1173(8,8,184,184) = the 176x176 hole (= colour's 88x88 x2, the user's
+  key insight — the mono view is full 640x400-native resolution).
+- THE 2bpp MODEL WAS WRONG: the flags-0x91 pieces (wall sides, compass,
+  bar caps) are NOT "2bpp tone" — they are TWO-PLANE 1bpp MASK+DATA
+  (verified: item 6 = exactly 2x448 bytes; plane 0 mask, plane 1 data).
+  Per the Mac's inverted-mask compositor (jt1191): mask SET = transparent
+  (the ~70% of the side-wall piece that is the opening beyond), mask CLEAR
+  = draw the data bit (set=ink 0 / clear=paper 15). The old tone leaf
+  painted level 0 as solid white, blocking the perspective AND hollowing
+  the compass. The rewrite fixed both at once.
+
+The view clips to its hole (roster/HUD stay clean), the compass renders,
+and colour is byte-identical (menu + dungeon verified). Backdrop (sky/
+ceiling) still white — deferred with the BACK.TLB work.
+
 REMAINING worklist:
-1. The mono dungeon perspective composition (above).
-2. B&W event pictures (PIC%c.TLB 176x176) via a bigpic composer mono arm
+1. B&W event pictures (PIC%c.TLB 176x176) via a bigpic composer mono arm
    (like port_show_intro got).
-3. The B&W perspective backdrop (BACK.TLB 1bpp).
+2. The B&W perspective backdrop (BACK.TLB 1bpp) — sky/ceiling behind the
+   walls (currently paper-white).
+3. Polish: per-cell wall variety, near-wall texture density, walk-test
+   the corridor turns.
 4. Codec loose ends (jt1165/jt1202/jt1197/jt1192 cursor family lacks
    expand brackets at its call sites — jt119/jt122 save-under buffers
    invisibly in mono) and a colour-side sighting of the newly-live

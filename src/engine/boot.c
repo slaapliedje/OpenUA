@@ -3318,11 +3318,6 @@ static void l58c4(void)
 	zone = l5fc0((short)(signed char)g_a5_byte(-12288),
 	             (short)(signed char)g_a5_byte(-12287));
 	id = (short)(unsigned char)ds[8 + zone];
-#ifdef FRUA_MONO_TRACE
-	dbg_file_num("l58c4 zone", zone);
-	dbg_file_num("l58c4 id", id);
-	dbg_file_num("l58c4 cache", (long)(unsigned char)g_a5_byte(-12289));
-#endif
 	if (id >= 32) {                                 /* 0x590c — night-variant */
 		const unsigned char *hdr =
 			(const unsigned char *)(uintptr_t)g_a5_long(-28006);
@@ -6075,12 +6070,6 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				 * left white by a prior text draw it painted the
 				 * play chrome invisibly.) */
 				fg = 0;
-#ifdef FRUA_MONO_TRACE
-				dbg_file_num("bw2 yx", ((long)(unsigned short)y << 16) | (unsigned short)x);
-				dbg_file_num("bw2 wh", ((long)(unsigned short)bpp_w << 16) | (unsigned short)height);
-				dbg_file_num("bw2 tb", ((long)(unsigned short)top << 16) | (unsigned short)bottom);
-				dbg_file_num("bw2 lr", ((long)(unsigned short)left << 16) | (unsigned short)right);
-#endif
 			} else {
 				GetPort(&port);
 				if (port != NULL && ((CGrafPtr)port)->fgColor != 0)
@@ -6138,36 +6127,37 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	}
 
 	if (mode == 1 && !(flags & 0x40)) {
-		/* 2bpp COMPACT piece (the B&W art set: FRAME bar cells 10..12,
-		 * ALWAYS/TOPVIEW pieces): row stride = 2*bpp_w bytes, four MSB-
-		 * first 2-bit pixels per byte, four tone levels. On the 1-bit
-		 * surface: level 0 = white, 1 = a 25% stipple, 2 = a 75%
-		 * stipple, 3 = black (the Mac's B&W tone mapping, approximated
-		 * pixel-wise at native scale). */
+		/* Two-plane 1bpp MASK+DATA piece (the B&W .TLB art: the wall
+		 * side/edge pieces, the compass surround/faces, FRAME bar caps).
+		 * NOT "2bpp tone" — that earlier model was wrong. The body is
+		 * two 1bpp planes of h*bpp_w bytes: plane 0 = MASK, plane 1 =
+		 * DATA. Per the Mac's inverted-mask compositor (jt1191): where
+		 * the mask bit is SET the pixel is TRANSPARENT (the corridor /
+		 * background shows through — item 6, the near side wall, is
+		 * ~70% mask-set for the opening beyond); where CLEAR the DATA
+		 * bit is drawn (set = ink 0, clear = paper 15). This is what
+		 * lets the frustum's near faces composite over the far ones. */
+		long plane = (long)height * bpp_w;
+		const unsigned char *mask = src;
+		const unsigned char *data = src + plane;
+
 		for (r = 0; r < height; r++) {
 			short dy = (short)(y + r);
-			const unsigned char *srow = src + (long)r * (2 * bpp_w);
+			const unsigned char *mrow = mask + (long)r * bpp_w;
+			const unsigned char *drow = data + (long)r * bpp_w;
 
 			if (dy < top || dy >= bottom)
 				continue;
 			for (c = 0; c < pix_w; c++) {
-				unsigned char b = srow[c >> 2];
-				unsigned char v = (unsigned char)
-				    ((b >> (6 - 2 * (c & 3))) & 3);
 				short dx = (short)(x + c);
-				unsigned char ink;
+				unsigned char bit = (unsigned char)(0x80 >> (c & 7));
 
 				if (dx < left || dx >= right)
 					continue;
-				switch (v) {
-				case 0:  ink = 15; break;                     /* white */
-				case 1:  ink = (unsigned char)((((dx ^ dy) & 1) == 0) ? 0 : 15);
-					 break;                               /* 25%   */
-				case 2:  ink = (unsigned char)((((dx ^ dy) & 1) != 0 || (dx & 1)) ? 0 : 15);
-					 break;                               /* 75%   */
-				default: ink = 0; break;                      /* black */
-				}
-				px[(long)dy * pitch + dx] = ink;
+				if (mrow[c >> 3] & bit)
+					continue;             /* mask set -> transparent */
+				px[(long)dy * pitch + dx] =
+				    (drow[c >> 3] & bit) ? 0 : 15;   /* data ink/paper */
 			}
 		}
 		return;
@@ -12372,12 +12362,16 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 	short left = (short)(x + ((short)(signed char)xdelta << 2));
 
 	if (jt1200() == 3) {
-		/* The Mac's deep (B&W) branch (CODE 7 0x5b42): pre-scale the
-		 * 8000-space coords to the 480x300 window — the 176x176 view
-		 * lands at (8,24) from the 8012/8016 anchors. Downstream,
-		 * jt1135 passes the small values through unchanged and
-		 * jt200's `deep && left < 8000` +16 slot step becomes live
-		 * (that is exactly why the Mac guards it on < 8000). */
+		/* The Mac's deep (B&W) branch (CODE 7 0x5b42): ((v-8012)<<2)+8.
+		 * This is the RIGHT transform for the mono .TLB art, NOT an
+		 * over-scale: the .TLB wall tiles are authored at 2x the colour
+		 * .CTL tiles' resolution, so they need the matching 2x-of-colour
+		 * geometry — a 16px per-slot step (jt200's +16, which this
+		 * pre-scale unlocks by driving `left` below 8000) vs the colour
+		 * path's 8px. Placing the 2x-size tiles on the colour path's
+		 * 1.5x (scale-3, 12px) grid was the tessellation bug: tiles 2x,
+		 * slots 1.5x -> 33% overlap. Downstream jt1135 passes the small
+		 * values through unchanged (< 6000). */
 		top  = (short)(((top  - 8012) << 2) + 8);
 		left = (short)(((left - 8012) << 2) + 8);
 	}
@@ -12892,7 +12886,6 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		jt1193();
 		jt1173((short)8007, (short)8000, (short)8067, (short)8160);
 		jt1001((short)16, (short)8000, (short)1, (short)9);
-		jt1193();
 		/* Mac: JT[118](A=8, B=24, item=1, _, -22222) — the 176x176
 		 * perspective backdrop into the view hole. Port convention:
 		 * (page, top=B, left=A, idx, RESOLVED base) — resolve the
@@ -12903,6 +12896,15 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			if (bd != 0)
 				jt118(px, (short)24, (short)8, (short)1, bd);
 		}
+		/* PORT: clip the frustum tiles to the viewport HOLE. The Mac draws
+		 * jt199 under the full-screen clip (its geometry keeps the tiles in
+		 * the frame); the port enforces the frame's opening as a clip so a
+		 * near 112x112 wall can't paint over the roster/HUD. The deep tiles
+		 * land at DIRECT screen coords (l5b42's ((v-8012)<<2)+8 stays < 6000
+		 * so jt1135 passes it through), so the clip is set in direct coords
+		 * too: jt1173 args < 6000 pass through jt1135 unchanged. The 176x176
+		 * opening of FRAME.TLB piece 9 sits at ~(8,8). */
+		jt1173((short)8, (short)8, (short)184, (short)184);
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 		g_j2_n = 0; g_j2_active = 1;
 #endif
