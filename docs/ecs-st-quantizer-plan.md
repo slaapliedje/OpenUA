@@ -610,3 +610,29 @@ that makes it. The colour arm saves/restores these four clip globals
 explicitly; the mono arm forgot. And: "text overflows its box" is not
 necessarily a layout-width bug — check whether the BOX (the erase
 behind it) is the thing that's clipped short.
+
+### Phase 2 runtime — walk test PASSED + the 5Hz present gate (2026-07-16, 12th leg, e67b029)
+
+MONO WALK TEST (HEIRS, live): turns rotate the view + compass, steps
+advance (door close-up at 12,8), doors open in place (faithful),
+wall sets change (stone corridor -> wood-panelled hall), the backdrop
+follows the cell zone (night sky -> beamed ceiling), and the AREA
+automap renders (top-down wall lines + party arrow) — first mono
+sighting of the automap. No render garbage found. (The position label
+lags a repaint behind — cosmetic, the HUD repaint order.)
+
+TYPEWRITER ROOT CAUSE (PC-sampled via Hatari's debug fifo): jt1134's
+port-concession qd_present ran per pump call; on ST mono one present
+(300-row diff memcmp + blit + cursor bake) costs MORE than a tick, so
+the l435a per-glyph busy-wait ran presents back-to-back — 13/15 PC
+samples inside the diff memcmp, ~3 chars/sec, every modal wait at
+full burn. Gated to one present per 12 ticks (~5Hz): typing renders
+at the design's pace, a keypress skips to the full page (faithful),
+input latency unaffected (the pump still runs full-rate), and real
+frame commits are not gated. Colour + mono menus AE=0, 175 tests.
+
+DEBUGGING NOTE: the Hatari cmd-fifo PC-sampling recipe (echo
+"hatari-debug r" > /tmp/frua-ui/cmd.fifo; resolve PCs via
+m68k-atari-mint-nm + the load base from a known symbol) turned a
+mush of theories into one answer in minutes — use it before
+theorizing about any perf/hang symptom.
