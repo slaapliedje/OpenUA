@@ -219,8 +219,12 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		for (i = 0; i < 256; i++)
 			used[b][i] = 0;
 
-	/* one pass: mark which CLUT indices appear in each band */
-	for (y = 0; y < h; y++) {
+	/* One pass: mark which CLUT indices appear in each band. EVERY OTHER row
+	 * — bands are many rows tall, so alternate rows see the band's content,
+	 * and a colour that only lives on skipped rows degrades gracefully to
+	 * the luma fallback below. Halves the biggest fixed cost of a re-band
+	 * (the 64000-pixel scan) on the 8MHz targets. */
+	for (y = 0; y < h; y += 2) {
 		short bb = (short)((long)y * nbands / h);
 		const unsigned char *row = chunky + (long)y * w;
 
@@ -253,28 +257,38 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		}
 		n = quant_reduce_n(cclut, m, ncol, bits, bpal, cremap);
 
-		/* Cheap luma (2R+5G+B)/8 of each reduced entry, for the
-		 * absent-colour fallback below. */
-		for (i = 0; i < n; i++)
-			plum[i] = (short)((2 * bpal[i * 3 + 0]
-			                 + 5 * bpal[i * 3 + 1]
-			                 + bpal[i * 3 + 2]) >> 3);
-		for (i = 0; i < 256; i++) {
-			short lum = (short)((2 * clut[i * 3 + 0]
-			                   + 5 * clut[i * 3 + 1]
-			                   + clut[i * 3 + 2]) >> 3);
-			short bestd = 32767, bestj = 0, j, d;
+		/* Absent-colour fallback via a 32-BUCKET luma table (a per-colour
+		 * linear search over the reduced palette cost ~1.3M cycles per
+		 * re-band at 8MHz — a visible scene-change hitch). Bucket the luma
+		 * range, fill each bucket with the nearest reduced entry (n*32
+		 * scalar compares), then every colour is one table hit. */
+		{
+			unsigned char btab[32];
+			short bk, j;
 
-			for (j = 0; j < n; j++) {
-				d = (short)(plum[j] - lum);
-				if (d < 0)
-					d = (short)-d;
-				if (d < bestd) {
-					bestd = d;
-					bestj = j;
+			for (i = 0; i < n; i++)
+				plum[i] = (short)((2 * bpal[i * 3 + 0]
+				                 + 5 * bpal[i * 3 + 1]
+				                 + bpal[i * 3 + 2]) >> 3);
+			for (bk = 0; bk < 32; bk++) {
+				short lum = (short)(bk * 8 + 4);
+				short bestd = 32767, bestj = 0, d;
+
+				for (j = 0; j < n; j++) {
+					d = (short)(plum[j] - lum);
+					if (d < 0)
+						d = (short)-d;
+					if (d < bestd) {
+						bestd = d;
+						bestj = j;
+					}
 				}
+				btab[bk] = (unsigned char)bestj;
 			}
-			brem[i] = (unsigned char)bestj;
+			for (i = 0; i < 256; i++)
+				brem[i] = btab[((2 * clut[i * 3 + 0]
+				               + 5 * clut[i * 3 + 1]
+				               + clut[i * 3 + 2]) >> 3) >> 3];
 		}
 		for (i = 0; i < m; i++)             /* exact wins over fallback */
 			brem[idxlist[i]] = cremap[i];

@@ -38,7 +38,12 @@
 #define ST_DEPTH    4                   /* 16 colours */
 #define ST_NCOL     (1 << ST_DEPTH)     /* 16 */
 #define ST_BITS     4                   /* STE: 4 bits/gun */
-#define ST_NBANDS   25                  /* 8 scanlines per band (200/25) */
+#define ST_NBANDS   10                  /* 20 scanlines per band (200/10).
+                                         * The banded prototype showed 4-12
+                                         * bands capture most of the win; 10
+                                         * costs 2.5x less per re-band and
+                                         * 2.5x fewer raster interrupts than
+                                         * the first-cut 25. */
 #define ST_RPB      (ST_H / ST_NBANDS)
 #define LINE_BYTES  (ST_W * ST_DEPTH / 8)   /* 160 bytes/line, interleaved */
 #define SCREEN_BYTES ((long)LINE_BYTES * ST_H)
@@ -139,7 +144,7 @@ extern void st_vbl_trampoline(void);
  * the line already ended, the spin falls straight through. ISRA bit 0
  * (Timer B = MFP channel 8) is cleared on exit; the MFP clears only the ZERO
  * bits of the written mask, hence 0xFE. */
-typedef char st_asm_assumes_rpb_8[(ST_RPB == 8) ? 1 : -1];
+typedef char st_asm_assumes_rpb_20[(ST_RPB == 20) ? 1 : -1];
 __asm__(
 	".globl _st_timerb_trampoline\n"
 	"_st_timerb_trampoline:\n"
@@ -148,7 +153,7 @@ __asm__(
 	"  moveml %a0@+,%d0-%d7\n"
 	"  movel  %a0,_st_band_ptr\n"
 	"1:\n"
-	"  cmpib  #8,0xFFFFFA21\n"      /* TBDR still at reload (ST_RPB)?      */
+	"  cmpib  #20,0xFFFFFA21\n"     /* TBDR still at reload (ST_RPB)?      */
 	"  jeq    1b\n"                 /* yes: the line is still displaying   */
 	"  moveml %d0-%d7,0xFFFF8240\n"
 	"  moveml %sp@+,%d0-%d7/%a0\n"
