@@ -671,6 +671,21 @@ static void color_mode_init(void)
 	g_a5_1314 = 0;          /* Color QuickDraw present (colour VIDEL)   */
 	g_a5_1318 = 8;          /* main-device pixmap pixelSize = 8 bpp      */
 	g_a5_1315 = 0;          /* depth != 1 -> not forced B&W             */
+#ifdef FRUA_BWMODE
+	{
+		/* The Mac derives these from the main device's pixmap depth; the
+		 * port's analog is the display backend. A mono backend = a 1-bit
+		 * device: g_a5_1315 flips, jt1200() returns 3, and the engine's
+		 * own (already-lifted) B&W arms select the .tlb art set and the
+		 * 480x300 layout. Bring-up-gated behind FRUA_BWMODE. */
+		extern int g_dsp_mono_active;
+
+		if (g_dsp_mono_active) {
+			g_a5_1318 = 1;
+			g_a5_1315 = 1;
+		}
+	}
+#endif
 
 	/* 0x47b4: g_a5_2347 = (g_a5_1315 == 0) ? 1 : 0  (seq/negb/extw) */
 	g_a5_2347 = (g_a5_1315 == 0) ? 1 : 0;
@@ -5874,6 +5889,41 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	}
 
 	if (mode == 2) {
+		if (!(flags & 0x40)) {
+			/* 1bpp PackBits rows (the B&W art set: PIC%c.TLB pictures,
+			 * FRAME/MENU chrome): each row RLE-unpacks to bpp_w BYTES of
+			 * bits; set bits draw in the port fgColor (the Mac mono OR
+			 * leaf), clear bits are transparent. Reached only in B&W
+			 * mode (jt1200()==3 routes the loaders to the .tlb art). */
+			unsigned char rowbuf[192];      /* bpp_w <= 60 shipped     */
+			const unsigned char *s = src;
+			GrafPtr port;
+			unsigned char fg = 1;
+
+			if (bpp_w > 128)
+				return;
+			GetPort(&port);
+			if (port != NULL && ((CGrafPtr)port)->fgColor != 0)
+				fg = ((CGrafPtr)port)->fgColor;
+			for (r = 0; r < height; r++) {
+				short dy = (short)(y + r);
+
+				s = (const unsigned char *)jt1171(s, rowbuf, bpp_w);
+				if (dy < top || dy >= bottom)
+					continue;
+				for (c = 0; c < pix_w; c++) {
+					short dx;
+
+					if (!(rowbuf[c >> 3] & (0x80 >> (c & 7))))
+						continue;
+					dx = (short)(x + c);
+					if (dx < left || dx >= right)
+						continue;
+					px[(long)dy * pitch + dx] = fg;
+				}
+			}
+			return;
+		}
 		/* PackBits-compressed 8bpp colour rows (Mac L2bfc): each row is
 		 * RLE-packed; jt1171 (_UnpackBits) expands pix_w bytes and returns
 		 * the advanced source, so rows are decoded in sequence. 255 =

@@ -28,12 +28,26 @@
 #include "display.h"
 #include "dbglog.h"
 
-#define EN_W        320                 /* engine surface           */
+#define EN_W        320                 /* engine surface (colour-dither mode) */
 #define EN_H        200
 #define HI_W        640                 /* ST high screen           */
 #define HI_H        400
 #define LINE_BYTES  (HI_W / 8)          /* 80 bytes per screen row  */
 #define SCREEN_BYTES ((long)LINE_BYTES * HI_H)   /* 32000            */
+
+/* Engine-B&W mode: the Mac's 1-bit game runs a 480x300 window with its own
+ * layout (sized for 512x342 compact Macs; the art is 1:1). The surface is
+ * byte-per-pixel (0 = white, nonzero = ink) and present packs it 1:1 into
+ * the ST High screen, centred. Toggled by FRUA_BWMODE at build time while
+ * the B&W arms are brought up (see docs/ecs-st-quantizer-plan.md phase 2). */
+#define BW_W        480
+#define BW_H        300
+#define BW_OX       ((HI_W - BW_W) / 2)          /* 80  */
+#define BW_OY       ((HI_H - BW_H) / 2)          /* 50  */
+
+/* Nonzero when the ST High backend is active — the engine's colour-mode
+ * derivation reads it (via the port bootstrap) to take the Mac's B&W arms. */
+int g_dsp_mono_active;
 
 static unsigned char *s_screen_raw;
 static unsigned char *s_screen;
@@ -58,13 +72,21 @@ static unsigned char s_dith_bot[256];
 static const unsigned char k_lvl_top[5] = { 0x0, 0x0, 0x2, 0x2, 0x3 };
 static const unsigned char k_lvl_bot[5] = { 0x0, 0x2, 0x2, 0x3, 0x3 };
 
+#ifdef FRUA_BWMODE
+#define SURF_W BW_W
+#define SURF_H BW_H
+#else
+#define SURF_W EN_W
+#define SURF_H EN_H
+#endif
+
 static int sthigh_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;
 
 	s_screen_raw = (unsigned char *)Mxalloc(SCREEN_BYTES + 256, 0);
-	s_chunky     = (unsigned char *)Mxalloc((long)EN_W * EN_H, 0);
-	s_shadow     = (unsigned char *)Mxalloc((long)EN_W * EN_H, 0);
+	s_chunky     = (unsigned char *)Mxalloc((long)SURF_W * SURF_H, 0);
+	s_shadow     = (unsigned char *)Mxalloc((long)SURF_W * SURF_H, 0);
 	if (s_screen_raw == NULL || s_chunky == NULL || s_shadow == NULL) {
 		dbg_log("sthigh: Mxalloc FAILED");
 		if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; }
@@ -75,8 +97,8 @@ static int sthigh_init(short want_w, short want_h)
 	s_screen = (unsigned char *)
 	    (((uintptr_t)s_screen_raw + 255) & ~(uintptr_t)255);
 	memset(s_screen, 0, SCREEN_BYTES);      /* white field           */
-	memset(s_chunky, 0, (size_t)EN_W * EN_H);
-	memset(s_shadow, 0, (size_t)EN_W * EN_H);
+	memset(s_chunky, 0, (size_t)SURF_W * SURF_H);
+	memset(s_shadow, 0, (size_t)SURF_W * SURF_H);
 	s_force_full = 1;
 
 	s_save_rez  = Getrez();
@@ -91,11 +113,16 @@ static int sthigh_init(short want_w, short want_h)
 	memset(s_dith_top, 0, sizeof s_dith_top);
 	memset(s_dith_bot, 0, sizeof s_dith_bot);
 
-	s_surface.width  = EN_W;
-	s_surface.height = EN_H;
-	s_surface.pitch  = EN_W;
+	s_surface.width  = SURF_W;
+	s_surface.height = SURF_H;
+	s_surface.pitch  = SURF_W;
 	s_surface.pixels = s_chunky;
+	g_dsp_mono_active = 1;
+#ifdef FRUA_BWMODE
+	dbg_log("sthigh: 640x400 mono, ENGINE B&W 480x300 1:1 up");
+#else
 	dbg_log("sthigh: 640x400 mono (2x2 Bayer, 5 levels) up");
+#endif
 	return 0;
 }
 
@@ -115,6 +142,39 @@ static dsp_surface_t *sthigh_surface(void)
 	return &s_surface;
 }
 
+#ifdef FRUA_BWMODE
+
+/* Engine-B&W: pack byte-per-pixel rows (0 = white, nonzero = ink) 1:1 into
+ * the centred 480x300 window. A SET screen bit renders WHITE on ST High
+ * (live-verified), so ink = clear bit... the screen was memset 0 = all-ink?
+ * No: memset(0) leaves bits clear = BLACK field; the init clears to 0 which
+ * displays as black surround — acceptable framing for the centred window.
+ * Ink pixel -> bit CLEAR (black), blank -> bit SET (white). */
+static void hi_blit_rows(short x0, short w, short y0, short h)
+{
+	short y, i;
+
+	for (y = 0; y < h; y++) {
+		short yy = (short)(y0 + y);
+		const unsigned char *src = s_chunky + (long)yy * SURF_W + x0;
+		unsigned char *d = s_screen
+		    + (long)(BW_OY + yy) * LINE_BYTES + ((BW_OX + x0) >> 3);
+
+		for (i = 0; i < w; i += 8) {
+			unsigned char b = 0;
+			short k;
+
+			for (k = 0; k < 8; k++)
+				if (src[i + k] == 0)
+					b |= (unsigned char)(0x80 >> k);   /* white */
+			*d++ = b;
+		}
+		memcpy(s_shadow + (long)yy * SURF_W + x0, src, (size_t)w);
+	}
+}
+
+#else /* colour-dither mode */
+
 /* Convert logical rows [y0, y0+h) x [x0, x0+w): each logical row packs into
  * TWO screen rows, four logical pixels per byte, through the dither LUTs.
  * x0 and w are 4-pixel aligned (one screen byte = 4 logical pixels). */
@@ -124,7 +184,7 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 
 	for (y = 0; y < h; y++) {
 		short yy = (short)(y0 + y);
-		const unsigned char *src = s_chunky + (long)yy * EN_W + x0;
+		const unsigned char *src = s_chunky + (long)yy * SURF_W + x0;
 		unsigned char *d0 = s_screen + (long)(yy * 2) * LINE_BYTES + (x0 >> 2);
 		unsigned char *d1 = d0 + LINE_BYTES;
 
@@ -142,23 +202,25 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 			*d0++ = t;
 			*d1++ = b;
 		}
-		memcpy(s_shadow + (long)yy * EN_W + x0, src, (size_t)w);
+		memcpy(s_shadow + (long)yy * SURF_W + x0, src, (size_t)w);
 	}
 }
+
+#endif /* FRUA_BWMODE */
 
 static void sthigh_present(void)
 {
 	short y;
 
 	if (s_force_full) {
-		hi_blit_rows(0, EN_W, 0, EN_H);
+		hi_blit_rows(0, SURF_W, 0, SURF_H);
 		s_force_full = 0;
 		return;
 	}
-	for (y = 0; y < EN_H; y++) {
-		if (memcmp(s_chunky + (long)y * EN_W,
-		           s_shadow + (long)y * EN_W, EN_W) != 0)
-			hi_blit_rows(0, EN_W, y, 1);
+	for (y = 0; y < SURF_H; y++) {
+		if (memcmp(s_chunky + (long)y * SURF_W,
+		           s_shadow + (long)y * SURF_W, SURF_W) != 0)
+			hi_blit_rows(0, SURF_W, y, 1);
 	}
 }
 
@@ -168,13 +230,18 @@ static void sthigh_present_rect(short x, short y, short w, short h)
 
 	if (x < 0) { w = (short)(w + x); x = 0; }
 	if (y < 0) { h = (short)(h + y); y = 0; }
-	if (x + w > EN_W) w = (short)(EN_W - x);
-	if (y + h > EN_H) h = (short)(EN_H - y);
+	if (x + w > SURF_W) w = (short)(SURF_W - x);
+	if (y + h > SURF_H) h = (short)(SURF_H - y);
 	if (w <= 0 || h <= 0)
 		return;
 
+#ifdef FRUA_BWMODE
+	x1 = (short)((x + w + 7) & ~7);         /* 8-pixel screen bytes  */
+	x  = (short)(x & ~7);
+#else
 	x1 = (short)((x + w + 3) & ~3);         /* 4-logical-pixel bytes */
 	x  = (short)(x & ~3);
+#endif
 	hi_blit_rows(x, (short)(x1 - x), y, h);
 }
 
