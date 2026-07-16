@@ -217,3 +217,41 @@ scene-change hitches of the colour path don't exist here.
   load the 1-bit art DOWNSCALED 2:1 (or draw the 1-bit art into the 2x2
   cells at present time for the picture regions) — most of the crispness,
   none of the coordinate surgery.
+
+### Phase 2 findings (2026-07-15) — the B&W mode DECODED
+
+The architecture is now fully understood, and the old model was BACKWARDS:
+
+- **jt1200()==3 IS the B&W mode** (not "deep/colour" as an earlier note said).
+  color_mode_init (boot.c:669, lifted from CODE 4 @0x44b8/@0x47b4) derives it:
+  `g_a5_1315 = (screen depth == 1)`, `g_a5_2347 = !g_a5_1315`, and jt1200
+  returns 3 when g_a5_2347==0. In colour it returns 0 (8-bit deep — the
+  port's mode) or 1 (4-bit shallow). The value doubles as the ART-DEPTH
+  SHIFT: log2(pixels per art byte) — 0 for 8bpp art, 3 for 1bpp (l2d4e clips
+  with `bpp_w << jt1200()`).
+- **Art selection is per-mode by extension** (the PIC arm, boot.c ~78893):
+  mode 3 -> "PIC%c1%03d.tlb" = 176x176 1bpp (2x logical scale, drawn 1:1 into
+  the Mac's 640x400 window); colour -> ".ctl" = 88x88 8bpp with a 224-colour
+  palette (PICA.CTL sub0 = the palette — verified offline). Flags bit 0x40:
+  set = colour family, clear = 1bpp/compact.
+- **The B&W arms are ALREADY LIFTED** throughout the engine (whole-function
+  lifts brought both branches): e.g. l534a's jt1200()==3 arm draws the pic
+  slot via l3804 instead of l3880. Flipping `g_a5_1315 = 1` when the display
+  is mono turns on the Mac's own B&W behaviour at all ~187 jt1200 sites.
+- **Offline decode PROVEN**: PICA.TLB = 28-item GLIB, each pic a sub-GLIB
+  {meta, mode-2 per-row-PackBits 1bpp 176x176}; decoded a crisp hand-dithered
+  portrait. TITLE.TLB sets are 480x300 (compact-Mac-sized splash screens);
+  its plain 0x92 pieces decode clean; the 0x93 pieces are MODE 3 (masked,
+  indirect: header via L289a + per-row offsets via JT[1170]) — the port's
+  l2d4e mode-3 arm is deferred and needs that lift.
+
+**Remaining for the runtime flip (the campaign):**
+1. Lift the 1bpp decode leaves l2d4e needs in mode 3 (flags bit 0x40 clear):
+   raw (mode 0), row-PackBits (mode 2), and the masked mode-3 format
+   (L289a + JT[1170] + JT[1185] row blitter).
+2. Decide the mono surface: the B&W art is 2x logical scale, so either a
+   640x400 byte-per-pixel surface with jt1198-style x2 coordinate scaling in
+   the shim draw leaves (the Mac's own model), or a native-blit side channel
+   in the sthigh backend for art while text/chrome stay 2x2-dithered.
+3. Audit the jt1200()==3 arms actually reachable in play for PROBE stubs.
+4. Wire g_a5_1315 to dsp_is_mono() and validate screen by screen.

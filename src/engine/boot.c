@@ -2737,7 +2737,8 @@ static int  jt1163(void);
 static short g_wall_set[3];
 
 /* L6eea (CODE 7 + 0x6eea) — load a wall set's tile library into a per-group
- * tile-lib handle for the first-person view. In the DEEP view (jt1200()==3)
+ * tile-lib handle for the first-person view. In the B&W mode (jt1200()==3 —
+ * NOT "deep"; 3 = the 1bpp-art mode, see color_mode_init and jt1200's doc)
  * the walls are the 1bpp .TLB sets (8X8DB for wall-set ids 1..9, 8X8DC for
  * 10..16), each a GLIB-of-GLIBs; l37aa picks the set's 48-tile sub-GLIB,
  * stored in the handle table g_a5_-27894 + type*4, which jt114 -> l309c_tile
