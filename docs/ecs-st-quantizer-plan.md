@@ -278,3 +278,23 @@ The iterative remainder (screen-by-screen, on screenshots):
    176x176 pictures — the flagship), combat.
 5. Input mapping in the 480x300 window (mouse clamps read the surface size
    already; verify click coords land).
+
+### Phase 2 runtime — THE MENU RENDERS (2026-07-15, second leg)
+
+The B&W menu is fully drawn and interactive-geometry-correct. What it took:
+the seven port-side g_a5_2347 forcings now seed from the display mode
+(g_port_2347); the planar codec's odd-address .TLB reads are byte-safe on the
+68000; l2d4e gained the 2bpp-compact leaf; and the ink model settled: the
+engine-B&W surface stays COLOUR-INDEXED with the present thresholding by
+palette luminance — the engine's inverse-video menu bars (mode-3 colour 503)
+then render as the Mac's white-on-black enabled items for free.
+
+Remaining worklist (in order):
+1. The jt995/l05dc PLANAR CODEC byte-surface port (jt1165/jt1202/jt1191
+   consumers) — unlocks the faithful FRAME bar pieces (jt448 currently
+   suppressed in mono, jt137 paints a plate instead), the automap glyphs,
+   and the B&W cursor art.
+2. The mode-3 masked format lift (L289a + JT[1170] + JT[1185]) — TITLE
+   intro screens + SPRIT sprites.
+3. Play-mode screens: Hall, dungeon (8X8DB.TLB walls), events (PIC%c.TLB
+   176x176 pictures — the flagship), combat. Iterate on screenshots.
