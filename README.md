@@ -28,6 +28,10 @@ machines.
 
 ## Status — playable beta
 
+**Binary downloads:** grab the zip for your machine from the
+[releases page](https://github.com/slaapliedje/OpenUA/releases) — the binaries
+are redistributable (no game data inside; you supply your own, below).
+
 The runtime plays a real adventure end to end. Everything below is
 **emulator-validated only** — Hatari for the Atari builds, amiberry for the
 Amiga — and has **never been run on real hardware**. Treat it accordingly.
