@@ -49,6 +49,8 @@
 static unsigned char *s_screen_raw;
 static unsigned char *s_screen;
 static unsigned char *s_chunky;
+static unsigned char *s_shadow;         /* chunky as of the last convert   */
+static short          s_force_full;     /* LUTs changed: diffing is void   */
 static dsp_surface_t  s_surface;
 static short          s_save_rez = -1;
 static void          *s_save_phys, *s_save_log;
@@ -87,15 +89,29 @@ static short                   s_vbl_slot = -1;
 
 /* VBL (C, via the rts trampoline below — the vertical blank has time to
  * spare): re-phase Timer B, load band 0's palette, point the raster handler
- * at band 1. */
+ * at band 1.
+ *
+ * The timer is phased ONE LINE EARLY: the first fire comes after ST_RPB-1
+ * display lines (the LAST line of the band), and the reload register is then
+ * set back to ST_RPB for every later fire. The handler uses that early line
+ * to get all its latency out of the way — interrupt entry, register save,
+ * palette pre-load — then SPINS on the MFP's own count register until the
+ * line's display ends and drops the 16 colours entirely inside the border
+ * (see the trampoline below). Fired at the boundary itself, the store landed
+ * ~120 cycles into the new band's first visible line — the "weird lines" of
+ * the live test. */
 void st_vbl_handler(void)
 {
 	volatile short *hw = ST_COLORREGS;
 	short i;
 
-	TBCR = 0;                       /* stop: the write below must not race  */
-	TBDR = ST_RPB;                  /* first fire = end of line ST_RPB-1    */
+	TBCR = 0;                       /* stop: the writes must not race       */
+	TBDR = ST_RPB - 1;              /* first fire ONE LINE EARLY            */
 	TBCR = 8;                       /* event-count mode, re-armed in phase  */
+	TBDR = ST_RPB;                  /* reload for all LATER fires (the MFP
+	                                 * only picks this up at the next
+	                                 * underflow, so the -1 above stands
+	                                 * for the first) */
 
 	for (i = 0; i < ST_NCOL; i++)
 		hw[i] = st_band_stpal[0][i];
@@ -112,24 +128,29 @@ __asm__(
 );
 extern void st_vbl_trampoline(void);
 
-/* Timer B: pure asm — the interrupt is raised at the END of the last display
- * line of a band, and the 16 colour registers must be rewritten inside the
- * ~192-cycle border/blank window before the next line's pixels. A C loop blew
- * way past that (the palette switched mid-scanline — visible tearing on every
- * boundary). movem does it: 8 longwords in, 8 longwords out = all 16 CPU
- * registers' worth of colour in ~160 cycles, branch-free via st_band_ptr and
- * the sentinel row. Worst case the store still runs a few dozen cycles into
- * the boundary line's left edge; cycle-exact spin-waiting is not worth it.
- * ISRA bit 0 (Timer B = MFP channel 8) is cleared on exit; the MFP clears
- * only the ZERO bits of the written mask, hence 0xFE. */
+/* Timer B: pure asm, fired one line EARLY (see st_vbl_handler). The visible
+ * line before a band boundary absorbs all the slow parts — interrupt entry,
+ * the movem register save, the movem palette pre-load into d0-d7. Then the
+ * handler spins on TBDR: the MFP decrements it at the end of each display
+ * line, so the value dropping below ST_RPB IS the boundary line's display
+ * ending. The 16-register movem store (~80 cycles) then lands entirely inside
+ * the ~192-cycle border/blank window — no mid-line palette switch, at worst
+ * one poll (~20 cycles) of jitter. If the handler was entered so late that
+ * the line already ended, the spin falls straight through. ISRA bit 0
+ * (Timer B = MFP channel 8) is cleared on exit; the MFP clears only the ZERO
+ * bits of the written mask, hence 0xFE. */
+typedef char st_asm_assumes_rpb_8[(ST_RPB == 8) ? 1 : -1];
 __asm__(
 	".globl _st_timerb_trampoline\n"
 	"_st_timerb_trampoline:\n"
 	"  moveml %d0-%d7/%a0,%sp@-\n"
 	"  movel  _st_band_ptr,%a0\n"
 	"  moveml %a0@+,%d0-%d7\n"
-	"  moveml %d0-%d7,0xFFFF8240\n"
 	"  movel  %a0,_st_band_ptr\n"
+	"1:\n"
+	"  cmpib  #8,0xFFFFFA21\n"      /* TBDR still at reload (ST_RPB)?      */
+	"  jeq    1b\n"                 /* yes: the line is still displaying   */
+	"  moveml %d0-%d7,0xFFFF8240\n"
 	"  moveml %sp@+,%d0-%d7/%a0\n"
 	"  moveb  #0xFE,0xFFFFFA0F\n"
 	"  rte\n"
@@ -228,6 +249,30 @@ static void st_blit_rows(short x0, short w, short y0, short h)
 		unsigned char *dst = s_screen + (long)yy * LINE_BYTES + (long)(x0 / 16) * 8;
 
 		st_c2p_span(src, dst, w, lut);
+		memcpy(s_shadow + (long)yy * ST_W + x0, src, (size_t)w);
+	}
+}
+
+/* Full present with ROW DIFFING: convert only the rows whose chunky content
+ * changed since the last convert (tracked in s_shadow). The engine's modal
+ * loops end EVERY pass in a full present; converting all 64000 pixels each
+ * time cost ~a second at 8MHz whether anything moved or not — the "really
+ * slow to respond" of the live test. A row memcmp is ~2 orders of magnitude
+ * cheaper than its remap+c2p, so an idle pass collapses to the compare scan.
+ * After a re-band every LUT changed, so the diff is void — convert all. */
+static void st_blit_full(void)
+{
+	short y;
+
+	if (s_force_full) {
+		st_blit_rows(0, ST_W, 0, ST_H);
+		s_force_full = 0;
+		return;
+	}
+	for (y = 0; y < ST_H; y++) {
+		if (memcmp(s_chunky + (long)y * ST_W,
+		           s_shadow + (long)y * ST_W, ST_W) != 0)
+			st_blit_rows(0, ST_W, y, 1);
 	}
 }
 
@@ -258,6 +303,7 @@ static void st_reband(void)
 		st_band_stpal[ST_NBANDS][i] = st_band_stpal[ST_NBANDS - 1][i];
 	s_dirty = 0;
 	s_have_pal = 1;
+	s_force_full = 1;               /* every LUT moved: row diffing is void */
 }
 
 /* --- backend entry points ------------------------------------------------ */
@@ -268,16 +314,20 @@ static int st_init(short want_w, short want_h)
 
 	s_screen_raw = (unsigned char *)Mxalloc(SCREEN_BYTES + 256, 0);   /* ST-RAM */
 	s_chunky     = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
-	if (s_screen_raw == NULL || s_chunky == NULL) {
+	s_shadow     = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
+	if (s_screen_raw == NULL || s_chunky == NULL || s_shadow == NULL) {
 		dbg_log("ste: Mxalloc FAILED");
 		if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; }
 		if (s_chunky)     { Mfree(s_chunky); s_chunky = NULL; }
+		if (s_shadow)     { Mfree(s_shadow); s_shadow = NULL; }
 		return 1;
 	}
 	s_screen = (unsigned char *)
 	    (((uintptr_t)s_screen_raw + 255) & ~(uintptr_t)255);
 	memset(s_screen, 0, SCREEN_BYTES);
 	memset(s_chunky, 0, (size_t)ST_W * ST_H);
+	memset(s_shadow, 0, (size_t)ST_W * ST_H);
+	s_force_full = 1;                        /* first present converts all */
 
 	s_save_rez  = Getrez();
 	s_save_phys = Physbase();
@@ -315,6 +365,7 @@ static void st_shutdown(void)
 	}
 	if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; s_screen = NULL; }
 	if (s_chunky)     { Mfree(s_chunky); s_chunky = NULL; }
+	if (s_shadow)     { Mfree(s_shadow); s_shadow = NULL; }
 }
 
 static dsp_surface_t *st_surface(void)
@@ -326,7 +377,7 @@ static void st_present(void)
 {
 	if (s_dirty)
 		st_reband();
-	st_blit_rows(0, ST_W, 0, ST_H);
+	st_blit_full();
 }
 
 static void st_present_rect(short x, short y, short w, short h)
