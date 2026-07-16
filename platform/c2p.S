@@ -136,6 +136,7 @@ _c2p_group_asm:
 	.even
 	.globl	_lutblit_span
 _lutblit_span:
+#ifdef __mc68020__			| the (a2,d2.w*2) scaled index is 020+
 	movem.l	%d2/%a2,-(%sp)		| callee-saved
 	move.l	12(%sp),%a0		| src
 	move.l	16(%sp),%a1		| dst
@@ -163,6 +164,12 @@ _lutblit_span:
 2:
 	movem.l	(%sp)+,%d2/%a2
 	rts
+#else
+	rts				| 68000 build (STE): this Falcon-030 blit is
+					| never reached — VIDEL isn't selected on a
+					| 68000 machine — so a stub that links is
+					| enough. The ST backend uses the c2p32 C path.
+#endif
 
 #endif
 

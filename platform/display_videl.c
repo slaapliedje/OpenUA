@@ -540,7 +540,8 @@ static long vdo_cookie_super(void)
 	return 0;
 }
 
-const dsp_backend_t *dsp_backend_tt(void);      /* display_tt.c */
+const dsp_backend_t *dsp_backend_tt(void);       /* display_tt.c  */
+const dsp_backend_t *dsp_backend_ste(void);      /* display_ste.c */
 
 long dsp_vdo_cookie(void)
 {
@@ -557,7 +558,11 @@ long dsp_vdo_cookie(void)
 
 const dsp_backend_t *dsp_detect(void)
 {
-	if ((dsp_vdo_cookie() >> 16) == 2)      /* TT shifter */
+	long vdo = dsp_vdo_cookie() >> 16;
+
+	if (vdo == 2)                           /* TT shifter        */
 		return dsp_backend_tt();
-	return &videl_backend;
+	if (vdo <= 1)                           /* 0 = ST, 1 = STE   */
+		return dsp_backend_ste();
+	return &videl_backend;                  /* 3 = VIDEL/Falcon  */
 }

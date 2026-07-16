@@ -36,6 +36,15 @@ ifeq ($(FPU),1)
   CPU   := -m68020-60 -m68881
   LDCPU := -m68020-60 -m68881
 endif
+# CPU68K=68000: a bare-68000 soft-float build (the private m68000 multilib). The
+# ST/STE has a 68000, so its binary must be 68000-clean; the engine already is
+# (the Mac source emits no 020-only instructions). A 68000 build also RUNS on
+# the 030 machines (TT/Falcon), just without their 32-bit muls/bitfields — so
+# this is the "runs everywhere" Atari binary, at some speed cost on the 030s.
+ifeq ($(CPU68K),68000)
+  CPU   := -m68000 -msoft-float
+  LDCPU := -m68000 -msoft-float
+endif
 
 # -Wno-multichar: Mac code uses 4-character type codes ('WIND', 'DLOG', ...);
 # they are well-defined on the port's single big-endian 68k target.

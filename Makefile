@@ -39,6 +39,7 @@ TARGET       := frua.prg
 PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/display_videl.c \
                 platform/display_tt.c \
+                platform/display_ste.c \
                 platform/sound_falcon.c \
                 platform/input.c \
                 platform/vdi.c \
@@ -449,13 +450,24 @@ release-amiga-ecs:
 	$(MAKE) test
 	$(call PKG_DIST,openua-amiga-ecs-$(VERSION),frua,Amiga ECS/OCS 32-colour,Needs: an ECS or OCS Amiga (A500+/A600/A2000/A3000) with KS2.0+ and 2MB. Native 32-colour bitplanes for machines with no AGA and no graphics card.)
 
+# Atari ST/STE: a bare-68000 build (CPU68K=68000). The 68000 codegen runs on
+# EVERY Atari (ST/STE via ST-low 16-colour, TT via TT-low, Falcon via VIDEL),
+# detection picks the backend — so this .prg is the "runs on any Atari" binary.
+release-ste:
+	$(MAKE) clean
+	$(MAKE) CPU68K=68000 NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) CPU68K=68000 strip-target
+	$(MAKE) test
+	$(call PKG_DIST,openua-atari-st-$(VERSION),frua.prg,Atari ST/STE 16-colour,Needs: an ST or STE (or Mega ST/STE) with 2MB and TOS 2.06 or EmuTOS. ST-low 16-colour native bitplanes. This 68000 build also runs on the TT and Falcon (they pick their own higher-colour backend) so it is the run-on-anything Atari binary.)
+
 release-all:
 	$(RM) -r dist
 	$(MAKE) release
+	$(MAKE) release-ste
 	$(MAKE) release-amiga
 	$(MAKE) release-amiga-ecs
 	@echo "all releases staged under dist/:" && ls dist/*.zip
 
 -include $(DEP)
 
-.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-amiga release-amiga-ecs release-all strip-target
+.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target

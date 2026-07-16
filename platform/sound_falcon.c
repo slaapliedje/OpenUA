@@ -106,11 +106,11 @@ int plat_sound_init(void)
 	if (vdo == 3) {
 		g_snd_kind = SND_FALCON;
 		g_synth_hz = 24585L;
-	} else if (vdo == 2) {
-		g_snd_kind = SND_STE;           /* TT: STE-compatible DMA sound */
+	} else if (vdo == 2 || vdo == 1) {
+		g_snd_kind = SND_STE;           /* TT + STE: STE-compatible DMA sound */
 		g_synth_hz = 25033L;            /* rate code 2 at 0xFF8921 */
 	} else {
-		return -1;                      /* ST/unknown: silent */
+		return -1;                      /* plain ST (no DMA sound)/unknown */
 	}
 
 	if (g_snd_kind == SND_FALCON) {
