@@ -540,8 +540,9 @@ static long vdo_cookie_super(void)
 	return 0;
 }
 
-const dsp_backend_t *dsp_backend_tt(void);       /* display_tt.c  */
-const dsp_backend_t *dsp_backend_ste(void);      /* display_ste.c */
+const dsp_backend_t *dsp_backend_tt(void);       /* display_tt.c     */
+const dsp_backend_t *dsp_backend_ste(void);      /* display_ste.c    */
+const dsp_backend_t *dsp_backend_sthigh(void);   /* display_sthigh.c */
 
 long dsp_vdo_cookie(void)
 {
@@ -562,7 +563,14 @@ const dsp_backend_t *dsp_detect(void)
 
 	if (vdo == 2)                           /* TT shifter        */
 		return dsp_backend_tt();
-	if (vdo <= 1)                           /* 0 = ST, 1 = STE   */
+	if (vdo <= 1) {                         /* 0 = ST, 1 = STE   */
+		/* A mono monitor boots the machine in ST High (rez 2): the
+		 * 640x400 1-bit backend — the Mac's own window size, and the
+		 * cheapest present of all. A colour monitor gets the banded
+		 * 16-colour ST-low backend. */
+		if (Getrez() == 2)
+			return dsp_backend_sthigh();
 		return dsp_backend_ste();
+	}
 	return &videl_backend;                  /* 3 = VIDEL/Falcon  */
 }

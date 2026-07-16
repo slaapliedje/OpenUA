@@ -40,6 +40,7 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/display_videl.c \
                 platform/display_tt.c \
                 platform/display_ste.c \
+                platform/display_sthigh.c \
                 platform/sound_falcon.c \
                 platform/input.c \
                 platform/vdi.c \
