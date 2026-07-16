@@ -6056,8 +6056,8 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 			 * (L2bfc -> jt1171 + jt1165) is an OPAQUE VERBATIM row
 			 * copy — no OR, no transparency (disasm-verified: jt1165
 			 * is `movew %a4@+,%a3@+` rows). B&W mode paints both
-			 * classes: set = art-white -> chunky 0 (dark class),
-			 * clear = art-black -> 15 (THE MONO INK MODEL at the
+			 * classes: set = art-white -> chunky 15 (bright class),
+			 * clear = art-black -> 0 (THE MONO INK MODEL at the
 			 * mono PLANAR PAGE). The old set-only transparent draw
 			 * ghosted every event picture over the screen residue
 			 * (white-on-white over the erased viewport).
@@ -6096,7 +6096,7 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 					if (dx < left || dx >= right)
 						continue;
 					px[(long)dy * pitch + dx] = mono3
-					    ? (unsigned char)(bit ? 0 : 15)
+					    ? (unsigned char)(bit ? 15 : 0)
 					    : fg;
 				}
 			}
@@ -6143,8 +6143,8 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		 * the mask bit is SET the pixel is TRANSPARENT (the corridor /
 		 * background shows through — item 6, the near side wall, is
 		 * ~70% mask-set for the opening beyond); where CLEAR the DATA
-		 * bit is drawn (set = art-white -> chunky 0, clear = art-black
-		 * -> 15; see THE MONO INK MODEL at the mono PLANAR PAGE). This
+		 * bit is drawn (set = art-white -> chunky 15, clear = art-black
+		 * -> 0; see THE MONO INK MODEL at the mono PLANAR PAGE). This
 		 * is what lets the frustum's near faces composite over the far
 		 * ones. */
 		long plane = (long)height * bpp_w;
@@ -6167,7 +6167,7 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				if (mrow[c >> 3] & bit)
 					continue;             /* mask set -> transparent */
 				px[(long)dy * pitch + dx] =
-				    (drow[c >> 3] & bit) ? 0 : 15;   /* white/black */
+				    (drow[c >> 3] & bit) ? 15 : 0;   /* white/black */
 			}
 		}
 		return;
@@ -6222,8 +6222,10 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		}
 	} else {
 		/* 1bpp mono glyph: set bits -> fgColor (Mac L2970 mode-0 OR).
-		 * B&W mode: a set art bit is art-WHITE = chunky 0 (see THE
-		 * MONO INK MODEL at the mono PLANAR PAGE). */
+		 * B&W mode: the Mac pen is INK — chunky 0 = black under the
+		 * direct-luminance model (THE MONO INK MODEL at the mono
+		 * PLANAR PAGE). Mode-0 pieces are ink-stroke glyphs (set =
+		 * the stroke), unlike the mode-2 pictures (set = art-white). */
 		GrafPtr port;
 		unsigned char fg = 0;
 
@@ -6439,31 +6441,35 @@ static void jt1191(const void *src, const void *mask, short rows,
  * SYNCED from the chunky surface (pixel -> bit through the
  * backend's luminance ink LUT, so composite RMWs and the hit-scans
  * read current state), the faithful writers run bit-for-bit, and
- * the glyph span EXPANDS back (bit -> chunky 0 / clear -> 15).
+ * the glyph span EXPANDS back (bit -> chunky 15 / clear -> 0).
  *
- * ★ THE MONO INK MODEL (two hard-won facts, 2026-07-16):
+ * ★ THE MONO INK MODEL (finalized against REAL Mac-mono FRUA
+ * screenshots — BasiliskII, 2026-07-16):
  * 1. DISPLAY (raw-stripe-proven): on ST high a SET screen bit is
- *    BLACK, and the present (hi_blit_rows) maps a chunky index to a
- *    screen bit by the INVERSE of its palette luminance — BRIGHT
- *    index -> black, DARK index -> white. That inversion is what
- *    renders the port's light-on-dark colour UI (pen 7 text on dark
- *    plates) as the Mac's dark-on-light mono UI without touching any
- *    colour-arm writer.
- * 2. ART (user-verified against the night sky, bevels, and the
- *    intro): in this DOS-derived .TLB art family a SET data bit is
- *    art-WHITE, not the classic Mac set=black. Chained with (1), a
- *    set art bit must land in chunky as the DARK class — canonical
- *    chunky 0 (renders white) — and art-clear/opaque-background as
- *    15 (renders black). So the page convention is: page SET =
- *    art-white = the dark luminance class.
- * A one-session cautionary tale lives here: fact (1) alone made the
- * original writers look sign-flipped ("the whole mode renders a
- * NEGATIVE") and commit 5735d50 flipped them — producing an actual
- * negative (pushed-in menu bevels, a white night sky with black
- * stars). The writers had been right; the only real bug was the
- * backdrop blitting TRANSPARENTLY (white stars onto the white
- * field, no black sky behind). Do not re-flip either sign without
- * checking BOTH facts.
+ *    BLACK. The present (hi_blit_rows) maps a chunky index by
+ *    DIRECT luminance: DARK index -> black ink, BRIGHT -> white
+ *    paper. The Mac's mono play screen keeps the colour game's
+ *    look — BLACK panels with WHITE text (roster, clock, message
+ *    area), WHITE chips with BLACK text (headers, selection, the
+ *    verb bar) — which only direct luminance reproduces.
+ * 2. ART: in this DOS-derived .TLB art family a SET data bit is
+ *    art-WHITE (the night sky's stars are its sparse set bits).
+ *    Chained with (1), a set art bit lands in chunky as the BRIGHT
+ *    class — canonical 15 — and art-clear as 0 (black). The planar
+ *    page below holds those art-convention bits (set = art-white =
+ *    the bright class); expand maps set -> 15.
+ * 3. Mono pen/OR draws ("a set bit IS ink", the mode-0/mode-2 glyph
+ *    leaves): ink = BLACK = chunky 0 under direct luminance.
+ * HISTORY (do not repeat it): all four (display x writer) sign
+ * combinations have now been tried. Legs 2-8 ran inverse display +
+ * set->0 (art correct by cancellation, every UI panel/chip
+ * inverted — and screenshots "verified" it); 5735d50 flipped the
+ * writers only (a true negative — bevels pushed in, white night
+ * sky); 2873e3b flipped them back; the REAL Mac screenshots forced
+ * the final form: direct display + set->15. A polarity conclusion
+ * needs the display anchor (raw stripe), the art anchor (a
+ * semantically forced image), AND a real-machine reference for the
+ * UI chrome — the first two alone cannot see a uniform inversion.
  *
  * THE +8 BIAS: the Mac's mono cursor seed adds +1 to the byte
  * address (L053e 0x5c6, an arm the colour-only lift had dropped)
@@ -6505,17 +6511,17 @@ static void mono_span(short y, short c0, short c1, int to_page)
 		unsigned char  m = (unsigned char)(0x80 >> (bit & 7));
 
 		if (to_page) {
-			/* page set = art-WHITE = the DARK luminance class
+			/* page set = art-WHITE = the BRIGHT luminance class
 			 * (see THE MONO INK MODEL above) */
-			if (g_dsp_ink[d[c]])
+			if (!g_dsp_ink[d[c]])
 				*b |= m;
 			else
 				*b = (unsigned char)(*b & ~m);
 		} else {
 #ifdef FRUA_MONO_TRACE_INK
-			d[c] = 15;              /* tracer: solid ink */
+			d[c] = 0;               /* tracer: solid ink */
 #else
-			d[c] = (unsigned char)((*b & m) ? 0 : 15);
+			d[c] = (unsigned char)((*b & m) ? 15 : 0);
 #endif
 		}
 	}
@@ -11463,7 +11469,7 @@ static void mono_dungeon_backdrop(short set, unsigned char *px, short pitch,
 	 * clear bits that are the black sky, i.e. white-on-white.) Decode
 	 * mode 0 (raw 1bpp) or mode 2 (per-row PackBits) and write the hole
 	 * OPAQUELY, the way the Mac's JT[118] backdrop blit does: set bit
-	 * (art-white) -> chunky 0, clear (art-black) -> 15 — THE MONO INK
+	 * (art-white) -> chunky 15, clear (art-black) -> 0 — THE MONO INK
 	 * MODEL at the mono PLANAR PAGE. Night sky: black field, white
 	 * stars, light tiled floor; the masked wall tiles composite over. */
 	for (r = 0; r < h; r++) {
@@ -11484,7 +11490,7 @@ static void mono_dungeon_backdrop(short set, unsigned char *px, short pitch,
 			if (dx < 0 || dx >= sw)
 				continue;
 			px[(long)dy * pitch + dx] =
-			    (srow[c >> 3] & (0x80 >> (c & 7))) ? 0 : 15;
+			    (srow[c >> 3] & (0x80 >> (c & 7))) ? 15 : 0;
 		}
 	}
 }

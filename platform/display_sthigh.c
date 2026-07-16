@@ -70,13 +70,12 @@ static unsigned char s_dith_bot[256];
  * colour-arm draw — text bg fills, plates, art — works unchanged) and
  * present maps each index by PALETTE LUMINANCE. Rebuilt by set_palette;
  * the default marks only index 0 (black) until a palette arrives.
- * ★NAMING TRAP: g_dsp_ink[v] == 1 means v is a DARK palette entry — which
- * the present renders as mono PAPER (white). The BRIGHT class renders as
- * mono INK (black). See hi_blit_rows: the luminance-INVERSE mapping is
- * what turns the light-on-dark colour UI into the Mac's dark-on-light
- * mono UI. EXPORTED: the engine's mono planar-page shim (the jt995 codec
- * bracket in boot.c) classifies surface pixels through the SAME table, so
- * the codec's 1-bit view and the present always agree. */
+ * g_dsp_ink[v] == 1 means v is a DARK palette entry, rendered as mono INK
+ * (black); the BRIGHT class renders PAPER (white) — DIRECT luminance,
+ * verified against real Mac-mono FRUA (the panels keep the colour game's
+ * dark look). EXPORTED: the engine's mono planar-page shim (the jt995
+ * codec bracket in boot.c) classifies surface pixels through the SAME
+ * table, so the codec's 1-bit view and the present always agree. */
 unsigned char g_dsp_ink[256];
 #endif
 
@@ -165,13 +164,15 @@ static dsp_surface_t *sthigh_surface(void)
 
 /* Engine-B&W: pack colour-indexed rows 1:1 into the centred 480x300 window
  * through the luminance ink LUT. A SET screen bit renders BLACK on ST High
- * (raw-stripe-proven 2026-07-16; an earlier comment here claimed the
- * opposite). The mapping is the luminance INVERSE: a BRIGHT index (LUT
- * paper class, g_dsp_ink == 0) sets the bit = BLACK, a DARK index clears
- * it = WHITE. That inversion renders the port's light-on-dark colour UI
- * (pen-7 text on dark plates) as the Mac's dark-on-light mono UI. The
- * engine's mono art writers chain onto this: a SET .TLB art bit is
- * art-WHITE and lands in chunky as the DARK class (canonical 0) — see
+ * (raw-stripe-proven 2026-07-16). The mapping is DIRECT luminance: a DARK
+ * index (g_dsp_ink == 1) sets the bit = BLACK ink, a BRIGHT index clears
+ * it = WHITE paper — verified against real Mac-mono FRUA (BasiliskII
+ * screenshots, 2026-07-16): the play screen keeps the colour game's dark
+ * panels (black, white text) and light chips (white, black text); an
+ * earlier luminance-INVERSE mapping here rendered every panel and chip
+ * inverted for twelve legs while the pure-art paths happened to cancel.
+ * The engine's mono art writers chain onto this: a SET .TLB art bit is
+ * art-WHITE and lands in chunky as the BRIGHT class (canonical 15) — see
  * THE MONO INK MODEL at the mono PLANAR PAGE in boot.c. */
 static void hi_blit_rows(short x0, short w, short y0, short h)
 {
@@ -188,8 +189,8 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 			short k;
 
 			for (k = 0; k < 8; k++)
-				if (!g_dsp_ink[src[i + k]])
-					b |= (unsigned char)(0x80 >> k);   /* paper */
+				if (g_dsp_ink[src[i + k]])
+					b |= (unsigned char)(0x80 >> k);   /* ink */
 			*d++ = b;
 		}
 		memcpy(s_shadow + (long)yy * SURF_W + x0, src, (size_t)w);
