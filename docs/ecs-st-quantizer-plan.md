@@ -192,3 +192,28 @@ for SM124-monitor owners. The work is ENGINE-side: lift how the Mac selects
 B&W vs colour resources (the Toolbox depth checks feeding the art loads), then
 the display backend is trivial. (Prompted by the user asking whether mono
 cursors would speed the ST up — cursors don't, the mode would.)
+
+### ST-High status (2026-07-15)
+
+**Phase 1 SHIPPED** (`platform/display_sthigh.c`): 640x400 1-bit, the engine's
+320x200 frame as 2x2 cells with a 5-level Bayer dither from two luma LUTs.
+Auto-detected (ST/STE + Getrez()==2 = mono monitor), same binary. Verified
+under Hatari --monitor mono + TOS 2.06 to the in-dungeon play screen. The
+cheapest present of any backend (no quantizer/bands/raster IRQs; ~4x less
+work per pixel than banded ST-low) — and palette changes cost nothing, so the
+scene-change hitches of the colour path don't exist here.
+
+**Phase 2 — the Mac's real B&W mode (the "native to native" goal):**
+- The 1-bit art is REAL and at 640x400 SCALE: PICA portraits are 176x176 =
+  exactly double the colour art's 88x88 (see the art-formats memory/docs).
+  DUNGCOM/WILDCOM/TOPVIEW/SPRIT/BACK/TITLE/MENU/FRAME all have 1-bit sets.
+- The Mac gates the mode on display depth: JT[1200]() == 3 -> colour
+  (g_a5_2347 == 0); B&W Macs take the other arm and load the .TLB art.
+- The BIG lift: the port's engine/shim world is 320x200 — a native-res mono
+  mode needs the drawing surface at 640x400 (fonts, rects, the 3D compose)
+  with art blitted 1:1 instead of the colour path's logical pixels. That is
+  a coordinate-model project, not a backend: scope it as its own campaign.
+- Cheaper intermediate worth considering first: keep the 320x200 world but
+  load the 1-bit art DOWNSCALED 2:1 (or draw the 1-bit art into the 2x2
+  cells at present time for the picture regions) — most of the crispness,
+  none of the coordinate surgery.
