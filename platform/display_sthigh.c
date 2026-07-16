@@ -69,8 +69,11 @@ static unsigned char s_dith_bot[256];
 /* Engine-B&W ink LUT: the surface stays COLOUR-INDEXED (so every colour-arm
  * draw — text bg fills, plates, art — works unchanged) and present maps each
  * index to ink/paper by PALETTE LUMINANCE. Rebuilt by set_palette; the
- * default marks only index 0 (black) as ink until a palette arrives. */
-static unsigned char s_ink[256];
+ * default marks only index 0 (black) as ink until a palette arrives.
+ * EXPORTED: the engine's mono planar-page shim (the jt995 codec bracket in
+ * boot.c) classifies surface pixels through the SAME table, so the codec's
+ * 1-bit view and the present always agree on what is ink. */
+unsigned char g_dsp_ink[256];
 #endif
 
 /* Bayer 2x2 threshold matrix [top-left, top-right; bottom-left, bottom-right]
@@ -121,8 +124,8 @@ static int sthigh_init(short want_w, short want_h)
 	memset(s_dith_top, 0, sizeof s_dith_top);
 	memset(s_dith_bot, 0, sizeof s_dith_bot);
 #ifdef FRUA_BWMODE
-	memset(s_ink, 0, sizeof s_ink);
-	s_ink[0] = 1;                   /* index 0 = black until a palette lands */
+	memset(g_dsp_ink, 0, sizeof g_dsp_ink);
+	g_dsp_ink[0] = 1;                   /* index 0 = black until a palette lands */
 #endif
 
 	s_surface.width  = SURF_W;
@@ -174,7 +177,7 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 			short k;
 
 			for (k = 0; k < 8; k++)
-				if (!s_ink[src[i + k]])
+				if (!g_dsp_ink[src[i + k]])
 					b |= (unsigned char)(0x80 >> k);   /* paper */
 			*d++ = b;
 		}
@@ -275,7 +278,7 @@ static void sthigh_set_palette(const dsp_color_t *colors, short first, short cou
 		s_dith_top[idx] = k_lvl_top[lvl];
 		s_dith_bot[idx] = k_lvl_bot[lvl];
 #ifdef FRUA_BWMODE
-		s_ink[idx] = (unsigned char)(lum < 112);
+		g_dsp_ink[idx] = (unsigned char)(lum < 112);
 #endif
 	}
 	/* The mapping changed under already-converted rows. */

@@ -675,6 +675,9 @@ static void  jt1129(short a)
  * backend). */
 static short g_port_2347 = 1;
 
+static short l04de(void);       /* page width (480 mono / 320 colour)   */
+static long  l04f0(void);       /* depth shift (3 mono / 0 deep colour) */
+
 static void color_mode_init(void)
 {
 	g_a5_1314 = 0;          /* Color QuickDraw present (colour VIDEL)   */
@@ -707,6 +710,15 @@ static void color_mode_init(void)
 		if (g_a5_1318 >= 8)                  /* 0x47d2: cmpiw #8 */
 			g_a5_1312 = 1;              /* 0x47da: 8-bit -> deep CLUT */
 	}
+
+	/* 0x4884-0x4898 (the Mac's window-open tail): the GLIB codec's
+	 * dest ROW STRIDE -3084 = page width in dest bytes (L04de >>
+	 * L04f0: 320 colour, 60 = 480/8 mono). The port had never lifted
+	 * this seed, so every jt1165/jt1181/jt1191-family blit advanced
+	 * rows by ZERO — all glyph rows composited onto one page row
+	 * (found live in B&W bring-up: the FRAME bars XOR-smeared into
+	 * noise; latent in colour for jt119/jt122/jt1192/jt1126 too). */
+	g_a5_long(-3084) = (long)(short)(l04de() >> l04f0());
 }
 
 /* JT[1130] / JT[920] / JT[956] (CODE 4 / CODE 12 / CODE 21) —
@@ -6254,6 +6266,109 @@ static void jt1191(const void *src, const void *mask, short rows,
                    short wbytes, short srcskip, short lmask, short rmask,
                    short shift);
 
+#ifdef FRUA_BWMODE
+/* ---- The mono PLANAR PAGE (jt995 codec, B&W mode) ----
+ *
+ * In B&W mode the jt995 primitive family writes 1-BIT PLANAR words
+ * through the l05dc cursor — on the Mac the page WAS the 1-bit
+ * screen. The port's surface is byte-chunky, so the codec gets a
+ * real planar page of its own (60 bytes x 300 rows) and each jt995
+ * dispatch is bracketed: the window the writers will touch is
+ * SYNCED from the chunky surface (pixel -> bit through the
+ * backend's luminance ink LUT, so composite RMWs and the hit-scans
+ * read current state), the faithful writers run bit-for-bit, and
+ * the glyph span EXPANDS back (bit -> ink 0 / paper 15).
+ *
+ * THE +8 BIAS: the Mac's mono cursor seed adds +1 to the byte
+ * address (L053e 0x5c6, an arm the colour-only lift had dropped)
+ * and jt995's mode-3 shift is l21d0(left ^ 8) (CODE 5 0x241c,
+ * eoriw #8) — together they land every glyph at page bit (col + 8),
+ * uniformly (derived from the -4650/-4646/-4614 tables; the Mac's
+ * page base absorbed it). The port keeps the faithful math and maps
+ * chunky (y, c) <-> page bit y*480 + c + 8. */
+#define MONO_PAGE_W     480             /* = l04de() in mono            */
+#define MONO_PAGE_H     300
+#define MONO_PAGE_ROWB  (MONO_PAGE_W / 8)
+/* +1 byte for the +8-bit bias tail, +4 slack: the writers' last long
+ * RMW reaches 2 bytes past the dirty span. */
+static unsigned char s_mono_page[(long)MONO_PAGE_ROWB * MONO_PAGE_H + 8]
+    __attribute__((aligned(2)));    /* the +8-bias math assumes an even base */
+
+/* Sync (to_page) or expand (!to_page) one row span [c0, c1) of chunky
+ * row y against its page bits. */
+static void mono_span(short y, short c0, short c1, int to_page)
+{
+	extern unsigned char g_dsp_ink[256];
+	unsigned char *px;
+	short          pitch, sw, sh, c;
+	unsigned char *d;
+	long           bit;
+
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	if (y < 0 || y >= sh)
+		return;
+	if (c0 < 0)   c0 = 0;
+	if (c1 > sw)  c1 = sw;
+	if (c0 >= c1)
+		return;
+	d   = px + (long)y * pitch;
+	bit = (long)y * MONO_PAGE_W + c0 + 8;
+	for (c = c0; c < c1; c++, bit++) {
+		unsigned char *b = s_mono_page + (bit >> 3);
+		unsigned char  m = (unsigned char)(0x80 >> (bit & 7));
+
+		if (to_page) {
+			if (g_dsp_ink[d[c]])
+				*b |= m;
+			else
+				*b = (unsigned char)(*b & ~m);
+		} else {
+#ifdef FRUA_MONO_TRACE
+			d[c] = 0;               /* tracer: solid ink */
+#else
+			d[c] = (unsigned char)((*b & m) ? 0 : 15);
+#endif
+		}
+	}
+}
+
+/* One chunky row with page-bit wrap: the +8 bias means the first 8
+ * bits of page row y hold chunky (y-1)'s last pixels — a span
+ * reaching past a row edge continues in the neighbour row. */
+static void mono_row(short y, short c0, short c1, int to_page)
+{
+	if (c0 < 0) {
+		mono_span((short)(y - 1), (short)(c0 + MONO_PAGE_W),
+		          MONO_PAGE_W, to_page);
+		c0 = 0;
+	}
+	if (c1 > MONO_PAGE_W) {
+		mono_span((short)(y + 1), 0, (short)(c1 - MONO_PAGE_W),
+		          to_page);
+		c1 = MONO_PAGE_W;
+	}
+	mono_span(y, c0, c1, to_page);
+}
+
+static void mono_rows(short top, short left, short rows, short wpx,
+                      int to_page)
+{
+	short y;
+
+#ifdef FRUA_MONO_TRACE
+	/* Debug knob (with the solid-ink tracer in mono_span): log each
+	 * expand rect to DBG.LOG — packed (hi<<16)|lo shorts. */
+	if (!to_page) {
+		dbg_file_num("exptl", ((long)(unsigned short)top << 16) | (unsigned short)left);
+		dbg_file_num("exprw", ((long)(unsigned short)rows << 16) | (unsigned short)wpx);
+	}
+#endif
+	for (y = top; y < (short)(top + rows); y++)
+		mono_row(y, left, (short)(left + wpx), to_page);
+}
+#endif /* FRUA_BWMODE */
+
 /* JT[995] (CODE 5 + 0x21fc) — clipped GLIB glyph blit (full lift;
  * replaces the level-2 skeleton, whose guessed frame slots fed the
  * primitives wrong values once they became real).
@@ -6375,6 +6490,14 @@ static short jt995(short top, short left, short style, short size_high,
 	if ((char)mode != 0 && (char)mode != 2) {
 		/* Hit-scan arm. */
 		jt1177(top, left);
+#ifdef FRUA_BWMODE
+		/* PORT: seed the planar page's scan window from the chunky
+		 * surface (read-only arm — no expand). ±24 px covers the
+		 * word-aligned window plus the +8 bias. */
+		if (jt1200() == 3)
+			mono_rows(top, (short)(left - 24), height,
+			          (short)(wbytes * 8 + 48), 1);
+#endif
 		for (i = 0; i < jt1198(); i++) {
 			jt1170();       /* Mac pushes the plane index   */
 			if (jt1200() == 3)
@@ -6390,6 +6513,12 @@ static short jt995(short top, short left, short style, short size_high,
 	}
 
 	jt1177(top, left);
+#ifdef FRUA_BWMODE
+	/* PORT: sync the window the writers will read-modify-write. */
+	if (jt1200() == 3)
+		mono_rows(top, (short)(left - 24), height,
+		          (short)(wbytes * 8 + 48), 1);
+#endif
 	src2 = src;
 	if ((blob[7] & 0x01) != 0)
 		src += planebytes;
@@ -6415,6 +6544,12 @@ static short jt995(short top, short left, short style, short size_high,
 		}
 		src += planebytes;
 	}
+#ifdef FRUA_BWMODE
+	/* PORT: expand the glyph span back to the chunky surface. Tight —
+	 * the writers' RMW preserves everything outside it. */
+	if (jt1200() == 3)
+		mono_rows(top, left, height, (short)(wbytes * 8), 0);
+#endif
 	return (short)hit;
 }
 
@@ -15533,23 +15668,12 @@ static void jt124(long h)     { PROBE("jt124"); l3eea((void *)(uintptr_t)h); }  
  * -> JT[995] with mode 2, else JT[1001]. Used for the automap party marker
  * (jt216, glyph 17+facing) and other index-glyph draws that were no-ops while
  * this was stubbed. */
-static int  mono_ui(void);          /* defined with the menu painters below */
-
 static void jt448(short x, short y, short color, short glyph)
 {
 	PROBE("jt448");
-	if (jt1200() == 3) {
-#ifdef FRUA_BWMODE
-		/* PORT (B&W bring-up): jt995 is the PLANAR glyph codec — it
-		 * writes 1-bit words through the l05dc blit cursor, which the
-		 * port still addresses byte-chunky. Until the codec's byte-
-		 * surface port lands (worklist), its writes are stray speckle
-		 * over the surface — skip; jt137 paints the button plate. */
-		if (mono_ui())
-			return;
-#endif
+	if (jt1200() == 3)
 		jt995(x, y, color, glyph, (short)2);
-	} else
+	else
 		jt1001(x, y, color, glyph);
 }
 
@@ -23232,7 +23356,7 @@ static const menu_item_t g_mainmenu[] = {
 static unsigned char g_menu_file[16384];
 static unsigned char g_frame_file[40960];    /* FRAME.CTL, kept resident    */
 static unsigned char g_gen_file[28672];      /* GEN.CTL, kept resident      */
-static long          g_frame_base, g_gen_base;  /* GLIB bases for ui_glib_blit */
+static long          g_gen_base;             /* GLIB base for ui_glib_blit  */
 static unsigned char g_bg[320 * 90];         /* decoded GEN backdrop image  */
 static short         g_bg_w, g_bg_h, g_bg_ybear;
 static int           g_menu_state;           /* 0 untried, 1 ok, -1 failed */
@@ -23343,7 +23467,15 @@ static void load_menu_ui(void)
 			(void)FSRead(refnum, &flen, g_frame_file);
 			(void)FSClose(refnum);
 			base = (long)(uintptr_t)g_frame_file;
-			g_frame_base = base;                  /* keep FRAME.CTL resident */
+			/* NOTE: this used to also seed g_frame_base ("keep FRAME.CTL
+			 * resident") — but C merges the two file-scope tentative
+			 * `static long g_frame_base` definitions into ONE variable,
+			 * so this chrome-side write HIJACKED jt468(1): the whole
+			 * session resolved group 1 to this resident FRAME.CTL, and
+			 * in B&W mode the codec drew the COLOUR bar pieces (8px on a
+			 * 12px step — a comb) instead of FRAME.TLB's 16px ones.
+			 * Group 1 now always resolves through port_frame_load's
+			 * mode-correct FC pool load. */
 			pb = l37aa(base, 0);                  /* 16-colour band */
 			if (pb != 0) {
 				const unsigned char *bd =
@@ -32995,6 +33127,21 @@ static void jt1177(short row, short col)
 	if (!qd_screen_pixels(&px, &rb, &sw, &sh) || px == NULL)
 		return;                 /* no surface — leave the cursor */
 	shift = l04f0();
+#ifdef FRUA_BWMODE
+	if (g_a5_byte(-2347) == 0) {
+		/* MONO: the page is the codec's own 1-bit planar page (the
+		 * Mac's was the B&W screen), and the Mac's mono tail adds +1
+		 * to the byte address (L053e 0x5c6) — part of the +8-bit
+		 * bias the mono_span mapping absorbs. */
+		base  = (long)(uintptr_t)s_mono_page;
+		base += (long)(unsigned short)(((short)(l04de() >> shift))
+		                               * row);
+		base += (long)(col >> shift);
+		base += 1;
+		g_a5_long(-3076) = base;
+		return;
+	}
+#endif
 	base  = (long)(uintptr_t)px;
 	base += (long)(unsigned short)(((short)(l04de() >> shift)) * row);
 	base += (long)(col >> shift);
@@ -87834,40 +87981,6 @@ static short jt137(void *rec_v, short msg, ...)
 		rec[28] |= 0x80;
 		if (rec[28] & 0x02)
 			return 0;
-#ifdef FRUA_BWMODE
-		if (mono_ui()) {
-			/* PORT (B&W bring-up): the faithful bar pieces draw
-			 * through the jt995 planar codec, whose byte-surface
-			 * port is still pending — until then paint the button
-			 * as a Mac-mono plate (white face, black frame) over
-			 * the EXACT button rect, which is jt137's own msg==2
-			 * hit-test rect. The label then draws on top. */
-			unsigned char *mpx;
-			short mpitch, msw, msh, py0, px0, py1, px1, yy, xx;
-
-			jt1135((short)(*(short *)(void *)(rec + 16) - 1),
-			       (short)(*(short *)(void *)(rec + 18) - 2),
-			       &py0, &px0);
-			jt1135((short)(*(short *)(void *)(rec + 16) + 5),
-			       (short)(*(short *)(void *)(rec + 18)
-			               + *(short *)(void *)(rec + 24) * 4 + 2),
-			       &py1, &px1);
-			if (qd_screen_pixels(&mpx, &mpitch, &msw, &msh)
-			    && mpx != NULL) {
-				if (px1 > msw) px1 = msw;
-				if (py1 > msh) py1 = msh;
-				for (yy = py0; yy < py1; yy++) {
-					unsigned char *d = mpx + (long)yy * mpitch;
-
-					for (xx = px0; xx < px1; xx++)
-						d[xx] = (unsigned char)
-						    ((yy == py0 || yy == py1 - 1
-						      || xx == px0 || xx == px1 - 1)
-						     ? 0 : 15);
-				}
-			}
-		}
-#endif
 		pal = (short)((rec[28] & 0x09) ? 3 : 0);
 		jt1135(*(short *)(void *)(rec + 16), (short)8000, &y, &x);
 		if (!(rec[28] & 0x20))

@@ -289,12 +289,53 @@ engine-B&W surface stays COLOUR-INDEXED with the present thresholding by
 palette luminance — the engine's inverse-video menu bars (mode-3 colour 503)
 then render as the Mac's white-on-black enabled items for free.
 
+### Phase 2 runtime — THE PLANAR CODEC IS LIVE (2026-07-16, third leg)
+
+The jt995/l05dc planar-codec port landed: the menu's command bars now render
+from the REAL FRAME.TLB pieces (16x17 two-plane masked glyphs — white face,
+black frame lines, rounded caps) composed by the faithful jt1189/jt1191
+writers, bit-for-bit.
+
+The design — the MONO PLANAR PAGE shim (boot.c, FRUA_BWMODE): the codec gets
+a real 1-bit page (s_mono_page, 60x300 bytes); each jt995 dispatch is
+bracketed — SYNC the word-aligned window chunky->bits through the backend's
+exported luminance ink LUT (g_dsp_ink, shared with the present so the two
+views always agree), run the UNTOUCHED faithful writers, EXPAND the glyph
+span bits->chunky (ink 0 / paper 15). The Mac's mono cursor seed adds +1 to
+the byte address (L053e 0x5c6 — an arm the colour-only jt1177 lift had
+dropped) and jt995's mode-3 shift is l21d0(left ^ 8) (eoriw #8, CODE 5
+0x241c); together they land every glyph at page bit (col + 8) uniformly —
+the shim absorbs it as a fixed +8-bit bias in the chunky<->page mapping.
+Verified numerically against the -4650/-4646/-4614 mask tables from the
+DATA pool, then live.
+
+TWO PORT BUGS the bring-up flushed out (both latent in COLOUR too):
+- The GLIB codec's dest ROW STRIDE -3084 was NEVER SEEDED — the Mac sets it
+  in the window-open tail (CODE 4 0x4884-0x4898: L04de >> L04f0); the port
+  had lifted the function's head but not this line, so every jt1165/jt1181/
+  jt1191-family blit advanced rows by ZERO (all glyph rows XOR-composited
+  onto one page row). Seeded in color_mode_init. Colour consumers
+  (jt119/jt122 editor cursor, jt1192 pattern fill, jt1126 scroll-blit) had
+  been running with stride 0 all along.
+- TENTATIVE-DEFINITION MERGE: two file-scope `static long g_frame_base;`
+  declarations (the group-1 FC-pool cache AND the stand-in menu chrome's
+  resident-buffer base) are ONE variable in C. The chrome loader's
+  "keep FRAME.CTL resident" write hijacked jt468(1) for the whole session —
+  in mono the codec drew FRAME.CTL's 8px colour pieces on FRAME.TLB's 12px
+  step (a comb). The chrome-side write is deleted (nothing read it); group 1
+  always resolves through port_frame_load's mode-correct pool load.
+
+Colour build regression-checked (Falcon TOS 4.04 menu, pixel-clean); host
+suite 175 passed. Debug knob: -DFRUA_MONO_TRACE = solid-ink expand tracer +
+per-expand rect logging to DBG.LOG.
+
 Remaining worklist (in order):
-1. The jt995/l05dc PLANAR CODEC byte-surface port (jt1165/jt1202/jt1191
-   consumers) — unlocks the faithful FRAME bar pieces (jt448 currently
-   suppressed in mono, jt137 paints a plate instead), the automap glyphs,
-   and the B&W cursor art.
-2. The mode-3 masked format lift (L289a + JT[1170] + JT[1185]) — TITLE
+1. The mode-3 masked format lift (L289a + JT[1170] + JT[1185]) — TITLE
    intro screens + SPRIT sprites.
-3. Play-mode screens: Hall, dungeon (8X8DB.TLB walls), events (PIC%c.TLB
+2. Play-mode screens: Hall, dungeon (8X8DB.TLB walls), events (PIC%c.TLB
    176x176 pictures — the flagship), combat. Iterate on screenshots.
+3. Codec loose ends: the jt1165/jt1202/jt1197/jt1192 cursor family still
+   writes the page WITHOUT a jt995-style expand bracket (their mono users —
+   jt119/jt122 save-under, pattern fills — buffer invisibly until their
+   call sites get the same sync/expand treatment); the mono hit-scan arm
+   (jt995 modes 1/3) syncs but is exercised only by the editor cursor.
