@@ -483,23 +483,71 @@ TWO traps this leg:
   paper (15) — matches the walls (dark stone on white); the inverse
   hollowed the walls (they are mostly data-clear surface).
 
-HONEST STATE: the backdrop draws every frame but is OCCLUDED in the
-straight-corridor test cell — the .TLB frustum walls fill the whole hole
-(the B&W dungeon is line-art: black wall texture on a white ceiling/
-floor, unlike the colour .CTL pieces whose 255-transparent ceiling/floor
-let g_back_img show). The night-sky set would show in an open/outdoor
-cell where the frustum doesn't fill the frame. The colour view fakes an
-always-visible sky via render_3d_view's trapezoid region-fills; matching
-that in mono (explicit sky/floor region fills à la l57f2/jt116, so the
-ceiling/floor read the backdrop instead of wall white) is the visible-
-sky follow-up.
+~~HONEST STATE: the backdrop draws every frame but is OCCLUDED...~~
+RETRACTED by the 9th leg: the "occlusion" (and the "different back
+buffer" note) were misdiagnoses. The real bug was a TRANSPARENT blit.
+
+### Phase 2 runtime — ★★THE SKY + THE INK MODEL (2026-07-16, 9th leg; 5735d50 over-rotated, corrected same day)
+
+The visible-sky leg became a root-cause hunt into the mono mode's
+foundation, with a WRONG intermediate conclusion worth recording.
+
+FACTS PROVEN LIVE (Hatari ST mono + TOS 2.06), all still true:
+- The backdrop's pixels WERE in the presented buffer every frame
+  (per-frame counts), the present blitted them (row-diff logs, forced
+  full blits), and the screen still showed nothing — resolved by a RAW
+  STRIPE TEST (memset 0xFF/0x00 straight into screen memory): **ST-high
+  SET bit = BLACK**. hi_blit_rows' "SET renders WHITE (live-verified)"
+  comment was FALSE.
+- So the present maps chunky indices by the luminance INVERSE: BRIGHT
+  index -> black, DARK -> white. That inversion is deliberate-in-effect:
+  it renders the port's light-on-dark colour UI (pen-7 text, dark
+  plates) as the Mac's dark-on-light mono UI with zero colour-arm
+  changes.
+- There is ONE buffer (px == s_chunky == qd-attached, pointer-proven);
+  leg-8's "different back buffer" note was false. And the wall masks'
+  ceiling/floor triangles are SET=transparent (8X8DB.TLB planes decoded
+  host-side) — the deep Mac path needs NO l57f2/jt116 region fills.
+
+THE WRONG TURN (5735d50): from the stripe test alone I concluded the
+ART writers were sign-flipped ("the whole mode renders a NEGATIVE") and
+flipped sync/expand + the l2d4e mono leaves + the backdrop to ink=15.
+The result LOOKED convincing (the corridor read as plausible line art)
+— but the USER's checks were sharper: the menu bevels rendered
+pushed-in, and a night sky must be DARK with LIGHT specks; the flip had
+produced an actual negative.
+
+THE TRUTH: in this .TLB art family a SET data bit is **art-WHITE**
+(DOS-derived convention), not the classic Mac set=black. Chained with
+the display inversion, art-set must land in chunky as the DARK class
+(canonical 0, renders white) — exactly what the ORIGINAL writers did.
+They were right all along. The ONLY real bug was mono_dungeon_backdrop
+blitting TRANSPARENTLY: it painted the set bits (the STARS, art-white)
+onto the already-white field and skipped the clear bits that are the
+black sky — white-on-white. Fix: revert the writer flips, keep the
+backdrop OPAQUE with set->0 / clear->15 (the Mac JT[118] backdrop
+covers its hole).
+
+RESULT: the TRUE mono corridor — BLACK night sky with WHITE stars,
+light coursed-stone walls, dark door, light tiled floor with dark grid;
+menu bevels raised again, marble bars textured. Colour untouched
+(mono-gated), make test 175.
+
+DEBUGGING LESSONS:
+- When a pixel provably in the buffer and provably blitted does not
+  show, stripe-test the DISPLAY's polarity before inventing buffers.
+- A polarity conclusion needs BOTH ends anchored: the display chain (a
+  raw stripe test) AND the art convention (a semantically forced image
+  — a night sky, a bevel direction). One anchor plus plausible-looking
+  output is how 5735d50 shipped a negative as a "fix".
+- Never trust a "live-verified" claim in a comment; re-verify it.
 
 REMAINING worklist:
-1. Visible sky/floor in the mono corridor — the l57f2/jt116 sky/floor
-   REGION fills (the colour render's inline fills) so the ceiling/floor
-   triangles read the backdrop, not wall white.
-2. B&W event pictures (PIC%c.TLB 176x176) via a bigpic composer mono arm.
-3. Polish: per-cell wall variety, walk-test the corridor turns.
-4. Codec loose ends (jt1165/jt1202/jt1197/jt1192 cursor family lacks
+1. B&W event pictures (PIC%c.TLB 176x176) via a bigpic composer mono arm
+   — also covers the user-sighted "bigpic loads then unloads" at entry.
+2. Polish: per-cell wall variety, walk-test the corridor turns; a
+   BasiliskII Mac-mono eyeball pass (open questions: the near-invisible
+   play-frame chrome, the solid-black gated menu buttons DELETE/UNLOCK).
+3. Codec loose ends (jt1165/jt1202/jt1197/jt1192 cursor family lacks
    expand brackets at its call sites) and a colour-side sighting of the
    newly-live SPRIT/PIC mode-3 pieces.

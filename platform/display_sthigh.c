@@ -170,8 +170,9 @@ static dsp_surface_t *sthigh_surface(void)
  * paper class, g_dsp_ink == 0) sets the bit = BLACK, a DARK index clears
  * it = WHITE. That inversion renders the port's light-on-dark colour UI
  * (pen-7 text on dark plates) as the Mac's dark-on-light mono UI. The
- * engine's mono art writers follow the same model (canonical ink = 15,
- * paper = 0) — see the mono PLANAR PAGE comment in boot.c. */
+ * engine's mono art writers chain onto this: a SET .TLB art bit is
+ * art-WHITE and lands in chunky as the DARK class (canonical 0) — see
+ * THE MONO INK MODEL at the mono PLANAR PAGE in boot.c. */
 static void hi_blit_rows(short x0, short w, short y0, short h)
 {
 	short y, i;
