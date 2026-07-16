@@ -6065,11 +6065,14 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 			if (jt1200() == 3) {
 				/* B&W mode: the Mac's 1bpp writers OR bits into
 				 * the planar screen — a set bit IS ink, no pen.
-				 * (The pen-colour path below is the colour mode's
-				 * 1bpp-through-the-pen expansion; with the pen
-				 * left white by a prior text draw it painted the
-				 * play chrome invisibly.) */
-				fg = 0;
+				 * Ink = 15 per the mono ink model (see the mono
+				 * PLANAR PAGE comment): the present renders the
+				 * BRIGHT class as black. (The pen-colour path
+				 * below is the colour mode's 1bpp-through-the-pen
+				 * expansion; with the pen left white by a prior
+				 * text draw it painted the play chrome
+				 * invisibly.) */
+				fg = 15;
 			} else {
 				GetPort(&port);
 				if (port != NULL && ((CGrafPtr)port)->fgColor != 0)
@@ -6135,8 +6138,9 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		 * the mask bit is SET the pixel is TRANSPARENT (the corridor /
 		 * background shows through — item 6, the near side wall, is
 		 * ~70% mask-set for the opening beyond); where CLEAR the DATA
-		 * bit is drawn (set = ink 0, clear = paper 15). This is what
-		 * lets the frustum's near faces composite over the far ones. */
+		 * bit is drawn (set = ink 15, clear = paper 0 — the mono ink
+		 * model: bright class renders black). This is what lets the
+		 * frustum's near faces composite over the far ones. */
 		long plane = (long)height * bpp_w;
 		const unsigned char *mask = src;
 		const unsigned char *data = src + plane;
@@ -6157,7 +6161,7 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				if (mrow[c >> 3] & bit)
 					continue;             /* mask set -> transparent */
 				px[(long)dy * pitch + dx] =
-				    (drow[c >> 3] & bit) ? 0 : 15;   /* data ink/paper */
+				    (drow[c >> 3] & bit) ? 15 : 0;   /* data ink/paper */
 			}
 		}
 		return;
@@ -6212,11 +6216,14 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		}
 	} else {
 		/* 1bpp mono glyph: set bits -> fgColor (Mac L2970 mode-0 OR).
-		 * B&W mode: a set bit IS ink (see the mode-2 1bpp leaf). */
+		 * B&W mode: a set bit IS ink = 15 (the mono ink model — the
+		 * present renders the BRIGHT class as black; see the mono
+		 * PLANAR PAGE comment). */
 		GrafPtr port;
-		unsigned char fg = 0;
+		unsigned char fg = 15;
 
 		if (jt1200() != 3) {
+			fg = 0;
 			GetPort(&port);
 			if (port != NULL)
 				fg = ((CGrafPtr)port)->fgColor;
@@ -6428,7 +6435,23 @@ static void jt1191(const void *src, const void *mask, short rows,
  * SYNCED from the chunky surface (pixel -> bit through the
  * backend's luminance ink LUT, so composite RMWs and the hit-scans
  * read current state), the faithful writers run bit-for-bit, and
- * the glyph span EXPANDS back (bit -> ink 0 / paper 15).
+ * the glyph span EXPANDS back (bit -> ink 15 / paper 0).
+ *
+ * ★ THE MONO INK MODEL (screen-bit polarity PROVEN by a raw-stripe
+ * test, 2026-07-16): on ST high a SET screen bit is BLACK. The
+ * present (hi_blit_rows) maps a chunky index to a screen bit by the
+ * INVERSE of its palette luminance: BRIGHT index -> bit set = BLACK
+ * ink, DARK index -> clear = WHITE paper. That inversion is what
+ * renders the port's light-on-dark colour UI (pen 7 text on dark
+ * plates) as the Mac's dark-on-light mono UI without touching any
+ * colour-arm writer. Consequently the canonical MONO INK chunky
+ * value is 15 (a BRIGHT palette entry) and MONO PAPER is 0 (a DARK
+ * entry) — backwards-looking, deliberate. The planar page below
+ * holds FAITHFUL Mac bits (set = ink/black); sync/expand convert
+ * page bits <-> the luminance classes with that polarity. Getting
+ * this backwards renders every 1bpp .TLB piece as a NEGATIVE — the
+ * pre-fix dungeon corridor shipped that way for two legs, and the
+ * BACK.TLB backdrop exposed it by drawing white-on-white.
  *
  * THE +8 BIAS: the Mac's mono cursor seed adds +1 to the byte
  * address (L053e 0x5c6, an arm the colour-only lift had dropped)
@@ -6470,15 +6493,16 @@ static void mono_span(short y, short c0, short c1, int to_page)
 		unsigned char  m = (unsigned char)(0x80 >> (bit & 7));
 
 		if (to_page) {
-			if (g_dsp_ink[d[c]])
+			/* page set = Mac ink = the BRIGHT class (ink model) */
+			if (!g_dsp_ink[d[c]])
 				*b |= m;
 			else
 				*b = (unsigned char)(*b & ~m);
 		} else {
 #ifdef FRUA_MONO_TRACE_INK
-			d[c] = 0;               /* tracer: solid ink */
+			d[c] = 15;              /* tracer: solid ink */
 #else
-			d[c] = (unsigned char)((*b & m) ? 0 : 15);
+			d[c] = (unsigned char)((*b & m) ? 15 : 0);
 #endif
 		}
 	}
@@ -11418,12 +11442,14 @@ static void mono_dungeon_backdrop(short set, unsigned char *px, short pitch,
 		return;
 	body = (const unsigned char *)(uintptr_t)info;
 
-	/* Blit DIRECTLY into the caller's presented surface (`px`) — NOT via
-	 * l2d4e, whose own qd_screen_pixels() lookup lands on a different back
-	 * buffer here, so its writes never reached the frame. Decode mode 0
-	 * (raw 1bpp) or mode 2 (per-row PackBits) and paint set bits as ink
-	 * (0), leaving clear bits as the paper field the walls composite over
-	 * (a night sky's stars draw, its clear sky stays white). */
+	/* Blit directly into the caller's surface. (An earlier note here
+	 * blamed a "different back buffer" for the backdrop not showing —
+	 * DISPROVEN: there is one buffer; the real culprit was the mono ink
+	 * POLARITY, see the mono PLANAR PAGE comment.) Decode mode 0 (raw
+	 * 1bpp) or mode 2 (per-row PackBits) and write the hole OPAQUELY,
+	 * the way the Mac's JT[118] backdrop blit does: set bit -> ink 15,
+	 * clear -> paper 0 (a night sky's stars draw black, its clear sky
+	 * white; the masked wall tiles then composite over). */
 	for (r = 0; r < h; r++) {
 		short dy = (short)(BW_BD_OY + r);
 		const unsigned char *srow;
@@ -11441,8 +11467,8 @@ static void mono_dungeon_backdrop(short set, unsigned char *px, short pitch,
 
 			if (dx < 0 || dx >= sw)
 				continue;
-			if (srow[c >> 3] & (0x80 >> (c & 7)))
-				px[(long)dy * pitch + dx] = 0;   /* ink */
+			px[(long)dy * pitch + dx] =
+			    (srow[c >> 3] & (0x80 >> (c & 7))) ? 15 : 0;
 		}
 	}
 }

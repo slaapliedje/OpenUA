@@ -66,13 +66,17 @@ static unsigned char s_dith_top[256];
 static unsigned char s_dith_bot[256];
 
 #ifdef FRUA_BWMODE
-/* Engine-B&W ink LUT: the surface stays COLOUR-INDEXED (so every colour-arm
- * draw — text bg fills, plates, art — works unchanged) and present maps each
- * index to ink/paper by PALETTE LUMINANCE. Rebuilt by set_palette; the
- * default marks only index 0 (black) as ink until a palette arrives.
- * EXPORTED: the engine's mono planar-page shim (the jt995 codec bracket in
- * boot.c) classifies surface pixels through the SAME table, so the codec's
- * 1-bit view and the present always agree on what is ink. */
+/* Engine-B&W luminance LUT: the surface stays COLOUR-INDEXED (so every
+ * colour-arm draw — text bg fills, plates, art — works unchanged) and
+ * present maps each index by PALETTE LUMINANCE. Rebuilt by set_palette;
+ * the default marks only index 0 (black) until a palette arrives.
+ * ★NAMING TRAP: g_dsp_ink[v] == 1 means v is a DARK palette entry — which
+ * the present renders as mono PAPER (white). The BRIGHT class renders as
+ * mono INK (black). See hi_blit_rows: the luminance-INVERSE mapping is
+ * what turns the light-on-dark colour UI into the Mac's dark-on-light
+ * mono UI. EXPORTED: the engine's mono planar-page shim (the jt995 codec
+ * bracket in boot.c) classifies surface pixels through the SAME table, so
+ * the codec's 1-bit view and the present always agree. */
 unsigned char g_dsp_ink[256];
 #endif
 
@@ -160,8 +164,14 @@ static dsp_surface_t *sthigh_surface(void)
 #ifdef FRUA_BWMODE
 
 /* Engine-B&W: pack colour-indexed rows 1:1 into the centred 480x300 window
- * through the luminance ink LUT. A SET screen bit renders WHITE on ST High
- * (live-verified): paper -> bit set, ink -> bit clear. */
+ * through the luminance ink LUT. A SET screen bit renders BLACK on ST High
+ * (raw-stripe-proven 2026-07-16; an earlier comment here claimed the
+ * opposite). The mapping is the luminance INVERSE: a BRIGHT index (LUT
+ * paper class, g_dsp_ink == 0) sets the bit = BLACK, a DARK index clears
+ * it = WHITE. That inversion renders the port's light-on-dark colour UI
+ * (pen-7 text on dark plates) as the Mac's dark-on-light mono UI. The
+ * engine's mono art writers follow the same model (canonical ink = 15,
+ * paper = 0) — see the mono PLANAR PAGE comment in boot.c. */
 static void hi_blit_rows(short x0, short w, short y0, short h)
 {
 	short y, i;
