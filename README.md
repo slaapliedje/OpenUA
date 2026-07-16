@@ -2,9 +2,12 @@
 
 An open reimplementation of SSI's *Unlimited Adventures* engine — the 1993 Gold
 Box adventure **construction set** — for Motorola 68k retro machines. One engine,
-four machines: the Atari **Falcon030** and **TT030**, and the **Amiga AGA**
-(A1200/A4000), plus an **RTG** path so a classic Amiga with a graphics card runs
-the full 256-colour game.
+six display backends across the Atari and Amiga lines: the Atari **Falcon030**,
+**TT030**, and **ST/STE**; the **Amiga AGA** (A1200/A4000), a **RTG** path so a
+classic Amiga with a graphics card runs the full 256-colour game, and a native
+**ECS** path for a bare classic Amiga. The lower-colour targets (ST/STE 16, ECS
+32) run a runtime median-cut **quantizer** that reduces the engine's 256-colour
+frame to the machine's palette.
 
 *OpenUA* = **Open** + **U**nlimited **A**dventures.
 
@@ -25,22 +28,26 @@ machines.
 
 ## Status — playable beta
 
-The runtime plays a real adventure end to end on **all four** machine targets.
-Everything below is **emulator-validated only** — Hatari for the Atari builds,
-amiberry for the Amiga — and has **never been run on real hardware**. Treat it
-accordingly.
+The runtime plays a real adventure end to end. Everything below is
+**emulator-validated only** — Hatari for the Atari builds, amiberry for the
+Amiga — and has **never been run on real hardware**. Treat it accordingly.
 
 | Target | Backend | Status |
 |---|---|---|
 | **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target; full play-through verified in Hatari. |
 | **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
+| **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette. A 68000 build (runs on any Atari). *v1: global palette — HBL colour bands are the next step.* |
 | **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse, and Paula audio all live. |
 | **Amiga RTG** (classic Amiga + graphics card) | Picasso96 chunky 8-bit screen | Verified — the full 256-colour menu renders on a live Picasso96 320×200×8 RTG screen (amiberry, accelerated A2000 + uaegfx board, Workbench 3.2). A classic non-AGA Amiga with an accelerator and an RTG card runs the game at full colour, no bitplanes. |
+| **Amiga ECS/OCS** (bare classic Amiga) | Native 5bpl copper, quantized to 32 colours | Verified in amiberry on a bare OCS A2000: the menu renders in 32 colours, quantizer live, software cursor. *v1: global palette — per-line copper bands are the next step.* |
 
-The same binary serves each family (one `frua.prg` for Falcon **and** TT; one
-`frua` for AGA **and** RTG) — the machine is detected at runtime and the matching
-display/sound path is chosen. On the paletted targets (TT, AGA, RTG) the palette
-lives in hardware, so colour-cycle animation like the tavern fireplace is free.
+One binary serves each family — one `frua.prg` for Falcon **and** TT (plus a
+68000 `frua.prg` that also covers ST/STE); one `frua` for AGA **and** RTG (plus a
+`FORCE_ECS` build for bare ECS). The machine is detected at runtime and the
+matching display/sound path chosen. On the paletted targets (TT, ST/STE, AGA,
+RTG, ECS) the palette lives in hardware, so colour-cycle animation like the
+tavern fireplace is free (on the quantized targets that lands with the palette
+banding).
 
 What works (on every target unless noted):
 

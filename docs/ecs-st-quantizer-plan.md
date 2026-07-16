@@ -146,6 +146,13 @@ working set (FAR pool ~450 K, play/load buffers) sits. Two structural facts:
    - **Detection split** — `-DFRUA_FORCE_ECS` forces it today; the runtime
      bare-ECS-vs-graphics-card probe (try RTG, else ECS) is still to wire.
    - Palette cycling (fireplace) only re-quantises on substantial loads.
-6. STE backend (16-colour, 4-bit) with **layout-aligned HBL bands** — testable
-   in Hatari `--machine ste`.
-7. EHB, per-line-on-ST, plain-ST, dithering — optional polish, each a later push.
+6. ✅ Native Atari ST/STE backend (`platform/display_ste.c`, 16-colour ST-low).
+   **VERIFIED under Hatari --machine ste + EmuTOS** — the menu renders in 16
+   colours, quantizer live, STE 4-bit palette. Built via `CPU68K=68000` (the
+   ST/STE is a 68000; the build runs on every Atari). Remaining: the
+   **layout-aligned HBL colour bands** (transformative at ST-16 per the banded
+   findings above — the big visual win), and per-line-on-ST as a later push.
+7. EHB, per-line/HBL banding, plain-ST 3-bit tuning, dithering — polish, each a
+   later push. **The banding (per-line copper on ECS, HBL on ST) is now the top
+   remaining item for BOTH native backends** — it's what turns the speckly
+   global-palette v1 into the near-original render the prototype showed.
