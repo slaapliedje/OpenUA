@@ -6050,28 +6050,31 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 
 	if (mode == 2) {
 		if (!(flags & 0x40)) {
-			/* 1bpp PackBits rows (the B&W art set: PIC%c.TLB pictures,
-			 * FRAME/MENU chrome): each row RLE-unpacks to bpp_w BYTES of
-			 * bits; set bits draw in the port fgColor (the Mac mono OR
-			 * leaf), clear bits are transparent. Reached only in B&W
-			 * mode (jt1200()==3 routes the loaders to the .tlb art). */
+			/* 1bpp PackBits rows (the B&W art set: PIC%c.TLB event
+			 * pictures, BIGPIC.TLB backdrops): each row RLE-unpacks
+			 * to bpp_w BYTES of bits. The Mac blitter for this mode
+			 * (L2bfc -> jt1171 + jt1165) is an OPAQUE VERBATIM row
+			 * copy — no OR, no transparency (disasm-verified: jt1165
+			 * is `movew %a4@+,%a3@+` rows). B&W mode paints both
+			 * classes: set = art-white -> chunky 0 (dark class),
+			 * clear = art-black -> 15 (THE MONO INK MODEL at the
+			 * mono PLANAR PAGE). The old set-only transparent draw
+			 * ghosted every event picture over the screen residue
+			 * (white-on-white over the erased viewport).
+			 *
+			 * The colour arm keeps the pen expansion: set bits ->
+			 * fgColor, clear transparent (with the pen left white by
+			 * a prior text draw it painted the play chrome
+			 * invisibly — colour keeps its historic behaviour). */
 			unsigned char rowbuf[192];      /* bpp_w <= 60 shipped     */
 			const unsigned char *s = src;
 			GrafPtr port;
+			short mono3 = (jt1200() == 3);
 			unsigned char fg = 1;
 
 			if (bpp_w > 128)
 				return;
-			if (jt1200() == 3) {
-				/* B&W mode: a set art bit is art-WHITE = chunky
-				 * 0, the DARK class (see THE MONO INK MODEL at
-				 * the mono PLANAR PAGE). No pen: the pen-colour
-				 * path below is the colour mode's 1bpp-through-
-				 * the-pen expansion; with the pen left white by
-				 * a prior text draw it painted the play chrome
-				 * invisibly. */
-				fg = 0;
-			} else {
+			if (!mono3) {
 				GetPort(&port);
 				if (port != NULL && ((CGrafPtr)port)->fgColor != 0)
 					fg = ((CGrafPtr)port)->fgColor;
@@ -6084,13 +6087,17 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 					continue;
 				for (c = 0; c < pix_w; c++) {
 					short dx;
+					int bit = (rowbuf[c >> 3]
+					           & (0x80 >> (c & 7))) != 0;
 
-					if (!(rowbuf[c >> 3] & (0x80 >> (c & 7))))
+					if (!mono3 && !bit)
 						continue;
 					dx = (short)(x + c);
 					if (dx < left || dx >= right)
 						continue;
-					px[(long)dy * pitch + dx] = fg;
+					px[(long)dy * pitch + dx] = mono3
+					    ? (unsigned char)(bit ? 0 : 15)
+					    : fg;
 				}
 			}
 			return;
