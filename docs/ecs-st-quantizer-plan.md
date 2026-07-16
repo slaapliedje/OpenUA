@@ -395,19 +395,52 @@ Debug-hold fixes: the FRUA_MONO_TRACE intro hold is ~33 s per screen
 with the key-skip disabled (headless synthetic events skip instantly),
 and actually honours the deadline now.
 
-REMAINING — the B&W DUNGEON VIEW is its own campaign (the same scale
-the colour render campaign was, #124-#129): render_3d_faithful is the
-COLOUR renderer end-to-end (88x88 hole at (24,24), 8bpp .CTL wall
-sets via the CW pipeline with hardcoded .CTL names, clut bands,
-port_draw_play_frame chrome) — the Mac mono view is 132x132 at scale 3
-with 1bpp .TLB walls through the jt1165 codec family (whose planar-page
-infrastructure this session built). Pieces needed: route the wall
-loads to .TLB in mono, a mono view composer (either adapt the CW
-pipeline to 1bpp x1.5 or revive the faithful jt199/l5b42/jt200 path on
-the planar page), the chrome call outside the colour renderer, and the
-event pictures (PIC%c.TLB 176x176 through the bigpic composer's mono
-arm — the composer is colour/palette-oriented like port_show_intro
-was). Then: codec loose ends (the jt1165/jt1202/jt1197/jt1192 cursor
-family lacks expand brackets at its call sites — jt119/jt122 save-under
-buffers invisibly in mono) and a colour-side sighting of the newly-live
-SPRIT/PIC mode-3 pieces.
+### Phase 2 runtime — B&W DUNGEON VIEW, first cut (2026-07-16, sixth leg)
+
+The mono first-person view's FOUNDATION is in: the real .TLB wall tiles
+load, synthesize, remap, and DRAW in B&W. What landed (all
+jt1200()==3-guarded, colour byte-identical):
+
+- l6eea .TLB PLACEHOLDER SYNTHESIS (Mac 0x6f84-0x7042): the .TLB wall
+  sets ship one side of each L/R pair; items 4,7,10,14,...,47 are
+  10-byte stubs rebuilt as a JT[111] copy of the prior item then
+  H-mirrored (JT[123] -> jt992, whose jt1164 1bpp bit-reverse was
+  already lifted). The size<16 guard no-ops for the all-present .CTLs,
+  so it's faithful in every mode.
+- l5b42 MONO DEEP REMAP: in jt1200()==3, ((v-8012)<<2)+8 pre-scales the
+  8000-space coords to the 480x300 window (8032 -> 88, verified live);
+  jt200's `deep && left<8000` +16 slot step then goes live (exactly why
+  the Mac guards it on <8000).
+- jt114 MONO LEAF: routes to l309c (jt1001-equivalent) -> l2d4e's 1/2bpp
+  mono leaves, no colour band rebase, no cwf viewport clip (the GLIB
+  clip globals rule, as on the Mac).
+- render_3d_faithful MONO ARM: a line-for-line transcription of jt312's
+  CODE 22 deep branch (0x2440-0x24f2) — l6148 wall load, the frame's
+  JT[219] state-only pass, the FRAME piece-9 viewport, jt199 the frustum
+  walk, present.
+- The 8TH g_a5_2347 forcing found: jt918's post-dungeon menu restore hard
+  -set g_a5_2347=1, knocking the mono walk back into the colour renderer;
+  now g_port_2347-seeded.
+
+DEFERRED (the tessellation sub-campaign): the tiles render but don't yet
+compose into a clean corridor — this is the faithful jt199/l5b42/jt200
+PIXEL path, which the COLOUR campaign (#124-#129) ultimately abandoned
+for the pragmatic render_3d_raycast because the runtime layout-globals
+composition was never fully solved. The colour view (render_3d_view /
+_raycast, a clean framed corridor with starfield) is the reference for
+what the mono view should become. Next: either solve the mono pixel-path
+composition or adapt render_3d_raycast to 176x176 scale-3 1bpp. The B&W
+perspective BACKDROP is also deferred (l6ea2's numbered path hunts per-id
+back1NNN files the port folded into BACK.TLB sub-GLIB sets; needs the
+same combined-file mapping the walls got, and to fit the pool alongside
+them). Walls render over paper-white for now.
+
+REMAINING worklist:
+1. The mono dungeon perspective composition (above).
+2. B&W event pictures (PIC%c.TLB 176x176) via a bigpic composer mono arm
+   (like port_show_intro got).
+3. The B&W perspective backdrop (BACK.TLB 1bpp).
+4. Codec loose ends (jt1165/jt1202/jt1197/jt1192 cursor family lacks
+   expand brackets at its call sites — jt119/jt122 save-under buffers
+   invisibly in mono) and a colour-side sighting of the newly-live
+   SPRIT/PIC mode-3 pieces.

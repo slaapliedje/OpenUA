@@ -2727,6 +2727,9 @@ static void  jt214(void);                                 /* CODE 7+0x71c6 — v
 static void  jt80(short arg);                             /* CODE 6+0x68ae */
 static int   jt108(short a);                              /* CODE 6+0x38d0 */
 static int   jt117(void);                                 /* CODE 6+0x3994 */
+static void  jt118(unsigned char *page, short top, short left, short idx,
+                   long handle);                          /* CODE 6+0x37d6 */
+static void  jt1193(void);                                /* clip = full screen */
 static short l5368(short span, short dim, signed char *coord,
                    short origin, short wrap);              /* CODE 7+0x5368 — toroidal mover */
 /* L50fe area-map render callees, defined further down. */
@@ -2902,6 +2905,12 @@ static long cw_wallfile_load(short file)
 	}
 	return (long)(uintptr_t)g_wallfile_buf;
 }
+static unsigned char jt107(void);       /* art-bound latch (CODE 6+0x36da) */
+static short ua_backdrop_to_back(short ua);     /* BACK set mapping        */
+static long  jt1015(void *lib, short item);     /* LBISize                 */
+static void  jt111(long handle, short idx, short z, long handle2, short g);
+static void  jt123(long handle, short b);       /* h-mirror a GLIB item    */
+
 static void l6eea(short zone, short type)
 {
 	/* The persistent HUD first-person view uses the COLOUR .CTL sets (8bpp,
@@ -2937,6 +2946,38 @@ static void l6eea(short zone, short type)
 	name[5] = (char)('0' + (arg & 0x0f));
 	name[6] = '\0';
 	l33ac(name, id, 0, 0, (void **)&g_a5_long(-27894 + (long)type * 4));
+
+	/* Mac 0x6f84-0x7042: after the load, SYNTHESIZE the set's placeholder
+	 * items — the mirrored halves of the left/right wall pairs. The .TLB
+	 * sets ship only one side of each pair (items 4,7,10,14,...,47 are
+	 * 10-byte stubs); each is rebuilt as a COPY of the item before it
+	 * (JT[111]) then H-MIRRORED in place (JT[123] -> jt992, which picks
+	 * the 1/4/8bpp row primitive by jt1200()). The size<16 guard makes
+	 * this a no-op for sets that ship every item (the colour .CTLs), so
+	 * the loop is faithful in every mode. Gated on JT[107] (the art-bound
+	 * latch) as the Mac is. */
+	if (jt107()) {
+		long *slotp = (long *)(void *)
+		    &g_a5_long(-27894 + (long)type * 4);
+		short i;
+
+		for (i = 4; i <= 47; ) {
+			long hh = *slotp;
+
+			if (hh != 0
+			 && jt1015((void *)(uintptr_t)
+			           jt468(*(short *)(uintptr_t)hh), i) < 16) {
+				jt111(hh, (short)(i - 1), (short)0, hh, i);
+				jt123(hh, i);
+			}
+			if (i == 10)            /* 0x702c: 10 -> 11 before +3 */
+				i++;
+			i = (short)(i + 3);
+		}
+	}
+	/* The colour band-remap tail (0x7046-0x70e2, JT[109] over items 0..47)
+	 * is skipped in the deep 1bpp mode by the Mac itself; the port's colour
+	 * path does the equivalent rebase in l309c_tile's band arm. */
 }
 
 /* L6148 (CODE 7 + 0x6148) — load the current level's 3D art. Gated on the
@@ -3266,13 +3307,22 @@ static void l58c4(void)
 	const unsigned char *ds = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short zone, id;
 
-	if (!g_dungeon_bigpic_overlay)          /* CLUT-model gate (see above) */
+	/* CLUT-model gate (see above) — COLOUR only. The B&W mode has no CLUT
+	 * to protect, and its jt312 arm NEEDS this function's BIND side-effect
+	 * (l6ea2 -> the -22222 backdrop handle) even though its own blit is
+	 * clipped out by the empty clip jt312 sets around JT[219]. */
+	if (!g_dungeon_bigpic_overlay && jt1200() != 3)
 		return;
 	if (ds == NULL)
 		return;
 	zone = l5fc0((short)(signed char)g_a5_byte(-12288),
 	             (short)(signed char)g_a5_byte(-12287));
 	id = (short)(unsigned char)ds[8 + zone];
+#ifdef FRUA_MONO_TRACE
+	dbg_file_num("l58c4 zone", zone);
+	dbg_file_num("l58c4 id", id);
+	dbg_file_num("l58c4 cache", (long)(unsigned char)g_a5_byte(-12289));
+#endif
 	if (id >= 32) {                                 /* 0x590c — night-variant */
 		const unsigned char *hdr =
 			(const unsigned char *)(uintptr_t)g_a5_long(-28006);
@@ -3282,17 +3332,41 @@ static void l58c4(void)
 	}
 	if (id == 0)                                    /* 0x5936 — no backdrop */
 		return;
+	if (jt1200() == 3) {
+		/* B&W: the 1bpp perspective backdrop is deferred. The colour
+		 * path draws it via load_backdrop/g_back_img (BACK.CTL 8bpp);
+		 * the mono equivalent (BACK.TLB 1bpp via the FC binder) needs
+		 * the same combined-file set mapping the walls got AND fits in
+		 * the pool alongside the wall sets — a follow-up. For now the
+		 * walls render over the paper-white view. NO bind (l6ea2's
+		 * numbered path hunts per-id files the port's packaging folded
+		 * into BACK.TLB, and a whole-file load risks the pool). */
+		return;
+	}
 	if (id != (short)(unsigned char)g_a5_byte(-12289)) {     /* 0x593e — reload */
 		g_a5_byte(-12289) = (unsigned char)id;
-		l3f3c((short)32, (short)255);           /* JT[105]: install palette */
+		if (jt1200() != 3)
+			l3f3c((short)32, (short)255);   /* JT[105]: install palette */
 		l6ea2(id);
 	}
 	if (g_a5_22222 != 0) {
-		/* 0x596a: jt1200()==3 -> JT[118](8,8,1,0,handle) deep; else
-		 * JT[121](2,2,1,0,handle) native. Only the native arm runs in the
-		 * port's 8-bit play state (jt1200() == 0); the deep arm maps to the
-		 * port's render-path jt118 variant ([[jt118-signature-mismatch]]),
-		 * which is NOT the Mac jt118, so it is intentionally not wired. */
+		if (jt1200() == 3) {
+			/* 0x596a deep arm: JT[118](A=8, B=8, item=1, _, handle).
+			 * Port jt118 convention: (page, top=B, left=A, idx=item,
+			 * RESOLVED base) — the -22222 slot holds the l33ac binder,
+			 * whose tag word resolves through jt468. Under jt312's
+			 * empty clip this paints nothing (jt312 blits the backdrop
+			 * itself after restoring the clip) — kept for call-order
+			 * faithfulness. No jt124 palette commit in B&W (the
+			 * backend's ink LUT must stay on the UI palette). */
+			long bd = jt468(*(short *)(uintptr_t)g_a5_22222);
+
+			if (bd != 0)
+				jt118(NULL, (short)8, (short)8, (short)1, bd);
+			return;
+		}
+		/* native arm: JT[121](2,2,1,0,handle) — the port's 8-bit play
+		 * state (jt1200() == 0). */
 		jt121((short)2, (short)2, (short)1, (short)0, g_a5_22222);
 		jt124(g_a5_22222);                      /* JT[124] = L3eea palette commit */
 	}
@@ -12075,8 +12149,17 @@ static void jt114(unsigned char *page, short top, short left, short idx,
 	 * frustum anchor that must land on X, fp@10 ("left") the narrow one on Y.
 	 * l309c_tile(page, a, b) does jt1135(a,b) -> sy from a, sx from b, so passing
 	 * (left, top) keeps the same swap as the old l309c(left, top). */
-	if (handle != 0)
-		l309c_tile(page, left, top, handle, idx);
+	if (handle == 0)
+		return;
+	if (jt1200() == 3) {
+		/* B&W: the Mac's own leaf — jt1001-equivalent l309c -> l2d4e's
+		 * 1/2-bpp mono leaves. No colour band rebase (the Mac skips the
+		 * JT[109] remap in the deep 1bpp mode) and no cwf viewport clip
+		 * (the GLIB clip globals rule, as on the Mac). Same arg swap. */
+		l309c(left, top, handle, idx);
+		return;
+	}
+	l309c_tile(page, left, top, handle, idx);
 }
 
 /* jt200_layer — draw one wall-tile layer for jt200. FAITHFUL path: blit tile
@@ -12287,6 +12370,17 @@ static void l5b42(unsigned char *page, short y, short x, short ydelta,
 	 * clip itself. */
 	short top  = (short)(y + ((short)(signed char)ydelta << 2));
 	short left = (short)(x + ((short)(signed char)xdelta << 2));
+
+	if (jt1200() == 3) {
+		/* The Mac's deep (B&W) branch (CODE 7 0x5b42): pre-scale the
+		 * 8000-space coords to the 480x300 window — the 176x176 view
+		 * lands at (8,24) from the 8012/8016 anchors. Downstream,
+		 * jt1135 passes the small values through unchanged and
+		 * jt200's `deep && left < 8000` +16 slot step becomes live
+		 * (that is exactly why the Mac guards it on < 8000). */
+		top  = (short)(((top  - 8012) << 2) + 8);
+		left = (short)(((left - 8012) << 2) + 8);
+	}
 #ifdef FRUA_COORD_TRACE
 	dbg_log_num("l5b42 wide=", (long)(signed char)ydelta);
 	dbg_log_num("     narrow=", (long)(signed char)xdelta);
@@ -12769,6 +12863,59 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
 	static short s_chrome_drawn = 0;          /* FRAME.CTL chrome painted? */
+
+#ifdef FRUA_BWMODE
+	if (jt1200() == 3) {
+		/* The Mac's OWN deep (B&W) view — CODE 22 jt312 0x2440..0x24f2,
+		 * transcribed: the caller (jt221) already did JT[131](0) /
+		 * JT[80](0) / JT[108](1).
+		 *
+		 *   1. empty clip + JT[219]: the sky/floor shell runs for its
+		 *      STATE only (the backdrop bind via l58c4/l6ea2) — its
+		 *      draws clip out;
+		 *   2. view clip (rows 21..201) + FRAME piece 9 = the ornate
+		 *      176x176 viewport frame, hole at (8,24)-(184,200);
+		 *   3. clip back to full + JT[118](8,24): the 176x176 1bpp
+		 *      perspective backdrop into the hole;
+		 *   4. jt199: the frustum walk — l5b42's deep remap places the
+		 *      .TLB wall tiles (l6eea loads + synthesizes them) through
+		 *      jt114 -> l309c -> l2d4e's mono leaves.
+		 */
+		short row = (short)(signed char)g_a5_byte(-12288);
+		short col = (short)(signed char)g_a5_byte(-12287);
+		short fc  = (short)(g_a5_12286 & 7);
+
+		(void)pitch; (void)sw; (void)sh;
+		l6148();                            /* load the level's wall sets */
+		jt1173((short)8000, (short)8000, (short)8000, (short)8000);
+		l57f2();                            /* JT[219] — state only       */
+		jt1193();
+		jt1173((short)8007, (short)8000, (short)8067, (short)8160);
+		jt1001((short)16, (short)8000, (short)1, (short)9);
+		jt1193();
+		/* Mac: JT[118](A=8, B=24, item=1, _, -22222) — the 176x176
+		 * perspective backdrop into the view hole. Port convention:
+		 * (page, top=B, left=A, idx, RESOLVED base) — resolve the
+		 * l33ac binder tag through jt468. */
+		if (g_a5_22222 != 0) {
+			long bd = jt468(*(short *)(uintptr_t)g_a5_22222);
+
+			if (bd != 0)
+				jt118(px, (short)24, (short)8, (short)1, bd);
+		}
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+		g_j2_n = 0; g_j2_active = 1;
+#endif
+		jt199(px, (short)8012, (short)8016, row, col, fc);
+#ifdef FRUA_SKIP_ENTRY_EVENTS
+		g_j2_active = 0;
+		j200_dump();
+#endif
+		(void)jt117();
+		qd_present();
+		return;
+	}
+#endif
 	/* The native 320x200 first-person pane: 88x88 at FRAME.CTL set 9's hole
 	 * (24,24)-(112,112). l5b42's deep transform places the view at its natural
 	 * origin (~4,12); g_cwf_ox/oy slide it into the hole (24-4=20, 24-12=12). */
@@ -87795,8 +87942,10 @@ static int jt918(short a)
 	for (;;) {
 		/* Restore the menu display state after a dungeon visit (the
 		 * dungeon leaves clut 0..15 + deep mode changed) — same fix
-		 * as jt315. */
-		g_a5_2347 = 1;
+		 * as jt315. Seeded from the display mode (the 8th port
+		 * forcing the B&W sweep missed — it knocked the mono walk
+		 * back into the colour renderer). */
+		g_a5_2347 = g_port_2347;
 		load_menu_ui();                  /* shared UI palette (was clut 129) */
 
 		/* Paint the Training Hall on the shared menu chrome — the stone
