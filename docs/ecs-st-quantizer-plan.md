@@ -156,10 +156,26 @@ working set (FAR pool ~450 K, play/load buffers) sits. Two structural facts:
 ## Banding — DONE (2026-07-15)
 
 `quant_banded` (quantize.h): one full-frame presence histogram, then a per-band
-median-cut over just the colours each strip uses (via `quant_reduce_n`).
-Re-banded only when the palette is marked dirty (a set_palette), deferred to the
-next present since it needs drawn pixels. Both backends do it; the difference is
-only how the hardware reloads the palette per band — **copper** (ECS, free) vs
-**Timer-B raster interrupt** (ST). The visual result matches the prototype:
-banding turns the speckly global v1 into grey stone. ST at 16 colours still
-shows faint seams (the refinement in step 7).
+median-cut over just the colours each strip uses (via `quant_reduce_n`); colours
+absent from a band at build time fall back to the nearest-LUMINANCE reduced
+entry (the composited cursor / post-reband content must not go black). Both
+backends band; the difference is only how the hardware reloads the palette —
+**copper** (ECS, free) vs **Timer-B raster interrupt** (ST).
+
+Live testing on the ST (2026-07-15) then drove four more fixes, all landed:
+- **Timer-B phase**: armed once, the counter free-ran and (200 % 8 == 0) kept a
+  random line offset forever. The VBL re-phases it every frame.
+- **Border-exact switch**: the timer fires one line EARLY, the handler pre-loads
+  d0-d7 during that line, spins on TBDR (the MFP decrements it at each display
+  line's end), and movem-stores all 16 registers inside the border — no
+  mid-line palette switch, no boundary dashes.
+- **Re-band policy**: only substantial palette loads (count >= 32) mark dirty,
+  and re-banding runs ONLY at a full present (a complete frame). Palette-cycle
+  steps had been forcing full re-band+re-blits against half-drawn frames —
+  the intro corruption and apparent freeze at 8MHz. Cycling therefore doesn't
+  animate on the quantized targets (reserved cycle slots = future work).
+- **Row-diff presents**: modal loops full-present every pass; ~1s of remap+c2p
+  per pass at 8MHz read as "frozen input". st_present diffs rows against a
+  shadow and converts only changes — idle passes collapse to a memcmp scan.
+  (The ECS backend still converts fully per present — 020-class machines carry
+  it; port the row diff there if an A500 test says otherwise.)
