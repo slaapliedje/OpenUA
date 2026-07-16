@@ -179,3 +179,16 @@ Live testing on the ST (2026-07-15) then drove four more fixes, all landed:
   shadow and converts only changes — idle passes collapse to a memcmp scan.
   (The ECS backend still converts fully per present — 020-class machines carry
   it; port the row diff there if an A500 test says otherwise.)
+
+## Future: ST-High monochrome backend (the Mac B&W mode, natively)
+
+The Mac version ships a full 1-bit mode with its own B&W art (both art sets are
+real — see the resource inventory). ST High is 640x400 monochrome — the Mac
+window's EXACT size — and 1-bit is where the planar tax vanishes: 1-bit chunky
+IS planar, so present() is a straight copy (32KB screen, no quantizer, no
+bands, no c2p). A mono backend would likely be the FASTEST Atari presentation
+of the game and pixel-faithful to the Mac's mono mode at native resolution,
+for SM124-monitor owners. The work is ENGINE-side: lift how the Mac selects
+B&W vs colour resources (the Toolbox depth checks feeding the art loads), then
+the display backend is trivial. (Prompted by the user asking whether mono
+cursors would speed the ST up — cursors don't, the mode would.)
