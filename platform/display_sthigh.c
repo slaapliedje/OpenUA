@@ -65,6 +65,14 @@ static short          s_force_full;
 static unsigned char s_dith_top[256];
 static unsigned char s_dith_bot[256];
 
+#ifdef FRUA_BWMODE
+/* Engine-B&W ink LUT: the surface stays COLOUR-INDEXED (so every colour-arm
+ * draw — text bg fills, plates, art — works unchanged) and present maps each
+ * index to ink/paper by PALETTE LUMINANCE. Rebuilt by set_palette; the
+ * default marks only index 0 (black) as ink until a palette arrives. */
+static unsigned char s_ink[256];
+#endif
+
 /* Bayer 2x2 threshold matrix [top-left, top-right; bottom-left, bottom-right]
  * = [0,2;3,1], expressed as per-level 2-bit patterns. Live-verified polarity
  * (Hatari --monitor mono, TOS 2.06): a SET bit renders WHITE, so level 0
@@ -112,6 +120,10 @@ static int sthigh_init(short want_w, short want_h)
 	/* Default all-white until the first palette arrives. */
 	memset(s_dith_top, 0, sizeof s_dith_top);
 	memset(s_dith_bot, 0, sizeof s_dith_bot);
+#ifdef FRUA_BWMODE
+	memset(s_ink, 0, sizeof s_ink);
+	s_ink[0] = 1;                   /* index 0 = black until a palette lands */
+#endif
 
 	s_surface.width  = SURF_W;
 	s_surface.height = SURF_H;
@@ -144,12 +156,9 @@ static dsp_surface_t *sthigh_surface(void)
 
 #ifdef FRUA_BWMODE
 
-/* Engine-B&W: pack byte-per-pixel rows (0 = white, nonzero = ink) 1:1 into
- * the centred 480x300 window. A SET screen bit renders WHITE on ST High
- * (live-verified), so ink = clear bit... the screen was memset 0 = all-ink?
- * No: memset(0) leaves bits clear = BLACK field; the init clears to 0 which
- * displays as black surround — acceptable framing for the centred window.
- * Ink pixel -> bit CLEAR (black), blank -> bit SET (white). */
+/* Engine-B&W: pack colour-indexed rows 1:1 into the centred 480x300 window
+ * through the luminance ink LUT. A SET screen bit renders WHITE on ST High
+ * (live-verified): paper -> bit set, ink -> bit clear. */
 static void hi_blit_rows(short x0, short w, short y0, short h)
 {
 	short y, i;
@@ -165,8 +174,8 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 			short k;
 
 			for (k = 0; k < 8; k++)
-				if (src[i + k] == 0)
-					b |= (unsigned char)(0x80 >> k);   /* white */
+				if (!s_ink[src[i + k]])
+					b |= (unsigned char)(0x80 >> k);   /* paper */
 			*d++ = b;
 		}
 		memcpy(s_shadow + (long)yy * SURF_W + x0, src, (size_t)w);
@@ -265,6 +274,9 @@ static void sthigh_set_palette(const dsp_color_t *colors, short first, short cou
 			lvl = 4;
 		s_dith_top[idx] = k_lvl_top[lvl];
 		s_dith_bot[idx] = k_lvl_bot[lvl];
+#ifdef FRUA_BWMODE
+		s_ink[idx] = (unsigned char)(lum < 112);
+#endif
 	}
 	/* The mapping changed under already-converted rows. */
 	s_force_full = 1;

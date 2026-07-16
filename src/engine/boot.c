@@ -666,6 +666,15 @@ static void  jt1129(short a)
  * 256-entry palette through jt993 (count = jt1200()?16:256) instead of
  * the 16-colour fallback — the faithful runtime state on colour hardware.
  * The <8bpp alert + B&W fallback arm (0x47e2) is unreachable on VIDEL. */
+/* What the port's screens seed g_a5_2347 with. On the Mac -2347 is derived
+ * from the device depth once; the PORT re-forces it at screen entries
+ * (menu_run, the play screen, the boot seed) because several early lifts
+ * used it as an "encounter state" — those forcings must follow the display
+ * mode or they knock a mono session back into the colour arms. 1 = colour
+ * (every existing build), 0 = the B&W 480x300 mode (FRUA_BWMODE + a mono
+ * backend). */
+static short g_port_2347 = 1;
+
 static void color_mode_init(void)
 {
 	g_a5_1314 = 0;          /* Color QuickDraw present (colour VIDEL)   */
@@ -677,12 +686,14 @@ static void color_mode_init(void)
 		 * port's analog is the display backend. A mono backend = a 1-bit
 		 * device: g_a5_1315 flips, jt1200() returns 3, and the engine's
 		 * own (already-lifted) B&W arms select the .tlb art set and the
-		 * 480x300 layout. Bring-up-gated behind FRUA_BWMODE. */
+		 * 480x300 layout (jt1135 scale 3). Bring-up-gated behind
+		 * FRUA_BWMODE. */
 		extern int g_dsp_mono_active;
 
 		if (g_dsp_mono_active) {
 			g_a5_1318 = 1;
 			g_a5_1315 = 1;
+			g_port_2347 = 0;    /* screens must NOT force colour */
 		}
 	}
 #endif
@@ -4336,7 +4347,7 @@ static void jt948(void)
 	 * want the command bar / HUD at scale 2 (the layout the menu uses), so
 	 * run the play screen at g_a5_2347=1; the first-person view still renders
 	 * deep via g_cwf_force_deep (see render_3d_faithful). */
-	g_a5_2347 = 1;
+	g_a5_2347 = g_port_2347;
 
 	for (;;) {                                      /* L4a1a — level (re)load */
 		g_a5_long(-5218) = g_a5_long(-27932);
@@ -5951,6 +5962,42 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				if (dx < left || dx >= right)
 					continue;
 				px[(long)dy * pitch + dx] = v;
+			}
+		}
+		return;
+	}
+
+	if (mode == 1 && !(flags & 0x40)) {
+		/* 2bpp COMPACT piece (the B&W art set: FRAME bar cells 10..12,
+		 * ALWAYS/TOPVIEW pieces): row stride = 2*bpp_w bytes, four MSB-
+		 * first 2-bit pixels per byte, four tone levels. On the 1-bit
+		 * surface: level 0 = white, 1 = a 25% stipple, 2 = a 75%
+		 * stipple, 3 = black (the Mac's B&W tone mapping, approximated
+		 * pixel-wise at native scale). */
+		for (r = 0; r < height; r++) {
+			short dy = (short)(y + r);
+			const unsigned char *srow = src + (long)r * (2 * bpp_w);
+
+			if (dy < top || dy >= bottom)
+				continue;
+			for (c = 0; c < pix_w; c++) {
+				unsigned char b = srow[c >> 2];
+				unsigned char v = (unsigned char)
+				    ((b >> (6 - 2 * (c & 3))) & 3);
+				short dx = (short)(x + c);
+				unsigned char ink;
+
+				if (dx < left || dx >= right)
+					continue;
+				switch (v) {
+				case 0:  ink = 15; break;                     /* white */
+				case 1:  ink = (unsigned char)((((dx ^ dy) & 1) == 0) ? 0 : 15);
+					 break;                               /* 25%   */
+				case 2:  ink = (unsigned char)((((dx ^ dy) & 1) != 0 || (dx & 1)) ? 0 : 15);
+					 break;                               /* 75%   */
+				default: ink = 0; break;                      /* black */
+				}
+				px[(long)dy * pitch + dx] = ink;
 			}
 		}
 		return;
@@ -9916,7 +9963,7 @@ void boot_a5_seed_defaults(void)
 	 * boot-time code (L4d98's jt997 loads, jt1166/jt1179, jt1186)
 	 * runs before any screen does, so seed it here or the session
 	 * init loads the B&W .TLB libraries instead. */
-	g_a5_2347 = 1;
+	g_a5_2347 = g_port_2347;
 
 	/* JT[1083] PRNG seed. The Mac's L01a2 (CODE 5+0x1a2) plants
 	 * g_a5_4902 = jt1143() = GetDateTime() ^ TickCount() at app init so each
@@ -15486,12 +15533,23 @@ static void jt124(long h)     { PROBE("jt124"); l3eea((void *)(uintptr_t)h); }  
  * -> JT[995] with mode 2, else JT[1001]. Used for the automap party marker
  * (jt216, glyph 17+facing) and other index-glyph draws that were no-ops while
  * this was stubbed. */
+static int  mono_ui(void);          /* defined with the menu painters below */
+
 static void jt448(short x, short y, short color, short glyph)
 {
 	PROBE("jt448");
-	if (jt1200() == 3)
+	if (jt1200() == 3) {
+#ifdef FRUA_BWMODE
+		/* PORT (B&W bring-up): jt995 is the PLANAR glyph codec — it
+		 * writes 1-bit words through the l05dc blit cursor, which the
+		 * port still addresses byte-chunky. Until the codec's byte-
+		 * surface port lands (worklist), its writes are stray speckle
+		 * over the surface — skip; jt137 paints the button plate. */
+		if (mono_ui())
+			return;
+#endif
 		jt995(x, y, color, glyph, (short)2);
-	else
+	} else
 		jt1001(x, y, color, glyph);
 }
 
@@ -23808,12 +23866,36 @@ static void port_show_intro(void)
  * read as a chevron at the fold). The lifted ui_glib_blit draws whole
  * images; this is a tuned interior tile, since gen's bright edge isn't part
  * of the tileable field. */
+/* Nonzero when the port UI should paint in Mac-mono style (white plates,
+ * black frames, a stipple backdrop) — the B&W mode's look. */
+static int mono_ui(void)
+{
+#ifdef FRUA_BWMODE
+	extern int g_dsp_mono_active;
+
+	return g_dsp_mono_active;
+#else
+	return 0;
+#endif
+}
+
 static void fill_backdrop(unsigned char *px, short pitch,
                           short x0, short y0, short x1, short y1)
 {
 	short x, y;
 	short T = (short)(g_bg_h - 2);       /* interior height (skip rows 0,1) */
 
+	if (mono_ui()) {
+		/* The Mac B&W backdrop: a 50% stipple (the desktop-grey QD
+		 * pattern), in place of the stone texture. */
+		for (y = y0; y <= y1; y++) {
+			unsigned char *d = px + (long)y * pitch;
+
+			for (x = x0; x <= x1; x++)
+				d[x] = (unsigned char)(((x ^ y) & 1) ? 0 : 15);
+		}
+		return;
+	}
 	if (g_menu_state != 1 || T <= 0)
 		return;
 	for (y = y0; y <= y1; y++) {
@@ -23833,7 +23915,14 @@ static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
 {
 	unsigned char tl = recessed ? MENU_BEVEL_DARK  : MENU_BEVEL_LIGHT;
 	unsigned char br = recessed ? MENU_BEVEL_LIGHT : MENU_BEVEL_DARK;
+	unsigned char face = MENU_PLATE_FILL;
 	short x, y;
+
+	if (mono_ui()) {
+		/* Mac-mono plate: white face, black frame all round. */
+		face = 15;
+		tl = br = 0;
+	}
 
 	if (x0 < 0) x0 = 0;
 	if (y0 < 0) y0 = 0;
@@ -23843,7 +23932,7 @@ static void draw_plate(unsigned char *px, short pitch, short sw, short sh,
 		return;
 
 	for (y = y0; y <= y1; y++)
-		memset(px + (long)y * pitch + x0, MENU_PLATE_FILL,
+		memset(px + (long)y * pitch + x0, face,
 		       (size_t)(x1 - x0 + 1));
 	for (x = x0; x <= x1; x++) {
 		px[(long)y0 * pitch + x] = tl;
@@ -23872,10 +23961,15 @@ static void menu_button_bevel(unsigned char *px, short pitch, short sw, short sh
                               short x0, short y0, short x1, short y1, int recessed)
 {
 	const unsigned char HI = MENU_BEVEL_LIGHT;   /* clut 19 highlight */
-	const unsigned char FACE = MENU_PLATE_FILL;  /* clut 23 face      */
+	unsigned char FACE = MENU_PLATE_FILL;        /* clut 23 face      */
 	unsigned char tl = recessed ? 0  : HI;       /* top + left edge   */
 	unsigned char br = recessed ? HI : 0;        /* bottom + right    */
 	short x, y;
+
+	if (mono_ui()) {                             /* white face, black frame */
+		FACE = 15;
+		tl = br = 0;
+	}
 
 	if (x0 < 0) x0 = 0;
 	if (y0 < 0) y0 = 0;
@@ -23916,6 +24010,26 @@ static void draw_title_panel(unsigned char *px, short pitch, short sw, short sh,
 	if (x1 <= x0 + 2 || y1 <= y0 + 2)
 		return;
 
+	if (mono_ui()) {
+		/* Mac-mono title panel: white face, 2px black frame. */
+		for (y = y0; y <= y1; y++)
+			memset(px + (long)y * pitch + x0, 15,
+			       (size_t)(x1 - x0 + 1));
+		for (x = x0; x <= x1; x++) {
+			px[(long)y0 * pitch + x] = 0;
+			px[(long)(y0 + 1) * pitch + x] = 0;
+			px[(long)y1 * pitch + x] = 0;
+			px[(long)(y1 - 1) * pitch + x] = 0;
+		}
+		for (y = y0; y <= y1; y++) {
+			px[(long)y * pitch + x0] = 0;
+			px[(long)y * pitch + (x0 + 1)] = 0;
+			px[(long)y * pitch + x1] = 0;
+			px[(long)y * pitch + (x1 - 1)] = 0;
+		}
+		return;
+	}
+
 	for (y = y0; y <= y1; y++)               /* face */
 		memset(px + (long)y * pitch + x0, MENU_PLATE_FILL,
 		       (size_t)(x1 - x0 + 1));
@@ -23954,7 +24068,7 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 {
 	short i;
 
-	g_a5_2347 = 1;                       /* non-encounter: jt1135 scale 2 */
+	g_a5_2347 = g_port_2347;             /* colour: jt1135 scale 2; B&W: 3 */
 	SetCursor(qd_sword_cursor());        /* engine sword cursor at the UI */
 	load_menu_ui();
 
@@ -26169,7 +26283,7 @@ static int  jt574(long ctx)
 	 * do NOT switch to ×3 to gain margin (it engages deep mode — wrong
 	 * colours/markers — and overflows 320x200). Any header-vs-frame
 	 * tightness is a 320x200 alignment detail (task #108). */
-	g_a5_2347 = 1;
+	g_a5_2347 = g_port_2347;
 	load_menu_ui();                      /* shared UI palette + backdrop */
 
 	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
@@ -26327,7 +26441,7 @@ static void cg_train_screen(void)
 	nparty = cg_collect_party(party, 16);
 	if (nparty == 0)
 		return;
-	g_a5_2347 = 1;
+	g_a5_2347 = g_port_2347;
 	load_menu_ui();
 	while (plat_kb_poll(&scan, &ascii))
 		;
@@ -32207,7 +32321,7 @@ static void jt1184(const void *src_v, short rows, short wbytes,
 	dstadv = g_a5_long(-3084) - wbytes + 2;
 	for (r = 0; r < rows; r++) {
 		unsigned short w = (unsigned short)
-		    (~*(const short *)(const void *)src & lmask);
+		    (~(unsigned short)(((unsigned short)src[0]<<8)|src[1]) & lmask);
 
 		src += 2;
 		for (n = (short)(nw - 1); n > 0; n--) {
@@ -32251,13 +32365,15 @@ static void jt1191(const void *src_v, const void *mask_v, short rows,
 	l05ea(rows, (short)(wbytes + 2));
 	dst = (unsigned char *)(uintptr_t)l05dc();
 	dstadv = g_a5_long(-3084) - wbytes;
+	/* The art pieces land at ODD .TLB offsets; word reads there are an
+	 * ADDRESS ERROR on the 68000 (the Mac ran this on 020s). Byte-safe
+	 * big-endian reads throughout — hit live in B&W bring-up. */
+#define JT1191_RD(p) ((unsigned short)(((unsigned short)(p)[0] << 8) | (p)[1]))
 	for (r = 0; r < rows; r++) {
 		unsigned short s, m;
 
-		s = (unsigned short)
-		    (*(const short *)(const void *)src & lmask);
-		m = (unsigned short)
-		    (~*(const short *)(const void *)msk & lmask);
+		s = (unsigned short)(JT1191_RD(src) & lmask);
+		m = (unsigned short)(~JT1191_RD(msk) & lmask);
 		src += 2; msk += 2;
 		n = (short)(nw - 1);
 		if (n == 0) {
@@ -32267,22 +32383,25 @@ static void jt1191(const void *src_v, const void *mask_v, short rows,
 		for (;;) {
 			unsigned long vs = ((unsigned long)s << 16) >> shift;
 			unsigned long vm = ((unsigned long)m << 16) >> shift;
+			unsigned long dv;
 
-			*(unsigned long *)(void *)dst =
-			    (*(unsigned long *)(void *)dst & ~vm) ^ vs;
+			dv = ((unsigned long)dst[0] << 24)
+			   | ((unsigned long)dst[1] << 16)
+			   | ((unsigned long)dst[2] << 8) | dst[3];
+			dv = (dv & ~vm) ^ vs;
+			dst[0] = (unsigned char)(dv >> 24);
+			dst[1] = (unsigned char)(dv >> 16);
+			dst[2] = (unsigned char)(dv >> 8);
+			dst[3] = (unsigned char)dv;
 			dst += 2;
 			n--;
 			if (n > 0) {
-				s = *(const unsigned short *)(const void *)src;
-				m = (unsigned short)
-				    ~*(const short *)(const void *)msk;
+				s = JT1191_RD(src);
+				m = (unsigned short)~JT1191_RD(msk);
 				src += 2; msk += 2;
 			} else if (n == 0) {
-				s = (unsigned short)
-				    (*(const short *)(const void *)src & rmask);
-				m = (unsigned short)
-				    (~*(const short *)(const void *)msk
-				     & rmask);
+				s = (unsigned short)(JT1191_RD(src) & rmask);
+				m = (unsigned short)(~JT1191_RD(msk) & rmask);
 				src += 2; msk += 2;
 			} else {
 				break;
@@ -32292,6 +32411,7 @@ static void jt1191(const void *src_v, const void *mask_v, short rows,
 		msk += srcskip;
 		dst += dstadv;
 	}
+#undef JT1191_RD
 }
 
 /* JT[1189] (CODE 4+0x0ec0) — byte-identical twin of JT[1191]: the
@@ -32331,7 +32451,7 @@ static short jt1183(const void *src_v, short rows, short wbytes,
 	dstadv = g_a5_long(-3084) - wbytes;
 	for (r = 0; r < rows; r++) {
 		unsigned short w = (unsigned short)
-		    (~*(const short *)(const void *)src & lmask);
+		    (~(unsigned short)(((unsigned short)src[0]<<8)|src[1]) & lmask);
 
 		src += 2;
 		n = (short)(nw - 1);
@@ -32339,18 +32459,18 @@ static short jt1183(const void *src_v, short rows, short wbytes,
 			w = (unsigned short)(w & rmask);
 		for (;;) {
 			if (((((unsigned long)w << 16) >> shift)
-			     & *(const unsigned long *)(const void *)dst)
+			     & (((unsigned long)dst[0]<<24)|((unsigned long)dst[1]<<16)|((unsigned long)dst[2]<<8)|dst[3]))
 			    != 0)
 				return -1;
 			dst += 2;
 			n--;
 			if (n > 0) {
 				w = (unsigned short)
-				    ~*(const short *)(const void *)src;
+				    ~(unsigned short)(((unsigned short)src[0]<<8)|src[1]);
 				src += 2;
 			} else if (n == 0) {
 				w = (unsigned short)
-				    (~*(const short *)(const void *)src
+				    (~(unsigned short)(((unsigned short)src[0]<<8)|src[1])
 				     & rmask);
 				src += 2;
 			} else {
@@ -32384,7 +32504,7 @@ static short jt1188(const void *src_v, short rows, short wbytes,
 	dstadv = g_a5_long(-3084) - wbytes;
 	for (r = 0; r < rows; r++) {
 		unsigned short w = (unsigned short)
-		    (~*(const short *)(const void *)src & lmask);
+		    (~(unsigned short)(((unsigned short)src[0]<<8)|src[1]) & lmask);
 
 		src += 2;
 		n = (short)(nw - 1);
@@ -32401,11 +32521,11 @@ static short jt1188(const void *src_v, short rows, short wbytes,
 			n--;
 			if (n > 0) {
 				w = (unsigned short)
-				    ~*(const short *)(const void *)src;
+				    ~(unsigned short)(((unsigned short)src[0]<<8)|src[1]);
 				src += 2;
 			} else if (n == 0) {
 				w = (unsigned short)
-				    (~*(const short *)(const void *)src
+				    (~(unsigned short)(((unsigned short)src[0]<<8)|src[1])
 				     & rmask);
 				src += 2;
 			} else {
@@ -37046,7 +37166,7 @@ static int cg_char_sheet(unsigned char *rec)
 	 * (jt82) draws its FRAME pieces without resetting the palette, so without
 	 * this they blit against the pick-screen CLUT (garbled colour noise) and
 	 * any jt1161 fill clips away.  Mirrors jt574's preamble. */
-	g_a5_2347 = 1;
+	g_a5_2347 = g_port_2347;
 	load_menu_ui();
 	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
@@ -86953,7 +87073,7 @@ static void cg_body_repro(void)
 	g_a5_long(-27932) = (long)(uintptr_t)body_rec;
 
 	/* menu screen + full-screen clip, like cg_char_sheet / jt574 */
-	g_a5_2347 = 1;
+	g_a5_2347 = g_port_2347;
 	load_menu_ui();
 	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
 		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
@@ -87714,6 +87834,40 @@ static short jt137(void *rec_v, short msg, ...)
 		rec[28] |= 0x80;
 		if (rec[28] & 0x02)
 			return 0;
+#ifdef FRUA_BWMODE
+		if (mono_ui()) {
+			/* PORT (B&W bring-up): the faithful bar pieces draw
+			 * through the jt995 planar codec, whose byte-surface
+			 * port is still pending — until then paint the button
+			 * as a Mac-mono plate (white face, black frame) over
+			 * the EXACT button rect, which is jt137's own msg==2
+			 * hit-test rect. The label then draws on top. */
+			unsigned char *mpx;
+			short mpitch, msw, msh, py0, px0, py1, px1, yy, xx;
+
+			jt1135((short)(*(short *)(void *)(rec + 16) - 1),
+			       (short)(*(short *)(void *)(rec + 18) - 2),
+			       &py0, &px0);
+			jt1135((short)(*(short *)(void *)(rec + 16) + 5),
+			       (short)(*(short *)(void *)(rec + 18)
+			               + *(short *)(void *)(rec + 24) * 4 + 2),
+			       &py1, &px1);
+			if (qd_screen_pixels(&mpx, &mpitch, &msw, &msh)
+			    && mpx != NULL) {
+				if (px1 > msw) px1 = msw;
+				if (py1 > msh) py1 = msh;
+				for (yy = py0; yy < py1; yy++) {
+					unsigned char *d = mpx + (long)yy * mpitch;
+
+					for (xx = px0; xx < px1; xx++)
+						d[xx] = (unsigned char)
+						    ((yy == py0 || yy == py1 - 1
+						      || xx == px0 || xx == px1 - 1)
+						     ? 0 : 15);
+				}
+			}
+		}
+#endif
 		pal = (short)((rec[28] & 0x09) ? 3 : 0);
 		jt1135(*(short *)(void *)(rec + 16), (short)8000, &y, &x);
 		if (!(rec[28] & 0x20))
