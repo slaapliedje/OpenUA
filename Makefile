@@ -208,12 +208,14 @@ data-pool-regen: $(DATAPOOL_FILES)
 # console to this terminal; --dsp emu emulates the Falcon DSP. The --auto
 # arg is an Atari path, not a host path — the GEMDOS-mounted build dir
 # becomes C: inside the emulator, so frua.prg sits at C:\frua.prg.
-# Fall back to EmuTOS 512K when the real 4.04 image is missing OR EMPTY — a
-# botched ROM copy left 0-byte TOS files once (2026-07-15), and hatari's
-# "FATAL: Can not load TOS" for an empty file looks like a harness bug.
-FALCON_TOS ?= $(shell [ -s /usr/share/hatari/TOSv4.04.img ] \
-	&& echo /usr/share/hatari/TOSv4.04.img \
-	|| echo /usr/share/hatari/etos512us.img)
+# TOS 4.04 fallback chain: the system copy, then the user-local download, then
+# EmuTOS 512K. Only NON-EMPTY files count — a botched ROM copy left 0-byte TOS
+# files once (2026-07-15), and hatari's "FATAL: Can not load TOS" for an empty
+# file looks like a harness bug.
+FALCON_TOS ?= $(shell for f in /usr/share/hatari/TOSv4.04.img \
+	$(HOME)/Downloads/Atari/tos404.img; do \
+	[ -s $$f ] && { echo $$f; exit; }; done; \
+	echo /usr/share/hatari/etos512us.img)
 # Emulated ST-RAM in MB. Falcon-valid sizes: 1, 4, 14. Development default
 # is 14 so memory-pressure flakes don't mask logic bugs; the shipping
 # targets are 4 (the pragmatic floor today) and eventually 1 (the Mac's
