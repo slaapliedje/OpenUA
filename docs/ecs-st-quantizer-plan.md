@@ -551,3 +551,38 @@ REMAINING worklist:
 3. Codec loose ends (jt1165/jt1202/jt1197/jt1192 cursor family lacks
    expand brackets at its call sites) and a colour-side sighting of the
    newly-live SPRIT/PIC mode-3 pieces.
+
+### Phase 2 runtime — B&W EVENT PICTURES LIVE (2026-07-16, 10th leg, 5725669)
+
+The l2d4e mode-2 1bpp PackBits leaf drew SET BITS ONLY (transparent
+clear) — every mono event picture ghosted over screen residue. The
+HEIRS entry portrait rendered as an eroded smear (mistaken at first
+for entirely different art — a host-side decode of PICB.TLB id 133
+via its entry-0 id directory proved the runtime had the RIGHT art,
+sub-GLIB 30, drawn wrong), and the take-treasure screen's picture
+drew white-on-white: the post-event "blank viewport" and the
+user-sighted bigpic load/unload weirdness were BOTH this.
+
+DISASM TRUTH: the Mac's mode-2 handler (CODE 5 L2bfc) unpacks each
+row (jt1171) and writes it with jt1165 — a verbatim `movew` row copy.
+OPAQUE, no OR. The mono leaf now paints both classes (set = art-white
+-> chunky 0, clear -> 15); colour keeps its historic pen expansion.
+
+Verified live through the whole HEIRS entry chain: portrait -> typed
+text pages -> XP/treasure announcement -> take screen (treasure-pile
+picture + VIEW/TAKE/POOL/SHARE/EXIT chips) -> "treasure left?" YES/NO
+-> farewell page. BONUS: the FRAME marble chrome bars render now (they
+had been painting invisibly — the "near-invisible play-frame chrome"
+open question closes). PIC id->library mapping documented: PIC%c letter
+bands A<76 B<138 C<164 D<193 E<227 F, each library's entry 0 = an
+{id,index} directory consulted by jt1013.
+
+Colour: menu byte-identical (AE=0), make test 175.
+
+REMAINING polish (new):
+- mono message-text WRAP WIDTH overflows the message viewport into the
+  roster (the "EACH CHARACTER RECEIVES..." page) — the mode-3 text
+  layout width needs its Mac value.
+- typewriter text is SLOW at 8MHz ST (per-glyph bracket+flush) — fine
+  on Falcon/TT, painful on a real ST; candidates: span-batched expand,
+  present_rect coalescing.
