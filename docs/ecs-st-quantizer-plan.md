@@ -636,3 +636,37 @@ DEBUGGING NOTE: the Hatari cmd-fifo PC-sampling recipe (echo
 m68k-atari-mint-nm + the load base from a known symbol) turned a
 mush of theories into one answer in minutes — use it before
 theorizing about any perf/hang symptom.
+
+### Phase 2 runtime — ★★★THE FINAL INK MODEL, REAL-MAC VERIFIED (2026-07-16, 13th leg, 9bbf56d)
+
+The user booted FRUA in BasiliskII B&W and captured the merchant event
+and the 3D walk — the campaign's first true Mac-mono ground truth. The
+Mac mono play screen keeps the COLOUR game's design language: BLACK
+panels + WHITE text (roster, clock, message area), WHITE chips + BLACK
+text (NAME/AC-HP, selection, verbs), marble stipple chrome, art as we
+render it. (And the Mac game window is 480x300 — compact-Mac sized —
+exactly this port's mono surface.)
+
+THE MODEL (fourth and final sign combination):
+- hi_blit_rows: DIRECT luminance — dark chunky index -> black ink,
+  bright -> white paper. (The inverse mapping had silently inverted
+  every panel/chip for twelve legs; the pure-art writers cancelled it,
+  so screenshots kept "verifying".)
+- Art writers: .TLB SET bit = art-white -> chunky 15 (sync/expand,
+  l2d4e mode-1/mode-2, backdrop). Mode-0 pen/OR glyphs: ink = 0.
+- g_dsp_ink[v]==1 = dark = INK at last; the naming-trap comments died.
+
+Verified: walk screen + menu mirror the Mac captures; colour AE=0, 175.
+
+RESIDUAL DELTAS (next campaign — mono HUD chrome coverage, not
+polarity): the Mac clock plate is BLACK (ours unpainted white — likely
+a mono FRAME piece we don't draw); NAME/AC-HP are white CHIPS (ours
+bare text); the PRESS/RETURN/TO CONTINUE prompt is white chips + black
+text (ours renders a dark bar — trace the event-prompt fill/style
+path, expected l177a style 7 -> white). See the jt304/L3fd8 chrome map
+(dungeon-hud-chrome-arch) for the Mac mono piece inventory.
+
+MORAL, final form: a polarity conclusion needs THREE anchors — the
+display (raw stripe), the art (a semantically forced image), and a
+REAL-MACHINE UI reference. The first two cannot detect a uniform
+UI inversion; only the Mac photos could.
