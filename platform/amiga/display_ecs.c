@@ -61,6 +61,8 @@ extern struct GfxBase *GfxBase;         /* opened/owned by display_aga.c */
 
 static unsigned char *s_chunky;         /* the engine's 8bpp surface        */
 static unsigned char *s_remap_buf;      /* chunky remapped to 0..31         */
+static unsigned char *s_shadow;         /* chunky as of the last convert    */
+static short          s_force_full;     /* LUTs changed: diffing is void    */
 static unsigned char *s_planes[2];      /* double-buffered 5-plane sets     */
 static int            s_front;
 static dsp_surface_t  s_surface;
@@ -185,17 +187,19 @@ static int ecs_init(short want_w, short want_h)
 
 	s_chunky    = AllocMem((ULONG)ECS_W * ECS_H, MEMF_ANY | MEMF_CLEAR);
 	s_remap_buf = AllocMem((ULONG)ECS_W * ECS_H, MEMF_ANY | MEMF_CLEAR);
+	s_shadow    = AllocMem((ULONG)ECS_W * ECS_H, MEMF_ANY | MEMF_CLEAR);
 	s_planes[0] = AllocMem(FRAME_BYTES, MEMF_CHIP | MEMF_CLEAR);
 	s_planes[1] = AllocMem(FRAME_BYTES, MEMF_CHIP | MEMF_CLEAR);
 	s_cop       = AllocMem(COP_WORDS * sizeof(UWORD), MEMF_CHIP | MEMF_CLEAR);
-	if (s_chunky == NULL || s_remap_buf == NULL || s_planes[0] == NULL
-	    || s_planes[1] == NULL || s_cop == NULL) {
+	if (s_chunky == NULL || s_remap_buf == NULL || s_shadow == NULL
+	    || s_planes[0] == NULL || s_planes[1] == NULL || s_cop == NULL) {
 		dbg_log("ecs: AllocMem failed (chip for planes/copper?)");
 		ecs_shutdown_partial();
 		return 1;
 	}
 	s_front = 0;
 	s_dirty = 1;                    /* first present builds the bands */
+	s_force_full = 1;
 
 	s_surface.width  = ECS_W;
 	s_surface.height = ECS_H;
@@ -223,6 +227,7 @@ static void ecs_shutdown_partial(void)
 	if (s_planes[0]) { FreeMem(s_planes[0], FRAME_BYTES); s_planes[0] = NULL; }
 	if (s_planes[1]) { FreeMem(s_planes[1], FRAME_BYTES); s_planes[1] = NULL; }
 	if (s_remap_buf) { FreeMem(s_remap_buf, (ULONG)ECS_W * ECS_H); s_remap_buf = NULL; }
+	if (s_shadow)    { FreeMem(s_shadow, (ULONG)ECS_W * ECS_H); s_shadow = NULL; }
 	if (s_chunky)    { FreeMem(s_chunky, (ULONG)ECS_W * ECS_H); s_chunky = NULL; }
 	/* GfxBase belongs to display_aga.c; leave it open. */
 }
@@ -281,6 +286,7 @@ static void ecs_reband(void)
 	}
 	s_dirty = 0;
 	s_have_pal = 1;
+	s_force_full = 1;               /* every LUT moved: row diffing is void */
 }
 
 /* Full render: (re-band if dirty), remap the whole surface, convert to the
@@ -297,13 +303,42 @@ static void ecs_render(void)
 	for (p = 0; p < ECS_DEPTH; p++)
 		planes[p] = back + (ULONG)p * ECS_PITCH * ECS_H;
 	c2p_amiga_n(s_remap_buf, planes, ECS_W, ECS_H, ECS_PITCH, ECS_DEPTH);
+	CopyMem(s_chunky, s_shadow, (ULONG)ECS_W * ECS_H);
 	cop_point_planes(back);
 	s_front ^= 1;
+	s_force_full = 0;
 }
 
+/* Full present with ROW DIFFING (the ST backend's fix, ported: a real bare-ECS
+ * machine is a 7MHz 68000, slower than the STE). The engine's modal loops end
+ * every pass in a full present; converting all 64000 pixels each time reads as
+ * frozen input at that speed. Diffed rows convert straight into the DISPLAYED
+ * plane set — the same policy present_rect already uses (at worst one frame of
+ * shear inside a changed row); the tear-free back-buffer flip is reserved for
+ * the force-full path (a re-band), where every row converts anyway. */
 static void ecs_present(void)
 {
-	ecs_render();
+	unsigned char *front;
+	unsigned char *planes[ECS_DEPTH];
+	short p, y;
+
+	if (s_force_full || s_dirty) {
+		ecs_render();
+		return;
+	}
+	front = s_planes[s_front];
+	for (p = 0; p < ECS_DEPTH; p++)
+		planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
+	for (y = 0; y < ECS_H; y++) {
+		if (memcmp(s_chunky + (long)y * ECS_W,
+		           s_shadow + (long)y * ECS_W, ECS_W) == 0)
+			continue;
+		remap_rect(0, y, ECS_W, 1);
+		c2p_amiga_n_rect(s_remap_buf, ECS_W, planes, ECS_PITCH,
+		                 0, y, ECS_W, 1, ECS_DEPTH);
+		CopyMem(s_chunky + (long)y * ECS_W,
+		        s_shadow + (long)y * ECS_W, ECS_W);
+	}
 }
 
 static void ecs_present_rect(short x, short y, short w, short h)
@@ -332,6 +367,14 @@ static void ecs_present_rect(short x, short y, short w, short h)
 		planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
 	c2p_amiga_n_rect(s_remap_buf, ECS_W, planes, ECS_PITCH,
 	                 x, y, w, h, ECS_DEPTH);
+	/* Keep the row-diff shadow current for the converted spans. */
+	{
+		short r;
+
+		for (r = 0; r < h; r++)
+			CopyMem(s_chunky + (long)(y + r) * ECS_W + x,
+			        s_shadow + (long)(y + r) * ECS_W + x, w);
+	}
 }
 
 static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
