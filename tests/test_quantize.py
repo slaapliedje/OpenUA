@@ -82,10 +82,54 @@ static long reduce_mse(short n, short bits, int *bad)
 	return mse;
 }
 
+/* --- banded beats global when regions are vertically stacked --- */
+#define BW 64
+#define BH 8
+static long band_test(int *bad)
+{
+	/* CLUT: 32 distinct grid colours. Image: top 4 rows use colours 0..15,
+	 * bottom 4 use 16..31 — 32 colours total, but only 16 per band. A global
+	 * reduce to 16 must merge; a 2-band reduce to 16 fits each band exactly. */
+	unsigned char clut[768], chunky[BW * BH];
+	unsigned char gpal[16 * 3], grem[256];
+	unsigned char bpal[2 * 16 * 3], brem[2 * 256];
+	short i, x, y;
+	long gmse = 0, bmse = 0;
+
+	for (i = 0; i < 32; i++) {
+		clut[i*3+0] = (rnd() / 16) * 16 + 8;
+		clut[i*3+1] = (rnd() / 16) * 16 + 8;
+		clut[i*3+2] = (rnd() / 16) * 16 + 8;
+	}
+	for (i = 96; i < 768; i++) clut[i] = 0;
+	for (y = 0; y < BH; y++)
+		for (x = 0; x < BW; x++)
+			chunky[y*BW+x] = (y < BH/2) ? (x & 15) : (16 + (x & 15));
+
+	quant_banded(chunky, BW, BH, clut, 1, 16, 4, gpal, grem);   /* global   */
+	quant_banded(chunky, BW, BH, clut, 2, 16, 4, bpal, brem);   /* 2 bands  */
+	for (y = 0; y < BH; y++) {
+		short bb = (short)((long)y * 2 / BH);       /* banded: 2 bands */
+		for (x = 0; x < BW; x++) {
+			unsigned char v = chunky[y*BW+x];
+			unsigned char *gp = gpal + grem[v]*3;
+			unsigned char *bp = bpal + (bb*16 + brem[bb*256 + v])*3;
+			short dr,dg,db;
+			dr=clut[v*3+0]-gp[0]; dg=clut[v*3+1]-gp[1]; db=clut[v*3+2]-gp[2];
+			gmse += (long)dr*dr+(long)dg*dg+(long)db*db;
+			dr=clut[v*3+0]-bp[0]; dg=clut[v*3+1]-bp[1]; db=clut[v*3+2]-bp[2];
+			bmse += (long)dr*dr+(long)dg*dg+(long)db*db;
+		}
+	}
+	if (bmse != 0) { printf("BANDED not exact: bmse=%ld\n", bmse); *bad=1; }
+	if (!(bmse < gmse)) { printf("BANDED not better: b=%ld g=%ld\n", bmse, gmse); *bad=1; }
+	return gmse;
+}
+
 int main(void)
 {
 	int bad = 0;
-	long e8, e16, e32;
+	long e8, e16, e32, gmse;
 
 	if (test_identity(16, 4)) return 1;
 	if (test_identity(32, 4)) return 1;
@@ -99,7 +143,10 @@ int main(void)
 		printf("NOT MONOTONE  e8=%ld e16=%ld e32=%ld\n", e8, e16, e32);
 		return 1;
 	}
-	printf("OK  mse(8)=%ld mse(16)=%ld mse(32)=%ld\n", e8, e16, e32);
+	s_rng = 4242u; gmse = band_test(&bad);
+	if (bad) return 1;
+	printf("OK  mse(8)=%ld mse(16)=%ld mse(32)=%ld  band-global-mse=%ld\n",
+	       e8, e16, e32, gmse);
 	return 0;
 }
 """

@@ -1,29 +1,25 @@
 /*
- * Amiga ECS/OCS display backend — native bitplanes, 32 colours.
+ * Amiga ECS/OCS display backend — native bitplanes, 32 colours, PER-BAND
+ * copper palette.
  *
  * The bare-chipset answer for a machine with no AGA and no graphics card: a
- * 320x200 lores screen in FIVE bitplanes (32 colours). The engine renders one
- * 256-colour chunky buffer, so this backend runs the shared median-cut
- * QUANTIZER (platform/include/quantize.h) at set_palette time — reducing the
- * live 256-entry CLUT to 32 registers and building a 256->32 remap LUT — then
- * remaps each pixel through the LUT before the 5-plane chunky->planar
- * (c2p_amiga_n). The palette lives in the copper (32 COLORxx writes, 4 bits/
- * gun); the plane pointers flip per present, exactly like the AGA backend.
+ * 320x200 lores screen in FIVE bitplanes. The engine renders one 256-colour
+ * chunky buffer, so this backend runs the shared BANDED median-cut quantizer
+ * (platform/include/quantize.h): the frame is split into ECS_NBANDS horizontal
+ * strips and EACH is reduced to its own 32 colours from the colours that
+ * actually appear in it — so the granite chrome stops starving the viewport.
+ * The copper reloads all 32 registers at every band boundary for free (a WAIT +
+ * 32 COLOR moves per band), which is exactly what makes per-region palettes
+ * cost nothing on the Amiga.
  *
- * Coexistence: this is a THIRD backend in the same binary (AGA / RTG / ECS),
- * picked by dsp_detect at runtime. Like the RTG backend it defines NO cursor
- * functions — plat_cursor_active() (display_aga.c) reports inactive because the
- * AGA sprites never init, so the shim composites a SOFTWARE cursor into the
- * chunky surface, which flows through present/present_rect for free.
+ * Each present remaps every pixel through its band's 256->32 LUT, converts to
+ * 5 planes (c2p_amiga_n), and flips. Re-banding (the histogram + per-band
+ * reduce) runs only when the palette is marked dirty — a set_palette — so it is
+ * per scene change, not per frame.
  *
- * v1 scope / known gaps (see docs/ecs-st-quantizer-plan.md):
- *   - GLOBAL palette (no per-line copper banding yet — the banding win is the
- *     next push and is free on the copper).
- *   - Palette CYCLING (the fireplace) is re-quantised + re-presented only on a
- *     substantial palette load; small cycle-range writes update the shadow CLUT
- *     but don't animate, to avoid churn and stale-plane colour corruption.
- *   - A separate 64000-byte remap pass precedes c2p (folding the LUT into the
- *     c2p load is a later optimisation).
+ * Coexistence: a THIRD backend in one binary (AGA / RTG / ECS), picked by
+ * dsp_detect. Like RTG it defines NO cursor functions — plat_cursor_active()
+ * (display_aga.c) reports inactive, so the shim composites a software cursor.
  */
 
 #include "display.h"
@@ -40,7 +36,7 @@
 #include <proto/exec.h>
 #include <proto/graphics.h>
 
-#include "quantize.h"            /* quant_reduce — the median-cut reducer */
+#include "quantize.h"            /* quant_banded — the banded median-cut reducer */
 
 #define CUSTOM ((volatile struct Custom *)0xDFF000)
 
@@ -49,7 +45,9 @@
 #define ECS_DEPTH   5                   /* 32 colours */
 #define ECS_NCOL    (1 << ECS_DEPTH)    /* 32 */
 #define ECS_PITCH   (ECS_W / 8)         /* 40 bytes per bitplane row */
-#define ECS_BITS    4                   /* 4 bits/gun (ECS/STE-class palette) */
+#define ECS_BITS    4                   /* 4 bits/gun */
+#define ECS_NBANDS  25                  /* 8 scanlines per band (200/25) */
+#define ECS_RPB     (ECS_H / ECS_NBANDS)
 
 extern void c2p_amiga_n(const unsigned char *chunky, unsigned char *const planes[],
                         short w, short h, short plane_pitch, short nplanes);
@@ -68,28 +66,26 @@ static int            s_front;
 static dsp_surface_t  s_surface;
 static struct View   *s_oldview;
 
-/* Quantizer state: the shadow of the engine's 256-entry CLUT, and the LUT
- * that maps each original index to one of the 32 survivors. */
+/* Quantizer state: shadow CLUT + per-band palettes and remap LUTs. */
 static unsigned char  s_clut[256 * 3];
-static unsigned char  s_remap[256];
-static short          s_have_pal;
+static unsigned char  s_band_pal[ECS_NBANDS * ECS_NCOL * 3];
+static unsigned char  s_band_remap[ECS_NBANDS * 256];
+static short          s_dirty;
 
 #define FRAME_BYTES ((ULONG)ECS_PITCH * ECS_H * ECS_DEPTH)
 
 /* --- the copper list ------------------------------------------------------
  * prologue (BPLCONx / modulos / DIW / DDF) + 5 plane pointers (patched per
- * flip) + 32 COLORxx writes (patched by set_palette) + WAIT. No AGA palette
- * banks, no LOCT, no sprites. */
+ * flip) + band 0's 32 COLOR writes at frame top + (ECS_NBANDS-1) blocks of
+ * { WAIT band-line ; 32 COLOR writes } + WAIT end. The palette words are
+ * patched by ecs_reband. */
 
-#define COP_PROLOGUE_MOVES  9
-#define COP_PLANE_MOVES     (ECS_DEPTH * 2)
-#define COP_PAL_MOVES       ECS_NCOL
-#define COP_WORDS           ((COP_PROLOGUE_MOVES + COP_PLANE_MOVES \
-                             + COP_PAL_MOVES) * 2 + 2)
+#define COP_WORDS ((9 + ECS_DEPTH * 2 + ECS_NCOL) * 2 \
+                  + (ECS_NBANDS - 1) * (2 + ECS_NCOL * 2) + 2)
 
 static UWORD *s_cop;
-static UWORD *s_cop_bpl;                 /* first BPLxPTH operand word        */
-static UWORD *s_cop_pal[ECS_NCOL];       /* COLORxx operand word per colour   */
+static UWORD *s_cop_bpl;                         /* first BPLxPTH operand    */
+static UWORD *s_cop_pal[ECS_NBANDS][ECS_NCOL];   /* per-band COLOR operands  */
 
 #define R_BPLCON0  0x100
 #define R_BPLCON1  0x102
@@ -110,10 +106,17 @@ static UWORD *cop_move(UWORD *cl, UWORD reg, UWORD val)
 	return cl;
 }
 
+static UWORD *cop_wait(UWORD *cl, short vpos, short hpos)
+{
+	*cl++ = (UWORD)(((vpos & 0xFF) << 8) | ((hpos & 0x7F) << 1) | 1);
+	*cl++ = 0xFFFE;                  /* compare all bits, blitter-finish off */
+	return cl;
+}
+
 static void cop_build(void)
 {
 	UWORD *cl = s_cop;
-	short p, c;
+	short p, b, c;
 
 	/* BPLCON0: COLOR composite enable (bit 9) + BPU = 5 (bits 14-12). */
 	cl = cop_move(cl, R_BPLCON0, (UWORD)(0x0200 | (ECS_DEPTH << 12)));
@@ -121,23 +124,31 @@ static void cop_build(void)
 	cl = cop_move(cl, R_BPLCON2, 0x0000);   /* no sprites (software cursor) */
 	cl = cop_move(cl, R_BPL1MOD, 0x0000);
 	cl = cop_move(cl, R_BPL2MOD, 0x0000);
-	/* Standard lores window: top-left 0x2C,0x81; 200 lines -> bottom 0xF4. */
 	cl = cop_move(cl, R_DIWSTRT, 0x2C81);
 	cl = cop_move(cl, R_DIWSTOP, 0xF4C1);
 	cl = cop_move(cl, R_DDFSTRT, 0x0038);
 	cl = cop_move(cl, R_DDFSTOP, 0x00D0);
 
-	/* Plane pointers (patched by cop_point_planes on every flip). */
 	s_cop_bpl = cl + 1;
 	for (p = 0; p < ECS_DEPTH; p++) {
 		cl = cop_move(cl, (UWORD)(R_BPL1PTH + p * 4),     0);
 		cl = cop_move(cl, (UWORD)(R_BPL1PTH + p * 4 + 2), 0);
 	}
 
-	/* 32 colour registers (single 4-bit-per-gun write each). */
+	/* Band 0 palette loads at frame top (before line 0x2C). */
 	for (c = 0; c < ECS_NCOL; c++) {
-		s_cop_pal[c] = cl + 1;
+		s_cop_pal[0][c] = cl + 1;
 		cl = cop_move(cl, (UWORD)(R_COLOR00 + c * 2), 0);
+	}
+	/* Bands 1..N-1: reload at the band's first scanline. */
+	for (b = 1; b < ECS_NBANDS; b++) {
+		short line = (short)(0x2C + b * ECS_RPB);
+
+		cl = cop_wait(cl, line, 0);
+		for (c = 0; c < ECS_NCOL; c++) {
+			s_cop_pal[b][c] = cl + 1;
+			cl = cop_move(cl, (UWORD)(R_COLOR00 + c * 2), 0);
+		}
 	}
 
 	*cl++ = 0xFFFF;
@@ -183,7 +194,7 @@ static int ecs_init(short want_w, short want_h)
 		return 1;
 	}
 	s_front = 0;
-	s_have_pal = 0;
+	s_dirty = 1;                    /* first present builds the bands */
 
 	s_surface.width  = ECS_W;
 	s_surface.height = ECS_H;
@@ -201,7 +212,7 @@ static int ecs_init(short want_w, short want_h)
 	CUSTOM->copjmp1 = 0;
 	CUSTOM->dmacon  = (UWORD)(DMAF_SETCLR | DMAF_MASTER
 	                          | DMAF_RASTER | DMAF_COPPER);
-	dbg_log("ecs: 320x200x5 (32-colour quantized) up");
+	dbg_log("ecs: 320x200x5 32-colour, per-band copper palette up");
 	return 0;
 }
 
@@ -232,28 +243,54 @@ static dsp_surface_t *ecs_surface(void)
 	return &s_surface;
 }
 
-/* Remap a rect of the chunky surface through the 256->32 LUT into s_remap_buf. */
+/* Remap a rect of the chunky surface into s_remap_buf, each row through ITS
+ * band's 256->32 LUT. */
 static void remap_rect(short x, short y, short w, short h)
 {
 	short r;
 
 	for (r = 0; r < h; r++) {
-		const unsigned char *src = s_chunky + (long)(y + r) * ECS_W + x;
-		unsigned char *dst = s_remap_buf + (long)(y + r) * ECS_W + x;
+		short yy = (short)(y + r);
+		short band = (short)((long)yy * ECS_NBANDS / ECS_H);
+		const unsigned char *lut = s_band_remap + (long)band * 256;
+		const unsigned char *src = s_chunky + (long)yy * ECS_W + x;
+		unsigned char *dst = s_remap_buf + (long)yy * ECS_W + x;
 		short c;
 
 		for (c = 0; c < w; c++)
-			dst[c] = s_remap[src[c]];
+			dst[c] = lut[src[c]];
 	}
 }
 
-/* Full render: remap the whole surface, convert to the back plane set, flip. */
+/* Re-band: histogram + per-band reduce over the current surface, then patch the
+ * copper's per-band COLOR words. */
+static void ecs_reband(void)
+{
+	short b, i;
+
+	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
+	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
+	for (b = 0; b < ECS_NBANDS; b++) {
+		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
+
+		for (i = 0; i < ECS_NCOL; i++)
+			*s_cop_pal[b][i] = (UWORD)(((bp[i * 3 + 0] >> 4) << 8)
+			                          | ((bp[i * 3 + 1] >> 4) << 4)
+			                          | (bp[i * 3 + 2] >> 4));
+	}
+	s_dirty = 0;
+}
+
+/* Full render: (re-band if dirty), remap the whole surface, convert to the
+ * back plane set, flip. */
 static void ecs_render(void)
 {
 	unsigned char *back = s_planes[s_front ^ 1];
 	unsigned char *planes[ECS_DEPTH];
 	short p;
 
+	if (s_dirty)
+		ecs_reband();
 	remap_rect(0, 0, ECS_W, ECS_H);
 	for (p = 0; p < ECS_DEPTH; p++)
 		planes[p] = back + (ULONG)p * ECS_PITCH * ECS_H;
@@ -273,6 +310,13 @@ static void ecs_present_rect(short x, short y, short w, short h)
 	unsigned char *planes[ECS_DEPTH];
 	short p, x1;
 
+	/* A pending re-band changes every band's remap, so the whole frame must
+	 * be rebuilt — promote to a full render. */
+	if (s_dirty) {
+		ecs_render();
+		return;
+	}
+
 	if (x < 0) { w = (short)(w + x); x = 0; }
 	if (y < 0) { h = (short)(h + y); y = 0; }
 	if (x + w > ECS_W) w = (short)(ECS_W - x);
@@ -291,24 +335,6 @@ static void ecs_present_rect(short x, short y, short w, short h)
 	                 x, y, w, h, ECS_DEPTH);
 }
 
-/* Reduce the shadow CLUT to 32, load the copper colour registers, rebuild the
- * remap LUT. Snapped 8-bit reps -> 4-bit-per-gun COLORxx words. */
-static void ecs_requantize(void)
-{
-	unsigned char pal[ECS_NCOL * 3];
-	short n, i;
-
-	n = quant_reduce(s_clut, ECS_NCOL, ECS_BITS, pal, s_remap);
-	for (i = 0; i < ECS_NCOL; i++) {
-		unsigned char r = (i < n) ? pal[i * 3 + 0] : 0;
-		unsigned char g = (i < n) ? pal[i * 3 + 1] : 0;
-		unsigned char b = (i < n) ? pal[i * 3 + 2] : 0;
-
-		*s_cop_pal[i] = (UWORD)(((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
-	}
-	s_have_pal = 1;
-}
-
 static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 {
 	short i;
@@ -324,16 +350,9 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 		s_clut[idx * 3 + 1] = colors[i].g;
 		s_clut[idx * 3 + 2] = colors[i].b;
 	}
-
-	/* Re-quantise only on a substantial load (a scene/palette change), not on
-	 * the small-range writes palette CYCLING makes — those would churn the
-	 * median cut and, worse, change the remap out from under the already-
-	 * converted planes (stale-colour corruption). After a re-quantise the
-	 * remap moved, so re-render the current surface to match. */
-	if (count >= 32 || !s_have_pal) {
-		ecs_requantize();
-		ecs_render();
-	}
+	/* Defer the re-band to the next present, when the surface is drawn: the
+	 * band palettes depend on pixel content, not just the CLUT. */
+	s_dirty = 1;
 }
 
 static const dsp_backend_t ecs_backend = {

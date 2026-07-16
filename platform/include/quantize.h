@@ -80,29 +80,35 @@ static short quant_partition(unsigned char *idx, const unsigned char *clut,
 }
 
 /*
- * Reduce a 256-entry CLUT (`clut`, 256*3 bytes RGB) to at most `n` colours
- * (n <= QUANT_MAX_N) snapped to `bits`/gun.
- *   out_pal[n*3] — the reduced palette, snapped 8-bit RGB (unused tail zeroed)
- *   remap[256]   — original index -> reduced index (0 .. return-1)
+ * Reduce a `ncolors`-entry CLUT (`clut`, ncolors*3 bytes RGB, ncolors <= 256)
+ * to at most `n` colours (n <= QUANT_MAX_N) snapped to `bits`/gun.
+ *   out_pal[n*3]     — the reduced palette, snapped 8-bit RGB (tail zeroed)
+ *   remap[ncolors]   — original index -> reduced index (0 .. return-1)
  * Returns the actual colour count (< n when the CLUT has fewer distinct
- * colours than the budget).
+ * colours than the budget). The banded quantiser feeds it the COMPACT list of
+ * colours actually used in a band, so ncolors is usually well under 256.
  */
-static short quant_reduce(const unsigned char *clut, short n, short bits,
-                          unsigned char *out_pal, unsigned char *remap)
+static short quant_reduce_n(const unsigned char *clut, short ncolors,
+                            short n, short bits,
+                            unsigned char *out_pal, unsigned char *remap)
 {
 	unsigned char idx[256];
 	short bstart[QUANT_MAX_N], blen[QUANT_MAX_N];
 	short nbox = 1, i, j;
 
+	if (ncolors < 1)
+		ncolors = 1;
+	if (ncolors > 256)
+		ncolors = 256;
 	if (n < 1)
 		n = 1;
 	if (n > QUANT_MAX_N)
 		n = QUANT_MAX_N;
 
-	for (i = 0; i < 256; i++)
+	for (i = 0; i < ncolors; i++)
 		idx[i] = (unsigned char)i;
 	bstart[0] = 0;
-	blen[0] = 256;
+	blen[0] = ncolors;
 
 	while (nbox < n) {
 		short best = -1, bestspread = 0, bestaxis = 0, b;
@@ -165,6 +171,85 @@ static short quant_reduce(const unsigned char *clut, short n, short bits,
 		out_pal[i * 3 + 0] = out_pal[i * 3 + 1] = out_pal[i * 3 + 2] = 0;
 
 	return nbox;
+}
+
+/* Global reduce over a full 256-entry CLUT — the nbands==1 case. Convenience
+ * wrapper; a backend that only bands never calls it, hence `unused`. */
+static __attribute__((unused)) short
+quant_reduce(const unsigned char *clut, short n, short bits,
+             unsigned char *out_pal, unsigned char *remap)
+{
+	return quant_reduce_n(clut, 256, n, bits, out_pal, remap);
+}
+
+#define QUANT_MAX_BANDS 40
+
+/*
+ * Per-horizontal-band quantiser. Split the WxH chunky frame into `nbands`
+ * equal horizontal strips; for each strip reduce the CLUT colours that
+ * ACTUALLY appear in it to `ncol` (snapped `bits`/gun) and build that band's
+ * 256->ncol remap. Each region gets a palette suited to its own content — the
+ * win a single global reduce can't give (the granite chrome stops starving the
+ * viewport). One full-frame presence histogram + `nbands` small median-cuts.
+ *   band_pal[nbands*ncol*3] — per-band snapped palettes
+ *   band_remap[nbands*256]  — per-band remap LUTs (colours absent from a band
+ *                             map to 0, which is never displayed there)
+ * nbands==1 reproduces the global reduce (over just the used colours).
+ */
+static void quant_banded(const unsigned char *chunky, short w, short h,
+                         const unsigned char *clut,
+                         short nbands, short ncol, short bits,
+                         unsigned char *band_pal, unsigned char *band_remap)
+{
+	static unsigned char used[QUANT_MAX_BANDS][256];
+	unsigned char cclut[256 * 3];
+	unsigned char cremap[256];
+	short idxlist[256];
+	short b, i, x, y, m;
+
+	if (nbands < 1)
+		nbands = 1;
+	if (nbands > QUANT_MAX_BANDS)
+		nbands = QUANT_MAX_BANDS;
+
+	for (b = 0; b < nbands; b++)
+		for (i = 0; i < 256; i++)
+			used[b][i] = 0;
+
+	/* one pass: mark which CLUT indices appear in each band */
+	for (y = 0; y < h; y++) {
+		short bb = (short)((long)y * nbands / h);
+		const unsigned char *row = chunky + (long)y * w;
+
+		for (x = 0; x < w; x++)
+			used[bb][row[x]] = 1;
+	}
+
+	for (b = 0; b < nbands; b++) {
+		unsigned char *bpal = band_pal + (long)b * ncol * 3;
+		unsigned char *brem = band_remap + (long)b * 256;
+
+		m = 0;
+		for (i = 0; i < 256; i++) {
+			if (used[b][i]) {
+				idxlist[m] = i;
+				cclut[m * 3 + 0] = clut[i * 3 + 0];
+				cclut[m * 3 + 1] = clut[i * 3 + 1];
+				cclut[m * 3 + 2] = clut[i * 3 + 2];
+				m++;
+			}
+		}
+		for (i = 0; i < 256; i++)
+			brem[i] = 0;
+		if (m == 0) {                       /* empty band -> all black */
+			for (i = 0; i < ncol * 3; i++)
+				bpal[i] = 0;
+			continue;
+		}
+		quant_reduce_n(cclut, m, ncol, bits, bpal, cremap);
+		for (i = 0; i < m; i++)
+			brem[idxlist[i]] = cremap[i];
+	}
 }
 
 #endif /* PLATFORM_QUANTIZE_H */
