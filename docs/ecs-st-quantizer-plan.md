@@ -371,14 +371,43 @@ Colour regression: menu byte-identical; colour mode-3 pieces (97 in
 SPRIT.CTL + several PIC*.CTL event-picture pieces, silently dropped
 before) now render through the same arm. Host suite 175 passed.
 
-Remaining worklist (in order):
-1. Play-mode screens in B&W: Hall, dungeon (8X8DB.TLB walls), events
-   (PIC%c.TLB 176x176 pictures — the flagship), combat. Iterate on
-   screenshots.
-2. Codec loose ends: the jt1165/jt1202/jt1197/jt1192 cursor family still
-   writes the page WITHOUT a jt995-style expand bracket (their mono users —
-   jt119/jt122 save-under, pattern fills — buffer invisibly until their
-   call sites get the same sync/expand treatment); the mono hit-scan arm
-   (jt995 modes 1/3) syncs but is exercised only by the editor cursor.
-3. Colour-side follow-up: verify a colour SPRIT/PIC mode-3 piece renders
-   in play (they were dropped pre-leg, so any sighting is new ground).
+### Phase 2 runtime — PLAY-SCREEN HUD (2026-07-16, fifth leg)
+
+The B&W walk screen (FRUA_AREATEST harness) has its HUD: the party
+roster (inverse-highlighted leader), the verb bar, the compass surround
++ dial faces, position + clock — all at the 480x300 layout. Two fixes:
+
+- The l2d4e 1bpp leaves (mode-2 PackBits + the mode-0 raw tail) painted
+  set bits in the port's CURRENT PEN colour — a colour-mode concept (the
+  pen-expansion of 1bpp art). On the Mac's B&W screen these are OR
+  writers: a set bit IS ink. With the pen left white by a prior text
+  draw, the play chrome painted invisibly. In mono the leaves now always
+  paint ink (0).
+- port_frame_load CACHED g_frame_base once — after the play-entry FAR
+  pool loads compacted/evicted group 1, the cache went stale, l37aa
+  failed its magic check, and every FRAME chrome piece silently vanished
+  (l2856 returns 0 -> l2d4e never called: zero drawn, zero logged). It
+  now refreshes from the live pool tables on every call. This also
+  completed the intro's decorative border frame. Latent in colour
+  (fail-safe: pieces vanish, not corrupt).
+
+Debug-hold fixes: the FRUA_MONO_TRACE intro hold is ~33 s per screen
+with the key-skip disabled (headless synthetic events skip instantly),
+and actually honours the deadline now.
+
+REMAINING — the B&W DUNGEON VIEW is its own campaign (the same scale
+the colour render campaign was, #124-#129): render_3d_faithful is the
+COLOUR renderer end-to-end (88x88 hole at (24,24), 8bpp .CTL wall
+sets via the CW pipeline with hardcoded .CTL names, clut bands,
+port_draw_play_frame chrome) — the Mac mono view is 132x132 at scale 3
+with 1bpp .TLB walls through the jt1165 codec family (whose planar-page
+infrastructure this session built). Pieces needed: route the wall
+loads to .TLB in mono, a mono view composer (either adapt the CW
+pipeline to 1bpp x1.5 or revive the faithful jt199/l5b42/jt200 path on
+the planar page), the chrome call outside the colour renderer, and the
+event pictures (PIC%c.TLB 176x176 through the bigpic composer's mono
+arm — the composer is colour/palette-oriented like port_show_intro
+was). Then: codec loose ends (the jt1165/jt1202/jt1197/jt1192 cursor
+family lacks expand brackets at its call sites — jt119/jt122 save-under
+buffers invisibly in mono) and a colour-side sighting of the newly-live
+SPRIT/PIC mode-3 pieces.

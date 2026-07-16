@@ -5993,9 +5993,25 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 
 			if (bpp_w > 128)
 				return;
-			GetPort(&port);
-			if (port != NULL && ((CGrafPtr)port)->fgColor != 0)
-				fg = ((CGrafPtr)port)->fgColor;
+			if (jt1200() == 3) {
+				/* B&W mode: the Mac's 1bpp writers OR bits into
+				 * the planar screen — a set bit IS ink, no pen.
+				 * (The pen-colour path below is the colour mode's
+				 * 1bpp-through-the-pen expansion; with the pen
+				 * left white by a prior text draw it painted the
+				 * play chrome invisibly.) */
+				fg = 0;
+#ifdef FRUA_MONO_TRACE
+				dbg_file_num("bw2 yx", ((long)(unsigned short)y << 16) | (unsigned short)x);
+				dbg_file_num("bw2 wh", ((long)(unsigned short)bpp_w << 16) | (unsigned short)height);
+				dbg_file_num("bw2 tb", ((long)(unsigned short)top << 16) | (unsigned short)bottom);
+				dbg_file_num("bw2 lr", ((long)(unsigned short)left << 16) | (unsigned short)right);
+#endif
+			} else {
+				GetPort(&port);
+				if (port != NULL && ((CGrafPtr)port)->fgColor != 0)
+					fg = ((CGrafPtr)port)->fgColor;
+			}
 			for (r = 0; r < height; r++) {
 				short dy = (short)(y + r);
 
@@ -6131,13 +6147,16 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 			}
 		}
 	} else {
-		/* 1bpp mono glyph: set bits -> fgColor (Mac L2970 mode-0 OR). */
+		/* 1bpp mono glyph: set bits -> fgColor (Mac L2970 mode-0 OR).
+		 * B&W mode: a set bit IS ink (see the mode-2 1bpp leaf). */
 		GrafPtr port;
 		unsigned char fg = 0;
 
-		GetPort(&port);
-		if (port != NULL)
-			fg = ((CGrafPtr)port)->fgColor;
+		if (jt1200() != 3) {
+			GetPort(&port);
+			if (port != NULL)
+				fg = ((CGrafPtr)port)->fgColor;
+		}
 		for (r = 0; r < height; r++) {
 			short dy = (short)(y + r);
 			const unsigned char *srow = src + (long)r * bpp_w;
@@ -13182,13 +13201,17 @@ static void port_frame_load(void)
 {
 	short id;
 
-	if (g_frame_base)
-		return;
 	if ((signed char)g_a5_10074[1] < 0)    /* not yet loaded into pool grp 1 */
 		jt997((short)0, "FRAME", (short)1);
+	/* ALWAYS refresh from the live pool tables — the old early-return on
+	 * a nonzero g_frame_base served a STALE base once the FAR pool
+	 * compacted or evicted group 1 (the play-entry design/wall loads do
+	 * both): l37aa then failed its magic check and every FRAME chrome
+	 * piece silently vanished (found in the B&W walk, latent in colour). */
 	id = (signed char)g_a5_10074[1];
-	if (id >= 0 && (unsigned short)id < (unsigned short)G_A5_10270_LEN)
-		g_frame_base = g_a5_10270[id];     /* pool base */
+	g_frame_base =
+	    (id >= 0 && (unsigned short)id < (unsigned short)G_A5_10270_LEN)
+	    ? g_a5_10270[id] : 0;
 }
 
 /* ALWAYS.CTL = jt468 group 0 — the always-resident UI glyph GLIB (button
@@ -24080,8 +24103,11 @@ static void port_show_intro(void)
 					port_clut_install(&pal[cb], cb, cn);
 			}
 #ifdef FRUA_MONO_TRACE
+			/* debug: no key-skip (headless synthetic events skip
+			 * screens instantly) — the long deadline alone holds. */
 			(void)WaitNextEvent(everyEvent, &ev, 6, NULL);
-			(void)deadline;         /* debug: hold forever */
+			if (TickCount() >= deadline)
+				break;
 #else
 			if (WaitNextEvent(everyEvent, &ev, 6, NULL)
 			 && (ev.what == keyDown || ev.what == mouseDown))
