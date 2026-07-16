@@ -247,6 +247,21 @@ run-ste: $(TARGET)
 	$(HATARI) --machine ste --memsize 4 --tos $(EMUTOS) --zoom 2 --sound 44100 \
 	          --conout 2 -d $(GAMEDATA_DIR) --auto 'C:\$(TARGET)'
 
+# Boot the B&W (Mac monochrome) build on an emulated ST with a mono monitor
+# (ST High, 640x400). Needs a real ST TOS ROM (2.06 recommended — EmuTOS
+# also boots ST High) and the BWMODE 68000 binary:
+#   make clean && make CPU68K=68000 EXTRA_CFLAGS=-DFRUA_BWMODE
+#   make run-mono
+# The engine auto-detects the mono monitor (Getrez()==2) and runs the Mac's
+# own 1-bit mode: 480x300 game window, .TLB art, the L4e12 text plates.
+ST_TOS ?= $(shell for f in /usr/share/hatari/tos206us.img \
+                           $(HOME)/Downloads/Atari/tos206us.img \
+                           /usr/share/hatari/etos512us.img; do \
+                      [ -f $$f ] && { echo $$f; break; }; done)
+run-mono: $(TARGET)
+	$(HATARI) --machine st --memsize 4 --monitor mono --tos $(ST_TOS) \
+	          --zoom 2 --conout 2 -d $(GAMEDATA_DIR) --auto 'C:\$(TARGET)'
+
 # Staged game-data folder for module-load testing. The engine opens
 # .DAT/.GLB/.CTL files by bare filename from the GEMDOS mount, but the
 # unpacked Mac release nests them under data/frua-mac/joined/. This
@@ -493,4 +508,4 @@ release-all:
 
 -include $(DEP)
 
-.PHONY: all run run-ste run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
+.PHONY: all run run-ste run-mono run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
