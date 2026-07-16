@@ -21873,8 +21873,29 @@ static long jt1134(void)
 	 * qd_present blits to VIDEL). Trigger that blit here so the
 	 * engine's L2c60 walk (which ends in jt1134) becomes visible
 	 * during the jt453 / l2d3e modal loop — before this, the menu
-	 * only showed up when ua_main returned and main.c flushed. */
-	qd_present();
+	 * only showed up when ua_main returned and main.c flushed.
+	 *
+	 * RATE-LIMITED: the slow-text pacer (l435a) busy-waits on jt1134
+	 * PER GLYPH, and an unconditional present here made every typed
+	 * character pay a full-frame diff+blit — on an 8MHz ST mono a
+	 * single present (300-row memcmp diff + blit + cursor bake) costs
+	 * MORE than a tick, so even a once-per-tick gate ran presents
+	 * back-to-back and starved the engine (PC-sampled: 13/15 hits
+	 * inside the diff memcmp; the 3-chars/sec typewriter). Present at
+	 * ~5Hz instead: modal-progress visibility for a human eye needs
+	 * no more, and the pump/yield below still runs full-rate so input
+	 * latency is unaffected. Real frame commits (jt117/l3994,
+	 * present_rect) are not gated — this only throttles the idle
+	 * concession. */
+	{
+		static long s_present_tick = -1;
+		long now = TickCount();
+
+		if (now - s_present_tick >= 12 || now < s_present_tick) {
+			qd_present();
+			s_present_tick = now;
+		}
+	}
 	elapsed = TickCount() - g_a5_long(-130);
 	return (elapsed * 6) / 5;
 }
