@@ -586,3 +586,27 @@ REMAINING polish (new):
 - typewriter text is SLOW at 8MHz ST (per-glyph bracket+flush) — fine
   on Falcon/TT, painful on a real ST; candidates: span-batched expand,
   present_rect coalescing.
+
+### Phase 2 runtime — the "wrap overflow" was a LEAKED CLIP RECT (2026-07-16, 11th leg, a7aead4)
+
+The polish item "mono message text wrap width overflows the viewport"
+dissolved under investigation: there was no wrap bug. The XP/treasure
+page (l3806_c12) prints separate jt94 lines at rows 5/7/10 after a
+jt76 full-page clear — and the clear only covered the view hole
+because the mono render arm's port-added 176x176 clip (jt1173 before
+jt199) was never restored. Every later QuickDraw FILL clipped to the
+hole (half-cleared page, clock-plate fragments, missing walk verb
+chips) while the mono TEXT path (jt995 planar, no clip consult)
+escaped — producing the "text overflowing its box" illusion.
+
+Fix: jt1193() after jt199 brackets the port-added clip (the Mac walks
+the frustum under the full clip; narrowing it was our addition, so
+restoring it is our obligation). The walk screen gained its verb-chip
+bar + marble chrome; the XP page lays out cleanly. Colour AE=0, 175.
+
+LESSON (3rd sighting of the class): a port-added global-state change
+(clip, palette, canvas base) MUST be bracketed in the same function
+that makes it. The colour arm saves/restores these four clip globals
+explicitly; the mono arm forgot. And: "text overflows its box" is not
+necessarily a layout-width bug — check whether the BOX (the erase
+behind it) is the thing that's clipped short.
