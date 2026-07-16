@@ -250,6 +250,9 @@ static void st_blit_rows(short x0, short w, short y0, short h)
 
 		st_c2p_span(src, dst, w, lut);
 		memcpy(s_shadow + (long)yy * ST_W + x0, src, (size_t)w);
+#ifdef FRUA_STPROF
+		{ extern long g_stprof_rows; g_stprof_rows++; }
+#endif
 	}
 }
 
@@ -373,11 +376,39 @@ static dsp_surface_t *st_surface(void)
 	return &s_surface;
 }
 
+#ifdef FRUA_STPROF
+/* Coarse present-path profile: every 128 full presents, log wall ticks vs
+ * ticks spent inside present and the rows actually converted. TickCount is
+ * the compat layer's 60Hz tick — a layering reach-down, debug-only. */
+extern long TickCount(void);
+static long sp_n, sp_rows, sp_in, sp_wall0 = -1, sp_reband;
+long g_stprof_rows;                     /* incremented in st_blit_rows */
+#endif
+
 static void st_present(void)
 {
+#ifdef FRUA_STPROF
+	long t0 = TickCount();
+
+	if (sp_wall0 < 0)
+		sp_wall0 = t0;
+	if (s_dirty)
+		sp_reband++;
+#endif
 	if (s_dirty)
 		st_reband();
 	st_blit_full();
+#ifdef FRUA_STPROF
+	sp_in += TickCount() - t0;
+	sp_rows = g_stprof_rows;
+	if ((++sp_n & 127) == 0) {
+		dbg_log_num("stprof: presents = ", sp_n);
+		dbg_log_num("stprof: wall ticks = ", TickCount() - sp_wall0);
+		dbg_log_num("stprof: in-present ticks = ", sp_in);
+		dbg_log_num("stprof: rows converted = ", sp_rows);
+		dbg_log_num("stprof: rebands = ", sp_reband);
+	}
+#endif
 }
 
 static void st_present_rect(short x, short y, short w, short h)
