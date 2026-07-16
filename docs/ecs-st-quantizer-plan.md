@@ -670,3 +670,29 @@ MORAL, final form: a polarity conclusion needs THREE anchors — the
 display (raw stripe), the art (a semantically forced image), and a
 REAL-MACHINE UI reference. The first two cannot detect a uniform
 UI inversion; only the Mac photos could.
+
+### Phase 2 runtime — the L4e12 text plate + delta triage (2026-07-16, 14th leg, 2a02432)
+
+Chasing the reference deltas found most were already right: the clock
+plate (jt938 -> jt103 fill 8 -> black) and the row-24 prompt plate
+(l177a style 7 -> white) render correctly under the final ink model —
+the "deltas" were thumbnail misreads plus a stale dimmed-state frame.
+The REAL missing piece was the header/verb CHIPS: the Mac's 1-bit text
+renderer is CODE 4 **L4e12** (the mono sibling of L4fae), with its own
+plate algorithm now lifted into jt1089's mono arm:
+
+  white plate iff P==15 || T==0; black iff P==0 || T==15;
+  else tbl3016[P]==0x3f -> white; tbl3016[T]==0 -> white;
+  tbl3016[P]==0 -> black; tbl3016[T]==0x3f -> black; else P>T.
+  Glyphs = TextMode XOR (always the plate's opposite).
+  tbl3016 (A5 -3016, shipped DATA) = 00 for {0,8,11,12}, 3f else.
+
+Worked examples all match the Mac captures: headers (8|12) white chip;
+roster names (8|7) black plate; prompt (7|0) white; messages (8|15)
+black. NOT lifted: L4e12's grey-pattern DIM overlay (PenPat -3430,
+gated on g_a5_-932 whose setters aren't lifted; inert with the shipped
+table). RESIDUAL: the RETURN DLItem chip paints ~2.5 chars too wide
+over the prompt text (cap/tile geometry — menu-button-rendering #105
+territory).
+
+Colour AE=0, 175 tests.
