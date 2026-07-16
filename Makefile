@@ -383,6 +383,10 @@ clean:
 	find src compat platform -name '*.o' -delete 2>/dev/null || true
 	find src compat platform -name '*.d' -delete 2>/dev/null || true
 	$(RM) frua frua.prg
+
+# clean does NOT remove dist/ — release-all cleans objects between platforms and
+# must keep the earlier binaries' packaged output. `distclean` wipes dist too.
+distclean: clean
 	$(RM) -r dist
 
 # --- release ----------------------------------------------------------------
@@ -395,26 +399,63 @@ clean:
 #
 # Emulator-validated only: nothing here has been run on real Falcon030/TT030
 # hardware. Say so in the release notes.
-VERSION ?= 0.1.0-beta
-DISTNAME := openua-falcon-$(VERSION)
+VERSION ?= 0.2.0-beta
 
-# The release binary is REDISTRIBUTABLE: NOEMBED=1 stubs the copyrighted DATA
-# pool (rebuilt at runtime from the user's frua.rsc), the link is stripped of
-# its symbol table, and frua.rsc is deliberately NOT bundled (it is the user's
-# copyrighted game data). The shipped .prg then contains only the port's own
-# code — see docs/redistributable-binary.md.
+# Every release binary is REDISTRIBUTABLE: NOEMBED=1 stubs the copyrighted DATA
+# pool (rebuilt at runtime from the user's frua.rsc), the link is stripped, and
+# frua.rsc is deliberately NOT bundled (it is the user's copyrighted game data).
+# The shipped binary contains only the port's own code — docs/redistributable-
+# binary.md. -DFRUA_RELEASE hard-errors on any behaviour-altering debug flag
+# (src/engine/release_guard.h).
+#
+#   make release            Atari Falcon030 / TT030  (one .prg for both)
+#   make release-amiga      Amiga AGA + RTG          (one hunk, runtime-detected)
+#   make release-amiga-ecs  Amiga bare ECS/OCS       (32-colour native bitplanes)
+#   make release-all        all three
+#
+# PKG_DIST $(1)=distname $(2)=binary $(3)=platform label $(4)=needs line
+define PKG_DIST
+	@mkdir -p dist/$(1)
+	@cp $(2) dist/$(1)/
+	@cp README.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
+	@printf 'OpenUA (%s) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: never run on real hardware. Please report\nwhat happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\n%s\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping work.\nSee enhancements.md for the known gaps.\n' '$(3)' '$(VERSION)' '$(4)' > dist/$(1)/RELEASE.TXT
+	@cd dist && zip -qr $(1).zip $(1)
+	@echo "release -> dist/$(1).zip  (redistributable: no game data embedded)"
+endef
+
+# Strip the current MACHINE's binary (invoked as a sub-make so $(STRIP)/$(TARGET)
+# resolve for that machine's toolchain).
+strip-target:
+	$(STRIP) $(TARGET)
+
 release:
 	$(MAKE) clean
 	$(MAKE) NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
-	$(STRIP) $(TARGET)
+	$(MAKE) strip-target
 	$(MAKE) test
-	@mkdir -p dist/$(DISTNAME)
-	@cp $(TARGET) dist/$(DISTNAME)/
-	@cp README.md docs/enhancements.md dist/$(DISTNAME)/ 2>/dev/null || true
-	@printf 'OpenUA (Atari Falcon030/TT030) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: this build has never been run on real\nFalcon030 or TT030 hardware. Please report what happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\nNeeds: 4MB RAM, TOS 4.04 (Falcon) or 3.0x (TT).\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping a weapon\nand armour are all playable. See enhancements.md for the known gaps.\n' "$(VERSION)" > dist/$(DISTNAME)/RELEASE.TXT
-	@cd dist && zip -qr $(DISTNAME).zip $(DISTNAME)
-	@echo "release -> dist/$(DISTNAME).zip  (redistributable: no game data embedded)"
+	$(call PKG_DIST,openua-falcon-$(VERSION),frua.prg,Atari Falcon030/TT030,Needs: 4MB RAM and TOS 4.04 (Falcon) or 3.0x (TT). One binary serves both — the display/sound path is chosen at runtime.)
+
+release-amiga:
+	$(MAKE) clean
+	$(MAKE) MACHINE=amiga NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) MACHINE=amiga strip-target
+	$(MAKE) test
+	$(call PKG_DIST,openua-amiga-$(VERSION),frua,Amiga AGA / RTG,Needs: an AA machine (A1200/A4000) or an accelerated ECS Amiga with a graphics card such as Picasso96 or CyberGraphX. KS3.0+ and about 4MB. AGA vs RTG is chosen at runtime.)
+
+release-amiga-ecs:
+	$(MAKE) clean
+	$(MAKE) MACHINE=amiga CPU68K=68000 NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_FORCE_ECS -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) MACHINE=amiga strip-target
+	$(MAKE) test
+	$(call PKG_DIST,openua-amiga-ecs-$(VERSION),frua,Amiga ECS/OCS 32-colour,Needs: an ECS or OCS Amiga (A500+/A600/A2000/A3000) with KS2.0+ and 2MB. Native 32-colour bitplanes for machines with no AGA and no graphics card.)
+
+release-all:
+	$(RM) -r dist
+	$(MAKE) release
+	$(MAKE) release-amiga
+	$(MAKE) release-amiga-ecs
+	@echo "all releases staged under dist/:" && ls dist/*.zip
 
 -include $(DEP)
 
-.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean data-pool-regen release
+.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-amiga release-amiga-ecs release-all strip-target
