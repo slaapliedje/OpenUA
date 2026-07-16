@@ -7329,6 +7329,24 @@ static void jt94(short page, short row, short col, short style,
 	if (row == 24) {
 		short s  = style, c = col;
 		short pg = page;
+#ifdef FRUA_ROW24TRACE
+		{
+			static short once = 0;
+			if (!once) {
+				short ti;
+				char tl[40];
+				for (ti = 0; ti < 16; ti++) {
+					unsigned char tv =
+					    (unsigned char)g_a5_byte(-3016 + ti);
+					tl[ti * 2]     = "0123456789abcdef"[tv >> 4];
+					tl[ti * 2 + 1] = "0123456789abcdef"[tv & 15];
+				}
+				tl[32] = 0;
+				dbg_file_str("tbl3016: ", tl);
+				once = 1;
+			}
+		}
+#endif
 		short v2, v4, v6, v8, v10, v12, v14;
 
 		jt1135((short)8094, (short)8000, &v2, &v4);     /* 0x4050 */
@@ -7358,6 +7376,23 @@ static void jt94(short page, short row, short col, short style,
 		jt1089(v2, (short)((pg << 2) + 8000),                         /* 0x4266 text  */
 		       (short)((s << 4) | (unsigned char)c),
 		       ua_strs_at(0x6c0), local_buf);
+#ifdef FRUA_ROW24TRACE
+		{
+			unsigned char *tp; short tpit, tsw, tsh, tx;
+			char line[40];
+			if (qd_screen_pixels(&tp, &tpit, &tsw, &tsh) && tp) {
+				for (tx = 0; tx < 36; tx++) {
+					unsigned char v =
+					    tp[288L * tpit + 100 + tx];
+					line[tx] = (v < 10) ? ('0' + v)
+					         : (v < 16) ? ('a' + v - 10)
+					         : '?';
+				}
+				line[36] = 0;
+				dbg_file_str("row24 px@288,100: ", line);
+			}
+		}
+#endif
 		(void)v14;
 		return;
 	}
@@ -7963,6 +7998,40 @@ static void jt1089(short v, short h, short color,
 			fgi = (short)(rm & 0xff);
 			jt1006(pli, &rm);
 			pli = (short)(rm & 0xff);
+		}
+		if (jt1200() == 3) {
+			/* THE MAC MONO TEXT PLATE (CODE 4 L4e12, 0x4e6c-0x4f1e,
+			 * disasm-lifted): decide WHITE (EraseRect) vs BLACK
+			 * (PaintRect) from the two colour nibbles and the 16-byte
+			 * brightness-class table at A5 -3016 (shipped DATA:
+			 * tbl[v]==0 for v in {0,8,11,12} = the dark plate
+			 * colours, 0x3f otherwise), then draw the glyphs in
+			 * TextMode XOR — i.e. the OPPOSITE of the plate. This is
+			 * what renders the Mac's white header/verb CHIPS with
+			 * black text and its black panels with white text from
+			 * the very same colour words the colour build uses.
+			 * (L4e12's remaining arm — the grey-pattern DIM overlay
+			 * for g_a5_-932 / mid-class colour 7 — is not lifted yet:
+			 * -932's setters aren't, and the shipped table has no
+			 * mid-class entries.) */
+			short P = pli, T = fgi, white;
+
+			if (P == 15 || T == 0)
+				white = 1;
+			else if (P == 0 || T == 15)
+				white = 0;
+			else if ((unsigned char)g_a5_byte(-3016 + P) == 63)
+				white = 1;
+			else if ((unsigned char)g_a5_byte(-3016 + T) == 0)
+				white = 1;
+			else if ((unsigned char)g_a5_byte(-3016 + P) == 0)
+				white = 0;
+			else if ((unsigned char)g_a5_byte(-3016 + T) == 63)
+				white = 0;
+			else
+				white = (P > T) ? 1 : 0;
+			pli = white ? 15 : 0;   /* plate: paper / ink        */
+			fgi = white ? 0 : 15;   /* glyphs: XOR vs the plate  */
 		}
 		g_jt1089_plate = pli;
 		GetPort(&port);
