@@ -26,6 +26,7 @@ TARGET       := frua
 PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/amiga/display_aga.c \
                 platform/amiga/display_rtg.c \
+                platform/amiga/display_ecs.c \
                 platform/amiga/c2p_amiga.c \
                 platform/amiga/sound_paula.c \
                 platform/amiga/input_amiga.c \

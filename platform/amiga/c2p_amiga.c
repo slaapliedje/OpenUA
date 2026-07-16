@@ -29,14 +29,23 @@ void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
 void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
                     unsigned char *const planes[8], short plane_pitch,
                     short x0, short y0, short w, short h);
+/* N-plane forms (the ECS backend uses 5): scatter only the low `nplanes`
+ * bitplanes. The transpose still computes all 8 outputs (cheap), but pixels
+ * remapped to 0..2^nplanes-1 carry zero in the high planes, so those are
+ * simply not written. */
+void c2p_amiga_n(const unsigned char *chunky, unsigned char *const planes[],
+                 short w, short h, short plane_pitch, short nplanes);
+void c2p_amiga_n_rect(const unsigned char *chunky, short chunky_pitch,
+                      unsigned char *const planes[], short plane_pitch,
+                      short x0, short y0, short w, short h, short nplanes);
 
 /* Rect form: convert only the given cell. `x0` and `w` must be multiples of 8
  * (the byte granularity of a bitplane row); the caller aligns. `chunky_pitch`
  * is the chunky buffer's full row width. Runs 32-pixel transposes over the
  * aligned span, with a naive 8-pixel tail for spans narrower than 32. */
-void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
-                    unsigned char *const planes[8], short plane_pitch,
-                    short x0, short y0, short w, short h)
+static void scatter_rect(const unsigned char *chunky, short chunky_pitch,
+                         unsigned char *const planes[], short plane_pitch,
+                         short x0, short y0, short w, short h, short nplanes)
 {
 	short y, k;
 	long  x;
@@ -53,7 +62,7 @@ void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
 
 			c2p_load32(src + x, c);
 			c2p_transpose32(c, o);
-			for (k = 0; k < 8; k++) {
+			for (k = 0; k < nplanes; k++) {
 				unsigned char *d = planes[k] + rowoff + bytecol;
 				c2p_u32 v = o[k];
 
@@ -77,14 +86,35 @@ void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
 					if (px & (1u << p))
 						pb[p] |= bit;
 			}
-			for (k = 0; k < 8; k++)
+			for (k = 0; k < nplanes; k++)
 				planes[k][rowoff + (x >> 3)] = pb[k];
 		}
 	}
 }
 
+void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
+                    unsigned char *const planes[8], short plane_pitch,
+                    short x0, short y0, short w, short h)
+{
+	scatter_rect(chunky, chunky_pitch, planes, plane_pitch, x0, y0, w, h, 8);
+}
+
 void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
                short w, short h, short plane_pitch)
 {
-	c2p_amiga_rect(chunky, w, planes, plane_pitch, 0, 0, w, h);
+	scatter_rect(chunky, w, planes, plane_pitch, 0, 0, w, h, 8);
+}
+
+void c2p_amiga_n_rect(const unsigned char *chunky, short chunky_pitch,
+                      unsigned char *const planes[], short plane_pitch,
+                      short x0, short y0, short w, short h, short nplanes)
+{
+	scatter_rect(chunky, chunky_pitch, planes, plane_pitch,
+	             x0, y0, w, h, nplanes);
+}
+
+void c2p_amiga_n(const unsigned char *chunky, unsigned char *const planes[],
+                 short w, short h, short plane_pitch, short nplanes)
+{
+	scatter_rect(chunky, w, planes, plane_pitch, 0, 0, w, h, nplanes);
 }

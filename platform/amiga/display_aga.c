@@ -481,15 +481,22 @@ static const dsp_backend_t aga_backend = {
 };
 
 const dsp_backend_t *dsp_backend_rtg(void);      /* display_rtg.c */
+const dsp_backend_t *dsp_backend_ecs(void);      /* display_ecs.c */
 
 const dsp_backend_t *dsp_detect(void)
 {
+#ifdef FRUA_FORCE_ECS
+	/* Dev/bring-up: force the native ECS 32-colour bitplane backend (test in
+	 * an ECS amiberry config). The real bare-ECS-vs-graphics-card split (try
+	 * RTG, fall back to ECS) is a follow-up — see docs/ecs-st-quantizer-plan. */
+	return dsp_backend_ecs();
+#else
 	/* AA chipset -> the direct copper backend (free palette animation,
 	 * sprite pointer). No AA -> the RTG/OS backend: an ECS machine with a
 	 * graphics card (PiStorm RTG, ZZ9000, Picasso...) carries the full
-	 * 256-colour game on a chunky card screen; an ECS machine WITHOUT one
-	 * fails in rtg_init (no 8-bit mode) — a 16-colour native ECS backend
-	 * would need art degradation and is a separate decision. */
+	 * 256-colour game on a chunky card screen. An ECS machine WITHOUT one
+	 * wants dsp_backend_ecs() (native 32-colour bitplanes); wiring that into
+	 * the runtime probe is the next step. */
 	struct GfxBase *gb = (struct GfxBase *)
 	    OpenLibrary((CONST_STRPTR)"graphics.library", 39);
 	int aa = 0;
@@ -500,6 +507,7 @@ const dsp_backend_t *dsp_detect(void)
 		CloseLibrary((struct Library *)gb);
 	}
 	return aa ? &aga_backend : dsp_backend_rtg();
+#endif
 }
 
 /* --- VBL mouse-cursor service (display.h) --------------------------------
