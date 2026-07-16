@@ -255,3 +255,26 @@ The architecture is now fully understood, and the old model was BACKWARDS:
    in the sthigh backend for art while text/chrome stay 2x2-dithered.
 3. Audit the jt1200()==3 arms actually reachable in play for PROBE stubs.
 4. Wire g_a5_1315 to dsp_is_mono() and validate screen by screen.
+
+### Phase 2 runtime — FIRST LIGHT (2026-07-15, FRUA_BWMODE)
+
+The gate flip WORKS: `make CPU68K=68000 EXTRA_CFLAGS=-DFRUA_BWMODE` boots the
+engine's own B&W mode on ST High (Hatari --monitor mono + TOS 2.06) — crisp
+black-on-white button text, plate outlines, and QD stipple patterns from the
+Mac's own lifted arms, on the 480x300 B&W window centred in 640x400.
+
+Landed: color_mode_init derives depth from the backend (g_dsp_mono_active);
+sthigh's engine-B&W surface (480x300 byte-per-pixel, 1:1 bit-pack present);
+l2d4e's 1bpp PackBits leaf (mode 2 + flags bit 0x40 clear).
+
+The iterative remainder (screen-by-screen, on screenshots):
+1. The half-drawn menu: misplaced plates/labels — colour-oriented leaves
+   (the port's stand-in menu painter draws at 320x200 constants; the B&W
+   arms want the Mac's own menu draw) + B&W clip bounds (-3050..-3056).
+2. l2d4e mode-1 leaf for B&W (2bpp compact pieces: FRAME/ALWAYS/TOPVIEW).
+3. The mode-3 masked format lift (L289a + JT[1170] + JT[1185]): TITLE
+   screens, SPRIT sprites — the intro and cursor art.
+4. Then play-mode screens: dungeon (8X8DB.TLB 2bpp walls), events (PIC%c.TLB
+   176x176 pictures — the flagship), combat.
+5. Input mapping in the 480x300 window (mouse clamps read the surface size
+   already; verify click coords land).
