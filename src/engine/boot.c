@@ -13039,6 +13039,17 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		g_j2_active = 0;
 		j200_dump();
 #endif
+		/* PORT: restore the full-screen clip. The 176x176 hole clip
+		 * above is a port addition (the Mac walks jt199 under the
+		 * full-screen clip), so it must be bracketed — left narrowed,
+		 * it clipped every LATER QuickDraw fill to the view hole: the
+		 * treasure/XP page's jt76 panel clear (jt103 -> jt1161) only
+		 * covered the hole, so its jt94 text lines drew over the
+		 * still-visible roster (the "wrap overflow" sighting), and the
+		 * clock plate fills clipped to fragments. The mono text path
+		 * (jt995 planar) does NOT consult this clip, which is why the
+		 * text escaped while the fills didn't. */
+		jt1193();
 		(void)jt117();
 		qd_present();
 		return;
