@@ -192,8 +192,11 @@ quant_reduce(const unsigned char *clut, short n, short bits,
  * win a single global reduce can't give (the granite chrome stops starving the
  * viewport). One full-frame presence histogram + `nbands` small median-cuts.
  *   band_pal[nbands*ncol*3] — per-band snapped palettes
- *   band_remap[nbands*256]  — per-band remap LUTs (colours absent from a band
- *                             map to 0, which is never displayed there)
+ *   band_remap[nbands*256]  — per-band remap LUTs. Colours ABSENT from a band
+ *                             at build time still get a mapping — the reduced
+ *                             entry nearest in LUMINANCE — because content
+ *                             drawn after the reduce (the composited cursor, a
+ *                             changed 3D view) must not fall to black.
  * nbands==1 reproduces the global reduce (over just the used colours).
  */
 static void quant_banded(const unsigned char *chunky, short w, short h,
@@ -228,6 +231,8 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 	for (b = 0; b < nbands; b++) {
 		unsigned char *bpal = band_pal + (long)b * ncol * 3;
 		unsigned char *brem = band_remap + (long)b * 256;
+		short plum[QUANT_MAX_N];
+		short n;
 
 		m = 0;
 		for (i = 0; i < 256; i++) {
@@ -239,15 +244,39 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				m++;
 			}
 		}
-		for (i = 0; i < 256; i++)
-			brem[i] = 0;
 		if (m == 0) {                       /* empty band -> all black */
 			for (i = 0; i < ncol * 3; i++)
 				bpal[i] = 0;
+			for (i = 0; i < 256; i++)
+				brem[i] = 0;
 			continue;
 		}
-		quant_reduce_n(cclut, m, ncol, bits, bpal, cremap);
-		for (i = 0; i < m; i++)
+		n = quant_reduce_n(cclut, m, ncol, bits, bpal, cremap);
+
+		/* Cheap luma (2R+5G+B)/8 of each reduced entry, for the
+		 * absent-colour fallback below. */
+		for (i = 0; i < n; i++)
+			plum[i] = (short)((2 * bpal[i * 3 + 0]
+			                 + 5 * bpal[i * 3 + 1]
+			                 + bpal[i * 3 + 2]) >> 3);
+		for (i = 0; i < 256; i++) {
+			short lum = (short)((2 * clut[i * 3 + 0]
+			                   + 5 * clut[i * 3 + 1]
+			                   + clut[i * 3 + 2]) >> 3);
+			short bestd = 32767, bestj = 0, j, d;
+
+			for (j = 0; j < n; j++) {
+				d = (short)(plum[j] - lum);
+				if (d < 0)
+					d = (short)-d;
+				if (d < bestd) {
+					bestd = d;
+					bestj = j;
+				}
+			}
+			brem[i] = (unsigned char)bestj;
+		}
+		for (i = 0; i < m; i++)             /* exact wins over fallback */
 			brem[idxlist[i]] = cremap[i];
 	}
 }

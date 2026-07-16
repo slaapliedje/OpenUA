@@ -71,6 +71,7 @@ static unsigned char  s_clut[256 * 3];
 static unsigned char  s_band_pal[ECS_NBANDS * ECS_NCOL * 3];
 static unsigned char  s_band_remap[ECS_NBANDS * 256];
 static short          s_dirty;
+static short          s_have_pal;
 
 #define FRAME_BYTES ((ULONG)ECS_PITCH * ECS_H * ECS_DEPTH)
 
@@ -279,6 +280,7 @@ static void ecs_reband(void)
 			                          | (bp[i * 3 + 2] >> 4));
 	}
 	s_dirty = 0;
+	s_have_pal = 1;
 }
 
 /* Full render: (re-band if dirty), remap the whole surface, convert to the
@@ -310,13 +312,10 @@ static void ecs_present_rect(short x, short y, short w, short h)
 	unsigned char *planes[ECS_DEPTH];
 	short p, x1;
 
-	/* A pending re-band changes every band's remap, so the whole frame must
-	 * be rebuilt — promote to a full render. */
-	if (s_dirty) {
-		ecs_render();
-		return;
-	}
-
+	/* NEVER re-band here (same policy as the ST backend): a dirty palette
+	 * means a scene change is mid-draw, and re-banding against a half-drawn
+	 * frame bakes wrong palettes in. Rect draws go through the CURRENT LUTs;
+	 * the next FULL present re-bands against the complete frame. */
 	if (x < 0) { w = (short)(w + x); x = 0; }
 	if (y < 0) { h = (short)(h + y); y = 0; }
 	if (x + w > ECS_W) w = (short)(ECS_W - x);
@@ -350,9 +349,12 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 		s_clut[idx * 3 + 1] = colors[i].g;
 		s_clut[idx * 3 + 2] = colors[i].b;
 	}
-	/* Defer the re-band to the next present, when the surface is drawn: the
-	 * band palettes depend on pixel content, not just the CLUT. */
-	s_dirty = 1;
+	/* Only a SUBSTANTIAL load (a scene change) marks the bands dirty; small
+	 * writes are palette cycling, whose re-band + full re-render churn is
+	 * what froze the ST live test (same policy there). Deferred to the next
+	 * full present, when the surface is completely drawn. */
+	if (count >= 32 || !s_have_pal)
+		s_dirty = 1;
 }
 
 static const dsp_backend_t ecs_backend = {

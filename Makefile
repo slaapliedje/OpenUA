@@ -224,6 +224,16 @@ run: $(TARGET)
 	$(HATARI) --machine falcon --memsize $(HATARI_MEM) $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
 	          --conout 2 -d . --auto 'C:\$(TARGET)'
 
+# Boot the current build on an emulated STE. Needs an EmuTOS image (TOS 4.04
+# is Falcon-only) — override EMUTOS with your path. Build the 68000 binary
+# first: `make clean && make CPU68K=68000` (an -m68020-60 frua.prg dies with
+# illegal instructions on the STE's 68000). Mounts the staged gamedata dir
+# as C: (stage it once with `make gamedata DSN=HEIRS.DSN`).
+EMUTOS ?= $(HOME)/Downloads/Atari/etos256us.img
+run-ste: $(TARGET)
+	$(HATARI) --machine ste --memsize 4 --tos $(EMUTOS) --zoom 2 --sound 44100 \
+	          --conout 2 -d $(GAMEDATA_DIR) --auto 'C:\$(TARGET)'
+
 # Staged game-data folder for module-load testing. The engine opens
 # .DAT/.GLB/.CTL files by bare filename from the GEMDOS mount, but the
 # unpacked Mac release nests them under data/frua-mac/joined/. This
@@ -470,4 +480,4 @@ release-all:
 
 -include $(DEP)
 
-.PHONY: all run run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
+.PHONY: all run run-ste run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target

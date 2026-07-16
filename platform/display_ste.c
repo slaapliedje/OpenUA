@@ -54,47 +54,54 @@ static short          s_save_rez = -1;
 static void          *s_save_phys, *s_save_log;
 static short          s_ints_on;
 
-/* Quantizer state. s_band_stpal / s_band_next cross the interrupt boundary. */
+/* Quantizer state. st_band_stpal / st_band_ptr cross the interrupt boundary
+ * and are referenced by name from the asm handlers, so they are non-static
+ * (survive -O2 renaming/DCE). st_band_stpal has ONE SENTINEL ROW beyond the
+ * last band: Timer B fires once more at the very last display line, and the
+ * branch-free handler happily loads "band 25" — the sentinel (a copy of the
+ * last band) makes that read harmless. */
 static unsigned char           s_clut[256 * 3];
 static unsigned char           s_band_pal[ST_NBANDS * ST_NCOL * 3];
 static unsigned char           s_band_remap[ST_NBANDS * 256];
-static volatile short          s_band_stpal[ST_NBANDS][ST_NCOL];   /* ST-format */
-static volatile short          s_band_next;
+short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
+short *st_band_ptr;                             /* next band for Timer B */
 static short                   s_dirty;
+static short                   s_have_pal;
 static short                   s_vbl_slot = -1;
 
-/* --- raster-split interrupt handlers (global: referenced from inline asm, so
- * they must not be dead-code-eliminated) --------------------------------- */
+/* --- raster-split interrupt handlers -------------------------------------
+ *
+ * MFP Timer B registers (byte-wide, odd addresses):
+ *   TBCR 0xFFFA1B — control: 0 = stopped, 8 = event-count mode (counts DE,
+ *                   i.e. visible scanlines)
+ *   TBDR 0xFFFA21 — the reload count
+ * The counter FREE-RUNS once armed, and 200 % ST_RPB == 0, so whatever line
+ * phase it starts on PERSISTS FOREVER. The VBL therefore re-phases it every
+ * frame: stop, reload ST_RPB, restart — the first fire is then exactly at the
+ * end of display line ST_RPB-1, every frame. (The un-phased first version had
+ * every band's palette arriving a constant k lines late — visible as gnarly
+ * band offsets. Live-tested by the user, 2026-07-15.)
+ */
+#define TBCR (*(volatile unsigned char *)0xFFFFFA1BUL)
+#define TBDR (*(volatile unsigned char *)0xFFFFFA21UL)
 
-/* Write a band's 16 colour registers straight to the hardware. */
-static void st_load_band(short b)
+/* VBL (C, via the rts trampoline below — the vertical blank has time to
+ * spare): re-phase Timer B, load band 0's palette, point the raster handler
+ * at band 1. */
+void st_vbl_handler(void)
 {
 	volatile short *hw = ST_COLORREGS;
 	short i;
 
+	TBCR = 0;                       /* stop: the write below must not race  */
+	TBDR = ST_RPB;                  /* first fire = end of line ST_RPB-1    */
+	TBCR = 8;                       /* event-count mode, re-armed in phase  */
+
 	for (i = 0; i < ST_NCOL; i++)
-		hw[i] = s_band_stpal[b][i];
+		hw[i] = st_band_stpal[0][i];
+	st_band_ptr = &st_band_stpal[1][0];
 }
 
-/* VBL: band 0 at the top of the frame, reset the split index. */
-void st_vbl_handler(void)
-{
-	st_load_band(0);
-	s_band_next = 1;
-}
-
-/* Timer B fired at a band boundary: load the next band, advance. */
-void st_timerb_handler(void)
-{
-	short b = s_band_next;
-
-	if (b >= 1 && b < ST_NBANDS) {
-		st_load_band(b);
-		s_band_next = (short)(b + 1);
-	}
-}
-
-/* VBL trampoline: called from the vblqueue as a subroutine (rts). */
 __asm__(
 	".globl _st_vbl_trampoline\n"
 	"_st_vbl_trampoline:\n"
@@ -105,15 +112,25 @@ __asm__(
 );
 extern void st_vbl_trampoline(void);
 
-/* Timer B trampoline: a real MFP interrupt (rte), clears the in-service bit
- * (Timer B = MFP channel 8 = ISRA bit 0 at 0xFFFA0F; write 0xFE to clear it
- * and leave the rest — the MFP clears only the zero bits). */
+/* Timer B: pure asm — the interrupt is raised at the END of the last display
+ * line of a band, and the 16 colour registers must be rewritten inside the
+ * ~192-cycle border/blank window before the next line's pixels. A C loop blew
+ * way past that (the palette switched mid-scanline — visible tearing on every
+ * boundary). movem does it: 8 longwords in, 8 longwords out = all 16 CPU
+ * registers' worth of colour in ~160 cycles, branch-free via st_band_ptr and
+ * the sentinel row. Worst case the store still runs a few dozen cycles into
+ * the boundary line's left edge; cycle-exact spin-waiting is not worth it.
+ * ISRA bit 0 (Timer B = MFP channel 8) is cleared on exit; the MFP clears
+ * only the ZERO bits of the written mask, hence 0xFE. */
 __asm__(
 	".globl _st_timerb_trampoline\n"
 	"_st_timerb_trampoline:\n"
-	"  moveml %d0-%d2/%a0-%a2,%sp@-\n"
-	"  jbsr   _st_timerb_handler\n"
-	"  moveml %sp@+,%d0-%d2/%a0-%a2\n"
+	"  moveml %d0-%d7/%a0,%sp@-\n"
+	"  movel  _st_band_ptr,%a0\n"
+	"  moveml %a0@+,%d0-%d7\n"
+	"  moveml %d0-%d7,0xFFFF8240\n"
+	"  movel  %a0,_st_band_ptr\n"
+	"  moveml %sp@+,%d0-%d7/%a0\n"
 	"  moveb  #0xFE,0xFFFFFA0F\n"
 	"  rte\n"
 );
@@ -148,6 +165,21 @@ static long st_vbl_remove_super(void)
 
 /* --- chunky -> ST-low interleaved planes -------------------------------- */
 
+/* Load 32 chunky pixels as 8 longwords with the remap LUT folded into the
+ * load — no intermediate 32-byte bounce buffer (that write+re-read cost real
+ * time on the 68000, where every present goes through here). */
+static void st_c2p_load32_lut(const unsigned char *src,
+                              const unsigned char *lut, c2p_u32 c[8])
+{
+	short k;
+
+	for (k = 0; k < 8; k++) {
+		c[k] = ((c2p_u32)lut[src[0]] << 24) | ((c2p_u32)lut[src[1]] << 16)
+		     | ((c2p_u32)lut[src[2]] << 8)  |  (c2p_u32)lut[src[3]];
+		src += 4;
+	}
+}
+
 /* Convert one 16-pixel-aligned span, remapping each pixel through `lut`
  * inline, into ST Low's 4 word-interleaved planes (8 bytes per 16-pixel
  * group). `w` is a multiple of 32 except a possible 16-pixel tail. */
@@ -158,13 +190,10 @@ static void st_c2p_span(const unsigned char *src, unsigned char *dst, short w,
 
 	for (x = 0; x + 32 <= w; x += 32) {
 		c2p_u32 c[8], o[8];
-		unsigned char rp[32];
 		unsigned short *d = (unsigned short *)(dst + (long)(x / 16) * 8);
-		short p, k;
+		short p;
 
-		for (k = 0; k < 32; k++)
-			rp[k] = lut[src[x + k]];
-		c2p_load32(rp, c);
+		st_c2p_load32_lut(src + x, lut, c);
 		c2p_transpose32(c, o);
 		for (p = 0; p < ST_DEPTH; p++) {
 			d[p]     = (unsigned short)(o[p] >> 16);
@@ -179,7 +208,7 @@ static void st_c2p_span(const unsigned char *src, unsigned char *dst, short w,
 
 		for (k = 0; k < 16; k++)
 			rp[k] = lut[src[x + k]];
-		memset(rp + 16, 0, 16);
+		memset(rp + 16, 0, 16);       /* pad half never stored below */
 		c2p_load32(rp, c);
 		c2p_transpose32(c, o);
 		for (p = 0; p < ST_DEPTH; p++)
@@ -203,7 +232,8 @@ static void st_blit_rows(short x0, short w, short y0, short h)
 }
 
 /* Re-band: histogram + per-band reduce, then build the per-band ST-format
- * palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)). */
+ * palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)). The sentinel
+ * row (see st_band_stpal) is a copy of the last band. */
 static void st_reband(void)
 {
 	short b, i;
@@ -221,10 +251,13 @@ static void st_reband(void)
 			short gn = (short)(((vg & 1) << 3) | (vg >> 1));
 			short bn = (short)(((vb & 1) << 3) | (vb >> 1));
 
-			s_band_stpal[b][i] = (short)((rn << 8) | (gn << 4) | bn);
+			st_band_stpal[b][i] = (short)((rn << 8) | (gn << 4) | bn);
 		}
 	}
+	for (i = 0; i < ST_NCOL; i++)
+		st_band_stpal[ST_NBANDS][i] = st_band_stpal[ST_NBANDS - 1][i];
 	s_dirty = 0;
+	s_have_pal = 1;
 }
 
 /* --- backend entry points ------------------------------------------------ */
@@ -255,11 +288,12 @@ static int st_init(short want_w, short want_h)
 	s_surface.height = ST_H;
 	s_surface.pitch  = ST_W;
 	s_surface.pixels = s_chunky;
-	s_dirty   = 1;
-	s_band_next = 1;
+	s_dirty    = 1;
+	s_have_pal = 0;
+	st_band_ptr = &st_band_stpal[1][0];      /* valid before the first fire */
 
-	/* Install the raster split: a VBL slot (band 0 + reset) and Timer B in
-	 * event-count mode firing every ST_RPB display lines. */
+	/* Install the raster split: a VBL slot (re-phases Timer B + loads band 0)
+	 * and Timer B in event-count mode firing every ST_RPB display lines. */
 	Supexec(st_vbl_install_super);
 	Xbtimer(1, 8, ST_RPB, st_timerb_trampoline);   /* timer B, event count */
 	s_ints_on = 1;
@@ -299,11 +333,13 @@ static void st_present_rect(short x, short y, short w, short h)
 {
 	short x1;
 
-	if (s_dirty) {                           /* re-band changed every LUT */
-		st_reband();
-		st_blit_rows(0, ST_W, 0, ST_H);
-		return;
-	}
+	/* NEVER re-band here. A dirty palette means a scene change is mid-draw
+	 * (the intro blits its screens piece by piece); re-banding against a
+	 * half-drawn frame bakes wrong palettes in, and doing it per piece on an
+	 * 8MHz 68000 queued full-frame work faster than it drained — the "intro
+	 * froze" the live test found. Rect draws go through the CURRENT LUTs
+	 * (transiently wrong colours in the rect at worst); the next FULL present
+	 * re-bands against the complete frame and settles everything. */
 	if (x < 0) { w = (short)(w + x); x = 0; }
 	if (y < 0) { h = (short)(h + y); y = 0; }
 	if (x + w > ST_W) w = (short)(ST_W - x);
@@ -329,7 +365,16 @@ static void st_set_palette(const dsp_color_t *colors, short first, short count)
 		s_clut[(first + i) * 3 + 1] = colors[i].g;
 		s_clut[(first + i) * 3 + 2] = colors[i].b;
 	}
-	s_dirty = 1;                             /* re-band at next present */
+	/* Only a SUBSTANTIAL load (a scene/palette change) marks the bands
+	 * dirty. Small-range writes are palette CYCLING (the intro's twinkling
+	 * stars, the tavern fireplace) stepping several times a second — each
+	 * re-band + full re-blit takes the better part of a second on an 8MHz
+	 * 68000, so honouring them queued unbounded full-frame work (the live
+	 * test's freeze). The shadow CLUT still updates; the cycle just doesn't
+	 * animate on this target (matching the pre-banding behaviour — reserved
+	 * cycle slots are the future fix, see the plan doc). */
+	if (count >= 32 || !s_have_pal)
+		s_dirty = 1;                     /* re-band at next full present */
 }
 
 static const dsp_backend_t ste_backend = {
