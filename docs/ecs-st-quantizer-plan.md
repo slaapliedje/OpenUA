@@ -136,13 +136,16 @@ working set (FAR pool ~450 K, play/load buffers) sits. Two structural facts:
 4. **Memory footprint to 1 MB** — the real gate for ECS/ST; shrink the FAR
    pool + play/load working set (see the memory co-blocker above). Do this in
    parallel with, or before, the native backends.
-5. Native ECS Amiga bitplane backend (32-colour) wiring in `quantize.h` +
-   **per-line copper palette** + the remap LUT — testable in amiberry ECS, no
-   graphics card. (The copper per-line palette is the same mechanism the AGA
-   backend already uses, so this is largely a depth/colour-count change.)
-   Needs a detection split: non-AA currently routes to RTG, so bare ECS vs
-   ECS-with-graphics-card must be told apart (RTG mode present -> RTG, else
-   native bitplanes).
+5. ✅ Native ECS/OCS bitplane backend (`platform/amiga/display_ecs.c`,
+   32-colour) wiring in `quantize.h` + remap LUT + 5-plane c2p. **VERIFIED in
+   amiberry on a bare OCS A2000** — the menu renders in 32 colours, quantizer
+   live, software cursor. Remaining on this backend:
+   - **Per-line copper palette (banding)** — the big visual win (fixes the
+     granite-chrome speckle), and free on the copper. NOT done yet: v1 is a
+     GLOBAL 32-colour palette.
+   - **Detection split** — `-DFRUA_FORCE_ECS` forces it today; the runtime
+     bare-ECS-vs-graphics-card probe (try RTG, else ECS) is still to wire.
+   - Palette cycling (fireplace) only re-quantises on substantial loads.
 6. STE backend (16-colour, 4-bit) with **layout-aligned HBL bands** — testable
    in Hatari `--machine ste`.
 7. EHB, per-line-on-ST, plain-ST, dithering — optional polish, each a later push.
