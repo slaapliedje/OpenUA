@@ -47253,6 +47253,19 @@ static void l276c(void)
 
 	PROBE("L276c");
 	jt77();
+	/* MONO: clear the 12px gutter between the two combat panels. jt77 lays
+	 * the map panel (jt103(1,1,21,21) -> cols 1..21) and the info panel
+	 * (jt103(23,1,38,21) -> cols 23..38); the col 21..23 seam between them
+	 * is filled by neither. At the mono scale-3 that seam is 12px wide
+	 * (chunky x264..276) and it retains the encounter-intro roster columns
+	 * drawn there before combat (the "AC"/HP remnants beside the info
+	 * panel). The Mac's own frame chrome covers the seam; the port's
+	 * reconstructed mono FRAME pieces don't reach it, so clear it to the
+	 * panel background (jt1161 fill 8 -> black in mono). Colour
+	 * (jt1200() != 3) already covers the seam and is left untouched. */
+	if (jt1200() == 3)
+		jt1161((short)8004, (short)8084, (short)8090, (short)8092,
+		       (short)8);
 	jt527();
 	jt521((short)(*(short *)(fld + 2) + 3),
 	      (short)(*(short *)(fld + 4) + 3), 255, 8);
