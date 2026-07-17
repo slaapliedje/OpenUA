@@ -696,3 +696,36 @@ over the prompt text (cap/tile geometry — menu-button-rendering #105
 territory).
 
 Colour AE=0, 175 tests.
+
+### Phase 2 runtime — MONO PLAY-LOOP SWEEP (2026-07-16, 15th leg)
+
+Drove every mono play screen (HEIRS, Hatari ST mono + TOS 2.06). ALL
+render and are playable:
+- VIEW character sheet: full stats, PLATINUM/EXPERIENCE, ITEMS list
+  (LONG SWORD +1 / PLATE MAIL +1), TRADE/DROP/EXIT chips.
+- ENCAMP: the campfire event picture + "THE PARTY MAKES CAMP..." +
+  the camp bar (VIEW/MAGIC/REST/ALT/FIX/LOAD/SAVE/EXIT).
+- MAGIC submenu (CAST/MEMORIZE/SCRIBE/DISPLAY/REST/EXIT); DISPLAY
+  correctly empty for a fighter (no spells).
+- COMBAT (via the 'k' CBTSND hook): the encounter INTRO composites the
+  thief sprite over the 3D corridor with typed event text ("THIEVES
+  DISCOVER THE PARTY..."), then the TACTICAL MAP renders — 1-bit combat
+  sprites (party + monsters), the active-unit info panel (name /
+  HITPOINTS / AC / weapon / status via jt38), and the full combat bar
+  (AIM/USE/CAST/GUARD/QUICK/DELAY/VIEW/SPEED/END).
+
+TWO combat follow-ups (cosmetic, not blocking play):
+1. A vertical column of small glyph fragments sits in the map|panel
+   GAP (~x330, right at the tactical viewport's right edge). Structural
+   (survives a QUICK turn), aligns with the panel's HP/AC rows shifted
+   ~1 cell left — smells like a scale-2-vs-3 coordinate slip in a jt38
+   sub-draw (jt18 " " / jt28 held-item icon) or a map-viewport right
+   clip that leaks the rightmost cell column into the gap. The main
+   panel text (name/HP/AC/weapon) is correct.
+2. The tactical FLOOR is pure black in mono vs the colour grey stone
+   texture. Plausible for 1-bit (sprite contrast), but UNVERIFIED — no
+   Mac-mono combat reference yet. Worth a BasiliskII combat capture.
+
+Also observed: the combat tactical map DRAW is slow in mono (the
+sprite blit over the whole viewport), a few seconds to fill — the same
+8MHz-ST cost class as the typewriter, not a correctness issue.
