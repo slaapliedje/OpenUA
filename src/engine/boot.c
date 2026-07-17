@@ -3413,6 +3413,8 @@ static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L
 #ifdef FRUA_MONOPROF
 long g_mpf_t0, g_mpf_t1, g_mpf_t2;      /* jt312 step-timing stamps */
 long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
+long g_mpf_l0;                          /* l63c0 compose stamp */
+long g_mpf_f1, g_mpf_f2;                /* jt312 FULL-path stamps */
 #endif
 
 static void port_present_full(void)
@@ -6680,7 +6682,48 @@ static void mono_span(short y, short c0, short c1, int to_page)
 		return;
 	d   = px + (long)y * pitch;
 	bit = (long)y * MONO_PAGE_W + c0 + 8;
-	for (c = c0; c < c1; c++, bit++) {
+	c   = c0;
+#ifndef FRUA_MONO_TRACE_INK
+	/* #156: byte-wise middle (same pattern as the #155 blit arms — the
+	 * HUD text path runs this per glyph and was the dominant cost of a
+	 * full compose). Head/tail bits around the byte-aligned middle go
+	 * per-bit; a full-byte span writes every bit, so the to_page middle
+	 * is a plain byte overwrite and the expand middle is mono_expand8. */
+	while (c < c1 && (bit & 7) != 0) {      /* head to byte boundary */
+		unsigned char *b = s_mono_page + (bit >> 3);
+		unsigned char  m = (unsigned char)(0x80 >> (bit & 7));
+
+		if (to_page) {
+			if (!g_dsp_ink[d[c]])
+				*b |= m;
+			else
+				*b = (unsigned char)(*b & ~m);
+		} else {
+			d[c] = (unsigned char)((*b & m) ? 15 : 0);
+		}
+		c++; bit++;
+	}
+	if (to_page) {
+		while ((short)(c + 8) <= c1) {
+			s_mono_page[bit >> 3] = (unsigned char)
+			    (((g_dsp_ink[d[c + 0]] ^ 1) << 7)
+			   | ((g_dsp_ink[d[c + 1]] ^ 1) << 6)
+			   | ((g_dsp_ink[d[c + 2]] ^ 1) << 5)
+			   | ((g_dsp_ink[d[c + 3]] ^ 1) << 4)
+			   | ((g_dsp_ink[d[c + 4]] ^ 1) << 3)
+			   | ((g_dsp_ink[d[c + 5]] ^ 1) << 2)
+			   | ((g_dsp_ink[d[c + 6]] ^ 1) << 1)
+			   |  (g_dsp_ink[d[c + 7]] ^ 1));
+			c += 8; bit += 8;
+		}
+	} else {
+		while ((short)(c + 8) <= c1) {
+			mono_expand8(d + c, s_mono_page[bit >> 3]);
+			c += 8; bit += 8;
+		}
+	}
+#endif
+	for (; c < c1; c++, bit++) {            /* tail (or the tracer path) */
 		unsigned char *b = s_mono_page + (bit >> 3);
 		unsigned char  m = (unsigned char)(0x80 >> (bit & 7));
 
@@ -14209,6 +14252,9 @@ static void jt312(unsigned char *page)
 		 * to the reconstruction until the bigpic is understood; the jt214/jt44/
 		 * l579e lifts stay (latent) for when the composer (L3fd8) is wired. */
 		port_draw_play_frame(px, pitch, sw, sh);
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_f1; g_mpf_f1 = TickCount(); }
+#endif
 	}
 	/* LIVE DEFAULT: render_3d_faithful — the 1:1 Mac jt199 -> l5b42 -> jt200
 	 * slot-assembly view (perspective fixed in 0f62432). This matches jt221's
@@ -14265,6 +14311,9 @@ static void jt312(unsigned char *page)
 		port_hud_text_clut();
 		jt938();
 		jt937(g_a5_long(-27932));
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_f2; g_mpf_f2 = TickCount(); }
+#endif
 	}
 	if (s_view_first || g_view_force_full) {
 		/* Full present to every backend page (#151/#103): on the page-
@@ -14275,6 +14324,15 @@ static void jt312(unsigned char *page)
 		qd_present_hold(0);      /* #147: end the atomic hold, THEN present */
 		port_present_full();          /* #151 */
 #ifdef FRUA_MONOPROF
+		{
+			extern long g_mpf_t0, g_mpf_t1, g_mpf_t2;
+			extern long g_mpf_f1, g_mpf_f2;
+			long ft = TickCount();
+			dbg_log_num("FULL chrome ticks ", g_mpf_f1 - g_mpf_t0);
+			dbg_log_num("FULL render ticks ", g_mpf_t2 - g_mpf_t1);
+			dbg_log_num("FULL hud ticks    ", g_mpf_f2 - g_mpf_t2);
+			dbg_log_num("FULL present ticks", ft - g_mpf_f2);
+		}
 		dbg_log_num("jt312 FULL path, vf=", (long)g_view_force_full);
 #endif
 		s_view_first = 0;
@@ -15580,6 +15638,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * no return between. The flush is port_present_full so every videl
 	 * page still gets seeded (jt312's internal pair is swallowed here). */
 	qd_present_hold(1);
+#ifdef FRUA_MONOPROF
+	{ extern long g_mpf_l0; g_mpf_l0 = TickCount(); }
+#endif
 
 	/* paint the view-interior background rect (jt1161, fill colour 8) */
 	jt1161((short)g_a5_word(-11674), (short)g_a5_word(-11672),
@@ -15668,6 +15729,12 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * hold swallowed jt312's internal page-seeding pair above). */
 	qd_present_hold(0);
 	port_present_full();
+#ifdef FRUA_MONOPROF
+	{
+		extern long g_mpf_l0;
+		dbg_log_num("l63c0 compose ticks", TickCount() - g_mpf_l0);
+	}
+#endif
 
 	/* Set the view-mode bit jt1160() reads (top-down for the wilderness, so
 	 * arrow keys route through jt297 -> jt311; first-person for a_deep), and
