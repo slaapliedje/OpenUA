@@ -6221,15 +6221,28 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 			}
 		}
 	} else {
-		/* 1bpp mono glyph: set bits -> fgColor (Mac L2970 mode-0 OR).
-		 * B&W mode: the Mac pen is INK — chunky 0 = black under the
-		 * direct-luminance model (THE MONO INK MODEL at the mono
-		 * PLANAR PAGE). Mode-0 pieces are ink-stroke glyphs (set =
-		 * the stroke), unlike the mode-2 pictures (set = art-white). */
+		/* 1bpp piece, mode 0 (the Mac L2970 leaf).
+		 *
+		 * MONO (jt1200==3): the Mac writer is JT[1165] / JT[1202] — the
+		 * VERBATIM OPAQUE row copy (disasm CODE_05 0x29f8 / 0x2a3c), so
+		 * BOTH classes paint: a set source bit lands page-SET = the
+		 * bright class -> chunky 15, clear -> 0 (THE MONO INK MODEL at
+		 * the mono PLANAR PAGE). The earlier "ink-stroke OR, ink = 0"
+		 * model was WRONG here — set-only black on the black panel drew
+		 * nothing, which was the mono BLACK COMBAT FLOOR (task #15; the
+		 * real-Mac reference shows the cobble tiles painting their own
+		 * white field). Mode-0 mono pieces are opaque tiles/backdrops
+		 * (DUNGCOM/WILDCOM/TOPVIEW terrain, the GEN stone, the FRAME
+		 * chrome bands); the transparent mono UI pieces are mode 1
+		 * (mask+data) and don't come through this arm.
+		 *
+		 * COLOUR keeps the historic pen expansion: set bits -> fgColor,
+		 * clear transparent. */
 		GrafPtr port;
 		unsigned char fg = 0;
+		short mono3 = (jt1200() == 3);
 
-		if (jt1200() != 3) {
+		if (!mono3) {
 			GetPort(&port);
 			if (port != NULL)
 				fg = ((CGrafPtr)port)->fgColor;
@@ -6242,13 +6255,16 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				continue;
 			for (c = 0; c < pix_w; c++) {
 				short dx;
+				int bit = (srow[c >> 3] & (0x80 >> (c & 7))) != 0;
 
-				if (!(srow[c >> 3] & (0x80 >> (c & 7))))
+				if (!mono3 && !bit)
 					continue;
 				dx = (short)(x + c);
 				if (dx < left || dx >= right)
 					continue;
-				px[(long)dy * pitch + dx] = fg;
+				px[(long)dy * pitch + dx] = mono3
+				    ? (unsigned char)(bit ? 15 : 0)
+				    : fg;
 			}
 		}
 	}
