@@ -960,3 +960,33 @@ synthetic X mouse MOTION (warp/click only) — so it waits for a real
 mouse session before committing. Same wastes (present-per-poll, double
 present, cycle force-fulls) burden the colour videl path behind its
 double buffer; carry the fixes across once proven here.
+
+### Phase 2 runtime — the 8 MHz throttle found and killed (2026-07-17, 24th leg)
+
+Present-caller attribution (extending FRUA_MONOPROF) at REAL emulated
+speed found where the "unplayable at 8 MHz, fine at 32" time goes: the
+engine's idle loops emit ~1.6 clean presents/second (flushed through the
+event pump's #144 safety net), and each one cost **~310 ms** in the
+sthigh backend's 144 KB full-screen diff scan — roughly HALF of all CPU
+time spent scanning an unchanged screen. Fix (#152, e96e57b): a
+`g_qd_touched` gate in the shim — set by every write path (fill/blit/
+glyph primitives, qd_screen_pixels pointer grabs, palette installs),
+cleared after a full present — lets a clean present on a single-buffered
+backend return immediately. Cursor-move presents force through (a moved
+pointer changes the composited output without touching the surface);
+page-flipped videl never skips. Plus: sthigh set_palette arms its
+force-full re-pack only when an index's dither/ink CLASS actually
+changed, so the fire-cycle rotations and the recurring identical band
+installs (HUD text, FRAME chrome) no longer trigger 480x300 re-packs.
+
+Measured: boot + 25 s idle + 12-key walk dropped from 120+ real presents
+to fewer than 40; idle scans eliminated. Verified: walk/steps/AREA
+toggle/menu all correct, Falcon colour + host suite unaffected. #151
+(commit c1f0196) preceded this leg: dsp_backend_t.pages (1 vs videl's
+2) replaced the seven unconditional double presents, and l63c0's whole
+initial compose now lands atomically under a #147 hold — the "editor
+panels pop up then vanish" flash is gone. #150 (cursor dirty-rect)
+remains in-tree, uncommitted, pending the live-mouse trail check.
+Remaining candidates if 8 MHz still lags: the possible double jt312
+per step (l1908 tail + loop tail), and the full 144 KB scan a SMALL
+draw still pays (a dirty-rect accumulator would shrink it).
