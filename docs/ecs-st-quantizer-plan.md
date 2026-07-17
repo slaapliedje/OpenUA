@@ -814,3 +814,33 @@ render faithfully and play. Remaining: verify the combat FLOOR (black
 vs colour grey) against a Mac-mono reference; the cosmetic save-under
 fidelity (redraw-masked); mouse-only menu-editor screens (harness can't
 click).
+
+### Phase 2 runtime — REAL-MAC MONO GROUND TRUTH (2026-07-16, 19th leg)
+
+Ran the ACTUAL Mac FRUA in native 1-bit: Mini vMac (built from 36.04
+source, `~/minivmac/`), emulated Mac Classic (68000), System 6.0.7,
+FRUA launched from a clean machfs-built HFS volume (`frua-clean.dsk`,
+sourced from `data/frua-mac/joined` + the verified rfork). Played from
+the title through the HEIRS caravan chain, town walk, and into a live
+random street combat (SEARCH-mode pacing fires the town's type-33 zone
+event; REST is disabled town-wide so rest-interrupts are unavailable).
+Reference screenshots: `data/mac-mono-ref/` (menu, caravan event,
+treasure, 3D view, area map, encounter intro, combat map x2, roster,
+title).
+
+Findings against the port's mono build:
+- CONFIRMED faithful: main menu (white chips / black panels / dithered
+  disabled buttons), event screens (stippled BIGPIC + black text
+  panels), treasure screen, 3D view (black night sky + white star
+  specks, white-brick walls), encounter intro, combat info panel and
+  verb bars, roster. The final ink model matches the real machine.
+- DIVERGENCE (task #15): the combat tactical-map FLOOR. The real Mac
+  renders the combat backdrop art as a dithered cobble/rubble texture;
+  the port renders pure black. The combat backdrop path must go
+  through the same 1-bit art conversion as the dungeon backdrop.
+
+Two dead theories buried on the way: "FRUA needs Color QuickDraw /
+68020" (wrong — trap presence is runtime-guarded; the box sticker says
+B&W = 1 MB + System 6.0.7) and the error -50 launch failures (a
+CORRUPT basilisk-40.img copy — the app rfork was zero-filled from byte
+2; the known-good rfork diff was the smoking gun).
