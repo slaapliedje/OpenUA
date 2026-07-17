@@ -91,9 +91,12 @@ FRUA in **Forgotten Realms: The Archives – Collection Two**:
 
 Those are the **DOS** release. The engine here is Mac-derived, but design/data
 files are byte-identical between the DOS and Mac versions, and the included art
-converter (`tools/art_convert.py`, below) makes the DOS art readable — so
-Collection Two's FRUA works. If you have the original **Macintosh** release
-instead, see [`docs/mac-release.md`](docs/mac-release.md) for unpacking it.
+converter (`tools/art_convert.py`, below) makes the DOS art readable. One piece
+still requires the original **Macintosh** release: the engine resource archive
+`frua.rsc` is packed from the Mac application itself. **Step-by-step setup —
+which files go where, per platform — is in [`GAMEDATA.md`](GAMEDATA.md)**; the
+Mac release's unpacking pipeline is in
+[`docs/mac-release.md`](docs/mac-release.md).
 
 ## Building
 

@@ -464,7 +464,7 @@ VERSION ?= 0.2.0-beta
 define PKG_DIST
 	@mkdir -p dist/$(1)
 	@cp $(2) dist/$(1)/
-	@cp README.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
+	@cp README.md GAMEDATA.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
 	@printf 'OpenUA (%s) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: never run on real hardware. Please report\nwhat happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\n%s\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping work.\nSee enhancements.md for the known gaps.\n' '$(3)' '$(VERSION)' '$(4)' > dist/$(1)/RELEASE.TXT
 	@cd dist && zip -qr $(1).zip $(1)
 	@echo "release -> dist/$(1).zip  (redistributable: no game data embedded)"
