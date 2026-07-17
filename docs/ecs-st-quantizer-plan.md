@@ -729,3 +729,27 @@ TWO combat follow-ups (cosmetic, not blocking play):
 Also observed: the combat tactical map DRAW is slow in mono (the
 sprite blit over the whole viewport), a few seconds to fill — the same
 8MHz-ST cost class as the typewriter, not a correctness issue.
+
+### Phase 2 runtime — combat panel FRAGMENT solved: uncleared inter-panel seam (2026-07-16, 16th leg, eb7a59e)
+
+The glyph-fragment column beside the mono combat info panel was STALE
+encounter-intro content, not a live draw. jt77 lays two combat panels
+— map (jt103(1,1,21,21)) and info (jt103(23,1,38,21)) — and neither
+fills the col 21..23 SEAM between them (12px at mono scale-3, chunky
+x264..276). That seam sits exactly where the encounter-intro roster
+drew its AC/HP columns, so its middle glyphs survived into combat
+(".)IAC" = the roster's stale "AC" header).
+
+Method (what ruled out the wrong suspects, in order): a jt1089 trace
+proved all panel TEXT draws at chunky x>=276 (none at the fragments);
+a pre-clip of the 7x7 grid (l6652/l78fa) had NO effect (not the grid);
+a jt57 position+clip trace showed all unit sprites at x<=240, clipped
+at x248 by l744e (not the sprites). That left the x264..276 seam as
+the only unaccounted region, and its width + position matched the
+intro roster columns exactly. Lesson: when every live draw is
+accounted for, the artifact is STALE — look for the region no clear
+covers, not another drawer.
+
+Fix: clear the seam in l276c after jt77 (mono only, jt1161 fill 8).
+The Mac's frame chrome covers it; the port's mono FRAME pieces don't
+reach it. Colour skips the arm (already covered), AE=0, 175 tests.
