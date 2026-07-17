@@ -990,3 +990,29 @@ remains in-tree, uncommitted, pending the live-mouse trail check.
 Remaining candidates if 8 MHz still lags: the possible double jt312
 per step (l1908 tail + loop tail), and the full 144 KB scan a SMALL
 draw still pays (a dirty-rect accumulator would shrink it).
+
+### Phase 2 runtime — the walk-step render, 6.5 s -> 1.6 s (2026-07-17, 25th leg)
+
+Step timing at real 8 MHz (MONOPROF TickCount stamps) split the ~390-
+tick (~6.5 s) walk step: FRAME piece 9 (static!) 93, backdrop 44, jt199
+wall tiles 102-153, present ~9, remainder the internal full present.
+Fixed in two commits:
+
+- **#154 (f871d7d)**: latch the static viewport frame — piece 9 draws
+  once, re-armed by port_draw_play_frame's wipe. 93 ticks -> 0 on steps.
+- **#155 (3814d29)**: the 1bpp blit inner loops went byte-wise. The old
+  arms paid a variable shift + two bounds tests + a long-mul address
+  per PIXEL; now bounds hoist per piece, a 0xFF mask byte skips 8 px in
+  one test, full-visible bytes expand unrolled (mono_expand8, solid-
+  byte fast paths), only edges go per-bit. Plus: the mono deep render
+  presents only the 176x192 view hole instead of a full present, and
+  jt312's colour-geometry 88x88 tail rect is skipped in mono. Output
+  pixel-identical to pre-optimization goldens (compare AE=0).
+
+Result: backdrop 44 -> 14, walls 102-153 -> 38-43, whole step 93-99
+ticks (~1.6 s at 8 MHz, ~0.4 s at 32). Remaining if more is wanted:
+the hi_blit_rows pack loop (per-pixel ink-LUT, could unroll ~1.6x),
+jt199's non-blit remainder (~35 ticks: l6eea loads/synthesis +
+geometry), and the l63c0 command-exit full recompose (~10 s, dominated
+by the same now-fixed paths — re-measure). The AREA toggle-back black
+(task #21) predates all of this.
