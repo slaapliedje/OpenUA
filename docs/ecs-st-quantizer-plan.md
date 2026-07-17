@@ -784,3 +784,33 @@ page isn't sync/expand-bracketed like jt995, so an effect's restore
 paints from an unsynced page (cosmetic, off-page effects only). A
 proper fix would make jt119/jt122 save/restore the CHUNKY region
 directly in mono (bypassing the page indirection entirely).
+
+### Phase 2 runtime — MONO COMBAT VERIFIED END-TO-END (2026-07-16, 18th leg)
+
+With the round crash fixed (leg 17), drove the FULL combat path in mono
+(HEIRS, the 'k'+AUTOWIN harness) and confirmed every screen renders:
+- encounter INTRO: the thief sprite composited over the 3D corridor +
+  the typed "THIEVES DISCOVER THE PARTY..." event text;
+- TACTICAL MAP: 1-bit combat sprites, the jt38 active-unit panel (clean
+  seam after leg 16), the AIM/USE/CAST/GUARD/QUICK/... bar;
+- ROUNDS: multiple QUICK passes + AI turns run to completion (the
+  save-under page-overflow crash is gone);
+- VICTORY/XP: "THE PARTY HAS WON. / EACH CHARACTER RECEIVES N /
+  EXPERIENCE POINTS. / THE PARTY HAS FOUND TREASURE!" on a clean
+  full-width panel (the leg-11 clip fix holds — no wrap overflow);
+- TREASURE: the BIGPIC treasure-pile picture + roster + the
+  VIEW/TAKE/POOL/SHARE/EXIT bar.
+
+Also completed a MONO PAGE OOB AUDIT: jt1177 is the shared page-cursor
+setter for every mono codec/save-under draw (5985/6699/33894/33922/
+78887.. and the jt119/jt122 family), so the leg-17 bounds clamp there
+protects ALL of them, not just jt503. The direct writers (mono_span,
+max byte 18000 < the 18008 page) are in-bounds. The mono planar-page
+path is now crash-safe.
+
+Mono status: menu, intro, walk (turns/steps/doors/wall-sets/backdrops/
+automap), event pictures, VIEW/ITEMS/ENCAMP/MAGIC, and full combat all
+render faithfully and play. Remaining: verify the combat FLOOR (black
+vs colour grey) against a Mac-mono reference; the cosmetic save-under
+fidelity (redraw-masked); mouse-only menu-editor screens (harness can't
+click).
