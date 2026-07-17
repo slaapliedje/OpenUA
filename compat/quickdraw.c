@@ -1748,17 +1748,67 @@ static void qd_cursor_tick(void)
  * qd_present per move instead just throttles the modal loop, starving the
  * sword/shield hit-test so the cursor lags and flickers. Fall back to a full
  * present only when the cursor is software-composited into the frame. */
+/* #150 (uncommitted, pending a live-mouse trail check): present only the
+ * cursor's dirty rect — the union of where it was last drawn
+ * (g_cursor_save_x/y, updated by every composite in both present paths, so
+ * no trails) and where it lands now — instead of a FULL present (144 KB
+ * re-pack on ST High) per mouse-move event. The Mac had a hardware cursor
+ * and never paid this; FRUA is mouse-driven, so it fired constantly. */
 void qd_cursor_track(void)
 {
+	short mx, my, hx, hy, nx, ny;
+	short ox, oy, x0, y0, x1, y1;
+	int   color;
+	int   prev_touched;
+
 	if (plat_cursor_active()) {
 		qd_cursor_tick();
-	} else {
+		return;
+	}
+	if (g_present_rect_hook == NULL) {       /* backend has no dirty-rect path */
 		/* #152: a cursor MOVE changes the composited output even though
 		 * the surface bytes didn't — force the present through the
 		 * clean-present gate or the pointer freezes on screen. */
 		g_qd_touched = 1;
+#ifdef FRUA_MONOPROF
+		g_qdp_src = 4;
+#endif
 		qd_present();
+		return;
 	}
+
+	/* Where the cursor was last drawn on screen. g_cursor_save_x/y is set by
+	 * EVERY composite (this path and a full qd_present) and left intact by
+	 * cursor_restore, so it always names the last-drawn position — capture it
+	 * BEFORE the new composite overwrites it, and union it in so the old
+	 * pointer is erased with no trail across the two present paths. */
+	ox = g_cursor_save_x;
+	oy = g_cursor_save_y;
+
+	color = g_color_cursor.loaded;
+	hx = color ? g_color_cursor.hotx : g_cursor.hotSpot.h;
+	hy = color ? g_color_cursor.hoty : g_cursor.hotSpot.v;
+	plat_mouse_pos(&mx, &my);
+	nx = (short)(mx - hx);
+	ny = (short)(my - hy);
+
+	prev_touched = g_qd_touched;             /* #152: net-neutral write below */
+	qd_cursor_tick();                        /* push a pending shape swap */
+	cursor_composite();                      /* draw at new pos, save underneath */
+
+	/* Dirty rect = union(new 16x16, previous 16x16). Packing the previous
+	 * cells from the (now cursor-free) buffer erases the old pointer. Over-
+	 * covering (e.g. the 0,0 seed before the first draw) is harmless; only
+	 * under-covering would trail, and g_cursor_save_x/y never under-names. */
+	x0 = nx; y0 = ny; x1 = (short)(nx + 16); y1 = (short)(ny + 16);
+	if (ox < x0) x0 = ox;
+	if (oy < y0) y0 = oy;
+	if ((short)(ox + 16) > x1) x1 = (short)(ox + 16);
+	if ((short)(oy + 16) > y1) y1 = (short)(oy + 16);
+	g_present_rect_hook(x0, y0, (short)(x1 - x0), (short)(y1 - y0));
+
+	cursor_restore();                        /* lift the sprite back out */
+	g_qd_touched = prev_touched;             /* composite+restore = net zero */
 }
 
 static void cursor_composite(void)
@@ -1865,8 +1915,7 @@ void qd_cursor_refresh(void)
 	last_x = mx;
 	last_y = my;
 	g_cursor_obscured = 0;                   /* ObscureCursor restores on the first move */
-	g_qd_touched = 1;                        /* #152: cursor moved — see track */
-	qd_present();                            /* composites at the live pos */
+	qd_cursor_track();                       /* #150: dirty-rect move, not a full c2p */
 }
 
 /* --- GDevice / Palette Manager minimum (see quickdraw.h) --- */
