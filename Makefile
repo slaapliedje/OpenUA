@@ -249,16 +249,22 @@ run-ste: $(TARGET)
 
 # Boot the B&W (Mac monochrome) build on an emulated ST with a mono monitor
 # (ST High, 640x400). Needs a real ST TOS ROM (2.06 recommended — EmuTOS
-# also boots ST High) and the BWMODE 68000 binary:
-#   make clean && make CPU68K=68000 EXTRA_CFLAGS=-DFRUA_BWMODE
+# also boots ST High). Just:
 #   make run-mono
-# The engine auto-detects the mono monitor (Getrez()==2) and runs the Mac's
-# own 1-bit mode: 480x300 game window, .TLB art, the L4e12 text plates.
+# The target BUILDS the right configuration itself (recursive make with
+# CPU68K=68000 + FRUA_BWMODE — the build stamp repurges objects as needed).
+# Depending on $(TARGET) directly was a trap: a bare `make run-mono` after
+# a flagged build re-evaluated with DEFAULT flags, silently rebuilt the
+# 68020 colour binary, and MiNTLib's crt0 then refused it on the ST with
+# "requires a 68020". The engine auto-detects the mono monitor
+# (Getrez()==2) and runs the Mac's own 1-bit mode: 480x300 game window,
+# .TLB art, the L4e12 text plates.
 ST_TOS ?= $(shell for f in /usr/share/hatari/tos206us.img \
                            $(HOME)/Downloads/Atari/tos206us.img \
                            /usr/share/hatari/etos512us.img; do \
                       [ -f $$f ] && { echo $$f; break; }; done)
-run-mono: $(TARGET)
+run-mono:
+	$(MAKE) CPU68K=68000 EXTRA_CFLAGS="-DFRUA_BWMODE $(EXTRA_CFLAGS)"
 	$(HATARI) --machine st --memsize 4 --monitor mono --tos $(ST_TOS) \
 	          --zoom 2 --conout 2 -d $(GAMEDATA_DIR) --auto 'C:\$(TARGET)'
 
