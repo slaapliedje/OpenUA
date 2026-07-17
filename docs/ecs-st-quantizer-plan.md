@@ -872,3 +872,28 @@ run with DISPLAY unset so it uses its Xvfb — with an inherited :0 it
 runs Hatari on the real desktop and keys/clicks land only when that
 window happens to hold focus. And pkill -x truncates at 15 chars:
 "minivmac-classi".)
+
+### Phase 2 runtime — mono COMMAND-BAR investigation (2026-07-17, 21st leg, OPEN)
+
+The user flagged the command bar: the real Mac draws every verb as a
+white chip with a black outline + black text (both combat rows and the
+walk bar — see mac_mono_3d_view.png / mac_mono_combat_map.png); the
+port's mono build renders the walk bar and combat row 2 as bare glyphs
+on the granite. Combat row 1 (AIM/USE/...) is correct — a different
+painter. Task #17 carries the full findings; the short version:
+
+- The (8,15) colour pair the bar painter uses resolves BLACK under the
+  disasm-verified L4e12 waterfall — so the Mac's white play-bar chips
+  come from the DEEP-mode text path (L148a -> jt995: GLIB font-cell
+  art with built-in white plates + border rows), NOT from L4e12, which
+  is the dialog-text renderer. The port collapsed deep-mode bar text
+  to DrawString (no plates) — that collapse is the gap.
+- Instrumented jt382 cmd-1 never fired during bar draws (and dbg_file
+  wrote nothing) — which port code paints the visible verbs is still
+  unidentified. A jt382 mono white-chip branch was written and
+  REVERTED as unverifiable this session.
+- Debug traps for next time: display_sthigh has TWO s_chunky symbols;
+  $18b354 is dead — the live triple-buffer pointers live at $18b67a
+  ($1add52/$1a6000/$1a5f52). And SDL keyboard focus requires the
+  pointer INSIDE the Hatari window (the driver's `key` warps it; raw
+  xdotool does not — the source of this session's flaky navigation).
