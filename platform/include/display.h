@@ -51,6 +51,17 @@ typedef struct dsp_backend {
 
 	/* Load count CLUT entries starting at index first. */
 	void (*set_palette)(const dsp_color_t *colors, short first, short count);
+
+	/* How many presents seed every visible page with the current frame.
+	 * 1 = single-buffered (present writes the visible screen directly);
+	 * 2 = page-flipped (present targets a back page, so a full frame
+	 * must be presented twice for both pages to carry it — the videl
+	 * pattern; its triple-buffer spare is refreshed by present_rect's
+	 * hole update, so 2 still suffices). The engine's full-recompose
+	 * sites present exactly this many times; the second present used to
+	 * be unconditional and cost single-buffered backends a full no-op
+	 * screen diff per recompose (#151). */
+	short pages;
 } dsp_backend_t;
 
 /* Probe the host machine and return the best available backend, or NULL. */

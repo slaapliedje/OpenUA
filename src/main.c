@@ -447,6 +447,7 @@ int main(void)
 	qd_attach_screen(surf->pixels, surf->pitch, surf->width, surf->height);
 	qd_set_present(dsp->present);
 	qd_set_present_rect(dsp->present_rect);   /* NULL-safe: falls back */
+	qd_set_present_pages(dsp->pages);         /* #151: 1 single-buffer, 2 videl */
 	plat_input_init(surf->width, surf->height);
 	InitCursor();                             /* arrow, visible; drawn in qd_present */
 	if (plat_sound_init() == 0)

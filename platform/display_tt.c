@@ -203,6 +203,7 @@ static const dsp_backend_t tt_backend = {
 	tt_present,
 	tt_present_rect,
 	tt_set_palette,
+	1,                      /* single-buffered: present writes the live screen */
 };
 
 const dsp_backend_t *dsp_backend_tt(void)

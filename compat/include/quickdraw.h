@@ -370,6 +370,15 @@ typedef void (*qd_present_rect_fn)(short x, short y, short w, short h);
 void          qd_set_present_rect(qd_present_rect_fn fn);
 void          qd_present_rect(short x, short y, short w, short h);
 
+/* How many presents seed every visible page with the current full frame
+ * (#151): 1 for a single-buffered backend, 2 for the page-flipped videl.
+ * Engine full-recompose sites present exactly this many times instead of
+ * an unconditional pair — the second present cost single-buffered
+ * backends a full screen diff that always packed nothing, and flashed
+ * mid-compose states into view. Default (unwired) is 2 = old behaviour. */
+void          qd_set_present_pages(short n);
+short         qd_present_pages(void);
+
 /*
  * Cursor tracking — keep the on-screen cursor following the live IKBD
  * mouse during engine idle/event-wait spins. The engine only repaints

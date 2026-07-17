@@ -3400,6 +3400,24 @@ static void  jt208(void)
 }
 static void  l5822(void);             /* CODE 6+0x5822 — full backdrop refresh (defined below) */
 static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L5822: reblit the cached bigpic backdrop */
+
+/* #151: present a completed full frame to EVERY visible page. On the
+ * page-flipped videl that is the classic double present (#103 — each
+ * present c2ps to one page then flips, so both pages must receive the
+ * frame or the next viewport-only present flips to a chrome-less page).
+ * On the single-buffered backends (ST high mono / ST low / TT) the
+ * second present was pure waste — a full-screen diff that always packed
+ * nothing — and worse, the pattern let mid-compose states reach the
+ * visible screen between the pair. Present exactly as many times as the
+ * backend has pages to seed. */
+static void port_present_full(void)
+{
+	short n = qd_present_pages();
+
+	qd_present();
+	while (--n > 0)
+		qd_present();
+}
 /* l2cf4 (CODE 12 + 0x2cf4) = JT[927] — the design-editor cursor REDRAW tail.
  * Redraws the selection box at the design header's cell (col=hdr[38], row=
  * hdr[37]), each scaled *4 + the 8000 coord origin: jt119 strokes the 4x4 box,
@@ -3511,8 +3529,7 @@ static void l40f8_area_cmd(void)
 	jt221((short)(signed char)g_a5_12288,
 	      (short)(signed char)g_a5_12287,
 	      (short)(signed char)g_a5_12286);
-	qd_present();
-	qd_present();
+	port_present_full();          /* #151 */
 }
 
 /* JT[201] (CODE 7 + 0x5f6a) — return the special-feature byte of map cell
@@ -13816,8 +13833,7 @@ static void jt312(unsigned char *page)
 		 * (the editor froze on the half-erased picker).  Publish it — twice,
 		 * so both pages carry the frame (the jt453 / l37f6 pattern). */
 		if (g_geo_editor_active && ds != NULL) {
-			qd_present();
-			qd_present();
+			port_present_full();          /* #151 */
 		}
 		return;
 	}
@@ -13900,8 +13916,7 @@ static void jt312(unsigned char *page)
 		jt937(g_a5_long(-27932));       /* repaint the roster in the map view */
 		jt938();                        /* ...and the clock / position panel */
 		qd_present_hold(0);             /* #147: end the atomic hold, THEN present */
-		qd_present();
-		qd_present();
+		port_present_full();          /* #151 */
 		return;
 	}
 	if (!dungeon_view_setup())
@@ -14028,16 +14043,13 @@ static void jt312(unsigned char *page)
 		jt937(g_a5_long(-27932));
 	}
 	if (s_view_first || g_view_force_full) {
-		/* DOUBLE full present: the HAL double-buffers two planar pages and
-		 * each qd_present c2p's the full chunky buffer to ONE page then
-		 * flips, so present TWICE to put the complete frame (the static
-		 * FRAME.CTL chrome + the view) on BOTH pages. Otherwise the next
-		 * viewport-only qd_present_rect flips to the page that never received
-		 * the chrome -> a black frame around the view on the first movement
-		 * (the dungeon-render / round-trip black, #103). */
+		/* Full present to every backend page (#151/#103): on the page-
+		 * flipped videl that is two presents so both pages carry the
+		 * chrome (else the next viewport-only qd_present_rect flips to a
+		 * chrome-less page = black frame on the first movement); on the
+		 * single-buffered backends it is one. */
 		qd_present_hold(0);      /* #147: end the atomic hold, THEN present */
-		qd_present();
-		qd_present();
+		port_present_full();          /* #151 */
 #ifdef FRUA_MONOPROF
 		dbg_log_num("jt312 FULL path, vf=", (long)g_view_force_full);
 #endif
@@ -15315,6 +15327,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	*(unsigned char **)ctx = rec;           /* ctx[0..3] = rec ptr */
 	g_a5_long(-11666) = (long)(uintptr_t)ctx;
 
+	/* #151: the WHOLE initial compose (background fill, chrome, view,
+	 * HUD — including jt312's internal presents) lands atomically. l63c0
+	 * is re-entered after EVERY command, and on a single-buffered backend
+	 * its multi-step head was visible as it built: the jt221 chrome
+	 * prelude plates ("editor panels") popped up and vanished as the
+	 * screen redrew. Hold from here to the single flush below; balanced —
+	 * no return between. The flush is port_present_full so every videl
+	 * page still gets seeded (jt312's internal pair is swallowed here). */
+	qd_present_hold(1);
+
 	/* paint the view-interior background rect (jt1161, fill colour 8) */
 	jt1161((short)g_a5_word(-11674), (short)g_a5_word(-11672),
 	       (short)(g_a5_word(-11674) + g_a5_word(-11670)),
@@ -15397,9 +15419,11 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	/* Port adaptation: the Mac draws immediately to the visible CGrafPort,
 	 * but our QuickDraw shim renders into a back-buffer that the Falcon HAL
 	 * c2p-flips on qd_present. The initial play frame (bg fill + status +
-	 * coords + automap above) is now complete, so flush it to VIDEL; the
-	 * modal poll loop (l2d3e) re-presents on changes. */
-	qd_present();
+	 * coords + automap above) is now complete, so flush it — atomically
+	 * (#151): release the compose hold and seed every backend page (the
+	 * hold swallowed jt312's internal page-seeding pair above). */
+	qd_present_hold(0);
+	port_present_full();
 
 	/* Set the view-mode bit jt1160() reads (top-down for the wilderness, so
 	 * arrow keys route through jt297 -> jt311; first-person for a_deep), and
@@ -17375,7 +17399,7 @@ static void port_play_message(const char *l1, const char *l2)
 		hud_text(px, pitch, sw, sh, 20, 60, HUD_CLUT_WHITE, l1);
 		if (l2)
 			hud_text(px, pitch, sw, sh, 20, 80, HUD_CLUT_WHITE, l2);
-		qd_present(); qd_present();
+		port_present_full();          /* #151 */
 	}
 	while (!plat_kb_poll(&scan, &ascii))
 		;
@@ -17441,7 +17465,7 @@ static void port_run_encounter(short zone)
 			         "F) Fight");
 			hud_text(px, pitch, sw, sh, 20, 96, HUD_CLUT_WHITE,
 			         "R) Run");
-			qd_present(); qd_present();
+			port_present_full();          /* #151 */
 		}
 		while (!plat_kb_poll(&scan, &ascii))
 			;
@@ -17539,7 +17563,7 @@ static void port_run_encounter(short zone)
 		}
 		hud_text(px, pitch, sw, sh, 20, 170, HUD_CLUT_WHITE,
 		         "Press any key.");
-		qd_present(); qd_present();
+		port_present_full();          /* #151 */
 	}
 	while (!plat_kb_poll(&scan, &ascii))
 		;

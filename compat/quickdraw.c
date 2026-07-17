@@ -379,6 +379,20 @@ void qd_present(void)
 	cursor_restore();
 }
 
+/* Present page count — see quickdraw.h (#151). Default 2 = the old
+ * unconditional double present, so an unwired build behaves as before. */
+static short g_present_pages = 2;
+
+void qd_set_present_pages(short n)
+{
+	g_present_pages = (n >= 1) ? n : 1;
+}
+
+short qd_present_pages(void)
+{
+	return g_present_pages;
+}
+
 /* Dirty-rect present hook — see quickdraw.h. */
 static qd_present_rect_fn g_present_rect_hook;
 

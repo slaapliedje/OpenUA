@@ -449,6 +449,7 @@ static const dsp_backend_t ste_backend = {
 	st_present,
 	st_present_rect,
 	st_set_palette,
+	1,                      /* single-buffered: present writes the live screen */
 };
 
 const dsp_backend_t *dsp_backend_ste(void)

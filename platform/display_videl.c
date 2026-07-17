@@ -521,6 +521,7 @@ static const dsp_backend_t videl_backend = {
 	videl_present,
 	videl_present_rect,
 	videl_set_palette,
+	2,                      /* page-flipped: two presents seed both pages (#103) */
 };
 
 /* _VDO cookie: video hardware id in the high word (0 ST shifter, 1 STE,

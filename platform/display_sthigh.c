@@ -352,6 +352,7 @@ static const dsp_backend_t sthigh_backend = {
 	sthigh_present,
 	sthigh_present_rect,
 	sthigh_set_palette,
+	1,                      /* single-buffered: present writes the live screen */
 };
 
 const dsp_backend_t *dsp_backend_sthigh(void)
