@@ -13919,6 +13919,9 @@ static void jt312(unsigned char *page)
 	 && (ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2])) {
 		load_wall_groups(ds);
 		g_view_force_full = 1;
+#ifdef FRUA_MONOPROF
+		dbg_log("jt312 force_full: WALL reload");
+#endif
 #ifdef FRUA_ENGINE_PROBE
 		dbg_log_num("auto Wall1 ", g_cw_grp[0]);
 		dbg_log_num("auto Wall2 ", g_cw_grp[1]);
@@ -13934,6 +13937,9 @@ static void jt312(unsigned char *page)
 			g_back_set = id;
 			load_backdrop(id);
 			g_view_force_full = 1;
+#ifdef FRUA_MONOPROF
+			dbg_log_num("jt312 force_full: BACKDROP reload ->", id);
+#endif
 #ifdef FRUA_ENGINE_PROBE
 			dbg_log_num("cell backdrop -> ", id);
 #endif
@@ -14032,6 +14038,9 @@ static void jt312(unsigned char *page)
 		qd_present_hold(0);      /* #147: end the atomic hold, THEN present */
 		qd_present();
 		qd_present();
+#ifdef FRUA_MONOPROF
+		dbg_log_num("jt312 FULL path, vf=", (long)g_view_force_full);
+#endif
 		s_view_first = 0;
 		g_view_force_full = 0;
 	} else {
@@ -14039,6 +14048,9 @@ static void jt312(unsigned char *page)
 		 * c2p just the 88x88 viewport at (24,24)-(111,111) to the back page
 		 * each frame — its hole is refreshed right before the flip, so every
 		 * flip shows the current view over the persistent chrome. */
+#ifdef FRUA_MONOPROF
+		dbg_log("jt312 RECT path (viewport-only)");
+#endif
 		qd_present_rect((short)24, (short)24, (short)88, (short)88);
 	}
 }

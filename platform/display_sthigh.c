@@ -232,20 +232,61 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 
 #endif /* FRUA_BWMODE */
 
+#ifdef FRUA_MONOPROF
+#include "input.h"                      /* plat_ticks (200 Hz = 5 ms) */
+/* Build-flagged mono present profiler (-DFRUA_MONOPROF). Counts, per 40-call
+ * window: full re-packs (force_full), diff full-presents + rows they packed,
+ * rect presents + rows, set_palette-driven force_full arms, and the 200 Hz
+ * ticks (5 ms each) spent INSIDE present — to see where the mono frame time
+ * goes, in the guest's own timebase. Dumps to conout. */
+static long s_pf_full, s_pf_diff, s_pf_diffrows, s_pf_rect, s_pf_rectrows;
+static long s_pf_setpal, s_pf_calls, s_pf_ticks;
+static void mono_prof_tick(void)
+{
+	if (++s_pf_calls < 40)
+		return;
+	dbg_log_num("monoprof full-repacks ", s_pf_full);
+	dbg_log_num("monoprof diff-presents", s_pf_diff);
+	dbg_log_num("monoprof diff-rows    ", s_pf_diffrows);
+	dbg_log_num("monoprof rect-presents", s_pf_rect);
+	dbg_log_num("monoprof rect-rows    ", s_pf_rectrows);
+	dbg_log_num("monoprof setpal-arms  ", s_pf_setpal);
+	dbg_log_num("monoprof ticks-in-pres", s_pf_ticks);    /* 5 ms units */
+	s_pf_full = s_pf_diff = s_pf_diffrows = 0;
+	s_pf_rect = s_pf_rectrows = s_pf_setpal = s_pf_calls = 0;
+	s_pf_ticks = 0;
+}
+#endif
+
 static void sthigh_present(void)
 {
 	short y;
+#ifdef FRUA_MONOPROF
+	unsigned long t0 = plat_ticks();
+#endif
 
 	if (s_force_full) {
 		hi_blit_rows(0, SURF_W, 0, SURF_H);
 		s_force_full = 0;
+#ifdef FRUA_MONOPROF
+		s_pf_ticks += (long)(plat_ticks() - t0);
+		s_pf_full++; mono_prof_tick();
+#endif
 		return;
 	}
 	for (y = 0; y < SURF_H; y++) {
 		if (memcmp(s_chunky + (long)y * SURF_W,
-		           s_shadow + (long)y * SURF_W, SURF_W) != 0)
+		           s_shadow + (long)y * SURF_W, SURF_W) != 0) {
 			hi_blit_rows(0, SURF_W, y, 1);
+#ifdef FRUA_MONOPROF
+			s_pf_diffrows++;
+#endif
+		}
 	}
+#ifdef FRUA_MONOPROF
+	s_pf_ticks += (long)(plat_ticks() - t0);
+	s_pf_diff++; mono_prof_tick();
+#endif
 }
 
 static void sthigh_present_rect(short x, short y, short w, short h)
@@ -267,6 +308,9 @@ static void sthigh_present_rect(short x, short y, short w, short h)
 	x  = (short)(x & ~3);
 #endif
 	hi_blit_rows(x, (short)(x1 - x), y, h);
+#ifdef FRUA_MONOPROF
+	s_pf_rect++; s_pf_rectrows += h; mono_prof_tick();
+#endif
 }
 
 static void sthigh_set_palette(const dsp_color_t *colors, short first, short count)
@@ -295,6 +339,9 @@ static void sthigh_set_palette(const dsp_color_t *colors, short first, short cou
 	}
 	/* The mapping changed under already-converted rows. */
 	s_force_full = 1;
+#ifdef FRUA_MONOPROF
+	s_pf_setpal++;
+#endif
 }
 
 static const dsp_backend_t sthigh_backend = {
