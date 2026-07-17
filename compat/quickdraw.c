@@ -1583,6 +1583,53 @@ static struct {
 } g_cursor_bank[QD_CURSOR_BANK_MAX];
 static int g_cursor_bank_sel = -1;       /* active bank index, -1 = none */
 
+/* #153: on the 1-bit backend, colour cursor art is pure waste — the CLUT
+ * bake below costs 16 nearest-colour scans (4096 distance computations) on
+ * EVERY palette install, and the composited CLUT indexes then render
+ * through the luminance ink LUT as a smudgy threshold of the colour art.
+ * Instead, derive a REAL 1-bit Mac cursor from the bank entry once at
+ * select time: mask = the opaque pixels, data = the DARK ones (the same
+ * (2r+5g+b)>>3 < 112 split the ST-high backend renders by). The DOS art's
+ * dark outlines + light fills come out as the classic Mac cursor look —
+ * black outline, white body — crisp on any background, and the colour
+ * pointer stays unloaded so no bake ever runs. (The Mac app ships NO CURS
+ * resources — rfork-checked — so there is no faithful 1-bit set to lift;
+ * this derivation is the mono cursor.) */
+extern int g_dsp_mono_active;           /* ST-high backend active (1-bit) */
+
+static void qd_derive_mono_cursor(const unsigned char *raw,
+                                  const unsigned char *pal,
+                                  short hotx, short hoty)
+{
+	Cursor c;
+	short  r, i;
+
+	for (r = 0; r < 16; r++) {
+		unsigned short data = 0, mask = 0;
+
+		for (i = 0; i < 16; i++) {
+			unsigned char  v   = raw[r * 16 + i];
+			unsigned short bit = (unsigned short)(0x8000u >> i);
+			short          lum;
+
+			if (v == 0xFF)
+				continue;                /* transparent */
+			mask |= bit;
+			v &= 0x0F;
+			lum = (short)((2 * pal[v * 3 + 0]
+			             + 5 * pal[v * 3 + 1]
+			             +     pal[v * 3 + 2]) >> 3);
+			if (lum < 112)
+				data |= bit;             /* dark -> black ink */
+		}
+		c.data[r] = data;
+		c.mask[r] = mask;
+	}
+	c.hotSpot.h = hotx;
+	c.hotSpot.v = hoty;
+	SetCursor(&c);
+}
+
 /* (Re)resolve the cursor's RGB palette to the LIVE CLUT and translate the raw
  * source indices into screen indices. The cursor palette is fixed but the CLUT
  * changes per screen (boot wall palette -> UI palette -> dungeon ...), so this
@@ -1616,6 +1663,11 @@ void qd_install_color_pointer(short w, short h, short hotx, short hoty,
 
 	if (w != 16 || h != 16 || idx == NULL || pal_rgb == NULL)
 		return;                         /* 16x16 only for now */
+	if (g_dsp_mono_active) {            /* #153: 1-bit derivation, no bake */
+		qd_derive_mono_cursor(idx, pal_rgb, hotx, hoty);
+		g_cursor_bank_sel = -1;
+		return;
+	}
 	n = (short)(w * h);
 	for (i = 0; i < n; i++)
 		g_color_cursor.raw[i] = idx[i];
@@ -1663,6 +1715,14 @@ void qd_select_color_cursor(int idx)
 		return;
 	if (idx < 0 || idx >= QD_CURSOR_BANK_MAX || !g_cursor_bank[idx].present)
 		return;
+	if (g_dsp_mono_active) {            /* #153: 1-bit derivation, no bake */
+		qd_derive_mono_cursor(g_cursor_bank[idx].raw,
+		                      g_cursor_bank[idx].pal,
+		                      g_cursor_bank[idx].hotx,
+		                      g_cursor_bank[idx].hoty);
+		g_cursor_bank_sel = idx;         /* keep the re-pick guard hot */
+		return;
+	}
 	for (i = 0; i < 16 * 16; i++)
 		g_color_cursor.raw[i] = g_cursor_bank[idx].raw[i];
 	for (i = 0; i < 16 * 3; i++)
