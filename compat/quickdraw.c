@@ -292,6 +292,7 @@ static void qd_rebake_color_pointer(void);   /* re-resolve cursor to live CLUT *
  * never suppress and present eagerly exactly as before. */
 static int g_present_suppress;
 static int g_present_pending;
+static int g_present_hold;              /* #147 atomic-recompose hold (nests) */
 
 void qd_present_suppress(int on)
 {
@@ -303,6 +304,38 @@ void qd_present_suppress(int on)
 			g_present_pending = 0;
 			qd_present();            /* the single frame commit */
 		}
+	}
+}
+
+/* #147 atomic recompose: a hold that DOMINATES the g_present_suppress
+ * boolean and NESTS (ref-counted), so it survives the inner JT[108]/l3994
+ * bracket a text paint runs mid-rebuild (l3994 -> jt1128 is a direct
+ * qd_present). While any hold is active a qd_present() is DISCARDED (recorded
+ * as pending, then dropped on release) — the frame it would have shown is
+ * incomplete. The caller flushes the finished frame with its OWN explicit
+ * present(s) AFTER releasing the hold.
+ *
+ * Wrap a multi-step play-frame rebuild (port_draw_play_frame + 3D view +
+ * roster/clock/bar), releasing just before the explicit present, so the
+ * SINGLE-BUFFERED ST-High mono backend never puts a half-composed frame on
+ * screen. port_draw_play_frame fills the whole play area with the grey stone
+ * index (clut 21); in mono that luminance is bright = WHITE paper, so an
+ * intermediate present flushed after the fill but before the HUD repaint
+ * showed a stark WHITE flash of the roster/clock on every re-render (the
+ * "walk HUD flicker"). The videl path double-buffers and never showed it.
+ *
+ * Release DISCARDS rather than flushes so the caller's trailing double
+ * present (jt312's two qd_present() calls — the videl two-page #103 guard)
+ * still executes IN FULL: collapsing it to one would leave a videl page
+ * stale (a black frame around the view on the first movement). Balanced:
+ * every hold(1) has a hold(0), released before the explicit present. */
+void qd_present_hold(int on)
+{
+	if (on) {
+		g_present_hold++;
+	} else if (g_present_hold > 0) {
+		if (--g_present_hold == 0)
+			g_present_pending = 0;   /* discard the held intermediate */
 	}
 }
 
@@ -326,7 +359,7 @@ long g_kbt_1067rot, g_kbt_setpal;
 
 void qd_present(void)
 {
-	if (g_present_suppress) {
+	if (g_present_suppress || g_present_hold) {
 #ifdef FRUA_KBTRACE
 		g_kbt_qdsuppressed++;
 #endif

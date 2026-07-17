@@ -13826,6 +13826,12 @@ static void jt312(unsigned char *page)
 	 * -> the map scroll-follows the party as l1908 walks. jt221 dispatches on
 	 * -12290, so it takes the l52b8/l50fe map path here, never render_3d. */
 	if (g_a5_12290 != 0) {
+		/* #147: same atomic-rebuild hold as the 3D leg below — the AREA map
+		 * leg also runs port_draw_play_frame (grey=white fill in mono) then
+		 * repaints the map + roster/clock/bar, and would flash white without
+		 * coalescing its intermediate presents. Released after its double
+		 * present at the end of this branch. */
+		qd_present_hold(1);
 		/* Re-install the UI palette before painting the top-down map. The
 		 * automap fills with logical colours 7 (wall bar) and 8 (centre/field);
 		 * jt1161 remaps them through the -4188 range (logical 8 -> clut 23) and
@@ -13893,6 +13899,7 @@ static void jt312(unsigned char *page)
 		port_hud_text_clut();
 		jt937(g_a5_long(-27932));       /* repaint the roster in the map view */
 		jt938();                        /* ...and the clock / position panel */
+		qd_present_hold(0);             /* #147: end the atomic hold, THEN present */
 		qd_present();
 		qd_present();
 		return;
@@ -13945,6 +13952,15 @@ static void jt312(unsigned char *page)
 	 * view compose, repointed from its l17ca stub). This stand-in's
 	 * full-screen memset ran AFTER l43c2 and wiped the menu bar on
 	 * first entry. */
+	/* #147: hold intermediate presents across the whole full-frame rebuild
+	 * (wipe + view + HUD + double present below) so it lands atomically. The
+	 * single-buffered ST-High mono backend would otherwise show
+	 * port_draw_play_frame's grey stone fill — bright = WHITE in mono — before
+	 * the roster/clock/bar repaint, a white flash on every re-render. Released
+	 * after the double present. Balanced: the release below runs under the
+	 * same (s_view_first || g_view_force_full) condition, unchanged until then. */
+	if (s_view_first || g_view_force_full)
+		qd_present_hold(1);
 	if ((s_view_first || g_view_force_full) && !g_geo_editor_active) {
 		/* The faithful frame is the "bigpic" backdrop (jt214 -> l579e load,
 		 * jt44 = l5822 blit). Overlaying it here regressed badly: the loaded
@@ -14013,6 +14029,7 @@ static void jt312(unsigned char *page)
 		 * viewport-only qd_present_rect flips to the page that never received
 		 * the chrome -> a black frame around the view on the first movement
 		 * (the dungeon-render / round-trip black, #103). */
+		qd_present_hold(0);      /* #147: end the atomic hold, THEN present */
 		qd_present();
 		qd_present();
 		s_view_first = 0;

@@ -355,6 +355,14 @@ void          qd_present(void);              /* call the registered hook */
  * coalescing a screen's intermediate presents into one flip. */
 void          qd_present_suppress(int on);
 
+/* #147 atomic recompose: a nesting (ref-counted) hold that dominates the
+ * suppress boolean, so intermediate presents a multi-step play-frame rebuild
+ * emits (including the direct qd_present in l3994/jt1128 a text paint runs)
+ * are coalesced into ONE flush when the outermost hold releases. Wrap
+ * port_draw_play_frame + view + HUD so the single-buffered ST-High backend
+ * never shows the grey-fill-as-white half-frame (the mono walk HUD flicker). */
+void          qd_present_hold(int on);
+
 /* Present only a dirty rect, when the backend supports it (else falls
  * back to a full present). Lets the dungeon view skip converting the
  * static parts of the screen each frame. */
