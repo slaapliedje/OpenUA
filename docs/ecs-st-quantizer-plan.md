@@ -844,3 +844,31 @@ Two dead theories buried on the way: "FRUA needs Color QuickDraw /
 B&W = 1 MB + System 6.0.7) and the error -50 launch failures (a
 CORRUPT basilisk-40.img copy — the app rfork was zero-filled from byte
 2; the known-good rfork diff was the smoking gun).
+
+### Phase 2 runtime — the mono COMBAT FLOOR fix (2026-07-17, 20th leg)
+
+Task #15 closed. The black tactical-map floor was NOT a missing erase —
+the terrain layer itself drew nothing visible. DUNGCOM/WILDCOM's mono
+tiles are 32x32 1bpp MODE-0 pieces (flags 0x90), and l2d4e's mode-0 arm
+modelled the Mac as a transparent ink-stroke OR (ink 0 = black): black
+strokes on the black panel = the void. The Mac disasm says otherwise —
+L2970's mono arm writes mode-0 pieces through JT[1165]/JT[1202], the
+VERBATIM OPAQUE row copy (CODE_05 0x29f8/0x2a3c): set = bright = 15,
+clear = 0. The tiles paint their own white field with black cobble
+strokes, exactly the real-Mac reference (mac_mono_combat_map.png).
+
+One-line model correction, wide payoff: the FRAME chrome (8 mode-0
+pieces) now composes as true granite stipple on every screen (menu,
+play frame) instead of the flat fill; TOPVIEW's area-map terrain and
+the GEN chargen stone are mode-0 too. The transparent mono UI pieces
+are all mode 1 (mask+data) — untouched, verified by the piece-type
+census across ALWAYS/FRAME/MENU/TOPVIEW/GEN/WILDCOM.TLB. Colour arm
+unchanged (Falcon menu correct, make test 175).
+
+Verified live: menu -> load A -> walk -> 'k' thieves fight: the
+tactical map renders the rubble wall band + textured floor under the
+sprites, matching the real-Mac model. (Also: the harness driver MUST
+run with DISPLAY unset so it uses its Xvfb — with an inherited :0 it
+runs Hatari on the real desktop and keys/clicks land only when that
+window happens to hold focus. And pkill -x truncates at 15 chars:
+"minivmac-classi".)
