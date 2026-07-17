@@ -379,6 +379,12 @@ void          qd_present_rect(short x, short y, short w, short h);
 void          qd_set_present_pages(short n);
 short         qd_present_pages(void);
 
+#ifdef FRUA_MONOPROF
+/* Present-caller attribution (profiling builds only): stamp before a
+ * qd_present to attribute it in the monoprof dump. See quickdraw.c. */
+extern short  g_qdp_src;
+#endif
+
 /*
  * Cursor tracking — keep the on-screen cursor following the live IKBD
  * mouse during engine idle/event-wait spins. The engine only repaints

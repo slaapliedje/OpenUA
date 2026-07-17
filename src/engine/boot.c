@@ -3414,9 +3414,16 @@ static void port_present_full(void)
 {
 	short n = qd_present_pages();
 
+#ifdef FRUA_MONOPROF
+	g_qdp_src = 6;
+#endif
 	qd_present();
-	while (--n > 0)
+	while (--n > 0) {
+#ifdef FRUA_MONOPROF
+		g_qdp_src = 6;
+#endif
 		qd_present();
+	}
 }
 /* l2cf4 (CODE 12 + 0x2cf4) = JT[927] — the design-editor cursor REDRAW tail.
  * Redraws the selection box at the design header's cell (col=hdr[38], row=
@@ -7914,7 +7921,11 @@ static long jt1012(long handle, short item)
  * (the 108-byte GrafPort table at -2570) and run the L3e38 commit.
  * The port renders to one shim surface and presents through the
  * display HAL (ADR-0005), so the faithful effect is a present. */
-static void jt1128(void)                    { PROBE("jt1128"); qd_present(); }
+static void jt1128(void)                    { PROBE("jt1128");
+#ifdef FRUA_MONOPROF
+	g_qdp_src = 1;
+#endif
+	qd_present(); }
 static void jt1066(void);   /* GLIB palette compact+commit, lifted near l6e58 */
 
 /* L3994 — GrafPort save / paint-state commit. Called by JT[94] /
@@ -15305,6 +15316,9 @@ static void port_cycle_present(void)
 
 	if (presented != g_cyc_commit_epoch) {
 		presented = g_cyc_commit_epoch;
+#ifdef FRUA_MONOPROF
+		g_qdp_src = 3;
+#endif
 		qd_present();
 	}
 }
@@ -22193,6 +22207,9 @@ static void jt1146(void)
 	/* Single-buffer port: off-page == on-page == shim back-buffer,
 	 * so the Mac's inter-page memmove is a self-copy. Commit the
 	 * frame via the HAL present instead (the real "flip"). */
+#ifdef FRUA_MONOPROF
+	g_qdp_src = 2;
+#endif
 	qd_present();
 }
 
@@ -23412,6 +23429,9 @@ static short l2d3e(void)
 					hm(hr, (short)4, cy, cx);
 					if ((hr[28] & 0x10) != 0)
 						return i;     /* committed -> leave the modal */
+#ifdef FRUA_MONOPROF
+					g_qdp_src = 5;
+#endif
 					qd_present();     /* selection moved -> repaint, stay */
 					return (short)-1;
 				}
@@ -23456,6 +23476,9 @@ static short l2d3e(void)
 						hm(hr, (short)3, cy, cx, key);
 						if ((hr[28] & 0x04) != 0) {
 							hr[28] &= 0x7f;   /* dirty -> repaint */
+#ifdef FRUA_MONOPROF
+							g_qdp_src = 5;
+#endif
 							qd_present();
 							return (short)-1; /* stay */
 						}
@@ -23496,6 +23519,9 @@ static short l2d3e(void)
 				if ((hr[28] & 0x10) != 0)
 					return i;             /* committed -> leave */
 				hr[28] &= 0x7f;               /* repaint; stay */
+#ifdef FRUA_MONOPROF
+				g_qdp_src = 5;
+#endif
 				qd_present();
 				return (short)-1;
 			}

@@ -241,6 +241,9 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
  * goes, in the guest's own timebase. Dumps to conout. */
 static long s_pf_full, s_pf_diff, s_pf_diffrows, s_pf_rect, s_pf_rectrows;
 static long s_pf_setpal, s_pf_calls, s_pf_ticks;
+/* Present-caller attribution — lives in compat/quickdraw.c (profiling-only
+ * layering breach, ifdef-scoped): counts per stamp tag, see quickdraw.c. */
+extern long g_qdp_counts[8];
 static void mono_prof_tick(void)
 {
 	if (++s_pf_calls < 40)
@@ -252,6 +255,19 @@ static void mono_prof_tick(void)
 	dbg_log_num("monoprof rect-rows    ", s_pf_rectrows);
 	dbg_log_num("monoprof setpal-arms  ", s_pf_setpal);
 	dbg_log_num("monoprof ticks-in-pres", s_pf_ticks);    /* 5 ms units */
+	dbg_log_num("monoprof src other    ", g_qdp_counts[0]);
+	dbg_log_num("monoprof src jt1128   ", g_qdp_counts[1]);
+	dbg_log_num("monoprof src jt1146   ", g_qdp_counts[2]);
+	dbg_log_num("monoprof src cycle    ", g_qdp_counts[3]);
+	dbg_log_num("monoprof src cursor   ", g_qdp_counts[4]);
+	dbg_log_num("monoprof src l2d3e    ", g_qdp_counts[5]);
+	dbg_log_num("monoprof src pfull    ", g_qdp_counts[6]);
+	dbg_log_num("monoprof skipped-clean", g_qdp_counts[7]);
+	{
+		short k;
+		for (k = 0; k < 8; k++)
+			g_qdp_counts[k] = 0;
+	}
 	s_pf_full = s_pf_diff = s_pf_diffrows = 0;
 	s_pf_rect = s_pf_rectrows = s_pf_setpal = s_pf_calls = 0;
 	s_pf_ticks = 0;
@@ -316,6 +332,7 @@ static void sthigh_present_rect(short x, short y, short w, short h)
 static void sthigh_set_palette(const dsp_color_t *colors, short first, short count)
 {
 	short i;
+	short changed = 0;
 
 	if (first < 0 || count <= 0 || first >= 256)
 		return;
@@ -328,19 +345,37 @@ static void sthigh_set_palette(const dsp_color_t *colors, short first, short cou
 		                   + colors[i].b) >> 3);
 		/* 5 dither levels; thresholds place pure black/white exactly. */
 		short lvl = (short)((lum + 25) / 51);
+#ifdef FRUA_BWMODE
+		unsigned char ink;
+#endif
 
 		if (lvl > 4)
 			lvl = 4;
+		if (s_dith_top[idx] != k_lvl_top[lvl]
+		 || s_dith_bot[idx] != k_lvl_bot[lvl])
+			changed = 1;
 		s_dith_top[idx] = k_lvl_top[lvl];
 		s_dith_bot[idx] = k_lvl_bot[lvl];
 #ifdef FRUA_BWMODE
-		g_dsp_ink[idx] = (unsigned char)(lum < 112);
+		ink = (unsigned char)(lum < 112);
+		if (g_dsp_ink[idx] != ink)
+			changed = 1;
+		g_dsp_ink[idx] = ink;
 #endif
 	}
-	/* The mapping changed under already-converted rows. */
-	s_force_full = 1;
+	/* Re-pack the already-converted rows ONLY when the RENDERING mapping
+	 * actually moved (#152). The engine re-installs identical palette
+	 * bands constantly (the HUD text colours, the FRAME chrome band, the
+	 * per-recompose port_clut_install calls), and the fire/torch cycle
+	 * rotates RGB values whose 1-bit ink class (or 5-level dither class)
+	 * often lands unchanged — each of those armed a full 480x300 re-pack
+	 * for a visually identical screen. A no-op mapping write now costs
+	 * nothing. */
+	if (changed)
+		s_force_full = 1;
 #ifdef FRUA_MONOPROF
-	s_pf_setpal++;
+	if (changed)
+		s_pf_setpal++;
 #endif
 }
 

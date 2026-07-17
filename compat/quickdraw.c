@@ -294,6 +294,25 @@ static int g_present_suppress;
 static int g_present_pending;
 static int g_present_hold;              /* #147 atomic-recompose hold (nests) */
 
+/* #152: has anything drawn to the surface since the last full present?
+ * Set by every write path — the fill/blit/glyph primitives, direct-writer
+ * pointer grabs (qd_screen_pixels), and palette installs (which can change
+ * how existing pixels RENDER, arming a backend re-pack). Cleared when a
+ * full present actually runs. qd_present skips the backend entirely when
+ * the surface is clean AND the backend is single-buffered — measured on
+ * the 8 MHz ST mono build, a clean present still cost ~310 ms in the
+ * backend's full-screen diff scan, and the engine's idle loops emit them
+ * ~1.6/s: HALF the machine burned scanning an unchanged screen. Page-
+ * flipped backends (videl) never skip: their consecutive presents seed
+ * different pages, so a "clean" second present still does real work. */
+static int   g_qd_touched = 1;
+
+/* Present page count — see quickdraw.h (#151). Default 2 = the old
+ * unconditional double present, so an unwired build behaves as before.
+ * (Declared here, above qd_present, which reads it for the #152 skip;
+ * the setter/getter live further down with the other present plumbing.) */
+static short g_present_pages = 2;
+
 void qd_present_suppress(int on)
 {
 	if (on) {
@@ -357,6 +376,16 @@ long g_kbt_l2d3e, g_kbt_1134, g_kbt_qdpresent, g_kbt_qdsuppressed;
 long g_kbt_1067rot, g_kbt_setpal;
 #endif
 
+#ifdef FRUA_MONOPROF
+/* Present-caller attribution (#152 profiling): call sites stamp g_qdp_src
+ * right before qd_present; the non-suppressed path bins the count and
+ * resets the tag. Dumped by the sthigh backend's mono_prof_tick window.
+ * Tags: 0 other/untagged, 1 jt1128 (l3994 text-commit), 2 jt1146 (jt108
+ * flip), 3 port_cycle_present, 4 cursor, 5 l2d3e inline, 6 port_present_full. */
+short g_qdp_src;
+long  g_qdp_counts[8];
+#endif
+
 void qd_present(void)
 {
 	if (g_present_suppress || g_present_hold) {
@@ -369,6 +398,19 @@ void qd_present(void)
 #ifdef FRUA_KBTRACE
 	g_kbt_qdpresent++;
 #endif
+	/* #152: nothing drawn since the last full present -> the frame on
+	 * screen is already current; skip the backend's (expensive) no-op
+	 * scan. Only on single-buffered backends — see g_qd_touched. */
+	if (!g_qd_touched && g_present_pages == 1) {
+#ifdef FRUA_MONOPROF
+		g_qdp_counts[7]++;               /* clean presents skipped */
+#endif
+		return;
+	}
+#ifdef FRUA_MONOPROF
+	g_qdp_counts[g_qdp_src & 7]++;
+	g_qdp_src = 0;
+#endif
 	qd_cursor_tick();                /* (re)push the VBL cursor sprite if dirty */
 	cursor_composite();              /* no-op when the VBL cursor is active     */
 #ifdef FRUA_CLICKMARK
@@ -377,11 +419,11 @@ void qd_present(void)
 	if (g_present_hook != NULL)
 		g_present_hook();
 	cursor_restore();
+	/* #152: frame on screen is current. Cleared LAST — cursor_composite/
+	 * cursor_restore above grab the pixel pointer (marking touched) but
+	 * are net-neutral writes already reflected in the pack. */
+	g_qd_touched = 0;
 }
-
-/* Present page count — see quickdraw.h (#151). Default 2 = the old
- * unconditional double present, so an unwired build behaves as before. */
-static short g_present_pages = 2;
 
 void qd_set_present_pages(short n)
 {
@@ -455,7 +497,10 @@ int qd_screen_pixels(unsigned char **pixels, short *rowBytes,
 	pm = cp->portPixMap;
 	if (*pm == NULL)
 		return 0;
-	if (pixels)   *pixels   = (unsigned char *)(*pm)->baseAddr;
+	if (pixels) {
+		*pixels = (unsigned char *)(*pm)->baseAddr;
+		g_qd_touched = 1;        /* #152: pointer grab = presumed writer */
+	}
 	if (rowBytes) *rowBytes = (*pm)->rowBytes;
 	if (width)    *width    = (short)(cp->portRect.right - cp->portRect.left);
 	if (height)   *height   = (short)(cp->portRect.bottom - cp->portRect.top);
@@ -526,6 +571,7 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 	if (!SectRect(r, clip, &clipped))
 		return;
 
+	g_qd_touched = 1;                        /* #152: about to write pixels */
 	w = (short)(clipped.right - clipped.left);
 
 	if (pat == NULL) {
@@ -1121,6 +1167,8 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
 	if (!SectRect(&dstBits->bounds, &port_clip, &dst_clip))
 		return;
 
+	g_qd_touched = 1;                /* #152: about to write pixels */
+
 	/* Clip dst to dst_clip, mirroring trims into src. */
 	if (dst.left < dst_clip.left) {
 		shift = (short)(dst_clip.left - dst.left);
@@ -1285,6 +1333,7 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	dsp = dsp_detect();
 	if (dsp != NULL && dsp->set_palette != NULL)
 		dsp->set_palette(tmp, first, count);
+	g_qd_touched = 1;                /* #152: mapping may re-render pixels */
 	qd_rebake_color_pointer();      /* keep the colour cursor true to the CLUT */
 }
 
@@ -1701,10 +1750,15 @@ static void qd_cursor_tick(void)
  * present only when the cursor is software-composited into the frame. */
 void qd_cursor_track(void)
 {
-	if (plat_cursor_active())
+	if (plat_cursor_active()) {
 		qd_cursor_tick();
-	else
+	} else {
+		/* #152: a cursor MOVE changes the composited output even though
+		 * the surface bytes didn't — force the present through the
+		 * clean-present gate or the pointer freezes on screen. */
+		g_qd_touched = 1;
 		qd_present();
+	}
 }
 
 static void cursor_composite(void)
@@ -1811,6 +1865,7 @@ void qd_cursor_refresh(void)
 	last_x = mx;
 	last_y = my;
 	g_cursor_obscured = 0;                   /* ObscureCursor restores on the first move */
+	g_qd_touched = 1;                        /* #152: cursor moved — see track */
 	qd_present();                            /* composites at the live pos */
 }
 
@@ -1944,6 +1999,8 @@ void DrawChar(short ch)
 		return;
 	cp   = (CGrafPtr)port;
 	draw = qd_effective_clip(port, &clip);
+	if (draw)
+		g_qd_touched = 1;        /* #152: about to write pixels */
 
 	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG
 	 || cp->portPixMap == NULL || *cp->portPixMap == NULL)
