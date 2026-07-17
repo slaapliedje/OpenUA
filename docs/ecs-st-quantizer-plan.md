@@ -897,3 +897,33 @@ painter. Task #17 carries the full findings; the short version:
   ($1add52/$1a6000/$1a5f52). And SDL keyboard focus requires the
   pointer INSIDE the Hatari window (the driver's `key` warps it; raw
   xdotool does not — the source of this session's flaky navigation).
+
+### Phase 2 runtime — mono command-bar PAINTER FOUND (2026-07-17, 22nd leg)
+
+Chased the command-bar painter to ground (task #17). The verb/button
+bars are ALL painted by **jt137**, the faithful Mac bar-button DLItem
+handler that jt151 installs as the shape-1 method — REPLACING jt382,
+which is why every jt382 / l1aea / l2c60 trace came up empty. jt137
+msg=1 draws:
+
+1. **jt448 -> jt995 mode 2** — the FRAME.CTL cap pieces item pal+10
+   (left), pal+11 (middle, one per label char), pal+12 (right); pal=3
+   for a highlighted button uses 13/14/15. This is the chip molding.
+2. **jt1089** — the label, mono colour 0xF0 (503 when highlighted),
+   which L4e12 turns into a white plate + black glyphs (the plate IS
+   painted, full clip — confirmed).
+
+FRAME.TLB 10/11/12 are mask+data (16x17); item 11 is 71% opaque = the
+white chip body. Menu buttons render as white chips because the white
+menu panel shows through the caps' transparent edges; the walk/combat
+bars render granite because the port's port_draw_play_frame lays a
+GRANITE frame under the bar and it shows through — the Mac has no
+granite there. Fix (next session, verify first): in mono either fill
+each button rect white before jt448, or skip the granite frame under
+the bar strip. Also seen: the mono walk HUD (roster/clock/bar) flickers
+black frame-to-frame — a separate present/double-buffer bug (~#16).
+
+Method note: __builtin_return_address is unreliable under
+-fomit-frame-pointer, but the disasm at the reported addr showed the
+real `jsr jt1089`; TEXT base = runtime(jt1089) - nm(_jt1089) = 0x18872,
+then nm-lookup of (caller - base) resolved jt137.
