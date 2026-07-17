@@ -927,3 +927,36 @@ Method note: __builtin_return_address is unreliable under
 -fomit-frame-pointer, but the disasm at the reported addr showed the
 real `jsr jt1089`; TEXT base = runtime(jt1089) - nm(_jt1089) = 0x18872,
 then nm-lookup of (caller - base) resolved jt137.
+
+### Phase 2 runtime — mono flicker post-mortem + present profiler (2026-07-17, 23rd leg)
+
+The 22nd leg's "walk HUD flickers black frame-to-frame" was chased with
+frame-accurate capture (Hatari --avirecord PNG frames + wall-clock X
+grabs, FRUA_AREATEST entering the walk directly): **in real time the
+mono walk HUD is rock-stable** — idle AND moving. The AVI's white/black
+stretches were emulated-time dilation (boot fast-forward), not anything
+a player sees. Two real defects surfaced instead:
+
+1. **#147 (fixed, f970ff8)** — the full play-frame rebuild was not
+   atomic on the single-buffered ST High backend: port_draw_play_frame's
+   grey-stone wipe is BRIGHT in the 1-bit ink model, and l3994's jt1128
+   commit mid-rebuild flashed the white half-frame. `qd_present_hold`
+   (nesting, DISCARD-on-release so jt312's trailing double present — the
+   videl two-page #103 guard — still runs in full) brackets both jt312
+   full-recompose branches.
+2. **#16 profiled (eaa402e)** — FRUA_MONOPROF counters in the sthigh
+   backend. Numbers from a walk: ~0 viewport rect-presents (every
+   refresh full-screen, 144 KB memcmp each), whole 40-present windows
+   packing 0 rows, 11 setpal force-fulls/window. The throttle matching
+   the user's report ("should be FASTER than a 7.83 MHz Mac"): the
+   SOFTWARE cursor (no hardware sprite off-videl) makes qd_cursor_track
+   / qd_cursor_refresh run a FULL present per mouse-move event.
+
+**#150 (in tree, UNCOMMITTED — needs a live-mouse check):** present only
+the union of the cursor's old+new 16x16 rects via the backend rect hook;
+g_cursor_save_x/y names the last-drawn position across both present
+paths, so no trail. Headless verification is impossible — Hatari ignores
+synthetic X mouse MOTION (warp/click only) — so it waits for a real
+mouse session before committing. Same wastes (present-per-poll, double
+present, cycle force-fulls) burden the colour videl path behind its
+double buffer; carry the fixes across once proven here.
