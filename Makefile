@@ -238,12 +238,14 @@ run: $(TARGET)
 	          --conout 2 -d . --auto 'C:\$(TARGET)'
 
 # Boot the current build on an emulated STE. Needs an EmuTOS image (TOS 4.04
-# is Falcon-only) — override EMUTOS with your path. Build the 68000 binary
-# first: `make clean && make CPU68K=68000` (an -m68020-60 frua.prg dies with
-# illegal instructions on the STE's 68000). Mounts the staged gamedata dir
-# as C: (stage it once with `make gamedata DSN=HEIRS.DSN`).
+# is Falcon-only) — override EMUTOS with your path. Mounts the staged
+# gamedata dir as C: (stage it once with `make gamedata DSN=HEIRS.DSN`).
+# Builds its own 68000 configuration (same pattern as run-mono: depending
+# on $(TARGET) let a bare `make run-ste` silently rebuild the default
+# 68020 binary, which dies on the STE's 68000).
 EMUTOS ?= $(HOME)/Downloads/Atari/etos256us.img
-run-ste: $(TARGET)
+run-ste:
+	$(MAKE) CPU68K=68000 EXTRA_CFLAGS="$(EXTRA_CFLAGS)"
 	$(HATARI) --machine ste --memsize 4 --tos $(EMUTOS) --zoom 2 --sound 44100 \
 	          --conout 2 -d $(GAMEDATA_DIR) --auto 'C:\$(TARGET)'
 

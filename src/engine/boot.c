@@ -13056,6 +13056,25 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
 	static short s_chrome_drawn = 0;          /* FRAME.CTL chrome painted? */
+#ifdef FRUA_PERF_TEST
+	/* Frame-time benchmark (the Makefile's FRUA_PERF_TEST=1): accumulate
+	 * the TickCount (60Hz) cost of the first 30 first-person renders and
+	 * log the total once — the number to compare 68020 vs 68000 codegen
+	 * builds on the same emulated machine. */
+	static short perf_n = 0;
+	static long  perf_ticks = 0;
+	long perf_t0 = TickCount();
+#define PERF_EXIT() do { \
+		if (perf_n < 10) { \
+			perf_ticks += TickCount() - perf_t0; \
+			if (++perf_n == 10) \
+				dbg_file_num("PERF: 10 renders, ticks=", \
+				             perf_ticks); \
+		} \
+	} while (0)
+#else
+#define PERF_EXIT() do { } while (0)
+#endif
 
 #ifdef FRUA_BWMODE
 	if (jt1200() == 3) {
@@ -13127,6 +13146,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		jt1193();
 		(void)jt117();
 		qd_present();
+		PERF_EXIT();
 		return;
 	}
 #endif
@@ -13435,6 +13455,8 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 #endif
 	g_cwf_force_deep = 0;
 	g_cwf_px = NULL;
+	PERF_EXIT();
+#undef PERF_EXIT
 }
 
 /* l04d6 (CODE 22 + 0x04d6) — return a map cell's floor/ceiling
