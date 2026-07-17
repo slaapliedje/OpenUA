@@ -5953,6 +5953,31 @@ static unsigned char g_glib_dec[320 * 200];     /* defined below; shared scratch
 /* last GLIB blit's landed rect (debug: piece w/h + final screen origin), set by
  * l309c / l309c_tile and snapshotted per slot by the J200DIFF dump. */
 static short g_lc_w, g_lc_h, g_lc_x0, g_lc_y0;
+/* #155: expand one 1bpp source byte to 8 chunky bytes (set = 15 bright,
+ * clear = 0), unrolled. The mono blit arms below used to do this per-PIXEL
+ * with a variable shift and a bounds test each — measured as the dominant
+ * cost of a dungeon walk step (the wall tiles alone ~2-2.5 s at 8 MHz).
+ * Byte stores only: the 68000 faults on odd-address word/long writes, so
+ * no wide-write tricks. Solid bytes (0x00/0xFF — most of the wall art's
+ * area) take the two-instruction paths. */
+static void mono_expand8(unsigned char *p, unsigned char d)
+{
+	if (d == 0) {
+		p[0] = p[1] = p[2] = p[3] = p[4] = p[5] = p[6] = p[7] = 0;
+	} else if (d == 0xFF) {
+		p[0] = p[1] = p[2] = p[3] = p[4] = p[5] = p[6] = p[7] = 15;
+	} else {
+		p[0] = (unsigned char)((d & 0x80) ? 15 : 0);
+		p[1] = (unsigned char)((d & 0x40) ? 15 : 0);
+		p[2] = (unsigned char)((d & 0x20) ? 15 : 0);
+		p[3] = (unsigned char)((d & 0x10) ? 15 : 0);
+		p[4] = (unsigned char)((d & 0x08) ? 15 : 0);
+		p[5] = (unsigned char)((d & 0x04) ? 15 : 0);
+		p[6] = (unsigned char)((d & 0x02) ? 15 : 0);
+		p[7] = (unsigned char)((d & 0x01) ? 15 : 0);
+	}
+}
+
 static void l2d4e(const unsigned char *src, short bpp_w, short height,
                   short y, short x, short flags)
 {
@@ -6108,6 +6133,50 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				if (port != NULL && ((CGrafPtr)port)->fgColor != 0)
 					fg = ((CGrafPtr)port)->fgColor;
 			}
+			if (mono3) {
+				/* #155: opaque byte-wise expansion, same shape as
+				 * the mode-0/1 mono arms (bounds hoisted, 8 px per
+				 * source byte). Rows always advance the PackBits
+				 * stream, clipped or not. */
+				short c0 = (x < left) ? (short)(left - x)
+				                      : (short)0;
+				short c1 = ((short)(x + pix_w) > right)
+				         ? (short)(right - x) : pix_w;
+				short b0 = (short)(c0 >> 3);
+				short b1 = (short)((c1 + 7) >> 3);
+				short bi, k;
+
+				for (r = 0; r < height; r++) {
+					short dy = (short)(y + r);
+					unsigned char *prow;
+
+					s = (const unsigned char *)
+					    jt1171(s, rowbuf, bpp_w);
+					if (dy < top || dy >= bottom)
+						continue;
+					prow = px + (long)dy * pitch + x;
+					for (bi = b0; bi < b1; bi++) {
+						unsigned char d = rowbuf[bi];
+						short cc = (short)(bi << 3);
+
+						if (cc >= c0
+						    && (short)(cc + 8) <= c1) {
+							mono_expand8(prow + cc, d);
+							continue;
+						}
+						for (k = 0; k < 8; k++) {
+							short c2 = (short)(cc + k);
+
+							if (c2 < c0 || c2 >= c1)
+								continue;
+							prow[c2] =
+							    (d & (0x80 >> k))
+							    ? 15 : 0;
+						}
+					}
+				}
+				return;
+			}
 			for (r = 0; r < height; r++) {
 				short dy = (short)(y + r);
 
@@ -6119,14 +6188,12 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 					int bit = (rowbuf[c >> 3]
 					           & (0x80 >> (c & 7))) != 0;
 
-					if (!mono3 && !bit)
+					if (!bit)
 						continue;
 					dx = (short)(x + c);
 					if (dx < left || dx >= right)
 						continue;
-					px[(long)dy * pitch + dx] = mono3
-					    ? (unsigned char)(bit ? 15 : 0)
-					    : fg;
+					px[(long)dy * pitch + dx] = fg;
 				}
 			}
 			return;
@@ -6179,24 +6246,50 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		long plane = (long)height * bpp_w;
 		const unsigned char *mask = src;
 		const unsigned char *data = src + plane;
+		/* #155: visible pixel range in piece space, hoisted out of the
+		 * loops (the clip-reject above guarantees c0 < c1). Byte-wise
+		 * inner loop: a 0xFF mask byte skips 8 px in one test (the wall
+		 * pieces are majority-transparent), a 0x00 mask byte with all 8
+		 * px visible expands unrolled; only edge/mixed bytes go per-bit. */
+		short c0 = (x < left) ? (short)(left - x) : (short)0;
+		short c1 = ((short)(x + pix_w) > right)
+		         ? (short)(right - x) : pix_w;
+		short b0 = (short)(c0 >> 3);
+		short b1 = (short)((c1 + 7) >> 3);
+		short bi, k;
 
 		for (r = 0; r < height; r++) {
 			short dy = (short)(y + r);
 			const unsigned char *mrow = mask + (long)r * bpp_w;
 			const unsigned char *drow = data + (long)r * bpp_w;
+			unsigned char *prow;
 
 			if (dy < top || dy >= bottom)
 				continue;
-			for (c = 0; c < pix_w; c++) {
-				short dx = (short)(x + c);
-				unsigned char bit = (unsigned char)(0x80 >> (c & 7));
+			prow = px + (long)dy * pitch + x;
+			for (bi = b0; bi < b1; bi++) {
+				unsigned char m = mrow[bi];
+				unsigned char d;
+				short cc = (short)(bi << 3);
 
-				if (dx < left || dx >= right)
+				if (m == 0xFF)
+					continue;     /* whole byte transparent */
+				d = drow[bi];
+				if (m == 0 && cc >= c0 && (short)(cc + 8) <= c1) {
+					mono_expand8(prow + cc, d);
 					continue;
-				if (mrow[c >> 3] & bit)
-					continue;             /* mask set -> transparent */
-				px[(long)dy * pitch + dx] =
-				    (drow[c >> 3] & bit) ? 15 : 0;   /* white/black */
+				}
+				for (k = 0; k < 8; k++) {
+					short c2 = (short)(cc + k);
+					unsigned char bit =
+					    (unsigned char)(0x80 >> k);
+
+					if (c2 < c0 || c2 >= c1)
+						continue;
+					if (m & bit)
+						continue;   /* transparent */
+					prow[c2] = (d & bit) ? 15 : 0;
+				}
 			}
 		}
 		return;
@@ -6276,6 +6369,44 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 			if (port != NULL)
 				fg = ((CGrafPtr)port)->fgColor;
 		}
+		if (mono3) {
+			/* #155: opaque byte-wise expansion (hoisted bounds; the
+			 * same structure as the mode-1 arm, no mask plane). */
+			short c0 = (x < left) ? (short)(left - x) : (short)0;
+			short c1 = ((short)(x + pix_w) > right)
+			         ? (short)(right - x) : pix_w;
+			short b0 = (short)(c0 >> 3);
+			short b1 = (short)((c1 + 7) >> 3);
+			short bi, k;
+
+			for (r = 0; r < height; r++) {
+				short dy = (short)(y + r);
+				const unsigned char *srow = src + (long)r * bpp_w;
+				unsigned char *prow;
+
+				if (dy < top || dy >= bottom)
+					continue;
+				prow = px + (long)dy * pitch + x;
+				for (bi = b0; bi < b1; bi++) {
+					unsigned char d = srow[bi];
+					short cc = (short)(bi << 3);
+
+					if (cc >= c0 && (short)(cc + 8) <= c1) {
+						mono_expand8(prow + cc, d);
+						continue;
+					}
+					for (k = 0; k < 8; k++) {
+						short c2 = (short)(cc + k);
+
+						if (c2 < c0 || c2 >= c1)
+							continue;
+						prow[c2] = (d & (0x80 >> k))
+						         ? 15 : 0;
+					}
+				}
+			}
+			return;
+		}
 		for (r = 0; r < height; r++) {
 			short dy = (short)(y + r);
 			const unsigned char *srow = src + (long)r * bpp_w;
@@ -6286,14 +6417,12 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				short dx;
 				int bit = (srow[c >> 3] & (0x80 >> (c & 7))) != 0;
 
-				if (!mono3 && !bit)
+				if (!bit)
 					continue;
 				dx = (short)(x + c);
 				if (dx < left || dx >= right)
 					continue;
-				px[(long)dy * pitch + dx] = mono3
-				    ? (unsigned char)(bit ? 15 : 0)
-				    : fg;
+				px[(long)dy * pitch + dx] = fg;
 			}
 		}
 	}
@@ -11590,25 +11719,47 @@ static void mono_dungeon_backdrop(short set, unsigned char *px, short pitch,
 	 * (art-white) -> chunky 15, clear (art-black) -> 0 — THE MONO INK
 	 * MODEL at the mono PLANAR PAGE. Night sky: black field, white
 	 * stars, light tiled floor; the masked wall tiles composite over. */
-	for (r = 0; r < h; r++) {
-		short dy = (short)(BW_BD_OY + r);
-		const unsigned char *srow;
+	/* #155: byte-wise expansion (mono_expand8) with the bounds hoisted —
+	 * the old per-pixel loop (bit shift + two range tests + a long mul
+	 * per PIXEL) cost ~0.7 s of every walk step at 8 MHz. The backdrop
+	 * must still repaint each step (it erases the previous walls). */
+	{
+		short pw = (short)(bw * 8);
+		short c0 = (BW_BD_OX < 0) ? (short)-BW_BD_OX : (short)0;
+		short c1 = ((short)(BW_BD_OX + pw) > sw)
+		         ? (short)(sw - BW_BD_OX) : pw;
+		short b0 = (short)(c0 >> 3);
+		short b1 = (short)((c1 + 7) >> 3);
+		short bi, k;
 
-		if (dy < 0 || dy >= sh)
-			continue;
-		if (mode == 2) {                        /* PackBits (day sets) */
-			body = (const unsigned char *)jt1171(body, rowbuf, bw);
-			srow = rowbuf;
-		} else {                                /* raw 1bpp (night)    */
-			srow = body + (long)r * bw;
-		}
-		for (c = 0; c < (short)(bw * 8); c++) {
-			short dx = (short)(BW_BD_OX + c);
+		for (r = 0; r < h; r++) {
+			short dy = (short)(BW_BD_OY + r);
+			const unsigned char *srow;
+			unsigned char *prow;
 
-			if (dx < 0 || dx >= sw)
+			if (mode == 2)                  /* PackBits (day sets) */
+				body = (const unsigned char *)
+				    jt1171(body, rowbuf, bw);
+			if (dy < 0 || dy >= sh)
 				continue;
-			px[(long)dy * pitch + dx] =
-			    (srow[c >> 3] & (0x80 >> (c & 7))) ? 15 : 0;
+			srow = (mode == 2) ? rowbuf : body + (long)r * bw;
+			prow = px + (long)dy * pitch + BW_BD_OX;
+			for (bi = b0; bi < b1; bi++) {
+				unsigned char d = srow[bi];
+				short cc = (short)(bi << 3);
+
+				if (cc >= c0 && (short)(cc + 8) <= c1) {
+					mono_expand8(prow + cc, d);
+					continue;
+				}
+				for (k = 0; k < 8; k++) {
+					short c2 = (short)(cc + k);
+
+					if (c2 < c0 || c2 >= c1)
+						continue;
+					prow[c2] = (d & (0x80 >> k)) ? 15 : 0;
+				}
+			}
 		}
 	}
 }
@@ -13232,7 +13383,14 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			dbg_log_num("mono jt199 ticks   ", t4 - g_mpf_s3);
 		}
 #endif
-		qd_present();
+		/* #155: present only the view hole — the union of the backdrop
+		 * (8,8)+176x~192 and the wall tiles' clip (8,8)-(184,184). The
+		 * old full present paid a 300-row diff scan plus a repack of
+		 * every changed row (HUD rows included) per step. Force-full
+		 * frames repaint chrome/HUD OUTSIDE this rect, but jt312's
+		 * force-full tail runs port_present_full (a real full present)
+		 * after this returns, so the frame border and HUD still land. */
+		qd_present_rect((short)8, (short)8, (short)176, (short)192);
 		PERF_EXIT();
 		return;
 	}
@@ -14129,7 +14287,12 @@ static void jt312(unsigned char *page)
 #ifdef FRUA_MONOPROF
 		dbg_log("jt312 RECT path (viewport-only)");
 #endif
-		qd_present_rect((short)24, (short)24, (short)88, (short)88);
+		/* #155: the mono deep render presented its own view-hole rect
+		 * (176x192 at 8,8 — different geometry from the colour-mode
+		 * 88x88@24,24 below); packing the colour rect again here was a
+		 * pure double-pack. */
+		if (jt1200() != 3)
+			qd_present_rect((short)24, (short)24, (short)88, (short)88);
 #ifdef FRUA_MONOPROF
 		/* Per-STEP timing (60 Hz TickCount units, ~17 ms each):
 		 * setup = dungeon_view_setup + wall/backdrop checks,
