@@ -33707,13 +33707,27 @@ static void jt1177(short row, short col)
 		/* MONO: the page is the codec's own 1-bit planar page (the
 		 * Mac's was the B&W screen), and the Mac's mono tail adds +1
 		 * to the byte address (L053e 0x5c6) — part of the +8-bit
-		 * bias the mono_span mapping absorbs. */
-		base  = (long)(uintptr_t)s_mono_page;
-		base += (long)(unsigned short)(((short)(l04de() >> shift))
-		                               * row);
-		base += (long)(col >> shift);
-		base += 1;
-		g_a5_long(-3076) = base;
+		 * bias the mono_span mapping absorbs.
+		 *
+		 * BOUNDS GUARD: s_mono_page is a fixed 60x300 buffer, but a
+		 * combat effect save-under (jt119/jt122 -> jt1177) can be
+		 * handed a transformed `row` past 300 for a low combatant.
+		 * The subsequent jt1197/jt1202 walk ~24 rows FROM the cursor,
+		 * so an out-of-page base clobbers adjacent BSS — including the
+		 * sthigh backend's s_chunky/s_shadow pointers, which the next
+		 * present's row-diff memcmp then bus-errors on (the mono
+		 * combat-round crash). Clamp the byte offset into the page so
+		 * the cursor and its 24-row span stay resident; the save-under
+		 * then reads/writes valid page memory (cosmetically imperfect
+		 * for an off-page sprite, but no corruption). */
+		long off = (long)(unsigned short)(((short)(l04de() >> shift))
+		                                  * row)
+		         + (long)(col >> shift) + 1;
+		long cap = (long)sizeof s_mono_page
+		         - (long)MONO_PAGE_ROWB * 24;   /* leave the walk span */
+		if (off < 0)   off = 0;
+		if (off > cap) off = cap;
+		g_a5_long(-3076) = (long)(uintptr_t)s_mono_page + off;
 		return;
 	}
 #endif
