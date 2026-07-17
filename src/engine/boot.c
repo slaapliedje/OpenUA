@@ -3410,6 +3410,11 @@ static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L
  * nothing — and worse, the pattern let mid-compose states reach the
  * visible screen between the pair. Present exactly as many times as the
  * backend has pages to seed. */
+#ifdef FRUA_MONOPROF
+long g_mpf_t0, g_mpf_t1, g_mpf_t2;      /* jt312 step-timing stamps */
+long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
+#endif
+
 static void port_present_full(void)
 {
 	short n = qd_present_pages();
@@ -13096,6 +13101,17 @@ static void rm_audit(void)
  * level's Wall1); per-group Wall1-3 piece stores are a follow-up. */
 static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
 	__attribute__((unused));
+
+#ifdef FRUA_BWMODE
+/* #154: the ornate 176x176 viewport frame (FRAME piece 9) is STATIC, but
+ * the mono deep render blitted it through the (slow, per-bit) mono planar
+ * path on EVERY step — measured 93 of a step's ~390 TickCount ticks
+ * (~1.6 s of ~6.5 s at 8 MHz). The walls are clipped to the frame's hole
+ * and the chunky surface persists between steps, so the frame only needs
+ * re-laying after something wiped it: port_draw_play_frame (the grey
+ * chrome wipe every full recompose runs) marks it dirty. Starts dirty. */
+static unsigned char g_mono_chrome_dirty = 1;
+#endif
 static void render_3d_faithful(unsigned char *px, short pitch, short sw, short sh)
 {
 	static unsigned char page[BP_STRIDE * BP_ROWS];   /* unused in colour mode */
@@ -13142,11 +13158,23 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		short fc  = (short)(g_a5_12286 & 7);
 
 		l6148();                            /* load the level's wall sets */
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_s1; g_mpf_s1 = TickCount(); }
+#endif
 		jt1173((short)8000, (short)8000, (short)8000, (short)8000);
 		l57f2();                            /* JT[219] — state only       */
 		jt1193();
-		jt1173((short)8007, (short)8000, (short)8067, (short)8160);
-		jt1001((short)16, (short)8000, (short)1, (short)9);
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_s1b; g_mpf_s1b = TickCount(); }
+#endif
+		if (g_mono_chrome_dirty) {          /* #154: static frame, draw once */
+			jt1173((short)8007, (short)8000, (short)8067, (short)8160);
+			jt1001((short)16, (short)8000, (short)1, (short)9);
+			g_mono_chrome_dirty = 0;
+		}
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_s2; g_mpf_s2 = TickCount(); }
+#endif
 		/* PORT: clip the frustum tiles to the viewport HOLE. The Mac draws
 		 * jt199 under the full-screen clip (its geometry keeps the tiles in
 		 * the frame); the port enforces the frame's opening as a clip so a
@@ -13169,6 +13197,9 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			                 : (short)1;
 			mono_dungeon_backdrop(bset, px, pitch, sw, sh);
 		}
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_s3; g_mpf_s3 = TickCount(); }
+#endif
 #ifdef FRUA_SKIP_ENTRY_EVENTS
 		g_j2_n = 0; g_j2_active = 1;
 #endif
@@ -13189,6 +13220,18 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		 * text escaped while the fills didn't. */
 		jt1193();
 		(void)jt117();
+#ifdef FRUA_MONOPROF
+		{
+			extern long g_mpf_t0, g_mpf_s1, g_mpf_s2, g_mpf_s3;
+			long t4 = TickCount();
+			extern long g_mpf_s1b;
+			dbg_log_num("mono l6148 ticks   ", g_mpf_s1 - g_mpf_t0);
+			dbg_log_num("mono l57f2 ticks   ", g_mpf_s1b - g_mpf_s1);
+			dbg_log_num("mono piece9 ticks  ", g_mpf_s2 - g_mpf_s1b);
+			dbg_log_num("mono backdrop ticks", g_mpf_s3 - g_mpf_s2);
+			dbg_log_num("mono jt199 ticks   ", t4 - g_mpf_s3);
+		}
+#endif
 		qd_present();
 		PERF_EXIT();
 		return;
@@ -13794,6 +13837,9 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	 * before filling piece 9's hole. */
 	jt1193();                        /* clip = full screen (was the bug) */
 	l67ca();
+#ifdef FRUA_BWMODE
+	g_mono_chrome_dirty = 1;         /* #154: the wipe took the frame too */
+#endif
 }
 
 static signed char jt1160(void);        /* view-mode bit; defined below */
@@ -13930,6 +13976,9 @@ static void jt312(unsigned char *page)
 		port_present_full();          /* #151 */
 		return;
 	}
+#ifdef FRUA_MONOPROF
+	{ extern long g_mpf_t0; g_mpf_t0 = TickCount(); }
+#endif
 	if (!dungeon_view_setup())
 		return;
 	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
@@ -14009,12 +14058,18 @@ static void jt312(unsigned char *page)
 	 * movement redraws (l63c0 -> jt312) now use the SAME faithful renderer.
 	 * FRUA_CORRIDOR (texture-mapped trapezoids) and FRUA_RAYCAST (the wider
 	 * 3-column frustum that opens side passages) remain selectable fallbacks. */
+#ifdef FRUA_MONOPROF
+	{ extern long g_mpf_t1; g_mpf_t1 = TickCount(); }
+#endif
 #if defined(FRUA_CORRIDOR)
 	render_3d_view(px, pitch, sw, sh);
 #elif defined(FRUA_RAYCAST)
 	render_3d_raycast(px, pitch, sw, sh);
 #else
 	render_3d_faithful(px, pitch, sw, sh);
+#endif
+#ifdef FRUA_MONOPROF
+	{ extern long g_mpf_t2; g_mpf_t2 = TickCount(); }
 #endif
 	/* HUD command bar: on the chrome-redraw frames, lay the beveled command-bar
 	 * plate and force-repaint the command-word DLItems on top. The chrome wipe
@@ -14075,6 +14130,18 @@ static void jt312(unsigned char *page)
 		dbg_log("jt312 RECT path (viewport-only)");
 #endif
 		qd_present_rect((short)24, (short)24, (short)88, (short)88);
+#ifdef FRUA_MONOPROF
+		/* Per-STEP timing (60 Hz TickCount units, ~17 ms each):
+		 * setup = dungeon_view_setup + wall/backdrop checks,
+		 * render = render_3d_faithful, present = the viewport rect. */
+		{
+			extern long g_mpf_t0, g_mpf_t1, g_mpf_t2;
+			long t3 = TickCount();
+			dbg_log_num("step setup ticks  ", g_mpf_t1 - g_mpf_t0);
+			dbg_log_num("step render ticks ", g_mpf_t2 - g_mpf_t1);
+			dbg_log_num("step present ticks", t3 - g_mpf_t2);
+		}
+#endif
 	}
 }
 
