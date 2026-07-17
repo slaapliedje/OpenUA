@@ -753,3 +753,34 @@ covers, not another drawer.
 Fix: clear the seam in l276c after jt77 (mono only, jt1161 fill 8).
 The Mac's frame chrome covers it; the port's mono FRAME pieces don't
 reach it. Colour skips the arm (already covered), AE=0, 175 tests.
+
+### Phase 2 runtime — MONO COMBAT-ROUND CRASH fixed: save-under page overflow (2026-07-16, 17th leg, 0ba7073)
+
+Mono combat ROUNDS crashed intermittently (the tactical map renders
+fine; the crash is in round execution). Caught live via Hatari
+--debug-except: a bus error in _sthigh_present's row-diff memcmp
+(s_chunky vs s_shadow) — but the present was the VICTIM, not the cause;
+its buffer pointers had been corrupted by an earlier OOB write.
+
+Chain: the hit/miss effect animation (jt503) save-unders the map under
+a 12x12 spark via jt119/jt122 -> jt1177 (page cursor) -> jt1197/jt1202
+(walk ~24 rows). jt1177's mono arm indexes s_mono_page at 60*row +
+(col>>3) + 1; a low combatant's transformed `row` exceeds the fixed
+60x300 page, so the multi-row save-under walk writes PAST s_mono_page
+into adjacent BSS, clobbering the sthigh backend's s_chunky/s_shadow
+pointers -> next present's memcmp bus-errors.
+
+Fix: clamp the byte offset so the cursor + its 24-row span stay in the
+page. Verified: combat + repeated QUICK rounds now complete where they
+reliably crashed (3/3 + a 5-round run). Colour AE=0, 175 tests.
+
+METHOD NOTE: `--debug-except bus,address,illegal,nohandler` + resolving
+the PC/stack via `hatari-debug disasm` with `symbols prg` loaded is the
+way to catch these — the stack return address (memcmp caller = the lea
+that cleans 12 bytes) named _sthigh_present immediately.
+
+RESIDUAL: the mono save-under is still fidelity-imperfect — the planar
+page isn't sync/expand-bracketed like jt995, so an effect's restore
+paints from an unsynced page (cosmetic, off-page effects only). A
+proper fix would make jt119/jt122 save/restore the CHUNKY region
+directly in mono (bypassing the page indirection entirely).
