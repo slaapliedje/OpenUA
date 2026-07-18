@@ -8471,6 +8471,24 @@ static void jt1089(short v, short h, short color,
 
 	PROBE("jt1089");
 
+#ifdef FRUA_HUDTRACE
+	/* Play-HUD text diagnostic (task #25 / docs/amiga-hud-wall.md). Logs the
+	 * colour word + text of every 8-bit-play-mode HUD draw, so a trace can
+	 * show WHETHER the roster/command-bar glyphs are drawn (they are) and in
+	 * WHAT colour (grey-on-grey, because port_hud_text_clut never runs on the
+	 * Amiga — the walk freezes before the l63c0 compose that installs it). */
+	if (g_a5_1312 != 0) {
+		char tb[64];
+		va_list ap2;
+		va_start(ap2, fmt);
+		if (fmt != NULL) vsnprintf(tb, sizeof tb, fmt, ap2);
+		else tb[0] = 0;
+		va_end(ap2);
+		dbg_file_num("HUD jt1089 color=", (long)color);
+		dbg_file_str("HUD   text=", tb);
+	}
+#endif
+
 	/* L024c: split the color word into the A5 pen-state slots. */
 	g_a5_4894 = color;
 	g_a5_4892 = (unsigned char)((color >> 8) & 0xff);
@@ -25074,6 +25092,13 @@ static void load_menu_ui(void)
  * wall texture bands (32+), so only the text colours change. */
 static void port_hud_text_clut(void)
 {
+#ifdef FRUA_HUDTRACE
+	/* task #25: on the Falcon this logs once (the l63c0 compose runs); on the
+	 * Amiga it NEVER logs — the walk freezes in the entry render unwind (after
+	 * jt935 -> jt312 -> render_3d -> jt199, before the play loop), so the HUD
+	 * text CLUT is never installed and the roster stays grey-on-grey. */
+	dbg_file_num("HUD port_hud_text_clut: g_menu_state=", (long)g_menu_state);
+#endif
 	if (g_menu_state != 1)
 		return;                          /* UI palette not loaded yet */
 	port_clut_install(g_menu_pal + 6, (short)6, (short)10);   /* 6..15 */
