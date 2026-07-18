@@ -1109,3 +1109,50 @@ retained as the regression net.
 
 Speed: bar 66 -> 43 ticks, per-glyph seeds 84 -> 5 per compose. The
 command transition sheds another ~0.4 s.
+
+### Phase 2 runtime — white chips: the jt1177 clamp was eating the bar (2026-07-17, 30th leg)
+
+Task #17 (mono command-bar chips granite instead of the Mac's white)
+fell to two stacked bugs, neither where the leg-29 notes guessed:
+
+1. **Paint order.** l63c0's entry compose ran jt312 (which force-painted
+   the bar) BEFORE its cb1 dispatch (jt238 -> jt304), and jt304's gen
+   backdrop covers the bar strip — the freshly painted chips were
+   granited over, then the labels re-landed via the shim (black glyphs
+   on granite). The Mac's order is backdrop first, bar items after (the
+   poll loop) — that is exactly what puts white chips OVER granite with
+   granite showing in the inter-chip gaps. Fix: `g_l63c0_defer_hud` —
+   jt312's full path skips its HUD block when l63c0 will repaint it
+   after cb1; per-step jt312 calls (no cb1 after) keep the in-place
+   repaint. The AREA-map leg is untouched (its own HUD paint, no cb1).
+
+2. **The jt1177 bounds-guard clamp.** With order fixed the chips were
+   STILL granite: a before/after centre-row white count showed the caps
+   were no-ops (36/80 -> 36/80), and a jt1191 writer dump showed every
+   cap write landing at page offset 16568 — which is exactly
+   `sizeof s_mono_page - MONO_PAGE_ROWB*24`, the guard cap. The clamp
+   (added for the combat save-under crash) reserved a 24-row TAIL for
+   jt1197/jt1202's walk, thereby clamping every legitimate cursor in
+   the bottom 24 screen rows — the command bar (rows 280..296) piled
+   onto one address and its writes vanished. The FRUA_SPILLTEST pass
+   never caught this because a writer that writes NOTHING is perfectly
+   spill-exact. Fix: jt1177 clamps only to the true page bounds
+   (cap = sizeof - 8, the page's own RMW slack); the 24-row protection
+   moved into jt1197/jt1202 themselves (row-trimmed walks, mono-page
+   range-gated).
+
+Evidence chain, for the record: FRAME.TLB items 10-15 decoded (plane A
+= keep-mask, plane B = data; composite dst = (dst & A) ^ B forces the
+white body); CAP995 geometry log (full clip, correct art, correct
+coords); CAPPRE/CAPROW before/after counts (no-op proof); W1191 dump
+(constant clamped dst). After both fixes the walk bar renders WHITE
+chips with black text and granite gaps — matching mac_mono_3d_view.png
+structurally (chip width/snugness deltas remain task #19 layout work).
+Event-screen buttons only ever LOOKED right because jt1089's L4e12
+plate painted white behind the label; the caps were dead everywhere.
+
+Side effect: the leg-29 61-px delta region is superseded as predicted.
+Colour build verified unaffected (Falcon walk screen normal); steps
+clean; suite 175 passed / 2 skipped. The clamp fix also un-breaks any
+OTHER bottom-screen GLIB writes (combat row-2 chips should follow for
+free — verify when combat is reachable).

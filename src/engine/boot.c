@@ -14217,6 +14217,16 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 
 static signed char jt1160(void);        /* view-mode bit; defined below */
 
+/* #17: l63c0's entry compose runs jt312 BEFORE its cb1 dispatch (jt238 ->
+ * jt304), and jt304's gen backdrop covers the command-bar strip — so the
+ * bar jt312 force-painted came back granite (the Mac paints the backdrop
+ * first and the bar items after, in the poll loop; that is what puts the
+ * white chips OVER the granite with granite in the inter-chip gaps).
+ * While set, jt312's full path skips its HUD repaint; l63c0 repaints the
+ * HUD after cb1 instead. The per-step jt312 calls (no cb1 after) keep the
+ * in-place repaint. */
+static unsigned char g_l63c0_defer_hud;
+
 /* jt312 (JT[312], CODE 22 + 0x23ee) — the dungeon-view render, the
  * play-loop site that draws the first-person view. In the Mac build
  * this runs the page/palette setup, the view clip + background fill, a
@@ -14463,7 +14473,8 @@ static void jt312(unsigned char *page)
 	 * has no play context (no command string, no party), so l2c60/jt937/jt938
 	 * would deref unset structures — bus error. Skip the whole HUD block in the
 	 * editor (g_geo_editor_active), matching the Mac render. */
-	if ((s_view_first || g_view_force_full) && !g_geo_editor_active) {
+	if ((s_view_first || g_view_force_full) && !g_geo_editor_active
+	    && !g_l63c0_defer_hud) {        /* #17: l63c0 repaints after cb1 */
 		RGBColor hud[2];
 
 		hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0xC8C8;
@@ -15916,7 +15927,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 		else
 			jt1193();
+		g_l63c0_defer_hud = 1;          /* #17: HUD paints after cb1 */
 		jt312(ctx);
+		g_l63c0_defer_hud = 0;
 		jt1193();
 	} else {
 		jt280(rec, (short)8024, (short)8092, (short)0);
@@ -15933,6 +15946,26 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * party marker via l5752), so skip the 3D composer while it is showing. */
 	if (g_a5_12290 == 0)
 		((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
+
+	/* #17: the deferred HUD repaint — AFTER cb1 (jt238 -> jt304), whose gen
+	 * backdrop covers the command-bar strip. This is the Mac's order: the
+	 * backdrop goes down first, the bar items composite their white chips
+	 * over it (granite shows only in the inter-chip gaps). Same block
+	 * jt312's full path runs when not deferred; still inside the compose
+	 * hold, so it lands atomically with the rest of the frame. */
+	if ((unsigned char)a_deep && g_a5_12290 == 0 && !g_geo_editor_active) {
+		RGBColor hud[2];
+
+		hud[0].red = hud[0].green = hud[0].blue = (unsigned short)0xC8C8;
+		hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xFFFF;
+		port_clut_install(hud, (short)253, (short)2);
+		g_hud_paint = 1;
+		l2c60((short)1);        /* force-repaint the bar (plate per word) */
+		g_hud_paint = 0;
+		port_hud_text_clut();
+		jt938();
+		jt937(g_a5_long(-27932));
+	}
 
 	/* Port adaptation: the Mac draws immediately to the visible CGrafPort,
 	 * but our QuickDraw shim renders into a back-buffer that the Falcon HAL
@@ -34424,6 +34457,21 @@ static void jt1197(unsigned char *buf, short count, short runlen)
 	short i, k;
 
 	PROBE("jt1197");
+#ifdef FRUA_BWMODE
+	/* #17: the off-page save-under guard, moved here from jt1177 (whose
+	 * cursor clamp swallowed every legitimate bottom-of-screen write).
+	 * Trim the walk so an off-page sprite touches only resident rows;
+	 * rows beyond the page leave the caller's buffer stale (cosmetic,
+	 * same as the old clamp), never adjacent BSS. */
+	if (dst >= s_mono_page
+	 && dst < s_mono_page + sizeof s_mono_page) {
+		long room = (long)(s_mono_page + sizeof s_mono_page - dst);
+
+		while (count > 0
+		    && (long)(count - 1) * g_a5_long(-3084) + runlen > room)
+			count--;
+	}
+#endif
 	for (i = count - 1; i >= 0; i--) {
 		unsigned char *rowdst = dst;
 		for (k = runlen - 1; k >= 0; k--)
@@ -34445,6 +34493,17 @@ static void jt1202(unsigned char *src, short w, short h, short stride2)
 	PROBE("jt1202");
 	l05ea(w, h);
 	dst = (unsigned char *)(uintptr_t)l05e4();
+#ifdef FRUA_BWMODE
+	/* #17: same off-page walk trim as jt1197 (the paired restore). */
+	if (dst >= s_mono_page
+	 && dst < s_mono_page + sizeof s_mono_page) {
+		long room = (long)(s_mono_page + sizeof s_mono_page - dst);
+
+		while (w > 0
+		    && (long)(w - 1) * g_a5_long(-3084) + h > room)
+			w--;
+	}
+#endif
 	for (r = 0; r < w; r++) {
 		unsigned char *rowdst = dst;
 		for (k = 0; k < h; k++)
@@ -34582,20 +34641,22 @@ static void jt1177(short row, short col)
 		 *
 		 * BOUNDS GUARD: s_mono_page is a fixed 60x300 buffer, but a
 		 * combat effect save-under (jt119/jt122 -> jt1177) can be
-		 * handed a transformed `row` past 300 for a low combatant.
-		 * The subsequent jt1197/jt1202 walk ~24 rows FROM the cursor,
-		 * so an out-of-page base clobbers adjacent BSS — including the
-		 * sthigh backend's s_chunky/s_shadow pointers, which the next
-		 * present's row-diff memcmp then bus-errors on (the mono
-		 * combat-round crash). Clamp the byte offset into the page so
-		 * the cursor and its 24-row span stay resident; the save-under
-		 * then reads/writes valid page memory (cosmetically imperfect
-		 * for an off-page sprite, but no corruption). */
+		 * handed a transformed `row` past 300 for a low combatant,
+		 * and the subsequent jt1197/jt1202 walk ~24 rows FROM the
+		 * cursor — an out-of-page base clobbers adjacent BSS (the
+		 * mono combat-round crash). The first cut of this guard
+		 * reserved a 24-row TAIL here (cap -= ROWB*24), but that
+		 * clamped every legitimate cursor in the bottom 24 screen
+		 * rows — jt137's command-bar caps (rows 280..296) all piled
+		 * onto one clamped address and the bar never got its white
+		 * chips (#17). Clamp only to the true page bounds here; the
+		 * 24-row walkers carry their own row-trim now (jt1197 /
+		 * jt1202). The -8 keeps a clamped cursor's word-aligned
+		 * first-row RMW inside the page's own slack. */
 		long off = (long)(unsigned short)(((short)(l04de() >> shift))
 		                                  * row)
 		         + (long)(col >> shift) + 1;
-		long cap = (long)sizeof s_mono_page
-		         - (long)MONO_PAGE_ROWB * 24;   /* leave the walk span */
+		long cap = (long)sizeof s_mono_page - 8;
 		if (off < 0)   off = 0;
 		if (off > cap) off = cap;
 		g_a5_long(-3076) = (long)(uintptr_t)s_mono_page + off;
