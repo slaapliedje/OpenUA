@@ -46,8 +46,12 @@
 #define BW_OY       ((HI_H - BW_H) / 2)          /* 50  */
 
 /* Nonzero when the ST High backend is active — the engine's colour-mode
- * derivation reads it (via the port bootstrap) to take the Mac's B&W arms. */
-int g_dsp_mono_active;
+ * derivation reads it (via the port bootstrap) to take the Mac's B&W arms.
+ * DEFINED in compat/quickdraw.c (shared): every machine's engine/compat
+ * code reads it, but only this backend sets it — an Amiga (or any
+ * machine without a 1-bit backend) links without this file and must
+ * still resolve the symbol as a constant 0. */
+extern int g_dsp_mono_active;
 
 static unsigned char *s_screen_raw;
 static unsigned char *s_screen;

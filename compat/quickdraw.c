@@ -1604,7 +1604,10 @@ static int g_cursor_bank_sel = -1;       /* active bank index, -1 = none */
  * pointer stays unloaded so no bake ever runs. (The Mac app ships NO CURS
  * resources — rfork-checked — so there is no faithful 1-bit set to lift;
  * this derivation is the mono cursor.) */
-extern int g_dsp_mono_active;           /* ST-high backend active (1-bit) */
+int g_dsp_mono_active;                  /* 1-bit backend active; set only by
+                                         * platform/display_sthigh.c — lives
+                                         * HERE so machines without that
+                                         * backend (Amiga) still link */
 
 static void qd_derive_mono_cursor(const unsigned char *raw,
                                   const unsigned char *pal,
