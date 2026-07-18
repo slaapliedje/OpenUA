@@ -150,6 +150,16 @@
 // get/set file times.
 //#define MINIZ_NO_TIME
 
+// OpenUA port note: the retro targets carry no utime()/utimbuf (libnix
+// on AmigaOS under -noixemul; MiNTLib is fine but the timestamps are
+// irrelevant to a module install either way) — and the installer never
+// writes ZIPs, so drop the writer too. Keeps the vendored file
+// otherwise pristine.
+#if defined(__amigaos__) || defined(__MINT__)
+  #define MINIZ_NO_TIME
+  #define MINIZ_NO_ARCHIVE_WRITING_APIS
+#endif
+
 // Define MINIZ_NO_ARCHIVE_APIS to disable all ZIP archive API's.
 //#define MINIZ_NO_ARCHIVE_APIS
 
@@ -2861,8 +2871,12 @@ void *tdefl_write_image_to_png_file_in_memory(const void *pImage, int w, int h, 
     #define MZ_FFLUSH fflush
     #define MZ_FREOPEN mz_freopen
     #define MZ_DELETE_FILE remove
-  #elif defined(__TINYC__)
-    #ifndef MINIZ_NO_TIME
+  #elif defined(__TINYC__) || defined(__amigaos__) || defined(__MINT__)
+    // OpenUA port note: the retro targets' libcs (libnix on AmigaOS,
+    // MiNTLib without largefile) ship no ftello/fseeko — plain
+    // ftell/fseek is correct there (no >2GB module ZIPs). utime.h is
+    // also absent under -noixemul; MINIZ_NO_TIME covers it.
+    #if !defined(MINIZ_NO_TIME) && defined(__TINYC__)
       #include <sys\utime.h>
     #endif
     #define MZ_FILE FILE

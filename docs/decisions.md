@@ -720,3 +720,17 @@ art set):
 
 The Python tool stays the tested reference; `tests/test_artconv_c.py`
 holds the C core to byte-identical output.
+
+### ADR-0012 status update (2026-07-18)
+
+The "not yet compiled or run" caveat is half-cleared: the Bebbo
+toolchain IS installed on the dev machine (`~/opt/amiga`, GCC 6.5.0b +
+NDK) and `make MACHINE=amiga` now builds a hunk executable cleanly (the
+one link error — `g_dsp_mono_active` defined in an Atari-only backend —
+is fixed by moving the definition to shared compat). The engine
+binary has still never been RUN on an emulated Amiga; the amiberry
+flatpak plus real Kickstart images (`~/Amiberry/ROMs/kicka1200.rom`)
+are on hand for that first boot. `make installer-amiga` builds the
+module installer's Amiga CLI (`uainst_amiga`, bundled into the Amiga
+release zips); its asl.library FileRequester frontend and the first
+engine boot remain open.
