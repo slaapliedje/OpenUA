@@ -457,16 +457,18 @@ uainst.ttp: installer/main.c installer/miniz.c src/convert/artconv.c src/convert
 	    -o $@ installer/main.c installer/miniz.c src/convert/artconv.c
 	$(STRIP) $@
 
-# The Amiga build of the same installer (console CLI today; the
-# asl.library FileRequester frontend is task #24). Uses the Bebbo
-# toolchain directly — installer builds are standalone, not part of the
-# MACHINE= engine object tree.
+# The Amiga build of the same installer. Adds installer/asl_amiga.c: with
+# no ZIP argument it pops the standard asl.library file/drawer requesters
+# (task #24) instead of prompting on the console, then runs the identical
+# extract+convert core. Uses the Bebbo toolchain directly — installer
+# builds are standalone, not part of the MACHINE= engine object tree.
 AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
 installer-amiga: uainst_amiga
-uainst_amiga: installer/main.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
+uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
-	    -o $@ installer/main.c installer/miniz.c src/convert/artconv.c
+	    -o $@ installer/main.c installer/asl_amiga.c installer/miniz.c \
+	    src/convert/artconv.c
 	# no post-link strip: m68k-amigaos-strip corrupts hunk executables
 	# (see toolchain/m68k-amigaos.mk) — '-s' above strips at link time
 

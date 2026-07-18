@@ -43,6 +43,15 @@
 #define SEP '/'
 #endif
 
+#ifdef __amigaos__
+/* installer/asl_amiga.c — pops the ASL file/drawer requesters when uainst
+ * is run with no ZIP argument. Returns 1 if a ZIP was chosen. */
+int uainst_gui_pick(char *zip, size_t zipcap, char *dest, size_t destcap);
+/* installer/asl_amiga.c — runs fn(argc,argv) on a large StackSwap'd stack;
+ * the Shell/Workbench default stack is too small for miniz + asl.library. */
+int uainst_run_big_stack(int (*fn)(int, char **), int argc, char **argv);
+#endif
+
 #define SCRATCH_CAP (512L * 1024)
 #define MAXPATH 512
 
@@ -78,6 +87,23 @@ static void chomp(char *s)
 	while (n && (s[n - 1] == '\n' || s[n - 1] == '\r'
 		     || s[n - 1] == ' '))
 		s[--n] = 0;
+}
+
+/* Join a directory and a leaf name. Inserts SEP unless the directory already
+ * ends in SEP or a ':' volume/drive marker — so an Amiga volume root ("DH0:")
+ * or Atari drive ("C:") yields "DH0:leaf", not the malformed "DH0:/leaf".
+ * A dir of "" or "." means the current directory and yields the bare leaf:
+ * AmigaDOS has no "." cwd notation, so "./leaf" would fail there (this is why
+ * an empty ASL drawer selection must not become "./..."). */
+static void path_join(char *out, size_t cap, const char *dir, const char *leaf)
+{
+	size_t dl = strlen(dir);
+	if (dl == 0 || (dl == 1 && dir[0] == '.'))
+		snprintf(out, cap, "%s", leaf);
+	else if (dir[dl - 1] == SEP || dir[dl - 1] == ':')
+		snprintf(out, cap, "%s%s", dir, leaf);
+	else
+		snprintf(out, cap, "%s%c%s", dir, SEP, leaf);
 }
 
 /* --- the art conversion pass ---------------------------------------------- */
@@ -190,7 +216,7 @@ static void design_name_from_zip(const char *zip, char *out, size_t cap)
 	memcpy(out + n, ".DSN", 5);
 }
 
-int main(int argc, char **argv)
+static int installer_main(int argc, char **argv)
 {
 	char zip_path[MAXPATH] = "", dest_dir[MAXPATH] = ".";
 	char dsn_dir[MAXPATH], dsn_name[16], path[MAXPATH];
@@ -219,6 +245,14 @@ int main(int argc, char **argv)
 			if (dest_dir[0] == 0)
 				strcpy(dest_dir, ".");
 		}
+#ifdef __amigaos__
+		/* No ZIP argument: pop the ASL requesters (task #24). If
+		 * asl.library will not open, fall through to the console
+		 * prompt below just like the Atari build. */
+		if (zip_path[0] == 0)
+			(void)uainst_gui_pick(zip_path, sizeof zip_path,
+					      dest_dir, sizeof dest_dir);
+#endif
 		if (zip_path[0] == 0) {
 			printf("Module ZIP file: ");
 			fflush(stdout);
@@ -273,7 +307,7 @@ int main(int argc, char **argv)
 	if (dsn_name[0] == 0)
 		design_name_from_zip(zip_path, dsn_name, sizeof dsn_name);
 
-	snprintf(dsn_dir, sizeof dsn_dir, "%s%c%s", dest_dir, SEP, dsn_name);
+	path_join(dsn_dir, sizeof dsn_dir, dest_dir, dsn_name);
 #ifdef __MINT__
 	(void)mkdir(dsn_dir, 0755);
 #else
@@ -293,7 +327,7 @@ int main(int argc, char **argv)
 		base = basename_of(nm);
 		if (base[0] == 0 || strstr(nm, ".."))
 			continue;
-		snprintf(path, sizeof path, "%s%c%s", dsn_dir, SEP, base);
+		path_join(path, sizeof path, dsn_dir, base);
 		if (mz_zip_reader_extract_to_file(&za, i, path, 0)) {
 			extracted++;
 		} else {
@@ -325,8 +359,7 @@ int main(int argc, char **argv)
 			base = basename_of(nm);
 			if (!ends_with_ci(base, ".tlb"))
 				continue;
-			snprintf(path, sizeof path, "%s%c%s",
-				 dsn_dir, SEP, base);
+			path_join(path, sizeof path, dsn_dir, base);
 			printf("  %s...", base);
 			fflush(stdout);
 			r = convert_one(path);
@@ -357,4 +390,16 @@ int main(int argc, char **argv)
 	getchar();
 #endif
 	return failed ? 1 : 0;
+}
+
+int main(int argc, char **argv)
+{
+#ifdef __amigaos__
+	/* The whole job (ASL requesters + miniz + artconv) needs far more stack
+	 * than a Shell/Workbench launch grants; run it on a big StackSwap'd
+	 * stack (installer/asl_amiga.c). Atari and host have ample stacks. */
+	return uainst_run_big_stack(installer_main, argc, argv);
+#else
+	return installer_main(argc, argv);
+#endif
 }

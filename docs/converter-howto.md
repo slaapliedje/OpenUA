@@ -28,6 +28,22 @@ and converts everything up front — colour **and** mono. A big module
 takes a few minutes on an ST, seconds-to-a-minute on a Falcon. Then
 pick the design with SELECT A DESIGN.
 
+## 2a. uainst — install straight from the ZIP (Amiga)
+
+The Amiga build of the same installer. Run it with no argument (from a
+Shell, or by double-clicking it) and it pops the standard **asl.library**
+file requesters: pick the module ZIP, then pick the drawer to install
+into. It then extracts and converts exactly as the Atari version does —
+colour `.ctl` twins plus the 1-bit mono synthesis the ECS build needs.
+You can also drive it from a Shell with arguments:
+`uainst <module.zip> [destination-drawer]` (with no destination it
+installs into the current drawer). Then pick the design with SELECT A
+DESIGN.
+
+The installer runs its whole job on a 256 KB stack it allocates itself
+(StackSwap), so it works regardless of the small default stack a Shell
+or Workbench launch grants — no `Stack` command needed.
+
 ## 3. art_convert.py — convert on your PC/Mac
 
 ## What you need
