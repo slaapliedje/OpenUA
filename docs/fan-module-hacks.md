@@ -134,6 +134,22 @@ overwriting the base game. Confirmed live with `-DFRUA_ARTTRACE` (POR's per-id
 probes fall back, then `8x8db.ctl` resolves to POR's own converted library).
 Convert in place; no install step, and the base game is never touched.
 
+### ✅ METHOD 23 SOLVED — the last art codec (2026-07-18)
+
+The "DOS sweep layout is NOT SOLVED" refusal is retired. Solved against
+the Mac POR edition after every parametric guess plateaued at ~50%:
+**sweep p starts at x = p+1; literals advance 4; a skip byte v advances
+4·(256−v)** — DRAW23.TXT carries TWO off-by-ones (257→256, and the
+"+1 starting position" applies from the first sweep). Proof: the only
+law with ZERO double-written pixels across POR's 62 method-23 items,
+and decode→re-encode reproduces **SSI's own DOS bytes exactly for
+57/62** (the rest differ only by 35 clipped x==W encoder edge pixels).
+The ~50% pixel residual vs the Mac render is the Mac edition's own
+re-dithered art. Method 25 (animation frame tables) fell with it —
+byte-identical payloads, header-only re-encode. POR now converts
+**189/191 colour + 187 mono**; its whole-library FRAME UI hack loads.
+Remaining: only the CBODY/COMSPR unknown-0x00 entry variant.
+
 **~~Refused~~ — both former refusals are now CLOSED (2026-07-17):**
 - ~~**piece type 2 (RLE)**~~ — **in** since `7a0a538`: drawing method 18
   (DRAW18.TXT run codec, shared by both releases) and method 23 (the
