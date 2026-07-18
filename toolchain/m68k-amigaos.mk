@@ -16,7 +16,13 @@ CROSS    ?= $(TOOLROOT)/bin/m68k-amigaos-
 CC       := $(CROSS)gcc
 LD       := $(CROSS)gcc
 AR       := $(CROSS)ar
-STRIP    := $(CROSS)strip
+# m68k-amigaos-strip CORRUPTS hunk executables: the stripped binary
+# wild-jumps out of libnix's constructor-list walker at startup
+# (verified under vamos 2026-07-18 — the unstripped and link-time '-s'
+# binaries run, the post-stripped one crashes at pc=RAM-top before
+# main). Strip at LINK time with '-s' instead (release targets pass
+# EXTRA_LDFLAGS=-s); strip-target is a safe no-op on this machine.
+STRIP    := true --skipped-amiga-strip-corrupts-hunks
 
 # amiberry is a flatpak here; the run: target invokes it via flatpak. Override
 # AMIBERRY if you have a native binary on PATH.

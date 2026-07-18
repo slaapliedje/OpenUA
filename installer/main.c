@@ -198,6 +198,10 @@ int main(int argc, char **argv)
 	mz_uint i, nfiles;
 	int extracted = 0, converted = 0, monoed = 0, failed = 0;
 
+	/* unbuffered: progress lines must appear as they happen on the
+	 * Atari/Amiga consoles (and under emulator/pipe capture) */
+	setvbuf(stdout, NULL, _IONBF, 0);
+
 	printf("uainst - OpenUA fan-module installer\n\n");
 
 	if (argc >= 2) {

@@ -88,6 +88,7 @@ DEP  := $(OBJ:.o=.d)
 
 CFLAGS += $(INCLUDE)
 CFLAGS += $(EXTRA_CFLAGS)
+LDFLAGS += $(EXTRA_LDFLAGS)
 
 # Engine bring-up probe: instrument the engine's stubs so each logs its name
 # when called. Default off so production builds carry no logging spam.
@@ -464,9 +465,10 @@ AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
 installer-amiga: uainst_amiga
 uainst_amiga: installer/main.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
-	    -fomit-frame-pointer \
+	    -fomit-frame-pointer -s \
 	    -o $@ installer/main.c installer/miniz.c src/convert/artconv.c
-	$(AMIGA_CROSS)strip $@
+	# no post-link strip: m68k-amigaos-strip corrupts hunk executables
+	# (see toolchain/m68k-amigaos.mk) — '-s' above strips at link time
 
 # --- release ----------------------------------------------------------------
 #
@@ -526,7 +528,7 @@ release:
 release-amiga:
 	$(MAKE) clean
 	$(MAKE) installer-amiga
-	$(MAKE) MACHINE=amiga NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) MACHINE=amiga NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) MACHINE=amiga strip-target
 	$(MAKE) test
 	$(call PKG_DIST,openua-amiga-$(VERSION),frua,Amiga AGA / RTG,Needs: an AA machine (A1200/A4000) or an accelerated ECS Amiga with a graphics card such as Picasso96 or CyberGraphX. KS3.0+ and about 4MB. AGA vs RTG is chosen at runtime.)
@@ -534,7 +536,7 @@ release-amiga:
 release-amiga-ecs:
 	$(MAKE) clean
 	$(MAKE) installer-amiga
-	$(MAKE) MACHINE=amiga CPU68K=68000 NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_FORCE_ECS -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) MACHINE=amiga CPU68K=68000 NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_FORCE_ECS -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) MACHINE=amiga strip-target
 	$(MAKE) test
 	$(call PKG_DIST,openua-amiga-ecs-$(VERSION),frua,Amiga ECS/OCS 32-colour,Needs: an ECS or OCS Amiga (A500+/A600/A2000/A3000) with KS2.0+ and 2MB. Native 32-colour bitplanes for machines with no AGA and no graphics card.)
