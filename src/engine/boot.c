@@ -3525,6 +3525,13 @@ static void l40f8_area_cmd(void)
 		jt101((const char *)(uintptr_t)g_a5_long(-14100), 11, 0);
 		return;
 	}
+	/* #157: hold the whole toggle transition — jt221's chrome prelude
+	 * (the three FRAME plates) and its render otherwise reach the screen
+	 * as a mid-state for seconds while the follow-up l63c0 recompose
+	 * grinds at 8 MHz. Released before the explicit present below; the
+	 * l63c0 re-entry compose then holds itself. Balanced: no return
+	 * between here and the release. */
+	qd_present_hold(1);
 	jt215();                                /* prime the -12272 automap cell size */
 	g_a5_12290 = (unsigned char)(g_a5_12290 == 0 ? 1 : 0);
 #ifdef FRUA_MAPTRACE
@@ -3543,6 +3550,7 @@ static void l40f8_area_cmd(void)
 	jt221((short)(signed char)g_a5_12288,
 	      (short)(signed char)g_a5_12287,
 	      (short)(signed char)g_a5_12286);
+	qd_present_hold(0);           /* #157: transition composed — present it */
 	port_present_full();          /* #151 */
 }
 
@@ -17445,6 +17453,17 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 	if (rec == NULL)                /* L5010 */
 		return cmd;
 
+	/* #157: hold the whole rebuild — jt117 below runs the l3994 flush,
+	 * which used to PRESENT the mid-rebuild state (l429c's wiped panels,
+	 * the chrome-prelude plates, the bare bar) and leave it on the
+	 * single-buffered mono screen for the full ~8 s the l63c0 re-entry
+	 * compose takes at 8 MHz — the "AREA toggle-back black screen".
+	 * Released (discarding the held mid-state) just before l63c0, whose
+	 * own compose hold + ending present puts up the finished frame; the
+	 * screen keeps the PREVIOUS complete frame in between. Balanced: no
+	 * return between here and the release. */
+	qd_present_hold(1);
+
 	l6256(rec[4], 0);               /* register the dungeon walk sources */
 	jt108(1);
 	jt112(1);
@@ -17507,6 +17526,7 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 		l5126(rec);                             /* deep status header panel */
 	jt112(0);
 	jt117();
+	qd_present_hold(0);             /* #157: rebuild done — drop its mid-state */
 
 	*flagsp &= ~0xffff0000L;                        /* clear flags' high word */
 

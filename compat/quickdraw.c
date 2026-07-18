@@ -445,6 +445,15 @@ void qd_set_present_rect(qd_present_rect_fn fn)
 
 void qd_present_rect(short x, short y, short w, short h)
 {
+	/* #157: rect presents used to BYPASS the #147 atomic-compose hold, so
+	 * a multi-second full recompose (the l63c0 command-cycle rebuild at
+	 * 8 MHz) flashed its mid-states — the black interior fill and the
+	 * jt221 chrome-prelude plates — onto the single-buffered mono screen
+	 * for seconds at a time (the "AREA toggle-back black screen"). While
+	 * held, drop the rect: the compose's ending full present covers
+	 * everything. Step renders and menu paths never run under a hold. */
+	if (g_present_hold > 0)
+		return;
 	if (g_present_rect_hook != NULL)
 		g_present_rect_hook(x, y, w, h);
 	else if (g_present_hook != NULL)
