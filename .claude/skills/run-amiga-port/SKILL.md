@@ -110,6 +110,43 @@ Workbench navigation (opening a disk / drawer): single-click an icon's **label**
 to select it (the label is the reliable hitbox — the small glyph is easy to
 miss), confirm the highlight in a screenshot, then `dclick`.
 
+## Testing the ECS build (native 32-colour, 68000)
+
+The default config is AGA/68020. To boot the **ECS** release binary
+(`release-amiga-ecs` — native ECS bitplanes on a plain 68000) you need a
+different binary AND an ECS machine config:
+
+```bash
+make MACHINE=amiga CPU68K=68000 EXTRA_CFLAGS='-DFRUA_FORCE_ECS'   # the ECS binary
+cp frua data/work/amiga-mount/frua                                # stage it
+AMIBERRY_CONF=~/Amiberry/Configurations/openua-ecs.uae \
+  .claude/skills/run-amiga-port/driver.sh boot 120                # boot (68000 is SLOW)
+```
+
+`openua-ecs.uae` is NOT in the repo (amiberry configs live under `~/Amiberry/`);
+recreate it as an A600-class ECS/68000 machine on a **KS3.2** ROM (matches the
+WB3.2 mount) with the same `filesystem2` DH0 line as `openua.uae`:
+
+```
+kickstart_rom_file=/home/jfergus/Amiberry/ROMs/CDTVA500A600A2000.47.115.rom
+cpu_type=68000
+cpu_model=68000
+chipset=ecs
+chipset_compatible=A600
+chipmem_size=4          # 2 MB chip (ECS max)
+fastmem_size=4          # 4 MB fast
+cpu_speed=real
+filesystem2=rw,DH0:OpenUA:/home/jfergus/dev/OpenUA/data/work/amiga-mount,1
+```
+
+- Verified boots to the main menu (2026-07-18). `DBG.LOG` shows the native
+  path: `ecs: 320x200x5 32-colour, per-band copper palette up`.
+- **Budget ~105 s to `menu: modal up`** (vs ~40 s for AGA/020) — the 7 MHz
+  68000 spends most of it in frua.rsc + data-pool replay + STRS load. Use
+  `boot 120` (not the frua-only `start`), then poll DBG.LOG for `menu: modal up`.
+- Restore an AGA build (`make MACHINE=amiga && cp frua data/work/amiga-mount/`)
+  when done, so the default `openua.uae` config works next time.
+
 ## Test
 
 `make test` (host pytest) covers the Amiga c2p transpose
