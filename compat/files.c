@@ -157,8 +157,15 @@ static finfo_slot_t *finfo_alloc(const char *name)
 
 /* --- the API --- */
 
+#ifdef FRUA_MONOPROF
+long g_fsopen_calls;
+#endif
+
 OSErr FSOpen(ConstStr255Param fileName, short vRefNum, short *refNum)
 {
+#ifdef FRUA_MONOPROF
+	g_fsopen_calls++;
+#endif
 	char path[MAX_PATH];
 	long h;
 

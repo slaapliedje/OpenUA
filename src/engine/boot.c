@@ -3415,6 +3415,11 @@ long g_mpf_t0, g_mpf_t1, g_mpf_t2;      /* jt312 step-timing stamps */
 long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
 long g_mpf_l0;                          /* l63c0 compose stamp */
 long g_mpf_f1, g_mpf_f2;                /* jt312 FULL-path stamps */
+long g_ms_seed_px, g_ms_exp_px, g_ms_calls;  /* mono_span volume */
+long g_mpf_h0, g_mpf_h1, g_mpf_h2;      /* HUD sub-stamps */
+long g_l2856_calls;                     /* GLIB item-directory walks */
+long g_jt448_calls, g_jt448_ticks;      /* bar cap blits */
+long g_jp_t, g_jp_a, g_jp_b, g_jp_c, g_jp_d;  /* jt995 sections */
 #endif
 
 static void port_present_full(void)
@@ -6691,6 +6696,14 @@ static void mono_span(short y, short c0, short c1, int to_page)
 	d   = px + (long)y * pitch;
 	bit = (long)y * MONO_PAGE_W + c0 + 8;
 	c   = c0;
+#ifdef FRUA_MONOPROF
+	{
+		extern long g_ms_seed_px, g_ms_exp_px, g_ms_calls;
+		g_ms_calls++;
+		if (to_page) g_ms_seed_px += (long)(c1 - c0);
+		else         g_ms_exp_px  += (long)(c1 - c0);
+	}
+#endif
 #ifndef FRUA_MONO_TRACE_INK
 	/* #156: byte-wise middle (same pattern as the #155 blit arms — the
 	 * HUD text path runs this per glyph and was the dominant cost of a
@@ -6796,6 +6809,102 @@ static void mono_rows(short top, short left, short rows, short wpx,
 		dbg_file_num("expink", inkbits);
 	}
 #endif
+	/* #158 fused fast path — the seed/expand brackets run ~10K times per
+	 * full compose on spans averaging ~23 px, and the per-ROW overhead
+	 * (a mono_row + mono_span call, qd_screen_pixels, long bit-address
+	 * math) dominated the actual conversion: measured 191 of a compose's
+	 * 205 glyph ticks. Hoist ALL setup out of the row loop: one pixel-
+	 * pointer fetch, byte-pointer stepping (+60/row page, +pitch/row
+	 * chunky), and a constant head-bit phase ((c0+8)&7 is row-invariant
+	 * because the page row is exactly 60 bytes). Spans that cross a page
+	 * row edge (the +8 bias wrap) take the per-row fallback below. */
+	if (left >= 0 && (short)(left + wpx) <= MONO_PAGE_W) {
+		extern unsigned char g_dsp_ink[256];
+		unsigned char *px;
+		short pitch, sw, sh;
+		short y0 = top, y1 = (short)(top + rows);
+		short c0 = left, c1 = (short)(left + wpx);
+
+		if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+			return;
+		if (y0 < 0)  y0 = 0;
+		if (y1 > sh) y1 = sh;
+		if (c1 > sw) c1 = sw;
+		if (c0 >= c1 || y0 >= y1)
+			return;
+		{
+			unsigned char *drow  = px + (long)y0 * pitch;
+			long           bit0  = (long)y0 * MONO_PAGE_W + c0 + 8;
+			unsigned char *prow  = s_mono_page + (bit0 >> 3);
+			short          hbits = (short)(bit0 & 7);
+			short          yy;
+
+			for (yy = y0; yy < y1; yy++) {
+				unsigned char *d  = drow;
+				unsigned char *pb = prow;
+				short          c  = c0;
+
+				if (hbits != 0) {       /* head to byte boundary */
+					unsigned char m = (unsigned char)
+					    (0x80 >> hbits);
+					short hb = hbits;
+
+					for (; c < c1 && hb < 8;
+					     hb++, c++, m >>= 1) {
+						if (to_page) {
+							if (!g_dsp_ink[d[c]])
+								*pb |= m;
+							else
+								*pb = (unsigned char)
+								    (*pb & ~m);
+						} else {
+							d[c] = (unsigned char)
+							    ((*pb & m) ? 15 : 0);
+						}
+					}
+					pb++;
+				}
+				if (to_page) {
+					while ((short)(c + 8) <= c1) {
+						*pb++ = (unsigned char)
+						  (((g_dsp_ink[d[c + 0]] ^ 1) << 7)
+						 | ((g_dsp_ink[d[c + 1]] ^ 1) << 6)
+						 | ((g_dsp_ink[d[c + 2]] ^ 1) << 5)
+						 | ((g_dsp_ink[d[c + 3]] ^ 1) << 4)
+						 | ((g_dsp_ink[d[c + 4]] ^ 1) << 3)
+						 | ((g_dsp_ink[d[c + 5]] ^ 1) << 2)
+						 | ((g_dsp_ink[d[c + 6]] ^ 1) << 1)
+						 |  (g_dsp_ink[d[c + 7]] ^ 1));
+						c += 8;
+					}
+				} else {
+					while ((short)(c + 8) <= c1) {
+						mono_expand8(d + c, *pb++);
+						c += 8;
+					}
+				}
+				if (c < c1) {           /* tail bits */
+					unsigned char m = 0x80;
+
+					for (; c < c1; c++, m >>= 1) {
+						if (to_page) {
+							if (!g_dsp_ink[d[c]])
+								*pb |= m;
+							else
+								*pb = (unsigned char)
+								    (*pb & ~m);
+						} else {
+							d[c] = (unsigned char)
+							    ((*pb & m) ? 15 : 0);
+						}
+					}
+				}
+				drow += pitch;
+				prow += MONO_PAGE_ROWB;
+			}
+		}
+		return;
+	}
 	for (y = top; y < (short)(top + rows); y++)
 		mono_row(y, left, (short)(left + wpx), to_page);
 }
@@ -6852,6 +6961,9 @@ static short jt995(short top, short left, short style, short size_high,
 
 	PROBE("jt995");
 
+#ifdef FRUA_MONOPROF
+	{ extern long g_jp_t; g_jp_t = TickCount(); }
+#endif
 	src = l2856(jt468(style), size_high, blob);
 	if (src == 0)
 		return 0;
@@ -6927,8 +7039,8 @@ static short jt995(short top, short left, short style, short size_high,
 		 * surface (read-only arm — no expand). ±24 px covers the
 		 * word-aligned window plus the +8 bias. */
 		if (jt1200() == 3)
-			mono_rows(top, (short)(left - 24), height,
-			          (short)(wbytes * 8 + 48), 1);
+			mono_rows(top, (short)(left - 16), height,
+			          (short)(wbytes * 8 + 32), 1);
 #endif
 		for (i = 0; i < jt1198(); i++) {
 			jt1170();       /* Mac pushes the plane index   */
@@ -6945,11 +7057,20 @@ static short jt995(short top, short left, short style, short size_high,
 	}
 
 	jt1177(top, left);
+#ifdef FRUA_MONOPROF
+	{ extern long g_jp_t, g_jp_a; long t = TickCount(); g_jp_a += t - g_jp_t; g_jp_t = t; }
+#endif
 #ifdef FRUA_BWMODE
-	/* PORT: sync the window the writers will read-modify-write. */
+	/* PORT: sync the window the writers will read-modify-write. The
+	 * writers span [cursor_wordaligned, +wbytes+2) page bytes per row;
+	 * with the +8 bias that is chunky [left-16, left + w*8 + 16) worst
+	 * case (#158 — was a ±24/+48 window, ~35% more seed volume). */
 	if (jt1200() == 3)
-		mono_rows(top, (short)(left - 24), height,
-		          (short)(wbytes * 8 + 48), 1);
+		mono_rows(top, (short)(left - 16), height,
+		          (short)(wbytes * 8 + 32), 1);
+#endif
+#ifdef FRUA_MONOPROF
+	{ extern long g_jp_t, g_jp_b; long t = TickCount(); g_jp_b += t - g_jp_t; g_jp_t = t; }
 #endif
 	src2 = src;
 	if ((blob[7] & 0x01) != 0)
@@ -6976,11 +7097,17 @@ static short jt995(short top, short left, short style, short size_high,
 		}
 		src += planebytes;
 	}
+#ifdef FRUA_MONOPROF
+	{ extern long g_jp_t, g_jp_c; long t = TickCount(); g_jp_c += t - g_jp_t; g_jp_t = t; }
+#endif
 #ifdef FRUA_BWMODE
 	/* PORT: expand the glyph span back to the chunky surface. Tight —
 	 * the writers' RMW preserves everything outside it. */
 	if (jt1200() == 3)
 		mono_rows(top, left, height, (short)(wbytes * 8), 0);
+#endif
+#ifdef FRUA_MONOPROF
+	{ extern long g_jp_t, g_jp_d; long t = TickCount(); g_jp_d += t - g_jp_t; }
 #endif
 	return (short)hit;
 }
@@ -7904,6 +8031,9 @@ static long l2856(long font_handle, short size, void *out_8bytes)
                                                 __attribute__((unused));
 static long l2856(long font_handle, short size, void *out_8bytes)
 {
+#ifdef FRUA_MONOPROF
+	{ extern long g_l2856_calls; g_l2856_calls++; }
+#endif
 	long entry;
 
 	PROBE("L2856");
@@ -14306,8 +14436,14 @@ static void jt312(unsigned char *page)
 		hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xFFFF;
 		port_clut_install(hud, (short)253, (short)2);
 		g_hud_paint = 1;
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_h0; g_mpf_h0 = TickCount(); }
+#endif
 		l2c60((short)1);                /* force-repaint the bar (plate per word) */
 		g_hud_paint = 0;
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_h1; g_mpf_h1 = TickCount(); }
+#endif
 		/* The party roster (jt937 = L02dc grid, right panel) + clock/position
 		 * box (jt938, centre). They draw via jt94/jt1089 (fgColor = colour &
 		 * 0x0f -> UI indices 1/7/11/12/15) which the dungeon's clut 129 wiped,
@@ -14318,6 +14454,9 @@ static void jt312(unsigned char *page)
 		 * were wiped by this block's port_draw_play_frame. */
 		port_hud_text_clut();
 		jt938();
+#ifdef FRUA_MONOPROF
+		{ extern long g_mpf_h2; g_mpf_h2 = TickCount(); }
+#endif
 		jt937(g_a5_long(-27932));
 #ifdef FRUA_MONOPROF
 		{ extern long g_mpf_f2; g_mpf_f2 = TickCount(); }
@@ -14340,6 +14479,38 @@ static void jt312(unsigned char *page)
 			dbg_log_num("FULL render ticks ", g_mpf_t2 - g_mpf_t1);
 			dbg_log_num("FULL hud ticks    ", g_mpf_f2 - g_mpf_t2);
 			dbg_log_num("FULL present ticks", ft - g_mpf_f2);
+			{
+				extern long g_mpf_h0, g_mpf_h1, g_mpf_h2;
+				extern long g_ms_seed_px, g_ms_exp_px, g_ms_calls;
+				dbg_log_num("HUD bar ticks     ", g_mpf_h1 - g_mpf_h0);
+				dbg_log_num("HUD clock ticks   ", g_mpf_h2 - g_mpf_h1);
+				dbg_log_num("HUD roster ticks  ", g_mpf_f2 - g_mpf_h2);
+				dbg_log_num("mono_span calls   ", g_ms_calls);
+				dbg_log_num("mono_span seed px ", g_ms_seed_px);
+				dbg_log_num("mono_span exp px  ", g_ms_exp_px);
+				{
+					extern long g_l2856_calls, g_fsopen_calls;
+					{
+						extern long g_jt448_calls, g_jt448_ticks;
+						dbg_log_num("jt448 calls       ", g_jt448_calls);
+						dbg_log_num("jt448 ticks       ", g_jt448_ticks);
+						g_jt448_calls = g_jt448_ticks = 0;
+						{
+							extern long g_jp_a, g_jp_b, g_jp_c, g_jp_d;
+							dbg_log_num("jt995 prologue tk ", g_jp_a);
+							dbg_log_num("jt995 seed tk     ", g_jp_b);
+							dbg_log_num("jt995 write tk    ", g_jp_c);
+							dbg_log_num("jt995 expand tk   ", g_jp_d);
+							g_jp_a = g_jp_b = g_jp_c = g_jp_d = 0;
+						}
+					}
+					dbg_log_num("l2856 calls       ", g_l2856_calls);
+					dbg_log_num("FSOpen calls      ", g_fsopen_calls);
+					g_l2856_calls = 0;
+					g_fsopen_calls = 0;
+				}
+				g_ms_calls = g_ms_seed_px = g_ms_exp_px = 0;
+			}
 		}
 		dbg_log_num("jt312 FULL path, vf=", (long)g_view_force_full);
 #endif
@@ -16562,6 +16733,19 @@ static void jt124(long h)     { PROBE("jt124"); l3eea((void *)(uintptr_t)h); }  
 static void jt448(short x, short y, short color, short glyph)
 {
 	PROBE("jt448");
+#ifdef FRUA_MONOPROF
+	{
+		extern long g_jt448_calls, g_jt448_ticks;
+		long t0 = TickCount();
+		g_jt448_calls++;
+		if (jt1200() == 3)
+			jt995(x, y, color, glyph, (short)2);
+		else
+			jt1001(x, y, color, glyph);
+		g_jt448_ticks += TickCount() - t0;
+		return;
+	}
+#endif
 	if (jt1200() == 3)
 		jt995(x, y, color, glyph, (short)2);
 	else
