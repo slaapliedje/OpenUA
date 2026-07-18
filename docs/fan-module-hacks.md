@@ -205,14 +205,25 @@ id.) `tools/art_convert.py` therefore emits 8.3-verbatim names by
 default; `--mac-names` restores the expanded spelling for real Mac FRUA
 (HFS keeps long names).
 
+### ✅ Mono `.tlb` synthesis (2026-07-17, 813684b)
+
+The converter now derives a 1-bit GLIB for every converted file and
+writes it OVER the HLIB original (same probe name — the mono engine used
+to open that HLIB and read garbage into the pool). Ground-truthed
+against the base game's own `.CTL`/`.TLB` pairs: per-family scale
+factors (walls / BACK / PIC[A-F] ×2, CPIC / SPRIT ×4/3, BIGPIC ×3/2),
+mono item modes (`0x90` plain, `0x91` keep-mask+data, `0x92` PackBits,
+`0x98` the canonical 16-colour palette item), and the engine's
+`g_dsp_ink` luminance class with Bayer 4×4 ordered dithering. SPRIT
+approximates the base's mode-3 stream as mask+data (untested in combat).
+Verified live: BEOWOLF on ST High loads all three wall groups from its
+synthesized `.tlb` overrides (the ADR-0013 "(8.3)" probe; digit-1 mono
+names per L6eea) and walks a coherent dithered 1-bit tavern.
+Best-effort by construction — the Mac's own 1-bit art was authored, not
+derived. `--no-mono` skips; convert a staged copy, the HLIB original is
+consumed.
+
 **Still open (converter follow-ups):**
-- **mono `.tlb` overrides** — the converter emits colour `.ctl` only. The
-  ST-mono (BWMODE) build probes per-id `.tlb` overrides, so PC modules
-  play mono with BASE 1-bit art (silent fallback, same shape as the CURSE
-  trap). A colour→1-bit derivation (the `g_dsp_ink` luminance model, as
-  qd_derive_mono_cursor does for cursors) could synthesize approximate
-  `.tlb` files; the Mac's own 1-bit art is hand-made, so this is best-effort
-  by construction.
 - ~~**GEMDOS 8.3 on the Atari target**~~ — **CLOSED by ADR-0013** (the
   fallback probe + 8.3-default converter output; see the audit section
   above — including why the long names were a live collision hazard, not
