@@ -25980,6 +25980,8 @@ static void menu_todo(const char *title)
 static int  l494e(void);
 static void jt356(void);
 static void jt128(void);
+static void jt133(const char *name);    /* set current design name (backs up the old) */
+static void jt135(void);                /* restore the design name jt133 backed up     */
 
 /* jt315 (CODE 22 + 0x4d8a) — the main menu screen + event loop, on the
  * shared menu_run. Returns 1 to keep ua_main's play loop running, 0 on
@@ -26013,7 +26015,30 @@ static int   jt315(void)
 				jt128();
 			}
 			break;
-		case 2: menu_todo("Create New Design"); break;  /* CODE 8 */
+		case 2:
+			/* Create New Design — faithful to CODE 22 arm 0x5168
+			 * (JT[3] case 2). Blank the current design name (STRS+
+			 * 0x31fc = ""), load the GAME header, then open the Game
+			 * Settings editor (l0004_22 mode 4) as the name-entry
+			 * surface. On OK the name lives in g_a5_-31336 (non-empty)
+			 * -> commit: clear the resume flag, jt356, persist to
+			 * start.dat (jt128), mark dirty, run the post-load step
+			 * (l7222 = JT[369]). On Cancel the name is still empty ->
+			 * restore the previous design (jt135) and reload it. */
+			jt133(ua_strs_at(0x31fc) /* "" blank name */);
+			jt361((short)0);
+			(void)l0004_22((short)6);
+			if (g_a5_byte(-31336) != 0) {
+				g_a5_byte(-18476) = 0;
+				jt356();
+				jt128();
+				g_a5_byte(-11662) = 1;
+				l7222();
+			} else {
+				jt135();
+				jt361((short)0);
+			}
+			break;
 		case 3: menu_todo("Delete the Design"); break;  /* CODE 8 */
 		case 4: break;                   /* Unlock Editor — disabled */
 		/* The four editor items dispatch through the Mac jt315 selection
