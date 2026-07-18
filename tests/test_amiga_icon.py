@@ -18,6 +18,7 @@ def parse_diskobject(data):
     ga_render, ga_select = struct.unpack_from(">II", data, 0x16)
     do_type, _pad = struct.unpack_from(">BB", data, 0x30)
     do_default, do_tooltypes = struct.unpack_from(">II", data, 0x32)
+    do_currx, do_curry = struct.unpack_from(">II", data, 0x3a)
     do_stack = struct.unpack_from(">I", data, 0x4a)[0]
 
     off = 0x4e
@@ -43,7 +44,7 @@ def parse_diskobject(data):
             off += n
     return dict(magic=magic, version=version, type=do_type, stack=do_stack,
                 render=ga_render, gadget_w=ga_width, gadget_h=ga_height,
-                image=img, tooltypes=tooltypes)
+                currx=do_currx, curry=do_curry, image=img, tooltypes=tooltypes)
 
 
 def test_uainst_icon_fields():
@@ -79,6 +80,18 @@ def test_ascii_glyph_dimensions():
     assert glyph is not None
     d = parse_diskobject(mki.build_icon(glyph=glyph, tooltypes=["STACK=1"]))
     assert d["image"]["w"] == 4 and d["image"]["h"] == 3
+
+
+def test_fixed_position_encoded():
+    d = parse_diskobject(mki.build_icon(tooltypes=["STACK=1"], curr_x=12, curr_y=8))
+    assert d["currx"] == 12
+    assert d["curry"] == 8
+
+
+def test_default_position_is_no_icon_position():
+    d = parse_diskobject(mki.build_icon(tooltypes=["STACK=1"]))
+    assert d["currx"] == mki.NO_ICON_POSITION
+    assert d["curry"] == mki.NO_ICON_POSITION
 
 
 def test_stack_field_offset_matches_real_layout():

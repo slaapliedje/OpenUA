@@ -478,7 +478,7 @@ uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/conve
 # braces with the installer's own StackSwap).
 uainst.info: tools/make_amiga_icon.py
 	python3 tools/make_amiga_icon.py --type tool --stack 200000 \
-	    --tooltype 'STACK=200000' -o $@
+	    --tooltype 'STACK=200000' --x 12 --y 8 -o $@
 
 # --- release ----------------------------------------------------------------
 #

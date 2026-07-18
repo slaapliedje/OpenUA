@@ -105,13 +105,18 @@ def pack_string(s):
 
 
 def build_icon(icon_type=WB_TOOL, stack=200000, tooltypes=None,
-               default_tool="", glyph=None):
+               default_tool="", glyph=None, curr_x=None, curr_y=None):
+    """curr_x/curr_y pin the icon at a fixed drawer position (do_CurrentX/Y).
+    Left as None they become NO_ICON_POSITION so Workbench auto-places the
+    icon — which can drop it below a crowded window's visible area."""
     if glyph is None:
         glyph = default_glyph()
     tooltypes = tooltypes or []
     img = pack_image(glyph)
     w = len(glyph[0])
     h = len(glyph)
+    cx = NO_ICON_POSITION if curr_x is None else (curr_x & 0xFFFFFFFF)
+    cy = NO_ICON_POSITION if curr_y is None else (curr_y & 0xFFFFFFFF)
 
     out = bytearray()
     out += struct.pack(">HH", DO_MAGIC, DO_VERSION)
@@ -134,7 +139,7 @@ def build_icon(icon_type=WB_TOOL, stack=200000, tooltypes=None,
     out += struct.pack(">BB", icon_type, 0)             # do_Type, pad
     out += struct.pack(">I", 1 if default_tool else 0)  # do_DefaultTool
     out += struct.pack(">I", 1 if tooltypes else 0)     # do_ToolTypes
-    out += struct.pack(">II", NO_ICON_POSITION, NO_ICON_POSITION)  # CurrentX/Y
+    out += struct.pack(">II", cx, cy)                    # do_CurrentX / do_CurrentY
     out += struct.pack(">I", 0)                         # do_DrawerData
     out += struct.pack(">I", 0)                         # do_ToolWindow
     out += struct.pack(">I", stack)                     # do_StackSize
@@ -160,6 +165,10 @@ def main(argv=None):
                     help="a TOOLTYPE=value string (repeatable)")
     ap.add_argument("--default-tool", default="",
                     help="DefaultTool (projects only)")
+    ap.add_argument("--x", type=int, default=None,
+                    help="fixed icon X in its drawer (default: auto-place)")
+    ap.add_argument("--y", type=int, default=None,
+                    help="fixed icon Y in its drawer (default: auto-place)")
     ap.add_argument("--glyph", help="ASCII glyph file (.=bg #=black *=white +=blue)")
     args = ap.parse_args(argv)
 
@@ -171,11 +180,12 @@ def main(argv=None):
             glyph = parse_glyph(f.read())
 
     data = build_icon(tmap[args.type], args.stack, args.tooltype,
-                      args.default_tool, glyph)
+                      args.default_tool, glyph, args.x, args.y)
     with open(args.out, "wb") as f:
         f.write(data)
-    print(f"wrote {args.out} ({len(data)} bytes, "
-          f"stack={args.stack}, tooltypes={args.tooltype})")
+    pos = "auto" if args.x is None or args.y is None else f"({args.x},{args.y})"
+    print(f"wrote {args.out} ({len(data)} bytes, stack={args.stack}, "
+          f"pos={pos}, tooltypes={args.tooltype})")
     return 0
 
 
