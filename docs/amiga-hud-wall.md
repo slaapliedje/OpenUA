@@ -43,10 +43,11 @@ faulting access directly — log tracing has taken this as far as it can. The
 prime suspects to point it at, in order:
 
 1. The render **unwind after `jt199`** (`render_3d_faithful` tail → `jt312`
-   tail → `jt935` tail): a stack or pointer overrun that only trips on the
-   Amiga's memory layout. The 256 KB `__stack` (ADR-0015) covers the wall
-   load but this path may still overrun — bump `__stack` further and re-test
-   as a cheap first probe.
+   tail → `jt935` tail): a **pointer** overrun that only trips on the Amiga's
+   memory layout. NOT stack depth — bumping `__stack` from 256 KB to 1 MB left
+   the freeze unchanged (2026-07-18), so rule stack out and look for a bad
+   pointer / buffer overrun (a write past an array, a stale handle, a
+   platform-address-dependent cast).
 2. The AGA display present path under the walk's pattern (`aga_present` /
    `c2p_amiga` / the copper flip) — though `aga_present` itself has no loop.
 
