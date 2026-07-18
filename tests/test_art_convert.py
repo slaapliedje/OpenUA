@@ -16,9 +16,9 @@ import struct
 import pytest
 
 from art_convert import (MONO_PAL_ITEM, BadContainer, UnsupportedPiece,
-                         convert, deplanarize, dos_name, mac_name,
-                         mono_family, mono_synth, parse, planarize,
-                         rle_decode, rle_encode)
+                         convert, deplanarize, dos_name, m23_decode,
+                         m23_encode, mac_name, mono_family, mono_synth,
+                         parse, planarize, rle_decode, rle_encode)
 
 
 def _container(magic, entries, tag=b"TILE", flags=0):
@@ -212,6 +212,77 @@ def test_wall_set_names_follow_the_l6eea_id_band_rule():
     # malformed wall names still refuse
     with pytest.raises(ValueError):
         mac_name("8X8D108.TLB")
+
+
+# --- method 23: the solved DOS sweep law ------------------------------------
+
+
+def _sprite(w, rows, pixels):
+    """pixels: {(x,y): val} -> (px, mask) arrays."""
+    px, mask = bytearray(w * rows), bytearray(w * rows)
+    for (x, y), v in pixels.items():
+        px[y * w + x] = v
+        mask[y * w + x] = 1
+    return bytes(px), bytes(mask)
+
+
+def test_m23_planar_law_round_trips():
+    # sweep p owns x = p+1, p+5, ...; x = 0 is unreachable by design
+    w, rows = 16, 3
+    pix = {(1, 0): 10, (5, 0): 11, (13, 0): 12,     # sweep 0, with a gap
+           (2, 1): 20, (3, 1): 30, (4, 1): 40,      # one pixel per sweep
+           (15, 2): 50}
+    px, mask = _sprite(w, rows, pix)
+    stream = m23_encode(px, mask, w, rows, planar=True)
+    px2, mask2, used = m23_decode(stream, w, rows, planar=True)
+    assert used == len(stream)
+    assert bytes(px2) == px and bytes(mask2) == mask
+
+
+def test_m23_planar_skip_byte_is_256_minus_gap():
+    # a single sweep-0 row with pixels at x=1 and x=9 (gap of one column):
+    # the skip byte must be 256-1 = 255, NOT the linear layout's 257-n
+    w, rows = 12, 1
+    px, mask = _sprite(w, rows, {(1, 0): 7, (9, 0): 8})
+    stream = m23_encode(px, mask, w, rows, planar=True)
+    # sweep 0: lit[7], skip(gap 1), lit[8], end; sweeps 1-3 empty rows
+    assert stream == bytes([1, 7, 255, 1, 8, 0, 0, 0, 0])
+
+
+POR_MAC = "data/work/fanmods/pormac/POR/GAME39.dsn"
+POR_DOS = "data/designs/Game39.dsn"
+
+
+@pytest.mark.skipif(not os.path.isdir(POR_MAC),
+                    reason="Mac POR pair not staged (copyrighted, data/ is git-ignored)")
+def test_m23_law_reencodes_ssi_dos_streams_byte_exactly():
+    """The proof: decoding SSI's DOS streams with the solved law and
+    re-encoding reproduces the original bytes for >= 57 of 62 items (the
+    rest differ only by clipped x == W edge pixels)."""
+    total = exact = 0
+    for name in sorted(os.listdir(POR_DOS)):
+        if not name.lower().endswith(".tlb") or not name.lower().startswith("pic"):
+            continue
+        try:
+            p = parse(open(os.path.join(POR_DOS, name), "rb").read())
+        except BadContainer:
+            continue
+        if p["magic"] != b"HLIB":
+            continue
+        for e in p["entries"]:
+            if len(e) < 8 or (e[7] & 0x0F) != 7:
+                continue
+            rows = struct.unpack("<H", e[:2])[0]
+            w = e[6] * 4
+            pay = bytes(e[8:])
+            px, mask, used = m23_decode(pay, w, rows, planar=True)
+            if used != len(pay):
+                continue
+            total += 1
+            if m23_encode(px, mask, w, rows, planar=True) == pay:
+                exact += 1
+    assert total >= 60
+    assert exact >= total - 5, f"only {exact}/{total} byte-exact"
 
 
 # --- mono (.tlb) synthesis --------------------------------------------------

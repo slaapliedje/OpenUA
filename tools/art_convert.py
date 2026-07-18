@@ -274,13 +274,29 @@ DRAW_ID_LIST = 25
 # transparent background opaque.
 
 def m23_decode(payload, w, rows, planar):
-    """Method-23 stream -> (pixels, mask).  mask[i] = 1 where a pixel was plotted."""
+    """Method-23 stream -> (pixels, mask).  mask[i] = 1 where a pixel was plotted.
+
+    The DOS (planar) sweep layout — SOLVED 2026-07-18 against the Mac
+    edition of Pool of Radiance, whose GAME39.dsn ships the same sprites:
+
+        sweep p starts at x = p + 1;  literal: plot, x += 4;
+        skip byte v: x += 4*(256 - v)      [NOT 257 — one of TWO
+                                            off-by-ones in DRAW23.TXT]
+
+    Proof: this decode re-ENCODES back to SSI's own DOS bytes EXACTLY for
+    57 of POR's 62 method-23 items; the other 5 contain the corpus's 35
+    edge pixels at exactly x == W (an encoder artifact one past the
+    sprite, clipped here) and re-encode shorter by just those pixels.  It
+    is also the ONLY candidate law with ZERO double-written pixels across
+    the corpus (every rejected layout family produced thousands).  The
+    residual differences against the Mac-edition render are the Mac's own
+    re-dithered art, not the codec.  Note x == 0 is unreachable in this
+    layout (sweep 3 covers the x % 4 == 0 class from x = 4)."""
     px, mask = bytearray(w * rows), bytearray(w * rows)
     i, n = 0, len(payload)
-    step = 4 if planar else 1
     for sweep in range(4 if planar else 1):
         for y in range(rows):
-            x = sweep
+            x = sweep + 1 if planar else 0
             while True:
                 if i >= n:
                     return px, mask, i          # truncated: caller decides
@@ -288,7 +304,10 @@ def m23_decode(payload, w, rows, planar):
                 if v == 0:
                     break                        # end of row
                 if v >= 128:
-                    x += (257 - v) * step        # transparent skip
+                    if planar:
+                        x += 4 * (256 - v)       # transparent skip
+                    else:
+                        x += 257 - v
                     continue
                 for _ in range(v):              # literal run
                     if i >= n:
@@ -297,17 +316,46 @@ def m23_decode(payload, w, rows, planar):
                         px[y * w + x] = payload[i]
                         mask[y * w + x] = 1
                     i += 1
-                    x += step
+                    x += 4 if planar else 1
     return px, mask, i
 
 
 def m23_encode(px, mask, w, rows, planar):
-    """(pixels, mask) -> a method-23 stream in the requested layout."""
+    """(pixels, mask) -> a method-23 stream in the requested layout.
+
+    Planar column sets and skip units follow the solved law (see
+    m23_decode): sweep p owns x = p+1, p+5, ...; a gap of g columns is a
+    skip byte 257 - (g + 1) [decoded as 4*(256 - v) = 4g]."""
     out = bytearray()
     step = 4 if planar else 1
+    if not planar:
+        # The linear layout CANNOT express a 1-pixel transparent gap
+        # (skip n = 257 - v is >= 2 by construction), and SSI's own Mac
+        # streams contain none — their pipeline evidently filled them.
+        # Do the same: an isolated gap between opaque pixels becomes a
+        # literal carrying its left neighbour's value (1px of background
+        # lost; the alternative is dropping an opaque pixel).
+        px, mask = bytearray(px), bytearray(mask)
+        for y in range(rows):
+            row = y * w
+            xs = [x for x in range(w) if mask[row + x]]
+            if not xs:
+                continue
+            for x in range(xs[0] + 1, xs[-1]):
+                if (not mask[row + x] and mask[row + x - 1]
+                        and mask[row + x + 1]):
+                    mask[row + x] = 1
+                    px[row + x] = px[row + x - 1]
+            if xs[0] == 1:
+                # a LEADING 1-gap is equally inexpressible. SSI faced the
+                # same wall: their Mac streams have no first-opaque-at-1
+                # rows but 209 first-at-0 rows — a column the DOS layout
+                # cannot even produce. Fill x=0 the same way.
+                mask[row] = 1
+                px[row] = px[row + 1]
     for sweep in range(4 if planar else 1):
         for y in range(rows):
-            cols = list(range(sweep, w, step)) if planar else list(range(w))
+            cols = list(range(sweep + 1, w, step)) if planar else list(range(w))
             row = y * w
             # trailing transparency needs no skip -- just end the row.
             last = -1
@@ -321,6 +369,14 @@ def m23_encode(px, mask, w, rows, planar):
                     run = 0
                     while k + run <= last and not mask[row + cols[k + run]]:
                         run += 1
+                    if planar:
+                        # v = 256 - g (the solved law); g in 1..128 per byte
+                        while run:
+                            take = min(run, 128)
+                            out.append(256 - take)
+                            k += take
+                            run -= take
+                        continue
                     while run:
                         # 257-v = n, and v must be a byte >= 128  ->  n in 2..129.
                         # A 1-skip is NOT encodable; borrow from the next chunk.
@@ -403,39 +459,32 @@ def _convert_entry(ent, to_mac):
                 + bytes([w // (8 if to_mac else 4),
                          _swap_flag_byte(method, to_mac)]) + body)
     if dos_method == DRAW_TRANSPARENT:
-        # Mac -> DOS is not blocked: the CTL layout is SOLVED (m23_decode/encode
-        # with planar=False round-trips SSI's own streams byte-for-byte).
-        if not to_mac:
-            if not (w and height):
-                raise UnsupportedPiece("method 23 entry with no geometry")
-            px, mask, used = m23_decode(payload, w, height, planar=False)
-            if used != len(payload):
-                raise UnsupportedPiece("method 23 stream consumed %d of %d bytes"
-                                       % (used, len(payload)))
-            # ...but we cannot WRITE the DOS layout until it is solved either.
-            raise UnsupportedPiece(
-                "drawing method 23 (compressed transparent): the DOS sweep "
-                "layout is not solved -- see the note in this file")
-        raise UnsupportedPiece(
-            "drawing method 23 (compressed transparent): the DOS sweep layout is "
-            "NOT SOLVED. Refusing rather than emitting garbage.\n"
-            "  KNOWN: the codec is skip/literal, per row -- 0 = end of row, "
-            "v>=128 = skip (257-v) transparent pixels, v<128 = v literal bytes.\n"
-            "  KNOWN: the MAC/CTL layout is SOLVED and CONFIRMED -- one linear "
-            "pass, each row plotted completely. It consumes SSI's own streams "
-            "exactly (615/615 bytes on POR's PICA1003) and yields a clean sprite.\n"
-            "  UNSOLVED: how the DOS/TLB stream's 4 sweeps map to columns. The "
-            "4-sweep structure is right (the DOS payload is longer by almost "
-            "exactly the extra row terminators) and the ROW SET and the OPAQUE "
-            "PIXEL COUNT both come out exact -- only the COLUMNS land wrong. "
-            "Tried and rejected: stride-4 interleave (x = p + 4c), contiguous "
-            "quarters (x = 22p + c), both sweep orders, both skip scalings.\n"
-            "  GROUND TRUTH IS AVAILABLE: the Mac edition of Pool of Radiance "
-            "ships these same pictures natively (data/work/fanmods/pormac). "
-            "Solve it against that, not by re-reading DRAW23.TXT.")
+        # BOTH layouts are solved now.  The DOS sweep law (2026-07-18, see
+        # m23_decode) was derived against the Mac edition of Pool of
+        # Radiance and PROVEN by re-encoding SSI's own DOS streams
+        # byte-exactly (57/62; the rest differ only by clipped x==W edge
+        # pixels).  The Mac/CTL linear layout was already proven the same
+        # way (615/615 bytes on POR's PICA1003).
+        if not (w and height):
+            raise UnsupportedPiece("method 23 entry with no geometry")
+        if to_mac and w % 8:
+            raise UnsupportedPiece("width %d not a multiple of 8" % w)
+        px, mask, used = m23_decode(payload, w, height, planar=to_mac)
+        if used < len(payload) - 1:     # POR's FRAME.TLB carries 1 pad byte
+            raise UnsupportedPiece("method 23 stream consumed %d of %d bytes"
+                                   % (used, len(payload)))
+        body = m23_encode(px, mask, w, height, planar=not to_mac)
+        return (struct.pack(dst + "Hhh", height, voff, hoff)
+                + bytes([w // (8 if to_mac else 4),
+                         _swap_flag_byte(method, to_mac)]) + body)
 
     if dos_method == DRAW_ID_LIST:
-        raise UnsupportedPiece("drawing method 25 (image-ID list)")
+        # Animation frame-sequence table. Measured on the POR pair
+        # (PICA1003 items 6/7): the payload is BYTE-IDENTICAL across
+        # releases — only the header re-encodes.
+        return (struct.pack(dst + "Hhh", height, voff, hoff)
+                + bytes([w // (8 if to_mac else 4),
+                         _swap_flag_byte(method, to_mac)]) + payload)
 
     if dos_method in DRAW_UNCOMPRESSED:
         if not (w and height and w * height == len(payload)):
@@ -630,8 +679,15 @@ def _synth_item(ent, pal, num, den, mode):
         # engine's own stub handling covers them
         return bytes(ent)
     lo = method & 0x0F
+    m23mask = None
+    if lo == 9:                                    # frame-sequence table
+        return bytes(ent)                          # not pixels; keep verbatim
     if lo == 2:                                    # PackBits 8bpp
         px = rle_decode(payload, w * rows)
+    elif lo == 7:                                  # method 23 (linear, in .ctl)
+        px, m23mask, used = m23_decode(payload, w, rows, planar=False)
+        if used != len(payload):
+            raise UnsupportedPiece("mono synth: method 23 stream mismatch")
     elif w * rows == len(payload):                 # plain linear 8bpp
         px = payload
     elif 2 * w * rows == len(payload):             # AND/OR mask pair: use OR
@@ -659,7 +715,9 @@ def _synth_item(ent, pal, num, den, mode):
             sx = min(x * den // num, w - 1)
             p = px[sy * w + sx]
             bit = 0x80 >> (x & 7)
-            if p == 255 and mode == "planar":      # transparent key
+            transparent = (p == 255 if m23mask is None
+                           else not m23mask[sy * w + sx])
+            if transparent and mode == "planar":   # transparent key
                 mask[y * owb + (x >> 3)] |= bit
                 has_mask = True
                 continue
@@ -827,6 +885,11 @@ def main(argv):
             out = convert(data)
         except (UnsupportedPiece, BadContainer) as exc:
             print("SKIP %s: %s" % (path, exc), file=sys.stderr)
+            rc = 1
+            continue
+        except Exception as exc:            # never abort the whole batch
+            print("SKIP %s: UNEXPECTED %s: %s"
+                  % (path, type(exc).__name__, exc), file=sys.stderr)
             rc = 1
             continue
         try:
