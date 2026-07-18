@@ -546,14 +546,26 @@ def convert(data, to=None):
 # disambiguates the two sets, so we refuse to guess.
 
 def mac_name(dos_name):
-    """DOS art filename -> Mac.  Raises on the ambiguous wall-set prefix."""
+    """DOS art filename -> Mac.
+
+    The wall-set prefix looked ambiguous (DOS 8.3 collapses both 8x8db<id>
+    and 8x8dc<id> to 8X8D<id>) -- but the ENGINE resolves it: the faithful
+    wall loader (CODE 7 L6eea, `l6eea` in src/engine/boot.c) derives the
+    letter from the SET-ID BAND, `(id < 10) ? 'b' : 'c'`, before probing the
+    per-id override "<base><group><id:03>".  So `8X8D<g><nnn>.TLB` maps
+    deterministically: nnn 001..009 -> 8x8db<g><nnn>, nnn >= 010 ->
+    8x8dc<g><nnn>.  (8X8DB has sets 1..9(10); 8X8DC carries 10+ -- matches
+    the base libraries' own split.)
+    """
     base, ext = os.path.splitext(os.path.basename(dos_name))
     if ext.lower() != ".tlb":
         raise ValueError("expected a .TLB DOS art file: %r" % dos_name)
     if base.upper().startswith("8X8D") and len(base) > 4 and base[4].isdigit():
-        raise ValueError(
-            "wall-set name %r is ambiguous: DOS 8.3 truncates both 8x8db<id> "
-            "and 8x8dc<id> to 8X8D<id>; the Mac target cannot be inferred" % base)
+        if len(base) != 8 or not base[4:].isdigit():
+            raise ValueError("wall-set name %r is not 8X8D<g><nnn>" % base)
+        group, setid = base[4], int(base[5:8])
+        letter = "b" if setid < 10 else "c"
+        return "8x8d%s%s%03d.ctl" % (letter, group, setid)
     return base.lower() + ".ctl"
 
 
@@ -561,6 +573,19 @@ def dos_name(mac_name_):
     base, ext = os.path.splitext(os.path.basename(mac_name_))
     if ext.lower() != ".ctl":
         raise ValueError("expected a .CTL Mac art file: %r" % mac_name_)
+    low = base.lower()
+    if (low.startswith("8x8db") or low.startswith("8x8dc")) \
+            and len(base) == 9 and base[5:].isdigit():
+        # inverse of the L6eea band rule: drop the letter (8.3 collapse),
+        # but refuse a letter that contradicts the id band -- such a file
+        # could never have come from a DOS module.
+        setid = int(base[6:9])
+        want = "b" if setid < 10 else "c"
+        if low[4] != want:
+            raise ValueError(
+                "wall-set name %r contradicts the L6eea id-band rule "
+                "(id %d wants '%s')" % (base, setid, want))
+        return ("8X8D" + base[5:]).upper() + ".TLB"
     return base.upper() + ".TLB"
 
 

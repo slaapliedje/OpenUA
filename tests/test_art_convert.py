@@ -165,9 +165,26 @@ def test_rejects_a_non_container():
 def test_filename_mapping():
     assert mac_name("CPIC1001.TLB") == "cpic1001.ctl"
     assert dos_name("cpic1001.ctl") == "CPIC1001.TLB"
-    # the wall sets are genuinely ambiguous under DOS 8.3 -- refuse, don't guess
+
+
+def test_wall_set_names_follow_the_l6eea_id_band_rule():
+    # The engine's own wall loader (CODE 7 L6eea) picks the letter from the
+    # set-id band -- (id < 10) ? 'b' : 'c' -- so the DOS 8.3 collapse is
+    # reversible after all.
+    assert mac_name("8X8D1008.TLB") == "8x8db1008.ctl"   # id 8  -> b
+    assert mac_name("8X8D1001.TLB") == "8x8db1001.ctl"
+    assert mac_name("8X8D3016.TLB") == "8x8dc3016.ctl"   # id 16 -> c
+    assert mac_name("8x8d2010.tlb") == "8x8dc2010.ctl"   # boundary: 10 -> c
+    assert dos_name("8x8db1008.ctl") == "8X8D1008.TLB"
+    assert dos_name("8x8dc3016.ctl") == "8X8D3016.TLB"
+    # a letter contradicting the band could not have come from a DOS module
     with pytest.raises(ValueError):
-        mac_name("8X8D1008.TLB")
+        dos_name("8x8dc1008.ctl")
+    with pytest.raises(ValueError):
+        dos_name("8x8db1016.ctl")
+    # malformed wall names still refuse
+    with pytest.raises(ValueError):
+        mac_name("8X8D108.TLB")
 
 
 # --- ground truth ----------------------------------------------------------
