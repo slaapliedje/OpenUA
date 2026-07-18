@@ -544,6 +544,168 @@ def convert(data, to=None):
 # it to `8X8D<id>`.  That collides with `8x8dc` and we have NOT confirmed how DOS
 # disambiguates the two sets, so we refuse to guess.
 
+# --- mono (.tlb) synthesis ---------------------------------------------------
+#
+# The ST-mono (BWMODE) build probes per-id `.tlb` overrides, so a converted PC
+# module used to play mono with BASE 1-bit art -- or worse, the engine's mono
+# probe OPENED the design's original HLIB .TLB and read garbage into the pool.
+# Synthesize a 1-bit GLIB from the converted colour art instead.
+#
+# GROUND TRUTH (base-game .CTL/.TLB pairs, measured 2026-07-17):
+#   - the mono scale factor is PER FAMILY: walls 8x8 -> 16x16 (x2), BACK and
+#     PIC[A-F] 88x88 -> 176x176 (x2), CPIC 24x24 -> 32x32 (x4/3), SPRIT x4/3,
+#     BIGPIC 120x304 -> 180x456 (x3/2);
+#   - mono item flags carry high nibble 0x9; low nibble 0 = plain 1bpp plane,
+#     1 = keep-mask + data plane pair (jt995's composite: (dst & A) ^ B, A bit
+#     set = dest kept, B bit set = white), 2 = PackBits-compressed 1bpp,
+#     3 = the mode-3 stream (encoder unknown -- SPRIT approximated as mode 1),
+#     8 = the palette item;
+#   - every mono sub-GLIB's palette item is the same shape: header
+#     00000000 0010 0098 + 16 RGB triplets (the standard 16-colour block).
+#
+# INK MODEL: the engine's g_dsp_ink LUT classes a pixel by luminance
+# (2r+5g+b)>>3, ink below 112.  Straight thresholding loses all texture, so
+# synthesis orders-dithers around that threshold (Bayer 4x4) -- the same
+# visual language as the hand-dithered Mac art.  Best-effort by construction:
+# the Mac's own 1-bit art was authored, not derived.
+
+MONO_PAL_ITEM = bytes.fromhex("0000000000100098") + bytes.fromhex(
+    "000000ffffff00ab0000ababab0000ab00abab5700ababab"
+    "5757575757ff57ff5757ffffff5757ff57ffffff57ffffff")
+
+_BAYER4 = (( 0,  8,  2, 10),
+           (12,  4, 14,  6),
+           ( 3, 11,  1,  9),
+           (15,  7, 13,  5))
+
+#             stem     num den  mode        ('pack' = 0x92, 'planar' = 0x90/91)
+MONO_FAMILIES = {
+    "8x8d": (2, 1, "planar"),
+    "back": (2, 1, "pack"),
+    "pic":  (2, 1, "pack"),          # pica..picf
+    "cpic": (4, 3, "planar"),
+    "spri": (4, 3, "planar"),        # base uses mode 3; approximated
+    "bigp": (3, 2, "pack"),
+}
+
+
+def mono_family(filename):
+    """Per-family (scale_num, scale_den, mode) from the DOS art filename."""
+    b = os.path.basename(filename).lower()
+    for stem, fam in MONO_FAMILIES.items():
+        if b.startswith(stem):
+            return fam
+    if b.startswith("pic"):
+        return MONO_FAMILIES["pic"]
+    return None
+
+
+def _palette_rgb(entries):
+    """256-entry (r,g,b) table from a colour container's palette item."""
+    table = [(0, 0, 0)] * 256
+    # sensible defaults for the UI range so out-of-band indices class sanely
+    table[15] = (255, 255, 255)
+    for e in entries:
+        if len(e) >= 8 and _is_colour_table(e[7]):
+            first, count = struct.unpack(">hh", e[2:6])
+            pay = e[8:]
+            for k in range(min(count, len(pay) // 3)):
+                idx = first + k
+                if 0 <= idx < 256:
+                    table[idx] = (pay[k*3], pay[k*3+1], pay[k*3+2])
+    return table
+
+
+def _synth_item(ent, pal, num, den, mode):
+    """One colour GLIB image item -> one mono GLIB item."""
+    rows, yb, xb = struct.unpack(">Hhh", ent[0:6])
+    w4, method = ent[6], ent[7]
+    w = w4 * 8
+    payload = ent[8:]
+    lo = method & 0x0F
+    if lo == 2:                                    # PackBits 8bpp
+        px = rle_decode(payload, w * rows)
+    elif w * rows == len(payload):                 # plain linear 8bpp
+        px = payload
+    elif 2 * w * rows == len(payload):             # AND/OR mask pair: use OR
+        px = payload[w * rows:]
+    else:
+        raise UnsupportedPiece(
+            "mono synth: unrecognized colour payload (%d bytes for %dx%d)"
+            % (len(payload), w, rows))
+
+    ow = (w * num + den - 1) // den
+    oh = (rows * num + den - 1) // den
+    owb = (ow + 7) // 8
+
+    lum = [0] * 256
+    for i in range(256):
+        r, g, b = pal[i]
+        lum[i] = (2 * r + 5 * g + b) >> 3
+
+    data = bytearray(owb * oh)
+    mask = bytearray(owb * oh)
+    has_mask = False
+    for y in range(oh):
+        sy = min(y * den // num, rows - 1)
+        for x in range(ow):
+            sx = min(x * den // num, w - 1)
+            p = px[sy * w + sx]
+            bit = 0x80 >> (x & 7)
+            if p == 255 and mode == "planar":      # transparent key
+                mask[y * owb + (x >> 3)] |= bit
+                has_mask = True
+                continue
+            # ordered dither around the g_dsp_ink threshold (112)
+            if lum[p] >= 64 + _BAYER4[y & 3][x & 3] * 6:
+                data[y * owb + (x >> 3)] |= bit
+
+    oyb = yb * num // den
+    oxb = xb * num // den
+    if mode == "pack":
+        body = rle_encode(bytes(data))
+        flags = 0x92
+    elif has_mask:
+        body = bytes(mask) + bytes(data)           # plane A = keep, B = data
+        flags = 0x91
+    else:
+        body = bytes(data)
+        flags = 0x90
+    return struct.pack(">Hhh", oh, oyb, oxb) + bytes([owb, flags]) + body
+
+
+def mono_synth(glib, family):
+    """A colour GLIB container (post-convert) -> a synthesized 1-bit GLIB.
+
+    `family` is a (scale_num, scale_den, mode) tuple from `mono_family()`.
+    Recurses into nested sub-GLIBs; stubs and degenerate slots pass through
+    (the engine's mirror-synthesis handles wall stubs itself).
+    """
+    num, den, mode = family
+    p = parse(glib)
+    if p["magic"] != GLIB:
+        raise BadContainer("mono_synth expects a Mac GLIB (convert first)")
+    pal = _palette_rgb(p["entries"])
+    out = []
+    for e in p["entries"]:
+        if e[:4] == GLIB:
+            out.append(mono_synth(e, family))
+        elif len(e) >= 8 and _is_colour_table(e[7]):
+            out.append(MONO_PAL_ITEM)
+        elif len(e) < 8:
+            out.append(bytes(e))                   # stub slot
+        else:
+            out.append(_synth_item(e, pal, num, den, mode))
+    off = HDR + 4 * (len(out) + 1)
+    offsets = [off]
+    for e in out:
+        off += len(e)
+        offsets.append(off)
+    hdr = (GLIB + struct.pack(">I", off) + struct.pack(">H", len(out))
+           + bytes([p["unused"], p["id_table"]]) + p["tag"])
+    return hdr + struct.pack(">%dI" % len(offsets), *offsets) + b"".join(out)
+
+
 def mac_name(dos_name, dos83=False):
     """DOS art filename -> the name the ENGINE derives and probes first.
 
@@ -630,10 +792,17 @@ def main(argv):
     # Measured live (BEOWOLF, 2026-07-17). --mac-names emits the expanded
     # spelling for use with real Mac FRUA (an HFS volume keeps long names).
     dos83 = True
-    if argv and argv[0] == "--mac-names":
-        dos83 = False
-        argv = argv[1:]
-    elif argv and argv[0] == "--dos83":       # accepted, now the default
+    mono = True
+    while argv and argv[0].startswith("--"):
+        if argv[0] == "--mac-names":
+            dos83 = False
+        elif argv[0] == "--dos83":            # accepted, now the default
+            pass
+        elif argv[0] == "--no-mono":
+            mono = False
+        else:
+            print("unknown flag %s" % argv[0], file=sys.stderr)
+            return 2
         argv = argv[1:]
     if not argv:
         print(__doc__)
@@ -658,6 +827,28 @@ def main(argv):
         with open(dest, "wb") as fh:
             fh.write(out)
         print("%s -> %s (%d bytes)" % (path, dest, len(out)))
+        # Mono synthesis: OVERWRITE the original DOS .TLB with a 1-bit GLIB
+        # under the same name (the mono engine probes "<name>.tlb", and the
+        # HLIB original there would otherwise be read into the pool as
+        # garbage). The HLIB source is gone from this directory afterwards —
+        # convert a staged/working copy, keep the module archive pristine.
+        if mono and data[:4] == HLIB:
+            fam = mono_family(path)
+            if fam is None:
+                print("NOTE %s: no mono family for this stem — .TLB kept as "
+                      "HLIB (mono play will mis-read it)" % path,
+                      file=sys.stderr)
+                continue
+            try:
+                mout = mono_synth(out, fam)
+            except (UnsupportedPiece, BadContainer) as exc:
+                print("SKIP mono %s: %s" % (path, exc), file=sys.stderr)
+                rc = 1
+                continue
+            with open(path, "wb") as fh:
+                fh.write(mout)
+            print("%s -> mono 1-bit GLIB in place (%d bytes)"
+                  % (path, len(mout)))
     return rc
 
 

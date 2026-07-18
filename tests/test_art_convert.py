@@ -15,9 +15,10 @@ import struct
 
 import pytest
 
-from art_convert import (BadContainer, UnsupportedPiece, convert, deplanarize,
-                         dos_name, mac_name, parse, planarize, rle_decode,
-                         rle_encode)
+from art_convert import (MONO_PAL_ITEM, BadContainer, UnsupportedPiece,
+                         convert, deplanarize, dos_name, mac_name,
+                         mono_family, mono_synth, parse, planarize,
+                         rle_decode, rle_encode)
 
 
 def _container(magic, entries, tag=b"TILE", flags=0):
@@ -211,6 +212,98 @@ def test_wall_set_names_follow_the_l6eea_id_band_rule():
     # malformed wall names still refuse
     with pytest.raises(ValueError):
         mac_name("8X8D108.TLB")
+
+
+# --- mono (.tlb) synthesis --------------------------------------------------
+
+
+def _colour_glib(image_entries, pal_first=0, pal_rgb=None):
+    """A minimal Mac colour GLIB: palette item + the given image items."""
+    if pal_rgb is None:
+        pal_rgb = [(0, 0, 0), (255, 255, 255), (128, 128, 128), (10, 10, 10)]
+    pay = b"".join(bytes(t) for t in pal_rgb)
+    pal = (struct.pack(">Hhh", 0, pal_first, len(pal_rgb))
+           + bytes([0, 0xC8]) + pay)
+    return _container(b"GLIB", [pal] + list(image_entries))
+
+
+def _image(w, rows, pixels, flags=0xC5, yb=0, xb=0):
+    return (struct.pack(">Hhh", rows, yb, xb)
+            + bytes([w // 8, flags]) + bytes(pixels))
+
+
+def test_mono_synth_walls_double_and_stay_single_plane():
+    # 8x8 solid-white tile -> 16x16 mono, mode 0x90, every data bit set
+    px = [1] * 64                          # palette index 1 = white
+    g = _colour_glib([_image(8, 8, px)])
+    out = mono_synth(g, mono_family("8x8d1008.TLB"))
+    p = parse(out)
+    assert p["magic"] == b"GLIB"
+    assert bytes(p["entries"][0]) == MONO_PAL_ITEM
+    e = p["entries"][1]
+    rows, yb, xb = struct.unpack(">Hhh", e[:6])
+    assert (rows, e[6], e[7]) == (16, 2, 0x90)
+    assert bytes(e[8:]) == b"\xff" * 32     # 16 rows x 2 bytes, all white
+    # solid black converts to all-clear
+    g2 = _colour_glib([_image(8, 8, [0] * 64)])
+    e2 = parse(mono_synth(g2, mono_family("8x8d1008.TLB")))["entries"][1]
+    assert bytes(e2[8:]) == b"\x00" * 32
+
+
+def test_mono_synth_transparency_becomes_the_keep_mask():
+    # CPIC family (x4/3): 8x6 -> 11x8; source x<3 white, x>=3 index 255.
+    # Scaled: sx = x*3//4, so out x 0..3 are white, out x 4..10 transparent.
+    px = [(1 if x < 3 else 255) for _ in range(6) for x in range(8)]
+    g = _colour_glib([_image(8, 6, px)])
+    out = mono_synth(g, mono_family("CPIC1001.TLB"))
+    e = parse(out)["entries"][1]
+    rows = struct.unpack(">H", e[:2])[0]
+    owb, flags = e[6], e[7]
+    assert (rows, owb, flags) == (8, 2, 0x91)
+    planes = e[8:]
+    assert len(planes) == 8 * 2 * 2            # 8 rows x 2 bytes x 2 planes
+    mask, data = planes[:16], planes[16:]
+    for r in range(8):
+        assert mask[2*r] == 0x0F and mask[2*r+1] == 0xE0
+        assert data[2*r] == 0xF0 and data[2*r+1] == 0x00
+
+
+def test_mono_synth_pack_families_packbits_round_trip():
+    # BACK family (x2, mode 0x92): checker of white/black
+    px = [(1 if (x + y) % 2 == 0 else 0) for y in range(8) for x in range(8)]
+    g = _colour_glib([_image(8, 8, px)])
+    out = mono_synth(g, mono_family("Back1002.TLB"))
+    e = parse(out)["entries"][1]
+    rows, owb, flags = struct.unpack(">H", e[:2])[0], e[6], e[7]
+    assert (rows, owb, flags) == (16, 2, 0x92)
+    raw = rle_decode(bytes(e[8:]), 32)
+    assert len(raw) == 32
+    # nearest-neighbour x2 of a 1px checker = 2px checker: row r is 2 bytes
+    # at raw[2r:2r+2]; row pairs (0,1), (2,3) match, pairs alternate
+    assert raw[0:2] == raw[2:4] and raw[4:6] == raw[6:8]
+    assert raw[0:2] != raw[4:6]
+
+
+def test_mono_synth_is_deterministic_and_dithers_midtones():
+    # a mid-grey (lum 128) field must come out MIXED, not solid
+    px = [2] * 64                              # palette index 2 = 128,128,128
+    g = _colour_glib([_image(8, 8, px)])
+    fam = mono_family("8x8d1001.TLB")
+    a, b = mono_synth(g, fam), mono_synth(g, fam)
+    assert a == b
+    bits = parse(a)["entries"][1][8:]
+    ones = sum(bin(byte).count("1") for byte in bits)
+    assert 0 < ones < 16 * 16                  # dithered, not thresholded flat
+
+
+def test_mono_family_mapping():
+    assert mono_family("8x8d1008.TLB") == (2, 1, "planar")
+    assert mono_family("PICA1016.TLB") == (2, 1, "pack")
+    assert mono_family("BIGP0245.TLB") == (3, 2, "pack")
+    assert mono_family("CPIC1001.TLB") == (4, 3, "planar")
+    assert mono_family("SPRI0052.TLB") == (4, 3, "planar")
+    assert mono_family("Back1002.TLB") == (2, 1, "pack")
+    assert mono_family("WEIRD001.TLB") is None
 
 
 # --- ground truth ----------------------------------------------------------
