@@ -171,10 +171,41 @@ the clipped picture stems (`BIGP` → `bigpic`, and audit the others) are
 not yet. Moot for GEMDOS volumes until the 8.3 item below is resolved —
 fix them together.
 
+### ✅ The 8.3 stem audit + ADR-0013 fallback probe (2026-07-17)
+
+Every per-id probe site in the engine, audited:
+
+| family | engine probe | len | DOS 8.3 file | rule |
+|---|---|---|---|---|
+| walls | `8x8d{b,c}<g><nnn>.ctl` (L6eea) | 9 | `8X8D<g><nnn>.TLB` | letter: `(id<10)?b:c` |
+| big pics | `bigpi{c,x}<d><nnn>.ctl` (L579e) | 10 | `BIGP<d><nnn>.TLB` | letter: `(id<248)?c:x` |
+| sprites | `SPRIT<d><nnn>.ctl` (L541a) | 9 | `SPRI<d><nnn>.TLB` | expand |
+| backdrops | `back<g><nnn>.ctl` | 8 | `Back<g><nnn>.TLB` | identity |
+| pictures | `PIC[A-F]1<nnn>.ctl` (L541a) | 8 | same | identity |
+| portraits | `CPIC1<nnn>.ctl` (jt56) | 8 | same | identity |
+
+Every 8.3 spelling is the SAME uniform clip — `base[:4] + digit + id:03`
+— so the engine now retries exactly that when the derived name misses
+(**ADR-0013**, `l33ac`). Both spellings missing still falls back to the
+base library. This also fixes **real Mac fan modules**: they ship 8.3
+stems too (`BIGP0244.CTL`, `SPRI0052.CTL` — Yezukriis).
+
+**★ THE CLIP-COLLISION TRAP — why 8.3 output is now the converter
+DEFAULT.** The expanded names are not merely unshippable on FAT. On the
+Hatari GEMDOS mount, the probe AND the host filenames are both clipped
+to 8 chars before matching — so `8x8db1001/1003/1005/1008/1009.ctl` all
+collapse onto `8x8db100.ctl` and the engine silently opens the FIRST
+match: **the wrong wall set, no error**. Measured live: with expanded
+names staged, BEOWOLF's tavern start rendered the graveyard set; with
+8.3 names + the ADR-0013 probe, the same cell renders its wooden tavern
+walls from the exact-id file. (This partially corrects the play-test
+above: its `OVERRIDE loaded` traces were real, but the long-name opens
+were collision-eligible — the loaded CONTENT could be a neighbouring
+id.) `tools/art_convert.py` therefore emits 8.3-verbatim names by
+default; `--mac-names` restores the expanded spelling for real Mac FRUA
+(HFS keeps long names).
+
 **Still open (converter follow-ups):**
-- **8.3 stem expansion** — `BIGP<id>` → `bigpic<id>` (see the BEOWOLF
-  note above); audit every type the DOS side clips against the engine's
-  probe names.
 - **mono `.tlb` overrides** — the converter emits colour `.ctl` only. The
   ST-mono (BWMODE) build probes per-id `.tlb` overrides, so PC modules
   play mono with BASE 1-bit art (silent fallback, same shape as the CURSE
@@ -182,14 +213,10 @@ fix them together.
   qd_derive_mono_cursor does for cursors) could synthesize approximate
   `.tlb` files; the Mac's own 1-bit art is hand-made, so this is best-effort
   by construction.
-- **GEMDOS 8.3 on the Atari target** — Mac-convention override names
-  (`8x8db1001.ctl` = 9+3) exceed 8.3. Hatari's GEMDOS mount clips with a
-  warning; a real FAT volume cannot even hold two ids that collide after
-  the clip (`8x8db1001`/`8x8db1002` → both `8x8db100`). Needs an
-  engine-side fallback probe of the DOS 8.3 spelling (which always fits),
-  or a port-specific naming ADR. Until then, converted modules are only
-  safe on the (host-mounted) Hatari GEMDOS path where the long names
-  survive.
+- ~~**GEMDOS 8.3 on the Atari target**~~ — **CLOSED by ADR-0013** (the
+  fallback probe + 8.3-default converter output; see the audit section
+  above — including why the long names were a live collision hazard, not
+  just a FAT limitation).
 
 ## ⛔ CLOSED — the "big-picture colour cast" NEVER EXISTED (2026-07-13)
 
