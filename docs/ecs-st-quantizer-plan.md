@@ -1067,3 +1067,25 @@ Reverted in full; HEAD re-verified golden AE=0. The win at stake was
 ~20 ticks/compose (~0.3 s of a ~5 s transition) — not worth pixel
 drift. The compose economics after #158 stand: chrome 83 + render 73 +
 HUD 116 + head ~50 = ~5 s at 8 MHz.
+
+### Phase 2 runtime — spill-exactness harness: VERDICT EXACT (2026-07-17, 28th leg)
+
+FRUA_SPILLTEST (#160, 681f2a3) — the page-diff harness leg 27 called
+for — ran 448 trials against the real writers, cursor math, and
+FRAME.TLB art: every eligible 1bpp item, both writer arms (mode 2
+masked jt1189 / mode 0 erase jt1184), all 16 bit phases, checker and
+solid page backgrounds. Result: 41,504 in-span bits written, **zero**
+Z2 spill bits, **zero** Z1 corruption. The faithful word-shifted
+writers are spill-EXACT.
+
+This OVERTURNS leg 27's diagnosis. With exact writers, identity seeds,
+and canonical expands, the per-button seed bracket (#159) is
+mathematically equivalent to the per-glyph brackets — so its 87-px
+golden divergence was an implementation bug in the reverted bracket
+(rect derivation or an edge case such as the fused-seed row-wrap
+fallback at left < 0), not a fidelity wall. Leg-27's "blocked until
+writers proven exact" is now satisfied; the retry path is:
+re-apply the seed-only-suppression variant, dbg-dump the bracket rects
+for the diverging button (the diff sat at surface x 60..84 — CAST's
+left-cap region), and A/B the multi-piece sequence in the harness.
+The harness stays as the regression net.
