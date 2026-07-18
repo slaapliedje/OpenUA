@@ -18611,6 +18611,173 @@ static void load_menu_ui(void);
  * the party from the .CHR pool, install the play CLUT (load_menu_ui — the -4188
  * colour range, without which the map/roster read dark), and enter the dungeon
  * walk (jt948) directly. 'a' toggles the AREA automap in the walk. */
+
+#if defined(FRUA_BWMODE) && defined(FRUA_SPILLTEST)
+/* #160 — writer spill-exactness harness (the #159 blocker, docs leg 27).
+ *
+ * Question: do the faithful word-shifted planar writers (jt1189 masked /
+ * jt1184 erase, reached through jt995) touch ANY page bit outside the
+ * glyph's tight span [left, left + wbytes*8)? The #159 per-button seed
+ * bracket assumed no (spill-exactness); its 87-px golden divergence said
+ * otherwise. This proves it bit-by-bit against the REAL writers, cursor
+ * math, and FRAME.TLB art:
+ *
+ *   per trial: pattern the chunky band (checker or solid), sync the page
+ *   (mono_rows seed = the writers' ground truth), snapshot the page, run
+ *   ONE jt995 glyph write, then classify every changed page bit:
+ *     in-span — inside the tight span: expected glyph output;
+ *     Z2      — the seed slop zone [span-16, span+16) minus the span:
+ *               SPILL (the #159 blocker — repaired per-glyph, fatal
+ *               under a batched seed);
+ *     Z1      — anywhere else: memory corruption, always a bug.
+ *   Sweeps: every eligible FRAME.TLB item (1bpp, h<=24), all 16 bit
+ *   shifts, checker+solid backgrounds, both writer arms (mode 2 masked /
+ *   mode 0 erase). Chunky+page state is restored after.
+ *
+ * Run: make CPU68K=68000 EXTRA_CFLAGS="-DFRUA_BWMODE -DFRUA_AREATEST
+ *      -DFRUA_SKIP_ENTRY_EVENTS -DFRUA_SPILLTEST", boot, read the
+ *      "SPILL:" conout lines. VERDICT = EXACT unblocks #159. */
+static void frua_spilltest(void)
+{
+	/* trial band geometry: rows [0, BAND_H), the pattern/diff window */
+	enum { T0 = 4, L0 = 48, BAND_H = 48, BAND_W = 200 };
+	static unsigned char page_snap[(long)MONO_PAGE_ROWB * BAND_H + 8];
+	static unsigned char chunky_snap[(long)BAND_H * 480];
+	unsigned char *px;
+	short pitch, sw, sh;
+	long  group;
+	short item, bg, sx, arm;
+	long  z1_total = 0, z2_total = 0, in_total = 0;
+	short tested = 0, trials = 0;
+
+	dbg_log("SPILL: harness start");
+	if (jt1200() != 3) {
+		dbg_log("SPILL: not mono - abort");
+		return;
+	}
+	group = jt468((short)1);
+	if (group == 0) {
+		dbg_log("SPILL: no FRAME group - abort");
+		return;
+	}
+	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	jt1193();                               /* full-screen GLIB clip */
+
+	memcpy(chunky_snap, px, sizeof chunky_snap);
+
+	for (item = 1; item <= 24; item++) {
+		unsigned char mb[8];
+		short h, wb, ybr, xbr;
+
+		if (l2856(group, item, mb) == 0)
+			continue;
+		h   = *(short *)(void *)(mb + 0);
+		ybr = *(short *)(void *)(mb + 2);
+		xbr = *(short *)(void *)(mb + 4);
+		wb  = (short)mb[6];
+		if ((short)(mb[7] & 0x0f) > 1)   /* jt995 writes 1bpp only */
+			continue;
+		if (h <= 0 || h > 24 || wb <= 0 || wb > 6)
+			continue;
+		tested++;
+		for (arm = 0; arm < 2; arm++)           /* 0: mode 2, 1: mode 0 */
+		for (bg = 0; bg < 2; bg++)              /* checker / solid      */
+		for (sx = 0; sx < 16; sx++) {           /* every bit phase      */
+			short Lg  = (short)(L0 + sx);   /* tight span left      */
+			short w8  = (short)(wb * 8);
+			short r, c;
+			long  z1 = 0, z2 = 0, zin = 0;
+			long  i2, nb;
+
+			/* pattern the chunky band */
+			for (r = 0; r < BAND_H; r++) {
+				unsigned char *dr = px + (long)r * pitch;
+
+				for (c = 0; c < BAND_W; c++)
+					dr[c] = (unsigned char)
+					    (bg ? 15
+					        : ((((r + (c >> 1)) & 1) != 0)
+					           ? 15 : 0));
+			}
+			/* page = pattern (ground truth), then snapshot */
+			mono_rows((short)0, (short)0, (short)BAND_H,
+			          (short)BAND_W, 1);
+			memcpy(page_snap, s_mono_page, sizeof page_snap);
+
+			(void)jt995((short)(T0 + ybr), (short)(Lg + xbr),
+			            (short)1, item,
+			            (short)(arm == 0 ? 2 : 0));
+
+			/* classify changed page bits over the band */
+			nb = (long)MONO_PAGE_ROWB * BAND_H + 8;
+			for (i2 = 0; i2 < nb; i2++) {
+				unsigned char d = (unsigned char)
+				    (s_mono_page[i2] ^ page_snap[i2]);
+				short k;
+
+				if (d == 0)
+					continue;
+				for (k = 0; k < 8; k++) {
+					long bitpos, row, col;
+
+					if (!(d & (0x80 >> k)))
+						continue;
+					bitpos = i2 * 8 + k - 8;  /* +8 bias */
+					if (bitpos < 0) {
+						z1++;
+						continue;
+					}
+					row = bitpos / MONO_PAGE_W;
+					col = bitpos % MONO_PAGE_W;
+					if (row >= T0 && row < (long)(T0 + h)
+					 && col >= Lg && col < (long)(Lg + w8))
+						zin++;
+					else if (row >= T0
+					      && row < (long)(T0 + h)
+					      && col >= (long)(Lg - 16)
+					      && col < (long)(Lg + w8 + 16))
+						z2++;
+					else
+						z1++;
+				}
+			}
+			trials++;
+			z1_total += z1;
+			z2_total += z2;
+			in_total += zin;
+			if ((z1 != 0 || z2 != 0) && trials < 400) {
+				dbg_log_num("SPILL: DEVIATION item", item);
+				dbg_log_num("SPILL:   arm(0=m2)   ", arm);
+				dbg_log_num("SPILL:   bg(1=solid) ", bg);
+				dbg_log_num("SPILL:   phase sx    ", sx);
+				dbg_log_num("SPILL:   Z2 slop bits", z2);
+				dbg_log_num("SPILL:   Z1 outside  ", z1);
+			}
+		}
+	}
+	dbg_log_num("SPILL: items tested ", tested);
+	dbg_log_num("SPILL: trials       ", trials);
+	dbg_log_num("SPILL: in-span bits ", in_total);
+	dbg_log_num("SPILL: Z2 spill bits", z2_total);
+	dbg_log_num("SPILL: Z1 corrupt   ", z1_total);
+	if (z2_total == 0 && z1_total == 0)
+		dbg_log("SPILL: VERDICT = EXACT (bracket unblocked)");
+	else
+		dbg_log("SPILL: VERDICT = INEXACT (writers spill)");
+
+	/* restore the band: chunky back, page re-synced from it */
+	{
+		short r;
+
+		for (r = 0; r < BAND_H; r++)
+			memcpy(px + (long)r * pitch,
+			       chunky_snap + (long)r * 480, 480);
+		mono_rows((short)0, (short)0, (short)BAND_H, (short)480, 1);
+	}
+}
+#endif /* FRUA_BWMODE && FRUA_SPILLTEST */
+
 void frua_areatest_entry(void)
 {
 	port_test_seed_design();
@@ -18679,6 +18846,9 @@ void frua_areatest_entry(void)
 	 * requirement. Arrow-driven play produces MORE sound than QUICK does: the
 	 * melee attack sfx jt52(8)/jt52(13) as well as jt52(11). */
 	dbg_log("cbtsnd: ready - press k in the walk to fight");
+#endif
+#if defined(FRUA_BWMODE) && defined(FRUA_SPILLTEST)
+	frua_spilltest();                       /* #160: run + log, then play on */
 #endif
 	jt948();
 }
