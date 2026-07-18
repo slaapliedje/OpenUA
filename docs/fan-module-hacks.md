@@ -157,6 +157,16 @@ mask pairs, each plane Mode-X-shuffled independently. Proof:
 directions, both files, in the suite. **POR: 191/191 colour. NOTHING in
 the fan-art corpus is refused any more.**
 
+Play-tested with the full conversion (2026-07-18): colour — intro
+portraits, the gold POR menu skin (whole-lib FRAME), the Phlan walk,
+a temple event loading `PICB1112.ctl`, and a real combat event fired
+through the CBTSND harness (POR's GEO007 event 37 IS a type-1 combat)
+running and returning cleanly with the converted CBODY/COMSPR/DUNG
+libraries staged. Mono — the same walk and combat cycle on ST High,
+zero address errors. Note for keyboard-driven harness runs: the TEMPLE
+menu (HEAL/DONATE/…) is one of the mouse-only screens — walking into a
+temple is a dead-end without a click.
+
 **~~Refused~~ — both former refusals are now CLOSED (2026-07-17):**
 - ~~**piece type 2 (RLE)**~~ — **in** since `7a0a538`: drawing method 18
   (DRAW18.TXT run codec, shared by both releases) and method 23 (the
