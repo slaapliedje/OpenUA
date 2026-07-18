@@ -1040,3 +1040,30 @@ across the failing sequence, zero black states, both machines.
 Lesson for the log: on a single-buffered target, ANY un-held present is
 a curtain-up — and a "black screen bug" whose repro window scales with
 compose speed is a mid-state leak, not a state bug.
+
+### Phase 2 runtime — the per-button seed bracket: attempted, measured, reverted (2026-07-17, 27th leg)
+
+The #158 follow-up — batch jt137's per-glyph chunky<->page brackets into
+one per-BUTTON seed (exact union rect from the live FRAME.TLB cap
+metrics: h=17 ybear=2 uniform; xbear +16/0/-12 left/middle/right) with
+a suppress flag the jt995 brackets honour — DELIVERED the speed (bar
+66 -> 43 ticks, seed 84 -> 5) and FAILED pixel fidelity: 87 px diverged
+from golden (61 px in the seed-only-suppression variant) in the
+inter-chip regions.
+
+Root cause, established by bisection: the faithful Mac word-shifted
+writers (jt1181/jt1184/jt1189) SPILL into the +2-byte zone beyond each
+glyph's span, and the per-glyph re-seeds were continuously REPAIRING
+that spill from chunky before the next overlapping cap read the page.
+Suppressing the seeds lets spill corruption accumulate across the
+overlapping caps (12 px step, 16 px pieces), and the tight expands
+expose it. On the real Mac the page WAS the screen — either the spill
+is exact there and a lift subtlety makes ours inexact, or the Mac's
+draw order always overwrote it. Either way: BLOCKED until the writers'
+spill-zone exactness is proven (a page-diff harness: seed, write one
+glyph, assert bits outside the span unchanged) or fixed.
+
+Reverted in full; HEAD re-verified golden AE=0. The win at stake was
+~20 ticks/compose (~0.3 s of a ~5 s transition) — not worth pixel
+drift. The compose economics after #158 stand: chrome 83 + render 73 +
+HUD 116 + head ~50 = ~5 s at 8 MHz.
