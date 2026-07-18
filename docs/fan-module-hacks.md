@@ -780,3 +780,28 @@ Unconvertible HLIB files left in a converted design (FRAME.TLB etc.)
 resolve harmlessly in these runs (their probes miss or fall back), but
 they remain dead weight a future probe could trip on — candidates for a
 converter rename-aside (`.hlib`) if one ever bites.
+
+## In-engine conversion benchmark (2026-07-18) — the ADR-0014 measurement
+
+The converter core was ported to C (`src/convert/artconv.c`, byte-identical
+to the Python over the full POR corpus — `tests/test_artconv_c.py`) and
+timed on target via `src/convert/bench.c` (hz200 ticks, valid under
+`--fast-forward`; staged POR's 191 DOS art files, 2.5 MB):
+
+    ST 68000 8 MHz : conv total 56.8 s (worst TITLE.TLB 12.2 s, median 48 ms)
+                     mono total 448 s  (worst 8X8DB.TLB 52.6 s, median 1.35 s)
+    Falcon030      : conv total 10.7 s (worst TITLE.TLB 2.4 s, median 6 ms)
+                     mono total 78.9 s (worst 8X8DB.TLB 8.3 s, median 254 ms)
+
+Reading: on-the-fly COLOUR conversion is fine (sub-second typical, one-time
+worst cases), on-the-fly MONO synthesis is not — the wall masters cost
+41–53 s at area entry on the very machine the mono build targets. Hence
+ADR-0014: colour converts in-engine with write-back caching; mono art comes
+from the installer / offline converter only.
+
+Repro:
+    m68k-atari-mint-gcc -m68000 -msoft-float -std=gnu99 -O2 \
+        -fomit-frame-pointer -o CONVB000.PRG src/convert/bench.c src/convert/artconv.c
+    # stage a module's *.TLB + the PRG in one dir, then
+    hatari --machine st --memsize 4 --tos tos206us.img --fast-forward on \
+        --conout 2 -d <dir> --auto 'C:\CONVB000.PRG'

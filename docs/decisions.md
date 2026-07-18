@@ -674,3 +674,49 @@ single-name probe. It is strictly additive (a file the Mac engine would find is
 still found first), it makes both converted PC modules and real Mac fan modules
 resolve their art, and it is the only spelling that can exist on the Atari
 target's own volumes. `tools/art_convert.py --dos83` emits matching names.
+
+## ADR-0014 — Fan-module art converts IN-ENGINE for colour, INSTALL-TIME for mono
+
+**Status:** ratified 2026-07-18 (user decision + measurement).
+
+**Context.** With every DOS art format solved (ADR-0013 era work), the
+converter could live in three places: the offline Python tool (shipped in
+v0.3.0-beta), a native installer utility, or inside the engine itself —
+detect `HLIB` at art-open and convert on the fly, so PC modules "just work"
+when dropped into a `.DSN` folder. The user chose the composed approach
+(in-engine conversion + a native ZIP-installer utility), gated on a
+performance test of the on-the-fly half.
+
+**Measurement.** `tools/art_convert.py` was ported to a dependency-free C
+core (`src/convert/artconv.c`), proven byte-identical to the Python over
+the POR corpus (191/191 colour, 191/191 reverse, 189/189 mono), and timed
+in Hatari via the 200 Hz tick (`src/convert/bench.c`, POR's full 191-file
+art set):
+
+|                              | ST 68000 8 MHz | Falcon030 |
+|------------------------------|---------------:|----------:|
+| colour conv — median file    |          48 ms |      6 ms |
+| colour conv — typical picture|         ~1.5 s |    ~0.3 s |
+| colour conv — worst (TITLE)  |         12.2 s |     2.4 s |
+| mono synth — median          |         1.35 s |    0.25 s |
+| mono synth — wall master     |      41–53 s   |   6.5–8 s |
+| whole module up front        |        8.4 min |   1.5 min |
+
+**Decision.**
+1. **Colour conversion runs in-engine**: when the art probe finds only an
+   `HLIB` file, convert on first touch and WRITE the converted `.ctl` back
+   into the `.DSN` folder, then open it normally — the read path is
+   untouched and the cost is paid once per file (median 48 ms, worst a
+   one-time pause at design pick).
+2. **Mono synthesis never runs on the fly.** A 41–53 s freeze at area
+   entry on the exact machine the mono build serves is detrimental; the
+   ST-mono build detects an `HLIB` `.tlb` and falls back to base mono art
+   (instead of reading garbage). Mono `.tlb`s come from the installer
+   utility or the offline converter.
+3. **The native installer utility** (ZIP → pick destination → extract →
+   full convert including mono) remains the recommended install path; the
+   up-front cost (1.5–8.4 min for a large module) is fine as an install
+   step, and it is the ONLY path that yields mono art on the ST.
+
+The Python tool stays the tested reference; `tests/test_artconv_c.py`
+holds the C core to byte-identical output.
