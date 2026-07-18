@@ -147,7 +147,34 @@ Convert in place; no install step, and the base game is never touched.
   same rule (`cf87c49`). BEOWOLF converts **125/125** art files, walls
   included; no Mac wall-art module was needed after all.
 
+### ✅ Second end-to-end proof — BEOWOLF walks its own graveyard (2026-07-17)
+
+The wall-name rule's first live outing. `make gamedata DSN=BEOWOLF.DSN`,
+convert the STAGED copy in place (125/125), build with
+`-DFRUA_AREATEST -DFRUA_ARTTRACE -DFRUA_SKIP_ENTRY_EVENTS`, boot Falcon:
+
+    ART: DESIGN OVERRIDE loaded: BEOWOLF.DSN:8x8db1008.ctl
+    ART: DESIGN OVERRIDE loaded: BEOWOLF.DSN:8x8db3003.ctl
+    ART: DESIGN OVERRIDE loaded: BEOWOLF.DSN:8x8dc2016.ctl
+
+— all three wall groups from the design's own converted art, **one from
+each letter band** (the L6eea rule live), with FRAME/MENU/GEN/TITLE/BACK
+correctly falling back to root. The 3D view renders BEOWOLF's graveyard
+set — dead trees, checkered marble floor, fencing, misty horizon —
+through steps and turns, 0 bus errors. (Per the CURSE lesson: the proof
+is the OVERRIDE-loaded trace, not the unfamiliar art.)
+
+Caught by the same run: `BIGP0245.TLB` converts to **`bigp0245.ctl`** —
+`mac_name()` lowercases the 8.3 stem but does not EXPAND it to the name
+the engine probes (`bigpic0245.ctl`). The wall prefix is special-cased;
+the clipped picture stems (`BIGP` → `bigpic`, and audit the others) are
+not yet. Moot for GEMDOS volumes until the 8.3 item below is resolved —
+fix them together.
+
 **Still open (converter follow-ups):**
+- **8.3 stem expansion** — `BIGP<id>` → `bigpic<id>` (see the BEOWOLF
+  note above); audit every type the DOS side clips against the engine's
+  probe names.
 - **mono `.tlb` overrides** — the converter emits colour `.ctl` only. The
   ST-mono (BWMODE) build probes per-id `.tlb` overrides, so PC modules
   play mono with BASE 1-bit art (silent fallback, same shape as the CURSE
