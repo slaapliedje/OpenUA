@@ -212,6 +212,38 @@ audio, boot with `--fast-forward no` in `HATARI_ARGS` (fast-forward garbles
 Hatari's sound) and record the pulse monitor:
 `parec -d "$(pactl get-default-sink).monitor" --file-format=wav out.wav`.
 
+## Run the mono ST/STE variant (BWMODE, B&W)
+
+The black-and-white build (`make run-mono` = ST High + mono monitor) is a
+DIFFERENT binary — a bare 68000 with `-DFRUA_BWMODE` — plus an ST machine on a
+mono monitor. Build it, then boot through this driver with overrides:
+
+```bash
+make CPU68K=68000 EXTRA_CFLAGS='-DFRUA_BWMODE'      # the mono frua.prg (NOT plain make)
+export FALCON_TOS=/usr/share/hatari/tos206us.img    # ST TOS 2.06 (or EmuTOS)
+export FRUA_MEM=4                                    # ST max is 4MB
+export HATARI_ARGS='--machine st --monitor mono --dsp none'
+"$D" start                                          # "menu: modal up" as usual
+"$D" dump /tmp/mono.png                             # B&W main menu
+```
+
+Two overrides that bite (both cost time here):
+
+- **The TOS goes in `FALCON_TOS`, NOT in `HATARI_ARGS`.** Hatari validates
+  `--tos` at PARSE time, and the harness's hardcoded `--tos $FALCON_TOS` comes
+  first — so a later `--tos` in `HATARI_ARGS` never runs; Hatari dies on the
+  first (here nonexistent) `TOSv4.04.img`. Point `FALCON_TOS` at the ST ROM.
+  (`--machine`, `--monitor`, `--dsp` are fine to override via `HATARI_ARGS`;
+  they are last-wins, no file check.)
+- **`FRUA_MEM=4`** — its default is 14 MB, which is illegal on an ST and aborts
+  the boot.
+
+Verified (2026-07-18) to `menu: modal up`; the conout log shows the native mono
+path — `Atari ST high (640x400 mono, 2x2 dither)` and `sthigh: 640x400 mono,
+ENGINE B&W 480x300 1:1 up` — and the status bar reads `8MHz(CE)/- 4MB ST(WS3),
+TOS 2.06, MONO 71 Hz`. The menu renders as white outlined chips on black. Run a
+plain `make` afterwards to restore the default Falcon binary.
+
 ## Run (human path)
 
 On a machine with a real display, the Makefile boots Hatari in a window:
