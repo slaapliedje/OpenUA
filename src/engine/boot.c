@@ -77144,6 +77144,44 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 		}
 		jt411(refnum);                     /* read failed -> use the base */
 	}
+
+	/* ADR-0013 PORT EXTENSION: probe the DOS 8.3 spelling too. The
+	 * community names its per-id override files in DOS 8.3 on BOTH
+	 * platforms — a PC module ships BIGP0245.TLB and even Mac-authored
+	 * modules ship BIGP0244.CTL / SPRI0052.CTL (Yezukriis) — while the
+	 * engine's derived name ("bigpic0245.ctl", "sprit0052.ctl",
+	 * "8x8db1008.ctl") can exceed 8+3 and cannot even exist on a real
+	 * GEMDOS/FAT volume. Every family's 8.3 spelling is the SAME uniform
+	 * clip — base[:4] + digit + id:03 — so one retry covers walls, big
+	 * pictures, sprites, and every identity-named family (where the
+	 * spellings coincide and the retry is skipped). Faithful behaviour
+	 * is otherwise unchanged: base-library fallback still follows when
+	 * both spellings miss. */
+	{
+		char name83[16];
+
+		jt394(name83, (jt1200() == 3) ? "%.4s%d%03d.tlb"
+		                              : "%.4s%d%03d.ctl",
+		      namebuf, digit, kindB);
+		if (!jt396(name83, namebuf)) {
+			path[0] = 0;
+			jt431(path, g_a5_buf(-31336));
+			jt431(path, name83);
+			refnum = jt398(path, 0);
+			if (refnum >= 0) {
+				if (jt460(refnum, -1)) {
+					jt411(refnum);
+#ifdef FRUA_ARTTRACE
+					dbg_file_str(
+					    "ART: DESIGN OVERRIDE loaded (8.3): ",
+					    path);
+#endif
+					return;
+				}
+				jt411(refnum);
+			}
+		}
+	}
 #ifdef FRUA_ARTTRACE
 	/* THE SILENT FALLBACK. A missing per-id override is not an error — the
 	 * Mac just carries on and jt987/jt104 pull the id out of the BASE library
@@ -77153,9 +77191,9 @@ static void l33ac(const char *name, short kindB, short modeB, short subB,
 	 * misses, and the engine draws BASE art that merely looks unfamiliar. The
 	 * CURSE "tree walls" and the GIANTS "magenta intro picture" were BOTH this
 	 * — base art mistaken for a fan asset, then mistaken for a renderer bug.
-	 * Build with -DFRUA_ARTTRACE before concluding anything about custom art. */
-	else
-		dbg_file_str("ART: no override, using base library: ", path);
+	 * Build with -DFRUA_ARTTRACE before concluding anything about custom art.
+	 * (Both spellings missed by the time this logs — ADR-0013 above.) */
+	dbg_file_str("ART: no override, using base library: ", namebuf);
 #endif
 
 	/* stamp the binder context jt104 will read (consumed synchronously

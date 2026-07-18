@@ -647,3 +647,30 @@ a networked host; see `docs/toolchain-amiga.md`) and is not yet installed here,
 so the Amiga target is **not yet compiled or run** — the scaffold is structural.
 The run harness is **amiberry** (installed as the `com.blitterstudio.amiberry`
 flatpak), analogous to Hatari for the Atari side.
+
+## ADR-0013 — Per-id art overrides probe the DOS 8.3 spelling as a fallback
+
+**Status:** ratified 2026-07-17.
+
+**Context.** The engine derives a module's per-id art override name from the
+library base — `"%s%d%03d.ctl"` (`.tlb` in mono): `bigpic0245.ctl`,
+`sprit0052.ctl`, `8x8db1008.ctl`. But the fan-module community names those
+files in DOS 8.3 on BOTH platforms: PC modules ship `BIGP0245.TLB`
+(necessarily — DOS made the name), and even Mac-authored modules ship
+`BIGP0244.CTL` / `SPRI0052.CTL` (Yezukriis). Three of the six per-id
+families (walls, big pictures, sprites) derive names longer than 8+3, which
+also cannot exist on a real GEMDOS/FAT volume — so on Atari hardware the
+Mac-convention spelling is unshippable even when a converter produces it.
+
+**Decision.** `l33ac`'s override probe, after the derived name misses, retries
+with the uniform 8.3 clip — `base[:4] + digit + id:03` + the same extension —
+which reproduces the community's actual spelling for every family (`8x8d`,
+`bigp`, `spri`; the ≤8-char families collapse to the identical name and skip
+the retry). Both spellings missing still falls through to the base library,
+unchanged (ADR-0011). `-DFRUA_ARTTRACE` logs which spelling hit.
+
+**Why an ADR:** this is a deliberate PORT EXTENSION — the disassembly shows a
+single-name probe. It is strictly additive (a file the Mac engine would find is
+still found first), it makes both converted PC modules and real Mac fan modules
+resolve their art, and it is the only spelling that can exist on the Atari
+target's own volumes. `tools/art_convert.py --dos83` emits matching names.
