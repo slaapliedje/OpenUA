@@ -6667,6 +6667,18 @@ static void jt1191(const void *src, const void *mask, short rows,
  * uniformly (derived from the -4650/-4646/-4614 tables; the Mac's
  * page base absorbed it). The port keeps the faithful math and maps
  * chunky (y, c) <-> page bit y*480 + c + 8. */
+/* #159 retry: while set, jt995's per-glyph SEED is suppressed — an outer
+ * caller (jt137's per-button bracket) already seeded the union of the
+ * writer windows. Expands stay per-glyph (tight, exact). Straight-line
+ * scope only. The g_msh_* shadow rect is the outer bracket's claim; under
+ * FRUA_MONOPROF every suppressed seed VERIFIES its window is covered and
+ * logs a violation with coordinates — the #159-bug self-locator. */
+static unsigned char g_mono_seed_hold;
+static unsigned char g_mono_bracket_off;   /* harness A/B knob */
+#ifdef FRUA_MONOPROF
+static short g_msh_top, g_msh_left, g_msh_w, g_msh_h;
+#endif
+
 #define MONO_PAGE_W     480             /* = l04de() in mono            */
 #define MONO_PAGE_H     300
 #define MONO_PAGE_ROWB  (MONO_PAGE_W / 8)
@@ -7065,9 +7077,31 @@ static short jt995(short top, short left, short style, short size_high,
 	 * writers span [cursor_wordaligned, +wbytes+2) page bytes per row;
 	 * with the +8 bias that is chunky [left-16, left + w*8 + 16) worst
 	 * case (#158 — was a ±24/+48 window, ~35% more seed volume). */
-	if (jt1200() == 3)
-		mono_rows(top, (short)(left - 16), height,
-		          (short)(wbytes * 8 + 32), 1);
+	if (jt1200() == 3) {
+		if (!g_mono_seed_hold) {
+			mono_rows(top, (short)(left - 16), height,
+			          (short)(wbytes * 8 + 32), 1);
+		}
+#ifdef FRUA_MONOPROF
+		else {
+			/* #159 self-locator: is this glyph's window covered? */
+			short s0 = (short)(left - 16);
+			short s1 = (short)(left + wbytes * 8 + 16);
+
+			if (top < g_msh_top
+			 || (short)(top + height) > (short)(g_msh_top + g_msh_h)
+			 || s0 < (short)(g_msh_left - 16)
+			 || s1 > (short)(g_msh_left + g_msh_w + 16)) {
+				dbg_log_num("BRKT VIOLATION top/h ",
+				            ((long)(unsigned short)top << 16)
+				            | (unsigned short)height);
+				dbg_log_num("BRKT VIOLATION l/w8  ",
+				            ((long)(unsigned short)left << 16)
+				            | (unsigned short)(wbytes * 8));
+			}
+		}
+#endif
+	}
 #endif
 #ifdef FRUA_MONOPROF
 	{ extern long g_jp_t, g_jp_b; long t = TickCount(); g_jp_b += t - g_jp_t; g_jp_t = t; }
@@ -18613,6 +18647,7 @@ static void load_menu_ui(void);
  * walk (jt948) directly. 'a' toggles the AREA automap in the walk. */
 
 #if defined(FRUA_BWMODE) && defined(FRUA_SPILLTEST)
+static short jt137(void *rec_v, short msg, ...);   /* fwd (defined below) */
 /* #160 — writer spill-exactness harness (the #159 blocker, docs leg 27).
  *
  * Question: do the faithful word-shifted planar writers (jt1189 masked /
@@ -18756,6 +18791,76 @@ static void frua_spilltest(void)
 			}
 		}
 	}
+	/* ---- phase 2: A/B the real jt137 two-button sequence ---------- */
+	{
+		static unsigned char bandA[(long)BAND_H * 480];
+		static unsigned char recbuf[2][32];
+		static const char lbl[] = "TEST";
+		short b, way, r, c;
+		long  ndiff = 0, shown = 0;
+
+		for (b = 0; b < 2; b++) {
+			unsigned char *rb = recbuf[b];
+
+			memset(rb, 0, 32);
+			*(long *)(void *)(rb + 12) = (long)(uintptr_t)lbl;
+			*(short *)(void *)(rb + 16) = (short)8004;  /* y: ->12 */
+			*(short *)(void *)(rb + 18) =
+			    (short)(8003 + b * 20);     /* x: ->9 / ->69 — the
+			                                 * REAL bar's first pair:
+			                                 * bracket L=-7 -> the
+			                                 * negative-left seed */
+			*(short *)(void *)(rb + 24) = (short)4;     /* n     */
+			rb[28] = 0x00;                  /* visible, nudge (real) */
+		}
+		for (way = 0; way < 2; way++) {
+			g_mono_bracket_off = (unsigned char)(way == 0);
+			/* identical starting state each way */
+			for (r = 0; r < BAND_H; r++) {
+				unsigned char *dr = px + (long)r * pitch;
+
+				for (c = 0; c < 320; c++)
+					dr[c] = (unsigned char)
+					    ((((r + (c >> 1)) & 1) != 0) ? 15 : 0);
+			}
+			mono_rows((short)0, (short)0, (short)BAND_H,
+			          (short)320, 1);
+			(void)jt137(recbuf[0], (short)1);
+			(void)jt137(recbuf[1], (short)1);
+			if (way == 0) {
+				for (r = 0; r < BAND_H; r++)
+					memcpy(bandA + (long)r * 480,
+					       px + (long)r * pitch, 480);
+			}
+		}
+		g_mono_bracket_off = 0;
+		for (r = 0; r < BAND_H; r++) {
+			const unsigned char *ra = bandA + (long)r * 480;
+			const unsigned char *rb2 = px + (long)r * pitch;
+
+			for (c = 0; c < 320; c++) {
+				if (ra[c] == rb2[c])
+					continue;
+				ndiff++;
+				if (shown < 12) {
+					shown++;
+					dbg_log_num("AB diff r/c        ",
+					            ((long)(unsigned short)r << 16)
+					            | (unsigned short)c);
+					dbg_log_num("AB   A/B vals      ",
+					            ((long)ra[c] << 16) | rb2[c]);
+				}
+			}
+		}
+		dbg_log_num("AB total diff bytes ", ndiff);
+		dbg_log(ndiff == 0 ? "AB: EQUIVALENT" : "AB: DIVERGENT");
+		/* restore the band again */
+		for (r = 0; r < BAND_H; r++)
+			memcpy(px + (long)r * pitch,
+			       chunky_snap + (long)r * 480, 480);
+		mono_rows((short)0, (short)0, (short)BAND_H, (short)480, 1);
+	}
+
 	dbg_log_num("SPILL: items tested ", tested);
 	dbg_log_num("SPILL: trials       ", trials);
 	dbg_log_num("SPILL: in-span bits ", in_total);
@@ -89350,6 +89455,9 @@ static short jt137(void *rec_v, short msg, ...)
 	va_end(ap);
 
 	if (msg == 1) {
+#ifdef FRUA_BWMODE
+		unsigned char br_on = 0;
+#endif
 		rec[28] |= 0x80;
 		if (rec[28] & 0x02)
 			return 0;
@@ -89357,6 +89465,77 @@ static short jt137(void *rec_v, short msg, ...)
 		jt1135(*(short *)(void *)(rec + 16), (short)8000, &y, &x);
 		if (!(rec[28] & 0x20))
 			y--;
+#ifdef FRUA_BWMODE
+		/* #159 retry (seed-only suppression; writers proven spill-exact
+		 * by FRUA_SPILLTEST): seed the union of the caps' writer windows
+		 * ONCE from the live cap metrics, suppress the per-glyph seeds.
+		 * Expands stay per-glyph (tight). */
+		if (jt1200() == 3 && !g_mono_bracket_off) {
+			unsigned char m0[8], m1[8], m2[8];
+			long g1 = jt468((short)1);
+
+			if (l2856(g1, (short)(pal + 10), m0) != 0
+			 && l2856(g1, (short)(pal + 11), m1) != 0
+			 && l2856(g1, (short)(pal + 12), m2) != 0) {
+				short n = *(short *)(void *)(rec + 24);
+				short xr = *(short *)(void *)(rec + 18);
+				short d0, xa, xb;
+				short lmin, lmax, tmin, bmax, v;
+				short br_top, br_left, br_w, br_h;
+
+				jt1135((short)8000, xr, &d0, &xa);
+				jt1135((short)8000,
+				       (short)(xr + (n - 1) * 4), &d0, &xb);
+				/* left cap */
+				lmin = (short)(xa - *(short *)(void *)(m0 + 4));
+				lmax = (short)(lmin + m0[6] * 8);
+				tmin = (short)(y - *(short *)(void *)(m0 + 2));
+				bmax = (short)(tmin + *(short *)(void *)(m0 + 0));
+				/* middles span xa..xb */
+				v = (short)(xa - *(short *)(void *)(m1 + 4));
+				if (v < lmin) lmin = v;
+				v = (short)(xb - *(short *)(void *)(m1 + 4)
+				            + m1[6] * 8);
+				if (v > lmax) lmax = v;
+				v = (short)(y - *(short *)(void *)(m1 + 2));
+				if (v < tmin) tmin = v;
+				v = (short)(v + *(short *)(void *)(m1 + 0));
+				if (v > bmax) bmax = v;
+				/* right cap */
+				v = (short)(xb - *(short *)(void *)(m2 + 4));
+				if (v < lmin) lmin = v;
+				v = (short)(v + m2[6] * 8);
+				if (v > lmax) lmax = v;
+				v = (short)(y - *(short *)(void *)(m2 + 2));
+				if (v < tmin) tmin = v;
+				v = (short)(v + *(short *)(void *)(m2 + 0));
+				if (v > bmax) bmax = v;
+
+				br_top  = tmin;
+				br_left = lmin;
+				br_w    = (short)(lmax - lmin);
+				br_h    = (short)(bmax - tmin);
+#ifdef FRUA_MONOPROF
+				g_msh_top = br_top;  g_msh_left = br_left;
+				g_msh_w   = br_w;    g_msh_h    = br_h;
+				dbg_log_num("BRKT rect T/L        ",
+				            ((long)(unsigned short)br_top << 16)
+				            | (unsigned short)br_left);
+				dbg_log_num("BRKT rect H/W        ",
+				            ((long)(unsigned short)br_h << 16)
+				            | (unsigned short)br_w);
+				dbg_log_num("BRKT xr/n            ",
+				            ((long)(unsigned short)xr << 16)
+				            | (unsigned short)n);
+#endif
+				l4d88();        /* flush pending text first */
+				mono_rows(br_top, (short)(br_left - 16),
+				          br_h, (short)(br_w + 32), 1);
+				g_mono_seed_hold = 1;
+				br_on = 1;
+			}
+		}
+#endif
 		jt448(y, *(short *)(void *)(rec + 18), (short)1,
 		      (short)(pal + 10));
 		for (i = 0; i < *(short *)(void *)(rec + 24); i++)
@@ -89366,6 +89545,10 @@ static short jt137(void *rec_v, short msg, ...)
 		jt448(y,
 		      (short)(*(short *)(void *)(rec + 18) + (i - 1) * 4),
 		      (short)1, (short)(pal + 12));
+#ifdef FRUA_BWMODE
+		if (br_on)              /* #159: end the seed bracket */
+			g_mono_seed_hold = 0;
+#endif
 		if (pal != 0)
 			pal = 1;
 		x = *(short *)(void *)(rec + 18);
