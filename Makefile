@@ -533,39 +533,48 @@ endef
 strip-target:
 	$(STRIP) $(TARGET)
 
+# NOTE on ordering: `make test` MUST run BEFORE the release build, not after.
+# tests/test_build.py runs a bare `subprocess.run(["make"])` — a DEFAULT build
+# (68020, embedded data pool, unstripped). Run after the release build it
+# clobbers frua.prg right before PKG_DIST: the ST zip shipped a 68020 binary
+# (illegal instructions on a real 68000), everything shipped unstripped, and
+# the "redistributable" NOEMBED binary was replaced by an embedded one. Test
+# first, then clean wipes its artifacts, then the real build is the last thing
+# to touch the binary. (Verified 2026-07-18: bfextu 0->2302, syms 0->93892
+# when `make test` followed a stripped 68000 build.)
 release:
+	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) installer
 	$(MAKE) NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) strip-target
-	$(MAKE) test
 	$(call PKG_DIST,openua-falcon-$(VERSION),frua.prg,Atari Falcon030/TT030,Needs: 4MB RAM and TOS 4.04 (Falcon) or 3.0x (TT). One binary serves both — the display/sound path is chosen at runtime.)
 
 release-amiga:
+	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) installer-amiga
 	$(MAKE) MACHINE=amiga NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) MACHINE=amiga strip-target
-	$(MAKE) test
 	$(call PKG_DIST,openua-amiga-$(VERSION),frua,Amiga AGA / RTG,Needs: an AA machine (A1200/A4000) or an accelerated ECS Amiga with a graphics card such as Picasso96 or CyberGraphX. KS3.0+ and about 4MB. AGA vs RTG is chosen at runtime.)
 
 release-amiga-ecs:
+	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) installer-amiga
 	$(MAKE) MACHINE=amiga CPU68K=68000 NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_FORCE_ECS -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) MACHINE=amiga strip-target
-	$(MAKE) test
 	$(call PKG_DIST,openua-amiga-ecs-$(VERSION),frua,Amiga ECS/OCS 32-colour,Needs: an ECS or OCS Amiga (A500+/A600/A2000/A3000) with KS2.0+ and 2MB. Native 32-colour bitplanes for machines with no AGA and no graphics card.)
 
 # Atari ST/STE: a bare-68000 build (CPU68K=68000). The 68000 codegen runs on
 # EVERY Atari (ST/STE via ST-low 16-colour, TT via TT-low, Falcon via VIDEL),
 # detection picks the backend — so this .prg is the "runs on any Atari" binary.
 release-ste:
+	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) installer
 	$(MAKE) CPU68K=68000 NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) CPU68K=68000 strip-target
-	$(MAKE) test
 	$(call PKG_DIST,openua-atari-st-$(VERSION),frua.prg,Atari ST/STE 16-colour,Needs: an ST or STE (or Mega ST/STE) with 2MB and TOS 2.06 or EmuTOS. ST-low 16-colour native bitplanes. This 68000 build also runs on the TT and Falcon (they pick their own higher-colour backend) so it is the run-on-anything Atari binary.)
 
 release-all:
