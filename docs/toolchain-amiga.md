@@ -249,3 +249,21 @@ capture silently pass-fail at the emulator, not the port.
 
 Next: the `run-amiga-port` driver skill (amiberry harness, patterned on
 run-falcon-port), then a PLAY THE GAME deep-run for Falcon parity.
+
+## ✅ AGA verified (2026-07-18) — first boot of the AGA path
+
+`make MACHINE=amiga` + the `openua.uae` config (A1200, 68EC020, AGA,
+2 MB chip + 8 MB fast, `kicka1200.rom`, DH0: = `data/work/amiga-mount`)
+boots to the fully rendered interactive main menu: granite skin, cyan
+text, 256-entry CLUT, colour cursor, VBL sound task — `DBG.LOG` shows
+the `amiga-aga` backend (the 2026-07-15 runs exercised `amiga-ecs` and
+RTG). Launch: `flatpak run com.blitterstudio.amiberry -f
+~/Amiberry/Configurations/openua.uae -G` (`-G` skips the launcher GUI).
+
+Harness gotchas (for the future run-amiga skill):
+- **`pkill -f amiberry` kills your own shell** — same trap as the
+  Hatari one; use `pkill -9 -x amiberry`.
+- The flatpak ignores `--env=DISPLAY=:99`: it renders on the session
+  display (grant `flatpak override --user --socket=x11` first on a
+  Wayland session). Screenshot with `import -window <id>` on `:0`.
+- The engine is launched by the mount's `S/User-Startup` (`frua`).
