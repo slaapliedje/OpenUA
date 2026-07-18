@@ -282,6 +282,21 @@ def test_mono_synth_pack_families_packbits_round_trip():
     # at raw[2r:2r+2]; row pairs (0,1), (2,3) match, pairs alternate
     assert raw[0:2] == raw[2:4] and raw[4:6] == raw[6:8]
     assert raw[0:2] != raw[4:6]
+    # ROW ALIGNMENT: the mono decoder unpacks per row — no packet may cross
+    # a row boundary (the POR Back1004 address-error lesson)
+    pay = bytes(e[8:])
+    i = out = crossings = 0
+    while i < len(pay) and out < 32:
+        c = pay[i]; i += 1
+        if c < 128:
+            n = c + 1
+            if (out % 2) + n > 2: crossings += 1
+            out += n; i += n
+        elif c > 128:
+            n = 257 - c
+            if (out % 2) + n > 2: crossings += 1
+            out += n; i += 1
+    assert crossings == 0
 
 
 def test_mono_synth_is_deterministic_and_dithers_midtones():
@@ -303,7 +318,16 @@ def test_mono_family_mapping():
     assert mono_family("CPIC1001.TLB") == (4, 3, "planar")
     assert mono_family("SPRI0052.TLB") == (4, 3, "planar")
     assert mono_family("Back1002.TLB") == (2, 1, "pack")
+    assert mono_family("DUNG1002.TLB") == (4, 3, "planar")
+    assert mono_family("WILD1001.TLB") == (4, 3, "planar")
     assert mono_family("WEIRD001.TLB") is None
+
+
+def test_mono_synth_passes_degenerate_entries_through():
+    stub = struct.pack(">Hhh", 7, 0, 0) + bytes([0, 0xC0]) + bytes(22)
+    g = _colour_glib([stub])
+    out = parse(mono_synth(g, mono_family("8x8d1001.TLB")))
+    assert bytes(out["entries"][1]) == stub
 
 
 # --- ground truth ----------------------------------------------------------

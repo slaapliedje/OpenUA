@@ -586,6 +586,8 @@ MONO_FAMILIES = {
     "cpic": (4, 3, "planar"),
     "spri": (4, 3, "planar"),        # base uses mode 3; approximated
     "bigp": (3, 2, "pack"),
+    "dung": (4, 3, "planar"),        # DUNGCOM combat tiles: 24x24 -> 32x32
+    "wild": (4, 3, "planar"),        # WILDCOM likewise (measured base pairs)
 }
 
 
@@ -622,6 +624,11 @@ def _synth_item(ent, pal, num, den, mode):
     w4, method = ent[6], ent[7]
     w = w4 * 8
     payload = ent[8:]
+    if w == 0 or rows == 0:
+        # degenerate/stub slot (the wall masters carry a few zero-width
+        # oddities besides the plain <8-byte stubs) — pass through; the
+        # engine's own stub handling covers them
+        return bytes(ent)
     lo = method & 0x0F
     if lo == 2:                                    # PackBits 8bpp
         px = rle_decode(payload, w * rows)
@@ -663,7 +670,13 @@ def _synth_item(ent, pal, num, den, mode):
     oyb = yb * num // den
     oxb = xb * num // den
     if mode == "pack":
-        body = rle_encode(bytes(data))
+        # ROW-ALIGNED PackBits: the mono decoder unpacks per row (measured:
+        # base BACK.TLB streams have ZERO packets crossing a row boundary),
+        # and a whole-bitmap stream desynchronizes it — POR's Back1004.tlb
+        # was the first live 0x92 synth item and it ADDRESS-ERRORED the
+        # ST-mono walk. Encode each row as its own packet sequence.
+        body = b"".join(rle_encode(bytes(data[r*owb:(r+1)*owb]))
+                        for r in range(oh))
         flags = 0x92
     elif has_mask:
         body = bytes(mask) + bytes(data)           # plane A = keep, B = data
