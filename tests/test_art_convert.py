@@ -285,6 +285,35 @@ def test_m23_law_reencodes_ssi_dos_streams_byte_exactly():
     assert exact >= total - 5, f"only {exact}/{total} byte-exact"
 
 
+# --- the type-128 composite-body table (CBODY / COMSPR item 0) ---------------
+
+
+def test_type128_table_swaps_words_and_payload_u16s():
+    # DOS: header words LE, [6:8] = u16 0x0080 LE (bytes 80 00), payload u16 LE
+    dos = (struct.pack("<Hhh", 0x62, 0, 2) + bytes([0x80, 0x00])
+           + struct.pack("<4H", 3, 1, 4, 0x81))
+    mac = parse(convert(_container(b"HLIB", [dos]), to=b"GLIB"))["entries"][0]
+    assert bytes(mac[:8]) == struct.pack(">Hhh", 0x62, 0, 2) + bytes([0x00, 0x80])
+    assert bytes(mac[8:]) == struct.pack(">4H", 3, 1, 4, 0x81)
+    # and back
+    rt = parse(convert(_container(b"GLIB", [bytes(mac)]), to=b"HLIB"))["entries"][0]
+    assert bytes(rt) == dos
+
+
+POR_MAC_CBODY = "data/work/fanmods/pormac/POR/GAME39.dsn/CBODY.CTL"
+
+
+@pytest.mark.skipif(not os.path.exists(POR_MAC_CBODY),
+                    reason="Mac POR pair not staged")
+def test_por_cbody_comspr_convert_byte_exactly():
+    for name in ("CBODY", "COMSPR"):
+        dos = open("data/designs/Game39.dsn/%s.TLB" % name, "rb").read()
+        mac = open("data/work/fanmods/pormac/POR/GAME39.dsn/%s.CTL" % name,
+                   "rb").read()
+        assert convert(dos, to=b"GLIB") == mac
+        assert convert(mac, to=b"HLIB") == dos
+
+
 # --- mono (.tlb) synthesis --------------------------------------------------
 
 

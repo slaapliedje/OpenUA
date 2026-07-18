@@ -434,6 +434,17 @@ def _convert_entry(ent, to_mac):
     w4, method = ent[6], ent[7]
     payload = ent[8:]
 
+    # TYPE-128 TABLE (CBODY/COMSPR item 0 — the composite-body index).
+    # For THIS entry kind bytes [6:8] are ONE u16 (value 0x0080 in the
+    # source's endianness), not the usual w4/method pair, and the payload
+    # is a u16 array. Measured on the POR pair: header words swap, the
+    # [6:8] word swaps, the payload u16-swaps; nothing else. The same
+    # table appears unchanged in the base game's mono .TLB twins.
+    if (w4, method) == ((0x80, 0x00) if to_mac else (0x00, 0x80)):
+        dst_67 = bytes([0x00, 0x80]) if to_mac else bytes([0x80, 0x00])
+        return (struct.pack(dst + "Hhh", height, voff, hoff)
+                + dst_67 + _swap_u16_array(payload))
+
     w = w4 * (4 if to_mac else 8)       # decode width with the SOURCE's unit
     dos_method = method if to_mac else (method & 0x0F) | 0x10
 
@@ -487,10 +498,22 @@ def _convert_entry(ent, to_mac):
                          _swap_flag_byte(method, to_mac)]) + payload)
 
     if dos_method in DRAW_UNCOMPRESSED:
+        if w and height and 2 * w * height == len(payload):
+            # AND+OR mask pair (CBODY/COMSPR combat bodies): TWO planes,
+            # each Mode-X-shuffled independently. Proven byte-exact on
+            # the POR pair (halves-deplanarized == the real Mac bytes).
+            if to_mac and w % 8:
+                raise UnsupportedPiece("width %d not a multiple of 8" % w)
+            half = w * height
+            fn = deplanarize if to_mac else planarize
+            body = fn(payload[:half], w, height) + fn(payload[half:], w, height)
+            return (struct.pack(dst + "Hhh", height, voff, hoff)
+                    + bytes([w // (8 if to_mac else 4),
+                             _swap_flag_byte(method, to_mac)]) + body)
         if not (w and height and w * height == len(payload)):
             raise UnsupportedPiece(
                 "drawing method %d but %d bytes != %dx%d — unhandled layout "
-                "(method 17 stores an AND+OR mask pair)" % (dos_method, len(payload), w, height))
+                % (dos_method, len(payload), w, height))
         # Mac CTL requires the width to divide evenly by 8 (TLBFORM.TXT).  A
         # DOS-only width of 4 truncates to a ZERO-width piece -- which is what
         # silently blanked the converted wall sets.  Refuse rather than emit it.
@@ -637,6 +660,8 @@ MONO_FAMILIES = {
     "bigp": (3, 2, "pack"),
     "dung": (4, 3, "planar"),        # DUNGCOM combat tiles: 24x24 -> 32x32
     "wild": (4, 3, "planar"),        # WILDCOM likewise (measured base pairs)
+    "cbod": (4, 3, "planar"),        # CBODY combat bodies: 24x24 -> 32x32
+    "coms": (4, 3, "planar"),        # COMSPR combat sprites: likewise
 }
 
 
@@ -682,6 +707,8 @@ def _synth_item(ent, pal, num, den, mode):
     m23mask = None
     if lo == 9:                                    # frame-sequence table
         return bytes(ent)                          # not pixels; keep verbatim
+    if (w4, method) == (0x00, 0x80):               # type-128 composite table
+        return bytes(ent)                          # base mono twins keep it
     if lo == 2:                                    # PackBits 8bpp
         px = rle_decode(payload, w * rows)
     elif lo == 7:                                  # method 23 (linear, in .ctl)
@@ -690,8 +717,10 @@ def _synth_item(ent, pal, num, den, mode):
             raise UnsupportedPiece("mono synth: method 23 stream mismatch")
     elif w * rows == len(payload):                 # plain linear 8bpp
         px = payload
-    elif 2 * w * rows == len(payload):             # AND/OR mask pair: use OR
+    elif 2 * w * rows == len(payload):             # AND/OR mask pair
         px = payload[w * rows:]
+        # transparency comes from the AND plane (0xFF = dest kept)
+        m23mask = bytes(0 if b == 0xFF else 1 for b in payload[:w * rows])
     else:
         raise UnsupportedPiece(
             "mono synth: unrecognized colour payload (%d bytes for %dx%d)"
