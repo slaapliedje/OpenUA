@@ -435,7 +435,7 @@ clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES)
 	find src compat platform -name '*.o' -delete 2>/dev/null || true
 	find src compat platform -name '*.d' -delete 2>/dev/null || true
-	$(RM) frua frua.prg uainst.ttp uainst_amiga
+	$(RM) frua frua.prg uainst.ttp uainst_amiga uainst.info
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and
 # must keep the earlier binaries' packaged output. `distclean` wipes dist too.
@@ -463,7 +463,7 @@ uainst.ttp: installer/main.c installer/miniz.c src/convert/artconv.c src/convert
 # extract+convert core. Uses the Bebbo toolchain directly — installer
 # builds are standalone, not part of the MACHINE= engine object tree.
 AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
-installer-amiga: uainst_amiga
+installer-amiga: uainst_amiga uainst.info
 uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
@@ -471,6 +471,14 @@ uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/conve
 	    src/convert/artconv.c
 	# no post-link strip: m68k-amigaos-strip corrupts hunk executables
 	# (see toolchain/m68k-amigaos.mk) — '-s' above strips at link time
+
+# Workbench icon for uainst. A tool with no .info cannot be launched from
+# Workbench at all; this one also carries a STACK=200000 tooltype and a
+# matching do_StackSize so a double-click gets a generous stack (belt-and-
+# braces with the installer's own StackSwap).
+uainst.info: tools/make_amiga_icon.py
+	python3 tools/make_amiga_icon.py --type tool --stack 200000 \
+	    --tooltype 'STACK=200000' -o $@
 
 # --- release ----------------------------------------------------------------
 #
@@ -507,7 +515,8 @@ define PKG_DIST
 	*falcon*|*atari*) \
 		[ -f uainst.ttp ] && cp uainst.ttp dist/$(1)/UAINST.TTP || true;; \
 	*amiga*) \
-		[ -f uainst_amiga ] && cp uainst_amiga dist/$(1)/uainst || true;; \
+		[ -f uainst_amiga ] && cp uainst_amiga dist/$(1)/uainst || true; \
+		[ -f uainst.info ] && cp uainst.info dist/$(1)/uainst.info || true;; \
 	esac
 	@case "$(1)" in \
 	*amiga*) \
