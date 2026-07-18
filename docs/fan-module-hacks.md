@@ -720,3 +720,30 @@ Confirmed along the way:
   OF DAMAGE" / "HOBGOBLIN ATTACKS GROG AND MISSES". The right panel is the
   blow-by-blow, and it populates correctly — it only looked "blank" earlier
   because nothing had been logged yet.
+
+### ✅ Fourth module — Game39 (Pool of Radiance), and the row-alignment lesson (2026-07-17)
+
+The heavyweight: 191 art files including whole-library hacks (FRAME /
+CBODY / COMSPR / TITLE / BACK / 8X8DB / 8X8DC), DUNG/WILD combat tiles,
+mixed-case names, and the method-23 animated pictures. **166/191 colour
++ 165 mono** convert (`c0173b8`); the 25 refusals are all pre-existing
+research items (21× method-23, 2× method-25 ID lists, CBODY/COMSPR's
+unknown 0x00 entry variant). Colour: Rolf's dock portrait and the Phlan
+gatehouse render from the design's own art. Mono: the same gatehouse
+walks in dithered 1-bit.
+
+**The lesson that cost a crash:** the mono PackBits decoder unpacks PER
+ROW (measured: base `BACK.TLB` streams have zero packets crossing a row
+boundary), and the synthesizer's whole-bitmap stream desynchronized it —
+POR's `Back1004.tlb` was the FIRST synthesized `0x92` item any boot
+ever loaded (BEOWOLF/GIANTS never hit one), and the decoder walked
+dither bytes as pointers: a 68000 Address Error wedging the ST-mono
+walk. Row-aligned encoding fixed it; the test suite now asserts zero
+row-crossings. *A synthesis path is only proven when a module actually
+loads it.* Also added: DUNG/WILD mono families (24→32, ×4/3, measured)
+and degenerate-entry passthrough for the wall masters' oddities.
+
+Unconvertible HLIB files left in a converted design (FRAME.TLB etc.)
+resolve harmlessly in these runs (their probes miss or fall back), but
+they remain dead weight a future probe could trip on — candidates for a
+converter rename-aside (`.hlib`) if one ever bites.
