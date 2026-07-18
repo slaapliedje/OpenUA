@@ -148,7 +148,14 @@ The ~50% pixel residual vs the Mac render is the Mac edition's own
 re-dithered art. Method 25 (animation frame tables) fell with it —
 byte-identical payloads, header-only re-encode. POR now converts
 **189/191 colour + 187 mono**; its whole-library FRAME UI hack loads.
-Remaining: only the CBODY/COMSPR unknown-0x00 entry variant.
+Remaining: ~~only the CBODY/COMSPR unknown-0x00 entry variant~~ —
+**CLOSED same day (`a2055dd`)**: two formats behind one error. Item 0 is
+a TYPE-128 composite-body table (bytes [6:8] are ONE u16, payload a u16
+array — swap everything); the double-payload image entries are AND+OR
+mask pairs, each plane Mode-X-shuffled independently. Proof:
+`convert(CBODY.TLB) == the real Mac CBODY.CTL` byte-for-byte, both
+directions, both files, in the suite. **POR: 191/191 colour. NOTHING in
+the fan-art corpus is refused any more.**
 
 **~~Refused~~ — both former refusals are now CLOSED (2026-07-17):**
 - ~~**piece type 2 (RLE)**~~ — **in** since `7a0a538`: drawing method 18
