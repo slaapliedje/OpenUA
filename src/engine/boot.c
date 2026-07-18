@@ -13344,11 +13344,21 @@ static void jt199(unsigned char *page, short Y, short X, short row,
  * question is answered from live engine state, not a file guess. Writes
  * via the File Manager shim (Create + FSWrite), which the save path
  * already proves reliable on the GEMDOS drive. */
+/* The dump buffers are DV_BUF bytes; dv_app appends without any length of its
+ * own, so it MUST stop before overrunning. An unchecked b[(*p)++] overran the
+ * buffer (rm_audit's was only 512 bytes) and clobbered adjacent memory: on the
+ * MMU-less 68EC020 (a stock A1200 / CD32) that corrupted the exec/allocator
+ * free-list and hung the next malloc, while the 68030's MMU-managed layout
+ * absorbed it — so this AREATEST-only DEBUG dump masqueraded as a
+ * CPU-specific engine freeze (task #25). One append is < ~40 bytes. */
+#define DV_BUF 4096
 static void dv_app(char *b, int *p, const char *lbl, long v)
 {
 	long u;
 	short i, st;
 	char tmp[12];
+	if (*p > DV_BUF - 64)
+		return;
 	while (*lbl)
 		b[(*p)++] = *lbl++;
 	if (v < 0) { b[(*p)++] = '-'; u = -v; } else u = v;
@@ -13545,7 +13555,8 @@ static void j200_dump(void)
 static void rm_audit(void)
 {
 	static char done = 0;
-	char  buf[512];
+	char  buf[DV_BUF];      /* was buf[512] — ~15 dv_app appends with 10-digit
+	                         * pool addresses overran it (task #25). */
 	int   p = 0;
 	short ref = 0, i;
 	long  n;
@@ -13909,7 +13920,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * so the play screen can stay at g_a5_2347=1 (native scale 2) for the
 	 * command bar / HUD while the 88x88 first-person view still renders deep. */
 	g_cwf_force_deep = 1;
-#ifdef FRUA_SKIP_ENTRY_EVENTS
+	/* AREATEST render-state dumps (VIEWDIAG/RMAUDIT/J200DIFF). NOT on the
+	 * Amiga: these host-debug dumps carry 68EC020-unsafe accesses (the dv_app
+	 * overruns above were two; there are more) that corrupt the MMU-less
+	 * A1200/CD32 and were the whole "AGA in-game freeze" (task #25). The
+	 * engine itself is clean on the 68EC020 — proven by disabling these. */
+#if defined(FRUA_SKIP_ENTRY_EVENTS) && !defined(FRUA_AMIGA)
 	dbg_dump_view(ds, (short)g_a5_12288, (short)g_a5_12287, f);
 	rm_audit();
 	g_j2_n = 0; g_j2_active = 1;
@@ -13925,7 +13941,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	      (short)g_a5_12288, (short)g_a5_12287, f);
 	g_a5_3054 = sav_ct; g_a5_3050 = sav_cb;   /* restore play-screen clip rect */
 	g_a5_3056 = sav_cl; g_a5_3052 = sav_cr;
-#ifdef FRUA_SKIP_ENTRY_EVENTS
+#if defined(FRUA_SKIP_ENTRY_EVENTS) && !defined(FRUA_AMIGA)   /* task #25: not 68EC020-safe */
 	g_j2_active = 0;
 	j200_dump();
 #endif
