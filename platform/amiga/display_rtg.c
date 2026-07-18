@@ -214,6 +214,10 @@ static const dsp_backend_t rtg_backend = {
 	rtg_present,
 	rtg_present_rect,
 	rtg_set_palette,
+	1,                      /* single-buffered (WriteChunkyPixels straight to the
+	                         * OS screen, no flip): one present seeds the frame.
+	                         * Was 0, which the qd clamp already made 1 — made
+	                         * explicit so it is not mistaken for an oversight. */
 };
 
 const dsp_backend_t *dsp_backend_rtg(void)

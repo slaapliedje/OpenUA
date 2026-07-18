@@ -408,6 +408,9 @@ static const dsp_backend_t ecs_backend = {
 	ecs_present,
 	ecs_present_rect,
 	ecs_set_palette,
+	2,                      /* page-flipped (ecs_present flips s_front) — see
+	                         * the AGA note; both this and AGA left it 0 and
+	                         * were driven single-buffered. */
 };
 
 const dsp_backend_t *dsp_backend_ecs(void)

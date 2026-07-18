@@ -846,3 +846,16 @@ ST build then played the installed module on its OWN synthesized 1-bit
 art — the dithered POR causeway walls, straight from the installer.
 `make installer` builds it; the Atari release zips bundle it as
 UAINST.TTP. Amiga frontend awaits the Bebbo toolchain (ADR-0012).
+
+## ⚠️ Amiga: on-load conversion OFF; the installer is the path (2026-07-18)
+
+The in-engine on-load converter (jt398/ua_open_art/l17e2) intermittently
+HANGS the Amiga art loader — the AGA walk enters, draws chrome, then freezes
+partway through the wall/backdrop library loads, at a varying group each run.
+Bisected under amiberry (FRUA_ARTCONV_OFF / the FRUA_AMIGA gate): hooks out →
+the 3D dungeon view renders and every library loads; hooks in → stall. Root
+cause still open (not stack size alone — a 256 KB __stack moved but didn't
+remove it; suspect the files_amiga failed-open path or heap state). ADR-0015
+gates the converter off on the Amiga; DOS modules install with `uainst`
+there. Separately, the Amiga in-game HUD text (roster, command bar) does not
+render even with hooks off — a distinct pre-existing Amiga issue.

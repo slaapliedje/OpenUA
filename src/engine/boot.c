@@ -638,6 +638,7 @@ static short jt398(const char *path, short flags)
 	l45d6(buf, path);
 	status = l328e(buf, 0, flags);
 
+#if !defined(FRUA_ARTCONV_OFF) && !defined(FRUA_AMIGA)  /* ADR-0015: off on Amiga */
 	/* ADR-0014: DOS fan-module art converts in-engine on first touch.
 	 * (a) A `.tlb` that opens but holds DOS HLIB bytes is a MISS — the
 	 *     mono build falls back to base art instead of reading garbage
@@ -667,6 +668,7 @@ static short jt398(const char *path, short flags)
 				status = l328e(buf, 0, flags);
 		}
 	}
+#endif /* FRUA_ARTCONV_OFF */
 #ifdef FRUA_ENGINE_PROBE
 	dbg_log_num("jt398: open refnum = ", status);
 #endif
@@ -76473,7 +76475,17 @@ static short l17e2(short kind, const char *name, short mode, void *cbp)
 		 * callback tracks the design file so purge-reloads (jt468)
 		 * re-read the same bytes. An unmodified design ships no such
 		 * file and falls through to the identical root open. */
-		if (mode == 0
+		if (
+#if defined(FRUA_ARTCONV_OFF) || defined(FRUA_AMIGA)
+		    /* ADR-0015: the on-load DOS-art converter is OFF on the
+		     * Amiga. Its extra per-load design-folder opens destabilise
+		     * the AmigaOS art-load recursion (an intermittent hang, root
+		     * cause still open — see docs/fan-module-hacks.md); the Amiga
+		     * path to DOS modules is the uainst installer, which converts
+		     * up front. Falcon/ST keep the on-load path (tested). */
+		    0 &&
+#endif
+		    mode == 0
 		    && (ua_ext_is(name, "ctl") || ua_ext_is(name, "tlb"))) {
 			const char *dsn = (const char *)g_a5_buf(-31336);
 			if (dsn[0] != 0) {

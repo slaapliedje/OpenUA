@@ -26,6 +26,16 @@
 #include <proto/exec.h>
 #include <proto/dos.h>
 
+/* Initial stack for the CLI-launched binary. A Shell program otherwise
+ * inherits the Shell's default 4 KB, and the engine's art-load recursion
+ * (l17e2 -> jt987 -> the jt104 bind callback -> jt460, each frame holding
+ * a 210-byte FileSpec) runs deep enough to overflow it — an intermittent,
+ * Amiga-only hang that surfaced the moment the on-load converter added a
+ * second path buffer to l17e2. libnix/the AmigaOS startup grows the stack
+ * to this floor before main(). 256 KB matches the headroom the Falcon and
+ * ST builds get from their crt0. */
+unsigned long __stack = 256UL * 1024;
+
 void plat_console_puts(const char *s)
 {
 	if (s != NULL)

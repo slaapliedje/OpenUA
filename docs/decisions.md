@@ -734,3 +734,36 @@ are on hand for that first boot. `make installer-amiga` builds the
 module installer's Amiga CLI (`uainst_amiga`, bundled into the Amiga
 release zips); its asl.library FileRequester frontend and the first
 engine boot remain open.
+
+## ADR-0015 — The on-load DOS-art converter is Falcon/ST only; the Amiga uses the installer
+
+**Status:** ratified 2026-07-18.
+
+**Context.** ADR-0014 added in-engine conversion of DOS `HLIB` art on first
+touch (jt398 + ua_open_art + the l17e2 design-first base-library probe). On
+the Falcon and ST this works and is play-tested. On the Amiga it
+**intermittently hangs the art loader**: the walk enters, the frame chrome
+draws, then the engine freezes partway through loading the wall/backdrop
+libraries — at a *different* group each run (the signature of memory/stack
+corruption, not a clean limit). Bisected live under amiberry: with the hooks
+compiled out, the same AGA walk loads every library and renders the 3D view;
+with them in, it stalls. The hooks add per-load design-folder opens and a
+second 210-byte FileSpec to the already-deep l17e2→jt987→jt104→jt460
+recursion; raising the CLI stack to 256 KB (which the engine needs anyway,
+see the __stack add) moved the stall but did not remove it, so the root cause
+is not stack size alone and remains open.
+
+**Decision.** Compile the on-load converter **out on the Amiga**
+(`#if !defined(FRUA_AMIGA)` around the jt398 conversion; the l17e2
+design-first probe likewise). The Amiga's path to a DOS module is
+**`uainst`** (ADR-0014's installer), which converts the whole module up
+front — colour *and* mono — so nothing needs converting at load time. Falcon
+and ST keep the on-load path unchanged. `FRUA_ARTCONV_OFF` is also honoured
+as a build-time escape hatch for bisecting.
+
+**Why an ADR:** it deliberately makes one feature platform-specific, and it
+records a known-open engine bug (the Amiga art-load corruption) so the next
+session starts from the bisection, not from scratch. Related follow-up: the
+Amiga in-game **HUD text** (party roster, command bar) does not render even
+with the hooks off — a separate, pre-existing Amiga text/blit issue, tracked
+apart from this.

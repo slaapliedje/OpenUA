@@ -478,6 +478,13 @@ static const dsp_backend_t aga_backend = {
 	aga_present,
 	aga_present_rect,
 	aga_set_palette,
+	2,                      /* page-flipped (aga_present flips s_front): a full
+	                         * recompose must present twice to seed BOTH plane
+	                         * sets — exactly the VIDEL pattern. Left 0 (-> the
+	                         * qd clamp made it 1, single-buffered) it seeded
+	                         * only the shown page; the walk's 3D view + roster/
+	                         * command-bar text, drawn after the recompose, then
+	                         * vanished on the next flip. */
 };
 
 const dsp_backend_t *dsp_backend_rtg(void);      /* display_rtg.c */
