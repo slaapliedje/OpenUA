@@ -223,6 +223,23 @@ Best-effort by construction — the Mac's own 1-bit art was authored, not
 derived. `--no-mono` skips; convert a staged copy, the HLIB original is
 consumed.
 
+### ✅ Third module, full pipeline — GIANTS' brown title card, at last (2026-07-17)
+
+AGAINST THE GIANTS through the complete pipeline: **79/79** art files
+convert (the four BIGP big pictures the RLE work unblocked, and the one
+SPRI sprite) and **79/79** synthesize mono twins. On Falcon,
+`ART: DESIGN OVERRIDE loaded (8.3): GIANTS.DSN:bigp0245.ctl` — and the
+intro shows **GIANTS' own blackletter-on-parchment title card**, the
+very asset this document's "magenta intro picture" trap was written
+about; it had never rendered before. CPIC/PIC families resolve on the
+primary probe; the wall probes correctly fall back to base (GIANTS ships
+no wall art). On ST High the synthesized `bigp0245.tlb` loads and
+renders — mostly dark, which is FAITHFUL: the card's dominant browns sit
+at luminance 65–90, below the engine's own 112 ink threshold, so bright
+lettering on near-black parchment is what this art IS in 1-bit; the
+following event picture (lighter overland content) dithers richly.
+Zero errors in either target.
+
 **Still open (converter follow-ups):**
 - ~~**GEMDOS 8.3 on the Atari target**~~ — **CLOSED by ADR-0013** (the
   fallback probe + 8.3-default converter output; see the audit section
