@@ -1016,3 +1016,27 @@ jt199's non-blit remainder (~35 ticks: l6eea loads/synthesis +
 geometry), and the l63c0 command-exit full recompose (~10 s, dominated
 by the same now-fixed paths — re-measure). The AREA toggle-back black
 (task #21) predates all of this.
+
+### Phase 2 runtime — the "toggle-back black screen" was a held-open curtain (2026-07-17, 26th leg)
+
+Task #21 closed (#157, 8d8c8b8). The black screen after an AREA toggle-
+back was never a stuck state: instrumented runs proved every compose
+completes and presents. The visible black was jt240's MID-REBUILD frame
+— l429c's wiped panels, the chrome-prelude plates, the bare bar —
+flushed to the screen by jt117's l3994 commit with no hold active, then
+left showing for however long the l63c0 re-entry compose takes (~25 s
+pre-#155, ~9 s after). Return "fixed" it only by forcing a recompose;
+30 s of idle also self-resolved it. The colour build disproved the
+event-prompt hypothesis (same sequence, no event, no black).
+
+Fix: three #147-family brackets — jt240's whole rebuild holds and
+DISCARDS its mid-state, l40f8's toggle transition holds across jt221,
+and qd_present_rect drops rects while a hold is active (the mono view-
+hole present no longer flashes compose internals). The screen now keeps
+the previous complete frame across the transition and swaps straight to
+the finished play screen. Verified at real 8 MHz: six 3-second samples
+across the failing sequence, zero black states, both machines.
+
+Lesson for the log: on a single-buffered target, ANY un-held present is
+a curtain-up — and a "black screen bug" whose repro window scales with
+compose speed is a mid-state leak, not a state bug.
