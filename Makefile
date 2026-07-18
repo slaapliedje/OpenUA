@@ -490,7 +490,7 @@ uainst.info: tools/make_amiga_icon.py
 #
 # Emulator-validated only: nothing here has been run on real Falcon030/TT030
 # hardware. Say so in the release notes.
-VERSION ?= 0.3.0-beta
+VERSION ?= 0.3.1-beta
 
 # Every release binary is REDISTRIBUTABLE: NOEMBED=1 stubs the copyrighted DATA
 # pool (rebuilt at runtime from the user's frua.rsc), the link is stripped, and
