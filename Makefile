@@ -446,7 +446,7 @@ distclean: clean
 #
 # Emulator-validated only: nothing here has been run on real Falcon030/TT030
 # hardware. Say so in the release notes.
-VERSION ?= 0.2.0-beta
+VERSION ?= 0.3.0-beta
 
 # Every release binary is REDISTRIBUTABLE: NOEMBED=1 stubs the copyrighted DATA
 # pool (rebuilt at runtime from the user's frua.rsc), the link is stripped, and
@@ -465,7 +465,9 @@ define PKG_DIST
 	@mkdir -p dist/$(1)
 	@cp $(2) dist/$(1)/
 	@cp README.md GAMEDATA.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
-	@printf 'OpenUA (%s) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: never run on real hardware. Please report\nwhat happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\n%s\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping work.\nSee enhancements.md for the known gaps.\n' '$(3)' '$(VERSION)' '$(4)' > dist/$(1)/RELEASE.TXT
+	@cp tools/art_convert.py dist/$(1)/
+	@cp docs/converter-howto.md dist/$(1)/CONVERTER.md
+	@printf 'OpenUA (%s) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: never run on real hardware. Please report\nwhat happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\n%s\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping work.\nSee enhancements.md for the known gaps.\n\nNEW: PC (DOS) fan modules play with their own custom art. Convert a\nmodule'"'"'s art on your PC with the bundled art_convert.py (Python 3,\nno packages needed) — see CONVERTER.md. Every art format in the fan\ncorpus is supported, several proven byte-identical against SSI'"'"'s own\nMac files.\n' '$(3)' '$(VERSION)' '$(4)' > dist/$(1)/RELEASE.TXT
 	@cd dist && zip -qr $(1).zip $(1)
 	@echo "release -> dist/$(1).zip  (redistributable: no game data embedded)"
 endef
