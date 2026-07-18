@@ -34,6 +34,12 @@
 #include "resources.h"
 #include "windows.h"
 
+/* Build version, defined by the release rules as -DFRUA_VERSION=\"x.y.z\".
+ * A dev build (plain make) leaves it undefined — log "dev" then. */
+#ifndef FRUA_VERSION
+#define FRUA_VERSION "dev"
+#endif
+
 #ifdef FRUA_SHIM_DEMO
 /*
  * Pop up DLOG `id`, run the modal loop, return the dismissing item
@@ -382,6 +388,7 @@ int main(void)
 	int                  rc;
 
 	dbg_log("main: entered");
+	dbg_log("main: OpenUA " FRUA_VERSION);
 #ifdef FRUA_VDIPRINT_TEST
 	/* Printing Manager face smoke test (docs/gdos-printing-wall.md step
 	 * 3): drive the compat Pr* face EXACTLY the way the engine print
