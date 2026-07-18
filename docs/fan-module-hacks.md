@@ -134,15 +134,35 @@ overwriting the base game. Confirmed live with `-DFRUA_ARTTRACE` (POR's per-id
 probes fall back, then `8x8db.ctl` resolves to POR's own converted library).
 Convert in place; no install step, and the base game is never touched.
 
-**Refused (by design, loudly — never silently mangled):**
-- **piece type 2 (RLE)** — the two releases use *different* codecs. The Mac side
-  is PackBits (`jt1171` = `_UnpackBits`); the DOS side is not decoded yet. In
-  practice this is exactly the **BIGP** (big event picture) payloads — 4 of
-  GIANTS' 79, and the reason its merchant portrait still falls back to base art.
-  **This is the remaining work.**
-- **wall sets** — DOS 8.3 truncates *both* `8x8db<id>` and `8x8dc<id>` to
-  `8X8D<id>`, so the Mac target cannot be inferred. Needs a Mac module that ships
-  wall art to disambiguate. `mac_name()` raises rather than guess.
+**~~Refused~~ — both former refusals are now CLOSED (2026-07-17):**
+- ~~**piece type 2 (RLE)**~~ — **in** since `7a0a538`: drawing method 18
+  (DRAW18.TXT run codec, shared by both releases) and method 23 (the
+  skip/literal transparent codec, DRAW23.TXT — a *different* codec, and
+  lumping it in with 18 is what broke POR's animated pictures) are both
+  decoded and re-encoded.
+- ~~**wall sets**~~ — the DOS 8.3 collapse (`8x8db<id>`/`8x8dc<id>` →
+  `8X8D<id>`) is **reversible**: the engine's own wall loader (CODE 7
+  `L6eea`) derives the letter from the SET-ID BAND — `(id < 10) ? 'b' :
+  'c'` — before probing the per-id override. `mac_name()` now applies the
+  same rule (`cf87c49`). BEOWOLF converts **125/125** art files, walls
+  included; no Mac wall-art module was needed after all.
+
+**Still open (converter follow-ups):**
+- **mono `.tlb` overrides** — the converter emits colour `.ctl` only. The
+  ST-mono (BWMODE) build probes per-id `.tlb` overrides, so PC modules
+  play mono with BASE 1-bit art (silent fallback, same shape as the CURSE
+  trap). A colour→1-bit derivation (the `g_dsp_ink` luminance model, as
+  qd_derive_mono_cursor does for cursors) could synthesize approximate
+  `.tlb` files; the Mac's own 1-bit art is hand-made, so this is best-effort
+  by construction.
+- **GEMDOS 8.3 on the Atari target** — Mac-convention override names
+  (`8x8db1001.ctl` = 9+3) exceed 8.3. Hatari's GEMDOS mount clips with a
+  warning; a real FAT volume cannot even hold two ids that collide after
+  the clip (`8x8db1001`/`8x8db1002` → both `8x8db100`). Needs an
+  engine-side fallback probe of the DOS 8.3 spelling (which always fits),
+  or a port-specific naming ADR. Until then, converted modules are only
+  safe on the (host-mounted) Hatari GEMDOS path where the long names
+  survive.
 
 ## ⛔ CLOSED — the "big-picture colour cast" NEVER EXISTED (2026-07-13)
 

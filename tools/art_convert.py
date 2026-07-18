@@ -44,25 +44,24 @@ PIXELS (the part a byte-swap alone will never fix)
 Deplanarising HLIB yields the Mac bytes verbatim (12/12 tiles in the Yezukriis
 pair, byte-exact).
 
-NOT SUPPORTED YET
------------------
-1. **piece type 2** (low nibble of `flags`) is RLE-compressed and the two
-   releases use *different* codecs -- the Mac side is PackBits (jt1171 =
-   _UnpackBits), the DOS side is its own scheme and is not decoded.  In the
-   Yezukriis pair this is exactly the two BIGP (big picture) payloads.  These are
-   REFUSED loudly -- see `UnsupportedPiece`.
+FORMER LIMITATIONS, NOW CLOSED (stale copies of this header cost real time
+--------------------------------------------------------------------------
+1. ~~piece type 2 refused~~ -- BOTH DOS codecs are decoded now: drawing
+   method 18 (DRAW18.TXT run codec, shared with the Mac) and method 23
+   (skip/literal transparent, DRAW23.TXT, a DIFFERENT codec).  See
+   `rle_decode` / `m23_decode` below.
 
-2. **THE WALL LIBRARIES (8x8db / 8x8dc) DO NOT CONVERT CORRECTLY.**  They are a
-   container-of-containers (10 wall SETS x 48 pieces) and `convert()` does
-   recurse into them -- but installing a converted wall library over the base
-   game's renders a **BLACK 3D view** in the engine.  Verified with Game39 (Pool
-   of Radiance).  423 of its 432 wall pieces parse as plain tiles and 9 fall into
-   the `_convert_entry` "opaque" fallback below, which copies a payload it does
-   not understand straight through -- so at minimum those 9 are garbage, and the
-   black view says something further is wrong (the per-set palette/colour-range
-   is the prime suspect; see docs/glib-palette-subsystem.md).
-   **Do not ship converted wall art until this is root-caused.**  Pictures and
-   sprites are fine -- those are proven byte-exact against real Mac art.
+2. ~~wall libraries render a BLACK 3D view~~ -- that was the byte[10]/[11]
+   swap (two independent bytes, NOT a u16; swapping moved the ID-table
+   magic).  Fixed; POR walks Phlan on its own converted walls.
+
+3. ~~the 8X8D wall-set name is ambiguous under DOS 8.3~~ -- the engine's
+   wall loader (CODE 7 L6eea) picks the letter from the SET-ID band,
+   `(id < 10) ? 'b' : 'c'`; `mac_name()` applies the same rule.
+
+STILL OPEN: no mono `.tlb` synthesis (converted modules play mono with base
+1-bit art), and Mac-convention override names exceed GEMDOS 8.3 on real
+Atari volumes -- see docs/fan-module-hacks.md "Still open".
 
 CAUTION: the "opaque" fallback in `_convert_entry` (payload copied verbatim when
 the geometry does not describe it) is *proven* only for the picture palettes of
