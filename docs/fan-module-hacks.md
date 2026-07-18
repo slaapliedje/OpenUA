@@ -805,3 +805,26 @@ Repro:
     # stage a module's *.TLB + the PRG in one dir, then
     hatari --machine st --memsize 4 --tos tos206us.img --fast-forward on \
         --conout 2 -d <dir> --auto 'C:\CONVB000.PRG'
+
+## ✅ In-engine conversion LIVE (2026-07-18) — raw PC modules just play
+
+Verified on a RAW Game39 (Pool of Radiance) staging — nothing but DOS
+HLIB files in the .DSN folder, zero .ctl:
+
+- Colour (Falcon): TITLE/FRAME convert at the menu, BACK + the 297 KB
+  nested 8X8DB wall master + COMSPR convert at the walk — the module
+  plays on its OWN art first boot, and the written-back .ctl files are
+  byte-identical to the offline converter's. Second boot converts
+  nothing (the .ctls exist).
+- Mono (ST High, 68000): every HLIB probe is skipped cleanly
+  ("HLIB .tlb skipped (needs installer)") and the walk renders on base
+  1-bit art. No garbage reads, no Address Error — mono art still comes
+  from the installer / offline converter (ADR-0014).
+- HEIRS (unmodified design) boots bit-identically: the new probes only
+  fire when a design .ctl is missing AND an HLIB sibling exists.
+
+Three hooks carry the whole feature: jt398 (per-id overrides — both
+ADR-0013 spellings — plus the HLIB-peek mono guard), ua_open_art
+(whole-file loads: TITLE/FRAME/MENU/GEN/BACK/ALWAYS), and l17e2's new
+design-first base-library probe (wall masters + combat libraries, the
+one art path that was still root-only; ADR-0011 applied).

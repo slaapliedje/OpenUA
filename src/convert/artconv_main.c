@@ -15,7 +15,9 @@
 
 #include "artconv.h"
 
+#ifndef SCRATCH_CAP
 #define SCRATCH_CAP (512L * 1024)
+#endif
 
 static unsigned char *read_all(const char *path, long *len)
 {

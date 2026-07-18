@@ -79,6 +79,11 @@ OBJ  := $(CSRC:.c=.o) $(ASRC:.S=.o)
 ifeq ($(filter src/engine/data_pool.o,$(OBJ)),)
 OBJ  += src/engine/data_pool.o
 endif
+
+# The DOS-art converter core (ADR-0014) lives outside SRCDIRS on purpose:
+# src/convert/ also holds the host-CLI and benchmark mains, which must
+# never link into the engine. Add just the core object.
+OBJ  += src/convert/artconv.o
 DEP  := $(OBJ:.o=.d)
 
 CFLAGS += $(INCLUDE)

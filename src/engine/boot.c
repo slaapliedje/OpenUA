@@ -54,6 +54,7 @@
 #include "resources.h"        /* GetResource (clut 129 for colour art) */
 #include "sound.h"            /* SysBeep (jt1147 error-dialog beep)     */
 #include "mac_font.h"         /* mac_font_pixel (the in-dungeon party HUD) */
+#include "artconv_load.h"     /* ADR-0014: on-load DOS-art conversion */
 
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
@@ -582,6 +583,43 @@ static short jt435(const char *path)
  * Engine code calls this with ":DISK4:ALWAYS.CTL" + flags=0 from
  * ua_main's phase 3 (the "small / large screen mode" branch).
  */
+/* ADR-0014 helpers (bodies live later in the file) */
+static short jt401(short refNum, void *buffer, short count);
+static long  jt412(short refnum, long pos, short mode);
+static short jt411(short refNum);
+
+static int ua_ext_is(const char *path, const char *ext3)
+{
+	size_t n = strlen(path);
+	const char *e;
+	int i;
+	if (n < 4)
+		return 0;
+	e = path + n - 4;
+	if (e[0] != '.')
+		return 0;
+	for (i = 0; i < 3; i++) {
+		char c = e[1 + i];
+		if (c >= 'A' && c <= 'Z')
+			c += 32;
+		if (c != ext3[i])
+			return 0;
+	}
+	return 1;
+}
+
+/* Peek the container magic through the FC refnum; rewinds unless it is
+ * HLIB (the caller closes an HLIB file — nothing may read those bytes). */
+static int ua_refnum_is_hlib(short refnum)
+{
+	char m[4];
+	short got = jt401(refnum, m, (short)4);
+	if (got == 4 && memcmp(m, "HLIB", 4) == 0)
+		return 1;
+	(void)jt412(refnum, 0, 0);              /* rewind for the real read */
+	return 0;
+}
+
 static short jt398(const char *path, short flags)
 {
 	char buf[128];
@@ -599,6 +637,36 @@ static short jt398(const char *path, short flags)
 		path = l31fc(path);
 	l45d6(buf, path);
 	status = l328e(buf, 0, flags);
+
+	/* ADR-0014: DOS fan-module art converts in-engine on first touch.
+	 * (a) A `.tlb` that opens but holds DOS HLIB bytes is a MISS — the
+	 *     mono build falls back to base art instead of reading garbage
+	 *     into the pool (mono synthesis is install-time only: 41–53 s
+	 *     per wall master on the 8 MHz target).
+	 * (b) A missed `.ctl` whose directory ships the HLIB sibling `.tlb`
+	 *     is converted (colour, 48 ms median on the ST) and written
+	 *     back under the probed name, then opened normally — so the
+	 *     existing ADR-0013 probe chain needs no new spellings. */
+	if (status >= 0) {
+		if (ua_ext_is(path, "tlb") && ua_refnum_is_hlib(status)) {
+#ifdef FRUA_ARTTRACE
+			dbg_file_str("ART: HLIB .tlb skipped (needs installer): ",
+				     path);
+#endif
+			(void)jt411(status);
+			status = -1;
+		}
+	} else if (ua_ext_is(path, "ctl")) {
+		char tlb[128];
+		size_t n = strlen(path);
+		if (n < sizeof tlb) {
+			memcpy(tlb, path, n + 1);
+			memcpy(tlb + n - 3,
+			       (tlb[n - 3] == 'C') ? "TLB" : "tlb", 3);
+			if (ua_dos_art_convert_file(tlb, path))
+				status = l328e(buf, 0, flags);
+		}
+	}
 #ifdef FRUA_ENGINE_PROBE
 	dbg_log_num("jt398: open refnum = ", status);
 #endif
@@ -2852,8 +2920,40 @@ static OSErr ua_open_art(ConstStr255Param pname, short perm, short *refnum)
 		memcpy(p + 1 + k, n + 1, n[0]);
 		k += n[0];
 		p[0] = (unsigned char)k;
-		if (FSOpen((ConstStr255Param)p, perm, refnum) == noErr)
-			return noErr;                 /* the design ships this art */
+		if (FSOpen((ConstStr255Param)p, perm, refnum) == noErr) {
+			/* ADR-0014: a design file holding DOS HLIB bytes is a
+			 * MISS, whatever it is named (a raw PC module's .TLBs
+			 * land here on the mono build). Peek + rewind. */
+			char m[4];
+			long c4 = 4;
+			if (FSRead(*refnum, &c4, m) == noErr && c4 == 4
+			    && memcmp(m, "HLIB", 4) == 0) {
+				FSClose(*refnum);
+#ifdef FRUA_ARTTRACE
+				p[p[0] + 1] = 0;
+				dbg_file_str("ART: design art is HLIB, skipped: ",
+					     (char *)p + 1);
+#endif
+			} else {
+				(void)SetFPos(*refnum, fsFromStart, 0);
+				return noErr;         /* the design ships this art */
+			}
+		}
+		/* ADR-0014: a missed .ctl with a DOS HLIB sibling .tlb in the
+		 * design converts on first touch (whole libraries: FRAME, the
+		 * wall masters, MENU, GEN, ...). Write-back, then reopen. */
+		if (n[0] > 4 && n[n[0] - 3] == '.'
+		    && (n[n[0] - 2] | 32) == 'c' && (n[n[0] - 1] | 32) == 't'
+		    && (n[n[0]] | 32) == 'l') {
+			char cin[256], cout[256];
+			memcpy(cout, p + 1, p[0]);
+			cout[p[0]] = 0;
+			memcpy(cin, cout, p[0] + 1);
+			memcpy(cin + p[0] - 3, "TLB", 3);
+			if (ua_dos_art_convert_file(cin, cout)
+			    && FSOpen((ConstStr255Param)p, perm, refnum) == noErr)
+				return noErr;
+		}
 #ifdef FRUA_ARTTRACE
 		/* Silent by design (a design that ships no art of its own must
 		 * fall through) — but see the l33ac note: silence is exactly how
@@ -76361,7 +76461,33 @@ static short l17e2(short kind, const char *name, short mode, void *cbp)
 	l16c6(spec, k, counter, name);
 
 	if (mode != 4) {
-		refnum = jt398(spec, (short)(mode == 3 ? 0 : mode));
+		refnum = -1;
+		/* ADR-0011 applied to the BASE-LIBRARY open: an art-library
+		 * load (a .ctl/.tlb name, mode 0 — the jt104 binder path)
+		 * probes the design folder first. A PC module ships its wall
+		 * masters / combat libraries as WHOLE files (8X8DB.TLB) that
+		 * no per-id override probe can find, and this open was the one
+		 * art path still root-only. Going through jt398 also means an
+		 * HLIB master converts on first touch (ADR-0014: 325 ms on the
+		 * Falcon, 2.4 s once on the ST). The spec handed to the
+		 * callback tracks the design file so purge-reloads (jt468)
+		 * re-read the same bytes. An unmodified design ships no such
+		 * file and falls through to the identical root open. */
+		if (mode == 0
+		    && (ua_ext_is(name, "ctl") || ua_ext_is(name, "tlb"))) {
+			const char *dsn = (const char *)g_a5_buf(-31336);
+			if (dsn[0] != 0) {
+				char dspec[210];
+				dspec[0] = 0;
+				jt431(dspec, dsn);
+				jt431(dspec, name);
+				refnum = jt398(dspec, (short)(mode == 3 ? 0 : mode));
+				if (refnum >= 0)
+					jt384(spec, dspec);
+			}
+		}
+		if (refnum < 0)
+			refnum = jt398(spec, (short)(mode == 3 ? 0 : mode));
 		if (refnum < 0) {
 #ifdef FRUA_ARTTRACE
 			dbg_file_str("RES: open FAILED  spec=", spec);
