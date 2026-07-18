@@ -187,17 +187,68 @@ sys.exit(0 if loud >= 5 else 1)
 EOF
 }
 
+# Raw boot: launch amiberry and just wait a fixed time for the OS to come up —
+# do NOT wait for frua's "menu: modal up" marker. This is the boot to use when
+# the mount's startup runs something OTHER than frua: the uainst installer, or
+# a plain Workbench (drop the `frua` line from S/User-Startup). The window
+# appears within a second or two but the OS is not usable until ~45s; the arg
+# overrides that wait. Does NOT capture the mouse — call `grab` when you need it.
+cmd_boot() {
+	local wait="${1:-48}" w
+	pkill -x amiberry 2>/dev/null
+	rm -f "$DBGLOG"
+	( flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
+	    --log --config "$CONF" -G >"$LOGFILE" 2>&1 & )
+	echo "booting (raw, ${wait}s, no frua wait)..." >&2
+	sleep "$wait"
+	w=$(find_window)
+	[ -z "$w" ] && { echo "boot: no amiberry window on $DISP" >&2; tail -5 "$LOGFILE" >&2; return 1; }
+	echo "$w" > "$STATE/window"
+	echo "booted: window $w (mouse NOT captured — run 'grab' first to click/move)"
+}
+
+# Capture the emulated (delta) mouse: one click at the window centre, then the
+# tracked position is (160,100). `start` does this inline; `boot` leaves it to
+# you so a WB/uainst session can grab when ready. After grab, drive with
+# move/click/dclick — but read the mouse gotchas in SKILL.md first.
+cmd_grab() {
+	local w geo x y wpx hpx
+	w=$(window_id); [ -z "$w" ] && { echo "no window" >&2; return 1; }
+	geo=$(DISPLAY="$DISP" xwininfo -id "$w" | awk '
+		/Absolute upper-left X/ {x=$4} /Absolute upper-left Y/ {y=$4}
+		/Width/ {w=$2} /Height/ {h=$2} END {print x, y, w, h}')
+	read -r x y wpx hpx <<< "$geo"
+	xd windowactivate --sync "$w" mousemove $((x + wpx / 2)) $((y + hpx / 2)) click 1
+	pos_set 160 100
+	echo "mouse captured, tracked at (160,100)"
+}
+
+# Best-effort double-click at the CURRENT pointer (two button-holds). WB
+# double-clicks are genuinely unreliable through synthetic input — amiberry
+# needs a long hold to register a click at all, which fights the tight timing a
+# double-click wants. Expect to retry; select-then-dclick (a single click to
+# highlight, then this) is the most reliable sequence. See SKILL.md.
+cmd_dclick() {
+	xd mousedown 1; sleep 0.12; xd mouseup 1
+	sleep 0.12
+	xd mousedown 1; sleep 0.12; xd mouseup 1
+	sleep 0.3
+}
+
 case "${1:-}" in
 	build) shift; cmd_build "$@" ;;
 	start) shift; cmd_start "$@" ;;
+	boot)  shift; cmd_boot  "$@" ;;
+	grab)  shift; cmd_grab  "$@" ;;
 	stop)  shift; cmd_stop  "$@" ;;
 	shot)  shift; cmd_shot  "$@" ;;
 	key)   shift; cmd_key   "$@" ;;
 	move)  shift; cmd_move  "$@" ;;
 	click) shift; cmd_click "$@" ;;
+	dclick) shift; cmd_dclick "$@" ;;
 	wait)  shift; cmd_wait  "$@" ;;
 	log)   shift; cmd_log   "$@" ;;
 	smoke) shift; cmd_smoke "$@" ;;
 	sound) shift; cmd_sound "$@" ;;
-	*) echo "usage: $(basename "$0") build | start | stop | shot <png> | key <keysym>... | move <dx> <dy> | click [x y] | wait <regex> [n] | log | smoke [png] | sound [wav]" >&2; exit 2 ;;
+	*) echo "usage: $(basename "$0") build | start | boot [secs] | grab | stop | shot <png> | key <keysym>... | move <dx> <dy> | click [x y] | dclick | wait <regex> [n] | log | smoke [png] | sound [wav]" >&2; exit 2 ;;
 esac
