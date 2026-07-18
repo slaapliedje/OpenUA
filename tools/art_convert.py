@@ -544,27 +544,48 @@ def convert(data, to=None):
 # it to `8X8D<id>`.  That collides with `8x8dc` and we have NOT confirmed how DOS
 # disambiguates the two sets, so we refuse to guess.
 
-def mac_name(dos_name):
-    """DOS art filename -> Mac.
+def mac_name(dos_name, dos83=False):
+    """DOS art filename -> the name the ENGINE derives and probes first.
 
-    The wall-set prefix looked ambiguous (DOS 8.3 collapses both 8x8db<id>
-    and 8x8dc<id> to 8X8D<id>) -- but the ENGINE resolves it: the faithful
-    wall loader (CODE 7 L6eea, `l6eea` in src/engine/boot.c) derives the
-    letter from the SET-ID BAND, `(id < 10) ? 'b' : 'c'`, before probing the
-    per-id override "<base><group><id:03>".  So `8X8D<g><nnn>.TLB` maps
-    deterministically: nnn 001..009 -> 8x8db<g><nnn>, nnn >= 010 ->
-    8x8dc<g><nnn>.  (8X8DB has sets 1..9(10); 8X8DC carries 10+ -- matches
-    the base libraries' own split.)
+    2026-07-17 STEM AUDIT (every per-id probe site in src/engine/boot.c):
+
+        family       engine probe                 DOS 8.3 file     rule
+        walls        8x8d{b,c}<g><nnn>  (L6eea)   8X8D<g><nnn>     letter from
+                                                                   id band:
+                                                                   (id<10)?b:c
+        big pics     bigpi{c,x}<d><nnn> (L579e)   BIGP<d><nnn>     letter from
+                                                                   id band:
+                                                                   (id<248)?c:x
+        sprites      SPRIT<d><nnn>      (L541a)   SPRI<d><nnn>     expand
+        backdrops    back<g><nnn>       (l33ac)   Back<g><nnn>     identity
+        pictures     PIC[A-F]1<nnn>     (L541a)   PIC[A-F]1<nnn>   identity
+        portraits    CPIC1<nnn>         (jt56)    CPIC1<nnn>       identity
+
+    Every 8.3 spelling is the same uniform clip -- base[:4] + digit + id:03 --
+    which is exactly what the engine retries as a fallback (ADR-0013).  With
+    `dos83=True` the DOS stem is kept verbatim (extension swap only): the
+    output then fits a real GEMDOS/FAT volume and the engine finds it through
+    the ADR-0013 probe.  The default (expanded) spelling matches the primary
+    probe and real Mac FRUA.
     """
     base, ext = os.path.splitext(os.path.basename(dos_name))
     if ext.lower() != ".tlb":
         raise ValueError("expected a .TLB DOS art file: %r" % dos_name)
-    if base.upper().startswith("8X8D") and len(base) > 4 and base[4].isdigit():
+    up = base.upper()
+    if dos83:
+        return base + ".ctl"
+    if up.startswith("8X8D") and len(base) > 4 and base[4].isdigit():
         if len(base) != 8 or not base[4:].isdigit():
             raise ValueError("wall-set name %r is not 8X8D<g><nnn>" % base)
         group, setid = base[4], int(base[5:8])
         letter = "b" if setid < 10 else "c"
         return "8x8d%s%s%03d.ctl" % (letter, group, setid)
+    if up.startswith("BIGP") and len(base) == 8 and base[4:].isdigit():
+        digit, picid = base[4], int(base[5:8])
+        letter = "c" if picid < 248 else "x"      # L579e id band
+        return "bigpi%s%s%03d.ctl" % (letter, digit, picid)
+    if up.startswith("SPRI") and len(base) == 8 and base[4:].isdigit():
+        return "sprit%s.ctl" % base[4:8]
     return base.lower() + ".ctl"
 
 
@@ -585,10 +606,35 @@ def dos_name(mac_name_):
                 "wall-set name %r contradicts the L6eea id-band rule "
                 "(id %d wants '%s')" % (base, setid, want))
         return ("8X8D" + base[5:]).upper() + ".TLB"
+    if (low.startswith("bigpic") or low.startswith("bigpix")) \
+            and len(base) == 10 and base[6:].isdigit():
+        picid = int(base[7:10])
+        want = "c" if picid < 248 else "x"        # L579e id band
+        if low[5] != want:
+            raise ValueError(
+                "big-picture name %r contradicts the L579e id-band rule "
+                "(id %d wants '%s')" % (base, picid, want))
+        return ("BIGP" + base[6:]).upper() + ".TLB"
+    if low.startswith("sprit") and len(base) == 9 and base[5:].isdigit():
+        return ("SPRI" + base[5:]).upper() + ".TLB"
     return base.upper() + ".TLB"
 
 
 def main(argv):
+    # 8.3 output is the DEFAULT (ADR-0013). The expanded Mac-convention
+    # names are not just too long for a real GEMDOS/FAT volume -- on the
+    # Hatari GEMDOS mount they are a COLLISION HAZARD: the probe and the
+    # host names are both clipped to 8 chars before matching, so
+    # 8x8db1001/1003/1005/1008/1009.ctl all become "8x8db100.ctl" and the
+    # engine silently opens the FIRST one -- the wrong wall set, no error.
+    # Measured live (BEOWOLF, 2026-07-17). --mac-names emits the expanded
+    # spelling for use with real Mac FRUA (an HFS volume keeps long names).
+    dos83 = True
+    if argv and argv[0] == "--mac-names":
+        dos83 = False
+        argv = argv[1:]
+    elif argv and argv[0] == "--dos83":       # accepted, now the default
+        argv = argv[1:]
     if not argv:
         print(__doc__)
         return 2
@@ -602,7 +648,8 @@ def main(argv):
             rc = 1
             continue
         try:
-            dest = (mac_name(path) if data[:4] == HLIB else dos_name(path))
+            dest = (mac_name(path, dos83) if data[:4] == HLIB
+                    else dos_name(path))
         except ValueError as exc:
             print("SKIP %s: %s" % (path, exc), file=sys.stderr)
             rc = 1

@@ -167,6 +167,32 @@ def test_filename_mapping():
     assert dos_name("cpic1001.ctl") == "CPIC1001.TLB"
 
 
+def test_clipped_stems_expand_to_the_engine_probe_names():
+    # 2026-07-17 stem audit: the engine derives bigpi{c,x}<d><nnn> (L579e,
+    # letter from the id band at 248) and SPRIT<d><nnn> (L541a); DOS clips
+    # both stems to 4 chars.
+    assert mac_name("BIGP0245.TLB") == "bigpic0245.ctl"    # id 245 -> c
+    assert mac_name("BIGP0250.TLB") == "bigpix0250.ctl"    # id 250 -> x
+    assert mac_name("SPRI0052.TLB") == "sprit0052.ctl"
+    assert dos_name("bigpic0245.ctl") == "BIGP0245.TLB"
+    assert dos_name("bigpix0250.ctl") == "BIGP0250.TLB"
+    assert dos_name("sprit0052.ctl") == "SPRI0052.TLB"
+    # a letter contradicting the L579e band could not come from a DOS module
+    with pytest.raises(ValueError):
+        dos_name("bigpix0245.ctl")
+    with pytest.raises(ValueError):
+        dos_name("bigpic0250.ctl")
+
+
+def test_dos83_mode_keeps_the_stem_verbatim():
+    # ADR-0013: the engine retries base[:4]+digit+id:03, so extension-swap
+    # names both fit a real FAT volume and resolve in the port.
+    assert mac_name("BIGP0245.TLB", dos83=True) == "BIGP0245.ctl"
+    assert mac_name("8X8D1008.TLB", dos83=True) == "8X8D1008.ctl"
+    assert mac_name("SPRI0052.TLB", dos83=True) == "SPRI0052.ctl"
+    assert mac_name("CPIC1001.TLB", dos83=True) == "CPIC1001.ctl"
+
+
 def test_wall_set_names_follow_the_l6eea_id_band_rule():
     # The engine's own wall loader (CODE 7 L6eea) picks the letter from the
     # set-id band -- (id < 10) ? 'b' : 'c' -- so the DOS 8.3 collapse is
