@@ -828,3 +828,21 @@ ADR-0013 spellings — plus the HLIB-peek mono guard), ua_open_art
 (whole-file loads: TITLE/FRAME/MENU/GEN/BACK/ALWAYS), and l17e2's new
 design-first base-library probe (wall masters + combat libraries, the
 one art path that was still root-only; ADR-0011 applied).
+
+## ✅ UAINST.TTP — the native installer (2026-07-18, task #23 closed)
+
+`installer/main.c` + vendored public-domain miniz v1.14 + the shared
+artconv core = `uainst.ttp` (~171 KB stripped, 68000, runs on every
+Atari). ZIP -> extract into `<dest>/<MODULE>.DSN` (honours a `*.DSN/`
+folder inside the ZIP, else names it after the ZIP; entries flattened)
+-> colour `.ctl` twins + mono `.tlb` synthesis, same bytes as the
+offline pipeline.
+
+Verified: host build installs the real game39.zip with output
+byte-identical to the Python pipeline (191/191, `tests/test_installer.py`);
+the TTP itself ran the same install inside Hatari on an emulated 8 MHz
+ST (326 extracted, 191 converted, 189 mono, 0 failures), and the mono
+ST build then played the installed module on its OWN synthesized 1-bit
+art — the dithered POR causeway walls, straight from the installer.
+`make installer` builds it; the Atari release zips bundle it as
+UAINST.TTP. Amiga frontend awaits the Bebbo toolchain (ADR-0012).

@@ -434,12 +434,27 @@ clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES)
 	find src compat platform -name '*.o' -delete 2>/dev/null || true
 	find src compat platform -name '*.d' -delete 2>/dev/null || true
-	$(RM) frua frua.prg
+	$(RM) frua frua.prg uainst.ttp
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and
 # must keep the earlier binaries' packaged output. `distclean` wipes dist too.
 distclean: clean
 	$(RM) -r dist
+
+# --- installer ---------------------------------------------------------------
+#
+# uainst.ttp — the native fan-module installer (task #23 / ADR-0014):
+# ZIP -> extract into <dest>/<MODULE>.DSN -> convert all DOS art with the
+# same byte-exact core the engine links (colour .ctl twins + the mono
+# .tlb synthesis the engine deliberately never does on the fly).
+# A single 68000 build runs on every Atari. Drag the module ZIP onto it
+# from the desktop (TTP args), or run it bare and type the ZIP name.
+# ZIP reading is vendored public-domain miniz v1.14 (installer/miniz.c).
+installer: uainst.ttp
+uainst.ttp: installer/main.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
+	$(CC) -m68000 -msoft-float -std=gnu99 -O2 -fomit-frame-pointer \
+	    -o $@ installer/main.c installer/miniz.c src/convert/artconv.c
+	$(STRIP) $@
 
 # --- release ----------------------------------------------------------------
 #
@@ -472,7 +487,10 @@ define PKG_DIST
 	@cp README.md GAMEDATA.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
 	@cp tools/art_convert.py dist/$(1)/
 	@cp docs/converter-howto.md dist/$(1)/CONVERTER.md
-	@printf 'OpenUA (%s) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: never run on real hardware. Please report\nwhat happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\n%s\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping work.\nSee enhancements.md for the known gaps.\n\nNEW: PC (DOS) fan modules play with their own custom art. Convert a\nmodule'"'"'s art on your PC with the bundled art_convert.py (Python 3,\nno packages needed) — see CONVERTER.md. Every art format in the fan\ncorpus is supported, several proven byte-identical against SSI'"'"'s own\nMac files.\n' '$(3)' '$(VERSION)' '$(4)' > dist/$(1)/RELEASE.TXT
+	@case "$(1)" in *falcon*|*atari*) \
+		[ -f uainst.ttp ] && cp uainst.ttp dist/$(1)/UAINST.TTP || true;; \
+	esac
+	@printf 'OpenUA (%s) %s\n\nAn open reimplementation of SSI'"'"'s Unlimited Adventures engine.\n\nEMULATOR-VALIDATED ONLY: never run on real hardware. Please report\nwhat happens if you do.\n\nThis binary contains NO copyrighted game data. You supply your own\nfrua.rsc (built from your legally-obtained Unlimited Adventures copy;\nsee README) plus the design/data files; the engine reconstructs its\ninternal tables from frua.rsc at launch.\n\n%s\n\nAll 8 exploration commands work (MOVE AREA CAST VIEW ENCAMP SEARCH\nLOOK INV). Shops, temples, combat, save/load and equipping work.\nSee enhancements.md for the known gaps.\n\nNEW: PC (DOS) fan modules play with their own custom art — three ways.\nEasiest: just drop the module'"'"'s files into a .DSN folder; the engine\nconverts DOS art in place on first touch. Or install straight from the\nZIP with UAINST.TTP (extracts AND converts, including the 1-bit art the\nmono ST build needs). Or convert on your PC with the bundled\nart_convert.py (Python 3). See CONVERTER.md. Every art format in the\nfan corpus is supported, several proven byte-identical against SSI'"'"'s\nown Mac files.\n' '$(3)' '$(VERSION)' '$(4)' > dist/$(1)/RELEASE.TXT
 	@cd dist && zip -qr $(1).zip $(1)
 	@echo "release -> dist/$(1).zip  (redistributable: no game data embedded)"
 endef
@@ -484,6 +502,7 @@ strip-target:
 
 release:
 	$(MAKE) clean
+	$(MAKE) installer
 	$(MAKE) NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) strip-target
 	$(MAKE) test
@@ -508,6 +527,7 @@ release-amiga-ecs:
 # detection picks the backend — so this .prg is the "runs on any Atari" binary.
 release-ste:
 	$(MAKE) clean
+	$(MAKE) installer
 	$(MAKE) CPU68K=68000 NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) CPU68K=68000 strip-target
 	$(MAKE) test
@@ -523,4 +543,4 @@ release-all:
 
 -include $(DEP)
 
-.PHONY: all run run-ste run-mono run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
+.PHONY: installer all run run-ste run-mono run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target

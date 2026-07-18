@@ -1,10 +1,34 @@
-# Playing PC (DOS) fan modules — the art converter
+# Playing PC (DOS) fan modules
 
 OpenUA plays the community's FRUA modules. The design data
 (`GAME001/GEO*/MONST*/STRG*.DAT`) is byte-identical between the DOS and
 Mac releases and needs no conversion — but a PC module's **custom art**
-ships in the DOS `HLIB` format under DOS 8.3 names, which the engine
-(a Mac-release port) cannot read. `art_convert.py` converts it.
+ships in the DOS `HLIB` format under DOS 8.3 names. Three ways to play
+one, from easiest to most manual:
+
+## 1. Just drop it in (colour play)
+
+Unpack the module into a `<NAME>.DSN` folder in your OpenUA directory
+and play. The engine detects DOS art and **converts it in place on
+first touch** — the first load of each art file pauses briefly (a
+fraction of a second typically; a few seconds once for a big title
+screen on an 8 MHz ST), writes the converted `.ctl` next to the
+original, and never pays that cost again.
+
+The one thing this does NOT give you is 1-bit art for the mono
+(ST High) build — synthesizing it is far too slow to do during play,
+so the mono build shows the base game's art until you run the
+installer or the offline converter below.
+
+## 2. UAINST.TTP — install straight from the ZIP (Atari)
+
+Drag the module's ZIP onto `UAINST.TTP` from the desktop (or run it
+and type the ZIP name). It extracts the module into a `.DSN` folder
+and converts everything up front — colour **and** mono. A big module
+takes a few minutes on an ST, seconds-to-a-minute on a Falcon. Then
+pick the design with SELECT A DESIGN.
+
+## 3. art_convert.py — convert on your PC/Mac
 
 ## What you need
 
