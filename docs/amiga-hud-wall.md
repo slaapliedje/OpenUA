@@ -36,23 +36,53 @@ the command bar have **no text** — blank grey panels.
 converter hang, ADR-0015). The menu — light on memory and presents — is fine;
 the walk — heavy c2p/flip presents and the deep render recursion — freezes.
 
+## BREAKTHROUGH (2026-07-18): it is 68EC020-specific — the AGA build WORKS on a 68030
+
+Booting the identical `frua` under a **68030** amiberry config (`cpu_model=68030`,
+`mmu_model=68030`) instead of the A1200's stock **68EC020**: the walk runs to
+completion, `port_hud_text_clut` fires, and the **full HUD renders** — roster
+with AC/HP, compass + position "10,8" + clock, the AREA/CAST/VIEW command bar,
+the 3D dungeon (screenshot: `amiga_68030_hud.png`). The freeze is entirely
+gone. So the "blank HUD" was never a colour/CLUT or draw bug — it is the
+68EC020 walk **freeze**, and the freeze only happens on the MMU-less 020 core.
+
+Isolation: `68EC020 + cpu_compatible=true` still freezes (so it is NOT an
+emulation-accuracy setting); `68030` works. Signature — **fatal without an
+MMU, harmless with one** — is the classic wild / NULL-area access: on the
+68030+MMU the bad address lands in mapped RAM harmlessly; on the bare 68EC020
+it corrupts something and hangs.
+
+### MuForce does NOT apply here (important)
+
+MuForce/Enforcer require an **MMU**. The 68EC020 has none — so MuForce cannot
+run on the very CPU where the bug lives. Switching to a 68030 to get an MMU
+*removes the bug* (it works there), and MuForce also would not install on
+amiberry's 68030/68040 MMU emulation in this setup (no banner in its log — the
+mmu.library never took control; the full MMULib/SetPatch MMU init is needed and
+amiberry's 030 MMU emulation is incomplete). Net: **MuForce is the wrong tool
+for a 68EC020-only bug.** Abandoned.
+
 ## What it needs next
 
-An **Amiga memory debugger** (Enforcer or MuForce under amiberry) to catch the
-faulting access directly — log tracing has taken this as far as it can. The
-prime suspects to point it at, in order:
+The bug is a wild/NULL-area access that only bites on the MMU-less 68EC020, and
+MuForce can't reach it (see above). Options, best first:
 
-1. The render **unwind after `jt199`** (`render_3d_faithful` tail → `jt312`
-   tail → `jt935` tail): a **pointer** overrun that only trips on the Amiga's
-   memory layout. NOT stack depth — bumping `__stack` from 256 KB to 1 MB left
-   the freeze unchanged (2026-07-18), so rule stack out and look for a bad
-   pointer / buffer overrun (a write past an array, a stale handle, a
-   platform-address-dependent cast).
-2. The AGA display present path under the walk's pattern (`aga_present` /
-   `c2p_amiga` / the copper flip) — though `aga_present` itself has no loop.
+1. **Ship the AGA build for 68020 (68030 recommended).** It fully works on any
+   Amiga with an 030+ — a large fraction of AGA machines (A1200 with an 030/040
+   accelerator, A4000/030, A4000/040). Set the run/recommended AGA config to
+   68030 and note the stock-68EC020 caveat.
+2. **Find the 020 wild access by source bisection**, not a memory debugger:
+   binary-search the render-unwind path (`render_3d_faithful` tail → `jt312`
+   tail → `jt935` tail, after `jt199`/`j200_dump`) by short-circuiting pieces
+   and re-testing on the 68EC020 config until the freeze moves — a
+   platform-address-dependent pointer / a write past an array is the target.
+   NOT stack depth (256 KB → 1 MB `__stack` changed nothing).
+3. **Confirm whether it is even a real-hardware bug** vs an amiberry 68EC020
+   emulation artifact — needs a real 68EC020 A1200, or cross-checking against
+   another 020 emulator.
 
-Once the walk stops freezing and reaches `l63c0`, the HUD text should appear
-(the CLUT install is already correct — it just never runs today).
+Once the walk stops freezing on the 020, the HUD renders (the CLUT install is
+already correct — on the 68030 it already produces the complete HUD).
 
 ## Repro
 
