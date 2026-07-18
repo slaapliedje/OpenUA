@@ -1089,3 +1089,23 @@ re-apply the seed-only-suppression variant, dbg-dump the bracket rects
 for the diverging button (the diff sat at surface x 60..84 — CAST's
 left-cap region), and A/B the multi-piece sequence in the harness.
 The harness stays as the regression net.
+
+### Phase 2 runtime — the bracket lands (2026-07-17, 29th leg)
+
+#159 retried and ACCEPTED (15ef7e1). The rect-dump diagnostics turned
+the hunt into an elimination proof: zero coverage violations live (every
+suppressed seed inside the bracket's published rect); the harness's new
+A/B phase (two fake buttons through the REAL jt137, bracket off vs on,
+chunky byte-diffed) EQUIVALENT — even at the real bar's coordinates,
+where the first button's bracket starts at x = -7 and exercises the
+negative-left seed fallback. The stubborn 61-px real-bar delta is
+confined to chip-body regions in the inter-button overlaps — where the
+port is ALREADY wrong vs the real Mac (task #17 granite-through-caps;
+the Mac ref shows WHITE chips) — and moves the affected chip TOWARD the
+reference. Mechanism needs the real granite underlay (synthetic A/B
+can't reproduce it); the #17 white-chip fix will supersede the region
+entirely. Accepted on that basis, with the harness + coverage checks
+retained as the regression net.
+
+Speed: bar 66 -> 43 ticks, per-glyph seeds 84 -> 5 per compose. The
+command transition sheds another ~0.4 s.
