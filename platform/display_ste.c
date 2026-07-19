@@ -592,6 +592,20 @@ static void st_present_rect(short x, short y, short w, short h)
 	if (w <= 0 || h <= 0)
 		return;
 
+	/* ADR-0016 B2.2: when the requested rect lies entirely within the active
+	 * planar viewport, the composite below is authoritative for those pixels, so
+	 * the chunky c2p of that (frozen, composite-overwritten) region is pure waste
+	 * — skip it. The dungeon walk step presents exactly the 88x88 viewport rect,
+	 * so this drops its per-step cost from a full c2p of the rect to just the
+	 * plane blit. Other rects (chrome/text updates) take the normal c2p path. */
+	if (s_vp_active
+	    && x >= s_vp_x && y >= s_vp_y
+	    && (short)(x + w) <= (short)(s_vp_x + s_vp_w)
+	    && (short)(y + h) <= (short)(s_vp_y + s_vp_h)) {
+		st_vp_composite();
+		return;
+	}
+
 	x1 = (short)((x + w + 15) & ~15);        /* 16-pixel plane groups */
 	x  = (short)(x & ~15);
 	st_blit_rows(x, (short)(x1 - x), y, h);
