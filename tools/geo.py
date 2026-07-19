@@ -45,6 +45,62 @@ class GeoError(ValueError):
     pass
 
 
+# Event types, named from l709e's dispatch handlers (src/engine/boot.c).
+# Byte 0 of a 20-byte ENCR record selects one of these.
+EVENT_TYPES = {
+    0:  "(empty / chain-only)",
+    1:  "Combat",
+    2:  "Message / Text",
+    3:  "Give-Take treasure",
+    4:  "Affect-party effect",
+    5:  "Stairs / level change",
+    6:  "Training Hall",
+    7:  "Tavern",
+    8:  "Shop / merchant",
+    9:  "Give treasure / Temple",
+    10: "Encounter",
+    11: "Passage / level change",
+    12: "Scripted movement",
+    13: "HP percentage",
+    14: "Message (conditional)",
+    15: "Conditional event",
+    16: "(handler l6020)",
+    17: "Play sounds",
+    18: "Question outcome / branch",
+    19: "Question outcome / branch",
+    20: "Question outcome / branch",
+    21: "Encounter",
+    22: "Menu meta-event",
+    23: "(chain-only, via ev[8])",
+    24: "Vault",
+    25: "Give-Take treasure",
+    26: "Award experience",
+    27: "Pass time",
+    29: "Inn",
+    32: "Select member by class",
+    33: "Combat (fixed)",
+    34: "Passage / level change",
+    35: "Conditional-variable branch",
+    36: "Yes/No Question",
+    37: "Set standard rumors",
+    38: "Set quest-flag",
+}
+
+# Condition types = ev[1] >> 3 (l694e). Decides whether the event fires; the
+# parameter is ev[2]. Types 9..16 exist in l694e but aren't mapped here yet.
+EVENT_CONDITIONS = {
+    0: "always",
+    1: "design-flag set (rec[param+69] != 0)",
+    2: "design-flag clear (rec[param+69] == 0)",
+    3: "party NOT in class band 6..20",
+    4: "party in class band 6..20",
+    5: "percent chance (roll <= param)",
+    6: "rec[25] != 0",
+    7: "rec[25] == 0",
+    8: "party facing (param = N/E/S/W bitmask)",
+}
+
+
 class Geo:
     """A parsed GEO area. `.hdr`/`.map`/`.encr`/`.strg` are mutable bytearrays;
     the typed accessors below decode/encode fields within them."""
@@ -138,6 +194,33 @@ class Geo:
         if len(data) != EVENT_SIZE:
             raise GeoError("event must be %d bytes" % EVENT_SIZE)
         self.encr[idx * EVENT_SIZE:(idx + 1) * EVENT_SIZE] = data
+
+    def event_info(self, idx):
+        """Decode an event's common header (shared by every type; see
+        docs/geo-format.md). Returns None for an all-zero (empty) slot."""
+        ev = self.event(idx)
+        if not any(ev):
+            return None
+        cond_type = ev[1] >> 3
+        return {
+            "type":       ev[0],
+            "name":       EVENT_TYPES.get(ev[0], "(unmapped %d)" % ev[0]),
+            "once_only":  bool(ev[1] & 0x01),
+            "cond_type":  cond_type,
+            "cond_name":  EVENT_CONDITIONS.get(cond_type, "(cond %d)" % cond_type),
+            "cond_param": ev[2],   # flag index / percent / facing mask, per cond
+            "chain":      ev[3],   # auto next-event index (0 = none)
+            "flags":      ev[7],   # branch-control flag bits
+        }
+
+    def set_event_header(self, idx, type, cond_type=0, cond_param=0,
+                         chain=0, once_only=False):
+        """Write the common header of event `idx` (leaves param bytes intact)."""
+        o = idx * EVENT_SIZE
+        self.encr[o + 0] = type & 0xff
+        self.encr[o + 1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        self.encr[o + 2] = cond_param & 0xff
+        self.encr[o + 3] = chain & 0xff
 
     # ---- container round-trip ----
     @classmethod
@@ -239,8 +322,13 @@ def main(argv):
                 for c in range(g.width) for r in range(g.height)
                 if g.cell_special(c, r)]
     print("cells with an event hook:", len(specials), specials[:8])
-    events = [(i, g.event_type(i)) for i in range(MAX_EVENTS) if any(g.event(i))]
-    print("events:", len(events), events[:8])
+    events = [g.event_info(i) for i in range(MAX_EVENTS)]
+    events = [e for e in events if e]
+    print("events:", len(events))
+    for i, e in enumerate(events[:12]):
+        print("  [%2d] type %2d %-24s cond=%-8s param=%3d chain=%3d%s"
+              % (i, e["type"], e["name"], e["cond_name"].split(" (")[0],
+                 e["cond_param"], e["chain"], " once" if e["once_only"] else ""))
     return 0
 
 

@@ -65,10 +65,67 @@ cells past `width×height` are unused padding).
 
 ## ENCR — the event table (A5 `-13038`)
 
-**100 events × 20 bytes.** Cell `special` value *N* selects event `N-1`. Byte 0
-of a record is the **type** (`l709e`'s dispatch, JT[3] 0..38 — e.g. 1/33 = combat,
-34 seen in the tutorial). The other 19 bytes are type-specific parameters, not
-yet exhaustively mapped. A bare area with no events zero-fills this chunk.
+**100 events × 20 bytes.** A cell's `special` byte value *N* selects event
+`N-1`. The event dispatcher is `l709e` (`boot.c`), a `JT[3]` switch on byte 0.
+
+### Common header (every event type)
+
+| byte | field |
+|---|---|
+| 0 | **type** (0..38 — see the table below) |
+| 1 | **flags**: bit0 = *once-only* (fires once, then dead); bits 3..7 = **condition type** |
+| 2 | **condition parameter** — meaning depends on the condition type |
+| 3 | **auto-chain**: index of the next event to run (0 = none) — the default sequencing |
+| 7 | **branch-control flags** (bits tested by the branching types, e.g. 36/38) |
+| 8,9 | **branch targets / gate** — e.g. type 36 runs event `ev[8]` on yes, `ev[9]` on no |
+
+**Condition types** (`ev[1] >> 3`, checked in `l694e`; the parameter is `ev[2]`):
+
+| ct | fires when |
+|---|---|
+| 0 | always |
+| 1 | design flag `rec[param+69]` is set |
+| 2 | design flag `rec[param+69]` is clear |
+| 3 / 4 | party is NOT / IS in class band 6..20 |
+| 5 | a percent roll ≤ `param` (random chance) |
+| 6 / 7 | `rec[25]` ≠ 0 / == 0 |
+| 8 | party facing ∈ `param` bitmask (bit 0=N, 1=E, 2=S, 3=W) |
+
+Condition types 9..16 also occur in real data and exist in `l694e` but are not
+yet mapped here.
+
+### Event types
+
+Named from `l709e`'s handlers (`tools/geo.py` `EVENT_TYPES`):
+
+| type | name | | type | name |
+|---|---|---|---|---|
+| 0 | (empty / chain-only) | | 18–20 | Question outcome / branch |
+| 1 | **Combat** | | 21 | Encounter |
+| 2 | **Message / Text** (most common) | | 22 | Menu meta-event |
+| 3, 25 | Give-Take treasure | | 23 | (chain-only) |
+| 4 | Affect-party effect | | 24 | Vault |
+| 5, 11, 34 | Stairs / passage / level change | | 26 | Award experience |
+| 6 | Training Hall | | 27 | Pass time |
+| 7 | Tavern | | 29 | Inn |
+| 8 | Shop / merchant | | 32 | Select member by class |
+| 9 | Give treasure / Temple | | 33 | Combat (fixed) |
+| 10 | Encounter (prompt + outcome) | | 35 | Conditional-variable branch |
+| 12 | Scripted movement | | 36 | Yes/No Question |
+| 13 | HP percentage | | 37 | Set standard rumors |
+| 14 | Message (conditional) | | 38 | Set quest-flag |
+| 15 | Conditional event | | 16, 17 | (l6020), Play sounds |
+
+### Per-type parameters
+
+Beyond the common header, each type reads its own bytes; these are **partially
+mapped**. Notably **Combat** (1/33, `l159a`) is a picture+text+choices encounter:
+`ev[18]` bits 6–7 pick the picture base, `ev[6]`/`ev[14]` gate flags, and slots
+`ev[8..19]` hold up to six choice pairs (`e[8] & 31` = kind, `e[9]` = target).
+The remaining per-type byte layouts are a continued mapping effort — pick the
+types a module needs and lift their handlers.
+
+A bare area with no events zero-fills this chunk.
 
 ## STRG — the string table (A5 `-13034`)
 

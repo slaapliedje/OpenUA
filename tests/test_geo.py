@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 from geo import (Geo, GeoError, GEO_SIZE, HDR_SIZE, MAP_SIZE, ENCR_SIZE,
                  STRG_SIZE, MAX_CELLS, MAX_EVENTS, CELL_SIZE, EVENT_SIZE,
-                 VERSION_MAX)
+                 VERSION_MAX, EVENT_TYPES, EVENT_CONDITIONS)
 
 
 def test_blank_is_fixed_size():
@@ -116,6 +116,46 @@ def test_events():
 def test_capacity_constants():
     assert MAX_CELLS == 576 and MAP_SIZE == MAX_CELLS * CELL_SIZE
     assert MAX_EVENTS == 100 and ENCR_SIZE == MAX_EVENTS * EVENT_SIZE
+
+
+def test_event_info_empty_slot():
+    g = Geo.blank(4, 4)
+    assert g.event_info(0) is None            # all-zero slot -> empty
+
+
+def test_event_header_encode_decode():
+    g = Geo.blank(4, 4)
+    # Combat (type 1), fires on a 50% roll, once-only, chains to event 7.
+    g.set_event_header(0, type=1, cond_type=5, cond_param=50,
+                       chain=7, once_only=True)
+    g = Geo.parse(g.build())
+    e = g.event_info(0)
+    assert e["type"] == 1 and e["name"] == "Combat"
+    assert e["cond_type"] == 5 and "percent" in e["cond_name"]
+    assert e["cond_param"] == 50
+    assert e["chain"] == 7
+    assert e["once_only"] is True
+
+
+def test_event_header_condition_and_once_pack():
+    g = Geo.blank(4, 4)
+    g.set_event_header(1, type=2, cond_type=8, cond_param=0b0101)  # facing N|S
+    raw = g.event(1)
+    assert raw[0] == 2
+    assert (raw[1] >> 3) == 8 and (raw[1] & 1) == 0    # not once-only
+    assert raw[2] == 0b0101
+
+
+def test_event_type_and_condition_tables():
+    assert EVENT_TYPES[1] == "Combat"
+    assert EVENT_TYPES[2].startswith("Message")
+    assert EVENT_TYPES[33].startswith("Combat")
+    assert EVENT_CONDITIONS[0] == "always"
+    assert "percent" in EVENT_CONDITIONS[5]
+    # unmapped type falls back gracefully
+    g = Geo.blank(4, 4)
+    g.set_event_header(0, type=99)
+    assert "unmapped" in g.event_info(0)["name"]
 
 
 def test_parse_rejects_bad_dims():
