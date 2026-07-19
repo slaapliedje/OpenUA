@@ -89,7 +89,7 @@ case "$cmd" in
 	build)
 		cd "$REPO"; exec make "$@"
 		;;
-	start|shot|shots|dump|key|click|wait|dbg|log|quit)
+	start|shot|shots|dump|key|click|drag|wait|dbg|log|quit)
 		ensure_display
 		exec "$UI" "$cmd" "$@"
 		;;
@@ -131,7 +131,7 @@ case "$cmd" in
 		python3 "$REPO/tools/avi_audio.py" "$AVI" "$OUT"
 		;;
 	*)
-		echo "usage: $(basename "$0") build | start | shot <png> | shots <png> | key <keysym>... | click <x> <y> [button] | wait <regex> [n] | log | quit | stop | smoke <png> | sound <wav>" >&2
+		echo "usage: $(basename "$0") build | start | shot <png> | shots <png> | key <keysym>... | click <x> <y> [button] | drag <x1> <y1> <x2> <y2> [button] | wait <regex> [n] | log | quit | stop | smoke <png> | sound <wav>" >&2
 		exit 1
 		;;
 esac

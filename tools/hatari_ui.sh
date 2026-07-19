@@ -219,6 +219,39 @@ click)
 	sleep 0.3
 	echo "hatari_ui: click $btn at window($cx,$cy) = screen($sx,$sy)"
 	;;
+drag)
+	# Press-hold-drag-release: press at (X1,Y1), travel to (X2,Y2) in steps,
+	# then release. FRUA (a Mac port) uses press-and-DRAG pulldown menus — the
+	# FILE / MAP / UTILITIES bars in the GEO editor DROP only while the button
+	# is held and select on release over an item; an atomic `click` (press+
+	# release in place) can't drive them, but a drag can:
+	#   drag <title_x> <title_y> <item_x> <item_y> [button]
+	# Coordinates are screenshot pixels (window-relative, same as `click`).
+	# The stepped travel + settles work around Hatari's IKBD rate-limiting of
+	# synthesized relative motion (a single long jump can fire the release
+	# mid-travel — see the `click` note).
+	[[ $# -ge 4 ]] || die "drag needs X1 Y1 X2 Y2 (window-relative pixels)"
+	x1="$1"; y1="$2"; x2="$3"; y2="$4"; btn="${5:-1}"
+	WID="$(cat "$STATE/wid" 2>/dev/null)"; [[ -n "$WID" ]] || WID="$(find_window)"
+	xdotool windowactivate --sync "$WID" 2>/dev/null \
+		|| { xdotool windowraise "$WID" 2>/dev/null; xdotool windowfocus "$WID" 2>/dev/null; }
+	eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)"
+	ox="${X:-0}"; oy="${Y:-0}"
+	# settle at the title, press
+	xdotool mousemove "$((ox + x1))" "$((oy + y1))"; sleep 0.4
+	xdotool mousemove "$((ox + x1))" "$((oy + y1))"; sleep 0.3
+	xdotool mousedown "$btn"; sleep 0.5
+	# travel to the item in 6 steps so the dropped menu tracks the pointer
+	for i in 1 2 3 4 5 6; do
+		xdotool mousemove \
+			"$((ox + x1 + (x2 - x1) * i / 6))" \
+			"$((oy + y1 + (y2 - y1) * i / 6))"
+		sleep 0.12
+	done
+	xdotool mousemove "$((ox + x2))" "$((oy + y2))"; sleep 0.4
+	xdotool mouseup "$btn"; sleep 0.3
+	echo "hatari_ui: drag $btn ($x1,$y1)->($x2,$y2)"
+	;;
 dbg)
 	# Drive the Hatari debugger headlessly over the command FIFO. Stock Hatari
 	# 2.4.1+ speaks `hatari-debug <cmd>` over --cmd-fifo, so this works on the

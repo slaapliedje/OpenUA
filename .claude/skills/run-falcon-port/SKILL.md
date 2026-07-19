@@ -101,6 +101,8 @@ D=.claude/skills/run-falcon-port/driver.sh
 "$D" shots /tmp/frua.png   # X-grab screenshot (waits for the frame to settle)
 "$D" key e                 # send keystrokes — MENU HAS LETTER ACCELERATORS (e=Edit
                            #   Modules, p=Play); inside dialogs n=NEXT, p=PREV
+"$D" click 150 298         # click a display pixel (works: --mousewarp no). See Gotchas
+"$D" drag 85 65 85 92      # press-drag-release — Mac pulldown menus (FILE/MAP/UTILITIES)
 "$D" wait 'regex' [n]      # block until the conout log has >= n matches
 "$D" log                   # dump the conout log (engine printf / dbg_log)
 "$D" dbg '<cmd>'           # run a Hatari-debugger command (see below)
@@ -282,16 +284,40 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
   PREV). This is the RELIABLE way to reach the design editor and other "mouse-
   only"-looking screens. Verified: `key e` opens the record editor, `key n`
   pages it. Prefer this over the mouse.
-- **Synthetic MOUSE clicks are UNRELIABLE here (use the keyboard accels above).**
-  Tried both windowed and fullscreen (`HATARI_ARGS="-f"`). Windowed: teleport
-  clicks don't move the ST cursor; a gradual step-in makes motion register but it
-  drifts (relative-mode). Fullscreen + `hatari-shortcut mousegrab` (over the FIFO)
-  DOES move the FRUA cursor via `xdotool mousemove_relative`, but button clicks
-  still don't land on FRUA UI — Hatari's ST-mouse position (a fixed centre
-  crosshair in grab mode) desyncs from FRUA's drawn cursor, so the click hits a
-  dead zone. Net: motion is drivable, precise clicking is not. Use keyboard
-  accels; they cover the menu + editor. (Only two FIFO shortcuts exist:
-  `mousegrab`, `screenshot`.)
+- **Synthetic MOUSE clicks DO inject** — `driver.sh click <x> <y> [btn]` works
+  because `start` bakes in `--mousewarp no` (with warp ON, Hatari runs the host
+  pointer relative/grabbed and absolute XTEST positioning is consumed, so clicks
+  land nowhere; warp OFF, XTEST button events register — same path as `key`).
+  Verified live 2026-07-18: clicking the GEO map editor's 3D view moves the edit
+  cursor; clicking a menu button navigates. **Prefer keyboard accels anyway**
+  (above) for *reaching* screens — they're drift-free — and use clicks for the
+  in-view work keys can't do (editor cell placement). Click caveats:
+  - **Targeting is only stable WITHIN one video mode.** A mode change (menu →
+    editor → GEM desktop) makes Hatari destroy+recreate its SDL window, so the
+    window id churns (the driver re-finds it per call; a *cached* id goes stale
+    → `BadWindow`) and the screenshot size shifts (menu 688×526, GEM 648×602) so
+    screenshot↔window pixel mapping is no longer 1:1. Re-screenshot after any
+    transition and read coordinates off THAT frame.
+  - IKBD rate-limits synthesized motion, so a long jump can fire mid-travel; the
+    `click`/`drag` helpers do a double-move + settle to absorb it.
+- **FILE / MAP / UTILITIES in the editor are Mac press-DRAG menus** — they drop
+  only while the button is held and select on release over an item. An atomic
+  `click` can't drive them; use **`driver.sh drag <x1> <y1> <x2> <y2> [btn]`**
+  (press at the title, travel to the item in steps, release). Verify the
+  selection by its EFFECT (a dialog, a state change, a saved file), not by trying
+  to photograph the dropped menu.
+- **NEVER screenshot while a mouse button is held.** A held button under Hatari's
+  SDL grab + a screenshot tool competing for the X server DEADLOCKS the whole
+  `:99` display (even `xdotool mouseup`/`xwininfo` then block); recovery is
+  `pkill -9 -x hatari`. So: don't try to capture a menu mid-hold — always let
+  `drag` complete (it releases) and screenshot after. If the display ever hangs,
+  a stuck held button is the first suspect: `pkill -9 -x hatari` clears the grab.
+- **Headless GEO-editor testing recipe:** reach it by keyboard (`key e` → Edit
+  Modules, `key Return` → Open the highlighted module — reliable), `click` inside
+  the 3D map view for cell edits, `drag` the FILE/MAP/UTILITIES menus, then
+  **assert by saving and re-reading**: drive FILE → Save, and parse the written
+  `GEO<NNN>.DAT` offline with `tools/geo.py` (`Geo.parse`) — a file roundtrip is a
+  far more robust assertion than a pixel diff of the mouse-driven view.
 - **`shots` prints a harmless `[[: arithmetic syntax error` line** under Xvfb
   (the `magick compare` AE metric trips `set -o pipefail` when frames differ).
   It self-recovers and still saves a correct settled frame — ignore the stderr.
