@@ -192,7 +192,16 @@ static long install_supervisor(void)
 
 	g_old_conterm  = CONTERM;               /* silence the keyboard click */
 	g_conterm_saved = 1;
+#ifdef FRUA_KEYCLICK
+	/* Debug builds (-DFRUA_KEYCLICK): FORCE the click ON instead. Every
+	 * BIOS-accepted keystroke then pulses the YM2149, so a sound capture of a
+	 * scripted key sequence is ground truth for which keys the emulated
+	 * machine actually received and when — the harness's key-drop/lag oracle
+	 * (task #56). */
+	CONTERM        = (unsigned char)(g_old_conterm | CONTERM_CLICK);
+#else
 	CONTERM        = (unsigned char)(g_old_conterm & ~CONTERM_CLICK);
+#endif
 	return 0;
 }
 
