@@ -7194,12 +7194,17 @@ static short jt995(short top, short left, short style, short size_high,
 			 || (short)(top + height) > (short)(g_msh_top + g_msh_h)
 			 || s0 < (short)(g_msh_left - 16)
 			 || s1 > (short)(g_msh_left + g_msh_w + 16)) {
+#ifdef FRUA_MONO_BRKT   /* the #159 bracket self-locator — separate from the
+                        * present profiler: its per-glyph dbg_log spam starves
+                        * the 8 MHz ST, so it is NOT pulled in by FRUA_MONOPROF */
 				dbg_log_num("BRKT VIOLATION top/h ",
 				            ((long)(unsigned short)top << 16)
 				            | (unsigned short)height);
 				dbg_log_num("BRKT VIOLATION l/w8  ",
 				            ((long)(unsigned short)left << 16)
 				            | (unsigned short)(wbytes * 8));
+#endif
+				(void)s0; (void)s1;
 			}
 		}
 #endif
@@ -90227,6 +90232,7 @@ static short jt137(void *rec_v, short msg, ...)
 #ifdef FRUA_MONOPROF
 				g_msh_top = br_top;  g_msh_left = br_left;
 				g_msh_w   = br_w;    g_msh_h    = br_h;
+#ifdef FRUA_MONO_BRKT   /* per-bracket dump — see the note at the #159 locator */
 				dbg_log_num("BRKT rect T/L        ",
 				            ((long)(unsigned short)br_top << 16)
 				            | (unsigned short)br_left);
@@ -90236,7 +90242,8 @@ static short jt137(void *rec_v, short msg, ...)
 				dbg_log_num("BRKT xr/n            ",
 				            ((long)(unsigned short)xr << 16)
 				            | (unsigned short)n);
-#endif
+#endif /* FRUA_MONO_BRKT */
+#endif /* FRUA_MONOPROF */
 				l4d88();        /* flush pending text first */
 				mono_rows(br_top, (short)(br_left - 16),
 				          br_h, (short)(br_w + 32), 1);
