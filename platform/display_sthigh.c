@@ -193,17 +193,28 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 
 		/* #156: unrolled pack — g_dsp_ink[] is 0/1, so each bit is a
 		 * shift of the lookup, no per-pixel test-branch or variable
-		 * 0x80>>k. ~1.6x on the inner loop, which runs for every packed
-		 * row of every present. */
+		 * 0x80>>k. This runs for every packed row of every present, so
+		 * it is the mono hotspot.
+		 *
+		 * Shift-ACCUMULATE form (2026-07-19, host-benchmarked, byte-
+		 * identical to the fixed-shift form it replaced): build the byte
+		 * MSB-first with a running `b = (b<<1) | ink`. On the 68000 this
+		 * compiles to `add.l d0,d0` (a constant-8-cycle shift-left-1)
+		 * plus `or.b (a1,d2.l),d0` (LUT load folded into the OR) per
+		 * pixel — vs the old form's `lsl.b #7/#6/#5/#4` variable shifts,
+		 * each 6+2N cycles (up to 20). ~43 vs 54 insns / 0 vs 5 shifts
+		 * in the inner loop (m68k-atari-mint-gcc -O2). `b` never exceeds
+		 * 8 bits, so the (unsigned char) truncation is a no-op. */
 		while (s < e) {
-			*d++ = (unsigned char)((g_dsp_ink[s[0]] << 7)
-			                     | (g_dsp_ink[s[1]] << 6)
-			                     | (g_dsp_ink[s[2]] << 5)
-			                     | (g_dsp_ink[s[3]] << 4)
-			                     | (g_dsp_ink[s[4]] << 3)
-			                     | (g_dsp_ink[s[5]] << 2)
-			                     | (g_dsp_ink[s[6]] << 1)
-			                     |  g_dsp_ink[s[7]]);
+			unsigned b = g_dsp_ink[s[0]];
+			b = (b << 1) | g_dsp_ink[s[1]];
+			b = (b << 1) | g_dsp_ink[s[2]];
+			b = (b << 1) | g_dsp_ink[s[3]];
+			b = (b << 1) | g_dsp_ink[s[4]];
+			b = (b << 1) | g_dsp_ink[s[5]];
+			b = (b << 1) | g_dsp_ink[s[6]];
+			b = (b << 1) | g_dsp_ink[s[7]];
+			*d++ = (unsigned char)b;
 			s += 8;
 		}
 		memcpy(s_shadow + (long)yy * SURF_W + x0, src, (size_t)w);
