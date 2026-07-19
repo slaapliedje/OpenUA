@@ -71,6 +71,16 @@ static short          s_ints_on;
 static unsigned char           s_clut[256 * 3];
 static unsigned char           s_band_pal[ST_NBANDS * ST_NCOL * 3];
 static unsigned char           s_band_remap[ST_NBANDS * 256];
+/* ADR-0016 B1: the CLUT the current band palettes were built from. A re-band
+ * (median-cut over 32000 sampled pixels + 10 per-band reduces) is the ST's big
+ * per-scene-change cost, and set_palette marks the bands dirty on EVERY
+ * substantial load — including the engine's defensive re-installs of a palette
+ * that did not change (a full recompose re-seats the same granite/menu CLUT).
+ * The band palettes are a function of the CLUT (the scene's colour identity;
+ * pixel-only changes never re-band — walking reuses them), so a re-band whose
+ * CLUT matches this snapshot would reproduce the same palettes: skip it. */
+static unsigned char           s_clut_banded[256 * 3];
+static short                   s_banded_valid;
 short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
 short *st_band_ptr;                             /* next band for Timer B */
 static short                   s_dirty;
@@ -312,6 +322,8 @@ static void st_reband(void)
 	}
 	for (i = 0; i < ST_NCOL; i++)
 		st_band_stpal[ST_NBANDS][i] = st_band_stpal[ST_NBANDS - 1][i];
+	memcpy(s_clut_banded, s_clut, sizeof s_clut);   /* B1: snapshot the CLUT */
+	s_banded_valid = 1;
 	s_dirty = 0;
 	s_have_pal = 1;
 	s_force_full = 1;               /* every LUT moved: row diffing is void */
@@ -481,7 +493,7 @@ static void st_vp_composite(void)
  * ticks spent inside present and the rows actually converted. TickCount is
  * the compat layer's 60Hz tick — a layering reach-down, debug-only. */
 extern long TickCount(void);
-static long sp_n, sp_rows, sp_in, sp_wall0 = -1, sp_reband;
+static long sp_n, sp_rows, sp_in, sp_wall0 = -1, sp_reband, sp_reband_skip;
 long g_stprof_rows;                     /* incremented in st_blit_rows */
 #endif
 
@@ -495,8 +507,19 @@ static void st_present(void)
 	if (s_dirty)
 		sp_reband++;
 #endif
-	if (s_dirty)
-		st_reband();
+	if (s_dirty) {
+		/* B1: only re-band when the CLUT actually moved since the last one;
+		 * a matching CLUT would reproduce the same band palettes. */
+		if (s_banded_valid &&
+		    memcmp(s_clut, s_clut_banded, sizeof s_clut) == 0) {
+			s_dirty = 0;
+#ifdef FRUA_STPROF
+			sp_reband_skip++;
+#endif
+		} else {
+			st_reband();
+		}
+	}
 	st_blit_full();
 	st_vp_composite();                       /* overlay the planar viewport */
 #ifdef FRUA_STPROF
@@ -508,6 +531,7 @@ static void st_present(void)
 		dbg_log_num("stprof: in-present ticks = ", sp_in);
 		dbg_log_num("stprof: rows converted = ", sp_rows);
 		dbg_log_num("stprof: rebands = ", sp_reband);
+		dbg_log_num("stprof: reband skips = ", sp_reband_skip);
 	}
 #endif
 }
