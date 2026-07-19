@@ -1,5 +1,12 @@
 # GEO / design-editor cluster — worklist (ADR-0008 phase-2)
 
+> **DONE (2026-07-07).** The whole CODE 11 GEO editor — `jt243` + `jt242` + the
+> hub `l28d4` + all ~40 helpers — is faithfully lifted (details in the C-phase
+> notes below). This file is the lift-campaign record; for what the editor
+> *does* (tool palette, cell data model, relationship to `tools/geo.py`) see the
+> operational spec **[geo-editor.md](geo-editor.md)**. The editor stays dormant
+> (mouse-gated) until the ADR-0006 editor UI is wired.
+
 Opening the last big cluster: the **design editor** (jt315 main menu →
 EDIT MODULES). ADR-0008 defers the tools behind the runtime; the runtime
 is ~96% done, so this is the sanctioned phase-2 work. Scope is unchanged

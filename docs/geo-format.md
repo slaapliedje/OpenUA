@@ -368,3 +368,11 @@ are optional. Placing the area in a design and making it the "begins in" area
 ```
 python3 tools/geo.py path/to/GEO001.DAT   # dump a summary of an existing area
 ```
+
+## The in-engine editor
+
+`geo.py` is the offline, headless-testable way to build an area. The engine
+also ships an **interactive map editor** (`jt243`) that edits the same GEO cell
+table and saves the same container — see [geo-editor](geo-editor.md) for its
+tool palette and data model. It is fully lifted but dormant (mouse-gated), so
+`geo.py` is the validatable authoring path today.
