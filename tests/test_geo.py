@@ -193,6 +193,60 @@ def test_combat_on_non_combat_event_raises():
         g.combat(0)
 
 
+def test_treasure_build_decode():
+    g = Geo.blank(8, 8)
+    g.set_treasure(0, platinum=1500, gems=6, jewelry=2, items=[85, 224])
+    g = Geo.parse(g.build())
+    t = g.treasure(0)
+    assert t["type"] == 3
+    assert t["platinum"] == 1500
+    assert t["gems"] == 6 and t["jewelry"] == 2
+    assert t["items"] == [85, 224]
+    assert g.event_info(0)["name"] == "Give-Take treasure"
+
+
+def test_treasure_field_encoding():
+    g = Geo.blank(8, 8)
+    g.set_treasure(0, platinum=0x010203, gems=0x0405, jewelry=0x0607,
+                   items=[9, 10])
+    raw = g.event(0)
+    assert struct.unpack_from("<I", bytes(raw), 4)[0] == 0x010203  # LE u32
+    assert struct.unpack_from("<H", bytes(raw), 8)[0] == 0x0405    # LE u16
+    assert struct.unpack_from("<H", bytes(raw), 10)[0] == 0x0607
+    assert raw[12] == 9 and raw[13] == 10                          # item slots
+
+
+def test_treasure_take_variant_is_type_25():
+    g = Geo.blank(8, 8)
+    g.set_treasure(0, gems=3, take=True)
+    assert g.event(0)[0] == 25
+    assert g.treasure(0)["gems"] == 3
+
+
+def test_treasure_platinum_bit31_cleared():
+    g = Geo.blank(8, 8)
+    g.set_treasure(0, platinum=0x7fffffff)
+    assert g.treasure(0)["platinum"] == 0x7fffffff
+    assert not (g.event(0)[7] & 0x80)   # nothing bled into the item flag byte
+
+
+def test_treasure_rejects_bad_args():
+    g = Geo.blank(8, 8)
+    with pytest.raises(GeoError):
+        g.set_treasure(0, items=[1] * 9)          # > 8 items
+    with pytest.raises(GeoError):
+        g.set_treasure(0, items=[0])              # item id 0
+    with pytest.raises(GeoError):
+        g.set_treasure(0, gems=70000)             # > u16
+
+
+def test_treasure_on_non_treasure_raises():
+    g = Geo.blank(8, 8)
+    g.set_combat(0, [(1, 1)])
+    with pytest.raises(GeoError):
+        g.treasure(0)
+
+
 def test_passage_build_decode():
     g = Geo.blank(8, 8)
     g.set_passage(0, dest_area=6, x=3, y=4, facing=2)

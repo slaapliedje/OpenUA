@@ -270,6 +270,52 @@ class Geo:
             rec[9 + s * 2] = mid & 0xff
         self.encr[o:o + EVENT_SIZE] = rec
 
+    # ---- Treasure events (type 3 / 25) — l28b0 ----
+    def treasure(self, idx):
+        """Decode a Give/Take-Treasure event. Returns {platinum, gems, jewelry,
+        items: [item_id, ...]}. Type 3 gives + refreshes the view; type 25 gives
+        only. Money -> the -25314/-25310/-25306 pool; items -> jt187."""
+        ev = self.event(idx)
+        if ev[0] not in (3, 25):
+            raise GeoError("event %d is type %d, not Treasure (3/25)"
+                           % (idx, ev[0]))
+        b = bytes(ev)
+        return {
+            "type":     ev[0],
+            "platinum": struct.unpack_from("<I", b, 4)[0] & 0x7fffffff,
+            "gems":     struct.unpack_from("<H", b, 8)[0],
+            "jewelry":  struct.unpack_from("<H", b, 10)[0],
+            "items":    [ev[12 + k] for k in range(8) if ev[12 + k]],
+        }
+
+    def set_treasure(self, idx, platinum=0, gems=0, jewelry=0, items=(),
+                     take=False, cond_type=0, cond_param=0, chain=0,
+                     once_only=False):
+        """Build a Treasure event: award `platinum`/`gems`/`jewelry` and up to 8
+        item ids. take=True builds type 25 (give only, no view refresh) instead
+        of type 3."""
+        if not (0 <= platinum <= 0x7fffffff):
+            raise GeoError("platinum must be 0..0x7fffffff")
+        if not (0 <= gems <= 0xffff and 0 <= jewelry <= 0xffff):
+            raise GeoError("gems/jewelry must be 0..65535")
+        items = list(items)
+        if len(items) > 8:
+            raise GeoError("at most 8 items")
+        o = idx * EVENT_SIZE
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 25 if take else 3
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        struct.pack_into("<I", rec, 4, platinum & 0x7fffffff)   # LE, bit31 clear
+        struct.pack_into("<H", rec, 8, gems & 0xffff)
+        struct.pack_into("<H", rec, 10, jewelry & 0xffff)
+        for k, iid in enumerate(items):
+            if not (1 <= iid <= 255):
+                raise GeoError("item id %d out of 1..255" % iid)
+            rec[12 + k] = iid & 0xff
+        self.encr[o:o + EVENT_SIZE] = rec
+
     # ---- Passage / transfer events (type 5 / 11 / 34) — l5676 ----
     def passage(self, idx):
         """Decode a Passage event. For a type-11 level change: {dest_area (the
@@ -572,6 +618,10 @@ def main(argv):
         elif e["type"] in (5, 11, 34):
             p = g.passage(i)
             extra = "  -> area %d" % p["dest_area"]
+        elif e["type"] in (3, 25):
+            t = g.treasure(i)
+            extra = "  %dpp %dg %dj items=%r" % (t["platinum"], t["gems"],
+                                                 t["jewelry"], t["items"])
         print("  [%2d] %-24s cond=%-14s chain=%3d%s%s"
               % (i, e["name"], e["cond_name"].split(" (")[0], e["chain"],
                  " once" if e["once_only"] else "", extra))

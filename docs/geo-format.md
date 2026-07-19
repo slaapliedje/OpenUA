@@ -193,10 +193,31 @@ Verified against 947 real passages (`dest_area` decode, 0 mismatches). Linking
 areas in `tools/dsn.py`: `d.add_area(5, a5); d.add_area(6, a6)` and a `set_passage`
 in area 5 pointing at 6.
 
+### Treasure event (types 3 & 25) — mapped
+
+The loot event (`l28b0`). **Type 3** gives the treasure and refreshes the view;
+**type 25** gives only. Money stages into the party pool, items via `jt187`.
+
+| byte | field |
+|---|---|
+| 4–7 | **platinum** — little-endian u32, bit31 cleared |
+| 8–9 | **gems** — little-endian u16 |
+| 10–11 | **jewelry** — little-endian u16 |
+| 12–19 | up to eight **item id** slots (1..255; 0 = empty) |
+
+```python
+g.set_treasure(idx=3, platinum=100, gems=6, jewelry=2, items=[85])   # 100pp + a ring
+g.treasure(3)   # {'platinum': 100, 'gems': 6, 'jewelry': 2, 'items': [85], ...}
+```
+
+Verified against 748 real treasure events (0 mismatches) + round-trip. Item ids
+index the design's item library; gems/jewelry later convert to XP when appraised.
+
 ### Other per-type parameters
 
-Combat, Message and Passage are mapped to the byte. The remaining types read
-their own bytes — a continued effort, best done per type as a module needs it.
+Combat, Message, Passage and Treasure are mapped to the byte. The remaining
+types read their own bytes — a continued effort, best done per type as a module
+needs it.
 
 A bare area with no events zero-fills this chunk.
 
