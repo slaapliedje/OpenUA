@@ -68,4 +68,25 @@ void planar_blit_cpu(const planar_piece_t *piece,
                      unsigned char *const dst_planes[], short dst_stride,
                      short dst_w, short dst_h, short x, short y);
 
+/*
+ * Composite a fully-painted separate-plane region (the dungeon viewport buffer:
+ * `nplanes` planes, `src_planes[p]` each `src_stride` bytes/row, `src_w`x`src_h`,
+ * MSB-first) into ST-Low INTERLEAVED screen memory at (dx, dy), clipped to
+ * (dst_w x dst_h). ST-Low packs `nplanes` big-endian words per 16-pixel group:
+ * plane p's word for group g at `dst + y*dst_line_bytes + g*nplanes*2 + p*2`.
+ *
+ * This is the ST side of the native-planar composite (ADR-0016 phase 2): the
+ * engine renders the dungeon into a separate-plane viewport buffer with
+ * planar_blit_cpu, then the STE backend drops it into the viewport hole here —
+ * NO c2p. Opaque rectangular overwrite (transparency was already resolved when
+ * the pieces blitted into the buffer); byte-oriented so it is endianness-neutral
+ * (host-testable) and correct on the 68k big-endian screen. Handles a
+ * non-16-aligned dx per pixel. This is the plain-ST CPU fallback; the STe/Amiga
+ * blitter path (phase 4) does the same rearrange in hardware.
+ */
+void planar_blit_stlow(unsigned char *const src_planes[], short src_stride,
+                       short src_w, short src_h, short nplanes,
+                       unsigned char *dst, short dst_line_bytes,
+                       short dst_w, short dst_h, short dx, short dy);
+
 #endif /* PLATFORM_PLANAR_H */

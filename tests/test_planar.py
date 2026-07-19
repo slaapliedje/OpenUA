@@ -148,12 +148,10 @@ int main(void)
 """
 
 
-@pytest.mark.skipif(shutil.which("cc") is None and shutil.which("gcc") is None,
-                    reason="no host C compiler")
-def test_planar_convert_and_blit(tmp_path):
+def _compile_run(tmp_path, harness):
     cc = shutil.which("cc") or shutil.which("gcc")
     src = tmp_path / "h.c"
-    src.write_text(HARNESS)
+    src.write_text(harness)
     exe = tmp_path / "h"
     subprocess.run(
         [cc, "-O2", "-Wall", "-Wextra", "-Werror",
@@ -164,3 +162,103 @@ def test_planar_convert_and_blit(tmp_path):
     out = subprocess.run([str(exe)], capture_output=True, text=True)
     assert out.returncode == 0, out.stdout + out.stderr
     assert out.stdout.strip().endswith("OK"), out.stdout
+
+
+@pytest.mark.skipif(shutil.which("cc") is None and shutil.which("gcc") is None,
+                    reason="no host C compiler")
+def test_planar_convert_and_blit(tmp_path):
+    _compile_run(tmp_path, HARNESS)
+
+
+# ST-Low composite: a fully-painted separate-plane region dropped into an
+# interleaved 4-plane ST-Low screen at an UNALIGNED dx must reconstruct exactly,
+# leaving pixels outside the region untouched. Byte-oriented -> endianness-neutral.
+HARNESS_STLOW = r"""
+#include <stdio.h>
+#include <string.h>
+#include "planar.h"
+
+#define SW 20              /* source region: 20x10, odd of 16 => spans 2 groups */
+#define SH 10
+#define NP 4               /* ST-Low = 4 planes */
+#define SSTRIDE PLANAR_STRIDE(SW)
+
+#define DW 48              /* dst screen: 48 wide (3 groups), 16 tall */
+#define DH 16
+#define DLB (DW * NP / 8)  /* interleaved bytes/row = DW/16 groups * NP*2 = 24 */
+#define DX 5               /* UNALIGNED destination x */
+#define DY 3
+
+static int recon_dst(const unsigned char *dst, int X, int Y)
+{
+	int g = X >> 4, bit = X & 15, dbyte = bit >> 3, p, idx = 0;
+	unsigned char m = 0x80 >> (bit & 7);
+	for (p = 0; p < NP; p++)
+		if (dst[(long)Y * DLB + (long)g * NP * 2 + p * 2 + dbyte] & m)
+			idx |= (1 << p);
+	return idx;
+}
+static int recon_src(unsigned char *const sp[], int x, int y)
+{
+	int p, idx = 0;
+	unsigned char m = 0x80 >> (x & 7);
+	for (p = 0; p < NP; p++)
+		if (sp[p][(long)y * SSTRIDE + (x >> 3)] & m) idx |= (1 << p);
+	return idx;
+}
+
+int main(void)
+{
+	static unsigned char chunky[SW * SH];
+	static unsigned char planebuf[SSTRIDE * SH * NP];
+	static unsigned char maskbuf[SSTRIDE * SH];
+	static unsigned char dst[DLB * DH];
+	unsigned char remap[256], trans[256];
+	unsigned char *sp[NP];
+	planar_piece_t pc;
+	int x, y, p, fails = 0, BG = 10;
+
+	for (x = 0; x < 256; x++) { remap[x] = (unsigned char)(x & 15); trans[x] = 0; }
+	for (y = 0; y < SH; y++)
+		for (x = 0; x < SW; x++)
+			chunky[y * SW + x] = (unsigned char)((x + y * 5) & 15);
+
+	/* Build the separate-plane region via the phase-1 converter (no transparency). */
+	pc.w = SW; pc.h = SH; pc.nplanes = NP; pc.planes = planebuf; pc.mask = maskbuf;
+	chunky_to_planar_piece(chunky, SW, SW, SH, remap, trans, &pc);
+	for (p = 0; p < NP; p++) sp[p] = planebuf + (long)p * SSTRIDE * SH;
+
+	/* Seed the whole dst screen to a nonzero background index. */
+	for (y = 0; y < DH; y++)
+		for (x = 0; x < DW; x++) {
+			int g = x >> 4, bit = x & 15, db = bit >> 3;
+			unsigned char m = 0x80 >> (bit & 7);
+			for (p = 0; p < NP; p++) {
+				unsigned char *d = dst + (long)y * DLB + (long)g*NP*2 + p*2 + db;
+				if ((BG >> p) & 1) *d |= m; else *d &= ~m;
+			}
+		}
+
+	planar_blit_stlow(sp, SSTRIDE, SW, SH, NP, dst, DLB, DW, DH, DX, DY);
+
+	for (y = 0; y < DH; y++) {
+		for (x = 0; x < DW; x++) {
+			int sx = x - DX, sy = y - DY, want, got = recon_dst(dst, x, y);
+			int in = (sx >= 0 && sx < SW && sy >= 0 && sy < SH);
+			want = in ? recon_src(sp, sx, sy) : BG;
+			if (got != want) {
+				printf("FAIL (%d,%d) got %d want %d\n", x, y, got, want);
+				if (++fails > 10) { printf("...\n"); return 1; }
+			}
+		}
+	}
+	if (fails == 0) printf("OK\n");
+	return fails ? 1 : 0;
+}
+"""
+
+
+@pytest.mark.skipif(shutil.which("cc") is None and shutil.which("gcc") is None,
+                    reason="no host C compiler")
+def test_planar_blit_stlow(tmp_path):
+    _compile_run(tmp_path, HARNESS_STLOW)

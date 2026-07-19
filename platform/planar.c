@@ -100,3 +100,48 @@ void planar_blit_cpu(const planar_piece_t *piece,
 		}
 	}
 }
+
+void planar_blit_stlow(unsigned char *const src_planes[], short src_stride,
+                       short src_w, short src_h, short nplanes,
+                       unsigned char *dst, short dst_line_bytes,
+                       short dst_w, short dst_h, short dx, short dy)
+{
+	short y, x, p;
+
+	for (y = 0; y < src_h; y++) {
+		short ddy = (short)(dy + y);
+		long  srow;
+		long  drow;
+
+		if (ddy < 0 || ddy >= dst_h)
+			continue;
+		srow = (long)y * src_stride;
+		drow = (long)ddy * dst_line_bytes;
+
+		for (x = 0; x < src_w; x++) {
+			short ddx = (short)(dx + x);
+			short g, bit;
+			unsigned char sbit = (unsigned char)(0x80u >> (x & 7));
+			short sbyte = (short)(x >> 3);
+			unsigned char *grp;
+			unsigned char dmask;
+			short dbyte;
+
+			if (ddx < 0 || ddx >= dst_w)
+				continue;
+			g     = (short)(ddx >> 4);              /* 16-pixel group      */
+			bit   = (short)(ddx & 15);              /* 0 = leftmost (MSB)  */
+			dbyte = (short)(bit >> 3);              /* byte 0/1 of the word */
+			dmask = (unsigned char)(0x80u >> (bit & 7));
+			grp   = dst + drow + (long)g * nplanes * 2;
+
+			for (p = 0; p < nplanes; p++) {
+				unsigned char *d = grp + (long)p * 2 + dbyte;
+				if (src_planes[p][srow + sbyte] & sbit)
+					*d |= dmask;
+				else
+					*d &= (unsigned char)~dmask;
+			}
+		}
+	}
+}
