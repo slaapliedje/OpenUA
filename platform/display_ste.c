@@ -304,8 +304,24 @@ static void st_reband(void)
 {
 	short b, i;
 
+	/* ADR-0016 B1 (fixed per-scene palette): ONE global reduce over the whole
+	 * frame (nbands=1 histograms all rows), replicated to every band. A flat
+	 * colour that spans bands is now the SAME slot+RGB everywhere, so the per-band
+	 * palette SEAMS — the visible "banding" (#40), a uniform panel rendered as
+	 * brown/green/olive stripes — vanish. This is also approach B's target
+	 * palette model: the per-band scheme existed to stop the granite chrome
+	 * starving the viewport, but post-B2.1 the viewport is composited as its own
+	 * planar region, so the shared surface holds only the (flat, seam-prone) HUD,
+	 * for which one 16-colour palette is ample. The raster-split machinery stays
+	 * (identical per-band loads) so per-band anchoring can return later if an
+	 * art-heavy screen ever needs the extra colours. */
 	quant_banded(s_chunky, ST_W, ST_H, s_clut,
-	             ST_NBANDS, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+	for (b = 1; b < ST_NBANDS; b++) {
+		memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_band_pal,
+		       (size_t)(ST_NCOL * 3));
+		memcpy(s_band_remap + (long)b * 256, s_band_remap, 256);
+	}
 	for (b = 0; b < ST_NBANDS; b++) {
 		const unsigned char *bp = s_band_pal + (long)b * ST_NCOL * 3;
 
