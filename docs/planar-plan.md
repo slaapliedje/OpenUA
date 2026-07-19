@@ -330,7 +330,35 @@ clean partial state. Scope:
   engine already redraws on scene changes, so this is mostly free; verify no scene
   re-installs the palette without redrawing.
 
-**First step ATTEMPTED 2026-07-19 — menu works, dungeon palette bug; REVERTED.**
+**UPDATE 2 (2026-07-19): 3 of 4 dungeon bugs FIXED; roster HUD blank remains. WIP
+on branch `b4-pageflip-wip` (pushed), NOT merged — single-buffer stays default.**
+Verified via FRUA_AUTOPLAY. Three fixes past the first attempt:
+1. **`$820D`** (STE video base LOW byte) must be written on the flip — without it
+   the flip was imprecise and the 3D viewport came up BLACK. (The menu worked
+   anyway because both pages held identical static content.) Writing hi/mid/low
+   ($8201/$8203/$820D) → the flip is exact and the **viewport renders** (torch,
+   stone walls, floor).
+2. **`st_vp_composite` blits the viewport into BOTH pages** (was one-shot on the
+   one page being drawn → the other page's hole stayed black).
+3. **On a re-band, force-full BOTH pages** (`s_force_full=NPAGES`), NOT the
+   smart-skip. `s_remap_dirty` is computed once per re-band, but the two pages were
+   last drawn with DIFFERENT remaps (they alternate), so that single dirty map left
+   the other page's granite in stale slots — the **"brown chrome"**. Force-full
+   re-converts both pages against the current palette → **granite grey (correct)**.
+   (Costs the smart-skip's modest re-band saving; the flat-fill already tamed the
+   c2p, so it's fine.)
+RESULT: menu perfect; dungeon renders grey granite + torch/stone walls + compass +
+chrome. **ONE BUG LEFT: the party-roster HUD line (jt936/jt94, top-right panel) is
+BLANK.** It's blank even under force-full-every-present, so the roster text is NOT
+in `s_chunky` at present time — yet the single-buffer shows it. Diagnosis to pursue:
+the dungeon roster likely reaches the screen via a path other than the shared
+`s_chunky` c2p (jt94 takes a `page` arg; there are known direct-screen writers in
+the HUD/mono path, quickdraw.c ~451), or a present-cadence/HUD-repaint interaction
+drops it. FINISH = make the roster reach both displayed pages (mirror it like the
+viewport, or ensure it's in `s_chunky` when the full present runs). Re-apply the WIP
+branch and fix that one path.
+
+**First step ATTEMPTED 2026-07-19 (attempt 1) — menu works, dungeon palette bug.**
 Implemented: `NPAGES=2` ST-RAM pages (256-aligned; SCREEN_BYTES=32000 is a 256
 multiple), `pages=1` (present ONCE — the backend double-buffers INTERNALLY so the
 shown page is always freshly drawn; presenting twice would double the c2p),
