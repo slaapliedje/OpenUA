@@ -76,15 +76,18 @@ def test_write_rejects_no_areas(tmp_path):
 
 def test_demo_design_is_valid_and_playable_shape():
     d = demo_design("GENAREA")
-    # start area has a GEO and the header is buildable
-    assert d.start_area in d.areas
-    g = d.game001()
-    assert g[48] == d.start_area
-    # the demo area round-trips and carries the wired events
-    geo = d.areas[d.start_area]
-    geo = Geo.parse(geo.build())
-    assert geo.event_info(0)["name"] == "Message / Text"
-    assert geo.combat(1)["groups"] == [(1, 3)]
-    # the entry cell points at the message event (special = index+1)
-    ex, ey, _ = geo.entry_point(0)
-    assert geo.cell_special(ex, ey) == 1
+    # two linked areas, dungeon start
+    assert d.start_area == 5
+    assert set(d.areas) == {5, 6}
+    assert d.game001()[48] == 5
+    # area 5 carries the wired message, combat, and passage-to-6
+    a5 = Geo.parse(d.areas[5].build())
+    assert a5.event_info(0)["name"] == "Message / Text"
+    assert a5.combat(1)["groups"] == [(1, 3)]
+    assert a5.passage(2)["dest_area"] == 6
+    ex, ey, _ = a5.entry_point(0)
+    assert a5.cell_special(ex, ey) == 1          # entry cell -> message
+    # area 6 has its own welcome message
+    a6 = Geo.parse(d.areas[6].build())
+    assert a6.event_info(0)["name"] == "Message / Text"
+    assert a6.strg_read()[1] == "YOU HAVE ENTERED THE SECOND CHAMBER."

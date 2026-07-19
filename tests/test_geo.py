@@ -193,6 +193,46 @@ def test_combat_on_non_combat_event_raises():
         g.combat(0)
 
 
+def test_passage_build_decode():
+    g = Geo.blank(8, 8)
+    g.set_passage(0, dest_area=6, x=3, y=4, facing=2)
+    g = Geo.parse(g.build())
+    p = g.passage(0)
+    assert p["type"] == 11
+    assert p["dest_area"] == 6
+    assert p["x"] == 3 and p["y"] == 4
+    assert p["facing"] == 2
+    assert p["confirm"] is False
+    assert g.event_info(0)["name"] == "Passage / level change"
+
+
+def test_passage_slot_encoding():
+    g = Geo.blank(8, 8)
+    g.set_passage(0, dest_area=9, x=5, y=2, facing=4)
+    raw = g.event(0)
+    assert raw[0] == 11
+    assert raw[14] == 9              # ev[14] = target area
+    assert raw[9] == 5               # ev[9] = landing row (x)
+    assert raw[8] == 2               # ev[8] = landing col (y)
+    assert (raw[7] & 0x0c) >> 1 == 4 # facing packed in ev[7] bits 2-3
+    assert (raw[12] & 1) == 0        # direct landing (no marker)
+
+
+def test_passage_rejects_bad_args():
+    g = Geo.blank(8, 8)
+    with pytest.raises(GeoError):
+        g.set_passage(0, dest_area=0, x=1, y=1)      # area 0
+    with pytest.raises(GeoError):
+        g.set_passage(0, dest_area=6, x=1, y=1, facing=1)  # facing not 0/2/4/6
+
+
+def test_passage_on_non_passage_raises():
+    g = Geo.blank(8, 8)
+    g.set_combat(0, [(1, 1)])
+    with pytest.raises(GeoError):
+        g.passage(0)
+
+
 def test_strg_roundtrip_uppercase():
     g = Geo.blank(4, 4)
     g.strg_write(["", "You enter a dark cavern.", "A cold wind blows.", "ATTACK!"])

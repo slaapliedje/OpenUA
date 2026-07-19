@@ -270,6 +270,48 @@ class Geo:
             rec[9 + s * 2] = mid & 0xff
         self.encr[o:o + EVENT_SIZE] = rec
 
+    # ---- Passage / transfer events (type 5 / 11 / 34) — l5676 ----
+    def passage(self, idx):
+        """Decode a Passage event. For a type-11 level change: {dest_area (the
+        target GEO number, ev[14]), and the landing — either marker=ev[13] (an
+        entry-point index in the target area) when ev[12] bit0 is set, or a
+        direct (x, y, facing)}. Types 5/34 move within the area (dest_area 0)."""
+        ev = self.event(idx)
+        if ev[0] not in (5, 11, 34):
+            raise GeoError("event %d is type %d, not Passage (5/11/34)"
+                           % (idx, ev[0]))
+        info = {"type": ev[0], "dest_area": ev[14],
+                "confirm": bool(ev[7] & 0x20)}
+        if ev[12] & 0x01:
+            info["marker"] = ev[13]                 # entry index in target area
+        else:
+            info["x"] = ev[9]                        # landing row (0..height-1)
+            info["y"] = ev[8]                        # landing col (0..width-1)
+            info["facing"] = (ev[7] & 0x0c) >> 1     # 0=N 2=E 4=S 6=W
+        return info
+
+    def set_passage(self, idx, dest_area, x, y, facing=0,
+                    cond_type=0, cond_param=0, chain=0, once_only=False):
+        """Build a type-11 level-change Passage: stepping its cell transfers the
+        party to `dest_area` (GEO<dest_area>.DAT) landing at (x, y) facing
+        `facing` (0=N 2=E 4=S 6=W). Direct landing (no target-area marker)."""
+        if not (1 <= dest_area <= 255):
+            raise GeoError("dest_area must be 1..255")
+        if facing not in (0, 2, 4, 6):
+            raise GeoError("facing must be 0(N) 2(E) 4(S) 6(W)")
+        o = idx * EVENT_SIZE
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 11
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        rec[7] = (facing << 1) & 0x0c        # bit5 clear => no yes/no prompt
+        rec[8] = y & 0xff                    # landing col
+        rec[9] = x & 0xff                    # landing row
+        rec[12] = 0                          # bit0 clear => direct landing
+        rec[14] = dest_area & 0xff           # target area number
+        self.encr[o:o + EVENT_SIZE] = rec
+
     # ---- Message / Text events (type 2 / 14) — l4d26 ----
     def message(self, idx):
         """Decode a Message event. Returns {lines: [text_id,...] (up to 5, into
@@ -527,6 +569,9 @@ def main(argv):
         elif e["type"] in (2, 14):
             lines = g.message(i)["lines"]
             extra = "  " + repr([strings[t - 1][:40] for t in lines if t])
+        elif e["type"] in (5, 11, 34):
+            p = g.passage(i)
+            extra = "  -> area %d" % p["dest_area"]
         print("  [%2d] %-24s cond=%-14s chain=%3d%s%s"
               % (i, e["name"], e["cond_name"].split(" (")[0], e["chain"],
                  " once" if e["once_only"] else "", extra))

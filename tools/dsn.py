@@ -104,35 +104,56 @@ class Design:
             f.write(data)
 
 
+def _walled_room(w=8, h=8, entry=(3, 3), facing=0):
+    """An enclosed dungeon chamber: wall id 1 on every perimeter cell's outward
+    edge (edge 0=N 1=E 2=S 3=W), party entering at `entry` facing `facing`."""
+    g = Geo.blank(w, h)
+    for c in range(w):
+        for r in range(h):
+            g.set_cell(c, r, walls=(0x10 if r == 0 else 0,
+                                    0x10 if c == w - 1 else 0,
+                                    0x10 if r == h - 1 else 0,
+                                    0x10 if c == 0 else 0))
+    g.set_entry_point(0, x=entry[0], y=entry[1], facing=facing)
+    return g
+
+
+def _hook(g, col, row, special):
+    """Point cell (col,row) at an event (special = event index + 1), keeping its
+    walls."""
+    walls = tuple(g.cell(col, row)[:4])
+    g.set_cell(col, row, walls=walls, special=special)
+
+
 def demo_design(name="GENAREA"):
-    """A tiny self-contained playable DUNGEON design: one 8x8 walled room (a
-    dungeon area, so the first-person view renders the generated walls), with a
-    welcome message on the entry cell and a goblin ambush a step ahead."""
-    W = H = 8
-    g = Geo.blank(W, H)
-    # Wall every border edge so the room reads as an enclosed chamber. Wall id 1
-    # (high nibble) on the outward edge of each perimeter cell; edge 0=N 1=E 2=S 3=W.
-    for c in range(W):
-        for r in range(H):
-            n = 0x10 if r == 0     else 0
-            e = 0x10 if c == W - 1 else 0
-            s = 0x10 if r == H - 1 else 0
-            w = 0x10 if c == 0     else 0
-            g.set_cell(c, r, walls=(n, e, s, w))
-    g.set_entry_point(0, x=3, y=3, facing=0)             # centre, facing north
-    g.strg_write(["", "You stand in a cramped stone chamber.",
-                  "A goblin lunges from the shadows!"])
-    g.set_message(0, text_ids=[2])                       # event 1 -> welcome text
-    g.set_combat(1, [(1, 3)])                            # event 2 -> 3x monster 1
-    # cell special = event index + 1
-    c = g.cell(3, 3); g.set_cell(3, 3, walls=tuple(c[:4]), special=1)
-    c = g.cell(4, 3); g.set_cell(4, 3, walls=tuple(c[:4]), special=2)
+    """A self-contained playable TWO-AREA dungeon module, so the first-person
+    view renders generated walls AND a Passage links area 5 -> area 6:
+
+      area 5 (start): welcome message on entry, a goblin combat, and a passage
+                      one cell east that transfers to area 6.
+      area 6:         a distinct 'second chamber' message on its entry cell.
+    """
+    a5 = _walled_room(entry=(3, 3), facing=0)
+    a5.strg_write(["", "You stand in a cramped stone chamber.",
+                   "A goblin lunges from the shadows!"])
+    a5.set_message(0, text_ids=[2])                      # event 0 -> welcome
+    a5.set_combat(1, [(1, 3)])                           # event 1 -> 3x monster 1
+    a5.set_passage(2, dest_area=6, x=3, y=3, facing=0)   # event 2 -> to area 6
+    _hook(a5, 3, 3, special=1)                           # entry cell -> message
+    _hook(a5, 3, 4, special=2)                           # south cell -> combat
+    _hook(a5, 4, 3, special=3)                           # east cell  -> passage
+
+    a6 = _walled_room(entry=(3, 3), facing=0)
+    a6.strg_write(["", "You have entered the second chamber."])
+    a6.set_message(0, text_ids=[2])                      # event 0 -> welcome
+    _hook(a6, 3, 3, special=1)                           # entry cell -> message
 
     d = Design(name, title="Generated Test Area")
     d.xp = 15000
     d.start_area = 5           # level >= 5 -> dungeon (first-person) mode
     d.start_entry = 1
-    d.add_area(5, g)
+    d.add_area(5, a5)
+    d.add_area(6, a6)
     return d
 
 

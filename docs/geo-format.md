@@ -164,11 +164,39 @@ g.strg_write(["", "You enter a dark cavern.", "A cold wind blows."])
 g.set_message(idx=0, text_ids=[2, 3])   # ids are 1-based -> STRG slots 1 and 2
 ```
 
+### Passage / transfer event (types 5, 11, 34) — mapped
+
+The area-linking event (`l5676`). **Type 11** is a level change: stepping its
+cell loads a different area and moves the party there.
+
+| byte | field |
+|---|---|
+| 4 | confirm/prompt text id (shown when `ev[7]` bit5 asks a yes/no) |
+| 7 | bit5 = prompt before transfer; bit6 = invert the answer; bits2–3 = landing **facing** (`(ev[7]&0x0c)>>1` → 0=N 2=E 4=S 6=W) |
+| 8 | direct landing **col** (y) |
+| 9 | direct landing **row** (x) |
+| 12 | bit0 = use a target-area entry **marker** (`ev[13]`) instead of the direct `ev[8]`/`ev[9]` |
+| 13 | target entry-marker index (when `ev[12]` bit0 set) |
+| 14 | **target area number** — the engine loads `GEO<ev[14]>.DAT` (type 11) |
+
+Types 5/34 move within the current area; only type 11 changes level. A stepped
+passage cell fires the transfer — note the engine does **not** fire it on the
+party's *initial* placement (only on a move onto the cell), so a passage can't
+sit on the very start tile.
+
+```python
+g.set_passage(idx=2, dest_area=6, x=3, y=3, facing=0)   # step here -> area 6
+g.set_cell(4, 3, walls=(...), special=3)                # cell -> event 2 (special = idx+1)
+```
+
+Verified against 947 real passages (`dest_area` decode, 0 mismatches). Linking
+areas in `tools/dsn.py`: `d.add_area(5, a5); d.add_area(6, a6)` and a `set_passage`
+in area 5 pointing at 6.
+
 ### Other per-type parameters
 
-Combat and Message are mapped to the byte. The remaining types read their own
-bytes (e.g. Passage type 11 targets level `ev[14]`) — a continued effort, best
-done per type as a module needs it.
+Combat, Message and Passage are mapped to the byte. The remaining types read
+their own bytes — a continued effort, best done per type as a module needs it.
 
 A bare area with no events zero-fills this chunk.
 
