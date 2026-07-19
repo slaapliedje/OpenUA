@@ -222,6 +222,54 @@ class Geo:
         self.encr[o + 2] = cond_param & 0xff
         self.encr[o + 3] = chain & 0xff
 
+    # ---- Combat events (type 1 / 33) — l159a ----
+    def combat(self, idx):
+        """Decode a Combat event (type 1 or 33). Returns a dict with the monster
+        `groups` [(monster_id, count), ...], the descriptive `text_id` (into the
+        area STRG table), and the `picture` id. Raises if the event isn't combat.
+        See docs/geo-format.md for the byte layout."""
+        ev = self.event(idx)
+        if ev[0] not in (1, 33):
+            raise GeoError("event %d is type %d, not Combat (1/33)" % (idx, ev[0]))
+        groups = []
+        for s in range(6):
+            count = ev[8 + s * 2] & 0x1f          # low 5 bits = count
+            mid   = ev[9 + s * 2]                  # monster id (MONST index)
+            if count and mid:
+                groups.append((mid, count))
+        return {
+            "type":    ev[0],
+            "random":  ev[0] == 33,   # type 1 = all groups; 33 = one picked at random
+            "groups":  groups,
+            "text_id": (ev[4] << 8) | ev[5],       # big-endian STRG index (0=none)
+            "picture": ev[6],                       # 0=none, <240 sprite PIC, >=240 bigpic
+        }
+
+    def set_combat(self, idx, groups, text_id=0, picture=0, random=False,
+                   cond_type=0, cond_param=0, chain=0, once_only=False):
+        """Build a Combat event from a list of (monster_id, count) groups (max 6;
+        count 1..31, id 1..255). Writes the header + text/picture + monster slots
+        with config-flag bits left zero (normal surprise, near range)."""
+        if len(groups) > 6:
+            raise GeoError("at most 6 monster groups")
+        o = idx * EVENT_SIZE
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 33 if random else 1
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        rec[4] = (text_id >> 8) & 0xff
+        rec[5] = text_id & 0xff
+        rec[6] = picture & 0xff
+        for s, (mid, count) in enumerate(groups):
+            if not (1 <= count <= 31):
+                raise GeoError("group %d count %d out of 1..31" % (s, count))
+            if not (1 <= mid <= 255):
+                raise GeoError("group %d monster id %d out of 1..255" % (s, mid))
+            rec[8 + s * 2] = count & 0x1f          # high 3 bits (flags) left 0
+            rec[9 + s * 2] = mid & 0xff
+        self.encr[o:o + EVENT_SIZE] = rec
+
     # ---- container round-trip ----
     @classmethod
     def parse(cls, data):

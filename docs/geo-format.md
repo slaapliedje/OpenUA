@@ -116,14 +116,43 @@ Named from `l709e`'s handlers (`tools/geo.py` `EVENT_TYPES`):
 | 14 | Message (conditional) | | 38 | Set quest-flag |
 | 15 | Conditional event | | 16, 17 | (l6020), Play sounds |
 
-### Per-type parameters
+### Combat event (types 1 & 33) — fully mapped
 
-Beyond the common header, each type reads its own bytes; these are **partially
-mapped**. Notably **Combat** (1/33, `l159a`) is a picture+text+choices encounter:
-`ev[18]` bits 6–7 pick the picture base, `ev[6]`/`ev[14]` gate flags, and slots
-`ev[8..19]` hold up to six choice pairs (`e[8] & 31` = kind, `e[9]` = target).
-The remaining per-type byte layouts are a continued mapping effort — pick the
-types a module needs and lift their handlers.
+The combat handler is `l159a` → `l10a0` (monster spawn) → `l0d2a_c20`. **Type 1**
+runs *all* the specified monster groups (a fixed battle); **type 33** picks *one*
+group at random. Layout (verified against 1590 real combat events, 0 mismatches):
+
+| byte | field |
+|---|---|
+| 0 | type (1 or 33) |
+| 1–3 | common header (condition, once-only, auto-chain) |
+| 4–5 | **descriptive text id** — big-endian word into the area STRG table (0 = none) |
+| 6 | **picture id** — 0 = none, `<240` = sprite/PIC marker, `≥240` = bigpic backdrop |
+| 7 | bit7 = picture is a sprite; bits0–6 → combat config (`rec[27]`) |
+| 8–19 | **six monster-group slots**, slot *s* at `(ev[8+2s], ev[9+2s])` |
+
+Each monster-group slot:
+
+- `ev[8+2s] & 0x1f` = **count** (1..31; 0 = empty slot)
+- `ev[9+2s]` = **monster id** (1..255 → the design's MONST library; 0 = empty slot)
+- the **high 3 bits** of each even byte carry combat config flags, e.g. `ev[8]`
+  bit5 = "continue after victory", `ev[8]` bits6–7 = surprise (`rec[46]`), `ev[14]`
+  bits5–6 = starting range (`rec[56]`), `ev[18]` bits6–7 = picture base (0/2/10/41).
+
+```python
+from geo import Geo
+g = Geo.blank(8, 8)
+g.set_combat(idx=0, groups=[(66, 4), (25, 1)])   # 4× monster 66, 1× monster 25
+info = g.combat(0)     # {'groups': [(66,4),(25,1)], 'text_id':…, 'picture':…, 'random':False}
+```
+
+### Other per-type parameters
+
+The type table above is complete, but the *per-type parameter bytes* beyond the
+common header are mapped only for Combat so far. Text (2/14), Passage (5/11/34)
+and the rest read their own bytes (e.g. Message uses five text-id word slots at
+`ev[8/10/12/14/16]`; Passage type 11 targets level `ev[14]`) — a continued
+effort, best done per type as a module needs it.
 
 A bare area with no events zero-fills this chunk.
 

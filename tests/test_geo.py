@@ -146,6 +146,53 @@ def test_event_header_condition_and_once_pack():
     assert raw[2] == 0b0101
 
 
+def test_combat_build_and_decode():
+    g = Geo.blank(8, 8)
+    g.set_combat(0, [(66, 4), (25, 1)], text_id=0x1234, picture=200)
+    g = Geo.parse(g.build())
+    c = g.combat(0)
+    assert c["type"] == 1 and c["random"] is False
+    assert c["groups"] == [(66, 4), (25, 1)]
+    assert c["text_id"] == 0x1234
+    assert c["picture"] == 200
+    assert g.event_info(0)["name"] == "Combat"
+
+
+def test_combat_random_flag_is_type_33():
+    g = Geo.blank(8, 8)
+    g.set_combat(0, [(10, 3)], random=True)
+    assert g.event(0)[0] == 33
+    assert g.combat(0)["random"] is True
+
+
+def test_combat_slot_encoding():
+    # count in low 5 bits of the even byte, monster id in the odd byte
+    g = Geo.blank(8, 8)
+    g.set_combat(0, [(66, 4)])
+    raw = g.event(0)
+    assert (raw[8] & 0x1f) == 4      # count
+    assert raw[9] == 66              # monster id
+
+
+def test_combat_rejects_out_of_range():
+    g = Geo.blank(8, 8)
+    with pytest.raises(GeoError):
+        g.set_combat(0, [(66, 0)])          # count 0
+    with pytest.raises(GeoError):
+        g.set_combat(0, [(66, 32)])         # count > 31
+    with pytest.raises(GeoError):
+        g.set_combat(0, [(0, 4)])           # monster id 0
+    with pytest.raises(GeoError):
+        g.set_combat(0, [(1, 1)] * 7)       # > 6 groups
+
+
+def test_combat_on_non_combat_event_raises():
+    g = Geo.blank(8, 8)
+    g.set_event_header(0, type=2)           # Message
+    with pytest.raises(GeoError):
+        g.combat(0)
+
+
 def test_event_type_and_condition_tables():
     assert EVENT_TYPES[1] == "Combat"
     assert EVENT_TYPES[2].startswith("Message")
