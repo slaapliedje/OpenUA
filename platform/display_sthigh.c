@@ -104,7 +104,16 @@ static int sthigh_init(short want_w, short want_h)
 
 	s_screen_raw = (unsigned char *)Mxalloc(SCREEN_BYTES + 256, 0);
 	s_chunky     = (unsigned char *)Mxalloc((long)SURF_W * SURF_H, 0);
+#ifdef FRUA_BWMODE
+	/* #16: the mono shadow holds the last PACKED rows (SURF_W/8 bytes each),
+	 * not a chunky copy. The present diffs in packed space (60 B/row) and
+	 * folds the pack in, instead of memcmp'ing 480 B of chunky then re-packing
+	 * changed rows — ~1.5x less memory traffic on the 8 MHz diff-present
+	 * hotspot, byte-identical output. */
+	s_shadow     = (unsigned char *)Mxalloc((long)(SURF_W / 8) * SURF_H, 0);
+#else
 	s_shadow     = (unsigned char *)Mxalloc((long)SURF_W * SURF_H, 0);
+#endif
 	if (s_screen_raw == NULL || s_chunky == NULL || s_shadow == NULL) {
 		dbg_log("sthigh: Mxalloc FAILED");
 		if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; }
@@ -116,7 +125,11 @@ static int sthigh_init(short want_w, short want_h)
 	    (((uintptr_t)s_screen_raw + 255) & ~(uintptr_t)255);
 	memset(s_screen, 0, SCREEN_BYTES);      /* white field           */
 	memset(s_chunky, 0, (size_t)SURF_W * SURF_H);
+#ifdef FRUA_BWMODE
+	memset(s_shadow, 0, (size_t)(SURF_W / 8) * SURF_H);
+#else
 	memset(s_shadow, 0, (size_t)SURF_W * SURF_H);
+#endif
 	s_force_full = 1;
 
 	s_save_rez  = Getrez();
@@ -178,34 +191,37 @@ static dsp_surface_t *sthigh_surface(void)
  * The engine's mono art writers chain onto this: a SET .TLB art bit is
  * art-WHITE and lands in chunky as the BRIGHT class (canonical 15) — see
  * THE MONO INK MODEL at the mono PLANAR PAGE in boot.c. */
-static void hi_blit_rows(short x0, short w, short y0, short h)
+#ifdef FRUA_MONOPROF
+static long s_mono_wrote;       /* rows the packed diff actually rewrote */
+#endif
+
+/* Pack + PACKED-SHADOW diff. Each row span [x0, x0+w) is packed once (8 chunky
+ * bytes -> 1 screen byte via the g_dsp_ink 0/1 LUT) into `tmp`, then diffed in
+ * PACKED space (w/8 bytes) against the packed shadow; the screen + shadow are
+ * rewritten only when the packed row changed (or `force`). This replaces the
+ * old "memcmp 480 B of chunky, then re-pack changed rows, then memcpy 480 B to
+ * a chunky shadow" — the #16 diff-present hotspot — with a single pass over
+ * ~SURF_W/8-byte rows: ~1.5x less memory traffic on the 8 MHz ST, byte-identical
+ * output (the packed diff can only skip a write when the visible bytes are
+ * already correct). `force` is set for full-repacks and rect presents (known
+ * dirty); the full-surface diff present passes force=0 so this self-diffs. */
+static void hi_blit_rows(short x0, short w, short y0, short h, int force)
 {
-	short y, i;
+	short y;
+	short nb = (short)(w >> 3);            /* packed bytes in this span     */
+	short sb = (short)(x0 >> 3);           /* packed-byte offset in the row */
+	unsigned char tmp[SURF_W / 8];         /* one packed row span (<=60 B)  */
 
 	for (y = 0; y < h; y++) {
 		short yy = (short)(y0 + y);
-		const unsigned char *src = s_chunky + (long)yy * SURF_W + x0;
-		unsigned char *d = s_screen
-		    + (long)(BW_OY + yy) * LINE_BYTES + ((BW_OX + x0) >> 3);
+		const unsigned char *s = s_chunky + (long)yy * SURF_W + x0;
+		unsigned char *sh = s_shadow + (long)yy * (SURF_W / 8) + sb;
+		short i;
 
-		const unsigned char *s = src;
-		const unsigned char *e = src + w;
-
-		/* #156: unrolled pack — g_dsp_ink[] is 0/1, so each bit is a
-		 * shift of the lookup, no per-pixel test-branch or variable
-		 * 0x80>>k. This runs for every packed row of every present, so
-		 * it is the mono hotspot.
-		 *
-		 * Shift-ACCUMULATE form (2026-07-19, host-benchmarked, byte-
-		 * identical to the fixed-shift form it replaced): build the byte
-		 * MSB-first with a running `b = (b<<1) | ink`. On the 68000 this
-		 * compiles to `add.l d0,d0` (a constant-8-cycle shift-left-1)
-		 * plus `or.b (a1,d2.l),d0` (LUT load folded into the OR) per
-		 * pixel — vs the old form's `lsl.b #7/#6/#5/#4` variable shifts,
-		 * each 6+2N cycles (up to 20). ~43 vs 54 insns / 0 vs 5 shifts
-		 * in the inner loop (m68k-atari-mint-gcc -O2). `b` never exceeds
-		 * 8 bits, so the (unsigned char) truncation is a no-op. */
-		while (s < e) {
+		/* pack the span into tmp — shift-ACCUMULATE form (byte-identical
+		 * to the fixed-shift form; on the 68000 `add.l d0,d0` + a
+		 * LUT-load-folded `or.b` per pixel, no variable lsl). */
+		for (i = 0; i < nb; i++) {
 			unsigned b = g_dsp_ink[s[0]];
 			b = (b << 1) | g_dsp_ink[s[1]];
 			b = (b << 1) | g_dsp_ink[s[2]];
@@ -214,10 +230,18 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 			b = (b << 1) | g_dsp_ink[s[5]];
 			b = (b << 1) | g_dsp_ink[s[6]];
 			b = (b << 1) | g_dsp_ink[s[7]];
-			*d++ = (unsigned char)b;
+			tmp[i] = (unsigned char)b;
 			s += 8;
 		}
-		memcpy(s_shadow + (long)yy * SURF_W + x0, src, (size_t)w);
+		if (force || memcmp(tmp, sh, (size_t)nb) != 0) {
+			unsigned char *d = s_screen
+			    + (long)(BW_OY + yy) * LINE_BYTES + (BW_OX >> 3) + sb;
+			memcpy(d, tmp, (size_t)nb);
+			memcpy(sh, tmp, (size_t)nb);
+#ifdef FRUA_MONOPROF
+			s_mono_wrote++;
+#endif
+		}
 	}
 }
 
@@ -225,10 +249,13 @@ static void hi_blit_rows(short x0, short w, short y0, short h)
 
 /* Convert logical rows [y0, y0+h) x [x0, x0+w): each logical row packs into
  * TWO screen rows, four logical pixels per byte, through the dither LUTs.
- * x0 and w are 4-pixel aligned (one screen byte = 4 logical pixels). */
-static void hi_blit_rows(short x0, short w, short y0, short h)
+ * x0 and w are 4-pixel aligned (one screen byte = 4 logical pixels). The
+ * colour path keeps the chunky shadow and always writes; `force` (a mono-only
+ * concept) is ignored here. */
+static void hi_blit_rows(short x0, short w, short y0, short h, int force)
 {
 	short y, i;
+	(void)force;
 
 	for (y = 0; y < h; y++) {
 		short yy = (short)(y0 + y);
@@ -300,13 +327,13 @@ static void mono_prof_tick(void)
 
 static void sthigh_present(void)
 {
-	short y;
 #ifdef FRUA_MONOPROF
 	unsigned long t0 = plat_ticks();
+	s_mono_wrote = 0;
 #endif
 
 	if (s_force_full) {
-		hi_blit_rows(0, SURF_W, 0, SURF_H);
+		hi_blit_rows(0, SURF_W, 0, SURF_H, 1);
 		s_force_full = 0;
 #ifdef FRUA_MONOPROF
 		s_pf_ticks += (long)(plat_ticks() - t0);
@@ -314,15 +341,28 @@ static void sthigh_present(void)
 #endif
 		return;
 	}
-	for (y = 0; y < SURF_H; y++) {
-		if (memcmp(s_chunky + (long)y * SURF_W,
-		           s_shadow + (long)y * SURF_W, SURF_W) != 0) {
-			hi_blit_rows(0, SURF_W, y, 1);
+#ifdef FRUA_BWMODE
+	/* #16: one self-diffing pass — hi_blit_rows packs each row once and
+	 * rewrites only the rows whose PACKED bytes changed (packed shadow). No
+	 * separate full-surface chunky memcmp. */
+	hi_blit_rows(0, SURF_W, 0, SURF_H, 0);
 #ifdef FRUA_MONOPROF
-			s_pf_diffrows++;
+	s_pf_diffrows += s_mono_wrote;
 #endif
+#else
+	{
+		short y;
+		for (y = 0; y < SURF_H; y++) {
+			if (memcmp(s_chunky + (long)y * SURF_W,
+			           s_shadow + (long)y * SURF_W, SURF_W) != 0) {
+				hi_blit_rows(0, SURF_W, y, 1, 0);
+#ifdef FRUA_MONOPROF
+				s_pf_diffrows++;
+#endif
+			}
 		}
 	}
+#endif
 #ifdef FRUA_MONOPROF
 	s_pf_ticks += (long)(plat_ticks() - t0);
 	s_pf_diff++; mono_prof_tick();
@@ -347,7 +387,7 @@ static void sthigh_present_rect(short x, short y, short w, short h)
 	x1 = (short)((x + w + 3) & ~3);         /* 4-logical-pixel bytes */
 	x  = (short)(x & ~3);
 #endif
-	hi_blit_rows(x, (short)(x1 - x), y, h);
+	hi_blit_rows(x, (short)(x1 - x), y, h, 1);   /* rect is known dirty -> force */
 #ifdef FRUA_MONOPROF
 	s_pf_rect++; s_pf_rectrows += h; mono_prof_tick();
 #endif
