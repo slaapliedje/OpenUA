@@ -239,12 +239,41 @@ BLiTTER's real payoff is B4/native-planar (fill/copy PLANES with no chunky
 source); defer it there (Phase 4). A standalone blitter c2p is impossible anyway
 (the ST BLiTTER can't bit-transpose chunky→planar).
 
-**Next lever = CHROME (the residual ~251 ticks/present).** Pre-convert the STATIC
-granite frame texture once (it never changes within a scene) and composite it like
-the B2.1 viewport (frozen rows → row-diff/c2p skips it), so the textured chrome
-stops being transposed on every full present. Then TEXT (planar glyph blit). These
-are the transpose-bound regions the flat path can't touch. Order: chrome → text →
-the rest. Measure the b30b drop after each (`-DFRUA_STPROF`).
+**Chrome-first-as-a-plate was investigated and REJECTED (2026-07-19).** The B2.1
+viewport-plate pattern doesn't transfer to chrome: (a) the row-diff + B1 CLUT-guard
+already leave the static granite alone in steady state (chrome only re-transposes on
+the rare full presents — transitions/re-bands); (b) a pre-converted plate is
+INVALIDATED by a re-band (the median-cut renumbers slots), which is exactly the
+present where it would help — unless the chrome colours are pinned to STABLE SLOTS.
+So the right tool is slot stability + a re-band-aware skip, not a plate.
+
+**DONE instead — stable-slot alignment + re-band smart-skip (commit c13324d).**
+- ALIGNMENT (`st_reband`): after the median-cut, permute the fresh 16 slots to
+  best-match the PREVIOUS palette's positions (greedy nearest RGB). A colour that
+  persists keeps its slot number → its remap entry is unchanged. Pure renumber; the
+  frame is byte-identical (planes encode a slot, the palette supplies the colour).
+- SMART-SKIP (`st_blit_full`): replace the post-re-band force-full with a per-row
+  test — re-c2p only rows whose content changed OR that hold a value whose slot moved
+  (`s_remap_dirty`, early-exit scan, runs only on a re-band pass). The static
+  chrome/HUD (slots preserved) is left alone across a scene change.
+Correctness is robust to alignment quality (a poorly-matched colour is just marked
+dirty and re-converts). VERIFIED on the STE: menu, hall, and roster render
+byte-identically; boot dropped from 9 forced-fulls to 1. Also the stable-palette
+groundwork B4 needs.
+
+**Gated to the MENU/non-viewport path for now; the dungeon still force-fulls.** The
+re-band borrows `s_shadow` as its wall-pin overlay temp, which the smart-skip needs
+intact. The un-gate (a dedicated `s_quant_tmp` buffer so the dungeon/combat re-band
+skips the static HUD too — where the bigger win is) is written and correct-by-the-
+same-argument, but the STE dungeon is unreachable headless (input lag drops the
+party-add keys), so it's held back UNVERIFIED per the emulator-validated rule. Land
+it once combat is reachable (better harness or a pre-seated-party design), verifying
+walls+HUD render across a combat entry.
+
+**Next transpose-bound lever (if more is needed): TEXT** (planar glyph blit) — the
+other ~half of the residual ~251 ticks the flat path can't touch. Or go structural:
+**B4** (fixed palette → no re-band → drop the c2p → present = flip), which the
+alignment above is the groundwork for.
 
 - **B3.2+ (native-planar writers) — the transpose-bound regions.**
   Convert the chunky writers to write plane bits directly against the fixed
