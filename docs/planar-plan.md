@@ -81,23 +81,44 @@ Plane blits are the hot primitive. Hardware support varies:
   expected planes; masked blit composites correctly over a background;
   transparency keys drop the right pixels. No emulator needed.
 
-**Phase 2 — native-planar dungeon leaf.**
-- `FRUA_PLANAR` fork in `l309c_tile` (`boot.c:12709`) and `cw_blit_piece`
-  (`boot.c:12806`): write plane bits via the per-band remap instead of the
-  chunky byte-store. Convert each wall piece to planar once at `cw_load_slot`
-  (`boot.c:11628`) / `cw_finalize` (`boot.c:11764`), storing planar pieces
-  alongside `g_cwf_body[]`.
-- ECS/STE backend `present` under `FRUA_PLANAR` becomes a flip (the surface is
-  already planar; drop `c2p_amiga_n`/`c2p4st_32`).
-- Verify in amiberry (ECS) + Hatari (ST/STe): the 3D dungeon renders identically
-  to the chunky build (screenshot-diff), with c2p gone.
+### Staging constraint (found during Phase 2 scoping)
 
-**Phase 3 — planar UI leaves (HUD / text / fills / cursor).**
-- Convert the remaining leaves that write the surface: `DrawChar`
-  (`compat/quickdraw.c:2212`), rect fills (`jt1161` and panel fills), the GLIB
-  art blits (bigpics/backdrop), the cursor. Static chrome converts to planar
-  once and is blitted; only dynamic regions redraw.
-- Now the whole frame is planar-native; the chunky surface is gone on
+The 8bpp surface is **shared**: ~30 distinct engine sites (plus the QuickDraw
+shim primitives) grab `qd_screen_pixels()` and write chunky indices directly —
+the dungeon leaf (`l309c_tile`), text (`DrawChar`), fills, chrome, cursor, event
+pictures, the automap, etc. As long as **any** one writes chunky, the surface is
+chunky and the backend must c2p it. So "drop chunky + c2p" cannot be one commit;
+it is the *last* step, after every writer is planar. The end state is unchanged
+(full native planar, c2p gone); the phasing converts writers in value order and
+keeps the frame coherent during transition with a **composite**: the backend
+still c2p's the chunky surface (row-diffed → nearly free for the mostly-static
+UI) and then blits the native-planar regions over it. c2p disappears only when
+the last chunky writer is converted and the surface itself becomes planar.
+
+**Phase 2 — native-planar dungeon viewport (composited).**
+- The dungeon viewport is the hot redraw path (it repaints every step; the UI is
+  mostly static). Render it natively planar into a **separate planar viewport
+  buffer** instead of the chunky hole: `FRUA_PLANAR` fork in `l309c_tile`
+  (`boot.c:12709`) + `cw_blit_piece` writes plane bits via `planar_blit`; wall
+  pieces convert to planar once at `cw_load_slot`/`cw_finalize`
+  (`boot.c:11628`/`11764`) into a store beside `g_cwf_body[]`.
+- Backend: after the (row-diffed) c2p of the chunky surface, **blit the planar
+  viewport buffer into the viewport hole** (the 88×88 colour / 176×176 mono
+  region). The per-step cost drops from "c2p the viewport" to "plane-blit the
+  viewport" — the win, incrementally, on the path that redraws every step.
+- Palette: the viewport band's hardware palette carries the wall-set colours
+  (base 32/69/106), so pieces convert with a near-identity band remap; the UI
+  bands keep the UI palette (the per-band copper split the ECS backend already
+  runs). Grab the walk-step baseline first so the win is a real number.
+- Verify: the 3D dungeon renders identically to the chunky build
+  (screenshot-diff) in amiberry (ECS) + Hatari (ST/STe).
+
+**Phase 3 — convert the remaining chunky writers; drop the composite.**
+- Convert the rest of the ~30 surface writers to planar in value order: chrome
+  (static → convert once), `DrawChar` text (`compat/quickdraw.c:2212`), rect
+  fills (`jt1161`/panels), GLIB art blits (bigpics/backdrop), cursor, automap.
+- When the last writer is planar, the surface itself becomes planar: **remove the
+  composite and the c2p** — backend `present` is a flip. Chunky is gone on
   `FRUA_PLANAR` builds.
 
 **Phase 4 — blitter acceleration.**
