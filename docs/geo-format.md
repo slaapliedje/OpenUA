@@ -198,6 +198,34 @@ g.strg_write(["", "You enter a dark cavern.", "A cold wind blows."])  # slots 0,
 g.strg_read()[1]      # 'YOU ENTER A DARK CAVERN.'
 ```
 
+## Wiring an area into a playable design
+
+A `.DSN` design folder becomes playable with just two files (`tools/dsn.py`):
+
+- **`GAME001.DAT`** — the 388-byte settings record. Byte **48** = the start area
+  number, byte **49** = the 1-based start entry; the engine reads these at Play
+  (`boot.c` ~19218) and loads `GEO<byte48>.DAT`. Other fields (LE): `[0:32]`
+  title, `[32]` XP, `[36]` platinum, `[40]` gems, `[44]` jewelry, `[50]` equip.
+- **`GEO<NNN>.DAT`** — one area per file; the start area's number must match byte
+  48, and the file must exist (else `jt198` → `jt69` fatal). Levels ≤ 4 render as
+  **overland** (wilderness map), ≥ 5 as a **dungeon** (first-person view).
+
+```python
+from dsn import Design
+from geo import Geo
+g = Geo.blank(8, 8)
+g.set_entry_point(0, x=3, y=3, facing=0)
+# ... set walls / events / strings ...
+d = Design("MYMOD", title="My Module")
+d.start_area = 5              # a dungeon
+d.add_area(5, g)
+d.write("path/to/gamedata", make_current=True)   # writes MYMOD.DSN + start.dat
+```
+
+Verified end-to-end in Hatari: a generated dungeon loads via Play → Training Hall
+→ Begin Adventuring, and the first-person view renders the generated walls with
+the party and event text.
+
 ## Generating an area
 
 `tools/geo.py`:
