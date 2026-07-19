@@ -303,6 +303,57 @@ alignment above is the groundwork for.
   double-buffered from B3.1) IS the surface; delete `s_chunky` + the c2p; present
   = flip.
 
+### B4 fidelity-preserving — SCOPED 2026-07-19 (user picked this path)
+
+**Decision:** keep the PER-SCENE median-cut palette (no colour regression — the
+fidelity-losing fixed-global-palette variant was rejected), convert the writers to
+emit plane bits at DRAW TIME against the current scene's `remap` (`dsp_planar_remap`,
+B1), then drop `s_chunky` + the per-present c2p and make present a VBL page-flip.
+Draw-time conversion is the key vs a cached plate: a native writer re-emits when the
+engine redraws on a scene change, so it's never reband-invalidated (the flaw that
+killed chrome-as-a-plate).
+
+**This is effectively a BIG-BANG, not incrementally decomposable.** The B2.1
+freeze+composite pattern only works for a SELF-CONTAINED region (nothing draws over
+it) — true for the viewport, false for almost everything else: the direct writers are
+BASE+OVERLAY mixed (`port_draw_play_frame` fills grey clut-21 + draws the granite
+chrome, then the roster/clock/text/viewport draw ON TOP into the same surface). Freeze
+a base layer and the un-converted overlay on it is lost (proven by the fills-first
+analysis). So the c2p can only be dropped once the LAST writer is planar — there is no
+clean partial state. Scope:
+- **33 direct `qd_screen_pixels` sites** (grep) write raw chunky bytes to the surface;
+  all must switch to plane writes. Plus the shim primitives `PaintRect`/`qd_pixmap_fill`
+  (rect → planar rect-fill of `remap[c]`'s bits), `CopyBits` (chrome/art → per-pixel
+  planar scatter or a pre-converted planar piece), `DrawChar`/`DrawString` (1bpp font →
+  N planes via `remap[fg]`/`remap[bg]`), the cursor composite, automap.
+- A `remap`-changed (reband) forces a full engine REDRAW (the writers re-emit) — the
+  engine already redraws on scene changes, so this is mostly free; verify no scene
+  re-installs the palette without redrawing.
+
+**First step (recommended, contained, verifiable): the double-buffered page-flip
+substrate (was "B3.1").** Two ST-RAM pages; the c2p (still running) targets the BACK
+page; flip Physbase on VBL; present = flip. Benefits NOW: removes the single-buffered
+progressive-update "wipe" (the c2p currently paints the LIVE screen over ~1.4s). It is
+also the exact substrate B4 ends on. Care:
+  - **Two-page row-diff:** a change must reach BOTH pages. Keep a shadow PER PAGE
+    (`s_shadow[2]`); each present converts rows where `s_chunky != s_shadow[back]` and
+    updates that page's shadow — so each page independently tracks to the current frame.
+    A reband invalidates both pages' shadows → 2 full converts (rare; acceptable).
+  - The alignment/smart-skip (committed) assumes ONE shadow — extend it to the
+    per-page shadow carefully (this is where subtle bugs hide; verify menu+dungeon via
+    FRUA_AUTOPLAY, like the un-gate bug that blanked the HUD).
+  - Raster-split palette is display-timed (reads `st_band_stpal`) → works across a flip
+    unchanged. The viewport composite targets the same back page.
+Then convert writers (fills → text → chrome/CopyBits → cursor/automap), verifying each
+in the dungeon via FRUA_AUTOPLAY, until the c2p can be deleted and present = flip only.
+
+**Reality check:** the incremental #41 wins are largely BANKED already (flat-fill −36%
++ the stable-slot alignment/smart-skip that stops re-transposing static chrome on
+rebands). B4's remaining payoff is dropping the per-present c2p ENTIRELY (present =
+flip) — the ADR-0016 end state — but it's a large dedicated effort, best begun fresh
+with the page-flip substrate, not rushed. Verify everything in the dungeon now that
+FRUA_AUTOPLAY makes it reachable.
+
 **Verdict (B3.0a+B3.0b ran 2026-07-19): compute is the floor — the cheap fixes are
 out.** No spurious force-full (B3.0a); contention ≈ 0 (B3.0b). So there is no
 force-full quick win and double-buffering does not help #41. **Next session goes
