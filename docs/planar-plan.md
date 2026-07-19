@@ -127,6 +127,22 @@ also steadies the roster/HUD colours and removes the #40 banding shimmer.
   planar, walls = `planar_blit_cpu` of pieces cached per the (a) scheme) into a
   separate-plane viewport buffer the composite overlays. The per-step walk cost
   drops from viewport-c2p to a plane blit.
+  - **B2.1 DONE** (commit 24b9a7a): composite plumbing + the whole viewport as a
+    composited planar region. `render_3d_faithful` renders the three writers into
+    a backend scratch (`dsp_viewport_scratch`, absolute coords) instead of the
+    shared surface and commits the rect (`dsp_viewport_commit`); the STE backend
+    converts scratch→ST-Low planes through the SAME per-band remap and
+    `planar_blit_stlow`s it into the hole each present (one-shot, auto-cleared).
+    The shared surface's viewport rows are frozen → row-diff skips the roster/HUD
+    sharing them. Dispatch via `planar_viewport_register` in shared `planar.c` so
+    both build trees link (Amiga keeps chunky until its own B2). Chunky backends:
+    `vp == NULL`, byte-identical. Verified live on the STE (walls/floor/backdrop
+    in the hole across walk+turn; roster/chrome clean; menu path unchanged).
+  - **B2 remainder:** the conversion is still a per-render chunky→plane of the
+    whole viewport (backend-side). B2.2 = push the plane writes into the leaves
+    (pre-convert wall pieces at load via `chunky_to_planar_piece` + the (a)
+    stable-slot pinning from B1; fills → planar rect-fill; backdrop → pre-converted
+    planar), dropping the chunky scratch. Then Amiga's `dsp_viewport_scratch`.
 - **B3 — convert the remaining writers** (chrome once, `DrawChar` text, panel
   fills, GLIB art, cursor, automap) to planar against `remap`, shrinking the c2p
   region each time.
