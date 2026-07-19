@@ -67,6 +67,15 @@ typedef struct dsp_backend {
 /* Probe the host machine and return the best available backend, or NULL. */
 const dsp_backend_t *dsp_detect(void);
 
+/* Native-planar support (ADR-0016, approach B). The active bitplane backend's
+ * fixed per-band chunky-index -> palette-slot remap, so engine planar writers
+ * convert wall/UI pixels to the SAME slots the backend's c2p uses (one shared
+ * per-scene palette, the invariant that lets planar and chunky regions coexist).
+ * Returns the remap base (`*nbands` rows of 256 bytes each; band = y*nbands/h)
+ * and fills *nbands / *screen_h, or NULL on backends without a fixed-palette
+ * planar path (or before the first palette is installed). */
+const unsigned char *dsp_planar_remap(short *nbands, short *screen_h);
+
 /* Atari builds: the _VDO cookie value (video hardware id in the high word:
  * 0 ST, 1 STE, 2 TT, 3 VIDEL; 0 when no jar). Cached after the first call.
  * Other machines' backends do not define it. */

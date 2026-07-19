@@ -358,6 +358,17 @@ static dsp_surface_t *st_surface(void)
 	return &s_surface;
 }
 
+/* ADR-0016 (approach B): expose the fixed per-band remap so the engine's
+ * native-planar writers convert to the SAME 16-colour slots this backend's c2p
+ * uses. Valid once a palette has been installed (s_have_pal); the reband keeps
+ * it current per scene. */
+const unsigned char *dsp_planar_remap(short *nbands, short *screen_h)
+{
+	if (nbands)   *nbands   = ST_NBANDS;
+	if (screen_h) *screen_h = ST_H;
+	return s_have_pal ? s_band_remap : (const unsigned char *)0;
+}
+
 #ifdef FRUA_STPROF
 /* Coarse present-path profile: every 128 full presents, log wall ticks vs
  * ticks spent inside present and the rows actually converted. TickCount is
