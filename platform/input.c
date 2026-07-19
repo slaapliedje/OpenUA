@@ -56,9 +56,75 @@ unsigned long plat_ticks(void)
 	return (h200 * 3UL) / 10UL;
 }
 
+#ifdef FRUA_AUTOPLAY
+/*
+ * Headless auto-drive (test only, -DFRUA_AUTOPLAY). The STE colour build is slow
+ * enough that scripted real-time keystrokes get dropped before the engine's event
+ * loop polls them (the #41 input-lag symptom), so the dungeon/combat screens are
+ * unreachable from outside. This injects the play-entry keystrokes FROM INSIDE,
+ * paced by the 60 Hz engine clock, so each key lands only once the previous
+ * transition has drained — no real-time dependency, no dropped keys.
+ *
+ * Sequence mirrors tools/hatari_ui.sh `beginplay`: p (Play -> Training Hall),
+ * a (Add Character -> the seeded roster, BARBARUS highlighted), Return (add it),
+ * Escape (back to the hall), b (Begin Adventuring -> the dungeon), then a
+ * Right/Left nudge to force the first 3D paint. delay = ticks to wait AFTER this
+ * key before the next (a MINIMUM — the engine only consumes when it next polls).
+ */
+struct ap_key { unsigned char scan, ascii; unsigned short delay; };
+static const struct ap_key g_ap[] = {
+	{ 0x19, 'p',  600 },    /* Play the Game -> Training Hall (10s)  */
+	{ 0x1E, 'a',  600 },    /* Add Character -> seeded roster list   */
+	{ 0x50, 0,    300 },    /* Down -> give the list focus + select BARBARUS */
+	{ 0x1C, 0x0D, 600 },    /* Return -> add the selected (* BARBARUS)   */
+	{ 0x01, 0x1B, 600 },    /* Escape -> back to the hall            */
+	{ 0x30, 'b',  900 },    /* Begin Adventuring -> dungeon (15s art)*/
+	{ 0x4D, 0,    300 },    /* Right (nudge: force the 3D paint)     */
+	{ 0x4B, 0,    300 },    /* Left  (net-zero facing)               */
+};
+#define AP_N ((short)(sizeof g_ap / sizeof g_ap[0]))
+static short         g_ap_idx;
+static unsigned long g_ap_next;         /* engine tick the next key is due */
+static int           g_ap_started;
+/* Armed by the engine when the main menu is actually up (boot.c, at the
+ * "menu: modal up" marker). Without this the boot sequence's own event polling
+ * eats the first keys before the menu can consume them. */
+volatile int         g_ap_armed;
+
+/* Is the next scripted key due now? (non-consuming; used by plat_kb_avail) */
+static int ap_due(void)
+{
+	if (!g_ap_armed || g_ap_idx >= AP_N)
+		return 0;
+	if (!g_ap_started) {
+		g_ap_started = 1;
+		g_ap_next = plat_ticks() + 120;   /* let the main menu settle first */
+	}
+	return plat_ticks() >= g_ap_next;
+}
+
+/* Consume the due scripted key into scan/ascii; advance the script. */
+static int ap_take(unsigned char *out_scan, unsigned char *out_ascii)
+{
+	if (!ap_due())
+		return 0;
+	{ extern void dbg_log_num(const char *, long); dbg_log_num("autoplay: send key idx=", g_ap_idx); }
+	if (out_scan)  *out_scan  = g_ap[g_ap_idx].scan;
+	if (out_ascii) *out_ascii = g_ap[g_ap_idx].ascii;
+	g_ap_next = plat_ticks() + g_ap[g_ap_idx].delay;
+	g_ap_idx++;
+	return 1;
+}
+#endif /* FRUA_AUTOPLAY */
+
 int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 {
 	long c;
+
+#ifdef FRUA_AUTOPLAY
+	if (ap_take(out_scan, out_ascii))
+		return 1;
+#endif
 
 	/* Bconstat(2) (BIOS console) returns 0 under Hatari's `--conout 2`
 	 * redirect even when a key is buffered — the console device is
@@ -87,6 +153,10 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
  * forever in every standalone modal (jt891 amount entry, the roster picker). */
 int plat_kb_avail(void)
 {
+#ifdef FRUA_AUTOPLAY
+	if (ap_due())
+		return 1;
+#endif
 	return (Bconstat(2) != 0 || Cconis() != 0);
 }
 
