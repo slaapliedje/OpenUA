@@ -215,7 +215,38 @@ before any writer moves.
   pages current → adopt the VIDEL 2-page pattern (`pages`-many presents, or per-page
   dirty tracking); (c) the viewport composite targets the same back page.
 
-- **B3.2+ (if compute, or as the ADR-0016 end state) — native-planar writers.**
+**B3.2 flat-span fast path — DONE 2026-07-19 (commit 1c9ccaf), the FILLS win.**
+A flat 16/32-px span (one repeated chunky value) converts to four CONSTANT plane
+words, so the transpose collapses to four stores. `c2p4st_32_flat` +
+`c2p4st_is_flat` (early-exit) in `c2p4st.h`, chosen per span in `st_c2p_span`;
+byte-identical to the transpose (tests/test_c2p4st.py). Overlay-safe at 16px
+granularity — a text word over a fill is not flat and takes the transpose. This
+IS the "blitter-accelerated fills" idea, done on the CPU: the flat panels/
+backgrounds convert cheap without any writer change.
+
+**Measured (STE, b30b, identical full c2p ×4):**
+- transpose baseline (content-independent): **525** (≈131 ticks/present)
+- real flat-heavy menu: **336** (≈84/present) — **−36%**
+- pure flat-store ceiling (all groups forced flat): **85** (≈21/present)
+So the menu present decomposes as ~85 flat stores + ~251 non-flat transpose. The
+**non-flat granite chrome texture + text glyphs are now ~75% of the menu present**;
+flat stores are only ~25%, and cheap.
+
+**Consequence — the BLiTTER fill is NOT worth wiring now.** Its entire headroom is
+the ~21 ticks/present of flat stores (and it can't drive them to zero — setup +
+the stores themselves). The CPU flat path already harvested the fills win. The
+BLiTTER's real payoff is B4/native-planar (fill/copy PLANES with no chunky
+source); defer it there (Phase 4). A standalone blitter c2p is impossible anyway
+(the ST BLiTTER can't bit-transpose chunky→planar).
+
+**Next lever = CHROME (the residual ~251 ticks/present).** Pre-convert the STATIC
+granite frame texture once (it never changes within a scene) and composite it like
+the B2.1 viewport (frozen rows → row-diff/c2p skips it), so the textured chrome
+stops being transposed on every full present. Then TEXT (planar glyph blit). These
+are the transpose-bound regions the flat path can't touch. Order: chrome → text →
+the rest. Measure the b30b drop after each (`-DFRUA_STPROF`).
+
+- **B3.2+ (native-planar writers) — the transpose-bound regions.**
   Convert the chunky writers to write plane bits directly against the fixed
   per-scene `remap` (B1), region by region, shrinking the c2p until B4 drops it.
   Writer inventory (all funnel through the 8bpp `s_chunky` via `qd_screen_pixels`):
