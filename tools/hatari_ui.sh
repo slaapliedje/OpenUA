@@ -190,6 +190,37 @@ key)
 		sleep 0.3
 	done
 	;;
+beginplay)
+	# Seat the seeded party and drop into the dungeon (the play/3D screen) —
+	# the ONLY headless route to the 3D view / combat, which several mono
+	# render tasks need to verify. From the main menu it runs the verified
+	# flow (2026-07-19): p (Play the Game -> Training Hall) -> a (Add
+	# Character -> the seeded-party list, BARBARUS highlighted) -> Return
+	# (marks '* BARBARUS' = added) -> Escape (back to the hall) -> b (Begin
+	# Adventuring -> dungeon). Requires a design whose start area is a level
+	# >= 5 (a dungeon); TUTORIAL.DSN qualifies. Each step waits PLAY_STEP_DELAY
+	# seconds (default 3 — bump to ~6 for the 8 MHz mono ST, which drops keys
+	# at tighter spacing: `PLAY_STEP_DELAY=6 driver.sh beginplay`).
+	WID="$(cat "$STATE/wid" 2>/dev/null)"; [[ -n "$WID" ]] || WID="$(find_window)"
+	xdotool windowactivate --sync "$WID" 2>/dev/null \
+		|| { xdotool windowraise "$WID" 2>/dev/null; xdotool windowfocus "$WID" 2>/dev/null; }
+	d="${PLAY_STEP_DELAY:-3}"
+	for step in "p:Play->Hall" "a:AddList" "Return:add-char" "Escape:back-to-hall" "b:Begin->dungeon"; do
+		k="${step%%:*}"
+		# The final Begin loads the dungeon art (walls + backdrop) -- slow,
+		# especially on the 8 MHz mono ST -- so give it double the settle.
+		sd="$d"; [[ "$k" == "b" ]] && sd="$((d * 2))"
+		xdotool key "$k"
+		echo "hatari_ui: beginplay ${step#*:} (key $k, wait ${sd}s)"
+		sleep "$sd"
+	done
+	# The initial 3D-view paint after Begin can settle BLACK on the slow mono
+	# ST (the walls/roster load lazily). A turn there and back (Right then Left
+	# = net-zero facing, same cell) forces two full redraws so the view is
+	# actually painted -- deterministic for a screenshot.
+	xdotool key Right; sleep "$d"; xdotool key Left; sleep "$d"
+	echo "hatari_ui: beginplay done -- in the dungeon, view nudged (screenshot to confirm)"
+	;;
 click)
 	# Click a point on the Falcon display headlessly. X Y are pixels as seen
 	# in a screenshot (window-relative, 1:1 with the grab). Requires the

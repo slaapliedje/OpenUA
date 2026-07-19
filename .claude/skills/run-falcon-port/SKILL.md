@@ -103,6 +103,10 @@ D=.claude/skills/run-falcon-port/driver.sh
                            #   Modules, p=Play); inside dialogs n=NEXT, p=PREV
 "$D" click 150 298         # click a display pixel (works: --mousewarp no). See Gotchas
 "$D" drag 85 65 85 92      # press-drag-release — Mac pulldown menus (FILE/MAP/UTILITIES)
+"$D" beginplay             # from the menu: seat the seeded party + enter the dungeon
+                           #   (p,a,Return,Escape,b + a view nudge). The ONLY headless
+                           #   route to the 3D view/combat. Mono ST is slow: prefix
+                           #   PLAY_STEP_DELAY=6. Needs a design starting on a level>=5.
 "$D" wait 'regex' [n]      # block until the conout log has >= n matches
 "$D" log                   # dump the conout log (engine printf / dbg_log)
 "$D" dbg '<cmd>'           # run a Hatari-debugger command (see below)
