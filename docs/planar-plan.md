@@ -113,6 +113,39 @@ the last chunky writer is converted and the surface itself becomes planar.
 - Verify: the 3D dungeon renders identically to the chunky build
   (screenshot-diff) in amiberry (ECS) + Hatari (ST/STe).
 
+### Phase 2 concrete design (locked, from reading the render path)
+
+The colour dungeon viewport is **88×88 at (24,24)-(112,112)** (`boot.c:13752`),
+and it has **THREE** writers into the shared surface, all of which must render
+into the separate-plane viewport buffer instead:
+1. **Perspective fills** (sky/ceiling/floor solid rects) — `map_px` (`boot.c:11167`)
+   → a planar rect-fill into the buffer.
+2. **Backdrop image** (BACK.CTL `g_back_img`, jt121 → `map_px`) — pre-convert to
+   planar once at `load_backdrop`, blit into the buffer.
+3. **Wall pieces** — `l309c_tile`'s direct `g_cwf_px[...] = v` (`boot.c:12709`) +
+   `cw_blit_piece`'s `map_px` (`boot.c:12806`) → `planar_blit_cpu` of pre-converted
+   pieces.
+
+**Palette (the chicken-and-egg):** pre-converting pieces needs the N-colour
+palette *before* the scene renders, but the viewport shows up to 3 wall sets
+(3×`CW_BAND`=111 clut entries, `g_cw_sr/sg/sb` at bases 32/69/106) that must fit
+16 (ST) / 32 (ECS). Resolve with a **load-time union-quant**: at `cw_finalize`
+(`boot.c:11764`), feed the union of the loaded sets' palettes to `quant_reduce_n`
+(`quantize.h:91`) → a fixed N-colour **viewport palette** + a `remap[32..142]`.
+Pieces + backdrop convert through that remap once; the viewport band's hardware
+registers carry the viewport palette. Lossy (111→N) but the walls are limited-
+palette art, and the current per-band quant is already 16/band — comparable.
+Verify quality on screen; tune in Phase 5.
+
+**Composite in BOTH present paths:** the full present (`st_present`) row-diffs the
+chunky UI then composites the viewport; the per-STEP path is `st_present_rect`
+(`boot.c:14718` → `st_present_rect`, NOT the profiled `st_present`), so the
+composite hook lives there too — that is the walk-responsiveness path.
+
+**Steady-walk cost = viewport re-render** (confirmed: same wall set → no palette
+load → no reband), so this directly targets "walking feels slow." The reband is
+a per-scene-change cost the full-planar end state (phase 3) removes.
+
 **Phase 3 — convert the remaining chunky writers; drop the composite.**
 - Convert the rest of the ~30 surface writers to planar in value order: chrome
   (static → convert once), `DrawChar` text (`compat/quickdraw.c:2212`), rect
