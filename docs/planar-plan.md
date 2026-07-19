@@ -163,35 +163,57 @@ also steadies the roster/HUD colours and removes the #40 banding shimmer.
 it); composite = ~0 (B2 is free). So the c2p is the whole story.
 
 **Key architectural fact:** the ST backend is **single-buffered** — `st_blit_rows`
-writes `s_screen`, the LIVE displayed page (`Setscreen(...,s_screen,0)`). The c2p
-therefore contends with the video shifter's DMA and the per-scanline Timer-B
-raster-split interrupts. **The measured c2p cost is compute + contention, and the
-split is unknown** — that unknown decides the whole strategy, so resolve it first.
+writes `s_screen`, the LIVE displayed page (`Setscreen(...,s_screen,0)`), so the c2p
+runs alongside the video shifter's DMA and the Timer-B raster-split interrupts. The
+open question was how much of the cost is compute vs that contention — **B3.0b
+answered it: ~100% compute, contention ≈ 0** (see the RESULT below). The strategy
+follows from that.
 
 Do these CHEAP, DECISIVE steps before converting any writer:
 
-- **B3.0a — why is a menu present full-frame?** Row-diff should skip unchanged
-  rows, yet a keypress converts ~200 rows. Confirm whether the menu genuinely
-  redraws the whole screen, or a spurious `s_force_full` / needless full recompose
-  is set. If only a few rows truly change, making the menu present the changed
-  RECT (`present_rect`) — or fixing the force-full — is a large win for ~no effort.
-  (Instrument `rows converted` per menu keypress; inspect the menu recompose path.)
-- **B3.0b — compute vs contention.** Time an identical c2p into a NON-displayed
-  buffer (fast-RAM, or an off-screen ST-RAM page) vs the live `s_screen`. This one
-  experiment forks the plan:
-  - **contention dominates → double-buffer (B3.1)** captures most of the win with
-    a small backend-only change, and the multi-week native-planar B3.2+ may be
-    UNNECESSARY for #41.
-  - **compute dominates → the c2p must shrink/disappear → native planar (B3.2+)**
-    or a **blitter c2p** (Phase 4).
+- **B3.0a — why is a menu present full-frame? — RAN 2026-07-19, `-DFRUA_STPROF`
+  per-present row log (`b30a …`), STE (tos206, `--machine ste`).** RESULT: **the
+  row-diff already works and there is no spurious force-full.** Steady-state menu
+  keypresses / partial redraws convert only the changed rows (measured 18, 29, 114,
+  176). A full 200-row present fires ONLY on a genuine full-screen recompose: the
+  `FORCED-full` path (after a re-band, i.e. a real palette/scene change — 9× during
+  the boot intro's screen sequence) or a genuine all-rows-changed diff (4×). B1's
+  re-band-skip already killed the redundant re-bands, so the surviving force-fulls
+  are LEGITIMATE (the palette genuinely moved and every LUT changed). **There is no
+  cheap "force-full fix" to be had.** Second finding: **`st_present` (the full path)
+  is called RARELY** — the dungeon walk goes through `st_present_rect` (the viewport
+  rect, made ~free by B2.2a) and the modal menus are idle; the full c2p only fires
+  on scene/palette *transitions*. So the ~12s/key lag is not per-keypress c2p — it's
+  the burst of full presents on a transition (the intro alone did ~13), each ~2.2s
+  emulated of pure c2p, starving the event poll (the STE key-drop symptom).
+- **B3.0b — compute vs contention? — RAN 2026-07-19, `-DFRUA_STPROF` `st_prof_b30b`
+  (identical full c2p ×4 to the live `s_screen` vs a non-displayed ST-RAM page).**
+  RESULT, **decisive: live = 525 ticks, off-screen = 525–526 ticks — IDENTICAL.**
+  The c2p to the LIVE displayed page costs the same as to a page the shifter never
+  fetches. **Contention is ~ZERO; the cost is ~100% COMPUTE** (≈131 ticks ≈ **2.2s
+  emulated per full 64000px present**). This is physically sound: the ST/STE bus
+  arbitration hands the CPU its cycles independent of address, so writing screen RAM
+  is not specially penalised, and the Timer-B raster split fires in both cases and
+  cancels. **This REFUTES the single-buffered-contention theory.**
 
-- **B3.1 (if contention) — double-buffer + flip.** Two ST-RAM pages; c2p to the
-  back (Logbase) page; flip Physbase on VBL. Removes live-screen contention AND is
-  the required substrate for B4 (present = flip). Handle: (a) the raster-split
-  palette is display-timed → works across a flip unchanged; (b) row-diff needs
-  BOTH pages current → adopt the VIDEL 2-page pattern (`pages`-many presents, or
-  per-page dirty tracking); (c) the viewport composite targets the same back page.
-  Backend-only, no engine change. Verify with stprof.
+**Decision (from B3.0a+B3.0b): the cheap fixes do NOT capture the #41 win.**
+Double-buffering removes contention, which is ~0 here — so **B3.1 is NOT a #41
+perf fix**; keep it only as the B4 substrate / anti-tear, not on the perf path. The
+c2p is compute-bound and legitimately full on palette changes, so the win must come
+from **doing less / faster conversion**: native-planar writers (B3.2+) — the static
+granite chrome is re-c2p'd on every full present yet never changes within a scene,
+the single highest-value region — and/or a **BLiTTER c2p** (Phase 4), since the
+bottleneck is raw conversion throughput. A cheaper sub-lever worth a look first: the
+per-pixel LUT indirection in `st_c2p_span`/`c2p4st` is likely a large slice of the
+131 ticks — a tighter CPU c2p (or pre-converted planar pieces) helps every path
+before any writer moves.
+
+- **B3.1 — double-buffer + flip. DEFERRED off the perf path (B3.0b: contention≈0).**
+  Not a #41 fix; belongs to B4 (present = flip) and anti-tear only. Two ST-RAM pages;
+  c2p to the back (Logbase) page; flip Physbase on VBL. Handle: (a) the raster-split
+  palette is display-timed → works across a flip unchanged; (b) row-diff needs BOTH
+  pages current → adopt the VIDEL 2-page pattern (`pages`-many presents, or per-page
+  dirty tracking); (c) the viewport composite targets the same back page.
 
 - **B3.2+ (if compute, or as the ADR-0016 end state) — native-planar writers.**
   Convert the chunky writers to write plane bits directly against the fixed
@@ -221,10 +243,16 @@ Do these CHEAP, DECISIVE steps before converting any writer:
   double-buffered from B3.1) IS the surface; delete `s_chunky` + the c2p; present
   = flip.
 
-**Recommendation for next session:** B3.0a then B3.0b FIRST (a few hours total).
-They may reveal that a force-full fix and/or double-buffering capture most of the
-#41 win cheaply, making the large native-planar conversion optional. Do NOT start
-converting writers until B3.0b shows compute is the floor.
+**Verdict (B3.0a+B3.0b ran 2026-07-19): compute is the floor — the cheap fixes are
+out.** No spurious force-full (B3.0a); contention ≈ 0 (B3.0b). So there is no
+force-full quick win and double-buffering does not help #41. **Next session goes
+straight to B3.2, chrome first** (convert the static granite frame to a pre-computed
+planar region composited like the B2.1 viewport, so it stops being re-c2p'd on every
+full present — the largest single region), measuring the full-present c2p tick drop
+with `-DFRUA_STPROF` after it. In parallel, evaluate (a) a tighter `st_c2p_span`/
+`c2p4st` inner loop and (b) the Atari BLiTTER c2p (Phase 4) — both attack the same
+compute wall and may beat the per-writer grind. The `b30a`/`b30b` instrumentation is
+committed under `FRUA_STPROF` for exactly this before/after measurement.
 
 **Amiga/ECS:** same c2p cost, never got B2.1 (ST-only). Its double-buffer story
 differs (copper palette, separate planes) — a parallel track once the ST path is

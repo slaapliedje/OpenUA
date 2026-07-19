@@ -87,6 +87,14 @@ static short                   s_dirty;
 static short                   s_have_pal;
 static short                   s_vbl_slot = -1;
 
+#ifdef FRUA_STPROF
+/* B3.0a: st_blit_full sets this to record whether the LAST full present took the
+ * force-full path (every LUT moved → all 200 rows) or the row-diff path. Declared
+ * here because st_blit_full is above the main FRUA_STPROF block. */
+static short                   sp_forced_flag;
+static unsigned char          *s_offpage;   /* B3.0b: non-displayed ST-RAM page */
+#endif
+
 /* --- dungeon-viewport planar composite (ADR-0016 B2) ---------------------
  *
  * The engine renders the first-person viewport into s_vp_scratch (a private
@@ -286,10 +294,16 @@ static void st_blit_full(void)
 	short y;
 
 	if (s_force_full) {
+#ifdef FRUA_STPROF
+		sp_forced_flag = 1;
+#endif
 		st_blit_rows(0, ST_W, 0, ST_H);
 		s_force_full = 0;
 		return;
 	}
+#ifdef FRUA_STPROF
+	sp_forced_flag = 0;
+#endif
 	for (y = 0; y < ST_H; y++) {
 		if (memcmp(s_chunky + (long)y * ST_W,
 		           s_shadow + (long)y * ST_W, ST_W) != 0)
@@ -414,6 +428,13 @@ static int st_init(short want_w, short want_h)
 	s_st_active = 1;
 	planar_viewport_register(st_vp_scratch, st_vp_commit);
 
+#ifdef FRUA_STPROF
+	/* B3.0b scratch: a non-displayed ST-RAM page the c2p can target for timing. */
+	s_offpage = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
+	if (s_offpage != NULL)
+		memset(s_offpage, 0, SCREEN_BYTES);
+#endif
+
 	dbg_log("ste: ST-low 320x200x4 16-colour, per-band Timer-B palette up");
 	return 0;
 }
@@ -438,6 +459,9 @@ static void st_shutdown(void)
 	if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; s_screen = NULL; }
 	if (s_chunky)     { Mfree(s_chunky); s_chunky = NULL; }
 	if (s_shadow)     { Mfree(s_shadow); s_shadow = NULL; }
+#ifdef FRUA_STPROF
+	if (s_offpage)    { Mfree(s_offpage); s_offpage = NULL; }
+#endif
 }
 
 static dsp_surface_t *st_surface(void)
@@ -532,7 +556,50 @@ static void st_vp_composite(void)
  * the compat layer's 60Hz tick — a layering reach-down, debug-only. */
 extern long TickCount(void);
 static long sp_n, sp_rows, sp_in, sp_wall0 = -1, sp_reband, sp_reband_skip;
+static long sp_rows_prev;               /* g_stprof_rows at end of prev present */
+static long sp_logs;                    /* B3.0a per-present logs emitted (capped) */
+static long sp_b30b_done;               /* B3.0b samples taken (capped one-shot) */
 long g_stprof_rows;                     /* incremented in st_blit_rows */
+
+/* Full-frame chunky->ST-Low c2p to an ARBITRARY base (no shadow write, no diff),
+ * identical work to st_blit_rows' inner loop. Used by B3.0b to time the same c2p
+ * to the live screen vs an off-screen page. */
+static void st_c2p_page(unsigned char *dstbase)
+{
+	short y;
+	for (y = 0; y < ST_H; y++) {
+		short band = (short)((long)y * ST_NBANDS / ST_H);
+		const unsigned char *lut = s_band_remap + (long)band * 256;
+		const unsigned char *src = s_chunky + (long)y * ST_W;
+		unsigned char *dst = dstbase + (long)y * LINE_BYTES;
+		st_c2p_span(src, dst, ST_W, lut);
+	}
+}
+
+/* B3.0b: is the c2p cost COMPUTE or CONTENTION? Time an identical full-frame c2p
+ * to the LIVE displayed screen vs a non-displayed ST-RAM page. Both are ST-RAM and
+ * both suffer the Timer-B raster-split interrupts; only the live page also contends
+ * with the video shifter's DMA fetch. A large live>offscreen gap => contention
+ * dominates (double-buffer wins cheap, B3.1); near-equal => compute is the floor
+ * (native-planar writers needed, B3.2+). 8 reps to average out 60Hz tick coarseness. */
+static void st_prof_b30b(void)
+{
+	long a, tl, to, i;
+	const long reps = 4;
+
+	if (s_offpage == NULL)
+		return;
+	a = TickCount();
+	for (i = 0; i < reps; i++)
+		st_c2p_page(s_screen);
+	tl = TickCount() - a;
+	a = TickCount();
+	for (i = 0; i < reps; i++)
+		st_c2p_page(s_offpage);
+	to = TickCount() - a;
+	dbg_log_num("stprof b30b: live x4 ticks     = ", tl);
+	dbg_log_num("stprof b30b: offscreen x4 ticks= ", to);
+}
 #endif
 
 static void st_present(void)
@@ -561,15 +628,40 @@ static void st_present(void)
 	st_blit_full();
 	st_vp_composite();                       /* overlay the planar viewport */
 #ifdef FRUA_STPROF
+	{
+		/* B3.0a: log EACH present that actually converted rows, tagged by which
+		 * path it took. A menu keypress that redraws a highlight should diff a
+		 * handful of rows; if instead it forces all 200, the per-keypress lag is
+		 * a spurious force-full (cheap to fix) rather than inherent c2p cost. */
+		long rows_now = g_stprof_rows - sp_rows_prev;
+
+		sp_rows_prev = g_stprof_rows;
+		if (rows_now > 0 && sp_logs < 80) {
+			sp_logs++;
+			if (sp_forced_flag)
+				dbg_log_num("b30a FORCED-full rows = ", rows_now);
+			else
+				dbg_log_num("b30a diffed rows      = ", rows_now);
+		}
+	}
 	sp_in += TickCount() - t0;
 	sp_rows = g_stprof_rows;
-	if ((++sp_n & 127) == 0) {
+	/* B3.0b fires on the first few FULL presents once a palette exists — full
+	 * presents are rare (scene/menu recomposes; dungeon walk uses rect presents),
+	 * so gating on a 64-present boundary rarely triggers. The c2p cost is
+	 * content-independent, so any handful of samples answers compute-vs-contention. */
+	if (s_have_pal && sp_b30b_done < 6) {
+		sp_b30b_done++;
+		st_prof_b30b();
+	}
+	if ((++sp_n & 63) == 0) {
 		dbg_log_num("stprof: presents = ", sp_n);
 		dbg_log_num("stprof: wall ticks = ", TickCount() - sp_wall0);
 		dbg_log_num("stprof: in-present ticks = ", sp_in);
 		dbg_log_num("stprof: rows converted = ", sp_rows);
 		dbg_log_num("stprof: rebands = ", sp_reband);
 		dbg_log_num("stprof: reband skips = ", sp_reband_skip);
+		st_prof_b30b();                  /* B3.0b: compute-vs-contention sample */
 	}
 #endif
 }
@@ -610,6 +702,19 @@ static void st_present_rect(short x, short y, short w, short h)
 	x  = (short)(x & ~15);
 	st_blit_rows(x, (short)(x1 - x), y, h);
 	st_vp_composite();                       /* overlay the planar viewport */
+#ifdef FRUA_STPROF
+	/* B3.0a: keep the full-present row accounting caller-agnostic — attribute
+	 * rect-converted rows here so they don't inflate the next st_present's count. */
+	{
+		long rows_now = g_stprof_rows - sp_rows_prev;
+
+		sp_rows_prev = g_stprof_rows;
+		if (rows_now > 0 && sp_logs < 80) {
+			sp_logs++;
+			dbg_log_num("b30a rect rows        = ", rows_now);
+		}
+	}
+#endif
 }
 
 static void st_set_palette(const dsp_color_t *colors, short first, short count)
