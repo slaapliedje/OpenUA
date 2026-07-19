@@ -330,11 +330,30 @@ clean partial state. Scope:
   engine already redraws on scene changes, so this is mostly free; verify no scene
   re-installs the palette without redrawing.
 
-**First step (recommended, contained, verifiable): the double-buffered page-flip
-substrate (was "B3.1").** Two ST-RAM pages; the c2p (still running) targets the BACK
-page; flip Physbase on VBL; present = flip. Benefits NOW: removes the single-buffered
-progressive-update "wipe" (the c2p currently paints the LIVE screen over ~1.4s). It is
-also the exact substrate B4 ends on. Care:
+**First step ATTEMPTED 2026-07-19 — menu works, dungeon palette bug; REVERTED.**
+Implemented: `NPAGES=2` ST-RAM pages (256-aligned; SCREEN_BYTES=32000 is a 256
+multiple), `pages=1` (present ONCE — the backend double-buffers INTERNALLY so the
+shown page is always freshly drawn; presenting twice would double the c2p),
+`st_flip_full()` draws the HIDDEN page then latches Physbase via a supervisor
+hi/mid base-register write (non-blocking, latches next VBL), `present_rect` draws
+the SHOWN page IN PLACE and does NOT flip (an earlier flip-on-present_rect showed
+the back page's stale/blank HUD), per-page `s_shadow_pg[2]`, and `s_force_full`/
+`s_remap_changed` as COUNTS set to `NPAGES` on init/re-band (both pages owe the
+treatment; consumed one per full present). RESULT: **the MENU renders perfectly
+(anti-tear, correct)** — stable palette, no rebands during nav, so both pages agree.
+**The DUNGEON is broken:** wrong colours (granite comes up BROWN not grey) + black
+viewport + blank roster HUD. ROOT CAUSE (to fix next): the raster-split hardware
+palette is GLOBAL (one `st_band_stpal`), but with two pages a shown page can hold
+planes drawn against a different reband's slot assignment than the palette currently
+installed — and the dungeon's partial updates (`present_rect` viewport/HUD, which
+never reband) desync from the full-present palette. The menu never rebands mid-nav so
+it's fine; the dungeon rebands on wall loads. FIX DIRECTION: ensure the SHOWN page's
+planes always match the installed palette — e.g. on any reband, force the shown page
+to re-c2p before it can be displayed (not just count both pages), and/or re-apply the
+viewport/HUD partial updates to the shown page after a palette change. **WIP diff was
+saved (session scratchpad `b4-pageflip-wip.diff`, 232 lines) — re-implement from this
+design; it is ~90% there, only the palette-coherency bug remains.** The design below
+still stands; add the shown-page-palette-coherency guard:
   - **Two-page row-diff:** a change must reach BOTH pages. Keep a shadow PER PAGE
     (`s_shadow[2]`); each present converts rows where `s_chunky != s_shadow[back]` and
     updates that page's shadow — so each page independently tracks to the current frame.
