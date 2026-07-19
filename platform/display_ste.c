@@ -81,6 +81,22 @@ static unsigned char           s_band_remap[ST_NBANDS * 256];
  * CLUT matches this snapshot would reproduce the same palettes: skip it. */
 static unsigned char           s_clut_banded[256 * 3];
 static short                   s_banded_valid;
+/* ADR-0016 B3.2 (stable-slot alignment + smart-skip). A re-band re-runs the
+ * median-cut, which normally renumbers the 16 slots arbitrarily — so EVERY value
+ * looks like it moved and the whole screen must re-c2p (the force-full). We instead
+ * PERMUTE the new slots to best-match the previous palette's positions, so a colour
+ * that persists across the re-band keeps its slot number; its remap entry is then
+ * unchanged, and st_blit_full can leave its pixels' planes alone. s_remap_dirty[v]
+ * marks the values whose slot actually moved this re-band; s_remap_changed tells the
+ * blit a re-band happened so it consults the dirty map instead of forcing full.
+ * Purely a slot renumbering — the 16 colours and the final remap are identical, so
+ * the displayed frame is unchanged (planes encode a slot, the palette supplies the
+ * colour). */
+static unsigned char           s_band_pal_prev[ST_NCOL * 3];
+static unsigned char           s_remap_old[256];
+static unsigned char           s_remap_dirty[256];
+static short                   s_remap_changed;
+static short                   s_have_prev_pal;
 short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
 short *st_band_ptr;                             /* next band for Timer B */
 static short                   s_dirty;
@@ -309,16 +325,40 @@ static void st_blit_full(void)
 #endif
 		st_blit_rows(0, ST_W, 0, ST_H);
 		s_force_full = 0;
+		s_remap_changed = 0;
 		return;
 	}
 #ifdef FRUA_STPROF
 	sp_forced_flag = 0;
 #endif
 	for (y = 0; y < ST_H; y++) {
-		if (memcmp(s_chunky + (long)y * ST_W,
-		           s_shadow + (long)y * ST_W, ST_W) != 0)
+		const unsigned char *crow = s_chunky + (long)y * ST_W;
+		int conv = memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0;
+
+		/* ADR-0016 B3.2: after a re-band the content of a row can be UNCHANGED yet
+		 * still need re-c2p if one of its colours moved to a new slot. Stable-slot
+		 * alignment keeps most colours put, so this scan (only on a re-band pass,
+		 * early-exit on the first moved value) leaves the static chrome/HUD alone
+		 * instead of the old blanket force-full. */
+		if (!conv && s_remap_changed) {
+			short x;
+			for (x = 0; x < ST_W; x++)
+				if (s_remap_dirty[crow[x]]) { conv = 1; break; }
+		}
+		if (conv)
 			st_blit_rows(0, ST_W, y, 1);
 	}
+	s_remap_changed = 0;
+}
+
+/* Squared RGB distance between two packed 3-byte colours (for slot alignment). */
+static long st_coldist(const unsigned char *a, const unsigned char *b)
+{
+	long dr = (long)a[0] - b[0];
+	long dg = (long)a[1] - b[1];
+	long db = (long)a[2] - b[2];
+
+	return dr * dr + dg * dg + db * db;
 }
 
 /* Re-band: histogram + per-band reduce, then build the per-band ST-format
@@ -328,6 +368,12 @@ static void st_reband(void)
 {
 	short b, i;
 	const unsigned char *qsrc = s_chunky;
+	short first = !s_have_prev_pal;
+
+	/* Snapshot the remap we're about to replace, so the smart-skip can tell which
+	 * values actually move slot this re-band (B3.2). Band 0 is representative —
+	 * every band carries the same remap after the B1 replicate below. */
+	memcpy(s_remap_old, s_band_remap, 256);
 
 	/* Pin the composited walls' colours (ADR-0016 B1). After B2.1 the dungeon
 	 * viewport renders into the planar SCRATCH, not s_chunky, so the reband never
@@ -363,6 +409,45 @@ static void st_reband(void)
 	 * anchoring can return later if an art-heavy screen needs the extra colours. */
 	quant_banded(qsrc, ST_W, ST_H, s_clut,
 	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+
+	/* B3.2 STABLE-SLOT ALIGNMENT: permute band 0's fresh 16 slots so each lands at
+	 * the position holding the closest colour in the PREVIOUS palette — a colour
+	 * that persists across the re-band keeps its slot number, so its remap entry
+	 * doesn't move and the smart-skip leaves the static chrome/HUD un-converted. A
+	 * pure renumber (colours + final remap unchanged), so the frame is identical. */
+	if (!first) {
+		unsigned char used[ST_NCOL];
+		unsigned char pos[ST_NCOL];             /* pos[newslot] = its position   */
+		unsigned char newpal[ST_NCOL * 3];
+		short p, n, v;
+
+		for (n = 0; n < ST_NCOL; n++) used[n] = 0;
+		for (p = 0; p < ST_NCOL; p++) {         /* each old position claims one  */
+			short best = 0;
+			long  bestd = 0x7fffffffL;
+			for (n = 0; n < ST_NCOL; n++) {
+				long d;
+				if (used[n]) continue;
+				d = st_coldist(s_band_pal + (long)n * 3,
+				               s_band_pal_prev + (long)p * 3);
+				if (d < bestd) { bestd = d; best = n; }
+			}
+			used[best] = 1;
+			pos[best]  = (unsigned char)p;
+		}
+		for (n = 0; n < ST_NCOL; n++)
+			memcpy(newpal + (long)pos[n] * 3, s_band_pal + (long)n * 3, 3);
+		memcpy(s_band_pal, newpal, sizeof newpal);
+		for (v = 0; v < 256; v++)
+			s_band_remap[v] = pos[s_band_remap[v]];
+	}
+
+	/* Which values changed slot vs the last convert — the smart-skip's dirty map. */
+	for (i = 0; i < 256; i++)
+		s_remap_dirty[i] = (unsigned char)(s_remap_old[i] != s_band_remap[i]);
+	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
+	s_have_prev_pal = 1;
+
 	for (b = 1; b < ST_NBANDS; b++) {
 		memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_band_pal,
 		       (size_t)(ST_NCOL * 3));
@@ -388,7 +473,20 @@ static void st_reband(void)
 	s_banded_valid = 1;
 	s_dirty = 0;
 	s_have_pal = 1;
-	s_force_full = 1;               /* every LUT moved: row diffing is void */
+
+	/* B3.2: the FIRST re-band has no aligned predecessor, and the viewport path
+	 * clobbers s_shadow (its temp), so both must convert everything. Otherwise the
+	 * stable-slot alignment kept most slots put, so arm the smart-skip: st_blit_full
+	 * re-c2p's only rows whose content changed OR that hold a value that moved slot.
+	 * The static granite chrome (slots preserved) is then left alone across the
+	 * re-band instead of the old blanket full convert. */
+	if (first || s_vp_active) {
+		s_force_full   = 1;
+		s_remap_changed = 0;
+	} else {
+		s_force_full   = 0;
+		s_remap_changed = 1;
+	}
 }
 
 /* --- backend entry points ------------------------------------------------ */
