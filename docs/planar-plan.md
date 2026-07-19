@@ -348,15 +348,28 @@ Verified via FRUA_AUTOPLAY. Three fixes past the first attempt:
    (Costs the smart-skip's modest re-band saving; the flat-fill already tamed the
    c2p, so it's fine.)
 RESULT: menu perfect; dungeon renders grey granite + torch/stone walls + compass +
-chrome. **ONE BUG LEFT: the party-roster HUD line (jt936/jt94, top-right panel) is
-BLANK.** It's blank even under force-full-every-present, so the roster text is NOT
-in `s_chunky` at present time — yet the single-buffer shows it. Diagnosis to pursue:
-the dungeon roster likely reaches the screen via a path other than the shared
-`s_chunky` c2p (jt94 takes a `page` arg; there are known direct-screen writers in
-the HUD/mono path, quickdraw.c ~451), or a present-cadence/HUD-repaint interaction
-drops it. FINISH = make the roster reach both displayed pages (mirror it like the
-viewport, or ensure it's in `s_chunky` when the full present runs). Re-apply the WIP
-branch and fix that one path.
+chrome. **ONE BUG LEFT: the party-roster HUD line blank.**
+
+**ROSTER BUG TRACED 2026-07-19 — it is GREY-ON-GREY, not a page/writer problem.**
+Path: `jt937`→`l02dc`→`jt25`→`jt94`→`jt1089`→`PaintRect`+`DrawString` on the current
+GrafPort → `s_chunky`. Instrumented `jt1089`: the roster IS drawn to `s_chunky`
+("Name"/"AC HP"/"LADY ILLIS" at py=22-38, px=136-296, read-back pixel = clut **23**).
+So it's not a missing writer or missing page. The blank is a COLOUR collapse: logged
+`s_band_remap` shows rebands where **remap[21] == remap[23]** (e.g. both slot 5) with
+**clut21 RGB == clut23 RGB** (both R=255 or R=131) — the HUD-text colour (clut 23)
+equals the panel-grey (clut 21) in the CLUT, so the median-cut maps them to ONE slot
+and the text is invisible. Other rebands have them distinct (clut21 R=119 vs clut23
+R=91 = the gold text). The **single-buffer consistently displays a gold-23 frame**
+(roster visible, verified 2×); the **double-buffer consistently displays a grey-23
+frame** (invisible, verified 4×) — so it IS a double-buffer regression, driven by a
+present-cadence × HUD-text-CLUT-timing interaction (the same family as the known
+`port_hud_text_clut` "grey-on-grey" HUD issue, jt1089 comment ~8484: the HUD text
+CLUT is only distinct after the l63c0 compose installs it). The double-buffer's extra
+presents/rebands land the displayed page on a transient grey-23 CLUT.
+**FINISH direction:** ensure the DISPLAYED page's palette is the gold-23 one — either
+don't reband/flip onto a transient CLUT where clut23≈clut21 (skip that reband, keep
+the last distinct palette), or re-assert `port_hud_text_clut` before the final
+present. NOT a "mirror the roster to both pages" fix (it's already in s_chunky).
 
 **First step ATTEMPTED 2026-07-19 (attempt 1) — menu works, dungeon palette bug.**
 Implemented: `NPAGES=2` ST-RAM pages (256-aligned; SCREEN_BYTES=32000 is a 256
