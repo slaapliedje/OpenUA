@@ -39,12 +39,16 @@ table. **Weapon range and usable-by class are NOT in this template** — they li
 in the per-type behaviour table at A5 `-27944` (16-byte stride, keyed by item
 type), read by `l0be0` / `l0b3e`.
 
-## Not yet mapped
+## Related tables
 
-- The **`-12645` selector table** source (built into the design state; not traced
-  to a standalone file yet).
-- **ITEMS.DAT** (a separate 2048-byte design file) vs `ITEM.DAT` — this doc
-  covers `ITEM.DAT`, the 254×18 template table `jt187` reads.
+- The **`-12645` item-selector grid** (16×20; how treasure/shop cells pick item
+  ids) is a fixed DATA-seeded engine taxonomy — see
+  [item-selector](item-selector.md).
+- **ITEMS.DAT** (2048 bytes) is a *different* file: the 128 × 16-byte item-**type**
+  behaviour table loaded into A5 `-27944` (`jt86`). It holds each type's kind,
+  AC codec, usable-by class mask (byte 13) and weapon range — the fields that are
+  NOT in the per-item `ITEM.DAT` template. `ITEM.DAT` (this doc) is the 254 × 18
+  per-item template table (`-27920`, `jt87`).
 
 ## Reading / building
 
