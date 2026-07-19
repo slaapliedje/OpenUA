@@ -338,13 +338,26 @@ static void st_blit_full(void)
 	 * row-diff / smart-skip run against THIS page's shadow (s_shadow = s_shadow_pg
 	 * [s_back]), so each page independently tracks to the current chunky frame. */
 	if (s_force_full > 0) {
+		short pg;
 #ifdef FRUA_STPROF
 		sp_forced_flag = 1;
 #endif
-		st_blit_rows(0, ST_W, 0, ST_H);
-		s_force_full--;
-		if (s_remap_changed > 0)
-			s_remap_changed--;               /* a full convert makes this page current */
+		/* B4: convert BOTH pages in THIS present. A re-band re-quantizes the whole
+		 * palette, so a page force-fulled on an earlier re-band holds planes from an
+		 * older CLUT; if the flip later shows it, the roster/HUD renders under the
+		 * wrong palette — the "grey-on-grey" roster (clut 23/1 == the panel grey in
+		 * that stale CLUT). Doing both pages here keeps them on the SAME (latest)
+		 * palette, so whichever is shown is consistent. st_blit_rows writes s_screen/
+		 * s_shadow, so repoint per page, then restore the back page for the composite. */
+		for (pg = 0; pg < NPAGES; pg++) {
+			s_screen = s_page[pg];
+			s_shadow = s_shadow_pg[pg];
+			st_blit_rows(0, ST_W, 0, ST_H);
+		}
+		s_screen = s_page[s_back];
+		s_shadow = s_shadow_pg[s_back];
+		s_force_full   = 0;
+		s_remap_changed = 0;
 		return;
 	}
 #ifdef FRUA_STPROF
@@ -500,15 +513,17 @@ static void st_reband(void)
 	 * re-c2p's only rows whose content changed OR that hold a value that moved slot.
 	 * The static granite chrome (slots preserved) is then left alone across the
 	 * re-band instead of the old blanket full convert. */
-	/* B4: FORCE-FULL both pages on every re-band (not the smart-skip). The
-	 * smart-skip's s_remap_dirty is computed ONCE per re-band (old remap vs new),
-	 * but the two pages were last drawn with DIFFERENT remaps (they alternate), so
-	 * that single dirty map is wrong for the other page and left its granite in
-	 * stale-palette slots (the "brown chrome" bug). Force-full re-converts both pages
-	 * against the current palette — correct, at the cost of the smart-skip's modest
-	 * re-band saving (rebands are rare; the flat-fill already tamed the c2p). */
+	/* B4: FORCE-FULL on every re-band (not the smart-skip). The smart-skip's
+	 * s_remap_dirty is computed ONCE per re-band (old remap vs new), but the two
+	 * pages were last drawn with DIFFERENT remaps (they alternate), so that single
+	 * dirty map is wrong for the other page (the "brown chrome"). st_blit_full's
+	 * force-full path now converts BOTH pages in one present against the current
+	 * palette, so a single flag suffices — and both pages stay on the SAME palette,
+	 * fixing the grey-on-grey roster (a page force-fulled on an older CLUT never
+	 * gets shown). Costs 2 c2p's on a re-band only; re-bands are rare and the
+	 * flat-fill already tamed the c2p. */
 	(void)first;
-	s_force_full   = NPAGES;
+	s_force_full   = 1;
 	s_remap_changed = 0;
 }
 
@@ -544,7 +559,7 @@ static int st_init(short want_w, short want_h)
 	s_shown      = 0;
 	s_screen     = s_page[s_back];
 	s_shadow     = s_shadow_pg[s_back];
-	s_force_full = NPAGES;                    /* both pages start blank          */
+	s_force_full = 1;                         /* first present converts both pages */
 
 	s_save_rez  = Getrez();
 	s_save_phys = Physbase();
