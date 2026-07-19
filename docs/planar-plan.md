@@ -350,7 +350,24 @@ Verified via FRUA_AUTOPLAY. Three fixes past the first attempt:
 RESULT: menu perfect; dungeon renders grey granite + torch/stone walls + compass +
 chrome. **ONE BUG LEFT: the party-roster HUD line blank.**
 
-**ROSTER BUG TRACED 2026-07-19 — it is GREY-ON-GREY, not a page/writer problem.**
+**PAGE-FLIP COMPLETE 2026-07-19 — all four dungeon bugs fixed (branch
+`b4-pageflip-wip`, commit c245904). Verified via FRUA_AUTOPLAY: the dungeon renders
+IDENTICALLY to the single-buffer — grey granite, torch/stone walls + floor, compass,
+and the GOLD roster "NAME AC HP / LADY ILLIS -4 84" + clock. Menu perfect.** The
+final fix: force-full BOTH pages in the SAME present on a re-band (see the roster
+trace below for why). NOT yet merged to `planar-native` — MERGE DECISION: the
+page-flip removes the single-buffered progressive-update tearing and is the required
+B4 substrate (present = flip), but it costs **2 c2p's per re-band** (both pages;
+normal presents stay 1, the dungeon walk/present_rect is untouched), so a scene
+TRANSITION is ~+60% c2p there. That's a small #41 regression on transitions in
+exchange for anti-tear — net-neutral until the native-planar writers drop the
+per-present c2p entirely (then the flip is pure win). Recommendation: keep on the
+branch and merge once the writer conversion makes it a clear win, OR merge now if
+anti-tear is wanted and the transition cost is acceptable.
+
+**ROSTER BUG TRACED + FIXED 2026-07-19 — it was GREY-ON-GREY, not a page/writer
+problem.** FIX: force-full both pages in one present on a re-band (see the page-flip
+note above). The trace that led there:
 Path: `jt937`→`l02dc`→`jt25`→`jt94`→`jt1089`→`PaintRect`+`DrawString` on the current
 GrafPort → `s_chunky`. Instrumented `jt1089`: the roster IS drawn to `s_chunky`
 ("Name"/"AC HP"/"LADY ILLIS" at py=22-38, px=136-296, read-back pixel = clut **23**).
