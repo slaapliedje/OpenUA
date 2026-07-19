@@ -137,6 +137,15 @@ registers carry the viewport palette. Lossy (111→N) but the walls are limited-
 palette art, and the current per-band quant is already 16/band — comparable.
 Verify quality on screen; tune in Phase 5.
 
+**Piece store thrashes — needs a persistent planar cache.** `g_cwf_body[]`
+(what `l309c_tile` blits from, `boot.c:12835`) is a SINGLE-set cache: `jt200_layer`
+reloads it (via `cw_setglib_load`/`jt468`) each time the frustum walk switches
+wall sets, so it is repopulated several times per frame. "Convert pieces once at
+load" therefore does not hold — convert **lazily on first blit and cache by
+(set-id, piece-idx)** in a persistent planar-piece store (a small hash / direct
+map over the ≤3 resident sets × `CW_NPIECE`), keyed off the same set id
+`jt200_layer` resolves. Invalidate a set's planar cache when its wall id changes.
+
 **Composite in BOTH present paths:** the full present (`st_present`) row-diffs the
 chunky UI then composites the viewport; the per-STEP path is `st_present_rect`
 (`boot.c:14718` → `st_present_rect`, NOT the profiled `st_present`), so the
